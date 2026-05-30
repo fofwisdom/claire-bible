@@ -9,3 +9,4 @@ research/
 *.egg-info/
 dist/
 build/
+*.orig
