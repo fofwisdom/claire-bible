@@ -1,0 +1,35 @@
+services:
+  claire:
+    build: .
+    container_name: claire_bot
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./data:/app/data
+      - ./vault:/app/vault
+    command: ["uv", "run", "claire", "bot"]
+
+  claire_api:
+    build: .
+    container_name: claire_api
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      CLAIRE_INJECT_HOST: 0.0.0.0
+    volumes:
+      - ./data:/app/data
+      - ./vault:/app/vault
+    ports:
+      - "127.0.0.1:8765:8765"
+    command: ["uv", "run", "claire", "serve-api"]
+
+  claire_refresh:
+    build: .
+    container_name: claire_refresh
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./data:/app/data      # 봇/API 와 같은 DB 공유(WAL + busy_timeout)
+      - ./vault:/app/vault
+    # 갱신 큐를 1시간마다 5건씩 자동 처리(복원 메커니즘). 큐가 비면 아무 일도 안 함.
+    command: ["uv", "run", "claire", "refresh-loop", "--interval", "3600", "--batch", "5"]

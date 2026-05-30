@@ -1,0 +1,138 @@
+"""일반 웹 fetcher — 명시적 fallback 체인.
+
+  1) static   : httpx + lxml 정적 추출 (가장 싸고 빠름, 브라우저 불필요)
+  2) discourse : 본문 빈약 + Discourse 토픽이면 `.json` API 로 본문 확보 (싸고 결정적)
+  3) stealth   : Scrapling StealthyFetcher (Playwright). 최후수단, 브라우저 설치 시에만.
+
+체인을 다 돌고도 본문이 MIN_CONTENT 미만이면 FetchError 로 *실패 처리* —
+제목만 적재되는 빈약 스크랩을 막고 raw_inbox 에 error 로 남겨 replay-failed 로 재적재.
+임계 300 은 측정 기준: 정상 페이지 최소 ~1300자, 실패 페이지 73~111자 → 깔끔히 분리.
+"""
+
+from __future__ import annotations
+
+from ...ontology.base import Document
+from ..normalize import canonicalize_url, content_hash
+from .base import FetchError
+
+_UA = (
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+)
+
+# 본문이 이 길이 미만이면 "빈약"으로 보고 다음 fallback 시도, 끝까지 미달이면 실패.
+MIN_CONTENT = 300
+
+
+def fetch_web(url: str) -> Document:
+    via = "static"
+    title, text, links, err = _fetch_static(url)
+
+    # 2) Discourse JSON 에스컬레이션
+    if len(text or "") < MIN_CONTENT:
+        from .discourse import try_discourse
+
+        d = try_discourse(url)
+        if d is not None:
+            d_title, d_text, d_links = d
+            if len(d_text) > len(text or ""):
+                title, text, links, via = d_title or title, d_text, d_links or links, "discourse"
+
+    # 3) Stealth(Playwright) 에스컬레이션 — 브라우저 설치 시에만 동작(없으면 무시)
+    if len(text or "") < MIN_CONTENT:
+        s_title, s_text = _fetch_stealth(url)
+        if s_text and len(s_text) > len(text or ""):
+            title, text, via = s_title or title, s_text, "stealth"
+
+    # thin-guard: 체인 끝까지 빈약하면 실패 처리(raw_inbox error → replay-failed 대상)
+    if not text or len(text) < MIN_CONTENT:
+        raise FetchError(
+            err or f"본문 빈약(len={len(text or '')}, via={via}): {url}"
+        )
+
+    return Document(
+        url=url,
+        canonical_url=canonicalize_url(url),
+        title=title,
+        raw_text=text[:20000],
+        source_type="web",
+        content_hash=content_hash(title or "", text),
+        meta={"links": links[:50], "fetch_via": via},
+    )
+
+
+def _fetch_static(url: str) -> tuple[str | None, str, list[str], str | None]:
+    """(title, text, links, error). httpx + lxml. 실패해도 예외 대신 빈 결과."""
+    import httpx
+
+    try:
+        with httpx.Client(follow_redirects=True, timeout=30,
+                          headers={"User-Agent": _UA}) as client:
+            resp = client.get(url)
+        if resp.status_code >= 400:
+            return None, "", [], f"http {resp.status_code} for {url}"
+        return _extract_html(resp.text)
+    except Exception as e:  # noqa: BLE001
+        return None, "", [], f"fetch failed: {e}"
+
+
+def _extract_html(html: str) -> tuple[str | None, str, list[str], str | None]:
+    from lxml import html as lh
+
+    try:
+        tree = lh.fromstring(html)
+    except Exception as e:  # noqa: BLE001
+        return None, "", [], f"parse failed: {e}"
+
+    # 외부 링크 수집(1홉 후보용)
+    links: list[str] = []
+    seen_l: set[str] = set()
+    for href in tree.xpath("//a/@href"):
+        h = (href or "").strip()
+        if h.startswith("http://") or h.startswith("https://"):
+            if h not in seen_l:
+                seen_l.add(h)
+                links.append(h)
+
+    # title: og:title > <title> > <h1>
+    title = None
+    og = tree.xpath("//meta[@property='og:title']/@content")
+    if og:
+        title = og[0].strip()
+    if not title:
+        t = tree.xpath("//title/text()")
+        if t:
+            title = t[0].strip()
+    if not title:
+        h1 = tree.xpath("//h1//text()")
+        if h1:
+            title = " ".join(x.strip() for x in h1 if x.strip())[:200]
+
+    # 본문: script/style/nav/footer 제거 후 텍스트
+    for bad in tree.xpath("//script | //style | //noscript | //nav | //footer | //header"):
+        if bad.getparent() is not None:
+            bad.getparent().remove(bad)
+    text = " ".join(t.strip() for t in tree.xpath("//body//text()") if t.strip())
+    if not text:
+        text = " ".join(t.strip() for t in tree.xpath("//text()") if t.strip())
+    return (title[:200] if title else None), text, links, None
+
+
+def _fetch_stealth(url: str) -> tuple[str | None, str]:
+    """Scrapling StealthyFetcher (브라우저 필요). 미설치/실패 시 ('', '')."""
+    try:
+        from scrapling.fetchers import StealthyFetcher
+
+        page = StealthyFetcher.fetch(url, timeout=45000, headless=True)
+        status = getattr(page, "status", 200)
+        if status and status >= 400:
+            return None, ""
+        title = None
+        t = page.css_first("title::text")
+        if t:
+            title = (t if isinstance(t, str) else getattr(t, "text", "")).strip()
+        body = getattr(page, "get_all_text", None)
+        text = body() if callable(body) else (getattr(page, "text", "") or "")
+        return title, str(text).strip()
+    except Exception:  # noqa: BLE001
+        return None, ""

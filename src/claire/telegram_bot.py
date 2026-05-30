@@ -1,0 +1,237 @@
+"""텔레그램 진입점 (long-polling).
+
+링크/문서/키워드/PDF를 받으면 IngestService(공유 통로)로 적재하고, 1홉 확장 후보가
+있으면 inline 버튼으로 "가져오기"를 제안한다. /search 로 검색.
+적재 로직은 IngestService 에 있어 inject API · CLI 와 완전히 동일한 경로를 탄다.
+"""
+
+from __future__ import annotations
+
+import logging
+
+from .config import get_settings
+
+log = logging.getLogger("claire.telegram")
+
+
+def classify_input(text: str) -> str:
+    """입력 텍스트를 source_type 후보로 분류(사용자 안내용)."""
+    t = (text or "").strip()
+    if not t:
+        return "empty"
+    low = t.lower()
+    if low.startswith("http://") or low.startswith("https://"):
+        if "youtube.com" in low or "youtu.be" in low:
+            return "youtube"
+        if "x.com" in low or "twitter.com" in low:
+            return "xcom"
+        if "share.google" in low or "share.g" in low:
+            return "redirect"
+        return "web"
+    return "text"
+
+
+def _is_allowed(user_id: int | None) -> bool:
+    s = get_settings()
+    allow = s.allowed_user_ids
+    if not allow:
+        return True
+    return user_id in allow
+
+
+def run_bot() -> int:
+    s = get_settings()
+    if not s.telegram_bot_token:
+        print("TELEGRAM_BOT_TOKEN 이 없습니다. .env 에 설정하세요.")
+        return 2
+
+    try:
+        from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+        from telegram.ext import (
+            Application,
+            ContextTypes,
+            MessageHandler,
+            CommandHandler,
+            CallbackQueryHandler,
+            filters,
+        )
+    except Exception as e:  # noqa: BLE001
+        print(f"python-telegram-bot 미설치: {e}\n  uv sync 후 다시 시도하세요.")
+        return 2
+
+    import asyncio
+    import tempfile
+    from pathlib import Path
+
+    from .ingest.service import IngestService
+
+    logging.basicConfig(level=logging.INFO)
+    svc = IngestService(s)
+    pending: dict[str, list[str]] = {}  # 확장 후보 임시 보관(콜백 토큰 -> urls)
+
+    def _markup(update_id: int, candidates: list[str]):
+        token = f"{update_id}"
+        pending[token] = candidates
+        kb = [
+            [InlineKeyboardButton(
+                f"🔗 관련 링크 {len(candidates)}개 가져오기",
+                callback_data=f"exp:{token}")],
+            [InlineKeyboardButton("아니요", callback_data=f"no:{token}")],
+        ]
+        return InlineKeyboardMarkup(kb)
+
+    HELP = (
+        "📚 claire_bible — 개인 지식베이스 봇\n"
+        "\n"
+        "그냥 보내면 적재됩니다:\n"
+        "  • 링크(웹/유튜브/x.com/google share)\n"
+        "  • PDF·텍스트 파일\n"
+        "  • 키워드/메모 등 자유 텍스트\n"
+        "→ 스크랩 → Gemini 구조화 → 그래프로 저장, 기존 항목과 자동 연결.\n"
+        "  관련 링크가 보이면 '가져오기' 버튼으로 1홉 확장.\n"
+        "\n"
+        "명령어:\n"
+        "  /search <키워드> — 하이브리드 검색 + 요약(인용)\n"
+        "  /status — 현황(그래프 규모·수렴·최근 수신)\n"
+        "  /help — 이 도움말\n"
+        "  /start — 시작 안내"
+    )
+
+    async def on_start(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        await update.message.reply_text(HELP)
+
+    async def on_help(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        await update.message.reply_text(HELP)
+
+    async def on_message(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        user = update.effective_user
+        if not _is_allowed(user.id if user else None):
+            await update.message.reply_text("허용되지 않은 사용자입니다.")
+            return
+        text = (update.message.text or "").strip()
+        if not text:
+            return
+        await update.message.reply_text(f"⏳ 적재 중… ({classify_input(text)})")
+        uid = user.id if user else None
+        cid = update.effective_chat.id if update.effective_chat else None
+        try:
+            report = await asyncio.to_thread(
+                svc.ingest, text, source="telegram", user_id=uid, chat_id=cid)
+            summary, cands = report.telegram_summary(), report.candidates
+        except Exception as e:  # noqa: BLE001
+            summary, cands = f"❌ 처리 오류: {e}", []
+        markup = _markup(update.update_id, cands) if cands else None
+        await update.message.reply_text(summary, reply_markup=markup)
+
+    async def on_document(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        user = update.effective_user
+        if not _is_allowed(user.id if user else None):
+            await update.message.reply_text("허용되지 않은 사용자입니다.")
+            return
+        doc = update.message.document
+        if not doc:
+            return
+        name = doc.file_name or "document"
+        await update.message.reply_text(f"⏳ 파일 적재 중… ({name})")
+        uid = user.id if user else None
+        cid = update.effective_chat.id if update.effective_chat else None
+
+        async def _download() -> str:
+            tg_file = await doc.get_file()
+            tmp = Path(tempfile.gettempdir()) / f"claire_{doc.file_unique_id}_{name}"
+            await tg_file.download_to_drive(str(tmp))
+            return str(tmp)
+
+        try:
+            tmp_path = await _download()
+        except Exception as e:  # noqa: BLE001
+            await update.message.reply_text(f"❌ 다운로드 실패: {e}")
+            return
+
+        def _work():
+            kept = svc.save_inbound_file(int(update.update_id), Path(tmp_path), name)
+            return svc.ingest(kept, source="telegram", user_id=uid, chat_id=cid,
+                              inbox_kind="document", file_ref=kept, file_name=name)
+
+        try:
+            report = await asyncio.to_thread(_work)
+            summary, cands = report.telegram_summary(), report.candidates
+        except Exception as e:  # noqa: BLE001
+            summary, cands = f"❌ 처리 오류: {e}", []
+        markup = _markup(update.update_id, cands) if cands else None
+        await update.message.reply_text(summary, reply_markup=markup)
+
+    async def on_callback(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        query = update.callback_query
+        await query.answer()
+        data = query.data or ""
+        if data.startswith("no:"):
+            pending.pop(data[3:], None)
+            await query.edit_message_reply_markup(reply_markup=None)
+            return
+        if data.startswith("exp:"):
+            urls = pending.pop(data[4:], [])
+            await query.edit_message_reply_markup(reply_markup=None)
+            if not urls:
+                return
+            await query.message.reply_text(f"⏳ {len(urls)}개 확장 적재 중…")
+            lines = []
+            for url in urls:
+                try:
+                    sub = await asyncio.to_thread(
+                        svc.ingest, url, source="telegram-expand", expand_max=0)
+                    lines.append(f"• {sub.telegram_summary().splitlines()[0]}")
+                except Exception as e:  # noqa: BLE001
+                    lines.append(f"• ❌ {url}: {e}")
+            await query.message.reply_text("\n".join(lines))
+
+    async def on_search(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        if not _is_allowed(update.effective_user.id if update.effective_user else None):
+            return
+        q = " ".join(ctx.args) if ctx.args else ""
+        if not q:
+            await update.message.reply_text("사용법: /search <키워드>")
+            return
+        await update.message.reply_text("🔎 검색 중…")
+        try:
+            result = await asyncio.to_thread(svc.search, q)
+            text = result.telegram_text()
+        except Exception as e:  # noqa: BLE001
+            text = f"❌ 검색 오류: {e}"
+        await update.message.reply_text(text)
+
+    async def on_status(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        if not _is_allowed(update.effective_user.id if update.effective_user else None):
+            return
+        from .status import build_status_text
+
+        try:
+            text = await asyncio.to_thread(build_status_text, s, full=False)
+        except Exception as e:  # noqa: BLE001
+            text = f"❌ status 오류: {e}"
+        await update.message.reply_text(text)
+
+    app = Application.builder().token(s.telegram_bot_token).build()
+    app.add_handler(CommandHandler("start", on_start))
+    app.add_handler(CommandHandler("help", on_help))
+    app.add_handler(CommandHandler("status", on_status))
+    app.add_handler(CommandHandler("search", on_search))
+    app.add_handler(CallbackQueryHandler(on_callback))
+    app.add_handler(MessageHandler(filters.Document.ALL, on_document))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_message))
+
+    async def _post_init(application) -> None:  # noqa: ANN001
+        # 텔레그램 클라이언트 입력창의 '/' 명령 메뉴에 노출.
+        from telegram import BotCommand
+
+        await application.bot.set_my_commands([
+            BotCommand("help", "사용법"),
+            BotCommand("status", "현황(그래프/수렴/최근)"),
+            BotCommand("search", "검색 + 요약"),
+            BotCommand("start", "시작 안내"),
+        ])
+
+    app.post_init = _post_init
+    print("claire telegram bot 시작 (long-polling). Ctrl+C 로 종료.")
+    app.run_polling()
+    return 0

@@ -1,0 +1,271 @@
+"""인제스트 파이프라인 — payload 를 받아 그래프에 적재하는 전체 흐름.
+
+  payload → fetch(router) → dedup → insert document
+          → provider.extract → 엔티티 해소/머지(+임베딩) → 관계 검증/적재
+          → vault export → IngestReport
+
+fetch_fn 을 주입 가능하게 하여 네트워크 없이 테스트한다.
+"""
+
+from __future__ import annotations
+
+import sqlite3
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Callable
+
+from ..ontology.base import Document, Relation
+from ..ontology.registry import (
+    classify_entity_type,
+    classify_relation_type,
+    validate_relation,
+)
+from ..store import db as dbm
+from ..store.vectors import VectorStore
+from ..store.vault import export_entities
+from ..extract.provider import Provider
+from ..extract.resolver import resolve_or_create
+from .router import fetch as default_fetch
+
+
+@dataclass
+class IngestReport:
+    document_id: str | None = None
+    title: str | None = None
+    source_type: str = ""
+    duplicate: bool = False
+    partial: bool = False
+    summary: str = ""
+    entities_created: int = 0
+    entities_linked: int = 0   # 기존 노드에 머지된 수 (= "연결" 성공)
+    relations_added: int = 0
+    relations_rejected: int = 0
+    proposals: int = 0
+    error: str | None = None
+    inbox_id: int | None = None
+    new_entity_names: list[str] = field(default_factory=list)
+    linked_entity_names: list[str] = field(default_factory=list)
+    candidates: list[str] = field(default_factory=list)  # 1홉 확장 후보 URL
+
+    def telegram_summary(self) -> str:
+        if self.error:
+            return f"❌ 적재 실패: {self.error}"
+        if self.duplicate:
+            return f"♻️ 이미 있는 자료입니다 (dedup): {self.title or self.document_id}"
+        parts = [f"✅ 적재 완료: {self.title or self.document_id}"]
+        if self.partial:
+            parts.append("⚠️ 부분 처리(partial)")
+        parts.append(f"요약: {self.summary[:300]}")
+        parts.append(
+            f"노드 신규 {self.entities_created} · 기존연결 {self.entities_linked} · "
+            f"관계 {self.relations_added}"
+        )
+        if self.linked_entity_names:
+            parts.append("연결됨: " + ", ".join(self.linked_entity_names[:8]))
+        if self.proposals:
+            parts.append(f"새 타입 제안 {self.proposals}건 기록")
+        if self.candidates:
+            parts.append(f"🔗 관련 링크 {len(self.candidates)}개 발견 — 가져올까요?")
+        return "\n".join(parts)
+
+
+def ingest(
+    payload: str,
+    *,
+    conn: sqlite3.Connection,
+    provider: Provider,
+    vstore: VectorStore,
+    vault_dir: Path | None = None,
+    fetch_fn: Callable[[str], Document] | None = None,
+    expand_max: int = 0,
+    data_dir: Path | None = None,
+    source: str = "cli",
+    user_id: int | None = None,
+    chat_id: int | None = None,
+    inbox_kind: str | None = None,
+    file_ref: str | None = None,
+    file_name: str | None = None,
+) -> IngestReport:
+    report = IngestReport()
+    # None 이면 호출 시점에 모듈 전역 default_fetch 를 조회(monkeypatch/교체 반영).
+    if fetch_fn is None:
+        fetch_fn = default_fetch
+
+    # [Layer 1] 처리 전에 inbound 원본을 무조건 기록(실패해도 재생 가능).
+    kind = inbox_kind or _guess_kind(payload)
+    inbox_id = dbm.log_inbox(
+        conn, source=source, payload=payload, kind=kind,
+        user_id=user_id, chat_id=chat_id, file_name=file_name, file_ref=file_ref,
+    )
+    report.inbox_id = inbox_id
+
+    try:
+        doc = fetch_fn(payload)
+    except Exception as e:  # noqa: BLE001
+        report.error = str(e)
+        dbm.update_inbox(conn, inbox_id, status="error", error=str(e))
+        return report
+
+    report.source_type = doc.source_type
+    report.partial = doc.partial
+    report.title = doc.title
+
+    # dedup
+    existing = dbm.find_document_by_hash(conn, doc.content_hash)
+    if existing:
+        report.document_id = existing
+        report.duplicate = True
+        dbm.update_inbox(conn, inbox_id, status="duplicate", document_id=existing)
+        return report
+
+    dbm.insert_document(conn, doc)
+    report.document_id = doc.id
+
+    # [Layer 2] fetched 원본 텍스트를 gzip artifact 로 보관(재추출용).
+    if data_dir is not None:
+        try:
+            from ..store.raw import save_artifact
+
+            save_artifact(data_dir, doc.id, doc.raw_text)
+        except Exception:  # noqa: BLE001
+            pass  # 보관 실패가 본 파이프라인을 막지 않도록
+
+    # 추출 → 해소 → 관계 → vault (ingest/refresh 공용)
+    ok, err = extract_resolve_store(
+        conn, provider, vstore, doc, report, vault_dir=vault_dir)
+    if not ok:
+        report.error = err
+        dbm.update_inbox(conn, inbox_id, status="error", document_id=doc.id, error=err)
+        return report
+
+    # 1홉 확장 후보(제안만 — 실제 fetch 는 confirm 후). 내부 연결은 위에서 이미 자동.
+    if expand_max > 0 and not doc.partial:
+        from ..expand.onehop import find_candidates
+
+        report.candidates = find_candidates(conn, doc, limit=expand_max)
+
+    dbm.update_inbox(conn, inbox_id, status="done", document_id=doc.id)
+    return report
+
+
+def extract_resolve_store(
+    conn: sqlite3.Connection,
+    provider: Provider,
+    vstore: VectorStore,
+    doc: Document,
+    report: IngestReport,
+    *,
+    vault_dir: Path | None = None,
+) -> tuple[bool, str | None]:
+    """문서 1건의 추출→엔티티 해소/머지→관계 검증/적재→vault export.
+
+    ingest(신규 적재)와 refresh(복원 재적재)가 공유한다. doc.id 기준으로 동작하므로
+    refresh 시 같은 id 로 호출하면 기존 엔티티 sources 에 누적된다(연결 보존).
+    추출 실패 시 (False, error). 성공 시 (True, None).
+    """
+    try:
+        result = provider.extract(doc, None)  # type: ignore[arg-type]
+    except Exception as e:  # noqa: BLE001
+        return False, f"extract failed: {e}"
+    report.summary = result.summary
+
+    # [LLM tier] 모델 원본 출력 보관(후처리만 바꿔도 재호출 없이 재생).
+    if result.raw_response:
+        dbm.log_extraction(
+            conn, document_id=doc.id, provider=getattr(provider, "name", "?"),
+            model=result.model, prompt_version=result.prompt_version,
+            raw_response=result.raw_response,
+        )
+
+    _judge_method = getattr(provider, "judge_same_entity", None)
+
+    def _judge_fn(nm, et, obs, cand):
+        if _judge_method is None:
+            return False
+        from ..extract.provider import MergeCandidate
+
+        return _judge_method(MergeCandidate(
+            new_name=nm, new_type=et, new_observations=obs,
+            cand_name=cand.name, cand_type=cand.type,
+            cand_aliases=cand.aliases, cand_observations=cand.observations,
+        ))
+
+    name_to_id: dict[str, str] = {}
+    touched_entities = []
+    for ee in result.entities:
+        etype, prov = classify_entity_type(ee.type)
+        if ee.proposed_type:
+            dbm.log_proposal(conn, "entity_type", ee.proposed_type,
+                             context=ee.name, document_id=doc.id)
+            report.proposals += 1
+
+        def _embed(ee=ee):
+            try:
+                return provider.embed(ee.name + " — " + " ".join(ee.observations)[:500])
+            except Exception:  # noqa: BLE001
+                return None
+
+        ent, created = resolve_or_create(
+            conn, vstore,
+            name=ee.name, etype=etype, aliases=ee.aliases,
+            observations=ee.observations, document_id=doc.id,
+            embed_fn=_embed, judge_fn=_judge_fn, provisional=prov,
+        )
+        name_to_id[ee.name] = ent.id
+        touched_entities.append(ent)
+        if created:
+            report.entities_created += 1
+            report.new_entity_names.append(ent.name)
+        else:
+            report.entities_linked += 1
+            report.linked_entity_names.append(ent.name)
+
+    for er in result.relations:
+        src_id = name_to_id.get(er.source)
+        tgt_id = name_to_id.get(er.target)
+        if not src_id or not tgt_id or src_id == tgt_id:
+            report.relations_rejected += 1
+            continue
+        rtype, _ = classify_relation_type(er.type)
+        if er.proposed_type:
+            dbm.log_proposal(conn, "relation_type", er.proposed_type,
+                             context=f"{er.source}->{er.target}", document_id=doc.id)
+            report.proposals += 1
+        src = dbm.get_entity(conn, src_id)
+        tgt = dbm.get_entity(conn, tgt_id)
+        vr = validate_relation(rtype, src.type if src else "", tgt.type if tgt else "")
+        if not vr.ok:
+            report.relations_rejected += 1
+            continue
+        rel = Relation(type=rtype, source_id=src_id, target_id=tgt_id,
+                       sources=[doc.id], provisional=vr.provisional)
+        before = dbm.counts(conn)["relations"]
+        dbm.upsert_relation(conn, rel)
+        if dbm.counts(conn)["relations"] > before:
+            report.relations_added += 1
+
+    if vault_dir is not None and touched_entities:
+        neighbor_ids = set()
+        for ent in touched_entities:
+            for r in dbm.neighbors(conn, ent.id):
+                neighbor_ids.add(r.source_id)
+                neighbor_ids.add(r.target_id)
+        export_set = {e.id: e for e in touched_entities}
+        for nid in neighbor_ids:
+            if nid not in export_set:
+                ne = dbm.get_entity(conn, nid)
+                if ne:
+                    export_set[nid] = ne
+        export_entities(conn, vault_dir, list(export_set.values()))
+
+    return True, None
+
+
+def _guess_kind(payload: str) -> str:
+    """inbound payload 종류 추정(raw_inbox.kind 용)."""
+    t = (payload or "").strip().lower()
+    if t.startswith("http://") or t.startswith("https://"):
+        return "url"
+    if t.startswith("file://"):
+        return "file"
+    return "text"
