@@ -94,6 +94,9 @@ def test_is_daily_quota_discriminates():
     assert gp._is_daily_quota(Exception("exceeded your daily quota"))
     # 비정상적으로 큰 retryDelay
     assert gp._is_daily_quota(Exception("retryDelay: 3600s"))
+    # 결제/크레딧 소진(실제 관측: prepayment credits depleted) → fail-fast
+    assert gp._is_daily_quota(Exception(
+        "429 RESOURCE_EXHAUSTED Your prepayment credits are depleted. billing"))
     # 분당 rate(짧은 retryDelay) 또는 신호 없음 → daily 아님
     assert not gp._is_daily_quota(Exception("429 retryDelay: 7s"))
     assert not gp._is_daily_quota(Exception("429 rate limit"))

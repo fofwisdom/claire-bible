@@ -18,7 +18,7 @@ from ..ontology.registry import ontology_prompt_block
 from .provider import ExtractionResult, MergeCandidate
 
 # 추출 프롬프트 버전. _SYS 를 바꾸면 올린다(재적재 시 어떤 프롬프트로 뽑았는지 추적).
-PROMPT_VERSION = "extract-v1"
+PROMPT_VERSION = "extract-v2"
 
 # 프로세스 전역 throttle: 모든 Gemini 호출이 공유하는 최소 간격과 마지막 호출 시각.
 _CALL_LOCK = threading.Lock()
@@ -33,6 +33,10 @@ personal knowledge base about AI/software tools and research.
 Rules:
 - summary: 1-3 sentences, factual, in the document's language.
 - entities: the key things this document is ABOUT (tools, repos, models, people, orgs, concepts...).
+- Do NOT create an entity for the publishing platform, source site, news aggregator, or
+  forum that merely HOSTS or links to this content (e.g. GeekNews, Hacker News, Reddit,
+  a Discourse forum, PyTorch Korea, a personal blog). Include such a site ONLY if the
+  document is genuinely ABOUT that platform itself.
 - For each entity pick the single best `type` from the list. If truly none fits,
   leave type as your best guess AND set `proposed_type` to a snake_case suggestion.
 - relations: typed edges between entities you listed (reference them by exact `name`).
@@ -57,16 +61,19 @@ def _is_retryable(err) -> bool:  # noqa: ANN001
                                   "UNAVAILABLE", "rate limit"))
 
 
-# daily quota 소진 신호: 짧은 백오프로는 안 풀리므로 즉시 fail-fast(분당 rate 와 구분).
-_DAILY_MARKERS = ("perday", "per day", "per-day", "daily limit", "daily quota")
-_DAILY_RETRY_THRESHOLD = 120.0  # retryDelay 가 이 이상이면 분당 rate 가 아니라 일일 소진
+# 짧은 백오프로 안 풀리는(=지금 재시도 무의미한) 429 신호. 분당 rate limit 과 구분.
+#  - daily quota 소진: perday/daily
+#  - 결제/크레딧 소진: credits depleted / billing / prepayment (실제 관측, 2026-06-09)
+_DAILY_MARKERS = ("perday", "per day", "per-day", "daily limit", "daily quota",
+                  "credit", "depleted", "billing", "prepayment")
+_DAILY_RETRY_THRESHOLD = 120.0  # retryDelay 가 이 이상이면 분당 rate 가 아니라 장기 소진
 
 
 def _is_daily_quota(err) -> bool:  # noqa: ANN001
-    """일일 quota 소진(=지금 재시도 무의미)인지. 분당 rate limit 과 구분.
+    """장기 소진(일일 quota/결제 크레딧)이라 지금 재시도가 무의미한지. 분당 rate 와 구분.
 
-    보수적: daily 마커 또는 비정상적으로 큰 retryDelay 일 때만 True. 못 잡으면 기존대로
-    재시도(false-open 최소화 — 오판해 fail-fast 해도 recover-loop 가 긴 호라이즌에 회복).
+    보수적: 마커 또는 비정상적으로 큰 retryDelay 일 때만 True. 못 잡으면 기존대로 재시도
+    (false-open 최소화 — 오판해 fail-fast 해도 recover-loop 가 긴 호라이즌에 회복).
     """
     msg = str(err).lower()
     if any(m in msg for m in _DAILY_MARKERS):
