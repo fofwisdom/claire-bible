@@ -5,6 +5,13 @@ set -euo pipefail
 
 cd "$(dirname "$0")"   # 어디서 실행해도 프로젝트 루트 기준
 
+# [0/4] 배포 전 CI 게이트 — lock 동기 + 테스트. 실패하면 set -e 로 배포 중단(깨진 빌드
+# 가 원격에 올라가 컨테이너가 무한재시작하는 사고 방지). 건너뛰려면 SKIP_CI=1.
+if [ "${SKIP_CI:-0}" != "1" ]; then
+  echo "[0/4] CI 게이트"
+  ./scripts/ci.sh
+fi
+
 REMOTE="blackan@192.168.1.8"
 PORT=2222
 DEST="/home/blackan/claire_bible"
