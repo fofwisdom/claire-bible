@@ -130,6 +130,22 @@ def cmd_recover_run(args) -> int:  # noqa: ANN001
     return 0
 
 
+def _alert_permanent_failures(failed_items: list[dict]) -> None:
+    """영구실패 inbox 를 소유자에게 텔레그램으로 알림(미설정/실패해도 루프는 계속)."""
+    from .notify import notify_owner
+
+    s = get_settings()
+    lines = [f"⛔ claire 자동복구 영구실패 {len(failed_items)}건 (재시도 상한 도달)"]
+    for r in failed_items[:5]:
+        lines.append(f"• inbox#{r['inbox_id']}: {str(r.get('error', ''))[:100]}")
+    if len(failed_items) > 5:
+        lines.append(f"… 외 {len(failed_items) - 5}건")
+    lines.append("`claire status` 또는 `replay-failed` 로 점검하세요.")
+    sent = notify_owner(s.telegram_bot_token, s.notify_chat_id, "\n".join(lines))
+    print(f"[recover] 영구실패 알림 {'전송' if sent else '미전송(미설정/실패)'}",
+          flush=True)
+
+
 def cmd_recover_loop(args) -> int:  # noqa: ANN001
     """error inbox 를 interval 초마다 자동 재적재(전용 컨테이너용 데몬)."""
     import time
@@ -146,9 +162,12 @@ def cmd_recover_loop(args) -> int:  # noqa: ANN001
                 limit=args.batch)
             if results:
                 ok = sum(1 for r in results if r["status"] in ("done", "duplicate"))
-                failed = sum(1 for r in results if r["status"] == "failed")
-                print(f"[recover] {len(results)}건 시도, 복구 {ok}, 영구실패 {failed}",
-                      flush=True)
+                failed_items = [r for r in results if r["status"] == "failed"]
+                print(f"[recover] {len(results)}건 시도, 복구 {ok}, 영구실패 "
+                      f"{len(failed_items)}", flush=True)
+                # 영구실패(=재시도 상한 도달)는 사람이 봐야 하는 신호 → 소유자 DM 경보.
+                if failed_items:
+                    _alert_permanent_failures(failed_items)
             else:
                 print("[recover] 재적재 대상 없음, 대기", flush=True)
         except Exception as e:  # noqa: BLE001

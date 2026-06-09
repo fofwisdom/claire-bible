@@ -27,10 +27,13 @@ class Settings(BaseSettings):
     gemini_api_key: str = Field(default="", alias="GEMINI_API_KEY")
     telegram_bot_token: str = Field(default="", alias="TELEGRAM_BOT_TOKEN")
     allowed_users: str = Field(default="", alias="CLAIRE_ALLOWED_USERS")
+    # 운영 경보를 받을 소유자 chat. 미설정(0)이면 allowed_users 로 폴백(개인 DM 은
+    # chat_id == user_id 이므로 단일 사용자 환경에서 별도 설정 없이 동작).
+    owner_chat_id: int = Field(default=0, alias="CLAIRE_OWNER_CHAT_ID")
 
     # --- provider ---
     provider: str = Field(default="mock", alias="CLAIRE_PROVIDER")
-    gemini_model: str = Field(default="gemini-2.0-flash", alias="CLAIRE_GEMINI_MODEL")
+    gemini_model: str = Field(default="gemini-3.1-flash-lite", alias="CLAIRE_GEMINI_MODEL")
     gemini_embed_model: str = Field(
         default="gemini-embedding-001", alias="CLAIRE_GEMINI_EMBED_MODEL"
     )
@@ -84,6 +87,14 @@ class Settings(BaseSettings):
                 except ValueError:
                     pass
         return out
+
+    @property
+    def notify_chat_id(self) -> int:
+        """운영 경보를 보낼 chat. owner_chat_id 우선, 없으면 allowed_users 최솟값 폴백."""
+        if self.owner_chat_id:
+            return self.owner_chat_id
+        ids = self.allowed_user_ids
+        return min(ids) if ids else 0
 
 
 @lru_cache
