@@ -132,6 +132,21 @@ def run_api() -> int:
 
         return web.Response(text=GRAPH_HTML, content_type="text/html")
 
+    async def documents_list_route(_request):
+        import asyncio
+
+        from ..graphview import documents_list
+
+        def _d():
+            conn = dbm.connect(s.db_file)
+            dbm.init_db(conn)
+            try:
+                return {"documents": documents_list(conn)}
+            finally:
+                conn.close()
+
+        return web.json_response(await asyncio.to_thread(_d))
+
     async def node_detail(request):
         import asyncio
 
@@ -191,6 +206,7 @@ def run_api() -> int:
         web.get("/", graph_ui),
         web.get("/graph", graph_data),
         web.get("/node", node_detail),
+        web.get("/documents", documents_list_route),
         web.post("/synthesize", synthesize_route),
     ])
     print(f"claire inject API 시작: http://{s.inject_host}:{s.inject_port} "

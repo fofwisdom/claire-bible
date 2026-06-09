@@ -282,6 +282,14 @@ def find_document_by_canonical_url(
     return row["id"] if row else None
 
 
+def documents_timeline(conn: sqlite3.Connection, limit: int = 300) -> list[sqlite3.Row]:
+    """문서를 최신 적재순으로(좌측 문서 패널용). summary 는 호출측에서 붙인다."""
+    return conn.execute(
+        "SELECT id, title, url, source_type, fetched_at FROM documents "
+        "ORDER BY fetched_at DESC, id DESC LIMIT ?", (limit,)
+    ).fetchall()
+
+
 def get_document(conn: sqlite3.Connection, document_id: str) -> Document | None:
     """documents 행을 Document 모델로 복원(자동복구의 extract 재시도 등에서 사용)."""
     row = get_document_row(conn, document_id)

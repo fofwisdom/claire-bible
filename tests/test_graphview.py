@@ -5,7 +5,7 @@ from __future__ import annotations
 import sqlite3
 
 from claire.graphview import (
-    graph_json, node_detail, synthesis_context, synthesize, GRAPH_HTML,
+    graph_json, node_detail, documents_list, synthesis_context, synthesize, GRAPH_HTML,
 )
 from claire.extract.provider import MockProvider
 from claire.ontology.base import Document, Entity, Relation
@@ -34,6 +34,7 @@ def test_graph_json_nodes_edges():
     assert n1["label"] == "Claude Code" and n1["group"] == "Tool"
     assert n1["title"].startswith("CLI coding agent")  # observation 툴팁
     assert n1["degree"] == 1  # e1-e2 연결 1개
+    assert n1["sources"] == ["d"]  # 문서 기반 필터용
     e = g["edges"][0]
     assert e["from"] == "e1" and e["to"] == "e2" and e["label"] == "authored_by"
     assert "id" in e  # 필터 토글용 엣지 id
@@ -67,11 +68,34 @@ def test_graph_json_excludes_dangling_edges():
 
 
 def test_graph_html_self_contained_markers():
-    # 페이지가 graph/node 를 fetch 하고 vis.js 를 로드하는지(렌더 진입점 존재).
+    # 페이지가 graph/node/documents 를 fetch 하고 vis.js 를 로드하는지(렌더 진입점 존재).
     assert "fetch('graph')" in GRAPH_HTML
+    assert "fetch('documents')" in GRAPH_HTML
     assert "vis-network" in GRAPH_HTML
     assert "id=\"net\"" in GRAPH_HTML
-    assert "loadNode" in GRAPH_HTML and "id=\"panel\"" in GRAPH_HTML  # 상세 패널
+    assert "loadNode" in GRAPH_HTML and "id=\"panel\"" in GRAPH_HTML   # 상세 패널
+    assert "id=\"docs\"" in GRAPH_HTML and "selectDoc" in GRAPH_HTML    # 좌측 문서 패널
+    assert "id=\"legend\"" in GRAPH_HTML and "TYPE_COLORS" in GRAPH_HTML  # 색 범례
+    assert "hoverNode" in GRAPH_HTML and "blurNode" in GRAPH_HTML       # hover 미리보기
+
+
+def test_documents_list_newest_first_with_summary(_unused=None):
+    conn = _db()
+    dbm.insert_document(conn, Document(id="d1", url="https://x/1", title="첫 문서",
+                                       raw_text=".", source_type="web", content_hash="h1"))
+    dbm.insert_document(conn, Document(id="d2", url="https://x/2", title="둘째 문서",
+                                       raw_text=".", source_type="youtube", content_hash="h2"))
+    # fetched_at 으로 최신순 정렬되게 d2 를 더 나중으로
+    conn.execute("UPDATE documents SET fetched_at=100 WHERE id='d1'")
+    conn.execute("UPDATE documents SET fetched_at=200 WHERE id='d2'")
+    conn.commit()
+    dbm.log_extraction(conn, document_id="d1", provider="mock", model="m",
+                       prompt_version="v", raw_response='{"summary":"첫 요약"}')
+
+    docs = documents_list(conn)
+    assert [d["id"] for d in docs] == ["d2", "d1"]   # 최신순
+    assert docs[1]["title"] == "첫 문서" and docs[1]["summary"] == "첫 요약"
+    assert docs[0]["source_type"] == "youtube"
 
 
 def test_node_detail_assembles_knowledge():
