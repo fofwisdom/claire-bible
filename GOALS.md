@@ -52,6 +52,7 @@
 - [x] (완료 2026-06-10) **UI 2차**(사용자 피드백): 색 타입 범례 + hover 2초 미리보기(벗어나면 선택 복귀) + 좌측 문서 타임라인 패널(구간검색 + 문서클릭→그 문서 엔티티 필터, degree와 합성).
 - [x] (완료 2026-06-10) **웹 UI 인증**(토큰 prompt → 텔레그램 버튼 승인 → 세션) — `auth_sessions` DB, `/auth/request`(버튼+미승인 시 자동 만료-제거), `/auth/poll`(비인증), `_authed`에 X-Session 추가(bearer 유지). negative path 검증(미승인 401·bearer 200·만료 거부). ⚠️실제 텔레그램 승인 흐름 end-to-end는 사용자 확인 예정.
 - [x] (완료 2026-06-10) **의미검색 토글** — "의미" 체크 시 백엔드 하이브리드(/search FTS+벡터, 세션 게이팅) → 결과 노드 강조. discriminating 검증(substring 0인 노드를 임베딩으로 찾음).
+- [x] (완료 2026-06-10) **UI 3차 폴리시**(사용자 피드백): 문서필터 dim(숨김 대신 opacity, 맥락보존; degree=hidden과 별도 속성) · hover 2s→1s · **종합 수집(synthSet) inspect와 분리**(Ctrl+클릭/➕버튼·칩·카운트) · 인증 상태 아이콘+카운트다운(비블로킹, /auth/request ttl 반환) · 의미검색 버튼(타이핑 0호출 검증) · 문서 일자별 그룹 · 컨트롤/슬라이더 레이아웃 고정. playwright discriminator 검증.
 - [ ] (뒷이야기) 선택 노드 종합 시 추가 자동 웹검색 — 사용자가 defer
 - [ ] static 경로 boilerplate (사용자 보류)
 - [ ] **degree 필터 유용성 평가 + ego-graph 검토** — 며칠 사용 후(사용자와)
