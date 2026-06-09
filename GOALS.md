@@ -27,10 +27,10 @@
 ### 트랙 1 — 안정성 · 자동복구 · 관측성 (최우선)
 파이프라인이 **사람 손 없이 굴러가고, 문제를 스스로 알려주는 것.** 데이터 무결성이 모든 것의 토대.
 - [x] (완료 2026-06-09) Docker 로그 가시성 — `PYTHONUNBUFFERED` + refresh heartbeat
-- [ ] **rate-limit 자동복구 루프** (`recover-loop`) — error inbox 주기 자동 재적재. 설계: [[claire-rate-limit-recovery]]
+- [x] (완료 2026-06-09) **rate-limit 자동복구 루프** (`recover-loop`) — error inbox 주기 자동 재적재. `claire_recover` 컨테이너(10분 주기) 배포·검증. 설계: [[claire-rate-limit-recovery]]
+- [x] (완료 2026-06-09) **`raw_inbox.attempts` / `next_retry_at`** — 지수 백오프, 영구실패(`failed`) 구분, 무한재시도 방지. DB 마이그레이션 체계(`_ensure_column`) 동반.
 - [ ] **circuit breaker** — quota 소진 감지 시 일정시간 ingest 일시정지 + 자동재개
-- [ ] **`raw_inbox.attempts` / `next_retry_at`** — 지수 백오프, 영구실패(404)/일시실패(429) 구분, 무한재시도 방지
-- [ ] **능동 알림** — error/회복 실패 누적 시 텔레그램 소유자 DM 알림
+- [ ] **능동 알림** — error/회복 실패(`failed`) 누적 시 텔레그램 소유자 DM 알림 ← 다음
 - [ ] **헬스/메트릭** — `/health` 강화(DB/provider/큐 깊이), 구조화 로그
 - [ ] **백업 전략** — 현재 임시 `_backup_*` 디렉토리뿐 → 정기 스냅샷 + 복구 절차 문서화
 
