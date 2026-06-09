@@ -108,6 +108,54 @@ def cmd_replay_failed(args) -> int:  # noqa: ANN001
     return 0
 
 
+def cmd_recover_run(args) -> int:  # noqa: ANN001
+    """[자동복구] error inbox 중 재시도 도래분을 1회 재적재(게이팅·지수백오프)."""
+    from .ingest.service import IngestService
+
+    svc = IngestService(get_settings())
+    results = svc.recover_failed(
+        max_attempts=args.max_attempts, base_delay=args.base_delay, limit=args.limit)
+    if not results:
+        print("재적재 대상(도래분) 없음.")
+        return 0
+    for r in results:
+        if r["status"] in ("done", "duplicate"):
+            print(f"  ✅ inbox#{r['inbox_id']}: {r['status']}")
+        elif r["status"] == "failed":
+            print(f"  ⛔ inbox#{r['inbox_id']}: 영구실패 {str(r.get('error',''))[:50]}")
+        else:
+            print(f"  ↻ inbox#{r['inbox_id']}: 재시도예약 {str(r.get('error',''))[:50]}")
+    ok = sum(1 for r in results if r["status"] in ("done", "duplicate"))
+    print(f"처리 {len(results)}건 중 복구 {ok}")
+    return 0
+
+
+def cmd_recover_loop(args) -> int:  # noqa: ANN001
+    """error inbox 를 interval 초마다 자동 재적재(전용 컨테이너용 데몬)."""
+    import time
+
+    from .ingest.service import IngestService
+
+    svc = IngestService(get_settings())
+    print(f"claire recover-loop 시작 (interval={args.interval}s, batch={args.batch}, "
+          f"max_attempts={args.max_attempts}). Ctrl+C 종료.", flush=True)
+    while True:
+        try:
+            results = svc.recover_failed(
+                max_attempts=args.max_attempts, base_delay=args.base_delay,
+                limit=args.batch)
+            if results:
+                ok = sum(1 for r in results if r["status"] in ("done", "duplicate"))
+                failed = sum(1 for r in results if r["status"] == "failed")
+                print(f"[recover] {len(results)}건 시도, 복구 {ok}, 영구실패 {failed}",
+                      flush=True)
+            else:
+                print("[recover] 재적재 대상 없음, 대기", flush=True)
+        except Exception as e:  # noqa: BLE001
+            print(f"[recover] 오류: {e}", flush=True)
+        time.sleep(max(60, args.interval))
+
+
 def cmd_refresh_mark(args) -> int:  # noqa: ANN001
     """갱신 대상 문서를 큐에 등록(기본: 본문 빈약 문서)."""
     from .ingest.service import IngestService
@@ -235,6 +283,19 @@ def build_parser() -> argparse.ArgumentParser:
     pr = sub.add_parser("replay-failed", help="re-ingest raw_inbox rows with status=error")
     pr.add_argument("--limit", type=int, default=0, help="0 = all")
     pr.set_defaults(func=cmd_replay_failed)
+
+    prc = sub.add_parser("recover-run", help="auto-recover due error inbox once (gated, backoff)")
+    prc.add_argument("--limit", type=int, default=0, help="0 = all due")
+    prc.add_argument("--max-attempts", type=int, default=5, help="이 횟수 도달 시 영구실패")
+    prc.add_argument("--base-delay", type=float, default=300.0, help="지수백오프 기준 초")
+    prc.set_defaults(func=cmd_recover_run)
+
+    prl = sub.add_parser("recover-loop", help="auto-recover error inbox on interval (daemon)")
+    prl.add_argument("--interval", type=int, default=600, help="초 (최소 60)")
+    prl.add_argument("--batch", type=int, default=5, help="회당 처리 건수")
+    prl.add_argument("--max-attempts", type=int, default=5)
+    prl.add_argument("--base-delay", type=float, default=300.0)
+    prl.set_defaults(func=cmd_recover_loop)
 
     pm = sub.add_parser("refresh-mark", help="queue thin/host docs for re-scrape")
     pm.add_argument("--max-len", type=int, default=300, help="본문 길이 임계(미만이면 대상)")

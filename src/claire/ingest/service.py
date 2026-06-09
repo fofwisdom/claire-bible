@@ -33,8 +33,12 @@ class IngestService:
         inbox_kind: str | None = None,
         file_ref: str | None = None,
         file_name: str | None = None,
+        inbox_id: int | None = None,
     ) -> IngestReport:
-        """단건 적재. (블로킹 — 호출측에서 스레드 오프로드)."""
+        """단건 적재. (블로킹 — 호출측에서 스레드 오프로드).
+
+        inbox_id 가 주어지면 새 raw_inbox 행을 만들지 않고 기존 행을 재사용(자동복구용).
+        """
         conn = dbm.connect(self.s.db_file)
         dbm.init_db(conn)
         vstore = make_vector_store(conn, self.s.vector_backend)
@@ -45,6 +49,7 @@ class IngestService:
                 vault_dir=self.s.vault_dir, data_dir=self.s.data_dir,
                 expand_max=em, source=source, user_id=user_id, chat_id=chat_id,
                 inbox_kind=inbox_kind, file_ref=file_ref, file_name=file_name,
+                inbox_id=inbox_id,
             )
         finally:
             conn.close()
@@ -174,6 +179,55 @@ class IngestService:
                 file_ref=row["file_ref"],
             )
             out.append((row["id"], rep))
+        return out
+
+    def recover_failed(
+        self, *, max_attempts: int = 5, base_delay: float = 300.0, limit: int = 0
+    ) -> list[dict]:
+        """[자동복구] error inbox 중 재시도 시각이 도래한 항목을 자동 재적재.
+
+        replay_failed 가 *수동 전량* 재적재라면, 이쪽은 데몬(recover-loop)이 부르는
+        *게이팅된 자동* 경로:
+          - 대상: status='error' AND attempts<max AND now>=next_retry_at (없으면 즉시).
+          - 성공/duplicate: ingest 가 같은 inbox 행을 done/duplicate 로 갱신(멱등).
+          - 실패: attempts+1, next_retry_at = now + base_delay·2^attempts(지수백오프).
+            attempts 가 max 에 도달하면 status='failed'(영구실패)로 굳혀 무한재시도 차단.
+        반환: [{inbox_id, status, error?}, ...]
+        """
+        import time as _time
+
+        conn = dbm.connect(self.s.db_file)
+        dbm.init_db(conn)
+        rows = dbm.due_for_recovery(conn, max_attempts=max_attempts, limit=limit)
+        conn.close()
+
+        out: list[dict] = []
+        for row in rows:
+            payload = row["file_ref"] or row["payload"]
+            rep = self.ingest(
+                payload, source="recover", inbox_id=row["id"],
+                inbox_kind=row["kind"], file_name=row["file_name"],
+                file_ref=row["file_ref"],
+            )
+            if rep.error is None:
+                # ingest 가 이미 done/duplicate 로 갱신함 → due 에 다시 안 잡힘.
+                out.append({"inbox_id": row["id"],
+                            "status": "duplicate" if rep.duplicate else "done"})
+                continue
+            attempts_now = (row["attempts"] or 0) + 1
+            if attempts_now >= max_attempts:
+                final, nra = "failed", None
+            else:
+                final = "error"
+                nra = _time.time() + base_delay * (2 ** (row["attempts"] or 0))
+            conn2 = dbm.connect(self.s.db_file)
+            try:
+                dbm.record_recovery_attempt(
+                    conn2, row["id"], status=final,
+                    document_id=rep.document_id, error=rep.error, next_retry_at=nra)
+            finally:
+                conn2.close()
+            out.append({"inbox_id": row["id"], "status": final, "error": rep.error})
         return out
 
     def save_inbound_file(self, inbox_seq: int, src_path: Path, name: str) -> str:

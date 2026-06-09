@@ -85,6 +85,7 @@ def ingest(
     inbox_kind: str | None = None,
     file_ref: str | None = None,
     file_name: str | None = None,
+    inbox_id: int | None = None,
 ) -> IngestReport:
     report = IngestReport()
     # None 이면 호출 시점에 모듈 전역 default_fetch 를 조회(monkeypatch/교체 반영).
@@ -92,11 +93,14 @@ def ingest(
         fetch_fn = default_fetch
 
     # [Layer 1] 처리 전에 inbound 원본을 무조건 기록(실패해도 재생 가능).
-    kind = inbox_kind or _guess_kind(payload)
-    inbox_id = dbm.log_inbox(
-        conn, source=source, payload=payload, kind=kind,
-        user_id=user_id, chat_id=chat_id, file_name=file_name, file_ref=file_ref,
-    )
+    # inbox_id 가 주어지면(자동복구 재적재) 새 행을 만들지 않고 기존 행을 재사용 =
+    # 재시도가 inbox 행을 폭증시키지 않고 같은 행의 status 만 갱신(멱등).
+    if inbox_id is None:
+        kind = inbox_kind or _guess_kind(payload)
+        inbox_id = dbm.log_inbox(
+            conn, source=source, payload=payload, kind=kind,
+            user_id=user_id, chat_id=chat_id, file_name=file_name, file_ref=file_ref,
+        )
     report.inbox_id = inbox_id
 
     try:

@@ -14,7 +14,7 @@ from pathlib import Path
 
 from ..ontology.base import Document, Entity, Relation
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (
@@ -111,8 +111,13 @@ CREATE TABLE IF NOT EXISTS raw_inbox (
     file_name TEXT,              -- document 인 경우 원본 파일명
     file_ref TEXT,               -- 보관된 원본 파일 경로(data/raw/files/...)
     document_id TEXT,            -- 처리 결과 document 연결(있으면)
-    status TEXT DEFAULT 'received',  -- received | done | duplicate | error
-    error TEXT
+    status TEXT DEFAULT 'received',  -- received | done | duplicate | error | failed
+    error TEXT,
+    -- [자동복구] error 행을 recover-loop 가 지수백오프로 재적재. attempts 가 상한에
+    -- 도달하면 status='failed'(영구실패)로 굳혀 무한재시도를 막는다.
+    attempts INTEGER DEFAULT 0,
+    last_attempt REAL,
+    next_retry_at REAL
 );
 CREATE INDEX IF NOT EXISTS idx_raw_inbox_status ON raw_inbox(status);
 
@@ -165,13 +170,43 @@ def connect(db_path: str | Path) -> sqlite3.Connection:
     return conn
 
 
+def _column_names(conn: sqlite3.Connection, table: str) -> set[str]:
+    return {r["name"] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+
+
+def _ensure_column(conn: sqlite3.Connection, table: str, column: str, decl: str) -> None:
+    """기존 테이블에 컬럼이 없으면 ADD COLUMN(idempotent 마이그레이션).
+
+    `CREATE TABLE IF NOT EXISTS` 는 이미 존재하는 테이블에 새 컬럼을 더하지 못하므로,
+    기존 운영 DB(데이터 보존)에 스키마 변경을 안전하게 적용하는 단일 경로.
+    """
+    if column not in _column_names(conn, table):
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    """버전 무관하게 멱등으로 적용 가능한 컬럼 추가(낮은 버전 DB 업그레이드)."""
+    # v4: raw_inbox 자동복구 메타데이터. (컬럼 의존 인덱스는 컬럼 추가 뒤에 생성)
+    _ensure_column(conn, "raw_inbox", "attempts", "INTEGER DEFAULT 0")
+    _ensure_column(conn, "raw_inbox", "last_attempt", "REAL")
+    _ensure_column(conn, "raw_inbox", "next_retry_at", "REAL")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_raw_inbox_retry "
+                 "ON raw_inbox(status, next_retry_at)")
+
+
 def init_db(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA)
+    _migrate(conn)
     cur = conn.execute("SELECT value FROM meta WHERE key='schema_version'")
     row = cur.fetchone()
     if row is None:
         conn.execute(
             "INSERT INTO meta(key, value) VALUES ('schema_version', ?)",
+            (str(SCHEMA_VERSION),),
+        )
+    else:
+        conn.execute(
+            "UPDATE meta SET value=? WHERE key='schema_version'",
             (str(SCHEMA_VERSION),),
         )
     conn.commit()
@@ -381,6 +416,39 @@ def inbox_by_status(conn: sqlite3.Connection, status: str) -> list[sqlite3.Row]:
     return conn.execute(
         "SELECT * FROM raw_inbox WHERE status=? ORDER BY id", (status,)
     ).fetchall()
+
+
+def due_for_recovery(
+    conn: sqlite3.Connection, *, max_attempts: int, now: float | None = None,
+    limit: int = 0,
+) -> list[sqlite3.Row]:
+    """자동 재적재 대상: status='error' AND attempts<max AND 재시도시각 도래.
+
+    next_retry_at 이 NULL(아직 한 번도 시도 안 함)이거나 now 이하인 행만. attempts 가
+    상한에 도달한 행은 recover 가 'failed' 로 굳히므로 여기 다시 안 잡힌다.
+    """
+    now = time.time() if now is None else now
+    return conn.execute(
+        "SELECT * FROM raw_inbox WHERE status='error' AND attempts < ? "
+        "AND (next_retry_at IS NULL OR next_retry_at <= ?) ORDER BY id"
+        + (" LIMIT ?" if limit else ""),
+        ((max_attempts, now, limit) if limit else (max_attempts, now)),
+    ).fetchall()
+
+
+def record_recovery_attempt(
+    conn: sqlite3.Connection, inbox_id: int, *, status: str,
+    document_id: str | None = None, error: str | None = None,
+    next_retry_at: float | None = None, now: float | None = None,
+) -> None:
+    """재적재 1회 시도 결과 기록(attempts+1, last_attempt, next_retry_at 갱신)."""
+    now = time.time() if now is None else now
+    conn.execute(
+        "UPDATE raw_inbox SET status=?, document_id=?, error=?, "
+        "attempts=attempts+1, last_attempt=?, next_retry_at=? WHERE id=?",
+        (status, document_id, error, now, next_retry_at, inbox_id),
+    )
+    conn.commit()
 
 
 # --- status / 집계 (claire status 용) ---

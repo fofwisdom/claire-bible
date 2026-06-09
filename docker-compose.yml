@@ -33,3 +33,15 @@ services:
       - ./vault:/app/vault
     # 갱신 큐를 1시간마다 5건씩 자동 처리(복원 메커니즘). 큐가 비면 아무 일도 안 함.
     command: ["uv", "run", "claire", "refresh-loop", "--interval", "3600", "--batch", "5"]
+
+  claire_recover:
+    build: .
+    container_name: claire_recover
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./data:/app/data      # 같은 DB 공유
+      - ./vault:/app/vault
+    # error inbox(rate-limit 등 일시실패)를 10분마다 지수백오프로 자동 재적재.
+    # max_attempts 도달 시 'failed'(영구)로 굳혀 무한재시도 차단. 대상 없으면 무동작.
+    command: ["uv", "run", "claire", "recover-loop", "--interval", "600", "--batch", "5"]
