@@ -244,6 +244,21 @@ def get_document_row(conn: sqlite3.Connection, document_id: str) -> sqlite3.Row 
     ).fetchone()
 
 
+def get_document(conn: sqlite3.Connection, document_id: str) -> Document | None:
+    """documents 행을 Document 모델로 복원(자동복구의 extract 재시도 등에서 사용)."""
+    row = get_document_row(conn, document_id)
+    if row is None:
+        return None
+    return Document(
+        id=row["id"], url=row["url"], canonical_url=row["canonical_url"],
+        title=row["title"], author=row["author"], published_at=row["published_at"],
+        fetched_at=row["fetched_at"] or 0.0, raw_text=row["raw_text"] or "",
+        source_type=row["source_type"] or "web", content_hash=row["content_hash"] or "",
+        lang=row["lang"], partial=bool(row["partial"]),
+        meta=json.loads(row["meta"] or "{}"),
+    )
+
+
 # --- entities ---
 
 def upsert_entity(conn: sqlite3.Connection, ent: Entity) -> None:

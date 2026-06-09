@@ -181,6 +181,35 @@ class IngestService:
             out.append((row["id"], rep))
         return out
 
+    def _retry_extract(self, document_id: str, inbox_id: int) -> IngestReport:
+        """[자동복구] extract 단계에서 실패해 문서만 적재된 행을 재추출.
+
+        re-fetch 없이(원본 raw_text 가 이미 DB 에 있음) extract→해소→관계→vault 만
+        다시 돌린다. dedup/nochange 가드를 모두 우회 = 429 등으로 추출만 막혔던 케이스의
+        진짜 복구. 성공하면 inbox 를 done 으로 갱신.
+        """
+        conn = dbm.connect(self.s.db_file)
+        dbm.init_db(conn)
+        vstore = make_vector_store(conn, self.s.vector_backend)
+        report = IngestReport(document_id=document_id)
+        try:
+            doc = dbm.get_document(conn, document_id)
+            if doc is None:
+                report.error = "document not found"
+                return report
+            report.source_type = doc.source_type
+            report.partial = doc.partial
+            report.title = doc.title
+            ok, err = extract_resolve_store(
+                conn, self.provider, vstore, doc, report, vault_dir=self.s.vault_dir)
+            if ok:
+                dbm.update_inbox(conn, inbox_id, status="done", document_id=document_id)
+            else:
+                report.error = err
+            return report
+        finally:
+            conn.close()
+
     def recover_failed(
         self, *, max_attempts: int = 5, base_delay: float = 300.0, limit: int = 0
     ) -> list[dict]:
@@ -203,12 +232,19 @@ class IngestService:
 
         out: list[dict] = []
         for row in rows:
-            payload = row["file_ref"] or row["payload"]
-            rep = self.ingest(
-                payload, source="recover", inbox_id=row["id"],
-                inbox_kind=row["kind"], file_name=row["file_name"],
-                file_ref=row["file_ref"],
-            )
+            # 핵심 분기: extract 단계에서 실패한 행은 document 가 이미 적재돼 있어(=
+            # document_id 보유) full re-ingest 하면 dedup 에 걸려 추출이 영영 안 된다.
+            # 그 경우 기존 문서로 extract 만 재실행(dedup/nochange 우회)한다.
+            # document_id 가 없으면 fetch 단계에서 실패한 것 → full re-ingest.
+            if row["document_id"]:
+                rep = self._retry_extract(row["document_id"], row["id"])
+            else:
+                payload = row["file_ref"] or row["payload"]
+                rep = self.ingest(
+                    payload, source="recover", inbox_id=row["id"],
+                    inbox_kind=row["kind"], file_name=row["file_name"],
+                    file_ref=row["file_ref"],
+                )
             if rep.error is None:
                 # ingest 가 이미 done/duplicate 로 갱신함 → due 에 다시 안 잡힘.
                 out.append({"inbox_id": row["id"],

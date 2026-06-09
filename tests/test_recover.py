@@ -102,6 +102,53 @@ def test_recover_success_is_idempotent(monkeypatch, tmp_path):
     conn.close()
 
 
+def test_recover_extract_failure_actually_extracts(monkeypatch, tmp_path):
+    """핵심 케이스: 429가 extract 단계에서 터진 행은 문서가 이미 적재돼 있다.
+
+    recover 가 full re-ingest 하면 dedup→duplicate 로 빠져 추출이 영영 안 되는 버그를
+    방어. document_id 가 있으면 extract 만 재실행해 엔티티가 *실제로* 생성돼야 한다.
+    (status=='done' 만으로는 불충분 — 엔티티/관계 생성을 직접 확인)
+    """
+    s = _mem(monkeypatch, tmp_path)
+    svc = IngestService(s)
+    good = Document(url="https://github.com/owner/repo", title="repo",
+                    raw_text="A tool about agents and graphs. " * 20,
+                    source_type="web", content_hash="h3")
+    _patch_fetch(monkeypatch, lambda p: good)
+
+    # provider.extract 가 첫 호출에 429, 그 다음부터 정상.
+    real_extract = svc.provider.extract
+    calls = {"n": 0}
+
+    def flaky(doc, ctx=None):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("429 quota")
+        return real_extract(doc, ctx)
+
+    monkeypatch.setattr(svc.provider, "extract", flaky)
+
+    rep = svc.ingest("https://github.com/owner/repo", source="test")
+    assert rep.error is not None  # extract 단계 실패
+
+    conn = dbm.connect(s.db_file); dbm.init_db(conn)
+    assert dbm.counts(conn)["documents"] == 1            # 문서는 이미 적재됨
+    ent_before = dbm.counts(conn)["entities"]
+    row = conn.execute("SELECT * FROM raw_inbox").fetchone()
+    assert row["status"] == "error" and row["document_id"] is not None
+    conn.close()
+
+    # recover → extract 이제 성공해야 하고, 엔티티가 진짜 생겨야 한다.
+    results = svc.recover_failed(max_attempts=5, base_delay=0.0)
+    assert len(results) == 1 and results[0]["status"] == "done"
+
+    conn = dbm.connect(s.db_file); dbm.init_db(conn)
+    assert dbm.counts(conn)["entities"] > ent_before     # ← 진짜 복구의 증거
+    assert dbm.counts(conn)["documents"] == 1            # 문서 안 늘어남
+    assert dbm.inbox_status_counts(conn).get("done") == 1
+    conn.close()
+
+
 def test_recover_backoff_then_permanent_failure(monkeypatch, tmp_path):
     s = _mem(monkeypatch, tmp_path)
     svc = IngestService(s)
