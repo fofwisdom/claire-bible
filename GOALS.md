@@ -37,11 +37,12 @@
 > **트랙1 완료(2026-06-09)**: 파이프라인이 사람 손 없이 굴러가고(자동복구·백업·circuit breaker), 문제를 스스로 알리며(능동 알림·로그·health), 데이터 무결성이 보장됨(마이그레이션·검증된 백업). 컨테이너 5개(bot/api/refresh/recover/backup). 테스트 73→94개.
 
 ### 트랙 2 — 추출 · 연결 품질 (지식베이스의 본질 가치)
-- [ ] 약어 동의어 수렴 (MCP ↔ Model Context Protocol)
-- [ ] 출처 플랫폼 엔티티화 억제 (GeekNews/PyTorchKR가 Org 노드 되는 잡음)
-- [ ] static 경로 boilerplate 제거 (GeekNews 등 메뉴/댓글 UI 혼입 → readability 검토)
-- [ ] dedup을 content_hash AND canonical_url 둘 다로
-- [ ] eval 하니스 확장 (해소 품질은 침묵 속에 악화 → 반증 가능하게)
+> 검증 주의: mock provider는 프롬프트를 무시하고 judge가 결정론적 → **프롬프트/judge 의존 항목은 mock으로 검증 불가**(실 Gemini 필요). 결정론적 항목만 eval 하니스로 반증 가능. (사용자 결정: 결정론적 먼저, quota 0)
+- [x] (완료 2026-06-09) **약어 동의어 수렴** (MCP ↔ Model Context Protocol) — resolver 단계 2.5 결정론적 이니셜 매칭(같은 타입+길이≥3). eval 하니스 4케이스(양방향 merge + 다른타입/2글자 must-not), 회귀검증 완료.
+- [ ] **dedup을 content_hash AND canonical_url** — ⚠️naive skip 금지(정당한 업데이트 막음). same canonical_url + 다른 content_hash → 기존 `refresh_document` in-place 경로로 라우팅. ← 다음
+- [ ] 출처 플랫폼 엔티티화 억제 (GeekNews/PyTorchKR가 Org 노드) — **프롬프트 변경 → 실 Gemini 검증 필요(보류, quota)**
+- [ ] static 경로 boilerplate 제거 — **사용자 보류**(본문 깎을 위험)
+- [ ] eval 하니스 확장 (변경 항목마다 라벨 케이스 추가 — 침묵 악화 방지)
 
 ### 트랙 3 — 검색 · UX · 웹 UI
 - [ ] 그래프 시각화 웹 UI (미구현, 개인용 로컬)
