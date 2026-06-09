@@ -112,12 +112,35 @@ def run_api() -> int:
                       "via": h.via, "score": h.score} for h in result.hits],
         })
 
+    async def graph_data(_request):
+        import asyncio
+
+        from ..graphview import graph_json
+
+        def _g():
+            conn = dbm.connect(s.db_file)
+            dbm.init_db(conn)
+            try:
+                return graph_json(conn)
+            finally:
+                conn.close()
+
+        return web.json_response(await asyncio.to_thread(_g))
+
+    async def graph_ui(_request):
+        from ..graphview import GRAPH_HTML
+
+        return web.Response(text=GRAPH_HTML, content_type="text/html")
+
     app = web.Application()
     app.add_routes([
         web.get("/health", health),
         web.get("/stats", stats),
         web.post("/ingest", do_ingest),
         web.post("/search", do_search),
+        # 읽기전용 그래프 뷰어(loopback). / = HTML, /graph = vis.js JSON.
+        web.get("/", graph_ui),
+        web.get("/graph", graph_data),
     ])
     print(f"claire inject API 시작: http://{s.inject_host}:{s.inject_port} "
           f"(token {'설정됨' if s.inject_token else '없음!'})")

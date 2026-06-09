@@ -396,21 +396,26 @@ def upsert_relation(conn: sqlite3.Connection, rel: Relation) -> None:
     conn.commit()
 
 
+def _row_to_relation(r: sqlite3.Row) -> Relation:
+    return Relation(
+        id=r["id"], type=r["type"], source_id=r["source_id"],
+        target_id=r["target_id"], props=json.loads(r["props"] or "{}"),
+        sources=json.loads(r["sources"] or "[]"),
+        confidence=r["confidence"], provisional=bool(r["provisional"]),
+        created_at=r["created_at"] or 0.0,
+    )
+
+
 def neighbors(conn: sqlite3.Connection, entity_id: str) -> list[Relation]:
     rows = conn.execute(
         "SELECT * FROM relations WHERE source_id=? OR target_id=?",
         (entity_id, entity_id),
     ).fetchall()
-    return [
-        Relation(
-            id=r["id"], type=r["type"], source_id=r["source_id"],
-            target_id=r["target_id"], props=json.loads(r["props"] or "{}"),
-            sources=json.loads(r["sources"] or "[]"),
-            confidence=r["confidence"], provisional=bool(r["provisional"]),
-            created_at=r["created_at"] or 0.0,
-        )
-        for r in rows
-    ]
+    return [_row_to_relation(r) for r in rows]
+
+
+def all_relations(conn: sqlite3.Connection) -> list[Relation]:
+    return [_row_to_relation(r) for r in conn.execute("SELECT * FROM relations").fetchall()]
 
 
 # --- proposals ---
