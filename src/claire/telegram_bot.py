@@ -7,11 +7,57 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from .config import get_settings
 
 log = logging.getLogger("claire.telegram")
+
+
+def _status_emoji(error, duplicate: bool = False) -> str:  # noqa: ANN001
+    """처리 결과 → 원본 메시지에 달 텔레그램 허용 reaction 이모지."""
+    if error:
+        return "👎"
+    if duplicate:
+        return "🤔"
+    return "👍"  # 신규/갱신 완료
+
+
+async def _run_with_ticker(status, label, work):  # noqa: ANN001
+    """work(블로킹)를 스레드에서 실행하며 status 메시지를 5초마다 편집(진행 표시).
+
+    파이프라인에 단계 콜백이 없으므로 경과 시간만 갱신 = '살아있음'을 알리되 스팸 아님.
+    덕타이핑(status.edit_text)이라 PTB 의존 없음."""
+    stop = asyncio.Event()
+
+    async def tick():
+        t = 0
+        while not stop.is_set():
+            try:
+                await asyncio.sleep(5)
+            except asyncio.CancelledError:
+                break
+            t += 5
+            try:
+                await status.edit_text(f"⏳ {label} ({t}s)")
+            except Exception:  # noqa: BLE001
+                pass  # 편집 실패(동일내용/rate)는 무시
+
+    tk = asyncio.create_task(tick())
+    try:
+        return await asyncio.to_thread(work)
+    finally:
+        stop.set()
+        tk.cancel()
+
+
+async def _react(msg, emoji: str) -> None:  # noqa: ANN001
+    """원본 메시지에 reaction(best-effort — 불허 이모지/권한 실패는 무시)."""
+    try:
+        await msg.set_reaction(emoji)
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def classify_input(text: str) -> str:
@@ -80,6 +126,21 @@ def run_bot() -> int:
         ]
         return InlineKeyboardMarkup(kb)
 
+    async def _settle(status, msg, summary: str, cands: list, update_id: int) -> None:
+        """완료 처리: 1홉 후보가 있으면 진행 메시지를 결과+버튼으로 편집(버튼 보존),
+        없으면 진행 메시지를 삭제(스팸 방지 — 결과는 원본 reaction 으로 표시됨)."""
+        if cands:
+            markup = _markup(update_id, cands)
+            try:
+                await status.edit_text(summary, reply_markup=markup)
+            except Exception:  # noqa: BLE001
+                await msg.reply_text(summary, reply_markup=markup)
+        else:
+            try:
+                await status.delete()
+            except Exception:  # noqa: BLE001
+                pass
+
     HELP = (
         "📚 claire_bible — 개인 지식베이스 봇\n"
         "\n"
@@ -111,17 +172,21 @@ def run_bot() -> int:
         text = (update.message.text or "").strip()
         if not text:
             return
-        await update.message.reply_text(f"⏳ 적재 중… ({classify_input(text)})")
+        msg = update.message
+        label = f"처리 중… ({classify_input(text)})"
+        status = await msg.reply_text(f"⏳ {label}")
         uid = user.id if user else None
         cid = update.effective_chat.id if update.effective_chat else None
         try:
-            report = await asyncio.to_thread(
-                svc.ingest, text, source="telegram", user_id=uid, chat_id=cid)
+            report = await _run_with_ticker(
+                status, label,
+                lambda: svc.ingest(text, source="telegram", user_id=uid, chat_id=cid))
             summary, cands = report.telegram_summary(), report.candidates
+            emoji = _status_emoji(report.error, report.duplicate)
         except Exception as e:  # noqa: BLE001
-            summary, cands = f"❌ 처리 오류: {e}", []
-        markup = _markup(update.update_id, cands) if cands else None
-        await update.message.reply_text(summary, reply_markup=markup)
+            summary, cands, emoji = f"❌ 처리 오류: {e}", [], "👎"
+        await _react(msg, emoji)
+        await _settle(status, msg, summary, cands, update.update_id)
 
     async def on_document(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
         user = update.effective_user
@@ -132,7 +197,9 @@ def run_bot() -> int:
         if not doc:
             return
         name = doc.file_name or "document"
-        await update.message.reply_text(f"⏳ 파일 적재 중… ({name})")
+        msg = update.message
+        label = f"파일 처리 중… ({name})"
+        status = await msg.reply_text(f"⏳ {label}")
         uid = user.id if user else None
         cid = update.effective_chat.id if update.effective_chat else None
 
@@ -145,7 +212,8 @@ def run_bot() -> int:
         try:
             tmp_path = await _download()
         except Exception as e:  # noqa: BLE001
-            await update.message.reply_text(f"❌ 다운로드 실패: {e}")
+            await _react(msg, "👎")
+            await status.edit_text(f"❌ 다운로드 실패: {e}")
             return
 
         def _work():
@@ -154,12 +222,13 @@ def run_bot() -> int:
                               inbox_kind="document", file_ref=kept, file_name=name)
 
         try:
-            report = await asyncio.to_thread(_work)
+            report = await _run_with_ticker(status, label, _work)
             summary, cands = report.telegram_summary(), report.candidates
+            emoji = _status_emoji(report.error, report.duplicate)
         except Exception as e:  # noqa: BLE001
-            summary, cands = f"❌ 처리 오류: {e}", []
-        markup = _markup(update.update_id, cands) if cands else None
-        await update.message.reply_text(summary, reply_markup=markup)
+            summary, cands, emoji = f"❌ 처리 오류: {e}", [], "👎"
+        await _react(msg, emoji)
+        await _settle(status, msg, summary, cands, update.update_id)
 
     async def on_callback(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
         query = update.callback_query
