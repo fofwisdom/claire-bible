@@ -54,7 +54,7 @@
 ## 3. 하드닝 버킷 (트랙 무관, 발견 시 적재)
 - [x] (완료 2026-06-09) `config.py` 기본 모델값 드리프트 → `gemini-3.1-flash-lite` 로 일치
 - [x] (완료 2026-06-09) DB 스키마 마이그레이션 체계 → `_ensure_column`/`_migrate`(멱등, race 내성)
-- [ ] CI 부재 (테스트 103개 있으나 자동 실행 없음)
+- [x] (완료 2026-06-10) CI — 배포 전 게이트(`scripts/ci.sh`: uv lock --check + pytest, `deploy.sh`가 rsync 전 호출). remote 없는 프로젝트라 GitHub Actions 대신 배포 게이트가 실효 CI. 깨진 빌드/lock 누락이 원격에 못 올라감.
 
 ---
 
