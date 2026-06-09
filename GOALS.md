@@ -30,9 +30,9 @@
 - [x] (완료 2026-06-09) **rate-limit 자동복구 루프** (`recover-loop`) — error inbox 주기 자동 재적재. `claire_recover` 컨테이너(10분 주기) 배포·검증. 설계: [[claire-rate-limit-recovery]]
 - [x] (완료 2026-06-09) **`raw_inbox.attempts` / `next_retry_at`** — 지수 백오프, 영구실패(`failed`) 구분, 무한재시도 방지. DB 마이그레이션 체계(`_ensure_column`) 동반.
 - [x] (완료 2026-06-09) **능동 알림** — recover-loop 가 영구실패(`failed`) 발생 시 소유자에게 텔레그램 DM 경보. `notify.py`(httpx sendMessage), `CLAIRE_OWNER_CHAT_ID`(미설정 시 allowed_users 폴백).
-- [ ] **circuit breaker** — quota 소진 감지 시 일정시간 ingest 일시정지 + 자동재개 ← 다음
-- [ ] **헬스/메트릭** — `/health` 강화(DB/provider/큐 깊이), 구조화 로그
-- [ ] **백업 전략** — 현재 임시 `_backup_*` 디렉토리뿐 → 정기 스냅샷 + 복구 절차 문서화
+- [x] (완료 2026-06-09) **백업 전략** — `claire_backup` 컨테이너(매일 1회, 7개 보존). VACUUM INTO 스냅샷 + 스냅샷 열어 row count==live 검증(복원가능성). 원격 실데이터 검증 완료(26docs/113ent/107rel 일치).
+- [ ] **헬스/메트릭** — `/health` 강화(DB/provider/큐 깊이·error/failed inbox) ← 다음
+- [ ] **circuit breaker** (최소·프로세스-로컬) — `_call`에서 daily-quota 429(don't-retry) vs rate 429(retry) 구분해 fail-fast. **분산 상태(DB meta) 금지** — 마이그레이션 race와 동급 위험이라 advisor가 기각. 복구는 recover-loop의 긴 호라이즌이 담당.
 
 ### 트랙 2 — 추출 · 연결 품질 (지식베이스의 본질 가치)
 - [ ] 약어 동의어 수렴 (MCP ↔ Model Context Protocol)

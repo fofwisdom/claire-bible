@@ -46,7 +46,12 @@ def run_api() -> int:
         return token == s.inject_token
 
     async def health(_request):
-        return web.json_response({"ok": True, "provider": svc.provider.name})
+        import asyncio
+
+        from ..health import health_report
+
+        rep = await asyncio.to_thread(health_report, s, svc.provider.name)
+        return web.json_response(rep, status=200 if rep["ok"] else 503)
 
     async def stats(request):
         if not _authed(request):

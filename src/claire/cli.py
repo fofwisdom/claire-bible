@@ -289,6 +289,19 @@ def cmd_search(args) -> int:  # noqa: ANN001
     return 0
 
 
+def cmd_health(args) -> int:  # noqa: ANN001
+    """시스템 건강 상태를 JSON 으로 출력. degraded(주의 필요) 또는 db 실패 시 비0 종료."""
+    import json
+
+    from .extract.provider import get_provider
+    from .health import health_report
+
+    s = get_settings()
+    rep = health_report(s, get_provider(s).name)
+    print(json.dumps(rep, ensure_ascii=False, indent=2))
+    return 0 if rep["ok"] and not rep.get("degraded") else 1
+
+
 def _prune_backups(bdir, keep: int) -> int:  # noqa: ANN001
     """오래된 스냅샷부터 삭제해 최근 keep 개만 남긴다. 삭제 수 반환."""
     files = sorted(bdir.glob("claire-*.db"))
@@ -358,6 +371,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser("doctor", help="check environment").set_defaults(func=cmd_doctor)
+    sub.add_parser("health", help="system health json (db/queues/inbox/backup)").set_defaults(func=cmd_health)
     sub.add_parser("status", help="full status: ops / db / progress / connections").set_defaults(func=cmd_status)
     sub.add_parser("stats", help="graph counts only").set_defaults(func=cmd_stats)
     sub.add_parser("bot", help="run telegram bot (long-polling)").set_defaults(func=cmd_bot)
