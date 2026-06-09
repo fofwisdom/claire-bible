@@ -154,6 +154,33 @@ def run_api() -> int:
             return web.json_response({"error": "not found"}, status=404)
         return web.json_response(rep)
 
+    async def synthesize_route(request):
+        # 비용 있는 LLM 종합 → /ingest 와 같은 토큰 인증 + 명시적 POST 만(자동 아님).
+        if not _authed(request):
+            return web.json_response({"error": "unauthorized"}, status=401)
+        import asyncio
+
+        from ..graphview import synthesize as _syn
+
+        try:
+            body = await request.json()
+        except Exception:  # noqa: BLE001
+            return web.json_response({"error": "invalid json"}, status=400)
+        ids = body.get("node_ids") or []
+        if not ids:
+            return web.json_response({"error": "node_ids required"}, status=400)
+        query = body.get("query")
+
+        def _s():
+            conn = dbm.connect(s.db_file)
+            dbm.init_db(conn)
+            try:
+                return _syn(conn, svc.provider, ids, query)
+            finally:
+                conn.close()
+
+        return web.json_response(await asyncio.to_thread(_s))
+
     app = web.Application()
     app.add_routes([
         web.get("/health", health),
@@ -164,6 +191,7 @@ def run_api() -> int:
         web.get("/", graph_ui),
         web.get("/graph", graph_data),
         web.get("/node", node_detail),
+        web.post("/synthesize", synthesize_route),
     ])
     print(f"claire inject API 시작: http://{s.inject_host}:{s.inject_port} "
           f"(token {'설정됨' if s.inject_token else '없음!'})")

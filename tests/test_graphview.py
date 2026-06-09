@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import sqlite3
 
-from claire.graphview import graph_json, node_detail, GRAPH_HTML
+from claire.graphview import (
+    graph_json, node_detail, synthesis_context, synthesize, GRAPH_HTML,
+)
+from claire.extract.provider import MockProvider
 from claire.ontology.base import Document, Entity, Relation
 from claire.store import db as dbm
 
@@ -85,3 +88,48 @@ def test_node_detail_assembles_knowledge():
 
 def test_node_detail_missing_returns_none():
     assert node_detail(_db(), "nope") is None
+
+
+def _seed_two(conn):
+    dbm.insert_document(conn, Document(id="d1", url="https://x/1", title="MCP 문서",
+                                       raw_text=".", source_type="web", content_hash="h"))
+    dbm.log_extraction(conn, document_id="d1", provider="mock", model="m",
+                       prompt_version="v", raw_response='{"summary":"MCP는 컨텍스트 표준"}')
+    dbm.upsert_entity(conn, Entity(id="e1", type="Concept", name="MCP",
+                                   aliases=["Model Context Protocol"],
+                                   observations=["LLM 컨텍스트 표준"], sources=["d1"]))
+    dbm.upsert_entity(conn, Entity(id="e2", type="Tool", name="Claude Code",
+                                   observations=["CLI agent"], sources=["d1"]))
+    dbm.upsert_relation(conn, Relation(id="r1", type="uses",
+                                       source_id="e2", target_id="e1", sources=["d1"]))
+
+
+def test_synthesis_context_assembles_knowledge():
+    """종합 컨텍스트(결정론적): 선택 노드의 관찰·연결·출처요약을 모은다."""
+    conn = _db()
+    _seed_two(conn)
+    ctx, names = synthesis_context(conn, ["e1", "e2"])
+    assert names == ["MCP", "Claude Code"]
+    assert "LLM 컨텍스트 표준" in ctx          # 관찰
+    assert "Model Context Protocol" in ctx     # 별칭
+    assert "uses" in ctx                        # 연결
+    assert "MCP는 컨텍스트 표준" in ctx         # 출처요약
+    # 존재하지 않는 id 는 무시
+    ctx2, names2 = synthesis_context(conn, ["e1", "ghost"])
+    assert names2 == ["MCP"]
+
+
+def test_synthesize_routes_context_through_provider():
+    """종합 경로 연결: context 가 provider.summarize_search 로 흘러가 답이 나온다(mock)."""
+    conn = _db()
+    _seed_two(conn)
+    out = synthesize(conn, MockProvider(), ["e1", "e2"])
+    assert "error" not in out
+    assert out["entities"] == ["MCP", "Claude Code"]
+    # mock 은 query::context 를 반환 → 컨텍스트(관찰)가 답에 포함됨
+    assert "LLM 컨텍스트 표준" in out["answer"]
+
+
+def test_synthesize_empty_selection():
+    assert "error" in synthesize(_db(), MockProvider(), [])
+    assert "error" in synthesize(_db(), MockProvider(), ["ghost"])

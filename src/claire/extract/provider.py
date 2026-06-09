@@ -161,6 +161,13 @@ class MockProvider:
         names = {mc.cand_name.casefold(), *(a.casefold() for a in mc.cand_aliases)}
         return mc.new_name.casefold() in names
 
+    def summarize_search(self, query: str, context: str) -> str:
+        """결정론적 stub — 종합/검색 경로를 mock 으로 테스트 가능하게(실제 정리는 Gemini).
+
+        실제 종합 품질은 실 Gemini 로 검증한다. 여기선 query·context 가 흘러들어가
+        답으로 나오는지(파이프라인 연결)만 결정론적으로 보장한다."""
+        return f"[mock] {query} :: {context[:120]}"
+
 
 def get_provider(settings) -> Provider:  # noqa: ANN001
     """effective_provider 에 따라 provider 인스턴스 반환.

@@ -186,7 +186,9 @@ class GeminiProvider:
             "You answer the user's query using ONLY the knowledge-base context below. "
             "Do not invent facts beyond it. Cite entities in [brackets]. "
             "If the context is insufficient, say so plainly. "
-            "Answer in the query's language, concise.\n\n"
+            "Write the answer in Korean (한국어), but keep proper nouns, product/tool "
+            "names, and technical terms in their original form (do not transliterate). "
+            "Be concise.\n\n"
             f"QUERY: {query}\n\nCONTEXT:\n{context}\n\nANSWER:"
         )
         resp = self._call(lambda: self.client.models.generate_content(
