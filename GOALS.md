@@ -40,21 +40,21 @@
 > 검증 주의: mock provider는 프롬프트를 무시하고 judge가 결정론적 → **프롬프트/judge 의존 항목은 mock으로 검증 불가**(실 Gemini 필요). 결정론적 항목만 eval 하니스로 반증 가능. (사용자 결정: 결정론적 먼저, quota 0)
 - [x] (완료 2026-06-09) **약어 동의어 수렴** (MCP ↔ Model Context Protocol) — resolver 단계 2.5 결정론적 이니셜 매칭(같은 타입+길이≥3). eval 하니스 4케이스(양방향 merge + 다른타입/2글자 must-not), 회귀검증 완료.
 - [x] (완료 2026-06-09) **dedup을 content_hash AND canonical_url** — same canonical_url + 다른 content_hash → in-place 갱신(`IngestReport.updated`, sources 연결 보존). naive skip/중복노드 모두 회피. 회귀검증 완료.
-- [~] **출처 플랫폼 엔티티화 억제** (GeekNews/PyTorchKR가 Org 노드) — 추출 프롬프트 v2에 억제 규칙 추가(코드 완료). ⚠️**실 Gemini before/after 검증 미완: 2026-06-09 Gemini 크레딧 소진(prepayment depleted)으로 호출 불가. 크레딧 충전 후 검증 필요**(대표 문서로 플랫폼 엔티티 미생성 확인).
+- [x] (완료 2026-06-10) **출처 플랫폼 엔티티화 억제** (GeekNews/PyTorchKR가 Org 노드) — 추출 프롬프트 v2 억제 규칙. **실 Gemini before/after 검증 완료**(크레딧 충전 후): GeekNews·PyTorch Korea가 v2에서 엔티티에서 제거됨, 콘텐츠 엔티티(Claude Code/Anthropic/vLLM/PagedAttention)는 보존.
 - [ ] static 경로 boilerplate 제거 — **사용자 보류**(본문 깎을 위험)
 - [ ] eval 하니스 확장 (변경 항목마다 라벨 케이스 추가 — 침묵 악화 방지)
 
 ### 트랙 3 — 검색 · UX · 웹 UI
-- [ ] 그래프 시각화 웹 UI (미구현, 개인용 로컬)
+- [x] (완료 2026-06-10) **그래프 시각화 웹 UI** — inject API에 `/`(vis.js 정적 페이지)·`/graph`(JSON). 읽기전용·loopback·타입별 색상·검색 강조. playwright 실렌더 검증(스크린샷). 브라우저: `ssh -L 8765:127.0.0.1:8765` 터널 후 `localhost:8765`.
 - [ ] 검색 품질/필터 고도화
 - [ ] 텔레그램 UX 개선
 
 ---
 
 ## 3. 하드닝 버킷 (트랙 무관, 발견 시 적재)
-- `config.py` 기본 모델값 `gemini-2.0-flash` ≠ 운영값 `gemini-3.1-flash-lite` 드리프트 (.env 누락 시 조용히 잘못된 모델 사용) — 기본값을 운영값과 일치
-- CI 부재 (테스트 73개+ 있으나 자동 실행 없음)
-- DB 스키마 마이그레이션 체계 (현재 `init_db` ad-hoc)
+- [x] (완료 2026-06-09) `config.py` 기본 모델값 드리프트 → `gemini-3.1-flash-lite` 로 일치
+- [x] (완료 2026-06-09) DB 스키마 마이그레이션 체계 → `_ensure_column`/`_migrate`(멱등, race 내성)
+- [ ] CI 부재 (테스트 103개 있으나 자동 실행 없음)
 
 ---
 
