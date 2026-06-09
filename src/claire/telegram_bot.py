@@ -234,6 +234,24 @@ def run_bot() -> int:
         query = update.callback_query
         await query.answer()
         data = query.data or ""
+        if data.startswith("auth:"):
+            # 웹 UI 접속 승인 — 소유자만. DB 에 세션 토큰 발급(웹이 poll 로 수령).
+            user = update.effective_user
+            if not _is_allowed(user.id if user else None):
+                return
+            from .store import db as dbm
+
+            conn = dbm.connect(svc.s.db_file)
+            try:
+                dbm.init_db(conn)
+                tok = dbm.approve_auth_nonce(conn, data[5:])
+            finally:
+                conn.close()
+            # 메시지 편집 = 버튼 제거(reply_markup 미지정 → 제거).
+            await query.edit_message_text(
+                "✅ 웹 접속이 승인되었습니다. 브라우저로 돌아가세요."
+                if tok else "⚠️ 만료되었거나 이미 처리된 요청입니다.")
+            return
         if data.startswith("no:"):
             pending.pop(data[3:], None)
             await query.edit_message_reply_markup(reply_markup=None)

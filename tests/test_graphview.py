@@ -77,6 +77,9 @@ def test_graph_html_self_contained_markers():
     assert "id=\"docs\"" in GRAPH_HTML and "selectDoc" in GRAPH_HTML    # 좌측 문서 패널
     assert "id=\"legend\"" in GRAPH_HTML and "TYPE_COLORS" in GRAPH_HTML  # 색 범례
     assert "hoverNode" in GRAPH_HTML and "blurNode" in GRAPH_HTML       # hover 미리보기
+    assert "ensureSession" in GRAPH_HTML and "auth/request" in GRAPH_HTML  # 세션 인증
+    assert "X-Session" in GRAPH_HTML
+    assert "semanticSearch" in GRAPH_HTML and "id=\"sem\"" in GRAPH_HTML  # 의미검색 토글
 
 
 def test_documents_list_newest_first_with_summary(_unused=None):

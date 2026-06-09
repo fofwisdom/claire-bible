@@ -184,7 +184,8 @@ GRAPH_HTML = """<!doctype html>
 </style></head>
 <body>
 <div id="bar">claire_bible 지식 그래프 — <span id="stat">로딩…</span>
-  <input id="q" placeholder="이름 검색(엔터=해당 노드로 이동)" oninput="hl(this.value)"/>
+  <input id="q" placeholder="검색(엔터)" oninput="onSearchInput(this.value)"/>
+  <label style="font-size:12px;margin-left:4px"><input type="checkbox" id="sem" style="width:auto;margin:0"/> 의미</label>
   <button id="synthbtn" onclick="synth()">🧩 선택 노드 종합</button>
   <label id="flab">연결 ≥ <b id="fmin">0</b>
     <input id="fslider" type="range" min="0" max="0" value="0" oninput="setDeg(this.value)"/></label>
@@ -290,23 +291,36 @@ function hl(q){
   else if(!q && net){ net.unselectAll(); net.fit({animation:true}); }
 }
 document.getElementById('q').addEventListener('keydown',e=>{
-  if(e.key==='Enter'){ const m=net.getSelectedNodes(); if(m.length) loadNode(m[0]); }
+  if(e.key!=='Enter') return;
+  if(document.getElementById('sem').checked){ semanticSearch(e.target.value); }
+  else { const m=net.getSelectedNodes(); if(m.length) loadNode(m[0]); }
 });
-function token(){
-  let t = localStorage.getItem('claire_token') || '';
-  if(!t){ t = prompt('inject token (CLAIRE_INJECT_TOKEN):') || '';
-          if(t) localStorage.setItem('claire_token', t); }
-  return t;
+// 텔레그램 버튼 승인 → 세션. 토큰 입력 대신, 봇이 보낸 버튼을 누르면 자동으로 이어진다.
+async function ensureSession(){
+  let sess = localStorage.getItem('claire_session');
+  if(sess) return sess;
+  let d;
+  try { d = await (await fetch('auth/request',{method:'POST'})).json(); }
+  catch(e){ alert('승인 요청 실패: '+e); return null; }
+  if(d.error){ alert('승인 요청 실패: '+d.error); return null; }
+  panel.innerHTML='<p class=hint>🔐 텔레그램으로 승인 버튼을 보냈습니다.<br>승인하면 자동으로 이어집니다… (10분 내)</p>';
+  for(let i=0;i<150;i++){            // 2s × 150 = 5분 폴링(nonce 만료 10분 내)
+    await new Promise(r=>setTimeout(r,2000));
+    const p = await (await fetch('auth/poll?nonce='+encodeURIComponent(d.nonce))).json();
+    if(p.session){ localStorage.setItem('claire_session', p.session); return p.session; }
+  }
+  alert('승인 시간 초과. 다시 시도하세요.'); return null;
 }
-function synth(){
+async function synth(){
   if(!net){ return; }
   const ids = net.getSelectedNodes();
   if(!ids.length){ alert('노드를 먼저 선택하세요 (클릭 또는 검색 후 매치 선택).'); return; }
+  const sess = await ensureSession(); if(!sess) return;
   panel.innerHTML='<p class=hint>🧩 '+ids.length+'개 노드 종합 중… (LLM 호출)</p>';
   fetch('synthesize',{method:'POST',
-    headers:{'Content-Type':'application/json','X-Token':token()},
+    headers:{'Content-Type':'application/json','X-Session':sess},
     body:JSON.stringify({node_ids:ids})})
-   .then(r=> r.status===401 ? (localStorage.removeItem('claire_token'),{error:'인증 실패 — 토큰을 다시 입력하세요'}) : r.json())
+   .then(r=> r.status===401 ? (localStorage.removeItem('claire_session'),{error:'세션 만료 — 다시 승인하세요'}) : r.json())
    .then(d=>{
      if(d.error){ panel.innerHTML='<p class=hint>오류: '+esc(d.error)+'</p>'; return; }
      let h='<h2>🧩 종합 지식 <small>'+d.entities.length+'개 노드</small></h2>';
@@ -315,6 +329,23 @@ function synth(){
      panel.innerHTML=h;
    }).catch(e=>{ panel.innerHTML='<p class=hint>요청 실패: '+esc(String(e))+'</p>'; });
 }
+// 의미 검색(체크 시): 백엔드 하이브리드(FTS+벡터) 호출 → 결과 노드 강조(키워드 안 겹쳐도).
+async function semanticSearch(q){
+  q=(q||'').trim(); if(!q) return;
+  const sess = await ensureSession(); if(!sess) return;
+  const r = await fetch('search',{method:'POST',
+    headers:{'Content-Type':'application/json','X-Session':sess},
+    body:JSON.stringify({query:q, summarize:false, limit:12})});
+  if(r.status===401){ localStorage.removeItem('claire_session'); alert('세션 만료 — 다시 승인하세요'); return; }
+  const d = await r.json();
+  const ids=(d.hits||[]).map(h=>h.id).filter(Boolean);
+  const set=new Set(ids);
+  allNodes.forEach(n=>{ const on=set.has(n.id);
+    allNodes.update({id:n.id, color:on?'#7ee787':undefined, font:{color:on?'#7ee787':'#d7dbe0'}}); });
+  if(ids.length){ net.selectNodes(ids); net.focus(ids[0],{scale:1.1,animation:true}); }
+  else { document.getElementById('stat').innerHTML='의미검색: 결과 없음'; }
+}
+function onSearchInput(v){ if(!document.getElementById('sem').checked) hl(v); }
 fetch('documents').then(r=>r.json()).then(d=>{ allDocs=d.documents||[]; renderDocs(); });
 </script></body></html>
 """

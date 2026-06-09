@@ -39,11 +39,24 @@ def run_api() -> int:
     svc = IngestService(s)
 
     def _authed(request) -> bool:
+        # 1) bearer 토큰 — 프로그래밍 호출자(CLI/replay_sample). 토큰 미설정이면 개방(loopback 기본).
         if not s.inject_token:
             return True
         auth = request.headers.get("Authorization", "")
         token = auth[7:] if auth.startswith("Bearer ") else request.headers.get("X-Token", "")
-        return token == s.inject_token
+        if token == s.inject_token:
+            return True
+        # 2) 텔레그램 승인 세션(브라우저) — bearer 를 대체하지 않고 추가.
+        sess = request.headers.get("X-Session", "")
+        if sess:
+            conn = dbm.connect(s.db_file)
+            try:
+                dbm.init_db(conn)
+                if dbm.validate_session(conn, sess):
+                    return True
+            finally:
+                conn.close()
+        return False
 
     async def health(_request):
         import asyncio
@@ -108,7 +121,7 @@ def run_api() -> int:
         return web.json_response({
             "query": result.query,
             "answer": result.answer,
-            "hits": [{"type": h.entity.type, "name": h.entity.name,
+            "hits": [{"id": h.entity.id, "type": h.entity.type, "name": h.entity.name,
                       "via": h.via, "score": h.score} for h in result.hits],
         })
 
@@ -146,6 +159,70 @@ def run_api() -> int:
                 conn.close()
 
         return web.json_response(await asyncio.to_thread(_d))
+
+    # nonce 승인 대기 시간(초). 이 안에 텔레그램 버튼을 안 누르면 만료 + 버튼 제거.
+    AUTH_NONCE_TTL = 600.0
+
+    async def auth_request(_request):
+        # 웹이 세션을 얻기 위한 시작점: nonce 발급 + 소유자에게 승인 버튼 전송.
+        import asyncio
+
+        from ..notify import expire_button, send_approval_button
+
+        def _new():
+            conn = dbm.connect(s.db_file)
+            dbm.init_db(conn)
+            try:
+                return dbm.create_auth_nonce(conn, ttl=AUTH_NONCE_TTL)
+            finally:
+                conn.close()
+
+        nonce = await asyncio.to_thread(_new)
+        msg_id = await asyncio.to_thread(
+            send_approval_button, s.telegram_bot_token, s.notify_chat_id,
+            "🔐 claire 웹 UI 접속 승인 요청\n승인하면 이 브라우저에서 종합 기능을 쓸 수 있습니다.",
+            nonce)
+        if not msg_id:
+            return web.json_response(
+                {"error": "승인 버튼 전송 실패(봇 토큰/chat 미설정)"}, status=503)
+
+        async def _expire_later():
+            # 일정시간 내 미승인이면 버튼 제거 + 만료 안내(스팸 방지, 사용자 요구).
+            await asyncio.sleep(AUTH_NONCE_TTL)
+
+            def _still_pending():
+                conn = dbm.connect(s.db_file)
+                dbm.init_db(conn)
+                try:
+                    return dbm.poll_auth_nonce(conn, nonce) is None  # 승인됐으면 token!=None
+                finally:
+                    conn.close()
+
+            if await asyncio.to_thread(_still_pending):
+                await asyncio.to_thread(
+                    expire_button, s.telegram_bot_token, s.notify_chat_id, msg_id)
+
+        asyncio.create_task(_expire_later())
+        return web.json_response({"nonce": nonce})
+
+    async def auth_poll(request):
+        # 비인증(세션을 *얻기 위한* 폴링이라 닭-달걀). 승인된 nonce 만 토큰 반환.
+        import asyncio
+
+        nonce = request.query.get("nonce", "")
+        if not nonce:
+            return web.json_response({"error": "nonce required"}, status=400)
+
+        def _p():
+            conn = dbm.connect(s.db_file)
+            dbm.init_db(conn)
+            try:
+                return dbm.poll_auth_nonce(conn, nonce)
+            finally:
+                conn.close()
+
+        tok = await asyncio.to_thread(_p)
+        return web.json_response({"session": tok} if tok else {"pending": True})
 
     async def node_detail(request):
         import asyncio
@@ -208,6 +285,9 @@ def run_api() -> int:
         web.get("/node", node_detail),
         web.get("/documents", documents_list_route),
         web.post("/synthesize", synthesize_route),
+        # 웹 UI 인증(텔레그램 버튼 승인 → 세션). poll 은 비인증(세션 획득용).
+        web.post("/auth/request", auth_request),
+        web.get("/auth/poll", auth_poll),
     ])
     print(f"claire inject API 시작: http://{s.inject_host}:{s.inject_port} "
           f"(token {'설정됨' if s.inject_token else '없음!'})")

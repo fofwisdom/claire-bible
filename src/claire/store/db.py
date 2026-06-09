@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import re
+import secrets
 import sqlite3
 import time
 from pathlib import Path
@@ -148,6 +149,17 @@ CREATE TABLE IF NOT EXISTS refresh_queue (
     updated_at REAL
 );
 CREATE INDEX IF NOT EXISTS idx_refresh_status ON refresh_queue(status);
+
+-- [웹 UI 인증] 텔레그램 버튼 승인 기반 세션. API 가 nonce 발급(버튼 전송) → 봇이
+-- 콜백에서 승인+세션토큰 기록 → 웹이 poll 로 토큰 수령. 2프로세스(API·봇) 공유 상태라
+-- in-memory 가 아니라 이 테이블에 둔다.
+CREATE TABLE IF NOT EXISTS auth_sessions (
+    nonce TEXT PRIMARY KEY,
+    session_token TEXT,
+    approved INTEGER DEFAULT 0,
+    created_at REAL,
+    expires_at REAL
+);
 
 -- FTS5 키워드 인덱스 (엔티티 이름 + 관찰). content 테이블과 분리된 standalone FTS.
 CREATE VIRTUAL TABLE IF NOT EXISTS entities_fts USING fts5(
@@ -598,6 +610,55 @@ def log_extraction(
         (document_id, provider, model, prompt_version, raw_response, time.time()),
     )
     conn.commit()
+
+
+def create_auth_nonce(conn: sqlite3.Connection, *, ttl: float = 600.0) -> str:
+    """웹 접속 승인 요청 nonce 생성(승인 대기 ttl초). 추측 불가 토큰."""
+    nonce = secrets.token_urlsafe(16)
+    now = time.time()
+    conn.execute(
+        "INSERT INTO auth_sessions(nonce,approved,created_at,expires_at) VALUES (?,0,?,?)",
+        (nonce, now, now + ttl))
+    conn.commit()
+    return nonce
+
+
+def approve_auth_nonce(
+    conn: sqlite3.Connection, nonce: str, *, session_ttl: float = 86400.0
+) -> str | None:
+    """[봇 콜백] 미승인·미만료 nonce 를 승인하고 세션 토큰 발급(만료 갱신). 없으면 None."""
+    row = conn.execute(
+        "SELECT expires_at FROM auth_sessions WHERE nonce=? AND approved=0", (nonce,)
+    ).fetchone()
+    if row is None or row["expires_at"] < time.time():
+        return None
+    token = secrets.token_urlsafe(24)
+    now = time.time()
+    conn.execute(
+        "UPDATE auth_sessions SET approved=1, session_token=?, expires_at=? WHERE nonce=?",
+        (token, now + session_ttl, nonce))
+    conn.commit()
+    return token
+
+
+def poll_auth_nonce(conn: sqlite3.Connection, nonce: str) -> str | None:
+    """[웹 폴링] 승인됐으면 세션 토큰 반환(미승인/만료면 None)."""
+    row = conn.execute(
+        "SELECT session_token, approved, expires_at FROM auth_sessions WHERE nonce=?",
+        (nonce,)).fetchone()
+    if row and row["approved"] and row["expires_at"] >= time.time():
+        return row["session_token"]
+    return None
+
+
+def validate_session(conn: sqlite3.Connection, token: str) -> bool:
+    """세션 토큰이 유효(승인됨 + 미만료)한가. 비용 엔드포인트 게이트용(재사용 헬퍼)."""
+    if not token:
+        return False
+    row = conn.execute(
+        "SELECT expires_at FROM auth_sessions WHERE session_token=? AND approved=1",
+        (token,)).fetchone()
+    return bool(row and row["expires_at"] >= time.time())
 
 
 def latest_extraction_summary(conn: sqlite3.Connection, document_id: str) -> str | None:
