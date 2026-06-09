@@ -132,15 +132,38 @@ def run_api() -> int:
 
         return web.Response(text=GRAPH_HTML, content_type="text/html")
 
+    async def node_detail(request):
+        import asyncio
+
+        from ..graphview import node_detail as _detail
+
+        nid = request.query.get("id", "")
+        if not nid:
+            return web.json_response({"error": "id required"}, status=400)
+
+        def _d():
+            conn = dbm.connect(s.db_file)
+            dbm.init_db(conn)
+            try:
+                return _detail(conn, nid)
+            finally:
+                conn.close()
+
+        rep = await asyncio.to_thread(_d)
+        if rep is None:
+            return web.json_response({"error": "not found"}, status=404)
+        return web.json_response(rep)
+
     app = web.Application()
     app.add_routes([
         web.get("/health", health),
         web.get("/stats", stats),
         web.post("/ingest", do_ingest),
         web.post("/search", do_search),
-        # 읽기전용 그래프 뷰어(loopback). / = HTML, /graph = vis.js JSON.
+        # 읽기전용 그래프 뷰어(loopback). / = HTML, /graph = vis.js JSON, /node = 상세.
         web.get("/", graph_ui),
         web.get("/graph", graph_data),
+        web.get("/node", node_detail),
     ])
     print(f"claire inject API 시작: http://{s.inject_host}:{s.inject_port} "
           f"(token {'설정됨' if s.inject_token else '없음!'})")

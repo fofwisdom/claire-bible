@@ -592,6 +592,21 @@ def log_extraction(
     conn.commit()
 
 
+def latest_extraction_summary(conn: sqlite3.Connection, document_id: str) -> str | None:
+    """문서의 최신 추출 결과에서 summary 를 꺼낸다(documents 엔 summary 컬럼이 없고
+    extractions.raw_response = ExtractionResult JSON 에 들어있다). 노드 상세 패널용."""
+    row = conn.execute(
+        "SELECT raw_response FROM extractions WHERE document_id=? ORDER BY id DESC LIMIT 1",
+        (document_id,),
+    ).fetchone()
+    if not row or not row["raw_response"]:
+        return None
+    try:
+        return json.loads(row["raw_response"]).get("summary") or None
+    except (ValueError, AttributeError):
+        return None
+
+
 # --- refresh queue (복원 메커니즘) ---
 
 def enqueue_refresh(
