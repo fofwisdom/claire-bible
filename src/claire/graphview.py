@@ -217,7 +217,7 @@ const TYPE_COLORS = {Tool:'#58a6ff',Framework:'#bc8cff',Model:'#f778ba',Paper:'#
   Event:'#a5d6ff',Note:'#8b949e'};
 const DIM = 0.16;
 let net, allNodes, allEdges, allDocs=[];
-let curMinDeg=0, activeDoc=null, selectedNodeId=null, hoverTimer=null;
+let curMinDeg=0, activeDoc=null, highlightSet=null, selectedNodeId=null, hoverTimer=null;
 let synthSet=new Set(), authTimer=null;
 const panel = document.getElementById('panel');
 function esc(s){return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
@@ -275,14 +275,18 @@ function renderPanel(d){
   panel.innerHTML=h;
 }
 
-// degree(스케일)=hidden, 문서 비매치(맥락)=dim → 서로 다른 vis 속성이라 충돌하지 않음.
+// 단일 가시 규칙: degree(스케일)=hidden, 강조 필터(문서 선택 + 검색)=비매치 dim.
+// 문서/라벨검색/의미검색이 모두 같은 강조 방식을 공유한다(시각 언어 통일).
 function setDeg(v){ curMinDeg=+v; document.getElementById('fmin').textContent=v; applyView(); }
 function applyView(){
   if(!allNodes) return;
   let shown=0, emph=0;
+  const hasFilter = activeDoc || highlightSet;
   allNodes.forEach(n=>{
     if(n.degree < curMinDeg){ allNodes.update({id:n.id, hidden:true}); return; }
-    const match = !activeDoc || (n.sources||[]).includes(activeDoc);
+    let match = true;
+    if(activeDoc) match = match && (n.sources||[]).includes(activeDoc);
+    if(highlightSet) match = match && highlightSet.has(n.id);  // 검색(라벨/의미) 강조 집합
     allNodes.update({id:n.id, hidden:false, opacity: match?1:DIM});
     shown++; if(match) emph++;
   });
@@ -290,7 +294,7 @@ function applyView(){
     allEdges.update({id:e.id, hidden: !(f && t && !f.hidden && !t.hidden)}); });
   document.getElementById('stat').innerHTML =
     '표시 <b>'+shown+'</b>/'+allNodes.length
-    + (curMinDeg>0?' · 연결≥'+curMinDeg:'') + (activeDoc?' · 문서 '+emph+'개':'');
+    + (curMinDeg>0?' · 연결≥'+curMinDeg:'') + (hasFilter?' · 강조 '+emph+'개':'');
 }
 
 // --- 좌측 문서 패널(일자별 그룹) ---
@@ -328,15 +332,16 @@ function renderChips(){
 
 // --- 검색: 즉시 라벨 매칭(기본) vs 의미검색 버튼(체크 시) ---
 function onSearchInput(v){ if(!document.getElementById('sem').checked) hl(v); }
+// 라벨 검색: 매치 강조 + 나머지 dim(문서 선택과 동일 방식). 색칠 대신 highlightSet+applyView.
 function hl(q){
   if(!allNodes) return;
   q=q.trim().toLowerCase();
+  if(!q){ highlightSet=null; applyView(); if(net){ net.unselectAll(); net.fit({animation:true}); } return; }
   const matches=[];
-  allNodes.forEach(n=>{ const on = q && n.label.toLowerCase().includes(q);
-    if(on) matches.push(n.id);
-    allNodes.update({id:n.id, color: on?'#7ee787':undefined, font:{color:on?'#7ee787':'#d7dbe0'}}); });
-  if(matches.length){ net.selectNodes(matches); net.focus(matches[0],{scale:1.1,animation:true}); }
-  else if(!q && net){ net.unselectAll(); net.fit({animation:true}); }
+  allNodes.forEach(n=>{ if(n.label.toLowerCase().includes(q)) matches.push(n.id); });
+  highlightSet = new Set(matches);
+  applyView();
+  if(matches.length && net){ net.selectNodes(matches); net.focus(matches[0],{scale:1.1,animation:true}); }
 }
 document.getElementById('sem').addEventListener('change',e=>{
   document.getElementById('searchbtn').style.display = e.target.checked?'':'none';
@@ -408,12 +413,11 @@ async function semanticSearch(q){
   catch(e){ document.getElementById('stat').textContent='검색 실패'; return; }
   if(r.status===401){ on401(); alert('세션 만료 — 다시 승인하세요'); return; }
   const d=await r.json();
-  const ids=(d.hits||[]).map(h=>h.id).filter(Boolean), set=new Set(ids);
-  allNodes.forEach(n=>{ const on=set.has(n.id);
-    allNodes.update({id:n.id, color:on?'#7ee787':undefined, font:{color:on?'#7ee787':'#d7dbe0'}}); });
-  if(ids.length){ net.selectNodes(ids); net.focus(ids[0],{scale:1.1,animation:true});
-    document.getElementById('stat').innerHTML='🔎 의미검색: <b>'+ids.length+'</b>개'; }
-  else { document.getElementById('stat').textContent='🔎 결과 없음'; }
+  const ids=(d.hits||[]).map(h=>h.id).filter(Boolean);
+  highlightSet = new Set(ids);   // 라벨 검색과 동일하게 강조+dim 방식 사용
+  applyView();
+  if(ids.length && net){ net.selectNodes(ids); net.focus(ids[0],{scale:1.1,animation:true}); }
+  if(!ids.length){ document.getElementById('stat').textContent='🔎 의미검색: 결과 없음'; }
 }
 
 setAuth(localStorage.getItem('claire_session') ? 'authed' : 'idle');
