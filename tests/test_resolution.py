@@ -86,6 +86,31 @@ CASES: list[ResCase] = [
         new_name="Mimalloc", new_type="Tool", new_vec=[0.0, 0.0, 1.0, 0.0],
         judge_returns=False, expect_merge=False, expect_embed_calls=1,
     ),
+    # --- 약어 동의어 수렴 (결정론적, 임베딩 불필요) ---
+    ResCase(
+        label="acronym: MCP <- Model Context Protocol (full seeded, acronym new)",
+        seed=[SeedEnt("Model Context Protocol", "Concept", [1, 0, 0, 0])],
+        new_name="MCP", new_type="Concept", new_vec=[0, 1, 0, 0],
+        judge_returns=False, expect_merge=True, expect_embed_calls=0,
+    ),
+    ResCase(
+        label="acronym reverse: Model Context Protocol <- MCP (acronym seeded)",
+        seed=[SeedEnt("MCP", "Concept", [1, 0, 0, 0])],
+        new_name="Model Context Protocol", new_type="Concept", new_vec=[0, 1, 0, 0],
+        judge_returns=False, expect_merge=True, expect_embed_calls=0,
+    ),
+    ResCase(
+        label="acronym MUST NOT merge across different types",
+        seed=[SeedEnt("Model Context Protocol", "Concept", [1, 0, 0, 0])],
+        new_name="MCP", new_type="Tool", new_vec=[0, 0, 1, 0],  # 타입 다름 → 분리
+        judge_returns=False, expect_merge=False, expect_embed_calls=1,
+    ),
+    ResCase(
+        label="2-letter acronym MUST NOT auto-converge (AI ambiguous)",
+        seed=[SeedEnt("Artificial Intelligence", "Concept", [1, 0, 0, 0])],
+        new_name="AI", new_type="Concept", new_vec=[0, 0, 1, 0],  # 2글자 → 결정론 제외
+        judge_returns=False, expect_merge=False, expect_embed_calls=1,
+    ),
 ]
 
 

@@ -15,6 +15,7 @@ M3 설계(advisor 반영):
 
 from __future__ import annotations
 
+import re
 import sqlite3
 from typing import Callable
 
@@ -28,6 +29,22 @@ AUTO_MERGE = 0.93
 CANDIDATE_FLOOR = 0.72
 # judge 호출 상한(엔티티당) — 비용/지연 통제.
 MAX_JUDGE = 3
+# 약어 동의어 수렴 최소 길이. 2글자(AI/ML 등)는 충돌 위험이 커 결정론적 매칭에서 제외.
+ACRONYM_MIN = 3
+
+
+def _acronym_of(name: str) -> str:
+    """멀티워드 이름의 이니셜 약어. 'Model Context Protocol' -> 'MCP'. 단어<2면 ''."""
+    words = [w for w in re.split(r"[\s\-]+", name.strip()) if w]
+    if len(words) < 2:
+        return ""
+    return "".join(w[0] for w in words).upper()
+
+
+def _is_acronym_token(name: str) -> bool:
+    """이름 자체가 약어 토큰인가('MCP' 처럼 길이>=3 의 전부 대문자 알파벳)."""
+    s = name.strip()
+    return len(s) >= ACRONYM_MIN and s.isalpha() and s.isupper()
 
 EmbedFn = Callable[[], list[float]]
 # (new_name, new_type, new_observations, candidate) -> 동일체?
@@ -58,6 +75,26 @@ def resolve_or_create(
     for alias in aliases:
         for cand in dbm.find_entities_by_name_or_alias(conn, normalize_name(alias)):
             return _merge(conn, cand, aliases + [name], observations, document_id), False
+
+    # 2.5) 약어 ↔ 풀네임 결정론적 수렴 (임베딩 불필요, quota 0)
+    #   같은 타입 + 이니셜 정확 일치 + 약어 길이>=3 일 때만(다른 타입/2글자는 거짓병합 위험).
+    #   예: "MCP" <-> "Model Context Protocol". judge/임베딩 없이 결정론적으로 붙인다.
+    acr_self = _acronym_of(name)          # 새 이름이 멀티워드면 그 약어
+    new_is_acr = _is_acronym_token(name)  # 새 이름 자체가 약어 토큰인가
+    if (acr_self and len(acr_self) >= ACRONYM_MIN) or new_is_acr:
+        target_acr = name.strip().upper()
+        for cand in dbm.all_entities(conn):
+            if cand.type != etype:
+                continue
+            cand_names = [cand.name, *cand.aliases]
+            # 새=풀네임, 기존=약어  /  새=약어, 기존=풀네임
+            hit = (
+                (acr_self and len(acr_self) >= ACRONYM_MIN
+                 and any(normalize_name(n) == normalize_name(acr_self) for n in cand_names))
+                or (new_is_acr and any(_acronym_of(n) == target_acr for n in cand_names))
+            )
+            if hit:
+                return _merge(conn, cand, aliases + [name], observations, document_id), False
 
     # 3) miss → 이제서야 임베딩 1회 생성
     embedding = embed_fn() if embed_fn else None
