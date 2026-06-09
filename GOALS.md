@@ -57,6 +57,12 @@
 - [ ] static 경로 boilerplate (사용자 보류)
 - [ ] **degree 필터 유용성 평가 + ego-graph 검토** — 며칠 사용 후(사용자와)
 - [ ] **외부 접속 시나리오**(모바일/외부 PC) — 2026-06-11 설계 예정. 현재 loopback+텔레그램 세션이 기반. 외부 노출 시 TLS·바인드·읽기엔드포인트 게이팅 등 threat model 재설계 필요(사용자와).
+- [ ] **(2026-06-11) UI 4차 버그/UX** — 다수가 hover↔selection/highlightSet 결합이 뿌리(hover 미리보기를 선택/하이라이트와 완전 분리하면 ①⑤ 동시 해결):
+  - ① shift 다중선택 후 다른 노드 hover/leave 시 이전 선택 일부 취소됨(blur 의 `net.selectNodes([selectedNodeId])` 가 multiselect 를 단일로 덮음).
+  - ⑤ 검색(라벨/의미) 결과 하이라이트가 노드 hover 시 꺼짐(hover loadNode 가 selection/applyView 를 덮음 → blur 후 highlightSet 재적용 필요).
+  - ② 노드 선택 해제 수단 필요(빈 캔버스 클릭/ESC/지우기 — 종합용 묶기 편하게).
+  - ③ 검색어 입력 ↔ 문서선택 하이라이트 동시 사용 시나리오 정리(입력후 문서선택/선택후 입력 흐름이 깔끔히 합성되게 — activeDoc·highlightSet 합성은 되나 UX 흐름·해제 UI 불명확).
+  - ④ 입력창 포커스 시 텍스트 전체 선택(`focus` → `select()`).
 
 ---
 
