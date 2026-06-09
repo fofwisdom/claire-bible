@@ -57,6 +57,24 @@ def _is_retryable(err) -> bool:  # noqa: ANN001
                                   "UNAVAILABLE", "rate limit"))
 
 
+# daily quota 소진 신호: 짧은 백오프로는 안 풀리므로 즉시 fail-fast(분당 rate 와 구분).
+_DAILY_MARKERS = ("perday", "per day", "per-day", "daily limit", "daily quota")
+_DAILY_RETRY_THRESHOLD = 120.0  # retryDelay 가 이 이상이면 분당 rate 가 아니라 일일 소진
+
+
+def _is_daily_quota(err) -> bool:  # noqa: ANN001
+    """일일 quota 소진(=지금 재시도 무의미)인지. 분당 rate limit 과 구분.
+
+    보수적: daily 마커 또는 비정상적으로 큰 retryDelay 일 때만 True. 못 잡으면 기존대로
+    재시도(false-open 최소화 — 오판해 fail-fast 해도 recover-loop 가 긴 호라이즌에 회복).
+    """
+    msg = str(err).lower()
+    if any(m in msg for m in _DAILY_MARKERS):
+        return True
+    d = _retry_delay_from_error(err)
+    return d is not None and d >= _DAILY_RETRY_THRESHOLD
+
+
 class GeminiProvider:
     name = "gemini"
 
@@ -88,6 +106,11 @@ class GeminiProvider:
                 return fn()
             except Exception as e:  # noqa: BLE001
                 if not _is_retryable(e) or attempt == self.max_retries:
+                    raise
+                # circuit breaker(프로세스-로컬, 무상태): 일일 quota 소진은 짧은 백오프로
+                # 안 풀리므로 max_retries×60s 를 태우지 않고 즉시 raise → raw_inbox error →
+                # recover-loop 가 지수백오프(300s~)로 회복 담당.
+                if _is_daily_quota(e):
                     raise
                 last = e
                 delay = _retry_delay_from_error(e) or (2.0 ** attempt) * 3.0
