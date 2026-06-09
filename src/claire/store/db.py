@@ -158,6 +158,23 @@ CREATE VIRTUAL TABLE IF NOT EXISTS entities_fts USING fts5(
 """
 
 
+def backup_database(src: str | Path, dest: str | Path) -> Path:
+    """SQLite 정본을 일관된 단일 파일 스냅샷으로 복제(VACUUM INTO).
+
+    `VACUUM INTO` 는 WAL 을 반영한 트랜잭션 일관 스냅샷을 만들어, 봇/API 가 라이브로
+    쓰는 중에도 안전하다(파일 복사처럼 찢긴 상태를 뜨지 않음). 정본을 읽기만 하므로
+    새 실패 모드가 없다. dest 는 존재하지 않아야 한다(타임스탬프 파일명 권장).
+    """
+    dest = Path(dest)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    conn = connect(src)
+    try:
+        conn.execute("VACUUM INTO ?", (str(dest),))
+    finally:
+        conn.close()
+    return dest
+
+
 def connect(db_path: str | Path) -> sqlite3.Connection:
     p = Path(db_path)
     p.parent.mkdir(parents=True, exist_ok=True)

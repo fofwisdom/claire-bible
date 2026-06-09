@@ -45,3 +45,14 @@ services:
     # error inbox(rate-limit 등 일시실패)를 10분마다 지수백오프로 자동 재적재.
     # max_attempts 도달 시 'failed'(영구)로 굳혀 무한재시도 차단. 대상 없으면 무동작.
     command: ["uv", "run", "claire", "recover-loop", "--interval", "600", "--batch", "5"]
+
+  claire_backup:
+    build: .
+    container_name: claire_backup
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./data:/app/data      # 정본 읽기 + data/backups/ 에 스냅샷 기록
+      - ./vault:/app/vault
+    # 매일 1회 VACUUM INTO 스냅샷(생성 즉시 row count 로 복원가능 검증) + 최근 7개 보존.
+    command: ["uv", "run", "claire", "backup-loop", "--interval", "86400", "--keep", "7"]

@@ -289,6 +289,70 @@ def cmd_search(args) -> int:  # noqa: ANN001
     return 0
 
 
+def _prune_backups(bdir, keep: int) -> int:  # noqa: ANN001
+    """오래된 스냅샷부터 삭제해 최근 keep 개만 남긴다. 삭제 수 반환."""
+    files = sorted(bdir.glob("claire-*.db"))
+    excess = files[:-keep] if keep > 0 and len(files) > keep else []
+    for f in excess:
+        try:
+            f.unlink()
+        except OSError:
+            pass
+    return len(excess)
+
+
+def _do_backup(s, keep: int):  # noqa: ANN001
+    """스냅샷 1개 생성 → 복원 가능성 검증(snapshot counts==live) → 보존 정리.
+
+    반환: (dest_path, match: bool, snapshot_counts: dict)
+    """
+    import time
+
+    # 백업 직전 정본 스키마 보장(다른 모든 진입점과 동일한 init_db; 운영 DB 는 no-op,
+    # 첫 실행/빈 DB 만 테이블 생성). 스냅샷이 valid schema 를 담도록.
+    _c = dbm.connect(s.db_file)
+    dbm.init_db(_c)
+    _c.close()
+    bdir = s.data_dir / "backups"
+    dest = bdir / f"claire-{time.strftime('%Y%m%d-%H%M%S')}.db"
+    dbm.backup_database(s.db_file, dest)
+    # 파일이 생겼다 != 복원 가능 → 스냅샷을 실제로 열어 row count 를 live 와 대조.
+    live = dbm.connect(s.db_file)
+    snap = dbm.connect(dest)
+    try:
+        live_counts, snap_counts = dbm.counts(live), dbm.counts(snap)
+    finally:
+        live.close()
+        snap.close()
+    _prune_backups(bdir, keep)
+    return dest, (live_counts == snap_counts), snap_counts
+
+
+def cmd_backup(args) -> int:  # noqa: ANN001
+    """DB 스냅샷 1회 + 검증 + 보존 정리."""
+    s = get_settings()
+    dest, match, counts = _do_backup(s, args.keep)
+    print(f"백업 완료: {dest}")
+    print(f"  크기 {dest.stat().st_size:,}B · 스냅샷 {counts} · live와 일치={match}")
+    return 0 if match else 1
+
+
+def cmd_backup_loop(args) -> int:  # noqa: ANN001
+    """주기적 DB 스냅샷 데몬(전용 컨테이너용)."""
+    import time
+
+    s = get_settings()
+    print(f"claire backup-loop 시작 (interval={args.interval}s, keep={args.keep}). "
+          f"Ctrl+C 종료.", flush=True)
+    while True:
+        try:
+            dest, match, counts = _do_backup(s, args.keep)
+            print(f"[backup] {dest.name} · counts={counts} · live일치={match}", flush=True)
+        except Exception as e:  # noqa: BLE001
+            print(f"[backup] 오류: {e}", flush=True)
+        time.sleep(max(60, args.interval))
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="claire", description="claire_bible knowledge base")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -344,6 +408,15 @@ def build_parser() -> argparse.ArgumentParser:
     ps.add_argument("--limit", type=int, default=8)
     ps.add_argument("--no-summary", action="store_true", help="skip LLM summary")
     ps.set_defaults(func=cmd_search)
+
+    pb = sub.add_parser("backup", help="snapshot DB (VACUUM INTO) + verify restorable + prune")
+    pb.add_argument("--keep", type=int, default=7, help="최근 N개 보존")
+    pb.set_defaults(func=cmd_backup)
+
+    pbl = sub.add_parser("backup-loop", help="periodic DB snapshot daemon")
+    pbl.add_argument("--interval", type=int, default=86400, help="초 (기본 1일)")
+    pbl.add_argument("--keep", type=int, default=7)
+    pbl.set_defaults(func=cmd_backup_loop)
 
     return p
 
