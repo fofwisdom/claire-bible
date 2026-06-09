@@ -27,14 +27,31 @@ def test_graph_json_nodes_edges():
     dbm.upsert_relation(conn, Relation(id="r1", type="authored_by",
                                        source_id="e1", target_id="e2", sources=["d"]))
     g = graph_json(conn)
-    assert g["stats"] == {"entities": 2, "relations": 1}
+    assert g["stats"]["entities"] == 2 and g["stats"]["relations"] == 1
     ids = {n["id"] for n in g["nodes"]}
     assert ids == {"e1", "e2"}
     n1 = next(n for n in g["nodes"] if n["id"] == "e1")
     assert n1["label"] == "Claude Code" and n1["group"] == "Tool"
     assert n1["title"].startswith("CLI coding agent")  # observation 툴팁
+    assert n1["degree"] == 1  # e1-e2 연결 1개
     e = g["edges"][0]
     assert e["from"] == "e1" and e["to"] == "e2" and e["label"] == "authored_by"
+    assert "id" in e  # 필터 토글용 엣지 id
+
+
+def test_graph_json_degree_centrality():
+    """degree(연결 수) 계산 — 필터/스케일의 기준. 허브일수록 높다."""
+    conn = _db()
+    for i in range(4):
+        dbm.upsert_entity(conn, Entity(id=f"e{i}", type="Tool", name=f"N{i}", sources=["d"]))
+    # e0 을 허브로: e0-e1, e0-e2, e0-e3
+    for i in (1, 2, 3):
+        dbm.upsert_relation(conn, Relation(id=f"r{i}", type="uses",
+                                           source_id="e0", target_id=f"e{i}", sources=["d"]))
+    g = graph_json(conn)
+    deg = {n["id"]: n["degree"] for n in g["nodes"]}
+    assert deg["e0"] == 3 and deg["e1"] == 1
+    assert g["stats"]["max_degree"] == 3
 
 
 def test_graph_json_excludes_dangling_edges():

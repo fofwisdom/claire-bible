@@ -6,33 +6,44 @@
 from __future__ import annotations
 
 import sqlite3
+from collections import Counter
 
 from .store import db as dbm
 
 
 def graph_json(conn: sqlite3.Connection) -> dict:
-    """엔티티/관계를 vis.js network 형식(nodes/edges)으로. dangling edge 는 제외."""
+    """엔티티/관계를 vis.js network 형식(nodes/edges)으로. dangling edge 는 제외.
+
+    각 노드에 degree(연결 수)를 실어 UI 가 degree-centrality 임계로 핵심 서브그래프만
+    표시할 수 있게 한다(전체 N개 렌더 → 큰 그래프의 가시성/스케일 문제 해소)."""
     ents = dbm.all_entities(conn)
     rels = dbm.all_relations(conn)
     ent_ids = {e.id for e in ents}
+    # 양 끝 노드가 모두 존재하는 관계만(고아 엣지는 vis.js 가 유령 노드를 만들어 깨짐).
+    edges = [
+        {"id": f"e{i}", "from": r.source_id, "to": r.target_id, "label": r.type,
+         "arrows": "to", "dashes": r.provisional}
+        for i, r in enumerate(
+            r for r in rels if r.source_id in ent_ids and r.target_id in ent_ids)
+    ]
+    deg: Counter = Counter()
+    for e in edges:
+        deg[e["from"]] += 1
+        deg[e["to"]] += 1
     nodes = [
         {
             "id": e.id,
             "label": e.name,
             "group": e.type,
+            "degree": deg.get(e.id, 0),
             "title": (e.observations[0][:200] if e.observations else e.type),
         }
         for e in ents
     ]
-    # 양 끝 노드가 모두 존재하는 관계만(고아 엣지는 vis.js 가 유령 노드를 만들어 깨짐).
-    edges = [
-        {"from": r.source_id, "to": r.target_id, "label": r.type,
-         "arrows": "to", "dashes": r.provisional}
-        for r in rels
-        if r.source_id in ent_ids and r.target_id in ent_ids
-    ]
+    max_degree = max((n["degree"] for n in nodes), default=0)
     return {"nodes": nodes, "edges": edges,
-            "stats": {"entities": len(nodes), "relations": len(edges)}}
+            "stats": {"entities": len(nodes), "relations": len(edges),
+                      "max_degree": max_degree}}
 
 
 def node_detail(conn: sqlite3.Connection, entity_id: str) -> dict | None:
@@ -147,18 +158,23 @@ GRAPH_HTML = """<!doctype html>
 <body>
 <div id="bar">claire_bible 지식 그래프 — <span id="stat">로딩…</span>
   <input id="q" placeholder="이름 검색(엔터=해당 노드로 이동)" oninput="hl(this.value)"/>
-  <button id="synthbtn" onclick="synth()">🧩 선택 노드 종합</button></div>
+  <button id="synthbtn" onclick="synth()">🧩 선택 노드 종합</button>
+  <label id="flab">연결 ≥ <b id="fmin">0</b>
+    <input id="fslider" type="range" min="0" max="0" value="0" oninput="applyFilter(this.value)"/></label></div>
 <div id="wrap"><div id="net"></div>
   <div id="panel"><p class="hint">노드를 클릭하면 관찰·출처 문서·연결이 여기 표시됩니다.</p></div>
 </div>
 <script>
-let net, allNodes;
+let net, allNodes, allEdges;
 const panel = document.getElementById('panel');
 fetch('graph').then(r=>r.json()).then(d=>{
   document.getElementById('stat').innerHTML =
     '엔티티 <b>'+d.stats.entities+'</b> · 관계 <b>'+d.stats.relations+'</b>';
   allNodes = new vis.DataSet(d.nodes);
-  const data = {nodes: allNodes, edges: new vis.DataSet(d.edges)};
+  allEdges = new vis.DataSet(d.edges);
+  const sl = document.getElementById('fslider');
+  sl.max = d.stats.max_degree; sl.value = 0;
+  const data = {nodes: allNodes, edges: allEdges};
   const opts = {
     nodes:{shape:'dot',size:14,font:{color:'#d7dbe0',size:13}},
     edges:{color:{color:'#3a4250',highlight:'#7ee787'},font:{color:'#8b949e',size:10},smooth:false},
@@ -189,6 +205,18 @@ function renderPanel(d){
          ' <a href="#" onclick="loadNode(\\''+n.id+'\\');return false">'+esc(n.name)+
          '</a> <small>'+esc(n.type)+'</small></li>'; }); h+='</ul>'; }
   panel.innerHTML=h;
+}
+function applyFilter(min){
+  if(!allNodes) return;
+  min = +min;
+  document.getElementById('fmin').textContent = min;
+  const shown = new Set();
+  allNodes.forEach(n=>{ const show = n.degree >= min;
+    allNodes.update({id:n.id, hidden:!show}); if(show) shown.add(n.id); });
+  allEdges.forEach(e=>{ allEdges.update({id:e.id,
+    hidden: !(shown.has(e.from) && shown.has(e.to))}); });
+  document.getElementById('stat').innerHTML =
+    '표시 <b>'+shown.size+'</b> / 엔티티 '+allNodes.length+' · 연결 ≥'+min;
 }
 function hl(q){
   if(!allNodes) return;
