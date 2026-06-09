@@ -180,8 +180,16 @@ def _ensure_column(conn: sqlite3.Connection, table: str, column: str, decl: str)
     `CREATE TABLE IF NOT EXISTS` 는 이미 존재하는 테이블에 새 컬럼을 더하지 못하므로,
     기존 운영 DB(데이터 보존)에 스키마 변경을 안전하게 적용하는 단일 경로.
     """
-    if column not in _column_names(conn, table):
+    if column in _column_names(conn, table):
+        return
+    try:
         conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+    except sqlite3.OperationalError as e:
+        # 다중 프로세스(bot/api/refresh/recover)가 동시에 init_db→마이그레이션 시
+        # 한쪽만 ALTER 에 성공하고 나머지는 'duplicate column'(TOCTOU). 이미 추가된
+        # 것이므로 무시한다 = 멱등. 그 외 오류는 진짜 문제이니 전파.
+        if "duplicate column" not in str(e).lower():
+            raise
 
 
 def _migrate(conn: sqlite3.Connection) -> None:

@@ -55,6 +55,15 @@ def test_migration_idempotent():
     assert "attempts" in cols
 
 
+def test_ensure_column_tolerates_concurrent_duplicate(monkeypatch):
+    """다중 컨테이너 동시 마이그레이션(TOCTOU): _column_names 가 stale 하게 '없다'고
+    봐 ALTER 를 시도해도, 이미 추가된 컬럼이면 duplicate 예외를 삼켜야 한다(멱등)."""
+    conn = sqlite3.connect(":memory:"); conn.row_factory = sqlite3.Row
+    dbm.init_db(conn)  # attempts 이미 존재
+    monkeypatch.setattr(dbm, "_column_names", lambda c, t: set())  # stale 읽기 모사
+    dbm._ensure_column(conn, "raw_inbox", "attempts", "INTEGER DEFAULT 0")  # raise 안 함
+
+
 # --- due 게이팅 ---
 
 def test_due_gating():
