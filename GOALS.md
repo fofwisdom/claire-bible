@@ -31,8 +31,10 @@
 - [x] (완료 2026-06-09) **`raw_inbox.attempts` / `next_retry_at`** — 지수 백오프, 영구실패(`failed`) 구분, 무한재시도 방지. DB 마이그레이션 체계(`_ensure_column`) 동반.
 - [x] (완료 2026-06-09) **능동 알림** — recover-loop 가 영구실패(`failed`) 발생 시 소유자에게 텔레그램 DM 경보. `notify.py`(httpx sendMessage), `CLAIRE_OWNER_CHAT_ID`(미설정 시 allowed_users 폴백).
 - [x] (완료 2026-06-09) **백업 전략** — `claire_backup` 컨테이너(매일 1회, 7개 보존). VACUUM INTO 스냅샷 + 스냅샷 열어 row count==live 검증(복원가능성). 원격 실데이터 검증 완료(26docs/113ent/107rel 일치).
-- [ ] **헬스/메트릭** — `/health` 강화(DB/provider/큐 깊이·error/failed inbox) ← 다음
-- [ ] **circuit breaker** (최소·프로세스-로컬) — `_call`에서 daily-quota 429(don't-retry) vs rate 429(retry) 구분해 fail-fast. **분산 상태(DB meta) 금지** — 마이그레이션 race와 동급 위험이라 advisor가 기각. 복구는 recover-loop의 긴 호라이즌이 담당.
+- [x] (완료 2026-06-09) **헬스/메트릭** — `health.py`(ok=liveness / degraded=주의신호 분리) + `/health` 강화(503 on not-ok) + CLI `health`(JSON, ssh/모니터링용). 원격 검증.
+- [x] (완료 2026-06-09) **circuit breaker** (최소·프로세스-로컬·무상태) — `_call`에서 daily-quota 429(즉시 fail-fast) vs rate 429(재시도) 구분. **분산 상태(DB meta) 금지** — 마이그레이션 race와 동급 위험이라 advisor가 기각. 복구는 recover-loop의 긴 호라이즌이 담당.
+
+> **트랙1 완료(2026-06-09)**: 파이프라인이 사람 손 없이 굴러가고(자동복구·백업·circuit breaker), 문제를 스스로 알리며(능동 알림·로그·health), 데이터 무결성이 보장됨(마이그레이션·검증된 백업). 컨테이너 5개(bot/api/refresh/recover/backup). 테스트 73→94개.
 
 ### 트랙 2 — 추출 · 연결 품질 (지식베이스의 본질 가치)
 - [ ] 약어 동의어 수렴 (MCP ↔ Model Context Protocol)
