@@ -34,6 +34,7 @@ class IngestReport:
     title: str | None = None
     source_type: str = ""
     duplicate: bool = False
+    updated: bool = False   # 같은 canonical_url 의 내용 갱신(in-place, 신규 아님)
     partial: bool = False
     summary: str = ""
     entities_created: int = 0
@@ -52,7 +53,8 @@ class IngestReport:
             return f"❌ 적재 실패: {self.error}"
         if self.duplicate:
             return f"♻️ 이미 있는 자료입니다 (dedup): {self.title or self.document_id}"
-        parts = [f"✅ 적재 완료: {self.title or self.document_id}"]
+        head = "🔄 자료 업데이트(내용 변경 반영)" if self.updated else "✅ 적재 완료"
+        parts = [f"{head}: {self.title or self.document_id}"]
         if self.partial:
             parts.append("⚠️ 부분 처리(partial)")
         parts.append(f"요약: {self.summary[:300]}")
@@ -114,12 +116,40 @@ def ingest(
     report.partial = doc.partial
     report.title = doc.title
 
-    # dedup
+    # dedup ① 내용 완전 동일(content_hash 일치) → 중복
     existing = dbm.find_document_by_hash(conn, doc.content_hash)
     if existing:
         report.document_id = existing
         report.duplicate = True
         dbm.update_inbox(conn, inbox_id, status="duplicate", document_id=existing)
+        return report
+
+    # dedup ② 같은 canonical_url 인데 content_hash 가 다름 → 같은 자료의 *내용 갱신*.
+    #   새 문서를 만들지(중복 노드) 않고, 건너뛰지도(갱신 유실) 않고, 기존 문서를 in-place
+    #   갱신한다(엔티티 sources 연결 보존 = refresh_document 과 같은 의미).
+    same_url = dbm.find_document_by_canonical_url(conn, doc.canonical_url)
+    if same_url:
+        doc.id = same_url
+        dbm.update_document_content(
+            conn, same_url, title=doc.title, raw_text=doc.raw_text,
+            content_hash=doc.content_hash, fetched_at=doc.fetched_at)
+        report.document_id = same_url
+        report.updated = True
+        if data_dir is not None:
+            try:
+                from ..store.raw import save_artifact
+
+                save_artifact(data_dir, same_url, doc.raw_text)
+            except Exception:  # noqa: BLE001
+                pass
+        ok, err = extract_resolve_store(
+            conn, provider, vstore, doc, report, vault_dir=vault_dir)
+        if not ok:
+            report.error = err
+            dbm.update_inbox(conn, inbox_id, status="error",
+                             document_id=same_url, error=err)
+            return report
+        dbm.update_inbox(conn, inbox_id, status="done", document_id=same_url)
         return report
 
     dbm.insert_document(conn, doc)

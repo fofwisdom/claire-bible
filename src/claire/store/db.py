@@ -269,6 +269,19 @@ def get_document_row(conn: sqlite3.Connection, document_id: str) -> sqlite3.Row 
     ).fetchone()
 
 
+def find_document_by_canonical_url(
+    conn: sqlite3.Connection, canonical_url: str | None
+) -> str | None:
+    """같은 canonical_url 의 기존 문서 id(최신 fetched_at). 내용 갱신 감지용."""
+    if not canonical_url:
+        return None
+    row = conn.execute(
+        "SELECT id FROM documents WHERE canonical_url=? ORDER BY fetched_at DESC LIMIT 1",
+        (canonical_url,),
+    ).fetchone()
+    return row["id"] if row else None
+
+
 def get_document(conn: sqlite3.Connection, document_id: str) -> Document | None:
     """documents 행을 Document 모델로 복원(자동복구의 extract 재시도 등에서 사용)."""
     row = get_document_row(conn, document_id)

@@ -90,6 +90,44 @@ def test_dedup_second_ingest_is_skipped():
     assert dbm.counts(conn)["documents"] == 1
 
 
+def test_same_canonical_url_updates_in_place(tmp_path: Path):
+    """같은 canonical_url + 다른 content_hash → 중복 노드도 skip도 아닌 in-place 갱신."""
+    conn = _db()
+    vstore = VectorStore(conn, "brute")
+    d1 = Document(url="https://github.com/a/b", canonical_url="https://github.com/a/b",
+                  title="v1", raw_text="first version about Foo",
+                  source_type="web", content_hash="h1")
+    r1 = ingest("x", conn=conn, provider=MockProvider(), vstore=vstore,
+                vault_dir=tmp_path, fetch_fn=_fetch_doc(d1))
+    assert r1.error is None and not r1.duplicate and not r1.updated
+    doc_id = r1.document_id
+
+    d2 = Document(url="https://github.com/a/b", canonical_url="https://github.com/a/b",
+                  title="v2", raw_text="updated version about Foo and Bar",
+                  source_type="web", content_hash="h2")
+    r2 = ingest("x", conn=conn, provider=MockProvider(), vstore=vstore,
+                vault_dir=tmp_path, fetch_fn=_fetch_doc(d2))
+    assert r2.updated is True and not r2.duplicate
+    assert r2.document_id == doc_id                  # 같은 문서 in-place
+    assert dbm.counts(conn)["documents"] == 1         # 중복 노드 안 생김
+    row = dbm.get_document_row(conn, doc_id)
+    assert row["content_hash"] == "h2" and row["title"] == "v2"
+
+
+def test_different_canonical_url_creates_new():
+    conn = _db()
+    vstore = VectorStore(conn, "brute")
+    d1 = Document(url="https://x/1", canonical_url="https://x/1", title="A",
+                  raw_text="aaa", source_type="web", content_hash="ha")
+    d2 = Document(url="https://x/2", canonical_url="https://x/2", title="B",
+                  raw_text="bbb", source_type="web", content_hash="hb")
+    ingest("x", conn=conn, provider=MockProvider(), vstore=vstore, fetch_fn=_fetch_doc(d1))
+    r2 = ingest("x", conn=conn, provider=MockProvider(), vstore=vstore,
+                fetch_fn=_fetch_doc(d2))
+    assert not r2.updated and not r2.duplicate
+    assert dbm.counts(conn)["documents"] == 2
+
+
 def test_existing_node_gets_linked_across_documents():
     """핵심 가치: 같은 엔티티가 두 자료에 나오면 하나로 수렴(머지)된다."""
     conn = _db()
