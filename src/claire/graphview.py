@@ -1,6 +1,7 @@
 """읽기전용 그래프 시각화 — vis.js 용 데이터 변환 + 정적 HTML 페이지.
 
-로컬 inject API(aiohttp)가 /graph(JSON)와 /(HTML)로 노출한다. 정본 DB 를 읽기만 한다.
+로컬 inject API(aiohttp)가 /graph(JSON)·/node·/documents·/synthesize 로 노출한다.
+정본 DB 를 읽고, 종합(synthesize)만 LLM 비용이 있어 세션/토큰 인증 뒤에 둔다.
 """
 
 from __future__ import annotations
@@ -147,68 +148,86 @@ def synthesize(conn, provider, entity_ids: list[str], query: str | None = None) 
     return {"answer": answer, "entities": names, "query": q}
 
 
-# vis.js 9(unpkg CDN) 기반 단일 페이지. /graph 로 그래프, 노드 클릭 시 /node 로 상세.
+# vis.js 9(unpkg CDN) 기반 단일 페이지. /graph·/node·/documents·/auth·/synthesize 사용.
 GRAPH_HTML = """<!doctype html>
 <html lang="ko"><head><meta charset="utf-8"/>
 <title>claire_bible — 지식 그래프</title>
 <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
 <style>
   html,body{margin:0;height:100%;font-family:system-ui,sans-serif;background:#0e1116;color:#d7dbe0}
-  #bar{padding:8px 12px;background:#161b22;border-bottom:1px solid #2a2f37;font-size:14px}
+  #bar{display:flex;align-items:center;gap:6px;padding:6px 12px;background:#161b22;border-bottom:1px solid #2a2f37;font-size:13px;white-space:nowrap}
+  #bar .brand{font-weight:600}
   #bar b{color:#7ee787}
-  #wrap{display:flex;height:calc(100% - 39px)}
+  .spacer{flex:1}
+  #stat{color:#8b949e;text-align:right}
+  #authstate{cursor:pointer;padding:2px 7px;border:1px solid #2a2f37;border-radius:4px}
+  #synthchips{display:flex;gap:4px;overflow:hidden;max-width:280px}
+  #synthchips .chip{background:#1f2937;border-radius:10px;padding:1px 7px;font-size:11px;cursor:pointer}
+  #legendbar{display:flex;flex-wrap:wrap;gap:10px;padding:4px 12px;background:#10151c;border-bottom:1px solid #2a2f37;font-size:11px;color:#8b949e}
+  #legendbar i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:3px;vertical-align:middle}
+  #wrap{display:flex;height:calc(100% - 68px)}
   #net{flex:1;min-width:0}
-  #panel{width:380px;overflow:auto;padding:14px 16px;background:#10151c;border-left:1px solid #2a2f37;font-size:13px;line-height:1.5}
+  #docs{width:280px;overflow:auto;background:#10151c;border-right:1px solid #2a2f37;font-size:12px}
+  #docs .dhead{padding:8px 10px;border-bottom:1px solid #2a2f37;position:sticky;top:0;background:#10151c;z-index:2}
+  .dday{position:sticky;top:37px;background:#161b22;color:#7ee787;font-size:11px;padding:3px 10px;border-bottom:1px solid #2a2f37;z-index:1}
+  .docitem{padding:7px 10px;border-bottom:1px solid #1c2330;cursor:pointer}
+  .docitem:hover{background:#161b22}
+  .docitem.active{background:#1f2937;border-left:3px solid #7ee787}
+  .docitem b{font-size:12px} .docitem .st{color:#6e7681;font-size:10px;margin-left:6px}
+  .docitem p{margin:.2em 0 0;color:#8b949e;font-size:11px}
+  #panel{width:360px;overflow:auto;padding:14px 16px;background:#10151c;border-left:1px solid #2a2f37;font-size:13px;line-height:1.5}
   #panel h2{margin:.2em 0;font-size:18px} #panel h2 small{color:#8b949e;font-size:12px;font-weight:normal}
   #panel h3{margin:1em 0 .3em;font-size:13px;color:#7ee787;border-bottom:1px solid #2a2f37;padding-bottom:2px}
   #panel ul{margin:.2em 0;padding-left:18px} #panel li{margin:.25em 0}
   #panel .doc{margin:.5em 0;padding:6px 8px;background:#161b22;border-radius:5px}
   #panel .doc p{margin:.3em 0 0;color:#adbac7} #panel a{color:#58a6ff;text-decoration:none}
   #panel .rel{color:#d29922;font-size:11px} #panel .al{color:#8b949e}
-  #panel .hint{color:#6e7681;margin-top:2em}
-  input{background:#0e1116;color:#d7dbe0;border:1px solid #2a2f37;border-radius:4px;padding:3px 8px;margin-left:8px;width:220px}
-  button{background:#238636;color:#fff;border:0;border-radius:4px;padding:4px 10px;margin-left:8px;cursor:pointer;font-size:13px}
-  button:hover{background:#2ea043}
+  #panel .hint{color:#6e7681;margin-top:1em}
   #panel .synth{white-space:pre-wrap;background:#161b22;border:1px solid #2a2f37;border-radius:5px;padding:10px;margin:.4em 0;line-height:1.6}
-  #docs{width:300px;overflow:auto;background:#10151c;border-right:1px solid #2a2f37;font-size:12px}
-  #docs .dhead{padding:8px 10px;border-bottom:1px solid #2a2f37;position:sticky;top:0;background:#10151c}
-  #docs .dhead input{margin:0;width:94%}
-  .docitem{padding:7px 10px;border-bottom:1px solid #1c2330;cursor:pointer}
-  .docitem:hover{background:#161b22}
-  .docitem.active{background:#1f2937;border-left:3px solid #7ee787}
-  .docitem b{font-size:12px} .docitem .st{color:#6e7681;font-size:10px;margin-left:6px}
-  .docitem p{margin:.2em 0 0;color:#8b949e;font-size:11px}
-  #legend{font-size:11px;color:#8b949e;margin-left:6px}
-  #legend span{margin-left:7px;white-space:nowrap}
-  #legend i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:3px;vertical-align:middle}
+  input{background:#0e1116;color:#d7dbe0;border:1px solid #2a2f37;border-radius:4px;padding:3px 8px;font-size:13px}
+  #q{width:150px}
+  button{background:#238636;color:#fff;border:0;border-radius:4px;padding:4px 10px;cursor:pointer;font-size:13px}
+  button:hover{background:#2ea043}
+  button.sec{background:#30363d} button.sec:hover{background:#3c444d}
+  #fslider{width:100px;vertical-align:middle}
 </style></head>
 <body>
-<div id="bar">claire_bible 지식 그래프 — <span id="stat">로딩…</span>
+<div id="bar">
+  <span class="brand">claire_bible</span>
   <input id="q" placeholder="검색(엔터)" oninput="onSearchInput(this.value)"/>
-  <label style="font-size:12px;margin-left:4px"><input type="checkbox" id="sem" style="width:auto;margin:0"/> 의미</label>
-  <button id="synthbtn" onclick="synth()">🧩 선택 노드 종합</button>
-  <label id="flab">연결 ≥ <b id="fmin">0</b>
-    <input id="fslider" type="range" min="0" max="0" value="0" oninput="setDeg(this.value)"/></label>
-  <span id="legend"></span></div>
+  <label style="font-size:12px"><input type="checkbox" id="sem" style="width:auto"/> 의미</label>
+  <button id="searchbtn" class="sec" onclick="doSemantic()" style="display:none">🔎 의미검색</button>
+  <span id="synthchips"></span>
+  <button id="synthbtn" onclick="synth()">🧩 종합 (0)</button>
+  <label>연결 ≥ <b id="fmin">0</b> <input id="fslider" type="range" min="0" max="0" value="0" oninput="setDeg(this.value)"/></label>
+  <span class="spacer"></span>
+  <span id="authstate" onclick="authClick()">🔓 미인증</span>
+  <span id="stat">로딩…</span>
+</div>
+<div id="legendbar"></div>
 <div id="wrap">
-  <div id="docs"><div class="dhead"><input id="docq" placeholder="문서 검색(제목·요약)" oninput="renderDocs(this.value)"/></div>
+  <div id="docs"><div class="dhead"><input id="docq" placeholder="문서 검색(제목·요약)" oninput="renderDocs(this.value)" style="width:92%"/></div>
     <div id="doclist"><p class="hint" style="padding:10px">문서 로딩…</p></div></div>
   <div id="net"></div>
-  <div id="panel"><p class="hint">노드를 클릭하면 관찰·출처 문서·연결이 여기 표시됩니다.<br><br>다른 노드에 2초 이상 올리면 그 노드를 미리 봅니다(벗어나면 복귀).</p></div>
+  <div id="panel"><p class="hint">노드를 클릭하면 관찰·출처 문서·연결이 표시됩니다.<br><br>• <b>Ctrl+클릭</b> 또는 상세의 <b>➕ 종합에 추가</b>로 여러 노드를 모아 종합<br>• 다른 노드에 <b>1초</b> 올리면 미리보기(벗어나면 복귀)<br>• 좌측 문서를 누르면 그 문서의 노드만 진하게</p></div>
 </div>
 <script>
 const TYPE_COLORS = {Tool:'#58a6ff',Framework:'#bc8cff',Model:'#f778ba',Paper:'#d29922',
   Article:'#7ee787',Repo:'#39c5cf',Concept:'#ff7b72',Person:'#ffa657',Org:'#e3b341',
   Event:'#a5d6ff',Note:'#8b949e'};
+const DIM = 0.16;
 let net, allNodes, allEdges, allDocs=[];
 let curMinDeg=0, activeDoc=null, selectedNodeId=null, hoverTimer=null;
+let synthSet=new Set(), authTimer=null;
 const panel = document.getElementById('panel');
+function esc(s){return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+
 fetch('graph').then(r=>r.json()).then(d=>{
   allNodes = new vis.DataSet(d.nodes);
   allEdges = new vis.DataSet(d.edges);
   const sl = document.getElementById('fslider'); sl.max = d.stats.max_degree; sl.value = 0;
   const types=[...new Set(d.nodes.map(n=>n.group))].sort();
-  document.getElementById('legend').innerHTML = types.map(t=>
+  document.getElementById('legendbar').innerHTML = types.map(t=>
     '<span><i style="background:'+(TYPE_COLORS[t]||'#8b949e')+'"></i>'+esc(t)+'</span>').join('');
   const groups={}; types.forEach(t=>{ const c=TYPE_COLORS[t]||'#8b949e';
     groups[t]={color:{background:c,border:'#2a2f37',highlight:{background:c,border:'#7ee787'}}}; });
@@ -216,25 +235,31 @@ fetch('graph').then(r=>r.json()).then(d=>{
     nodes:{shape:'dot',size:14,font:{color:'#d7dbe0',size:13}},
     edges:{color:{color:'#3a4250',highlight:'#7ee787'},font:{color:'#8b949e',size:10},smooth:false},
     groups, physics:{stabilization:{iterations:200},barnesHut:{gravitationalConstant:-8000,springLength:120}},
-    interaction:{hover:true,tooltipDelay:120}
+    interaction:{hover:true,tooltipDelay:120,multiselect:true}
   };
   net = new vis.Network(document.getElementById('net'), {nodes:allNodes, edges:allEdges}, opts);
-  net.on('click', p => { if(p.nodes.length){ selectedNodeId=p.nodes[0]; loadNode(p.nodes[0]); } });
-  // 다른 노드에 2초 이상 hover → 미리보기, 벗어나면 선택 노드로 복귀
+  net.on('click', p => {
+    if(!p.nodes.length) return;
+    const id=p.nodes[0], ev=p.event.srcEvent;
+    if(ev && (ev.ctrlKey||ev.metaKey)){ toggleSynth(id); }   // Ctrl/Cmd+클릭 = 종합 수집(선택과 분리)
+    else { selectedNodeId=id; loadNode(id); }                // 일반 클릭 = 상세 inspect
+  });
   net.on('hoverNode', p => { clearTimeout(hoverTimer);
-    hoverTimer=setTimeout(()=>{ if(p.node!==selectedNodeId) loadNode(p.node, true); }, 2000); });
+    hoverTimer=setTimeout(()=>{ if(p.node!==selectedNodeId) loadNode(p.node, true); }, 1000); });
   net.on('blurNode', () => { clearTimeout(hoverTimer);
     if(selectedNodeId) loadNode(selectedNodeId, false); });
   applyView();
 });
-function esc(s){return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+
 function loadNode(id, isHover){
   if(net && !isHover) net.selectNodes([id]);  // hover 미리보기는 선택을 바꾸지 않음
   fetch('node?id='+encodeURIComponent(id)).then(r=>r.json()).then(renderPanel);
 }
 function renderPanel(d){
   if(!d || d.error){ panel.innerHTML='<p class=hint>노드를 찾을 수 없습니다.</p>'; return; }
+  const inSet = synthSet.has(d.id);
   let h='<h2>'+esc(d.name)+' <small>'+esc(d.type)+(d.provisional?' ⚠️provisional':'')+'</small></h2>';
+  h+='<button class="sec" onclick="addToSynth(\\''+d.id+'\\')">'+(inSet?'✓ 종합 목록에 있음':'➕ 종합에 추가')+'</button>';
   if(d.aliases.length) h+='<p class=al>별칭: '+d.aliases.map(esc).join(', ')+'</p>';
   if(d.observations.length){ h+='<h3>관찰 · 주장</h3><ul>'+
     d.observations.map(o=>'<li>'+esc(o)+'</li>').join('')+'</ul>'; }
@@ -249,78 +274,121 @@ function renderPanel(d){
          '</a> <small>'+esc(n.type)+'</small></li>'; }); h+='</ul>'; }
   panel.innerHTML=h;
 }
+
+// degree(스케일)=hidden, 문서 비매치(맥락)=dim → 서로 다른 vis 속성이라 충돌하지 않음.
 function setDeg(v){ curMinDeg=+v; document.getElementById('fmin').textContent=v; applyView(); }
-// degree 임계와 선택 문서를 하나의 가시 집합으로 합성(두 필터가 hidden 을 두고 싸우지 않게).
 function applyView(){
   if(!allNodes) return;
-  const shown=new Set();
-  allNodes.forEach(n=>{ let ok = n.degree>=curMinDeg;
-    if(ok && activeDoc) ok = (n.sources||[]).includes(activeDoc);
-    allNodes.update({id:n.id, hidden:!ok}); if(ok) shown.add(n.id); });
-  allEdges.forEach(e=>{ allEdges.update({id:e.id,
-    hidden: !(shown.has(e.from) && shown.has(e.to))}); });
+  let shown=0, emph=0;
+  allNodes.forEach(n=>{
+    if(n.degree < curMinDeg){ allNodes.update({id:n.id, hidden:true}); return; }
+    const match = !activeDoc || (n.sources||[]).includes(activeDoc);
+    allNodes.update({id:n.id, hidden:false, opacity: match?1:DIM});
+    shown++; if(match) emph++;
+  });
+  allEdges.forEach(e=>{ const f=allNodes.get(e.from), t=allNodes.get(e.to);
+    allEdges.update({id:e.id, hidden: !(f && t && !f.hidden && !t.hidden)}); });
   document.getElementById('stat').innerHTML =
-    '표시 <b>'+shown.size+'</b> / '+allNodes.length
-    + (curMinDeg>0?' · 연결 ≥'+curMinDeg:'') + (activeDoc?' · 문서필터':'');
+    '표시 <b>'+shown+'</b>/'+allNodes.length
+    + (curMinDeg>0?' · 연결≥'+curMinDeg:'') + (activeDoc?' · 문서 '+emph+'개':'');
 }
+
+// --- 좌측 문서 패널(일자별 그룹) ---
+function dayOf(ts){ if(!ts) return '(날짜 미상)';
+  const d=new Date(ts*1000);
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
 function renderDocs(filter){
   const q=(filter||'').trim().toLowerCase();
   const items = allDocs.filter(dc=> !q || (dc.title+' '+dc.summary).toLowerCase().includes(q));
-  document.getElementById('doclist').innerHTML = items.length ? items.map(dc=>
-    '<div class="docitem'+(dc.id===activeDoc?' active':'')+'" onclick="selectDoc(\\''+dc.id+'\\')">'+
-    '<b>'+esc(dc.title)+'</b><span class=st>'+esc(dc.source_type||'')+'</span>'+
-    (dc.summary?'<p>'+esc(dc.summary.slice(0,110))+'</p>':'')+'</div>').join('')
-    : '<p class=hint style="padding:10px">문서 없음</p>';
+  if(!items.length){ document.getElementById('doclist').innerHTML='<p class=hint style="padding:10px">문서 없음</p>'; return; }
+  let html='', curDay=null;
+  items.forEach(dc=>{ const day=dayOf(dc.fetched_at);
+    if(day!==curDay){ html+='<div class=dday>'+day+'</div>'; curDay=day; }
+    html+='<div class="docitem'+(dc.id===activeDoc?' active':'')+'" onclick="selectDoc(\\''+dc.id+'\\')">'+
+      '<b>'+esc(dc.title)+'</b><span class=st>'+esc(dc.source_type||'')+'</span>'+
+      (dc.summary?'<p>'+esc(dc.summary.slice(0,110))+'</p>':'')+'</div>'; });
+  document.getElementById('doclist').innerHTML=html;
 }
 function selectDoc(id){
-  activeDoc = (activeDoc===id ? null : id);  // 같은 문서 다시 클릭 → 필터 해제
+  activeDoc = (activeDoc===id ? null : id);     // 같은 문서 재클릭 → 해제
   renderDocs(document.getElementById('docq').value);
   applyView();
   if(activeDoc && net) net.fit({animation:true});
 }
+
+// --- 종합 수집(synthSet) — inspect(클릭)와 분리 ---
+function toggleSynth(id){ if(synthSet.has(id)) synthSet.delete(id); else synthSet.add(id); renderChips(); }
+function addToSynth(id){ synthSet.add(id); renderChips(); if(id===selectedNodeId) loadNode(id); }
+function renderChips(){
+  const box=document.getElementById('synthchips');
+  box.innerHTML=[...synthSet].map(id=>{ const n=allNodes&&allNodes.get(id);
+    return '<span class=chip onclick="toggleSynth(\\''+id+'\\')" title="제거">'+esc(n?n.label:id)+' ✕</span>'; }).join('');
+  document.getElementById('synthbtn').textContent='🧩 종합 ('+synthSet.size+')';
+}
+
+// --- 검색: 즉시 라벨 매칭(기본) vs 의미검색 버튼(체크 시) ---
+function onSearchInput(v){ if(!document.getElementById('sem').checked) hl(v); }
 function hl(q){
   if(!allNodes) return;
   q=q.trim().toLowerCase();
   const matches=[];
-  allNodes.forEach(n=>{
-    const on = q && n.label.toLowerCase().includes(q);
+  allNodes.forEach(n=>{ const on = q && n.label.toLowerCase().includes(q);
     if(on) matches.push(n.id);
-    allNodes.update({id:n.id, color: on?'#7ee787':undefined, font:{color:on?'#7ee787':'#d7dbe0'}});
-  });
+    allNodes.update({id:n.id, color: on?'#7ee787':undefined, font:{color:on?'#7ee787':'#d7dbe0'}}); });
   if(matches.length){ net.selectNodes(matches); net.focus(matches[0],{scale:1.1,animation:true}); }
   else if(!q && net){ net.unselectAll(); net.fit({animation:true}); }
 }
+document.getElementById('sem').addEventListener('change',e=>{
+  document.getElementById('searchbtn').style.display = e.target.checked?'':'none';
+  if(e.target.checked) hl('');   // 즉시 라벨강조 해제(의미검색은 버튼으로만)
+});
 document.getElementById('q').addEventListener('keydown',e=>{
   if(e.key!=='Enter') return;
-  if(document.getElementById('sem').checked){ semanticSearch(e.target.value); }
+  if(document.getElementById('sem').checked){ doSemantic(); }
   else { const m=net.getSelectedNodes(); if(m.length) loadNode(m[0]); }
 });
-// 텔레그램 버튼 승인 → 세션. 토큰 입력 대신, 봇이 보낸 버튼을 누르면 자동으로 이어진다.
+function doSemantic(){ semanticSearch(document.getElementById('q').value); }
+
+// --- 인증(텔레그램 버튼 승인 → 세션) + 상태 표시 ---
+function setAuth(state, detail){
+  const el=document.getElementById('authstate');
+  if(state==='authed') el.textContent='🔒 인증됨';
+  else if(state==='pending') el.textContent='📨 승인 대기 '+detail+'s';
+  else el.textContent='🔓 미인증';
+}
+function authClick(){ if(!localStorage.getItem('claire_session')) ensureSession(); }
+function on401(){ localStorage.removeItem('claire_session'); setAuth('idle'); }
 async function ensureSession(){
-  let sess = localStorage.getItem('claire_session');
-  if(sess) return sess;
+  let sess=localStorage.getItem('claire_session');
+  if(sess){ setAuth('authed'); return sess; }
   let d;
-  try { d = await (await fetch('auth/request',{method:'POST'})).json(); }
-  catch(e){ alert('승인 요청 실패: '+e); return null; }
-  if(d.error){ alert('승인 요청 실패: '+d.error); return null; }
-  panel.innerHTML='<p class=hint>🔐 텔레그램으로 승인 버튼을 보냈습니다.<br>승인하면 자동으로 이어집니다… (10분 내)</p>';
-  for(let i=0;i<150;i++){            // 2s × 150 = 5분 폴링(nonce 만료 10분 내)
+  try{ d=await (await fetch('auth/request',{method:'POST'})).json(); }
+  catch(e){ setAuth('idle'); return null; }
+  if(d.error){ setAuth('idle'); document.getElementById('authstate').textContent='🔓 '+d.error; return null; }
+  let left=Math.floor(d.ttl||600);
+  setAuth('pending', left);
+  if(authTimer) clearInterval(authTimer);
+  authTimer=setInterval(()=>{ left-=1; if(left>0) setAuth('pending', left); }, 1000);
+  const deadline=Date.now()+(d.ttl||600)*1000;
+  while(Date.now()<deadline){
     await new Promise(r=>setTimeout(r,2000));
-    const p = await (await fetch('auth/poll?nonce='+encodeURIComponent(d.nonce))).json();
-    if(p.session){ localStorage.setItem('claire_session', p.session); return p.session; }
+    let p; try{ p=await (await fetch('auth/poll?nonce='+encodeURIComponent(d.nonce))).json(); }catch(e){ continue; }
+    if(p.session){ clearInterval(authTimer); localStorage.setItem('claire_session',p.session);
+      setAuth('authed'); return p.session; }
   }
-  alert('승인 시간 초과. 다시 시도하세요.'); return null;
+  clearInterval(authTimer); setAuth('idle');
+  document.getElementById('authstate').textContent='🔓 승인 시간초과';
+  return null;
 }
 async function synth(){
-  if(!net){ return; }
-  const ids = net.getSelectedNodes();
-  if(!ids.length){ alert('노드를 먼저 선택하세요 (클릭 또는 검색 후 매치 선택).'); return; }
-  const sess = await ensureSession(); if(!sess) return;
+  const ids=[...synthSet];
+  if(!ids.length){ alert('종합할 노드를 먼저 모으세요 — Ctrl+클릭 또는 상세의 "➕ 종합에 추가".'); return; }
+  const sess=await ensureSession(); if(!sess) return;
   panel.innerHTML='<p class=hint>🧩 '+ids.length+'개 노드 종합 중… (LLM 호출)</p>';
   fetch('synthesize',{method:'POST',
     headers:{'Content-Type':'application/json','X-Session':sess},
     body:JSON.stringify({node_ids:ids})})
-   .then(r=> r.status===401 ? (localStorage.removeItem('claire_session'),{error:'세션 만료 — 다시 승인하세요'}) : r.json())
+   .then(r=> r.status===401 ? (on401(),{error:'세션 만료 — 다시 승인하세요'}) : r.json())
    .then(d=>{
      if(d.error){ panel.innerHTML='<p class=hint>오류: '+esc(d.error)+'</p>'; return; }
      let h='<h2>🧩 종합 지식 <small>'+d.entities.length+'개 노드</small></h2>';
@@ -329,23 +397,26 @@ async function synth(){
      panel.innerHTML=h;
    }).catch(e=>{ panel.innerHTML='<p class=hint>요청 실패: '+esc(String(e))+'</p>'; });
 }
-// 의미 검색(체크 시): 백엔드 하이브리드(FTS+벡터) 호출 → 결과 노드 강조(키워드 안 겹쳐도).
 async function semanticSearch(q){
   q=(q||'').trim(); if(!q) return;
-  const sess = await ensureSession(); if(!sess) return;
-  const r = await fetch('search',{method:'POST',
+  const sess=await ensureSession(); if(!sess) return;
+  document.getElementById('stat').innerHTML='🔎 의미검색 중…';
+  let r;
+  try{ r=await fetch('search',{method:'POST',
     headers:{'Content-Type':'application/json','X-Session':sess},
-    body:JSON.stringify({query:q, summarize:false, limit:12})});
-  if(r.status===401){ localStorage.removeItem('claire_session'); alert('세션 만료 — 다시 승인하세요'); return; }
-  const d = await r.json();
-  const ids=(d.hits||[]).map(h=>h.id).filter(Boolean);
-  const set=new Set(ids);
+    body:JSON.stringify({query:q, summarize:false, limit:12})}); }
+  catch(e){ document.getElementById('stat').textContent='검색 실패'; return; }
+  if(r.status===401){ on401(); alert('세션 만료 — 다시 승인하세요'); return; }
+  const d=await r.json();
+  const ids=(d.hits||[]).map(h=>h.id).filter(Boolean), set=new Set(ids);
   allNodes.forEach(n=>{ const on=set.has(n.id);
     allNodes.update({id:n.id, color:on?'#7ee787':undefined, font:{color:on?'#7ee787':'#d7dbe0'}}); });
-  if(ids.length){ net.selectNodes(ids); net.focus(ids[0],{scale:1.1,animation:true}); }
-  else { document.getElementById('stat').innerHTML='의미검색: 결과 없음'; }
+  if(ids.length){ net.selectNodes(ids); net.focus(ids[0],{scale:1.1,animation:true});
+    document.getElementById('stat').innerHTML='🔎 의미검색: <b>'+ids.length+'</b>개'; }
+  else { document.getElementById('stat').textContent='🔎 결과 없음'; }
 }
-function onSearchInput(v){ if(!document.getElementById('sem').checked) hl(v); }
+
+setAuth(localStorage.getItem('claire_session') ? 'authed' : 'idle');
 fetch('documents').then(r=>r.json()).then(d=>{ allDocs=d.documents||[]; renderDocs(); });
 </script></body></html>
 """

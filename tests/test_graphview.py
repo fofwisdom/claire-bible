@@ -75,11 +75,16 @@ def test_graph_html_self_contained_markers():
     assert "id=\"net\"" in GRAPH_HTML
     assert "loadNode" in GRAPH_HTML and "id=\"panel\"" in GRAPH_HTML   # 상세 패널
     assert "id=\"docs\"" in GRAPH_HTML and "selectDoc" in GRAPH_HTML    # 좌측 문서 패널
-    assert "id=\"legend\"" in GRAPH_HTML and "TYPE_COLORS" in GRAPH_HTML  # 색 범례
+    assert "id=\"legendbar\"" in GRAPH_HTML and "TYPE_COLORS" in GRAPH_HTML  # 색 범례
     assert "hoverNode" in GRAPH_HTML and "blurNode" in GRAPH_HTML       # hover 미리보기
+    assert ", 1000)" in GRAPH_HTML                                      # hover 1초
     assert "ensureSession" in GRAPH_HTML and "auth/request" in GRAPH_HTML  # 세션 인증
     assert "X-Session" in GRAPH_HTML
     assert "semanticSearch" in GRAPH_HTML and "id=\"sem\"" in GRAPH_HTML  # 의미검색 토글
+    assert "id=\"searchbtn\"" in GRAPH_HTML                             # 의미검색 버튼
+    assert "synthSet" in GRAPH_HTML and "addToSynth" in GRAPH_HTML      # 종합 수집(inspect와 분리)
+    assert "id=\"authstate\"" in GRAPH_HTML and "setAuth" in GRAPH_HTML  # 인증 상태 표시
+    assert "opacity" in GRAPH_HTML and "dday" in GRAPH_HTML             # dim + 일자 그룹
 
 
 def test_documents_list_newest_first_with_summary(_unused=None):

@@ -203,7 +203,8 @@ def run_api() -> int:
                     expire_button, s.telegram_bot_token, s.notify_chat_id, msg_id)
 
         asyncio.create_task(_expire_later())
-        return web.json_response({"nonce": nonce})
+        # ttl 을 함께 반환 → 클라의 카운트다운과 폴링 마감이 서버 만료와 동일 값에서 파생.
+        return web.json_response({"nonce": nonce, "ttl": AUTH_NONCE_TTL})
 
     async def auth_poll(request):
         # 비인증(세션을 *얻기 위한* 폴링이라 닭-달걀). 승인된 nonce 만 토큰 반환.
