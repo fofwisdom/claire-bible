@@ -2,6 +2,9 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
+# stdout/stderr 라인 버퍼링 해제 → print 로그가 docker logs 로 즉시 흘러나오게.
+ENV PYTHONUNBUFFERED=1
+
 RUN pip install --no-cache-dir uv
 
 COPY pyproject.toml uv.lock README.md ./

@@ -147,13 +147,16 @@ def cmd_refresh_loop(args) -> int:  # noqa: ANN001
     from .ingest.service import IngestService
 
     svc = IngestService(get_settings())
-    print(f"claire refresh-loop 시작 (interval={args.interval}s, batch={args.batch}). Ctrl+C 종료.")
+    print(f"claire refresh-loop 시작 (interval={args.interval}s, batch={args.batch}). Ctrl+C 종료.", flush=True)
     while True:
         try:
             results = svc.run_refresh_queue(limit=args.batch)
             if results:
                 done = sum(1 for r in results if r["status"] == "done")
                 print(f"[refresh] {len(results)}건 처리, 갱신 {done}", flush=True)
+            else:
+                # 큐가 비어도 살아있음을 알리는 heartbeat(로그 가시성 확보).
+                print("[refresh] 큐 비어있음, 대기", flush=True)
         except Exception as e:  # noqa: BLE001
             print(f"[refresh] 오류: {e}", flush=True)
         time.sleep(max(60, args.interval))
