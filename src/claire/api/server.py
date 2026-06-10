@@ -46,8 +46,8 @@ def run_api() -> int:
         token = auth[7:] if auth.startswith("Bearer ") else request.headers.get("X-Token", "")
         if token == s.inject_token:
             return True
-        # 2) 텔레그램 승인 세션(브라우저) — bearer 를 대체하지 않고 추가.
-        sess = request.headers.get("X-Session", "")
+        # 2) 텔레그램 세션(브라우저) — X-Session 헤더 또는 claire_session 쿠키(/web 진입).
+        sess = request.headers.get("X-Session", "") or request.cookies.get("claire_session", "")
         if sess:
             conn = dbm.connect(s.db_file)
             try:
@@ -274,7 +274,34 @@ def run_api() -> int:
 
         return web.json_response(await asyncio.to_thread(_s))
 
-    app = web.Application()
+    # --- 전 엔드포인트 게이트(외부 공개 대비) ---
+    # 미인증 요청은 401 이 아니라 404 로 응답해 "여기 뭐 없음"처럼 보이게 한다(존재 숨김).
+    # 인증은 bearer(CLI) · X-Session 헤더 · claire_session 쿠키. 진입은 /web 가 준 ?t= 링크.
+    PUBLIC_PATHS = {"/health"}  # 도커 헬스체크(루프백) — 게이트 예외
+
+    @web.middleware
+    async def gate(request, handler):
+        tok = request.query.get("t")
+        if tok and request.path == "/":
+            # /web 링크 진입: 토큰 유효하면 httponly 쿠키 설정 + 토큰 없는 URL 로 리다이렉트
+            # (주소창/히스토리/리퍼러에서 토큰 노출 최소화). 이후엔 쿠키로 인증.
+            conn = dbm.connect(s.db_file)
+            try:
+                dbm.init_db(conn)
+                ok = dbm.validate_session(conn, tok)
+            finally:
+                conn.close()
+            if ok:
+                resp = web.HTTPFound("/")
+                resp.set_cookie("claire_session", tok, max_age=int(dbm.SESSION_TTL),
+                                httponly=True, samesite="Lax", secure=True, path="/")
+                return resp
+            return web.Response(status=404, text="Not Found")
+        if request.path in PUBLIC_PATHS or _authed(request):
+            return await handler(request)
+        return web.Response(status=404, text="Not Found")
+
+    app = web.Application(middlewares=[gate])
     app.add_routes([
         web.get("/health", health),
         web.get("/stats", stats),

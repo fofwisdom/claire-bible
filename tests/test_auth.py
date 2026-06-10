@@ -79,3 +79,39 @@ def test_double_approve_is_noop():
     tok2 = dbm.approve_auth_nonce(conn, nonce)
     assert tok1 and tok2 is None
     assert dbm.validate_session(conn, tok1) is True
+
+
+# --- /web 즉시 발급 세션 + 슬라이딩 만료 ---
+
+def test_create_session_validates_immediately():
+    """/web: 버튼 승인 단계 없이 즉시 발급된 토큰이 곧바로 유효."""
+    conn = _mem()
+    tok = dbm.create_session(conn, ttl=100)
+    assert tok and dbm.validate_session(conn, tok) is True
+    assert dbm.validate_session(conn, "wrong-token") is False
+
+
+def test_session_sliding_extends_expiry():
+    """유효 접속(검증)마다 만료가 now+ttl 로 연장(슬라이딩) — 활성 사용 중 재인증 없음."""
+    conn = _mem()
+    tok = dbm.create_session(conn, ttl=100)
+    # 곧 만료되게 강제
+    conn.execute("UPDATE auth_sessions SET expires_at=? WHERE session_token=?",
+                 (time.time() + 1, tok))
+    conn.commit()
+    before = conn.execute(
+        "SELECT expires_at FROM auth_sessions WHERE session_token=?", (tok,)).fetchone()[0]
+    assert dbm.validate_session(conn, tok, ttl=1000) is True   # 접속 → 연장
+    after = conn.execute(
+        "SELECT expires_at FROM auth_sessions WHERE session_token=?", (tok,)).fetchone()[0]
+    assert after > before + 500                                # now+1000 으로 밀림
+
+
+def test_expired_session_not_revived_by_validate():
+    """이미 만료된 세션은 검증에서 되살아나지 않는다(만료 후 슬라이딩 금지)."""
+    conn = _mem()
+    tok = dbm.create_session(conn, ttl=100)
+    conn.execute("UPDATE auth_sessions SET expires_at=? WHERE session_token=?",
+                 (time.time() - 1, tok))
+    conn.commit()
+    assert dbm.validate_session(conn, tok) is False

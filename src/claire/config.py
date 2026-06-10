@@ -53,6 +53,8 @@ class Settings(BaseSettings):
     inject_host: str = Field(default="127.0.0.1", alias="CLAIRE_INJECT_HOST")
     inject_port: int = Field(default=8765, alias="CLAIRE_INJECT_PORT")
     inject_token: str = Field(default="", alias="CLAIRE_INJECT_TOKEN")
+    # 외부 공개 URL(예: https://claire.blackan.net) — /web 명령이 접속 링크를 만들 때 사용.
+    public_url: str = Field(default="", alias="CLAIRE_PUBLIC_URL")
 
     @property
     def effective_provider(self) -> str:

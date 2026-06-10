@@ -160,6 +160,7 @@ def run_bot() -> int:
         "\n"
         "명령어:\n"
         "  /search <키워드> — 하이브리드 검색 + 요약(인용)\n"
+        "  /web — 웹 그래프 접속 링크 발급(7일·접속 시 연장)\n"
         "  /status — 현황(그래프 규모·수렴·최근 수신)\n"
         "  /help — 이 도움말\n"
         "  /start — 시작 안내"
@@ -305,6 +306,32 @@ def run_bot() -> int:
             text = f"❌ 검색 오류: {e}"
         await update.message.reply_text(text)
 
+    async def on_web(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        # 웹 접속 링크 발급: 세션 토큰 즉시 발급 → ?t= 가 붙은 1회용 진입 URL 회신.
+        # 토큰은 접속할 때마다 7일씩 자동 연장(슬라이딩). 소유자만.
+        if not _is_allowed(update.effective_user.id if update.effective_user else None):
+            return
+        from .store import db as dbm
+
+        if not s.public_url:
+            await update.message.reply_text(
+                "CLAIRE_PUBLIC_URL 이 설정되지 않았습니다(.env). 외부 URL 을 먼저 지정하세요.")
+            return
+
+        def _mint() -> str:
+            conn = dbm.connect(svc.s.db_file)
+            try:
+                dbm.init_db(conn)
+                return dbm.create_session(conn)
+            finally:
+                conn.close()
+
+        tok = await asyncio.to_thread(_mint)
+        url = f"{s.public_url.rstrip('/')}/?t={tok}"
+        await update.message.reply_text(
+            "🔗 웹 접속 링크 (7일 · 접속 시 자동 연장):\n" + url +
+            "\n\n링크를 열면 쿠키로 로그인됩니다. 공유하지 마세요.")
+
     async def on_status(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
         if not _is_allowed(update.effective_user.id if update.effective_user else None):
             return
@@ -321,6 +348,7 @@ def run_bot() -> int:
     app.add_handler(CommandHandler("help", on_help))
     app.add_handler(CommandHandler("status", on_status))
     app.add_handler(CommandHandler("search", on_search))
+    app.add_handler(CommandHandler("web", on_web))
     app.add_handler(CallbackQueryHandler(on_callback))
     app.add_handler(MessageHandler(filters.Document.ALL, on_document))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_message))
@@ -333,6 +361,7 @@ def run_bot() -> int:
             BotCommand("help", "사용법"),
             BotCommand("status", "현황(그래프/수렴/최근)"),
             BotCommand("search", "검색 + 요약"),
+            BotCommand("web", "웹 접속 링크 발급"),
             BotCommand("start", "시작 안내"),
         ])
 

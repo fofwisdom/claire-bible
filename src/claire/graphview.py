@@ -415,12 +415,12 @@ async function ensureSession(){
 async function synth(){
   const ids=[...synthSet];
   if(!ids.length){ alert('종합할 노드를 먼저 모으세요 — Ctrl+클릭 또는 상세의 "➕ 종합에 추가".'); return; }
-  const sess=await ensureSession(); if(!sess) return;
   panel.innerHTML='<p class=hint>🧩 '+ids.length+'개 노드 종합 중… (LLM 호출)</p>';
+  // 인증은 claire_session 쿠키(/web 진입)로 자동 전송됨 — 별도 헤더 불필요.
   fetch('synthesize',{method:'POST',
-    headers:{'Content-Type':'application/json','X-Session':sess},
+    headers:{'Content-Type':'application/json'},
     body:JSON.stringify({node_ids:ids})})
-   .then(r=> r.status===401 ? (on401(),{error:'세션 만료 — 다시 승인하세요'}) : r.json())
+   .then(r=> (r.status===401||r.status===404) ? {error:'세션 만료 — 텔레그램 /web 으로 다시 접속하세요'} : r.json())
    .then(d=>{
      if(d.error){ panel.innerHTML='<p class=hint>오류: '+esc(d.error)+'</p>'; return; }
      let h='<h2>🧩 종합 지식 <small>'+d.entities.length+'개 노드</small></h2>';
@@ -431,14 +431,13 @@ async function synth(){
 }
 async function semanticSearch(q){
   q=(q||'').trim(); if(!q) return;
-  const sess=await ensureSession(); if(!sess) return;
   document.getElementById('stat').innerHTML='🔎 의미검색 중…';
   let r;
   try{ r=await fetch('search',{method:'POST',
-    headers:{'Content-Type':'application/json','X-Session':sess},
+    headers:{'Content-Type':'application/json'},
     body:JSON.stringify({query:q, summarize:false, limit:12})}); }
   catch(e){ document.getElementById('stat').textContent='검색 실패'; return; }
-  if(r.status===401){ on401(); alert('세션 만료 — 다시 승인하세요'); return; }
+  if(r.status===401||r.status===404){ document.getElementById('stat').textContent='세션 만료 — /web 으로 재접속'; return; }
   const d=await r.json();
   const ids=(d.hits||[]).map(h=>h.id).filter(Boolean);
   highlightSet = new Set(ids);   // 라벨 검색과 동일하게 강조+dim 방식 사용
@@ -447,7 +446,8 @@ async function semanticSearch(q){
   if(!ids.length){ document.getElementById('stat').textContent='🔎 의미검색: 결과 없음'; }
 }
 
-setAuth(localStorage.getItem('claire_session') ? 'authed' : 'idle');
+// 이 페이지가 로드됐다는 것 자체가 인증됨을 의미(미인증이면 게이트가 404). 쿠키 기반.
+setAuth('authed');
 fetch('documents').then(r=>r.json()).then(d=>{ allDocs=d.documents||[]; renderDocs(); });
 
 // 읽기전용 디버그 핸들(테스트/Playwright 검증용 — closure 상태 관찰). 부작용 없음.

@@ -664,14 +664,41 @@ def poll_auth_nonce(conn: sqlite3.Connection, nonce: str) -> str | None:
     return None
 
 
-def validate_session(conn: sqlite3.Connection, token: str) -> bool:
-    """세션 토큰이 유효(승인됨 + 미만료)한가. 비용 엔드포인트 게이트용(재사용 헬퍼)."""
+# 웹 세션 슬라이딩 수명(초). 접속(검증)할 때마다 만료를 now+이 값으로 연장 → 활성
+# 사용 중엔 재인증 불필요, 7일 이상 안 쓰면 만료. (/web 명령으로 발급)
+SESSION_TTL = 7 * 86400.0
+
+
+def create_session(conn: sqlite3.Connection, *, ttl: float = SESSION_TTL) -> str:
+    """[/web] 텔레그램 명령으로 즉시 발급하는 승인 세션(버튼 승인 단계 없음).
+
+    nonce 컬럼이 PK 라 토큰과 동일값으로 둬 approved=1 행을 만든다(별도 nonce 불필요)."""
+    token = secrets.token_urlsafe(32)
+    now = time.time()
+    conn.execute(
+        "INSERT INTO auth_sessions(nonce,session_token,approved,created_at,expires_at) "
+        "VALUES (?,?,1,?,?)", (token, token, now, now + ttl))
+    conn.commit()
+    return token
+
+
+def validate_session(
+    conn: sqlite3.Connection, token: str, *, ttl: float = SESSION_TTL
+) -> bool:
+    """세션 토큰이 유효(승인됨 + 미만료)한가 + **슬라이딩 연장**(유효 접속마다 now+ttl).
+
+    전 엔드포인트 게이트용. 유효하면 만료를 now+ttl 로 갱신해 활성 사용 중 재인증을 없앤다."""
     if not token:
         return False
     row = conn.execute(
         "SELECT expires_at FROM auth_sessions WHERE session_token=? AND approved=1",
         (token,)).fetchone()
-    return bool(row and row["expires_at"] >= time.time())
+    if not (row and row["expires_at"] >= time.time()):
+        return False
+    conn.execute("UPDATE auth_sessions SET expires_at=? WHERE session_token=?",
+                 (time.time() + ttl, token))
+    conn.commit()
+    return True
 
 
 def latest_extraction_summary(conn: sqlite3.Connection, document_id: str) -> str | None:
