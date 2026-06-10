@@ -151,6 +151,7 @@ def synthesize(conn, provider, entity_ids: list[str], query: str | None = None) 
 # vis.js 9(unpkg CDN) 기반 단일 페이지. /graph·/node·/documents·/auth·/synthesize 사용.
 GRAPH_HTML = """<!doctype html>
 <html lang="ko"><head><meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>claire_bible — 지식 그래프</title>
 <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
 <style>
@@ -190,6 +191,18 @@ GRAPH_HTML = """<!doctype html>
   button:hover{background:#2ea043}
   button.sec{background:#30363d} button.sec:hover{background:#3c444d}
   #fslider{width:100px;vertical-align:middle}
+  /* 모바일/좁은 화면: 가로 3분할 대신 세로 스택(그래프 먼저). 모든 기능 터치로 도달 가능. */
+  @media (max-width:820px){
+    #bar{white-space:normal;flex-wrap:wrap;gap:4px 8px}
+    #bar .spacer{display:none}
+    #q{width:38vw;min-width:120px}
+    #wrap{flex-direction:column;height:auto}
+    #net{order:-1;height:58vh;min-height:300px;width:100%}
+    #docs{width:auto;max-height:34vh;border-right:none;border-bottom:1px solid #2a2f37}
+    #docs .dhead{position:static}
+    #panel{width:auto;border-left:none;border-top:2px solid #2a2f37}
+    #panel .hint br{display:none}
+  }
 </style></head>
 <body>
 <div id="bar">
