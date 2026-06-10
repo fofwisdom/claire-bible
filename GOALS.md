@@ -56,13 +56,27 @@
 - [ ] (뒷이야기) 선택 노드 종합 시 추가 자동 웹검색 — 사용자가 defer
 - [ ] static 경로 boilerplate (사용자 보류)
 - [ ] **degree 필터 유용성 평가 + ego-graph 검토** — 며칠 사용 후(사용자와)
-- [ ] **외부 접속 시나리오**(모바일/외부 PC) — 2026-06-11 설계 예정. 현재 loopback+텔레그램 세션이 기반. 외부 노출 시 TLS·바인드·읽기엔드포인트 게이팅 등 threat model 재설계 필요(사용자와).
-- [ ] **(2026-06-11) UI 4차 버그/UX** — 다수가 hover↔selection/highlightSet 결합이 뿌리(hover 미리보기를 선택/하이라이트와 완전 분리하면 ①⑤ 동시 해결):
-  - ① shift 다중선택 후 다른 노드 hover/leave 시 이전 선택 일부 취소됨(blur 의 `net.selectNodes([selectedNodeId])` 가 multiselect 를 단일로 덮음).
-  - ⑤ 검색(라벨/의미) 결과 하이라이트가 노드 hover 시 꺼짐(hover loadNode 가 selection/applyView 를 덮음 → blur 후 highlightSet 재적용 필요).
-  - ② 노드 선택 해제 수단 필요(빈 캔버스 클릭/ESC/지우기 — 종합용 묶기 편하게).
-  - ③ 검색어 입력 ↔ 문서선택 하이라이트 동시 사용 시나리오 정리(입력후 문서선택/선택후 입력 흐름이 깔끔히 합성되게 — activeDoc·highlightSet 합성은 되나 UX 흐름·해제 UI 불명확).
-  - ④ 입력창 포커스 시 텍스트 전체 선택(`focus` → `select()`).
+- [x] (완료 2026-06-11, **설계만**) **외부 접속 시나리오**(모바일/외부 PC) — 사용자 결정 "설계안만 문서로". `docs/EXTERNAL_ACCESS.md`: 위협모델(읽기 엔드포인트 무인증=루프백 전제) + 옵션비교(SSH터널/Tailscale/Cloudflare Access/직접노출) + **권장=Tailscale**(공개노출 0, 바인드만 변경, 읽기 게이팅 재설계 불필요). 실제 바인드/노출 변경은 다음 세션 승인 후.
+- [x] (완료 2026-06-11) **UI 4차 버그/UX**(graphview) — hover↔selection 분리로 일괄 해결:
+  - ⑤④ 검색 강조 유지 + hover 분리: `restoreSelection()`(highlightSet/selectedNodeId 를 vis 선택으로 복원)을 blur·빈캔버스클릭 뒤 적용 → hover/빈클릭으로 검색 선택이 사라지지 않음(**사용자 핵심 이슈4**: "검색된 상황에선 선택 유지").
+  - ② ESC = `clearSelections()`(검색+inspect 해제, synthSet 보존). 빈클릭 = inspect만 해제·검색 강조 유지.
+  - ④ 입력창 focus → `select()`(전체선택).
+  - JS 문법 `node --check` 검증.
+
+### 2026-06-11 발견 이슈 처리 (사용자 보고 5건)
+- [x] **(근본원인) router 가 '제목 + 트레일링 URL' 공유 텍스트에서 URL 추출 못함** — 모바일/데스크톱 '공유'는 「제목 … URL」로 와서 http 로 시작 안 함 → 그동안 **순수 메모(text)로 적재돼 링크 fetch 자체가 안 됨**(실관측: share.google/wikidocs 가 url=None 90자 thin 노드 2개). `router.extract_shared_url`(마지막 토큰이 URL일 때만) + `fetch`/`classify`/`classify_input` 반영. **실 검증**: wikidocs 재적재 → 8172자 본문 + 한글 요약 정상. test_router.py.
+- [x] **한글 정리 프롬프트**(이슈1·5b) — `_SYS` 에 summary/observations/key_claims **한국어 작성**(고유명사·기술어 원문 유지) 규칙. PROMPT_VERSION `extract-v2`→`extract-v3`. mock 무관(프롬프트 무시)이라 실 Gemini 검증.
+- [x] **1홉 후보 blacklist**(이슈2) — arxiv 푸터의 기관/운영 링크(Cornell University·info.arxiv.org·Donate/Help)가 후보로 떠 무의미. `onehop._is_blocked` = 서브도메인 suffix(`info.arxiv.org`,`cornell.edu`…) + boilerplate 경로 prefix(`/about`,`/help`,`/donate`,`/terms`…). **arxiv.org 본체(/abs 논문)는 보존**. test_expand.py.
+- [x] **텔레그램 적재완료 메시지 정리**(이슈3) — reaction(👍)으로 결과를 표시하는데 "적재 완료" 텍스트가 yes/no 후에도 잔존=스팸. `no:`→메시지 **삭제**, `exp:`→같은 메시지 **in-place 편집**(진행→결과, 새 메시지 2개 안 만듦).
+- [x] **재추출 인프라 + 한글 전수 재추출**(이슈1/5b 기존 데이터) — `_merge` 가 observations 를 *추가*하므로 단순 재추출은 영문+한글 혼재 → `db.reset_graph`(엔티티/관계/임베딩/추출/FTS 비움, **문서·원본 보존**) + `IngestService.reextract_all(rebuild=True)` + CLI `reextract`(**배포전 백업 강제**). 저장된 raw_text 로 전 문서 한글 재구축. test_reextract.py.
+- [x] **라이브 데이터 복구**(사용자 결정 "재적재+기존삭제", "전체 재추출") — ①thin AutoLab 2건 삭제 → wikidocs 재적재(8172자). ②**전체 rebuild 재추출 35문서 성공 35/실패 0**(백업 일치 확인 후). ③blacklist 이전에 적재됐던 잡음 문서 5건(Cornell University/Cornell Tech/Our Members·Donate·Help — info.arxiv.org·cornell.edu) **외과적 제거**(+고아 엔티티 10·관계 10, 공유엔티티 0=부수피해 없음). **최종: 문서 30·엔티티 97·관계 87.**
+
+**검증(실 Gemini + Playwright, 2026-06-11):**
+- observations 한글 확인(요약 아님): OpenSkill="LLM 에이전트의 오픈 월드 자가 진화를 위한 프레임워크"… 고유명사(OpenSkill/arXiv/Claude Code/CUDA) 원문 유지.
+- **이슈4 Playwright 경험적 검증**(`window.claireDebug` 읽기전용 핸들 추가): 검색→강조9·vis선택9 / **빈캔버스클릭→vis가 선택비움(0)→setTimeout(restoreSelection)이 9 복원**(순서 정상)·inspect만 해제 / hover→선택불변 / blur→강조복원 / ESC→전부 해제.
+- 문서목록에서 잡음 5건 사라짐 확인.
+
+**오늘 테스트 120→130개.** 배포(rsync+5컨테이너 재빌드) 후 실 Gemini 로 router·한글·blacklist 동시 검증. **주의: rebuild 는 LLM 병합판정을 전부 재실행 → 노드 연결 구조가 이전과 달라질 수 있음(번역이 아니라 재구성). 영문+한글 혼재 회피의 정당한 대가.**
 
 ---
 

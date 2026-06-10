@@ -145,6 +145,44 @@ class IngestService:
         finally:
             conn.close()
 
+    def reextract_all(self, *, rebuild: bool = True, limit: int = 0) -> dict:
+        """저장된 raw_text 로 전체 문서를 재추출(프롬프트 변경 반영 — 예: 한글화).
+
+        rebuild=True: 먼저 그래프(엔티티/관계/임베딩/추출)를 비우고 처음부터 재구축한다.
+        _merge 는 observations 를 *추가*하므로, 비우지 않으면 기존(영문)+신규(한글)가 섞인다.
+        documents·raw_inbox·artifact 는 보존하므로 입력은 그대로. **파괴적** — 호출 전
+        백업 필수(CLI 가 강제). 문서당 Gemini 1회(quota). 오래된 문서부터(원래 적재 순서
+        에 가깝게) 처리해 first-seen canonical 수렴을 원래와 맞춘다.
+        """
+        conn = dbm.connect(self.s.db_file)
+        dbm.init_db(conn)
+        vstore = make_vector_store(conn, self.s.vector_backend)
+        try:
+            rows = dbm.documents_timeline(conn, limit or 1000000)
+            ids = [r["id"] for r in rows][::-1]  # 오래된 것부터
+            if limit:
+                ids = ids[:limit]
+            if rebuild:
+                dbm.reset_graph(conn)
+            out = {"docs": 0, "ok": 0, "failed": 0, "errors": []}
+            for did in ids:
+                doc = dbm.get_document(conn, did)
+                if doc is None:
+                    continue
+                out["docs"] += 1
+                report = IngestReport(document_id=did)
+                ok, err = extract_resolve_store(
+                    conn, self.provider, vstore, doc, report,
+                    vault_dir=self.s.vault_dir)
+                if ok:
+                    out["ok"] += 1
+                else:
+                    out["failed"] += 1
+                    out["errors"].append({"document_id": did, "error": err})
+            return out
+        finally:
+            conn.close()
+
     def search(self, query: str, *, limit: int = 8, summarize: bool = True):
         from ..retrieval.query import search as _search
 

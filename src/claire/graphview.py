@@ -239,7 +239,13 @@ fetch('graph').then(r=>r.json()).then(d=>{
   };
   net = new vis.Network(document.getElementById('net'), {nodes:allNodes, edges:allEdges}, opts);
   net.on('click', p => {
-    if(!p.nodes.length) return;
+    if(!p.nodes.length){
+      // 빈 캔버스 클릭: inspect 만 해제하고 검색(라벨/의미) 강조 선택은 유지(이슈4).
+      // vis 가 내부적으로 선택을 비우므로 그 뒤에 검색 선택을 다시 적용한다.
+      selectedNodeId=null;
+      if(highlightSet && highlightSet.size) setTimeout(restoreSelection, 0);
+      return;
+    }
     const id=p.nodes[0], ev=p.event.srcEvent;
     if(ev && (ev.ctrlKey||ev.metaKey)){ toggleSynth(id); }   // Ctrl/Cmd+클릭 = 종합 수집(선택과 분리)
     else { selectedNodeId=id; loadNode(id); }                // 일반 클릭 = 상세 inspect
@@ -247,9 +253,28 @@ fetch('graph').then(r=>r.json()).then(d=>{
   net.on('hoverNode', p => { clearTimeout(hoverTimer);
     hoverTimer=setTimeout(()=>{ if(p.node!==selectedNodeId) loadNode(p.node, true); }, 1000); });
   net.on('blurNode', () => { clearTimeout(hoverTimer);
-    if(selectedNodeId) loadNode(selectedNodeId, false); });
+    // hover 미리보기를 닫고 inspect/검색 선택을 원복(이슈4 + GOALS ①⑤: hover↔selection 분리).
+    if(selectedNodeId) loadNode(selectedNodeId, false);
+    restoreSelection(); });
   applyView();
 });
+
+// 검색 강조(highlightSet)와 inspect(selectedNodeId)를 vis 시각 선택으로 복원.
+// hover/blur·빈클릭으로 vis 가 선택을 비워도 검색 결과 선택이 사라지지 않게 한다(이슈4).
+function restoreSelection(){
+  if(!net) return;
+  let ids = highlightSet ? [...highlightSet] : [];
+  if(selectedNodeId && !ids.includes(selectedNodeId)) ids = ids.concat(selectedNodeId);
+  if(ids.length) net.selectNodes(ids); else net.unselectAll();
+}
+// 검색·inspect 모두 해제(ESC / 검색창 비우기). synthSet(종합 수집)은 보존.
+function clearSelections(){
+  highlightSet=null; selectedNodeId=null;
+  const q=document.getElementById('q'); if(q) q.value='';
+  if(net) net.unselectAll();
+  applyView();
+}
+document.addEventListener('keydown', e=>{ if(e.key==='Escape') clearSelections(); });
 
 function loadNode(id, isHover){
   if(net && !isHover) net.selectNodes([id]);  // hover 미리보기는 선택을 바꾸지 않음
@@ -352,6 +377,8 @@ document.getElementById('q').addEventListener('keydown',e=>{
   if(document.getElementById('sem').checked){ doSemantic(); }
   else { const m=net.getSelectedNodes(); if(m.length) loadNode(m[0]); }
 });
+// 입력창 포커스 시 기존 검색어 전체 선택 → 바로 새로 타이핑 가능(GOALS ④).
+document.getElementById('q').addEventListener('focus', e=> e.target.select());
 function doSemantic(){ semanticSearch(document.getElementById('q').value); }
 
 // --- 인증(텔레그램 버튼 승인 → 세션) + 상태 표시 ---
@@ -422,5 +449,13 @@ async function semanticSearch(q){
 
 setAuth(localStorage.getItem('claire_session') ? 'authed' : 'idle');
 fetch('documents').then(r=>r.json()).then(d=>{ allDocs=d.documents||[]; renderDocs(); });
+
+// 읽기전용 디버그 핸들(테스트/Playwright 검증용 — closure 상태 관찰). 부작용 없음.
+window.claireDebug = {
+  get sel(){ return net ? net.getSelectedNodes() : []; },
+  get highlight(){ return highlightSet ? [...highlightSet] : null; },
+  get selected(){ return selectedNodeId; },
+  get synth(){ return [...synthSet]; },
+};
 </script></body></html>
 """

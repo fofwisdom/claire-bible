@@ -187,6 +187,19 @@ def backup_database(src: str | Path, dest: str | Path) -> Path:
     return dest
 
 
+def reset_graph(conn: sqlite3.Connection) -> None:
+    """추출 산출물(엔티티/관계/임베딩/추출/제안/FTS)을 비운다 — documents·raw_inbox·
+    artifact 는 보존. 저장된 raw_text 로부터 그래프를 깨끗이 재구축(reextract)할 때 사용.
+
+    문서/원본을 남기므로 재추출의 입력은 그대로다. 파괴적이라 호출 전 백업 권장
+    (CLI reextract 가 강제). FTS 는 트리거가 아니라 수동 관리라 함께 비운다.
+    """
+    for tbl in ("entities", "entities_fts", "relations", "embeddings",
+                "extractions", "proposals"):
+        conn.execute(f"DELETE FROM {tbl}")
+    conn.commit()
+
+
 def connect(db_path: str | Path) -> sqlite3.Connection:
     p = Path(db_path)
     p.parent.mkdir(parents=True, exist_ok=True)

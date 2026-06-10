@@ -42,6 +42,30 @@ def test_find_candidates_filters_and_dedup():
     assert not any("geeknews.io/post/1" in c for c in cands)
 
 
+def test_candidates_blacklist_subdomain_and_paths():
+    """arxiv 페이지 푸터의 기관/운영 링크(잡음)는 제외하되 /abs 논문은 후보 유지."""
+    conn = _db()
+    doc = Document(
+        url="https://arxiv.org/abs/2406.00001",
+        canonical_url="https://arxiv.org/abs/2406.00001",
+        raw_text=(
+            "paper https://arxiv.org/abs/2406.99999 "
+            "https://info.arxiv.org/about/ourmembers.html "
+            "https://www.cornell.edu/ "
+            "https://info.arxiv.org/help/index.html "
+            "https://example.com/about "
+            "https://example.com/real-article"
+        ),
+        source_type="web", content_hash="abx",
+    )
+    cands = find_candidates(conn, doc, limit=10)
+    assert any("arxiv.org/abs/2406.99999" in c for c in cands)  # 논문 후보 보존
+    assert any("example.com/real-article" in c for c in cands)
+    assert not any("info.arxiv.org" in c for c in cands)        # 서브도메인 suffix
+    assert not any("cornell.edu" in c for c in cands)           # 운영기관
+    assert not any("example.com/about" in c for c in cands)     # boilerplate 경로
+
+
 def test_candidates_exclude_already_ingested():
     conn = _db()
     # 기존에 example.com/known 적재됨

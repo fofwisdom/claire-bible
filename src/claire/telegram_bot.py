@@ -65,6 +65,13 @@ def classify_input(text: str) -> str:
     t = (text or "").strip()
     if not t:
         return "empty"
+    # '제목 + 트레일링 링크' 공유 텍스트면 그 링크 기준으로 라벨링(router 와 동일 규칙).
+    if not t.lower().startswith(("http://", "https://")):
+        from .ingest.router import extract_shared_url
+
+        shared = extract_shared_url(t)
+        if shared:
+            t = shared
     low = t.lower()
     if low.startswith("http://") or low.startswith("https://"):
         if "youtube.com" in low or "youtu.be" in low:
@@ -253,15 +260,26 @@ def run_bot() -> int:
                 if tok else "⚠️ 만료되었거나 이미 처리된 요청입니다.")
             return
         if data.startswith("no:"):
+            # 거절: 진행/결과 메시지를 아예 삭제(스팸 감소 — 적재 결과는 원본 reaction 으로
+            # 이미 표시됨). 삭제 불가(시간초과 등)면 버튼만 제거로 폴백.
             pending.pop(data[3:], None)
-            await query.edit_message_reply_markup(reply_markup=None)
+            try:
+                await query.message.delete()
+            except Exception:  # noqa: BLE001
+                await query.edit_message_reply_markup(reply_markup=None)
             return
         if data.startswith("exp:"):
             urls = pending.pop(data[4:], [])
-            await query.edit_message_reply_markup(reply_markup=None)
             if not urls:
+                await query.edit_message_reply_markup(reply_markup=None)
                 return
-            await query.message.reply_text(f"⏳ {len(urls)}개 확장 적재 중…")
+            # 같은 메시지를 in-place 편집해 진행→결과로 갱신(새 메시지 2개 더 안 만든다).
+            async def _edit(text: str) -> None:
+                try:
+                    await query.edit_message_text(text)
+                except Exception:  # noqa: BLE001
+                    pass
+            await _edit(f"⏳ {len(urls)}개 확장 적재 중…")
             lines = []
             for url in urls:
                 try:
@@ -270,7 +288,7 @@ def run_bot() -> int:
                     lines.append(f"• {sub.telegram_summary().splitlines()[0]}")
                 except Exception as e:  # noqa: BLE001
                     lines.append(f"• ❌ {url}: {e}")
-            await query.message.reply_text("\n".join(lines))
+            await _edit("🔗 확장 적재 결과\n" + "\n".join(lines))
 
     async def on_search(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         if not _is_allowed(update.effective_user.id if update.effective_user else None):

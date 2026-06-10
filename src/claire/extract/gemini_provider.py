@@ -18,7 +18,8 @@ from ..ontology.registry import ontology_prompt_block
 from .provider import ExtractionResult, MergeCandidate
 
 # 추출 프롬프트 버전. _SYS 를 바꾸면 올린다(재적재 시 어떤 프롬프트로 뽑았는지 추적).
-PROMPT_VERSION = "extract-v2"
+# v3: summary/observations/key_claims 를 한국어로(고유명사 원문 유지) — 사용자 요구.
+PROMPT_VERSION = "extract-v3"
 
 # 프로세스 전역 throttle: 모든 Gemini 호출이 공유하는 최소 간격과 마지막 호출 시각.
 _CALL_LOCK = threading.Lock()
@@ -31,7 +32,12 @@ personal knowledge base about AI/software tools and research.
 {ontology}
 
 Rules:
-- summary: 1-3 sentences, factual, in the document's language.
+- LANGUAGE: write `summary`, every `observations` item, and `key_claims` in Korean
+  (한국어), REGARDLESS of the source document's language. Keep proper nouns, product/
+  tool/model names, org names, and technical terms in their original form — do NOT
+  transliterate (e.g. "OpenSkill", "arXiv", "LLM agent" stay as-is). Entity `name` and
+  `aliases` stay in their canonical original form (usually the original language).
+- summary: 1-3 factual sentences in Korean.
 - entities: the key things this document is ABOUT (tools, repos, models, people, orgs, concepts...).
 - Do NOT create an entity for the publishing platform, source site, news aggregator, or
   forum that merely HOSTS or links to this content (e.g. GeekNews, Hacker News, Reddit,

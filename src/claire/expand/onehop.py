@@ -16,7 +16,7 @@ from ..ingest.normalize import canonicalize_url
 
 _URL_RE = re.compile(r"https?://[^\s)\]\}<>\"']+")
 
-# 본문에 흔히 섞이는 비콘텐츠/잡음 호스트는 후보에서 제외.
+# 본문에 흔히 섞이는 비콘텐츠/잡음 호스트는 후보에서 제외(정확 일치).
 _SKIP_HOSTS = {
     "twitter.com", "x.com",  # v1 partial
     "youtube.com", "youtu.be",  # 후보로는 보류(소비형)
@@ -25,10 +25,39 @@ _SKIP_HOSTS = {
     "w3.org", "schema.org", "gravatar.com",
 }
 
+# 서브도메인까지 통째로 잡음인 호스트(suffix 매칭). 사이트 헤더/푸터의 기관·운영 링크.
+#   - arxiv.org 본체는 막지 않는다(/abs 논문은 좋은 후보) — info.arxiv.org 만 차단.
+#   - cornell.edu: arXiv 운영기관 푸터 링크(Cornell University/Tech)로 매번 섞임.
+_SKIP_HOST_SUFFIXES = (
+    "info.arxiv.org",
+    "cornell.edu",
+    "creativecommons.org",
+    "doi.org",  # 후보로는 보류(메타 리졸버)
+)
+
+# 호스트 무관 boilerplate 경로 prefix(헤더/푸터의 about/help/donate/약관/로그인 류).
+# 1홉은 '제안'일 뿐이라 과소제안의 해는 작고, 잡음 제안이 더 거슬린다(사용자 지적).
+_SKIP_PATH_PREFIXES = (
+    "/about", "/help", "/donate", "/login", "/signin", "/signup", "/register",
+    "/privacy", "/terms", "/tos", "/legal", "/policies", "/contact", "/abuse",
+    "/subscribe", "/newsletter", "/rss", "/feed", "/sitemap", "/static",
+    "/assets", "/cdn-cgi",
+)
+
 
 def _host(url: str) -> str:
     h = urlsplit(url).netloc.lower()
     return h[4:] if h.startswith("www.") else h
+
+
+def _is_blocked(url: str, host: str) -> bool:
+    """잡음 호스트(정확/서브도메인) 또는 boilerplate 경로면 후보에서 제외."""
+    if not host or host in _SKIP_HOSTS:
+        return True
+    if any(host == s or host.endswith("." + s) for s in _SKIP_HOST_SUFFIXES):
+        return True
+    path = urlsplit(url).path.rstrip("/").lower() or "/"
+    return any(path == p or path.startswith(p + "/") for p in _SKIP_PATH_PREFIXES)
 
 
 def find_candidates(
@@ -49,7 +78,7 @@ def find_candidates(
     for raw in raw_links:
         raw = raw.rstrip(".,;")
         host = _host(raw)
-        if not host or host in _SKIP_HOSTS:
+        if _is_blocked(raw, host):
             continue
         canon = canonicalize_url(raw)
         if canon in seen_canon:

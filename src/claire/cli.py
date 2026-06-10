@@ -264,6 +264,30 @@ def cmd_ingest(args) -> int:  # noqa: ANN001
     return 0 if report.error is None else 1
 
 
+def cmd_reextract(args) -> int:  # noqa: ANN001
+    """저장된 raw_text 로 전체 문서를 재추출(프롬프트 변경 반영, 예: 한글화).
+
+    파괴적(그래프 재구축)이라 실행 전 백업을 강제한다. --no-backup 으로 우회 가능(비권장).
+    """
+    from .ingest.service import IngestService
+
+    s = get_settings()
+    if not args.no_backup:
+        dest, match, counts = _do_backup(s, args.keep)
+        print(f"[backup] 재추출 전 스냅샷: {dest} · live일치={match}", flush=True)
+        if not match:
+            print("  ⚠️ 백업이 live 와 불일치 — 중단. (--no-backup 으로 강제 가능)")
+            return 1
+    svc = IngestService(s)
+    print(f"(provider={svc.provider.name}) 재추출 시작"
+          f"{' (rebuild)' if not args.no_rebuild else ''}…", flush=True)
+    out = svc.reextract_all(rebuild=not args.no_rebuild, limit=args.limit)
+    print(f"재추출 완료: 문서 {out['docs']} · 성공 {out['ok']} · 실패 {out['failed']}")
+    for e in out["errors"][:20]:
+        print(f"  - 실패 {e['document_id']}: {e['error']}")
+    return 0 if out["failed"] == 0 else 1
+
+
 def cmd_search(args) -> int:  # noqa: ANN001
     from .extract.provider import get_provider
     from .retrieval.query import search
@@ -422,6 +446,15 @@ def build_parser() -> argparse.ArgumentParser:
     ps.add_argument("--limit", type=int, default=8)
     ps.add_argument("--no-summary", action="store_true", help="skip LLM summary")
     ps.set_defaults(func=cmd_search)
+
+    pre = sub.add_parser("reextract",
+                         help="re-extract all docs from stored raw_text (apply prompt change, e.g. Korean)")
+    pre.add_argument("--no-rebuild", action="store_true",
+                     help="merge into existing graph instead of wiping first (may mix old/new)")
+    pre.add_argument("--no-backup", action="store_true", help="skip the forced pre-backup (not recommended)")
+    pre.add_argument("--keep", type=int, default=7, help="backups to retain")
+    pre.add_argument("--limit", type=int, default=0, help="cap number of docs (0=all)")
+    pre.set_defaults(func=cmd_reextract)
 
     pb = sub.add_parser("backup", help="snapshot DB (VACUUM INTO) + verify restorable + prune")
     pb.add_argument("--keep", type=int, default=7, help="최근 N개 보존")
