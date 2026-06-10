@@ -669,11 +669,28 @@ def poll_auth_nonce(conn: sqlite3.Connection, nonce: str) -> str | None:
 SESSION_TTL = 7 * 86400.0
 
 
-def create_session(conn: sqlite3.Connection, *, ttl: float = SESSION_TTL) -> str:
-    """[/web] 텔레그램 명령으로 즉시 발급하는 승인 세션(버튼 승인 단계 없음).
+# 손으로 입력하기 쉬운 토큰 알파벳: 헷갈리는 0/o/1/l 제외(31자). 10자 ≈ 49bit.
+_TOKEN_ALPHABET = "23456789abcdefghjkmnpqrstuvwxyz"
 
-    nonce 컬럼이 PK 라 토큰과 동일값으로 둬 approved=1 행을 만든다(별도 nonce 불필요)."""
-    token = secrets.token_urlsafe(32)
+
+def _short_token(n: int = 10) -> str:
+    return "".join(secrets.choice(_TOKEN_ALPHABET) for _ in range(n))
+
+
+def revoke_all_sessions(conn: sqlite3.Connection) -> int:
+    """모든 세션/대기 nonce 무효화. 반환: 삭제 행 수."""
+    n = conn.execute("DELETE FROM auth_sessions").rowcount
+    conn.commit()
+    return n
+
+
+def create_session(conn: sqlite3.Connection, *, ttl: float = SESSION_TTL) -> str:
+    """[/web] **단일 활성 세션**: 기존 세션을 전부 revoke 하고 짧은 새 토큰 1개만 발급.
+
+    폰에서 발급해 PC 에서 손으로 입력하기 쉽도록 짧고 헷갈리지 않는 코드. 발급 즉시 이전
+    링크/쿠키는 무효(다음 /web 한 번이 곧 '이전 전부 로그아웃'). nonce=토큰(PK)."""
+    conn.execute("DELETE FROM auth_sessions")   # 단일 활성 — 이전 토큰/대기 전부 revoke
+    token = _short_token()
     now = time.time()
     conn.execute(
         "INSERT INTO auth_sessions(nonce,session_token,approved,created_at,expires_at) "

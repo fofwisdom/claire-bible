@@ -84,11 +84,27 @@ def test_double_approve_is_noop():
 # --- /web 즉시 발급 세션 + 슬라이딩 만료 ---
 
 def test_create_session_validates_immediately():
-    """/web: 버튼 승인 단계 없이 즉시 발급된 토큰이 곧바로 유효."""
+    """/web: 버튼 승인 단계 없이 즉시 발급된 토큰이 곧바로 유효 + 짧고 타이핑 쉬운 코드."""
     conn = _mem()
     tok = dbm.create_session(conn, ttl=100)
     assert tok and dbm.validate_session(conn, tok) is True
     assert dbm.validate_session(conn, "wrong-token") is False
+    assert len(tok) <= 12                                    # 짧은 코드(수동 입력용)
+    assert all(c in "23456789abcdefghjkmnpqrstuvwxyz" for c in tok)  # 헷갈리는 문자 없음
+
+
+def test_create_session_single_active_revokes_previous():
+    """B 모델: 새 발급이 이전 토큰을 전부 무효화(단일 활성). 프리픽스 매칭 아님(전체 일치)."""
+    conn = _mem()
+    t1 = dbm.create_session(conn)
+    t2 = dbm.create_session(conn)
+    assert t1 != t2
+    assert dbm.validate_session(conn, t1) is False          # 이전 토큰 죽음
+    assert dbm.validate_session(conn, t2) is True            # 최신만 유효
+    # 프리픽스만 맞는 가짜 토큰은 거부(전체 일치 요구 — 보안)
+    assert dbm.validate_session(conn, t2[:7]) is False
+    assert dbm.revoke_all_sessions(conn) == 1               # 남은 1개 revoke
+    assert dbm.validate_session(conn, t2) is False
 
 
 def test_session_sliding_extends_expiry():
