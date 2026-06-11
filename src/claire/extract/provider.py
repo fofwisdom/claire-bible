@@ -168,6 +168,14 @@ class MockProvider:
         답으로 나오는지(파이프라인 연결)만 결정론적으로 보장한다."""
         return f"[mock] {query} :: {context[:120]}"
 
+    def render_detail(self, doc: Document) -> str:
+        """결정론적 stub — 문서 가독 렌더링(detail) 파이프라인 연결만 보장.
+
+        실제 분량/품질(A4 1~2장)은 실 Gemini 로 검증한다."""
+        title = (doc.title or doc.url or "untitled").strip()
+        text = (doc.raw_text or "").strip()
+        return f"[mock-detail] {title}\n\n{text[:600]}"
+
 
 def get_provider(settings) -> Provider:  # noqa: ANN001
     """effective_provider 에 따라 provider 인스턴스 반환.

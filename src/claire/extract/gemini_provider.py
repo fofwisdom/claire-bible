@@ -201,6 +201,27 @@ class GeminiProvider:
             model=self.model, contents=prompt))
         return (resp.text or "").strip()
 
+    def render_detail(self, doc: Document) -> str:
+        """원문을 한국어로 '편하게 읽을 수 있는 글'로 재구성(요약 아님, 가독 렌더링).
+
+        짧은 summary 와 별개 — 원문을 직접 안 읽어도 핵심·맥락·세부를 파악할 수 있게
+        여러 단락(대략 A4 1~2장)으로 푼다. 구조화 추출과 독립된 별도 호출이라 그래프에
+        영향 없음. 고유명사/기술 용어는 원문 형태 유지(음차 금지), 없는 사실 금지."""
+        body = _doc_to_prompt(doc)
+        prompt = (
+            "아래 원문을 한국어로 '편하게 읽을 수 있는 글'로 재구성하라. 단순 1~2문장 "
+            "요약이 아니라, 독자가 원문을 직접 읽지 않아도 핵심 내용·배경 맥락·중요한 "
+            "세부까지 충분히 파악할 수 있도록 여러 단락(대략 A4 1~2장 분량)으로 풀어 써라. "
+            "**평문 산문(여러 단락)으로만 작성**하라 — 마크다운 소제목(#)·불릿(-)·표는 쓰지 "
+            "말 것(렌더링이 글자 그대로 노출됨). 단락은 빈 줄로 구분하라. 고유명사·제품/도구/"
+            "모델명·조직명·기술 용어는 원문 형태 그대로 유지하라(음차/번역 금지: 예 "
+            "\"arXiv\", \"LLM agent\"). 원문에 없는 사실은 절대 지어내지 말 것.\n\n"
+            f"원문:\n{body}\n\n한국어 재구성:"
+        )
+        resp = self._call(lambda: self.client.models.generate_content(
+            model=self.model, contents=prompt))
+        return (resp.text or "").strip()
+
     def judge_same_entity(self, mc: MergeCandidate) -> bool:
         """두 엔티티가 동일한 실세계 대상인지 LLM 으로 판정(borderline 후보에만)."""
         prompt = (

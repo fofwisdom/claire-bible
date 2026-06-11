@@ -75,6 +75,8 @@ def node_detail(conn: sqlite3.Connection, entity_id: str) -> dict | None:
                 "title": row["title"] or "(제목 없음)",
                 "url": row["url"],
                 "summary": dbm.latest_extraction_summary(conn, did) or "",
+                # 한국어 가독 렌더링(여러 단락) — 패널에서 '자세히 읽기'로 펼친다.
+                "detail": dbm.get_document_detail(conn, did) or "",
             })
 
     return {
@@ -161,7 +163,7 @@ GRAPH_HTML = """<!doctype html>
   #bar b{color:#7ee787}
   .spacer{flex:1}
   #stat{color:#8b949e;text-align:right}
-  #authstate{cursor:pointer;padding:2px 7px;border:1px solid #2a2f37;border-radius:4px}
+  #authstate{padding:2px 7px;border:1px solid #2a2f37;border-radius:4px}
   #synthchips{display:flex;gap:4px;overflow:hidden;max-width:280px}
   #synthchips .chip{background:#1f2937;border-radius:10px;padding:1px 7px;font-size:11px;cursor:pointer}
   #legendbar{display:flex;flex-wrap:wrap;gap:10px;padding:4px 12px;background:#10151c;border-bottom:1px solid #2a2f37;font-size:11px;color:#8b949e}
@@ -182,6 +184,11 @@ GRAPH_HTML = """<!doctype html>
   #panel ul{margin:.2em 0;padding-left:18px} #panel li{margin:.25em 0}
   #panel .doc{margin:.5em 0;padding:6px 8px;background:#161b22;border-radius:5px}
   #panel .doc p{margin:.3em 0 0;color:#adbac7} #panel a{color:#58a6ff;text-decoration:none}
+  #panel .doc details.more{margin:.4em 0}
+  #panel .doc details.more>summary{cursor:pointer;color:#58a6ff;font-size:12px;list-style:none}
+  #panel .doc details.more>summary::-webkit-details-marker{display:none}
+  #panel .doc .detail{white-space:pre-wrap;margin:.4em 0;padding:8px 10px;background:#0e1116;border:1px solid #2a2f37;border-radius:5px;color:#c9d1d9;line-height:1.65;font-size:12.5px;max-height:50vh;overflow:auto}
+  #panel .doc p.src{margin-top:.45em}
   #panel .rel{color:#d29922;font-size:11px} #panel .al{color:#8b949e}
   #panel .hint{color:#6e7681;margin-top:1em}
   #panel .synth{white-space:pre-wrap;background:#161b22;border:1px solid #2a2f37;border-radius:5px;padding:10px;margin:.4em 0;line-height:1.6}
@@ -197,7 +204,9 @@ GRAPH_HTML = """<!doctype html>
     #bar .spacer{display:none}
     #q{width:38vw;min-width:120px}
     #wrap{flex-direction:column;height:auto}
-    #net{order:-1;height:58vh;min-height:300px;width:100%}
+    /* flex:none 필수 — base 의 flex:1(basis 0%)이 height:58vh 를 무력화해 #net 이
+       min-height 까지 쪼그라들던 버그(이슈1). 명시 높이를 쓰려면 flex 를 꺼야 한다. */
+    #net{order:-1;flex:none;height:58vh;min-height:340px;width:100%}
     #docs{width:auto;max-height:34vh;border-right:none;border-bottom:1px solid #2a2f37}
     #docs .dhead{position:static}
     #panel{width:auto;border-left:none;border-top:2px solid #2a2f37}
@@ -214,7 +223,7 @@ GRAPH_HTML = """<!doctype html>
   <button id="synthbtn" onclick="synth()">🧩 종합 (0)</button>
   <label>연결 ≥ <b id="fmin">0</b> <input id="fslider" type="range" min="0" max="0" value="0" oninput="setDeg(this.value)"/></label>
   <span class="spacer"></span>
-  <span id="authstate" onclick="authClick()">🔓 미인증</span>
+  <span id="authstate">🔒 인증됨</span>
   <span id="stat">로딩…</span>
 </div>
 <div id="legendbar"></div>
@@ -231,9 +240,19 @@ const TYPE_COLORS = {Tool:'#58a6ff',Framework:'#bc8cff',Model:'#f778ba',Paper:'#
 const DIM = 0.16;
 let net, allNodes, allEdges, allDocs=[];
 let curMinDeg=0, activeDoc=null, highlightSet=null, selectedNodeId=null, hoverTimer=null;
-let synthSet=new Set(), authTimer=null;
+let synthSet=new Set();
 const panel = document.getElementById('panel');
 function esc(s){return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+// 캔버스를 #net 박스의 실제 픽셀 크기에 맞춰 재설정(이슈1: 모바일에서 vis 가 생성 시점의
+// 미해결 높이로 캔버스를 150px 로 잡아 상단 일부만 차지하던 버그). '100%' 는 flex/auto
+// 체인에서 안 먹어서 getBoundingClientRect 의 실측 px 로 강제한다. ResizeObserver 가
+// 레이아웃 확정·세로스택 전환·회전 시점마다(초기 1회 포함) 다시 맞춘다.
+function relayout(){ if(!net) return;
+  const el=document.getElementById('net'); const r=el.getBoundingClientRect();
+  if(r.width>0 && r.height>0){ net.setSize(r.width+'px', r.height+'px'); net.redraw(); } }
+if(window.ResizeObserver){ new ResizeObserver(relayout).observe(document.getElementById('net')); }
+window.addEventListener('resize', relayout);
+window.addEventListener('orientationchange', ()=>setTimeout(relayout, 300));
 
 fetch('graph').then(r=>r.json()).then(d=>{
   allNodes = new vis.DataSet(d.nodes);
@@ -251,6 +270,10 @@ fetch('graph').then(r=>r.json()).then(d=>{
     interaction:{hover:true,tooltipDelay:120,multiselect:true}
   };
   net = new vis.Network(document.getElementById('net'), {nodes:allNodes, edges:allEdges}, opts);
+  // 모바일/세로스택: vis 가 생성 시점의 #net 높이로 캔버스 backing store 를 잡아 레이아웃이
+  // 늦게 확정되면 캔버스가 상단 일부만 차지(이슈1). 레이아웃 확정 후 컨테이너 크기로 강제
+  // 재설정 + 회전/리사이즈에도 다시 맞춘다.
+  requestAnimationFrame(()=>{ relayout(); setTimeout(relayout, 300); });
   net.on('click', p => {
     if(!p.nodes.length){
       // 빈 캔버스 클릭: inspect 만 해제하고 검색(라벨/의미) 강조 선택은 유지(이슈4).
@@ -302,9 +325,13 @@ function renderPanel(d){
   if(d.observations.length){ h+='<h3>관찰 · 주장</h3><ul>'+
     d.observations.map(o=>'<li>'+esc(o)+'</li>').join('')+'</ul>'; }
   if(d.documents.length){ h+='<h3>출처 문서 ('+d.documents.length+')</h3>';
+    // 설명(summary) → 자세히 읽기(detail, 여러 단락) → 원문 링크 순(사용자 요구).
     d.documents.forEach(dc=>{ h+='<div class=doc><b>'+esc(dc.title)+'</b>'+
-      (dc.url?' <a href="'+esc(dc.url)+'" target=_blank>↗</a>':'')+
-      (dc.summary?'<p>'+esc(dc.summary)+'</p>':'')+'</div>'; }); }
+      (dc.summary?'<p>'+esc(dc.summary)+'</p>':'')+
+      (dc.detail?'<details class=more><summary>📖 자세히 읽기</summary>'+
+        '<div class=detail>'+esc(dc.detail)+'</div></details>':'')+
+      (dc.url?'<p class=src><a href="'+esc(dc.url)+'" target=_blank>↗ 원문 열기</a></p>':'')+
+      '</div>'; }); }
   if(d.neighbors.length){ h+='<h3>연결 ('+d.neighbors.length+')</h3><ul>';
     d.neighbors.forEach(n=>{ const ar=n.dir=='out'?'→':'←';
       h+='<li><span class=rel>'+esc(n.rel)+'</span> '+ar+
@@ -394,36 +421,14 @@ document.getElementById('q').addEventListener('keydown',e=>{
 document.getElementById('q').addEventListener('focus', e=> e.target.select());
 function doSemantic(){ semanticSearch(document.getElementById('q').value); }
 
-// --- 인증(텔레그램 버튼 승인 → 세션) + 상태 표시 ---
-function setAuth(state, detail){
-  const el=document.getElementById('authstate');
-  if(state==='authed') el.textContent='🔒 인증됨';
-  else if(state==='pending') el.textContent='📨 승인 대기 '+detail+'s';
-  else el.textContent='🔓 미인증';
-}
-function authClick(){ if(!localStorage.getItem('claire_session')) ensureSession(); }
-function on401(){ localStorage.removeItem('claire_session'); setAuth('idle'); }
-async function ensureSession(){
-  let sess=localStorage.getItem('claire_session');
-  if(sess){ setAuth('authed'); return sess; }
-  let d;
-  try{ d=await (await fetch('auth/request',{method:'POST'})).json(); }
-  catch(e){ setAuth('idle'); return null; }
-  if(d.error){ setAuth('idle'); document.getElementById('authstate').textContent='🔓 '+d.error; return null; }
-  let left=Math.floor(d.ttl||600);
-  setAuth('pending', left);
-  if(authTimer) clearInterval(authTimer);
-  authTimer=setInterval(()=>{ left-=1; if(left>0) setAuth('pending', left); }, 1000);
-  const deadline=Date.now()+(d.ttl||600)*1000;
-  while(Date.now()<deadline){
-    await new Promise(r=>setTimeout(r,2000));
-    let p; try{ p=await (await fetch('auth/poll?nonce='+encodeURIComponent(d.nonce))).json(); }catch(e){ continue; }
-    if(p.session){ clearInterval(authTimer); localStorage.setItem('claire_session',p.session);
-      setAuth('authed'); return p.session; }
-  }
-  clearInterval(authTimer); setAuth('idle');
-  document.getElementById('authstate').textContent='🔓 승인 시간초과';
-  return null;
+// --- 인증 상태 표시 ---
+// 인증은 /web 링크가 설정한 httponly 쿠키로 처리된다. 이 페이지가 로드됐다는 것 자체가
+// 인증됨을 뜻한다(미인증이면 게이트가 404). 클릭해도 별도 승인 요청을 만들지 않는다 —
+// 예전 nonce 승인 플로우가 쿠키 인증과 무관하게 '승인 요청 만료' 텔레그램 스팸을
+// 유발했다(이슈3). 쿠키가 만료되면(7일 미사용) synthesize/검색이 401 → 아래에서 안내.
+function setAuth(state){
+  document.getElementById('authstate').textContent =
+    state==='idle' ? '🔓 세션 만료 — /web 재접속' : '🔒 인증됨';
 }
 async function synth(){
   const ids=[...synthSet];
@@ -433,7 +438,7 @@ async function synth(){
   fetch('synthesize',{method:'POST',
     headers:{'Content-Type':'application/json'},
     body:JSON.stringify({node_ids:ids})})
-   .then(r=> (r.status===401||r.status===404) ? {error:'세션 만료 — 텔레그램 /web 으로 다시 접속하세요'} : r.json())
+   .then(r=> { if(r.status===401||r.status===404){ setAuth('idle'); return {error:'세션 만료 — 텔레그램 /web 으로 다시 접속하세요'}; } return r.json(); })
    .then(d=>{
      if(d.error){ panel.innerHTML='<p class=hint>오류: '+esc(d.error)+'</p>'; return; }
      let h='<h2>🧩 종합 지식 <small>'+d.entities.length+'개 노드</small></h2>';
@@ -450,7 +455,7 @@ async function semanticSearch(q){
     headers:{'Content-Type':'application/json'},
     body:JSON.stringify({query:q, summarize:false, limit:12})}); }
   catch(e){ document.getElementById('stat').textContent='검색 실패'; return; }
-  if(r.status===401||r.status===404){ document.getElementById('stat').textContent='세션 만료 — /web 으로 재접속'; return; }
+  if(r.status===401||r.status===404){ setAuth('idle'); document.getElementById('stat').textContent='세션 만료 — /web 으로 재접속'; return; }
   const d=await r.json();
   const ids=(d.hits||[]).map(h=>h.id).filter(Boolean);
   highlightSet = new Set(ids);   // 라벨 검색과 동일하게 강조+dim 방식 사용

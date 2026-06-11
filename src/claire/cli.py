@@ -288,6 +288,23 @@ def cmd_reextract(args) -> int:  # noqa: ANN001
     return 0 if out["failed"] == 0 else 1
 
 
+def cmd_backfill_detail(args) -> int:  # noqa: ANN001
+    """detail(한국어 가독 렌더링)이 없는 문서를 채운다 — 비파괴적(그래프 불변).
+
+    reextract 와 달리 reset_graph/rebuild 없이 documents.detail 만 채운다(advisor).
+    문서당 Gemini 1회(quota). --force 면 기존 detail 도 재생성.
+    """
+    from .ingest.service import IngestService
+
+    s = get_settings()
+    svc = IngestService(s)
+    print(f"(provider={svc.provider.name}) detail 백필 시작"
+          f"{' (force)' if args.force else ''}…", flush=True)
+    out = svc.backfill_details(limit=args.limit, force=args.force)
+    print(f"백필 완료: 대상 {out['docs']} · 생성 {out['ok']} · 건너뜀 {out['skipped']}")
+    return 0
+
+
 def cmd_search(args) -> int:  # noqa: ANN001
     from .extract.provider import get_provider
     from .retrieval.query import search
@@ -455,6 +472,12 @@ def build_parser() -> argparse.ArgumentParser:
     pre.add_argument("--keep", type=int, default=7, help="backups to retain")
     pre.add_argument("--limit", type=int, default=0, help="cap number of docs (0=all)")
     pre.set_defaults(func=cmd_reextract)
+
+    pbd = sub.add_parser("backfill-detail",
+                         help="fill Korean readable 'detail' for docs missing it (non-destructive)")
+    pbd.add_argument("--limit", type=int, default=0, help="cap number of docs (0=all)")
+    pbd.add_argument("--force", action="store_true", help="regenerate even if detail exists")
+    pbd.set_defaults(func=cmd_backfill_detail)
 
     pb = sub.add_parser("backup", help="snapshot DB (VACUUM INTO) + verify restorable + prune")
     pb.add_argument("--keep", type=int, default=7, help="최근 N개 보존")

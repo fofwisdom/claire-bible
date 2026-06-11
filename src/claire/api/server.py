@@ -283,17 +283,18 @@ def run_api() -> int:
     async def gate(request, handler):
         tok = request.query.get("t")
         if tok and request.path == "/":
-            # /web 링크 진입: 토큰 유효하면 httponly 쿠키 설정 + 토큰 없는 URL 로 리다이렉트
-            # (주소창/히스토리/리퍼러에서 토큰 노출 최소화). 이후엔 쿠키로 인증.
+            # /web 링크 진입: 토큰(또는 7자+ 프리픽스)이 유효하면 httponly 쿠키에 **전체
+            # 토큰**을 담고 토큰 없는 URL 로 리다이렉트(주소창/히스토리/리퍼러 노출 최소화).
+            # 이후엔 쿠키(전체 일치)로 인증. 프리픽스 허용은 이 진입 지점뿐.
             conn = dbm.connect(s.db_file)
             try:
                 dbm.init_db(conn)
-                ok = dbm.validate_session(conn, tok)
+                full = dbm.resolve_session_prefix(conn, tok)
             finally:
                 conn.close()
-            if ok:
+            if full:
                 resp = web.HTTPFound("/")
-                resp.set_cookie("claire_session", tok, max_age=int(dbm.SESSION_TTL),
+                resp.set_cookie("claire_session", full, max_age=int(dbm.SESSION_TTL),
                                 httponly=True, samesite="Lax", secure=True, path="/")
                 return resp
             return web.Response(status=404, text="Not Found")

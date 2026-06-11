@@ -86,6 +86,9 @@ def test_graph_html_self_contained_markers():
     assert "synthSet" in GRAPH_HTML and "addToSynth" in GRAPH_HTML      # 종합 수집(inspect와 분리)
     assert "id=\"authstate\"" in GRAPH_HTML and "setAuth" in GRAPH_HTML  # 인증 상태 표시
     assert "opacity" in GRAPH_HTML and "dday" in GRAPH_HTML             # dim + 일자 그룹
+    assert "자세히 읽기" in GRAPH_HTML and "dc.detail" in GRAPH_HTML     # 이중 요약(detail) 렌더
+    assert "relayout" in GRAPH_HTML and "orientationchange" in GRAPH_HTML  # 모바일 캔버스 리사이즈
+    assert "auth/request" not in GRAPH_HTML                             # 레거시 nonce 트리거 제거(이슈3)
 
 
 def test_documents_list_newest_first_with_summary(_unused=None):
@@ -138,6 +141,38 @@ def test_node_detail_assembles_knowledge():
 
 def test_node_detail_missing_returns_none():
     assert node_detail(_db(), "nope") is None
+
+
+def test_node_detail_includes_document_detail():
+    """설명(summary)과 별개로 '자세히 읽기'용 detail(여러 단락)이 문서에 실린다(이슈2).
+
+    detail 은 구조화 추출과 독립된 별도 컬럼/LLM 호출 → 백필 시 그래프(엔티티) 불변."""
+    from claire.ingest.pipeline import ensure_document_detail
+
+    conn = _db()
+    doc = Document(id="d1", url="https://x/1", title="MCP 소개",
+                   raw_text="원문 본문 " * 50, source_type="web", content_hash="h")
+    dbm.insert_document(conn, doc)
+    dbm.upsert_entity(conn, Entity(id="e1", type="Concept", name="MCP", sources=["d1"]))
+
+    assert node_detail(conn, "e1")["documents"][0]["detail"] == ""   # 백필 전엔 빈값
+    assert ensure_document_detail(conn, MockProvider(), doc, force=True) is True
+    d = node_detail(conn, "e1")
+    assert d["documents"][0]["detail"].startswith("[mock-detail]")
+    assert dbm.counts(conn)["entities"] == 1            # 그래프는 그대로(detail 만 채움)
+
+
+def test_documents_missing_detail_skips_filled():
+    """백필 대상은 detail 빈 문서만 — 이미 채운 건 재호출 안 함(quota 절약)."""
+    conn = _db()
+    dbm.insert_document(conn, Document(id="d1", url="u1", title="A", raw_text="x",
+                                       source_type="web", content_hash="h1"))
+    dbm.insert_document(conn, Document(id="d2", url="u2", title="B", raw_text="y",
+                                       source_type="web", content_hash="h2"))
+    assert set(dbm.documents_missing_detail(conn)) == {"d1", "d2"}
+    dbm.set_document_detail(conn, "d1", "이미 있음")
+    assert dbm.documents_missing_detail(conn) == ["d2"]
+    assert dbm.get_document_detail(conn, "d1") == "이미 있음"
 
 
 def _seed_two(conn):

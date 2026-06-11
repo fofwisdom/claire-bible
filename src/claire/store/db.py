@@ -242,6 +242,9 @@ def _migrate(conn: sqlite3.Connection) -> None:
     _ensure_column(conn, "raw_inbox", "next_retry_at", "REAL")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_raw_inbox_retry "
                  "ON raw_inbox(status, next_retry_at)")
+    # v5: 문서 한국어 가독 렌더링(detail) — 짧은 summary 와 별개의 '여러 단락' 본문 재구성.
+    # 구조화 추출과 독립된 별도 LLM 호출로 채운다(그래프 rebuild 없이 백필 가능).
+    _ensure_column(conn, "documents", "detail", "TEXT")
 
 
 def init_db(conn: sqlite3.Connection) -> None:
@@ -669,11 +672,16 @@ def poll_auth_nonce(conn: sqlite3.Connection, nonce: str) -> str | None:
 SESSION_TTL = 7 * 86400.0
 
 
-# 손으로 입력하기 쉬운 토큰 알파벳: 헷갈리는 0/o/1/l 제외(31자). 10자 ≈ 49bit.
+# 손으로 입력하기 쉬운 토큰 알파벳: 헷갈리는 0/o/1/l 제외(31자). 12자 ≈ 59bit.
 _TOKEN_ALPHABET = "23456789abcdefghjkmnpqrstuvwxyz"
 
+# 링크는 길게 주되(아래 길이), 수동 입력 시엔 앞 MIN_TOKEN_PREFIX 자만 쳐도 통과(사용자
+# 요구). 단일 활성 세션이라 프리픽스가 곧 단일 식별자 — 7자 ≈ 34bit(개인용+Tailscale 권장).
+_TOKEN_LEN = 12
+MIN_TOKEN_PREFIX = 7
 
-def _short_token(n: int = 10) -> str:
+
+def _short_token(n: int = _TOKEN_LEN) -> str:
     return "".join(secrets.choice(_TOKEN_ALPHABET) for _ in range(n))
 
 
@@ -718,6 +726,31 @@ def validate_session(
     return True
 
 
+def resolve_session_prefix(
+    conn: sqlite3.Connection, token_input: str, *, ttl: float = SESSION_TTL
+) -> str | None:
+    """[/web ?t= 진입 전용] 전체 토큰 또는 그 7자+ 프리픽스로 단일 활성 세션을 해소.
+
+    링크는 길게 주되 수동 입력은 짧게(사용자 요구). **전체 토큰**을 반환 → 게이트가 쿠키엔
+    전체를 저장하므로 이후 검증(`validate_session`)은 그대로 '전체 일치'(쿠키 보안 불변).
+    프리픽스 허용은 오직 이 진입 지점뿐. 단일 활성이라 보통 0/1건, 모호(2+)하면 거부.
+    LIKE 와일드카드(%·_) 주입 차단: 토큰 알파벳 외 문자가 있으면 즉시 거부."""
+    t = (token_input or "").strip()
+    if len(t) < MIN_TOKEN_PREFIX or any(c not in _TOKEN_ALPHABET for c in t):
+        return None
+    rows = conn.execute(
+        "SELECT session_token, expires_at FROM auth_sessions "
+        "WHERE approved=1 AND session_token LIKE ?", (t + "%",)).fetchall()
+    valid = [r["session_token"] for r in rows if r["expires_at"] >= time.time()]
+    if len(valid) != 1:
+        return None
+    full = valid[0]
+    conn.execute("UPDATE auth_sessions SET expires_at=? WHERE session_token=?",
+                 (time.time() + ttl, full))
+    conn.commit()
+    return full
+
+
 def latest_extraction_summary(conn: sqlite3.Connection, document_id: str) -> str | None:
     """문서의 최신 추출 결과에서 summary 를 꺼낸다(documents 엔 summary 컬럼이 없고
     extractions.raw_response = ExtractionResult JSON 에 들어있다). 노드 상세 패널용."""
@@ -731,6 +764,28 @@ def latest_extraction_summary(conn: sqlite3.Connection, document_id: str) -> str
         return json.loads(row["raw_response"]).get("summary") or None
     except (ValueError, AttributeError):
         return None
+
+
+def set_document_detail(conn: sqlite3.Connection, document_id: str, detail: str) -> None:
+    """문서의 한국어 가독 렌더링(detail)을 저장(in-place). 그래프와 독립."""
+    conn.execute("UPDATE documents SET detail=? WHERE id=?", (detail, document_id))
+    conn.commit()
+
+
+def get_document_detail(conn: sqlite3.Connection, document_id: str) -> str | None:
+    """문서의 detail(한국어 가독 렌더링). 없으면 None."""
+    row = conn.execute(
+        "SELECT detail FROM documents WHERE id=?", (document_id,)).fetchone()
+    return (row["detail"] if row else None) or None
+
+
+def documents_missing_detail(conn: sqlite3.Connection, limit: int = 0) -> list[str]:
+    """detail 이 비어있는 문서 id(최신순). 백필 대상."""
+    q = ("SELECT id FROM documents WHERE detail IS NULL OR detail='' "
+         "ORDER BY fetched_at DESC")
+    if limit:
+        q += f" LIMIT {int(limit)}"
+    return [r["id"] for r in conn.execute(q).fetchall()]
 
 
 # --- refresh queue (복원 메커니즘) ---

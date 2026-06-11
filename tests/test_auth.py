@@ -131,3 +131,45 @@ def test_expired_session_not_revived_by_validate():
                  (time.time() - 1, tok))
     conn.commit()
     assert dbm.validate_session(conn, tok) is False
+
+
+# --- /web 진입: 링크는 길게, 수동 입력은 짧게(프리픽스 해소). 사용자 요구(이슈4) ---
+
+def test_resolve_prefix_returns_full_token():
+    """7자+ 프리픽스로 단일 활성 세션을 해소하면 **전체 토큰**을 돌려준다(쿠키엔 전체 저장)."""
+    conn = _mem()
+    full = dbm.create_session(conn)
+    assert len(full) >= dbm.MIN_TOKEN_PREFIX + 1            # 링크는 프리픽스보다 길다
+    assert dbm.resolve_session_prefix(conn, full) == full   # 전체 입력도 OK
+    assert dbm.resolve_session_prefix(conn, full[:7]) == full  # 7자 프리픽스 → 전체
+
+
+def test_resolve_prefix_rejects_short_and_bogus():
+    """6자 이하·알파벳 외 문자(LIKE 와일드카드 주입)·빈 입력은 거부."""
+    conn = _mem()
+    full = dbm.create_session(conn)
+    assert dbm.resolve_session_prefix(conn, full[:6]) is None    # 너무 짧음
+    assert dbm.resolve_session_prefix(conn, "") is None
+    assert dbm.resolve_session_prefix(conn, "%%%%%%%") is None    # % 와일드카드 주입 차단
+    assert dbm.resolve_session_prefix(conn, full[:6] + "_") is None  # _ 와일드카드 차단
+
+
+def test_resolve_prefix_no_session_returns_none():
+    assert dbm.resolve_session_prefix(_mem(), "abcdefg") is None
+
+
+def test_resolve_prefix_slides_expiry():
+    """진입 해소도 슬라이딩 연장(접속 시점부터 다시 7일)."""
+    conn = _mem()
+    full = dbm.create_session(conn, ttl=100)
+    conn.execute("UPDATE auth_sessions SET expires_at=? WHERE session_token=?",
+                 (time.time() + 1, full))
+    conn.commit()
+    assert dbm.resolve_session_prefix(conn, full[:7], ttl=1000) == full
+    after = conn.execute(
+        "SELECT expires_at FROM auth_sessions WHERE session_token=?", (full,)).fetchone()[0]
+    assert after > time.time() + 500
+
+    # 쿠키 검증은 여전히 전체 일치만(프리픽스 거부 — 보안 불변)
+    assert dbm.validate_session(conn, full[:7]) is False
+    assert dbm.validate_session(conn, full) is True

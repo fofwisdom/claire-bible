@@ -63,6 +63,14 @@
   - ④ 입력창 focus → `select()`(전체선택).
   - JS 문법 `node --check` 검증.
 
+### 2026-06-11 (2차) 사용자 피드백 4건
+- [x] **모바일 캔버스 상단 일부만 차지**(이슈1) — 두 겹 버그: (a) 좁은화면 media query 의 `#net{height:58vh}` 이 base `#net{flex:1}`(basis 0%)에 무력화돼 min-height 까지 쪼그라듦 → media 에 `flex:none` 추가. (b) vis 가 생성 시점 미해결 높이로 캔버스를 150px 로 잡아 박스 상단 50%만 차지 → `setSize('100%','100%')` 은 flex/auto 체인에서 안 먹어 **getBoundingClientRect 실측 px** 로 강제 + **ResizeObserver**(레이아웃확정·세로스택전환·회전 시 재설정). **Playwright 390px 검증: 캔버스 박스충진 50%→100%(452px)**.
+- [x] **이중 요약(critical)**(이슈2) — 노드 클릭 시 한글 요약이 너무 짧음 → 설명(summary) → **디테일(detail)** → 원문링크 구조. **advisor 조언대로 detail 을 구조화 추출에서 분리**: `documents.detail` 별도 컬럼 + provider `render_detail`(별도 Gemini 호출, A4 1~2장 분량 한국어 가독 렌더링). → `reset_graph`/rebuild 없이 비파괴 백필 가능(그래프 불변). `pipeline.ensure_document_detail`(신규적재·백필 공용) · `IngestService.backfill_details` · CLI `backfill-detail`. UI: `📖 자세히 읽기`(접힘) → `↗ 원문 열기`. **Playwright 검증: 설명/자세히/원문 3단 렌더**. **실 Gemini 검증**: MCP 샘플→1302자·4단락 평문(마크다운 잔존 0, 고유명사 원문 유지) — 본문 12000자까지 입력하므로 긴 문서면 비례해 길어짐. **배포 후 `claire backfill-detail` 실행 필요**(기존 문서 detail 채우기, 비파괴).
+- [x] **'승인 요청 만료' 스팸**(이슈3) — `/web` 쿠키 인증이 주 메커니즘인데 UI authstate **클릭이 레거시 nonce 플로우(`/auth/request`)를 트리거** → 600s 후 `expire_button` 이 텔레그램에 만료 메시지 발송. 쿠키 인증과 무관한 잔재. UI 의 `ensureSession`/`authClick`/nonce 폴링 **제거**, authstate 정적화(🔒 인증됨). 쿠키 만료(7일)는 synthesize/검색 401 → `setAuth('idle')` 안내로 복구.
+- [x] **토큰 7자 입력 통과**(이슈4) — 링크는 길게(12자) 주되 수동 입력은 7자+ 프리픽스로 통과(사용자 의도). `db.resolve_session_prefix`(**진입 게이트 전용**, 알파벳외 문자=LIKE 와일드카드 주입 차단, 단일활성이라 프리픽스=단일식별자). 게이트가 쿠키엔 **전체 토큰** 저장 → `validate_session`(쿠키/헤더)은 여전히 전체 일치(보안 불변). **end-to-end 검증: `/?t=<7자>`→302+전체토큰쿠키, 6자/`%`주입→404**.
+
+**오늘(2차) 테스트 130→140개.** 배포 후 `claire backfill-detail` 로 기존 문서 detail 채우고 실 Gemini 로 detail 분량 확인.
+
 ### 2026-06-11 발견 이슈 처리 (사용자 보고 5건)
 - [x] **(근본원인) router 가 '제목 + 트레일링 URL' 공유 텍스트에서 URL 추출 못함** — 모바일/데스크톱 '공유'는 「제목 … URL」로 와서 http 로 시작 안 함 → 그동안 **순수 메모(text)로 적재돼 링크 fetch 자체가 안 됨**(실관측: share.google/wikidocs 가 url=None 90자 thin 노드 2개). `router.extract_shared_url`(마지막 토큰이 URL일 때만) + `fetch`/`classify`/`classify_input` 반영. **실 검증**: wikidocs 재적재 → 8172자 본문 + 한글 요약 정상. test_router.py.
 - [x] **한글 정리 프롬프트**(이슈1·5b) — `_SYS` 에 summary/observations/key_claims **한국어 작성**(고유명사·기술어 원문 유지) 규칙. PROMPT_VERSION `extract-v2`→`extract-v3`. mock 무관(프롬프트 무시)이라 실 Gemini 검증.

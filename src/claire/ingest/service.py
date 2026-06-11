@@ -183,6 +183,33 @@ class IngestService:
         finally:
             conn.close()
 
+    def backfill_details(self, *, limit: int = 0, force: bool = False) -> dict:
+        """detail(한국어 가독 렌더링)이 없는 기존 문서를 채운다 — **비파괴적**.
+
+        그래프(엔티티/관계)를 건드리지 않고 documents.detail 컬럼만 채우므로 reextract 의
+        reset_graph/rebuild 가 불필요(advisor). 문서당 Gemini 1회(quota). force=True 면
+        이미 있는 detail 도 재생성. 반환: {docs, ok, skipped}."""
+        from .pipeline import ensure_document_detail
+
+        conn = dbm.connect(self.s.db_file)
+        dbm.init_db(conn)
+        try:
+            ids = (dbm.documents_missing_detail(conn, limit) if not force
+                   else [r["id"] for r in dbm.documents_timeline(conn, limit or 1000000)])
+            out = {"docs": len(ids), "ok": 0, "skipped": 0}
+            for did in ids:
+                doc = dbm.get_document(conn, did)
+                if doc is None:
+                    out["skipped"] += 1
+                    continue
+                if ensure_document_detail(conn, self.provider, doc, force=force):
+                    out["ok"] += 1
+                else:
+                    out["skipped"] += 1
+            return out
+        finally:
+            conn.close()
+
     def search(self, query: str, *, limit: int = 8, summarize: bool = True):
         from ..retrieval.query import search as _search
 

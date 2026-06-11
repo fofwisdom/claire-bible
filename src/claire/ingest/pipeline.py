@@ -211,6 +211,10 @@ def extract_resolve_store(
             raw_response=result.raw_response,
         )
 
+    # 한국어 가독 렌더링(detail) — 구조화 추출과 독립된 별도 LLM 호출. 그래프와 무관해
+    # 실패해도 적재를 깨지 않는다(조용히 건너뜀). refresh/reextract 도 같은 경로라 갱신됨.
+    ensure_document_detail(conn, provider, doc, force=True)
+
     _judge_method = getattr(provider, "judge_same_entity", None)
 
     def _judge_fn(nm, et, obs, cand):
@@ -293,6 +297,30 @@ def extract_resolve_store(
         export_entities(conn, vault_dir, list(export_set.values()))
 
     return True, None
+
+
+def ensure_document_detail(
+    conn: sqlite3.Connection, provider: Provider, doc: Document, *, force: bool = False
+) -> bool:
+    """문서의 한국어 가독 렌더링(detail)을 생성·저장. **그래프와 독립**(별도 LLM 호출).
+
+    신규 적재(extract_resolve_store)와 기존 문서 백필이 공유하는 단일 경로. detail 컬럼만
+    채우므로 엔티티/관계를 건드리지 않는다 → reset_graph/rebuild 없이 백필 가능(advisor).
+    이미 있으면(force=False) 건너뛰고, 생성 실패는 조용히 False(적재 실패로 번지지 않음).
+    """
+    render = getattr(provider, "render_detail", None)
+    if render is None:
+        return False
+    if not force and dbm.get_document_detail(conn, doc.id):
+        return False
+    try:
+        text = render(doc)
+    except Exception:  # noqa: BLE001
+        return False
+    if text and text.strip():
+        dbm.set_document_detail(conn, doc.id, text.strip())
+        return True
+    return False
 
 
 def _guess_kind(payload: str) -> str:
