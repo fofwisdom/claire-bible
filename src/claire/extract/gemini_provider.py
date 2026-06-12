@@ -15,7 +15,9 @@ import time as _time
 
 from ..ontology.base import Document
 from ..ontology.registry import ontology_prompt_block
-from .provider import ExtractionResult, MergeCandidate, ResearchJudgement
+from .provider import (
+    ExtractionResult, MergeCandidate, ResearchJudgement, emit_progress,
+)
 
 # 추출 프롬프트 버전. _SYS 를 바꾸면 올린다(재적재 시 어떤 프롬프트로 뽑았는지 추적).
 # v3: summary/observations/key_claims 를 한국어로(고유명사 원문 유지) — 사용자 요구.
@@ -106,6 +108,8 @@ class GeminiProvider:
         """호출 간 최소 간격 보장(RPM 보호). 전역 락으로 프로세스 내 직렬화."""
         with _CALL_LOCK:
             wait = self.min_interval - (_time.monotonic() - _LAST_CALL[0])
+            if wait > 1.0:
+                emit_progress(f"RPM 보호 대기 {wait:.0f}s (호출 간격 조절)")
             if wait > 0:
                 _time.sleep(wait)
             _LAST_CALL[0] = _time.monotonic()
@@ -124,10 +128,14 @@ class GeminiProvider:
                 # 안 풀리므로 max_retries×60s 를 태우지 않고 즉시 raise → raw_inbox error →
                 # recover-loop 가 지수백오프(300s~)로 회복 담당.
                 if _is_daily_quota(e):
+                    emit_progress("일일 quota 소진 감지 — 중단(자동복구 루프가 처리)")
                     raise
                 last = e
                 delay = _retry_delay_from_error(e) or (2.0 ** attempt) * 3.0
-                _time.sleep(min(delay, 60.0))
+                delay = min(delay, 60.0)
+                emit_progress(f"rate limit/서버오류 — {delay:.0f}s 후 재시도 "
+                              f"({attempt + 1}/{self.max_retries})")
+                _time.sleep(delay)
         if last:
             raise last
         raise RuntimeError("unreachable")

@@ -276,9 +276,13 @@ def run_api() -> int:
 
     async def research_route(request):
         # 맥락 확장 조사 — LLM(웹검색 grounding)+판정+적재까지 비용 큰 명시적 액션.
+        # 수십 초 걸리므로 NDJSON **스트리밍**: 진행 이벤트({stage,msg})를 실시간으로
+        # 흘리고 마지막 줄에 {done:true, result:{...}}. 작업은 스레드에서 돌고 이벤트는
+        # call_soon_threadsafe 로 이벤트루프의 큐에 합류한다.
         if not _authed(request):
             return web.json_response({"error": "unauthorized"}, status=401)
         import asyncio
+        import json
 
         from ..expand.research import contextual_research
 
@@ -291,15 +295,38 @@ def run_api() -> int:
             return web.json_response({"error": "query required"}, status=400)
         node_id = body.get("node_id") or None
         doc_id = body.get("doc_id") or None
+
+        resp = web.StreamResponse()
+        resp.content_type = "application/x-ndjson"
+        await resp.prepare(request)
+
+        async def send(obj) -> None:  # noqa: ANN001
+            await resp.write((json.dumps(obj, ensure_ascii=False) + "\n").encode())
+
+        loop = asyncio.get_running_loop()
+        events: asyncio.Queue = asyncio.Queue()
+
+        def on_progress(ev: dict) -> None:  # 워커 스레드에서 호출됨
+            loop.call_soon_threadsafe(events.put_nowait, ev)
+
+        fut = asyncio.ensure_future(asyncio.to_thread(
+            contextual_research, s, svc.provider,
+            query=query, node_id=node_id, doc_id=doc_id, progress=on_progress))
+        while not (fut.done() and events.empty()):
+            try:
+                ev = await asyncio.wait_for(events.get(), timeout=0.5)
+            except asyncio.TimeoutError:
+                continue
+            await send(ev)
         try:
-            out = await asyncio.to_thread(
-                contextual_research, s, svc.provider,
-                query=query, node_id=node_id, doc_id=doc_id)
+            out = fut.result()
         except Exception as e:  # noqa: BLE001
-            # rate limit 등 — 200 + error 로 반환해 UI 가 안내(ingest 와 동일 관례).
+            # rate limit 등 — 결과 줄의 error 로 반환해 UI 가 안내(ingest 와 동일 관례).
             log.warning("research error: %s", e)
-            return web.json_response({"error": str(e)}, status=200)
-        return web.json_response(out)
+            out = {"error": str(e)}
+        await send({"done": True, "result": out})
+        await resp.write_eof()
+        return resp
 
     # --- 전 엔드포인트 게이트(외부 공개 대비) ---
     # 미인증 요청은 401 이 아니라 404 로 응답해 "여기 뭐 없음"처럼 보이게 한다(존재 숨김).

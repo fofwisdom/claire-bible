@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+import threading
 from typing import Protocol
 
 from pydantic import BaseModel, Field
@@ -66,6 +67,27 @@ class MergeCandidate(BaseModel):
     cand_type: str
     cand_aliases: list[str] = Field(default_factory=list)
     cand_observations: list[str] = Field(default_factory=list)
+
+
+# --- LLM 호출 진행 이벤트(스레드-로컬) ---
+# 긴 작업(맥락 조사 등)이 rate limit 대기/재시도 같은 내부 상황을 실시간으로 UI 에
+# 흘릴 수 있게 한다. provider 인스턴스는 봇/API 가 공유하므로 인스턴스 속성 대신
+# **스레드-로컬** — 콜백을 등록한 스레드의 호출에만 이벤트가 가고 다른 요청과 안 섞인다.
+_progress_local = threading.local()
+
+
+def set_progress_callback(cb) -> None:  # noqa: ANN001 — Callable[[str], None] | None
+    _progress_local.cb = cb
+
+
+def emit_progress(msg: str) -> None:
+    """현재 스레드에 콜백이 등록돼 있으면 진행 메시지 전달(없으면 no-op, 실패 무해)."""
+    cb = getattr(_progress_local, "cb", None)
+    if cb:
+        try:
+            cb(msg)
+        except Exception:  # noqa: BLE001
+            pass
 
 
 class ResearchJudgement(BaseModel):

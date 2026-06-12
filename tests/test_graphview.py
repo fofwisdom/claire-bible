@@ -93,6 +93,9 @@ def test_graph_html_self_contained_markers():
     assert "nodes:ids" in GRAPH_HTML                                    # 문서 선택 → 해당 노드들로 fit
     assert "doResearch" in GRAPH_HTML and "fetch('research'" in GRAPH_HTML  # 맥락 확장 조사
     assert "refreshGraph" in GRAPH_HTML                                 # 조사 후 무리로드 그래프 갱신
+    assert "getReader" in GRAPH_HTML and "rprog" in GRAPH_HTML          # NDJSON 스트림 진행 표시
+    assert "renderResearchResult" in GRAPH_HTML                         # 진행/결과 렌더 분리
+    assert "borderWidth: lit?3:1" in GRAPH_HTML                         # 강조(문서/검색) 흰 테두리
     assert "auth/request" not in GRAPH_HTML                             # 레거시 nonce 트리거 제거(이슈3)
 
 

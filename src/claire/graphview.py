@@ -195,6 +195,7 @@ GRAPH_HTML = """<!doctype html>
   #panel .research{display:flex;gap:6px;margin:.4em 0}
   #panel .research input{flex:1;min-width:0}
   #panel .meter{color:#8b949e;font-size:11px}
+  #rprog{margin:.3em 0;padding-left:18px} #rprog li{margin:.3em 0;color:#8b949e;font-size:12px}
   input{background:#0e1116;color:#d7dbe0;border:1px solid #2a2f37;border-radius:4px;padding:3px 8px;font-size:13px}
   #q{width:150px}
   button{background:#238636;color:#fff;border:0;border-radius:4px;padding:4px 10px;cursor:pointer;font-size:13px}
@@ -370,21 +371,46 @@ function renderPanel(d){
 }
 
 // --- 맥락 확장 조사: 조사(grounding)→판정 게이트→통과 시 그래프 적재(서버) ---
+// 서버가 NDJSON 스트림으로 진행 이벤트({stage,msg})를 흘리고 마지막 줄이
+// {done:true, result:{...}} — 마냥 기다리지 않고 단계·rate limit 상황을 실시간 표시(피드백).
 async function doResearch(){
   const q=((document.getElementById('rq')||{}).value||'').trim();
   if(!q){ alert('조사할 키워드/문장을 입력하세요.'); return; }
   if(!selectedNodeId && !activeDoc){ alert('노드를 선택하거나 문서를 연 뒤 조사하세요.'); return; }
   const backId=selectedNodeId;
-  panel.innerHTML='<p class=hint>🔬 “'+esc(q)+'” 맥락 조사 중… (웹 검색 + LLM 판정, 수십 초 걸릴 수 있습니다)</p>';
+  panel.innerHTML='<h2>🔬 조사: '+esc(q)+'</h2><p class="al" id="relapsed">시작…</p><ul id="rprog"></ul>';
   mobileScrollTo('panel');
-  let d;
+  const t0=Date.now();
+  const timer=setInterval(()=>{ const el=document.getElementById('relapsed');
+    if(el) el.textContent='⏱ 경과 '+Math.round((Date.now()-t0)/1000)+'s'; else clearInterval(timer); },1000);
+  let result=null;
   try{
     const r=await fetch('research',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({query:q, node_id:selectedNodeId, doc_id:activeDoc})});
-    if(r.status===401||r.status===404){ setAuth('idle');
+    if(r.status===401||r.status===404){ clearInterval(timer); setAuth('idle');
       panel.innerHTML='<p class=hint>세션 만료 — 텔레그램 /web 으로 다시 접속하세요</p>'; return; }
-    d=await r.json();
-  }catch(e){ panel.innerHTML='<p class=hint>요청 실패: '+esc(String(e))+'</p>'; return; }
+    const reader=r.body.getReader(), dec=new TextDecoder(); let buf='';
+    while(true){
+      const {done,value}=await reader.read(); if(done) break;
+      buf+=dec.decode(value,{stream:true});
+      let i; while((i=buf.indexOf('\\n'))>=0){
+        const line=buf.slice(0,i).trim(); buf=buf.slice(i+1);
+        if(!line) continue;
+        let ev; try{ ev=JSON.parse(line); }catch(_){ continue; }
+        if(ev.done){ result=ev.result; continue; }
+        const ul=document.getElementById('rprog');
+        if(ul){ const li=document.createElement('li'); li.className='al';
+          li.textContent=(ev.stage==='llm'?'⏳ ':'• ')+(ev.msg||'');
+          ul.appendChild(li); }
+      }
+    }
+  }catch(e){ clearInterval(timer);
+    panel.innerHTML='<p class=hint>요청 실패: '+esc(String(e))+'</p>'; return; }
+  clearInterval(timer);
+  if(!result){ panel.innerHTML='<p class=hint>응답이 끊겼습니다 — 잠시 후 다시 시도하세요.</p>'; return; }
+  renderResearchResult(result, backId);
+}
+function renderResearchResult(d, backId){
   if(d.error){ panel.innerHTML='<p class=hint>오류: '+esc(d.error)+'</p>'; return; }
   let h='<h2>🔬 조사: '+esc(d.query)+(d.context_focus?' <small>'+esc(d.context_focus)+' 맥락</small>':'')+'</h2>';
   h+='<p class=al>'+(d.added?'✅ ':'⏸ ')+esc(d.verdict||'')+
@@ -430,7 +456,12 @@ function applyView(){
     let match = true;
     if(activeDoc) match = match && (n.sources||[]).includes(activeDoc);
     if(highlightSet) match = match && highlightSet.has(n.id);  // 검색(라벨/의미) 강조 집합
-    allNodes.update({id:n.id, hidden:false, opacity: match?1:DIM});
+    // 강조(문서 선택·검색) 매치 노드는 흰 굵은 테두리 — dim 만으론 안 띄어서(피드백).
+    // 노드별 color 가 group 색을 덮으므로 background/highlight 를 같이 명시해 유지한다.
+    const lit = hasFilter && match, c = TYPE_COLORS[n.group]||'#8b949e';
+    allNodes.update({id:n.id, hidden:false, opacity: match?1:DIM, borderWidth: lit?3:1,
+      color:{background:c, border: lit?'#ffffff':'#2a2f37',
+             highlight:{background:c, border:'#ffffff'}}});
     shown++; if(match) emph++;
   });
   allEdges.forEach(e=>{ const f=allNodes.get(e.from), t=allNodes.get(e.to);

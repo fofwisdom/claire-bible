@@ -50,13 +50,27 @@ def build_context(conn: sqlite3.Connection, node_id: str | None = None,
 
 def contextual_research(settings, provider, *, query: str,  # noqa: ANN001
                         node_id: str | None = None,
-                        doc_id: str | None = None) -> dict:
+                        doc_id: str | None = None,
+                        progress=None) -> dict:  # noqa: ANN001
     """조사→판정→(통과 시)적재 전체 흐름. 블로킹 — 호출측에서 스레드 오프로드.
+
+    progress: Callable[[dict], None] | None — 단계 이벤트 {stage, msg} 를 실시간 전달
+    (API 가 NDJSON 스트림으로 UI 에 흘림). provider 내부의 rate limit 대기/재시도도
+    스레드-로컬 콜백(set_progress_callback)으로 같은 채널에 합류한다.
 
     반환 dict: {query, context_focus, report, sources, relevance, quality,
     interpretation, reason, added, verdict, ingest?} — 게이트 미달이어도 보고서는
     반환해 사용자가 읽을 수 있게 한다(추가만 보류).
     """
+    from ..extract.provider import set_progress_callback
+
+    def _p(stage: str, msg: str) -> None:
+        if progress:
+            try:
+                progress({"stage": stage, "msg": msg})
+            except Exception:  # noqa: BLE001
+                pass
+
     query = (query or "").strip()
     if not query:
         return {"error": "조사할 키워드/문장이 비었습니다"}
@@ -65,11 +79,14 @@ def contextual_research(settings, provider, *, query: str,  # noqa: ANN001
 
     conn = dbm.connect(settings.db_file)
     dbm.init_db(conn)
+    set_progress_callback(lambda m: _p("llm", m))  # rate limit 대기 등 내부 이벤트
     try:
         context, focus = build_context(conn, node_id, doc_id)
         if not context:
             return {"error": "맥락이 없습니다 — 노드를 선택하거나 문서를 연 뒤 조사하세요"}
+        _p("context", f"맥락 구성 — {focus} ({len(context)}자)")
 
+        _p("research", "웹 검색 + 조사 중(Gemini grounding)…")
         r = provider.research(query, context)
         report = (r.get("report") or "").strip()
         sources = r.get("sources") or []
@@ -80,13 +97,16 @@ def contextual_research(settings, provider, *, query: str,  # noqa: ANN001
             base.update({"relevance": 0.0, "quality": 0.0, "interpretation": "",
                          "reason": report or "빈 응답"})
             return base
+        _p("research", f"조사 완료 — 보고서 {len(report)}자 · 출처 {len(sources)}개")
 
+        _p("judge", "판정 중 — 맥락 일치·품질 채점(별도 LLM 호출)…")
         judge = provider.judge_research(query, context, report)
         rel = float(judge.get("relevance") or 0.0)
         qual = float(judge.get("quality") or 0.0)
         base.update({"relevance": rel, "quality": qual,
                      "interpretation": judge.get("interpretation", ""),
                      "reason": judge.get("reason", "")})
+        _p("judge", f"판정 완료 — 맥락일치 {rel:.2f} · 품질 {qual:.2f}")
         if rel < RELEVANCE_MIN or qual < QUALITY_MIN:
             base["verdict"] = (f"보류 — 게이트 미달(맥락일치 {rel:.2f}/{RELEVANCE_MIN}, "
                                f"품질 {qual:.2f}/{QUALITY_MIN}). 그래프에 추가하지 않음")
@@ -95,6 +115,7 @@ def contextual_research(settings, provider, *, query: str,  # noqa: ANN001
         # 게이트 통과 → 일반 파이프라인으로 적재(추출·해소·관계·vault·inbox 보존 공유).
         # 문서 본문에 맥락(focus)·해석을 함께 넣어 추출이 원 맥락 엔티티와 자연 연결되게
         # 하고, 출처 URL 목록도 본문에 보존한다(research 문서 자체엔 단일 url 이 없음).
+        _p("ingest", "게이트 통과 — 그래프 적재 중(추출→엔티티 해소→관계→임베딩)…")
         text = _research_doc_text(query, focus, judge.get("interpretation", ""),
                                   report, sources)
         ing = _ingest_report_doc(settings, provider, conn, query, text)
@@ -102,8 +123,12 @@ def contextual_research(settings, provider, *, query: str,  # noqa: ANN001
         base["ingest"] = ing
         base["verdict"] = ("그래프에 추가됨" if base["added"]
                            else f"적재 실패: {ing.get('error')}")
+        if base["added"]:
+            _p("ingest", f"적재 완료 — 신규 {ing['entities_created']} · "
+                         f"기존연결 {ing['entities_linked']} · 관계 {ing['relations_added']}")
         return base
     finally:
+        set_progress_callback(None)
         conn.close()
 
 

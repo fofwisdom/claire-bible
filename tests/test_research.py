@@ -79,6 +79,37 @@ def test_research_requires_context_and_query(monkeypatch, tmp_path):
     assert "error" in contextual_research(s, MockProvider(), query="", node_id="e1")
 
 
+def test_research_progress_events_in_order(monkeypatch, tmp_path):
+    """진행 이벤트(stage,msg)가 단계 순서대로 흐른다 — UI 실시간 표시용 스트림 계약."""
+    s = _settings(monkeypatch, tmp_path)
+    _seed(s)
+    events = []
+    out = contextual_research(s, MockProvider(), query="TrueSkill 차이", node_id="e1",
+                              progress=events.append)
+    assert out["added"] is True
+    stages = [e["stage"] for e in events]
+    # context → research(시작·완료) → judge(시작·완료) → ingest(시작·완료)
+    assert stages == ["context", "research", "research", "judge", "judge",
+                      "ingest", "ingest"]
+    assert "OpenSkill" in events[0]["msg"]          # 맥락 구성에 focus 표기
+    assert "보고서" in events[2]["msg"]              # 조사 완료에 보고서 길이
+    assert "맥락일치" in events[4]["msg"]            # 판정 점수
+    assert "적재 완료" in events[6]["msg"]
+
+
+def test_research_progress_callback_error_is_harmless(monkeypatch, tmp_path):
+    """progress 콜백이 던져도 본 흐름은 영향 없음(전시용 채널은 비필수)."""
+    s = _settings(monkeypatch, tmp_path)
+    _seed(s)
+
+    def bad(_ev):
+        raise RuntimeError("boom")
+
+    out = contextual_research(s, MockProvider(), query="TrueSkill 차이", node_id="e1",
+                              progress=bad)
+    assert out["added"] is True
+
+
 def test_build_context_doc_only(monkeypatch, tmp_path):
     """노드 없이 문서만 활성인 경우 — 문서 제목/요약이 맥락이 된다."""
     s = _settings(monkeypatch, tmp_path)
