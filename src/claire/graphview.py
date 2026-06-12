@@ -254,6 +254,24 @@ if(window.ResizeObserver){ new ResizeObserver(relayout).observe(document.getElem
 window.addEventListener('resize', relayout);
 window.addEventListener('orientationchange', ()=>setTimeout(relayout, 300));
 
+// 모바일 판정 — CSS @media(max-width:820px) 세로 스택과 같은 기준을 공유.
+const mobileMQ = window.matchMedia('(max-width:820px)');
+// 이슈(2026-06-12): 세로 스택에서 그래프(58vh)+문서목록(34vh)이 화면을 덮는데,
+// vis(hammer)가 캔버스에 touch-action:none 을 깔아 한 손가락 스와이프를 전부 그래프
+// 팬으로 소비 → #panel(내용)까지 페이지 스크롤로 내려갈 방법이 없었다.
+// 지도앱식 협조적 제스처로 분리: 모바일에선 touch-action:pan-y — 세로 스와이프는
+// 브라우저(페이지 스크롤), 가로 드래그·핀치·탭은 hammer(그래프 조작·노드 선택).
+// hammer 가 인라인 style 로 none 을 박으므로 CSS 가 아니라 JS 로 덮어써야 한다.
+function applyTouchMode(){
+  document.querySelectorAll('#net, #net div, #net canvas').forEach(el=>{
+    el.style.touchAction = mobileMQ.matches ? 'pan-y' : 'none';
+  });
+}
+mobileMQ.addEventListener('change', applyTouchMode);
+// 노드 탭→내용 확인이 주 흐름인데 #panel 이 화면 밖(맨 아래)이라, 명시적 액션 후
+// 결과 위치로 자동 스크롤해 준다(모바일만). hover 미리보기에는 적용하지 않는다.
+function mobileScrollTo(id){ if(mobileMQ.matches) document.getElementById(id).scrollIntoView({behavior:'smooth'}); }
+
 fetch('graph').then(r=>r.json()).then(d=>{
   allNodes = new vis.DataSet(d.nodes);
   allEdges = new vis.DataSet(d.edges);
@@ -274,6 +292,7 @@ fetch('graph').then(r=>r.json()).then(d=>{
   // 늦게 확정되면 캔버스가 상단 일부만 차지(이슈1). 레이아웃 확정 후 컨테이너 크기로 강제
   // 재설정 + 회전/리사이즈에도 다시 맞춘다.
   requestAnimationFrame(()=>{ relayout(); setTimeout(relayout, 300); });
+  applyTouchMode();   // hammer 가 박은 touch-action:none 을 모바일에선 pan-y 로 덮어씀
   net.on('click', p => {
     if(!p.nodes.length){
       // 빈 캔버스 클릭: inspect 만 해제하고 검색(라벨/의미) 강조 선택은 유지(이슈4).
@@ -284,7 +303,7 @@ fetch('graph').then(r=>r.json()).then(d=>{
     }
     const id=p.nodes[0], ev=p.event.srcEvent;
     if(ev && (ev.ctrlKey||ev.metaKey)){ toggleSynth(id); }   // Ctrl/Cmd+클릭 = 종합 수집(선택과 분리)
-    else { selectedNodeId=id; loadNode(id); }                // 일반 클릭 = 상세 inspect
+    else { selectedNodeId=id; loadNode(id); mobileScrollTo('panel'); }  // 일반 클릭/탭 = 상세 inspect
   });
   net.on('hoverNode', p => { clearTimeout(hoverTimer);
     hoverTimer=setTimeout(()=>{ if(p.node!==selectedNodeId) loadNode(p.node, true); }, 1000); });
@@ -382,7 +401,7 @@ function selectDoc(id){
   activeDoc = (activeDoc===id ? null : id);     // 같은 문서 재클릭 → 해제
   renderDocs(document.getElementById('docq').value);
   applyView();
-  if(activeDoc && net) net.fit({animation:true});
+  if(activeDoc && net){ net.fit({animation:true}); mobileScrollTo('net'); }  // 강조 결과(그래프)로 이동
 }
 
 // --- 종합 수집(synthSet) — inspect(클릭)와 분리 ---
@@ -434,6 +453,7 @@ async function synth(){
   const ids=[...synthSet];
   if(!ids.length){ alert('종합할 노드를 먼저 모으세요 — Ctrl+클릭 또는 상세의 "➕ 종합에 추가".'); return; }
   panel.innerHTML='<p class=hint>🧩 '+ids.length+'개 노드 종합 중… (LLM 호출)</p>';
+  mobileScrollTo('panel');   // 진행·결과가 화면 밖(맨 아래)에 그려지므로
   // 인증은 claire_session 쿠키(/web 진입)로 자동 전송됨 — 별도 헤더 불필요.
   fetch('synthesize',{method:'POST',
     headers:{'Content-Type':'application/json'},
