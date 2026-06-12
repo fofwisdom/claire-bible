@@ -274,6 +274,33 @@ def run_api() -> int:
 
         return web.json_response(await asyncio.to_thread(_s))
 
+    async def research_route(request):
+        # 맥락 확장 조사 — LLM(웹검색 grounding)+판정+적재까지 비용 큰 명시적 액션.
+        if not _authed(request):
+            return web.json_response({"error": "unauthorized"}, status=401)
+        import asyncio
+
+        from ..expand.research import contextual_research
+
+        try:
+            body = await request.json()
+        except Exception:  # noqa: BLE001
+            return web.json_response({"error": "invalid json"}, status=400)
+        query = (body.get("query") or "").strip()
+        if not query:
+            return web.json_response({"error": "query required"}, status=400)
+        node_id = body.get("node_id") or None
+        doc_id = body.get("doc_id") or None
+        try:
+            out = await asyncio.to_thread(
+                contextual_research, s, svc.provider,
+                query=query, node_id=node_id, doc_id=doc_id)
+        except Exception as e:  # noqa: BLE001
+            # rate limit 등 — 200 + error 로 반환해 UI 가 안내(ingest 와 동일 관례).
+            log.warning("research error: %s", e)
+            return web.json_response({"error": str(e)}, status=200)
+        return web.json_response(out)
+
     # --- 전 엔드포인트 게이트(외부 공개 대비) ---
     # 미인증 요청은 401 이 아니라 404 로 응답해 "여기 뭐 없음"처럼 보이게 한다(존재 숨김).
     # 인증은 bearer(CLI) · X-Session 헤더 · claire_session 쿠키. 진입은 /web 가 준 ?t= 링크.
@@ -314,6 +341,7 @@ def run_api() -> int:
         web.get("/node", node_detail),
         web.get("/documents", documents_list_route),
         web.post("/synthesize", synthesize_route),
+        web.post("/research", research_route),
         # 웹 UI 인증(텔레그램 버튼 승인 → 세션). poll 은 비인증(세션 획득용).
         web.post("/auth/request", auth_request),
         web.get("/auth/poll", auth_poll),

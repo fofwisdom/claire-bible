@@ -89,6 +89,10 @@ def test_graph_html_self_contained_markers():
     assert "자세히 읽기" in GRAPH_HTML and "dc.detail" in GRAPH_HTML     # 이중 요약(detail) 렌더
     assert "relayout" in GRAPH_HTML and "orientationchange" in GRAPH_HTML  # 모바일 캔버스 리사이즈
     assert "pan-y" in GRAPH_HTML and "mobileScrollTo" in GRAPH_HTML     # 모바일 스크롤 트랩 해소(협조적 제스처)
+    assert "#ffffff" in GRAPH_HTML and "borderWidthSelected" in GRAPH_HTML  # 선택 노드 흰 테두리
+    assert "nodes:ids" in GRAPH_HTML                                    # 문서 선택 → 해당 노드들로 fit
+    assert "doResearch" in GRAPH_HTML and "fetch('research'" in GRAPH_HTML  # 맥락 확장 조사
+    assert "refreshGraph" in GRAPH_HTML                                 # 조사 후 무리로드 그래프 갱신
     assert "auth/request" not in GRAPH_HTML                             # 레거시 nonce 트리거 제거(이슈3)
 
 

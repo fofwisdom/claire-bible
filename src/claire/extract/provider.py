@@ -68,6 +68,20 @@ class MergeCandidate(BaseModel):
     cand_observations: list[str] = Field(default_factory=list)
 
 
+class ResearchJudgement(BaseModel):
+    """맥락 조사 보고서 판정 — 그래프 추가 게이트(expand/research).
+
+    relevance: 보고서가 '주어진 맥락 안에서의 그 키워드 의미'를 다루는가(0~1).
+      다의어가 다른 의미로 새는 오염을 여기서 걸러낸다.
+    quality: 사실성·구체성·출처 충실도(0~1).
+    """
+
+    relevance: float
+    quality: float
+    interpretation: str = ""  # 맥락 내에서 키워드를 어떤 의미로 해석했는지(한 문장)
+    reason: str = ""
+
+
 class Provider(Protocol):
     name: str
 
@@ -175,6 +189,22 @@ class MockProvider:
         title = (doc.title or doc.url or "untitled").strip()
         text = (doc.raw_text or "").strip()
         return f"[mock-detail] {title}\n\n{text[:600]}"
+
+    def research(self, query: str, context: str) -> dict:
+        """결정론적 stub — 맥락 조사 파이프라인 연결용(실 조사는 Gemini+google_search).
+
+        '조사불가' 포함 쿼리 → INSUFFICIENT(조사 실패 경로 테스트 훅)."""
+        if "조사불가" in query:
+            return {"report": "INSUFFICIENT", "sources": []}
+        return {"report": f"[mock-research] {query} :: {context[:120]}",
+                "sources": [{"title": "mock source", "url": "https://example.com/mock"}]}
+
+    def judge_research(self, query: str, context: str, report: str) -> dict:
+        """결정론적 stub — '모호' 포함 쿼리는 저품질 판정(게이트 거절 경로 테스트 훅)."""
+        low = "모호" in query
+        return {"relevance": 0.2 if low else 0.92, "quality": 0.2 if low else 0.85,
+                "interpretation": f"[mock] '{query}' 를 맥락 내 의미로 해석",
+                "reason": "mock judge"}
 
 
 def get_provider(settings) -> Provider:  # noqa: ANN001

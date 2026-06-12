@@ -15,7 +15,7 @@ import time as _time
 
 from ..ontology.base import Document
 from ..ontology.registry import ontology_prompt_block
-from .provider import ExtractionResult, MergeCandidate
+from .provider import ExtractionResult, MergeCandidate, ResearchJudgement
 
 # 추출 프롬프트 버전. _SYS 를 바꾸면 올린다(재적재 시 어떤 프롬프트로 뽑았는지 추적).
 # v3: summary/observations/key_claims 를 한국어로(고유명사 원문 유지) — 사용자 요구.
@@ -221,6 +221,92 @@ class GeminiProvider:
         resp = self._call(lambda: self.client.models.generate_content(
             model=self.model, contents=prompt))
         return (resp.text or "").strip()
+
+    def research(self, query: str, context: str) -> dict:
+        """맥락 고정 웹 조사(google_search grounding) → 한국어 보고서 + 출처.
+
+        다의어 위험(사용자 요구): 키워드를 일반 의미가 아니라 **주어진 맥락 안에서의
+        의미로만** 해석하도록 강제하고, 맥락과 맞는 자료를 못 찾으면 지어내는 대신
+        INSUFFICIENT 를 선언하게 한다. 판정(judge_research)은 별도 호출로 이중 방어."""
+        from google.genai import types as gtypes
+
+        prompt = (
+            "당신은 개인 지식그래프를 확장하는 리서처다. 사용자가 아래 [맥락]의 자료를 "
+            "읽다가 [조사 대상]에 대해 더 알고 싶어한다.\n\n"
+            "규칙:\n"
+            "1. [조사 대상]은 반드시 [맥락] 안에서의 의미로만 해석하라. 동명의 다른 "
+            "대상(다의어)을 다루게 되면 잘못된 지식이 그래프를 오염시킨다. 먼저 맥락 내 "
+            "해석을 한 문장으로 명시하고 시작하라.\n"
+            "2. 웹 검색으로 사실을 확인하며 조사하라. 맥락과 일치하는 신뢰할 만한 자료를 "
+            "찾지 못하면, 지어내지 말고 첫 줄에 INSUFFICIENT 라고만 적고 이유를 한 줄 "
+            "덧붙여라.\n"
+            "3. 보고서는 한국어 평문 산문(여러 단락, 빈 줄 구분)으로 작성하라 — 마크다운 "
+            "소제목(#)·불릿(-)·표 금지. 고유명사·제품/도구/모델명·기술 용어는 원문 형태 "
+            "유지(음차 금지).\n"
+            "4. 핵심 정의 → 맥락과의 관계 → 구체적 사실(수치·날짜·버전 등) 순으로, "
+            "지식그래프에 추출할 가치가 있는 내용 위주로 써라.\n\n"
+            f"[맥락]\n{context[:8000]}\n\n[조사 대상]\n{query}\n\n[보고서]"
+        )
+        cfg = gtypes.GenerateContentConfig(
+            tools=[gtypes.Tool(google_search=gtypes.GoogleSearch())],
+            temperature=0.3,
+        )
+        resp = self._call(lambda: self.client.models.generate_content(
+            model=self.model, contents=prompt, config=cfg))
+        report = (resp.text or "").strip()
+        sources: list[dict] = []
+        try:  # grounding 출처(있으면) — SDK 구조 변화에 방어적으로 접근
+            gm = resp.candidates[0].grounding_metadata
+            for ch in (getattr(gm, "grounding_chunks", None) or []):
+                web = getattr(ch, "web", None)
+                if web and getattr(web, "uri", None):
+                    sources.append({"title": getattr(web, "title", "") or "",
+                                    "url": web.uri})
+        except Exception:  # noqa: BLE001
+            pass
+        return {"report": report, "sources": sources}
+
+    def judge_research(self, query: str, context: str, report: str) -> dict:
+        """조사 보고서가 '맥락 내 의미'와 일치하고 품질이 충분한지 별도 판정.
+
+        research 호출과 분리된 fresh 호출(자기 채점 편향 완화). 판정 실패 시 0점
+        (fail-closed) — 불확실하면 그래프에 추가하지 않는다."""
+        from google.genai import types as gtypes
+
+        prompt = (
+            "지식그래프 추가 게이트 심사. 사용자가 [맥락]을 읽다가 [조사 대상]을 조사해 "
+            "[보고서]를 얻었다. 다음을 0.0~1.0 으로 채점하라.\n"
+            "- relevance: 보고서가 [맥락] 안에서의 [조사 대상] 의미를 다루는가? 동명의 "
+            "다른 대상(다의어)을 다뤘다면 0 에 가깝게. 맥락과 무관한 일반론이면 낮게.\n"
+            "- quality: 사실이 구체적(수치·날짜·정확한 명칭)이고 신뢰할 만한가? 빈약하거나 "
+            "추측성이면 낮게.\n"
+            "- interpretation: 보고서가 [조사 대상]을 어떤 의미로 해석했는지 한 문장(한국어).\n"
+            "- reason: 채점 근거 한두 문장(한국어).\n\n"
+            f"[맥락]\n{context[:6000]}\n\n[조사 대상]\n{query}\n\n[보고서]\n{report[:8000]}"
+        )
+        cfg = gtypes.GenerateContentConfig(
+            response_mime_type="application/json",
+            response_schema=ResearchJudgement,
+            temperature=0.0,
+        )
+        try:
+            resp = self._call(lambda: self.client.models.generate_content(
+                model=self.model, contents=prompt, config=cfg))
+        except Exception as e:  # noqa: BLE001
+            if _is_retryable(e):
+                raise  # rate limit 은 위로 — 호출측이 오류로 안내(자동복구 루프와 정합)
+            return {"relevance": 0.0, "quality": 0.0, "interpretation": "",
+                    "reason": f"판정 실패: {e}"}
+        parsed = getattr(resp, "parsed", None)
+        if isinstance(parsed, ResearchJudgement):
+            return parsed.model_dump()
+        try:
+            import json
+
+            return ResearchJudgement(**json.loads(resp.text or "")).model_dump()
+        except Exception:  # noqa: BLE001
+            return {"relevance": 0.0, "quality": 0.0, "interpretation": "",
+                    "reason": "판정 응답 파싱 실패"}
 
     def judge_same_entity(self, mc: MergeCandidate) -> bool:
         """두 엔티티가 동일한 실세계 대상인지 LLM 으로 판정(borderline 후보에만)."""

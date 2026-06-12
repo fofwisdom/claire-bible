@@ -1,7 +1,7 @@
 """읽기전용 그래프 시각화 — vis.js 용 데이터 변환 + 정적 HTML 페이지.
 
-로컬 inject API(aiohttp)가 /graph(JSON)·/node·/documents·/synthesize 로 노출한다.
-정본 DB 를 읽고, 종합(synthesize)만 LLM 비용이 있어 세션/토큰 인증 뒤에 둔다.
+로컬 inject API(aiohttp)가 /graph(JSON)·/node·/documents·/synthesize·/research 로 노출한다.
+정본 DB 를 읽고, 종합(synthesize)·맥락조사(research)만 LLM 비용이 있어 인증 뒤에 둔다.
 """
 
 from __future__ import annotations
@@ -150,7 +150,7 @@ def synthesize(conn, provider, entity_ids: list[str], query: str | None = None) 
     return {"answer": answer, "entities": names, "query": q}
 
 
-# vis.js 9(unpkg CDN) 기반 단일 페이지. /graph·/node·/documents·/auth·/synthesize 사용.
+# vis.js 9(unpkg CDN) 기반 단일 페이지. /graph·/node·/documents·/synthesize·/research 사용.
 GRAPH_HTML = """<!doctype html>
 <html lang="ko"><head><meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
@@ -192,6 +192,9 @@ GRAPH_HTML = """<!doctype html>
   #panel .rel{color:#d29922;font-size:11px} #panel .al{color:#8b949e}
   #panel .hint{color:#6e7681;margin-top:1em}
   #panel .synth{white-space:pre-wrap;background:#161b22;border:1px solid #2a2f37;border-radius:5px;padding:10px;margin:.4em 0;line-height:1.6}
+  #panel .research{display:flex;gap:6px;margin:.4em 0}
+  #panel .research input{flex:1;min-width:0}
+  #panel .meter{color:#8b949e;font-size:11px}
   input{background:#0e1116;color:#d7dbe0;border:1px solid #2a2f37;border-radius:4px;padding:3px 8px;font-size:13px}
   #q{width:150px}
   button{background:#238636;color:#fff;border:0;border-radius:4px;padding:4px 10px;cursor:pointer;font-size:13px}
@@ -279,10 +282,11 @@ fetch('graph').then(r=>r.json()).then(d=>{
   const types=[...new Set(d.nodes.map(n=>n.group))].sort();
   document.getElementById('legendbar').innerHTML = types.map(t=>
     '<span><i style="background:'+(TYPE_COLORS[t]||'#8b949e')+'"></i>'+esc(t)+'</span>').join('');
+  // 선택 노드는 흰색 굵은 테두리 — 기존 녹색(#7ee787)은 어두운 배경에서 안 보임(피드백).
   const groups={}; types.forEach(t=>{ const c=TYPE_COLORS[t]||'#8b949e';
-    groups[t]={color:{background:c,border:'#2a2f37',highlight:{background:c,border:'#7ee787'}}}; });
+    groups[t]={color:{background:c,border:'#2a2f37',highlight:{background:c,border:'#ffffff'}}}; });
   const opts = {
-    nodes:{shape:'dot',size:14,font:{color:'#d7dbe0',size:13}},
+    nodes:{shape:'dot',size:14,font:{color:'#d7dbe0',size:13},borderWidth:1,borderWidthSelected:3},
     edges:{color:{color:'#3a4250',highlight:'#7ee787'},font:{color:'#8b949e',size:10},smooth:false},
     groups, physics:{stabilization:{iterations:200},barnesHut:{gravitationalConstant:-8000,springLength:120}},
     interaction:{hover:true,tooltipDelay:120,multiselect:true}
@@ -356,7 +360,62 @@ function renderPanel(d){
       h+='<li><span class=rel>'+esc(n.rel)+'</span> '+ar+
          ' <a href="#" onclick="loadNode(\\''+n.id+'\\');return false">'+esc(n.name)+
          '</a> <small>'+esc(n.type)+'</small></li>'; }); h+='</ul>'; }
+  // 맥락 확장 조사 — 읽다가 더 알고 싶은 키워드/문장을 지금 맥락으로 조사해 그래프 확장.
+  h+='<h3>🔬 더 알아보기</h3>'+
+    '<div class=research><input id="rq" placeholder="더 알고 싶은 키워드/문장" '+
+    'onkeydown="if(event.key===\\'Enter\\')doResearch()"/>'+
+    '<button onclick="doResearch()">조사</button></div>'+
+    '<p class=al>지금 보는 맥락에 맞춰 웹 조사 → 맥락 일치·품질 통과 시 그래프에 추가됩니다.</p>';
   panel.innerHTML=h;
+}
+
+// --- 맥락 확장 조사: 조사(grounding)→판정 게이트→통과 시 그래프 적재(서버) ---
+async function doResearch(){
+  const q=((document.getElementById('rq')||{}).value||'').trim();
+  if(!q){ alert('조사할 키워드/문장을 입력하세요.'); return; }
+  if(!selectedNodeId && !activeDoc){ alert('노드를 선택하거나 문서를 연 뒤 조사하세요.'); return; }
+  const backId=selectedNodeId;
+  panel.innerHTML='<p class=hint>🔬 “'+esc(q)+'” 맥락 조사 중… (웹 검색 + LLM 판정, 수십 초 걸릴 수 있습니다)</p>';
+  mobileScrollTo('panel');
+  let d;
+  try{
+    const r=await fetch('research',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({query:q, node_id:selectedNodeId, doc_id:activeDoc})});
+    if(r.status===401||r.status===404){ setAuth('idle');
+      panel.innerHTML='<p class=hint>세션 만료 — 텔레그램 /web 으로 다시 접속하세요</p>'; return; }
+    d=await r.json();
+  }catch(e){ panel.innerHTML='<p class=hint>요청 실패: '+esc(String(e))+'</p>'; return; }
+  if(d.error){ panel.innerHTML='<p class=hint>오류: '+esc(d.error)+'</p>'; return; }
+  let h='<h2>🔬 조사: '+esc(d.query)+(d.context_focus?' <small>'+esc(d.context_focus)+' 맥락</small>':'')+'</h2>';
+  h+='<p class=al>'+(d.added?'✅ ':'⏸ ')+esc(d.verdict||'')+
+    ' <span class=meter>맥락일치 '+(d.relevance!=null?(+d.relevance).toFixed(2):'-')+
+    ' · 품질 '+(d.quality!=null?(+d.quality).toFixed(2):'-')+'</span></p>';
+  if(d.interpretation) h+='<p class=al>해석: '+esc(d.interpretation)+'</p>';
+  if(d.report) h+='<div class=synth>'+esc(d.report)+'</div>';
+  if((d.sources||[]).length){ h+='<h3>출처</h3><ul>'+d.sources.map(s=>
+    '<li><a href="'+esc(s.url)+'" target=_blank>'+esc(s.title||s.url)+'</a></li>').join('')+'</ul>'; }
+  if(d.added && d.ingest){
+    h+='<p class=al>그래프 반영: 신규 '+d.ingest.entities_created+' · 기존연결 '+
+      d.ingest.entities_linked+' · 관계 '+d.ingest.relations_added+'</p>';
+    refreshGraph();
+  } else if(d.reason){ h+='<p class=al>판정: '+esc(d.reason)+'</p>'; }
+  if(backId) h+='<p><a href="#" onclick="loadNode(\\''+backId+'\\');return false">← 노드로 돌아가기</a></p>';
+  panel.innerHTML=h;
+}
+
+// 조사로 그래프가 늘어난 뒤 새로고침 없이 신규 노드/엣지·문서목록을 반영.
+// 엣지 id 는 rowid 순 enumerate(append-only)라 기존 id 는 안정 — 신규만 add.
+function refreshGraph(){
+  fetch('graph').then(r=>r.json()).then(d=>{
+    d.nodes.forEach(n=>{ if(allNodes.get(n.id))
+      allNodes.update({id:n.id, degree:n.degree, sources:n.sources, title:n.title});
+      else allNodes.add(n); });
+    d.edges.forEach(e=>{ if(!allEdges.get(e.id)) allEdges.add(e); });
+    document.getElementById('fslider').max = d.stats.max_degree;
+    applyView();
+  });
+  fetch('documents').then(r=>r.json()).then(d=>{ allDocs=d.documents||[];
+    renderDocs(document.getElementById('docq').value); });
 }
 
 // 단일 가시 규칙: degree(스케일)=hidden, 강조 필터(문서 선택 + 검색)=비매치 dim.
@@ -401,7 +460,12 @@ function selectDoc(id){
   activeDoc = (activeDoc===id ? null : id);     // 같은 문서 재클릭 → 해제
   renderDocs(document.getElementById('docq').value);
   applyView();
-  if(activeDoc && net){ net.fit({animation:true}); mobileScrollTo('net'); }  // 강조 결과(그래프)로 이동
+  if(activeDoc && net){
+    // 전체 fit 이 아니라 그 문서의 노드들만 화면에 차게 — 최적 줌/위치로 이동(피드백).
+    const ids=[]; allNodes.forEach(n=>{ if(!n.hidden && (n.sources||[]).includes(activeDoc)) ids.push(n.id); });
+    net.fit(ids.length ? {nodes:ids, animation:true} : {animation:true});
+    mobileScrollTo('net');
+  }
 }
 
 // --- 종합 수집(synthSet) — inspect(클릭)와 분리 ---
