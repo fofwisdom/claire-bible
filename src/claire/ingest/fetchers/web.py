@@ -28,7 +28,7 @@ MIN_CONTENT = 300
 
 def fetch_web(url: str) -> Document:
     via = "static"
-    title, text, links, err = _fetch_static(url)
+    title, text, links, anchors, err = _fetch_static(url)
 
     # 2) Discourse JSON 에스컬레이션
     if len(text or "") < MIN_CONTENT:
@@ -43,9 +43,10 @@ def fetch_web(url: str) -> Document:
     # 3) Scrapling Fetcher 에스컬레이션 — curl-cffi + browserforge 헤더 위장.
     #    브라우저 불필요. 정적 UA 를 막는 봇차단(예: openai.com 403)을 우회.
     if len(text or "") < MIN_CONTENT:
-        c_title, c_text, c_links = _fetch_scrapling(url)
+        c_title, c_text, c_links, c_anchors = _fetch_scrapling(url)
         if c_text and len(c_text) > len(text or ""):
-            title, text, links, via = c_title or title, c_text, c_links or links, "scrapling"
+            title, text, links, anchors, via = (
+                c_title or title, c_text, c_links or links, c_anchors or anchors, "scrapling")
 
     # 4) Stealth(Playwright) 에스컬레이션 — 브라우저 설치 시에만 동작(없으면 무시)
     if len(text or "") < MIN_CONTENT:
@@ -59,6 +60,8 @@ def fetch_web(url: str) -> Document:
             err or f"본문 빈약(len={len(text or '')}, via={via}): {url}"
         )
 
+    # link_anchors: 1홉 자동확장 LLM 선별용 신호(url→앵커 텍스트). links 와 같은 상한.
+    anchor_pairs = [{"url": u, "anchor": anchors.get(u, "")} for u in links[:50]]
     return Document(
         url=url,
         canonical_url=canonicalize_url(url),
@@ -66,12 +69,12 @@ def fetch_web(url: str) -> Document:
         raw_text=text[:20000],
         source_type="web",
         content_hash=content_hash(title or "", text),
-        meta={"links": links[:50], "fetch_via": via},
+        meta={"links": links[:50], "link_anchors": anchor_pairs, "fetch_via": via},
     )
 
 
-def _fetch_static(url: str) -> tuple[str | None, str, list[str], str | None]:
-    """(title, text, links, error). httpx + lxml. 실패해도 예외 대신 빈 결과."""
+def _fetch_static(url: str) -> tuple[str | None, str, list[str], dict[str, str], str | None]:
+    """(title, text, links, anchors, error). httpx + lxml. 실패해도 예외 대신 빈 결과."""
     import httpx
 
     try:
@@ -79,29 +82,34 @@ def _fetch_static(url: str) -> tuple[str | None, str, list[str], str | None]:
                           headers={"User-Agent": _UA}) as client:
             resp = client.get(url)
         if resp.status_code >= 400:
-            return None, "", [], f"http {resp.status_code} for {url}"
+            return None, "", [], {}, f"http {resp.status_code} for {url}"
         return _extract_html(resp.text)
     except Exception as e:  # noqa: BLE001
-        return None, "", [], f"fetch failed: {e}"
+        return None, "", [], {}, f"fetch failed: {e}"
 
 
-def _extract_html(html: str) -> tuple[str | None, str, list[str], str | None]:
+def _extract_html(html: str) -> tuple[str | None, str, list[str], dict[str, str], str | None]:
     from lxml import html as lh
 
     try:
         tree = lh.fromstring(html)
     except Exception as e:  # noqa: BLE001
-        return None, "", [], f"parse failed: {e}"
+        return None, "", [], {}, f"parse failed: {e}"
 
-    # 외부 링크 수집(1홉 후보용)
+    # 외부 링크 수집(1홉 후보용) + 앵커 텍스트(LLM 선별 신호; url 당 첫 비어있지 않은 텍스트)
     links: list[str] = []
+    anchors: dict[str, str] = {}
     seen_l: set[str] = set()
-    for href in tree.xpath("//a/@href"):
-        h = (href or "").strip()
+    for a in tree.xpath("//a[@href]"):
+        h = (a.get("href") or "").strip()
         if h.startswith("http://") or h.startswith("https://"):
             if h not in seen_l:
                 seen_l.add(h)
                 links.append(h)
+            if not anchors.get(h):
+                txt = " ".join(a.text_content().split())[:160]
+                if txt:
+                    anchors[h] = txt
 
     # title: og:title > <title> > <h1>
     title = None
@@ -124,15 +132,15 @@ def _extract_html(html: str) -> tuple[str | None, str, list[str], str | None]:
     text = " ".join(t.strip() for t in tree.xpath("//body//text()") if t.strip())
     if not text:
         text = " ".join(t.strip() for t in tree.xpath("//text()") if t.strip())
-    return (title[:200] if title else None), text, links, None
+    return (title[:200] if title else None), text, links, anchors, None
 
 
-def _fetch_scrapling(url: str) -> tuple[str | None, str, list[str]]:
+def _fetch_scrapling(url: str) -> tuple[str | None, str, list[str], dict[str, str]]:
     """Scrapling Fetcher (curl-cffi + browserforge 스텔스 헤더). 브라우저 불필요.
 
     정적 httpx UA 를 403 으로 막는 봇차단(예: openai.com)을, 브라우저 지문에
     가까운 헤더/TLS 로 우회. raw HTML 은 _extract_html 로 동일하게 파싱 →
-    title/본문/링크(1홉 후보) 추출 일관성 유지. 미설치/실패 시 (None, '', []).
+    title/본문/링크(1홉 후보)/앵커 추출 일관성 유지. 미설치/실패 시 (None, '', [], {}).
     """
     try:
         from scrapling.fetchers import Fetcher
@@ -140,12 +148,12 @@ def _fetch_scrapling(url: str) -> tuple[str | None, str, list[str]]:
         page = Fetcher.get(url, stealthy_headers=True, timeout=30)
         status = getattr(page, "status", 200)
         if status and status >= 400:
-            return None, "", []
+            return None, "", [], {}
         html = getattr(page, "html_content", "") or ""
-        title, text, links, _ = _extract_html(str(html))
-        return title, text, links
+        title, text, links, anchors, _ = _extract_html(str(html))
+        return title, text, links, anchors
     except Exception:  # noqa: BLE001
-        return None, "", []
+        return None, "", [], {}
 
 
 def _fetch_stealth(url: str) -> tuple[str | None, str]:

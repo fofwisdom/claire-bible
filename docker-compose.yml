@@ -46,6 +46,18 @@ services:
     # max_attempts 도달 시 'failed'(영구)로 굳혀 무한재시도 차단. 대상 없으면 무동작.
     command: ["uv", "run", "claire", "recover-loop", "--interval", "600", "--batch", "5"]
 
+  claire_expand:
+    build: .
+    container_name: claire_expand
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./data:/app/data      # 같은 DB 공유
+      - ./vault:/app/vault
+    # 1홉 자동확장 큐를 15분마다 3건씩 처리. 적재 문서의 링크를 LLM 이 선별→판정→적재.
+    # CLAIRE_AUTO_EXPAND=0 이면 enqueue 자체가 안 돼 큐가 비고 무동작.
+    command: ["uv", "run", "claire", "expand-loop", "--interval", "900", "--batch", "3"]
+
   claire_backup:
     build: .
     container_name: claire_backup

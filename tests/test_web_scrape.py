@@ -54,9 +54,10 @@ def test_strip_html_multiroot_safe():
 
 # --- fetch_web fallback 체인 + thin-guard ---
 
-def _patch_chain(monkeypatch, *, static=("T", "", [], None),
-                 discourse=None, stealth=(None, "")):
+def _patch_chain(monkeypatch, *, static=("T", "", [], {}, None),
+                 discourse=None, scrapling=(None, "", [], {}), stealth=(None, "")):
     monkeypatch.setattr(web, "_fetch_static", lambda url: static)
+    monkeypatch.setattr(web, "_fetch_scrapling", lambda url: scrapling)
     monkeypatch.setattr(web, "_fetch_stealth", lambda url: stealth)
     import claire.ingest.fetchers.discourse as disc
     monkeypatch.setattr(disc, "try_discourse", lambda url: discourse)
@@ -64,7 +65,7 @@ def _patch_chain(monkeypatch, *, static=("T", "", [], None),
 
 def test_static_rich_used_directly(monkeypatch):
     body = "x" * 500
-    _patch_chain(monkeypatch, static=("Title", body, ["https://a"], None))
+    _patch_chain(monkeypatch, static=("Title", body, ["https://a"], {}, None))
     doc = web.fetch_web("https://example.com/post")
     assert doc.title == "Title"
     assert len(doc.raw_text) == 500
@@ -74,7 +75,7 @@ def test_static_rich_used_directly(monkeypatch):
 def test_discourse_escalation_when_static_thin(monkeypatch):
     rich = "본문 " * 200  # >300
     _patch_chain(monkeypatch,
-                 static=("제목만", "짧음", [], None),
+                 static=("제목만", "짧음", [], {}, None),
                  discourse=("디스코스 제목", rich, ["https://ref"]))
     doc = web.fetch_web("https://discuss.pytorch.kr/t/foo/1")
     assert doc.meta["fetch_via"] == "discourse"
@@ -85,7 +86,7 @@ def test_discourse_escalation_when_static_thin(monkeypatch):
 def test_stealth_escalation_when_others_thin(monkeypatch):
     rich = "y" * 400
     _patch_chain(monkeypatch,
-                 static=("t", "tiny", [], None),
+                 static=("t", "tiny", [], {}, None),
                  discourse=None,
                  stealth=("stealth title", rich))
     doc = web.fetch_web("https://js-only.example/app")
@@ -96,7 +97,7 @@ def test_stealth_escalation_when_others_thin(monkeypatch):
 def test_thin_guard_raises_when_all_fail(monkeypatch):
     # static 빈약 + discourse 없음 + stealth 빈 → 실패(제목만 적재 방지)
     _patch_chain(monkeypatch,
-                 static=("제목만 있음", "73자정도의짧은본문", [], None),
+                 static=("제목만 있음", "73자정도의짧은본문", [], {}, None),
                  discourse=None, stealth=(None, ""))
     with pytest.raises(FetchError):
         web.fetch_web("https://discuss.pytorch.kr/t/thin/999")

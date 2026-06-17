@@ -16,7 +16,7 @@ import time as _time
 from ..ontology.base import Document
 from ..ontology.registry import ontology_prompt_block
 from .provider import (
-    ExtractionResult, MergeCandidate, ResearchJudgement, emit_progress,
+    ExtractionResult, FollowSelection, MergeCandidate, ResearchJudgement, emit_progress,
 )
 
 # 추출 프롬프트 버전. _SYS 를 바꾸면 올린다(재적재 시 어떤 프롬프트로 뽑았는지 추적).
@@ -315,6 +315,58 @@ class GeminiProvider:
         except Exception:  # noqa: BLE001
             return {"relevance": 0.0, "quality": 0.0, "interpretation": "",
                     "reason": "판정 응답 파싱 실패"}
+
+    def select_followups(self, context: str, candidates: list[dict]) -> list[int]:
+        """1홉 자동확장 — 부모 문서 맥락에서 따라갈(파고들) 가치가 있는 링크를 선별.
+
+        '파고들지 여부'를 LLM 이 결정(사용자 요구). 후보를 번호 매겨 제시하고, 지식그래프에
+        더할 가치가 있는 것만 인덱스로 돌려받는다. 가치 없으면 빈 목록(과잉수집 억제).
+        판정 실패/파싱 실패는 빈 목록(fail-closed) — 불확실하면 파지 않는다."""
+        from google.genai import types as gtypes
+
+        if not candidates:
+            return []
+        listing = "\n".join(
+            f"[{i}] {c.get('anchor') or '(텍스트 없음)'} — {c.get('url', '')}"
+            for i, c in enumerate(candidates)
+        )
+        prompt = (
+            "당신은 개인 지식그래프를 키우는 큐레이터다. 사용자가 [부모 문서]를 읽고 "
+            "지식으로 적재했다. 그 문서에서 발견된 [외부 링크 후보] 중, 같은 주제를 더 "
+            "깊이 알기 위해 **따라가서 함께 적재할 가치가 있는 것**만 골라라.\n\n"
+            "규칙:\n"
+            "1. 부모 문서의 주제와 직접 관련되고, 그 자체로 실질 내용(논문/문서/글)이 "
+            "있을 법한 링크만 고른다.\n"
+            "2. 광고·로그인·약관·소셜·플랫폼 홈·태그 목록 등 비콘텐츠, 그리고 주제와 "
+            "동떨어진 링크는 제외한다.\n"
+            "3. 애매하면 넣지 마라(잘못 적재된 노드가 이후 검색/종합을 오도한다). 가치 "
+            "있는 게 하나도 없으면 빈 목록을 반환한다.\n"
+            "4. follow 에는 고른 후보의 번호(인덱스)만 담아라.\n\n"
+            f"[부모 문서]\n{context[:6000]}\n\n[외부 링크 후보]\n{listing}"
+        )
+        cfg = gtypes.GenerateContentConfig(
+            response_mime_type="application/json",
+            response_schema=FollowSelection,
+            temperature=0.0,
+        )
+        try:
+            resp = self._call(lambda: self.client.models.generate_content(
+                model=self.model, contents=prompt, config=cfg))
+        except Exception as e:  # noqa: BLE001
+            if _is_retryable(e):
+                raise  # rate limit 은 위로 — 호출측(expand-loop)이 재시도
+            return []
+        parsed = getattr(resp, "parsed", None)
+        sel = parsed if isinstance(parsed, FollowSelection) else None
+        if sel is None:
+            try:
+                import json
+
+                sel = FollowSelection(**json.loads(resp.text or ""))
+            except Exception:  # noqa: BLE001
+                return []
+        n = len(candidates)
+        return [i for i in sel.follow if isinstance(i, int) and 0 <= i < n]
 
     def judge_same_entity(self, mc: MergeCandidate) -> bool:
         """두 엔티티가 동일한 실세계 대상인지 LLM 으로 판정(borderline 후보에만)."""

@@ -104,6 +104,17 @@ class ResearchJudgement(BaseModel):
     reason: str = ""
 
 
+class FollowSelection(BaseModel):
+    """1홉 자동확장 — 따라갈 후보 링크의 인덱스 목록(LLM 이 선별).
+
+    follow: 입력 후보에서 '지식으로 더 팔 가치가 있다'고 판단한 항목의 0-기반 인덱스.
+      가치 없으면 빈 목록(= 파고들지 않음). 다의어/잡음/맥락 무관은 제외.
+    """
+
+    follow: list[int] = Field(default_factory=list)
+    reason: str = ""
+
+
 class Provider(Protocol):
     name: str
 
@@ -222,11 +233,25 @@ class MockProvider:
                 "sources": [{"title": "mock source", "url": "https://example.com/mock"}]}
 
     def judge_research(self, query: str, context: str, report: str) -> dict:
-        """결정론적 stub — '모호' 포함 쿼리는 저품질 판정(게이트 거절 경로 테스트 훅)."""
-        low = "모호" in query
+        """결정론적 stub — 저품질 판정(게이트 거절) 훅: query '모호' 또는 report '무관'.
+
+        '무관' 훅은 1홉 자동확장의 store 게이트(judge_research 재사용) 거절 경로 테스트용."""
+        low = ("모호" in query) or ("무관" in report) or ("무관" in context)
         return {"relevance": 0.2 if low else 0.92, "quality": 0.2 if low else 0.85,
                 "interpretation": f"[mock] '{query}' 를 맥락 내 의미로 해석",
                 "reason": "mock judge"}
+
+    def select_followups(self, context: str, candidates: list[dict]) -> list[int]:
+        """결정론적 stub — 1홉 확장에서 따라갈 후보 선별(파고들지 여부=LLM 결정 모사).
+
+        url/anchor 에 'skip' 이 들어간 후보는 제외(= 안 판다), 나머지는 따라간다.
+        실제 선별 품질은 실 Gemini 로. 여기선 선별→게이트 배선만 결정론적으로 보장한다."""
+        out = []
+        for i, c in enumerate(candidates):
+            blob = f"{c.get('url', '')} {c.get('anchor', '')}".lower()
+            if "skip" not in blob:
+                out.append(i)
+        return out
 
 
 def get_provider(settings) -> Provider:  # noqa: ANN001

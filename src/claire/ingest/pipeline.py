@@ -88,6 +88,8 @@ def ingest(
     file_ref: str | None = None,
     file_name: str | None = None,
     inbox_id: int | None = None,
+    prefetched: Document | None = None,
+    auto_expand: bool = False,
 ) -> IngestReport:
     report = IngestReport()
     # None 이면 호출 시점에 모듈 전역 default_fetch 를 조회(monkeypatch/교체 반영).
@@ -106,7 +108,8 @@ def ingest(
     report.inbox_id = inbox_id
 
     try:
-        doc = fetch_fn(payload)
+        # prefetched: 1홉 확장이 판정용으로 이미 가져온 Document 재사용(중복 fetch 방지).
+        doc = prefetched if prefetched is not None else fetch_fn(payload)
     except Exception as e:  # noqa: BLE001
         report.error = str(e)
         dbm.update_inbox(conn, inbox_id, status="error", error=str(e))
@@ -172,11 +175,15 @@ def ingest(
         dbm.update_inbox(conn, inbox_id, status="error", document_id=doc.id, error=err)
         return report
 
-    # 1홉 확장 후보(제안만 — 실제 fetch 는 confirm 후). 내부 연결은 위에서 이미 자동.
+    # 1홉 확장. auto_expand 면 백그라운드 대기열에 등록(LLM 이 선별·판정·적재; expand-loop).
+    # 아니면 기존 동작: 후보만 제안(텔레그램 confirm 버튼). 내부 연결은 위에서 이미 자동.
     if expand_max > 0 and not doc.partial:
-        from ..expand.onehop import find_candidates
+        if auto_expand:
+            dbm.enqueue_expand(conn, doc.id)
+        else:
+            from ..expand.onehop import find_candidates
 
-        report.candidates = find_candidates(conn, doc, limit=expand_max)
+            report.candidates = find_candidates(conn, doc, limit=expand_max)
 
     dbm.update_inbox(conn, inbox_id, status="done", document_id=doc.id)
     return report

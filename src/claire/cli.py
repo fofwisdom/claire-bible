@@ -229,6 +229,65 @@ def cmd_refresh_loop(args) -> int:  # noqa: ANN001
         time.sleep(max(60, args.interval))
 
 
+def _notify_expansion(results: list[dict]) -> None:
+    """1홉 자동확장으로 새 지식이 쌓였으면 소유자에게 텔레그램 알림(실패해도 루프 계속)."""
+    from .notify import notify_owner
+
+    stored = [r for r in results if r.get("stored")]
+    if not stored:
+        return
+    s = get_settings()
+    total = sum(r["stored"] for r in stored)
+    lines = [f"🔗 1홉 자동확장: {total}개 링크를 따라가 지식에 추가했습니다."]
+    for r in stored[:5]:
+        for f in r.get("followed", []):
+            if f.get("stored"):
+                lines.append(f"• {f.get('title') or f.get('url')}")
+    sent = notify_owner(s.telegram_bot_token, s.notify_chat_id, "\n".join(lines[:12]))
+    print(f"[expand] 적재 알림 {'전송' if sent else '미전송(미설정/실패)'}", flush=True)
+
+
+def cmd_expand_run(args) -> int:  # noqa: ANN001
+    """1홉 자동확장 큐 1회 처리."""
+    from .ingest.service import IngestService
+
+    results = IngestService(get_settings()).run_expand_queue(limit=args.limit)
+    if not results:
+        print("확장 대기 항목 없음.")
+        return 0
+    for r in results:
+        if r.get("error"):
+            print(f"  ❌ {r['document_id']}: {str(r['error'])[:60]}")
+        else:
+            print(f"  🔗 {r['document_id']}: 후보 {r['candidates']}·선별 {r['selected']}"
+                  f"·적재 {r['stored']}·스킵 {r['skipped']}")
+    print(f"처리 {len(results)}건, 적재 {sum(r.get('stored',0) for r in results)}")
+    return 0
+
+
+def cmd_expand_loop(args) -> int:  # noqa: ANN001
+    """1홉 자동확장 큐를 interval 초마다 자동 처리(전용 컨테이너용 데몬)."""
+    import time
+
+    from .ingest.service import IngestService
+
+    svc = IngestService(get_settings())
+    print(f"claire expand-loop 시작 (interval={args.interval}s, batch={args.batch}). "
+          "Ctrl+C 종료.", flush=True)
+    while True:
+        try:
+            results = svc.run_expand_queue(limit=args.batch)
+            if results:
+                stored = sum(r.get("stored", 0) for r in results)
+                print(f"[expand] {len(results)}건 처리, 적재 {stored}", flush=True)
+                _notify_expansion(results)
+            else:
+                print("[expand] 큐 비어있음, 대기", flush=True)
+        except Exception as e:  # noqa: BLE001
+            print(f"[expand] 오류: {e}", flush=True)
+        time.sleep(max(60, args.interval))
+
+
 def cmd_ingest(args) -> int:  # noqa: ANN001
     from .extract.provider import get_provider
     from .ingest.pipeline import ingest
@@ -449,6 +508,15 @@ def build_parser() -> argparse.ArgumentParser:
     pl.add_argument("--interval", type=int, default=3600, help="초 (최소 60)")
     pl.add_argument("--batch", type=int, default=5, help="회당 처리 건수")
     pl.set_defaults(func=cmd_refresh_loop)
+
+    pxr = sub.add_parser("expand-run", help="process 1-hop auto-expand queue once")
+    pxr.add_argument("--limit", type=int, default=0, help="0 = all")
+    pxr.set_defaults(func=cmd_expand_run)
+
+    pxl = sub.add_parser("expand-loop", help="run 1-hop auto-expand queue on interval (daemon)")
+    pxl.add_argument("--interval", type=int, default=900, help="초 (최소 60)")
+    pxl.add_argument("--batch", type=int, default=3, help="회당 처리 건수")
+    pxl.set_defaults(func=cmd_expand_loop)
 
     pi = sub.add_parser("ingest", help="ingest a single payload")
     pi.add_argument("payload", help="url / text / file path")

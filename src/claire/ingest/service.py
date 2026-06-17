@@ -34,25 +34,128 @@ class IngestService:
         file_ref: str | None = None,
         file_name: str | None = None,
         inbox_id: int | None = None,
+        prefetched: "Document | None" = None,
     ) -> IngestReport:
         """단건 적재. (블로킹 — 호출측에서 스레드 오프로드).
 
         inbox_id 가 주어지면 새 raw_inbox 행을 만들지 않고 기존 행을 재사용(자동복구용).
+        prefetched 가 주어지면 fetch 를 건너뛰고 그 Document 로 적재(1홉 확장의 중복 fetch 방지).
         """
         conn = dbm.connect(self.s.db_file)
         dbm.init_db(conn)
         vstore = make_vector_store(conn, self.s.vector_backend)
         em = self.s.expand_max if expand_max is None else expand_max
+        # 1홉 자동확장 enqueue 게이트: 사용자 설정 ON + 1차 적재(자식/복구/갱신 재적재 제외).
+        auto = (self.s.auto_expand and em > 0
+                and not source.startswith(("onehop", "recover", "replay", "refresh")))
         try:
             return ingest(
                 payload, conn=conn, provider=self.provider, vstore=vstore,
                 vault_dir=self.s.vault_dir, data_dir=self.s.data_dir,
                 expand_max=em, source=source, user_id=user_id, chat_id=chat_id,
                 inbox_kind=inbox_kind, file_ref=file_ref, file_name=file_name,
-                inbox_id=inbox_id,
+                inbox_id=inbox_id, prefetched=prefetched, auto_expand=auto,
             )
         finally:
             conn.close()
+
+    def expand_document(self, document_id: str, *, limit: int | None = None) -> dict:
+        """[1홉 자동확장] 부모 문서의 링크를 LLM 이 선별→fetch→판정→통과 시 적재.
+
+        파고들지(select_followups)·쌓을지(judge_research 게이트) 모두 LLM 결정.
+        깊이는 1 고정: 자식 적재는 source='onehop:*' + expand_max=0 → 재확장 안 됨.
+        반환: {document_id, candidates, selected, stored, skipped, followed[...]}
+        """
+        from ..expand.follow import build_candidates, build_parent_context, passes_gate
+
+        cap = self.s.expand_max if limit is None else limit
+        conn = dbm.connect(self.s.db_file)
+        dbm.init_db(conn)
+        try:
+            doc = dbm.get_document(conn, document_id)
+            if doc is None:
+                return {"document_id": document_id, "error": "document not found"}
+            context = build_parent_context(conn, doc)
+            candidates = build_candidates(conn, doc)
+        finally:
+            conn.close()
+
+        result = {"document_id": document_id, "candidates": len(candidates),
+                  "selected": 0, "stored": 0, "skipped": 0, "followed": []}
+        if not candidates:
+            return result
+
+        # 1) 파고들지 = LLM. select 없으면(구 provider) 확장 안 함(보수적).
+        select = getattr(self.provider, "select_followups", None)
+        idxs = select(context, candidates) if select else []
+        chosen = [candidates[i] for i in idxs][:cap]
+        result["selected"] = len(chosen)
+
+        judge = getattr(self.provider, "judge_research", None)
+        for c in chosen:
+            url = c["url"]
+            try:
+                child = default_fetch(url)  # 판정용 1회 fetch (적재 시 prefetched 재사용)
+            except Exception as e:  # noqa: BLE001
+                result["skipped"] += 1
+                result["followed"].append({"url": url, "stored": False, "error": str(e)})
+                continue
+            # 2) 쌓을지 = LLM(research 게이트 재사용). judge 없으면 통과로 간주.
+            rel, qual = 1.0, 1.0
+            if judge:
+                report = f"{child.title or ''}\n{(child.raw_text or '')[:4000]}"
+                j = judge(doc.title or "", context, report)
+                rel = float(j.get("relevance") or 0.0)
+                qual = float(j.get("quality") or 0.0)
+            if not passes_gate(rel, qual):
+                result["skipped"] += 1
+                result["followed"].append({"url": url, "stored": False,
+                                           "relevance": rel, "quality": qual})
+                continue
+            rep = self.ingest(url, source=f"onehop:{document_id}", expand_max=0,
+                              prefetched=child)
+            stored = rep.error is None and not rep.duplicate
+            if stored:
+                result["stored"] += 1
+            result["followed"].append({"url": url, "stored": stored,
+                                       "title": rep.title, "duplicate": rep.duplicate,
+                                       "relevance": rel, "quality": qual,
+                                       "error": rep.error})
+        return result
+
+    def run_expand_queue(self, *, limit: int = 0) -> list[dict]:
+        """[1홉 자동확장] 대기열의 pending 문서를 처리(expand-loop 데몬이 호출).
+
+        각 문서를 expand_document 로 확장하고 done/error 로 마킹. 반환: 처리 요약 목록.
+        """
+        import json as _json
+
+        conn = dbm.connect(self.s.db_file)
+        dbm.init_db(conn)
+        rows = dbm.pending_expand(conn, limit=limit)
+        conn.close()
+
+        out: list[dict] = []
+        for row in rows:
+            try:
+                res = self.expand_document(row["document_id"])
+            except Exception as e:  # noqa: BLE001
+                conn2 = dbm.connect(self.s.db_file)
+                try:
+                    dbm.update_expand(conn2, row["id"], status="error", error=str(e))
+                finally:
+                    conn2.close()
+                out.append({"document_id": row["document_id"], "error": str(e)})
+                continue
+            status = "error" if res.get("error") else "done"
+            conn2 = dbm.connect(self.s.db_file)
+            try:
+                dbm.update_expand(conn2, row["id"], status=status,
+                                  error=res.get("error"), result=_json.dumps(res)[:2000])
+            finally:
+                conn2.close()
+            out.append(res)
+        return out
 
     def refresh_document(self, document_id: str, payload: str) -> dict:
         """[복원] 한 문서를 원본 payload 로 재fetch→재추출하여 in-place 갱신.

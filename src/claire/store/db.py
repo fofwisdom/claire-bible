@@ -15,7 +15,7 @@ from pathlib import Path
 
 from ..ontology.base import Document, Entity, Relation
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (
@@ -160,6 +160,21 @@ CREATE TABLE IF NOT EXISTS auth_sessions (
     created_at REAL,
     expires_at REAL
 );
+
+-- [1홉 자동확장] 적재한 문서에서 따라갈 링크를 LLM 이 선별→판정→적재하는 백그라운드
+-- 대기열. refresh_queue 와 같은 패턴(전용 expand-loop 컨테이너가 주기 처리).
+CREATE TABLE IF NOT EXISTS expand_queue (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    document_id TEXT UNIQUE,       -- 확장 출발(부모) 문서
+    status TEXT DEFAULT 'pending', -- pending | done | error
+    attempts INTEGER DEFAULT 0,
+    last_attempt REAL,
+    error TEXT,
+    result TEXT,                   -- 처리 요약 JSON(선별/적재/스킵 수)
+    created_at REAL,
+    updated_at REAL
+);
+CREATE INDEX IF NOT EXISTS idx_expand_status ON expand_queue(status);
 
 -- FTS5 키워드 인덱스 (엔티티 이름 + 관찰). content 테이블과 분리된 standalone FTS.
 CREATE VIRTUAL TABLE IF NOT EXISTS entities_fts USING fts5(
@@ -837,6 +852,56 @@ def update_refresh(
 def refresh_status_counts(conn: sqlite3.Connection) -> dict[str, int]:
     rows = conn.execute(
         "SELECT status, COUNT(*) n FROM refresh_queue GROUP BY status"
+    ).fetchall()
+    return {r["status"]: r["n"] for r in rows}
+
+
+# --- 1홉 자동확장 큐 (expand_queue) — refresh_queue 와 동일 패턴 ---
+
+def enqueue_expand(conn: sqlite3.Connection, document_id: str) -> bool:
+    """문서를 1홉 확장 대기열에 등록. 이미 있으면 pending 으로 되살린다(중복 무해). 신규면 True."""
+    now = time.time()
+    row = conn.execute(
+        "SELECT id FROM expand_queue WHERE document_id=?", (document_id,)
+    ).fetchone()
+    if row:
+        conn.execute(
+            "UPDATE expand_queue SET status='pending', updated_at=? WHERE document_id=?",
+            (now, document_id),
+        )
+        conn.commit()
+        return False
+    conn.execute(
+        "INSERT INTO expand_queue(document_id,status,created_at,updated_at)"
+        " VALUES (?, 'pending', ?, ?)",
+        (document_id, now, now),
+    )
+    conn.commit()
+    return True
+
+
+def pending_expand(conn: sqlite3.Connection, limit: int = 0) -> list[sqlite3.Row]:
+    q = "SELECT * FROM expand_queue WHERE status='pending' ORDER BY id"
+    if limit:
+        q += f" LIMIT {int(limit)}"
+    return conn.execute(q).fetchall()
+
+
+def update_expand(
+    conn: sqlite3.Connection, eid: int, *, status: str,
+    error: str | None = None, result: str | None = None,
+) -> None:
+    conn.execute(
+        "UPDATE expand_queue SET status=?, error=?, result=?, attempts=attempts+1, "
+        "last_attempt=?, updated_at=? WHERE id=?",
+        (status, error, result, time.time(), time.time(), eid),
+    )
+    conn.commit()
+
+
+def expand_status_counts(conn: sqlite3.Connection) -> dict[str, int]:
+    rows = conn.execute(
+        "SELECT status, COUNT(*) n FROM expand_queue GROUP BY status"
     ).fetchall()
     return {r["status"]: r["n"] for r in rows}
 

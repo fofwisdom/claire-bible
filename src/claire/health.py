@@ -22,6 +22,7 @@ def health_report(s: Settings, provider_name: str) -> dict:
             inbox = dbm.inbox_status_counts(conn)
             refresh_pending = len(dbm.pending_refresh(conn))
             recover_due = len(dbm.due_for_recovery(conn, max_attempts=RECOVER_MAX_ATTEMPTS))
+            expand_pending = len(dbm.pending_expand(conn))
             graph = dbm.counts(conn)
         finally:
             conn.close()
@@ -34,6 +35,7 @@ def health_report(s: Settings, provider_name: str) -> dict:
     out["inbox"] = inbox
     out["refresh_pending"] = refresh_pending
     out["recover_due"] = recover_due
+    out["expand_pending"] = expand_pending
     out["graph"] = {k: graph[k] for k in ("documents", "entities", "relations")}
 
     bdir = s.data_dir / "backups"
