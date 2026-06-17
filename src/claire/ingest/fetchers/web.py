@@ -2,7 +2,9 @@
 
   1) static   : httpx + lxml 정적 추출 (가장 싸고 빠름, 브라우저 불필요)
   2) discourse : 본문 빈약 + Discourse 토픽이면 `.json` API 로 본문 확보 (싸고 결정적)
-  3) stealth   : Scrapling StealthyFetcher (Playwright). 최후수단, 브라우저 설치 시에만.
+  3) scrapling : Scrapling Fetcher (curl-cffi + browserforge 스텔스 헤더). 브라우저 불필요.
+                 정적 UA 를 403 으로 막는 봇차단(예: openai.com) 우회용.
+  4) stealth   : Scrapling StealthyFetcher (Playwright). 최후수단, 브라우저 설치 시에만.
 
 체인을 다 돌고도 본문이 MIN_CONTENT 미만이면 FetchError 로 *실패 처리* —
 제목만 적재되는 빈약 스크랩을 막고 raw_inbox 에 error 로 남겨 replay-failed 로 재적재.
@@ -38,7 +40,14 @@ def fetch_web(url: str) -> Document:
             if len(d_text) > len(text or ""):
                 title, text, links, via = d_title or title, d_text, d_links or links, "discourse"
 
-    # 3) Stealth(Playwright) 에스컬레이션 — 브라우저 설치 시에만 동작(없으면 무시)
+    # 3) Scrapling Fetcher 에스컬레이션 — curl-cffi + browserforge 헤더 위장.
+    #    브라우저 불필요. 정적 UA 를 막는 봇차단(예: openai.com 403)을 우회.
+    if len(text or "") < MIN_CONTENT:
+        c_title, c_text, c_links = _fetch_scrapling(url)
+        if c_text and len(c_text) > len(text or ""):
+            title, text, links, via = c_title or title, c_text, c_links or links, "scrapling"
+
+    # 4) Stealth(Playwright) 에스컬레이션 — 브라우저 설치 시에만 동작(없으면 무시)
     if len(text or "") < MIN_CONTENT:
         s_title, s_text = _fetch_stealth(url)
         if s_text and len(s_text) > len(text or ""):
@@ -116,6 +125,27 @@ def _extract_html(html: str) -> tuple[str | None, str, list[str], str | None]:
     if not text:
         text = " ".join(t.strip() for t in tree.xpath("//text()") if t.strip())
     return (title[:200] if title else None), text, links, None
+
+
+def _fetch_scrapling(url: str) -> tuple[str | None, str, list[str]]:
+    """Scrapling Fetcher (curl-cffi + browserforge 스텔스 헤더). 브라우저 불필요.
+
+    정적 httpx UA 를 403 으로 막는 봇차단(예: openai.com)을, 브라우저 지문에
+    가까운 헤더/TLS 로 우회. raw HTML 은 _extract_html 로 동일하게 파싱 →
+    title/본문/링크(1홉 후보) 추출 일관성 유지. 미설치/실패 시 (None, '', []).
+    """
+    try:
+        from scrapling.fetchers import Fetcher
+
+        page = Fetcher.get(url, stealthy_headers=True, timeout=30)
+        status = getattr(page, "status", 200)
+        if status and status >= 400:
+            return None, "", []
+        html = getattr(page, "html_content", "") or ""
+        title, text, links, _ = _extract_html(str(html))
+        return title, text, links
+    except Exception:  # noqa: BLE001
+        return None, "", []
 
 
 def _fetch_stealth(url: str) -> tuple[str | None, str]:
