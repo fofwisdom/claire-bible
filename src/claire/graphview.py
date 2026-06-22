@@ -274,6 +274,7 @@ let net, allNodes, allEdges, allDocs=[];
 let curMinDeg=0, activeDoc=null, highlightSet=null, selectedNodeId=null, hoverTimer=null;
 let docPanelHtml=null;   // 현재 문서 패널 HTML — hover 미리보기 후 blur 시 fetch 없이 복원
 let clusterEdges=null;   // 검색 결과를 뭉치게 한 임시 spring 엣지 id 들 — 해제 시 제거
+let searchDebounce=null; // 라벨검색 디바운스 타이머 — 타이핑 멈춘 뒤에만 검색 실행
 let synthSet=new Set();
 const panel = document.getElementById('panel');
 const DEFAULT_HINT = '<p class="hint">노드를 클릭하면 관찰·출처 문서·연결이 표시됩니다.<br><br>• <b>Ctrl+클릭</b> 또는 상세의 <b>➕ 종합에 추가</b>로 여러 노드를 모아 종합<br>• 다른 노드에 <b>1초</b> 올리면 미리보기(벗어나면 복귀)<br>• 좌측 문서를 누르면 <b>요약·전문·노드 버튼</b>이 여기 표시됩니다</p>';
@@ -641,7 +642,14 @@ function unclusterEdges(){
 }
 // 우측 '이 문서의 노드' 버튼 hover — 그래프뷰를 그 노드로 부드럽게 이동(선택/상세는 안 바꿈).
 function peekNode(id){ if(net) net.focus(id,{scale:1.2,animation:{duration:400,easingFunction:'easeInOutQuad'}}); }
-function onSearchInput(v){ if(!document.getElementById('sem').checked) hl(v); }
+// 타이핑마다 즉시 검색하면 매 키 입력에 강조+물리 클러스터링이 돌아 무겁고 출렁인다.
+// 디바운스: 입력이 멈춘 뒤(350ms) 한 번만 실행. 단 검색창을 비우면 즉시 해제(반응성).
+function onSearchInput(v){
+  if(document.getElementById('sem').checked) return;   // 의미검색은 버튼/엔터로만
+  clearTimeout(searchDebounce);
+  if(!v.trim()){ hl(''); return; }                     // 비우기 → 즉시 강조/클러스터 해제
+  searchDebounce=setTimeout(()=>hl(v), 350);
+}
 // 라벨 검색: 매치 강조 + 나머지 dim(문서 선택과 동일 방식). 색칠 대신 highlightSet+applyView.
 function hl(q){
   if(!allNodes) return;
@@ -660,7 +668,8 @@ document.getElementById('sem').addEventListener('change',e=>{
 document.getElementById('q').addEventListener('keydown',e=>{
   if(e.key!=='Enter') return;
   if(document.getElementById('sem').checked){ doSemantic(); }
-  else { const m=net.getSelectedNodes(); if(m.length) loadNode(m[0]); }
+  else { clearTimeout(searchDebounce); hl(e.target.value);   // 대기 중 디바운스를 즉시 확정
+         const m=net.getSelectedNodes(); if(m.length) loadNode(m[0]); }
 });
 // 입력창 포커스 시 기존 검색어 전체 선택 → 바로 새로 타이핑 가능(GOALS ④).
 document.getElementById('q').addEventListener('focus', e=> e.target.select());
