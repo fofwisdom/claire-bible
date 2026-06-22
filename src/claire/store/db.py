@@ -959,11 +959,18 @@ def expand_status_counts(conn: sqlite3.Connection) -> dict[str, int]:
 
 
 def thin_documents(
-    conn: sqlite3.Connection, *, max_len: int, host: str | None = None
+    conn: sqlite3.Connection, *, max_len: int, host: str | None = None,
+    include_partial: bool = False,
 ) -> list[sqlite3.Row]:
-    """본문이 빈약한(non-partial) 문서. host 지정 시 해당 호스트만."""
+    """본문이 빈약한 문서. host 지정 시 해당 호스트만.
+
+    기본은 non-partial 만. include_partial=True 면 partial 노드(예: 구버전 'x.com
+    post' — 본문 스크랩 없이 URL 만 보관)도 포함해 재fetch 대상으로 잡는다.
+    """
     q = ("SELECT id, url, title, length(raw_text) L FROM documents "
-         "WHERE partial=0 AND length(raw_text) < ?")
+         "WHERE length(raw_text) < ?")
+    if not include_partial:
+        q += " AND partial=0"
     args: list = [max_len]
     if host:
         q += " AND url LIKE ?"
@@ -974,17 +981,27 @@ def thin_documents(
 def update_document_content(
     conn: sqlite3.Connection, doc_id: str, *,
     title: str | None, raw_text: str, content_hash: str, fetched_at: float,
+    source_type: str | None = None, partial: bool | None = None,
 ) -> None:
-    """문서 본문을 in-place 갱신(복원). id 는 유지하여 엔티티 sources 연결 보존."""
+    """문서 본문을 in-place 갱신(복원). id 는 유지하여 엔티티 sources 연결 보존.
+
+    source_type/partial 을 주면 함께 갱신한다(구버전 partial 'x.com post' 가 본문
+    스크랩에 성공해 정식 문서가 될 때 플래그 정합을 맞추기 위함).
+    """
     from ..ingest.normalize import minhash_signature
 
     sig = minhash_signature(((title or "") + " " + (raw_text or "")))
-    conn.execute(
-        "UPDATE documents SET title=?, raw_text=?, content_hash=?, fetched_at=?, "
-        "minhash=? WHERE id=?",
-        (title, raw_text, content_hash, fetched_at,
-         json.dumps(sig) if sig else None, doc_id),
-    )
+    cols = ["title=?", "raw_text=?", "content_hash=?", "fetched_at=?", "minhash=?"]
+    vals: list = [title, raw_text, content_hash, fetched_at,
+                  json.dumps(sig) if sig else None]
+    if source_type is not None:
+        cols.append("source_type=?")
+        vals.append(source_type)
+    if partial is not None:
+        cols.append("partial=?")
+        vals.append(1 if partial else 0)
+    vals.append(doc_id)
+    conn.execute(f"UPDATE documents SET {', '.join(cols)} WHERE id=?", vals)
     conn.commit()
 
 

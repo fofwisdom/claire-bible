@@ -191,7 +191,8 @@ class IngestService:
             doc.id = document_id
             dbm.update_document_content(
                 conn, document_id, title=doc.title, raw_text=doc.raw_text,
-                content_hash=doc.content_hash, fetched_at=doc.fetched_at)
+                content_hash=doc.content_hash, fetched_at=doc.fetched_at,
+                source_type=doc.source_type, partial=doc.partial)
             try:
                 from ..store.raw import save_artifact
 
@@ -230,13 +231,18 @@ class IngestService:
         return out
 
     def mark_thin_for_refresh(
-        self, *, max_len: int = 300, host: str | None = None, reason: str = "thin"
+        self, *, max_len: int = 300, host: str | None = None, reason: str = "thin",
+        include_partial: bool = False,
     ) -> int:
-        """본문 빈약 문서를 갱신 대상으로 등록. 등록(신규+되살림) 건수 반환."""
+        """본문 빈약 문서를 갱신 대상으로 등록. 등록(신규+되살림) 건수 반환.
+
+        include_partial=True 면 구버전 partial 노드('x.com post' 등)도 재fetch 대상.
+        """
         conn = dbm.connect(self.s.db_file)
         dbm.init_db(conn)
         try:
-            rows = dbm.thin_documents(conn, max_len=max_len, host=host)
+            rows = dbm.thin_documents(
+                conn, max_len=max_len, host=host, include_partial=include_partial)
             n = 0
             for r in rows:
                 payload = r["url"]

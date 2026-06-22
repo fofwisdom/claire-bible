@@ -180,9 +180,13 @@ def cmd_refresh_mark(args) -> int:  # noqa: ANN001
     from .ingest.service import IngestService
 
     svc = IngestService(get_settings())
-    n = svc.mark_thin_for_refresh(max_len=args.max_len, host=args.host, reason=args.reason)
+    n = svc.mark_thin_for_refresh(
+        max_len=args.max_len, host=args.host, reason=args.reason,
+        include_partial=args.include_partial)
     print(f"갱신 대상 {n}건 등록 (max_len<{args.max_len}"
-          + (f", host={args.host}" if args.host else "") + f", reason={args.reason})")
+          + (f", host={args.host}" if args.host else "")
+          + (", +partial" if args.include_partial else "")
+          + f", reason={args.reason})")
     return 0
 
 
@@ -571,6 +575,8 @@ def build_parser() -> argparse.ArgumentParser:
     pm = sub.add_parser("refresh-mark", help="queue thin/host docs for re-scrape")
     pm.add_argument("--max-len", type=int, default=300, help="본문 길이 임계(미만이면 대상)")
     pm.add_argument("--host", default=None, help="특정 호스트만 (예: discuss.pytorch.kr)")
+    pm.add_argument("--include-partial", action="store_true",
+                    help="partial 노드(구버전 'x.com post' 등)도 재fetch 대상에 포함")
     pm.add_argument("--reason", default="thin")
     pm.set_defaults(func=cmd_refresh_mark)
 

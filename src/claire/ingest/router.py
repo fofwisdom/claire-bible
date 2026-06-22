@@ -94,18 +94,10 @@ def fetch(payload: str, *, _depth: int = 0) -> Document:
         return fetch_web(t)
 
     if kind == "xcom":
-        # v1: 부분 처리. 본문 스크랩 대신 URL 자체를 partial Note 로 보관.
-        from .normalize import canonicalize_url, content_hash
+        # fxtwitter JSON API 로 트윗 본문을 실제 스크랩(실패 시 web 폴백은 fetcher 내부).
+        from .fetchers.xcom import fetch_xcom
 
-        return Document(
-            url=t,
-            canonical_url=canonicalize_url(t),
-            title=f"x.com post",
-            raw_text=t,
-            source_type="xcom",
-            content_hash=content_hash(t),
-            partial=True,
-        )
+        return fetch_xcom(t)
 
     if kind == "file":
         from .fetchers.textfile import fetch_file
