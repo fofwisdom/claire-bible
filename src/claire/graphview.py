@@ -274,6 +274,7 @@ let net, allNodes, allEdges, allDocs=[];
 let curMinDeg=0, activeDoc=null, highlightSet=null, selectedNodeId=null, hoverTimer=null;
 let docPanelHtml=null;   // 현재 문서 패널 HTML — hover 미리보기 후 blur 시 fetch 없이 복원
 let clusterEdges=null;   // 검색 결과를 뭉치게 한 임시 spring 엣지 id 들 — 해제 시 제거
+let clusterAnchor=null;  // 검색 시 중앙 앵커 노드 id(매칭은 끌고 비매칭은 밀어냄) — 해제 시 제거
 let searchDebounce=null; // 라벨검색 디바운스 타이머 — 타이핑 멈춘 뒤에만 검색 실행
 let synthSet=new Set();
 const panel = document.getElementById('panel');
@@ -489,6 +490,7 @@ function applyView(){
   let shown=0, emph=0;
   const hasFilter = activeDoc || highlightSet;
   allNodes.forEach(n=>{
+    if(typeof n.id==='string' && n.id.indexOf('cl_')===0) return;  // 검색 중앙 앵커는 안 건드림(숨김 유지)
     if(n.degree < curMinDeg){ allNodes.update({id:n.id, hidden:true}); return; }
     let match = true;
     if(activeDoc) match = match && (n.sources||[]).includes(activeDoc);
@@ -612,20 +614,26 @@ function fitToMatches(ids){
   if(vis.length===1) net.focus(vis[0],{scale:1.1,animation:true});
   else net.fit({nodes:vis, animation:true});
 }
-// 검색 결과를 '점차 뭉치게' — physics 를 켠 채로, 결과 노드들 사이에 보이지 않는 임시 spring
-// 엣지(허브-스포크)를 더한다. 물리엔진이 그 인력으로 결과를 한 덩어리로 모으고(자연스러운
-// 애니메이션), barnesHut 반발력이 서로 겹치지 않게 퍼뜨린다. 위치를 강제로 옮기지 않으므로
-// physics ON 이 유지되고(노드 드래그·관성 그대로), 검색 해제 시 엣지만 빼면 물리가 원래
-// 레이아웃으로 되돌린다(unclusterEdges).
+// 검색 결과를 '점차 뭉치게' — physics 를 켠 채로 보이지 않는 중앙 앵커를 쓴다.
+//   · 매칭 노드 → 중앙 앵커에 spring 엣지(인력): 가운데로 끌려와 한 덩어리로 모인다.
+//   · 앵커는 큰 mass·고정 → barnesHut 반발이 *모든* 노드를 밀어내지만, 매칭은 spring 이
+//     반발을 이겨 중앙에 붙들리고, 비매칭은 반발만 받아 중앙에서 바깥으로 밀려난다.
+// 위치를 강제로 옮기지 않으므로 physics ON 유지(드래그·관성 그대로). 검색 해제 시 앵커와
+// 엣지만 빼면 물리가 원래 레이아웃으로 되돌린다(unclusterEdges).
+const ANCHOR_MASS=60;   // 앵커 반발 세기(비매칭 밀어냄). ↑ 강하게 밀어냄
+const CENTER_LEN=55;    // 매칭~중앙 spring 길이. ↓ 가운데로 더 바싹
 function clusterMatches(ids, done){
   unclusterEdges();
   const vs=(ids||[]).filter(id=>{ const n=allNodes&&allNodes.get(id); return n && !n.hidden; });
   if(!net || !allEdges || vs.length<2){ if(done) done(); return; }
-  const hub=vs[0], eids=[];
-  // 허브-스포크(n-1개) — 완전그래프 O(n²) 대신. spring length 짧게 줘 가깝게 당긴다.
-  const newEdges=vs.slice(1).map((id,i)=>{
+  const c=net.getViewPosition();   // 현재 화면 중앙 좌표에 앵커를 둔다
+  allNodes.add({id:'cl_anchor', x:c.x, y:c.y, fixed:true, physics:true, hidden:true,
+                mass:ANCHOR_MASS, label:'', shape:'dot', size:1});
+  clusterAnchor='cl_anchor';
+  const eids=[];
+  const newEdges=vs.map((id,i)=>{
     const eid='cl_'+i; eids.push(eid);
-    return {id:eid, from:hub, to:id, color:{opacity:0}, width:0, length:80,
+    return {id:eid, from:'cl_anchor', to:id, color:{opacity:0}, width:0, length:CENTER_LEN,
             physics:true, smooth:false};
   });
   allEdges.add(newEdges);
@@ -633,12 +641,13 @@ function clusterMatches(ids, done){
   // 물리가 뭉치는 동안 기다렸다 한눈에 fit(여러 결과면 fit, 1개면 focus).
   if(done) setTimeout(done, 900);
 }
-// 검색 해제 시 임시 spring 엣지 제거 → 물리가 원래 레이아웃으로 자연 복귀.
+// 검색 해제 시 임시 앵커·spring 엣지 제거 → 물리가 원래 레이아웃으로 자연 복귀.
 function unclusterEdges(){
   if(clusterEdges && allEdges && clusterEdges.length){
     try{ allEdges.remove(clusterEdges); }catch(e){}
   }
-  clusterEdges=null;
+  if(clusterAnchor && allNodes){ try{ allNodes.remove(clusterAnchor); }catch(e){} }
+  clusterEdges=null; clusterAnchor=null;
 }
 // 우측 '이 문서의 노드' 버튼 hover — 그래프뷰를 그 노드로 부드럽게 이동(선택/상세는 안 바꿈).
 function peekNode(id){ if(net) net.focus(id,{scale:1.2,animation:{duration:400,easingFunction:'easeInOutQuad'}}); }
