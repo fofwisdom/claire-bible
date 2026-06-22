@@ -59,52 +59,71 @@ def fetch_xcom(url: str) -> Document:
 
         return fetch_web(url)
 
-    tweet = _fetch_api(screen, sid)
+    tweet, via = _fetch_api(screen, sid)
     if tweet is None:
         # API 미러가 모두 실패 → 일반 web fetcher(scrapling 포함) 최후 시도.
         from .web import fetch_web
 
         return fetch_web(url)
 
-    return _build_document(url, tweet)
+    return _build_document(url, tweet, via=via)
 
 
-def _fetch_api(screen: str | None, sid: str) -> dict | None:
-    """fxtwitter → vxtwitter 순으로 트윗 JSON(dict)을 가져온다. 모두 실패 시 None.
+def _fetch_api(screen: str | None, sid: str) -> tuple[dict | None, str | None]:
+    """fxtwitter → vxtwitter 순으로 트윗 JSON(dict)을 가져온다. (tweet, via_host).
 
     미러는 rate limit 시 *같은 트윗에도 일시적으로 404* 를 돌려준다(실측: fxtwitter
     5회 중 2회 404, 같은 id 가 200↔404 반복). 따라서 한 호스트 1회로 단정하지 않고
-    호스트 목록을 _ROUNDS 회 순회하며 재시도한다 — 라운드 사이 짧은 backoff. 모든
-    라운드가 실패해야 None(→ web 폴백, 진짜 삭제/비공개 트윗만 여기 도달).
+    호스트 목록을 _ROUNDS 회 순회하며 재시도한다 — 라운드 사이 짧은 backoff.
+
+    fxtwitter 는 X 롱폼 아티클 *전문*(article.content)을 주지만 vxtwitter 는
+    preview 만 준다. 그래서 fxtwitter 응답을 끝까지 노리고, vxtwitter 응답은 임시
+    보관했다가 fxtwitter 가 모든 라운드에서 실패했을 때만 폴백으로 쓴다.
+    모두 실패하면 (None, None)(→ web 폴백, 진짜 삭제/비공개 트윗만 여기 도달).
     """
     import time
 
+    primary = _API_HOSTS[0]
+    fallback: tuple[dict, str] | None = None
+    for attempt in range(_ROUNDS):
+        for host in _API_HOSTS:
+            tweet = _try_host(host, screen, sid)
+            if tweet is None:
+                continue
+            if host == primary:
+                return tweet, host  # fxtwitter = 풍부(article 전문 포함) → 즉시 채택
+            if fallback is None:
+                fallback = (tweet, host)  # vxtwitter 등 → 보관(fxtwitter 끝내 실패시만)
+        if attempt < _ROUNDS - 1:
+            time.sleep(0.8)  # rate limit 완화 대기 후 재순회
+    return fallback if fallback else (None, None)
+
+
+def _try_host(host: str, screen: str | None, sid: str) -> dict | None:
+    """한 미러 호스트에서 트윗 JSON 1회 시도. 실패(404/5xx/HTML/timeout) 시 None."""
     import httpx
 
     path = f"{screen}/status/{sid}" if screen else f"status/{sid}"
     headers = {"User-Agent": _UA, "Accept": "application/json"}
-    for attempt in range(_ROUNDS):
-        for host in _API_HOSTS:
-            try:
-                with httpx.Client(follow_redirects=True, timeout=12, headers=headers) as c:
-                    resp = c.get(f"https://{host}/{path}")
-                if resp.status_code != 200:
-                    continue  # 404(일시 rate limit 포함)/5xx → 다음 호스트
-                # vxtwitter 는 실패해도 200+HTML('Failed to scan…')을 준다 → 가드.
-                if "json" not in (resp.headers.get("content-type") or "").lower():
-                    continue
-                data = resp.json()
-            except Exception:  # noqa: BLE001
-                continue  # timeout/네트워크 → 다음 호스트
-            # fxtwitter: {code,message,tweet:{...}} / vxtwitter: 평탄한 {text,...}
-            tweet = data.get("tweet") if isinstance(data, dict) else None
-            if tweet is None and isinstance(data, dict) and (
-                    data.get("text") or data.get("full_text")):
-                tweet = _normalize_vx(data)
-            if isinstance(tweet, dict) and (tweet.get("text") or tweet.get("media")):
-                return tweet
-        if attempt < _ROUNDS - 1:
-            time.sleep(0.8)  # rate limit 완화 대기 후 재순회
+    try:
+        with httpx.Client(follow_redirects=True, timeout=12, headers=headers) as c:
+            resp = c.get(f"https://{host}/{path}")
+        if resp.status_code != 200:
+            return None  # 404(일시 rate limit 포함)/5xx
+        # vxtwitter 는 실패해도 200+HTML('Failed to scan…')을 준다 → 가드.
+        if "json" not in (resp.headers.get("content-type") or "").lower():
+            return None
+        data = resp.json()
+    except Exception:  # noqa: BLE001
+        return None  # timeout/네트워크
+    # fxtwitter: {code,message,tweet:{...}} / vxtwitter: 평탄한 {text,...}
+    tweet = data.get("tweet") if isinstance(data, dict) else None
+    if tweet is None and isinstance(data, dict) and (
+            data.get("text") or data.get("full_text")):
+        tweet = _normalize_vx(data)
+    if isinstance(tweet, dict) and (
+            tweet.get("text") or tweet.get("media") or tweet.get("article")):
+        return tweet
     return None
 
 
@@ -124,6 +143,8 @@ def _normalize_vx(data: dict) -> dict:
         "likes": data.get("likes"),
         "retweets": data.get("retweets"),
         "replies": data.get("replies"),
+        # vxtwitter article 은 {title, preview_text, image} 만(content 없음) → preview 사용.
+        "article": data.get("article") if isinstance(data.get("article"), dict) else None,
     }
     # 인용(qrt): vxtwitter 는 평탄한 qrt 객체(qrtUser/text 등) 또는 qrtURL 만 줄 수 있다.
     qrt = data.get("qrt")
@@ -137,7 +158,7 @@ def _normalize_vx(data: dict) -> dict:
     return out
 
 
-def _build_document(url: str, tweet: dict) -> Document:
+def _build_document(url: str, tweet: dict, *, via: str | None = None) -> Document:
     author = tweet.get("author") or {}
     name = (author.get("name") or "").strip()
     screen = (author.get("screen_name") or "").strip()
@@ -146,9 +167,27 @@ def _build_document(url: str, tweet: dict) -> Document:
         who = f"{name} (@{screen})"
 
     body = (tweet.get("text") or "").strip()
+
+    # X 롱폼 아티클(x.com/i/article/...) — 트윗 text 는 비어있거나 article URL 뿐이고
+    #   실제 내용은 article 필드에 있다. 이걸 무시하면 본문이 URL 하나로 빈약해진다
+    #   (실관측). title + content(blocks) 전문을 본문에 싣는다.
+    article = tweet.get("article")
+    article_title = ""
+    art_body = ""
+    if isinstance(article, dict):
+        article_title = (article.get("title") or "").strip()
+        art_body = _article_text(article)
+        # 트윗 text 가 그 아티클 URL 만 담고 있으면 중복이므로 본문에서 뺀다.
+        if body and re.fullmatch(r"https?://\S*/i/article/\d+\S*", body):
+            body = ""
+
     parts: list[str] = []
     if body:
         parts.append(body)
+    if article_title:
+        parts.append(article_title)
+    if art_body:
+        parts.append(art_body)
 
     # 이미지 alt 텍스트(있으면) — 시각 컨텍스트를 본문에 보강.
     for ph in _media_alts(tweet):
@@ -172,7 +211,8 @@ def _build_document(url: str, tweet: dict) -> Document:
     if not text:
         raise FetchError(f"x.com 트윗 본문이 비어있음: {url}")
 
-    title = _make_title(who, body, tweet)
+    # 제목: 아티클이면 그 제목을 우선(트윗 text 가 비어있으므로), 아니면 본문 첫 줄.
+    title = _make_title(who, article_title or body, tweet)
     published = _published_at(tweet)
     lang = tweet.get("lang")
 
@@ -195,9 +235,29 @@ def _build_document(url: str, tweet: dict) -> Document:
                 "replies": tweet.get("replies"),
                 "views": tweet.get("views"),
             },
-            "fetch_via": "fxtwitter",
+            "fetch_via": via or "fxtwitter",
+            "is_article": bool(article_title),
         },
     )
+
+
+def _article_text(article: dict) -> str:
+    """X 아티클 본문 추출. content(Draft.js {blocks:[{text}]}) 전문, 없으면 preview."""
+    content = article.get("content")
+    if isinstance(content, str):
+        try:
+            import json
+
+            content = json.loads(content)
+        except Exception:  # noqa: BLE001
+            content = None
+    if isinstance(content, dict):
+        blocks = content.get("blocks") or []
+        texts = [b.get("text", "") for b in blocks
+                 if isinstance(b, dict) and b.get("text")]
+        if texts:
+            return "\n".join(texts)
+    return (article.get("preview_text") or "").strip()
 
 
 def _media_alts(tweet: dict) -> list[str]:
