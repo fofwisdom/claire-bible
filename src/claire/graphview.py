@@ -87,6 +87,25 @@ def node_detail(conn: sqlite3.Connection, entity_id: str) -> dict | None:
     }
 
 
+def document_detail(conn: sqlite3.Connection, document_id: str) -> dict | None:
+    """한 문서(article)의 우측 패널용 상세 — 제목·출처·요약·자세히읽기(detail). 없으면 None.
+
+    좌측 문서를 고르면 그래프 강조에 더해 우측에 이 요약/전문을 펼친다(노드 클릭 없이
+    문서 자체를 읽게). 노드 목록은 클라이언트가 graph 의 node.sources 로 계산하므로
+    여기선 싣지 않는다(중복 전송 방지)."""
+    row = dbm.get_document_row(conn, document_id)
+    if row is None:
+        return None
+    return {
+        "id": document_id,
+        "title": row["title"] or "(제목 없음)",
+        "url": row["url"],
+        "source_type": row["source_type"],
+        "summary": dbm.latest_extraction_summary(conn, document_id) or "",
+        "detail": dbm.get_document_detail(conn, document_id) or "",
+    }
+
+
 def documents_list(conn: sqlite3.Connection, limit: int = 300) -> list[dict]:
     """좌측 문서 패널용 — 최신순 문서(제목·요약·출처타입·시각)."""
     out = []
@@ -189,6 +208,14 @@ GRAPH_HTML = """<!doctype html>
   #panel .doc details.more>summary::-webkit-details-marker{display:none}
   #panel .doc .detail{white-space:pre-wrap;margin:.4em 0;padding:8px 10px;background:#0e1116;border:1px solid #2a2f37;border-radius:5px;color:#c9d1d9;line-height:1.65;font-size:12.5px;max-height:50vh;overflow:auto}
   #panel .doc p.src{margin-top:.45em}
+  #panel .docmeta{color:#8b949e;font-size:11px;margin:.1em 0 .6em}
+  #panel .nodebtns{display:flex;flex-wrap:wrap;gap:5px;margin:.3em 0}
+  #panel .nodebtn{background:#1c2330;color:#d7dbe0;border:1px solid #2a2f37;border-radius:12px;
+    padding:3px 9px;font-size:11.5px;cursor:pointer;max-width:100%;overflow:hidden;
+    text-overflow:ellipsis;white-space:nowrap}
+  #panel .nodebtn:hover{background:#2a3344;border-color:#7ee787}
+  #panel .nodebtn i{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px;vertical-align:middle}
+  #panel .backlink{display:inline-block;margin:0 0 .6em;color:#58a6ff;font-size:12px;cursor:pointer}
   #panel .rel{color:#d29922;font-size:11px} #panel .al{color:#8b949e}
   #panel .hint{color:#6e7681;margin-top:1em}
   #panel .synth{white-space:pre-wrap;background:#161b22;border:1px solid #2a2f37;border-radius:5px;padding:10px;margin:.4em 0;line-height:1.6}
@@ -235,7 +262,7 @@ GRAPH_HTML = """<!doctype html>
   <div id="docs"><div class="dhead"><input id="docq" placeholder="문서 검색(제목·요약)" oninput="renderDocs(this.value)" style="width:92%"/></div>
     <div id="doclist"><p class="hint" style="padding:10px">문서 로딩…</p></div></div>
   <div id="net"></div>
-  <div id="panel"><p class="hint">노드를 클릭하면 관찰·출처 문서·연결이 표시됩니다.<br><br>• <b>Ctrl+클릭</b> 또는 상세의 <b>➕ 종합에 추가</b>로 여러 노드를 모아 종합<br>• 다른 노드에 <b>1초</b> 올리면 미리보기(벗어나면 복귀)<br>• 좌측 문서를 누르면 그 문서의 노드만 진하게</p></div>
+  <div id="panel"></div>
 </div>
 <script>
 const TYPE_COLORS = {Tool:'#58a6ff',Framework:'#bc8cff',Model:'#f778ba',Paper:'#d29922',
@@ -244,8 +271,11 @@ const TYPE_COLORS = {Tool:'#58a6ff',Framework:'#bc8cff',Model:'#f778ba',Paper:'#
 const DIM = 0.16;
 let net, allNodes, allEdges, allDocs=[];
 let curMinDeg=0, activeDoc=null, highlightSet=null, selectedNodeId=null, hoverTimer=null;
+let docPanelHtml=null;   // 현재 문서 패널 HTML — hover 미리보기 후 blur 시 fetch 없이 복원
 let synthSet=new Set();
 const panel = document.getElementById('panel');
+const DEFAULT_HINT = '<p class="hint">노드를 클릭하면 관찰·출처 문서·연결이 표시됩니다.<br><br>• <b>Ctrl+클릭</b> 또는 상세의 <b>➕ 종합에 추가</b>로 여러 노드를 모아 종합<br>• 다른 노드에 <b>1초</b> 올리면 미리보기(벗어나면 복귀)<br>• 좌측 문서를 누르면 <b>요약·전문·노드 버튼</b>이 여기 표시됩니다</p>';
+panel.innerHTML = DEFAULT_HINT;
 function esc(s){return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 // 캔버스를 #net 박스의 실제 픽셀 크기에 맞춰 재설정(이슈1: 모바일에서 vis 가 생성 시점의
 // 미해결 높이로 캔버스를 150px 로 잡아 상단 일부만 차지하던 버그). '100%' 는 flex/auto
@@ -313,8 +343,9 @@ fetch('graph').then(r=>r.json()).then(d=>{
   net.on('hoverNode', p => { clearTimeout(hoverTimer);
     hoverTimer=setTimeout(()=>{ if(p.node!==selectedNodeId) loadNode(p.node, true); }, 1000); });
   net.on('blurNode', () => { clearTimeout(hoverTimer);
-    // hover 미리보기를 닫고 inspect/검색 선택을 원복(이슈4 + GOALS ①⑤: hover↔selection 분리).
+    // hover 미리보기를 닫고 inspect/검색/문서 선택을 원복(이슈4 + GOALS ①⑤: hover↔selection 분리).
     if(selectedNodeId) loadNode(selectedNodeId, false);
+    else if(activeDoc && docPanelHtml) panel.innerHTML=docPanelHtml;   // 문서 패널 복원(fetch 없이)
     restoreSelection(); });
   applyView();
 });
@@ -343,7 +374,9 @@ function loadNode(id, isHover){
 function renderPanel(d){
   if(!d || d.error){ panel.innerHTML='<p class=hint>노드를 찾을 수 없습니다.</p>'; return; }
   const inSet = synthSet.has(d.id);
-  let h='<h2>'+esc(d.name)+' <small>'+esc(d.type)+(d.provisional?' ⚠️provisional':'')+'</small></h2>';
+  // 문서를 고른 상태에서 노드로 들어왔으면 문서 패널로 한 번에 돌아갈 링크.
+  let h = activeDoc ? '<span class=backlink onclick="loadDocPanel(activeDoc)">← 문서로 돌아가기</span>' : '';
+  h+='<h2>'+esc(d.name)+' <small>'+esc(d.type)+(d.provisional?' ⚠️provisional':'')+'</small></h2>';
   h+='<button class="sec" onclick="addToSynth(\\''+d.id+'\\')">'+(inSet?'✓ 종합 목록에 있음':'➕ 종합에 추가')+'</button>';
   if(d.aliases.length) h+='<p class=al>별칭: '+d.aliases.map(esc).join(', ')+'</p>';
   if(d.observations.length){ h+='<h3>관찰 · 주장</h3><ul>'+
@@ -489,14 +522,66 @@ function renderDocs(filter){
 }
 function selectDoc(id){
   activeDoc = (activeDoc===id ? null : id);     // 같은 문서 재클릭 → 해제
+  selectedNodeId=null;                          // 문서 모드로 전환 — 노드 inspect 해제
   renderDocs(document.getElementById('docq').value);
   applyView();
-  if(activeDoc && net){
-    // 전체 fit 이 아니라 그 문서의 노드들만 화면에 차게 — 최적 줌/위치로 이동(피드백).
-    const ids=[]; allNodes.forEach(n=>{ if(!n.hidden && (n.sources||[]).includes(activeDoc)) ids.push(n.id); });
-    net.fit(ids.length ? {nodes:ids, animation:true} : {animation:true});
-    mobileScrollTo('net');
+  if(activeDoc){
+    if(net){
+      // 전체 fit 이 아니라 그 문서의 노드들만 화면에 차게 — 최적 줌/위치로 이동(피드백).
+      const ids=[]; allNodes.forEach(n=>{ if(!n.hidden && (n.sources||[]).includes(activeDoc)) ids.push(n.id); });
+      net.fit(ids.length ? {nodes:ids, animation:true} : {animation:true});
+    }
+    loadDocPanel(activeDoc);    // 우측 패널: 요약·자세히읽기·노드 버튼
+    mobileScrollTo('panel');
+  } else {
+    docPanelHtml=null;
+    panel.innerHTML = DEFAULT_HINT;             // 해제 시 기본 힌트로 복원
   }
+}
+
+// 좌측 문서 선택 시 우측 패널: 문서 요약 + 자세히 읽기 + '이 문서의 노드' 버튼.
+function loadDocPanel(id){
+  panel.innerHTML='<p class=hint>문서 불러오는 중…</p>';
+  fetch('document?id='+encodeURIComponent(id)).then(r=>r.json()).then(dc=>{
+    if(activeDoc!==id) return;                  // 그 사이 다른 문서/노드로 이동했으면 무시
+    if(!dc || dc.error){ panel.innerHTML='<p class=hint>문서를 찾을 수 없습니다.</p>'; return; }
+    renderDocPanel(dc);
+  }).catch(()=>{ panel.innerHTML='<p class=hint>문서 로드 실패.</p>'; });
+}
+// 한 문서(article)에 속한 노드 = graph node.sources 에 그 문서 id 가 든 노드(클라 계산).
+function docNodes(docId){
+  const out=[]; if(!allNodes) return out;
+  allNodes.forEach(n=>{ if((n.sources||[]).includes(docId)) out.push(n); });
+  out.sort((a,b)=> (b.degree||0)-(a.degree||0));   // 중심성 높은 노드부터(핵심이 위로)
+  return out;
+}
+function renderDocPanel(dc){
+  let h='<h2>'+esc(dc.title)+' <small>'+esc(dc.source_type||'')+'</small></h2>';
+  if(dc.url) h+='<p class=docmeta><a href="'+esc(dc.url)+'" target=_blank>↗ 원문 열기</a></p>';
+  if(dc.summary) h+='<h3>요약</h3><div class=synth>'+esc(dc.summary)+'</div>';
+  // 자세히 읽기(detail, 여러 단락) — 기본 펼침(문서를 골랐다는 건 읽으려는 의도).
+  if(dc.detail) h+='<h3>자세히 읽기</h3>'+
+    '<details class=more open><summary>📖 전문 펼치기/접기</summary>'+
+    '<div class=detail>'+esc(dc.detail)+'</div></details>';
+  if(!dc.summary && !dc.detail) h+='<p class=al>이 문서의 요약/전문이 아직 없습니다.</p>';
+  // 이 문서의 노드 버튼 — 누르면 그래프에서 그 노드로 이동(nav).
+  const ns=docNodes(dc.id);
+  h+='<h3>이 문서의 노드 ('+ns.length+')</h3>';
+  if(ns.length){ h+='<div class=nodebtns>'+ ns.map(n=>{
+      const c=TYPE_COLORS[n.group]||'#8b949e';
+      return '<button class=nodebtn title="'+esc(n.group||'')+'" onclick="focusNode(\\''+n.id+'\\')">'+
+        '<i style="background:'+c+'"></i>'+esc(n.label)+'</button>'; }).join('')+'</div>';
+  } else { h+='<p class=al>이 문서에서 추출된 노드가 없습니다.</p>'; }
+  docPanelHtml=h;       // blur 복원용 캐시
+  panel.innerHTML=h;
+}
+// 노드 버튼 클릭 → 그래프에서 그 노드로 카메라 이동 + 선택 + 우측은 노드 상세로 전환.
+// activeDoc 은 유지 → 노드 상세 상단의 '← 문서로' 로 문서 패널에 즉시 복귀 가능.
+function focusNode(id){
+  selectedNodeId=id;
+  if(net){ net.selectNodes([id]); net.focus(id,{scale:1.3,animation:true}); }
+  loadNode(id);
+  mobileScrollTo('net');
 }
 
 // --- 종합 수집(synthSet) — inspect(클릭)와 분리 ---

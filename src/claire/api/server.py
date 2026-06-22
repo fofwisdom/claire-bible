@@ -247,6 +247,28 @@ def run_api() -> int:
             return web.json_response({"error": "not found"}, status=404)
         return web.json_response(rep)
 
+    async def document_detail_route(request):
+        import asyncio
+
+        from ..graphview import document_detail as _dd
+
+        did = request.query.get("id", "")
+        if not did:
+            return web.json_response({"error": "id required"}, status=400)
+
+        def _d():
+            conn = dbm.connect(s.db_file)
+            dbm.init_db(conn)
+            try:
+                return _dd(conn, did)
+            finally:
+                conn.close()
+
+        rep = await asyncio.to_thread(_d)
+        if rep is None:
+            return web.json_response({"error": "not found"}, status=404)
+        return web.json_response(rep)
+
     async def synthesize_route(request):
         # 비용 있는 LLM 종합 → /ingest 와 같은 토큰 인증 + 명시적 POST 만(자동 아님).
         if not _authed(request):
@@ -367,6 +389,7 @@ def run_api() -> int:
         web.get("/graph", graph_data),
         web.get("/node", node_detail),
         web.get("/documents", documents_list_route),
+        web.get("/document", document_detail_route),
         web.post("/synthesize", synthesize_route),
         web.post("/research", research_route),
         # 웹 UI 인증(텔레그램 버튼 승인 → 세션). poll 은 비인증(세션 획득용).
