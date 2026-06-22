@@ -273,6 +273,7 @@ const DIM = 0.16;
 let net, allNodes, allEdges, allDocs=[];
 let curMinDeg=0, activeDoc=null, highlightSet=null, selectedNodeId=null, hoverTimer=null;
 let docPanelHtml=null;   // 현재 문서 패널 HTML — hover 미리보기 후 blur 시 fetch 없이 복원
+let clusterEdges=null;   // 검색 결과를 뭉치게 한 임시 spring 엣지 id 들 — 해제 시 제거
 let synthSet=new Set();
 const panel = document.getElementById('panel');
 const DEFAULT_HINT = '<p class="hint">노드를 클릭하면 관찰·출처 문서·연결이 표시됩니다.<br><br>• <b>Ctrl+클릭</b> 또는 상세의 <b>➕ 종합에 추가</b>로 여러 노드를 모아 종합<br>• 다른 노드에 <b>1초</b> 올리면 미리보기(벗어나면 복귀)<br>• 좌측 문서를 누르면 <b>요약·전문·노드 버튼</b>이 여기 표시됩니다</p>';
@@ -364,6 +365,7 @@ function clearSelections(){
   highlightSet=null; selectedNodeId=null;
   const q=document.getElementById('q'); if(q) q.value='';
   if(net) net.unselectAll();
+  unclusterEdges();   // 검색으로 뭉치게 한 임시 spring 엣지 제거 → 물리가 원래대로
   applyView();
 }
 document.addEventListener('keydown', e=>{ if(e.key==='Escape') clearSelections(); });
@@ -498,7 +500,9 @@ function applyView(){
              highlight:{background:c, border:'#ffffff'}}});
     shown++; if(match) emph++;
   });
-  allEdges.forEach(e=>{ const f=allNodes.get(e.from), t=allNodes.get(e.to);
+  allEdges.forEach(e=>{
+    if(typeof e.id==='string' && e.id.indexOf('cl_')===0) return;  // 임시 클러스터 spring 엣지는 안 건드림(물리 유지)
+    const f=allNodes.get(e.from), t=allNodes.get(e.to);
     allEdges.update({id:e.id, hidden: !(f && t && !f.hidden && !t.hidden)}); });
   document.getElementById('stat').innerHTML =
     '표시 <b>'+shown+'</b>/'+allNodes.length
@@ -565,7 +569,8 @@ function renderDocPanel(dc){
   h+='<h3>이 문서의 노드 ('+ns.length+')</h3>';
   if(ns.length){ h+='<div class=nodebtns>'+ ns.map(n=>{
       const c=TYPE_COLORS[n.group]||'#8b949e';
-      return '<button class=nodebtn title="'+esc(n.group||'')+'" onclick="focusNode(\\''+n.id+'\\')">'+
+      return '<button class=nodebtn title="'+esc(n.group||'')+'" onmouseenter="peekNode(\\''+n.id+'\\')" '+
+        'onclick="focusNode(\\''+n.id+'\\')">'+
         '<i style="background:'+c+'"></i>'+esc(n.label)+'</button>'; }).join('')+'</div>';
   } else { h+='<p class=al>이 문서에서 추출된 노드가 없습니다.</p>'; }
   // 자세히 읽기 — 노드 상세와 동일 UI(파란 토글), 기본 접힘(피드백). 맨 아래.
@@ -595,17 +600,58 @@ function renderChips(){
 }
 
 // --- 검색: 즉시 라벨 매칭(기본) vs 의미검색 버튼(체크 시) ---
+// 검색 결과(라벨·의미)를 한눈에 — 선택 노드들이 모두 화면에 들어오게 zoom/위치 조절.
+// 단일 결과는 fit 이 과확대되므로 focus(고정 scale). 여러 결과는 fit({nodes})로 전부 보이게.
+// degree 슬라이더로 숨겨진 매치는 제외(보이는 것만 카메라 대상; selectDoc 과 동일 방식).
+function fitToMatches(ids){
+  if(!net || !ids.length) return;
+  net.selectNodes(ids);
+  const vis = ids.filter(id=>{ const n=allNodes && allNodes.get(id); return n && !n.hidden; });
+  if(!vis.length) return;
+  if(vis.length===1) net.focus(vis[0],{scale:1.1,animation:true});
+  else net.fit({nodes:vis, animation:true});
+}
+// 검색 결과를 '점차 뭉치게' — physics 를 켠 채로, 결과 노드들 사이에 보이지 않는 임시 spring
+// 엣지(허브-스포크)를 더한다. 물리엔진이 그 인력으로 결과를 한 덩어리로 모으고(자연스러운
+// 애니메이션), barnesHut 반발력이 서로 겹치지 않게 퍼뜨린다. 위치를 강제로 옮기지 않으므로
+// physics ON 이 유지되고(노드 드래그·관성 그대로), 검색 해제 시 엣지만 빼면 물리가 원래
+// 레이아웃으로 되돌린다(unclusterEdges).
+function clusterMatches(ids, done){
+  unclusterEdges();
+  const vs=(ids||[]).filter(id=>{ const n=allNodes&&allNodes.get(id); return n && !n.hidden; });
+  if(!net || !allEdges || vs.length<2){ if(done) done(); return; }
+  const hub=vs[0], eids=[];
+  // 허브-스포크(n-1개) — 완전그래프 O(n²) 대신. spring length 짧게 줘 가깝게 당긴다.
+  const newEdges=vs.slice(1).map((id,i)=>{
+    const eid='cl_'+i; eids.push(eid);
+    return {id:eid, from:hub, to:id, color:{opacity:0}, width:0, length:80,
+            physics:true, smooth:false};
+  });
+  allEdges.add(newEdges);
+  clusterEdges=eids;
+  // 물리가 뭉치는 동안 기다렸다 한눈에 fit(여러 결과면 fit, 1개면 focus).
+  if(done) setTimeout(done, 900);
+}
+// 검색 해제 시 임시 spring 엣지 제거 → 물리가 원래 레이아웃으로 자연 복귀.
+function unclusterEdges(){
+  if(clusterEdges && allEdges && clusterEdges.length){
+    try{ allEdges.remove(clusterEdges); }catch(e){}
+  }
+  clusterEdges=null;
+}
+// 우측 '이 문서의 노드' 버튼 hover — 그래프뷰를 그 노드로 부드럽게 이동(선택/상세는 안 바꿈).
+function peekNode(id){ if(net) net.focus(id,{scale:1.2,animation:{duration:400,easingFunction:'easeInOutQuad'}}); }
 function onSearchInput(v){ if(!document.getElementById('sem').checked) hl(v); }
 // 라벨 검색: 매치 강조 + 나머지 dim(문서 선택과 동일 방식). 색칠 대신 highlightSet+applyView.
 function hl(q){
   if(!allNodes) return;
   q=q.trim().toLowerCase();
-  if(!q){ highlightSet=null; applyView(); if(net){ net.unselectAll(); net.fit({animation:true}); } return; }
+  if(!q){ highlightSet=null; applyView(); unclusterEdges(); if(net){ net.unselectAll(); net.fit({animation:true}); } return; }
   const matches=[];
   allNodes.forEach(n=>{ if(n.label.toLowerCase().includes(q)) matches.push(n.id); });
   highlightSet = new Set(matches);
   applyView();
-  if(matches.length && net){ net.selectNodes(matches); net.focus(matches[0],{scale:1.1,animation:true}); }
+  clusterMatches(matches, ()=>fitToMatches(matches));   // 결과를 점차 뭉치게 한 뒤 한눈에 fit
 }
 document.getElementById('sem').addEventListener('change',e=>{
   document.getElementById('searchbtn').style.display = e.target.checked?'':'none';
@@ -660,7 +706,7 @@ async function semanticSearch(q){
   const ids=(d.hits||[]).map(h=>h.id).filter(Boolean);
   highlightSet = new Set(ids);   // 라벨 검색과 동일하게 강조+dim 방식 사용
   applyView();
-  if(ids.length && net){ net.selectNodes(ids); net.focus(ids[0],{scale:1.1,animation:true}); }
+  clusterMatches(ids, ()=>fitToMatches(ids));   // 의미검색 결과도 점차 뭉치게 + 한눈에 fit
   if(!ids.length){ document.getElementById('stat').textContent='🔎 의미검색: 결과 없음'; }
 }
 
@@ -674,6 +720,10 @@ window.claireDebug = {
   get highlight(){ return highlightSet ? [...highlightSet] : null; },
   get selected(){ return selectedNodeId; },
   get synth(){ return [...synthSet]; },
+  positions(ids){ return net ? net.getPositions(ids) : {}; },
+  get scale(){ return net ? net.getScale() : null; },
+  get viewpos(){ return net ? net.getViewPosition() : null; },
+  get clustered(){ return clusterEdges; },
 };
 </script></body></html>
 """
