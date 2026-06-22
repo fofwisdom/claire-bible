@@ -364,6 +364,80 @@ def cmd_backfill_detail(args) -> int:  # noqa: ANN001
     return 0
 
 
+def cmd_dedup_scan(args) -> int:  # noqa: ANN001
+    """[진단·비파괴] 근사 중복(near-duplicate) 클러스터를 보고만 한다(병합 안 함).
+
+    minhash 백필 후 임계 이상으로 묶이는 문서쌍을 클러스터로 출력. content_hash·
+    canonical_url 을 비껴간 "같은 글 다른 입구"(arxiv 버전 접미사 등)를 찾는다.
+    """
+    from .ingest.service import IngestService
+
+    s = get_settings()
+    svc = IngestService(s)
+    out = svc.dedup_scan(threshold=args.threshold, min_len=args.min_len)
+    print(f"검사 문서 {out['documents']} · 근사중복 클러스터 {len(out['clusters'])}개 "
+          f"(임계 {args.threshold}, 최소길이 {args.min_len})")
+    for i, c in enumerate(out["clusters"], 1):
+        print(f"\n[{i}] 유사도 {c['score']} · {len(c['ids'])}개 문서")
+        for did, url, title in zip(c["ids"], c["urls"], c["titles"]):
+            print(f"    {did}  {url or '(url 없음)'}  | {title}")
+    if not out["clusters"]:
+        print("근사중복 없음.")
+    return 0
+
+
+def cmd_recanonicalize(args) -> int:  # noqa: ANN001
+    """기존 문서 canonical_url 을 현재 규칙으로 재계산(비파괴). arxiv 버전 정규화 등 반영.
+
+    기본 적용, --dry-run 으로 변경 예정만 본다. 같은 자료의 변형이 같은 canonical 로
+    수렴 → 이후 dedup-merge 가 깨끗한 URL 을 keeper 로 남긴다.
+    """
+    from .ingest.service import IngestService
+
+    s = get_settings()
+    svc = IngestService(s)
+    out = svc.recanonicalize_documents(apply=not args.dry_run)
+    mode = "변경 예정(dry-run)" if args.dry_run else "재계산 적용"
+    print(f"{mode}: 문서 {out['docs']} · 변경 {out['changed']}")
+    for sm in out["samples"]:
+        print(f"    {sm['id']}  {sm['from']}  →  {sm['to']}")
+    return 0
+
+
+def cmd_dedup_merge(args) -> int:  # noqa: ANN001
+    """근사중복 클러스터를 각각 1개로 병합. 기본은 **계획만(dry-run)**, --apply 로 실행.
+
+    --apply 는 파괴적(loser 문서 삭제)이라 실행 전 백업을 강제(--no-backup 으로 우회).
+    keeper = 최장 본문(동률이면 최초 적재). loser 참조는 keeper 로 재배치 후 삭제.
+    """
+    from .ingest.service import IngestService
+
+    s = get_settings()
+    if args.apply and not args.no_backup:
+        dest, match, _ = _do_backup(s, args.keep)
+        print(f"[backup] 병합 전 스냅샷: {dest} · live일치={match}", flush=True)
+        if not match:
+            print("  ⚠️ 백업이 live 와 불일치 — 중단. (--no-backup 으로 강제 가능)")
+            return 1
+    svc = IngestService(s)
+    out = svc.dedup_merge(threshold=args.threshold, min_len=args.min_len, apply=args.apply)
+    mode = "병합 실행" if out["applied"] else "계획(dry-run, --apply 로 실행)"
+    print(f"{mode}: 클러스터 {out['merged']}개")
+    for i, c in enumerate(out["clusters"], 1):
+        print(f"\n[{i}] 유사도 {c['score']}")
+        print(f"    유지 keeper {c['keeper']}  {c['keeper_url']}")
+        for d, u in zip(c["losers"], c["loser_urls"]):
+            print(f"    삭제 loser  {d}  {u}")
+        if "result" in c:
+            r = c["result"]
+            print(f"    → 재배치 엔티티{r.get('entities_repointed',0)}·"
+                  f"관계{r.get('relations_repointed',0)}·inbox{r.get('inbox',0)} · "
+                  f"삭제 {r.get('deleted',0)}")
+    if not out["clusters"]:
+        print("병합할 근사중복 없음.")
+    return 0
+
+
 def cmd_search(args) -> int:  # noqa: ANN001
     from .extract.provider import get_provider
     from .retrieval.query import search
@@ -546,6 +620,28 @@ def build_parser() -> argparse.ArgumentParser:
     pbd.add_argument("--limit", type=int, default=0, help="cap number of docs (0=all)")
     pbd.add_argument("--force", action="store_true", help="regenerate even if detail exists")
     pbd.set_defaults(func=cmd_backfill_detail)
+
+    pds = sub.add_parser("dedup-scan",
+                         help="report near-duplicate document clusters (MinHash, non-destructive)")
+    pds.add_argument("--threshold", type=float, default=0.90,
+                     help="Jaccard 추정 임계(0~1, 기본 0.90)")
+    pds.add_argument("--min-len", type=int, default=500, dest="min_len",
+                     help="이 길이 미만 문서는 비교 제외(false-positive 방지)")
+    pds.set_defaults(func=cmd_dedup_scan)
+
+    prc2 = sub.add_parser("recanonicalize",
+                          help="recompute canonical_url with current rules (e.g. arxiv versions)")
+    prc2.add_argument("--dry-run", action="store_true", help="변경 예정만 출력")
+    prc2.set_defaults(func=cmd_recanonicalize)
+
+    pdm = sub.add_parser("dedup-merge",
+                         help="merge near-duplicate clusters into one doc each (dry-run unless --apply)")
+    pdm.add_argument("--threshold", type=float, default=0.90)
+    pdm.add_argument("--min-len", type=int, default=500, dest="min_len")
+    pdm.add_argument("--apply", action="store_true", help="실제 병합(파괴적). 미지정 시 계획만.")
+    pdm.add_argument("--no-backup", action="store_true", help="--apply 전 강제 백업 생략(비권장)")
+    pdm.add_argument("--keep", type=int, default=7, help="백업 보존 개수")
+    pdm.set_defaults(func=cmd_dedup_merge)
 
     pb = sub.add_parser("backup", help="snapshot DB (VACUUM INTO) + verify restorable + prune")
     pb.add_argument("--keep", type=int, default=7, help="최근 N개 보존")

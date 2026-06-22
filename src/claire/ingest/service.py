@@ -313,6 +313,169 @@ class IngestService:
         finally:
             conn.close()
 
+    def backfill_minhashes(self, *, limit: int = 0) -> dict:
+        """minhash 가 비어있는 기존 문서에 서명을 채운다 — **비파괴**(컬럼만 채움).
+
+        근사 중복 게이트(dedup ③)가 기존 문서와도 비교하려면 모든 문서에 서명이 있어야
+        한다. 신규 적재는 자동 저장되지만 v6 이전 문서는 비어 있어 1회 백필이 필요하다.
+        그래프/추출/Gemini 호출 없음. 반환: {docs, filled}."""
+        import json as _json
+        from .normalize import minhash_signature
+
+        conn = dbm.connect(self.s.db_file)
+        dbm.init_db(conn)
+        try:
+            ids = dbm.documents_missing_minhash(conn, limit)
+            out = {"docs": len(ids), "filled": 0}
+            for did in ids:
+                doc = dbm.get_document(conn, did)
+                if doc is None:
+                    continue
+                sig = minhash_signature(((doc.title or "") + " " + (doc.raw_text or "")))
+                dbm.set_document_minhash(conn, did, _json.dumps(sig) if sig else None)
+                if sig:
+                    out["filled"] += 1
+            return out
+        finally:
+            conn.close()
+
+    def dedup_scan(self, *, threshold: float = 0.90, min_len: int = 500) -> dict:
+        """[진단·비파괴] 기존 문서 중 근사 중복 클러스터를 보고만 한다(병합 안 함).
+
+        먼저 minhash 를 백필한 뒤, 임계 이상으로 묶이는 문서쌍을 모아 클러스터로 반환.
+        실제 정리(엔티티 sources 재배치 + 중복 문서 삭제)는 파괴적이라 별도 결정/명령으로
+        남긴다. 반환: {documents, clusters:[{ids, urls, score}...]}."""
+        import json as _json
+        from .normalize import minhash_estimate
+
+        self.backfill_minhashes()
+        conn = dbm.connect(self.s.db_file)
+        dbm.init_db(conn)
+        try:
+            rows = conn.execute(
+                "SELECT id, canonical_url, title, length(raw_text) ln, minhash "
+                "FROM documents WHERE minhash IS NOT NULL AND partial=0 "
+                "AND length(raw_text) >= ? ORDER BY fetched_at", (min_len,)
+            ).fetchall()
+            sigs = []
+            for r in rows:
+                try:
+                    sigs.append((r, _json.loads(r["minhash"])))
+                except (TypeError, ValueError):
+                    continue
+            # union-find 로 임계 이상 쌍을 클러스터링.
+            parent = {r["id"]: r["id"] for r, _ in sigs}
+
+            def find(x):
+                while parent[x] != x:
+                    parent[x] = parent[parent[x]]
+                    x = parent[x]
+                return x
+
+            pair_scores: dict[tuple[str, str], float] = {}
+            for i in range(len(sigs)):
+                ri, si = sigs[i]
+                for j in range(i + 1, len(sigs)):
+                    rj, sj = sigs[j]
+                    score = minhash_estimate(si, sj)
+                    if score >= threshold:
+                        pair_scores[(ri["id"], rj["id"])] = score
+                        parent[find(ri["id"])] = find(rj["id"])
+            groups: dict[str, list] = {}
+            meta = {r["id"]: r for r, _ in sigs}
+            for r, _ in sigs:
+                groups.setdefault(find(r["id"]), []).append(r["id"])
+            clusters = []
+            for ids in groups.values():
+                if len(ids) < 2:
+                    continue
+                best = max((s for (a, b), s in pair_scores.items()
+                            if a in ids and b in ids), default=0.0)
+                clusters.append({
+                    "ids": ids,
+                    "urls": [meta[i]["canonical_url"] for i in ids],
+                    "titles": [(meta[i]["title"] or "")[:60] for i in ids],
+                    "score": round(best, 3),
+                })
+            clusters.sort(key=lambda c: c["score"], reverse=True)
+            return {"documents": len(sigs), "clusters": clusters}
+        finally:
+            conn.close()
+
+    def recanonicalize_documents(self, *, apply: bool = True) -> dict:
+        """기존 문서의 canonical_url 을 현재 규칙으로 재계산 — **비파괴**(URL 열만 갱신).
+
+        canonicalize_url 규칙이 좋아지면(예: arxiv 버전 정규화) 이미 적재된 문서는 옛
+        canonical 을 그대로 들고 있어 같은 자료가 갈라진 채 남는다. 이 백필이 정렬한다.
+        apply=False 면 변경 예정만 보고. 반환: {docs, changed, samples[...]}.
+        """
+        from .normalize import canonicalize_url
+
+        conn = dbm.connect(self.s.db_file)
+        dbm.init_db(conn)
+        try:
+            rows = conn.execute(
+                "SELECT id, url, canonical_url FROM documents "
+                "WHERE url IS NOT NULL").fetchall()
+            out = {"docs": len(rows), "changed": 0, "samples": []}
+            for r in rows:
+                new = canonicalize_url(r["url"])
+                if new and new != r["canonical_url"]:
+                    out["changed"] += 1
+                    if len(out["samples"]) < 20:
+                        out["samples"].append(
+                            {"id": r["id"], "from": r["canonical_url"], "to": new})
+                    if apply:
+                        conn.execute("UPDATE documents SET canonical_url=? WHERE id=?",
+                                     (new, r["id"]))
+            if apply:
+                conn.commit()
+            return out
+        finally:
+            conn.close()
+
+    def dedup_merge(self, *, threshold: float = 0.90, min_len: int = 500,
+                    apply: bool = False) -> dict:
+        """근사중복 클러스터를 각각 1개 문서로 병합. **apply=False 면 계획만(비파괴)**.
+
+        keeper 선정 = 가장 긴 본문(가장 완전) → 동률이면 최초 적재(first-seen). 나머지는
+        loser 로 keeper 에 참조 재배치 후 삭제(db.merge_documents). apply=True 면 loser 의
+        artifact 파일도 정리. **파괴적이므로 호출 전 백업 권장**(CLI 가 강제). 반환:
+        {clusters:[{keeper, losers, ...}], merged}."""
+        scan = self.dedup_scan(threshold=threshold, min_len=min_len)
+        conn = dbm.connect(self.s.db_file)
+        dbm.init_db(conn)
+        plans: list[dict] = []
+        try:
+            for c in scan["clusters"]:
+                rows = {r["id"]: r for r in (
+                    dbm.get_document_row(conn, did) for did in c["ids"]) if r}
+                if len(rows) < 2:
+                    continue
+                # keeper = 최장 본문, 동률이면 최초 적재(fetched_at 작은 쪽).
+                def _key(did):
+                    r = rows[did]
+                    return (len(r["raw_text"] or ""), -(r["fetched_at"] or 0.0))
+                keeper = max(rows, key=_key)
+                losers = [d for d in rows if d != keeper]
+                plan = {"keeper": keeper, "losers": losers, "score": c["score"],
+                        "keeper_url": rows[keeper]["canonical_url"],
+                        "loser_urls": [rows[d]["canonical_url"] for d in losers]}
+                if apply:
+                    res = dbm.merge_documents(conn, keeper, losers)
+                    plan["result"] = res
+                    for d in losers:
+                        try:
+                            p = self.s.data_dir / "raw" / "artifacts" / f"{d}.txt.gz"
+                            if p.exists():
+                                p.unlink()
+                        except Exception:  # noqa: BLE001
+                            pass
+                plans.append(plan)
+            return {"clusters": plans, "merged": len(plans), "applied": apply}
+        finally:
+            conn.close()
+
     def search(self, query: str, *, limit: int = 8, summarize: bool = True):
         from ..retrieval.query import search as _search
 

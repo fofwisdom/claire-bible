@@ -28,7 +28,7 @@ MIN_CONTENT = 300
 
 def fetch_web(url: str) -> Document:
     via = "static"
-    title, text, links, anchors, err = _fetch_static(url)
+    title, text, links, anchors, err, effective_url = _fetch_static(url)
 
     # 2) Discourse JSON 에스컬레이션
     if len(text or "") < MIN_CONTENT:
@@ -60,21 +60,32 @@ def fetch_web(url: str) -> Document:
             err or f"본문 빈약(len={len(text or '')}, via={via}): {url}"
         )
 
+    # canonical 은 서버 redirect 이후의 *실제 도달 URL* 기준(dedup 핵심).
+    #   직접링크와 share/단축링크가 같은 페이지로 풀리면 같은 canonical 로 수렴 → 중복 방지.
+    #   static 이 실패해 effective 를 못 얻으면 입력 url 로 폴백.
+    effective = effective_url or url
     # link_anchors: 1홉 자동확장 LLM 선별용 신호(url→앵커 텍스트). links 와 같은 상한.
     anchor_pairs = [{"url": u, "anchor": anchors.get(u, "")} for u in links[:50]]
     return Document(
         url=url,
-        canonical_url=canonicalize_url(url),
+        canonical_url=canonicalize_url(effective),
         title=title,
         raw_text=text[:20000],
         source_type="web",
         content_hash=content_hash(title or "", text),
-        meta={"links": links[:50], "link_anchors": anchor_pairs, "fetch_via": via},
+        meta={"links": links[:50], "link_anchors": anchor_pairs, "fetch_via": via,
+              "effective_url": effective},
     )
 
 
-def _fetch_static(url: str) -> tuple[str | None, str, list[str], dict[str, str], str | None]:
-    """(title, text, links, anchors, error). httpx + lxml. 실패해도 예외 대신 빈 결과."""
+def _fetch_static(
+    url: str,
+) -> tuple[str | None, str, list[str], dict[str, str], str | None, str | None]:
+    """(title, text, links, anchors, error, effective_url). httpx + lxml.
+
+    effective_url 은 httpx 의 follow_redirects 가 따라간 최종 URL(resp.url) — dedup 의
+    canonical 기준. 실패하면 None. 실패해도 예외 대신 빈 결과를 돌려준다.
+    """
     import httpx
 
     try:
@@ -82,10 +93,11 @@ def _fetch_static(url: str) -> tuple[str | None, str, list[str], dict[str, str],
                           headers={"User-Agent": _UA}) as client:
             resp = client.get(url)
         if resp.status_code >= 400:
-            return None, "", [], {}, f"http {resp.status_code} for {url}"
-        return _extract_html(resp.text)
+            return None, "", [], {}, f"http {resp.status_code} for {url}", None
+        title, text, links, anchors, perr = _extract_html(resp.text)
+        return title, text, links, anchors, perr, str(resp.url)
     except Exception as e:  # noqa: BLE001
-        return None, "", [], {}, f"fetch failed: {e}"
+        return None, "", [], {}, f"fetch failed: {e}", None
 
 
 def _extract_html(html: str) -> tuple[str | None, str, list[str], dict[str, str], str | None]:

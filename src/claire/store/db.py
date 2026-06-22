@@ -15,7 +15,7 @@ from pathlib import Path
 
 from ..ontology.base import Document, Entity, Relation
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (
@@ -36,7 +36,8 @@ CREATE TABLE IF NOT EXISTS documents (
     content_hash TEXT,
     lang TEXT,
     partial INTEGER DEFAULT 0,
-    meta TEXT
+    meta TEXT,
+    minhash TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_documents_hash ON documents(content_hash);
 CREATE INDEX IF NOT EXISTS idx_documents_canon ON documents(canonical_url);
@@ -260,6 +261,9 @@ def _migrate(conn: sqlite3.Connection) -> None:
     # v5: 문서 한국어 가독 렌더링(detail) — 짧은 summary 와 별개의 '여러 단락' 본문 재구성.
     # 구조화 추출과 독립된 별도 LLM 호출로 채운다(그래프 rebuild 없이 백필 가능).
     _ensure_column(conn, "documents", "detail", "TEXT")
+    # v6: 근사 중복 탐지용 MinHash 서명(JSON). content_hash/canonical_url 을 비껴가는
+    # "같은 글 다른 입구"(arxiv 버전 접미사 등)를 잡는 3차 dedup 게이트. 백필=dedup-scan.
+    _ensure_column(conn, "documents", "minhash", "TEXT")
 
 
 def init_db(conn: sqlite3.Connection) -> None:
@@ -282,19 +286,67 @@ def init_db(conn: sqlite3.Connection) -> None:
 
 # --- documents ---
 
+def _document_minhash_json(doc: Document) -> str | None:
+    """문서의 (제목+본문) MinHash 서명을 JSON 으로. 토큰 없으면 None."""
+    from ..ingest.normalize import minhash_signature
+
+    sig = minhash_signature(((doc.title or "") + " " + (doc.raw_text or "")))
+    return json.dumps(sig) if sig else None
+
+
 def insert_document(conn: sqlite3.Connection, doc: Document) -> None:
     conn.execute(
         """INSERT OR REPLACE INTO documents
         (id,url,canonical_url,title,author,published_at,fetched_at,raw_text,
-         source_type,content_hash,lang,partial,meta)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+         source_type,content_hash,lang,partial,meta,minhash)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (
             doc.id, doc.url, doc.canonical_url, doc.title, doc.author,
             doc.published_at, doc.fetched_at, doc.raw_text, doc.source_type,
             doc.content_hash, doc.lang, int(doc.partial), json.dumps(doc.meta),
+            _document_minhash_json(doc),
         ),
     )
     conn.commit()
+
+
+def near_duplicate_document(
+    conn: sqlite3.Connection, doc: Document, *,
+    threshold: float = 0.90, min_len: int = 500, exclude_id: str | None = None,
+) -> tuple[str, float] | None:
+    """근사 중복 게이트(3차): MinHash Jaccard 추정이 임계 이상인 기존 문서를 찾는다.
+
+    content_hash(완전일치)·canonical_url 를 비껴간 "같은 글 다른 입구"를 잡는다.
+    **보수적**(데이터 보존): 짧은(<min_len) 문서·partial 은 양쪽 다 제외해 false-positive
+    를 막고(특히 x.com 트윗), 임계 0.90 은 실측 마진(진짜중복 0.97+ vs 별개 ≤0.36) 안.
+    반환: (가장 유사한 문서 id, 추정 유사도) 또는 None.
+    """
+    from ..ingest.normalize import minhash_estimate, minhash_signature
+
+    if doc.partial or len((doc.raw_text or "")) < min_len:
+        return None
+    sig = minhash_signature(((doc.title or "") + " " + (doc.raw_text or "")))
+    if not sig:
+        return None
+    rows = conn.execute(
+        "SELECT id, minhash FROM documents "
+        "WHERE minhash IS NOT NULL AND partial=0 AND length(raw_text) >= ?",
+        (min_len,),
+    ).fetchall()
+    best_id, best_score = None, 0.0
+    for r in rows:
+        if exclude_id and r["id"] == exclude_id:
+            continue
+        try:
+            other = json.loads(r["minhash"])
+        except (TypeError, ValueError):
+            continue
+        score = minhash_estimate(sig, other)
+        if score > best_score:
+            best_id, best_score = r["id"], score
+    if best_id is not None and best_score >= threshold:
+        return best_id, best_score
+    return None
 
 
 def find_document_by_hash(conn: sqlite3.Connection, content_hash: str) -> str | None:
@@ -924,11 +976,92 @@ def update_document_content(
     title: str | None, raw_text: str, content_hash: str, fetched_at: float,
 ) -> None:
     """문서 본문을 in-place 갱신(복원). id 는 유지하여 엔티티 sources 연결 보존."""
+    from ..ingest.normalize import minhash_signature
+
+    sig = minhash_signature(((title or "") + " " + (raw_text or "")))
     conn.execute(
-        "UPDATE documents SET title=?, raw_text=?, content_hash=?, fetched_at=? WHERE id=?",
-        (title, raw_text, content_hash, fetched_at, doc_id),
+        "UPDATE documents SET title=?, raw_text=?, content_hash=?, fetched_at=?, "
+        "minhash=? WHERE id=?",
+        (title, raw_text, content_hash, fetched_at,
+         json.dumps(sig) if sig else None, doc_id),
     )
     conn.commit()
+
+
+def documents_missing_minhash(conn: sqlite3.Connection, limit: int = 0) -> list[str]:
+    """minhash 가 비어있는 문서 id(백필 대상). partial/짧은 글도 채워 비교 모집단 일관."""
+    q = "SELECT id FROM documents WHERE minhash IS NULL"
+    if limit:
+        q += f" LIMIT {int(limit)}"
+    return [r["id"] for r in conn.execute(q).fetchall()]
+
+
+def set_document_minhash(conn: sqlite3.Connection, doc_id: str, sig_json: str | None) -> None:
+    conn.execute("UPDATE documents SET minhash=? WHERE id=?", (sig_json, doc_id))
+    conn.commit()
+
+
+def _repoint_sources_json(conn: sqlite3.Connection, table: str,
+                          keeper_id: str, losers: set[str]) -> int:
+    """entities/relations 의 sources(JSON 배열)에서 loser id 를 keeper 로 치환·dedupe.
+
+    근사중복 문서 병합 시 호출. 순서 보존하며 중복 제거. 변경된 행 수 반환.
+    """
+    changed = 0
+    for r in conn.execute(f"SELECT id, sources FROM {table}").fetchall():
+        try:
+            srcs = json.loads(r["sources"] or "[]")
+        except (TypeError, ValueError):
+            continue
+        if not any(s in losers for s in srcs):
+            continue
+        new: list[str] = []
+        for s in srcs:
+            s2 = keeper_id if s in losers else s
+            if s2 not in new:
+                new.append(s2)
+        conn.execute(f"UPDATE {table} SET sources=? WHERE id=?",
+                     (json.dumps(new), r["id"]))
+        changed += 1
+    return changed
+
+
+def merge_documents(conn: sqlite3.Connection, keeper_id: str,
+                    loser_ids: list[str]) -> dict:
+    """[파괴적] 근사중복 문서를 keeper 로 합치고 loser 문서 행을 삭제한다.
+
+    데이터 보존: 삭제 전에 loser 를 가리키는 **모든 참조**(엔티티/관계 sources,
+    proposals·extractions·raw_inbox 의 document_id)를 keeper 로 재배치한다. 큐
+    (refresh/expand)는 document_id UNIQUE 제약이 있어 loser 행은 삭제(전이적 작업이라
+    재생성 가능). 단일 트랜잭션으로 원자 처리. 반환: 재배치/삭제 카운트.
+    """
+    losers = {x for x in loser_ids if x and x != keeper_id}
+    if not losers:
+        return {"keeper": keeper_id, "losers": [], "deleted": 0}
+    ph = ",".join("?" * len(losers))
+    lo = list(losers)
+    out = {"keeper": keeper_id, "losers": lo}
+    try:
+        out["entities_repointed"] = _repoint_sources_json(conn, "entities", keeper_id, losers)
+        out["relations_repointed"] = _repoint_sources_json(conn, "relations", keeper_id, losers)
+        out["proposals"] = conn.execute(
+            f"UPDATE proposals SET document_id=? WHERE document_id IN ({ph})",
+            (keeper_id, *lo)).rowcount
+        out["extractions"] = conn.execute(
+            f"UPDATE extractions SET document_id=? WHERE document_id IN ({ph})",
+            (keeper_id, *lo)).rowcount
+        out["inbox"] = conn.execute(
+            f"UPDATE raw_inbox SET document_id=? WHERE document_id IN ({ph})",
+            (keeper_id, *lo)).rowcount
+        conn.execute(f"DELETE FROM refresh_queue WHERE document_id IN ({ph})", lo)
+        conn.execute(f"DELETE FROM expand_queue WHERE document_id IN ({ph})", lo)
+        out["deleted"] = conn.execute(
+            f"DELETE FROM documents WHERE id IN ({ph})", lo).rowcount
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    return out
 
 
 # --- search ---

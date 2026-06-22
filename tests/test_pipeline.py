@@ -37,6 +37,46 @@ def test_canonicalize_url():
     assert canonicalize_url("https://x.com/a/") == "https://x.com/a"
 
 
+def test_canonicalize_converges_equivalent_forms():
+    """같은 자료에 도달하는 여러 URL 형태가 하나의 canonical 로 수렴(중복 방지 핵심)."""
+    canon = "https://example.com/article"
+    # 모바일/amp prefix, 기본포트, http/https, www, index 파일, 끝슬래시, 추적파라미터
+    variants = [
+        "https://www.example.com/article",
+        "https://m.example.com/article/",
+        "https://amp.example.com/article",
+        "http://example.com:80/article" if False else "https://example.com:443/article",
+        "https://example.com/article/index.html",
+        "https://example.com/article?fbclid=abc&gclid=xyz",
+        "https://example.com/article?utm_id=1&mc_cid=2",
+    ]
+    for v in variants:
+        assert canonicalize_url(v) == canon, v
+    # http 는 scheme 이 보존되므로 https 와 다른 키(서버 redirect 가 effective_url 로 수렴시킴)
+    assert canonicalize_url("http://example.com/article") == "http://example.com/article"
+    # 서로 다른 글은 합쳐지지 않는다(false-positive 방지).
+    assert canonicalize_url("https://example.com/other") != canon
+
+
+def test_canonicalize_arxiv_versions():
+    """arxiv 버전/형식 변형 → 정본 /abs/<id> 로 수렴(중복 적재 방지)."""
+    base = "https://arxiv.org/abs/2606.17551"
+    for v in [
+        "https://arxiv.org/abs/2606.17551v1",
+        "https://arxiv.org/abs/2606.17551v3",
+        "https://arxiv.org/pdf/2606.17551",
+        "https://arxiv.org/pdf/2606.17551v2",
+        "https://arxiv.org/pdf/2606.17551v2.pdf",
+        "https://www.arxiv.org/abs/2606.17551v1",
+    ]:
+        assert canonicalize_url(v) == base, v
+    # 구형 식별자(archive/number)도 버전만 제거.
+    assert canonicalize_url("https://arxiv.org/abs/hep-th/9901001v2") == \
+        "https://arxiv.org/abs/hep-th/9901001"
+    # 다른 논문은 그대로 구분.
+    assert canonicalize_url("https://arxiv.org/abs/2606.99999") != base
+
+
 def test_content_hash_stable():
     assert content_hash("a  b") == content_hash(" a b ")
     assert content_hash("a") != content_hash("b")
@@ -112,6 +152,115 @@ def test_same_canonical_url_updates_in_place(tmp_path: Path):
     assert dbm.counts(conn)["documents"] == 1         # 중복 노드 안 생김
     row = dbm.get_document_row(conn, doc_id)
     assert row["content_hash"] == "h2" and row["title"] == "v2"
+
+
+def _long(seed: str, n: int = 120) -> str:
+    """min_len(500) 을 넘는 충분히 긴 본문 — 근사중복 게이트 대상이 되게."""
+    return " ".join(f"{seed}{i}" for i in range(n))
+
+
+def test_near_duplicate_is_skipped():
+    """다른 canonical·다른 content_hash 인데 본문이 ~동일하면 근사중복으로 skip(노드 안 생김).
+
+    실측 패턴 재현: arxiv `/abs/x` 와 `/abs/xv1` 처럼 URL 만 다르고 본문이 거의 같은 경우.
+    """
+    conn = _db()
+    vstore = VectorStore(conn, "brute")
+    body = "deep learning model trains on tokens " + _long("w")
+    d1 = Document(url="https://arxiv.org/abs/2606.17551",
+                  canonical_url="https://arxiv.org/abs/2606.17551",
+                  title="Reversal Q-Learning", raw_text=body,
+                  source_type="web", content_hash="ha")
+    # v1: URL 도 다르고 본문도 한 단어 추가(content_hash 다름) → ①② 게이트 비껴감.
+    d2 = Document(url="https://arxiv.org/abs/2606.17551v1",
+                  canonical_url="https://arxiv.org/abs/2606.17551v1",
+                  title="Reversal Q-Learning", raw_text=body + " extra",
+                  source_type="web", content_hash="hb")
+    r1 = ingest("x", conn=conn, provider=MockProvider(), vstore=vstore, fetch_fn=_fetch_doc(d1))
+    r2 = ingest("x", conn=conn, provider=MockProvider(), vstore=vstore, fetch_fn=_fetch_doc(d2))
+    assert not r1.duplicate and r2.duplicate          # 두번째는 근사중복
+    assert r2.document_id == r1.document_id
+    assert dbm.counts(conn)["documents"] == 1          # 중복 노드 안 생김
+
+
+def test_near_dup_gate_ignores_short_and_partial():
+    """짧은 글·partial(x.com 트윗 등)은 근사중복 게이트 대상에서 제외 → 오병합 방지."""
+    conn = _db()
+    vstore = VectorStore(conn, "brute")
+    # 짧은 두 트윗: 공통 토큰이 많아도 합쳐지면 안 됨.
+    t1 = Document(url="https://x.com/a/1", canonical_url="https://x.com/a/1",
+                  title="x.com post", raw_text="https://x.com/a/status/1 great AI thread",
+                  source_type="xcom", content_hash="t1", partial=True)
+    t2 = Document(url="https://x.com/b/2", canonical_url="https://x.com/b/2",
+                  title="x.com post", raw_text="https://x.com/b/status/2 great AI thread",
+                  source_type="xcom", content_hash="t2", partial=True)
+    ingest("x", conn=conn, provider=MockProvider(), vstore=vstore, fetch_fn=_fetch_doc(t1))
+    r2 = ingest("x", conn=conn, provider=MockProvider(), vstore=vstore, fetch_fn=_fetch_doc(t2))
+    assert not r2.duplicate
+    assert dbm.counts(conn)["documents"] == 2
+
+
+def test_distinct_long_docs_not_merged():
+    """충분히 길지만 내용이 다른 두 글은 근사중복으로 합쳐지지 않는다(false-positive 방지)."""
+    conn = _db()
+    vstore = VectorStore(conn, "brute")
+    d1 = Document(url="https://s/1", canonical_url="https://s/1", title="A",
+                  raw_text="apple banana " + _long("alpha"),
+                  source_type="web", content_hash="ca")
+    d2 = Document(url="https://s/2", canonical_url="https://s/2", title="B",
+                  raw_text="quantum chromodynamics " + _long("beta"),
+                  source_type="web", content_hash="cb")
+    ingest("x", conn=conn, provider=MockProvider(), vstore=vstore, fetch_fn=_fetch_doc(d1))
+    r2 = ingest("x", conn=conn, provider=MockProvider(), vstore=vstore, fetch_fn=_fetch_doc(d2))
+    assert not r2.duplicate
+    assert dbm.counts(conn)["documents"] == 2
+
+
+def test_merge_documents_repoints_and_deletes():
+    """근사중복 병합: loser 를 가리키는 모든 참조를 keeper 로 옮기고 loser 문서 삭제."""
+    from claire.ontology.base import Entity, Relation
+
+    conn = _db()
+    A = Document(id="doc_keep", url="https://arxiv.org/abs/1", title="P",
+                 raw_text="x" * 600, source_type="web", content_hash="hA")
+    B = Document(id="doc_lose", url="https://arxiv.org/abs/1v1", title="P",
+                 raw_text="x" * 600, source_type="web", content_hash="hB")
+    dbm.insert_document(conn, A)
+    dbm.insert_document(conn, B)
+    # 엔티티 sources 가 양쪽을 가리킴(중복) → keeper 로 합쳐 dedupe 되어야.
+    e = Entity(id="ent_1", type="Article", name="Paper", sources=["doc_keep", "doc_lose"])
+    dbm.upsert_entity(conn, e)
+    e2 = Entity(id="ent_2", type="Org", name="OnlyB", sources=["doc_lose"])
+    dbm.upsert_entity(conn, e2)
+    dbm.upsert_relation(conn, Relation(id="rel_1", type="authored_by",
+                                       source_id="ent_1", target_id="ent_2",
+                                       sources=["doc_lose"]))
+    ib = dbm.log_inbox(conn, source="t", payload="p", kind="url")
+    dbm.update_inbox(conn, ib, status="done", document_id="doc_lose")
+
+    res = dbm.merge_documents(conn, "doc_keep", ["doc_lose"])
+    assert res["deleted"] == 1
+    assert dbm.get_document_row(conn, "doc_lose") is None
+    assert dbm.get_document_row(conn, "doc_keep") is not None
+    assert dbm.get_entity(conn, "ent_1").sources == ["doc_keep"]   # dedupe
+    assert dbm.get_entity(conn, "ent_2").sources == ["doc_keep"]   # repoint
+    rel = conn.execute("SELECT sources FROM relations WHERE id='rel_1'").fetchone()
+    assert "doc_keep" in rel["sources"] and "doc_lose" not in rel["sources"]
+    row = conn.execute("SELECT document_id FROM raw_inbox WHERE id=?", (ib,)).fetchone()
+    assert row["document_id"] == "doc_keep"
+
+
+def test_minhash_estimate_and_signature():
+    from claire.ingest.normalize import minhash_estimate, minhash_signature
+
+    a = minhash_signature("the quick brown fox jumps over the lazy dog repeatedly today")
+    b = minhash_signature("the quick brown fox jumps over the lazy dog repeatedly today now")
+    c = minhash_signature("completely unrelated text about cooking pasta and tomato sauce here")
+    assert a and b and c
+    assert minhash_estimate(a, b) >= 0.8     # 거의 같은 글
+    assert minhash_estimate(a, c) < 0.3      # 다른 글
+    assert minhash_signature("a") is not None  # 짧아도 토큰셋 폴백
+    assert minhash_signature("   ") is None    # 토큰 없으면 None
 
 
 def test_different_canonical_url_creates_new():

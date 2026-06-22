@@ -54,7 +54,7 @@ def test_strip_html_multiroot_safe():
 
 # --- fetch_web fallback 체인 + thin-guard ---
 
-def _patch_chain(monkeypatch, *, static=("T", "", [], {}, None),
+def _patch_chain(monkeypatch, *, static=("T", "", [], {}, None, None),
                  discourse=None, scrapling=(None, "", [], {}), stealth=(None, "")):
     monkeypatch.setattr(web, "_fetch_static", lambda url: static)
     monkeypatch.setattr(web, "_fetch_scrapling", lambda url: scrapling)
@@ -65,17 +65,43 @@ def _patch_chain(monkeypatch, *, static=("T", "", [], {}, None),
 
 def test_static_rich_used_directly(monkeypatch):
     body = "x" * 500
-    _patch_chain(monkeypatch, static=("Title", body, ["https://a"], {}, None))
+    _patch_chain(monkeypatch, static=("Title", body, ["https://a"], {}, None, None))
     doc = web.fetch_web("https://example.com/post")
     assert doc.title == "Title"
     assert len(doc.raw_text) == 500
     assert doc.meta["fetch_via"] == "static"
 
 
+def test_canonical_uses_effective_url(monkeypatch):
+    """dedup 핵심: 서버 redirect 이후 도달 URL(resp.url)로 canonical 을 잡는다.
+
+    입력은 추적파라미터·www 가 붙은 형태지만 effective 가 깨끗한 정규형이면
+    그쪽으로 수렴 → 다른 입구로 들어온 같은 글이 같은 canonical 을 얻는다.
+    """
+    body = "x" * 500
+    eff = "https://example.com/real-article"
+    _patch_chain(monkeypatch, static=("T", body, [], {}, None, eff))
+    doc = web.fetch_web("https://www.example.com/r?utm_source=tw&fbclid=123")
+    assert doc.canonical_url == "https://example.com/real-article"
+    assert doc.meta["effective_url"] == eff
+
+
+def test_canonical_falls_back_to_input_when_no_effective(monkeypatch):
+    """static 이 effective 를 못 주면(scrapling 으로 본문 확보 등) 입력 url 로 폴백."""
+    rich = "y" * 400
+    _patch_chain(monkeypatch,
+                 static=(None, "", [], {}, "http 403", None),
+                 scrapling=("스텔스 제목", rich, [], {}))
+    doc = web.fetch_web("https://openai.com/index/foo/")
+    assert doc.meta["fetch_via"] == "scrapling"
+    # 입력 url 폴백이되 canonicalize 는 적용(끝슬래시 제거).
+    assert doc.canonical_url == "https://openai.com/index/foo"
+
+
 def test_discourse_escalation_when_static_thin(monkeypatch):
     rich = "본문 " * 200  # >300
     _patch_chain(monkeypatch,
-                 static=("제목만", "짧음", [], {}, None),
+                 static=("제목만", "짧음", [], {}, None, None),
                  discourse=("디스코스 제목", rich, ["https://ref"]))
     doc = web.fetch_web("https://discuss.pytorch.kr/t/foo/1")
     assert doc.meta["fetch_via"] == "discourse"
@@ -86,7 +112,7 @@ def test_discourse_escalation_when_static_thin(monkeypatch):
 def test_stealth_escalation_when_others_thin(monkeypatch):
     rich = "y" * 400
     _patch_chain(monkeypatch,
-                 static=("t", "tiny", [], {}, None),
+                 static=("t", "tiny", [], {}, None, None),
                  discourse=None,
                  stealth=("stealth title", rich))
     doc = web.fetch_web("https://js-only.example/app")
@@ -97,7 +123,7 @@ def test_stealth_escalation_when_others_thin(monkeypatch):
 def test_thin_guard_raises_when_all_fail(monkeypatch):
     # static 빈약 + discourse 없음 + stealth 빈 → 실패(제목만 적재 방지)
     _patch_chain(monkeypatch,
-                 static=("제목만 있음", "73자정도의짧은본문", [], {}, None),
+                 static=("제목만 있음", "73자정도의짧은본문", [], {}, None, None),
                  discourse=None, stealth=(None, ""))
     with pytest.raises(FetchError):
         web.fetch_web("https://discuss.pytorch.kr/t/thin/999")

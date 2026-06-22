@@ -155,6 +155,17 @@ def ingest(
         dbm.update_inbox(conn, inbox_id, status="done", document_id=same_url)
         return report
 
+    # dedup ③ 근사 중복(near-duplicate). content_hash·canonical_url 을 비껴간 "같은 글
+    #   다른 입구"(arxiv 버전 접미사, 동적요소 차이 등)를 MinHash 유사도로 잡는다.
+    #   보수적(데이터 보존): 충분히 긴 비-partial 문서만, 높은 임계 → 별개 글 오병합 방지.
+    near = dbm.near_duplicate_document(conn, doc)
+    if near:
+        near_id, score = near
+        report.document_id = near_id
+        report.duplicate = True
+        dbm.update_inbox(conn, inbox_id, status="duplicate", document_id=near_id)
+        return report
+
     dbm.insert_document(conn, doc)
     report.document_id = doc.id
 
