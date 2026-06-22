@@ -203,10 +203,11 @@ GRAPH_HTML = """<!doctype html>
   #panel ul{margin:.2em 0;padding-left:18px} #panel li{margin:.25em 0}
   #panel .doc{margin:.5em 0;padding:6px 8px;background:#161b22;border-radius:5px}
   #panel .doc p{margin:.3em 0 0;color:#adbac7} #panel a{color:#58a6ff;text-decoration:none}
-  #panel .doc details.more{margin:.4em 0}
-  #panel .doc details.more>summary{cursor:pointer;color:#58a6ff;font-size:12px;list-style:none}
-  #panel .doc details.more>summary::-webkit-details-marker{display:none}
-  #panel .doc .detail{white-space:pre-wrap;margin:.4em 0;padding:8px 10px;background:#0e1116;border:1px solid #2a2f37;border-radius:5px;color:#c9d1d9;line-height:1.65;font-size:12.5px;max-height:50vh;overflow:auto}
+  /* 자세히 읽기 토글 — .doc(노드 상세) 안팎(문서 패널) 모두 동일 UI 공유(피드백). */
+  #panel details.more{margin:.4em 0}
+  #panel details.more>summary{cursor:pointer;color:#58a6ff;font-size:12px;list-style:none}
+  #panel details.more>summary::-webkit-details-marker{display:none}
+  #panel .detail{white-space:pre-wrap;margin:.4em 0;padding:8px 10px;background:#0e1116;border:1px solid #2a2f37;border-radius:5px;color:#c9d1d9;line-height:1.65;font-size:12.5px;max-height:50vh;overflow:auto}
   #panel .doc p.src{margin-top:.45em}
   #panel .docmeta{color:#8b949e;font-size:11px;margin:.1em 0 .6em}
   #panel .nodebtns{display:flex;flex-wrap:wrap;gap:5px;margin:.3em 0}
@@ -559,12 +560,7 @@ function renderDocPanel(dc){
   let h='<h2>'+esc(dc.title)+' <small>'+esc(dc.source_type||'')+'</small></h2>';
   if(dc.url) h+='<p class=docmeta><a href="'+esc(dc.url)+'" target=_blank>↗ 원문 열기</a></p>';
   if(dc.summary) h+='<h3>요약</h3><div class=synth>'+esc(dc.summary)+'</div>';
-  // 자세히 읽기(detail, 여러 단락) — 기본 펼침(문서를 골랐다는 건 읽으려는 의도).
-  if(dc.detail) h+='<h3>자세히 읽기</h3>'+
-    '<details class=more open><summary>📖 전문 펼치기/접기</summary>'+
-    '<div class=detail>'+esc(dc.detail)+'</div></details>';
-  if(!dc.summary && !dc.detail) h+='<p class=al>이 문서의 요약/전문이 아직 없습니다.</p>';
-  // 이 문서의 노드 버튼 — 누르면 그래프에서 그 노드로 이동(nav).
+  // 이 문서의 노드 버튼 — 요약 바로 아래(피드백). 누르면 그래프에서 그 노드로 이동(nav).
   const ns=docNodes(dc.id);
   h+='<h3>이 문서의 노드 ('+ns.length+')</h3>';
   if(ns.length){ h+='<div class=nodebtns>'+ ns.map(n=>{
@@ -572,6 +568,10 @@ function renderDocPanel(dc){
       return '<button class=nodebtn title="'+esc(n.group||'')+'" onclick="focusNode(\\''+n.id+'\\')">'+
         '<i style="background:'+c+'"></i>'+esc(n.label)+'</button>'; }).join('')+'</div>';
   } else { h+='<p class=al>이 문서에서 추출된 노드가 없습니다.</p>'; }
+  // 자세히 읽기 — 노드 상세와 동일 UI(파란 토글), 기본 접힘(피드백). 맨 아래.
+  if(dc.detail) h+='<details class=more><summary>📖 자세히 읽기</summary>'+
+    '<div class=detail>'+esc(dc.detail)+'</div></details>';
+  if(!dc.summary && !dc.detail) h+='<p class=al>이 문서의 요약/전문이 아직 없습니다.</p>';
   docPanelHtml=h;       // blur 복원용 캐시
   panel.innerHTML=h;
 }
