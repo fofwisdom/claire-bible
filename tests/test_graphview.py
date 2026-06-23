@@ -86,7 +86,12 @@ def test_graph_html_self_contained_markers():
     assert "synthSet" in GRAPH_HTML and "addToSynth" in GRAPH_HTML      # 종합 수집(inspect와 분리)
     assert "id=\"authstate\"" in GRAPH_HTML and "setAuth" in GRAPH_HTML  # 인증 상태 표시
     assert "opacity" in GRAPH_HTML and "dday" in GRAPH_HTML             # dim + 일자 그룹
-    assert "자세히 읽기" in GRAPH_HTML and "dc.detail" in GRAPH_HTML     # 이중 요약(detail) 렌더
+    # 읽기는 중앙 마크다운 팝업(nav 와 분리) — 좌측/패널 '읽기' 버튼이 openReader 호출
+    assert "openReader" in GRAPH_HTML and "id=\"reader\"" in GRAPH_HTML  # 중앙 읽기 팝업
+    assert "renderMarkdown" in GRAPH_HTML and "marked" in GRAPH_HTML and "DOMPurify" in GRAPH_HTML  # 마크다운 렌더+살균
+    assert "readbtn" in GRAPH_HTML and "stopPropagation" in GRAPH_HTML   # 읽기 버튼=nav 와 분리
+    assert "<mark>" in GRAPH_HTML                                       # ==형광== 강조 렌더
+    assert "data-theme" in GRAPH_HTML and "toggleTheme" in GRAPH_HTML and "claireTheme" in GRAPH_HTML  # 라이트 기본+다크 토글
     assert "relayout" in GRAPH_HTML and "orientationchange" in GRAPH_HTML  # 모바일 캔버스 리사이즈
     assert "pan-y" in GRAPH_HTML and "mobileScrollTo" in GRAPH_HTML     # 모바일 스크롤 트랩 해소(협조적 제스처)
     assert "#ffffff" in GRAPH_HTML and "borderWidthSelected" in GRAPH_HTML  # 선택 노드 흰 테두리

@@ -982,12 +982,13 @@ def update_document_content(
     conn: sqlite3.Connection, doc_id: str, *,
     title: str | None, raw_text: str, content_hash: str, fetched_at: float,
     source_type: str | None = None, partial: bool | None = None,
+    meta: dict | None = None,
 ) -> None:
     """문서 본문을 in-place 갱신(복원). id 는 유지하여 엔티티 sources 연결 보존.
 
     source_type/partial 을 주면 함께 갱신한다(구버전 partial 'x.com post' 가 본문
-    스크랩에 성공해 정식 문서가 될 때 플래그 정합을 맞추기 위함).
-    """
+    스크랩에 성공해 정식 문서가 될 때 플래그 정합을 맞추기 위함). meta 를 주면 함께
+    갱신(재fetch 로 새로 수집된 본문 이미지 등을 보존)."""
     from ..ingest.normalize import minhash_signature
 
     sig = minhash_signature(((title or "") + " " + (raw_text or "")))
@@ -1000,9 +1001,43 @@ def update_document_content(
     if partial is not None:
         cols.append("partial=?")
         vals.append(1 if partial else 0)
+    if meta is not None:
+        cols.append("meta=?")
+        vals.append(json.dumps(meta))
     vals.append(doc_id)
     conn.execute(f"UPDATE documents SET {', '.join(cols)} WHERE id=?", vals)
     conn.commit()
+
+
+def set_document_images(conn: sqlite3.Connection, doc_id: str, images: list[dict]) -> None:
+    """문서 meta 에 본문 이미지 목록만 갱신(다른 meta 키 보존). 재fetch 백필용."""
+    row = conn.execute("SELECT meta FROM documents WHERE id=?", (doc_id,)).fetchone()
+    if row is None:
+        return
+    meta = json.loads(row["meta"] or "{}")
+    meta["images"] = images or []
+    conn.execute("UPDATE documents SET meta=? WHERE id=?", (json.dumps(meta), doc_id))
+    conn.commit()
+
+
+def documents_missing_images(conn: sqlite3.Connection, limit: int = 0) -> list[str]:
+    """본문 이미지가 아직 없는(재fetch 안 한) 문서 id — 최신순. 이미지 백필 대상.
+
+    meta 에 'images' 키 자체가 없는(이미지 수집 전 적재) url 보유 문서만. 빈 목록([])은
+    '재fetch 했으나 콘텐츠 이미지가 없었음'이라 재대상에서 제외(불필요한 재호출 방지)."""
+    rows = conn.execute(
+        "SELECT id, url, meta FROM documents ORDER BY fetched_at DESC, rowid DESC"
+    ).fetchall()
+    out: list[str] = []
+    for r in rows:
+        if not r["url"]:
+            continue  # url 없는 순수 텍스트는 재fetch 불가
+        meta = json.loads(r["meta"] or "{}")
+        if "images" not in meta:
+            out.append(r["id"])
+        if limit and len(out) >= limit:
+            break
+    return out
 
 
 def documents_missing_minhash(conn: sqlite3.Connection, limit: int = 0) -> list[str]:

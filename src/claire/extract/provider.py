@@ -216,12 +216,18 @@ class MockProvider:
         return f"[mock] {query} :: {context[:120]}"
 
     def render_detail(self, doc: Document) -> str:
-        """결정론적 stub — 문서 가독 렌더링(detail) 파이프라인 연결만 보장.
+        """결정론적 stub — 문서 가독 렌더링(detail, 마크다운) 파이프라인 연결만 보장.
 
-        실제 분량/품질(A4 1~2장)은 실 Gemini 로 검증한다."""
+        실제 분량/품질(A4 1~2장 마크다운+강조+이미지 큐레이션)은 실 Gemini 로 검증한다.
+        여기선 마크다운 구조·강조·수집 이미지가 detail 로 흘러가는지(배선)만 보장한다."""
         title = (doc.title or doc.url or "untitled").strip()
         text = (doc.raw_text or "").strip()
-        return f"[mock-detail] {title}\n\n{text[:600]}"
+        images = (doc.meta or {}).get("images") or []
+        parts = [f"[mock-detail] **{title}**", "", text[:600]]
+        if images:  # 수집된 첫 이미지를 마크다운으로 끼워 넣어 보존 경로를 드러냄
+            im = images[0]
+            parts += ["", f"![{im.get('alt', '')}]({im.get('url', '')})"]
+        return "\n".join(parts)
 
     def research(self, query: str, context: str) -> dict:
         """결정론적 stub — 맥락 조사 파이프라인 연결용(실 조사는 Gemini+google_search).

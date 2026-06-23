@@ -183,16 +183,27 @@ class IngestService:
             except Exception as e:  # noqa: BLE001
                 return {"status": "error", "document_id": document_id, "error": str(e)}
 
-            if doc.content_hash == old["content_hash"]:
-                return {"status": "nochange", "document_id": document_id,
-                        "old_len": old_len, "new_len": len(doc.raw_text)}
-
-            # 같은 id 로 갱신(신규가 아니라 복원이므로 sources 연결 유지).
             doc.id = document_id
+            if doc.content_hash == old["content_hash"]:
+                # 본문은 그대로지만, 재fetch 로 새로 수집된 본문 이미지를 meta 에 보존하고
+                # detail(마크다운 가독 렌더)을 재생성한다 — 이미지/강조 백필 경로(사용자 요구).
+                # 그래프(엔티티)는 건드리지 않음(비파괴).
+                imgs = (doc.meta or {}).get("images")
+                if imgs is not None:
+                    dbm.set_document_images(conn, document_id, imgs)
+                from .pipeline import ensure_document_detail
+                detail_updated = ensure_document_detail(
+                    conn, self.provider, doc, force=True)
+                return {"status": "nochange", "document_id": document_id,
+                        "old_len": old_len, "new_len": len(doc.raw_text),
+                        "detail_updated": detail_updated,
+                        "images": len(imgs or [])}
+
+            # 같은 id 로 갱신(신규가 아니라 복원이므로 sources 연결 유지). meta(이미지 포함) 보존.
             dbm.update_document_content(
                 conn, document_id, title=doc.title, raw_text=doc.raw_text,
                 content_hash=doc.content_hash, fetched_at=doc.fetched_at,
-                source_type=doc.source_type, partial=doc.partial)
+                source_type=doc.source_type, partial=doc.partial, meta=doc.meta)
             try:
                 from ..store.raw import save_artifact
 
@@ -249,6 +260,29 @@ class IngestService:
                 if not payload:
                     continue  # url 없는 순수 텍스트는 재fetch 불가 → 스킵
                 dbm.enqueue_refresh(conn, document_id=r["id"], payload=payload, reason=reason)
+                n += 1
+            return n
+        finally:
+            conn.close()
+
+    def mark_all_for_image_backfill(self, *, limit: int = 0) -> int:
+        """본문 이미지가 없는(이미지 수집 이전 적재) 문서를 재fetch 대상으로 등록.
+
+        기존 claire_refresh 컨테이너(주기·소량 처리)가 큐를 **며칠에 걸쳐 천천히** 드레인
+        하며 각 문서를 재fetch → 이미지 수집 + detail(마크다운/강조) 재생성한다. 본문이
+        안 바뀐 문서는 그래프 불변(비파괴), 바뀐 문서만 재추출(refresh 본래 동작). 등록 수 반환.
+        """
+        conn = dbm.connect(self.s.db_file)
+        dbm.init_db(conn)
+        try:
+            ids = dbm.documents_missing_images(conn, limit=limit)
+            n = 0
+            for did in ids:
+                row = dbm.get_document_row(conn, did)
+                if not row or not row["url"]:
+                    continue
+                dbm.enqueue_refresh(conn, document_id=did, payload=row["url"],
+                                    reason="image-backfill")
                 n += 1
             return n
         finally:

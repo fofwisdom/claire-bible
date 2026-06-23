@@ -54,8 +54,8 @@ def test_strip_html_multiroot_safe():
 
 # --- fetch_web fallback 체인 + thin-guard ---
 
-def _patch_chain(monkeypatch, *, static=("T", "", [], {}, None, None),
-                 discourse=None, scrapling=(None, "", [], {}), stealth=(None, "")):
+def _patch_chain(monkeypatch, *, static=("T", "", [], {}, None, None, []),
+                 discourse=None, scrapling=(None, "", [], {}, []), stealth=(None, "")):
     monkeypatch.setattr(web, "_fetch_static", lambda url: static)
     monkeypatch.setattr(web, "_fetch_scrapling", lambda url: scrapling)
     monkeypatch.setattr(web, "_fetch_stealth", lambda url: stealth)
@@ -65,7 +65,7 @@ def _patch_chain(monkeypatch, *, static=("T", "", [], {}, None, None),
 
 def test_static_rich_used_directly(monkeypatch):
     body = "x" * 500
-    _patch_chain(monkeypatch, static=("Title", body, ["https://a"], {}, None, None))
+    _patch_chain(monkeypatch, static=("Title", body, ["https://a"], {}, None, None, []))
     doc = web.fetch_web("https://example.com/post")
     assert doc.title == "Title"
     assert len(doc.raw_text) == 500
@@ -80,7 +80,7 @@ def test_canonical_uses_effective_url(monkeypatch):
     """
     body = "x" * 500
     eff = "https://example.com/real-article"
-    _patch_chain(monkeypatch, static=("T", body, [], {}, None, eff))
+    _patch_chain(monkeypatch, static=("T", body, [], {}, None, eff, []))
     doc = web.fetch_web("https://www.example.com/r?utm_source=tw&fbclid=123")
     assert doc.canonical_url == "https://example.com/real-article"
     assert doc.meta["effective_url"] == eff
@@ -90,8 +90,8 @@ def test_canonical_falls_back_to_input_when_no_effective(monkeypatch):
     """static 이 effective 를 못 주면(scrapling 으로 본문 확보 등) 입력 url 로 폴백."""
     rich = "y" * 400
     _patch_chain(monkeypatch,
-                 static=(None, "", [], {}, "http 403", None),
-                 scrapling=("스텔스 제목", rich, [], {}))
+                 static=(None, "", [], {}, "http 403", None, []),
+                 scrapling=("스텔스 제목", rich, [], {}, []))
     doc = web.fetch_web("https://openai.com/index/foo/")
     assert doc.meta["fetch_via"] == "scrapling"
     # 입력 url 폴백이되 canonicalize 는 적용(끝슬래시 제거).
@@ -101,7 +101,7 @@ def test_canonical_falls_back_to_input_when_no_effective(monkeypatch):
 def test_discourse_escalation_when_static_thin(monkeypatch):
     rich = "본문 " * 200  # >300
     _patch_chain(monkeypatch,
-                 static=("제목만", "짧음", [], {}, None, None),
+                 static=("제목만", "짧음", [], {}, None, None, []),
                  discourse=("디스코스 제목", rich, ["https://ref"]))
     doc = web.fetch_web("https://discuss.pytorch.kr/t/foo/1")
     assert doc.meta["fetch_via"] == "discourse"
@@ -112,7 +112,7 @@ def test_discourse_escalation_when_static_thin(monkeypatch):
 def test_stealth_escalation_when_others_thin(monkeypatch):
     rich = "y" * 400
     _patch_chain(monkeypatch,
-                 static=("t", "tiny", [], {}, None, None),
+                 static=("t", "tiny", [], {}, None, None, []),
                  discourse=None,
                  stealth=("stealth title", rich))
     doc = web.fetch_web("https://js-only.example/app")
@@ -123,7 +123,7 @@ def test_stealth_escalation_when_others_thin(monkeypatch):
 def test_thin_guard_raises_when_all_fail(monkeypatch):
     # static 빈약 + discourse 없음 + stealth 빈 → 실패(제목만 적재 방지)
     _patch_chain(monkeypatch,
-                 static=("제목만 있음", "73자정도의짧은본문", [], {}, None, None),
+                 static=("제목만 있음", "73자정도의짧은본문", [], {}, None, None, []),
                  discourse=None, stealth=(None, ""))
     with pytest.raises(FetchError):
         web.fetch_web("https://discuss.pytorch.kr/t/thin/999")
@@ -132,3 +132,48 @@ def test_thin_guard_raises_when_all_fail(monkeypatch):
 def test_min_content_threshold_separates_measured_data():
     # 측정 근거: 정상 최소 ~1296, 실패 73~111 → 300 이 그 사이
     assert 111 < web.MIN_CONTENT < 1296
+
+
+# --- 본문 이미지 수집(휴리스틱) ---
+
+def test_extract_images_keeps_content_drops_noise():
+    """다이어그램/스크린샷 같은 콘텐츠 이미지는 남기고 로고·아이콘·아바타·1x1 추적픽셀은 거른다."""
+    html = (
+        '<html><head>'
+        '<meta property="og:image" content="https://cdn.example.com/hero.png">'
+        '</head><body>'
+        '<nav><img src="https://cdn.example.com/logo.svg" alt="logo"></nav>'
+        '<article>'
+        '<p>본문</p>'
+        '<figure><img src="/img/diagram.png" alt="아키텍처 다이어그램">'
+        '<figcaption>그림 1. 전체 구조</figcaption></figure>'
+        '<img src="https://cdn.example.com/avatar.jpg" alt="user avatar">'
+        '<img src="https://t.example.com/pixel.gif" width="1" height="1">'
+        '<img src="https://cdn.example.com/icon-share.png" alt="share">'
+        '<img src="https://cdn.example.com/screenshot.png" alt="실행 화면" '
+        'width="800" height="600">'
+        '</article></body></html>'
+    )
+    _, _, _, _, _, images = web._extract_html(html, base_url="https://example.com/post")
+    urls = [im["url"] for im in images]
+    # 상대경로는 절대경로화 + 콘텐츠 이미지 보존
+    assert "https://example.com/img/diagram.png" in urls
+    assert "https://cdn.example.com/screenshot.png" in urls
+    assert "https://cdn.example.com/hero.png" in urls          # og:image 대표
+    # 잡음 제거
+    assert all("logo" not in u for u in urls)        # nav 안(제거) + logo 패턴
+    assert all("avatar" not in u for u in urls)
+    assert all("pixel" not in u for u in urls)       # 1x1 추적픽셀
+    assert all("icon" not in u for u in urls)
+    # 캡션/alt 보존(LLM 배치 단서)
+    diagram = next(im for im in images if im["url"].endswith("diagram.png"))
+    assert diagram["alt"] == "아키텍처 다이어그램"
+    assert "전체 구조" in diagram["caption"]
+
+
+def test_fetch_web_carries_images_into_meta(monkeypatch):
+    body = "본문 " * 200
+    imgs = [{"url": "https://x/d.png", "alt": "도식", "caption": ""}]
+    _patch_chain(monkeypatch, static=("T", body, [], {}, None, None, imgs))
+    doc = web.fetch_web("https://example.com/post")
+    assert doc.meta["images"] == imgs

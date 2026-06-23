@@ -175,61 +175,116 @@ GRAPH_HTML = """<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>claire_bible — 지식 그래프</title>
 <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+<script src="https://unpkg.com/marked@4.3.0/marked.min.js"></script>
+<script src="https://unpkg.com/dompurify@3.1.6/dist/purify.min.js"></script>
+<script>
+  // 깜빡임 방지: 페인트 전에 저장된 테마를 documentElement 에 적용. 기본값=light(사용자 요구).
+  (function(){ try{ var t=localStorage.getItem('claireTheme')||'light';
+    document.documentElement.setAttribute('data-theme', t); }catch(e){
+    document.documentElement.setAttribute('data-theme','light'); } })();
+</script>
 <style>
-  html,body{margin:0;height:100%;font-family:system-ui,sans-serif;background:#0e1116;color:#d7dbe0}
-  #bar{display:flex;align-items:center;gap:6px;padding:6px 12px;background:#161b22;border-bottom:1px solid #2a2f37;font-size:13px;white-space:nowrap}
+  /* 라이트 기본(:root) + 다크 옵션([data-theme=dark]). 색은 전부 CSS 변수로 — vis 캔버스
+     색만 JS(THEMES)로 따로 갱신(캔버스는 CSS 변수가 안 닿음). */
+  :root{
+    --bg:#ffffff; --fg:#1f2328; --muted:#656d76; --bar-bg:#f6f8fa; --border:#d0d7de;
+    --panel-bg:#f6f8fa; --docs-bg:#f6f8fa; --accent:#0969da; --accent2:#1a7f37;
+    --chip-bg:#eaeef2; --hover:#eef1f4; --active:#ddf4ff; --net-bg:#ffffff;
+    --card-bg:#ffffff; --detail-bg:#ffffff; --mark-bg:#fff8c5; --mark-fg:#633c01;
+    --btn-bg:#1f883d; --btn-fg:#ffffff; --sec-bg:#eaeef2; --sec-fg:#24292f;
+    --rel:#9a6700; --nodebtn-hover:#dde3ea; --shadow:rgba(31,35,40,.28);
+  }
+  [data-theme="dark"]{
+    --bg:#0e1116; --fg:#d7dbe0; --muted:#8b949e; --bar-bg:#161b22; --border:#2a2f37;
+    --panel-bg:#10151c; --docs-bg:#10151c; --accent:#58a6ff; --accent2:#7ee787;
+    --chip-bg:#1f2937; --hover:#161b22; --active:#1f2937; --net-bg:#0e1116;
+    --card-bg:#161b22; --detail-bg:#0e1116; --mark-bg:#4d3800; --mark-fg:#ffdf5d;
+    --btn-bg:#238636; --btn-fg:#ffffff; --sec-bg:#30363d; --sec-fg:#d7dbe0;
+    --rel:#d29922; --nodebtn-hover:#2a3344; --shadow:rgba(1,4,9,.6);
+  }
+  html,body{margin:0;height:100%;font-family:system-ui,sans-serif;background:var(--bg);color:var(--fg)}
+  #bar{display:flex;align-items:center;gap:6px;padding:6px 12px;background:var(--bar-bg);border-bottom:1px solid var(--border);font-size:13px;white-space:nowrap}
   #bar .brand{font-weight:600}
-  #bar b{color:#7ee787}
+  #bar b{color:var(--accent2)}
   .spacer{flex:1}
-  #stat{color:#8b949e;text-align:right}
-  #authstate{padding:2px 7px;border:1px solid #2a2f37;border-radius:4px}
+  #stat{color:var(--muted);text-align:right}
+  #authstate{padding:2px 7px;border:1px solid var(--border);border-radius:4px}
+  #themebtn{background:transparent;color:var(--fg);border:1px solid var(--border);padding:3px 8px;font-size:14px}
+  #themebtn:hover{background:var(--hover)}
   #synthchips{display:flex;gap:4px;overflow:hidden;max-width:280px}
-  #synthchips .chip{background:#1f2937;border-radius:10px;padding:1px 7px;font-size:11px;cursor:pointer}
-  #legendbar{display:flex;flex-wrap:wrap;gap:10px;padding:4px 12px;background:#10151c;border-bottom:1px solid #2a2f37;font-size:11px;color:#8b949e}
+  #synthchips .chip{background:var(--chip-bg);border-radius:10px;padding:1px 7px;font-size:11px;cursor:pointer}
+  #legendbar{display:flex;flex-wrap:wrap;gap:10px;padding:4px 12px;background:var(--panel-bg);border-bottom:1px solid var(--border);font-size:11px;color:var(--muted)}
   #legendbar i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:3px;vertical-align:middle}
   #wrap{display:flex;height:calc(100% - 68px)}
-  #net{flex:1;min-width:0}
-  #docs{width:280px;overflow:auto;background:#10151c;border-right:1px solid #2a2f37;font-size:12px}
-  #docs .dhead{padding:8px 10px;border-bottom:1px solid #2a2f37;position:sticky;top:0;background:#10151c;z-index:2}
-  .dday{position:sticky;top:37px;background:#161b22;color:#7ee787;font-size:11px;padding:3px 10px;border-bottom:1px solid #2a2f37;z-index:1}
-  .docitem{padding:7px 10px;border-bottom:1px solid #1c2330;cursor:pointer}
-  .docitem:hover{background:#161b22}
-  .docitem.active{background:#1f2937;border-left:3px solid #7ee787}
-  .docitem b{font-size:12px} .docitem .st{color:#6e7681;font-size:10px;margin-left:6px}
-  .docitem p{margin:.2em 0 0;color:#8b949e;font-size:11px}
-  #panel{width:360px;overflow:auto;padding:14px 16px;background:#10151c;border-left:1px solid #2a2f37;font-size:13px;line-height:1.5}
-  #panel h2{margin:.2em 0;font-size:18px} #panel h2 small{color:#8b949e;font-size:12px;font-weight:normal}
-  #panel h3{margin:1em 0 .3em;font-size:13px;color:#7ee787;border-bottom:1px solid #2a2f37;padding-bottom:2px}
+  #net{flex:1;min-width:0;background:var(--net-bg)}
+  #docs{width:280px;overflow:auto;background:var(--docs-bg);border-right:1px solid var(--border);font-size:12px}
+  #docs .dhead{padding:8px 10px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--docs-bg);z-index:2}
+  .dday{position:sticky;top:37px;background:var(--bar-bg);color:var(--accent2);font-size:11px;padding:3px 10px;border-bottom:1px solid var(--border);z-index:1}
+  .docitem{padding:7px 10px;border-bottom:1px solid var(--border);cursor:pointer;position:relative}
+  .docitem:hover{background:var(--hover)}
+  .docitem.active{background:var(--active);border-left:3px solid var(--accent2)}
+  .docitem b{font-size:12px} .docitem .st{color:var(--muted);font-size:10px;margin-left:6px}
+  .docitem p{margin:.2em 0 0;color:var(--muted);font-size:11px}
+  /* 좌측 문서의 '읽기' 버튼 — 클릭=nav 와 분리(이 버튼만 팝업 읽기). */
+  .docitem .readbtn{position:absolute;top:6px;right:7px;background:var(--sec-bg);color:var(--sec-fg);
+    border:1px solid var(--border);border-radius:4px;padding:1px 6px;font-size:11px;cursor:pointer;opacity:.85}
+  .docitem .readbtn:hover{opacity:1;border-color:var(--accent)}
+  #panel{width:360px;overflow:auto;padding:14px 16px;background:var(--panel-bg);border-left:1px solid var(--border);font-size:13px;line-height:1.5}
+  #panel h2{margin:.2em 0;font-size:18px} #panel h2 small{color:var(--muted);font-size:12px;font-weight:normal}
+  #panel h3{margin:1em 0 .3em;font-size:13px;color:var(--accent2);border-bottom:1px solid var(--border);padding-bottom:2px}
   #panel ul{margin:.2em 0;padding-left:18px} #panel li{margin:.25em 0}
-  #panel .doc{margin:.5em 0;padding:6px 8px;background:#161b22;border-radius:5px}
-  #panel .doc p{margin:.3em 0 0;color:#adbac7} #panel a{color:#58a6ff;text-decoration:none}
-  /* 자세히 읽기 토글 — .doc(노드 상세) 안팎(문서 패널) 모두 동일 UI 공유(피드백). */
-  #panel details.more{margin:.4em 0}
-  #panel details.more>summary{cursor:pointer;color:#58a6ff;font-size:12px;list-style:none}
-  #panel details.more>summary::-webkit-details-marker{display:none}
-  #panel .detail{white-space:pre-wrap;margin:.4em 0;padding:8px 10px;background:#0e1116;border:1px solid #2a2f37;border-radius:5px;color:#c9d1d9;line-height:1.65;font-size:12.5px;max-height:50vh;overflow:auto}
+  #panel .doc{margin:.5em 0;padding:6px 8px;background:var(--card-bg);border-radius:5px}
+  #panel .doc p{margin:.3em 0 0;color:var(--fg)} #panel a{color:var(--accent);text-decoration:none}
   #panel .doc p.src{margin-top:.45em}
-  #panel .docmeta{color:#8b949e;font-size:11px;margin:.1em 0 .6em}
+  #panel .docmeta{color:var(--muted);font-size:11px;margin:.1em 0 .6em}
+  #panel .readbtn{background:var(--accent);color:#fff;border:0;border-radius:4px;padding:3px 10px;font-size:12px;cursor:pointer;margin:.2em 0}
   #panel .nodebtns{display:flex;flex-wrap:wrap;gap:5px;margin:.3em 0}
-  #panel .nodebtn{background:#1c2330;color:#d7dbe0;border:1px solid #2a2f37;border-radius:12px;
+  #panel .nodebtn{background:var(--chip-bg);color:var(--fg);border:1px solid var(--border);border-radius:12px;
     padding:3px 9px;font-size:11.5px;cursor:pointer;max-width:100%;overflow:hidden;
     text-overflow:ellipsis;white-space:nowrap}
-  #panel .nodebtn:hover{background:#2a3344;border-color:#7ee787}
+  #panel .nodebtn:hover{background:var(--nodebtn-hover);border-color:var(--accent2)}
   #panel .nodebtn i{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px;vertical-align:middle}
-  #panel .backlink{display:inline-block;margin:0 0 .6em;color:#58a6ff;font-size:12px;cursor:pointer}
-  #panel .rel{color:#d29922;font-size:11px} #panel .al{color:#8b949e}
-  #panel .hint{color:#6e7681;margin-top:1em}
-  #panel .synth{white-space:pre-wrap;background:#161b22;border:1px solid #2a2f37;border-radius:5px;padding:10px;margin:.4em 0;line-height:1.6}
+  #panel .backlink{display:inline-block;margin:0 0 .6em;color:var(--accent);font-size:12px;cursor:pointer}
+  #panel .rel{color:var(--rel);font-size:11px} #panel .al{color:var(--muted)}
+  #panel .hint{color:var(--muted);margin-top:1em}
+  #panel .synth{white-space:pre-wrap;background:var(--card-bg);border:1px solid var(--border);border-radius:5px;padding:10px;margin:.4em 0;line-height:1.6}
   #panel .research{display:flex;gap:6px;margin:.4em 0}
   #panel .research input{flex:1;min-width:0}
-  #panel .meter{color:#8b949e;font-size:11px}
-  #rprog{margin:.3em 0;padding-left:18px} #rprog li{margin:.3em 0;color:#8b949e;font-size:12px}
-  input{background:#0e1116;color:#d7dbe0;border:1px solid #2a2f37;border-radius:4px;padding:3px 8px;font-size:13px}
+  #panel .meter{color:var(--muted);font-size:11px}
+  #rprog{margin:.3em 0;padding-left:18px} #rprog li{margin:.3em 0;color:var(--muted);font-size:12px}
+  input{background:var(--bg);color:var(--fg);border:1px solid var(--border);border-radius:4px;padding:3px 8px;font-size:13px}
   #q{width:150px}
-  button{background:#238636;color:#fff;border:0;border-radius:4px;padding:4px 10px;cursor:pointer;font-size:13px}
-  button:hover{background:#2ea043}
-  button.sec{background:#30363d} button.sec:hover{background:#3c444d}
+  button{background:var(--btn-bg);color:var(--btn-fg);border:0;border-radius:4px;padding:4px 10px;cursor:pointer;font-size:13px}
+  button:hover{filter:brightness(1.08)}
+  button.sec{background:var(--sec-bg);color:var(--sec-fg)}
   #fslider{width:100px;vertical-align:middle}
+  /* ==형광== 강조 — render_detail/요약이 LLM 으로 표시한 핵심 구절(마크다운 후 <mark>). */
+  mark{background:var(--mark-bg);color:var(--mark-fg);padding:0 .15em;border-radius:2px}
+  /* --- 마크다운 본문(읽기 팝업 + 패널 detail) --- */
+  .md{line-height:1.7;font-size:14px;word-break:break-word}
+  .md h1{font-size:1.5em} .md h2{font-size:1.3em;margin:1.1em 0 .4em;border-bottom:1px solid var(--border);padding-bottom:.2em}
+  .md h3{font-size:1.12em;margin:1em 0 .35em;color:var(--fg);border:0}
+  .md p{margin:.6em 0} .md ul,.md ol{margin:.5em 0;padding-left:1.5em} .md li{margin:.3em 0}
+  .md strong{color:var(--fg)} .md a{color:var(--accent)}
+  .md img{max-width:100%;height:auto;display:block;margin:.8em auto;border-radius:6px;border:1px solid var(--border)}
+  .md em{color:var(--muted)} .md blockquote{margin:.6em 0;padding:.2em .9em;border-left:3px solid var(--border);color:var(--muted)}
+  .md code{background:var(--chip-bg);padding:.1em .35em;border-radius:3px;font-size:.9em}
+  .md pre{background:var(--card-bg);border:1px solid var(--border);border-radius:6px;padding:.8em;overflow:auto}
+  .md table{border-collapse:collapse;margin:.6em 0} .md th,.md td{border:1px solid var(--border);padding:.3em .6em}
+  /* --- 중앙 읽기 팝업(모달) — 좌측 문서의 '읽기' 버튼으로 연다(nav 와 분리, 사용자 요구) --- */
+  #reader{position:fixed;inset:0;background:var(--shadow);display:none;z-index:50;
+    align-items:flex-start;justify-content:center;padding:4vh 16px;overflow:auto}
+  #reader.open{display:flex}
+  #reader .sheet{background:var(--bg);color:var(--fg);max-width:820px;width:100%;border-radius:10px;
+    border:1px solid var(--border);box-shadow:0 12px 40px var(--shadow);padding:0 0 28px;
+    max-height:92vh;display:flex;flex-direction:column}
+  #reader .rhead{display:flex;align-items:flex-start;gap:10px;padding:16px 22px;border-bottom:1px solid var(--border);
+    position:sticky;top:0;background:var(--bg);border-radius:10px 10px 0 0;z-index:1}
+  #reader .rhead h1{margin:0;font-size:20px;flex:1} #reader .rhead .rmeta{color:var(--muted);font-size:12px;margin-top:.3em;font-weight:normal}
+  #reader .rclose{background:var(--sec-bg);color:var(--sec-fg);border:0;border-radius:6px;font-size:18px;
+    line-height:1;padding:5px 11px;cursor:pointer}
+  #reader .rbody{padding:8px 26px 0;overflow:auto}
+  #reader .rsection{color:var(--muted);font-size:11px;letter-spacing:.04em;text-transform:uppercase;margin:1.2em 0 .2em}
   /* 모바일/좁은 화면: 가로 3분할 대신 세로 스택(그래프 먼저). 모든 기능 터치로 도달 가능. */
   @media (max-width:820px){
     #bar{white-space:normal;flex-wrap:wrap;gap:4px 8px}
@@ -239,10 +294,12 @@ GRAPH_HTML = """<!doctype html>
     /* flex:none 필수 — base 의 flex:1(basis 0%)이 height:58vh 를 무력화해 #net 이
        min-height 까지 쪼그라들던 버그(이슈1). 명시 높이를 쓰려면 flex 를 꺼야 한다. */
     #net{order:-1;flex:none;height:58vh;min-height:340px;width:100%}
-    #docs{width:auto;max-height:34vh;border-right:none;border-bottom:1px solid #2a2f37}
+    #docs{width:auto;max-height:34vh;border-right:none;border-bottom:1px solid var(--border)}
     #docs .dhead{position:static}
-    #panel{width:auto;border-left:none;border-top:2px solid #2a2f37}
+    #panel{width:auto;border-left:none;border-top:2px solid var(--border)}
     #panel .hint br{display:none}
+    #reader{padding:0} #reader .sheet{max-height:100vh;border-radius:0;height:100vh}
+    #reader .rbody{padding:8px 16px 0}
   }
 </style></head>
 <body>
@@ -255,6 +312,7 @@ GRAPH_HTML = """<!doctype html>
   <button id="synthbtn" onclick="synth()">🧩 종합 (0)</button>
   <label>연결 ≥ <b id="fmin">0</b> <input id="fslider" type="range" min="0" max="0" value="0" oninput="setDeg(this.value)"/></label>
   <span class="spacer"></span>
+  <button id="themebtn" title="라이트/다크 전환" onclick="toggleTheme()">🌙</button>
   <span id="authstate">🔒 인증됨</span>
   <span id="stat">로딩…</span>
 </div>
@@ -265,11 +323,26 @@ GRAPH_HTML = """<!doctype html>
   <div id="net"></div>
   <div id="panel"></div>
 </div>
+<!-- 중앙 읽기 팝업: 좌측 문서의 '읽기' 버튼/노드 상세의 📖 로 연다(마크다운·이미지 렌더). -->
+<div id="reader" onclick="if(event.target===this)closeReader()">
+  <div class="sheet">
+    <div class="rhead"><h1 id="rtitle"></h1><button class="rclose" onclick="closeReader()" title="닫기(ESC)">✕</button></div>
+    <div class="rbody" id="rbody"></div>
+  </div>
+</div>
 <script>
-const TYPE_COLORS = {Tool:'#58a6ff',Framework:'#bc8cff',Model:'#f778ba',Paper:'#d29922',
-  Article:'#7ee787',Repo:'#39c5cf',Concept:'#ff7b72',Person:'#ffa657',Org:'#e3b341',
-  Event:'#a5d6ff',Note:'#8b949e'};
+const TYPE_COLORS = {Tool:'#1f6feb',Framework:'#8957e5',Model:'#bf3989',Paper:'#bf8700',
+  Article:'#1a7f37',Repo:'#1b7c83',Concept:'#cf222e',Person:'#bc4c00',Org:'#9a6700',
+  Event:'#0969da',Note:'#6e7781'};
 const DIM = 0.16;
+// vis 캔버스는 CSS 변수가 안 닿아 테마별 색을 JS 로 직접 갱신한다(노드 글자/엣지/테두리).
+const THEMES = {
+  light:{nodeFont:'#1f2328', edge:'#c4ccd6', edgeHi:'#1a7f37', nodeBorder:'#d0d7de', lit:'#0969da'},
+  dark: {nodeFont:'#d7dbe0', edge:'#3a4250', edgeHi:'#7ee787', nodeBorder:'#2a2f37', lit:'#ffffff'},
+};
+function curTheme(){ return document.documentElement.getAttribute('data-theme')==='dark'?'dark':'light'; }
+function T(){ return THEMES[curTheme()] || THEMES.light; }
+let allTypes=[];
 let net, allNodes, allEdges, allDocs=[];
 let curMinDeg=0, activeDoc=null, highlightSet=null, selectedNodeId=null, hoverTimer=null;
 let docPanelHtml=null;   // 현재 문서 패널 HTML — hover 미리보기 후 blur 시 fetch 없이 복원
@@ -278,9 +351,62 @@ let clusterAnchor=null;  // 검색 시 중앙 앵커 노드 id(매칭은 끌고 
 let searchDebounce=null; // 라벨검색 디바운스 타이머 — 타이핑 멈춘 뒤에만 검색 실행
 let synthSet=new Set();
 const panel = document.getElementById('panel');
-const DEFAULT_HINT = '<p class="hint">노드를 클릭하면 관찰·출처 문서·연결이 표시됩니다.<br><br>• <b>Ctrl+클릭</b> 또는 상세의 <b>➕ 종합에 추가</b>로 여러 노드를 모아 종합<br>• 다른 노드에 <b>1초</b> 올리면 미리보기(벗어나면 복귀)<br>• 좌측 문서를 누르면 <b>요약·전문·노드 버튼</b>이 여기 표시됩니다</p>';
+const DEFAULT_HINT = '<p class="hint">노드를 클릭하면 관찰·출처 문서·연결이 표시됩니다.<br><br>• <b>Ctrl+클릭</b> 또는 상세의 <b>➕ 종합에 추가</b>로 여러 노드를 모아 종합<br>• 다른 노드에 <b>1초</b> 올리면 미리보기(벗어나면 복귀)<br>• 좌측 문서를 <b>클릭</b>하면 그래프에서 강조(nav), <b>📖</b> 버튼을 누르면 <b>크게 읽기(팝업)</b><br>• 우측 위 <b>🌙/🌞</b> 로 라이트·다크 전환</p>';
 panel.innerHTML = DEFAULT_HINT;
 function esc(s){return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+
+// 타입별 노드 그룹 색(테마별 테두리). 테마 전환 시 다시 만들어 setOptions 로 적용.
+function buildGroups(){ const g={}, th=T();
+  allTypes.forEach(t=>{ const c=TYPE_COLORS[t]||'#8b949e';
+    g[t]={color:{background:c,border:th.nodeBorder,highlight:{background:c,border:th.lit}}}; });
+  return g; }
+function syncThemeBtn(){ const b=document.getElementById('themebtn');
+  if(b) b.textContent = curTheme()==='dark'?'🌞':'🌙'; }
+// 라이트/다크 전환 — localStorage 영속 + vis 캔버스 색(글자/엣지/테두리) 즉시 갱신.
+function toggleTheme(){ const next = curTheme()==='dark'?'light':'dark';
+  document.documentElement.setAttribute('data-theme', next);
+  try{ localStorage.setItem('claireTheme', next); }catch(e){}
+  syncThemeBtn();
+  if(net){ const th=T();
+    net.setOptions({nodes:{font:{color:th.nodeFont}},
+      edges:{color:{color:th.edge,highlight:th.edgeHi},font:{color:th.nodeFont}},
+      groups:buildGroups()});
+    applyView(); }   // 노드별 테두리(lit/normal)도 새 테마 색으로 다시 칠함
+}
+
+// 마크다운 → 안전한 HTML. ==형광== 은 <mark> 로(LLM 이 표시한 핵심 강조). DOMPurify 로
+// 스크랩 본문 유래 스크립트/위험 태그를 제거(이미지·강조·링크는 허용).
+function renderMarkdown(src){
+  if(!src) return '';
+  let s = String(src).replace(/==([^=\\n]+)==/g, '<mark>$1</mark>');
+  let html;
+  try{ html = (window.marked ? (marked.parse ? marked.parse(s) : marked(s)) : esc(s)); }
+  catch(e){ html = esc(s).replace(/\\n/g,'<br>'); }
+  return window.DOMPurify ? DOMPurify.sanitize(html, {ADD_ATTR:['target']}) : html;
+}
+
+// 중앙 읽기 팝업 — 좌측 문서의 '읽기' 버튼/노드 상세의 📖 로 연다(nav 와 분리, 사용자 요구).
+function openReader(docId){
+  const r=document.getElementById('reader');
+  document.getElementById('rtitle').textContent='문서 불러오는 중…';
+  document.getElementById('rbody').innerHTML='';
+  r.classList.add('open');
+  fetch('document?id='+encodeURIComponent(docId)).then(x=>x.json()).then(dc=>{
+    if(!dc || dc.error){ document.getElementById('rbody').innerHTML='<p class=hint>문서를 찾을 수 없습니다.</p>'; return; }
+    renderReader(dc);
+  }).catch(()=>{ document.getElementById('rbody').innerHTML='<p class=hint>문서 로드 실패.</p>'; });
+}
+function renderReader(dc){
+  document.getElementById('rtitle').innerHTML = esc(dc.title||'(제목 없음)')
+    + (dc.source_type?' <span class=rmeta>'+esc(dc.source_type)+'</span>':'');
+  let h='';
+  if(dc.url) h+='<p class=docmeta><a href="'+esc(dc.url)+'" target=_blank rel=noopener>↗ 원문 열기</a></p>';
+  if(dc.summary) h+='<div class=rsection>요약</div><div class="md">'+renderMarkdown(dc.summary)+'</div>';
+  if(dc.detail) h+='<div class=rsection>자세히 읽기</div><div class="md">'+renderMarkdown(dc.detail)+'</div>';
+  if(!dc.summary && !dc.detail) h+='<p class=hint>이 문서의 요약/전문이 아직 없습니다.</p>';
+  const body=document.getElementById('rbody'); body.innerHTML=h; body.scrollTop=0;
+}
+function closeReader(){ document.getElementById('reader').classList.remove('open'); }
 // 캔버스를 #net 박스의 실제 픽셀 크기에 맞춰 재설정(이슈1: 모바일에서 vis 가 생성 시점의
 // 미해결 높이로 캔버스를 150px 로 잡아 상단 일부만 차지하던 버그). '100%' 는 flex/auto
 // 체인에서 안 먹어서 getBoundingClientRect 의 실측 px 로 강제한다. ResizeObserver 가
@@ -314,16 +440,16 @@ fetch('graph').then(r=>r.json()).then(d=>{
   allNodes = new vis.DataSet(d.nodes);
   allEdges = new vis.DataSet(d.edges);
   const sl = document.getElementById('fslider'); sl.max = d.stats.max_degree; sl.value = 0;
-  const types=[...new Set(d.nodes.map(n=>n.group))].sort();
-  document.getElementById('legendbar').innerHTML = types.map(t=>
+  allTypes=[...new Set(d.nodes.map(n=>n.group))].sort();
+  document.getElementById('legendbar').innerHTML = allTypes.map(t=>
     '<span><i style="background:'+(TYPE_COLORS[t]||'#8b949e')+'"></i>'+esc(t)+'</span>').join('');
-  // 선택 노드는 흰색 굵은 테두리 — 기존 녹색(#7ee787)은 어두운 배경에서 안 보임(피드백).
-  const groups={}; types.forEach(t=>{ const c=TYPE_COLORS[t]||'#8b949e';
-    groups[t]={color:{background:c,border:'#2a2f37',highlight:{background:c,border:'#ffffff'}}}; });
+  const th=T();
+  // 선택/강조 노드는 테마별 강조 테두리(다크=흰색, 라이트=파랑) — dim 만으론 안 띄어서(피드백).
   const opts = {
-    nodes:{shape:'dot',size:14,font:{color:'#d7dbe0',size:13},borderWidth:1,borderWidthSelected:3},
-    edges:{color:{color:'#3a4250',highlight:'#7ee787'},font:{color:'#8b949e',size:10},smooth:false},
-    groups, physics:{stabilization:{iterations:200},barnesHut:{gravitationalConstant:-8000,springLength:120}},
+    nodes:{shape:'dot',size:14,font:{color:th.nodeFont,size:13},borderWidth:1,borderWidthSelected:3},
+    edges:{color:{color:th.edge,highlight:th.edgeHi},font:{color:th.nodeFont,size:10},smooth:false},
+    groups:buildGroups(),
+    physics:{stabilization:{iterations:200},barnesHut:{gravitationalConstant:-8000,springLength:120}},
     interaction:{hover:true,tooltipDelay:120,multiselect:true}
   };
   net = new vis.Network(document.getElementById('net'), {nodes:allNodes, edges:allEdges}, opts);
@@ -370,7 +496,10 @@ function clearSelections(){
   unclusterEdges();   // 검색으로 뭉치게 한 임시 spring 엣지 제거 → 물리가 원래대로
   applyView();
 }
-document.addEventListener('keydown', e=>{ if(e.key==='Escape') clearSelections(); });
+document.addEventListener('keydown', e=>{ if(e.key!=='Escape') return;
+  const r=document.getElementById('reader');
+  if(r && r.classList.contains('open')){ closeReader(); return; }   // 팝업 먼저 닫기
+  clearSelections(); });
 
 function loadNode(id, isHover){
   if(net && !isHover) net.selectNodes([id]);  // hover 미리보기는 선택을 바꾸지 않음
@@ -387,12 +516,11 @@ function renderPanel(d){
   if(d.observations.length){ h+='<h3>관찰 · 주장</h3><ul>'+
     d.observations.map(o=>'<li>'+esc(o)+'</li>').join('')+'</ul>'; }
   if(d.documents.length){ h+='<h3>출처 문서 ('+d.documents.length+')</h3>';
-    // 설명(summary) → 자세히 읽기(detail, 여러 단락) → 원문 링크 순(사용자 요구).
+    // 설명(summary) → 📖 읽기(중앙 팝업, 마크다운·이미지) → 원문 링크 순(사용자 요구).
     d.documents.forEach(dc=>{ h+='<div class=doc><b>'+esc(dc.title)+'</b>'+
       (dc.summary?'<p>'+esc(dc.summary)+'</p>':'')+
-      (dc.detail?'<details class=more><summary>📖 자세히 읽기</summary>'+
-        '<div class=detail>'+esc(dc.detail)+'</div></details>':'')+
-      (dc.url?'<p class=src><a href="'+esc(dc.url)+'" target=_blank>↗ 원문 열기</a></p>':'')+
+      ((dc.detail||dc.summary)?'<button class=readbtn onclick="openReader(\\''+dc.id+'\\')">📖 크게 읽기</button>':'')+
+      (dc.url?'<p class=src><a href="'+esc(dc.url)+'" target=_blank rel=noopener>↗ 원문 열기</a></p>':'')+
       '</div>'; }); }
   if(d.neighbors.length){ h+='<h3>연결 ('+d.neighbors.length+')</h3><ul>';
     d.neighbors.forEach(n=>{ const ar=n.dir=='out'?'→':'←';
@@ -497,10 +625,10 @@ function applyView(){
     if(highlightSet) match = match && highlightSet.has(n.id);  // 검색(라벨/의미) 강조 집합
     // 강조(문서 선택·검색) 매치 노드는 흰 굵은 테두리 — dim 만으론 안 띄어서(피드백).
     // 노드별 color 가 group 색을 덮으므로 background/highlight 를 같이 명시해 유지한다.
-    const lit = hasFilter && match, c = TYPE_COLORS[n.group]||'#8b949e';
+    const lit = hasFilter && match, c = TYPE_COLORS[n.group]||'#8b949e', th=T();
     allNodes.update({id:n.id, hidden:false, opacity: match?1:DIM, borderWidth: lit?3:1,
-      color:{background:c, border: lit?'#ffffff':'#2a2f37',
-             highlight:{background:c, border:'#ffffff'}}});
+      color:{background:c, border: lit?th.lit:th.nodeBorder,
+             highlight:{background:c, border:th.lit}}});
     shown++; if(match) emph++;
   });
   allEdges.forEach(e=>{
@@ -523,7 +651,9 @@ function renderDocs(filter){
   let html='', curDay=null;
   items.forEach(dc=>{ const day=dayOf(dc.fetched_at);
     if(day!==curDay){ html+='<div class=dday>'+day+'</div>'; curDay=day; }
+    // 클릭=그래프 nav(필터·이동), 📖 버튼=중앙 팝업으로 읽기(둘은 충돌하니 분리, 사용자 요구).
     html+='<div class="docitem'+(dc.id===activeDoc?' active':'')+'" onclick="selectDoc(\\''+dc.id+'\\')">'+
+      '<button class=readbtn title="크게 읽기" onclick="event.stopPropagation();openReader(\\''+dc.id+'\\')">📖</button>'+
       '<b>'+esc(dc.title)+'</b><span class=st>'+esc(dc.source_type||'')+'</span>'+
       (dc.summary?'<p>'+esc(dc.summary.slice(0,110))+'</p>':'')+'</div>'; });
   document.getElementById('doclist').innerHTML=html;
@@ -565,7 +695,9 @@ function docNodes(docId){
 }
 function renderDocPanel(dc){
   let h='<h2>'+esc(dc.title)+' <small>'+esc(dc.source_type||'')+'</small></h2>';
-  if(dc.url) h+='<p class=docmeta><a href="'+esc(dc.url)+'" target=_blank>↗ 원문 열기</a></p>';
+  if(dc.url) h+='<p class=docmeta><a href="'+esc(dc.url)+'" target=_blank rel=noopener>↗ 원문 열기</a></p>';
+  // 읽기는 중앙 팝업(마크다운·이미지)으로 — 그래프 nav 와 분리(사용자 요구).
+  if(dc.summary||dc.detail) h+='<button class=readbtn onclick="openReader(\\''+dc.id+'\\')">📖 크게 읽기</button>';
   if(dc.summary) h+='<h3>요약</h3><div class=synth>'+esc(dc.summary)+'</div>';
   // 이 문서의 노드 버튼 — 요약 바로 아래(피드백). 누르면 그래프에서 그 노드로 이동(nav).
   const ns=docNodes(dc.id);
@@ -576,9 +708,6 @@ function renderDocPanel(dc){
         'onclick="focusNode(\\''+n.id+'\\')">'+
         '<i style="background:'+c+'"></i>'+esc(n.label)+'</button>'; }).join('')+'</div>';
   } else { h+='<p class=al>이 문서에서 추출된 노드가 없습니다.</p>'; }
-  // 자세히 읽기 — 노드 상세와 동일 UI(파란 토글), 기본 접힘(피드백). 맨 아래.
-  if(dc.detail) h+='<details class=more><summary>📖 자세히 읽기</summary>'+
-    '<div class=detail>'+esc(dc.detail)+'</div></details>';
   if(!dc.summary && !dc.detail) h+='<p class=al>이 문서의 요약/전문이 아직 없습니다.</p>';
   docPanelHtml=h;       // blur 복원용 캐시
   panel.innerHTML=h;
@@ -730,6 +859,7 @@ async function semanticSearch(q){
 
 // 이 페이지가 로드됐다는 것 자체가 인증됨을 의미(미인증이면 게이트가 404). 쿠키 기반.
 setAuth('authed');
+syncThemeBtn();   // 저장된 테마에 맞춰 🌙/🌞 라벨 동기화(테마 자체는 head 인라인에서 선적용)
 fetch('documents').then(r=>r.json()).then(d=>{ allDocs=d.documents||[]; renderDocs(); });
 
 // 읽기전용 디버그 핸들(테스트/Playwright 검증용 — closure 상태 관찰). 부작용 없음.

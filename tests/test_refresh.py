@@ -100,6 +100,43 @@ def test_refresh_nochange_when_same_hash(monkeypatch, tmp_path):
     assert res["status"] == "nochange"
 
 
+def test_refresh_nochange_backfills_images_and_detail(monkeypatch, tmp_path):
+    """본문이 안 바뀌어도(nochange) 재fetch 로 새로 잡힌 이미지와 detail 을 백필한다.
+
+    이미지 수집 이전에 적재된 문서에 이미지/마크다운 detail 을 채우는 핵심 경로(비파괴).
+    """
+    s = _mem(monkeypatch, tmp_path)
+    svc = IngestService(s)
+    # 1) 이미지 없이 적재(구버전)
+    plain = Document(url="https://x/1", title="T", raw_text="body " * 50,
+                     source_type="web", content_hash="same")
+    _patch_fetch(monkeypatch, lambda p: plain)
+    rep = svc.ingest("https://x/1", source="test")
+    did = rep.document_id
+    conn = dbm.connect(s.db_file); dbm.init_db(conn)
+    dbm.set_document_detail(conn, did, "")           # detail 비움(구버전 상태 모사)
+    conn.execute("UPDATE documents SET meta=? WHERE id=?", ("{}", did))  # images 키 없음
+    conn.commit(); conn.close()
+    assert did in dbm.documents_missing_images(dbm.connect(s.db_file))
+
+    # 2) 같은 본문 + 이미지가 잡히도록 재fetch
+    imgs = [{"url": "https://x/diagram.png", "alt": "도식", "caption": ""}]
+    withimg = Document(url="https://x/1", title="T", raw_text="body " * 50,
+                       source_type="web", content_hash="same", meta={"images": imgs})
+    _patch_fetch(monkeypatch, lambda p: withimg)
+    res = svc.refresh_document(did, "https://x/1")
+    assert res["status"] == "nochange" and res["detail_updated"] is True
+
+    conn = dbm.connect(s.db_file); dbm.init_db(conn)
+    row = dbm.get_document_row(conn, did)
+    import json
+    assert json.loads(row["meta"])["images"] == imgs        # 이미지 보존
+    detail = dbm.get_document_detail(conn, did)
+    assert detail and "diagram.png" in detail               # mock detail 에 이미지 마크다운
+    assert did not in dbm.documents_missing_images(conn)     # 더는 백필 대상 아님
+    conn.close()
+
+
 def test_run_refresh_queue_marks_done(monkeypatch, tmp_path):
     s = _mem(monkeypatch, tmp_path)
     svc = IngestService(s)

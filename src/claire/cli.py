@@ -368,6 +368,21 @@ def cmd_backfill_detail(args) -> int:  # noqa: ANN001
     return 0
 
 
+def cmd_backfill_images(args) -> int:  # noqa: ANN001
+    """본문 이미지가 없는 기존 문서를 재fetch 대상(refresh 큐)으로 등록.
+
+    실제 재fetch·이미지 수집·detail 재생성은 refresh-loop(claire_refresh 컨테이너)가
+    **며칠에 걸쳐 천천히** 처리한다(quota 부담 분산). 본문 안 바뀐 문서는 그래프 불변.
+    """
+    from .ingest.service import IngestService
+
+    s = get_settings()
+    svc = IngestService(s)
+    n = svc.mark_all_for_image_backfill(limit=args.limit)
+    print(f"이미지 백필 등록: {n}건 (refresh 큐). refresh-loop 가 천천히 재fetch 처리합니다.")
+    return 0
+
+
 def cmd_dedup_scan(args) -> int:  # noqa: ANN001
     """[진단·비파괴] 근사 중복(near-duplicate) 클러스터를 보고만 한다(병합 안 함).
 
@@ -626,6 +641,12 @@ def build_parser() -> argparse.ArgumentParser:
     pbd.add_argument("--limit", type=int, default=0, help="cap number of docs (0=all)")
     pbd.add_argument("--force", action="store_true", help="regenerate even if detail exists")
     pbd.set_defaults(func=cmd_backfill_detail)
+
+    pbi = sub.add_parser(
+        "backfill-images",
+        help="queue docs missing body images for slow re-fetch (refresh-loop drains)")
+    pbi.add_argument("--limit", type=int, default=0, help="cap number of docs (0=all)")
+    pbi.set_defaults(func=cmd_backfill_images)
 
     pds = sub.add_parser("dedup-scan",
                          help="report near-duplicate document clusters (MinHash, non-destructive)")

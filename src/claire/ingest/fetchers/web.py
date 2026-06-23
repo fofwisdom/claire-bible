@@ -13,6 +13,8 @@
 
 from __future__ import annotations
 
+import re
+
 from ...ontology.base import Document
 from ..normalize import canonicalize_url, content_hash
 from .base import FetchError
@@ -25,10 +27,21 @@ _UA = (
 # 본문이 이 길이 미만이면 "빈약"으로 보고 다음 fallback 시도, 끝까지 미달이면 실패.
 MIN_CONTENT = 300
 
+# 본문 콘텐츠 이미지(다이어그램·차트·스크린샷·도식)만 후보로. 장식/추적/UI 잡동사니는 사전 제외.
+# (최종 선별은 render_detail 의 LLM 큐레이션이 한 번 더 — 여기선 명백한 잡음만 거른다.)
+_IMG_NOISE_RE = re.compile(
+    r"(?:^|[/_\-.])(?:icon|logo|avatar|sprite|emoji|badge|pixel|spacer|favicon|"
+    r"gravatar|profile|thumb|placeholder|loading|blank|1x1|button|btn|arrow|"
+    r"share|social|ads?|advert|banner|tracking|beacon|analytics)(?:[/_\-.]|$)",
+    re.IGNORECASE,
+)
+_MAX_IMAGES = 12        # 문서당 후보 이미지 상한(LLM 큐레이션 입력 폭 통제)
+_IMG_MIN_DIM = 150      # width/height 속성이 명시돼 있고 이보다 작으면 장식/아이콘으로 보고 제외
+
 
 def fetch_web(url: str) -> Document:
     via = "static"
-    title, text, links, anchors, err, effective_url = _fetch_static(url)
+    title, text, links, anchors, err, effective_url, images = _fetch_static(url)
 
     # 2) Discourse JSON 에스컬레이션
     if len(text or "") < MIN_CONTENT:
@@ -43,10 +56,11 @@ def fetch_web(url: str) -> Document:
     # 3) Scrapling Fetcher 에스컬레이션 — curl-cffi + browserforge 헤더 위장.
     #    브라우저 불필요. 정적 UA 를 막는 봇차단(예: openai.com 403)을 우회.
     if len(text or "") < MIN_CONTENT:
-        c_title, c_text, c_links, c_anchors = _fetch_scrapling(url)
+        c_title, c_text, c_links, c_anchors, c_images = _fetch_scrapling(url)
         if c_text and len(c_text) > len(text or ""):
-            title, text, links, anchors, via = (
-                c_title or title, c_text, c_links or links, c_anchors or anchors, "scrapling")
+            title, text, links, anchors, images, via = (
+                c_title or title, c_text, c_links or links, c_anchors or anchors,
+                c_images or images, "scrapling")
 
     # 4) Stealth(Playwright) 에스컬레이션 — 브라우저 설치 시에만 동작(없으면 무시)
     if len(text or "") < MIN_CONTENT:
@@ -73,18 +87,21 @@ def fetch_web(url: str) -> Document:
         raw_text=text[:20000],
         source_type="web",
         content_hash=content_hash(title or "", text),
+        # images: 본문 콘텐츠 이미지 후보(다이어그램·차트·스크린샷). render_detail 의 LLM
+        # 큐레이션이 이해에 도움 되는 것만 골라 마크다운에 삽입한다(이미지/도식 보존).
         meta={"links": links[:50], "link_anchors": anchor_pairs, "fetch_via": via,
-              "effective_url": effective},
+              "effective_url": effective, "images": images or []},
     )
 
 
 def _fetch_static(
     url: str,
-) -> tuple[str | None, str, list[str], dict[str, str], str | None, str | None]:
-    """(title, text, links, anchors, error, effective_url). httpx + lxml.
+) -> tuple[str | None, str, list[str], dict[str, str], str | None, str | None, list[dict]]:
+    """(title, text, links, anchors, error, effective_url, images). httpx + lxml.
 
     effective_url 은 httpx 의 follow_redirects 가 따라간 최종 URL(resp.url) — dedup 의
-    canonical 기준. 실패하면 None. 실패해도 예외 대신 빈 결과를 돌려준다.
+    canonical 기준. 실패하면 None. 실패해도 예외 대신 빈 결과를 돌려준다. images 는
+    본문 이미지 후보(상대경로는 effective_url 기준으로 절대경로화).
     """
     import httpx
 
@@ -93,20 +110,30 @@ def _fetch_static(
                           headers={"User-Agent": _UA}) as client:
             resp = client.get(url)
         if resp.status_code >= 400:
-            return None, "", [], {}, f"http {resp.status_code} for {url}", None
-        title, text, links, anchors, perr = _extract_html(resp.text)
-        return title, text, links, anchors, perr, str(resp.url)
+            return None, "", [], {}, f"http {resp.status_code} for {url}", None, []
+        title, text, links, anchors, perr, images = _extract_html(
+            resp.text, base_url=str(resp.url))
+        return title, text, links, anchors, perr, str(resp.url), images
     except Exception as e:  # noqa: BLE001
-        return None, "", [], {}, f"fetch failed: {e}", None
+        return None, "", [], {}, f"fetch failed: {e}", None, []
 
 
-def _extract_html(html: str) -> tuple[str | None, str, list[str], dict[str, str], str | None]:
+def _extract_html(
+    html: str, base_url: str | None = None,
+) -> tuple[str | None, str, list[str], dict[str, str], str | None, list[dict]]:
     from lxml import html as lh
 
     try:
         tree = lh.fromstring(html)
     except Exception as e:  # noqa: BLE001
-        return None, "", [], {}, f"parse failed: {e}"
+        return None, "", [], {}, f"parse failed: {e}", []
+
+    # 상대경로(href/src)를 절대경로로 — 링크·이미지 url 을 그대로 쓸 수 있게(이미지 보존).
+    if base_url:
+        try:
+            tree.make_links_absolute(base_url)
+        except Exception:  # noqa: BLE001
+            pass
 
     # 외부 링크 수집(1홉 후보용) + 앵커 텍스트(LLM 선별 신호; url 당 첫 비어있지 않은 텍스트)
     links: list[str] = []
@@ -137,22 +164,83 @@ def _extract_html(html: str) -> tuple[str | None, str, list[str], dict[str, str]
         if h1:
             title = " ".join(x.strip() for x in h1 if x.strip())[:200]
 
-    # 본문: script/style/nav/footer 제거 후 텍스트
+    # og:image(대표 이미지)는 본문 제거 전에 — 보통 <head> 에 있어 본문 정리와 무관.
+    og_image = None
+    ogi = tree.xpath("//meta[@property='og:image']/@content")
+    if ogi and (ogi[0] or "").strip().startswith(("http://", "https://")):
+        og_image = ogi[0].strip()
+
+    # 본문: script/style/nav/footer 제거 후 텍스트. 이미지도 본문 영역에서만 모은다
+    # (nav/header/footer 의 로고·아이콘은 이 제거로 함께 빠진다).
     for bad in tree.xpath("//script | //style | //noscript | //nav | //footer | //header"):
         if bad.getparent() is not None:
             bad.getparent().remove(bad)
+    images = _collect_images(tree, og_image)
     text = " ".join(t.strip() for t in tree.xpath("//body//text()") if t.strip())
     if not text:
         text = " ".join(t.strip() for t in tree.xpath("//text()") if t.strip())
-    return (title[:200] if title else None), text, links, anchors, None
+    return (title[:200] if title else None), text, links, anchors, None, images
 
 
-def _fetch_scrapling(url: str) -> tuple[str | None, str, list[str], dict[str, str]]:
+def _collect_images(tree, og_image: str | None) -> list[dict]:  # noqa: ANN001
+    """본문 콘텐츠 이미지 후보를 휴리스틱으로 선별 — [{url, alt, caption}].
+
+    명백한 장식/추적/UI 이미지(로고·아이콘·아바타·광고·1x1 픽셀·sprite)는 여기서 거르고,
+    최종 '이해에 도움 되는가'는 render_detail 의 LLM 큐레이션이 한 번 더 판단한다.
+    상대경로는 _extract_html 에서 이미 절대경로화됨. og:image 는 대표 이미지로 합류시킨다.
+    """
+    out: list[dict] = []
+    seen: set[str] = set()
+
+    def _consider(url: str, alt: str, caption: str, *, w=None, h=None,  # noqa: ANN001
+                  cls: str = "") -> None:
+        url = (url or "").strip()
+        if not url or not url.startswith(("http://", "https://")):
+            return  # data: URI·빈 src 제외(대개 인라인 아이콘)
+        base = url.split("?", 1)[0]
+        if base in seen:
+            return
+        # 치수 명시돼 있고 작으면(아이콘/썸네일) 제외
+        for d in (w, h):
+            try:
+                if d is not None and int(str(d).rstrip("px")) < _IMG_MIN_DIM:
+                    return
+            except (ValueError, TypeError):
+                pass
+        if _IMG_NOISE_RE.search(base) or _IMG_NOISE_RE.search(cls):
+            return
+        seen.add(base)
+        out.append({"url": url, "alt": (alt or "").strip()[:200],
+                    "caption": (caption or "").strip()[:300]})
+
+    for img in tree.xpath("//img"):
+        if len(out) >= _MAX_IMAGES:
+            break
+        # lazy-load 패턴(data-src 등)도 본다 — 많은 사이트가 src 에 placeholder 를 둔다.
+        src = (img.get("src") or img.get("data-src") or img.get("data-original")
+               or img.get("data-lazy-src") or "")
+        # <figure><figcaption> 캡션 — 콘텐츠 이미지의 강한 신호이자 LLM 배치 단서.
+        caption = ""
+        fig = img.xpath("ancestor::figure[1]")
+        if fig:
+            fc = fig[0].xpath(".//figcaption")
+            if fc:
+                caption = " ".join(fc[0].text_content().split())
+        _consider(src, img.get("alt", ""), caption,
+                  w=img.get("width"), h=img.get("height"),
+                  cls=f"{img.get('class', '')} {img.get('id', '')}")
+
+    if og_image:
+        _consider(og_image, "대표 이미지", "")
+    return out[:_MAX_IMAGES]
+
+
+def _fetch_scrapling(url: str) -> tuple[str | None, str, list[str], dict[str, str], list[dict]]:
     """Scrapling Fetcher (curl-cffi + browserforge 스텔스 헤더). 브라우저 불필요.
 
     정적 httpx UA 를 403 으로 막는 봇차단(예: openai.com)을, 브라우저 지문에
     가까운 헤더/TLS 로 우회. raw HTML 은 _extract_html 로 동일하게 파싱 →
-    title/본문/링크(1홉 후보)/앵커 추출 일관성 유지. 미설치/실패 시 (None, '', [], {}).
+    title/본문/링크(1홉 후보)/앵커/이미지 추출 일관성 유지. 미설치/실패 시 빈 결과.
     """
     try:
         from scrapling.fetchers import Fetcher
@@ -160,12 +248,12 @@ def _fetch_scrapling(url: str) -> tuple[str | None, str, list[str], dict[str, st
         page = Fetcher.get(url, stealthy_headers=True, timeout=30)
         status = getattr(page, "status", 200)
         if status and status >= 400:
-            return None, "", [], {}
+            return None, "", [], {}, []
         html = getattr(page, "html_content", "") or ""
-        title, text, links, anchors, _ = _extract_html(str(html))
-        return title, text, links, anchors
+        title, text, links, anchors, _, images = _extract_html(str(html), base_url=url)
+        return title, text, links, anchors, images
     except Exception:  # noqa: BLE001
-        return None, "", [], {}
+        return None, "", [], {}, []
 
 
 def _fetch_stealth(url: str) -> tuple[str | None, str]:
