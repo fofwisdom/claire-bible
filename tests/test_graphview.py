@@ -88,6 +88,7 @@ def test_graph_html_self_contained_markers():
     assert "opacity" in GRAPH_HTML and "dday" in GRAPH_HTML             # dim + 일자 그룹
     # 읽기는 중앙 마크다운 팝업(nav 와 분리) — 좌측/패널 '읽기' 버튼이 openReader 호출
     assert "openReader" in GRAPH_HTML and "id=\"reader\"" in GRAPH_HTML  # 중앙 읽기 팝업
+    assert "setReadFS" in GRAPH_HTML and "claireReadFS" in GRAPH_HTML and "rzoom" in GRAPH_HTML  # 글자 크기 조절(A-/A+)
     assert "renderMarkdown" in GRAPH_HTML and "marked" in GRAPH_HTML and "DOMPurify" in GRAPH_HTML  # 마크다운 렌더+살균
     assert "readbtn" in GRAPH_HTML and "stopPropagation" in GRAPH_HTML   # 읽기 버튼=nav 와 분리
     assert "<mark>" in GRAPH_HTML                                       # ==형광== 강조 렌더

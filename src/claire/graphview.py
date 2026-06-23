@@ -261,7 +261,8 @@ GRAPH_HTML = """<!doctype html>
   /* ==형광== 강조 — render_detail/요약이 LLM 으로 표시한 핵심 구절(마크다운 후 <mark>). */
   mark{background:var(--mark-bg);color:var(--mark-fg);padding:0 .15em;border-radius:2px}
   /* --- 마크다운 본문(읽기 팝업 + 패널 detail) --- */
-  .md{line-height:1.7;font-size:14px;word-break:break-word}
+  .md{line-height:1.75;font-size:14px;word-break:break-word}
+  #reader .rbody .md{font-size:var(--read-fs,16px)}   /* 읽기 팝업은 A−/A+ 로 글자 크기 조절 */
   .md h1{font-size:1.5em} .md h2{font-size:1.3em;margin:1.1em 0 .4em;border-bottom:1px solid var(--border);padding-bottom:.2em}
   .md h3{font-size:1.12em;margin:1em 0 .35em;color:var(--fg);border:0}
   .md p{margin:.6em 0} .md ul,.md ol{margin:.5em 0;padding-left:1.5em} .md li{margin:.3em 0}
@@ -273,17 +274,22 @@ GRAPH_HTML = """<!doctype html>
   .md table{border-collapse:collapse;margin:.6em 0} .md th,.md td{border:1px solid var(--border);padding:.3em .6em}
   /* --- 중앙 읽기 팝업(모달) — 좌측 문서의 '읽기' 버튼으로 연다(nav 와 분리, 사용자 요구) --- */
   #reader{position:fixed;inset:0;background:var(--shadow);display:none;z-index:50;
-    align-items:flex-start;justify-content:center;padding:4vh 16px;overflow:auto}
+    align-items:flex-start;justify-content:center;padding:2.5vh 14px;overflow:auto;--read-fs:16px}
   #reader.open{display:flex}
-  #reader .sheet{background:var(--bg);color:var(--fg);max-width:820px;width:100%;border-radius:10px;
+  #reader .sheet{background:var(--bg);color:var(--fg);max-width:1120px;width:100%;border-radius:10px;
     border:1px solid var(--border);box-shadow:0 12px 40px var(--shadow);padding:0 0 28px;
-    max-height:92vh;display:flex;flex-direction:column}
-  #reader .rhead{display:flex;align-items:flex-start;gap:10px;padding:16px 22px;border-bottom:1px solid var(--border);
+    max-height:95vh;display:flex;flex-direction:column}
+  #reader .rhead{display:flex;align-items:flex-start;gap:10px;padding:16px 24px;border-bottom:1px solid var(--border);
     position:sticky;top:0;background:var(--bg);border-radius:10px 10px 0 0;z-index:1}
-  #reader .rhead h1{margin:0;font-size:20px;flex:1} #reader .rhead .rmeta{color:var(--muted);font-size:12px;margin-top:.3em;font-weight:normal}
+  #reader .rhead h1{margin:0;font-size:22px;flex:1} #reader .rhead .rmeta{color:var(--muted);font-size:12px;margin-top:.3em;font-weight:normal}
+  /* 글자 크기 조절(A−/A+) — 읽기 편의, 설정은 브라우저에 기억. */
+  #reader .rzoom{display:flex;align-items:center;gap:2px}
+  #reader .rzoom button{background:var(--sec-bg);color:var(--sec-fg);border:0;border-radius:6px;
+    font-size:14px;line-height:1;padding:6px 9px;cursor:pointer}
+  #reader .rzoom .fsv{color:var(--muted);font-size:11px;min-width:30px;text-align:center}
   #reader .rclose{background:var(--sec-bg);color:var(--sec-fg);border:0;border-radius:6px;font-size:18px;
     line-height:1;padding:5px 11px;cursor:pointer}
-  #reader .rbody{padding:8px 26px 0;overflow:auto}
+  #reader .rbody{padding:10px 32px 0;overflow:auto}
   #reader .rsection{color:var(--muted);font-size:11px;letter-spacing:.04em;text-transform:uppercase;margin:1.2em 0 .2em}
   /* 모바일/좁은 화면: 가로 3분할 대신 세로 스택(그래프 먼저). 모든 기능 터치로 도달 가능. */
   @media (max-width:820px){
@@ -326,7 +332,13 @@ GRAPH_HTML = """<!doctype html>
 <!-- 중앙 읽기 팝업: 좌측 문서의 '읽기' 버튼/노드 상세의 📖 로 연다(마크다운·이미지 렌더). -->
 <div id="reader" onclick="if(event.target===this)closeReader()">
   <div class="sheet">
-    <div class="rhead"><h1 id="rtitle"></h1><button class="rclose" onclick="closeReader()" title="닫기(ESC)">✕</button></div>
+    <div class="rhead"><h1 id="rtitle"></h1>
+      <div class="rzoom">
+        <button onclick="setReadFS(-2)" title="글자 작게">A−</button>
+        <span class="fsv" id="rfs">16</span>
+        <button onclick="setReadFS(2)" title="글자 크게">A+</button>
+      </div>
+      <button class="rclose" onclick="closeReader()" title="닫기(ESC)">✕</button></div>
     <div class="rbody" id="rbody"></div>
   </div>
 </div>
@@ -385,9 +397,23 @@ function renderMarkdown(src){
   return window.DOMPurify ? DOMPurify.sanitize(html, {ADD_ATTR:['target']}) : html;
 }
 
+// 읽기 글자 크기(A−/A+) — 브라우저에 기억. 팝업의 --read-fs 변수로 .md 본문에 적용.
+let readFS = 16;
+try{ const v=parseInt(localStorage.getItem('claireReadFS')); if(v>=12 && v<=28) readFS=v; }catch(e){}
+function applyReadFS(){
+  const r=document.getElementById('reader'); if(r) r.style.setProperty('--read-fs', readFS+'px');
+  const v=document.getElementById('rfs'); if(v) v.textContent=readFS;
+}
+function setReadFS(delta){
+  readFS = Math.max(12, Math.min(28, readFS + delta));
+  try{ localStorage.setItem('claireReadFS', readFS); }catch(e){}
+  applyReadFS();
+}
+
 // 중앙 읽기 팝업 — 좌측 문서의 '읽기' 버튼/노드 상세의 📖 로 연다(nav 와 분리, 사용자 요구).
 function openReader(docId){
   const r=document.getElementById('reader');
+  applyReadFS();   // 저장된 글자 크기 적용
   document.getElementById('rtitle').textContent='문서 불러오는 중…';
   document.getElementById('rbody').innerHTML='';
   r.classList.add('open');
