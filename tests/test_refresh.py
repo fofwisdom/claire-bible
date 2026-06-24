@@ -156,3 +156,72 @@ def test_run_refresh_queue_marks_done(monkeypatch, tmp_path):
     conn = dbm.connect(s.db_file); dbm.init_db(conn)
     assert dbm.refresh_status_counts(conn) == {"done": 1}
     conn.close()
+
+
+def test_watch_document_refresh_snapshots_and_unseen(monkeypatch, tmp_path):
+    """[주기 크롤링] watch 문서가 내용 변경되면 변경 '전' 원문을 스냅샷으로 보존(시계열) +
+    다시 봐야 하니 unseen. 그래프는 최신 in-place(기존 동작)."""
+    s = _mem(monkeypatch, tmp_path)
+    svc = IngestService(s)
+    url = "https://bench.example/leaderboard"
+    v1 = Document(url=url, title="Leaderboard", raw_text="순위표 v1: 1위 A 2위 B " * 40,
+                  source_type="web", content_hash="hv1")
+    _patch_fetch(monkeypatch, lambda p: v1)
+    rep = svc.ingest(url, source="web")
+    did = rep.document_id
+    # watch 켜고(수동 — ③-3 LLM 자동판단과 무관하게 ③-2 단독 검증), 봤다고 표시
+    conn = dbm.connect(s.db_file)
+    dbm.set_document_watch(conn, did, enabled=True, interval=1.0)
+    dbm.set_document_seen(conn, did, seen=True)
+    conn.close()
+    # 내용이 바뀐 v2 로 재크롤(refresh)
+    v2 = Document(url=url, title="Leaderboard", raw_text="순위표 v2: 1위 C 2위 A " * 40,
+                  source_type="web", content_hash="hv2")
+    _patch_fetch(monkeypatch, lambda p: v2)
+    res = svc.refresh_document(did, url)
+    assert res["status"] == "done", res
+    conn = dbm.connect(s.db_file)
+    snaps = dbm.document_snapshots(conn, did)
+    assert len(snaps) == 1, snaps                       # 변경 전 상태 1건 보존
+    assert "v1" in snaps[0]["raw_text"] and snaps[0]["content_hash"] == "hv1"
+    cur = dbm.get_document_row(conn, did)
+    assert "v2" in cur["raw_text"]                      # 현재 문서는 최신
+    assert cur["seen"] == 0                             # 변경됐으니 미열람
+    conn.close()
+
+
+def test_non_watch_refresh_no_snapshot(monkeypatch, tmp_path):
+    """watch 가 아닌 일반 refresh(thin 복원 등)는 스냅샷을 남기지 않는다(기존 동작 보존)."""
+    s = _mem(monkeypatch, tmp_path)
+    svc = IngestService(s)
+    url = "https://blog.example/post"
+    v1 = Document(url=url, title="Post", raw_text="본문 v1 " * 40, source_type="web", content_hash="p1")
+    _patch_fetch(monkeypatch, lambda p: v1)
+    did = svc.ingest(url, source="web").document_id  # watch 미설정(None)
+    v2 = Document(url=url, title="Post", raw_text="본문 v2 " * 40, source_type="web", content_hash="p2")
+    _patch_fetch(monkeypatch, lambda p: v2)
+    svc.refresh_document(did, url)
+    conn = dbm.connect(s.db_file)
+    assert dbm.document_snapshots(conn, did) == []   # watch 아니면 스냅샷 없음
+    conn.close()
+
+
+def test_enqueue_due_watch(monkeypatch, tmp_path):
+    """[주기 크롤링] due 된 watch 문서만 refresh 큐(reason='watch')에 등록 + last_watched_at
+    갱신 → 방금 등록한 건 다음 호출에서 due 아님(중복 폭주 방지)."""
+    s = _mem(monkeypatch, tmp_path)
+    svc = IngestService(s)
+    conn = dbm.connect(s.db_file); dbm.init_db(conn)
+    dbm.insert_document(conn, Document(id="w1", url="https://b/lb", raw_text="x" * 600,
+                                       source_type="web", content_hash="w1"))
+    dbm.set_document_watch(conn, "w1", enabled=True, interval=3600.0)
+    dbm.insert_document(conn, Document(id="n1", url="https://b/blog", raw_text="y" * 600,
+                                       source_type="web", content_hash="n1"))  # watch 아님
+    conn.close()
+    assert svc.enqueue_due_watch() == 1                 # w1 만 due
+    conn = dbm.connect(s.db_file)
+    pend = dbm.pending_refresh(conn)
+    assert len(pend) == 1 and pend[0]["document_id"] == "w1" and pend[0]["reason"] == "watch"
+    assert dbm.get_document_row(conn, "w1")["last_watched_at"] is not None
+    conn.close()
+    assert svc.enqueue_due_watch() == 0                 # 방금 watched → interval 안 지나 due 아님

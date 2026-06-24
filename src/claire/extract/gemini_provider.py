@@ -16,7 +16,8 @@ import time as _time
 from ..ontology.base import Document
 from ..ontology.registry import ontology_prompt_block
 from .provider import (
-    ExtractionResult, FollowSelection, MergeCandidate, ResearchJudgement, emit_progress,
+    ExtractionResult, FollowSelection, MergeCandidate, ResearchJudgement,
+    WatchClassification, emit_progress,
 )
 
 # 추출 프롬프트 버전. _SYS 를 바꾸면 올린다(재적재 시 어떤 프롬프트로 뽑았는지 추적).
@@ -243,6 +244,42 @@ class GeminiProvider:
         resp = self._call(lambda: self.client.models.generate_content(
             model=self.model, contents=prompt))
         return (resp.text or "").strip()
+
+    def classify_watch(self, doc: Document) -> dict:
+        """[주기 크롤링] 문서가 '주기적으로 내용이 바뀌는 콘텐츠'인지 판단(별도 경량 호출).
+
+        리더보드/벤치마크 순위표/실시간 통계/가격/랭킹 = watch(주기 재크롤 가치).
+        뉴스/블로그/논문/일회성 설명 = 1회성. rate limit 등 실패는 위로 raise(호출측이
+        비필수로 조용히 무시 — watch 미판단으로 남고 적재는 정상)."""
+        from google.genai import types as gtypes
+
+        body = _doc_to_prompt(doc)[:4000]
+        prompt = (
+            "아래 문서가 '주기적으로 내용이 갱신되어 다시 봐야 가치 있는 콘텐츠'인지 판단하라.\n"
+            "- watch=true: 리더보드·벤치마크 순위표·랭킹·실시간 통계·가격/시세·지속 갱신 표 등 "
+            "시간이 지나면 내용이 바뀌어 재확인 가치가 있는 것.\n"
+            "- watch=false: 뉴스 기사·블로그 글·논문·릴리스 노트·일회성 설명/문서 등 한 번 "
+            "적재하면 거의 안 바뀌는 것.\n"
+            "watch=true 면 적절한 재확인 주기를 interval_days(정수 일; 매일=1, 매주=7 등)로. "
+            "reason 은 한국어 한 문장.\n\n"
+            f"문서:\n{body}"
+        )
+        cfg = gtypes.GenerateContentConfig(
+            response_mime_type="application/json",
+            response_schema=WatchClassification,
+            temperature=0.0,
+        )
+        resp = self._call(lambda: self.client.models.generate_content(
+            model=self.model, contents=prompt, config=cfg))
+        parsed = getattr(resp, "parsed", None)
+        if isinstance(parsed, WatchClassification):
+            return parsed.model_dump()
+        try:
+            import json
+
+            return WatchClassification(**json.loads(resp.text or "")).model_dump()
+        except Exception:  # noqa: BLE001
+            return {"watch": False, "interval_days": None, "reason": "판정 파싱 실패"}
 
     def research(self, query: str, context: str) -> dict:
         """맥락 고정 웹 조사(google_search grounding) → 한국어 보고서 + 출처.

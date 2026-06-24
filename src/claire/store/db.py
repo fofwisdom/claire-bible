@@ -15,7 +15,7 @@ from pathlib import Path
 
 from ..ontology.base import Document, Entity, Relation
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (
@@ -177,6 +177,20 @@ CREATE TABLE IF NOT EXISTS expand_queue (
 );
 CREATE INDEX IF NOT EXISTS idx_expand_status ON expand_queue(status);
 
+-- [주기 크롤링] watch 대상 문서가 재크롤 시 '내용이 바뀌었을 때' 변경 '전' 원문을 시계열로
+-- 보존(데이터 보존 협약 — 벤치/순위처럼 변하는 콘텐츠의 추세를 살림). 그래프(엔티티)는
+-- 최신 in-place 갱신만 하고, 과거 상태는 여기 원문으로만 남는다(추세는 나중에 스냅샷 종합).
+CREATE TABLE IF NOT EXISTS document_snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    document_id TEXT NOT NULL,     -- 어느 문서의 과거 상태인지
+    captured_at REAL,              -- 이 스냅샷(=변경 직전 상태)을 보존한 시각
+    content_hash TEXT,             -- 그 시점 본문 해시
+    title TEXT,
+    raw_text TEXT,                 -- 변경 전 원문(시계열 보존)
+    meta TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_snapshots_doc ON document_snapshots(document_id, captured_at);
+
 -- FTS5 키워드 인덱스 (엔티티 이름 + 관찰). content 테이블과 분리된 standalone FTS.
 CREATE VIRTUAL TABLE IF NOT EXISTS entities_fts USING fts5(
     entity_id UNINDEXED,
@@ -264,6 +278,18 @@ def _migrate(conn: sqlite3.Connection) -> None:
     # v6: 근사 중복 탐지용 MinHash 서명(JSON). content_hash/canonical_url 을 비껴가는
     # "같은 글 다른 입구"(arxiv 버전 접미사 등)를 잡는 3차 dedup 게이트. 백필=dedup-scan.
     _ensure_column(conn, "documents", "minhash", "TEXT")
+    # v7: 주기 크롤링 + 미열람 표시.
+    #  - seen: 문서를 한 번이라도 열어봤는지(0=미열람/unread, 1=봄). 기존 문서는 DEFAULT 1
+    #    (='이제부터' 적용 — 과거 적재분은 이미 본 것으로 간주). 신규 적재는 insert 시 0 명시.
+    #  - watch_*: 변하는 콘텐츠(벤치/순위 등) 주기 재크롤 대상 여부·주기·이력. enabled NULL=미판단
+    #    (LLM 자동판단 전), 0=off, 1=on. interval=재크롤 주기(초). reason='llm:...'|'manual'.
+    _ensure_column(conn, "documents", "seen", "INTEGER DEFAULT 1")
+    _ensure_column(conn, "documents", "watch_enabled", "INTEGER")
+    _ensure_column(conn, "documents", "watch_interval", "REAL")
+    _ensure_column(conn, "documents", "last_watched_at", "REAL")
+    _ensure_column(conn, "documents", "watch_reason", "TEXT")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_documents_watch "
+                 "ON documents(watch_enabled, last_watched_at)")
 
 
 def init_db(conn: sqlite3.Connection) -> None:
@@ -298,8 +324,8 @@ def insert_document(conn: sqlite3.Connection, doc: Document) -> None:
     conn.execute(
         """INSERT OR REPLACE INTO documents
         (id,url,canonical_url,title,author,published_at,fetched_at,raw_text,
-         source_type,content_hash,lang,partial,meta,minhash)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+         source_type,content_hash,lang,partial,meta,minhash,seen)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)""",
         (
             doc.id, doc.url, doc.canonical_url, doc.title, doc.author,
             doc.published_at, doc.fetched_at, doc.raw_text, doc.source_type,
@@ -364,6 +390,73 @@ def get_document_row(conn: sqlite3.Connection, document_id: str) -> sqlite3.Row 
     ).fetchone()
 
 
+# --- [주기 크롤링] 스냅샷(시계열) · 열람(seen) · watch 설정 ---
+
+def save_document_snapshot(
+    conn: sqlite3.Connection, document_id: str, *, captured_at: float,
+    content_hash: str | None, title: str | None, raw_text: str | None,
+    meta: dict | None = None,
+) -> None:
+    """watch 문서의 '변경 전' 상태를 시계열로 보존(데이터 보존 — 추세 살림)."""
+    conn.execute(
+        "INSERT INTO document_snapshots(document_id,captured_at,content_hash,title,raw_text,meta) "
+        "VALUES(?,?,?,?,?,?)",
+        (document_id, captured_at, content_hash, title, raw_text,
+         json.dumps(meta) if meta is not None else None),
+    )
+    conn.commit()
+
+
+def document_snapshots(
+    conn: sqlite3.Connection, document_id: str, limit: int = 0
+) -> list[sqlite3.Row]:
+    """한 문서의 과거 스냅샷(최신순)."""
+    q = ("SELECT id,document_id,captured_at,content_hash,title,raw_text "
+         "FROM document_snapshots WHERE document_id=? ORDER BY captured_at DESC")
+    if limit:
+        q += f" LIMIT {int(limit)}"
+    return conn.execute(q, (document_id,)).fetchall()
+
+
+def set_document_seen(conn: sqlite3.Connection, document_id: str, seen: bool = True) -> None:
+    """문서 열람 상태 설정(UI 에서 열어보면 seen=1, watch 갱신 시 0=다시 봐야 함)."""
+    conn.execute("UPDATE documents SET seen=? WHERE id=?",
+                 (1 if seen else 0, document_id))
+    conn.commit()
+
+
+def set_document_watch(
+    conn: sqlite3.Connection, document_id: str, *, enabled: bool | None,
+    interval: float | None = None, reason: str | None = None,
+) -> None:
+    """watch(주기 재크롤) 설정 — LLM 자동판단 또는 사용자 수동 on/off. enabled None=미판단."""
+    conn.execute(
+        "UPDATE documents SET watch_enabled=?, watch_interval=COALESCE(?,watch_interval), "
+        "watch_reason=COALESCE(?,watch_reason) WHERE id=?",
+        (None if enabled is None else (1 if enabled else 0), interval, reason, document_id),
+    )
+    conn.commit()
+
+
+def watch_due_documents(
+    conn: sqlite3.Connection, now: float, *, default_interval: float, limit: int = 0
+) -> list[sqlite3.Row]:
+    """재크롤할 때가 된 watch 문서: enabled=1 AND (last_watched_at NULL 또는
+    now - last_watched_at >= interval). interval 없으면 default_interval 적용."""
+    q = ("SELECT id, url FROM documents WHERE watch_enabled=1 AND url IS NOT NULL AND ("
+         "last_watched_at IS NULL OR ? - last_watched_at >= COALESCE(watch_interval, ?)) "
+         "ORDER BY COALESCE(last_watched_at, 0)")
+    if limit:
+        q += f" LIMIT {int(limit)}"
+    return conn.execute(q, (now, default_interval)).fetchall()
+
+
+def mark_document_watched(conn: sqlite3.Connection, document_id: str, when: float) -> None:
+    """watch 재크롤을 수행한 시각 기록(다음 due 계산 기준)."""
+    conn.execute("UPDATE documents SET last_watched_at=? WHERE id=?", (when, document_id))
+    conn.commit()
+
+
 def find_document_by_canonical_url(
     conn: sqlite3.Connection, canonical_url: str | None
 ) -> str | None:
@@ -380,7 +473,7 @@ def find_document_by_canonical_url(
 def documents_timeline(conn: sqlite3.Connection, limit: int = 300) -> list[sqlite3.Row]:
     """문서를 최신 적재순으로(좌측 문서 패널용). summary 는 호출측에서 붙인다."""
     return conn.execute(
-        "SELECT id, title, url, source_type, fetched_at FROM documents "
+        "SELECT id, title, url, source_type, fetched_at, seen, watch_enabled FROM documents "
         "ORDER BY fetched_at DESC, id DESC LIMIT ?", (limit,)
     ).fetchall()
 

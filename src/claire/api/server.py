@@ -260,7 +260,10 @@ def run_api() -> int:
             conn = dbm.connect(s.db_file)
             dbm.init_db(conn)
             try:
-                return _dd(conn, did)
+                rep = _dd(conn, did)
+                if rep is not None:
+                    dbm.set_document_seen(conn, did, seen=True)  # 문서 열람 → unread 해제
+                return rep
             finally:
                 conn.close()
 

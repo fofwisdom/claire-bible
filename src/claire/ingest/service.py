@@ -199,6 +199,16 @@ class IngestService:
                         "detail_updated": detail_updated,
                         "images": len(imgs or [])}
 
+            # watch 대상이면 변경 '전' 원문을 스냅샷으로 보존(시계열 — 벤치/순위 추세 살림,
+            # 데이터 보존 협약) + 내용이 바뀌었으니 다시 봐야 함 → unseen. 그래프(엔티티)는
+            # 아래 in-place 갱신으로 최신만 유지, 과거 상태는 스냅샷에만 남는다.
+            if old["watch_enabled"] == 1:
+                import time as _time
+                dbm.save_document_snapshot(
+                    conn, document_id, captured_at=_time.time(),
+                    content_hash=old["content_hash"], title=old["title"],
+                    raw_text=old["raw_text"])
+                dbm.set_document_seen(conn, document_id, seen=False)
             # 같은 id 로 갱신(신규가 아니라 복원이므로 sources 연결 유지). meta(이미지 포함) 보존.
             dbm.update_document_content(
                 conn, document_id, title=doc.title, raw_text=doc.raw_text,
@@ -240,6 +250,31 @@ class IngestService:
                 conn2.close()
             out.append({**res, "queue_id": row["id"]})
         return out
+
+    def enqueue_due_watch(self, *, limit: int = 0) -> int:
+        """[주기 크롤링] 재크롤할 때가 된 watch 문서를 refresh 큐에 등록(reason='watch').
+
+        watch_due = enabled=1 AND (last_watched_at NULL 또는 now-last >= interval). 등록 후
+        last_watched_at=now 로 갱신해 다음 due 를 미룬다(큐 대기 중 중복은 enqueue_refresh 의
+        document_id UNIQUE 가 막음). 처리(refresh_document)는 run_refresh_queue 가 하며,
+        watch 문서가 변했으면 거기서 스냅샷 보존 + unseen. 신규 등록 건수 반환."""
+        import time
+
+        conn = dbm.connect(self.s.db_file)
+        dbm.init_db(conn)
+        try:
+            now = time.time()
+            default_iv = self.s.watch_interval_days * 86400
+            rows = dbm.watch_due_documents(conn, now, default_interval=default_iv, limit=limit)
+            n = 0
+            for r in rows:
+                if dbm.enqueue_refresh(conn, document_id=r["id"], payload=r["url"],
+                                       reason="watch"):
+                    n += 1
+                dbm.mark_document_watched(conn, r["id"], now)
+            return n
+        finally:
+            conn.close()
 
     def mark_thin_for_refresh(
         self, *, max_len: int = 300, host: str | None = None, reason: str = "thin",

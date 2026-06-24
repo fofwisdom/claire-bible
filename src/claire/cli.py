@@ -221,6 +221,9 @@ def cmd_refresh_loop(args) -> int:  # noqa: ANN001
     print(f"claire refresh-loop 시작 (interval={args.interval}s, batch={args.batch}). Ctrl+C 종료.", flush=True)
     while True:
         try:
+            due = svc.enqueue_due_watch(limit=args.batch)  # 주기 크롤링: due watch → 큐 등록
+            if due:
+                print(f"[refresh] watch 재크롤 {due}건 큐 등록", flush=True)
             results = svc.run_refresh_queue(limit=args.batch)
             if results:
                 done = sum(1 for r in results if r["status"] == "done")
@@ -380,6 +383,49 @@ def cmd_backfill_images(args) -> int:  # noqa: ANN001
     svc = IngestService(s)
     n = svc.mark_all_for_image_backfill(limit=args.limit)
     print(f"이미지 백필 등록: {n}건 (refresh 큐). refresh-loop 가 천천히 재fetch 처리합니다.")
+    return 0
+
+
+def cmd_watch(args) -> int:  # noqa: ANN001
+    """[주기 크롤링] 문서 watch(주기 재크롤) 수동 on/off·주기·목록·상태.
+
+    watch 대상은 refresh-loop 가 주기적으로 재fetch → 내용 바뀌면 변경 전 원문을 스냅샷
+    보존 + 그래프 최신 갱신 + unseen. LLM 자동판단을 사람이 덮어쓸 때 사용."""
+    from .store import db as dbm
+
+    s = get_settings()
+    conn = dbm.connect(s.db_file)
+    dbm.init_db(conn)
+    if args.list:
+        rows = conn.execute(
+            "SELECT id,title,watch_interval,last_watched_at,watch_reason "
+            "FROM documents WHERE watch_enabled=1 ORDER BY COALESCE(last_watched_at,0)"
+        ).fetchall()
+        if not rows:
+            print("watch 문서 없음")
+        for r in rows:
+            iv = f"{(r['watch_interval'] or 0) / 86400:.1f}일" if r["watch_interval"] else "기본주기"
+            print(f"  {r['id']}  주기={iv}  {r['title'] or ''}  [{r['watch_reason'] or ''}]")
+        return 0
+    if not args.document_id:
+        print("document_id 가 필요합니다 (또는 --list)")
+        return 1
+    if args.on and args.off:
+        print("--on 과 --off 는 동시에 쓸 수 없습니다")
+        return 1
+    enabled = True if args.on else (False if args.off else None)
+    interval = float(args.interval_days) * 86400 if args.interval_days else None
+    if enabled is None and interval is None:
+        r = dbm.get_document_row(conn, args.document_id)
+        if r is None:
+            print("문서 없음")
+            return 1
+        print(f"watch_enabled={r['watch_enabled']} interval={r['watch_interval']} "
+              f"last_watched_at={r['last_watched_at']} reason={r['watch_reason']}")
+        return 0
+    dbm.set_document_watch(conn, args.document_id, enabled=enabled,
+                           interval=interval, reason="manual")
+    print(f"watch 설정: {args.document_id} enabled={enabled} interval_days={args.interval_days}")
     return 0
 
 
@@ -647,6 +693,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="queue docs missing body images for slow re-fetch (refresh-loop drains)")
     pbi.add_argument("--limit", type=int, default=0, help="cap number of docs (0=all)")
     pbi.set_defaults(func=cmd_backfill_images)
+
+    pw = sub.add_parser("watch", help="주기 크롤링 watch on/off·주기·목록(수동)")
+    pw.add_argument("document_id", nargs="?", help="대상 문서 id (생략+--list 면 목록)")
+    pw.add_argument("--on", action="store_true", help="watch 켜기")
+    pw.add_argument("--off", action="store_true", help="watch 끄기")
+    pw.add_argument("--interval-days", type=float, default=None, help="재확인 주기(일)")
+    pw.add_argument("--list", action="store_true", help="watch 문서 목록")
+    pw.set_defaults(func=cmd_watch)
 
     pds = sub.add_parser("dedup-scan",
                          help="report near-duplicate document clusters (MinHash, non-destructive)")

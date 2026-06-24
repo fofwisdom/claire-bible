@@ -189,6 +189,13 @@ def ingest(
         dbm.update_inbox(conn, inbox_id, status="error", document_id=doc.id, error=err)
         return report
 
+    # 주기 크롤링 watch 판단(LLM, 비용 1콜) — 1차 신규 적재에만. onehop 자식/research 문서/
+    # 복구·갱신 재적재는 제외(부적절·낭비). 실패는 조용히(watch 미판단으로 남음).
+    if not doc.partial and not source.startswith(
+            ("onehop", "recover", "replay", "refresh", "research")):
+        emit_progress("주기 갱신 콘텐츠 여부 판단 중…")
+        ensure_watch_classification(conn, provider, doc)
+
     # 1홉 확장. auto_expand 면 백그라운드 대기열에 등록(LLM 이 선별·판정·적재; expand-loop).
     # 아니면 기존 동작: 후보만 제안(텔레그램 confirm 버튼). 내부 연결은 위에서 이미 자동.
     if expand_max > 0 and not doc.partial:
@@ -342,6 +349,30 @@ def ensure_document_detail(
         dbm.set_document_detail(conn, doc.id, text.strip())
         return True
     return False
+
+
+def ensure_watch_classification(
+    conn: sqlite3.Connection, provider: Provider, doc: Document
+) -> bool:
+    """[주기 크롤링] 변하는 콘텐츠(벤치/순위 등)인지 LLM 판단 → watch 설정. 비필수(별도 호출).
+
+    신규 1차 적재에만 호출(비용 통제 — 호출측 source 게이트). rate limit 등 실패는 조용히
+    False(적재 막지 않음 — watch 미판단으로 남고 나중에 수동/재판단 가능)."""
+    fn = getattr(provider, "classify_watch", None)
+    if fn is None:
+        return False
+    try:
+        res = fn(doc)
+    except Exception:  # noqa: BLE001
+        return False
+    if not isinstance(res, dict):
+        return False
+    days = res.get("interval_days")
+    interval = float(days) * 86400 if days else None
+    reason = ("llm: " + (res.get("reason") or ""))[:200]
+    dbm.set_document_watch(conn, doc.id, enabled=bool(res.get("watch")),
+                           interval=interval, reason=reason)
+    return True
 
 
 def _guess_kind(payload: str) -> str:

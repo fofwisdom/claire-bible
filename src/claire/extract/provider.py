@@ -115,6 +115,19 @@ class FollowSelection(BaseModel):
     reason: str = ""
 
 
+class WatchClassification(BaseModel):
+    """[주기 크롤링] 이 문서가 '주기적으로 내용이 바뀌는 콘텐츠'인가.
+
+    watch: 리더보드/벤치마크 순위표/실시간 통계/가격/랭킹처럼 지속 갱신되면 True;
+      뉴스/블로그/논문/일회성 설명/문서면 False.
+    interval_days: watch=True 일 때 재확인 권장 주기(일). 아니면 None.
+    """
+
+    watch: bool = False
+    interval_days: int | None = None
+    reason: str = ""
+
+
 class Provider(Protocol):
     name: str
 
@@ -229,6 +242,18 @@ class MockProvider:
             cap = im.get("caption") or im.get("alt") or "그림"
             parts += ["", f"![{im.get('alt', '')}]({im.get('url', '')})", f"*{cap}*"]
         return "\n".join(parts)
+
+    def classify_watch(self, doc: Document) -> dict:
+        """결정론 stub — 제목/본문에 순위·벤치 키워드 있으면 watch(주기크롤 판단 배선 검증).
+
+        실제 판단은 Gemini. 여기선 키워드로 watch=True/False 가 흘러 set_document_watch 까지
+        배선되는지만 보장(테스트). 'leaderboard/벤치/순위/실시간' 등 → watch."""
+        blob = ((doc.title or "") + " " + (doc.raw_text or "")).lower()
+        kws = ("leaderboard", "benchmark", "ranking", "arena", "리더보드",
+               "벤치마크", "순위", "랭킹", "실시간")
+        watch = any(k in blob for k in kws)
+        return {"watch": watch, "interval_days": 1 if watch else None,
+                "reason": "키워드 매칭(mock)" if watch else "1회성으로 판단(mock)"}
 
     def research(self, query: str, context: str) -> dict:
         """결정론적 stub — 맥락 조사 파이프라인 연결용(실 조사는 Gemini+google_search).

@@ -51,6 +51,8 @@ class Settings(BaseSettings):
     # 1홉 자동확장: 적재 문서의 링크를 LLM 이 선별→판정→적재(백그라운드 expand-loop).
     # 기본 ON. 끄면(0) 확장 안 함(텔레그램 confirm 버튼 경로도 비활성).
     auto_expand: bool = Field(default=True, alias="CLAIRE_AUTO_EXPAND")
+    # 주기 크롤링: watch 문서의 기본 재확인 주기(일). 문서별 watch_interval 이 있으면 그게 우선.
+    watch_interval_days: float = Field(default=1.0, alias="CLAIRE_WATCH_INTERVAL_DAYS")
 
     # --- local inject API (DM 과 동일 ingest 통로를 로컬에서 호출) ---
     inject_host: str = Field(default="127.0.0.1", alias="CLAIRE_INJECT_HOST")

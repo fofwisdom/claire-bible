@@ -130,6 +130,31 @@ def test_ingest_emits_progress_events(tmp_path: Path):
     assert not any("원문 가져오는 중" in m for m in msgs2), msgs2
 
 
+def test_ingest_watch_classification(tmp_path: Path):
+    """[주기 크롤링] 신규 1차 적재 시 classify_watch(mock)가 watch 설정 — 벤치/순위는 on,
+    일반 글은 off, onehop 자식은 판단 자체를 건너뜀(watch_enabled NULL=미판단)."""
+    conn = _db()
+    vstore = VectorStore(conn, "brute")
+    p = MockProvider()
+    bench = Document(url="https://x/lb", title="LLM Leaderboard 리더보드",
+                     raw_text="순위표 1위 A 2위 B " * 20, source_type="web", content_hash="b1")
+    ingest("x", conn=conn, provider=p, vstore=vstore, source="web", fetch_fn=_fetch_doc(bench))
+    blog = Document(url="https://x/blog", title="어떤 블로그 글",
+                    raw_text="평범한 본문 설명입니다 " * 20, source_type="web", content_hash="g1")
+    ingest("x", conn=conn, provider=p, vstore=vstore, source="web", fetch_fn=_fetch_doc(blog))
+    child = Document(url="https://x/child", title="자식 문서",
+                     raw_text="리더보드 순위 " * 20, source_type="web", content_hash="c1")
+    ingest("x", conn=conn, provider=p, vstore=vstore, source="onehop:parent",
+           fetch_fn=_fetch_doc(child))
+
+    def we(h):
+        return conn.execute("SELECT watch_enabled FROM documents WHERE content_hash=?",
+                            (h,)).fetchone()["watch_enabled"]
+    assert we("b1") == 1     # 리더보드 → watch on
+    assert we("g1") == 0     # 일반 글 → off
+    assert we("c1") is None  # onehop 자식 → 판단 건너뜀(미판단)
+
+
 def test_ingest_text_creates_entities_and_vault(tmp_path: Path):
     conn = _db()
     vstore = VectorStore(conn, "brute")

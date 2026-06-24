@@ -116,6 +116,8 @@ def documents_list(conn: sqlite3.Connection, limit: int = 300) -> list[dict]:
             "url": r["url"],
             "source_type": r["source_type"],
             "fetched_at": r["fetched_at"],
+            "seen": r["seen"],                  # 0=미열람(unread) → UI 아이콘
+            "watch": r["watch_enabled"],        # 1=주기 크롤링 대상 → UI 아이콘
             "summary": dbm.latest_extraction_summary(conn, r["id"]) or "",
         })
     return out
@@ -228,6 +230,9 @@ GRAPH_HTML = """<!doctype html>
   .docitem:hover{background:var(--hover)}
   .docitem.active{background:var(--active);border-left:3px solid var(--accent2)}
   .docitem b{font-size:12px} .docitem .st{color:var(--muted);font-size:10px;margin-left:6px}
+  .docitem.unread{border-left:3px solid var(--accent2)} .docitem.unread b{font-weight:700}
+  .docitem .ubadge{color:var(--accent2);font-size:9px;margin-right:4px;vertical-align:middle}
+  .docitem .wbadge{font-size:10px;margin-right:2px}
   .docitem p{margin:.2em 0 0;color:var(--muted);font-size:11px}
   /* 좌측 문서의 '읽기' 버튼 — 클릭=nav 와 분리(이 버튼만 팝업 읽기). */
   .docitem .readbtn{position:absolute;top:6px;right:7px;background:var(--sec-bg);color:var(--sec-fg);
@@ -873,13 +878,18 @@ function renderDocs(filter){
   items.forEach(dc=>{ const day=dayOf(dc.fetched_at);
     if(day!==curDay){ html+='<div class=dday>'+day+'</div>'; curDay=day; }
     // 클릭=그래프 nav(필터·이동), 📖 버튼=중앙 팝업으로 읽기(둘은 충돌하니 분리, 사용자 요구).
-    html+='<div class="docitem'+(dc.id===activeDoc?' active':'')+'" onclick="selectDoc(\\''+dc.id+'\\')">'+
+    const unread = dc.seen===0, watching = dc.watch===1;
+    html+='<div class="docitem'+(dc.id===activeDoc?' active':'')+(unread?' unread':'')+'" onclick="selectDoc(\\''+dc.id+'\\')">'+
       '<button class=readbtn title="크게 읽기" onclick="event.stopPropagation();openReader(\\''+dc.id+'\\')">📖</button>'+
+      (watching?'<span class=wbadge title="주기 갱신 추적(watch)">🔄</span>':'')+
+      (unread?'<span class=ubadge title="아직 안 본 문서">●</span>':'')+
       '<b>'+esc(dc.title)+'</b><span class=st>'+esc(dc.source_type||'')+'</span>'+
       (dc.summary?'<p>'+esc(dc.summary.slice(0,110))+'</p>':'')+'</div>'; });
   document.getElementById('doclist').innerHTML=html;
 }
 function selectDoc(id){
+  const d0 = allDocs && allDocs.find(d=>d.id===id);
+  if(d0) d0.seen=1;                             // 열람 → unread 해제(낙관적; 서버는 /document 가 처리)
   activeDoc = (activeDoc===id ? null : id);     // 같은 문서 재클릭 → 해제
   selectedNodeId=null;                          // 문서 모드로 전환 — 노드 inspect 해제
   renderDocs(document.getElementById('docq').value);
