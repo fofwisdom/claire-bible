@@ -215,6 +215,10 @@ GRAPH_HTML = """<!doctype html>
   #synthchips .chip{background:var(--chip-bg);border-radius:10px;padding:1px 7px;font-size:11px;cursor:pointer}
   #legendbar{display:flex;flex-wrap:wrap;gap:10px;padding:4px 12px;background:var(--panel-bg);border-bottom:1px solid var(--border);font-size:11px;color:var(--muted)}
   #legendbar i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:3px;vertical-align:middle}
+  #legendbar .lgsep{margin-left:6px;opacity:.7}
+  #legendbar .reltog{cursor:pointer;padding:1px 7px;border-radius:9px;background:var(--chip-bg);border:1px solid var(--border);color:var(--fg)}
+  #legendbar .reltog.off{opacity:.4;text-decoration:line-through}
+  #bar button.on{outline:2px solid var(--accent2);outline-offset:1px}
   #wrap{display:flex;height:calc(100% - 68px)}
   #net{flex:1;min-width:0;background:var(--net-bg)}
   #docs{width:280px;overflow:auto;background:var(--docs-bg);border-right:1px solid var(--border);font-size:12px}
@@ -317,6 +321,7 @@ GRAPH_HTML = """<!doctype html>
   <span id="synthchips"></span>
   <button id="synthbtn" onclick="synth()">🧩 종합 (0)</button>
   <button id="addbtn" class="sec" onclick="openIngest()" title="URL·텍스트를 그래프에 적재">➕ 적재</button>
+  <button id="pathbtn" class="sec" onclick="togglePathMode()" title="두 노드 사이 연결 경로 찾기">🔗 경로</button>
   <label>연결 ≥ <b id="fmin">0</b> <input id="fslider" type="range" min="0" max="0" value="0" oninput="setDeg(this.value)"/></label>
   <span class="spacer"></span>
   <button id="themebtn" title="라이트/다크 전환" onclick="toggleTheme()">🌙</button>
@@ -363,6 +368,8 @@ let clusterEdges=null;   // 검색 결과를 뭉치게 한 임시 spring 엣지 
 let clusterAnchor=null;  // 검색 시 중앙 앵커 노드 id(매칭은 끌고 비매칭은 밀어냄) — 해제 시 제거
 let searchDebounce=null; // 라벨검색 디바운스 타이머 — 타이핑 멈춘 뒤에만 검색 실행
 let synthSet=new Set();
+let allRelTypes=[], relFilter=null;          // 관계 타입 필터: null=전체, Set=선택 타입만 표시
+let pathMode=false, pathPicks=[], pathNodes=null, pathEdges=null;  // 2노드 경로 하이라이트(전용 모드)
 const panel = document.getElementById('panel');
 const DEFAULT_HINT = '<p class="hint">노드를 클릭하면 관찰·출처 문서·연결이 표시됩니다.<br><br>• <b>Ctrl+클릭</b> 또는 상세의 <b>➕ 종합에 추가</b>로 여러 노드를 모아 종합<br>• 다른 노드에 <b>1초</b> 올리면 미리보기(벗어나면 복귀)<br>• 좌측 문서를 <b>클릭</b>하면 그래프에서 강조(nav), <b>📖</b> 버튼을 누르면 <b>크게 읽기(팝업)</b><br>• 우측 위 <b>🌙/🌞</b> 로 라이트·다크 전환</p>';
 panel.innerHTML = DEFAULT_HINT;
@@ -503,8 +510,8 @@ fetch('graph').then(r=>r.json()).then(d=>{
   allEdges = new vis.DataSet(d.edges);
   const sl = document.getElementById('fslider'); sl.max = d.stats.max_degree; sl.value = 0;
   allTypes=[...new Set(d.nodes.map(n=>n.group))].sort();
-  document.getElementById('legendbar').innerHTML = allTypes.map(t=>
-    '<span><i style="background:'+(TYPE_COLORS[t]||'#8b949e')+'"></i>'+esc(t)+'</span>').join('');
+  allRelTypes=[...new Set(d.edges.map(e=>e.label).filter(Boolean))].sort();
+  renderLegend();
   const th=T();
   // 선택/강조 노드는 테마별 강조 테두리(다크=흰색, 라이트=파랑) — dim 만으론 안 띄어서(피드백).
   const opts = {
@@ -530,6 +537,7 @@ fetch('graph').then(r=>r.json()).then(d=>{
       return;
     }
     const id=p.nodes[0], ev=p.event.srcEvent;
+    if(pathMode){ pickPathNode(id); return; }                // 경로 모드: 클릭으로 시작/끝 노드 지정
     if(ev && (ev.ctrlKey||ev.metaKey)){ toggleSynth(id); }   // Ctrl/Cmd+클릭 = 종합 수집(선택과 분리)
     else { selectedNodeId=id; loadNode(id); mobileScrollTo('panel'); }  // 일반 클릭/탭 = 상세 inspect
   });
@@ -735,20 +743,47 @@ function refreshGraph(){
 
 // 단일 가시 규칙: degree(스케일)=hidden, 강조 필터(문서 선택 + 검색)=비매치 dim.
 // 문서/라벨검색/의미검색이 모두 같은 강조 방식을 공유한다(시각 언어 통일).
+// 범례 = 노드 타입 색(비클릭) + 관계 타입 토글 칩(클릭=필터). off 표시 타입은 그래프에서 숨김.
+function renderLegend(){
+  const nodeleg = allTypes.map(t=>
+    '<span><i style="background:'+(TYPE_COLORS[t]||'#8b949e')+'"></i>'+esc(t)+'</span>').join('');
+  let rel='';
+  if(allRelTypes.length){
+    rel = '<span class=lgsep>관계:</span> ' + allRelTypes.map((t,i)=>{
+      const on = !relFilter || relFilter.has(t);
+      return '<span class="reltog'+(on?'':' off')+'" onclick="toggleRel('+i+')" title="이 관계만/제외 토글">'+esc(t)+'</span>';
+    }).join(' ');
+  }
+  document.getElementById('legendbar').innerHTML = nodeleg + rel;
+}
+function toggleRel(i){
+  const t=allRelTypes[i]; if(t===undefined) return;
+  if(!relFilter) relFilter=new Set(allRelTypes);   // 첫 토글: 전체 켜진 상태에서 하나 끔
+  if(relFilter.has(t)) relFilter.delete(t); else relFilter.add(t);
+  if(relFilter.size===allRelTypes.length) relFilter=null;  // 전부 켜지면 필터 해제(=전체)
+  renderLegend(); applyView();
+}
+function nodeLabel(id){ const n=allNodes&&allNodes.get(id); return n?n.label:id; }
+
 function setDeg(v){ curMinDeg=+v; document.getElementById('fmin').textContent=v; applyView(); }
 function applyView(){
   if(!allNodes) return;
   let shown=0, emph=0;
-  const hasFilter = activeDoc || highlightSet;
+  const th=T();
+  const pathActive = !!(pathNodes && pathNodes.size);
+  const hasFilter = activeDoc || highlightSet || pathActive;
   allNodes.forEach(n=>{
     if(typeof n.id==='string' && n.id.indexOf('cl_')===0) return;  // 검색 중앙 앵커는 안 건드림(숨김 유지)
     if(n.degree < curMinDeg){ allNodes.update({id:n.id, hidden:true}); return; }
     let match = true;
-    if(activeDoc) match = match && (n.sources||[]).includes(activeDoc);
-    if(highlightSet) match = match && highlightSet.has(n.id);  // 검색(라벨/의미) 강조 집합
-    // 강조(문서 선택·검색) 매치 노드는 흰 굵은 테두리 — dim 만으론 안 띄어서(피드백).
+    if(pathActive){ match = pathNodes.has(n.id); }   // 경로 모드: 경로 노드만 강조(다른 필터보다 우선)
+    else {
+      if(activeDoc) match = match && (n.sources||[]).includes(activeDoc);
+      if(highlightSet) match = match && highlightSet.has(n.id);  // 검색(라벨/의미) 강조 집합
+    }
+    // 강조(문서 선택·검색·경로) 매치 노드는 흰 굵은 테두리 — dim 만으론 안 띄어서(피드백).
     // 노드별 color 가 group 색을 덮으므로 background/highlight 를 같이 명시해 유지한다.
-    const lit = hasFilter && match, c = TYPE_COLORS[n.group]||'#8b949e', th=T();
+    const lit = hasFilter && match, c = TYPE_COLORS[n.group]||'#8b949e';
     allNodes.update({id:n.id, hidden:false, opacity: match?1:DIM, borderWidth: lit?3:1,
       color:{background:c, border: lit?th.lit:th.nodeBorder,
              highlight:{background:c, border:th.lit}}});
@@ -757,11 +792,74 @@ function applyView(){
   allEdges.forEach(e=>{
     if(typeof e.id==='string' && e.id.indexOf('cl_')===0) return;  // 임시 클러스터 spring 엣지는 안 건드림(물리 유지)
     const f=allNodes.get(e.from), t=allNodes.get(e.to);
-    allEdges.update({id:e.id, hidden: !(f && t && !f.hidden && !t.hidden)}); });
+    let visible = !!(f && t && !f.hidden && !t.hidden);
+    if(relFilter && !relFilter.has(e.label)) visible=false;       // 관계 타입 필터
+    const onPath = !!(pathEdges && pathEdges.has(e.id));          // 경로 엣지 강조
+    allEdges.update({id:e.id, hidden: !visible, width: onPath?4:1,
+      color: onPath ? {color:th.lit, highlight:th.lit} : {color:th.edge, highlight:th.edgeHi}});
+  });
   document.getElementById('stat').innerHTML =
     '표시 <b>'+shown+'</b>/'+allNodes.length
-    + (curMinDeg>0?' · 연결≥'+curMinDeg:'') + (hasFilter?' · 강조 '+emph+'개':'');
+    + (curMinDeg>0?' · 연결≥'+curMinDeg:'')
+    + (relFilter?' · 관계 '+relFilter.size+'/'+allRelTypes.length:'')
+    + (pathActive?' · 🔗경로 '+pathNodes.size+'노드':(hasFilter?' · 강조 '+emph+'개':''));
 }
+
+// --- 2노드 경로 하이라이트(전용 모드): 🔗 경로 → 시작/끝 노드 클릭 → 최단경로(BFS) 강조 ---
+function togglePathMode(){
+  pathMode=!pathMode; pathPicks=[];
+  const b=document.getElementById('pathbtn'); if(b) b.classList.toggle('on', pathMode);
+  if(pathMode) showPathHint();
+  else { pathNodes=null; pathEdges=null; applyView(); panel.innerHTML=''; }
+}
+function showPathHint(){
+  const n=pathPicks.length;
+  panel.innerHTML='<h2>🔗 경로 찾기</h2><p class=al>'+
+    (n===0?'시작 노드를 클릭하세요.':'끝 노드를 클릭하세요. <small>(시작: '+esc(nodeLabel(pathPicks[0]))+')</small>')+
+    '</p><p class=al><small>관계 필터가 켜져 있으면 그 관계만 따라 경로를 찾습니다.</small></p>';
+  mobileScrollTo('panel');
+}
+function pickPathNode(id){
+  pathPicks.push(id);
+  if(pathPicks.length>=2) computePath(pathPicks[0], pathPicks[1]);
+  else showPathHint();
+}
+function computePath(a, b){
+  // 무방향 BFS — 전체 그래프 기준(relFilter 켜져 있으면 그 관계만). 클러스터 spring 엣지 제외.
+  const adj={};
+  allEdges.forEach(e=>{
+    if(typeof e.id==='string' && e.id.indexOf('cl_')===0) return;
+    if(relFilter && !relFilter.has(e.label)) return;
+    (adj[e.from]=adj[e.from]||[]).push([e.to,e.id]);
+    (adj[e.to]=adj[e.to]||[]).push([e.from,e.id]);
+  });
+  const prev={}, prevE={}, seen=new Set([a]); let q=[a];
+  while(q.length){ const u=q.shift(); if(u===b) break;
+    (adj[u]||[]).forEach(([v,eid])=>{ if(!seen.has(v)){ seen.add(v); prev[v]=u; prevE[v]=eid; q.push(v); } }); }
+  pathPicks=[];
+  if(!seen.has(b)){ pathNodes=null; pathEdges=null; applyView();
+    panel.innerHTML='<h2>🔗 경로</h2><p class=hint>두 노드 사이 연결 경로가 없습니다'+
+      (relFilter?' (현재 관계 필터 기준)':'')+'.</p>'+
+      '<p class=al><a href="#" onclick="restartPath();return false">다시 찾기</a></p>';
+    return; }
+  pathNodes=new Set(); pathEdges=new Set();
+  const order=[]; let cur=b;
+  while(cur!==undefined){ order.push(cur); pathNodes.add(cur);
+    if(prevE[cur]!==undefined) pathEdges.add(prevE[cur]);
+    if(cur===a) break; cur=prev[cur]; }
+  order.reverse();
+  applyView();
+  if(net) net.fit({nodes:[...pathNodes], animation:true});
+  panel.innerHTML='<h2>🔗 경로 <small>'+(order.length-1)+'단계</small></h2>'+
+    '<p class=al>'+order.map(id=>esc(nodeLabel(id))).join(' → ')+'</p>'+
+    '<p class=al><a href="#" onclick="restartPath();return false">다른 경로</a> · '+
+    '<a href="#" onclick="clearPath();return false">해제</a></p>';
+  mobileScrollTo('panel');
+}
+function restartPath(){ pathMode=true; pathPicks=[];
+  const b=document.getElementById('pathbtn'); if(b) b.classList.add('on'); showPathHint(); }
+function clearPath(){ pathMode=false; pathPicks=[]; pathNodes=null; pathEdges=null;
+  const b=document.getElementById('pathbtn'); if(b) b.classList.remove('on'); applyView(); panel.innerHTML=''; }
 
 // --- 좌측 문서 패널(일자별 그룹) ---
 function dayOf(ts){ if(!ts) return '(날짜 미상)';
