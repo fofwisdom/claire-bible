@@ -461,6 +461,41 @@ mobileMQ.addEventListener('change', applyTouchMode);
 // 노드 탭→내용 확인이 주 흐름인데 #panel 이 화면 밖(맨 아래)이라, 명시적 액션 후
 // 결과 위치로 자동 스크롤해 준다(모바일만). hover 미리보기에는 적용하지 않는다.
 function mobileScrollTo(id){ if(mobileMQ.matches) document.getElementById(id).scrollIntoView({behavior:'smooth'}); }
+// 휠 줌 평탄화: vis 기본 줌은 wheel deltaY '크기'에 비례해 한 이벤트로 여러 단계 점프한다.
+// Mac 트랙패드/매직마우스는 한 제스처에 큰 deltaY 를 모멘텀으로 연속 발사 → "한꺼번에 확대"
+// (사용자 보고). 그래서 zoomView:false 로 두고, 스크롤 '거리'를 누적해 일정량(STEP_DELTA)마다
+// 한 스텝씩, 프레임당 최대 1스텝만 포인터(커서) 중심으로 적용한다 — 플랫폼 무관하게 균일하고
+// 모멘텀 폭주는 시간축으로 펼쳐져 점프가 사라진다.
+function setupWheelZoom(){
+  const cont=document.getElementById('net');
+  const STEP_DELTA=80, FACTOR=1.12, MIN=0.05, MAX=5, CAP=STEP_DELTA*3;
+  let accum=0, px=0, py=0, raf=0;
+  function zoomAt(factor){  // 커서 아래 그래프 좌표가 고정되도록 scale 변경 후 view 보정
+    const rect=cont.getBoundingClientRect(), dom={x:px-rect.left, y:py-rect.top};
+    const before=net.DOMtoCanvas(dom);
+    const scale=Math.max(MIN, Math.min(MAX, net.getScale()*factor));
+    const vp=net.getViewPosition();
+    net.moveTo({scale:scale, animation:false});
+    const after=net.DOMtoCanvas(dom);
+    net.moveTo({position:{x:vp.x+(before.x-after.x), y:vp.y+(before.y-after.y)}, scale:scale, animation:false});
+  }
+  function flush(){
+    raf=0;
+    if(Math.abs(accum)>=STEP_DELTA){           // 프레임당 한 스텝만 → 모멘텀을 시간축으로 펼침
+      const expand=accum<0;                    // 위로 스크롤(deltaY<0)=확대
+      accum+=expand?STEP_DELTA:-STEP_DELTA;
+      zoomAt(expand?FACTOR:1/FACTOR);
+    }
+    if(Math.abs(accum)>=STEP_DELTA) raf=requestAnimationFrame(flush);  // 남으면 다음 프레임
+  }
+  cont.addEventListener('wheel', e=>{
+    if(mobileMQ.matches && !e.ctrlKey) return; // 모바일 세로 스크롤(pan-y) 보존
+    e.preventDefault();
+    accum+=e.deltaY; px=e.clientX; py=e.clientY;
+    accum=Math.max(-CAP, Math.min(CAP, accum)); // 모멘텀 폭주 상한(손 떼면 곧 멈춤)
+    if(!raf) raf=requestAnimationFrame(flush);
+  }, {passive:false});
+}
 
 fetch('graph').then(r=>r.json()).then(d=>{
   allNodes = new vis.DataSet(d.nodes);
@@ -476,7 +511,7 @@ fetch('graph').then(r=>r.json()).then(d=>{
     edges:{color:{color:th.edge,highlight:th.edgeHi},font:{color:th.nodeFont,size:10},smooth:false},
     groups:buildGroups(),
     physics:{stabilization:{iterations:200},barnesHut:{gravitationalConstant:-8000,springLength:120}},
-    interaction:{hover:true,tooltipDelay:120,multiselect:true}
+    interaction:{hover:true,tooltipDelay:120,multiselect:true,zoomView:false}  // 휠 줌은 커스텀(setupWheelZoom)으로 — vis 기본은 deltaY 크기 비례라 Mac 모멘텀에서 한 번에 여러 단계 점프(사용자 보고)
   };
   net = new vis.Network(document.getElementById('net'), {nodes:allNodes, edges:allEdges}, opts);
   // 모바일/세로스택: vis 가 생성 시점의 #net 높이로 캔버스 backing store 를 잡아 레이아웃이
@@ -484,6 +519,7 @@ fetch('graph').then(r=>r.json()).then(d=>{
   // 재설정 + 회전/리사이즈에도 다시 맞춘다.
   requestAnimationFrame(()=>{ relayout(); setTimeout(relayout, 300); });
   applyTouchMode();   // hammer 가 박은 touch-action:none 을 모바일에선 pan-y 로 덮어씀
+  setupWheelZoom();   // 휠 줌 평탄화(Mac 모멘텀 대응) — vis 기본 zoomView 대체
   net.on('click', p => {
     if(!p.nodes.length){
       // 빈 캔버스 클릭: inspect 만 해제하고 검색(라벨/의미) 강조 선택은 유지(이슈4).
