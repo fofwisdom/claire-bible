@@ -224,9 +224,10 @@ class MockProvider:
         text = (doc.raw_text or "").strip()
         images = (doc.meta or {}).get("images") or []
         parts = [f"[mock-detail] **{title}**", "", text[:600]]
-        if images:  # 수집된 첫 이미지를 마크다운으로 끼워 넣어 보존 경로를 드러냄
+        if images:  # 수집된 첫 이미지를 마크다운 + 캡션(이탤릭) 으로 끼워 보존/캡션 배선을 드러냄
             im = images[0]
-            parts += ["", f"![{im.get('alt', '')}]({im.get('url', '')})"]
+            cap = im.get("caption") or im.get("alt") or "그림"
+            parts += ["", f"![{im.get('alt', '')}]({im.get('url', '')})", f"*{cap}*"]
         return "\n".join(parts)
 
     def research(self, query: str, context: str) -> dict:
