@@ -763,9 +763,11 @@ function renderLegend(){
 }
 function toggleRel(i){
   const t=allRelTypes[i]; if(t===undefined) return;
-  if(!relFilter) relFilter=new Set(allRelTypes);   // 첫 토글: 전체 켜진 상태에서 하나 끔
-  if(relFilter.has(t)) relFilter.delete(t); else relFilter.add(t);
-  if(relFilter.size===allRelTypes.length) relFilter=null;  // 전부 켜지면 필터 해제(=전체)
+  if(!relFilter){ relFilter=new Set([t]); }            // 첫 클릭(진입): 찍은 관계만 표시
+  else if(relFilter.has(t)){ relFilter.delete(t);      // 켜진 것 다시 끄기
+    if(relFilter.size===0) relFilter=null; }           // 다 끄면 전체로 복귀(빈 화면 방지)
+  else { relFilter.add(t);                             // 다른 관계도 추가로 보기(누적)
+    if(relFilter.size===allRelTypes.length) relFilter=null; }  // 전부 켜지면 필터 해제(=전체)
   renderLegend(); applyView();
 }
 function nodeLabel(id){ const n=allNodes&&allNodes.get(id); return n?n.label:id; }
