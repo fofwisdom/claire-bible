@@ -23,7 +23,7 @@ from ..ontology.registry import (
 from ..store import db as dbm
 from ..store.vectors import VectorStore
 from ..store.vault import export_entities
-from ..extract.provider import Provider
+from ..extract.provider import Provider, emit_progress
 from ..extract.resolver import resolve_or_create
 from .router import fetch as default_fetch
 
@@ -109,6 +109,8 @@ def ingest(
 
     try:
         # prefetched: 1홉 확장이 판정용으로 이미 가져온 Document 재사용(중복 fetch 방지).
+        if prefetched is None:
+            emit_progress("원문 가져오는 중…")  # 콜백 미설정 시 no-op(웹 스트림 적재만 표시)
         doc = prefetched if prefetched is not None else fetch_fn(payload)
     except Exception as e:  # noqa: BLE001
         report.error = str(e)
@@ -166,6 +168,7 @@ def ingest(
         dbm.update_inbox(conn, inbox_id, status="duplicate", document_id=near_id)
         return report
 
+    emit_progress("구조화 추출·그래프 적재 중…")
     dbm.insert_document(conn, doc)
     report.document_id = doc.id
 

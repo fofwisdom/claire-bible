@@ -316,6 +316,7 @@ GRAPH_HTML = """<!doctype html>
   <button id="searchbtn" class="sec" onclick="doSemantic()" style="display:none">🔎 의미검색</button>
   <span id="synthchips"></span>
   <button id="synthbtn" onclick="synth()">🧩 종합 (0)</button>
+  <button id="addbtn" class="sec" onclick="openIngest()" title="URL·텍스트를 그래프에 적재">➕ 적재</button>
   <label>연결 ≥ <b id="fmin">0</b> <input id="fslider" type="range" min="0" max="0" value="0" oninput="setDeg(this.value)"/></label>
   <span class="spacer"></span>
   <button id="themebtn" title="라이트/다크 전환" onclick="toggleTheme()">🌙</button>
@@ -655,6 +656,66 @@ function renderResearchResult(d, backId){
   } else if(d.reason){ h+='<p class=al>판정: '+esc(d.reason)+'</p>'; }
   if(backId) h+='<p><a href="#" onclick="loadNode(\\''+backId+'\\');return false">← 노드로 돌아가기</a></p>';
   panel.innerHTML=h;
+}
+
+// --- 웹 적재: URL/텍스트를 그래프에 적재(서버 /ingest-stream, /research 와 동일 NDJSON 스트리밍) ---
+// 텔레그램 DM 과 같은 통로(svc.ingest, source='web') — 관련 링크 1홉 자동확장도 동일하게 동작.
+function openIngest(){
+  panel.innerHTML='<h2>➕ 자료 적재</h2>'+
+    '<p class=al>URL · 메모 텍스트 · "제목 URL" 공유문구를 붙여넣고 보내면 적재됩니다. '+
+    '관련 링크는 백그라운드에서 자동으로 따라가 함께 쌓입니다.</p>'+
+    '<textarea id="ingin" rows="4" style="width:100%;box-sizing:border-box" '+
+    'placeholder="https://example.com/article   또는   메모 텍스트"></textarea>'+
+    '<div style="margin:.5em 0"><button onclick="runIngest()">보내기</button></div>';
+  mobileScrollTo('panel');
+  const ta=document.getElementById('ingin'); if(ta) ta.focus();
+}
+async function runIngest(){
+  const ta=document.getElementById('ingin');
+  const payload=((ta||{}).value||'').trim();
+  if(!payload){ alert('적재할 URL 또는 텍스트를 입력하세요.'); return; }
+  panel.innerHTML='<h2>➕ 적재 중</h2><p class="al" id="ielapsed">시작…</p><ul id="iprog"></ul>';
+  mobileScrollTo('panel');
+  const t0=Date.now();
+  const timer=setInterval(()=>{ const el=document.getElementById('ielapsed');
+    if(el) el.textContent='⏱ 경과 '+Math.round((Date.now()-t0)/1000)+'s'; else clearInterval(timer); },1000);
+  let result=null;
+  try{
+    const r=await fetch('ingest-stream',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({payload:payload})});
+    if(r.status===401||r.status===404){ clearInterval(timer); setAuth('idle');
+      panel.innerHTML='<p class=hint>세션 만료 — 텔레그램 /web 으로 다시 접속하세요</p>'; return; }
+    const reader=r.body.getReader(), dec=new TextDecoder(); let buf='';
+    while(true){
+      const {done,value}=await reader.read(); if(done) break;
+      buf+=dec.decode(value,{stream:true});
+      let i; while((i=buf.indexOf('\\n'))>=0){
+        const line=buf.slice(0,i).trim(); buf=buf.slice(i+1);
+        if(!line) continue;
+        let ev; try{ ev=JSON.parse(line); }catch(_){ continue; }
+        if(ev.done){ result=ev.result; continue; }
+        const ul=document.getElementById('iprog');
+        if(ul){ const li=document.createElement('li'); li.className='al';
+          li.textContent='• '+(ev.msg||''); ul.appendChild(li); }
+      }
+    }
+  }catch(e){ clearInterval(timer);
+    panel.innerHTML='<p class=hint>요청 실패: '+esc(String(e))+'</p>'; return; }
+  clearInterval(timer);
+  if(!result){ panel.innerHTML='<p class=hint>응답이 끊겼습니다 — 잠시 후 다시 시도하세요.</p>'; return; }
+  renderIngestResult(result);
+}
+function renderIngestResult(d){
+  if(d.error){ panel.innerHTML='<h2>➕ 적재</h2><p class=hint>오류: '+esc(d.error)+'</p>'+
+    '<p class=al>원본은 보관되어 자동복구(recover) 대상이 됩니다.</p>'; return; }
+  let h='<h2>'+(d.duplicate?'♻️ 이미 있는 자료':(d.updated?'🔄 내용 갱신':'✅ 적재 완료'))+'</h2>';
+  h+='<p class=al><b>'+esc(d.title||d.document_id||'(제목 없음)')+'</b>'+(d.partial?' <small>⚠️ 부분 처리</small>':'')+'</p>';
+  if(!d.duplicate) h+='<p class=al>노드 신규 '+(d.entities_created||0)+' · 기존연결 '+
+    (d.entities_linked||0)+' · 관계 '+(d.relations_added||0)+'</p>';
+  if(d.summary) h+='<div class=synth>'+esc(d.summary)+'</div>';
+  if(d.document_id) h+='<p><a href="#" onclick="loadDocPanel(\\''+d.document_id+'\\');return false">문서 보기 →</a></p>';
+  panel.innerHTML=h;
+  refreshGraph();   // 신규 노드/엣지·문서목록 즉시 반영(새로고침 없이)
 }
 
 // 조사로 그래프가 늘어난 뒤 새로고침 없이 신규 노드/엣지·문서목록을 반영.

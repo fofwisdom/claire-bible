@@ -96,6 +96,40 @@ def _fetch_doc(doc: Document):
     return lambda payload: doc
 
 
+def test_ingest_emits_progress_events(tmp_path: Path):
+    """웹 적재(ingest-stream)용 진행 메시지가 provider 진행 콜백으로 흐른다(fetch→추출 단계).
+
+    콜백 미설정 시 emit_progress 는 no-op(CLI/텔레그램 경로 무영향). 여기선 콜백을 걸어
+    파이프라인이 단계 메시지를 흘리는지(스트림 계약) 확인한다."""
+    from claire.extract.provider import set_progress_callback
+
+    conn = _db()
+    vstore = VectorStore(conn, "brute")
+    doc = Document(url="https://example.com/post", title="Post",
+                   raw_text="A knowledge graph from a corpus. " * 10,
+                   source_type="web", content_hash="h-prog")
+    msgs: list[str] = []
+    set_progress_callback(msgs.append)
+    try:
+        rep = ingest("x", conn=conn, provider=MockProvider(), vstore=vstore,
+                     source="web", fetch_fn=_fetch_doc(doc))
+    finally:
+        set_progress_callback(None)
+    assert rep.document_id and rep.error is None
+    assert any("원문 가져오는 중" in m for m in msgs), msgs
+    assert any("구조화 추출" in m for m in msgs), msgs
+    # prefetched 경로(1홉 확장)는 재fetch 안 하므로 "원문 가져오는 중" 을 내지 않는다.
+    msgs2: list[str] = []
+    conn2 = _db()
+    set_progress_callback(msgs2.append)
+    try:
+        ingest("x", conn=conn2, provider=MockProvider(), vstore=VectorStore(conn2, "brute"),
+               source="onehop:d1", fetch_fn=_fetch_doc(doc), prefetched=doc)
+    finally:
+        set_progress_callback(None)
+    assert not any("원문 가져오는 중" in m for m in msgs2), msgs2
+
+
 def test_ingest_text_creates_entities_and_vault(tmp_path: Path):
     conn = _db()
     vstore = VectorStore(conn, "brute")

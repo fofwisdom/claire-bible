@@ -118,6 +118,10 @@ def contextual_research(settings, provider, *, query: str,  # noqa: ANN001
         _p("ingest", "게이트 통과 — 그래프 적재 중(추출→엔티티 해소→관계→임베딩)…")
         text = _research_doc_text(query, focus, judge.get("interpretation", ""),
                                   report, sources)
+        # 적재 파이프라인의 세부 단계 emit("원문 가져오는 중" 등)은 웹 적재(ingest-stream)
+        # UX 용이라 research 진행 스트림엔 노이즈 — research 는 위/아래 자체 ingest 메시지로
+        # 표시하므로 여기선 콜백을 꺼 그 메시지가 끼어들지 않게 한다(진행 이벤트 계약 유지).
+        set_progress_callback(None)
         ing = _ingest_report_doc(settings, provider, conn, query, text)
         base["added"] = ing.get("error") is None
         base["ingest"] = ing

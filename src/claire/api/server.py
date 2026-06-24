@@ -350,6 +350,66 @@ def run_api() -> int:
         await resp.write_eof()
         return resp
 
+    async def ingest_stream_route(request):
+        # 웹 UI 적재 — fetch→추출→그래프 적재→1홉 확장(enqueue)까지 수 초~수십 초 걸리므로
+        # /research 와 같은 NDJSON 스트리밍으로 단계 진행({stage,msg})을 실시간 표시하고
+        # 마지막 줄에 {done:true, result: IngestReport}. 진행은 provider 의 스레드-로컬
+        # progress 콜백(emit_progress; pipeline 단계 + gemini rate limit 대기)을 워커
+        # 스레드에서 걸어 받는다. 적재 자체는 /ingest 와 동일한 svc.ingest(단일 통로).
+        if not _authed(request):
+            return web.json_response({"error": "unauthorized"}, status=401)
+        import asyncio
+        import json
+
+        from ..extract.provider import set_progress_callback
+
+        try:
+            body = await request.json()
+        except Exception:  # noqa: BLE001
+            return web.json_response({"error": "invalid json"}, status=400)
+        payload = (body.get("payload") or "").strip()
+        if not payload:
+            return web.json_response({"error": "payload required"}, status=400)
+        expand_max = body.get("expand_max")
+
+        resp = web.StreamResponse()
+        resp.content_type = "application/x-ndjson"
+        await resp.prepare(request)
+
+        async def send(obj) -> None:  # noqa: ANN001
+            await resp.write((json.dumps(obj, ensure_ascii=False) + "\n").encode())
+
+        loop = asyncio.get_running_loop()
+        events: asyncio.Queue = asyncio.Queue()
+
+        def on_progress(msg: str) -> None:  # 워커 스레드에서 호출됨(str)
+            loop.call_soon_threadsafe(events.put_nowait, {"stage": "work", "msg": msg})
+
+        def _run():
+            set_progress_callback(on_progress)  # 이 워커 스레드에 한정(스레드-로컬)
+            try:
+                return svc.ingest(payload, source="web", expand_max=expand_max)
+            finally:
+                set_progress_callback(None)  # 스레드풀 재사용 대비 정리
+
+        fut = asyncio.ensure_future(asyncio.to_thread(_run))
+        while not (fut.done() and events.empty()):
+            try:
+                ev = await asyncio.wait_for(events.get(), timeout=0.5)
+            except asyncio.TimeoutError:
+                continue
+            await send(ev)
+        try:
+            out = report_to_dict(fut.result())
+        except Exception as e:  # noqa: BLE001
+            # 적재 중 예외(예: Gemini quota)도 결과 줄의 error 로 — 원본은 raw_inbox 에
+            # 보관돼 replay-failed 로 재적재 가능(/ingest 와 동일 관례).
+            log.warning("ingest stream error: %s", e)
+            out = {"error": str(e), "ok": False}
+        await send({"done": True, "result": out})
+        await resp.write_eof()
+        return resp
+
     # --- 전 엔드포인트 게이트(외부 공개 대비) ---
     # 미인증 요청은 401 이 아니라 404 로 응답해 "여기 뭐 없음"처럼 보이게 한다(존재 숨김).
     # 인증은 bearer(CLI) · X-Session 헤더 · claire_session 쿠키. 진입은 /web 가 준 ?t= 링크.
@@ -383,6 +443,7 @@ def run_api() -> int:
         web.get("/health", health),
         web.get("/stats", stats),
         web.post("/ingest", do_ingest),
+        web.post("/ingest-stream", ingest_stream_route),  # 웹 UI 적재(NDJSON 진행 스트리밍)
         web.post("/search", do_search),
         # 읽기전용 그래프 뷰어(loopback). / = HTML, /graph = vis.js JSON, /node = 상세.
         web.get("/", graph_ui),
