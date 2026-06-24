@@ -53,7 +53,7 @@
 - [x] (완료 2026-06-10) **웹 UI 인증**(토큰 prompt → 텔레그램 버튼 승인 → 세션) — `auth_sessions` DB, `/auth/request`(버튼+미승인 시 자동 만료-제거), `/auth/poll`(비인증), `_authed`에 X-Session 추가(bearer 유지). negative path 검증(미승인 401·bearer 200·만료 거부). ⚠️실제 텔레그램 승인 흐름 end-to-end는 사용자 확인 예정.
 - [x] (완료 2026-06-10) **의미검색 토글** — "의미" 체크 시 백엔드 하이브리드(/search FTS+벡터, 세션 게이팅) → 결과 노드 강조. discriminating 검증(substring 0인 노드를 임베딩으로 찾음).
 - [x] (완료 2026-06-10) **UI 3차 폴리시**(사용자 피드백): 문서필터 dim(숨김 대신 opacity, 맥락보존; degree=hidden과 별도 속성) · hover 2s→1s · **종합 수집(synthSet) inspect와 분리**(Ctrl+클릭/➕버튼·칩·카운트) · 인증 상태 아이콘+카운트다운(비블로킹, /auth/request ttl 반환) · 의미검색 버튼(타이핑 0호출 검증) · 문서 일자별 그룹 · 컨트롤/슬라이더 레이아웃 고정. playwright discriminator 검증.
-- [ ] (뒷이야기) 선택 노드 종합 시 추가 자동 웹검색 — 사용자가 defer
+- [ ] (설계 문서화 완료, 미구현) **종합(synthesis) 재설계** — 다중 노드→관계성+노드별 웹조사→문서 생성→claire 재흡수(feedback loop). 큰 기능이라 계획 선작성: **`docs/SYNTHESIS_REDESIGN.md`**(advisor 검토 반영: 병렬조사 불가=throttle 직렬 / dedup 적대=synthesis 전용 분기 / extract 생략+`synthesizes` 관계 / 증분 canonical key / 마일스톤 S1~S3 먼저·웹조사 S5 마지막). 구현 착수 시 그 문서 갱신. (구 "추가 자동 웹검색 defer" 흡수)
 - [ ] static 경로 boilerplate (사용자 보류)
 - [ ] **degree 필터 유용성 평가 + ego-graph 검토** — 며칠 사용 후(사용자와)
 - [x] (완료 2026-06-11, **설계만**) **외부 접속 시나리오**(모바일/외부 PC) — 사용자 결정 "설계안만 문서로". `docs/EXTERNAL_ACCESS.md`: 위협모델(읽기 엔드포인트 무인증=루프백 전제) + 옵션비교(SSH터널/Tailscale/Cloudflare Access/직접노출) + **권장=Tailscale**(공개노출 0, 바인드만 변경, 읽기 게이팅 재설계 불필요). 실제 바인드/노출 변경은 다음 세션 승인 후.
@@ -62,6 +62,12 @@
   - ② ESC = `clearSelections()`(검색+inspect 해제, synthSet 보존). 빈클릭 = inspect만 해제·검색 강조 유지.
   - ④ 입력창 focus → `select()`(전체선택).
   - JS 문법 `node --check` 검증.
+- [x] (완료 2026-06-24) **Mac 휠 줌 평탄화** — vis `zoomView:false` + 스크롤 거리 누적·프레임당 1스텝·커서 중심(`setupWheelZoom`). Mac 트랙패드/매직마우스 모멘텀의 "한 번에 여러 단계 점프" 해결. 배포됨(커밋 5dabb17).
+- [x] (구현·검증, 미배포 2026-06-24) **이미지 캡션 · 웹 적재 · 관계 UI**:
+  - ② **이미지 맥락 캡션** — `render_detail` 이 이미지 아래 본문 맥락 기반 한 줄 캡션(이탤릭) 동반(추가 호출 0). 커밋 97eef16.
+  - ④ **웹 UI 신규 적재** — 상단 `➕ 적재` → `POST /ingest-stream`(`/research`식 NDJSON 진행 스트림), `svc.ingest(source='web')` 단일 통로. 단위+curl+Playwright e2e. 커밋 3fb74fa.
+  - ① **관계 UI** — 범례에 관계 타입 토글 필터 + `🔗 경로`(2노드 BFS 최단경로 하이라이트, 관계 필터 반영). Playwright `browser_evaluate` e2e. 커밋 4267cd5.
+  - ③ **주기 크롤링 + 스냅샷 + unread** 는 스키마 변경이라 다음(설계 확정: `document_snapshots` 시계열·그래프는 최신 in-place·LLM watch 자동판단+수동 on/off·UI 상위+아이콘·미열람 표시).
 
 ### 2026-06-11 (2차) 사용자 피드백 4건
 - [x] **모바일 캔버스 상단 일부만 차지**(이슈1) — 두 겹 버그: (a) 좁은화면 media query 의 `#net{height:58vh}` 이 base `#net{flex:1}`(basis 0%)에 무력화돼 min-height 까지 쪼그라듦 → media 에 `flex:none` 추가. (b) vis 가 생성 시점 미해결 높이로 캔버스를 150px 로 잡아 박스 상단 50%만 차지 → `setSize('100%','100%')` 은 flex/auto 체인에서 안 먹어 **getBoundingClientRect 실측 px** 로 강제 + **ResizeObserver**(레이아웃확정·세로스택전환·회전 시 재설정). **Playwright 390px 검증: 캔버스 박스충진 50%→100%(452px)**.
