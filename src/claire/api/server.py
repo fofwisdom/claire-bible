@@ -413,10 +413,111 @@ def run_api() -> int:
         await resp.write_eof()
         return resp
 
+    async def dedup_scan_route(request):
+        # 근사중복 클러스터 진단(비파괴) — minhash 백필 + O(n²) 비교라 무거워 스레드에서.
+        if not _authed(request):
+            return web.json_response({"error": "unauthorized"}, status=401)
+        import asyncio
+
+        from ..graphview import dedup_clusters
+
+        def _scan():
+            scan = svc.dedup_scan()
+            conn = dbm.connect(s.db_file)
+            dbm.init_db(conn)
+            try:
+                return dedup_clusters(conn, scan)
+            finally:
+                conn.close()
+
+        return web.json_response(await asyncio.to_thread(_scan))
+
+    async def dedup_merge_route(request):
+        # [파괴적] 사용자가 고른 keeper 로 loser 문서들을 병합 — 서버가 병합 전 자동 백업.
+        if not _authed(request):
+            return web.json_response({"error": "unauthorized"}, status=401)
+        import asyncio
+
+        try:
+            body = await request.json()
+        except Exception:  # noqa: BLE001
+            return web.json_response({"error": "invalid json"}, status=400)
+        keeper = (body.get("keeper") or "").strip()
+        losers = [str(x) for x in (body.get("losers") or []) if x]
+        if not keeper or not losers:
+            return web.json_response({"error": "keeper and losers required"}, status=400)
+
+        def _merge():
+            return svc.merge_one_cluster(keeper, losers, backup=True)
+
+        try:
+            res = await asyncio.to_thread(_merge)
+        except Exception as e:  # noqa: BLE001
+            log.warning("dedup merge error: %s", e)
+            return web.json_response({"error": str(e)}, status=200)
+        return web.json_response(res)
+
+    async def create_share_route(request):
+        # 문서 1개의 읽기 공유 토큰 발급(세션과 분리). 발급은 인증된 UI 에서만.
+        if not _authed(request):
+            return web.json_response({"error": "unauthorized"}, status=401)
+        import asyncio
+
+        try:
+            body = await request.json()
+        except Exception:  # noqa: BLE001
+            return web.json_response({"error": "invalid json"}, status=400)
+        did = (body.get("doc_id") or "").strip()
+        if not did:
+            return web.json_response({"error": "doc_id required"}, status=400)
+
+        def _share():
+            conn = dbm.connect(s.db_file)
+            dbm.init_db(conn)
+            try:
+                if dbm.get_document_row(conn, did) is None:
+                    return None
+                return dbm.create_doc_share(conn, did)
+            finally:
+                conn.close()
+
+        tok = await asyncio.to_thread(_share)
+        if not tok:
+            return web.json_response({"error": "document not found"}, status=404)
+        return web.json_response({"token": tok, "path": "/p?s=" + tok})
+
+    async def shared_doc_page(request):
+        # [공개] 공유 토큰(/p?s=)으로 문서 1개만 읽기전용 렌더. 세션/그래프 인증과 무관 —
+        # 토큰 자체가 인증을 대신하며 유출돼도 그 문서 1개만 노출된다. 게이트 예외(PUBLIC).
+        import asyncio
+
+        from ..graphview import document_detail as _dd
+        from ..graphview import shared_html
+
+        tok = request.query.get("s", "")
+
+        def _load():
+            conn = dbm.connect(s.db_file)
+            dbm.init_db(conn)
+            try:
+                did = dbm.resolve_doc_share(conn, tok)
+                if not did:
+                    return None
+                return _dd(conn, did)
+            finally:
+                conn.close()
+
+        doc = await asyncio.to_thread(_load)
+        if doc is None:
+            return web.Response(status=404, text="Not Found")
+        return web.Response(text=shared_html(doc), content_type="text/html")
+
     # --- 전 엔드포인트 게이트(외부 공개 대비) ---
     # 미인증 요청은 401 이 아니라 404 로 응답해 "여기 뭐 없음"처럼 보이게 한다(존재 숨김).
     # 인증은 bearer(CLI) · X-Session 헤더 · claire_session 쿠키. 진입은 /web 가 준 ?t= 링크.
-    PUBLIC_PATHS = {"/health"}  # 도커 헬스체크(루프백) — 게이트 예외
+    # /health: 도커 헬스체크(루프백). /p: 문서 공유 핫링크 — 쿼리의 공유 토큰이 자체 인증이라
+    # 세션 게이트 예외(핸들러가 토큰을 검증, 무효면 404).
+    PUBLIC_PATHS = {"/health", "/p"}
 
     @web.middleware
     async def gate(request, handler):
@@ -456,6 +557,12 @@ def run_api() -> int:
         web.get("/document", document_detail_route),
         web.post("/synthesize", synthesize_route),
         web.post("/research", research_route),
+        # 중복 문서 정리(웹) — 진단(GET)·병합(POST, 파괴적·자동백업).
+        web.get("/dedup", dedup_scan_route),
+        web.post("/dedup/merge", dedup_merge_route),
+        # 문서 공유 핫링크 — 발급(인증)·열람(공개, 토큰 자체 인증).
+        web.post("/share", create_share_route),
+        web.get("/p", shared_doc_page),
         # 웹 UI 인증(텔레그램 버튼 승인 → 세션). poll 은 비인증(세션 획득용).
         web.post("/auth/request", auth_request),
         web.get("/auth/poll", auth_poll),

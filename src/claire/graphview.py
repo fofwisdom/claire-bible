@@ -38,7 +38,9 @@ def graph_json(conn: sqlite3.Connection) -> dict:
             "group": e.type,
             "degree": deg.get(e.id, 0),
             "sources": e.sources,  # 문서 기반 필터용(문서 클릭 → 그 문서 엔티티만)
-            "title": (e.observations[0][:200] if e.observations else e.type),
+            # 관찰 첫 줄 — hover 시 마우스 위치 커스텀 팝업이 쓴다. vis 기본 title 툴팁은
+            # 일부러 안 쓴다(스타일 제약·중복). 그래서 'title' 이 아니라 'obs' 로 보낸다.
+            "obs": (e.observations[0][:200] if e.observations else ""),
         }
         for e in ents
     ]
@@ -104,6 +106,34 @@ def document_detail(conn: sqlite3.Connection, document_id: str) -> dict | None:
         "summary": dbm.latest_extraction_summary(conn, document_id) or "",
         "detail": dbm.get_document_detail(conn, document_id) or "",
     }
+
+
+def dedup_clusters(conn: sqlite3.Connection, scan: dict) -> dict:
+    """dedup_scan 결과를 웹 UI 용으로 보강 — 각 문서의 제목·URL·본문길이·적재시각 + keeper 추천.
+
+    scan(=svc.dedup_scan)은 ids/urls/titles/score 만 준다. UI 가 '무엇을 유지할지' 고르게
+    각 문서 메타를 채우고, 기본 keeper(=최장 본문, 동률이면 최초 적재)를 표시한다 —
+    service.dedup_merge 의 keeper 선정과 동일 규칙(웹/CLI 일관)."""
+    out_clusters = []
+    for c in scan.get("clusters", []):
+        docs = []
+        for did in c["ids"]:
+            row = dbm.get_document_row(conn, did)
+            if row is None:
+                continue
+            docs.append({
+                "id": did,
+                "title": row["title"] or "(제목 없음)",
+                "url": row["url"],
+                "len": len(row["raw_text"] or ""),
+                "fetched_at": row["fetched_at"],
+            })
+        if len(docs) < 2:
+            continue
+        # keeper = 최장 본문(가장 완전), 동률이면 최초 적재(fetched_at 작은 쪽).
+        keeper = max(docs, key=lambda d: (d["len"], -(d["fetched_at"] or 0.0)))["id"]
+        out_clusters.append({"score": c.get("score"), "keeper": keeper, "docs": docs})
+    return {"documents": scan.get("documents", 0), "clusters": out_clusters}
 
 
 def documents_list(conn: sqlite3.Connection, limit: int = 300) -> list[dict]:
@@ -269,6 +299,17 @@ GRAPH_HTML = """<!doctype html>
   #fslider{width:100px;vertical-align:middle}
   /* ==형광== 강조 — render_detail/요약이 LLM 으로 표시한 핵심 구절(마크다운 후 <mark>). */
   mark{background:var(--mark-bg);color:var(--mark-fg);padding:0 .15em;border-radius:2px}
+  /* 노드 hover 팝업 — 마우스 위치에 작게 띄우는 요약(우측 패널 미리보기 대체, 사용자 요구).
+     클라 데이터(이름·타입·연결수·관찰 첫 줄)만 써서 fetch 없이 즉시. pointer-events:none 으로
+     커서/그래프 조작을 방해하지 않는다. */
+  #nodepop{position:fixed;z-index:60;max-width:300px;background:var(--card-bg);color:var(--fg);
+    border:1px solid var(--border);border-radius:7px;box-shadow:0 6px 22px var(--shadow);
+    padding:8px 11px;font-size:12px;line-height:1.45;pointer-events:none;display:none}
+  #nodepop b{font-size:13px} #nodepop .pt{color:var(--muted);font-size:11px}
+  #nodepop .po{margin-top:.4em} #nodepop i{display:inline-block;width:8px;height:8px;
+    border-radius:50%;margin-right:5px;vertical-align:middle}
+  /* 중복정리 패널의 유지문서 라디오 — 전역 input 폭(150px)이 라디오까지 늘리지 않게. */
+  #panel input[type=radio]{width:auto;vertical-align:middle}
   /* --- 마크다운 본문(읽기 팝업 + 패널 detail) --- */
   .md{line-height:1.75;font-size:14px;word-break:break-word}
   #reader .rbody .md{font-size:var(--read-fs,16px)}   /* 읽기 팝업은 A−/A+ 로 글자 크기 조절 */
@@ -298,6 +339,14 @@ GRAPH_HTML = """<!doctype html>
   #reader .rzoom .fsv{color:var(--muted);font-size:11px;min-width:30px;text-align:center}
   #reader .rclose{background:var(--sec-bg);color:var(--sec-fg);border:0;border-radius:6px;font-size:18px;
     line-height:1;padding:5px 11px;cursor:pointer}
+  /* 읽기 팝업의 공유 링크 영역 — 🔗 누르면 생성한 핫링크를 보여주고 복사. */
+  #reader .sharebox{display:none;margin:10px 24px 0;padding:8px 12px;background:var(--active);
+    border:1px solid var(--accent);border-radius:6px;font-size:12px;gap:8px;align-items:center}
+  #reader .sharebox.on{display:flex} #reader .sharebox input{flex:1;min-width:0}
+  #reader .sharebox button{background:var(--accent);color:#fff;border:0;border-radius:4px;
+    padding:3px 9px;font-size:12px;cursor:pointer}
+  #reader .rhead .rshare{background:var(--sec-bg);color:var(--sec-fg);border:0;border-radius:6px;
+    font-size:15px;line-height:1;padding:5px 10px;cursor:pointer}
   #reader .rbody{padding:10px 32px 0;overflow:auto}
   #reader .rsection{color:var(--muted);font-size:11px;letter-spacing:.04em;text-transform:uppercase;margin:1.2em 0 .2em}
   /* 모바일/좁은 화면: 가로 3분할 대신 세로 스택(그래프 먼저). 모든 기능 터치로 도달 가능. */
@@ -326,6 +375,7 @@ GRAPH_HTML = """<!doctype html>
   <span id="synthchips"></span>
   <button id="synthbtn" onclick="synth()">🧩 종합 (0)</button>
   <button id="addbtn" class="sec" onclick="openIngest()" title="URL·텍스트를 그래프에 적재">➕ 적재</button>
+  <button id="dedupbtn" class="sec" onclick="openDedup()" title="근사 중복 문서를 찾아 병합">♻️ 중복정리</button>
   <button id="pathbtn" class="sec" onclick="togglePathMode()" title="두 노드 사이 연결 경로 찾기">🔗 경로</button>
   <label>연결 ≥ <b id="fmin">0</b> <input id="fslider" type="range" min="0" max="0" value="0" oninput="setDeg(this.value)"/></label>
   <span class="spacer"></span>
@@ -340,6 +390,8 @@ GRAPH_HTML = """<!doctype html>
   <div id="net"></div>
   <div id="panel"></div>
 </div>
+<!-- 노드 hover 시 마우스 위치에 뜨는 작은 요약 팝업(우측 패널 미리보기 대체). -->
+<div id="nodepop"></div>
 <!-- 중앙 읽기 팝업: 좌측 문서의 '읽기' 버튼/노드 상세의 📖 로 연다(마크다운·이미지 렌더). -->
 <div id="reader" onclick="if(event.target===this)closeReader()">
   <div class="sheet">
@@ -349,7 +401,9 @@ GRAPH_HTML = """<!doctype html>
         <span class="fsv" id="rfs">16</span>
         <button onclick="setReadFS(2)" title="글자 크게">A+</button>
       </div>
+      <button class="rshare" onclick="shareDoc()" title="공유 링크 만들기">🔗</button>
       <button class="rclose" onclick="closeReader()" title="닫기(ESC)">✕</button></div>
+    <div class="sharebox" id="sharebox"></div>
     <div class="rbody" id="rbody"></div>
   </div>
 </div>
@@ -368,7 +422,6 @@ function T(){ return THEMES[curTheme()] || THEMES.light; }
 let allTypes=[];
 let net, allNodes, allEdges, allDocs=[];
 let curMinDeg=0, activeDoc=null, highlightSet=null, selectedNodeId=null, hoverTimer=null;
-let docPanelHtml=null;   // 현재 문서 패널 HTML — hover 미리보기 후 blur 시 fetch 없이 복원
 let clusterEdges=null;   // 검색 결과를 뭉치게 한 임시 spring 엣지 id 들 — 해제 시 제거
 let clusterAnchor=null;  // 검색 시 중앙 앵커 노드 id(매칭은 끌고 비매칭은 밀어냄) — 해제 시 제거
 let searchDebounce=null; // 라벨검색 디바운스 타이머 — 타이핑 멈춘 뒤에만 검색 실행
@@ -376,9 +429,32 @@ let synthSet=new Set();
 let allRelTypes=[], relFilter=null;          // 관계 타입 필터: null=전체, Set=선택 타입만 표시
 let pathMode=false, pathPicks=[], pathNodes=null, pathEdges=null;  // 2노드 경로 하이라이트(전용 모드)
 const panel = document.getElementById('panel');
-const DEFAULT_HINT = '<p class="hint">노드를 클릭하면 관찰·출처 문서·연결이 표시됩니다.<br><br>• <b>Ctrl+클릭</b> 또는 상세의 <b>➕ 종합에 추가</b>로 여러 노드를 모아 종합<br>• 다른 노드에 <b>1초</b> 올리면 미리보기(벗어나면 복귀)<br>• 좌측 문서를 <b>클릭</b>하면 그래프에서 강조(nav), <b>📖</b> 버튼을 누르면 <b>크게 읽기(팝업)</b><br>• 우측 위 <b>🌙/🌞</b> 로 라이트·다크 전환</p>';
+const DEFAULT_HINT = '<p class="hint">노드를 클릭하면 관찰·출처 문서·연결이 표시됩니다.<br><br>• <b>Ctrl+클릭</b> 또는 상세의 <b>➕ 종합에 추가</b>로 여러 노드를 모아 종합<br>• 다른 노드에 <b>1초</b> 올리면 마우스 옆에 <b>요약 팝업</b><br>• 좌측 문서를 <b>클릭</b>하면 그래프에서 강조(nav), <b>📖</b> 버튼을 누르면 <b>크게 읽기(팝업)</b><br>• 우측 위 <b>🌙/🌞</b> 로 라이트·다크 전환</p>';
 panel.innerHTML = DEFAULT_HINT;
 function esc(s){return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+
+// --- 노드 hover 요약 팝업(마우스 위치) — fetch 없이 클라 데이터(allNodes)만 쓴다 ---
+// vis hoverNode 이벤트는 진입 위치를 안 주므로 #net 위 mousemove 로 커서 좌표를 추적해 둔다.
+let mouseXY={x:0,y:0};
+document.getElementById('net').addEventListener('mousemove', e=>{ mouseXY.x=e.clientX; mouseXY.y=e.clientY; });
+const nodepop = document.getElementById('nodepop');
+function showNodePop(id){
+  const n=allNodes&&allNodes.get(id); if(!n){ hideNodePop(); return; }
+  const c=TYPE_COLORS[n.group]||'#8b949e';
+  let h='<b>'+esc(n.label)+'</b> <span class=pt>'+esc(n.group||'')+'</span>'+
+    '<div class=pt><i style="background:'+c+'"></i>연결 '+(n.degree||0)+'개</div>';
+  if(n.obs) h+='<div class=po>'+esc(n.obs)+'</div>';
+  nodepop.innerHTML=h; nodepop.style.display='block';
+  positionPop(mouseXY.x, mouseXY.y);   // 표시 후(폭/높이 확정) 화면 밖으로 안 나가게 배치
+}
+function positionPop(x, y){
+  const pad=14, pw=nodepop.offsetWidth, ph=nodepop.offsetHeight;
+  let nx=x+pad, ny=y+pad;
+  if(nx+pw > window.innerWidth-4) nx=x-pad-pw;     // 오른쪽 넘치면 커서 왼쪽으로
+  if(ny+ph > window.innerHeight-4) ny=y-pad-ph;    // 아래 넘치면 커서 위로
+  nodepop.style.left=Math.max(4,nx)+'px'; nodepop.style.top=Math.max(4,ny)+'px';
+}
+function hideNodePop(){ nodepop.style.display='none'; }
 
 // 타입별 노드 그룹 색(테마별 테두리). 테마 전환 시 다시 만들어 setOptions 로 적용.
 function buildGroups(){ const g={}, th=T();
@@ -424,8 +500,11 @@ function setReadFS(delta){
 }
 
 // 중앙 읽기 팝업 — 좌측 문서의 '읽기' 버튼/노드 상세의 📖 로 연다(nav 와 분리, 사용자 요구).
+let curReaderDoc=null;   // 현재 읽기 팝업의 문서 id(🔗 공유 링크 생성 대상)
 function openReader(docId){
   const r=document.getElementById('reader');
+  curReaderDoc=docId;
+  const sb=document.getElementById('sharebox'); if(sb){ sb.className='sharebox'; sb.innerHTML=''; }  // 이전 공유링크 닫기
   applyReadFS();   // 저장된 글자 크기 적용
   document.getElementById('rtitle').textContent='문서 불러오는 중…';
   document.getElementById('rbody').innerHTML='';
@@ -445,7 +524,36 @@ function renderReader(dc){
   if(!dc.summary && !dc.detail) h+='<p class=hint>이 문서의 요약/전문이 아직 없습니다.</p>';
   const body=document.getElementById('rbody'); body.innerHTML=h; body.scrollTop=0;
 }
-function closeReader(){ document.getElementById('reader').classList.remove('open'); }
+function closeReader(){ document.getElementById('reader').classList.remove('open');
+  const sb=document.getElementById('sharebox'); if(sb) sb.className='sharebox'; }
+
+// --- 문서 공유 핫링크 — 세션 토큰(nginx 통과)과 별개의, 이 문서만 여는 읽기전용 링크 ---
+// /share 가 공유 토큰을 발급(인증 필요) → /p?s=token 은 비인증으로 그 문서만 보여준다.
+async function shareDoc(){
+  if(!curReaderDoc) return;
+  const sb=document.getElementById('sharebox');
+  sb.className='sharebox on'; sb.innerHTML='<span class=pt>공유 링크 생성 중…</span>';
+  try{
+    const r=await fetch('share',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({doc_id:curReaderDoc})});
+    if(r.status===401||r.status===404){ setAuth('idle');
+      sb.innerHTML='<span class=pt>세션 만료 — 텔레그램 /web 으로 다시 접속하세요</span>'; return; }
+    const d=await r.json();
+    if(d.error||!d.path){ sb.innerHTML='<span class=pt>공유 실패: '+esc(d.error||'알 수 없음')+'</span>'; return; }
+    const url=location.origin+d.path;
+    let copied=false;
+    try{ await navigator.clipboard.writeText(url); copied=true; }catch(_){}
+    sb.innerHTML='<input id="shareurl" readonly value="'+esc(url)+'" onclick="this.select()"/>'+
+      '<button onclick="copyShare()">'+(copied?'✓ 복사됨':'복사')+'</button>';
+  }catch(e){ sb.innerHTML='<span class=pt>공유 실패: '+esc(String(e))+'</span>'; }
+}
+function copyShare(){
+  const i=document.getElementById('shareurl'); if(!i) return;
+  i.select();
+  (navigator.clipboard?navigator.clipboard.writeText(i.value):Promise.reject())
+    .then(()=>{ const b=document.querySelector('#sharebox button'); if(b) b.textContent='✓ 복사됨'; })
+    .catch(()=>{ try{ document.execCommand('copy'); const b=document.querySelector('#sharebox button'); if(b) b.textContent='✓ 복사됨'; }catch(_){} });
+}
 // 캔버스를 #net 박스의 실제 픽셀 크기에 맞춰 재설정(이슈1: 모바일에서 vis 가 생성 시점의
 // 미해결 높이로 캔버스를 150px 로 잡아 상단 일부만 차지하던 버그). '100%' 는 flex/auto
 // 체인에서 안 먹어서 getBoundingClientRect 의 실측 px 로 강제한다. ResizeObserver 가
@@ -546,13 +654,13 @@ fetch('graph').then(r=>r.json()).then(d=>{
     if(ev && (ev.ctrlKey||ev.metaKey)){ toggleSynth(id); }   // Ctrl/Cmd+클릭 = 종합 수집(선택과 분리)
     else { selectedNodeId=id; loadNode(id); mobileScrollTo('panel'); }  // 일반 클릭/탭 = 상세 inspect
   });
+  // hover → 1초 뒤 마우스 위치에 작은 요약 팝업(우측 패널은 안 건드림 — 난잡함 해소, 사용자 요구).
+  // 우측 패널은 클릭(inspect)일 때만 바뀐다 → hover 가 패널/선택을 흔들지 않아 복원 로직도 불필요.
   net.on('hoverNode', p => { clearTimeout(hoverTimer);
-    hoverTimer=setTimeout(()=>{ if(p.node!==selectedNodeId) loadNode(p.node, true); }, 1000); });
-  net.on('blurNode', () => { clearTimeout(hoverTimer);
-    // hover 미리보기를 닫고 inspect/검색/문서 선택을 원복(이슈4 + GOALS ①⑤: hover↔selection 분리).
-    if(selectedNodeId) loadNode(selectedNodeId, false);
-    else if(activeDoc && docPanelHtml) panel.innerHTML=docPanelHtml;   // 문서 패널 복원(fetch 없이)
-    restoreSelection(); });
+    hoverTimer=setTimeout(()=>showNodePop(p.node), 1000); });
+  net.on('blurNode', () => { clearTimeout(hoverTimer); hideNodePop(); });
+  net.on('dragStart', hideNodePop);   // 드래그/줌 중엔 팝업 숨김(커서를 따라다니지 않게)
+  net.on('zoom', hideNodePop);
   applyView();
 });
 
@@ -577,8 +685,8 @@ document.addEventListener('keydown', e=>{ if(e.key!=='Escape') return;
   if(r && r.classList.contains('open')){ closeReader(); return; }   // 팝업 먼저 닫기
   clearSelections(); });
 
-function loadNode(id, isHover){
-  if(net && !isHover) net.selectNodes([id]);  // hover 미리보기는 선택을 바꾸지 않음
+function loadNode(id){
+  if(net) net.selectNodes([id]);   // 클릭 inspect — hover 는 더 이상 패널을 안 쓴다(팝업으로 분리)
   fetch('node?id='+encodeURIComponent(id)).then(r=>r.json()).then(renderPanel);
 }
 function renderPanel(d){
@@ -731,12 +839,74 @@ function renderIngestResult(d){
   refreshGraph();   // 신규 노드/엣지·문서목록 즉시 반영(새로고침 없이)
 }
 
+// --- 중복 문서 정리: 근사중복 클러스터를 찾아(/dedup) 유지문서를 골라 병합(/dedup/merge) ---
+// 병합 직전 정본은 서버가 자동 백업한다(파괴적 작업 안전장치). keeper(유지) 외 문서는
+// 참조(엔티티/관계 sources 등)를 keeper 로 재배치한 뒤 삭제 → 데이터 보존.
+let dedupClusters=[];
+async function openDedup(){
+  panel.innerHTML='<h2>♻️ 중복 문서 정리</h2><p class="al">근사 중복 검사 중… '+
+    '<small>(문서가 많으면 잠시 걸립니다)</small></p>';
+  mobileScrollTo('panel');
+  let d;
+  try{
+    const r=await fetch('dedup');
+    if(r.status===401||r.status===404){ setAuth('idle');
+      panel.innerHTML='<p class=hint>세션 만료 — 텔레그램 /web 으로 다시 접속하세요</p>'; return; }
+    d=await r.json();
+  }catch(e){ panel.innerHTML='<h2>♻️ 중복 문서 정리</h2><p class=hint>검사 실패: '+esc(String(e))+'</p>'; return; }
+  renderDedup(d);
+}
+function renderDedup(d){
+  if(d.error){ panel.innerHTML='<h2>♻️ 중복 문서 정리</h2><p class=hint>오류: '+esc(d.error)+'</p>'; return; }
+  dedupClusters=d.clusters||[];
+  let h='<h2>♻️ 중복 문서 정리</h2>';
+  h+='<p class=al>검사 '+(d.documents||0)+'개 · 근사중복 클러스터 <b>'+dedupClusters.length+'</b>개</p>';
+  if(!dedupClusters.length){ h+='<p class=al>근사 중복 문서가 없습니다. ✅</p>'; panel.innerHTML=h; return; }
+  h+='<p class=al><small>유지할 문서를 고르고 병합하세요. 나머지는 유지문서로 합쳐지고 참조는 보존됩니다(병합 전 자동 백업).</small></p>';
+  dedupClusters.forEach((c,ci)=>{
+    h+='<div class=doc><p class=al>유사도 '+(c.score!=null?(+c.score).toFixed(2):'-')+'</p>';
+    c.docs.forEach(dc=>{
+      h+='<label style="display:block;margin:.3em 0">'+
+        '<input type=radio name="keep'+ci+'" value="'+esc(dc.id)+'"'+(dc.id===c.keeper?' checked':'')+'> '+
+        '<b>'+esc(dc.title||'(제목 없음)')+'</b> <small class=al>'+(dc.len||0)+'자</small>'+
+        (dc.url?'<br><small class=al style="margin-left:1.5em;word-break:break-all">'+esc(dc.url)+'</small>':'')+
+        '</label>';
+    });
+    h+='<button class=readbtn onclick="runDedupMerge('+ci+')">선택한 문서로 병합</button></div>';
+  });
+  panel.innerHTML=h;
+}
+async function runDedupMerge(ci){
+  const c=dedupClusters[ci]; if(!c) return;
+  const sel=document.querySelector('input[name="keep'+ci+'"]:checked');
+  const keeper=sel?sel.value:c.keeper;
+  const losers=c.docs.map(x=>x.id).filter(id=>id!==keeper);
+  if(!losers.length){ alert('합칠 문서가 없습니다.'); return; }
+  if(!confirm(losers.length+'개 문서를 유지문서로 합칩니다. 계속할까요?\\n(병합 전 자동 백업됩니다)')) return;
+  panel.innerHTML='<h2>♻️ 병합 중…</h2><p class=al>백업 후 참조 재배치 중…</p>';
+  try{
+    const r=await fetch('dedup/merge',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({keeper:keeper, losers:losers})});
+    if(r.status===401||r.status===404){ setAuth('idle');
+      panel.innerHTML='<p class=hint>세션 만료 — 텔레그램 /web 으로 다시 접속하세요</p>'; return; }
+    const d=await r.json();
+    if(d.error){ panel.innerHTML='<h2>♻️ 병합</h2><p class=hint>오류: '+esc(d.error)+'</p>'; return; }
+    let h='<h2>✅ 병합 완료</h2>';
+    h+='<p class=al>문서 '+(d.deleted||0)+'개를 합쳤습니다. 엔티티 '+(d.entities_repointed||0)+
+      ' · 관계 '+(d.relations_repointed||0)+' 참조 재배치.</p>';
+    if(d.backup) h+='<p class=al><small>백업: '+esc(d.backup)+'</small></p>';
+    h+='<p><a href="#" onclick="openDedup();return false">← 다시 검사</a></p>';
+    panel.innerHTML=h;
+    refreshGraph();   // 문서목록·그래프(병합으로 줄어든 sources) 갱신
+  }catch(e){ panel.innerHTML='<h2>♻️ 병합</h2><p class=hint>요청 실패: '+esc(String(e))+'</p>'; }
+}
+
 // 조사로 그래프가 늘어난 뒤 새로고침 없이 신규 노드/엣지·문서목록을 반영.
 // 엣지 id 는 rowid 순 enumerate(append-only)라 기존 id 는 안정 — 신규만 add.
 function refreshGraph(){
   fetch('graph').then(r=>r.json()).then(d=>{
     d.nodes.forEach(n=>{ if(allNodes.get(n.id))
-      allNodes.update({id:n.id, degree:n.degree, sources:n.sources, title:n.title});
+      allNodes.update({id:n.id, degree:n.degree, sources:n.sources, obs:n.obs});
       else allNodes.add(n); });
     d.edges.forEach(e=>{ if(!allEdges.get(e.id)) allEdges.add(e); });
     document.getElementById('fslider').max = d.stats.max_degree;
@@ -905,7 +1075,6 @@ function selectDoc(id){
     loadDocPanel(activeDoc);    // 우측 패널: 요약·자세히읽기·노드 버튼
     mobileScrollTo('panel');
   } else {
-    docPanelHtml=null;
     panel.innerHTML = DEFAULT_HINT;             // 해제 시 기본 힌트로 복원
   }
 }
@@ -942,7 +1111,6 @@ function renderDocPanel(dc){
         '<i style="background:'+c+'"></i>'+esc(n.label)+'</button>'; }).join('')+'</div>';
   } else { h+='<p class=al>이 문서에서 추출된 노드가 없습니다.</p>'; }
   if(!dc.summary && !dc.detail) h+='<p class=al>이 문서의 요약/전문이 아직 없습니다.</p>';
-  docPanelHtml=h;       // blur 복원용 캐시
   panel.innerHTML=h;
 }
 // 노드 버튼 클릭 → 그래프에서 그 노드로 카메라 이동 + 선택 + 우측은 노드 상세로 전환.
@@ -1108,3 +1276,74 @@ window.claireDebug = {
 };
 </script></body></html>
 """
+
+
+# --- 공유 핫링크용 경량 읽기 페이지(/p?s=token) — 인증/그래프 없이 문서 1개만 보여준다. ---
+# 데이터는 <script type=application/json> 에 임베드(라운드트립 1회)하고 클라가 마크다운 렌더.
+# GRAPH_HTML 과 독립(공유 토큰은 세션과 분리되어야 하므로 UI/JS 도 섞지 않는다).
+_SHARED_HTML = """<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>__TITLE__ — claire_bible</title>
+<script src="https://unpkg.com/marked@4.3.0/marked.min.js"></script>
+<script src="https://unpkg.com/dompurify@3.1.6/dist/purify.min.js"></script>
+<style>
+  :root{--bg:#ffffff;--fg:#1f2328;--muted:#656d76;--border:#d0d7de;--accent:#0969da;
+    --accent2:#1a7f37;--card-bg:#f6f8fa;--chip-bg:#eaeef2;--mark-bg:#fff8c5;--mark-fg:#633c01}
+  @media (prefers-color-scheme:dark){:root{--bg:#0e1116;--fg:#d7dbe0;--muted:#8b949e;
+    --border:#2a2f37;--accent:#58a6ff;--accent2:#7ee787;--card-bg:#161b22;--chip-bg:#1f2937;
+    --mark-bg:#4d3800;--mark-fg:#ffdf5d}}
+  html,body{margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,sans-serif}
+  .wrap{max-width:780px;margin:0 auto;padding:28px 18px 80px}
+  h1{font-size:24px;margin:.2em 0} .meta{color:var(--muted);font-size:13px;margin:.2em 0 1.2em}
+  .meta a{color:var(--accent);text-decoration:none}
+  .sec{color:var(--muted);font-size:11px;letter-spacing:.04em;text-transform:uppercase;margin:1.4em 0 .3em}
+  .brand{color:var(--accent2);font-weight:600;font-size:12px}
+  .foot{margin-top:2.5em;padding-top:1em;border-top:1px solid var(--border);color:var(--muted);font-size:12px}
+  mark{background:var(--mark-bg);color:var(--mark-fg);padding:0 .15em;border-radius:2px}
+  .md{line-height:1.75;font-size:16px;word-break:break-word}
+  .md h2{font-size:1.3em;margin:1.1em 0 .4em;border-bottom:1px solid var(--border);padding-bottom:.2em}
+  .md h3{font-size:1.12em;margin:1em 0 .35em} .md p{margin:.6em 0}
+  .md ul,.md ol{margin:.5em 0;padding-left:1.5em} .md li{margin:.3em 0}
+  .md a{color:var(--accent)} .md img{max-width:100%;height:auto;display:block;margin:.8em auto;border-radius:6px;border:1px solid var(--border)}
+  .md blockquote{margin:.6em 0;padding:.2em .9em;border-left:3px solid var(--border);color:var(--muted)}
+  .md code{background:var(--chip-bg);padding:.1em .35em;border-radius:3px;font-size:.9em}
+  .md pre{background:var(--card-bg);border:1px solid var(--border);border-radius:6px;padding:.8em;overflow:auto}
+  .md table{border-collapse:collapse;margin:.6em 0} .md th,.md td{border:1px solid var(--border);padding:.3em .6em}
+</style></head>
+<body><div class="wrap" id="wrap"></div>
+<script id="docdata" type="application/json">__DATA__</script>
+<script>
+function esc(s){return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+function renderMarkdown(src){
+  if(!src) return '';
+  let s=String(src).replace(/==([^=\\n]+)==/g,'<mark>$1</mark>');
+  let html; try{ html=(window.marked?(marked.parse?marked.parse(s):marked(s)):esc(s)); }
+  catch(e){ html=esc(s).replace(/\\n/g,'<br>'); }
+  return window.DOMPurify?DOMPurify.sanitize(html,{ADD_ATTR:['target']}):html;
+}
+const dc=JSON.parse(document.getElementById('docdata').textContent||'{}');
+let h='<div class=brand>claire_bible · 공유 문서</div>';
+h+='<h1>'+esc(dc.title||'(제목 없음)')+'</h1>';
+h+='<div class=meta>'+(dc.source_type?esc(dc.source_type):'')+
+  (dc.url?' · <a href="'+esc(dc.url)+'" target=_blank rel=noopener>↗ 원문 열기</a>':'')+'</div>';
+if(dc.summary){ h+='<div class=sec>요약</div><div class="md">'+renderMarkdown(dc.summary)+'</div>'; }
+if(dc.detail){ h+='<div class=sec>자세히 읽기</div><div class="md">'+renderMarkdown(dc.detail)+'</div>'; }
+if(!dc.summary && !dc.detail){ h+='<p class=meta>이 문서의 요약/전문이 아직 없습니다.</p>'; }
+h+='<div class=foot>이 링크는 이 문서 하나만 읽기 전용으로 공유합니다.</div>';
+document.getElementById('wrap').innerHTML=h;
+</script></body></html>
+"""
+
+
+def shared_html(doc: dict) -> str:
+    """공유 문서 1개를 임베드한 경량 읽기 페이지 HTML. doc = document_detail() 결과.
+
+    문서 데이터를 JSON 으로 <script> 에 임베드한다 — `</script>`·`<` 등이 스크립트를
+    조기 종료/주입하지 못하게 HTML 특수문자를 \\uXXXX 로 이스케이프(스크랩 본문 유래)."""
+    import json as _json
+
+    data = _json.dumps(doc, ensure_ascii=False)
+    data = data.replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
+    title = (doc.get("title") or "공유 문서").replace("<", "").replace(">", "")
+    return _SHARED_HTML.replace("__DATA__", data).replace("__TITLE__", title)

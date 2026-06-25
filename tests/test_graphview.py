@@ -32,7 +32,7 @@ def test_graph_json_nodes_edges():
     assert ids == {"e1", "e2"}
     n1 = next(n for n in g["nodes"] if n["id"] == "e1")
     assert n1["label"] == "Claude Code" and n1["group"] == "Tool"
-    assert n1["title"].startswith("CLI coding agent")  # observation 툴팁
+    assert n1["obs"].startswith("CLI coding agent")  # hover 팝업용 관찰 첫 줄(vis 기본 title 툴팁 대체)
     assert n1["degree"] == 1  # e1-e2 연결 1개
     assert n1["sources"] == ["d"]  # 문서 기반 필터용
     e = g["edges"][0]

@@ -477,6 +477,43 @@ class IngestService:
         finally:
             conn.close()
 
+    def merge_one_cluster(self, keeper: str, losers: list[str],
+                          *, backup: bool = True) -> dict:
+        """[웹 UI 단일 클러스터 병합] keeper 로 losers 를 합치고 loser 의 artifact 도 정리.
+
+        dedup_merge 가 '스캔으로 찾은 모든 클러스터'를 한 번에 처리하는 데 비해, 이건 웹에서
+        사용자가 클러스터/유지문서를 골라 1건만 병합하는 통로. **파괴적**이므로 기본으로
+        병합 직전 정본을 백업(VACUUM INTO)한다(CLI 가 강제하는 백업과 동일 안전장치).
+        반환: db.merge_documents 결과 + {backup: 경로|None}."""
+        import time as _time
+
+        losers = [d for d in losers if d and d != keeper]
+        if not losers:
+            return {"merged": 0, "deleted": 0, "backup": None}
+        backup_path = None
+        if backup:
+            ts = _time.strftime("%Y%m%d-%H%M%S")
+            dest = self.s.data_dir / "backups" / f"pre-webmerge-{ts}.db"
+            try:
+                backup_path = str(dbm.backup_database(self.s.db_file, dest))
+            except Exception:  # noqa: BLE001 — 백업 실패해도 진행은 막지 않되 결과에 알린다
+                backup_path = None
+        conn = dbm.connect(self.s.db_file)
+        dbm.init_db(conn)
+        try:
+            res = dbm.merge_documents(conn, keeper, losers)
+        finally:
+            conn.close()
+        for d in losers:                       # keeper 로 옮긴 loser 의 원문 artifact 정리
+            try:
+                p = self.s.data_dir / "raw" / "artifacts" / f"{d}.txt.gz"
+                if p.exists():
+                    p.unlink()
+            except Exception:  # noqa: BLE001
+                pass
+        res["backup"] = backup_path
+        return res
+
     def recanonicalize_documents(self, *, apply: bool = True) -> dict:
         """기존 문서의 canonical_url 을 현재 규칙으로 재계산 — **비파괴**(URL 열만 갱신).
 

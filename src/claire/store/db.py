@@ -162,6 +162,17 @@ CREATE TABLE IF NOT EXISTS auth_sessions (
     expires_at REAL
 );
 
+-- [문서 공유 핫링크] 세션 토큰(claire_session, 전체 UI 인증)과 **완전 분리**된, 문서 1개의
+-- 읽기 뷰만 비인증으로 열어주는 공유 토큰. 유출돼도 그 문서 1개만 노출(읽기전용). 발급은
+-- 인증된 UI 에서만(/share), 열람은 게이트 예외(/p?s=token)로 토큰 자체가 인증을 대신한다.
+CREATE TABLE IF NOT EXISTS doc_shares (
+    token TEXT PRIMARY KEY,
+    document_id TEXT NOT NULL,
+    created_at REAL,
+    expires_at REAL          -- NULL=무기한. 향후 만료 정책 시 사용.
+);
+CREATE INDEX IF NOT EXISTS idx_doc_shares_doc ON doc_shares(document_id);
+
 -- [1홉 자동확장] 적재한 문서에서 따라갈 링크를 LLM 이 선별→판정→적재하는 백그라운드
 -- 대기열. refresh_queue 와 같은 패턴(전용 expand-loop 컨테이너가 주기 처리).
 CREATE TABLE IF NOT EXISTS expand_queue (
@@ -909,6 +920,40 @@ def resolve_session_prefix(
                  (time.time() + ttl, full))
     conn.commit()
     return full
+
+
+# 공유 토큰은 추측 저항을 위해 세션 토큰(12자)보다 길게(16자 ≈ 79bit). 비인증 노출이라
+# 프리픽스 입력 편의가 필요 없어 전체 일치만 허용한다(세션과 보안 모델이 다름).
+_SHARE_TOKEN_LEN = 16
+
+
+def create_doc_share(conn: sqlite3.Connection, document_id: str,
+                     *, ttl: float | None = None) -> str:
+    """문서 1개의 읽기 공유 토큰을 발급(세션과 분리). ttl=None 이면 무기한.
+
+    같은 문서에 여러 번 발급해도 매번 새 토큰(서로 독립적으로 철회 가능하도록 단순 추가)."""
+    token = _short_token(_SHARE_TOKEN_LEN)
+    now = time.time()
+    expires = (now + ttl) if ttl else None
+    conn.execute(
+        "INSERT INTO doc_shares(token, document_id, created_at, expires_at) "
+        "VALUES (?,?,?,?)", (token, document_id, now, expires))
+    conn.commit()
+    return token
+
+
+def resolve_doc_share(conn: sqlite3.Connection, token: str) -> str | None:
+    """공유 토큰 → document_id(미만료). 없거나 만료면 None. 전체 일치만(프리픽스 불가)."""
+    t = (token or "").strip()
+    if not t or any(c not in _TOKEN_ALPHABET for c in t):
+        return None
+    row = conn.execute(
+        "SELECT document_id, expires_at FROM doc_shares WHERE token=?", (t,)).fetchone()
+    if not row:
+        return None
+    if row["expires_at"] is not None and row["expires_at"] < time.time():
+        return None
+    return row["document_id"]
 
 
 def latest_extraction_summary(conn: sqlite3.Connection, document_id: str) -> str | None:
