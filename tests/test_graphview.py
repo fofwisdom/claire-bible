@@ -77,7 +77,7 @@ def test_graph_html_self_contained_markers():
     assert "id=\"docs\"" in GRAPH_HTML and "selectDoc" in GRAPH_HTML    # 좌측 문서 패널
     assert "id=\"legendbar\"" in GRAPH_HTML and "TYPE_COLORS" in GRAPH_HTML  # 색 범례
     assert "hoverNode" in GRAPH_HTML and "blurNode" in GRAPH_HTML       # hover 미리보기
-    assert ", 1000)" in GRAPH_HTML                                      # hover 1초
+    assert ", 1500)" in GRAPH_HTML                                      # hover 1.5초
     # 인증은 claire_session 쿠키(/web 진입)로 자동 전송 — 페이지가 로드됐다는 것 자체가 인증됨.
     assert "synthesize" in GRAPH_HTML                                   # 종합 POST 경로
     assert "세션 만료" in GRAPH_HTML                                    # 만료 시 /web 재접속 안내

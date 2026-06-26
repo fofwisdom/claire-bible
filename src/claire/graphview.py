@@ -302,12 +302,16 @@ GRAPH_HTML = """<!doctype html>
   /* 노드 hover 팝업 — 마우스 위치에 작게 띄우는 요약(우측 패널 미리보기 대체, 사용자 요구).
      클라 데이터(이름·타입·연결수·관찰 첫 줄)만 써서 fetch 없이 즉시. pointer-events:none 으로
      커서/그래프 조작을 방해하지 않는다. */
-  #nodepop{position:fixed;z-index:60;max-width:300px;background:var(--card-bg);color:var(--fg);
+  #nodepop{position:fixed;z-index:60;max-width:340px;background:var(--card-bg);color:var(--fg);
     border:1px solid var(--border);border-radius:7px;box-shadow:0 6px 22px var(--shadow);
     padding:8px 11px;font-size:12px;line-height:1.45;pointer-events:none;display:none}
   #nodepop b{font-size:13px} #nodepop .pt{color:var(--muted);font-size:11px}
   #nodepop .po{margin-top:.4em} #nodepop i{display:inline-block;width:8px;height:8px;
     border-radius:50%;margin-right:5px;vertical-align:middle}
+  /* hover 를 좀 더 끌면 fetch 로 채우는 출처 문서 한 건(제목+글 일부) — 점진적 공개. */
+  #nodepop .psrc{margin-top:.55em;border-top:1px solid var(--border);padding-top:.45em}
+  #nodepop .ptt{font-weight:600;color:var(--accent);margin-bottom:.25em}
+  #nodepop .psb{color:var(--muted);font-size:11px;line-height:1.45}
   /* 중복정리 패널의 유지문서 라디오 — 전역 input 폭(150px)이 라디오까지 늘리지 않게. */
   #panel input[type=radio]{width:auto;vertical-align:middle}
   /* --- 마크다운 본문(읽기 팝업 + 패널 detail) --- */
@@ -429,7 +433,7 @@ let synthSet=new Set();
 let allRelTypes=[], relFilter=null;          // 관계 타입 필터: null=전체, Set=선택 타입만 표시
 let pathMode=false, pathPicks=[], pathNodes=null, pathEdges=null;  // 2노드 경로 하이라이트(전용 모드)
 const panel = document.getElementById('panel');
-const DEFAULT_HINT = '<p class="hint">노드를 클릭하면 관찰·출처 문서·연결이 표시됩니다.<br><br>• <b>Ctrl+클릭</b> 또는 상세의 <b>➕ 종합에 추가</b>로 여러 노드를 모아 종합<br>• 다른 노드에 <b>1초</b> 올리면 마우스 옆에 <b>요약 팝업</b><br>• 좌측 문서를 <b>클릭</b>하면 그래프에서 강조(nav), <b>📖</b> 버튼을 누르면 <b>크게 읽기(팝업)</b><br>• 우측 위 <b>🌙/🌞</b> 로 라이트·다크 전환</p>';
+const DEFAULT_HINT = '<p class="hint">노드를 클릭하면 관찰·출처 문서·연결이 표시됩니다.<br><br>• <b>Ctrl+클릭</b> 또는 상세의 <b>➕ 종합에 추가</b>로 여러 노드를 모아 종합<br>• 다른 노드에 <b>1.5초</b> 올리면 마우스 옆에 <b>요약 팝업</b>(더 끌면 출처 문서까지)<br>• 좌측 문서를 <b>클릭</b>하면 그래프에서 강조(nav), <b>📖</b> 버튼을 누르면 <b>크게 읽기(팝업)</b><br>• 우측 위 <b>🌙/🌞</b> 로 라이트·다크 전환</p>';
 panel.innerHTML = DEFAULT_HINT;
 function esc(s){return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 
@@ -438,14 +442,43 @@ function esc(s){return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>'
 let mouseXY={x:0,y:0};
 document.getElementById('net').addEventListener('mousemove', e=>{ mouseXY.x=e.clientX; mouseXY.y=e.clientY; });
 const nodepop = document.getElementById('nodepop');
-function showNodePop(id){
+let popReqId=null;        // 현재 팝업이 다루는 노드 id — 늦게 온 fetch 응답(stale) 무시용
+let popExpandTimer=null;  // '좀 더 기다리면' 출처 문서를 펼치는 타이머
+// id 의 요약 팝업을 (x,y) 위치에 띄운다. 좌표 생략 시 #net 의 커서 추적값(mouseXY) 사용
+// → 그래프 hover 는 좌표 없이, 우측 '이 문서의 노드' hover 는 버튼 진입 좌표를 넘긴다.
+// 1단계: 클라 데이터(이름·타입·연결수+관찰 첫 줄)로 즉시. 2단계: node fetch 로 관찰 3개.
+// 3단계: 더 끌면 출처 문서 1건(제목+글)을 덧붙인다(점진적 공개, 사용자 요구).
+function showNodePop(id, x, y){
   const n=allNodes&&allNodes.get(id); if(!n){ hideNodePop(); return; }
+  popReqId=id; clearTimeout(popExpandTimer);
+  const px = x==null?mouseXY.x:x, py = y==null?mouseXY.y:y;
+  nodepop.dataset.x=px; nodepop.dataset.y=py;   // fetch 보강 후 재배치에 쓰려고 보관
   const c=TYPE_COLORS[n.group]||'#8b949e';
-  let h='<b>'+esc(n.label)+'</b> <span class=pt>'+esc(n.group||'')+'</span>'+
+  const head='<b>'+esc(n.label)+'</b> <span class=pt>'+esc(n.group||'')+'</span>'+
     '<div class=pt><i style="background:'+c+'"></i>연결 '+(n.degree||0)+'개</div>';
-  if(n.obs) h+='<div class=po>'+esc(n.obs)+'</div>';
-  nodepop.innerHTML=h; nodepop.style.display='block';
-  positionPop(mouseXY.x, mouseXY.y);   // 표시 후(폭/높이 확정) 화면 밖으로 안 나가게 배치
+  nodepop.innerHTML=head+(n.obs?'<div class=po>'+esc(n.obs)+'</div>':'');
+  nodepop.style.display='block';
+  positionPop(px, py);                  // 표시 후(폭/높이 확정) 화면 밖으로 안 나가게 배치
+  fetch('node?id='+encodeURIComponent(id)).then(r=>r.json()).then(d=>{
+    if(popReqId!==id || nodepop.style.display==='none' || !d || d.error) return;  // 이미 떠났으면 무시
+    const obs=(d.observations||[]).slice(0,3);   // 관찰 최대 3개(설명이 너무 적던 문제)
+    const base=head + obs.map(o=>'<div class=po>'+esc((o||'').slice(0,200))+'</div>').join('');
+    nodepop.innerHTML=base; positionPop(+nodepop.dataset.x, +nodepop.dataset.y);
+    const docs=d.documents||[];
+    if(docs.length){                    // 좀 더 머물면 출처 문서 1건을 덧붙임
+      popExpandTimer=setTimeout(()=>{
+        if(popReqId!==id || nodepop.style.display==='none') return;
+        nodepop.innerHTML=base+popSource(docs[0]);
+        positionPop(+nodepop.dataset.x, +nodepop.dataset.y);
+      }, 1400);
+    }
+  }).catch(()=>{});
+}
+// 팝업 하단의 출처 문서 한 건 — 제목 + 글(요약 우선, 없으면 전문 앞부분) 일부.
+function popSource(d){
+  const body=((d.summary||d.detail||'').replace(/\s+/g,' ').trim());
+  return '<div class=psrc><div class=ptt>📄 '+esc(d.title||'(제목 없음)')+'</div>'+
+    (body?'<div class=psb>'+esc(body.slice(0,240))+(body.length>240?'…':'')+'</div>':'')+'</div>';
 }
 function positionPop(x, y){
   const pad=14, pw=nodepop.offsetWidth, ph=nodepop.offsetHeight;
@@ -454,7 +487,7 @@ function positionPop(x, y){
   if(ny+ph > window.innerHeight-4) ny=y-pad-ph;    // 아래 넘치면 커서 위로
   nodepop.style.left=Math.max(4,nx)+'px'; nodepop.style.top=Math.max(4,ny)+'px';
 }
-function hideNodePop(){ nodepop.style.display='none'; }
+function hideNodePop(){ popReqId=null; clearTimeout(popExpandTimer); nodepop.style.display='none'; }
 
 // 타입별 노드 그룹 색(테마별 테두리). 테마 전환 시 다시 만들어 setOptions 로 적용.
 function buildGroups(){ const g={}, th=T();
@@ -654,10 +687,10 @@ fetch('graph').then(r=>r.json()).then(d=>{
     if(ev && (ev.ctrlKey||ev.metaKey)){ toggleSynth(id); }   // Ctrl/Cmd+클릭 = 종합 수집(선택과 분리)
     else { selectedNodeId=id; loadNode(id); mobileScrollTo('panel'); }  // 일반 클릭/탭 = 상세 inspect
   });
-  // hover → 1초 뒤 마우스 위치에 작은 요약 팝업(우측 패널은 안 건드림 — 난잡함 해소, 사용자 요구).
+  // hover → 1.5초 뒤 마우스 위치에 작은 요약 팝업(우측 패널은 안 건드림 — 난잡함 해소, 사용자 요구).
   // 우측 패널은 클릭(inspect)일 때만 바뀐다 → hover 가 패널/선택을 흔들지 않아 복원 로직도 불필요.
   net.on('hoverNode', p => { clearTimeout(hoverTimer);
-    hoverTimer=setTimeout(()=>showNodePop(p.node), 1000); });
+    hoverTimer=setTimeout(()=>showNodePop(p.node), 1500); });
   net.on('blurNode', () => { clearTimeout(hoverTimer); hideNodePop(); });
   net.on('dragStart', hideNodePop);   // 드래그/줌 중엔 팝업 숨김(커서를 따라다니지 않게)
   net.on('zoom', hideNodePop);
@@ -1106,8 +1139,8 @@ function renderDocPanel(dc){
   h+='<h3>이 문서의 노드 ('+ns.length+')</h3>';
   if(ns.length){ h+='<div class=nodebtns>'+ ns.map(n=>{
       const c=TYPE_COLORS[n.group]||'#8b949e';
-      return '<button class=nodebtn title="'+esc(n.group||'')+'" onmouseenter="peekNode(\\''+n.id+'\\')" '+
-        'onclick="focusNode(\\''+n.id+'\\')">'+
+      return '<button class=nodebtn title="'+esc(n.group||'')+'" onmouseenter="peekNode(event,\\''+n.id+'\\')" '+
+        'onmouseleave="leaveNode()" onclick="focusNode(\\''+n.id+'\\')">'+
         '<i style="background:'+c+'"></i>'+esc(n.label)+'</button>'; }).join('')+'</div>';
   } else { h+='<p class=al>이 문서에서 추출된 노드가 없습니다.</p>'; }
   if(!dc.summary && !dc.detail) h+='<p class=al>이 문서의 요약/전문이 아직 없습니다.</p>';
@@ -1180,7 +1213,15 @@ function unclusterEdges(){
   clusterEdges=null; clusterAnchor=null;
 }
 // 우측 '이 문서의 노드' 버튼 hover — 그래프뷰를 그 노드로 부드럽게 이동(선택/상세는 안 바꿈).
-function peekNode(id){ if(net) net.focus(id,{scale:1.2,animation:{duration:400,easingFunction:'easeInOutQuad'}}); }
+// 우측 '이 문서의 노드' hover — 그래프 카메라를 그 노드로 옮기고(기존), 1.5초 머물면
+// 그래프 hover 와 같은 요약 팝업을 버튼 진입 위치에 띄운다(사용자 요구). leave 시 취소.
+function peekNode(ev, id){
+  if(net) net.focus(id,{scale:1.2,animation:{duration:400,easingFunction:'easeInOutQuad'}});
+  clearTimeout(hoverTimer);
+  const x=ev.clientX, y=ev.clientY;
+  hoverTimer=setTimeout(()=>showNodePop(id, x, y), 1500);
+}
+function leaveNode(){ clearTimeout(hoverTimer); hideNodePop(); }
 // 타이핑마다 즉시 검색하면 매 키 입력에 강조+물리 클러스터링이 돌아 무겁고 출렁인다.
 // 디바운스: 입력이 멈춘 뒤(350ms) 한 번만 실행. 단 검색창을 비우면 즉시 해제(반응성).
 function onSearchInput(v){
