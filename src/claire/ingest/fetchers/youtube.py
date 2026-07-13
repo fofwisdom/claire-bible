@@ -24,6 +24,25 @@ def video_id(url: str) -> str | None:
     return None
 
 
+def fetch_video_title(vid: str) -> str | None:
+    """oEmbed(API 키 불필요)로 실제 영상 제목을 가져온다. 실패하면 None(호출측이 폴백)."""
+    import httpx
+
+    try:
+        resp = httpx.get(
+            "https://www.youtube.com/oembed",
+            params={"url": f"https://www.youtube.com/watch?v={vid}", "format": "json"},
+            timeout=8,
+        )
+        if resp.status_code == 200:
+            title = (resp.json() or {}).get("title")
+            if title:
+                return title.strip()
+    except Exception:  # noqa: BLE001
+        pass
+    return None
+
+
 def fetch_youtube(url: str) -> Document:
     vid = video_id(url)
     if not vid:
@@ -55,10 +74,12 @@ def fetch_youtube(url: str) -> Document:
     if not text:
         raise FetchError(f"empty transcript for {vid}")
 
+    title = fetch_video_title(vid) or f"YouTube {vid}"
+
     return Document(
         url=url,
         canonical_url=f"https://youtube.com/watch?v={vid}",
-        title=f"YouTube {vid}",
+        title=title,
         raw_text=text[:20000],
         source_type="youtube",
         content_hash=content_hash(text),

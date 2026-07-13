@@ -119,7 +119,10 @@ def test_refresh_nochange_backfills_images_and_detail(monkeypatch, tmp_path):
     conn.commit(); conn.close()
     assert did in dbm.documents_missing_images(dbm.connect(s.db_file))
 
-    # 2) 같은 본문 + 이미지가 잡히도록 재fetch
+    # 2) 같은 본문 + 이미지가 잡히도록 재fetch. 실제 다운로드(네트워크)는 별도 관심사라
+    # store.raw.download_images 를 패치해 그대로 통과시킨다(이 테스트는 백필 배선 검증).
+    monkeypatch.setattr("claire.store.raw.download_images",
+                        lambda data_dir, doc_id, images: images)
     imgs = [{"url": "https://x/diagram.png", "alt": "도식", "caption": ""}]
     withimg = Document(url="https://x/1", title="T", raw_text="body " * 50,
                        source_type="web", content_hash="same", meta={"images": imgs})

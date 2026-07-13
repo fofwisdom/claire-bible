@@ -240,7 +240,8 @@ class MockProvider:
         if images:  # 수집된 첫 이미지를 마크다운 + 캡션(이탤릭) 으로 끼워 보존/캡션 배선을 드러냄
             im = images[0]
             cap = im.get("caption") or im.get("alt") or "그림"
-            parts += ["", f"![{im.get('alt', '')}]({im.get('url', '')})", f"*{cap}*"]
+            src = ("/image?p=" + im["local"]) if im.get("local") else im.get("url", "")
+            parts += ["", f"![{im.get('alt', '')}]({src})", f"*{cap}*"]
         return "\n".join(parts)
 
     def classify_watch(self, doc: Document) -> dict:

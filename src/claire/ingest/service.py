@@ -185,13 +185,14 @@ class IngestService:
 
             doc.id = document_id
             if doc.content_hash == old["content_hash"]:
-                # 본문은 그대로지만, 재fetch 로 새로 수집된 본문 이미지를 meta 에 보존하고
-                # detail(마크다운 가독 렌더)을 재생성한다 — 이미지/강조 백필 경로(사용자 요구).
+                # 본문은 그대로지만, 재fetch 로 새로 수집된 본문 이미지를 로컬로 내려받아
+                # 보존(외부 사이트/링크 삭제 대비, 사용자 요구)하고 meta 에 반영한 뒤
+                # detail(마크다운 가독 렌더)을 재생성한다 — 이미지/강조 백필 경로.
                 # 그래프(엔티티)는 건드리지 않음(비파괴).
+                from .pipeline import _download_doc_images, ensure_document_detail
+
+                _download_doc_images(conn, doc, self.s.data_dir)
                 imgs = (doc.meta or {}).get("images")
-                if imgs is not None:
-                    dbm.set_document_images(conn, document_id, imgs)
-                from .pipeline import ensure_document_detail
                 detail_updated = ensure_document_detail(
                     conn, self.provider, doc, force=True)
                 return {"status": "nochange", "document_id": document_id,
@@ -209,6 +210,10 @@ class IngestService:
                     content_hash=old["content_hash"], title=old["title"],
                     raw_text=old["raw_text"])
                 dbm.set_document_seen(conn, document_id, seen=False)
+            # 내용이 바뀌었으니 새 이미지 후보도 로컬로 내려받아 doc.meta 에 반영(사용자 요구).
+            from .pipeline import _download_doc_images
+
+            _download_doc_images(conn, doc, self.s.data_dir)
             # 같은 id 로 갱신(신규가 아니라 복원이므로 sources 연결 유지). meta(이미지 포함) 보존.
             dbm.update_document_content(
                 conn, document_id, title=doc.title, raw_text=doc.raw_text,
@@ -652,6 +657,59 @@ class IngestService:
             return report
         finally:
             conn.close()
+
+    def list_failures(self, *, limit: int = 10) -> list[dict]:
+        """error/failed inbox 최신순 요약(텔레그램 /failed 용)."""
+        conn = dbm.connect(self.s.db_file)
+        dbm.init_db(conn)
+        try:
+            rows = dbm.inbox_failures(conn, limit=limit)
+        finally:
+            conn.close()
+        return [
+            {"id": r["id"], "status": r["status"], "kind": r["kind"],
+             "attempts": r["attempts"], "document_id": r["document_id"],
+             "payload": (r["file_ref"] or r["payload"] or "")[:120],
+             "error": (r["error"] or "")[:200]}
+            for r in rows
+        ]
+
+    def retry_inbox(self, inbox_id: int) -> IngestReport:
+        """[수동 재시도] 텔레그램 /retry 등에서 특정 inbox 건 하나를 즉시 재적재.
+
+        recover_failed 의 자동 게이팅(attempts 상한·백오프)을 무시하고 사용자가 명시적으로
+        요청한 1건만 처리한다. document_id 가 있으면(=extract 단계 실패) 재추출만, 없으면
+        fetch 부터 다시. 실패해도 영구실패로 굳히지 않고 status='error' 로 남겨 다음 자동/수동
+        재시도 기회를 유지한다(사용자가 직접 재시도했다는 사실만으로 상한을 확정짓지 않음).
+        """
+        conn = dbm.connect(self.s.db_file)
+        dbm.init_db(conn)
+        row = dbm.get_inbox(conn, inbox_id)
+        conn.close()
+        if row is None:
+            rep = IngestReport()
+            rep.error = f"inbox#{inbox_id} 없음"
+            return rep
+
+        if row["document_id"]:
+            rep = self._retry_extract(row["document_id"], inbox_id)
+        else:
+            payload = row["file_ref"] or row["payload"]
+            rep = self.ingest(
+                payload, source="manual-retry", inbox_id=inbox_id,
+                inbox_kind=row["kind"], file_name=row["file_name"],
+                file_ref=row["file_ref"],
+            )
+        if rep.error:
+            conn2 = dbm.connect(self.s.db_file)
+            try:
+                conn2.execute(
+                    "UPDATE raw_inbox SET status='error', error=? WHERE id=?",
+                    (rep.error, inbox_id))
+                conn2.commit()
+            finally:
+                conn2.close()
+        return rep
 
     def recover_failed(
         self, *, max_attempts: int = 5, base_delay: float = 300.0, limit: int = 0

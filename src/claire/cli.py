@@ -140,7 +140,7 @@ def _alert_permanent_failures(failed_items: list[dict]) -> None:
         lines.append(f"• inbox#{r['inbox_id']}: {str(r.get('error', ''))[:100]}")
     if len(failed_items) > 5:
         lines.append(f"… 외 {len(failed_items) - 5}건")
-    lines.append("`claire status` 또는 `replay-failed` 로 점검하세요.")
+    lines.append("텔레그램 `/failed` 로 목록 확인 후 `/retry <번호>` 로 재시도하세요.")
     sent = notify_owner(s.telegram_bot_token, s.notify_chat_id, "\n".join(lines))
     print(f"[recover] 영구실패 알림 {'전송' if sent else '미전송(미설정/실패)'}",
           flush=True)

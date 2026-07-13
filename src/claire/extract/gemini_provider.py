@@ -447,8 +447,11 @@ def _images_block(images: list[dict]) -> str:
     이미지로 넣게 한다. 장식/로고/아이콘/중복은 빼라고 명시(최종 선별=LLM)."""
     if not images:
         return ""
+    # 로컬로 내려받은 사본이 있으면(사용자 요구 — 원본 사이트/링크 유실 대비) 그 서빙
+    # 경로를, 없으면(다운로드 실패 등) 원본 url 로 폴백 — LLM 은 이 값을 그대로 베껴 쓴다.
     listing = "\n".join(
-        f"[{i}] url: {im.get('url', '')}\n    alt: {im.get('alt', '') or '(없음)'}"
+        f"[{i}] url: {('/image?p=' + im['local']) if im.get('local') else im.get('url', '')}\n"
+        f"    alt: {im.get('alt', '') or '(없음)'}"
         + (f"\n    caption: {im['caption']}" if im.get("caption") else "")
         for i, im in enumerate(images)
     )

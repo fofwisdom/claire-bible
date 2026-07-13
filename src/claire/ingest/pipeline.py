@@ -147,6 +147,7 @@ def ingest(
                 save_artifact(data_dir, same_url, doc.raw_text)
             except Exception:  # noqa: BLE001
                 pass
+        _download_doc_images(conn, doc, data_dir)
         ok, err = extract_resolve_store(
             conn, provider, vstore, doc, report, vault_dir=vault_dir)
         if not ok:
@@ -180,6 +181,7 @@ def ingest(
             save_artifact(data_dir, doc.id, doc.raw_text)
         except Exception:  # noqa: BLE001
             pass  # 보관 실패가 본 파이프라인을 막지 않도록
+    _download_doc_images(conn, doc, data_dir)
 
     # 추출 → 해소 → 관계 → vault (ingest/refresh 공용)
     ok, err = extract_resolve_store(
@@ -208,6 +210,22 @@ def ingest(
 
     dbm.update_inbox(conn, inbox_id, status="done", document_id=doc.id)
     return report
+
+
+def _download_doc_images(conn: sqlite3.Connection, doc: Document, data_dir: Path | None) -> None:
+    """본문 이미지 후보를 로컬로 내려받아 보존(사용자 요구 — 외부 사이트/링크가 나중에
+    사라지면 문서에 남는 게 깨진 이미지 링크뿐이라 저장해 둬야 함). ingest 신규/in-place
+    갱신·refresh 가 공유. doc.meta['images'] 를 local 경로 포함 형태로 갱신 + DB 반영.
+    이미지 후보 없거나 data_dir 없으면 조용히 스킵(개별 다운로드 실패는 raw.download_images
+    가 원본 url 로 이미 폴백)."""
+    images = (doc.meta or {}).get("images")
+    if not images or data_dir is None:
+        return
+    from ..store.raw import download_images
+
+    enriched = download_images(data_dir, doc.id, images)
+    doc.meta["images"] = enriched
+    dbm.set_document_images(conn, doc.id, enriched)
 
 
 def extract_resolve_store(

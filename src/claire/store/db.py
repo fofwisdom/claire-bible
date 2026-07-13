@@ -15,7 +15,7 @@ from pathlib import Path
 
 from ..ontology.base import Document, Entity, Relation
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (
@@ -301,6 +301,10 @@ def _migrate(conn: sqlite3.Connection) -> None:
     _ensure_column(conn, "documents", "watch_reason", "TEXT")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_documents_watch "
                  "ON documents(watch_enabled, last_watched_at)")
+    # v8: 문서 즐겨찾기(좌측 목록 상단 고정) + 숨기기(목록에서만 제외 — 그래프 엔티티/관계는
+    # 그대로 유지, 사용자 결정). 둘 다 기본 0(안 켜짐).
+    _ensure_column(conn, "documents", "pinned", "INTEGER DEFAULT 0")
+    _ensure_column(conn, "documents", "hidden", "INTEGER DEFAULT 0")
 
 
 def init_db(conn: sqlite3.Connection) -> None:
@@ -484,9 +488,26 @@ def find_document_by_canonical_url(
 def documents_timeline(conn: sqlite3.Connection, limit: int = 300) -> list[sqlite3.Row]:
     """문서를 최신 적재순으로(좌측 문서 패널용). summary 는 호출측에서 붙인다."""
     return conn.execute(
-        "SELECT id, title, url, source_type, fetched_at, seen, watch_enabled FROM documents "
+        "SELECT id, title, url, source_type, fetched_at, seen, watch_enabled, "
+        "pinned, hidden FROM documents "
         "ORDER BY fetched_at DESC, id DESC LIMIT ?", (limit,)
     ).fetchall()
+
+
+def set_document_pinned(conn: sqlite3.Connection, document_id: str, pinned: bool) -> bool:
+    """즐겨찾기 토글. 존재하지 않는 id 면 False."""
+    cur = conn.execute(
+        "UPDATE documents SET pinned=? WHERE id=?", (1 if pinned else 0, document_id))
+    conn.commit()
+    return cur.rowcount > 0
+
+
+def set_document_hidden(conn: sqlite3.Connection, document_id: str, hidden: bool) -> bool:
+    """숨기기 토글(목록 전용 — 그래프 엔티티/관계는 안 건드림). 존재하지 않는 id 면 False."""
+    cur = conn.execute(
+        "UPDATE documents SET hidden=? WHERE id=?", (1 if hidden else 0, document_id))
+    conn.commit()
+    return cur.rowcount > 0
 
 
 def get_document(conn: sqlite3.Connection, document_id: str) -> Document | None:
@@ -680,6 +701,20 @@ def all_inbox(conn: sqlite3.Connection) -> list[sqlite3.Row]:
 def inbox_by_status(conn: sqlite3.Connection, status: str) -> list[sqlite3.Row]:
     return conn.execute(
         "SELECT * FROM raw_inbox WHERE status=? ORDER BY id", (status,)
+    ).fetchall()
+
+
+def get_inbox(conn: sqlite3.Connection, inbox_id: int) -> sqlite3.Row | None:
+    return conn.execute(
+        "SELECT * FROM raw_inbox WHERE id=?", (inbox_id,)
+    ).fetchone()
+
+
+def inbox_failures(conn: sqlite3.Connection, limit: int = 10) -> list[sqlite3.Row]:
+    """error/failed(영구실패) 항목을 최신순으로(텔레그램 /failed 용)."""
+    return conn.execute(
+        "SELECT * FROM raw_inbox WHERE status IN ('error','failed') "
+        "ORDER BY id DESC LIMIT ?", (limit,)
     ).fetchall()
 
 

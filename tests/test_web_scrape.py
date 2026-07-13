@@ -55,10 +55,11 @@ def test_strip_html_multiroot_safe():
 # --- fetch_web fallback 체인 + thin-guard ---
 
 def _patch_chain(monkeypatch, *, static=("T", "", [], {}, None, None, []),
-                 discourse=None, scrapling=(None, "", [], {}, []), stealth=(None, "")):
+                 discourse=None, scrapling=(None, "", [], {}, []),
+                 cdp=(None, "", [], {}, [])):
     monkeypatch.setattr(web, "_fetch_static", lambda url: static)
     monkeypatch.setattr(web, "_fetch_scrapling", lambda url: scrapling)
-    monkeypatch.setattr(web, "_fetch_stealth", lambda url: stealth)
+    monkeypatch.setattr(web, "_fetch_cdp", lambda url: cdp)
     import claire.ingest.fetchers.discourse as disc
     monkeypatch.setattr(disc, "try_discourse", lambda url: discourse)
 
@@ -109,22 +110,22 @@ def test_discourse_escalation_when_static_thin(monkeypatch):
     assert "ref" in doc.meta["links"][0]
 
 
-def test_stealth_escalation_when_others_thin(monkeypatch):
+def test_cdp_escalation_when_others_thin(monkeypatch):
     rich = "y" * 400
     _patch_chain(monkeypatch,
                  static=("t", "tiny", [], {}, None, None, []),
                  discourse=None,
-                 stealth=("stealth title", rich))
+                 cdp=("cdp title", rich, [], {}, []))
     doc = web.fetch_web("https://js-only.example/app")
-    assert doc.meta["fetch_via"] == "stealth"
+    assert doc.meta["fetch_via"] == "cdp"
     assert len(doc.raw_text) == 400
 
 
 def test_thin_guard_raises_when_all_fail(monkeypatch):
-    # static 빈약 + discourse 없음 + stealth 빈 → 실패(제목만 적재 방지)
+    # static 빈약 + discourse 없음 + cdp 빈 → 실패(제목만 적재 방지)
     _patch_chain(monkeypatch,
                  static=("제목만 있음", "73자정도의짧은본문", [], {}, None, None, []),
-                 discourse=None, stealth=(None, ""))
+                 discourse=None, cdp=(None, "", [], {}, []))
     with pytest.raises(FetchError):
         web.fetch_web("https://discuss.pytorch.kr/t/thin/999")
 

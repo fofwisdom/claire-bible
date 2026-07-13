@@ -15,6 +15,7 @@ IngestService.ingest() 를 호출한다. 별도 프로세스(`claire serve-api`)
 from __future__ import annotations
 
 import logging
+import re
 
 from ..config import get_settings
 from ..ingest.service import IngestService
@@ -58,6 +59,20 @@ def run_api() -> int:
                 conn.close()
         return False
 
+    def _readonly_match(request) -> bool:
+        """읽기전용 공개 토큰(owner bearer 와 별개) — GET 성격의 READONLY_PATHS 에서만
+        gate 가 이걸 인정한다(쓰기 라우트는 애초에 도달 불가 — 핸들러가 이 함수를
+        믿어서가 아니라 gate 의 경로 화이트리스트가 경계)."""
+        if not s.readonly_token:
+            return False
+        auth = request.headers.get("Authorization", "")
+        token = auth[7:] if auth.startswith("Bearer ") else request.headers.get("X-Token", "")
+        return token == s.readonly_token
+
+    def _authed_read(request) -> bool:
+        """READONLY_PATHS 전용: owner 인증 또는 읽기전용 토큰이면 통과."""
+        return _authed(request) or _readonly_match(request)
+
     async def health(_request):
         import asyncio
 
@@ -67,7 +82,7 @@ def run_api() -> int:
         return web.json_response(rep, status=200 if rep["ok"] else 503)
 
     async def stats(request):
-        if not _authed(request):
+        if not _authed_read(request):
             return web.json_response({"error": "unauthorized"}, status=401)
         import asyncio
 
@@ -104,7 +119,7 @@ def run_api() -> int:
         return web.json_response(report_to_dict(report))
 
     async def do_search(request):
-        if not _authed(request):
+        if not _authed_read(request):
             return web.json_response({"error": "unauthorized"}, status=401)
         import asyncio
 
@@ -144,6 +159,20 @@ def run_api() -> int:
         from ..graphview import GRAPH_HTML
 
         return web.Response(text=GRAPH_HTML, content_type="text/html")
+
+    _IMAGE_PATH_RE = re.compile(r"^images/[A-Za-z0-9_.-]+\.(?:jpg|jpeg|png|webp|gif|svg)$")
+
+    async def image_route(request):
+        # 로컬 보존 이미지 서빙(사용자 요구 — 외부링크 유실 대비). 경로는 엄격히 검증
+        # (images/<파일명> 형태만, 트래버설 불가) — doc_id 를 몰라도 못 유추하고, 원래도
+        # 공개 웹의 이미지였던 콘텐츠라 `/p`(공유 핫링크) 공개 열람에서도 보이도록 공개.
+        rel = request.query.get("p", "")
+        if not _IMAGE_PATH_RE.fullmatch(rel):
+            return web.Response(status=404, text="Not Found")
+        path = s.data_dir / rel
+        if not path.is_file():
+            return web.Response(status=404, text="Not Found")
+        return web.FileResponse(path)
 
     async def documents_list_route(_request):
         import asyncio
@@ -271,6 +300,62 @@ def run_api() -> int:
         if rep is None:
             return web.json_response({"error": "not found"}, status=404)
         return web.json_response(rep)
+
+    async def document_pin_route(request):
+        # 즐겨찾기 토글 — 소유자만(읽기전용 토큰은 READONLY_PATHS 에 없어 gate 가 이미 차단).
+        if not _authed(request):
+            return web.json_response({"error": "unauthorized"}, status=401)
+        import asyncio
+
+        try:
+            body = await request.json()
+        except Exception:  # noqa: BLE001
+            return web.json_response({"error": "invalid json"}, status=400)
+        did = (body.get("id") or "").strip()
+        if not did:
+            return web.json_response({"error": "id required"}, status=400)
+        pinned = bool(body.get("pinned", True))
+
+        def _p():
+            conn = dbm.connect(s.db_file)
+            dbm.init_db(conn)
+            try:
+                return dbm.set_document_pinned(conn, did, pinned)
+            finally:
+                conn.close()
+
+        ok = await asyncio.to_thread(_p)
+        if not ok:
+            return web.json_response({"error": "not found"}, status=404)
+        return web.json_response({"id": did, "pinned": pinned})
+
+    async def document_hide_route(request):
+        # 숨기기 토글 — 목록 전용(그래프 엔티티/관계는 그대로, 사용자 결정). 소유자만.
+        if not _authed(request):
+            return web.json_response({"error": "unauthorized"}, status=401)
+        import asyncio
+
+        try:
+            body = await request.json()
+        except Exception:  # noqa: BLE001
+            return web.json_response({"error": "invalid json"}, status=400)
+        did = (body.get("id") or "").strip()
+        if not did:
+            return web.json_response({"error": "id required"}, status=400)
+        hidden = bool(body.get("hidden", True))
+
+        def _h():
+            conn = dbm.connect(s.db_file)
+            dbm.init_db(conn)
+            try:
+                return dbm.set_document_hidden(conn, did, hidden)
+            finally:
+                conn.close()
+
+        ok = await asyncio.to_thread(_h)
+        if not ok:
+            return web.json_response({"error": "not found"}, status=404)
+        return web.json_response({"id": did, "hidden": hidden})
 
     async def synthesize_route(request):
         # 비용 있는 LLM 종합 → /ingest 와 같은 토큰 인증 + 명시적 POST 만(자동 아님).
@@ -517,7 +602,11 @@ def run_api() -> int:
     # 인증은 bearer(CLI) · X-Session 헤더 · claire_session 쿠키. 진입은 /web 가 준 ?t= 링크.
     # /health: 도커 헬스체크(루프백). /p: 문서 공유 핫링크 — 쿼리의 공유 토큰이 자체 인증이라
     # 세션 게이트 예외(핸들러가 토큰을 검증, 무효면 404).
-    PUBLIC_PATHS = {"/health", "/p"}
+    PUBLIC_PATHS = {"/health", "/p", "/image"}
+    # 읽기전용 공개 토큰이 도달 가능한 경로 화이트리스트 — 검색/그래프/노드상세/문서목록만.
+    # ingest·dedup/merge·share·synthesize·research(LLM 호출 비용) 등 쓰기/비용 라우트는
+    # 이 목록에 없으므로 readonly 토큰으로는 애초에 gate 를 못 지난다(핸들러 신뢰 아님).
+    READONLY_PATHS = {"/", "/graph", "/node", "/documents", "/document", "/search", "/stats"}
 
     @web.middleware
     async def gate(request, handler):
@@ -540,6 +629,8 @@ def run_api() -> int:
             return web.Response(status=404, text="Not Found")
         if request.path in PUBLIC_PATHS or _authed(request):
             return await handler(request)
+        if request.path in READONLY_PATHS and _readonly_match(request):
+            return await handler(request)
         return web.Response(status=404, text="Not Found")
 
     app = web.Application(middlewares=[gate])
@@ -554,7 +645,10 @@ def run_api() -> int:
         web.get("/graph", graph_data),
         web.get("/node", node_detail),
         web.get("/documents", documents_list_route),
+        web.get("/image", image_route),
         web.get("/document", document_detail_route),
+        web.post("/document/pin", document_pin_route),
+        web.post("/document/hide", document_hide_route),
         web.post("/synthesize", synthesize_route),
         web.post("/research", research_route),
         # 중복 문서 정리(웹) — 진단(GET)·병합(POST, 파괴적·자동백업).

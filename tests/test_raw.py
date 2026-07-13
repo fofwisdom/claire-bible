@@ -5,9 +5,13 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
+import httpx
+
 from claire.ontology.base import Document
 from claire.store import db as dbm
-from claire.store.raw import save_artifact, load_artifact, raw_disk_usage
+from claire.store.raw import (
+    save_artifact, load_artifact, raw_disk_usage, download_images, _MAX_IMAGE_BYTES,
+)
 from claire.store.vectors import VectorStore
 from claire.extract.provider import MockProvider
 from claire.ingest.pipeline import ingest, _guess_kind
@@ -93,3 +97,72 @@ def test_save_artifact_roundtrip(tmp_path: Path):
     save_artifact(tmp_path, "doc_1", "héllo 안녕 <b>x</b>")
     assert load_artifact(tmp_path, "doc_1") == "héllo 안녕 <b>x</b>"
     assert load_artifact(tmp_path, "missing") is None
+
+
+class _FakeResp:
+    def __init__(self, status_code=200, content=b"", content_type="image/png"):
+        self.status_code = status_code
+        self.content = content
+        self.headers = {"content-type": content_type}
+
+
+class _FakeHttpxClient:
+    """httpx.Client 대역(네트워크 없이) — url→응답 매핑."""
+    def __init__(self, responses, *a, **kw):
+        self._responses = responses
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def get(self, url):
+        resp = self._responses.get(url)
+        if resp is None:
+            raise RuntimeError(f"unexpected fetch: {url}")
+        return resp
+
+
+def test_download_images_saves_local_copy(monkeypatch, tmp_path: Path):
+    """정상 이미지 응답 → 로컬 파일 저장 + local 경로 부여(사용자 요구 — 외부링크 유실 대비)."""
+    responses = {"https://x/a.png": _FakeResp(content=b"PNGBYTES", content_type="image/png")}
+    monkeypatch.setattr(httpx, "Client", lambda *a, **kw: _FakeHttpxClient(responses))
+    out = download_images(tmp_path, "doc_1", [{"url": "https://x/a.png", "alt": "a"}])
+    assert out[0]["local"] == "images/doc_1_0.png"
+    assert (tmp_path / "images" / "doc_1_0.png").read_bytes() == b"PNGBYTES"
+    assert out[0]["alt"] == "a"  # 기존 필드 보존
+
+
+def test_download_images_failure_modes_fall_back_to_url(monkeypatch, tmp_path: Path):
+    """404·비이미지 컨텐츠타입·용량초과는 각각 원본 url 유지(local 키 없음) — 개별 실패가
+    나머지·적재를 막지 않는다."""
+    big = b"x" * (_MAX_IMAGE_BYTES + 1)
+    responses = {
+        "https://x/404.png": _FakeResp(status_code=404),
+        "https://x/notimg.png": _FakeResp(content=b"<html>", content_type="text/html"),
+        "https://x/big.png": _FakeResp(content=big, content_type="image/png"),
+    }
+    monkeypatch.setattr(httpx, "Client", lambda *a, **kw: _FakeHttpxClient(responses))
+    images = [
+        {"url": "https://x/404.png"},
+        {"url": "https://x/notimg.png"},
+        {"url": "https://x/big.png"},
+    ]
+    out = download_images(tmp_path, "doc_1", images)
+    assert all("local" not in im for im in out)
+    assert not (tmp_path / "images").exists() or not any((tmp_path / "images").iterdir())
+
+
+def test_download_images_network_error_is_caught(monkeypatch, tmp_path: Path):
+    """httpx 예외(DNS 실패 등)도 개별 이미지만 원본 url 로 폴백 — 적재를 막지 않는다."""
+    class _BoomClient:
+        def __init__(self, *a, **kw): pass
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def get(self, url): raise OSError("network unreachable")
+
+    monkeypatch.setattr(httpx, "Client", lambda *a, **kw: _BoomClient())
+    out = download_images(tmp_path, "doc_1", [{"url": "https://dead/x.png"}])
+    assert "local" not in out[0]
+    assert out[0]["url"] == "https://dead/x.png"

@@ -58,6 +58,9 @@ class Settings(BaseSettings):
     inject_host: str = Field(default="127.0.0.1", alias="CLAIRE_INJECT_HOST")
     inject_port: int = Field(default=8765, alias="CLAIRE_INJECT_PORT")
     inject_token: str = Field(default="", alias="CLAIRE_INJECT_TOKEN")
+    # 읽기 전용 공개 토큰 — owner bearer(inject_token)와 별개. GET(검색/그래프/노드상세/
+    # 문서목록)만 통과시키고 쓰기(ingest/dedup-merge/공유링크발급 등)는 차단(에이전트 조회용).
+    readonly_token: str = Field(default="", alias="CLAIRE_READONLY_TOKEN")
     # 외부 공개 URL(예: https://claire.blackan.net) — /web 명령이 접속 링크를 만들 때 사용.
     public_url: str = Field(default="", alias="CLAIRE_PUBLIC_URL")
 

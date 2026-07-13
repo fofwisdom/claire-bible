@@ -4,7 +4,11 @@
   2) discourse : 본문 빈약 + Discourse 토픽이면 `.json` API 로 본문 확보 (싸고 결정적)
   3) scrapling : Scrapling Fetcher (curl-cffi + browserforge 스텔스 헤더). 브라우저 불필요.
                  정적 UA 를 403 으로 막는 봇차단(예: openai.com) 우회용.
-  4) stealth   : Scrapling StealthyFetcher (Playwright). 최후수단, 브라우저 설치 시에만.
+  4) cdp       : nodriver(Chrome DevTools Protocol 직접 제어)로 실제 렌더링. 최후수단 —
+                 JS 로만 그려지는 SPA(해시 라우팅 등)는 static/scrapling 이 빈 껍데기만
+                 받아오므로 진짜 브라우저 실행이 필요. Playwright/patchright 는 안 쓰고
+                 시스템 Chromium 을 CDP 로 직접 제어(이미지에 apt chromium 패키지 하나만
+                 추가하면 됨 — Playwright 자체 브라우저 번들보다 가벼움).
 
 체인을 다 돌고도 본문이 MIN_CONTENT 미만이면 FetchError 로 *실패 처리* —
 제목만 적재되는 빈약 스크랩을 막고 raw_inbox 에 error 로 남겨 replay-failed 로 재적재.
@@ -62,11 +66,13 @@ def fetch_web(url: str) -> Document:
                 c_title or title, c_text, c_links or links, c_anchors or anchors,
                 c_images or images, "scrapling")
 
-    # 4) Stealth(Playwright) 에스컬레이션 — 브라우저 설치 시에만 동작(없으면 무시)
+    # 4) CDP(nodriver) 에스컬레이션 — 실제 Chromium 렌더링. 최후수단(느림, 브라우저 필요).
     if len(text or "") < MIN_CONTENT:
-        s_title, s_text = _fetch_stealth(url)
-        if s_text and len(s_text) > len(text or ""):
-            title, text, via = s_title or title, s_text, "stealth"
+        d_title, d_text, d_links, d_anchors, d_images = _fetch_cdp(url)
+        if d_text and len(d_text) > len(text or ""):
+            title, text, links, anchors, images, via = (
+                d_title or title, d_text, d_links or links, d_anchors or anchors,
+                d_images or images, "cdp")
 
     # thin-guard: 체인 끝까지 빈약하면 실패 처리(raw_inbox error → replay-failed 대상)
     if not text or len(text) < MIN_CONTENT:
@@ -256,21 +262,35 @@ def _fetch_scrapling(url: str) -> tuple[str | None, str, list[str], dict[str, st
         return None, "", [], {}, []
 
 
-def _fetch_stealth(url: str) -> tuple[str | None, str]:
-    """Scrapling StealthyFetcher (브라우저 필요). 미설치/실패 시 ('', '')."""
-    try:
-        from scrapling.fetchers import StealthyFetcher
+def _fetch_cdp(url: str) -> tuple[str | None, str, list[str], dict[str, str], list[dict]]:
+    """nodriver 로 시스템 Chromium 을 CDP 직접 제어해 실제 렌더링(브라우저 필요).
 
-        page = StealthyFetcher.fetch(url, timeout=45000, headless=True)
-        status = getattr(page, "status", 200)
-        if status and status >= 400:
-            return None, ""
-        title = None
-        t = page.css_first("title::text")
-        if t:
-            title = (t if isinstance(t, str) else getattr(t, "text", "")).strip()
-        body = getattr(page, "get_all_text", None)
-        text = body() if callable(body) else (getattr(page, "text", "") or "")
-        return title, str(text).strip()
+    JS SPA(해시 라우팅 등, 예: uniclawbench.github.io)는 static/scrapling(curl-cffi, 무JS)
+    으로는 빈 셸만 받아온다 — 진짜 브라우저 실행이 필요한 최후수단. Playwright/patchright
+    없이 nodriver(순수 CDP 클라이언트)로 apt 설치된 chromium 바이너리를 직접 제어한다.
+    미설치/실패 시 빈 결과(체인의 다음 단계 없음 → thin-guard 가 최종 실패 처리).
+    """
+    try:
+        import asyncio
+
+        import nodriver as uc
+
+        async def _run() -> str:
+            browser = await uc.start(
+                headless=True,
+                browser_args=["--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage"],
+            )
+            try:
+                page = await browser.get(url)
+                await page.sleep(2.5)  # JS 렌더링 대기(SPA 초기 로드)
+                return await page.get_content()
+            finally:
+                browser.stop()
+
+        html = asyncio.run(_run())
+        if not html:
+            return None, "", [], {}, []
+        title, text, links, anchors, _, images = _extract_html(str(html), base_url=url)
+        return title, text, links, anchors, images
     except Exception:  # noqa: BLE001
-        return None, ""
+        return None, "", [], {}, []

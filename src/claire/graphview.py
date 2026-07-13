@@ -148,6 +148,8 @@ def documents_list(conn: sqlite3.Connection, limit: int = 300) -> list[dict]:
             "fetched_at": r["fetched_at"],
             "seen": r["seen"],                  # 0=미열람(unread) → UI 아이콘
             "watch": r["watch_enabled"],        # 1=주기 크롤링 대상 → UI 아이콘
+            "pinned": r["pinned"],              # 1=즐겨찾기 → 목록 상단 고정 섹션
+            "hidden": r["hidden"],               # 1=숨김 → 기본 목록에서 제외
             "summary": dbm.latest_extraction_summary(conn, r["id"]) or "",
         })
     return out
@@ -252,22 +254,44 @@ GRAPH_HTML = """<!doctype html>
   #legendbar .reltog.off{opacity:.4;text-decoration:line-through}
   #bar button.on{outline:2px solid var(--accent2);outline-offset:1px}
   #wrap{display:flex;height:calc(100% - 68px)}
-  #net{flex:1;min-width:0;background:var(--net-bg)}
-  #docs{width:280px;overflow:auto;background:var(--docs-bg);border-right:1px solid var(--border);font-size:12px}
-  #docs .dhead{padding:8px 10px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--docs-bg);z-index:2}
-  .dday{position:sticky;top:37px;background:var(--bar-bg);color:var(--accent2);font-size:11px;padding:3px 10px;border-bottom:1px solid var(--border);z-index:1}
-  .docitem{padding:7px 10px;border-bottom:1px solid var(--border);cursor:pointer;position:relative}
+  /* #netwrap 이 위치 기준자, #net 은 vis.Network 컨테이너(vis 가 init 시 innerHTML 을
+     지우므로 — 확인됨 — #zoomctl 은 #net *밖*, 형제로 둬야 살아남는다). */
+  #netwrap{flex:1;min-width:0;position:relative}
+  #net{width:100%;height:100%;background:var(--net-bg)}
+  /* 모바일 핀치줌 대체 — zoomView:false(Mac 휠 점프 수정, 2026-06-24)가 vis-network 의
+     핀치줌도 함께 꺼버려(같은 옵션이 관장) 터치로는 줌 방법이 없었다(회귀). 커스텀 핀치
+     제스처는 vis 내부 hammer 인스턴스와 이벤트 충돌 위험이 있어, 확실히 동작하는 +/- 버튼으로
+     대체(사용자도 "터치나 버튼추가나" 로 버튼을 대안으로 제시함). */
+  #zoomctl{position:absolute;right:14px;bottom:14px;display:none;flex-direction:column;gap:6px;z-index:5}
+  #zoomctl button{width:36px;height:36px;border-radius:50%;border:1px solid var(--border);
+    background:var(--sec-bg);color:var(--sec-fg);font-size:19px;line-height:1;cursor:pointer;opacity:.9}
+  #zoomctl button:active{opacity:1;background:var(--hover)}
+  @media (max-width:820px){ #zoomctl{display:flex} }
+  #docs{width:280px;display:flex;flex-direction:column;background:var(--docs-bg);border-right:1px solid var(--border);font-size:12px}
+  #docs .dhead{padding:8px 10px;border-bottom:1px solid var(--border);flex-shrink:0}
+  /* 즐겨찾기(고정) 섹션 — 많아져도 패널을 다 잡아먹지 않게 최대높이+스크롤(사용자 요구:
+     '즐찾 많아질 때 대비'), 일반 목록도 min-height 로 항상 일정 공간 확보. */
+  #pinnedhead{padding:4px 10px;font-size:10px;color:var(--muted);background:var(--panel-bg);flex-shrink:0}
+  #pinnedlist{max-height:32%;overflow-y:auto;flex-shrink:0;border-bottom:2px solid var(--border)}
+  #doclist{flex:1;min-height:120px;overflow-y:auto}
+  .dday{position:sticky;top:0;background:var(--bar-bg);color:var(--accent2);font-size:11px;padding:3px 10px;border-bottom:1px solid var(--border);z-index:1}
+  .docitem{min-height:34px;padding:7px 78px 7px 10px;border-bottom:1px solid var(--border);cursor:pointer;position:relative}
   .docitem:hover{background:var(--hover)}
   .docitem.active{background:var(--active);border-left:3px solid var(--accent2)}
+  .docitem.hidden-doc{opacity:.55}
   .docitem b{font-size:12px} .docitem .st{color:var(--muted);font-size:10px;margin-left:6px}
   .docitem.unread{border-left:3px solid var(--accent2)} .docitem.unread b{font-weight:700}
   .docitem .ubadge{color:var(--accent2);font-size:9px;margin-right:4px;vertical-align:middle}
   .docitem .wbadge{font-size:10px;margin-right:2px}
   .docitem p{margin:.2em 0 0;color:var(--muted);font-size:11px}
-  /* 좌측 문서의 '읽기' 버튼 — 클릭=nav 와 분리(이 버튼만 팝업 읽기). */
-  .docitem .readbtn{position:absolute;top:6px;right:7px;background:var(--sec-bg);color:var(--sec-fg);
+  /* 좌측 문서의 액션 버튼(즐겨찾기·읽기·숨기기) — 클릭=nav 와 분리. */
+  .docitem .docactions{position:absolute;top:6px;right:7px;display:flex;gap:3px}
+  .docitem .actbtn{background:var(--sec-bg);color:var(--sec-fg);
     border:1px solid var(--border);border-radius:4px;padding:1px 6px;font-size:11px;cursor:pointer;opacity:.85}
-  .docitem .readbtn:hover{opacity:1;border-color:var(--accent)}
+  .docitem .actbtn:hover{opacity:1;border-color:var(--accent)}
+  .docitem .actbtn.pinned{opacity:1;color:#e3b341}
+  #showhidden{display:block;padding:6px 10px;font-size:11px;color:var(--muted);cursor:pointer;text-align:center;border-top:1px solid var(--border)}
+  #showhidden:hover{color:var(--fg)}
   #panel{width:360px;overflow:auto;padding:14px 16px;background:var(--panel-bg);border-left:1px solid var(--border);font-size:13px;line-height:1.5}
   #panel h2{margin:.2em 0;font-size:18px} #panel h2 small{color:var(--muted);font-size:12px;font-weight:normal}
   #panel h3{margin:1em 0 .3em;font-size:13px;color:var(--accent2);border-bottom:1px solid var(--border);padding-bottom:2px}
@@ -361,7 +385,7 @@ GRAPH_HTML = """<!doctype html>
     #wrap{flex-direction:column;height:auto}
     /* flex:none 필수 — base 의 flex:1(basis 0%)이 height:58vh 를 무력화해 #net 이
        min-height 까지 쪼그라들던 버그(이슈1). 명시 높이를 쓰려면 flex 를 꺼야 한다. */
-    #net{order:-1;flex:none;height:58vh;min-height:340px;width:100%}
+    #netwrap{order:-1;flex:none;height:58vh;min-height:340px;width:100%}
     #docs{width:auto;max-height:34vh;border-right:none;border-bottom:1px solid var(--border)}
     #docs .dhead{position:static}
     #panel{width:auto;border-left:none;border-top:2px solid var(--border)}
@@ -390,8 +414,18 @@ GRAPH_HTML = """<!doctype html>
 <div id="legendbar"></div>
 <div id="wrap">
   <div id="docs"><div class="dhead"><input id="docq" placeholder="문서 검색(제목·요약)" oninput="renderDocs(this.value)" style="width:92%"/></div>
-    <div id="doclist"><p class="hint" style="padding:10px">문서 로딩…</p></div></div>
-  <div id="net"></div>
+    <div id="pinnedhead" style="display:none">⭐ 즐겨찾기</div>
+    <div id="pinnedlist"></div>
+    <div id="doclist"><p class="hint" style="padding:10px">문서 로딩…</p></div>
+    <div id="showhidden" style="display:none" onclick="toggleShowHidden()"></div>
+    <div id="hiddenlist"></div></div>
+  <div id="netwrap">
+    <div id="net"></div>
+    <div id="zoomctl">
+      <button onclick="zoomBtn(1)" title="확대">+</button>
+      <button onclick="zoomBtn(-1)" title="축소">−</button>
+    </div>
+  </div>
   <div id="panel"></div>
 </div>
 <!-- 노드 hover 시 마우스 위치에 뜨는 작은 요약 팝업(우측 패널 미리보기 대체). -->
@@ -591,9 +625,15 @@ function copyShare(){
 // 미해결 높이로 캔버스를 150px 로 잡아 상단 일부만 차지하던 버그). '100%' 는 flex/auto
 // 체인에서 안 먹어서 getBoundingClientRect 의 실측 px 로 강제한다. ResizeObserver 가
 // 레이아웃 확정·세로스택 전환·회전 시점마다(초기 1회 포함) 다시 맞춘다.
-function relayout(){ if(!net) return;
+let netBusy = false;                 // 드래그/fit·moveTo 애니메이션 중 true(위 net 생성부에서 배선)
+let lastNetSize = {w:0, h:0};
+function relayout(){ if(!net || netBusy) return;
   const el=document.getElementById('net'); const r=el.getBoundingClientRect();
-  if(r.width>0 && r.height>0){ net.setSize(r.width+'px', r.height+'px'); net.redraw(); } }
+  if(r.width<=0 || r.height<=0) return;
+  // 크기 변화가 없으면 스킵 — 불필요한 setSize+redraw(churn)가 애니메이션과 겹칠 여지를 줄인다.
+  if(Math.abs(r.width-lastNetSize.w)<1 && Math.abs(r.height-lastNetSize.h)<1) return;
+  lastNetSize = {w:r.width, h:r.height};
+  net.setSize(r.width+'px', r.height+'px'); net.redraw(); }
 if(window.ResizeObserver){ new ResizeObserver(relayout).observe(document.getElementById('net')); }
 window.addEventListener('resize', relayout);
 window.addEventListener('orientationchange', ()=>setTimeout(relayout, 300));
@@ -650,6 +690,13 @@ function setupWheelZoom(){
     if(!raf) raf=requestAnimationFrame(flush);
   }, {passive:false});
 }
+// 모바일 +/- 줌 버튼 — 화면 중심 기준(커서 개념이 없으니 뷰 중심 고정, moveTo 가 position
+// 생략 시 현재 중심을 유지한다).
+function zoomBtn(dir){
+  if(!net) return;
+  const scale=Math.max(0.05, Math.min(5, net.getScale()*(dir>0?1.25:1/1.25)));
+  net.moveTo({scale:scale, animation:{duration:150}});
+}
 
 fetch('graph').then(r=>r.json()).then(d=>{
   allNodes = new vis.DataSet(d.nodes);
@@ -674,6 +721,20 @@ fetch('graph').then(r=>r.json()).then(d=>{
   requestAnimationFrame(()=>{ relayout(); setTimeout(relayout, 300); });
   applyTouchMode();   // hammer 가 박은 touch-action:none 을 모바일에선 pan-y 로 덮어씀
   setupWheelZoom();   // 휠 줌 평탄화(Mac 모멘텀 대응) — vis 기본 zoomView 대체
+  // 모바일 팬 리셋 방어(이슈: 문서선택→fit() 애니메이션 직후 mobileScrollTo 의 페이지
+  // 스무스스크롤 중 주소창 접힘→뷰포트 리사이즈→relayout()이 fit 애니메이션 도중 끼어들어
+  // 카메라가 깨진 채로 다음 터치팬이 시작되는 것으로 추정). 드래그/애니메이션 중엔 relayout
+  // 을 미루고, 크기 변화가 실제로 없으면 아예 스킵(불필요한 setSize+redraw 로 인한 churn 방지).
+  // animationFinished 에만 기대면 발화 안 되는 경우(실측: 0개 노드 fit 등) netBusy 가 영원히
+  // true 로 굳어 relayout 이 죽는 더 나쁜 회귀가 됨 → 항상 풀리는 타임아웃을 안전망으로 병행.
+  let busyTimer = null;
+  function markBusy(ms){ netBusy = true; clearTimeout(busyTimer); busyTimer = setTimeout(()=>{netBusy=false;}, ms); }
+  net.on('dragStart', () => { netBusy = true; });
+  net.on('dragEnd', () => { netBusy = false; });
+  net.on('animationFinished', () => { netBusy = false; clearTimeout(busyTimer); });
+  const _fit = net.fit.bind(net), _moveTo = net.moveTo.bind(net);
+  net.fit = (opts) => { markBusy(700); return _fit(opts); };
+  net.moveTo = (opts) => { if(opts && opts.animation) markBusy(700); return _moveTo(opts); };
   net.on('click', p => {
     if(!p.nodes.length){
       // 빈 캔버스 클릭: inspect 만 해제하고 검색(라벨/의미) 강조 선택은 유지(이슈4).
@@ -949,6 +1010,20 @@ function refreshGraph(){
     renderDocs(document.getElementById('docq').value); });
 }
 
+// 전체 리로드 없이 새 글 반영(사용자 요구) — 가벼운 주기 폴링. /stats 문서 개수만 확인하고
+// 바뀐 경우에만 refreshGraph()(append-only 병합) 실행 — 안 바뀌면 아무 요청도 안 함.
+let lastDocCount = null;
+async function pollForUpdates(){
+  try{
+    const r = await fetch('stats');
+    if(!r.ok) return;               // 401 등이면 조용히 다음 틱에 재시도
+    const d = await r.json();
+    if(lastDocCount===null){ lastDocCount = d.documents; return; }  // 최초 틱=기준값만 기록
+    if(d.documents !== lastDocCount){ lastDocCount = d.documents; refreshGraph(); }
+  }catch(e){ /* 네트워크 일시 오류 — 다음 틱에 재시도 */ }
+}
+setInterval(pollForUpdates, 25000);
+
 // 단일 가시 규칙: degree(스케일)=hidden, 강조 필터(문서 선택 + 검색)=비매치 dim.
 // 문서/라벨검색/의미검색이 모두 같은 강조 방식을 공유한다(시각 언어 통일).
 // 범례 = 노드 타입 색(비클릭) + 관계 타입 토글 칩(클릭=필터). off 표시 타입은 그래프에서 숨김.
@@ -1075,22 +1150,72 @@ function clearPath(){ pathMode=false; pathPicks=[]; pathNodes=null; pathEdges=nu
 function dayOf(ts){ if(!ts) return '(날짜 미상)';
   const d=new Date(ts*1000);
   return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+// 문서 하나의 목록 아이템 HTML — 즐겨찾기/일반/숨김 목록이 모두 공유(중복 방지).
+// 클릭=그래프 nav(필터·이동), 액션 버튼 3종(⭐즐겨찾기·📖읽기·🙈숨기기)은 stopPropagation.
+function docItemHtml(dc){
+  const unread = dc.seen===0, watching = dc.watch===1, pinned = dc.pinned===1, hid = dc.hidden===1;
+  const pinBtn = '<button class="actbtn'+(pinned?' pinned':'')+'" title="'+(pinned?'즐겨찾기 해제':'즐겨찾기에 추가')+
+    '" onclick="event.stopPropagation();togglePin(\\''+dc.id+'\\','+(!pinned)+')">'+(pinned?'⭐':'☆')+'</button>';
+  const hideBtn = '<button class=actbtn title="'+(hid?'숨김 해제':'목록에서 숨기기')+
+    '" onclick="event.stopPropagation();toggleHide(\\''+dc.id+'\\','+(!hid)+')">'+(hid?'🙉':'🙈')+'</button>';
+  return '<div class="docitem'+(dc.id===activeDoc?' active':'')+(unread?' unread':'')+(hid?' hidden-doc':'')+
+    '" onclick="selectDoc(\\''+dc.id+'\\')">'+
+    '<div class=docactions>'+pinBtn+
+    '<button class=actbtn title="크게 읽기" onclick="event.stopPropagation();openReader(\\''+dc.id+'\\')">📖</button>'+
+    hideBtn+'</div>'+
+    (watching?'<span class=wbadge title="주기 갱신 추적(watch)">🔄</span>':'')+
+    (unread?'<span class=ubadge title="아직 안 본 문서">●</span>':'')+
+    '<b>'+esc(dc.title)+'</b><span class=st>'+esc(dc.source_type||'')+'</span>'+
+    (dc.summary?'<p>'+esc(dc.summary.slice(0,110))+'</p>':'')+'</div>';
+}
+let showHidden = false;
+function toggleShowHidden(){ showHidden=!showHidden; renderDocs(document.getElementById('docq').value); }
 function renderDocs(filter){
   const q=(filter||'').trim().toLowerCase();
-  const items = allDocs.filter(dc=> !q || (dc.title+' '+dc.summary).toLowerCase().includes(q));
-  if(!items.length){ document.getElementById('doclist').innerHTML='<p class=hint style="padding:10px">문서 없음</p>'; return; }
-  let html='', curDay=null;
-  items.forEach(dc=>{ const day=dayOf(dc.fetched_at);
-    if(day!==curDay){ html+='<div class=dday>'+day+'</div>'; curDay=day; }
-    // 클릭=그래프 nav(필터·이동), 📖 버튼=중앙 팝업으로 읽기(둘은 충돌하니 분리, 사용자 요구).
-    const unread = dc.seen===0, watching = dc.watch===1;
-    html+='<div class="docitem'+(dc.id===activeDoc?' active':'')+(unread?' unread':'')+'" onclick="selectDoc(\\''+dc.id+'\\')">'+
-      '<button class=readbtn title="크게 읽기" onclick="event.stopPropagation();openReader(\\''+dc.id+'\\')">📖</button>'+
-      (watching?'<span class=wbadge title="주기 갱신 추적(watch)">🔄</span>':'')+
-      (unread?'<span class=ubadge title="아직 안 본 문서">●</span>':'')+
-      '<b>'+esc(dc.title)+'</b><span class=st>'+esc(dc.source_type||'')+'</span>'+
-      (dc.summary?'<p>'+esc(dc.summary.slice(0,110))+'</p>':'')+'</div>'; });
-  document.getElementById('doclist').innerHTML=html;
+  const match = dc => !q || (dc.title+' '+dc.summary).toLowerCase().includes(q);
+  // 숨김(hidden)은 기본 목록·즐겨찾기 양쪽에서 제외(목록 전용 숨김, 그래프는 안 건드림).
+  const visible = allDocs.filter(dc=> dc.hidden!==1 && match(dc));
+  const pinned = visible.filter(dc=>dc.pinned===1);
+  const rest = visible.filter(dc=>dc.pinned!==1);
+  const hiddenDocs = allDocs.filter(dc=> dc.hidden===1 && match(dc));
+
+  document.getElementById('pinnedhead').style.display = pinned.length ? '' : 'none';
+  document.getElementById('pinnedlist').innerHTML = pinned.map(docItemHtml).join('');
+
+  document.getElementById('doclist').innerHTML = rest.length
+    ? (()=>{ let html='', curDay=null;
+        rest.forEach(dc=>{ const day=dayOf(dc.fetched_at);
+          if(day!==curDay){ html+='<div class=dday>'+day+'</div>'; curDay=day; }
+          html+=docItemHtml(dc); });
+        return html; })()
+    : '<p class=hint style="padding:10px">문서 없음</p>';
+
+  const sh=document.getElementById('showhidden');
+  if(!hiddenDocs.length){ sh.style.display='none'; document.getElementById('hiddenlist').innerHTML=''; }
+  else{
+    sh.style.display='';
+    sh.textContent = (showHidden?'▲ ':'▼ ')+'🙈 숨김 '+hiddenDocs.length+'개 '+(showHidden?'접기':'보기');
+    document.getElementById('hiddenlist').innerHTML = showHidden ? hiddenDocs.map(docItemHtml).join('') : '';
+  }
+}
+// 즐겨찾기/숨기기 토글 — 낙관적 갱신(즉시 반영) 후 서버 반영, 실패하면 되돌림.
+async function togglePin(id, val){
+  const d=allDocs.find(x=>x.id===id); if(d) d.pinned = val?1:0;
+  renderDocs(document.getElementById('docq').value);
+  try{
+    const r=await fetch('document/pin',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({id:id, pinned:val})});
+    if(!r.ok && d){ d.pinned = val?0:1; renderDocs(document.getElementById('docq').value); }
+  }catch(e){ if(d){ d.pinned = val?0:1; renderDocs(document.getElementById('docq').value); } }
+}
+async function toggleHide(id, val){
+  const d=allDocs.find(x=>x.id===id); if(d) d.hidden = val?1:0;
+  renderDocs(document.getElementById('docq').value);
+  try{
+    const r=await fetch('document/hide',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({id:id, hidden:val})});
+    if(!r.ok && d){ d.hidden = val?0:1; renderDocs(document.getElementById('docq').value); }
+  }catch(e){ if(d){ d.hidden = val?0:1; renderDocs(document.getElementById('docq').value); } }
 }
 function selectDoc(id){
   const d0 = allDocs && allDocs.find(d=>d.id===id);
@@ -1228,7 +1353,7 @@ function onSearchInput(v){
   if(document.getElementById('sem').checked) return;   // 의미검색은 버튼/엔터로만
   clearTimeout(searchDebounce);
   if(!v.trim()){ hl(''); return; }                     // 비우기 → 즉시 강조/클러스터 해제
-  searchDebounce=setTimeout(()=>hl(v), 350);
+  searchDebounce=setTimeout(()=>hl(v), 550);
 }
 // 라벨 검색: 매치 강조 + 나머지 dim(문서 선택과 동일 방식). 색칠 대신 highlightSet+applyView.
 function hl(q){

@@ -162,6 +162,8 @@ def run_bot() -> int:
         "  /search <키워드> — 하이브리드 검색 + 요약(인용)\n"
         "  /web — 웹 그래프 접속 링크 발급(7일·접속 시 연장)\n"
         "  /status — 현황(그래프 규모·수렴·최근 수신)\n"
+        "  /failed — 실패/영구실패 항목 점검\n"
+        "  /retry <번호> — 특정 실패 항목 재시도\n"
         "  /help — 이 도움말\n"
         "  /start — 시작 안내"
     )
@@ -343,12 +345,52 @@ def run_bot() -> int:
             text = f"❌ status 오류: {e}"
         await update.message.reply_text(text)
 
+    async def on_failed(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        # SSH 없이 폰에서 점검 가능하게: error/영구실패 목록 + /retry 사용법.
+        if not _is_allowed(update.effective_user.id if update.effective_user else None):
+            return
+        try:
+            items = await asyncio.to_thread(svc.list_failures, limit=10)
+        except Exception as e:  # noqa: BLE001
+            await update.message.reply_text(f"❌ 조회 오류: {e}")
+            return
+        if not items:
+            await update.message.reply_text("✅ 실패 항목 없음.")
+            return
+        lines = ["⚠️ 최근 실패 항목 (최대 10건):"]
+        for it in items:
+            mark = "⛔영구" if it["status"] == "failed" else "🔁재시도대기"
+            lines.append(
+                f"#{it['id']} {mark} (시도 {it['attempts']}) "
+                f"{it['payload']}\n   └ {it['error']}")
+        lines.append("\n특정 건 재시도: /retry <번호>  (예: /retry " + str(items[0]["id"]) + ")")
+        await update.message.reply_text("\n".join(lines))
+
+    async def on_retry(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        if not _is_allowed(update.effective_user.id if update.effective_user else None):
+            return
+        arg = ctx.args[0] if ctx.args else ""
+        if not arg.isdigit():
+            await update.message.reply_text("사용법: /retry <inbox 번호>  (/failed 로 번호 확인)")
+            return
+        inbox_id = int(arg)
+        status = await update.message.reply_text(f"⏳ inbox#{inbox_id} 재시도 중…")
+        try:
+            report = await _run_with_ticker(
+                status, f"inbox#{inbox_id} 재시도",
+                lambda: svc.retry_inbox(inbox_id))
+            await status.edit_text(report.telegram_summary())
+        except Exception as e:  # noqa: BLE001
+            await status.edit_text(f"❌ 재시도 오류: {e}")
+
     app = Application.builder().token(s.telegram_bot_token).build()
     app.add_handler(CommandHandler("start", on_start))
     app.add_handler(CommandHandler("help", on_help))
     app.add_handler(CommandHandler("status", on_status))
     app.add_handler(CommandHandler("search", on_search))
     app.add_handler(CommandHandler("web", on_web))
+    app.add_handler(CommandHandler("failed", on_failed))
+    app.add_handler(CommandHandler("retry", on_retry))
     app.add_handler(CallbackQueryHandler(on_callback))
     app.add_handler(MessageHandler(filters.Document.ALL, on_document))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_message))
@@ -362,6 +404,8 @@ def run_bot() -> int:
             BotCommand("status", "현황(그래프/수렴/최근)"),
             BotCommand("search", "검색 + 요약"),
             BotCommand("web", "웹 접속 링크 발급"),
+            BotCommand("failed", "실패/영구실패 점검"),
+            BotCommand("retry", "실패 항목 재시도"),
             BotCommand("start", "시작 안내"),
         ])
 
