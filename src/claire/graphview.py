@@ -274,12 +274,14 @@ GRAPH_HTML = """<!doctype html>
   #docs .dhead{padding:8px 10px;border-bottom:1px solid var(--border);flex-shrink:0}
   /* 즐겨찾기(고정) 섹션 — 많아져도 패널을 다 잡아먹지 않게 최대높이+스크롤(사용자 요구:
      '즐찾 많아질 때 대비'), 일반 목록도 min-height 로 항상 일정 공간 확보. */
-  /* 즐겨찾기 구간은 본문 목록(#doclist, --docs-bg 그대로)과 배경을 다르게 — 예전엔 얇은
-     테두리 하나뿐이라 구별이 잘 안 됐다(사용자 지적). --sec-bg 는 라이트/다크 모두 이미
-     정의된 보조색이라 새 변수 없이 테마 대응. */
-  #pinnedhead{padding:4px 10px;font-size:10px;color:var(--muted);background:var(--sec-bg);flex-shrink:0}
+  /* 즐겨찾기 구간은 본문 목록(#doclist, --docs-bg 그대로)과 배경을 다르게 — 얇은 테두리
+     하나뿐이던 첫 시도도, 그 다음 --sec-bg 도 회색 계열끼리라 밝기만 살짝 달라 여전히
+     눈에 안 띈다는 피드백(라이트 테마에서 특히). 밝기 대신 색상(hue) 자체를 별 아이콘의
+     금색(#e3b341)으로 옅게 우려내 — 저채도 tint 라 위에 얹히는 기본 글자색(--fg/--muted)
+     명암비는 거의 안 바뀌어 가독성 걱정 없이 확실히 구별된다. */
+  #pinnedhead{padding:4px 10px;font-size:10px;color:var(--muted);background:rgba(227,179,65,.18);flex-shrink:0}
   #pinnedlist{max-height:32%;overflow-y:auto;flex-shrink:0;border-bottom:2px solid var(--border);
-    background:var(--sec-bg)}
+    background:rgba(227,179,65,.10)}
   #doclist{flex:1;min-height:120px;overflow-y:auto}
   .dday{position:sticky;top:0;background:var(--bar-bg);color:var(--accent2);font-size:11px;padding:3px 10px;border-bottom:1px solid var(--border);z-index:1}
   .docitem{min-height:34px;padding:7px 78px 7px 10px;border-bottom:1px solid var(--border);cursor:pointer;position:relative}
