@@ -274,8 +274,12 @@ GRAPH_HTML = """<!doctype html>
   #docs .dhead{padding:8px 10px;border-bottom:1px solid var(--border);flex-shrink:0}
   /* 즐겨찾기(고정) 섹션 — 많아져도 패널을 다 잡아먹지 않게 최대높이+스크롤(사용자 요구:
      '즐찾 많아질 때 대비'), 일반 목록도 min-height 로 항상 일정 공간 확보. */
-  #pinnedhead{padding:4px 10px;font-size:10px;color:var(--muted);background:var(--panel-bg);flex-shrink:0}
-  #pinnedlist{max-height:32%;overflow-y:auto;flex-shrink:0;border-bottom:2px solid var(--border)}
+  /* 즐겨찾기 구간은 본문 목록(#doclist, --docs-bg 그대로)과 배경을 다르게 — 예전엔 얇은
+     테두리 하나뿐이라 구별이 잘 안 됐다(사용자 지적). --sec-bg 는 라이트/다크 모두 이미
+     정의된 보조색이라 새 변수 없이 테마 대응. */
+  #pinnedhead{padding:4px 10px;font-size:10px;color:var(--muted);background:var(--sec-bg);flex-shrink:0}
+  #pinnedlist{max-height:32%;overflow-y:auto;flex-shrink:0;border-bottom:2px solid var(--border);
+    background:var(--sec-bg)}
   #doclist{flex:1;min-height:120px;overflow-y:auto}
   .dday{position:sticky;top:0;background:var(--bar-bg);color:var(--accent2);font-size:11px;padding:3px 10px;border-bottom:1px solid var(--border);z-index:1}
   .docitem{min-height:34px;padding:7px 78px 7px 10px;border-bottom:1px solid var(--border);cursor:pointer;position:relative}
@@ -1016,9 +1020,14 @@ async function runDedupMerge(ci){
 // 엣지 id 는 rowid 순 enumerate(append-only)라 기존 id 는 안정 — 신규만 add.
 function refreshGraph(){
   fetch('graph').then(r=>r.json()).then(d=>{
+    // applyView 와 동일한 이유(그래프가 클수록 개별 update() 호출이 선형으로 느려짐)로
+    // 갱신분을 모아 한 번에 반영 — 신규 노드(add)는 기존 add 도 이미 배열을 받으므로 그대로.
+    const changed=[], added=[];
     d.nodes.forEach(n=>{ if(allNodes.get(n.id))
-      allNodes.update({id:n.id, degree:n.degree, sources:n.sources, obs:n.obs});
-      else allNodes.add(n); });
+      changed.push({id:n.id, degree:n.degree, sources:n.sources, obs:n.obs});
+      else added.push(n); });
+    if(changed.length) allNodes.update(changed);
+    if(added.length) allNodes.add(added);
     d.edges.forEach(e=>{ if(!allEdges.get(e.id)) allEdges.add(e); });
     document.getElementById('fslider').max = d.stats.max_degree;
     applyView();
@@ -1068,15 +1077,22 @@ function toggleRel(i){
 function nodeLabel(id){ const n=allNodes&&allNodes.get(id); return n?n.label:id; }
 
 function setDeg(v){ curMinDeg=+v; document.getElementById('fmin').textContent=v; applyView(); }
+// 노드/엣지 개수가 늘수록 클릭마다 체감 지연이 커지던 원인: 아래 두 루프가 예전엔
+// DataSet.update() 를 노드/엣지마다 하나씩(수백~천 회) 개별 호출했다 — vis DataSet 은
+// update 호출마다 change 이벤트를 쏘고 Network 가 그때마다 리드로우를 예약해, 그래프가
+// 자랄수록(현재 엔티티 500+·관계 500+, 매일 증가) 선형으로 느려졌다. update() 는 배열을
+// 통째로 넘기면 이벤트/리드로우가 1회로 묶인다 — 계산은 그대로 하되 실제 반영만 모아서
+// 한 번에 한다(문서 선택·검색·필터·degree 슬라이더 전부 이 함수를 타므로 공통 개선).
 function applyView(){
   if(!allNodes) return;
   let shown=0, emph=0;
   const th=T();
   const pathActive = !!(pathNodes && pathNodes.size);
   const hasFilter = activeDoc || highlightSet || pathActive;
+  const nodeUpdates=[];
   allNodes.forEach(n=>{
     if(typeof n.id==='string' && n.id.indexOf('cl_')===0) return;  // 검색 중앙 앵커는 안 건드림(숨김 유지)
-    if(n.degree < curMinDeg){ allNodes.update({id:n.id, hidden:true}); return; }
+    if(n.degree < curMinDeg){ nodeUpdates.push({id:n.id, hidden:true}); return; }
     let match = true;
     if(pathActive){ match = pathNodes.has(n.id); }   // 경로 모드: 경로 노드만 강조(다른 필터보다 우선)
     else {
@@ -1086,20 +1102,24 @@ function applyView(){
     // 강조(문서 선택·검색·경로) 매치 노드는 흰 굵은 테두리 — dim 만으론 안 띄어서(피드백).
     // 노드별 color 가 group 색을 덮으므로 background/highlight 를 같이 명시해 유지한다.
     const lit = hasFilter && match, c = TYPE_COLORS[n.group]||'#8b949e';
-    allNodes.update({id:n.id, hidden:false, opacity: match?1:DIM, borderWidth: lit?3:1,
+    nodeUpdates.push({id:n.id, hidden:false, opacity: match?1:DIM, borderWidth: lit?3:1,
       color:{background:c, border: lit?th.lit:th.nodeBorder,
              highlight:{background:c, border:th.lit}}});
     shown++; if(match) emph++;
   });
+  if(nodeUpdates.length) allNodes.update(nodeUpdates);  // 1회 배치(개별 호출 대신)
+  // 엣지 가시성은 방금 갱신된 노드 hidden 상태를 봐야 하므로 노드 배치 반영 뒤에 계산.
+  const edgeUpdates=[];
   allEdges.forEach(e=>{
     if(typeof e.id==='string' && e.id.indexOf('cl_')===0) return;  // 임시 클러스터 spring 엣지는 안 건드림(물리 유지)
     const f=allNodes.get(e.from), t=allNodes.get(e.to);
     let visible = !!(f && t && !f.hidden && !t.hidden);
     if(relFilter && !relFilter.has(e.label)) visible=false;       // 관계 타입 필터
     const onPath = !!(pathEdges && pathEdges.has(e.id));          // 경로 엣지 강조
-    allEdges.update({id:e.id, hidden: !visible, width: onPath?4:1,
+    edgeUpdates.push({id:e.id, hidden: !visible, width: onPath?4:1,
       color: onPath ? {color:th.lit, highlight:th.lit} : {color:th.edge, highlight:th.edgeHi}});
   });
+  if(edgeUpdates.length) allEdges.update(edgeUpdates);  // 1회 배치
   document.getElementById('stat').innerHTML =
     '표시 <b>'+shown+'</b>/'+allNodes.length
     + (curMinDeg>0?' · 연결≥'+curMinDeg:'')
