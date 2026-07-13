@@ -15,7 +15,7 @@ from pathlib import Path
 
 from ..ontology.base import Document, Entity, Relation
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (
@@ -305,6 +305,10 @@ def _migrate(conn: sqlite3.Connection) -> None:
     # 그대로 유지, 사용자 결정). 둘 다 기본 0(안 켜짐).
     _ensure_column(conn, "documents", "pinned", "INTEGER DEFAULT 0")
     _ensure_column(conn, "documents", "hidden", "INTEGER DEFAULT 0")
+    # v9: 세션 scope(owner|readonly) — /webro 로 발급하는 읽기전용 웹 링크(텔레그램에서
+    # 클릭해 바로 열리는 링크가 필요하다는 요구; 기존 CLAIRE_READONLY_TOKEN 은 헤더 전용이라
+    # URL 링크로 못 씀). 기존 행은 DEFAULT 'owner' 로 자동 채워져 기존 /web 세션 동작 그대로.
+    _ensure_column(conn, "auth_sessions", "scope", "TEXT DEFAULT 'owner'")
 
 
 def init_db(conn: sqlite3.Connection) -> None:
@@ -898,32 +902,42 @@ def revoke_all_sessions(conn: sqlite3.Connection) -> int:
     return n
 
 
-def create_session(conn: sqlite3.Connection, *, ttl: float = SESSION_TTL) -> str:
-    """[/web] **단일 활성 세션**: 기존 세션을 전부 revoke 하고 짧은 새 토큰 1개만 발급.
+def create_session(
+    conn: sqlite3.Connection, *, ttl: float = SESSION_TTL, scope: str = "owner"
+) -> str:
+    """[/web, /webro] **scope 별 단일 활성 세션**: 같은 scope 의 기존 세션만 revoke 하고
+    짧은 새 토큰 1개를 발급 — owner(/web)와 readonly(/webro)는 서로 다른 scope 라 독립적으로
+    공존한다(읽기전용 링크를 공유해도 내 소유자 세션은 안 끊김, 그 반대도 마찬가지).
 
-    폰에서 발급해 PC 에서 손으로 입력하기 쉽도록 짧고 헷갈리지 않는 코드. 발급 즉시 이전
-    링크/쿠키는 무효(다음 /web 한 번이 곧 '이전 전부 로그아웃'). nonce=토큰(PK)."""
-    conn.execute("DELETE FROM auth_sessions")   # 단일 활성 — 이전 토큰/대기 전부 revoke
+    폰에서 발급해 PC 에서 손으로 입력하기 쉽도록 짧고 헷갈리지 않는 코드. 발급 즉시 같은
+    scope 의 이전 링크/쿠키는 무효(다음 /web 한 번이 곧 '이전 owner 세션 전부 로그아웃',
+    scope 가 다르면 서로 안 건드림). nonce=토큰(PK)."""
+    conn.execute("DELETE FROM auth_sessions WHERE scope=?", (scope,))
     token = _short_token()
     now = time.time()
     conn.execute(
-        "INSERT INTO auth_sessions(nonce,session_token,approved,created_at,expires_at) "
-        "VALUES (?,?,1,?,?)", (token, token, now, now + ttl))
+        "INSERT INTO auth_sessions(nonce,session_token,approved,created_at,expires_at,scope) "
+        "VALUES (?,?,1,?,?,?)", (token, token, now, now + ttl, scope))
     conn.commit()
     return token
 
 
 def validate_session(
-    conn: sqlite3.Connection, token: str, *, ttl: float = SESSION_TTL
+    conn: sqlite3.Connection, token: str, *, ttl: float = SESSION_TTL,
+    scopes: tuple[str, ...] = ("owner",),
 ) -> bool:
-    """세션 토큰이 유효(승인됨 + 미만료)한가 + **슬라이딩 연장**(유효 접속마다 now+ttl).
+    """세션 토큰이 유효(승인됨 + 미만료 + scopes 중 하나)한가 + **슬라이딩 연장**(유효
+    접속마다 now+ttl).
 
-    전 엔드포인트 게이트용. 유효하면 만료를 now+ttl 로 갱신해 활성 사용 중 재인증을 없앤다."""
+    기본은 scope='owner' 만 인정(기존 전체-쓰기 게이트 동작 그대로 — 하위호환). 읽기전용
+    게이트는 scopes=("owner","readonly") 로 호출해 두 scope 모두 인정한다(owner 세션으로도
+    당연히 읽을 수 있어야 하므로)."""
     if not token:
         return False
+    ph = ",".join("?" for _ in scopes)
     row = conn.execute(
-        "SELECT expires_at FROM auth_sessions WHERE session_token=? AND approved=1",
-        (token,)).fetchone()
+        f"SELECT expires_at FROM auth_sessions WHERE session_token=? AND approved=1 "
+        f"AND scope IN ({ph})", (token, *scopes)).fetchone()
     if not (row and row["expires_at"] >= time.time()):
         return False
     conn.execute("UPDATE auth_sessions SET expires_at=? WHERE session_token=?",

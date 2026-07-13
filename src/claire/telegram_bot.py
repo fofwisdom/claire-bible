@@ -160,7 +160,8 @@ def run_bot() -> int:
         "\n"
         "명령어:\n"
         "  /search <키워드> — 하이브리드 검색 + 요약(인용)\n"
-        "  /web — 웹 그래프 접속 링크 발급(7일·접속 시 연장)\n"
+        "  /web — 웹 그래프 접속 링크 발급(7일·접속 시 연장, 적재/수정 가능)\n"
+        "  /webro — 읽기전용 웹 링크 발급(그래프·검색·문서만, 공유해도 안전)\n"
         "  /status — 현황(그래프 규모·수렴·최근 수신)\n"
         "  /failed — 실패/영구실패 항목 점검\n"
         "  /retry <번호> — 특정 실패 항목 재시도\n"
@@ -334,6 +335,36 @@ def run_bot() -> int:
             "🔗 웹 접속 링크 (7일 · 접속 시 자동 연장):\n" + url +
             "\n\n링크를 열면 쿠키로 로그인됩니다. 공유하지 마세요.")
 
+    async def on_webro(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        # 읽기전용 웹 링크: /web 과 동일 메커니즘(세션+쿠키, 7일 슬라이딩)이지만
+        # scope='readonly' 라 그래프·검색·문서 목록/상세만 보이고 적재·병합·공유발급 등
+        # 쓰기는 막힌다(server.py 게이트, READONLY_PATHS 밖은 애초에 도달 불가). owner
+        # 세션(/web)과 별도 scope 라 서로 안 끊고 공존 — 이 링크를 남에게 공유해도
+        # 내 소유자 세션은 그대로 살아있다. 소유자만 발급 가능.
+        if not _is_allowed(update.effective_user.id if update.effective_user else None):
+            return
+        from .store import db as dbm
+
+        if not s.public_url:
+            await update.message.reply_text(
+                "CLAIRE_PUBLIC_URL 이 설정되지 않았습니다(.env). 외부 URL 을 먼저 지정하세요.")
+            return
+
+        def _mint() -> str:
+            conn = dbm.connect(svc.s.db_file)
+            try:
+                dbm.init_db(conn)
+                return dbm.create_session(conn, scope="readonly")
+            finally:
+                conn.close()
+
+        tok = await asyncio.to_thread(_mint)
+        url = f"{s.public_url.rstrip('/')}/?t={tok}"
+        await update.message.reply_text(
+            "🔗 읽기전용 웹 링크 (7일 · 접속 시 자동 연장):\n" + url +
+            "\n\n그래프·검색·문서만 볼 수 있고 적재/수정은 안 됩니다. 다른 사람과 공유해도 "
+            "안전합니다(다시 /webro 하면 이전 읽기전용 링크만 무효화 — /web 세션은 안 건드림).")
+
     async def on_status(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
         if not _is_allowed(update.effective_user.id if update.effective_user else None):
             return
@@ -389,6 +420,7 @@ def run_bot() -> int:
     app.add_handler(CommandHandler("status", on_status))
     app.add_handler(CommandHandler("search", on_search))
     app.add_handler(CommandHandler("web", on_web))
+    app.add_handler(CommandHandler("webro", on_webro))
     app.add_handler(CommandHandler("failed", on_failed))
     app.add_handler(CommandHandler("retry", on_retry))
     app.add_handler(CallbackQueryHandler(on_callback))
@@ -404,6 +436,7 @@ def run_bot() -> int:
             BotCommand("status", "현황(그래프/수렴/최근)"),
             BotCommand("search", "검색 + 요약"),
             BotCommand("web", "웹 접속 링크 발급"),
+            BotCommand("webro", "읽기전용 웹 링크 발급"),
             BotCommand("failed", "실패/영구실패 점검"),
             BotCommand("retry", "실패 항목 재시도"),
             BotCommand("start", "시작 안내"),

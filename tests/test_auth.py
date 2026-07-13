@@ -173,3 +173,41 @@ def test_resolve_prefix_slides_expiry():
     # 쿠키 검증은 여전히 전체 일치만(프리픽스 거부 — 보안 불변)
     assert dbm.validate_session(conn, full[:7]) is False
     assert dbm.validate_session(conn, full) is True
+
+
+# --- /webro 읽기전용 세션(scope) — owner(/web)와 독립적으로 공존 ---
+
+def test_readonly_scope_rejected_by_owner_only_gate():
+    """readonly 세션은 기본(owner 전용) validate_session 게이트를 통과 못 한다 —
+    쓰기 라우트(_authed)가 실수로 읽기전용 세션을 받아들이면 안 되므로."""
+    conn = _mem()
+    ro = dbm.create_session(conn, scope="readonly")
+    assert dbm.validate_session(conn, ro) is False
+    assert dbm.validate_session(conn, ro, scopes=("owner", "readonly")) is True  # 읽기 게이트는 통과
+
+
+def test_owner_scope_also_passes_read_gate():
+    """owner 세션은 당연히 읽기 게이트(scopes=owner+readonly)도 통과."""
+    conn = _mem()
+    owner = dbm.create_session(conn, scope="owner")
+    assert dbm.validate_session(conn, owner) is True
+    assert dbm.validate_session(conn, owner, scopes=("owner", "readonly")) is True
+
+
+def test_readonly_and_owner_sessions_coexist_independently():
+    """서로 다른 scope 는 서로의 재발급에 영향받지 않는다(같은 scope 만 단일 활성)."""
+    conn = _mem()
+    owner = dbm.create_session(conn, scope="owner")
+    ro1 = dbm.create_session(conn, scope="readonly")
+    assert dbm.validate_session(conn, owner) is True             # 아직 안 건드림
+    assert dbm.validate_session(conn, ro1, scopes=("owner", "readonly")) is True
+
+    ro2 = dbm.create_session(conn, scope="readonly")              # readonly 재발급
+    assert dbm.validate_session(conn, owner) is True              # owner 는 그대로
+    assert dbm.validate_session(conn, ro1, scopes=("owner", "readonly")) is False  # 이전 ro 죽음
+    assert dbm.validate_session(conn, ro2, scopes=("owner", "readonly")) is True
+
+    owner2 = dbm.create_session(conn, scope="owner")              # owner 재발급
+    assert dbm.validate_session(conn, owner) is False             # 이전 owner 죽음
+    assert dbm.validate_session(conn, owner2) is True
+    assert dbm.validate_session(conn, ro2, scopes=("owner", "readonly")) is True  # readonly 는 안 건드림

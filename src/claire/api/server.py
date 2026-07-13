@@ -62,16 +62,31 @@ def run_api() -> int:
     def _readonly_match(request) -> bool:
         """읽기전용 공개 토큰(owner bearer 와 별개) — GET 성격의 READONLY_PATHS 에서만
         gate 가 이걸 인정한다(쓰기 라우트는 애초에 도달 불가 — 핸들러가 이 함수를
-        믿어서가 아니라 gate 의 경로 화이트리스트가 경계)."""
+        믿어서가 아니라 gate 의 경로 화이트리스트가 경계). MCP 등 프로그래밍 호출자용
+        고정 비밀값이라 헤더 전용(URL 쿼리로 넘기면 브라우저 히스토리/로그에 남음) —
+        클릭형 링크가 필요하면 /webro 세션(아래 _session_scope_ok)을 쓴다."""
         if not s.readonly_token:
             return False
         auth = request.headers.get("Authorization", "")
         token = auth[7:] if auth.startswith("Bearer ") else request.headers.get("X-Token", "")
         return token == s.readonly_token
 
+    def _session_scope_ok(request, scopes: tuple[str, ...]) -> bool:
+        sess = request.headers.get("X-Session", "") or request.cookies.get("claire_session", "")
+        if not sess:
+            return False
+        conn = dbm.connect(s.db_file)
+        try:
+            dbm.init_db(conn)
+            return dbm.validate_session(conn, sess, scopes=scopes)
+        finally:
+            conn.close()
+
     def _authed_read(request) -> bool:
-        """READONLY_PATHS 전용: owner 인증 또는 읽기전용 토큰이면 통과."""
-        return _authed(request) or _readonly_match(request)
+        """READONLY_PATHS 전용: owner 인증(bearer/세션) 또는 읽기전용 토큰(헤더) 또는
+        읽기전용 세션(쿠키, /webro 발급)이면 통과."""
+        return (_authed(request) or _readonly_match(request)
+                or _session_scope_ok(request, ("owner", "readonly")))
 
     async def health(_request):
         import asyncio
@@ -629,7 +644,11 @@ def run_api() -> int:
             return web.Response(status=404, text="Not Found")
         if request.path in PUBLIC_PATHS or _authed(request):
             return await handler(request)
-        if request.path in READONLY_PATHS and _readonly_match(request):
+        # _authed_read 는 정적 readonly 토큰(헤더) + readonly 세션 쿠키(/webro) 둘 다 인정.
+        # 예전엔 여기서 _readonly_match(정적 토큰)만 봐서 /webro 세션 쿠키로 들어와도
+        # 이 gate 에서 이미 404 — READONLY_PATHS 대부분(/·/graph·/node·/documents·/document)
+        # 은 핸들러 내부에 자체 인증 재확인이 없어(gate 신뢰) 여기가 유일한 관문이었다.
+        if request.path in READONLY_PATHS and _authed_read(request):
             return await handler(request)
         return web.Response(status=404, text="Not Found")
 
