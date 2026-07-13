@@ -88,6 +88,13 @@ def run_api() -> int:
         return (_authed(request) or _readonly_match(request)
                 or _session_scope_ok(request, ("owner", "readonly")))
 
+    async def whoami(request):
+        """현재 요청의 인증 scope — 프론트가 쓰기 UI(적재/종합/중복정리/공유/즐겨찾기/
+        숨기기/조사)를 readonly(/webro) 세션일 때 아예 안 그리도록 판단하는 용도(사용자
+        요구 — 눌러도 404 나는 죽은 버튼이 남아있으면 안 됨). READONLY_PATHS 전용이라
+        owner/readonly 둘 다 도달 가능, 그 외는 gate 가 이미 404."""
+        return web.json_response({"scope": "owner" if _authed(request) else "readonly"})
+
     async def health(_request):
         import asyncio
 
@@ -621,7 +628,8 @@ def run_api() -> int:
     # 읽기전용 공개 토큰이 도달 가능한 경로 화이트리스트 — 검색/그래프/노드상세/문서목록만.
     # ingest·dedup/merge·share·synthesize·research(LLM 호출 비용) 등 쓰기/비용 라우트는
     # 이 목록에 없으므로 readonly 토큰으로는 애초에 gate 를 못 지난다(핸들러 신뢰 아님).
-    READONLY_PATHS = {"/", "/graph", "/node", "/documents", "/document", "/search", "/stats"}
+    READONLY_PATHS = {"/", "/graph", "/node", "/documents", "/document", "/search", "/stats",
+                       "/whoami"}
 
     @web.middleware
     async def gate(request, handler):
@@ -655,6 +663,7 @@ def run_api() -> int:
     app = web.Application(middlewares=[gate])
     app.add_routes([
         web.get("/health", health),
+        web.get("/whoami", whoami),
         web.get("/stats", stats),
         web.post("/ingest", do_ingest),
         web.post("/ingest-stream", ingest_stream_route),  # 웹 UI 적재(NDJSON 진행 스트리밍)

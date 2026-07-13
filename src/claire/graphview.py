@@ -306,6 +306,10 @@ GRAPH_HTML = """<!doctype html>
   #showhidden{display:block;padding:7px 10px;font-size:11.5px;color:var(--fg);cursor:pointer;
     text-align:center;border-top:1px solid var(--border);background:var(--sec-bg)}
   #showhidden:hover{background:var(--hover)}
+  /* 읽기전용 세션(/webro) — 눌러도 서버가 404 내는 쓰기 UI 를 아예 안 보여준다(사용자
+     요구). 동적으로 그리는 버튼(문서 즐겨찾기/숨기기·노드의 "종합에 추가"·조사 입력창)은
+     JS 의 READONLY 분기에서 애초에 렌더 안 함 — 여기선 정적 스켈레톤 버튼만. */
+  body.ro #synthbtn, body.ro #addbtn, body.ro #dedupbtn, body.ro .rshare{display:none!important}
   #panel{width:360px;overflow:auto;padding:14px 16px;background:var(--panel-bg);border-left:1px solid var(--border);font-size:13px;line-height:1.5}
   #panel h2{margin:.2em 0;font-size:18px} #panel h2 small{color:var(--muted);font-size:12px;font-weight:normal}
   #panel h3{margin:1em 0 .3em;font-size:13px;color:var(--accent2);border-bottom:1px solid var(--border);padding-bottom:2px}
@@ -478,11 +482,21 @@ let clusterEdges=null;   // 검색 결과를 뭉치게 한 임시 spring 엣지 
 let clusterAnchor=null;  // 검색 시 중앙 앵커 노드 id(매칭은 끌고 비매칭은 밀어냄) — 해제 시 제거
 let searchDebounce=null; // 라벨검색 디바운스 타이머 — 타이핑 멈춘 뒤에만 검색 실행
 let synthSet=new Set();
+let READONLY=false;   // /whoami 로 확정(아래 init) — true 면 쓰기 UI(적재/종합/조사/즐겨찾기/숨기기/공유) 렌더 안 함
 let allRelTypes=[], relFilter=null;          // 관계 타입 필터: null=전체, Set=선택 타입만 표시
 let pathMode=false, pathPicks=[], pathNodes=null, pathEdges=null;  // 2노드 경로 하이라이트(전용 모드)
 const panel = document.getElementById('panel');
-const DEFAULT_HINT = '<p class="hint">노드를 클릭하면 관찰·출처 문서·연결이 표시됩니다.<br><br>• <b>Ctrl+클릭</b> 또는 상세의 <b>➕ 종합에 추가</b>로 여러 노드를 모아 종합<br>• 다른 노드에 <b>1.5초</b> 올리면 마우스 옆에 <b>요약 팝업</b>(더 끌면 출처 문서까지)<br>• 좌측 문서를 <b>클릭</b>하면 그래프에서 강조(nav), <b>📖</b> 버튼을 누르면 <b>크게 읽기(팝업)</b><br>• 우측 위 <b>🌙/🌞</b> 로 라이트·다크 전환</p>';
-panel.innerHTML = DEFAULT_HINT;
+// 함수로 둔 이유: READONLY 는 /whoami 가 비동기로 확정하므로, 호출 시점 기준으로
+// 종합 안내 줄을 넣을지 뺄지 판단해야 한다(고정 문자열이면 초기 로드 시점 값에 박제됨).
+function defaultHint(){
+  const synthLine = READONLY ? ''
+    : '• <b>Ctrl+클릭</b> 또는 상세의 <b>➕ 종합에 추가</b>로 여러 노드를 모아 종합<br>';
+  return '<p class="hint">노드를 클릭하면 관찰·출처 문서·연결이 표시됩니다.<br><br>'+synthLine+
+    '• 다른 노드에 <b>1.5초</b> 올리면 마우스 옆에 <b>요약 팝업</b>(더 끌면 출처 문서까지)<br>'+
+    '• 좌측 문서를 <b>클릭</b>하면 그래프에서 강조(nav), <b>📖</b> 버튼을 누르면 <b>크게 읽기(팝업)</b><br>'+
+    '• 우측 위 <b>🌙/🌞</b> 로 라이트·다크 전환</p>';
+}
+panel.innerHTML = defaultHint();
 function esc(s){return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 
 // --- 노드 hover 요약 팝업(마우스 위치) — fetch 없이 클라 데이터(allNodes)만 쓴다 ---
@@ -812,7 +826,8 @@ function renderPanel(d){
   // 문서를 고른 상태에서 노드로 들어왔으면 문서 패널로 한 번에 돌아갈 링크.
   let h = activeDoc ? '<span class=backlink onclick="loadDocPanel(activeDoc)">← 문서로 돌아가기</span>' : '';
   h+='<h2>'+esc(d.name)+' <small>'+esc(d.type)+(d.provisional?' ⚠️provisional':'')+'</small></h2>';
-  h+='<button class="sec" onclick="addToSynth(\\''+d.id+'\\')">'+(inSet?'✓ 종합 목록에 있음':'➕ 종합에 추가')+'</button>';
+  // readonly(/webro) 세션은 종합(/synthesize)이 서버에서 막혀있어 버튼 자체를 안 그림.
+  if(!READONLY) h+='<button class="sec" onclick="addToSynth(\\''+d.id+'\\')">'+(inSet?'✓ 종합 목록에 있음':'➕ 종합에 추가')+'</button>';
   if(d.aliases.length) h+='<p class=al>별칭: '+d.aliases.map(esc).join(', ')+'</p>';
   if(d.observations.length){ h+='<h3>관찰 · 주장</h3><ul>'+
     d.observations.map(o=>'<li>'+esc(o)+'</li>').join('')+'</ul>'; }
@@ -829,7 +844,8 @@ function renderPanel(d){
          ' <a href="#" onclick="loadNode(\\''+n.id+'\\');return false">'+esc(n.name)+
          '</a> <small>'+esc(n.type)+'</small></li>'; }); h+='</ul>'; }
   // 맥락 확장 조사 — 읽다가 더 알고 싶은 키워드/문장을 지금 맥락으로 조사해 그래프 확장.
-  h+='<h3>🔬 더 알아보기</h3>'+
+  // readonly 는 /research 도 서버에서 막혀있어 입력창·버튼 자체를 안 그림.
+  if(!READONLY) h+='<h3>🔬 더 알아보기</h3>'+
     '<div class=research><input id="rq" placeholder="더 알고 싶은 키워드/문장" '+
     'onkeydown="if(event.key===\\'Enter\\')doResearch()"/>'+
     '<button onclick="doResearch()">조사</button></div>'+
@@ -1193,9 +1209,11 @@ function dayOf(ts){ if(!ts) return '(날짜 미상)';
 // 클릭=그래프 nav(필터·이동), 액션 버튼 3종(⭐즐겨찾기·📖읽기·🙈숨기기)은 stopPropagation.
 function docItemHtml(dc){
   const unread = dc.seen===0, watching = dc.watch===1, pinned = dc.pinned===1, hid = dc.hidden===1;
-  const pinBtn = '<button class="actbtn'+(pinned?' pinned':'')+'" title="'+(pinned?'즐겨찾기 해제':'즐겨찾기에 추가')+
+  // readonly(/webro) 세션은 즐겨찾기/숨기기 둘 다 서버가 404 내는 쓰기라 버튼 자체를
+  // 안 그린다(사용자 요구 — 눌러도 안 되는 버튼이 남아있으면 안 됨).
+  const pinBtn = READONLY ? '' : '<button class="actbtn'+(pinned?' pinned':'')+'" title="'+(pinned?'즐겨찾기 해제':'즐겨찾기에 추가')+
     '" onclick="event.stopPropagation();togglePin(\\''+dc.id+'\\','+(!pinned)+')">'+(pinned?'⭐':'☆')+'</button>';
-  const hideBtn = '<button class="actbtn hidebtn" title="'+(hid?'숨김 해제':'목록에서 숨기기')+
+  const hideBtn = READONLY ? '' : '<button class="actbtn hidebtn" title="'+(hid?'숨김 해제':'목록에서 숨기기')+
     '" onclick="event.stopPropagation();toggleHide(\\''+dc.id+'\\','+(!hid)+')">'+(hid?'🙉':'🙈')+'</button>';
   return '<div class="docitem'+(dc.id===activeDoc?' active':'')+(unread?' unread':'')+(hid?' hidden-doc':'')+
     '" onclick="selectDoc(\\''+dc.id+'\\')">'+
@@ -1230,7 +1248,8 @@ function renderDocs(filter){
     : '<p class=hint style="padding:10px">문서 없음</p>';
 
   const sh=document.getElementById('showhidden');
-  if(!hiddenDocs.length){ sh.style.display='none'; document.getElementById('hiddenlist').innerHTML=''; }
+  // readonly 는 숨기기/해제 버튼이 없어 이 구간이 눌러도 소용없는 관리용 UI — 아예 숨김.
+  if(READONLY || !hiddenDocs.length){ sh.style.display='none'; document.getElementById('hiddenlist').innerHTML=''; }
   else{
     sh.style.display='';
     sh.textContent = (showHidden?'▲ ':'▼ ')+'🙈 숨김 '+hiddenDocs.length+'개 '+(showHidden?'접기':'보기');
@@ -1279,7 +1298,7 @@ function selectDoc(id){
     loadDocPanel(activeDoc);    // 우측 패널: 요약·자세히읽기·노드 버튼
     mobileScrollTo('panel');
   } else {
-    panel.innerHTML = DEFAULT_HINT;             // 해제 시 기본 힌트로 복원
+    panel.innerHTML = defaultHint();             // 해제 시 기본 힌트로 복원
   }
 }
 
@@ -1434,7 +1453,8 @@ function doSemantic(){ semanticSearch(document.getElementById('q').value); }
 // 유발했다(이슈3). 쿠키가 만료되면(7일 미사용) synthesize/검색이 401 → 아래에서 안내.
 function setAuth(state){
   document.getElementById('authstate').textContent =
-    state==='idle' ? '🔓 세션 만료 — /web 재접속' : '🔒 인증됨';
+    state==='idle' ? '🔓 세션 만료 — /web 재접속' :
+    state==='readonly' ? '👁️ 읽기전용' : '🔒 인증됨';
 }
 async function synth(){
   const ids=[...synthSet];
@@ -1472,9 +1492,18 @@ async function semanticSearch(q){
 }
 
 // 이 페이지가 로드됐다는 것 자체가 인증됨을 의미(미인증이면 게이트가 404). 쿠키 기반.
+// owner 인지 readonly(/webro) 인지는 /whoami 로 별도 확인 — readonly 면 눌러도 서버가
+// 404 내는 쓰기 버튼(적재/종합/중복정리/공유/즐겨찾기/숨기기/조사)을 아예 안 그린다
+// (사용자 요구: 죽은 버튼이 남아있으면 안 됨). documents fetch 와 병렬로 요청하고,
+// 확정되면 renderDocs 를 다시 호출해(멱등) 즐겨찾기/숨기기 버튼 유무를 바로잡는다.
 setAuth('authed');
 syncThemeBtn();   // 저장된 테마에 맞춰 🌙/🌞 라벨 동기화(테마 자체는 head 인라인에서 선적용)
 fetch('documents').then(r=>r.json()).then(d=>{ allDocs=d.documents||[]; renderDocs(); });
+fetch('whoami').then(r=>r.json()).then(d=>{
+  READONLY = d.scope!=='owner';
+  document.body.classList.toggle('ro', READONLY);
+  if(READONLY){ setAuth('readonly'); renderDocs(document.getElementById('docq').value); }
+}).catch(()=>{});
 
 // 읽기전용 디버그 핸들(테스트/Playwright 검증용 — closure 상태 관찰). 부작용 없음.
 window.claireDebug = {
