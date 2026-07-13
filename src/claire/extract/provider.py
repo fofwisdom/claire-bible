@@ -96,10 +96,15 @@ class ResearchJudgement(BaseModel):
     relevance: 보고서가 '주어진 맥락 안에서의 그 키워드 의미'를 다루는가(0~1).
       다의어가 다른 의미로 새는 오염을 여기서 걸러낸다.
     quality: 사실성·구체성·출처 충실도(0~1).
+    same_subject: [1홉 병합 전용, ONEHOP_MERGE_DESIGN.md §3.1] 대상(query/report)이 맥락이
+      다루는 것 **그 자체**(공식 저장소·공식 문서·공식 사이트 등 1차 출처)에 관한 내용이면
+      True, 맥락과 관련은 있으나 사실상 별개의 소재(다른 프로젝트/사건/제3자 논의)면 False.
+      contextual research(맥락 확장 조사) 호출부는 이 필드를 사용하지 않는다(무시해도 무해).
     """
 
     relevance: float
     quality: float
+    same_subject: bool = True
     interpretation: str = ""  # 맥락 내에서 키워드를 어떤 의미로 해석했는지(한 문장)
     reason: str = ""
 
@@ -268,9 +273,13 @@ class MockProvider:
     def judge_research(self, query: str, context: str, report: str) -> dict:
         """결정론적 stub — 저품질 판정(게이트 거절) 훅: query '모호' 또는 report '무관'.
 
-        '무관' 훅은 1홉 자동확장의 store 게이트(judge_research 재사용) 거절 경로 테스트용."""
+        '무관' 훅은 1홉 자동확장의 store 게이트(judge_research 재사용) 거절 경로 테스트용.
+        '별개주제' 훅은 게이트는 통과하되 same_subject=False(1홉 병합 분기 테스트용,
+        ONEHOP_MERGE_DESIGN.md §3.1) — 기본은 True(합쳐도 되는 케이스가 흔함을 모사)."""
         low = ("모호" in query) or ("무관" in report) or ("무관" in context)
+        same_subject = "별개주제" not in report and "별개주제" not in context
         return {"relevance": 0.2 if low else 0.92, "quality": 0.2 if low else 0.85,
+                "same_subject": same_subject,
                 "interpretation": f"[mock] '{query}' 를 맥락 내 의미로 해석",
                 "reason": "mock judge"}
 

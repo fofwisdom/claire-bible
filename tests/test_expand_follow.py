@@ -3,6 +3,9 @@
 mock provider 훅:
   - select_followups: url/anchor 에 'skip' → 제외(파고들지=LLM 모사)
   - judge_research: report 에 '무관' → 저품질(쌓을지 게이트 거절)
+  - judge_research: report 에 '별개주제' → same_subject=False(독립 문서로 적재 — 트리거
+    없으면 기본 True 라 부모에 병합됨. 이 파일은 병합 이전의 '선별+게이트+독립 적재' 배선을
+    보는 게 목적이라 GOOD 은 '별개주제' 로 명시 — 병합 자체는 test_onehop_merge.py 참조)
 """
 
 from __future__ import annotations
@@ -54,7 +57,7 @@ def _fetch(payload):
                              {"url": SKIP, "anchor": "광고 skip"},
                              {"url": BAD, "anchor": "관련 링크"}])
     if payload == GOOD:
-        return _doc(GOOD, body)
+        return _doc(GOOD, "별개주제 — 독립 문서로 남아야 하는 자료. " + body)
     if payload == BAD:
         return _doc(BAD, "무관한 다른 주제의 내용. " * 20)  # judge '무관' → 거절
     if payload == SKIP:

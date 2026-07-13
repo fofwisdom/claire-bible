@@ -221,14 +221,37 @@ class GeminiProvider:
           · 원문에서 수집한 이해에 도움 되는 이미지(다이어그램·차트·스크린샷)는 적절한
             위치에 마크다운 이미지로 삽입하고 바로 아래 본문 맥락 기반 한 줄 캡션(이탤릭)을
             단다(장식/로고/아이콘은 제외 — 큐레이션).
-        고유명사/기술 용어는 원문 형태 유지(음차 금지), 없는 사실 금지."""
+        고유명사/기술 용어는 원문 형태 유지(음차 금지), 없는 사실 금지.
+
+        [1홉 병합 전용, ONEHOP_MERGE_DESIGN.md §3.3b] doc.meta.extra_sources 가 있으면
+        (여러 출처가 합쳐진 문서) 목표 분량을 "A4 2~4장"으로 올리고 각 출처를 빠짐없이
+        통합 서술하라고 지시한다. 결과가 너무 짧으면(두 출처를 담기엔 부족) 목표를 2배씩
+        최대 2회 재시도(1x→2x→4x) — 정합성 문제가 아니라 품질 보정이라 fail-open(마지막
+        결과를 그대로 채택)."""
         body = _doc_to_prompt(doc)
         images = (doc.meta or {}).get("images") or []
+        merged = bool((doc.meta or {}).get("extra_sources"))
+        text = self._render_detail_call(body, images, merged=merged, scale=1)
+        if merged:
+            for scale in (2, 4):
+                if len(text) >= _MERGED_DETAIL_MIN_CHARS:
+                    break
+                text = self._render_detail_call(body, images, merged=merged, scale=scale)
+        return text
+
+    def _render_detail_call(self, body: str, images: list, *, merged: bool, scale: int) -> str:
+        if merged:
+            length_hint = f"대략 A4 {2 * scale}~{4 * scale}장 분량"
+            merge_hint = ("이 문서는 여러 출처가 병합됐다 — 한 출처만 요약하고 끝내지 말고 "
+                         "각 출처의 핵심을 빠짐없이 통합해 서술하라.\n")
+        else:
+            length_hint = "대략 A4 1~2장 분량"
+            merge_hint = ""
         prompt = (
             "아래 원문을 한국어 **마크다운**으로 '편하게 읽을 수 있는 글'로 재구성하라. "
             "단순 1~2문장 요약이 아니라, 독자가 원문을 직접 읽지 않아도 핵심 내용·배경 "
-            "맥락·중요한 세부까지 충분히 파악할 수 있도록 여러 단락(대략 A4 1~2장 분량)으로 "
-            "풀어 써라.\n\n"
+            f"맥락·중요한 세부까지 충분히 파악할 수 있도록 여러 단락({length_hint})으로 "
+            "풀어 써라.\n\n" + merge_hint +
             "작성 규칙(마크다운):\n"
             "1. 내용이 길면 `##`/`###` 소제목과 문단으로 구조화하고, 나열은 `-` 불릿을 써라. "
             "단락은 빈 줄로 구분.\n"
@@ -334,11 +357,14 @@ class GeminiProvider:
 
         prompt = (
             "지식그래프 추가 게이트 심사. 사용자가 [맥락]을 읽다가 [조사 대상]을 조사해 "
-            "[보고서]를 얻었다. 다음을 0.0~1.0 으로 채점하라.\n"
-            "- relevance: 보고서가 [맥락] 안에서의 [조사 대상] 의미를 다루는가? 동명의 "
+            "[보고서]를 얻었다. 다음을 채점하라.\n"
+            "- relevance(0.0~1.0): 보고서가 [맥락] 안에서의 [조사 대상] 의미를 다루는가? 동명의 "
             "다른 대상(다의어)을 다뤘다면 0 에 가깝게. 맥락과 무관한 일반론이면 낮게.\n"
-            "- quality: 사실이 구체적(수치·날짜·정확한 명칭)이고 신뢰할 만한가? 빈약하거나 "
+            "- quality(0.0~1.0): 사실이 구체적(수치·날짜·정확한 명칭)이고 신뢰할 만한가? 빈약하거나 "
             "추측성이면 낮게.\n"
+            "- same_subject(true/false): [보고서]가 [맥락]이 다루는 대상 **그 자체**(공식 저장소·"
+            "공식 문서·공식 사이트 등 1차 출처)에 관한 내용이면 true. 맥락과 관련은 있으나 "
+            "사실상 별개의 소재(다른 프로젝트, 다른 사건, 제3자의 파생 논의 등)면 false.\n"
             "- interpretation: 보고서가 [조사 대상]을 어떤 의미로 해석했는지 한 문장(한국어).\n"
             "- reason: 채점 근거 한두 문장(한국어).\n\n"
             f"[맥락]\n{context[:6000]}\n\n[조사 대상]\n{query}\n\n[보고서]\n{report[:8000]}"
@@ -354,8 +380,8 @@ class GeminiProvider:
         except Exception as e:  # noqa: BLE001
             if _is_retryable(e):
                 raise  # rate limit 은 위로 — 호출측이 오류로 안내(자동복구 루프와 정합)
-            return {"relevance": 0.0, "quality": 0.0, "interpretation": "",
-                    "reason": f"판정 실패: {e}"}
+            return {"relevance": 0.0, "quality": 0.0, "same_subject": False,
+                    "interpretation": "", "reason": f"판정 실패: {e}"}
         parsed = getattr(resp, "parsed", None)
         if isinstance(parsed, ResearchJudgement):
             return parsed.model_dump()
@@ -364,8 +390,8 @@ class GeminiProvider:
 
             return ResearchJudgement(**json.loads(resp.text or "")).model_dump()
         except Exception:  # noqa: BLE001
-            return {"relevance": 0.0, "quality": 0.0, "interpretation": "",
-                    "reason": "판정 응답 파싱 실패"}
+            return {"relevance": 0.0, "quality": 0.0, "same_subject": False,
+                    "interpretation": "", "reason": "판정 응답 파싱 실패"}
 
     def select_followups(self, context: str, candidates: list[dict]) -> list[int]:
         """1홉 자동확장 — 부모 문서 맥락에서 따라갈(파고들) 가치가 있는 링크를 선별.
@@ -473,6 +499,15 @@ def _images_block(images: list[dict]) -> str:
     )
 
 
+# 단일 출처 문서의 LLM 투입 예산. 병합 문서(ONEHOP_MERGE_DESIGN.md §3.3b)는 두 출처를
+# 담아야 하니 2배 — 저장(documents.raw_text)은 안 자르고 프롬프트 투입량만 늘린다.
+_SINGLE_DOC_CHAR_BUDGET = 12000
+_MERGED_DOC_CHAR_BUDGET = _SINGLE_DOC_CHAR_BUDGET * 2
+# render_detail 재시도 하한선(ONEHOP_MERGE_DESIGN.md §3.3b) — 이보다 짧으면 두 출처를
+# 담기엔 명백히 부족하다고 보고 목표 분량을 올려 재시도.
+_MERGED_DETAIL_MIN_CHARS = 1000
+
+
 def _doc_to_prompt(doc: Document) -> str:
     head = []
     if doc.title:
@@ -480,7 +515,9 @@ def _doc_to_prompt(doc: Document) -> str:
     if doc.url:
         head.append(f"URL: {doc.url}")
     head.append(f"SOURCE_TYPE: {doc.source_type}")
-    return "\n".join(head) + "\n\nCONTENT:\n" + (doc.raw_text or "")[:12000]
+    limit = (_MERGED_DOC_CHAR_BUDGET if (doc.meta or {}).get("extra_sources")
+             else _SINGLE_DOC_CHAR_BUDGET)
+    return "\n".join(head) + "\n\nCONTENT:\n" + (doc.raw_text or "")[:limit]
 
 
 def _coerce(text: str | None) -> ExtractionResult:

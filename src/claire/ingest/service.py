@@ -13,7 +13,7 @@ from ..config import Settings
 from ..extract.provider import get_provider
 from ..store import db as dbm
 from ..store.vectors import make_vector_store
-from .pipeline import IngestReport, extract_resolve_store, ingest
+from .pipeline import IngestReport, extract_resolve_store, ingest, merge_source_into_document
 from .router import fetch as default_fetch
 
 
@@ -63,8 +63,12 @@ class IngestService:
         """[1홉 자동확장] 부모 문서의 링크를 LLM 이 선별→fetch→판정→통과 시 적재.
 
         파고들지(select_followups)·쌓을지(judge_research 게이트) 모두 LLM 결정.
-        깊이는 1 고정: 자식 적재는 source='onehop:*' + expand_max=0 → 재확장 안 됨.
-        반환: {document_id, candidates, selected, stored, skipped, followed[...]}
+        게이트 통과 후 same_subject(judge_research 확장 필드, ONEHOP_MERGE_DESIGN.md §3.1)로
+        한 번 더 갈린다: True 면 새 문서를 안 만들고 부모에 흡수(병합, §3.2~3.3),
+        False 면 기존처럼 독립 문서로 적재(부모 글이 언급한 별개 소재인 경우 — 정보 보존).
+        깊이는 1 고정: 독립 적재 자식은 source='onehop:*' + expand_max=0 → 재확장 안 됨.
+        병합은 애초에 새 Document/expand_queue 항목을 안 만들어 재귀 위험이 이중으로 없음.
+        반환: {document_id, candidates, selected, stored, merged, skipped, followed[...]}
         """
         from ..expand.follow import build_candidates, build_parent_context, passes_gate
 
@@ -81,7 +85,7 @@ class IngestService:
             conn.close()
 
         result = {"document_id": document_id, "candidates": len(candidates),
-                  "selected": 0, "stored": 0, "skipped": 0, "followed": []}
+                  "selected": 0, "stored": 0, "merged": 0, "skipped": 0, "followed": []}
         if not candidates:
             return result
 
@@ -101,23 +105,56 @@ class IngestService:
                 result["followed"].append({"url": url, "stored": False, "error": str(e)})
                 continue
             # 2) 쌓을지 = LLM(research 게이트 재사용). judge 없으면 통과로 간주.
-            rel, qual = 1.0, 1.0
+            rel, qual, same_subject = 1.0, 1.0, False
             if judge:
                 report = f"{child.title or ''}\n{(child.raw_text or '')[:4000]}"
                 j = judge(doc.title or "", context, report)
                 rel = float(j.get("relevance") or 0.0)
                 qual = float(j.get("quality") or 0.0)
+                same_subject = bool(j.get("same_subject", False))
             if not passes_gate(rel, qual):
                 result["skipped"] += 1
                 result["followed"].append({"url": url, "stored": False,
                                            "relevance": rel, "quality": qual})
                 continue
+
+            if same_subject:
+                # 3a) 같은 주제의 부가 출처 = 새 문서 대신 부모에 흡수(§3.2~3.3).
+                conn2 = dbm.connect(self.s.db_file)
+                dbm.init_db(conn2)
+                try:
+                    inbox_id = dbm.log_inbox(
+                        conn2, source=f"onehop:{document_id}", payload=url, kind="url")
+                    vstore = make_vector_store(conn2, self.s.vector_backend)
+                    parent_full = dbm.get_document(conn2, document_id)
+                    m = merge_source_into_document(
+                        conn2, self.provider, vstore, parent_full, child,
+                        vault_dir=self.s.vault_dir, data_dir=self.s.data_dir)
+                    if m.get("merged"):
+                        dbm.update_inbox(conn2, inbox_id, status="done",
+                                         document_id=document_id)
+                    else:
+                        dbm.update_inbox(conn2, inbox_id, status="error",
+                                         document_id=document_id, error=m.get("error"))
+                finally:
+                    conn2.close()
+                merged = bool(m.get("merged"))
+                if merged:
+                    result["merged"] += 1
+                else:
+                    result["skipped"] += 1
+                result["followed"].append({"url": url, "stored": False, "merged": merged,
+                                           "title": child.title, "relevance": rel,
+                                           "quality": qual, "error": m.get("error")})
+                continue
+
+            # 3b) 별개 소재 = 기존처럼 독립 문서로 적재(정보 보존).
             rep = self.ingest(url, source=f"onehop:{document_id}", expand_max=0,
                               prefetched=child)
             stored = rep.error is None and not rep.duplicate
             if stored:
                 result["stored"] += 1
-            result["followed"].append({"url": url, "stored": stored,
+            result["followed"].append({"url": url, "stored": stored, "merged": False,
                                        "title": rep.title, "duplicate": rep.duplicate,
                                        "relevance": rel, "quality": qual,
                                        "error": rep.error})

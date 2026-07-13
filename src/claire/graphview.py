@@ -105,6 +105,9 @@ def document_detail(conn: sqlite3.Connection, document_id: str) -> dict | None:
         "source_type": row["source_type"],
         "summary": dbm.latest_extraction_summary(conn, document_id) or "",
         "detail": dbm.get_document_detail(conn, document_id) or "",
+        # [1홉 병합, ONEHOP_MERGE_DESIGN.md] 이 문서에 흡수된 부가 출처(예: GeekNews 글에
+        # 병합된 그 프로젝트의 github). 원문 링크 계보를 UI 에서 추적 가능하게.
+        "extra_sources": dbm.get_document_extra_sources(conn, document_id),
     }
 
 
@@ -290,8 +293,13 @@ GRAPH_HTML = """<!doctype html>
     border:1px solid var(--border);border-radius:4px;padding:1px 6px;font-size:11px;cursor:pointer;opacity:.85}
   .docitem .actbtn:hover{opacity:1;border-color:var(--accent)}
   .docitem .actbtn.pinned{opacity:1;color:#e3b341}
-  #showhidden{display:block;padding:6px 10px;font-size:11px;color:var(--muted);cursor:pointer;text-align:center;border-top:1px solid var(--border)}
-  #showhidden:hover{color:var(--fg)}
+  /* 숨기기는 되돌리기 번거로운 방향(컨펌 필요, toggleHide)이라 즐겨찾기/읽기와 붙어
+     오클릭하지 않게 여백을 두고 살짝 옅게 — 실수로 스치듯 누르기 어렵게(사용자 지적). */
+  .docitem .actbtn.hidebtn{margin-left:7px;opacity:.6}
+  .docitem .actbtn.hidebtn:hover{opacity:1;border-color:var(--danger,#e5534b)}
+  #showhidden{display:block;padding:7px 10px;font-size:11.5px;color:var(--fg);cursor:pointer;
+    text-align:center;border-top:1px solid var(--border);background:var(--sec-bg)}
+  #showhidden:hover{background:var(--hover)}
   #panel{width:360px;overflow:auto;padding:14px 16px;background:var(--panel-bg);border-left:1px solid var(--border);font-size:13px;line-height:1.5}
   #panel h2{margin:.2em 0;font-size:18px} #panel h2 small{color:var(--muted);font-size:12px;font-weight:normal}
   #panel h3{margin:1em 0 .3em;font-size:13px;color:var(--accent2);border-bottom:1px solid var(--border);padding-bottom:2px}
@@ -586,10 +594,19 @@ function renderReader(dc){
     + (dc.source_type?' <span class=rmeta>'+esc(dc.source_type)+'</span>':'');
   let h='';
   if(dc.url) h+='<p class=docmeta><a href="'+esc(dc.url)+'" target=_blank rel=noopener>↗ 원문 열기</a></p>';
+  h+=extraSourcesHtml(dc);
   if(dc.summary) h+='<div class=rsection>요약</div><div class="md">'+renderMarkdown(dc.summary)+'</div>';
   if(dc.detail) h+='<div class=rsection>자세히 읽기</div><div class="md">'+renderMarkdown(dc.detail)+'</div>';
   if(!dc.summary && !dc.detail) h+='<p class=hint>이 문서의 요약/전문이 아직 없습니다.</p>';
   const body=document.getElementById('rbody'); body.innerHTML=h; body.scrollTop=0;
+}
+// [1홉 병합, ONEHOP_MERGE_DESIGN.md] 이 문서에 흡수된 부가 출처 목록(원문 링크 계보).
+function extraSourcesHtml(dc){
+  const es=dc.extra_sources||[];
+  if(!es.length) return '';
+  return '<div class=rsection>병합된 출처 ('+es.length+')</div><ul class=srclist>'+
+    es.map(s=>'<li><a href="'+esc(s.url||'')+'" target=_blank rel=noopener>'+
+      esc(s.title||s.url||'')+'</a></li>').join('')+'</ul>';
 }
 function closeReader(){ document.getElementById('reader').classList.remove('open');
   const sb=document.getElementById('sharebox'); if(sb) sb.className='sharebox'; }
@@ -1156,7 +1173,7 @@ function docItemHtml(dc){
   const unread = dc.seen===0, watching = dc.watch===1, pinned = dc.pinned===1, hid = dc.hidden===1;
   const pinBtn = '<button class="actbtn'+(pinned?' pinned':'')+'" title="'+(pinned?'즐겨찾기 해제':'즐겨찾기에 추가')+
     '" onclick="event.stopPropagation();togglePin(\\''+dc.id+'\\','+(!pinned)+')">'+(pinned?'⭐':'☆')+'</button>';
-  const hideBtn = '<button class=actbtn title="'+(hid?'숨김 해제':'목록에서 숨기기')+
+  const hideBtn = '<button class="actbtn hidebtn" title="'+(hid?'숨김 해제':'목록에서 숨기기')+
     '" onclick="event.stopPropagation();toggleHide(\\''+dc.id+'\\','+(!hid)+')">'+(hid?'🙉':'🙈')+'</button>';
   return '<div class="docitem'+(dc.id===activeDoc?' active':'')+(unread?' unread':'')+(hid?' hidden-doc':'')+
     '" onclick="selectDoc(\\''+dc.id+'\\')">'+
@@ -1209,6 +1226,13 @@ async function togglePin(id, val){
   }catch(e){ if(d){ d.pinned = val?0:1; renderDocs(document.getElementById('docq').value); } }
 }
 async function toggleHide(id, val){
+  // 숨기는 방향(val=true)만 컨펌 — 오클릭 방지(사용자 지적) + 되돌리는 방법을 그 자리에서
+  // 안내(어디서 다시 꺼내는지 몰라 헤매지 않게). 숨김 해제(val=false)는 안전한 방향이라
+  // 컨펌 없이 즉시.
+  if(val && !confirm('이 문서를 목록에서 숨길까요?\\n\\n그래프 엔티티는 그대로 남고, 문서 '+
+      '목록 맨 아래 "🙈 숨김 N개 보기"를 누르면 언제든 다시 꺼내(숨김 해제) 볼 수 있습니다.')){
+    return;
+  }
   const d=allDocs.find(x=>x.id===id); if(d) d.hidden = val?1:0;
   renderDocs(document.getElementById('docq').value);
   try{
@@ -1256,6 +1280,7 @@ function docNodes(docId){
 function renderDocPanel(dc){
   let h='<h2>'+esc(dc.title)+' <small>'+esc(dc.source_type||'')+'</small></h2>';
   if(dc.url) h+='<p class=docmeta><a href="'+esc(dc.url)+'" target=_blank rel=noopener>↗ 원문 열기</a></p>';
+  h+=extraSourcesHtml(dc);
   // 읽기는 중앙 팝업(마크다운·이미지)으로 — 그래프 nav 와 분리(사용자 요구).
   if(dc.summary||dc.detail) h+='<button class=readbtn onclick="openReader(\\''+dc.id+'\\')">📖 크게 읽기</button>';
   if(dc.summary) h+='<h3>요약</h3><div class=synth>'+esc(dc.summary)+'</div>';
@@ -1493,6 +1518,11 @@ let h='<div class=brand>claire_bible · 공유 문서</div>';
 h+='<h1>'+esc(dc.title||'(제목 없음)')+'</h1>';
 h+='<div class=meta>'+(dc.source_type?esc(dc.source_type):'')+
   (dc.url?' · <a href="'+esc(dc.url)+'" target=_blank rel=noopener>↗ 원문 열기</a>':'')+'</div>';
+if((dc.extra_sources||[]).length){
+  h+='<div class=sec>병합된 출처 ('+dc.extra_sources.length+')</div><ul class=srclist>'+
+    dc.extra_sources.map(s=>'<li><a href="'+esc(s.url||'')+'" target=_blank rel=noopener>'+
+      esc(s.title||s.url||'')+'</a></li>').join('')+'</ul>';
+}
 if(dc.summary){ h+='<div class=sec>요약</div><div class="md">'+renderMarkdown(dc.summary)+'</div>'; }
 if(dc.detail){ h+='<div class=sec>자세히 읽기</div><div class="md">'+renderMarkdown(dc.detail)+'</div>'; }
 if(!dc.summary && !dc.detail){ h+='<p class=meta>이 문서의 요약/전문이 아직 없습니다.</p>'; }

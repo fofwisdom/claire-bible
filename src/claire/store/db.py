@@ -1193,6 +1193,48 @@ def set_document_images(conn: sqlite3.Connection, doc_id: str, images: list[dict
     conn.commit()
 
 
+# --- 1홉 병합 출처(extra_sources) — ONEHOP_MERGE_DESIGN.md. 신규 컬럼 없이 documents.meta
+# JSON 재사용(set_document_images 와 동일 패턴) — 같은 주제의 부가 출처(예: GeekNews 글이
+# 발견한 그 프로젝트의 github)를 새 Document 로 안 만들고 부모 문서에 흡수할 때, 원문 링크
+# 계보를 보존하기 위한 목록.
+
+def set_document_extra_sources(conn: sqlite3.Connection, doc_id: str, sources: list[dict]) -> None:
+    """문서 meta 에 병합된 부가 출처 목록만 갱신(다른 meta 키 보존)."""
+    row = conn.execute("SELECT meta FROM documents WHERE id=?", (doc_id,)).fetchone()
+    if row is None:
+        return
+    meta = json.loads(row["meta"] or "{}")
+    meta["extra_sources"] = sources or []
+    conn.execute("UPDATE documents SET meta=? WHERE id=?", (json.dumps(meta), doc_id))
+    conn.commit()
+
+
+def get_document_extra_sources(conn: sqlite3.Connection, doc_id: str) -> list[dict]:
+    row = conn.execute("SELECT meta FROM documents WHERE id=?", (doc_id,)).fetchone()
+    if row is None:
+        return []
+    return json.loads(row["meta"] or "{}").get("extra_sources") or []
+
+
+def find_document_by_extra_source(conn: sqlite3.Connection, canonical_url: str | None) -> str | None:
+    """이미 어떤 문서에 병합 출처로 흡수된 canonical_url 인지 — 1홉 후보 재제안 방지용
+    (병합 경로는 새 Document 행을 안 만들어 documents.canonical_url 색인으로는 못 잡음).
+
+    documents.meta 는 색인 없는 JSON 이라 파이썬 측 스캔 — near_duplicate_document 와
+    동일한 절충(개인용 규모라 전체 스캔으로 충분히 빠름). 대략적인 LIKE 로 후보를 먼저
+    좁혀 스캔 대상을 줄인다."""
+    if not canonical_url:
+        return None
+    rows = conn.execute(
+        "SELECT id, meta FROM documents WHERE meta LIKE '%extra_sources%'"
+    ).fetchall()
+    for r in rows:
+        for s in (json.loads(r["meta"] or "{}").get("extra_sources") or []):
+            if s.get("canonical_url") == canonical_url:
+                return r["id"]
+    return None
+
+
 def documents_missing_images(conn: sqlite3.Connection, limit: int = 0) -> list[str]:
     """본문 이미지가 아직 없는(재fetch 안 한) 문서 id — 최신순. 이미지 백필 대상.
 

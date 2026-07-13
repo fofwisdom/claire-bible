@@ -9,7 +9,9 @@ fetch_fn 을 주입 가능하게 하여 네트워크 없이 테스트한다.
 
 from __future__ import annotations
 
+import json
 import sqlite3
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
@@ -343,6 +345,78 @@ def extract_resolve_store(
         export_entities(conn, vault_dir, list(export_set.values()))
 
     return True, None
+
+
+def merge_source_into_document(
+    conn: sqlite3.Connection,
+    provider: Provider,
+    vstore: VectorStore,
+    parent: Document,
+    child: Document,
+    *,
+    vault_dir: Path | None = None,
+    data_dir: Path | None = None,
+) -> dict:
+    """[1홉 병합, ONEHOP_MERGE_DESIGN.md] 같은 주제의 부가 출처(child)를 parent 문서에
+    흡수 — 새 Document/expand_queue 항목을 만드는 대신 parent.raw_text 뒤에 별도 출처
+    섹션으로 append 하고 **같은 doc.id** 로 재추출한다(엔티티는 resolve_or_create 가 병합된
+    본문 기준으로 기존 노드에 관찰을 누적, render_detail 도 합쳐진 본문으로 재생성돼 실제로
+    더 풍부한 글이 된다).
+
+    저장은 원문 보존 협약대로 자르지 않는다 — LLM 프롬프트 투입량 상한(2배)은
+    `_doc_to_prompt`(gemini_provider.py) 쪽에서 doc.meta.extra_sources 유무로 자동 분기.
+
+    실패(주로 provider.extract 의 rate-limit/quota)는 **스냅샷→복원**으로 병합 시도 이전
+    상태로 되돌린다(§3.3a — db.py 각 함수가 즉시 commit 하는 구조라 진짜 SQL 트랜잭션은
+    이번 범위에서 무리, 가벼운 대안으로 결정). 엔티티/관계 루프 도중 실패해 일부가 이미
+    커밋된 경우까지는 못 되돌린다 — 이건 ingest()/refresh_document() 도 이미 안고 있는
+    기존 리스크와 동급이라 이번 범위에서 별도로 고치지 않는다.
+
+    반환: {"merged": bool, "document_id"?, "report"?: IngestReport, "error"?: str}
+    """
+    original = dbm.get_document_row(conn, parent.id)
+    if original is None:
+        return {"merged": False, "error": "parent document not found"}
+    original_meta = json.loads(original["meta"] or "{}")
+
+    extra_sources = list(original_meta.get("extra_sources") or [])
+    extra_sources.append({
+        "url": child.url, "canonical_url": child.canonical_url,
+        "title": child.title, "source_type": child.source_type,
+        "added_at": time.time(),
+    })
+    header = f"\n\n---\n[추가 출처: {child.title or child.url}]\n{child.url or ''}\n\n"
+    merged_text = (parent.raw_text or "") + header + (child.raw_text or "")
+    new_meta = {**original_meta, "extra_sources": extra_sources}
+
+    from .normalize import content_hash as _content_hash
+
+    try:
+        dbm.update_document_content(
+            conn, parent.id, title=parent.title, raw_text=merged_text,
+            content_hash=_content_hash(merged_text), fetched_at=time.time(),
+            meta=new_meta)
+        parent.raw_text = merged_text
+        parent.meta = new_meta
+        if data_dir is not None:
+            try:
+                from ..store.raw import save_artifact
+
+                save_artifact(data_dir, parent.id, merged_text)
+            except Exception:  # noqa: BLE001
+                pass
+        report = IngestReport(document_id=parent.id, title=parent.title, updated=True)
+        ok, err = extract_resolve_store(
+            conn, provider, vstore, parent, report, vault_dir=vault_dir)
+        if not ok:
+            raise RuntimeError(err)
+        return {"merged": True, "document_id": parent.id, "report": report}
+    except Exception as e:  # noqa: BLE001 — 실패 시 병합 이전 상태로 복원(스냅샷 롤백)
+        dbm.update_document_content(
+            conn, parent.id, title=original["title"], raw_text=original["raw_text"],
+            content_hash=original["content_hash"], fetched_at=original["fetched_at"],
+            meta=original_meta)
+        return {"merged": False, "error": str(e)}
 
 
 def ensure_document_detail(
