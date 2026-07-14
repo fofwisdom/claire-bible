@@ -37,7 +37,34 @@ uv run claire bot            # 텔레그램 봇 (long-polling)
 
 ## 운영 (원격 Docker)
 
-5개 컨테이너(모두 `restart: unless-stopped`, `data`·`vault` 볼륨 공유):
+한 호스트에 이 Compose 스택 한 인스턴스를 실행하는 구성이다. 배포 대상은 코드에
+고정하지 않고 로컬 `.env`에서 읽는다.
+
+```dotenv
+# .env — 앱 설정과 함께 입력
+DEPLOY_REMOTE=alice@example.com       # user@host 또는 SSH config 별칭
+DEPLOY_PORT=22
+DEPLOY_PATH=/home/alice/claire_bible  # 원격 절대 경로
+DEPLOY_ENV_SYNC=if-missing            # 최초 업로드 후 기존 원격 .env 보존
+```
+
+`DEPLOY_REMOTE`와 `DEPLOY_PATH`는 원격 배포 시 필수다. `DEPLOY_ENV_SYNC=if-missing`은
+원격 `.env`가 이미 있으면 보존하고, `never`는 기존 원격 `.env`가 있을 때만 전송을
+건너뛴다. 같은 이름의 프로세스 환경변수에 비어 있지 않은 값을 주면 `.env`보다
+우선한다. `always`에서는 원격에서 직접 수정한 `.env`가 다음 배포 때 로컬 파일로
+덮어써진다.
+
+다른 파일을 쓰려면 `DEPLOY_ENV_FILE=.env.production ./deploy.sh`처럼 실행한다. 이
+파일은 배포 접속 설정만 담는 파일이 아니라, 원격 `.env`로 복사될 앱 설정 전체를
+포함해야 하고 파일명은 `.env` 또는 `.env.*` 형식이어야 한다. 처음 쓰는 경로는
+없거나, 비어 있거나, `data`·`vault`·`.env`만 있어야 한다. 이후에는 배포 스크립트가
+만든 마커를 검사해 `rsync --delete`가 상위 디렉터리를 지우는 오입력을 차단한다.
+
+기존 설치를 전환할 때는 로컬 `.env`에 `DEPLOY_REMOTE`·`DEPLOY_PORT`·`DEPLOY_PATH`를
+추가하고 첫 실행은 `if-missing`으로 둔다. 원격과 로컬 `.env`를 비교한 뒤 로컬 파일을
+정본으로 관리할 때만 `always`로 바꾼다.
+
+6개 컨테이너(모두 `restart: unless-stopped`, `data`·`vault` 볼륨 공유):
 
 | 컨테이너 | 역할 |
 |---|---|
@@ -45,10 +72,11 @@ uv run claire bot            # 텔레그램 봇 (long-polling)
 | `claire_api` | 로컬 inject API (127.0.0.1:8765, bearer token) |
 | `claire_refresh` | 갱신 큐 주기 처리(1시간) |
 | `claire_recover` | error inbox 자동 재적재(10분, 지수백오프) |
-| `claire_backup` | 일일 DB 스냅샷 + 7개 보존 |
+| `claire_expand` | 1홉 자동확장 큐 주기 처리(15분) |
+| `claire_backup` | 일일 DB 스냅샷 + 30개 보존 |
 
 ```bash
-./deploy.sh                          # 로컬 → 원격 rsync + compose 재빌드 (data/vault/.env 제외)
+./deploy.sh                          # .env의 대상 → rsync + compose 재빌드
 docker compose ps                    # 컨테이너 상태
 docker exec claire_bot uv run claire health   # 건강 점검
 ```
@@ -56,7 +84,7 @@ docker exec claire_bot uv run claire health   # 건강 점검
 ### 백업 · 복구 런북
 
 - **자동 백업**: `claire_backup` 컨테이너가 매일 `data/backups/claire-YYYYMMDD-HHMMSS.db` 스냅샷을 만들고
-  생성 즉시 row count 가 live DB 와 일치하는지 검증한다. 최근 7개 보존.
+  생성 즉시 row count 가 live DB 와 일치하는지 검증한다. 최근 30개 보존.
 - **수동 백업**: `docker exec claire_backup uv run claire backup`
 
 **복원 절차** (DB 손상/실수 삭제 시):
