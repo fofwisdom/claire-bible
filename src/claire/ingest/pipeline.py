@@ -377,6 +377,21 @@ def merge_source_into_document(
     original = dbm.get_document_row(conn, parent.id)
     if original is None:
         return {"merged": False, "error": "parent document not found"}
+
+    # 병합 전 dedup 체크 — child 가 이미 다른 독립 문서로 존재하면(canonicalize_url 이 못
+    # 거른 트래킹 파라미터 변형 등) 병합하지 않는다. ingest() 의 dedup①②③(pipeline.py:127,
+    # 137, 166)과 동일한 우선순위, 대상만 parent 제외.
+    existing_id = (
+        dbm.find_document_by_hash(conn, child.content_hash)
+        or dbm.find_document_by_canonical_url(conn, child.canonical_url)
+    )
+    if existing_id is None:
+        near = dbm.near_duplicate_document(conn, child, exclude_id=parent.id)
+        existing_id = near[0] if near else None
+    if existing_id and existing_id != parent.id:
+        return {"merged": False,
+                "error": f"duplicate: already exists as document {existing_id}"}
+
     original_meta = json.loads(original["meta"] or "{}")
 
     extra_sources = list(original_meta.get("extra_sources") or [])

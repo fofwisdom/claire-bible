@@ -10,7 +10,7 @@ from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
 _TRACKING = {
     "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content",
     "utm_id", "utm_name", "utm_reader", "utm_brand",
-    "gclid", "gclsrc", "dclid", "fbclid", "yclid", "msclkid",
+    "gclid", "gclsrc", "dclid", "fbclid", "yclid", "msclkid", "twclid",
     "ref", "ref_src", "ref_url", "referrer", "source", "src",
     "s", "spm", "share", "igshid", "feature",
     "mc_cid", "mc_eid", "_hsenc", "_hsmi", "mkt_tok", "vero_id", "oly_enc_id",

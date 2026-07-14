@@ -21,6 +21,7 @@ PARENT = "https://parent.example/post"
 SAME_SUBJECT = "https://same.example/repo"     # same_subject=True 기본값 → 병합 대상
 OTHER_SUBJECT = "https://other.example/post"   # '별개주제' 훅 → 독립 문서
 LOW_QUALITY = "https://low.example/post"       # '무관' 훅 → 게이트 거절
+EXISTING_DUP = "https://existing.example/already-ingested"  # SAME_SUBJECT 와 내용(content_hash) 동일 — 이미 독립 문서로 존재
 
 
 def _patch_fetch(monkeypatch, fn):
@@ -57,6 +58,11 @@ def _fetch(payload):
                     title="별개 프로젝트")
     if payload == LOW_QUALITY:
         return _doc(LOW_QUALITY, "무관한 다른 주제의 내용. " * 20)
+    if payload == EXISTING_DUP:
+        # SAME_SUBJECT 와 완전히 동일한 본문(= 동일 content_hash) — URL 만 다른 "같은 자료의
+        # 다른 입구"(실사고: twclid 같은 트래킹 파라미터로 canonicalize_url 이 못 거른 경우).
+        return _doc(EXISTING_DUP, "그 프로젝트의 github 저장소 본문. " + body,
+                    title="같은 주제의 github 저장소")
     raise RuntimeError(f"unexpected fetch {payload}")
 
 
@@ -141,6 +147,32 @@ def test_merge_failure_rolls_back_to_pre_merge_snapshot(monkeypatch, tmp_path):
     row = dbm.get_document_row(conn, parent.document_id)
     assert row["raw_text"] == original_text  # 병합 시도 이전 상태로 복원
     assert dbm.get_document_extra_sources(conn, parent.document_id) == []
+    conn.close()
+
+
+def test_same_subject_child_already_exists_independently_skips_merge(monkeypatch, tmp_path):
+    """2026-07-14 실사고 재현: child 가 canonicalize_url 로 못 거른 URL 변형 등으로 이미
+    독립 문서로 존재하면(content_hash 일치), same_subject=True 라도 병합하지 않는다 —
+    같은 콘텐츠가 두 문서(독립 문서 + 다른 문서의 부속 섹션)에 중복되는 것을 방지."""
+    s, svc = _svc(monkeypatch, tmp_path)
+    existing = svc.ingest(EXISTING_DUP, source="cli", expand_max=0)
+    assert not existing.error and not existing.duplicate
+
+    parent = svc.ingest(PARENT, source="cli", expand_max=0)
+    res = svc.expand_document(parent.document_id)
+
+    followed = {f["url"]: f for f in res["followed"]}
+    assert followed[SAME_SUBJECT]["merged"] is False
+    assert followed[SAME_SUBJECT]["stored"] is False
+    assert res["merged"] == 0
+
+    conn = dbm.connect(s.db_file); dbm.init_db(conn)
+    # 부모 문서에 흡수되지 않음 — 중복 콘텐츠가 부모 본문에 섞이지 않는다.
+    row = dbm.get_document_row(conn, parent.document_id)
+    assert "github 저장소 본문" not in row["raw_text"]
+    assert dbm.get_document_extra_sources(conn, parent.document_id) == []
+    # 기존 독립 문서는 그대로 유일하게 남는다(신규 Document 도 안 생김).
+    assert dbm.find_document_by_canonical_url(conn, EXISTING_DUP) == existing.document_id
     conn.close()
 
 

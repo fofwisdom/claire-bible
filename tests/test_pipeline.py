@@ -49,6 +49,7 @@ def test_canonicalize_converges_equivalent_forms():
         "https://example.com/article/index.html",
         "https://example.com/article?fbclid=abc&gclid=xyz",
         "https://example.com/article?utm_id=1&mc_cid=2",
+        "https://example.com/article?twclid=2821hxqgrkdniixyr54kcc2lxa",
     ]
     for v in variants:
         assert canonicalize_url(v) == canon, v
