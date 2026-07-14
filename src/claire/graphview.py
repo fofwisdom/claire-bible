@@ -105,6 +105,7 @@ def document_detail(conn: sqlite3.Connection, document_id: str) -> dict | None:
         "source_type": row["source_type"],
         "summary": dbm.latest_extraction_summary(conn, document_id) or "",
         "detail": dbm.get_document_detail(conn, document_id) or "",
+        "hidden": bool(row["hidden"]),
         # [1홉 병합, ONEHOP_MERGE_DESIGN.md] 이 문서에 흡수된 부가 출처(예: GeekNews 글에
         # 병합된 그 프로젝트의 github). 원문 링크 계보를 UI 에서 추적 가능하게.
         "extra_sources": dbm.get_document_extra_sources(conn, document_id),
@@ -284,25 +285,29 @@ GRAPH_HTML = """<!doctype html>
     background:rgba(227,179,65,.10)}
   #doclist{flex:1;min-height:120px;overflow-y:auto}
   .dday{position:sticky;top:0;background:var(--bar-bg);color:var(--accent2);font-size:11px;padding:3px 10px;border-bottom:1px solid var(--border);z-index:1}
-  .docitem{min-height:34px;padding:7px 78px 7px 10px;border-bottom:1px solid var(--border);cursor:pointer;position:relative}
+  .docitem{min-height:34px;padding:7px 78px 7px 10px;border-bottom:1px solid var(--border);cursor:pointer;position:relative;overflow:hidden}
   .docitem:hover{background:var(--hover)}
   .docitem.active{background:var(--active);border-left:3px solid var(--accent2)}
   .docitem.hidden-doc{opacity:.55}
-  .docitem b{font-size:12px} .docitem .st{color:var(--muted);font-size:10px;margin-left:6px}
+  /* 제목은 아무리 길어도 2줄로 고정 — 안 그러면 즐겨찾기 등 높이가 빠듯한 구간에서
+     아이템이 한없이 늘어나 넘쳐 보인다는 피드백(사용자 지적). */
+  .docitem b{font-size:12px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;
+    overflow:hidden;word-break:break-word}
+  .docitem .st{color:var(--muted);font-size:10px;margin-left:6px}
   .docitem.unread{border-left:3px solid var(--accent2)} .docitem.unread b{font-weight:700}
   .docitem .ubadge{color:var(--accent2);font-size:9px;margin-right:4px;vertical-align:middle}
   .docitem .wbadge{font-size:10px;margin-right:2px}
-  .docitem p{margin:.2em 0 0;color:var(--muted);font-size:11px}
-  /* 좌측 문서의 액션 버튼(즐겨찾기·읽기·숨기기) — 클릭=nav 와 분리. */
+  /* 설명 줄수 — 기본 2줄, #docs 에 붙는 lc0/lc2/lc4 클래스로 토글(사용자 요구, descToggle 참조). */
+  .docitem p{margin:.2em 0 0;color:var(--muted);font-size:11px;overflow:hidden;
+    display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+  #docs.lc0 .docitem p{display:none}
+  #docs.lc4 .docitem p{-webkit-line-clamp:4}
+  /* 좌측 문서의 액션 버튼(즐겨찾기·읽기) — 클릭=nav 와 분리. */
   .docitem .docactions{position:absolute;top:6px;right:7px;display:flex;gap:3px}
   .docitem .actbtn{background:var(--sec-bg);color:var(--sec-fg);
     border:1px solid var(--border);border-radius:4px;padding:1px 6px;font-size:11px;cursor:pointer;opacity:.85}
   .docitem .actbtn:hover{opacity:1;border-color:var(--accent)}
   .docitem .actbtn.pinned{opacity:1;color:#e3b341}
-  /* 숨기기는 되돌리기 번거로운 방향(컨펌 필요, toggleHide)이라 즐겨찾기/읽기와 붙어
-     오클릭하지 않게 여백을 두고 살짝 옅게 — 실수로 스치듯 누르기 어렵게(사용자 지적). */
-  .docitem .actbtn.hidebtn{margin-left:7px;opacity:.6}
-  .docitem .actbtn.hidebtn:hover{opacity:1;border-color:var(--danger,#e5534b)}
   #showhidden{display:block;padding:7px 10px;font-size:11.5px;color:var(--fg);cursor:pointer;
     text-align:center;border-top:1px solid var(--border);background:var(--sec-bg)}
   #showhidden:hover{background:var(--hover)}
@@ -319,6 +324,11 @@ GRAPH_HTML = """<!doctype html>
   #panel .doc p.src{margin-top:.45em}
   #panel .docmeta{color:var(--muted);font-size:11px;margin:.1em 0 .6em}
   #panel .readbtn{background:var(--accent);color:#fff;border:0;border-radius:4px;padding:3px 10px;font-size:12px;cursor:pointer;margin:.2em 0}
+  /* 숨기기 — 목록이 아니라 상세 패널에 텍스트 버튼으로(사용자 요구). 되돌리기 번거로운
+     방향(컨펌 필요)이라 튀지 않게 링크 스타일로 옅게, hover 시에만 강조. */
+  #panel .hidetextbtn{background:none;border:0;color:var(--muted);font-size:11.5px;cursor:pointer;
+    padding:0;margin:.3em 0;text-decoration:underline;text-underline-offset:2px}
+  #panel .hidetextbtn:hover{color:var(--danger,#e5534b)}
   #panel .nodebtns{display:flex;flex-wrap:wrap;gap:5px;margin:.3em 0}
   #panel .nodebtn{background:var(--chip-bg);color:var(--fg);border:1px solid var(--border);border-radius:12px;
     padding:3px 9px;font-size:11.5px;cursor:pointer;max-width:100%;overflow:hidden;
@@ -431,7 +441,12 @@ GRAPH_HTML = """<!doctype html>
 </div>
 <div id="legendbar"></div>
 <div id="wrap">
-  <div id="docs"><div class="dhead"><input id="docq" placeholder="문서 검색(제목·요약)" oninput="renderDocs(this.value)" style="width:92%"/></div>
+  <div id="docs"><div class="dhead"><input id="docq" placeholder="문서 검색(제목·요약)" oninput="renderDocs(this.value)" style="width:92%"/>
+    <select id="desclines" onchange="setDescLines(this.value)" title="목록 설명 줄수" style="width:92%;margin-top:5px;font-size:11px">
+      <option value="0">설명 0줄(제목만)</option>
+      <option value="2">설명 2줄</option>
+      <option value="4">설명 4줄</option>
+    </select></div>
     <div id="pinnedhead" style="display:none">⭐ 즐겨찾기</div>
     <div id="pinnedlist"></div>
     <div id="doclist"><p class="hint" style="padding:10px">문서 로딩…</p></div>
@@ -580,6 +595,24 @@ function renderMarkdown(src){
   catch(e){ html = esc(s).replace(/\\n/g,'<br>'); }
   return window.DOMPurify ? DOMPurify.sanitize(html, {ADD_ATTR:['target']}) : html;
 }
+
+// 목록 설명 줄수(0/2/4) — 브라우저에 기억. 문서 많아지면 제목/설명이 height 를 너무
+// 차지한다는 피드백(사용자 지적) → #docs 에 lc0/lc4 클래스로 CSS line-clamp 토글(기본 2줄).
+let descLines = 2;
+try{ const v=parseInt(localStorage.getItem('claireDescLines')); if(v===0||v===2||v===4) descLines=v; }catch(e){}
+function applyDescLines(){
+  const docs=document.getElementById('docs'); if(!docs) return;
+  docs.classList.remove('lc0','lc4');
+  if(descLines===0) docs.classList.add('lc0');
+  else if(descLines===4) docs.classList.add('lc4');
+  const sel=document.getElementById('desclines'); if(sel) sel.value=String(descLines);
+}
+function setDescLines(v){
+  descLines = parseInt(v)===0 ? 0 : (parseInt(v)===4 ? 4 : 2);
+  try{ localStorage.setItem('claireDescLines', descLines); }catch(e){}
+  applyDescLines();
+}
+applyDescLines();
 
 // 읽기 글자 크기(A−/A+) — 브라우저에 기억. 팝업의 --read-fs 변수로 .md 본문에 적용.
 let readFS = 16;
@@ -967,7 +1000,7 @@ function renderIngestResult(d){
   if(!d.duplicate) h+='<p class=al>노드 신규 '+(d.entities_created||0)+' · 기존연결 '+
     (d.entities_linked||0)+' · 관계 '+(d.relations_added||0)+'</p>';
   if(d.summary) h+='<div class=synth>'+esc(d.summary)+'</div>';
-  if(d.document_id) h+='<p><a href="#" onclick="loadDocPanel(\\''+d.document_id+'\\');return false">문서 보기 →</a></p>';
+  if(d.document_id) h+='<p><a href="#" onclick="selectDoc(\\''+d.document_id+'\\');return false">문서 보기 →</a></p>';
   panel.innerHTML=h;
   refreshGraph();   // 신규 노드/엣지·문서목록 즉시 반영(새로고침 없이)
 }
@@ -1206,20 +1239,19 @@ function dayOf(ts){ if(!ts) return '(날짜 미상)';
   const d=new Date(ts*1000);
   return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
 // 문서 하나의 목록 아이템 HTML — 즐겨찾기/일반/숨김 목록이 모두 공유(중복 방지).
-// 클릭=그래프 nav(필터·이동), 액션 버튼 3종(⭐즐겨찾기·📖읽기·🙈숨기기)은 stopPropagation.
+// 클릭=그래프 nav(필터·이동), 액션 버튼 2종(⭐즐겨찾기·📖읽기)은 stopPropagation.
+// 숨기기는 목록이 아니라 우측 상세 패널의 텍스트 버튼으로(사용자 요구, panelHideBtn 참조).
 function docItemHtml(dc){
   const unread = dc.seen===0, watching = dc.watch===1, pinned = dc.pinned===1, hid = dc.hidden===1;
-  // readonly(/webro) 세션은 즐겨찾기/숨기기 둘 다 서버가 404 내는 쓰기라 버튼 자체를
-  // 안 그린다(사용자 요구 — 눌러도 안 되는 버튼이 남아있으면 안 됨).
+  // readonly(/webro) 세션은 즐겨찾기가 서버가 404 내는 쓰기라 버튼 자체를 안 그린다
+  // (사용자 요구 — 눌러도 안 되는 버튼이 남아있으면 안 됨).
   const pinBtn = READONLY ? '' : '<button class="actbtn'+(pinned?' pinned':'')+'" title="'+(pinned?'즐겨찾기 해제':'즐겨찾기에 추가')+
     '" onclick="event.stopPropagation();togglePin(\\''+dc.id+'\\','+(!pinned)+')">'+(pinned?'⭐':'☆')+'</button>';
-  const hideBtn = READONLY ? '' : '<button class="actbtn hidebtn" title="'+(hid?'숨김 해제':'목록에서 숨기기')+
-    '" onclick="event.stopPropagation();toggleHide(\\''+dc.id+'\\','+(!hid)+')">'+(hid?'🙉':'🙈')+'</button>';
   return '<div class="docitem'+(dc.id===activeDoc?' active':'')+(unread?' unread':'')+(hid?' hidden-doc':'')+
     '" onclick="selectDoc(\\''+dc.id+'\\')">'+
     '<div class=docactions>'+pinBtn+
     '<button class=actbtn title="크게 읽기" onclick="event.stopPropagation();openReader(\\''+dc.id+'\\')">📖</button>'+
-    hideBtn+'</div>'+
+    '</div>'+
     (watching?'<span class=wbadge title="주기 갱신 추적(watch)">🔄</span>':'')+
     (unread?'<span class=ubadge title="아직 안 본 문서">●</span>':'')+
     '<b>'+esc(dc.title)+'</b><span class=st>'+esc(dc.source_type||'')+'</span>'+
@@ -1269,10 +1301,10 @@ async function togglePin(id, val){
 async function toggleHide(id, val){
   // 숨기는 방향(val=true)만 컨펌 — 오클릭 방지(사용자 지적) + 되돌리는 방법을 그 자리에서
   // 안내(어디서 다시 꺼내는지 몰라 헤매지 않게). 숨김 해제(val=false)는 안전한 방향이라
-  // 컨펌 없이 즉시.
+  // 컨펌 없이 즉시. 반환값 = 실제로 적용됐는지(컨펌 취소 시 false — 호출측 버튼 갱신 판단용).
   if(val && !confirm('이 문서를 목록에서 숨길까요?\\n\\n그래프 엔티티는 그대로 남고, 문서 '+
       '목록 맨 아래 "🙈 숨김 N개 보기"를 누르면 언제든 다시 꺼내(숨김 해제) 볼 수 있습니다.')){
-    return;
+    return false;
   }
   const d=allDocs.find(x=>x.id===id); if(d) d.hidden = val?1:0;
   renderDocs(document.getElementById('docq').value);
@@ -1281,6 +1313,17 @@ async function toggleHide(id, val){
       body:JSON.stringify({id:id, hidden:val})});
     if(!r.ok && d){ d.hidden = val?0:1; renderDocs(document.getElementById('docq').value); }
   }catch(e){ if(d){ d.hidden = val?0:1; renderDocs(document.getElementById('docq').value); } }
+  return true;
+}
+// 상세 패널의 숨기기 텍스트 버튼 — toggleHide 결과(컨펌 취소 여부)를 보고 버튼 라벨만 갱신.
+async function panelToggleHide(id, val){
+  const ok = await toggleHide(id, val);
+  if(!ok) return;
+  const btn = document.getElementById('panelhidebtn');
+  if(btn){
+    btn.textContent = val ? '숨김 해제' : '숨기기';
+    btn.setAttribute('onclick', "panelToggleHide('"+id+"',"+(!val)+")");
+  }
 }
 function selectDoc(id){
   const d0 = allDocs && allDocs.find(d=>d.id===id);
@@ -1324,6 +1367,9 @@ function renderDocPanel(dc){
   h+=extraSourcesHtml(dc);
   // 읽기는 중앙 팝업(마크다운·이미지)으로 — 그래프 nav 와 분리(사용자 요구).
   if(dc.summary||dc.detail) h+='<button class=readbtn onclick="openReader(\\''+dc.id+'\\')">📖 크게 읽기</button>';
+  // 숨기기 — 목록이 아니라 상세 패널에 텍스트 버튼으로(사용자 요구, 목록에선 오클릭 유발).
+  if(!READONLY) h+='<div><button id=panelhidebtn class=hidetextbtn onclick="panelToggleHide(\\''+dc.id+'\\','+(!dc.hidden)+')">'+
+    (dc.hidden?'숨김 해제':'숨기기')+'</button></div>';
   if(dc.summary) h+='<h3>요약</h3><div class=synth>'+esc(dc.summary)+'</div>';
   // 이 문서의 노드 버튼 — 요약 바로 아래(피드백). 누르면 그래프에서 그 노드로 이동(nav).
   const ns=docNodes(dc.id);
