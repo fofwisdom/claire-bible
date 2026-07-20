@@ -260,7 +260,13 @@ GRAPH_HTML = """<!doctype html>
   #wrap{display:flex;height:calc(100% - 68px)}
   /* #netwrap 이 위치 기준자, #net 은 vis.Network 컨테이너(vis 가 init 시 innerHTML 을
      지우므로 — 확인됨 — #zoomctl 은 #net *밖*, 형제로 둬야 살아남는다). */
-  #netwrap{flex:1;min-width:0;position:relative}
+  /* overflow:hidden 필수 — 원래 없었음. #netwrap 은 position:relative(포지션 기준자)라
+     캔버스가 자기 박스보다 커지는 어떤 상황(리사이즈 타이밍 레이스 등)에서도 그 오버플로우가
+     "positioned 요소는 z-index:auto 라도 non-positioned 형제 위에 그려진다"는 스태킹 규칙
+     때문에 무조건 #docs(문서목록) 위로 새어나갔다(사용자 제보: 즐겨찾기 클릭 직후 리스트가
+     "투명해짐"— 실은 투명이 아니라 그래프가 그 위에 덮어 그려진 것, canvas.height 를 강제로
+     키워 실측 재현). 뷰포트 역할의 컨테이너는 자기 콘텐츠를 항상 잘라내는 게 맞다. */
+  #netwrap{flex:1;min-width:0;position:relative;overflow:hidden}
   #net{width:100%;height:100%;background:var(--net-bg)}
   /* 모바일 핀치줌 대체 — zoomView:false(Mac 휠 점프 수정, 2026-06-24)가 vis-network 의
      핀치줌도 함께 꺼버려(같은 옵션이 관장) 터치로는 줌 방법이 없었다(회귀). 커스텀 핀치
@@ -271,7 +277,12 @@ GRAPH_HTML = """<!doctype html>
     background:var(--sec-bg);color:var(--sec-fg);font-size:19px;line-height:1;cursor:pointer;opacity:.9}
   #zoomctl button:active{opacity:1;background:var(--hover)}
   @media (max-width:820px){ #zoomctl{display:flex} }
-  #docs{width:280px;display:flex;flex-direction:column;background:var(--docs-bg);border-right:1px solid var(--border);font-size:12px}
+  /* transform:translateZ(0) — 사용자 제보: 스크롤·그래프 팬 중 문서 목록이 순간 투명해짐.
+     JS 로 opacity/배경을 바꾸는 코드는 없음(확인됨) — #docs 가 바쁘게 다시 그려지는
+     <canvas>(#net)와 나란한 형제라, 모바일 브라우저(주로 iOS Safari 계열)의 GPU 합성 중
+     인접 요소가 잠깐 페인트가 빠지는 알려진 부류의 글리치로 추정. 별도 컴포지팅 레이어로
+     강제 승격해 캔버스 리페인트의 페인트 경계를 분리하는 표준 완화책(원인 미확정, 가설). */
+  #docs{width:280px;display:flex;flex-direction:column;background:var(--docs-bg);border-right:1px solid var(--border);font-size:12px;transform:translateZ(0)}
   #docs .dhead{padding:8px 10px;border-bottom:1px solid var(--border);flex-shrink:0}
   /* 즐겨찾기(고정) 섹션 — 많아져도 패널을 다 잡아먹지 않게 최대높이+스크롤(사용자 요구:
      '즐찾 많아질 때 대비'), 일반 목록도 min-height 로 항상 일정 공간 확보. */
@@ -302,8 +313,13 @@ GRAPH_HTML = """<!doctype html>
     display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
   #docs.lc0 .docitem p{display:none}
   #docs.lc4 .docitem p{-webkit-line-clamp:4}
-  /* 좌측 문서의 액션 버튼(즐겨찾기·읽기) — 클릭=nav 와 분리. */
-  .docitem .docactions{position:absolute;top:6px;right:7px;display:flex;gap:3px}
+  /* 좌측 문서의 액션 버튼(즐겨찾기·읽기) — 클릭=nav 와 분리. readbtn(📖)은 docactions
+     밖의 형제 요소(모바일에서 아이템 전체 높이를 차지하는 리빌 버튼으로 절대배치하려면
+     그래야 함, 아래 모바일 미디어쿼리 참조) — 데스크톱/기본값에서는 여기서 원래
+     자리(즐찾 버튼 왼쪽)로 직접 위치를 잡아준다. */
+  .docitem .docactions{position:absolute;top:6px;right:34px;display:flex;gap:3px}
+  .docitem .readbtn{position:absolute;top:6px;right:7px}
+  .docitem .rblabel{display:none}    /* 데스크톱 = 아이콘만(작은 자리); 모바일 리빌 배지에서만 텍스트로 교체 */
   .docitem .actbtn{background:var(--sec-bg);color:var(--sec-fg);
     border:1px solid var(--border);border-radius:4px;padding:1px 6px;font-size:11px;cursor:pointer;opacity:.85}
   .docitem .actbtn:hover{opacity:1;border-color:var(--accent)}
@@ -315,7 +331,12 @@ GRAPH_HTML = """<!doctype html>
      요구). 동적으로 그리는 버튼(문서 즐겨찾기/숨기기·노드의 "종합에 추가"·조사 입력창)은
      JS 의 READONLY 분기에서 애초에 렌더 안 함 — 여기선 정적 스켈레톤 버튼만. */
   body.ro #synthbtn, body.ro #addbtn, body.ro #dedupbtn, body.ro .rshare{display:none!important}
-  #panel{width:360px;overflow:auto;padding:14px 16px;background:var(--panel-bg);border-left:1px solid var(--border);font-size:13px;line-height:1.5}
+  /* word-break 은 상속 속성 — #panel 전체에 걸어 요약(.synth)·관찰(li)·출처(.doc p)·
+     병합출처(.srclist) 등 하위 요소 전부를 한 번에 커버한다. 예전엔 .md/.docitem b 처럼
+     오버플로우 신고가 들어온 곳만 개별로 word-break 를 붙여왔는데, URL 등 공백 없는 긴
+     토큰이 낀 요약(.synth)엔 그게 없어 모바일에서 패널 밖으로 글자가 삐져나가던 버그
+     (사용자 제보: 글 선택 시 레이아웃 깨짐) — 개별 땜질 대신 컨테이너 레벨로 고정. */
+  #panel{width:360px;overflow:auto;padding:14px 16px;background:var(--panel-bg);border-left:1px solid var(--border);font-size:13px;line-height:1.5;word-break:break-word;transform:translateZ(0)}
   #panel h2{margin:.2em 0;font-size:18px} #panel h2 small{color:var(--muted);font-size:12px;font-weight:normal}
   #panel h3{margin:1em 0 .3em;font-size:13px;color:var(--accent2);border-bottom:1px solid var(--border);padding-bottom:2px}
   #panel ul{margin:.2em 0;padding-left:18px} #panel li{margin:.25em 0}
@@ -410,14 +431,115 @@ GRAPH_HTML = """<!doctype html>
     #bar{white-space:normal;flex-wrap:wrap;gap:4px 8px}
     #bar .spacer{display:none}
     #q{width:38vw;min-width:120px}
-    #wrap{flex-direction:column;height:auto}
-    /* flex:none 필수 — base 의 flex:1(basis 0%)이 height:58vh 를 무력화해 #net 이
-       min-height 까지 쪼그라들던 버그(이슈1). 명시 높이를 쓰려면 flex 를 꺼야 한다. */
-    #netwrap{order:-1;flex:none;height:58vh;min-height:340px;width:100%}
-    #docs{width:auto;max-height:34vh;border-right:none;border-bottom:1px solid var(--border)}
+    /* 사용자 제보: 화면 하단에 빈 공간이 생김. 원인 — #docs 를 아래에서
+       position:absolute 로 빼면서 #wrap 의 flow 높이가 #netwrap 하나(고정 58vh)로만
+       결정되게 됐는데, 헤더(#bar+#legendbar, 특히 관계 타입 칩이 여러 줄로 줄바꿈되는
+       #legendbar)의 실제 높이는 기기·화면폭마다 달라서 "58vh + 헤더" 합이 실제 화면
+       높이보다 짧아지면 그 차이만큼 화면 맨 아래가 빈다. 고정 vh 대신 body 를 세로
+       flex 로 만들고 #wrap 이 남는 공간을 전부 차지(flex:1)하게 바꿔 헤더가 몇 줄이든
+       그래프가 항상 나머지 전체를 채우게 한다. */
+    body{display:flex;flex-direction:column}
+    /* position:relative — #docs 를 이 박스 기준으로 절대배치(아래)하기 위한 기준자.
+       flex:1 — body 안에서 헤더(#bar+#legendbar) 를 뺀 나머지 전부를 차지. */
+    #wrap{flex-direction:column;flex:1;min-height:0;position:relative}
+    /* #docs 가 아래에서 position:absolute 로 빠지므로 #wrap 의 flow 높이는 사실상
+       #netwrap 하나로 결정된다 — flex:1 로 #wrap 전체(=헤더 뺀 나머지 화면)를 그대로
+       채운다. min-height 는 극단적으로 헤더가 길어질 때의 최소 방어선. */
+    #netwrap{order:-1;flex:1;min-height:260px;width:100%}
+    /* 목록(#docs) 전체 개편(2026-07-15, 사용자 요구) — 탭하면 바로 문서가 열리던 것 대신
+       "탭→목록이 그래프 위로 슬라이드 업(그래프는 위쪽에 적당히 남음)→그 상태에서 글
+       탭하면 📖 버튼 리빌→그거 눌러야 크게읽기" 2단계 흐름으로. #wrap 기준 position:absolute
+       오버레이라 #netwrap 자체 크기는 절대 안 건드림(그래프 리사이즈 버그 계열 재발 방지 —
+       #2/#3/#4 세 버그의 공통 원인이었음). 퍼센트는 #wrap(=#netwrap과 같은 높이) 기준이라
+       헤더 높이가 기기마다 달라도 항상 같은 비율로 그래프가 남는다(collapsed 62%,
+       listopen 21% 남김). */
+    #docs{width:auto;position:absolute;left:0;right:0;bottom:0;z-index:10;overflow:hidden;
+      height:38%;transition:height .28s ease;border-right:none;
+      border-top:1px solid var(--border);box-shadow:0 -4px 14px var(--shadow)}
+    body.listopen #docs{height:79%}
     #docs .dhead{position:static}
-    #panel{width:auto;border-left:none;border-top:2px solid var(--border)}
+    /* #zoomctl(+/−) 이 #netwrap 바닥에 붙어있는데, 이제 #docs 가 그 자리를 덮으므로
+       collapsed 높이(38%) 위로 들어올려 항상 눌리게(펼친 상태에서만 같이 덮이는 건 허용
+       — 그때는 그래프를 탭해 목록부터 접는 게 자연스러운 동선). %는 #netwrap 자기 높이
+       기준(포함 블록)이라 #docs 의 %와 같은 값으로 맞아떨어진다. */
+    #zoomctl{bottom:calc(38% + 14px)}
+    /* 즐겨찾기:일반목록 = 4:6(사용자 요구). flex-basis:0 로 콘텐츠 크기 무시하고 순수
+       비율로 분배 — #pinnedlist/#doclist 둘 다 자체 overflow-y:auto 라 넘치면 각자 스크롤.
+       즐찾이 없으면(.haspinned 없음) 일반목록이 공간을 전부 쓴다(base #doclist{flex:1}). */
+    #docs.haspinned #pinnedlist{flex:4 1 0;max-height:none;min-height:0}
+    #docs.haspinned #doclist{flex:6 1 0;min-height:0}
+    /* 피드백: ⭐(즐찾)이 우측 상단에 있으면 리빌 배지(📖, 바로 아래)와 손가락 하나
+       폭 안에 붙어있어 손가락이 두꺼우면 오탭하기 쉽다 — 모바일에서만 ⭐을 아이템
+       좌측으로 옮겨 우측은 리빌 배지 전용 공간으로 비운다(데스크톱은 마우스라
+       정밀하므로 원래 자리 유지). */
+    .docitem{padding-left:32px}
+    .docitem .docactions{position:absolute;top:50%;left:6px;right:auto;transform:translateY(-50%)}
+    /* 📖(크게읽기) 버튼만 리빌 대상 — ⭐(즐찾)은 사용자 요구대로 항상 그대로 노출.
+       기본은 오른쪽 밖으로 밀어둔 채 숨기고, 탭한 아이템(.revealed)만 슬라이드 인. */
+    /* 피드백(#9-1): "하이라이트가 안 예쁘다" — 아이템 우측 전체 높이를 차지하는 각진
+       단색 스트립(아이콘만)이 원인으로 지목됨. 사용자 확인: "그냥 텍스트로, 예쁘게" —
+       아이콘 대신 텍스트 라벨로, 모서리를 둥글게 + 그림자를 줘서 떠 있는 배지처럼.
+       top:26px 로 ⭐(즐찾, .docactions, top:6px 근방)와 안 겹치게 그 아래부터 차지. */
+    .docitem .readbtn{position:absolute;top:26px;right:6px;bottom:6px;width:64px;
+      display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;
+      background:var(--accent);color:#fff;border:0;border-radius:10px;
+      box-shadow:0 2px 8px var(--shadow);
+      transform:translateX(130%);transition:transform .2s ease;z-index:2}
+    .docitem .readbtn .rbicon{display:none}     /* 모바일 리빌 배지 = 텍스트 전용(아이콘 숨김) */
+    .docitem .readbtn .rblabel{display:block}   /* base 는 데스크톱용으로 숨겨둠 — 모바일만 노출 */
+    .docitem.revealed .readbtn{transform:translateX(0)}
+    /* 피드백: collapsed(펼치기 전) 상태에서 목록을 스와이프하면 내부 스크롤로 먹혀
+       확장(listopen) 트리거가 씹힘 — collapsed 동안은 두 리스트 자체 스크롤을 꺼서
+       모든 터치가 확장으로만 가게 한다(펼친 뒤엔 base 의 overflow-y:auto 복귀). */
+    body:not(.listopen) #pinnedlist, body:not(.listopen) #doclist{overflow:hidden}
+    /* 실기기 터치로 재현 확인된 버그(2026-07-20, 사용자 제보 "슬라이드 완전히 고장") —
+       attachDragSheet 는 pointermove 8px 문턱을 넘은 뒤에야 preventDefault 를 부르는데,
+       touch-action 이 기본값(auto)이면 그 전에 브라우저가 이미 세로 스크롤 제스처로
+       판정해버려(스펙상 방향이 한 번 잠기면 이후 preventDefault 는 효과 없음) 실제
+       touchmove 델타의 대부분이 우리 JS 에 안 옴 — 합성 PointerEvent(dispatchEvent) 로만
+       검증했던 이전 세션들은 브라우저의 실제 터치 파이프라인을 안 거쳐 이 클래스의 버그를
+       못 잡았다(CDP Input.dispatchTouchEvent 로 실측 재현: 220px 실제 스와이프 중 19px만
+       반영됨). collapsed(드래그 활성 구간)에서만 touch-action:none 으로 브라우저의 기본
+       제스처 판정 자체를 꺼서 모든 델타가 우리 코드로 오게 한다 — #net 캔버스에 이미 쓰던
+       것과 같은 해법(위 applyTouchMode 주석 참고). listopen 이후엔 내부 리스트 스크롤이
+       필요하므로 원래 값(auto)으로 복귀. */
+    body:not(.listopen) #docs{touch-action:none}
+    /* 그래프를 접어 공간을 나눠쓰던 방식(#2) 대신 — 세 버그(그래프 접기 실패·오버플로우·
+       리사이즈 고착)가 전부 "캔버스 렌더 크기를 CSS 박스와 매번 동기화해야 한다"는 같은
+       취약점에서 나왔다는 걸 확인한 뒤, 사용자 제안으로 전면 개편(2026-07-15) — 그래프는
+       항상 58vh 그대로 두고, 문서/노드 상세는 화면 전체를 덮는 슬라이드 오버레이로 분리.
+       그래프 캔버스 크기를 아예 안 건드리므로 이 버그 계열이 구조적으로 사라진다. */
+    /* box-sizing:border-box 필수 — 데스크톱 기본 규칙(위 #panel)의 padding:14px 16px
+       (좌우 32px)이 여기선 top 만 재정의되고 좌/우/하는 그대로 상속되는데, content-box(전역
+       기본값)에서는 padding 이 width 에 더해져 실렌더 너비가 422px(뷰포트 390px + 32px)로
+       튀어나간다. peek 상태의 "26px 만 걸쳐 보이기"는 이 실제 너비 기준
+       translateX(calc(100% - 26px)) 로 계산되므로, 너비가 32px 더 크면 그 계산도 같이
+       밀려 걸친 조각이 뷰포트 밖으로 완전히 벗어나 화면에 안 보이고 탭/드래그도 안 먹힘
+       (실측 확인: elementFromPoint 로 뷰포트 안 어디서도 #panel 을 못 찾음 — peek 조각이
+       유령이었던 셈). border-box 로 padding 을 100% 안에 포함시켜 실제 렌더 너비를
+       뷰포트와 정확히 맞춘다. */
+    #panel{width:100%;position:fixed;inset:0;z-index:40;border:0;padding-top:52px;
+      box-sizing:border-box;
+      transform:translateX(100%);transition:transform .25s ease;box-shadow:-6px 0 20px var(--shadow)}
+    /* #docs 와 같은 이유(위 touch-action:none 주석 참고) — peek/reading 동안 가로 드래그를
+       attachDragSheet 가 온전히 가져가게 pan-x 를 막는다. 세로(pan-y)는 열어둬 patch 내용
+       (요약 등)의 자체 세로 스크롤(#panel{overflow:auto})은 그대로 살아있게 한다. */
+    body.peek #panel, body.reading #panel{touch-action:pan-y}
+    /* 피드백: 문서 선택 시 우측에 상세 패널(요약·이 문서의 노드·숨기기)이 아예 안
+       뜨던 걸 — 살짝 걸쳐 보이는 "찔끔" 상태(body.peek)로 복원. 탭하면(#panel 클릭
+       리스너, openPeekPanel) 완전히 열림(body.reading, 기존 애니메이션 재사용). */
+    body.peek #panel{transform:translateX(calc(100% - 26px))}
+    body.reading #panel{transform:translateX(0)}
+    #panelpeek{display:none;position:fixed;top:50%;right:0;z-index:42;
+      transform:translateY(-50%);width:26px;height:56px;border-radius:8px 0 0 8px;
+      border:1px solid var(--border);border-right:0;background:var(--accent);color:#fff;
+      font-size:15px;line-height:1;cursor:pointer}
+    body.peek #panelpeek{display:block}
     #panel .hint br{display:none}
+    #panelclose{display:none;position:fixed;top:8px;right:8px;z-index:41;width:36px;height:36px;
+      border-radius:50%;border:1px solid var(--border);background:var(--sec-bg);color:var(--sec-fg);
+      font-size:16px;line-height:1;cursor:pointer}
+    body.reading #panelclose{display:block}
     #reader{padding:0} #reader .sheet{max-height:100vh;border-radius:0;height:100vh}
     #reader .rbody{padding:8px 16px 0}
   }
@@ -460,6 +582,12 @@ GRAPH_HTML = """<!doctype html>
     </div>
   </div>
   <div id="panel"></div>
+  <!-- 모바일 전용 — #panel 이 슬라이드 오버레이일 때만 CSS 로 보임(body.reading). 데스크톱
+       나란히 배치에선 항상 숨김(닫을 필요 자체가 없음). -->
+  <button id="panelclose" onclick="closePanelOrPeek()" title="닫기">✕</button>
+  <!-- "찔끔" 상태(body.peek)에서만 보이는 손잡이 — 내용이 로드 안 된 힌트 텍스트만
+       살짝 보이면 뭔지 안 보이니, 명시적으로 눌러서 열라는 표식을 따로 둔다. -->
+  <button id="panelpeek" onclick="openPeekPanel()" title="상세 보기">◂</button>
 </div>
 <!-- 노드 hover 시 마우스 위치에 뜨는 작은 요약 팝업(우측 패널 미리보기 대체). -->
 <div id="nodepop"></div>
@@ -500,7 +628,37 @@ let synthSet=new Set();
 let READONLY=false;   // /whoami 로 확정(아래 init) — true 면 쓰기 UI(적재/종합/조사/즐겨찾기/숨기기/공유) 렌더 안 함
 let allRelTypes=[], relFilter=null;          // 관계 타입 필터: null=전체, Set=선택 타입만 표시
 let pathMode=false, pathPicks=[], pathNodes=null, pathEdges=null;  // 2노드 경로 하이라이트(전용 모드)
+let revealedDocId=null;   // 모바일: 목록 확장 상태에서 탭한 문서 — 그 아이템의 📖 버튼만 슬라이드 인
 const panel = document.getElementById('panel');
+// --- 뒤로가기 스택 — 모바일 목록 확장·읽기 팝업처럼 슬라이드/오버레이로 여는 UI 를
+// 브라우저 뒤로가기로도 닫을 수 있게(사용자 요구). 여는 쪽은 pushUIState 로 history 에
+// 쌓고, in-app 컨트롤(✕·배경 탭 등)로 닫을 땐 직접 안 닫고 closeTopUIState 로 history.back()
+// 을 호출해 popstate 를 발생시킨다 — 이렇게 해야 브라우저 히스토리와 내부 스택이 항상
+// 일치한다(직접 닫으면 다음 뒤로가기가 엉뚱한 걸 닫아버림).
+let uiStack = [];
+function pushUIState(name){
+  if(uiStack[uiStack.length-1]===name) return;   // 중복 오픈 방지
+  uiStack.push(name);
+  history.pushState({claireUI:uiStack.length}, '');
+}
+function closeTopUIState(name){
+  if(uiStack.length && uiStack[uiStack.length-1]===name) history.back();
+}
+window.addEventListener('popstate', ()=>{
+  const name = uiStack.pop();
+  if(name==='reader') closeReaderUI();
+  else if(name==='list') collapseListUI();
+});
+// 모바일 목록(#docs) 확장 상태를 실제로 접는 쪽 — popstate(뒤로가기)와 그래프 영역 탭
+// 양쪽에서 closeTopUIState('list') 를 거쳐 여기로 들어온다.
+function collapseListUI(){
+  document.body.classList.remove('listopen','peek','reading');
+  revealedDocId = null;
+  activeDoc = null;    // #9-5: 목록 접힘 = 문서 선택 해제 — 그래프 하이라이트도 같이 꺼야 함
+  panel.innerHTML = defaultHint();
+  applyView();
+  renderDocs(document.getElementById('docq').value);
+}
 // 함수로 둔 이유: READONLY 는 /whoami 가 비동기로 확정하므로, 호출 시점 기준으로
 // 종합 안내 줄을 넣을지 뺄지 판단해야 한다(고정 문자열이면 초기 로드 시점 값에 박제됨).
 function defaultHint(){
@@ -512,6 +670,20 @@ function defaultHint(){
     '• 우측 위 <b>🌙/🌞</b> 로 라이트·다크 전환</p>';
 }
 panel.innerHTML = defaultHint();
+// #panel 이 기본 힌트가 아닌 실제 내용(문서/노드 상세 등)으로 채워지면 body.reading 을
+// 건다 — 모바일 CSS(@media max-width:820px)가 이걸 보고 #panel 을 화면 전체 슬라이드
+// 오버레이로 밀어 넣는다(그래프 크기는 항상 고정, 절대 안 건드림 — 예전엔 그래프 높이를
+// 접는 방식이었는데 캔버스 리사이즈 동기화가 계속 깨져 사용자 제안으로 전면 개편,
+// 2026-07-15). 패널을 채우는 코드 경로가 여러 곳(selectDoc/loadNode/synth/research/
+// dedup/ingest…)이라 매번 호출부를 늘리는 대신 #panel 자체를 관찰 — 새 경로가 생겨도
+// 자동으로 커버된다.
+function syncReadingState(){
+  document.body.classList.toggle('reading', panel.innerHTML !== defaultHint());
+}
+new MutationObserver(syncReadingState).observe(panel, {childList: true, subtree: true, characterData: true});
+// 모바일 "찔끔" 상태(body.peek)에서 그 살짝 보이는 #panel 조각을 탭하면 전체 오픈
+// (피드백: 우측에 걸쳐 보이다가 터치하면 노드설명 패널이 나오는 식).
+panel.addEventListener('click', ()=>{ if(document.body.classList.contains('peek')) openPeekPanel(); });
 function esc(s){return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 
 // --- 노드 hover 요약 팝업(마우스 위치) — fetch 없이 클라 데이터(allNodes)만 쓴다 ---
@@ -637,6 +809,7 @@ function openReader(docId){
   document.getElementById('rtitle').textContent='문서 불러오는 중…';
   document.getElementById('rbody').innerHTML='';
   r.classList.add('open');
+  pushUIState('reader');
   fetch('document?id='+encodeURIComponent(docId)).then(x=>x.json()).then(dc=>{
     if(!dc || dc.error){ document.getElementById('rbody').innerHTML='<p class=hint>문서를 찾을 수 없습니다.</p>'; return; }
     renderReader(dc);
@@ -661,7 +834,10 @@ function extraSourcesHtml(dc){
     es.map(s=>'<li><a href="'+esc(s.url||'')+'" target=_blank rel=noopener>'+
       esc(s.title||s.url||'')+'</a></li>').join('')+'</ul>';
 }
-function closeReader(){ document.getElementById('reader').classList.remove('open');
+// closeReader 는 ✕/배경 탭/ESC 세 곳에서 호출 — 직접 안 닫고 스택을 거친다(popstate 로
+// closeReaderUI 가 실제로 닫음). 실제 DOM 정리는 closeReaderUI 로 분리.
+function closeReader(){ closeTopUIState('reader'); }
+function closeReaderUI(){ document.getElementById('reader').classList.remove('open');
   const sb=document.getElementById('sharebox'); if(sb) sb.className='sharebox'; }
 
 // --- 문서 공유 핫링크 — 세션 토큰(nginx 통과)과 별개의, 이 문서만 여는 읽기전용 링크 ---
@@ -725,6 +901,106 @@ mobileMQ.addEventListener('change', applyTouchMode);
 // 노드 탭→내용 확인이 주 흐름인데 #panel 이 화면 밖(맨 아래)이라, 명시적 액션 후
 // 결과 위치로 자동 스크롤해 준다(모바일만). hover 미리보기에는 적용하지 않는다.
 function mobileScrollTo(id){ if(mobileMQ.matches) document.getElementById(id).scrollIntoView({behavior:'smooth'}); }
+// 목록이 확장된(listopen) 상태에서 남겨둔 그래프 영역을 만지면 목록을 다시 접는다(사용자
+// 요구). 예전엔 'click'(탭에만 반응, 드래그는 통과)으로 가로챘는데 — 브라우저는 pointer가
+// down→up 사이 일정 거리 이상 움직이면 click 을 안 쏘고 드래그로 처리하므로, 좁게 남은
+// 그래프 스트립에서 드래그(팬 제스처)는 그대로 vis(hammer)로 새어 들어가 카메라가 엉뚱한
+// 위치로 튀는 문제가 있었다(#9-4). pointerdown 을 capture 단계에서 가로채면 드래그
+// "시작" 시점에 바로 잡아 hammer 가 이벤트 자체를 아예 못 받게 된다 — 좁은 스트립에서
+// 의미 있는 팬은 어차피 불가능하므로 listopen 중엔 이 영역의 pan/드래그를 통째로 막는
+// 게 제품적으로도 맞다.
+document.getElementById('netwrap').addEventListener('pointerdown', e=>{
+  if(mobileMQ.matches && document.body.classList.contains('listopen')){
+    e.stopPropagation();
+    e.preventDefault();
+    closeTopUIState('list');
+  }
+}, true);
+// --- 드래그-추종 바텀시트/사이드패널(사용자 요구, #9-2/3) — 지금까지는 탭으로만
+// 스냅 열림/닫힘 했는데, 손가락을 따라 실시간으로 따라오다가 놓으면 스냅되는 진짜
+// 드래그 제스처를 원함(표준 바텀시트/사이드드로어 패턴). 축(세로/가로)·크기 계산만
+// 다르고 나머지(추적→스냅→트랜지션 on/off→탭 오인 방지)는 동일해 공유 헬퍼로 뽑음.
+// "이동 거리 50% 넘으면 열림, 아니면 원위치" 정도로 단순하게(TODO 권장 수준).
+let dragSheetJustDragged = null;   // 드래그 직후 같은 타깃에서 발생하는 click 1회를 흡수(탭 오인 방지)
+document.addEventListener('click', e=>{
+  if(dragSheetJustDragged && (e.target===dragSheetJustDragged || dragSheetJustDragged.contains(e.target))){
+    e.stopPropagation(); e.preventDefault(); dragSheetJustDragged=null;
+  }
+}, true);
+function attachDragSheet(el, opts){
+  // opts: axis:'x'|'y', enabled()->bool, getMetrics()->임의 객체, onMove(delta,metrics), onEnd(delta,metrics)
+  let startX=0, startY=0, dragging=false, metrics=null;
+  el.addEventListener('pointerdown', e=>{
+    if(!mobileMQ.matches || (opts.enabled && !opts.enabled())) return;
+    startX=e.clientX; startY=e.clientY; dragging=false; metrics=null;
+  });
+  el.addEventListener('pointermove', e=>{
+    if(!mobileMQ.matches || (opts.enabled && !opts.enabled())) return;
+    const d = opts.axis==='x' ? e.clientX-startX : e.clientY-startY;
+    if(!dragging){
+      if(Math.abs(d) < 8) return;    // 작은 흔들림은 탭으로 취급(오드래그 방지)
+      dragging = true; metrics = opts.getMetrics(); el.style.transition='none';
+    }
+    e.preventDefault();
+    opts.onMove(d, metrics);
+  }, {passive:false});
+  window.addEventListener('pointerup', e=>{
+    if(!dragging) return;
+    const d = opts.axis==='x' ? e.clientX-startX : e.clientY-startY;
+    dragging = false; el.style.transition='';
+    opts.onEnd(d, metrics);
+    metrics = null;
+    dragSheetJustDragged = el;
+    setTimeout(()=>{ if(dragSheetJustDragged===el) dragSheetJustDragged=null; }, 0);
+  });
+}
+// 목록(#docs) 세로 드래그 — collapsed 상태에서만(펼친 뒤엔 그래프 탭/뒤로가기로 닫는 기존
+// 동선 유지, 목록 내부는 그때부터 자체 스크롤). 높이를 손가락에 맞춰 실시간 갱신하다가
+// 놓으면 50% 기준으로 완전히 펼치거나 원위치 — #wrap 기준 %(38%/79%)를 px 로 환산해 계산.
+attachDragSheet(document.getElementById('docs'), {
+  axis:'y',
+  enabled: () => !document.body.classList.contains('listopen'),
+  getMetrics(){
+    const wrapH = document.getElementById('wrap').getBoundingClientRect().height;
+    return { collapsedPx: wrapH*0.38, openPx: wrapH*0.79,
+             startH: document.getElementById('docs').getBoundingClientRect().height };
+  },
+  onMove(dy, m){   // dy>0 = 손가락이 아래로(줄어듦), dy<0 = 위로(늘어남)
+    const h = Math.min(m.openPx, Math.max(m.collapsedPx, m.startH - dy));
+    document.getElementById('docs').style.height = h+'px';
+  },
+  onEnd(dy, m){
+    document.getElementById('docs').style.height = '';   // 인라인 제거 → CSS 클래스 기준으로 복귀
+    const h = Math.min(m.openPx, Math.max(m.collapsedPx, m.startH - dy));
+    const ratio = (h - m.collapsedPx) / (m.openPx - m.collapsedPx);
+    if(ratio > 0.5){ pushUIState('list'); document.body.classList.add('listopen'); }
+  }
+});
+// 패널(#panel) 가로 드래그 — peek(살짝 걸침) 상태에서 왼쪽으로 끌면 열리고, reading(전체
+// 오픈) 상태에서 오른쪽으로 끌면 다시 peek 로. translateX 를 손가락에 맞춰 실시간 갱신.
+attachDragSheet(document.getElementById('panel'), {
+  axis:'x',
+  enabled: () => document.body.classList.contains('peek') || document.body.classList.contains('reading'),
+  getMetrics(){
+    const W = document.getElementById('panel').getBoundingClientRect().width;
+    const isReading = document.body.classList.contains('reading');
+    return { W, start: isReading ? 0 : (W-26) };
+  },
+  onMove(dx, m){
+    const t = Math.min(m.W, Math.max(0, m.start + dx));
+    document.getElementById('panel').style.transform = 'translateX('+t+'px)';
+  },
+  onEnd(dx, m){
+    document.getElementById('panel').style.transform = '';   // 인라인 제거 → CSS 클래스 기준 복귀
+    const t = Math.min(m.W, Math.max(0, m.start + dx));
+    const wasReading = document.body.classList.contains('reading');
+    if(t < m.W*0.5){    // 절반 이상 열림 쪽 — 완전히 펼침
+      if(!wasReading) openPeekPanel();
+    } else {            // 절반 이상 닫힘 쪽 — peek 로(또는 유지)
+      if(wasReading){ document.body.classList.remove('reading'); document.body.classList.add('peek'); }
+    }
+  }
+});
 // 휠 줌 평탄화: vis 기본 줌은 wheel deltaY '크기'에 비례해 한 이벤트로 여러 단계 점프한다.
 // Mac 트랙패드/매직마우스는 한 제스처에 큰 deltaY 를 모멘텀으로 연속 발사 → "한꺼번에 확대"
 // (사용자 보고). 그래서 zoomView:false 로 두고, 스크롤 '거리'를 누적해 일정량(STEP_DELTA)마다
@@ -799,12 +1075,29 @@ fetch('graph').then(r=>r.json()).then(d=>{
   // true 로 굳어 relayout 이 죽는 더 나쁜 회귀가 됨 → 항상 풀리는 타임아웃을 안전망으로 병행.
   let busyTimer = null;
   function markBusy(ms){ netBusy = true; clearTimeout(busyTimer); busyTimer = setTimeout(()=>{netBusy=false;}, ms); }
-  net.on('dragStart', () => { netBusy = true; });
-  net.on('dragEnd', () => { netBusy = false; });
-  net.on('animationFinished', () => { netBusy = false; clearTimeout(busyTimer); });
+  // dragStart 도 markBusy 로 — 기존엔 여기만 안전망 타임아웃 없이 dragEnd 만 믿었는데,
+  // 이 앱은 모바일에서 touch-action:pan-y 로 세로 스와이프를 일부러 페이지 스크롤에
+  // 양보한다(applyTouchMode) — 즉 vis(hammer) 의 드래그가 dragEnd 없이 브라우저 스크롤에
+  // 가로채여 중간에 끊기는 게 정상 시나리오. 이러면 netBusy 가 영원히 true 로 굳어 그
+  // 뒤로는 문서 선택/해제 등 어떤 리사이즈도 캔버스에 반영 안 됨(사용자 제보: 문서
+  // 선택→해제해도 그래프 영역이 안 돌아옴). 드래그 중엔 어차피 #netwrap 크기가 안
+  // 바뀌므로 짧은 타임아웃으로 풀어도 안전(재측정해도 크기 그대로면 relayout 자체가
+  // no-op).
+  net.on('dragStart', () => markBusy(2000));
+  net.on('dragEnd', () => { netBusy = false; clearTimeout(busyTimer); });
+  net.on('animationFinished', () => { netBusy = false; clearTimeout(busyTimer); clearFitBusy(); });
+  // #9-4(b): fit() 이 카메라를 애니메이션으로 옮기는 도중 사용자가 드래그팬을 시작하면
+  // vis 내부에서 애니메이션과 사용자 입력이 겹쳐 카메라가 엉뚱한 위치로 튀는 것으로
+  // 추정(실기기 재현은 못 함 — 아래 markBusy 의 dragStart 처럼 타이밍 레이스라 로컬
+  // Chromium 으로 재현이 어려운 부류). fit/moveTo(애니메이션) 진행 중엔 짧게
+  // dragView 를 꺼서 애니메이션과 사용자 팬이 아예 겹치지 않게 하는 방어책 — 캔버스가
+  // 실제로 움직이는 700ms 짧은 구간뿐이라 체감상 팬이 씹히는 느낌은 거의 없다.
+  let fitBusyTimer=null;
+  function clearFitBusy(){ clearTimeout(fitBusyTimer); fitBusyTimer=null; net.setOptions({interaction:{dragView:true}}); }
+  function markFitBusy(ms){ net.setOptions({interaction:{dragView:false}}); clearTimeout(fitBusyTimer); fitBusyTimer=setTimeout(clearFitBusy, ms); }
   const _fit = net.fit.bind(net), _moveTo = net.moveTo.bind(net);
-  net.fit = (opts) => { markBusy(700); return _fit(opts); };
-  net.moveTo = (opts) => { if(opts && opts.animation) markBusy(700); return _moveTo(opts); };
+  net.fit = (opts) => { markBusy(700); markFitBusy(700); return _fit(opts); };
+  net.moveTo = (opts) => { if(opts && opts.animation){ markBusy(700); markFitBusy(700); } return _moveTo(opts); };
   net.on('click', p => {
     if(!p.nodes.length){
       // 빈 캔버스 클릭: inspect 만 해제하고 검색(라벨/의미) 강조 선택은 유지(이슈4).
@@ -1248,10 +1541,14 @@ function docItemHtml(dc){
   const pinBtn = READONLY ? '' : '<button class="actbtn'+(pinned?' pinned':'')+'" title="'+(pinned?'즐겨찾기 해제':'즐겨찾기에 추가')+
     '" onclick="event.stopPropagation();togglePin(\\''+dc.id+'\\','+(!pinned)+')">'+(pinned?'⭐':'☆')+'</button>';
   return '<div class="docitem'+(dc.id===activeDoc?' active':'')+(unread?' unread':'')+(hid?' hidden-doc':'')+
+    (dc.id===revealedDocId?' revealed':'')+
     '" onclick="selectDoc(\\''+dc.id+'\\')">'+
-    '<div class=docactions>'+pinBtn+
-    '<button class=actbtn title="크게 읽기" onclick="event.stopPropagation();openReader(\\''+dc.id+'\\')">📖</button>'+
-    '</div>'+
+    '<div class=docactions>'+pinBtn+'</div>'+
+    // readbtn 은 docactions 밖의 형제 요소 — 모바일에서 아이템 우측 전체 높이를 차지하는
+    // 큰 리빌 버튼으로 절대배치하려면 .docitem 기준으로 top/right/bottom 이 걸려야 하는데,
+    // docactions 안에 있으면 그 박스(position:absolute) 가 포함 블록이 되어버려 어긋난다.
+    '<button class="actbtn readbtn" title="크게 읽기" onclick="event.stopPropagation();openReader(\\''+dc.id+'\\')">'+
+    '<span class=rbicon>📖</span><span class=rblabel>크게읽기</span></button>'+
     (watching?'<span class=wbadge title="주기 갱신 추적(watch)">🔄</span>':'')+
     (unread?'<span class=ubadge title="아직 안 본 문서">●</span>':'')+
     '<b>'+esc(dc.title)+'</b><span class=st>'+esc(dc.source_type||'')+'</span>'+
@@ -1270,6 +1567,9 @@ function renderDocs(filter){
 
   document.getElementById('pinnedhead').style.display = pinned.length ? '' : 'none';
   document.getElementById('pinnedlist').innerHTML = pinned.map(docItemHtml).join('');
+  // 모바일 목록 확장 시 즐찾:일반목록 4:6 배분 CSS(#docs.haspinned) 트리거 — 즐찾 없으면
+  // 일반목록이 공간을 전부 씀(빈 40% 안 남게).
+  document.getElementById('docs').classList.toggle('haspinned', pinned.length > 0);
 
   document.getElementById('doclist').innerHTML = rest.length
     ? (()=>{ let html='', curDay=null;
@@ -1325,7 +1625,46 @@ async function panelToggleHide(id, val){
     btn.setAttribute('onclick', "panelToggleHide('"+id+"',"+(!val)+")");
   }
 }
+// 모바일: 문서 상세 패널(#panel) 대신 목록 확장(listopen) + 아이템 탭으로 📖 버튼
+// 리빌 + 크게읽기 흐름으로 개편(사용자 요구, 2026-07-15) — 그래프 캔버스는 이 흐름에서
+// 절대 안 건드린다(리사이즈 버그 계열 재발 방지). 데스크톱은 기존 우측 패널 그대로 유지.
+// 문서 소속 노드들로 화면 이동(전체 fit 이 아니라 그 문서의 노드만 화면에 차게) —
+// 데스크톱·모바일 selectDoc 양쪽에서 공유(피드백: 모바일 리빌 시 이게 빠져있었음).
+function fitToDocNodes(id){
+  if(!net) return;
+  const ids=[]; allNodes.forEach(n=>{ if(!n.hidden && (n.sources||[]).includes(id)) ids.push(n.id); });
+  net.fit(ids.length ? {nodes:ids, animation:true} : {animation:true});
+}
 function selectDoc(id){
+  if(mobileMQ.matches){
+    if(!document.body.classList.contains('listopen')){
+      // 목록이 접혀있으면 첫 탭은 확장만 — 아직 아무것도 선택 안 함.
+      pushUIState('list');
+      document.body.classList.add('listopen');
+      return;
+    }
+    const d0 = allDocs && allDocs.find(d=>d.id===id);
+    if(d0) d0.seen=1;
+    if(revealedDocId===id){
+      // 같은 아이템 재탭 = 리빌·peek 패널 전부 접기.
+      revealedDocId = null;
+      activeDoc = null;    // #9-5: activeDoc 도 같이 해제 — 노드 하이라이트도 함께 꺼진다.
+      document.body.classList.remove('peek','reading');
+      panel.innerHTML = defaultHint();
+    } else {
+      revealedDocId = id;
+      activeDoc = id;      // #9-5: 데스크톱 selectDoc 과 동일하게 activeDoc 세팅 — applyView() 의
+                            // 노드 색 하이라이트(dim/lit)가 activeDoc 만 보므로 이게 없으면 모바일에서
+                            // 그래프 강조가 전혀 안 먹혔다(근본원인: revealedDocId 를 activeDoc 과
+                            // 병렬로 도입하며 activeDoc 을 참조하는 기존 로직들이 모바일에서 조용히 무동작).
+      fitToDocNodes(id);                    // 그래프를 이 문서 노드로 이동(피드백 복원)
+      document.body.classList.remove('reading');
+      document.body.classList.add('peek');  // 우측에 상세 패널 "찔끔" — openPeekPanel 로 완전히 열림
+    }
+    applyView();          // #9-5: activeDoc 변경을 그래프 노드 강조에 반영
+    renderDocs(document.getElementById('docq').value);
+    return;
+  }
   const d0 = allDocs && allDocs.find(d=>d.id===id);
   if(d0) d0.seen=1;                             // 열람 → unread 해제(낙관적; 서버는 /document 가 처리)
   activeDoc = (activeDoc===id ? null : id);     // 같은 문서 재클릭 → 해제
@@ -1333,23 +1672,49 @@ function selectDoc(id){
   renderDocs(document.getElementById('docq').value);
   applyView();
   if(activeDoc){
-    if(net){
-      // 전체 fit 이 아니라 그 문서의 노드들만 화면에 차게 — 최적 줌/위치로 이동(피드백).
-      const ids=[]; allNodes.forEach(n=>{ if(!n.hidden && (n.sources||[]).includes(activeDoc)) ids.push(n.id); });
-      net.fit(ids.length ? {nodes:ids, animation:true} : {animation:true});
-    }
+    fitToDocNodes(activeDoc);
     loadDocPanel(activeDoc);    // 우측 패널: 요약·자세히읽기·노드 버튼
     mobileScrollTo('panel');
   } else {
     panel.innerHTML = defaultHint();             // 해제 시 기본 힌트로 복원
   }
 }
+// 모바일: 문서 선택 시 우측에 "찔끔" 걸쳐 보이는 패널(body.peek) 탭/당김 → 전체 오픈.
+// 내용은 여기서 처음 로드(불필요한 fetch 방지 — peek 상태에선 아직 안 부름).
+function openPeekPanel(){
+  if(!revealedDocId) return;
+  document.body.classList.remove('peek');
+  loadDocPanel(revealedDocId);   // panel.innerHTML 변경 → MutationObserver 가 body.reading 을 켠다
+}
+// 모바일 슬라이드 오버레이의 ✕ 닫기. 문서가 아직 선택된 채(peek 대상 있음)면 완전히
+// 안 닫고 "찔끔" 상태로 되돌아간다(다시 탭하면 재오픈) — 노드 클릭발 오픈이거나
+// 데스크톱이면 기존처럼 완전히 닫는다.
+function closePanelOrPeek(){
+  if(mobileMQ.matches && revealedDocId){
+    document.body.classList.remove('reading');
+    document.body.classList.add('peek');
+  } else {
+    closePanel();
+  }
+}
+// panel.innerHTML 변경이 MutationObserver(syncReadingState)를 타고 body.reading 을
+// 벗겨내 CSS 트랜지션으로 슬라이드 아웃된다(데스크톱은 애초에 버튼이 안 보임).
+function closePanel(){
+  activeDoc = null; selectedNodeId = null; revealedDocId = null;
+  document.body.classList.remove('peek');
+  renderDocs(document.getElementById('docq').value);
+  applyView();
+  panel.innerHTML = defaultHint();
+}
 
 // 좌측 문서 선택 시 우측 패널: 문서 요약 + 자세히 읽기 + '이 문서의 노드' 버튼.
 function loadDocPanel(id){
   panel.innerHTML='<p class=hint>문서 불러오는 중…</p>';
   fetch('document?id='+encodeURIComponent(id)).then(r=>r.json()).then(dc=>{
-    if(activeDoc!==id) return;                  // 그 사이 다른 문서/노드로 이동했으면 무시
+    // 그 사이 다른 문서/노드로 이동했으면 무시(stale 응답 가드) — 데스크톱은 activeDoc,
+    // 모바일 peek 흐름은 revealedDocId 로 "지금 보고 있는 문서"를 추적(둘 다 안 쓰면
+    // 버그: activeDoc 만 보면 모바일에서 항상 null!==id 라 응답이 영원히 버려짐).
+    if(activeDoc!==id && revealedDocId!==id) return;
     if(!dc || dc.error){ panel.innerHTML='<p class=hint>문서를 찾을 수 없습니다.</p>'; return; }
     renderDocPanel(dc);
   }).catch(()=>{ panel.innerHTML='<p class=hint>문서 로드 실패.</p>'; });
