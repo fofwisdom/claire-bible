@@ -460,6 +460,82 @@ def run_api() -> int:
         await resp.write_eof()
         return resp
 
+    async def synth_plan_route(request):
+        # 종합(synthesize) 결과 기반 조사계획 수립 — 단발 LLM 호출이라 스트리밍
+        # 불필요(일반 JSON 응답). 실제 웹조사는 사용자 확인 후 /synthesize/research 에서.
+        if not _authed(request):
+            return web.json_response({"error": "unauthorized"}, status=401)
+        import asyncio
+
+        from ..expand.research import plan_research_from_synthesis
+
+        try:
+            body = await request.json()
+        except Exception:  # noqa: BLE001
+            return web.json_response({"error": "invalid json"}, status=400)
+        ids = body.get("node_ids") or []
+        if not ids:
+            return web.json_response({"error": "node_ids required"}, status=400)
+        synth_answer = body.get("synth_answer") or ""
+
+        def _s():
+            return plan_research_from_synthesis(
+                s, svc.provider, entity_ids=ids, synth_answer=synth_answer)
+
+        return web.json_response(await asyncio.to_thread(_s))
+
+    async def synth_research_route(request):
+        # 승인된 조사계획 실행 — /research 와 동일한 NDJSON 스트리밍 패턴(질문별
+        # 조사+판정 게이트 → 통과분 합성 → 적재까지 수십 초~수 분 걸릴 수 있음).
+        if not _authed(request):
+            return web.json_response({"error": "unauthorized"}, status=401)
+        import asyncio
+        import json
+
+        from ..expand.research import run_planned_research
+
+        try:
+            body = await request.json()
+        except Exception:  # noqa: BLE001
+            return web.json_response({"error": "invalid json"}, status=400)
+        ids = body.get("node_ids") or []
+        questions = body.get("questions") or []
+        if not ids or not questions:
+            return web.json_response({"error": "node_ids/questions required"}, status=400)
+        synth_answer = body.get("synth_answer") or ""
+
+        resp = web.StreamResponse()
+        resp.content_type = "application/x-ndjson"
+        await resp.prepare(request)
+
+        async def send(obj) -> None:  # noqa: ANN001
+            await resp.write((json.dumps(obj, ensure_ascii=False) + "\n").encode())
+
+        loop = asyncio.get_running_loop()
+        events: asyncio.Queue = asyncio.Queue()
+
+        def on_progress(ev: dict) -> None:  # 워커 스레드에서 호출됨
+            loop.call_soon_threadsafe(events.put_nowait, ev)
+
+        fut = asyncio.ensure_future(asyncio.to_thread(
+            run_planned_research, s, svc.provider,
+            entity_ids=ids, synth_answer=synth_answer, questions=questions,
+            progress=on_progress))
+        while not (fut.done() and events.empty()):
+            try:
+                ev = await asyncio.wait_for(events.get(), timeout=0.5)
+            except asyncio.TimeoutError:
+                continue
+            await send(ev)
+        try:
+            out = fut.result()
+        except Exception as e:  # noqa: BLE001
+            log.warning("synthesize/research error: %s", e)
+            out = {"error": str(e), "added": False}
+        await send({"done": True, "result": out})
+        await resp.write_eof()
+        return resp
+
     async def ingest_stream_route(request):
         # 웹 UI 적재 — fetch→추출→그래프 적재→1홉 확장(enqueue)까지 수 초~수십 초 걸리므로
         # /research 와 같은 NDJSON 스트리밍으로 단계 진행({stage,msg})을 실시간 표시하고
@@ -678,6 +754,8 @@ def run_api() -> int:
         web.post("/document/pin", document_pin_route),
         web.post("/document/hide", document_hide_route),
         web.post("/synthesize", synthesize_route),
+        web.post("/synthesize/plan", synth_plan_route),
+        web.post("/synthesize/research", synth_research_route),
         web.post("/research", research_route),
         # 중복 문서 정리(웹) — 진단(GET)·병합(POST, 파괴적·자동백업).
         web.get("/dedup", dedup_scan_route),

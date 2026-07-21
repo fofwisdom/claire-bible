@@ -112,6 +112,26 @@ class ResearchJudgement(BaseModel):
     reason: str = ""
 
 
+class PlannedQuestion(BaseModel):
+    """종합(synthesis) 심화조사 계획의 하위 질문 하나."""
+
+    question: str
+    rationale: str = ""  # 왜 이 질문을 조사할 가치가 있는지(한국어 한 문장)
+
+
+class ResearchPlan(BaseModel):
+    """plan_research() 구조화 출력 — 하위 질문 목록."""
+
+    questions: list[PlannedQuestion] = Field(default_factory=list)
+
+
+class ComposedDocument(BaseModel):
+    """compose_document() 구조화 출력 — 여러 하위조사 결과를 합성한 문서."""
+
+    title: str
+    body: str
+
+
 class FollowSelection(BaseModel):
     """1홉 자동확장 — 따라갈 후보 링크의 인덱스 목록(LLM 이 선별).
 
@@ -285,6 +305,23 @@ class MockProvider:
                 "same_subject": same_subject,
                 "interpretation": f"[mock] '{query}' 를 맥락 내 의미로 해석",
                 "reason": "mock judge"}
+
+    def plan_research(self, context: str, synth_answer: str, n: int) -> list[dict]:
+        """결정론적 stub — 종합→조사계획 파이프라인 배선 검증용(실제 계획은 Gemini).
+
+        synth_answer 앞부분을 소재 삼아 n개의 하위질문을 결정론적으로 만든다."""
+        base = (synth_answer or context or "주제").strip()[:40] or "주제"
+        return [{"question": f"{base} 관련 하위질문 {i + 1}",
+                 "rationale": f"[mock] {i + 1}번째 조사 방향"} for i in range(n)]
+
+    def compose_document(self, context: str, synth_answer: str,
+                         results: list[dict]) -> dict:
+        """결정론적 stub — 다단계 조사 결과 합성 파이프라인 배선 검증용(실제 합성은 Gemini).
+
+        각 결과의 question/report 를 그대로 이어붙인다(품질 보장 안 함)."""
+        body = "\n\n".join(
+            f"## {r.get('question', '')}\n\n{r.get('report', '')}" for r in results)
+        return {"title": f"조사 합성: {(synth_answer or '종합')[:40]}", "body": body}
 
     def select_followups(self, context: str, candidates: list[dict]) -> list[int]:
         """결정론적 stub — 1홉 확장에서 따라갈 후보 선별(파고들지 여부=LLM 결정 모사).

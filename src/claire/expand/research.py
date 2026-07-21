@@ -151,16 +151,17 @@ def _research_doc_text(query: str, focus: str, interpretation: str,
 
 
 def _ingest_report_doc(settings, provider, conn: sqlite3.Connection,  # noqa: ANN001
-                       query: str, text: str) -> dict:
+                       query: str, text: str, *, source_type: str = "research",
+                       source: str = "research", title: str | None = None) -> dict:
     from ..ingest.normalize import content_hash
     from ..ingest.pipeline import ingest as run_ingest
     from ..ontology.base import Document
     from ..store.vectors import make_vector_store
 
     doc = Document(
-        title=f"조사: {query[:60]}",
+        title=title or f"조사: {query[:60]}",
         raw_text=text,
-        source_type="research",
+        source_type=source_type,
         content_hash=content_hash(text),
     )
     vstore = make_vector_store(conn, settings.vector_backend)
@@ -169,7 +170,7 @@ def _ingest_report_doc(settings, provider, conn: sqlite3.Connection,  # noqa: AN
     rep = run_ingest(
         text, conn=conn, provider=provider, vstore=vstore,
         vault_dir=settings.vault_dir, data_dir=settings.data_dir,
-        expand_max=0, source="research", fetch_fn=lambda _p: doc,
+        expand_max=0, source=source, fetch_fn=lambda _p: doc,
     )
     return {
         "document_id": rep.document_id, "error": rep.error,
@@ -180,3 +181,150 @@ def _ingest_report_doc(settings, provider, conn: sqlite3.Connection,  # noqa: AN
         "new_entity_names": rep.new_entity_names,
         "linked_entity_names": rep.linked_entity_names,
     }
+
+
+# --- 종합(synthesis) → 조사계획 → 다중 웹조사 → 문서합성 → 적재 -----------------
+#
+# 사용자 흐름(2026-07-21 요구): 그래프 UI 에서 "🧩 종합"으로 여러 노드를 요약한
+# 뒤, 그 답변을 더 깊고 정확하게 만들 하위 조사질문 계획을 세워 사용자에게
+# 보여주고(비용이 드는 실제 웹조사 전에 확인/수정 기회) → 승인된 질문들로 위
+# contextual_research() 와 같은 조사(grounding)+판정 게이트를 하나씩 통과시킨 뒤
+# → 통과분을 하나의 고품질 문서로 합성 → 그래프에 적재.
+
+
+def plan_research_from_synthesis(settings, provider, *, entity_ids: list[str],  # noqa: ANN001
+                                 synth_answer: str) -> dict:
+    """종합 결과를 바탕으로 하위 조사질문 계획(단일 LLM 호출, 웹검색·적재 없음).
+
+    반환: {questions:[{question,rationale}], entities:[name,...]} 또는 {error}.
+    """
+    if not entity_ids:
+        return {"error": "entity_ids required"}
+    if not hasattr(provider, "plan_research"):
+        return {"error": "이 provider 는 조사계획을 지원하지 않습니다"}
+
+    conn = dbm.connect(settings.db_file)
+    dbm.init_db(conn)
+    try:
+        from ..graphview import synthesis_context
+
+        context, names = synthesis_context(conn, entity_ids)
+        if not context:
+            return {"error": "선택된 노드를 찾을 수 없습니다"}
+        n = max(1, min(settings.research_plan_max, 10))  # 안전 상한(비용 폭주 방지)
+        questions = provider.plan_research(context, synth_answer or "", n)
+        return {"questions": questions, "entities": names}
+    finally:
+        conn.close()
+
+
+def run_planned_research(settings, provider, *, entity_ids: list[str],  # noqa: ANN001
+                         synth_answer: str, questions: list[str],
+                         progress=None) -> dict:
+    """승인된 하위질문들을 조사→판정 게이트→(통과분만 모아) 합성→적재.
+
+    일부 질문이 게이트 탈락해도 나머지 통과분으로 진행한다(오염된 하나 때문에
+    전체를 버리지 않음). 전부 탈락하면 실패 반환(added=False, error).
+
+    progress: contextual_research() 와 동일한 Callable[[dict], None] | None —
+    {stage, msg} 단계 이벤트(NDJSON 스트림용). provider 내부 rate-limit 대기도
+    스레드-로컬 콜백으로 같은 채널에 합류한다.
+
+    반환: {questions_total, passed, rejected, document, added, ingest?, error?}
+    """
+    from ..extract.provider import set_progress_callback
+
+    def _p(stage: str, msg: str) -> None:
+        if progress:
+            try:
+                progress({"stage": stage, "msg": msg})
+            except Exception:  # noqa: BLE001
+                pass
+
+    entity_ids = entity_ids or []
+    questions = [q.strip() for q in (questions or []) if q.strip()]
+    if not entity_ids or not questions:
+        return {"error": "entity_ids/questions required", "added": False}
+    if not (hasattr(provider, "research") and hasattr(provider, "judge_research")
+            and hasattr(provider, "compose_document")):
+        return {"error": "이 provider 는 다단계 조사를 지원하지 않습니다", "added": False}
+
+    conn = dbm.connect(settings.db_file)
+    dbm.init_db(conn)
+    set_progress_callback(lambda m: _p("llm", m))
+    try:
+        from ..graphview import synthesis_context
+
+        context, names = synthesis_context(conn, entity_ids)
+        if not context:
+            return {"error": "선택된 노드를 찾을 수 없습니다", "added": False}
+
+        passed: list[dict] = []
+        rejected: list[dict] = []
+        total = len(questions)
+        for i, q in enumerate(questions, 1):
+            _p("research", f"({i}/{total}) 조사 중: {q}")
+            r = provider.research(q, context)
+            report = (r.get("report") or "").strip()
+            sources = r.get("sources") or []
+            if not report or report.splitlines()[0].strip().upper().startswith("INSUFFICIENT"):
+                rejected.append({"question": q, "reason": "조사 불충분 — 신뢰할 자료를 찾지 못함"})
+                continue
+            judge = provider.judge_research(q, context, report)
+            rel = float(judge.get("relevance") or 0.0)
+            qual = float(judge.get("quality") or 0.0)
+            if rel < RELEVANCE_MIN or qual < QUALITY_MIN:
+                rejected.append({"question": q,
+                                 "reason": f"게이트 미달(맥락일치 {rel:.2f}/품질 {qual:.2f})"})
+                continue
+            passed.append({"question": q, "report": report, "sources": sources,
+                           "relevance": rel, "quality": qual})
+            _p("research", f"({i}/{total}) 통과 — 맥락일치 {rel:.2f} · 품질 {qual:.2f}")
+
+        base = {"questions_total": total, "passed": passed, "rejected": rejected,
+               "added": False}
+        if not passed:
+            base["error"] = "모든 하위질문이 게이트를 통과하지 못했습니다"
+            return base
+
+        _p("compose", f"통과 {len(passed)}건 종합 문서 작성 중…")
+        composed = provider.compose_document(context, synth_answer or "", passed)
+        base["document"] = composed
+
+        all_sources: list[dict] = []
+        seen: set[str] = set()
+        for r in passed:
+            for s in r.get("sources", []):
+                u = s.get("url")
+                if u and u not in seen:
+                    seen.add(u)
+                    all_sources.append(s)
+
+        text = _compose_doc_text(composed, all_sources)
+        # ingest 세부 단계 메시지가 끼어들지 않게(contextual_research 와 동일 관례).
+        set_progress_callback(None)
+        _p("ingest", "게이트 통과 — 그래프 적재 중(추출→엔티티 해소→관계→임베딩)…")
+        ing = _ingest_report_doc(
+            settings, provider, conn, composed.get("title") or "조사 합성", text,
+            source_type="synthesis_research", source="synthesis-research",
+            title=composed.get("title"),
+        )
+        base["added"] = ing.get("error") is None
+        base["ingest"] = ing
+        if base["added"]:
+            _p("ingest", f"적재 완료 — 신규 {ing['entities_created']} · "
+                         f"기존연결 {ing['entities_linked']} · 관계 {ing['relations_added']}")
+        else:
+            base["error"] = f"적재 실패: {ing.get('error')}"
+        return base
+    finally:
+        set_progress_callback(None)
+        conn.close()
+
+
+def _compose_doc_text(composed: dict, sources: list[dict]) -> str:
+    body = composed.get("body") or ""
+    if sources:
+        body += "\n\n출처:\n" + "\n".join(
+            f"- {s.get('title') or s.get('url')}: {s.get('url')}" for s in sources[:20])
+    return body

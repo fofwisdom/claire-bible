@@ -16,8 +16,8 @@ import time as _time
 from ..ontology.base import Document
 from ..ontology.registry import ontology_prompt_block
 from .provider import (
-    ExtractionResult, FollowSelection, MergeCandidate, ResearchJudgement,
-    WatchClassification, emit_progress,
+    ComposedDocument, ExtractionResult, FollowSelection, MergeCandidate,
+    ResearchJudgement, ResearchPlan, WatchClassification, emit_progress,
 )
 
 # 추출 프롬프트 버전. _SYS 를 바꾸면 올린다(재적재 시 어떤 프롬프트로 뽑았는지 추적).
@@ -406,6 +406,91 @@ class GeminiProvider:
         except Exception:  # noqa: BLE001
             return {"relevance": 0.0, "quality": 0.0, "same_subject": False,
                     "interpretation": "", "reason": "판정 응답 파싱 실패"}
+
+    def plan_research(self, context: str, synth_answer: str, n: int) -> list[dict]:
+        """종합(synthesis) 답변을 더 깊고 정확하게 만들 하위 조사질문 n개를 계획.
+
+        단일 LLM 호출, 검색 없음(계획만) — 실제 웹조사는 이후 research()에서 수행.
+        좋은 계획의 기준: 종합 답변이 이미 다루는 내용을 반복하지 않고, 답변에서
+        빠졌거나 모호하게 남은 부분·구체적 수치/비교·최신 동향처럼 "조사하면 그래프
+        품질이 실제로 올라가는" 지점을 겨냥한다(사용자 요구, 2026-07-21)."""
+        from google.genai import types as gtypes
+
+        prompt = (
+            f"아래는 지식그래프에서 여러 노드를 종합해 만든 답변이다. 이 답변을 더 깊고 "
+            f"정확하게 만들기 위해 웹에서 추가로 조사할 가치가 있는 구체적인 하위 질문을 "
+            f"정확히 {n}개 계획하라.\n\n"
+            "규칙:\n"
+            "1. 이미 [종합 답변]에 있는 내용을 반복하지 말 것 — 답변에서 빠졌거나 "
+            "모호하거나 오래됐을 수 있는 부분, 구체적 수치·비교·최신 동향처럼 조사하면 "
+            "가치가 더해지는 지점을 겨냥하라.\n"
+            "2. 각 질문은 그 자체로 웹 검색 가능한 구체적 문장이어야 한다(너무 추상적인 "
+            "질문 금지).\n"
+            "3. rationale 은 왜 이 질문이 가치있는지 한국어 한 문장.\n\n"
+            f"[종합 답변]\n{synth_answer}\n\n[원본 맥락]\n{context[:6000]}"
+        )
+        cfg = gtypes.GenerateContentConfig(
+            response_mime_type="application/json",
+            response_schema=ResearchPlan,
+            temperature=0.4,
+        )
+        resp = self._call(lambda: self.client.models.generate_content(
+            model=self.model, contents=prompt, config=cfg))
+        parsed = getattr(resp, "parsed", None)
+        if isinstance(parsed, ResearchPlan):
+            qs = parsed.questions
+        else:
+            try:
+                import json
+
+                qs = ResearchPlan(**json.loads(resp.text or "")).questions
+            except Exception:  # noqa: BLE001
+                qs = []
+        return [q.model_dump() for q in qs[:n]]
+
+    def compose_document(self, context: str, synth_answer: str,
+                         results: list[dict]) -> dict:
+        """여러 하위조사 결과 + 원 종합 답변을 하나의 고품질 마크다운 문서로 합성.
+
+        단일 LLM 호출. render_detail()과 같은 마크다운 규칙(소제목/**굵게**/절제된
+        ==형광==/음차 금지/사실 날조 금지)을 따르되, 목적은 여러 조사 결과를 짜깁기가
+        아니라 하나의 일관된 글로 재구성하는 것 — 각 결과의 핵심을 빠짐없이 담는다."""
+        from google.genai import types as gtypes
+
+        findings = "\n\n".join(
+            f"### 하위조사: {r.get('question', '')}\n{r.get('report', '')}"
+            for r in results)
+        prompt = (
+            "아래는 지식그래프 종합 답변과, 그것을 보강하기 위해 수행한 여러 웹 조사 "
+            "결과다. 이들을 통합해 하나의 완결된 한국어 마크다운 문서로 작성하라 — 각 "
+            "조사 결과를 짜깁기하지 말고 하나의 일관된 글로 재구성하되 핵심 내용은 "
+            "빠짐없이 담아라.\n\n"
+            "작성 규칙:\n"
+            "1. `##`/`###` 소제목과 문단으로 구조화하고, 나열은 `-` 불릿을 써라.\n"
+            "2. 중요한 용어·핵심 주장은 **굵게**, 정말 핵심인 한두 구절만 `==형광==`으로 "
+            "강조(남발 금지).\n"
+            "3. 고유명사·제품/도구/모델명·기술 용어는 원문 형태 유지(음차 금지). 원문에 "
+            "없는 사실은 절대 지어내지 말 것.\n"
+            "4. title 은 이 문서 전체를 대표하는 짧은 한국어 제목 하나로 별도 반환하라.\n\n"
+            f"[종합 답변]\n{synth_answer}\n\n[하위조사 결과]\n{findings}"
+        )
+        cfg = gtypes.GenerateContentConfig(
+            response_mime_type="application/json",
+            response_schema=ComposedDocument,
+            temperature=0.3,
+        )
+        resp = self._call(lambda: self.client.models.generate_content(
+            model=self.model, contents=prompt, config=cfg))
+        parsed = getattr(resp, "parsed", None)
+        if isinstance(parsed, ComposedDocument):
+            return parsed.model_dump()
+        try:
+            import json
+
+            return ComposedDocument(**json.loads(resp.text or "")).model_dump()
+        except Exception:  # noqa: BLE001
+            return {"title": f"조사 합성: {(synth_answer or '종합')[:40]}",
+                    "body": findings}
 
     def select_followups(self, context: str, candidates: list[dict]) -> list[int]:
         """1홉 자동확장 — 부모 문서 맥락에서 따라갈(파고들) 가치가 있는 링크를 선별.

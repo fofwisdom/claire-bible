@@ -48,6 +48,9 @@ class Settings(BaseSettings):
 
     # --- expansion ---
     expand_max: int = Field(default=5, alias="CLAIRE_EXPAND_MAX")
+    # 종합→조사계획(하위 질문) 기본 개수. 많을수록 문서 품질/깊이는 오르지만 웹조사
+    # LLM 호출 수·시간·비용도 비례해서 늘어난다(사용자 요구, 2026-07-21).
+    research_plan_max: int = Field(default=3, alias="CLAIRE_RESEARCH_PLAN_MAX")
     # 1홉 자동확장: 적재 문서의 링크를 LLM 이 선별→판정→적재(백그라운드 expand-loop).
     # 기본 ON. 끄면(0) 확장 안 함(텔레그램 confirm 버튼 경로도 비활성).
     auto_expand: bool = Field(default=True, alias="CLAIRE_AUTO_EXPAND")

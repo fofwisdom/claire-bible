@@ -284,6 +284,10 @@ GRAPH_HTML = """<!doctype html>
      강제 승격해 캔버스 리페인트의 페인트 경계를 분리하는 표준 완화책(원인 미확정, 가설). */
   #docs{width:280px;display:flex;flex-direction:column;background:var(--docs-bg);border-right:1px solid var(--border);font-size:12px;transform:translateZ(0)}
   #docs .dhead{padding:8px 10px;border-bottom:1px solid var(--border);flex-shrink:0}
+  /* 모바일 바텀시트(#docs) 드래그 핸들 — 데스크톱 3분할 레이아웃에선 의미 없으니 숨김.
+     실제 드래그 감지는 attachDragSheet(el) 가 #docs 전체에 걸려있어 이 막대 자체엔 별도
+     이벤트 리스너가 필요 없다(순전히 "여길 끌 수 있다"는 시각적 신호, 사용자 요구). */
+  #draghandle{display:none}
   /* 즐겨찾기(고정) 섹션 — 많아져도 패널을 다 잡아먹지 않게 최대높이+스크롤(사용자 요구:
      '즐찾 많아질 때 대비'), 일반 목록도 min-height 로 항상 일정 공간 확보. */
   /* 즐겨찾기 구간은 본문 목록(#doclist, --docs-bg 그대로)과 배경을 다르게 — 얇은 테두리
@@ -295,6 +299,12 @@ GRAPH_HTML = """<!doctype html>
   #pinnedlist{max-height:32%;overflow-y:auto;flex-shrink:0;border-bottom:2px solid var(--border);
     background:rgba(227,179,65,.10)}
   #doclist{flex:1;min-height:120px;overflow-y:auto}
+  /* 모바일에서만 쓰는 즐겨찾기/전체 탭(아래 @media 참고) — 데스크톱 사이드바는 세로 공간이
+     넉넉해 즐찾+전체 동시 노출이 안 좁으므로 그대로 두고 숨김. */
+  #doctabs{display:none;border-bottom:1px solid var(--border)}
+  #doctabs button{flex:1;border-radius:0;font-size:11.5px;padding:7px 0}
+  #doctabs button.sec{background:transparent;color:var(--muted)}
+  #doctabs button.active{color:var(--fg);font-weight:600;box-shadow:inset 0 -2px var(--accent)}
   .dday{position:sticky;top:0;background:var(--bar-bg);color:var(--accent2);font-size:11px;padding:3px 10px;border-bottom:1px solid var(--border);z-index:1}
   .docitem{min-height:34px;padding:7px 78px 7px 10px;border-bottom:1px solid var(--border);cursor:pointer;position:relative;overflow:hidden}
   .docitem:hover{background:var(--hover)}
@@ -337,6 +347,11 @@ GRAPH_HTML = """<!doctype html>
      토큰이 낀 요약(.synth)엔 그게 없어 모바일에서 패널 밖으로 글자가 삐져나가던 버그
      (사용자 제보: 글 선택 시 레이아웃 깨짐) — 개별 땜질 대신 컨테이너 레벨로 고정. */
   #panel{width:360px;overflow:auto;padding:14px 16px;background:var(--panel-bg);border-left:1px solid var(--border);font-size:13px;line-height:1.5;word-break:break-word;transform:translateZ(0)}
+  /* #panelclose/#panelpeek 는 모바일 전용 오버레이 버튼(아래 @media 안에서만 position:fixed +
+     조건부 display:block 부여). 데스크톱 기본값이 빠져있어 #wrap 의 평범한 flex 자식으로
+     그대로 노출됐었다 — 버튼 전역 기본색(녹색)까지 그대로 남아 "우측의 의미 없는 녹색
+     버튼 2개"로 보였음(사용자 제보, 2026-07-21). 데스크톱에서는 항상 숨김. */
+  #panelclose,#panelpeek{display:none}
   #panel h2{margin:.2em 0;font-size:18px} #panel h2 small{color:var(--muted);font-size:12px;font-weight:normal}
   #panel h3{margin:1em 0 .3em;font-size:13px;color:var(--accent2);border-bottom:1px solid var(--border);padding-bottom:2px}
   #panel ul{margin:.2em 0;padding-left:18px} #panel li{margin:.25em 0}
@@ -456,6 +471,11 @@ GRAPH_HTML = """<!doctype html>
     #docs{width:auto;position:absolute;left:0;right:0;bottom:0;z-index:10;overflow:hidden;
       height:38%;transition:height .28s ease;border-right:none;
       border-top:1px solid var(--border);box-shadow:0 -4px 14px var(--shadow)}
+    /* 사용자 요구: 목록을 끌어올린 뒤 "다시 내릴 수 있음"을 알려주는 손잡이가 없었음 —
+       리스트 레이아웃 최상단에 잡을 수 있는 막대(pill) 표식 추가. #docs 전체가 이미
+       드래그 대상(attachDragSheet)이라 이 막대도 자동으로 같이 끌린다. */
+    #draghandle{display:flex;justify-content:center;padding:7px 0 3px;flex-shrink:0}
+    #draghandle::before{content:'';width:36px;height:4px;border-radius:2px;background:var(--border)}
     body.listopen #docs{height:79%}
     #docs .dhead{position:static}
     /* #zoomctl(+/−) 이 #netwrap 바닥에 붙어있는데, 이제 #docs 가 그 자리를 덮으므로
@@ -463,11 +483,16 @@ GRAPH_HTML = """<!doctype html>
        — 그때는 그래프를 탭해 목록부터 접는 게 자연스러운 동선). %는 #netwrap 자기 높이
        기준(포함 블록)이라 #docs 의 %와 같은 값으로 맞아떨어진다. */
     #zoomctl{bottom:calc(38% + 14px)}
-    /* 즐겨찾기:일반목록 = 4:6(사용자 요구). flex-basis:0 로 콘텐츠 크기 무시하고 순수
-       비율로 분배 — #pinnedlist/#doclist 둘 다 자체 overflow-y:auto 라 넘치면 각자 스크롤.
-       즐찾이 없으면(.haspinned 없음) 일반목록이 공간을 전부 쓴다(base #doclist{flex:1}). */
-    #docs.haspinned #pinnedlist{flex:4 1 0;max-height:none;min-height:0}
-    #docs.haspinned #doclist{flex:6 1 0;min-height:0}
+    /* 즐찾:전체 4:6 동시분할(예전 방식)이 "이중으로 나와서 좁다"는 피드백(2026-07-21) —
+       탭으로 분리해 활성 탭 쪽이 남는 공간을 전부 쓰게 바꾼다. 즐찾이 없으면(.haspinned
+       없음) 탭 자체를 안 보여주고 #doclist 가 공간을 전부 쓴다(base #doclist{flex:1}).
+       #pinnedhead("⭐ 즐겨찾기" 라벨)는 탭 라벨과 중복이라 모바일 탭 모드에선 계속 숨김
+       — 대신 #pinnedlist 가 활성 탭일 때 화면 전체를 쓴다. */
+    #docs.haspinned #doctabs{display:flex}
+    #docs.haspinned #pinnedhead,#docs.haspinned #pinnedlist{display:none}
+    #docs.haspinned #doclist{min-height:0}
+    #docs.haspinned.tab-pinned #pinnedlist{display:block;flex:1;max-height:none;min-height:0;border-bottom:0}
+    #docs.haspinned.tab-pinned #doclist{display:none}
     /* 피드백: ⭐(즐찾)이 우측 상단에 있으면 리빌 배지(📖, 바로 아래)와 손가락 하나
        폭 안에 붙어있어 손가락이 두꺼우면 오탭하기 쉽다 — 모바일에서만 ⭐을 아이템
        좌측으로 옮겨 우측은 리빌 배지 전용 공간으로 비운다(데스크톱은 마우스라
@@ -542,6 +567,13 @@ GRAPH_HTML = """<!doctype html>
     body.reading #panelclose{display:block}
     #reader{padding:0} #reader .sheet{max-height:100vh;border-radius:0;height:100vh}
     #reader .rbody{padding:8px 16px 0}
+    /* 사용자 제보: 크게읽기(#reader) 헤더에서 제목(h1, flex:1)이 A−/A+/🔗/✕ 버튼들과
+       한 줄에서 폭을 나눠 쓰다 보니 좁은 화면에선 버튼 4개(약 200px)+패딩을 뺀 나머지가
+       너무 좁아져 제목이 짓눌림. flex-wrap 으로 제목을 자기 줄에 단독 배치(basis 100%)하고
+       버튼들은 다음 줄로 내려 분리 — 버튼 줄은 우측 정렬 유지. */
+    #reader .rhead{flex-wrap:wrap}
+    #reader .rhead h1{flex:0 0 100%}
+    #reader .rhead .rzoom{margin-left:auto}
   }
 </style></head>
 <body>
@@ -563,12 +595,16 @@ GRAPH_HTML = """<!doctype html>
 </div>
 <div id="legendbar"></div>
 <div id="wrap">
-  <div id="docs"><div class="dhead"><input id="docq" placeholder="문서 검색(제목·요약)" oninput="renderDocs(this.value)" style="width:92%"/>
+  <div id="docs"><div id="draghandle" aria-hidden="true"></div><div class="dhead"><input id="docq" placeholder="문서 검색(제목·요약)" oninput="renderDocs(this.value)" style="width:92%"/>
     <select id="desclines" onchange="setDescLines(this.value)" title="목록 설명 줄수" style="width:92%;margin-top:5px;font-size:11px">
       <option value="0">설명 0줄(제목만)</option>
       <option value="2">설명 2줄</option>
       <option value="4">설명 4줄</option>
     </select></div>
+    <div id="doctabs">
+      <button class="sec active" data-tab="all" onclick="setDocTab('all')">📄 전체</button>
+      <button class="sec" data-tab="pinned" onclick="setDocTab('pinned')">⭐ 즐겨찾기</button>
+    </div>
     <div id="pinnedhead" style="display:none">⭐ 즐겨찾기</div>
     <div id="pinnedlist"></div>
     <div id="doclist"><p class="hint" style="padding:10px">문서 로딩…</p></div>
@@ -625,6 +661,9 @@ let clusterEdges=null;   // 검색 결과를 뭉치게 한 임시 spring 엣지 
 let clusterAnchor=null;  // 검색 시 중앙 앵커 노드 id(매칭은 끌고 비매칭은 밀어냄) — 해제 시 제거
 let searchDebounce=null; // 라벨검색 디바운스 타이머 — 타이핑 멈춘 뒤에만 검색 실행
 let synthSet=new Set();
+// 종합→조사계획 확인 UI 상태(사용자 요구, 2026-07-21) — 계획은 사용자가 체크박스로
+// 확인/수정한 뒤에만 실제 웹조사(비용 발생)로 넘어간다.
+let synthPlanEntityIds=[], synthPlanAnswer='', synthPlanEntityNames=[], synthPlanQuestions=[];
 let READONLY=false;   // /whoami 로 확정(아래 init) — true 면 쓰기 UI(적재/종합/조사/즐겨찾기/숨기기/공유) 렌더 안 함
 let allRelTypes=[], relFilter=null;          // 관계 타입 필터: null=전체, Set=선택 타입만 표시
 let pathMode=false, pathPicks=[], pathNodes=null, pathEdges=null;  // 2노드 경로 하이라이트(전용 모드)
@@ -1556,6 +1595,12 @@ function docItemHtml(dc){
 }
 let showHidden = false;
 function toggleShowHidden(){ showHidden=!showHidden; renderDocs(document.getElementById('docq').value); }
+// 모바일 전용 즐찾/전체 탭 전환 — #docs.tab-pinned 클래스로 CSS(위 @media) 가 표시를 가른다.
+function setDocTab(tab){
+  document.getElementById('docs').classList.toggle('tab-pinned', tab==='pinned');
+  document.querySelectorAll('#doctabs button').forEach(b=>
+    b.classList.toggle('active', b.dataset.tab===tab));
+}
 function renderDocs(filter){
   const q=(filter||'').trim().toLowerCase();
   const match = dc => !q || (dc.title+' '+dc.summary).toLowerCase().includes(q);
@@ -1567,9 +1612,10 @@ function renderDocs(filter){
 
   document.getElementById('pinnedhead').style.display = pinned.length ? '' : 'none';
   document.getElementById('pinnedlist').innerHTML = pinned.map(docItemHtml).join('');
-  // 모바일 목록 확장 시 즐찾:일반목록 4:6 배분 CSS(#docs.haspinned) 트리거 — 즐찾 없으면
+  // 모바일 목록 확장 시 즐찾/전체 탭(#doctabs) 노출 트리거 — 즐찾 없으면 탭 자체를 숨기고
   // 일반목록이 공간을 전부 씀(빈 40% 안 남게).
   document.getElementById('docs').classList.toggle('haspinned', pinned.length > 0);
+  if(!pinned.length) setDocTab('all');   // 즐찾이 비면 즐찾 탭에 머물러 있지 않게 리셋
 
   document.getElementById('doclist').innerHTML = rest.length
     ? (()=>{ let html='', curDay=null;
@@ -1879,11 +1925,106 @@ async function synth(){
    .then(r=> { if(r.status===401||r.status===404){ setAuth('idle'); return {error:'세션 만료 — 텔레그램 /web 으로 다시 접속하세요'}; } return r.json(); })
    .then(d=>{
      if(d.error){ panel.innerHTML='<p class=hint>오류: '+esc(d.error)+'</p>'; return; }
-     let h='<h2>🧩 종합 지식 <small>'+d.entities.length+'개 노드</small></h2>';
-     h+='<div class=synth>'+esc(d.answer)+'</div>';
-     h+='<p class=al>대상: '+d.entities.map(esc).join(', ')+'</p>';
-     panel.innerHTML=h;
+     synthPlanEntityIds=ids; synthPlanAnswer=d.answer; synthPlanEntityNames=d.entities;
+     renderSynthAnswer();
    }).catch(e=>{ panel.innerHTML='<p class=hint>요청 실패: '+esc(String(e))+'</p>'; });
+}
+// synth() 결과 화면 렌더 — 조사계획에서 "취소"로 돌아올 때도 재사용(재요청 없이,
+// 이미 받아둔 synthPlanAnswer/synthPlanEntityNames 로 그린다 — LLM 재호출 낭비 방지).
+function renderSynthAnswer(){
+  let h='<h2>🧩 종합 지식 <small>'+synthPlanEntityNames.length+'개 노드</small></h2>';
+  h+='<div class=synth>'+esc(synthPlanAnswer)+'</div>';
+  h+='<p class=al>대상: '+synthPlanEntityNames.map(esc).join(', ')+'</p>';
+  // readonly(/webro) 세션은 /synthesize/plan 도 서버에서 막혀있어 버튼 자체를 안 그림.
+  if(!READONLY) h+='<div style="margin-top:.6em"><button onclick="openSynthPlan()">'+
+    '🧭 조사계획 세우기</button></div>';
+  panel.innerHTML=h;
+}
+
+// --- 종합 → 조사계획 확인(체크박스) → 승인된 질문 실행조사 → 문서합성 → 적재 ---
+// 사용자 요구(2026-07-21): 종합 결과만으로 끝나지 않고, 그걸 바탕으로 조사계획을
+// 세워 웹으로 심화조사한 뒤 고품질 문서를 만들어 그래프에 적재. 비용이 드는 실제
+// 웹조사 전에 계획을 사용자가 체크박스로 확인/제외할 수 있게(원클릭 전자동 아님).
+async function openSynthPlan(){
+  panel.innerHTML='<p class=hint>🧭 조사계획 세우는 중… (LLM 호출)</p>';
+  mobileScrollTo('panel');
+  let d;
+  try{
+    const r=await fetch('synthesize/plan',{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({node_ids:synthPlanEntityIds, synth_answer:synthPlanAnswer})});
+    if(r.status===401||r.status===404){ setAuth('idle');
+      panel.innerHTML='<p class=hint>세션 만료 — 텔레그램 /web 으로 다시 접속하세요</p>'; return; }
+    d=await r.json();
+  }catch(e){ panel.innerHTML='<p class=hint>계획 요청 실패: '+esc(String(e))+'</p>'; return; }
+  renderSynthPlan(d);
+}
+function renderSynthPlan(d){
+  if(d.error){ panel.innerHTML='<p class=hint>오류: '+esc(d.error)+'</p>'; return; }
+  synthPlanQuestions=(d.questions||[]).map(q=>({question:q.question, rationale:q.rationale, checked:true}));
+  if(!synthPlanQuestions.length){
+    panel.innerHTML='<p class=hint>조사할 만한 하위질문을 찾지 못했습니다.</p>'; return;
+  }
+  let h='<h2>🧭 조사계획</h2><p class=al>체크한 질문만 실제 웹조사(비용 발생)로 넘어갑니다.</p><ul id="planlist">';
+  synthPlanQuestions.forEach((q,i)=>{
+    h+='<li style="margin:.5em 0;list-style:none"><label><input type=checkbox checked '+
+      'onchange="togglePlanQ('+i+')"> <b>'+esc(q.question)+'</b></label>'+
+      (q.rationale?'<div class=al style="margin-left:1.6em">'+esc(q.rationale)+'</div>':'')+'</li>';
+  });
+  h+='</ul><button onclick="runSynthResearch()">이대로 조사 시작</button> '+
+    '<button class="sec" onclick="renderSynthAnswer()">취소</button>';
+  panel.innerHTML=h;
+}
+function togglePlanQ(i){ if(synthPlanQuestions[i]) synthPlanQuestions[i].checked=!synthPlanQuestions[i].checked; }
+async function runSynthResearch(){
+  const qs=synthPlanQuestions.filter(q=>q.checked).map(q=>q.question);
+  if(!qs.length){ alert('최소 한 개는 체크하세요.'); return; }
+  panel.innerHTML='<h2>🧭 조사 진행 중</h2><p class="al" id="srelapsed">시작…</p><ul id="srprog"></ul>';
+  mobileScrollTo('panel');
+  const t0=Date.now();
+  const timer=setInterval(()=>{ const el=document.getElementById('srelapsed');
+    if(el) el.textContent='⏱ 경과 '+Math.round((Date.now()-t0)/1000)+'s'; else clearInterval(timer); },1000);
+  let result=null;
+  try{
+    const r=await fetch('synthesize/research',{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({node_ids:synthPlanEntityIds, synth_answer:synthPlanAnswer, questions:qs})});
+    if(r.status===401||r.status===404){ clearInterval(timer); setAuth('idle');
+      panel.innerHTML='<p class=hint>세션 만료 — 텔레그램 /web 으로 다시 접속하세요</p>'; return; }
+    const reader=r.body.getReader(), dec=new TextDecoder(); let buf='';
+    while(true){
+      const {done,value}=await reader.read(); if(done) break;
+      buf+=dec.decode(value,{stream:true});
+      let i; while((i=buf.indexOf('\\n'))>=0){
+        const line=buf.slice(0,i).trim(); buf=buf.slice(i+1);
+        if(!line) continue;
+        let ev; try{ ev=JSON.parse(line); }catch(_){ continue; }
+        if(ev.done){ result=ev.result; continue; }
+        const ul=document.getElementById('srprog');
+        if(ul){ const li=document.createElement('li'); li.className='al';
+          li.textContent=(ev.stage==='llm'?'⏳ ':'• ')+(ev.msg||''); ul.appendChild(li); }
+      }
+    }
+  }catch(e){ clearInterval(timer);
+    panel.innerHTML='<p class=hint>요청 실패: '+esc(String(e))+'</p>'; return; }
+  clearInterval(timer);
+  if(!result){ panel.innerHTML='<p class=hint>응답이 끊겼습니다 — 잠시 후 다시 시도하세요.</p>'; return; }
+  renderSynthResearchResult(result);
+}
+function renderSynthResearchResult(d){
+  let h='<h2>🧭 조사 결과</h2>';
+  if(d.error && !d.document) h+='<p class=hint>'+esc(d.error)+'</p>';
+  h+='<p class=al>질문 '+(d.questions_total||0)+'개 중 통과 '+((d.passed||[]).length)+'개'+
+    (d.added?' · ✅ 그래프에 추가됨':'')+'</p>';
+  (d.rejected||[]).forEach(r=>{ h+='<p class=al>⏸ '+esc(r.question)+' — '+esc(r.reason||'게이트 미달')+'</p>'; });
+  if(d.document) h+='<h3>'+esc(d.document.title||'조사 합성 문서')+'</h3><div class=synth>'+esc(d.document.body||'')+'</div>';
+  if(d.added && d.ingest){
+    h+='<p class=al>그래프 반영: 신규 '+d.ingest.entities_created+' · 기존연결 '+
+      d.ingest.entities_linked+' · 관계 '+d.ingest.relations_added+'</p>';
+    refreshGraph();
+    if(d.ingest.document_id) h+='<p><a href="#" onclick="selectDoc(\\''+d.ingest.document_id+'\\');return false">문서 보기 →</a></p>';
+  }
+  panel.innerHTML=h;
 }
 async function semanticSearch(q){
   q=(q||'').trim(); if(!q) return;
