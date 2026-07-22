@@ -420,7 +420,7 @@ GRAPH_HTML = """<!doctype html>
   #reader.open{display:flex}
   #reader .sheet{background:var(--bg);color:var(--fg);max-width:1120px;width:100%;border-radius:10px;
     border:1px solid var(--border);box-shadow:0 12px 40px var(--shadow);padding:0 0 28px;
-    max-height:95vh;display:flex;flex-direction:column}
+    max-height:95vh;display:flex;flex-direction:column;box-sizing:border-box}
   #reader .rhead{display:flex;align-items:flex-start;gap:10px;padding:16px 24px;border-bottom:1px solid var(--border);
     position:sticky;top:0;background:var(--bg);border-radius:10px 10px 0 0;z-index:1}
   #reader .rhead h1{margin:0;font-size:22px;flex:1} #reader .rhead .rmeta{color:var(--muted);font-size:12px;margin-top:.3em;font-weight:normal}
@@ -472,9 +472,13 @@ GRAPH_HTML = """<!doctype html>
       height:38%;transition:height .28s ease;border-right:none;
       border-top:1px solid var(--border);box-shadow:0 -4px 14px var(--shadow)}
     /* 사용자 요구: 목록을 끌어올린 뒤 "다시 내릴 수 있음"을 알려주는 손잡이가 없었음 —
-       리스트 레이아웃 최상단에 잡을 수 있는 막대(pill) 표식 추가. #docs 전체가 이미
-       드래그 대상(attachDragSheet)이라 이 막대도 자동으로 같이 끌린다. */
-    #draghandle{display:flex;justify-content:center;padding:7px 0 3px;flex-shrink:0}
+       리스트 레이아웃 최상단에 잡을 수 있는 막대(pill) 표식 추가. collapsed 상태에선
+       #docs 전체가 이미 드래그 대상이라 이 막대도 자동으로 같이 끌린다. listopen
+       상태에선 #docs 자체 드래그가 꺼지므로(목록 내부 스크롤 보존) #draghandle 에
+       별도 드래그-접기 리스너를 붙여둔다(아래 attachDragSheet(#draghandle,…) 참고,
+       2026-07-22) — touch-action:none 은 그 리스너가 pointermove 8px 문턱 전에
+       브라우저 기본 제스처(pull-to-refresh)로 새는 걸 막는다. */
+    #draghandle{display:flex;justify-content:center;padding:7px 0 3px;flex-shrink:0;touch-action:none}
     #draghandle::before{content:'';width:36px;height:4px;border-radius:2px;background:var(--border)}
     body.listopen #docs{height:79%}
     #docs .dhead{position:static}
@@ -565,8 +569,15 @@ GRAPH_HTML = """<!doctype html>
       border-radius:50%;border:1px solid var(--border);background:var(--sec-bg);color:var(--sec-fg);
       font-size:16px;line-height:1;cursor:pointer}
     body.reading #panelclose{display:block}
-    #reader{padding:0} #reader .sheet{max-height:100vh;border-radius:0;height:100vh}
-    #reader .rbody{padding:8px 16px 0}
+    /* 사용자 제보(2026-07-22): 크게읽기 하단이 잘림 — 모바일 브라우저는 주소창
+       표시/숨김에 따라 실제 보이는 높이가 100vh 보다 작아질 수 있다(흔한 모바일 웹
+       버그). 동적 뷰포트 단위(100dvh, 지원 브라우저에서 실제 보이는 높이 기준)를
+       우선 적용하고 100vh 는 폴백으로 남겨둔다. */
+    #reader{padding:0} #reader .sheet{max-height:100vh;max-height:100dvh;border-radius:0;
+      height:100vh;height:100dvh}
+    /* 홈 인디케이터 등 세이프에어리어가 있는 기기에서 마지막 줄이 가려지지 않게
+       하단 여백을 추가로 확보. */
+    #reader .rbody{padding:8px 16px calc(8px + env(safe-area-inset-bottom))}
     /* 사용자 제보: 크게읽기(#reader) 헤더에서 제목(h1, flex:1)이 A−/A+/🔗/✕ 버튼들과
        한 줄에서 폭을 나눠 쓰다 보니 좁은 화면에선 버튼 4개(약 200px)+패딩을 뺀 나머지가
        너무 좁아져 제목이 짓눌림. flex-wrap 으로 제목을 자기 줄에 단독 배치(basis 100%)하고
@@ -968,13 +979,17 @@ document.addEventListener('click', e=>{
 }, true);
 function attachDragSheet(el, opts){
   // opts: axis:'x'|'y', enabled()->bool, getMetrics()->임의 객체, onMove(delta,metrics), onEnd(delta,metrics)
-  let startX=0, startY=0, dragging=false, metrics=null;
+  let startX=0, startY=0, dragging=false, metrics=null, down=false;
   el.addEventListener('pointerdown', e=>{
     if(!mobileMQ.matches || (opts.enabled && !opts.enabled())) return;
-    startX=e.clientX; startY=e.clientY; dragging=false; metrics=null;
+    startX=e.clientX; startY=e.clientY; dragging=false; metrics=null; down=true;
   });
   el.addEventListener('pointermove', e=>{
-    if(!mobileMQ.matches || (opts.enabled && !opts.enabled())) return;
+    // down 가드(2026-07-22 수정): pointerdown 없이 들어온 pointermove(예: 클릭 전
+    // 커서 이동)를 startX/Y 기본값(0,0) 기준 델타로 계산하면 큰 값이 나와 탭 하나가
+    // 드래그로 오인되는 버그가 있었다(el.style.height/transition 이 그대로 눌어붙어
+    // listopen 이 되어도 실제 높이가 안 바뀜) — down 이 true(실제 눌림 중)일 때만 처리.
+    if(!down || !mobileMQ.matches || (opts.enabled && !opts.enabled())) return;
     const d = opts.axis==='x' ? e.clientX-startX : e.clientY-startY;
     if(!dragging){
       if(Math.abs(d) < 8) return;    // 작은 흔들림은 탭으로 취급(오드래그 방지)
@@ -984,6 +999,7 @@ function attachDragSheet(el, opts){
     opts.onMove(d, metrics);
   }, {passive:false});
   window.addEventListener('pointerup', e=>{
+    down = false;
     if(!dragging) return;
     const d = opts.axis==='x' ? e.clientX-startX : e.clientY-startY;
     dragging = false; el.style.transition='';
@@ -1013,6 +1029,31 @@ attachDragSheet(document.getElementById('docs'), {
     const h = Math.min(m.openPx, Math.max(m.collapsedPx, m.startH - dy));
     const ratio = (h - m.collapsedPx) / (m.openPx - m.collapsedPx);
     if(ratio > 0.5){ pushUIState('list'); document.body.classList.add('listopen'); }
+  }
+});
+// 목록이 펼쳐진(listopen) 뒤 #draghandle 을 잡고 끌어내려 다시 접기(사용자 제보,
+// 2026-07-22): 위 #docs 드래그는 listopen 이 되면 꺼지므로(내부 리스트 자체 스크롤을
+// 살려주려고) 그 상태에서 손잡이를 잡고 내리면 우리 코드가 아예 반응을 안 해 터치가
+// 그대로 브라우저 기본 제스처(pull-to-refresh)로 넘어가 페이지가 새로고침되던 버그.
+// #draghandle 은 리스트 아이템을 포함하지 않는 작은 전용 영역이라 여기만 별도로
+// listopen 중에도 활성화해도 목록 스크롤과 충돌하지 않는다.
+attachDragSheet(document.getElementById('draghandle'), {
+  axis:'y',
+  enabled: () => document.body.classList.contains('listopen'),
+  getMetrics(){
+    const wrapH = document.getElementById('wrap').getBoundingClientRect().height;
+    return { collapsedPx: wrapH*0.38, openPx: wrapH*0.79,
+             startH: document.getElementById('docs').getBoundingClientRect().height };
+  },
+  onMove(dy, m){
+    const h = Math.min(m.openPx, Math.max(m.collapsedPx, m.startH - dy));
+    document.getElementById('docs').style.height = h+'px';
+  },
+  onEnd(dy, m){
+    document.getElementById('docs').style.height = '';
+    const h = Math.min(m.openPx, Math.max(m.collapsedPx, m.startH - dy));
+    const ratio = (h - m.collapsedPx) / (m.openPx - m.collapsedPx);
+    if(ratio <= 0.5) closeTopUIState('list');
   }
 });
 // 패널(#panel) 가로 드래그 — peek(살짝 걸침) 상태에서 왼쪽으로 끌면 열리고, reading(전체
@@ -1679,7 +1720,25 @@ async function panelToggleHide(id, val){
 function fitToDocNodes(id){
   if(!net) return;
   const ids=[]; allNodes.forEach(n=>{ if(!n.hidden && (n.sources||[]).includes(id)) ids.push(n.id); });
-  net.fit(ids.length ? {nodes:ids, animation:true} : {animation:true});
+  const opts = ids.length ? {nodes:ids} : {};
+  // 사용자 제보(2026-07-22): 모바일에서 목록을 펼친(listopen) 채 문서를 고르면
+  // net.fit() 이 #net 캔버스 "전체" 기준으로 중앙을 잡는데, 실제로는 그 캔버스의
+  // 아래쪽 상당 부분(목록 79%)이 #docs 오버레이에 가려 안 보인다 — 결국 노드가
+  // 화면에 안 보이는 위치(목록 뒤)로 이동해버림. 캔버스 전체 기준 fit(즉시)을 먼저
+  // 하고, 실제로 보이는(목록에 안 가려진 위쪽) 영역의 중앙으로 보정 오프셋을
+  // 애니메이션으로 적용한다(Playwright 로 오프셋 없이/있이 노드 DOM 좌표를 직접
+  // 비교해 검증 — 오프셋 없으면 목록 뒤(y≈364, 보이는 영역은 0~148)에 묻히고,
+  // 오프셋 적용 후 보이는 영역 중앙(y≈79)으로 옮겨짐).
+  if(mobileMQ.matches && document.body.classList.contains('listopen')){
+    net.fit({...opts, animation:false});
+    const netwrapH = document.getElementById('netwrap').getBoundingClientRect().height;
+    const coveredPx = document.getElementById('docs').getBoundingClientRect().height;
+    const shiftUp = netwrapH/2 - (netwrapH-coveredPx)/2;
+    net.moveTo({position: net.getViewPosition(), scale: net.getScale(),
+      offset:{x:0, y:-shiftUp}, animation:{duration:300, easingFunction:'easeInOutQuad'}});
+  } else {
+    net.fit({...opts, animation:true});
+  }
 }
 function selectDoc(id){
   if(mobileMQ.matches){
