@@ -7,6 +7,7 @@ DB 커넥션은 호출마다 짧게 연다(WAL + busy_timeout 로 다중 프로�
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from ..config import Settings
@@ -15,6 +16,10 @@ from ..store import db as dbm
 from ..store.vectors import make_vector_store
 from .pipeline import IngestReport, extract_resolve_store, ingest, merge_source_into_document
 from .router import fetch as default_fetch
+from .router import is_trusted_local_file_source
+
+
+_DOCUMENT_ID_RE = re.compile(r"doc_[0-9a-f]{12}\Z")
 
 
 class IngestService:
@@ -526,33 +531,82 @@ class IngestService:
         dedup_merge 가 '스캔으로 찾은 모든 클러스터'를 한 번에 처리하는 데 비해, 이건 웹에서
         사용자가 클러스터/유지문서를 골라 1건만 병합하는 통로. **파괴적**이므로 기본으로
         병합 직전 정본을 백업(VACUUM INTO)한다(CLI 가 강제하는 백업과 동일 안전장치).
-        반환: db.merge_documents 결과 + {backup: 경로|None}."""
+        요청한 ID 전체가 현재 같은 스캔 클러스터일 때만 진행하며, 실제 삭제된 문서의
+        artifact 만 데이터 디렉터리 안에서 정리한다.
+        반환: db.merge_documents 결과 + {backup: 경로|None, deleted_ids:[...]}."""
+        import secrets as _secrets
         import time as _time
 
-        losers = [d for d in losers if d and d != keeper]
-        if not losers:
-            return {"merged": 0, "deleted": 0, "backup": None}
-        backup_path = None
-        if backup:
-            ts = _time.strftime("%Y%m%d-%H%M%S")
-            dest = self.s.data_dir / "backups" / f"pre-webmerge-{ts}.db"
-            try:
-                backup_path = str(dbm.backup_database(self.s.db_file, dest))
-            except Exception:  # noqa: BLE001 — 백업 실패해도 진행은 막지 않되 결과에 알린다
-                backup_path = None
+        if not isinstance(keeper, str) or _DOCUMENT_ID_RE.fullmatch(keeper) is None:
+            raise ValueError("invalid keeper document id")
+        if not isinstance(losers, list) or not losers:
+            raise ValueError("at least one loser document id is required")
+        if any(not isinstance(d, str) or _DOCUMENT_ID_RE.fullmatch(d) is None
+               for d in losers):
+            raise ValueError("invalid loser document id")
+        if keeper in losers or len(set(losers)) != len(losers):
+            raise ValueError("keeper and loser document ids must be distinct")
+
+        requested_ids = {keeper, *losers}
         conn = dbm.connect(self.s.db_file)
         dbm.init_db(conn)
         try:
-            res = dbm.merge_documents(conn, keeper, losers)
+            missing = [did for did in requested_ids
+                       if dbm.get_document_row(conn, did) is None]
         finally:
             conn.close()
-        for d in losers:                       # keeper 로 옮긴 loser 의 원문 artifact 정리
+        if missing:
+            raise ValueError("one or more documents do not exist")
+
+        scan = self.dedup_scan()
+        if not any(requested_ids.issubset(set(c.get("ids") or []))
+                   for c in scan.get("clusters") or []):
+            raise ValueError("documents are not the same current dedup cluster")
+
+        data_root = self.s.data_dir.resolve()
+        artifacts_root = (data_root / "raw" / "artifacts").resolve()
+        if not artifacts_root.is_relative_to(data_root):
+            raise ValueError("artifact directory escapes the data directory")
+        artifact_paths: dict[str, Path] = {}
+        for did in losers:
+            artifact = artifacts_root / f"{did}.txt.gz"
+            resolved_artifact = artifact.resolve()
+            if resolved_artifact.parent != artifacts_root:
+                raise ValueError("artifact path escapes the artifact directory")
+            artifact_paths[did] = artifact
+
+        backup_path = None
+        if backup:
+            ts = _time.strftime("%Y%m%d-%H%M%S")
+            nonce = _secrets.token_hex(6)
+            dest = self.s.data_dir / "backups" / f"pre-webmerge-{ts}-{nonce}.db"
             try:
-                p = self.s.data_dir / "raw" / "artifacts" / f"{d}.txt.gz"
-                if p.exists():
-                    p.unlink()
+                backup_path = str(dbm.backup_database(self.s.db_file, dest))
+            except Exception as e:  # noqa: BLE001
+                raise RuntimeError("dedup merge backup failed") from e
+
+        conn = dbm.connect(self.s.db_file)
+        dbm.init_db(conn)
+        try:
+            # 스캔/백업 사이에 문서가 사라진 경우 병합을 시작하지 않는다.
+            if any(dbm.get_document_row(conn, did) is None for did in requested_ids):
+                raise ValueError("one or more documents no longer exist")
+            res = dbm.merge_documents(conn, keeper, losers)
+            deleted_ids = [
+                did for did in losers
+                if dbm.get_document_row(conn, did) is None
+            ]
+        finally:
+            conn.close()
+
+        for did in deleted_ids:
+            try:
+                artifact = artifact_paths[did]
+                if artifact.exists():
+                    artifact.unlink()
             except Exception:  # noqa: BLE001
                 pass
+        res["deleted_ids"] = deleted_ids
         res["backup"] = backup_path
         return res
 
@@ -658,8 +712,13 @@ class IngestService:
         out = []
         for row in rows:
             payload = row["file_ref"] or row["payload"]
+            replay_source = (
+                "replay-cli"
+                if is_trusted_local_file_source(str(row["source"] or ""))
+                else "replay-failed"
+            )
             rep = self.ingest(
-                payload, source="replay-failed",
+                payload, source=replay_source,
                 inbox_kind=row["kind"], file_name=row["file_name"],
                 file_ref=row["file_ref"],
             )
@@ -732,8 +791,13 @@ class IngestService:
             rep = self._retry_extract(row["document_id"], inbox_id)
         else:
             payload = row["file_ref"] or row["payload"]
+            retry_source = (
+                "manual-retry-cli"
+                if is_trusted_local_file_source(str(row["source"] or ""))
+                else "manual-retry"
+            )
             rep = self.ingest(
-                payload, source="manual-retry", inbox_id=inbox_id,
+                payload, source=retry_source, inbox_id=inbox_id,
                 inbox_kind=row["kind"], file_name=row["file_name"],
                 file_ref=row["file_ref"],
             )
@@ -778,8 +842,13 @@ class IngestService:
                 rep = self._retry_extract(row["document_id"], row["id"])
             else:
                 payload = row["file_ref"] or row["payload"]
+                recover_source = (
+                    "recover-cli"
+                    if is_trusted_local_file_source(str(row["source"] or ""))
+                    else "recover"
+                )
                 rep = self.ingest(
-                    payload, source="recover", inbox_id=row["id"],
+                    payload, source=recover_source, inbox_id=row["id"],
                     inbox_kind=row["kind"], file_name=row["file_name"],
                     file_ref=row["file_ref"],
                 )

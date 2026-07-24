@@ -28,6 +28,7 @@ from ..store.vault import export_entities
 from ..extract.provider import Provider, emit_progress
 from ..extract.resolver import resolve_or_create
 from .router import fetch as default_fetch
+from .router import validate_ingest_file_access
 
 
 @dataclass
@@ -95,7 +96,10 @@ def ingest(
 ) -> IngestReport:
     report = IngestReport()
     # None 이면 호출 시점에 모듈 전역 default_fetch 를 조회(monkeypatch/교체 반영).
+    # 외부에서 주입한 테스트 fetcher에는 서버 파일 경로 정책을 적용하지 않는다.
     if fetch_fn is None:
+        validate_ingest_file_access(
+            payload, source=source, file_ref=file_ref, data_dir=data_dir)
         fetch_fn = default_fetch
 
     # [Layer 1] 처리 전에 inbound 원본을 무조건 기록(실패해도 재생 가능).

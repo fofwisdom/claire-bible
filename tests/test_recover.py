@@ -111,6 +111,31 @@ def test_recover_success_is_idempotent(monkeypatch, tmp_path):
     conn.close()
 
 
+def test_recover_preserves_trusted_cli_local_file(monkeypatch, tmp_path):
+    """CLI 파일의 원래 신뢰 경계를 유지하면서 실패 행을 다시 읽을 수 있어야 한다."""
+    s = _mem(monkeypatch, tmp_path)
+    svc = IngestService(s)
+    local = tmp_path / "notes.txt"
+    local.write_text("trusted CLI file", encoding="utf-8")
+
+    _patch_fetch(monkeypatch, _boom)
+    first = svc.ingest(str(local), source="cli")
+    assert first.error is not None
+
+    good = Document(
+        url=str(local),
+        title="notes",
+        raw_text="trusted CLI file " * 40,
+        source_type="file",
+        content_hash="cli-file-hash",
+    )
+    _patch_fetch(monkeypatch, lambda payload: good if payload == str(local) else _boom(payload))
+    result = svc.recover_failed(max_attempts=5, base_delay=0.0)
+
+    assert len(result) == 1
+    assert result[0]["status"] == "done"
+
+
 def test_recover_extract_failure_actually_extracts(monkeypatch, tmp_path):
     """핵심 케이스: 429가 extract 단계에서 터진 행은 문서가 이미 적재돼 있다.
 

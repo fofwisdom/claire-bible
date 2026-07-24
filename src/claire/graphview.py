@@ -207,14 +207,20 @@ def synthesize(conn, provider, entity_ids: list[str], query: str | None = None) 
     return {"answer": answer, "entities": names, "query": q}
 
 
-# vis.js 9(unpkg CDN) 기반 단일 페이지. /graph·/node·/documents·/synthesize·/research 사용.
+# 버전을 고정한 vis-network 기반 단일 페이지. /graph·/node·/documents·/synthesize·/research 사용.
 GRAPH_HTML = """<!doctype html>
 <html lang="ko"><head><meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>claire_bible — 지식 그래프</title>
-<script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
-<script src="https://unpkg.com/marked@4.3.0/marked.min.js"></script>
-<script src="https://unpkg.com/dompurify@3.1.6/dist/purify.min.js"></script>
+<script src="https://unpkg.com/vis-network@10.1.0/standalone/umd/vis-network.min.js"
+ integrity="sha384-Kp7cMaDnHOrgpE8FT6l7tUuGIo7kBcBVcttockpXN/whrsQBcy9ZcpKmr/1a/nMo"
+ crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script src="https://unpkg.com/marked@4.3.0/marked.min.js"
+ integrity="sha384-QsSpx6a0USazT7nK7w8qXDgpSAPhFsb2XtpoLFQ5+X2yFN6hvCKnwEzN8M5FWaJb"
+ crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script src="https://unpkg.com/dompurify@3.1.6/dist/purify.min.js"
+ integrity="sha384-+VfUPEb0PdtChMwmBcBmykRMDd+v6D/oFmB3rZM/puCMDYcIvF968OimRh4KQY9a"
+ crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 <script>
   // 깜빡임 방지: 페인트 전에 저장된 테마를 documentElement 에 적용. 기본값=light(사용자 요구).
   (function(){ try{ var t=localStorage.getItem('claireTheme')||'light';
@@ -822,10 +828,11 @@ function toggleTheme(){ const next = curTheme()==='dark'?'light':'dark';
 function renderMarkdown(src){
   if(!src) return '';
   let s = String(src).replace(/==([^=\\n]+)==/g, '<mark>$1</mark>');
+  if(!window.DOMPurify) return esc(String(src)).replace(/\\n/g,'<br>');
   let html;
   try{ html = (window.marked ? (marked.parse ? marked.parse(s) : marked(s)) : esc(s)); }
   catch(e){ html = esc(s).replace(/\\n/g,'<br>'); }
-  return window.DOMPurify ? DOMPurify.sanitize(html, {ADD_ATTR:['target']}) : html;
+  return DOMPurify.sanitize(html, {ADD_ATTR:['target']});
 }
 
 // 목록 설명 줄수(0/2/4) — 브라우저에 기억. 문서 많아지면 제목/설명이 height 를 너무
@@ -2183,8 +2190,12 @@ _SHARED_HTML = """<!doctype html>
 <html lang="ko"><head><meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>__TITLE__ — claire_bible</title>
-<script src="https://unpkg.com/marked@4.3.0/marked.min.js"></script>
-<script src="https://unpkg.com/dompurify@3.1.6/dist/purify.min.js"></script>
+<script src="https://unpkg.com/marked@4.3.0/marked.min.js"
+ integrity="sha384-QsSpx6a0USazT7nK7w8qXDgpSAPhFsb2XtpoLFQ5+X2yFN6hvCKnwEzN8M5FWaJb"
+ crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script src="https://unpkg.com/dompurify@3.1.6/dist/purify.min.js"
+ integrity="sha384-+VfUPEb0PdtChMwmBcBmykRMDd+v6D/oFmB3rZM/puCMDYcIvF968OimRh4KQY9a"
+ crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 <style>
   :root{--bg:#ffffff;--fg:#1f2328;--muted:#656d76;--border:#d0d7de;--accent:#0969da;
     --accent2:#1a7f37;--card-bg:#f6f8fa;--chip-bg:#eaeef2;--mark-bg:#fff8c5;--mark-fg:#633c01}
@@ -2216,9 +2227,10 @@ function esc(s){return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>'
 function renderMarkdown(src){
   if(!src) return '';
   let s=String(src).replace(/==([^=\\n]+)==/g,'<mark>$1</mark>');
+  if(!window.DOMPurify) return esc(String(src)).replace(/\\n/g,'<br>');
   let html; try{ html=(window.marked?(marked.parse?marked.parse(s):marked(s)):esc(s)); }
   catch(e){ html=esc(s).replace(/\\n/g,'<br>'); }
-  return window.DOMPurify?DOMPurify.sanitize(html,{ADD_ATTR:['target']}):html;
+  return DOMPurify.sanitize(html,{ADD_ATTR:['target']});
 }
 const dc=JSON.parse(document.getElementById('docdata').textContent||'{}');
 let h='<div class=brand>claire_bible · 공유 문서</div>';

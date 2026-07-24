@@ -8,6 +8,7 @@ from __future__ import annotations
 import sqlite3
 import time
 
+from claire.api.server import _token_matches
 from claire.store import db as dbm
 
 
@@ -16,6 +17,14 @@ def _mem():
     conn.row_factory = sqlite3.Row
     dbm.init_db(conn)
     return conn
+
+
+def test_bearer_token_comparison_fails_closed():
+    assert _token_matches("owner-secret", "owner-secret")
+    assert not _token_matches("", "")
+    assert not _token_matches("", "anything")
+    assert not _token_matches("owner-secret", "")
+    assert not _token_matches("owner-secret", "wrong")
 
 
 def test_unapproved_nonce_yields_no_token():

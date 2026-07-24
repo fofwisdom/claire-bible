@@ -22,6 +22,10 @@ uv run claire search "키워드"                          # 하이브리드 검�
 uv run claire bot            # 텔레그램 봇 (long-polling)
 ```
 
+텔레그램 봇은 `CLAIRE_ALLOWED_USERS`에 숫자 사용자 ID가 있어야 시작한다. 로컬 inject
+API를 프로그램에서 호출할 때는 `CLAIRE_INJECT_TOKEN`을 설정해 bearer로 전달한다.
+빈 allowlist와 빈 API 토큰은 각각 Telegram 접근과 프로그램 API 인증을 허용하지 않는다.
+
 ## CLI 명령
 
 | 명령 | 설명 |
@@ -63,6 +67,14 @@ DEPLOY_ENV_SYNC=if-missing            # 최초 업로드 후 기존 원격 .env 
 기존 설치를 전환할 때는 로컬 `.env`에 `DEPLOY_REMOTE`·`DEPLOY_PORT`·`DEPLOY_PATH`를
 추가하고 첫 실행은 `if-missing`으로 둔다. 원격과 로컬 `.env`를 비교한 뒤 로컬 파일을
 정본으로 관리할 때만 `always`로 바꾼다.
+
+보안 강화 버전을 기존 설치에 적용하기 전에는 보존되는 원격 `.env`도 함께 점검한다.
+`CLAIRE_ALLOWED_USERS`에는 허용할 숫자 Telegram 사용자 ID를 넣고,
+`CLAIRE_INJECT_TOKEN`에는 새로 생성한 충분히 긴 임의 토큰을 넣는다. 사내 URL을
+적재·갱신하는 설치만 `CLAIRE_FETCH_ALLOWED_CIDRS`에 필요한 최소 CIDR을 추가한다.
+의도적으로 공개 개발 봇을 운영하는 경우에만 `CLAIRE_ALLOW_ALL_USERS=true`를 쓴다.
+배포 스크립트는 사용자 허용 설정과 inject 토큰을 컨테이너 재기동 전에 검사하며,
+미충족이면 현재 실행 중인 컨테이너를 변경하지 않고 중단한다.
 
 6개 컨테이너(모두 `restart: unless-stopped`, `data`·`vault` 볼륨 공유):
 

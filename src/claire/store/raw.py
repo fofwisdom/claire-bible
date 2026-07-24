@@ -81,7 +81,7 @@ def download_images(data_dir: Path, doc_id: str, images: list[dict]) -> list[dic
     (data_dir 기준 상대경로, `images/<doc_id>_<i>.<ext>`)을 추가해 반환한다. 개별 이미지
     다운로드 실패(네트워크·403·404·비이미지 응답·용량초과)는 그 이미지만 원본 url 유지 —
     한 장이 실패해도 나머지·적재 자체를 막지 않는다."""
-    import httpx
+    from ..ingest.netpolicy import safe_httpx_get
 
     out = []
     for i, im in enumerate(images):
@@ -89,9 +89,7 @@ def download_images(data_dir: Path, doc_id: str, images: list[dict]) -> list[dic
         url = im.get("url") or ""
         if url:
             try:
-                with httpx.Client(follow_redirects=True, timeout=10,
-                                  headers={"User-Agent": _UA}) as client:
-                    resp = client.get(url)
+                resp = safe_httpx_get(url, timeout=10, headers={"User-Agent": _UA})
                 ctype = resp.headers.get("content-type", "").split(";")[0].strip().lower()
                 if (resp.status_code < 400 and ctype.startswith("image/")
                         and len(resp.content) <= _MAX_IMAGE_BYTES):

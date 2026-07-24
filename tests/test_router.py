@@ -2,7 +2,15 @@
 
 from __future__ import annotations
 
-from claire.ingest.router import classify, extract_shared_url, fetch
+import pytest
+
+from claire.ingest.fetchers.base import FetchError
+from claire.ingest.router import (
+    classify,
+    extract_shared_url,
+    fetch,
+    validate_ingest_file_access,
+)
 from claire.telegram_bot import classify_input
 
 
@@ -57,3 +65,55 @@ def test_fetch_routes_shared_text_to_url(monkeypatch):
     doc = fetch("재밌는 글 제목 https://example.com/real-article")
     assert seen["url"] == "https://example.com/real-article"
     assert doc.url == "https://example.com/real-article"
+
+
+def test_remote_text_cannot_read_server_local_file(tmp_path):
+    local = tmp_path / "secret.txt"
+    local.write_text("sentinel", encoding="utf-8")
+
+    with pytest.raises(FetchError, match="only from CLI"):
+        validate_ingest_file_access(str(local), source="api", data_dir=tmp_path)
+    with pytest.raises(FetchError, match="only from CLI"):
+        validate_ingest_file_access(
+            f"file://{local}", source="telegram", data_dir=tmp_path)
+
+
+def test_cli_local_file_and_verified_upload_remain_supported(tmp_path):
+    local = tmp_path / "notes.txt"
+    local.write_text("normal CLI input", encoding="utf-8")
+    validate_ingest_file_access(str(local), source="cli")
+    validate_ingest_file_access(str(local), source="cli-expand")
+    for retry_source in ("replay-cli", "manual-retry-cli", "recover-cli"):
+        validate_ingest_file_access(str(local), source=retry_source)
+
+    upload_root = tmp_path / "raw" / "files"
+    upload_root.mkdir(parents=True)
+    upload = upload_root / "1_notes.txt"
+    upload.write_text("normal Telegram upload", encoding="utf-8")
+    validate_ingest_file_access(
+        str(upload), source="telegram", file_ref=str(upload), data_dir=tmp_path)
+
+
+def test_cli_prefix_does_not_grant_local_file_access(tmp_path):
+    local = tmp_path / "notes.txt"
+    local.write_text("private", encoding="utf-8")
+    with pytest.raises(FetchError, match="only from CLI"):
+        validate_ingest_file_access(
+            str(local), source="client-api", data_dir=tmp_path,
+        )
+
+
+def test_verified_upload_must_match_record_and_stay_under_root(tmp_path):
+    upload_root = tmp_path / "raw" / "files"
+    upload_root.mkdir(parents=True)
+    recorded = upload_root / "1_notes.txt"
+    recorded.write_text("recorded", encoding="utf-8")
+    other = tmp_path / "outside.txt"
+    other.write_text("outside", encoding="utf-8")
+
+    with pytest.raises(FetchError, match="does not match"):
+        validate_ingest_file_access(
+            str(other), source="recover", file_ref=str(recorded), data_dir=tmp_path)
+    with pytest.raises(FetchError, match="outside"):
+        validate_ingest_file_access(
+            str(other), source="recover", file_ref=str(other), data_dir=tmp_path)

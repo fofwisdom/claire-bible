@@ -31,7 +31,7 @@ def build_status_text(settings: Settings, *, full: bool = True) -> str:
                  f"(gen={s.gemini_model}, embed={s.gemini_embed_model})")
     if full:
         lines.append(f"  telegram : {'set' if s.telegram_bot_token else 'NOT set'} "
-                     f"· allowed {sorted(s.allowed_user_ids) or 'ALL'}")
+                     f"· allowed {sorted(s.allowed_user_ids) or ('ALL' if s.allow_all_users else 'NONE')}")
         lines.append(f"  inject   : {s.inject_host}:{s.inject_port} "
                      f"(token {'set' if s.inject_token else 'NONE'})")
         lines.append(f"  vector   : {s.vector_backend}")
