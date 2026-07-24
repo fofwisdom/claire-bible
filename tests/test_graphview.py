@@ -90,6 +90,9 @@ def test_graph_html_self_contained_markers():
     assert "openReader" in GRAPH_HTML and "id=\"reader\"" in GRAPH_HTML  # 중앙 읽기 팝업
     assert "setReadFS" in GRAPH_HTML and "claireReadFS" in GRAPH_HTML and "rzoom" in GRAPH_HTML  # 글자 크기 조절(A-/A+)
     assert "renderMarkdown" in GRAPH_HTML and "marked" in GRAPH_HTML and "DOMPurify" in GRAPH_HTML  # 마크다운 렌더+살균
+    assert "vis-network@10.1.0" in GRAPH_HTML                              # CDN 변동 방지
+    assert GRAPH_HTML.count('integrity="sha384-') == 3                    # CDN 변조 차단
+    assert "if(!window.DOMPurify) return esc(String(src))" in GRAPH_HTML   # sanitizer 실패 시 fail-closed
     assert "readbtn" in GRAPH_HTML and "stopPropagation" in GRAPH_HTML   # 읽기 버튼=nav 와 분리
     assert "<mark>" in GRAPH_HTML                                       # ==형광== 강조 렌더
     assert "data-theme" in GRAPH_HTML and "toggleTheme" in GRAPH_HTML and "claireTheme" in GRAPH_HTML  # 라이트 기본+다크 토글

@@ -1,5 +1,11 @@
+x-runtime-hardening: &runtime-hardening
+  init: true
+  security_opt:
+    - no-new-privileges:true
+
 services:
   claire:
+    <<: *runtime-hardening
     build: .
     container_name: claire_bot
     restart: unless-stopped
@@ -10,6 +16,7 @@ services:
     command: ["uv", "run", "claire", "bot"]
 
   claire_api:
+    <<: *runtime-hardening
     build: .
     container_name: claire_api
     restart: unless-stopped
@@ -24,6 +31,7 @@ services:
     command: ["uv", "run", "claire", "serve-api"]
 
   claire_refresh:
+    <<: *runtime-hardening
     build: .
     container_name: claire_refresh
     restart: unless-stopped
@@ -35,6 +43,7 @@ services:
     command: ["uv", "run", "claire", "refresh-loop", "--interval", "3600", "--batch", "5"]
 
   claire_recover:
+    <<: *runtime-hardening
     build: .
     container_name: claire_recover
     restart: unless-stopped
@@ -47,6 +56,7 @@ services:
     command: ["uv", "run", "claire", "recover-loop", "--interval", "600", "--batch", "5"]
 
   claire_expand:
+    <<: *runtime-hardening
     build: .
     container_name: claire_expand
     restart: unless-stopped
@@ -59,6 +69,7 @@ services:
     command: ["uv", "run", "claire", "expand-loop", "--interval", "900", "--batch", "3"]
 
   claire_backup:
+    <<: *runtime-hardening
     build: .
     container_name: claire_backup
     restart: unless-stopped

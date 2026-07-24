@@ -101,13 +101,14 @@ def _fetch_api(screen: str | None, sid: str) -> tuple[dict | None, str | None]:
 
 def _try_host(host: str, screen: str | None, sid: str) -> dict | None:
     """한 미러 호스트에서 트윗 JSON 1회 시도. 실패(404/5xx/HTML/timeout) 시 None."""
-    import httpx
+    from ..netpolicy import safe_httpx_get
 
     path = f"{screen}/status/{sid}" if screen else f"status/{sid}"
     headers = {"User-Agent": _UA, "Accept": "application/json"}
     try:
-        with httpx.Client(follow_redirects=True, timeout=12, headers=headers) as c:
-            resp = c.get(f"https://{host}/{path}")
+        resp = safe_httpx_get(
+            f"https://{host}/{path}", timeout=12, headers=headers,
+        )
         if resp.status_code != 200:
             return None  # 404(일시 rate limit 포함)/5xx
         # vxtwitter 는 실패해도 200+HTML('Failed to scan…')을 준다 → 가드.

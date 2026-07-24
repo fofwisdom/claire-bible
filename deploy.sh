@@ -203,6 +203,94 @@ case "$DEPLOY_ENV_SYNC" in
     ;;
 esac
 
+# 보안 기본값 전환 뒤에도 기존 서비스를 재시작 루프에 넣지 않도록, 새 이미지를
+# 기동하기 전에 원격 .env를 검사한다. 값 자체는 원격 밖으로 출력하지 않는다.
+if ! "${SSH_CMD[@]}" "$REMOTE" \
+  "sh -s -- '$DEST/.env' claire-security-env-check" <<'CLAIRE_SECURITY_ENV_CHECK'
+set -eu
+env_file="$1"
+
+dotenv_value() {
+  awk -v wanted="$1" '
+    function trim(value) {
+      sub(/^[[:space:]]+/, "", value)
+      sub(/[[:space:]]+$/, "", value)
+      return value
+    }
+    {
+      line = trim($0)
+      if (line == "" || substr(line, 1, 1) == "#") {
+        next
+      }
+      sub(/^export[[:space:]]+/, "", line)
+      separator = index(line, "=")
+      if (!separator || trim(substr(line, 1, separator - 1)) != wanted) {
+        next
+      }
+
+      value = trim(substr(line, separator + 1))
+      quote = substr(value, 1, 1)
+      if (quote == "\"" || quote == "\047") {
+        value = substr(value, 2)
+        closing = index(value, quote)
+        trailing = closing ? trim(substr(value, closing + 1)) : "invalid"
+        if (!closing || (trailing != "" && substr(trailing, 1, 1) != "#")) {
+          result = ""
+          found = 1
+          next
+        }
+        value = substr(value, 1, closing - 1)
+      } else {
+        sub(/[[:space:]]+#.*$/, "", value)
+        value = trim(value)
+      }
+      result = value
+      found = 1
+    }
+    END {
+      if (!found) {
+        exit 1
+      }
+      print result
+    }
+  ' "$env_file"
+}
+
+[ -f "$env_file" ] || {
+  echo "deploy: 원격 .env가 없습니다." >&2
+  exit 41
+}
+
+inject_token="$(dotenv_value CLAIRE_INJECT_TOKEN || true)"
+allowed_users="$(dotenv_value CLAIRE_ALLOWED_USERS || true)"
+allow_all_users="$(dotenv_value CLAIRE_ALLOW_ALL_USERS || true)"
+
+if [ -z "$inject_token" ]; then
+  echo "deploy: CLAIRE_INJECT_TOKEN이 비어 있습니다." >&2
+  exit 42
+fi
+
+if [ -n "$allowed_users" ]; then
+  if ! printf '%s\n' "$allowed_users" |
+    grep -Eq '^[[:space:]]*[0-9]+([[:space:]]*,[[:space:]]*[0-9]+)*[[:space:]]*$'; then
+    echo "deploy: CLAIRE_ALLOWED_USERS는 숫자 ID의 쉼표 목록이어야 합니다." >&2
+    exit 43
+  fi
+else
+  allow_all_users="$(printf '%s' "$allow_all_users" | tr '[:upper:]' '[:lower:]')"
+  case "$allow_all_users" in
+    1|true|yes|on) ;;
+    *)
+      echo "deploy: CLAIRE_ALLOWED_USERS가 비어 있고 전체 허용도 명시되지 않았습니다." >&2
+      exit 44
+      ;;
+  esac
+fi
+CLAIRE_SECURITY_ENV_CHECK
+then
+  fail "원격 .env 보안 설정을 보완한 뒤 다시 실행하세요. 기존 컨테이너는 변경하지 않았습니다."
+fi
+
 echo "[4/4] 컨테이너 재빌드 & 기동"
 "${SSH_CMD[@]}" "$REMOTE" "cd '$DEST' && docker compose up -d --build"
 "${SSH_CMD[@]}" "$REMOTE" "cd '$DEST' && docker compose ps"

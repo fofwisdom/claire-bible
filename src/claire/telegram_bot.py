@@ -9,10 +9,26 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import secrets
+import tempfile
+import time
+from dataclasses import dataclass
+from pathlib import Path
 
 from .config import get_settings
+from .logging_config import configure_logging
 
 log = logging.getLogger("claire.telegram")
+_PENDING_EXPANSION_TTL_SECONDS = 10 * 60
+_MAX_TELEGRAM_FILE_BYTES = 20 * 1024 * 1024
+
+
+@dataclass(frozen=True)
+class _PendingExpansion:
+    urls: tuple[str, ...]
+    user_id: int
+    chat_id: int
+    expires_at: float
 
 
 def _status_emoji(error, duplicate: bool = False) -> str:  # noqa: ANN001
@@ -88,14 +104,74 @@ def _is_allowed(user_id: int | None) -> bool:
     s = get_settings()
     allow = s.allowed_user_ids
     if not allow:
-        return True
+        return s.allow_all_users
     return user_id in allow
+
+
+def _prune_pending_expansions(
+    pending: dict[str, _PendingExpansion], now: float,
+) -> None:
+    for token, item in list(pending.items()):
+        if item.expires_at <= now:
+            pending.pop(token, None)
+
+
+def _create_pending_expansion(
+    pending: dict[str, _PendingExpansion],
+    candidates: list[str],
+    user_id: int,
+    chat_id: int,
+    *,
+    now: float | None = None,
+    ttl_seconds: float = _PENDING_EXPANSION_TTL_SECONDS,
+) -> str:
+    """확장 후보를 예측 불가능한 1회용 토큰으로 사용자·채팅에 묶어 보관."""
+    if ttl_seconds <= 0:
+        raise ValueError("pending expansion TTL must be positive")
+    current = time.monotonic() if now is None else now
+    _prune_pending_expansions(pending, current)
+    token = secrets.token_urlsafe(12)
+    while token in pending:
+        token = secrets.token_urlsafe(12)
+    pending[token] = _PendingExpansion(
+        urls=tuple(candidates),
+        user_id=user_id,
+        chat_id=chat_id,
+        expires_at=current + ttl_seconds,
+    )
+    return token
+
+
+def _consume_pending_expansion(
+    pending: dict[str, _PendingExpansion],
+    token: str,
+    user_id: int | None,
+    chat_id: int | None,
+    *,
+    now: float | None = None,
+) -> list[str] | None:
+    """허용된 최초 요청자·채팅의 유효한 콜백만 1회 소비한다."""
+    current = time.monotonic() if now is None else now
+    _prune_pending_expansions(pending, current)
+    if user_id is None or chat_id is None or not _is_allowed(user_id):
+        return None
+    item = pending.get(token)
+    if item is None or item.user_id != user_id or item.chat_id != chat_id:
+        return None
+    pending.pop(token, None)
+    return list(item.urls)
 
 
 def run_bot() -> int:
     s = get_settings()
     if not s.telegram_bot_token:
         print("TELEGRAM_BOT_TOKEN 이 없습니다. .env 에 설정하세요.")
+        return 2
+    if not s.allowed_user_ids and not s.allow_all_users:
+        print(
+            "CLAIRE_ALLOWED_USERS가 비어 있습니다. 허용할 숫자 사용자 ID를 설정하세요. "
+            "개발용 전체 허용은 CLAIRE_ALLOW_ALL_USERS=true로 명시해야 합니다."
+        )
         return 2
 
     try:
@@ -112,19 +188,14 @@ def run_bot() -> int:
         print(f"python-telegram-bot 미설치: {e}\n  uv sync 후 다시 시도하세요.")
         return 2
 
-    import asyncio
-    import tempfile
-    from pathlib import Path
-
     from .ingest.service import IngestService
 
-    logging.basicConfig(level=logging.INFO)
+    configure_logging()
     svc = IngestService(s)
-    pending: dict[str, list[str]] = {}  # 확장 후보 임시 보관(콜백 토큰 -> urls)
+    pending: dict[str, _PendingExpansion] = {}
 
-    def _markup(update_id: int, candidates: list[str]):
-        token = f"{update_id}"
-        pending[token] = candidates
+    def _markup(user_id: int, chat_id: int, candidates: list[str]):
+        token = _create_pending_expansion(pending, candidates, user_id, chat_id)
         kb = [
             [InlineKeyboardButton(
                 f"🔗 관련 링크 {len(candidates)}개 가져오기",
@@ -133,15 +204,23 @@ def run_bot() -> int:
         ]
         return InlineKeyboardMarkup(kb)
 
-    async def _settle(status, msg, summary: str, cands: list, update_id: int) -> None:
+    async def _settle(
+        status, msg, summary: str, cands: list,
+        user_id: int | None, chat_id: int | None,
+    ) -> None:
         """완료 처리: 1홉 후보가 있으면 진행 메시지를 결과+버튼으로 편집(버튼 보존),
         없으면 진행 메시지를 삭제(스팸 방지 — 결과는 원본 reaction 으로 표시됨)."""
-        if cands:
-            markup = _markup(update_id, cands)
+        if cands and user_id is not None and chat_id is not None:
+            markup = _markup(user_id, chat_id, cands)
             try:
                 await status.edit_text(summary, reply_markup=markup)
             except Exception:  # noqa: BLE001
                 await msg.reply_text(summary, reply_markup=markup)
+        elif cands:
+            try:
+                await status.edit_text(summary)
+            except Exception:  # noqa: BLE001
+                await msg.reply_text(summary)
         else:
             try:
                 await status.delete()
@@ -197,7 +276,7 @@ def run_bot() -> int:
         except Exception as e:  # noqa: BLE001
             summary, cands, emoji = f"❌ 처리 오류: {e}", [], "👎"
         await _react(msg, emoji)
-        await _settle(status, msg, summary, cands, update.update_id)
+        await _settle(status, msg, summary, cands, uid, cid)
 
     async def on_document(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
         user = update.effective_user
@@ -207,7 +286,10 @@ def run_bot() -> int:
         doc = update.message.document
         if not doc:
             return
-        name = doc.file_name or "document"
+        if doc.file_size is not None and doc.file_size > _MAX_TELEGRAM_FILE_BYTES:
+            await update.message.reply_text("파일이 너무 큽니다. 최대 20MB까지 처리할 수 있습니다.")
+            return
+        name = Path(doc.file_name or "document").name or "document"
         msg = update.message
         label = f"파일 처리 중… ({name})"
         status = await msg.reply_text(f"⏳ {label}")
@@ -216,8 +298,17 @@ def run_bot() -> int:
 
         async def _download() -> str:
             tg_file = await doc.get_file()
-            tmp = Path(tempfile.gettempdir()) / f"claire_{doc.file_unique_id}_{name}"
-            await tg_file.download_to_drive(str(tmp))
+            with tempfile.NamedTemporaryFile(
+                prefix="claire_", suffix=Path(name).suffix, delete=False,
+            ) as handle:
+                tmp = Path(handle.name)
+            try:
+                await tg_file.download_to_drive(str(tmp))
+                if tmp.stat().st_size > _MAX_TELEGRAM_FILE_BYTES:
+                    raise ValueError("다운로드된 파일이 20MB 제한을 초과했습니다.")
+            except Exception:
+                tmp.unlink(missing_ok=True)
+                raise
             return str(tmp)
 
         try:
@@ -233,23 +324,29 @@ def run_bot() -> int:
                               inbox_kind="document", file_ref=kept, file_name=name)
 
         try:
-            report = await _run_with_ticker(status, label, _work)
-            summary, cands = report.telegram_summary(), report.candidates
-            emoji = _status_emoji(report.error, report.duplicate)
-        except Exception as e:  # noqa: BLE001
-            summary, cands, emoji = f"❌ 처리 오류: {e}", [], "👎"
+            try:
+                report = await _run_with_ticker(status, label, _work)
+                summary, cands = report.telegram_summary(), report.candidates
+                emoji = _status_emoji(report.error, report.duplicate)
+            except Exception as e:  # noqa: BLE001
+                summary, cands, emoji = f"❌ 처리 오류: {e}", [], "👎"
+        finally:
+            Path(tmp_path).unlink(missing_ok=True)
         await _react(msg, emoji)
-        await _settle(status, msg, summary, cands, update.update_id)
+        await _settle(status, msg, summary, cands, uid, cid)
 
     async def on_callback(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
         query = update.callback_query
-        await query.answer()
         data = query.data or ""
+        user = update.effective_user
+        user_id = user.id if user else None
+        chat_id = update.effective_chat.id if update.effective_chat else None
+        if user_id is None or not _is_allowed(user_id):
+            await query.answer("허용되지 않은 사용자입니다.", show_alert=True)
+            return
         if data.startswith("auth:"):
             # 웹 UI 접속 승인 — 소유자만. DB 에 세션 토큰 발급(웹이 poll 로 수령).
-            user = update.effective_user
-            if not _is_allowed(user.id if user else None):
-                return
+            await query.answer()
             from .store import db as dbm
 
             conn = dbm.connect(svc.s.db_file)
@@ -266,17 +363,30 @@ def run_bot() -> int:
         if data.startswith("no:"):
             # 거절: 진행/결과 메시지를 아예 삭제(스팸 감소 — 적재 결과는 원본 reaction 으로
             # 이미 표시됨). 삭제 불가(시간초과 등)면 버튼만 제거로 폴백.
-            pending.pop(data[3:], None)
+            urls = _consume_pending_expansion(
+                pending, data[3:], user_id, chat_id,
+            )
+            if urls is None:
+                await query.answer(
+                    "만료되었거나 다른 사용자의 요청입니다.", show_alert=True,
+                )
+                return
+            await query.answer()
             try:
                 await query.message.delete()
             except Exception:  # noqa: BLE001
                 await query.edit_message_reply_markup(reply_markup=None)
             return
         if data.startswith("exp:"):
-            urls = pending.pop(data[4:], [])
-            if not urls:
-                await query.edit_message_reply_markup(reply_markup=None)
+            urls = _consume_pending_expansion(
+                pending, data[4:], user_id, chat_id,
+            )
+            if urls is None:
+                await query.answer(
+                    "만료되었거나 다른 사용자의 요청입니다.", show_alert=True,
+                )
                 return
+            await query.answer()
             # 같은 메시지를 in-place 편집해 진행→결과로 갱신(새 메시지 2개 더 안 만든다).
             async def _edit(text: str) -> None:
                 try:
@@ -293,6 +403,8 @@ def run_bot() -> int:
                 except Exception as e:  # noqa: BLE001
                     lines.append(f"• ❌ {url}: {e}")
             await _edit("🔗 확장 적재 결과\n" + "\n".join(lines))
+            return
+        await query.answer()
 
     async def on_search(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         if not _is_allowed(update.effective_user.id if update.effective_user else None):

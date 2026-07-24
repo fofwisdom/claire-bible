@@ -14,15 +14,25 @@ IngestService.ingest() 를 호출한다. 별도 프로세스(`claire serve-api`)
 
 from __future__ import annotations
 
+import hmac
 import logging
 import re
 
 from ..config import get_settings
 from ..ingest.service import IngestService
 from ..ingest.report_json import report_to_dict
+from ..logging_config import configure_logging
 from ..store import db as dbm
 
 log = logging.getLogger("claire.api")
+_MAX_REQUEST_BYTES = 1024 * 1024
+_MAX_PAYLOAD_CHARS = 200_000
+_MAX_QUERY_CHARS = 10_000
+_MAX_SEARCH_LIMIT = 50
+
+
+def _token_matches(expected: str, presented: str) -> bool:
+    return bool(expected and presented) and hmac.compare_digest(expected, presented)
 
 
 def run_api() -> int:
@@ -34,18 +44,16 @@ def run_api() -> int:
         return 2
 
     if not s.inject_token:
-        print("경고: CLAIRE_INJECT_TOKEN 미설정 → 인증 없이 노출됩니다. .env 에 설정 권장.")
+        print("CLAIRE_INJECT_TOKEN 미설정 → bearer API 호출은 비활성화됩니다.")
 
-    logging.basicConfig(level=logging.INFO)
+    configure_logging()
     svc = IngestService(s)
 
     def _authed(request) -> bool:
-        # 1) bearer 토큰 — 프로그래밍 호출자(CLI/replay_sample). 토큰 미설정이면 개방(loopback 기본).
-        if not s.inject_token:
-            return True
+        # 1) bearer 토큰 — 프로그래밍 호출자(CLI/replay_sample). 미설정이면 이 경로만 비활성.
         auth = request.headers.get("Authorization", "")
         token = auth[7:] if auth.startswith("Bearer ") else request.headers.get("X-Token", "")
-        if token == s.inject_token:
+        if _token_matches(s.inject_token, token):
             return True
         # 2) 텔레그램 세션(브라우저) — X-Session 헤더 또는 claire_session 쿠키(/web 진입).
         sess = request.headers.get("X-Session", "") or request.cookies.get("claire_session", "")
@@ -69,7 +77,7 @@ def run_api() -> int:
             return False
         auth = request.headers.get("Authorization", "")
         token = auth[7:] if auth.startswith("Bearer ") else request.headers.get("X-Token", "")
-        return token == s.readonly_token
+        return _token_matches(s.readonly_token, token)
 
     def _session_scope_ok(request, scopes: tuple[str, ...]) -> bool:
         sess = request.headers.get("X-Session", "") or request.cookies.get("claire_session", "")
@@ -95,13 +103,15 @@ def run_api() -> int:
         owner/readonly 둘 다 도달 가능, 그 외는 gate 가 이미 404."""
         return web.json_response({"scope": "owner" if _authed(request) else "readonly"})
 
-    async def health(_request):
+    async def health(request):
         import asyncio
 
         from ..health import health_report
 
         rep = await asyncio.to_thread(health_report, s, svc.provider.name)
-        return web.json_response(rep, status=200 if rep["ok"] else 503)
+        # 공개 liveness는 내부 DB/큐/백업 상세를 노출하지 않는다.
+        body = rep if _authed_read(request) else {"ok": bool(rep["ok"])}
+        return web.json_response(body, status=200 if rep["ok"] else 503)
 
     async def stats(request):
         if not _authed_read(request):
@@ -126,10 +136,21 @@ def run_api() -> int:
             body = await request.json()
         except Exception:  # noqa: BLE001
             return web.json_response({"error": "invalid json"}, status=400)
-        payload = (body.get("payload") or "").strip()
+        if not isinstance(body, dict):
+            return web.json_response({"error": "invalid request body"}, status=400)
+        payload_value = body.get("payload")
+        if not isinstance(payload_value, str):
+            return web.json_response({"error": "payload must be a string"}, status=400)
+        payload = payload_value.strip()
         if not payload:
             return web.json_response({"error": "payload required"}, status=400)
-        expand_max = body.get("expand_max")
+        if len(payload) > _MAX_PAYLOAD_CHARS:
+            return web.json_response({"error": "payload too large"}, status=413)
+        try:
+            expand_max = None if body.get("expand_max") is None else max(
+                0, min(int(body["expand_max"]), 50))
+        except (TypeError, ValueError):
+            return web.json_response({"error": "invalid expand_max"}, status=400)
         try:
             report = await asyncio.to_thread(
                 svc.ingest, payload, source="api", expand_max=expand_max)
@@ -149,11 +170,22 @@ def run_api() -> int:
             body = await request.json()
         except Exception:  # noqa: BLE001
             return web.json_response({"error": "invalid json"}, status=400)
-        query = (body.get("query") or "").strip()
+        if not isinstance(body, dict):
+            return web.json_response({"error": "invalid request body"}, status=400)
+        query_value = body.get("query")
+        if not isinstance(query_value, str):
+            return web.json_response({"error": "query must be a string"}, status=400)
+        query = query_value.strip()
         if not query:
             return web.json_response({"error": "query required"}, status=400)
+        if len(query) > _MAX_QUERY_CHARS:
+            return web.json_response({"error": "query too large"}, status=413)
+        try:
+            limit = max(1, min(int(body.get("limit", 8)), _MAX_SEARCH_LIMIT))
+        except (TypeError, ValueError):
+            return web.json_response({"error": "invalid limit"}, status=400)
         result = await asyncio.to_thread(
-            svc.search, query, limit=int(body.get("limit", 8)),
+            svc.search, query, limit=limit,
             summarize=bool(body.get("summarize", True)))
         return web.json_response({
             "query": result.query,
@@ -194,7 +226,11 @@ def run_api() -> int:
         path = s.data_dir / rel
         if not path.is_file():
             return web.Response(status=404, text="Not Found")
-        return web.FileResponse(path)
+        response = web.FileResponse(path)
+        if path.suffix.lower() == ".svg":
+            response.headers["Content-Security-Policy"] = (
+                "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data:")
+        return response
 
     async def documents_list_route(_request):
         import asyncio
@@ -333,7 +369,12 @@ def run_api() -> int:
             body = await request.json()
         except Exception:  # noqa: BLE001
             return web.json_response({"error": "invalid json"}, status=400)
-        did = (body.get("id") or "").strip()
+        if not isinstance(body, dict):
+            return web.json_response({"error": "invalid request body"}, status=400)
+        did_value = body.get("id")
+        if not isinstance(did_value, str):
+            return web.json_response({"error": "id must be a string"}, status=400)
+        did = did_value.strip()
         if not did:
             return web.json_response({"error": "id required"}, status=400)
         pinned = bool(body.get("pinned", True))
@@ -361,7 +402,12 @@ def run_api() -> int:
             body = await request.json()
         except Exception:  # noqa: BLE001
             return web.json_response({"error": "invalid json"}, status=400)
-        did = (body.get("id") or "").strip()
+        if not isinstance(body, dict):
+            return web.json_response({"error": "invalid request body"}, status=400)
+        did_value = body.get("id")
+        if not isinstance(did_value, str):
+            return web.json_response({"error": "id must be a string"}, status=400)
+        did = did_value.strip()
         if not did:
             return web.json_response({"error": "id required"}, status=400)
         hidden = bool(body.get("hidden", True))
@@ -391,10 +437,20 @@ def run_api() -> int:
             body = await request.json()
         except Exception:  # noqa: BLE001
             return web.json_response({"error": "invalid json"}, status=400)
-        ids = body.get("node_ids") or []
-        if not ids:
-            return web.json_response({"error": "node_ids required"}, status=400)
+        if not isinstance(body, dict):
+            return web.json_response({"error": "invalid request body"}, status=400)
+        ids = body.get("node_ids")
+        if (not isinstance(ids, list) or not ids
+                or len(ids) > 100 or not all(isinstance(x, str) for x in ids)):
+            return web.json_response(
+                {"error": "node_ids must be a string list with at most 100 items"},
+                status=400,
+            )
         query = body.get("query")
+        if query is not None and not isinstance(query, str):
+            return web.json_response({"error": "query must be a string"}, status=400)
+        if isinstance(query, str) and len(query) > _MAX_QUERY_CHARS:
+            return web.json_response({"error": "query too large"}, status=413)
 
         def _s():
             conn = dbm.connect(s.db_file)
@@ -422,11 +478,25 @@ def run_api() -> int:
             body = await request.json()
         except Exception:  # noqa: BLE001
             return web.json_response({"error": "invalid json"}, status=400)
-        query = (body.get("query") or "").strip()
+        if not isinstance(body, dict):
+            return web.json_response({"error": "invalid request body"}, status=400)
+        query_value = body.get("query")
+        if not isinstance(query_value, str):
+            return web.json_response({"error": "query must be a string"}, status=400)
+        query = query_value.strip()
         if not query:
             return web.json_response({"error": "query required"}, status=400)
-        node_id = body.get("node_id") or None
-        doc_id = body.get("doc_id") or None
+        if len(query) > _MAX_QUERY_CHARS:
+            return web.json_response({"error": "query too large"}, status=413)
+        node_id = body.get("node_id")
+        doc_id = body.get("doc_id")
+        if ((node_id is not None and not isinstance(node_id, str))
+                or (doc_id is not None and not isinstance(doc_id, str))):
+            return web.json_response(
+                {"error": "node_id and doc_id must be strings"}, status=400,
+            )
+        node_id = node_id or None
+        doc_id = doc_id or None
 
         resp = web.StreamResponse()
         resp.content_type = "application/x-ndjson"
@@ -477,10 +547,21 @@ def run_api() -> int:
             body = await request.json()
         except Exception:  # noqa: BLE001
             return web.json_response({"error": "invalid json"}, status=400)
-        payload = (body.get("payload") or "").strip()
+        if not isinstance(body, dict):
+            return web.json_response({"error": "invalid request body"}, status=400)
+        payload_value = body.get("payload")
+        if not isinstance(payload_value, str):
+            return web.json_response({"error": "payload must be a string"}, status=400)
+        payload = payload_value.strip()
         if not payload:
             return web.json_response({"error": "payload required"}, status=400)
-        expand_max = body.get("expand_max")
+        if len(payload) > _MAX_PAYLOAD_CHARS:
+            return web.json_response({"error": "payload too large"}, status=413)
+        try:
+            expand_max = None if body.get("expand_max") is None else max(
+                0, min(int(body["expand_max"]), 50))
+        except (TypeError, ValueError):
+            return web.json_response({"error": "invalid expand_max"}, status=400)
 
         resp = web.StreamResponse()
         resp.content_type = "application/x-ndjson"
@@ -549,8 +630,19 @@ def run_api() -> int:
             body = await request.json()
         except Exception:  # noqa: BLE001
             return web.json_response({"error": "invalid json"}, status=400)
-        keeper = (body.get("keeper") or "").strip()
-        losers = [str(x) for x in (body.get("losers") or []) if x]
+        if not isinstance(body, dict):
+            return web.json_response({"error": "invalid request body"}, status=400)
+        keeper_value = body.get("keeper")
+        loser_values = body.get("losers")
+        if (not isinstance(keeper_value, str)
+                or not isinstance(loser_values, list)
+                or not all(isinstance(x, str) for x in loser_values)):
+            return web.json_response(
+                {"error": "keeper must be a string and losers must be a string list"},
+                status=400,
+            )
+        keeper = keeper_value.strip()
+        losers = [x.strip() for x in loser_values]
         if not keeper or not losers:
             return web.json_response({"error": "keeper and losers required"}, status=400)
 
@@ -559,9 +651,12 @@ def run_api() -> int:
 
         try:
             res = await asyncio.to_thread(_merge)
+        except ValueError as e:
+            log.warning("dedup merge rejected: %s", e)
+            return web.json_response({"error": str(e)}, status=400)
         except Exception as e:  # noqa: BLE001
             log.warning("dedup merge error: %s", e)
-            return web.json_response({"error": str(e)}, status=200)
+            return web.json_response({"error": str(e)}, status=500)
         return web.json_response(res)
 
     async def create_share_route(request):
@@ -574,7 +669,12 @@ def run_api() -> int:
             body = await request.json()
         except Exception:  # noqa: BLE001
             return web.json_response({"error": "invalid json"}, status=400)
-        did = (body.get("doc_id") or "").strip()
+        if not isinstance(body, dict):
+            return web.json_response({"error": "invalid request body"}, status=400)
+        did_value = body.get("doc_id")
+        if not isinstance(did_value, str):
+            return web.json_response({"error": "doc_id must be a string"}, status=400)
+        did = did_value.strip()
         if not did:
             return web.json_response({"error": "doc_id required"}, status=400)
 
@@ -633,6 +733,8 @@ def run_api() -> int:
 
     @web.middleware
     async def gate(request, handler):
+        if request.content_length is not None and request.content_length > _MAX_REQUEST_BYTES:
+            return web.json_response({"error": "request too large"}, status=413)
         tok = request.query.get("t")
         if tok and request.path == "/":
             # /web 링크 진입: 토큰(또는 7자+ 프리픽스)이 유효하면 httponly 쿠키에 **전체
@@ -660,7 +762,26 @@ def run_api() -> int:
             return await handler(request)
         return web.Response(status=404, text="Not Found")
 
-    app = web.Application(middlewares=[gate])
+    async def security_headers(request, response):
+        """prepare 직전에 일반 응답과 streaming 응답 모두에 보안 헤더를 붙인다."""
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("Referrer-Policy", "no-referrer")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault(
+            "Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+        if request.query.get("t") or request.query.get("s") or request.path.startswith("/auth/"):
+            response.headers.setdefault("Cache-Control", "no-store")
+        content_type = response.headers.get("Content-Type", "").lower()
+        if "text/html" in content_type:
+            response.headers.setdefault(
+                "Content-Security-Policy",
+                "default-src 'self'; script-src 'self' 'unsafe-inline' https://unpkg.com; "
+                "style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; "
+                "connect-src 'self'; object-src 'none'; base-uri 'none'; "
+                "frame-ancestors 'none'; form-action 'none'",
+            )
+    app = web.Application(middlewares=[gate], client_max_size=_MAX_REQUEST_BYTES)
+    app.on_response_prepare.append(security_headers)
     app.add_routes([
         web.get("/health", health),
         web.get("/whoami", whoami),

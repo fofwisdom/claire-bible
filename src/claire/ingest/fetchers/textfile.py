@@ -27,6 +27,10 @@ def fetch_file(path: str) -> Document:
         from .base import FetchError
 
         raise FetchError(f"file not found: {path}")
+    if not p.is_file():
+        from .base import FetchError
+
+        raise FetchError(f"not a regular file: {path}")
     suffix = p.suffix.lower()
     if suffix in {".md", ".txt", ".markdown", ".rst", ""}:
         text = p.read_text(encoding="utf-8", errors="ignore")

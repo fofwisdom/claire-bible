@@ -27,6 +27,8 @@ class Settings(BaseSettings):
     gemini_api_key: str = Field(default="", alias="GEMINI_API_KEY")
     telegram_bot_token: str = Field(default="", alias="TELEGRAM_BOT_TOKEN")
     allowed_users: str = Field(default="", alias="CLAIRE_ALLOWED_USERS")
+    # 비어 있는 allowlist는 fail-closed. 공개 개발 봇이 꼭 필요할 때만 명시적으로 opt-in.
+    allow_all_users: bool = Field(default=False, alias="CLAIRE_ALLOW_ALL_USERS")
     # 운영 경보를 받을 소유자 chat. 미설정(0)이면 allowed_users 로 폴백(개인 DM 은
     # chat_id == user_id 이므로 단일 사용자 환경에서 별도 설정 없이 동작).
     owner_chat_id: int = Field(default=0, alias="CLAIRE_OWNER_CHAT_ID")
@@ -53,6 +55,8 @@ class Settings(BaseSettings):
     auto_expand: bool = Field(default=True, alias="CLAIRE_AUTO_EXPAND")
     # 주기 크롤링: watch 문서의 기본 재확인 주기(일). 문서별 watch_interval 이 있으면 그게 우선.
     watch_interval_days: float = Field(default=1.0, alias="CLAIRE_WATCH_INTERVAL_DAYS")
+    # 기본은 public IP만 fetch. 의도적인 사내 자료가 있으면 필요한 CIDR만 쉼표로 명시한다.
+    fetch_allowed_cidrs: str = Field(default="", alias="CLAIRE_FETCH_ALLOWED_CIDRS")
 
     # --- local inject API (DM 과 동일 ingest 통로를 로컬에서 호출) ---
     inject_host: str = Field(default="127.0.0.1", alias="CLAIRE_INJECT_HOST")
@@ -94,8 +98,8 @@ class Settings(BaseSettings):
             if tok:
                 try:
                     out.add(int(tok))
-                except ValueError:
-                    pass
+                except ValueError as exc:
+                    raise ValueError("CLAIRE_ALLOWED_USERS must contain numeric IDs") from exc
         return out
 
     @property

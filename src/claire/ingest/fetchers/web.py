@@ -109,12 +109,10 @@ def _fetch_static(
     canonical 기준. 실패하면 None. 실패해도 예외 대신 빈 결과를 돌려준다. images 는
     본문 이미지 후보(상대경로는 effective_url 기준으로 절대경로화).
     """
-    import httpx
+    from ..netpolicy import safe_httpx_get
 
     try:
-        with httpx.Client(follow_redirects=True, timeout=30,
-                          headers={"User-Agent": _UA}) as client:
-            resp = client.get(url)
+        resp = safe_httpx_get(url, timeout=30, headers={"User-Agent": _UA})
         if resp.status_code >= 400:
             return None, "", [], {}, f"http {resp.status_code} for {url}", None, []
         title, text, links, anchors, perr, images = _extract_html(
@@ -249,9 +247,17 @@ def _fetch_scrapling(url: str) -> tuple[str | None, str, list[str], dict[str, st
     title/본문/링크(1홉 후보)/앵커/이미지 추출 일관성 유지. 미설치/실패 시 빈 결과.
     """
     try:
+        from ..netpolicy import validate_outbound_url
         from scrapling.fetchers import Fetcher
 
-        page = Fetcher.get(url, stealthy_headers=True, timeout=30)
+        validate_outbound_url(url)
+        page = Fetcher.get(
+            url,
+            stealthy_headers=True,
+            timeout=30,
+            follow_redirects="safe",
+            max_redirects=5,
+        )
         status = getattr(page, "status", 200)
         if status and status >= 400:
             return None, "", [], {}, []
@@ -260,6 +266,18 @@ def _fetch_scrapling(url: str) -> tuple[str | None, str, list[str], dict[str, st
         return title, text, links, anchors, images
     except Exception:  # noqa: BLE001
         return None, "", [], {}, []
+
+
+def _validate_browser_request_url(url: str) -> None:
+    """CDP가 실제 네트워크로 내보내는 URL만 공통 outbound 정책으로 검증한다."""
+    from urllib.parse import urlsplit
+
+    # 문서 내부에서 만들어지는 로컬 리소스는 네트워크 연결을 만들지 않는다.
+    if urlsplit(url).scheme.lower() in {"about", "blob", "data"}:
+        return
+    from ..netpolicy import validate_outbound_url
+
+    validate_outbound_url(url)
 
 
 def _fetch_cdp(url: str) -> tuple[str | None, str, list[str], dict[str, str], list[dict]]:
@@ -274,6 +292,9 @@ def _fetch_cdp(url: str) -> tuple[str | None, str, list[str], dict[str, str], li
         import asyncio
 
         import nodriver as uc
+        from ..netpolicy import validate_outbound_url
+
+        validate_outbound_url(url)
 
         async def _run() -> str:
             browser = await uc.start(
@@ -281,7 +302,29 @@ def _fetch_cdp(url: str) -> tuple[str | None, str, list[str], dict[str, str], li
                 browser_args=["--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage"],
             )
             try:
-                page = await browser.get(url)
+                # 최초 navigation 전에 Fetch domain을 켜 redirect·JS navigation·하위
+                # 리소스 각각을 검사한다. private 요청은 브라우저가 보내기 전에 중단한다.
+                page = browser.tabs[0]
+
+                async def _guard_request(event, connection) -> None:
+                    try:
+                        await asyncio.to_thread(
+                            _validate_browser_request_url, event.request.url,
+                        )
+                    except Exception:  # noqa: BLE001
+                        await connection.send(uc.cdp.fetch.fail_request(
+                            event.request_id,
+                            uc.cdp.network.ErrorReason.BLOCKED_BY_CLIENT,
+                        ))
+                        return
+                    await connection.send(
+                        uc.cdp.fetch.continue_request(event.request_id))
+
+                page.add_handler(uc.cdp.fetch.RequestPaused, _guard_request)
+                await page.send(uc.cdp.fetch.enable())
+                # Tab.get()은 attach를 다시 수행해 Fetch domain/session을 바꾸므로,
+                # 현재 CDP session을 유지한 채 Page.navigate를 직접 보낸다.
+                await page.send(uc.cdp.page.navigate(url))
                 await page.sleep(2.5)  # JS 렌더링 대기(SPA 초기 로드)
                 return await page.get_content()
             finally:

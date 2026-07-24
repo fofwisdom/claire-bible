@@ -24,7 +24,9 @@ def _run_deploy(
     dotenv: str | None,
     *,
     ssh_exec_guard: bool = False,
+    ssh_exec_security_env: bool = False,
     ssh_guard_status: int = 0,
+    ssh_security_env_status: int = 0,
     ssh_test_status: int = 1,
     extra_env: dict[str, str] | None = None,
 ) -> tuple[subprocess.CompletedProcess[str], Path, Path]:
@@ -58,6 +60,15 @@ def _run_deploy(
             exit "${SSH_GUARD_STATUS:-0}"
             ;;
           *"test -f"*) exit "${SSH_TEST_STATUS:-1}" ;;
+          *"claire-security-env-check"*)
+            if [ "${SSH_EXEC_SECURITY_ENV:-0}" = "1" ]; then
+              command_to_run=''
+              for arg in "$@"; do command_to_run="$arg"; done
+              /bin/sh -c "$command_to_run"
+              exit $?
+            fi
+            exit "${SSH_SECURITY_ENV_STATUS:-0}"
+            ;;
         esac
         """,
     )
@@ -91,7 +102,9 @@ def _run_deploy(
             "DEPLOY_ENV_FILE": str(env_file),
             "SKIP_CI": "1",
             "SSH_EXEC_GUARD": "1" if ssh_exec_guard else "0",
+            "SSH_EXEC_SECURITY_ENV": "1" if ssh_exec_security_env else "0",
             "SSH_GUARD_STATUS": str(ssh_guard_status),
+            "SSH_SECURITY_ENV_STATUS": str(ssh_security_env_status),
             "SSH_TEST_STATUS": str(ssh_test_status),
         }
     )
@@ -159,6 +172,103 @@ class DeployScriptTest(unittest.TestCase):
         lines = calls.read_text(encoding="utf-8").splitlines()
         self.assertEqual(sum(line.startswith("rsync\t") for line in lines), 1)
         self.assertIn("원격 .env 유지", result.stdout)
+
+    def test_security_env_check_runs_before_compose_restart(self):
+        result, calls, _ = _run_deploy(
+            self.tmp_path,
+            """
+            DEPLOY_REMOTE=claire-host
+            DEPLOY_PATH=/opt/claire
+            DEPLOY_ENV_SYNC=always
+            CLAIRE_ALLOWED_USERS=101
+            CLAIRE_INJECT_TOKEN=test-token
+            """,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = calls.read_text(encoding="utf-8").splitlines()
+        check_index = next(
+            i for i, line in enumerate(lines) if "claire-security-env-check" in line
+        )
+        restart_index = next(
+            i for i, line in enumerate(lines) if "docker compose up -d --build" in line
+        )
+        self.assertLess(check_index, restart_index)
+
+    def test_security_env_check_failure_stops_before_compose_restart(self):
+        result, calls, _ = _run_deploy(
+            self.tmp_path,
+            """
+            DEPLOY_REMOTE=claire-host
+            DEPLOY_PATH=/opt/claire
+            DEPLOY_ENV_SYNC=always
+            """,
+            ssh_security_env_status=42,
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("기존 컨테이너는 변경하지 않았습니다", result.stderr)
+        self.assertNotIn(
+            "docker compose up -d --build", calls.read_text(encoding="utf-8")
+        )
+
+    def test_security_env_check_validates_preserved_remote_dotenv(self):
+        remote = self.tmp_path / "remote"
+        remote.mkdir()
+        (remote / ".claire-deploy-root").write_text(
+            "claire_bible\n", encoding="utf-8"
+        )
+        (remote / ".env").write_text(
+            textwrap.dedent(
+                """
+                CLAIRE_INJECT_TOKEN='strong local token' # retained remotely
+                CLAIRE_ALLOWED_USERS="101, 202"
+                CLAIRE_ALLOW_ALL_USERS=false
+                """
+            ),
+            encoding="utf-8",
+        )
+
+        result, _, _ = _run_deploy(
+            self.tmp_path / "client",
+            """
+            DEPLOY_REMOTE=alice@host
+            DEPLOY_ENV_SYNC=never
+            """ + f"DEPLOY_PATH={remote}\n",
+            ssh_exec_guard=True,
+            ssh_exec_security_env=True,
+            ssh_test_status=0,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_security_env_check_rejects_incomplete_preserved_remote_dotenv(self):
+        remote = self.tmp_path / "remote"
+        remote.mkdir()
+        (remote / ".claire-deploy-root").write_text(
+            "claire_bible\n", encoding="utf-8"
+        )
+        (remote / ".env").write_text(
+            "CLAIRE_ALLOWED_USERS=101\nCLAIRE_INJECT_TOKEN=\n",
+            encoding="utf-8",
+        )
+
+        result, calls, _ = _run_deploy(
+            self.tmp_path / "client",
+            """
+            DEPLOY_REMOTE=alice@host
+            DEPLOY_ENV_SYNC=never
+            """ + f"DEPLOY_PATH={remote}\n",
+            ssh_exec_guard=True,
+            ssh_exec_security_env=True,
+            ssh_test_status=0,
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("CLAIRE_INJECT_TOKEN이 비어 있습니다", result.stderr)
+        self.assertNotIn(
+            "docker compose up -d --build", calls.read_text(encoding="utf-8")
+        )
 
     def test_process_environment_overrides_dotenv(self):
         result, calls, _ = _run_deploy(
