@@ -1,0 +1,26 @@
+name: "${CB_PROJECT_NAME:-claire-bible-dev}"
+
+x-claire-dev-service: &claire-dev-service
+  env_file: !override
+    - "${CB_ENV_FILE:-.env}"
+    - "${CB_DEV_ENV_FILE:-.env.dev}"
+  volumes:
+    - "${CB_DATA_DIR:-./.dev/data}:/app/data"
+    - "${CB_VAULT_DIR:-./.dev/vault}:/app/vault"
+    - ./src:/app/src
+
+services:
+  bot:
+    <<: *claire-dev-service
+
+  api:
+    <<: *claire-dev-service
+
+  refresh:
+    <<: *claire-dev-service
+
+  recover:
+    <<: *claire-dev-service
+
+  expand:
+    <<: *claire-dev-service

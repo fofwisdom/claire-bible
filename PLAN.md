@@ -57,7 +57,6 @@ Fetcher는 URL, canonical URL, 제목, 작성자, 시각, 원문, 소스 종류�
 - recover loop: 일시 실패를 지수 백오프로 재처리하고 영구 실패를 구분한다.
 - refresh loop: 오래되거나 빈약한 문서를 원래 ID로 다시 수집한다.
 - expand loop: 문서에서 발견한 후보를 제한된 1홉 범위로 조사한다.
-- backup loop: `VACUUM INTO` 스냅샷을 만들고 열어서 복원 가능성을 검증한다.
 
 ## 3. 중복과 병합 정책
 
@@ -81,22 +80,24 @@ Fetcher는 URL, canonical URL, 제목, 작성자, 시각, 원문, 소스 종류�
 
 실제 호스트명, 계정, 포트와 공개 URL은 `.env` 또는 실행 환경에서만 설정한다.
 
-## 5. 배포와 복구
+## 5. 컨테이너 수명주기
 
-Docker Compose 서비스는 같은 `data`·`vault` 볼륨을 공유한다. `deploy.sh`는 배포 대상을
-환경에서 읽고, 코드 동기화에서 데이터·vault·자격증명 파일을 제외한다. 배포 전 로컬 CI를
-통과해야 한다.
+호스트 운영 진입점은 `cb-manuscript`, 컨테이너 내부 애플리케이션 진입점은 `claire`로
+분리한다. 운영 Compose와 개발 overlay는 서로 다른 project 이름·데이터 경로를 사용하며
+고정 `container_name`에 의존하지 않는다.
 
-복구 순서:
+설치는 `config → build → migrate → up → liveness`, 업데이트는
+`fast-forward source → build → stop writers → migrate → up → liveness` 순서로 실행한다.
+새 이미지 build 전에는 기존 서비스를 중지하지 않는다. SQLite migration은 one-off
+컨테이너 하나에서만 명시적으로 수행한다.
 
-1. 쓰기 서비스를 중지한다.
-2. 복원할 검증된 스냅샷을 선택한다.
-3. 라이브 DB를 보존한 뒤 스냅샷으로 교체한다.
-4. 서비스를 시작하고 `claire health`와 그래프 통계를 확인한다.
+원격 배포는 `.env.deploy`의 접속 정보로 소스를 전송한 뒤 원격의 `cb-manuscript`를
+호출하는 호환 계층이다. `.env`의 runtime 설정과 SSH 설정은 섞지 않는다. 백업·복원은
+이 수명주기 설계에서 제외하며 별도 설계로 다룬다.
 
 ## 6. 검증 전략
 
-- `scripts/ci.sh`: lock 파일 동기 여부와 전체 pytest 실행
+- `scripts/ci.sh`: 셸/Python 구문, 운영·개발 Compose, lock 파일, 전체 pytest 검사
 - 단위 테스트: 라우팅, canonicalization, 스키마 마이그레이션, 인증과 큐 상태 전이
 - 통합 테스트: 같은 `IngestService`를 통한 적재·갱신·복구
 - 합성 replay: `sample.md`의 공개 입력을 로컬 API에 순차 전송

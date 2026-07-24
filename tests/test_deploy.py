@@ -80,7 +80,9 @@ def _run_deploy(
         "DEPLOY_PORT",
         "DEPLOY_PATH",
         "DEPLOY_ENV_SYNC",
+        "DEPLOY_ACTION",
         "DEPLOY_ENV_FILE",
+        "DEPLOY_APP_ENV_FILE",
         "SKIP_CI",
     ):
         env.pop(name, None)
@@ -89,6 +91,9 @@ def _run_deploy(
             "PATH": f"{bin_dir}{os.pathsep}{env.get('PATH', os.defpath)}",
             "CALL_LOG": str(calls),
             "DEPLOY_ENV_FILE": str(env_file),
+            # 기존 개별 테스트는 같은 fixture를 접속/런타임 설정으로 함께 사용한다.
+            # 실제 기본값은 .env.deploy(접속) + .env(런타임)로 분리된다.
+            "DEPLOY_APP_ENV_FILE": str(env_file),
             "SKIP_CI": "1",
             "SSH_EXEC_GUARD": "1" if ssh_exec_guard else "0",
             "SSH_GUARD_STATUS": str(ssh_guard_status),
@@ -136,10 +141,51 @@ class DeployScriptTest(unittest.TestCase):
         self.assertIn("/srv/claire/data", logged)
         self.assertIn(f"\t{env_file}\talice@kb.example:/srv/claire/.env", logged)
         self.assertIn("\t--include\t/.env.example", logged)
+        self.assertIn("\t--include\t/.env.dev.example", logged)
+        self.assertIn("\t--include\t/.env.deploy.example", logged)
+        self.assertIn("\t--exclude\t.cb-manuscript", logged)
         self.assertIn("\t--exclude\t.env.*", logged)
         self.assertIn(".claire-deploy-root", logged)
         self.assertIn("chmod 600 '/srv/claire/.env'", logged)
+        self.assertIn("bash ./cb-manuscript update --no-fetch", logged)
         self.assertFalse(marker.exists())
+
+    def test_deploy_and_runtime_env_files_are_separate(self):
+        app_env = self.tmp_path / ".env.runtime"
+        app_env.write_text(
+            "CLAIRE_PROVIDER=mock\nCLAIRE_INJECT_TOKEN=runtime-secret\n",
+            encoding="utf-8",
+        )
+        result, calls, deploy_env = _run_deploy(
+            self.tmp_path,
+            """
+            DEPLOY_REMOTE=alice@kb.example
+            DEPLOY_PATH=/srv/claire
+            DEPLOY_ENV_SYNC=always
+            """,
+            extra_env={"DEPLOY_APP_ENV_FILE": str(app_env)},
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        logged = calls.read_text(encoding="utf-8")
+        self.assertIn(f"\t{app_env}\talice@kb.example:/srv/claire/.env", logged)
+        self.assertNotIn(f"\t{deploy_env}\talice@kb.example:/srv/claire/.env", logged)
+
+    def test_install_action_invokes_remote_install(self):
+        result, calls, _ = _run_deploy(
+            self.tmp_path,
+            """
+            DEPLOY_REMOTE=alice@kb.example
+            DEPLOY_PATH=/srv/claire
+            DEPLOY_ENV_SYNC=always
+            DEPLOY_ACTION=install
+            """,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        logged = calls.read_text(encoding="utf-8")
+        self.assertIn("cd '/srv/claire' && bash ./cb-manuscript install", logged)
+        self.assertNotIn("bash ./cb-manuscript update --no-fetch", logged)
 
     def test_if_missing_preserves_existing_remote_dotenv(self):
         result, calls, _ = _run_deploy(
@@ -342,6 +388,22 @@ class DeployScriptTest(unittest.TestCase):
 
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("파일명은 .env 또는 .env.* 형식이어야 합니다", result.stderr)
+        self.assertFalse(calls.exists())
+
+    def test_app_env_file_name_must_follow_dotenv_pattern(self):
+        result, calls, _ = _run_deploy(
+            self.tmp_path,
+            None,
+            extra_env={
+                "DEPLOY_APP_ENV_FILE": "config/runtime.env",
+                "DEPLOY_REMOTE": "alice@host",
+                "DEPLOY_PATH": "/srv/claire",
+                "DEPLOY_ENV_SYNC": "never",
+            },
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("DEPLOY_APP_ENV_FILE의 파일명", result.stderr)
         self.assertFalse(calls.exists())
 
     def test_invalid_config_stops_before_remote_calls(self):

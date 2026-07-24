@@ -44,8 +44,9 @@
 
 ### 단계
 1. 원격 호스트와 모바일/외부 PC에 Tailscale 설치 → 같은 tailnet.
-2. inject API 바인드를 `127.0.0.1` → **tailscale0 인터페이스 IP(100.x.y.z)** 로
-   (또는 `0.0.0.0` + 호스트 방화벽이 tailscale0 만 허용). docker compose `claire_api` 포트/바인드 조정.
+2. `.env`의 `CB_API_BIND`를 `127.0.0.1` → **tailscale0 인터페이스 IP(100.x.y.z)** 로
+   변경한다(또는 `0.0.0.0` + 호스트 방화벽이 tailscale0 만 허용).
+   적용은 `./cb-manuscript update --no-fetch`로 수행한다.
 3. **읽기 엔드포인트는 그대로 무인증 유지 가능**(tailnet 내부만 도달) — 단, "tailnet =
    신뢰 경계" 를 명시적으로 문서화. ACL 로 그 포트를 소유자 디바이스로만 제한.
 4. 텔레그램 버튼 승인 세션은 그대로 동작(쓰기/LLM 게이트 유지) — 다층 방어.

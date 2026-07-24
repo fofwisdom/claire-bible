@@ -20,6 +20,8 @@ def test_healthy_when_no_errors(monkeypatch, tmp_path):
     rep = health_report(s, "mock")
     assert rep["ok"] is True
     assert rep["db"] == "ok"
+    assert rep["schema_version"] == dbm.SCHEMA_VERSION
+    assert rep["expected_schema_version"] == dbm.SCHEMA_VERSION
     assert rep["degraded"] is False
     assert "attention" not in rep
     assert rep["graph"] == {"documents": 0, "entities": 0, "relations": 0}
@@ -48,3 +50,38 @@ def test_not_ok_when_db_unreadable(monkeypatch, tmp_path):
     rep = health_report(s, "mock")
     assert rep["ok"] is False
     assert "error" in rep["db"]
+
+
+def test_health_does_not_create_a_missing_database(monkeypatch, tmp_path):
+    s = _settings(monkeypatch, tmp_path)
+    assert not s.db_file.exists()
+
+    rep = health_report(s, "mock")
+
+    assert rep["ok"] is False
+    assert not s.db_file.exists()
+
+
+def test_health_rejects_stale_schema_without_migrating(monkeypatch, tmp_path):
+    s = _settings(monkeypatch, tmp_path)
+    conn = dbm.connect(s.db_file)
+    dbm.init_db(conn)
+    stale = dbm.SCHEMA_VERSION - 1
+    conn.execute(
+        "UPDATE meta SET value=? WHERE key='schema_version'", (str(stale),)
+    )
+    conn.commit()
+    conn.close()
+
+    rep = health_report(s, "mock")
+
+    assert rep["ok"] is False
+    assert "schema_version mismatch" in rep["db"]
+    conn = dbm.connect(s.db_file)
+    try:
+        row = conn.execute(
+            "SELECT value FROM meta WHERE key='schema_version'"
+        ).fetchone()
+        assert int(row["value"]) == stale
+    finally:
+        conn.close()

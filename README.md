@@ -7,8 +7,9 @@
 
 ## 상태
 
-v1 파이프라인 완성 + **프로덕션 견고화(트랙1) 완료** — 개인용 프로덕션급. 단일 사용자 전용(멀티테넌시는 범위 밖, [GOALS.md](GOALS.md) 참조).
-자동복구·검증된 백업·헬스·circuit breaker·능동 알림을 갖춘 무중단 운영.
+v1 파이프라인 완성 + 개인용 컨테이너 운영 구조. 단일 사용자 전용이며 멀티테넌시는
+범위 밖이다([GOALS.md](GOALS.md) 참조). 자동복구·헬스·circuit breaker·능동 알림을
+제공한다.
 
 ## 빠른 시작 (로컬)
 
@@ -16,7 +17,7 @@ v1 파이프라인 완성 + **프로덕션 견고화(트랙1) 완료** — 개�
 uv sync                      # 의존성 설치
 cp .env.example .env         # 토큰/키 채우기 (GEMINI_API_KEY 없으면 mock provider 로 동작)
 uv run claire doctor         # 환경/벡터백엔드/임베딩 점검
-uv run claire health         # 시스템 건강 상태(JSON): DB·큐·inbox·백업
+uv run claire health         # 시스템 건강 상태(JSON): DB·schema·큐·inbox
 uv run claire ingest "https://example.com/article"   # 단건 적재
 uv run claire search "키워드"                          # 하이브리드 검색 + LLM 정리
 uv run claire bot            # 텔레그램 봇 (long-polling)
@@ -27,94 +28,100 @@ uv run claire bot            # 텔레그램 봇 (long-polling)
 | 명령 | 설명 |
 |---|---|
 | `doctor` / `health` / `status` / `stats` | 환경 점검 / 건강 JSON / 현황 / 그래프 카운트 |
+| `migrate` / `liveness` | 명시적 DB migration / 읽기 전용 DB·schema 생존 확인 |
 | `ingest <payload> [--expand]` | 단건 적재(URL/텍스트/파일) |
 | `search <q> [--no-summary]` | FTS+벡터 하이브리드 검색 + Gemini 정리(인용) |
 | `bot` / `serve-api` | 텔레그램 봇 / 로컬 inject API |
 | `recover-run` / `recover-loop` | error inbox 자동 재적재(게이팅·지수백오프·영구실패 구분) |
 | `refresh-mark` / `refresh-run` / `refresh-loop` | 빈약/구버전 문서 재스크랩(복원) |
-| `backup` / `backup-loop` | DB 스냅샷(VACUUM INTO) + 복원가능 검증 + 보존 정리 |
 | `replay-failed` | error inbox 수동 전량 재적재 |
 
-## 운영 (원격 Docker)
+## 컨테이너 운영
 
-한 호스트에 이 Compose 스택 한 인스턴스를 실행하는 구성이다. 배포 대상은 코드에
-고정하지 않고 로컬 `.env`에서 읽는다.
+호스트 수명주기는 루트의 `cb-manuscript`로만 조작한다. `claire`는 컨테이너 안의
+애플리케이션 명령이고, `cb-manuscript`는 설치·업데이트·Compose 실행을 담당한다.
+호스트에는 Python 3, Git, 실행 중인 Docker Engine과 Docker Compose v2가 필요하다.
 
-```dotenv
-# .env — 앱 설정과 함께 입력
-DEPLOY_REMOTE=alice@example.com       # user@host 또는 SSH config 별칭
-DEPLOY_PORT=22
-DEPLOY_PATH=/home/alice/claire_bible  # 원격 절대 경로
-DEPLOY_ENV_SYNC=if-missing            # 최초 업로드 후 기존 원격 .env 보존
+```bash
+./cb-manuscript init       # .env/.env.dev 생성(기존 파일 미덮어쓰기)
+# .env에 Telegram/Gemini 설정 입력
+./cb-manuscript doctor     # Docker·Compose·설정 사전 검사
+./cb-manuscript install    # build → migrate → up → health
+./cb-manuscript status
 ```
 
-`DEPLOY_REMOTE`와 `DEPLOY_PATH`는 원격 배포 시 필수다. `DEPLOY_ENV_SYNC=if-missing`은
-원격 `.env`가 이미 있으면 보존하고, `never`는 기존 원격 `.env`가 있을 때만 전송을
-건너뛴다. 같은 이름의 프로세스 환경변수에 비어 있지 않은 값을 주면 `.env`보다
-우선한다. `always`에서는 원격에서 직접 수정한 `.env`가 다음 배포 때 로컬 파일로
-덮어써진다.
+`TELEGRAM_BOT_TOKEN`이 비어 있으면 `bot` profile은 기동하지 않는다. API와 worker는
+mock provider로 설치·검증할 수 있다.
 
-다른 파일을 쓰려면 `DEPLOY_ENV_FILE=.env.production ./deploy.sh`처럼 실행한다. 이
-파일은 배포 접속 설정만 담는 파일이 아니라, 원격 `.env`로 복사될 앱 설정 전체를
-포함해야 하고 파일명은 `.env` 또는 `.env.*` 형식이어야 한다. 처음 쓰는 경로는
-없거나, 비어 있거나, `data`·`vault`·`.env`만 있어야 한다. 이후에는 배포 스크립트가
-만든 마커를 검사해 `rsync --delete`가 상위 디렉터리를 지우는 오입력을 차단한다.
+주요 명령:
 
-기존 설치를 전환할 때는 로컬 `.env`에 `DEPLOY_REMOTE`·`DEPLOY_PORT`·`DEPLOY_PATH`를
-추가하고 첫 실행은 `if-missing`으로 둔다. 원격과 로컬 `.env`를 비교한 뒤 로컬 파일을
-정본으로 관리할 때만 `always`로 바꾼다.
+```bash
+./cb-manuscript update             # fast-forward source → build → stop → migrate → up
+./cb-manuscript update --no-fetch  # 이미 동기화된 소스로 재배치
+./cb-manuscript up
+./cb-manuscript down
+./cb-manuscript restart
+./cb-manuscript health
+./cb-manuscript logs -f api
+./cb-manuscript shell
+./cb-manuscript app status
+./cb-manuscript compose -- ps      # Compose 고급 탈출구
+./cb-manuscript dev install        # .env.dev + 격리된 .dev/data·vault
+```
 
-6개 컨테이너(모두 `restart: unless-stopped`, `data`·`vault` 볼륨 공유):
+`update`는 dirty worktree와 non-fast-forward 갱신을 거부한다. 새 이미지 build가 성공한
+뒤 현재 project와 이전 고정 이름 컨테이너를 중지하고 migration을 한 번만 실행한다.
+SQLite migration 중에는 짧은 쓰기 중단이 발생한다. migration 전에 실패하면 직전에
+실행 중이던 컨테이너만 다시 시작한다. 새 스택 기동 이후 실패는 진단을 위해 그 상태를
+유지하며 자동 rollback으로 오인하지 않는다. 백업·복원은 이번 통합 운영 구조의 범위에
+포함하지 않으며 별도로 다시 설계한다.
 
-| 컨테이너 | 역할 |
+환경 파일:
+
+| 파일 | 역할 |
 |---|---|
-| `claire_bot` | 텔레그램 long-polling |
-| `claire_api` | 로컬 inject API (127.0.0.1:8765, bearer token) |
-| `claire_refresh` | 갱신 큐 주기 처리(1시간) |
-| `claire_recover` | error inbox 자동 재적재(10분, 지수백오프) |
-| `claire_expand` | 1홉 자동확장 큐 주기 처리(15분) |
-| `claire_backup` | 일일 DB 스냅샷 + 30개 보존 |
+| `.env` | 운영 runtime·Compose 설정과 secret |
+| `.env.dev` | 개발 project·포트·데이터 경로 override |
+| `.env.deploy` | 선택적인 SSH/rsync 접속 설정. 컨테이너에는 전달하지 않음 |
+
+Compose project 이름은 `CB_PROJECT_NAME`으로 고정한다. 운영은 기본 `claire-bible`,
+개발은 `claire-bible-dev`이며 고정 `container_name`을 사용하지 않는다. 설치 후 이름이
+바뀌면 중복 writer 방지를 위해 명령이 거부된다. 이전 이름으로 `down`을 완료한 뒤 표시된
+상태 파일을 제거해야 이름을 전환할 수 있다.
+
+5개 서비스는 같은 이미지와 `data`·`vault`를 공유한다.
+
+| 서비스 | 역할 |
+|---|---|
+| `bot` | 선택적 Telegram long-polling |
+| `api` | inject API·웹 UI, 기본 `127.0.0.1:8765` |
+| `refresh` | 갱신 큐 처리 |
+| `recover` | error inbox 자동 재적재 |
+| `expand` | 1홉 자동확장 큐 처리 |
+
+### 원격 호환 실행
+
+워크스테이션에서 원격 호스트로 전송해야 하면 접속 설정을 runtime `.env`와 분리한다.
+워크스테이션에는 SSH, rsync와 CI 실행용 `uv`도 필요하다.
 
 ```bash
-./deploy.sh                          # .env의 대상 → rsync + compose 재빌드
-docker compose ps                    # 컨테이너 상태
-docker exec claire_bot uv run claire health   # 건강 점검
+cp .env.deploy.example .env.deploy
+# DEPLOY_REMOTE, DEPLOY_PATH 입력
+./cb-manuscript remote install
+./cb-manuscript remote update
 ```
 
-### 백업 · 복구 런북
-
-- **자동 백업**: `claire_backup` 컨테이너가 매일 `data/backups/claire-YYYYMMDD-HHMMSS.db` 스냅샷을 만들고
-  생성 즉시 row count 가 live DB 와 일치하는지 검증한다. 최근 30개 보존.
-- **수동 백업**: `docker exec claire_backup uv run claire backup`
-
-오프사이트 사본은 실제 대상 정보를 코드에 기록하지 않고 환경으로 전달한다.
-
-```bash
-CLAIRE_BACKUP_REMOTE=alice@backup.example \
-CLAIRE_BACKUP_SOURCE=/srv/claire/data/backups/ \
-./scripts/backup_pull.sh
-```
-
-선택 설정은 `CLAIRE_BACKUP_PORT`, `CLAIRE_BACKUP_DEST`,
-`CLAIRE_BACKUP_KEEP_DAYS`이다. cron을 사용할 때도 같은 환경값을 작업에 명시한다.
-
-**복원 절차** (DB 손상/실수 삭제 시):
-
-```bash
-cd ~/claire_bible
-docker compose stop                                  # 1) 쓰기 멈춤
-ls -t data/backups/                                  # 2) 복원할 스냅샷 선택(최신순)
-cp data/backups/claire-YYYYMMDD-HHMMSS.db data/claire.db   # 3) 정본 교체
-docker compose start                                 # 4) 재시작
-docker exec claire_bot uv run claire health          # 5) graph counts 로 검증
-```
+원격 전송은 `deploy.sh` 호환 계층을 사용하지만 실제 컨테이너 lifecycle은 원격의
+`cb-manuscript`가 수행한다. `DEPLOY_ENV_SYNC=if-missing|always|never`로 원격 runtime
+`.env` 동기화 정책을 정한다.
 
 ### 장애 대응
 
 - **추출 실패(Gemini 429/quota/크레딧 소진)**: 원본은 `raw_inbox` error 로 보관(유실 0).
-  `claire_recover` 가 지수백오프로 자동 재적재. 영구실패(`failed`) 누적 시 텔레그램으로 소유자 경보.
+  `recover`가 지수백오프로 자동 재적재. 영구실패(`failed`) 누적 시 텔레그램으로 소유자 경보.
   크레딧 충전 등으로 회복되면 due 항목이 자동 복구된다.
-- **건강 점검**: `claire health` 의 `degraded=true` 또는 `attention` 필드(error/failed inbox)를 본다.
+- **건강 점검**: `./cb-manuscript health` 또는 `claire health`의 `degraded`,
+  `attention` 필드를 본다.
 
 ## 구조
 
@@ -129,7 +136,7 @@ src/claire/
   ingest/          fetcher 라우터 + normalize + dedup + IngestService(공유 통로) + 자동복구
   ontology/        타입 온톨로지(코드 인터페이스) + registry(domain/range)
   extract/         Gemini structured 추출 + provider 어댑터(mock/gemini) + resolver(약어 동의어 수렴) + circuit breaker
-  store/           SQLite(graph+FTS+vec) + 마이그레이션 + vault(.md) export + 백업
+  store/           SQLite(graph+FTS+vec) + 마이그레이션 + vault(.md) export
   expand/          1홉 자동 확장
   retrieval/       하이브리드 검색 + LLM 정리
 ```

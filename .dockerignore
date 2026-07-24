@@ -1,4 +1,6 @@
 .venv/
+.dev/
+.cb-manuscript/
 data/
 vault/
 research/
@@ -9,7 +11,7 @@ tests/
 __pycache__/
 *.pyc
 *.egg-info/
-.env
+.env*
 PLAN.md
 sample.md
 deploy.sh

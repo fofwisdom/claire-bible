@@ -16,7 +16,7 @@ COPY pyproject.toml uv.lock README.md ./
 COPY src/ ./src/
 # stealth extra = scrapling[fetchers](curl-cffi/browserforge, 봇차단 403 우회) + nodriver
 # (CDP 로 위 apt chromium 을 직접 제어, JS 렌더링 최후수단).
-RUN uv sync --frozen --no-dev --extra stealth 2>/dev/null || uv sync --no-dev --extra stealth
+RUN uv sync --frozen --no-dev --extra stealth
 
 # 데이터/볼트는 볼륨 마운트(이미지 미포함). 기본 명령은 compose 에서 override.
-CMD ["uv", "run", "claire", "bot"]
+CMD ["uv", "run", "--frozen", "claire", "bot"]

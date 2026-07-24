@@ -541,6 +541,38 @@ def cmd_health(args) -> int:  # noqa: ANN001
     return 0 if rep["ok"] and not rep.get("degraded") else 1
 
 
+def cmd_liveness(_args) -> int:  # noqa: ANN001
+    """DB 접근과 현재 스키마만 종료 코드에 반영한다(degraded는 진단 정보로만 출력)."""
+    import json
+
+    from .health import health_report
+
+    s = get_settings()
+    rep = health_report(s, s.effective_provider)
+    print(json.dumps(rep, ensure_ascii=False, indent=2))
+    return 0 if rep["ok"] else 1
+
+
+def cmd_migrate(_args) -> int:  # noqa: ANN001
+    """DB 스키마를 명시적으로 초기화/업그레이드하고 버전을 검증한다."""
+    from .health import require_current_schema
+
+    s = get_settings()
+    conn = None
+    try:
+        conn = dbm.connect(s.db_file)
+        dbm.init_db(conn)
+        version = require_current_schema(conn)
+    except Exception as e:  # noqa: BLE001
+        print(f"migrate: error: {e}", file=sys.stderr)
+        return 1
+    finally:
+        if conn is not None:
+            conn.close()
+    print(f"schema_version={version} expected={dbm.SCHEMA_VERSION}")
+    return 0
+
+
 def _prune_backups(bdir, keep: int) -> int:  # noqa: ANN001
     """오래된 스냅샷부터 삭제해 최근 keep 개만 남긴다. 삭제 수 반환."""
     files = sorted(bdir.glob("claire-*.db"))
@@ -611,6 +643,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("doctor", help="check environment").set_defaults(func=cmd_doctor)
     sub.add_parser("health", help="system health json (db/queues/inbox/backup)").set_defaults(func=cmd_health)
+    sub.add_parser(
+        "liveness",
+        help="read-only DB/schema liveness json (degraded does not fail)",
+    ).set_defaults(func=cmd_liveness)
+    sub.add_parser(
+        "migrate",
+        help="initialize/upgrade DB schema once and verify schema_version",
+    ).set_defaults(func=cmd_migrate)
     sub.add_parser("status", help="full status: ops / db / progress / connections").set_defaults(func=cmd_status)
     sub.add_parser("stats", help="graph counts only").set_defaults(func=cmd_stats)
     sub.add_parser("bot", help="run telegram bot (long-polling)").set_defaults(func=cmd_bot)

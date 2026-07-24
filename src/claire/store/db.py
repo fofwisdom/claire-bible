@@ -311,7 +311,33 @@ def _migrate(conn: sqlite3.Connection) -> None:
     _ensure_column(conn, "auth_sessions", "scope", "TEXT DEFAULT 'owner'")
 
 
+def stored_schema_version(conn: sqlite3.Connection) -> int | None:
+    """Return an existing schema version without creating or changing anything."""
+
+    meta_exists = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='meta'"
+    ).fetchone()
+    if meta_exists is None:
+        return None
+    row = conn.execute(
+        "SELECT value FROM meta WHERE key='schema_version'"
+    ).fetchone()
+    if row is None:
+        return None
+    try:
+        return int(row["value"])
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError(f"invalid schema_version: {row['value']!r}") from exc
+
+
 def init_db(conn: sqlite3.Connection) -> None:
+    existing_version = stored_schema_version(conn)
+    if existing_version is not None and existing_version > SCHEMA_VERSION:
+        raise RuntimeError(
+            "database schema is newer than this code: "
+            f"actual={existing_version}, expected<={SCHEMA_VERSION}"
+        )
+
     conn.executescript(SCHEMA)
     _migrate(conn)
     cur = conn.execute("SELECT value FROM meta WHERE key='schema_version'")

@@ -1,9 +1,13 @@
 .env
 .env.*
 !.env.example
+!.env.dev.example
+!.env.deploy.example
 __pycache__/
 *.pyc
 .venv/
+.dev/
+.cb-manuscript/
 data/
 vault/
 research/
