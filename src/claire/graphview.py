@@ -424,7 +424,7 @@ GRAPH_HTML = """<!doctype html>
 </style></head>
 <body>
 <div id="bar">
-  <span class="brand">claire_bible</span>
+  <span class="brand">Claire Bible</span>
   <input id="q" placeholder="검색(엔터)" oninput="onSearchInput(this.value)"/>
   <label style="font-size:12px"><input type="checkbox" id="sem" style="width:auto"/> 의미</label>
   <button id="searchbtn" class="sec" onclick="doSemantic()" style="display:none">🔎 의미검색</button>
