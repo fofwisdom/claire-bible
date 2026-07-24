@@ -547,23 +547,22 @@ GRAPH_HTML = """<!doctype html>
        (실측 확인: elementFromPoint 로 뷰포트 안 어디서도 #panel 을 못 찾음 — peek 조각이
        유령이었던 셈). border-box 로 padding 을 100% 안에 포함시켜 실제 렌더 너비를
        뷰포트와 정확히 맞춘다. */
+    /* 사용자 제보(2026-07-24): 아무것도 선택 안 한 "완전히 접힌" 상태엔 패널이 화면
+       밖(translateX(100%))으로 완전히 사라져 끌어서 열 손잡이 자체가 없었다 — 이제
+       기본 상태를 "26px 만 걸쳐 보이기"로 두어(peek 과 같은 모양) 문서/노드 선택
+       여부와 무관하게 항상 화살표 손잡이가 보이고 왼쪽으로 끌면 열리게 한다.
+       body.reading(완전히 펼침) 일 때만 전체 노출로 덮어쓴다. */
     #panel{width:100%;position:fixed;inset:0;z-index:40;border:0;padding-top:52px;
-      box-sizing:border-box;
-      transform:translateX(100%);transition:transform .25s ease;box-shadow:-6px 0 20px var(--shadow)}
-    /* #docs 와 같은 이유(위 touch-action:none 주석 참고) — peek/reading 동안 가로 드래그를
-       attachDragSheet 가 온전히 가져가게 pan-x 를 막는다. 세로(pan-y)는 열어둬 patch 내용
-       (요약 등)의 자체 세로 스크롤(#panel{overflow:auto})은 그대로 살아있게 한다. */
-    body.peek #panel, body.reading #panel{touch-action:pan-y}
-    /* 피드백: 문서 선택 시 우측에 상세 패널(요약·이 문서의 노드·숨기기)이 아예 안
-       뜨던 걸 — 살짝 걸쳐 보이는 "찔끔" 상태(body.peek)로 복원. 탭하면(#panel 클릭
-       리스너, openPeekPanel) 완전히 열림(body.reading, 기존 애니메이션 재사용). */
-    body.peek #panel{transform:translateX(calc(100% - 26px))}
+      box-sizing:border-box;touch-action:pan-y;
+      transform:translateX(calc(100% - 26px));transition:transform .25s ease;box-shadow:-6px 0 20px var(--shadow)}
     body.reading #panel{transform:translateX(0)}
-    #panelpeek{display:none;position:fixed;top:50%;right:0;z-index:42;
+    /* 데스크톱 기본값(위 #panelclose,#panelpeek{display:none})을 모바일에서 되돌려 켠다 —
+       reading(전체 오픈) 이 아닌 한(idle·peek 공통) 항상 보이게. */
+    #panelpeek{display:block;position:fixed;top:50%;right:0;z-index:42;
       transform:translateY(-50%);width:26px;height:56px;border-radius:8px 0 0 8px;
       border:1px solid var(--border);border-right:0;background:var(--accent);color:#fff;
       font-size:15px;line-height:1;cursor:pointer}
-    body.peek #panelpeek{display:block}
+    body.reading #panelpeek{display:none}
     #panel .hint br{display:none}
     #panelclose{display:none;position:fixed;top:8px;right:8px;z-index:41;width:36px;height:36px;
       border-radius:50%;border:1px solid var(--border);background:var(--sec-bg);color:var(--sec-fg);
@@ -632,8 +631,9 @@ GRAPH_HTML = """<!doctype html>
   <!-- 모바일 전용 — #panel 이 슬라이드 오버레이일 때만 CSS 로 보임(body.reading). 데스크톱
        나란히 배치에선 항상 숨김(닫을 필요 자체가 없음). -->
   <button id="panelclose" onclick="closePanelOrPeek()" title="닫기">✕</button>
-  <!-- "찔끔" 상태(body.peek)에서만 보이는 손잡이 — 내용이 로드 안 된 힌트 텍스트만
-       살짝 보이면 뭔지 안 보이니, 명시적으로 눌러서 열라는 표식을 따로 둔다. -->
+  <!-- 모바일에서 body.reading(전체 오픈)이 아닌 한 항상 보이는 손잡이(사용자 제보,
+       2026-07-24: 아무것도 선택 안 한 상태엔 끌어서 열 진입점 자체가 없었음) — 탭하거나
+       왼쪽으로 끌면 열림(#panel 드래그 핸들러 참고). -->
   <button id="panelpeek" onclick="openPeekPanel()" title="상세 보기">◂</button>
 </div>
 <!-- 노드 hover 시 마우스 위치에 뜨는 작은 요약 팝업(우측 패널 미리보기 대체). -->
@@ -698,7 +698,17 @@ window.addEventListener('popstate', ()=>{
   const name = uiStack.pop();
   if(name==='reader') closeReaderUI();
   else if(name==='list') collapseListUI();
+  else if(name==='panel') closePanel();
 });
+// 우측 패널(peek/reading)이 닫혀있는 상태에서 열릴 때만 뒤로가기 스택에 쌓는다(사용자
+// 제보, 2026-07-24: 목록+패널을 같이 펼친 뒤 뒤로가기 1번에 둘 다 닫히던 버그 — 패널
+// 오픈이 history 항목이 아니었던 게 원인). 이미 peek/reading 이면(다른 문서/노드로
+// 전환하는 경우) 중복 push 하지 않는다 — 열림 자체는 이미 스택에 있으므로.
+function openMobilePanelUI(){
+  if(!mobileMQ.matches) return;
+  const b=document.body.classList;
+  if(!b.contains('peek') && !b.contains('reading')) pushUIState('panel');
+}
 // 모바일 목록(#docs) 확장 상태를 실제로 접는 쪽 — popstate(뒤로가기)와 그래프 영역 탭
 // 양쪽에서 closeTopUIState('list') 를 거쳐 여기로 들어온다.
 function collapseListUI(){
@@ -733,7 +743,7 @@ function syncReadingState(){
 new MutationObserver(syncReadingState).observe(panel, {childList: true, subtree: true, characterData: true});
 // 모바일 "찔끔" 상태(body.peek)에서 그 살짝 보이는 #panel 조각을 탭하면 전체 오픈
 // (피드백: 우측에 걸쳐 보이다가 터치하면 노드설명 패널이 나오는 식).
-panel.addEventListener('click', ()=>{ if(document.body.classList.contains('peek')) openPeekPanel(); });
+panel.addEventListener('click', ()=>{ if(!document.body.classList.contains('reading')) openPeekPanel(); });
 function esc(s){return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 
 // --- 노드 hover 요약 팝업(마우스 위치) — fetch 없이 클라 데이터(allNodes)만 쓴다 ---
@@ -963,7 +973,10 @@ document.getElementById('netwrap').addEventListener('pointerdown', e=>{
   if(mobileMQ.matches && document.body.classList.contains('listopen')){
     e.stopPropagation();
     e.preventDefault();
-    closeTopUIState('list');
+    // list 위에 panel(peek/reading)이 겹쳐 열려있으면 뒤로가기 스택 맨 위는 'panel'이라
+    // closeTopUIState('list')가 조용히 no-op 된다(2026-07-24, 목록+패널 동시 닫힘 수정의
+    // 부작용 방지) — 스택 맨 위 아무거나 하나 닫는다(뒤로가기 1번과 동일 동작).
+    if(uiStack.length) history.back();
   }
 }, true);
 // --- 드래그-추종 바텀시트/사이드패널(사용자 요구, #9-2/3) — 지금까지는 탭으로만
@@ -1056,11 +1069,12 @@ attachDragSheet(document.getElementById('draghandle'), {
     if(ratio <= 0.5) closeTopUIState('list');
   }
 });
-// 패널(#panel) 가로 드래그 — peek(살짝 걸침) 상태에서 왼쪽으로 끌면 열리고, reading(전체
-// 오픈) 상태에서 오른쪽으로 끌면 다시 peek 로. translateX 를 손가락에 맞춰 실시간 갱신.
+// 패널(#panel) 가로 드래그 — 걸침(peek 이거나 아무것도 선택 안 한 기본 상태) 에서
+// 왼쪽으로 끌면 열리고, reading(전체 오픈) 상태에서 오른쪽으로 끌면 다시 걸침으로.
+// translateX 를 손가락에 맞춰 실시간 갱신. 기본 상태도 항상 26px 걸쳐 보이므로
+// (2026-07-24, 손잡이 상시 노출) enabled 제한 없이 모바일에서 항상 동작.
 attachDragSheet(document.getElementById('panel'), {
   axis:'x',
-  enabled: () => document.body.classList.contains('peek') || document.body.classList.contains('reading'),
   getMetrics(){
     const W = document.getElementById('panel').getBoundingClientRect().width;
     const isReading = document.body.classList.contains('reading');
@@ -1076,8 +1090,10 @@ attachDragSheet(document.getElementById('panel'), {
     const wasReading = document.body.classList.contains('reading');
     if(t < m.W*0.5){    // 절반 이상 열림 쪽 — 완전히 펼침
       if(!wasReading) openPeekPanel();
-    } else {            // 절반 이상 닫힘 쪽 — peek 로(또는 유지)
-      if(wasReading){ document.body.classList.remove('reading'); document.body.classList.add('peek'); }
+    } else {            // 절반 이상 닫힘 쪽 — 걸침 상태로(CSS 기본값이 이미 26px 걸침이라
+                        // reading 만 벗기면 됨 — revealedDocId 없는 idle 상태를 'peek'로
+                        // 잘못 표시하지 않게 peek 클래스는 안 건드린다)
+      if(wasReading) document.body.classList.remove('reading');
     }
   }
 });
@@ -1138,9 +1154,27 @@ fetch('graph').then(r=>r.json()).then(d=>{
     edges:{color:{color:th.edge,highlight:th.edgeHi},font:{color:th.nodeFont,size:10},smooth:false},
     groups:buildGroups(),
     physics:{stabilization:{iterations:200},barnesHut:{gravitationalConstant:-8000,springLength:120}},
-    interaction:{hover:true,tooltipDelay:120,multiselect:true,zoomView:false}  // 휠 줌은 커스텀(setupWheelZoom)으로 — vis 기본은 deltaY 크기 비례라 Mac 모멘텀에서 한 번에 여러 단계 점프(사용자 보고)
+    // 휠 줌은 커스텀(setupWheelZoom)으로 — vis 기본은 deltaY 크기 비례라 Mac 모멘텀에서
+    // 한 번에 여러 단계 점프(사용자 보고). hideEdgesOnZoom/hideEdgesOnDrag: 사용자
+    // 제보(2026-07-24, 폰에서 확대 시 저프레임)로 실측(605노드/659엣지, CPU 4x 스로틀,
+    // CDP 프로파일) — barnesHut 물리 상시 실행이 주범이었고(위 stabilizationIterationsDone
+    // 참고, 껐더니 평균 5.4→21.7 FPS) 그다음으로 줌 중 매 프레임 엣지 660개를 전부
+    // 다시 그리는 비용이 남아있어(옵션 켜기 전/후 A-B 비교, 확대 스크립트 20회 반복
+    // 실측) 평균 21.7→28.5 FPS, 최악 프레임 2283ms→667ms 로 추가 개선 확인.
+    interaction:{hover:true,tooltipDelay:120,multiselect:true,zoomView:false,
+      hideEdgesOnZoom:true,hideEdgesOnDrag:true}
   };
   net = new vis.Network(document.getElementById('net'), {nodes:allNodes, edges:allEdges}, opts);
+  // 사용자 제보(2026-07-24, 폰에서 확대 시 프레임이 한자리수): barnesHut 물리 시뮬레이션이
+  // 초기 안정화(stabilization) 이후에도 physics:true 라 매 애니메이션 프레임마다 계속
+  // 돌고 있었다 — 실측(로컬 mock DB 605노드/659엣지 + Chrome CPU 4x 스로틀 + CDP
+  // CPU 프로파일)으로 확인: 확대 중 평균 5.4 FPS, 샘플링된 CPU 시간의 ~32%가
+  // _calculateForces/_getForceContributions/_placeInTree(barnesHut 반발력 계산)에 쓰이고
+  // 있었다. 안정화가 끝나면 물리를 꺼서 그 비용을 없앤다 — 노드 드래그는 physics 와
+  // 무관하게 그대로 동작(드래그는 직접 좌표를 옮길 뿐 이웃 노드 재배치가 필요 없다면
+  // 오히려 덜 산만해서 UX 개선). 검색 결과 뭉치기(clusterMatches)만 예외적으로 물리가
+  // 필요해 그쪽에서 임시로 다시 켰다 끈다(아래 clusterMatches/unclusterEdges 참고).
+  net.once('stabilizationIterationsDone', () => net.setOptions({physics:false}));
   // 모바일/세로스택: vis 가 생성 시점의 #net 높이로 캔버스 backing store 를 잡아 레이아웃이
   // 늦게 확정되면 캔버스가 상단 일부만 차지(이슈1). 레이아웃 확정 후 컨테이너 크기로 강제
   // 재설정 + 회전/리사이즈에도 다시 맞춘다.
@@ -1193,7 +1227,9 @@ fetch('graph').then(r=>r.json()).then(d=>{
   });
   // hover → 1.5초 뒤 마우스 위치에 작은 요약 팝업(우측 패널은 안 건드림 — 난잡함 해소, 사용자 요구).
   // 우측 패널은 클릭(inspect)일 때만 바뀐다 → hover 가 패널/선택을 흔들지 않아 복원 로직도 불필요.
-  net.on('hoverNode', p => { clearTimeout(hoverTimer);
+  net.on('hoverNode', p => {
+    if(mobileMQ.matches) return;   // 터치엔 대응하는 blurNode 가 안 올 수 있음 — 데스크톱 hover 전용(2026-07-24)
+    clearTimeout(hoverTimer);
     hoverTimer=setTimeout(()=>showNodePop(p.node), 1500); });
   net.on('blurNode', () => { clearTimeout(hoverTimer); hideNodePop(); });
   net.on('dragStart', hideNodePop);   // 드래그/줌 중엔 팝업 숨김(커서를 따라다니지 않게)
@@ -1224,6 +1260,7 @@ document.addEventListener('keydown', e=>{ if(e.key!=='Escape') return;
 
 function loadNode(id){
   if(net) net.selectNodes([id]);   // 클릭 inspect — hover 는 더 이상 패널을 안 쓴다(팝업으로 분리)
+  openMobilePanelUI();   // 패널이 닫혀있었으면 뒤로가기 스택에 쌓기(그래프 노드 탭 진입 경로)
   fetch('node?id='+encodeURIComponent(id)).then(r=>r.json()).then(renderPanel);
 }
 function renderPanel(d){
@@ -1751,12 +1788,11 @@ function selectDoc(id){
     const d0 = allDocs && allDocs.find(d=>d.id===id);
     if(d0) d0.seen=1;
     if(revealedDocId===id){
-      // 같은 아이템 재탭 = 리빌·peek 패널 전부 접기.
-      revealedDocId = null;
-      activeDoc = null;    // #9-5: activeDoc 도 같이 해제 — 노드 하이라이트도 함께 꺼진다.
-      document.body.classList.remove('peek','reading');
-      panel.innerHTML = defaultHint();
+      // 같은 아이템 재탭 = 리빌·peek 패널 전부 접기 — history.back() 을 거쳐
+      // popstate 가 closePanel() 로 실제 정리(뒤로가기 스택과 항상 일치시키려고).
+      closeTopUIState('panel');
     } else {
+      openMobilePanelUI();   // 패널이 닫혀있었으면 뒤로가기 스택에 쌓기(사용자 제보, 2026-07-24)
       revealedDocId = id;
       activeDoc = id;      // #9-5: 데스크톱 selectDoc 과 동일하게 activeDoc 세팅 — applyView() 의
                             // 노드 색 하이라이트(dim/lit)가 activeDoc 만 보므로 이게 없으면 모바일에서
@@ -1784,12 +1820,14 @@ function selectDoc(id){
     panel.innerHTML = defaultHint();             // 해제 시 기본 힌트로 복원
   }
 }
-// 모바일: 문서 선택 시 우측에 "찔끔" 걸쳐 보이는 패널(body.peek) 탭/당김 → 전체 오픈.
-// 내용은 여기서 처음 로드(불필요한 fetch 방지 — peek 상태에선 아직 안 부름).
+// 모바일: 우측에 26px 걸쳐 보이는 패널(문서 revealed 상태 또는 아무것도 선택 안 한
+// idle 상태 둘 다 같은 모양) 탭/당김 → 전체 오픈. 문서 내용은 여기서 처음 로드
+// (불필요한 fetch 방지 — 걸침 상태에선 아직 안 부름).
 function openPeekPanel(){
-  if(!revealedDocId) return;
+  openMobilePanelUI();   // idle(닫힌) 상태에서 처음 여는 거면 뒤로가기 스택에 쌓기(2026-07-24)
   document.body.classList.remove('peek');
-  loadDocPanel(revealedDocId);   // panel.innerHTML 변경 → MutationObserver 가 body.reading 을 켠다
+  if(revealedDocId) loadDocPanel(revealedDocId);   // panel.innerHTML 변경 → MutationObserver 가 body.reading 을 켠다
+  else document.body.classList.add('reading');     // 선택된 문서 없으면 기본 힌트를 그대로 전체 오픈으로
 }
 // 모바일 슬라이드 오버레이의 ✕ 닫기. 문서가 아직 선택된 채(peek 대상 있음)면 완전히
 // 안 닫고 "찔끔" 상태로 되돌아간다(다시 탭하면 재오픈) — 노드 클릭발 오픈이거나
@@ -1799,7 +1837,7 @@ function closePanelOrPeek(){
     document.body.classList.remove('reading');
     document.body.classList.add('peek');
   } else {
-    closePanel();
+    closeTopUIState('panel');   // popstate → closePanel() 이 실제 정리(뒤로가기 스택과 일치)
   }
 }
 // panel.innerHTML 변경이 MutationObserver(syncReadingState)를 타고 body.reading 을
@@ -1896,6 +1934,7 @@ function clusterMatches(ids, done){
   unclusterEdges();
   const vs=(ids||[]).filter(id=>{ const n=allNodes&&allNodes.get(id); return n && !n.hidden; });
   if(!net || !allEdges || vs.length<2){ if(done) done(); return; }
+  net.setOptions({physics:true});  // 안정화 후 꺼둔 물리(성능, 2026-07-24)를 뭉치는 동안만 다시 켠다
   const c=net.getViewPosition();   // 현재 화면 중앙 좌표에 앵커를 둔다
   allNodes.add({id:'cl_anchor', x:c.x, y:c.y, fixed:true, physics:true, hidden:true,
                 mass:ANCHOR_MASS, label:'', shape:'dot', size:1});
@@ -1918,11 +1957,17 @@ function unclusterEdges(){
   }
   if(clusterAnchor && allNodes){ try{ allNodes.remove(clusterAnchor); }catch(e){} }
   clusterEdges=null; clusterAnchor=null;
+  if(net) net.setOptions({physics:false});  // 뭉치기 끝 — 성능을 위해 다시 끔(2026-07-24)
 }
 // 우측 '이 문서의 노드' 버튼 hover — 그래프뷰를 그 노드로 부드럽게 이동(선택/상세는 안 바꿈).
 // 우측 '이 문서의 노드' hover — 그래프 카메라를 그 노드로 옮기고(기존), 1.5초 머물면
 // 그래프 hover 와 같은 요약 팝업을 버튼 진입 위치에 띄운다(사용자 요구). leave 시 취소.
 function peekNode(ev, id){
+  // 모바일: onclick=focusNode() 가 탭 한 번에 이미 그래프 이동+전체 노드 상세(패널)로
+  // 넘어가므로, mouseenter 로 짜인 이 hover 미리보기 팝업은 같은 정보를 중복해서 보여줄
+  // 뿐 아니라 터치엔 mouseleave 가 안 와서 안 닫히는 버그였다(사용자 제보, 2026-07-24) —
+  // 데스크톱 전용으로 한정.
+  if(mobileMQ.matches) return;
   if(net) net.focus(id,{scale:1.2,animation:{duration:400,easingFunction:'easeInOutQuad'}});
   clearTimeout(hoverTimer);
   const x=ev.clientX, y=ev.clientY;
