@@ -8,9 +8,27 @@
 # 트리거:  cron(매 6시간) + @reboot. WSL 이 켜져 있는 동안만 도므로 주기를 짧게 둔다.
 set -euo pipefail
 
-REMOTE="blackan@192.168.1.8"
-PORT=2222
-SRC="/home/blackan/claire_bible/data/backups/"
+# 원격 호스트/포트/경로는 deploy.sh 와 같은 .env 키(DEPLOY_REMOTE/DEPLOY_PORT/
+# DEPLOY_PATH)를 읽는다 — 예전엔 여기 하드코딩돼 있어 커밋 이력에 내부 LAN
+# IP·사용자명이 그대로 남았다(사용자 지적, 2026-07-24). .env 는 gitignore 대상.
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ENV_FILE="${SCRIPT_DIR}/../.env"
+
+dotenv_get() {  # 필요한 키만 읽는 최소 파서 — 임의의 .env 내용을 실행하지 않는다.
+  local key="$1"
+  [ -f "$ENV_FILE" ] || return 1
+  grep -E "^${key}=" "$ENV_FILE" | tail -1 | cut -d= -f2-
+}
+
+REMOTE="${DEPLOY_REMOTE:-$(dotenv_get DEPLOY_REMOTE || true)}"
+PORT="${DEPLOY_PORT:-$(dotenv_get DEPLOY_PORT || true)}"
+REMOTE_PATH="${DEPLOY_PATH:-$(dotenv_get DEPLOY_PATH || true)}"
+PORT="${PORT:-22}"
+
+[ -n "$REMOTE" ] || { echo "backup_pull: DEPLOY_REMOTE가 비어 있습니다(.env 확인)." >&2; exit 1; }
+[ -n "$REMOTE_PATH" ] || { echo "backup_pull: DEPLOY_PATH가 비어 있습니다(.env 확인)." >&2; exit 1; }
+
+SRC="${REMOTE_PATH%/}/data/backups/"
 DEST="${HOME}/claire_backups"
 KEEP_DAYS=60
 LOG="${DEST}/pull.log"
