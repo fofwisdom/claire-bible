@@ -211,7 +211,7 @@ def synthesize(conn, provider, entity_ids: list[str], query: str | None = None) 
 GRAPH_HTML = """<!doctype html>
 <html lang="ko"><head><meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>claire_bible — 지식 그래프</title>
+<title>Claire Bible — 지식 그래프</title>
 <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
 <script src="https://unpkg.com/marked@4.3.0/marked.min.js"></script>
 <script src="https://unpkg.com/dompurify@3.1.6/dist/purify.min.js"></script>
@@ -1572,7 +1572,7 @@ window.claireDebug = {
 _SHARED_HTML = """<!doctype html>
 <html lang="ko"><head><meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>__TITLE__ — claire_bible</title>
+<title>__TITLE__ — Claire Bible</title>
 <script src="https://unpkg.com/marked@4.3.0/marked.min.js"></script>
 <script src="https://unpkg.com/dompurify@3.1.6/dist/purify.min.js"></script>
 <style>
@@ -1611,7 +1611,7 @@ function renderMarkdown(src){
   return window.DOMPurify?DOMPurify.sanitize(html,{ADD_ATTR:['target']}):html;
 }
 const dc=JSON.parse(document.getElementById('docdata').textContent||'{}');
-let h='<div class=brand>claire_bible · 공유 문서</div>';
+let h='<div class=brand>Claire Bible · 공유 문서</div>';
 h+='<h1>'+esc(dc.title||'(제목 없음)')+'</h1>';
 h+='<div class=meta>'+(dc.source_type?esc(dc.source_type):'')+
   (dc.url?' · <a href="'+esc(dc.url)+'" target=_blank rel=noopener>↗ 원문 열기</a>':'')+'</div>';

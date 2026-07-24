@@ -1,4 +1,4 @@
-# claire_bible — 목표와 로드맵
+# Claire Bible — 목표와 로드맵
 
 ## 1. 비전과 범위
 

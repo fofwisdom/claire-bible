@@ -307,7 +307,7 @@ class DeployScriptTest(unittest.TestCase):
     def test_guard_accepts_exact_deploy_marker(self):
         remote = self.tmp_path / "remote"
         remote.mkdir()
-        (remote / ".claire-deploy-root").write_text("claire_bible\n", encoding="utf-8")
+        (remote / ".claire-deploy-root").write_text("claire-bible\n", encoding="utf-8")
         (remote / "existing-code").write_text("old", encoding="utf-8")
 
         result, _, _ = _run_deploy(

@@ -638,7 +638,7 @@ def cmd_backup_loop(args) -> int:  # noqa: ANN001
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="claire", description="claire_bible knowledge base")
+    p = argparse.ArgumentParser(prog="claire", description="Claire Bible knowledge base")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser("doctor", help="check environment").set_defaults(func=cmd_doctor)

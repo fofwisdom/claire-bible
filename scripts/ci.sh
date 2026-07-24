@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# claire_bible CI — 배포/커밋 전 자동 검증. deploy.sh 가 배포 전 게이트로 호출하고,
+# Claire Bible CI — 배포/커밋 전 자동 검증. deploy.sh 가 배포 전 게이트로 호출하고,
 # 수동으로도 `bash ./scripts/ci.sh` 로 돌린다.
 #
 # 네 가지를 본다:

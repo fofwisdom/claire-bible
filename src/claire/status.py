@@ -23,7 +23,7 @@ def build_status_text(settings: Settings, *, full: bool = True) -> str:
     c = dbm.counts(conn)
     lines: list[str] = []
 
-    lines.append("📊 claire_bible status")
+    lines.append("📊 Claire Bible status")
 
     # 운영
     lines.append("[운영]")

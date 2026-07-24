@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# claire_bible 원격 전송 호환 계층.
+# Claire Bible 원격 전송 호환 계층.
 # 로컬 → 원격 rsync 후 원격의 cb-manuscript install/update를 호출한다.
 # data/ vault/ 는 원격에 영속 — rsync 에서 제외하여 절대 덮어쓰지 않는다.
 set -euo pipefail
@@ -142,7 +142,7 @@ set -eu
 if [ ! -e '$DEST' ]; then exit 0; fi
 if [ ! -d '$DEST' ]; then exit 1; fi
 if [ -f '$DEST/.claire-deploy-root' ] &&
-   grep -qxF claire_bible '$DEST/.claire-deploy-root'; then
+   grep -qxF claire-bible '$DEST/.claire-deploy-root'; then
   exit 0
 fi
 if [ -f '$DEST/docker-compose.yml' ] &&
@@ -178,7 +178,7 @@ if [ "$DEPLOY_ENV_SYNC" = "never" ] && [ "$REMOTE_ENV_EXISTS" -eq 0 ]; then
 fi
 
 "${SSH_CMD[@]}" "$REMOTE" \
-  "mkdir -p -- '$DEST/data' '$DEST/vault' && printf '%s\n' claire_bible > '$DEST/.claire-deploy-root'"
+  "mkdir -p -- '$DEST/data' '$DEST/vault' && printf '%s\n' claire-bible > '$DEST/.claire-deploy-root'"
 
 echo "[2/5] 소스 동기화 (data/vault/research 등 제외; --delete 는 코드 트리에만)"
 rsync -az --delete -e "${RSH}" \

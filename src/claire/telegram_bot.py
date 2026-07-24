@@ -149,7 +149,7 @@ def run_bot() -> int:
                 pass
 
     HELP = (
-        "📚 claire_bible — 개인 지식베이스 봇\n"
+        "📚 Claire Bible — 개인 지식베이스 봇\n"
         "\n"
         "그냥 보내면 적재됩니다:\n"
         "  • 링크(웹/유튜브/x.com/google share)\n"

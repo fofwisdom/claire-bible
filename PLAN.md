@@ -1,4 +1,4 @@
-# claire_bible — 공개 아키텍처 계획
+# Claire Bible — 공개 아키텍처 계획
 
 관련 문서: [GOALS.md](GOALS.md), [sample.md](sample.md),
 [외부 접속 설계](docs/EXTERNAL_ACCESS.md)
