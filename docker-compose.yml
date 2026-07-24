@@ -1,0 +1,71 @@
+services:
+  claire:
+    build: .
+    container_name: claire_bot
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./data:/app/data
+      - ./vault:/app/vault
+    command: ["uv", "run", "claire", "bot"]
+
+  claire_api:
+    build: .
+    container_name: claire_api
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      CLAIRE_INJECT_HOST: 0.0.0.0
+    volumes:
+      - ./data:/app/data
+      - ./vault:/app/vault
+    ports:
+      - "127.0.0.1:8765:8765"
+    command: ["uv", "run", "claire", "serve-api"]
+
+  claire_refresh:
+    build: .
+    container_name: claire_refresh
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./data:/app/data      # 봇/API 와 같은 DB 공유(WAL + busy_timeout)
+      - ./vault:/app/vault
+    # 갱신 큐를 1시간마다 5건씩 자동 처리(복원 메커니즘). 큐가 비면 아무 일도 안 함.
+    command: ["uv", "run", "claire", "refresh-loop", "--interval", "3600", "--batch", "5"]
+
+  claire_recover:
+    build: .
+    container_name: claire_recover
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./data:/app/data      # 같은 DB 공유
+      - ./vault:/app/vault
+    # error inbox(rate-limit 등 일시실패)를 10분마다 지수백오프로 자동 재적재.
+    # max_attempts 도달 시 'failed'(영구)로 굳혀 무한재시도 차단. 대상 없으면 무동작.
+    command: ["uv", "run", "claire", "recover-loop", "--interval", "600", "--batch", "5"]
+
+  claire_expand:
+    build: .
+    container_name: claire_expand
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./data:/app/data      # 같은 DB 공유
+      - ./vault:/app/vault
+    # 1홉 자동확장 큐를 15분마다 3건씩 처리. 적재 문서의 링크를 LLM 이 선별→판정→적재.
+    # CLAIRE_AUTO_EXPAND=0 이면 enqueue 자체가 안 돼 큐가 비고 무동작.
+    command: ["uv", "run", "claire", "expand-loop", "--interval", "900", "--batch", "3"]
+
+  claire_backup:
+    build: .
+    container_name: claire_backup
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./data:/app/data      # 정본 읽기 + data/backups/ 에 스냅샷 기록
+      - ./vault:/app/vault
+    # 매일 1회 VACUUM INTO 스냅샷(생성 즉시 row count 로 복원가능 검증) + 최근 30개 보존.
+    # 오프사이트 사본은 별도(scripts/backup_pull.sh 가 WSL 로 누적 pull) — 여기 keep 은 원격 보존.
+    command: ["uv", "run", "claire", "backup-loop", "--interval", "86400", "--keep", "30"]

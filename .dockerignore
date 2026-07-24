@@ -1,0 +1,15 @@
+.venv/
+data/
+vault/
+research/
+docs/
+tests/
+.git/
+.pytest_cache/
+__pycache__/
+*.pyc
+*.egg-info/
+.env
+PLAN.md
+sample.md
+deploy.sh

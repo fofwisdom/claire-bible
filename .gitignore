@@ -1,0 +1,21 @@
+.env
+.env.*
+!.env.example
+__pycache__/
+*.pyc
+.venv/
+data/
+vault/
+research/
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+*.orig
+/replay.jsonl
+/sample.private.md
+*.log
+
+# playwright/검증 산출물
+.playwright-mcp/
+claire-graph*.png
