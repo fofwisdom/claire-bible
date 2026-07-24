@@ -211,12 +211,12 @@ CREATE VIRTUAL TABLE IF NOT EXISTS entities_fts USING fts5(
 """
 
 
-def backup_database(src: str | Path, dest: str | Path) -> Path:
-    """SQLite 정본을 일관된 단일 파일 스냅샷으로 복제(VACUUM INTO).
+def checkpoint_database(src: str | Path, dest: str | Path) -> Path:
+    """내부 안전장치용 SQLite checkpoint를 단일 파일로 복제(VACUUM INTO).
 
-    `VACUUM INTO` 는 WAL 을 반영한 트랜잭션 일관 스냅샷을 만들어, 봇/API 가 라이브로
-    쓰는 중에도 안전하다(파일 복사처럼 찢긴 상태를 뜨지 않음). 정본을 읽기만 하므로
-    새 실패 모드가 없다. dest 는 존재하지 않아야 한다(타임스탬프 파일명 권장).
+    이는 웹 병합 같은 앱 내부 파괴 작업의 근거리 checkpoint일 뿐, data/raw·vault와
+    복원 절차를 포함하는 운영 backup이 아니다. 운영 backup은 cb-manuscript가 소유한다.
+    `VACUUM INTO`는 WAL을 반영한 트랜잭션 일관 DB snapshot을 만든다.
     """
     dest = Path(dest)
     dest.parent.mkdir(parents=True, exist_ok=True)

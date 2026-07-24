@@ -237,8 +237,6 @@ def test_app_help_is_forwarded_to_claire(tmp_path, app_args):
         ("dedup-merge", "--apply"),
         ("dedup-merge", "--a"),
         ("recanonicalize",),
-        ("backup",),
-        ("backup-loop",),
     ),
 )
 def test_app_rejects_managed_or_unsafe_commands_by_default(
@@ -263,7 +261,6 @@ def test_app_rejects_managed_or_unsafe_commands_by_default(
         ("reextract", "--limit", "2"),
         ("dedup-merge", "--apply"),
         ("recanonicalize",),
-        ("backup", "--keep", "3"),
     ),
 )
 def test_app_advanced_override_runs_managed_or_unsafe_commands(

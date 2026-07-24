@@ -156,7 +156,7 @@ if [ -f '$DEST/docker-compose.yml' ] &&
   exit 0
 fi
 unexpected=\$(find '$DEST' -mindepth 1 -maxdepth 1 \
-  ! -name data ! -name vault ! -name .env -print -quit)
+  ! -name data ! -name vault ! -name backups ! -name .env -print -quit)
 [ -z \"\$unexpected\" ]
 "
 if ! "${SSH_CMD[@]}" "$REMOTE" "$REMOTE_GUARD"; then
@@ -178,12 +178,13 @@ if [ "$DEPLOY_ENV_SYNC" = "never" ] && [ "$REMOTE_ENV_EXISTS" -eq 0 ]; then
 fi
 
 "${SSH_CMD[@]}" "$REMOTE" \
-  "mkdir -p -- '$DEST/data' '$DEST/vault' && printf '%s\n' claire-bible > '$DEST/.claire-deploy-root'"
+  "mkdir -p -- '$DEST/data' '$DEST/vault' '$DEST/backups' && chmod 700 '$DEST/backups' && printf '%s\n' claire-bible > '$DEST/.claire-deploy-root'"
 
 echo "[2/5] 소스 동기화 (data/vault/research 등 제외; --delete 는 코드 트리에만)"
 rsync -az --delete -e "${RSH}" \
   --exclude '.venv' \
   --exclude '.cb-manuscript' \
+  --exclude 'backups' \
   --exclude 'data' \
   --exclude 'vault' \
   --exclude 'research' \

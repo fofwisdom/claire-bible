@@ -540,7 +540,8 @@ def run_api() -> int:
         return web.json_response(await asyncio.to_thread(_scan))
 
     async def dedup_merge_route(request):
-        # [파괴적] 사용자가 고른 keeper 로 loser 문서들을 병합 — 서버가 병합 전 자동 백업.
+        # [파괴적] 사용자가 고른 keeper 로 loser 문서들을 병합. 서비스가 병합 전 내부
+        # checkpoint를 만들며, 생성 실패 시 데이터 변경 전에 요청을 중단한다.
         if not _authed(request):
             return web.json_response({"error": "unauthorized"}, status=401)
         import asyncio
@@ -555,7 +556,7 @@ def run_api() -> int:
             return web.json_response({"error": "keeper and losers required"}, status=400)
 
         def _merge():
-            return svc.merge_one_cluster(keeper, losers, backup=True)
+            return svc.merge_one_cluster(keeper, losers)
 
         try:
             res = await asyncio.to_thread(_merge)
@@ -679,7 +680,7 @@ def run_api() -> int:
         web.post("/document/hide", document_hide_route),
         web.post("/synthesize", synthesize_route),
         web.post("/research", research_route),
-        # 중복 문서 정리(웹) — 진단(GET)·병합(POST, 파괴적·자동백업).
+        # 중복 문서 정리(웹) — 진단(GET)·병합(POST, 파괴적·내부 checkpoint).
         web.get("/dedup", dedup_scan_route),
         web.post("/dedup/merge", dedup_merge_route),
         # 문서 공유 핫링크 — 발급(인증)·열람(공개, 토큰 자체 인증).

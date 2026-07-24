@@ -25,7 +25,8 @@ def test_healthy_when_no_errors(monkeypatch, tmp_path):
     assert rep["degraded"] is False
     assert "attention" not in rep
     assert rep["graph"] == {"documents": 0, "entities": 0, "relations": 0}
-    assert rep["last_backup"] is None
+    assert "last_backup" not in rep
+    assert "backup_count" not in rep
 
 
 def test_degraded_when_error_or_failed(monkeypatch, tmp_path):

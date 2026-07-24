@@ -331,19 +331,10 @@ def cmd_ingest(args) -> int:  # noqa: ANN001
 
 
 def cmd_reextract(args) -> int:  # noqa: ANN001
-    """저장된 raw_text 로 전체 문서를 재추출(프롬프트 변경 반영, 예: 한글화).
-
-    파괴적(그래프 재구축)이라 실행 전 백업을 강제한다. --no-backup 으로 우회 가능(비권장).
-    """
+    """저장된 raw_text 로 전체 문서를 재추출(프롬프트 변경 반영, 예: 한글화)."""
     from .ingest.service import IngestService
 
     s = get_settings()
-    if not args.no_backup:
-        dest, match, counts = _do_backup(s, args.keep)
-        print(f"[backup] 재추출 전 스냅샷: {dest} · live일치={match}", flush=True)
-        if not match:
-            print("  ⚠️ 백업이 live 와 불일치 — 중단. (--no-backup 으로 강제 가능)")
-            return 1
     svc = IngestService(s)
     print(f"(provider={svc.provider.name}) 재추출 시작"
           f"{' (rebuild)' if not args.no_rebuild else ''}…", flush=True)
@@ -472,18 +463,11 @@ def cmd_recanonicalize(args) -> int:  # noqa: ANN001
 def cmd_dedup_merge(args) -> int:  # noqa: ANN001
     """근사중복 클러스터를 각각 1개로 병합. 기본은 **계획만(dry-run)**, --apply 로 실행.
 
-    --apply 는 파괴적(loser 문서 삭제)이라 실행 전 백업을 강제(--no-backup 으로 우회).
     keeper = 최장 본문(동률이면 최초 적재). loser 참조는 keeper 로 재배치 후 삭제.
     """
     from .ingest.service import IngestService
 
     s = get_settings()
-    if args.apply and not args.no_backup:
-        dest, match, _ = _do_backup(s, args.keep)
-        print(f"[backup] 병합 전 스냅샷: {dest} · live일치={match}", flush=True)
-        if not match:
-            print("  ⚠️ 백업이 live 와 불일치 — 중단. (--no-backup 으로 강제 가능)")
-            return 1
     svc = IngestService(s)
     out = svc.dedup_merge(threshold=args.threshold, min_len=args.min_len, apply=args.apply)
     mode = "병합 실행" if out["applied"] else "계획(dry-run, --apply 로 실행)"
@@ -573,76 +557,12 @@ def cmd_migrate(_args) -> int:  # noqa: ANN001
     return 0
 
 
-def _prune_backups(bdir, keep: int) -> int:  # noqa: ANN001
-    """오래된 스냅샷부터 삭제해 최근 keep 개만 남긴다. 삭제 수 반환."""
-    files = sorted(bdir.glob("claire-*.db"))
-    excess = files[:-keep] if keep > 0 and len(files) > keep else []
-    for f in excess:
-        try:
-            f.unlink()
-        except OSError:
-            pass
-    return len(excess)
-
-
-def _do_backup(s, keep: int):  # noqa: ANN001
-    """스냅샷 1개 생성 → 복원 가능성 검증(snapshot counts==live) → 보존 정리.
-
-    반환: (dest_path, match: bool, snapshot_counts: dict)
-    """
-    import time
-
-    # 백업 직전 정본 스키마 보장(다른 모든 진입점과 동일한 init_db; 운영 DB 는 no-op,
-    # 첫 실행/빈 DB 만 테이블 생성). 스냅샷이 valid schema 를 담도록.
-    _c = dbm.connect(s.db_file)
-    dbm.init_db(_c)
-    _c.close()
-    bdir = s.data_dir / "backups"
-    dest = bdir / f"claire-{time.strftime('%Y%m%d-%H%M%S')}.db"
-    dbm.backup_database(s.db_file, dest)
-    # 파일이 생겼다 != 복원 가능 → 스냅샷을 실제로 열어 row count 를 live 와 대조.
-    live = dbm.connect(s.db_file)
-    snap = dbm.connect(dest)
-    try:
-        live_counts, snap_counts = dbm.counts(live), dbm.counts(snap)
-    finally:
-        live.close()
-        snap.close()
-    _prune_backups(bdir, keep)
-    return dest, (live_counts == snap_counts), snap_counts
-
-
-def cmd_backup(args) -> int:  # noqa: ANN001
-    """DB 스냅샷 1회 + 검증 + 보존 정리."""
-    s = get_settings()
-    dest, match, counts = _do_backup(s, args.keep)
-    print(f"백업 완료: {dest}")
-    print(f"  크기 {dest.stat().st_size:,}B · 스냅샷 {counts} · live와 일치={match}")
-    return 0 if match else 1
-
-
-def cmd_backup_loop(args) -> int:  # noqa: ANN001
-    """주기적 DB 스냅샷 데몬(전용 컨테이너용)."""
-    import time
-
-    s = get_settings()
-    print(f"claire backup-loop 시작 (interval={args.interval}s, keep={args.keep}). "
-          f"Ctrl+C 종료.", flush=True)
-    while True:
-        try:
-            dest, match, counts = _do_backup(s, args.keep)
-            print(f"[backup] {dest.name} · counts={counts} · live일치={match}", flush=True)
-        except Exception as e:  # noqa: BLE001
-            print(f"[backup] 오류: {e}", flush=True)
-        time.sleep(max(60, args.interval))
-
-
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="claire", description="Claire Bible knowledge base")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser("doctor", help="check environment").set_defaults(func=cmd_doctor)
-    sub.add_parser("health", help="system health json (db/queues/inbox/backup)").set_defaults(func=cmd_health)
+    sub.add_parser("health", help="system health json (db/queues/inbox)").set_defaults(func=cmd_health)
     sub.add_parser(
         "liveness",
         help="read-only DB/schema liveness json (degraded does not fail)",
@@ -717,8 +637,6 @@ def build_parser() -> argparse.ArgumentParser:
                          help="re-extract all docs from stored raw_text (apply prompt change, e.g. Korean)")
     pre.add_argument("--no-rebuild", action="store_true",
                      help="merge into existing graph instead of wiping first (may mix old/new)")
-    pre.add_argument("--no-backup", action="store_true", help="skip the forced pre-backup (not recommended)")
-    pre.add_argument("--keep", type=int, default=7, help="backups to retain")
     pre.add_argument("--limit", type=int, default=0, help="cap number of docs (0=all)")
     pre.set_defaults(func=cmd_reextract)
 
@@ -760,18 +678,7 @@ def build_parser() -> argparse.ArgumentParser:
     pdm.add_argument("--threshold", type=float, default=0.90)
     pdm.add_argument("--min-len", type=int, default=500, dest="min_len")
     pdm.add_argument("--apply", action="store_true", help="실제 병합(파괴적). 미지정 시 계획만.")
-    pdm.add_argument("--no-backup", action="store_true", help="--apply 전 강제 백업 생략(비권장)")
-    pdm.add_argument("--keep", type=int, default=7, help="백업 보존 개수")
     pdm.set_defaults(func=cmd_dedup_merge)
-
-    pb = sub.add_parser("backup", help="snapshot DB (VACUUM INTO) + verify restorable + prune")
-    pb.add_argument("--keep", type=int, default=7, help="최근 N개 보존")
-    pb.set_defaults(func=cmd_backup)
-
-    pbl = sub.add_parser("backup-loop", help="periodic DB snapshot daemon")
-    pbl.add_argument("--interval", type=int, default=86400, help="초 (기본 1일)")
-    pbl.add_argument("--keep", type=int, default=7)
-    pbl.set_defaults(func=cmd_backup_loop)
 
     return p
 

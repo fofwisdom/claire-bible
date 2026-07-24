@@ -83,11 +83,6 @@ def health_report(s: Settings, provider_name: str) -> dict:
     out["expand_pending"] = expand_pending
     out["graph"] = {k: graph[k] for k in ("documents", "entities", "relations")}
 
-    bdir = s.data_dir / "backups"
-    backups = sorted(bdir.glob("claire-*.db")) if bdir.exists() else []
-    out["last_backup"] = backups[-1].name if backups else None
-    out["backup_count"] = len(backups)
-
     errors = inbox.get("error", 0)
     failed = inbox.get("failed", 0)
     out["degraded"] = (errors + failed) > 0

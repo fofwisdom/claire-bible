@@ -8,25 +8,36 @@ and every external command is passed to ``subprocess`` as an argv sequence.
 from __future__ import annotations
 
 import argparse
-from contextlib import AbstractContextManager
+from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import fcntl
+import hashlib
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import re
 import secrets
+import shutil
+import sqlite3
+import stat
 import subprocess
 import sys
+import tarfile
 import tempfile
-from typing import Mapping, Sequence
+import time
+from typing import Iterator, Mapping, Sequence
+from urllib.parse import quote
 
 
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 DEFAULT_PROJECT = "claire-bible"
 DEFAULT_DEV_PROJECT = "claire-bible-dev"
 DEFAULT_WAIT_TIMEOUT = 120
+BACKUP_FORMAT_VERSION = 1
+BACKUP_COMPONENTS = ("data", "vault")
+BACKUP_ARCHIVE_SUFFIX = ".tar.gz"
+BACKUP_ID_RE = re.compile(r"^cb-[0-9]{8}$")
 PROJECT_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 LEGACY_CONTAINERS = (
@@ -37,7 +48,14 @@ LEGACY_CONTAINERS = (
     "claire_expand",
     "claire_backup",
 )
-LOCKED_PASSTHROUGH_COMMANDS = {"up", "down", "restart", "app"}
+LOCKED_PASSTHROUGH_COMMANDS = {
+    "up",
+    "down",
+    "restart",
+    "shell",
+    "app",
+    "compose",
+}
 PASSTHROUGH_COMMANDS = {
     "up",
     "down",
@@ -86,9 +104,7 @@ APP_GUARDED_COMMANDS = {
     "recover-loop": "Compose가 소유하는 지속 실행 서비스",
     "refresh-loop": "Compose가 소유하는 지속 실행 서비스",
     "expand-loop": "Compose가 소유하는 지속 실행 서비스",
-    "reextract": "그래프를 재구축하고 기존 백업 구현에 의존하는 유지보수 명령",
-    "backup": "현재 통합 운영 범위에서 제외된 백업 명령",
-    "backup-loop": "현재 통합 운영 범위에서 제외된 백업 명령",
+    "reextract": "그래프를 재구축하는 파괴적 유지보수 명령",
 }
 
 
@@ -169,6 +185,10 @@ class Layout:
     @property
     def vault(self) -> Path:
         return self.root / "vault"
+
+    @property
+    def backups(self) -> Path:
+        return self.root / "backups"
 
     @property
     def state_dir(self) -> Path:
@@ -527,6 +547,131 @@ class InstanceLock(AbstractContextManager["InstanceLock"]):
             self._stream = None
 
 
+class BackupNamespaceLock(AbstractContextManager["BackupNamespaceLock"]):
+    """Serialize the shared daily backup name across production and dev profiles."""
+
+    def __init__(self, layout: Layout):
+        layout.state_dir.mkdir(parents=True, exist_ok=True)
+        self.path = layout.state_dir / "backups.lock"
+        self._stream = None
+
+    def __enter__(self) -> "BackupNamespaceLock":
+        self._stream = self.path.open("a+", encoding="utf-8")
+        try:
+            fcntl.flock(self._stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            self._stream.close()
+            self._stream = None
+            raise ManuscriptError(
+                f"다른 백업/복원 작업이 진행 중입니다: {self.path}", 73
+            ) from exc
+        self._stream.seek(0)
+        self._stream.truncate()
+        self._stream.write(f"pid={os.getpid()}\n")
+        self._stream.flush()
+        return self
+
+    def __exit__(self, exc_type, exc, traceback) -> None:  # noqa: ANN001
+        if self._stream is not None:
+            fcntl.flock(self._stream.fileno(), fcntl.LOCK_UN)
+            self._stream.close()
+            self._stream = None
+
+
+@dataclass(frozen=True)
+class StorageLayout:
+    data: Path
+    vault: Path
+    database_relative: Path
+
+    @property
+    def database(self) -> Path:
+        return self.data / self.database_relative
+
+    def component(self, name: str) -> Path:
+        if name == "data":
+            return self.data
+        if name == "vault":
+            return self.vault
+        raise ManuscriptError(f"지원하지 않는 백업 구성요소입니다: {name}")
+
+
+def _is_within(path: Path, parent: Path) -> bool:
+    try:
+        path.relative_to(parent)
+    except ValueError:
+        return False
+    return True
+
+
+def _configured_host_path(runtime: Runtime, key: str, default: str) -> Path:
+    raw = _effective(runtime.values, key).strip() or default
+    if "\x00" in raw:
+        raise ManuscriptError(f"{key}에 NUL 문자를 사용할 수 없습니다.")
+    candidate = Path(raw).expanduser()
+    if not candidate.is_absolute():
+        if not (raw.startswith("./") or raw.startswith("../")):
+            raise ManuscriptError(
+                f"{key}={raw!r}은 host bind 경로로 식별할 수 없습니다. "
+                "./ 또는 ../로 시작하는 상대 경로나 절대 경로를 사용하세요."
+            )
+        candidate = runtime.layout.root / candidate
+    if candidate.is_symlink():
+        raise ManuscriptError(f"{key} 최상위 경로는 symlink일 수 없습니다: {candidate}")
+    return candidate.resolve()
+
+
+def _database_relative_path(runtime: Runtime) -> Path:
+    raw = _effective(runtime.values, "CLAIRE_DB_PATH").strip() or "data/claire.db"
+    if "\x00" in raw or "\\" in raw:
+        raise ManuscriptError("CLAIRE_DB_PATH 형식이 잘못되었습니다.")
+    source = PurePosixPath(raw)
+    if any(part in {"", ".", ".."} for part in source.parts):
+        raise ManuscriptError(
+            "CLAIRE_DB_PATH는 /app/data 아래의 정규화된 경로여야 합니다."
+        )
+    if source.is_absolute():
+        container_path = source
+    else:
+        container_path = PurePosixPath("/app") / source
+    try:
+        relative = container_path.relative_to(PurePosixPath("/app/data"))
+    except ValueError as exc:
+        raise ManuscriptError(
+            "CLAIRE_DB_PATH는 컨테이너의 /app/data 아래에 있어야 백업할 수 있습니다."
+        ) from exc
+    if not relative.parts:
+        raise ManuscriptError("CLAIRE_DB_PATH는 파일 경로여야 합니다.")
+    return Path(*relative.parts)
+
+
+def resolve_storage(runtime: Runtime) -> StorageLayout:
+    data = _configured_host_path(runtime, "CB_DATA_DIR", "./data")
+    vault = _configured_host_path(runtime, "CB_VAULT_DIR", "./vault")
+    backup_root = runtime.layout.backups.resolve()
+    repository = runtime.layout.root.resolve()
+    home = Path.home().resolve()
+
+    for name, path in (("CB_DATA_DIR", data), ("CB_VAULT_DIR", vault)):
+        if path in {Path("/"), repository, home} or len(path.parts) < 3:
+            raise ManuscriptError(f"{name}이 너무 넓은 경로를 가리킵니다: {path}")
+        if _is_within(path, backup_root) or _is_within(backup_root, path):
+            raise ManuscriptError(
+                f"{name}과 backups 경로가 서로 포함되어 백업할 수 없습니다: {path}"
+            )
+    if (
+        data == vault
+        or _is_within(data, vault)
+        or _is_within(vault, data)
+    ):
+        raise ManuscriptError("CB_DATA_DIR과 CB_VAULT_DIR은 같거나 중첩될 수 없습니다.")
+    return StorageLayout(
+        data=data,
+        vault=vault,
+        database_relative=_database_relative_path(runtime),
+    )
+
+
 def _captured_stdout(result: subprocess.CompletedProcess[str]) -> str:
     return result.stdout or ""
 
@@ -684,6 +829,1179 @@ def _stop_current_project(runtime: Runtime) -> tuple[str, ...]:
         )
         raise
     return container_ids
+
+
+@dataclass(frozen=True)
+class QuiescedContainers:
+    project: tuple[str, ...]
+    legacy: tuple[str, ...]
+
+
+def _quiesce_writers(runtime: Runtime) -> QuiescedContainers:
+    project = _stop_current_project(runtime)
+    try:
+        legacy = tuple(stop_legacy_containers(runtime.layout))
+    except BaseException:
+        _resume_after_failed_transition(
+            runtime,
+            project_stopped=project,
+            legacy_stopped=(),
+        )
+        raise
+    return QuiescedContainers(project=project, legacy=legacy)
+
+
+def _resume_writers(
+    runtime: Runtime, containers: QuiescedContainers
+) -> list[str]:
+    failures: list[str] = []
+    if containers.project:
+        result = run_command(
+            ("docker", "start", *containers.project),
+            cwd=runtime.layout.root,
+            capture=True,
+            check=False,
+        )
+        if result.returncode:
+            failures.append("Compose project containers")
+    for name in containers.legacy:
+        result = run_command(
+            ("docker", "start", name),
+            cwd=runtime.layout.root,
+            capture=True,
+            check=False,
+        )
+        if result.returncode:
+            failures.append(name)
+    return failures
+
+
+def _stop_captured_writers(
+    runtime: Runtime, containers: QuiescedContainers
+) -> None:
+    if containers.project:
+        run_command(
+            ("docker", "stop", *containers.project),
+            cwd=runtime.layout.root,
+            check=False,
+        )
+    for name in containers.legacy:
+        run_command(
+            ("docker", "stop", name),
+            cwd=runtime.layout.root,
+            check=False,
+        )
+
+
+@contextmanager
+def _writers_stopped(runtime: Runtime) -> Iterator[QuiescedContainers]:
+    containers = _quiesce_writers(runtime)
+    try:
+        yield containers
+    except BaseException:
+        failures = _resume_writers(runtime, containers)
+        if failures:
+            print(
+                "cb-manuscript: 오류 후 다음 writer를 재개하지 못했습니다: "
+                + ", ".join(failures),
+                file=sys.stderr,
+            )
+        raise
+    else:
+        failures = _resume_writers(runtime, containers)
+        if failures:
+            raise ManuscriptError(
+                "백업은 생성되었지만 다음 writer를 재개하지 못했습니다: "
+                + ", ".join(failures)
+            )
+
+
+def _lstat(path: Path) -> os.stat_result:
+    try:
+        return path.lstat()
+    except FileNotFoundError as exc:
+        raise ManuscriptError(f"경로가 없습니다: {path}") from exc
+    except OSError as exc:
+        raise ManuscriptError(f"경로를 검사할 수 없습니다: {path}: {exc}") from exc
+
+
+def _assert_regular_directory(path: Path, *, label: str) -> None:
+    mode = _lstat(path).st_mode
+    if stat.S_ISLNK(mode) or not stat.S_ISDIR(mode):
+        raise ManuscriptError(f"{label}은 symlink가 아닌 디렉터리여야 합니다: {path}")
+
+
+def _assert_regular_file(path: Path, *, label: str) -> None:
+    mode = _lstat(path).st_mode
+    if stat.S_ISLNK(mode) or not stat.S_ISREG(mode):
+        raise ManuscriptError(f"{label}은 symlink가 아닌 일반 파일이어야 합니다: {path}")
+
+
+def _remove_path(path: Path) -> None:
+    try:
+        mode = path.lstat().st_mode
+    except FileNotFoundError:
+        return
+    if stat.S_ISDIR(mode) and not stat.S_ISLNK(mode):
+        shutil.rmtree(path)
+    else:
+        path.unlink()
+
+
+def _copy_path_safely(
+    source: Path,
+    destination: Path,
+    *,
+    relative: Path = Path(),
+    excluded: frozenset[Path] = frozenset(),
+) -> None:
+    for skipped in excluded:
+        if relative == skipped or _is_within(relative, skipped):
+            return
+
+    source_stat = _lstat(source)
+    mode = source_stat.st_mode
+    if stat.S_ISLNK(mode):
+        raise ManuscriptError(f"백업 대상에 symlink가 있습니다: {source}")
+    if stat.S_ISREG(mode):
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, destination, follow_symlinks=False)
+        return
+    if not stat.S_ISDIR(mode):
+        raise ManuscriptError(f"백업 대상에 특수 파일이 있습니다: {source}")
+
+    destination.mkdir(parents=True, exist_ok=True)
+    os.chmod(destination, stat.S_IMODE(mode))
+    try:
+        children = sorted(source.iterdir(), key=lambda item: item.name)
+    except OSError as exc:
+        raise ManuscriptError(f"디렉터리를 읽을 수 없습니다: {source}: {exc}") from exc
+    for child in children:
+        child_relative = relative / child.name
+        _copy_path_safely(
+            child,
+            destination / child.name,
+            relative=child_relative,
+            excluded=excluded,
+        )
+
+
+def _sqlite_uri(path: Path) -> str:
+    return "file:" + quote(str(path), safe="/") + "?mode=ro"
+
+
+def _validate_sqlite_database(path: Path) -> dict[str, object]:
+    _assert_regular_file(path, label="SQLite DB")
+    try:
+        conn = sqlite3.connect(_sqlite_uri(path), uri=True, timeout=5.0)
+        try:
+            quick_rows = [str(row[0]) for row in conn.execute("PRAGMA quick_check")]
+            if quick_rows != ["ok"]:
+                raise ManuscriptError(
+                    f"SQLite quick_check가 실패했습니다: {path}: {quick_rows[:5]}"
+                )
+            foreign_keys = conn.execute("PRAGMA foreign_key_check").fetchmany(10)
+            if foreign_keys:
+                raise ManuscriptError(
+                    f"SQLite foreign_key_check가 실패했습니다: {path}: "
+                    f"{foreign_keys[:5]}"
+                )
+            row = conn.execute(
+                "SELECT value FROM meta WHERE key='schema_version'"
+            ).fetchone()
+            if row is None:
+                raise ManuscriptError(
+                    f"SQLite schema_version을 찾을 수 없습니다: {path}"
+                )
+            try:
+                schema_version = int(row[0])
+            except (TypeError, ValueError) as exc:
+                raise ManuscriptError(
+                    f"SQLite schema_version이 잘못되었습니다: {path}: {row[0]!r}"
+                ) from exc
+        finally:
+            conn.close()
+    except ManuscriptError:
+        raise
+    except sqlite3.Error as exc:
+        raise ManuscriptError(f"SQLite DB를 검증할 수 없습니다: {path}: {exc}") from exc
+    return {
+        "path": "",
+        "schema_version": schema_version,
+        "quick_check": "ok",
+        "foreign_key_check": "ok",
+    }
+
+
+def _snapshot_database(source: Path, destination: Path) -> dict[str, object]:
+    source_stat = _lstat(source)
+    if stat.S_ISLNK(source_stat.st_mode) or not stat.S_ISREG(source_stat.st_mode):
+        raise ManuscriptError(f"SQLite DB가 일반 파일이 아닙니다: {source}")
+    _validate_sqlite_database(source)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    if destination.exists():
+        raise ManuscriptError(f"SQLite snapshot 대상이 이미 있습니다: {destination}")
+    source_conn = None
+    destination_conn = None
+    try:
+        source_conn = sqlite3.connect(_sqlite_uri(source), uri=True, timeout=5.0)
+        destination_conn = sqlite3.connect(str(destination))
+        source_conn.backup(destination_conn)
+        mode = destination_conn.execute("PRAGMA journal_mode=DELETE").fetchone()
+        if mode is None or str(mode[0]).lower() != "delete":
+            raise ManuscriptError(
+                "SQLite snapshot을 단일-file DELETE journal mode로 만들 수 없습니다."
+            )
+    except sqlite3.Error as exc:
+        _remove_path(destination)
+        raise ManuscriptError(f"SQLite snapshot 생성에 실패했습니다: {exc}") from exc
+    finally:
+        if destination_conn is not None:
+            destination_conn.close()
+        if source_conn is not None:
+            source_conn.close()
+    _remove_path(Path(str(destination) + "-wal"))
+    _remove_path(Path(str(destination) + "-shm"))
+    os.chmod(destination, stat.S_IMODE(source_stat.st_mode))
+    return _validate_sqlite_database(destination)
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    try:
+        with path.open("rb") as stream:
+            while True:
+                chunk = stream.read(1024 * 1024)
+                if not chunk:
+                    break
+                digest.update(chunk)
+    except OSError as exc:
+        raise ManuscriptError(f"파일 hash를 계산할 수 없습니다: {path}: {exc}") from exc
+    return digest.hexdigest()
+
+
+def _scan_payload(payload: Path) -> list[dict[str, object]]:
+    entries: list[dict[str, object]] = []
+
+    def visit(path: Path) -> None:
+        path_stat = _lstat(path)
+        relative = path.relative_to(payload).as_posix()
+        mode = path_stat.st_mode
+        if stat.S_ISLNK(mode):
+            raise ManuscriptError(f"backup payload에 symlink가 있습니다: {relative}")
+        if stat.S_ISDIR(mode):
+            entries.append(
+                {
+                    "path": relative,
+                    "type": "directory",
+                    "mode": f"{stat.S_IMODE(mode):04o}",
+                }
+            )
+            for child in sorted(path.iterdir(), key=lambda item: item.name):
+                visit(child)
+            return
+        if stat.S_ISREG(mode):
+            entries.append(
+                {
+                    "path": relative,
+                    "type": "file",
+                    "size": path_stat.st_size,
+                    "mode": f"{stat.S_IMODE(mode):04o}",
+                    "sha256": _sha256(path),
+                }
+            )
+            return
+        raise ManuscriptError(f"backup payload에 특수 파일이 있습니다: {relative}")
+
+    _assert_regular_directory(payload, label="backup payload")
+    for child in sorted(payload.iterdir(), key=lambda item: item.name):
+        visit(child)
+    return entries
+
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _local_now() -> datetime:
+    return datetime.now().astimezone()
+
+
+def _backup_id() -> str:
+    return _local_now().strftime("cb-%Y%m%d")
+
+
+def _current_schema_version(layout: Layout) -> int:
+    path = layout.root / "src" / "claire" / "store" / "db.py"
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise ManuscriptError(f"현재 DB schema 버전을 읽을 수 없습니다: {path}") from exc
+    match = re.search(r"(?m)^SCHEMA_VERSION\s*=\s*([0-9]+)\s*$", text)
+    if match is None:
+        raise ManuscriptError(f"현재 DB schema 버전을 찾을 수 없습니다: {path}")
+    return int(match.group(1))
+
+
+def _backup_paths(layout: Layout, backup_id: str) -> tuple[Path, Path]:
+    return (
+        layout.backups / backup_id,
+        layout.backups / f"{backup_id}{BACKUP_ARCHIVE_SUFFIX}",
+    )
+
+
+def _path_exists(path: Path) -> bool:
+    try:
+        path.lstat()
+    except FileNotFoundError:
+        return False
+    return True
+
+
+def _validate_backup_manifest(root: Path) -> dict[str, object]:
+    _assert_regular_directory(root, label="backup")
+    top_level = {child.name for child in root.iterdir()}
+    if top_level != {"manifest.json", "payload"}:
+        raise ManuscriptError(
+            "backup 최상위에는 manifest.json과 payload만 있어야 합니다."
+        )
+
+    manifest_path = root / "manifest.json"
+    _assert_regular_file(manifest_path, label="backup manifest")
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ManuscriptError(f"backup manifest를 읽을 수 없습니다: {exc}") from exc
+    if not isinstance(manifest, dict):
+        raise ManuscriptError("backup manifest는 JSON object여야 합니다.")
+    if manifest.get("format_version") != BACKUP_FORMAT_VERSION:
+        raise ManuscriptError(
+            f"지원하지 않는 backup format_version입니다: "
+            f"{manifest.get('format_version')!r}"
+        )
+    backup_id = manifest.get("id")
+    if not isinstance(backup_id, str) or not BACKUP_ID_RE.fullmatch(backup_id):
+        raise ManuscriptError(f"backup id 형식이 잘못되었습니다: {backup_id!r}")
+    for key in ("created_at", "profile", "project", "cb_manuscript_version"):
+        if not isinstance(manifest.get(key), str) or not manifest[key]:
+            raise ManuscriptError(f"backup manifest의 {key} 값이 잘못되었습니다.")
+
+    raw_components = manifest.get("components")
+    if (
+        not isinstance(raw_components, list)
+        or not raw_components
+        or any(component not in BACKUP_COMPONENTS for component in raw_components)
+        or len(set(raw_components)) != len(raw_components)
+    ):
+        raise ManuscriptError("backup manifest의 components 값이 잘못되었습니다.")
+    components = tuple(raw_components)
+    if tuple(component for component in BACKUP_COMPONENTS if component in components) != components:
+        raise ManuscriptError("backup manifest의 components 순서가 잘못되었습니다.")
+
+    raw_entries = manifest.get("entries")
+    if not isinstance(raw_entries, list) or not raw_entries:
+        raise ManuscriptError("backup manifest에 entries가 없습니다.")
+    expected: dict[str, dict[str, object]] = {}
+    for value in raw_entries:
+        if not isinstance(value, dict):
+            raise ManuscriptError("backup manifest entry 형식이 잘못되었습니다.")
+        raw_path = value.get("path")
+        entry_type = value.get("type")
+        entry_mode = value.get("mode")
+        if not isinstance(raw_path, str) or not raw_path:
+            raise ManuscriptError("backup manifest entry path가 잘못되었습니다.")
+        logical = PurePosixPath(raw_path)
+        if (
+            logical.is_absolute()
+            or any(part in {"", ".", ".."} for part in logical.parts)
+            or logical.as_posix() != raw_path
+            or logical.parts[0] not in components
+        ):
+            raise ManuscriptError(f"안전하지 않은 backup entry path입니다: {raw_path!r}")
+        if raw_path in expected:
+            raise ManuscriptError(f"중복 backup entry path입니다: {raw_path}")
+        if (
+            entry_type not in {"file", "directory"}
+            or not isinstance(entry_mode, str)
+            or re.fullmatch(r"[0-7]{4}", entry_mode) is None
+        ):
+            raise ManuscriptError(f"backup entry metadata가 잘못되었습니다: {raw_path}")
+        required = {"path", "type", "mode"}
+        if entry_type == "file":
+            required.update(("size", "sha256"))
+            size = value.get("size")
+            digest = value.get("sha256")
+            if (
+                not isinstance(size, int)
+                or isinstance(size, bool)
+                or size < 0
+                or not isinstance(digest, str)
+                or re.fullmatch(r"[0-9a-f]{64}", digest) is None
+            ):
+                raise ManuscriptError(
+                    f"backup file metadata가 잘못되었습니다: {raw_path}"
+                )
+        if set(value) != required:
+            raise ManuscriptError(
+                f"backup entry에 알 수 없는 필드가 있습니다: {raw_path}"
+            )
+        expected[raw_path] = value
+
+    payload = root / "payload"
+    actual_entries = _scan_payload(payload)
+    actual = {entry["path"]: entry for entry in actual_entries}
+    if expected != actual:
+        missing = sorted(set(expected) - set(actual))
+        extra = sorted(set(actual) - set(expected))
+        changed = sorted(
+            path
+            for path in set(expected) & set(actual)
+            if expected[path] != actual[path]
+        )
+        raise ManuscriptError(
+            "backup payload 무결성 검증에 실패했습니다"
+            f" (missing={missing[:3]}, extra={extra[:3]}, changed={changed[:3]})."
+        )
+    for component in components:
+        entry = expected.get(component)
+        if entry is None or entry.get("type") != "directory":
+            raise ManuscriptError(f"backup component가 없습니다: {component}")
+
+    file_entries = [entry for entry in actual_entries if entry["type"] == "file"]
+    totals = manifest.get("totals")
+    expected_totals = {
+        "files": len(file_entries),
+        "bytes": sum(int(entry["size"]) for entry in file_entries),
+    }
+    if totals != expected_totals:
+        raise ManuscriptError("backup manifest의 totals가 payload와 일치하지 않습니다.")
+
+    database = manifest.get("database")
+    if "data" in components:
+        if not isinstance(database, dict):
+            raise ManuscriptError("data backup에 database metadata가 없습니다.")
+        database_path = database.get("path")
+        if not isinstance(database_path, str):
+            raise ManuscriptError("database path metadata가 잘못되었습니다.")
+        logical_database = PurePosixPath(database_path)
+        if (
+            logical_database.is_absolute()
+            or not logical_database.parts
+            or logical_database.parts[0] != "data"
+            or any(part in {"", ".", ".."} for part in logical_database.parts)
+        ):
+            raise ManuscriptError("database path metadata가 안전하지 않습니다.")
+        report = _validate_sqlite_database(
+            payload / Path(*logical_database.parts)
+        )
+        if (
+            database.get("quick_check") != "ok"
+            or database.get("foreign_key_check") != "ok"
+            or database.get("schema_version") != report["schema_version"]
+            or set(database)
+            != {"path", "schema_version", "quick_check", "foreign_key_check"}
+        ):
+            raise ManuscriptError("database metadata가 실제 DB와 일치하지 않습니다.")
+    elif database is not None:
+        raise ManuscriptError("data가 없는 backup에 database metadata가 있습니다.")
+    return manifest
+
+
+def _build_backup_staging(
+    runtime: Runtime,
+    storage: StorageLayout,
+    components: tuple[str, ...],
+    staging: Path,
+    backup_id: str,
+) -> dict[str, object]:
+    staging.mkdir(mode=0o700)
+    payload = staging / "payload"
+    payload.mkdir(mode=0o700)
+    database_report: dict[str, object] | None = None
+
+    for component in components:
+        source = storage.component(component)
+        _assert_regular_directory(source, label=f"{component} source")
+        excluded: frozenset[Path] = frozenset()
+        if component == "data":
+            database = storage.database_relative
+            excluded = frozenset(
+                {
+                    Path("backups"),
+                    Path("offsite-backups"),
+                    Path("checkpoints"),
+                    database,
+                    Path(str(database) + "-wal"),
+                    Path(str(database) + "-shm"),
+                }
+            )
+        _copy_path_safely(
+            source,
+            payload / component,
+            excluded=excluded,
+        )
+        if component == "data":
+            database_report = _snapshot_database(
+                storage.database,
+                payload / "data" / storage.database_relative,
+            )
+            database_report["path"] = (
+                PurePosixPath("data")
+                .joinpath(*storage.database_relative.parts)
+                .as_posix()
+            )
+
+    entries = _scan_payload(payload)
+    files = [entry for entry in entries if entry["type"] == "file"]
+    manifest: dict[str, object] = {
+        "format_version": BACKUP_FORMAT_VERSION,
+        "id": backup_id,
+        "kind": "manual",
+        "created_at": _utc_now().isoformat(),
+        "profile": "development" if runtime.dev else "production",
+        "project": runtime.project,
+        "cb_manuscript_version": VERSION,
+        "source_revision": _source_revision(runtime.layout),
+        "components": list(components),
+        "database": database_report,
+        "entries": entries,
+        "totals": {
+            "files": len(files),
+            "bytes": sum(int(entry["size"]) for entry in files),
+        },
+    }
+    _atomic_write(
+        staging / "manifest.json",
+        json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        mode=0o600,
+    )
+    _validate_backup_manifest(staging)
+    return manifest
+
+
+def _create_backup_archive(source: Path, destination: Path) -> None:
+    if _path_exists(destination):
+        raise ManuscriptError(f"archive staging 파일이 이미 있습니다: {destination}")
+    try:
+        with tarfile.open(destination, mode="w:gz") as archive:
+            archive.dereference = True
+            archive.add(source / "manifest.json", arcname="manifest.json")
+            archive.add(source / "payload", arcname="payload")
+        os.chmod(destination, 0o600)
+        with destination.open("rb") as stream:
+            os.fsync(stream.fileno())
+    except (OSError, tarfile.TarError) as exc:
+        _remove_path(destination)
+        raise ManuscriptError(f"backup archive 생성에 실패했습니다: {exc}") from exc
+
+
+def _safe_extract_archive(source: Path, destination: Path) -> None:
+    _assert_regular_file(source, label="backup archive")
+    try:
+        with tarfile.open(source, mode="r:*") as archive:
+            members = archive.getmembers()
+            normalized: set[str] = set()
+            for member in members:
+                raw = member.name.rstrip("/")
+                logical = PurePosixPath(raw)
+                if (
+                    not raw
+                    or logical.is_absolute()
+                    or any(part in {"", ".", ".."} for part in logical.parts)
+                    or logical.as_posix() != raw
+                    or raw in normalized
+                    or logical.parts[0] not in {"manifest.json", "payload"}
+                ):
+                    raise ManuscriptError(
+                        f"안전하지 않거나 중복된 archive member입니다: {member.name!r}"
+                    )
+                if not (member.isdir() or member.isfile()):
+                    raise ManuscriptError(
+                        f"archive의 link/특수 파일을 허용하지 않습니다: {member.name}"
+                    )
+                normalized.add(raw)
+
+            for member in members:
+                raw = member.name.rstrip("/")
+                target = destination / Path(*PurePosixPath(raw).parts)
+                if member.isdir():
+                    target.mkdir(parents=True, exist_ok=True)
+                    os.chmod(target, member.mode & 0o7777)
+                    continue
+                target.parent.mkdir(parents=True, exist_ok=True)
+                source_stream = archive.extractfile(member)
+                if source_stream is None:
+                    raise ManuscriptError(
+                        f"archive member를 읽을 수 없습니다: {member.name}"
+                    )
+                with source_stream, target.open("xb") as output:
+                    shutil.copyfileobj(source_stream, output, length=1024 * 1024)
+                os.chmod(target, member.mode & 0o7777)
+    except ManuscriptError:
+        raise
+    except (OSError, tarfile.TarError, EOFError) as exc:
+        raise ManuscriptError(f"backup archive를 읽을 수 없습니다: {exc}") from exc
+
+
+@contextmanager
+def _materialized_backup(
+    source: Path,
+    *,
+    temporary_parent: Path | None = None,
+) -> Iterator[tuple[Path, dict[str, object]]]:
+    source_stat = _lstat(source)
+    if stat.S_ISLNK(source_stat.st_mode):
+        raise ManuscriptError(f"backup source는 symlink일 수 없습니다: {source}")
+    if temporary_parent is not None:
+        temporary_parent.mkdir(parents=True, exist_ok=True)
+        os.chmod(temporary_parent, 0o700)
+    with tempfile.TemporaryDirectory(
+        prefix="cb-manuscript-restore-",
+        dir=temporary_parent,
+    ) as temporary:
+        materialized = Path(temporary) / "backup"
+        if stat.S_ISDIR(source_stat.st_mode):
+            _copy_path_safely(source, materialized)
+        elif stat.S_ISREG(source_stat.st_mode):
+            materialized.mkdir(mode=0o700)
+            _safe_extract_archive(source, materialized)
+        else:
+            raise ManuscriptError(
+                f"backup source는 일반 파일 또는 디렉터리여야 합니다: {source}"
+            )
+        manifest = _validate_backup_manifest(materialized)
+        yield materialized, manifest
+
+
+def _publish_backup(
+    new_artifact: Path,
+    target: Path,
+    *,
+    conflicting_paths: Sequence[Path],
+    replace: bool,
+) -> None:
+    existing = [path for path in conflicting_paths if _path_exists(path)]
+    if existing and not replace:
+        raise ManuscriptError(
+            "오늘의 backup이 이미 있습니다: "
+            + ", ".join(str(path) for path in existing)
+            + ". 교체하려면 --replace를 명시하세요."
+        )
+    for path in existing:
+        mode = _lstat(path).st_mode
+        if stat.S_ISLNK(mode) or not (
+            stat.S_ISDIR(mode) or stat.S_ISREG(mode)
+        ):
+            raise ManuscriptError(f"기존 backup 형식이 안전하지 않습니다: {path}")
+
+    token = secrets.token_hex(8)
+    moved: list[tuple[Path, Path]] = []
+    published = False
+    try:
+        for path in existing:
+            old = path.parent / f".{path.name}.replace-{token}"
+            os.replace(path, old)
+            moved.append((path, old))
+        os.replace(new_artifact, target)
+        published = True
+        directory_fd = os.open(target.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+    except BaseException:
+        if published:
+            _remove_path(target)
+        for original, old in reversed(moved):
+            if _path_exists(old):
+                os.replace(old, original)
+        raise
+    for _original, old in moved:
+        _remove_path(old)
+
+
+def _selected_components(raw: Sequence[str] | None) -> tuple[str, ...]:
+    selected = set(raw or BACKUP_COMPONENTS)
+    if not selected or not selected.issubset(BACKUP_COMPONENTS):
+        raise ManuscriptError("backup 구성요소는 data 또는 vault여야 합니다.")
+    return tuple(component for component in BACKUP_COMPONENTS if component in selected)
+
+
+def command_backup(
+    runtime: Runtime,
+    *,
+    output_format: str,
+    raw_components: Sequence[str] | None,
+    replace: bool,
+) -> int:
+    components = _selected_components(raw_components)
+    with BackupNamespaceLock(runtime.layout), InstanceLock(runtime):
+        config_preflight(runtime)
+        storage = resolve_storage(runtime)
+        runtime.layout.backups.mkdir(mode=0o700, parents=True, exist_ok=True)
+        os.chmod(runtime.layout.backups, 0o700)
+        backup_id = _backup_id()
+        directory_target, archive_target = _backup_paths(runtime.layout, backup_id)
+        target = (
+            directory_target if output_format == "directory" else archive_target
+        )
+        conflicts = (directory_target, archive_target)
+        existing = [path for path in conflicts if _path_exists(path)]
+        if existing and not replace:
+            raise ManuscriptError(
+                "오늘의 backup이 이미 있습니다: "
+                + ", ".join(str(path) for path in existing)
+                + ". 교체하려면 --replace를 명시하세요."
+            )
+
+        for component in components:
+            _assert_regular_directory(
+                storage.component(component),
+                label=f"{component} source",
+            )
+        if "data" in components:
+            _validate_sqlite_database(storage.database)
+
+        token = secrets.token_hex(8)
+        staging = runtime.layout.backups / f".{backup_id}.staging-{token}"
+        archive_staging = (
+            runtime.layout.backups / f".{backup_id}.archive-{token}.tmp"
+        )
+        try:
+            with _writers_stopped(runtime):
+                _build_backup_staging(
+                    runtime,
+                    storage,
+                    components,
+                    staging,
+                    backup_id,
+                )
+                if output_format == "archive":
+                    _create_backup_archive(staging, archive_staging)
+                    with _materialized_backup(
+                        archive_staging,
+                        temporary_parent=runtime.layout.state_dir,
+                    ):
+                        pass
+                    new_artifact = archive_staging
+                else:
+                    new_artifact = staging
+                _publish_backup(
+                    new_artifact,
+                    target,
+                    conflicting_paths=conflicts,
+                    replace=replace,
+                )
+        finally:
+            _remove_path(staging)
+            _remove_path(archive_staging)
+
+    print(f"backup 완료: {target}")
+    print(f"  id={backup_id} · format={output_format} · components={','.join(components)}")
+    return 0
+
+
+def _verify_component_copy(
+    root: Path,
+    component: str,
+    manifest: Mapping[str, object],
+) -> None:
+    expected_entries = manifest.get("entries")
+    if not isinstance(expected_entries, list):
+        raise ManuscriptError("backup manifest entries가 잘못되었습니다.")
+    expected = {
+        str(entry["path"]): entry
+        for entry in expected_entries
+        if isinstance(entry, dict)
+        and isinstance(entry.get("path"), str)
+        and (
+            entry["path"] == component
+            or str(entry["path"]).startswith(component + "/")
+        )
+    }
+    actual: dict[str, dict[str, object]] = {}
+
+    def visit(path: Path, logical: PurePosixPath) -> None:
+        path_stat = _lstat(path)
+        mode = path_stat.st_mode
+        key = logical.as_posix()
+        if stat.S_ISLNK(mode):
+            raise ManuscriptError(f"restore staging에 symlink가 있습니다: {key}")
+        if stat.S_ISDIR(mode):
+            actual[key] = {
+                "path": key,
+                "type": "directory",
+                "mode": f"{stat.S_IMODE(mode):04o}",
+            }
+            for child in sorted(path.iterdir(), key=lambda item: item.name):
+                visit(child, logical / child.name)
+            return
+        if stat.S_ISREG(mode):
+            actual[key] = {
+                "path": key,
+                "type": "file",
+                "size": path_stat.st_size,
+                "mode": f"{stat.S_IMODE(mode):04o}",
+                "sha256": _sha256(path),
+            }
+            return
+        raise ManuscriptError(f"restore staging에 특수 파일이 있습니다: {key}")
+
+    visit(root, PurePosixPath(component))
+    if expected != actual:
+        raise ManuscriptError(
+            f"{component} restore staging이 backup manifest와 일치하지 않습니다."
+        )
+
+
+@dataclass
+class RestoreSwap:
+    component: str
+    target: Path
+    staging: Path
+    rollback: Path
+    had_original: bool = False
+    installed: bool = False
+
+
+def _prepare_restore_swaps(
+    materialized: Path,
+    manifest: Mapping[str, object],
+    storage: StorageLayout,
+    components: tuple[str, ...],
+) -> list[RestoreSwap]:
+    token = secrets.token_hex(8)
+    swaps: list[RestoreSwap] = []
+    try:
+        for component in components:
+            target = storage.component(component)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            staging = target.parent / f".{target.name}.cb-restore-new-{token}"
+            rollback = target.parent / f".{target.name}.cb-restore-old-{token}"
+            if _path_exists(staging) or _path_exists(rollback):
+                raise ManuscriptError("restore staging 경로 충돌이 발생했습니다.")
+            _copy_path_safely(
+                materialized / "payload" / component,
+                staging,
+            )
+            _verify_component_copy(staging, component, manifest)
+            swaps.append(
+                RestoreSwap(
+                    component=component,
+                    target=target,
+                    staging=staging,
+                    rollback=rollback,
+                )
+            )
+    except BaseException:
+        for swap in swaps:
+            _remove_path(swap.staging)
+            _remove_path(swap.rollback)
+        raise
+    return swaps
+
+
+def _write_restore_journal(
+    runtime: Runtime,
+    manifest: Mapping[str, object],
+    swaps: Sequence[RestoreSwap],
+    phase: str,
+) -> Path:
+    journal = runtime.layout.state_dir / "restore-transaction.json"
+    content = {
+        "format_version": 1,
+        "backup_id": manifest.get("id"),
+        "profile": "development" if runtime.dev else "production",
+        "project": runtime.project,
+        "phase": phase,
+        "updated_at": _utc_now().isoformat(),
+        "components": [
+            {
+                "name": swap.component,
+                "target": str(swap.target),
+                "staging": str(swap.staging),
+                "rollback": str(swap.rollback),
+                "had_original": swap.had_original,
+                "installed": swap.installed,
+            }
+            for swap in swaps
+        ],
+    }
+    _atomic_write(
+        journal,
+        json.dumps(content, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        mode=0o600,
+    )
+    return journal
+
+
+def _apply_restore_swaps(swaps: Sequence[RestoreSwap]) -> None:
+    for swap in swaps:
+        if _path_exists(swap.target):
+            _assert_regular_directory(
+                swap.target,
+                label=f"{swap.component} restore target",
+            )
+            os.replace(swap.target, swap.rollback)
+            swap.had_original = True
+        try:
+            os.replace(swap.staging, swap.target)
+            swap.installed = True
+        except BaseException:
+            if swap.had_original and _path_exists(swap.rollback):
+                os.replace(swap.rollback, swap.target)
+                swap.had_original = False
+            raise
+
+
+def _rollback_restore_swaps(swaps: Sequence[RestoreSwap]) -> list[str]:
+    failures: list[str] = []
+    for swap in reversed(swaps):
+        try:
+            if swap.installed and _path_exists(swap.target):
+                _remove_path(swap.target)
+                swap.installed = False
+            if swap.had_original and _path_exists(swap.rollback):
+                os.replace(swap.rollback, swap.target)
+                swap.had_original = False
+        except BaseException as exc:  # noqa: BLE001 - preserve every recovery path
+            failures.append(f"{swap.component}: {exc}")
+    return failures
+
+
+def _remove_restore_rollback(runtime: Runtime, path: Path) -> None:
+    try:
+        _remove_path(path)
+        return
+    except PermissionError:
+        pass
+    _assert_regular_directory(path, label="restore rollback")
+    image = _effective(runtime.values, "CB_IMAGE").strip() or "claire-bible"
+    tag = _effective(runtime.values, "CB_IMAGE_TAG").strip() or "local"
+    cleanup_code = (
+        "import os,shutil;"
+        "[(shutil.rmtree(e.path) if e.is_dir(follow_symlinks=False) "
+        "else os.unlink(e.path)) for e in os.scandir('/cb-discard')]"
+    )
+    result = run_command(
+        (
+            "docker",
+            "run",
+            "--rm",
+            "--network",
+            "none",
+            "--mount",
+            f"type=bind,source={path},target=/cb-discard",
+            f"{image}:{tag}",
+            "python",
+            "-c",
+            cleanup_code,
+        ),
+        cwd=runtime.layout.root,
+        capture=True,
+        check=False,
+    )
+    if result.returncode:
+        raise ManuscriptError(
+            f"root-owned restore rollback 내용을 정리하지 못했습니다: {path}"
+        )
+    try:
+        path.rmdir()
+    except OSError as exc:
+        raise ManuscriptError(f"restore rollback 경로를 제거할 수 없습니다: {path}") from exc
+
+
+def _wait_for_restored_liveness(runtime: Runtime) -> bool:
+    for attempt in range(5):
+        result = run_compose(
+            runtime,
+            ("exec", "-T", "api", "claire", "liveness"),
+            check=False,
+        )
+        if result.returncode == 0:
+            return True
+        if attempt < 4:
+            time.sleep(1)
+    return False
+
+
+def _resolve_backup_source(layout: Layout, raw: str) -> Path:
+    if not raw or "\x00" in raw:
+        raise ManuscriptError("restore할 backup 파일 또는 폴더 경로가 필요합니다.")
+    source = Path(raw).expanduser()
+    if not source.is_absolute():
+        source = layout.root / source
+    return source.absolute()
+
+
+def _restore_components(
+    raw: Sequence[str] | None,
+    manifest: Mapping[str, object],
+) -> tuple[str, ...]:
+    available_value = manifest.get("components")
+    if not isinstance(available_value, list):
+        raise ManuscriptError("backup manifest components가 잘못되었습니다.")
+    available = set(available_value)
+    selected = set(raw) if raw else available
+    if not selected or not selected.issubset(available):
+        raise ManuscriptError(
+            "요청한 restore 구성요소가 backup에 없습니다: "
+            + ", ".join(sorted(selected - available))
+        )
+    return tuple(component for component in BACKUP_COMPONENTS if component in selected)
+
+
+def command_restore(
+    runtime: Runtime,
+    *,
+    raw_source: str,
+    raw_components: Sequence[str] | None,
+    confirmed: bool,
+) -> int:
+    if not confirmed:
+        raise ManuscriptError(
+            "restore는 현재 데이터를 교체합니다. 실행하려면 --yes를 명시하세요."
+        )
+    source = _resolve_backup_source(runtime.layout, raw_source)
+    with BackupNamespaceLock(runtime.layout), InstanceLock(runtime):
+        config_preflight(runtime)
+        storage = resolve_storage(runtime)
+        resolved_source = source.resolve(strict=False)
+        for component in BACKUP_COMPONENTS:
+            target = storage.component(component)
+            if _is_within(resolved_source, target):
+                raise ManuscriptError(
+                    f"restore source가 {component} target 안에 있어 사용할 수 없습니다."
+                )
+
+        with _materialized_backup(
+            source,
+            temporary_parent=runtime.layout.state_dir,
+        ) as (materialized, manifest):
+            expected_profile = "development" if runtime.dev else "production"
+            if manifest.get("profile") != expected_profile:
+                raise ManuscriptError(
+                    f"backup profile이 현재 profile과 다릅니다: "
+                    f"{manifest.get('profile')!r} != {expected_profile!r}"
+                )
+            if manifest.get("project") != runtime.project:
+                raise ManuscriptError(
+                    f"backup project가 현재 project와 다릅니다: "
+                    f"{manifest.get('project')!r} != {runtime.project!r}"
+                )
+            components = _restore_components(raw_components, manifest)
+            database = manifest.get("database")
+            if "data" in components:
+                if not isinstance(database, dict):
+                    raise ManuscriptError("data backup에 database metadata가 없습니다.")
+                expected_database = (
+                    PurePosixPath("data")
+                    .joinpath(*storage.database_relative.parts)
+                    .as_posix()
+                )
+                if database.get("path") != expected_database:
+                    raise ManuscriptError(
+                        "backup DB 경로와 현재 CLAIRE_DB_PATH가 다릅니다: "
+                        f"{database.get('path')!r} != {expected_database!r}"
+                    )
+                schema_version = database.get("schema_version")
+                if (
+                    not isinstance(schema_version, int)
+                    or isinstance(schema_version, bool)
+                    or schema_version > _current_schema_version(runtime.layout)
+                ):
+                    raise ManuscriptError(
+                        "현재 코드보다 새로운 DB schema backup은 restore할 수 없습니다."
+                    )
+
+            swaps = _prepare_restore_swaps(
+                materialized,
+                manifest,
+                storage,
+                components,
+            )
+            containers: QuiescedContainers | None = None
+            journal: Path | None = None
+            resume_attempted = False
+            try:
+                containers = _quiesce_writers(runtime)
+                journal = _write_restore_journal(
+                    runtime,
+                    manifest,
+                    swaps,
+                    "prepared",
+                )
+                _apply_restore_swaps(swaps)
+                _write_restore_journal(runtime, manifest, swaps, "swapped")
+
+                if "data" in components:
+                    _migrate(runtime)
+                    _validate_sqlite_database(storage.database)
+                _write_restore_journal(runtime, manifest, swaps, "validated")
+
+                resume_attempted = True
+                resume_failures = _resume_writers(runtime, containers)
+                if resume_failures:
+                    raise ManuscriptError(
+                        "restore 후 writer를 재개하지 못했습니다: "
+                        + ", ".join(resume_failures)
+                    )
+                if containers.project and not _wait_for_restored_liveness(runtime):
+                    raise ManuscriptError("restore 후 liveness 검증에 실패했습니다.")
+            except BaseException:
+                if containers is not None and resume_attempted:
+                    _stop_captured_writers(runtime, containers)
+                rollback_failures = _rollback_restore_swaps(swaps)
+                if rollback_failures:
+                    if journal is not None:
+                        _write_restore_journal(
+                            runtime,
+                            manifest,
+                            swaps,
+                            "rollback-failed",
+                        )
+                    raise ManuscriptError(
+                        "restore rollback에 실패했습니다. writer를 중지 상태로 "
+                        f"유지합니다. {journal}: "
+                        + "; ".join(rollback_failures)
+                    )
+                if containers is not None:
+                    resume_failures = _resume_writers(runtime, containers)
+                    if resume_failures:
+                        if journal is not None:
+                            _write_restore_journal(
+                                runtime,
+                                manifest,
+                                swaps,
+                                "rollback-restart-failed",
+                            )
+                        raise ManuscriptError(
+                            "기존 데이터는 복구했지만 writer 재개에 실패했습니다: "
+                            + ", ".join(resume_failures)
+                        )
+                if journal is not None:
+                    _remove_path(journal)
+                raise
+            else:
+                for swap in swaps:
+                    try:
+                        _remove_restore_rollback(runtime, swap.rollback)
+                    except (OSError, ManuscriptError) as exc:
+                        print(
+                            f"cb-manuscript: 오래된 restore rollback 경로를 "
+                            f"정리하지 못했습니다: {swap.rollback}: {exc}",
+                            file=sys.stderr,
+                        )
+                if journal is not None:
+                    _remove_path(journal)
+            finally:
+                for swap in swaps:
+                    _remove_path(swap.staging)
+
+    print(
+        f"restore 완료: {source} · components={','.join(components)}"
+    )
+    return 0
 
 
 def _migrate(runtime: Runtime) -> None:
@@ -983,6 +2301,43 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("install", help="이미지 build, migrate, 기동, health 확인")
     update = subparsers.add_parser("update", help="ff-only 갱신 후 안전한 순서로 재기동")
     update.add_argument("--no-fetch", action="store_true", help="git pull을 생략")
+    backup = subparsers.add_parser(
+        "backup",
+        help="data/vault를 검증 가능한 폴더 또는 archive로 백업",
+    )
+    backup.add_argument(
+        "--format",
+        choices=("directory", "archive"),
+        default="directory",
+        help="directory=backups/cb-YYYYMMDD/, archive=.tar.gz",
+    )
+    backup.add_argument(
+        "--component",
+        choices=BACKUP_COMPONENTS,
+        action="append",
+        help="백업할 구성요소(반복 가능, 기본 data+vault)",
+    )
+    backup.add_argument(
+        "--replace",
+        action="store_true",
+        help="같은 날짜의 기존 파일/폴더를 검증된 새 backup으로 교체",
+    )
+    restore = subparsers.add_parser(
+        "restore",
+        help="backup 폴더 또는 archive를 검증한 뒤 복원",
+    )
+    restore.add_argument("source", help="backup 폴더 또는 archive 경로")
+    restore.add_argument(
+        "--component",
+        choices=BACKUP_COMPONENTS,
+        action="append",
+        help="복원할 구성요소(반복 가능, 기본 backup 전체)",
+    )
+    restore.add_argument(
+        "--yes",
+        action="store_true",
+        help="현재 선택 구성요소 교체를 명시적으로 승인",
+    )
     subparsers.add_parser("health", help="실행 중인 API의 liveness 확인")
     subparsers.add_parser("version", help="wrapper와 source 버전 표시")
 
@@ -1040,9 +2395,27 @@ def main(argv: Sequence[str] | None = None, *, root: Path | None = None) -> int:
             return command_install(runtime)
         if parsed.command == "update":
             return command_update(runtime, no_fetch=parsed.no_fetch)
+        if parsed.command == "backup":
+            return command_backup(
+                runtime,
+                output_format=parsed.format,
+                raw_components=parsed.component,
+                replace=parsed.replace,
+            )
+        if parsed.command == "restore":
+            return command_restore(
+                runtime,
+                raw_source=parsed.source,
+                raw_components=parsed.component,
+                confirmed=parsed.yes,
+            )
         if parsed.command == "health":
             return command_health(runtime)
         raise ManuscriptError(f"알 수 없는 명령: {parsed.command}")
+    except SystemExit as exc:
+        if argv is None:
+            raise
+        return int(exc.code or 0)
     except ManuscriptError as exc:
         print(f"cb-manuscript: {exc}", file=sys.stderr)
         return exc.exit_code

@@ -8,6 +8,7 @@ __pycache__/
 .venv/
 .dev/
 .cb-manuscript/
+/backups/
 data/
 vault/
 research/

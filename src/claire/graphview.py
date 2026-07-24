@@ -1006,8 +1006,8 @@ function renderIngestResult(d){
 }
 
 // --- 중복 문서 정리: 근사중복 클러스터를 찾아(/dedup) 유지문서를 골라 병합(/dedup/merge) ---
-// 병합 직전 정본은 서버가 자동 백업한다(파괴적 작업 안전장치). keeper(유지) 외 문서는
-// 참조(엔티티/관계 sources 등)를 keeper 로 재배치한 뒤 삭제 → 데이터 보존.
+// 병합 직전 정본은 서버가 내부 checkpoint로 보존한다(파괴적 작업 안전장치).
+// keeper(유지) 외 문서는 참조(엔티티/관계 sources 등)를 keeper 로 재배치한 뒤 삭제.
 let dedupClusters=[];
 async function openDedup(){
   panel.innerHTML='<h2>♻️ 중복 문서 정리</h2><p class="al">근사 중복 검사 중… '+
@@ -1028,7 +1028,7 @@ function renderDedup(d){
   let h='<h2>♻️ 중복 문서 정리</h2>';
   h+='<p class=al>검사 '+(d.documents||0)+'개 · 근사중복 클러스터 <b>'+dedupClusters.length+'</b>개</p>';
   if(!dedupClusters.length){ h+='<p class=al>근사 중복 문서가 없습니다. ✅</p>'; panel.innerHTML=h; return; }
-  h+='<p class=al><small>유지할 문서를 고르고 병합하세요. 나머지는 유지문서로 합쳐지고 참조는 보존됩니다(병합 전 자동 백업).</small></p>';
+  h+='<p class=al><small>유지할 문서를 고르고 병합하세요. 나머지는 유지문서로 합쳐지고 참조는 보존됩니다(병합 전 내부 체크포인트 생성).</small></p>';
   dedupClusters.forEach((c,ci)=>{
     h+='<div class=doc><p class=al>유사도 '+(c.score!=null?(+c.score).toFixed(2):'-')+'</p>';
     c.docs.forEach(dc=>{
@@ -1048,8 +1048,8 @@ async function runDedupMerge(ci){
   const keeper=sel?sel.value:c.keeper;
   const losers=c.docs.map(x=>x.id).filter(id=>id!==keeper);
   if(!losers.length){ alert('합칠 문서가 없습니다.'); return; }
-  if(!confirm(losers.length+'개 문서를 유지문서로 합칩니다. 계속할까요?\\n(병합 전 자동 백업됩니다)')) return;
-  panel.innerHTML='<h2>♻️ 병합 중…</h2><p class=al>백업 후 참조 재배치 중…</p>';
+  if(!confirm(losers.length+'개 문서를 유지문서로 합칩니다. 계속할까요?\\n(병합 전 내부 체크포인트를 생성합니다)')) return;
+  panel.innerHTML='<h2>♻️ 병합 중…</h2><p class=al>체크포인트 생성 후 참조 재배치 중…</p>';
   try{
     const r=await fetch('dedup/merge',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({keeper:keeper, losers:losers})});
@@ -1060,7 +1060,7 @@ async function runDedupMerge(ci){
     let h='<h2>✅ 병합 완료</h2>';
     h+='<p class=al>문서 '+(d.deleted||0)+'개를 합쳤습니다. 엔티티 '+(d.entities_repointed||0)+
       ' · 관계 '+(d.relations_repointed||0)+' 참조 재배치.</p>';
-    if(d.backup) h+='<p class=al><small>백업: '+esc(d.backup)+'</small></p>';
+    if(d.checkpoint) h+='<p class=al><small>내부 체크포인트: '+esc(d.checkpoint)+'</small></p>';
     h+='<p><a href="#" onclick="openDedup();return false">← 다시 검사</a></p>';
     panel.innerHTML=h;
     refreshGraph();   // 문서목록·그래프(병합으로 줄어든 sources) 갱신

@@ -22,6 +22,8 @@
 ./cb-manuscript up
 ./cb-manuscript down
 ./cb-manuscript restart
+./cb-manuscript backup
+./cb-manuscript restore backups/cb-YYYYMMDD --yes
 ./cb-manuscript status
 ./cb-manuscript logs -f api
 ./cb-manuscript health
@@ -62,7 +64,6 @@ Compose 수명주기에 맡긴다. 설치·업데이트·migration처럼 서비�
   `expand-loop`
 - 파괴적·영속 유지보수: `reextract`, `dedup-merge --apply`,
   적용 모드의 `recanonicalize`
-- 이번 운영 범위에서 제외한 기존 명령: `backup`, `backup-loop`
 
 구현 조사나 긴급 복구처럼 raw 앱 명령이 반드시 필요하면 명령 바로 뒤에
 `--advanced`를 명시할 수 있다.
@@ -73,8 +74,7 @@ Compose 수명주기에 맡긴다. 설치·업데이트·migration처럼 서비�
 
 이는 차단만 해제하는 전문가용 탈출구다. 인스턴스 잠금은 유지하지만 이미 실행 중인
 서비스를 중지하지 않으며, migration 순서, 데이터 백업 또는 복구 가능성을 보장하지
-않는다. 특히 기존 `backup` 명령에 접근할 수 있다는 사실을 지원되는 백업 workflow로
-간주하지 않는다.
+않는다. 인스턴스 백업·복원은 최상위 `backup`, `restore`만 사용한다.
 
 ## health의 두 의미
 
@@ -105,6 +105,44 @@ Compose 수명주기에 맡긴다. 설치·업데이트·migration처럼 서비�
 보장하는 작업 순서까지 대신 적용하지는 않는다. 서비스 기동·중지와 migration은
 가능하면 전용 최상위 명령을 사용한다.
 
-백업·복원은 현재 통합 운영 명령의 범위가 아니다. 기존 앱 내부 구현 여부와 관계없이
-새로운 `cb-manuscript` 운영 명령으로 간주하거나 문서화하지 않으며, 별도 설계에서
-보존 정책과 복구 검증을 처음부터 정한다.
+## 백업과 복원
+
+```bash
+# data + vault, 폴더 산출물
+./cb-manuscript backup
+
+# 단일 archive 파일
+./cb-manuscript backup --format archive
+
+# component 선택
+./cb-manuscript backup --component data
+
+# 파일 또는 폴더 자동 판별
+./cb-manuscript restore backups/cb-20260725 --yes
+./cb-manuscript restore backups/cb-20260725.tar.gz --component data --yes
+```
+
+산출물 이름은 현지 날짜 기준 `backups/cb-YYYYMMDD/` 또는
+`backups/cb-YYYYMMDD.tar.gz`다. 같은 날의 파일과 폴더는 하나의 slot으로 간주한다.
+기존 backup이 있으면 중단하며, 명시적인 `--replace`만 검증된 새 산출물로 교체한다.
+자동 prune이나 보존 개수 정책은 두지 않는다.
+
+기본 component는 `data`와 `vault`다. `data`의 기존 `backups`,
+`offsite-backups`, 내부 `checkpoints`는 재귀 backup에서 제외한다. `.env`는 secret과
+호스트 경로가 섞여 있으므로 v1 산출물에 포함하지 않는다. 재해 복구 전에 대상 호스트의
+`.env`를 별도로 준비해야 한다.
+
+backup은 현재 project와 exact-name legacy writer를 모두 중지하고 SQLite를 일관된
+단일 파일로 snapshot한 뒤 전체 파일을 복사한다. manifest는 component, source revision,
+DB schema, 파일 크기와 SHA-256을 기록한다. hash는 우발적 손상·단순 변조 탐지이며
+서명이나 악의적 재작성 방지는 아니다.
+
+restore는 archive traversal, link·특수 파일, manifest 밖의 파일, hash·DB 오류,
+profile/project 불일치를 writer 정지 전에 거부한다. 승인된 component는 같은
+filesystem의 sibling staging에서 준비하고 기존 경로와 교체한다. data 복원에는 현재
+이미지의 migration을 적용한다. writer 재개와 liveness까지 실패하면 component 교체를
+역순으로 rollback하고 이전 실행 상태만 재개한다. rollback 자체가 실패하면 writer를
+중지하고 `.cb-manuscript/restore-transaction.json`을 남겨 수동 복구 경로를 보존한다.
+
+`backups/`는 Git, Docker build context와 원격 `rsync --delete`에서 모두 제외한다.
+운영 backup을 컨테이너 내부 `claire` 명령으로 만들거나 복원하지 않는다.

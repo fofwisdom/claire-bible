@@ -13,7 +13,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 echo "[ci] 1/4 진입점 구문 검사"
-bash -n cb-manuscript deploy.sh scripts/ci.sh scripts/backup_pull.sh
+bash -n cb-manuscript deploy.sh scripts/ci.sh
 python3 -m py_compile ops/cb_manuscript.py
 
 echo "[ci] 2/4 Compose 운영·개발 설정 검사"

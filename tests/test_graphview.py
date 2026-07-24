@@ -103,6 +103,8 @@ def test_graph_html_self_contained_markers():
     assert "renderResearchResult" in GRAPH_HTML                         # 진행/결과 렌더 분리
     assert "borderWidth: lit?3:1" in GRAPH_HTML                         # 강조(문서/검색) 흰 테두리
     assert "auth/request" not in GRAPH_HTML                             # 레거시 nonce 트리거 제거(이슈3)
+    assert "d.checkpoint" in GRAPH_HTML and "내부 체크포인트" in GRAPH_HTML
+    assert "d.backup" not in GRAPH_HTML
 
 
 def test_documents_list_newest_first_with_summary(_unused=None):

@@ -73,6 +73,9 @@ mock provider로 설치·검증할 수 있다.
 ./cb-manuscript up
 ./cb-manuscript down
 ./cb-manuscript restart
+./cb-manuscript backup                    # backups/cb-YYYYMMDD/
+./cb-manuscript backup --format archive   # backups/cb-YYYYMMDD.tar.gz
+./cb-manuscript restore backups/cb-YYYYMMDD --yes
 ./cb-manuscript health
 ./cb-manuscript logs -f api
 ./cb-manuscript shell
@@ -83,11 +86,22 @@ mock provider로 설치·검증할 수 있다.
 ./cb-manuscript dev install        # .env.dev + 격리된 .dev/data·vault
 ```
 
-`app` one-off는 인스턴스 잠금을 잡아 `install`, `update`, `up`, `down`, `restart`와
-동시에 실행되지 않는다. migration, Compose 관리 daemon, 파괴적 유지보수와 기존 백업
-명령은 실수로 실행되지 않도록 기본 차단된다. `app --advanced ...`는 전문가용 raw
-passthrough이며 서비스 정지, migration 순서, 백업 또는 복구 가능성을 보장하지 않는다.
-백업·복원은 여전히 이번 운영 구조의 지원 범위가 아니다.
+`app`, `shell`, 고급 `compose` one-off는 인스턴스 잠금을 잡아 lifecycle 및 백업·복원과
+동시에 실행되지 않는다. migration, Compose 관리 daemon과 파괴적 유지보수는 실수로
+실행되지 않도록 기본 차단된다. `app --advanced ...`는 전문가용 raw passthrough이며
+서비스 정지, migration 순서, 백업 또는 복구 가능성을 보장하지 않는다.
+
+백업은 현재 profile의 `data`와 `vault`를 writer 정지 상태에서 함께 캡처하고,
+SQLite snapshot·`quick_check`·foreign-key 검사·SHA-256 manifest를 검증한 뒤에만
+공개한다. 기본은 폴더이고 `--format archive`는 `.tar.gz` 파일을 만든다.
+`--component data` 또는 `--component vault`로 일부만 선택할 수 있다. 같은 날짜 산출물은
+묵시적으로 덮어쓰지 않으며 새 상태로 교체하려면 `--replace`가 필요하다. `.env`의
+secret과 호스트 topology는 v1 backup에 포함하지 않는다.
+
+복원은 파일 또는 폴더를 자동 판별하며 profile·project·hash·SQLite를 서비스 정지 전에
+검증한다. `--yes`가 필요하고, 선택한 component를 교체한 뒤 migration과 liveness까지
+성공해야 완료한다. 실패하면 직전 data/vault를 되돌리고 원래 실행 중이던 컨테이너만
+재개한다.
 
 `./cb-manuscript health`는 실행 중인 API 컨테이너의 DB·schema liveness를 확인한다.
 주의 항목이 누적된 `degraded` 상태도 출력하지만 liveness가 정상이면 성공한다.
@@ -98,8 +112,8 @@ passthrough이며 서비스 정지, migration 순서, 백업 또는 복구 가�
 뒤 현재 project와 이전 고정 이름 컨테이너를 중지하고 migration을 한 번만 실행한다.
 SQLite migration 중에는 짧은 쓰기 중단이 발생한다. migration 전에 실패하면 직전에
 실행 중이던 컨테이너만 다시 시작한다. 새 스택 기동 이후 실패는 진단을 위해 그 상태를
-유지하며 자동 rollback으로 오인하지 않는다. 백업·복원은 이번 통합 운영 구조의 범위에
-포함하지 않으며 별도로 다시 설계한다.
+유지하며 자동 rollback으로 오인하지 않는다. 이 update 실패 정책은 별도의
+`cb-manuscript restore` component rollback과 구분한다.
 
 환경 파일:
 

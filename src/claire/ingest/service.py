@@ -370,9 +370,10 @@ class IngestService:
 
         rebuild=True: 먼저 그래프(엔티티/관계/임베딩/추출)를 비우고 처음부터 재구축한다.
         _merge 는 observations 를 *추가*하므로, 비우지 않으면 기존(영문)+신규(한글)가 섞인다.
-        documents·raw_inbox·artifact 는 보존하므로 입력은 그대로. **파괴적** — 호출 전
-        백업 필수(CLI 가 강제). 문서당 Gemini 1회(quota). 오래된 문서부터(원래 적재 순서
-        에 가깝게) 처리해 first-seen canonical 수렴을 원래와 맞춘다.
+        documents·raw_inbox·artifact 는 보존하므로 입력은 그대로. **파괴적**이므로
+        호출자가 서비스 정지와 복구 계획을 책임진다. 문서당 Gemini 1회(quota).
+        오래된 문서부터(원래 적재 순서에 가깝게) 처리해 first-seen canonical 수렴을
+        원래와 맞춘다.
         """
         conn = dbm.connect(self.s.db_file)
         dbm.init_db(conn)
@@ -519,27 +520,27 @@ class IngestService:
         finally:
             conn.close()
 
-    def merge_one_cluster(self, keeper: str, losers: list[str],
-                          *, backup: bool = True) -> dict:
+    def merge_one_cluster(self, keeper: str, losers: list[str]) -> dict:
         """[웹 UI 단일 클러스터 병합] keeper 로 losers 를 합치고 loser 의 artifact 도 정리.
 
         dedup_merge 가 '스캔으로 찾은 모든 클러스터'를 한 번에 처리하는 데 비해, 이건 웹에서
-        사용자가 클러스터/유지문서를 골라 1건만 병합하는 통로. **파괴적**이므로 기본으로
-        병합 직전 정본을 백업(VACUUM INTO)한다(CLI 가 강제하는 백업과 동일 안전장치).
-        반환: db.merge_documents 결과 + {backup: 경로|None}."""
+        사용자가 클러스터/유지문서를 골라 1건만 병합하는 통로. **파괴적**이므로 병합 직전
+        정본을 내부 checkpoint(VACUUM INTO)로 저장한다. checkpoint 생성에 실패하면 병합을
+        시작하지 않는다. 이는 cb-manuscript가 관리하는 운영 백업과 별개다.
+        반환: db.merge_documents 결과 + {checkpoint: 경로|None}."""
         import time as _time
 
         losers = [d for d in losers if d and d != keeper]
         if not losers:
-            return {"merged": 0, "deleted": 0, "backup": None}
-        backup_path = None
-        if backup:
-            ts = _time.strftime("%Y%m%d-%H%M%S")
-            dest = self.s.data_dir / "backups" / f"pre-webmerge-{ts}.db"
-            try:
-                backup_path = str(dbm.backup_database(self.s.db_file, dest))
-            except Exception:  # noqa: BLE001 — 백업 실패해도 진행은 막지 않되 결과에 알린다
-                backup_path = None
+            return {"merged": 0, "deleted": 0, "checkpoint": None}
+        ts = _time.strftime("%Y%m%d-%H%M%S")
+        nonce = _time.time_ns() % 1_000_000_000
+        dest = (
+            self.s.data_dir
+            / "checkpoints"
+            / f"pre-webmerge-{ts}-{nonce:09d}.db"
+        )
+        checkpoint_path = str(dbm.checkpoint_database(self.s.db_file, dest))
         conn = dbm.connect(self.s.db_file)
         dbm.init_db(conn)
         try:
@@ -553,7 +554,7 @@ class IngestService:
                     p.unlink()
             except Exception:  # noqa: BLE001
                 pass
-        res["backup"] = backup_path
+        res["checkpoint"] = checkpoint_path
         return res
 
     def recanonicalize_documents(self, *, apply: bool = True) -> dict:
@@ -594,7 +595,7 @@ class IngestService:
 
         keeper 선정 = 가장 긴 본문(가장 완전) → 동률이면 최초 적재(first-seen). 나머지는
         loser 로 keeper 에 참조 재배치 후 삭제(db.merge_documents). apply=True 면 loser 의
-        artifact 파일도 정리. **파괴적이므로 호출 전 백업 권장**(CLI 가 강제). 반환:
+        artifact 파일도 정리한다. **파괴적이므로 호출자가 복구 계획을 책임진다.** 반환:
         {clusters:[{keeper, losers, ...}], merged}."""
         scan = self.dedup_scan(threshold=threshold, min_len=min_len)
         conn = dbm.connect(self.s.db_file)

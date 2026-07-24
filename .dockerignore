@@ -1,6 +1,7 @@
 .venv/
 .dev/
 .cb-manuscript/
+backups/
 data/
 vault/
 research/

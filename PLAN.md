@@ -92,8 +92,8 @@ Fetcher는 URL, canonical URL, 제목, 작성자, 시각, 원문, 소스 종류�
 컨테이너 하나에서만 명시적으로 수행한다.
 
 원격 배포는 `.env.deploy`의 접속 정보로 소스를 전송한 뒤 원격의 `cb-manuscript`를
-호출하는 호환 계층이다. `.env`의 runtime 설정과 SSH 설정은 섞지 않는다. 백업·복원은
-이 수명주기 설계에서 제외하며 별도 설계로 다룬다.
+호출하는 호환 계층이다. `.env`의 runtime 설정과 SSH 설정은 섞지 않는다. 인스턴스
+백업·복원도 `cb-manuscript`가 writer 정지, 검증, component rollback 순서까지 소유한다.
 
 ## 6. 검증 전략
 
