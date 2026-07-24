@@ -18,5 +18,9 @@ COPY src/ ./src/
 # (CDP 로 위 apt chromium 을 직접 제어, JS 렌더링 최후수단).
 RUN uv sync --frozen --no-dev --extra stealth
 
+# Runtime processes use the environment built above directly.  uv remains a
+# build/development tool rather than an extra process wrapper for every service.
+ENV PATH="/app/.venv/bin:$PATH"
+
 # 데이터/볼트는 볼륨 마운트(이미지 미포함). 기본 명령은 compose 에서 override.
-CMD ["uv", "run", "--frozen", "claire", "bot"]
+CMD ["claire", "bot"]

@@ -16,7 +16,7 @@ services:
     <<: *claire-service
     profiles:
       - bot
-    command: ["uv", "run", "--frozen", "claire", "bot"]
+    command: ["claire", "bot"]
 
   api:
     <<: *claire-service
@@ -25,9 +25,9 @@ services:
       CLAIRE_INJECT_PORT: "${CB_API_PORT:-8765}"
     ports:
       - "${CB_API_BIND:-127.0.0.1}:${CB_API_PORT:-8765}:${CB_API_PORT:-8765}"
-    command: ["uv", "run", "--frozen", "claire", "serve-api"]
+    command: ["claire", "serve-api"]
     healthcheck:
-      test: ["CMD", "uv", "run", "--frozen", "claire", "liveness"]
+      test: ["CMD", "claire", "liveness"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -36,9 +36,6 @@ services:
   refresh:
     <<: *claire-service
     command:
-      - uv
-      - run
-      - --frozen
       - claire
       - refresh-loop
       - --interval
@@ -49,9 +46,6 @@ services:
   recover:
     <<: *claire-service
     command:
-      - uv
-      - run
-      - --frozen
       - claire
       - recover-loop
       - --interval
@@ -66,9 +60,6 @@ services:
   expand:
     <<: *claire-service
     command:
-      - uv
-      - run
-      - --frozen
       - claire
       - expand-loop
       - --interval

@@ -37,7 +37,7 @@ LEGACY_CONTAINERS = (
     "claire_expand",
     "claire_backup",
 )
-LOCKED_PASSTHROUGH_COMMANDS = {"up", "down", "restart"}
+LOCKED_PASSTHROUGH_COMMANDS = {"up", "down", "restart", "app"}
 PASSTHROUGH_COMMANDS = {
     "up",
     "down",
@@ -47,6 +47,48 @@ PASSTHROUGH_COMMANDS = {
     "shell",
     "app",
     "compose",
+}
+PASSTHROUGH_HELP = {
+    "up": "Compose 서비스를 기동",
+    "down": "Compose 서비스를 중지·제거",
+    "restart": "Compose 서비스를 재시작",
+    "status": "Compose 서비스 상태 표시",
+    "logs": "Compose 서비스 로그 표시",
+    "shell": "실행 중인 서비스에서 shell 명령 실행",
+    "app": "배포 환경에서 claire one-off 실행(--advanced는 보호 우회)",
+    "compose": "고급 Docker Compose 인수 전달",
+}
+APP_ADVANCED_OPTION = "--advanced"
+APP_ONE_OFF_COMMANDS = {
+    "doctor",
+    "health",
+    "liveness",
+    "status",
+    "stats",
+    "replay-failed",
+    "recover-run",
+    "refresh-mark",
+    "refresh-run",
+    "expand-run",
+    "ingest",
+    "search",
+    "backfill-detail",
+    "backfill-images",
+    "watch",
+    "dedup-scan",
+    "dedup-merge",
+    "recanonicalize",
+}
+APP_GUARDED_COMMANDS = {
+    "migrate": "install/update가 소유하는 schema lifecycle 명령",
+    "bot": "Compose가 소유하는 지속 실행 서비스",
+    "serve-api": "Compose가 소유하는 지속 실행 서비스",
+    "recover-loop": "Compose가 소유하는 지속 실행 서비스",
+    "refresh-loop": "Compose가 소유하는 지속 실행 서비스",
+    "expand-loop": "Compose가 소유하는 지속 실행 서비스",
+    "reextract": "그래프를 재구축하고 기존 백업 구현에 의존하는 유지보수 명령",
+    "backup": "현재 통합 운영 범위에서 제외된 백업 명령",
+    "backup-loop": "현재 통합 운영 범위에서 제외된 백업 명령",
 }
 
 
@@ -652,9 +694,6 @@ def _migrate(runtime: Runtime) -> None:
             "--rm",
             "--no-deps",
             "api",
-            "uv",
-            "run",
-            "--frozen",
             "claire",
             "migrate",
         ),
@@ -679,9 +718,6 @@ def _activate_and_check(runtime: Runtime) -> None:
             "exec",
             "-T",
             "api",
-            "uv",
-            "run",
-            "--frozen",
             "claire",
             "liveness",
         ),
@@ -778,9 +814,6 @@ def command_health(runtime: Runtime) -> int:
             "exec",
             "-T",
             "api",
-            "uv",
-            "run",
-            "--frozen",
             "claire",
             "liveness",
         ),
@@ -825,6 +858,60 @@ def command_version(layout: Layout) -> int:
     return 0
 
 
+def _app_guard_reason(args: Sequence[str]) -> str | None:
+    if not args or args[0] in {"-h", "--help"}:
+        return None
+    command = args[0]
+    if command.startswith("-"):
+        return "cb-manuscript 안전 정책에 분류되지 않은 claire 전역 옵션"
+    if command in APP_GUARDED_COMMANDS:
+        return APP_GUARDED_COMMANDS[command]
+    applies_merge = any(
+        token.startswith("--")
+        and len(token) > 2
+        and "--apply".startswith(token)
+        for token in args[1:]
+    )
+    if command == "dedup-merge" and applies_merge:
+        return "문서를 삭제하는 파괴적 유지보수 명령"
+    if command == "recanonicalize" and "--dry-run" not in args[1:]:
+        return "영속 데이터를 변경하는 유지보수 명령"
+    if command in APP_ONE_OFF_COMMANDS:
+        return None
+    return "cb-manuscript 안전 정책에 분류되지 않은 앱 명령"
+
+
+def _prepare_app_args(args: Sequence[str]) -> tuple[str, ...]:
+    remaining = list(args)
+    advanced = bool(remaining[:1] == [APP_ADVANCED_OPTION])
+    if advanced:
+        remaining.pop(0)
+    if remaining[:1] == ["--"]:
+        remaining.pop(0)
+    if not remaining:
+        raise ManuscriptError(
+            "app 뒤에 claire 명령이 필요합니다. "
+            "`./cb-manuscript app --help`로 목록을 확인하세요."
+        )
+
+    reason = _app_guard_reason(remaining)
+    if reason and not advanced:
+        command = _display_argv(remaining)
+        raise ManuscriptError(
+            f"`app {command}`은(는) 기본 실행이 차단됩니다: {reason}. "
+            f"보호 절차 없이 직접 실행하려면 `app {APP_ADVANCED_OPTION} "
+            f"{command}`을 사용하세요."
+        )
+    if advanced:
+        detail = f": {reason}" if reason else ""
+        print(
+            "cb-manuscript: 경고: app --advanced는 서비스 정지, migration 순서, "
+            f"백업 또는 복구 가능성을 보장하지 않습니다{detail}",
+            file=sys.stderr,
+        )
+    return tuple(remaining)
+
+
 def dispatch_passthrough(
     runtime: Runtime, command: str, args: Sequence[str]
 ) -> int:
@@ -852,15 +939,12 @@ def dispatch_passthrough(
         if not compose_args:
             raise ManuscriptError("compose 뒤에 Docker Compose 인수가 필요합니다.")
     elif command == "app":
-        app_args = tuple(args[1:]) if args and args[0] == "--" else tuple(args)
+        app_args = _prepare_app_args(args)
         compose_args = (
             "run",
             "--rm",
             "--no-deps",
             "api",
-            "uv",
-            "run",
-            "--frozen",
             "claire",
             *app_args,
         )
@@ -903,7 +987,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("version", help="wrapper와 source 버전 표시")
 
     for name in sorted(PASSTHROUGH_COMMANDS):
-        subparsers.add_parser(name, help=f"Docker Compose {name} 연결")
+        subparsers.add_parser(name, help=PASSTHROUGH_HELP[name])
 
     remote = subparsers.add_parser("remote", help="deploy.sh 원격 연결")
     remote_subparsers = remote.add_subparsers(dest="remote_action", required=True)
@@ -926,7 +1010,7 @@ def main(argv: Sequence[str] | None = None, *, root: Path | None = None) -> int:
 
     try:
         if args and args[0] in PASSTHROUGH_COMMANDS:
-            if args[1:] == ["--help"]:
+            if args[0] != "app" and args[1:] == ["--help"]:
                 build_parser().parse_args([args[0], "--help"])
                 return 0
             runtime = load_runtime(layout, dev=dev)

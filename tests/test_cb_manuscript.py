@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 import pytest
 
+from claire import cli as claire_cli
 from ops import cb_manuscript as cb
 
 
@@ -72,6 +73,16 @@ def _fake_success(argv, **_kwargs):  # noqa: ANN001
 
 def _commands(mock_run) -> list[list[str]]:  # noqa: ANN001
     return [call.args[0] for call in mock_run.call_args_list]
+
+
+def test_app_policy_classifies_every_claire_command():
+    parser = claire_cli.build_parser()
+    command_action = next(
+        action for action in parser._actions if action.dest == "cmd"
+    )
+    assert set(command_action.choices) == (
+        cb.APP_ONE_OFF_COMMANDS | set(cb.APP_GUARDED_COMMANDS)
+    )
 
 
 def test_init_is_atomic_idempotent_and_does_not_replace_user_secrets(tmp_path):
@@ -167,25 +178,207 @@ def test_shell_and_app_keep_interactive_stdio(tmp_path):
     _write_layout(tmp_path, dev=False)
     with patch.object(cb.subprocess, "run", side_effect=_fake_success) as run:
         assert cb.main(["shell"], root=tmp_path) == 0
-        assert cb.main(["app", "status", "--full"], root=tmp_path) == 0
+        assert cb.main(
+            ["app", "search", "topic", "--no-summary"],
+            root=tmp_path,
+        ) == 0
 
     shell_call, app_call = run.call_args_list
     assert shell_call.args[0][-3:] == ["exec", "api", "bash"]
-    assert app_call.args[0][-10:] == [
+    assert app_call.args[0][-8:] == [
         "run",
         "--rm",
         "--no-deps",
         "api",
-        "uv",
-        "run",
-        "--frozen",
         "claire",
-        "status",
-        "--full",
+        "search",
+        "topic",
+        "--no-summary",
     ]
     for call in (shell_call, app_call):
         assert "stdout" not in call.kwargs
         assert "stdin" not in call.kwargs
+    assert (tmp_path / ".cb-manuscript" / "claire-bible.lock").is_file()
+
+
+@pytest.mark.parametrize(
+    "app_args",
+    (
+        ("--help",),
+        ("status", "--help"),
+    ),
+)
+def test_app_help_is_forwarded_to_claire(tmp_path, app_args):
+    _write_layout(tmp_path, dev=False)
+
+    with patch.object(cb.subprocess, "run", side_effect=_fake_success) as run:
+        assert cb.main(["app", *app_args], root=tmp_path) == 0
+
+    assert run.call_args.args[0][-5 - len(app_args) :] == [
+        "run",
+        "--rm",
+        "--no-deps",
+        "api",
+        "claire",
+        *app_args,
+    ]
+
+
+@pytest.mark.parametrize(
+    "app_args",
+    (
+        ("migrate",),
+        ("bot",),
+        ("serve-api",),
+        ("recover-loop",),
+        ("refresh-loop",),
+        ("expand-loop",),
+        ("reextract",),
+        ("dedup-merge", "--apply"),
+        ("dedup-merge", "--a"),
+        ("recanonicalize",),
+        ("backup",),
+        ("backup-loop",),
+    ),
+)
+def test_app_rejects_managed_or_unsafe_commands_by_default(
+    tmp_path, capsys, app_args
+):
+    _write_layout(tmp_path, dev=False)
+
+    with patch.object(cb.subprocess, "run") as run:
+        assert cb.main(["app", *app_args], root=tmp_path) == 2
+
+    run.assert_not_called()
+    error = capsys.readouterr().err
+    assert app_args[0] in error
+    assert "--advanced" in error
+
+
+@pytest.mark.parametrize(
+    "app_args",
+    (
+        ("migrate",),
+        ("serve-api",),
+        ("reextract", "--limit", "2"),
+        ("dedup-merge", "--apply"),
+        ("recanonicalize",),
+        ("backup", "--keep", "3"),
+    ),
+)
+def test_app_advanced_override_runs_managed_or_unsafe_commands(
+    tmp_path, capsys, app_args
+):
+    _write_layout(tmp_path, dev=False)
+
+    with patch.object(cb.subprocess, "run", side_effect=_fake_success) as run:
+        assert cb.main(["app", "--advanced", *app_args], root=tmp_path) == 0
+
+    command = run.call_args.args[0]
+    assert "--advanced" not in command
+    assert command[-len(app_args) :] == list(app_args)
+    assert "보장하지 않습니다" in capsys.readouterr().err
+
+
+def test_app_unknown_command_requires_advanced_override(tmp_path, capsys):
+    _write_layout(tmp_path, dev=False)
+
+    with patch.object(cb.subprocess, "run") as run:
+        assert cb.main(["app", "future-command"], root=tmp_path) == 2
+    run.assert_not_called()
+    assert "분류되지 않은 앱 명령" in capsys.readouterr().err
+
+    with patch.object(cb.subprocess, "run", side_effect=_fake_success) as run:
+        assert cb.main(
+            ["app", "--advanced", "future-command"],
+            root=tmp_path,
+        ) == 0
+    assert run.call_args.args[0][-2:] == ["claire", "future-command"]
+    assert "보장하지 않습니다" in capsys.readouterr().err
+
+
+def test_app_advanced_always_warns_even_for_allowed_command(tmp_path, capsys):
+    _write_layout(tmp_path, dev=False)
+
+    with patch.object(cb.subprocess, "run", side_effect=_fake_success):
+        assert cb.main(["app", "--advanced", "status"], root=tmp_path) == 0
+
+    assert "보장하지 않습니다" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("argv", (("app",), ("app", "--advanced")))
+def test_app_requires_a_claire_command(tmp_path, argv):
+    _write_layout(tmp_path, dev=False)
+
+    with patch.object(cb.subprocess, "run") as run:
+        assert cb.main(list(argv), root=tmp_path) == 2
+
+    run.assert_not_called()
+
+
+def test_app_delimiters_are_supported(tmp_path, capsys):
+    _write_layout(tmp_path, dev=False)
+
+    with patch.object(cb.subprocess, "run", side_effect=_fake_success) as run:
+        assert cb.main(["app", "--", "--help"], root=tmp_path) == 0
+        assert cb.main(
+            ["app", "--advanced", "--", "migrate"],
+            root=tmp_path,
+        ) == 0
+
+    help_call, migrate_call = run.call_args_list
+    assert help_call.args[0][-2:] == ["claire", "--help"]
+    assert migrate_call.args[0][-2:] == ["claire", "migrate"]
+    assert "보장하지 않습니다" in capsys.readouterr().err
+
+
+def test_app_returns_child_exit_code(tmp_path):
+    _write_layout(tmp_path, dev=False)
+
+    def fail(argv, **_kwargs):  # noqa: ANN001
+        return _completed(argv, returncode=29)
+
+    with patch.object(cb.subprocess, "run", side_effect=fail):
+        assert cb.main(["app", "status"], root=tmp_path) == 29
+
+
+def test_app_rejects_lock_contention_before_subprocess(tmp_path):
+    _write_layout(tmp_path, dev=False)
+    runtime = cb.load_runtime(cb.Layout(tmp_path), dev=False)
+
+    with cb.InstanceLock(runtime):
+        with patch.object(cb.subprocess, "run") as run:
+            assert cb.main(["app", "status"], root=tmp_path) == 73
+
+    run.assert_not_called()
+
+
+def test_app_allows_non_applying_dedup_plan_without_advanced_override(tmp_path):
+    _write_layout(tmp_path, dev=False)
+
+    with patch.object(cb.subprocess, "run", side_effect=_fake_success) as run:
+        assert cb.main(
+            ["app", "dedup-merge", "--threshold", "0.95"],
+            root=tmp_path,
+        ) == 0
+
+    assert run.call_args.args[0][-3:] == [
+        "dedup-merge",
+        "--threshold",
+        "0.95",
+    ]
+
+
+def test_app_allows_recanonicalize_dry_run_without_advanced_override(tmp_path):
+    _write_layout(tmp_path, dev=False)
+
+    with patch.object(cb.subprocess, "run", side_effect=_fake_success) as run:
+        assert cb.main(
+            ["app", "recanonicalize", "--dry-run"],
+            root=tmp_path,
+        ) == 0
+
+    assert run.call_args.args[0][-2:] == ["recanonicalize", "--dry-run"]
 
 
 def test_install_orders_build_legacy_stop_migrate_up_and_health(tmp_path):
@@ -205,26 +398,20 @@ def test_install_orders_build_legacy_stop_migrate_up_and_health(tmp_path):
     build_index = next(i for i, cmd in enumerate(commands) if cmd[-1:] == ["build"])
     legacy_index = commands.index(["docker", "stop", "claire_api"])
     migrate_index = next(
-        i for i, cmd in enumerate(commands) if cmd[-9:] == [
+        i for i, cmd in enumerate(commands) if cmd[-6:] == [
             "run",
             "--rm",
             "--no-deps",
             "api",
-            "uv",
-            "run",
-            "--frozen",
             "claire",
             "migrate",
         ]
     )
     up_index = next(i for i, cmd in enumerate(commands) if "up" in cmd[-7:])
-    health_index = next(i for i, cmd in enumerate(commands) if cmd[-8:] == [
+    health_index = next(i for i, cmd in enumerate(commands) if cmd[-5:] == [
         "exec",
         "-T",
         "api",
-        "uv",
-        "run",
-        "--frozen",
         "claire",
         "liveness",
     ])
@@ -521,13 +708,10 @@ def test_health_returns_liveness_exit_code_and_uses_noninteractive_exec(tmp_path
     with patch.object(cb.subprocess, "run", side_effect=fake) as run:
         assert cb.main(["health"], root=tmp_path) == 8
 
-    assert run.call_args.args[0][-8:] == [
+    assert run.call_args.args[0][-5:] == [
         "exec",
         "-T",
         "api",
-        "uv",
-        "run",
-        "--frozen",
         "claire",
         "liveness",
     ]

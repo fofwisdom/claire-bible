@@ -11,7 +11,7 @@ v1 파이프라인 완성 + 개인용 컨테이너 운영 구조. 단일 사용�
 범위 밖이다([GOALS.md](GOALS.md) 참조). 자동복구·헬스·circuit breaker·능동 알림을
 제공한다.
 
-## 빠른 시작 (로컬)
+## 로컬 소스 개발
 
 ```bash
 uv sync                      # 의존성 설치
@@ -23,7 +23,15 @@ uv run claire search "키워드"                          # 하이브리드 검�
 uv run claire bot            # 텔레그램 봇 (long-polling)
 ```
 
-## CLI 명령
+`uv run claire ...`는 현재 checkout과 가상환경을 사용하는 로컬 개발·테스트 경로다.
+배포된 컨테이너의 데이터를 조회하거나 변경할 때는 이 경로와 섞지 않고
+`./cb-manuscript app ...`을 사용한다.
+
+## 애플리케이션 CLI (`claire`)
+
+`claire`는 컨테이너 내부 프로세스와 로컬 개발이 공유하는 애플리케이션 진입점이다.
+로컬 checkout에서는 `uv run claire ...`로, 배포 환경의 one-off 작업은 호스트에서
+`./cb-manuscript app ...`으로 실행한다.
 
 | 명령 | 설명 |
 |---|---|
@@ -38,8 +46,12 @@ uv run claire bot            # 텔레그램 봇 (long-polling)
 
 ## 컨테이너 운영
 
-호스트 수명주기는 루트의 `cb-manuscript`로만 조작한다. `claire`는 컨테이너 안의
-애플리케이션 명령이고, `cb-manuscript`는 설치·업데이트·Compose 실행을 담당한다.
+배포된 인스턴스의 호스트 수명주기는 루트의 `cb-manuscript`로만 조작한다.
+`cb-manuscript`는 `.env`, 설치·업데이트와 Compose를 담당하고,
+`cb-manuscript app`은 같은 배포 설정과 데이터로 `claire` one-off 명령을 실행한다.
+영속 서비스의 컨테이너 내부 명령은 Compose가 직접 `claire`를 호출한다. 세부 경계와
+health 종료 코드 차이는 [운영 명령 경계](docs/OPERATIONS.md)를 참고한다.
+
 호스트에는 Python 3, Git, 실행 중인 Docker Engine과 Docker Compose v2가 필요하다.
 
 ```bash
@@ -64,10 +76,23 @@ mock provider로 설치·검증할 수 있다.
 ./cb-manuscript health
 ./cb-manuscript logs -f api
 ./cb-manuscript shell
-./cb-manuscript app status
-./cb-manuscript compose -- ps      # Compose 고급 탈출구
+./cb-manuscript app --help          # 배포 이미지의 전체 앱 명령 확인
+./cb-manuscript app status         # 배포된 앱의 one-off 상태 조회
+./cb-manuscript app health         # degraded까지 평가하는 전체 health
+./cb-manuscript compose -- ps      # 고급 Compose 탈출구
 ./cb-manuscript dev install        # .env.dev + 격리된 .dev/data·vault
 ```
+
+`app` one-off는 인스턴스 잠금을 잡아 `install`, `update`, `up`, `down`, `restart`와
+동시에 실행되지 않는다. migration, Compose 관리 daemon, 파괴적 유지보수와 기존 백업
+명령은 실수로 실행되지 않도록 기본 차단된다. `app --advanced ...`는 전문가용 raw
+passthrough이며 서비스 정지, migration 순서, 백업 또는 복구 가능성을 보장하지 않는다.
+백업·복원은 여전히 이번 운영 구조의 지원 범위가 아니다.
+
+`./cb-manuscript health`는 실행 중인 API 컨테이너의 DB·schema liveness를 확인한다.
+주의 항목이 누적된 `degraded` 상태도 출력하지만 liveness가 정상이면 성공한다.
+`./cb-manuscript app health`는 전체 애플리케이션 상태를 평가하므로 `degraded`이면
+종료 코드 1을 반환한다.
 
 `update`는 dirty worktree와 non-fast-forward 갱신을 거부한다. 새 이미지 build가 성공한
 뒤 현재 project와 이전 고정 이름 컨테이너를 중지하고 migration을 한 번만 실행한다.
@@ -120,8 +145,9 @@ cp .env.deploy.example .env.deploy
 - **추출 실패(Gemini 429/quota/크레딧 소진)**: 원본은 `raw_inbox` error 로 보관(유실 0).
   `recover`가 지수백오프로 자동 재적재. 영구실패(`failed`) 누적 시 텔레그램으로 소유자 경보.
   크레딧 충전 등으로 회복되면 due 항목이 자동 복구된다.
-- **건강 점검**: `./cb-manuscript health` 또는 `claire health`의 `degraded`,
-  `attention` 필드를 본다.
+- **기동 여부 확인**: `./cb-manuscript health`로 API 컨테이너의 liveness를 확인한다.
+- **주의 상태 진단**: `./cb-manuscript app health`의 `degraded`, `attention` 필드를
+  확인한다. `degraded`이면 명령도 실패로 종료한다.
 
 ## 구조
 
