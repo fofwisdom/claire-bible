@@ -1,4 +1,4 @@
-"""시스템 건강 상태를 구조화 dict 로 산출 — /health 엔드포인트와 CLI `health` 공유.
+"""시스템 건강 상태와 경량 liveness를 구조화 dict로 산출한다.
 
 `ok`  = 서비스가 DB 에 접근 가능한 살아있는 상태인가(헬스체크 liveness).
 `degraded` = 살아는 있으나 사람이 봐야 할 신호(error/failed inbox 누적)가 있는가.
@@ -52,6 +52,27 @@ def require_current_schema(conn: sqlite3.Connection) -> int:
             f"schema_version mismatch: actual={actual}, expected={dbm.SCHEMA_VERSION}"
         )
     return actual
+
+
+def liveness_report(s: Settings) -> dict:
+    """DB 접근과 현재 schema version만 확인하는 공개/컨테이너용 경량 점검."""
+
+    out: dict = {
+        "ok": True,
+        "expected_schema_version": dbm.SCHEMA_VERSION,
+    }
+    try:
+        conn = _connect_readonly(s.db_file)
+        try:
+            out["schema_version"] = require_current_schema(conn)
+        finally:
+            conn.close()
+    except Exception as e:  # noqa: BLE001
+        out["ok"] = False
+        out["db"] = f"error: {e}"
+        return out
+    out["db"] = "ok"
+    return out
 
 
 def health_report(s: Settings, provider_name: str) -> dict:

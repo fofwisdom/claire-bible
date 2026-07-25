@@ -84,13 +84,27 @@ def test_double_approve_is_noop():
 # --- /web 즉시 발급 세션 + 슬라이딩 만료 ---
 
 def test_create_session_validates_immediately():
-    """/web: 버튼 승인 단계 없이 즉시 발급된 토큰이 곧바로 유효 + 짧고 타이핑 쉬운 코드."""
+    """/web: 버튼 승인 단계 없이 즉시 발급된 전체 토큰이 곧바로 유효하다."""
     conn = _mem()
     tok = dbm.create_session(conn, ttl=100)
     assert tok and dbm.validate_session(conn, tok) is True
     assert dbm.validate_session(conn, "wrong-token") is False
-    assert len(tok) <= 12                                    # 짧은 코드(수동 입력용)
-    assert all(c in "23456789abcdefghjkmnpqrstuvwxyz" for c in tok)  # 헷갈리는 문자 없음
+    assert len(tok) >= dbm.MIN_SESSION_TOKEN_LENGTH
+
+
+def test_bootstrap_exchange_rotates_once_and_preserves_scope():
+    conn = _mem()
+    bootstrap = dbm.create_session(conn, scope="owner")
+
+    exchanged = dbm.exchange_session_token(conn, bootstrap)
+
+    assert exchanged is not None
+    scope, cookie_session = exchanged
+    assert scope == "owner"
+    assert cookie_session != bootstrap
+    assert dbm.exchange_session_token(conn, bootstrap) is None
+    assert dbm.validate_session_scope(conn, bootstrap) is None
+    assert dbm.validate_session_scope(conn, cookie_session) == "owner"
 
 
 def test_create_session_single_active_revokes_previous():
@@ -133,46 +147,31 @@ def test_expired_session_not_revived_by_validate():
     assert dbm.validate_session(conn, tok) is False
 
 
-# --- /web 진입: 링크는 길게, 수동 입력은 짧게(프리픽스 해소). 사용자 요구(이슈4) ---
+# --- /web 진입: 전체 세션 토큰만 허용 ---
 
-def test_resolve_prefix_returns_full_token():
-    """7자+ 프리픽스로 단일 활성 세션을 해소하면 **전체 토큰**을 돌려준다(쿠키엔 전체 저장)."""
+def test_session_prefix_and_legacy_short_token_are_rejected():
     conn = _mem()
     full = dbm.create_session(conn)
-    assert len(full) >= dbm.MIN_TOKEN_PREFIX + 1            # 링크는 프리픽스보다 길다
-    assert dbm.resolve_session_prefix(conn, full) == full   # 전체 입력도 OK
-    assert dbm.resolve_session_prefix(conn, full[:7]) == full  # 7자 프리픽스 → 전체
+    assert dbm.validate_session(conn, full[:12]) is False
 
-
-def test_resolve_prefix_rejects_short_and_bogus():
-    """6자 이하·알파벳 외 문자(LIKE 와일드카드 주입)·빈 입력은 거부."""
-    conn = _mem()
-    full = dbm.create_session(conn)
-    assert dbm.resolve_session_prefix(conn, full[:6]) is None    # 너무 짧음
-    assert dbm.resolve_session_prefix(conn, "") is None
-    assert dbm.resolve_session_prefix(conn, "%%%%%%%") is None    # % 와일드카드 주입 차단
-    assert dbm.resolve_session_prefix(conn, full[:6] + "_") is None  # _ 와일드카드 차단
-
-
-def test_resolve_prefix_no_session_returns_none():
-    assert dbm.resolve_session_prefix(_mem(), "abcdefg") is None
-
-
-def test_resolve_prefix_slides_expiry():
-    """진입 해소도 슬라이딩 연장(접속 시점부터 다시 7일)."""
-    conn = _mem()
-    full = dbm.create_session(conn, ttl=100)
-    conn.execute("UPDATE auth_sessions SET expires_at=? WHERE session_token=?",
-                 (time.time() + 1, full))
+    now = time.time()
+    legacy = "abcdefghjkmn"
+    conn.execute(
+        "INSERT INTO auth_sessions"
+        "(nonce,session_token,approved,created_at,expires_at,scope) "
+        "VALUES (?,?,1,?,?,?)",
+        (legacy, legacy, now, now + 1000, "owner"),
+    )
     conn.commit()
-    assert dbm.resolve_session_prefix(conn, full[:7], ttl=1000) == full
-    after = conn.execute(
-        "SELECT expires_at FROM auth_sessions WHERE session_token=?", (full,)).fetchone()[0]
-    assert after > time.time() + 500
+    assert dbm.validate_session(conn, legacy) is False
 
-    # 쿠키 검증은 여전히 전체 일치만(프리픽스 거부 — 보안 불변)
-    assert dbm.validate_session(conn, full[:7]) is False
-    assert dbm.validate_session(conn, full) is True
+
+def test_validate_session_scope_returns_resolved_scope():
+    conn = _mem()
+    owner = dbm.create_session(conn, scope="owner")
+    readonly = dbm.create_session(conn, scope="readonly")
+    assert dbm.validate_session_scope(conn, owner) == "owner"
+    assert dbm.validate_session_scope(conn, readonly) == "readonly"
 
 
 # --- /webro 읽기전용 세션(scope) — owner(/web)와 독립적으로 공존 ---

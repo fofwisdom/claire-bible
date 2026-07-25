@@ -11,6 +11,23 @@ fail() {
   exit 1
 }
 
+# Remote deployment is production-only. cb-manuscript sets this explicitly, and
+# direct deploy.sh callers get the same contract while development is rejected.
+CLAIRE_ENVIRONMENT="${CLAIRE_ENVIRONMENT:-}"
+case "$CLAIRE_ENVIRONMENT" in
+  production) ;;
+  "")
+    fail "원격 배포에는 CLAIRE_ENVIRONMENT=production을 명시해야 합니다."
+    ;;
+  development)
+    fail "원격 배포는 CLAIRE_ENVIRONMENT=production 전용입니다."
+    ;;
+  *)
+    fail "CLAIRE_ENVIRONMENT는 development 또는 production이어야 합니다."
+    ;;
+esac
+export CLAIRE_ENVIRONMENT
+
 # 접속 설정(.env.deploy)과 컨테이너 런타임 설정(.env)을 분리한다. 어느 파일도 셸
 # 코드로 source 하지 않는다. 비어 있지 않은 프로세스 환경변수가 배포 파일보다
 # 우선한다.
@@ -128,7 +145,9 @@ fi
 # 가 원격에 올라가 컨테이너가 무한재시작하는 사고 방지). 건너뛰려면 SKIP_CI=1.
 if [ "$SKIP_CI" != "1" ]; then
   echo "[0/5] CI 게이트"
-  bash ./scripts/ci.sh
+  # 원격 실행용 production selector가 로컬 CI의 development 검사와 pytest로
+  # 새어 들어가지 않게 격리한다. 각 Compose 검사는 example env가 환경을 선택한다.
+  env -u CLAIRE_ENVIRONMENT bash ./scripts/ci.sh
 fi
 
 REMOTE="$DEPLOY_REMOTE"
@@ -228,11 +247,14 @@ esac
 
 echo "[4/5] 원격 cb-manuscript $DEPLOY_ACTION"
 if [ "$DEPLOY_ACTION" = "install" ]; then
-  "${SSH_CMD[@]}" "$REMOTE" "cd '$DEST' && bash ./cb-manuscript install"
+  "${SSH_CMD[@]}" "$REMOTE" \
+    "cd '$DEST' && CLAIRE_ENVIRONMENT=production bash ./cb-manuscript install"
 else
-  "${SSH_CMD[@]}" "$REMOTE" "cd '$DEST' && bash ./cb-manuscript update --no-fetch"
+  "${SSH_CMD[@]}" "$REMOTE" \
+    "cd '$DEST' && CLAIRE_ENVIRONMENT=production bash ./cb-manuscript update --no-fetch"
 fi
 
 echo "[5/5] 원격 상태"
-"${SSH_CMD[@]}" "$REMOTE" "cd '$DEST' && bash ./cb-manuscript status"
+"${SSH_CMD[@]}" "$REMOTE" \
+  "cd '$DEST' && CLAIRE_ENVIRONMENT=production bash ./cb-manuscript status"
 echo "배포 완료."

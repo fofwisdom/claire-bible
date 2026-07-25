@@ -5,7 +5,13 @@ from __future__ import annotations
 import sqlite3
 
 from claire.graphview import (
-    graph_json, node_detail, documents_list, synthesis_context, synthesize, GRAPH_HTML,
+    GRAPH_HTML,
+    documents_list,
+    graph_json,
+    node_detail,
+    shared_html,
+    synthesis_context,
+    synthesize,
 )
 from claire.extract.provider import MockProvider
 from claire.ontology.base import Document, Entity, Relation
@@ -100,11 +106,43 @@ def test_graph_html_self_contained_markers():
     assert "doResearch" in GRAPH_HTML and "fetch('research'" in GRAPH_HTML  # 맥락 확장 조사
     assert "refreshGraph" in GRAPH_HTML                                 # 조사 후 무리로드 그래프 갱신
     assert "getReader" in GRAPH_HTML and "rprog" in GRAPH_HTML          # NDJSON 스트림 진행 표시
+    assert GRAPH_HTML.count("if(!r.ok)") >= 2                          # 503 등 비-NDJSON 오류 처리
     assert "renderResearchResult" in GRAPH_HTML                         # 진행/결과 렌더 분리
     assert "borderWidth: lit?3:1" in GRAPH_HTML                         # 강조(문서/검색) 흰 테두리
     assert "auth/request" not in GRAPH_HTML                             # 레거시 nonce 트리거 제거(이슈3)
     assert "d.checkpoint" in GRAPH_HTML and "내부 체크포인트" in GRAPH_HTML
     assert "d.backup" not in GRAPH_HTML
+
+
+def test_browser_dependencies_are_pinned_with_sri_and_markdown_fails_closed():
+    expected = (
+        (
+            "https://unpkg.com/vis-network@9.1.11/standalone/umd/"
+            "vis-network.min.js",
+            "sha384-60H6/hL99pRYjWacRdebxM1T2R6jvWyd9GVAb7d4fp9BSfv4f0i5sWjkprnnG0cz",
+        ),
+        (
+            "https://unpkg.com/marked@4.3.0/marked.min.js",
+            "sha384-QsSpx6a0USazT7nK7w8qXDgpSAPhFsb2XtpoLFQ5+X2yFN6hvCKnwEzN8M5FWaJb",
+        ),
+        (
+            "https://unpkg.com/dompurify@3.1.6/dist/purify.min.js",
+            "sha384-+VfUPEb0PdtChMwmBcBmykRMDd+v6D/oFmB3rZM/puCMDYcIvF968OimRh4KQY9a",
+        ),
+    )
+    shared = shared_html({"title": "x"})
+    for url, integrity in expected:
+        assert url in GRAPH_HTML
+        assert integrity in GRAPH_HTML
+        if "vis-network" not in url:
+            assert url in shared
+            assert integrity in shared
+    assert 'crossorigin="anonymous"' in GRAPH_HTML
+    assert "https://unpkg.com/vis-network/standalone/" not in GRAPH_HTML
+    for page in (GRAPH_HTML, shared):
+        assert "if(!parser||!purifier" in page
+        assert "const fallback=()=>esc(raw).replace" in page
+        assert "return window.DOMPurify?" not in page
 
 
 def test_documents_list_newest_first_with_summary(_unused=None):

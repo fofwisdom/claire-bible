@@ -62,7 +62,7 @@ def _images_dir(data_dir: Path) -> Path:
 
 _EXT_BY_CTYPE = {
     "image/jpeg": ".jpg", "image/jpg": ".jpg", "image/png": ".png",
-    "image/webp": ".webp", "image/gif": ".gif", "image/svg+xml": ".svg",
+    "image/webp": ".webp", "image/gif": ".gif",
 }
 _MAX_IMAGE_BYTES = 8 * 1024 * 1024  # 8MB — 비정상적으로 큰 파일(오탐/공격성 URL) 방어
 # 이미지 CDN(위키미디어 등)이 기본 httpx UA 를 403 으로 막는 경우가 있어(실측: upload.
@@ -93,9 +93,9 @@ def download_images(data_dir: Path, doc_id: str, images: list[dict]) -> list[dic
                                   headers={"User-Agent": _UA}) as client:
                     resp = client.get(url)
                 ctype = resp.headers.get("content-type", "").split(";")[0].strip().lower()
-                if (resp.status_code < 400 and ctype.startswith("image/")
+                if (resp.status_code < 400 and ctype in _EXT_BY_CTYPE
                         and len(resp.content) <= _MAX_IMAGE_BYTES):
-                    ext = _EXT_BY_CTYPE.get(ctype) or (Path(url.split("?", 1)[0]).suffix or ".jpg")
+                    ext = _EXT_BY_CTYPE[ctype]
                     path = _images_dir(data_dir) / f"{doc_id}_{i}{ext}"
                     path.write_bytes(resp.content)
                     im["local"] = f"images/{doc_id}_{i}{ext}"

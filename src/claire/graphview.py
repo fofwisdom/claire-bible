@@ -1,6 +1,6 @@
 """읽기전용 그래프 시각화 — vis.js 용 데이터 변환 + 정적 HTML 페이지.
 
-로컬 inject API(aiohttp)가 /graph(JSON)·/node·/documents·/synthesize·/research 로 노출한다.
+ASGI 웹 서비스(Starlette/Uvicorn)가 /graph(JSON)·/node·/documents·/synthesize·/research 로 노출한다.
 정본 DB 를 읽고, 종합(synthesize)·맥락조사(research)만 LLM 비용이 있어 인증 뒤에 둔다.
 """
 
@@ -207,14 +207,14 @@ def synthesize(conn, provider, entity_ids: list[str], query: str | None = None) 
     return {"answer": answer, "entities": names, "query": q}
 
 
-# vis.js 9(unpkg CDN) 기반 단일 페이지. /graph·/node·/documents·/synthesize·/research 사용.
+# 고정 버전의 vis.js 9/Markdown 정화 라이브러리 기반 단일 페이지.
 GRAPH_HTML = """<!doctype html>
 <html lang="ko"><head><meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>Claire Bible — 지식 그래프</title>
-<script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
-<script src="https://unpkg.com/marked@4.3.0/marked.min.js"></script>
-<script src="https://unpkg.com/dompurify@3.1.6/dist/purify.min.js"></script>
+<script src="https://unpkg.com/vis-network@9.1.11/standalone/umd/vis-network.min.js" integrity="sha384-60H6/hL99pRYjWacRdebxM1T2R6jvWyd9GVAb7d4fp9BSfv4f0i5sWjkprnnG0cz" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/marked@4.3.0/marked.min.js" integrity="sha384-QsSpx6a0USazT7nK7w8qXDgpSAPhFsb2XtpoLFQ5+X2yFN6hvCKnwEzN8M5FWaJb" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/dompurify@3.1.6/dist/purify.min.js" integrity="sha384-+VfUPEb0PdtChMwmBcBmykRMDd+v6D/oFmB3rZM/puCMDYcIvF968OimRh4KQY9a" crossorigin="anonymous"></script>
 <script>
   // 깜빡임 방지: 페인트 전에 저장된 테마를 documentElement 에 적용. 기본값=light(사용자 요구).
   (function(){ try{ var t=localStorage.getItem('claireTheme')||'light';
@@ -553,7 +553,7 @@ function showNodePop(id, x, y){
 }
 // 팝업 하단의 출처 문서 한 건 — 제목 + 글(요약 우선, 없으면 전문 앞부분) 일부.
 function popSource(d){
-  const body=((d.summary||d.detail||'').replace(/\s+/g,' ').trim());
+  const body=((d.summary||d.detail||'').replace(/\\s+/g,' ').trim());
   return '<div class=psrc><div class=ptt>📄 '+esc(d.title||'(제목 없음)')+'</div>'+
     (body?'<div class=psb>'+esc(body.slice(0,240))+(body.length>240?'…':'')+'</div>':'')+'</div>';
 }
@@ -589,11 +589,16 @@ function toggleTheme(){ const next = curTheme()==='dark'?'light':'dark';
 // 스크랩 본문 유래 스크립트/위험 태그를 제거(이미지·강조·링크는 허용).
 function renderMarkdown(src){
   if(!src) return '';
-  let s = String(src).replace(/==([^=\\n]+)==/g, '<mark>$1</mark>');
-  let html;
-  try{ html = (window.marked ? (marked.parse ? marked.parse(s) : marked(s)) : esc(s)); }
-  catch(e){ html = esc(s).replace(/\\n/g,'<br>'); }
-  return window.DOMPurify ? DOMPurify.sanitize(html, {ADD_ATTR:['target']}) : html;
+  const raw=String(src);
+  const fallback=()=>esc(raw).replace(/\\n/g,'<br>');
+  const parser=window.marked, purifier=window.DOMPurify;
+  if(!parser||!purifier||typeof purifier.sanitize!=='function'||
+     (typeof parser.parse!=='function'&&typeof parser!=='function')) return fallback();
+  try{
+    const s=raw.replace(/==([^=\\n]+)==/g,'<mark>$1</mark>');
+    const html=typeof parser.parse==='function'?parser.parse(s):parser(s);
+    return purifier.sanitize(html,{ADD_ATTR:['target']});
+  }catch(e){ return fallback(); }
 }
 
 // 목록 설명 줄수(0/2/4) — 브라우저에 기억. 문서 많아지면 제목/설명이 height 를 너무
@@ -629,6 +634,16 @@ function setReadFS(delta){
 
 // 중앙 읽기 팝업 — 좌측 문서의 '읽기' 버튼/노드 상세의 📖 로 연다(nav 와 분리, 사용자 요구).
 let curReaderDoc=null;   // 현재 읽기 팝업의 문서 id(🔗 공유 링크 생성 대상)
+async function markDocumentSeen(docId){
+  if(READONLY) return;
+  try{
+    const r=await fetch('document/seen',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({id:docId})});
+    if(!r.ok) return;
+    const dc=allDocs && allDocs.find(d=>d.id===docId);
+    if(dc && dc.seen!==1){ dc.seen=1; renderDocs(document.getElementById('docq').value); }
+  }catch(_){}
+}
 function openReader(docId){
   const r=document.getElementById('reader');
   curReaderDoc=docId;
@@ -640,6 +655,7 @@ function openReader(docId){
   fetch('document?id='+encodeURIComponent(docId)).then(x=>x.json()).then(dc=>{
     if(!dc || dc.error){ document.getElementById('rbody').innerHTML='<p class=hint>문서를 찾을 수 없습니다.</p>'; return; }
     renderReader(dc);
+    markDocumentSeen(docId);
   }).catch(()=>{ document.getElementById('rbody').innerHTML='<p class=hint>문서 로드 실패.</p>'; });
 }
 function renderReader(dc){
@@ -905,6 +921,10 @@ async function doResearch(){
       body:JSON.stringify({query:q, node_id:selectedNodeId, doc_id:activeDoc})});
     if(r.status===401||r.status===404){ clearInterval(timer); setAuth('idle');
       panel.innerHTML='<p class=hint>세션 만료 — 텔레그램 /web 으로 다시 접속하세요</p>'; return; }
+    if(!r.ok){ clearInterval(timer); let d={};
+      try{ d=await r.json(); }catch(_){}
+      panel.innerHTML='<p class=hint>조사 요청 실패: '+esc(d.error||('HTTP '+r.status))+'</p>'; return; }
+    if(!r.body) throw new Error('스트림 본문이 없습니다');
     const reader=r.body.getReader(), dec=new TextDecoder(); let buf='';
     while(true){
       const {done,value}=await reader.read(); if(done) break;
@@ -972,6 +992,10 @@ async function runIngest(){
       body:JSON.stringify({payload:payload})});
     if(r.status===401||r.status===404){ clearInterval(timer); setAuth('idle');
       panel.innerHTML='<p class=hint>세션 만료 — 텔레그램 /web 으로 다시 접속하세요</p>'; return; }
+    if(!r.ok){ clearInterval(timer); let d={};
+      try{ d=await r.json(); }catch(_){}
+      panel.innerHTML='<p class=hint>적재 요청 실패: '+esc(d.error||('HTTP '+r.status))+'</p>'; return; }
+    if(!r.body) throw new Error('스트림 본문이 없습니다');
     const reader=r.body.getReader(), dec=new TextDecoder(); let buf='';
     while(true){
       const {done,value}=await reader.read(); if(done) break;
@@ -1005,7 +1029,7 @@ function renderIngestResult(d){
   refreshGraph();   // 신규 노드/엣지·문서목록 즉시 반영(새로고침 없이)
 }
 
-// --- 중복 문서 정리: 근사중복 클러스터를 찾아(/dedup) 유지문서를 골라 병합(/dedup/merge) ---
+// --- 중복 문서 정리: 근사중복 클러스터를 찾아(/dedup/scan) 유지문서를 골라 병합(/dedup/merge) ---
 // 병합 직전 정본은 서버가 내부 checkpoint로 보존한다(파괴적 작업 안전장치).
 // keeper(유지) 외 문서는 참조(엔티티/관계 sources 등)를 keeper 로 재배치한 뒤 삭제.
 let dedupClusters=[];
@@ -1015,7 +1039,7 @@ async function openDedup(){
   mobileScrollTo('panel');
   let d;
   try{
-    const r=await fetch('dedup');
+    const r=await fetch('dedup/scan',{method:'POST'});
     if(r.status===401||r.status===404){ setAuth('idle');
       panel.innerHTML='<p class=hint>세션 만료 — 텔레그램 /web 으로 다시 접속하세요</p>'; return; }
     d=await r.json();
@@ -1326,8 +1350,6 @@ async function panelToggleHide(id, val){
   }
 }
 function selectDoc(id){
-  const d0 = allDocs && allDocs.find(d=>d.id===id);
-  if(d0) d0.seen=1;                             // 열람 → unread 해제(낙관적; 서버는 /document 가 처리)
   activeDoc = (activeDoc===id ? null : id);     // 같은 문서 재클릭 → 해제
   selectedNodeId=null;                          // 문서 모드로 전환 — 노드 inspect 해제
   renderDocs(document.getElementById('docq').value);
@@ -1352,6 +1374,7 @@ function loadDocPanel(id){
     if(activeDoc!==id) return;                  // 그 사이 다른 문서/노드로 이동했으면 무시
     if(!dc || dc.error){ panel.innerHTML='<p class=hint>문서를 찾을 수 없습니다.</p>'; return; }
     renderDocPanel(dc);
+    markDocumentSeen(id);
   }).catch(()=>{ panel.innerHTML='<p class=hint>문서 로드 실패.</p>'; });
 }
 // 한 문서(article)에 속한 노드 = graph node.sources 에 그 문서 id 가 든 노드(클라 계산).
@@ -1573,8 +1596,8 @@ _SHARED_HTML = """<!doctype html>
 <html lang="ko"><head><meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>__TITLE__ — Claire Bible</title>
-<script src="https://unpkg.com/marked@4.3.0/marked.min.js"></script>
-<script src="https://unpkg.com/dompurify@3.1.6/dist/purify.min.js"></script>
+<script src="https://unpkg.com/marked@4.3.0/marked.min.js" integrity="sha384-QsSpx6a0USazT7nK7w8qXDgpSAPhFsb2XtpoLFQ5+X2yFN6hvCKnwEzN8M5FWaJb" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/dompurify@3.1.6/dist/purify.min.js" integrity="sha384-+VfUPEb0PdtChMwmBcBmykRMDd+v6D/oFmB3rZM/puCMDYcIvF968OimRh4KQY9a" crossorigin="anonymous"></script>
 <style>
   :root{--bg:#ffffff;--fg:#1f2328;--muted:#656d76;--border:#d0d7de;--accent:#0969da;
     --accent2:#1a7f37;--card-bg:#f6f8fa;--chip-bg:#eaeef2;--mark-bg:#fff8c5;--mark-fg:#633c01}
@@ -1605,10 +1628,16 @@ _SHARED_HTML = """<!doctype html>
 function esc(s){return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 function renderMarkdown(src){
   if(!src) return '';
-  let s=String(src).replace(/==([^=\\n]+)==/g,'<mark>$1</mark>');
-  let html; try{ html=(window.marked?(marked.parse?marked.parse(s):marked(s)):esc(s)); }
-  catch(e){ html=esc(s).replace(/\\n/g,'<br>'); }
-  return window.DOMPurify?DOMPurify.sanitize(html,{ADD_ATTR:['target']}):html;
+  const raw=String(src);
+  const fallback=()=>esc(raw).replace(/\\n/g,'<br>');
+  const parser=window.marked, purifier=window.DOMPurify;
+  if(!parser||!purifier||typeof purifier.sanitize!=='function'||
+     (typeof parser.parse!=='function'&&typeof parser!=='function')) return fallback();
+  try{
+    const s=raw.replace(/==([^=\\n]+)==/g,'<mark>$1</mark>');
+    const html=typeof parser.parse==='function'?parser.parse(s):parser(s);
+    return purifier.sanitize(html,{ADD_ATTR:['target']});
+  }catch(e){ return fallback(); }
 }
 const dc=JSON.parse(document.getElementById('docdata').textContent||'{}');
 let h='<div class=brand>Claire Bible · 공유 문서</div>';

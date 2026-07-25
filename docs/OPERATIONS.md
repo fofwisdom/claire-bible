@@ -29,13 +29,45 @@
 ./cb-manuscript health
 ```
 
-이 계층은 `.env` 또는 `.env.dev`, Compose project, 서비스 profile, 업데이트 잠금과
-migration 순서를 일관되게 적용한다. 배포 인스턴스를 직접 `docker compose`나
-호스트의 `uv run claire`로 관리하지 않는다.
+이 계층은 `CLAIRE_ENVIRONMENT`, env overlay, Compose project, 서비스 profile,
+업데이트 잠금과 migration 순서를 일관되게 적용한다. 배포 인스턴스를 직접
+`docker compose`나 호스트의 `uv run claire`로 관리하지 않는다.
 
-`./cb-manuscript dev <command>`는 Docker 개발 overlay를 선택한다. 이는 현재 checkout에서
-직접 실행하는 `uv run claire <command>`와 다른 환경이며, 별도의 project·데이터 경로를
-사용한다.
+`CLAIRE_ENVIRONMENT`는 exact `development` 또는 `production` 값이 필수다. bare
+명령의 선택은 프로세스 값을 먼저 보지만 파일의 역할을 재해석하지는 않는다. `.env`는
+`production`, `.env.dev`는 `development`를 선언해야 한다. development가 선택되면
+`.env` 다음에 `.env.dev`와 `docker-compose.dev.yml`을 적용한다. public URL과 CORS는
+선택된 env 파일의 값이 사전 검사와 컨테이너 실행에 똑같이 사용된다.
+
+```bash
+CLAIRE_ENVIRONMENT=development ./cb-manuscript up
+CLAIRE_ENVIRONMENT=production ./cb-manuscript up
+```
+
+`./cb-manuscript dev <command>`는 development의 기존 호환 별칭이다. 프로세스
+`CLAIRE_ENVIRONMENT=production`과 함께 사용하면 추측하지 않고 실패한다. Docker
+development는 현재 checkout에서 직접 실행하는 `uv run claire <command>`와 다른
+환경이며, 별도의 project·데이터 경로를 사용한다.
+
+### 기존 env 파일 마이그레이션
+
+이 구조를 적용하기 전부터 `.env` 또는 `.env.dev`가 있으면 첫 lifecycle 명령 전에
+`./cb-manuscript init`을 다시 실행한다. 이 명령은 기존 secret과 비어 있지 않은 설정을
+덮어쓰지 않고 누락된 selector를 `.env=production`, `.env.dev=development`로 보충한다.
+production `.env`의 빈 `CLAIRE_PUBLIC_URL`은 추측해서 채우지 않으므로 실제 외부
+hostname의 `https://.../` 값으로 직접 설정해야 한다. CORS가 필요 없으면
+`CLAIRE_CORS_ALLOWED_ORIGINS`는 생략하거나 빈 값으로 둔다.
+
+`CB_API_BIND`는 Docker host가 게시할 정확한 IPv4 주소다. `0.0.0.0`, multicast,
+hostname과 IPv6는 사전 검사에서 거부한다. loopback은 안전한 초기값으로 허용하지만
+다른 LAN 호스트에서 접근하려면 실제 고정 LAN IPv4로 변경해야 한다.
+
+- development의 `CLAIRE_PUBLIC_URL`은
+  `http://<CB_API_BIND>:<CB_API_PORT>/`와 authority가 정확히 같아야 한다.
+- production은 root 경로의 `https://<DNS-hostname>/`이어야 한다. TLS는 Claire가 아닌
+  외부 reverse proxy가 종료한다.
+- `CLAIRE_CORS_ALLOWED_ORIGINS`는 path와 wildcard가 없는 origin의 쉼표 목록이다.
+  production에서는 `https` origin만 허용하며 빈 값은 same-origin 전용이다.
 
 ## 배포된 앱의 one-off 명령
 
@@ -104,6 +136,10 @@ Compose 수명주기에 맡긴다. 설치·업데이트·migration처럼 서비�
 이 경로도 올바른 env 파일과 Compose project를 선택하지만, `install`·`update`가
 보장하는 작업 순서까지 대신 적용하지는 않는다. 서비스 기동·중지와 migration은
 가능하면 전용 최상위 명령을 사용한다.
+
+원격 `remote install/update`는 production 전용이다. `dev remote` 또는 프로세스
+`CLAIRE_ENVIRONMENT=development`는 원격 접속 전에 실패하며, 허용된 배포는 로컬
+`deploy.sh`와 원격 `cb-manuscript` 모두에 production 값을 명시적으로 전달한다.
 
 ## 백업과 복원
 

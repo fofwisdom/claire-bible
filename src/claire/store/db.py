@@ -253,6 +253,26 @@ def connect(db_path: str | Path) -> sqlite3.Connection:
     return conn
 
 
+def connect_existing(
+    db_path: str | Path, *, readonly: bool = False
+) -> sqlite3.Connection:
+    """이미 초기화된 DB를 열되 journal mode나 파일 시스템을 변경하지 않는다.
+
+    API 요청 경로에서 사용한다. ``mode=rw``/``mode=ro``로 누락된 DB를 암묵적으로
+    만들지 않으며, WAL 설정과 schema migration은 프로세스 시작 시 한 번만 수행한다.
+    """
+
+    mode = "ro" if readonly else "rw"
+    uri = Path(db_path).resolve().as_uri() + f"?mode={mode}"
+    conn = sqlite3.connect(uri, uri=True, timeout=5.0)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys=ON;")
+    conn.execute("PRAGMA busy_timeout=5000;")
+    if readonly:
+        conn.execute("PRAGMA query_only=ON;")
+    return conn
+
+
 def _column_names(conn: sqlite3.Connection, table: str) -> set[str]:
     return {r["name"] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
 
@@ -884,7 +904,7 @@ def approve_auth_nonce(
     ).fetchone()
     if row is None or row["expires_at"] < time.time():
         return None
-    token = secrets.token_urlsafe(24)
+    token = secrets.token_urlsafe(32)
     now = time.time()
     conn.execute(
         "UPDATE auth_sessions SET approved=1, session_token=?, expires_at=? WHERE nonce=?",
@@ -903,22 +923,32 @@ def poll_auth_nonce(conn: sqlite3.Connection, nonce: str) -> str | None:
     return None
 
 
-# 웹 세션 슬라이딩 수명(초). 접속(검증)할 때마다 만료를 now+이 값으로 연장 → 활성
-# 사용 중엔 재인증 불필요, 7일 이상 안 쓰면 만료. (/web 명령으로 발급)
+# 웹 세션 슬라이딩 수명(초). 남은 수명이 절반 아래로 내려갔을 때만 갱신해
+# 인증 요청마다 SQLite writer lock을 잡지 않는다.
 SESSION_TTL = 7 * 86400.0
 
 
-# 손으로 입력하기 쉬운 토큰 알파벳: 헷갈리는 0/o/1/l 제외(31자). 12자 ≈ 59bit.
+# 공유 링크용 토큰 알파벳: 헷갈리는 0/o/1/l 제외.
 _TOKEN_ALPHABET = "23456789abcdefghjkmnpqrstuvwxyz"
 
-# 링크는 길게 주되(아래 길이), 수동 입력 시엔 앞 MIN_TOKEN_PREFIX 자만 쳐도 통과(사용자
-# 요구). 단일 활성 세션이라 프리픽스가 곧 단일 식별자 — 7자 ≈ 34bit(개인용+Tailscale 권장).
-_TOKEN_LEN = 12
-MIN_TOKEN_PREFIX = 7
-
-
-def _short_token(n: int = _TOKEN_LEN) -> str:
+def _short_token(n: int) -> str:
     return "".join(secrets.choice(_TOKEN_ALPHABET) for _ in range(n))
+
+
+# token_urlsafe(24)가 만드는 기존 nonce 승인 세션까지 허용하는 하한. 예전 /web 직접
+# 세션(12자)은 외부 hostname 배포 경계에서는 너무 짧으므로 배포 즉시 무효로 취급한다.
+MIN_SESSION_TOKEN_LENGTH = 32
+MAX_SESSION_TOKEN_LENGTH = 128
+_SESSION_TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+
+
+def plausible_session_token(token: str) -> bool:
+    """DB를 열기 전에 적용할 세션 토큰의 값싼 형식 경계."""
+
+    return bool(
+        MIN_SESSION_TOKEN_LENGTH <= len(token or "") <= MAX_SESSION_TOKEN_LENGTH
+        and _SESSION_TOKEN_RE.fullmatch(token)
+    )
 
 
 def revoke_all_sessions(conn: sqlite3.Connection) -> int:
@@ -932,14 +962,14 @@ def create_session(
     conn: sqlite3.Connection, *, ttl: float = SESSION_TTL, scope: str = "owner"
 ) -> str:
     """[/web, /webro] **scope 별 단일 활성 세션**: 같은 scope 의 기존 세션만 revoke 하고
-    짧은 새 토큰 1개를 발급 — owner(/web)와 readonly(/webro)는 서로 다른 scope 라 독립적으로
+    추측 저항성이 충분한 새 토큰 1개를 발급 — owner(/web)와 readonly(/webro)는 서로 다른 scope 라 독립적으로
     공존한다(읽기전용 링크를 공유해도 내 소유자 세션은 안 끊김, 그 반대도 마찬가지).
 
-    폰에서 발급해 PC 에서 손으로 입력하기 쉽도록 짧고 헷갈리지 않는 코드. 발급 즉시 같은
-    scope 의 이전 링크/쿠키는 무효(다음 /web 한 번이 곧 '이전 owner 세션 전부 로그아웃',
-    scope 가 다르면 서로 안 건드림). nonce=토큰(PK)."""
+    토큰은 링크의 전체값만 인정한다. 발급 즉시 같은 scope 의 이전 링크/쿠키는
+    무효(다음 /web 한 번이 곧 '이전 owner 세션 전부 로그아웃', scope 가 다르면 서로
+    안 건드림). nonce=토큰(PK)."""
     conn.execute("DELETE FROM auth_sessions WHERE scope=?", (scope,))
-    token = _short_token()
+    token = secrets.token_urlsafe(32)
     now = time.time()
     conn.execute(
         "INSERT INTO auth_sessions(nonce,session_token,approved,created_at,expires_at,scope) "
@@ -948,58 +978,101 @@ def create_session(
     return token
 
 
+def exchange_session_token(
+    conn: sqlite3.Connection,
+    token: str,
+    *,
+    ttl: float = SESSION_TTL,
+    scopes: tuple[str, ...] = ("owner",),
+) -> tuple[str, str] | None:
+    """owner URL bootstrap token을 한 번만 소비하고 cookie용 세션으로 회전한다.
+
+    조회 뒤 UPDATE에 이전 token과 만료 조건을 다시 넣는다. 동시 요청이 같은 URL을
+    사용해도 한 요청만 rowcount=1을 얻고 나머지는 실패한다.
+    """
+
+    if not plausible_session_token(token) or not scopes:
+        return None
+    placeholders = ",".join("?" for _ in scopes)
+    now = time.time()
+    row = conn.execute(
+        f"SELECT scope FROM auth_sessions WHERE session_token=? "
+        f"AND approved=1 AND expires_at>=? AND scope IN ({placeholders})",
+        (token, now, *scopes),
+    ).fetchone()
+    if row is None:
+        return None
+
+    rotated = secrets.token_urlsafe(32)
+    result = conn.execute(
+        f"UPDATE auth_sessions SET session_token=?, expires_at=? "
+        f"WHERE session_token=? AND approved=1 AND expires_at>=? "
+        f"AND scope IN ({placeholders})",
+        (rotated, now + ttl, token, now, *scopes),
+    )
+    conn.commit()
+    if result.rowcount != 1:
+        return None
+    return str(row["scope"]), rotated
+
+
+def validate_session_scope(
+    conn: sqlite3.Connection,
+    token: str,
+    *,
+    ttl: float = SESSION_TTL,
+    scopes: tuple[str, ...] = ("owner", "readonly"),
+) -> str | None:
+    """유효한 전체 세션 토큰의 scope를 반환한다.
+
+    남은 수명이 ``ttl / 2``보다 짧을 때만 슬라이딩 만료를 연장한다.
+    """
+    if not plausible_session_token(token) or not scopes:
+        return None
+    ph = ",".join("?" for _ in scopes)
+    row = conn.execute(
+        f"SELECT expires_at, scope FROM auth_sessions WHERE session_token=? "
+        f"AND approved=1 AND scope IN ({ph})",
+        (token, *scopes),
+    ).fetchone()
+    now = time.time()
+    if not (row and row["expires_at"] >= now):
+        return None
+    if row["expires_at"] < now + (ttl / 2):
+        conn.execute(
+            "UPDATE auth_sessions SET expires_at=? WHERE session_token=?",
+            (now + ttl, token),
+        )
+        conn.commit()
+    return str(row["scope"])
+
+
 def validate_session(
     conn: sqlite3.Connection, token: str, *, ttl: float = SESSION_TTL,
     scopes: tuple[str, ...] = ("owner",),
 ) -> bool:
-    """세션 토큰이 유효(승인됨 + 미만료 + scopes 중 하나)한가 + **슬라이딩 연장**(유효
-    접속마다 now+ttl).
+    """세션 토큰이 유효(승인됨 + 미만료 + scopes 중 하나)한가.
 
     기본은 scope='owner' 만 인정(기존 전체-쓰기 게이트 동작 그대로 — 하위호환). 읽기전용
     게이트는 scopes=("owner","readonly") 로 호출해 두 scope 모두 인정한다(owner 세션으로도
     당연히 읽을 수 있어야 하므로)."""
-    if not token:
-        return False
-    ph = ",".join("?" for _ in scopes)
-    row = conn.execute(
-        f"SELECT expires_at FROM auth_sessions WHERE session_token=? AND approved=1 "
-        f"AND scope IN ({ph})", (token, *scopes)).fetchone()
-    if not (row and row["expires_at"] >= time.time()):
-        return False
-    conn.execute("UPDATE auth_sessions SET expires_at=? WHERE session_token=?",
-                 (time.time() + ttl, token))
-    conn.commit()
-    return True
+    return validate_session_scope(
+        conn, token, ttl=ttl, scopes=scopes
+    ) is not None
 
 
-def resolve_session_prefix(
-    conn: sqlite3.Connection, token_input: str, *, ttl: float = SESSION_TTL
-) -> str | None:
-    """[/web ?t= 진입 전용] 전체 토큰 또는 그 7자+ 프리픽스로 단일 활성 세션을 해소.
-
-    링크는 길게 주되 수동 입력은 짧게(사용자 요구). **전체 토큰**을 반환 → 게이트가 쿠키엔
-    전체를 저장하므로 이후 검증(`validate_session`)은 그대로 '전체 일치'(쿠키 보안 불변).
-    프리픽스 허용은 오직 이 진입 지점뿐. 단일 활성이라 보통 0/1건, 모호(2+)하면 거부.
-    LIKE 와일드카드(%·_) 주입 차단: 토큰 알파벳 외 문자가 있으면 즉시 거부."""
-    t = (token_input or "").strip()
-    if len(t) < MIN_TOKEN_PREFIX or any(c not in _TOKEN_ALPHABET for c in t):
-        return None
-    rows = conn.execute(
-        "SELECT session_token, expires_at FROM auth_sessions "
-        "WHERE approved=1 AND session_token LIKE ?", (t + "%",)).fetchall()
-    valid = [r["session_token"] for r in rows if r["expires_at"] >= time.time()]
-    if len(valid) != 1:
-        return None
-    full = valid[0]
-    conn.execute("UPDATE auth_sessions SET expires_at=? WHERE session_token=?",
-                 (time.time() + ttl, full))
-    conn.commit()
-    return full
-
-
-# 공유 토큰은 추측 저항을 위해 세션 토큰(12자)보다 길게(16자 ≈ 79bit). 비인증 노출이라
-# 프리픽스 입력 편의가 필요 없어 전체 일치만 허용한다(세션과 보안 모델이 다름).
+# 공유 토큰은 16자(약 79bit)이며 비인증 문서 1개에만 제한된다. 프리픽스 입력 편의가
+# 필요 없어 전체 일치만 허용한다(전체 UI 세션과 보안 모델이 다름).
 _SHARE_TOKEN_LEN = 16
+
+
+def plausible_share_token(token: str) -> bool:
+    """공개 공유 토큰을 DB 조회 전에 정확한 길이와 알파벳으로 거른다."""
+
+    return bool(
+        len(token or "") == _SHARE_TOKEN_LEN
+        and all(char in _TOKEN_ALPHABET for char in token)
+    )
 
 
 def create_doc_share(conn: sqlite3.Connection, document_id: str,
@@ -1019,8 +1092,8 @@ def create_doc_share(conn: sqlite3.Connection, document_id: str,
 
 def resolve_doc_share(conn: sqlite3.Connection, token: str) -> str | None:
     """공유 토큰 → document_id(미만료). 없거나 만료면 None. 전체 일치만(프리픽스 불가)."""
-    t = (token or "").strip()
-    if not t or any(c not in _TOKEN_ALPHABET for c in t):
+    t = token or ""
+    if not plausible_share_token(t):
         return None
     row = conn.execute(
         "SELECT document_id, expires_at FROM doc_shares WHERE token=?", (t,)).fetchone()

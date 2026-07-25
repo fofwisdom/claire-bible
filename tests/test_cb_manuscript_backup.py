@@ -93,22 +93,32 @@ def _write_layout(
     root.mkdir(parents=True, exist_ok=True)
     prod = "\n".join(
         (
+            "CLAIRE_ENVIRONMENT=production",
             "CB_PROJECT_NAME=claire-bible",
             "CB_WAIT_TIMEOUT=45",
+            "CB_API_BIND=127.0.0.1",
+            "CB_API_PORT=8765",
             f"CB_DATA_DIR={prod_data}",
             f"CB_VAULT_DIR={prod_vault}",
             "CLAIRE_DB_PATH=data/claire.db",
-            "CLAIRE_INJECT_TOKEN=test-only-secret",
+            "CLAIRE_INJECT_TOKEN=test-only-" + ("s" * 32),
+            "CLAIRE_PUBLIC_URL=https://claire.example.com/",
+            "CLAIRE_CORS_ALLOWED_ORIGINS=",
             "TELEGRAM_BOT_TOKEN=",
             "",
         )
     )
     development = "\n".join(
         (
+            "CLAIRE_ENVIRONMENT=development",
             "CB_PROJECT_NAME=claire-bible-dev",
             "CB_WAIT_TIMEOUT=15",
+            "CB_API_BIND=127.0.0.1",
+            "CB_API_PORT=8766",
             f"CB_DATA_DIR={dev_data}",
             f"CB_VAULT_DIR={dev_vault}",
+            "CLAIRE_PUBLIC_URL=http://127.0.0.1:8766/",
+            "CLAIRE_CORS_ALLOWED_ORIGINS=",
             "",
         )
     )

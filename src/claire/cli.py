@@ -526,13 +526,13 @@ def cmd_health(args) -> int:  # noqa: ANN001
 
 
 def cmd_liveness(_args) -> int:  # noqa: ANN001
-    """DB 접근과 현재 스키마만 종료 코드에 반영한다(degraded는 진단 정보로만 출력)."""
+    """DB 접근과 현재 스키마만 확인하는 경량 상태를 출력한다."""
     import json
 
-    from .health import health_report
+    from .health import liveness_report
 
     s = get_settings()
-    rep = health_report(s, s.effective_provider)
+    rep = liveness_report(s)
     print(json.dumps(rep, ensure_ascii=False, indent=2))
     return 0 if rep["ok"] else 1
 
@@ -574,7 +574,10 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("status", help="full status: ops / db / progress / connections").set_defaults(func=cmd_status)
     sub.add_parser("stats", help="graph counts only").set_defaults(func=cmd_stats)
     sub.add_parser("bot", help="run telegram bot (long-polling)").set_defaults(func=cmd_bot)
-    sub.add_parser("serve-api", help="run local inject API (same ingest path as DM)").set_defaults(func=cmd_serve_api)
+    sub.add_parser(
+        "serve-api",
+        help="run ASGI web service and API (same ingest path as DM)",
+    ).set_defaults(func=cmd_serve_api)
 
     pr = sub.add_parser("replay-failed", help="re-ingest raw_inbox rows with status=error")
     pr.add_argument("--limit", type=int, default=0, help="0 = all")

@@ -14,14 +14,29 @@ from claire import cli as claire_cli
 from ops import cb_manuscript as cb
 
 
-def _write_layout(root: Path, *, dev: bool = True, token: str = "") -> None:
+@pytest.fixture(autouse=True)
+def _clear_environment_selector(monkeypatch):
+    monkeypatch.delenv("CLAIRE_ENVIRONMENT", raising=False)
+
+
+def _write_layout(
+    root: Path,
+    *,
+    dev: bool = True,
+    token: str = "",
+    owner_token: str = "owner-" + ("x" * 32),
+) -> None:
     (root / ".env.example").write_text(
         "\n".join(
             (
+                "CLAIRE_ENVIRONMENT=production",
                 "CB_PROJECT_NAME=claire-bible",
                 "CB_WAIT_TIMEOUT=45",
+                "CB_API_BIND=127.0.0.1",
                 "CB_API_PORT=8765",
-                "CLAIRE_INJECT_TOKEN=",
+                "CLAIRE_PUBLIC_URL=https://claire.example.com/",
+                "CLAIRE_CORS_ALLOWED_ORIGINS=",
+                f"CLAIRE_INJECT_TOKEN={owner_token}",
                 "GEMINI_API_KEY=",
                 f"TELEGRAM_BOT_TOKEN={token}",
                 "",
@@ -32,8 +47,14 @@ def _write_layout(root: Path, *, dev: bool = True, token: str = "") -> None:
     (root / ".env.dev.example").write_text(
         "\n".join(
             (
+                "CLAIRE_ENVIRONMENT=development",
                 "CB_PROJECT_NAME=claire-bible-dev",
                 "CB_WAIT_TIMEOUT=15",
+                "CB_API_BIND=127.0.0.1",
+                "CB_API_PORT=8766",
+                "CLAIRE_PUBLIC_URL=http://127.0.0.1:8766/",
+                "CLAIRE_CORS_ALLOWED_ORIGINS=",
+                f"CLAIRE_INJECT_TOKEN={owner_token}",
                 f"TELEGRAM_BOT_TOKEN={token}",
                 "",
             )
@@ -86,17 +107,19 @@ def test_app_policy_classifies_every_claire_command():
 
 
 def test_init_is_atomic_idempotent_and_does_not_replace_user_secrets(tmp_path):
-    _write_layout(tmp_path)
+    _write_layout(tmp_path, owner_token="")
     (tmp_path / ".env").unlink()
     (tmp_path / ".env.dev").unlink()
 
-    with patch.object(cb.secrets, "token_urlsafe", side_effect=["prod-token", "dev-token"]):
+    prod_token = "prod-" + ("p" * 32)
+    dev_token = "dev-" + ("d" * 32)
+    with patch.object(cb.secrets, "token_urlsafe", side_effect=[prod_token, dev_token]):
         assert cb.main(["init"], root=tmp_path) == 0
 
     prod = (tmp_path / ".env").read_text(encoding="utf-8")
     dev = (tmp_path / ".env.dev").read_text(encoding="utf-8")
-    assert "CLAIRE_INJECT_TOKEN=prod-token" in prod
-    assert "CLAIRE_INJECT_TOKEN=dev-token" in dev
+    assert f"CLAIRE_INJECT_TOKEN={prod_token}" in prod
+    assert f"CLAIRE_INJECT_TOKEN={dev_token}" in dev
     assert "GEMINI_API_KEY=" in prod
     assert "TELEGRAM_BOT_TOKEN=" in prod
     assert stat.S_IMODE((tmp_path / ".env").stat().st_mode) == 0o600
@@ -104,14 +127,55 @@ def test_init_is_atomic_idempotent_and_does_not_replace_user_secrets(tmp_path):
     assert (tmp_path / "data").is_dir()
     assert (tmp_path / "vault").is_dir()
 
-    prod = prod.replace("CLAIRE_INJECT_TOKEN=prod-token", "CLAIRE_INJECT_TOKEN=user-value")
+    user_token = "user-" + ("u" * 32)
+    prod = prod.replace(
+        f"CLAIRE_INJECT_TOKEN={prod_token}",
+        f"CLAIRE_INJECT_TOKEN={user_token}",
+    )
     (tmp_path / ".env").write_text(prod, encoding="utf-8")
     with patch.object(cb.secrets, "token_urlsafe") as generate:
         assert cb.main(["init"], root=tmp_path) == 0
     generate.assert_not_called()
-    assert "CLAIRE_INJECT_TOKEN=user-value" in (
+    assert f"CLAIRE_INJECT_TOKEN={user_token}" in (
         tmp_path / ".env"
     ).read_text(encoding="utf-8")
+
+
+def test_init_migrates_missing_environment_selectors_without_replacing_secrets(
+    tmp_path,
+):
+    _write_layout(tmp_path, owner_token="")
+    prod_path = tmp_path / ".env"
+    dev_path = tmp_path / ".env.dev"
+    prod = prod_path.read_text(encoding="utf-8").replace(
+        "CLAIRE_ENVIRONMENT=production\n",
+        "",
+    )
+    prod = prod.replace(
+        "CLAIRE_INJECT_TOKEN=",
+        "CLAIRE_INJECT_TOKEN=existing-prod-" + ("p" * 32),
+    )
+    dev = dev_path.read_text(encoding="utf-8").replace(
+        "CLAIRE_ENVIRONMENT=development\n",
+        "",
+    )
+    dev = dev.replace(
+        "CLAIRE_INJECT_TOKEN=\n",
+        "CLAIRE_INJECT_TOKEN=existing-dev-" + ("d" * 32) + "\n",
+    )
+    prod_path.write_text(prod, encoding="utf-8")
+    dev_path.write_text(dev, encoding="utf-8")
+
+    with patch.object(cb.secrets, "token_urlsafe") as generate:
+        assert cb.main(["init"], root=tmp_path) == 0
+
+    generate.assert_not_called()
+    migrated_prod = prod_path.read_text(encoding="utf-8")
+    migrated_dev = dev_path.read_text(encoding="utf-8")
+    assert migrated_prod.count("CLAIRE_ENVIRONMENT=production") == 1
+    assert migrated_dev.count("CLAIRE_ENVIRONMENT=development") == 1
+    assert "CLAIRE_INJECT_TOKEN=existing-prod-" + ("p" * 32) in migrated_prod
+    assert "CLAIRE_INJECT_TOKEN=existing-dev-" + ("d" * 32) in migrated_dev
 
 
 def test_dotenv_is_parsed_as_data_not_executed(tmp_path):
@@ -120,7 +184,7 @@ def test_dotenv_is_parsed_as_data_not_executed(tmp_path):
     with (tmp_path / ".env").open("a", encoding="utf-8") as stream:
         stream.write(f"UNRELATED=$(touch {marker})\n")
 
-    runtime = cb.load_runtime(cb.Layout(tmp_path), dev=False)
+    runtime = cb.load_runtime(cb.Layout(tmp_path))
 
     assert runtime.values["UNRELATED"] == f"$(touch {marker})"
     assert not marker.exists()
@@ -145,8 +209,220 @@ def test_dev_prefix_uses_overlay_stable_project_and_compose_environment(
     assert argv[argv.index("--profile") + 1] == "bot"
     assert argv[-1] == "ps"
     env = call.kwargs["env"]
+    assert env["CLAIRE_ENVIRONMENT"] == "development"
     assert env["CB_ENV_FILE"] == str((tmp_path / ".env").resolve())
     assert env["CB_DEV_ENV_FILE"] == str((tmp_path / ".env.dev").resolve())
+
+
+def test_process_environment_selects_development_without_legacy_prefix(
+    tmp_path, monkeypatch
+):
+    _write_layout(tmp_path)
+    monkeypatch.setenv("CLAIRE_ENVIRONMENT", "development")
+
+    with patch.object(cb.subprocess, "run", side_effect=_fake_success) as run:
+        assert cb.main(["status"], root=tmp_path) == 0
+
+    argv = run.call_args.args[0]
+    assert str(tmp_path / "docker-compose.dev.yml") in argv
+    assert argv[argv.index("-p") + 1] == "claire-bible-dev"
+    assert run.call_args.kwargs["env"]["CLAIRE_ENVIRONMENT"] == "development"
+
+
+def test_process_web_values_do_not_override_container_env_files(
+    tmp_path, monkeypatch
+):
+    _write_layout(tmp_path, dev=False)
+    monkeypatch.setenv("CLAIRE_PUBLIC_URL", " https://wrong.example.com/")
+    monkeypatch.setenv("CLAIRE_CORS_ALLOWED_ORIGINS", "https://bad_host")
+
+    with patch.object(cb.subprocess, "run", side_effect=_fake_success) as run:
+        assert cb.main(["status"], root=tmp_path) == 0
+
+    env = run.call_args.kwargs["env"]
+    assert "CLAIRE_PUBLIC_URL" not in env
+    assert "CLAIRE_CORS_ALLOWED_ORIGINS" not in env
+
+
+def test_environment_is_required_without_process_or_legacy_alias(
+    tmp_path, monkeypatch
+):
+    _write_layout(tmp_path, dev=False)
+    monkeypatch.delenv("CLAIRE_ENVIRONMENT", raising=False)
+    env_path = tmp_path / ".env"
+    env_path.write_text(
+        env_path.read_text(encoding="utf-8").replace(
+            "CLAIRE_ENVIRONMENT=production\n", ""
+        ),
+        encoding="utf-8",
+    )
+
+    with patch.object(cb.subprocess, "run") as run:
+        assert cb.main(["status"], root=tmp_path) == 2
+
+    run.assert_not_called()
+
+
+@pytest.mark.parametrize("value", ("prod", "Development", " production "))
+def test_environment_requires_exact_supported_value(
+    tmp_path, monkeypatch, value
+):
+    _write_layout(tmp_path, dev=False)
+    monkeypatch.setenv("CLAIRE_ENVIRONMENT", value)
+
+    with patch.object(cb.subprocess, "run") as run:
+        assert cb.main(["status"], root=tmp_path) == 2
+
+    run.assert_not_called()
+
+
+def test_legacy_dev_alias_rejects_process_production(tmp_path, monkeypatch):
+    _write_layout(tmp_path)
+    monkeypatch.setenv("CLAIRE_ENVIRONMENT", "production")
+
+    with patch.object(cb.subprocess, "run") as run:
+        assert cb.main(["dev", "status"], root=tmp_path) == 2
+
+    run.assert_not_called()
+
+
+def test_development_overlay_must_declare_development(tmp_path, monkeypatch):
+    _write_layout(tmp_path)
+    monkeypatch.delenv("CLAIRE_ENVIRONMENT", raising=False)
+    dev_path = tmp_path / ".env.dev"
+    dev_path.write_text(
+        dev_path.read_text(encoding="utf-8").replace(
+            "CLAIRE_ENVIRONMENT=development",
+            "CLAIRE_ENVIRONMENT=production",
+        ),
+        encoding="utf-8",
+    )
+
+    with patch.object(cb.subprocess, "run") as run:
+        assert cb.main(["dev", "status"], root=tmp_path) == 2
+
+    run.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "bind",
+    ("0.0.0.0", "224.0.0.1", "claire.internal", "::1"),
+)
+def test_api_bind_requires_concrete_ipv4(tmp_path, monkeypatch, bind):
+    _write_layout(tmp_path, dev=False)
+    monkeypatch.delenv("CLAIRE_ENVIRONMENT", raising=False)
+    env_path = tmp_path / ".env"
+    env_path.write_text(
+        env_path.read_text(encoding="utf-8").replace(
+            "CB_API_BIND=127.0.0.1",
+            f"CB_API_BIND={bind}",
+        ),
+        encoding="utf-8",
+    )
+
+    with patch.object(cb.subprocess, "run") as run:
+        assert cb.main(["status"], root=tmp_path) == 2
+
+    run.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "public_url",
+    (
+        "http://claire.example.com/",
+        "https://127.0.0.1/",
+        "https://claire.example.com/subpath",
+        "https://*.example.com/",
+        "https://claire.example.com/?next=/graph",
+    ),
+)
+def test_production_public_url_requires_https_dns_root(
+    tmp_path, monkeypatch, public_url
+):
+    _write_layout(tmp_path, dev=False)
+    monkeypatch.delenv("CLAIRE_ENVIRONMENT", raising=False)
+    env_path = tmp_path / ".env"
+    env_path.write_text(
+        env_path.read_text(encoding="utf-8").replace(
+            "CLAIRE_PUBLIC_URL=https://claire.example.com/",
+            f"CLAIRE_PUBLIC_URL={public_url}",
+        ),
+        encoding="utf-8",
+    )
+
+    with patch.object(cb.subprocess, "run") as run:
+        assert cb.main(["status"], root=tmp_path) == 2
+
+    run.assert_not_called()
+
+
+def test_public_url_rejects_quoted_outer_whitespace(tmp_path, monkeypatch):
+    _write_layout(tmp_path, dev=False)
+    monkeypatch.delenv("CLAIRE_ENVIRONMENT", raising=False)
+    env_path = tmp_path / ".env"
+    env_path.write_text(
+        env_path.read_text(encoding="utf-8").replace(
+            "CLAIRE_PUBLIC_URL=https://claire.example.com/",
+            'CLAIRE_PUBLIC_URL=" https://claire.example.com/"',
+        ),
+        encoding="utf-8",
+    )
+
+    with patch.object(cb.subprocess, "run") as run:
+        assert cb.main(["status"], root=tmp_path) == 2
+
+    run.assert_not_called()
+
+
+def test_development_public_url_must_match_published_authority(
+    tmp_path, monkeypatch
+):
+    _write_layout(tmp_path)
+    monkeypatch.delenv("CLAIRE_ENVIRONMENT", raising=False)
+    dev_path = tmp_path / ".env.dev"
+    dev_path.write_text(
+        dev_path.read_text(encoding="utf-8").replace(
+            "CLAIRE_PUBLIC_URL=http://127.0.0.1:8766/",
+            "CLAIRE_PUBLIC_URL=http://127.0.0.1:9999/",
+        ),
+        encoding="utf-8",
+    )
+
+    with patch.object(cb.subprocess, "run") as run:
+        assert cb.main(["dev", "status"], root=tmp_path) == 2
+
+    run.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "origins",
+    (
+        "*",
+        "https://*.example.com",
+        "https://ui.example.com/path",
+        "http://ui.example.com",
+        "https://bad_host",
+        "https://ui.example.com,https://ui.example.com",
+    ),
+)
+def test_production_cors_origins_are_exact_https_origins(
+    tmp_path, monkeypatch, origins
+):
+    _write_layout(tmp_path, dev=False)
+    monkeypatch.delenv("CLAIRE_ENVIRONMENT", raising=False)
+    env_path = tmp_path / ".env"
+    env_path.write_text(
+        env_path.read_text(encoding="utf-8").replace(
+            "CLAIRE_CORS_ALLOWED_ORIGINS=",
+            f"CLAIRE_CORS_ALLOWED_ORIGINS={origins}",
+        ),
+        encoding="utf-8",
+    )
+
+    with patch.object(cb.subprocess, "run") as run:
+        assert cb.main(["status"], root=tmp_path) == 2
+
+    run.assert_not_called()
 
 
 def test_empty_telegram_token_does_not_enable_bot_profile(tmp_path, monkeypatch):
@@ -341,7 +617,7 @@ def test_app_returns_child_exit_code(tmp_path):
 
 def test_app_rejects_lock_contention_before_subprocess(tmp_path):
     _write_layout(tmp_path, dev=False)
-    runtime = cb.load_runtime(cb.Layout(tmp_path), dev=False)
+    runtime = cb.load_runtime(cb.Layout(tmp_path))
 
     with cb.InstanceLock(runtime):
         with patch.object(cb.subprocess, "run") as run:
@@ -570,7 +846,7 @@ def test_production_and_development_keep_separate_state(tmp_path):
     dev = (state_dir / "development.json").read_text(encoding="utf-8")
     assert '"profile": "production"' in prod
     assert '"project": "claire-bible"' in prod
-    assert '"profile": "dev"' in dev
+    assert '"profile": "development"' in dev
     assert '"project": "claire-bible-dev"' in dev
 
 
@@ -687,6 +963,29 @@ def test_remote_actions_delegate_to_deploy_script_with_action_env(tmp_path):
     call = run.call_args
     assert call.args[0] == ["bash", str(tmp_path / "deploy.sh")]
     assert call.kwargs["env"]["DEPLOY_ACTION"] == "update"
+    assert call.kwargs["env"]["CLAIRE_ENVIRONMENT"] == "production"
+
+
+@pytest.mark.parametrize(
+    "argv,environment",
+    (
+        (["dev", "remote", "update"], None),
+        (["remote", "update"], "development"),
+    ),
+)
+def test_remote_rejects_development_selection(
+    tmp_path, monkeypatch, argv, environment
+):
+    _write_layout(tmp_path)
+    if environment is None:
+        monkeypatch.delenv("CLAIRE_ENVIRONMENT", raising=False)
+    else:
+        monkeypatch.setenv("CLAIRE_ENVIRONMENT", environment)
+
+    with patch.object(cb.subprocess, "run") as run:
+        assert cb.main(argv, root=tmp_path) == 2
+
+    run.assert_not_called()
 
 
 def test_remote_rejects_unused_extra_arguments(tmp_path):

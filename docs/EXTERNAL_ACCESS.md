@@ -1,77 +1,161 @@
-# 외부 접속(모바일/외부 PC) — 설계안 (구현 전 검토용)
+# 웹 접속과 reverse proxy
 
-상태: 설계 가이드. 실제 주소와 접속 정보는 실행 환경에서만 관리한다.
-아래의 설치·업데이트 명령은 배포 호스트의 `cb-manuscript` 수명주기를 따른다.
-앱 one-off 및 로컬 개발 명령과의 구분은 [운영 명령 경계](OPERATIONS.md)를 참고한다.
+Claire 웹 서비스는 환경에 따라 두 가지 접속 형태만 지원한다.
 
----
+- `development`: Docker host의 정확한 IPv4와 port로 직접 HTTP 접속
+- `production`: 별도 LAN reverse proxy가 public hostname과 클라이언트 TLS를 담당하고,
+  Claire에는 HTTP로 전달
 
-## 1. 현재 상태 (baseline)
+Claire 컨테이너에 HTTPS를 구성하거나 인증서를 저장하지 않는다. Claire host에서
+Let's Encrypt를 실행하는 절차도 이 문서와 현재 구현의 범위가 아니다. 서비스는
+hostname의 root(`/`)에 배치하며 subpath 배포는 지원하지 않는다.
 
-- inject API(aiohttp)는 **`127.0.0.1:8765` 루프백 바인드** (docker host-loopback).
-- 접근 예시: `ssh -L 8765:127.0.0.1:8765 claire-host` 터널 → `localhost:8765`.
-- 인증 현황(`graphview`/`api.server`):
-  - **게이팅됨**(쓰기/LLM 비용): `/synthesize`, `/search`(POST), `/auth/*`, inject(`bearer`).
-    `_authed` = bearer(CLI/replay) **OR** X-Session(텔레그램 버튼 승인 세션).
-  - **무인증(읽기)**: `/`(HTML), `/graph`, `/node`, `/documents`.
-    → **루프백 신뢰 전제**. 이 가정이 외부 노출의 핵심 제약이다.
+## 공통 네트워크 경계
 
-### 핵심 위협 (외부 노출 시)
-포트가 루프백 밖으로 열리는 순간, **읽기 엔드포인트가 지식 그래프 전체를 무인증으로 유출**한다
-(`/graph` = 전 엔티티·관계, `/documents` = 전 문서 제목·요약·URL). 따라서 외부 노출의 전제는:
+컨테이너 안의 웹 서버는 `0.0.0.0:CB_API_PORT`에서 듣는다. 외부에 공개되는 주소는
+Docker port publish의 host 측 `CB_API_BIND`다. `cb-manuscript`는 `CB_API_BIND`를
+단일 IPv4로 검사하고 `0.0.0.0`, multicast, hostname과 IPv6를 거부한다. 따라서
+컨테이너 listen 주소를 host 공개 범위로 해석하면 안 된다.
 
-> **(A) 네트워크 계층에서 디바이스/사용자 인증을 강제**(공개 노출 자체를 막음), 또는
-> **(B) 읽기 엔드포인트까지 세션 게이팅으로 전환** + TLS + 앞단 인증 프록시.
+`CLAIRE_PUBLIC_URL`은 링크 생성뿐 아니라 요청 Host 정책의 기준이다.
 
-둘 중 하나 없이 바인드만 `0.0.0.0` 으로 바꾸면 안 된다.
+| 환경 | 필수 형태 |
+|---|---|
+| development | `http://<CB_API_BIND>:<CB_API_PORT>/` |
+| production | `https://<DNS-hostname>/` |
 
----
+두 환경 모두 path는 root만 허용한다. `CLAIRE_CORS_ALLOWED_ORIGINS`는 path와 wildcard가
+없는 정확한 origin의 쉼표 목록이다. 빈 값이면 same-origin만 허용하고, production
+목록은 `https` origin만 사용할 수 있다.
 
-## 2. 옵션 비교
+기존 `.env`/`.env.dev`를 재사용하는 설치는 첫 기동 전에 `./cb-manuscript init`을 다시
+실행해 누락된 environment selector를 보충한다. 이 명령은 production hostname을
+추측하지 않는다. 따라서 `.env`의 `CLAIRE_PUBLIC_URL`은 아래 production 형식으로 직접
+설정한 뒤 `./cb-manuscript doctor`를 통과시켜야 한다.
 
-| 옵션 | 공개 노출 | 코드 변경 | 모바일 UX | 위협 표면 | 비고 |
-|---|---|---|---|---|---|
-| **0. SSH 터널(현행)** | 없음 | 0 | SSH 앱 필요(Termius 등) | 최소 | 이미 동작. 모바일만 불편 |
-| **1. Tailscale (WireGuard)** | **없음**(메시 VPN) | 바인드 주소만 | 앱 설치 후 매끄러움 | 최소(디바이스 인증=WireGuard 키) | **권장** |
-| **2. Cloudflare Tunnel + Access** | 공개 호스트명 | 바인드 + Access 정책 | 브라우저만 | 중(공개 진입점, Access가 게이트) | 공개 URL 필요 시 |
-| **3. Reverse proxy(Caddy)+TLS, 직접 노출** | 공개 IP/포트 | 바인드 + **읽기 게이팅(B) 필수** | 브라우저만 | 큼(모든 엔드포인트 직접 노출) | 비권장(개인용 과투자) |
+애플리케이션은 `Forwarded`와 `X-Forwarded-*`를 신뢰해 scheme, client IP 또는 Host를
+바꾸지 않는다. production의 외부 HTTPS 여부는 `CLAIRE_PUBLIC_URL`과 정확한 Host로
+결정하며 upstream 연결 자체는 HTTP다.
 
----
+## Development: IPv4 직접 HTTP
 
-## 3. 권장안 — Tailscale (옵션 1)
+`.env.dev`의 주소와 URL을 같은 authority로 설정한다.
 
-**이유**: 단일 사용자(소유자) 전용이라는 프로젝트 범위(GOALS §1)에 정확히 맞는다.
-공개 인터넷 노출이 **0**, 디바이스 인증은 WireGuard 키(앱이 관리), 읽기 엔드포인트
-게이팅을 재설계하지 않아도 된다(네트워크 계층이 곧 인증). 코드 변경은 바인드 주소뿐.
+```dotenv
+CLAIRE_ENVIRONMENT=development
+CB_API_BIND=192.168.10.25
+CB_API_PORT=8766
+CLAIRE_PUBLIC_URL=http://192.168.10.25:8766/
+CLAIRE_CORS_ALLOWED_ORIGINS=
+```
 
-### 단계
-1. 원격 호스트와 모바일/외부 PC에 Tailscale 설치 → 같은 tailnet.
-2. `.env`의 `CB_API_BIND`를 `127.0.0.1` → **tailscale0 인터페이스 IP(100.x.y.z)** 로
-   변경한다(또는 `0.0.0.0` + 호스트 방화벽이 tailscale0 만 허용).
-   적용은 `./cb-manuscript update --no-fetch`로 수행한다.
-3. **읽기 엔드포인트는 그대로 무인증 유지 가능**(tailnet 내부만 도달) — 단, "tailnet =
-   신뢰 경계" 를 명시적으로 문서화. ACL 로 그 포트를 소유자 디바이스로만 제한.
-4. 텔레그램 버튼 승인 세션은 그대로 동작(쓰기/LLM 게이트 유지) — 다층 방어.
-5. 검증: 모바일에서 tailnet IP:8765 접속 → 그래프 로드 / 외부(비-tailnet) 접속 거부 확인.
+```bash
+CLAIRE_ENVIRONMENT=development ./cb-manuscript doctor
+CLAIRE_ENVIRONMENT=development ./cb-manuscript up
+```
 
-### 잔여 리스크 / 결정 필요
-- tailnet 내 **다른 디바이스**가 신뢰되면 읽기 무인증 노출됨 → ACL 로 포트 제한 필수.
-- 분실 디바이스 → Tailscale admin 에서 key 폐기로 대응(세션 토큰과 별개 레이어).
-- 읽기 게이팅(B)을 추가로 원하면: `_authed` 를 읽기 핸들러에도 적용 + UI ensureSession
-  선행. 현재는 불필요(네트워크 계층이 담당)하나, 옵션 2/3 로 갈 경우 **선행 필수**.
+브라우저에서는 `http://192.168.10.25:8766/`로 접속한다. 예시 파일의 loopback은 같은
+host에서만 접근하는 안전한 초기값이다. 다른 개발 장치에서 접속할 때만 실제 고정 LAN
+IPv4로 바꾸고 host firewall의 허용 대역도 필요한 개발 LAN으로 제한한다.
 
----
+## Production: 별도 LAN reverse proxy
 
-## 4. 만약 공개 URL 이 필요해지면 (옵션 2, 미래)
-- Cloudflare Tunnel(`cloudflared`)로 아웃바운드 터널 → 공개 호스트명 + 자동 TLS.
-- **Cloudflare Access** 정책(이메일 OTP/IdP)으로 앞단 게이트 — 무인증 읽기 엔드포인트가
-  공개되지 않도록. 그래도 **읽기 게이팅(B)을 같이 넣어 심층 방어** 권장.
-- 텔레그램 승인 세션은 LLM/쓰기 비용 게이트로 계속 유지.
+권장 흐름은 다음과 같다.
 
----
+```text
+client -- HTTPS / production hostname --> external reverse proxy
+       -- HTTP / fixed LAN addresses --> Claire host:CB_API_PORT
+```
 
-## 5. 액션 (요약)
-- [ ] 접속 방식 선택(권장=Tailscale).
-- [ ] 바인드/compose 변경 + ACL + 검증. 코드 변경 최소.
-- [ ] (옵션 2/3 선택 시) 읽기 엔드포인트 `_authed` 게이팅 선행 구현 + TLS.
-- 텔레그램 승인 end-to-end 실측(GOALS 트랙3 미완)도 이때 함께.
+Claire host의 `.env`에는 proxy가 도달할 수 있는 고정 LAN IPv4와 사용자가 접속할
+hostname을 설정한다.
+
+```dotenv
+CLAIRE_ENVIRONMENT=production
+CB_API_BIND=192.168.10.25
+CB_API_PORT=8765
+CLAIRE_PUBLIC_URL=https://claire.example.com/
+CLAIRE_CORS_ALLOWED_ORIGINS=https://portal.example.com
+```
+
+배포 계약은 다음과 같다.
+
+- reverse proxy의 upstream은 `http://192.168.10.25:8765`처럼 고정한다.
+- Claire로 보내는 `Host`는 `CLAIRE_PUBLIC_URL`의 authority와 정확히 같아야 한다.
+- 알 수 없는 hostname을 Claire upstream으로 보내지 않고 proxy의 기본 virtual host에서
+  거부한다.
+- NDJSON 응답을 즉시 전달하도록 response buffering을 끄고 upstream read timeout을
+  장시간 작업보다 길게 둔다.
+- proxy access log에는 query string, `Referer`, `Authorization`과 cookie를 기록하지
+  않는다. 기존 인증 진입 query가 proxy 로그로 유출되지 않아야 한다.
+- Claire host firewall은 API port의 source를 reverse proxy의 고정 LAN IP로만 허용한다.
+  Host 검사만으로 backend 직접 접근을 막을 수는 없다.
+
+## Nginx 예시
+
+다음 server block은 외부 reverse proxy에 병합하는 예시다. proxy의 기존 TLS 인증서
+설정과 기본 virtual host 정책은 그대로 사용하며 여기서는 인증서 발급·갱신을 다루지
+않는다.
+
+```nginx
+log_format claire_safe
+    '$remote_addr "$request_method $uri $server_protocol" '
+    '$status $body_bytes_sent $request_time';
+
+# http context: 인증 추측과 장시간 worker 고갈을 한 IP가 독점하지 못하게 한다.
+limit_req_zone $binary_remote_addr zone=claire_per_ip:10m rate=10r/s;
+limit_conn_zone $binary_remote_addr zone=claire_conn_per_ip:10m;
+
+upstream claire_backend {
+    server 192.168.10.25:8765;
+    keepalive 16;
+}
+
+server {
+    listen 443 ssl;
+    server_name claire.example.com;
+
+    # ssl_* directives are owned by this external proxy's existing TLS policy.
+    access_log /var/log/nginx/claire_access.log claire_safe;
+    client_max_body_size 1m;
+    client_body_timeout 15s;
+
+    location / {
+        limit_req zone=claire_per_ip burst=20 nodelay;
+        limit_conn claire_conn_per_ip 10;
+
+        proxy_pass http://claire_backend;
+        proxy_http_version 1.1;
+        proxy_set_header Host claire.example.com;
+        proxy_set_header Connection "";
+        proxy_set_header Forwarded "";
+        proxy_set_header X-Forwarded-For "";
+        proxy_set_header X-Forwarded-Host "";
+        proxy_set_header X-Forwarded-Proto "";
+        proxy_set_header Referer "";
+
+        proxy_buffering off;
+        proxy_connect_timeout 5s;
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
+    }
+}
+```
+
+같은 proxy의 unmatched/default server는 연결을 거부해야 한다. `$request_uri`는 query를
+포함하므로 위 안전 로그에서는 사용하지 않는다.
+
+## 적용 확인
+
+development에서는 설정한 IPv4 URL로 직접 접속하고 다른 interface에 port가 게시되지
+않았는지 확인한다. production에서는 다음을 각각 확인한다.
+
+1. 올바른 hostname을 통한 HTTPS 요청은 성공한다.
+2. 잘못된 Host는 proxy 또는 Claire에서 거부된다.
+3. proxy host에서는 Claire HTTP upstream에 접속할 수 있다.
+4. proxy 이외의 LAN host에서는 firewall 때문에 같은 upstream port에 접속할 수 없다.
+5. 긴 NDJSON 응답이 proxy buffering 없이 순차 전달된다.
+6. Claire와 proxy access log에 query string과 인증 정보가 남지 않는다.
+
+실제 Linux 실행 시험은 저장소 작업 경로가 아니라 WSL Ubuntu의 `/home/fow/testbed`
+아래에 새로 만든 clone에서 수행한다.

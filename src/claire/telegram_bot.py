@@ -160,7 +160,7 @@ def run_bot() -> int:
         "\n"
         "명령어:\n"
         "  /search <키워드> — 하이브리드 검색 + 요약(인용)\n"
-        "  /web — 웹 그래프 접속 링크 발급(7일·접속 시 연장, 적재/수정 가능)\n"
+        "  /web — 1회용 웹 로그인 링크 발급(로그인 쿠키 7일, 적재/수정 가능)\n"
         "  /webro — 읽기전용 웹 링크 발급(그래프·검색·문서만, 공유해도 안전)\n"
         "  /status — 현황(그래프 규모·수렴·최근 수신)\n"
         "  /failed — 실패/영구실패 항목 점검\n"
@@ -311,7 +311,7 @@ def run_bot() -> int:
 
     async def on_web(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
         # 웹 접속 링크 발급: 세션 토큰 즉시 발급 → ?t= 가 붙은 1회용 진입 URL 회신.
-        # 토큰은 접속할 때마다 7일씩 자동 연장(슬라이딩). 소유자만.
+        # 링크는 첫 접속에서 cookie 세션으로 회전하고 URL 자체는 즉시 무효화된다.
         if not _is_allowed(update.effective_user.id if update.effective_user else None):
             return
         from .store import db as dbm
@@ -332,8 +332,11 @@ def run_bot() -> int:
         tok = await asyncio.to_thread(_mint)
         url = f"{s.public_url.rstrip('/')}/?t={tok}"
         await update.message.reply_text(
-            "🔗 웹 접속 링크 (7일 · 접속 시 자동 연장):\n" + url +
-            "\n\n링크를 열면 쿠키로 로그인됩니다. 공유하지 마세요.")
+            "🔗 1회용 웹 로그인 링크:\n" + url +
+            "\n\n첫 접속 뒤 URL은 무효가 되고 로그인 쿠키가 7일간 자동 연장됩니다. "
+            "공유하지 마세요.",
+            disable_web_page_preview=True,
+        )
 
     async def on_webro(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
         # 읽기전용 웹 링크: /web 과 동일 메커니즘(세션+쿠키, 7일 슬라이딩)이지만
@@ -363,7 +366,9 @@ def run_bot() -> int:
         await update.message.reply_text(
             "🔗 읽기전용 웹 링크 (7일 · 접속 시 자동 연장):\n" + url +
             "\n\n그래프·검색·문서만 볼 수 있고 적재/수정은 안 됩니다. 다른 사람과 공유해도 "
-            "안전합니다(다시 /webro 하면 이전 읽기전용 링크만 무효화 — /web 세션은 안 건드림).")
+            "안전합니다(다시 /webro 하면 이전 읽기전용 링크만 무효화 — /web 세션은 안 건드림).",
+            disable_web_page_preview=True,
+        )
 
     async def on_status(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
         if not _is_allowed(update.effective_user.id if update.effective_user else None):

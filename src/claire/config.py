@@ -54,15 +54,22 @@ class Settings(BaseSettings):
     # 주기 크롤링: watch 문서의 기본 재확인 주기(일). 문서별 watch_interval 이 있으면 그게 우선.
     watch_interval_days: float = Field(default=1.0, alias="CLAIRE_WATCH_INTERVAL_DAYS")
 
-    # --- local inject API (DM 과 동일 ingest 통로를 로컬에서 호출) ---
+    # --- web service (DM 과 동일 ingest 통로 + graph UI) ---
+    # 운영 명령의 canonical selector. cb-manuscript가 development에서는 .env.dev
+    # overlay까지 해소한 뒤 모든 컨테이너에 같은 값을 전달한다.
+    environment: str = Field(default="", alias="CLAIRE_ENVIRONMENT")
     inject_host: str = Field(default="127.0.0.1", alias="CLAIRE_INJECT_HOST")
     inject_port: int = Field(default=8765, alias="CLAIRE_INJECT_PORT")
     inject_token: str = Field(default="", alias="CLAIRE_INJECT_TOKEN")
     # 읽기 전용 공개 토큰 — owner bearer(inject_token)와 별개. GET(검색/그래프/노드상세/
     # 문서목록)만 통과시키고 쓰기(ingest/dedup-merge/공유링크발급 등)는 차단(에이전트 조회용).
     readonly_token: str = Field(default="", alias="CLAIRE_READONLY_TOKEN")
-    # 외부 공개 URL(예: https://claire.example.com) — /web 명령이 접속 링크를 만들 때 사용.
+    # 브라우저 기준 canonical URL. Host 검증, same-origin 판정, /web 링크 생성에 함께 쓴다.
     public_url: str = Field(default="", alias="CLAIRE_PUBLIC_URL")
+    # 브라우저 cross-origin 호출을 허용할 exact origin 목록. 인증은 Bearer만 허용한다.
+    cors_allowed_origins: str = Field(
+        default="", alias="CLAIRE_CORS_ALLOWED_ORIGINS"
+    )
 
     @property
     def effective_provider(self) -> str:

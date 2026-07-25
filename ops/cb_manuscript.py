@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import fcntl
 import hashlib
+import ipaddress
 import json
 import os
 from pathlib import Path, PurePosixPath
@@ -27,19 +28,25 @@ import tarfile
 import tempfile
 import time
 from typing import Iterator, Mapping, Sequence
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 
 VERSION = "0.2.0"
 DEFAULT_PROJECT = "claire-bible"
 DEFAULT_DEV_PROJECT = "claire-bible-dev"
 DEFAULT_WAIT_TIMEOUT = 120
+ENVIRONMENT_KEY = "CLAIRE_ENVIRONMENT"
+DEVELOPMENT = "development"
+PRODUCTION = "production"
+ENVIRONMENTS = frozenset((DEVELOPMENT, PRODUCTION))
 BACKUP_FORMAT_VERSION = 1
 BACKUP_COMPONENTS = ("data", "vault")
 BACKUP_ARCHIVE_SUFFIX = ".tar.gz"
 BACKUP_ID_RE = re.compile(r"^cb-[0-9]{8}$")
 PROJECT_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+DNS_LABEL_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$")
+WEB_TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{32,128}$")
 LEGACY_CONTAINERS = (
     "claire_bot",
     "claire_api",
@@ -209,11 +216,15 @@ class Layout:
 @dataclass(frozen=True)
 class Runtime:
     layout: Layout
-    dev: bool
+    environment: str
     values: Mapping[str, str]
     project: str
     wait_timeout: int
     bot_enabled: bool
+
+    @property
+    def dev(self) -> bool:
+        return self.environment == DEVELOPMENT
 
     @property
     def env_files(self) -> tuple[Path, ...]:
@@ -249,6 +260,11 @@ class Runtime:
 
     def compose_environment(self) -> dict[str, str]:
         env = os.environ.copy()
+        # 두 보안 경계 값은 service env_file이 실제 컨테이너에 전달한다. host process의
+        # 동명 값이 Compose 보간에 끼어들어 사전 검사와 실행값을 갈라놓지 못하게 한다.
+        env.pop("CLAIRE_PUBLIC_URL", None)
+        env.pop("CLAIRE_CORS_ALLOWED_ORIGINS", None)
+        env[ENVIRONMENT_KEY] = self.environment
         env["CB_ENV_FILE"] = str(self.layout.env.resolve())
         if self.dev:
             env["CB_DEV_ENV_FILE"] = str(self.layout.dev_env.resolve())
@@ -368,10 +384,268 @@ def _effective(values: Mapping[str, str], key: str) -> str:
     return values.get(key, "")
 
 
-def load_runtime(layout: Layout, *, dev: bool) -> Runtime:
-    values = read_dotenv(layout.env)
-    if dev:
-        values.update(read_dotenv(layout.dev_env))
+def _parse_environment(raw: str, *, source: str) -> str:
+    value = raw
+    if value not in ENVIRONMENTS:
+        expected = " 또는 ".join(sorted(ENVIRONMENTS))
+        if value:
+            raise ManuscriptError(
+                f"{source}의 {ENVIRONMENT_KEY}={value!r}은 잘못되었습니다. "
+                f"{expected} 중 하나를 사용하세요."
+            )
+        raise ManuscriptError(
+            f"{source}에 {ENVIRONMENT_KEY}가 필요합니다. "
+            f"{expected} 중 하나를 설정하세요."
+        )
+    return value
+
+
+def _resolve_environment(
+    layout: Layout,
+    base_values: Mapping[str, str],
+    *,
+    legacy_dev: bool,
+) -> tuple[str, dict[str, str]]:
+    process_value = os.environ.get(ENVIRONMENT_KEY)
+    if process_value is not None:
+        environment = _parse_environment(
+            process_value,
+            source="프로세스 환경",
+        )
+        if legacy_dev and environment != DEVELOPMENT:
+            raise ManuscriptError(
+                f"`dev` 별칭은 {ENVIRONMENT_KEY}={DEVELOPMENT} 전용입니다. "
+                f"프로세스 환경의 {environment!r}과 함께 사용할 수 없습니다."
+            )
+    elif legacy_dev:
+        environment = DEVELOPMENT
+    else:
+        environment = _parse_environment(
+            base_values.get(ENVIRONMENT_KEY, ""),
+            source=str(layout.env),
+        )
+
+    values = dict(base_values)
+    if environment == DEVELOPMENT:
+        development_values = read_dotenv(layout.dev_env)
+        values.update(development_values)
+        declared_raw = development_values.get(ENVIRONMENT_KEY, "")
+        declared = _parse_environment(
+            declared_raw,
+            source=str(layout.dev_env),
+        )
+        if declared != DEVELOPMENT:
+            raise ManuscriptError(
+                f"{layout.dev_env}의 {ENVIRONMENT_KEY}는 "
+                f"{DEVELOPMENT!r}이어야 합니다."
+            )
+    else:
+        declared_raw = base_values.get(ENVIRONMENT_KEY, "")
+        if declared_raw:
+            declared = _parse_environment(
+                declared_raw,
+                source=str(layout.env),
+            )
+            if declared != PRODUCTION:
+                raise ManuscriptError(
+                    f"{layout.env}의 {ENVIRONMENT_KEY}는 "
+                    f"{PRODUCTION!r}이어야 합니다."
+                )
+
+    effective = _parse_environment(
+        _effective(values, ENVIRONMENT_KEY),
+        source="유효 설정",
+    )
+    if effective != environment:
+        raise ManuscriptError(
+            f"선택한 환경 {environment!r}과 유효 {ENVIRONMENT_KEY} "
+            f"{effective!r}이 충돌합니다."
+        )
+    return environment, values
+
+
+def _parse_port(values: Mapping[str, str]) -> int:
+    port = _effective(values, "CB_API_PORT").strip() or "8765"
+    try:
+        parsed_port = int(port)
+    except ValueError as exc:
+        raise ManuscriptError("CB_API_PORT는 정수여야 합니다.") from exc
+    if not 1 <= parsed_port <= 65535:
+        raise ManuscriptError("CB_API_PORT는 1~65535 범위여야 합니다.")
+    return parsed_port
+
+
+def _validate_api_bind(values: Mapping[str, str]) -> str:
+    raw = _effective(values, "CB_API_BIND").strip()
+    if not raw:
+        raise ManuscriptError("CB_API_BIND에 호스트가 게시할 IPv4 주소가 필요합니다.")
+    try:
+        address = ipaddress.ip_address(raw)
+    except ValueError as exc:
+        raise ManuscriptError(
+            "CB_API_BIND는 hostname이 아닌 단일 IPv4 주소여야 합니다."
+        ) from exc
+    if not isinstance(address, ipaddress.IPv4Address):
+        raise ManuscriptError("CB_API_BIND는 IPv4 주소여야 합니다.")
+    if address.is_unspecified or address.is_multicast:
+        raise ManuscriptError(
+            "CB_API_BIND에는 0.0.0.0 또는 multicast 주소를 사용할 수 없습니다."
+        )
+    return str(address)
+
+
+def _validate_dns_hostname(hostname: str, *, field: str) -> None:
+    if not hostname or hostname.endswith(".") or "*" in hostname:
+        raise ManuscriptError(f"{field}에는 정확한 DNS hostname이 필요합니다.")
+    try:
+        ipaddress.ip_address(hostname)
+    except ValueError:
+        pass
+    else:
+        raise ManuscriptError(f"{field}에는 IP가 아닌 DNS hostname이 필요합니다.")
+    if len(hostname) > 253 or any(
+        not DNS_LABEL_RE.fullmatch(label) for label in hostname.split(".")
+    ):
+        raise ManuscriptError(f"{field}의 DNS hostname 형식이 잘못되었습니다.")
+
+
+def _split_url(raw: str, *, field: str):
+    if not raw:
+        raise ManuscriptError(f"{field}가 필요합니다.")
+    if "*" in raw:
+        raise ManuscriptError(f"{field}에는 wildcard를 사용할 수 없습니다.")
+    try:
+        parsed = urlsplit(raw)
+    except ValueError as exc:
+        raise ManuscriptError(f"{field} 형식이 잘못되었습니다.") from exc
+    if (
+        not parsed.scheme
+        or not parsed.netloc
+        or parsed.netloc.endswith(":")
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise ManuscriptError(f"{field} 형식이 잘못되었습니다.")
+    try:
+        port = parsed.port
+    except ValueError as exc:
+        raise ManuscriptError(f"{field}의 port 형식이 잘못되었습니다.") from exc
+    if port is not None and port < 1:
+        raise ManuscriptError(f"{field}의 port는 1~65535 범위여야 합니다.")
+    return parsed
+
+
+def _validate_public_url(
+    values: Mapping[str, str],
+    *,
+    environment: str,
+    bind: str,
+    port: int,
+) -> None:
+    # 이 값은 Compose service의 env_file에서 컨테이너로 들어간다. 프로세스 환경은
+    # 컨테이너에 전달되지 않으므로 여기서도 파일의 유효값을 그대로 검사한다.
+    raw = values.get("CLAIRE_PUBLIC_URL", "")
+    if raw != raw.strip():
+        raise ManuscriptError("CLAIRE_PUBLIC_URL에는 바깥 공백을 사용할 수 없습니다.")
+    parsed = _split_url(raw, field="CLAIRE_PUBLIC_URL")
+    if parsed.path not in {"", "/"}:
+        raise ManuscriptError("CLAIRE_PUBLIC_URL은 root 경로만 사용할 수 있습니다.")
+
+    if environment == DEVELOPMENT:
+        expected_authority = f"{bind}:{port}"
+        if parsed.scheme != "http" or parsed.netloc != expected_authority:
+            raise ManuscriptError(
+                "development의 CLAIRE_PUBLIC_URL은 "
+                f"http://{expected_authority}/ 이어야 합니다."
+            )
+        return
+
+    if parsed.scheme != "https":
+        raise ManuscriptError(
+            "production의 CLAIRE_PUBLIC_URL은 외부 reverse proxy의 "
+            "https URL이어야 합니다."
+        )
+    hostname = parsed.hostname or ""
+    _validate_dns_hostname(hostname, field="CLAIRE_PUBLIC_URL")
+
+
+def _validate_cors_origins(
+    values: Mapping[str, str],
+    *,
+    environment: str,
+) -> None:
+    # CLAIRE_PUBLIC_URL과 마찬가지로 env_file에서 전달되는 실제 컨테이너 값을
+    # 검사한다. 항목 사이 공백은 앱과 동일하게 허용한다.
+    raw = values.get("CLAIRE_CORS_ALLOWED_ORIGINS", "").strip()
+    if not raw:
+        return
+    seen: set[str] = set()
+    for origin in (item.strip() for item in raw.split(",")):
+        if not origin:
+            raise ManuscriptError(
+                "CLAIRE_CORS_ALLOWED_ORIGINS에는 빈 origin을 사용할 수 없습니다."
+            )
+        if origin in seen:
+            raise ManuscriptError(
+                f"CLAIRE_CORS_ALLOWED_ORIGINS에 중복된 origin이 있습니다: {origin}"
+            )
+        parsed = _split_url(origin, field="CLAIRE_CORS_ALLOWED_ORIGINS")
+        if parsed.path:
+            raise ManuscriptError(
+                "CLAIRE_CORS_ALLOWED_ORIGINS에는 path를 포함할 수 없습니다."
+            )
+        if parsed.scheme not in {"http", "https"}:
+            raise ManuscriptError(
+                "CLAIRE_CORS_ALLOWED_ORIGINS는 http 또는 https origin만 허용합니다."
+            )
+        if environment == PRODUCTION and parsed.scheme != "https":
+            raise ManuscriptError(
+                "production의 CLAIRE_CORS_ALLOWED_ORIGINS는 https만 허용합니다."
+            )
+        hostname = parsed.hostname
+        if not hostname:
+            raise ManuscriptError(
+                "CLAIRE_CORS_ALLOWED_ORIGINS에는 hostname이 필요합니다."
+            )
+        try:
+            ipaddress.ip_address(hostname)
+        except ValueError:
+            _validate_dns_hostname(
+                hostname,
+                field="CLAIRE_CORS_ALLOWED_ORIGINS",
+            )
+        seen.add(origin)
+
+
+def _validate_web_tokens(values: Mapping[str, str]) -> None:
+    owner = values.get("CLAIRE_INJECT_TOKEN", "")
+    readonly = values.get("CLAIRE_READONLY_TOKEN", "")
+    if not WEB_TOKEN_RE.fullmatch(owner):
+        raise ManuscriptError(
+            "CLAIRE_INJECT_TOKEN은 URL-safe 문자로 된 32~128자 토큰이어야 합니다. "
+            "`./cb-manuscript init`으로 빈 값을 생성할 수 있습니다."
+        )
+    if readonly and not WEB_TOKEN_RE.fullmatch(readonly):
+        raise ManuscriptError(
+            "CLAIRE_READONLY_TOKEN은 비워 두거나 URL-safe 문자로 된 "
+            "32~128자 토큰이어야 합니다."
+        )
+    if readonly and secrets.compare_digest(owner, readonly):
+        raise ManuscriptError(
+            "CLAIRE_INJECT_TOKEN과 CLAIRE_READONLY_TOKEN은 서로 달라야 합니다."
+        )
+
+
+def load_runtime(layout: Layout, *, legacy_dev: bool = False) -> Runtime:
+    base_values = read_dotenv(layout.env)
+    environment, values = _resolve_environment(
+        layout,
+        base_values,
+        legacy_dev=legacy_dev,
+    )
+    dev = environment == DEVELOPMENT
 
     project = _effective(values, "CB_PROJECT_NAME").strip()
     if not project:
@@ -392,19 +666,21 @@ def load_runtime(layout: Layout, *, dev: bool) -> Runtime:
     if not 1 <= wait_timeout <= 86400:
         raise ManuscriptError("CB_WAIT_TIMEOUT은 1~86400 범위여야 합니다.")
 
-    port = _effective(values, "CB_API_PORT").strip()
-    if port:
-        try:
-            parsed_port = int(port)
-        except ValueError as exc:
-            raise ManuscriptError("CB_API_PORT는 정수여야 합니다.") from exc
-        if not 1 <= parsed_port <= 65535:
-            raise ManuscriptError("CB_API_PORT는 1~65535 범위여야 합니다.")
+    parsed_port = _parse_port(values)
+    api_bind = _validate_api_bind(values)
+    _validate_public_url(
+        values,
+        environment=environment,
+        bind=api_bind,
+        port=parsed_port,
+    )
+    _validate_cors_origins(values, environment=environment)
+    _validate_web_tokens(values)
 
     bot_enabled = bool(_effective(values, "TELEGRAM_BOT_TOKEN").strip())
     return Runtime(
         layout=layout,
-        dev=dev,
+        environment=environment,
         values=values,
         project=project,
         wait_timeout=wait_timeout,
@@ -454,8 +730,49 @@ def _copy_once(source: Path, target: Path) -> bool:
     return True
 
 
+def _ensure_environment_selector(path: Path, expected: str) -> bool:
+    """기존 env 파일에 새 canonical selector를 안전하게 보충한다."""
+
+    text = path.read_text(encoding="utf-8")
+    lines = text.splitlines(keepends=True)
+    matches: list[tuple[int, str]] = []
+
+    for index, original in enumerate(lines):
+        candidate = original.strip()
+        if not candidate or candidate.startswith("#"):
+            continue
+        if candidate.startswith("export "):
+            candidate = candidate[7:].lstrip()
+        if "=" not in candidate:
+            continue
+        key, raw = candidate.split("=", 1)
+        if key.strip() == ENVIRONMENT_KEY:
+            matches.append((index, _dotenv_value(raw, path, index + 1)))
+
+    if len(matches) > 1:
+        raise ManuscriptError(f"{path}에 {ENVIRONMENT_KEY}가 중복되어 있습니다.")
+    if matches:
+        index, value = matches[0]
+        if value == expected:
+            os.chmod(path, 0o600)
+            return False
+        if value:
+            raise ManuscriptError(
+                f"{path}의 {ENVIRONMENT_KEY}는 {expected!r}이어야 합니다."
+            )
+        newline = "\n" if lines[index].endswith("\n") else ""
+        lines[index] = f"{ENVIRONMENT_KEY}={expected}{newline}"
+    else:
+        if lines and not lines[-1].endswith("\n"):
+            lines[-1] += "\n"
+        lines.append(f"{ENVIRONMENT_KEY}={expected}\n")
+
+    _atomic_write(path, "".join(lines), mode=0o600)
+    return True
+
+
 def _ensure_inject_token(path: Path) -> bool:
-    """Fill a missing/blank inject token, preserving every non-empty value."""
+    """빈 inject token을 생성하고 기존 값은 충분한 강도인지 확인한다."""
 
     text = path.read_text(encoding="utf-8")
     lines = text.splitlines(keepends=True)
@@ -477,6 +794,11 @@ def _ensure_inject_token(path: Path) -> bool:
         found = True
         value = _dotenv_value(raw, path, index + 1)
         if value:
+            if not WEB_TOKEN_RE.fullmatch(value):
+                raise ManuscriptError(
+                    f"{path}의 CLAIRE_INJECT_TOKEN은 URL-safe 문자로 된 "
+                    "32~128자 토큰이어야 합니다."
+                )
             break
         generated = generated or secrets.token_urlsafe(32)
         newline = "\n" if original.endswith("\n") else ""
@@ -506,6 +828,11 @@ def command_init(layout: Layout) -> int:
         else layout.env_example
     )
     created_dev_env = _copy_once(dev_source, layout.dev_env)
+    selector_migrated = _ensure_environment_selector(layout.env, PRODUCTION)
+    dev_selector_migrated = _ensure_environment_selector(
+        layout.dev_env,
+        DEVELOPMENT,
+    )
     token_created = _ensure_inject_token(layout.env)
     _ensure_inject_token(layout.dev_env)
     layout.data.mkdir(parents=True, exist_ok=True)
@@ -513,6 +840,10 @@ def command_init(layout: Layout) -> int:
 
     print(f".env: {'생성' if created_env else '유지'}")
     print(f".env.dev: {'생성' if created_dev_env else '유지'}")
+    print(
+        f"{ENVIRONMENT_KEY}: "
+        f"{'보충' if selector_migrated or dev_selector_migrated else '유지'}"
+    )
     print(f"CLAIRE_INJECT_TOKEN: {'생성' if token_created else '유지'}")
     print("data/, vault/: 준비됨")
     return 0
@@ -729,7 +1060,7 @@ def _record_success(
         "schema_version": 1,
         "cli_version": VERSION,
         "action": action,
-        "profile": "dev" if runtime.dev else "production",
+        "profile": runtime.environment,
         "project": runtime.project,
         "image": f"{image}:{tag}",
         "source_revision": _source_revision(runtime.layout),
@@ -2118,7 +2449,7 @@ def command_doctor(runtime: Runtime) -> int:
     run_command(("git", "--version"), cwd=runtime.layout.root)
     config_preflight(runtime)
     print(f"root: {runtime.layout.root}")
-    print(f"profile: {'dev' if runtime.dev else 'production'}")
+    print(f"profile: {runtime.environment}")
     print(f"project: {runtime.project}")
     print(f"bot profile: {'enabled' if runtime.bot_enabled else 'disabled'}")
     print("doctor: OK")
@@ -2144,6 +2475,7 @@ def command_remote(layout: Layout, action: str) -> int:
     if not layout.deploy_script.is_file():
         raise ManuscriptError(f"원격 배포 스크립트가 없습니다: {layout.deploy_script}")
     env = os.environ.copy()
+    env[ENVIRONMENT_KEY] = PRODUCTION
     env["DEPLOY_ACTION"] = action
     result = run_command(
         ("bash", str(layout.deploy_script)),
@@ -2291,8 +2623,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="cb-manuscript",
         description=(
-            "Claire 컨테이너 관리. 개발 overlay는 "
-            "`cb-manuscript dev <command>`로 선택합니다."
+            f"Claire 컨테이너 관리. 환경은 {ENVIRONMENT_KEY}의 "
+            f"{DEVELOPMENT}/{PRODUCTION}으로 선택하며 `dev`는 개발 호환 별칭입니다."
         ),
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -2358,6 +2690,24 @@ def _split_dev_prefix(argv: Sequence[str]) -> tuple[bool, list[str]]:
     return False, args
 
 
+def _validate_remote_environment(layout: Layout, *, legacy_dev: bool) -> None:
+    if legacy_dev:
+        raise ManuscriptError("remote install/update는 production 환경에서만 실행할 수 있습니다.")
+    process_value = os.environ.get(ENVIRONMENT_KEY)
+    if process_value is not None:
+        environment = _parse_environment(process_value, source="프로세스 환경")
+    else:
+        values = read_dotenv(layout.env)
+        environment = _parse_environment(
+            values.get(ENVIRONMENT_KEY, ""),
+            source=str(layout.env),
+        )
+    if environment != PRODUCTION:
+        raise ManuscriptError(
+            f"remote install/update는 {ENVIRONMENT_KEY}={PRODUCTION} 전용입니다."
+        )
+
+
 def main(argv: Sequence[str] | None = None, *, root: Path | None = None) -> int:
     raw = list(sys.argv[1:] if argv is None else argv)
     dev, args = _split_dev_prefix(raw)
@@ -2368,13 +2718,14 @@ def main(argv: Sequence[str] | None = None, *, root: Path | None = None) -> int:
             if args[0] != "app" and args[1:] == ["--help"]:
                 build_parser().parse_args([args[0], "--help"])
                 return 0
-            runtime = load_runtime(layout, dev=dev)
+            runtime = load_runtime(layout, legacy_dev=dev)
             if args[0] in LOCKED_PASSTHROUGH_COMMANDS:
                 with InstanceLock(runtime):
                     return dispatch_passthrough(runtime, args[0], args[1:])
             return dispatch_passthrough(runtime, args[0], args[1:])
 
         if args[:1] == ["remote"] and len(args) >= 2:
+            _validate_remote_environment(layout, legacy_dev=dev)
             action = args[1]
             if action not in {"install", "update"}:
                 build_parser().error("remote action은 install 또는 update여야 합니다")
@@ -2388,7 +2739,7 @@ def main(argv: Sequence[str] | None = None, *, root: Path | None = None) -> int:
         if parsed.command == "version":
             return command_version(layout)
 
-        runtime = load_runtime(layout, dev=dev)
+        runtime = load_runtime(layout, legacy_dev=dev)
         if parsed.command == "doctor":
             return command_doctor(runtime)
         if parsed.command == "install":

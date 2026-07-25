@@ -1,10 +1,14 @@
 name: "${CB_PROJECT_NAME:-claire-bible}"
 
+x-claire-environment: &claire-environment
+  CLAIRE_ENVIRONMENT: "${CLAIRE_ENVIRONMENT:?CLAIRE_ENVIRONMENT is required}"
+
 x-claire-service: &claire-service
   image: "${CB_IMAGE:-claire-bible}:${CB_IMAGE_TAG:-local}"
   build:
     context: .
   restart: unless-stopped
+  environment: *claire-environment
   env_file:
     - "${CB_ENV_FILE:-.env}"
   volumes:
@@ -21,10 +25,11 @@ services:
   api:
     <<: *claire-service
     environment:
+      <<: *claire-environment
       CLAIRE_INJECT_HOST: "0.0.0.0"
-      CLAIRE_INJECT_PORT: "${CB_API_PORT:-8765}"
+      CLAIRE_INJECT_PORT: "${CB_API_PORT:?CB_API_PORT is required}"
     ports:
-      - "${CB_API_BIND:-127.0.0.1}:${CB_API_PORT:-8765}:${CB_API_PORT:-8765}"
+      - "${CB_API_BIND:?CB_API_BIND is required}:${CB_API_PORT:?CB_API_PORT is required}:${CB_API_PORT:?CB_API_PORT is required}"
     command: ["claire", "serve-api"]
     healthcheck:
       test: ["CMD", "claire", "liveness"]

@@ -36,7 +36,7 @@ def test_migrate_creates_and_validates_current_schema(monkeypatch, tmp_path, cap
         conn.close()
 
 
-def test_liveness_ignores_degraded_state(monkeypatch, tmp_path, capsys):
+def test_liveness_checks_only_database_and_schema(monkeypatch, tmp_path, capsys):
     s = _settings(monkeypatch, tmp_path)
     conn = dbm.connect(s.db_file)
     dbm.init_db(conn)
@@ -48,7 +48,8 @@ def test_liveness_ignores_degraded_state(monkeypatch, tmp_path, capsys):
     assert cli.main(["liveness"]) == 0
     report = json.loads(capsys.readouterr().out)
     assert report["ok"] is True
-    assert report["degraded"] is True
+    assert "degraded" not in report
+    assert "inbox" not in report
     assert report["schema_version"] == dbm.SCHEMA_VERSION
 
 

@@ -84,6 +84,7 @@ def _run_deploy(
         "DEPLOY_ENV_FILE",
         "DEPLOY_APP_ENV_FILE",
         "SKIP_CI",
+        "CLAIRE_ENVIRONMENT",
     ):
         env.pop(name, None)
     env.update(
@@ -95,6 +96,7 @@ def _run_deploy(
             # 실제 기본값은 .env.deploy(접속) + .env(런타임)로 분리된다.
             "DEPLOY_APP_ENV_FILE": str(env_file),
             "SKIP_CI": "1",
+            "CLAIRE_ENVIRONMENT": "production",
             "SSH_EXEC_GUARD": "1" if ssh_exec_guard else "0",
             "SSH_GUARD_STATUS": str(ssh_guard_status),
             "SSH_TEST_STATUS": str(ssh_test_status),
@@ -122,6 +124,13 @@ class DeployScriptTest(unittest.TestCase):
     def tearDown(self) -> None:
         self._temp_dir.cleanup()
 
+    def test_ci_gate_does_not_leak_remote_environment_selector(self):
+        script = DEPLOY.read_text(encoding="utf-8")
+        self.assertIn(
+            "env -u CLAIRE_ENVIRONMENT bash ./scripts/ci.sh",
+            script,
+        )
+
     def test_reads_dotenv_and_syncs_it_without_executing_contents(self):
         marker = self.tmp_path / "dotenv-was-executed"
         result, calls, env_file = _run_deploy(
@@ -147,7 +156,14 @@ class DeployScriptTest(unittest.TestCase):
         self.assertIn("\t--exclude\t.env.*", logged)
         self.assertIn(".claire-deploy-root", logged)
         self.assertIn("chmod 600 '/srv/claire/.env'", logged)
-        self.assertIn("bash ./cb-manuscript update --no-fetch", logged)
+        self.assertIn(
+            "CLAIRE_ENVIRONMENT=production bash ./cb-manuscript update --no-fetch",
+            logged,
+        )
+        self.assertIn(
+            "CLAIRE_ENVIRONMENT=production bash ./cb-manuscript status",
+            logged,
+        )
         self.assertFalse(marker.exists())
 
     def test_deploy_and_runtime_env_files_are_separate(self):
@@ -184,8 +200,27 @@ class DeployScriptTest(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
         logged = calls.read_text(encoding="utf-8")
-        self.assertIn("cd '/srv/claire' && bash ./cb-manuscript install", logged)
+        self.assertIn(
+            "cd '/srv/claire' && CLAIRE_ENVIRONMENT=production "
+            "bash ./cb-manuscript install",
+            logged,
+        )
         self.assertNotIn("bash ./cb-manuscript update --no-fetch", logged)
+
+    def test_development_environment_is_rejected_before_remote_calls(self):
+        result, calls, _ = _run_deploy(
+            self.tmp_path,
+            """
+            DEPLOY_REMOTE=alice@kb.example
+            DEPLOY_PATH=/srv/claire
+            DEPLOY_ENV_SYNC=always
+            """,
+            extra_env={"CLAIRE_ENVIRONMENT": "development"},
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("production 전용", result.stderr)
+        self.assertFalse(calls.exists())
 
     def test_if_missing_preserves_existing_remote_dotenv(self):
         result, calls, _ = _run_deploy(
