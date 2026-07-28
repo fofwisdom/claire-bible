@@ -11,6 +11,44 @@ v1 파이프라인 완성 + 개인용 컨테이너 운영 구조. 단일 사용�
 범위 밖이다([GOALS.md](GOALS.md) 참조). 자동복구·헬스·circuit breaker·능동 알림을
 제공한다.
 
+## 웹 UI
+
+### 지식 그래프 탐색
+
+문서 목록과 온톨로지 그래프를 함께 보며 전체 지식 구조를 탐색한다.
+
+![문서 목록과 지식 그래프 전체 화면](docs/screenshots/knowledge-graph-overview.png)
+
+### 검색과 노드 상세
+
+키워드로 노드를 찾고 관찰·출처 문서·연결 관계를 한 화면에서 확인한다.
+
+![검색 결과와 노드 상세 화면](docs/screenshots/search-and-node-details.png)
+
+### 문서 읽기
+
+그래프의 출처 문서를 요약과 본문으로 크게 읽고 글자 크기를 조절한다.
+
+![요약과 본문을 보여주는 문서 읽기 화면](docs/screenshots/document-reader.png)
+
+### 연결 경로
+
+두 노드 사이의 관계 경로를 계산해 그래프와 단계별 결과로 표시한다.
+
+![두 노드 사이의 연결 경로 화면](docs/screenshots/connection-path.png)
+
+### 자료 적재
+
+URL이나 메모 텍스트를 붙여 넣어 새 자료와 관련 링크를 지식 그래프에 적재한다.
+
+![URL과 메모 텍스트를 입력하는 자료 적재 화면](docs/screenshots/content-ingestion-form.png)
+
+### 다중 노드 종합
+
+여러 노드를 종합 목록에 모아 공통 맥락을 분석할 준비를 한다.
+
+![두 노드를 선택한 다중 노드 종합 화면](docs/screenshots/multi-node-synthesis.png)
+
 ## 로컬 소스 개발
 
 ```bash
