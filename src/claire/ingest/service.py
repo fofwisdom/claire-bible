@@ -11,6 +11,7 @@ from pathlib import Path
 
 from ..config import Settings
 from ..extract.provider import get_provider
+from ..retrieval.query import SearchMode
 from ..store import db as dbm
 from ..store.vectors import make_vector_store
 from .pipeline import IngestReport, extract_resolve_store, ingest, merge_source_into_document
@@ -631,15 +632,43 @@ class IngestService:
         finally:
             conn.close()
 
-    def search(self, query: str, *, limit: int = 8, summarize: bool = True):
+    def search(
+        self,
+        query: str,
+        *,
+        limit: int = 8,
+        summarize: bool = True,
+        mode: SearchMode = "hybrid",
+    ):
         from ..retrieval.query import search as _search
 
-        conn = dbm.connect(self.s.db_file)
-        dbm.init_db(conn)
-        vstore = make_vector_store(conn, self.s.vector_backend)
+        if mode not in {"hybrid", "fts"}:
+            raise ValueError(f"unsupported search mode: {mode}")
+        if mode == "fts" and summarize:
+            raise ValueError("fts search does not support summaries")
+
+        conn = dbm.connect_existing(self.s.db_file, readonly=True)
         try:
-            return _search(conn, vstore, self.provider, query,
-                           limit=limit, summarize=summarize)
+            if mode == "fts":
+                return _search(
+                    conn,
+                    None,
+                    None,
+                    query,
+                    limit=limit,
+                    summarize=summarize,
+                    mode=mode,
+                )
+            vstore = make_vector_store(conn, self.s.vector_backend)
+            return _search(
+                conn,
+                vstore,
+                self.provider,
+                query,
+                limit=limit,
+                summarize=summarize,
+                mode=mode,
+            )
         finally:
             conn.close()
 

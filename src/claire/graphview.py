@@ -311,10 +311,13 @@ GRAPH_HTML = """<!doctype html>
   #showhidden{display:block;padding:7px 10px;font-size:11.5px;color:var(--fg);cursor:pointer;
     text-align:center;border-top:1px solid var(--border);background:var(--sec-bg)}
   #showhidden:hover{background:var(--hover)}
-  /* 읽기전용 세션(/webro) — 눌러도 서버가 404 내는 쓰기 UI 를 아예 안 보여준다(사용자
-     요구). 동적으로 그리는 버튼(문서 즐겨찾기/숨기기·노드의 "종합에 추가"·조사 입력창)은
-     JS 의 READONLY 분기에서 애초에 렌더 안 함 — 여기선 정적 스켈레톤 버튼만. */
-  body.ro #synthbtn, body.ro #addbtn, body.ro #dedupbtn, body.ro .rshare{display:none!important}
+  /* owner라는 양의 권한이 첫 페인트 전에 명시된 경우에만 쓰기 UI를 보인다. 동적으로
+     그리는 버튼도 JS의 canWrite() 분기에서 같은 계약을 사용한다. */
+  body:not([data-auth-scope="owner"]) #synthbtn,
+  body:not([data-auth-scope="owner"]) #synthchips,
+  body:not([data-auth-scope="owner"]) #addbtn,
+  body:not([data-auth-scope="owner"]) #dedupbtn,
+  body:not([data-auth-scope="owner"]) .rshare{display:none!important}
   #panel{width:360px;overflow:auto;padding:14px 16px;background:var(--panel-bg);border-left:1px solid var(--border);font-size:13px;line-height:1.5}
   #panel h2{margin:.2em 0;font-size:18px} #panel h2 small{color:var(--muted);font-size:12px;font-weight:normal}
   #panel h3{margin:1em 0 .3em;font-size:13px;color:var(--accent2);border-bottom:1px solid var(--border);padding-bottom:2px}
@@ -422,11 +425,12 @@ GRAPH_HTML = """<!doctype html>
     #reader .rbody{padding:8px 16px 0}
   }
 </style></head>
-<body>
+<body class="ro" data-auth-scope="unknown">
 <div id="bar">
   <span class="brand">Claire Bible</span>
   <input id="q" placeholder="검색(엔터)" oninput="onSearchInput(this.value)"/>
-  <label style="font-size:12px"><input type="checkbox" id="sem" style="width:auto"/> 의미</label>
+  <label style="font-size:12px"><input type="checkbox" id="sem" style="width:auto" disabled/>
+    <span id="searchkind">검색 모드 확인 중</span></label>
   <button id="searchbtn" class="sec" onclick="doSemantic()" style="display:none">🔎 의미검색</button>
   <span id="synthchips"></span>
   <button id="synthbtn" onclick="synth()">🧩 종합 (0)</button>
@@ -436,7 +440,7 @@ GRAPH_HTML = """<!doctype html>
   <label>연결 ≥ <b id="fmin">0</b> <input id="fslider" type="range" min="0" max="0" value="0" oninput="setDeg(this.value)"/></label>
   <span class="spacer"></span>
   <button id="themebtn" title="라이트/다크 전환" onclick="toggleTheme()">🌙</button>
-  <span id="authstate">🔒 인증됨</span>
+  <span id="authstate">⏳ 권한 확인 중</span>
   <span id="stat">로딩…</span>
 </div>
 <div id="legendbar"></div>
@@ -497,15 +501,18 @@ let clusterEdges=null;   // 검색 결과를 뭉치게 한 임시 spring 엣지 
 let clusterAnchor=null;  // 검색 시 중앙 앵커 노드 id(매칭은 끌고 비매칭은 밀어냄) — 해제 시 제거
 let searchDebounce=null; // 라벨검색 디바운스 타이머 — 타이핑 멈춘 뒤에만 검색 실행
 let synthSet=new Set();
-let READONLY=false;   // /whoami 로 확정(아래 init) — true 면 쓰기 UI(적재/종합/조사/즐겨찾기/숨기기/공유) 렌더 안 함
+let AUTH_SCOPE='unknown';
+let READONLY=true;    // owner를 /whoami로 확인하기 전까지 항상 fail-closed
 let allRelTypes=[], relFilter=null;          // 관계 타입 필터: null=전체, Set=선택 타입만 표시
 let pathMode=false, pathPicks=[], pathNodes=null, pathEdges=null;  // 2노드 경로 하이라이트(전용 모드)
 const panel = document.getElementById('panel');
+function canWrite(){ return AUTH_SCOPE==='owner'; }
 // 함수로 둔 이유: READONLY 는 /whoami 가 비동기로 확정하므로, 호출 시점 기준으로
 // 종합 안내 줄을 넣을지 뺄지 판단해야 한다(고정 문자열이면 초기 로드 시점 값에 박제됨).
 function defaultHint(){
-  const synthLine = READONLY ? ''
-    : '• <b>Ctrl+클릭</b> 또는 상세의 <b>➕ 종합에 추가</b>로 여러 노드를 모아 종합<br>';
+  const synthLine = canWrite()
+    ? '• <b>Ctrl+클릭</b> 또는 상세의 <b>➕ 종합에 추가</b>로 여러 노드를 모아 종합<br>'
+    : '';
   return '<p class="hint">노드를 클릭하면 관찰·출처 문서·연결이 표시됩니다.<br><br>'+synthLine+
     '• 다른 노드에 <b>1.5초</b> 올리면 마우스 옆에 <b>요약 팝업</b>(더 끌면 출처 문서까지)<br>'+
     '• 좌측 문서를 <b>클릭</b>하면 그래프에서 강조(nav), <b>📖</b> 버튼을 누르면 <b>크게 읽기(팝업)</b><br>'+
@@ -635,10 +642,11 @@ function setReadFS(delta){
 // 중앙 읽기 팝업 — 좌측 문서의 '읽기' 버튼/노드 상세의 📖 로 연다(nav 와 분리, 사용자 요구).
 let curReaderDoc=null;   // 현재 읽기 팝업의 문서 id(🔗 공유 링크 생성 대상)
 async function markDocumentSeen(docId){
-  if(READONLY) return;
+  if(!canWrite()) return;
   try{
     const r=await fetch('document/seen',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({id:docId})});
+    if(r.status===401||r.status===404){ expireWriteAccess(); return; }
     if(!r.ok) return;
     const dc=allDocs && allDocs.find(d=>d.id===docId);
     if(dc && dc.seen!==1){ dc.seen=1; renderDocs(document.getElementById('docq').value); }
@@ -683,13 +691,13 @@ function closeReader(){ document.getElementById('reader').classList.remove('open
 // --- 문서 공유 핫링크 — 세션 토큰(nginx 통과)과 별개의, 이 문서만 여는 읽기전용 링크 ---
 // /share 가 공유 토큰을 발급(인증 필요) → /p?s=token 은 비인증으로 그 문서만 보여준다.
 async function shareDoc(){
-  if(!curReaderDoc) return;
+  if(!canWrite() || !curReaderDoc) return;
   const sb=document.getElementById('sharebox');
   sb.className='sharebox on'; sb.innerHTML='<span class=pt>공유 링크 생성 중…</span>';
   try{
     const r=await fetch('share',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({doc_id:curReaderDoc})});
-    if(r.status===401||r.status===404){ setAuth('idle');
+    if(r.status===401||r.status===404){ expireWriteAccess();
       sb.innerHTML='<span class=pt>세션 만료 — 텔레그램 /web 으로 다시 접속하세요</span>'; return; }
     const d=await r.json();
     if(d.error||!d.path){ sb.innerHTML='<span class=pt>공유 실패: '+esc(d.error||'알 수 없음')+'</span>'; return; }
@@ -831,7 +839,7 @@ fetch('graph').then(r=>r.json()).then(d=>{
     }
     const id=p.nodes[0], ev=p.event.srcEvent;
     if(pathMode){ pickPathNode(id); return; }                // 경로 모드: 클릭으로 시작/끝 노드 지정
-    if(ev && (ev.ctrlKey||ev.metaKey)){ toggleSynth(id); }   // Ctrl/Cmd+클릭 = 종합 수집(선택과 분리)
+    if(ev && (ev.ctrlKey||ev.metaKey) && canWrite()){ toggleSynth(id); } // owner만 종합 수집
     else { selectedNodeId=id; loadNode(id); mobileScrollTo('panel'); }  // 일반 클릭/탭 = 상세 inspect
   });
   // hover → 1.5초 뒤 마우스 위치에 작은 요약 팝업(우측 패널은 안 건드림 — 난잡함 해소, 사용자 요구).
@@ -876,7 +884,7 @@ function renderPanel(d){
   let h = activeDoc ? '<span class=backlink onclick="loadDocPanel(activeDoc)">← 문서로 돌아가기</span>' : '';
   h+='<h2>'+esc(d.name)+' <small>'+esc(d.type)+(d.provisional?' ⚠️provisional':'')+'</small></h2>';
   // readonly(/webro) 세션은 종합(/synthesize)이 서버에서 막혀있어 버튼 자체를 안 그림.
-  if(!READONLY) h+='<button class="sec" onclick="addToSynth(\\''+d.id+'\\')">'+(inSet?'✓ 종합 목록에 있음':'➕ 종합에 추가')+'</button>';
+  if(canWrite()) h+='<button class="sec" onclick="addToSynth(\\''+d.id+'\\')">'+(inSet?'✓ 종합 목록에 있음':'➕ 종합에 추가')+'</button>';
   if(d.aliases.length) h+='<p class=al>별칭: '+d.aliases.map(esc).join(', ')+'</p>';
   if(d.observations.length){ h+='<h3>관찰 · 주장</h3><ul>'+
     d.observations.map(o=>'<li>'+esc(o)+'</li>').join('')+'</ul>'; }
@@ -894,7 +902,7 @@ function renderPanel(d){
          '</a> <small>'+esc(n.type)+'</small></li>'; }); h+='</ul>'; }
   // 맥락 확장 조사 — 읽다가 더 알고 싶은 키워드/문장을 지금 맥락으로 조사해 그래프 확장.
   // readonly 는 /research 도 서버에서 막혀있어 입력창·버튼 자체를 안 그림.
-  if(!READONLY) h+='<h3>🔬 더 알아보기</h3>'+
+  if(canWrite()) h+='<h3>🔬 더 알아보기</h3>'+
     '<div class=research><input id="rq" placeholder="더 알고 싶은 키워드/문장" '+
     'onkeydown="if(event.key===\\'Enter\\')doResearch()"/>'+
     '<button onclick="doResearch()">조사</button></div>'+
@@ -906,6 +914,7 @@ function renderPanel(d){
 // 서버가 NDJSON 스트림으로 진행 이벤트({stage,msg})를 흘리고 마지막 줄이
 // {done:true, result:{...}} — 마냥 기다리지 않고 단계·rate limit 상황을 실시간 표시(피드백).
 async function doResearch(){
+  if(!canWrite()) return;
   const q=((document.getElementById('rq')||{}).value||'').trim();
   if(!q){ alert('조사할 키워드/문장을 입력하세요.'); return; }
   if(!selectedNodeId && !activeDoc){ alert('노드를 선택하거나 문서를 연 뒤 조사하세요.'); return; }
@@ -919,7 +928,7 @@ async function doResearch(){
   try{
     const r=await fetch('research',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({query:q, node_id:selectedNodeId, doc_id:activeDoc})});
-    if(r.status===401||r.status===404){ clearInterval(timer); setAuth('idle');
+    if(r.status===401||r.status===404){ clearInterval(timer); expireWriteAccess();
       panel.innerHTML='<p class=hint>세션 만료 — 텔레그램 /web 으로 다시 접속하세요</p>'; return; }
     if(!r.ok){ clearInterval(timer); let d={};
       try{ d=await r.json(); }catch(_){}
@@ -968,6 +977,7 @@ function renderResearchResult(d, backId){
 // --- 웹 적재: URL/텍스트를 그래프에 적재(서버 /ingest-stream, /research 와 동일 NDJSON 스트리밍) ---
 // 텔레그램 DM 과 같은 통로(svc.ingest, source='web') — 관련 링크 1홉 자동확장도 동일하게 동작.
 function openIngest(){
+  if(!canWrite()) return;
   panel.innerHTML='<h2>➕ 자료 적재</h2>'+
     '<p class=al>URL · 메모 텍스트 · "제목 URL" 공유문구를 붙여넣고 보내면 적재됩니다. '+
     '관련 링크는 백그라운드에서 자동으로 따라가 함께 쌓입니다.</p>'+
@@ -978,6 +988,7 @@ function openIngest(){
   const ta=document.getElementById('ingin'); if(ta) ta.focus();
 }
 async function runIngest(){
+  if(!canWrite()) return;
   const ta=document.getElementById('ingin');
   const payload=((ta||{}).value||'').trim();
   if(!payload){ alert('적재할 URL 또는 텍스트를 입력하세요.'); return; }
@@ -990,7 +1001,7 @@ async function runIngest(){
   try{
     const r=await fetch('ingest-stream',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({payload:payload})});
-    if(r.status===401||r.status===404){ clearInterval(timer); setAuth('idle');
+    if(r.status===401||r.status===404){ clearInterval(timer); expireWriteAccess();
       panel.innerHTML='<p class=hint>세션 만료 — 텔레그램 /web 으로 다시 접속하세요</p>'; return; }
     if(!r.ok){ clearInterval(timer); let d={};
       try{ d=await r.json(); }catch(_){}
@@ -1034,19 +1045,21 @@ function renderIngestResult(d){
 // keeper(유지) 외 문서는 참조(엔티티/관계 sources 등)를 keeper 로 재배치한 뒤 삭제.
 let dedupClusters=[];
 async function openDedup(){
+  if(!canWrite()) return;
   panel.innerHTML='<h2>♻️ 중복 문서 정리</h2><p class="al">근사 중복 검사 중… '+
     '<small>(문서가 많으면 잠시 걸립니다)</small></p>';
   mobileScrollTo('panel');
   let d;
   try{
     const r=await fetch('dedup/scan',{method:'POST'});
-    if(r.status===401||r.status===404){ setAuth('idle');
+    if(r.status===401||r.status===404){ expireWriteAccess();
       panel.innerHTML='<p class=hint>세션 만료 — 텔레그램 /web 으로 다시 접속하세요</p>'; return; }
     d=await r.json();
   }catch(e){ panel.innerHTML='<h2>♻️ 중복 문서 정리</h2><p class=hint>검사 실패: '+esc(String(e))+'</p>'; return; }
   renderDedup(d);
 }
 function renderDedup(d){
+  if(!canWrite()) return;
   if(d.error){ panel.innerHTML='<h2>♻️ 중복 문서 정리</h2><p class=hint>오류: '+esc(d.error)+'</p>'; return; }
   dedupClusters=d.clusters||[];
   let h='<h2>♻️ 중복 문서 정리</h2>';
@@ -1067,6 +1080,7 @@ function renderDedup(d){
   panel.innerHTML=h;
 }
 async function runDedupMerge(ci){
+  if(!canWrite()) return;
   const c=dedupClusters[ci]; if(!c) return;
   const sel=document.querySelector('input[name="keep'+ci+'"]:checked');
   const keeper=sel?sel.value:c.keeper;
@@ -1077,9 +1091,10 @@ async function runDedupMerge(ci){
   try{
     const r=await fetch('dedup/merge',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({keeper:keeper, losers:losers})});
-    if(r.status===401||r.status===404){ setAuth('idle');
+    if(r.status===401||r.status===404){ expireWriteAccess();
       panel.innerHTML='<p class=hint>세션 만료 — 텔레그램 /web 으로 다시 접속하세요</p>'; return; }
     const d=await r.json();
+    if(!canWrite()) return;
     if(d.error){ panel.innerHTML='<h2>♻️ 병합</h2><p class=hint>오류: '+esc(d.error)+'</p>'; return; }
     let h='<h2>✅ 병합 완료</h2>';
     h+='<p class=al>문서 '+(d.deleted||0)+'개를 합쳤습니다. 엔티티 '+(d.entities_repointed||0)+
@@ -1269,8 +1284,10 @@ function docItemHtml(dc){
   const unread = dc.seen===0, watching = dc.watch===1, pinned = dc.pinned===1, hid = dc.hidden===1;
   // readonly(/webro) 세션은 즐겨찾기가 서버가 404 내는 쓰기라 버튼 자체를 안 그린다
   // (사용자 요구 — 눌러도 안 되는 버튼이 남아있으면 안 됨).
-  const pinBtn = READONLY ? '' : '<button class="actbtn'+(pinned?' pinned':'')+'" title="'+(pinned?'즐겨찾기 해제':'즐겨찾기에 추가')+
-    '" onclick="event.stopPropagation();togglePin(\\''+dc.id+'\\','+(!pinned)+')">'+(pinned?'⭐':'☆')+'</button>';
+  const pinBtn = canWrite()
+    ? '<button class="actbtn'+(pinned?' pinned':'')+'" title="'+(pinned?'즐겨찾기 해제':'즐겨찾기에 추가')+
+      '" onclick="event.stopPropagation();togglePin(\\''+dc.id+'\\','+(!pinned)+')">'+(pinned?'⭐':'☆')+'</button>'
+    : '';
   return '<div class="docitem'+(dc.id===activeDoc?' active':'')+(unread?' unread':'')+(hid?' hidden-doc':'')+
     '" onclick="selectDoc(\\''+dc.id+'\\')">'+
     '<div class=docactions>'+pinBtn+
@@ -1282,7 +1299,7 @@ function docItemHtml(dc){
     (dc.summary?'<p>'+esc(dc.summary.slice(0,110))+'</p>':'')+'</div>';
 }
 let showHidden = false;
-function toggleShowHidden(){ showHidden=!showHidden; renderDocs(document.getElementById('docq').value); }
+function toggleShowHidden(){ if(!canWrite()) return; showHidden=!showHidden; renderDocs(document.getElementById('docq').value); }
 function renderDocs(filter){
   const q=(filter||'').trim().toLowerCase();
   const match = dc => !q || (dc.title+' '+dc.summary).toLowerCase().includes(q);
@@ -1305,7 +1322,7 @@ function renderDocs(filter){
 
   const sh=document.getElementById('showhidden');
   // readonly 는 숨기기/해제 버튼이 없어 이 구간이 눌러도 소용없는 관리용 UI — 아예 숨김.
-  if(READONLY || !hiddenDocs.length){ sh.style.display='none'; document.getElementById('hiddenlist').innerHTML=''; }
+  if(!canWrite() || !hiddenDocs.length){ sh.style.display='none'; document.getElementById('hiddenlist').innerHTML=''; }
   else{
     sh.style.display='';
     sh.textContent = (showHidden?'▲ ':'▼ ')+'🙈 숨김 '+hiddenDocs.length+'개 '+(showHidden?'접기':'보기');
@@ -1314,15 +1331,19 @@ function renderDocs(filter){
 }
 // 즐겨찾기/숨기기 토글 — 낙관적 갱신(즉시 반영) 후 서버 반영, 실패하면 되돌림.
 async function togglePin(id, val){
+  if(!canWrite()) return false;
   const d=allDocs.find(x=>x.id===id); if(d) d.pinned = val?1:0;
   renderDocs(document.getElementById('docq').value);
   try{
     const r=await fetch('document/pin',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({id:id, pinned:val})});
+    if(r.status===401||r.status===404) expireWriteAccess();
     if(!r.ok && d){ d.pinned = val?0:1; renderDocs(document.getElementById('docq').value); }
   }catch(e){ if(d){ d.pinned = val?0:1; renderDocs(document.getElementById('docq').value); } }
+  return true;
 }
 async function toggleHide(id, val){
+  if(!canWrite()) return false;
   // 숨기는 방향(val=true)만 컨펌 — 오클릭 방지(사용자 지적) + 되돌리는 방법을 그 자리에서
   // 안내(어디서 다시 꺼내는지 몰라 헤매지 않게). 숨김 해제(val=false)는 안전한 방향이라
   // 컨펌 없이 즉시. 반환값 = 실제로 적용됐는지(컨펌 취소 시 false — 호출측 버튼 갱신 판단용).
@@ -1335,12 +1356,14 @@ async function toggleHide(id, val){
   try{
     const r=await fetch('document/hide',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({id:id, hidden:val})});
+    if(r.status===401||r.status===404) expireWriteAccess();
     if(!r.ok && d){ d.hidden = val?0:1; renderDocs(document.getElementById('docq').value); }
   }catch(e){ if(d){ d.hidden = val?0:1; renderDocs(document.getElementById('docq').value); } }
   return true;
 }
 // 상세 패널의 숨기기 텍스트 버튼 — toggleHide 결과(컨펌 취소 여부)를 보고 버튼 라벨만 갱신.
 async function panelToggleHide(id, val){
+  if(!canWrite()) return;
   const ok = await toggleHide(id, val);
   if(!ok) return;
   const btn = document.getElementById('panelhidebtn');
@@ -1391,7 +1414,7 @@ function renderDocPanel(dc){
   // 읽기는 중앙 팝업(마크다운·이미지)으로 — 그래프 nav 와 분리(사용자 요구).
   if(dc.summary||dc.detail) h+='<button class=readbtn onclick="openReader(\\''+dc.id+'\\')">📖 크게 읽기</button>';
   // 숨기기 — 목록이 아니라 상세 패널에 텍스트 버튼으로(사용자 요구, 목록에선 오클릭 유발).
-  if(!READONLY) h+='<div><button id=panelhidebtn class=hidetextbtn onclick="panelToggleHide(\\''+dc.id+'\\','+(!dc.hidden)+')">'+
+  if(canWrite()) h+='<div><button id=panelhidebtn class=hidetextbtn onclick="panelToggleHide(\\''+dc.id+'\\','+(!dc.hidden)+')">'+
     (dc.hidden?'숨김 해제':'숨기기')+'</button></div>';
   if(dc.summary) h+='<h3>요약</h3><div class=synth>'+esc(dc.summary)+'</div>';
   // 이 문서의 노드 버튼 — 요약 바로 아래(피드백). 누르면 그래프에서 그 노드로 이동(nav).
@@ -1416,8 +1439,8 @@ function focusNode(id){
 }
 
 // --- 종합 수집(synthSet) — inspect(클릭)와 분리 ---
-function toggleSynth(id){ if(synthSet.has(id)) synthSet.delete(id); else synthSet.add(id); renderChips(); }
-function addToSynth(id){ synthSet.add(id); renderChips(); if(id===selectedNodeId) loadNode(id); }
+function toggleSynth(id){ if(!canWrite()) return; if(synthSet.has(id)) synthSet.delete(id); else synthSet.add(id); renderChips(); }
+function addToSynth(id){ if(!canWrite()) return; synthSet.add(id); renderChips(); if(id===selectedNodeId) loadNode(id); }
 function renderChips(){
   const box=document.getElementById('synthchips');
   box.innerHTML=[...synthSet].map(id=>{ const n=allNodes&&allNodes.get(id);
@@ -1502,7 +1525,7 @@ function hl(q){
   clusterMatches(matches, ()=>fitToMatches(matches));   // 결과를 점차 뭉치게 한 뒤 한눈에 fit
 }
 document.getElementById('sem').addEventListener('change',e=>{
-  document.getElementById('searchbtn').style.display = e.target.checked?'':'none';
+  updateSearchModeUI();
   if(e.target.checked) hl('');   // 즉시 라벨강조 해제(의미검색은 버튼으로만)
 });
 document.getElementById('q').addEventListener('keydown',e=>{
@@ -1516,16 +1539,48 @@ document.getElementById('q').addEventListener('focus', e=> e.target.select());
 function doSemantic(){ semanticSearch(document.getElementById('q').value); }
 
 // --- 인증 상태 표시 ---
-// 인증은 /web 링크가 설정한 httponly 쿠키로 처리된다. 이 페이지가 로드됐다는 것 자체가
-// 인증됨을 뜻한다(미인증이면 게이트가 404). 클릭해도 별도 승인 요청을 만들지 않는다 —
-// 예전 nonce 승인 플로우가 쿠키 인증과 무관하게 '승인 요청 만료' 텔레그램 스팸을
-// 유발했다(이슈3). 쿠키가 만료되면(7일 미사용) synthesize/검색이 401 → 아래에서 안내.
-function setAuth(state){
-  document.getElementById('authstate').textContent =
-    state==='idle' ? '🔓 세션 만료 — /web 재접속' :
-    state==='readonly' ? '👁️ 읽기전용' : '🔒 인증됨';
+// 첫 페인트는 unknown/read-only이며, /whoami가 exact owner를 확인한 경우에만 쓰기 UI를
+// 승격한다. 버튼 숨김과 별개로 모든 쓰기 함수도 canWrite()를 확인한다.
+function updateSearchModeUI(){
+  const sem=document.getElementById('sem');
+  const kind=document.getElementById('searchkind');
+  const button=document.getElementById('searchbtn');
+  const unknown=AUTH_SCOPE==='unknown';
+  if(sem){ sem.disabled=unknown; if(unknown) sem.checked=false; }
+  if(kind) kind.textContent = unknown ? '검색 모드 확인 중' : (AUTH_SCOPE==='anonymous' ? 'FTS' : '의미');
+  if(button){
+    button.textContent = AUTH_SCOPE==='anonymous' ? '🔎 FTS 검색' : '🔎 의미검색';
+    button.style.display = !unknown && sem && sem.checked ? '' : 'none';
+  }
 }
+function setAccessScope(scope, reason){
+  AUTH_SCOPE = ['owner','readonly','anonymous'].includes(scope) ? scope : 'unknown';
+  READONLY = !canWrite();
+  document.body.dataset.authScope=AUTH_SCOPE;
+  document.body.classList.toggle('ro', READONLY);
+  const label=document.getElementById('authstate');
+  if(label) label.textContent =
+    AUTH_SCOPE==='owner' ? '🔒 인증됨' :
+    AUTH_SCOPE==='readonly' ? '👁️ 읽기전용' :
+    AUTH_SCOPE==='anonymous' ? '👁️ 익명 읽기전용' :
+    reason==='expired' ? '🔓 쓰기 세션 만료 — /web 재접속' : '⚠️ 권한 확인 실패';
+  if(!canWrite()){
+    synthSet.clear();
+    showHidden=false;
+    renderChips();
+    // owner 전용 동적 UI를 네트워크 재조회보다 먼저 제거한다. 뒤늦게 도착하는
+    // node/document 응답도 render 시점의 canWrite()로 다시 판정한다.
+    panel.innerHTML=defaultHint();
+  }
+  updateSearchModeUI();
+  renderDocs(document.getElementById('docq').value);
+  if(selectedNodeId) loadNode(selectedNodeId);
+  else if(activeDoc) loadDocPanel(activeDoc);
+  else panel.innerHTML=defaultHint();
+}
+function expireWriteAccess(){ setAccessScope('unknown','expired'); }
 async function synth(){
+  if(!canWrite()) return;
   const ids=[...synthSet];
   if(!ids.length){ alert('종합할 노드를 먼저 모으세요 — Ctrl+클릭 또는 상세의 "➕ 종합에 추가".'); return; }
   panel.innerHTML='<p class=hint>🧩 '+ids.length+'개 노드 종합 중… (LLM 호출)</p>';
@@ -1534,7 +1589,7 @@ async function synth(){
   fetch('synthesize',{method:'POST',
     headers:{'Content-Type':'application/json'},
     body:JSON.stringify({node_ids:ids})})
-   .then(r=> { if(r.status===401||r.status===404){ setAuth('idle'); return {error:'세션 만료 — 텔레그램 /web 으로 다시 접속하세요'}; } return r.json(); })
+   .then(r=> { if(r.status===401||r.status===404){ expireWriteAccess(); return {error:'세션 만료 — 텔레그램 /web 으로 다시 접속하세요'}; } return r.json(); })
    .then(d=>{
      if(d.error){ panel.innerHTML='<p class=hint>오류: '+esc(d.error)+'</p>'; return; }
      let h='<h2>🧩 종합 지식 <small>'+d.entities.length+'개 노드</small></h2>';
@@ -1545,34 +1600,33 @@ async function synth(){
 }
 async function semanticSearch(q){
   q=(q||'').trim(); if(!q) return;
-  document.getElementById('stat').innerHTML='🔎 의미검색 중…';
+  const requestedMode=AUTH_SCOPE==='anonymous'?'FTS':'의미';
+  document.getElementById('stat').textContent='🔎 '+requestedMode+' 검색 중…';
   let r;
   try{ r=await fetch('search',{method:'POST',
     headers:{'Content-Type':'application/json'},
     body:JSON.stringify({query:q, summarize:false, limit:12})}); }
   catch(e){ document.getElementById('stat').textContent='검색 실패'; return; }
-  if(r.status===401||r.status===404){ setAuth('idle'); document.getElementById('stat').textContent='세션 만료 — /web 으로 재접속'; return; }
-  const d=await r.json();
+  if(r.status===401||r.status===404){ expireWriteAccess(); document.getElementById('stat').textContent='세션 만료 — /web 으로 재접속'; return; }
+  if(r.status===429){ document.getElementById('stat').textContent='검색 요청이 많습니다 — 잠시 후 다시 시도하세요'; return; }
+  let d={}; try{ d=await r.json(); }catch(_){}
+  if(!r.ok){ document.getElementById('stat').textContent='검색 실패: HTTP '+r.status; return; }
   const ids=(d.hits||[]).map(h=>h.id).filter(Boolean);
   highlightSet = new Set(ids);   // 라벨 검색과 동일하게 강조+dim 방식 사용
   applyView();
   clusterMatches(ids, ()=>fitToMatches(ids));   // 의미검색 결과도 점차 뭉치게 + 한눈에 fit
-  if(!ids.length){ document.getElementById('stat').textContent='🔎 의미검색: 결과 없음'; }
+  const actualMode=d.mode==='fts'?'FTS':'의미';
+  document.getElementById('stat').textContent=ids.length
+    ? '🔎 '+actualMode+' 검색: '+ids.length+'개'
+    : '🔎 '+actualMode+' 검색: 결과 없음';
 }
 
-// 이 페이지가 로드됐다는 것 자체가 인증됨을 의미(미인증이면 게이트가 404). 쿠키 기반.
-// owner 인지 readonly(/webro) 인지는 /whoami 로 별도 확인 — readonly 면 눌러도 서버가
-// 404 내는 쓰기 버튼(적재/종합/중복정리/공유/즐겨찾기/숨기기/조사)을 아예 안 그린다
-// (사용자 요구: 죽은 버튼이 남아있으면 안 됨). documents fetch 와 병렬로 요청하고,
-// 확정되면 renderDocs 를 다시 호출해(멱등) 즐겨찾기/숨기기 버튼 유무를 바로잡는다.
-setAuth('authed');
+// documents와 /whoami를 병렬로 읽되, scope가 확정되기 전 렌더는 항상 read-only다.
 syncThemeBtn();   // 저장된 테마에 맞춰 🌙/🌞 라벨 동기화(테마 자체는 head 인라인에서 선적용)
 fetch('documents').then(r=>r.json()).then(d=>{ allDocs=d.documents||[]; renderDocs(); });
-fetch('whoami').then(r=>r.json()).then(d=>{
-  READONLY = d.scope!=='owner';
-  document.body.classList.toggle('ro', READONLY);
-  if(READONLY){ setAuth('readonly'); renderDocs(document.getElementById('docq').value); }
-}).catch(()=>{});
+fetch('whoami').then(r=>{ if(!r.ok) throw new Error('whoami failed'); return r.json(); }).then(d=>{
+  setAccessScope(d.scope);
+}).catch(()=>{ setAccessScope('unknown','failed'); });
 
 // 읽기전용 디버그 핸들(테스트/Playwright 검증용 — closure 상태 관찰). 부작용 없음.
 window.claireDebug = {
@@ -1580,6 +1634,8 @@ window.claireDebug = {
   get highlight(){ return highlightSet ? [...highlightSet] : null; },
   get selected(){ return selectedNodeId; },
   get synth(){ return [...synthSet]; },
+  get authScope(){ return AUTH_SCOPE; },
+  get canWrite(){ return canWrite(); },
   positions(ids){ return net ? net.getPositions(ids) : {}; },
   get scale(){ return net ? net.getScale() : null; },
   get viewpos(){ return net ? net.getViewPosition() : null; },

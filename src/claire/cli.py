@@ -31,6 +31,12 @@ def cmd_doctor(_args) -> int:  # noqa: ANN001
     print(f"db path           : {s.db_file}")
     print(f"vault path        : {s.vault_dir}")
     print(f"vector backend cfg: {s.vector_backend}")
+    anonymous_status = (
+        "ENABLED (full knowledge base is public)"
+        if s.anonymous_readonly
+        else "disabled"
+    )
+    print(f"anonymous readonly: {anonymous_status}")
 
     ok, detail = probe_sqlite_vec()
     print(f"sqlite-vec probe  : {'OK' if ok else 'fallback->brute'} ({detail})")

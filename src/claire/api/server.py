@@ -48,7 +48,9 @@ _IMAGE_PATH_RE = re.compile(
 )
 _MAX_SEARCH_QUERY_LENGTH = 2000
 _MAX_SEARCH_RESULTS = 50
+_MAX_ANONYMOUS_SEARCH_RESULTS = 20
 _MAX_EXPENSIVE_JOBS = 4
+_MAX_ANONYMOUS_SEARCH_JOBS = 4
 _PROGRESS_QUEUE_SIZE = 64
 
 
@@ -105,6 +107,7 @@ def create_app(
         conn.close()
     svc = service or IngestService(s)
     active_expensive_jobs = 0
+    active_anonymous_search_jobs = 0
 
     def _reserve_expensive_job() -> None:
         nonlocal active_expensive_jobs
@@ -129,6 +132,38 @@ def create_app(
         # 끝날 때까지 admission slot이 유지되게 한다.
         return await asyncio.shield(task)
 
+    def _reserve_anonymous_search_job() -> None:
+        nonlocal active_anonymous_search_jobs
+        if active_anonymous_search_jobs >= _MAX_ANONYMOUS_SEARCH_JOBS:
+            raise HTTPException(
+                status_code=429,
+                detail="too many search requests",
+                headers={"Retry-After": "1"},
+            )
+        active_anonymous_search_jobs += 1
+
+    def _release_anonymous_search_job(
+        _task: asyncio.Task[Any] | None = None,
+    ) -> None:
+        nonlocal active_anonymous_search_jobs
+        active_anonymous_search_jobs -= 1
+
+    async def _run_anonymous_search(
+        func: Any,
+        /,
+        *args: Any,
+        **kwargs: Any,
+    ) -> Any:
+        _reserve_anonymous_search_job()
+        try:
+            task = asyncio.create_task(asyncio.to_thread(func, *args, **kwargs))
+        except BaseException:
+            _release_anonymous_search_job()
+            raise
+        task.add_done_callback(_release_anonymous_search_job)
+        task.add_done_callback(_consume_task_result)
+        return await asyncio.shield(task)
+
     async def health(_request: Request) -> JSONResponse:
         from ..health import liveness_report
 
@@ -138,7 +173,9 @@ def create_app(
 
     async def whoami(request: Request) -> JSONResponse:
         scope = request_auth_scope(request)
-        return JSONResponse({"scope": "owner" if scope == "owner" else "readonly"})
+        if scope not in {"owner", "readonly", "anonymous"}:
+            raise HTTPException(status_code=401, detail="authentication required")
+        return JSONResponse({"scope": scope})
 
     async def stats(_request: Request) -> JSONResponse:
         def _counts() -> dict[str, int]:
@@ -185,15 +222,30 @@ def create_app(
             limit = int(body.get("limit", 8))
         except (TypeError, ValueError) as exc:
             raise HTTPException(status_code=400, detail="limit must be an integer") from exc
-        limit = max(1, min(_MAX_SEARCH_RESULTS, limit))
-        summarize = request_auth_scope(request) == "owner" and bool(
-            body.get("summarize", True)
+        scope = request_auth_scope(request)
+        if scope == "anonymous":
+            mode = "fts"
+            limit = max(1, min(_MAX_ANONYMOUS_SEARCH_RESULTS, limit))
+            summarize = False
+            runner = _run_anonymous_search
+        elif scope in {"owner", "readonly"}:
+            mode = "hybrid"
+            limit = max(1, min(_MAX_SEARCH_RESULTS, limit))
+            summarize = scope == "owner" and bool(body.get("summarize", True))
+            runner = _run_expensive
+        else:
+            raise HTTPException(status_code=401, detail="authentication required")
+        result = await runner(
+            svc.search,
+            query,
+            limit=limit,
+            summarize=summarize,
+            mode=mode,
         )
-        runner = _run_expensive if summarize else asyncio.to_thread
-        result = await runner(svc.search, query, limit=limit, summarize=summarize)
         return JSONResponse(
             {
                 "query": result.query,
+                "mode": mode,
                 "answer": result.answer,
                 "hits": [
                     {

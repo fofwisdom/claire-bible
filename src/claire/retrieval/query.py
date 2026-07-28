@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import sqlite3
 from dataclasses import dataclass, field
+from typing import Literal
 
 from ..ontology.base import Entity
 from ..store import db as dbm
@@ -19,6 +20,7 @@ from ..store.vectors import VectorStore
 
 # Reciprocal Rank Fusion 상수.
 RRF_K = 60
+SearchMode = Literal["hybrid", "fts"]
 
 
 @dataclass
@@ -60,13 +62,19 @@ def _rrf_fuse(fts_ids: list[str], vec_ranked: list[tuple[str, float]]) -> dict[s
 
 def search(
     conn: sqlite3.Connection,
-    vstore: VectorStore,
+    vstore: VectorStore | None,
     provider,  # noqa: ANN001
     query: str,
     *,
     limit: int = 8,
     summarize: bool = True,
+    mode: SearchMode = "hybrid",
 ) -> SearchResult:
+    if mode not in {"hybrid", "fts"}:
+        raise ValueError(f"unsupported search mode: {mode}")
+    if mode == "fts" and summarize:
+        raise ValueError("fts search does not support summaries")
+
     res = SearchResult(query=query)
 
     # 1) FTS 후보
@@ -74,11 +82,14 @@ def search(
 
     # 2) 벡터 후보 (provider 가 임베딩 가능할 때만)
     vec_ranked: list[tuple[str, float]] = []
-    try:
-        qvec = provider.embed(query)
-        vec_ranked = vstore.search(qvec, limit=20)
-    except Exception:  # noqa: BLE001
-        vec_ranked = []
+    if mode == "hybrid":
+        if vstore is None or provider is None:
+            raise ValueError("hybrid search requires a provider and vector store")
+        try:
+            qvec = provider.embed(query)
+            vec_ranked = vstore.search(qvec, limit=20)
+        except Exception:  # noqa: BLE001
+            vec_ranked = []
 
     via_map: dict[str, list[str]] = {}
     for eid in fts_ids:
@@ -97,7 +108,12 @@ def search(
             res.hits.append(SearchHit(entity=ent, score=score, via=via_map.get(eid, [])))
 
     # 3) LLM 정리 (옵션) — 검색된 엔티티 + 1홉 이웃을 컨텍스트로
-    if summarize and res.hits and hasattr(provider, "summarize_search"):
+    if (
+        mode == "hybrid"
+        and summarize
+        and res.hits
+        and hasattr(provider, "summarize_search")
+    ):
         context = _build_context(conn, res.hits)
         try:
             answer = provider.summarize_search(query, context)

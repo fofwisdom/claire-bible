@@ -28,14 +28,24 @@ Docker port publish의 host 측 `CB_API_BIND`다. `cb-manuscript`는 `CB_API_BIN
 없는 정확한 origin의 쉼표 목록이다. 빈 값이면 same-origin만 허용하고, production
 목록은 `https` origin만 사용할 수 있다.
 
+읽기 경로도 기본적으로 인증된다. exact `CLAIRE_ANONYMOUS_READONLY=1`은 canonical
+same-origin 또는 Origin 헤더가 없는 요청에서만 자격증명 없는 읽기를 허용한다. 이 값은
+owner 인증과 쓰기 경로를 없애지 않는다. 또한 `hidden`은 UI 표시일 뿐 ACL이 아니므로,
+활성화하면 그래프·문서 상세·숨김 문서를 포함한 KB 전체가 API 공개 범위가 된다.
+cross-origin anonymous는 허용하지 않으며, CORS allowlist에 origin을 넣어도 Bearer
+요구는 유지된다.
+
 기존 `.env`/`.env.dev`를 재사용하는 설치는 첫 기동 전에 `./cb-manuscript init`을 다시
-실행해 누락된 environment selector를 보충한다. 이 명령은 production hostname을
-추측하지 않는다. 따라서 `.env`의 `CLAIRE_PUBLIC_URL`은 아래 production 형식으로 직접
-설정한 뒤 `./cb-manuscript doctor`를 통과시켜야 한다.
+실행해 누락된 environment selector와 profile별
+`CLAIRE_ANONYMOUS_READONLY=0`을 보충한다. 이 명령은 production hostname을 추측하지
+않는다. 따라서 `.env`의 `CLAIRE_PUBLIC_URL`은 아래 production 형식으로 직접 설정한 뒤
+`./cb-manuscript doctor`를 통과시켜야 한다.
 
 애플리케이션은 `Forwarded`와 `X-Forwarded-*`를 신뢰해 scheme, client IP 또는 Host를
 바꾸지 않는다. production의 외부 HTTPS 여부는 `CLAIRE_PUBLIC_URL`과 정확한 Host로
 결정하며 upstream 연결 자체는 HTTP다.
+따라서 애플리케이션 내부에는 forwarded client IP 기반 제한을 두지 않는다. 아래
+per-IP `/search` 제한은 실제 client address를 보는 reverse proxy에서 적용한다.
 
 ## Development: IPv4 직접 HTTP
 
@@ -104,6 +114,8 @@ log_format claire_safe
 
 # http context: 인증 추측과 장시간 worker 고갈을 한 IP가 독점하지 못하게 한다.
 limit_req_zone $binary_remote_addr zone=claire_per_ip:10m rate=10r/s;
+# /search는 인증 scope에 따라 provider 호출 또는 FTS worker를 소비하므로 별도 한도를 둔다.
+limit_req_zone $binary_remote_addr zone=claire_search_per_ip:10m rate=2r/s;
 limit_conn_zone $binary_remote_addr zone=claire_conn_per_ip:10m;
 
 upstream claire_backend {
@@ -119,6 +131,26 @@ server {
     access_log /var/log/nginx/claire_access.log claire_safe;
     client_max_body_size 1m;
     client_body_timeout 15s;
+
+    location = /search {
+        limit_req zone=claire_search_per_ip burst=4 nodelay;
+        limit_conn claire_conn_per_ip 10;
+
+        proxy_pass http://claire_backend;
+        proxy_http_version 1.1;
+        proxy_set_header Host claire.example.com;
+        proxy_set_header Connection "";
+        proxy_set_header Forwarded "";
+        proxy_set_header X-Forwarded-For "";
+        proxy_set_header X-Forwarded-Host "";
+        proxy_set_header X-Forwarded-Proto "";
+        proxy_set_header Referer "";
+
+        proxy_buffering off;
+        proxy_connect_timeout 5s;
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
+    }
 
     location / {
         limit_req zone=claire_per_ip burst=20 nodelay;

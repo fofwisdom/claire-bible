@@ -84,13 +84,52 @@ def test_graph_html_self_contained_markers():
     assert "id=\"legendbar\"" in GRAPH_HTML and "TYPE_COLORS" in GRAPH_HTML  # 색 범례
     assert "hoverNode" in GRAPH_HTML and "blurNode" in GRAPH_HTML       # hover 미리보기
     assert ", 1500)" in GRAPH_HTML                                      # hover 1.5초
-    # 인증은 claire_session 쿠키(/web 진입)로 자동 전송 — 페이지가 로드됐다는 것 자체가 인증됨.
+    # 첫 페인트는 fail-closed이고 /whoami가 owner를 확인한 뒤에만 쓰기 UI를 승격한다.
     assert "synthesize" in GRAPH_HTML                                   # 종합 POST 경로
     assert "세션 만료" in GRAPH_HTML                                    # 만료 시 /web 재접속 안내
     assert "semanticSearch" in GRAPH_HTML and "id=\"sem\"" in GRAPH_HTML  # 의미검색 토글
     assert "id=\"searchbtn\"" in GRAPH_HTML                             # 의미검색 버튼
     assert "synthSet" in GRAPH_HTML and "addToSynth" in GRAPH_HTML      # 종합 수집(inspect와 분리)
-    assert "id=\"authstate\"" in GRAPH_HTML and "setAuth" in GRAPH_HTML  # 인증 상태 표시
+    assert "id=\"authstate\"" in GRAPH_HTML and "setAccessScope" in GRAPH_HTML
+    assert '<body class="ro" data-auth-scope="unknown">' in GRAPH_HTML
+    assert "let AUTH_SCOPE='unknown';" in GRAPH_HTML
+    assert "let READONLY=true;" in GRAPH_HTML
+    assert "function canWrite(){ return AUTH_SCOPE==='owner'; }" in GRAPH_HTML
+    assert "setAccessScope(d.scope)" in GRAPH_HTML
+    assert "AUTH_SCOPE==='anonymous' ? 'FTS' : '의미'" in GRAPH_HTML
+    assert "👁️ 익명 읽기전용" in GRAPH_HTML
+    assert "let READONLY=false" not in GRAPH_HTML
+    assert "setAuth('authed')" not in GRAPH_HTML
+    for guarded_write in (
+        "async function markDocumentSeen(docId){\n  if(!canWrite()) return;",
+        "async function shareDoc(){\n  if(!canWrite() || !curReaderDoc) return;",
+        "async function doResearch(){\n  if(!canWrite()) return;",
+        "function openIngest(){\n  if(!canWrite()) return;",
+        "async function runIngest(){\n  if(!canWrite()) return;",
+        "async function openDedup(){\n  if(!canWrite()) return;",
+        "function renderDedup(d){\n  if(!canWrite()) return;",
+        "async function runDedupMerge(ci){\n  if(!canWrite()) return;",
+        "function toggleShowHidden(){ if(!canWrite()) return;",
+        "async function togglePin(id, val){\n  if(!canWrite()) return false;",
+        "async function toggleHide(id, val){\n  if(!canWrite()) return false;",
+        "async function panelToggleHide(id, val){\n  if(!canWrite()) return;",
+        "function toggleSynth(id){ if(!canWrite()) return;",
+        "function addToSynth(id){ if(!canWrite()) return;",
+        "async function synth(){\n  if(!canWrite()) return;",
+    ):
+        assert guarded_write in GRAPH_HTML
+    assert (
+        "if(!canWrite()){\n"
+        "    synthSet.clear();\n"
+        "    showHidden=false;\n"
+        "    renderChips();\n"
+        "    // owner 전용 동적 UI를 네트워크 재조회보다 먼저 제거한다."
+    ) in GRAPH_HTML
+    assert GRAPH_HTML.count("r.status===401||r.status===404") >= 10
+    assert GRAPH_HTML.index("if(r.status===429)") < GRAPH_HTML.index(
+        "let d={}; try{ d=await r.json(); }catch(_){}",
+        GRAPH_HTML.index("async function semanticSearch"),
+    )
     assert "opacity" in GRAPH_HTML and "dday" in GRAPH_HTML             # dim + 일자 그룹
     # 읽기는 중앙 마크다운 팝업(nav 와 분리) — 좌측/패널 '읽기' 버튼이 openReader 호출
     assert "openReader" in GRAPH_HTML and "id=\"reader\"" in GRAPH_HTML  # 중앙 읽기 팝업

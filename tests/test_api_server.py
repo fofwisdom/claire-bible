@@ -2,17 +2,22 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from httpx import ASGITransport, AsyncClient
+from starlette.applications import Starlette
+from starlette.routing import Route
 from starlette.testclient import TestClient
 
-from claire.api import server
+from claire.api import security, server
 from claire.extract.provider import emit_progress
 from claire.store import db as dbm
 
@@ -32,6 +37,7 @@ class StubSettings:
     inject_token: str = OWNER_TOKEN
     readonly_token: str = READONLY_TOKEN
     cors_allowed_origins: str = ""
+    anonymous_readonly: bool = False
 
 
 class StubService:
@@ -60,11 +66,51 @@ class StubService:
         *,
         limit: int,
         summarize: bool,
+        mode: str,
     ) -> SimpleNamespace:
         self.search_calls.append(
-            {"query": query, "limit": limit, "summarize": summarize}
+            {
+                "query": query,
+                "limit": limit,
+                "summarize": summarize,
+                "mode": mode,
+            }
         )
         return SimpleNamespace(query=query, answer=None, hits=[])
+
+
+class BlockingSearchService(StubService):
+    def __init__(self, *, blocked_mode: str) -> None:
+        super().__init__()
+        self.blocked_mode = blocked_mode
+        self.started = threading.Event()
+        self.release = threading.Event()
+        self._lock = threading.Lock()
+        self._active = 0
+
+    def search(
+        self,
+        query: str,
+        *,
+        limit: int,
+        summarize: bool,
+        mode: str,
+    ) -> SimpleNamespace:
+        if mode == self.blocked_mode:
+            with self._lock:
+                self._active += 1
+                if self._active == 4:
+                    self.started.set()
+            if not self.release.wait(timeout=10):
+                raise AssertionError("blocking search was not released")
+            with self._lock:
+                self._active -= 1
+        return super().search(
+            query,
+            limit=limit,
+            summarize=summarize,
+            mode=mode,
+        )
 
 
 @pytest.fixture
@@ -103,6 +149,16 @@ def test_public_health_exposes_only_minimal_liveness(
 
     assert response.status_code == 200
     assert response.json() == {"ok": True}
+
+
+def test_whoami_returns_actual_authenticated_scope(client: TestClient) -> None:
+    owner_response = client.get("/whoami", headers=OWNER_HEADERS)
+    readonly_response = client.get("/whoami", headers=READONLY_HEADERS)
+
+    assert owner_response.status_code == 200
+    assert owner_response.json() == {"scope": "owner"}
+    assert readonly_response.status_code == 200
+    assert readonly_response.json() == {"scope": "readonly"}
 
 
 def test_readonly_document_get_does_not_mark_document_seen(
@@ -259,7 +315,9 @@ def test_readonly_search_never_runs_summary_and_limits_result_count(
         "query": "faith",
         "limit": 50,
         "summarize": False,
+        "mode": "hybrid",
     }
+    assert response.json()["mode"] == "hybrid"
 
 
 def test_owner_search_can_run_summary_and_clamps_low_limit(
@@ -277,7 +335,169 @@ def test_owner_search_can_run_summary_and_clamps_low_limit(
         "query": "hope",
         "limit": 1,
         "summarize": True,
+        "mode": "hybrid",
     }
+    assert response.json()["mode"] == "hybrid"
+
+
+def test_anonymous_search_forces_fts_without_summary_and_clamps_limit(
+    settings: StubSettings,
+    service: StubService,
+) -> None:
+    settings.anonymous_readonly = True
+    app = server.create_app(settings, service)
+
+    with TestClient(app, base_url=settings.public_url) as anonymous_client:
+        whoami_response = anonymous_client.get("/whoami")
+        search_response = anonymous_client.post(
+            "/search",
+            json={
+                "query": "faith",
+                "limit": 999,
+                "summarize": True,
+                "mode": "hybrid",
+            },
+        )
+
+    assert whoami_response.status_code == 200
+    assert whoami_response.json() == {"scope": "anonymous"}
+    assert search_response.status_code == 200
+    assert search_response.json()["mode"] == "fts"
+    assert service.search_calls[-1] == {
+        "query": "faith",
+        "limit": 20,
+        "summarize": False,
+        "mode": "fts",
+    }
+
+
+def test_anonymous_search_has_separate_rate_limit_with_retry_after(
+    settings: StubSettings,
+    service: StubService,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings.anonymous_readonly = True
+    monkeypatch.setattr(server, "_MAX_ANONYMOUS_SEARCH_JOBS", 0)
+    app = server.create_app(settings, service)
+
+    with TestClient(app, base_url=settings.public_url) as anonymous_client:
+        response = anonymous_client.post(
+            "/search",
+            json={"query": "faith"},
+        )
+
+    assert response.status_code == 429
+    assert response.headers["retry-after"] == "1"
+    assert response.json() == {"error": "too many search requests"}
+    assert service.search_calls == []
+
+
+@pytest.mark.asyncio
+async def test_anonymous_search_exact_four_job_cap_releases_and_isolates_hybrid(
+    settings: StubSettings,
+) -> None:
+    settings.anonymous_readonly = True
+    service = BlockingSearchService(blocked_mode="fts")
+    app = server.create_app(settings, service)
+    transport = ASGITransport(app=app)
+
+    async with AsyncClient(
+        transport=transport,
+        base_url=settings.public_url,
+    ) as async_client:
+        active = [
+            asyncio.create_task(
+                async_client.post("/search", json={"query": f"anon-{index}"})
+            )
+            for index in range(4)
+        ]
+        try:
+            assert await asyncio.to_thread(service.started.wait, 5)
+            saturated = await asyncio.wait_for(
+                async_client.post("/search", json={"query": "fifth"}),
+                timeout=2,
+            )
+            hybrid = await asyncio.wait_for(
+                async_client.post(
+                    "/search",
+                    json={"query": "owner"},
+                    headers=OWNER_HEADERS,
+                ),
+                timeout=2,
+            )
+            assert saturated.status_code == 429
+            assert saturated.headers["retry-after"] == "1"
+            assert hybrid.status_code == 200
+            assert hybrid.json()["mode"] == "hybrid"
+        finally:
+            service.release.set()
+        assert all(response.status_code == 200 for response in await asyncio.gather(*active))
+
+        reentered = await async_client.post(
+            "/search",
+            json={"query": "after-release"},
+        )
+        assert reentered.status_code == 200
+        assert reentered.json()["mode"] == "fts"
+
+
+@pytest.mark.asyncio
+async def test_all_hybrid_searches_share_four_job_cap_and_isolate_anonymous(
+    settings: StubSettings,
+) -> None:
+    settings.anonymous_readonly = True
+    service = BlockingSearchService(blocked_mode="hybrid")
+    app = server.create_app(settings, service)
+    transport = ASGITransport(app=app)
+    requests = [
+        (OWNER_HEADERS, True),
+        (READONLY_HEADERS, True),
+        (OWNER_HEADERS, False),
+        (READONLY_HEADERS, False),
+    ]
+
+    async with AsyncClient(
+        transport=transport,
+        base_url=settings.public_url,
+    ) as async_client:
+        active = [
+            asyncio.create_task(
+                async_client.post(
+                    "/search",
+                    json={"query": f"hybrid-{index}", "summarize": summarize},
+                    headers=headers,
+                )
+            )
+            for index, (headers, summarize) in enumerate(requests)
+        ]
+        try:
+            assert await asyncio.to_thread(service.started.wait, 5)
+            saturated = await asyncio.wait_for(
+                async_client.post(
+                    "/search",
+                    json={"query": "fifth"},
+                    headers=OWNER_HEADERS,
+                ),
+                timeout=2,
+            )
+            anonymous = await asyncio.wait_for(
+                async_client.post("/search", json={"query": "anonymous"}),
+                timeout=2,
+            )
+            assert saturated.status_code == 503
+            assert anonymous.status_code == 200
+            assert anonymous.json()["mode"] == "fts"
+        finally:
+            service.release.set()
+        assert all(response.status_code == 200 for response in await asyncio.gather(*active))
+
+        reentered = await async_client.post(
+            "/search",
+            json={"query": "after-release"},
+            headers=READONLY_HEADERS,
+        )
+        assert reentered.status_code == 200
+        assert reentered.json()["mode"] == "hybrid"
 
 
 def test_search_rejects_oversized_query(client: TestClient) -> None:
@@ -314,11 +534,34 @@ def test_ingest_failure_is_500_without_internal_error_text(
     assert secret not in caplog.text
 
 
-def test_method_not_allowed_preserves_allow_header(client: TestClient) -> None:
+def test_server_routes_exactly_match_security_policy_with_explicit_head(
+    settings: StubSettings,
+    service: StubService,
+) -> None:
+    app: Any = server.create_app(settings, service)
+    while not isinstance(app, Starlette):
+        app = app.app
+
+    actual = {
+        (method, route.path)
+        for route in app.routes
+        if isinstance(route, Route)
+        for method in route.methods
+    }
+
+    assert actual == set(security.ROUTE_POLICY)
+    assert all(
+        ("HEAD", path) in actual
+        for method, path in actual
+        if method == "GET"
+    )
+
+
+def test_unregistered_method_path_pair_is_hidden(client: TestClient) -> None:
     response = client.post("/health")
 
-    assert response.status_code == 405
-    assert "GET" in response.headers["allow"]
+    assert response.status_code == 404
+    assert "allow" not in response.headers
 
 
 def test_expensive_job_limit_applies_to_sync_and_stream_ingest(
@@ -337,11 +580,18 @@ def test_expensive_job_limit_applies_to_sync_and_stream_ingest(
         json={"payload": "x"},
         headers=OWNER_HEADERS,
     )
+    search_response = client.post(
+        "/search",
+        json={"query": "faith", "summarize": False},
+        headers=READONLY_HEADERS,
+    )
 
     assert sync_response.status_code == 503
     assert sync_response.json() == {"error": "server is busy"}
     assert stream_response.status_code == 503
     assert stream_response.json() == {"error": "server is busy"}
+    assert search_response.status_code == 503
+    assert search_response.json() == {"error": "server is busy"}
 
 
 def test_endpoint_exception_is_generic_500_without_secret_logs(

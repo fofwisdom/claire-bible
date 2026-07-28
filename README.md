@@ -96,10 +96,18 @@ development가 선택되면 `.env` 다음에 `.env.dev`와 개발 Compose overla
 그대로 컨테이너에 전달한다.
 
 기존 설치를 처음 이 구조로 올릴 때는 lifecycle 명령 전에 `./cb-manuscript init`을 한
-번 다시 실행한다. 기존 secret과 비어 있지 않은 값은 유지하면서 누락된 환경 selector만
-보충한다. 그 뒤 production `.env`에는 실제 외부 hostname의
+번 다시 실행한다. 기존 secret과 명시된 값을 유지하면서 누락된 환경 selector와
+`CLAIRE_ANONYMOUS_READONLY=0`을 production/development 파일에 각각 보충한다. 그 뒤
+production `.env`에는 실제 외부 hostname의
 `CLAIRE_PUBLIC_URL=https://.../`을 반드시 설정하고, 필요할 때만 exact HTTPS origin을
 `CLAIRE_CORS_ALLOWED_ORIGINS`에 넣는다.
+
+웹 읽기는 기본적으로 인증이 필요하다. exact `CLAIRE_ANONYMOUS_READONLY=1`은 canonical
+same-origin 또는 Origin 헤더가 없는 요청에서 자격증명 없는 읽기를 허용하는 명시적
+opt-in이다. 이는 owner 인증이나 쓰기 기능을 끄는 설정이 아니며, 그래프·문서
+상세·숨김 문서를 포함한 지식베이스 전체가 API를 통해 공개된다. `hidden`은 화면
+정리용 표시이지 접근 제어가 아니다. 공개 전에 [외부 접속과 reverse
+proxy](docs/EXTERNAL_ACCESS.md)의 방화벽·rate limit 경계를 적용한다.
 
 `app`, `shell`, 고급 `compose` one-off는 인스턴스 잠금을 잡아 lifecycle 및 백업·복원과
 동시에 실행되지 않는다. migration, Compose 관리 daemon과 파괴적 유지보수는 실수로

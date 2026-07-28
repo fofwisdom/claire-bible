@@ -49,6 +49,9 @@ Fetcher는 URL, canonical URL, 제목, 작성자, 시각, 원문, 소스 종류�
 
 - SQLite가 문서·엔티티·관계·inbox·큐의 정본이다.
 - FTS5와 벡터 유사도를 RRF로 결합하고 그래프 이웃으로 검색 문맥을 확장한다.
+- HTTP 검색은 owner·readonly에서 hybrid를 사용하고, 익명에서는 provider와 vector
+  store를 참조하지 않는 FTS 전용 모드로 강제한다. 익명 summary는 항상 끄고 결과는
+  최대 20개로 제한한다.
 - sqlite-vec를 사용할 수 없으면 저장된 임베딩의 brute-force cosine 검색으로 폴백한다.
 - vault Markdown은 SQLite에서 생성하는 단방향 투영이며 정본으로 취급하지 않는다.
 
@@ -74,9 +77,17 @@ Fetcher는 URL, canonical URL, 제목, 작성자, 시각, 원문, 소스 종류�
 - API는 기본적으로 `127.0.0.1`에만 공개한다.
 - 쓰기·모델 비용 발생 경로는 owner bearer 또는 owner 세션을 요구한다.
 - 읽기 전용 토큰과 읽기 전용 세션은 쓰기 경로를 통과할 수 없다.
+- 기본값에서는 읽기 경로도 인증한다. exact `CLAIRE_ANONYMOUS_READONLY=1`을 명시한
+  인스턴스만 canonical same-origin 또는 Origin 헤더가 없는 무자격증명 요청을 읽기
+  전용으로 허용한다.
+- 익명 읽기는 owner 쓰기를 비활성화하지 않으며 문서의 `hidden` 표시를 ACL로 해석하지
+  않는다. 따라서 활성화하면 숨김 문서를 포함한 인스턴스 전체 지식이 공개 범위다.
+- 보장 경계는 API 기동이 끝난 뒤의 익명 HTTP 요청이다. 이 요청은 영속 데이터를
+  변경하거나 provider 비용을 유발하지 않는다. API 시작 migration과 별도 worker,
+  Telegram bot, CLI의 쓰기는 이 보장 범위 밖이다.
 - 문서 공유 토큰은 전체 세션 토큰과 분리하고 단일 문서에만 권한을 부여한다.
-- 외부 접속은 VPN 또는 인증 프록시를 사용하며, 직접 공개할 때는 읽기 경로까지
-  애플리케이션 인증을 적용한다.
+- 외부 접속은 VPN 또는 인증 프록시를 우선하고, 익명 읽기를 켠 경우에도 TLS, exact Host,
+  backend 방화벽과 검색 rate limit을 적용한다.
 
 실제 호스트명, 계정, 포트와 공개 URL은 `.env` 또는 실행 환경에서만 설정한다.
 

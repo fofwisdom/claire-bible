@@ -69,42 +69,53 @@ _CONTENT_SECURITY_POLICY = (
 )
 
 AccessLevel = Literal["public", "read", "owner"]
+AuthScope = Literal["public", "anonymous", "readonly", "owner"]
+RouteKey = tuple[str, str]
 
 
 @dataclass(frozen=True, slots=True)
 class RouteRule:
-    methods: frozenset[str]
     access: AccessLevel
 
 
-def _rule(access: AccessLevel, *methods: str) -> RouteRule:
-    return RouteRule(frozenset(methods), access)
+def _rule(access: AccessLevel) -> RouteRule:
+    return RouteRule(access)
 
 
-# 등록되지 않은 경로는 fail-closed(404)다. methods는 서버 라우트와 문서/시험을
-# 동기화하는 계약이며, 인증 성공 뒤의 405 판단은 Starlette 라우터가 담당한다.
-ROUTE_POLICY: Mapping[str, RouteRule] = {
-    "/health": _rule("public", "GET"),
-    "/p": _rule("public", "GET"),
-    "/image": _rule("public", "GET"),
-    "/": _rule("read", "GET"),
-    "/whoami": _rule("read", "GET"),
-    "/stats": _rule("read", "GET"),
-    "/graph": _rule("read", "GET"),
-    "/node": _rule("read", "GET"),
-    "/documents": _rule("read", "GET"),
-    "/document": _rule("read", "GET"),
-    "/search": _rule("read", "POST"),
-    "/ingest": _rule("owner", "POST"),
-    "/ingest-stream": _rule("owner", "POST"),
-    "/document/seen": _rule("owner", "POST"),
-    "/document/pin": _rule("owner", "POST"),
-    "/document/hide": _rule("owner", "POST"),
-    "/synthesize": _rule("owner", "POST"),
-    "/research": _rule("owner", "POST"),
-    "/dedup/scan": _rule("owner", "POST"),
-    "/dedup/merge": _rule("owner", "POST"),
-    "/share": _rule("owner", "POST"),
+# 등록되지 않은 (method, path)는 fail-closed(404)다. Starlette는 GET Route에 HEAD를
+# 자동 추가하므로 HEAD도 명시해 실제 라우터와 인증 계약을 정확히 맞춘다.
+ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
+    ("GET", "/health"): _rule("public"),
+    ("HEAD", "/health"): _rule("public"),
+    ("GET", "/p"): _rule("public"),
+    ("HEAD", "/p"): _rule("public"),
+    ("GET", "/image"): _rule("public"),
+    ("HEAD", "/image"): _rule("public"),
+    ("GET", "/"): _rule("read"),
+    ("HEAD", "/"): _rule("read"),
+    ("GET", "/whoami"): _rule("read"),
+    ("HEAD", "/whoami"): _rule("read"),
+    ("GET", "/stats"): _rule("read"),
+    ("HEAD", "/stats"): _rule("read"),
+    ("GET", "/graph"): _rule("read"),
+    ("HEAD", "/graph"): _rule("read"),
+    ("GET", "/node"): _rule("read"),
+    ("HEAD", "/node"): _rule("read"),
+    ("GET", "/documents"): _rule("read"),
+    ("HEAD", "/documents"): _rule("read"),
+    ("GET", "/document"): _rule("read"),
+    ("HEAD", "/document"): _rule("read"),
+    ("POST", "/search"): _rule("read"),
+    ("POST", "/ingest"): _rule("owner"),
+    ("POST", "/ingest-stream"): _rule("owner"),
+    ("POST", "/document/seen"): _rule("owner"),
+    ("POST", "/document/pin"): _rule("owner"),
+    ("POST", "/document/hide"): _rule("owner"),
+    ("POST", "/synthesize"): _rule("owner"),
+    ("POST", "/research"): _rule("owner"),
+    ("POST", "/dedup/scan"): _rule("owner"),
+    ("POST", "/dedup/merge"): _rule("owner"),
+    ("POST", "/share"): _rule("owner"),
 }
 
 
@@ -211,6 +222,7 @@ class WebRuntimeConfig:
     expected_authority: str
     cors_allowed_origins: frozenset[str]
     secure_cookie: bool
+    anonymous_readonly: bool
     owner_token: str = field(repr=False)
     readonly_token: str = field(repr=False)
     db_file: Any = field(repr=False)
@@ -245,6 +257,9 @@ class WebRuntimeConfig:
             )
         if readonly_token and _constant_equal(owner_token, readonly_token):
             raise ValueError("owner and readonly tokens must be different")
+        anonymous_readonly = getattr(settings, "anonymous_readonly", False)
+        if not isinstance(anonymous_readonly, bool):
+            raise ValueError("CLAIRE_ANONYMOUS_READONLY must be a boolean")
 
         origins: set[str] = set()
         for raw_origin in _split_origins(
@@ -261,6 +276,7 @@ class WebRuntimeConfig:
             expected_authority=authority,
             cors_allowed_origins=frozenset(origins),
             secure_cookie=environment == "production",
+            anonymous_readonly=anonymous_readonly,
             owner_token=owner_token,
             readonly_token=readonly_token,
             db_file=_setting(settings, "db_file"),
@@ -482,7 +498,7 @@ class HostAuthorityMiddleware:
 
 
 class CORSPolicyMiddleware:
-    _ALLOWED_METHODS = frozenset({"GET", "POST"})
+    _ALLOWED_METHODS = frozenset({"GET", "HEAD", "POST"})
     _ALLOWED_HEADERS = frozenset({"authorization", "content-type"})
 
     def __init__(self, app: ASGIApp, config: WebRuntimeConfig) -> None:
@@ -542,11 +558,10 @@ class CORSPolicyMiddleware:
                 )
                 if item.strip()
             }
-            route_rule = ROUTE_POLICY.get(scope.get("path", ""))
+            route_rule = ROUTE_POLICY.get((method, scope.get("path", "")))
             if (
                 method not in self._ALLOWED_METHODS
                 or route_rule is None
-                or method not in route_rule.methods
                 or not headers <= self._ALLOWED_HEADERS
             ):
                 await _send_response(
@@ -555,7 +570,7 @@ class CORSPolicyMiddleware:
                 return
             response = Response(status_code=204)
             response.headers["Access-Control-Allow-Origin"] = cross_origin
-            response.headers["Access-Control-Allow-Methods"] = "GET, POST"
+            response.headers["Access-Control-Allow-Methods"] = "GET, HEAD, POST"
             response.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type"
             response.headers["Access-Control-Max-Age"] = "600"
             response.headers["Vary"] = "Origin"
@@ -727,8 +742,9 @@ class AuthenticationMiddleware:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
+        method = str(scope.get("method", "")).upper()
         path = scope.get("path", "")
-        rule = ROUTE_POLICY.get(path)
+        rule = ROUTE_POLICY.get((method, path))
         if rule is None:
             await _send_response(
                 PlainTextResponse("Not Found", status_code=404), scope, receive, send
@@ -736,13 +752,21 @@ class AuthenticationMiddleware:
             return
 
         state = scope.setdefault("state", {})
-        if path == "/" and scope["method"] == "GET":
+        if path == "/" and method in {"GET", "HEAD"}:
             query = parse_qs(
                 scope.get("query_string", b"").decode("ascii", "ignore"),
                 keep_blank_values=True,
             )
             token_values = query.get("t")
             if token_values is not None:
+                if method != "GET":
+                    await _send_response(
+                        PlainTextResponse("Not Found", status_code=404),
+                        scope,
+                        receive,
+                        send,
+                    )
+                    return
                 if state.get(_ORIGIN_KIND_KEY) == "cross":
                     await _send_response(
                         PlainTextResponse("Forbidden", status_code=403),
@@ -791,11 +815,22 @@ class AuthenticationMiddleware:
             return
 
         origin_kind = state.get(_ORIGIN_KIND_KEY, "none")
-        if origin_kind == "cross" and (
-            _raw_headers(scope, b"cookie")
-            or _raw_headers(scope, b"x-session")
-            or _raw_headers(scope, b"x-token")
-        ):
+        legacy_credential_present = bool(
+            _raw_headers(scope, b"x-session") or _raw_headers(scope, b"x-token")
+        )
+        if legacy_credential_present:
+            status = 403 if origin_kind == "cross" else 404
+            await _send_response(
+                PlainTextResponse(
+                    "Forbidden" if status == 403 else "Not Found",
+                    status_code=status,
+                ),
+                scope,
+                receive,
+                send,
+            )
+            return
+        if origin_kind == "cross" and _raw_headers(scope, b"cookie"):
             await _send_response(
                 PlainTextResponse("Forbidden", status_code=403), scope, receive, send
             )
@@ -837,7 +872,8 @@ class AuthenticationMiddleware:
             )
             return
 
-        auth_scope: str | None = None
+        credential_present = authorization_present or cookie_present
+        auth_scope: AuthScope | None = None
         auth_channel: str | None = None
         if bearer is not None and _constant_equal(bearer, self.config.owner_token):
             auth_scope, auth_channel = "owner", "bearer"
@@ -857,7 +893,7 @@ class AuthenticationMiddleware:
 
         if (
             auth_channel == "cookie"
-            and scope["method"] == "POST"
+            and method == "POST"
             and origin_kind != "same"
         ):
             await _send_response(
@@ -865,8 +901,17 @@ class AuthenticationMiddleware:
             )
             return
 
+        if (
+            auth_scope is None
+            and not credential_present
+            and self.config.anonymous_readonly
+            and rule.access == "read"
+            and origin_kind in {"none", "same"}
+        ):
+            auth_scope, auth_channel = "anonymous", "anonymous"
+
         allowed = auth_scope == "owner" or (
-            auth_scope == "readonly" and rule.access == "read"
+            auth_scope in {"anonymous", "readonly"} and rule.access == "read"
         )
         if not allowed:
             await _send_response(
@@ -927,7 +972,12 @@ class SafeAccessLogMiddleware:
                 add_header(b"referrer-policy", b"no-referrer")
                 add_header(b"x-content-type-options", b"nosniff")
                 add_header(b"x-frame-options", b"DENY")
-                route_rule = ROUTE_POLICY.get(str(scope.get("path", "")))
+                route_rule = ROUTE_POLICY.get(
+                    (
+                        str(scope.get("method", "")).upper(),
+                        str(scope.get("path", "")),
+                    )
+                )
                 if route_rule is None or route_rule.access != "public":
                     add_header(b"cache-control", b"no-store")
                 add_header(

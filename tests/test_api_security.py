@@ -35,6 +35,7 @@ def _settings(
     cors_allowed_origins: str = CROSS_ORIGIN,
     inject_token: str = OWNER_TOKEN,
     readonly_token: str = READONLY_TOKEN,
+    anonymous_readonly: bool = False,
 ) -> SimpleNamespace:
     return SimpleNamespace(
         environment=environment,
@@ -42,6 +43,7 @@ def _settings(
         cors_allowed_origins=cors_allowed_origins,
         inject_token=inject_token,
         readonly_token=readonly_token,
+        anonymous_readonly=anonymous_readonly,
         db_file=tmp_path / "claire.db",
     )
 
@@ -65,7 +67,9 @@ def _inner_app() -> Starlette:
             Route("/", _endpoint, methods=["GET"]),
             Route("/health", _endpoint, methods=["GET"]),
             Route("/p", _endpoint, methods=["GET"]),
+            Route("/image", _endpoint, methods=["GET"]),
             Route("/graph", _endpoint, methods=["GET"]),
+            Route("/whoami", _endpoint, methods=["GET"]),
             Route("/search", _endpoint, methods=["POST"]),
             Route("/ingest", _endpoint, methods=["POST"]),
             Route("/document/seen", _endpoint, methods=["POST"]),
@@ -157,6 +161,19 @@ def test_runtime_config_validates_environment_url_origins_and_cookie_mode(tmp_pa
     assert dev.public_origin == DEV_ORIGIN
     assert dev.cors_allowed_origins == {CROSS_ORIGIN}
     assert dev.secure_cookie is False
+    assert dev.anonymous_readonly is False
+
+    anonymous = security.WebRuntimeConfig.from_settings(
+        _settings(tmp_path, anonymous_readonly=True)
+    )
+    assert anonymous.anonymous_readonly is True
+
+    legacy_settings = _settings(tmp_path)
+    del legacy_settings.anonymous_readonly
+    assert (
+        security.WebRuntimeConfig.from_settings(legacy_settings).anonymous_readonly
+        is False
+    )
 
     prod = security.WebRuntimeConfig.from_settings(
         _settings(
@@ -205,6 +222,7 @@ def test_runtime_config_validates_environment_url_origins_and_cookie_mode(tmp_pa
         ({"readonly_token": "short"}, "32-128"),
         ({"readonly_token": f"{READONLY_TOKEN} "}, "CLAIRE_READONLY_TOKEN"),
         ({"readonly_token": OWNER_TOKEN}, "must be different"),
+        ({"anonymous_readonly": "true"}, "CLAIRE_ANONYMOUS_READONLY"),
         ({"cors_allowed_origins": "*"}, "wildcard"),
         ({"cors_allowed_origins": f"{CROSS_ORIGIN}/"}, "trailing slash"),
     ],
@@ -214,6 +232,43 @@ def test_runtime_config_rejects_unsafe_values(tmp_path, change, match):
     values.update(change)
     with pytest.raises(ValueError, match=match):
         security.WebRuntimeConfig.from_settings(SimpleNamespace(**values))
+
+
+def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
+    public_get = {"/health", "/p", "/image"}
+    read_get = {"/", "/whoami", "/stats", "/graph", "/node", "/documents", "/document"}
+    read_post = {"/search"}
+    owner_post = {
+        "/ingest",
+        "/ingest-stream",
+        "/document/seen",
+        "/document/pin",
+        "/document/hide",
+        "/synthesize",
+        "/research",
+        "/dedup/scan",
+        "/dedup/merge",
+        "/share",
+    }
+    expected = {
+        **{
+            (method, path): "public"
+            for path in public_get
+            for method in ("GET", "HEAD")
+        },
+        **{
+            (method, path): "read"
+            for path in read_get
+            for method in ("GET", "HEAD")
+        },
+        **{("POST", path): "read" for path in read_post},
+        **{("POST", path): "owner" for path in owner_post},
+    }
+
+    assert {
+        key: rule.access for key, rule in security.ROUTE_POLICY.items()
+    } == expected
+    assert len(security.ROUTE_POLICY) == 31
 
 
 @pytest.mark.asyncio
@@ -284,8 +339,302 @@ async def test_public_read_and_owner_route_policy(tmp_path):
     assert (
         await _call(app, "/graph", headers=[("X-Token", OWNER_TOKEN)])
     ).status == 404
-    assert "/auth/request" not in security.ROUTE_POLICY
-    assert "/auth/poll" not in security.ROUTE_POLICY
+    assert all(path != "/auth/request" for _method, path in security.ROUTE_POLICY)
+    assert all(path != "/auth/poll" for _method, path in security.ROUTE_POLICY)
+
+
+@pytest.mark.asyncio
+async def test_anonymous_readonly_allows_only_exact_read_pairs_same_or_no_origin(
+    tmp_path,
+):
+    app = security.wrap_web_app(
+        _inner_app(),
+        _settings(tmp_path, anonymous_readonly=True),
+    )
+
+    no_origin = await _call(app, "/graph")
+    same_origin = await _call(
+        app,
+        "/whoami",
+        headers=[("Origin", DEV_ORIGIN)],
+    )
+    head = await _call(app, "/graph", method="HEAD")
+    search = await _call(
+        app,
+        "/search",
+        method="POST",
+        headers=[("Content-Type", "application/json")],
+        body=b'{"query":"anonymous"}',
+    )
+    unrelated_cookie = await _call(
+        app,
+        "/graph",
+        headers=[("Cookie", "theme=dark")],
+    )
+
+    assert no_origin.status == 200
+    assert no_origin.json()["scope"] == "anonymous"
+    assert no_origin.header("cache-control") == "no-store"
+    assert same_origin.status == 200
+    assert same_origin.json()["scope"] == "anonymous"
+    assert head.status == 200
+    assert head.header("cache-control") == "no-store"
+    assert search.status == 200
+    assert search.json()["scope"] == "anonymous"
+    assert search.json()["payload"] == {"query": "anonymous"}
+    assert unrelated_cookie.status == 200
+    assert unrelated_cookie.json()["scope"] == "anonymous"
+
+    assert (await _call(app, "/ingest", method="POST")).status == 404
+    assert (
+        await _call(app, "/document/seen", method="POST")
+    ).status == 404
+
+
+@pytest.mark.asyncio
+async def test_anonymous_readonly_never_replaces_valid_owner_or_readonly_scope(
+    tmp_path,
+):
+    app = security.wrap_web_app(
+        _inner_app(),
+        _settings(tmp_path, anonymous_readonly=True),
+    )
+    owner_headers = [("Authorization", f"Bearer {OWNER_TOKEN}")]
+    readonly_headers = [("Authorization", f"Bearer {READONLY_TOKEN}")]
+
+    owner = await _call(app, "/graph", headers=owner_headers)
+    readonly = await _call(app, "/graph", headers=readonly_headers)
+    owner_write = await _call(
+        app,
+        "/ingest",
+        method="POST",
+        headers=owner_headers,
+    )
+
+    assert owner.status == 200 and owner.json()["scope"] == "owner"
+    assert readonly.status == 200 and readonly.json()["scope"] == "readonly"
+    assert owner_write.status == 200
+    assert owner_write.json()["scope"] == "owner"
+
+
+@pytest.mark.asyncio
+async def test_anonymous_readonly_cross_origin_still_requires_valid_bearer(tmp_path):
+    app = security.wrap_web_app(
+        _inner_app(),
+        _settings(tmp_path, anonymous_readonly=True),
+    )
+    origin = [("Origin", CROSS_ORIGIN)]
+
+    assert (await _call(app, "/graph", headers=origin)).status == 403
+    assert (
+        await _call(
+            app,
+            "/search",
+            method="POST",
+            headers=[*origin, ("Content-Type", "application/json")],
+            body=b'{"query":"cross"}',
+        )
+    ).status == 403
+
+    bearer = await _call(
+        app,
+        "/graph",
+        headers=[
+            *origin,
+            ("Authorization", f"Bearer {READONLY_TOKEN}"),
+        ],
+    )
+    assert bearer.status == 200
+    assert bearer.json()["scope"] == "readonly"
+    assert bearer.header("access-control-allow-origin") == CROSS_ORIGIN
+
+    head_preflight = await _call(
+        app,
+        "/graph",
+        method="OPTIONS",
+        headers=[
+            *origin,
+            ("Access-Control-Request-Method", "HEAD"),
+            ("Access-Control-Request-Headers", "Authorization"),
+        ],
+    )
+    assert head_preflight.status == 204
+    assert head_preflight.header("access-control-allow-methods") == "GET, HEAD, POST"
+
+    bearer_head = await _call(
+        app,
+        "/graph",
+        method="HEAD",
+        headers=[
+            *origin,
+            ("Authorization", f"Bearer {READONLY_TOKEN}"),
+        ],
+    )
+    assert bearer_head.status == 200
+    assert bearer_head.header("access-control-allow-origin") == CROSS_ORIGIN
+
+
+@pytest.mark.asyncio
+async def test_anonymous_readonly_does_not_fallback_from_credential_material(
+    tmp_path,
+    monkeypatch,
+):
+    async def reject_session(_config, _token):
+        return None
+
+    monkeypatch.setattr(security, "_validate_session", reject_session)
+    app = security.wrap_web_app(
+        _inner_app(),
+        _settings(tmp_path, anonymous_readonly=True),
+    )
+    unknown_bearer = "unknown-" + ("u" * 32)
+    unknown_session = "s" * 43
+    cases = [
+        [("Authorization", f"Bearer {unknown_bearer}")],
+        [("Authorization", "Basic abc")],
+        [
+            ("Authorization", f"Bearer {OWNER_TOKEN}"),
+            ("Authorization", f"Bearer {OWNER_TOKEN}"),
+        ],
+        [("Cookie", "claire_session=")],
+        [("Cookie", f"claire_session={unknown_session}")],
+        [("Cookie", "claire_session=a; claire_session=b")],
+        [
+            ("Authorization", f"Bearer {OWNER_TOKEN}"),
+            ("Cookie", f"claire_session={unknown_session}"),
+        ],
+        [("X-Token", OWNER_TOKEN)],
+        [("X-Session", unknown_session)],
+    ]
+
+    for credential_headers in cases:
+        no_origin = await _call(app, "/graph", headers=credential_headers)
+        same_origin = await _call(
+            app,
+            "/graph",
+            headers=[*credential_headers, ("Origin", DEV_ORIGIN)],
+        )
+        cross_origin = await _call(
+            app,
+            "/graph",
+            headers=[*credential_headers, ("Origin", CROSS_ORIGIN)],
+        )
+        assert no_origin.status == 404
+        assert same_origin.status == 404
+        assert cross_origin.status == 403
+
+
+@pytest.mark.asyncio
+async def test_complete_scope_origin_read_and_owner_permission_matrix(
+    tmp_path,
+    monkeypatch,
+):
+    owner_session = "s" * 43
+    readonly_session = "r" * 43
+
+    async def validate(_config, token):
+        return {
+            owner_session: "owner",
+            readonly_session: "readonly",
+        }.get(token)
+
+    monkeypatch.setattr(security, "_validate_session", validate)
+    app = security.wrap_web_app(
+        _inner_app(),
+        _settings(tmp_path, anonymous_readonly=True),
+    )
+    credential_headers = {
+        "owner_bearer": [("Authorization", f"Bearer {OWNER_TOKEN}")],
+        "readonly_bearer": [("Authorization", f"Bearer {READONLY_TOKEN}")],
+        "owner_session": [("Cookie", f"claire_session={owner_session}")],
+        "readonly_session": [("Cookie", f"claire_session={readonly_session}")],
+        "anonymous": [],
+        "invalid": [("Authorization", f"Bearer {'u' * 43}")],
+    }
+    origin_headers = {
+        "none": [],
+        "same": [("Origin", DEV_ORIGIN)],
+        "cross": [("Origin", CROSS_ORIGIN)],
+    }
+    expected_read = {
+        "owner_bearer": {"none": 200, "same": 200, "cross": 200},
+        "readonly_bearer": {"none": 200, "same": 200, "cross": 200},
+        "owner_session": {"none": 200, "same": 200, "cross": 403},
+        "readonly_session": {"none": 200, "same": 200, "cross": 403},
+        "anonymous": {"none": 200, "same": 200, "cross": 403},
+        "invalid": {"none": 404, "same": 404, "cross": 403},
+    }
+    expected_owner = {
+        "owner_bearer": {"none": 200, "same": 200, "cross": 200},
+        "readonly_bearer": {"none": 404, "same": 404, "cross": 404},
+        "owner_session": {"none": 403, "same": 200, "cross": 403},
+        "readonly_session": {"none": 403, "same": 404, "cross": 403},
+        "anonymous": {"none": 404, "same": 404, "cross": 403},
+        "invalid": {"none": 404, "same": 404, "cross": 403},
+    }
+    expected_scope = {
+        "owner_bearer": "owner",
+        "readonly_bearer": "readonly",
+        "owner_session": "owner",
+        "readonly_session": "readonly",
+        "anonymous": "anonymous",
+    }
+
+    for identity, credentials in credential_headers.items():
+        for origin_kind, origin in origin_headers.items():
+            headers = [*credentials, *origin]
+            read = await _call(app, "/graph", headers=headers)
+            owner = await _call(app, "/ingest", method="POST", headers=headers)
+            assert read.status == expected_read[identity][origin_kind], (
+                identity,
+                origin_kind,
+                "read",
+            )
+            assert owner.status == expected_owner[identity][origin_kind], (
+                identity,
+                origin_kind,
+                "owner",
+            )
+            if read.status == 200:
+                assert read.json()["scope"] == expected_scope[identity]
+            if owner.status == 200:
+                assert owner.json()["scope"] == "owner"
+
+
+@pytest.mark.asyncio
+async def test_public_routes_still_ignore_credential_material(tmp_path):
+    app = security.wrap_web_app(
+        _inner_app(),
+        _settings(tmp_path, anonymous_readonly=True),
+    )
+    response = await _call(
+        app,
+        "/health",
+        headers=[
+            ("Authorization", "Basic invalid"),
+            ("Cookie", "claire_session=invalid"),
+            ("X-Token", "legacy"),
+            ("X-Session", "legacy"),
+        ],
+    )
+
+    assert response.status == 200
+    assert response.json()["scope"] == "public"
+    assert response.header("cache-control") is None
+
+
+@pytest.mark.asyncio
+async def test_unknown_method_path_pairs_fail_closed_before_routing(tmp_path):
+    app = security.wrap_web_app(
+        _inner_app(),
+        _settings(tmp_path, anonymous_readonly=True),
+    )
+    owner = [("Authorization", f"Bearer {OWNER_TOKEN}")]
+
+    assert (await _call(app, "/health", method="POST")).status == 404
+    assert (await _call(app, "/ingest", method="GET", headers=owner)).status == 404
+    assert (await _call(app, "/search", method="HEAD", headers=owner)).status == 404
+    assert (await _call(app, "/not-registered")).status == 404
 
 
 @pytest.mark.asyncio
@@ -340,7 +689,7 @@ async def test_cors_preflight_and_bearer_only_actual_request(tmp_path):
     )
     assert preflight.status == 204
     assert preflight.header("access-control-allow-origin") == CROSS_ORIGIN
-    assert preflight.header("access-control-allow-methods") == "GET, POST"
+    assert preflight.header("access-control-allow-methods") == "GET, HEAD, POST"
     assert preflight.header("access-control-max-age") == "600"
     assert preflight.header("access-control-allow-credentials") is None
 
@@ -514,6 +863,24 @@ async def test_bootstrap_requires_full_session_and_sets_environment_cookie(
     second_readonly = await _call(dev_app, "/", query=f"t={readonly_session}")
     assert first_readonly.status == second_readonly.status == 302
     assert readonly_session in first_readonly.header("set-cookie")
+
+
+@pytest.mark.asyncio
+async def test_anonymous_head_bootstrap_is_404_and_does_not_consume_token(tmp_path):
+    settings = _settings(tmp_path, anonymous_readonly=True)
+    conn = dbm.connect(settings.db_file)
+    dbm.init_db(conn)
+    bootstrap = dbm.create_session(conn, scope="owner")
+    conn.close()
+    app = security.wrap_web_app(_inner_app(), settings)
+
+    head = await _call(app, "/", method="HEAD", query=f"t={bootstrap}")
+    exchange = await _call(app, "/", query=f"t={bootstrap}")
+
+    assert head.status == 404
+    assert head.header("set-cookie") is None
+    assert exchange.status == 302
+    assert exchange.header("set-cookie") is not None
 
 
 @pytest.mark.asyncio

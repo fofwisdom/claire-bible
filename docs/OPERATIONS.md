@@ -38,6 +38,8 @@
 `production`, `.env.dev`는 `development`를 선언해야 한다. development가 선택되면
 `.env` 다음에 `.env.dev`와 `docker-compose.dev.yml`을 적용한다. public URL과 CORS는
 선택된 env 파일의 값이 사전 검사와 컨테이너 실행에 똑같이 사용된다.
+`CLAIRE_ANONYMOUS_READONLY`도 host process 값이 아니라 선택된 파일의 exact `0|1`만
+사용한다.
 
 ```bash
 CLAIRE_ENVIRONMENT=development ./cb-manuscript up
@@ -53,7 +55,9 @@ development는 현재 checkout에서 직접 실행하는 `uv run claire <command
 
 이 구조를 적용하기 전부터 `.env` 또는 `.env.dev`가 있으면 첫 lifecycle 명령 전에
 `./cb-manuscript init`을 다시 실행한다. 이 명령은 기존 secret과 비어 있지 않은 설정을
-덮어쓰지 않고 누락된 selector를 `.env=production`, `.env.dev=development`로 보충한다.
+덮어쓰지 않고 누락된 selector를 `.env=production`, `.env.dev=development`로 보충하고,
+두 파일에 빠진 `CLAIRE_ANONYMOUS_READONLY=0`도 각각 추가한다. production에서 `1`인데
+development 파일에 값이 없으면 공개 설정의 암묵적 상속을 막기 위해 기동 전 실패한다.
 production `.env`의 빈 `CLAIRE_PUBLIC_URL`은 추측해서 채우지 않으므로 실제 외부
 hostname의 `https://.../` 값으로 직접 설정해야 한다. CORS가 필요 없으면
 `CLAIRE_CORS_ALLOWED_ORIGINS`는 생략하거나 빈 값으로 둔다.
@@ -68,6 +72,23 @@ hostname과 IPv6는 사전 검사에서 거부한다. loopback은 안전한 초�
   외부 reverse proxy가 종료한다.
 - `CLAIRE_CORS_ALLOWED_ORIGINS`는 path와 wildcard가 없는 origin의 쉼표 목록이다.
   production에서는 `https` origin만 허용하며 빈 값은 same-origin 전용이다.
+- `CLAIRE_ANONYMOUS_READONLY=0` 또는 누락은 기존 인증 전용 동작이다. exact `1`은
+  canonical same-origin 또는 Origin 헤더가 없는 무자격증명 요청의 읽기를 허용한다.
+  owner 쓰기는 계속 유효하며 `hidden` 문서를 포함한 전체 KB가 API 공개 범위가 된다.
+
+`./cb-manuscript doctor`는 선택 profile의 anonymous readonly 상태를 출력한다. enabled
+표시는 의도적인 공개 결정인지 확인해야 할 운영 경보다.
+
+### 익명 읽기 배포와 롤백
+
+먼저 `CLAIRE_ANONYMOUS_READONLY=0`인 채로 코드를 업데이트하고
+`./cb-manuscript init`, `./cb-manuscript doctor`를 통과시킨다. reverse proxy의
+`/search` per-IP 제한과 backend 방화벽을 확인한 다음, trusted LAN 또는 VPN에만
+노출되는 profile의 값을 `1`로 바꾸고 `./cb-manuscript up`으로 재기동한다.
+
+롤백은 같은 profile의 값을 `0`으로 되돌리고 다시 `./cb-manuscript up`을 실행한다.
+이 모드의 보장 범위는 API 시작 완료 뒤의 익명 HTTP 요청뿐이다. 시작 migration과
+별도 worker, Telegram bot, CLI의 쓰기는 계속 동작하며 범위 밖이다.
 
 ## 배포된 앱의 one-off 명령
 
@@ -140,6 +161,9 @@ Compose 수명주기에 맡긴다. 설치·업데이트·migration처럼 서비�
 원격 `remote install/update`는 production 전용이다. `dev remote` 또는 프로세스
 `CLAIRE_ENVIRONMENT=development`는 원격 접속 전에 실패하며, 허용된 배포는 로컬
 `deploy.sh`와 원격 `cb-manuscript` 모두에 production 값을 명시적으로 전달한다.
+기본 `DEPLOY_ENV_SYNC=if-missing`은 기존 원격 `.env`를 유지하므로 코드 update만으로
+anonymous readonly가 켜지지 않는다. 원격 파일을 직접 수정하거나 `always` 동기화를
+명시한 뒤 원격 `doctor` 출력으로 유효값을 확인한다.
 
 ## 백업과 복원
 

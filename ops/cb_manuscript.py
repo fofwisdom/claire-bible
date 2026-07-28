@@ -36,6 +36,7 @@ DEFAULT_PROJECT = "claire-bible"
 DEFAULT_DEV_PROJECT = "claire-bible-dev"
 DEFAULT_WAIT_TIMEOUT = 120
 ENVIRONMENT_KEY = "CLAIRE_ENVIRONMENT"
+ANONYMOUS_READONLY_KEY = "CLAIRE_ANONYMOUS_READONLY"
 DEVELOPMENT = "development"
 PRODUCTION = "production"
 ENVIRONMENTS = frozenset((DEVELOPMENT, PRODUCTION))
@@ -221,6 +222,7 @@ class Runtime:
     project: str
     wait_timeout: int
     bot_enabled: bool
+    anonymous_readonly: bool
 
     @property
     def dev(self) -> bool:
@@ -260,10 +262,11 @@ class Runtime:
 
     def compose_environment(self) -> dict[str, str]:
         env = os.environ.copy()
-        # 두 보안 경계 값은 service env_file이 실제 컨테이너에 전달한다. host process의
+        # 세 보안 경계 값은 service env_file이 실제 컨테이너에 전달한다. host process의
         # 동명 값이 Compose 보간에 끼어들어 사전 검사와 실행값을 갈라놓지 못하게 한다.
         env.pop("CLAIRE_PUBLIC_URL", None)
         env.pop("CLAIRE_CORS_ALLOWED_ORIGINS", None)
+        env.pop(ANONYMOUS_READONLY_KEY, None)
         env[ENVIRONMENT_KEY] = self.environment
         env["CB_ENV_FILE"] = str(self.layout.env.resolve())
         if self.dev:
@@ -349,6 +352,17 @@ def _dotenv_value(raw: str, path: Path, lineno: int) -> str:
     return value[1:closing]
 
 
+def _exact_anonymous_readonly_value(raw: str, path: Path, lineno: int) -> str:
+    """공개 범위 selector는 dotenv의 공백/따옴표 정규화를 허용하지 않는다."""
+
+    if raw not in {"0", "1"}:
+        raise ManuscriptError(
+            f"{path}:{lineno}: {ANONYMOUS_READONLY_KEY}는 "
+            "바깥 공백 없이 정확히 0 또는 1이어야 합니다."
+        )
+    return raw
+
+
 def read_dotenv(path: Path) -> dict[str, str]:
     """Read a conservative dotenv subset without evaluating any content."""
 
@@ -374,7 +388,18 @@ def read_dotenv(path: Path) -> dict[str, str]:
         key = key.strip()
         if not KEY_RE.fullmatch(key):
             raise ManuscriptError(f"{path}:{lineno}: 환경변수 이름이 잘못되었습니다")
-        values[key] = _dotenv_value(raw, path, lineno)
+        if key == ANONYMOUS_READONLY_KEY:
+            lexical = original.rstrip("\r\n").lstrip()
+            if lexical.startswith("export "):
+                lexical = lexical[7:].lstrip()
+            _lexical_key, lexical_raw = lexical.split("=", 1)
+            values[key] = _exact_anonymous_readonly_value(
+                lexical_raw,
+                path,
+                lineno,
+            )
+        else:
+            values[key] = _dotenv_value(raw, path, lineno)
     return values
 
 
@@ -428,6 +453,15 @@ def _resolve_environment(
     values = dict(base_values)
     if environment == DEVELOPMENT:
         development_values = read_dotenv(layout.dev_env)
+        if (
+            base_values.get(ANONYMOUS_READONLY_KEY) == "1"
+            and ANONYMOUS_READONLY_KEY not in development_values
+        ):
+            raise ManuscriptError(
+                f"{layout.dev_env}에 {ANONYMOUS_READONLY_KEY}가 없습니다. "
+                "production의 익명 공개 설정을 development가 암묵적으로 상속하지 않도록 "
+                "`./cb-manuscript init`으로 0 또는 1을 명시하세요."
+            )
         values.update(development_values)
         declared_raw = development_values.get(ENVIRONMENT_KEY, "")
         declared = _parse_environment(
@@ -638,6 +672,17 @@ def _validate_web_tokens(values: Mapping[str, str]) -> None:
         )
 
 
+def _validate_anonymous_readonly(values: Mapping[str, str]) -> bool:
+    raw = values.get(ANONYMOUS_READONLY_KEY)
+    if raw is None:
+        return False
+    if raw not in {"0", "1"}:
+        raise ManuscriptError(
+            f"{ANONYMOUS_READONLY_KEY}는 정확히 0 또는 1이어야 합니다."
+        )
+    return raw == "1"
+
+
 def load_runtime(layout: Layout, *, legacy_dev: bool = False) -> Runtime:
     base_values = read_dotenv(layout.env)
     environment, values = _resolve_environment(
@@ -676,6 +721,7 @@ def load_runtime(layout: Layout, *, legacy_dev: bool = False) -> Runtime:
     )
     _validate_cors_origins(values, environment=environment)
     _validate_web_tokens(values)
+    anonymous_readonly = _validate_anonymous_readonly(values)
 
     bot_enabled = bool(_effective(values, "TELEGRAM_BOT_TOKEN").strip())
     return Runtime(
@@ -685,6 +731,7 @@ def load_runtime(layout: Layout, *, legacy_dev: bool = False) -> Runtime:
         project=project,
         wait_timeout=wait_timeout,
         bot_enabled=bot_enabled,
+        anonymous_readonly=anonymous_readonly,
     )
 
 
@@ -820,6 +867,54 @@ def _ensure_inject_token(path: Path) -> bool:
     return changed
 
 
+def _ensure_anonymous_readonly(path: Path) -> bool:
+    """누락된 익명 읽기 설정을 안전한 기본값 0으로 보충한다."""
+
+    text = path.read_text(encoding="utf-8")
+    lines = text.splitlines(keepends=True)
+    matches: list[str] = []
+
+    for index, original in enumerate(lines):
+        candidate = original.strip()
+        if not candidate or candidate.startswith("#"):
+            continue
+        if candidate.startswith("export "):
+            candidate = candidate[7:].lstrip()
+        if "=" not in candidate:
+            continue
+        key, _raw = candidate.split("=", 1)
+        if key.strip() == ANONYMOUS_READONLY_KEY:
+            lexical = original.rstrip("\r\n").lstrip()
+            if lexical.startswith("export "):
+                lexical = lexical[7:].lstrip()
+            _lexical_key, lexical_raw = lexical.split("=", 1)
+            matches.append(
+                _exact_anonymous_readonly_value(
+                    lexical_raw,
+                    path,
+                    index + 1,
+                )
+            )
+
+    if len(matches) > 1:
+        raise ManuscriptError(
+            f"{path}에 {ANONYMOUS_READONLY_KEY}가 중복되어 있습니다."
+        )
+    if matches:
+        if matches[0] not in {"0", "1"}:
+            raise ManuscriptError(
+                f"{path}의 {ANONYMOUS_READONLY_KEY}는 정확히 0 또는 1이어야 합니다."
+            )
+        os.chmod(path, 0o600)
+        return False
+
+    if lines and not lines[-1].endswith("\n"):
+        lines[-1] += "\n"
+    lines.append(f"{ANONYMOUS_READONLY_KEY}=0\n")
+    _atomic_write(path, "".join(lines), mode=0o600)
+    return True
+
+
 def command_init(layout: Layout) -> int:
     created_env = _copy_once(layout.env_example, layout.env)
     dev_source = (
@@ -833,6 +928,8 @@ def command_init(layout: Layout) -> int:
         layout.dev_env,
         DEVELOPMENT,
     )
+    anonymous_migrated = _ensure_anonymous_readonly(layout.env)
+    dev_anonymous_migrated = _ensure_anonymous_readonly(layout.dev_env)
     token_created = _ensure_inject_token(layout.env)
     _ensure_inject_token(layout.dev_env)
     layout.data.mkdir(parents=True, exist_ok=True)
@@ -843,6 +940,10 @@ def command_init(layout: Layout) -> int:
     print(
         f"{ENVIRONMENT_KEY}: "
         f"{'보충' if selector_migrated or dev_selector_migrated else '유지'}"
+    )
+    print(
+        f"{ANONYMOUS_READONLY_KEY}: "
+        f"{'보충(기본 0)' if anonymous_migrated or dev_anonymous_migrated else '유지'}"
     )
     print(f"CLAIRE_INJECT_TOKEN: {'생성' if token_created else '유지'}")
     print("data/, vault/: 준비됨")
@@ -2452,6 +2553,12 @@ def command_doctor(runtime: Runtime) -> int:
     print(f"profile: {runtime.environment}")
     print(f"project: {runtime.project}")
     print(f"bot profile: {'enabled' if runtime.bot_enabled else 'disabled'}")
+    anonymous_status = "disabled"
+    if runtime.anonymous_readonly:
+        anonymous_status = (
+            "ENABLED - full knowledge base, including hidden documents, is public"
+        )
+    print(f"anonymous readonly: {anonymous_status}")
     print("doctor: OK")
     return 0
 
