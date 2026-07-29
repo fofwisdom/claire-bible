@@ -53,7 +53,7 @@ URL이나 메모 텍스트를 붙여 넣어 새 자료와 관련 링크를 지�
 
 ```bash
 uv sync                      # 의존성 설치
-cp .env.example .env         # 토큰/키 채우기 (GEMINI_API_KEY 없으면 mock provider 로 동작)
+cp .env.example .env         # 로컬 개발 설정 준비(기본 provider는 mock)
 uv run claire doctor         # 환경/벡터백엔드/임베딩 점검
 uv run claire health         # 시스템 건강 상태(JSON): DB·schema·큐·inbox
 uv run claire ingest "https://example.com/article"   # 단건 적재
@@ -90,20 +90,177 @@ uv run claire bot            # 텔레그램 봇 (long-polling)
 영속 서비스의 컨테이너 내부 명령은 Compose가 직접 `claire`를 호출한다. 세부 경계와
 health 종료 코드 차이는 [운영 명령 경계](docs/OPERATIONS.md)를 참고한다.
 
-호스트에는 Python 3, Git, 실행 중인 Docker Engine과 Docker Compose v2가 필요하다.
+### 최초 설치 및 구성
+
+`cb-manuscript`는 준비된 Linux 호스트에서 설정 검증·이미지 build·DB
+migration·서비스 기동을 일관된 순서로 수행한다.
+
+#### 1. 호스트 준비
+
+Linux 호스트가 기준이다. Windows에서는 WSL Ubuntu의 Linux 파일시스템에 checkout을
+두고 실행한다. 다음 항목이 필요하다.
+
+- Bash와 Python 3.10 이상(`fcntl`, `sqlite3` 표준 모듈 포함)
+- Git
+- 실행 중인 Docker Engine과 Docker CLI
+- `docker compose` 형태의 Docker Compose plugin
+- 현재 사용자 계정의 Docker daemon 접근 권한
+- checkout, `data/`, `vault/`, `.cb-manuscript/`를 읽고 쓸 권한
+- 최초 image build를 위한 container registry·OS package repository·Python
+  package index의 DNS/HTTPS 접근
+
+##### Ubuntu 설치 예시
 
 ```bash
-./cb-manuscript init       # .env/.env.dev 생성(기존 파일 미덮어쓰기)
-# .env에 hostname/LAN bind/Telegram/Gemini 설정 입력
-./cb-manuscript doctor     # Docker·Compose·설정 사전 검사
-./cb-manuscript install    # build → migrate → up → health
-./cb-manuscript status
+sudo apt update
+sudo apt install -y bash ca-certificates curl git python3
 ```
 
-`TELEGRAM_BOT_TOKEN`이 비어 있으면 `bot` profile은 기동하지 않는다. API와 worker는
-mock provider로 설치·검증할 수 있다.
+Docker Engine, Docker CLI와 Compose plugin은
+[Docker 공식 Ubuntu 설치 안내](https://docs.docker.com/engine/install/ubuntu/)에
+따라 준비한다. 설치 후 현재 계정에 Docker daemon 접근 권한을 적용하고 버전을
+확인한다.
 
-주요 명령:
+```bash
+python3 --version          # 3.10 이상
+python3 -c 'import fcntl, sqlite3'
+git --version
+docker --version
+docker compose version
+docker info --format '{{.ServerVersion}}'
+```
+
+저장소를 clone한 뒤 루트로 이동한다. private repository는 credential manager 또는
+SSH 인증을 사용한다.
+
+```bash
+git clone https://github.com/fofwisdom/claire-bible.git
+cd claire-bible
+```
+
+컨테이너 image build가 Python 3.11, `uv`, Chromium과 애플리케이션 Python 패키지를
+설치한다. 호스트 `uv`는 [로컬 소스 개발](#로컬-소스-개발)과 기본 원격 배포 CI에서
+사용한다.
+
+#### 2. 환경 파일과 저장 경로 준비
+
+저장소 루트에서 `init`을 먼저 실행한다.
+
+```bash
+./cb-manuscript init
+```
+
+이 명령은 다음 작업을 수행한다.
+
+- `.env.example`을 `.env`로, `.env.dev.example`을 `.env.dev`로 복사
+- 기존 환경 파일과 비어 있지 않은 설정 유지
+- production/development selector와 `CLAIRE_ANONYMOUS_READONLY=0` 보충
+- 비어 있는 `CLAIRE_INJECT_TOKEN`을 URL-safe owner token으로 생성
+- 환경 파일을 mode `0600`으로 설정
+- 기본 `data/`, `vault/` 디렉터리 생성
+
+설치할 profile에 따라 설정 파일과 명령을 선택한다.
+
+| 목적 | 적용 설정 | 명령 형태 |
+|---|---|---|
+| 같은 호스트에서 격리된 시험 | `.env` 다음 `.env.dev` overlay | `./cb-manuscript dev <command>` |
+| production 운영 | `.env` | `./cb-manuscript <command>` |
+
+development의 기본값은 `127.0.0.1:8766`, mock provider, Telegram bot 비활성화다. 같은
+호스트에서 시험한다면 `init` 직후 사용할 수 있다. 다른 개발 장치에서 접속할 때는
+`.env.dev`의 `CB_API_BIND`와 `CLAIRE_PUBLIC_URL`을 실제 고정 LAN IPv4 기준으로 함께
+변경한다.
+
+production에서는 `.env`의 예시 hostname을 포함한 다음 값을 실제 환경에 맞게
+변경한다.
+
+```dotenv
+CLAIRE_ENVIRONMENT=production
+CB_API_BIND=192.168.10.25
+CB_API_PORT=8765
+CLAIRE_PUBLIC_URL=https://kb.example.net/
+CLAIRE_CORS_ALLOWED_ORIGINS=
+CLAIRE_ANONYMOUS_READONLY=0
+```
+
+- `CB_API_BIND`는 Claire 호스트에 실제 할당된 단일 IPv4여야 한다.
+- `CB_API_PORT`는 사용 가능한 port여야 한다.
+- `CLAIRE_PUBLIC_URL`은 실제 DNS hostname의 root HTTPS URL이어야 한다.
+- production HTTPS와 인증서는 별도 reverse proxy가 담당한다.
+- production host의 API source 제한은 reverse proxy IP를 기준으로
+  [`DOCKER-USER` chain](https://docs.docker.com/engine/install/ubuntu/#firewall-limitations)에
+  설정한다.
+- `CB_DATA_DIR`·`CB_VAULT_DIR`을 바꾸면 해당 host 디렉터리를 미리 만들고 Docker bind
+  mount와 쓰기 권한을 확인한다.
+
+DNS, reverse proxy, TLS, Host 전달과 방화벽 구성은 [외부 접속과 reverse
+proxy](docs/EXTERNAL_ACCESS.md)를 따른다.
+
+#### 3. Provider와 Telegram 선택
+
+최초 기동은 기본 mock provider와 비활성 Telegram 구성으로 확인할 수 있다.
+
+```dotenv
+CLAIRE_PROVIDER=mock
+GEMINI_API_KEY=
+TELEGRAM_BOT_TOKEN=
+```
+
+실제 Gemini를 사용하려면 provider와 API key를 모두 설정한다.
+
+```dotenv
+CLAIRE_PROVIDER=gemini
+GEMINI_API_KEY=replace-with-gemini-api-key
+```
+
+Telegram bot을 활성화할 때 `TELEGRAM_BOT_TOKEN`과 `CLAIRE_ALLOWED_USERS`의 허용할
+숫자 user ID를 설정한다.
+
+`CLAIRE_ANONYMOUS_READONLY=1`은 숨김 문서를 포함한 전체 지식베이스의 읽기 API를
+자격증명 없이 공개한다. 최초 설치는 기본값 `0`을 유지하고, 방화벽과 rate limit을
+검증한 뒤 필요한 profile에서만 명시적으로 활성화한다.
+
+#### 4. 사전 검사, 설치, 설치 후 확인
+
+`doctor`와 `install`은 별도 명령이다. 선택한 profile에서 다음 순서로 실행한다.
+
+```bash
+# production
+./cb-manuscript doctor
+./cb-manuscript install
+
+# development
+./cb-manuscript dev doctor
+./cb-manuscript dev install
+```
+
+`doctor`는 Docker CLI·Compose·daemon, Git, 환경 파일과 Compose 문법을 확인한다.
+설치 전에 다음 운영 조건도 확인한다.
+
+- `CB_API_BIND`가 실제 host interface에 존재하는지
+- `CB_API_PORT`가 비어 있는지
+- Docker build와 데이터 증가에 필요한 디스크 공간
+- custom data/vault 경로의 mount·쓰기 권한
+- registry·APT·Python package index 접근
+- production DNS·reverse proxy·TLS·방화벽
+- Gemini와 Telegram 자격증명의 실제 유효성
+
+설치가 끝나면 같은 profile에서 상태와 두 단계 health를 확인한다. development는 각
+명령 앞에 `dev`를 붙인다.
+
+```bash
+./cb-manuscript status
+./cb-manuscript health
+./cb-manuscript app health
+./cb-manuscript app doctor
+./cb-manuscript logs --tail 100 api
+```
+
+`install`의 마지막 검증 범위는 API 컨테이너의 DB·schema liveness다. 설치 후 실제
+환경에서 Gemini 호출, Telegram 메시지, scraping, reverse proxy와 브라우저 접속을
+각각 확인한다.
+
+### 주요 운영 명령
 
 ```bash
 ./cb-manuscript update             # fast-forward source → build → stop → migrate → up
@@ -121,8 +278,6 @@ mock provider로 설치·검증할 수 있다.
 ./cb-manuscript app status         # 배포된 앱의 one-off 상태 조회
 ./cb-manuscript app health         # degraded까지 평가하는 전체 health
 ./cb-manuscript compose -- ps      # 고급 Compose 탈출구
-CLAIRE_ENVIRONMENT=development ./cb-manuscript install
-./cb-manuscript dev install        # 위 development 선택의 호환 별칭
 ```
 
 `CLAIRE_ENVIRONMENT`는 `development` 또는 `production` 중 하나가 반드시 필요하다.
@@ -202,11 +357,39 @@ Compose project 이름은 `CB_PROJECT_NAME`으로 고정한다. 운영은 기본
 ### 원격 호환 실행
 
 워크스테이션에서 원격 호스트로 전송해야 하면 접속 설정을 runtime `.env`와 분리한다.
-워크스테이션에는 SSH, rsync와 CI 실행용 `uv`도 필요하다.
+워크스테이션에는 Bash, Python 3.10 이상, Docker Compose, SSH, rsync와 기본 CI
+실행용 `uv`가 필요하다. 원격 호스트에는 Bash, Python 3.10 이상, rsync, 실행 중인
+Docker Engine과 Compose, 배포 경로 쓰기·Docker daemon 접근 권한, image build용
+외부 네트워크가 필요하다.
+
+Ubuntu 워크스테이션의 원격 전송 도구는 APT로 설치한다. 기본 CI용 `uv`는
+[공식 standalone installer](https://docs.astral.sh/uv/getting-started/installation/)로
+준비한다.
 
 ```bash
+# 배포 워크스테이션
+sudo apt update
+sudo apt install -y openssh-client rsync
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+설치 후 새 shell session에서 `uv --version`을 확인한다.
+
+원격 Ubuntu 호스트는 위의 Docker·Python 준비에 SSH server와 `rsync`를
+추가한다.
+
+```bash
+# 원격 대상 호스트
+sudo apt update
+sudo apt install -y openssh-server rsync
+sudo systemctl enable --now ssh
+```
+
+```bash
+./cb-manuscript init
+# production .env를 실제 bind, URL, provider 설정으로 편집
 cp .env.deploy.example .env.deploy
-# DEPLOY_REMOTE, DEPLOY_PATH 입력
+# DEPLOY_REMOTE, DEPLOY_PATH, DEPLOY_ENV_SYNC 입력
 ./cb-manuscript remote install
 ./cb-manuscript remote update
 ```
@@ -216,10 +399,15 @@ cp .env.deploy.example .env.deploy
 `.env` 동기화 정책을 정한다. 원격 install/update는 production 전용이며 로컬과 원격
 명령 모두 `CLAIRE_ENVIRONMENT=production`으로 고정된다.
 
+기본 `DEPLOY_ENV_SYNC=if-missing`은 원격 `.env`가 없을 때만 로컬 production `.env`를
+전송한다. 최초 설치에는 유효한 로컬 `.env` 또는 이미 준비된 원격 `.env` 중 하나가
+반드시 필요하다. `remote install` 전에 원격 호스트의 Python·Docker·Compose 버전,
+daemon 접근, 배포 경로 권한과 build 네트워크를 확인한다.
+
 웹 접속은 [외부 접속과 reverse proxy](docs/EXTERNAL_ACCESS.md)를 따른다. development는
 고정 IPv4로 직접 HTTP 접속하고, production은 별도 LAN reverse proxy가 hostname과
-클라이언트 TLS를 담당한 뒤 Claire의 HTTP upstream으로 전달한다. Claire 자체 HTTPS,
-인증서 발급과 Let's Encrypt는 제공하지 않는다.
+클라이언트 TLS를 담당한 뒤 Claire의 HTTP upstream으로 전달한다. production HTTPS와
+인증서 발급·갱신은 LAN reverse proxy에서 관리한다.
 
 ### 장애 대응
 
