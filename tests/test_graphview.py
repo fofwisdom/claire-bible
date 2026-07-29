@@ -91,7 +91,7 @@ def test_graph_html_self_contained_markers():
     assert "id=\"searchbtn\"" in GRAPH_HTML                             # 의미검색 버튼
     assert "synthSet" in GRAPH_HTML and "addToSynth" in GRAPH_HTML      # 종합 수집(inspect와 분리)
     assert "id=\"authstate\"" in GRAPH_HTML and "setAccessScope" in GRAPH_HTML
-    assert '<body class="ro" data-auth-scope="unknown">' in GRAPH_HTML
+    assert '<body class="ro" data-auth-scope="unknown" data-active-pane="docs">' in GRAPH_HTML
     assert "let AUTH_SCOPE='unknown';" in GRAPH_HTML
     assert "let READONLY=true;" in GRAPH_HTML
     assert "function canWrite(){ return AUTH_SCOPE==='owner'; }" in GRAPH_HTML
@@ -139,7 +139,34 @@ def test_graph_html_self_contained_markers():
     assert "<mark>" in GRAPH_HTML                                       # ==형광== 강조 렌더
     assert "data-theme" in GRAPH_HTML and "toggleTheme" in GRAPH_HTML and "claireTheme" in GRAPH_HTML  # 라이트 기본+다크 토글
     assert "relayout" in GRAPH_HTML and "orientationchange" in GRAPH_HTML  # 모바일 캔버스 리사이즈
-    assert "pan-y" in GRAPH_HTML and "mobileScrollTo" in GRAPH_HTML     # 모바일 스크롤 트랩 해소(협조적 제스처)
+    # 모바일 primary nav는 자료/그래프뿐이며 상세는 선택에 종속된 context sheet다.
+    assert 'id="worktabs" role="tablist"' in GRAPH_HTML
+    assert GRAPH_HTML.count('role="tab"') == 2
+    assert GRAPH_HTML.count('role="tabpanel"') == 2
+    assert 'id="tab-detail"' not in GRAPH_HTML
+    assert 'id="detailpane" role="region" aria-label="문맥 상세"' in GRAPH_HTML
+    assert "function revealWorkspace" in GRAPH_HTML and "data-active-pane" in GRAPH_HTML
+    assert "function openDetailPane()" in GRAPH_HTML and "let activePane='docs', detailOpen=false" in GRAPH_HTML
+    assert "const paneNames=['docs','graph'];" in GRAPH_HTML
+    assert "mobileScrollTo" not in GRAPH_HTML and "scrollIntoView" not in GRAPH_HTML
+    assert "const mobileMQ = window.matchMedia('(max-width:720px)')" in GRAPH_HTML
+    assert "const compactMQ = window.matchMedia('(max-width:1100px)')" in GRAPH_HTML
+    assert "fitGraphContext" in GRAPH_HTML and "resetGraphCamera" in GRAPH_HTML
+    # 모바일 그래프의 지역 자료 전환기: 자료 탭으로 왕복하지 않고 검색/이전/다음으로
+    # activeDoc을 바꾸되, 자료·그래프의 주 탭 계층과 reader 역할은 그대로 유지한다.
+    assert 'id="graphdocnav" aria-label="그래프 자료 전환"' in GRAPH_HTML
+    assert 'id="graphdocpick" aria-haspopup="dialog" aria-expanded="false"' in GRAPH_HTML
+    assert 'id="graphdocmenu" role="dialog" aria-label="그래프에서 볼 자료 선택"' in GRAPH_HTML
+    assert 'aria-hidden="true" inert hidden' in GRAPH_HTML
+    assert "function renderGraphDocPicker" in GRAPH_HTML
+    assert "function stepGraphDoc" in GRAPH_HTML and "function setActiveDoc" in GRAPH_HTML
+    assert "if(current<0 || docs.length<2) return;" in GRAPH_HTML
+    assert "font:{color:th.nodeFont,size:0" in GRAPH_HTML             # 관계 라벨은 기본 숨김
+    assert "edgeLabelsByZoom" in GRAPH_HTML                           # 확대/선택/경로에서만 라벨 공개
+    # reader는 실제 modal 의미·focus trap/복원·배경 inert를 갖는다.
+    assert 'role="dialog" aria-modal="true" aria-labelledby="rtitle" aria-hidden="true"' in GRAPH_HTML
+    assert "handleReaderKey" in GRAPH_HTML and "setReaderBackgroundInert" in GRAPH_HTML
+    assert "readerReturnFocus" in GRAPH_HTML and "data-read-doc" in GRAPH_HTML
     assert "#ffffff" in GRAPH_HTML and "borderWidthSelected" in GRAPH_HTML  # 선택 노드 흰 테두리
     assert "nodes:ids" in GRAPH_HTML                                    # 문서 선택 → 해당 노드들로 fit
     assert "doResearch" in GRAPH_HTML and "fetch('research'" in GRAPH_HTML  # 맥락 확장 조사

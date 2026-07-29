@@ -240,10 +240,21 @@ GRAPH_HTML = """<!doctype html>
     --btn-bg:#238636; --btn-fg:#ffffff; --sec-bg:#30363d; --sec-fg:#d7dbe0;
     --rel:#d29922; --nodebtn-hover:#2a3344; --shadow:rgba(1,4,9,.6);
   }
+  *{box-sizing:border-box}
   html,body{margin:0;height:100%;font-family:system-ui,sans-serif;background:var(--bg);color:var(--fg)}
-  #bar{display:flex;align-items:center;gap:6px;padding:6px 12px;background:var(--bar-bg);border-bottom:1px solid var(--border);font-size:13px;white-space:nowrap}
-  #bar .brand{font-weight:600}
+  body{min-height:100vh;min-height:100dvh;display:flex;flex-direction:column;overflow:hidden}
+  .sr-only{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;
+    margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;
+    white-space:nowrap!important;border:0!important}
+  :focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+  #bar{position:relative;z-index:40;display:flex;align-items:center;gap:8px;padding:7px 12px;
+    min-height:48px;background:var(--bar-bg);border-bottom:1px solid var(--border);
+    font-size:13px;white-space:nowrap}
+  #bar .brand{font-weight:700;letter-spacing:-.01em}
   #bar b{color:var(--accent2)}
+  #barsearch{display:flex;align-items:center;gap:6px;min-width:170px}
+  #morebtn{display:none;background:var(--sec-bg);color:var(--sec-fg);border:1px solid var(--border)}
+  #moremenu{display:flex;align-items:center;gap:6px;min-width:0;flex:1}
   .spacer{flex:1}
   #stat{color:var(--muted);text-align:right}
   #authstate{padding:2px 7px;border:1px solid var(--border);border-radius:4px}
@@ -251,26 +262,37 @@ GRAPH_HTML = """<!doctype html>
   #themebtn:hover{background:var(--hover)}
   #synthchips{display:flex;gap:4px;overflow:hidden;max-width:280px}
   #synthchips .chip{background:var(--chip-bg);border-radius:10px;padding:1px 7px;font-size:11px;cursor:pointer}
-  #legendbar{display:flex;flex-wrap:wrap;gap:10px;padding:4px 12px;background:var(--panel-bg);border-bottom:1px solid var(--border);font-size:11px;color:var(--muted)}
+  #legendbar{display:flex;flex-wrap:wrap;gap:10px;padding:4px 12px;min-height:27px;
+    background:var(--panel-bg);border-bottom:1px solid var(--border);font-size:11px;color:var(--muted)}
   #legendbar i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:3px;vertical-align:middle}
   #legendbar .lgsep{margin-left:6px;opacity:.7}
-  #legendbar .reltog{cursor:pointer;padding:1px 7px;border-radius:9px;background:var(--chip-bg);border:1px solid var(--border);color:var(--fg)}
+  #legendbar .reltog{cursor:pointer;padding:1px 7px;border-radius:9px;background:var(--chip-bg);
+    border:1px solid var(--border);color:var(--fg);font-size:11px}
   #legendbar .reltog.off{opacity:.4;text-decoration:line-through}
   #bar button.on{outline:2px solid var(--accent2);outline-offset:1px}
-  #wrap{display:flex;height:calc(100% - 68px)}
+  #worktabs{display:none}
+  #wrap{position:relative;display:grid;grid-template-columns:280px minmax(420px,1fr) 360px;
+    flex:1;min-height:0;overflow:hidden}
   /* #netwrap 이 위치 기준자, #net 은 vis.Network 컨테이너(vis 가 init 시 innerHTML 을
      지우므로 — 확인됨 — #zoomctl 은 #net *밖*, 형제로 둬야 살아남는다). */
-  #netwrap{flex:1;min-width:0;position:relative}
-  #net{width:100%;height:100%;background:var(--net-bg)}
+  .workspace-pane{min-width:0;min-height:0}
+  #netwrap{position:relative;display:flex;flex-direction:column}
+  #net{width:100%;flex:1;min-height:0;background:var(--net-bg)}
+  /* 모바일 그래프 안에서 문서를 연속 전환하는 보조 탐색. 자료/그래프의 주 계층은
+     그대로 두고, 좁은 화면에서만 현재 그래프 필터를 바꾸는 지역 컨트롤로 노출한다. */
+  #graphdocnav{display:none}
   /* 모바일 핀치줌 대체 — zoomView:false(Mac 휠 점프 수정, 2026-06-24)가 vis-network 의
      핀치줌도 함께 꺼버려(같은 옵션이 관장) 터치로는 줌 방법이 없었다(회귀). 커스텀 핀치
      제스처는 vis 내부 hammer 인스턴스와 이벤트 충돌 위험이 있어, 확실히 동작하는 +/- 버튼으로
      대체(사용자도 "터치나 버튼추가나" 로 버튼을 대안으로 제시함). */
-  #zoomctl{position:absolute;right:14px;bottom:14px;display:none;flex-direction:column;gap:6px;z-index:5}
-  #zoomctl button{width:36px;height:36px;border-radius:50%;border:1px solid var(--border);
+  #zoomctl{position:absolute;right:14px;bottom:14px;display:flex;flex-direction:column;gap:7px;z-index:5}
+  #zoomctl button{width:40px;height:40px;border-radius:50%;border:1px solid var(--border);
     background:var(--sec-bg);color:var(--sec-fg);font-size:19px;line-height:1;cursor:pointer;opacity:.9}
   #zoomctl button:active{opacity:1;background:var(--hover)}
-  @media (max-width:820px){ #zoomctl{display:flex} }
+  #graphnotice{position:absolute;left:50%;top:42px;z-index:6;display:none;max-width:min(520px,80%);
+    transform:translateX(-50%);padding:7px 11px;border:1px solid var(--accent);
+    border-radius:18px;background:var(--card-bg);box-shadow:0 4px 16px var(--shadow);font-size:12px}
+  #graphnotice.on{display:block}
   #docs{width:280px;display:flex;flex-direction:column;background:var(--docs-bg);border-right:1px solid var(--border);font-size:12px}
   #docs .dhead{padding:8px 10px;border-bottom:1px solid var(--border);flex-shrink:0}
   /* 즐겨찾기(고정) 섹션 — 많아져도 패널을 다 잡아먹지 않게 최대높이+스크롤(사용자 요구:
@@ -318,7 +340,13 @@ GRAPH_HTML = """<!doctype html>
   body:not([data-auth-scope="owner"]) #addbtn,
   body:not([data-auth-scope="owner"]) #dedupbtn,
   body:not([data-auth-scope="owner"]) .rshare{display:none!important}
-  #panel{width:360px;overflow:auto;padding:14px 16px;background:var(--panel-bg);border-left:1px solid var(--border);font-size:13px;line-height:1.5}
+  #detailpane{width:360px;display:flex;flex-direction:column;background:var(--panel-bg);
+    border-left:1px solid var(--border);min-height:0}
+  #detailhead{display:none;align-items:center;justify-content:space-between;min-height:44px;
+    padding:4px 10px;border-bottom:1px solid var(--border);background:var(--bar-bg);flex:none}
+  #detailclose{min-height:36px;background:var(--sec-bg);color:var(--sec-fg)}
+  #panel{flex:1;min-height:0;overflow:auto;padding:14px 16px;font-size:13px;line-height:1.5;
+    overscroll-behavior:contain}
   #panel h2{margin:.2em 0;font-size:18px} #panel h2 small{color:var(--muted);font-size:12px;font-weight:normal}
   #panel h3{margin:1em 0 .3em;font-size:13px;color:var(--accent2);border-bottom:1px solid var(--border);padding-bottom:2px}
   #panel ul{margin:.2em 0;padding-left:18px} #panel li{margin:.25em 0}
@@ -383,11 +411,11 @@ GRAPH_HTML = """<!doctype html>
   .md table{border-collapse:collapse;margin:.6em 0} .md th,.md td{border:1px solid var(--border);padding:.3em .6em}
   /* --- 중앙 읽기 팝업(모달) — 좌측 문서의 '읽기' 버튼으로 연다(nav 와 분리, 사용자 요구) --- */
   #reader{position:fixed;inset:0;background:var(--shadow);display:none;z-index:50;
-    align-items:flex-start;justify-content:center;padding:2.5vh 14px;overflow:auto;--read-fs:16px}
+    align-items:flex-start;justify-content:center;padding:2.5vh 14px;overflow:hidden;--read-fs:16px}
   #reader.open{display:flex}
   #reader .sheet{background:var(--bg);color:var(--fg);max-width:1120px;width:100%;border-radius:10px;
     border:1px solid var(--border);box-shadow:0 12px 40px var(--shadow);padding:0 0 28px;
-    max-height:95vh;display:flex;flex-direction:column}
+    height:95vh;max-height:95dvh;display:flex;flex-direction:column;overflow:hidden}
   #reader .rhead{display:flex;align-items:flex-start;gap:10px;padding:16px 24px;border-bottom:1px solid var(--border);
     position:sticky;top:0;background:var(--bg);border-radius:10px 10px 0 0;z-index:1}
   #reader .rhead h1{margin:0;font-size:22px;flex:1} #reader .rhead .rmeta{color:var(--muted);font-size:12px;margin-top:.3em;font-weight:normal}
@@ -406,47 +434,140 @@ GRAPH_HTML = """<!doctype html>
     padding:3px 9px;font-size:12px;cursor:pointer}
   #reader .rhead .rshare{background:var(--sec-bg);color:var(--sec-fg);border:0;border-radius:6px;
     font-size:15px;line-height:1;padding:5px 10px;cursor:pointer}
-  #reader .rbody{padding:10px 32px 0;overflow:auto}
+  #reader .rbody{padding:10px 32px max(28px,env(safe-area-inset-bottom));overflow:auto;
+    overscroll-behavior:contain}
   #reader .rsection{color:var(--muted);font-size:11px;letter-spacing:.04em;text-transform:uppercase;margin:1.2em 0 .2em}
-  /* 모바일/좁은 화면: 가로 3분할 대신 세로 스택(그래프 먼저). 모든 기능 터치로 도달 가능. */
-  @media (max-width:820px){
-    #bar{white-space:normal;flex-wrap:wrap;gap:4px 8px}
-    #bar .spacer{display:none}
-    #q{width:38vw;min-width:120px}
-    #wrap{flex-direction:column;height:auto}
-    /* flex:none 필수 — base 의 flex:1(basis 0%)이 height:58vh 를 무력화해 #net 이
-       min-height 까지 쪼그라들던 버그(이슈1). 명시 높이를 쓰려면 flex 를 꺼야 한다. */
-    #netwrap{order:-1;flex:none;height:58vh;min-height:340px;width:100%}
-    #docs{width:auto;max-height:34vh;border-right:none;border-bottom:1px solid var(--border)}
-    #docs .dhead{position:static}
-    #panel{width:auto;border-left:none;border-top:2px solid var(--border)}
+  body.reader-open{overflow:hidden}
+
+  /* 노트북 이하에서는 저빈도 도구를 popover에 접어 검색을 항상 한 줄로 유지한다. */
+  @media (max-width:1500px){
+    #bar{padding:6px 10px}
+    #bar .brand{flex:none}
+    #barsearch{flex:1;min-width:0}
+    #q{width:100%;min-width:0}
+    #morebtn{display:inline-flex;align-items:center;justify-content:center;flex:none;width:40px;height:40px}
+    #moremenu{position:absolute;top:calc(100% + 4px);right:8px;width:min(420px,calc(100vw - 16px));
+      max-height:calc(100dvh - 72px);overflow:auto;display:none;flex-wrap:wrap;align-items:center;
+      padding:12px;background:var(--card-bg);border:1px solid var(--border);border-radius:9px;
+      box-shadow:0 12px 32px var(--shadow)}
+    #bar.tools-open #moremenu{display:flex}
+    #moremenu .spacer{display:none}
+    #synthchips{max-width:100%;flex-basis:100%}
+    #stat{flex-basis:100%;text-align:left}
+  }
+
+  /* 중간 폭: 자료+그래프 2열을 유지하고 상세는 그래프 위 drawer 로 연다. */
+  @media (max-width:1100px){
+    #wrap{grid-template-columns:280px minmax(0,1fr)}
+    #detailpane{position:absolute;inset:0 0 0 auto;z-index:25;width:min(430px,82vw);
+      transform:translateX(105%);visibility:hidden;box-shadow:-12px 0 32px var(--shadow);
+      transition:transform .18s ease,visibility 0s linear .18s}
+    body.detail-open #detailpane{transform:translateX(0);visibility:visible;
+      transition:transform .18s ease}
+    #detailhead{display:flex}
+  }
+
+  /* 전화 화면: 자료·그래프만 같은 계층의 주 탐색이다. 상세는 노드 검사·관리 작업에서만
+     그래프/자료 위에 올라오는 문맥 sheet로 분리한다. */
+  @media (max-width:720px){
+    #bar{min-height:54px;padding:max(6px,env(safe-area-inset-top)) 8px 6px}
+    #bar .brand{font-size:13px}
+    #barsearch{gap:4px}
+    #searchbtn{min-width:44px;padding:4px 8px}
+    #morebtn{width:44px;height:44px}
+    #worktabs{display:grid;grid-template-columns:repeat(2,1fr);flex:none;background:var(--bar-bg);
+      border-bottom:1px solid var(--border);padding:4px 8px;gap:4px}
+    #worktabs button{min-height:44px;background:transparent;color:var(--muted);border:1px solid transparent;
+      border-radius:7px;font-weight:600}
+    #worktabs button[aria-selected="true"]{background:var(--active);color:var(--fg);border-color:var(--border)}
+    #wrap{display:grid;grid-template-columns:1fr;grid-template-rows:1fr;overflow:hidden}
+    .workspace-pane{grid-area:1/1;visibility:hidden!important;pointer-events:none}
+    body[data-active-pane="docs"] #docs,
+    body[data-active-pane="graph"] #netwrap{visibility:visible!important;pointer-events:auto}
+    #docs,#netwrap{position:relative;inset:auto;width:100%;height:100%;
+      max-width:none;transform:none;box-shadow:none;border:0}
+    #docs{display:flex}
+    #legendbar{flex-wrap:nowrap;overflow-x:auto;min-height:36px;padding:7px 10px;scrollbar-width:thin}
+    #graphdocnav{position:relative;display:flex;align-items:center;gap:4px;min-height:52px;
+      padding:4px 8px;background:var(--panel-bg);border-bottom:1px solid var(--border);z-index:12}
+    #graphdocnav>button{min-width:44px;min-height:44px;padding:4px 10px;background:var(--sec-bg);
+      color:var(--sec-fg);border:1px solid var(--border)}
+    #graphdocpick{display:flex;align-items:center;justify-content:space-between;gap:8px;flex:1;
+      min-width:0;text-align:left}
+    #graphdoclabel{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    #graphdocmenu{position:absolute;left:8px;right:8px;top:calc(100% + 4px);z-index:20;
+      max-height:min(52dvh,420px);padding:8px;background:var(--card-bg);border:1px solid var(--border);
+      border-radius:9px;box-shadow:0 12px 32px var(--shadow)}
+    #graphdocmenu[hidden]{display:none}
+    #graphdocq{width:100%;min-height:44px;margin-bottom:6px}
+    #graphdoclist{max-height:calc(min(52dvh,420px) - 66px);overflow-y:auto;overscroll-behavior:contain}
+    .graphdocoption{display:block;width:100%;min-height:44px;padding:8px 10px;text-align:left;
+      background:transparent;color:var(--fg);border:0;border-bottom:1px solid var(--border);
+      border-radius:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .graphdocoption:hover,.graphdocoption[aria-current="true"]{background:var(--active)}
+    .graphdocoption small{color:var(--muted);margin-left:6px}
+    #graphdocempty{padding:12px 10px;color:var(--muted)}
+    #detailpane{position:absolute;inset:auto 0 0;z-index:25;width:100%;height:min(62dvh,560px);
+      max-height:calc(100% - 18px);transform:translateY(105%);visibility:hidden;pointer-events:none;
+      border:1px solid var(--border);border-bottom:0;border-radius:14px 14px 0 0;
+      box-shadow:0 -12px 32px var(--shadow);
+      transition:transform .18s ease,visibility 0s linear .18s}
+    body.detail-open #detailpane{transform:translateY(0);visibility:visible;pointer-events:auto;
+      transition:transform .18s ease}
+    #detailhead{display:flex;border-radius:14px 14px 0 0}
+    #detailclose{min-width:44px;min-height:44px}
+    #panel{padding:14px 16px max(20px,env(safe-area-inset-bottom))}
     #panel .hint br{display:none}
-    #reader{padding:0} #reader .sheet{max-height:100vh;border-radius:0;height:100vh}
-    #reader .rbody{padding:8px 16px 0}
+    #zoomctl{right:max(12px,env(safe-area-inset-right));bottom:max(12px,env(safe-area-inset-bottom))}
+    #zoomctl button{width:44px;height:44px}
+    input,select,button{font-size:16px}
+    .docitem{min-height:48px;padding-top:9px;padding-bottom:9px}
+    .docitem .actbtn{min-width:36px;min-height:36px}
+    #reader{padding:0}
+    #reader .sheet{height:100vh;max-height:100dvh;border:0;border-radius:0}
+    #reader .rhead{padding:max(10px,env(safe-area-inset-top)) 12px 10px}
+    #reader .rhead h1{font-size:18px}
+    #reader .rzoom button,#reader .rshare,#reader .rclose{min-width:44px;min-height:44px}
+    #reader .rbody{padding:8px 16px max(20px,env(safe-area-inset-bottom))}
+  }
+  @media (prefers-reduced-motion:reduce){
+    #detailpane{transition:none!important}
   }
 </style></head>
-<body class="ro" data-auth-scope="unknown">
-<div id="bar">
+<body class="ro" data-auth-scope="unknown" data-active-pane="docs">
+<header id="bar">
   <span class="brand">Claire Bible</span>
-  <input id="q" placeholder="검색(엔터)" oninput="onSearchInput(this.value)"/>
-  <label style="font-size:12px"><input type="checkbox" id="sem" style="width:auto" disabled/>
-    <span id="searchkind">검색 모드 확인 중</span></label>
-  <button id="searchbtn" class="sec" onclick="doSemantic()" style="display:none">🔎 의미검색</button>
-  <span id="synthchips"></span>
-  <button id="synthbtn" onclick="synth()">🧩 종합 (0)</button>
-  <button id="addbtn" class="sec" onclick="openIngest()" title="URL·텍스트를 그래프에 적재">➕ 적재</button>
-  <button id="dedupbtn" class="sec" onclick="openDedup()" title="근사 중복 문서를 찾아 병합">♻️ 중복정리</button>
-  <button id="pathbtn" class="sec" onclick="togglePathMode()" title="두 노드 사이 연결 경로 찾기">🔗 경로</button>
-  <label>연결 ≥ <b id="fmin">0</b> <input id="fslider" type="range" min="0" max="0" value="0" oninput="setDeg(this.value)"/></label>
-  <span class="spacer"></span>
-  <button id="themebtn" title="라이트/다크 전환" onclick="toggleTheme()">🌙</button>
-  <span id="authstate">⏳ 권한 확인 중</span>
-  <span id="stat">로딩…</span>
-</div>
-<div id="legendbar"></div>
+  <div id="barsearch">
+    <label class="sr-only" for="q">그래프 검색</label>
+    <input id="q" placeholder="검색" oninput="onSearchInput(this.value)"/>
+    <button id="searchbtn" class="sec" onclick="doSemantic()" style="display:none">🔎 검색</button>
+  </div>
+  <button id="morebtn" aria-expanded="false" aria-controls="moremenu"
+    aria-label="도구 더보기" title="도구 더보기" onclick="toggleToolsMenu()">⋯</button>
+  <div id="moremenu" aria-label="그래프 도구">
+    <label style="font-size:12px"><input type="checkbox" id="sem" style="width:auto" disabled/>
+      <span id="searchkind">검색 모드 확인 중</span></label>
+    <span id="synthchips"></span>
+    <button id="synthbtn" onclick="synth()">🧩 종합 (0)</button>
+    <button id="addbtn" class="sec" onclick="openIngest()" title="URL·텍스트를 그래프에 적재">➕ 적재</button>
+    <button id="dedupbtn" class="sec" onclick="openDedup()" title="근사 중복 문서를 찾아 병합">♻️ 중복정리</button>
+    <button id="pathbtn" class="sec" onclick="togglePathMode()" title="두 노드 사이 연결 경로 찾기">🔗 경로</button>
+    <label>연결 ≥ <b id="fmin">0</b> <input id="fslider" type="range" min="0" max="0" value="0" oninput="setDeg(this.value)"/></label>
+    <span class="spacer"></span>
+    <button id="themebtn" title="라이트/다크 전환" aria-label="라이트/다크 전환" onclick="toggleTheme()">🌙</button>
+    <span id="authstate">⏳ 권한 확인 중</span>
+    <span id="stat" role="status" aria-live="polite">로딩…</span>
+  </div>
+</header>
+<nav id="worktabs" role="tablist" aria-label="작업 영역">
+  <button id="tab-docs" role="tab" aria-selected="true" aria-controls="docs" data-pane="docs">자료</button>
+  <button id="tab-graph" role="tab" aria-selected="false" aria-controls="netwrap" data-pane="graph" tabindex="-1">그래프</button>
+</nav>
 <div id="wrap">
-  <div id="docs"><div class="dhead"><input id="docq" placeholder="문서 검색(제목·요약)" oninput="renderDocs(this.value)" style="width:92%"/>
-    <select id="desclines" onchange="setDescLines(this.value)" title="목록 설명 줄수" style="width:92%;margin-top:5px;font-size:11px">
+  <aside id="docs" class="workspace-pane" role="tabpanel" aria-labelledby="tab-docs" tabindex="0">
+    <div class="dhead"><label class="sr-only" for="docq">자료 검색</label>
+      <input id="docq" placeholder="문서 검색(제목·요약)" oninput="renderDocs(this.value)" style="width:92%"/>
+    <select id="desclines" onchange="setDescLines(this.value)" title="목록 설명 줄수" style="width:92%;margin-top:5px">
       <option value="0">설명 0줄(제목만)</option>
       <option value="2">설명 2줄</option>
       <option value="4">설명 4줄</option>
@@ -455,29 +576,54 @@ GRAPH_HTML = """<!doctype html>
     <div id="pinnedlist"></div>
     <div id="doclist"><p class="hint" style="padding:10px">문서 로딩…</p></div>
     <div id="showhidden" style="display:none" onclick="toggleShowHidden()"></div>
-    <div id="hiddenlist"></div></div>
-  <div id="netwrap">
-    <div id="net"></div>
-    <div id="zoomctl">
-      <button onclick="zoomBtn(1)" title="확대">+</button>
-      <button onclick="zoomBtn(-1)" title="축소">−</button>
+    <div id="hiddenlist"></div>
+  </aside>
+  <section id="netwrap" class="workspace-pane" role="tabpanel" aria-labelledby="tab-graph" tabindex="0">
+    <div id="legendbar" aria-label="그래프 범례와 관계 필터"></div>
+    <div id="graphdocnav" aria-label="그래프 자료 전환">
+      <button id="graphdocprev" onclick="stepGraphDoc(-1)" title="이전 자료" aria-label="이전 자료">‹</button>
+      <button id="graphdocpick" aria-haspopup="dialog" aria-expanded="false"
+        aria-controls="graphdocmenu" onclick="toggleGraphDocPicker()">
+        <span id="graphdoclabel">전체 그래프</span><span aria-hidden="true">⌄</span>
+      </button>
+      <button id="graphdocnext" onclick="stepGraphDoc(1)" title="다음 자료" aria-label="다음 자료">›</button>
+      <div id="graphdocmenu" role="dialog" aria-label="그래프에서 볼 자료 선택"
+        aria-hidden="true" inert hidden>
+        <label class="sr-only" for="graphdocq">자료 검색</label>
+        <input id="graphdocq" placeholder="문서 검색(제목·요약)"
+          oninput="renderGraphDocPicker(this.value)"/>
+        <div id="graphdoclist"></div>
+      </div>
     </div>
-  </div>
-  <div id="panel"></div>
+    <div id="net" aria-label="지식 그래프"></div>
+    <div id="graphnotice" role="status" aria-live="polite"></div>
+    <div id="zoomctl" aria-label="그래프 카메라">
+      <button onclick="zoomBtn(1)" title="확대" aria-label="그래프 확대">+</button>
+      <button onclick="zoomBtn(-1)" title="축소" aria-label="그래프 축소">−</button>
+      <button onclick="fitGraphContext()" title="강조된 항목 맞춤" aria-label="강조된 항목 맞춤">⌖</button>
+      <button onclick="resetGraphCamera()" title="전체 그래프 맞춤" aria-label="전체 그래프 맞춤">↺</button>
+    </div>
+  </section>
+  <aside id="detailpane" role="region" aria-label="문맥 상세" aria-hidden="true" tabindex="-1">
+    <div id="detailhead"><strong>상세</strong>
+      <button id="detailclose" onclick="closeDetailPane()" aria-label="상세 닫기">닫기</button></div>
+    <div id="panel"></div>
+  </aside>
 </div>
 <!-- 노드 hover 시 마우스 위치에 뜨는 작은 요약 팝업(우측 패널 미리보기 대체). -->
 <div id="nodepop"></div>
 <!-- 중앙 읽기 팝업: 좌측 문서의 '읽기' 버튼/노드 상세의 📖 로 연다(마크다운·이미지 렌더). -->
-<div id="reader" onclick="if(event.target===this)closeReader()">
-  <div class="sheet">
+<div id="reader" role="dialog" aria-modal="true" aria-labelledby="rtitle" aria-hidden="true"
+  onclick="if(event.target===this)closeReader()">
+  <div class="sheet" tabindex="-1">
     <div class="rhead"><h1 id="rtitle"></h1>
       <div class="rzoom">
-        <button onclick="setReadFS(-2)" title="글자 작게">A−</button>
+        <button onclick="setReadFS(-2)" title="글자 작게" aria-label="글자 작게">A−</button>
         <span class="fsv" id="rfs">16</span>
-        <button onclick="setReadFS(2)" title="글자 크게">A+</button>
+        <button onclick="setReadFS(2)" title="글자 크게" aria-label="글자 크게">A+</button>
       </div>
-      <button class="rshare" onclick="shareDoc()" title="공유 링크 만들기">🔗</button>
-      <button class="rclose" onclick="closeReader()" title="닫기(ESC)">✕</button></div>
+      <button class="rshare" onclick="shareDoc()" title="공유 링크 만들기" aria-label="공유 링크 만들기">🔗</button>
+      <button class="rclose" onclick="closeReader()" title="닫기(ESC)" aria-label="읽기 닫기">✕</button></div>
     <div class="sharebox" id="sharebox"></div>
     <div class="rbody" id="rbody"></div>
   </div>
@@ -505,6 +651,8 @@ let AUTH_SCOPE='unknown';
 let READONLY=true;    // owner를 /whoami로 확인하기 전까지 항상 fail-closed
 let allRelTypes=[], relFilter=null;          // 관계 타입 필터: null=전체, Set=선택 타입만 표시
 let pathMode=false, pathPicks=[], pathNodes=null, pathEdges=null;  // 2노드 경로 하이라이트(전용 모드)
+let edgeLabelsByZoom=false, selectedEdgeIds=new Set();
+let graphStabilized=false;
 const panel = document.getElementById('panel');
 function canWrite(){ return AUTH_SCOPE==='owner'; }
 // 함수로 둔 이유: READONLY 는 /whoami 가 비동기로 확정하므로, 호출 시점 기준으로
@@ -515,8 +663,8 @@ function defaultHint(){
     : '';
   return '<p class="hint">노드를 클릭하면 관찰·출처 문서·연결이 표시됩니다.<br><br>'+synthLine+
     '• 다른 노드에 <b>1.5초</b> 올리면 마우스 옆에 <b>요약 팝업</b>(더 끌면 출처 문서까지)<br>'+
-    '• 좌측 문서를 <b>클릭</b>하면 그래프에서 강조(nav), <b>📖</b> 버튼을 누르면 <b>크게 읽기(팝업)</b><br>'+
-    '• 우측 위 <b>🌙/🌞</b> 로 라이트·다크 전환</p>';
+    '• <b>자료</b>에서 문서를 고르면 그래프가 강조되고, <b>📖</b>로 크게 읽습니다.<br>'+
+    '• 상단 <b>⋯ 도구</b>의 <b>🌙/🌞</b>로 라이트·다크를 전환합니다.</p>';
 }
 panel.innerHTML = defaultHint();
 function esc(s){return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
@@ -641,6 +789,30 @@ function setReadFS(delta){
 
 // 중앙 읽기 팝업 — 좌측 문서의 '읽기' 버튼/노드 상세의 📖 로 연다(nav 와 분리, 사용자 요구).
 let curReaderDoc=null;   // 현재 읽기 팝업의 문서 id(🔗 공유 링크 생성 대상)
+let readerReturnFocus=null, readerReturnDocId=null;
+function setReaderBackgroundInert(on){
+  ['bar','worktabs','wrap'].forEach(id=>{ const el=document.getElementById(id); if(el) el.inert=on; });
+}
+function readerFocusable(){
+  return [...document.querySelectorAll('#reader button:not([disabled]),#reader a[href],'+
+    '#reader input:not([disabled]),#reader [tabindex]:not([tabindex="-1"])')]
+    .filter(el=>el.getClientRects().length>0);
+}
+function handleReaderKey(e){
+  const r=document.getElementById('reader');
+  if(!r.classList.contains('open')) return false;
+  if(e.key==='Escape'){ e.preventDefault(); closeReader(); return true; }
+  if(e.key!=='Tab') return false;
+  const items=readerFocusable();
+  if(!items.length){ e.preventDefault(); r.querySelector('.sheet').focus(); return true; }
+  const first=items[0], last=items[items.length-1];
+  if(e.shiftKey && (document.activeElement===first || document.activeElement===r.querySelector('.sheet'))){
+    e.preventDefault(); last.focus();
+  }else if(!e.shiftKey && document.activeElement===last){
+    e.preventDefault(); first.focus();
+  }
+  return true;
+}
 async function markDocumentSeen(docId){
   if(!canWrite()) return;
   try{
@@ -654,17 +826,26 @@ async function markDocumentSeen(docId){
 }
 function openReader(docId){
   const r=document.getElementById('reader');
+  readerReturnFocus=document.activeElement;
+  readerReturnDocId=docId;
   curReaderDoc=docId;
   const sb=document.getElementById('sharebox'); if(sb){ sb.className='sharebox'; sb.innerHTML=''; }  // 이전 공유링크 닫기
   applyReadFS();   // 저장된 글자 크기 적용
   document.getElementById('rtitle').textContent='문서 불러오는 중…';
   document.getElementById('rbody').innerHTML='';
+  r.setAttribute('aria-hidden','false');
+  r.setAttribute('aria-busy','true');
   r.classList.add('open');
+  document.body.classList.add('reader-open');
+  setReaderBackgroundInert(true);
+  requestAnimationFrame(()=>r.querySelector('.sheet').focus());
   fetch('document?id='+encodeURIComponent(docId)).then(x=>x.json()).then(dc=>{
-    if(!dc || dc.error){ document.getElementById('rbody').innerHTML='<p class=hint>문서를 찾을 수 없습니다.</p>'; return; }
+    if(!dc || dc.error){ document.getElementById('rbody').innerHTML='<p class=hint>문서를 찾을 수 없습니다.</p>';
+      r.setAttribute('aria-busy','false'); return; }
     renderReader(dc);
     markDocumentSeen(docId);
-  }).catch(()=>{ document.getElementById('rbody').innerHTML='<p class=hint>문서 로드 실패.</p>'; });
+  }).catch(()=>{ document.getElementById('rbody').innerHTML='<p class=hint>문서 로드 실패.</p>';
+    r.setAttribute('aria-busy','false'); });
 }
 function renderReader(dc){
   document.getElementById('rtitle').innerHTML = esc(dc.title||'(제목 없음)')
@@ -676,6 +857,7 @@ function renderReader(dc){
   if(dc.detail) h+='<div class=rsection>자세히 읽기</div><div class="md">'+renderMarkdown(dc.detail)+'</div>';
   if(!dc.summary && !dc.detail) h+='<p class=hint>이 문서의 요약/전문이 아직 없습니다.</p>';
   const body=document.getElementById('rbody'); body.innerHTML=h; body.scrollTop=0;
+  document.getElementById('reader').setAttribute('aria-busy','false');
 }
 // [1홉 병합, ONEHOP_MERGE_DESIGN.md] 이 문서에 흡수된 부가 출처 목록(원문 링크 계보).
 function extraSourcesHtml(dc){
@@ -685,8 +867,20 @@ function extraSourcesHtml(dc){
     es.map(s=>'<li><a href="'+esc(s.url||'')+'" target=_blank rel=noopener>'+
       esc(s.title||s.url||'')+'</a></li>').join('')+'</ul>';
 }
-function closeReader(){ document.getElementById('reader').classList.remove('open');
-  const sb=document.getElementById('sharebox'); if(sb) sb.className='sharebox'; }
+function closeReader(){
+  const r=document.getElementById('reader'); if(!r.classList.contains('open')) return;
+  r.classList.remove('open'); r.setAttribute('aria-hidden','true'); r.setAttribute('aria-busy','false');
+  document.body.classList.remove('reader-open');
+  setReaderBackgroundInert(false); syncWorkspaceLayout();
+  const sb=document.getElementById('sharebox'); if(sb) sb.className='sharebox';
+  let target=readerReturnFocus && readerReturnFocus.isConnected ? readerReturnFocus : null;
+  if(!target && readerReturnDocId){
+    target=[...document.querySelectorAll('[data-read-doc]')].find(el=>el.dataset.readDoc===readerReturnDocId);
+  }
+  if(!target) target=mobileMQ.matches ? paneTabs[activePane] : document.getElementById('q');
+  readerReturnFocus=null; readerReturnDocId=null;
+  requestAnimationFrame(()=>{ if(target) target.focus(); });
+}
 
 // --- 문서 공유 핫링크 — 세션 토큰(nginx 통과)과 별개의, 이 문서만 여는 읽기전용 링크 ---
 // /share 가 공유 토큰을 발급(인증 필요) → /p?s=token 은 비인증으로 그 문서만 보여준다.
@@ -732,23 +926,216 @@ if(window.ResizeObserver){ new ResizeObserver(relayout).observe(document.getElem
 window.addEventListener('resize', relayout);
 window.addEventListener('orientationchange', ()=>setTimeout(relayout, 300));
 
-// 모바일 판정 — CSS @media(max-width:820px) 세로 스택과 같은 기준을 공유.
-const mobileMQ = window.matchMedia('(max-width:820px)');
-// 이슈(2026-06-12): 세로 스택에서 그래프(58vh)+문서목록(34vh)이 화면을 덮는데,
-// vis(hammer)가 캔버스에 touch-action:none 을 깔아 한 손가락 스와이프를 전부 그래프
-// 팬으로 소비 → #panel(내용)까지 페이지 스크롤로 내려갈 방법이 없었다.
-// 지도앱식 협조적 제스처로 분리: 모바일에선 touch-action:pan-y — 세로 스와이프는
-// 브라우저(페이지 스크롤), 가로 드래그·핀치·탭은 hammer(그래프 조작·노드 선택).
-// hammer 가 인라인 style 로 none 을 박으므로 CSS 가 아니라 JS 로 덮어써야 한다.
-function applyTouchMode(){
-  document.querySelectorAll('#net, #net div, #net canvas').forEach(el=>{
-    el.style.touchAction = mobileMQ.matches ? 'pan-y' : 'none';
-  });
+// 반응형 작업영역: 자료·그래프만 주 탐색이다. wide의 상세 rail, compact의 drawer,
+// mobile의 bottom sheet는 선택/작업에 종속된 문맥 영역이며 activePane과 분리한다.
+// 주 pane DOM을 제거하거나 display:none 하지 않아 문서 scrollTop과 vis 카메라를 보존한다.
+const mobileMQ = window.matchMedia('(max-width:720px)');
+const compactMQ = window.matchMedia('(max-width:1100px)');
+const toolbarMQ = window.matchMedia('(max-width:1500px)');
+const reducedMotionMQ = window.matchMedia('(prefers-reduced-motion:reduce)');
+const paneNames=['docs','graph'];
+let activePane='docs', detailOpen=false, detailReturnFocus=null;
+let graphCamera=null, preservingGraphCamera=false;
+const paneEls={
+  docs:document.getElementById('docs'),
+  graph:document.getElementById('netwrap')
+};
+const paneTabs={
+  docs:document.getElementById('tab-docs'),
+  graph:document.getElementById('tab-graph')
+};
+const detailPane=document.getElementById('detailpane');
+function graphAnimation(value=true){ return reducedMotionMQ.matches ? false : value; }
+function rememberGraphCamera(){
+  if(!net || preservingGraphCamera) return;
+  graphCamera={position:net.getViewPosition(),scale:net.getScale()};
 }
-mobileMQ.addEventListener('change', applyTouchMode);
-// 노드 탭→내용 확인이 주 흐름인데 #panel 이 화면 밖(맨 아래)이라, 명시적 액션 후
-// 결과 위치로 자동 스크롤해 준다(모바일만). hover 미리보기에는 적용하지 않는다.
-function mobileScrollTo(id){ if(mobileMQ.matches) document.getElementById(id).scrollIntoView({behavior:'smooth'}); }
+function relayoutPreservingCamera(){
+  if(!net) return;
+  const saved=graphCamera || {position:net.getViewPosition(),scale:net.getScale()};
+  preservingGraphCamera=true;
+  lastNetSize={w:0,h:0}; relayout();
+  net.moveTo({position:saved.position,scale:saved.scale,animation:false});
+  preservingGraphCamera=false; rememberGraphCamera();
+}
+function syncWorkspaceLayout(){
+  document.body.dataset.activePane=activePane;
+  paneNames.forEach(name=>{
+    const selected=name===activePane;
+    paneTabs[name].setAttribute('aria-selected', selected?'true':'false');
+    paneTabs[name].tabIndex=selected?0:-1;
+    if(mobileMQ.matches){
+      paneEls[name].setAttribute('aria-hidden', selected?'false':'true');
+      paneEls[name].inert=!selected;
+    }else{
+      paneEls[name].setAttribute('aria-hidden','false');
+      paneEls[name].inert=false;
+    }
+  });
+  document.body.classList.toggle('detail-open',compactMQ.matches && detailOpen);
+  if(compactMQ.matches){
+    detailPane.setAttribute('aria-hidden',detailOpen?'false':'true');
+    detailPane.inert=!detailOpen;
+  }else{
+    detailPane.setAttribute('aria-hidden','false');
+    detailPane.inert=false;
+  }
+  if(activePane==='graph'){
+    requestAnimationFrame(()=>{ relayoutPreservingCamera(); applyTouchMode(); });
+    setTimeout(()=>{ if(activePane==='graph') relayoutPreservingCamera(); },750);
+  }
+}
+function revealWorkspace(name, focusTab=false){
+  if(!paneNames.includes(name)) return;
+  if(activePane==='graph') rememberGraphCamera();
+  activePane=name;
+  detailOpen=false;
+  detailReturnFocus=null;
+  if(name!=='graph') closeGraphDocPicker();
+  closeToolsMenu();
+  syncWorkspaceLayout();
+  if(focusTab && mobileMQ.matches) paneTabs[name].focus();
+}
+function openDetailPane(){
+  detailReturnFocus=document.activeElement;
+  detailOpen=true;
+  closeGraphDocPicker();
+  closeToolsMenu();
+  syncWorkspaceLayout();
+}
+function closeDetailPane(){
+  detailOpen=false;
+  syncWorkspaceLayout();
+  let target=detailReturnFocus && detailReturnFocus.isConnected ? detailReturnFocus : null;
+  if(!target) target=mobileMQ.matches ? paneTabs[activePane] : paneEls[activePane];
+  detailReturnFocus=null;
+  requestAnimationFrame(()=>{ if(target) target.focus(); });
+}
+function graphSelectableDocs(){
+  const visible=allDocs.filter(dc=>dc.hidden!==1);
+  return visible.filter(dc=>dc.pinned===1).concat(visible.filter(dc=>dc.pinned!==1));
+}
+function syncGraphDocNav(){
+  const docs=graphSelectableDocs();
+  const dc=activeDoc ? allDocs.find(item=>item.id===activeDoc) : null;
+  const pick=document.getElementById('graphdocpick');
+  document.getElementById('graphdoclabel').textContent=dc ? dc.title : '전체 그래프';
+  pick.setAttribute('aria-label',dc ? '자료 전환, 현재 '+dc.title : '자료 선택, 현재 전체 그래프');
+  const current=docs.findIndex(item=>item.id===activeDoc);
+  const usable=current>=0 && docs.length>1;
+  const prev=document.getElementById('graphdocprev'), next=document.getElementById('graphdocnext');
+  prev.disabled=!usable; next.disabled=!usable;
+  if(usable){
+    const prevDoc=docs[(current-1+docs.length)%docs.length];
+    const nextDoc=docs[(current+1)%docs.length];
+    prev.setAttribute('aria-label','이전 자료: '+prevDoc.title);
+    next.setAttribute('aria-label','다음 자료: '+nextDoc.title);
+    prev.title='이전 자료: '+prevDoc.title;
+    next.title='다음 자료: '+nextDoc.title;
+  }else{
+    prev.setAttribute('aria-label','이전 자료');
+    next.setAttribute('aria-label','다음 자료');
+    prev.title='이전 자료'; next.title='다음 자료';
+  }
+  const menu=document.getElementById('graphdocmenu');
+  if(!menu.hidden) renderGraphDocPicker(document.getElementById('graphdocq').value);
+}
+function renderGraphDocPicker(filter=''){
+  const q=filter.trim().toLowerCase();
+  const docs=graphSelectableDocs().filter(dc=>
+    !q || ((dc.title||'')+' '+(dc.summary||'')).toLowerCase().includes(q));
+  let h='<button id="graphdocall" class="graphdocoption" data-graph-doc=""'+
+    (!activeDoc?' aria-current="true"':'')+'>전체 그래프</button>';
+  h+=docs.map(dc=>'<button class="graphdocoption" data-graph-doc="'+esc(dc.id)+'"'+
+      (dc.id===activeDoc?' aria-current="true"':'')+'>'+
+      (dc.pinned===1?'⭐ ':'')+esc(dc.title||'(제목 없음)')+
+      (dc.source_type?'<small>'+esc(dc.source_type)+'</small>':'')+'</button>').join('');
+  if(!docs.length) h+='<div id="graphdocempty">검색 결과가 없습니다.</div>';
+  document.getElementById('graphdoclist').innerHTML=h;
+}
+function openGraphDocPicker(){
+  const menu=document.getElementById('graphdocmenu'), q=document.getElementById('graphdocq');
+  closeToolsMenu();
+  q.value='';
+  renderGraphDocPicker();
+  menu.hidden=false;
+  menu.inert=false;
+  menu.setAttribute('aria-hidden','false');
+  document.getElementById('graphdocpick').setAttribute('aria-expanded','true');
+  requestAnimationFrame(()=>q.focus());
+}
+function closeGraphDocPicker(focus=false){
+  const menu=document.getElementById('graphdocmenu');
+  if(menu.hidden) return;
+  menu.hidden=true;
+  menu.inert=true;
+  menu.setAttribute('aria-hidden','true');
+  document.getElementById('graphdocpick').setAttribute('aria-expanded','false');
+  if(focus) document.getElementById('graphdocpick').focus();
+}
+function toggleGraphDocPicker(){
+  const menu=document.getElementById('graphdocmenu');
+  if(menu.hidden) openGraphDocPicker(); else closeGraphDocPicker(true);
+}
+function chooseGraphDoc(id){
+  closeGraphDocPicker();
+  setActiveDoc(id||null);
+  requestAnimationFrame(()=>document.getElementById('graphdocpick').focus());
+}
+function stepGraphDoc(delta){
+  const docs=graphSelectableDocs();
+  const current=docs.findIndex(dc=>dc.id===activeDoc);
+  if(current<0 || docs.length<2) return;
+  const next=(current+delta+docs.length)%docs.length;
+  chooseGraphDoc(docs[next].id);
+}
+document.getElementById('graphdoclist').addEventListener('click',e=>{
+  const button=e.target.closest('[data-graph-doc]');
+  if(button) chooseGraphDoc(button.dataset.graphDoc);
+});
+syncGraphDocNav();
+document.getElementById('worktabs').addEventListener('click',e=>{
+  const b=e.target.closest('[role=tab]'); if(b) revealWorkspace(b.dataset.pane);
+});
+document.getElementById('worktabs').addEventListener('keydown',e=>{
+  const b=e.target.closest('[role=tab]'); if(!b) return;
+  let i=paneNames.indexOf(b.dataset.pane);
+  if(e.key==='ArrowRight') i=(i+1)%paneNames.length;
+  else if(e.key==='ArrowLeft') i=(i+paneNames.length-1)%paneNames.length;
+  else if(e.key==='Home') i=0;
+  else if(e.key==='End') i=paneNames.length-1;
+  else return;
+  e.preventDefault(); revealWorkspace(paneNames[i],true);
+});
+function closeToolsMenu(focus=false){
+  const bar=document.getElementById('bar'), btn=document.getElementById('morebtn');
+  if(!bar.classList.contains('tools-open')) return;
+  bar.classList.remove('tools-open'); btn.setAttribute('aria-expanded','false');
+  if(focus) btn.focus();
+}
+function toggleToolsMenu(){
+  const bar=document.getElementById('bar'), btn=document.getElementById('morebtn');
+  const open=!bar.classList.contains('tools-open');
+  if(open) closeGraphDocPicker();
+  bar.classList.toggle('tools-open',open); btn.setAttribute('aria-expanded',open?'true':'false');
+}
+document.addEventListener('pointerdown',e=>{
+  const bar=document.getElementById('bar');
+  if(bar.classList.contains('tools-open') && !bar.contains(e.target)) closeToolsMenu();
+  const nav=document.getElementById('graphdocnav');
+  if(!document.getElementById('graphdocmenu').hidden && !nav.contains(e.target)) closeGraphDocPicker();
+});
+function responsiveChanged(){ closeToolsMenu(); syncWorkspaceLayout(); }
+mobileMQ.addEventListener('change',responsiveChanged);
+compactMQ.addEventListener('change',responsiveChanged);
+toolbarMQ.addEventListener('change',responsiveChanged);
+syncWorkspaceLayout();
+
+// 단일-pane 그래프는 페이지 스크롤과 경쟁하지 않는다. vis/hammer가 그래프의 양방향
+// pan을 처리하도록 touch-action:none을 유지하고, 다른 pane은 inert로 입력을 받지 않는다.
+function applyTouchMode(){
+  document.querySelectorAll('#net, #net div, #net canvas').forEach(el=>{ el.style.touchAction='none'; });
+}
 // 휠 줌 평탄화: vis 기본 줌은 wheel deltaY '크기'에 비례해 한 이벤트로 여러 단계 점프한다.
 // Mac 트랙패드/매직마우스는 한 제스처에 큰 deltaY 를 모멘텀으로 연속 발사 → "한꺼번에 확대"
 // (사용자 보고). 그래서 zoomView:false 로 두고, 스크롤 '거리'를 누적해 일정량(STEP_DELTA)마다
@@ -777,7 +1164,6 @@ function setupWheelZoom(){
     if(Math.abs(accum)>=STEP_DELTA) raf=requestAnimationFrame(flush);  // 남으면 다음 프레임
   }
   cont.addEventListener('wheel', e=>{
-    if(mobileMQ.matches && !e.ctrlKey) return; // 모바일 세로 스크롤(pan-y) 보존
     e.preventDefault();
     accum+=e.deltaY; px=e.clientX; py=e.clientY;
     accum=Math.max(-CAP, Math.min(CAP, accum)); // 모멘텀 폭주 상한(손 떼면 곧 멈춤)
@@ -789,7 +1175,36 @@ function setupWheelZoom(){
 function zoomBtn(dir){
   if(!net) return;
   const scale=Math.max(0.05, Math.min(5, net.getScale()*(dir>0?1.25:1/1.25)));
-  net.moveTo({scale:scale, animation:{duration:150}});
+  net.moveTo({scale:scale, animation:graphAnimation({duration:150})});
+}
+function cameraToNodes(ids){
+  if(!net || !ids.length) return;
+  if(ids.length===1) net.focus(ids[0],{scale:1.2,animation:graphAnimation(true)});
+  else net.fit({nodes:ids,animation:graphAnimation(true)});
+}
+function fitGraphContext(){
+  if(!net || !allNodes) return;
+  let ids=[];
+  if(pathNodes && pathNodes.size) ids=[...pathNodes];
+  else if(selectedNodeId) ids=[selectedNodeId];
+  else{
+    allNodes.forEach(n=>{
+      if(n.hidden || (typeof n.id==='string' && n.id.indexOf('cl_')===0)) return;
+      let match=true;
+      if(activeDoc) match=match && (n.sources||[]).includes(activeDoc);
+      if(highlightSet) match=match && highlightSet.has(n.id);
+      if(match) ids.push(n.id);
+    });
+  }
+  if(!ids.length) resetGraphCamera(); else cameraToNodes(ids);
+}
+function resetGraphCamera(){
+  if(!net || !allNodes) return;
+  const ids=[];
+  allNodes.forEach(n=>{
+    if(!n.hidden && !(typeof n.id==='string' && n.id.indexOf('cl_')===0)) ids.push(n.id);
+  });
+  if(ids.length) net.fit({nodes:ids,animation:graphAnimation(true)});
 }
 
 fetch('graph').then(r=>r.json()).then(d=>{
@@ -803,7 +1218,9 @@ fetch('graph').then(r=>r.json()).then(d=>{
   // 선택/강조 노드는 테마별 강조 테두리(다크=흰색, 라이트=파랑) — dim 만으론 안 띄어서(피드백).
   const opts = {
     nodes:{shape:'dot',size:14,font:{color:th.nodeFont,size:13},borderWidth:1,borderWidthSelected:3},
-    edges:{color:{color:th.edge,highlight:th.edgeHi},font:{color:th.nodeFont,size:10},smooth:false},
+    edges:{color:{color:th.edge,highlight:th.edgeHi},
+      font:{color:th.nodeFont,size:0,strokeWidth:3,strokeColor:getComputedStyle(document.documentElement)
+        .getPropertyValue('--net-bg').trim()||'#ffffff'},smooth:false},
     groups:buildGroups(),
     physics:{stabilization:{iterations:200},barnesHut:{gravitationalConstant:-8000,springLength:120}},
     interaction:{hover:true,tooltipDelay:120,multiselect:true,zoomView:false}  // 휠 줌은 커스텀(setupWheelZoom)으로 — vis 기본은 deltaY 크기 비례라 Mac 모멘텀에서 한 번에 여러 단계 점프(사용자 보고)
@@ -813,19 +1230,23 @@ fetch('graph').then(r=>r.json()).then(d=>{
   // 늦게 확정되면 캔버스가 상단 일부만 차지(이슈1). 레이아웃 확정 후 컨테이너 크기로 강제
   // 재설정 + 회전/리사이즈에도 다시 맞춘다.
   requestAnimationFrame(()=>{ relayout(); setTimeout(relayout, 300); });
-  applyTouchMode();   // hammer 가 박은 touch-action:none 을 모바일에선 pan-y 로 덮어씀
+  applyTouchMode();   // 단일-pane 그래프에서 hammer의 양방향 pan 유지
   setupWheelZoom();   // 휠 줌 평탄화(Mac 모멘텀 대응) — vis 기본 zoomView 대체
-  // 모바일 팬 리셋 방어(이슈: 문서선택→fit() 애니메이션 직후 mobileScrollTo 의 페이지
-  // 스무스스크롤 중 주소창 접힘→뷰포트 리사이즈→relayout()이 fit 애니메이션 도중 끼어들어
-  // 카메라가 깨진 채로 다음 터치팬이 시작되는 것으로 추정). 드래그/애니메이션 중엔 relayout
+  // pane 전환·주소창 접힘 등으로 viewport가 바뀌어도 fit 애니메이션 중 setSize가
+  // 카메라를 흔들지 않게 한다. 드래그/애니메이션 중엔 relayout
   // 을 미루고, 크기 변화가 실제로 없으면 아예 스킵(불필요한 setSize+redraw 로 인한 churn 방지).
   // animationFinished 에만 기대면 발화 안 되는 경우(실측: 0개 노드 fit 등) netBusy 가 영원히
   // true 로 굳어 relayout 이 죽는 더 나쁜 회귀가 됨 → 항상 풀리는 타임아웃을 안전망으로 병행.
   let busyTimer = null;
   function markBusy(ms){ netBusy = true; clearTimeout(busyTimer); busyTimer = setTimeout(()=>{netBusy=false;}, ms); }
   net.on('dragStart', () => { netBusy = true; });
-  net.on('dragEnd', () => { netBusy = false; });
-  net.on('animationFinished', () => { netBusy = false; clearTimeout(busyTimer); });
+  net.on('dragEnd', () => { netBusy = false; rememberGraphCamera(); });
+  net.on('animationFinished', () => {
+    netBusy = false; clearTimeout(busyTimer); rememberGraphCamera();
+  });
+  net.on('stabilized', ()=>{
+    graphStabilized=true; rememberGraphCamera();
+  });
   const _fit = net.fit.bind(net), _moveTo = net.moveTo.bind(net);
   net.fit = (opts) => { markBusy(700); return _fit(opts); };
   net.moveTo = (opts) => { if(opts && opts.animation) markBusy(700); return _moveTo(opts); };
@@ -834,13 +1255,14 @@ fetch('graph').then(r=>r.json()).then(d=>{
       // 빈 캔버스 클릭: inspect 만 해제하고 검색(라벨/의미) 강조 선택은 유지(이슈4).
       // vis 가 내부적으로 선택을 비우므로 그 뒤에 검색 선택을 다시 적용한다.
       selectedNodeId=null;
+      applyView();
       if(highlightSet && highlightSet.size) setTimeout(restoreSelection, 0);
       return;
     }
     const id=p.nodes[0], ev=p.event.srcEvent;
     if(pathMode){ pickPathNode(id); return; }                // 경로 모드: 클릭으로 시작/끝 노드 지정
     if(ev && (ev.ctrlKey||ev.metaKey) && canWrite()){ toggleSynth(id); } // owner만 종합 수집
-    else { selectedNodeId=id; loadNode(id); mobileScrollTo('panel'); }  // 일반 클릭/탭 = 상세 inspect
+    else { selectedNodeId=id; loadNode(id); openDetailPane(); }  // 일반 클릭/탭 = 문맥 상세 inspect
   });
   // hover → 1.5초 뒤 마우스 위치에 작은 요약 팝업(우측 패널은 안 건드림 — 난잡함 해소, 사용자 요구).
   // 우측 패널은 클릭(inspect)일 때만 바뀐다 → hover 가 패널/선택을 흔들지 않아 복원 로직도 불필요.
@@ -848,7 +1270,14 @@ fetch('graph').then(r=>r.json()).then(d=>{
     hoverTimer=setTimeout(()=>showNodePop(p.node), 1500); });
   net.on('blurNode', () => { clearTimeout(hoverTimer); hideNodePop(); });
   net.on('dragStart', hideNodePop);   // 드래그/줌 중엔 팝업 숨김(커서를 따라다니지 않게)
-  net.on('zoom', hideNodePop);
+  net.on('selectEdge', p=>{ selectedEdgeIds=new Set(p.edges||[]); applyView(); });
+  net.on('deselectEdge', ()=>{ selectedEdgeIds.clear(); applyView(); });
+  net.on('zoom', ()=>{
+    hideNodePop();
+    const show=net.getScale()>=1.45;
+    if(show!==edgeLabelsByZoom){ edgeLabelsByZoom=show; applyView(); }
+    rememberGraphCamera();
+  });
   applyView();
 });
 
@@ -868,13 +1297,18 @@ function clearSelections(){
   unclusterEdges();   // 검색으로 뭉치게 한 임시 spring 엣지 제거 → 물리가 원래대로
   applyView();
 }
-document.addEventListener('keydown', e=>{ if(e.key!=='Escape') return;
-  const r=document.getElementById('reader');
-  if(r && r.classList.contains('open')){ closeReader(); return; }   // 팝업 먼저 닫기
+document.addEventListener('keydown', e=>{
+  if(handleReaderKey(e)) return;
+  if(e.key!=='Escape') return;
+  const bar=document.getElementById('bar');
+  if(!document.getElementById('graphdocmenu').hidden){ closeGraphDocPicker(true); return; }
+  if(bar.classList.contains('tools-open')){ closeToolsMenu(true); return; }
+  if(document.body.classList.contains('detail-open')){ closeDetailPane(); return; }
   clearSelections(); });
 
 function loadNode(id){
   if(net) net.selectNodes([id]);   // 클릭 inspect — hover 는 더 이상 패널을 안 쓴다(팝업으로 분리)
+  applyView();                     // 선택 노드 주변 엣지만 강조하고 관계 라벨을 펼친다
   fetch('node?id='+encodeURIComponent(id)).then(r=>r.json()).then(renderPanel);
 }
 function renderPanel(d){
@@ -892,7 +1326,8 @@ function renderPanel(d){
     // 설명(summary) → 📖 읽기(중앙 팝업, 마크다운·이미지) → 원문 링크 순(사용자 요구).
     d.documents.forEach(dc=>{ h+='<div class=doc><b>'+esc(dc.title)+'</b>'+
       (dc.summary?'<p>'+esc(dc.summary)+'</p>':'')+
-      ((dc.detail||dc.summary)?'<button class=readbtn onclick="openReader(\\''+dc.id+'\\')">📖 크게 읽기</button>':'')+
+      ((dc.detail||dc.summary)?'<button class=readbtn data-read-doc="'+esc(dc.id)+
+        '" onclick="openReader(\\''+dc.id+'\\')">📖 크게 읽기</button>':'')+
       (dc.url?'<p class=src><a href="'+esc(dc.url)+'" target=_blank rel=noopener>↗ 원문 열기</a></p>':'')+
       '</div>'; }); }
   if(d.neighbors.length){ h+='<h3>연결 ('+d.neighbors.length+')</h3><ul>';
@@ -920,7 +1355,7 @@ async function doResearch(){
   if(!selectedNodeId && !activeDoc){ alert('노드를 선택하거나 문서를 연 뒤 조사하세요.'); return; }
   const backId=selectedNodeId;
   panel.innerHTML='<h2>🔬 조사: '+esc(q)+'</h2><p class="al" id="relapsed">시작…</p><ul id="rprog"></ul>';
-  mobileScrollTo('panel');
+  openDetailPane();
   const t0=Date.now();
   const timer=setInterval(()=>{ const el=document.getElementById('relapsed');
     if(el) el.textContent='⏱ 경과 '+Math.round((Date.now()-t0)/1000)+'s'; else clearInterval(timer); },1000);
@@ -984,7 +1419,7 @@ function openIngest(){
     '<textarea id="ingin" rows="4" style="width:100%;box-sizing:border-box" '+
     'placeholder="https://example.com/article   또는   메모 텍스트"></textarea>'+
     '<div style="margin:.5em 0"><button onclick="runIngest()">보내기</button></div>';
-  mobileScrollTo('panel');
+  openDetailPane();
   const ta=document.getElementById('ingin'); if(ta) ta.focus();
 }
 async function runIngest(){
@@ -993,7 +1428,7 @@ async function runIngest(){
   const payload=((ta||{}).value||'').trim();
   if(!payload){ alert('적재할 URL 또는 텍스트를 입력하세요.'); return; }
   panel.innerHTML='<h2>➕ 적재 중</h2><p class="al" id="ielapsed">시작…</p><ul id="iprog"></ul>';
-  mobileScrollTo('panel');
+  openDetailPane();
   const t0=Date.now();
   const timer=setInterval(()=>{ const el=document.getElementById('ielapsed');
     if(el) el.textContent='⏱ 경과 '+Math.round((Date.now()-t0)/1000)+'s'; else clearInterval(timer); },1000);
@@ -1048,7 +1483,7 @@ async function openDedup(){
   if(!canWrite()) return;
   panel.innerHTML='<h2>♻️ 중복 문서 정리</h2><p class="al">근사 중복 검사 중… '+
     '<small>(문서가 많으면 잠시 걸립니다)</small></p>';
-  mobileScrollTo('panel');
+  openDetailPane();
   let d;
   try{
     const r=await fetch('dedup/scan',{method:'POST'});
@@ -1150,7 +1585,8 @@ function renderLegend(){
   if(allRelTypes.length){
     rel = '<span class=lgsep>관계:</span> ' + allRelTypes.map((t,i)=>{
       const on = !relFilter || relFilter.has(t);
-      return '<span class="reltog'+(on?'':' off')+'" onclick="toggleRel('+i+')" title="이 관계만/제외 토글">'+esc(t)+'</span>';
+      return '<button type=button class="reltog'+(on?'':' off')+'" onclick="toggleRel('+i+
+        ')" aria-pressed="'+(on?'true':'false')+'" title="이 관계만/제외 토글">'+esc(t)+'</button>';
     }).join(' ');
   }
   document.getElementById('legendbar').innerHTML = nodeleg + rel;
@@ -1179,7 +1615,7 @@ function applyView(){
   const th=T();
   const pathActive = !!(pathNodes && pathNodes.size);
   const hasFilter = activeDoc || highlightSet || pathActive;
-  const nodeUpdates=[];
+  const nodeUpdates=[], matchedNodes=new Set();
   allNodes.forEach(n=>{
     if(typeof n.id==='string' && n.id.indexOf('cl_')===0) return;  // 검색 중앙 앵커는 안 건드림(숨김 유지)
     if(n.degree < curMinDeg){ nodeUpdates.push({id:n.id, hidden:true}); return; }
@@ -1192,6 +1628,7 @@ function applyView(){
     // 강조(문서 선택·검색·경로) 매치 노드는 흰 굵은 테두리 — dim 만으론 안 띄어서(피드백).
     // 노드별 color 가 group 색을 덮으므로 background/highlight 를 같이 명시해 유지한다.
     const lit = hasFilter && match, c = TYPE_COLORS[n.group]||'#8b949e';
+    if(match) matchedNodes.add(n.id);
     nodeUpdates.push({id:n.id, hidden:false, opacity: match?1:DIM, borderWidth: lit?3:1,
       color:{background:c, border: lit?th.lit:th.nodeBorder,
              highlight:{background:c, border:th.lit}}});
@@ -1206,8 +1643,16 @@ function applyView(){
     let visible = !!(f && t && !f.hidden && !t.hidden);
     if(relFilter && !relFilter.has(e.label)) visible=false;       // 관계 타입 필터
     const onPath = !!(pathEdges && pathEdges.has(e.id));          // 경로 엣지 강조
-    edgeUpdates.push({id:e.id, hidden: !visible, width: onPath?4:1,
-      color: onPath ? {color:th.lit, highlight:th.lit} : {color:th.edge, highlight:th.edgeHi}});
+    const incident = !!(selectedNodeId && (e.from===selectedNodeId || e.to===selectedNodeId));
+    const selected = selectedEdgeIds.has(e.id);
+    const contextEdge = !hasFilter || (matchedNodes.has(e.from) && matchedNodes.has(e.to));
+    const muted = (selectedNodeId && !incident) || (hasFilter && !contextEdge);
+    const labelOn = onPath || incident || selected || edgeLabelsByZoom;
+    edgeUpdates.push({id:e.id, hidden: !visible, width:onPath?4:(incident||selected?2:1),
+      color:onPath ? {color:th.lit,highlight:th.lit,opacity:1}
+        : {color:th.edge,highlight:th.edgeHi,opacity:muted ? 0.08 : 1},
+      font:{size:labelOn?10:0,color:th.nodeFont,strokeWidth:3,
+        strokeColor:getComputedStyle(document.documentElement).getPropertyValue('--net-bg').trim()||'#ffffff'}});
   });
   if(edgeUpdates.length) allEdges.update(edgeUpdates);  // 1회 배치
   document.getElementById('stat').innerHTML =
@@ -1222,14 +1667,19 @@ function togglePathMode(){
   pathMode=!pathMode; pathPicks=[];
   const b=document.getElementById('pathbtn'); if(b) b.classList.toggle('on', pathMode);
   if(pathMode) showPathHint();
-  else { pathNodes=null; pathEdges=null; applyView(); panel.innerHTML=''; }
+  else { pathNodes=null; pathEdges=null; setGraphNotice(''); applyView(); panel.innerHTML=''; }
+}
+function setGraphNotice(text){
+  const el=document.getElementById('graphnotice');
+  el.textContent=text||''; el.classList.toggle('on',!!text);
 }
 function showPathHint(){
   const n=pathPicks.length;
   panel.innerHTML='<h2>🔗 경로 찾기</h2><p class=al>'+
     (n===0?'시작 노드를 클릭하세요.':'끝 노드를 클릭하세요. <small>(시작: '+esc(nodeLabel(pathPicks[0]))+')</small>')+
     '</p><p class=al><small>관계 필터가 켜져 있으면 그 관계만 따라 경로를 찾습니다.</small></p>';
-  mobileScrollTo('panel');
+  setGraphNotice(n===0?'경로 시작 노드를 선택하세요':'경로 끝 노드를 선택하세요');
+  revealWorkspace('graph');
 }
 function pickPathNode(id){
   pathPicks.push(id);
@@ -1250,9 +1700,11 @@ function computePath(a, b){
     (adj[u]||[]).forEach(([v,eid])=>{ if(!seen.has(v)){ seen.add(v); prev[v]=u; prevE[v]=eid; q.push(v); } }); }
   pathPicks=[];
   if(!seen.has(b)){ pathNodes=null; pathEdges=null; applyView();
+    setGraphNotice('');
     panel.innerHTML='<h2>🔗 경로</h2><p class=hint>두 노드 사이 연결 경로가 없습니다'+
       (relFilter?' (현재 관계 필터 기준)':'')+'.</p>'+
       '<p class=al><a href="#" onclick="restartPath();return false">다시 찾기</a></p>';
+    openDetailPane();
     return; }
   pathNodes=new Set(); pathEdges=new Set();
   const order=[]; let cur=b;
@@ -1260,18 +1712,20 @@ function computePath(a, b){
     if(prevE[cur]!==undefined) pathEdges.add(prevE[cur]);
     if(cur===a) break; cur=prev[cur]; }
   order.reverse();
+  setGraphNotice('');
   applyView();
-  if(net) net.fit({nodes:[...pathNodes], animation:true});
+  if(net) net.fit({nodes:[...pathNodes], animation:graphAnimation(true)});
   panel.innerHTML='<h2>🔗 경로 <small>'+(order.length-1)+'단계</small></h2>'+
     '<p class=al>'+order.map(id=>esc(nodeLabel(id))).join(' → ')+'</p>'+
     '<p class=al><a href="#" onclick="restartPath();return false">다른 경로</a> · '+
     '<a href="#" onclick="clearPath();return false">해제</a></p>';
-  mobileScrollTo('panel');
+  openDetailPane();
 }
 function restartPath(){ pathMode=true; pathPicks=[];
   const b=document.getElementById('pathbtn'); if(b) b.classList.add('on'); showPathHint(); }
 function clearPath(){ pathMode=false; pathPicks=[]; pathNodes=null; pathEdges=null;
-  const b=document.getElementById('pathbtn'); if(b) b.classList.remove('on'); applyView(); panel.innerHTML=''; }
+  const b=document.getElementById('pathbtn'); if(b) b.classList.remove('on');
+  setGraphNotice(''); applyView(); panel.innerHTML=''; revealWorkspace('graph'); }
 
 // --- 좌측 문서 패널(일자별 그룹) ---
 function dayOf(ts){ if(!ts) return '(날짜 미상)';
@@ -1291,7 +1745,8 @@ function docItemHtml(dc){
   return '<div class="docitem'+(dc.id===activeDoc?' active':'')+(unread?' unread':'')+(hid?' hidden-doc':'')+
     '" onclick="selectDoc(\\''+dc.id+'\\')">'+
     '<div class=docactions>'+pinBtn+
-    '<button class=actbtn title="크게 읽기" onclick="event.stopPropagation();openReader(\\''+dc.id+'\\')">📖</button>'+
+    '<button class=actbtn data-read-doc="'+esc(dc.id)+'" title="크게 읽기" aria-label="'+
+      esc(dc.title)+' 크게 읽기" onclick="event.stopPropagation();openReader(\\''+dc.id+'\\')">📖</button>'+
     '</div>'+
     (watching?'<span class=wbadge title="주기 갱신 추적(watch)">🔄</span>':'')+
     (unread?'<span class=ubadge title="아직 안 본 문서">●</span>':'')+
@@ -1328,6 +1783,7 @@ function renderDocs(filter){
     sh.textContent = (showHidden?'▲ ':'▼ ')+'🙈 숨김 '+hiddenDocs.length+'개 '+(showHidden?'접기':'보기');
     document.getElementById('hiddenlist').innerHTML = showHidden ? hiddenDocs.map(docItemHtml).join('') : '';
   }
+  syncGraphDocNav();
 }
 // 즐겨찾기/숨기기 토글 — 낙관적 갱신(즉시 반영) 후 서버 반영, 실패하면 되돌림.
 async function togglePin(id, val){
@@ -1373,18 +1829,25 @@ async function panelToggleHide(id, val){
   }
 }
 function selectDoc(id){
-  activeDoc = (activeDoc===id ? null : id);     // 같은 문서 재클릭 → 해제
+  setActiveDoc(activeDoc===id ? null : id);     // 자료 목록에서 같은 문서 재클릭 → 해제
+}
+function setActiveDoc(id){
+  activeDoc = id;
   selectedNodeId=null;                          // 문서 모드로 전환 — 노드 inspect 해제
   renderDocs(document.getElementById('docq').value);
   applyView();
+  // 자료 선택의 주 목적은 해당 문서의 노드 맥락을 그래프에서 다루는 것. 읽기는 목록의
+  // 📖 reader가 담당하고, compact 상세 sheet는 문서 선택만으로 열지 않는다.
+  revealWorkspace('graph');
   if(activeDoc){
-    if(net){
+    const docId=activeDoc;
+    requestAnimationFrame(()=>{ if(net && activeDoc===docId){
       // 전체 fit 이 아니라 그 문서의 노드들만 화면에 차게 — 최적 줌/위치로 이동(피드백).
-      const ids=[]; allNodes.forEach(n=>{ if(!n.hidden && (n.sources||[]).includes(activeDoc)) ids.push(n.id); });
-      net.fit(ids.length ? {nodes:ids, animation:true} : {animation:true});
-    }
-    loadDocPanel(activeDoc);    // 우측 패널: 요약·자세히읽기·노드 버튼
-    mobileScrollTo('panel');
+      const ids=[]; allNodes.forEach(n=>{ if(!n.hidden && (n.sources||[]).includes(docId)) ids.push(n.id); });
+      net.fit(ids.length ? {nodes:ids, animation:graphAnimation(true)}
+        : {animation:graphAnimation(true)});
+    }});
+    loadDocPanel(activeDoc);    // wide rail/후속 문맥 작업을 위해 내용만 준비
   } else {
     panel.innerHTML = defaultHint();             // 해제 시 기본 힌트로 복원
   }
@@ -1412,7 +1875,8 @@ function renderDocPanel(dc){
   if(dc.url) h+='<p class=docmeta><a href="'+esc(dc.url)+'" target=_blank rel=noopener>↗ 원문 열기</a></p>';
   h+=extraSourcesHtml(dc);
   // 읽기는 중앙 팝업(마크다운·이미지)으로 — 그래프 nav 와 분리(사용자 요구).
-  if(dc.summary||dc.detail) h+='<button class=readbtn onclick="openReader(\\''+dc.id+'\\')">📖 크게 읽기</button>';
+  if(dc.summary||dc.detail) h+='<button class=readbtn data-read-doc="'+esc(dc.id)+
+    '" onclick="openReader(\\''+dc.id+'\\')">📖 크게 읽기</button>';
   // 숨기기 — 목록이 아니라 상세 패널에 텍스트 버튼으로(사용자 요구, 목록에선 오클릭 유발).
   if(canWrite()) h+='<div><button id=panelhidebtn class=hidetextbtn onclick="panelToggleHide(\\''+dc.id+'\\','+(!dc.hidden)+')">'+
     (dc.hidden?'숨김 해제':'숨기기')+'</button></div>';
@@ -1433,9 +1897,11 @@ function renderDocPanel(dc){
 // activeDoc 은 유지 → 노드 상세 상단의 '← 문서로' 로 문서 패널에 즉시 복귀 가능.
 function focusNode(id){
   selectedNodeId=id;
-  if(net){ net.selectNodes([id]); net.focus(id,{scale:1.3,animation:true}); }
   loadNode(id);
-  mobileScrollTo('net');
+  revealWorkspace('graph');
+  requestAnimationFrame(()=>{
+    if(net){ net.selectNodes([id]); net.focus(id,{scale:1.3,animation:graphAnimation(true)}); }
+  });
 }
 
 // --- 종합 수집(synthSet) — inspect(클릭)와 분리 ---
@@ -1457,8 +1923,8 @@ function fitToMatches(ids){
   net.selectNodes(ids);
   const vis = ids.filter(id=>{ const n=allNodes && allNodes.get(id); return n && !n.hidden; });
   if(!vis.length) return;
-  if(vis.length===1) net.focus(vis[0],{scale:1.1,animation:true});
-  else net.fit({nodes:vis, animation:true});
+  if(vis.length===1) net.focus(vis[0],{scale:1.1,animation:graphAnimation(true)});
+  else net.fit({nodes:vis, animation:graphAnimation(true)});
 }
 // 검색 결과를 '점차 뭉치게' — physics 를 켠 채로 보이지 않는 중앙 앵커를 쓴다.
 //   · 매칭 노드 → 중앙 앵커에 spring 엣지(인력): 가운데로 끌려와 한 덩어리로 모인다.
@@ -1499,7 +1965,8 @@ function unclusterEdges(){
 // 우측 '이 문서의 노드' hover — 그래프 카메라를 그 노드로 옮기고(기존), 1.5초 머물면
 // 그래프 hover 와 같은 요약 팝업을 버튼 진입 위치에 띄운다(사용자 요구). leave 시 취소.
 function peekNode(ev, id){
-  if(net) net.focus(id,{scale:1.2,animation:{duration:400,easingFunction:'easeInOutQuad'}});
+  if(net) net.focus(id,{scale:1.2,
+    animation:graphAnimation({duration:400,easingFunction:'easeInOutQuad'})});
   clearTimeout(hoverTimer);
   const x=ev.clientX, y=ev.clientY;
   hoverTimer=setTimeout(()=>showNodePop(id, x, y), 1500);
@@ -1517,7 +1984,8 @@ function onSearchInput(v){
 function hl(q){
   if(!allNodes) return;
   q=q.trim().toLowerCase();
-  if(!q){ highlightSet=null; applyView(); unclusterEdges(); if(net){ net.unselectAll(); net.fit({animation:true}); } return; }
+  if(!q){ highlightSet=null; applyView(); unclusterEdges();
+    if(net){ net.unselectAll(); net.fit({animation:graphAnimation(true)}); } return; }
   const matches=[];
   allNodes.forEach(n=>{ if(n.label.toLowerCase().includes(q)) matches.push(n.id); });
   highlightSet = new Set(matches);
@@ -1532,11 +2000,12 @@ document.getElementById('q').addEventListener('keydown',e=>{
   if(e.key!=='Enter') return;
   if(document.getElementById('sem').checked){ doSemantic(); }
   else { clearTimeout(searchDebounce); hl(e.target.value);   // 대기 중 디바운스를 즉시 확정
+         revealWorkspace('graph');
          const m=net.getSelectedNodes(); if(m.length) loadNode(m[0]); }
 });
 // 입력창 포커스 시 기존 검색어 전체 선택 → 바로 새로 타이핑 가능(GOALS ④).
 document.getElementById('q').addEventListener('focus', e=> e.target.select());
-function doSemantic(){ semanticSearch(document.getElementById('q').value); }
+function doSemantic(){ revealWorkspace('graph'); semanticSearch(document.getElementById('q').value); }
 
 // --- 인증 상태 표시 ---
 // 첫 페인트는 unknown/read-only이며, /whoami가 exact owner를 확인한 경우에만 쓰기 UI를
@@ -1584,7 +2053,7 @@ async function synth(){
   const ids=[...synthSet];
   if(!ids.length){ alert('종합할 노드를 먼저 모으세요 — Ctrl+클릭 또는 상세의 "➕ 종합에 추가".'); return; }
   panel.innerHTML='<p class=hint>🧩 '+ids.length+'개 노드 종합 중… (LLM 호출)</p>';
-  mobileScrollTo('panel');   // 진행·결과가 화면 밖(맨 아래)에 그려지므로
+  openDetailPane();
   // 인증은 claire_session 쿠키(/web 진입)로 자동 전송됨 — 별도 헤더 불필요.
   fetch('synthesize',{method:'POST',
     headers:{'Content-Type':'application/json'},
@@ -1633,13 +2102,26 @@ window.claireDebug = {
   get sel(){ return net ? net.getSelectedNodes() : []; },
   get highlight(){ return highlightSet ? [...highlightSet] : null; },
   get selected(){ return selectedNodeId; },
+  get activeDoc(){ return activeDoc; },
   get synth(){ return [...synthSet]; },
   get authScope(){ return AUTH_SCOPE; },
   get canWrite(){ return canWrite(); },
   positions(ids){ return net ? net.getPositions(ids) : {}; },
+  visibleNodePoints(){
+    if(!net || !allNodes) return [];
+    return allNodes.getIds().filter(id=>{
+      const n=allNodes.get(id);
+      return n && !n.hidden && !(typeof id==='string' && id.indexOf('cl_')===0);
+    }).map(id=>({id:id,...net.canvasToDOM(net.getPosition(id))}));
+  },
   get scale(){ return net ? net.getScale() : null; },
   get viewpos(){ return net ? net.getViewPosition() : null; },
   get clustered(){ return clusterEdges; },
+  get activePane(){ return activePane; },
+  get detailOpen(){ return detailOpen; },
+  get toolsOpen(){ return document.getElementById('bar').classList.contains('tools-open'); },
+  get readerOpen(){ return document.getElementById('reader').classList.contains('open'); },
+  get stabilized(){ return graphStabilized; },
 };
 </script></body></html>
 """
