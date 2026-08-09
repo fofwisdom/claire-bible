@@ -161,6 +161,59 @@ def test_run_refresh_queue_marks_done(monkeypatch, tmp_path):
     conn.close()
 
 
+def test_refresh_holds_when_content_collapses(monkeypatch, tmp_path):
+    """[데이터 보존] 재fetch 본문이 기존 대비 크게 짧아지면(봇차단/삭제 페이지 오인
+    가능성) 자동 덮어쓰기를 보류 — inbox 실사례(Armalo 문서, 20000자→722자 '404 ·
+    Page not found' 로 덮어써짐) 재발 방지 회귀 테스트."""
+    s = _mem(monkeypatch, tmp_path)
+    svc = IngestService(s)
+    url = "https://www.armalo.ai/blog/hermes-agent-benchmark"
+    v1 = Document(url=url, title="Hermes Agent Benchmark: The Complete Guide",
+                  raw_text="벤치마크 상세 본문 " * 200, source_type="web", content_hash="hv1")
+    _patch_fetch(monkeypatch, lambda p: v1)
+    did = svc.ingest(url, source="web").document_id
+    before = dbm.get_document_row(dbm.connect(s.db_file), did)
+
+    collapsed = Document(
+        url=url, title="Writing — Armalo",
+        raw_text="404 · Page not found This page is not in the workspace.",
+        source_type="web", content_hash="hv2")
+    _patch_fetch(monkeypatch, lambda p: collapsed)
+    res = svc.refresh_document(did, url)
+    assert res["status"] == "held_low_quality"
+    assert res["old_len"] > 0 and res["new_len"] < res["old_len"]
+
+    conn = dbm.connect(s.db_file)
+    after = dbm.get_document_row(conn, did)
+    assert after["content_hash"] == before["content_hash"]      # 덮어쓰기 보류
+    assert after["raw_text"] == before["raw_text"]
+    assert after["title"] == before["title"]
+    conn.close()
+
+
+def test_run_refresh_queue_marks_error_when_held(monkeypatch, tmp_path):
+    """held_low_quality 는 refresh 큐에서 'error' 로 기록돼 /failed 알림·재시도 대상이 된다."""
+    s = _mem(monkeypatch, tmp_path)
+    svc = IngestService(s)
+    url = "https://blog.example/full-post"
+    v1 = Document(url=url, title="Full Post", raw_text="본문 " * 400,
+                  source_type="web", content_hash="h1")
+    _patch_fetch(monkeypatch, lambda p: v1)
+    did = svc.ingest(url, source="web").document_id
+    conn = dbm.connect(s.db_file); dbm.init_db(conn)
+    dbm.enqueue_refresh(conn, document_id=did, payload=url, reason="manual")
+    conn.close()
+
+    collapsed = Document(url=url, title="Not Found", raw_text="page not found",
+                         source_type="web", content_hash="h2")
+    _patch_fetch(monkeypatch, lambda p: collapsed)
+    results = svc.run_refresh_queue(limit=10)
+    assert len(results) == 1 and results[0]["status"] == "held_low_quality"
+    conn = dbm.connect(s.db_file)
+    assert dbm.refresh_status_counts(conn) == {"error": 1}
+    conn.close()
+
+
 def test_watch_document_refresh_snapshots_and_unseen(monkeypatch, tmp_path):
     """[주기 크롤링] watch 문서가 내용 변경되면 변경 '전' 원문을 스냅샷으로 보존(시계열) +
     다시 봐야 하니 unseen. 그래프는 최신 in-place(기존 동작)."""

@@ -302,8 +302,25 @@ GRAPH_HTML = """<!doctype html>
      금색(#e3b341)으로 옅게 우려내 — 저채도 tint 라 위에 얹히는 기본 글자색(--fg/--muted)
      명암비는 거의 안 바뀌어 가독성 걱정 없이 확실히 구별된다. */
   #pinnedhead{padding:4px 10px;font-size:10px;color:var(--muted);background:rgba(227,179,65,.18);flex-shrink:0}
-  #pinnedlist{max-height:32%;overflow-y:auto;flex-shrink:0;border-bottom:2px solid var(--border);
+  /* --pinned-h 는 리사이저 드래그로 JS 가 세팅(px). 커스텀 프로퍼티로 우회하는 이유 —
+     인라인 style.maxHeight 를 직접 쓰면 모바일 미디어쿼리의 max-height:none 규칙보다
+     항상 우선해버려(인라인은 특이도 규정상 무조건 최우선) 탭 모드에서 즐찾이 화면 전체를
+     못 씀. 클래스 셀렉터로 var() 값을 참조하게 하면 모바일 쪽 규칙(더 높은 특이도)이
+     그대로 이겨서 뷰포트별 분기를 CSS 캐스케이드에 맡길 수 있다(JS 는 폭 판정 불필요). */
+  #pinnedlist{max-height:var(--pinned-h, 32%);overflow-y:auto;flex-shrink:0;
     background:rgba(227,179,65,.10)}
+  /* 즐겨찾기-문서 목록 사이 리사이즈 핸들 — 기본은 얇은 테두리뿐이라 즐찾이 많아지면
+     경계가 눈에 잘 안 띈다는 피드백(데스크톱). 눈에 띄는 두께의 grip 바로 바꾸고
+     드래그로 #pinnedlist 높이를 조절할 수 있게(마우스 전용 — 모바일은 탭 UI 라
+     아래 @media 에서 숨김). 드래그 중엔 attachPinnedResizer 가 #pinnedlist 에
+     인라인 max-height(px) 를 직접 얹고 localStorage 로 기억한다. */
+  #pinnedResizer{display:none;height:10px;flex-shrink:0;cursor:row-resize;position:relative;
+    background:var(--border)}
+  #pinnedResizer::after{content:'';position:absolute;left:50%;top:50%;width:28px;height:3px;
+    border-radius:2px;background:var(--muted);opacity:.6;transform:translate(-50%,-50%)}
+  #pinnedResizer:hover,#pinnedResizer.dragging{background:var(--accent2)}
+  #pinnedResizer:hover::after,#pinnedResizer.dragging::after{opacity:1;background:var(--panel-bg)}
+  #docs.haspinned #pinnedResizer{display:block}
   #doclist{flex:1;min-height:120px;overflow-y:auto}
   /* 모바일에서만 쓰는 즐겨찾기/전체 탭(아래 @media 참고) — 데스크톱 사이드바는 세로 공간이
      넉넉해 즐찾+전체 동시 노출이 안 좁으므로 그대로 두고 숨김. */
@@ -338,6 +355,13 @@ GRAPH_HTML = """<!doctype html>
   .docitem .rblabel{display:none}    /* 데스크톱 = 아이콘만(작은 자리); 모바일 리빌 배지에서만 텍스트로 교체 */
   .docitem .actbtn{background:var(--sec-bg);color:var(--sec-fg);
     border:1px solid var(--border);border-radius:4px;padding:1px 6px;font-size:11px;cursor:pointer;opacity:.85}
+  /* readbtn 은 actbtn(즐찾 버튼과 공유하는 회색 기본 배경) 클래스를 같이 들고 있어
+     배경이 회색으로 깔려 📖 이모지가 잘 안 보인다는 피드백 — 모바일 리빌 배지(아래
+     @media, background:var(--accent))와 같은 파란색으로 맞춘다. 복합 셀렉터
+     (.actbtn.readbtn)로 specificity 를 올려 소스 순서와 무관하게 .actbtn 의 회색을
+     확실히 이긴다. */
+  .docitem .actbtn.readbtn{background:var(--accent);border-color:var(--accent);color:#fff}
+  .docitem .actbtn.readbtn:hover{opacity:1;filter:brightness(1.08)}
   .docitem .actbtn:hover{opacity:1;border-color:var(--accent)}
   .docitem .actbtn.pinned{opacity:1;color:#e3b341}
   #showhidden{display:block;padding:7px 10px;font-size:11.5px;color:var(--fg);cursor:pointer;
@@ -499,7 +523,7 @@ GRAPH_HTML = """<!doctype html>
        #pinnedhead("⭐ 즐겨찾기" 라벨)는 탭 라벨과 중복이라 모바일 탭 모드에선 계속 숨김
        — 대신 #pinnedlist 가 활성 탭일 때 화면 전체를 쓴다. */
     #docs.haspinned #doctabs{display:flex}
-    #docs.haspinned #pinnedhead,#docs.haspinned #pinnedlist{display:none}
+    #docs.haspinned #pinnedhead,#docs.haspinned #pinnedlist,#docs.haspinned #pinnedResizer{display:none}
     #docs.haspinned #doclist{min-height:0}
     #docs.haspinned.tab-pinned #pinnedlist{display:block;flex:1;max-height:none;min-height:0;border-bottom:0}
     #docs.haspinned.tab-pinned #doclist{display:none}
@@ -612,17 +636,24 @@ GRAPH_HTML = """<!doctype html>
 <div id="legendbar"></div>
 <div id="wrap">
   <div id="docs"><div id="draghandle" aria-hidden="true"></div><div class="dhead"><input id="docq" placeholder="문서 검색(제목·요약)" oninput="renderDocs(this.value)" style="width:92%"/>
-    <select id="desclines" onchange="setDescLines(this.value)" title="목록 설명 줄수" style="width:92%;margin-top:5px;font-size:11px">
-      <option value="0">설명 0줄(제목만)</option>
-      <option value="2">설명 2줄</option>
-      <option value="4">설명 4줄</option>
-    </select></div>
+    <div style="display:flex;align-items:center;gap:6px;margin-top:5px">
+      <select id="desclines" onchange="setDescLines(this.value)" title="목록 설명 줄수" style="flex:1;min-width:0;font-size:11px">
+        <option value="0">설명 0줄(제목만)</option>
+        <option value="2">설명 2줄</option>
+        <option value="4">설명 4줄</option>
+      </select>
+      <label id="unreadFilterWrap" title="읽지 않은 문서만 보기"
+        style="display:flex;align-items:center;gap:3px;font-size:11px;color:var(--muted);white-space:nowrap;cursor:pointer">
+        <input type="checkbox" id="unreadFilter" onchange="setUnreadFilter(this.checked)" style="margin:0">읽지 않음
+      </label>
+    </div></div>
     <div id="doctabs">
       <button class="sec active" data-tab="all" onclick="setDocTab('all')">📄 전체</button>
       <button class="sec" data-tab="pinned" onclick="setDocTab('pinned')">⭐ 즐겨찾기</button>
     </div>
     <div id="pinnedhead" style="display:none">⭐ 즐겨찾기</div>
     <div id="pinnedlist"></div>
+    <div id="pinnedResizer" title="드래그하여 즐겨찾기 영역 크기 조절"></div>
     <div id="doclist"><p class="hint" style="padding:10px">문서 로딩…</p></div>
     <div id="showhidden" style="display:none" onclick="toggleShowHidden()"></div>
     <div id="hiddenlist"></div></div>
@@ -852,6 +883,56 @@ function setDescLines(v){
   applyDescLines();
 }
 applyDescLines();
+
+// '읽지 않음' 필터 — 브라우저에 기억(사용자 요구, 설명 줄수 선택과 한 행을 나눠 씀).
+let unreadOnly = false;
+try{ unreadOnly = localStorage.getItem('claireUnreadOnly')==='1'; }catch(e){}
+function applyUnreadFilter(){
+  const cb=document.getElementById('unreadFilter'); if(cb) cb.checked = unreadOnly;
+}
+function setUnreadFilter(checked){
+  unreadOnly = !!checked;
+  try{ localStorage.setItem('claireUnreadOnly', unreadOnly?'1':'0'); }catch(e){}
+  renderDocs(document.getElementById('docq').value);
+}
+applyUnreadFilter();
+
+// 즐겨찾기-문서 목록 사이 리사이즈(#pinnedResizer 드래그, 데스크톱 전용) — 마우스로
+// 즐겨찾기 영역 높이를 조절하고 브라우저에 기억(사용자 요구, 기본 CSS 32% 대신 px 로 고정).
+let pinnedH = null;
+try{ const v=parseInt(localStorage.getItem('clairePinnedH')); if(v>=40) pinnedH=v; }catch(e){}
+function applyPinnedHeight(){
+  const pl=document.getElementById('pinnedlist');
+  if(pl && pinnedH!=null) pl.style.setProperty('--pinned-h', pinnedH+'px');
+}
+function attachPinnedResizer(){
+  const handle=document.getElementById('pinnedResizer');
+  const pl=document.getElementById('pinnedlist');
+  const docs=document.getElementById('docs');
+  if(!handle || !pl || !docs) return;
+  let startY=0, startH=0;
+  function onMove(e){
+    const maxH = Math.max(80, docs.clientHeight - 120);  // #doclist 최소 공간 확보
+    pinnedH = Math.max(40, Math.min(maxH, startH + (e.clientY - startY)));
+    pl.style.setProperty('--pinned-h', pinnedH+'px');
+  }
+  function onUp(){
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+    handle.classList.remove('dragging');
+    try{ localStorage.setItem('clairePinnedH', pinnedH); }catch(e){}
+  }
+  handle.addEventListener('mousedown', e=>{
+    e.preventDefault();
+    startY = e.clientY;
+    startH = pl.getBoundingClientRect().height;
+    handle.classList.add('dragging');
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  });
+}
+applyPinnedHeight();
+attachPinnedResizer();
 
 // 읽기 글자 크기(A−/A+) — 브라우저에 기억. 팝업의 --read-fs 변수로 .md 본문에 적용.
 let readFS = 16;
@@ -1688,7 +1769,8 @@ function setDocTab(tab){
 }
 function renderDocs(filter){
   const q=(filter||'').trim().toLowerCase();
-  const match = dc => !q || (dc.title+' '+dc.summary).toLowerCase().includes(q);
+  const match = dc => (!q || (dc.title+' '+dc.summary).toLowerCase().includes(q))
+    && (!unreadOnly || dc.seen===0);
   // 숨김(hidden)은 기본 목록·즐겨찾기 양쪽에서 제외(목록 전용 숨김, 그래프는 안 건드림).
   const visible = allDocs.filter(dc=> dc.hidden!==1 && match(dc));
   const pinned = visible.filter(dc=>dc.pinned===1);

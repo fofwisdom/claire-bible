@@ -135,6 +135,55 @@ def test_min_content_threshold_separates_measured_data():
     assert 111 < web.MIN_CONTENT < 1296
 
 
+# --- 인터스티셜/실패 페이지 오인 방지 (inbox 실사례: Armalo 404, Cloudflare) ---
+
+def test_looks_like_failure_page_detects_cloudflare_interstitial():
+    text = "Just a moment... Enable JavaScript and cookies to continue " * 5
+    assert web._looks_like_failure_page(text)
+
+
+def test_looks_like_failure_page_detects_deleted_workspace_page():
+    text = ("404 · Page not found This page is not in the workspace. "
+            "We could not find the page you were looking for.")
+    assert web._looks_like_failure_page(text)
+
+
+def test_looks_like_failure_page_false_for_normal_article():
+    body = "일반적인 기사 본문입니다. " * 30
+    assert not web._looks_like_failure_page(body)
+
+
+def test_looks_like_failure_page_ignores_match_outside_scan_window():
+    # 문서 뒷부분에 우연히 등장하는 문구는 실패 페이지로 오인하지 않음
+    body = "정상 기사 본문 " * 100 + "혹시 404 error 를 만나셨나요?"
+    assert not web._looks_like_failure_page(body)
+
+
+def test_cdp_interstitial_not_accepted_over_thin_static(monkeypatch):
+    # static 은 빈약, cdp 는 길지만 Cloudflare 인터스티셜 → 성공으로 오인해선 안 됨
+    interstitial = "Just a moment... Enable JavaScript and cookies to continue. " * 10
+    _patch_chain(monkeypatch,
+                 static=("t", "tiny", [], {}, None, None, []),
+                 discourse=None,
+                 cdp=("Just a moment...", interstitial, [], {}, []))
+    with pytest.raises(FetchError):
+        web.fetch_web("https://blocked.example/app")
+
+
+def test_cdp_interstitial_not_accepted_over_real_but_shorter_static(monkeypatch):
+    # static 이 짧아 escalate 했지만, 실은 static 쪽이 유일한 실제 콘텐츠인 경우
+    # (에스컬레이션 트리거 자체가 길이 기준이라 실제로는 static 도 재사용되지 않고
+    # 체인 끝까지 실패로 처리되는지 확인 — 데이터 보존 관점에서 "거짓 성공"보다 안전)
+    interstitial = "Access Denied. 403 forbidden — please verify you are human. " * 10
+    _patch_chain(monkeypatch,
+                 static=("t", "짧은 실제 스니펫", [], {}, None, None, []),
+                 discourse=None,
+                 scrapling=(None, "", [], {}, []),
+                 cdp=("Access Denied", interstitial, [], {}, []))
+    with pytest.raises(FetchError):
+        web.fetch_web("https://gated.example/doc")
+
+
 # --- 본문 이미지 수집(휴리스틱) ---
 
 def test_extract_images_keeps_content_drops_noise():

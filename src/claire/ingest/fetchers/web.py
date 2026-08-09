@@ -31,6 +31,36 @@ _UA = (
 # 본문이 이 길이 미만이면 "빈약"으로 보고 다음 fallback 시도, 끝까지 미달이면 실패.
 MIN_CONTENT = 300
 
+# Cloudflare 등 봇차단 인터스티셜/삭제·404 안내 페이지의 전형적 문구.
+# 본문 앞부분(_FAILURE_SCAN_CHARS)에서만 검사 — 정상 기사 중간에 우연히
+# 섞인 단어까지 걸리지 않도록. 길이 기준(MIN_CONTENT)만으로는 이런 페이지도
+# "본문 충분"으로 오인해 정상 콘텐츠처럼 채택/저장되는 문제(inbox 실사례:
+# Cloudflare "Just a moment...", 삭제된 페이지의 "Page not found ... This
+# page is not in the workspace ...")를 막기 위한 가드.
+_FAILURE_SCAN_CHARS = 400
+_FAILURE_RE = re.compile(
+    r"just a moment|checking your browser|verify you are (?:a )?human|"
+    r"attention required|complete the security check|"
+    r"enable javascript and cookies|"
+    r"page not found|not in the workspace|we could not find the page|"
+    r"404 error|error 404|403 forbidden|401 unauthorized",
+    re.IGNORECASE,
+)
+
+
+def _looks_like_failure_page(text: str | None) -> bool:
+    """본문이 봇차단 인터스티셜/삭제·404 안내 페이지로 보이면 True."""
+    if not text:
+        return False
+    return bool(_FAILURE_RE.search(text[:_FAILURE_SCAN_CHARS]))
+
+
+def _content_score(text: str | None) -> int:
+    """길이 비교용 점수 — 실패 페이지로 보이면 0(다음 fallback 이 더 나은 후보로 채택)."""
+    if not text or _looks_like_failure_page(text):
+        return 0
+    return len(text)
+
 # 본문 콘텐츠 이미지(다이어그램·차트·스크린샷·도식)만 후보로. 장식/추적/UI 잡동사니는 사전 제외.
 # (최종 선별은 render_detail 의 LLM 큐레이션이 한 번 더 — 여기선 명백한 잡음만 거른다.)
 _IMG_NOISE_RE = re.compile(
@@ -48,36 +78,39 @@ def fetch_web(url: str) -> Document:
     title, text, links, anchors, err, effective_url, images = _fetch_static(url)
 
     # 2) Discourse JSON 에스컬레이션
-    if len(text or "") < MIN_CONTENT:
+    if _content_score(text) < MIN_CONTENT:
         from .discourse import try_discourse
 
         d = try_discourse(url)
         if d is not None:
             d_title, d_text, d_links = d
-            if len(d_text) > len(text or ""):
+            if _content_score(d_text) > _content_score(text):
                 title, text, links, via = d_title or title, d_text, d_links or links, "discourse"
 
     # 3) Scrapling Fetcher 에스컬레이션 — curl-cffi + browserforge 헤더 위장.
     #    브라우저 불필요. 정적 UA 를 막는 봇차단(예: openai.com 403)을 우회.
-    if len(text or "") < MIN_CONTENT:
+    if _content_score(text) < MIN_CONTENT:
         c_title, c_text, c_links, c_anchors, c_images = _fetch_scrapling(url)
-        if c_text and len(c_text) > len(text or ""):
+        if c_text and _content_score(c_text) > _content_score(text):
             title, text, links, anchors, images, via = (
                 c_title or title, c_text, c_links or links, c_anchors or anchors,
                 c_images or images, "scrapling")
 
     # 4) CDP(nodriver) 에스컬레이션 — 실제 Chromium 렌더링. 최후수단(느림, 브라우저 필요).
-    if len(text or "") < MIN_CONTENT:
+    if _content_score(text) < MIN_CONTENT:
         d_title, d_text, d_links, d_anchors, d_images = _fetch_cdp(url)
-        if d_text and len(d_text) > len(text or ""):
+        if d_text and _content_score(d_text) > _content_score(text):
             title, text, links, anchors, images, via = (
                 d_title or title, d_text, d_links or links, d_anchors or anchors,
                 d_images or images, "cdp")
 
-    # thin-guard: 체인 끝까지 빈약하면 실패 처리(raw_inbox error → replay-failed 대상)
-    if not text or len(text) < MIN_CONTENT:
+    # thin-guard: 체인 끝까지 빈약하거나 인터스티셜/실패 페이지면 실패 처리
+    # (raw_inbox error → replay-failed 대상). 봇차단/삭제 안내 페이지가 길이
+    # 기준만으로 정상 콘텐츠로 오인되지 않도록 _content_score 로 함께 판정.
+    if not text or _content_score(text) < MIN_CONTENT:
+        reason = "인터스티셜/실패 페이지로 판단" if _looks_like_failure_page(text) else "본문 빈약"
         raise FetchError(
-            err or f"본문 빈약(len={len(text or '')}, via={via}): {url}"
+            err or f"{reason}(len={len(text or '')}, via={via}): {url}"
         )
 
     # canonical 은 서버 redirect 이후의 *실제 도달 URL* 기준(dedup 핵심).

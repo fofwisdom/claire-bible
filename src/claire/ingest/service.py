@@ -226,6 +226,24 @@ class IngestService:
                 return {"status": "error", "document_id": document_id, "error": str(e)}
 
             doc.id = document_id
+
+            # 품질 가드: 재fetch 로 받아온 본문이 기존 대비 큰 폭으로 짧아졌으면
+            # (원본 삭제/봇차단/게이트 페이지를 "성공"으로 오인했을 가능성) 자동
+            # 덮어쓰기를 보류한다 — fetch_web 쪽 인터스티셜 감지를 통과한 잔여
+            # 사례에 대한 2중 방어(데이터 보존 협약). 기존 값은 그대로 두고
+            # error 로 반환해 refresh 큐/알림에서 사람이 확인하게 한다.
+            new_len = len(doc.raw_text or "")
+            if old_len >= 1000 and new_len < old_len * 0.3:
+                return {
+                    "status": "held_low_quality", "document_id": document_id,
+                    "old_len": old_len, "new_len": new_len,
+                    "error": (
+                        f"새 본문이 기존 대비 큰 폭으로 짧아져({old_len}→{new_len}) "
+                        "자동 덮어쓰기 보류. 원본 삭제/봇차단 페이지 오인 가능성 — "
+                        "수동 확인 필요."
+                    ),
+                }
+
             if doc.content_hash == old["content_hash"]:
                 # 본문은 그대로지만, 재fetch 로 새로 수집된 본문 이미지를 로컬로 내려받아
                 # 보존(외부 사이트/링크 삭제 대비, 사용자 요구)하고 meta 에 반영한 뒤
