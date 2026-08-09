@@ -73,6 +73,17 @@ def validate_ingest_file_access(
         raise FetchError("verified upload must be a regular file")
 
 
+def leading_url(t: str) -> str:
+    """'URL + 캡션'(URL 이 먼저, 뒤에 제목/설명이 붙는 공유) 텍스트에서 URL 만 뽑는다.
+
+    반대 패턴('제목 + 트레일링 URL')은 extract_shared_url 이 처리. 이 정리 없이 전체
+    텍스트를 URL 로 오인하면 fetch 단계에서 개행 등 URL 에 못 쓰는 문자 때문에 실패한다
+    (실관측: inbox#276, httpx "Invalid non-printable ASCII character in URL, '\\n'").
+    """
+    m = _URL_RE.match(t)
+    return m.group(0) if m else t
+
+
 def extract_shared_url(payload: str) -> str | None:
     """'제목 + 링크' 형태(모바일/데스크톱 공유)로 들어온 텍스트에서 URL 을 뽑는다.
 
@@ -102,7 +113,7 @@ def classify(payload: str) -> str:
         return "text"
     low = t.lower()
     if low.startswith("http://") or low.startswith("https://"):
-        host = urlsplit(low).netloc
+        host = urlsplit(leading_url(t)).netloc.lower()
         if "youtube.com" in host or "youtu.be" in host:
             return "youtube"
         if "x.com" in host or "twitter.com" in host:
@@ -125,8 +136,11 @@ def classify(payload: str) -> str:
 def fetch(payload: str, *, _depth: int = 0) -> Document:
     """라우팅 + fetch. redirect 는 1회 재귀로 최종 URL 재라우팅."""
     t = payload.strip()
-    # '제목 + 트레일링 링크' 공유 텍스트면 URL 을 실제 자료로 취급해 fetch.
-    if not t.lower().startswith(("http://", "https://")):
+    if t.lower().startswith(("http://", "https://")):
+        # 'URL + 캡션' 공유(URL 먼저, 뒤에 제목/설명) → URL 만 남긴다.
+        t = leading_url(t)
+    else:
+        # '제목 + 트레일링 링크' 공유 텍스트면 URL 을 실제 자료로 취급해 fetch.
         shared = extract_shared_url(t)
         if shared:
             t = shared

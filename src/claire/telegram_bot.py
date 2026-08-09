@@ -81,8 +81,14 @@ def classify_input(text: str) -> str:
     t = (text or "").strip()
     if not t:
         return "empty"
-    # '제목 + 트레일링 링크' 공유 텍스트면 그 링크 기준으로 라벨링(router 와 동일 규칙).
-    if not t.lower().startswith(("http://", "https://")):
+    # 공유 텍스트는 router 와 동일 규칙으로 URL 만 뽑아 라벨링.
+    if t.lower().startswith(("http://", "https://")):
+        # 'URL + 캡션'(URL 먼저, 뒤에 제목/설명) → URL 만 남긴다.
+        from .ingest.router import leading_url
+
+        t = leading_url(t)
+    else:
+        # '제목 + 트레일링 링크'(끝에 URL) → 그 링크 기준으로 라벨링.
         from .ingest.router import extract_shared_url
 
         shared = extract_shared_url(t)
