@@ -1241,7 +1241,10 @@ fetch('graph').then(r=>r.json()).then(d=>{
     nodes:{shape:'dot',size:14,font:{color:th.nodeFont,size:13},borderWidth:1,borderWidthSelected:3},
     edges:{color:{color:th.edge,highlight:th.edgeHi},font:{color:th.nodeFont,size:10},smooth:false},
     groups:buildGroups(),
-    physics:{stabilization:{iterations:200},barnesHut:{gravitationalConstant:-8000,springLength:120}},
+    // 사용자 제보(2026-08-11): 노드가 늘어나며 그래프가 너무 조밀해 보기 불편 —
+    // 반발력(gravitationalConstant)과 기본 간격(springLength)을 키워 노드 사이를 더 벌림
+    // (기존 -8000/120 → -12000/170, 안정화는 여전히 1회성 200 iteration 이라 비용 영향 없음).
+    physics:{stabilization:{iterations:200},barnesHut:{gravitationalConstant:-12000,springLength:170}},
     // 휠 줌은 커스텀(setupWheelZoom)으로 — vis 기본은 deltaY 크기 비례라 Mac 모멘텀에서
     // 한 번에 여러 단계 점프(사용자 보고). hideEdgesOnZoom/hideEdgesOnDrag: 사용자
     // 제보(2026-07-24, 폰에서 확대 시 저프레임)로 실측(605노드/659엣지, CPU 4x 스로틀,
@@ -1508,6 +1511,16 @@ function renderIngestResult(d){
 // 참조(엔티티/관계 sources 등)를 keeper 로 재배치한 뒤 삭제 → 데이터 보존.
 let dedupClusters=[];
 async function openDedup(){
+  // 사용자 제보(2026-08-11): 모바일에서 ✕/뒤로가기로 안 닫히던 버그 — 두 가지가 겹쳐 있었다.
+  // (1) openMobilePanelUI() 호출 자체가 빠져 있었음(다른 패널 진입 경로엔 다 있음).
+  // (2) 목록에서 문서를 revealed(peek) 해둔 채로 열면 openMobilePanelUI() 의 "이미
+  //     열려있으면 중복 push 안 함" 가드에 걸려 push 는 안 되는데, ✕(closePanelOrPeek)는
+  //     revealedDocId 가 남아있는 걸 보고 "그 문서로 되돌아가는 것"으로 오인해 peek 로만
+  //     되돌리고 완전히 안 닫힘 — dedup 은 특정 리빌 문서와 무관한 별개 패널이므로
+  //     revealedDocId/peek 를 먼저 지워서 "새로 여는 패널"로 확실히 취급되게 한다.
+  revealedDocId = null;
+  document.body.classList.remove('peek');
+  openMobilePanelUI();
   panel.innerHTML='<h2>♻️ 중복 문서 정리</h2><p class="al">근사 중복 검사 중… '+
     '<small>(문서가 많으면 잠시 걸립니다)</small></p>';
   mobileScrollTo('panel');
@@ -1774,7 +1787,9 @@ function renderDocs(filter){
   // 숨김(hidden)은 기본 목록·즐겨찾기 양쪽에서 제외(목록 전용 숨김, 그래프는 안 건드림).
   const visible = allDocs.filter(dc=> dc.hidden!==1 && match(dc));
   const pinned = visible.filter(dc=>dc.pinned===1);
-  const rest = visible.filter(dc=>dc.pinned!==1);
+  // 사용자 요구(2026-08-11): 즐겨찾기해도 원래 날짜별 목록에서 사라지면 안 됨 —
+  // 즐겨찾기 섹션에는 계속 보이되, 아래 일반 목록에서도 pinned 를 빼지 않는다(중복 표시).
+  const rest = visible;
   const hiddenDocs = allDocs.filter(dc=> dc.hidden===1 && match(dc));
 
   document.getElementById('pinnedhead').style.display = pinned.length ? '' : 'none';
