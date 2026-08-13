@@ -389,7 +389,7 @@ sudo systemctl enable --now ssh
 ./cb-manuscript init
 # production .env를 실제 bind, URL, provider 설정으로 편집
 cp .env.deploy.example .env.deploy
-# DEPLOY_REMOTE, DEPLOY_PATH, DEPLOY_ENV_SYNC 입력
+# DEPLOY_REMOTE, DEPLOY_PATH (예: private/claire), DEPLOY_ENV_SYNC 입력
 ./cb-manuscript remote install
 ./cb-manuscript remote update
 ```

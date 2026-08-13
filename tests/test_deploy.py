@@ -138,7 +138,7 @@ class DeployScriptTest(unittest.TestCase):
             f"""
             DEPLOY_REMOTE="alice@kb.example" # target
             DEPLOY_PORT=2200
-            DEPLOY_PATH='/srv/claire' # destination
+            DEPLOY_PATH='/private/claire' # destination
             DEPLOY_ENV_SYNC=always # local file is canonical
             UNRELATED=$(touch {marker})
             """,
@@ -147,15 +147,15 @@ class DeployScriptTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         logged = calls.read_text(encoding="utf-8")
         self.assertIn("alice@kb.example", logged)
-        self.assertIn("/srv/claire/data", logged)
-        self.assertIn(f"\t{env_file}\talice@kb.example:/srv/claire/.env", logged)
+        self.assertIn("/private/claire/data", logged)
+        self.assertIn(f"\t{env_file}\talice@kb.example:/private/claire/.env", logged)
         self.assertIn("\t--include\t/.env.example", logged)
         self.assertIn("\t--include\t/.env.dev.example", logged)
         self.assertIn("\t--include\t/.env.deploy.example", logged)
         self.assertIn("\t--exclude\t.cb-manuscript", logged)
         self.assertIn("\t--exclude\t.env.*", logged)
         self.assertIn(".claire-deploy-root", logged)
-        self.assertIn("chmod 600 '/srv/claire/.env'", logged)
+        self.assertIn("chmod 600 '/private/claire/.env'", logged)
         self.assertIn(
             "CLAIRE_ENVIRONMENT=production bash ./cb-manuscript update --no-fetch",
             logged,
@@ -176,7 +176,7 @@ class DeployScriptTest(unittest.TestCase):
             self.tmp_path,
             """
             DEPLOY_REMOTE=alice@kb.example
-            DEPLOY_PATH=/srv/claire
+            DEPLOY_PATH=/private/claire
             DEPLOY_ENV_SYNC=always
             """,
             extra_env={"DEPLOY_APP_ENV_FILE": str(app_env)},
@@ -184,15 +184,15 @@ class DeployScriptTest(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
         logged = calls.read_text(encoding="utf-8")
-        self.assertIn(f"\t{app_env}\talice@kb.example:/srv/claire/.env", logged)
-        self.assertNotIn(f"\t{deploy_env}\talice@kb.example:/srv/claire/.env", logged)
+        self.assertIn(f"\t{app_env}\talice@kb.example:/private/claire/.env", logged)
+        self.assertNotIn(f"\t{deploy_env}\talice@kb.example:/private/claire/.env", logged)
 
     def test_install_action_invokes_remote_install(self):
         result, calls, _ = _run_deploy(
             self.tmp_path,
             """
             DEPLOY_REMOTE=alice@kb.example
-            DEPLOY_PATH=/srv/claire
+            DEPLOY_PATH=/private/claire
             DEPLOY_ENV_SYNC=always
             DEPLOY_ACTION=install
             """,
@@ -201,7 +201,7 @@ class DeployScriptTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         logged = calls.read_text(encoding="utf-8")
         self.assertIn(
-            "cd '/srv/claire' && CLAIRE_ENVIRONMENT=production "
+            "cd '/private/claire' && CLAIRE_ENVIRONMENT=production "
             "bash ./cb-manuscript install",
             logged,
         )
@@ -212,7 +212,7 @@ class DeployScriptTest(unittest.TestCase):
             self.tmp_path,
             """
             DEPLOY_REMOTE=alice@kb.example
-            DEPLOY_PATH=/srv/claire
+            DEPLOY_PATH=/private/claire
             DEPLOY_ENV_SYNC=always
             """,
             extra_env={"CLAIRE_ENVIRONMENT": "development"},
@@ -269,7 +269,7 @@ class DeployScriptTest(unittest.TestCase):
             ssh_test_status=0,
             extra_env={
                 "DEPLOY_REMOTE": "alice@host",
-                "DEPLOY_PATH": "/srv/claire",
+                "DEPLOY_PATH": "/private/claire",
                 "DEPLOY_ENV_SYNC": "if-missing",
             },
         )
@@ -291,7 +291,7 @@ class DeployScriptTest(unittest.TestCase):
             None,
             extra_env={
                 "DEPLOY_REMOTE": "alice@host",
-                "DEPLOY_PATH": "/srv/claire",
+                "DEPLOY_PATH": "/private/claire",
                 "DEPLOY_ENV_SYNC": "always",
             },
         )
@@ -382,14 +382,14 @@ class DeployScriptTest(unittest.TestCase):
             self.tmp_path,
             """
             DEPLOY_REMOTE=alice@host
-            DEPLOY_PATH=/srv/claire
+            DEPLOY_PATH=/private/claire
             DEPLOY_ENV_SYNC=never
             """,
             ssh_test_status=1,
         )
 
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("기존 원격 /srv/claire/.env가 필요합니다", result.stderr)
+        self.assertIn("기존 원격 /private/claire/.env가 필요합니다", result.stderr)
         self.assertNotIn("rsync\t", calls.read_text(encoding="utf-8"))
 
     def test_if_missing_requires_local_or_remote_dotenv_before_rsync(self):
@@ -398,7 +398,7 @@ class DeployScriptTest(unittest.TestCase):
             None,
             extra_env={
                 "DEPLOY_REMOTE": "alice@host",
-                "DEPLOY_PATH": "/srv/claire",
+                "DEPLOY_PATH": "/private/claire",
                 "DEPLOY_ENV_SYNC": "if-missing",
             },
             ssh_test_status=1,
@@ -406,7 +406,7 @@ class DeployScriptTest(unittest.TestCase):
 
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("로컬", result.stderr)
-        self.assertIn("원격 /srv/claire/.env가 모두 없습니다", result.stderr)
+        self.assertIn("원격 /private/claire/.env가 모두 없습니다", result.stderr)
         self.assertNotIn("rsync\t", calls.read_text(encoding="utf-8"))
 
     def test_deploy_env_file_name_must_follow_dotenv_pattern(self):
@@ -416,7 +416,7 @@ class DeployScriptTest(unittest.TestCase):
             extra_env={
                 "DEPLOY_ENV_FILE": "config/production.env",
                 "DEPLOY_REMOTE": "alice@host",
-                "DEPLOY_PATH": "/srv/claire",
+                "DEPLOY_PATH": "/private/claire",
                 "DEPLOY_ENV_SYNC": "never",
             },
         )
@@ -432,7 +432,7 @@ class DeployScriptTest(unittest.TestCase):
             extra_env={
                 "DEPLOY_APP_ENV_FILE": "config/runtime.env",
                 "DEPLOY_REMOTE": "alice@host",
-                "DEPLOY_PATH": "/srv/claire",
+                "DEPLOY_PATH": "/private/claire",
                 "DEPLOY_ENV_SYNC": "never",
             },
         )
@@ -443,9 +443,9 @@ class DeployScriptTest(unittest.TestCase):
 
     def test_invalid_config_stops_before_remote_calls(self):
         cases = [
-            ("DEPLOY_REMOTE=\nDEPLOY_PATH=/srv/claire\n", "DEPLOY_REMOTE가 비어 있습니다"),
+            ("DEPLOY_REMOTE=\nDEPLOY_PATH=/private/claire\n", "DEPLOY_REMOTE가 비어 있습니다"),
             (
-                "DEPLOY_REMOTE=-F\nDEPLOY_PATH=/srv/claire\n",
+                "DEPLOY_REMOTE=-F\nDEPLOY_PATH=/private/claire\n",
                 "DEPLOY_REMOTE 형식이 잘못되었습니다",
             ),
             (
@@ -461,7 +461,7 @@ class DeployScriptTest(unittest.TestCase):
                 "DEPLOY_PATH에는 중복 '/'를 사용할 수 없습니다",
             ),
             (
-                "DEPLOY_REMOTE=alice@host\nDEPLOY_PORT=70000\nDEPLOY_PATH=/srv/claire\n",
+                "DEPLOY_REMOTE=alice@host\nDEPLOY_PORT=70000\nDEPLOY_PATH=/private/claire\n",
                 "DEPLOY_PORT는 65535 이하여야 합니다",
             ),
         ]

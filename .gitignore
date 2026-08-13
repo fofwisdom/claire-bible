@@ -21,6 +21,10 @@ build/
 /sample.private.md
 *.log
 
+# private 디렉터리 및 개인 설정 산출물
+private/*
+!private/.gitkeep
+
 # playwright/검증 산출물
 .playwright-mcp/
 claire-graph*.png
