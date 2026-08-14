@@ -1,7 +1,7 @@
-"""Gemini provider — structured 추출 + 임베딩.
+"""Gemini provider — structured 추출 + 임베딩 (Interactions API 기반).
 
 provider.py 의 ExtractionResult 계약(= mock 이 내는 구조)을 그대로 채운다.
-google-genai 의 response_schema(Pydantic) 로 구조화 출력을 강제한다.
+google-genai 의 interactions API (response_format) 로 구조화 출력을 강제한다.
 
 rate limit(429)/서버오류(5xx) 보호: 모든 호출은 _call() 을 거쳐 프로세스 전역
 throttle(min_interval) + 지수 백오프 재시도를 받는다.
@@ -91,6 +91,63 @@ def _is_daily_quota(err) -> bool:  # noqa: ANN001
     return d is not None and d >= _DAILY_RETRY_THRESHOLD
 
 
+def _extract_output_text(interaction) -> str:  # noqa: ANN001
+    """Interactions 응답에서 출력 텍스트를 방어적으로 추출."""
+    if interaction is None:
+        return ""
+    if isinstance(interaction, str):
+        return interaction
+    out = getattr(interaction, "output_text", None)
+    if isinstance(out, str) and out:
+        return out
+    outputs = getattr(interaction, "outputs", None)
+    if outputs and len(outputs) > 0:
+        last = outputs[-1]
+        t = getattr(last, "text", None) or (last.get("text") if isinstance(last, dict) else None)
+        if isinstance(t, str) and t:
+            return t
+    t = getattr(interaction, "text", None)
+    if isinstance(t, str):
+        return t
+    return str(interaction)
+
+
+def _extract_sources(interaction) -> list[dict]:  # noqa: ANN001
+    """Interactions 응답에서 grounding 출처 목록을 방어적으로 추출."""
+    sources: list[dict] = []
+    seen_urls: set[str] = set()
+
+    for step in getattr(interaction, "steps", []) or []:
+        for block in getattr(step, "content", []) or []:
+            annotations = getattr(block, "annotations", None) or []
+            for ann in annotations:
+                url = getattr(ann, "url", None) or (ann.get("url") if isinstance(ann, dict) else None)
+                if url and url not in seen_urls:
+                    seen_urls.add(url)
+                    title = getattr(ann, "title", "") or (ann.get("title", "") if isinstance(ann, dict) else "") or ""
+                    sources.append({"title": title, "url": url})
+
+    if sources:
+        return sources
+
+    # Legacy / GenerateContent candidates grounding_metadata fallback
+    try:
+        candidates = getattr(interaction, "candidates", None) or []
+        if candidates:
+            gm = getattr(candidates[0], "grounding_metadata", None)
+            for ch in (getattr(gm, "grounding_chunks", None) or []):
+                web = getattr(ch, "web", None)
+                if web and getattr(web, "uri", None):
+                    uri = web.uri
+                    if uri not in seen_urls:
+                        seen_urls.add(uri)
+                        sources.append({"title": getattr(web, "title", "") or "", "url": uri})
+    except Exception:  # noqa: BLE001
+        pass
+
+    return sources
+
+
 class GeminiProvider:
     name = "gemini"
 
@@ -142,34 +199,36 @@ class GeminiProvider:
         raise RuntimeError("unreachable")
 
     def extract(self, doc: Document, ontology_block: str | None = None) -> ExtractionResult:
-        from google.genai import types as gtypes
-
         block = ontology_block or ontology_prompt_block()
         sys = _SYS.format(ontology=block)
         body = _doc_to_prompt(doc)
 
-        cfg = gtypes.GenerateContentConfig(
-            system_instruction=sys,
-            response_mime_type="application/json",
-            response_schema=ExtractionResult,
-            temperature=0.2,
-        )
+        response_format = {
+            "type": "text",
+            "mime_type": "application/json",
+            "schema": ExtractionResult.model_json_schema(),
+        }
         try:
-            resp = self._call(lambda: self.client.models.generate_content(
-                model=self.model, contents=body, config=cfg))
+            interaction = self._call(lambda: self.client.interactions.create(
+                model=self.model,
+                input=body,
+                system_instruction=sys,
+                response_format=response_format,
+                generation_config={"temperature": 0.2},
+                store=False,
+            ))
+            raw_text = _extract_output_text(interaction)
+            result = _coerce(raw_text)
+            result.raw_response = raw_text
+            result.model = self.model
+            result.prompt_version = PROMPT_VERSION
+            return result
         except Exception as e:  # noqa: BLE001
             # rate limit/서버오류는 재시도 후에도 실패 → 올려서 raw_inbox 에 error 로
             # 남기고 나중에 replay-failed 로 재적재. 그 외(schema 거부 등)는 폴백.
             if _is_retryable(e):
                 raise
             return self._extract_json_fallback(sys, body)
-
-        parsed = getattr(resp, "parsed", None)
-        result = parsed if isinstance(parsed, ExtractionResult) else _coerce(resp.text)
-        result.raw_response = resp.text or ""
-        result.model = self.model
-        result.prompt_version = PROMPT_VERSION
-        return result
 
     def _extract_json_fallback(self, sys: str, body: str) -> ExtractionResult:
         prompt = (
@@ -182,10 +241,14 @@ class GeminiProvider:
             + "\n\nDOCUMENT:\n"
             + body
         )
-        resp = self._call(lambda: self.client.models.generate_content(
-            model=self.model, contents=prompt))
-        result = _coerce(resp.text)
-        result.raw_response = resp.text or ""
+        interaction = self._call(lambda: self.client.interactions.create(
+            model=self.model,
+            input=prompt,
+            store=False,
+        ))
+        raw_text = _extract_output_text(interaction)
+        result = _coerce(raw_text)
+        result.raw_response = raw_text
         result.model = self.model
         result.prompt_version = PROMPT_VERSION
         return result
@@ -206,9 +269,12 @@ class GeminiProvider:
             "Be concise.\n\n"
             f"QUERY: {query}\n\nCONTEXT:\n{context}\n\nANSWER:"
         )
-        resp = self._call(lambda: self.client.models.generate_content(
-            model=self.model, contents=prompt))
-        return (resp.text or "").strip()
+        interaction = self._call(lambda: self.client.interactions.create(
+            model=self.model,
+            input=prompt,
+            store=False,
+        ))
+        return _extract_output_text(interaction).strip()
 
     def render_detail(self, doc: Document) -> str:
         """원문을 한국어 **마크다운**으로 '편하게 읽을 수 있는 글'로 재구성(요약 아님).
@@ -264,9 +330,12 @@ class GeminiProvider:
             + _images_block(images) +
             f"\n원문:\n{body}\n\n한국어 마크다운:"
         )
-        resp = self._call(lambda: self.client.models.generate_content(
-            model=self.model, contents=prompt))
-        return (resp.text or "").strip()
+        interaction = self._call(lambda: self.client.interactions.create(
+            model=self.model,
+            input=prompt,
+            store=False,
+        ))
+        return _extract_output_text(interaction).strip()
 
     def classify_watch(self, doc: Document) -> dict:
         """[주기 크롤링] 문서가 '주기적으로 내용이 바뀌는 콘텐츠'인지 판단(별도 경량 호출).
@@ -274,8 +343,6 @@ class GeminiProvider:
         리더보드/벤치마크 순위표/실시간 통계/가격/랭킹 = watch(주기 재크롤 가치).
         뉴스/블로그/논문/일회성 설명 = 1회성. rate limit 등 실패는 위로 raise(호출측이
         비필수로 조용히 무시 — watch 미판단으로 남고 적재는 정상)."""
-        from google.genai import types as gtypes
-
         body = _doc_to_prompt(doc)[:4000]
         prompt = (
             "아래 문서가 '주기적으로 내용이 갱신되어 다시 봐야 가치 있는 콘텐츠'인지 판단하라.\n"
@@ -287,22 +354,28 @@ class GeminiProvider:
             "reason 은 한국어 한 문장.\n\n"
             f"문서:\n{body}"
         )
-        cfg = gtypes.GenerateContentConfig(
-            response_mime_type="application/json",
-            response_schema=WatchClassification,
-            temperature=0.0,
-        )
-        resp = self._call(lambda: self.client.models.generate_content(
-            model=self.model, contents=prompt, config=cfg))
-        parsed = getattr(resp, "parsed", None)
-        if isinstance(parsed, WatchClassification):
-            return parsed.model_dump()
+        response_format = {
+            "type": "text",
+            "mime_type": "application/json",
+            "schema": WatchClassification.model_json_schema(),
+        }
+        interaction = self._call(lambda: self.client.interactions.create(
+            model=self.model,
+            input=prompt,
+            response_format=response_format,
+            generation_config={"temperature": 0.0},
+            store=False,
+        ))
+        raw_text = _extract_output_text(interaction)
         try:
-            import json
+            return WatchClassification.model_validate_json(raw_text).model_dump()
+        except Exception:
+            try:
+                import json
 
-            return WatchClassification(**json.loads(resp.text or "")).model_dump()
-        except Exception:  # noqa: BLE001
-            return {"watch": False, "interval_days": None, "reason": "판정 파싱 실패"}
+                return WatchClassification(**json.loads(raw_text)).model_dump()
+            except Exception:  # noqa: BLE001
+                return {"watch": False, "interval_days": None, "reason": "판정 파싱 실패"}
 
     def research(self, query: str, context: str) -> dict:
         """맥락 고정 웹 조사(google_search grounding) → 한국어 보고서 + 출처.
@@ -310,8 +383,6 @@ class GeminiProvider:
         다의어 위험(사용자 요구): 키워드를 일반 의미가 아니라 **주어진 맥락 안에서의
         의미로만** 해석하도록 강제하고, 맥락과 맞는 자료를 못 찾으면 지어내는 대신
         INSUFFICIENT 를 선언하게 한다. 판정(judge_research)은 별도 호출로 이중 방어."""
-        from google.genai import types as gtypes
-
         prompt = (
             "당신은 개인 지식그래프를 확장하는 리서처다. 사용자가 아래 [맥락]의 자료를 "
             "읽다가 [조사 대상]에 대해 더 알고 싶어한다.\n\n"
@@ -329,23 +400,15 @@ class GeminiProvider:
             "지식그래프에 추출할 가치가 있는 내용 위주로 써라.\n\n"
             f"[맥락]\n{context[:8000]}\n\n[조사 대상]\n{query}\n\n[보고서]"
         )
-        cfg = gtypes.GenerateContentConfig(
-            tools=[gtypes.Tool(google_search=gtypes.GoogleSearch())],
-            temperature=0.3,
-        )
-        resp = self._call(lambda: self.client.models.generate_content(
-            model=self.model, contents=prompt, config=cfg))
-        report = (resp.text or "").strip()
-        sources: list[dict] = []
-        try:  # grounding 출처(있으면) — SDK 구조 변화에 방어적으로 접근
-            gm = resp.candidates[0].grounding_metadata
-            for ch in (getattr(gm, "grounding_chunks", None) or []):
-                web = getattr(ch, "web", None)
-                if web and getattr(web, "uri", None):
-                    sources.append({"title": getattr(web, "title", "") or "",
-                                    "url": web.uri})
-        except Exception:  # noqa: BLE001
-            pass
+        interaction = self._call(lambda: self.client.interactions.create(
+            model=self.model,
+            input=prompt,
+            tools=[{"type": "google_search"}],
+            generation_config={"temperature": 0.3},
+            store=False,
+        ))
+        report = _extract_output_text(interaction).strip()
+        sources: list[dict] = _extract_sources(interaction)
         return {"report": report, "sources": sources}
 
     def judge_research(self, query: str, context: str, report: str) -> dict:
@@ -353,8 +416,6 @@ class GeminiProvider:
 
         research 호출과 분리된 fresh 호출(자기 채점 편향 완화). 판정 실패 시 0점
         (fail-closed) — 불확실하면 그래프에 추가하지 않는다."""
-        from google.genai import types as gtypes
-
         prompt = (
             "지식그래프 추가 게이트 심사. 사용자가 [맥락]을 읽다가 [조사 대상]을 조사해 "
             "[보고서]를 얻었다. 다음을 채점하라.\n"
@@ -383,29 +444,35 @@ class GeminiProvider:
             "- reason: 채점 근거 한두 문장(한국어).\n\n"
             f"[맥락]\n{context[:6000]}\n\n[조사 대상]\n{query}\n\n[보고서]\n{report[:8000]}"
         )
-        cfg = gtypes.GenerateContentConfig(
-            response_mime_type="application/json",
-            response_schema=ResearchJudgement,
-            temperature=0.0,
-        )
+        response_format = {
+            "type": "text",
+            "mime_type": "application/json",
+            "schema": ResearchJudgement.model_json_schema(),
+        }
+        interaction = None
         try:
-            resp = self._call(lambda: self.client.models.generate_content(
-                model=self.model, contents=prompt, config=cfg))
+            interaction = self._call(lambda: self.client.interactions.create(
+                model=self.model,
+                input=prompt,
+                response_format=response_format,
+                generation_config={"temperature": 0.0},
+                store=False,
+            ))
+            raw_text = _extract_output_text(interaction)
+            return ResearchJudgement.model_validate_json(raw_text).model_dump()
         except Exception as e:  # noqa: BLE001
             if _is_retryable(e):
                 raise  # rate limit 은 위로 — 호출측이 오류로 안내(자동복구 루프와 정합)
+            try:
+                import json
+
+                if interaction is not None:
+                    raw_text = _extract_output_text(interaction)
+                    return ResearchJudgement(**json.loads(raw_text)).model_dump()
+            except Exception:  # noqa: BLE001
+                pass
             return {"relevance": 0.0, "quality": 0.0, "same_subject": False,
                     "interpretation": "", "reason": f"판정 실패: {e}"}
-        parsed = getattr(resp, "parsed", None)
-        if isinstance(parsed, ResearchJudgement):
-            return parsed.model_dump()
-        try:
-            import json
-
-            return ResearchJudgement(**json.loads(resp.text or "")).model_dump()
-        except Exception:  # noqa: BLE001
-            return {"relevance": 0.0, "quality": 0.0, "same_subject": False,
-                    "interpretation": "", "reason": "판정 응답 파싱 실패"}
 
     def select_followups(self, context: str, candidates: list[dict]) -> list[int]:
         """1홉 자동확장 — 부모 문서 맥락에서 따라갈(파고들) 가치가 있는 링크를 선별.
@@ -413,8 +480,6 @@ class GeminiProvider:
         '파고들지 여부'를 LLM 이 결정(사용자 요구). 후보를 번호 매겨 제시하고, 지식그래프에
         더할 가치가 있는 것만 인덱스로 돌려받는다. 가치 없으면 빈 목록(과잉수집 억제).
         판정 실패/파싱 실패는 빈 목록(fail-closed) — 불확실하면 파지 않는다."""
-        from google.genai import types as gtypes
-
         if not candidates:
             return []
         listing = "\n".join(
@@ -435,25 +500,33 @@ class GeminiProvider:
             "4. follow 에는 고른 후보의 번호(인덱스)만 담아라.\n\n"
             f"[부모 문서]\n{context[:6000]}\n\n[외부 링크 후보]\n{listing}"
         )
-        cfg = gtypes.GenerateContentConfig(
-            response_mime_type="application/json",
-            response_schema=FollowSelection,
-            temperature=0.0,
-        )
+        response_format = {
+            "type": "text",
+            "mime_type": "application/json",
+            "schema": FollowSelection.model_json_schema(),
+        }
+        interaction = None
         try:
-            resp = self._call(lambda: self.client.models.generate_content(
-                model=self.model, contents=prompt, config=cfg))
+            interaction = self._call(lambda: self.client.interactions.create(
+                model=self.model,
+                input=prompt,
+                response_format=response_format,
+                generation_config={"temperature": 0.0},
+                store=False,
+            ))
+            raw_text = _extract_output_text(interaction)
+            sel = FollowSelection.model_validate_json(raw_text)
         except Exception as e:  # noqa: BLE001
             if _is_retryable(e):
                 raise  # rate limit 은 위로 — 호출측(expand-loop)이 재시도
-            return []
-        parsed = getattr(resp, "parsed", None)
-        sel = parsed if isinstance(parsed, FollowSelection) else None
-        if sel is None:
             try:
                 import json
 
-                sel = FollowSelection(**json.loads(resp.text or ""))
+                if interaction is not None:
+                    raw_text = _extract_output_text(interaction)
+                    sel = FollowSelection(**json.loads(raw_text))
+                else:
+                    return []
             except Exception:  # noqa: BLE001
                 return []
         n = len(candidates)
@@ -472,9 +545,13 @@ class GeminiProvider:
             "Answer with exactly one word: SAME or DIFFERENT."
         )
         try:
-            resp = self._call(lambda: self.client.models.generate_content(
-                model=self.model, contents=prompt))
-            return (resp.text or "").strip().upper().startswith("SAME")
+            interaction = self._call(lambda: self.client.interactions.create(
+                model=self.model,
+                input=prompt,
+                store=False,
+            ))
+            text = _extract_output_text(interaction)
+            return text.strip().upper().startswith("SAME")
         except Exception:  # noqa: BLE001
             return False  # 판정 실패 시 보수적으로 분리(거짓 병합 방지)
 
@@ -487,8 +564,6 @@ def _images_block(images: list[dict]) -> str:
     이미지로 넣게 한다. 장식/로고/아이콘/중복은 빼라고 명시(최종 선별=LLM)."""
     if not images:
         return ""
-    # 로컬로 내려받은 사본이 있으면(사용자 요구 — 원본 사이트/링크 유실 대비) 그 서빙
-    # 경로를, 없으면(다운로드 실패 등) 원본 url 로 폴백 — LLM 은 이 값을 그대로 베껴 쓴다.
     listing = "\n".join(
         f"[{i}] url: {('/image?p=' + im['local']) if im.get('local') else im.get('url', '')}\n"
         f"    alt: {im.get('alt', '') or '(없음)'}"
