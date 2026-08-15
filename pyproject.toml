@@ -16,6 +16,7 @@ dependencies = [
     "python-slugify>=8.0",
     "pypdf>=6.14.2",
     "aiohttp>=3.14.3",
+    "mcp>=2.0.0",
 ]
 
 [project.optional-dependencies]

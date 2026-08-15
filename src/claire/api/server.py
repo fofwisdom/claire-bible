@@ -35,13 +35,10 @@ def _token_matches(expected: str, presented: str) -> bool:
     return bool(expected and presented) and hmac.compare_digest(expected, presented)
 
 
-def run_api() -> int:
-    s = get_settings()
-    try:
-        from aiohttp import web
-    except Exception as e:  # noqa: BLE001
-        print(f"aiohttp 미설치: {e}\n  uv sync 후 다시 시도하세요.")
-        return 2
+def build_app(s):  # noqa: ANN001
+    """aiohttp Application 을 구성만 하고 반환(실행은 안 함) — 테스트가
+    `aiohttp.test_utils.TestClient`로 물릴 수 있게 `run_api()`에서 분리."""
+    from aiohttp import web
 
     if not s.inject_token:
         print("CLAIRE_INJECT_TOKEN 미설정 → bearer API 호출은 비활성화됩니다.")
@@ -795,6 +792,105 @@ def run_api() -> int:
             return web.Response(status=404, text="Not Found")
         return web.Response(text=shared_html(doc), content_type="text/html")
 
+    # --- MCP(Model Context Protocol) — docs/MCP_SUPPORT.md 설계에 따라 기존
+    # aiohttp 프로세스/포트/게이트에 임베드(별도 컨테이너 안 씀 — "토큰 없으면
+    # 존재도 모르게"가 502/504로 새는 것을 막기 위함, §3). 공식 mcp SDK가 만든
+    # Starlette ASGI 앱을 아래 얇은 어댑터로 이 aiohttp 프로세스에서 직접
+    # 구동한다(§4). 인증은 이 라우트가 하지 않음 — READONLY_PATHS 를 통해
+    # gate 가 이미 owner/readonly 세션만 통과시킨다(기존 불변식 그대로, §2).
+    from .mcp_tools import build_mcp_app
+
+    _mcp_asgi_app = build_mcp_app(s)
+    _mcp_stop_event: asyncio.Event | None = None
+    _mcp_task: asyncio.Task | None = None
+
+    async def _mcp_lifespan_start(_app) -> None:  # noqa: ANN001
+        nonlocal _mcp_stop_event, _mcp_task
+        import asyncio as _asyncio
+
+        _mcp_stop_event = _asyncio.Event()
+        started = _asyncio.Event()
+        sent: list[dict] = []
+
+        async def receive():
+            if not started.is_set():
+                started.set()
+                return {"type": "lifespan.startup"}
+            await _mcp_stop_event.wait()
+            return {"type": "lifespan.shutdown"}
+
+        async def send(message):
+            sent.append(message)
+
+        scope = {"type": "lifespan", "asgi": {"version": "3.0", "spec_version": "2.3"}}
+        _mcp_task = _asyncio.create_task(_mcp_asgi_app(scope, receive, send))
+        # 태스크가 lifespan 메시지 없이 죽으면(예: 초기화 중 예외) sent 가 영원히
+        # 비어 무한 대기할 수 있어 done() 을 같이 본다(advisor 지적).
+        while not sent and not _mcp_task.done():
+            await _asyncio.sleep(0.01)
+        if _mcp_task.done() and not sent:
+            _mcp_task.result()  # 예외 있으면 여기서 재발생(원인 그대로 노출)
+        if not sent or sent[-1]["type"] != "lifespan.startup.complete":
+            raise RuntimeError(f"MCP ASGI lifespan startup failed: {sent}")
+
+    async def _mcp_lifespan_stop(_app) -> None:  # noqa: ANN001
+        if _mcp_stop_event is not None:
+            _mcp_stop_event.set()
+        if _mcp_task is not None:
+            try:
+                await _mcp_task
+            except Exception as e:  # noqa: BLE001
+                log.warning("MCP ASGI lifespan task ended with error: %s", e)
+
+    async def mcp_route(request):
+        # 얇은 aiohttp -> ASGI 어댑터. 단발 POST 요청/응답만 다룬다(스트리밍
+        # 없음 — json_response=True, stateless_http=True 로 항상 단일 JSON
+        # 응답, docs/MCP_SUPPORT.md §4 참고). GET은 라우트 자체를 안 만들어
+        # 미등록 경로와 동일하게 404(존재 숨김 원칙 유지).
+        body = await request.read()
+        scope = {
+            "type": "http",
+            "asgi": {"version": "3.0", "spec_version": "2.3"},
+            "http_version": "1.1",
+            "method": request.method,
+            "scheme": request.scheme,
+            "path": request.path,
+            "raw_path": request.path.encode("utf-8"),
+            "query_string": request.query_string.encode("utf-8"),
+            "root_path": "",
+            "headers": [(k.lower().encode("latin-1"), v.encode("latin-1"))
+                        for k, v in request.headers.items()],
+            "client": (request.remote or "", 0),
+            "server": (request.host or "localhost", 0),
+        }
+        body_sent = False
+
+        async def receive():
+            nonlocal body_sent
+            if not body_sent:
+                body_sent = True
+                return {"type": "http.request", "body": body, "more_body": False}
+            return {"type": "http.disconnect"}
+
+        response_meta: dict = {}
+        chunks: list[bytes] = []
+
+        async def send(message):
+            if message["type"] == "http.response.start":
+                response_meta["status"] = message["status"]
+                response_meta["headers"] = message.get("headers", [])
+            elif message["type"] == "http.response.body":
+                chunks.append(message.get("body", b""))
+
+        await _mcp_asgi_app(scope, receive, send)
+        resp = web.Response(status=response_meta.get("status", 500), body=b"".join(chunks))
+        for k, v in response_meta.get("headers", []):
+            name = k.decode("latin-1")
+            if name.lower() == "content-length":
+                continue  # aiohttp가 body 길이로 재계산 — 수동 지정 시 불일치 위험
+            resp.headers[name] = v.decode("latin-1")
+        return resp
+
     # --- 전 엔드포인트 게이트(외부 공개 대비) ---
     # 미인증 요청은 401 이 아니라 404 로 응답해 "여기 뭐 없음"처럼 보이게 한다(존재 숨김).
     # 인증은 bearer(CLI) · X-Session 헤더 · claire_session 쿠키. 진입은 /web 가 준 ?t= 링크.
@@ -804,8 +900,10 @@ def run_api() -> int:
     # 읽기전용 공개 토큰이 도달 가능한 경로 화이트리스트 — 검색/그래프/노드상세/문서목록만.
     # ingest·dedup/merge·share·synthesize·research(LLM 호출 비용) 등 쓰기/비용 라우트는
     # 이 목록에 없으므로 readonly 토큰으로는 애초에 gate 를 못 지난다(핸들러 신뢰 아님).
+    # /mcp 도 동일 원칙 — MCP 디스패처(mcp_tools.py) 내부 툴은 전부 read-only 이므로
+    # owner/readonly 세션 둘 다 여기로 도달 가능(docs/MCP_SUPPORT.md §2/§5).
     READONLY_PATHS = {"/", "/graph", "/node", "/documents", "/document", "/search", "/stats",
-                       "/whoami"}
+                       "/whoami", "/mcp"}
 
     @web.middleware
     async def gate(request, handler):
@@ -858,6 +956,8 @@ def run_api() -> int:
             )
     app = web.Application(middlewares=[gate], client_max_size=_MAX_REQUEST_BYTES)
     app.on_response_prepare.append(security_headers)
+    app.on_startup.append(_mcp_lifespan_start)
+    app.on_cleanup.append(_mcp_lifespan_stop)
     app.add_routes([
         web.get("/health", health),
         web.get("/whoami", whoami),
@@ -884,10 +984,26 @@ def run_api() -> int:
         # 문서 공유 핫링크 — 발급(인증)·열람(공개, 토큰 자체 인증).
         web.post("/share", create_share_route),
         web.get("/p", shared_doc_page),
+        # MCP(Model Context Protocol) — 에이전트용 read-only 그래프 탐색 툴.
+        # docs/MCP_SUPPORT.md. GET은 등록 안 함(v1 서버푸시 불필요, 미등록
+        # 경로는 gate 이전에 이미 404).
+        web.post("/mcp", mcp_route),
         # 웹 UI 인증(텔레그램 버튼 승인 → 세션). poll 은 비인증(세션 획득용).
         web.post("/auth/request", auth_request),
         web.get("/auth/poll", auth_poll),
     ])
+    return app
+
+
+def run_api() -> int:
+    s = get_settings()
+    try:
+        from aiohttp import web
+    except Exception as e:  # noqa: BLE001
+        print(f"aiohttp 미설치: {e}\n  uv sync 후 다시 시도하세요.")
+        return 2
+
+    app = build_app(s)
     print(f"claire inject API 시작: http://{s.inject_host}:{s.inject_port} "
           f"(token {'설정됨' if s.inject_token else '없음!'})")
     web.run_app(app, host=s.inject_host, port=s.inject_port, print=None)

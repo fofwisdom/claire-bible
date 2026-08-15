@@ -159,10 +159,17 @@ def documents_list(conn: sqlite3.Connection, limit: int = 300) -> list[dict]:
     return out
 
 
-def synthesis_context(conn: sqlite3.Connection, entity_ids: list[str]) -> tuple[str, list[str]]:
+def synthesis_context(
+    conn: sqlite3.Connection, entity_ids: list[str], *, compact: bool = False,
+) -> tuple[str, list[str]]:
     """선택 노드들의 지식(관찰·연결·출처요약)을 LLM 종합용 컨텍스트 텍스트로 조립.
 
-    결정론적(LLM 없음) — 이 텍스트가 summarize_search 의 근거가 된다. (context, names)."""
+    결정론적(LLM 없음) — 이 텍스트가 summarize_search 의 근거가 된다. (context, names).
+
+    compact=True(MCP `context` 툴 전용, graphview 자체 호출부는 기본값 False 유지):
+    관찰을 앞 3개로 자르고 출처요약(문서마다 latest_extraction_summary 조회)을
+    생략 — 에이전트가 프론티어 확장으로 얻은 다수 엔티티를 한 번에 넘길 때
+    자기 컨텍스트 윈도우를 태우지 않도록(docs/MCP_SUPPORT.md §11.2)."""
     blocks: list[str] = []
     names: list[str] = []
     for eid in entity_ids:
@@ -173,8 +180,9 @@ def synthesis_context(conn: sqlite3.Connection, entity_ids: list[str]) -> tuple[
         parts = [f"## {ent.name} ({ent.type})"]
         if ent.aliases:
             parts.append("별칭: " + ", ".join(ent.aliases))
-        if ent.observations:
-            parts.append("관찰: " + " ".join(ent.observations))
+        obs = ent.observations[:3] if compact else ent.observations
+        if obs:
+            parts.append("관찰: " + " ".join(obs))
         rels = []
         for r in dbm.neighbors(conn, eid):
             out = r.source_id == eid
@@ -183,10 +191,11 @@ def synthesis_context(conn: sqlite3.Connection, entity_ids: list[str]) -> tuple[
                 rels.append(f"{r.type} {'→' if out else '←'} {other.name}")
         if rels:
             parts.append("연결: " + ", ".join(rels[:12]))
-        for did in ent.sources:
-            summ = dbm.latest_extraction_summary(conn, did)
-            if summ:
-                parts.append(f"출처요약: {summ}")
+        if not compact:
+            for did in ent.sources:
+                summ = dbm.latest_extraction_summary(conn, did)
+                if summ:
+                    parts.append(f"출처요약: {summ}")
         blocks.append("\n".join(parts))
     return "\n\n".join(blocks), names
 
