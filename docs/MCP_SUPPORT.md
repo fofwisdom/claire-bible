@@ -1,6 +1,8 @@
-# MCP 지원 — 설계안 (구현 전 검토용)
+# MCP 지원 — 설계안 (M1 구현·배포 완료)
 
-작성일: 2026-08-15 · 상태: **설계만 (미구현)** · 결정 대기(사용자)
+작성일: 2026-08-15 · 상태: **M1 배포됨**(`feature/mcp-support` → master 병합,
+`claire.blackan.net`에서 실행 중, 원격 실그래프로 검증 완료) · M2(쓰기 툴)는
+별도 계획 필요, §12 잔여 결정사항 일부 미해결
 
 > 목적: 축적된 지식(그래프/문서)을 **읽고 쓰는 경로를 다양화** — 텔레그램/웹 UI 외에
 > Claude Code·Claude Desktop·기타 MCP 하네스(hermes 등)에서도 접근. **v1은 read
@@ -141,19 +143,15 @@ JSON-RPC/세션ID/SSE 협상을 직접 구현하는 hand-roll은 스펙 드리�
   Host 헤더를 421로 거부한다(로컬 테스트에서 실제로 걸림). 배포 시
   `allowed_hosts=["claire.blackan.net"]`(및 로컬 검증용 `localhost`)을 명시해야
   함 — 안 하면 nginx를 정상 통과한 요청도 SDK 레벨에서 421.
-- **필요 작업(미검증 가정 — §3 권장안 A 전체가 이 가정에 의존)**: `MCPServer.
-  streamable_http_app()`이 돌려주는 건 표준 ASGI 콜러블(`app(scope, receive,
-  send)`) — aiohttp의 `web.Request`를 ASGI `scope`로 변환하고, 요청 바디를 ASGI
-  `receive()`로, 응답을 aiohttp `Response`(또는 SSE면 `StreamResponse`)로
-  되돌리는 **얇은 어댑터**(httpx의 `ASGITransport`가 테스트 목적으로 하는 것과
-  같은 부류의 변환)만 있으면 그 앱을 그대로 호출할 수 있다. 이번 조사는
-  **Starlette 앱 자체가 정상 동작하는 것까지는 httpx.ASGITransport로 실제
-  검증**(§4.1)했지만, **aiohttp 쪽 어댑터는 아직 안 짜봤다** — lifespan
-  이벤트(시작 시 `StreamableHTTPSessionManager`의 내부 태스크그룹이 떠야
-  요청을 처리함, §4.1에서 수동으로 lifespan을 돌려야 했던 것과 동일 이슈)를
-  aiohttp의 `on_startup`/`on_cleanup`에 정확히 연결하는 부분이 특히 처음
-  붙여보는 지점 — 이 어댑터를 작성해 `tools/list` 왕복까지 확인하는 스파이크가
-  **M1의 첫 작업**이다. 실패하면 §3의 권장안(A) 재검토.
+- **구현 완료·검증됨(2026-08-15, 더 이상 가정 아님)**: `MCPServer.
+  streamable_http_app()`이 돌려주는 표준 ASGI 콜러블(`app(scope, receive,
+  send)`)을, aiohttp의 `web.Request`↔ASGI `scope`/`receive`/`send` 변환 어댑터
+  (`server.py`의 `mcp_route`)로 감싸 실제로 붙였다. lifespan(시작 시
+  `StreamableHTTPSessionManager`의 내부 태스크그룹을 띄우는 부분)은
+  `app.on_startup`/`on_cleanup`에 연결. **로컬(합성 그래프+curl+공식 SDK
+  클라이언트)과 원격 프로덕션(`claire.blackan.net`, 실제 그래프로
+  `overview` 등 호출) 양쪽에서 end-to-end 검증 완료** — §3 권장안(A)이
+  가정이 아니라 배포된 사실이 됨.
 - GET `/mcp`(서버 개시 스트림)는 v1 불필요 — POST만 등록. **실측 정정**: 무인증
   GET은 게이트가 먼저 걸러 여전히 404(존재 은폐 유지). 유효 세션을 **가진**
   클라이언트가 실수로 GET을 보내면 aiohttp 라우터가 "경로는 있는데 메서드가
@@ -341,10 +339,11 @@ GOALS.md 2026-06-11 기록)은 `X-Session` 헤더 설정과는 무관 — 링크
 
 ## 10. 마일스톤
 
-- **M1(이번 계획 범위)**: `/mcp` read 전용 5툴(search/graph/node/documents/
-  document) + `stats`(+ §11 에이전트 전용 툴 채택분). 공식 SDK 임베드(§4). §9
-  테스트. 배포 전 §12 잔여 결정사항 전부 해소. **코드 착수 시 master에 바로
-  안 하고 feature 브랜치 먼저 생성**(사용자 요구).
+- **M1 — 완료·배포됨(2026-08-15)**: `/mcp` read 전용 10툴(resolve_entity/
+  search/neighbors/path/context/overview/node/documents/document/stats).
+  공식 SDK 임베드(§4). 테스트 25개(§9 목록 반영, `tests/test_mcp_tools.py`
+  `tests/test_api.py`). `feature/mcp-support` → master 병합 → `claire.blackan.net`
+  배포·실그래프 검증 완료.
 - **M2(보류, 별도 계획 필요)**: 쓰기 툴(ingest 등) — 스코프 테이블에 owner 전용
   항목 추가. NDJSON 스트리밍 라우트(`/ingest-stream`, `/research`,
   `/synthesize/research`)는 단일 MCP 툴 응답과 형태가 안 맞음(수십 초~수 분) —
@@ -453,4 +452,5 @@ GOALS.md 2026-06-11 기록)은 `X-Session` 헤더 설정과는 무관 — 링크
       **현재 세션 메커니즘 그대로 감수**할지, 아니면 절대 만료 상한(예: 발급 후
       N일이면 슬라이딩과 무관하게 무조건 만료) 같은 별도 장치를 원하는지 확인
       필요. 후자는 스키마/로직 변경이라 "가볍게 훑고 넘어갈 항목 아님".
-- [ ] M1 구현 착수 승인(코드 변경 없이 이 문서까지만 이번 세션 범위).
+- [x] M1 구현 착수 승인 및 완료 — 구현·테스트·배포까지 완료(사용자 승인 후
+      같은 세션에서 진행).
