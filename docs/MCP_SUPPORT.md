@@ -282,9 +282,9 @@ GOALS.md 2026-06-11 기록)은 `X-Session` 헤더 설정과는 무관 — 링크
 |---|---|---|
 | `search` | **`IngestService.search` 재사용 안 함** — `db.fts_search` 직접 호출(§7 참고, 구현 중 발견) | **`entity_type`/`near_ids` 필터 포함**(§11.1). raw hits만 반환, Gemini 호출 0. |
 | `graph` | `graphview.graph_json` | **전체 그래프 덤프 금지** — 노드 1개 기준 N-hop 이웃 + 상한(cap)으로 스코프 축소. 정확한 hop 수/cap 값은 구현 단계에서 결정(잔여 결정사항). |
-| `node` | `graphview.node_detail` | 그대로 재사용 가능. |
-| `documents` | `graphview.documents_list` | 그대로 재사용 가능. |
-| `document` | `graphview.document_detail` | **부작용 제거 필요** — 웹 핸들러(`server.py:352`)는 조회 시 `set_document_seen(seen=True)`를 같이 호출해 "안읽음" 마커를 지운다. MCP 조회가 이 부작용을 상속하면 readonly 툴이 사용자의 안읽음 상태를 몰래 바꾸게 됨 — MCP 경로는 `mark_seen` 없이 `graphview.document_detail`만 호출. |
+| `node` | `graphview.node_detail` | **그대로 재사용 안 됨** — 실사용 중 발견(§11.2 하단 추가 항목): 소스 문서마다 `detail`(본문 전문)을 통째로 넣어, 소스 48개짜리 허브 노드는 응답이 통째로 터진다. MCP 레이어(`node_impl`)에서 최신 10개(`MAX_NODE_DOCUMENTS`)로 캡하고, 기본은 `summary`만(전문은 `full=True`일 때만) 반환하도록 후처리. `documents_truncated`/`documents_omitted` 포함. |
+| `documents` | `graphview.documents_list` | **그대로 재사용 안 됨** — 실사용 중 `limit=300` 호출이 134KB/3,100줄로 도구 응답 한도를 넘어 파일 강제저장까지 발생(§11.2). `MAX_DOCUMENTS=100` 하드캡 + `since`/`query` 필터(`db.documents_timeline`/`documents_count`에 선택적 파라미터로 추가, 웹 UI 호출부는 무필터라 하위호환 유지) + `truncated`/`omitted`로 해결. |
+| `document` | `graphview.document_detail` | **부작용 제거 필요** — 웹 핸들러(`server.py:352`)는 조회 시 `set_document_seen(seen=True)`를 같이 호출해 "안읽음" 마커를 지운다. MCP 조회가 이 부작용을 상속하면 readonly 툴이 사용자의 안읽음 상태를 몰래 바꾸게 됨 — MCP 경로는 `mark_seen` 없이 `graphview.document_detail`만 호출. `fetched_at`은 ISO8601 UTC로 변환해 노출(§11.2). |
 | `stats` | `dbm.counts` | 그대로 재사용 가능. |
 
 ---
@@ -436,6 +436,23 @@ GOALS.md 2026-06-11 기록)은 `X-Session` 헤더 설정과는 무관 — 링크
   쓰는지"(예: `context`: "충분히 좁힌 후 마지막에 호출 — 넓은 ID 집합에는
   쓰지 말 것")까지 적어야 한다(§4.1에서 확인했듯 `description`은 그대로
   `tools/list` 응답에 실린다 — 에이전트가 보는 유일한 안내문).
+- **`documents`/`node`도 "그대로 재사용" 원칙이 안 통했다** — 배포 후 실제
+  MCP 클라이언트로 붙어 써보다 발견(2026-08-15). `documents(limit=300)`이
+  134KB/3,100줄로 도구 응답 한도를 넘겨 파일 강제저장이 두 번 발생했고,
+  소스 48개짜리 허브 노드에 `node()`를 부르면 본문 전문이 통째로 딸려오는
+  걸 실측으로 확인(AGENTS.md 엔티티 조회 시 기사 2편 전문이 그대로 반환됨).
+  `context`(§11.2 위 항목)와 같은 유형의 결함 — 사람 UI는 한 화면에 한
+  문서/한 노드만 펼치니 상한이 필요 없었지만, 에이전트는 그 함수를 호출
+  한 번으로 컨텍스트 윈도우를 태울 수 있다. `documents`는 `MAX_DOCUMENTS=100`
+  하드캡+`since`/`query` 필터, `node`는 소스문서 최신 10개 캡+기본
+  summary-only(`full=True`로 opt-in)로 수정.
+- **`fetched_at`은 ISO8601, UTC 타임존 명시(`+00:00`)로 노출한다** — KST
+  등 로컬 시간대로 임의 변환하지 않는 이유: 서버는 MCP 호출자(에이전트/
+  하네스)가 어느 시간대에 있는지 알 방법이 없고, 클라이언트가 필요하면
+  UTC 오프셋에서 스스로 변환하는 게 유일하게 모호하지 않은 방향이다.
+  `document`/`node`/`documents` 세 툴 모두 원시 epoch가 아니라 이 형식으로
+  통일(웹 UI JS가 쓰는 기존 `fetched_at` 키/포맷은 안 건드림 — MCP 응답
+  전용 후처리).
 
 ---
 

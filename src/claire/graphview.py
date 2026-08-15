@@ -79,6 +79,10 @@ def node_detail(conn: sqlite3.Connection, entity_id: str) -> dict | None:
                 "summary": dbm.latest_extraction_summary(conn, did) or "",
                 # 한국어 가독 렌더링(여러 단락) — 패널에서 '자세히 읽기'로 펼친다.
                 "detail": dbm.get_document_detail(conn, did) or "",
+                # 원시 epoch(초) — MCP 등 API 소비자가 자기 포맷/타임존으로
+                # 변환(웹 UI JS는 이 키를 안 씀, 기존 documents_list 의
+                # fetched_at 만 사용 — 그건 안 건드림).
+                "fetched_at": row["fetched_at"],
             })
 
     return {
@@ -109,6 +113,8 @@ def document_detail(conn: sqlite3.Connection, document_id: str) -> dict | None:
         # [1홉 병합, ONEHOP_MERGE_DESIGN.md] 이 문서에 흡수된 부가 출처(예: GeekNews 글에
         # 병합된 그 프로젝트의 github). 원문 링크 계보를 UI 에서 추적 가능하게.
         "extra_sources": dbm.get_document_extra_sources(conn, document_id),
+        # 원시 epoch(초) — MCP 등 API 소비자용(웹 UI는 이 필드 안 씀).
+        "fetched_at": row["fetched_at"],
     }
 
 
@@ -140,10 +146,16 @@ def dedup_clusters(conn: sqlite3.Connection, scan: dict) -> dict:
     return {"documents": scan.get("documents", 0), "clusters": out_clusters}
 
 
-def documents_list(conn: sqlite3.Connection, limit: int = 300) -> list[dict]:
-    """좌측 문서 패널용 — 최신순 문서(제목·요약·출처타입·시각)."""
+def documents_list(
+    conn: sqlite3.Connection, limit: int = 300, *,
+    since: float | None = None, query: str | None = None,
+) -> list[dict]:
+    """좌측 문서 패널용 — 최신순 문서(제목·요약·출처타입·시각).
+
+    since/query 는 선택적 필터(기본 None) — 웹 UI는 안 씀, MCP `documents`
+    툴이 전체 목록을 다 훑지 않고 좁혀 찾을 때 사용."""
     out = []
-    for r in dbm.documents_timeline(conn, limit):
+    for r in dbm.documents_timeline(conn, limit, since=since, query=query):
         out.append({
             "id": r["id"],
             "title": r["title"] or "(제목 없음)",

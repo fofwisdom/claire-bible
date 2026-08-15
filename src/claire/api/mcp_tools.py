@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import sqlite3
 from collections import deque
+from datetime import datetime, timezone
 
 from mcp.server.mcpserver import MCPServer
 from mcp.server.transport_security import TransportSecuritySettings
@@ -31,10 +32,36 @@ from ..store import db as dbm
 MAX_CONTEXT_ENTITIES = 10
 MAX_PATH_HOPS = 6
 _MAX_PATH_VISITED = 2000
+MAX_DOCUMENTS = 100
+DEFAULT_DOCUMENTS_LIMIT = 30
+MAX_NODE_DOCUMENTS = 10
 
 
 def _entity_brief(ent) -> dict:  # noqa: ANN001
     return {"id": ent.id, "name": ent.name, "type": ent.type}
+
+
+def _iso_utc(ts: float | None) -> str | None:
+    """epoch(초) -> ISO8601 문자열, 타임존 명시(UTC, +00:00) — 에이전트가 어느
+    시간대에서 왔는지 모르니 서버가 임의 지역(KST 등)을 가정하지 않고 항상
+    명확한 오프셋을 준다. 변환은 호출한 쪽에서."""
+    if ts is None:
+        return None
+    return datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
+
+
+def _parse_since(s: str | None) -> float | None:
+    """'YYYY-MM-DD' 또는 전체 ISO8601(오프셋 포함/'Z' 포함)을 epoch(초)로.
+    타임존 없는 문자열은 UTC로 간주(서버 저장값과 동일 기준)."""
+    if not s:
+        return None
+    text = s.strip()
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    dt = datetime.fromisoformat(text)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.timestamp()
 
 
 def resolve_entity_impl(conn: sqlite3.Connection, name: str) -> dict:
@@ -202,7 +229,52 @@ def document_impl(conn: sqlite3.Connection, document_id: str) -> dict:
     # graphview.document_detail 자체는 부작용이 없다(안읽음 마커는 아이오홉프
     # 라우트 핸들러 쪽에서만 건드림, docs/MCP_SUPPORT.md §6) — 그대로 호출.
     rep = graphview.document_detail(conn, document_id)
-    return rep if rep is not None else {"error": "not found"}
+    if rep is None:
+        return {"error": "not found"}
+    rep = dict(rep)
+    rep["fetched_at"] = _iso_utc(rep.get("fetched_at"))
+    return rep
+
+
+def node_impl(conn: sqlite3.Connection, entity_id: str, full: bool = False) -> dict:
+    rep = graphview.node_detail(conn, entity_id)
+    if rep is None:
+        return {"error": "not found"}
+    rep = dict(rep)
+    docs = rep.get("documents", [])
+    total = len(docs)
+    capped = docs[:MAX_NODE_DOCUMENTS]
+    out = []
+    for d in capped:
+        d = dict(d)
+        d["fetched_at"] = _iso_utc(d.get("fetched_at"))
+        if not full:
+            d.pop("detail", None)
+        out.append(d)
+    rep["documents"] = out
+    rep["documents_truncated"] = total > len(out)
+    rep["documents_omitted"] = max(0, total - len(out))
+    return rep
+
+
+def documents_impl(
+    conn: sqlite3.Connection, limit: int = DEFAULT_DOCUMENTS_LIMIT,
+    since: str | None = None, query: str | None = None,
+) -> dict:
+    limit = max(1, min(limit, MAX_DOCUMENTS))
+    try:
+        since_ts = _parse_since(since)
+    except ValueError:
+        return {"error": "since must be YYYY-MM-DD or ISO8601", "got": since}
+    items = graphview.documents_list(conn, limit=limit, since=since_ts, query=query)
+    total = dbm.documents_count(conn, since=since_ts, query=query)
+    for d in items:
+        d["fetched_at"] = _iso_utc(d.get("fetched_at"))
+    return {
+        "documents": items,
+        "truncated": total > len(items),
+        "omitted": max(0, total - len(items)),
+    }
 
 
 def build_mcp_app(s: Settings):
@@ -300,30 +372,44 @@ def build_mcp_app(s: Settings):
             conn.close()
 
     @mcp.tool()
-    async def node(entity_id: str) -> dict:
-        """엔티티 하나의 전체 상세(모든 observations + 소스 문서 + 타입 있는
+    async def node(entity_id: str, full: bool = False) -> dict:
+        """엔티티 하나의 상세(모든 observations + 소스 문서 요약 + 타입 있는
         1홉 이웃). id를 이미 알고 있을 때 씀 — 이름만 있으면 resolve_entity
-        먼저."""
+        먼저. 소스 문서는 최신 10개까지만(초과 시 documents_truncated=true,
+        documents_omitted에 잘린 개수) — 문서 본문 전체가 아니라 요약만
+        포함(허브 엔티티는 소스가 수십 개라 본문 전체를 다 넣으면 응답이
+        터진다). 특정 문서의 본문 전문이 필요하면 document(document_id)를
+        따로 호출할 것. full=True면 이 10개 문서에 한해 본문 전문도 포함(주의:
+        허브 엔티티에서 쓰면 응답이 매우 커질 수 있음). fetched_at은
+        ISO8601(UTC, 타임존 명시)."""
         conn = _conn()
         try:
-            rep = graphview.node_detail(conn, entity_id)
-            return rep if rep is not None else {"error": "not found"}
+            return node_impl(conn, entity_id, full=full)
         finally:
             conn.close()
 
     @mcp.tool()
-    async def documents(limit: int = 100) -> dict:
-        """최신순 문서 목록(제목·요약·출처타입·안읽음/즐겨찾기 상태)."""
+    async def documents(
+        limit: int = DEFAULT_DOCUMENTS_LIMIT,
+        since: str | None = None,
+        query: str | None = None,
+    ) -> dict:
+        """최신순 문서 목록(제목·요약·출처타입·안읽음/즐겨찾기 상태,
+        fetched_at은 ISO8601 UTC). limit 최대 100(그 이상 요청해도 잘림).
+        since(예: "2026-08-01" 또는 전체 ISO8601)로 그 시각 이후만, query로
+        제목/URL 부분일치 검색 — 전체를 다 훑지 말고 좁혀서 찾을 것. limit을
+        넘으면 truncated=true, omitted에 잘린 개수(0으로 오인 금지)."""
         conn = _conn()
         try:
-            return {"documents": graphview.documents_list(conn, limit=limit)}
+            return documents_impl(conn, limit=limit, since=since, query=query)
         finally:
             conn.close()
 
     @mcp.tool()
     async def document(document_id: str) -> dict:
-        """문서 하나의 상세(제목·요약·자세히읽기 전문·원문 URL). 사람용 웹
-        핸들러와 달리 안읽음(seen) 상태를 바꾸지 않는다(읽기전용 원칙)."""
+        """문서 하나의 상세(제목·요약·자세히읽기 전문·원문 URL·fetched_at은
+        ISO8601 UTC). 사람용 웹 핸들러와 달리 안읽음(seen) 상태를 바꾸지
+        않는다(읽기전용 원칙)."""
         conn = _conn()
         try:
             return document_impl(conn, document_id)

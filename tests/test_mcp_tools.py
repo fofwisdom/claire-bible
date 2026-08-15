@@ -6,9 +6,15 @@ from __future__ import annotations
 import sqlite3
 
 from claire.api.mcp_tools import (
+    MAX_DOCUMENTS,
+    MAX_NODE_DOCUMENTS,
+    _iso_utc,
+    _parse_since,
     context_impl,
     document_impl,
+    documents_impl,
     neighbors_impl,
+    node_impl,
     overview_impl,
     path_impl,
     resolve_entity_impl,
@@ -226,3 +232,138 @@ def test_document_impl_not_found():
     conn = _db()
     _seed_graph(conn)
     assert document_impl(conn, "no-such-doc") == {"error": "not found"}
+
+
+def test_iso_utc_includes_explicit_offset():
+    # 서버가 임의 지역(KST 등)을 가정하지 않고 항상 명시적 오프셋을 준다 —
+    # 오늘 세션에서 이 필드가 없어 grep으로 원본 문서를 뒤져야 했던 마찰의
+    # 직접적인 수정.
+    s = _iso_utc(1786751445.79)
+    assert s is not None and (s.endswith("+00:00") or s.endswith("Z"))
+    assert _iso_utc(None) is None
+
+
+def test_parse_since_handles_date_and_z_suffix():
+    assert _parse_since(None) is None
+    ts_date = _parse_since("2026-08-15")
+    ts_z = _parse_since("2026-08-15T00:00:00Z")
+    assert ts_date == ts_z  # 둘 다 UTC 자정으로 해석
+
+
+def test_document_impl_fetched_at_is_iso_with_offset():
+    conn = _db()
+    dbm.insert_document(conn, Document(
+        id="d1", url="https://example.com/x", title="X", raw_text="MCP",
+        source_type="web", content_hash="h1", fetched_at=1786751445.79))
+    rep = document_impl(conn, "d1")
+    assert rep["fetched_at"] == _iso_utc(1786751445.79)
+
+
+def test_node_impl_document_fetched_at_is_iso_with_offset():
+    conn = _db()
+    dbm.insert_document(conn, Document(
+        id="d1", url="https://example.com/x", title="X", raw_text="MCP",
+        source_type="web", content_hash="h1", fetched_at=1786751445.79))
+    dbm.upsert_entity(conn, Entity(id="e1", type="Concept", name="MCP", sources=["d1"]))
+    rep = node_impl(conn, "e1")
+    assert rep["documents"][0]["fetched_at"] == _iso_utc(1786751445.79)
+
+
+def test_node_impl_not_found():
+    conn = _db()
+    assert node_impl(conn, "no-such-entity") == {"error": "not found"}
+
+
+def test_node_impl_default_drops_full_detail_keeps_summary():
+    conn = _db()
+    dbm.insert_document(conn, Document(
+        id="d1", url="https://example.com/x", title="X", raw_text="raw",
+        source_type="web", content_hash="h1"))
+    dbm.set_document_detail(conn, "d1", "매우 긴 본문 전문" * 100)
+    dbm.upsert_entity(conn, Entity(id="e1", type="Concept", name="MCP", sources=["d1"]))
+    rep = node_impl(conn, "e1")
+    assert "detail" not in rep["documents"][0]
+    assert "summary" in rep["documents"][0]
+
+
+def test_node_impl_full_true_includes_detail():
+    conn = _db()
+    dbm.insert_document(conn, Document(
+        id="d1", url="https://example.com/x", title="X", raw_text="raw",
+        source_type="web", content_hash="h1"))
+    dbm.set_document_detail(conn, "d1", "전문")
+    dbm.upsert_entity(conn, Entity(id="e1", type="Concept", name="MCP", sources=["d1"]))
+    rep = node_impl(conn, "e1", full=True)
+    assert rep["documents"][0]["detail"] == "전문"
+
+
+def test_node_impl_documents_capped_and_flagged():
+    conn = _db()
+    n = MAX_NODE_DOCUMENTS + 5
+    ids = []
+    for i in range(n):
+        did = f"d{i}"
+        ids.append(did)
+        dbm.insert_document(conn, Document(
+            id=did, url=f"https://example.com/{i}", title=f"Doc {i}",
+            raw_text="x", source_type="web", content_hash=f"h{i}"))
+    dbm.upsert_entity(conn, Entity(id="e1", type="Concept", name="Hub", sources=ids))
+    rep = node_impl(conn, "e1")
+    assert len(rep["documents"]) == MAX_NODE_DOCUMENTS
+    assert rep["documents_truncated"] is True
+    assert rep["documents_omitted"] == 5
+
+
+def _seed_many_documents(conn, n: int, *, base_ts: float = 1_700_000_000.0):
+    for i in range(n):
+        dbm.insert_document(conn, Document(
+            id=f"d{i}", url=f"https://example.com/{i}", title=f"Doc {i}",
+            raw_text="x", source_type="web", content_hash=f"h{i}",
+            fetched_at=base_ts + i))
+
+
+def test_documents_impl_truncation_not_silent():
+    conn = _db()
+    _seed_many_documents(conn, 5)
+    r = documents_impl(conn, limit=2)
+    assert len(r["documents"]) == 2
+    assert r["truncated"] is True
+    assert r["omitted"] == 3
+
+
+def test_documents_impl_hard_cap_enforced_even_if_requested_higher():
+    conn = _db()
+    _seed_many_documents(conn, MAX_DOCUMENTS + 20)
+    r = documents_impl(conn, limit=MAX_DOCUMENTS + 20)  # 더 크게 요청해도
+    assert len(r["documents"]) == MAX_DOCUMENTS
+    assert r["truncated"] is True
+
+
+def test_documents_impl_since_filter():
+    conn = _db()
+    _seed_many_documents(conn, 5, base_ts=1_700_000_000.0)  # d0..d4, 1초 간격
+    since_iso = _iso_utc(1_700_000_002.0)  # d2부터
+    r = documents_impl(conn, limit=10, since=since_iso)
+    ids = {d["id"] for d in r["documents"]}
+    assert ids == {"d2", "d3", "d4"}
+
+
+def test_documents_impl_query_filter_title_and_url():
+    conn = _db()
+    dbm.insert_document(conn, Document(
+        id="d1", url="https://example.com/unique-slug", title="아무 제목",
+        raw_text="x", source_type="web", content_hash="h1"))
+    dbm.insert_document(conn, Document(
+        id="d2", url="https://example.com/other", title="다른 문서",
+        raw_text="x", source_type="web", content_hash="h2"))
+    r = documents_impl(conn, query="unique-slug")
+    assert [d["id"] for d in r["documents"]] == ["d1"]
+    r2 = documents_impl(conn, query="다른")
+    assert [d["id"] for d in r2["documents"]] == ["d2"]
+
+
+def test_documents_impl_invalid_since_returns_error_not_exception():
+    conn = _db()
+    r = documents_impl(conn, since="last week")
+    assert r["error"]
+    assert r["got"] == "last week"
