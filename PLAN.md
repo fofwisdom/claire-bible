@@ -1,7 +1,7 @@
 # Claire Bible — 공개 아키텍처 계획
 
 관련 문서: [GOALS.md](GOALS.md), [sample.md](sample.md),
-[외부 접속 설계](docs/EXTERNAL_ACCESS.md)
+[외부 접속 설계](docs/implementation/EXTERNAL_ACCESS.md)
 
 ## 1. 처리 흐름
 
@@ -70,7 +70,7 @@ Fetcher는 URL, canonical URL, 제목, 작성자, 시각, 원문, 소스 종류�
 4. 병합 실패 시 원래 문서 스냅샷으로 복원한다.
 5. 모델 입력에는 길이 상한을 적용하지만 저장 원문은 임의로 절단하지 않는다.
 
-세부 설계는 [ONEHOP_MERGE_DESIGN.md](docs/ONEHOP_MERGE_DESIGN.md)를 참고한다.
+세부 설계는 [ONEHOP_MERGE_DESIGN.md](docs/design/ONEHOP_MERGE_DESIGN.md)를 참고한다.
 
 ## 4. 인증과 외부 접속
 

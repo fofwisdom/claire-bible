@@ -88,7 +88,7 @@ uv run claire bot            # 텔레그램 봇 (long-polling)
 `cb-manuscript`는 `.env`, 설치·업데이트와 Compose를 담당하고,
 `cb-manuscript app`은 같은 배포 설정과 데이터로 `claire` one-off 명령을 실행한다.
 영속 서비스의 컨테이너 내부 명령은 Compose가 직접 `claire`를 호출한다. 세부 경계와
-health 종료 코드 차이는 [운영 명령 경계](docs/OPERATIONS.md)를 참고한다.
+health 종료 코드 차이는 [운영 명령 경계](docs/implementation/OPERATIONS.md)를 참고한다.
 
 ### 최초 설치 및 구성
 
@@ -194,7 +194,7 @@ CLAIRE_ANONYMOUS_READONLY=0
   mount와 쓰기 권한을 확인한다.
 
 DNS, reverse proxy, TLS, Host 전달과 방화벽 구성은 [외부 접속과 reverse
-proxy](docs/EXTERNAL_ACCESS.md)를 따른다.
+proxy](docs/implementation/EXTERNAL_ACCESS.md)를 따른다.
 
 #### 3. Provider와 Telegram 선택
 
@@ -300,7 +300,7 @@ same-origin 또는 Origin 헤더가 없는 요청에서 자격증명 없는 읽�
 opt-in이다. 이는 owner 인증이나 쓰기 기능을 끄는 설정이 아니며, 그래프·문서
 상세·숨김 문서를 포함한 지식베이스 전체가 API를 통해 공개된다. `hidden`은 화면
 정리용 표시이지 접근 제어가 아니다. 공개 전에 [외부 접속과 reverse
-proxy](docs/EXTERNAL_ACCESS.md)의 방화벽·rate limit 경계를 적용한다.
+proxy](docs/implementation/EXTERNAL_ACCESS.md)의 방화벽·rate limit 경계를 적용한다.
 
 `app`, `shell`, 고급 `compose` one-off는 인스턴스 잠금을 잡아 lifecycle 및 백업·복원과
 동시에 실행되지 않는다. migration, Compose 관리 daemon과 파괴적 유지보수는 실수로
@@ -404,7 +404,7 @@ cp .env.deploy.example .env.deploy
 반드시 필요하다. `remote install` 전에 원격 호스트의 Python·Docker·Compose 버전,
 daemon 접근, 배포 경로 권한과 build 네트워크를 확인한다.
 
-웹 접속은 [외부 접속과 reverse proxy](docs/EXTERNAL_ACCESS.md)를 따른다. development는
+웹 접속은 [외부 접속과 reverse proxy](docs/implementation/EXTERNAL_ACCESS.md)를 따른다. development는
 고정 IPv4로 직접 HTTP 접속하고, production은 별도 LAN reverse proxy가 hostname과
 클라이언트 TLS를 담당한 뒤 Claire의 HTTP upstream으로 전달한다. production HTTPS와
 인증서 발급·갱신은 LAN reverse proxy에서 관리한다.

@@ -212,6 +212,7 @@ rsync -az --delete -e "${RSH}" \
   --exclude '.git' \
   --exclude '.pytest_cache' \
   --exclude '*.egg-info' \
+  --exclude 'docs/**/*.jpg' \
   --exclude 'docs/*.jpg' \
   --include '/.env.example' \
   --include '/.env.dev.example' \
