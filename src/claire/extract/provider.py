@@ -300,13 +300,13 @@ class MockProvider:
 
 
 def get_provider(settings) -> Provider:  # noqa: ANN001
-    """effective_provider 에 따라 provider 인스턴스 반환.
-
-    gemini 백엔드는 키 도착 후 구현 예정. 현재는 항상 mock.
-    """
+    """effective_provider 에 따라 provider 인스턴스 반환."""
     eff = settings.effective_provider
+    if eff == "antigravity":
+        from .antigravity_provider import AntigravityProvider  # lazy import
+
+        return AntigravityProvider(settings)
     if eff == "gemini":
-        # TODO(M2): GeminiProvider 구현. 키 도착 전까지 도달하지 않음.
         from .gemini_provider import GeminiProvider  # lazy import
 
         return GeminiProvider(settings)

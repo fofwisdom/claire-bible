@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
+import shutil
 from typing import Any
 
 from pydantic import Field, field_validator
@@ -70,6 +71,7 @@ class Settings(BaseSettings):
         env_prefix="",
         extra="ignore",
         case_sensitive=False,
+        populate_by_name=True,
     )
 
     @classmethod
@@ -110,6 +112,13 @@ class Settings(BaseSettings):
     # rate limit 보호: 호출 간 최소 간격(초) + 429/5xx 재시도 횟수.
     gemini_min_interval: float = Field(default=4.0, alias="CLAIRE_GEMINI_MIN_INTERVAL")
     gemini_max_retries: int = Field(default=5, alias="CLAIRE_GEMINI_MAX_RETRIES")
+
+    # --- Antigravity CLI (agy) ---
+    agy_bin: str = Field(default="agy", alias="CLAIRE_AGY_BIN")
+    agy_model: str = Field(default="gemini-3.6-flash-high", alias="CLAIRE_AGY_MODEL")
+    agy_effort: str = Field(default="medium", alias="CLAIRE_AGY_EFFORT")
+    agy_timeout: float = Field(default=120.0, alias="CLAIRE_AGY_TIMEOUT")
+    agy_max_concurrency: int = Field(default=2, alias="CLAIRE_AGY_MAX_CONCURRENCY")
 
     # --- storage ---
     db_path: str = Field(default="data/claire.db", alias="CLAIRE_DB_PATH")
@@ -162,7 +171,11 @@ class Settings(BaseSettings):
 
     @property
     def effective_provider(self) -> str:
-        """키가 없으면 gemini 를 요청해도 mock 으로 떨어진다."""
+        """키나 실행 환경이 갖춰지지 않으면 provider 는 mock 으로 떨어진다."""
+        if self.provider in ("antigravity", "agy"):
+            if shutil.which(self.agy_bin) is not None:
+                return "antigravity"
+            return "mock"
         if self.provider == "gemini" and not self.gemini_api_key:
             return "mock"
         return self.provider

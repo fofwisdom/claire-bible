@@ -27,8 +27,12 @@ def build_status_text(settings: Settings, *, full: bool = True) -> str:
 
     # 운영
     lines.append("[운영]")
-    lines.append(f"  provider : {s.effective_provider} "
-                 f"(gen={s.gemini_model}, embed={s.gemini_embed_model})")
+    if s.effective_provider == "antigravity":
+        lines.append(f"  provider : {s.effective_provider} "
+                     f"(model={s.agy_model}, effort={s.agy_effort})")
+    else:
+        lines.append(f"  provider : {s.effective_provider} "
+                     f"(gen={s.gemini_model}, embed={s.gemini_embed_model})")
     if full:
         lines.append(f"  telegram : {'set' if s.telegram_bot_token else 'NOT set'} "
                      f"· allowed {sorted(s.allowed_user_ids) or 'ALL'}")

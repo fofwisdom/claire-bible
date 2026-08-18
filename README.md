@@ -206,7 +206,16 @@ GEMINI_API_KEY=
 TELEGRAM_BOT_TOKEN=
 ```
 
-실제 Gemini를 사용하려면 `CLAIRE_PROVIDER`를 `gemini`로 변경하고 `GEMINI_API_KEY`를 설정한다.
+호스트에 인증된 Antigravity CLI(`agy`)를 사용할 경우 `CLAIRE_PROVIDER`를 `antigravity`로 설정한다 (별도 API 키 불필요).
+
+```dotenv
+CLAIRE_PROVIDER=antigravity
+CLAIRE_AGY_BIN=agy
+CLAIRE_AGY_MODEL=gemini-3.6-flash-high
+CLAIRE_AGY_EFFORT=medium
+```
+
+직접 Gemini API를 사용하려면 `CLAIRE_PROVIDER`를 `gemini`로 변경하고 `GEMINI_API_KEY`를 설정한다.
 
 ```dotenv
 CLAIRE_PROVIDER=gemini
@@ -430,7 +439,7 @@ src/claire/
   notify.py        텔레그램 소유자 경보
   ingest/          fetcher 라우터 + normalize + dedup + IngestService(공유 통로) + 자동복구
   ontology/        타입 온톨로지(코드 인터페이스) + registry(domain/range)
-  extract/         Gemini structured 추출 + provider 어댑터(mock/gemini) + resolver(약어 동의어 수렴) + circuit breaker
+  extract/         structured 추출 + provider 어댑터(mock/gemini/antigravity) + resolver(약어 동의어 수렴) + circuit breaker
   store/           SQLite(graph+FTS+vec) + 마이그레이션 + vault(.md) export
   expand/          1홉 자동 확장
   retrieval/       하이브리드 검색 + LLM 정리

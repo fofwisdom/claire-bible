@@ -15,6 +15,8 @@ x-claire-service: &claire-service
   volumes:
     - "${CB_DATA_DIR:-./data}:/app/data"
     - "${CB_VAULT_DIR:-./vault}:/app/vault"
+    - "${CB_GEMINI_DIR:-~/.gemini}:/root/.gemini:ro"
+    - "${CB_BIN_DIR:-~/.local/bin}:/host-bin:ro"
     - /etc/localtime:/etc/localtime:ro
 
 services:

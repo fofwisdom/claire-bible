@@ -20,7 +20,8 @@ RUN uv sync --no-dev --extra stealth
 
 # Runtime processes use the environment built above directly.  uv remains a
 # build/development tool rather than an extra process wrapper for every service.
-ENV PATH="/app/.venv/bin:$PATH"
+# /host-bin allows optional host CLI tools (like Antigravity agy) to be invoked seamlessly.
+ENV PATH="/host-bin:/app/.venv/bin:$PATH"
 
 # 데이터/볼트는 볼륨 마운트(이미지 미포함). 기본 명령은 compose 에서 override.
 CMD ["claire", "bot"]

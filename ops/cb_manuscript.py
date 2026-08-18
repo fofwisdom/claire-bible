@@ -279,6 +279,10 @@ class Runtime:
             tz_value = _detect_system_timezone()
         if tz_value:
             env["TZ"] = tz_value
+
+        home = Path.home()
+        env.setdefault("CB_GEMINI_DIR", str(home / ".gemini"))
+        env.setdefault("CB_BIN_DIR", str(home / ".local" / "bin"))
         return env
 
 
@@ -1113,6 +1117,8 @@ def command_init(layout: Layout) -> int:
     changes = sync_environment_files(layout)
     layout.data.mkdir(parents=True, exist_ok=True)
     layout.vault.mkdir(parents=True, exist_ok=True)
+    (Path.home() / ".gemini").mkdir(parents=True, exist_ok=True)
+    (Path.home() / ".local" / "bin").mkdir(parents=True, exist_ok=True)
 
     detected_tz = _detect_system_timezone()
     print(f".env: {'created' if created_env else 'kept'}")

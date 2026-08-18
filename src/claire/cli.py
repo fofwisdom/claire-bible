@@ -42,7 +42,20 @@ def cmd_doctor(_args) -> int:  # noqa: ANN001
     print(f"sqlite-vec probe  : {'OK' if ok else 'fallback->brute'} ({detail})")
 
     # provider 실호출 점검 (생성 + 임베딩이 조용히 실패하지 않는지)
-    if s.effective_provider == "gemini":
+    if s.effective_provider == "antigravity":
+        from .extract.provider import get_provider
+        import shutil
+
+        bin_path = shutil.which(s.agy_bin)
+        print(f"agy binary        : {bin_path or 'NOT found'}")
+        print(f"agy model         : {s.agy_model} (effort={s.agy_effort})")
+        try:
+            prov = get_provider(s)
+            v = prov.embed("claire embedding probe")
+            print(f"agy embed         : OK (dim={len(v)})")
+        except Exception as e:  # noqa: BLE001
+            print(f"agy embed         : FAIL ({type(e).__name__}: {str(e)[:120]})")
+    elif s.effective_provider == "gemini":
         from .extract.provider import get_provider
 
         try:
