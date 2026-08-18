@@ -12,6 +12,7 @@ import json
 import logging
 import re
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Any
 
 from starlette.applications import Starlette
@@ -33,6 +34,7 @@ from ..config import Settings, get_settings
 from ..ingest.report_json import report_to_dict
 from ..ingest.service import IngestService
 from ..store import db as dbm
+from .mcp_tools import build_mcp_app
 from .security import (
     ErrorBoundaryMiddleware,
     WebRuntimeConfig,
@@ -460,9 +462,13 @@ def create_app(
 
         async def stream() -> AsyncIterator[bytes]:
             try:
-                while not (task.done() and events.empty()):
+                while True:
+                    if task.done() and events.empty():
+                        await asyncio.sleep(0.01)
+                        if events.empty():
+                            break
                     try:
-                        event = await asyncio.wait_for(events.get(), timeout=0.5)
+                        event = await asyncio.wait_for(events.get(), timeout=0.1)
                     except asyncio.TimeoutError:
                         continue
                     yield (json.dumps(event, ensure_ascii=False) + "\n").encode()
@@ -533,9 +539,13 @@ def create_app(
 
         async def stream() -> AsyncIterator[bytes]:
             try:
-                while not (task.done() and events.empty()):
+                while True:
+                    if task.done() and events.empty():
+                        await asyncio.sleep(0.01)
+                        if events.empty():
+                            break
                     try:
-                        event = await asyncio.wait_for(events.get(), timeout=0.5)
+                        event = await asyncio.wait_for(events.get(), timeout=0.1)
                     except asyncio.TimeoutError:
                         continue
                     yield (json.dumps(event, ensure_ascii=False) + "\n").encode()
@@ -634,6 +644,36 @@ def create_app(
             return PlainTextResponse("Not Found", status_code=404)
         return HTMLResponse(shared_html(document))
 
+    mcp_app = build_mcp_app(s)
+
+    async def mcp_route(request: Request) -> Response:
+        response_meta: dict = {}
+        chunks: list[bytes] = []
+
+        async def send(message: dict) -> None:
+            if message["type"] == "http.response.start":
+                response_meta["status"] = message["status"]
+                response_meta["headers"] = message.get("headers", [])
+            elif message["type"] == "http.response.body":
+                chunks.append(message.get("body", b""))
+
+        await mcp_app(request.scope, request.receive, send)
+        resp = Response(
+            content=b"".join(chunks),
+            status_code=response_meta.get("status", 500),
+        )
+        for k, v in response_meta.get("headers", []):
+            name = k.decode("latin-1")
+            if name.lower() == "content-length":
+                continue
+            resp.headers[name] = v.decode("latin-1")
+        return resp
+
+    @asynccontextmanager
+    async def app_lifespan(_app: Starlette):
+        async with mcp_app.router.lifespan_context(mcp_app):
+            yield
+
     routes = [
         Route("/health", health, methods=["GET"]),
         Route("/whoami", whoami, methods=["GET"]),
@@ -656,6 +696,7 @@ def create_app(
         Route("/dedup/merge", dedup_merge_route, methods=["POST"]),
         Route("/share", create_share_route, methods=["POST"]),
         Route("/p", shared_doc_page, methods=["GET"]),
+        Route("/mcp", mcp_route, methods=["GET", "POST"]),
     ]
     app = Starlette(
         debug=False,
@@ -663,6 +704,7 @@ def create_app(
         # Starlette의 ServerErrorMiddleware 안쪽에서 endpoint 예외를 먼저 정제한다.
         middleware=[Middleware(ErrorBoundaryMiddleware)],
         exception_handlers={HTTPException: _http_error},
+        lifespan=app_lifespan,
     )
     return wrap_web_app(app, s)
 

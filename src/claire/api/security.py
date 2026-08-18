@@ -106,6 +106,9 @@ ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     ("GET", "/document"): _rule("read"),
     ("HEAD", "/document"): _rule("read"),
     ("POST", "/search"): _rule("read"),
+    ("POST", "/mcp"): _rule("read"),
+    ("GET", "/mcp"): _rule("read"),
+    ("HEAD", "/mcp"): _rule("read"),
     ("POST", "/ingest"): _rule("owner"),
     ("POST", "/ingest-stream"): _rule("owner"),
     ("POST", "/document/seen"): _rule("owner"),
@@ -815,10 +818,7 @@ class AuthenticationMiddleware:
             return
 
         origin_kind = state.get(_ORIGIN_KIND_KEY, "none")
-        legacy_credential_present = bool(
-            _raw_headers(scope, b"x-session") or _raw_headers(scope, b"x-token")
-        )
-        if legacy_credential_present:
+        if _raw_headers(scope, b"x-token"):
             status = 403 if origin_kind == "cross" else 404
             await _send_response(
                 PlainTextResponse(
@@ -830,14 +830,53 @@ class AuthenticationMiddleware:
                 send,
             )
             return
+
+        x_session_headers = _raw_headers(scope, b"x-session")
+        if len(x_session_headers) > 1:
+            status = 403 if origin_kind == "cross" else 404
+            await _send_response(
+                PlainTextResponse(
+                    "Forbidden" if status == 403 else "Not Found",
+                    status_code=status,
+                ),
+                scope,
+                receive,
+                send,
+            )
+            return
+        x_session_token = (
+            x_session_headers[0].decode("latin-1").strip()
+            if x_session_headers
+            else None
+        )
+
+        authorization_present, bearer = _parse_bearer(scope)
+        cookie_present, cookie_token = _session_cookie(scope)
+        x_session_present = bool(x_session_token)
+
+        credentials_count = (
+            int(authorization_present)
+            + int(cookie_present)
+            + int(x_session_present)
+        )
+        if credentials_count > 1:
+            status = 403 if origin_kind == "cross" else 404
+            await _send_response(
+                PlainTextResponse(
+                    "Forbidden" if status == 403 else "Not Found", status_code=status
+                ),
+                scope,
+                receive,
+                send,
+            )
+            return
+
         if origin_kind == "cross" and _raw_headers(scope, b"cookie"):
             await _send_response(
                 PlainTextResponse("Forbidden", status_code=403), scope, receive, send
             )
             return
 
-        authorization_present, bearer = _parse_bearer(scope)
-        cookie_present, cookie_token = _session_cookie(scope)
         if cookie_present and cookie_token is None:
             status = 403 if origin_kind == "cross" else 404
             await _send_response(
@@ -860,25 +899,20 @@ class AuthenticationMiddleware:
                 send,
             )
             return
-        if authorization_present and cookie_present:
-            status = 403 if origin_kind == "cross" else 404
-            await _send_response(
-                PlainTextResponse(
-                    "Forbidden" if status == 403 else "Not Found", status_code=status
-                ),
-                scope,
-                receive,
-                send,
-            )
-            return
 
-        credential_present = authorization_present or cookie_present
+        credential_present = (
+            authorization_present or cookie_present or x_session_present
+        )
         auth_scope: AuthScope | None = None
         auth_channel: str | None = None
-        if bearer is not None and _constant_equal(bearer, self.config.owner_token):
-            auth_scope, auth_channel = "owner", "bearer"
-        elif bearer is not None and _constant_equal(bearer, self.config.readonly_token):
-            auth_scope, auth_channel = "readonly", "bearer"
+        if bearer is not None:
+            if _constant_equal(bearer, self.config.owner_token):
+                auth_scope, auth_channel = "owner", "bearer"
+            elif _constant_equal(bearer, self.config.readonly_token):
+                auth_scope, auth_channel = "readonly", "bearer"
+            elif origin_kind != "cross":
+                auth_scope = await _validate_session(self.config, bearer)
+                auth_channel = "bearer" if auth_scope is not None else None
 
         if origin_kind == "cross" and auth_channel != "bearer":
             await _send_response(
@@ -890,6 +924,9 @@ class AuthenticationMiddleware:
             if cookie_token:
                 auth_scope = await _validate_session(self.config, cookie_token)
                 auth_channel = "cookie" if auth_scope is not None else None
+            elif x_session_token:
+                auth_scope = await _validate_session(self.config, x_session_token)
+                auth_channel = "x-session" if auth_scope is not None else None
 
         if (
             auth_channel == "cookie"
@@ -906,12 +943,15 @@ class AuthenticationMiddleware:
             and not credential_present
             and self.config.anonymous_readonly
             and rule.access == "read"
+            and path != "/mcp"
             and origin_kind in {"none", "same"}
         ):
             auth_scope, auth_channel = "anonymous", "anonymous"
 
         allowed = auth_scope == "owner" or (
-            auth_scope in {"anonymous", "readonly"} and rule.access == "read"
+            auth_scope in {"anonymous", "readonly"}
+            and rule.access == "read"
+            and (path != "/mcp" or auth_scope != "anonymous")
         )
         if not allowed:
             await _send_response(

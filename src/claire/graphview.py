@@ -79,6 +79,8 @@ def node_detail(conn: sqlite3.Connection, entity_id: str) -> dict | None:
                 "summary": dbm.latest_extraction_summary(conn, did) or "",
                 # 한국어 가독 렌더링(여러 단락) — 패널에서 '자세히 읽기'로 펼친다.
                 "detail": dbm.get_document_detail(conn, did) or "",
+                # 원시 epoch(초) — MCP 등 API 소비자용.
+                "fetched_at": row["fetched_at"],
             })
 
     return {
@@ -109,6 +111,8 @@ def document_detail(conn: sqlite3.Connection, document_id: str) -> dict | None:
         # [1홉 병합, ONEHOP_MERGE_DESIGN.md] 이 문서에 흡수된 부가 출처(예: GeekNews 글에
         # 병합된 그 프로젝트의 github). 원문 링크 계보를 UI 에서 추적 가능하게.
         "extra_sources": dbm.get_document_extra_sources(conn, document_id),
+        # 원시 epoch(초) — MCP 등 API 소비자용(웹 UI는 이 필드 안 씀).
+        "fetched_at": row["fetched_at"],
     }
 
 
@@ -140,10 +144,13 @@ def dedup_clusters(conn: sqlite3.Connection, scan: dict) -> dict:
     return {"documents": scan.get("documents", 0), "clusters": out_clusters}
 
 
-def documents_list(conn: sqlite3.Connection, limit: int = 300) -> list[dict]:
+def documents_list(
+    conn: sqlite3.Connection, limit: int = 300, *,
+    since: float | None = None, query: str | None = None,
+) -> list[dict]:
     """좌측 문서 패널용 — 최신순 문서(제목·요약·출처타입·시각)."""
     out = []
-    for r in dbm.documents_timeline(conn, limit):
+    for r in dbm.documents_timeline(conn, limit, since=since, query=query):
         out.append({
             "id": r["id"],
             "title": r["title"] or "(제목 없음)",
@@ -159,10 +166,14 @@ def documents_list(conn: sqlite3.Connection, limit: int = 300) -> list[dict]:
     return out
 
 
-def synthesis_context(conn: sqlite3.Connection, entity_ids: list[str]) -> tuple[str, list[str]]:
+def synthesis_context(
+    conn: sqlite3.Connection, entity_ids: list[str], compact: bool = False,
+) -> tuple[str, list[str]]:
     """선택 노드들의 지식(관찰·연결·출처요약)을 LLM 종합용 컨텍스트 텍스트로 조립.
 
-    결정론적(LLM 없음) — 이 텍스트가 summarize_search 의 근거가 된다. (context, names)."""
+    결정론적(LLM 없음) — 이 텍스트가 summarize_search 의 근거가 된다. (context, names).
+    compact=True (MCP 용): 관찰은 앞 3개로 자르고 출처요약은 생략해 에이전트의
+    컨텍스트 윈도우를 아낀다(docs/design/MCP_SUPPORT.md 참고)."""
     blocks: list[str] = []
     names: list[str] = []
     for eid in entity_ids:
@@ -174,7 +185,8 @@ def synthesis_context(conn: sqlite3.Connection, entity_ids: list[str]) -> tuple[
         if ent.aliases:
             parts.append("별칭: " + ", ".join(ent.aliases))
         if ent.observations:
-            parts.append("관찰: " + " ".join(ent.observations))
+            obs = ent.observations[:3] if compact else ent.observations
+            parts.append("관찰: " + " ".join(obs))
         rels = []
         for r in dbm.neighbors(conn, eid):
             out = r.source_id == eid
@@ -183,10 +195,11 @@ def synthesis_context(conn: sqlite3.Connection, entity_ids: list[str]) -> tuple[
                 rels.append(f"{r.type} {'→' if out else '←'} {other.name}")
         if rels:
             parts.append("연결: " + ", ".join(rels[:12]))
-        for did in ent.sources:
-            summ = dbm.latest_extraction_summary(conn, did)
-            if summ:
-                parts.append(f"출처요약: {summ}")
+        if not compact:
+            for did in ent.sources:
+                summ = dbm.latest_extraction_summary(conn, did)
+                if summ:
+                    parts.append(f"출처요약: {summ}")
         blocks.append("\n".join(parts))
     return "\n\n".join(blocks), names
 

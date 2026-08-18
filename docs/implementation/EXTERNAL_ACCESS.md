@@ -177,17 +177,74 @@ server {
 같은 proxy의 unmatched/default server는 연결을 거부해야 한다. `$request_uri`는 query를
 포함하므로 위 안전 로그에서는 사용하지 않는다.
 
-## 적용 확인
-
-development에서는 설정한 IPv4 URL로 직접 접속하고 다른 interface에 port가 게시되지
-않았는지 확인한다. production에서는 다음을 각각 확인한다.
-
-1. 올바른 hostname을 통한 HTTPS 요청은 성공한다.
-2. 잘못된 Host는 proxy 또는 Claire에서 거부된다.
-3. proxy host에서는 Claire HTTP upstream에 접속할 수 있다.
-4. proxy 이외의 LAN host에서는 firewall 때문에 같은 upstream port에 접속할 수 없다.
-5. 긴 NDJSON 응답이 proxy buffering 없이 순차 전달된다.
-6. Claire와 proxy access log에 query string과 인증 정보가 남지 않는다.
-
-실제 Linux 실행 시험은 저장소 작업 경로가 아니라 WSL Ubuntu의 `/home/fow/testbed`
-아래에 새로 만든 clone에서 수행한다.
+## MCP (Model Context Protocol) 연동
+ 
+ 외부 LLM 클라이언트(Claude Desktop, Cursor 등)에서 지식베이스를 조회할 수 있도록 `/mcp` HTTP 엔드포인트를 제공한다.
+ 
+ - **엔드포인트**: `POST /mcp` (Streamable / Stateless HTTP JSON-RPC)
+ - **인증**:
+   - `X-Session: <session_token>` 또는 `Authorization: Bearer <session_token>`
+   - `Authorization: Bearer <CLAIRE_INJECT_TOKEN>` (owner) 또는 `Authorization: Bearer <CLAIRE_READONLY_TOKEN>` (readonly)
+   - 세션 토큰은 텔레그램 `/webro` (읽기전용) 또는 `/web` (owner) 명령으로 발급 가능
+   - 미인증 또는 무효 토큰 요청 시 존재 은폐를 위해 `404 Not Found` 반환
+ - **제공 툴셋 (10종 읽기 전용)**: `resolve_entity`, `search`, `neighbors`, `path`, `context`, `overview`, `node`, `documents`, `document`, `stats`
+ 
+ ### Claude Desktop 설정 (`claude_desktop_config.json`)
+ 
+ ```json
+ {
+   "mcpServers": {
+     "claire": {
+       "url": "https://claire.example.com/mcp",
+       "headers": {
+         "Authorization": "Bearer <CLAIRE_READONLY_TOKEN_OR_SESSION_TOKEN>"
+       }
+     }
+   }
+ }
+ ```
+ 
+ ### Cursor 설정 (`.cursor/mcp.json`)
+ 
+ ```json
+ {
+   "mcpServers": {
+     "claire": {
+       "url": "https://claire.example.com/mcp",
+       "headers": {
+         "X-Session": "<SESSION_TOKEN>"
+       }
+     }
+   }
+ }
+ ```
+ 
+ ### Google Antigravity 설정 (`~/.gemini/config/mcp_config.json` 또는 `.agents/mcp_config.json`)
+ 
+ ```json
+ {
+   "mcpServers": {
+     "claire-bible": {
+       "serverUrl": "https://claire.example.com/mcp",
+       "headers": {
+         "Authorization": "Bearer <CLAIRE_READONLY_TOKEN_OR_SESSION_TOKEN>"
+       }
+     }
+   }
+ }
+ ```
+ 
+ 자세한 아키텍처 및 툴 상세 명세는 [docs/design/MCP_SUPPORT.md](../design/MCP_SUPPORT.md)를 참고한다.
+ 
+ ## 적용 확인
+ 
+ development에서는 설정한 IPv4 URL로 직접 접속하고 다른 interface에 port가 게시되지
+ 않았는지 확인한다. production에서는 다음을 각각 확인한다.
+ 
+ 1. 올바른 hostname을 통한 HTTPS 요청은 성공한다.
+ 2. 잘못된 Host는 proxy 또는 Claire에서 거부된다.
+ 3. proxy host에서는 Claire HTTP upstream에 접속할 수 있다.
+ 4. proxy 이외의 LAN host에서는 firewall 때문에 같은 upstream port에 접속할 수 없다.
+ 5. 긴 NDJSON 응답이 proxy buffering 없이 순차 전달된다.
+ 6. Claire와 proxy access log에 query string과 인증 정보가 남지 않는다.
+ 

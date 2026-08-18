@@ -535,13 +535,47 @@ def find_document_by_canonical_url(
     return row["id"] if row else None
 
 
-def documents_timeline(conn: sqlite3.Connection, limit: int = 300) -> list[sqlite3.Row]:
-    """문서를 최신 적재순으로(좌측 문서 패널용). summary 는 호출측에서 붙인다."""
+def _documents_filter(
+    since: float | None, query: str | None,
+) -> tuple[str, list]:
+    """documents_timeline/documents_count 공용 WHERE 절 빌더."""
+    where, params = [], []
+    if since is not None:
+        where.append("fetched_at >= ?")
+        params.append(since)
+    if query:
+        where.append("(title LIKE ? OR url LIKE ?)")
+        like = f"%{query}%"
+        params.extend([like, like])
+    where_sql = f"WHERE {' AND '.join(where)}" if where else ""
+    return where_sql, params
+
+
+def documents_timeline(
+    conn: sqlite3.Connection, limit: int = 300, *,
+    since: float | None = None, query: str | None = None,
+) -> list[sqlite3.Row]:
+    """문서를 최신 적재순으로(좌측 문서 패널용). summary 는 호출측에서 붙인다.
+
+    since/query 는 MCP `documents` 툴이 "전체를 다 훑지 않고 좁혀서 찾을" 수
+    있게 추가된 선택적 필터(기본 None, 기존 웹 UI 호출은 동작 그대로)."""
+    where_sql, params = _documents_filter(since, query)
+    params.append(limit)
     return conn.execute(
-        "SELECT id, title, url, source_type, fetched_at, seen, watch_enabled, "
-        "pinned, hidden FROM documents "
-        "ORDER BY fetched_at DESC, id DESC LIMIT ?", (limit,)
+        f"SELECT id, title, url, source_type, fetched_at, seen, watch_enabled, "
+        f"pinned, hidden FROM documents {where_sql} "
+        f"ORDER BY fetched_at DESC, id DESC LIMIT ?", params
     ).fetchall()
+
+
+def documents_count(
+    conn: sqlite3.Connection, *, since: float | None = None, query: str | None = None,
+) -> int:
+    """documents_timeline과 동일한 필터의 총 개수(잘림 여부 판단용)."""
+    where_sql, params = _documents_filter(since, query)
+    return conn.execute(
+        f"SELECT COUNT(*) c FROM documents {where_sql}", params
+    ).fetchone()["c"]
 
 
 def set_document_pinned(conn: sqlite3.Connection, document_id: str, pinned: bool) -> bool:

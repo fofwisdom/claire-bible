@@ -236,8 +236,8 @@ def test_runtime_config_rejects_unsafe_values(tmp_path, change, match):
 
 def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
     public_get = {"/health", "/p", "/image"}
-    read_get = {"/", "/whoami", "/stats", "/graph", "/node", "/documents", "/document"}
-    read_post = {"/search"}
+    read_get = {"/", "/whoami", "/stats", "/graph", "/node", "/documents", "/document", "/mcp"}
+    read_post = {"/search", "/mcp"}
     owner_post = {
         "/ingest",
         "/ingest-stream",
@@ -268,7 +268,7 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
     assert {
         key: rule.access for key, rule in security.ROUTE_POLICY.items()
     } == expected
-    assert len(security.ROUTE_POLICY) == 31
+    assert len(security.ROUTE_POLICY) == 34
 
 
 @pytest.mark.asyncio
