@@ -1249,3 +1249,40 @@ def test_up_without_arguments_is_detached_waiting_and_locked(tmp_path):
         "45",
     ]
     assert (tmp_path / ".cb-manuscript" / "claire-bible.lock").is_file()
+
+
+@pytest.mark.parametrize("flag", ("--help", "-h"))
+@pytest.mark.parametrize(
+    "command, expected_keywords",
+    (
+        ("logs", ("api", "bot", "--tail", "-f", "--follow")),
+        ("status", ("docker compose ps", "-a", "--all", "--format")),
+        ("up", ("-d", "--detach", "--build", "api")),
+        ("down", ("--profile * down", "-v", "--volumes", "--remove-orphans")),
+        ("restart", ("restart", "api", "bot")),
+        ("shell", ("exec", "api", "bash")),
+        ("compose", ("Docker Compose", "escape hatch")),
+    ),
+)
+def test_passthrough_help_flags_intercept_and_show_guide(
+    tmp_path, capsys, command, flag, expected_keywords
+):
+    with patch.object(cb.subprocess, "run") as run:
+        assert cb.main([command, flag], root=tmp_path) == 0
+
+    run.assert_not_called()
+    output = capsys.readouterr().out
+    for keyword in expected_keywords:
+        assert keyword in output
+
+
+def test_all_subparsers_have_rich_descriptions():
+    parser = cb.build_parser()
+    subparsers_action = next(
+        action
+        for action in parser._actions
+        if isinstance(action, cb.argparse._SubParsersAction)
+    )
+    for name, subparser in subparsers_action.choices.items():
+        assert subparser.description, f"{name} subparser is missing a description"
+

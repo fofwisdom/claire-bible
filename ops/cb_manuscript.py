@@ -2730,63 +2730,396 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="cb-manuscript",
         description=(
-            f"Claire 컨테이너 관리. 환경은 {ENVIRONMENT_KEY}의 "
-            f"{DEVELOPMENT}/{PRODUCTION}으로 선택하며 `dev`는 개발 호환 별칭입니다."
+            f"Claire 컨테이너 관리 도구.\n"
+            f"환경은 {ENVIRONMENT_KEY}의 {DEVELOPMENT}/{PRODUCTION}으로 선택하며 `dev`는 개발 호환 별칭입니다."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "예시:\n"
+            "  ./cb-manuscript init            # 설정 및 디렉터리 초기화\n"
+            "  ./cb-manuscript doctor          # 설정 및 환경 사전 점검\n"
+            "  ./cb-manuscript install         # 빌드, 마이그레이션, 기동 및 헬스체크\n"
+            "  ./cb-manuscript update          # 소스 갱신 후 재빌드 및 재기동\n"
+            "  ./cb-manuscript status          # 서비스 컨테이너 상태 확인\n"
+            "  ./cb-manuscript logs -f api     # api 서비스 실시간 로그 확인\n"
+            "  ./cb-manuscript shell           # api 컨테이너 대화형 셸 접속\n"
+            "  ./cb-manuscript health          # API liveness 확인\n"
+            "  ./cb-manuscript app health      # 전체 애플리케이션 상태 진단\n"
+            "  ./cb-manuscript dev <command>   # 개발 환경(development)으로 실행"
         ),
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
-    subparsers.add_parser("init", help=".env/.env.dev와 data/vault를 준비")
-    subparsers.add_parser("doctor", help="설정과 Docker Compose를 점검")
-    subparsers.add_parser("install", help="이미지 build, migrate, 기동, health 확인")
-    update = subparsers.add_parser("update", help="ff-only 갱신 후 안전한 순서로 재기동")
-    update.add_argument("--no-fetch", action="store_true", help="git pull을 생략")
+
+    # 1. init
+    subparsers.add_parser(
+        "init",
+        help=".env/.env.dev와 data/vault를 준비",
+        description=(
+            ".env, .env.dev 환경 파일 템플릿을 생성하고 data/ 및 vault/ 디렉터리를 초기화합니다.\n\n"
+            "작업 내용:\n"
+            "  - .env.example, .env.dev.example에서 설정 파일 복사 (기존 파일 보존)\n"
+            "  - CLAIRE_INJECT_TOKEN, CLAIRE_READONLY_TOKEN 토큰 자동 생성\n"
+            "  - data/, vault/ 디렉터리 생성 및 보안 권한(0700) 설정"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "예시:\n"
+            "  ./cb-manuscript init          # 프로덕션 환경 설정 초기화\n"
+            "  ./cb-manuscript dev init      # 개발 환경 설정 초기화"
+        ),
+    )
+
+    # 2. doctor
+    subparsers.add_parser(
+        "doctor",
+        help="설정과 Docker Compose를 점검",
+        description=(
+            "배포 환경 설정, Docker Compose 유효성, 네트워크 및 보안 제약을 사전 점검합니다.\n\n"
+            "점검 항목:\n"
+            "  - 환경 파일(.env / .env.dev) 존재 및 구문 유효성\n"
+            "  - CB_API_BIND(IPv4), CB_API_PORT, CLAIRE_PUBLIC_URL 정합성\n"
+            "  - 보안 토큰 및 익명 읽기 전용(CLAIRE_ANONYMOUS_READONLY) 설정\n"
+            "  - docker compose config 구문 및 레거시 컨테이너 충돌\n"
+            "  - data/, vault/ 디렉터리 권한(0700)"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "예시:\n"
+            "  ./cb-manuscript doctor        # 프로덕션 설정 점검\n"
+            "  ./cb-manuscript dev doctor    # 개발 설정 점검"
+        ),
+    )
+
+    # 3. install
+    subparsers.add_parser(
+        "install",
+        help="이미지 build, migrate, 기동, health 확인",
+        description=(
+            "초기 설치 및 서비스 구동 파이프라인을 실행합니다.\n\n"
+            "실행 단계:\n"
+            "  1. 사전 점검 (doctor)\n"
+            "  2. Docker 이미지 빌드 (docker compose build)\n"
+            "  3. 데이터베이스 마이그레이션 (claire migrate)\n"
+            "  4. Compose 서비스 스택 기동 (up -d --wait)\n"
+            "  5. API 헬스체크 (health)"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "예시:\n"
+            "  ./cb-manuscript install       # 프로덕션 초기 설치 및 기동\n"
+            "  ./cb-manuscript dev install   # 개발 환경 초기 설치 및 기동"
+        ),
+    )
+
+    # 4. update
+    update = subparsers.add_parser(
+        "update",
+        help="ff-only 갱신 후 안전한 순서로 재기동",
+        description=(
+            "Git 소스를 fast-forward 갱신하고 서비스를 안전한 순서로 재빌드·재기동합니다.\n\n"
+            "실행 단계:\n"
+            "  1. Git working tree 점검 및 fast-forward pull (--no-fetch 지정 시 생략)\n"
+            "  2. Docker 이미지 재빌드\n"
+            "  3. 서비스 안전 중지 및 DB 마이그레이션\n"
+            "  4. Compose 서비스 재기동 (up -d --wait)\n"
+            "  5. API 헬스체크"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "예시:\n"
+            "  ./cb-manuscript update             # git pull 후 재빌드 및 재기동\n"
+            "  ./cb-manuscript update --no-fetch  # 소스 fetch 없이 현재 코드로 재배치"
+        ),
+    )
+    update.add_argument(
+        "--no-fetch",
+        action="store_true",
+        help="git pull(fetch)을 생략하고 로컬 소스로 재배치",
+    )
+
+    # 5. backup
     backup = subparsers.add_parser(
         "backup",
         help="data/vault를 검증 가능한 폴더 또는 archive로 백업",
+        description=(
+            "data 디렉터리(DB 등)와 vault 디렉터리(암호화 데이터 등)를 백업합니다.\n"
+            "백업 데이터의 체크섬과 메타데이터(manifest.json)를 자동 생성하여 무결성을 검증합니다."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "예시:\n"
+            "  ./cb-manuscript backup                               # 디렉터리 형태 기본 백업 (backups/cb-YYYYMMDD/)\n"
+            "  ./cb-manuscript backup --format archive              # 압축 아카이브 백업 (.tar.gz)\n"
+            "  ./cb-manuscript backup --component data              # data 구성요소만 백업\n"
+            "  ./cb-manuscript backup --replace                     # 같은 날짜의 기존 백업 교체"
+        ),
     )
     backup.add_argument(
         "--format",
         choices=("directory", "archive"),
         default="directory",
-        help="directory=backups/cb-YYYYMMDD/, archive=.tar.gz",
+        help="백업 형식: directory=backups/cb-YYYYMMDD/, archive=.tar.gz (기본값: directory)",
     )
     backup.add_argument(
         "--component",
         choices=BACKUP_COMPONENTS,
         action="append",
-        help="백업할 구성요소(반복 가능, 기본 data+vault)",
+        help="백업할 구성요소 (data, vault 중 선택, 반복 지정 가능, 기본값: data+vault 전체)",
     )
     backup.add_argument(
         "--replace",
         action="store_true",
-        help="같은 날짜의 기존 파일/폴더를 검증된 새 backup으로 교체",
+        help="같은 날짜의 기존 파일/폴더가 있으면 검증된 새 backup으로 교체",
     )
+
+    # 6. restore
     restore = subparsers.add_parser(
         "restore",
         help="backup 폴더 또는 archive를 검증한 뒤 복원",
+        description=(
+            "생성된 백업 폴더 또는 아카이브(.tar.gz)의 무결성을 검증한 뒤 데이터를 복원합니다.\n"
+            "안전을 위해 서비스가 중지된 상태에서 복원하는 것을 권장합니다."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "예시:\n"
+            "  ./cb-manuscript restore backups/cb-20260818 --yes\n"
+            "  ./cb-manuscript restore backups/cb-20260818.tar.gz --component data --yes"
+        ),
     )
-    restore.add_argument("source", help="backup 폴더 또는 archive 경로")
+    restore.add_argument("source", help="복원할 backup 폴더 또는 .tar.gz archive 경로")
     restore.add_argument(
         "--component",
         choices=BACKUP_COMPONENTS,
         action="append",
-        help="복원할 구성요소(반복 가능, 기본 backup 전체)",
+        help="복원할 구성요소 (data, vault 중 선택, 반복 지정 가능, 기본값: backup 전체)",
     )
     restore.add_argument(
         "--yes",
         action="store_true",
-        help="현재 선택 구성요소 교체를 명시적으로 승인",
+        help="현재 선택 구성요소 교체를 확인 프롬프트 없이 명시적으로 승인",
     )
-    subparsers.add_parser("health", help="실행 중인 API의 liveness 확인")
-    subparsers.add_parser("version", help="wrapper와 source 버전 표시")
 
-    for name in sorted(PASSTHROUGH_COMMANDS):
-        subparsers.add_parser(name, help=PASSTHROUGH_HELP[name])
+    # 7. health
+    subparsers.add_parser(
+        "health",
+        help="실행 중인 API의 liveness 확인",
+        description=(
+            "실행 중인 API 컨테이너의 HTTP liveness 엔드포인트(GET /health)를 호출하여 응답을 점검합니다.\n\n"
+            "참고: 애플리케이션 상세 상태(degraded, DB 통계 등) 진단은 './cb-manuscript app health'를 사용하세요."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "예시:\n"
+            "  ./cb-manuscript health        # 프로덕션 API liveness 확인\n"
+            "  ./cb-manuscript dev health    # 개발 API liveness 확인"
+        ),
+    )
 
-    remote = subparsers.add_parser("remote", help="deploy.sh 원격 연결")
+    # 8. version
+    subparsers.add_parser(
+        "version",
+        help="wrapper와 source 버전 표시",
+        description="cb-manuscript 래퍼 스크립트 버전 및 패키징된 claire 패키지 버전을 표시합니다.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+
+    # 9. up
+    subparsers.add_parser(
+        "up",
+        help=PASSTHROUGH_HELP["up"],
+        description=(
+            "Docker Compose 서비스를 기동합니다.\n"
+            "인수 없이 실행 시 백그라운드 안전 기동(-d --wait --wait-timeout <timeout>)으로 동작합니다.\n"
+            "추가 인수를 전달하면 해당 인수로 docker compose up을 실행합니다."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "주요 Compose 옵션 및 인수:\n"
+            "  -d, --detach          백그라운드에서 컨테이너 실행\n"
+            "  --build               컨테이너 시작 전 이미지 빌드\n"
+            "  --no-deps             의존성 서비스는 시작하지 않음\n"
+            "  [service ...]         기동할 특정 서비스 이름 (예: api, bot)\n\n"
+            "예시:\n"
+            "  ./cb-manuscript up                    # 기본 안전 기동 (-d --wait)\n"
+            "  ./cb-manuscript up --build            # 이미지 재빌드 후 기동\n"
+            "  ./cb-manuscript up -d api             # api 서비스만 백그라운드 기동"
+        ),
+    )
+
+    # 10. down
+    subparsers.add_parser(
+        "down",
+        help=PASSTHROUGH_HELP["down"],
+        description=(
+            "실행 중인 Docker Compose 서비스를 중지하고 컨테이너를 제거합니다.\n"
+            "모든 프로필(bot 포함)을 대상으로 docker compose --profile * down을 실행합니다."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "주요 Compose 옵션:\n"
+            "  -v, --volumes         네임드 볼륨 제거 (주의: 영속 데이터가 삭제될 수 있음)\n"
+            "  --remove-orphans      Compose 파일에 정의되지 않은 고아 컨테이너 제거\n"
+            "  -t, --timeout sec     종료 대기 제한시간(초)\n\n"
+            "예시:\n"
+            "  ./cb-manuscript down                  # 모든 서비스 안전 중지 및 제거\n"
+            "  ./cb-manuscript down --remove-orphans # 고아 컨테이너 포함 제거"
+        ),
+    )
+
+    # 11. restart
+    subparsers.add_parser(
+        "restart",
+        help=PASSTHROUGH_HELP["restart"],
+        description="실행 중인 Docker Compose 서비스를 재시작합니다 (docker compose restart).",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "인수:\n"
+            "  [service ...]         재시작할 서비스 이름 (지정하지 않으면 전체 서비스 재시작)\n\n"
+            "예시:\n"
+            "  ./cb-manuscript restart               # 전체 서비스 재시작\n"
+            "  ./cb-manuscript restart api           # api 서비스만 재시작\n"
+            "  ./cb-manuscript restart bot           # bot 서비스만 재시작"
+        ),
+    )
+
+    # 12. status
+    subparsers.add_parser(
+        "status",
+        help=PASSTHROUGH_HELP["status"],
+        description="Docker Compose 컨테이너들의 실행 상태를 표시합니다 (docker compose ps).",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "주요 Compose 옵션:\n"
+            "  -a, --all             정지된 컨테이너를 포함한 모든 컨테이너 표시\n"
+            "  --format format       출력 형식 (table, json 등)\n"
+            "  --status status       상태 필터 (running, exited, paused 등)\n"
+            "  [service ...]         조회할 특정 서비스 이름 (예: api, bot)\n\n"
+            "예시:\n"
+            "  ./cb-manuscript status                # 현재 실행 중인 서비스 상태\n"
+            "  ./cb-manuscript status -a             # 중지된 컨테이너 포함 전체 상태\n"
+            "  ./cb-manuscript status --format json  # JSON 형식 출력"
+        ),
+    )
+
+    # 13. logs
+    subparsers.add_parser(
+        "logs",
+        help=PASSTHROUGH_HELP["logs"],
+        description=(
+            "Docker Compose 서비스의 로그를 출력합니다 (docker compose logs).\n\n"
+            "대상 서비스:\n"
+            "  api                   API 웹 서버 컨테이너\n"
+            "  bot                   Telegram 봇 컨테이너 (TELEGRAM_BOT_TOKEN 설정 시)"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "주요 Compose 옵션 및 인수:\n"
+            "  -f, --follow          실시간 로그 스트리밍 (follow)\n"
+            "  --tail lines          출력할 마지막 줄 수 지정 (기본값: all)\n"
+            "  --since time          특정 시점 이후 로그 필터 (예: 10m, 2026-08-18T10:00:00)\n"
+            "  -t, --timestamps      로그 타임스탬프 표시\n"
+            "  [service ...]         로그를 확인할 대상 서비스 (예: api, bot)\n\n"
+            "예시:\n"
+            "  ./cb-manuscript logs                  # 전체 서비스 로그 출력\n"
+            "  ./cb-manuscript logs api              # api 서비스 로그 출력\n"
+            "  ./cb-manuscript logs -f api           # api 실시간 로그 스트리밍\n"
+            "  ./cb-manuscript logs --tail 100 api   # api 서비스 최근 100줄 출력"
+        ),
+    )
+
+    # 14. shell
+    subparsers.add_parser(
+        "shell",
+        help=PASSTHROUGH_HELP["shell"],
+        description=(
+            "실행 중인 서비스 컨테이너 내에서 셸 또는 명령을 실행합니다 (docker compose exec).\n"
+            "기본 서비스는 api이며, 기본 명령은 bash입니다."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "구문:\n"
+            "  ./cb-manuscript shell [service] [-- command ...]\n\n"
+            "예시:\n"
+            "  ./cb-manuscript shell                 # api 컨테이너 bash 대화형 셸 접속\n"
+            "  ./cb-manuscript shell bot             # bot 컨테이너 bash 접속\n"
+            "  ./cb-manuscript shell api -- python3  # api 컨테이너에서 python3 REPL 실행\n"
+            "  ./cb-manuscript shell api -- env      # api 컨테이너 환경변수 확인"
+        ),
+    )
+
+    # 15. app
+    subparsers.add_parser(
+        "app",
+        help=PASSTHROUGH_HELP["app"],
+        description=(
+            "현재 배포 환경의 .env 설정과 마운트 볼륨(data, vault)을 그대로 사용하여\n"
+            "api 컨테이너 내에서 claire one-off 명령을 실행합니다 (docker compose run --rm --no-deps api claire ...).\n\n"
+            "안전 정책:\n"
+            "  - one-off 조회/유지보수 명령은 기본 실행 가능합니다.\n"
+            "  - 서비스 수명주기 명령(migrate, bot, serve-api, reextract 등)은 보호를 위해 기본 차단됩니다.\n"
+            "  - 차단된 명령을 실행하려면 --advanced 플래그를 사용하세요."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "주요 허용 명령 (one-off):\n"
+            "  health, doctor, status, stats, search, ingest, refresh-run, recover-run, ...\n\n"
+            "보호 대상 명령 (기본 차단):\n"
+            "  migrate, bot, serve-api, recover-loop, refresh-loop, expand-loop, reextract\n\n"
+            "옵션:\n"
+            "  --advanced            안전 가드를 우회하여 보호 대상 명령 실행\n\n"
+            "예시:\n"
+            "  ./cb-manuscript app health            # 전체 애플리케이션 상세 상태 확인\n"
+            "  ./cb-manuscript app doctor            # 앱 레벨 진단 실행\n"
+            "  ./cb-manuscript app search \"키워드\"     # CLI 검색 실행\n"
+            "  ./cb-manuscript app --help            # claire CLI의 전체 명령 도움말 표시\n"
+            "  ./cb-manuscript app --advanced migrate # 보호 가드 우회하여 마이그레이션 실행"
+        ),
+    )
+
+    # 16. compose
+    subparsers.add_parser(
+        "compose",
+        help=PASSTHROUGH_HELP["compose"],
+        description=(
+            "cb-manuscript의 환경 설정(.env, project명 등)이 주입된 Docker Compose로\n"
+            "임의의 인수를 직접 전달하는 고급 탈출구(escape hatch)입니다."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "구문:\n"
+            "  ./cb-manuscript compose [--] <args ...>\n\n"
+            "예시:\n"
+            "  ./cb-manuscript compose ps\n"
+            "  ./cb-manuscript compose config\n"
+            "  ./cb-manuscript compose top\n"
+            "  ./cb-manuscript compose -- exec api env"
+        ),
+    )
+
+    # 17. remote
+    remote = subparsers.add_parser(
+        "remote",
+        help="deploy.sh 원격 연결",
+        description="deploy.sh를 통해 SSH 원격 호스트에 접속하여 배포 명령을 실행합니다 (production 전용).",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "예시:\n"
+            "  ./cb-manuscript remote install\n"
+            "  ./cb-manuscript remote update"
+        ),
+    )
     remote_subparsers = remote.add_subparsers(dest="remote_action", required=True)
-    remote_subparsers.add_parser("install")
-    remote_subparsers.add_parser("update")
+    remote_subparsers.add_parser(
+        "install",
+        help="원격 호스트에 cb-manuscript install 실행",
+        description="SSH 원격 호스트에 접속하여 초기 설치(install)를 수행합니다.",
+    )
+    remote_subparsers.add_parser(
+        "update",
+        help="원격 호스트에 cb-manuscript update 실행",
+        description="SSH 원격 호스트에 접속하여 업데이트(update)를 수행합니다.",
+    )
     return parser
 
 
@@ -2822,7 +3155,7 @@ def main(argv: Sequence[str] | None = None, *, root: Path | None = None) -> int:
 
     try:
         if args and args[0] in PASSTHROUGH_COMMANDS:
-            if args[0] != "app" and args[1:] == ["--help"]:
+            if args[0] != "app" and args[1:] in (["--help"], ["-h"]):
                 build_parser().parse_args([args[0], "--help"])
                 return 0
             runtime = load_runtime(layout, legacy_dev=dev)
