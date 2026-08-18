@@ -74,6 +74,8 @@ class AntigravityProvider:
             "--output-format",
             output_format,
             "--disable-slash-commands",
+            "--log-file",
+            "/tmp/agy.log",
         ]
         if self.model:
             cmd.extend(["--model", self.model])

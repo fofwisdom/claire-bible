@@ -100,6 +100,7 @@ def test_extract_structured_success(mock_run):
     assert "--output-format" in cmd
     assert "json" in cmd
     assert "--json-schema" in cmd
+    assert "--log-file" in cmd
 
 
 @patch("subprocess.run")
