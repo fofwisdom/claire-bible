@@ -25,6 +25,7 @@ def _write_layout(
     dev: bool = True,
     token: str = "",
     owner_token: str = "owner-" + ("x" * 32),
+    readonly_token: str = "",
 ) -> None:
     (root / ".env.example").write_text(
         "\n".join(
@@ -37,6 +38,7 @@ def _write_layout(
                 "CLAIRE_PUBLIC_URL=https://claire.example.com/",
                 "CLAIRE_CORS_ALLOWED_ORIGINS=",
                 "CLAIRE_ANONYMOUS_READONLY=0",
+                f"CLAIRE_READONLY_TOKEN={readonly_token}",
                 f"CLAIRE_INJECT_TOKEN={owner_token}",
                 "GEMINI_API_KEY=",
                 f"TELEGRAM_BOT_TOKEN={token}",
@@ -56,6 +58,7 @@ def _write_layout(
                 "CLAIRE_PUBLIC_URL=http://127.0.0.1:8766/",
                 "CLAIRE_CORS_ALLOWED_ORIGINS=",
                 "CLAIRE_ANONYMOUS_READONLY=0",
+                f"CLAIRE_READONLY_TOKEN={readonly_token}",
                 f"CLAIRE_INJECT_TOKEN={owner_token}",
                 f"TELEGRAM_BOT_TOKEN={token}",
                 "",
@@ -209,6 +212,72 @@ def test_init_fills_missing_anonymous_setting_and_preserves_explicit_value(
     assert prod.count("CLAIRE_ANONYMOUS_READONLY=0") == 1
     assert "CLAIRE_ANONYMOUS_READONLY=1" in dev
     assert dev.count("CLAIRE_ANONYMOUS_READONLY=") == 1
+
+
+def test_init_preserves_blank_readonly_token_by_default_and_allows_explicit_token(
+    tmp_path,
+):
+    _write_layout(tmp_path)
+    assert cb.main(["init"], root=tmp_path) == 0
+
+    prod_text = (tmp_path / ".env").read_text(encoding="utf-8")
+    assert "CLAIRE_READONLY_TOKEN=" in prod_text
+    assert "CLAIRE_READONLY_TOKEN=\n" in prod_text
+
+    explicit_readonly = "readonly-" + ("r" * 32)
+    (tmp_path / ".env").write_text(
+        prod_text.replace(
+            "CLAIRE_READONLY_TOKEN=",
+            f"CLAIRE_READONLY_TOKEN={explicit_readonly}",
+        ),
+        encoding="utf-8",
+    )
+    assert cb.main(["init"], root=tmp_path) == 0
+    assert f"CLAIRE_READONLY_TOKEN={explicit_readonly}" in (
+        tmp_path / ".env"
+    ).read_text(encoding="utf-8")
+
+
+def test_load_runtime_validates_readonly_token_rules(tmp_path):
+    _write_layout(tmp_path, dev=False)
+    # 1. Blank readonly token is allowed (fail-closed default)
+    runtime = cb.load_runtime(cb.Layout(tmp_path))
+    assert runtime.values.get("CLAIRE_READONLY_TOKEN") == ""
+
+    # 2. Valid readonly token is allowed
+    readonly_secret = "readonly-" + ("r" * 32)
+    (tmp_path / ".env").write_text(
+        (tmp_path / ".env")
+        .read_text(encoding="utf-8")
+        .replace("CLAIRE_READONLY_TOKEN=", f"CLAIRE_READONLY_TOKEN={readonly_secret}"),
+        encoding="utf-8",
+    )
+    runtime = cb.load_runtime(cb.Layout(tmp_path))
+    assert runtime.values.get("CLAIRE_READONLY_TOKEN") == readonly_secret
+
+    # 3. Invalid token (too short) is rejected
+    (tmp_path / ".env").write_text(
+        (tmp_path / ".env")
+        .read_text(encoding="utf-8")
+        .replace(
+            f"CLAIRE_READONLY_TOKEN={readonly_secret}",
+            "CLAIRE_READONLY_TOKEN=short",
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(cb.ManuscriptError, match="CLAIRE_READONLY_TOKEN"):
+        cb.load_runtime(cb.Layout(tmp_path))
+
+    # 4. Readonly token identical to inject token is rejected
+    owner = runtime.values["CLAIRE_INJECT_TOKEN"]
+    (tmp_path / ".env").write_text(
+        (tmp_path / ".env")
+        .read_text(encoding="utf-8")
+        .replace("CLAIRE_READONLY_TOKEN=short", f"CLAIRE_READONLY_TOKEN={owner}"),
+        encoding="utf-8",
+    )
+    with pytest.raises(cb.ManuscriptError, match="서로 달라야 합니다"):
+        cb.load_runtime(cb.Layout(tmp_path))
 
 
 def test_dotenv_is_parsed_as_data_not_executed(tmp_path):
