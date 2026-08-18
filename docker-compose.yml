@@ -2,6 +2,7 @@ name: "${CB_PROJECT_NAME:-claire-bible}"
 
 x-claire-environment: &claire-environment
   CLAIRE_ENVIRONMENT: "${CLAIRE_ENVIRONMENT:?CLAIRE_ENVIRONMENT is required}"
+  TZ: "${TZ:-}"
 
 x-claire-service: &claire-service
   image: "${CB_IMAGE:-claire-bible}:${CB_IMAGE_TAG:-local}"
@@ -14,6 +15,7 @@ x-claire-service: &claire-service
   volumes:
     - "${CB_DATA_DIR:-./data}:/app/data"
     - "${CB_VAULT_DIR:-./vault}:/app/vault"
+    - /etc/localtime:/etc/localtime:ro
 
 services:
   bot:

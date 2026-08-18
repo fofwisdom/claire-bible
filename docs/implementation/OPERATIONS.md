@@ -51,16 +51,11 @@ CLAIRE_ENVIRONMENT=production ./cb-manuscript up
 development는 현재 checkout에서 직접 실행하는 `uv run claire <command>`와 다른
 환경이며, 별도의 project·데이터 경로를 사용한다.
 
-### 기존 env 파일 마이그레이션
+### 기존 env 파일 마이그레이션 및 자동 백필
 
-이 구조를 적용하기 전부터 `.env` 또는 `.env.dev`가 있으면 첫 lifecycle 명령 전에
-`./cb-manuscript init`을 다시 실행한다. 이 명령은 기존 secret과 비어 있지 않은 설정을
-덮어쓰지 않고 누락된 selector를 `.env=production`, `.env.dev=development`로 보충하고,
-두 파일에 빠진 `CLAIRE_ANONYMOUS_READONLY=0`도 각각 추가한다. production에서 `1`인데
-development 파일에 값이 없으면 공개 설정의 암묵적 상속을 막기 위해 기동 전 실패한다.
-production `.env`의 빈 `CLAIRE_PUBLIC_URL`은 추측해서 채우지 않으므로 실제 외부
-hostname의 `https://.../` 값으로 직접 설정해야 한다. CORS가 필요 없으면
-`CLAIRE_CORS_ALLOWED_ORIGINS`는 생략하거나 빈 값으로 둔다.
+이 구조를 적용하기 전부터 `.env` 또는 `.env.dev`가 있더라도, `./cb-manuscript update` 또는 `./cb-manuscript install`, `./cb-manuscript init` 실행 시 누락된 신규 환경변수(예: `TZ` 등)가 `.env.example` / `.env.dev.example`로부터 자동으로 안전하게 백필됩니다 (자세한 설계 규약은 [../design/OPERATIONAL_MIGRATION.md](../design/OPERATIONAL_MIGRATION.md) 참조).
+
+이 과정은 기존 secret과 사용자가 설정한 값을 절대 덮어쓰지 않으며, 누락된 selector를 `.env=production`, `.env.dev=development`로 보충하고, `TZ`는 호스트 `timedatectl` 타임존으로 자동 채우며, `CLAIRE_ANONYMOUS_READONLY=0`도 각각 보충합니다. production에서 `1`인데 development 파일에 값이 없으면 공개 설정의 암묵적 상속을 막기 위해 기동 전 실패합니다. production `.env`의 빈 `CLAIRE_PUBLIC_URL`은 추측해서 채우지 않으므로 실제 외부 hostname의 `https://.../` 값으로 직접 설정해야 합니다. CORS가 필요 없으면 `CLAIRE_CORS_ALLOWED_ORIGINS`는 생략하거나 빈 값으로 둡니다.
 
 `CB_API_BIND`는 Docker host가 게시할 정확한 IPv4 주소다. `0.0.0.0`, multicast,
 hostname과 IPv6는 사전 검사에서 거부한다. loopback은 안전한 초기값으로 허용하지만

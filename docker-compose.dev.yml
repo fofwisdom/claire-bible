@@ -8,6 +8,7 @@ x-claire-dev-service: &claire-dev-service
     - "${CB_DATA_DIR:-./.dev/data}:/app/data"
     - "${CB_VAULT_DIR:-./.dev/vault}:/app/vault"
     - ./src:/app/src
+    - /etc/localtime:/etc/localtime:ro
 
 services:
   bot:

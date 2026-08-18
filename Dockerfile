@@ -9,7 +9,7 @@ RUN pip install --no-cache-dir uv
 
 # nodriver(CDP) 가 JS SPA 렌더링 최후수단으로 쓸 시스템 Chromium. Playwright 자체 브라우저
 # 다운로드(+deps 별도설치)보다 가벼움 — apt 패키지 하나로 해결.
-RUN apt-get update && apt-get install -y --no-install-recommends chromium \
+RUN apt-get update && apt-get install -y --no-install-recommends chromium tzdata \
     && rm -rf /var/lib/apt/lists/*
 
 COPY pyproject.toml uv.lock README.md ./

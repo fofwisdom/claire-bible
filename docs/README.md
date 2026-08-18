@@ -10,6 +10,7 @@ Claire Bible 프로젝트의 문서는 **설계 내역(`design/`)**과 **구현/
 docs/
 ├── README.md               # 문서 보관 규칙 및 구조 안내 (본 문서)
 ├── design/                 # [설계 내역] 아키텍처, 기능 설계, 시스템 설계, 기술 리서치
+│   ├── OPERATIONAL_MIGRATION.md # 운영 지원 업데이트 및 환경변수/DB 마이그레이션 설계
 │   ├── ONEHOP_MERGE_DESIGN.md
 │   ├── SYNTHESIS_REDESIGN.md
 │   ├── search.md

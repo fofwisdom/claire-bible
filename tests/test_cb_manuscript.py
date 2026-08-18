@@ -238,6 +238,44 @@ def test_init_preserves_blank_readonly_token_by_default_and_allows_explicit_toke
     ).read_text(encoding="utf-8")
 
 
+def test_detect_system_timezone_prefers_env_and_detects_system(monkeypatch):
+    monkeypatch.setenv("TZ", "Asia/Tokyo")
+    assert cb._detect_system_timezone() == "Asia/Tokyo"
+
+    monkeypatch.delenv("TZ", raising=False)
+    tz = cb._detect_system_timezone()
+    assert isinstance(tz, str)
+    assert len(tz) > 0
+
+
+def test_init_populates_timezone_and_preserves_existing(tmp_path, monkeypatch):
+    monkeypatch.setenv("TZ", "Asia/Seoul")
+    _write_layout(tmp_path)
+    # Remove TZ from .env and .env.dev to test initial population
+    prod_text = (tmp_path / ".env").read_text(encoding="utf-8")
+    dev_text = (tmp_path / ".env.dev").read_text(encoding="utf-8")
+    (tmp_path / ".env").write_text(f"{prod_text}\nTZ=\n", encoding="utf-8")
+    (tmp_path / ".env.dev").write_text(f"{dev_text}\nTZ=\n", encoding="utf-8")
+
+    assert cb.main(["init"], root=tmp_path) == 0
+    assert "TZ=Asia/Seoul" in (tmp_path / ".env").read_text(encoding="utf-8")
+    assert "TZ=Asia/Seoul" in (tmp_path / ".env.dev").read_text(encoding="utf-8")
+
+    # Explicit custom TZ preserved on re-init
+    custom_prod = (tmp_path / ".env").read_text(encoding="utf-8").replace("TZ=Asia/Seoul", "TZ=America/New_York")
+    (tmp_path / ".env").write_text(custom_prod, encoding="utf-8")
+    assert cb.main(["init"], root=tmp_path) == 0
+    assert "TZ=America/New_York" in (tmp_path / ".env").read_text(encoding="utf-8")
+
+
+def test_compose_environment_includes_tz(tmp_path, monkeypatch):
+    monkeypatch.setenv("TZ", "Asia/Seoul")
+    _write_layout(tmp_path, dev=False)
+    runtime = cb.load_runtime(cb.Layout(tmp_path))
+    env = runtime.compose_environment()
+    assert env.get("TZ") == "Asia/Seoul"
+
+
 def test_load_runtime_validates_readonly_token_rules(tmp_path):
     _write_layout(tmp_path, dev=False)
     # 1. Blank readonly token is allowed (fail-closed default)
@@ -1110,6 +1148,47 @@ def test_update_no_fetch_skips_git_and_stops_project_after_build(tmp_path):
     build_index = next(i for i, cmd in enumerate(commands) if cmd[-1:] == ["build"])
     stop_index = next(i for i, cmd in enumerate(commands) if cmd[-1:] == ["stop"])
     assert build_index < stop_index
+
+
+def test_update_backfills_missing_env_variables_and_is_idempotent(tmp_path, monkeypatch):
+    monkeypatch.setenv("TZ", "Asia/Seoul")
+    _write_layout(tmp_path, dev=False)
+
+    # Simulate template getting a new variable in upstream
+    example_text = (tmp_path / ".env.example").read_text(encoding="utf-8")
+    example_text += "\n# Upstream added new setting\nNEW_FEATURE_FLAG=1\n"
+    (tmp_path / ".env.example").write_text(example_text, encoding="utf-8")
+
+    # Target .env does not have TZ and does not have NEW_FEATURE_FLAG
+    env_text = (tmp_path / ".env").read_text(encoding="utf-8")
+    env_text = env_text.replace("TZ=\n", "").replace("TZ=", "")
+    (tmp_path / ".env").write_text(env_text, encoding="utf-8")
+    assert "NEW_FEATURE_FLAG" not in (tmp_path / ".env").read_text(encoding="utf-8")
+
+    def fake(argv, **_kwargs):  # noqa: ANN001
+        if argv[:2] == ["docker", "compose"] and argv[-2:] == ["ps", "-q"]:
+            return _completed(argv, stdout="project-container\n")
+        if argv[:3] == ["docker", "ps", "-q"]:
+            return _completed(argv, stdout="")
+        return _completed(argv)
+
+    with patch.object(cb.subprocess, "run", side_effect=fake):
+        # 1st update execution
+        assert cb.main(["update", "--no-fetch"], root=tmp_path) == 0
+
+    updated_env = (tmp_path / ".env").read_text(encoding="utf-8")
+    assert "TZ=Asia/Seoul" in updated_env
+    assert "NEW_FEATURE_FLAG=1" in updated_env
+    assert "CLAIRE_ENVIRONMENT=production" in updated_env
+
+    # 2nd update execution (Idempotency test)
+    with patch.object(cb.subprocess, "run", side_effect=fake):
+        assert cb.main(["update", "--no-fetch"], root=tmp_path) == 0
+
+    reupdated_env = (tmp_path / ".env").read_text(encoding="utf-8")
+    assert reupdated_env == updated_env
+    assert reupdated_env.count("NEW_FEATURE_FLAG=1") == 1
+    assert reupdated_env.count("TZ=Asia/Seoul") == 1
 
 
 def test_update_rejects_dirty_tree_before_pull_build_or_stop(tmp_path):

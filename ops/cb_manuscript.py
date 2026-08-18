@@ -273,6 +273,12 @@ class Runtime:
             env["CB_DEV_ENV_FILE"] = str(self.layout.dev_env.resolve())
         else:
             env.pop("CB_DEV_ENV_FILE", None)
+
+        tz_value = self.values.get("TZ", "").strip() or env.get("TZ", "").strip()
+        if not tz_value:
+            tz_value = _detect_system_timezone()
+        if tz_value:
+            env["TZ"] = tz_value
         return env
 
 
@@ -911,6 +917,191 @@ def _ensure_anonymous_readonly(path: Path) -> bool:
     return True
 
 
+def _detect_system_timezone() -> str:
+    """Detect host system timezone adhering to timedatectl / system config."""
+
+    # 1. Process environment
+    env_tz = os.environ.get("TZ", "").strip()
+    if env_tz:
+        return env_tz
+
+    # 2. /etc/timezone (traditional Debian/Ubuntu)
+    try:
+        tz_path = Path("/etc/timezone")
+        if tz_path.is_file():
+            val = tz_path.read_text(encoding="utf-8").strip()
+            if val:
+                return val
+    except Exception:
+        pass
+
+    # 3. /etc/localtime symlink target (standard Linux/systemd)
+    try:
+        localtime = Path("/etc/localtime")
+        if localtime.is_symlink():
+            resolved = str(localtime.resolve())
+            for marker in ("/zoneinfo/", "/zoneinfo.default/"):
+                if marker in resolved:
+                    val = resolved.split(marker, 1)[1].strip()
+                    if val:
+                        return val
+    except Exception:
+        pass
+
+    # 4. Python timezone detection
+    try:
+        dt = datetime.now().astimezone()
+        if dt.tzinfo is not None:
+            key = getattr(dt.tzinfo, "key", None)
+            if key and isinstance(key, str):
+                return key
+            name = dt.tzname()
+            if name:
+                return name
+    except Exception:
+        pass
+
+    return "UTC"
+
+
+def _ensure_timezone(path: Path) -> bool:
+    """Ensure TZ is populated with detected system timezone if empty."""
+
+    text = path.read_text(encoding="utf-8")
+    lines = text.splitlines(keepends=True)
+    found = False
+    changed = False
+    detected = _detect_system_timezone()
+
+    for index, original in enumerate(lines):
+        candidate = original.strip()
+        if not candidate or candidate.startswith("#"):
+            continue
+        if candidate.startswith("export "):
+            candidate = candidate[7:].lstrip()
+        if "=" not in candidate:
+            continue
+        key, raw = candidate.split("=", 1)
+        if key.strip() != "TZ":
+            continue
+        found = True
+        value = _dotenv_value(raw, path, index + 1)
+        if value:
+            # already populated
+            break
+        newline = "\n" if original.endswith("\n") else ""
+        lines[index] = f"TZ={detected}{newline}"
+        changed = True
+        break
+
+    if not found:
+        if lines and not lines[-1].endswith("\n"):
+            lines[-1] += "\n"
+        lines.append(f"TZ={detected}\n")
+        changed = True
+
+    if changed:
+        _atomic_write(path, "".join(lines), mode=0o600)
+    else:
+        os.chmod(path, 0o600)
+    return changed
+
+
+def _sync_missing_env_keys(target_path: Path, template_path: Path) -> list[str]:
+    """Safely backfill missing environment variables from template into target env file."""
+
+    if not target_path.is_file() or not template_path.is_file():
+        return []
+
+    target_values = read_dotenv(target_path)
+    template_text = template_path.read_text(encoding="utf-8")
+
+    blocks: list[tuple[list[str], str, str]] = []
+    current_comments: list[str] = []
+    for line in template_text.splitlines(keepends=True):
+        candidate = line.strip()
+        if not candidate:
+            current_comments = []
+            continue
+        if candidate.startswith("#"):
+            current_comments.append(line)
+            continue
+        if candidate.startswith("export "):
+            candidate = candidate[7:].lstrip()
+        if "=" in candidate:
+            key = candidate.split("=", 1)[0].strip()
+            if KEY_RE.fullmatch(key):
+                blocks.append((list(current_comments), key, line))
+        current_comments = []
+
+    missing_keys: list[str] = []
+    append_lines: list[str] = []
+
+    for comments, key, line in blocks:
+        if key not in target_values:
+            missing_keys.append(key)
+            append_lines.extend(comments)
+            append_lines.append(line if line.endswith("\n") else line + "\n")
+
+    if append_lines:
+        target_content = target_path.read_text(encoding="utf-8")
+        if target_content and not target_content.endswith("\n"):
+            target_content += "\n"
+        target_content += "".join(append_lines)
+        _atomic_write(target_path, target_content, mode=0o600)
+    else:
+        os.chmod(target_path, 0o600)
+
+    return missing_keys
+
+
+def sync_environment_files(layout: Layout) -> dict[str, list[str]]:
+    """Synchronize both .env and .env.dev with templates and ensure canonical settings."""
+
+    changes: dict[str, list[str]] = {"env": [], "dev_env": []}
+
+    if layout.env.is_file() and layout.env_example.is_file():
+        added = _sync_missing_env_keys(layout.env, layout.env_example)
+        if added:
+            changes["env"].extend(added)
+        if _ensure_environment_selector(layout.env, PRODUCTION):
+            if ENVIRONMENT_KEY not in changes["env"]:
+                changes["env"].append(ENVIRONMENT_KEY)
+        if _ensure_timezone(layout.env):
+            if "TZ" not in changes["env"]:
+                changes["env"].append("TZ")
+        if _ensure_anonymous_readonly(layout.env):
+            if ANONYMOUS_READONLY_KEY not in changes["env"]:
+                changes["env"].append(ANONYMOUS_READONLY_KEY)
+        if _ensure_inject_token(layout.env):
+            if "CLAIRE_INJECT_TOKEN" not in changes["env"]:
+                changes["env"].append("CLAIRE_INJECT_TOKEN")
+
+    dev_example = (
+        layout.dev_env_example
+        if layout.dev_env_example.is_file()
+        else layout.env_example
+    )
+    if layout.dev_env.is_file() and dev_example.is_file():
+        added_dev = _sync_missing_env_keys(layout.dev_env, dev_example)
+        if added_dev:
+            changes["dev_env"].extend(added_dev)
+        if _ensure_environment_selector(layout.dev_env, DEVELOPMENT):
+            if ENVIRONMENT_KEY not in changes["dev_env"]:
+                changes["dev_env"].append(ENVIRONMENT_KEY)
+        if _ensure_timezone(layout.dev_env):
+            if "TZ" not in changes["dev_env"]:
+                changes["dev_env"].append("TZ")
+        if _ensure_anonymous_readonly(layout.dev_env):
+            if ANONYMOUS_READONLY_KEY not in changes["dev_env"]:
+                changes["dev_env"].append(ANONYMOUS_READONLY_KEY)
+        if _ensure_inject_token(layout.dev_env):
+            if "CLAIRE_INJECT_TOKEN" not in changes["dev_env"]:
+                changes["dev_env"].append("CLAIRE_INJECT_TOKEN")
+
+    return changes
+
+
 def command_init(layout: Layout) -> int:
     created_env = _copy_once(layout.env_example, layout.env)
     dev_source = (
@@ -919,29 +1110,29 @@ def command_init(layout: Layout) -> int:
         else layout.env_example
     )
     created_dev_env = _copy_once(dev_source, layout.dev_env)
-    selector_migrated = _ensure_environment_selector(layout.env, PRODUCTION)
-    dev_selector_migrated = _ensure_environment_selector(
-        layout.dev_env,
-        DEVELOPMENT,
-    )
-    anonymous_migrated = _ensure_anonymous_readonly(layout.env)
-    dev_anonymous_migrated = _ensure_anonymous_readonly(layout.dev_env)
-    token_created = _ensure_inject_token(layout.env)
-    _ensure_inject_token(layout.dev_env)
+    changes = sync_environment_files(layout)
     layout.data.mkdir(parents=True, exist_ok=True)
     layout.vault.mkdir(parents=True, exist_ok=True)
 
+    detected_tz = _detect_system_timezone()
     print(f".env: {'created' if created_env else 'kept'}")
     print(f".env.dev: {'created' if created_dev_env else 'kept'}")
     print(
         f"{ENVIRONMENT_KEY}: "
-        f"{'populated' if selector_migrated or dev_selector_migrated else 'kept'}"
+        f"{'populated' if ENVIRONMENT_KEY in changes['env'] or ENVIRONMENT_KEY in changes['dev_env'] else 'kept'}"
+    )
+    print(
+        f"TZ: "
+        f"{f'populated ({detected_tz})' if 'TZ' in changes['env'] or 'TZ' in changes['dev_env'] else 'kept'}"
     )
     print(
         f"{ANONYMOUS_READONLY_KEY}: "
-        f"{'populated (default 0)' if anonymous_migrated or dev_anonymous_migrated else 'kept'}"
+        f"{'populated (default 0)' if ANONYMOUS_READONLY_KEY in changes['env'] or ANONYMOUS_READONLY_KEY in changes['dev_env'] else 'kept'}"
     )
-    print(f"CLAIRE_INJECT_TOKEN: {'created' if token_created else 'kept'}")
+    print(
+        f"CLAIRE_INJECT_TOKEN: "
+        f"{'created' if 'CLAIRE_INJECT_TOKEN' in changes['env'] or 'CLAIRE_INJECT_TOKEN' in changes['dev_env'] else 'kept'}"
+    )
     print("data/, vault/: ready")
     return 0
 
@@ -2498,6 +2689,16 @@ def _transition(runtime: Runtime) -> None:
 
 def command_install(runtime: Runtime) -> int:
     with InstanceLock(runtime):
+        env_changes = sync_environment_files(runtime.layout)
+        if env_changes.get("env"):
+            print(
+                f"cb-manuscript: Backfilled environment variables into .env: {', '.join(env_changes['env'])}"
+            )
+        if env_changes.get("dev_env"):
+            print(
+                f"cb-manuscript: Backfilled environment variables into .env.dev: {', '.join(env_changes['dev_env'])}"
+            )
+        runtime = load_runtime(runtime.layout, legacy_dev=runtime.dev)
         config_preflight(runtime)
         previous_state = _profile_state(runtime) or {}
         _require_stable_project(runtime, previous_state)
@@ -2522,7 +2723,18 @@ def command_update(runtime: Runtime, *, no_fetch: bool) -> int:
         previous_revision = _source_revision(runtime.layout)
         if not no_fetch:
             update_source(runtime.layout)
-            config_preflight(runtime)
+
+        env_changes = sync_environment_files(runtime.layout)
+        if env_changes.get("env"):
+            print(
+                f"cb-manuscript: Backfilled environment variables into .env: {', '.join(env_changes['env'])}"
+            )
+        if env_changes.get("dev_env"):
+            print(
+                f"cb-manuscript: Backfilled environment variables into .env.dev: {', '.join(env_changes['dev_env'])}"
+            )
+        runtime = load_runtime(runtime.layout, legacy_dev=runtime.dev)
+        config_preflight(runtime)
 
         # Existing containers continue serving throughout fetch and build.
         run_compose(runtime, ("build",))
