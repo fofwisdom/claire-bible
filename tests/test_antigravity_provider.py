@@ -19,7 +19,7 @@ def _make_settings(**kwargs) -> Settings:
     defaults = {
         "provider": "antigravity",
         "agy_bin": "agy",
-        "agy_model": "gemini-3.6-flash-high",
+        "agy_model": "gemini-3.7-flash",
         "agy_effort": "medium",
         "agy_timeout": 30.0,
         "agy_max_concurrency": 2,

@@ -211,7 +211,7 @@ TELEGRAM_BOT_TOKEN=
 ```dotenv
 CLAIRE_PROVIDER=antigravity
 CLAIRE_AGY_BIN=agy
-CLAIRE_AGY_MODEL=gemini-3.6-flash-high
+CLAIRE_AGY_MODEL=gemini-3.7-flash
 CLAIRE_AGY_EFFORT=medium
 ```
 
