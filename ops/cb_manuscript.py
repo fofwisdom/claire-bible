@@ -749,6 +749,53 @@ def config_preflight(runtime: Runtime) -> None:
     run_compose(runtime, ("config", "--quiet"))
 
 
+def check_production_provider(runtime: Runtime) -> str | None:
+    """Return a warning message if production is running without an actual AI model configured."""
+    if runtime.dev:
+        return None
+    raw_provider = _effective(runtime.values, "CLAIRE_PROVIDER").strip().lower()
+    if raw_provider == "gemini":
+        gemini_api_key = _effective(runtime.values, "GEMINI_API_KEY").strip()
+        if not gemini_api_key:
+            return (
+                "CLAIRE_PROVIDER is set to 'gemini' in .env, but GEMINI_API_KEY is not configured. "
+                "The application will fall back to mock provider. Configure GEMINI_API_KEY in .env."
+            )
+        return None
+    if raw_provider in ("antigravity", "agy"):
+        agy_bin = _effective(runtime.values, "CLAIRE_AGY_BIN").strip() or "agy"
+        search_path = os.environ.get("PATH", "")
+        extra_bin = str(Path.home() / ".local" / "bin")
+        if extra_bin not in search_path.split(os.pathsep):
+            search_path = f"{extra_bin}{os.pathsep}{search_path}"
+        found = shutil.which(agy_bin, path=search_path) is not None or (
+            Path.home() / ".local" / "bin" / agy_bin
+        ).is_file()
+        if not found:
+            return (
+                f"CLAIRE_PROVIDER is set to 'antigravity' in .env, but '{agy_bin}' executable was not found. "
+                "The application will fall back to mock provider. Install Antigravity CLI or add it to PATH."
+            )
+        return None
+    if raw_provider in ("mock", ""):
+        return (
+            "CLAIRE_PROVIDER is set to 'mock' in .env. In production, AI features (extraction, research, synthesis) "
+            "will operate with mock data instead of an actual LLM model. "
+            "Configure CLAIRE_PROVIDER=gemini (with GEMINI_API_KEY) or CLAIRE_PROVIDER=antigravity in .env."
+        )
+    return (
+        f"CLAIRE_PROVIDER is set to '{raw_provider}' in .env, which is not a recognized model provider. "
+        "The application will fall back to mock provider. "
+        "Configure CLAIRE_PROVIDER=gemini (with GEMINI_API_KEY) or CLAIRE_PROVIDER=antigravity in .env."
+    )
+
+
+def _warn_production_provider(runtime: Runtime) -> None:
+    warning = check_production_provider(runtime)
+    if warning:
+        print(f"cb-manuscript: warning: {warning}", file=sys.stderr)
+
+
 def _atomic_write(path: Path, content: str, mode: int = 0o600) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
@@ -2718,6 +2765,7 @@ def command_install(runtime: Runtime) -> int:
             action="install",
             previous_revision=previous_revision,
         )
+        _warn_production_provider(runtime)
     return 0
 
 
@@ -2750,6 +2798,7 @@ def command_update(runtime: Runtime, *, no_fetch: bool) -> int:
             action="update",
             previous_revision=previous_revision,
         )
+        _warn_production_provider(runtime)
     return 0
 
 
@@ -2936,6 +2985,8 @@ def dispatch_passthrough(
         all_profiles=command == "down",
         check=False,
     )
+    if result.returncode == 0 and command in {"up", "restart"}:
+        _warn_production_provider(runtime)
     return result.returncode
 
 
