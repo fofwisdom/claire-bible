@@ -37,7 +37,7 @@ def _write_layout(
                 "CB_API_PORT=8765",
                 "CLAIRE_PUBLIC_URL=https://claire.example.com/",
                 "CLAIRE_CORS_ALLOWED_ORIGINS=",
-                "CLAIRE_ANONYMOUS_READONLY=0",
+                "CLAIRE_ANONYMOUS_READONLY=1",
                 f"CLAIRE_READONLY_TOKEN={readonly_token}",
                 f"CLAIRE_INJECT_TOKEN={owner_token}",
                 "GEMINI_API_KEY=",
@@ -57,7 +57,7 @@ def _write_layout(
                 "CB_API_PORT=8766",
                 "CLAIRE_PUBLIC_URL=http://127.0.0.1:8766/",
                 "CLAIRE_CORS_ALLOWED_ORIGINS=",
-                "CLAIRE_ANONYMOUS_READONLY=0",
+                "CLAIRE_ANONYMOUS_READONLY=1",
                 f"CLAIRE_READONLY_TOKEN={readonly_token}",
                 f"CLAIRE_INJECT_TOKEN={owner_token}",
                 f"TELEGRAM_BOT_TOKEN={token}",
@@ -191,15 +191,15 @@ def test_init_fills_missing_anonymous_setting_and_preserves_explicit_value(
     dev_path = tmp_path / ".env.dev"
     prod_path.write_text(
         prod_path.read_text(encoding="utf-8").replace(
-            "CLAIRE_ANONYMOUS_READONLY=0\n",
+            "CLAIRE_ANONYMOUS_READONLY=1\n",
             "",
         ),
         encoding="utf-8",
     )
     dev_path.write_text(
         dev_path.read_text(encoding="utf-8").replace(
-            "CLAIRE_ANONYMOUS_READONLY=0",
             "CLAIRE_ANONYMOUS_READONLY=1",
+            "CLAIRE_ANONYMOUS_READONLY=0",
         ),
         encoding="utf-8",
     )
@@ -209,8 +209,8 @@ def test_init_fills_missing_anonymous_setting_and_preserves_explicit_value(
 
     prod = prod_path.read_text(encoding="utf-8")
     dev = dev_path.read_text(encoding="utf-8")
-    assert prod.count("CLAIRE_ANONYMOUS_READONLY=0") == 1
-    assert "CLAIRE_ANONYMOUS_READONLY=1" in dev
+    assert prod.count("CLAIRE_ANONYMOUS_READONLY=1") == 1
+    assert "CLAIRE_ANONYMOUS_READONLY=0" in dev
     assert dev.count("CLAIRE_ANONYMOUS_READONLY=") == 1
 
 
@@ -391,7 +391,7 @@ def test_missing_anonymous_setting_defaults_disabled_in_production(tmp_path):
     env_path = tmp_path / ".env"
     env_path.write_text(
         env_path.read_text(encoding="utf-8").replace(
-            "CLAIRE_ANONYMOUS_READONLY=0\n",
+            "CLAIRE_ANONYMOUS_READONLY=1\n",
             "",
         ),
         encoding="utf-8",
@@ -406,18 +406,10 @@ def test_development_does_not_inherit_enabled_production_anonymous_setting(
     tmp_path,
 ):
     _write_layout(tmp_path)
-    prod_path = tmp_path / ".env"
     dev_path = tmp_path / ".env.dev"
-    prod_path.write_text(
-        prod_path.read_text(encoding="utf-8").replace(
-            "CLAIRE_ANONYMOUS_READONLY=0",
-            "CLAIRE_ANONYMOUS_READONLY=1",
-        ),
-        encoding="utf-8",
-    )
     dev_path.write_text(
         dev_path.read_text(encoding="utf-8").replace(
-            "CLAIRE_ANONYMOUS_READONLY=0\n",
+            "CLAIRE_ANONYMOUS_READONLY=1\n",
             "",
         ),
         encoding="utf-8",
@@ -431,11 +423,11 @@ def test_development_does_not_inherit_enabled_production_anonymous_setting(
 
 def test_profiles_use_their_explicit_anonymous_settings(tmp_path):
     _write_layout(tmp_path)
-    prod_path = tmp_path / ".env"
-    prod_path.write_text(
-        prod_path.read_text(encoding="utf-8").replace(
-            "CLAIRE_ANONYMOUS_READONLY=0",
+    dev_path = tmp_path / ".env.dev"
+    dev_path.write_text(
+        dev_path.read_text(encoding="utf-8").replace(
             "CLAIRE_ANONYMOUS_READONLY=1",
+            "CLAIRE_ANONYMOUS_READONLY=0",
         ),
         encoding="utf-8",
     )
@@ -459,7 +451,7 @@ def test_anonymous_setting_requires_exact_zero_or_one(
     env_path = tmp_path / ".env"
     env_path.write_text(
         env_path.read_text(encoding="utf-8").replace(
-            "CLAIRE_ANONYMOUS_READONLY=0",
+            "CLAIRE_ANONYMOUS_READONLY=1",
             f"CLAIRE_ANONYMOUS_READONLY={value}",
         ),
         encoding="utf-8",
@@ -1283,14 +1275,6 @@ def test_health_returns_liveness_exit_code_and_uses_noninteractive_exec(tmp_path
 
 def test_doctor_reports_anonymous_readonly_exposure(tmp_path, capsys):
     _write_layout(tmp_path, dev=False)
-    env_path = tmp_path / ".env"
-    env_path.write_text(
-        env_path.read_text(encoding="utf-8").replace(
-            "CLAIRE_ANONYMOUS_READONLY=0",
-            "CLAIRE_ANONYMOUS_READONLY=1",
-        ),
-        encoding="utf-8",
-    )
 
     with patch.object(cb.subprocess, "run", side_effect=_fake_success):
         assert cb.main(["doctor"], root=tmp_path) == 0

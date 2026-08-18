@@ -77,11 +77,8 @@ Fetcher는 URL, canonical URL, 제목, 작성자, 시각, 원문, 소스 종류�
 - API는 기본적으로 `127.0.0.1`에만 공개한다.
 - 쓰기·모델 비용 발생 경로는 owner bearer 또는 owner 세션을 요구한다.
 - 읽기 전용 토큰과 읽기 전용 세션은 쓰기 경로를 통과할 수 없다.
-- 기본값에서는 읽기 경로도 인증한다. exact `CLAIRE_ANONYMOUS_READONLY=1`을 명시한
-  인스턴스만 canonical same-origin 또는 Origin 헤더가 없는 무자격증명 요청을 읽기
-  전용으로 허용한다.
-- 익명 읽기는 owner 쓰기를 비활성화하지 않으며 문서의 `hidden` 표시를 ACL로 해석하지
-  않는다. 따라서 활성화하면 숨김 문서를 포함한 인스턴스 전체 지식이 공개 범위다.
+- `CLAIRE_ANONYMOUS_READONLY=1`(기본값)은 canonical same-origin 또는 Origin 헤더가 없는 무자격증명 요청을 읽기 전용으로 허용하되, 숨김 문서(`hidden=1`) 및 그와 연관된 엔티티는 익명 읽기 계층에서 철저히 제외되어 안전하게 공개된다. 완전히 인증 전용으로 운영하려면 `CLAIRE_ANONYMOUS_READONLY=0`으로 설정한다.
+- 익명 읽기는 owner 쓰기를 비활성화하지 않는다.
 - 보장 경계는 API 기동이 끝난 뒤의 익명 HTTP 요청이다. 이 요청은 영속 데이터를
   변경하거나 provider 비용을 유발하지 않는다. API 시작 migration과 별도 worker,
   Telegram bot, CLI의 쓰기는 이 보장 범위 밖이다.

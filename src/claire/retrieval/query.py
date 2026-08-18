@@ -69,6 +69,7 @@ def search(
     limit: int = 8,
     summarize: bool = True,
     mode: SearchMode = "hybrid",
+    include_hidden: bool = True,
 ) -> SearchResult:
     if mode not in {"hybrid", "fts"}:
         raise ValueError(f"unsupported search mode: {mode}")
@@ -101,11 +102,17 @@ def search(
     if not fused:
         return res
 
-    ordered = sorted(fused.items(), key=lambda kv: kv[1], reverse=True)[:limit]
+    hidden_doc_ids = set() if include_hidden else dbm.hidden_document_ids(conn)
+    ordered = sorted(fused.items(), key=lambda kv: kv[1], reverse=True)
     for eid, score in ordered:
         ent = dbm.get_entity(conn, eid)
         if ent:
+            if not include_hidden and hidden_doc_ids and ent.sources:
+                if not any(s not in hidden_doc_ids for s in ent.sources):
+                    continue
             res.hits.append(SearchHit(entity=ent, score=score, via=via_map.get(eid, [])))
+            if len(res.hits) >= limit:
+                break
 
     # 3) LLM 정리 (옵션) — 검색된 엔티티 + 1홉 이웃을 컨텍스트로
     if (
@@ -114,7 +121,7 @@ def search(
         and res.hits
         and hasattr(provider, "summarize_search")
     ):
-        context = _build_context(conn, res.hits)
+        context = _build_context(conn, res.hits, include_hidden=include_hidden)
         try:
             answer = provider.summarize_search(query, context)
             res.answer = answer
@@ -123,10 +130,15 @@ def search(
     return res
 
 
-def _build_context(conn: sqlite3.Connection, hits: list[SearchHit]) -> str:
+def _build_context(
+    conn: sqlite3.Connection,
+    hits: list[SearchHit],
+    *,
+    include_hidden: bool = True,
+) -> str:
     """검색된 엔티티 + 1홉 이웃을 인용 가능한 텍스트 블록으로."""
     lines = []
-    seen = {h.entity.id for h in hits}
+    hidden_doc_ids = set() if include_hidden else dbm.hidden_document_ids(conn)
     for h in hits:
         e = h.entity
         lines.append(f"[{e.name}] (type={e.type})")
@@ -137,6 +149,9 @@ def _build_context(conn: sqlite3.Connection, hits: list[SearchHit]) -> str:
             other_id = r.target_id if r.source_id == e.id else r.source_id
             other = dbm.get_entity(conn, other_id)
             if other:
+                if not include_hidden and hidden_doc_ids and other.sources:
+                    if not any(s not in hidden_doc_ids for s in other.sources):
+                        continue
                 arrow = "->" if r.source_id == e.id else "<-"
                 lines.append(f"  rel: {e.name} {arrow}{r.type}{arrow} {other.name}")
     return "\n".join(lines)

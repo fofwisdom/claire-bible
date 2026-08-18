@@ -55,7 +55,7 @@ development는 현재 checkout에서 직접 실행하는 `uv run claire <command
 
 이 구조를 적용하기 전부터 `.env` 또는 `.env.dev`가 있더라도, `./cb-manuscript update` 또는 `./cb-manuscript install`, `./cb-manuscript init` 실행 시 누락된 신규 환경변수(예: `TZ` 등)가 `.env.example` / `.env.dev.example`로부터 자동으로 안전하게 백필됩니다 (자세한 설계 규약은 [../design/OPERATIONAL_MIGRATION.md](../design/OPERATIONAL_MIGRATION.md) 참조).
 
-이 과정은 기존 secret과 사용자가 설정한 값을 절대 덮어쓰지 않으며, 누락된 selector를 `.env=production`, `.env.dev=development`로 보충하고, `TZ`는 호스트 `timedatectl` 타임존으로 자동 채우며, `CLAIRE_ANONYMOUS_READONLY=0`도 각각 보충합니다. production에서 `1`인데 development 파일에 값이 없으면 공개 설정의 암묵적 상속을 막기 위해 기동 전 실패합니다. production `.env`의 빈 `CLAIRE_PUBLIC_URL`은 추측해서 채우지 않으므로 실제 외부 hostname의 `https://.../` 값으로 직접 설정해야 합니다. CORS가 필요 없으면 `CLAIRE_CORS_ALLOWED_ORIGINS`는 생략하거나 빈 값으로 둡니다.
+이 과정은 기존 secret과 사용자가 설정한 값을 절대 덮어쓰지 않으며, 누락된 selector를 `.env=production`, `.env.dev=development`로 보충하고, `TZ`는 호스트 `timedatectl` 타임존으로 자동 채우며, `CLAIRE_ANONYMOUS_READONLY=1`도 각각 보충합니다. production에서 `1`인데 development 파일에 값이 없으면 공개 설정의 암묵적 상속을 막기 위해 기동 전 실패합니다. production `.env`의 빈 `CLAIRE_PUBLIC_URL`은 추측해서 채우지 않으므로 실제 외부 hostname의 `https://.../` 값으로 직접 설정해야 합니다. CORS가 필요 없으면 `CLAIRE_CORS_ALLOWED_ORIGINS`는 생략하거나 빈 값으로 둡니다.
 
 `CB_API_BIND`는 Docker host가 게시할 정확한 IPv4 주소다. `0.0.0.0`, multicast,
 hostname과 IPv6는 사전 검사에서 거부한다. loopback은 안전한 초기값으로 허용하지만
@@ -67,9 +67,9 @@ hostname과 IPv6는 사전 검사에서 거부한다. loopback은 안전한 초�
   외부 reverse proxy가 종료한다.
 - `CLAIRE_CORS_ALLOWED_ORIGINS`는 path와 wildcard가 없는 origin의 쉼표 목록이다.
   production에서는 `https` origin만 허용하며 빈 값은 same-origin 전용이다.
-- `CLAIRE_ANONYMOUS_READONLY=0` 또는 누락은 기존 인증 전용 동작이다. exact `1`은
-  canonical same-origin 또는 Origin 헤더가 없는 무자격증명 요청의 읽기를 허용한다.
-  owner 쓰기는 계속 유효하며 `hidden` 문서를 포함한 전체 KB가 API 공개 범위가 된다.
+- exact `CLAIRE_ANONYMOUS_READONLY=1`(기본값)은 canonical same-origin 또는 Origin 헤더가 없는
+  무자격증명 요청의 읽기 전용 접근을 허용한다. owner 쓰기는 계속 유효하며, 숨김 문서(`hidden=1`) 및
+  그와 연관된 엔티티는 익명 읽기 계층에서 철저히 제외되어 안전하게 공개된다. `0`은 인증 전용 동작이다.
 
 `./cb-manuscript doctor`는 선택 profile의 anonymous readonly 상태를 출력한다. enabled
 표시는 의도적인 공개 결정인지 확인해야 할 운영 경보다.

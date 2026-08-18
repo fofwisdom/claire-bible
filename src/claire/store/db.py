@@ -325,6 +325,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
     # 그대로 유지, 사용자 결정). 둘 다 기본 0(안 켜짐).
     _ensure_column(conn, "documents", "pinned", "INTEGER DEFAULT 0")
     _ensure_column(conn, "documents", "hidden", "INTEGER DEFAULT 0")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_documents_hidden ON documents(hidden)")
     # v9: 세션 scope(owner|readonly) — /webro 로 발급하는 읽기전용 웹 링크(텔레그램에서
     # 클릭해 바로 열리는 링크가 필요하다는 요구; 기존 CLAIRE_READONLY_TOKEN 은 헤더 전용이라
     # URL 링크로 못 씀). 기존 행은 DEFAULT 'owner' 로 자동 채워져 기존 /web 세션 동작 그대로.
@@ -536,10 +537,14 @@ def find_document_by_canonical_url(
 
 
 def _documents_filter(
-    since: float | None, query: str | None,
+    since: float | None,
+    query: str | None,
+    include_hidden: bool = True,
 ) -> tuple[str, list]:
     """documents_timeline/documents_count 공용 WHERE 절 빌더."""
     where, params = [], []
+    if not include_hidden:
+        where.append("hidden = 0")
     if since is not None:
         where.append("fetched_at >= ?")
         params.append(since)
@@ -552,30 +557,46 @@ def _documents_filter(
 
 
 def documents_timeline(
-    conn: sqlite3.Connection, limit: int = 300, *,
-    since: float | None = None, query: str | None = None,
+    conn: sqlite3.Connection,
+    limit: int = 300,
+    *,
+    since: float | None = None,
+    query: str | None = None,
+    include_hidden: bool = True,
 ) -> list[sqlite3.Row]:
     """문서를 최신 적재순으로(좌측 문서 패널용). summary 는 호출측에서 붙인다.
 
     since/query 는 MCP `documents` 툴이 "전체를 다 훑지 않고 좁혀서 찾을" 수
-    있게 추가된 선택적 필터(기본 None, 기존 웹 UI 호출은 동작 그대로)."""
-    where_sql, params = _documents_filter(since, query)
+    있게 추가된 선택적 필터(기본 None, 기존 웹 UI 호출은 동작 그대로).
+    include_hidden=False 면 hidden=0 인 공개 문서만 조회한다."""
+    where_sql, params = _documents_filter(since, query, include_hidden=include_hidden)
     params.append(limit)
     return conn.execute(
         f"SELECT id, title, url, source_type, fetched_at, seen, watch_enabled, "
         f"pinned, hidden FROM documents {where_sql} "
-        f"ORDER BY fetched_at DESC, id DESC LIMIT ?", params
+        f"ORDER BY fetched_at DESC, id DESC LIMIT ?",
+        params,
     ).fetchall()
 
 
 def documents_count(
-    conn: sqlite3.Connection, *, since: float | None = None, query: str | None = None,
+    conn: sqlite3.Connection,
+    *,
+    since: float | None = None,
+    query: str | None = None,
+    include_hidden: bool = True,
 ) -> int:
     """documents_timeline과 동일한 필터의 총 개수(잘림 여부 판단용)."""
-    where_sql, params = _documents_filter(since, query)
+    where_sql, params = _documents_filter(since, query, include_hidden=include_hidden)
     return conn.execute(
         f"SELECT COUNT(*) c FROM documents {where_sql}", params
     ).fetchone()["c"]
+
+
+def hidden_document_ids(conn: sqlite3.Connection) -> set[str]:
+    """숨김 처리된(hidden=1) 모든 문서의 ID 집합을 반환한다."""
+    rows = conn.execute("SELECT id FROM documents WHERE hidden=1").fetchall()
+    return {row["id"] for row in rows}
 
 
 def set_document_pinned(conn: sqlite3.Connection, document_id: str, pinned: bool) -> bool:
@@ -1509,9 +1530,12 @@ def fts_search(conn: sqlite3.Connection, query: str, limit: int = 20) -> list[st
     return [r["entity_id"] for r in rows]
 
 
-def counts(conn: sqlite3.Connection) -> dict[str, int]:
+def counts(conn: sqlite3.Connection, include_hidden: bool = True) -> dict[str, int]:
     out = {}
     for tbl in ("documents", "entities", "relations", "embeddings", "proposals",
                 "jobs", "raw_inbox", "extractions", "refresh_queue"):
-        out[tbl] = conn.execute(f"SELECT COUNT(*) c FROM {tbl}").fetchone()["c"]
+        if tbl == "documents" and not include_hidden:
+            out[tbl] = conn.execute("SELECT COUNT(*) c FROM documents WHERE hidden=0").fetchone()["c"]
+        else:
+            out[tbl] = conn.execute(f"SELECT COUNT(*) c FROM {tbl}").fetchone()["c"]
     return out

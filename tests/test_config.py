@@ -10,12 +10,12 @@ from pydantic import ValidationError
 from claire.config import Settings
 
 
-def test_anonymous_readonly_defaults_disabled(monkeypatch):
+def test_anonymous_readonly_defaults_enabled(monkeypatch):
     monkeypatch.delenv("CLAIRE_ANONYMOUS_READONLY", raising=False)
 
     settings = Settings(_env_file=None)
 
-    assert settings.anonymous_readonly is False
+    assert settings.anonymous_readonly is True
 
 
 @pytest.mark.parametrize(

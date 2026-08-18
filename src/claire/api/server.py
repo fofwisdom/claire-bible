@@ -179,11 +179,16 @@ def create_app(
             raise HTTPException(status_code=401, detail="authentication required")
         return JSONResponse({"scope": scope})
 
-    async def stats(_request: Request) -> JSONResponse:
+    async def stats(request: Request) -> JSONResponse:
+        include_hidden = request_auth_scope(request) != "anonymous"
+
         def _counts() -> dict[str, int]:
             conn = dbm.connect_existing(s.db_file, readonly=True)
             try:
-                return dbm.counts(conn)
+                try:
+                    return dbm.counts(conn, include_hidden=include_hidden)
+                except TypeError:
+                    return dbm.counts(conn)
             finally:
                 conn.close()
 
@@ -225,6 +230,7 @@ def create_app(
         except (TypeError, ValueError) as exc:
             raise HTTPException(status_code=400, detail="limit must be an integer") from exc
         scope = request_auth_scope(request)
+        include_hidden = scope != "anonymous"
         if scope == "anonymous":
             mode = "fts"
             limit = max(1, min(_MAX_ANONYMOUS_SEARCH_RESULTS, limit))
@@ -237,13 +243,25 @@ def create_app(
             runner = _run_expensive
         else:
             raise HTTPException(status_code=401, detail="authentication required")
-        result = await runner(
-            svc.search,
-            query,
-            limit=limit,
-            summarize=summarize,
-            mode=mode,
-        )
+
+        search_kwargs: dict[str, Any] = {
+            "limit": limit,
+            "summarize": summarize,
+            "mode": mode,
+        }
+        try:
+            result = await runner(
+                svc.search,
+                query,
+                include_hidden=include_hidden,
+                **search_kwargs,
+            )
+        except TypeError:
+            result = await runner(
+                svc.search,
+                query,
+                **search_kwargs,
+            )
         return JSONResponse(
             {
                 "query": result.query,
@@ -262,13 +280,18 @@ def create_app(
             }
         )
 
-    async def graph_data(_request: Request) -> JSONResponse:
+    async def graph_data(request: Request) -> JSONResponse:
         from ..graphview import graph_json
+
+        include_hidden = request_auth_scope(request) != "anonymous"
 
         def _graph() -> dict[str, Any]:
             conn = dbm.connect_existing(s.db_file, readonly=True)
             try:
-                return graph_json(conn)
+                try:
+                    return graph_json(conn, include_hidden=include_hidden)
+                except TypeError:
+                    return graph_json(conn)
             finally:
                 conn.close()
 
@@ -288,13 +311,18 @@ def create_app(
             return PlainTextResponse("Not Found", status_code=404)
         return FileResponse(path)
 
-    async def documents_list_route(_request: Request) -> JSONResponse:
+    async def documents_list_route(request: Request) -> JSONResponse:
         from ..graphview import documents_list
+
+        include_hidden = request_auth_scope(request) != "anonymous"
 
         def _documents() -> dict[str, Any]:
             conn = dbm.connect_existing(s.db_file, readonly=True)
             try:
-                return {"documents": documents_list(conn)}
+                try:
+                    return {"documents": documents_list(conn, include_hidden=include_hidden)}
+                except TypeError:
+                    return {"documents": documents_list(conn)}
             finally:
                 conn.close()
 
@@ -307,10 +335,15 @@ def create_app(
         if not node_id:
             raise HTTPException(status_code=400, detail="id required")
 
+        include_hidden = request_auth_scope(request) != "anonymous"
+
         def _load() -> dict[str, Any] | None:
             conn = dbm.connect_existing(s.db_file, readonly=True)
             try:
-                return _detail(conn, node_id)
+                try:
+                    return _detail(conn, node_id, include_hidden=include_hidden)
+                except TypeError:
+                    return _detail(conn, node_id)
             finally:
                 conn.close()
 
@@ -326,11 +359,16 @@ def create_app(
         if not document_id:
             raise HTTPException(status_code=400, detail="id required")
 
+        include_hidden = request_auth_scope(request) != "anonymous"
+
         def _load() -> dict[str, Any] | None:
             conn = dbm.connect_existing(s.db_file, readonly=True)
             try:
                 # GET은 readonly 사용자에게도 열리므로 열람 상태를 변경하지 않는다.
-                return document_detail(conn, document_id)
+                try:
+                    return document_detail(conn, document_id, include_hidden=include_hidden)
+                except TypeError:
+                    return document_detail(conn, document_id)
             finally:
                 conn.close()
 

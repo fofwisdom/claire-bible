@@ -996,7 +996,7 @@ def _ensure_anonymous_readonly(path: Path) -> bool:
 
     if lines and not lines[-1].endswith("\n"):
         lines[-1] += "\n"
-    lines.append(f"{ANONYMOUS_READONLY_KEY}=0\n")
+    lines.append(f"{ANONYMOUS_READONLY_KEY}=1\n")
     _atomic_write(path, "".join(lines), mode=0o600)
     return True
 
@@ -1213,7 +1213,7 @@ def command_init(layout: Layout) -> int:
     )
     print(
         f"{ANONYMOUS_READONLY_KEY}: "
-        f"{'populated (default 0)' if ANONYMOUS_READONLY_KEY in changes['env'] or ANONYMOUS_READONLY_KEY in changes['dev_env'] else 'kept'}"
+        f"{'populated (default 1)' if ANONYMOUS_READONLY_KEY in changes['env'] or ANONYMOUS_READONLY_KEY in changes['dev_env'] else 'kept'}"
     )
     print(
         f"CLAIRE_INJECT_TOKEN: "
@@ -2849,7 +2849,7 @@ def command_doctor(runtime: Runtime) -> int:
     anonymous_status = "disabled"
     if runtime.anonymous_readonly:
         anonymous_status = (
-            "ENABLED - full knowledge base, including hidden documents, is public"
+            "ENABLED - public read access (hidden documents excluded)"
         )
     print(f"anonymous readonly: {anonymous_status}")
     raw_provider = runtime.values.get("CLAIRE_PROVIDER", "").strip().lower()

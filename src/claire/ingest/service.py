@@ -639,6 +639,7 @@ class IngestService:
         limit: int = 8,
         summarize: bool = True,
         mode: SearchMode = "hybrid",
+        include_hidden: bool = True,
     ):
         from ..retrieval.query import search as _search
 
@@ -658,6 +659,7 @@ class IngestService:
                     limit=limit,
                     summarize=summarize,
                     mode=mode,
+                    include_hidden=include_hidden,
                 )
             vstore = make_vector_store(conn, self.s.vector_backend)
             return _search(
@@ -668,6 +670,7 @@ class IngestService:
                 limit=limit,
                 summarize=summarize,
                 mode=mode,
+                include_hidden=include_hidden,
             )
         finally:
             conn.close()

@@ -12,56 +12,84 @@ from collections import Counter
 from .store import db as dbm
 
 
-def graph_json(conn: sqlite3.Connection) -> dict:
+def graph_json(conn: sqlite3.Connection, include_hidden: bool = True) -> dict:
     """엔티티/관계를 vis.js network 형식(nodes/edges)으로. dangling edge 는 제외.
 
     각 노드에 degree(연결 수)를 실어 UI 가 degree-centrality 임계로 핵심 서브그래프만
-    표시할 수 있게 한다(전체 N개 렌더 → 큰 그래프의 가시성/스케일 문제 해소)."""
+    표시할 수 있게 한다(전체 N개 렌더 → 큰 그래프의 가시성/스케일 문제 해소).
+    include_hidden=False 면 숨김 문서 전용 엔티티 및 엣지를 제외한다."""
     ents = dbm.all_entities(conn)
     rels = dbm.all_relations(conn)
-    ent_ids = {e.id for e in ents}
+    hidden_doc_ids = set() if include_hidden else dbm.hidden_document_ids(conn)
+
+    visible_nodes = []
+    visible_ent_ids = set()
+    for e in ents:
+        sources = e.sources or []
+        if not include_hidden and hidden_doc_ids:
+            if sources:
+                valid_sources = [s for s in sources if s not in hidden_doc_ids]
+                if not valid_sources:
+                    # 숨김 문서에서만 나온 엔티티는 제외
+                    continue
+                node_sources = valid_sources
+            else:
+                node_sources = sources
+        else:
+            node_sources = sources
+
+        visible_ent_ids.add(e.id)
+        visible_nodes.append({
+            "id": e.id,
+            "label": e.name,
+            "group": e.type,
+            "sources": node_sources,  # 문서 기반 필터용(문서 클릭 → 그 문서 엔티티만)
+            # 관찰 첫 줄 — hover 시 마우스 위치 커스텀 팝업이 쓴다.
+            "obs": (e.observations[0][:200] if e.observations else ""),
+        })
+
     # 양 끝 노드가 모두 존재하는 관계만(고아 엣지는 vis.js 가 유령 노드를 만들어 깨짐).
     edges = [
         {"id": f"e{i}", "from": r.source_id, "to": r.target_id, "label": r.type,
          "arrows": "to", "dashes": r.provisional}
         for i, r in enumerate(
-            r for r in rels if r.source_id in ent_ids and r.target_id in ent_ids)
+            r for r in rels if r.source_id in visible_ent_ids and r.target_id in visible_ent_ids)
     ]
     deg: Counter = Counter()
     for e in edges:
         deg[e["from"]] += 1
         deg[e["to"]] += 1
-    nodes = [
-        {
-            "id": e.id,
-            "label": e.name,
-            "group": e.type,
-            "degree": deg.get(e.id, 0),
-            "sources": e.sources,  # 문서 기반 필터용(문서 클릭 → 그 문서 엔티티만)
-            # 관찰 첫 줄 — hover 시 마우스 위치 커스텀 팝업이 쓴다. vis 기본 title 툴팁은
-            # 일부러 안 쓴다(스타일 제약·중복). 그래서 'title' 이 아니라 'obs' 로 보낸다.
-            "obs": (e.observations[0][:200] if e.observations else ""),
-        }
-        for e in ents
-    ]
-    max_degree = max((n["degree"] for n in nodes), default=0)
-    return {"nodes": nodes, "edges": edges,
-            "stats": {"entities": len(nodes), "relations": len(edges),
+
+    for n in visible_nodes:
+        n["degree"] = deg.get(n["id"], 0)
+
+    max_degree = max((n["degree"] for n in visible_nodes), default=0)
+    return {"nodes": visible_nodes, "edges": edges,
+            "stats": {"entities": len(visible_nodes), "relations": len(edges),
                       "max_degree": max_degree}}
 
 
-def node_detail(conn: sqlite3.Connection, entity_id: str) -> dict | None:
+def node_detail(conn: sqlite3.Connection, entity_id: str, include_hidden: bool = True) -> dict | None:
     """한 노드의 '쓸 수 있는 지식': 전체 observations + 소스 문서(제목·요약·URL) +
     타입 있는 이웃. 패널에 그대로 펼친다. 없으면 None."""
     ent = dbm.get_entity(conn, entity_id)
     if ent is None:
         return None
 
+    hidden_doc_ids = set() if include_hidden else dbm.hidden_document_ids(conn)
+    if not include_hidden and hidden_doc_ids and ent.sources:
+        valid_sources = [s for s in ent.sources if s not in hidden_doc_ids]
+        if not valid_sources:
+            return None
+
     neighbors = []
     for r in dbm.neighbors(conn, entity_id):
         out = r.source_id == entity_id
         other = dbm.get_entity(conn, r.target_id if out else r.source_id)
         if other:
+            if not include_hidden and hidden_doc_ids and other.sources:
+                if not any(s not in hidden_doc_ids for s in other.sources):
+                    continue
             neighbors.append({
                 "id": other.id, "name": other.name, "type": other.type,
                 "rel": r.type, "dir": "out" if out else "in",
@@ -70,6 +98,8 @@ def node_detail(conn: sqlite3.Connection, entity_id: str) -> dict | None:
 
     documents = []
     for did in ent.sources:
+        if not include_hidden and did in hidden_doc_ids:
+            continue
         row = dbm.get_document_row(conn, did)
         if row:
             documents.append({
@@ -91,7 +121,7 @@ def node_detail(conn: sqlite3.Connection, entity_id: str) -> dict | None:
     }
 
 
-def document_detail(conn: sqlite3.Connection, document_id: str) -> dict | None:
+def document_detail(conn: sqlite3.Connection, document_id: str, include_hidden: bool = True) -> dict | None:
     """한 문서(article)의 우측 패널용 상세 — 제목·출처·요약·자세히읽기(detail). 없으면 None.
 
     좌측 문서를 고르면 그래프 강조에 더해 우측에 이 요약/전문을 펼친다(노드 클릭 없이
@@ -99,6 +129,8 @@ def document_detail(conn: sqlite3.Connection, document_id: str) -> dict | None:
     여기선 싣지 않는다(중복 전송 방지)."""
     row = dbm.get_document_row(conn, document_id)
     if row is None:
+        return None
+    if not include_hidden and bool(row["hidden"]):
         return None
     return {
         "id": document_id,
@@ -147,10 +179,11 @@ def dedup_clusters(conn: sqlite3.Connection, scan: dict) -> dict:
 def documents_list(
     conn: sqlite3.Connection, limit: int = 300, *,
     since: float | None = None, query: str | None = None,
+    include_hidden: bool = True,
 ) -> list[dict]:
     """좌측 문서 패널용 — 최신순 문서(제목·요약·출처타입·시각)."""
     out = []
-    for r in dbm.documents_timeline(conn, limit, since=since, query=query):
+    for r in dbm.documents_timeline(conn, limit, since=since, query=query, include_hidden=include_hidden):
         out.append({
             "id": r["id"],
             "title": r["title"] or "(제목 없음)",
@@ -167,7 +200,10 @@ def documents_list(
 
 
 def synthesis_context(
-    conn: sqlite3.Connection, entity_ids: list[str], compact: bool = False,
+    conn: sqlite3.Connection,
+    entity_ids: list[str],
+    compact: bool = False,
+    include_hidden: bool = True,
 ) -> tuple[str, list[str]]:
     """선택 노드들의 지식(관찰·연결·출처요약)을 LLM 종합용 컨텍스트 텍스트로 조립.
 
@@ -176,10 +212,14 @@ def synthesis_context(
     컨텍스트 윈도우를 아낀다(docs/design/MCP_SUPPORT.md 참고)."""
     blocks: list[str] = []
     names: list[str] = []
+    hidden_doc_ids = set() if include_hidden else dbm.hidden_document_ids(conn)
     for eid in entity_ids:
         ent = dbm.get_entity(conn, eid)
         if ent is None:
             continue
+        if not include_hidden and hidden_doc_ids and ent.sources:
+            if not any(s not in hidden_doc_ids for s in ent.sources):
+                continue
         names.append(ent.name)
         parts = [f"## {ent.name} ({ent.type})"]
         if ent.aliases:
@@ -192,11 +232,16 @@ def synthesis_context(
             out = r.source_id == eid
             other = dbm.get_entity(conn, r.target_id if out else r.source_id)
             if other:
+                if not include_hidden and hidden_doc_ids and other.sources:
+                    if not any(s not in hidden_doc_ids for s in other.sources):
+                        continue
                 rels.append(f"{r.type} {'→' if out else '←'} {other.name}")
         if rels:
             parts.append("연결: " + ", ".join(rels[:12]))
         if not compact:
             for did in ent.sources:
+                if not include_hidden and did in hidden_doc_ids:
+                    continue
                 summ = dbm.latest_extraction_summary(conn, did)
                 if summ:
                     parts.append(f"출처요약: {summ}")

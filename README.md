@@ -154,7 +154,7 @@ cd claire-bible
 
 - `.env.example`을 `.env`로, `.env.dev.example`을 `.env.dev`로 복사
 - 기존 환경 파일과 비어 있지 않은 설정 유지
-- production/development selector와 `CLAIRE_ANONYMOUS_READONLY=0` 보충
+- production/development selector와 `CLAIRE_ANONYMOUS_READONLY=1` 보충
 - 비어 있는 `CLAIRE_INJECT_TOKEN`을 URL-safe owner token으로 생성
 - 환경 파일을 mode `0600`으로 설정
 - 기본 `data/`, `vault/` 디렉터리 생성
@@ -180,7 +180,7 @@ CB_API_BIND=192.168.10.25
 CB_API_PORT=8765
 CLAIRE_PUBLIC_URL=https://kb.example.net/
 CLAIRE_CORS_ALLOWED_ORIGINS=
-CLAIRE_ANONYMOUS_READONLY=0
+CLAIRE_ANONYMOUS_READONLY=1
 ```
 
 - `CB_API_BIND`는 Claire 호스트에 실제 할당된 단일 IPv4여야 한다.
@@ -225,9 +225,8 @@ GEMINI_API_KEY=replace-with-gemini-api-key
 Telegram bot을 활성화할 때 `TELEGRAM_BOT_TOKEN`과 `CLAIRE_ALLOWED_USERS`의 허용할
 숫자 user ID를 설정한다.
 
-`CLAIRE_ANONYMOUS_READONLY=1`은 숨김 문서를 포함한 전체 지식베이스의 읽기 API를
-자격증명 없이 공개한다. 최초 설치는 기본값 `0`을 유지하고, 방화벽과 rate limit을
-검증한 뒤 필요한 profile에서만 명시적으로 활성화한다.
+`CLAIRE_ANONYMOUS_READONLY=1`(기본값)은 숨김 문서를 제외한 공개 지식베이스의 읽기 API를
+자격증명 없이 공개한다. 완전히 인증 전용(비공개)으로 운영하려면 `0`으로 변경한다.
 
 #### 4. 사전 검사, 설치, 설치 후 확인
 
@@ -299,17 +298,17 @@ development가 선택되면 `.env` 다음에 `.env.dev`와 개발 Compose overla
 
 기존 설치를 처음 이 구조로 올릴 때는 lifecycle 명령 전에 `./cb-manuscript init`을 한
 번 다시 실행한다. 기존 secret과 명시된 값을 유지하면서 누락된 환경 selector와
-`CLAIRE_ANONYMOUS_READONLY=0`을 production/development 파일에 각각 보충한다. 그 뒤
+`CLAIRE_ANONYMOUS_READONLY=1`을 production/development 파일에 각각 보충한다. 그 뒤
 production `.env`에는 실제 외부 hostname의
 `CLAIRE_PUBLIC_URL=https://.../`을 반드시 설정하고, 필요할 때만 exact HTTPS origin을
 `CLAIRE_CORS_ALLOWED_ORIGINS`에 넣는다.
 
-웹 읽기는 기본적으로 인증이 필요하다. exact `CLAIRE_ANONYMOUS_READONLY=1`은 canonical
-same-origin 또는 Origin 헤더가 없는 요청에서 자격증명 없는 읽기를 허용하는 명시적
-opt-in이다. 이는 owner 인증이나 쓰기 기능을 끄는 설정이 아니며, 그래프·문서
-상세·숨김 문서를 포함한 지식베이스 전체가 API를 통해 공개된다. `hidden`은 화면
-정리용 표시이지 접근 제어가 아니다. 공개 전에 [외부 접속과 reverse
-proxy](docs/implementation/EXTERNAL_ACCESS.md)의 방화벽·rate limit 경계를 적용한다.
+exact `CLAIRE_ANONYMOUS_READONLY=1`(기본값)은 canonical same-origin 또는 Origin 헤더가 없는
+요청에서 자격증명 없는 읽기 전용 접근을 허용한다. 이는 owner 인증이나 쓰기 기능을 끄는
+설정이 아니며, 숨김 문서(`hidden=1`) 및 그와 연관된 엔티티는 익명 읽기 계층에서 철저히
+제외되어 안전하게 공개된다. 완전히 인증 전용으로 운영하려면 `CLAIRE_ANONYMOUS_READONLY=0`으로
+설정한다. 공개 전에 [외부 접속과 reverse proxy](docs/implementation/EXTERNAL_ACCESS.md)의
+방화벽·rate limit 경계를 적용한다.
 
 `app`, `shell`, 고급 `compose` one-off는 인스턴스 잠금을 잡아 lifecycle 및 백업·복원과
 동시에 실행되지 않는다. migration, Compose 관리 daemon과 파괴적 유지보수는 실수로

@@ -28,16 +28,16 @@ Docker port publish의 host 측 `CB_API_BIND`다. `cb-manuscript`는 `CB_API_BIN
 없는 정확한 origin의 쉼표 목록이다. 빈 값이면 same-origin만 허용하고, production
 목록은 `https` origin만 사용할 수 있다.
 
-읽기 경로도 기본적으로 인증된다. exact `CLAIRE_ANONYMOUS_READONLY=1`은 canonical
-same-origin 또는 Origin 헤더가 없는 요청에서만 자격증명 없는 읽기를 허용한다. 이 값은
-owner 인증과 쓰기 경로를 없애지 않는다. 또한 `hidden`은 UI 표시일 뿐 ACL이 아니므로,
-활성화하면 그래프·문서 상세·숨김 문서를 포함한 KB 전체가 API 공개 범위가 된다.
-cross-origin anonymous는 허용하지 않으며, CORS allowlist에 origin을 넣어도 Bearer
+exact `CLAIRE_ANONYMOUS_READONLY=1`(기본값)은 canonical same-origin 또는 Origin 헤더가
+없는 요청에서 자격증명 없는 읽기 전용 접근을 허용한다. 이 값은 owner 인증과 쓰기 경로를
+없애지 않으며, 숨김 문서(`hidden=1`) 및 그와 연관된 엔티티는 익명 읽기 계층에서 철저히
+제외되어 안전하게 공개된다. 완전히 인증 전용으로 운영하려면 `CLAIRE_ANONYMOUS_READONLY=0`으로
+설정한다. cross-origin anonymous는 허용하지 않으며, CORS allowlist에 origin을 넣어도 Bearer
 요구는 유지된다.
 
 기존 `.env`/`.env.dev`를 재사용하는 설치는 첫 기동 전에 `./cb-manuscript init`을 다시
 실행해 누락된 environment selector와 profile별
-`CLAIRE_ANONYMOUS_READONLY=0`을 보충한다. 이 명령은 production hostname을 추측하지
+`CLAIRE_ANONYMOUS_READONLY=1`을 보충한다. 이 명령은 production hostname을 추측하지
 않는다. 따라서 `.env`의 `CLAIRE_PUBLIC_URL`은 아래 production 형식으로 직접 설정한 뒤
 `./cb-manuscript doctor`를 통과시켜야 한다.
 

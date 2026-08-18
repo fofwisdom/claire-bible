@@ -84,6 +84,17 @@ def test_all_anonymous_reads_preserve_database_data_and_vault(tmp_path: Path) ->
             content_hash="faith-hash",
         ),
     )
+    dbm.insert_document(
+        conn,
+        Document(
+            id="doc-2",
+            url="https://example.test/grace",
+            title="Grace document",
+            raw_text="Grace is unmerited favor.",
+            source_type="web",
+            content_hash="grace-hash",
+        ),
+    )
     dbm.upsert_entity(
         conn,
         Entity(
@@ -92,6 +103,16 @@ def test_all_anonymous_reads_preserve_database_data_and_vault(tmp_path: Path) ->
             name="Faith",
             observations=["trust and confidence"],
             sources=["doc-1"],
+        ),
+    )
+    dbm.upsert_entity(
+        conn,
+        Entity(
+            id="entity-2",
+            type="Concept",
+            name="Grace",
+            observations=["unmerited favor"],
+            sources=["doc-2"],
         ),
     )
     assert dbm.set_document_hidden(conn, "doc-1", True)
@@ -132,12 +153,12 @@ def test_all_anonymous_reads_preserve_database_data_and_vault(tmp_path: Path) ->
             ("HEAD", "/stats", None),
             ("GET", "/graph", None),
             ("HEAD", "/graph", None),
-            ("GET", "/node", {"id": "entity-1"}),
-            ("HEAD", "/node", {"id": "entity-1"}),
+            ("GET", "/node", {"id": "entity-2"}),
+            ("HEAD", "/node", {"id": "entity-2"}),
             ("GET", "/documents", None),
             ("HEAD", "/documents", None),
-            ("GET", "/document", {"id": "doc-1"}),
-            ("HEAD", "/document", {"id": "doc-1"}),
+            ("GET", "/document", {"id": "doc-2"}),
+            ("HEAD", "/document", {"id": "doc-2"}),
         ]
         responses = [
             client.request(method, path, params=params)
@@ -147,25 +168,41 @@ def test_all_anonymous_reads_preserve_database_data_and_vault(tmp_path: Path) ->
             client.post(
                 "/search",
                 json={
-                    "query": "Faith",
+                    "query": "Grace",
                     "limit": 999,
                     "summarize": True,
                     "mode": "hybrid",
                 },
             )
         )
+        # 익명 요청 시 숨김 문서/엔티티는 목록 제외 및 404
         hidden_documents = client.get("/documents")
         hidden_detail = client.get("/document", params={"id": "doc-1"})
-        responses.extend((hidden_documents, hidden_detail))
+        hidden_node = client.get("/node", params={"id": "entity-1"})
+        hidden_search = client.post("/search", json={"query": "Faith", "limit": 10})
 
         assert all(response.status_code == 200 for response in responses)
         assert all("set-cookie" not in response.headers for response in responses)
-        assert responses[-3].json()["mode"] == "fts"
-        assert any(
-            document["id"] == "doc-1" and document["hidden"] == 1
-            for document in hidden_documents.json()["documents"]
-        )
-        assert hidden_detail.json()["hidden"] == 1
+        assert responses[-1].json()["mode"] == "fts"
+
+        # 익명 읽기에서 숨김 문서는 목록에서 제외되고 상세는 404
+        assert all(doc["id"] != "doc-1" for doc in hidden_documents.json()["documents"])
+        assert any(doc["id"] == "doc-2" for doc in hidden_documents.json()["documents"])
+        assert hidden_detail.status_code == 404
+        assert hidden_node.status_code == 404
+        assert all(h["id"] != "entity-1" for h in hidden_search.json()["hits"])
+
+        # 소유자(owner) 토큰으로 요청 시에는 숨김 문서/엔티티 정상 접근
+        owner_headers = {"Authorization": f"Bearer {OWNER_TOKEN}"}
+        owner_docs = client.get("/documents", headers=owner_headers)
+        assert owner_docs.status_code == 200
+        assert any(doc["id"] == "doc-1" and doc["hidden"] == 1 for doc in owner_docs.json()["documents"])
+        owner_detail = client.get("/document", params={"id": "doc-1"}, headers=owner_headers)
+        assert owner_detail.status_code == 200
+        assert owner_detail.json()["hidden"] is True
+        owner_node = client.get("/node", params={"id": "entity-1"}, headers=owner_headers)
+        assert owner_node.status_code == 200
+
         assert _logical_dump(db_file) == before_dump
         assert _tree_hash(data_dir, excluded=sqlite_files) == before_data
         assert _tree_hash(vault_dir) == before_vault

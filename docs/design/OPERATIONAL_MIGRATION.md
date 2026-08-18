@@ -43,7 +43,7 @@ flowchart TD
 - **특수 변수 핸들러**:
   - `CLAIRE_ENVIRONMENT`: `production` / `development` 정확성 검증 및 보충.
   - `TZ`: 호스트 시스템의 `timedatectl` / `/etc/timezone` / `/etc/localtime`에서 감지된 타임존 자동 보충.
-  - `CLAIRE_ANONYMOUS_READONLY`: 기본값 `0` 안전 보충.
+  - `CLAIRE_ANONYMOUS_READONLY`: 기본값 `1` 안전 보충.
   - `CLAIRE_INJECT_TOKEN`: 비어 있을 경우 32자 이상의 안전한 암호학적 난수 토큰 자동 생성.
 
 ---

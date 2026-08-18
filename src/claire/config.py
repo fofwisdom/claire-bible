@@ -168,9 +168,9 @@ class Settings(BaseSettings):
     # 문서목록)만 통과시키고 쓰기(ingest/dedup-merge/공유링크발급 등)는 차단(에이전트 조회용).
     readonly_token: str = Field(default="", alias="CLAIRE_READONLY_TOKEN")
     # exact 0|1 opt-in. True면 자격증명 없는 same-origin 요청을 읽기 전용으로만
-    # 허용한다. owner 인증과 쓰기 경로는 그대로 유지된다.
+    # 허용한다(숨김 문서는 제외). owner 인증과 쓰기 경로는 그대로 유지된다.
     anonymous_readonly: bool = Field(
-        default=False,
+        default=True,
         alias="CLAIRE_ANONYMOUS_READONLY",
     )
     # 브라우저 기준 canonical URL. Host 검증, same-origin 판정, /web 링크 생성에 함께 쓴다.
