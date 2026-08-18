@@ -47,8 +47,11 @@ class AntigravityProvider:
     EMBED_DIM = 64
 
     def __init__(self, settings: Any):
+        from ..config import find_agy_executable
+
         self.settings = settings
-        self.agy_bin = getattr(settings, "agy_bin", "agy")
+        raw_bin = getattr(settings, "agy_bin", "agy")
+        self.agy_bin = find_agy_executable(raw_bin) or raw_bin
         self.model = getattr(settings, "agy_model", "gemini-3.6-flash-high")
         self.effort = getattr(settings, "agy_effort", "medium")
         self.timeout = float(getattr(settings, "agy_timeout", 120.0))

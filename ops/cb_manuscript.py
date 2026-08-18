@@ -260,6 +260,72 @@ class Runtime:
         argv.extend(args)
         return argv
 
+def detect_host_antigravity_paths(
+    values: Mapping[str, str] | None = None,
+) -> tuple[str, str]:
+    """Detect host agy binary location and .gemini credentials directory."""
+    agy_name = "agy"
+    if values:
+        agy_name = values.get("CLAIRE_AGY_BIN", "").strip() or "agy"
+
+    # 1. agy binary directory
+    host_bin_dir = str(Path.home() / ".local" / "bin")
+    agy_path: str | None = None
+
+    if Path(agy_name).is_file() and os.access(agy_name, os.X_OK):
+        agy_path = str(Path(agy_name).resolve())
+    else:
+        which_path = shutil.which(agy_name)
+        if which_path and Path(which_path).is_file() and os.access(which_path, os.X_OK):
+            agy_path = str(Path(which_path).resolve())
+        else:
+            candidates = [
+                Path("/usr/local/bin") / agy_name,
+                Path("/usr/bin") / agy_name,
+                Path.home() / ".local" / "bin" / agy_name,
+                Path("/root/.local/bin") / agy_name,
+            ]
+            home_root = Path("/home")
+            if home_root.is_dir():
+                try:
+                    for u in home_root.iterdir():
+                        if u.is_dir():
+                            candidates.append(u / ".local" / "bin" / agy_name)
+                except Exception:
+                    pass
+            for c in candidates:
+                if c.is_file() and os.access(c, os.X_OK):
+                    agy_path = str(c.resolve())
+                    break
+
+    if agy_path:
+        host_bin_dir = str(Path(agy_path).parent)
+
+    # 2. .gemini credentials directory
+    host_gemini_dir = str(Path.home() / ".gemini")
+    gemini_candidates = [Path.home() / ".gemini", Path("/root/.gemini")]
+    home_root = Path("/home")
+    if home_root.is_dir():
+        try:
+            for u in home_root.iterdir():
+                if u.is_dir():
+                    gemini_candidates.append(u / ".gemini")
+        except Exception:
+            pass
+
+    for gc in gemini_candidates:
+        if gc.is_dir():
+            try:
+                # Select directory that actually contains subfiles or settings
+                if any(gc.iterdir()):
+                    host_gemini_dir = str(gc.resolve())
+                    break
+            except Exception:
+                pass
+
+    return host_bin_dir, host_gemini_dir
+
+
     def compose_environment(self) -> dict[str, str]:
         env = os.environ.copy()
         # The three security boundary values are passed into the actual container by service env_file.
@@ -280,9 +346,9 @@ class Runtime:
         if tz_value:
             env["TZ"] = tz_value
 
-        home = Path.home()
-        env.setdefault("CB_GEMINI_DIR", str(home / ".gemini"))
-        env.setdefault("CB_BIN_DIR", str(home / ".local" / "bin"))
+        host_bin_dir, host_gemini_dir = detect_host_antigravity_paths(self.values)
+        env["CB_BIN_DIR"] = env.get("CB_BIN_DIR", "").strip() or host_bin_dir
+        env["CB_GEMINI_DIR"] = env.get("CB_GEMINI_DIR", "").strip() or host_gemini_dir
         return env
 
 
@@ -2772,6 +2838,16 @@ def command_doctor(runtime: Runtime) -> int:
             "ENABLED - full knowledge base, including hidden documents, is public"
         )
     print(f"anonymous readonly: {anonymous_status}")
+    raw_provider = runtime.values.get("CLAIRE_PROVIDER", "").strip().lower()
+    print(f"provider: {raw_provider or 'mock'}")
+    if raw_provider in ("antigravity", "agy"):
+        host_bin_dir, host_gemini_dir = detect_host_antigravity_paths(runtime.values)
+        agy_bin = Path(host_bin_dir) / (runtime.values.get("CLAIRE_AGY_BIN", "").strip() or "agy")
+        if agy_bin.is_file():
+            print(f"antigravity binary: {agy_bin}")
+        else:
+            print(f"antigravity binary: NOT found (will fall back to mock in container)")
+        print(f"antigravity credentials: {host_gemini_dir}")
     print("doctor: OK")
     return 0
 

@@ -6,6 +6,7 @@ Gemini 키가 없으면 provider 는 자동으로 mock 으로 떨어진다(M0~M1
 from __future__ import annotations
 
 from functools import lru_cache
+import os
 from pathlib import Path
 import shutil
 from typing import Any
@@ -63,6 +64,29 @@ class _ExactDotEnvSettingsSource(DotEnvSettingsSource):
                     encoding=self.env_file_encoding or "utf-8",
                 )
         return dict(super()._read_env_files())
+
+
+def find_agy_executable(agy_bin: str = "agy") -> str | None:
+    """Find agy executable in PATH or standard container/host locations."""
+    if not agy_bin:
+        agy_bin = "agy"
+    if Path(agy_bin).is_file() and os.access(agy_bin, os.X_OK):
+        return str(Path(agy_bin).resolve())
+    found = shutil.which(agy_bin)
+    if found:
+        return found
+    extra_dirs = [
+        "/host-bin",
+        "/usr/local/bin",
+        "/usr/bin",
+        str(Path.home() / ".local" / "bin"),
+        "/root/.local/bin",
+    ]
+    for d in extra_dirs:
+        cand = Path(d) / agy_bin
+        if cand.is_file() and os.access(cand, os.X_OK):
+            return str(cand.resolve())
+    return None
 
 
 class Settings(BaseSettings):
@@ -173,7 +197,7 @@ class Settings(BaseSettings):
     def effective_provider(self) -> str:
         """키나 실행 환경이 갖춰지지 않으면 provider 는 mock 으로 떨어진다."""
         if self.provider in ("antigravity", "agy"):
-            if shutil.which(self.agy_bin) is not None:
+            if find_agy_executable(self.agy_bin) is not None:
                 return "antigravity"
             return "mock"
         if self.provider == "gemini" and not self.gemini_api_key:
