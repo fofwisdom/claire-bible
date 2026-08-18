@@ -267,15 +267,29 @@ def detect_host_antigravity_paths(
         except Exception:
             pass
 
+    # 1순위: 실제 antigravity-oauth-token 또는 settings.json이 존재하는 디렉터리 우선
     for gc in gemini_candidates:
         if gc.is_dir():
             try:
-                # Select directory that actually contains subfiles or settings
-                if any(gc.iterdir()):
+                if (
+                    (gc / "antigravity-cli" / "antigravity-oauth-token").is_file()
+                    or (gc / "antigravity-oauth-token").is_file()
+                    or (gc / "antigravity-cli" / "settings.json").is_file()
+                ):
                     host_gemini_dir = str(gc.resolve())
                     break
             except Exception:
                 pass
+    else:
+        # 2순위: 내용물이 존재하는 디렉터리
+        for gc in gemini_candidates:
+            if gc.is_dir():
+                try:
+                    if any(gc.iterdir()):
+                        host_gemini_dir = str(gc.resolve())
+                        break
+                except Exception:
+                    pass
 
     return host_bin_dir, host_gemini_dir
 
