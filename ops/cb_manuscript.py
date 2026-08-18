@@ -214,52 +214,6 @@ class Layout:
         return self.development_state if dev else self.production_state
 
 
-@dataclass(frozen=True)
-class Runtime:
-    layout: Layout
-    environment: str
-    values: Mapping[str, str]
-    project: str
-    wait_timeout: int
-    bot_enabled: bool
-    anonymous_readonly: bool
-
-    @property
-    def dev(self) -> bool:
-        return self.environment == DEVELOPMENT
-
-    @property
-    def env_files(self) -> tuple[Path, ...]:
-        if self.dev:
-            return (self.layout.env, self.layout.dev_env)
-        return (self.layout.env,)
-
-    @property
-    def compose_files(self) -> tuple[Path, ...]:
-        if self.dev:
-            return (self.layout.compose, self.layout.dev_compose)
-        return (self.layout.compose,)
-
-    def compose_argv(self, *args: str, all_profiles: bool = False) -> list[str]:
-        argv = [
-            "docker",
-            "compose",
-            "--project-directory",
-            str(self.layout.root),
-            "-p",
-            self.project,
-        ]
-        for env_file in self.env_files:
-            argv.extend(("--env-file", str(env_file)))
-        for compose_file in self.compose_files:
-            argv.extend(("-f", str(compose_file)))
-        if all_profiles:
-            argv.extend(("--profile", "*"))
-        elif self.bot_enabled:
-            argv.extend(("--profile", "bot"))
-        argv.extend(args)
-        return argv
-
 def detect_host_antigravity_paths(
     values: Mapping[str, str] | None = None,
 ) -> tuple[str, str]:
@@ -325,6 +279,52 @@ def detect_host_antigravity_paths(
 
     return host_bin_dir, host_gemini_dir
 
+
+@dataclass(frozen=True)
+class Runtime:
+    layout: Layout
+    environment: str
+    values: Mapping[str, str]
+    project: str
+    wait_timeout: int
+    bot_enabled: bool
+    anonymous_readonly: bool
+
+    @property
+    def dev(self) -> bool:
+        return self.environment == DEVELOPMENT
+
+    @property
+    def env_files(self) -> tuple[Path, ...]:
+        if self.dev:
+            return (self.layout.env, self.layout.dev_env)
+        return (self.layout.env,)
+
+    @property
+    def compose_files(self) -> tuple[Path, ...]:
+        if self.dev:
+            return (self.layout.compose, self.layout.dev_compose)
+        return (self.layout.compose,)
+
+    def compose_argv(self, *args: str, all_profiles: bool = False) -> list[str]:
+        argv = [
+            "docker",
+            "compose",
+            "--project-directory",
+            str(self.layout.root),
+            "-p",
+            self.project,
+        ]
+        for env_file in self.env_files:
+            argv.extend(("--env-file", str(env_file)))
+        for compose_file in self.compose_files:
+            argv.extend(("-f", str(compose_file)))
+        if all_profiles:
+            argv.extend(("--profile", "*"))
+        elif self.bot_enabled:
+            argv.extend(("--profile", "bot"))
+        argv.extend(args)
+        return argv
 
     def compose_environment(self) -> dict[str, str]:
         env = os.environ.copy()

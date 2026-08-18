@@ -29,21 +29,21 @@ def _make_settings(**kwargs) -> Settings:
 
 
 def test_effective_provider_resolution():
-    with patch("claire.config.shutil.which", return_value="/usr/local/bin/agy"):
+    with patch("claire.config.find_agy_executable", return_value="/usr/local/bin/agy"):
         s = _make_settings(provider="antigravity")
         assert s.effective_provider == "antigravity"
 
         s_alias = _make_settings(provider="agy")
         assert s_alias.effective_provider == "antigravity"
 
-    with patch("claire.config.shutil.which", return_value=None):
+    with patch("claire.config.find_agy_executable", return_value=None):
         s_missing = _make_settings(provider="antigravity")
         assert s_missing.effective_provider == "mock"
 
 
 def test_get_provider_factory():
     s = _make_settings(provider="antigravity")
-    with patch("claire.config.shutil.which", return_value="/usr/bin/agy"):
+    with patch("claire.config.find_agy_executable", return_value="/usr/bin/agy"):
         prov = get_provider(s)
         assert isinstance(prov, AntigravityProvider)
         assert prov.name == "antigravity"
@@ -95,7 +95,7 @@ def test_extract_structured_success(mock_run):
 
     mock_run.assert_called_once()
     cmd = mock_run.call_args[0][0]
-    assert cmd[0] == "agy"
+    assert "agy" in cmd[0]
     assert "-p" in cmd
     assert "--output-format" in cmd
     assert "json" in cmd
