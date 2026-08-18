@@ -206,7 +206,7 @@ GEMINI_API_KEY=
 TELEGRAM_BOT_TOKEN=
 ```
 
-실제 Gemini를 사용하려면 provider와 API key를 모두 설정한다.
+실제 Gemini를 사용하려면 `CLAIRE_PROVIDER`를 `gemini`로 변경하고 `GEMINI_API_KEY`를 설정한다.
 
 ```dotenv
 CLAIRE_PROVIDER=gemini
@@ -262,23 +262,23 @@ Telegram bot을 활성화할 때 `TELEGRAM_BOT_TOKEN`과 `CLAIRE_ALLOWED_USERS`�
 
 ### 주요 운영 명령
 
-```bash
-./cb-manuscript update             # fast-forward source → build → stop → migrate → up
-./cb-manuscript update --no-fetch  # 이미 동기화된 소스로 재배치
-./cb-manuscript up
-./cb-manuscript down
-./cb-manuscript restart
-./cb-manuscript backup                    # backups/cb-YYYYMMDD/
-./cb-manuscript backup --format archive   # backups/cb-YYYYMMDD.tar.gz
-./cb-manuscript restore backups/cb-YYYYMMDD --yes
-./cb-manuscript health
-./cb-manuscript logs -f api
-./cb-manuscript shell
-./cb-manuscript app --help          # 배포 이미지의 전체 앱 명령 확인
-./cb-manuscript app status         # 배포된 앱의 one-off 상태 조회
-./cb-manuscript app health         # degraded까지 평가하는 전체 health
-./cb-manuscript compose -- ps      # 고급 Compose 탈출구
-```
+| 명령 | 설명 |
+|---|---|
+| `./cb-manuscript update` | fast-forward source → build → stop → migrate → up |
+| `./cb-manuscript update --no-fetch` | 이미 동기화된 소스로 재배치 |
+| `./cb-manuscript up` | 서비스 스택 시작 |
+| `./cb-manuscript down` | 서비스 스택 중지 |
+| `./cb-manuscript restart` | 서비스 스택 재시작 |
+| `./cb-manuscript backup` | 백업 생성 (`backups/cb-YYYYMMDD/`) |
+| `./cb-manuscript backup --format archive` | 압축 백업 생성 (`backups/cb-YYYYMMDD.tar.gz`) |
+| `./cb-manuscript restore backups/cb-YYYYMMDD --yes` | 백업 복원 |
+| `./cb-manuscript health` | 실행 중인 API 컨테이너의 DB·schema liveness 확인 |
+| `./cb-manuscript logs -f api` | API 컨테이너 실시간 로그 확인 |
+| `./cb-manuscript shell` | 컨테이너 셸 접속 |
+| `./cb-manuscript app --help` | 배포 이미지의 전체 앱 명령 확인 |
+| `./cb-manuscript app status` | 배포된 앱의 one-off 상태 조회 |
+| `./cb-manuscript app health` | degraded까지 평가하는 전체 health 확인 |
+| `./cb-manuscript compose -- ps` | 고급 Compose 탈출구 |
 
 `CLAIRE_ENVIRONMENT`는 `development` 또는 `production` 중 하나가 반드시 필요하다.
 bare 명령의 환경 선택은 프로세스 값을 먼저 본다. 다만 설정 파일의 역할까지 바꾸지는
