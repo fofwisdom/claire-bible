@@ -276,7 +276,7 @@ def test_load_runtime_validates_readonly_token_rules(tmp_path):
         .replace("CLAIRE_READONLY_TOKEN=short", f"CLAIRE_READONLY_TOKEN={owner}"),
         encoding="utf-8",
     )
-    with pytest.raises(cb.ManuscriptError, match="서로 달라야 합니다"):
+    with pytest.raises(cb.ManuscriptError, match="must be different"):
         cb.load_runtime(cb.Layout(tmp_path))
 
 
@@ -739,7 +739,7 @@ def test_app_advanced_override_runs_managed_or_unsafe_commands(
     command = run.call_args.args[0]
     assert "--advanced" not in command
     assert command[-len(app_args) :] == list(app_args)
-    assert "보장하지 않습니다" in capsys.readouterr().err
+    assert "does not guarantee" in capsys.readouterr().err
 
 
 def test_app_unknown_command_requires_advanced_override(tmp_path, capsys):
@@ -748,7 +748,7 @@ def test_app_unknown_command_requires_advanced_override(tmp_path, capsys):
     with patch.object(cb.subprocess, "run") as run:
         assert cb.main(["app", "future-command"], root=tmp_path) == 2
     run.assert_not_called()
-    assert "분류되지 않은 앱 명령" in capsys.readouterr().err
+    assert "unclassified app command" in capsys.readouterr().err
 
     with patch.object(cb.subprocess, "run", side_effect=_fake_success) as run:
         assert cb.main(
@@ -756,7 +756,7 @@ def test_app_unknown_command_requires_advanced_override(tmp_path, capsys):
             root=tmp_path,
         ) == 0
     assert run.call_args.args[0][-2:] == ["claire", "future-command"]
-    assert "보장하지 않습니다" in capsys.readouterr().err
+    assert "does not guarantee" in capsys.readouterr().err
 
 
 def test_app_advanced_always_warns_even_for_allowed_command(tmp_path, capsys):
@@ -765,7 +765,7 @@ def test_app_advanced_always_warns_even_for_allowed_command(tmp_path, capsys):
     with patch.object(cb.subprocess, "run", side_effect=_fake_success):
         assert cb.main(["app", "--advanced", "status"], root=tmp_path) == 0
 
-    assert "보장하지 않습니다" in capsys.readouterr().err
+    assert "does not guarantee" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize("argv", (("app",), ("app", "--advanced")))
@@ -791,7 +791,7 @@ def test_app_delimiters_are_supported(tmp_path, capsys):
     help_call, migrate_call = run.call_args_list
     assert help_call.args[0][-2:] == ["claire", "--help"]
     assert migrate_call.args[0][-2:] == ["claire", "migrate"]
-    assert "보장하지 않습니다" in capsys.readouterr().err
+    assert "does not guarantee" in capsys.readouterr().err
 
 
 def test_app_returns_child_exit_code(tmp_path):

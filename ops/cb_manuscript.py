@@ -75,14 +75,14 @@ PASSTHROUGH_COMMANDS = {
     "compose",
 }
 PASSTHROUGH_HELP = {
-    "up": "Compose 서비스를 기동",
-    "down": "Compose 서비스를 중지·제거",
-    "restart": "Compose 서비스를 재시작",
-    "status": "Compose 서비스 상태 표시",
-    "logs": "Compose 서비스 로그 표시",
-    "shell": "실행 중인 서비스에서 shell 명령 실행",
-    "app": "배포 환경에서 claire one-off 실행(--advanced는 보호 우회)",
-    "compose": "고급 Docker Compose 인수 전달",
+    "up": "Start Compose services",
+    "down": "Stop and remove Compose services",
+    "restart": "Restart Compose services",
+    "status": "Display Compose services status",
+    "logs": "Display Compose services logs",
+    "shell": "Execute shell command in a running service",
+    "app": "Run one-off claire command in deployment environment (--advanced bypasses guards)",
+    "compose": "Pass advanced arguments directly to Docker Compose",
 }
 APP_ADVANCED_OPTION = "--advanced"
 APP_ONE_OFF_COMMANDS = {
@@ -106,13 +106,13 @@ APP_ONE_OFF_COMMANDS = {
     "recanonicalize",
 }
 APP_GUARDED_COMMANDS = {
-    "migrate": "install/update가 소유하는 schema lifecycle 명령",
-    "bot": "Compose가 소유하는 지속 실행 서비스",
-    "serve-api": "Compose가 소유하는 지속 실행 서비스",
-    "recover-loop": "Compose가 소유하는 지속 실행 서비스",
-    "refresh-loop": "Compose가 소유하는 지속 실행 서비스",
-    "expand-loop": "Compose가 소유하는 지속 실행 서비스",
-    "reextract": "그래프를 재구축하는 파괴적 유지보수 명령",
+    "migrate": "Schema lifecycle command owned by install/update",
+    "bot": "Persistent service owned by Compose",
+    "serve-api": "Persistent service owned by Compose",
+    "recover-loop": "Persistent service owned by Compose",
+    "refresh-loop": "Persistent service owned by Compose",
+    "expand-loop": "Persistent service owned by Compose",
+    "reextract": "Destructive maintenance command that rebuilds the graph",
 }
 
 
@@ -131,7 +131,7 @@ class CommandError(ManuscriptError):
         self.argv = tuple(argv)
         self.returncode = returncode
         super().__init__(
-            f"명령이 실패했습니다(exit {returncode}): {_display_argv(argv)}",
+            f"Command failed (exit {returncode}): {_display_argv(argv)}",
             exit_code=returncode or 1,
         )
 
@@ -262,8 +262,8 @@ class Runtime:
 
     def compose_environment(self) -> dict[str, str]:
         env = os.environ.copy()
-        # 세 보안 경계 값은 service env_file이 실제 컨테이너에 전달한다. host process의
-        # 동명 값이 Compose 보간에 끼어들어 사전 검사와 실행값을 갈라놓지 못하게 한다.
+        # The three security boundary values are passed into the actual container by service env_file.
+        # Prevent host process values of the same name from interfering with Compose interpolation.
         env.pop("CLAIRE_PUBLIC_URL", None)
         env.pop("CLAIRE_CORS_ALLOWED_ORIGINS", None)
         env.pop(ANONYMOUS_READONLY_KEY, None)
@@ -303,7 +303,7 @@ def run_command(
     try:
         result = subprocess.run(command, **kwargs)
     except FileNotFoundError as exc:
-        raise ManuscriptError(f"명령을 찾을 수 없습니다: {command[0]}", 127) from exc
+        raise ManuscriptError(f"Command not found: {command[0]}", 127) from exc
     if check and result.returncode:
         raise CommandError(command, result.returncode)
     return result
@@ -345,20 +345,20 @@ def _dotenv_value(raw: str, path: Path, lineno: int) -> str:
             break
         escaped = False
     if closing < 0:
-        raise ManuscriptError(f"{path}:{lineno}: 닫히지 않은 따옴표")
+        raise ManuscriptError(f"{path}:{lineno}: unclosed quote")
     suffix = value[closing + 1 :].strip()
     if suffix and not suffix.startswith("#"):
-        raise ManuscriptError(f"{path}:{lineno}: 따옴표 뒤에 허용되지 않은 문자가 있습니다")
+        raise ManuscriptError(f"{path}:{lineno}: unexpected characters after quote")
     return value[1:closing]
 
 
 def _exact_anonymous_readonly_value(raw: str, path: Path, lineno: int) -> str:
-    """공개 범위 selector는 dotenv의 공백/따옴표 정규화를 허용하지 않는다."""
+    """Exact boolean selector does not allow dotenv quote or whitespace normalization."""
 
     if raw not in {"0", "1"}:
         raise ManuscriptError(
-            f"{path}:{lineno}: {ANONYMOUS_READONLY_KEY}는 "
-            "바깥 공백 없이 정확히 0 또는 1이어야 합니다."
+            f"{path}:{lineno}: {ANONYMOUS_READONLY_KEY} must be "
+            "exactly 0 or 1 without surrounding whitespace."
         )
     return raw
 
@@ -370,10 +370,10 @@ def read_dotenv(path: Path) -> dict[str, str]:
         text = path.read_text(encoding="utf-8")
     except FileNotFoundError as exc:
         raise ManuscriptError(
-            f"{path} 파일이 없습니다. 먼저 `./cb-manuscript init`을 실행하세요."
+            f"File not found: {path}. Run `./cb-manuscript init` first."
         ) from exc
     except OSError as exc:
-        raise ManuscriptError(f"{path} 파일을 읽을 수 없습니다: {exc}") from exc
+        raise ManuscriptError(f"Cannot read file {path}: {exc}") from exc
 
     values: dict[str, str] = {}
     for lineno, original in enumerate(text.splitlines(), start=1):
@@ -383,11 +383,11 @@ def read_dotenv(path: Path) -> dict[str, str]:
         if line.startswith("export "):
             line = line[7:].lstrip()
         if "=" not in line:
-            raise ManuscriptError(f"{path}:{lineno}: KEY=VALUE 형식이 아닙니다")
+            raise ManuscriptError(f"{path}:{lineno}: not in KEY=VALUE format")
         key, raw = line.split("=", 1)
         key = key.strip()
         if not KEY_RE.fullmatch(key):
-            raise ManuscriptError(f"{path}:{lineno}: 환경변수 이름이 잘못되었습니다")
+            raise ManuscriptError(f"{path}:{lineno}: invalid environment variable name")
         if key == ANONYMOUS_READONLY_KEY:
             lexical = original.rstrip("\r\n").lstrip()
             if lexical.startswith("export "):
@@ -412,15 +412,15 @@ def _effective(values: Mapping[str, str], key: str) -> str:
 def _parse_environment(raw: str, *, source: str) -> str:
     value = raw
     if value not in ENVIRONMENTS:
-        expected = " 또는 ".join(sorted(ENVIRONMENTS))
+        expected = " or ".join(sorted(ENVIRONMENTS))
         if value:
             raise ManuscriptError(
-                f"{source}의 {ENVIRONMENT_KEY}={value!r}은 잘못되었습니다. "
-                f"{expected} 중 하나를 사용하세요."
+                f"Invalid {ENVIRONMENT_KEY}={value!r} in {source}. "
+                f"Expected one of: {expected}."
             )
         raise ManuscriptError(
-            f"{source}에 {ENVIRONMENT_KEY}가 필요합니다. "
-            f"{expected} 중 하나를 설정하세요."
+            f"{ENVIRONMENT_KEY} is required in {source}. "
+            f"Expected one of: {expected}."
         )
     return value
 
@@ -435,12 +435,12 @@ def _resolve_environment(
     if process_value is not None:
         environment = _parse_environment(
             process_value,
-            source="프로세스 환경",
+            source="process environment",
         )
         if legacy_dev and environment != DEVELOPMENT:
             raise ManuscriptError(
-                f"`dev` 별칭은 {ENVIRONMENT_KEY}={DEVELOPMENT} 전용입니다. "
-                f"프로세스 환경의 {environment!r}과 함께 사용할 수 없습니다."
+                f"`dev` alias is reserved for {ENVIRONMENT_KEY}={DEVELOPMENT}. "
+                f"Cannot be used with {environment!r} in process environment."
             )
     elif legacy_dev:
         environment = DEVELOPMENT
@@ -458,9 +458,9 @@ def _resolve_environment(
             and ANONYMOUS_READONLY_KEY not in development_values
         ):
             raise ManuscriptError(
-                f"{layout.dev_env}에 {ANONYMOUS_READONLY_KEY}가 없습니다. "
-                "production의 익명 공개 설정을 development가 암묵적으로 상속하지 않도록 "
-                "`./cb-manuscript init`으로 0 또는 1을 명시하세요."
+                f"{layout.dev_env} is missing {ANONYMOUS_READONLY_KEY}. "
+                "Specify 0 or 1 with `./cb-manuscript init` so development does not implicitly "
+                "inherit production anonymous settings."
             )
         values.update(development_values)
         declared_raw = development_values.get(ENVIRONMENT_KEY, "")
@@ -470,8 +470,7 @@ def _resolve_environment(
         )
         if declared != DEVELOPMENT:
             raise ManuscriptError(
-                f"{layout.dev_env}의 {ENVIRONMENT_KEY}는 "
-                f"{DEVELOPMENT!r}이어야 합니다."
+                f"{layout.dev_env} {ENVIRONMENT_KEY} must be {DEVELOPMENT!r}."
             )
     else:
         declared_raw = base_values.get(ENVIRONMENT_KEY, "")
@@ -482,18 +481,17 @@ def _resolve_environment(
             )
             if declared != PRODUCTION:
                 raise ManuscriptError(
-                    f"{layout.env}의 {ENVIRONMENT_KEY}는 "
-                    f"{PRODUCTION!r}이어야 합니다."
+                    f"{layout.env} {ENVIRONMENT_KEY} must be {PRODUCTION!r}."
                 )
 
     effective = _parse_environment(
         _effective(values, ENVIRONMENT_KEY),
-        source="유효 설정",
+        source="effective configuration",
     )
     if effective != environment:
         raise ManuscriptError(
-            f"선택한 환경 {environment!r}과 유효 {ENVIRONMENT_KEY} "
-            f"{effective!r}이 충돌합니다."
+            f"Selected environment {environment!r} conflicts with effective "
+            f"{ENVIRONMENT_KEY} {effective!r}."
         )
     return environment, values
 
@@ -503,55 +501,55 @@ def _parse_port(values: Mapping[str, str]) -> int:
     try:
         parsed_port = int(port)
     except ValueError as exc:
-        raise ManuscriptError("CB_API_PORT는 정수여야 합니다.") from exc
+        raise ManuscriptError("CB_API_PORT must be an integer.") from exc
     if not 1 <= parsed_port <= 65535:
-        raise ManuscriptError("CB_API_PORT는 1~65535 범위여야 합니다.")
+        raise ManuscriptError("CB_API_PORT must be in range 1-65535.")
     return parsed_port
 
 
 def _validate_api_bind(values: Mapping[str, str]) -> str:
     raw = _effective(values, "CB_API_BIND").strip()
     if not raw:
-        raise ManuscriptError("CB_API_BIND에 호스트가 게시할 IPv4 주소가 필요합니다.")
+        raise ManuscriptError("CB_API_BIND requires an IPv4 address for host publishing.")
     try:
         address = ipaddress.ip_address(raw)
     except ValueError as exc:
         raise ManuscriptError(
-            "CB_API_BIND는 hostname이 아닌 단일 IPv4 주소여야 합니다."
+            "CB_API_BIND must be a single IPv4 address, not a hostname."
         ) from exc
     if not isinstance(address, ipaddress.IPv4Address):
-        raise ManuscriptError("CB_API_BIND는 IPv4 주소여야 합니다.")
+        raise ManuscriptError("CB_API_BIND must be an IPv4 address.")
     if address.is_unspecified or address.is_multicast:
         raise ManuscriptError(
-            "CB_API_BIND에는 0.0.0.0 또는 multicast 주소를 사용할 수 없습니다."
+            "CB_API_BIND cannot be 0.0.0.0 or a multicast address."
         )
     return str(address)
 
 
 def _validate_dns_hostname(hostname: str, *, field: str) -> None:
     if not hostname or hostname.endswith(".") or "*" in hostname:
-        raise ManuscriptError(f"{field}에는 정확한 DNS hostname이 필요합니다.")
+        raise ManuscriptError(f"{field} requires an exact DNS hostname.")
     try:
         ipaddress.ip_address(hostname)
     except ValueError:
         pass
     else:
-        raise ManuscriptError(f"{field}에는 IP가 아닌 DNS hostname이 필요합니다.")
+        raise ManuscriptError(f"{field} requires a DNS hostname, not an IP address.")
     if len(hostname) > 253 or any(
         not DNS_LABEL_RE.fullmatch(label) for label in hostname.split(".")
     ):
-        raise ManuscriptError(f"{field}의 DNS hostname 형식이 잘못되었습니다.")
+        raise ManuscriptError(f"Invalid DNS hostname format for {field}.")
 
 
 def _split_url(raw: str, *, field: str):
     if not raw:
-        raise ManuscriptError(f"{field}가 필요합니다.")
+        raise ManuscriptError(f"{field} is required.")
     if "*" in raw:
-        raise ManuscriptError(f"{field}에는 wildcard를 사용할 수 없습니다.")
+        raise ManuscriptError(f"{field} cannot contain wildcards.")
     try:
         parsed = urlsplit(raw)
     except ValueError as exc:
-        raise ManuscriptError(f"{field} 형식이 잘못되었습니다.") from exc
+        raise ManuscriptError(f"Invalid format for {field}.") from exc
     if (
         not parsed.scheme
         or not parsed.netloc
@@ -561,13 +559,13 @@ def _split_url(raw: str, *, field: str):
         or parsed.query
         or parsed.fragment
     ):
-        raise ManuscriptError(f"{field} 형식이 잘못되었습니다.")
+        raise ManuscriptError(f"Invalid format for {field}.")
     try:
         port = parsed.port
     except ValueError as exc:
-        raise ManuscriptError(f"{field}의 port 형식이 잘못되었습니다.") from exc
+        raise ManuscriptError(f"Invalid port format for {field}.") from exc
     if port is not None and port < 1:
-        raise ManuscriptError(f"{field}의 port는 1~65535 범위여야 합니다.")
+        raise ManuscriptError(f"{field} port must be in range 1-65535.")
     return parsed
 
 
@@ -578,28 +576,28 @@ def _validate_public_url(
     bind: str,
     port: int,
 ) -> None:
-    # 이 값은 Compose service의 env_file에서 컨테이너로 들어간다. 프로세스 환경은
-    # 컨테이너에 전달되지 않으므로 여기서도 파일의 유효값을 그대로 검사한다.
+    # This value enters the container via Compose service env_file. Process env is not
+    # passed to container, so validate the effective file value directly here as well.
     raw = values.get("CLAIRE_PUBLIC_URL", "")
     if raw != raw.strip():
-        raise ManuscriptError("CLAIRE_PUBLIC_URL에는 바깥 공백을 사용할 수 없습니다.")
+        raise ManuscriptError("CLAIRE_PUBLIC_URL cannot have leading or trailing whitespace.")
     parsed = _split_url(raw, field="CLAIRE_PUBLIC_URL")
     if parsed.path not in {"", "/"}:
-        raise ManuscriptError("CLAIRE_PUBLIC_URL은 root 경로만 사용할 수 있습니다.")
+        raise ManuscriptError("CLAIRE_PUBLIC_URL can only use a root path.")
 
     if environment == DEVELOPMENT:
         expected_authority = f"{bind}:{port}"
         if parsed.scheme != "http" or parsed.netloc != expected_authority:
             raise ManuscriptError(
-                "development의 CLAIRE_PUBLIC_URL은 "
-                f"http://{expected_authority}/ 이어야 합니다."
+                "CLAIRE_PUBLIC_URL in development must be "
+                f"http://{expected_authority}/"
             )
         return
 
     if parsed.scheme != "https":
         raise ManuscriptError(
-            "production의 CLAIRE_PUBLIC_URL은 외부 reverse proxy의 "
-            "https URL이어야 합니다."
+            "CLAIRE_PUBLIC_URL in production must be an external reverse proxy "
+            "https URL."
         )
     hostname = parsed.hostname or ""
     _validate_dns_hostname(hostname, field="CLAIRE_PUBLIC_URL")
@@ -610,8 +608,8 @@ def _validate_cors_origins(
     *,
     environment: str,
 ) -> None:
-    # CLAIRE_PUBLIC_URL과 마찬가지로 env_file에서 전달되는 실제 컨테이너 값을
-    # 검사한다. 항목 사이 공백은 앱과 동일하게 허용한다.
+    # Similar to CLAIRE_PUBLIC_URL, validate the actual container value passed from env_file.
+    # Whitespace between items is allowed identically to the application.
     raw = values.get("CLAIRE_CORS_ALLOWED_ORIGINS", "").strip()
     if not raw:
         return
@@ -619,29 +617,29 @@ def _validate_cors_origins(
     for origin in (item.strip() for item in raw.split(",")):
         if not origin:
             raise ManuscriptError(
-                "CLAIRE_CORS_ALLOWED_ORIGINS에는 빈 origin을 사용할 수 없습니다."
+                "CLAIRE_CORS_ALLOWED_ORIGINS cannot contain empty origins."
             )
         if origin in seen:
             raise ManuscriptError(
-                f"CLAIRE_CORS_ALLOWED_ORIGINS에 중복된 origin이 있습니다: {origin}"
+                f"Duplicate origin in CLAIRE_CORS_ALLOWED_ORIGINS: {origin}"
             )
         parsed = _split_url(origin, field="CLAIRE_CORS_ALLOWED_ORIGINS")
         if parsed.path:
             raise ManuscriptError(
-                "CLAIRE_CORS_ALLOWED_ORIGINS에는 path를 포함할 수 없습니다."
+                "CLAIRE_CORS_ALLOWED_ORIGINS cannot include paths."
             )
         if parsed.scheme not in {"http", "https"}:
             raise ManuscriptError(
-                "CLAIRE_CORS_ALLOWED_ORIGINS는 http 또는 https origin만 허용합니다."
+                "CLAIRE_CORS_ALLOWED_ORIGINS only allows http or https origins."
             )
         if environment == PRODUCTION and parsed.scheme != "https":
             raise ManuscriptError(
-                "production의 CLAIRE_CORS_ALLOWED_ORIGINS는 https만 허용합니다."
+                "CLAIRE_CORS_ALLOWED_ORIGINS in production only allows https."
             )
         hostname = parsed.hostname
         if not hostname:
             raise ManuscriptError(
-                "CLAIRE_CORS_ALLOWED_ORIGINS에는 hostname이 필요합니다."
+                "CLAIRE_CORS_ALLOWED_ORIGINS requires a hostname."
             )
         try:
             ipaddress.ip_address(hostname)
@@ -658,17 +656,16 @@ def _validate_web_tokens(values: Mapping[str, str]) -> None:
     readonly = values.get("CLAIRE_READONLY_TOKEN", "")
     if not WEB_TOKEN_RE.fullmatch(owner):
         raise ManuscriptError(
-            "CLAIRE_INJECT_TOKEN은 URL-safe 문자로 된 32~128자 토큰이어야 합니다. "
-            "`./cb-manuscript init`으로 빈 값을 생성할 수 있습니다."
+            "CLAIRE_INJECT_TOKEN must be a 32-128 character URL-safe token. "
+            "Run `./cb-manuscript init` to generate a token."
         )
     if readonly and not WEB_TOKEN_RE.fullmatch(readonly):
         raise ManuscriptError(
-            "CLAIRE_READONLY_TOKEN은 비워 두거나 URL-safe 문자로 된 "
-            "32~128자 토큰이어야 합니다."
+            "CLAIRE_READONLY_TOKEN must be empty or a 32-128 character URL-safe token."
         )
     if readonly and secrets.compare_digest(owner, readonly):
         raise ManuscriptError(
-            "CLAIRE_INJECT_TOKEN과 CLAIRE_READONLY_TOKEN은 서로 달라야 합니다."
+            "CLAIRE_INJECT_TOKEN and CLAIRE_READONLY_TOKEN must be different."
         )
 
 
@@ -678,7 +675,7 @@ def _validate_anonymous_readonly(values: Mapping[str, str]) -> bool:
         return False
     if raw not in {"0", "1"}:
         raise ManuscriptError(
-            f"{ANONYMOUS_READONLY_KEY}는 정확히 0 또는 1이어야 합니다."
+            f"{ANONYMOUS_READONLY_KEY} must be exactly 0 or 1."
         )
     return raw == "1"
 
@@ -697,8 +694,8 @@ def load_runtime(layout: Layout, *, legacy_dev: bool = False) -> Runtime:
         project = DEFAULT_DEV_PROJECT if dev else DEFAULT_PROJECT
     if not PROJECT_RE.fullmatch(project):
         raise ManuscriptError(
-            "CB_PROJECT_NAME은 소문자, 숫자, '-', '_'만 사용하고 "
-            "소문자 또는 숫자로 시작해야 합니다."
+            "CB_PROJECT_NAME must use only lowercase alphanumeric characters, '-', and '_', "
+            "and start with a lowercase letter or digit."
         )
 
     timeout_text = _effective(values, "CB_WAIT_TIMEOUT").strip()
@@ -707,9 +704,9 @@ def load_runtime(layout: Layout, *, legacy_dev: bool = False) -> Runtime:
     try:
         wait_timeout = int(timeout_text)
     except ValueError as exc:
-        raise ManuscriptError("CB_WAIT_TIMEOUT은 초 단위 정수여야 합니다.") from exc
+        raise ManuscriptError("CB_WAIT_TIMEOUT must be an integer in seconds.") from exc
     if not 1 <= wait_timeout <= 86400:
-        raise ManuscriptError("CB_WAIT_TIMEOUT은 1~86400 범위여야 합니다.")
+        raise ManuscriptError("CB_WAIT_TIMEOUT must be in range 1-86400.")
 
     parsed_port = _parse_port(values)
     api_bind = _validate_api_bind(values)
@@ -738,7 +735,7 @@ def load_runtime(layout: Layout, *, legacy_dev: bool = False) -> Runtime:
 def config_preflight(runtime: Runtime) -> None:
     for path in (*runtime.env_files, *runtime.compose_files):
         if not path.is_file():
-            raise ManuscriptError(f"필수 파일이 없습니다: {path}")
+            raise ManuscriptError(f"Required file not found: {path}")
     run_compose(runtime, ("config", "--quiet"))
 
 
@@ -772,13 +769,13 @@ def _copy_once(source: Path, target: Path) -> bool:
         os.chmod(target, 0o600)
         return False
     if not source.is_file():
-        raise ManuscriptError(f"환경 예시 파일이 없습니다: {source}")
+        raise ManuscriptError(f"Environment template file not found: {source}")
     _atomic_write(target, source.read_text(encoding="utf-8"), mode=0o600)
     return True
 
 
 def _ensure_environment_selector(path: Path, expected: str) -> bool:
-    """기존 env 파일에 새 canonical selector를 안전하게 보충한다."""
+    """Safely backfill canonical environment selector into existing env file."""
 
     text = path.read_text(encoding="utf-8")
     lines = text.splitlines(keepends=True)
@@ -797,7 +794,7 @@ def _ensure_environment_selector(path: Path, expected: str) -> bool:
             matches.append((index, _dotenv_value(raw, path, index + 1)))
 
     if len(matches) > 1:
-        raise ManuscriptError(f"{path}에 {ENVIRONMENT_KEY}가 중복되어 있습니다.")
+        raise ManuscriptError(f"Duplicate {ENVIRONMENT_KEY} in {path}.")
     if matches:
         index, value = matches[0]
         if value == expected:
@@ -805,7 +802,7 @@ def _ensure_environment_selector(path: Path, expected: str) -> bool:
             return False
         if value:
             raise ManuscriptError(
-                f"{path}의 {ENVIRONMENT_KEY}는 {expected!r}이어야 합니다."
+                f"{path} {ENVIRONMENT_KEY} must be {expected!r}."
             )
         newline = "\n" if lines[index].endswith("\n") else ""
         lines[index] = f"{ENVIRONMENT_KEY}={expected}{newline}"
@@ -819,7 +816,7 @@ def _ensure_environment_selector(path: Path, expected: str) -> bool:
 
 
 def _ensure_inject_token(path: Path) -> bool:
-    """빈 inject token을 생성하고 기존 값은 충분한 강도인지 확인한다."""
+    """Generate empty inject token and verify strength of existing value."""
 
     text = path.read_text(encoding="utf-8")
     lines = text.splitlines(keepends=True)
@@ -843,8 +840,7 @@ def _ensure_inject_token(path: Path) -> bool:
         if value:
             if not WEB_TOKEN_RE.fullmatch(value):
                 raise ManuscriptError(
-                    f"{path}의 CLAIRE_INJECT_TOKEN은 URL-safe 문자로 된 "
-                    "32~128자 토큰이어야 합니다."
+                    f"{path} CLAIRE_INJECT_TOKEN must be a 32-128 character URL-safe token."
                 )
             break
         generated = generated or secrets.token_urlsafe(32)
@@ -868,7 +864,7 @@ def _ensure_inject_token(path: Path) -> bool:
 
 
 def _ensure_anonymous_readonly(path: Path) -> bool:
-    """누락된 익명 읽기 설정을 안전한 기본값 0으로 보충한다."""
+    """Safely backfill missing anonymous readonly setting with default 0."""
 
     text = path.read_text(encoding="utf-8")
     lines = text.splitlines(keepends=True)
@@ -898,12 +894,12 @@ def _ensure_anonymous_readonly(path: Path) -> bool:
 
     if len(matches) > 1:
         raise ManuscriptError(
-            f"{path}에 {ANONYMOUS_READONLY_KEY}가 중복되어 있습니다."
+            f"Duplicate {ANONYMOUS_READONLY_KEY} in {path}."
         )
     if matches:
         if matches[0] not in {"0", "1"}:
             raise ManuscriptError(
-                f"{path}의 {ANONYMOUS_READONLY_KEY}는 정확히 0 또는 1이어야 합니다."
+                f"{path} {ANONYMOUS_READONLY_KEY} must be exactly 0 or 1."
             )
         os.chmod(path, 0o600)
         return False
@@ -935,18 +931,18 @@ def command_init(layout: Layout) -> int:
     layout.data.mkdir(parents=True, exist_ok=True)
     layout.vault.mkdir(parents=True, exist_ok=True)
 
-    print(f".env: {'생성' if created_env else '유지'}")
-    print(f".env.dev: {'생성' if created_dev_env else '유지'}")
+    print(f".env: {'created' if created_env else 'kept'}")
+    print(f".env.dev: {'created' if created_dev_env else 'kept'}")
     print(
         f"{ENVIRONMENT_KEY}: "
-        f"{'보충' if selector_migrated or dev_selector_migrated else '유지'}"
+        f"{'populated' if selector_migrated or dev_selector_migrated else 'kept'}"
     )
     print(
         f"{ANONYMOUS_READONLY_KEY}: "
-        f"{'보충(기본 0)' if anonymous_migrated or dev_anonymous_migrated else '유지'}"
+        f"{'populated (default 0)' if anonymous_migrated or dev_anonymous_migrated else 'kept'}"
     )
-    print(f"CLAIRE_INJECT_TOKEN: {'생성' if token_created else '유지'}")
-    print("data/, vault/: 준비됨")
+    print(f"CLAIRE_INJECT_TOKEN: {'created' if token_created else 'kept'}")
+    print("data/, vault/: ready")
     return 0
 
 
@@ -964,7 +960,7 @@ class InstanceLock(AbstractContextManager["InstanceLock"]):
             self._stream.close()
             self._stream = None
             raise ManuscriptError(
-                f"다른 cb-manuscript 작업이 진행 중입니다: {self.path}", 73
+                f"Another cb-manuscript operation is in progress: {self.path}", 73
             ) from exc
         self._stream.seek(0)
         self._stream.truncate()
@@ -995,7 +991,7 @@ class BackupNamespaceLock(AbstractContextManager["BackupNamespaceLock"]):
             self._stream.close()
             self._stream = None
             raise ManuscriptError(
-                f"다른 백업/복원 작업이 진행 중입니다: {self.path}", 73
+                f"Another backup/restore operation is in progress: {self.path}", 73
             ) from exc
         self._stream.seek(0)
         self._stream.truncate()
@@ -1025,7 +1021,7 @@ class StorageLayout:
             return self.data
         if name == "vault":
             return self.vault
-        raise ManuscriptError(f"지원하지 않는 백업 구성요소입니다: {name}")
+        raise ManuscriptError(f"Unsupported backup component: {name}")
 
 
 def _is_within(path: Path, parent: Path) -> bool:
@@ -1039,28 +1035,28 @@ def _is_within(path: Path, parent: Path) -> bool:
 def _configured_host_path(runtime: Runtime, key: str, default: str) -> Path:
     raw = _effective(runtime.values, key).strip() or default
     if "\x00" in raw:
-        raise ManuscriptError(f"{key}에 NUL 문자를 사용할 수 없습니다.")
+        raise ManuscriptError(f"{key} cannot contain NUL characters.")
     candidate = Path(raw).expanduser()
     if not candidate.is_absolute():
         if not (raw.startswith("./") or raw.startswith("../")):
             raise ManuscriptError(
-                f"{key}={raw!r}은 host bind 경로로 식별할 수 없습니다. "
-                "./ 또는 ../로 시작하는 상대 경로나 절대 경로를 사용하세요."
+                f"{key}={raw!r} is not a valid host bind path. "
+                "Use an absolute path or a relative path starting with ./ or ../."
             )
         candidate = runtime.layout.root / candidate
     if candidate.is_symlink():
-        raise ManuscriptError(f"{key} 최상위 경로는 symlink일 수 없습니다: {candidate}")
+        raise ManuscriptError(f"{key} top-level path cannot be a symlink: {candidate}")
     return candidate.resolve()
 
 
 def _database_relative_path(runtime: Runtime) -> Path:
     raw = _effective(runtime.values, "CLAIRE_DB_PATH").strip() or "data/claire.db"
     if "\x00" in raw or "\\" in raw:
-        raise ManuscriptError("CLAIRE_DB_PATH 형식이 잘못되었습니다.")
+        raise ManuscriptError("Invalid CLAIRE_DB_PATH format.")
     source = PurePosixPath(raw)
     if any(part in {"", ".", ".."} for part in source.parts):
         raise ManuscriptError(
-            "CLAIRE_DB_PATH는 /app/data 아래의 정규화된 경로여야 합니다."
+            "CLAIRE_DB_PATH must be a normalized path under /app/data."
         )
     if source.is_absolute():
         container_path = source
@@ -1070,10 +1066,10 @@ def _database_relative_path(runtime: Runtime) -> Path:
         relative = container_path.relative_to(PurePosixPath("/app/data"))
     except ValueError as exc:
         raise ManuscriptError(
-            "CLAIRE_DB_PATH는 컨테이너의 /app/data 아래에 있어야 백업할 수 있습니다."
+            "CLAIRE_DB_PATH must be under /app/data in container to be backed up."
         ) from exc
     if not relative.parts:
-        raise ManuscriptError("CLAIRE_DB_PATH는 파일 경로여야 합니다.")
+        raise ManuscriptError("CLAIRE_DB_PATH must be a file path.")
     return Path(*relative.parts)
 
 
@@ -1086,17 +1082,17 @@ def resolve_storage(runtime: Runtime) -> StorageLayout:
 
     for name, path in (("CB_DATA_DIR", data), ("CB_VAULT_DIR", vault)):
         if path in {Path("/"), repository, home} or len(path.parts) < 3:
-            raise ManuscriptError(f"{name}이 너무 넓은 경로를 가리킵니다: {path}")
+            raise ManuscriptError(f"{name} points to an overly broad path: {path}")
         if _is_within(path, backup_root) or _is_within(backup_root, path):
             raise ManuscriptError(
-                f"{name}과 backups 경로가 서로 포함되어 백업할 수 없습니다: {path}"
+                f"{name} and backups directory contain each other and cannot be backed up: {path}"
             )
     if (
         data == vault
         or _is_within(data, vault)
         or _is_within(vault, data)
     ):
-        raise ManuscriptError("CB_DATA_DIR과 CB_VAULT_DIR은 같거나 중첩될 수 없습니다.")
+        raise ManuscriptError("CB_DATA_DIR and CB_VAULT_DIR cannot be identical or nested.")
     return StorageLayout(
         data=data,
         vault=vault,
@@ -1130,9 +1126,9 @@ def _read_state(path: Path) -> dict[str, object] | None:
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
-        raise ManuscriptError(f"상태 파일을 읽을 수 없습니다: {path}: {exc}") from exc
+        raise ManuscriptError(f"Cannot read state file: {path}: {exc}") from exc
     if not isinstance(value, dict):
-        raise ManuscriptError(f"상태 파일 형식이 잘못되었습니다: {path}")
+        raise ManuscriptError(f"Invalid state file format: {path}")
     return value
 
 
@@ -1145,10 +1141,9 @@ def _require_stable_project(runtime: Runtime, state: Mapping[str, object]) -> No
     if isinstance(previous, str) and previous and previous != runtime.project:
         state_path = runtime.layout.state_for(dev=runtime.dev)
         raise ManuscriptError(
-            f"CB_PROJECT_NAME이 기존 {previous!r}에서 {runtime.project!r}(으)로 "
-            "변경되었습니다. 중복 스택 방지를 위해 중단합니다. 이전 이름으로 "
-            "`cb-manuscript down`을 실행한 뒤, 전환을 확인하고 "
-            f"{state_path}을 제거하세요."
+            f"CB_PROJECT_NAME was changed from {previous!r} to {runtime.project!r}. "
+            "Aborting to prevent duplicate stacks. Run `cb-manuscript down` with the previous "
+            f"name, verify the transition, and remove {state_path}."
         )
 
 
@@ -1183,7 +1178,7 @@ def update_source(layout: Layout) -> None:
     )
     if _captured_stdout(status).strip():
         raise ManuscriptError(
-            "작업 트리가 깨끗하지 않아 update를 중단합니다. 변경을 commit/stash하세요."
+            "Working tree is not clean. Aborting update. Commit or stash your changes."
         )
 
     upstream = run_command(
@@ -1199,7 +1194,7 @@ def update_source(layout: Layout) -> None:
         check=False,
     )
     if upstream.returncode or not _captured_stdout(upstream).strip():
-        raise ManuscriptError("현재 브랜치에 upstream이 없어 update할 수 없습니다.")
+        raise ManuscriptError("Current branch has no upstream to update from.")
     run_command(("git", "pull", "--ff-only"), cwd=layout.root)
 
 
@@ -1334,7 +1329,7 @@ def _writers_stopped(runtime: Runtime) -> Iterator[QuiescedContainers]:
         failures = _resume_writers(runtime, containers)
         if failures:
             print(
-                "cb-manuscript: 오류 후 다음 writer를 재개하지 못했습니다: "
+                "cb-manuscript: Failed to resume writers after error: "
                 + ", ".join(failures),
                 file=sys.stderr,
             )
@@ -1343,7 +1338,7 @@ def _writers_stopped(runtime: Runtime) -> Iterator[QuiescedContainers]:
         failures = _resume_writers(runtime, containers)
         if failures:
             raise ManuscriptError(
-                "백업은 생성되었지만 다음 writer를 재개하지 못했습니다: "
+                "Backup was created, but failed to resume writers: "
                 + ", ".join(failures)
             )
 
@@ -1352,21 +1347,21 @@ def _lstat(path: Path) -> os.stat_result:
     try:
         return path.lstat()
     except FileNotFoundError as exc:
-        raise ManuscriptError(f"경로가 없습니다: {path}") from exc
+        raise ManuscriptError(f"Path does not exist: {path}") from exc
     except OSError as exc:
-        raise ManuscriptError(f"경로를 검사할 수 없습니다: {path}: {exc}") from exc
+        raise ManuscriptError(f"Cannot inspect path: {path}: {exc}") from exc
 
 
 def _assert_regular_directory(path: Path, *, label: str) -> None:
     mode = _lstat(path).st_mode
     if stat.S_ISLNK(mode) or not stat.S_ISDIR(mode):
-        raise ManuscriptError(f"{label}은 symlink가 아닌 디렉터리여야 합니다: {path}")
+        raise ManuscriptError(f"{label} must be a regular directory, not a symlink: {path}")
 
 
 def _assert_regular_file(path: Path, *, label: str) -> None:
     mode = _lstat(path).st_mode
     if stat.S_ISLNK(mode) or not stat.S_ISREG(mode):
-        raise ManuscriptError(f"{label}은 symlink가 아닌 일반 파일이어야 합니다: {path}")
+        raise ManuscriptError(f"{label} must be a regular file, not a symlink: {path}")
 
 
 def _remove_path(path: Path) -> None:
@@ -1394,20 +1389,20 @@ def _copy_path_safely(
     source_stat = _lstat(source)
     mode = source_stat.st_mode
     if stat.S_ISLNK(mode):
-        raise ManuscriptError(f"백업 대상에 symlink가 있습니다: {source}")
+        raise ManuscriptError(f"Symlink found in backup source: {source}")
     if stat.S_ISREG(mode):
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, destination, follow_symlinks=False)
         return
     if not stat.S_ISDIR(mode):
-        raise ManuscriptError(f"백업 대상에 특수 파일이 있습니다: {source}")
+        raise ManuscriptError(f"Special file found in backup source: {source}")
 
     destination.mkdir(parents=True, exist_ok=True)
     os.chmod(destination, stat.S_IMODE(mode))
     try:
         children = sorted(source.iterdir(), key=lambda item: item.name)
     except OSError as exc:
-        raise ManuscriptError(f"디렉터리를 읽을 수 없습니다: {source}: {exc}") from exc
+        raise ManuscriptError(f"Cannot read directory: {source}: {exc}") from exc
     for child in children:
         child_relative = relative / child.name
         _copy_path_safely(
@@ -1430,12 +1425,12 @@ def _validate_sqlite_database(path: Path) -> dict[str, object]:
             quick_rows = [str(row[0]) for row in conn.execute("PRAGMA quick_check")]
             if quick_rows != ["ok"]:
                 raise ManuscriptError(
-                    f"SQLite quick_check가 실패했습니다: {path}: {quick_rows[:5]}"
+                    f"SQLite quick_check failed: {path}: {quick_rows[:5]}"
                 )
             foreign_keys = conn.execute("PRAGMA foreign_key_check").fetchmany(10)
             if foreign_keys:
                 raise ManuscriptError(
-                    f"SQLite foreign_key_check가 실패했습니다: {path}: "
+                    f"SQLite foreign_key_check failed: {path}: "
                     f"{foreign_keys[:5]}"
                 )
             row = conn.execute(
@@ -1443,20 +1438,20 @@ def _validate_sqlite_database(path: Path) -> dict[str, object]:
             ).fetchone()
             if row is None:
                 raise ManuscriptError(
-                    f"SQLite schema_version을 찾을 수 없습니다: {path}"
+                    f"SQLite schema_version not found: {path}"
                 )
             try:
                 schema_version = int(row[0])
             except (TypeError, ValueError) as exc:
                 raise ManuscriptError(
-                    f"SQLite schema_version이 잘못되었습니다: {path}: {row[0]!r}"
+                    f"Invalid SQLite schema_version: {path}: {row[0]!r}"
                 ) from exc
         finally:
             conn.close()
     except ManuscriptError:
         raise
     except sqlite3.Error as exc:
-        raise ManuscriptError(f"SQLite DB를 검증할 수 없습니다: {path}: {exc}") from exc
+        raise ManuscriptError(f"Cannot validate SQLite database: {path}: {exc}") from exc
     return {
         "path": "",
         "schema_version": schema_version,
@@ -1468,11 +1463,11 @@ def _validate_sqlite_database(path: Path) -> dict[str, object]:
 def _snapshot_database(source: Path, destination: Path) -> dict[str, object]:
     source_stat = _lstat(source)
     if stat.S_ISLNK(source_stat.st_mode) or not stat.S_ISREG(source_stat.st_mode):
-        raise ManuscriptError(f"SQLite DB가 일반 파일이 아닙니다: {source}")
+        raise ManuscriptError(f"SQLite database is not a regular file: {source}")
     _validate_sqlite_database(source)
     destination.parent.mkdir(parents=True, exist_ok=True)
     if destination.exists():
-        raise ManuscriptError(f"SQLite snapshot 대상이 이미 있습니다: {destination}")
+        raise ManuscriptError(f"SQLite snapshot destination already exists: {destination}")
     source_conn = None
     destination_conn = None
     try:
@@ -1482,11 +1477,11 @@ def _snapshot_database(source: Path, destination: Path) -> dict[str, object]:
         mode = destination_conn.execute("PRAGMA journal_mode=DELETE").fetchone()
         if mode is None or str(mode[0]).lower() != "delete":
             raise ManuscriptError(
-                "SQLite snapshot을 단일-file DELETE journal mode로 만들 수 없습니다."
+                "Failed to create SQLite snapshot in single-file DELETE journal mode."
             )
     except sqlite3.Error as exc:
         _remove_path(destination)
-        raise ManuscriptError(f"SQLite snapshot 생성에 실패했습니다: {exc}") from exc
+        raise ManuscriptError(f"Failed to create SQLite snapshot: {exc}") from exc
     finally:
         if destination_conn is not None:
             destination_conn.close()
@@ -1508,7 +1503,7 @@ def _sha256(path: Path) -> str:
                     break
                 digest.update(chunk)
     except OSError as exc:
-        raise ManuscriptError(f"파일 hash를 계산할 수 없습니다: {path}: {exc}") from exc
+        raise ManuscriptError(f"Cannot compute hash for file: {path}: {exc}") from exc
     return digest.hexdigest()
 
 
@@ -1520,7 +1515,7 @@ def _scan_payload(payload: Path) -> list[dict[str, object]]:
         relative = path.relative_to(payload).as_posix()
         mode = path_stat.st_mode
         if stat.S_ISLNK(mode):
-            raise ManuscriptError(f"backup payload에 symlink가 있습니다: {relative}")
+            raise ManuscriptError(f"Symlink found in backup payload: {relative}")
         if stat.S_ISDIR(mode):
             entries.append(
                 {
@@ -1543,7 +1538,7 @@ def _scan_payload(payload: Path) -> list[dict[str, object]]:
                 }
             )
             return
-        raise ManuscriptError(f"backup payload에 특수 파일이 있습니다: {relative}")
+        raise ManuscriptError(f"Special file found in backup payload: {relative}")
 
     _assert_regular_directory(payload, label="backup payload")
     for child in sorted(payload.iterdir(), key=lambda item: item.name):
@@ -1568,10 +1563,10 @@ def _current_schema_version(layout: Layout) -> int:
     try:
         text = path.read_text(encoding="utf-8")
     except OSError as exc:
-        raise ManuscriptError(f"현재 DB schema 버전을 읽을 수 없습니다: {path}") from exc
+        raise ManuscriptError(f"Cannot read current DB schema version: {path}") from exc
     match = re.search(r"(?m)^SCHEMA_VERSION\s*=\s*([0-9]+)\s*$", text)
     if match is None:
-        raise ManuscriptError(f"현재 DB schema 버전을 찾을 수 없습니다: {path}")
+        raise ManuscriptError(f"Current DB schema version not found: {path}")
     return int(match.group(1))
 
 
@@ -1595,7 +1590,7 @@ def _validate_backup_manifest(root: Path) -> dict[str, object]:
     top_level = {child.name for child in root.iterdir()}
     if top_level != {"manifest.json", "payload"}:
         raise ManuscriptError(
-            "backup 최상위에는 manifest.json과 payload만 있어야 합니다."
+            "Backup root must contain only manifest.json and payload."
         )
 
     manifest_path = root / "manifest.json"
@@ -1603,20 +1598,20 @@ def _validate_backup_manifest(root: Path) -> dict[str, object]:
     try:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise ManuscriptError(f"backup manifest를 읽을 수 없습니다: {exc}") from exc
+        raise ManuscriptError(f"Cannot read backup manifest: {exc}") from exc
     if not isinstance(manifest, dict):
-        raise ManuscriptError("backup manifest는 JSON object여야 합니다.")
+        raise ManuscriptError("Backup manifest must be a JSON object.")
     if manifest.get("format_version") != BACKUP_FORMAT_VERSION:
         raise ManuscriptError(
-            f"지원하지 않는 backup format_version입니다: "
+            f"Unsupported backup format_version: "
             f"{manifest.get('format_version')!r}"
         )
     backup_id = manifest.get("id")
     if not isinstance(backup_id, str) or not BACKUP_ID_RE.fullmatch(backup_id):
-        raise ManuscriptError(f"backup id 형식이 잘못되었습니다: {backup_id!r}")
+        raise ManuscriptError(f"Invalid backup id format: {backup_id!r}")
     for key in ("created_at", "profile", "project", "cb_manuscript_version"):
         if not isinstance(manifest.get(key), str) or not manifest[key]:
-            raise ManuscriptError(f"backup manifest의 {key} 값이 잘못되었습니다.")
+            raise ManuscriptError(f"Invalid {key} value in backup manifest.")
 
     raw_components = manifest.get("components")
     if (
@@ -1625,23 +1620,23 @@ def _validate_backup_manifest(root: Path) -> dict[str, object]:
         or any(component not in BACKUP_COMPONENTS for component in raw_components)
         or len(set(raw_components)) != len(raw_components)
     ):
-        raise ManuscriptError("backup manifest의 components 값이 잘못되었습니다.")
+        raise ManuscriptError("Invalid components value in backup manifest.")
     components = tuple(raw_components)
     if tuple(component for component in BACKUP_COMPONENTS if component in components) != components:
-        raise ManuscriptError("backup manifest의 components 순서가 잘못되었습니다.")
+        raise ManuscriptError("Invalid components order in backup manifest.")
 
     raw_entries = manifest.get("entries")
     if not isinstance(raw_entries, list) or not raw_entries:
-        raise ManuscriptError("backup manifest에 entries가 없습니다.")
+        raise ManuscriptError("No entries found in backup manifest.")
     expected: dict[str, dict[str, object]] = {}
     for value in raw_entries:
         if not isinstance(value, dict):
-            raise ManuscriptError("backup manifest entry 형식이 잘못되었습니다.")
+            raise ManuscriptError("Invalid backup manifest entry format.")
         raw_path = value.get("path")
         entry_type = value.get("type")
         entry_mode = value.get("mode")
         if not isinstance(raw_path, str) or not raw_path:
-            raise ManuscriptError("backup manifest entry path가 잘못되었습니다.")
+            raise ManuscriptError("Invalid backup manifest entry path.")
         logical = PurePosixPath(raw_path)
         if (
             logical.is_absolute()
@@ -1649,15 +1644,15 @@ def _validate_backup_manifest(root: Path) -> dict[str, object]:
             or logical.as_posix() != raw_path
             or logical.parts[0] not in components
         ):
-            raise ManuscriptError(f"안전하지 않은 backup entry path입니다: {raw_path!r}")
+            raise ManuscriptError(f"Unsafe backup entry path: {raw_path!r}")
         if raw_path in expected:
-            raise ManuscriptError(f"중복 backup entry path입니다: {raw_path}")
+            raise ManuscriptError(f"Duplicate backup entry path: {raw_path}")
         if (
             entry_type not in {"file", "directory"}
             or not isinstance(entry_mode, str)
             or re.fullmatch(r"[0-7]{4}", entry_mode) is None
         ):
-            raise ManuscriptError(f"backup entry metadata가 잘못되었습니다: {raw_path}")
+            raise ManuscriptError(f"Invalid backup entry metadata: {raw_path}")
         required = {"path", "type", "mode"}
         if entry_type == "file":
             required.update(("size", "sha256"))
@@ -1671,11 +1666,11 @@ def _validate_backup_manifest(root: Path) -> dict[str, object]:
                 or re.fullmatch(r"[0-9a-f]{64}", digest) is None
             ):
                 raise ManuscriptError(
-                    f"backup file metadata가 잘못되었습니다: {raw_path}"
+                    f"Invalid backup file metadata: {raw_path}"
                 )
         if set(value) != required:
             raise ManuscriptError(
-                f"backup entry에 알 수 없는 필드가 있습니다: {raw_path}"
+                f"Unknown field in backup entry: {raw_path}"
             )
         expected[raw_path] = value
 
@@ -1691,13 +1686,13 @@ def _validate_backup_manifest(root: Path) -> dict[str, object]:
             if expected[path] != actual[path]
         )
         raise ManuscriptError(
-            "backup payload 무결성 검증에 실패했습니다"
+            "Backup payload integrity verification failed"
             f" (missing={missing[:3]}, extra={extra[:3]}, changed={changed[:3]})."
         )
     for component in components:
         entry = expected.get(component)
         if entry is None or entry.get("type") != "directory":
-            raise ManuscriptError(f"backup component가 없습니다: {component}")
+            raise ManuscriptError(f"Missing backup component: {component}")
 
     file_entries = [entry for entry in actual_entries if entry["type"] == "file"]
     totals = manifest.get("totals")
@@ -1706,15 +1701,15 @@ def _validate_backup_manifest(root: Path) -> dict[str, object]:
         "bytes": sum(int(entry["size"]) for entry in file_entries),
     }
     if totals != expected_totals:
-        raise ManuscriptError("backup manifest의 totals가 payload와 일치하지 않습니다.")
+        raise ManuscriptError("Backup manifest totals do not match payload.")
 
     database = manifest.get("database")
     if "data" in components:
         if not isinstance(database, dict):
-            raise ManuscriptError("data backup에 database metadata가 없습니다.")
+            raise ManuscriptError("Data backup is missing database metadata.")
         database_path = database.get("path")
         if not isinstance(database_path, str):
-            raise ManuscriptError("database path metadata가 잘못되었습니다.")
+            raise ManuscriptError("Invalid database path metadata.")
         logical_database = PurePosixPath(database_path)
         if (
             logical_database.is_absolute()
@@ -1722,7 +1717,7 @@ def _validate_backup_manifest(root: Path) -> dict[str, object]:
             or logical_database.parts[0] != "data"
             or any(part in {"", ".", ".."} for part in logical_database.parts)
         ):
-            raise ManuscriptError("database path metadata가 안전하지 않습니다.")
+            raise ManuscriptError("Unsafe database path metadata.")
         report = _validate_sqlite_database(
             payload / Path(*logical_database.parts)
         )
@@ -1733,9 +1728,9 @@ def _validate_backup_manifest(root: Path) -> dict[str, object]:
             or set(database)
             != {"path", "schema_version", "quick_check", "foreign_key_check"}
         ):
-            raise ManuscriptError("database metadata가 실제 DB와 일치하지 않습니다.")
+            raise ManuscriptError("Database metadata does not match actual database.")
     elif database is not None:
-        raise ManuscriptError("data가 없는 backup에 database metadata가 있습니다.")
+        raise ManuscriptError("Backup without data component contains database metadata.")
     return manifest
 
 
@@ -1813,7 +1808,7 @@ def _build_backup_staging(
 
 def _create_backup_archive(source: Path, destination: Path) -> None:
     if _path_exists(destination):
-        raise ManuscriptError(f"archive staging 파일이 이미 있습니다: {destination}")
+        raise ManuscriptError(f"Archive staging file already exists: {destination}")
     try:
         with tarfile.open(destination, mode="w:gz") as archive:
             archive.dereference = True
@@ -1824,7 +1819,7 @@ def _create_backup_archive(source: Path, destination: Path) -> None:
             os.fsync(stream.fileno())
     except (OSError, tarfile.TarError) as exc:
         _remove_path(destination)
-        raise ManuscriptError(f"backup archive 생성에 실패했습니다: {exc}") from exc
+        raise ManuscriptError(f"Failed to create backup archive: {exc}") from exc
 
 
 def _safe_extract_archive(source: Path, destination: Path) -> None:
@@ -1845,11 +1840,11 @@ def _safe_extract_archive(source: Path, destination: Path) -> None:
                     or logical.parts[0] not in {"manifest.json", "payload"}
                 ):
                     raise ManuscriptError(
-                        f"안전하지 않거나 중복된 archive member입니다: {member.name!r}"
+                        f"Unsafe or duplicate archive member: {member.name!r}"
                     )
                 if not (member.isdir() or member.isfile()):
                     raise ManuscriptError(
-                        f"archive의 link/특수 파일을 허용하지 않습니다: {member.name}"
+                        f"Links and special files are not allowed in archive: {member.name}"
                     )
                 normalized.add(raw)
 
@@ -1864,7 +1859,7 @@ def _safe_extract_archive(source: Path, destination: Path) -> None:
                 source_stream = archive.extractfile(member)
                 if source_stream is None:
                     raise ManuscriptError(
-                        f"archive member를 읽을 수 없습니다: {member.name}"
+                        f"Cannot read archive member: {member.name}"
                     )
                 with source_stream, target.open("xb") as output:
                     shutil.copyfileobj(source_stream, output, length=1024 * 1024)
@@ -1872,7 +1867,7 @@ def _safe_extract_archive(source: Path, destination: Path) -> None:
     except ManuscriptError:
         raise
     except (OSError, tarfile.TarError, EOFError) as exc:
-        raise ManuscriptError(f"backup archive를 읽을 수 없습니다: {exc}") from exc
+        raise ManuscriptError(f"Cannot read backup archive: {exc}") from exc
 
 
 @contextmanager
@@ -1883,7 +1878,7 @@ def _materialized_backup(
 ) -> Iterator[tuple[Path, dict[str, object]]]:
     source_stat = _lstat(source)
     if stat.S_ISLNK(source_stat.st_mode):
-        raise ManuscriptError(f"backup source는 symlink일 수 없습니다: {source}")
+        raise ManuscriptError(f"Backup source cannot be a symlink: {source}")
     if temporary_parent is not None:
         temporary_parent.mkdir(parents=True, exist_ok=True)
         os.chmod(temporary_parent, 0o700)
@@ -1899,7 +1894,7 @@ def _materialized_backup(
             _safe_extract_archive(source, materialized)
         else:
             raise ManuscriptError(
-                f"backup source는 일반 파일 또는 디렉터리여야 합니다: {source}"
+                f"Backup source must be a regular file or directory: {source}"
             )
         manifest = _validate_backup_manifest(materialized)
         yield materialized, manifest
@@ -1915,16 +1910,16 @@ def _publish_backup(
     existing = [path for path in conflicting_paths if _path_exists(path)]
     if existing and not replace:
         raise ManuscriptError(
-            "오늘의 backup이 이미 있습니다: "
+            "Today's backup already exists: "
             + ", ".join(str(path) for path in existing)
-            + ". 교체하려면 --replace를 명시하세요."
+            + ". Specify --replace to overwrite."
         )
     for path in existing:
         mode = _lstat(path).st_mode
         if stat.S_ISLNK(mode) or not (
             stat.S_ISDIR(mode) or stat.S_ISREG(mode)
         ):
-            raise ManuscriptError(f"기존 backup 형식이 안전하지 않습니다: {path}")
+            raise ManuscriptError(f"Existing backup format is unsafe: {path}")
 
     token = secrets.token_hex(8)
     moved: list[tuple[Path, Path]] = []
@@ -1955,7 +1950,7 @@ def _publish_backup(
 def _selected_components(raw: Sequence[str] | None) -> tuple[str, ...]:
     selected = set(raw or BACKUP_COMPONENTS)
     if not selected or not selected.issubset(BACKUP_COMPONENTS):
-        raise ManuscriptError("backup 구성요소는 data 또는 vault여야 합니다.")
+        raise ManuscriptError("Backup component must be data or vault.")
     return tuple(component for component in BACKUP_COMPONENTS if component in selected)
 
 
@@ -1981,9 +1976,9 @@ def command_backup(
         existing = [path for path in conflicts if _path_exists(path)]
         if existing and not replace:
             raise ManuscriptError(
-                "오늘의 backup이 이미 있습니다: "
+                "Today's backup already exists: "
                 + ", ".join(str(path) for path in existing)
-                + ". 교체하려면 --replace를 명시하세요."
+                + ". Specify --replace to overwrite."
             )
 
         for component in components:
@@ -2028,7 +2023,7 @@ def command_backup(
             _remove_path(staging)
             _remove_path(archive_staging)
 
-    print(f"backup 완료: {target}")
+    print(f"Backup completed: {target}")
     print(f"  id={backup_id} · format={output_format} · components={','.join(components)}")
     return 0
 
@@ -2040,7 +2035,7 @@ def _verify_component_copy(
 ) -> None:
     expected_entries = manifest.get("entries")
     if not isinstance(expected_entries, list):
-        raise ManuscriptError("backup manifest entries가 잘못되었습니다.")
+        raise ManuscriptError("Invalid backup manifest entries.")
     expected = {
         str(entry["path"]): entry
         for entry in expected_entries
@@ -2058,7 +2053,7 @@ def _verify_component_copy(
         mode = path_stat.st_mode
         key = logical.as_posix()
         if stat.S_ISLNK(mode):
-            raise ManuscriptError(f"restore staging에 symlink가 있습니다: {key}")
+            raise ManuscriptError(f"Symlink found in restore staging: {key}")
         if stat.S_ISDIR(mode):
             actual[key] = {
                 "path": key,
@@ -2077,12 +2072,12 @@ def _verify_component_copy(
                 "sha256": _sha256(path),
             }
             return
-        raise ManuscriptError(f"restore staging에 특수 파일이 있습니다: {key}")
+        raise ManuscriptError(f"Special file found in restore staging: {key}")
 
     visit(root, PurePosixPath(component))
     if expected != actual:
         raise ManuscriptError(
-            f"{component} restore staging이 backup manifest와 일치하지 않습니다."
+            f"{component} restore staging does not match backup manifest."
         )
 
 
@@ -2111,7 +2106,7 @@ def _prepare_restore_swaps(
             staging = target.parent / f".{target.name}.cb-restore-new-{token}"
             rollback = target.parent / f".{target.name}.cb-restore-old-{token}"
             if _path_exists(staging) or _path_exists(rollback):
-                raise ManuscriptError("restore staging 경로 충돌이 발생했습니다.")
+                raise ManuscriptError("Restore staging path conflict occurred.")
             _copy_path_safely(
                 materialized / "payload" / component,
                 staging,
@@ -2235,12 +2230,12 @@ def _remove_restore_rollback(runtime: Runtime, path: Path) -> None:
     )
     if result.returncode:
         raise ManuscriptError(
-            f"root-owned restore rollback 내용을 정리하지 못했습니다: {path}"
+            f"Failed to clean up root-owned restore rollback content: {path}"
         )
     try:
         path.rmdir()
     except OSError as exc:
-        raise ManuscriptError(f"restore rollback 경로를 제거할 수 없습니다: {path}") from exc
+        raise ManuscriptError(f"Cannot remove restore rollback path: {path}") from exc
 
 
 def _wait_for_restored_liveness(runtime: Runtime) -> bool:
@@ -2259,7 +2254,7 @@ def _wait_for_restored_liveness(runtime: Runtime) -> bool:
 
 def _resolve_backup_source(layout: Layout, raw: str) -> Path:
     if not raw or "\x00" in raw:
-        raise ManuscriptError("restore할 backup 파일 또는 폴더 경로가 필요합니다.")
+        raise ManuscriptError("Backup file or directory path is required for restore.")
     source = Path(raw).expanduser()
     if not source.is_absolute():
         source = layout.root / source
@@ -2272,12 +2267,12 @@ def _restore_components(
 ) -> tuple[str, ...]:
     available_value = manifest.get("components")
     if not isinstance(available_value, list):
-        raise ManuscriptError("backup manifest components가 잘못되었습니다.")
+        raise ManuscriptError("Invalid backup manifest components.")
     available = set(available_value)
     selected = set(raw) if raw else available
     if not selected or not selected.issubset(available):
         raise ManuscriptError(
-            "요청한 restore 구성요소가 backup에 없습니다: "
+            "Requested restore component not found in backup: "
             + ", ".join(sorted(selected - available))
         )
     return tuple(component for component in BACKUP_COMPONENTS if component in selected)
@@ -2292,7 +2287,7 @@ def command_restore(
 ) -> int:
     if not confirmed:
         raise ManuscriptError(
-            "restore는 현재 데이터를 교체합니다. 실행하려면 --yes를 명시하세요."
+            "Restore will replace current data. Specify --yes to confirm."
         )
     source = _resolve_backup_source(runtime.layout, raw_source)
     with BackupNamespaceLock(runtime.layout), InstanceLock(runtime):
@@ -2303,7 +2298,7 @@ def command_restore(
             target = storage.component(component)
             if _is_within(resolved_source, target):
                 raise ManuscriptError(
-                    f"restore source가 {component} target 안에 있어 사용할 수 없습니다."
+                    f"Restore source is inside {component} target and cannot be used."
                 )
 
         with _materialized_backup(
@@ -2313,19 +2308,19 @@ def command_restore(
             expected_profile = "development" if runtime.dev else "production"
             if manifest.get("profile") != expected_profile:
                 raise ManuscriptError(
-                    f"backup profile이 현재 profile과 다릅니다: "
+                    f"Backup profile does not match current profile: "
                     f"{manifest.get('profile')!r} != {expected_profile!r}"
                 )
             if manifest.get("project") != runtime.project:
                 raise ManuscriptError(
-                    f"backup project가 현재 project와 다릅니다: "
+                    f"Backup project does not match current project: "
                     f"{manifest.get('project')!r} != {runtime.project!r}"
                 )
             components = _restore_components(raw_components, manifest)
             database = manifest.get("database")
             if "data" in components:
                 if not isinstance(database, dict):
-                    raise ManuscriptError("data backup에 database metadata가 없습니다.")
+                    raise ManuscriptError("Data backup is missing database metadata.")
                 expected_database = (
                     PurePosixPath("data")
                     .joinpath(*storage.database_relative.parts)
@@ -2333,7 +2328,7 @@ def command_restore(
                 )
                 if database.get("path") != expected_database:
                     raise ManuscriptError(
-                        "backup DB 경로와 현재 CLAIRE_DB_PATH가 다릅니다: "
+                        "Backup DB path differs from current CLAIRE_DB_PATH: "
                         f"{database.get('path')!r} != {expected_database!r}"
                     )
                 schema_version = database.get("schema_version")
@@ -2343,7 +2338,7 @@ def command_restore(
                     or schema_version > _current_schema_version(runtime.layout)
                 ):
                     raise ManuscriptError(
-                        "현재 코드보다 새로운 DB schema backup은 restore할 수 없습니다."
+                        "Cannot restore DB schema backup newer than current code."
                     )
 
             swaps = _prepare_restore_swaps(
@@ -2375,11 +2370,11 @@ def command_restore(
                 resume_failures = _resume_writers(runtime, containers)
                 if resume_failures:
                     raise ManuscriptError(
-                        "restore 후 writer를 재개하지 못했습니다: "
+                        "Failed to resume writers after restore: "
                         + ", ".join(resume_failures)
                     )
                 if containers.project and not _wait_for_restored_liveness(runtime):
-                    raise ManuscriptError("restore 후 liveness 검증에 실패했습니다.")
+                    raise ManuscriptError("Liveness check failed after restore.")
             except BaseException:
                 if containers is not None and resume_attempted:
                     _stop_captured_writers(runtime, containers)
@@ -2393,8 +2388,8 @@ def command_restore(
                             "rollback-failed",
                         )
                     raise ManuscriptError(
-                        "restore rollback에 실패했습니다. writer를 중지 상태로 "
-                        f"유지합니다. {journal}: "
+                        "Restore rollback failed. Keeping writers stopped. "
+                        f"{journal}: "
                         + "; ".join(rollback_failures)
                     )
                 if containers is not None:
@@ -2408,7 +2403,7 @@ def command_restore(
                                 "rollback-restart-failed",
                             )
                         raise ManuscriptError(
-                            "기존 데이터는 복구했지만 writer 재개에 실패했습니다: "
+                            "Restored existing data, but failed to resume writers: "
                             + ", ".join(resume_failures)
                         )
                 if journal is not None:
@@ -2420,8 +2415,8 @@ def command_restore(
                         _remove_restore_rollback(runtime, swap.rollback)
                     except (OSError, ManuscriptError) as exc:
                         print(
-                            f"cb-manuscript: 오래된 restore rollback 경로를 "
-                            f"정리하지 못했습니다: {swap.rollback}: {exc}",
+                            f"cb-manuscript: Failed to clean up old restore rollback path: "
+                            f"{swap.rollback}: {exc}",
                             file=sys.stderr,
                         )
                 if journal is not None:
@@ -2431,7 +2426,7 @@ def command_restore(
                     _remove_path(swap.staging)
 
     print(
-        f"restore 완료: {source} · components={','.join(components)}"
+        f"Restore completed: {source} · components={','.join(components)}"
     )
     return 0
 
@@ -2493,9 +2488,9 @@ def _transition(runtime: Runtime) -> None:
         _activate_and_check(runtime)
     except BaseException:
         print(
-            "cb-manuscript: 새 스택 기동/검증에 실패했습니다. "
-            "실패 상태를 보존했으므로 `./cb-manuscript status`와 "
-            "`./cb-manuscript logs`로 확인하세요.",
+            "cb-manuscript: Failed to start/verify new stack. "
+            "Failed state preserved; inspect with `./cb-manuscript status` and "
+            "`./cb-manuscript logs`.",
             file=sys.stderr,
         )
         raise
@@ -2580,7 +2575,7 @@ def command_health(runtime: Runtime) -> int:
 
 def command_remote(layout: Layout, action: str) -> int:
     if not layout.deploy_script.is_file():
-        raise ManuscriptError(f"원격 배포 스크립트가 없습니다: {layout.deploy_script}")
+        raise ManuscriptError(f"Remote deployment script not found: {layout.deploy_script}")
     env = os.environ.copy()
     env[ENVIRONMENT_KEY] = PRODUCTION
     env["DEPLOY_ACTION"] = action
@@ -2620,7 +2615,7 @@ def _app_guard_reason(args: Sequence[str]) -> str | None:
         return None
     command = args[0]
     if command.startswith("-"):
-        return "cb-manuscript 안전 정책에 분류되지 않은 claire 전역 옵션"
+        return "claire global option unclassified in cb-manuscript safety policy"
     if command in APP_GUARDED_COMMANDS:
         return APP_GUARDED_COMMANDS[command]
     applies_merge = any(
@@ -2630,12 +2625,12 @@ def _app_guard_reason(args: Sequence[str]) -> str | None:
         for token in args[1:]
     )
     if command == "dedup-merge" and applies_merge:
-        return "문서를 삭제하는 파괴적 유지보수 명령"
+        return "destructive maintenance command that deletes documents"
     if command == "recanonicalize" and "--dry-run" not in args[1:]:
-        return "영속 데이터를 변경하는 유지보수 명령"
+        return "maintenance command that modifies persistent data"
     if command in APP_ONE_OFF_COMMANDS:
         return None
-    return "cb-manuscript 안전 정책에 분류되지 않은 앱 명령"
+    return "unclassified app command in cb-manuscript safety policy"
 
 
 def _prepare_app_args(args: Sequence[str]) -> tuple[str, ...]:
@@ -2647,23 +2642,23 @@ def _prepare_app_args(args: Sequence[str]) -> tuple[str, ...]:
         remaining.pop(0)
     if not remaining:
         raise ManuscriptError(
-            "app 뒤에 claire 명령이 필요합니다. "
-            "`./cb-manuscript app --help`로 목록을 확인하세요."
+            "A claire command is required after app. "
+            "See `./cb-manuscript app --help` for available commands."
         )
 
     reason = _app_guard_reason(remaining)
     if reason and not advanced:
         command = _display_argv(remaining)
         raise ManuscriptError(
-            f"`app {command}`은(는) 기본 실행이 차단됩니다: {reason}. "
-            f"보호 절차 없이 직접 실행하려면 `app {APP_ADVANCED_OPTION} "
-            f"{command}`을 사용하세요."
+            f"`app {command}` is blocked by default: {reason}. "
+            f"To run directly without safety guards, use `app {APP_ADVANCED_OPTION} "
+            f"{command}`."
         )
     if advanced:
         detail = f": {reason}" if reason else ""
         print(
-            "cb-manuscript: 경고: app --advanced는 서비스 정지, migration 순서, "
-            f"백업 또는 복구 가능성을 보장하지 않습니다{detail}",
+            "cb-manuscript: warning: app --advanced does not guarantee service quiescence, "
+            f"migration ordering, backup, or recoverability{detail}",
             file=sys.stderr,
         )
     return tuple(remaining)
@@ -2694,7 +2689,7 @@ def dispatch_passthrough(
     elif command == "compose":
         compose_args = tuple(args[1:]) if args and args[0] == "--" else tuple(args)
         if not compose_args:
-            raise ManuscriptError("compose 뒤에 Docker Compose 인수가 필요합니다.")
+            raise ManuscriptError("Docker Compose arguments required after compose.")
     elif command == "app":
         app_args = _prepare_app_args(args)
         compose_args = (
@@ -2715,7 +2710,7 @@ def dispatch_passthrough(
         shell_command = remaining or ["bash"]
         compose_args = ("exec", service, *shell_command)
     else:  # pragma: no cover - guarded by PASSTHROUGH_COMMANDS
-        raise ManuscriptError(f"알 수 없는 명령: {command}")
+        raise ManuscriptError(f"Unknown command: {command}")
 
     result = run_compose(
         runtime,
@@ -2730,22 +2725,22 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="cb-manuscript",
         description=(
-            f"Claire 컨테이너 관리 도구.\n"
-            f"환경은 {ENVIRONMENT_KEY}의 {DEVELOPMENT}/{PRODUCTION}으로 선택하며 `dev`는 개발 호환 별칭입니다."
+            f"Claire container management tool.\n"
+            f"Environment is selected via {ENVIRONMENT_KEY} ({DEVELOPMENT}/{PRODUCTION}); `dev` is a convenience alias."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
-            "예시:\n"
-            "  ./cb-manuscript init            # 설정 및 디렉터리 초기화\n"
-            "  ./cb-manuscript doctor          # 설정 및 환경 사전 점검\n"
-            "  ./cb-manuscript install         # 빌드, 마이그레이션, 기동 및 헬스체크\n"
-            "  ./cb-manuscript update          # 소스 갱신 후 재빌드 및 재기동\n"
-            "  ./cb-manuscript status          # 서비스 컨테이너 상태 확인\n"
-            "  ./cb-manuscript logs -f api     # api 서비스 실시간 로그 확인\n"
-            "  ./cb-manuscript shell           # api 컨테이너 대화형 셸 접속\n"
-            "  ./cb-manuscript health          # API liveness 확인\n"
-            "  ./cb-manuscript app health      # 전체 애플리케이션 상태 진단\n"
-            "  ./cb-manuscript dev <command>   # 개발 환경(development)으로 실행"
+            "Examples:\n"
+            "  ./cb-manuscript init            # Initialize configuration and directories\n"
+            "  ./cb-manuscript doctor          # Pre-flight check configuration and environment\n"
+            "  ./cb-manuscript install         # Build, migrate, start, and healthcheck\n"
+            "  ./cb-manuscript update          # Update source, rebuild, and restart\n"
+            "  ./cb-manuscript status          # Check container status\n"
+            "  ./cb-manuscript logs -f api     # View real-time logs for api service\n"
+            "  ./cb-manuscript shell           # Interactive shell in api container\n"
+            "  ./cb-manuscript health          # Check API liveness\n"
+            "  ./cb-manuscript app health      # Diagnose full application health\n"
+            "  ./cb-manuscript dev <command>   # Run in development environment"
         ),
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -2753,174 +2748,174 @@ def build_parser() -> argparse.ArgumentParser:
     # 1. init
     subparsers.add_parser(
         "init",
-        help=".env/.env.dev와 data/vault를 준비",
+        help="Initialize .env/.env.dev and data/vault directories",
         description=(
-            ".env, .env.dev 환경 파일 템플릿을 생성하고 data/ 및 vault/ 디렉터리를 초기화합니다.\n\n"
-            "작업 내용:\n"
-            "  - .env.example, .env.dev.example에서 설정 파일 복사 (기존 파일 보존)\n"
-            "  - CLAIRE_INJECT_TOKEN, CLAIRE_READONLY_TOKEN 토큰 자동 생성\n"
-            "  - data/, vault/ 디렉터리 생성 및 보안 권한(0700) 설정"
+            "Create .env and .env.dev environment files and initialize data/ and vault/ directories.\n\n"
+            "Actions:\n"
+            "  - Copy templates from .env.example and .env.dev.example (preserves existing files)\n"
+            "  - Generate CLAIRE_INJECT_TOKEN and CLAIRE_READONLY_TOKEN\n"
+            "  - Create data/ and vault/ directories with secure permissions (0700)"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
-            "예시:\n"
-            "  ./cb-manuscript init          # 프로덕션 환경 설정 초기화\n"
-            "  ./cb-manuscript dev init      # 개발 환경 설정 초기화"
+            "Examples:\n"
+            "  ./cb-manuscript init          # Initialize production configuration\n"
+            "  ./cb-manuscript dev init      # Initialize development configuration"
         ),
     )
 
     # 2. doctor
     subparsers.add_parser(
         "doctor",
-        help="설정과 Docker Compose를 점검",
+        help="Check configuration and Docker Compose preflight",
         description=(
-            "배포 환경 설정, Docker Compose 유효성, 네트워크 및 보안 제약을 사전 점검합니다.\n\n"
-            "점검 항목:\n"
-            "  - 환경 파일(.env / .env.dev) 존재 및 구문 유효성\n"
-            "  - CB_API_BIND(IPv4), CB_API_PORT, CLAIRE_PUBLIC_URL 정합성\n"
-            "  - 보안 토큰 및 익명 읽기 전용(CLAIRE_ANONYMOUS_READONLY) 설정\n"
-            "  - docker compose config 구문 및 레거시 컨테이너 충돌\n"
-            "  - data/, vault/ 디렉터리 권한(0700)"
+            "Pre-flight check deployment configuration, Docker Compose validity, network, and security constraints.\n\n"
+            "Checks:\n"
+            "  - Environment files (.env / .env.dev) existence and syntax\n"
+            "  - CB_API_BIND (IPv4), CB_API_PORT, and CLAIRE_PUBLIC_URL consistency\n"
+            "  - Security tokens and anonymous read-only (CLAIRE_ANONYMOUS_READONLY) settings\n"
+            "  - Docker compose config syntax and legacy container conflicts\n"
+            "  - data/ and vault/ directory permissions (0700)"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
-            "예시:\n"
-            "  ./cb-manuscript doctor        # 프로덕션 설정 점검\n"
-            "  ./cb-manuscript dev doctor    # 개발 설정 점검"
+            "Examples:\n"
+            "  ./cb-manuscript doctor        # Check production configuration\n"
+            "  ./cb-manuscript dev doctor    # Check development configuration"
         ),
     )
 
     # 3. install
     subparsers.add_parser(
         "install",
-        help="이미지 build, migrate, 기동, health 확인",
+        help="Build images, migrate database, start services, and verify health",
         description=(
-            "초기 설치 및 서비스 구동 파이프라인을 실행합니다.\n\n"
-            "실행 단계:\n"
-            "  1. 사전 점검 (doctor)\n"
-            "  2. Docker 이미지 빌드 (docker compose build)\n"
-            "  3. 데이터베이스 마이그레이션 (claire migrate)\n"
-            "  4. Compose 서비스 스택 기동 (up -d --wait)\n"
-            "  5. API 헬스체크 (health)"
+            "Execute initial installation and service startup pipeline.\n\n"
+            "Steps:\n"
+            "  1. Pre-flight check (doctor)\n"
+            "  2. Build Docker images (docker compose build)\n"
+            "  3. Migrate database (claire migrate)\n"
+            "  4. Start Compose service stack (up -d --wait)\n"
+            "  5. API healthcheck (health)"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
-            "예시:\n"
-            "  ./cb-manuscript install       # 프로덕션 초기 설치 및 기동\n"
-            "  ./cb-manuscript dev install   # 개발 환경 초기 설치 및 기동"
+            "Examples:\n"
+            "  ./cb-manuscript install       # Initial production install and start\n"
+            "  ./cb-manuscript dev install   # Initial development install and start"
         ),
     )
 
     # 4. update
     update = subparsers.add_parser(
         "update",
-        help="ff-only 갱신 후 안전한 순서로 재기동",
+        help="Fast-forward update and safely restart services",
         description=(
-            "Git 소스를 fast-forward 갱신하고 서비스를 안전한 순서로 재빌드·재기동합니다.\n\n"
-            "실행 단계:\n"
-            "  1. Git working tree 점검 및 fast-forward pull (--no-fetch 지정 시 생략)\n"
-            "  2. Docker 이미지 재빌드\n"
-            "  3. 서비스 안전 중지 및 DB 마이그레이션\n"
-            "  4. Compose 서비스 재기동 (up -d --wait)\n"
-            "  5. API 헬스체크"
+            "Fast-forward pull Git source, rebuild images, and restart services in a safe order.\n\n"
+            "Steps:\n"
+            "  1. Check Git working tree and fast-forward pull (skipped if --no-fetch is given)\n"
+            "  2. Rebuild Docker images\n"
+            "  3. Safely stop services and migrate DB\n"
+            "  4. Restart Compose services (up -d --wait)\n"
+            "  5. API healthcheck"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
-            "예시:\n"
-            "  ./cb-manuscript update             # git pull 후 재빌드 및 재기동\n"
-            "  ./cb-manuscript update --no-fetch  # 소스 fetch 없이 현재 코드로 재배치"
+            "Examples:\n"
+            "  ./cb-manuscript update             # git pull, rebuild, and restart\n"
+            "  ./cb-manuscript update --no-fetch  # Redeploy current code without git fetch"
         ),
     )
     update.add_argument(
         "--no-fetch",
         action="store_true",
-        help="git pull(fetch)을 생략하고 로컬 소스로 재배치",
+        help="Skip git pull (fetch) and redeploy using local source",
     )
 
     # 5. backup
     backup = subparsers.add_parser(
         "backup",
-        help="data/vault를 검증 가능한 폴더 또는 archive로 백업",
+        help="Backup data/vault to a verifiable directory or archive",
         description=(
-            "data 디렉터리(DB 등)와 vault 디렉터리(암호화 데이터 등)를 백업합니다.\n"
-            "백업 데이터의 체크섬과 메타데이터(manifest.json)를 자동 생성하여 무결성을 검증합니다."
+            "Backup data directory (DB, etc.) and vault directory (encrypted credentials, etc.).\n"
+            "Automatically computes checksums and metadata (manifest.json) to verify integrity."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
-            "예시:\n"
-            "  ./cb-manuscript backup                               # 디렉터리 형태 기본 백업 (backups/cb-YYYYMMDD/)\n"
-            "  ./cb-manuscript backup --format archive              # 압축 아카이브 백업 (.tar.gz)\n"
-            "  ./cb-manuscript backup --component data              # data 구성요소만 백업\n"
-            "  ./cb-manuscript backup --replace                     # 같은 날짜의 기존 백업 교체"
+            "Examples:\n"
+            "  ./cb-manuscript backup                               # Default directory backup (backups/cb-YYYYMMDD/)\n"
+            "  ./cb-manuscript backup --format archive              # Compressed archive backup (.tar.gz)\n"
+            "  ./cb-manuscript backup --component data              # Backup only data component\n"
+            "  ./cb-manuscript backup --replace                     # Overwrite existing backup for today"
         ),
     )
     backup.add_argument(
         "--format",
         choices=("directory", "archive"),
         default="directory",
-        help="백업 형식: directory=backups/cb-YYYYMMDD/, archive=.tar.gz (기본값: directory)",
+        help="Backup format: directory=backups/cb-YYYYMMDD/, archive=.tar.gz (default: directory)",
     )
     backup.add_argument(
         "--component",
         choices=BACKUP_COMPONENTS,
         action="append",
-        help="백업할 구성요소 (data, vault 중 선택, 반복 지정 가능, 기본값: data+vault 전체)",
+        help="Components to backup (data, vault; repeatable; default: all)",
     )
     backup.add_argument(
         "--replace",
         action="store_true",
-        help="같은 날짜의 기존 파일/폴더가 있으면 검증된 새 backup으로 교체",
+        help="Replace existing backup for today if present",
     )
 
     # 6. restore
     restore = subparsers.add_parser(
         "restore",
-        help="backup 폴더 또는 archive를 검증한 뒤 복원",
+        help="Verify and restore data from backup directory or archive",
         description=(
-            "생성된 백업 폴더 또는 아카이브(.tar.gz)의 무결성을 검증한 뒤 데이터를 복원합니다.\n"
-            "안전을 위해 서비스가 중지된 상태에서 복원하는 것을 권장합니다."
+            "Verify integrity of backup directory or archive (.tar.gz) and restore data.\n"
+            "Stopping services prior to restore is recommended for safety."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
-            "예시:\n"
+            "Examples:\n"
             "  ./cb-manuscript restore backups/cb-20260818 --yes\n"
             "  ./cb-manuscript restore backups/cb-20260818.tar.gz --component data --yes"
         ),
     )
-    restore.add_argument("source", help="복원할 backup 폴더 또는 .tar.gz archive 경로")
+    restore.add_argument("source", help="Path to backup directory or .tar.gz archive to restore")
     restore.add_argument(
         "--component",
         choices=BACKUP_COMPONENTS,
         action="append",
-        help="복원할 구성요소 (data, vault 중 선택, 반복 지정 가능, 기본값: backup 전체)",
+        help="Components to restore (data, vault; repeatable; default: all from backup)",
     )
     restore.add_argument(
         "--yes",
         action="store_true",
-        help="현재 선택 구성요소 교체를 확인 프롬프트 없이 명시적으로 승인",
+        help="Explicitly confirm replacement of current selected components without prompt",
     )
 
     # 7. health
     subparsers.add_parser(
         "health",
-        help="실행 중인 API의 liveness 확인",
+        help="Check liveness of running API",
         description=(
-            "실행 중인 API 컨테이너의 HTTP liveness 엔드포인트(GET /health)를 호출하여 응답을 점검합니다.\n\n"
-            "참고: 애플리케이션 상세 상태(degraded, DB 통계 등) 진단은 './cb-manuscript app health'를 사용하세요."
+            "Check response from running API container HTTP liveness endpoint (GET /health).\n\n"
+            "Note: For detailed application health (degraded, DB stats, etc.), use './cb-manuscript app health'."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
-            "예시:\n"
-            "  ./cb-manuscript health        # 프로덕션 API liveness 확인\n"
-            "  ./cb-manuscript dev health    # 개발 API liveness 확인"
+            "Examples:\n"
+            "  ./cb-manuscript health        # Check production API liveness\n"
+            "  ./cb-manuscript dev health    # Check development API liveness"
         ),
     )
 
     # 8. version
     subparsers.add_parser(
         "version",
-        help="wrapper와 source 버전 표시",
-        description="cb-manuscript 래퍼 스크립트 버전 및 패키징된 claire 패키지 버전을 표시합니다.",
+        help="Display wrapper and source versions",
+        description="Display cb-manuscript wrapper version and packaged claire version.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
 
@@ -2929,21 +2924,21 @@ def build_parser() -> argparse.ArgumentParser:
         "up",
         help=PASSTHROUGH_HELP["up"],
         description=(
-            "Docker Compose 서비스를 기동합니다.\n"
-            "인수 없이 실행 시 백그라운드 안전 기동(-d --wait --wait-timeout <timeout>)으로 동작합니다.\n"
-            "추가 인수를 전달하면 해당 인수로 docker compose up을 실행합니다."
+            "Start Docker Compose services.\n"
+            "Running without arguments starts safely in background (-d --wait --wait-timeout <timeout>).\n"
+            "Passing additional arguments forwards them to docker compose up."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
-            "주요 Compose 옵션 및 인수:\n"
-            "  -d, --detach          백그라운드에서 컨테이너 실행\n"
-            "  --build               컨테이너 시작 전 이미지 빌드\n"
-            "  --no-deps             의존성 서비스는 시작하지 않음\n"
-            "  [service ...]         기동할 특정 서비스 이름 (예: api, bot)\n\n"
-            "예시:\n"
-            "  ./cb-manuscript up                    # 기본 안전 기동 (-d --wait)\n"
-            "  ./cb-manuscript up --build            # 이미지 재빌드 후 기동\n"
-            "  ./cb-manuscript up -d api             # api 서비스만 백그라운드 기동"
+            "Key Compose options and arguments:\n"
+            "  -d, --detach          Run containers in background\n"
+            "  --build               Build images before starting containers\n"
+            "  --no-deps             Do not start linked services\n"
+            "  [service ...]         Specific service names to start (e.g. api, bot)\n\n"
+            "Examples:\n"
+            "  ./cb-manuscript up                    # Default safe startup (-d --wait)\n"
+            "  ./cb-manuscript up --build            # Rebuild images and start\n"
+            "  ./cb-manuscript up -d api             # Start only api service in background"
         ),
     )
 
@@ -2952,18 +2947,18 @@ def build_parser() -> argparse.ArgumentParser:
         "down",
         help=PASSTHROUGH_HELP["down"],
         description=(
-            "실행 중인 Docker Compose 서비스를 중지하고 컨테이너를 제거합니다.\n"
-            "모든 프로필(bot 포함)을 대상으로 docker compose --profile * down을 실행합니다."
+            "Stop running Docker Compose services and remove containers.\n"
+            "Runs docker compose --profile * down across all profiles (including bot)."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
-            "주요 Compose 옵션:\n"
-            "  -v, --volumes         네임드 볼륨 제거 (주의: 영속 데이터가 삭제될 수 있음)\n"
-            "  --remove-orphans      Compose 파일에 정의되지 않은 고아 컨테이너 제거\n"
-            "  -t, --timeout sec     종료 대기 제한시간(초)\n\n"
-            "예시:\n"
-            "  ./cb-manuscript down                  # 모든 서비스 안전 중지 및 제거\n"
-            "  ./cb-manuscript down --remove-orphans # 고아 컨테이너 포함 제거"
+            "Key Compose options:\n"
+            "  -v, --volumes         Remove named volumes (Caution: persistent data may be deleted)\n"
+            "  --remove-orphans      Remove orphan containers not defined in Compose file\n"
+            "  -t, --timeout sec     Shutdown timeout in seconds\n\n"
+            "Examples:\n"
+            "  ./cb-manuscript down                  # Safely stop and remove all services\n"
+            "  ./cb-manuscript down --remove-orphans # Remove including orphan containers"
         ),
     )
 
@@ -2971,15 +2966,15 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser(
         "restart",
         help=PASSTHROUGH_HELP["restart"],
-        description="실행 중인 Docker Compose 서비스를 재시작합니다 (docker compose restart).",
+        description="Restart running Docker Compose services (docker compose restart).",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
-            "인수:\n"
-            "  [service ...]         재시작할 서비스 이름 (지정하지 않으면 전체 서비스 재시작)\n\n"
-            "예시:\n"
-            "  ./cb-manuscript restart               # 전체 서비스 재시작\n"
-            "  ./cb-manuscript restart api           # api 서비스만 재시작\n"
-            "  ./cb-manuscript restart bot           # bot 서비스만 재시작"
+            "Arguments:\n"
+            "  [service ...]         Service names to restart (restarts all services if omitted)\n\n"
+            "Examples:\n"
+            "  ./cb-manuscript restart               # Restart all services\n"
+            "  ./cb-manuscript restart api           # Restart only api service\n"
+            "  ./cb-manuscript restart bot           # Restart only bot service"
         ),
     )
 
@@ -2987,18 +2982,18 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser(
         "status",
         help=PASSTHROUGH_HELP["status"],
-        description="Docker Compose 컨테이너들의 실행 상태를 표시합니다 (docker compose ps).",
+        description="Display running status of Docker Compose containers (docker compose ps).",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
-            "주요 Compose 옵션:\n"
-            "  -a, --all             정지된 컨테이너를 포함한 모든 컨테이너 표시\n"
-            "  --format format       출력 형식 (table, json 등)\n"
-            "  --status status       상태 필터 (running, exited, paused 등)\n"
-            "  [service ...]         조회할 특정 서비스 이름 (예: api, bot)\n\n"
-            "예시:\n"
-            "  ./cb-manuscript status                # 현재 실행 중인 서비스 상태\n"
-            "  ./cb-manuscript status -a             # 중지된 컨테이너 포함 전체 상태\n"
-            "  ./cb-manuscript status --format json  # JSON 형식 출력"
+            "Key Compose options:\n"
+            "  -a, --all             Show all containers including stopped ones\n"
+            "  --format format       Output format (table, json, etc.)\n"
+            "  --status status       Filter by status (running, exited, paused, etc.)\n"
+            "  [service ...]         Specific service names to query (e.g. api, bot)\n\n"
+            "Examples:\n"
+            "  ./cb-manuscript status                # Running services status\n"
+            "  ./cb-manuscript status -a             # Full status including stopped containers\n"
+            "  ./cb-manuscript status --format json  # Output in JSON format"
         ),
     )
 
@@ -3007,24 +3002,24 @@ def build_parser() -> argparse.ArgumentParser:
         "logs",
         help=PASSTHROUGH_HELP["logs"],
         description=(
-            "Docker Compose 서비스의 로그를 출력합니다 (docker compose logs).\n\n"
-            "대상 서비스:\n"
-            "  api                   API 웹 서버 컨테이너\n"
-            "  bot                   Telegram 봇 컨테이너 (TELEGRAM_BOT_TOKEN 설정 시)"
+            "Display logs of Docker Compose services (docker compose logs).\n\n"
+            "Target services:\n"
+            "  api                   API web server container\n"
+            "  bot                   Telegram bot container (when TELEGRAM_BOT_TOKEN is set)"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
-            "주요 Compose 옵션 및 인수:\n"
-            "  -f, --follow          실시간 로그 스트리밍 (follow)\n"
-            "  --tail lines          출력할 마지막 줄 수 지정 (기본값: all)\n"
-            "  --since time          특정 시점 이후 로그 필터 (예: 10m, 2026-08-18T10:00:00)\n"
-            "  -t, --timestamps      로그 타임스탬프 표시\n"
-            "  [service ...]         로그를 확인할 대상 서비스 (예: api, bot)\n\n"
-            "예시:\n"
-            "  ./cb-manuscript logs                  # 전체 서비스 로그 출력\n"
-            "  ./cb-manuscript logs api              # api 서비스 로그 출력\n"
-            "  ./cb-manuscript logs -f api           # api 실시간 로그 스트리밍\n"
-            "  ./cb-manuscript logs --tail 100 api   # api 서비스 최근 100줄 출력"
+            "Key Compose options and arguments:\n"
+            "  -f, --follow          Stream logs in real time\n"
+            "  --tail lines          Number of lines to show from end of logs (default: all)\n"
+            "  --since time          Filter logs since timestamp (e.g. 10m, 2026-08-18T10:00:00)\n"
+            "  -t, --timestamps      Show log timestamps\n"
+            "  [service ...]         Services to view logs for (e.g. api, bot)\n\n"
+            "Examples:\n"
+            "  ./cb-manuscript logs                  # View all service logs\n"
+            "  ./cb-manuscript logs api              # View api service logs\n"
+            "  ./cb-manuscript logs -f api           # Stream api logs in real time\n"
+            "  ./cb-manuscript logs --tail 100 api   # View last 100 lines of api service logs"
         ),
     )
 
@@ -3033,18 +3028,18 @@ def build_parser() -> argparse.ArgumentParser:
         "shell",
         help=PASSTHROUGH_HELP["shell"],
         description=(
-            "실행 중인 서비스 컨테이너 내에서 셸 또는 명령을 실행합니다 (docker compose exec).\n"
-            "기본 서비스는 api이며, 기본 명령은 bash입니다."
+            "Run a shell or command inside a running service container (docker compose exec).\n"
+            "Default service is api, and default command is bash."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
-            "구문:\n"
+            "Syntax:\n"
             "  ./cb-manuscript shell [service] [-- command ...]\n\n"
-            "예시:\n"
-            "  ./cb-manuscript shell                 # api 컨테이너 bash 대화형 셸 접속\n"
-            "  ./cb-manuscript shell bot             # bot 컨테이너 bash 접속\n"
-            "  ./cb-manuscript shell api -- python3  # api 컨테이너에서 python3 REPL 실행\n"
-            "  ./cb-manuscript shell api -- env      # api 컨테이너 환경변수 확인"
+            "Examples:\n"
+            "  ./cb-manuscript shell                 # Interactive bash shell in api container\n"
+            "  ./cb-manuscript shell bot             # Interactive bash shell in bot container\n"
+            "  ./cb-manuscript shell api -- python3  # Run python3 REPL in api container\n"
+            "  ./cb-manuscript shell api -- env      # Inspect environment variables in api container"
         ),
     )
 
@@ -3053,27 +3048,26 @@ def build_parser() -> argparse.ArgumentParser:
         "app",
         help=PASSTHROUGH_HELP["app"],
         description=(
-            "현재 배포 환경의 .env 설정과 마운트 볼륨(data, vault)을 그대로 사용하여\n"
-            "api 컨테이너 내에서 claire one-off 명령을 실행합니다 (docker compose run --rm --no-deps api claire ...).\n\n"
-            "안전 정책:\n"
-            "  - one-off 조회/유지보수 명령은 기본 실행 가능합니다.\n"
-            "  - 서비스 수명주기 명령(migrate, bot, serve-api, reextract 등)은 보호를 위해 기본 차단됩니다.\n"
-            "  - 차단된 명령을 실행하려면 --advanced 플래그를 사용하세요."
+            "Run a claire one-off command inside the api container with current environment (.env) and volume mounts (data, vault) (docker compose run --rm --no-deps api claire ...).\n\n"
+            "Safety Policy:\n"
+            "  - One-off query and maintenance commands can be run by default.\n"
+            "  - Service lifecycle commands (migrate, bot, serve-api, reextract, etc.) are blocked by default for safety.\n"
+            "  - Use --advanced flag to run blocked commands."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
-            "주요 허용 명령 (one-off):\n"
+            "Allowed Commands (one-off):\n"
             "  health, doctor, status, stats, search, ingest, refresh-run, recover-run, ...\n\n"
-            "보호 대상 명령 (기본 차단):\n"
+            "Guarded Commands (blocked by default):\n"
             "  migrate, bot, serve-api, recover-loop, refresh-loop, expand-loop, reextract\n\n"
-            "옵션:\n"
-            "  --advanced            안전 가드를 우회하여 보호 대상 명령 실행\n\n"
-            "예시:\n"
-            "  ./cb-manuscript app health            # 전체 애플리케이션 상세 상태 확인\n"
-            "  ./cb-manuscript app doctor            # 앱 레벨 진단 실행\n"
-            "  ./cb-manuscript app search \"키워드\"     # CLI 검색 실행\n"
-            "  ./cb-manuscript app --help            # claire CLI의 전체 명령 도움말 표시\n"
-            "  ./cb-manuscript app --advanced migrate # 보호 가드 우회하여 마이그레이션 실행"
+            "Options:\n"
+            "  --advanced            Bypass safety guards to execute guarded commands\n\n"
+            "Examples:\n"
+            "  ./cb-manuscript app health            # Check detailed application health\n"
+            "  ./cb-manuscript app doctor            # Run app-level diagnostics\n"
+            "  ./cb-manuscript app search \"query\"     # Run CLI search\n"
+            "  ./cb-manuscript app --help            # Display claire CLI help\n"
+            "  ./cb-manuscript app --advanced migrate # Bypass safety guards to run migration"
         ),
     )
 
@@ -3082,14 +3076,13 @@ def build_parser() -> argparse.ArgumentParser:
         "compose",
         help=PASSTHROUGH_HELP["compose"],
         description=(
-            "cb-manuscript의 환경 설정(.env, project명 등)이 주입된 Docker Compose로\n"
-            "임의의 인수를 직접 전달하는 고급 탈출구(escape hatch)입니다."
+            "Advanced escape hatch to pass arbitrary arguments directly to Docker Compose with cb-manuscript environment settings (.env, project name, etc.) injected."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
-            "구문:\n"
+            "Syntax:\n"
             "  ./cb-manuscript compose [--] <args ...>\n\n"
-            "예시:\n"
+            "Examples:\n"
             "  ./cb-manuscript compose ps\n"
             "  ./cb-manuscript compose config\n"
             "  ./cb-manuscript compose top\n"
@@ -3100,11 +3093,11 @@ def build_parser() -> argparse.ArgumentParser:
     # 17. remote
     remote = subparsers.add_parser(
         "remote",
-        help="deploy.sh 원격 연결",
-        description="deploy.sh를 통해 SSH 원격 호스트에 접속하여 배포 명령을 실행합니다 (production 전용).",
+        help="Remote execution via deploy.sh",
+        description="Connect to SSH remote host via deploy.sh and execute deployment commands (production only).",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
-            "예시:\n"
+            "Examples:\n"
             "  ./cb-manuscript remote install\n"
             "  ./cb-manuscript remote update"
         ),
@@ -3112,13 +3105,13 @@ def build_parser() -> argparse.ArgumentParser:
     remote_subparsers = remote.add_subparsers(dest="remote_action", required=True)
     remote_subparsers.add_parser(
         "install",
-        help="원격 호스트에 cb-manuscript install 실행",
-        description="SSH 원격 호스트에 접속하여 초기 설치(install)를 수행합니다.",
+        help="Run cb-manuscript install on remote host",
+        description="Connect to SSH remote host and perform initial installation (install).",
     )
     remote_subparsers.add_parser(
         "update",
-        help="원격 호스트에 cb-manuscript update 실행",
-        description="SSH 원격 호스트에 접속하여 업데이트(update)를 수행합니다.",
+        help="Run cb-manuscript update on remote host",
+        description="Connect to SSH remote host and perform update.",
     )
     return parser
 
@@ -3132,10 +3125,10 @@ def _split_dev_prefix(argv: Sequence[str]) -> tuple[bool, list[str]]:
 
 def _validate_remote_environment(layout: Layout, *, legacy_dev: bool) -> None:
     if legacy_dev:
-        raise ManuscriptError("remote install/update는 production 환경에서만 실행할 수 있습니다.")
+        raise ManuscriptError("remote install/update can only be executed in production environment.")
     process_value = os.environ.get(ENVIRONMENT_KEY)
     if process_value is not None:
-        environment = _parse_environment(process_value, source="프로세스 환경")
+        environment = _parse_environment(process_value, source="process environment")
     else:
         values = read_dotenv(layout.env)
         environment = _parse_environment(
@@ -3144,7 +3137,7 @@ def _validate_remote_environment(layout: Layout, *, legacy_dev: bool) -> None:
         )
     if environment != PRODUCTION:
         raise ManuscriptError(
-            f"remote install/update는 {ENVIRONMENT_KEY}={PRODUCTION} 전용입니다."
+            f"remote install/update is reserved for {ENVIRONMENT_KEY}={PRODUCTION}."
         )
 
 
@@ -3168,9 +3161,9 @@ def main(argv: Sequence[str] | None = None, *, root: Path | None = None) -> int:
             _validate_remote_environment(layout, legacy_dev=dev)
             action = args[1]
             if action not in {"install", "update"}:
-                build_parser().error("remote action은 install 또는 update여야 합니다")
+                build_parser().error("remote action must be install or update")
             if len(args) != 2:
-                raise ManuscriptError("remote install/update는 추가 인수를 받지 않습니다.")
+                raise ManuscriptError("remote install/update does not accept additional arguments.")
             return command_remote(layout, action)
 
         parsed = build_parser().parse_args(args)
@@ -3202,7 +3195,7 @@ def main(argv: Sequence[str] | None = None, *, root: Path | None = None) -> int:
             )
         if parsed.command == "health":
             return command_health(runtime)
-        raise ManuscriptError(f"알 수 없는 명령: {parsed.command}")
+        raise ManuscriptError(f"Unknown command: {parsed.command}")
     except SystemExit as exc:
         if argv is None:
             raise
