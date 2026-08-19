@@ -200,13 +200,14 @@ class AntigravityProvider:
         return vals
 
     def summarize_search(self, query: str, context: str) -> str:
-        """검색된 컨텍스트만 사용해 질의에 답한다(인용 포함, 환각 억제)."""
+        """검색된 컨텍스트만 사용해 질의에 답한다(인용 포함, 환각 억제, 문어체)."""
         prompt = (
             "You answer the user's query using ONLY the knowledge-base context below. "
             "Do not invent facts beyond it. Cite entities in [brackets]. "
             "If the context is insufficient, say so plainly. "
-            "Write the answer in Korean (한국어), but keep proper nouns, product/tool "
-            "names, and technical terms in their original form (do not transliterate). "
+            "Write the answer in Korean (한국어) using objective written style (문어체: ~한다/~이다, "
+            "do not use conversational honorifics like ~합니다/~해요), but keep proper nouns, "
+            "product/tool names, and technical terms in their original form (do not transliterate). "
             "Be concise.\n\n"
             f"QUERY: {query}\n\nCONTEXT:\n{context}\n\nANSWER:"
         )
@@ -243,14 +244,16 @@ class AntigravityProvider:
             "풀어 써라.\n\n"
             + merge_hint
             + "작성 규칙(마크다운):\n"
-            "1. 내용이 길면 `##`/`###` 소제목과 문단으로 구조화하고, 나열은 `-` 불릿을 써라. "
+            "1. 문체 및 어조: 일관된 문어체(서술체: '~한다', '~이다', '~됨')로 서술하라. "
+            "대화형 경어체('~합니다', '~해요')나 구어체는 사용하지 않는다.\n"
+            "2. 내용이 길면 `##`/`###` 소제목과 문단으로 구조화하고, 나열은 `-` 불릿을 써라. "
             "단락은 빈 줄로 구분.\n"
-            "2. 가독성을 위해 **중요한 용어·핵심 주장은 굵게**(`**...**`) 표시하라. 그리고 "
+            "3. 가독성을 위해 **중요한 용어·핵심 주장은 굵게**(`**...**`) 표시하라. 그리고 "
             "정말 빼놓으면 안 되는 한두 구절만 `==형광==`(==로 감쌈)으로 강조하라 — 남발하면 "
             "강조 효과가 사라지니 문단·섹션당 한두 곳으로 아껴 써라.\n"
-            "3. 고유명사·제품/도구/모델명·조직명·기술 용어는 원문 형태 그대로 유지하라"
+            "4. 고유명사·제품/도구/모델명·조직명·기술 용어는 원문 형태 그대로 유지하라"
             '(음차/번역 금지: 예 "arXiv", "LLM agent").\n'
-            "4. 원문에 없는 사실은 절대 지어내지 말 것.\n"
+            "5. 원문에 없는 사실은 절대 지어내지 말 것.\n"
             + _images_block(images)
             + f"\n원문:\n{body}\n\n한국어 마크다운:"
         )
@@ -267,7 +270,7 @@ class AntigravityProvider:
             "- watch=false: 뉴스 기사·블로그 글·논문·릴리스 노트·일회성 설명/문서 등 한 번 "
             "적재하면 거의 안 바뀌는 것.\n"
             "watch=true 면 적절한 재확인 주기를 interval_days(정수 일; 매일=1, 매주=7 등)로. "
-            "reason 은 한국어 한 문장.\n\n"
+            "reason 은 한국어 한 문장(문어체: ~임/~함/~다).\n\n"
             f"문서:\n{body}"
         )
         schema = WatchClassification.model_json_schema()
@@ -292,9 +295,9 @@ class AntigravityProvider:
             "2. 웹 검색으로 사실을 확인하며 조사하라. 맥락과 일치하는 신뢰할 만한 자료를 "
             "찾지 못하면, 지어내지 말고 첫 줄에 INSUFFICIENT 라고만 적고 이유를 한 줄 "
             "덧붙여라.\n"
-            "3. 보고서는 한국어 평문 산문(여러 단락, 빈 줄 구분)으로 작성하라 — 마크다운 "
-            "소제목(#)·불릿(-)·표 금지. 고유명사·제품/도구/모델명·기술 용어는 원문 형태 "
-            "유지(음차 금지).\n"
+            "3. 보고서는 한국어 평문 산문(일관된 문어체: ~한다/~이다, 여러 단락, 빈 줄 구분)으로 "
+            "작성하라 — 마크다운 소제목(#)·불릿(-)·표 금지. 대화형 경어체(~합니다) 금지. "
+            "고유명사·제품/도구/모델명·기술 용어는 원문 형태 유지(음차 금지).\n"
             "4. 핵심 정의 -> 맥락과의 관계 -> 구체적 사실(수치·날짜·버전 등) 순으로, "
             "지식그래프에 추출할 가치가 있는 내용 위주로 써라.\n\n"
             f"[맥락]\n{context[:8000]}\n\n[조사 대상]\n{query}\n\n[보고서]"
@@ -335,8 +338,8 @@ class AntigravityProvider:
             "추측성이면 낮게.\n"
             "- same_subject(true/false): 오직 다음 패턴에서만 true — [맥락]은 [조사 대상]을 "
             "소개·인용·언급하는 2차 서술이고 [보고서]는 바로 그 대상의 1차 원본 자체(공식 저장소/문서)일 때만 true.\n"
-            "- interpretation: 보고서가 [조사 대상]을 어떤 의미로 해석했는지 한 문장(한국어).\n"
-            "- reason: 채점 근거 한두 문장(한국어).\n\n"
+            "- interpretation: 보고서가 [조사 대상]을 어떤 의미로 해석했는지 한 문장(한국어 문어체: ~임/~함/~다).\n"
+            "- reason: 채점 근거 한두 문장(한국어 문어체: ~임/~함/~다).\n\n"
             f"[맥락]\n{context[:6000]}\n\n[조사 대상]\n{query}\n\n[보고서]\n{report[:8000]}"
         )
         schema = ResearchJudgement.model_json_schema()

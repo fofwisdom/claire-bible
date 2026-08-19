@@ -21,8 +21,8 @@ from .provider import (
 )
 
 # 추출 프롬프트 버전. _SYS 를 바꾸면 올린다(재적재 시 어떤 프롬프트로 뽑았는지 추적).
-# v3: summary/observations/key_claims 를 한국어로(고유명사 원문 유지) — 사용자 요구.
-PROMPT_VERSION = "extract-v3"
+# v4: summary/observations/key_claims 및 주요 서술 출력에 문어체(서술체: ~한다/~이다/~함) 적용.
+PROMPT_VERSION = "extract-v4"
 
 # 프로세스 전역 throttle: 모든 Gemini 호출이 공유하는 최소 간격과 마지막 호출 시각.
 _CALL_LOCK = threading.Lock()
@@ -35,12 +35,14 @@ personal knowledge base about AI/software tools and research.
 {ontology}
 
 Rules:
-- LANGUAGE: write `summary`, every `observations` item, and `key_claims` in Korean
-  (한국어), REGARDLESS of the source document's language. Keep proper nouns, product/
-  tool/model names, org names, and technical terms in their original form — do NOT
-  transliterate (e.g. "OpenSkill", "arXiv", "LLM agent" stay as-is). Entity `name` and
-  `aliases` stay in their canonical original form (usually the original language).
-- summary: 1-3 factual sentences in Korean.
+- LANGUAGE & STYLE: write `summary`, every `observations` item, and `key_claims` in Korean
+  (한국어) using formal/declarative written style (문어체 / 서술체: e.g. '~한다', '~이다',
+  '~함' without conversational honorifics like '~합니다', '~해요'), REGARDLESS of the source
+  document's language. Keep proper nouns, product/tool/model names, org names, and technical
+  terms in their original form — do NOT transliterate (e.g. "OpenSkill", "arXiv", "LLM agent"
+  stay as-is). Entity `name` and `aliases` stay in their canonical original form (usually the
+  original language).
+- summary: 1-3 factual sentences in Korean written style (문어체: ~한다/~이다).
 - entities: the key things this document is ABOUT (tools, repos, models, people, orgs, concepts...).
 - Do NOT create an entity for the publishing platform, source site, news aggregator, or
   forum that merely HOSTS or links to this content (e.g. GeekNews, Hacker News, Reddit,
@@ -259,13 +261,14 @@ class GeminiProvider:
         return list(resp.embeddings[0].values)
 
     def summarize_search(self, query: str, context: str) -> str:
-        """검색된 컨텍스트만 사용해 질의에 답한다(인용 포함, 환각 억제)."""
+        """검색된 컨텍스트만 사용해 질의에 답한다(인용 포함, 환각 억제, 문어체)."""
         prompt = (
             "You answer the user's query using ONLY the knowledge-base context below. "
             "Do not invent facts beyond it. Cite entities in [brackets]. "
             "If the context is insufficient, say so plainly. "
-            "Write the answer in Korean (한국어), but keep proper nouns, product/tool "
-            "names, and technical terms in their original form (do not transliterate). "
+            "Write the answer in Korean (한국어) using objective written style (문어체: ~한다/~이다, "
+            "do not use conversational honorifics like ~합니다/~해요), but keep proper nouns, "
+            "product/tool names, and technical terms in their original form (do not transliterate). "
             "Be concise.\n\n"
             f"QUERY: {query}\n\nCONTEXT:\n{context}\n\nANSWER:"
         )
@@ -319,14 +322,16 @@ class GeminiProvider:
             f"맥락·중요한 세부까지 충분히 파악할 수 있도록 여러 단락({length_hint})으로 "
             "풀어 써라.\n\n" + merge_hint +
             "작성 규칙(마크다운):\n"
-            "1. 내용이 길면 `##`/`###` 소제목과 문단으로 구조화하고, 나열은 `-` 불릿을 써라. "
+            "1. 문체 및 어조: 일관된 문어체(서술체: '~한다', '~이다', '~됨')로 서술하라. "
+            "대화형 경어체('~합니다', '~해요')나 구어체는 사용하지 않는다.\n"
+            "2. 내용이 길면 `##`/`###` 소제목과 문단으로 구조화하고, 나열은 `-` 불릿을 써라. "
             "단락은 빈 줄로 구분.\n"
-            "2. 가독성을 위해 **중요한 용어·핵심 주장은 굵게**(`**...**`) 표시하라. 그리고 "
+            "3. 가독성을 위해 **중요한 용어·핵심 주장은 굵게**(`**...**`) 표시하라. 그리고 "
             "정말 빼놓으면 안 되는 한두 구절만 `==형광==`(==로 감쌈)으로 강조하라 — 남발하면 "
             "강조 효과가 사라지니 문단·섹션당 한두 곳으로 아껴 써라.\n"
-            "3. 고유명사·제품/도구/모델명·조직명·기술 용어는 원문 형태 그대로 유지하라"
+            "4. 고유명사·제품/도구/모델명·조직명·기술 용어는 원문 형태 그대로 유지하라"
             "(음차/번역 금지: 예 \"arXiv\", \"LLM agent\").\n"
-            "4. 원문에 없는 사실은 절대 지어내지 말 것.\n"
+            "5. 원문에 없는 사실은 절대 지어내지 말 것.\n"
             + _images_block(images) +
             f"\n원문:\n{body}\n\n한국어 마크다운:"
         )
@@ -351,7 +356,7 @@ class GeminiProvider:
             "- watch=false: 뉴스 기사·블로그 글·논문·릴리스 노트·일회성 설명/문서 등 한 번 "
             "적재하면 거의 안 바뀌는 것.\n"
             "watch=true 면 적절한 재확인 주기를 interval_days(정수 일; 매일=1, 매주=7 등)로. "
-            "reason 은 한국어 한 문장.\n\n"
+            "reason 은 한국어 한 문장(문어체: ~임/~함/~다).\n\n"
             f"문서:\n{body}"
         )
         response_format = {
@@ -393,9 +398,9 @@ class GeminiProvider:
             "2. 웹 검색으로 사실을 확인하며 조사하라. 맥락과 일치하는 신뢰할 만한 자료를 "
             "찾지 못하면, 지어내지 말고 첫 줄에 INSUFFICIENT 라고만 적고 이유를 한 줄 "
             "덧붙여라.\n"
-            "3. 보고서는 한국어 평문 산문(여러 단락, 빈 줄 구분)으로 작성하라 — 마크다운 "
-            "소제목(#)·불릿(-)·표 금지. 고유명사·제품/도구/모델명·기술 용어는 원문 형태 "
-            "유지(음차 금지).\n"
+            "3. 보고서는 한국어 평문 산문(일관된 문어체: ~한다/~이다, 여러 단락, 빈 줄 구분)으로 "
+            "작성하라 — 마크다운 소제목(#)·불릿(-)·표 금지. 대화형 경어체(~합니다) 금지. "
+            "고유명사·제품/도구/모델명·기술 용어는 원문 형태 유지(음차 금지).\n"
             "4. 핵심 정의 → 맥락과의 관계 → 구체적 사실(수치·날짜·버전 등) 순으로, "
             "지식그래프에 추출할 가치가 있는 내용 위주로 써라.\n\n"
             f"[맥락]\n{context[:8000]}\n\n[조사 대상]\n{query}\n\n[보고서]"
@@ -440,8 +445,8 @@ class GeminiProvider:
             "  예2) false: '[맥락]=회사 자체 블로그의 특정 고객 사례 글(이미 1차 자료)' + "
             "'[보고서]=같은 회사의 제품 문서 / 홈페이지 / 저장소'(맥락의 원본이 아니라 "
             "형제 문서)\n"
-            "- interpretation: 보고서가 [조사 대상]을 어떤 의미로 해석했는지 한 문장(한국어).\n"
-            "- reason: 채점 근거 한두 문장(한국어).\n\n"
+            "- interpretation: 보고서가 [조사 대상]을 어떤 의미로 해석했는지 한 문장(한국어 문어체: ~임/~함/~다).\n"
+            "- reason: 채점 근거 한두 문장(한국어 문어체: ~임/~함/~다).\n\n"
             f"[맥락]\n{context[:6000]}\n\n[조사 대상]\n{query}\n\n[보고서]\n{report[:8000]}"
         )
         response_format = {
@@ -576,9 +581,9 @@ def _images_block(images: list[dict]) -> str:
         "직접 전달하고, 그 그림이 없으면 이해가 떨어지는 경우에만 삽입하라 — 즉 구조도·"
         "아키텍처 다이어그램, 데이터 차트/그래프, 알고리즘·플로우 도식, 핵심을 보여주는 "
         "스크린샷 같은 **설명적 그림**. 관련 내용 바로 옆에 마크다운 `![설명](url)` 으로 넣되 "
-        "url 은 목록 값을 한 글자도 바꾸지 말고 그대로, alt 설명은 한국어로 달아라.\n"
+        "url 은 목록 값을 한 글자도 바꾸지 말고 그대로, alt 설명은 한국어(문어체/명사구)로 달아라.\n"
         "**그리고 이미지 바로 다음 줄(빈 줄 없이)에 그 그림이 무엇을 보여주는지 본문 맥락에 "
-        "근거한 한 줄 캡션을 이탤릭(`*...*`)으로 달아라** — alt 는 그림이 깨질 때만 보이므로 "
+        "근거한 한 줄 캡션을 이탤릭(`*...*`)으로 달아라(문어체 서술)** — alt 는 그림이 깨질 때만 보이므로 "
         "실제로 읽히는 설명은 이 캡션이다. 원문 캡션이 있으면 그것을 다듬어 쓰고, 없으면 본문 "
         "맥락으로 설명하되 원문에 없는 사실은 지어내지 마라.\n"
         "다음은 절대 넣지 마라: 대표/히어로/썸네일/소셜카드 이미지, 장식·분위기 사진, "
