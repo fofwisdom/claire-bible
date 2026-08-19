@@ -439,6 +439,21 @@ def cmd_watch(args) -> int:  # noqa: ANN001
     return 0
 
 
+def cmd_doc_title(args) -> int:  # noqa: ANN001
+    """문서 제목 갱신 및 MinHash 서명 재계산."""
+    s = get_settings()
+    conn = dbm.connect_existing(s.db_file)
+    try:
+        ok = dbm.set_document_title(conn, args.document_id, args.title)
+        if not ok:
+            print(f"문서 없음: {args.document_id}")
+            return 1
+        print(f"제목 갱신 완료: {args.document_id} → '{args.title}'")
+        return 0
+    finally:
+        conn.close()
+
+
 def cmd_dedup_scan(args) -> int:  # noqa: ANN001
     """[진단·비파괴] 근사 중복(near-duplicate) 클러스터를 보고만 한다(병합 안 함).
 
@@ -681,6 +696,11 @@ def build_parser() -> argparse.ArgumentParser:
     pw.add_argument("--interval-days", type=float, default=None, help="재확인 주기(일)")
     pw.add_argument("--list", action="store_true", help="watch 문서 목록")
     pw.set_defaults(func=cmd_watch)
+
+    pdt = sub.add_parser("doc-title", help="update document title and recompute minhash signature")
+    pdt.add_argument("document_id", help="대상 문서 id")
+    pdt.add_argument("title", help="새 제목")
+    pdt.set_defaults(func=cmd_doc_title)
 
     pds = sub.add_parser("dedup-scan",
                          help="report near-duplicate document clusters (MinHash, non-destructive)")

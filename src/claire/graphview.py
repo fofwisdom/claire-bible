@@ -397,6 +397,7 @@ GRAPH_HTML = """<!doctype html>
   body:not([data-auth-scope="owner"]) #synthchips,
   body:not([data-auth-scope="owner"]) #addbtn,
   body:not([data-auth-scope="owner"]) #dedupbtn,
+  body:not([data-auth-scope="owner"]) .redit,
   body:not([data-auth-scope="owner"]) .rshare{display:none!important}
   #detailpane{width:360px;display:flex;flex-direction:column;background:var(--panel-bg);
     border-left:1px solid var(--border);min-height:0}
@@ -490,7 +491,7 @@ GRAPH_HTML = """<!doctype html>
   #reader .sharebox.on{display:flex} #reader .sharebox input{flex:1;min-width:0}
   #reader .sharebox button{background:var(--accent);color:#fff;border:0;border-radius:4px;
     padding:3px 9px;font-size:12px;cursor:pointer}
-  #reader .rhead .rshare{background:var(--sec-bg);color:var(--sec-fg);border:0;border-radius:6px;
+  #reader .rhead .redit,#reader .rhead .rshare{background:var(--sec-bg);color:var(--sec-fg);border:0;border-radius:6px;
     font-size:15px;line-height:1;padding:5px 10px;cursor:pointer}
   #reader .rbody{padding:10px 32px max(28px,env(safe-area-inset-bottom));overflow:auto;
     overscroll-behavior:contain}
@@ -594,7 +595,7 @@ GRAPH_HTML = """<!doctype html>
     #reader .sheet{height:100vh;max-height:100dvh;border:0;border-radius:0}
     #reader .rhead{padding:max(10px,env(safe-area-inset-top)) 12px 10px}
     #reader .rhead h1{font-size:18px}
-    #reader .rzoom button,#reader .rshare,#reader .rclose{min-width:44px;min-height:44px}
+    #reader .rzoom button,#reader .redit,#reader .rshare,#reader .rclose{min-width:44px;min-height:44px}
     #reader .rbody{padding:8px 16px max(20px,env(safe-area-inset-bottom))}
   }
   @media (prefers-reduced-motion:reduce){
@@ -689,6 +690,7 @@ GRAPH_HTML = """<!doctype html>
         <span class="fsv" id="rfs">16</span>
         <button onclick="setReadFS(2)" title="글자 크게" aria-label="글자 크게">A+</button>
       </div>
+      <button class="redit" id="reditbtn" onclick="editDocTitle()" title="제목 수정" aria-label="제목 수정">✏️</button>
       <button class="rshare" onclick="shareDoc()" title="공유 링크 만들기" aria-label="공유 링크 만들기">🔗</button>
       <button class="rclose" onclick="closeReader()" title="닫기(ESC)" aria-label="읽기 닫기">✕</button></div>
     <div class="sharebox" id="sharebox"></div>
@@ -856,6 +858,7 @@ function setReadFS(delta){
 
 // 중앙 읽기 팝업 — 좌측 문서의 '읽기' 버튼/노드 상세의 📖 로 연다(nav 와 분리, 사용자 요구).
 let curReaderDoc=null;   // 현재 읽기 팝업의 문서 id(🔗 공유 링크 생성 대상)
+let curReaderDocData=null; // 현재 읽기 팝업의 문서 객체
 let readerReturnFocus=null, readerReturnDocId=null;
 function setReaderBackgroundInert(on){
   ['bar','worktabs','wrap'].forEach(id=>{ const el=document.getElementById(id); if(el) el.inert=on; });
@@ -915,6 +918,7 @@ function openReader(docId){
     r.setAttribute('aria-busy','false'); });
 }
 function renderReader(dc){
+  curReaderDocData=dc;
   document.getElementById('rtitle').innerHTML = esc(dc.title||'(제목 없음)')
     + (dc.source_type?' <span class=rmeta>'+esc(dc.source_type)+'</span>':'');
   let h='';
@@ -951,6 +955,42 @@ function closeReader(){
 
 // --- 문서 공유 핫링크 — 세션 토큰(nginx 통과)과 별개의, 이 문서만 여는 읽기전용 링크 ---
 // /share 가 공유 토큰을 발급(인증 필요) → /p?s=token 은 비인증으로 그 문서만 보여준다.
+async function editDocTitle(){
+  if(!canWrite() || !curReaderDoc) return;
+  const current = (curReaderDocData && curReaderDocData.title && curReaderDocData.title !== '(제목 없음)') ? curReaderDocData.title : '';
+  const newTitle = prompt('새 제목을 입력하세요:', current);
+  if(newTitle === null) return;
+  const trimmed = newTitle.trim();
+  try{
+    const r = await fetch('document/title', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({id: curReaderDoc, title: trimmed})
+    });
+    if(r.status === 401 || r.status === 404){
+      expireWriteAccess();
+      alert('세션 만료 또는 권한 없음 — 텔레그램 /web 으로 다시 접속하세요');
+      return;
+    }
+    if(!r.ok){
+      const err = await r.json().catch(()=>({}));
+      alert('제목 변경 실패: ' + (err.detail || err.error || ('HTTP ' + r.status)));
+      return;
+    }
+    const d = await r.json();
+    const updatedTitle = d.title || '(제목 없음)';
+    if(curReaderDocData) curReaderDocData.title = d.title;
+    document.getElementById('rtitle').innerHTML = esc(updatedTitle)
+      + (curReaderDocData && curReaderDocData.source_type ? ' <span class=rmeta>' + esc(curReaderDocData.source_type) + '</span>' : '');
+    const dc = allDocs && allDocs.find(x => x.id === curReaderDoc);
+    if(dc){
+      dc.title = d.title;
+      renderDocs(document.getElementById('docq') ? document.getElementById('docq').value : '');
+    }
+  }catch(e){
+    alert('제목 변경 실패: ' + String(e));
+  }
+}
 async function shareDoc(){
   if(!canWrite() || !curReaderDoc) return;
   const sb=document.getElementById('sharebox');

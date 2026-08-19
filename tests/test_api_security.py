@@ -244,6 +244,7 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         "/document/seen",
         "/document/pin",
         "/document/hide",
+        "/document/title",
         "/synthesize",
         "/research",
         "/dedup/scan",
@@ -268,7 +269,7 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
     assert {
         key: rule.access for key, rule in security.ROUTE_POLICY.items()
     } == expected
-    assert len(security.ROUTE_POLICY) == 34
+    assert len(security.ROUTE_POLICY) == 35
 
 
 @pytest.mark.asyncio

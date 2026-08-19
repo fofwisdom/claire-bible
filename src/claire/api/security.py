@@ -114,6 +114,7 @@ ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     ("POST", "/document/seen"): _rule("owner"),
     ("POST", "/document/pin"): _rule("owner"),
     ("POST", "/document/hide"): _rule("owner"),
+    ("POST", "/document/title"): _rule("owner"),
     ("POST", "/synthesize"): _rule("owner"),
     ("POST", "/research"): _rule("owner"),
     ("POST", "/dedup/scan"): _rule("owner"),

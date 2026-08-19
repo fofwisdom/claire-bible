@@ -433,6 +433,25 @@ def create_app(
             raise HTTPException(status_code=404, detail="not found")
         return JSONResponse({"id": document_id, "hidden": hidden})
 
+    async def document_title_route(request: Request) -> JSONResponse:
+        body = await _json_object(request)
+        document_id = str(body.get("id") or "").strip()
+        if not document_id:
+            raise HTTPException(status_code=400, detail="id required")
+        raw_title = body.get("title")
+        title = str(raw_title).strip() if raw_title is not None else None
+
+        def _update_title() -> bool:
+            conn = dbm.connect_existing(s.db_file)
+            try:
+                return dbm.set_document_title(conn, document_id, title)
+            finally:
+                conn.close()
+
+        if not await asyncio.to_thread(_update_title):
+            raise HTTPException(status_code=404, detail="not found")
+        return JSONResponse({"id": document_id, "title": title})
+
     async def synthesize_route(request: Request) -> JSONResponse:
         from ..graphview import synthesize
 
@@ -728,6 +747,7 @@ def create_app(
         Route("/document/seen", document_seen_route, methods=["POST"]),
         Route("/document/pin", document_pin_route, methods=["POST"]),
         Route("/document/hide", document_hide_route, methods=["POST"]),
+        Route("/document/title", document_title_route, methods=["POST"]),
         Route("/synthesize", synthesize_route, methods=["POST"]),
         Route("/research", research_route, methods=["POST"]),
         Route("/dedup/scan", dedup_scan_route, methods=["POST"]),

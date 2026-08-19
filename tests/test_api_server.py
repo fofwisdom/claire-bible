@@ -216,6 +216,54 @@ def test_owner_document_seen_post_marks_document_seen(
     assert calls == [("doc-1", True)]
 
 
+def test_owner_document_title_updates_title(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, str | None]] = []
+
+    def record_title(_conn: Any, document_id: str, title: str | None) -> bool:
+        calls.append((document_id, title))
+        return True
+
+    monkeypatch.setattr(dbm, "set_document_title", record_title)
+
+    response = client.post(
+        "/document/title",
+        json={"id": "doc-1", "title": "New Title"},
+        headers=OWNER_HEADERS,
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"id": "doc-1", "title": "New Title"}
+    assert calls == [("doc-1", "New Title")]
+
+
+def test_owner_document_title_rejects_missing_id(client: TestClient) -> None:
+    response = client.post(
+        "/document/title",
+        json={"title": "New Title"},
+        headers=OWNER_HEADERS,
+    )
+
+    assert response.status_code == 400
+
+
+def test_owner_document_title_returns_404_when_document_missing(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(dbm, "set_document_title", lambda _conn, _id, _t: False)
+
+    response = client.post(
+        "/document/title",
+        json={"id": "doc-missing", "title": "New Title"},
+        headers=OWNER_HEADERS,
+    )
+
+    assert response.status_code == 404
+
+
 def test_legacy_dedup_route_is_absent(client: TestClient) -> None:
     response = client.get("/dedup", headers=OWNER_HEADERS)
 

@@ -104,6 +104,7 @@ APP_ONE_OFF_COMMANDS = {
     "dedup-scan",
     "dedup-merge",
     "recanonicalize",
+    "doc-title",
 }
 APP_GUARDED_COMMANDS = {
     "migrate": "Schema lifecycle command owned by install/update",

@@ -117,3 +117,34 @@ def test_liveness_missing_database_is_read_only(
     report = json.loads(capsys.readouterr().out)
     assert report["ok"] is False
     assert not s.db_file.exists()
+
+
+def test_doc_title_cli_updates_title_and_recomputes_minhash(
+    monkeypatch, tmp_path, capsys
+):
+    from claire.ontology.base import Document
+
+    s = _settings(monkeypatch, tmp_path)
+    conn = dbm.connect(s.db_file)
+    dbm.init_db(conn)
+    doc = Document(id="doc-test-1", title="Old Title", raw_text="some test raw content")
+    dbm.insert_document(conn, doc)
+    conn.close()
+
+    monkeypatch.setattr(cli, "get_settings", lambda: s)
+
+    # 1) Non-existing document
+    assert cli.main(["doc-title", "doc-non-existent", "New Title"]) == 1
+    assert "문서 없음: doc-non-existent" in capsys.readouterr().out
+
+    # 2) Existing document update
+    assert cli.main(["doc-title", "doc-test-1", "New Updated Title"]) == 0
+    assert "제목 갱신 완료: doc-test-1 → 'New Updated Title'" in capsys.readouterr().out
+
+    conn = dbm.connect(s.db_file)
+    try:
+        row = dbm.get_document_row(conn, "doc-test-1")
+        assert row["title"] == "New Updated Title"
+        assert row["minhash"] is not None
+    finally:
+        conn.close()

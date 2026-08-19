@@ -615,6 +615,27 @@ def set_document_hidden(conn: sqlite3.Connection, document_id: str, hidden: bool
     return cur.rowcount > 0
 
 
+def set_document_title(conn: sqlite3.Connection, document_id: str, title: str | None) -> bool:
+    """문서 제목 갱신 및 MinHash 서명 재계산. 존재하지 않는 id 면 False."""
+    from ..ingest.normalize import minhash_signature
+
+    row = conn.execute("SELECT raw_text FROM documents WHERE id=?", (document_id,)).fetchone()
+    if row is None:
+        return False
+
+    raw_text = row["raw_text"] or ""
+    clean_title = (title or "").strip() or None
+    sig = minhash_signature(((clean_title or "") + " " + raw_text))
+    sig_json = json.dumps(sig) if sig else None
+
+    cur = conn.execute(
+        "UPDATE documents SET title=?, minhash=? WHERE id=?",
+        (clean_title, sig_json, document_id),
+    )
+    conn.commit()
+    return cur.rowcount > 0
+
+
 def get_document(conn: sqlite3.Connection, document_id: str) -> Document | None:
     """documents 행을 Document 모델로 복원(자동복구의 extract 재시도 등에서 사용)."""
     row = get_document_row(conn, document_id)
