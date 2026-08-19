@@ -1,0 +1,268 @@
+"""중앙 프롬프트 엔진 — 지식그래프 추출, 상세 렌더링, 요약, 리서치, 판정 템플릿.
+
+모든 LLM Provider(Gemini, Antigravity agy 등)가 공유하는 표준 프롬프트 템플릿과
+문어체/서술체 어조 규칙을 단일 모듈에서 중앙 관리한다.
+"""
+
+from __future__ import annotations
+
+import json
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ..ontology.base import Document
+    from .provider import MergeCandidate
+
+# 추출 프롬프트 버전. _SYS 또는 핵심 추출 지침을 바꾸면 올린다.
+# v4: summary/observations/key_claims 및 주요 서술 출력에 문어체(서술체: ~한다/~이다/~함) 적용.
+PROMPT_VERSION = "extract-v4"
+
+# 단일 출처 문서의 LLM 투입 예산. 병합 문서(ONEHOP_MERGE_DESIGN.md §3.3b)는 두 출처를
+# 담아야 하니 2배 — 저장(documents.raw_text)은 안 자르고 프롬프트 투입량만 늘린다.
+_SINGLE_DOC_CHAR_BUDGET = 12000
+_MERGED_DOC_CHAR_BUDGET = _SINGLE_DOC_CHAR_BUDGET * 2
+# render_detail 재시도 하한선(ONEHOP_MERGE_DESIGN.md §3.3b) — 이보다 짧으면 두 출처를
+# 담기엔 명백히 부족하다고 보고 목표 분량을 올려 재시도.
+_MERGED_DETAIL_MIN_CHARS = 1000
+
+_SYS = """You extract a knowledge-graph fragment from a single source document for a
+personal knowledge base about AI/software tools and research.
+
+{ontology}
+
+Rules:
+- LANGUAGE & STYLE: write `summary`, every `observations` item, and `key_claims` in Korean
+  (한국어) using formal/declarative written style (문어체 / 서술체: e.g. '~한다', '~이다',
+  '~함' without conversational honorifics like '~합니다', '~해요'), REGARDLESS of the source
+  document's language. Keep proper nouns, product/tool/model names, org names, and technical
+  terms in their original form — do NOT transliterate (e.g. "OpenSkill", "arXiv", "LLM agent"
+  stay as-is). Entity `name` and `aliases` stay in their canonical original form (usually the
+  original language).
+- summary: 1-3 factual sentences in Korean written style (문어체: ~한다/~이다).
+- entities: the key things this document is ABOUT (tools, repos, models, people, orgs, concepts...).
+- Do NOT create an entity for the publishing platform, source site, news aggregator, or
+  forum that merely HOSTS or links to this content (e.g. GeekNews, Hacker News, Reddit,
+  a Discourse forum, PyTorch Korea, a personal blog). Include such a site ONLY if the
+  document is genuinely ABOUT that platform itself.
+- For each entity pick the single best `type` from the list. If truly none fits,
+  leave type as your best guess AND set `proposed_type` to a snake_case suggestion.
+- relations: typed edges between entities you listed (reference them by exact `name`).
+  Use the relation types provided; only set `proposed_type` if none fits.
+- Do NOT invent facts not supported by the document.
+"""
+
+
+def extract_system_prompt(ontology_block: str) -> str:
+    """구조화 추출을 위한 시스템 프롬프트 반환."""
+    return _SYS.format(ontology=ontology_block)
+
+
+def doc_to_prompt(doc: Document) -> str:
+    """Document -> LLM 프롬프트 본문.
+
+    단일 출처는 12000자, 병합 문서(extra_sources 있음)는 24000자까지 투입.
+    """
+    head = []
+    if doc.title:
+        head.append(f"TITLE: {doc.title}")
+    if doc.url:
+        head.append(f"URL: {doc.url}")
+    head.append(f"SOURCE_TYPE: {doc.source_type}")
+    limit = (
+        _MERGED_DOC_CHAR_BUDGET
+        if (doc.meta or {}).get("extra_sources")
+        else _SINGLE_DOC_CHAR_BUDGET
+    )
+    return "\n".join(head) + "\n\nCONTENT:\n" + (doc.raw_text or "")[:limit]
+
+
+def extract_fallback_prompt(sys: str, body: str) -> str:
+    """스키마 강제 실패 시 JSON 직접 파싱을 유도하는 폴백 프롬프트."""
+    return (
+        sys
+        + "\n\nReturn ONLY valid JSON matching this shape:\n"
+        + '{"summary":str,"key_claims":[str],'
+        '"entities":[{"name":str,"type":str,"aliases":[str],'
+        '"observations":[str],"proposed_type":str|null}],'
+        '"relations":[{"source":str,"target":str,"type":str,"proposed_type":str|null}]}'
+        + "\n\nDOCUMENT:\n"
+        + body
+    )
+
+
+def summarize_search_prompt(query: str, context: str) -> str:
+    """검색된 컨텍스트만 사용해 질의에 답하는 프롬프트(인용 포함, 환각 억제, 문어체)."""
+    return (
+        "You answer the user's query using ONLY the knowledge-base context below. "
+        "Do not invent facts beyond it. Cite entities in [brackets]. "
+        "If the context is insufficient, say so plainly. "
+        "Write the answer in Korean (한국어) using objective written style (문어체: ~한다/~이다, "
+        "do not use conversational honorifics like ~합니다/~해요), but keep proper nouns, "
+        "product/tool names, and technical terms in their original form (do not transliterate). "
+        "Be concise.\n\n"
+        f"QUERY: {query}\n\nCONTEXT:\n{context}\n\nANSWER:"
+    )
+
+
+def images_block(images: list[dict]) -> str:
+    """render_detail 프롬프트에 삽입할 후보 이미지 큐레이션 지시 블록."""
+    if not images:
+        return ""
+    listing = "\n".join(
+        f"[{i}] url: {('/image?p=' + im['local']) if im.get('local') else im.get('url', '')}\n"
+        f"    alt: {im.get('alt', '') or '(없음)'}"
+        + (f"\n    caption: {im['caption']}" if im.get("caption") else "")
+        for i, im in enumerate(images)
+    )
+    return (
+        "\n[원문에서 수집한 이미지 후보]\n"
+        "원칙: **내용 이해에 꼭 필요한 그림만** 넣는다. 글로 설명하기 어려운 정보를 그림이 "
+        "직접 전달하고, 그 그림이 없으면 이해가 떨어지는 경우에만 삽입하라 — 즉 구조도·"
+        "아키텍처 다이어그램, 데이터 차트/그래프, 알고리즘·플로우 도식, 핵심을 보여주는 "
+        "스크린샷 같은 **설명적 그림**. 관련 내용 바로 옆에 마크다운 `![설명](url)` 으로 넣되 "
+        "url 은 목록 값을 한 글자도 바꾸지 말고 그대로, alt 설명은 한국어(문어체/명사구)로 달아라.\n"
+        "**그리고 이미지 바로 다음 줄(빈 줄 없이)에 그 그림이 무엇을 보여주는지 본문 맥락에 "
+        "근거한 한 줄 캡션을 이탤릭(`*...*`)으로 달아라(문어체 서술)** — alt 는 그림이 깨질 때만 보이므로 "
+        "실제로 읽히는 설명은 이 캡션이다. 원문 캡션이 있으면 그것을 다듬어 쓰고, 없으면 본문 "
+        "맥락으로 설명하되 원문에 없는 사실은 지어내지 마라.\n"
+        "다음은 절대 넣지 마라: 대표/히어로/썸네일/소셜카드 이미지, 장식·분위기 사진, "
+        "인물·프로필 사진, 로고·아이콘, 본문 이해와 무관하거나 그저 '예쁜' 이미지. **애매하면 "
+        "넣지 마라.** 필요한 설명적 그림이 하나도 없으면 한 장도 넣지 않는다(그게 정상이다).\n"
+        f"{listing}\n"
+    )
+
+
+def render_detail_prompt(body: str, images: list[dict], *, merged: bool, scale: int = 1) -> str:
+    """원문을 한국어 마크다운으로 재구성하는 프롬프트(요약 아님, 여러 단락, 문어체)."""
+    if merged:
+        length_hint = f"대략 A4 {2 * scale}~{4 * scale}장 분량"
+        merge_hint = (
+            "이 문서는 여러 출처가 병합됐다 — 한 출처만 요약하고 끝내지 말고 "
+            "각 출처의 핵심을 빠짐없이 통합해 서술하라.\n"
+        )
+    else:
+        length_hint = "대략 A4 1~2장 분량"
+        merge_hint = ""
+    return (
+        "아래 원문을 한국어 **마크다운**으로 '편하게 읽을 수 있는 글'로 재구성하라. "
+        "단순 1~2문장 요약이 아니라, 독자가 원문을 직접 읽지 않아도 핵심 내용·배경 "
+        f"맥락·중요한 세부까지 충분히 파악할 수 있도록 여러 단락({length_hint})으로 "
+        "풀어 써라.\n\n"
+        + merge_hint
+        + "작성 규칙(마크다운):\n"
+        "1. 문체 및 어조: 일관된 문어체(서술체: '~한다', '~이다', '~됨')로 서술하라. "
+        "대화형 경어체('~합니다', '~해요')나 구어체는 사용하지 않는다.\n"
+        "2. 내용이 길면 `##`/`###` 소제목과 문단으로 구조화하고, 나열은 `-` 불릿을 써라. "
+        "단락은 빈 줄로 구분.\n"
+        "3. 가독성을 위해 **중요한 용어·핵심 주장은 굵게**(`**...**`) 표시하라. 그리고 "
+        "정말 빼놓으면 안 되는 한두 구절만 `==형광==`(==로 감쌈)으로 강조하라 — 남발하면 "
+        "강조 효과가 사라지니 문단·섹션당 한두 곳으로 아껴 써라.\n"
+        "4. 고유명사·제품/도구/모델명·조직명·기술 용어는 원문 형태 그대로 유지하라"
+        '(음차/번역 금지: 예 "arXiv", "LLM agent").\n'
+        "5. 원문에 없는 사실은 절대 지어내지 말 것.\n"
+        + images_block(images)
+        + f"\n원문:\n{body}\n\n한국어 마크다운:"
+    )
+
+
+def classify_watch_prompt(body: str) -> str:
+    """문서의 주기적 갱신 여부 판단 프롬프트."""
+    return (
+        "아래 문서가 '주기적으로 내용이 갱신되어 다시 봐야 가치 있는 콘텐츠'인지 판단하라.\n"
+        "- watch=true: 리더보드·벤치마크 순위표·랭킹·실시간 통계·가격/시세·지속 갱신 표 등 "
+        "시간이 지나면 내용이 바뀌어 재확인 가치가 있는 것.\n"
+        "- watch=false: 뉴스 기사·블로그 글·논문·릴리스 노트·일회성 설명/문서 등 한 번 "
+        "적재하면 거의 안 바뀌는 것.\n"
+        "watch=true 면 적절한 재확인 주기를 interval_days(정수 일; 매일=1, 매주=7 등)로. "
+        "reason 은 한국어 한 문장(문어체: ~임/~함/~다).\n\n"
+        f"문서:\n{body}"
+    )
+
+
+def research_prompt(query: str, context: str) -> str:
+    """맥락 고정 웹 조사 프롬프트 (다의어 오염 방지, 문어체)."""
+    return (
+        "당신은 개인 지식그래프를 확장하는 리서처다. 사용자가 아래 [맥락]의 자료를 "
+        "읽다가 [조사 대상]에 대해 더 알고 싶어한다.\n\n"
+        "규칙:\n"
+        "1. [조사 대상]은 반드시 [맥락] 안에서의 의미로만 해석하라. 동명의 다른 "
+        "대상(다의어)을 다루게 되면 잘못된 지식이 그래프를 오염시킨다. 먼저 맥락 내 "
+        "해석을 한 문장으로 명시하고 시작하라.\n"
+        "2. 웹 검색으로 사실을 확인하며 조사하라. 맥락과 일치하는 신뢰할 만한 자료를 "
+        "찾지 못하면, 지어내지 말고 첫 줄에 INSUFFICIENT 라고만 적고 이유를 한 줄 "
+        "덧붙여라.\n"
+        "3. 보고서는 한국어 평문 산문(일관된 문어체: ~한다/~이다, 여러 단락, 빈 줄 구분)으로 "
+        "작성하라 — 마크다운 소제목(#)·불릿(-)·표 금지. 대화형 경어체(~합니다) 금지. "
+        "고유명사·제품/도구/모델명·기술 용어는 원문 형태 유지(음차 금지).\n"
+        "4. 핵심 정의 → 맥락과의 관계 → 구체적 사실(수치·날짜·버전 등) 순으로, "
+        "지식그래프에 추출할 가치가 있는 내용 위주로 써라.\n\n"
+        f"[맥락]\n{context[:8000]}\n\n[조사 대상]\n{query}\n\n[보고서]"
+    )
+
+
+def judge_research_prompt(query: str, context: str, report: str) -> str:
+    """조사 보고서 품질 및 맥락 일치도 판정 프롬프트."""
+    return (
+        "지식그래프 추가 게이트 심사. 사용자가 [맥락]을 읽다가 [조사 대상]을 조사해 "
+        "[보고서]를 얻었다. 다음을 채점하라.\n"
+        "- relevance(0.0~1.0): 보고서가 [맥락] 안에서의 [조사 대상] 의미를 다루는가? 동명의 "
+        "다른 대상(다의어)을 다뤘다면 0 에 가깝게. 맥락과 무관한 일반론이면 낮게.\n"
+        "- quality(0.0~1.0): 사실이 구체적(수치·날짜·정확한 명칭)이고 신뢰할 만한가? 빈약하거나 "
+        "추측성이면 낮게.\n"
+        "- same_subject(true/false): 오직 다음 패턴에서만 true — [맥락]은 [조사 대상]을 "
+        "소개·인용·언급하는 **2차 서술**(그 회사·프로젝트 본인이 아닌 **제3자**(다른 "
+        "매체·커뮤니티·개인)가 쓴 리뷰, 소개 글, 보도 등)이고 [보고서]는 바로 그 대상의 "
+        "**1차 원본 자체**(예: 그 프로젝트의 공식 저장소, 공식 문서 원문)다. 즉 [보고서]가 "
+        "[맥락]이 말하는 '그것' 자체를 가리킬 때만 true.\n"
+        "  [맥락]을 쓴 주체가 [조사 대상]인 회사·프로젝트 **본인**이라면(자사 블로그, "
+        "자사 사이트 등에 실린 글) — 설령 소개·사례 형식이라도 [맥락] 자체가 이미 1차 "
+        "자료이므로 same_subject 는 원칙적으로 false 다. 같은 회사·제품을 다루는 다른 "
+        "공식 자료(일반 문서, 다른 사례, 홈페이지, 저장소 등)는 [맥락]의 원본이 아니라 "
+        "**형제 문서**일 뿐이니 병합 대상이 아니다.\n"
+        "  나머지(다른 프로젝트, 다른 사건, 같은 회사의 다른 화제, 제3자의 파생 논의 "
+        "등)도 모두 false.\n"
+        "  예1) true: '[맥락]=GeekNews 가 X 프로젝트를 소개하는 기사(2차 서술)' + "
+        "'[보고서]=X 프로젝트의 공식 github 저장소(1차 원본)'\n"
+        "  예2) false: '[맥락]=회사 자체 블로그의 특정 고객 사례 글(이미 1차 자료)' + "
+        "'[보고서]=같은 회사의 제품 문서 / 홈페이지 / 저장소'(맥락의 원본이 아니라 "
+        "형제 문서)\n"
+        "- interpretation: 보고서가 [조사 대상]을 어떤 의미로 해석했는지 한 문장(한국어 문어체: ~임/~함/~다).\n"
+        "- reason: 채점 근거 한두 문장(한국어 문어체: ~임/~함/~다).\n\n"
+        f"[맥락]\n{context[:6000]}\n\n[조사 대상]\n{query}\n\n[보고서]\n{report[:8000]}"
+    )
+
+
+def select_followups_prompt(context: str, candidates: list[dict]) -> str:
+    """1홉 자동확장 후보 선별 프롬프트."""
+    listing = "\n".join(
+        f"[{i}] {c.get('anchor') or '(텍스트 없음)'} — {c.get('url', '')}"
+        for i, c in enumerate(candidates)
+    )
+    return (
+        "당신은 개인 지식그래프를 키우는 큐레이터다. 사용자가 [부모 문서]를 읽고 "
+        "지식으로 적재했다. 그 문서에서 발견된 [외부 링크 후보] 중, 같은 주제를 더 "
+        "깊이 알기 위해 **따라가서 함께 적재할 가치가 있는 것**만 골라라.\n\n"
+        "규칙:\n"
+        "1. 부모 문서의 주제와 직접 관련되고, 그 자체로 실질 내용(논문/문서/글)이 "
+        "있을 법한 링크만 고른다.\n"
+        "2. 광고·로그인·약관·소셜·플랫폼 홈·태그 목록 등 비콘텐츠, 그리고 주제와 "
+        "동떨어진 링크는 제외한다.\n"
+        "3. 애매하면 넣지 마라(잘못 적재된 노드가 이후 검색/종합을 오도한다). 가치 "
+        "있는 게 하나도 없으면 빈 목록을 반환한다.\n"
+        "4. follow 에는 고른 후보의 번호(인덱스)만 담아라.\n\n"
+        f"[부모 문서]\n{context[:6000]}\n\n[외부 링크 후보]\n{listing}"
+    )
+
+
+def judge_same_entity_prompt(mc: MergeCandidate) -> str:
+    """두 엔티티의 동일성 판정 프롬프트."""
+    return (
+        "Decide if these two knowledge-base entries refer to the SAME real-world "
+        "entity (e.g. a renamed/aliased tool), NOT merely related ones.\n"
+        "Different products in the same space are NOT the same.\n\n"
+        f"A: name={mc.new_name!r} type={mc.new_type!r}\n"
+        f"   notes={' | '.join(mc.new_observations)[:400]}\n"
+        f"B: name={mc.cand_name!r} type={mc.cand_type!r} aliases={mc.cand_aliases}\n"
+        f"   notes={' | '.join(mc.cand_observations)[:400]}\n\n"
+        "Answer with exactly one word: SAME or DIFFERENT."
+    )

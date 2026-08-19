@@ -16,13 +16,22 @@ from typing import Any
 
 from ..ontology.base import Document
 from ..ontology.registry import ontology_prompt_block
-from .gemini_provider import (
+from .gemini_provider import _coerce
+from .prompts import (
     PROMPT_VERSION,
-    _SYS,
-    _coerce,
-    _doc_to_prompt,
-    _images_block,
     _MERGED_DETAIL_MIN_CHARS,
+    _SYS,
+    classify_watch_prompt,
+    doc_to_prompt as _doc_to_prompt,
+    extract_fallback_prompt,
+    extract_system_prompt,
+    images_block as _images_block,
+    judge_research_prompt,
+    judge_same_entity_prompt,
+    render_detail_prompt,
+    research_prompt,
+    select_followups_prompt,
+    summarize_search_prompt,
 )
 from .provider import (
     ExtractionResult,
@@ -149,7 +158,7 @@ class AntigravityProvider:
     def extract(self, doc: Document, ontology_block: str | None = None) -> ExtractionResult:
         """지식그래프 구조화 추출 (JSON Schema 강제)."""
         block = ontology_block or ontology_prompt_block()
-        sys = _SYS.format(ontology=block)
+        sys = extract_system_prompt(block)
         body = _doc_to_prompt(doc)
         prompt = f"{sys}\n\nDOCUMENT:\n{body}"
 
@@ -201,16 +210,7 @@ class AntigravityProvider:
 
     def summarize_search(self, query: str, context: str) -> str:
         """검색된 컨텍스트만 사용해 질의에 답한다(인용 포함, 환각 억제, 문어체)."""
-        prompt = (
-            "You answer the user's query using ONLY the knowledge-base context below. "
-            "Do not invent facts beyond it. Cite entities in [brackets]. "
-            "If the context is insufficient, say so plainly. "
-            "Write the answer in Korean (한국어) using objective written style (문어체: ~한다/~이다, "
-            "do not use conversational honorifics like ~합니다/~해요), but keep proper nouns, "
-            "product/tool names, and technical terms in their original form (do not transliterate). "
-            "Be concise.\n\n"
-            f"QUERY: {query}\n\nCONTEXT:\n{context}\n\nANSWER:"
-        )
+        prompt = summarize_search_prompt(query, context)
         res = self._run_cli(prompt, output_format="text")
         return str(res).strip()
 
@@ -228,51 +228,14 @@ class AntigravityProvider:
         return text
 
     def _render_detail_call(self, body: str, images: list, *, merged: bool, scale: int) -> str:
-        if merged:
-            length_hint = f"대략 A4 {2 * scale}~{4 * scale}장 분량"
-            merge_hint = (
-                "이 문서는 여러 출처가 병합됐다 — 한 출처만 요약하고 끝내지 말고 "
-                "각 출처의 핵심을 빠짐없이 통합해 서술하라.\n"
-            )
-        else:
-            length_hint = "대략 A4 1~2장 분량"
-            merge_hint = ""
-        prompt = (
-            "아래 원문을 한국어 **마크다운**으로 '편하게 읽을 수 있는 글'로 재구성하라. "
-            "단순 1~2문장 요약이 아니라, 독자가 원문을 직접 읽지 않아도 핵심 내용·배경 "
-            f"맥락·중요한 세부까지 충분히 파악할 수 있도록 여러 단락({length_hint})으로 "
-            "풀어 써라.\n\n"
-            + merge_hint
-            + "작성 규칙(마크다운):\n"
-            "1. 문체 및 어조: 일관된 문어체(서술체: '~한다', '~이다', '~됨')로 서술하라. "
-            "대화형 경어체('~합니다', '~해요')나 구어체는 사용하지 않는다.\n"
-            "2. 내용이 길면 `##`/`###` 소제목과 문단으로 구조화하고, 나열은 `-` 불릿을 써라. "
-            "단락은 빈 줄로 구분.\n"
-            "3. 가독성을 위해 **중요한 용어·핵심 주장은 굵게**(`**...**`) 표시하라. 그리고 "
-            "정말 빼놓으면 안 되는 한두 구절만 `==형광==`(==로 감쌈)으로 강조하라 — 남발하면 "
-            "강조 효과가 사라지니 문단·섹션당 한두 곳으로 아껴 써라.\n"
-            "4. 고유명사·제품/도구/모델명·조직명·기술 용어는 원문 형태 그대로 유지하라"
-            '(음차/번역 금지: 예 "arXiv", "LLM agent").\n'
-            "5. 원문에 없는 사실은 절대 지어내지 말 것.\n"
-            + _images_block(images)
-            + f"\n원문:\n{body}\n\n한국어 마크다운:"
-        )
+        prompt = render_detail_prompt(body, images, merged=merged, scale=scale)
         res = self._run_cli(prompt, output_format="text")
         return str(res).strip()
 
     def classify_watch(self, doc: Document) -> dict:
         """[주기 크롤링] 문서가 '주기적으로 내용이 바뀌는 콘텐츠'인지 판단."""
         body = _doc_to_prompt(doc)[:4000]
-        prompt = (
-            "아래 문서가 '주기적으로 내용이 갱신되어 다시 봐야 가치 있는 콘텐츠'인지 판단하라.\n"
-            "- watch=true: 리더보드·벤치마크 순위표·랭킹·실시간 통계·가격/시세·지속 갱신 표 등 "
-            "시간이 지나면 내용이 바뀌어 재확인 가치가 있는 것.\n"
-            "- watch=false: 뉴스 기사·블로그 글·논문·릴리스 노트·일회성 설명/문서 등 한 번 "
-            "적재하면 거의 안 바뀌는 것.\n"
-            "watch=true 면 적절한 재확인 주기를 interval_days(정수 일; 매일=1, 매주=7 등)로. "
-            "reason 은 한국어 한 문장(문어체: ~임/~함/~다).\n\n"
-            f"문서:\n{body}"
-        )
+        prompt = classify_watch_prompt(body)
         schema = WatchClassification.model_json_schema()
         try:
             data = self._run_cli(prompt, json_schema=schema, output_format="json")
@@ -285,23 +248,7 @@ class AntigravityProvider:
 
     def research(self, query: str, context: str) -> dict:
         """맥락 고정 웹 조사(agy 에이전트 검색 도구 활용) -> 한국어 보고서 + 출처."""
-        prompt = (
-            "당신은 개인 지식그래프를 확장하는 리서처다. 사용자가 아래 [맥락]의 자료를 "
-            "읽다가 [조사 대상]에 대해 더 알고 싶어한다.\n\n"
-            "규칙:\n"
-            "1. [조사 대상]은 반드시 [맥락] 안에서의 의미로만 해석하라. 동명의 다른 "
-            "대상(다의어)을 다루게 되면 잘못된 지식이 그래프를 오염시킨다. 먼저 맥락 내 "
-            "해석을 한 문장으로 명시하고 시작하라.\n"
-            "2. 웹 검색으로 사실을 확인하며 조사하라. 맥락과 일치하는 신뢰할 만한 자료를 "
-            "찾지 못하면, 지어내지 말고 첫 줄에 INSUFFICIENT 라고만 적고 이유를 한 줄 "
-            "덧붙여라.\n"
-            "3. 보고서는 한국어 평문 산문(일관된 문어체: ~한다/~이다, 여러 단락, 빈 줄 구분)으로 "
-            "작성하라 — 마크다운 소제목(#)·불릿(-)·표 금지. 대화형 경어체(~합니다) 금지. "
-            "고유명사·제품/도구/모델명·기술 용어는 원문 형태 유지(음차 금지).\n"
-            "4. 핵심 정의 -> 맥락과의 관계 -> 구체적 사실(수치·날짜·버전 등) 순으로, "
-            "지식그래프에 추출할 가치가 있는 내용 위주로 써라.\n\n"
-            f"[맥락]\n{context[:8000]}\n\n[조사 대상]\n{query}\n\n[보고서]"
-        )
+        prompt = research_prompt(query, context)
         try:
             res = self._run_cli(
                 prompt,
@@ -329,19 +276,7 @@ class AntigravityProvider:
 
     def judge_research(self, query: str, context: str, report: str) -> dict:
         """조사 보고서 품질 및 맥락 일치도 판정."""
-        prompt = (
-            "지식그래프 추가 게이트 심사. 사용자가 [맥락]을 읽다가 [조사 대상]을 조사해 "
-            "[보고서]를 얻었다. 다음을 채점하라.\n"
-            "- relevance(0.0~1.0): 보고서가 [맥락] 안에서의 [조사 대상] 의미를 다루는가? 동명의 "
-            "다른 대상(다의어)을 다뤘다면 0 에 가깝게. 맥락과 무관한 일반론이면 낮게.\n"
-            "- quality(0.0~1.0): 사실이 구체적(수치·날짜·정확한 명칭)이고 신뢰할 만한가? 빈약하거나 "
-            "추측성이면 낮게.\n"
-            "- same_subject(true/false): 오직 다음 패턴에서만 true — [맥락]은 [조사 대상]을 "
-            "소개·인용·언급하는 2차 서술이고 [보고서]는 바로 그 대상의 1차 원본 자체(공식 저장소/문서)일 때만 true.\n"
-            "- interpretation: 보고서가 [조사 대상]을 어떤 의미로 해석했는지 한 문장(한국어 문어체: ~임/~함/~다).\n"
-            "- reason: 채점 근거 한두 문장(한국어 문어체: ~임/~함/~다).\n\n"
-            f"[맥락]\n{context[:6000]}\n\n[조사 대상]\n{query}\n\n[보고서]\n{report[:8000]}"
-        )
+        prompt = judge_research_prompt(query, context, report)
         schema = ResearchJudgement.model_json_schema()
         try:
             data = self._run_cli(prompt, json_schema=schema, output_format="json")
@@ -362,23 +297,7 @@ class AntigravityProvider:
         """1홉 자동확장 — 부모 문서 맥락에서 따라갈 가치가 있는 링크 선별."""
         if not candidates:
             return []
-        listing = "\n".join(
-            f"[{i}] {c.get('anchor') or '(텍스트 없음)'} — {c.get('url', '')}"
-            for i, c in enumerate(candidates)
-        )
-        prompt = (
-            "당신은 개인 지식그래프를 키우는 큐레이터다. 사용자가 [부모 문서]를 읽고 "
-            "지식으로 적재했다. 그 문서에서 발견된 [외부 링크 후보] 중, 같은 주제를 더 "
-            "깊이 알기 위해 **따라가서 함께 적재할 가치가 있는 것**만 골라라.\n\n"
-            "규칙:\n"
-            "1. 부모 문서의 주제와 직접 관련되고, 그 자체로 실질 내용(논문/문서/글)이 "
-            "있을 법한 링크만 고른다.\n"
-            "2. 광고·로그인·약관·소셜·플랫폼 홈·태그 목록 등 비콘텐츠, 그리고 주제와 "
-            "동떨어진 링크는 제외한다.\n"
-            "3. 애매하면 넣지 마라. 가치 있는 게 하나도 없으면 빈 목록을 반환한다.\n"
-            "4. follow 에는 고른 후보의 번호(인덱스)만 담아라.\n\n"
-            f"[부모 문서]\n{context[:6000]}\n\n[외부 링크 후보]\n{listing}"
-        )
+        prompt = select_followups_prompt(context, candidates)
         schema = FollowSelection.model_json_schema()
         try:
             data = self._run_cli(prompt, json_schema=schema, output_format="json")
@@ -395,16 +314,7 @@ class AntigravityProvider:
 
     def judge_same_entity(self, mc: MergeCandidate) -> bool:
         """두 엔티티가 동일한 실세계 대상인지 LLM 판정."""
-        prompt = (
-            "Decide if these two knowledge-base entries refer to the SAME real-world "
-            "entity (e.g. a renamed/aliased tool), NOT merely related ones.\n"
-            "Different products in the same space are NOT the same.\n\n"
-            f"A: name={mc.new_name!r} type={mc.new_type!r}\n"
-            f"   notes={' | '.join(mc.new_observations)[:400]}\n"
-            f"B: name={mc.cand_name!r} type={mc.cand_type!r} aliases={mc.cand_aliases}\n"
-            f"   notes={' | '.join(mc.cand_observations)[:400]}\n\n"
-            "Answer with exactly one word: SAME or DIFFERENT."
-        )
+        prompt = judge_same_entity_prompt(mc)
         try:
             res = self._run_cli(prompt, output_format="text")
             return str(res).strip().upper().startswith("SAME")
