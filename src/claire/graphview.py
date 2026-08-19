@@ -351,7 +351,7 @@ GRAPH_HTML = """<!doctype html>
     transform:translateX(-50%);padding:7px 11px;border:1px solid var(--accent);
     border-radius:18px;background:var(--card-bg);box-shadow:0 4px 16px var(--shadow);font-size:12px}
   #graphnotice.on{display:block}
-  #docs{width:280px;display:flex;flex-direction:column;background:var(--docs-bg);border-right:1px solid var(--border);font-size:12px}
+  #docs{width:280px;display:flex;flex-direction:column;background:var(--docs-bg);border-right:1px solid var(--border);font-size:13px}
   #docs .dhead{padding:8px 10px;border-bottom:1px solid var(--border);flex-shrink:0}
   /* 즐겨찾기(고정) 섹션 — 많아져도 패널을 다 잡아먹지 않게 최대높이+스크롤(사용자 요구:
      '즐찾 많아질 때 대비'), 일반 목록도 min-height 로 항상 일정 공간 확보. */
@@ -360,35 +360,35 @@ GRAPH_HTML = """<!doctype html>
      눈에 안 띈다는 피드백(라이트 테마에서 특히). 밝기 대신 색상(hue) 자체를 별 아이콘의
      금색(#e3b341)으로 옅게 우려내 — 저채도 tint 라 위에 얹히는 기본 글자색(--fg/--muted)
      명암비는 거의 안 바뀌어 가독성 걱정 없이 확실히 구별된다. */
-  #pinnedhead{padding:4px 10px;font-size:10px;color:var(--muted);background:rgba(227,179,65,.18);flex-shrink:0}
+  #pinnedhead{padding:5px 10px;font-size:11.5px;color:var(--muted);background:rgba(227,179,65,.18);flex-shrink:0}
   #pinnedlist{max-height:32%;overflow-y:auto;flex-shrink:0;border-bottom:2px solid var(--border);
     background:rgba(227,179,65,.10)}
   #doclist{flex:1;min-height:120px;overflow-y:auto}
-  .dday{position:sticky;top:0;background:var(--bar-bg);color:var(--accent2);font-size:11px;padding:3px 10px;border-bottom:1px solid var(--border);z-index:1}
-  .docitem{min-height:34px;padding:7px 78px 7px 10px;border-bottom:1px solid var(--border);cursor:pointer;position:relative;overflow:hidden}
+  .dday{position:sticky;top:0;background:var(--bar-bg);color:var(--accent2);font-size:11.5px;padding:3px 10px;border-bottom:1px solid var(--border);z-index:1}
+  .docitem{min-height:38px;padding:8px 80px 8px 10px;border-bottom:1px solid var(--border);cursor:pointer;position:relative;overflow:hidden}
   .docitem:hover{background:var(--hover)}
   .docitem.active{background:var(--active);border-left:3px solid var(--accent2)}
   .docitem.hidden-doc{opacity:.55}
   /* 제목은 아무리 길어도 2줄로 고정 — 안 그러면 즐겨찾기 등 높이가 빠듯한 구간에서
      아이템이 한없이 늘어나 넘쳐 보인다는 피드백(사용자 지적). */
-  .docitem b{font-size:12px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;
+  .docitem b{font-size:13.5px;line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;
     overflow:hidden;word-break:break-word}
-  .docitem .st{color:var(--muted);font-size:10px;margin-left:6px}
+  .docitem .st{color:var(--muted);font-size:11px;margin-left:6px}
   .docitem.unread{border-left:3px solid var(--accent2)} .docitem.unread b{font-weight:700}
-  .docitem .ubadge{color:var(--accent2);font-size:9px;margin-right:4px;vertical-align:middle}
-  .docitem .wbadge{font-size:10px;margin-right:2px}
+  .docitem .ubadge{color:var(--accent2);font-size:10px;margin-right:4px;vertical-align:middle}
+  .docitem .wbadge{font-size:11px;margin-right:2px}
   /* 설명 줄수 — 기본 2줄, #docs 에 붙는 lc0/lc2/lc4 클래스로 토글(사용자 요구, descToggle 참조). */
-  .docitem p{margin:.2em 0 0;color:var(--muted);font-size:11px;overflow:hidden;
+  .docitem p{margin:.25em 0 0;color:var(--muted);font-size:12px;line-height:1.45;overflow:hidden;
     display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
   #docs.lc0 .docitem p{display:none}
   #docs.lc4 .docitem p{-webkit-line-clamp:4}
   /* 좌측 문서의 액션 버튼(즐겨찾기·읽기) — 클릭=nav 와 분리. */
-  .docitem .docactions{position:absolute;top:6px;right:7px;display:flex;gap:3px}
+  .docitem .docactions{position:absolute;top:7px;right:7px;display:flex;gap:3px}
   .docitem .actbtn{background:var(--sec-bg);color:var(--sec-fg);
-    border:1px solid var(--border);border-radius:4px;padding:1px 6px;font-size:11px;cursor:pointer;opacity:.85}
+    border:1px solid var(--border);border-radius:4px;padding:2px 6px;font-size:12px;cursor:pointer;opacity:.85}
   .docitem .actbtn:hover{opacity:1;border-color:var(--accent)}
   .docitem .actbtn.pinned{opacity:1;color:#e3b341}
-  #showhidden{display:block;padding:7px 10px;font-size:11.5px;color:var(--fg);cursor:pointer;
+  #showhidden{display:block;padding:8px 10px;font-size:12px;color:var(--fg);cursor:pointer;
     text-align:center;border-top:1px solid var(--border);background:var(--sec-bg)}
   #showhidden:hover{background:var(--hover)}
   /* owner라는 양의 권한이 첫 페인트 전에 명시된 경우에만 쓰기 UI를 보인다. 동적으로
@@ -411,8 +411,8 @@ GRAPH_HTML = """<!doctype html>
   #panel .doc{margin:.5em 0;padding:6px 8px;background:var(--card-bg);border-radius:5px}
   #panel .doc p{margin:.3em 0 0;color:var(--fg)} #panel a{color:var(--accent);text-decoration:none}
   #panel .doc p.src{margin-top:.45em}
-  #panel .docmeta{color:var(--muted);font-size:11px;margin:.1em 0 .6em}
-  #panel .readbtn{background:var(--accent);color:#fff;border:0;border-radius:4px;padding:3px 10px;font-size:12px;cursor:pointer;margin:.2em 0}
+  #panel .docmeta{color:var(--muted);font-size:12px;margin:.1em 0 .6em}
+  #panel .readbtn{background:var(--accent);color:#fff;border:0;border-radius:4px;padding:3px 10px;font-size:12.5px;cursor:pointer;margin:.2em 0}
   /* 숨기기 — 목록이 아니라 상세 패널에 텍스트 버튼으로(사용자 요구). 되돌리기 번거로운
      방향(컨펌 필요)이라 튀지 않게 링크 스타일로 옅게, hover 시에만 강조. */
   #panel .hidetextbtn{background:none;border:0;color:var(--muted);font-size:11.5px;cursor:pointer;
@@ -579,8 +579,17 @@ GRAPH_HTML = """<!doctype html>
     #zoomctl{right:max(12px,env(safe-area-inset-right));bottom:max(12px,env(safe-area-inset-bottom))}
     #zoomctl button{width:44px;height:44px}
     input,select,button{font-size:16px}
-    .docitem{min-height:48px;padding-top:9px;padding-bottom:9px}
-    .docitem .actbtn{min-width:36px;min-height:36px}
+    .docitem{min-height:54px;padding:10px 88px 10px 12px}
+    .docitem b{font-size:15.5px;line-height:1.35}
+    .docitem p{font-size:13.5px;line-height:1.45;margin-top:4px}
+    .docitem .st{font-size:12px}
+    .docitem .ubadge{font-size:11px}
+    .docitem .wbadge{font-size:12px}
+    .docitem .actbtn{min-width:38px;min-height:38px;font-size:13px}
+    .docitem .docactions{top:8px;right:8px;gap:4px}
+    .dday{font-size:12.5px;padding:4px 12px}
+    #pinnedhead{font-size:12px;padding:6px 12px}
+    #showhidden{font-size:13px;padding:10px 12px}
     #reader{padding:0}
     #reader .sheet{height:100vh;max-height:100dvh;border:0;border-radius:0}
     #reader .rhead{padding:max(10px,env(safe-area-inset-top)) 12px 10px}
