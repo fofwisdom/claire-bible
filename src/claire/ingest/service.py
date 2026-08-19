@@ -36,6 +36,7 @@ class IngestService:
         file_name: str | None = None,
         inbox_id: int | None = None,
         prefetched: "Document | None" = None,
+        format: str | None = None,
     ) -> IngestReport:
         """단건 적재. (블로킹 — 호출측에서 스레드 오프로드).
 
@@ -49,6 +50,7 @@ class IngestService:
         # 1홉 자동확장 enqueue 게이트: 사용자 설정 ON + 1차 적재(자식/복구/갱신 재적재 제외).
         auto = (self.s.auto_expand and em > 0
                 and not source.startswith(("onehop", "recover", "replay", "refresh")))
+        fmt = format or self.s.render_format
         try:
             return ingest(
                 payload, conn=conn, provider=self.provider, vstore=vstore,
@@ -56,6 +58,7 @@ class IngestService:
                 expand_max=em, source=source, user_id=user_id, chat_id=chat_id,
                 inbox_kind=inbox_kind, file_ref=file_ref, file_name=file_name,
                 inbox_id=inbox_id, prefetched=prefetched, auto_expand=auto,
+                format=fmt,
             )
         finally:
             conn.close()
@@ -130,7 +133,8 @@ class IngestService:
                     parent_full = dbm.get_document(conn2, document_id)
                     m = merge_source_into_document(
                         conn2, self.provider, vstore, parent_full, child,
-                        vault_dir=self.s.vault_dir, data_dir=self.s.data_dir)
+                        vault_dir=self.s.vault_dir, data_dir=self.s.data_dir,
+                        format=self.s.render_format)
                     if m.get("merged"):
                         dbm.update_inbox(conn2, inbox_id, status="done",
                                          document_id=document_id)
@@ -195,7 +199,9 @@ class IngestService:
             out.append(res)
         return out
 
-    def refresh_document(self, document_id: str, payload: str) -> dict:
+    def refresh_document(
+        self, document_id: str, payload: str, *, format: str | None = None
+    ) -> dict:
         """[복원] 한 문서를 원본 payload 로 재fetch→재추출하여 in-place 갱신.
 
         - 새 content_hash 가 기존과 같으면 'nochange'(내용 동일 → 재추출 생략).
@@ -231,8 +237,9 @@ class IngestService:
 
                 _download_doc_images(conn, doc, self.s.data_dir)
                 imgs = (doc.meta or {}).get("images")
+                fmt = format or self.s.render_format
                 detail_updated = ensure_document_detail(
-                    conn, self.provider, doc, force=True)
+                    conn, self.provider, doc, force=True, format=fmt)
                 return {"status": "nochange", "document_id": document_id,
                         "old_len": old_len, "new_len": len(doc.raw_text),
                         "detail_updated": detail_updated,
@@ -264,9 +271,10 @@ class IngestService:
             except Exception:  # noqa: BLE001
                 pass
 
+            fmt = format or self.s.render_format
             report = IngestReport(document_id=document_id)
             ok, err = extract_resolve_store(
-                conn, self.provider, vstore, doc, report, vault_dir=self.s.vault_dir)
+                conn, self.provider, vstore, doc, report, vault_dir=self.s.vault_dir, format=fmt)
             if not ok:
                 return {"status": "error", "document_id": document_id, "error": err}
             return {"status": "done", "document_id": document_id,
@@ -366,7 +374,7 @@ class IngestService:
         finally:
             conn.close()
 
-    def reextract_all(self, *, rebuild: bool = True, limit: int = 0) -> dict:
+    def reextract_all(self, *, rebuild: bool = True, limit: int = 0, format: str | None = None) -> dict:
         """저장된 raw_text 로 전체 문서를 재추출(프롬프트 변경 반영 — 예: 한글화).
 
         rebuild=True: 먼저 그래프(엔티티/관계/임베딩/추출)를 비우고 처음부터 재구축한다.
@@ -379,6 +387,7 @@ class IngestService:
         conn = dbm.connect(self.s.db_file)
         dbm.init_db(conn)
         vstore = make_vector_store(conn, self.s.vector_backend)
+        fmt = format or self.s.render_format
         try:
             rows = dbm.documents_timeline(conn, limit or 1000000)
             ids = [r["id"] for r in rows][::-1]  # 오래된 것부터
@@ -395,7 +404,7 @@ class IngestService:
                 report = IngestReport(document_id=did)
                 ok, err = extract_resolve_store(
                     conn, self.provider, vstore, doc, report,
-                    vault_dir=self.s.vault_dir)
+                    vault_dir=self.s.vault_dir, format=fmt)
                 if ok:
                     out["ok"] += 1
                 else:
@@ -405,7 +414,7 @@ class IngestService:
         finally:
             conn.close()
 
-    def backfill_details(self, *, limit: int = 0, force: bool = False) -> dict:
+    def backfill_details(self, *, limit: int = 0, force: bool = False, format: str | None = None) -> dict:
         """detail(한국어 가독 렌더링)이 없는 기존 문서를 채운다 — **비파괴적**.
 
         그래프(엔티티/관계)를 건드리지 않고 documents.detail 컬럼만 채우므로 reextract 의
@@ -415,6 +424,7 @@ class IngestService:
 
         conn = dbm.connect(self.s.db_file)
         dbm.init_db(conn)
+        fmt = format or self.s.render_format
         try:
             ids = (dbm.documents_missing_detail(conn, limit) if not force
                    else [r["id"] for r in dbm.documents_timeline(conn, limit or 1000000)])
@@ -424,7 +434,7 @@ class IngestService:
                 if doc is None:
                     out["skipped"] += 1
                     continue
-                if ensure_document_detail(conn, self.provider, doc, force=force):
+                if ensure_document_detail(conn, self.provider, doc, force=force, format=fmt):
                     out["ok"] += 1
                 else:
                     out["skipped"] += 1

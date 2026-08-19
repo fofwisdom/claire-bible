@@ -92,6 +92,7 @@ def ingest(
     inbox_id: int | None = None,
     prefetched: Document | None = None,
     auto_expand: bool = False,
+    format: str | None = None,
 ) -> IngestReport:
     report = IngestReport()
     # None 이면 호출 시점에 모듈 전역 default_fetch 를 조회(monkeypatch/교체 반영).
@@ -151,7 +152,7 @@ def ingest(
                 pass
         _download_doc_images(conn, doc, data_dir)
         ok, err = extract_resolve_store(
-            conn, provider, vstore, doc, report, vault_dir=vault_dir)
+            conn, provider, vstore, doc, report, vault_dir=vault_dir, format=format)
         if not ok:
             report.error = err
             dbm.update_inbox(conn, inbox_id, status="error",
@@ -187,7 +188,7 @@ def ingest(
 
     # 추출 → 해소 → 관계 → vault (ingest/refresh 공용)
     ok, err = extract_resolve_store(
-        conn, provider, vstore, doc, report, vault_dir=vault_dir)
+        conn, provider, vstore, doc, report, vault_dir=vault_dir, format=format)
     if not ok:
         report.error = err
         dbm.update_inbox(conn, inbox_id, status="error", document_id=doc.id, error=err)
@@ -238,6 +239,7 @@ def extract_resolve_store(
     report: IngestReport,
     *,
     vault_dir: Path | None = None,
+    format: str | None = None,
 ) -> tuple[bool, str | None]:
     """문서 1건의 추출→엔티티 해소/머지→관계 검증/적재→vault export.
 
@@ -261,7 +263,7 @@ def extract_resolve_store(
 
     # 한국어 가독 렌더링(detail) — 구조화 추출과 독립된 별도 LLM 호출. 그래프와 무관해
     # 실패해도 적재를 깨지 않는다(조용히 건너뜀). refresh/reextract 도 같은 경로라 갱신됨.
-    ensure_document_detail(conn, provider, doc, force=True)
+    ensure_document_detail(conn, provider, doc, force=True, format=format)
 
     _judge_method = getattr(provider, "judge_same_entity", None)
 
@@ -356,6 +358,7 @@ def merge_source_into_document(
     *,
     vault_dir: Path | None = None,
     data_dir: Path | None = None,
+    format: str | None = None,
 ) -> dict:
     """[1홉 병합, ONEHOP_MERGE_DESIGN.md] 같은 주제의 부가 출처(child)를 parent 문서에
     흡수 — 새 Document/expand_queue 항목을 만드는 대신 parent.raw_text 뒤에 별도 출처
@@ -422,7 +425,7 @@ def merge_source_into_document(
                 pass
         report = IngestReport(document_id=parent.id, title=parent.title, updated=True)
         ok, err = extract_resolve_store(
-            conn, provider, vstore, parent, report, vault_dir=vault_dir)
+            conn, provider, vstore, parent, report, vault_dir=vault_dir, format=format)
         if not ok:
             raise RuntimeError(err)
         return {"merged": True, "document_id": parent.id, "report": report}
@@ -435,7 +438,12 @@ def merge_source_into_document(
 
 
 def ensure_document_detail(
-    conn: sqlite3.Connection, provider: Provider, doc: Document, *, force: bool = False
+    conn: sqlite3.Connection,
+    provider: Provider,
+    doc: Document,
+    *,
+    force: bool = False,
+    format: str | None = None,
 ) -> bool:
     """문서의 한국어 가독 렌더링(detail)을 생성·저장. **그래프와 독립**(별도 LLM 호출).
 
@@ -448,12 +456,27 @@ def ensure_document_detail(
         return False
     if not force and dbm.get_document_detail(conn, doc.id):
         return False
+
+    fmt = format or (doc.meta or {}).get("format") or (doc.meta or {}).get("render_format")
+    if not fmt:
+        from ..config import get_settings
+
+        fmt = get_settings().render_format
+    fmt = (fmt or "md").strip().lower()
+    if fmt in ("asciidoc", "adoc"):
+        fmt = "adoc"
+    else:
+        fmt = "md"
+
     try:
-        text = render(doc)
+        try:
+            text = render(doc, format=fmt)
+        except TypeError:
+            text = render(doc)
     except Exception:  # noqa: BLE001
         return False
     if text and text.strip():
-        dbm.set_document_detail(conn, doc.id, text.strip())
+        dbm.set_document_detail(conn, doc.id, text.strip(), format=fmt)
         return True
     return False
 

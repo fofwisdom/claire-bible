@@ -339,6 +339,7 @@ def cmd_ingest(args) -> int:  # noqa: ANN001
         args.payload, conn=conn, provider=provider, vstore=vstore,
         vault_dir=s.vault_dir, data_dir=s.data_dir, source="cli",
         expand_max=(0 if args.no_expand else s.expand_max),
+        format=getattr(args, "format", None),
     )
     print(report.telegram_summary())
 
@@ -348,7 +349,7 @@ def cmd_ingest(args) -> int:  # noqa: ANN001
         for url in report.candidates:
             sub = ingest(url, conn=conn, provider=provider, vstore=vstore,
                          vault_dir=s.vault_dir, data_dir=s.data_dir, source="cli-expand",
-                         expand_max=0)  # 2홉 방지
+                         expand_max=0, format=getattr(args, "format", None))  # 2홉 방지
             print(f"  - {url}\n    {sub.telegram_summary().splitlines()[0]}")
     elif report.candidates:
         print("\n[expand] 후보 URL (적재하려면 --expand):")
@@ -367,7 +368,9 @@ def cmd_reextract(args) -> int:  # noqa: ANN001
     svc = IngestService(s)
     print(f"(provider={svc.provider.name}) 재추출 시작"
           f"{' (rebuild)' if not args.no_rebuild else ''}…", flush=True)
-    out = svc.reextract_all(rebuild=not args.no_rebuild, limit=args.limit)
+    out = svc.reextract_all(
+        rebuild=not args.no_rebuild, limit=args.limit, format=getattr(args, "format", None)
+    )
     print(f"재추출 완료: 문서 {out['docs']} · 성공 {out['ok']} · 실패 {out['failed']}")
     for e in out["errors"][:20]:
         print(f"  - 실패 {e['document_id']}: {e['error']}")
@@ -386,7 +389,9 @@ def cmd_backfill_detail(args) -> int:  # noqa: ANN001
     svc = IngestService(s)
     print(f"(provider={svc.provider.name}) detail 백필 시작"
           f"{' (force)' if args.force else ''}…", flush=True)
-    out = svc.backfill_details(limit=args.limit, force=args.force)
+    out = svc.backfill_details(
+        limit=args.limit, force=args.force, format=getattr(args, "format", None)
+    )
     print(f"백필 완료: 대상 {out['docs']} · 생성 {out['ok']} · 건너뜀 {out['skipped']}")
     return 0
 
@@ -673,6 +678,8 @@ def build_parser() -> argparse.ArgumentParser:
                     help="also fetch 1-hop related links found in the content")
     pi.add_argument("--no-expand", action="store_true",
                     help="do not even detect expansion candidates")
+    pi.add_argument("--format", choices=["md", "adoc"], default=None,
+                    help="detail render format (md or adoc, default: config CLAIRE_RENDER_FORMAT)")
     pi.set_defaults(func=cmd_ingest)
 
     ps = sub.add_parser("search", help="hybrid search (FTS+vector) + LLM summary")
@@ -686,12 +693,16 @@ def build_parser() -> argparse.ArgumentParser:
     pre.add_argument("--no-rebuild", action="store_true",
                      help="merge into existing graph instead of wiping first (may mix old/new)")
     pre.add_argument("--limit", type=int, default=0, help="cap number of docs (0=all)")
+    pre.add_argument("--format", choices=["md", "adoc"], default=None,
+                     help="detail render format (md or adoc)")
     pre.set_defaults(func=cmd_reextract)
 
     pbd = sub.add_parser("backfill-detail",
                          help="fill Korean readable 'detail' for docs missing it (non-destructive)")
     pbd.add_argument("--limit", type=int, default=0, help="cap number of docs (0=all)")
     pbd.add_argument("--force", action="store_true", help="regenerate even if detail exists")
+    pbd.add_argument("--format", choices=["md", "adoc"], default=None,
+                     help="detail render format (md or adoc)")
     pbd.set_defaults(func=cmd_backfill_detail)
 
     pbi = sub.add_parser(

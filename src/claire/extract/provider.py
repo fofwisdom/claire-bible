@@ -236,20 +236,29 @@ class MockProvider:
         답으로 나오는지(파이프라인 연결)만 결정론적으로 보장한다."""
         return f"[mock] {query} :: {context[:120]}"
 
-    def render_detail(self, doc: Document) -> str:
-        """결정론적 stub — 문서 가독 렌더링(detail, 마크다운) 파이프라인 연결만 보장.
+    def render_detail(self, doc: Document, format: str = "md") -> str:
+        """결정론적 stub — 문서 가독 렌더링(detail, MD 또는 ADOC) 파이프라인 연결만 보장.
 
-        실제 분량/품질(A4 1~2장 마크다운+강조+이미지 큐레이션)은 실 Gemini 로 검증한다.
-        여기선 마크다운 구조·강조·수집 이미지가 detail 로 흘러가는지(배선)만 보장한다."""
+        실제 분량/품질(A4 1~2장 마크다운/AsciiDoc+강조+이미지 큐레이션)은 실 Gemini 로 검증한다.
+        여기선 문서 구조·강조·수집 이미지가 detail 로 흘러가는지(배선)만 보장한다."""
         title = (doc.title or doc.url or "untitled").strip()
         text = (doc.raw_text or "").strip()
         images = (doc.meta or {}).get("images") or []
-        parts = [f"[mock-detail] **{title}**", "", text[:600]]
-        if images:  # 수집된 첫 이미지를 마크다운 + 캡션(이탤릭) 으로 끼워 보존/캡션 배선을 드러냄
-            im = images[0]
-            cap = im.get("caption") or im.get("alt") or "그림"
-            src = ("/image?p=" + im["local"]) if im.get("local") else im.get("url", "")
-            parts += ["", f"![{im.get('alt', '')}]({src})", f"*{cap}*"]
+        is_adoc = (format or "md").strip().lower() in ("asciidoc", "adoc")
+        if is_adoc:
+            parts = [f"[mock-detail-adoc] *{title}*", "", text[:600]]
+            if images:
+                im = images[0]
+                cap = im.get("caption") or im.get("alt") or "그림"
+                src = ("/image?p=" + im["local"]) if im.get("local") else im.get("url", "")
+                parts += ["", f'image::{src}[{im.get("alt", "")}, title="{cap}"]']
+        else:
+            parts = [f"[mock-detail] **{title}**", "", text[:600]]
+            if images:  # 수집된 첫 이미지를 마크다운 + 캡션(이탤릭) 으로 끼워 보존/캡션 배선을 드러냄
+                im = images[0]
+                cap = im.get("caption") or im.get("alt") or "그림"
+                src = ("/image?p=" + im["local"]) if im.get("local") else im.get("url", "")
+                parts += ["", f"![{im.get('alt', '')}]({src})", f"*{cap}*"]
         return "\n".join(parts)
 
     def classify_watch(self, doc: Document) -> dict:

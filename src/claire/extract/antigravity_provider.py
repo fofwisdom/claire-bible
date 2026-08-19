@@ -223,21 +223,23 @@ class AntigravityProvider:
         res = self._run_cli(prompt, output_format="text")
         return str(res).strip()
 
-    def render_detail(self, doc: Document) -> str:
-        """원문을 한국어 마크다운으로 '편하게 읽을 수 있는 글'로 재구성."""
+    def render_detail(self, doc: Document, format: str = "md") -> str:
+        """원문을 한국어 가독 렌더링(MD 또는 ADOC)으로 '편하게 읽을 수 있는 글'로 재구성."""
         body = _doc_to_prompt(doc)
         images = (doc.meta or {}).get("images") or []
         merged = bool((doc.meta or {}).get("extra_sources"))
-        text = self._render_detail_call(body, images, merged=merged, scale=1)
+        text = self._render_detail_call(body, images, merged=merged, scale=1, format=format)
         if merged:
             for scale in (2, 4):
                 if len(text) >= _MERGED_DETAIL_MIN_CHARS:
                     break
-                text = self._render_detail_call(body, images, merged=merged, scale=scale)
+                text = self._render_detail_call(body, images, merged=merged, scale=scale, format=format)
         return text
 
-    def _render_detail_call(self, body: str, images: list, *, merged: bool, scale: int) -> str:
-        prompt = render_detail_prompt(body, images, merged=merged, scale=scale)
+    def _render_detail_call(
+        self, body: str, images: list, *, merged: bool, scale: int, format: str = "md"
+    ) -> str:
+        prompt = render_detail_prompt(body, images, merged=merged, scale=scale, format=format)
         res = self._run_cli(prompt, output_format="text")
         return str(res).strip()
 

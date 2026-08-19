@@ -15,7 +15,7 @@ from pathlib import Path
 
 from ..ontology.base import Document, Entity, Relation
 
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (
@@ -37,7 +37,9 @@ CREATE TABLE IF NOT EXISTS documents (
     lang TEXT,
     partial INTEGER DEFAULT 0,
     meta TEXT,
-    minhash TEXT
+    minhash TEXT,
+    detail TEXT,
+    detail_format TEXT DEFAULT 'md'
 );
 CREATE INDEX IF NOT EXISTS idx_documents_hash ON documents(content_hash);
 CREATE INDEX IF NOT EXISTS idx_documents_canon ON documents(canonical_url);
@@ -330,6 +332,8 @@ def _migrate(conn: sqlite3.Connection) -> None:
     # 클릭해 바로 열리는 링크가 필요하다는 요구; 기존 CLAIRE_READONLY_TOKEN 은 헤더 전용이라
     # URL 링크로 못 씀). 기존 행은 DEFAULT 'owner' 로 자동 채워져 기존 /web 세션 동작 그대로.
     _ensure_column(conn, "auth_sessions", "scope", "TEXT DEFAULT 'owner'")
+    # v10: 문서 detail 가독 렌더링 포맷 (md: 마크다운, adoc: AsciiDoc). 기본값 'md'.
+    _ensure_column(conn, "documents", "detail_format", "TEXT DEFAULT 'md'")
 
 
 def stored_schema_version(conn: sqlite3.Connection) -> int | None:
@@ -1195,9 +1199,17 @@ def latest_extraction_summary(conn: sqlite3.Connection, document_id: str) -> str
         return None
 
 
-def set_document_detail(conn: sqlite3.Connection, document_id: str, detail: str) -> None:
-    """문서의 한국어 가독 렌더링(detail)을 저장(in-place). 그래프와 독립."""
-    conn.execute("UPDATE documents SET detail=? WHERE id=?", (detail, document_id))
+def set_document_detail(
+    conn: sqlite3.Connection,
+    document_id: str,
+    detail: str,
+    format: str = "md",
+) -> None:
+    """문서의 한국어 가독 렌더링(detail)과 포맷(detail_format)을 저장(in-place). 그래프와 독립."""
+    conn.execute(
+        "UPDATE documents SET detail=?, detail_format=? WHERE id=?",
+        (detail, format or "md", document_id),
+    )
     conn.commit()
 
 
@@ -1206,6 +1218,13 @@ def get_document_detail(conn: sqlite3.Connection, document_id: str) -> str | Non
     row = conn.execute(
         "SELECT detail FROM documents WHERE id=?", (document_id,)).fetchone()
     return (row["detail"] if row else None) or None
+
+
+def get_document_detail_format(conn: sqlite3.Connection, document_id: str) -> str:
+    """문서의 detail_format('md' 또는 'adoc'). 없으면 'md'."""
+    row = conn.execute(
+        "SELECT detail_format FROM documents WHERE id=?", (document_id,)).fetchone()
+    return (row["detail_format"] if row and row["detail_format"] else "md")
 
 
 def documents_missing_detail(conn: sqlite3.Connection, limit: int = 0) -> list[str]:

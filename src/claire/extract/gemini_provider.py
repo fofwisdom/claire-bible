@@ -247,18 +247,12 @@ class GeminiProvider:
         ))
         return _extract_output_text(interaction).strip()
 
-    def render_detail(self, doc: Document) -> str:
-        """원문을 한국어 **마크다운**으로 '편하게 읽을 수 있는 글'로 재구성(요약 아님).
+    def render_detail(self, doc: Document, format: str = "md") -> str:
+        """원문을 한국어 가독 렌더링(MD 또는 ADOC)으로 '편하게 읽을 수 있는 글'로 재구성(요약 아님).
 
         짧은 summary 와 별개 — 원문을 직접 안 읽어도 핵심·맥락·세부를 파악할 수 있게
         여러 단락(대략 A4 1~2장)으로 푼다. 구조화 추출과 독립된 별도 호출이라 그래프에
-        영향 없음. UI 가 마크다운을 렌더링하므로:
-          · 소제목(##/###)·문단·필요시 불릿으로 구조화하고,
-          · **중요한 용어/핵심 주장은 굵게**, ==정말 핵심인 한두 구절은 형광== 으로 강조(남발 금지),
-          · 원문에서 수집한 이해에 도움 되는 이미지(다이어그램·차트·스크린샷)는 적절한
-            위치에 마크다운 이미지로 삽입하고 바로 아래 본문 맥락 기반 한 줄 캡션(이탤릭)을
-            단다(장식/로고/아이콘은 제외 — 큐레이션).
-        고유명사/기술 용어는 원문 형태 유지(음차 금지), 없는 사실 금지.
+        영향 없음.
 
         [1홉 병합 전용, ONEHOP_MERGE_DESIGN.md §3.3b] doc.meta.extra_sources 가 있으면
         (여러 출처가 합쳐진 문서) 목표 분량을 "A4 2~4장"으로 올리고 각 출처를 빠짐없이
@@ -268,16 +262,18 @@ class GeminiProvider:
         body = _doc_to_prompt(doc)
         images = (doc.meta or {}).get("images") or []
         merged = bool((doc.meta or {}).get("extra_sources"))
-        text = self._render_detail_call(body, images, merged=merged, scale=1)
+        text = self._render_detail_call(body, images, merged=merged, scale=1, format=format)
         if merged:
             for scale in (2, 4):
                 if len(text) >= _MERGED_DETAIL_MIN_CHARS:
                     break
-                text = self._render_detail_call(body, images, merged=merged, scale=scale)
+                text = self._render_detail_call(body, images, merged=merged, scale=scale, format=format)
         return text
 
-    def _render_detail_call(self, body: str, images: list, *, merged: bool, scale: int) -> str:
-        prompt = render_detail_prompt(body, images, merged=merged, scale=scale)
+    def _render_detail_call(
+        self, body: str, images: list, *, merged: bool, scale: int, format: str = "md"
+    ) -> str:
+        prompt = render_detail_prompt(body, images, merged=merged, scale=scale, format=format)
         interaction = self._call(lambda: self.client.interactions.create(
             model=self.model,
             input=prompt,

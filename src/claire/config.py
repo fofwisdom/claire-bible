@@ -148,6 +148,8 @@ class Settings(BaseSettings):
     db_path: str = Field(default="data/claire.db", alias="CLAIRE_DB_PATH")
     vault_path: str = Field(default="vault", alias="CLAIRE_VAULT_PATH")
     vector_backend: str = Field(default="auto", alias="CLAIRE_VECTOR_BACKEND")
+    # 읽기/가독 렌더링 포맷 (md: Markdown, adoc: AsciiDoc). 기본값 md.
+    render_format: str = Field(default="md", alias="CLAIRE_RENDER_FORMAT")
 
     # --- expansion ---
     expand_max: int = Field(default=5, alias="CLAIRE_EXPAND_MAX")
@@ -189,6 +191,16 @@ class Settings(BaseSettings):
         default="",
         alias="SOURCE_BASE_URL",
     )
+
+    @field_validator("render_format", mode="before")
+    @classmethod
+    def _parse_render_format(cls, value: object) -> str:
+        s = str(value or "md").strip().lower()
+        if s in ("asciidoc", "adoc"):
+            return "adoc"
+        if s in ("markdown", "md"):
+            return "md"
+        raise ValueError("CLAIRE_RENDER_FORMAT must be 'md' or 'adoc'")
 
     @field_validator("anonymous_readonly", mode="before")
     @classmethod

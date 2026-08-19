@@ -109,6 +109,7 @@ def node_detail(conn: sqlite3.Connection, entity_id: str, include_hidden: bool =
                 "summary": dbm.latest_extraction_summary(conn, did) or "",
                 # 한국어 가독 렌더링(여러 단락) — 패널에서 '자세히 읽기'로 펼친다.
                 "detail": dbm.get_document_detail(conn, did) or "",
+                "detail_format": dbm.get_document_detail_format(conn, did),
                 # 원시 epoch(초) — MCP 등 API 소비자용.
                 "fetched_at": row["fetched_at"],
             })
@@ -139,6 +140,7 @@ def document_detail(conn: sqlite3.Connection, document_id: str, include_hidden: 
         "source_type": row["source_type"],
         "summary": dbm.latest_extraction_summary(conn, document_id) or "",
         "detail": dbm.get_document_detail(conn, document_id) or "",
+        "detail_format": dbm.get_document_detail_format(conn, document_id),
         "hidden": bool(row["hidden"]),
         # [1홉 병합, ONEHOP_MERGE_DESIGN.md] 이 문서에 흡수된 부가 출처(예: GeekNews 글에
         # 병합된 그 프로젝트의 github). 원문 링크 계보를 UI 에서 추적 가능하게.
@@ -285,6 +287,7 @@ GRAPH_HTML = """<!doctype html>
 <meta name="theme-color" content="#0e1116"/>
 <script src="https://unpkg.com/vis-network@9.1.11/standalone/umd/vis-network.min.js" integrity="sha384-60H6/hL99pRYjWacRdebxM1T2R6jvWyd9GVAb7d4fp9BSfv4f0i5sWjkprnnG0cz" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/marked@4.3.0/marked.min.js" integrity="sha384-QsSpx6a0USazT7nK7w8qXDgpSAPhFsb2XtpoLFQ5+X2yFN6hvCKnwEzN8M5FWaJb" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@asciidoctor/core@3.0.4/dist/browser/asciidoctor.min.js" integrity="sha384-Rd2/5b41kZm7C1w7DbZXiNbMElh62qr8urCNwxmNaYVvL06PjEwpmw1PRGqAwOZP" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/dompurify@3.1.6/dist/purify.min.js" integrity="sha384-+VfUPEb0PdtChMwmBcBmykRMDd+v6D/oFmB3rZM/puCMDYcIvF968OimRh4KQY9a" crossorigin="anonymous"></script>
 <script>
   // 깜빡임 방지: 페인트 전에 저장된 테마를 documentElement 에 적용. 기본값=light(사용자 요구).
@@ -486,7 +489,27 @@ GRAPH_HTML = """<!doctype html>
   .md em{color:var(--muted)} .md blockquote{margin:.6em 0;padding:.2em .9em;border-left:3px solid var(--border);color:var(--muted)}
   .md code{background:var(--chip-bg);padding:.1em .35em;border-radius:3px;font-size:.9em}
   .md pre{background:var(--card-bg);border:1px solid var(--border);border-radius:6px;padding:.8em;overflow:auto}
-  .md table{border-collapse:collapse;margin:.6em 0} .md th,.md td{border:1px solid var(--border);padding:.3em .6em}
+  .md table{border-collapse:collapse;margin:.6em 0;width:100%} .md th,.md td{border:1px solid var(--border);padding:.35em .65em}
+  .md th{background:var(--chip-bg);font-weight:600}
+  /* --- AsciiDoc & Markdown 확장 스타일 --- */
+  .md .admonitionblock{margin:1em 0;border-left:4px solid var(--accent);background:var(--card-bg);border-radius:6px;padding:.6em 1em}
+  .md .admonitionblock.note{border-left-color:var(--accent)}
+  .md .admonitionblock.important{border-left-color:#8250df}
+  [data-theme="dark"] .md .admonitionblock.important{border-left-color:#a371f7}
+  .md .admonitionblock.tip{border-left-color:var(--accent2)}
+  .md .admonitionblock.warning{border-left-color:#cf222e}
+  [data-theme="dark"] .md .admonitionblock.warning{border-left-color:#f85149}
+  .md .admonitionblock.caution{border-left-color:var(--rel)}
+  .md .admonitionblock .title,.md .admonitionblock td.icon{font-weight:700;margin-bottom:.3em;text-transform:uppercase;font-size:.85em;letter-spacing:.03em;color:var(--muted)}
+  .md .quoteblock{margin:1.1em 0;padding:.6em 1.1em;border-left:3px solid var(--accent);background:var(--card-bg);border-radius:0 6px 6px 0}
+  .md .quoteblock blockquote{margin:0;padding:0;border:none;color:var(--fg)}
+  .md .quoteblock .attribution{margin-top:.4em;font-size:.85em;color:var(--muted);text-align:right}
+  .md .colist{margin:.5em 0;padding-left:1.2em;font-size:.9em}
+  .md .conum{display:inline-block;background:var(--accent);color:#fff;border-radius:50%;width:18px;height:18px;line-height:18px;text-align:center;font-size:11px;font-weight:bold;margin-right:4px;vertical-align:middle}
+  .md .imageblock{margin:1em auto;text-align:center}
+  .md .imageblock img{max-width:100%;height:auto;display:block;margin:0 auto;border-radius:6px;border:1px solid var(--border)}
+  .md .imageblock .title{font-size:.85em;color:var(--muted);margin-top:.4em;font-style:italic}
+  .md .lead{font-size:1.1em;line-height:1.6;font-weight:500;color:var(--fg)}
   /* --- 중앙 읽기 팝업(모달) — 좌측 문서의 '읽기' 버튼으로 연다(nav 와 분리, 사용자 요구) --- */
   #reader{position:fixed;inset:0;background:var(--shadow);display:none;z-index:50;
     align-items:flex-start;justify-content:center;padding:2.5vh 14px;overflow:hidden;--read-fs:16px}
@@ -844,20 +867,59 @@ function toggleTheme(){ const next = curTheme()==='dark'?'light':'dark';
     applyView(); }   // 노드별 테두리(lit/normal)도 새 테마 색으로 다시 칠함
 }
 
-// 마크다운 → 안전한 HTML. ==형광== 은 <mark> 로(LLM 이 표시한 핵심 강조). DOMPurify 로
-// 스크랩 본문 유래 스크립트/위험 태그를 제거(이미지·강조·링크는 허용).
+// 마크다운/AsciiDoc → 안전한 HTML. DOMPurify 로 스크랩 본문 유래 위험 태그 제거.
+let _asciidoctorInstance=null;
+function getAsciidoctor(){
+  if(!_asciidoctorInstance && typeof window.Asciidoctor==='function'){
+    try{ _asciidoctorInstance=window.Asciidoctor(); }catch(_){}
+  }
+  return _asciidoctorInstance;
+}
+
 function renderMarkdown(src){
   if(!src) return '';
   const raw=String(src);
-  const fallback=()=>esc(raw).replace(/\\n/g,'<br>');
+  const fallback=()=>esc(raw).replace(/\n/g,'<br>');
   const parser=window.marked, purifier=window.DOMPurify;
   if(!parser||!purifier||typeof purifier.sanitize!=='function'||
      (typeof parser.parse!=='function'&&typeof parser!=='function')) return fallback();
   try{
-    const s=raw.replace(/==([^=\\n]+)==/g,'<mark>$1</mark>');
+    const s=raw.replace(/==([^=\n]+)==/g,'<mark>$1</mark>');
     const html=typeof parser.parse==='function'?parser.parse(s):parser(s);
-    return purifier.sanitize(html,{ADD_ATTR:['target']});
+    return purifier.sanitize(html,{ADD_ATTR:['target'],ADD_TAGS:['mark']});
   }catch(e){ return fallback(); }
+}
+
+function renderAsciidoc(src){
+  if(!src) return '';
+  const raw=String(src);
+  const fallback=()=>renderMarkdown(raw);
+  const adoc=getAsciidoctor(), purifier=window.DOMPurify;
+  if(!adoc||!purifier||typeof purifier.sanitize!=='function') return fallback();
+  try{
+    const s=raw.replace(/#([^#\n]+)#/g,'<mark>$1</mark>');
+    const html=adoc.convert(s,{safe:'safe',attributes:{showtitle:true}});
+    return purifier.sanitize(html,{ADD_ATTR:['target'],ADD_TAGS:['mark']});
+  }catch(e){ return fallback(); }
+}
+
+function isAsciidoc(src, format){
+  if(format){
+    const fmt=String(format).toLowerCase().trim();
+    if(fmt==='adoc'||fmt==='asciidoc') return true;
+    if(fmt==='md'||fmt==='markdown') return false;
+  }
+  if(!src) return false;
+  const s=String(src);
+  return /\[(NOTE|TIP|IMPORTANT|WARNING|CAUTION|quote|source)[^\]]*\]|\|\=\=\=|image\:\:/i.test(s);
+}
+
+function renderContent(src, format){
+  if(!src) return '';
+  if(isAsciidoc(src, format)){
+    return renderAsciidoc(src);
+  }
+  return renderMarkdown(src);
 }
 
 // 목록 설명 줄수(0/2/4) — 브라우저에 기억. 문서 많아지면 제목/설명이 height 를 너무
@@ -960,8 +1022,8 @@ function renderReader(dc){
   let h='';
   if(dc.url) h+='<p class=docmeta><a href="'+esc(dc.url)+'" target=_blank rel=noopener>↗ 원문 열기</a></p>';
   h+=extraSourcesHtml(dc);
-  if(dc.summary) h+='<div class=rsection>요약</div><div class="md">'+renderMarkdown(dc.summary)+'</div>';
-  if(dc.detail) h+='<div class=rsection>자세히 읽기</div><div class="md">'+renderMarkdown(dc.detail)+'</div>';
+  if(dc.summary) h+='<div class=rsection>요약</div><div class="md">'+renderContent(dc.summary, dc.detail_format)+'</div>';
+  if(dc.detail) h+='<div class=rsection>자세히 읽기</div><div class="md">'+renderContent(dc.detail, dc.detail_format)+'</div>';
   if(!dc.summary && !dc.detail) h+='<p class=hint>이 문서의 요약/전문이 아직 없습니다.</p>';
   const body=document.getElementById('rbody'); body.innerHTML=h; body.scrollTop=0;
   document.getElementById('reader').setAttribute('aria-busy','false');
@@ -2338,6 +2400,7 @@ _SHARED_HTML = """<!doctype html>
 <link rel="mask-icon" href="/favicon.svg" color="#00ffaa"/>
 <meta name="theme-color" content="#0e1116"/>
 <script src="https://unpkg.com/marked@4.3.0/marked.min.js" integrity="sha384-QsSpx6a0USazT7nK7w8qXDgpSAPhFsb2XtpoLFQ5+X2yFN6hvCKnwEzN8M5FWaJb" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@asciidoctor/core@3.0.4/dist/browser/asciidoctor.min.js" integrity="sha384-Rd2/5b41kZm7C1w7DbZXiNbMElh62qr8urCNwxmNaYVvL06PjEwpmw1PRGqAwOZP" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/dompurify@3.1.6/dist/purify.min.js" integrity="sha384-+VfUPEb0PdtChMwmBcBmykRMDd+v6D/oFmB3rZM/puCMDYcIvF968OimRh4KQY9a" crossorigin="anonymous"></script>
 <style>
   :root{--bg:#ffffff;--fg:#1f2328;--muted:#656d76;--border:#d0d7de;--accent:#0969da;
@@ -2361,24 +2424,80 @@ _SHARED_HTML = """<!doctype html>
   .md blockquote{margin:.6em 0;padding:.2em .9em;border-left:3px solid var(--border);color:var(--muted)}
   .md code{background:var(--chip-bg);padding:.1em .35em;border-radius:3px;font-size:.9em}
   .md pre{background:var(--card-bg);border:1px solid var(--border);border-radius:6px;padding:.8em;overflow:auto}
-  .md table{border-collapse:collapse;margin:.6em 0} .md th,.md td{border:1px solid var(--border);padding:.3em .6em}
+  .md table{border-collapse:collapse;margin:.6em 0;width:100%} .md th,.md td{border:1px solid var(--border);padding:.35em .65em}
+  .md th{background:var(--chip-bg);font-weight:600}
+  /* --- AsciiDoc & Markdown 확장 스타일 --- */
+  .md .admonitionblock{margin:1em 0;border-left:4px solid var(--accent);background:var(--card-bg);border-radius:6px;padding:.6em 1em}
+  .md .admonitionblock.note{border-left-color:var(--accent)}
+  .md .admonitionblock.important{border-left-color:#8250df}
+  @media (prefers-color-scheme:dark){.md .admonitionblock.important{border-left-color:#a371f7}}
+  .md .admonitionblock.tip{border-left-color:var(--accent2)}
+  .md .admonitionblock.warning{border-left-color:#cf222e}
+  @media (prefers-color-scheme:dark){.md .admonitionblock.warning{border-left-color:#f85149}}
+  .md .admonitionblock.caution{border-left-color:var(--rel, #9a6700)}
+  .md .admonitionblock .title,.md .admonitionblock td.icon{font-weight:700;margin-bottom:.3em;text-transform:uppercase;font-size:.85em;letter-spacing:.03em;color:var(--muted)}
+  .md .quoteblock{margin:1.1em 0;padding:.6em 1.1em;border-left:3px solid var(--accent);background:var(--card-bg);border-radius:0 6px 6px 0}
+  .md .quoteblock blockquote{margin:0;padding:0;border:none;color:var(--fg)}
+  .md .quoteblock .attribution{margin-top:.4em;font-size:.85em;color:var(--muted);text-align:right}
+  .md .colist{margin:.5em 0;padding-left:1.2em;font-size:.9em}
+  .md .conum{display:inline-block;background:var(--accent);color:#fff;border-radius:50%;width:18px;height:18px;line-height:18px;text-align:center;font-size:11px;font-weight:bold;margin-right:4px;vertical-align:middle}
+  .md .imageblock{margin:1em auto;text-align:center}
+  .md .imageblock img{max-width:100%;height:auto;display:block;margin:0 auto;border-radius:6px;border:1px solid var(--border)}
+  .md .imageblock .title{font-size:.85em;color:var(--muted);margin-top:.4em;font-style:italic}
+  .md .lead{font-size:1.1em;line-height:1.6;font-weight:500;color:var(--fg)}
 </style></head>
 <body><div class="wrap" id="wrap"></div>
 <script id="docdata" type="application/json">__DATA__</script>
 <script>
 function esc(s){return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+let _asciidoctorInstance=null;
+function getAsciidoctor(){
+  if(!_asciidoctorInstance && typeof window.Asciidoctor==='function'){
+    try{ _asciidoctorInstance=window.Asciidoctor(); }catch(_){}
+  }
+  return _asciidoctorInstance;
+}
 function renderMarkdown(src){
   if(!src) return '';
   const raw=String(src);
-  const fallback=()=>esc(raw).replace(/\\n/g,'<br>');
+  const fallback=()=>esc(raw).replace(/\n/g,'<br>');
   const parser=window.marked, purifier=window.DOMPurify;
   if(!parser||!purifier||typeof purifier.sanitize!=='function'||
      (typeof parser.parse!=='function'&&typeof parser!=='function')) return fallback();
   try{
-    const s=raw.replace(/==([^=\\n]+)==/g,'<mark>$1</mark>');
+    const s=raw.replace(/==([^=\n]+)==/g,'<mark>$1</mark>');
     const html=typeof parser.parse==='function'?parser.parse(s):parser(s);
-    return purifier.sanitize(html,{ADD_ATTR:['target']});
+    return purifier.sanitize(html,{ADD_ATTR:['target'],ADD_TAGS:['mark']});
   }catch(e){ return fallback(); }
+}
+function renderAsciidoc(src){
+  if(!src) return '';
+  const raw=String(src);
+  const fallback=()=>renderMarkdown(raw);
+  const adoc=getAsciidoctor(), purifier=window.DOMPurify;
+  if(!adoc||!purifier||typeof purifier.sanitize!=='function') return fallback();
+  try{
+    const s=raw.replace(/#([^#\n]+)#/g,'<mark>$1</mark>');
+    const html=adoc.convert(s,{safe:'safe',attributes:{showtitle:true}});
+    return purifier.sanitize(html,{ADD_ATTR:['target'],ADD_TAGS:['mark']});
+  }catch(e){ return fallback(); }
+}
+function isAsciidoc(src, format){
+  if(format){
+    const fmt=String(format).toLowerCase().trim();
+    if(fmt==='adoc'||fmt==='asciidoc') return true;
+    if(fmt==='md'||fmt==='markdown') return false;
+  }
+  if(!src) return false;
+  const s=String(src);
+  return /\[(NOTE|TIP|IMPORTANT|WARNING|CAUTION|quote|source)[^\]]*\]|\|\=\=\=|image\:\:/i.test(s);
+}
+function renderContent(src, format){
+  if(!src) return '';
+  if(isAsciidoc(src, format)){
+    return renderAsciidoc(src);
+  }
+  return renderMarkdown(src);
 }
 const dc=JSON.parse(document.getElementById('docdata').textContent||'{}');
 let h='<div class=brand>Claire Bible · 공유 문서</div>';
@@ -2390,8 +2509,8 @@ if((dc.extra_sources||[]).length){
     dc.extra_sources.map(s=>'<li><a href="'+esc(s.url||'')+'" target=_blank rel=noopener>'+
       esc(s.title||s.url||'')+'</a></li>').join('')+'</ul>';
 }
-if(dc.summary){ h+='<div class=sec>요약</div><div class="md">'+renderMarkdown(dc.summary)+'</div>'; }
-if(dc.detail){ h+='<div class=sec>자세히 읽기</div><div class="md">'+renderMarkdown(dc.detail)+'</div>'; }
+if(dc.summary){ h+='<div class=sec>요약</div><div class="md">'+renderContent(dc.summary, dc.detail_format)+'</div>'; }
+if(dc.detail){ h+='<div class=sec>자세히 읽기</div><div class="md">'+renderContent(dc.detail, dc.detail_format)+'</div>'; }
 if(!dc.summary && !dc.detail){ h+='<p class=meta>이 문서의 요약/전문이 아직 없습니다.</p>'; }
 h+='<div class=foot>이 링크는 이 문서 하나만 읽기 전용으로 공유합니다.</div>';
 document.getElementById('wrap').innerHTML=h;

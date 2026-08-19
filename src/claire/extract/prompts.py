@@ -132,7 +132,29 @@ def images_block(images: list[dict]) -> str:
     )
 
 
-def render_detail_prompt(body: str, images: list[dict], *, merged: bool, scale: int = 1) -> str:
+def images_block_adoc(images: list[dict]) -> str:
+    """render_detail_prompt_adoc 프롬프트에 삽입할 후보 이미지 큐레이션 지시 블록."""
+    if not images:
+        return ""
+    listing = "\n".join(
+        f"[{i}] url: {('/image?p=' + im['local']) if im.get('local') else im.get('url', '')}\n"
+        f"    alt: {im.get('alt', '') or '(없음)'}"
+        + (f"\n    caption: {im['caption']}" if im.get("caption") else "")
+        for i, im in enumerate(images)
+    )
+    return (
+        "\n[원문에서 수집한 이미지 후보]\n"
+        "원칙: **내용 이해에 꼭 필요한 그림만** 넣는다. 구조도·아키텍처 다이어그램, 데이터 차트/그래프, "
+        "알고리즘·플로우 도식, 핵심 스크린샷 같은 **설명적 그림**만 허용한다. 관련 내용 바로 옆에 "
+        'AsciiDoc `image::url[alt 설명, title="캡션"]` 형태로 넣되 url 은 목록 값을 한 글자도 바꾸지 말고 그대로, '
+        "alt 와 title 캡션은 한국어(문어체 서술)로 달아라.\n"
+        "다음은 절대 넣지 마라: 대표/히어로/썸네일/소셜카드 이미지, 장식·분위기 사진, 인물·프로필 사진, "
+        "로고·아이콘, 본문 이해와 무관하거나 그저 '예쁜' 이미지. **애매하면 넣지 마라.** 필요한 설명적 그림이 하나도 없으면 넣지 않는다.\n"
+        f"{listing}\n"
+    )
+
+
+def render_detail_prompt_md(body: str, images: list[dict], *, merged: bool, scale: int = 1) -> str:
     """원문을 한국어 마크다운으로 재구성하는 프롬프트(요약 아님, 여러 단락, 문어체)."""
     if merged:
         length_hint = f"대략 A4 {2 * scale}~{4 * scale}장 분량"
@@ -163,6 +185,57 @@ def render_detail_prompt(body: str, images: list[dict], *, merged: bool, scale: 
         + images_block(images)
         + f"\n원문:\n{body}\n\n한국어 마크다운:"
     )
+
+
+def render_detail_prompt_adoc(body: str, images: list[dict], *, merged: bool, scale: int = 1) -> str:
+    """원문을 한국어 AsciiDoc(ADOC)으로 실용적·복합적으로 재구성하는 프롬프트."""
+    if merged:
+        length_hint = f"대략 A4 {2 * scale}~{4 * scale}장 분량"
+        merge_hint = (
+            "이 문서는 여러 출처가 병합됐다 — 각 출처의 핵심을 빠짐없이 통합해 서술하라.\n"
+        )
+    else:
+        length_hint = "대략 A4 1~2장 분량"
+        merge_hint = ""
+    return (
+        "아래 원문을 한국어 **AsciiDoc(ADOC)**으로 '편하게 읽을 수 있는 지식 문서'로 재구성하라. "
+        "단순 1~2문장 요약이 아니라, 독자가 원문을 직접 읽지 않아도 핵심 내용·배경 "
+        f"맥락·중요한 세부까지 충분히 파악할 수 있도록 여러 단락({length_hint})으로 "
+        "풀어 써라.\n\n"
+        + merge_hint
+        + "작성 규칙(AsciiDoc 실용 가이드라인):\n"
+        "1. 문체 및 어조: 일관된 문어체(서술체: '~한다', '~이다', '~됨')로 서술하라. "
+        "대화형 경어체('~합니다', '~해요')나 구어체는 사용하지 않는다.\n"
+        "2. 내용 구조화: `== `, `=== ` 섹션 제목과 문단으로 구성하고, 나열은 `* ` 불릿을 써라. "
+        "단락은 빈 줄로 구분.\n"
+        "3. 인용과 선언: 원문의 핵심 선언이나 공식 정의는 `[quote, 저자/출처]` 블록으로 분리하라.\n"
+        "4. 코드 및 설정 해설: 코드/설정/명령어가 등장하면 `[source,언어]` 블록과 "
+        "필요시 콜아웃 주석(`// <1>`, `<1> 설명`)을 결합하여 직관적으로 해설하라.\n"
+        "5. 절제된 주석: 배경 전제나 필수 제약조건이 꼭 필요한 경우에만 `[NOTE]` 또는 `[IMPORTANT]` "
+        "블록을 1~2곳 이내로 아껴 써라 (남발 금지).\n"
+        "6. 비교와 정리: 성능 수치, 스펙 비교, 옵션 등은 `|===` 테이블로 깔끔히 정돈하라.\n"
+        "7. 가독성 및 강조: 중요한 용어는 `*굵게*` 표시하고, 정말 빼놓으면 안 되는 한두 구절만 "
+        "`#형광#`(#으로 감쌈)으로 강조하라.\n"
+        "8. 고유명사·제품/도구/모델명·조직명·기술 용어는 원문 형태 그대로 유지하라"
+        '(음차/번역 금지: 예 "arXiv", "LLM agent").\n'
+        "9. 원문에 없는 사실은 절대 지어내지 말 것.\n"
+        + images_block_adoc(images)
+        + f"\n원문:\n{body}\n\n한국어 AsciiDoc:"
+    )
+
+
+def render_detail_prompt(
+    body: str,
+    images: list[dict],
+    *,
+    merged: bool,
+    scale: int = 1,
+    format: str = "md",
+) -> str:
+    """포맷(md 또는 adoc)에 맞춰 가독 렌더링 프롬프트를 라우팅."""
+    if (format or "md").strip().lower() in ("asciidoc", "adoc"):
+        return render_detail_prompt_adoc(body, images, merged=merged, scale=scale)
+    return render_detail_prompt_md(body, images, merged=merged, scale=scale)
 
 
 def classify_watch_prompt(body: str) -> str:
