@@ -345,7 +345,7 @@ def test_render_graph_html_default():
     html = render_graph_html()
     assert "https://github.com/fofwisdom/claire-bible" in html
     assert "fofwisdom/claire-bible" in html
-    assert 'id="brandlink"' in html
+    assert '<span class="brand"' in html
     assert 'id="repolink"' in html
     assert "get sourceBaseUrl(){ return 'https://github.com/fofwisdom/claire-bible'; }" in html
     assert "get githubRepository(){ return 'fofwisdom/claire-bible'; }" in html

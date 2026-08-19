@@ -617,7 +617,7 @@ GRAPH_HTML = """<!doctype html>
 </style></head>
 <body class="ro" data-auth-scope="unknown" data-active-pane="docs">
 <header id="bar">
-  <a class="brand" id="brandlink" href="__SOURCE_BASE_URL__" target="_blank" rel="noopener noreferrer" title="__GITHUB_REPOSITORY__ (GitHub)" style="display:inline-flex;align-items:center;gap:6px;text-decoration:none;color:inherit"><img src="/favicon.svg" width="20" height="20" alt="" aria-hidden="true" style="display:inline-block;vertical-align:middle;filter:drop-shadow(0 0 4px rgba(0,255,170,0.5))"/>Claire Bible</a>
+  <span class="brand" style="display:inline-flex;align-items:center;gap:6px"><img src="/favicon.svg" width="20" height="20" alt="" aria-hidden="true" style="display:inline-block;vertical-align:middle;filter:drop-shadow(0 0 4px rgba(0,255,170,0.5))"/>Claire Bible</span>
   <div id="barsearch">
     <label class="sr-only" for="q">그래프 검색</label>
     <input id="q" placeholder="검색" oninput="onSearchInput(this.value)"/>
