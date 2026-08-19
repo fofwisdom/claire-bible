@@ -137,11 +137,11 @@ class AntigravityProvider:
                 raise RuntimeError(f"Invalid JSON from agy: {stdout[:200]}")
 
         if isinstance(payload, dict):
-            status = payload.get("status")
-            if status and status != "SUCCESS":
-                raise RuntimeError(f"agy CLI returned status={status}: {payload}")
+            # 1) structured_output이 존재하면 내부 도구 에러/경고로 인한 status=ERROR와 무관하게 우선 채택
             if "structured_output" in payload and payload["structured_output"] is not None:
                 return payload["structured_output"]
+
+            # 2) response 문자열이 있으면 JSON 파싱 시도
             if "response" in payload and isinstance(payload["response"], str):
                 resp_str = payload["response"].strip()
                 if json_schema:
@@ -150,8 +150,17 @@ class AntigravityProvider:
                     except Exception:
                         m = re.search(r"\{.*\}", resp_str, re.DOTALL)
                         if m:
-                            return json.loads(m.group(0))
-                return resp_str
+                            try:
+                                return json.loads(m.group(0))
+                            except Exception:
+                                pass
+                elif not payload.get("status") or payload.get("status") == "SUCCESS":
+                    return resp_str
+
+            # 3) 구조화된 결과나 유효 응답이 없고 status가 에러인 경우 예외 발생
+            status = payload.get("status")
+            if status and status != "SUCCESS":
+                raise RuntimeError(f"agy CLI returned status={status}: {payload}")
 
         return payload
 

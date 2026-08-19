@@ -104,6 +104,45 @@ def test_extract_structured_success(mock_run):
 
 
 @patch("subprocess.run")
+def test_extract_structured_success_despite_error_status(mock_run):
+    """agy 내부 툴 차단 등으로 status='ERROR'가 반환되어도 structured_output이 있으면 성공."""
+    payload = {
+        "status": "ERROR",
+        "error": "permission check failed for read_file",
+        "structured_output": {
+            "summary": "한국어 요약입니다.",
+            "key_claims": ["주장1"],
+            "entities": [
+                {
+                    "name": "Antigravity",
+                    "type": "Tool",
+                    "aliases": ["agy"],
+                    "observations": ["CLI 도구"],
+                    "proposed_type": None,
+                }
+            ],
+            "relations": [],
+        },
+    }
+    mock_run.return_value = SimpleNamespace(
+        returncode=0,
+        stdout=json.dumps(payload),
+        stderr="",
+    )
+
+    s = _make_settings()
+    prov = AntigravityProvider(s)
+    doc = Document(id="doc1", title="AGY", raw_text="Antigravity is a tool.", source_type="text")
+
+    result = prov.extract(doc)
+    assert result.summary == "한국어 요약입니다."
+    assert len(result.entities) == 1
+    assert result.entities[0].name == "Antigravity"
+    # fallback으로 넘어가지 않고 1회 호출로 바로 성공
+    assert mock_run.call_count == 1
+
+
+@patch("subprocess.run")
 def test_extract_fallback_when_structured_fails(mock_run):
     fallback_json = json.dumps({
         "summary": "폴백 요약",
