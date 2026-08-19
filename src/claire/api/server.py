@@ -13,6 +13,7 @@ import logging
 import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any
 
 from starlette.applications import Starlette
@@ -47,6 +48,10 @@ from .security import (
 log = logging.getLogger("claire.api")
 _IMAGE_PATH_RE = re.compile(
     r"^images/[A-Za-z0-9_.-]+\.(?:jpg|jpeg|png|webp|gif)$"
+)
+_STATIC_ICONS_DIR = Path(__file__).resolve().parent.parent / "static" / "icons"
+_ICON_FILENAME_RE = re.compile(
+    r"^[A-Za-z0-9_.-]+\.(?:png|svg|ico|json|xml|webmanifest)$"
 )
 _MAX_SEARCH_QUERY_LENGTH = 2000
 _MAX_SEARCH_RESULTS = 50
@@ -301,6 +306,56 @@ def create_app(
         from ..graphview import GRAPH_HTML
 
         return HTMLResponse(GRAPH_HTML)
+
+    async def favicon_ico_route(_request: Request) -> Response:
+        path = _STATIC_ICONS_DIR / "favicon.ico"
+        if not path.is_file():
+            return PlainTextResponse("Not Found", status_code=404)
+        return FileResponse(path, media_type="image/x-icon")
+
+    async def favicon_svg_route(_request: Request) -> Response:
+        path = _STATIC_ICONS_DIR / "favicon.svg"
+        if not path.is_file():
+            return PlainTextResponse("Not Found", status_code=404)
+        return FileResponse(path, media_type="image/svg+xml")
+
+    async def apple_touch_route(_request: Request) -> Response:
+        path = _STATIC_ICONS_DIR / "apple-touch-icon.png"
+        if not path.is_file():
+            return PlainTextResponse("Not Found", status_code=404)
+        return FileResponse(path, media_type="image/png")
+
+    async def manifest_route(_request: Request) -> Response:
+        path = _STATIC_ICONS_DIR / "manifest.json"
+        if not path.is_file():
+            return PlainTextResponse("Not Found", status_code=404)
+        return FileResponse(path, media_type="application/manifest+json")
+
+    async def browserconfig_route(_request: Request) -> Response:
+        path = _STATIC_ICONS_DIR / "browserconfig.xml"
+        if not path.is_file():
+            return PlainTextResponse("Not Found", status_code=404)
+        return FileResponse(path, media_type="application/xml")
+
+    async def icon_file_route(request: Request) -> Response:
+        rel = request.query_params.get("p", "") or request.query_params.get("name", "")
+        if not _ICON_FILENAME_RE.fullmatch(rel):
+            return PlainTextResponse("Not Found", status_code=404)
+        path = _STATIC_ICONS_DIR / rel
+        if not path.is_file():
+            return PlainTextResponse("Not Found", status_code=404)
+        media_type = None
+        if rel.endswith(".png"):
+            media_type = "image/png"
+        elif rel.endswith(".svg"):
+            media_type = "image/svg+xml"
+        elif rel.endswith(".ico"):
+            media_type = "image/x-icon"
+        elif rel.endswith(".json") or rel.endswith(".webmanifest"):
+            media_type = "application/manifest+json"
+        elif rel.endswith(".xml"):
+            media_type = "application/xml"
+        return FileResponse(path, media_type=media_type)
 
     async def image_route(request: Request) -> Response:
         rel = request.query_params.get("p", "")
@@ -733,6 +788,14 @@ def create_app(
 
     routes = [
         Route("/health", health, methods=["GET"]),
+        Route("/favicon.ico", favicon_ico_route, methods=["GET"]),
+        Route("/favicon.svg", favicon_svg_route, methods=["GET"]),
+        Route("/apple-touch-icon.png", apple_touch_route, methods=["GET"]),
+        Route("/apple-touch-icon-precomposed.png", apple_touch_route, methods=["GET"]),
+        Route("/manifest.json", manifest_route, methods=["GET"]),
+        Route("/site.webmanifest", manifest_route, methods=["GET"]),
+        Route("/browserconfig.xml", browserconfig_route, methods=["GET"]),
+        Route("/icon", icon_file_route, methods=["GET"]),
         Route("/whoami", whoami, methods=["GET"]),
         Route("/stats", stats, methods=["GET"]),
         Route("/ingest", do_ingest, methods=["POST"]),
