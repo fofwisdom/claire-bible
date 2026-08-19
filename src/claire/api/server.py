@@ -303,9 +303,9 @@ def create_app(
         return JSONResponse(await asyncio.to_thread(_graph))
 
     async def graph_ui(_request: Request) -> HTMLResponse:
-        from ..graphview import GRAPH_HTML
+        from ..graphview import render_graph_html
 
-        return HTMLResponse(GRAPH_HTML)
+        return HTMLResponse(render_graph_html(s))
 
     async def favicon_ico_route(_request: Request) -> Response:
         path = _STATIC_ICONS_DIR / "favicon.ico"

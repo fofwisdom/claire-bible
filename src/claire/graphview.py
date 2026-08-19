@@ -617,7 +617,7 @@ GRAPH_HTML = """<!doctype html>
 </style></head>
 <body class="ro" data-auth-scope="unknown" data-active-pane="docs">
 <header id="bar">
-  <span class="brand" style="display:inline-flex;align-items:center;gap:6px"><img src="/favicon.svg" width="20" height="20" alt="" aria-hidden="true" style="display:inline-block;vertical-align:middle;filter:drop-shadow(0 0 4px rgba(0,255,170,0.5))"/>Claire Bible</span>
+  <a class="brand" id="brandlink" href="__SOURCE_BASE_URL__" target="_blank" rel="noopener noreferrer" title="__GITHUB_REPOSITORY__ (GitHub)" style="display:inline-flex;align-items:center;gap:6px;text-decoration:none;color:inherit"><img src="/favicon.svg" width="20" height="20" alt="" aria-hidden="true" style="display:inline-block;vertical-align:middle;filter:drop-shadow(0 0 4px rgba(0,255,170,0.5))"/>Claire Bible</a>
   <div id="barsearch">
     <label class="sr-only" for="q">그래프 검색</label>
     <input id="q" placeholder="검색" oninput="onSearchInput(this.value)"/>
@@ -636,6 +636,7 @@ GRAPH_HTML = """<!doctype html>
     <label>연결 ≥ <b id="fmin">0</b> <input id="fslider" type="range" min="0" max="0" value="0" oninput="setDeg(this.value)"/></label>
     <span class="spacer"></span>
     <button id="themebtn" title="라이트/다크 전환" aria-label="라이트/다크 전환" onclick="toggleTheme()">🌙</button>
+    <a id="repolink" class="sec" href="__SOURCE_BASE_URL__" target="_blank" rel="noopener noreferrer" title="소스 리포지토리 (__GITHUB_REPOSITORY__)" style="display:inline-flex;align-items:center;gap:4px;text-decoration:none;padding:3px 8px;border:1px solid var(--border);border-radius:4px;font-size:12px;color:var(--sec-fg);background:var(--sec-bg)">🐙 GitHub</a>
     <span id="authstate">⏳ 권한 확인 중</span>
     <span id="stat" role="status" aria-live="polite">로딩…</span>
   </div>
@@ -2242,6 +2243,8 @@ window.claireDebug = {
   get toolsOpen(){ return document.getElementById('bar').classList.contains('tools-open'); },
   get readerOpen(){ return document.getElementById('reader').classList.contains('open'); },
   get stabilized(){ return graphStabilized; },
+  get sourceBaseUrl(){ return '__SOURCE_BASE_URL__'; },
+  get githubRepository(){ return '__GITHUB_REPOSITORY__'; },
 };
 </script></body></html>
 """
@@ -2340,3 +2343,30 @@ def shared_html(doc: dict) -> str:
     data = data.replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
     title = (doc.get("title") or "공유 문서").replace("<", "").replace(">", "")
     return _SHARED_HTML.replace("__DATA__", data).replace("__TITLE__", title)
+
+
+def render_graph_html(settings: Any = None) -> str:
+    """Settings 의 저장소 변수를 반영하여 완성된 그래프 HTML 을 반환한다."""
+    if settings is None:
+        from .config import get_settings
+
+        s = get_settings()
+    else:
+        s = settings
+    repo = getattr(
+        s,
+        "effective_github_repository",
+        getattr(s, "github_repository", "fofwisdom/claire-bible"),
+    )
+    base_url = getattr(
+        s,
+        "effective_source_base_url",
+        getattr(s, "source_base_url", f"https://github.com/{repo}"),
+    )
+    if not base_url:
+        base_url = f"https://github.com/{repo}"
+    return (
+        GRAPH_HTML.replace("__SOURCE_BASE_URL__", base_url)
+        .replace("__GITHUB_REPOSITORY__", repo)
+    )
+

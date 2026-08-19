@@ -27,6 +27,7 @@ def build_status_text(settings: Settings, *, full: bool = True) -> str:
 
     # 운영
     lines.append("[운영]")
+    lines.append(f"  repo     : {s.effective_github_repository} ({s.effective_source_base_url})")
     if s.effective_provider == "antigravity":
         lines.append(f"  provider : {s.effective_provider} "
                      f"(model={s.agy_model}, effort={s.agy_effort})")

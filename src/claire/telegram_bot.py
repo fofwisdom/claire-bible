@@ -150,6 +150,7 @@ def run_bot() -> int:
 
     HELP = (
         "📚 Claire Bible — 개인 지식베이스 봇\n"
+        f"  (리포지토리: {s.effective_source_base_url})\n"
         "\n"
         "그냥 보내면 적재됩니다:\n"
         "  • 링크(웹/유튜브/x.com/google share)\n"
@@ -162,6 +163,7 @@ def run_bot() -> int:
         "  /search <키워드> — 하이브리드 검색 + 요약(인용)\n"
         "  /web — 1회용 웹 로그인 링크 발급(로그인 쿠키 7일, 적재/수정 가능)\n"
         "  /webro — 읽기전용 웹 링크 발급(그래프·검색·문서만, 공유해도 안전)\n"
+        "  /repo — 소스 리포지토리 접근 링크\n"
         "  /status — 현황(그래프 규모·수렴·최근 수신)\n"
         "  /failed — 실패/영구실패 항목 점검\n"
         "  /retry <번호> — 특정 실패 항목 재시도\n"
@@ -381,6 +383,15 @@ def run_bot() -> int:
             text = f"❌ status 오류: {e}"
         await update.message.reply_text(text)
 
+    async def on_repo(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        if not _is_allowed(update.effective_user.id if update.effective_user else None):
+            return
+        await update.message.reply_text(
+            f"🐙 Claire Bible 소스 리포지토리:\n{s.effective_source_base_url}\n"
+            f"(저장소: {s.effective_github_repository})",
+            disable_web_page_preview=False,
+        )
+
     async def on_failed(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
         # SSH 없이 폰에서 점검 가능하게: error/영구실패 목록 + /retry 사용법.
         if not _is_allowed(update.effective_user.id if update.effective_user else None):
@@ -423,6 +434,7 @@ def run_bot() -> int:
     app.add_handler(CommandHandler("start", on_start))
     app.add_handler(CommandHandler("help", on_help))
     app.add_handler(CommandHandler("status", on_status))
+    app.add_handler(CommandHandler("repo", on_repo))
     app.add_handler(CommandHandler("search", on_search))
     app.add_handler(CommandHandler("web", on_web))
     app.add_handler(CommandHandler("webro", on_webro))
@@ -439,6 +451,7 @@ def run_bot() -> int:
         await application.bot.set_my_commands([
             BotCommand("help", "사용법"),
             BotCommand("status", "현황(그래프/수렴/최근)"),
+            BotCommand("repo", "소스 리포지토리 링크"),
             BotCommand("search", "검색 + 요약"),
             BotCommand("web", "웹 접속 링크 발급"),
             BotCommand("webro", "읽기전용 웹 링크 발급"),

@@ -180,6 +180,16 @@ class Settings(BaseSettings):
         default="", alias="CLAIRE_CORS_ALLOWED_ORIGINS"
     )
 
+    # --- source repository ---
+    github_repository: str = Field(
+        default="fofwisdom/claire-bible",
+        alias="GITHUB_REPOSITORY",
+    )
+    source_base_url: str = Field(
+        default="",
+        alias="SOURCE_BASE_URL",
+    )
+
     @field_validator("anonymous_readonly", mode="before")
     @classmethod
     def _parse_anonymous_readonly(cls, value: object) -> bool:
@@ -192,6 +202,19 @@ class Settings(BaseSettings):
         if value == "1":
             return True
         raise ValueError("CLAIRE_ANONYMOUS_READONLY must be exactly 0 or 1")
+
+    @property
+    def effective_github_repository(self) -> str:
+        return self.github_repository.strip() or "fofwisdom/claire-bible"
+
+    @property
+    def effective_source_base_url(self) -> str:
+        repo = self.effective_github_repository
+        raw_url = self.source_base_url.strip()
+        if not raw_url:
+            return f"https://github.com/{repo}"
+        url = raw_url.replace("$GITHUB_REPOSITORY", repo).replace("${GITHUB_REPOSITORY}", repo)
+        return url.rstrip("/")
 
     @property
     def effective_provider(self) -> str:

@@ -93,3 +93,44 @@ def test_anonymous_readonly_rejects_normalized_dotenv_syntax(
 
     with pytest.raises(ValueError, match="without quotes or outer whitespace"):
         Settings(_env_file=env_file)
+
+
+def test_github_repository_and_source_base_url_defaults(monkeypatch):
+    monkeypatch.delenv("GITHUB_REPOSITORY", raising=False)
+    monkeypatch.delenv("SOURCE_BASE_URL", raising=False)
+
+    settings = Settings(_env_file=None)
+
+    assert settings.github_repository == "fofwisdom/claire-bible"
+    assert settings.effective_github_repository == "fofwisdom/claire-bible"
+    assert settings.effective_source_base_url == "https://github.com/fofwisdom/claire-bible"
+
+
+def test_github_repository_custom_affects_default_source_base_url(monkeypatch):
+    monkeypatch.setenv("GITHUB_REPOSITORY", "custom-org/custom-repo")
+    monkeypatch.delenv("SOURCE_BASE_URL", raising=False)
+
+    settings = Settings(_env_file=None)
+
+    assert settings.github_repository == "custom-org/custom-repo"
+    assert settings.effective_github_repository == "custom-org/custom-repo"
+    assert settings.effective_source_base_url == "https://github.com/custom-org/custom-repo"
+
+
+def test_source_base_url_variable_expansion(monkeypatch):
+    monkeypatch.setenv("GITHUB_REPOSITORY", "myorg/myrepo")
+    monkeypatch.setenv("SOURCE_BASE_URL", "https://github.com/$GITHUB_REPOSITORY/")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.effective_source_base_url == "https://github.com/myorg/myrepo"
+
+
+def test_source_base_url_custom_explicit_override(monkeypatch):
+    monkeypatch.setenv("GITHUB_REPOSITORY", "myorg/myrepo")
+    monkeypatch.setenv("SOURCE_BASE_URL", "https://gitlab.com/custom/source")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.effective_source_base_url == "https://gitlab.com/custom/source"
+

@@ -23,6 +23,8 @@ def cmd_doctor(_args) -> int:  # noqa: ANN001
     print("claire doctor")
     print("=" * 40)
     print(f"python            : {sys.version.split()[0]}")
+    print(f"github repository : {s.effective_github_repository}")
+    print(f"source base url   : {s.effective_source_base_url}")
     print(f"provider (config) : {s.provider}")
     print(f"provider (eff*)   : {s.effective_provider}")
     print(f"  gemini key set  : {'yes' if s.gemini_api_key else 'NO (-> mock)'}")
@@ -95,6 +97,14 @@ def cmd_status(_args) -> int:  # noqa: ANN001
     from .status import build_status_text
 
     print(build_status_text(get_settings(), full=True))
+    return 0
+
+
+def cmd_repo(_args) -> int:  # noqa: ANN001
+    """소스 리포지토리 정보와 접근 URL 출력."""
+    s = get_settings()
+    print(f"Repository : {s.effective_github_repository}")
+    print(f"Source URL : {s.effective_source_base_url}")
     return 0
 
 
@@ -606,6 +616,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="initialize/upgrade DB schema once and verify schema_version",
     ).set_defaults(func=cmd_migrate)
     sub.add_parser("status", help="full status: ops / db / progress / connections").set_defaults(func=cmd_status)
+    sub.add_parser("repo", help="print source repository information and URL").set_defaults(func=cmd_repo)
     sub.add_parser("stats", help="graph counts only").set_defaults(func=cmd_stats)
     sub.add_parser("bot", help="run telegram bot (long-polling)").set_defaults(func=cmd_bot)
     sub.add_parser(

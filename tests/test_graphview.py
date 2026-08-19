@@ -9,6 +9,7 @@ from claire.graphview import (
     documents_list,
     graph_json,
     node_detail,
+    render_graph_html,
     shared_html,
     synthesis_context,
     synthesize,
@@ -338,3 +339,29 @@ def test_synthesize_routes_context_through_provider():
 def test_synthesize_empty_selection():
     assert "error" in synthesize(_db(), MockProvider(), [])
     assert "error" in synthesize(_db(), MockProvider(), ["ghost"])
+
+
+def test_render_graph_html_default():
+    html = render_graph_html()
+    assert "https://github.com/fofwisdom/claire-bible" in html
+    assert "fofwisdom/claire-bible" in html
+    assert 'id="brandlink"' in html
+    assert 'id="repolink"' in html
+    assert "get sourceBaseUrl(){ return 'https://github.com/fofwisdom/claire-bible'; }" in html
+    assert "get githubRepository(){ return 'fofwisdom/claire-bible'; }" in html
+
+
+def test_render_graph_html_custom_settings():
+    from claire.config import Settings
+
+    settings = Settings(
+        GITHUB_REPOSITORY="custom-team/my-kb",
+        SOURCE_BASE_URL="https://custom.git/custom-team/my-kb",
+        _env_file=None,
+    )
+    html = render_graph_html(settings)
+    assert 'href="https://custom.git/custom-team/my-kb"' in html
+    assert 'title="custom-team/my-kb (GitHub)"' in html or 'custom-team/my-kb' in html
+    assert "get sourceBaseUrl(){ return 'https://custom.git/custom-team/my-kb'; }" in html
+    assert "get githubRepository(){ return 'custom-team/my-kb'; }" in html
+
