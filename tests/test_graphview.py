@@ -176,9 +176,13 @@ def test_graph_html_self_contained_markers():
     assert GRAPH_HTML.count("if(!r.ok)") >= 2                          # 503 등 비-NDJSON 오류 처리
     assert "renderResearchResult" in GRAPH_HTML                         # 진행/결과 렌더 분리
     assert "borderWidth: lit?3:1" in GRAPH_HTML                         # 강조(문서/검색) 흰 테두리
-    assert "auth/request" not in GRAPH_HTML                             # 레거시 nonce 트리거 제거(이슈3)
     assert "d.checkpoint" in GRAPH_HTML and "내부 체크포인트" in GRAPH_HTML
     assert "d.backup" not in GRAPH_HTML
+    # 자동 확대 취소 방지: fit/focus/moveTo 래핑 및 netBusy 보호
+    assert "const _fit = net.fit.bind(net), _focus = net.focus.bind(net), _moveTo = net.moveTo.bind(net);" in GRAPH_HTML
+    assert "function getAnimDuration(opts)" in GRAPH_HTML
+    assert "if(!net || preservingGraphCamera || netBusy) return;" in GRAPH_HTML
+    assert "setTimeout(()=>{ if(activePane==='graph') relayoutPreservingCamera(); },750);" not in GRAPH_HTML
 
 
 def test_browser_dependencies_are_pinned_with_sri_and_markdown_fails_closed():

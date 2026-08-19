@@ -1068,16 +1068,25 @@ const paneTabs={
 const detailPane=document.getElementById('detailpane');
 function graphAnimation(value=true){ return reducedMotionMQ.matches ? false : value; }
 function rememberGraphCamera(){
-  if(!net || preservingGraphCamera) return;
+  if(!net || preservingGraphCamera || netBusy) return;
   graphCamera={position:net.getViewPosition(),scale:net.getScale()};
 }
 function relayoutPreservingCamera(){
-  if(!net) return;
-  const saved=graphCamera || {position:net.getViewPosition(),scale:net.getScale()};
+  if(!net || netBusy) return;
+  const el=document.getElementById('net');
+  if(!el) return;
+  const r=el.getBoundingClientRect();
+  if(r.width<=0 || r.height<=0) return;
+  const sizeChanged = Math.abs(r.width-lastNetSize.w)>=1 || Math.abs(r.height-lastNetSize.h)>=1;
+  if(!sizeChanged && graphCamera) return;
+  const saved=graphCamera;
   preservingGraphCamera=true;
-  lastNetSize={w:0,h:0}; relayout();
-  net.moveTo({position:saved.position,scale:saved.scale,animation:false});
-  preservingGraphCamera=false; rememberGraphCamera();
+  relayout();
+  if(saved){
+    net.moveTo({position:saved.position,scale:saved.scale,animation:false});
+  }
+  preservingGraphCamera=false;
+  rememberGraphCamera();
 }
 function syncWorkspaceLayout(){
   document.body.dataset.activePane=activePane;
@@ -1103,12 +1112,11 @@ function syncWorkspaceLayout(){
   }
   if(activePane==='graph'){
     requestAnimationFrame(()=>{ relayoutPreservingCamera(); applyTouchMode(); });
-    setTimeout(()=>{ if(activePane==='graph') relayoutPreservingCamera(); },750);
   }
 }
 function revealWorkspace(name, focusTab=false){
   if(!paneNames.includes(name)) return;
-  if(activePane==='graph') rememberGraphCamera();
+  if(activePane==='graph' && !netBusy) rememberGraphCamera();
   activePane=name;
   detailOpen=false;
   detailReturnFocus=null;
@@ -1360,17 +1368,40 @@ fetch('graph').then(r=>r.json()).then(d=>{
   // true 로 굳어 relayout 이 죽는 더 나쁜 회귀가 됨 → 항상 풀리는 타임아웃을 안전망으로 병행.
   let busyTimer = null;
   function markBusy(ms){ netBusy = true; clearTimeout(busyTimer); busyTimer = setTimeout(()=>{netBusy=false;}, ms); }
+  function getAnimDuration(opts){
+    if(!opts || !opts.animation) return 0;
+    if(typeof opts.animation==='object' && typeof opts.animation.duration==='number') return opts.animation.duration;
+    return 1000;
+  }
   net.on('dragStart', () => { netBusy = true; });
   net.on('dragEnd', () => { netBusy = false; rememberGraphCamera(); });
   net.on('animationFinished', () => {
-    netBusy = false; clearTimeout(busyTimer); rememberGraphCamera();
+    netBusy = false;
+    clearTimeout(busyTimer);
+    const show=net.getScale()>=1.45;
+    if(show!==edgeLabelsByZoom){ edgeLabelsByZoom=show; applyView(); }
+    rememberGraphCamera();
   });
   net.on('stabilized', ()=>{
-    graphStabilized=true; rememberGraphCamera();
+    graphStabilized=true;
+    if(!netBusy) rememberGraphCamera();
   });
-  const _fit = net.fit.bind(net), _moveTo = net.moveTo.bind(net);
-  net.fit = (opts) => { markBusy(700); return _fit(opts); };
-  net.moveTo = (opts) => { if(opts && opts.animation) markBusy(700); return _moveTo(opts); };
+  const _fit = net.fit.bind(net), _focus = net.focus.bind(net), _moveTo = net.moveTo.bind(net);
+  net.fit = (opts) => {
+    const dur = getAnimDuration(opts);
+    if(dur > 0) markBusy(dur + 350);
+    return _fit(opts);
+  };
+  net.focus = (id, opts) => {
+    const dur = getAnimDuration(opts);
+    if(dur > 0) markBusy(dur + 350);
+    return _focus(id, opts);
+  };
+  net.moveTo = (opts) => {
+    const dur = getAnimDuration(opts);
+    if(dur > 0) markBusy(dur + 350);
+    return _moveTo(opts);
+  };
   net.on('click', p => {
     if(!p.nodes.length){
       // 빈 캔버스 클릭: inspect 만 해제하고 검색(라벨/의미) 강조 선택은 유지(이슈4).
@@ -1395,9 +1426,11 @@ fetch('graph').then(r=>r.json()).then(d=>{
   net.on('deselectEdge', ()=>{ selectedEdgeIds.clear(); applyView(); });
   net.on('zoom', ()=>{
     hideNodePop();
-    const show=net.getScale()>=1.45;
-    if(show!==edgeLabelsByZoom){ edgeLabelsByZoom=show; applyView(); }
-    rememberGraphCamera();
+    if(!netBusy){
+      const show=net.getScale()>=1.45;
+      if(show!==edgeLabelsByZoom){ edgeLabelsByZoom=show; applyView(); }
+      rememberGraphCamera();
+    }
   });
   applyView();
 });
@@ -1970,6 +2003,7 @@ function setActiveDoc(id){
     }});
     loadDocPanel(activeDoc);    // wide rail/후속 문맥 작업을 위해 내용만 준비
   } else {
+    resetGraphCamera();
     panel.innerHTML = defaultHint();             // 해제 시 기본 힌트로 복원
   }
 }
