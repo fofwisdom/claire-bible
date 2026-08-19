@@ -39,7 +39,8 @@ CREATE TABLE IF NOT EXISTS documents (
     meta TEXT,
     minhash TEXT,
     detail TEXT,
-    detail_format TEXT DEFAULT 'md'
+    detail_format TEXT DEFAULT 'md',
+    detail_html TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_documents_hash ON documents(content_hash);
 CREATE INDEX IF NOT EXISTS idx_documents_canon ON documents(canonical_url);
@@ -334,6 +335,8 @@ def _migrate(conn: sqlite3.Connection) -> None:
     _ensure_column(conn, "auth_sessions", "scope", "TEXT DEFAULT 'owner'")
     # v10: 문서 detail 가독 렌더링 포맷 (md: 마크다운, adoc: AsciiDoc). 기본값 'md'.
     _ensure_column(conn, "documents", "detail_format", "TEXT DEFAULT 'md'")
+    # v11: 문서 AOT 사전 컴파일된 HTML (Antora 스타일 사전 렌더링).
+    _ensure_column(conn, "documents", "detail_html", "TEXT")
 
 
 def stored_schema_version(conn: sqlite3.Connection) -> int | None:
@@ -1204,17 +1207,31 @@ def set_document_detail(
     document_id: str,
     detail: str,
     format: str = "md",
+    html: str | None = None,
 ) -> None:
-    """문서의 한국어 가독 렌더링(detail)과 포맷(detail_format)을 저장(in-place). 그래프와 독립."""
+    """문서의 한국어 가독 렌더링(detail), 포맷(detail_format), 사전 컴파일 HTML(detail_html)을 저장."""
+    fmt = (format or "md").strip().lower()
+    if fmt in ("asciidoc", "adoc"):
+        fmt = "adoc"
+    else:
+        fmt = "md"
+
+    if html is None and detail and detail.strip():
+        from ..render import render_to_html
+
+        html_content = render_to_html(detail, format=fmt)
+    else:
+        html_content = html or ""
+
     conn.execute(
-        "UPDATE documents SET detail=?, detail_format=? WHERE id=?",
-        (detail, format or "md", document_id),
+        "UPDATE documents SET detail=?, detail_format=?, detail_html=? WHERE id=?",
+        (detail, fmt, html_content, document_id),
     )
     conn.commit()
 
 
 def get_document_detail(conn: sqlite3.Connection, document_id: str) -> str | None:
-    """문서의 detail(한국어 가독 렌더링). 없으면 None."""
+    """문서의 detail(한국어 가독 렌더링 원본 텍스트). 없으면 None."""
     row = conn.execute(
         "SELECT detail FROM documents WHERE id=?", (document_id,)).fetchone()
     return (row["detail"] if row else None) or None
@@ -1225,6 +1242,34 @@ def get_document_detail_format(conn: sqlite3.Connection, document_id: str) -> st
     row = conn.execute(
         "SELECT detail_format FROM documents WHERE id=?", (document_id,)).fetchone()
     return (row["detail_format"] if row and row["detail_format"] else "md")
+
+
+def get_document_detail_html(conn: sqlite3.Connection, document_id: str) -> str | None:
+    """문서의 detail_html(AOT 사전 컴파일된 HTML). 없으면 detail 로부터 실시간 생성 및 캐싱."""
+    row = conn.execute(
+        "SELECT detail, detail_format, detail_html FROM documents WHERE id=?",
+        (document_id,),
+    ).fetchone()
+    if not row:
+        return None
+    if row["detail_html"]:
+        return row["detail_html"]
+    if row["detail"] and row["detail"].strip():
+        from ..render import render_to_html
+
+        fmt = row["detail_format"] or "md"
+        rendered = render_to_html(row["detail"], format=fmt)
+        if rendered:
+            try:
+                conn.execute(
+                    "UPDATE documents SET detail_html=? WHERE id=?",
+                    (rendered, document_id),
+                )
+                conn.commit()
+            except Exception:  # noqa: BLE001
+                pass
+            return rendered
+    return None
 
 
 def documents_missing_detail(conn: sqlite3.Connection, limit: int = 0) -> list[str]:

@@ -18,6 +18,7 @@ from claire.extract.provider import MockProvider
 from claire.graphview import document_detail, node_detail, shared_html, GRAPH_HTML
 from claire.ingest.pipeline import ensure_document_detail, IngestReport
 from claire.ontology.base import Document
+from claire.render import render_adoc_to_html, render_md_to_html, render_to_html
 from claire.store import db as dbm
 
 
@@ -36,8 +37,68 @@ def test_config_render_format_validation():
         Settings(render_format="html")
 
 
+def test_aot_render_adoc():
+    """render_adoc_to_html 이 AsciiDoc 문법 전체를 올바른 시맨틱 HTML 로 AOT 변환하는지 검증."""
+    sample = """
+== 섹션 제목
+*굵은 글씨* 및 _기울임_ 및 #형광 하이라이트# 및 `인라인 코드`
+https://example.com[링크 텍스트]
+
+[quote, 댄 앨런, 안토라 리드]
+____
+AOT 사전 렌더링으로 브라우저 eval을 완전히 제거합니다.
+____
+
+[NOTE]
+====
+중요한 노트 알림 상자입니다.
+====
+
+[source,python]
+----
+def greet(name):  # <1>
+    return f"Hello {name}"
+----
+<1> 인사말 반환 함수
+
+|===
+|기능 |AOT |JIT
+|Eval 불필요 |O |X
+|===
+
+image::https://example.com/diagram.png[구조도, title="AOT 파이프라인"]
+"""
+    html_out = render_adoc_to_html(sample)
+    assert "<h2>섹션 제목</h2>" in html_out
+    assert "<strong>굵은 글씨</strong>" in html_out
+    assert "<em>기울임</em>" in html_out
+    assert "<mark>형광 하이라이트</mark>" in html_out
+    assert "<code>인라인 코드</code>" in html_out
+    assert '<a href="https://example.com" target="_blank" rel="noopener">링크 텍스트</a>' in html_out
+    assert '<div class="quoteblock"><blockquote><p>AOT 사전 렌더링으로 브라우저 eval을 완전히 제거합니다.</p></blockquote><div class="attribution">댄 앨런 — 안토라 리드</div></div>' in html_out
+    assert '<div class="admonitionblock note"><div class="title">NOTE</div><div class="content"><p>중요한 노트 알림 상자입니다.</p></div></div>' in html_out
+    assert '<pre><code class=" language-python">' in html_out or '<pre><code class="language-python">' in html_out
+    assert '<span class="conum">&lt;1&gt;</span>' in html_out
+    assert '<div class="colist"><span class="conum">&lt;1&gt;</span> 인사말 반환 함수</div>' in html_out
+    assert "<table><thead><tr><th>기능</th><th>AOT</th><th>JIT</th></tr></thead>" in html_out
+    assert '<div class="imageblock"><img src="https://example.com/diagram.png" alt="구조도"><div class="title">AOT 파이프라인</div></div>' in html_out
+
+
+def test_aot_render_md():
+    """render_md_to_html 이 마크다운과 ==형광== 문법을 올바른 HTML 로 AOT 변환하는지 검증."""
+    sample = """## 마크다운 제목
+일반 텍스트 및 ==형광 텍스트== 입니다.
+
+> 인용 블록
+"""
+    html_out = render_md_to_html(sample)
+    assert "<h2" in html_out and "마크다운 제목" in html_out
+    assert "<mark>형광 텍스트</mark>" in html_out
+    assert "<blockquote>" in html_out
+
+
 def test_db_detail_format_storage_and_migration():
-    """DB documents 테이블에 detail_format 컬럼이 정상 저장/조회되고 마이그레이션되는지 검증."""
+    """DB documents 테이블에 detail_format 및 detail_html 컬럼이 정상 저장/조회되고 마이그레이션되는지 검증."""
     conn = sqlite3.connect(":memory:")
     conn.row_factory = sqlite3.Row
     dbm.init_db(conn)
@@ -51,18 +112,26 @@ def test_db_detail_format_storage_and_migration():
 
     # 기본 detail_format 조회 -> 'md'
     assert dbm.get_document_detail_format(conn, doc_id) == "md"
+    assert dbm.get_document_detail_html(conn, doc_id) is None
 
-    # adoc 포맷으로 detail 저장
+    # adoc 포맷으로 detail 저장 (html 인자 없이 자동 AOT 렌더링)
     adoc_detail = "[quote, 저자]\n____\n인용 본문\n____"
     dbm.set_document_detail(conn, doc_id, adoc_detail, format="adoc")
     assert dbm.get_document_detail(conn, doc_id) == adoc_detail
     assert dbm.get_document_detail_format(conn, doc_id) == "adoc"
+    adoc_html = dbm.get_document_detail_html(conn, doc_id)
+    assert adoc_html is not None
+    assert '<div class="quoteblock">' in adoc_html
+    assert "인용 본문" in adoc_html
 
     # md 포맷으로 갱신
-    md_detail = "> 인용 본문"
+    md_detail = "==형광== 본문"
     dbm.set_document_detail(conn, doc_id, md_detail, format="md")
     assert dbm.get_document_detail(conn, doc_id) == md_detail
     assert dbm.get_document_detail_format(conn, doc_id) == "md"
+    md_html = dbm.get_document_detail_html(conn, doc_id)
+    assert md_html is not None
+    assert "<mark>형광</mark>" in md_html
 
     conn.close()
 
@@ -105,7 +174,7 @@ def test_mock_provider_dual_format():
 
 
 def test_pipeline_ensure_document_detail_format():
-    """ensure_document_detail 이 전달된 format 또는 doc.meta/설정에 따라 생성하고 저장하는지 검증."""
+    """ensure_document_detail 이 전달된 format 에 따라 detail 과 detail_html 을 함께 생성·저장하는지 검증."""
     conn = sqlite3.connect(":memory:")
     conn.row_factory = sqlite3.Row
     dbm.init_db(conn)
@@ -127,6 +196,9 @@ def test_pipeline_ensure_document_detail_format():
     assert ok is True
     assert dbm.get_document_detail_format(conn, doc.id) == "adoc"
     assert "[mock-detail-adoc]" in dbm.get_document_detail(conn, doc.id)
+    adoc_html = dbm.get_document_detail_html(conn, doc.id)
+    assert adoc_html is not None
+    assert "mock-detail-adoc" in adoc_html
 
     # 2. force=False 일 때 이미 존재하므로 False
     assert ensure_document_detail(conn, prov, doc, force=False, format="adoc") is False
@@ -136,12 +208,15 @@ def test_pipeline_ensure_document_detail_format():
     assert ok is True
     assert dbm.get_document_detail_format(conn, doc.id) == "md"
     assert "[mock-detail]" in dbm.get_document_detail(conn, doc.id)
+    md_html = dbm.get_document_detail_html(conn, doc.id)
+    assert md_html is not None
+    assert "mock-detail" in md_html
 
     conn.close()
 
 
 def test_graphview_detail_format_and_html():
-    """graphview 의 document_detail, node_detail, HTML 렌더러가 detail_format 을 올바르게 포함하는지 검증."""
+    """graphview 의 document_detail, node_detail, HTML 템플릿이 detail_html 을 올바르게 포함하고 Asciidoctor CDN 을 배제하는지 검증."""
     conn = sqlite3.connect(":memory:")
     conn.row_factory = sqlite3.Row
     dbm.init_db(conn)
@@ -153,26 +228,30 @@ def test_graphview_detail_format_and_html():
     )
     dbm.set_document_detail(conn, doc_id, "[NOTE]\n====\n중요 노트\n====", format="adoc")
 
-    # document_detail API 결과 검증
+    # document_detail API 결과 검증 (detail_html 포함)
     dd = document_detail(conn, doc_id)
     assert dd is not None
     assert dd["detail_format"] == "adoc"
     assert "[NOTE]" in dd["detail"]
+    assert dd["detail_html"] is not None
+    assert '<div class="admonitionblock note">' in dd["detail_html"]
 
-    # shared_html 렌더링에 convertAsciidocToHtml 및 renderContent 함수 포함 검증
+    # shared_html 렌더링 검증
     s_html = shared_html(dd)
     assert "convertAsciidocToHtml" in s_html
     assert "renderContent" in s_html
     assert ".admonitionblock" in s_html
-    assert "asciidoctor" in s_html
+    # unpkg asciidoctor CDN 스크립트 제거 확인 (Zero-eval)
+    assert "unpkg.com/@asciidoctor/core" not in s_html
 
     # GRAPH_HTML 검증
     assert "convertAsciidocToHtml" in GRAPH_HTML
     assert "renderContent" in GRAPH_HTML
     assert ".admonitionblock" in GRAPH_HTML
     assert ".quoteblock" in GRAPH_HTML
-    assert "asciidoctor" in GRAPH_HTML
     assert "format-warn-banner" in GRAPH_HTML
+    # unpkg asciidoctor CDN 스크립트 제거 확인 (Zero-eval)
+    assert "unpkg.com/@asciidoctor/core" not in GRAPH_HTML
 
     conn.close()
 

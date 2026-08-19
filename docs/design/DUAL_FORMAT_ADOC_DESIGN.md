@@ -148,14 +148,14 @@ claire reextract --format adoc
 claire backfill-detail --format adoc --force
 ```
 
-### 6) Web UI 하이브리드 듀얼 렌더러 ([graphview.py](../../src/claire/graphview.py))
-- **공식 Asciidoctor.js CDN + 내장 경량 파서 하이브리드 파이프라인**:
-  - `Asciidoctor.js` 공식 엔진을 로드하여 표준 AsciiDoc 문법 전체(복합 블록, 다단 표, 복잡한 인용 및 속성 등)를 100% 완전하게 렌더링.
-  - CDN 지연이나 오프라인 환경에서도 내장 경량 파서(`convertAsciidocToHtml`)가 2차 방어선으로 graceful fallback.
-  - 최종 HTML 출력은 항상 `DOMPurify.sanitize()`를 거쳐 보안 살균.
-- `renderContent(src, format)` 함수를 통한 지능형 렌더링:
-  - `isAsciidoc(src, format)`을 통해 명시적 포맷 또는 ADOC 시그니처 감지.
-  - `getAsciidoctor()` $\rightarrow$ `convertAsciidocToHtml()` $\rightarrow$ `DOMPurify.sanitize()`의 3단계 안전 파이프라인.
+### 6) Antora 스타일 백엔드 AOT 렌더링 파이프라인 ([render/aot.py](../../src/claire/render/aot.py), [graphview.py](../../src/claire/graphview.py))
+- **Antora AOT(Ahead-of-Time) 사전 컴파일 모델 도입**:
+  - 클라이언트 브라우저가 Asciidoctor.js(~800KB+)를 CDN에서 다운로드하고 `unsafe-eval`로 파싱하던 기존 JIT 방식을 완전히 탈피.
+  - **백엔드 AOT 사전 컴파일**: 문서 적재(`ensure_document_detail`) 및 DB 저장(`set_document_detail`) 시점에 `claire.render.aot` 모듈이 AsciiDoc 및 Markdown을 시맨틱 HTML(`detail_html`)로 사전 컴파일하여 저장.
+  - **Zero-eval 엄격한 CSP 달성**: 브라우저에서 `unsafe-eval`을 유발하는 Asciidoctor.js CDN 스크립트와 `eval` 런타임 코드를 100% 제거하고 엄격한 `script-src 'self'` 준수.
+- **초고속 제로-런타임 서빙**:
+  - `document_detail()` API 및 `/p?s=token` 공유 페이지는 DB에 사전 컴파일된 `detail_html`을 반환하여 모달 오픈 시 지연 시간 0ms 달성.
+  - 최종 HTML 출력은 항상 `DOMPurify.sanitize()`를 거쳐 XSS 방어.
 - **CSS 테마 일치**:
   - Light/Dark 테마 변수(`--bg`, `--card-bg`, `--accent`, `--mark-bg` 등)와 100% 호환되는 Admonition Box, Quote Block, Callout Badge(`.conum`), Table 스타일 적용.
 - `#reader` 모달 및 `/p?s=token` 공유 페이지(`shared_html`) 모두에 동일 듀얼 렌더러 적용.
@@ -164,10 +164,13 @@ claire backfill-detail --format adoc --force
 
 ## 5. 검증 결과
 
-본 기능은 [tests/test_adoc_render.py](../../tests/test_adoc_render.py)를 통해 다음 6가지 핵심 항목을 검증 완료하였습니다:
+본 기능은 [tests/test_adoc_render.py](../../tests/test_adoc_render.py)를 통해 다음 8가지 핵심 항목을 검증 완료하였습니다:
 1. `test_config_render_format_validation`: 환경설정 유효성 및 소문자 정규화 검증.
-2. `test_db_detail_format_storage_and_migration`: DB 컬럼 마이그레이션, 저장 및 포맷 조회 검증.
-3. `test_prompts_dual_format`: MD/ADOC 모드별 프롬프트 분기 및 핵심 규칙 포함 검증.
-4. `test_mock_provider_dual_format`: MockProvider의 포맷별 stub 생성 검증.
-5. `test_pipeline_ensure_document_detail_format`: 파이프라인의 포맷 반영 및 DB 저장 검증.
-6. `test_graphview_detail_format_and_html`: Graphview API 응답의 `detail_format` 포함 및 HTML 템플릿의 Asciidoctor/CSS 포함 검증.
+2. `test_aot_render_adoc`: AOT 렌더러의 AsciiDoc 문법 전체(인용, 코드 콜아웃, Admonition, 표, 형광, 이미지 등) 시맨틱 HTML 컴파일 검증.
+3. `test_aot_render_md`: AOT 렌더러의 Markdown 및 `==형광==` 컴파일 검증.
+4. `test_db_detail_format_storage_and_migration`: DB 컬럼 마이그레이션, `detail_html` 저장 및 포맷 조회 검증.
+5. `test_prompts_dual_format`: MD/ADOC 모드별 프롬프트 분기 및 핵심 규칙 포함 검증.
+6. `test_mock_provider_dual_format`: MockProvider의 포맷별 stub 생성 검증.
+7. `test_pipeline_ensure_document_detail_format`: 파이프라인의 포맷 반영 및 `detail_html` DB 저장 검증.
+8. `test_graphview_detail_format_and_html`: Graphview API 응답의 `detail_html` 포함 및 HTML 템플릿의 Asciidoctor CDN 미포함(Zero-eval) 검증.
+

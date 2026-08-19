@@ -110,6 +110,7 @@ def node_detail(conn: sqlite3.Connection, entity_id: str, include_hidden: bool =
                 # 한국어 가독 렌더링(여러 단락) — 패널에서 '자세히 읽기'로 펼친다.
                 "detail": dbm.get_document_detail(conn, did) or "",
                 "detail_format": dbm.get_document_detail_format(conn, did),
+                "detail_html": dbm.get_document_detail_html(conn, did) or "",
                 # 원시 epoch(초) — MCP 등 API 소비자용.
                 "fetched_at": row["fetched_at"],
             })
@@ -141,6 +142,7 @@ def document_detail(conn: sqlite3.Connection, document_id: str, include_hidden: 
         "summary": dbm.latest_extraction_summary(conn, document_id) or "",
         "detail": dbm.get_document_detail(conn, document_id) or "",
         "detail_format": dbm.get_document_detail_format(conn, document_id),
+        "detail_html": dbm.get_document_detail_html(conn, document_id) or "",
         "hidden": bool(row["hidden"]),
         # [1홉 병합, ONEHOP_MERGE_DESIGN.md] 이 문서에 흡수된 부가 출처(예: GeekNews 글에
         # 병합된 그 프로젝트의 github). 원문 링크 계보를 UI 에서 추적 가능하게.
@@ -287,7 +289,6 @@ GRAPH_HTML = """<!doctype html>
 <meta name="theme-color" content="#0e1116"/>
 <script src="https://unpkg.com/vis-network@9.1.11/standalone/umd/vis-network.min.js" integrity="sha384-60H6/hL99pRYjWacRdebxM1T2R6jvWyd9GVAb7d4fp9BSfv4f0i5sWjkprnnG0cz" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/marked@4.3.0/marked.min.js" integrity="sha384-QsSpx6a0USazT7nK7w8qXDgpSAPhFsb2XtpoLFQ5+X2yFN6hvCKnwEzN8M5FWaJb" crossorigin="anonymous"></script>
-<script src="https://unpkg.com/@asciidoctor/core@2.2.8/dist/browser/asciidoctor.min.js" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/dompurify@3.1.6/dist/purify.min.js" integrity="sha384-+VfUPEb0PdtChMwmBcBmykRMDd+v6D/oFmB3rZM/puCMDYcIvF968OimRh4KQY9a" crossorigin="anonymous"></script>
 <script>
   // 깜빡임 방지: 페인트 전에 저장된 테마를 documentElement 에 적용. 기본값=light(사용자 요구).
@@ -1018,44 +1019,18 @@ function convertAsciidocToHtml(raw){
   return out.join(NL);
 }
 
-let _asciidoctorInstance = null;
-function getAsciidoctor(){
-  if(_asciidoctorInstance) return _asciidoctorInstance;
-  try{
-    if(typeof window.Asciidoctor === 'function'){
-      _asciidoctorInstance = window.Asciidoctor();
-      return _asciidoctorInstance;
-    }
-  }catch(_){}
-  return null;
-}
-
 function renderAsciidoc(src){
   if(!src) return '';
   const raw=String(src);
   const purifier=window.DOMPurify;
   try{
-    const adoc = getAsciidoctor();
-    let html = '';
-    if(adoc && typeof adoc.convert === 'function'){
-      html = adoc.convert(raw, {safe:'secure', attributes:{showtitle:true, icons:'font'}});
-    }else{
-      html = convertAsciidocToHtml(raw);
-    }
+    const html = convertAsciidocToHtml(raw);
     if(purifier && typeof purifier.sanitize==='function'){
       return purifier.sanitize(html,{ADD_ATTR:['target'],ADD_TAGS:['mark']});
     }
     return html;
   }catch(_){
-    try{
-      const fallbackHtml = convertAsciidocToHtml(raw);
-      if(purifier && typeof purifier.sanitize==='function'){
-        return purifier.sanitize(fallbackHtml,{ADD_ATTR:['target'],ADD_TAGS:['mark']});
-      }
-      return fallbackHtml;
-    }catch(__){
-      return renderMarkdown(raw);
-    }
+    return renderMarkdown(raw);
   }
 }
 
@@ -1179,8 +1154,14 @@ function renderReader(dc){
   if(dc.url) h+='<p class=docmeta><a href="'+esc(dc.url)+'" target=_blank rel=noopener>↗ 원문 열기</a></p>';
   h+=extraSourcesHtml(dc);
   if(dc.summary) h+='<div class=rsection>요약</div><div class="md">'+renderContent(dc.summary, dc.detail_format)+'</div>';
-  if(dc.detail) h+='<div class=rsection>자세히 읽기</div><div class="md">'+renderContent(dc.detail, dc.detail_format)+'</div>';
-  if(!dc.summary && !dc.detail) h+='<p class=hint>이 문서의 요약/전문이 아직 없습니다.</p>';
+  if(dc.detail_html){
+    const purifier=window.DOMPurify;
+    const cleanHtml=(purifier && typeof purifier.sanitize==='function')?purifier.sanitize(dc.detail_html,{ADD_ATTR:['target'],ADD_TAGS:['mark']}):dc.detail_html;
+    h+='<div class=rsection>자세히 읽기</div><div class="md">'+cleanHtml+'</div>';
+  }else if(dc.detail){
+    h+='<div class=rsection>자세히 읽기</div><div class="md">'+renderContent(dc.detail, dc.detail_format)+'</div>';
+  }
+  if(!dc.summary && !dc.detail && !dc.detail_html) h+='<p class=hint>이 문서의 요약/전문이 아직 없습니다.</p>';
   const body=document.getElementById('rbody'); body.innerHTML=h; body.scrollTop=0;
   document.getElementById('reader').setAttribute('aria-busy','false');
 }
@@ -2571,7 +2552,6 @@ _SHARED_HTML = """<!doctype html>
 <link rel="mask-icon" href="/favicon.svg" color="#00ffaa"/>
 <meta name="theme-color" content="#0e1116"/>
 <script src="https://unpkg.com/marked@4.3.0/marked.min.js" integrity="sha384-QsSpx6a0USazT7nK7w8qXDgpSAPhFsb2XtpoLFQ5+X2yFN6hvCKnwEzN8M5FWaJb" crossorigin="anonymous"></script>
-<script src="https://unpkg.com/@asciidoctor/core@2.2.8/dist/browser/asciidoctor.min.js" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/dompurify@3.1.6/dist/purify.min.js" integrity="sha384-+VfUPEb0PdtChMwmBcBmykRMDd+v6D/oFmB3rZM/puCMDYcIvF968OimRh4KQY9a" crossorigin="anonymous"></script>
 <style>
   :root{--bg:#ffffff;--fg:#1f2328;--muted:#656d76;--border:#d0d7de;--accent:#0969da;
@@ -2760,44 +2740,18 @@ function convertAsciidocToHtml(raw){
   return out.join(NL);
 }
 
-let _asciidoctorInstanceShared = null;
-function getAsciidoctorShared(){
-  if(_asciidoctorInstanceShared) return _asciidoctorInstanceShared;
-  try{
-    if(typeof window.Asciidoctor === 'function'){
-      _asciidoctorInstanceShared = window.Asciidoctor();
-      return _asciidoctorInstanceShared;
-    }
-  }catch(_){}
-  return null;
-}
-
 function renderAsciidoc(src){
   if(!src) return '';
   const raw=String(src);
   const purifier=window.DOMPurify;
   try{
-    const adoc = getAsciidoctorShared();
-    let html = '';
-    if(adoc && typeof adoc.convert === 'function'){
-      html = adoc.convert(raw, {safe:'secure', attributes:{showtitle:true, icons:'font'}});
-    }else{
-      html = convertAsciidocToHtml(raw);
-    }
+    const html = convertAsciidocToHtml(raw);
     if(purifier && typeof purifier.sanitize==='function'){
       return purifier.sanitize(html,{ADD_ATTR:['target'],ADD_TAGS:['mark']});
     }
     return html;
   }catch(_){
-    try{
-      const fallbackHtml = convertAsciidocToHtml(raw);
-      if(purifier && typeof purifier.sanitize==='function'){
-        return purifier.sanitize(fallbackHtml,{ADD_ATTR:['target'],ADD_TAGS:['mark']});
-      }
-      return fallbackHtml;
-    }catch(__){
-      return renderMarkdown(raw);
-    }
+    return renderMarkdown(raw);
   }
 }
 function isAsciidoc(src, format){
@@ -2828,8 +2782,14 @@ if((dc.extra_sources||[]).length){
       esc(s.title||s.url||'')+'</a></li>').join('')+'</ul>';
 }
 if(dc.summary){ h+='<div class=sec>요약</div><div class="md">'+renderContent(dc.summary, dc.detail_format)+'</div>'; }
-if(dc.detail){ h+='<div class=sec>자세히 읽기</div><div class="md">'+renderContent(dc.detail, dc.detail_format)+'</div>'; }
-if(!dc.summary && !dc.detail){ h+='<p class=meta>이 문서의 요약/전문이 아직 없습니다.</p>'; }
+if(dc.detail_html){
+  const purifier=window.DOMPurify;
+  const cleanHtml=(purifier && typeof purifier.sanitize==='function')?purifier.sanitize(dc.detail_html,{ADD_ATTR:['target'],ADD_TAGS:['mark']}):dc.detail_html;
+  h+='<div class=sec>자세히 읽기</div><div class="md">'+cleanHtml+'</div>';
+}else if(dc.detail){
+  h+='<div class=sec>자세히 읽기</div><div class="md">'+renderContent(dc.detail, dc.detail_format)+'</div>';
+}
+if(!dc.summary && !dc.detail && !dc.detail_html){ h+='<p class=meta>이 문서의 요약/전문이 아직 없습니다.</p>'; }
 h+='<div class=foot>이 링크는 이 문서 하나만 읽기 전용으로 공유합니다.</div>';
 document.getElementById('wrap').innerHTML=h;
 </script></body></html>
