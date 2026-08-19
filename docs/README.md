@@ -12,6 +12,7 @@ docs/
 ├── design/                 # [설계 내역] 아키텍처, 기능 설계, 시스템 설계, 기술 리서치
 │   ├── OPERATIONAL_MIGRATION.md # 운영 지원 업데이트 및 환경변수/DB 마이그레이션 설계
 │   ├── MULTI_PROVIDER_DESIGN.md # 멀티 프로바이더 및 하이퍼스케일러 캘리브레이션 아키텍처
+│   ├── EXPAND_FILTERING_DESIGN.md # 1홉 확장의 깊이 및 연관성 필터링 설계
 │   ├── ONEHOP_MERGE_DESIGN.md
 │   ├── SYNTHESIS_REDESIGN.md
 │   ├── search.md

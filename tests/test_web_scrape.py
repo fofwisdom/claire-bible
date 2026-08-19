@@ -130,6 +130,32 @@ def test_thin_guard_raises_when_all_fail(monkeypatch):
         web.fetch_web("https://discuss.pytorch.kr/t/thin/999")
 
 
+def test_static_bot_challenge_escalates_to_scrapling(monkeypatch):
+    """static 이 300자 이상의 Cloudflare 챌린지 텍스트를 받아와도 가드가 거절하고 scrapling 으로 에스컬레이션."""
+    cf_challenge = "Just a moment... Checking your browser before accessing. DDoS protection by Cloudflare. " * 5
+    rich_content = "실제 스텔스로 가져온 유익한 본문 콘텐츠입니다. " * 30
+    _patch_chain(monkeypatch,
+                 static=("Just a moment...", cf_challenge, [], {}, None, None, []),
+                 scrapling=("정상 기사 제목", rich_content, [], {}, []))
+    doc = web.fetch_web("https://protected-site.example/article")
+    assert doc.meta["fetch_via"] == "scrapling"
+    assert doc.title == "정상 기사 제목"
+    assert "유익한 본문 콘텐츠" in doc.raw_text
+
+
+def test_content_guard_raises_when_all_fail_challenge(monkeypatch):
+    """모든 단계에서 봇 챌린지 또는 차단 페이지가 반환되면 FetchError 로 실패 처리."""
+    cf_challenge = "Just a moment... DDoS protection by Cloudflare. " * 10
+    _patch_chain(monkeypatch,
+                 static=("Just a moment...", cf_challenge, [], {}, None, None, []),
+                 discourse=None,
+                 scrapling=("Just a moment...", cf_challenge, [], {}, []),
+                 cdp=("Just a moment...", cf_challenge, [], {}, []))
+    with pytest.raises(FetchError) as exc_info:
+        web.fetch_web("https://blocked.example/post")
+    assert "blocked: bot_challenge" in str(exc_info.value)
+
+
 def test_min_content_threshold_separates_measured_data():
     # 측정 근거: 정상 최소 ~1296, 실패 73~111 → 300 이 그 사이
     assert 111 < web.MIN_CONTENT < 1296

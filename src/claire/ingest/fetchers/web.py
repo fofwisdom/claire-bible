@@ -22,6 +22,7 @@ import re
 from ...ontology.base import Document
 from ..normalize import canonicalize_url, content_hash
 from .base import FetchError
+from .guard import validate_web_content
 
 _UA = (
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
@@ -30,6 +31,14 @@ _UA = (
 
 # 본문이 이 길이 미만이면 "빈약"으로 보고 다음 fallback 시도, 끝까지 미달이면 실패.
 MIN_CONTENT = 300
+
+
+def _is_usable(title: str | None, text: str | None) -> tuple[bool, str | None]:
+    """본문이 최소 길이를 만족하고 차단/저품질 가드를 통과하는지 확인."""
+    if not text or len(text) < MIN_CONTENT:
+        return False, f"본문 빈약(len={len(text or '')})"
+    return validate_web_content(title, text)
+
 
 # 본문 콘텐츠 이미지(다이어그램·차트·스크린샷·도식)만 후보로. 장식/추적/UI 잡동사니는 사전 제외.
 # (최종 선별은 render_detail 의 LLM 큐레이션이 한 번 더 — 여기선 명백한 잡음만 거른다.)
@@ -46,38 +55,59 @@ _IMG_MIN_DIM = 150      # width/height 속성이 명시돼 있고 이보다 작�
 def fetch_web(url: str) -> Document:
     via = "static"
     title, text, links, anchors, err, effective_url, images = _fetch_static(url)
+    usable, guard_err = _is_usable(title, text)
 
     # 2) Discourse JSON 에스컬레이션
-    if len(text or "") < MIN_CONTENT:
+    if not usable:
         from .discourse import try_discourse
 
         d = try_discourse(url)
         if d is not None:
             d_title, d_text, d_links = d
-            if len(d_text) > len(text or ""):
+            d_usable, d_guard_err = _is_usable(d_title or title, d_text)
+            if d_usable:
                 title, text, links, via = d_title or title, d_text, d_links or links, "discourse"
+                usable, guard_err = True, None
+            elif len(d_text) > len(text or ""):
+                title, text, links, via = d_title or title, d_text, d_links or links, "discourse"
+                usable, guard_err = d_usable, d_guard_err
 
     # 3) Scrapling Fetcher 에스컬레이션 — curl-cffi + browserforge 헤더 위장.
     #    브라우저 불필요. 정적 UA 를 막는 봇차단(예: openai.com 403)을 우회.
-    if len(text or "") < MIN_CONTENT:
+    if not usable:
         c_title, c_text, c_links, c_anchors, c_images = _fetch_scrapling(url)
-        if c_text and len(c_text) > len(text or ""):
+        c_usable, c_guard_err = _is_usable(c_title or title, c_text)
+        if c_usable:
             title, text, links, anchors, images, via = (
                 c_title or title, c_text, c_links or links, c_anchors or anchors,
                 c_images or images, "scrapling")
+            usable, guard_err = True, None
+        elif c_text and len(c_text) > len(text or ""):
+            title, text, links, anchors, images, via = (
+                c_title or title, c_text, c_links or links, c_anchors or anchors,
+                c_images or images, "scrapling")
+            usable, guard_err = c_usable, c_guard_err
 
     # 4) CDP(nodriver) 에스컬레이션 — 실제 Chromium 렌더링. 최후수단(느림, 브라우저 필요).
-    if len(text or "") < MIN_CONTENT:
+    if not usable:
         d_title, d_text, d_links, d_anchors, d_images = _fetch_cdp(url)
-        if d_text and len(d_text) > len(text or ""):
+        d_usable, d_guard_err = _is_usable(d_title or title, d_text)
+        if d_usable:
             title, text, links, anchors, images, via = (
                 d_title or title, d_text, d_links or links, d_anchors or anchors,
                 d_images or images, "cdp")
+            usable, guard_err = True, None
+        elif d_text and len(d_text) > len(text or ""):
+            title, text, links, anchors, images, via = (
+                d_title or title, d_text, d_links or links, d_anchors or anchors,
+                d_images or images, "cdp")
+            usable, guard_err = d_usable, d_guard_err
 
-    # thin-guard: 체인 끝까지 빈약하면 실패 처리(raw_inbox error → replay-failed 대상)
-    if not text or len(text) < MIN_CONTENT:
+    # thin-guard & content-guard: 체인 끝까지 미달/차단이면 실패 처리(raw_inbox error → replay-failed 대상)
+    if not usable:
+        fail_reason = guard_err or err or f"본문 빈약(len={len(text or '')})"
         raise FetchError(
-            err or f"본문 빈약(len={len(text or '')}, via={via}): {url}"
+            f"{fail_reason} (via={via}): {url}"
         )
 
     # canonical 은 서버 redirect 이후의 *실제 도달 URL* 기준(dedup 핵심).

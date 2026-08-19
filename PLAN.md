@@ -70,7 +70,8 @@ Fetcher는 URL, canonical URL, 제목, 작성자, 시각, 원문, 소스 종류�
 4. 병합 실패 시 원래 문서 스냅샷으로 복원한다.
 5. 모델 입력에는 길이 상한을 적용하지만 저장 원문은 임의로 절단하지 않는다.
 
-세부 설계는 [ONEHOP_MERGE_DESIGN.md](docs/design/ONEHOP_MERGE_DESIGN.md)를 참고한다.
+세부 설계는 [ONEHOP_MERGE_DESIGN.md](docs/design/ONEHOP_MERGE_DESIGN.md) 및
+[EXPAND_FILTERING_DESIGN.md](docs/design/EXPAND_FILTERING_DESIGN.md)를 참고한다.
 
 ## 4. 인증과 외부 접속
 

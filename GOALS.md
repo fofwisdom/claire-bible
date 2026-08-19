@@ -46,6 +46,7 @@ Claire는 링크·문서·메모를 수집해 구조화하고, 기존 지식과 
 - [x] canonical URL과 콘텐츠 해시 기반 중복 처리
 - [x] 약어·별칭 기반 엔티티 해소
 - [x] 1홉 자료 확장과 같은 주제 병합
+- [x] HTTP 본문 수준의 저품질/차단 페이지 사전 필터 (Pre-LLM Content Guard, 시험 적용)
 - [ ] 라벨된 must-merge/must-not-merge 평가셋 확대
 - [ ] 정적 웹 페이지의 boilerplate 제거 품질 개선
 
