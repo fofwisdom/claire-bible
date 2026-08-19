@@ -270,7 +270,14 @@ GRAPH_HTML = """<!doctype html>
 <html lang="ko"><head><meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>Claire Bible — 지식 그래프</title>
+<meta name="mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<meta name="apple-mobile-web-app-title" content="Claire Bible"/>
+<meta name="application-name" content="Claire Bible"/>
 <link rel="icon" type="image/svg+xml" href="/favicon.svg"/>
+<link rel="icon" type="image/png" sizes="192x192" href="/icon?p=android-chrome-192x192.png"/>
+<link rel="icon" type="image/png" sizes="512x512" href="/icon?p=android-chrome-512x512.png"/>
 <link rel="alternate icon" href="/favicon.ico"/>
 <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png"/>
 <link rel="manifest" href="/manifest.json"/>
@@ -2247,7 +2254,14 @@ _SHARED_HTML = """<!doctype html>
 <html lang="ko"><head><meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>__TITLE__ — Claire Bible</title>
+<meta name="mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<meta name="apple-mobile-web-app-title" content="Claire Bible"/>
+<meta name="application-name" content="Claire Bible"/>
 <link rel="icon" type="image/svg+xml" href="/favicon.svg"/>
+<link rel="icon" type="image/png" sizes="192x192" href="/icon?p=android-chrome-192x192.png"/>
+<link rel="icon" type="image/png" sizes="512x512" href="/icon?p=android-chrome-512x512.png"/>
 <link rel="alternate icon" href="/favicon.ico"/>
 <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png"/>
 <link rel="manifest" href="/manifest.json"/>

@@ -57,16 +57,26 @@ def test_manifest_json(client: TestClient) -> None:
     assert resp.status_code == 200
     data = resp.json()
     assert data["name"] == "Claire Bible"
+    assert data["short_name"] == "Claire Bible"
     assert len(data["icons"]) >= 9
+    for icon_entry in data["icons"]:
+        icon_url = icon_entry["src"]
+        icon_resp = client.get(icon_url)
+        assert icon_resp.status_code == 200, f"Failed to fetch {icon_url}"
+        assert "image/png" in icon_resp.headers.get("content-type", "")
 
     resp_webmanifest = client.get("/site.webmanifest")
     assert resp_webmanifest.status_code == 200
+    webmanifest_data = resp_webmanifest.json()
+    assert webmanifest_data["name"] == "Claire Bible"
+    assert webmanifest_data["short_name"] == "Claire Bible"
 
 
 def test_browserconfig_xml(client: TestClient) -> None:
     resp = client.get("/browserconfig.xml")
     assert resp.status_code == 200
     assert "xml" in resp.headers.get("content-type", "")
+    assert 'src="/icon?p=mstile-' in resp.text
 
 
 def test_icon_query_endpoint(client: TestClient) -> None:
@@ -90,9 +100,13 @@ def test_icon_query_endpoint(client: TestClient) -> None:
 
 def test_graph_ui_contains_favicon_tags(client: TestClient) -> None:
     # Even without auth, graph UI template has the head tags
-    from claire.graphview import GRAPH_HTML
-    assert 'rel="icon"' in GRAPH_HTML
-    assert 'href="/favicon.svg"' in GRAPH_HTML
-    assert 'href="/favicon.ico"' in GRAPH_HTML
-    assert 'href="/apple-touch-icon.png"' in GRAPH_HTML
-    assert 'href="/manifest.json"' in GRAPH_HTML
+    from claire.graphview import GRAPH_HTML, _SHARED_HTML
+    for html in (GRAPH_HTML, _SHARED_HTML):
+        assert 'name="application-name" content="Claire Bible"' in html
+        assert 'name="apple-mobile-web-app-title" content="Claire Bible"' in html
+        assert 'rel="icon"' in html
+        assert 'href="/favicon.svg"' in html
+        assert 'href="/icon?p=android-chrome-192x192.png"' in html
+        assert 'href="/favicon.ico"' in html
+        assert 'href="/apple-touch-icon.png"' in html
+        assert 'href="/manifest.json"' in html

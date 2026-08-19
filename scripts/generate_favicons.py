@@ -537,58 +537,58 @@ def generate_all_icons(output_dir: Path):
     # Generate manifest.json / site.webmanifest
     manifest_content = """{
   "name": "Claire Bible",
-  "short_name": "Claire",
+  "short_name": "Claire Bible",
   "description": "Personal Knowledge Base and Ontology Graph",
   "icons": [
     {
-      "src": "/icons/android-chrome-36x36.png",
+      "src": "/icon?p=android-chrome-36x36.png",
       "sizes": "36x36",
       "type": "image/png",
       "density": "0.75"
     },
     {
-      "src": "/icons/android-chrome-48x48.png",
+      "src": "/icon?p=android-chrome-48x48.png",
       "sizes": "48x48",
       "type": "image/png",
       "density": "1.0"
     },
     {
-      "src": "/icons/android-chrome-72x72.png",
+      "src": "/icon?p=android-chrome-72x72.png",
       "sizes": "72x72",
       "type": "image/png",
       "density": "1.5"
     },
     {
-      "src": "/icons/android-chrome-96x96.png",
+      "src": "/icon?p=android-chrome-96x96.png",
       "sizes": "96x96",
       "type": "image/png",
       "density": "2.0"
     },
     {
-      "src": "/icons/android-chrome-144x144.png",
+      "src": "/icon?p=android-chrome-144x144.png",
       "sizes": "144x144",
       "type": "image/png",
       "density": "3.0"
     },
     {
-      "src": "/icons/android-chrome-192x192.png",
+      "src": "/icon?p=android-chrome-192x192.png",
       "sizes": "192x192",
       "type": "image/png",
       "density": "4.0",
       "purpose": "any maskable"
     },
     {
-      "src": "/icons/android-chrome-256x256.png",
+      "src": "/icon?p=android-chrome-256x256.png",
       "sizes": "256x256",
       "type": "image/png"
     },
     {
-      "src": "/icons/android-chrome-384x384.png",
+      "src": "/icon?p=android-chrome-384x384.png",
       "sizes": "384x384",
       "type": "image/png"
     },
     {
-      "src": "/icons/android-chrome-512x512.png",
+      "src": "/icon?p=android-chrome-512x512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"
@@ -609,10 +609,10 @@ def generate_all_icons(output_dir: Path):
 <browserconfig>
     <msapplication>
         <tile>
-            <square70x70logo src="/icons/mstile-70x70.png"/>
-            <square150x150logo src="/icons/mstile-150x150.png"/>
-            <wide310x150logo src="/icons/mstile-310x150.png"/>
-            <square310x310logo src="/icons/mstile-310x310.png"/>
+            <square70x70logo src="/icon?p=mstile-70x70.png"/>
+            <square150x150logo src="/icon?p=mstile-150x150.png"/>
+            <wide310x150logo src="/icon?p=mstile-310x150.png"/>
+            <square310x310logo src="/icon?p=mstile-310x310.png"/>
             <TileColor="#0e1116"/>
         </tile>
     </msapplication>
