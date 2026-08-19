@@ -141,11 +141,13 @@ claire backfill-detail --format adoc --force
 ```
 
 ### 6) Web UI 듀얼 렌더러 ([graphview.py](../../src/claire/graphview.py))
-- **Asciidoctor.js (3.0.4 UMD 번들, SRI 무결성 해시)** 및 **Marked.js**를 브라우저에 공존 탑재.
+- **Asciidoctor.js (1.5.9 UMD 번들, SRI 무결성 해시)** 및 **Marked.js**를 브라우저에 공존 탑재.
+- **내장 고성능 AsciiDoc 트랜스파일러 (`convertAsciidocToHtml`) 탑재**:
+  - CDN 지연/차단/실패 상황에서도 인용(`[quote]`), 코드 및 번호 주석(`[source]` + `<1>`), 노트(`[NOTE]`), 표(`|===`), 이미지(`image::`)를 100% 자체 완결적으로 안전 렌더링(Zero-dependency Fault-Tolerance).
 - `renderContent(src, format)` 함수를 통한 지능형 렌더링:
-  - `isAsciidoc(src, format)`을 통해 명시적 포맷 또는 ADOC 시그니처(`[NOTE]`, `[quote]`, `[source]`, `|===`, `image::`) 감지.
-  - `#형광#` 마킹을 `<mark>` 태그로 변환 후 `Asciidoctor.convert()` 수행.
-  - 모든 렌더링 결과는 `DOMPurify.sanitize()`를 거쳐 XSS 보안 살균.
+  - `isAsciidoc(src, format)`을 통해 명시적 포맷 또는 ADOC 시그니처 감지.
+  - `Asciidoctor.convert()` $\rightarrow$ 실패 시 내장 `convertAsciidocToHtml()` $\rightarrow$ `DOMPurify.sanitize()`의 3단계 안전 파이프라인.
+  - `#형광#` 마킹을 `<mark>` 태그로 변환 후 렌더링.
 - **CSS 테마 일치**:
   - Light/Dark 테마 변수(`--bg`, `--card-bg`, `--accent`, `--mark-bg` 등)와 100% 호환되는 Admonition Box, Quote Block, Callout Badge(`.conum`), Table 스타일 적용.
 - `#reader` 모달 및 `/p?s=token` 공유 페이지(`shared_html`) 모두에 동일 듀얼 렌더러 적용.

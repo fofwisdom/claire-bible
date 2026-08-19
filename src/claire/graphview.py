@@ -287,7 +287,7 @@ GRAPH_HTML = """<!doctype html>
 <meta name="theme-color" content="#0e1116"/>
 <script src="https://unpkg.com/vis-network@9.1.11/standalone/umd/vis-network.min.js" integrity="sha384-60H6/hL99pRYjWacRdebxM1T2R6jvWyd9GVAb7d4fp9BSfv4f0i5sWjkprnnG0cz" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/marked@4.3.0/marked.min.js" integrity="sha384-QsSpx6a0USazT7nK7w8qXDgpSAPhFsb2XtpoLFQ5+X2yFN6hvCKnwEzN8M5FWaJb" crossorigin="anonymous"></script>
-<script src="https://unpkg.com/@asciidoctor/core@3.0.4/dist/browser/asciidoctor.min.js" integrity="sha384-Rd2/5b41kZm7C1w7DbZXiNbMElh62qr8urCNwxmNaYVvL06PjEwpmw1PRGqAwOZP" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/asciidoctor.js@1.5.9/dist/asciidoctor.min.js" integrity="sha384-LCGHpUP0PLBe6LP0H+g/Erfu638Pk0tWmGz9YMhk6qK55CeS/eTduwhxJuO4elp4" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/dompurify@3.1.6/dist/purify.min.js" integrity="sha384-+VfUPEb0PdtChMwmBcBmykRMDd+v6D/oFmB3rZM/puCMDYcIvF968OimRh4KQY9a" crossorigin="anonymous"></script>
 <script>
   // 깜빡임 방지: 페인트 전에 저장된 테마를 documentElement 에 적용. 기본값=light(사용자 요구).
@@ -890,17 +890,154 @@ function renderMarkdown(src){
   }catch(e){ return fallback(); }
 }
 
+// 자체 내장 경량 AsciiDoc 파서 (CDN 로드 실패 시에도 완벽한 렌더링 보장)
+function convertAsciidocToHtml(raw){
+  if(!raw) return '';
+  const lines=String(raw).split('\n');
+  const out=[];
+  let inBlock=null;
+  let blockMeta={};
+  let blockLines=[];
+  let tableRows=[];
+
+  function flushBlock(){
+    if(!inBlock) return;
+    if(inBlock==='quote'){
+      const qText=renderMarkdown(blockLines.join('\n'));
+      let attr='';
+      if(blockMeta.author||blockMeta.source){
+        attr='<div class="attribution">'+esc(blockMeta.author||'')+
+             (blockMeta.source?' — '+esc(blockMeta.source):'')+'</div>';
+      }
+      out.push('<div class="quoteblock"><blockquote>'+qText+'</blockquote>'+attr+'</div>');
+    }else if(inBlock==='admonition'){
+      const admText=renderMarkdown(blockLines.join('\n'));
+      const type=(blockMeta.type||'NOTE').toLowerCase();
+      out.push('<div class="admonitionblock '+esc(type)+'"><div class="title">'+
+               esc(blockMeta.type||'NOTE')+'</div><div class="content">'+admText+'</div></div>');
+    }else if(inBlock==='code'){
+      const codeText=esc(blockLines.join('\n')).replace(/&lt;(\d+)&gt;/g,'<span class="conum">&lt;$1&gt;</span>');
+      out.push('<pre><code class="language-'+esc(blockMeta.lang||'')+'">'+codeText+'</code></pre>');
+    }else if(inBlock==='table'){
+      let tHtml='<table>';
+      if(tableRows.length>0){
+        tHtml+='<thead><tr>'+tableRows[0].map(c=>'<th>'+renderMarkdown(c)+'</th>').join('')+'</tr></thead>';
+        if(tableRows.length>1){
+          tHtml+='<tbody>'+tableRows.slice(1).map(r=>'<tr>'+r.map(c=>'<td>'+renderMarkdown(c)+'</td>').join('')+'</tr>').join('')+'</tbody>';
+        }
+      }
+      tHtml+='</table>';
+      out.push(tHtml);
+    }
+    inBlock=null; blockMeta={}; blockLines=[]; tableRows=[];
+  }
+
+  let pendingMeta=null;
+  for(let i=0;i<lines.length;i++){
+    const line=lines[i];
+    const trimmed=line.trim();
+    if(!inBlock){
+      const qm=trimmed.match(/^\[quote(?:,\s*([^,\]]+))?(?:,\s*([^\]]+))?\]/i);
+      if(qm){
+        pendingMeta={kind:'quote',author:qm[1]?qm[1].trim():'',source:qm[2]?qm[2].trim():''};
+        continue;
+      }
+      const am=trimmed.match(/^\[(NOTE|IMPORTANT|TIP|WARNING|CAUTION)\]/i);
+      if(am){
+        pendingMeta={kind:'admonition',type:am[1].toUpperCase()};
+        continue;
+      }
+      const sm=trimmed.match(/^\[source(?:,\s*([a-zA-Z0-9_-]+))?\]/i);
+      if(sm){
+        pendingMeta={kind:'code',lang:sm[1]?sm[1].trim():''};
+        continue;
+      }
+
+      if(trimmed==='____'){
+        inBlock='quote';
+        blockMeta=(pendingMeta&&pendingMeta.kind==='quote')?pendingMeta:{};
+        pendingMeta=null; blockLines=[]; continue;
+      }
+      if(trimmed==='===='){
+        inBlock='admonition';
+        blockMeta=(pendingMeta&&pendingMeta.kind==='admonition')?pendingMeta:{type:'NOTE'};
+        pendingMeta=null; blockLines=[]; continue;
+      }
+      if(trimmed==='----'){
+        inBlock='code';
+        blockMeta=(pendingMeta&&pendingMeta.kind==='code')?pendingMeta:{};
+        pendingMeta=null; blockLines=[]; continue;
+      }
+      if(trimmed==='|==='){
+        inBlock='table';
+        blockMeta={}; pendingMeta=null; tableRows=[]; continue;
+      }
+
+      const imgMatch=trimmed.match(/^image::([^\[]+)\[([^,\]]*)(?:,\s*title=(?:"([^"]*)"|'([^']*)'|([^\]]*)))?\]/);
+      if(imgMatch){
+        const src=imgMatch[1].trim();
+        const alt=imgMatch[2]?imgMatch[2].trim():'';
+        const cap=imgMatch[3]||imgMatch[4]||imgMatch[5]||'';
+        out.push('<div class="imageblock"><img src="'+esc(src)+'" alt="'+esc(alt)+'">'+
+                 (cap?'<div class="title">'+esc(cap)+'</div>':'')+'</div>');
+        continue;
+      }
+      const colMatch=trimmed.match(/^<(\d+)>\s*(.+)/);
+      if(colMatch){
+        out.push('<div class="colist"><span class="conum">&lt;'+colMatch[1]+'&gt;</span> '+renderMarkdown(colMatch[2])+'</div>');
+        continue;
+      }
+      const h2Match=trimmed.match(/^==\s+(.+)$/);
+      if(h2Match){ out.push('<h2>'+renderMarkdown(h2Match[1])+'</h2>'); continue; }
+      const h3Match=trimmed.match(/^===\s+(.+)$/);
+      if(h3Match){ out.push('<h3>'+renderMarkdown(h3Match[1])+'</h3>'); continue; }
+      const h4Match=trimmed.match(/^====\s+(.+)$/);
+      if(h4Match){ out.push('<h4>'+renderMarkdown(h4Match[1])+'</h4>'); continue; }
+
+      out.push(renderMarkdown(line.replace(/#([^#\n]+)#/g,'<mark>$1</mark>')));
+    }else{
+      if(inBlock==='quote'&&trimmed==='____') flushBlock();
+      else if(inBlock==='admonition'&&trimmed==='====') flushBlock();
+      else if(inBlock==='code'&&trimmed==='----') flushBlock();
+      else if(inBlock==='table'&&trimmed==='|===') flushBlock();
+      else{
+        if(inBlock==='table'){
+          if(trimmed.startsWith('|')){
+            const cells=trimmed.substring(1).split('|').map(c=>c.trim());
+            if(cells.length>0) tableRows.push(cells);
+          }
+        }else{
+          blockLines.push(line);
+        }
+      }
+    }
+  }
+  flushBlock();
+  return out.join('\n');
+}
+
 function renderAsciidoc(src){
   if(!src) return '';
   const raw=String(src);
-  const fallback=()=>renderMarkdown(raw);
   const adoc=getAsciidoctor(), purifier=window.DOMPurify;
-  if(!adoc||!purifier||typeof purifier.sanitize!=='function') return fallback();
+  if(adoc && purifier && typeof purifier.sanitize==='function'){
+    try{
+      const s=raw.replace(/#([^#\n]+)#/g,'<mark>$1</mark>');
+      const html=adoc.convert(s,{safe:'safe',attributes:{showtitle:true}});
+      if(html && html.trim()){
+        return purifier.sanitize(html,{ADD_ATTR:['target'],ADD_TAGS:['mark']});
+      }
+    }catch(_){}
+  }
   try{
-    const s=raw.replace(/#([^#\n]+)#/g,'<mark>$1</mark>');
-    const html=adoc.convert(s,{safe:'safe',attributes:{showtitle:true}});
-    return purifier.sanitize(html,{ADD_ATTR:['target'],ADD_TAGS:['mark']});
-  }catch(e){ return fallback(); }
+    const html=convertAsciidocToHtml(raw);
+    if(purifier && typeof purifier.sanitize==='function'){
+      return purifier.sanitize(html,{ADD_ATTR:['target'],ADD_TAGS:['mark']});
+    }
+    return html;
+  }catch(_){
+    return renderMarkdown(raw);
+  }
 }
 
 function isAsciidoc(src, format){
@@ -911,7 +1048,7 @@ function isAsciidoc(src, format){
   }
   if(!src) return false;
   const s=String(src);
-  return /\[(NOTE|TIP|IMPORTANT|WARNING|CAUTION|quote|source)[^\]]*\]|\|\=\=\=|image\:\:/i.test(s);
+  return /(?:^|\n)\[(NOTE|TIP|IMPORTANT|WARNING|CAUTION|quote|source)[^\]]*\]|(?:^|\n)\|\=\=\=|(?:^|\n)image\:\:/m.test(s);
 }
 
 function renderContent(src, format){
@@ -2400,7 +2537,7 @@ _SHARED_HTML = """<!doctype html>
 <link rel="mask-icon" href="/favicon.svg" color="#00ffaa"/>
 <meta name="theme-color" content="#0e1116"/>
 <script src="https://unpkg.com/marked@4.3.0/marked.min.js" integrity="sha384-QsSpx6a0USazT7nK7w8qXDgpSAPhFsb2XtpoLFQ5+X2yFN6hvCKnwEzN8M5FWaJb" crossorigin="anonymous"></script>
-<script src="https://unpkg.com/@asciidoctor/core@3.0.4/dist/browser/asciidoctor.min.js" integrity="sha384-Rd2/5b41kZm7C1w7DbZXiNbMElh62qr8urCNwxmNaYVvL06PjEwpmw1PRGqAwOZP" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/asciidoctor.js@1.5.9/dist/asciidoctor.min.js" integrity="sha384-LCGHpUP0PLBe6LP0H+g/Erfu638Pk0tWmGz9YMhk6qK55CeS/eTduwhxJuO4elp4" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/dompurify@3.1.6/dist/purify.min.js" integrity="sha384-+VfUPEb0PdtChMwmBcBmykRMDd+v6D/oFmB3rZM/puCMDYcIvF968OimRh4KQY9a" crossorigin="anonymous"></script>
 <style>
   :root{--bg:#ffffff;--fg:#1f2328;--muted:#656d76;--border:#d0d7de;--accent:#0969da;
@@ -2470,17 +2607,152 @@ function renderMarkdown(src){
     return purifier.sanitize(html,{ADD_ATTR:['target'],ADD_TAGS:['mark']});
   }catch(e){ return fallback(); }
 }
+function convertAsciidocToHtml(raw){
+  if(!raw) return '';
+  const lines=String(raw).split('\n');
+  const out=[];
+  let inBlock=null;
+  let blockMeta={};
+  let blockLines=[];
+  let tableRows=[];
+
+  function flushBlock(){
+    if(!inBlock) return;
+    if(inBlock==='quote'){
+      const qText=renderMarkdown(blockLines.join('\n'));
+      let attr='';
+      if(blockMeta.author||blockMeta.source){
+        attr='<div class="attribution">'+esc(blockMeta.author||'')+
+             (blockMeta.source?' — '+esc(blockMeta.source):'')+'</div>';
+      }
+      out.push('<div class="quoteblock"><blockquote>'+qText+'</blockquote>'+attr+'</div>');
+    }else if(inBlock==='admonition'){
+      const admText=renderMarkdown(blockLines.join('\n'));
+      const type=(blockMeta.type||'NOTE').toLowerCase();
+      out.push('<div class="admonitionblock '+esc(type)+'"><div class="title">'+
+               esc(blockMeta.type||'NOTE')+'</div><div class="content">'+admText+'</div></div>');
+    }else if(inBlock==='code'){
+      const codeText=esc(blockLines.join('\n')).replace(/&lt;(\d+)&gt;/g,'<span class="conum">&lt;$1&gt;</span>');
+      out.push('<pre><code class="language-'+esc(blockMeta.lang||'')+'">'+codeText+'</code></pre>');
+    }else if(inBlock==='table'){
+      let tHtml='<table>';
+      if(tableRows.length>0){
+        tHtml+='<thead><tr>'+tableRows[0].map(c=>'<th>'+renderMarkdown(c)+'</th>').join('')+'</tr></thead>';
+        if(tableRows.length>1){
+          tHtml+='<tbody>'+tableRows.slice(1).map(r=>'<tr>'+r.map(c=>'<td>'+renderMarkdown(c)+'</td>').join('')+'</tr>').join('')+'</tbody>';
+        }
+      }
+      tHtml+='</table>';
+      out.push(tHtml);
+    }
+    inBlock=null; blockMeta={}; blockLines=[]; tableRows=[];
+  }
+
+  let pendingMeta=null;
+  for(let i=0;i<lines.length;i++){
+    const line=lines[i];
+    const trimmed=line.trim();
+    if(!inBlock){
+      const qm=trimmed.match(/^\[quote(?:,\s*([^,\]]+))?(?:,\s*([^\]]+))?\]/i);
+      if(qm){
+        pendingMeta={kind:'quote',author:qm[1]?qm[1].trim():'',source:qm[2]?qm[2].trim():''};
+        continue;
+      }
+      const am=trimmed.match(/^\[(NOTE|IMPORTANT|TIP|WARNING|CAUTION)\]/i);
+      if(am){
+        pendingMeta={kind:'admonition',type:am[1].toUpperCase()};
+        continue;
+      }
+      const sm=trimmed.match(/^\[source(?:,\s*([a-zA-Z0-9_-]+))?\]/i);
+      if(sm){
+        pendingMeta={kind:'code',lang:sm[1]?sm[1].trim():''};
+        continue;
+      }
+
+      if(trimmed==='____'){
+        inBlock='quote';
+        blockMeta=(pendingMeta&&pendingMeta.kind==='quote')?pendingMeta:{};
+        pendingMeta=null; blockLines=[]; continue;
+      }
+      if(trimmed==='===='){
+        inBlock='admonition';
+        blockMeta=(pendingMeta&&pendingMeta.kind==='admonition')?pendingMeta:{type:'NOTE'};
+        pendingMeta=null; blockLines=[]; continue;
+      }
+      if(trimmed==='----'){
+        inBlock='code';
+        blockMeta=(pendingMeta&&pendingMeta.kind==='code')?pendingMeta:{};
+        pendingMeta=null; blockLines=[]; continue;
+      }
+      if(trimmed==='|==='){
+        inBlock='table';
+        blockMeta={}; pendingMeta=null; tableRows=[]; continue;
+      }
+
+      const imgMatch=trimmed.match(/^image::([^\[]+)\[([^,\]]*)(?:,\s*title=(?:"([^"]*)"|'([^']*)'|([^\]]*)))?\]/);
+      if(imgMatch){
+        const src=imgMatch[1].trim();
+        const alt=imgMatch[2]?imgMatch[2].trim():'';
+        const cap=imgMatch[3]||imgMatch[4]||imgMatch[5]||'';
+        out.push('<div class="imageblock"><img src="'+esc(src)+'" alt="'+esc(alt)+'">'+
+                 (cap?'<div class="title">'+esc(cap)+'</div>':'')+'</div>');
+        continue;
+      }
+      const colMatch=trimmed.match(/^<(\d+)>\s*(.+)/);
+      if(colMatch){
+        out.push('<div class="colist"><span class="conum">&lt;'+colMatch[1]+'&gt;</span> '+renderMarkdown(colMatch[2])+'</div>');
+        continue;
+      }
+      const h2Match=trimmed.match(/^==\s+(.+)$/);
+      if(h2Match){ out.push('<h2>'+renderMarkdown(h2Match[1])+'</h2>'); continue; }
+      const h3Match=trimmed.match(/^===\s+(.+)$/);
+      if(h3Match){ out.push('<h3>'+renderMarkdown(h3Match[1])+'</h3>'); continue; }
+      const h4Match=trimmed.match(/^====\s+(.+)$/);
+      if(h4Match){ out.push('<h4>'+renderMarkdown(h4Match[1])+'</h4>'); continue; }
+
+      out.push(renderMarkdown(line.replace(/#([^#\n]+)#/g,'<mark>$1</mark>')));
+    }else{
+      if(inBlock==='quote'&&trimmed==='____') flushBlock();
+      else if(inBlock==='admonition'&&trimmed==='====') flushBlock();
+      else if(inBlock==='code'&&trimmed==='----') flushBlock();
+      else if(inBlock==='table'&&trimmed==='|===') flushBlock();
+      else{
+        if(inBlock==='table'){
+          if(trimmed.startsWith('|')){
+            const cells=trimmed.substring(1).split('|').map(c=>c.trim());
+            if(cells.length>0) tableRows.push(cells);
+          }
+        }else{
+          blockLines.push(line);
+        }
+      }
+    }
+  }
+  flushBlock();
+  return out.join('\n');
+}
 function renderAsciidoc(src){
   if(!src) return '';
   const raw=String(src);
-  const fallback=()=>renderMarkdown(raw);
   const adoc=getAsciidoctor(), purifier=window.DOMPurify;
-  if(!adoc||!purifier||typeof purifier.sanitize!=='function') return fallback();
+  if(adoc && purifier && typeof purifier.sanitize==='function'){
+    try{
+      const s=raw.replace(/#([^#\n]+)#/g,'<mark>$1</mark>');
+      const html=adoc.convert(s,{safe:'safe',attributes:{showtitle:true}});
+      if(html && html.trim()){
+        return purifier.sanitize(html,{ADD_ATTR:['target'],ADD_TAGS:['mark']});
+      }
+    }catch(_){}
+  }
   try{
-    const s=raw.replace(/#([^#\n]+)#/g,'<mark>$1</mark>');
-    const html=adoc.convert(s,{safe:'safe',attributes:{showtitle:true}});
-    return purifier.sanitize(html,{ADD_ATTR:['target'],ADD_TAGS:['mark']});
-  }catch(e){ return fallback(); }
+    const html=convertAsciidocToHtml(raw);
+    if(purifier && typeof purifier.sanitize==='function'){
+      return purifier.sanitize(html,{ADD_ATTR:['target'],ADD_TAGS:['mark']});
+    }
+    return html;
+  }catch(_){
+    return renderMarkdown(raw);
+  }
 }
 function isAsciidoc(src, format){
   if(format){
@@ -2490,7 +2762,7 @@ function isAsciidoc(src, format){
   }
   if(!src) return false;
   const s=String(src);
-  return /\[(NOTE|TIP|IMPORTANT|WARNING|CAUTION|quote|source)[^\]]*\]|\|\=\=\=|image\:\:/i.test(s);
+  return /(?:^|\n)\[(NOTE|TIP|IMPORTANT|WARNING|CAUTION|quote|source)[^\]]*\]|(?:^|\n)\|\=\=\=|(?:^|\n)image\:\:/m.test(s);
 }
 function renderContent(src, format){
   if(!src) return '';
