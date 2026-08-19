@@ -880,12 +880,12 @@ function toggleTheme(){ const next = curTheme()==='dark'?'light':'dark';
 function renderMarkdown(src){
   if(!src) return '';
   const raw=String(src);
-  const fallback=()=>esc(raw).replace(/\n/g,'<br>');
+  const fallback=()=>esc(raw).replace(/\\\\r?\\\\n/g,'<br>');
   const parser=window.marked, purifier=window.DOMPurify;
   if(!parser||!purifier||typeof purifier.sanitize!=='function'||
      (typeof parser.parse!=='function'&&typeof parser!=='function')) return fallback();
   try{
-    const s=raw.replace(/==([^=\n]+)==/g,'<mark>$1</mark>');
+    const s=raw.replace(/==([^=]+?)==/g,'<mark>$1</mark>');
     const html=typeof parser.parse==='function'?parser.parse(s):parser(s);
     return purifier.sanitize(html,{ADD_ATTR:['target'],ADD_TAGS:['mark']});
   }catch(e){ return fallback(); }
@@ -894,7 +894,8 @@ function renderMarkdown(src){
 // 자체 완결형 경량 AsciiDoc 렌더러 (외부 CDN/루비런타임 의존성 제로, 번개같은 로딩 속도)
 function convertAsciidocToHtml(raw){
   if(!raw) return '';
-  const lines=String(raw).split('\n');
+  const NL=String.fromCharCode(10);
+  const lines=String(raw).split(NL);
   const out=[];
   let inBlock=null;
   let blockMeta={};
@@ -904,7 +905,7 @@ function convertAsciidocToHtml(raw){
   function flushBlock(){
     if(!inBlock) return;
     if(inBlock==='quote'){
-      const qText=renderMarkdown(blockLines.join('\n'));
+      const qText=renderMarkdown(blockLines.join(NL));
       let attr='';
       if(blockMeta.author||blockMeta.source){
         attr='<div class="attribution">'+esc(blockMeta.author||'')+
@@ -912,12 +913,12 @@ function convertAsciidocToHtml(raw){
       }
       out.push('<div class="quoteblock"><blockquote>'+qText+'</blockquote>'+attr+'</div>');
     }else if(inBlock==='admonition'){
-      const admText=renderMarkdown(blockLines.join('\n'));
+      const admText=renderMarkdown(blockLines.join(NL));
       const type=(blockMeta.type||'NOTE').toLowerCase();
       out.push('<div class="admonitionblock '+esc(type)+'"><div class="title">'+
                esc(blockMeta.type||'NOTE')+'</div><div class="content">'+admText+'</div></div>');
     }else if(inBlock==='code'){
-      const codeText=esc(blockLines.join('\n')).replace(/&lt;(\\d+)&gt;/g,'<span class="conum">&lt;$1&gt;</span>');
+      const codeText=esc(blockLines.join(NL)).replace(/&lt;(\\d+)&gt;/g,'<span class="conum">&lt;$1&gt;</span>');
       out.push('<pre><code class="language-'+esc(blockMeta.lang||'')+'">'+codeText+'</code></pre>');
     }else if(inBlock==='table'){
       let tHtml='<table>';
@@ -995,7 +996,7 @@ function convertAsciidocToHtml(raw){
       const h4Match=trimmed.match(/^====\\s+(.+)$/);
       if(h4Match){ out.push('<h4>'+renderMarkdown(h4Match[1])+'</h4>'); continue; }
 
-      out.push(renderMarkdown(line.replace(/#([^#\\n]+)#/g,'<mark>$1</mark>')));
+      out.push(renderMarkdown(line.replace(/#([^#]+?)#/g,'<mark>$1</mark>')));
     }else{
       if(inBlock==='quote'&&trimmed==='____') flushBlock();
       else if(inBlock==='admonition'&&trimmed==='====') flushBlock();
@@ -1014,7 +1015,7 @@ function convertAsciidocToHtml(raw){
     }
   }
   flushBlock();
-  return out.join('\n');
+  return out.join(NL);
 }
 
 let _asciidoctorInstance = null;
@@ -2623,19 +2624,20 @@ function esc(s){return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>'
 function renderMarkdown(src){
   if(!src) return '';
   const raw=String(src);
-  const fallback=()=>esc(raw).replace(/\n/g,'<br>');
+  const fallback=()=>esc(raw).replace(/\\\\r?\\\\n/g,'<br>');
   const parser=window.marked, purifier=window.DOMPurify;
   if(!parser||!purifier||typeof purifier.sanitize!=='function'||
      (typeof parser.parse!=='function'&&typeof parser!=='function')) return fallback();
   try{
-    const s=raw.replace(/==([^=\n]+)==/g,'<mark>$1</mark>');
+    const s=raw.replace(/==([^=]+?)==/g,'<mark>$1</mark>');
     const html=typeof parser.parse==='function'?parser.parse(s):parser(s);
     return purifier.sanitize(html,{ADD_ATTR:['target'],ADD_TAGS:['mark']});
   }catch(e){ return fallback(); }
 }
 function convertAsciidocToHtml(raw){
   if(!raw) return '';
-  const lines=String(raw).split('\n');
+  const NL=String.fromCharCode(10);
+  const lines=String(raw).split(NL);
   const out=[];
   let inBlock=null;
   let blockMeta={};
@@ -2645,7 +2647,7 @@ function convertAsciidocToHtml(raw){
   function flushBlock(){
     if(!inBlock) return;
     if(inBlock==='quote'){
-      const qText=renderMarkdown(blockLines.join('\n'));
+      const qText=renderMarkdown(blockLines.join(NL));
       let attr='';
       if(blockMeta.author||blockMeta.source){
         attr='<div class="attribution">'+esc(blockMeta.author||'')+
@@ -2653,12 +2655,12 @@ function convertAsciidocToHtml(raw){
       }
       out.push('<div class="quoteblock"><blockquote>'+qText+'</blockquote>'+attr+'</div>');
     }else if(inBlock==='admonition'){
-      const admText=renderMarkdown(blockLines.join('\n'));
+      const admText=renderMarkdown(blockLines.join(NL));
       const type=(blockMeta.type||'NOTE').toLowerCase();
       out.push('<div class="admonitionblock '+esc(type)+'"><div class="title">'+
                esc(blockMeta.type||'NOTE')+'</div><div class="content">'+admText+'</div></div>');
     }else if(inBlock==='code'){
-      const codeText=esc(blockLines.join('\n')).replace(/&lt;(\\d+)&gt;/g,'<span class="conum">&lt;$1&gt;</span>');
+      const codeText=esc(blockLines.join(NL)).replace(/&lt;(\\d+)&gt;/g,'<span class="conum">&lt;$1&gt;</span>');
       out.push('<pre><code class="language-'+esc(blockMeta.lang||'')+'">'+codeText+'</code></pre>');
     }else if(inBlock==='table'){
       let tHtml='<table>';
@@ -2736,7 +2738,7 @@ function convertAsciidocToHtml(raw){
       const h4Match=trimmed.match(/^====\\s+(.+)$/);
       if(h4Match){ out.push('<h4>'+renderMarkdown(h4Match[1])+'</h4>'); continue; }
 
-      out.push(renderMarkdown(line.replace(/#([^#\\n]+)#/g,'<mark>$1</mark>')));
+      out.push(renderMarkdown(line.replace(/#([^#]+?)#/g,'<mark>$1</mark>')));
     }else{
       if(inBlock==='quote'&&trimmed==='____') flushBlock();
       else if(inBlock==='admonition'&&trimmed==='====') flushBlock();
@@ -2755,7 +2757,9 @@ function convertAsciidocToHtml(raw){
     }
   }
   flushBlock();
-  return out.join('\n');
+  return out.join(NL);
+}
+
 let _asciidoctorInstanceShared = null;
 function getAsciidoctorShared(){
   if(_asciidoctorInstanceShared) return _asciidoctorInstanceShared;
