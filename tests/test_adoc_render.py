@@ -32,7 +32,7 @@ def test_config_render_format_validation():
     s_asciidoc = Settings(render_format="asciidoc")
     assert s_asciidoc.render_format == "adoc"
 
-    with pytest.raises(ValueError, match="render_format must be"):
+    with pytest.raises(ValueError, match="CLAIRE_RENDER_FORMAT must be"):
         Settings(render_format="html")
 
 
@@ -72,11 +72,11 @@ def test_prompts_dual_format():
     body = "샘플 본문 내용"
     images = [{"url": "https://example.com/img.png", "alt": "다이어그램", "caption": "설명"}]
 
-    prompt_md = render_detail_prompt(body, images, format="md")
-    assert "형광" in prompt_md or "마크다운" in prompt_md
-    assert "![alt](url)" in prompt_md or "마크다운 이미지" in prompt_md
+    prompt_md = render_detail_prompt(body, images, merged=False, format="md")
+    assert "마크다운" in prompt_md
+    assert "![설명](url)" in prompt_md or "그림" in prompt_md
 
-    prompt_adoc = render_detail_prompt(body, images, format="adoc")
+    prompt_adoc = render_detail_prompt(body, images, merged=False, format="adoc")
     assert "AsciiDoc" in prompt_adoc
     assert "[quote" in prompt_adoc
     assert "[source" in prompt_adoc
@@ -159,14 +159,14 @@ def test_graphview_detail_format_and_html():
     assert dd["detail_format"] == "adoc"
     assert "[NOTE]" in dd["detail"]
 
-    # shared_html 렌더링에 Asciidoctor 로드 스크립트 및 renderContent 함수 포함 검증
+    # shared_html 렌더링에 convertAsciidocToHtml 및 renderContent 함수 포함 검증
     s_html = shared_html(dd)
-    assert "asciidoctor.min.js" in s_html
+    assert "convertAsciidocToHtml" in s_html
     assert "renderContent" in s_html
     assert ".admonitionblock" in s_html
 
     # GRAPH_HTML 검증
-    assert "asciidoctor.min.js" in GRAPH_HTML
+    assert "convertAsciidocToHtml" in GRAPH_HTML
     assert "renderContent" in GRAPH_HTML
     assert ".admonitionblock" in GRAPH_HTML
     assert ".quoteblock" in GRAPH_HTML

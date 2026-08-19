@@ -141,13 +141,13 @@ claire backfill-detail --format adoc --force
 ```
 
 ### 6) Web UI 듀얼 렌더러 ([graphview.py](../../src/claire/graphview.py))
-- **Asciidoctor.js (1.5.9 UMD 번들, SRI 무결성 해시)** 및 **Marked.js**를 브라우저에 공존 탑재.
+- **외부 무거운 CDN/런타임(Opal/Asciidoctor.js 1.5MB) 완전 배제 & 100% 자체 완결형 초경량 엔진**:
+  - 외부 무거운 번들로 인한 화면 블로킹 및 흰 화면(White Screen) 현상을 원천 방지하고, 프로젝트의 라이선스 순수성과 초고속 첫 페이지 로딩(FCP)을 보장.
 - **내장 고성능 AsciiDoc 트랜스파일러 (`convertAsciidocToHtml`) 탑재**:
-  - CDN 지연/차단/실패 상황에서도 인용(`[quote]`), 코드 및 번호 주석(`[source]` + `<1>`), 노트(`[NOTE]`), 표(`|===`), 이미지(`image::`)를 100% 자체 완결적으로 안전 렌더링(Zero-dependency Fault-Tolerance).
+  - 인용(`[quote]`), 코드 및 번호 주석(`[source]` + `<1>`), 노트(`[NOTE]`/`[TIP]`/`[WARNING]`/`[IMPORTANT]`/`[CAUTION]`), 표(`|===`), 이미지(`image::`), 헤더(`==`), 형광(`##`)을 100% 자체 완결적으로 안전 렌더링.
 - `renderContent(src, format)` 함수를 통한 지능형 렌더링:
   - `isAsciidoc(src, format)`을 통해 명시적 포맷 또는 ADOC 시그니처 감지.
-  - `Asciidoctor.convert()` $\rightarrow$ 실패 시 내장 `convertAsciidocToHtml()` $\rightarrow$ `DOMPurify.sanitize()`의 3단계 안전 파이프라인.
-  - `#형광#` 마킹을 `<mark>` 태그로 변환 후 렌더링.
+  - 내장 `convertAsciidocToHtml()` $\rightarrow$ `DOMPurify.sanitize()`의 2단계 고속 안전 파이프라인.
 - **CSS 테마 일치**:
   - Light/Dark 테마 변수(`--bg`, `--card-bg`, `--accent`, `--mark-bg` 등)와 100% 호환되는 Admonition Box, Quote Block, Callout Badge(`.conum`), Table 스타일 적용.
 - `#reader` 모달 및 `/p?s=token` 공유 페이지(`shared_html`) 모두에 동일 듀얼 렌더러 적용.

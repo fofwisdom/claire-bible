@@ -287,7 +287,6 @@ GRAPH_HTML = """<!doctype html>
 <meta name="theme-color" content="#0e1116"/>
 <script src="https://unpkg.com/vis-network@9.1.11/standalone/umd/vis-network.min.js" integrity="sha384-60H6/hL99pRYjWacRdebxM1T2R6jvWyd9GVAb7d4fp9BSfv4f0i5sWjkprnnG0cz" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/marked@4.3.0/marked.min.js" integrity="sha384-QsSpx6a0USazT7nK7w8qXDgpSAPhFsb2XtpoLFQ5+X2yFN6hvCKnwEzN8M5FWaJb" crossorigin="anonymous"></script>
-<script src="https://unpkg.com/asciidoctor.js@1.5.9/dist/asciidoctor.min.js" integrity="sha384-LCGHpUP0PLBe6LP0H+g/Erfu638Pk0tWmGz9YMhk6qK55CeS/eTduwhxJuO4elp4" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/dompurify@3.1.6/dist/purify.min.js" integrity="sha384-+VfUPEb0PdtChMwmBcBmykRMDd+v6D/oFmB3rZM/puCMDYcIvF968OimRh4KQY9a" crossorigin="anonymous"></script>
 <script>
   // 깜빡임 방지: 페인트 전에 저장된 테마를 documentElement 에 적용. 기본값=light(사용자 요구).
@@ -868,14 +867,6 @@ function toggleTheme(){ const next = curTheme()==='dark'?'light':'dark';
 }
 
 // 마크다운/AsciiDoc → 안전한 HTML. DOMPurify 로 스크랩 본문 유래 위험 태그 제거.
-let _asciidoctorInstance=null;
-function getAsciidoctor(){
-  if(!_asciidoctorInstance && typeof window.Asciidoctor==='function'){
-    try{ _asciidoctorInstance=window.Asciidoctor(); }catch(_){}
-  }
-  return _asciidoctorInstance;
-}
-
 function renderMarkdown(src){
   if(!src) return '';
   const raw=String(src);
@@ -890,7 +881,7 @@ function renderMarkdown(src){
   }catch(e){ return fallback(); }
 }
 
-// 자체 내장 경량 AsciiDoc 파서 (CDN 로드 실패 시에도 완벽한 렌더링 보장)
+// 자체 완결형 경량 AsciiDoc 렌더러 (외부 CDN/루비런타임 의존성 제로, 번개같은 로딩 속도)
 function convertAsciidocToHtml(raw){
   if(!raw) return '';
   const lines=String(raw).split('\n');
@@ -916,7 +907,7 @@ function convertAsciidocToHtml(raw){
       out.push('<div class="admonitionblock '+esc(type)+'"><div class="title">'+
                esc(blockMeta.type||'NOTE')+'</div><div class="content">'+admText+'</div></div>');
     }else if(inBlock==='code'){
-      const codeText=esc(blockLines.join('\n')).replace(/&lt;(\d+)&gt;/g,'<span class="conum">&lt;$1&gt;</span>');
+      const codeText=esc(blockLines.join('\n')).replace(/&lt;(\\d+)&gt;/g,'<span class="conum">&lt;$1&gt;</span>');
       out.push('<pre><code class="language-'+esc(blockMeta.lang||'')+'">'+codeText+'</code></pre>');
     }else if(inBlock==='table'){
       let tHtml='<table>';
@@ -937,17 +928,17 @@ function convertAsciidocToHtml(raw){
     const line=lines[i];
     const trimmed=line.trim();
     if(!inBlock){
-      const qm=trimmed.match(/^\[quote(?:,\s*([^,\]]+))?(?:,\s*([^\]]+))?\]/i);
+      const qm=trimmed.match(/^\\[quote(?:,\\s*([^,\\]]+))?(?:,\\s*([^\\]]+))?\\]/i);
       if(qm){
         pendingMeta={kind:'quote',author:qm[1]?qm[1].trim():'',source:qm[2]?qm[2].trim():''};
         continue;
       }
-      const am=trimmed.match(/^\[(NOTE|IMPORTANT|TIP|WARNING|CAUTION)\]/i);
+      const am=trimmed.match(/^\\[(NOTE|IMPORTANT|TIP|WARNING|CAUTION)\\]/i);
       if(am){
         pendingMeta={kind:'admonition',type:am[1].toUpperCase()};
         continue;
       }
-      const sm=trimmed.match(/^\[source(?:,\s*([a-zA-Z0-9_-]+))?\]/i);
+      const sm=trimmed.match(/^\\[source(?:,\\s*([a-zA-Z0-9_-]+))?\\]/i);
       if(sm){
         pendingMeta={kind:'code',lang:sm[1]?sm[1].trim():''};
         continue;
@@ -973,7 +964,7 @@ function convertAsciidocToHtml(raw){
         blockMeta={}; pendingMeta=null; tableRows=[]; continue;
       }
 
-      const imgMatch=trimmed.match(/^image::([^\[]+)\[([^,\]]*)(?:,\s*title=(?:"([^"]*)"|'([^']*)'|([^\]]*)))?\]/);
+      const imgMatch=trimmed.match(/^image::([^\\\\[]+)\\\\[([^,\\\\\\]]*)(?:,\\s*title=(?:\"([^\"]*)\"|'([^']*)'|([^\\\\\\]]*)))?\\\\]/);
       if(imgMatch){
         const src=imgMatch[1].trim();
         const alt=imgMatch[2]?imgMatch[2].trim():'';
@@ -982,19 +973,19 @@ function convertAsciidocToHtml(raw){
                  (cap?'<div class="title">'+esc(cap)+'</div>':'')+'</div>');
         continue;
       }
-      const colMatch=trimmed.match(/^<(\d+)>\s*(.+)/);
+      const colMatch=trimmed.match(/^<(\\d+)>\\s*(.+)/);
       if(colMatch){
         out.push('<div class="colist"><span class="conum">&lt;'+colMatch[1]+'&gt;</span> '+renderMarkdown(colMatch[2])+'</div>');
         continue;
       }
-      const h2Match=trimmed.match(/^==\s+(.+)$/);
+      const h2Match=trimmed.match(/^==\\s+(.+)$/);
       if(h2Match){ out.push('<h2>'+renderMarkdown(h2Match[1])+'</h2>'); continue; }
-      const h3Match=trimmed.match(/^===\s+(.+)$/);
+      const h3Match=trimmed.match(/^===\\s+(.+)$/);
       if(h3Match){ out.push('<h3>'+renderMarkdown(h3Match[1])+'</h3>'); continue; }
-      const h4Match=trimmed.match(/^====\s+(.+)$/);
+      const h4Match=trimmed.match(/^====\\s+(.+)$/);
       if(h4Match){ out.push('<h4>'+renderMarkdown(h4Match[1])+'</h4>'); continue; }
 
-      out.push(renderMarkdown(line.replace(/#([^#\n]+)#/g,'<mark>$1</mark>')));
+      out.push(renderMarkdown(line.replace(/#([^#\\n]+)#/g,'<mark>$1</mark>')));
     }else{
       if(inBlock==='quote'&&trimmed==='____') flushBlock();
       else if(inBlock==='admonition'&&trimmed==='====') flushBlock();
@@ -1019,16 +1010,7 @@ function convertAsciidocToHtml(raw){
 function renderAsciidoc(src){
   if(!src) return '';
   const raw=String(src);
-  const adoc=getAsciidoctor(), purifier=window.DOMPurify;
-  if(adoc && purifier && typeof purifier.sanitize==='function'){
-    try{
-      const s=raw.replace(/#([^#\n]+)#/g,'<mark>$1</mark>');
-      const html=adoc.convert(s,{safe:'safe',attributes:{showtitle:true}});
-      if(html && html.trim()){
-        return purifier.sanitize(html,{ADD_ATTR:['target'],ADD_TAGS:['mark']});
-      }
-    }catch(_){}
-  }
+  const purifier=window.DOMPurify;
   try{
     const html=convertAsciidocToHtml(raw);
     if(purifier && typeof purifier.sanitize==='function'){
@@ -1048,7 +1030,7 @@ function isAsciidoc(src, format){
   }
   if(!src) return false;
   const s=String(src);
-  return /(?:^|\n)\[(NOTE|TIP|IMPORTANT|WARNING|CAUTION|quote|source)[^\]]*\]|(?:^|\n)\|\=\=\=|(?:^|\n)image\:\:/m.test(s);
+  return /(?:^|\n)\\[(NOTE|TIP|IMPORTANT|WARNING|CAUTION|quote|source)[^\\]]*\\]|(?:^|\n)\\|===|(?:^|\n)image::/m.test(s);
 }
 
 function renderContent(src, format){
@@ -2537,7 +2519,6 @@ _SHARED_HTML = """<!doctype html>
 <link rel="mask-icon" href="/favicon.svg" color="#00ffaa"/>
 <meta name="theme-color" content="#0e1116"/>
 <script src="https://unpkg.com/marked@4.3.0/marked.min.js" integrity="sha384-QsSpx6a0USazT7nK7w8qXDgpSAPhFsb2XtpoLFQ5+X2yFN6hvCKnwEzN8M5FWaJb" crossorigin="anonymous"></script>
-<script src="https://unpkg.com/asciidoctor.js@1.5.9/dist/asciidoctor.min.js" integrity="sha384-LCGHpUP0PLBe6LP0H+g/Erfu638Pk0tWmGz9YMhk6qK55CeS/eTduwhxJuO4elp4" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/dompurify@3.1.6/dist/purify.min.js" integrity="sha384-+VfUPEb0PdtChMwmBcBmykRMDd+v6D/oFmB3rZM/puCMDYcIvF968OimRh4KQY9a" crossorigin="anonymous"></script>
 <style>
   :root{--bg:#ffffff;--fg:#1f2328;--muted:#656d76;--border:#d0d7de;--accent:#0969da;
@@ -2587,13 +2568,6 @@ _SHARED_HTML = """<!doctype html>
 <script id="docdata" type="application/json">__DATA__</script>
 <script>
 function esc(s){return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
-let _asciidoctorInstance=null;
-function getAsciidoctor(){
-  if(!_asciidoctorInstance && typeof window.Asciidoctor==='function'){
-    try{ _asciidoctorInstance=window.Asciidoctor(); }catch(_){}
-  }
-  return _asciidoctorInstance;
-}
 function renderMarkdown(src){
   if(!src) return '';
   const raw=String(src);
@@ -2632,7 +2606,7 @@ function convertAsciidocToHtml(raw){
       out.push('<div class="admonitionblock '+esc(type)+'"><div class="title">'+
                esc(blockMeta.type||'NOTE')+'</div><div class="content">'+admText+'</div></div>');
     }else if(inBlock==='code'){
-      const codeText=esc(blockLines.join('\n')).replace(/&lt;(\d+)&gt;/g,'<span class="conum">&lt;$1&gt;</span>');
+      const codeText=esc(blockLines.join('\n')).replace(/&lt;(\\d+)&gt;/g,'<span class="conum">&lt;$1&gt;</span>');
       out.push('<pre><code class="language-'+esc(blockMeta.lang||'')+'">'+codeText+'</code></pre>');
     }else if(inBlock==='table'){
       let tHtml='<table>';
@@ -2653,17 +2627,17 @@ function convertAsciidocToHtml(raw){
     const line=lines[i];
     const trimmed=line.trim();
     if(!inBlock){
-      const qm=trimmed.match(/^\[quote(?:,\s*([^,\]]+))?(?:,\s*([^\]]+))?\]/i);
+      const qm=trimmed.match(/^\\[quote(?:,\\s*([^,\\]]+))?(?:,\\s*([^\\]]+))?\\]/i);
       if(qm){
         pendingMeta={kind:'quote',author:qm[1]?qm[1].trim():'',source:qm[2]?qm[2].trim():''};
         continue;
       }
-      const am=trimmed.match(/^\[(NOTE|IMPORTANT|TIP|WARNING|CAUTION)\]/i);
+      const am=trimmed.match(/^\\[(NOTE|IMPORTANT|TIP|WARNING|CAUTION)\\]/i);
       if(am){
         pendingMeta={kind:'admonition',type:am[1].toUpperCase()};
         continue;
       }
-      const sm=trimmed.match(/^\[source(?:,\s*([a-zA-Z0-9_-]+))?\]/i);
+      const sm=trimmed.match(/^\\[source(?:,\\s*([a-zA-Z0-9_-]+))?\\]/i);
       if(sm){
         pendingMeta={kind:'code',lang:sm[1]?sm[1].trim():''};
         continue;
@@ -2689,7 +2663,7 @@ function convertAsciidocToHtml(raw){
         blockMeta={}; pendingMeta=null; tableRows=[]; continue;
       }
 
-      const imgMatch=trimmed.match(/^image::([^\[]+)\[([^,\]]*)(?:,\s*title=(?:"([^"]*)"|'([^']*)'|([^\]]*)))?\]/);
+      const imgMatch=trimmed.match(/^image::([^\\\\[]+)\\\\[([^,\\\\\\]]*)(?:,\\s*title=(?:\"([^\"]*)\"|'([^']*)'|([^\\\\\\]]*)))?\\\\]/);
       if(imgMatch){
         const src=imgMatch[1].trim();
         const alt=imgMatch[2]?imgMatch[2].trim():'';
@@ -2698,19 +2672,19 @@ function convertAsciidocToHtml(raw){
                  (cap?'<div class="title">'+esc(cap)+'</div>':'')+'</div>');
         continue;
       }
-      const colMatch=trimmed.match(/^<(\d+)>\s*(.+)/);
+      const colMatch=trimmed.match(/^<(\\d+)>\\s*(.+)/);
       if(colMatch){
         out.push('<div class="colist"><span class="conum">&lt;'+colMatch[1]+'&gt;</span> '+renderMarkdown(colMatch[2])+'</div>');
         continue;
       }
-      const h2Match=trimmed.match(/^==\s+(.+)$/);
+      const h2Match=trimmed.match(/^==\\s+(.+)$/);
       if(h2Match){ out.push('<h2>'+renderMarkdown(h2Match[1])+'</h2>'); continue; }
-      const h3Match=trimmed.match(/^===\s+(.+)$/);
+      const h3Match=trimmed.match(/^===\\s+(.+)$/);
       if(h3Match){ out.push('<h3>'+renderMarkdown(h3Match[1])+'</h3>'); continue; }
-      const h4Match=trimmed.match(/^====\s+(.+)$/);
+      const h4Match=trimmed.match(/^====\\s+(.+)$/);
       if(h4Match){ out.push('<h4>'+renderMarkdown(h4Match[1])+'</h4>'); continue; }
 
-      out.push(renderMarkdown(line.replace(/#([^#\n]+)#/g,'<mark>$1</mark>')));
+      out.push(renderMarkdown(line.replace(/#([^#\\n]+)#/g,'<mark>$1</mark>')));
     }else{
       if(inBlock==='quote'&&trimmed==='____') flushBlock();
       else if(inBlock==='admonition'&&trimmed==='====') flushBlock();
@@ -2734,16 +2708,7 @@ function convertAsciidocToHtml(raw){
 function renderAsciidoc(src){
   if(!src) return '';
   const raw=String(src);
-  const adoc=getAsciidoctor(), purifier=window.DOMPurify;
-  if(adoc && purifier && typeof purifier.sanitize==='function'){
-    try{
-      const s=raw.replace(/#([^#\n]+)#/g,'<mark>$1</mark>');
-      const html=adoc.convert(s,{safe:'safe',attributes:{showtitle:true}});
-      if(html && html.trim()){
-        return purifier.sanitize(html,{ADD_ATTR:['target'],ADD_TAGS:['mark']});
-      }
-    }catch(_){}
-  }
+  const purifier=window.DOMPurify;
   try{
     const html=convertAsciidocToHtml(raw);
     if(purifier && typeof purifier.sanitize==='function'){
@@ -2762,7 +2727,7 @@ function isAsciidoc(src, format){
   }
   if(!src) return false;
   const s=String(src);
-  return /(?:^|\n)\[(NOTE|TIP|IMPORTANT|WARNING|CAUTION|quote|source)[^\]]*\]|(?:^|\n)\|\=\=\=|(?:^|\n)image\:\:/m.test(s);
+  return /(?:^|\n)\\[(NOTE|TIP|IMPORTANT|WARNING|CAUTION|quote|source)[^\\]]*\\]|(?:^|\n)\\|===|(?:^|\n)image::/m.test(s);
 }
 function renderContent(src, format){
   if(!src) return '';
