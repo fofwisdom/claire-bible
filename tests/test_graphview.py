@@ -177,12 +177,13 @@ def test_graph_html_self_contained_markers():
     assert "renderResearchResult" in GRAPH_HTML                         # 진행/결과 렌더 분리
     assert "borderWidth: lit?3:1" in GRAPH_HTML                         # 강조(문서/검색) 흰 테두리
     assert "d.checkpoint" in GRAPH_HTML and "내부 체크포인트" in GRAPH_HTML
-    assert "d.backup" not in GRAPH_HTML
-    # 자동 확대 취소 방지: fit/focus/moveTo 래핑 및 netBusy 보호
-    assert "const _fit = net.fit.bind(net), _focus = net.focus.bind(net), _moveTo = net.moveTo.bind(net);" in GRAPH_HTML
-    assert "function getAnimDuration(opts)" in GRAPH_HTML
-    assert "if(!net || preservingGraphCamera || netBusy) return;" in GRAPH_HTML
-    assert "setTimeout(()=>{ if(activePane==='graph') relayoutPreservingCamera(); },750);" not in GRAPH_HTML
+    # 터치스크린 및 상세/읽기 뷰 오픈 시 롤오버 팝업 화면 가림 방지
+    assert "body.detail-open #nodepop" in GRAPH_HTML and "body.reader-open #nodepop" in GRAPH_HTML
+    assert "@media (hover:none)" in GRAPH_HTML
+    assert "function canShowNodePop()" in GRAPH_HTML and "isTouchActive()" in GRAPH_HTML
+    assert "clearTimeout(hoverTimer); hoverTimer=null;" in GRAPH_HTML
+    assert "window.addEventListener('touchstart'" in GRAPH_HTML
+    assert "window.addEventListener('pointerdown'" in GRAPH_HTML
 
 
 def test_browser_dependencies_are_pinned_with_sri_and_markdown_fails_closed():

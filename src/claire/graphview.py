@@ -456,7 +456,8 @@ GRAPH_HTML = """<!doctype html>
   mark{background:var(--mark-bg);color:var(--mark-fg);padding:0 .15em;border-radius:2px}
   /* 노드 hover 팝업 — 마우스 위치에 작게 띄우는 요약(우측 패널 미리보기 대체, 사용자 요구).
      클라 데이터(이름·타입·연결수·관찰 첫 줄)만 써서 fetch 없이 즉시. pointer-events:none 으로
-     커서/그래프 조작을 방해하지 않는다. */
+     커서/그래프 조작을 방해하지 않는다.
+     터치스크린 기기 또는 상세/읽기 화면이 열려 있을 때는 화면을 가리지 않도록 숨긴다. */
   #nodepop{position:fixed;z-index:60;max-width:340px;background:var(--card-bg);color:var(--fg);
     border:1px solid var(--border);border-radius:7px;box-shadow:0 6px 22px var(--shadow);
     padding:8px 11px;font-size:12px;line-height:1.45;pointer-events:none;display:none}
@@ -467,6 +468,11 @@ GRAPH_HTML = """<!doctype html>
   #nodepop .psrc{margin-top:.55em;border-top:1px solid var(--border);padding-top:.45em}
   #nodepop .ptt{font-weight:600;color:var(--accent);margin-bottom:.25em}
   #nodepop .psb{color:var(--muted);font-size:11px;line-height:1.45}
+  body.detail-open #nodepop,
+  body.reader-open #nodepop{display:none!important}
+  @media (hover:none){
+    #nodepop{display:none!important}
+  }
   /* 중복정리 패널의 유지문서 라디오 — 전역 input 폭(150px)이 라디오까지 늘리지 않게. */
   #panel input[type=radio]{width:auto;vertical-align:middle}
   /* --- 마크다운 본문(읽기 팝업 + 패널 detail) --- */
@@ -755,6 +761,16 @@ function esc(s){return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>'
 // --- 노드 hover 요약 팝업(마우스 위치) — fetch 없이 클라 데이터(allNodes)만 쓴다 ---
 // vis hoverNode 이벤트는 진입 위치를 안 주므로 #net 위 mousemove 로 커서 좌표를 추적해 둔다.
 let mouseXY={x:0,y:0};
+let lastTouchTime=0;
+function isTouchActive(){ return (Date.now()-lastTouchTime)<1200; }
+function canShowNodePop(){
+  if(window.matchMedia && window.matchMedia('(hover: none)').matches) return false;
+  if(isTouchActive()) return false;
+  if(detailOpen || document.body.classList.contains('detail-open') || document.body.classList.contains('reader-open')) return false;
+  return true;
+}
+window.addEventListener('touchstart', ()=>{ lastTouchTime=Date.now(); hideNodePop(); }, {passive:true,capture:true});
+window.addEventListener('pointerdown', e=>{ if(e.pointerType==='touch'){ lastTouchTime=Date.now(); hideNodePop(); } }, {passive:true,capture:true});
 document.getElementById('net').addEventListener('mousemove', e=>{ mouseXY.x=e.clientX; mouseXY.y=e.clientY; });
 const nodepop = document.getElementById('nodepop');
 let popReqId=null;        // 현재 팝업이 다루는 노드 id — 늦게 온 fetch 응답(stale) 무시용
@@ -764,6 +780,7 @@ let popExpandTimer=null;  // '좀 더 기다리면' 출처 문서를 펼치는 �
 // 1단계: 클라 데이터(이름·타입·연결수+관찰 첫 줄)로 즉시. 2단계: node fetch 로 관찰 3개.
 // 3단계: 더 끌면 출처 문서 1건(제목+글)을 덧붙인다(점진적 공개, 사용자 요구).
 function showNodePop(id, x, y){
+  if(!canShowNodePop()){ hideNodePop(); return; }
   const n=allNodes&&allNodes.get(id); if(!n){ hideNodePop(); return; }
   popReqId=id; clearTimeout(popExpandTimer);
   const px = x==null?mouseXY.x:x, py = y==null?mouseXY.y:y;
@@ -775,14 +792,14 @@ function showNodePop(id, x, y){
   nodepop.style.display='block';
   positionPop(px, py);                  // 표시 후(폭/높이 확정) 화면 밖으로 안 나가게 배치
   fetch('node?id='+encodeURIComponent(id)).then(r=>r.json()).then(d=>{
-    if(popReqId!==id || nodepop.style.display==='none' || !d || d.error) return;  // 이미 떠났으면 무시
+    if(!canShowNodePop() || popReqId!==id || nodepop.style.display==='none' || !d || d.error) return;  // 이미 떠났거나 상세 열렸으면 무시
     const obs=(d.observations||[]).slice(0,3);   // 관찰 최대 3개(설명이 너무 적던 문제)
     const base=head + obs.map(o=>'<div class=po>'+esc((o||'').slice(0,200))+'</div>').join('');
     nodepop.innerHTML=base; positionPop(+nodepop.dataset.x, +nodepop.dataset.y);
     const docs=d.documents||[];
     if(docs.length){                    // 좀 더 머물면 출처 문서 1건을 덧붙임
       popExpandTimer=setTimeout(()=>{
-        if(popReqId!==id || nodepop.style.display==='none') return;
+        if(!canShowNodePop() || popReqId!==id || nodepop.style.display==='none') return;
         nodepop.innerHTML=base+popSource(docs[0]);
         positionPop(+nodepop.dataset.x, +nodepop.dataset.y);
       }, 1400);
@@ -802,7 +819,11 @@ function positionPop(x, y){
   if(ny+ph > window.innerHeight-4) ny=y-pad-ph;    // 아래 넘치면 커서 위로
   nodepop.style.left=Math.max(4,nx)+'px'; nodepop.style.top=Math.max(4,ny)+'px';
 }
-function hideNodePop(){ popReqId=null; clearTimeout(popExpandTimer); nodepop.style.display='none'; }
+function hideNodePop(){
+  clearTimeout(hoverTimer); hoverTimer=null;
+  popReqId=null; clearTimeout(popExpandTimer); popExpandTimer=null;
+  if(nodepop) nodepop.style.display='none';
+}
 
 // 타입별 노드 그룹 색(테마별 테두리). 테마 전환 시 다시 만들어 setOptions 로 적용.
 function buildGroups(){ const g={}, th=T();
@@ -909,6 +930,7 @@ async function markDocumentSeen(docId){
   }catch(_){}
 }
 function openReader(docId){
+  hideNodePop();
   const r=document.getElementById('reader');
   readerReturnFocus=document.activeElement;
   readerReturnDocId=docId;
@@ -953,6 +975,7 @@ function extraSourcesHtml(dc){
       esc(s.title||s.url||'')+'</a></li>').join('')+'</ul>';
 }
 function closeReader(){
+  hideNodePop();
   const r=document.getElementById('reader'); if(!r.classList.contains('open')) return;
   r.classList.remove('open'); r.setAttribute('aria-hidden','true'); r.setAttribute('aria-busy','false');
   document.body.classList.remove('reader-open');
@@ -1115,6 +1138,7 @@ function syncWorkspaceLayout(){
   }
 }
 function revealWorkspace(name, focusTab=false){
+  hideNodePop();
   if(!paneNames.includes(name)) return;
   if(activePane==='graph' && !netBusy) rememberGraphCamera();
   activePane=name;
@@ -1126,6 +1150,7 @@ function revealWorkspace(name, focusTab=false){
   if(focusTab && mobileMQ.matches) paneTabs[name].focus();
 }
 function openDetailPane(){
+  hideNodePop();
   detailReturnFocus=document.activeElement;
   detailOpen=true;
   closeGraphDocPicker();
@@ -1133,6 +1158,7 @@ function openDetailPane(){
   syncWorkspaceLayout();
 }
 function closeDetailPane(){
+  hideNodePop();
   detailOpen=false;
   syncWorkspaceLayout();
   let target=detailReturnFocus && detailReturnFocus.isConnected ? detailReturnFocus : null;
@@ -1403,6 +1429,7 @@ fetch('graph').then(r=>r.json()).then(d=>{
     return _moveTo(opts);
   };
   net.on('click', p => {
+    hideNodePop();
     if(!p.nodes.length){
       // 빈 캔버스 클릭: inspect 만 해제하고 검색(라벨/의미) 강조 선택은 유지(이슈4).
       // vis 가 내부적으로 선택을 비우므로 그 뒤에 검색 선택을 다시 적용한다.
@@ -1418,9 +1445,13 @@ fetch('graph').then(r=>r.json()).then(d=>{
   });
   // hover → 1.5초 뒤 마우스 위치에 작은 요약 팝업(우측 패널은 안 건드림 — 난잡함 해소, 사용자 요구).
   // 우측 패널은 클릭(inspect)일 때만 바뀐다 → hover 가 패널/선택을 흔들지 않아 복원 로직도 불필요.
-  net.on('hoverNode', p => { clearTimeout(hoverTimer);
-    hoverTimer=setTimeout(()=>showNodePop(p.node), 1500); });
-  net.on('blurNode', () => { clearTimeout(hoverTimer); hideNodePop(); });
+  net.on('hoverNode', p => {
+    clearTimeout(hoverTimer);
+    if(!canShowNodePop()) return;
+    hoverTimer=setTimeout(()=>showNodePop(p.node), 1500);
+  });
+  net.on('blurNode', () => { hideNodePop(); });
+  net.on('hold', hideNodePop);
   net.on('dragStart', hideNodePop);   // 드래그/줌 중엔 팝업 숨김(커서를 따라다니지 않게)
   net.on('selectEdge', p=>{ selectedEdgeIds=new Set(p.edges||[]); applyView(); });
   net.on('deselectEdge', ()=>{ selectedEdgeIds.clear(); applyView(); });
@@ -1461,6 +1492,7 @@ document.addEventListener('keydown', e=>{
   clearSelections(); });
 
 function loadNode(id){
+  hideNodePop();
   if(net) net.selectNodes([id]);   // 클릭 inspect — hover 는 더 이상 패널을 안 쓴다(팝업으로 분리)
   applyView();                     // 선택 노드 주변 엣지만 강조하고 관계 라벨을 펼친다
   fetch('node?id='+encodeURIComponent(id)).then(r=>r.json()).then(renderPanel);
@@ -2123,6 +2155,7 @@ function peekNode(ev, id){
   if(net) net.focus(id,{scale:1.2,
     animation:graphAnimation({duration:400,easingFunction:'easeInOutQuad'})});
   clearTimeout(hoverTimer);
+  if(!canShowNodePop()) return;
   const x=ev.clientX, y=ev.clientY;
   hoverTimer=setTimeout(()=>showNodePop(id, x, y), 1500);
 }
