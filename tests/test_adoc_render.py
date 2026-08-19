@@ -164,11 +164,13 @@ def test_graphview_detail_format_and_html():
     assert "convertAsciidocToHtml" in s_html
     assert "renderContent" in s_html
     assert ".admonitionblock" in s_html
+    assert "asciidoctor" in s_html
 
     # GRAPH_HTML 검증
     assert "convertAsciidocToHtml" in GRAPH_HTML
     assert "renderContent" in GRAPH_HTML
     assert ".admonitionblock" in GRAPH_HTML
     assert ".quoteblock" in GRAPH_HTML
+    assert "asciidoctor" in GRAPH_HTML
 
     conn.close()

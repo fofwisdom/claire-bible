@@ -128,8 +128,16 @@ class Settings(BaseSettings):
 - `ensure_document_detail(conn, provider, doc, *, force=False, format=None)`에서 `format` 매개변수 우선 적용 및 `doc.meta`/설정값 자동 매핑.
 - `IngestService.ingest()`, `refresh_document()`, `reextract_all()`, `backfill_details()`, `merge_source_into_document()`에 `format` 전달 체계 완비.
 
-### 5) CLI 명령어 확장 ([cli.py](../../src/claire/cli.py))
+### 5) 운영 도구 (`cb-manuscript`) 및 CLI 명령어 확장
+사용자는 호스트 OS에서 단일 진입점인 `cb-manuscript`만으로 업데이트 및 포맷 전환 작업을 수행할 수 있습니다:
 ```bash
+# [권장] cb-manuscript 를 통한 운영 환경 포맷 전환 및 백필
+./cb-manuscript app backfill-detail --format adoc --force
+
+# [권장] cb-manuscript 를 통한 포맷 전환 재추출
+./cb-manuscript app --advanced reextract --format adoc
+
+# 컨테이너 내부 직접 실행 시:
 # ADOC 포맷으로 단건 적재
 claire ingest "https://example.com/article" --format adoc
 
@@ -140,14 +148,14 @@ claire reextract --format adoc
 claire backfill-detail --format adoc --force
 ```
 
-### 6) Web UI 듀얼 렌더러 ([graphview.py](../../src/claire/graphview.py))
-- **외부 무거운 CDN/런타임(Opal/Asciidoctor.js 1.5MB) 완전 배제 & 100% 자체 완결형 초경량 엔진**:
-  - 외부 무거운 번들로 인한 화면 블로킹 및 흰 화면(White Screen) 현상을 원천 방지하고, 프로젝트의 라이선스 순수성과 초고속 첫 페이지 로딩(FCP)을 보장.
-- **내장 고성능 AsciiDoc 트랜스파일러 (`convertAsciidocToHtml`) 탑재**:
-  - 인용(`[quote]`), 코드 및 번호 주석(`[source]` + `<1>`), 노트(`[NOTE]`/`[TIP]`/`[WARNING]`/`[IMPORTANT]`/`[CAUTION]`), 표(`|===`), 이미지(`image::`), 헤더(`==`), 형광(`##`)을 100% 자체 완결적으로 안전 렌더링.
+### 6) Web UI 하이브리드 듀얼 렌더러 ([graphview.py](../../src/claire/graphview.py))
+- **공식 Asciidoctor.js CDN + 내장 경량 파서 하이브리드 파이프라인**:
+  - `Asciidoctor.js` 공식 엔진을 로드하여 표준 AsciiDoc 문법 전체(복합 블록, 다단 표, 복잡한 인용 및 속성 등)를 100% 완전하게 렌더링.
+  - CDN 지연이나 오프라인 환경에서도 내장 경량 파서(`convertAsciidocToHtml`)가 2차 방어선으로 graceful fallback.
+  - 최종 HTML 출력은 항상 `DOMPurify.sanitize()`를 거쳐 보안 살균.
 - `renderContent(src, format)` 함수를 통한 지능형 렌더링:
   - `isAsciidoc(src, format)`을 통해 명시적 포맷 또는 ADOC 시그니처 감지.
-  - 내장 `convertAsciidocToHtml()` $\rightarrow$ `DOMPurify.sanitize()`의 2단계 고속 안전 파이프라인.
+  - `getAsciidoctor()` $\rightarrow$ `convertAsciidocToHtml()` $\rightarrow$ `DOMPurify.sanitize()`의 3단계 안전 파이프라인.
 - **CSS 테마 일치**:
   - Light/Dark 테마 변수(`--bg`, `--card-bg`, `--accent`, `--mark-bg` 등)와 100% 호환되는 Admonition Box, Quote Block, Callout Badge(`.conum`), Table 스타일 적용.
 - `#reader` 모달 및 `/p?s=token` 공유 페이지(`shared_html`) 모두에 동일 듀얼 렌더러 적용.

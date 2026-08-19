@@ -287,6 +287,7 @@ GRAPH_HTML = """<!doctype html>
 <meta name="theme-color" content="#0e1116"/>
 <script src="https://unpkg.com/vis-network@9.1.11/standalone/umd/vis-network.min.js" integrity="sha384-60H6/hL99pRYjWacRdebxM1T2R6jvWyd9GVAb7d4fp9BSfv4f0i5sWjkprnnG0cz" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/marked@4.3.0/marked.min.js" integrity="sha384-QsSpx6a0USazT7nK7w8qXDgpSAPhFsb2XtpoLFQ5+X2yFN6hvCKnwEzN8M5FWaJb" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@asciidoctor/core@2.2.8/dist/browser/asciidoctor.min.js" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/dompurify@3.1.6/dist/purify.min.js" integrity="sha384-+VfUPEb0PdtChMwmBcBmykRMDd+v6D/oFmB3rZM/puCMDYcIvF968OimRh4KQY9a" crossorigin="anonymous"></script>
 <script>
   // 깜빡임 방지: 페인트 전에 저장된 테마를 documentElement 에 적용. 기본값=light(사용자 요구).
@@ -964,7 +965,7 @@ function convertAsciidocToHtml(raw){
         blockMeta={}; pendingMeta=null; tableRows=[]; continue;
       }
 
-      const imgMatch=trimmed.match(/^image::([^\\\\[]+)\\\\[([^,\\\\\\]]*)(?:,\\s*title=(?:\"([^\"]*)\"|'([^']*)'|([^\\\\\\]]*)))?\\\\]/);
+      const imgMatch=trimmed.match(/^image::([^\\[]+)\\[([^,\\]]*)(?:,\\s*title=(?:\"([^\"]*)\"|'([^']*)'|([^\\]]*)))?\\]/);
       if(imgMatch){
         const src=imgMatch[1].trim();
         const alt=imgMatch[2]?imgMatch[2].trim():'';
@@ -1007,18 +1008,44 @@ function convertAsciidocToHtml(raw){
   return out.join('\n');
 }
 
+let _asciidoctorInstance = null;
+function getAsciidoctor(){
+  if(_asciidoctorInstance) return _asciidoctorInstance;
+  try{
+    if(typeof window.Asciidoctor === 'function'){
+      _asciidoctorInstance = window.Asciidoctor();
+      return _asciidoctorInstance;
+    }
+  }catch(_){}
+  return null;
+}
+
 function renderAsciidoc(src){
   if(!src) return '';
   const raw=String(src);
   const purifier=window.DOMPurify;
   try{
-    const html=convertAsciidocToHtml(raw);
+    const adoc = getAsciidoctor();
+    let html = '';
+    if(adoc && typeof adoc.convert === 'function'){
+      html = adoc.convert(raw, {safe:'secure', attributes:{showtitle:true, icons:'font'}});
+    }else{
+      html = convertAsciidocToHtml(raw);
+    }
     if(purifier && typeof purifier.sanitize==='function'){
       return purifier.sanitize(html,{ADD_ATTR:['target'],ADD_TAGS:['mark']});
     }
     return html;
   }catch(_){
-    return renderMarkdown(raw);
+    try{
+      const fallbackHtml = convertAsciidocToHtml(raw);
+      if(purifier && typeof purifier.sanitize==='function'){
+        return purifier.sanitize(fallbackHtml,{ADD_ATTR:['target'],ADD_TAGS:['mark']});
+      }
+      return fallbackHtml;
+    }catch(__){
+      return renderMarkdown(raw);
+    }
   }
 }
 
@@ -1030,7 +1057,7 @@ function isAsciidoc(src, format){
   }
   if(!src) return false;
   const s=String(src);
-  return /(?:^|\n)\\[(NOTE|TIP|IMPORTANT|WARNING|CAUTION|quote|source)[^\\]]*\\]|(?:^|\n)\\|===|(?:^|\n)image::/m.test(s);
+  return /(?:^|\\n)\\[(NOTE|TIP|IMPORTANT|WARNING|CAUTION|quote|source)[^\\]]*\\]|(?:^|\\n)\\|===|(?:^|\\n)image::/m.test(s);
 }
 
 function renderContent(src, format){
@@ -2519,6 +2546,7 @@ _SHARED_HTML = """<!doctype html>
 <link rel="mask-icon" href="/favicon.svg" color="#00ffaa"/>
 <meta name="theme-color" content="#0e1116"/>
 <script src="https://unpkg.com/marked@4.3.0/marked.min.js" integrity="sha384-QsSpx6a0USazT7nK7w8qXDgpSAPhFsb2XtpoLFQ5+X2yFN6hvCKnwEzN8M5FWaJb" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@asciidoctor/core@2.2.8/dist/browser/asciidoctor.min.js" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/dompurify@3.1.6/dist/purify.min.js" integrity="sha384-+VfUPEb0PdtChMwmBcBmykRMDd+v6D/oFmB3rZM/puCMDYcIvF968OimRh4KQY9a" crossorigin="anonymous"></script>
 <style>
   :root{--bg:#ffffff;--fg:#1f2328;--muted:#656d76;--border:#d0d7de;--accent:#0969da;
@@ -2663,7 +2691,7 @@ function convertAsciidocToHtml(raw){
         blockMeta={}; pendingMeta=null; tableRows=[]; continue;
       }
 
-      const imgMatch=trimmed.match(/^image::([^\\\\[]+)\\\\[([^,\\\\\\]]*)(?:,\\s*title=(?:\"([^\"]*)\"|'([^']*)'|([^\\\\\\]]*)))?\\\\]/);
+      const imgMatch=trimmed.match(/^image::([^\\[]+)\\[([^,\\]]*)(?:,\\s*title=(?:\"([^\"]*)\"|'([^']*)'|([^\\]]*)))?\\]/);
       if(imgMatch){
         const src=imgMatch[1].trim();
         const alt=imgMatch[2]?imgMatch[2].trim():'';
@@ -2704,19 +2732,44 @@ function convertAsciidocToHtml(raw){
   }
   flushBlock();
   return out.join('\n');
+let _asciidoctorInstanceShared = null;
+function getAsciidoctorShared(){
+  if(_asciidoctorInstanceShared) return _asciidoctorInstanceShared;
+  try{
+    if(typeof window.Asciidoctor === 'function'){
+      _asciidoctorInstanceShared = window.Asciidoctor();
+      return _asciidoctorInstanceShared;
+    }
+  }catch(_){}
+  return null;
 }
+
 function renderAsciidoc(src){
   if(!src) return '';
   const raw=String(src);
   const purifier=window.DOMPurify;
   try{
-    const html=convertAsciidocToHtml(raw);
+    const adoc = getAsciidoctorShared();
+    let html = '';
+    if(adoc && typeof adoc.convert === 'function'){
+      html = adoc.convert(raw, {safe:'secure', attributes:{showtitle:true, icons:'font'}});
+    }else{
+      html = convertAsciidocToHtml(raw);
+    }
     if(purifier && typeof purifier.sanitize==='function'){
       return purifier.sanitize(html,{ADD_ATTR:['target'],ADD_TAGS:['mark']});
     }
     return html;
   }catch(_){
-    return renderMarkdown(raw);
+    try{
+      const fallbackHtml = convertAsciidocToHtml(raw);
+      if(purifier && typeof purifier.sanitize==='function'){
+        return purifier.sanitize(fallbackHtml,{ADD_ATTR:['target'],ADD_TAGS:['mark']});
+      }
+      return fallbackHtml;
+    }catch(__){
+      return renderMarkdown(raw);
+    }
   }
 }
 function isAsciidoc(src, format){
@@ -2727,7 +2780,7 @@ function isAsciidoc(src, format){
   }
   if(!src) return false;
   const s=String(src);
-  return /(?:^|\n)\\[(NOTE|TIP|IMPORTANT|WARNING|CAUTION|quote|source)[^\\]]*\\]|(?:^|\n)\\|===|(?:^|\n)image::/m.test(s);
+  return /(?:^|\\n)\\[(NOTE|TIP|IMPORTANT|WARNING|CAUTION|quote|source)[^\\]]*\\]|(?:^|\\n)\\|===|(?:^|\\n)image::/m.test(s);
 }
 function renderContent(src, format){
   if(!src) return '';
