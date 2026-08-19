@@ -374,10 +374,15 @@ def create_app(
         def _documents() -> dict[str, Any]:
             conn = dbm.connect_existing(s.db_file, readonly=True)
             try:
+                format_status = dbm.check_format_mismatch(conn, getattr(s, "render_format", "md"))
                 try:
-                    return {"documents": documents_list(conn, include_hidden=include_hidden)}
+                    docs = documents_list(conn, include_hidden=include_hidden)
                 except TypeError:
-                    return {"documents": documents_list(conn)}
+                    docs = documents_list(conn)
+                return {
+                    "documents": docs,
+                    "format_status": format_status,
+                }
             finally:
                 conn.close()
 

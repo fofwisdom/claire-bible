@@ -324,6 +324,11 @@ GRAPH_HTML = """<!doctype html>
   #bar{position:relative;z-index:40;display:flex;align-items:center;gap:8px;padding:7px 12px;
     min-height:48px;background:var(--bar-bg);border-bottom:1px solid var(--border);
     font-size:13px;white-space:nowrap}
+  #format-warn-banner{display:none;background:#d97706;color:#ffffff;padding:8px 14px;font-size:12px;
+    align-items:center;justify-content:space-between;gap:10px;z-index:45;border-bottom:1px solid rgba(0,0,0,.12)}
+  [data-theme="dark"] #format-warn-banner{background:#b45309;color:#fef3c7}
+  #format-warn-banner code{background:rgba(0,0,0,.2);padding:2px 6px;border-radius:4px;font-family:monospace;font-size:11px}
+  #format-warn-banner .close-btn{background:transparent;border:0;color:inherit;font-size:15px;cursor:pointer;line-height:1;padding:2px 6px}
   #bar .brand{font-weight:700;letter-spacing:-.01em}
   #bar b{color:var(--accent2)}
   #barsearch{display:flex;align-items:center;gap:6px;min-width:170px}
@@ -670,6 +675,10 @@ GRAPH_HTML = """<!doctype html>
     <span id="stat" role="status" aria-live="polite">로딩…</span>
   </div>
 </header>
+<div id="format-warn-banner" role="alert">
+  <div id="format-warn-text"></div>
+  <button class="close-btn" onclick="document.getElementById('format-warn-banner').style.display='none'" title="닫기">✕</button>
+</div>
 <nav id="worktabs" role="tablist" aria-label="작업 영역">
   <button id="tab-docs" role="tab" aria-selected="true" aria-controls="docs" data-pane="docs">자료</button>
   <button id="tab-graph" role="tab" aria-selected="false" aria-controls="netwrap" data-pane="graph" tabindex="-1">그래프</button>
@@ -2488,7 +2497,22 @@ async function semanticSearch(q){
 
 // documents와 /whoami를 병렬로 읽되, scope가 확정되기 전 렌더는 항상 read-only다.
 syncThemeBtn();   // 저장된 테마에 맞춰 🌙/🌞 라벨 동기화(테마 자체는 head 인라인에서 선적용)
-fetch('documents').then(r=>r.json()).then(d=>{ allDocs=d.documents||[]; renderDocs(); });
+fetch('documents').then(r=>r.json()).then(d=>{
+  allDocs=d.documents||[];
+  renderDocs();
+  if(d.format_status && d.format_status.needs_migration){
+    const fs=d.format_status;
+    const banner=document.getElementById('format-warn-banner');
+    const text=document.getElementById('format-warn-text');
+    if(banner && text){
+      const cfg=(fs.configured||'').toUpperCase();
+      const other=cfg==='ADOC'?'MD':'ADOC';
+      text.innerHTML='⚠️ <b>렌더링 포맷 불일치</b>: .env 설정은 <b>'+cfg+'</b>이나, DB 문서 중 '+
+        fs.mismatched+'개가 <b>'+other+'</b> 포맷입니다. <code>./cb-manuscript format-migrate --format '+(fs.configured||'adoc')+'</code> 실행이 필요합니다.';
+      banner.style.display='flex';
+    }
+  }
+});
 fetch('whoami').then(r=>{ if(!r.ok) throw new Error('whoami failed'); return r.json(); }).then(d=>{
   setAccessScope(d.scope);
 }).catch(()=>{ setAccessScope('unknown','failed'); });

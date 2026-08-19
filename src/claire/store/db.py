@@ -1236,6 +1236,36 @@ def documents_missing_detail(conn: sqlite3.Connection, limit: int = 0) -> list[s
     return [r["id"] for r in conn.execute(q).fetchall()]
 
 
+def check_format_mismatch(
+    conn: sqlite3.Connection,
+    configured_format: str,
+) -> dict[str, Any]:
+    """설정된 포맷(Settings.render_format)과 DB에 저장된 detail 포맷 불일치 여부를 진단."""
+    target = (configured_format or "md").strip().lower()
+    if target in ("asciidoc", "adoc"):
+        target = "adoc"
+    else:
+        target = "md"
+
+    row_total = conn.execute(
+        "SELECT COUNT(*) as c FROM documents WHERE detail IS NOT NULL AND trim(detail) != ''"
+    ).fetchone()
+    total_with_detail = row_total["c"] if row_total else 0
+
+    row_mismatched = conn.execute(
+        "SELECT COUNT(*) as c FROM documents WHERE detail IS NOT NULL AND trim(detail) != '' AND lower(coalesce(detail_format, 'md')) != ?",
+        (target,),
+    ).fetchone()
+    mismatched = row_mismatched["c"] if row_mismatched else 0
+
+    return {
+        "configured": target,
+        "total_with_detail": total_with_detail,
+        "mismatched": mismatched,
+        "needs_migration": (mismatched > 0),
+    }
+
+
 # --- refresh queue (복원 메커니즘) ---
 
 def enqueue_refresh(

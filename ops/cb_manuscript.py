@@ -2920,6 +2920,64 @@ def command_version(layout: Layout) -> int:
     return 0
 
 
+def command_format_migrate(
+    runtime: Runtime,
+    *,
+    target_format: str = "adoc",
+    confirmed: bool = False,
+) -> int:
+    fmt = (target_format or "adoc").strip().lower()
+    if fmt in ("asciidoc", "adoc"):
+        norm_format = "adoc"
+    elif fmt in ("markdown", "md"):
+        norm_format = "md"
+    else:
+        raise ManuscriptError(f"Unsupported format: {target_format!r}. Must be 'adoc' or 'md'.")
+
+    fmt_label = norm_format.upper()
+
+    if not confirmed:
+        print(f"cb-manuscript: [주의] 포맷 마이그레이션 ({fmt_label}) 작업의 부수적 효과 안내:")
+        print("  1. 지식그래프 재추출 (reextract):")
+        print("     - 모든 문서의 온톨로지 엔티티 및 관계를 LLM으로 다시 추출하여 지식그래프를 재구축합니다.")
+        print("     - 기존 수동 생성/편집된 지식그래프 노드 및 엣지가 재추출 결과로 갱신됩니다.")
+        print(f"  2. 본문 렌더링 포맷 재구성 (backfill-detail):")
+        print(f"     - 모든 문서의 가독 본문(detail)이 {fmt_label} 포맷으로 재생성/덮어쓰기됩니다.")
+        print("  3. LLM API 호출 및 소요 시간:")
+        print("     - 전체 문서 수에 비례하여 대량의 LLM API 호출이 발생하며 수 분~수십 분이 소요될 수 있습니다.")
+        print("  4. 데이터 안전성:")
+        print("     - DB 내 원문(raw_text) 및 원본 수집 파일(data/raw/files/)은 안전하게 보존됩니다.")
+        print()
+        print(f"실행하려면 --yes 옵션을 명시하여 다시 실행하십시오:")
+        print(f"  ./cb-manuscript format-migrate --format {norm_format} --yes")
+        return 2
+
+    with InstanceLock(runtime):
+        print(f"[*] Starting continuous format migration to {fmt_label}...")
+        print(f"    [Step 1/2] Re-extracting knowledge graph in {fmt_label} format (claire reextract)...")
+        r1 = run_compose(
+            runtime,
+            ("run", "--rm", "--no-deps", "api", "claire", "reextract", "--format", norm_format),
+            check=False,
+        )
+        if r1.returncode != 0:
+            raise ManuscriptError(f"Step 1 (reextract) failed with exit code {r1.returncode}")
+
+        print(f"    [Step 2/2] Backfilling detail bodies in {fmt_label} format (claire backfill-detail --force)...")
+        r2 = run_compose(
+            runtime,
+            ("run", "--rm", "--no-deps", "api", "claire", "backfill-detail", "--format", norm_format, "--force"),
+            check=False,
+        )
+        if r2.returncode != 0:
+            raise ManuscriptError(f"Step 2 (backfill-detail) failed with exit code {r2.returncode}")
+
+        print(f"[✓] Format migration to {fmt_label} completed successfully!")
+        print(f"    - Knowledge graph entities and relations rebuilt.")
+        print(f"    - Document detail bodies regenerated in {fmt_label} format.")
+    return 0
+
+
 def _app_guard_reason(args: Sequence[str]) -> str | None:
     if not args or args[0] in {"-h", "--help"}:
         return None
@@ -3221,7 +3279,38 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
 
-    # 8. version
+    # 8. format-migrate
+    fmt_parser = subparsers.add_parser(
+        "format-migrate",
+        help="Continuously re-extract graph and backfill detail in target format (adoc/md)",
+        description=(
+            "Execute atomic continuous migration to target render format (ADOC/MD).\n"
+            "Runs 'reextract' followed by 'backfill-detail --force' sequentially in a single command.\n\n"
+            "Safety Policy:\n"
+            "  - Rebuilds knowledge graph and regenerates all document details.\n"
+            "  - Requires explicit --yes flag to proceed."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  ./cb-manuscript format-migrate --format adoc --yes  # Migrate to AsciiDoc\n"
+            "  ./cb-manuscript format-migrate --format md --yes    # Revert to Markdown\n"
+            "  ./cb-manuscript dev format-migrate --yes            # Run in development environment"
+        ),
+    )
+    fmt_parser.add_argument(
+        "--format",
+        choices=("adoc", "md", "asciidoc", "markdown"),
+        default="adoc",
+        help="Target rendering format: adoc or md (default: adoc)",
+    )
+    fmt_parser.add_argument(
+        "--yes",
+        action="store_true",
+        help="Confirm execution and accept side effects (knowledge graph rebuild & LLM API calls)",
+    )
+
+    # 9. version
     subparsers.add_parser(
         "version",
         help="Display wrapper and source versions",
@@ -3505,6 +3594,12 @@ def main(argv: Sequence[str] | None = None, *, root: Path | None = None) -> int:
             )
         if parsed.command == "health":
             return command_health(runtime)
+        if parsed.command == "format-migrate":
+            return command_format_migrate(
+                runtime,
+                target_format=parsed.format,
+                confirmed=parsed.yes,
+            )
         raise ManuscriptError(f"Unknown command: {parsed.command}")
     except SystemExit as exc:
         if argv is None:

@@ -1349,3 +1349,30 @@ def test_all_subparsers_have_rich_descriptions():
     for name, subparser in subparsers_action.choices.items():
         assert subparser.description, f"{name} subparser is missing a description"
 
+
+def test_format_migrate_requires_yes_and_shows_side_effects(tmp_path, capsys):
+    _write_layout(tmp_path, dev=False)
+    code = cb.main(["format-migrate", "--format", "adoc"], root=tmp_path)
+    assert code == 2
+    captured = capsys.readouterr().out
+    assert "부수적 효과 안내" in captured
+    assert "reextract" in captured
+    assert "backfill-detail" in captured
+    assert "--yes" in captured
+
+
+def test_format_migrate_executes_reextract_and_backfill_continuously(tmp_path, capsys):
+    _write_layout(tmp_path, dev=False)
+    with patch.object(cb.subprocess, "run", side_effect=_fake_success) as run:
+        code = cb.main(["format-migrate", "--format", "adoc", "--yes"], root=tmp_path)
+        assert code == 0
+
+    commands = _commands(run)
+    assert len(commands) == 2
+    # 1. reextract
+    assert commands[0][-4:] == ["claire", "reextract", "--format", "adoc"]
+    # 2. backfill-detail --force
+    assert commands[1][-5:] == ["claire", "backfill-detail", "--format", "adoc", "--force"]
+    captured = capsys.readouterr().out
+    assert "completed successfully" in captured
+

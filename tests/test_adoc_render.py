@@ -172,5 +172,55 @@ def test_graphview_detail_format_and_html():
     assert ".admonitionblock" in GRAPH_HTML
     assert ".quoteblock" in GRAPH_HTML
     assert "asciidoctor" in GRAPH_HTML
+    assert "format-warn-banner" in GRAPH_HTML
+
+    conn.close()
+
+
+def test_check_format_mismatch():
+    """check_format_mismatch 가 설정 포맷과 DB 의 detail_format 불일치 여부를 정확히 진단하는지 검증."""
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    dbm.init_db(conn)
+
+    # 1. 문서가 없을 때
+    res_empty = dbm.check_format_mismatch(conn, "adoc")
+    assert res_empty["configured"] == "adoc"
+    assert res_empty["total_with_detail"] == 0
+    assert res_empty["mismatched"] == 0
+    assert res_empty["needs_migration"] is False
+
+    # 2. md 포맷 문서 2개 추가
+    conn.execute(
+        "INSERT INTO documents (id, title, url, raw_text, fetched_at, detail, detail_format) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        ("d1", "문서1", "https://example.com/1", "텍스트1", 1000.0, "본문1", "md"),
+    )
+    conn.execute(
+        "INSERT INTO documents (id, title, url, raw_text, fetched_at, detail, detail_format) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        ("d2", "문서2", "https://example.com/2", "텍스트2", 1000.0, "본문2", "md"),
+    )
+
+    # 설정이 'md' 이면 일치
+    res_md = dbm.check_format_mismatch(conn, "md")
+    assert res_md["needs_migration"] is False
+    assert res_md["mismatched"] == 0
+
+    # 설정이 'adoc' 이면 불일치 감지
+    res_adoc = dbm.check_format_mismatch(conn, "adoc")
+    assert res_adoc["needs_migration"] is True
+    assert res_adoc["mismatched"] == 2
+    assert res_adoc["total_with_detail"] == 2
+
+    # 1개 문서를 adoc 으로 갱신
+    dbm.set_document_detail(conn, "d1", "[NOTE]\n====\n노트\n====", format="adoc")
+    res_adoc_partial = dbm.check_format_mismatch(conn, "adoc")
+    assert res_adoc_partial["needs_migration"] is True
+    assert res_adoc_partial["mismatched"] == 1
+
+    # 나머지 1개도 adoc 으로 갱신하면 완전 일치
+    dbm.set_document_detail(conn, "d2", "[TIP]\n====\n팁\n====", format="adoc")
+    res_adoc_full = dbm.check_format_mismatch(conn, "adoc")
+    assert res_adoc_full["needs_migration"] is False
+    assert res_adoc_full["mismatched"] == 0
 
     conn.close()
