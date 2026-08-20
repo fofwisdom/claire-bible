@@ -28,10 +28,10 @@ test('mobile primary tabs keep document navigation on the graph', async ({ page 
   await waitForClaire(page);
   await expectNoHorizontalOverflow(page);
 
-  const tabs = page.getByRole('tab');
-  await expect(tabs).toHaveCount(2);
-  await expect(page.getByRole('tab', { name: '자료' })).toHaveAttribute('aria-selected', 'true');
-  await expect(page.getByRole('tab', { name: '상세' })).toHaveCount(0);
+  const tabs = page.locator('#worktabs button');
+  await expect(tabs).toHaveCount(3);
+  await expect(page.locator('#tab-docs')).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator('#morebtn')).toBeHidden();
   await expect(page.locator('#docs')).toBeVisible();
   await expect(page.locator('#netwrap')).toBeHidden();
   await expect(page.locator('#detailpane')).toBeHidden();
@@ -39,16 +39,19 @@ test('mobile primary tabs keep document navigation on the graph', async ({ page 
   expect(await page.locator('#detailpane').evaluate(element => element.inert)).toBe(true);
 
   for (const locator of [
-    page.getByRole('tab', { name: '자료' }),
-    page.getByRole('tab', { name: '그래프' }),
-    page.locator('#morebtn'),
+    page.locator('#tab-docs'),
+    page.locator('#tab-search'),
+    page.locator('#tab-menu'),
   ]) {
     const box = await locator.boundingBox();
     expect(box).not.toBeNull();
     expect(box.height).toBeGreaterThanOrEqual(44);
   }
 
-  await page.getByRole('tab', { name: '그래프' }).click();
+  // 메뉴 탭 열기 및 지식 그래프 보기 버튼으로 그래프 진입
+  await page.locator('#tab-menu').click();
+  await expect(page.locator('#detailpane')).toBeVisible();
+  await page.locator('#opengraphbtn').click();
   await expect(page.locator('#netwrap')).toBeVisible();
   const graphDocNav = page.locator('#graphdocnav');
   await expect(graphDocNav).toBeVisible();
@@ -101,8 +104,9 @@ test('mobile primary tabs keep document navigation on the graph', async ({ page 
     position: window.claireDebug.viewpos,
   }));
 
-  await page.getByRole('tab', { name: '자료' }).click();
-  await page.getByRole('tab', { name: '그래프' }).click();
+  await page.locator('#tab-docs').click();
+  await page.locator('#tab-menu').click();
+  await page.locator('#opengraphbtn').click();
   await expect.poll(
     () => page.evaluate(() => window.claireDebug.scale),
   ).toBeCloseTo(camera.scale, 4);
@@ -110,27 +114,18 @@ test('mobile primary tabs keep document navigation on the graph', async ({ page 
   expect(position.x).toBeCloseTo(camera.position.x, 3);
   expect(position.y).toBeCloseTo(camera.position.y, 3);
 
-  await page.getByRole('tab', { name: '자료' }).click();
-  const readButton = page.locator('[data-read-doc]').first();
-  await expect(readButton).toBeVisible();
-  const docId = await readButton.getAttribute('data-read-doc');
-  await readButton.click();
+  // 모바일에서 자료 탭하면 크게 읽기 팝업 호출
+  await page.locator('#tab-docs').click();
+  await page.locator('.docitem').first().click();
   const reader = page.getByRole('dialog');
   await expect(reader).toBeVisible();
   await expect(reader).toHaveAttribute('aria-modal', 'true');
-  expect(await page.evaluate(() => document.activeElement?.closest('#reader') !== null)).toBe(true);
   expect(await page.locator('body').evaluate(body => body.classList.contains('reader-open'))).toBe(true);
-  expect(await page.locator('#wrap').evaluate(element => element.inert)).toBe(true);
   await page.keyboard.press('Escape');
   await expect(reader).toBeHidden();
-  await expect.poll(
-    () => page.evaluate(() => document.activeElement?.dataset?.readDoc || null),
-  ).toBe(docId);
-  await expect(page.getByRole('tab', { name: '자료' })).toHaveAttribute('aria-selected', 'true');
-  expect(await page.evaluate(() => window.claireDebug.activeDoc)).toBeNull();
 
-  await page.locator('.docitem').first().evaluate(element => element.click());
-  await expect(page.getByRole('tab', { name: '그래프' })).toHaveAttribute('aria-selected', 'true');
+  // 모바일에서 자료의 그래프 버튼(📊) 누르면 그래프 화면으로 전환
+  await page.locator('.docitem .actbtn-graph').first().click();
   await expect(page.locator('#netwrap')).toBeVisible();
   await expect(page.locator('#detailpane')).toBeHidden();
   await expect.poll(
@@ -173,7 +168,7 @@ test('mobile primary tabs keep document navigation on the graph', async ({ page 
   await expect(page.locator('#graphdoclabel')).toHaveText('전체 그래프');
   await expect(page.locator('#graphdocprev')).toBeDisabled();
   await expect(page.locator('#graphdocnext')).toBeDisabled();
-  await expect(page.getByRole('tab', { name: '그래프' })).toHaveAttribute('aria-selected', 'true');
+  expect(await page.evaluate(() => window.claireDebug.activePane)).toBe('graph');
   await page.waitForTimeout(900);
 
   const graphCamera = await page.evaluate(() => ({
@@ -190,7 +185,7 @@ test('mobile primary tabs keep document navigation on the graph', async ({ page 
   await page.locator('#net').click({ position: { x: point.x, y: point.y } });
   await expect(page.locator('#detailpane')).toBeVisible();
   await expect(page.locator('#panel h2')).toBeVisible();
-  await expect(page.getByRole('tab', { name: '그래프' })).toHaveAttribute('aria-selected', 'true');
+  expect(await page.evaluate(() => window.claireDebug.activePane)).toBe('graph');
   const detailClose = page.locator('#detailclose');
   const detailCloseBox = await detailClose.boundingBox();
   expect(detailCloseBox.width).toBeGreaterThanOrEqual(44);

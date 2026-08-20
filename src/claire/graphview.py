@@ -322,7 +322,7 @@ GRAPH_HTML = """<!doctype html>
     margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;
     white-space:nowrap!important;border:0!important}
   :focus-visible{outline:3px solid var(--accent);outline-offset:2px}
-  #bar{position:relative;z-index:40;display:flex;align-items:center;gap:8px;padding:7px 12px;
+  #bar{position:relative;z-index:30;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 12px;
     min-height:48px;background:var(--bar-bg);border-bottom:1px solid var(--border);
     font-size:13px;white-space:nowrap}
   #format-warn-banner{display:none;background:#d97706;color:#ffffff;padding:8px 14px;font-size:12px;
@@ -332,39 +332,31 @@ GRAPH_HTML = """<!doctype html>
   #format-warn-banner .close-btn{background:transparent;border:0;color:inherit;font-size:15px;cursor:pointer;line-height:1;padding:2px 6px}
   #bar .brand{font-weight:700;letter-spacing:-.01em}
   #bar b{color:var(--accent2)}
-  #barsearch{display:flex;align-items:center;gap:6px;min-width:170px}
-  #morebtn{display:none;background:var(--sec-bg);color:var(--sec-fg);border:1px solid var(--border)}
-  #moremenu{display:flex;align-items:center;gap:6px;min-width:0;flex:1}
-  .spacer{flex:1}
-  #stat{color:var(--muted);text-align:right}
-  #authstate{padding:2px 7px;border:1px solid var(--border);border-radius:4px}
-  #themebtn{background:transparent;color:var(--fg);border:1px solid var(--border);padding:3px 8px;font-size:14px}
+  #netsearch{padding:6px 10px;border-bottom:1px solid var(--border);background:var(--panel-bg);flex-shrink:0}
+  #barsearch{display:flex;align-items:center;gap:6px;width:100%}
+  #barsearch input{flex:1;min-width:0}
+  #viewoptions{display:flex;align-items:center;gap:6px}
+  #morebtn{display:none;background:var(--sec-bg);color:var(--sec-fg);border:1px solid var(--border);
+    border-radius:6px;cursor:pointer;font-size:18px;line-height:1}
+  #morebtn:hover{background:var(--hover)}
+  #themebtn{background:transparent;color:var(--fg);border:1px solid var(--border);padding:3px 8px;font-size:14px;border-radius:4px;cursor:pointer}
   #themebtn:hover{background:var(--hover)}
-  #synthchips{display:flex;gap:4px;overflow:hidden;max-width:280px}
-  #synthchips .chip{background:var(--chip-bg);border-radius:10px;padding:1px 7px;font-size:11px;cursor:pointer}
-  #legendbar{display:flex;flex-wrap:wrap;gap:10px;padding:4px 12px;min-height:27px;
-    background:var(--panel-bg);border-bottom:1px solid var(--border);font-size:11px;color:var(--muted)}
-  #legendbar i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:3px;vertical-align:middle}
-  #legendbar .lgsep{margin-left:6px;opacity:.7}
-  #legendbar .reltog{cursor:pointer;padding:1px 7px;border-radius:9px;background:var(--chip-bg);
-    border:1px solid var(--border);color:var(--fg);font-size:11px}
-  #legendbar .reltog.off{opacity:.4;text-decoration:line-through}
-  #bar button.on{outline:2px solid var(--accent2);outline-offset:1px}
   #worktabs{display:none}
+  #drawerbackdrop{position:fixed;inset:0;z-index:35;background:rgba(0,0,0,.45);opacity:0;pointer-events:none;transition:opacity .2s ease}
+  body.drawer-open #drawerbackdrop,
+  body.detail-open #drawerbackdrop{opacity:1;pointer-events:auto}
   #wrap{position:relative;display:grid;grid-template-columns:280px minmax(420px,1fr) 360px;
     flex:1;min-height:0;overflow:hidden}
   /* #netwrap 이 위치 기준자, #net 은 vis.Network 컨테이너(vis 가 init 시 innerHTML 을
      지우므로 — 확인됨 — #zoomctl 은 #net *밖*, 형제로 둬야 살아남는다). */
   .workspace-pane{min-width:0;min-height:0}
-  #netwrap{position:relative;display:flex;flex-direction:column}
+  #centerwrap{position:relative;display:flex;flex-direction:column;min-width:0;min-height:0;overflow:hidden;background:var(--bg)}
+  #netwrap{position:relative;width:100%;height:100%;display:none;flex-direction:column;min-width:0;min-height:0;background:var(--net-bg)}
   #net{width:100%;flex:1;min-height:0;background:var(--net-bg)}
   /* 모바일 그래프 안에서 문서를 연속 전환하는 보조 탐색. 자료/그래프의 주 계층은
      그대로 두고, 좁은 화면에서만 현재 그래프 필터를 바꾸는 지역 컨트롤로 노출한다. */
   #graphdocnav{display:none}
-  /* 모바일 핀치줌 대체 — zoomView:false(Mac 휠 점프 수정, 2026-06-24)가 vis-network 의
-     핀치줌도 함께 꺼버려(같은 옵션이 관장) 터치로는 줌 방법이 없었다(회귀). 커스텀 핀치
-     제스처는 vis 내부 hammer 인스턴스와 이벤트 충돌 위험이 있어, 확실히 동작하는 +/- 버튼으로
-     대체(사용자도 "터치나 버튼추가나" 로 버튼을 대안으로 제시함). */
+  /* 모바일 핀치줌 대체 */
   #zoomctl{position:absolute;right:14px;bottom:14px;display:flex;flex-direction:column;gap:7px;z-index:5}
   #zoomctl button{width:40px;height:40px;border-radius:50%;border:1px solid var(--border);
     background:var(--sec-bg);color:var(--sec-fg);font-size:19px;line-height:1;cursor:pointer;opacity:.9}
@@ -375,13 +367,7 @@ GRAPH_HTML = """<!doctype html>
   #graphnotice.on{display:block}
   #docs{width:280px;display:flex;flex-direction:column;background:var(--docs-bg);border-right:1px solid var(--border);font-size:13px}
   #docs .dhead{padding:8px 10px;border-bottom:1px solid var(--border);flex-shrink:0}
-  /* 즐겨찾기(고정) 섹션 — 많아져도 패널을 다 잡아먹지 않게 최대높이+스크롤(사용자 요구:
-     '즐찾 많아질 때 대비'), 일반 목록도 min-height 로 항상 일정 공간 확보. */
-  /* 즐겨찾기 구간은 본문 목록(#doclist, --docs-bg 그대로)과 배경을 다르게 — 얇은 테두리
-     하나뿐이던 첫 시도도, 그 다음 --sec-bg 도 회색 계열끼리라 밝기만 살짝 달라 여전히
-     눈에 안 띈다는 피드백(라이트 테마에서 특히). 밝기 대신 색상(hue) 자체를 별 아이콘의
-     금색(#e3b341)으로 옅게 우려내 — 저채도 tint 라 위에 얹히는 기본 글자색(--fg/--muted)
-     명암비는 거의 안 바뀌어 가독성 걱정 없이 확실히 구별된다. */
+  /* 즐겨찾기(고정) 섹션 */
   #pinnedhead{padding:5px 10px;font-size:11.5px;color:var(--muted);background:rgba(227,179,65,.18);flex-shrink:0}
   #pinnedlist{max-height:32%;overflow-y:auto;flex-shrink:0;border-bottom:2px solid var(--border);
     background:rgba(227,179,65,.10)}
@@ -391,43 +377,62 @@ GRAPH_HTML = """<!doctype html>
   .docitem:hover{background:var(--hover)}
   .docitem.active{background:var(--active);border-left:3px solid var(--accent2)}
   .docitem.hidden-doc{opacity:.55}
-  /* 제목은 아무리 길어도 2줄로 고정 — 안 그러면 즐겨찾기 등 높이가 빠듯한 구간에서
-     아이템이 한없이 늘어나 넘쳐 보인다는 피드백(사용자 지적). */
   .docitem b{font-size:13.5px;line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;
     overflow:hidden;word-break:break-word}
   .docitem .st{color:var(--muted);font-size:11px;margin-left:6px}
   .docitem.unread{border-left:3px solid var(--accent2)} .docitem.unread b{font-weight:700}
   .docitem .ubadge{color:var(--accent2);font-size:10px;margin-right:4px;vertical-align:middle}
   .docitem .wbadge{font-size:11px;margin-right:2px}
-  /* 설명 줄수 — 기본 2줄, #docs 에 붙는 lc0/lc2/lc4 클래스로 토글(사용자 요구, descToggle 참조). */
   .docitem p{margin:.25em 0 0;color:var(--muted);font-size:12px;line-height:1.45;overflow:hidden;
-    display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+    display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical}
   #docs.lc0 .docitem p{display:none}
-  #docs.lc4 .docitem p{-webkit-line-clamp:4}
-  /* 좌측 문서의 액션 버튼(즐겨찾기·읽기) — 클릭=nav 와 분리. */
+  #docs.lc3 .docitem p,#docs.lc4 .docitem p{-webkit-line-clamp:3}
   .docitem .docactions{position:absolute;top:7px;right:7px;display:flex;gap:3px}
   .docitem .actbtn{background:var(--sec-bg);color:var(--sec-fg);
     border:1px solid var(--border);border-radius:4px;padding:2px 6px;font-size:12px;cursor:pointer;opacity:.85}
   .docitem .actbtn:hover{opacity:1;border-color:var(--accent)}
   .docitem .actbtn.pinned{opacity:1;color:#e3b341}
+  .docitem .actbtn.actbtn-graph{display:inline-flex}
+  .docitem .actbtn.actbtn-read{display:inline-flex}
   #showhidden{display:block;padding:8px 10px;font-size:12px;color:var(--fg);cursor:pointer;
     text-align:center;border-top:1px solid var(--border);background:var(--sec-bg)}
   #showhidden:hover{background:var(--hover)}
-  /* owner라는 양의 권한이 첫 페인트 전에 명시된 경우에만 쓰기 UI를 보인다. 동적으로
-     그리는 버튼도 JS의 canWrite() 분기에서 같은 계약을 사용한다. */
+
   body:not([data-auth-scope="owner"]) #synthbtn,
   body:not([data-auth-scope="owner"]) #synthchips,
   body:not([data-auth-scope="owner"]) #addbtn,
   body:not([data-auth-scope="owner"]) #dedupbtn,
   body:not([data-auth-scope="owner"]) .redit,
   body:not([data-auth-scope="owner"]) .rshare{display:none!important}
+
+  /* 우측 사이드 패널 (#detailpane): 데스크톱은 3열 고정, 태블릿/모바일은 오른쪽 슬라이드 드로어 */
   #detailpane{width:360px;display:flex;flex-direction:column;background:var(--panel-bg);
-    border-left:1px solid var(--border);min-height:0}
-  #detailhead{display:none;align-items:center;justify-content:space-between;min-height:44px;
-    padding:4px 10px;border-bottom:1px solid var(--border);background:var(--bar-bg);flex:none}
-  #detailclose{min-height:36px;background:var(--sec-bg);color:var(--sec-fg)}
-  #panel{flex:1;min-height:0;overflow:auto;padding:14px 16px;font-size:13px;line-height:1.5;
-    overscroll-behavior:contain}
+    border-left:1px solid var(--border);min-height:0;overflow:hidden}
+  #detailhead{display:none;align-items:center;justify-content:space-between;min-height:48px;
+    padding:4px 12px;border-bottom:1px solid var(--border);background:var(--bar-bg);flex:none}
+  #detailclose{min-height:36px;min-width:36px;background:var(--sec-bg);color:var(--sec-fg);border:1px solid var(--border);border-radius:6px;cursor:pointer;font-size:15px}
+  #drawerscroll{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:12px 14px;font-size:13px;line-height:1.5}
+  #drawer-graph-action{display:none;margin-bottom:10px}
+  #opengraphbtn{width:100%;min-height:42px;font-size:14px;font-weight:600;background:var(--accent);color:#fff;border:0;border-radius:7px;cursor:pointer}
+  #moremenu{display:flex;flex-direction:column;gap:8px;padding-bottom:12px;margin-bottom:10px;border-bottom:1px solid var(--border)}
+  #moremenu .tool-row{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+  #moremenu .action-btn-row{display:flex;flex-wrap:wrap;gap:4px;align-items:center}
+  #moremenu .filter-row{display:flex;align-items:center;gap:6px;font-size:12px}
+  #moremenu .sys-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:11px;color:var(--muted);margin-top:2px}
+  #stat{color:var(--muted)}
+  #authstate{padding:2px 7px;border:1px solid var(--border);border-radius:4px}
+  #synthchips{display:flex;gap:4px;overflow:hidden;max-width:100%;flex-wrap:wrap}
+  #synthchips .chip{background:var(--chip-bg);border-radius:10px;padding:1px 7px;font-size:11px;cursor:pointer}
+  #legendbar{display:flex;flex-wrap:wrap;gap:10px;padding:4px 12px;min-height:27px;
+    background:var(--panel-bg);border-bottom:1px solid var(--border);font-size:11px;color:var(--muted)}
+  #legendbar i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:3px;vertical-align:middle}
+  #legendbar .lgsep{margin-left:6px;opacity:.7}
+  #legendbar .reltog{cursor:pointer;padding:1px 7px;border-radius:9px;background:var(--chip-bg);
+    border:1px solid var(--border);color:var(--fg);font-size:11px}
+  #legendbar .reltog.off{opacity:.4;text-decoration:line-through}
+  #detailpane button.on{outline:2px solid var(--accent2);outline-offset:1px}
+
+  #panel{font-size:13px;line-height:1.5}
   #panel h2{margin:.2em 0;font-size:18px} #panel h2 small{color:var(--muted);font-size:12px;font-weight:normal}
   #panel h3{margin:1em 0 .3em;font-size:13px;color:var(--accent2);border-bottom:1px solid var(--border);padding-bottom:2px}
   #panel ul{margin:.2em 0;padding-left:18px} #panel li{margin:.25em 0}
@@ -436,8 +441,6 @@ GRAPH_HTML = """<!doctype html>
   #panel .doc p.src{margin-top:.45em}
   #panel .docmeta{color:var(--muted);font-size:12px;margin:.1em 0 .6em}
   #panel .readbtn{background:var(--accent);color:#fff;border:0;border-radius:4px;padding:3px 10px;font-size:12.5px;cursor:pointer;margin:.2em 0}
-  /* 숨기기 — 목록이 아니라 상세 패널에 텍스트 버튼으로(사용자 요구). 되돌리기 번거로운
-     방향(컨펌 필요)이라 튀지 않게 링크 스타일로 옅게, hover 시에만 강조. */
   #panel .hidetextbtn{background:none;border:0;color:var(--muted);font-size:11.5px;cursor:pointer;
     padding:0;margin:.3em 0;text-decoration:underline;text-underline-offset:2px}
   #panel .hidetextbtn:hover{color:var(--danger,#e5534b)}
@@ -463,30 +466,26 @@ GRAPH_HTML = """<!doctype html>
   #fslider{width:100px;vertical-align:middle}
   /* ==형광== 강조 — render_detail/요약이 LLM 으로 표시한 핵심 구절(마크다운 후 <mark>). */
   mark{background:var(--mark-bg);color:var(--mark-fg);padding:0 .15em;border-radius:2px}
-  /* 노드 hover 팝업 — 마우스 위치에 작게 띄우는 요약(우측 패널 미리보기 대체, 사용자 요구).
-     클라 데이터(이름·타입·연결수·관찰 첫 줄)만 써서 fetch 없이 즉시. pointer-events:none 으로
-     커서/그래프 조작을 방해하지 않는다.
-     터치스크린 기기 또는 상세/읽기 화면이 열려 있을 때는 화면을 가리지 않도록 숨긴다. */
+  /* 노드 hover 팝업 */
   #nodepop{position:fixed;z-index:60;max-width:340px;background:var(--card-bg);color:var(--fg);
     border:1px solid var(--border);border-radius:7px;box-shadow:0 6px 22px var(--shadow);
     padding:8px 11px;font-size:12px;line-height:1.45;pointer-events:none;display:none}
   #nodepop b{font-size:13px} #nodepop .pt{color:var(--muted);font-size:11px}
   #nodepop .po{margin-top:.4em} #nodepop i{display:inline-block;width:8px;height:8px;
     border-radius:50%;margin-right:5px;vertical-align:middle}
-  /* hover 를 좀 더 끌면 fetch 로 채우는 출처 문서 한 건(제목+글 일부) — 점진적 공개. */
   #nodepop .psrc{margin-top:.55em;border-top:1px solid var(--border);padding-top:.45em}
   #nodepop .ptt{font-weight:600;color:var(--accent);margin-bottom:.25em}
   #nodepop .psb{color:var(--muted);font-size:11px;line-height:1.45}
   body.detail-open #nodepop,
+  body.drawer-open #nodepop,
   body.reader-open #nodepop{display:none!important}
   @media (hover:none){
     #nodepop{display:none!important}
   }
-  /* 중복정리 패널의 유지문서 라디오 — 전역 input 폭(150px)이 라디오까지 늘리지 않게. */
   #panel input[type=radio]{width:auto;vertical-align:middle}
   /* --- 마크다운 본문(읽기 팝업 + 패널 detail) --- */
   .md{line-height:1.75;font-size:14px;word-break:break-word}
-  #reader .rbody .md{font-size:var(--read-fs,16px)}   /* 읽기 팝업은 A−/A+ 로 글자 크기 조절 */
+  #reader .rbody .md{font-size:var(--read-fs,16px)}
   .md h1{font-size:1.5em} .md h2{font-size:1.3em;margin:1.1em 0 .4em;border-bottom:1px solid var(--border);padding-bottom:.2em}
   .md h3{font-size:1.12em;margin:1em 0 .35em;color:var(--fg);border:0}
   .md p{margin:.6em 0} .md ul,.md ol{margin:.5em 0;padding-left:1.5em} .md li{margin:.3em 0}
@@ -516,84 +515,77 @@ GRAPH_HTML = """<!doctype html>
   .md .imageblock img{max-width:100%;height:auto;display:block;margin:0 auto;border-radius:6px;border:1px solid var(--border)}
   .md .imageblock .title{font-size:.85em;color:var(--muted);margin-top:.4em;font-style:italic}
   .md .lead{font-size:1.1em;line-height:1.6;font-weight:500;color:var(--fg)}
-  /* --- 중앙 읽기 팝업(모달) — 좌측 문서의 '읽기' 버튼으로 연다(nav 와 분리, 사용자 요구) --- */
-  #reader{position:fixed;inset:0;background:var(--shadow);display:none;z-index:50;
-    align-items:flex-start;justify-content:center;padding:2.5vh 14px;overflow:hidden;--read-fs:16px}
-  #reader.open{display:flex}
-  #reader .sheet{background:var(--bg);color:var(--fg);max-width:1120px;width:100%;border-radius:10px;
-    border:1px solid var(--border);box-shadow:0 12px 40px var(--shadow);padding:0 0 28px;
-    height:95vh;max-height:95dvh;display:flex;flex-direction:column;overflow:hidden}
-  #reader .rhead{display:flex;align-items:flex-start;gap:10px;padding:16px 24px;border-bottom:1px solid var(--border);
-    position:sticky;top:0;background:var(--bg);border-radius:10px 10px 0 0;z-index:1}
-  #reader .rhead h1{margin:0;font-size:22px;flex:1} #reader .rhead .rmeta{color:var(--muted);font-size:12px;margin-top:.3em;font-weight:normal}
-  /* 글자 크기 조절(A−/A+) — 읽기 편의, 설정은 브라우저에 기억. */
+
+  /* --- 중앙 크게 읽기 (2단 보기 및 기본 중앙 패널 / 모바일 읽기) --- */
+  #reader{width:100%;height:100%;display:flex;flex-direction:column;min-width:0;min-height:0;overflow:hidden;background:var(--bg);--read-fs:16px}
+  #reader .sheet{background:var(--bg);color:var(--fg);width:100%;height:100%;border-radius:0;border:0;box-shadow:none;padding:0;display:flex;flex-direction:column;overflow:hidden}
+  #reader .rhead{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 18px;border-bottom:1px solid var(--border);background:var(--bar-bg);position:sticky;top:0;z-index:1;min-height:48px}
+  #reader .rhead h1{margin:0;font-size:16px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #reader .rhead .rmeta{color:var(--muted);font-size:11.5px;margin-left:6px;font-weight:normal}
+  #reader .rtools{display:flex;align-items:center;gap:6px;flex-shrink:0}
   #reader .rzoom{display:flex;align-items:center;gap:2px}
-  #reader .rzoom button{background:var(--sec-bg);color:var(--sec-fg);border:0;border-radius:6px;
-    font-size:14px;line-height:1;padding:6px 9px;cursor:pointer}
-  #reader .rzoom .fsv{color:var(--muted);font-size:11px;min-width:30px;text-align:center}
-  #reader .rclose{background:var(--sec-bg);color:var(--sec-fg);border:0;border-radius:6px;font-size:18px;
-    line-height:1;padding:5px 11px;cursor:pointer}
-  /* 읽기 팝업의 공유 링크 영역 — 🔗 누르면 생성한 핫링크를 보여주고 복사. */
-  #reader .sharebox{display:none;margin:10px 24px 0;padding:8px 12px;background:var(--active);
-    border:1px solid var(--accent);border-radius:6px;font-size:12px;gap:8px;align-items:center}
+  #reader .rzoom button{background:var(--sec-bg);color:var(--sec-fg);border:1px solid var(--border);border-radius:4px;font-size:13px;line-height:1;padding:4px 8px;cursor:pointer}
+  #reader .rzoom .fsv{color:var(--muted);font-size:11.5px;min-width:24px;text-align:center}
+  #reader .rclose{background:var(--sec-bg);color:var(--sec-fg);border:1px solid var(--border);border-radius:4px;font-size:15px;line-height:1;padding:4px 8px;cursor:pointer;display:none}
+  #reader .sharebox{display:none;margin:10px 24px 0;padding:8px 12px;background:var(--active);border:1px solid var(--accent);border-radius:6px;font-size:12px;gap:8px;align-items:center}
   #reader .sharebox.on{display:flex} #reader .sharebox input{flex:1;min-width:0}
-  #reader .sharebox button{background:var(--accent);color:#fff;border:0;border-radius:4px;
-    padding:3px 9px;font-size:12px;cursor:pointer}
-  #reader .rhead .redit,#reader .rhead .rshare{background:var(--sec-bg);color:var(--sec-fg);border:0;border-radius:6px;
-    font-size:15px;line-height:1;padding:5px 10px;cursor:pointer}
-  #reader .rbody{padding:10px 32px max(28px,env(safe-area-inset-bottom));overflow:auto;
-    overscroll-behavior:contain}
+  #reader .sharebox button{background:var(--accent);color:#fff;border:0;border-radius:4px;padding:3px 9px;font-size:12px;cursor:pointer}
+  #reader .rhead .redit,#reader .rhead .rshare,#reader .rhead .rgraphbtn{background:var(--sec-bg);color:var(--sec-fg);border:1px solid var(--border);border-radius:4px;font-size:13px;line-height:1;padding:4px 8px;cursor:pointer}
+  #reader .rbody{padding:16px 28px max(28px,env(safe-area-inset-bottom));overflow-y:auto;overscroll-behavior:contain;flex:1;min-height:0}
   #reader .rsection{color:var(--muted);font-size:11px;letter-spacing:.04em;text-transform:uppercase;margin:1.2em 0 .2em}
-  body.reader-open{overflow:hidden}
 
-  /* 노트북 이하에서는 저빈도 도구를 popover에 접어 검색을 항상 한 줄로 유지한다. */
-  @media (max-width:1500px){
-    #bar{padding:6px 10px}
-    #bar .brand{flex:none}
-    #barsearch{flex:1;min-width:0}
-    #q{width:100%;min-width:0}
-    #morebtn{display:inline-flex;align-items:center;justify-content:center;flex:none;width:40px;height:40px}
-    #moremenu{position:absolute;top:calc(100% + 4px);right:8px;width:min(420px,calc(100vw - 16px));
-      max-height:calc(100dvh - 72px);overflow:auto;display:none;flex-wrap:wrap;align-items:center;
-      padding:12px;background:var(--card-bg);border:1px solid var(--border);border-radius:9px;
-      box-shadow:0 12px 32px var(--shadow)}
-    #bar.tools-open #moremenu{display:flex}
-    #moremenu .spacer{display:none}
-    #synthchips{max-width:100%;flex-basis:100%}
-    #stat{flex-basis:100%;text-align:left}
-  }
+  /* 2단 보기 및 데스크톱: 크게 읽기가 기본 노출, 그래프는 호출 시에만 노출 */
+  body:not([data-center-view="graph"]) #netwrap{display:none!important}
+  body:not([data-center-view="graph"]) #reader{display:flex!important}
+  body[data-center-view="graph"] #reader{display:none!important}
+  body[data-center-view="graph"] #netwrap{display:flex!important}
 
-  /* 중간 폭: 자료+그래프 2열을 유지하고 상세는 그래프 위 drawer 로 연다. */
+  /* 데스크톱/노트북 (중간 폭): 1100px 이하에서는 우측 패널을 drawer 로 (2단 보기 지원) */
   @media (max-width:1100px){
     #wrap{grid-template-columns:280px minmax(0,1fr)}
-    #detailpane{position:absolute;inset:0 0 0 auto;z-index:25;width:min(430px,82vw);
+    #morebtn{display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px}
+    #detailpane{position:absolute;inset:0 0 0 auto;z-index:40;width:min(400px,82vw);
       transform:translateX(105%);visibility:hidden;box-shadow:-12px 0 32px var(--shadow);
-      transition:transform .18s ease,visibility 0s linear .18s}
-    body.detail-open #detailpane{transform:translateX(0);visibility:visible;
-      transition:transform .18s ease}
+      transition:transform .2s ease,visibility 0s linear .2s}
+    body.detail-open #detailpane,
+    body.drawer-open #detailpane{transform:translateX(0);visibility:visible;
+      transition:transform .2s ease}
     #detailhead{display:flex}
   }
 
-  /* 전화 화면: 자료·그래프만 같은 계층의 주 탐색이다. 상세는 노드 검사·관리 작업에서만
-     그래프/자료 위에 올라오는 문맥 sheet로 분리한다. */
+  /* 모바일 화면 (720px 이하):
+     - 최상단: 브랜드 로고 및 테마 토글만 남김 (햄버거 메뉴는 하단 바로 통합)
+     - 최하단: 📑 · 🔎 · ☰ 탭 배치 (z-index: 50, 텍스트 레이블 제거)
+     - 자료 화면: 아이템 탭 시 크게 읽기 호출, 📊 버튼 시 그래프 보기 호출
+  */
   @media (max-width:720px){
-    #bar{min-height:54px;padding:max(6px,env(safe-area-inset-top)) 8px 6px}
-    #bar .brand{font-size:13px}
-    #barsearch{gap:4px}
-    #searchbtn{min-width:44px;padding:4px 8px}
-    #morebtn{width:44px;height:44px}
-    #worktabs{display:grid;grid-template-columns:repeat(2,1fr);flex:none;background:var(--bar-bg);
-      border-bottom:1px solid var(--border);padding:4px 8px;gap:4px}
-    #worktabs button{min-height:44px;background:transparent;color:var(--muted);border:1px solid transparent;
-      border-radius:7px;font-weight:600}
-    #worktabs button[aria-selected="true"]{background:var(--active);color:var(--fg);border-color:var(--border)}
-    #wrap{display:grid;grid-template-columns:1fr;grid-template-rows:1fr;overflow:hidden}
-    .workspace-pane{grid-area:1/1;visibility:hidden!important;pointer-events:none}
-    body[data-active-pane="docs"] #docs,
-    body[data-active-pane="graph"] #netwrap{visibility:visible!important;pointer-events:auto}
-    #docs,#netwrap{position:relative;inset:auto;width:100%;height:100%;
-      max-width:none;transform:none;box-shadow:none;border:0}
-    #docs{display:flex}
+    #bar{min-height:50px;padding:max(6px,env(safe-area-inset-top)) 12px 6px;justify-content:space-between}
+    #bar .brand{font-size:14px}
+    #morebtn{display:none!important}
+    #viewoptions select{font-size:13px;padding:4px 6px}
+    #viewoptions #themebtn{min-width:38px;min-height:38px;padding:4px 8px}
+
+    /* 최하단 바: 모바일 뷰 최하단에 항상 고정 (z-index: 50) */
+    #worktabs{display:flex;position:fixed;bottom:0;left:0;right:0;z-index:50;
+      height:calc(54px + env(safe-area-inset-bottom));padding-bottom:env(safe-area-inset-bottom);
+      background:var(--bar-bg);border-top:1px solid var(--border);
+      align-items:stretch;justify-content:space-around;padding-left:12px;padding-right:12px}
+    #worktabs button{flex:1;min-height:48px;background:transparent;color:var(--muted);
+      border:0;border-radius:6px;display:flex;align-items:center;justify-content:center;
+      padding:4px 0;-webkit-tap-highlight-color:transparent}
+    #worktabs button .bnav-icon{font-size:24px;line-height:1}
+    #worktabs button[aria-selected="true"]{color:var(--accent)}
+    #worktabs button:active{background:var(--hover)}
+
+    #wrap{display:grid;grid-template-columns:1fr;grid-template-rows:1fr;overflow:hidden;
+      padding-bottom:calc(54px + env(safe-area-inset-bottom))}
+    .workspace-pane,#centerwrap{grid-area:1/1;visibility:hidden!important;pointer-events:none}
+    body[data-active-pane="docs"] #docs{visibility:visible!important;pointer-events:auto}
+    body[data-active-pane="graph"] #centerwrap{visibility:visible!important;pointer-events:auto}
+    #docs{position:relative;inset:auto;width:100%;height:100%;
+      max-width:none;transform:none;box-shadow:none;border:0;display:flex}
+    .docitem .actbtn.actbtn-graph{display:inline-flex}
+    .docitem .actbtn.actbtn-read{display:none!important}
     #legendbar{flex-wrap:nowrap;overflow-x:auto;min-height:36px;padding:7px 10px;scrollbar-width:thin}
     #graphdocnav{position:relative;display:flex;align-items:center;gap:4px;min-height:52px;
       padding:4px 8px;background:var(--panel-bg);border-bottom:1px solid var(--border);z-index:12}
@@ -614,16 +606,31 @@ GRAPH_HTML = """<!doctype html>
     .graphdocoption:hover,.graphdocoption[aria-current="true"]{background:var(--active)}
     .graphdocoption small{color:var(--muted);margin-left:6px}
     #graphdocempty{padding:12px 10px;color:var(--muted)}
-    #detailpane{position:absolute;inset:auto 0 0;z-index:25;width:100%;height:min(62dvh,560px);
-      max-height:calc(100% - 18px);transform:translateY(105%);visibility:hidden;pointer-events:none;
-      border:1px solid var(--border);border-bottom:0;border-radius:14px 14px 0 0;
-      box-shadow:0 -12px 32px var(--shadow);
-      transition:transform .18s ease,visibility 0s linear .18s}
-    body.detail-open #detailpane{transform:translateY(0);visibility:visible;pointer-events:auto;
-      transition:transform .18s ease}
-    #detailhead{display:flex;border-radius:14px 14px 0 0}
+
+    /* 모바일 크게 읽기 모달 */
+    #reader{position:fixed!important;inset:0!important;background:var(--shadow)!important;display:none!important;z-index:50!important;padding:0!important}
+    #reader.open{display:flex!important}
+    #reader .sheet{height:100vh!important;max-height:100dvh!important;border:0!important;border-radius:0!important}
+    #reader .rhead{padding:max(10px,env(safe-area-inset-top)) 12px 10px!important}
+    #reader .rhead h1{font-size:18px!important}
+    #reader .rzoom button,#reader .redit,#reader .rshare,#reader .rclose,#reader .rgraphbtn{min-width:44px!important;min-height:44px!important}
+    #reader .rclose{display:inline-flex!important}
+    #reader .rbody{padding:8px 16px max(20px,env(safe-area-inset-bottom))!important}
+
+    /* 모바일 우측 드로어 */
+    #detailpane{position:fixed;top:0;right:0;bottom:calc(54px + env(safe-area-inset-bottom));
+      z-index:40;width:min(340px,86vw);height:auto;max-height:none;
+      transform:translateX(105%);visibility:hidden;pointer-events:none;
+      border:1px solid var(--border);border-bottom:0;border-radius:0;
+      box-shadow:-8px 0 24px var(--shadow);
+      transition:transform .22s ease,visibility 0s linear .22s}
+    body.detail-open #detailpane,
+    body.drawer-open #detailpane{transform:translateX(0);visibility:visible;pointer-events:auto;
+      transition:transform .22s ease}
+    #detailhead{display:flex;border-radius:0}
     #detailclose{min-width:44px;min-height:44px}
-    #panel{padding:14px 16px max(20px,env(safe-area-inset-bottom))}
+    #drawer-graph-action{display:block}
+    #drawerscroll{padding:14px 16px max(16px,env(safe-area-inset-bottom))}
     #panel .hint br{display:none}
     #zoomctl{right:max(12px,env(safe-area-inset-right));bottom:max(12px,env(safe-area-inset-bottom))}
     #zoomctl button{width:44px;height:44px}
@@ -639,12 +646,6 @@ GRAPH_HTML = """<!doctype html>
     .dday{font-size:12.5px;padding:4px 12px}
     #pinnedhead{font-size:12px;padding:6px 12px}
     #showhidden{font-size:13px;padding:10px 12px}
-    #reader{padding:0}
-    #reader .sheet{height:100vh;max-height:100dvh;border:0;border-radius:0}
-    #reader .rhead{padding:max(10px,env(safe-area-inset-top)) 12px 10px}
-    #reader .rhead h1{font-size:18px}
-    #reader .rzoom button,#reader .redit,#reader .rshare,#reader .rclose{min-width:44px;min-height:44px}
-    #reader .rbody{padding:8px 16px max(20px,env(safe-area-inset-bottom))}
   }
   @media (prefers-reduced-motion:reduce){
     #detailpane{transition:none!important}
@@ -653,45 +654,24 @@ GRAPH_HTML = """<!doctype html>
 <body class="ro" data-auth-scope="unknown" data-active-pane="docs">
 <header id="bar">
   <span class="brand" style="display:inline-flex;align-items:center;gap:6px"><img src="/favicon.svg" width="20" height="20" alt="" aria-hidden="true" style="display:inline-block;vertical-align:middle;filter:drop-shadow(0 0 4px rgba(0,255,170,0.5))"/>Claire Bible</span>
-  <div id="barsearch">
-    <label class="sr-only" for="q">그래프 검색</label>
-    <input id="q" placeholder="검색" oninput="onSearchInput(this.value)"/>
-    <button id="searchbtn" class="sec" onclick="doSemantic()" style="display:none">🔎 검색</button>
-  </div>
-  <button id="morebtn" aria-expanded="false" aria-controls="moremenu"
-    aria-label="도구 더보기" title="도구 더보기" onclick="toggleToolsMenu()">⋯</button>
-  <div id="moremenu" aria-label="그래프 도구">
-    <label style="font-size:12px"><input type="checkbox" id="sem" style="width:auto" disabled/>
-      <span id="searchkind">검색 모드 확인 중</span></label>
-    <span id="synthchips"></span>
-    <button id="synthbtn" onclick="synth()">🧩 종합 (0)</button>
-    <button id="addbtn" class="sec" onclick="openIngest()" title="URL·텍스트를 그래프에 적재">➕ 적재</button>
-    <button id="dedupbtn" class="sec" onclick="openDedup()" title="근사 중복 문서를 찾아 병합">♻️ 중복정리</button>
-    <button id="pathbtn" class="sec" onclick="togglePathMode()" title="두 노드 사이 연결 경로 찾기">🔗 경로</button>
-    <label>연결 ≥ <b id="fmin">0</b> <input id="fslider" type="range" min="0" max="0" value="0" oninput="setDeg(this.value)"/></label>
-    <span class="spacer"></span>
+  <div id="viewoptions">
     <button id="themebtn" title="라이트/다크 전환" aria-label="라이트/다크 전환" onclick="toggleTheme()">🌙</button>
-    <a id="repolink" class="sec" href="__SOURCE_BASE_URL__" target="_blank" rel="noopener noreferrer" title="소스 리포지토리 (__GITHUB_REPOSITORY__)" style="display:inline-flex;align-items:center;gap:4px;text-decoration:none;padding:3px 8px;border:1px solid var(--border);border-radius:4px;font-size:12px;color:var(--sec-fg);background:var(--sec-bg)">🐙 GitHub</a>
-    <span id="authstate">⏳ 권한 확인 중</span>
-    <span id="stat" role="status" aria-live="polite">로딩…</span>
+    <button id="morebtn" class="hamburg-btn" aria-expanded="false" aria-controls="detailpane"
+      aria-label="도구 더보기" title="도구 더보기" onclick="toggleDrawer()">☰</button>
   </div>
 </header>
 <div id="format-warn-banner" role="alert">
   <div id="format-warn-text"></div>
   <button class="close-btn" onclick="document.getElementById('format-warn-banner').style.display='none'" title="닫기">✕</button>
 </div>
-<nav id="worktabs" role="tablist" aria-label="작업 영역">
-  <button id="tab-docs" role="tab" aria-selected="true" aria-controls="docs" data-pane="docs">자료</button>
-  <button id="tab-graph" role="tab" aria-selected="false" aria-controls="netwrap" data-pane="graph" tabindex="-1">그래프</button>
-</nav>
+<div id="drawerbackdrop" onclick="closeDrawer()" aria-hidden="true"></div>
 <div id="wrap">
   <aside id="docs" class="workspace-pane" role="tabpanel" aria-labelledby="tab-docs" tabindex="0">
     <div class="dhead"><label class="sr-only" for="docq">자료 검색</label>
-      <input id="docq" placeholder="문서 검색(제목·요약)" oninput="renderDocs(this.value)" style="width:92%"/>
+      <input id="docq" placeholder="문서 검색(제목·요약)" oninput="docSearchActive=true;renderDocs(this.value)" style="width:92%"/>
     <select id="desclines" onchange="setDescLines(this.value)" title="목록 설명 줄수" style="width:92%;margin-top:5px">
-      <option value="0">설명 0줄(제목만)</option>
-      <option value="2">설명 2줄</option>
-      <option value="4">설명 4줄</option>
+      <option value="0">제목만 표시</option>
+      <option value="3">요약 표시</option>
     </select></div>
     <div id="pinnedhead" style="display:none">⭐ 즐겨찾기</div>
     <div id="pinnedlist"></div>
@@ -699,57 +679,114 @@ GRAPH_HTML = """<!doctype html>
     <div id="showhidden" style="display:none" onclick="toggleShowHidden()"></div>
     <div id="hiddenlist"></div>
   </aside>
-  <section id="netwrap" class="workspace-pane" role="tabpanel" aria-labelledby="tab-graph" tabindex="0">
-    <div id="legendbar" aria-label="그래프 범례와 관계 필터"></div>
-    <div id="graphdocnav" aria-label="그래프 자료 전환">
-      <button id="graphdocprev" onclick="stepGraphDoc(-1)" title="이전 자료" aria-label="이전 자료">‹</button>
-      <button id="graphdocpick" aria-haspopup="dialog" aria-expanded="false"
-        aria-controls="graphdocmenu" onclick="toggleGraphDocPicker()">
-        <span id="graphdoclabel">전체 그래프</span><span aria-hidden="true">⌄</span>
-      </button>
-      <button id="graphdocnext" onclick="stepGraphDoc(1)" title="다음 자료" aria-label="다음 자료">›</button>
-      <div id="graphdocmenu" role="dialog" aria-label="그래프에서 볼 자료 선택"
-        aria-hidden="true" inert hidden>
-        <label class="sr-only" for="graphdocq">자료 검색</label>
-        <input id="graphdocq" placeholder="문서 검색(제목·요약)"
-          oninput="renderGraphDocPicker(this.value)"/>
-        <div id="graphdoclist"></div>
+  <div id="centerwrap">
+    <section id="netwrap" class="workspace-pane" role="tabpanel" aria-labelledby="tab-graph" tabindex="0">
+      <div id="netsearch">
+        <div id="barsearch">
+          <label class="sr-only" for="q">그래프 검색</label>
+          <input id="q" placeholder="그래프 노드 검색" oninput="onSearchInput(this.value)"/>
+          <button id="searchbtn" class="sec" onclick="doSemantic()" style="display:none">🔎 검색</button>
+        </div>
+        <button class="sec" onclick="setCenterView('reader')" title="문서 크게 읽기로 전환" aria-label="문서 크게 읽기로 전환" style="display:inline-flex;align-items:center;gap:4px;flex-shrink:0">📖 본문 읽기</button>
+      </div>
+      <div id="legendbar" aria-label="그래프 범례와 관계 필터"></div>
+      <div id="graphdocnav" aria-label="그래프 자료 전환">
+        <button id="graphdocprev" onclick="stepGraphDoc(-1)" title="이전 자료" aria-label="이전 자료">‹</button>
+        <button id="graphdocpick" aria-haspopup="dialog" aria-expanded="false"
+          aria-controls="graphdocmenu" onclick="toggleGraphDocPicker()">
+          <span id="graphdoclabel">전체 그래프</span><span aria-hidden="true">⌄</span>
+        </button>
+        <button id="graphdocnext" onclick="stepGraphDoc(1)" title="다음 자료" aria-label="다음 자료">›</button>
+        <div id="graphdocmenu" role="dialog" aria-label="그래프에서 볼 자료 선택"
+          aria-hidden="true" inert hidden>
+          <label class="sr-only" for="graphdocq">자료 검색</label>
+          <input id="graphdocq" placeholder="문서 검색(제목·요약)"
+            oninput="renderGraphDocPicker(this.value)"/>
+          <div id="graphdoclist"></div>
+        </div>
+      </div>
+      <div id="net" aria-label="지식 그래프"></div>
+      <div id="graphnotice" role="status" aria-live="polite"></div>
+      <div id="zoomctl" aria-label="그래프 카메라">
+        <button onclick="zoomBtn(1)" title="확대" aria-label="그래프 확대">+</button>
+        <button onclick="zoomBtn(-1)" title="축소" aria-label="그래프 축소">−</button>
+        <button onclick="fitGraphContext()" title="강조된 항목 맞춤" aria-label="강조된 항목 맞춤">⌖</button>
+        <button onclick="resetGraphCamera()" title="전체 그래프 맞춤" aria-label="전체 그래프 맞춤">↺</button>
+      </div>
+    </section>
+    <div id="reader" role="dialog" aria-modal="true" aria-labelledby="rtitle" aria-hidden="true"
+      onclick="if(event.target===this && mobileMQ.matches)closeReader()">
+      <div class="sheet" tabindex="-1">
+        <div class="rhead">
+          <h1 id="rtitle">문서를 선택하세요</h1>
+          <div class="rtools">
+            <button class="rgraphbtn" onclick="openDocGraph(curReaderDoc)" title="지식 그래프로 보기" aria-label="지식 그래프로 보기">📊 그래프</button>
+            <div class="rzoom">
+              <button onclick="setReadFS(-2)" title="글자 작게" aria-label="글자 작게">A−</button>
+              <span class="fsv" id="rfs">16</span>
+              <button onclick="setReadFS(2)" title="글자 크게" aria-label="글자 크게">A+</button>
+            </div>
+            <button class="redit" id="reditbtn" onclick="editDocTitle()" title="제목 수정" aria-label="제목 수정">✏️</button>
+            <button class="rshare" onclick="shareDoc()" title="공유 링크 만들기" aria-label="공유 링크 만들기">🔗</button>
+            <button class="rclose" onclick="closeReader()" title="닫기(ESC)" aria-label="읽기 닫기">✕</button>
+          </div>
+        </div>
+        <div class="sharebox" id="sharebox"></div>
+        <div class="rbody" id="rbody">
+          <p class="hint" style="padding:20px;text-align:center">왼쪽 목록에서 문서를 선택하면 본문이 표시됩니다.</p>
+        </div>
       </div>
     </div>
-    <div id="net" aria-label="지식 그래프"></div>
-    <div id="graphnotice" role="status" aria-live="polite"></div>
-    <div id="zoomctl" aria-label="그래프 카메라">
-      <button onclick="zoomBtn(1)" title="확대" aria-label="그래프 확대">+</button>
-      <button onclick="zoomBtn(-1)" title="축소" aria-label="그래프 축소">−</button>
-      <button onclick="fitGraphContext()" title="강조된 항목 맞춤" aria-label="강조된 항목 맞춤">⌖</button>
-      <button onclick="resetGraphCamera()" title="전체 그래프 맞춤" aria-label="전체 그래프 맞춤">↺</button>
+  </div>
+  <aside id="detailpane" role="region" aria-label="문맥 상세" tabindex="-1">
+    <div id="detailhead">
+      <strong>메뉴 &amp; 상세</strong>
+      <button id="detailclose" onclick="closeDrawer()" aria-label="상세 닫기">✕</button>
     </div>
-  </section>
-  <aside id="detailpane" role="region" aria-label="문맥 상세" aria-hidden="true" tabindex="-1">
-    <div id="detailhead"><strong>상세</strong>
-      <button id="detailclose" onclick="closeDetailPane()" aria-label="상세 닫기">닫기</button></div>
-    <div id="panel"></div>
+    <div id="drawerscroll">
+      <div id="drawer-graph-action">
+        <button id="opengraphbtn" onclick="openGraphFromDrawer()">📊 지식 그래프 보기</button>
+      </div>
+      <div id="moremenu" aria-label="그래프 도구">
+        <div class="tool-row">
+          <label style="font-size:12px;display:inline-flex;align-items:center;gap:4px">
+            <input type="checkbox" id="sem" style="width:auto" disabled/>
+            <span id="searchkind">검색 모드 확인 중</span>
+          </label>
+          <span id="synthchips"></span>
+        </div>
+        <div class="action-btn-row">
+          <button id="synthbtn" onclick="synth()">🧩 종합 (0)</button>
+          <button id="addbtn" class="sec" onclick="openIngest()" title="URL·텍스트를 그래프에 적재">➕ 적재</button>
+          <button id="dedupbtn" class="sec" onclick="openDedup()" title="근사 중복 문서를 찾아 병합">♻️ 중복정리</button>
+          <button id="pathbtn" class="sec" onclick="togglePathMode()" title="두 노드 사이 연결 경로 찾기">🔗 경로</button>
+        </div>
+        <div class="filter-row">
+          <label>연결 ≥ <b id="fmin">0</b> <input id="fslider" type="range" min="0" max="0" value="0" oninput="setDeg(this.value)"/></label>
+        </div>
+        <div class="sys-row">
+          <a id="repolink" class="sec" href="__SOURCE_BASE_URL__" target="_blank" rel="noopener noreferrer" title="소스 리포지토리 (__GITHUB_REPOSITORY__)" style="display:inline-flex;align-items:center;gap:4px;text-decoration:none;padding:3px 8px;border:1px solid var(--border);border-radius:4px;font-size:12px;color:var(--sec-fg);background:var(--sec-bg)">🐙 GitHub</a>
+          <span id="authstate">⏳ 권한 확인 중</span>
+          <span id="stat" role="status" aria-live="polite">로딩…</span>
+        </div>
+      </div>
+      <div id="panel"></div>
+    </div>
   </aside>
 </div>
+<nav id="worktabs" role="tablist" aria-label="작업 영역">
+  <button id="tab-docs" role="tab" aria-selected="true" aria-controls="docs" data-pane="docs" onclick="revealWorkspace('docs')" title="자료" aria-label="자료">
+    <span class="bnav-icon">📑</span>
+  </button>
+  <button id="tab-search" onclick="focusMobileSearch()" title="검색" aria-label="검색">
+    <span class="bnav-icon">🔎</span>
+  </button>
+  <button id="tab-menu" class="hamburg-btn" aria-expanded="false" aria-controls="detailpane" onclick="toggleDrawer()" title="메뉴" aria-label="메뉴">
+    <span class="bnav-icon">☰</span>
+  </button>
+</nav>
 <!-- 노드 hover 시 마우스 위치에 뜨는 작은 요약 팝업(우측 패널 미리보기 대체). -->
 <div id="nodepop"></div>
-<!-- 중앙 읽기 팝업: 좌측 문서의 '읽기' 버튼/노드 상세의 📖 로 연다(마크다운·이미지 렌더). -->
-<div id="reader" role="dialog" aria-modal="true" aria-labelledby="rtitle" aria-hidden="true"
-  onclick="if(event.target===this)closeReader()">
-  <div class="sheet" tabindex="-1">
-    <div class="rhead"><h1 id="rtitle"></h1>
-      <div class="rzoom">
-        <button onclick="setReadFS(-2)" title="글자 작게" aria-label="글자 작게">A−</button>
-        <span class="fsv" id="rfs">16</span>
-        <button onclick="setReadFS(2)" title="글자 크게" aria-label="글자 크게">A+</button>
-      </div>
-      <button class="redit" id="reditbtn" onclick="editDocTitle()" title="제목 수정" aria-label="제목 수정">✏️</button>
-      <button class="rshare" onclick="shareDoc()" title="공유 링크 만들기" aria-label="공유 링크 만들기">🔗</button>
-      <button class="rclose" onclick="closeReader()" title="닫기(ESC)" aria-label="읽기 닫기">✕</button></div>
-    <div class="sharebox" id="sharebox"></div>
-    <div class="rbody" id="rbody"></div>
-  </div>
-</div>
 <script>
 const TYPE_COLORS = {Tool:'#1f6feb',Framework:'#8957e5',Model:'#bf3989',Paper:'#bf8700',
   Article:'#1a7f37',Repo:'#1b7c83',Concept:'#cf222e',Person:'#bc4c00',Org:'#9a6700',
@@ -1055,17 +1092,17 @@ function renderContent(src, format){
 
 // 목록 설명 줄수(0/2/4) — 브라우저에 기억. 문서 많아지면 제목/설명이 height 를 너무
 // 차지한다는 피드백(사용자 지적) → #docs 에 lc0/lc4 클래스로 CSS line-clamp 토글(기본 2줄).
-let descLines = 2;
-try{ const v=parseInt(localStorage.getItem('claireDescLines')); if(v===0||v===2||v===4) descLines=v; }catch(e){}
+let descLines = 3;
+try{ const v=parseInt(localStorage.getItem('claireDescLines')); if(v===0||v===3||v===4||v===2) descLines=(v===0?0:3); }catch(e){}
 function applyDescLines(){
   const docs=document.getElementById('docs'); if(!docs) return;
-  docs.classList.remove('lc0','lc4');
+  docs.classList.remove('lc0','lc3','lc4');
   if(descLines===0) docs.classList.add('lc0');
-  else if(descLines===4) docs.classList.add('lc4');
-  const sel=document.getElementById('desclines'); if(sel) sel.value=String(descLines);
+  else docs.classList.add('lc3');
+  const sel=document.getElementById('desclines'); if(sel) sel.value=String(descLines===0?0:3);
 }
 function setDescLines(v){
-  descLines = parseInt(v)===0 ? 0 : (parseInt(v)===4 ? 4 : 2);
+  descLines = parseInt(v)===0 ? 0 : 3;
   try{ localStorage.setItem('claireDescLines', descLines); }catch(e){}
   applyDescLines();
 }
@@ -1084,12 +1121,14 @@ function setReadFS(delta){
   applyReadFS();
 }
 
-// 중앙 읽기 팝업 — 좌측 문서의 '읽기' 버튼/노드 상세의 📖 로 연다(nav 와 분리, 사용자 요구).
+// 중앙 읽기 — 좌측 문서의 '읽기' 버튼/노드 상세의 📖 로 연다(nav 와 분리, 사용자 요구).
 let curReaderDoc=null;   // 현재 읽기 팝업의 문서 id(🔗 공유 링크 생성 대상)
 let curReaderDocData=null; // 현재 읽기 팝업의 문서 객체
 let readerReturnFocus=null, readerReturnDocId=null;
 function setReaderBackgroundInert(on){
-  ['bar','worktabs','wrap'].forEach(id=>{ const el=document.getElementById(id); if(el) el.inert=on; });
+  if(mobileMQ.matches){
+    ['bar','worktabs'].forEach(id=>{ const el=document.getElementById(id); if(el) el.inert=on; });
+  }
 }
 function readerFocusable(){
   return [...document.querySelectorAll('#reader button:not([disabled]),#reader a[href],'+
@@ -1122,22 +1161,46 @@ async function markDocumentSeen(docId){
     if(dc && dc.seen!==1){ dc.seen=1; renderDocs(document.getElementById('docq').value); }
   }catch(_){}
 }
+let centerView='reader';
+function setCenterView(mode){
+  centerView = (mode==='graph' ? 'graph' : 'reader');
+  document.body.dataset.centerView = centerView;
+  if(centerView==='graph'){
+    requestAnimationFrame(()=>{ relayoutPreservingCamera(); applyTouchMode(); });
+  }
+}
+function openDocGraph(docId){
+  if(docId) setActiveDoc(docId);
+  setCenterView('graph');
+  if(mobileMQ.matches){
+    closeReader();
+    revealWorkspace('graph');
+  }
+}
 function openReader(docId){
   hideNodePop();
-  const r=document.getElementById('reader');
+  if(!docId && allDocs && allDocs.length) docId = allDocs[0].id;
+  if(!docId) return;
+  curReaderDoc=docId;
+  activeDoc=docId;
   readerReturnFocus=document.activeElement;
   readerReturnDocId=docId;
-  curReaderDoc=docId;
   const sb=document.getElementById('sharebox'); if(sb){ sb.className='sharebox'; sb.innerHTML=''; }  // 이전 공유링크 닫기
   applyReadFS();   // 저장된 글자 크기 적용
   document.getElementById('rtitle').textContent='문서 불러오는 중…';
   document.getElementById('rbody').innerHTML='';
+  const r=document.getElementById('reader');
   r.setAttribute('aria-hidden','false');
   r.setAttribute('aria-busy','true');
-  r.classList.add('open');
-  document.body.classList.add('reader-open');
-  setReaderBackgroundInert(true);
-  requestAnimationFrame(()=>r.querySelector('.sheet').focus());
+  if(mobileMQ.matches){
+    r.classList.add('open');
+    document.body.classList.add('reader-open');
+    setReaderBackgroundInert(true);
+    requestAnimationFrame(()=>r.querySelector('.sheet')?.focus());
+  } else {
+    setCenterView('reader');
+    renderDocs(document.getElementById('docq').value);
+  }
   fetch('document?id='+encodeURIComponent(docId)).then(x=>x.json()).then(dc=>{
     if(!dc || dc.error){ document.getElementById('rbody').innerHTML='<p class=hint>문서를 찾을 수 없습니다.</p>';
       r.setAttribute('aria-busy','false'); return; }
@@ -1175,7 +1238,7 @@ function extraSourcesHtml(dc){
 }
 function closeReader(){
   hideNodePop();
-  const r=document.getElementById('reader'); if(!r.classList.contains('open')) return;
+  const r=document.getElementById('reader');
   r.classList.remove('open'); r.setAttribute('aria-hidden','true'); r.setAttribute('aria-busy','false');
   document.body.classList.remove('reader-open');
   setReaderBackgroundInert(false); syncWorkspaceLayout();
@@ -1310,12 +1373,15 @@ function relayoutPreservingCamera(){
   preservingGraphCamera=false;
   rememberGraphCamera();
 }
+let drawerOpen=false;
 function syncWorkspaceLayout(){
   document.body.dataset.activePane=activePane;
   paneNames.forEach(name=>{
     const selected=name===activePane;
-    paneTabs[name].setAttribute('aria-selected', selected?'true':'false');
-    paneTabs[name].tabIndex=selected?0:-1;
+    if(paneTabs[name]){
+      paneTabs[name].setAttribute('aria-selected', selected?'true':'false');
+      paneTabs[name].tabIndex=selected?0:-1;
+    }
     if(mobileMQ.matches){
       paneEls[name].setAttribute('aria-hidden', selected?'false':'true');
       paneEls[name].inert=!selected;
@@ -1324,10 +1390,17 @@ function syncWorkspaceLayout(){
       paneEls[name].inert=false;
     }
   });
-  document.body.classList.toggle('detail-open',compactMQ.matches && detailOpen);
-  if(compactMQ.matches){
-    detailPane.setAttribute('aria-hidden',detailOpen?'false':'true');
-    detailPane.inert=!detailOpen;
+  const isDrawerActive = drawerOpen || ((compactMQ.matches || mobileMQ.matches) && detailOpen);
+  document.body.classList.toggle('detail-open', (compactMQ.matches || mobileMQ.matches) && detailOpen);
+  document.body.classList.toggle('drawer-open', drawerOpen);
+  const moreBtn = document.getElementById('morebtn');
+  if(moreBtn) moreBtn.setAttribute('aria-expanded', isDrawerActive?'true':'false');
+  const menuBtn = document.getElementById('tab-menu');
+  if(menuBtn) menuBtn.setAttribute('aria-expanded', drawerOpen?'true':'false');
+
+  if(compactMQ.matches || mobileMQ.matches){
+    detailPane.setAttribute('aria-hidden', isDrawerActive?'false':'true');
+    detailPane.inert=!isDrawerActive;
   }else{
     detailPane.setAttribute('aria-hidden','false');
     detailPane.inert=false;
@@ -1336,35 +1409,76 @@ function syncWorkspaceLayout(){
     requestAnimationFrame(()=>{ relayoutPreservingCamera(); applyTouchMode(); });
   }
 }
+let docSearchActive = false;
 function revealWorkspace(name, focusTab=false){
   hideNodePop();
   if(!paneNames.includes(name)) return;
   if(activePane==='graph' && !netBusy) rememberGraphCamera();
   activePane=name;
+  if(name==='docs' && !docSearchActive){
+    const q=document.getElementById('docq');
+    if(q && q.value){ q.value=''; renderDocs(''); }
+  }
   detailOpen=false;
+  drawerOpen=false;
   detailReturnFocus=null;
   if(name!=='graph') closeGraphDocPicker();
   closeToolsMenu();
   syncWorkspaceLayout();
-  if(focusTab && mobileMQ.matches) paneTabs[name].focus();
+  if(focusTab && mobileMQ.matches && paneTabs[name]) paneTabs[name].focus();
 }
 function openDetailPane(){
   hideNodePop();
   detailReturnFocus=document.activeElement;
   detailOpen=true;
+  drawerOpen=true;
   closeGraphDocPicker();
-  closeToolsMenu();
   syncWorkspaceLayout();
 }
 function closeDetailPane(){
   hideNodePop();
   detailOpen=false;
+  drawerOpen=false;
   syncWorkspaceLayout();
   let target=detailReturnFocus && detailReturnFocus.isConnected ? detailReturnFocus : null;
-  if(!target) target=mobileMQ.matches ? paneTabs[activePane] : paneEls[activePane];
+  if(!target) target=mobileMQ.matches ? (paneTabs[activePane] || document.getElementById('tab-docs')) : paneEls[activePane];
   detailReturnFocus=null;
   requestAnimationFrame(()=>{ if(target) target.focus(); });
 }
+function openDrawer(){
+  hideNodePop();
+  detailReturnFocus=document.activeElement;
+  drawerOpen=true;
+  detailOpen=true;
+  closeGraphDocPicker();
+  syncWorkspaceLayout();
+}
+function closeDrawer(focus=false){
+  hideNodePop();
+  drawerOpen=false;
+  detailOpen=false;
+  syncWorkspaceLayout();
+  let target=detailReturnFocus && detailReturnFocus.isConnected ? detailReturnFocus : null;
+  if(!target) target=mobileMQ.matches ? (paneTabs[activePane] || document.getElementById('tab-docs')) : document.getElementById('morebtn');
+  detailReturnFocus=null;
+  if(focus && target) requestAnimationFrame(()=>target.focus());
+}
+function toggleDrawer(){
+  if(drawerOpen || detailOpen) closeDrawer(true);
+  else openDrawer();
+}
+function openGraphFromDrawer(){
+  closeDrawer();
+  revealWorkspace('graph');
+}
+function focusMobileSearch(){
+  docSearchActive=true;
+  revealWorkspace('docs');
+  const q=document.getElementById('docq');
+  if(q){ q.value=''; renderDocs(''); q.focus(); }
+}
+function closeToolsMenu(focus=false){ closeDrawer(focus); }
+function toggleToolsMenu(){ toggleDrawer(); }
 function graphSelectableDocs(){
   const visible=allDocs.filter(dc=>dc.hidden!==1);
   return visible.filter(dc=>dc.pinned===1).concat(visible.filter(dc=>dc.pinned!==1));
@@ -1461,23 +1575,18 @@ document.getElementById('worktabs').addEventListener('keydown',e=>{
   else return;
   e.preventDefault(); revealWorkspace(paneNames[i],true);
 });
-function closeToolsMenu(focus=false){
-  const bar=document.getElementById('bar'), btn=document.getElementById('morebtn');
-  if(!bar.classList.contains('tools-open')) return;
-  bar.classList.remove('tools-open'); btn.setAttribute('aria-expanded','false');
-  if(focus) btn.focus();
-}
-function toggleToolsMenu(){
-  const bar=document.getElementById('bar'), btn=document.getElementById('morebtn');
-  const open=!bar.classList.contains('tools-open');
-  if(open) closeGraphDocPicker();
-  bar.classList.toggle('tools-open',open); btn.setAttribute('aria-expanded',open?'true':'false');
-}
 document.addEventListener('pointerdown',e=>{
   const bar=document.getElementById('bar');
-  if(bar.classList.contains('tools-open') && !bar.contains(e.target)) closeToolsMenu();
+  const pane=document.getElementById('detailpane');
+  const bnav=document.getElementById('worktabs');
+  if((drawerOpen||detailOpen) && !pane.contains(e.target) && !bar.contains(e.target) && !bnav.contains(e.target)) closeDrawer();
   const nav=document.getElementById('graphdocnav');
   if(!document.getElementById('graphdocmenu').hidden && !nav.contains(e.target)) closeGraphDocPicker();
+});
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape' && (drawerOpen||detailOpen)){
+    e.preventDefault(); closeDrawer(true);
+  }
 });
 function responsiveChanged(){ closeToolsMenu(); syncWorkspaceLayout(); }
 mobileMQ.addEventListener('change',responsiveChanged);
@@ -1564,6 +1673,7 @@ function resetGraphCamera(){
 fetch('graph').then(r=>r.json()).then(d=>{
   allNodes = new vis.DataSet(d.nodes);
   allEdges = new vis.DataSet(d.edges);
+  if(!d.nodes || !d.nodes.length){ graphStabilized=true; }
   const sl = document.getElementById('fslider'); sl.max = d.stats.max_degree; sl.value = 0;
   allTypes=[...new Set(d.nodes.map(n=>n.group))].sort();
   allRelTypes=[...new Set(d.edges.map(e=>e.label).filter(Boolean))].sort();
@@ -1906,7 +2016,7 @@ async function runDedupMerge(ci){
   const keeper=sel?sel.value:c.keeper;
   const losers=c.docs.map(x=>x.id).filter(id=>id!==keeper);
   if(!losers.length){ alert('합칠 문서가 없습니다.'); return; }
-  if(!confirm(losers.length+'개 문서를 유지문서로 합칩니다. 계속할까요?\\n(병합 전 내부 체크포인트를 생성합니다)')) return;
+  if(!confirm(losers.length+'개 문서를 유지문서로 합칩니다. 계속할까요?\n(병합 전 내부 체크포인트를 생성합니다)')) return;
   panel.innerHTML='<h2>♻️ 병합 중…</h2><p class=al>체크포인트 생성 후 참조 재배치 중…</p>';
   try{
     const r=await fetch('dedup/merge',{method:'POST',headers:{'Content-Type':'application/json'},
@@ -1924,6 +2034,79 @@ async function runDedupMerge(ci){
     panel.innerHTML=h;
     refreshGraph();   // 문서목록·그래프(병합으로 줄어든 sources) 갱신
   }catch(e){ panel.innerHTML='<h2>♻️ 병합</h2><p class=hint>요청 실패: '+esc(String(e))+'</p>'; }
+}
+
+function docItemHtml(dc){
+  const unread = dc.seen===0, watching = dc.watch===1, pinned = dc.pinned===1, hid = dc.hidden===1;
+  // readonly(/webro) 세션은 즐겨찾기가 서버가 404 내는 쓰기라 버튼 자체를 안 그린다
+  // (사용자 요구 — 눌러도 안 되는 버튼이 남아있으면 안 됨).
+  const pinBtn = canWrite()
+    ? '<button class="actbtn'+(pinned?' pinned':'')+'" title="'+(pinned?'즐겨찾기 해제':'즐겨찾기 고정')+
+      '" aria-label="'+esc(dc.title)+' '+(pinned?'즐겨찾기 해제':'즐겨찾기 고정')+
+      '" onclick="event.stopPropagation();togglePin(\''+dc.id+'\','+(!pinned)+')">'+(pinned?'⭐':'☆')+'</button>'
+    : '';
+  return '<div class="docitem'+(dc.id===activeDoc?' active':'')+(unread?' unread':'')+(hid?' hidden-doc':'')+
+    '" onclick="handleDocItemClick(\''+dc.id+'\')">'+
+    '<div class="docactions">'+pinBtn+
+    '<button class="actbtn actbtn-graph" title="그래프 보기" aria-label="'+
+      esc(dc.title)+' 그래프 보기" onclick="event.stopPropagation();openDocGraph(\''+dc.id+'\')">📊</button>'+
+    '<button class="actbtn actbtn-read readbtn" data-read-doc="'+esc(dc.id)+'" title="크게 읽기" aria-label="'+
+      esc(dc.title)+' 크게 읽기" onclick="event.stopPropagation();openReader(\''+dc.id+'\')">📖</button>'+
+    '</div>'+
+    (watching?'<span class="wbadge" title="주기 갱신 추적(watch)">🔄</span>':'')+
+    (unread?'<span class="ubadge" title="아직 안 본 문서">●</span>':'')+
+    '<b>'+esc(dc.title)+'</b><span class="st">'+esc(dc.source_type||'')+'</span>'+
+    (dc.summary?'<p>'+esc(dc.summary.slice(0,110))+'</p>':'')+'</div>';
+}
+function handleDocItemClick(id){
+  if(mobileMQ.matches) openReader(id);
+  else selectDoc(id);
+}
+function openDocGraph(id){
+  setActiveDoc(id);
+  revealWorkspace('graph');
+}
+let showHidden = false;
+function toggleShowHidden(){ if(!canWrite()) return; showHidden=!showHidden; renderDocs(document.getElementById('docq').value); }
+function renderDocs(filter){
+  const q=(filter||'').trim().toLowerCase();
+  if(docSearchActive && !q){
+    document.getElementById('pinnedhead').style.display = 'none';
+    document.getElementById('pinnedlist').innerHTML = '';
+    document.getElementById('doclist').innerHTML = '<p class="hint" style="padding:16px 12px;text-align:center">🔎 검색어를 입력하세요.</p>';
+    const sh=document.getElementById('showhidden');
+    if(sh) sh.style.display='none';
+    document.getElementById('hiddenlist').innerHTML = '';
+    syncGraphDocNav();
+    return;
+  }
+  const match = dc => !q || (dc.title+' '+dc.summary).toLowerCase().includes(q);
+  // 숨김(hidden)은 기본 목록·즐겨찾기 양쪽에서 제외(목록 전용 숨김, 그래프는 안 건드림).
+  const visible = allDocs.filter(dc=> dc.hidden!==1 && match(dc));
+  const pinned = visible.filter(dc=>dc.pinned===1);
+  const rest = visible.filter(dc=>dc.pinned!==1);
+  const hiddenDocs = allDocs.filter(dc=> dc.hidden===1 && match(dc));
+
+  document.getElementById('pinnedhead').style.display = pinned.length ? '' : 'none';
+  document.getElementById('pinnedlist').innerHTML = pinned.map(docItemHtml).join('');
+
+  document.getElementById('doclist').innerHTML = rest.length
+    ? (()=>{ let html='', curDay=null;
+        rest.forEach(dc=>{ const day=dayOf(dc.fetched_at);
+          if(day!==curDay){ html+='<div class="dday">'+day+'</div>'; curDay=day; }
+          html+=docItemHtml(dc); });
+        return html; })()
+    : '<p class="hint" style="padding:10px">문서 없음</p>';
+
+  const sh=document.getElementById('showhidden');
+  // readonly 는 숨기기/해제 버튼이 없어 이 구간이 눌러도 소용없는 관리용 UI — 아예 숨김.
+  if(!canWrite() || !hiddenDocs.length){ sh.style.display='none'; document.getElementById('hiddenlist').innerHTML=''; }
+  else{
+    sh.style.display='';
+    sh.textContent = (showHidden?'▲ ':'▼ ')+'🙈 숨김 '+hiddenDocs.length+'개 '+(showHidden?'접기':'보기');
+    document.getElementById('hiddenlist').innerHTML = showHidden ? hiddenDocs.map(docItemHtml).join('') : '';
+  }
+  syncGraphDocNav();
 }
 
 // 조사로 그래프가 늘어난 뒤 새로고침 없이 신규 노드/엣지·문서목록을 반영.
@@ -2121,8 +2304,6 @@ function dayOf(ts){ if(!ts) return '(날짜 미상)';
 // 숨기기는 목록이 아니라 우측 상세 패널의 텍스트 버튼으로(사용자 요구, panelHideBtn 참조).
 function docItemHtml(dc){
   const unread = dc.seen===0, watching = dc.watch===1, pinned = dc.pinned===1, hid = dc.hidden===1;
-  // readonly(/webro) 세션은 즐겨찾기가 서버가 404 내는 쓰기라 버튼 자체를 안 그린다
-  // (사용자 요구 — 눌러도 안 되는 버튼이 남아있으면 안 됨).
   const pinBtn = canWrite()
     ? '<button class="actbtn'+(pinned?' pinned':'')+'" title="'+(pinned?'즐겨찾기 해제':'즐겨찾기에 추가')+
       '" onclick="event.stopPropagation();togglePin(\\''+dc.id+'\\','+(!pinned)+')">'+(pinned?'⭐':'☆')+'</button>'
@@ -2130,7 +2311,9 @@ function docItemHtml(dc){
   return '<div class="docitem'+(dc.id===activeDoc?' active':'')+(unread?' unread':'')+(hid?' hidden-doc':'')+
     '" onclick="selectDoc(\\''+dc.id+'\\')">'+
     '<div class=docactions>'+pinBtn+
-    '<button class=actbtn data-read-doc="'+esc(dc.id)+'" title="크게 읽기" aria-label="'+
+    '<button class="actbtn actbtn-graph" title="지식 그래프 보기" aria-label="'+
+      esc(dc.title)+' 지식 그래프 보기" onclick="event.stopPropagation();openDocGraph(\\''+dc.id+'\\')">📊</button>'+
+    '<button class="actbtn actbtn-read readbtn" data-read-doc="'+esc(dc.id)+'" title="크게 읽기" aria-label="'+
       esc(dc.title)+' 크게 읽기" onclick="event.stopPropagation();openReader(\\''+dc.id+'\\')">📖</button>'+
     '</div>'+
     (watching?'<span class=wbadge title="주기 갱신 추적(watch)">🔄</span>':'')+
@@ -2214,16 +2397,14 @@ async function panelToggleHide(id, val){
   }
 }
 function selectDoc(id){
-  setActiveDoc(activeDoc===id ? null : id);     // 자료 목록에서 같은 문서 재클릭 → 해제
+  openReader(id);
 }
 function setActiveDoc(id){
   activeDoc = id;
+  if(id) curReaderDoc = id;
   selectedNodeId=null;                          // 문서 모드로 전환 — 노드 inspect 해제
   renderDocs(document.getElementById('docq').value);
   applyView();
-  // 자료 선택의 주 목적은 해당 문서의 노드 맥락을 그래프에서 다루는 것. 읽기는 목록의
-  // 📖 reader가 담당하고, compact 상세 sheet는 문서 선택만으로 열지 않는다.
-  revealWorkspace('graph');
   if(activeDoc){
     const docId=activeDoc;
     requestAnimationFrame(()=>{ if(net && activeDoc===docId){
@@ -2482,6 +2663,9 @@ syncThemeBtn();   // 저장된 테마에 맞춰 🌙/🌞 라벨 동기화(테�
 fetch('documents').then(r=>r.json()).then(d=>{
   allDocs=d.documents||[];
   renderDocs();
+  if(allDocs.length && !curReaderDoc && !mobileMQ.matches){
+    openReader(allDocs[0].id);
+  }
   if(d.format_status && d.format_status.needs_migration){
     const fs=d.format_status;
     const banner=document.getElementById('format-warn-banner');
@@ -2520,8 +2704,9 @@ window.claireDebug = {
   get viewpos(){ return net ? net.getViewPosition() : null; },
   get clustered(){ return clusterEdges; },
   get activePane(){ return activePane; },
-  get detailOpen(){ return detailOpen; },
-  get toolsOpen(){ return document.getElementById('bar').classList.contains('tools-open'); },
+  get detailOpen(){ return detailOpen || drawerOpen; },
+  get drawerOpen(){ return drawerOpen; },
+  get toolsOpen(){ return drawerOpen || detailOpen; },
   get readerOpen(){ return document.getElementById('reader').classList.contains('open'); },
   get stabilized(){ return graphStabilized; },
   get sourceBaseUrl(){ return '__SOURCE_BASE_URL__'; },

@@ -27,7 +27,7 @@ import sys
 import tarfile
 import tempfile
 import time
-from typing import Callable, Iterator, Mapping, Sequence, cast
+from typing import Any, Callable, Iterator, Mapping, Sequence, cast
 from urllib.parse import quote, urlsplit
 
 

@@ -142,7 +142,8 @@ def test_graph_html_self_contained_markers():
     assert "relayout" in GRAPH_HTML and "orientationchange" in GRAPH_HTML  # 모바일 캔버스 리사이즈
     # 모바일 primary nav는 자료/그래프뿐이며 상세는 선택에 종속된 context sheet다.
     assert 'id="worktabs" role="tablist"' in GRAPH_HTML
-    assert GRAPH_HTML.count('role="tab"') == 2
+    assert 'id="tab-docs" role="tab"' in GRAPH_HTML
+    assert 'id="tab-graph"' not in GRAPH_HTML
     assert GRAPH_HTML.count('role="tabpanel"') == 2
     assert 'id="tab-detail"' not in GRAPH_HTML
     assert 'id="detailpane" role="region" aria-label="문맥 상세"' in GRAPH_HTML
