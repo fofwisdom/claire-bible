@@ -427,7 +427,6 @@ GRAPH_HTML = """<!doctype html>
   .docitem .actbtn:hover{opacity:1;border-color:var(--accent)}
   .docitem .actbtn.pinned{opacity:1;color:#e3b341}
   .docitem .actbtn.actbtn-graph{display:inline-flex}
-  .docitem .actbtn.actbtn-read{display:inline-flex}
   #showhidden{display:block;padding:8px 10px;font-size:12px;color:var(--fg);cursor:pointer;
     text-align:center;border-top:1px solid var(--border);background:var(--sec-bg)}
   #showhidden:hover{background:var(--hover)}
@@ -619,7 +618,6 @@ GRAPH_HTML = """<!doctype html>
     #docs{position:relative;inset:auto;width:100%;height:100%;
       max-width:none;transform:none;box-shadow:none;border:0;display:flex}
     .docitem .actbtn.actbtn-graph{display:inline-flex}
-    .docitem .actbtn.actbtn-read{display:none!important}
     #legendbar{flex-wrap:nowrap;overflow-x:auto;min-height:36px;padding:7px 10px;scrollbar-width:thin}
     #graphdocnav{position:relative;display:flex;align-items:center;gap:4px;min-height:52px;
       padding:4px 8px;background:var(--panel-bg);border-bottom:1px solid var(--border);z-index:12}
@@ -2280,7 +2278,7 @@ function dayOf(ts){ if(!ts) return '(날짜 미상)';
   const d=new Date(ts*1000);
   return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
 // 문서 하나의 목록 아이템 HTML — 즐겨찾기/일반/숨김 목록이 모두 공유(중복 방지).
-// 클릭=그래프 nav(필터·이동), 액션 버튼 2종(⭐즐겨찾기·📖읽기)은 stopPropagation.
+// 클릭=그래프 nav(필터·이동), 액션 버튼(⭐즐겨찾기·📊그래프 보기)은 stopPropagation.
 // 숨기기는 목록이 아니라 우측 상세 패널의 텍스트 버튼으로(사용자 요구, panelHideBtn 참조).
 function docItemHtml(dc){
   const unread = dc.seen===0, watching = dc.watch===1, pinned = dc.pinned===1, hid = dc.hidden===1;
@@ -2293,8 +2291,6 @@ function docItemHtml(dc){
     '<div class=docactions>'+pinBtn+
     '<button class="actbtn actbtn-graph" title="지식 그래프 보기" aria-label="'+
       esc(dc.title)+' 지식 그래프 보기" onclick="event.stopPropagation();openDocGraph(\\''+dc.id+'\\')">📊</button>'+
-    '<button class="actbtn actbtn-read readbtn" data-read-doc="'+esc(dc.id)+'" title="크게 읽기" aria-label="'+
-      esc(dc.title)+' 크게 읽기" onclick="event.stopPropagation();openReader(\\''+dc.id+'\\')">📖</button>'+
     '</div>'+
     (watching?'<span class=wbadge title="주기 갱신 추적(watch)">🔄</span>':'')+
     (unread?'<span class=ubadge title="아직 안 본 문서">●</span>':'')+
