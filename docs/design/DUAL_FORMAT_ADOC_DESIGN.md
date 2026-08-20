@@ -131,21 +131,31 @@ class Settings(BaseSettings):
 ### 5) 운영 도구 (`cb-manuscript`) 및 CLI 명령어 확장
 사용자는 호스트 OS에서 단일 진입점인 `cb-manuscript`만으로 업데이트 및 포맷 전환 작업을 수행할 수 있습니다:
 ```bash
-# [권장] cb-manuscript 를 통한 운영 환경 포맷 전환 및 백필
-./cb-manuscript app backfill-detail --format adoc --force
+# [권장] cb-manuscript 를 통한 포맷 마이그레이션 Dry-Run 진단 (기본 동작, .env의 CLAIRE_RENDER_FORMAT 기준)
+./cb-manuscript format-migrate
 
-# [권장] cb-manuscript 를 통한 포맷 전환 재추출
+# [권장] 미적용(불일치/누락) 문서만 선별하여 포맷 마이그레이션 적용 (확인 프롬프트 포함)
+./cb-manuscript format-migrate --apply
+
+# [권장] 비대화형 환경 자동 승인 마이그레이션 실행
+./cb-manuscript format-migrate --apply --yes
+
+# [고급/유지보수] 컨테이너 명령어 직접 호출
+# detail이 비어있거나 포맷이 다른 문서를 ADOC 포맷으로 선별 백필
+./cb-manuscript app backfill-detail --format adoc
+
+# 포맷 전환을 동반한 전체 지식그래프 재추출 (파괴적 리빌드)
 ./cb-manuscript app --advanced reextract --format adoc
 
 # 컨테이너 내부 직접 실행 시:
 # ADOC 포맷으로 단건 적재
 claire ingest "https://example.com/article" --format adoc
 
-# 기존 문서 전체를 ADOC 포맷으로 재추출
-claire reextract --format adoc
+# 포맷 현황 진단 리포트 출력
+claire format-status
 
-# detail이 비어있는 문서를 ADOC 포맷으로 백필
-claire backfill-detail --format adoc --force
+# 미적용 문서 선별 백필
+claire backfill-detail --format adoc
 ```
 
 ### 6) Antora 스타일 백엔드 AOT 렌더링 파이프라인 ([render/aot.py](../../src/claire/render/aot.py), [graphview.py](../../src/claire/graphview.py))

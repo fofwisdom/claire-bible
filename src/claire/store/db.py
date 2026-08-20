@@ -1281,34 +1281,80 @@ def documents_missing_detail(conn: sqlite3.Connection, limit: int = 0) -> list[s
     return [r["id"] for r in conn.execute(q).fetchall()]
 
 
-def check_format_mismatch(
+def documents_needing_detail_format(
+    conn: sqlite3.Connection,
+    target_format: str,
+    limit: int = 0,
+) -> list[str]:
+    """목표 포맷(target_format)으로 detail 생성이 필요한 문서 id(최신순).
+
+    1) detail 이 비어있거나 NULL인 문서
+    2) detail 은 있으나 detail_format 이 target_format 과 다른 문서
+    (이미 target_format 으로 일치하는 문서는 제외)
+    """
+    fmt = (target_format or "md").strip().lower()
+    fmt = "adoc" if fmt in ("asciidoc", "adoc") else "md"
+    q = (
+        "SELECT id FROM documents WHERE detail IS NULL OR trim(detail)='' "
+        "OR lower(coalesce(detail_format, 'md')) != ? "
+        "ORDER BY fetched_at DESC"
+    )
+    if limit:
+        q += f" LIMIT {int(limit)}"
+    return [r["id"] for r in conn.execute(q, (fmt,)).fetchall()]
+
+
+def get_format_status(
     conn: sqlite3.Connection,
     configured_format: str,
 ) -> dict[str, Any]:
-    """설정된 포맷(Settings.render_format)과 DB에 저장된 detail 포맷 불일치 여부를 진단."""
+    """DB 내 문서들의 포맷 상태(총 문서, 포맷 일치, 포맷 불일치, detail 누락)를 상세 진단."""
     target = (configured_format or "md").strip().lower()
-    if target in ("asciidoc", "adoc"):
-        target = "adoc"
-    else:
-        target = "md"
+    target = "adoc" if target in ("asciidoc", "adoc") else "md"
 
-    row_total = conn.execute(
-        "SELECT COUNT(*) as c FROM documents WHERE detail IS NOT NULL AND trim(detail) != ''"
+    row_total_docs = conn.execute("SELECT COUNT(*) as c FROM documents").fetchone()
+    total_docs = row_total_docs["c"] if row_total_docs else 0
+
+    row_matching = conn.execute(
+        "SELECT COUNT(*) as c FROM documents WHERE detail IS NOT NULL AND trim(detail) != '' AND lower(coalesce(detail_format, 'md')) = ?",
+        (target,),
     ).fetchone()
-    total_with_detail = row_total["c"] if row_total else 0
+    matching_docs = row_matching["c"] if row_matching else 0
 
     row_mismatched = conn.execute(
         "SELECT COUNT(*) as c FROM documents WHERE detail IS NOT NULL AND trim(detail) != '' AND lower(coalesce(detail_format, 'md')) != ?",
         (target,),
     ).fetchone()
-    mismatched = row_mismatched["c"] if row_mismatched else 0
+    mismatched_docs = row_mismatched["c"] if row_mismatched else 0
+
+    row_missing = conn.execute(
+        "SELECT COUNT(*) as c FROM documents WHERE detail IS NULL OR trim(detail) = ''"
+    ).fetchone()
+    missing_detail_docs = row_missing["c"] if row_missing else 0
+
+    total_with_detail = matching_docs + mismatched_docs
+    target_docs = mismatched_docs + missing_detail_docs
 
     return {
         "configured": target,
+        "target_format": target,
+        "total_docs": total_docs,
         "total_with_detail": total_with_detail,
-        "mismatched": mismatched,
-        "needs_migration": (mismatched > 0),
+        "matching_docs": matching_docs,
+        "mismatched": mismatched_docs,
+        "mismatched_docs": mismatched_docs,
+        "missing_detail_docs": missing_detail_docs,
+        "target_docs": target_docs,
+        "needs_migration": (target_docs > 0),
     }
+
+
+def check_format_mismatch(
+    conn: sqlite3.Connection,
+    configured_format: str,
+) -> dict[str, Any]:
+    """설정된 포맷(Settings.render_format)과 DB에 저장된 detail 포맷 불일치 여부를 진단."""
+    return get_format_status(conn, configured_format)
 
 
 # --- refresh queue (복원 메커니즘) ---

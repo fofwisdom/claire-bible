@@ -1350,29 +1350,112 @@ def test_all_subparsers_have_rich_descriptions():
         assert subparser.description, f"{name} subparser is missing a description"
 
 
-def test_format_migrate_requires_yes_and_shows_side_effects(tmp_path, capsys):
-    _write_layout(tmp_path, dev=False)
-    code = cb.main(["format-migrate", "--format", "adoc"], root=tmp_path)
-    assert code == 2
-    captured = capsys.readouterr().out
-    assert "부수적 효과 안내" in captured
-    assert "reextract" in captured
-    assert "backfill-detail" in captured
-    assert "--yes" in captured
-
-
-def test_format_migrate_executes_reextract_and_backfill_continuously(tmp_path, capsys):
+def test_format_migrate_default_is_dry_run(tmp_path, capsys):
     _write_layout(tmp_path, dev=False)
     with patch.object(cb.subprocess, "run", side_effect=_fake_success) as run:
-        code = cb.main(["format-migrate", "--format", "adoc", "--yes"], root=tmp_path)
+        code = cb.main(["format-migrate"], root=tmp_path)
         assert code == 0
 
     commands = _commands(run)
-    assert len(commands) == 2
-    # 1. reextract
-    assert commands[0][-4:] == ["claire", "reextract", "--format", "adoc"]
-    # 2. backfill-detail --force
-    assert commands[1][-5:] == ["claire", "backfill-detail", "--format", "adoc", "--force"]
+    assert len(commands) == 0  # Dry-run must not run compose commands
+    captured = capsys.readouterr().out
+    assert "Dry-Run" in captured
+    assert "포맷 마이그레이션 진단 현황" in captured
+    assert "--apply" in captured
+
+
+def test_format_migrate_explicit_dry_run(tmp_path, capsys):
+    _write_layout(tmp_path, dev=False)
+    with patch.object(cb.subprocess, "run", side_effect=_fake_success) as run:
+        code = cb.main(["format-migrate", "--dry-run"], root=tmp_path)
+        assert code == 0
+
+    commands = _commands(run)
+    assert len(commands) == 0
+    captured = capsys.readouterr().out
+    assert "Dry-Run" in captured
+    assert "--apply" in captured
+
+
+def test_format_migrate_uses_env_render_format(tmp_path, capsys):
+    _write_layout(tmp_path, dev=False)
+    # Write custom format in .env
+    env_content = (tmp_path / ".env").read_text(encoding="utf-8")
+    (tmp_path / ".env").write_text(env_content + "\nCLAIRE_RENDER_FORMAT=md\n", encoding="utf-8")
+
+    code = cb.main(["format-migrate"], root=tmp_path)
+    assert code == 0
+    captured = capsys.readouterr().out
+    assert "MD (CLAIRE_RENDER_FORMAT=md)" in captured
+
+
+def test_format_migrate_no_targets_returns_zero(tmp_path, capsys):
+    _write_layout(tmp_path, dev=False)
+    code = cb.main(["format-migrate", "--apply"], root=tmp_path)
+    assert code == 0
+    captured = capsys.readouterr().out
+    assert "마이그레이션이 필요하지 않습니다" in captured
+
+
+def test_format_migrate_apply_requires_confirmation_in_non_tty(tmp_path, capsys):
+    _write_layout(tmp_path, dev=False)
+    # Populate a doc needing migration
+    storage = cb.resolve_storage(cb.load_runtime(cb.Layout(root=tmp_path)))
+    storage.database.parent.mkdir(parents=True, exist_ok=True)
+    conn = cb.sqlite3.connect(storage.database)
+    conn.execute("CREATE TABLE documents (id TEXT PRIMARY KEY, detail TEXT, detail_format TEXT)")
+    conn.execute("INSERT INTO documents VALUES ('doc1', 'text', 'md')")
+    conn.commit()
+    conn.close()
+
+    # In non-tty without --yes, format-migrate --apply should exit with code 2 and guide --yes
+    with patch.object(cb.sys.stdin, "isatty", return_value=False):
+        code = cb.main(["format-migrate", "--apply"], root=tmp_path)
+        assert code == 2
+        captured = capsys.readouterr().out
+        assert "--yes" in captured
+
+
+def test_format_migrate_apply_interactive_cancellation(tmp_path, capsys):
+    _write_layout(tmp_path, dev=False)
+    # Populate a doc needing migration so it asks
+    storage = cb.resolve_storage(cb.load_runtime(cb.Layout(root=tmp_path)))
+    storage.database.parent.mkdir(parents=True, exist_ok=True)
+    conn = cb.sqlite3.connect(storage.database)
+    conn.execute("CREATE TABLE documents (id TEXT PRIMARY KEY, detail TEXT, detail_format TEXT)")
+    conn.execute("INSERT INTO documents VALUES ('doc1', 'text', 'md')")
+    conn.commit()
+    conn.close()
+
+    with patch.object(cb.sys.stdin, "isatty", return_value=True), \
+         patch("builtins.input", return_value="n"), \
+         patch.object(cb.subprocess, "run", side_effect=_fake_success) as run:
+        code = cb.main(["format-migrate", "--apply"], root=tmp_path)
+        assert code == 0
+        assert len(_commands(run)) == 0
+        captured = capsys.readouterr().out
+        assert "취소되었습니다" in captured
+
+
+def test_format_migrate_apply_with_yes_executes_backfill(tmp_path, capsys):
+    _write_layout(tmp_path, dev=False)
+    # Populate a doc needing migration
+    storage = cb.resolve_storage(cb.load_runtime(cb.Layout(root=tmp_path)))
+    storage.database.parent.mkdir(parents=True, exist_ok=True)
+    conn = cb.sqlite3.connect(storage.database)
+    conn.execute("CREATE TABLE documents (id TEXT PRIMARY KEY, detail TEXT, detail_format TEXT)")
+    conn.execute("INSERT INTO documents VALUES ('doc1', 'text', 'md')")
+    conn.commit()
+    conn.close()
+
+    with patch.object(cb.subprocess, "run", side_effect=_fake_success) as run:
+        code = cb.main(["format-migrate", "--apply", "--yes"], root=tmp_path)
+        assert code == 0
+
+    commands = _commands(run)
+    assert len(commands) == 1
+    assert commands[0][-4:] == ["claire", "backfill-detail", "--format", "adoc"]
     captured = capsys.readouterr().out
     assert "completed successfully" in captured
+
 

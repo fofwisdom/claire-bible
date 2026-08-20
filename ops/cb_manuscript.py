@@ -106,6 +106,7 @@ APP_ONE_OFF_COMMANDS = {
     "recanonicalize",
     "doc-title",
     "repo",
+    "format-status",
 }
 APP_GUARDED_COMMANDS = {
     "migrate": "Schema lifecycle command owned by install/update",
@@ -3085,61 +3086,158 @@ def command_version(layout: Layout) -> int:
     return 0
 
 
+def _inspect_format_status(runtime: Runtime, norm_format: str) -> dict[str, Any]:
+    storage = resolve_storage(runtime)
+    db_path = storage.database
+    if not db_path.is_file():
+        return {
+            "target_format": norm_format,
+            "total_docs": 0,
+            "total_with_detail": 0,
+            "matching_docs": 0,
+            "mismatched_docs": 0,
+            "missing_detail_docs": 0,
+            "target_docs": 0,
+            "needs_migration": False,
+        }
+    try:
+        conn = sqlite3.connect(_sqlite_uri(db_path), uri=True, timeout=5.0)
+        try:
+            has_table = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='documents'"
+            ).fetchone()
+            if not has_table:
+                return {
+                    "target_format": norm_format,
+                    "total_docs": 0,
+                    "total_with_detail": 0,
+                    "matching_docs": 0,
+                    "mismatched_docs": 0,
+                    "missing_detail_docs": 0,
+                    "target_docs": 0,
+                    "needs_migration": False,
+                }
+            row_total = conn.execute("SELECT COUNT(*) as c FROM documents").fetchone()
+            total_docs = row_total[0] if row_total else 0
+
+            row_matching = conn.execute(
+                "SELECT COUNT(*) as c FROM documents WHERE detail IS NOT NULL AND trim(detail) != '' AND lower(coalesce(detail_format, 'md')) = ?",
+                (norm_format,),
+            ).fetchone()
+            matching_docs = row_matching[0] if row_matching else 0
+
+            row_mismatched = conn.execute(
+                "SELECT COUNT(*) as c FROM documents WHERE detail IS NOT NULL AND trim(detail) != '' AND lower(coalesce(detail_format, 'md')) != ?",
+                (norm_format,),
+            ).fetchone()
+            mismatched_docs = row_mismatched[0] if row_mismatched else 0
+
+            row_missing = conn.execute(
+                "SELECT COUNT(*) as c FROM documents WHERE detail IS NULL OR trim(detail) = ''"
+            ).fetchone()
+            missing_detail_docs = row_missing[0] if row_missing else 0
+
+            target_docs = mismatched_docs + missing_detail_docs
+            return {
+                "target_format": norm_format,
+                "total_docs": total_docs,
+                "total_with_detail": matching_docs + mismatched_docs,
+                "matching_docs": matching_docs,
+                "mismatched_docs": mismatched_docs,
+                "missing_detail_docs": missing_detail_docs,
+                "target_docs": target_docs,
+                "needs_migration": (target_docs > 0),
+            }
+        finally:
+            conn.close()
+    except (sqlite3.Error, ManuscriptError):
+        return {
+            "target_format": norm_format,
+            "total_docs": 0,
+            "total_with_detail": 0,
+            "matching_docs": 0,
+            "mismatched_docs": 0,
+            "missing_detail_docs": 0,
+            "target_docs": 0,
+            "needs_migration": False,
+        }
+
+
 def command_format_migrate(
     runtime: Runtime,
     *,
-    target_format: str = "adoc",
+    apply: bool = False,
+    dry_run: bool = False,
     confirmed: bool = False,
 ) -> int:
-    fmt = (target_format or "adoc").strip().lower()
-    if fmt in ("asciidoc", "adoc"):
+    raw_format = runtime.values.get("CLAIRE_RENDER_FORMAT", "adoc").strip().lower()
+    if raw_format in ("asciidoc", "adoc"):
         norm_format = "adoc"
-    elif fmt in ("markdown", "md"):
+    elif raw_format in ("markdown", "md"):
         norm_format = "md"
     else:
-        raise ManuscriptError(f"Unsupported format: {target_format!r}. Must be 'adoc' or 'md'.")
+        raise ManuscriptError(
+            f"Unsupported CLAIRE_RENDER_FORMAT in environment/env-file: {raw_format!r}. Must be 'adoc' or 'md'."
+        )
 
     fmt_label = norm_format.upper()
+    other_label = "MD" if norm_format == "adoc" else "ADOC"
+    stats = _inspect_format_status(runtime, norm_format)
+
+    print("cb-manuscript: [Dry-Run] 포맷 마이그레이션 진단 현황")
+    print("=" * 60)
+    print(f"• 설정된 목표 포맷 (.env)  : {fmt_label} (CLAIRE_RENDER_FORMAT={norm_format})")
+    print(f"• 전체 문서 수             : {stats['total_docs']} 건")
+    print(f"  - 목표 포맷 일치         : {stats['matching_docs']} 건 ({fmt_label})")
+    print(f"  - 포맷 불일치 (변환 대상) : {stats['mismatched_docs']} 건 ({other_label})")
+    print(f"  - 본문(detail) 누락     : {stats['missing_detail_docs']} 건")
+    print(f"• 총 마이그레이션 대상     : {stats['target_docs']} 건 (미적용 문서만 선별 변환)")
+    print("=" * 60)
+    print("[실행 계획 및 영향]")
+    print(f"1. 지식그래프(엔티티/관계) : 불변 보존 (원문 raw_text 및 온톨로지 유지)")
+    print(f"2. 본문 렌더링 (detail)    : 미적용 {stats['target_docs']}건에 대해 {fmt_label} 포맷으로 생성/갱신")
+    print(f"3. 예상 LLM API 호출       : 약 {stats['target_docs']}회 (문서당 1회, 일치 문서는 건너뜀)")
+    print("=" * 60)
+
+    # 기본 동작 또는 --dry-run
+    if not apply or dry_run:
+        print()
+        print("실제 마이그레이션을 실행하려면 --apply 옵션을 사용하십시오:")
+        print("  ./cb-manuscript format-migrate --apply")
+        return 0
+
+    if stats["target_docs"] == 0:
+        print(f"\n[✓] 모든 문서가 이미 목표 포맷({fmt_label})으로 적용되어 있습니다. 마이그레이션이 필요하지 않습니다.")
+        return 0
 
     if not confirmed:
-        print(f"cb-manuscript: [주의] 포맷 마이그레이션 ({fmt_label}) 작업의 부수적 효과 안내:")
-        print("  1. 지식그래프 재추출 (reextract):")
-        print("     - 모든 문서의 온톨로지 엔티티 및 관계를 LLM으로 다시 추출하여 지식그래프를 재구축합니다.")
-        print("     - 기존 수동 생성/편집된 지식그래프 노드 및 엣지가 재추출 결과로 갱신됩니다.")
-        print(f"  2. 본문 렌더링 포맷 재구성 (backfill-detail):")
-        print(f"     - 모든 문서의 가독 본문(detail)이 {fmt_label} 포맷으로 재생성/덮어쓰기됩니다.")
-        print("  3. LLM API 호출 및 소요 시간:")
-        print("     - 전체 문서 수에 비례하여 대량의 LLM API 호출이 발생하며 수 분~수십 분이 소요될 수 있습니다.")
-        print("  4. 데이터 안전성:")
-        print("     - DB 내 원문(raw_text) 및 원본 수집 파일(data/raw/files/)은 안전하게 보존됩니다.")
-        print()
-        print(f"실행하려면 --yes 옵션을 명시하여 다시 실행하십시오:")
-        print(f"  ./cb-manuscript format-migrate --format {norm_format} --yes")
-        return 2
+        if sys.stdin.isatty():
+            try:
+                answer = input(f"\n위 계획대로 포맷 마이그레이션을 진행하시겠습니까? [y/N]: ").strip().lower()
+            except (EOFError, KeyboardInterrupt):
+                print("\n마이그레이션 작업이 취소되었습니다.")
+                return 0
+            if answer not in ("y", "yes"):
+                print("마이그레이션 작업이 취소되었습니다.")
+                return 0
+        else:
+            print("\n비대화형 환경에서는 --yes (-y) 옵션을 명시하여 실행하십시오:")
+            print("  ./cb-manuscript format-migrate --apply --yes")
+            return 2
 
     with InstanceLock(runtime):
-        print(f"[*] Starting continuous format migration to {fmt_label}...")
-        print(f"    [Step 1/2] Re-extracting knowledge graph in {fmt_label} format (claire reextract)...")
-        r1 = run_compose(
+        print(f"\n[*] Starting selective format migration to {fmt_label}...")
+        print(f"    Backfilling unapplied detail bodies in {fmt_label} format (claire backfill-detail --format {norm_format})...")
+        r = run_compose(
             runtime,
-            ("run", "--rm", "--no-deps", "api", "claire", "reextract", "--format", norm_format),
+            ("run", "--rm", "--no-deps", "api", "claire", "backfill-detail", "--format", norm_format),
             check=False,
         )
-        if r1.returncode != 0:
-            raise ManuscriptError(f"Step 1 (reextract) failed with exit code {r1.returncode}")
-
-        print(f"    [Step 2/2] Backfilling detail bodies in {fmt_label} format (claire backfill-detail --force)...")
-        r2 = run_compose(
-            runtime,
-            ("run", "--rm", "--no-deps", "api", "claire", "backfill-detail", "--format", norm_format, "--force"),
-            check=False,
-        )
-        if r2.returncode != 0:
-            raise ManuscriptError(f"Step 2 (backfill-detail) failed with exit code {r2.returncode}")
+        if r.returncode != 0:
+            raise ManuscriptError(f"Format migration (backfill-detail) failed with exit code {r.returncode}")
 
         print(f"[✓] Format migration to {fmt_label} completed successfully!")
-        print(f"    - Knowledge graph entities and relations rebuilt.")
-        print(f"    - Document detail bodies regenerated in {fmt_label} format.")
+        print(f"    - Unapplied document detail bodies regenerated in {fmt_label} format.")
     return 0
 
 
@@ -3454,32 +3552,40 @@ def build_parser() -> argparse.ArgumentParser:
     # 8. format-migrate
     fmt_parser = subparsers.add_parser(
         "format-migrate",
-        help="Continuously re-extract graph and backfill detail in target format (adoc/md)",
+        help="Migrate unapplied document render formats to target format configured in .env (default: dry-run)",
         description=(
-            "Execute atomic continuous migration to target render format (ADOC/MD).\n"
-            "Runs 'reextract' followed by 'backfill-detail --force' sequentially in a single command.\n\n"
-            "Safety Policy:\n"
-            "  - Rebuilds knowledge graph and regenerates all document details.\n"
-            "  - Requires explicit --yes flag to proceed."
+            "Inspect and selectively migrate document render formats (detail) to target format.\n"
+            "The target format is configured in .env (CLAIRE_RENDER_FORMAT, adoc or md).\n\n"
+            "Behavior:\n"
+            "  - Default: Dry-run mode. Inspects DB and displays migration plan without changes.\n"
+            "  - With --apply: Selectively converts only unapplied/mismatched documents.\n"
+            "  - Safe & Non-destructive: Preserves knowledge graph and raw text."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Examples:\n"
-            "  ./cb-manuscript format-migrate --format adoc --yes  # Migrate to AsciiDoc\n"
-            "  ./cb-manuscript format-migrate --format md --yes    # Revert to Markdown\n"
-            "  ./cb-manuscript dev format-migrate --yes            # Run in development environment"
+            "  ./cb-manuscript format-migrate               # Dry-run inspection (default)\n"
+            "  ./cb-manuscript format-migrate --dry-run     # Explicit dry-run inspection\n"
+            "  ./cb-manuscript format-migrate --apply       # Apply migration (prompts for confirmation)\n"
+            "  ./cb-manuscript format-migrate --apply --yes # Apply migration without prompt (non-interactive)\n"
+            "  ./cb-manuscript dev format-migrate --apply   # Apply in development environment"
         ),
     )
     fmt_parser.add_argument(
-        "--format",
-        choices=("adoc", "md", "asciidoc", "markdown"),
-        default="adoc",
-        help="Target rendering format: adoc or md (default: adoc)",
+        "--apply",
+        action="store_true",
+        help="Apply format migration (default: dry-run only)",
+    )
+    fmt_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Display format statistics and migration plan without applying changes (default)",
     )
     fmt_parser.add_argument(
         "--yes",
+        "-y",
         action="store_true",
-        help="Confirm execution and accept side effects (knowledge graph rebuild & LLM API calls)",
+        help="Confirm execution without interactive prompt when --apply is used",
     )
 
     # 9. version
@@ -3769,7 +3875,8 @@ def main(argv: Sequence[str] | None = None, *, root: Path | None = None) -> int:
         if parsed.command == "format-migrate":
             return command_format_migrate(
                 runtime,
-                target_format=parsed.format,
+                apply=parsed.apply,
+                dry_run=parsed.dry_run,
                 confirmed=parsed.yes,
             )
         raise ManuscriptError(f"Unknown command: {parsed.command}")

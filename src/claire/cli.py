@@ -396,6 +396,31 @@ def cmd_backfill_detail(args) -> int:  # noqa: ANN001
     return 0
 
 
+def cmd_format_status(args) -> int:  # noqa: ANN001
+    """문서 본문 렌더링 포맷(detail_format) 진단 현황을 출력."""
+    import json
+
+    s = get_settings()
+    target_format = getattr(args, "format", None) or s.render_format
+    conn = dbm.connect(s.db_file)
+    dbm.init_db(conn)
+    try:
+        status = dbm.get_format_status(conn, target_format)
+        if getattr(args, "json", False):
+            print(json.dumps(status, ensure_ascii=False, indent=2))
+        else:
+            fmt_label = status["target_format"].upper()
+            print(f"목표 포맷        : {fmt_label}")
+            print(f"전체 문서 수    : {status['total_docs']}건")
+            print(f"  - 목표 포맷 일치: {status['matching_docs']}건")
+            print(f"  - 포맷 불일치  : {status['mismatched_docs']}건")
+            print(f"  - detail 누락 : {status['missing_detail_docs']}건")
+            print(f"마이그레이션 대상: {status['target_docs']}건 (needs_migration={status['needs_migration']})")
+        return 0
+    finally:
+        conn.close()
+
+
 def cmd_backfill_images(args) -> int:  # noqa: ANN001
     """본문 이미지가 없는 기존 문서를 재fetch 대상(refresh 큐)으로 등록.
 
@@ -704,6 +729,13 @@ def build_parser() -> argparse.ArgumentParser:
     pbd.add_argument("--format", choices=["md", "adoc"], default=None,
                      help="detail render format (md or adoc)")
     pbd.set_defaults(func=cmd_backfill_detail)
+
+    pfs = sub.add_parser("format-status",
+                         help="check document render format distribution and migration status")
+    pfs.add_argument("--format", choices=["md", "adoc"], default=None,
+                     help="target render format (default: config CLAIRE_RENDER_FORMAT)")
+    pfs.add_argument("--json", action="store_true", help="output in json format")
+    pfs.set_defaults(func=cmd_format_status)
 
     pbi = sub.add_parser(
         "backfill-images",

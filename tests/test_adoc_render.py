@@ -303,3 +303,94 @@ def test_check_format_mismatch():
     assert res_adoc_full["mismatched"] == 0
 
     conn.close()
+
+
+def test_documents_needing_detail_format():
+    """documents_needing_detail_format 이 목표 포맷 미적용(불일치 및 누락) 문서만 정확히 추출하는지 검증."""
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    dbm.init_db(conn)
+
+    # d1: md detail
+    conn.execute(
+        "INSERT INTO documents (id, title, url, raw_text, fetched_at, detail, detail_format) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        ("d1", "문서1", "https://example.com/1", "텍스트1", 1000.0, "본문1", "md"),
+    )
+    # d2: adoc detail
+    conn.execute(
+        "INSERT INTO documents (id, title, url, raw_text, fetched_at, detail, detail_format) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        ("d2", "문서2", "https://example.com/2", "텍스트2", 2000.0, "본문2", "adoc"),
+    )
+    # d3: detail 누락 (NULL)
+    conn.execute(
+        "INSERT INTO documents (id, title, url, raw_text, fetched_at, detail, detail_format) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        ("d3", "문서3", "https://example.com/3", "텍스트3", 3000.0, None, "md"),
+    )
+    # d4: detail 빈 문자열
+    conn.execute(
+        "INSERT INTO documents (id, title, url, raw_text, fetched_at, detail, detail_format) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        ("d4", "문서4", "https://example.com/4", "텍스트4", 4000.0, "   ", "adoc"),
+    )
+
+    # target='adoc' -> d4(빈값), d3(누락), d1(md) 총 3건 (최신순: d4, d3, d1). d2는 제외
+    needed_adoc = dbm.documents_needing_detail_format(conn, "adoc")
+    assert set(needed_adoc) == {"d1", "d3", "d4"}
+    assert "d2" not in needed_adoc
+
+    # target='md' -> d4(빈값), d3(누락), d2(adoc) 총 3건. d1은 제외
+    needed_md = dbm.documents_needing_detail_format(conn, "md")
+    assert set(needed_md) == {"d2", "d3", "d4"}
+    assert "d1" not in needed_md
+
+    conn.close()
+
+
+def test_backfill_details_selective_migration():
+    """IngestService.backfill_details 가 force=False 일 때 이미 목표 포맷인 문서는 건너뛰고 미적용 문서만 선별 처리하는지 검증."""
+    from claire.ingest.service import IngestService
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db_file = Path(tmpdir) / "test.db"
+        s = Settings(
+            db_path=str(db_file),
+            vault_dir=str(Path(tmpdir) / "vault"),
+            provider="mock",
+            render_format="adoc",
+        )
+        conn = dbm.connect(str(db_file))
+        dbm.init_db(conn)
+
+        # d1: 이미 adoc 포맷으로 detail 존재
+        conn.execute(
+            "INSERT INTO documents (id, title, url, raw_text, fetched_at, detail, detail_format) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            ("d1", "문서1", "https://example.com/1", "원문1", 1000.0, "[mock-detail-adoc] 기존", "adoc"),
+        )
+        # d2: md 포맷으로 detail 존재
+        conn.execute(
+            "INSERT INTO documents (id, title, url, raw_text, fetched_at, detail, detail_format) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            ("d2", "문서2", "https://example.com/2", "원문2", 2000.0, "[mock-detail] 마크다운", "md"),
+        )
+        # d3: detail 없음
+        conn.execute(
+            "INSERT INTO documents (id, title, url, raw_text, fetched_at, detail, detail_format) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            ("d3", "문서3", "https://example.com/3", "원문3", 3000.0, None, None),
+        )
+        conn.commit()
+        conn.close()
+
+        svc = IngestService(s)
+        # force=False 로 adoc 백필 실행 (d2, d3 만 대상이 되어야 함)
+        out = svc.backfill_details(force=False, format="adoc")
+        assert out["docs"] == 2  # d2, d3
+        assert out["ok"] == 2
+
+        # 결과 확인
+        conn = dbm.connect(str(db_file))
+        assert dbm.get_document_detail(conn, "d1") == "[mock-detail-adoc] 기존"  # 변경되지 않음
+        assert dbm.get_document_detail_format(conn, "d1") == "adoc"
+        assert dbm.get_document_detail_format(conn, "d2") == "adoc"  # adoc 으로 갱신됨
+        assert dbm.get_document_detail_format(conn, "d3") == "adoc"  # adoc 으로 생성됨
+        status = dbm.get_format_status(conn, "adoc")
+        assert status["needs_migration"] is False
+        assert status["matching_docs"] == 3
+        conn.close()

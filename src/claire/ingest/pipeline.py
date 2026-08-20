@@ -451,12 +451,6 @@ def ensure_document_detail(
     채우므로 엔티티/관계를 건드리지 않는다 → reset_graph/rebuild 없이 백필 가능(advisor).
     이미 있으면(force=False) 건너뛰고, 생성 실패는 조용히 False(적재 실패로 번지지 않음).
     """
-    render = getattr(provider, "render_detail", None)
-    if render is None:
-        return False
-    if not force and dbm.get_document_detail(conn, doc.id):
-        return False
-
     fmt = format or (doc.meta or {}).get("format") or (doc.meta or {}).get("render_format")
     if not fmt:
         from ..config import get_settings
@@ -467,6 +461,16 @@ def ensure_document_detail(
         fmt = "adoc"
     else:
         fmt = "md"
+
+    if not force:
+        existing_detail = dbm.get_document_detail(conn, doc.id)
+        existing_fmt = dbm.get_document_detail_format(conn, doc.id)
+        if existing_detail and existing_fmt == fmt:
+            return False
+
+    render = getattr(provider, "render_detail", None)
+    if render is None:
+        return False
 
     try:
         try:
