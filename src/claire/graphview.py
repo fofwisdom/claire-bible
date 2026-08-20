@@ -799,19 +799,37 @@ const THEMES = {
 };
 function curTheme(){ return document.documentElement.getAttribute('data-theme')==='dark'?'dark':'light'; }
 function T(){ return THEMES[curTheme()] || THEMES.light; }
-let allTypes=[];
-let net, allNodes, allEdges, allDocs=[];
-let curMinDeg=0, activeDoc=null, highlightSet=null, selectedNodeId=null, hoverTimer=null;
-let clusterEdges=null;   // 검색 결과를 뭉치게 한 임시 spring 엣지 id 들 — 해제 시 제거
-let clusterAnchor=null;  // 검색 시 중앙 앵커 노드 id(매칭은 끌고 비매칭은 밀어냄) — 해제 시 제거
-let searchDebounce=null; // 라벨검색 디바운스 타이머 — 타이핑 멈춘 뒤에만 검색 실행
-let synthSet=new Set();
-let AUTH_SCOPE='unknown';
-let READONLY=true;    // owner를 /whoami로 확인하기 전까지 항상 fail-closed
-let allRelTypes=[], relFilter=null;          // 관계 타입 필터: null=전체, Set=선택 타입만 표시
-let pathMode=false, pathPicks=[], pathNodes=null, pathEdges=null;  // 2노드 경로 하이라이트(전용 모드)
-let edgeLabelsByZoom=false, selectedEdgeIds=new Set();
-let graphStabilized=false;
+
+// --- 반응형 환경 감지 & 작업영역 상태 (최상단 안전 선언) ---
+const mobileMQ = window.matchMedia('(max-width:720px)');
+const compactMQ = window.matchMedia('(max-width:1100px)');
+const toolbarMQ = window.matchMedia('(max-width:1500px)');
+const reducedMotionMQ = window.matchMedia('(prefers-reduced-motion:reduce)');
+const paneNames=['docs','graph'];
+let activePane='docs', detailOpen=false, centerView='reader', drawerOpen=false;
+let detailReturnFocus=null, docSearchActive=false;
+let graphCamera = null, preservingGraphCamera = false, netBusy = false;
+let lastNetSize = {w:0, h:0};
+let allTypes = [], allRelTypes = [], allDocs = [];
+let net = null, allNodes = null, allEdges = null;
+let curMinDeg = 0, activeDoc = null, highlightSet = null, selectedNodeId = null, hoverTimer = null;
+let clusterEdges = null, clusterAnchor = null, searchDebounce = null;
+let synthSet = new Set();
+let AUTH_SCOPE = 'unknown', READONLY = true;
+let relFilter = null;
+let pathMode = false, pathPicks = [], pathNodes = null, pathEdges = null;
+let edgeLabelsByZoom = false, selectedEdgeIds = new Set();
+let graphStabilized = false;
+
+const paneEls = {
+  get docs(){ return document.getElementById('docs'); },
+  get graph(){ return document.getElementById('netwrap'); }
+};
+const paneTabs = {
+  get docs(){ return document.getElementById('tab-docs'); },
+  get graph(){ return document.getElementById('tab-graph') || document.getElementById('tab-docs'); }
+};
+
 const panel = document.getElementById('panel');
 function canWrite(){ return AUTH_SCOPE==='owner'; }
 // 함수로 둔 이유: READONLY 는 /whoami 가 비동기로 확정하므로, 호출 시점 기준으로
@@ -825,7 +843,7 @@ function defaultHint(){
     '• <b>자료</b>에서 문서를 고르면 그래프가 강조되고, <b>📖</b>로 크게 읽습니다.<br>'+
     '• 상단 <b>⋯ 도구</b>의 <b>🌙/🌞</b>로 라이트·다크를 전환합니다.</p>';
 }
-panel.innerHTML = defaultHint();
+if(panel) panel.innerHTML = defaultHint();
 function esc(s){return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 
 // --- 노드 hover 요약 팝업(마우스 위치) — fetch 없이 클라 데이터(allNodes)만 쓴다 ---
@@ -1332,25 +1350,6 @@ if(window.ResizeObserver){ new ResizeObserver(relayout).observe(document.getElem
 window.addEventListener('resize', relayout);
 window.addEventListener('orientationchange', ()=>setTimeout(relayout, 300));
 
-// 반응형 작업영역: 자료·그래프만 주 탐색이다. wide의 상세 rail, compact의 drawer,
-// mobile의 bottom sheet는 선택/작업에 종속된 문맥 영역이며 activePane과 분리한다.
-// 주 pane DOM을 제거하거나 display:none 하지 않아 문서 scrollTop과 vis 카메라를 보존한다.
-const mobileMQ = window.matchMedia('(max-width:720px)');
-const compactMQ = window.matchMedia('(max-width:1100px)');
-const toolbarMQ = window.matchMedia('(max-width:1500px)');
-const reducedMotionMQ = window.matchMedia('(prefers-reduced-motion:reduce)');
-const paneNames=['docs','graph'];
-let activePane='docs', detailOpen=false, detailReturnFocus=null;
-let graphCamera=null, preservingGraphCamera=false;
-const paneEls={
-  docs:document.getElementById('docs'),
-  graph:document.getElementById('netwrap')
-};
-const paneTabs={
-  docs:document.getElementById('tab-docs'),
-  graph:document.getElementById('tab-graph')
-};
-const detailPane=document.getElementById('detailpane');
 function graphAnimation(value=true){ return reducedMotionMQ.matches ? false : value; }
 function rememberGraphCamera(){
   if(!net || preservingGraphCamera || netBusy) return;
@@ -1373,21 +1372,24 @@ function relayoutPreservingCamera(){
   preservingGraphCamera=false;
   rememberGraphCamera();
 }
-let drawerOpen=false;
 function syncWorkspaceLayout(){
   document.body.dataset.activePane=activePane;
   paneNames.forEach(name=>{
     const selected=name===activePane;
-    if(paneTabs[name]){
-      paneTabs[name].setAttribute('aria-selected', selected?'true':'false');
-      paneTabs[name].tabIndex=selected?0:-1;
+    const tab=paneTabs[name];
+    if(tab){
+      tab.setAttribute('aria-selected', selected?'true':'false');
+      tab.tabIndex=selected?0:-1;
     }
-    if(mobileMQ.matches){
-      paneEls[name].setAttribute('aria-hidden', selected?'false':'true');
-      paneEls[name].inert=!selected;
-    }else{
-      paneEls[name].setAttribute('aria-hidden','false');
-      paneEls[name].inert=false;
+    const el=paneEls[name];
+    if(el){
+      if(mobileMQ.matches){
+        el.setAttribute('aria-hidden', selected?'false':'true');
+        el.inert=!selected;
+      }else{
+        el.setAttribute('aria-hidden','false');
+        el.inert=false;
+      }
     }
   });
   const isDrawerActive = drawerOpen || ((compactMQ.matches || mobileMQ.matches) && detailOpen);
@@ -1398,12 +1400,15 @@ function syncWorkspaceLayout(){
   const menuBtn = document.getElementById('tab-menu');
   if(menuBtn) menuBtn.setAttribute('aria-expanded', drawerOpen?'true':'false');
 
-  if(compactMQ.matches || mobileMQ.matches){
-    detailPane.setAttribute('aria-hidden', isDrawerActive?'false':'true');
-    detailPane.inert=!isDrawerActive;
-  }else{
-    detailPane.setAttribute('aria-hidden','false');
-    detailPane.inert=false;
+  const dp = document.getElementById('detailpane');
+  if(dp){
+    if(compactMQ.matches || mobileMQ.matches){
+      dp.setAttribute('aria-hidden', isDrawerActive?'false':'true');
+      dp.inert=!isDrawerActive;
+    }else{
+      dp.setAttribute('aria-hidden','false');
+      dp.inert=false;
+    }
   }
   if(activePane==='graph'){
     requestAnimationFrame(()=>{ relayoutPreservingCamera(); applyTouchMode(); });
@@ -2036,78 +2041,6 @@ async function runDedupMerge(ci){
   }catch(e){ panel.innerHTML='<h2>♻️ 병합</h2><p class=hint>요청 실패: '+esc(String(e))+'</p>'; }
 }
 
-function docItemHtml(dc){
-  const unread = dc.seen===0, watching = dc.watch===1, pinned = dc.pinned===1, hid = dc.hidden===1;
-  // readonly(/webro) 세션은 즐겨찾기가 서버가 404 내는 쓰기라 버튼 자체를 안 그린다
-  // (사용자 요구 — 눌러도 안 되는 버튼이 남아있으면 안 됨).
-  const pinBtn = canWrite()
-    ? '<button class="actbtn'+(pinned?' pinned':'')+'" title="'+(pinned?'즐겨찾기 해제':'즐겨찾기 고정')+
-      '" aria-label="'+esc(dc.title)+' '+(pinned?'즐겨찾기 해제':'즐겨찾기 고정')+
-      '" onclick="event.stopPropagation();togglePin(\''+dc.id+'\','+(!pinned)+')">'+(pinned?'⭐':'☆')+'</button>'
-    : '';
-  return '<div class="docitem'+(dc.id===activeDoc?' active':'')+(unread?' unread':'')+(hid?' hidden-doc':'')+
-    '" onclick="handleDocItemClick(\''+dc.id+'\')">'+
-    '<div class="docactions">'+pinBtn+
-    '<button class="actbtn actbtn-graph" title="그래프 보기" aria-label="'+
-      esc(dc.title)+' 그래프 보기" onclick="event.stopPropagation();openDocGraph(\''+dc.id+'\')">📊</button>'+
-    '<button class="actbtn actbtn-read readbtn" data-read-doc="'+esc(dc.id)+'" title="크게 읽기" aria-label="'+
-      esc(dc.title)+' 크게 읽기" onclick="event.stopPropagation();openReader(\''+dc.id+'\')">📖</button>'+
-    '</div>'+
-    (watching?'<span class="wbadge" title="주기 갱신 추적(watch)">🔄</span>':'')+
-    (unread?'<span class="ubadge" title="아직 안 본 문서">●</span>':'')+
-    '<b>'+esc(dc.title)+'</b><span class="st">'+esc(dc.source_type||'')+'</span>'+
-    (dc.summary?'<p>'+esc(dc.summary.slice(0,110))+'</p>':'')+'</div>';
-}
-function handleDocItemClick(id){
-  if(mobileMQ.matches) openReader(id);
-  else selectDoc(id);
-}
-function openDocGraph(id){
-  setActiveDoc(id);
-  revealWorkspace('graph');
-}
-let showHidden = false;
-function toggleShowHidden(){ if(!canWrite()) return; showHidden=!showHidden; renderDocs(document.getElementById('docq').value); }
-function renderDocs(filter){
-  const q=(filter||'').trim().toLowerCase();
-  if(docSearchActive && !q){
-    document.getElementById('pinnedhead').style.display = 'none';
-    document.getElementById('pinnedlist').innerHTML = '';
-    document.getElementById('doclist').innerHTML = '<p class="hint" style="padding:16px 12px;text-align:center">🔎 검색어를 입력하세요.</p>';
-    const sh=document.getElementById('showhidden');
-    if(sh) sh.style.display='none';
-    document.getElementById('hiddenlist').innerHTML = '';
-    syncGraphDocNav();
-    return;
-  }
-  const match = dc => !q || (dc.title+' '+dc.summary).toLowerCase().includes(q);
-  // 숨김(hidden)은 기본 목록·즐겨찾기 양쪽에서 제외(목록 전용 숨김, 그래프는 안 건드림).
-  const visible = allDocs.filter(dc=> dc.hidden!==1 && match(dc));
-  const pinned = visible.filter(dc=>dc.pinned===1);
-  const rest = visible.filter(dc=>dc.pinned!==1);
-  const hiddenDocs = allDocs.filter(dc=> dc.hidden===1 && match(dc));
-
-  document.getElementById('pinnedhead').style.display = pinned.length ? '' : 'none';
-  document.getElementById('pinnedlist').innerHTML = pinned.map(docItemHtml).join('');
-
-  document.getElementById('doclist').innerHTML = rest.length
-    ? (()=>{ let html='', curDay=null;
-        rest.forEach(dc=>{ const day=dayOf(dc.fetched_at);
-          if(day!==curDay){ html+='<div class="dday">'+day+'</div>'; curDay=day; }
-          html+=docItemHtml(dc); });
-        return html; })()
-    : '<p class="hint" style="padding:10px">문서 없음</p>';
-
-  const sh=document.getElementById('showhidden');
-  // readonly 는 숨기기/해제 버튼이 없어 이 구간이 눌러도 소용없는 관리용 UI — 아예 숨김.
-  if(!canWrite() || !hiddenDocs.length){ sh.style.display='none'; document.getElementById('hiddenlist').innerHTML=''; }
-  else{
-    sh.style.display='';
-    sh.textContent = (showHidden?'▲ ':'▼ ')+'🙈 숨김 '+hiddenDocs.length+'개 '+(showHidden?'접기':'보기');
-    document.getElementById('hiddenlist').innerHTML = showHidden ? hiddenDocs.map(docItemHtml).join('') : '';
-  }
-  syncGraphDocNav();
-}
 
 // 조사로 그래프가 늘어난 뒤 새로고침 없이 신규 노드/엣지·문서목록을 반영.
 // 엣지 id 는 rowid 순 enumerate(append-only)라 기존 id 는 안정 — 신규만 add.
@@ -2322,34 +2255,51 @@ function docItemHtml(dc){
     (dc.summary?'<p>'+esc(dc.summary.slice(0,110))+'</p>':'')+'</div>';
 }
 let showHidden = false;
-function toggleShowHidden(){ if(!canWrite()) return; showHidden=!showHidden; renderDocs(document.getElementById('docq').value); }
+function toggleShowHidden(){ if(!canWrite()) return; showHidden=!showHidden; renderDocs(); }
 function renderDocs(filter){
-  const q=(filter||'').trim().toLowerCase();
-  const match = dc => !q || (dc.title+' '+dc.summary).toLowerCase().includes(q);
+  const q = (filter !== undefined ? filter : (document.getElementById('docq') ? document.getElementById('docq').value : '')).trim().toLowerCase();
+  if(docSearchActive && !q){
+    const ph = document.getElementById('pinnedhead'); if(ph) ph.style.display = 'none';
+    const pl = document.getElementById('pinnedlist'); if(pl) pl.innerHTML = '';
+    const dl = document.getElementById('doclist'); if(dl) dl.innerHTML = '<p class="hint" style="padding:16px 12px;text-align:center">🔎 검색어를 입력하세요.</p>';
+    const sh = document.getElementById('showhidden'); if(sh) sh.style.display = 'none';
+    const hl = document.getElementById('hiddenlist'); if(hl) hl.innerHTML = '';
+    syncGraphDocNav();
+    return;
+  }
+  const match = dc => !q || (dc.title+' '+(dc.summary||'')).toLowerCase().includes(q);
   // 숨김(hidden)은 기본 목록·즐겨찾기 양쪽에서 제외(목록 전용 숨김, 그래프는 안 건드림).
   const visible = allDocs.filter(dc=> dc.hidden!==1 && match(dc));
   const pinned = visible.filter(dc=>dc.pinned===1);
   const rest = visible.filter(dc=>dc.pinned!==1);
   const hiddenDocs = allDocs.filter(dc=> dc.hidden===1 && match(dc));
 
-  document.getElementById('pinnedhead').style.display = pinned.length ? '' : 'none';
-  document.getElementById('pinnedlist').innerHTML = pinned.map(docItemHtml).join('');
+  const ph = document.getElementById('pinnedhead'); if(ph) ph.style.display = pinned.length ? '' : 'none';
+  const pl = document.getElementById('pinnedlist'); if(pl) pl.innerHTML = pinned.map(docItemHtml).join('');
 
-  document.getElementById('doclist').innerHTML = rest.length
-    ? (()=>{ let html='', curDay=null;
-        rest.forEach(dc=>{ const day=dayOf(dc.fetched_at);
-          if(day!==curDay){ html+='<div class=dday>'+day+'</div>'; curDay=day; }
-          html+=docItemHtml(dc); });
-        return html; })()
-    : '<p class=hint style="padding:10px">문서 없음</p>';
+  const dl = document.getElementById('doclist');
+  if(dl){
+    dl.innerHTML = rest.length
+      ? (()=>{ let html='', curDay=null;
+          rest.forEach(dc=>{ const day=dayOf(dc.fetched_at);
+            if(day!==curDay){ html+='<div class=dday>'+day+'</div>'; curDay=day; }
+            html+=docItemHtml(dc); });
+          return html; })()
+      : '<p class=hint style="padding:10px">문서 없음</p>';
+  }
 
   const sh=document.getElementById('showhidden');
+  const hl=document.getElementById('hiddenlist');
   // readonly 는 숨기기/해제 버튼이 없어 이 구간이 눌러도 소용없는 관리용 UI — 아예 숨김.
-  if(!canWrite() || !hiddenDocs.length){ sh.style.display='none'; document.getElementById('hiddenlist').innerHTML=''; }
-  else{
-    sh.style.display='';
-    sh.textContent = (showHidden?'▲ ':'▼ ')+'🙈 숨김 '+hiddenDocs.length+'개 '+(showHidden?'접기':'보기');
-    document.getElementById('hiddenlist').innerHTML = showHidden ? hiddenDocs.map(docItemHtml).join('') : '';
+  if(!canWrite() || !hiddenDocs.length){
+    if(sh) sh.style.display='none';
+    if(hl) hl.innerHTML='';
+  }else{
+    if(sh){
+      sh.style.display='';
+      sh.textContent = (showHidden?'▲ ':'▼ ')+'🙈 숨김 '+hiddenDocs.length+'개 '+(showHidden?'접기':'보기');
+    }
+    if(hl) hl.innerHTML = showHidden ? hiddenDocs.map(docItemHtml).join('') : '';
   }
   syncGraphDocNav();
 }
@@ -2610,7 +2560,7 @@ function setAccessScope(scope, reason){
     panel.innerHTML=defaultHint();
   }
   updateSearchModeUI();
-  renderDocs(document.getElementById('docq').value);
+  renderDocs();
   if(selectedNodeId) loadNode(selectedNodeId);
   else if(activeDoc) loadDocPanel(activeDoc);
   else panel.innerHTML=defaultHint();
