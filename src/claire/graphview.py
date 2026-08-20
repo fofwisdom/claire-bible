@@ -859,7 +859,8 @@ function canShowNodePop(){
 }
 window.addEventListener('touchstart', ()=>{ lastTouchTime=Date.now(); hideNodePop(); }, {passive:true,capture:true});
 window.addEventListener('pointerdown', e=>{ if(e.pointerType==='touch'){ lastTouchTime=Date.now(); hideNodePop(); } }, {passive:true,capture:true});
-document.getElementById('net').addEventListener('mousemove', e=>{ mouseXY.x=e.clientX; mouseXY.y=e.clientY; });
+const netEl = document.getElementById('net');
+if(netEl) netEl.addEventListener('mousemove', e=>{ mouseXY.x=e.clientX; mouseXY.y=e.clientY; });
 const nodepop = document.getElementById('nodepop');
 let popReqId=null;        // 현재 팝업이 다루는 노드 id — 늦게 온 fetch 응답(stale) 무시용
 let popExpandTimer=null;  // '좀 더 기다리면' 출처 문서를 펼치는 타이머
@@ -1562,31 +1563,38 @@ function stepGraphDoc(delta){
   const next=(current+delta+docs.length)%docs.length;
   chooseGraphDoc(docs[next].id);
 }
-document.getElementById('graphdoclist').addEventListener('click',e=>{
-  const button=e.target.closest('[data-graph-doc]');
-  if(button) chooseGraphDoc(button.dataset.graphDoc);
-});
+const gdl = document.getElementById('graphdoclist');
+if(gdl){
+  gdl.addEventListener('click',e=>{
+    const button=e.target.closest('[data-graph-doc]');
+    if(button) chooseGraphDoc(button.dataset.graphDoc);
+  });
+}
 syncGraphDocNav();
-document.getElementById('worktabs').addEventListener('click',e=>{
-  const b=e.target.closest('[role=tab]'); if(b) revealWorkspace(b.dataset.pane);
-});
-document.getElementById('worktabs').addEventListener('keydown',e=>{
-  const b=e.target.closest('[role=tab]'); if(!b) return;
-  let i=paneNames.indexOf(b.dataset.pane);
-  if(e.key==='ArrowRight') i=(i+1)%paneNames.length;
-  else if(e.key==='ArrowLeft') i=(i+paneNames.length-1)%paneNames.length;
-  else if(e.key==='Home') i=0;
-  else if(e.key==='End') i=paneNames.length-1;
-  else return;
-  e.preventDefault(); revealWorkspace(paneNames[i],true);
-});
+const wt = document.getElementById('worktabs');
+if(wt){
+  wt.addEventListener('click',e=>{
+    const b=e.target.closest('[role=tab]'); if(b && b.dataset.pane) revealWorkspace(b.dataset.pane);
+  });
+  wt.addEventListener('keydown',e=>{
+    const b=e.target.closest('[role=tab]'); if(!b) return;
+    let i=paneNames.indexOf(b.dataset.pane);
+    if(e.key==='ArrowRight') i=(i+1)%paneNames.length;
+    else if(e.key==='ArrowLeft') i=(i+paneNames.length-1)%paneNames.length;
+    else if(e.key==='Home') i=0;
+    else if(e.key==='End') i=paneNames.length-1;
+    else return;
+    e.preventDefault(); revealWorkspace(paneNames[i],true);
+  });
+}
 document.addEventListener('pointerdown',e=>{
   const bar=document.getElementById('bar');
   const pane=document.getElementById('detailpane');
   const bnav=document.getElementById('worktabs');
-  if((drawerOpen||detailOpen) && !pane.contains(e.target) && !bar.contains(e.target) && !bnav.contains(e.target)) closeDrawer();
+  if((drawerOpen||detailOpen) && pane && (!bar||!bar.contains(e.target)) && (!bnav||!bnav.contains(e.target)) && !pane.contains(e.target)) closeDrawer();
   const nav=document.getElementById('graphdocnav');
-  if(!document.getElementById('graphdocmenu').hidden && !nav.contains(e.target)) closeGraphDocPicker();
+  const gdm=document.getElementById('graphdocmenu');
+  if(gdm && !gdm.hidden && nav && !nav.contains(e.target)) closeGraphDocPicker();
 });
 document.addEventListener('keydown',e=>{
   if(e.key==='Escape' && (drawerOpen||detailOpen)){
@@ -2510,20 +2518,25 @@ function hl(q){
   applyView();
   clusterMatches(matches, ()=>fitToMatches(matches));   // 결과를 점차 뭉치게 한 뒤 한눈에 fit
 }
-document.getElementById('sem').addEventListener('change',e=>{
-  updateSearchModeUI();
-  if(e.target.checked) hl('');   // 즉시 라벨강조 해제(의미검색은 버튼으로만)
-});
-document.getElementById('q').addEventListener('keydown',e=>{
-  if(e.key!=='Enter') return;
-  if(document.getElementById('sem').checked){ doSemantic(); }
-  else { clearTimeout(searchDebounce); hl(e.target.value);   // 대기 중 디바운스를 즉시 확정
-         revealWorkspace('graph');
-         const m=net.getSelectedNodes(); if(m.length) loadNode(m[0]); }
-});
-// 입력창 포커스 시 기존 검색어 전체 선택 → 바로 새로 타이핑 가능(GOALS ④).
-document.getElementById('q').addEventListener('focus', e=> e.target.select());
-function doSemantic(){ revealWorkspace('graph'); semanticSearch(document.getElementById('q').value); }
+const semEl=document.getElementById('sem');
+if(semEl){
+  semEl.addEventListener('change',e=>{
+    updateSearchModeUI();
+    if(e.target.checked) hl('');
+  });
+}
+const qEl=document.getElementById('q');
+if(qEl){
+  qEl.addEventListener('keydown',e=>{
+    if(e.key!=='Enter') return;
+    if(semEl && semEl.checked){ doSemantic(); }
+    else { clearTimeout(searchDebounce); hl(e.target.value);
+           revealWorkspace('graph');
+           if(net){ const m=net.getSelectedNodes(); if(m.length) loadNode(m[0]); } }
+  });
+  qEl.addEventListener('focus', e=> e.target.select());
+}
+function doSemantic(){ revealWorkspace('graph'); const qv=document.getElementById('q'); semanticSearch(qv?qv.value:''); }
 
 // --- 인증 상태 표시 ---
 // 첫 페인트는 unknown/read-only이며, /whoami가 exact owner를 확인한 경우에만 쓰기 UI를
@@ -2610,13 +2623,13 @@ async function semanticSearch(q){
 
 // documents와 /whoami를 병렬로 읽되, scope가 확정되기 전 렌더는 항상 read-only다.
 syncThemeBtn();   // 저장된 테마에 맞춰 🌙/🌞 라벨 동기화(테마 자체는 head 인라인에서 선적용)
-fetch('documents').then(r=>r.json()).then(d=>{
-  allDocs=d.documents||[];
+fetch('documents').then(r=>{ if(!r.ok) throw new Error('documents fetch failed: HTTP '+r.status); return r.json(); }).then(d=>{
+  allDocs=(d && d.documents)||[];
   renderDocs();
   if(allDocs.length && !curReaderDoc && !mobileMQ.matches){
     openReader(allDocs[0].id);
   }
-  if(d.format_status && d.format_status.needs_migration){
+  if(d && d.format_status && d.format_status.needs_migration){
     const fs=d.format_status;
     const banner=document.getElementById('format-warn-banner');
     const text=document.getElementById('format-warn-text');
@@ -2628,6 +2641,10 @@ fetch('documents').then(r=>r.json()).then(d=>{
       banner.style.display='flex';
     }
   }
+}).catch(e=>{
+  allDocs=[];
+  const dl=document.getElementById('doclist');
+  if(dl) dl.innerHTML='<p class="hint" style="padding:10px">문서 로드 실패</p>';
 });
 fetch('whoami').then(r=>{ if(!r.ok) throw new Error('whoami failed'); return r.json(); }).then(d=>{
   setAccessScope(d.scope);

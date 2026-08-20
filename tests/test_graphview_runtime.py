@@ -345,3 +345,218 @@ setTimeout(() => {
     finally:
         Path(script_file).unlink(missing_ok=True)
         Path(runner_file).unlink(missing_ok=True)
+
+
+def test_graphview_network_error_graceful_recovery(node_available: bool) -> None:
+    """Verifies that when backend endpoints return HTTP 500 / fail,
+
+    the frontend handles them gracefully without throwing unhandled exceptions
+    and transitions all loading states to failure/empty states.
+    """
+    if not node_available:
+        pytest.skip("Node.js is not installed on the system")
+
+    scripts = extract_scripts(GRAPH_HTML)
+    assert len(scripts) >= 1
+
+    runner_code = r"""
+const fs = require('fs');
+
+class MockElement {
+  constructor(tag, id = '') {
+    this.tagName = (tag || 'div').toUpperCase();
+    this.id = id;
+    this.className = '';
+    this.classList = {
+      _classes: new Set(),
+      add(...cls) { cls.forEach(c => this._classes.add(c)); },
+      remove(...cls) { cls.forEach(c => this._classes.delete(c)); },
+      contains(c) { return this._classes.has(c); },
+      toggle(c, force) {
+        if (force === undefined) {
+          if (this._classes.has(c)) this._classes.delete(c);
+          else this._classes.add(c);
+        } else if (force) this._classes.add(c);
+        else this._classes.delete(c);
+      }
+    };
+    this.style = {
+      _props: {},
+      setProperty(k, v) { this._props[k] = v; },
+      getPropertyValue(k) { return this._props[k] || ''; }
+    };
+    this.dataset = {};
+    this.attributes = {};
+    this._innerHTML = '';
+    this._textContent = '';
+    this.value = '';
+    this.children = [];
+  }
+  get innerHTML() { return this._innerHTML; }
+  set innerHTML(v) { this._innerHTML = String(v); this._textContent = String(v).replace(/<[^>]*>/g, ''); }
+  get textContent() { return this._textContent; }
+  set textContent(v) { this._textContent = String(v); this._innerHTML = String(v); }
+  setAttribute(k, v) { this.attributes[k] = String(v); if(k==='id') this.id=String(v); }
+  getAttribute(k) { return this.attributes[k] !== undefined ? this.attributes[k] : null; }
+  removeAttribute(k) { delete this.attributes[k]; }
+  getBoundingClientRect() { return { width: 1000, height: 700, top: 0, left: 0, right: 1000, bottom: 700 }; }
+  querySelector(sel) { return new MockElement('div'); }
+  querySelectorAll(sel) { return []; }
+  addEventListener() {}
+  removeEventListener() {}
+  focus() {}
+  select() {}
+}
+
+const elements = new Map();
+function getOrCreate(id, tag='div') {
+  if (!elements.has(id)) {
+    elements.set(id, new MockElement(tag, id));
+  }
+  return elements.get(id);
+}
+
+const knownIds = [
+  'wrap', 'centerwrap', 'netwrap', 'net', 'reader', 'rtitle', 'rbody', 'rfs', 'sharebox',
+  'docs', 'docq', 'desclines', 'pinnedhead', 'pinnedlist', 'doclist', 'showhidden', 'hiddenlist',
+  'detailpane', 'panel', 'fslider', 'fmin', 'bar', 'worktabs', 'tab-docs', 'tab-graph', 'tab-search', 'tab-menu',
+  'morebtn', 'nodepop', 'stat', 'authstate', 'themebtn', 'sem', 'searchkind', 'synthchips', 'synthbtn',
+  'addbtn', 'dedupbtn', 'pathbtn', 'repolink', 'format-warn-banner', 'format-warn-text', 'graphnotice',
+  'graphdocnav', 'graphdocpick', 'graphdoclabel', 'graphdocprev', 'graphdocnext', 'graphdocmenu', 'graphdocq', 'graphdoclist', 'graphdocempty'
+];
+knownIds.forEach(id => getOrCreate(id));
+
+const document = {
+  documentElement: getOrCreate('html', 'html'),
+  body: getOrCreate('body', 'body'),
+  getElementById(id) { return elements.get(id) || null; },
+  querySelector(sel) {
+    if (sel.startsWith('#')) return document.getElementById(sel.slice(1));
+    return new MockElement('div');
+  },
+  querySelectorAll(sel) { return []; },
+  addEventListener() {},
+  removeEventListener() {},
+  activeElement: null
+};
+
+const window = {
+  document,
+  matchMedia(query) {
+    return {
+      matches: false,
+      media: query,
+      addEventListener() {},
+      removeEventListener() {}
+    };
+  },
+  addEventListener() {},
+  removeEventListener() {},
+  setTimeout: global.setTimeout,
+  clearTimeout: global.clearTimeout,
+  setInterval: global.setInterval,
+  clearInterval: global.clearInterval,
+  requestAnimationFrame(fn) { return global.setTimeout(fn, 0); },
+  DOMPurify: { sanitize(html) { return html; } },
+  marked: { parse(src) { return '<p>' + src + '</p>'; } },
+  vis: {
+    DataSet: class {
+      constructor(data) { this._data = data || []; }
+      get(id) { return this._data.find(d => d.id === id); }
+      getIds() { return this._data.map(d => d.id); }
+      update() {}
+      add() {}
+      forEach(fn) { this._data.forEach(fn); }
+    },
+    Network: class {
+      constructor() {}
+      setSize() {}
+      redraw() {}
+      fit() {}
+      focus() {}
+      moveTo() {}
+      on() {}
+      selectNodes() {}
+      unselectAll() {}
+      getSelectedNodes() { return []; }
+      getScale() { return 1.0; }
+      getViewPosition() { return { x: 0, y: 0 }; }
+      getPositions() { return {}; }
+      canvasToDOM(p) { return p; }
+      getPosition() { return { x: 0, y: 0 }; }
+      setOptions() {}
+    }
+  },
+  localStorage: {
+    _store: {},
+    getItem(k) { return this._store[k] || null; },
+    setItem(k, v) { this._store[k] = String(v); }
+  },
+  location: { origin: 'http://127.0.0.1:8766' }
+};
+
+// Simulate all endpoints failing with 500 error
+async function fetch(url, opts) {
+  return { ok: false, status: 500, json: async () => ({ error: 'Internal Server Error' }) };
+}
+
+global.window = window;
+global.document = document;
+global.fetch = fetch;
+global.vis = window.vis;
+global.DOMPurify = window.DOMPurify;
+global.marked = window.marked;
+global.localStorage = window.localStorage;
+global.location = window.location;
+global.getComputedStyle = () => ({ getPropertyValue: () => '#ffffff' });
+
+const scriptContent = fs.readFileSync(process.argv[2], 'utf8');
+try {
+  eval(scriptContent);
+} catch (err) {
+  console.error("FATAL_EVAL_ERROR:", err.stack || err);
+  process.exit(1);
+}
+
+setTimeout(() => {
+  const result = {
+    authstate: document.getElementById('authstate').textContent,
+    doclist: document.getElementById('doclist').innerHTML,
+    stat: document.getElementById('stat').textContent
+  };
+  console.log("EXEC_RESULT:" + JSON.stringify(result));
+  process.exit(0);
+}, 150);
+""";
+
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as f_script:
+        f_script.write(scripts[0])
+        script_file = f_script.name
+
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as f_runner:
+        f_runner.write(runner_code)
+        runner_file = f_runner.name
+
+    try:
+        proc = subprocess.run(
+            ["node", runner_file, script_file],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        assert proc.returncode == 0, f"Node.js execution crashed on network error:\nSTDOUT:\n{proc.stdout}\nSTDERR:\n{proc.stderr}"
+
+        match = re.search(r"EXEC_RESULT:(.*)", proc.stdout)
+        assert match is not None, f"Execution output did not contain EXEC_RESULT:\n{proc.stdout}"
+
+        data = json.loads(match.group(1))
+
+        # None of the elements should remain in their frozen initial loading string
+        assert data["authstate"] != "⏳ 권한 확인 중", f"Authstate remained frozen on error: {data['authstate']}"
+        assert data["doclist"] != "문서 로딩…", f"Doclist remained frozen on error: {data['doclist']}"
+        assert data["stat"] != "로딩…", f"Stat remained frozen on error: {data['stat']}"
+
+    finally:
+        Path(script_file).unlink(missing_ok=True)
+        Path(runner_file).unlink(missing_ok=True)
+
