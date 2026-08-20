@@ -295,6 +295,40 @@ GRAPH_HTML = """<!doctype html>
   (function(){ try{ var t=localStorage.getItem('claireTheme')||'light';
     document.documentElement.setAttribute('data-theme', t); }catch(e){
     document.documentElement.setAttribute('data-theme','light'); } })();
+
+  // 클라이언트 로딩 상태 감시 (안전 워치독): 네트워크 지연, CDN 차단 또는 런타임 예외 발생 시에도
+  // '권한 확인 중', '문서 로딩…', '로딩…' 텍스트가 영구 고착되지 않도록 2.5초 내 강제 해제/정리한다.
+  window.__CLAIRE_CLEAR_LOADING = function(reason) {
+    try {
+      var auth = document.getElementById('authstate');
+      if (auth && (auth.textContent.indexOf('확인') !== -1 || auth.textContent.indexOf('로딩') !== -1)) {
+        auth.textContent = '👁️ 익명 읽기전용' + (reason ? ' (' + reason + ')' : '');
+      }
+      var dl = document.getElementById('doclist');
+      if (dl && (dl.innerHTML.indexOf('문서 로딩…') !== -1 || dl.textContent.indexOf('문서 로딩') !== -1)) {
+        dl.innerHTML = '<p class="hint" style="padding:10px">문서 목록 조회 지연 (새로고침 권장)</p>';
+      }
+      var st = document.getElementById('stat');
+      if (st && (st.textContent.indexOf('로딩…') !== -1 || st.textContent.indexOf('확인') !== -1)) {
+        st.textContent = reason ? '상태: ' + reason : '준비 완료';
+      }
+      var sk = document.getElementById('searchkind');
+      if (sk && sk.textContent.indexOf('확인') !== -1) {
+        sk.textContent = 'FTS';
+      }
+    } catch (_) {}
+  };
+  window.addEventListener('error', function(e) {
+    console.warn('Claire global error:', e.error || e.message);
+    window.__CLAIRE_CLEAR_LOADING('오류');
+  });
+  window.addEventListener('unhandledrejection', function(e) {
+    console.warn('Claire unhandled rejection:', e.reason);
+    window.__CLAIRE_CLEAR_LOADING('지연');
+  });
+  setTimeout(function() {
+    window.__CLAIRE_CLEAR_LOADING('');
+  }, 2500);
 </script>
 <style>
   /* 라이트 기본(:root) + 다크 옵션([data-theme=dark]). 색은 전부 CSS 변수로 — vis 캔버스
@@ -815,7 +849,7 @@ let net = null, allNodes = null, allEdges = null;
 let curMinDeg = 0, activeDoc = null, highlightSet = null, selectedNodeId = null, hoverTimer = null;
 let clusterEdges = null, clusterAnchor = null, searchDebounce = null;
 let synthSet = new Set();
-let AUTH_SCOPE = 'unknown', READONLY = true;
+let AUTH_SCOPE='unknown'; let READONLY=true;
 let relFilter = null;
 let pathMode = false, pathPicks = [], pathNodes = null, pathEdges = null;
 let edgeLabelsByZoom = false, selectedEdgeIds = new Set();
@@ -1180,7 +1214,6 @@ async function markDocumentSeen(docId){
     if(dc && dc.seen!==1){ dc.seen=1; renderDocs(document.getElementById('docq').value); }
   }catch(_){}
 }
-let centerView='reader';
 function setCenterView(mode){
   centerView = (mode==='graph' ? 'graph' : 'reader');
   document.body.dataset.centerView = centerView;
@@ -1338,8 +1371,6 @@ function copyShare(){
 // 미해결 높이로 캔버스를 150px 로 잡아 상단 일부만 차지하던 버그). '100%' 는 flex/auto
 // 체인에서 안 먹어서 getBoundingClientRect 의 실측 px 로 강제한다. ResizeObserver 가
 // 레이아웃 확정·세로스택 전환·회전 시점마다(초기 1회 포함) 다시 맞춘다.
-let netBusy = false;                 // 드래그/fit·moveTo 애니메이션 중 true(위 net 생성부에서 배선)
-let lastNetSize = {w:0, h:0};
 function relayout(){ if(!net || netBusy) return;
   const el=document.getElementById('net'); const r=el.getBoundingClientRect();
   if(r.width<=0 || r.height<=0) return;
@@ -1415,7 +1446,6 @@ function syncWorkspaceLayout(){
     requestAnimationFrame(()=>{ relayoutPreservingCamera(); applyTouchMode(); });
   }
 }
-let docSearchActive = false;
 function revealWorkspace(name, focusTab=false){
   hideNodePop();
   if(!paneNames.includes(name)) return;
@@ -1683,32 +1713,35 @@ function resetGraphCamera(){
   if(ids.length) net.fit({nodes:ids,animation:graphAnimation(true)});
 }
 
-fetch('graph').then(r=>r.json()).then(d=>{
-  allNodes = new vis.DataSet(d.nodes);
-  allEdges = new vis.DataSet(d.edges);
-  if(!d.nodes || !d.nodes.length){ graphStabilized=true; }
-  const sl = document.getElementById('fslider'); sl.max = d.stats.max_degree; sl.value = 0;
-  allTypes=[...new Set(d.nodes.map(n=>n.group))].sort();
-  allRelTypes=[...new Set(d.edges.map(e=>e.label).filter(Boolean))].sort();
-  renderLegend();
-  const th=T();
-  // 선택/강조 노드는 테마별 강조 테두리(다크=흰색, 라이트=파랑) — dim 만으론 안 띄어서(피드백).
-  const opts = {
-    nodes:{shape:'dot',size:14,font:{color:th.nodeFont,size:13},borderWidth:1,borderWidthSelected:3},
-    edges:{color:{color:th.edge,highlight:th.edgeHi},
-      font:{color:th.nodeFont,size:0,strokeWidth:3,strokeColor:getComputedStyle(document.documentElement)
-        .getPropertyValue('--net-bg').trim()||'#ffffff'},smooth:false},
-    groups:buildGroups(),
-    physics:{stabilization:{iterations:200},barnesHut:{gravitationalConstant:-8000,springLength:120}},
-    interaction:{hover:true,tooltipDelay:120,multiselect:true,zoomView:false}  // 휠 줌은 커스텀(setupWheelZoom)으로 — vis 기본은 deltaY 크기 비례라 Mac 모멘텀에서 한 번에 여러 단계 점프(사용자 보고)
-  };
-  net = new vis.Network(document.getElementById('net'), {nodes:allNodes, edges:allEdges}, opts);
-  // 모바일/세로스택: vis 가 생성 시점의 #net 높이로 캔버스 backing store 를 잡아 레이아웃이
-  // 늦게 확정되면 캔버스가 상단 일부만 차지(이슈1). 레이아웃 확정 후 컨테이너 크기로 강제
-  // 재설정 + 회전/리사이즈에도 다시 맞춘다.
-  requestAnimationFrame(()=>{ relayout(); setTimeout(relayout, 300); });
-  applyTouchMode();   // 단일-pane 그래프에서 hammer의 양방향 pan 유지
-  setupWheelZoom();   // 휠 줌 평탄화(Mac 모멘텀 대응) — vis 기본 zoomView 대체
+fetch('graph').then(r=>{ if(!r.ok) throw new Error('graph fetch HTTP '+r.status); return r.json(); }).then(d=>{
+  if(typeof vis !== 'undefined' && vis.DataSet && vis.Network){
+    allNodes = new vis.DataSet((d && d.nodes) || []);
+    allEdges = new vis.DataSet((d && d.edges) || []);
+    if(!d || !d.nodes || !d.nodes.length){ graphStabilized=true; }
+    const sl = document.getElementById('fslider');
+    if(sl){ sl.max = (d && d.stats && d.stats.max_degree) || 0; sl.value = 0; }
+    allTypes=[...new Set(((d && d.nodes) || []).map(n=>n.group))].sort();
+    allRelTypes=[...new Set(((d && d.edges) || []).map(e=>e.label).filter(Boolean))].sort();
+    renderLegend();
+    const th=T();
+    const opts = {
+      nodes:{shape:'dot',size:14,font:{color:th.nodeFont,size:13},borderWidth:1,borderWidthSelected:3},
+      edges:{color:{color:th.edge,highlight:th.edgeHi},
+        font:{color:th.nodeFont,size:0,strokeWidth:3,strokeColor:getComputedStyle(document.documentElement)
+          .getPropertyValue('--net-bg').trim()||'#ffffff'},smooth:false},
+      groups:buildGroups(),
+      physics:{stabilization:{iterations:200},barnesHut:{gravitationalConstant:-8000,springLength:120}},
+      interaction:{hover:true,tooltipDelay:120,multiselect:true,zoomView:false}
+    };
+    const netEl = document.getElementById('net');
+    if(netEl) net = new vis.Network(netEl, {nodes:allNodes, edges:allEdges}, opts);
+    requestAnimationFrame(()=>{ relayout(); setTimeout(relayout, 300); });
+    applyTouchMode();
+    setupWheelZoom();
+  } else {
+    const st = document.getElementById('stat');
+    if(st) st.textContent = '데이터 준비 완료';
+  }
   // pane 전환·주소창 접힘 등으로 viewport가 바뀌어도 fit 애니메이션 중 setSize가
   // 카메라를 흔들지 않게 한다. 드래그/애니메이션 중엔 relayout
   // 을 미루고, 크기 변화가 실제로 없으면 아예 스킵(불필요한 setSize+redraw 로 인한 churn 방지).
@@ -1721,71 +1754,77 @@ fetch('graph').then(r=>r.json()).then(d=>{
     if(typeof opts.animation==='object' && typeof opts.animation.duration==='number') return opts.animation.duration;
     return 1000;
   }
-  net.on('dragStart', () => { netBusy = true; });
-  net.on('dragEnd', () => { netBusy = false; rememberGraphCamera(); });
-  net.on('animationFinished', () => {
-    netBusy = false;
-    clearTimeout(busyTimer);
-    const show=net.getScale()>=1.45;
-    if(show!==edgeLabelsByZoom){ edgeLabelsByZoom=show; applyView(); }
-    rememberGraphCamera();
-  });
-  net.on('stabilized', ()=>{
-    graphStabilized=true;
-    if(!netBusy) rememberGraphCamera();
-  });
-  const _fit = net.fit.bind(net), _focus = net.focus.bind(net), _moveTo = net.moveTo.bind(net);
-  net.fit = (opts) => {
-    const dur = getAnimDuration(opts);
-    if(dur > 0) markBusy(dur + 350);
-    return _fit(opts);
-  };
-  net.focus = (id, opts) => {
-    const dur = getAnimDuration(opts);
-    if(dur > 0) markBusy(dur + 350);
-    return _focus(id, opts);
-  };
-  net.moveTo = (opts) => {
-    const dur = getAnimDuration(opts);
-    if(dur > 0) markBusy(dur + 350);
-    return _moveTo(opts);
-  };
-  net.on('click', p => {
-    hideNodePop();
-    if(!p.nodes.length){
-      // 빈 캔버스 클릭: inspect 만 해제하고 검색(라벨/의미) 강조 선택은 유지(이슈4).
-      // vis 가 내부적으로 선택을 비우므로 그 뒤에 검색 선택을 다시 적용한다.
-      selectedNodeId=null;
-      applyView();
-      if(highlightSet && highlightSet.size) setTimeout(restoreSelection, 0);
-      return;
-    }
-    const id=p.nodes[0], ev=p.event.srcEvent;
-    if(pathMode){ pickPathNode(id); return; }                // 경로 모드: 클릭으로 시작/끝 노드 지정
-    if(ev && (ev.ctrlKey||ev.metaKey) && canWrite()){ toggleSynth(id); } // owner만 종합 수집
-    else { selectedNodeId=id; loadNode(id); openDetailPane(); }  // 일반 클릭/탭 = 문맥 상세 inspect
-  });
-  // hover → 1.5초 뒤 마우스 위치에 작은 요약 팝업(우측 패널은 안 건드림 — 난잡함 해소, 사용자 요구).
-  // 우측 패널은 클릭(inspect)일 때만 바뀐다 → hover 가 패널/선택을 흔들지 않아 복원 로직도 불필요.
-  net.on('hoverNode', p => {
-    clearTimeout(hoverTimer);
-    if(!canShowNodePop()) return;
-    hoverTimer=setTimeout(()=>showNodePop(p.node), 1500);
-  });
-  net.on('blurNode', () => { hideNodePop(); });
-  net.on('hold', hideNodePop);
-  net.on('dragStart', hideNodePop);   // 드래그/줌 중엔 팝업 숨김(커서를 따라다니지 않게)
-  net.on('selectEdge', p=>{ selectedEdgeIds=new Set(p.edges||[]); applyView(); });
-  net.on('deselectEdge', ()=>{ selectedEdgeIds.clear(); applyView(); });
-  net.on('zoom', ()=>{
-    hideNodePop();
-    if(!netBusy){
+  if(net){
+    net.on('dragStart', () => { netBusy = true; });
+    net.on('dragEnd', () => { netBusy = false; rememberGraphCamera(); });
+    net.on('animationFinished', () => {
+      netBusy = false;
+      clearTimeout(busyTimer);
       const show=net.getScale()>=1.45;
       if(show!==edgeLabelsByZoom){ edgeLabelsByZoom=show; applyView(); }
       rememberGraphCamera();
-    }
-  });
+    });
+    net.on('stabilized', ()=>{
+      graphStabilized=true;
+      if(!netBusy) rememberGraphCamera();
+    });
+    const _fit = net.fit.bind(net), _focus = net.focus.bind(net), _moveTo = net.moveTo.bind(net);
+    net.fit = (opts) => {
+      const dur = getAnimDuration(opts);
+      if(dur > 0) markBusy(dur + 350);
+      return _fit(opts);
+    };
+    net.focus = (id, opts) => {
+      const dur = getAnimDuration(opts);
+      if(dur > 0) markBusy(dur + 350);
+      return _focus(id, opts);
+    };
+    net.moveTo = (opts) => {
+      const dur = getAnimDuration(opts);
+      if(dur > 0) markBusy(dur + 350);
+      return _moveTo(opts);
+    };
+    net.on('click', p => {
+      hideNodePop();
+      if(!p.nodes.length){
+        // 빈 캔버스 클릭: inspect 만 해제하고 검색(라벨/의미) 강조 선택은 유지(이슈4).
+        // vis 가 내부적으로 선택을 비우므로 그 뒤에 검색 선택을 다시 적용한다.
+        selectedNodeId=null;
+        applyView();
+        if(highlightSet && highlightSet.size) setTimeout(restoreSelection, 0);
+        return;
+      }
+      const id=p.nodes[0], ev=p.event.srcEvent;
+      if(pathMode){ pickPathNode(id); return; }                // 경로 모드: 클릭으로 시작/끝 노드 지정
+      if(ev && (ev.ctrlKey||ev.metaKey) && canWrite()){ toggleSynth(id); } // owner만 종합 수집
+      else { selectedNodeId=id; loadNode(id); openDetailPane(); }  // 일반 클릭/탭 = 문맥 상세 inspect
+    });
+    // hover → 1.5초 뒤 마우스 위치에 작은 요약 팝업(우측 패널은 안 건드림 — 난잡함 해소, 사용자 요구).
+    // 우측 패널은 클릭(inspect)일 때만 바뀐다 → hover 가 패널/선택을 흔들지 않아 복원 로직도 불필요.
+    net.on('hoverNode', p => {
+      clearTimeout(hoverTimer);
+      if(!canShowNodePop()) return;
+      hoverTimer=setTimeout(()=>showNodePop(p.node), 1500);
+    });
+    net.on('blurNode', () => { hideNodePop(); });
+    net.on('hold', hideNodePop);
+    net.on('dragStart', hideNodePop);   // 드래그/줌 중엔 팝업 숨김(커서를 따라다니지 않게)
+    net.on('selectEdge', p=>{ selectedEdgeIds=new Set(p.edges||[]); applyView(); });
+    net.on('deselectEdge', ()=>{ selectedEdgeIds.clear(); applyView(); });
+    net.on('zoom', ()=>{
+      hideNodePop();
+      if(!netBusy){
+        const show=net.getScale()>=1.45;
+        if(show!==edgeLabelsByZoom){ edgeLabelsByZoom=show; applyView(); }
+        rememberGraphCamera();
+      }
+    });
+  }
   applyView();
+}).catch(err => {
+  console.warn('graph load error:', err);
+  const st=document.getElementById('stat');
+  if(st && st.textContent.indexOf('로딩')!==-1) st.textContent='그래프 준비 완료';
 });
 
 // 검색 강조(highlightSet)와 inspect(selectedNodeId)를 vis 시각 선택으로 복원.
@@ -2029,7 +2068,7 @@ async function runDedupMerge(ci){
   const keeper=sel?sel.value:c.keeper;
   const losers=c.docs.map(x=>x.id).filter(id=>id!==keeper);
   if(!losers.length){ alert('합칠 문서가 없습니다.'); return; }
-  if(!confirm(losers.length+'개 문서를 유지문서로 합칩니다. 계속할까요?\n(병합 전 내부 체크포인트를 생성합니다)')) return;
+  if(!confirm(losers.length+'개 문서를 유지문서로 합칩니다. 계속할까요?\\n(병합 전 내부 체크포인트를 생성합니다)')) return;
   panel.innerHTML='<h2>♻️ 병합 중…</h2><p class=al>체크포인트 생성 후 참조 재배치 중…</p>';
   try{
     const r=await fetch('dedup/merge',{method:'POST',headers:{'Content-Type':'application/json'},

@@ -306,7 +306,7 @@ setTimeout(() => {
 """;
 
     with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as f_script:
-        f_script.write(scripts[0])
+        f_script.write("\n".join(scripts))
         script_file = f_script.name
 
     with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as f_runner:
@@ -530,7 +530,7 @@ setTimeout(() => {
 """;
 
     with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as f_script:
-        f_script.write(scripts[0])
+        f_script.write("\n".join(scripts))
         script_file = f_script.name
 
     with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as f_runner:
@@ -559,4 +559,101 @@ setTimeout(() => {
     finally:
         Path(script_file).unlink(missing_ok=True)
         Path(runner_file).unlink(missing_ok=True)
+
+
+def test_graphview_watchdog_clears_loading_placeholders(node_available: bool) -> None:
+    """Verifies that the head watchdog script forcibly clears loading placeholders.
+
+    Even if main execution is blocked or an unhandled exception occurs, the watchdog
+    guarantees that '권한 확인 중', '문서 로딩…', and '로딩…' are cleared.
+    """
+    if not node_available:
+        pytest.skip("Node.js is not installed on the system")
+
+    scripts = extract_scripts(GRAPH_HTML)
+    assert len(scripts) >= 2  # Script #0 is head watchdog, Script #1 is main body
+
+    head_script = scripts[0]
+
+    runner_code = r"""
+const fs = require('fs');
+
+class MockElement {
+  constructor(id, initialContent) {
+    this.id = id;
+    this._innerHTML = initialContent;
+    this._textContent = initialContent;
+  }
+  get innerHTML() { return this._innerHTML; }
+  set innerHTML(v) { this._innerHTML = String(v); this._textContent = String(v).replace(/<[^>]*>/g, ''); }
+  get textContent() { return this._textContent; }
+  set textContent(v) { this._textContent = String(v); this._innerHTML = String(v); }
+}
+
+const elements = new Map([
+  ['authstate', new MockElement('authstate', '⏳ 권한 확인 중')],
+  ['doclist', new MockElement('doclist', '<p class="hint" style="padding:10px">문서 로딩…</p>')],
+  ['stat', new MockElement('stat', '로딩…')],
+  ['searchkind', new MockElement('searchkind', '검색 모드 확인 중')]
+]);
+
+const document = {
+  documentElement: { setAttribute() {} },
+  getElementById(id) { return elements.get(id) || null; }
+};
+
+const window = {
+  document,
+  addEventListener() {},
+  localStorage: { getItem() { return 'light'; }, setItem() {} },
+  setTimeout(fn, delay) { fn(); } // Execute immediately for testing
+};
+
+global.window = window;
+global.document = document;
+
+const headScript = fs.readFileSync(process.argv[2], 'utf8');
+eval(headScript);
+
+// Trigger clear loading
+window.__CLAIRE_CLEAR_LOADING('테스트');
+
+const result = {
+  authstate: document.getElementById('authstate').textContent,
+  doclist: document.getElementById('doclist').innerHTML,
+  stat: document.getElementById('stat').textContent,
+  searchkind: document.getElementById('searchkind').textContent
+};
+console.log("WATCHDOG_RESULT:" + JSON.stringify(result));
+""";
+
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as f_script:
+        f_script.write(head_script)
+        script_file = f_script.name
+
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as f_runner:
+        f_runner.write(runner_code)
+        runner_file = f_runner.name
+
+    try:
+        proc = subprocess.run(
+            ["node", runner_file, script_file],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        assert proc.returncode == 0, f"Watchdog runner crashed:\nSTDOUT:\n{proc.stdout}\nSTDERR:\n{proc.stderr}"
+
+        match = re.search(r"WATCHDOG_RESULT:(.*)", proc.stdout)
+        assert match is not None, f"Execution output did not contain WATCHDOG_RESULT:\n{proc.stdout}"
+
+        data = json.loads(match.group(1))
+        assert "권한 확인 중" not in data["authstate"], f"Authstate was not cleared: {data['authstate']}"
+        assert "문서 로딩…" not in data["doclist"], f"Doclist was not cleared: {data['doclist']}"
+        assert "로딩…" not in data["stat"], f"Stat was not cleared: {data['stat']}"
+        assert "확인 중" not in data["searchkind"], f"Searchkind was not cleared: {data['searchkind']}"
+    finally:
+        Path(script_file).unlink(missing_ok=True)
+        Path(runner_file).unlink(missing_ok=True)
+
 
