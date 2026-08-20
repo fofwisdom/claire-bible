@@ -277,9 +277,10 @@ Telegram bot을 활성화할 때 `TELEGRAM_BOT_TOKEN`과 `CLAIRE_ALLOWED_USERS`�
 | `./cb-manuscript up` | 서비스 스택 시작 |
 | `./cb-manuscript down` | 서비스 스택 중지 |
 | `./cb-manuscript restart` | 서비스 스택 재시작 |
-| `./cb-manuscript backup` | 백업 생성 (`backups/cb-YYYYMMDD/`) |
-| `./cb-manuscript backup --format archive` | 압축 백업 생성 (`backups/cb-YYYYMMDD.tar.gz`) |
-| `./cb-manuscript restore backups/cb-YYYYMMDD --yes` | 백업 복원 |
+| `./cb-manuscript backup` | 백업 생성 (`backups/cb-YYYYMMDD-HHMMSS/`) |
+| `./cb-manuscript backup --format archive` | 압축 백업 생성 (`backups/cb-YYYYMMDD-HHMMSS.tar.gz`) |
+| `./cb-manuscript restore` | 대화형 백업 목록 조회 및 번호 선택 복원 |
+| `./cb-manuscript restore backups/cb-YYYYMMDD-HHMMSS --yes` | 특정 백업 지정 복원 |
 | `./cb-manuscript health` | 실행 중인 API 컨테이너의 DB·schema liveness 확인 |
 | `./cb-manuscript logs -f api` | API 컨테이너 실시간 로그 확인 |
 | `./cb-manuscript shell` | 컨테이너 셸 접속 |
@@ -317,15 +318,17 @@ exact `CLAIRE_ANONYMOUS_READONLY=1`(기본값)은 canonical same-origin 또는 O
 
 백업은 현재 profile의 `data`와 `vault`를 writer 정지 상태에서 함께 캡처하고,
 SQLite snapshot·`quick_check`·foreign-key 검사·SHA-256 manifest를 검증한 뒤에만
-공개한다. 기본은 폴더이고 `--format archive`는 `.tar.gz` 파일을 만든다.
-`--component data` 또는 `--component vault`로 일부만 선택할 수 있다. 같은 날짜 산출물은
+공개한다. 백업 시마다 초 단위 타임스탬프(`cb-YYYYMMDD-HHMMSS`)로 구분되어 생성되므로
+기존 백업을 덮어쓰지 않고 안전하게 보존된다. 기본은 폴더이고 `--format archive`는 `.tar.gz` 파일을 만든다.
+`--component data` 또는 `--component vault`로 일부만 선택할 수 있다. 동일 ID 산출물은
 묵시적으로 덮어쓰지 않으며 새 상태로 교체하려면 `--replace`가 필요하다. `.env`의
 secret과 호스트 topology는 v1 backup에 포함하지 않는다.
 
-복원은 파일 또는 폴더를 자동 판별하며 profile·project·hash·SQLite를 서비스 정지 전에
-검증한다. `--yes`가 필요하고, 선택한 component를 교체한 뒤 migration과 liveness까지
-성공해야 완료한다. 실패하면 직전 data/vault를 되돌리고 원래 실행 중이던 컨테이너만
-재개한다.
+복원은 인자 없이 `./cb-manuscript restore`를 실행하면 존재하는 백업 목록을 최신순으로 나열하고
+번호로 선택하여 복원할 수 있다. 특정 파일 또는 폴더 경로를 지정하여 직접 복원할 수도 있다.
+profile·project·hash·SQLite를 서비스 정지 전에 검증하며, 대화형 확인 또는 `--yes` 플래그가 필요하다.
+선택한 component를 교체한 뒤 migration과 liveness까지 성공해야 완료한다. 실패하면 직전 data/vault를 되돌리고
+원래 실행 중이던 컨테이너만 재개한다.
 
 `./cb-manuscript health`는 실행 중인 API 컨테이너의 DB·schema liveness를 확인한다.
 주의 항목이 누적된 `degraded` 상태도 출력하지만 liveness가 정상이면 성공한다.

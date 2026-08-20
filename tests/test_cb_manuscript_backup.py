@@ -628,3 +628,138 @@ def test_backup_paths_are_excluded_from_source_build_and_remote_delete() -> None
         r"--exclude[ =]+[\"']/?backups/?[\"']",
         deploy,
     )
+
+
+def test_backup_timestamp_id_format(tmp_path: Path) -> None:
+    root = tmp_path / "project"
+    _write_layout(root, dev=False)
+    _seed_storage(root)
+
+    with _docker(DockerHarness()):
+        assert cb.main(["backup"], root=root) == 0
+
+    artifacts = _visible_artifacts(root)
+    assert len(artifacts) == 1
+    artifact = artifacts[0]
+    assert re.fullmatch(r"cb-[0-9]{8}-[0-9]{6}", artifact.name)
+    manifest = _read_manifest(artifact)
+    assert manifest["id"] == artifact.name
+
+
+def test_consecutive_backups_create_distinct_snapshots(tmp_path: Path) -> None:
+    from datetime import datetime, timezone
+
+    root = tmp_path / "project"
+    _write_layout(root, dev=False)
+    _seed_storage(root)
+
+    dt1 = datetime(2026, 8, 20, 10, 0, 0, tzinfo=timezone.utc)
+    dt2 = datetime(2026, 8, 20, 10, 5, 0, tzinfo=timezone.utc)
+
+    with _docker(DockerHarness()), patch.object(cb, "_local_now", return_value=dt1):
+        assert cb.main(["backup"], root=root) == 0
+
+    (root / "data" / "marker.txt").write_text("data-updated-v2", encoding="utf-8")
+
+    with _docker(DockerHarness()), patch.object(cb, "_local_now", return_value=dt2):
+        assert cb.main(["backup", "--format", "archive"], root=root) == 0
+
+    artifacts = _visible_artifacts(root)
+    assert len(artifacts) == 2
+    assert artifacts[0].name == "cb-20260820-100000"
+    assert artifacts[0].is_dir()
+    assert artifacts[1].name == "cb-20260820-100500.tar.gz"
+    assert artifacts[1].is_file()
+
+
+def test_restore_interactive_selection(tmp_path: Path) -> None:
+    from datetime import datetime, timezone
+
+    root = tmp_path / "project"
+    _write_layout(root, dev=False)
+    _seed_storage(root)
+
+    dt1 = datetime(2026, 8, 20, 10, 0, 0, tzinfo=timezone.utc)
+    dt2 = datetime(2026, 8, 20, 10, 5, 0, tzinfo=timezone.utc)
+
+    with _docker(DockerHarness()), patch.object(cb, "_local_now", return_value=dt1):
+        assert cb.main(["backup"], root=root) == 0
+
+    (root / "data" / "marker.txt").write_text("v2-data", encoding="utf-8")
+    with _docker(DockerHarness()), patch.object(cb, "_local_now", return_value=dt2):
+        assert cb.main(["backup"], root=root) == 0
+
+    (root / "data" / "marker.txt").write_text("v3-mutated", encoding="utf-8")
+
+    # Available backups are ordered newest first: [1] 10:05:00, [2] 10:00:00
+    # Select [2] (the original one where marker is 'data-original') and confirm with 'y'
+    inputs = iter(["2", "y"])
+    with _docker(DockerHarness()), patch("builtins.input", side_effect=inputs):
+        assert cb.main(["restore"], root=root) == 0
+
+    assert (root / "data" / "marker.txt").read_text(encoding="utf-8") == "data-original"
+
+
+def test_restore_interactive_with_yes_flag(tmp_path: Path) -> None:
+    root = tmp_path / "project"
+    _write_layout(root, dev=False)
+    _seed_storage(root)
+
+    with _docker(DockerHarness()):
+        assert cb.main(["backup"], root=root) == 0
+
+    (root / "data" / "marker.txt").write_text("mutated", encoding="utf-8")
+
+    # With --yes flag, only selection number is needed (confirmation prompt is skipped)
+    inputs = iter(["1"])
+    with _docker(DockerHarness()), patch("builtins.input", side_effect=inputs):
+        assert cb.main(["restore", "--yes"], root=root) == 0
+
+    assert (root / "data" / "marker.txt").read_text(encoding="utf-8") == "data-original"
+
+
+def test_restore_interactive_cancel_inputs(tmp_path: Path) -> None:
+    root = tmp_path / "project"
+    _write_layout(root, dev=False)
+    _seed_storage(root)
+
+    with _docker(DockerHarness()):
+        assert cb.main(["backup"], root=root) == 0
+
+    # User cancels at selection
+    with _docker(DockerHarness()), patch("builtins.input", side_effect=iter(["q"])):
+        assert cb.main(["restore"], root=root) == 2
+
+    # User cancels at confirmation
+    with _docker(DockerHarness()), patch("builtins.input", side_effect=iter(["1", "n"])):
+        assert cb.main(["restore"], root=root) == 2
+
+
+def test_restore_interactive_no_backups_error(tmp_path: Path) -> None:
+    root = tmp_path / "project"
+    _write_layout(root, dev=False)
+
+    with _docker(DockerHarness()):
+        assert cb.main(["restore"], root=root) == 2
+
+
+def test_restore_non_interactive_without_source_fails(tmp_path: Path) -> None:
+    root = tmp_path / "project"
+    _write_layout(root, dev=False)
+    _seed_storage(root)
+
+    with _docker(DockerHarness()):
+        assert cb.main(["backup"], root=root) == 0
+
+    runtime = cb.load_runtime(cb.Layout(root))
+    # When input raises EOFError (non-interactive / closed stdin)
+    with patch("builtins.input", side_effect=EOFError):
+        with pytest.raises(cb.ManuscriptError, match="Backup source path is required"):
+            cb.command_restore(
+                runtime,
+                raw_source=None,
+                raw_components=None,
+                confirmed=True,
+            )
+
+

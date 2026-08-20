@@ -27,7 +27,7 @@ import sys
 import tarfile
 import tempfile
 import time
-from typing import Iterator, Mapping, Sequence
+from typing import Callable, Iterator, Mapping, Sequence, cast
 from urllib.parse import quote, urlsplit
 
 
@@ -43,7 +43,7 @@ ENVIRONMENTS = frozenset((DEVELOPMENT, PRODUCTION))
 BACKUP_FORMAT_VERSION = 1
 BACKUP_COMPONENTS = ("data", "vault")
 BACKUP_ARCHIVE_SUFFIX = ".tar.gz"
-BACKUP_ID_RE = re.compile(r"^cb-[0-9]{8}$")
+BACKUP_ID_RE = re.compile(r"^cb-[0-9]{8}(?:-[0-9]{6})?$")
 PROJECT_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 DNS_LABEL_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$")
@@ -1834,7 +1834,7 @@ def _local_now() -> datetime:
 
 
 def _backup_id() -> str:
-    return _local_now().strftime("cb-%Y%m%d")
+    return _local_now().strftime("cb-%Y%m%d-%H%M%S")
 
 
 def _current_schema_version(layout: Layout) -> int:
@@ -2189,7 +2189,7 @@ def _publish_backup(
     existing = [path for path in conflicting_paths if _path_exists(path)]
     if existing and not replace:
         raise ManuscriptError(
-            "Today's backup already exists: "
+            "Backup already exists: "
             + ", ".join(str(path) for path in existing)
             + ". Specify --replace to overwrite."
         )
@@ -2255,7 +2255,7 @@ def command_backup(
         existing = [path for path in conflicts if _path_exists(path)]
         if existing and not replace:
             raise ManuscriptError(
-                "Today's backup already exists: "
+                "Backup already exists: "
                 + ", ".join(str(path) for path in existing)
                 + ". Specify --replace to overwrite."
             )
@@ -2531,6 +2531,165 @@ def _wait_for_restored_liveness(runtime: Runtime) -> bool:
     return False
 
 
+def _inspect_backup_summary(path: Path) -> dict[str, object] | None:
+    try:
+        if path.is_dir():
+            manifest_path = path / "manifest.json"
+            if manifest_path.is_file():
+                data = json.loads(manifest_path.read_text(encoding="utf-8"))
+                if isinstance(data, dict):
+                    return data
+        elif path.is_file() and path.name.endswith(BACKUP_ARCHIVE_SUFFIX):
+            with tarfile.open(path, mode="r:*") as archive:
+                for member in archive.getmembers():
+                    if member.name.rstrip("/") in {"manifest.json", "./manifest.json"}:
+                        stream = archive.extractfile(member)
+                        if stream is not None:
+                            data = json.loads(stream.read().decode("utf-8"))
+                            if isinstance(data, dict):
+                                return data
+    except Exception:
+        pass
+    return None
+
+
+def _list_available_backups(layout: Layout) -> list[dict[str, object]]:
+    backups_dir = layout.backups
+    if not backups_dir.is_dir():
+        return []
+
+    results: list[dict[str, object]] = []
+    for item in backups_dir.iterdir():
+        if item.name.startswith("."):
+            continue
+        is_archive = item.is_file() and item.name.endswith(BACKUP_ARCHIVE_SUFFIX)
+        is_dir = item.is_dir()
+        if not (is_archive or is_dir):
+            continue
+
+        stat_info = _lstat(item)
+        manifest = _inspect_backup_summary(item)
+
+        backup_id = ""
+        created_at = ""
+        components: list[str] = []
+        profile = ""
+        project = ""
+
+        if manifest:
+            backup_id = str(manifest.get("id") or item.name)
+            created_at = str(manifest.get("created_at") or "")
+            raw_comps = manifest.get("components")
+            if isinstance(raw_comps, list):
+                components = [str(c) for c in raw_comps]
+            profile = str(manifest.get("profile") or "")
+            project = str(manifest.get("project") or "")
+        else:
+            backup_id = (
+                item.name[: -len(BACKUP_ARCHIVE_SUFFIX)]
+                if is_archive
+                else item.name
+            )
+            created_at = datetime.fromtimestamp(
+                stat_info.st_mtime, tz=timezone.utc
+            ).isoformat()
+
+        results.append(
+            {
+                "path": item,
+                "name": item.name,
+                "id": backup_id,
+                "format": "archive" if is_archive else "directory",
+                "created_at": created_at,
+                "components": components,
+                "profile": profile,
+                "project": project,
+                "mtime": stat_info.st_mtime,
+            }
+        )
+
+    results.sort(
+        key=lambda b: (str(b["created_at"]), str(b["id"]), float(b["mtime"])),
+        reverse=True,
+    )
+    return results
+
+
+def _select_backup_interactively(
+    runtime: Runtime,
+    *,
+    confirmed: bool,
+    input_func: Callable[[str], str] | None = None,
+) -> tuple[Path, bool]:
+    _input = input_func or input
+    backups = _list_available_backups(runtime.layout)
+    if not backups:
+        raise ManuscriptError(f"No backups found in {runtime.layout.backups}")
+
+    print("Available backups:")
+    for idx, b in enumerate(backups, 1):
+        info_parts = [str(b["format"])]
+        if b["created_at"]:
+            info_parts.append(str(b["created_at"]))
+        if b["components"]:
+            info_parts.append(f"components: {','.join(b['components'])}")
+        if b["profile"]:
+            info_parts.append(f"profile: {b['profile']}")
+        print(f"  [{idx}] {b['name']} ({' · '.join(info_parts)})")
+
+    while True:
+        try:
+            choice = _input(
+                f"Select backup number to restore (1-{len(backups)}) or 'q' to cancel: "
+            ).strip()
+        except EOFError as exc:
+            raise ManuscriptError(
+                "Backup source path is required in non-interactive mode. "
+                "Specify path: ./cb-manuscript restore <path> --yes"
+            ) from exc
+        except KeyboardInterrupt:
+            print()
+            raise ManuscriptError("Restore cancelled.")
+
+        if choice.lower() in {"q", "quit", "cancel"}:
+            raise ManuscriptError("Restore cancelled.")
+        if not choice.isdigit():
+            print(
+                f"Invalid selection: {choice!r}. Please enter a number between 1 and {len(backups)}."
+            )
+            continue
+        index = int(choice)
+        if not (1 <= index <= len(backups)):
+            print(
+                f"Invalid number: {index}. Please enter a number between 1 and {len(backups)}."
+            )
+            continue
+
+        selected = backups[index - 1]
+        selected_path = cast(Path, selected["path"])
+        break
+
+    if not confirmed:
+        try:
+            answer = _input(
+                f"Selected backup: {selected_path.name}\n"
+                "Restore will replace current data. Proceed? [y/N]: "
+            ).strip().lower()
+        except EOFError as exc:
+            raise ManuscriptError(
+                "Confirmation is required in non-interactive mode. "
+                "Specify --yes to confirm: ./cb-manuscript restore <path> --yes"
+            ) from exc
+        except KeyboardInterrupt:
+            print()
+            raise ManuscriptError("Restore cancelled.")
+        if answer not in {"y", "yes"}:
+            raise ManuscriptError("Restore cancelled by user.")
+        confirmed = True
+
+    return selected_path, confirmed
+
+
 def _resolve_backup_source(layout: Layout, raw: str) -> Path:
     if not raw or "\x00" in raw:
         raise ManuscriptError("Backup file or directory path is required for restore.")
@@ -2560,15 +2719,21 @@ def _restore_components(
 def command_restore(
     runtime: Runtime,
     *,
-    raw_source: str,
+    raw_source: str | None,
     raw_components: Sequence[str] | None,
     confirmed: bool,
+    input_func: Callable[[str], str] | None = None,
 ) -> int:
-    if not confirmed:
-        raise ManuscriptError(
-            "Restore will replace current data. Specify --yes to confirm."
+    if raw_source is None:
+        source, confirmed = _select_backup_interactively(
+            runtime, confirmed=confirmed, input_func=input_func
         )
-    source = _resolve_backup_source(runtime.layout, raw_source)
+    else:
+        if not confirmed:
+            raise ManuscriptError(
+                "Restore will replace current data. Specify --yes to confirm."
+            )
+        source = _resolve_backup_source(runtime.layout, raw_source)
     with BackupNamespaceLock(runtime.layout), InstanceLock(runtime):
         config_preflight(runtime)
         storage = resolve_storage(runtime)
@@ -3211,17 +3376,17 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Examples:\n"
-            "  ./cb-manuscript backup                               # Default directory backup (backups/cb-YYYYMMDD/)\n"
+            "  ./cb-manuscript backup                               # Default directory backup (backups/cb-YYYYMMDD-HHMMSS/)\n"
             "  ./cb-manuscript backup --format archive              # Compressed archive backup (.tar.gz)\n"
             "  ./cb-manuscript backup --component data              # Backup only data component\n"
-            "  ./cb-manuscript backup --replace                     # Overwrite existing backup for today"
+            "  ./cb-manuscript backup --replace                     # Overwrite existing backup if ID conflicts"
         ),
     )
     backup.add_argument(
         "--format",
         choices=("directory", "archive"),
         default="directory",
-        help="Backup format: directory=backups/cb-YYYYMMDD/, archive=.tar.gz (default: directory)",
+        help="Backup format: directory=backups/cb-YYYYMMDD-HHMMSS/, archive=.tar.gz (default: directory)",
     )
     backup.add_argument(
         "--component",
@@ -3232,7 +3397,7 @@ def build_parser() -> argparse.ArgumentParser:
     backup.add_argument(
         "--replace",
         action="store_true",
-        help="Replace existing backup for today if present",
+        help="Replace existing backup if present",
     )
 
     # 6. restore
@@ -3241,16 +3406,23 @@ def build_parser() -> argparse.ArgumentParser:
         help="Verify and restore data from backup directory or archive",
         description=(
             "Verify integrity of backup directory or archive (.tar.gz) and restore data.\n"
+            "When source path is omitted, displays available backups for interactive number selection.\n"
             "Stopping services prior to restore is recommended for safety."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Examples:\n"
-            "  ./cb-manuscript restore backups/cb-20260818 --yes\n"
-            "  ./cb-manuscript restore backups/cb-20260818.tar.gz --component data --yes"
+            "  ./cb-manuscript restore                                # Interactive backup selection from list\n"
+            "  ./cb-manuscript restore backups/cb-20260820-193000 --yes # Direct restore with confirmation\n"
+            "  ./cb-manuscript restore backups/cb-20260820-193000.tar.gz --component data --yes"
         ),
     )
-    restore.add_argument("source", help="Path to backup directory or .tar.gz archive to restore")
+    restore.add_argument(
+        "source",
+        nargs="?",
+        default=None,
+        help="Path to backup directory or .tar.gz archive to restore (optional; prompts from list if omitted)",
+    )
     restore.add_argument(
         "--component",
         choices=BACKUP_COMPONENTS,
