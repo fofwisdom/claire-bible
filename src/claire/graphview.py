@@ -608,8 +608,8 @@ GRAPH_HTML = """<!doctype html>
     #graphdocempty{padding:12px 10px;color:var(--muted)}
 
     /* 모바일 크게 읽기 모달 */
-    #reader{position:fixed!important;inset:0!important;background:var(--shadow)!important;display:none!important;z-index:50!important;padding:0!important}
-    #reader.open{display:flex!important}
+    #reader{position:fixed!important;inset:0!important;background:var(--shadow)!important;display:none!important;visibility:hidden!important;pointer-events:none!important;z-index:60!important;padding:0!important}
+    #reader.open,body.reader-open #reader{display:flex!important;visibility:visible!important;pointer-events:auto!important}
     #reader .sheet{height:100vh!important;max-height:100dvh!important;border:0!important;border-radius:0!important}
     #reader .rhead{padding:max(10px,env(safe-area-inset-top)) 12px 10px!important}
     #reader .rhead h1{font-size:18px!important}
