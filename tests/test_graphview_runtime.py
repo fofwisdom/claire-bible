@@ -848,14 +848,7 @@ tests.push({
   isWarning: bannerEl.className.includes('banner-warning'),
   title: titleEl.textContent === '렌더링 포맷 불일치',
   hasText: textEl.innerHTML.includes('3개') && textEl.innerHTML.includes('MD'),
-  hasAction: actBtn.style.display === 'inline-block' && actBtn.textContent.includes('복사')
-});
-
-// 3. Action execution (clipboard copy)
-banner.handleAction();
-tests.push({
-  name: 'format_mismatch_action',
-  copiedCmd: clipboardText.includes('format-migrate --apply')
+  noActionBtn: actBtn.style.display === 'none'
 });
 
 // 4. format_missing show
