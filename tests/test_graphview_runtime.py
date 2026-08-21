@@ -1139,5 +1139,244 @@ setTimeout(() => {
         Path(runner_file).unlink(missing_ok=True)
 
 
+def test_graphview_mobile_search_and_docs_return(node_available: bool) -> None:
+    if not node_available:
+        pytest.skip("Node.js is not installed on the system")
+
+    scripts = extract_scripts(GRAPH_HTML)
+    main_script = "\n".join(scripts)
+
+    runner_code = r"""
+const fs = require('fs');
+
+class MockElement {
+  constructor(tag, id = '') {
+    this.tagName = (tag || 'div').toUpperCase();
+    this.id = id;
+    this.className = '';
+    this.classList = {
+      _classes: new Set(),
+      add(c) { this._classes.add(c); },
+      remove(c) { this._classes.delete(c); },
+      contains(c) { return this._classes.has(c); },
+      toggle(c, force) {
+        if (force === true) this._classes.add(c);
+        else if (force === false) this._classes.delete(c);
+        else if (this._classes.has(c)) this._classes.delete(c);
+        else this._classes.add(c);
+      }
+    };
+    this.style = {
+      display: '',
+      setProperty() {},
+      removeProperty() {}
+    };
+    this.dataset = {};
+    this.attributes = {};
+    this._innerHTML = '';
+    this._textContent = '';
+    this.value = '';
+    this.children = [];
+  }
+  get innerHTML() { return this._innerHTML; }
+  set innerHTML(v) { this._innerHTML = String(v); this._textContent = String(v).replace(/<[^>]*>/g, ''); }
+  get textContent() { return this._textContent; }
+  set textContent(v) { this._textContent = String(v); this._innerHTML = String(v); }
+  setAttribute(k, v) { this.attributes[k] = String(v); if(k==='id') this.id=String(v); }
+  getAttribute(k) { return this.attributes[k] !== undefined ? this.attributes[k] : null; }
+  removeAttribute(k) { delete this.attributes[k]; }
+  getBoundingClientRect() { return { width: 390, height: 844, top: 0, left: 0, right: 390, bottom: 844 }; }
+  querySelector(sel) { return new MockElement('div'); }
+  querySelectorAll(sel) { return []; }
+  addEventListener() {}
+  removeEventListener() {}
+  focus() {}
+  select() {}
+}
+
+const elements = {};
+function getOrCreate(id, tag = 'div') {
+  if (!elements[id]) {
+    elements[id] = new MockElement(tag, id);
+  }
+  return elements[id];
+}
+
+const requiredIds = [
+  'bar', 'themebtn', 'morebtn', 'format-warn-banner', 'format-warn-badge',
+  'format-warn-icon', 'format-warn-title', 'format-warn-text', 'format-warn-actbtn',
+  'drawerbackdrop', 'wrap', 'docs', 'docq', 'desclines', 'pinnedhead', 'pinnedlist',
+  'doclist', 'showhidden', 'hiddenlist', 'centerwrap', 'netwrap', 'netsearch',
+  'barsearch', 'q', 'searchbtn', 'legendbar', 'graphdocnav', 'graphdocprev',
+  'graphdocpick', 'graphdoclabel', 'graphdocnext', 'graphdocmenu', 'graphdocq',
+  'graphdoclist', 'net', 'graphnotice', 'zoomctl', 'reader', 'rtitle', 'rfs',
+  'reditbtn', 'sharebox', 'rbody', 'detailpane', 'detailhead', 'detailclose',
+  'drawerscroll', 'drawer-graph-action', 'opengraphbtn', 'moremenu', 'sem',
+  'searchkind', 'synthchips', 'synthbtn', 'addbtn', 'dedupbtn', 'pathbtn',
+  'fmin', 'fslider', 'repolink', 'authstate', 'stat', 'panel', 'worktabs',
+  'tab-docs', 'tab-search', 'tab-menu', 'nodepop'
+];
+
+requiredIds.forEach(id => getOrCreate(id));
+
+const document = {
+  documentElement: {
+    getAttribute: () => 'light',
+    setAttribute: () => {},
+    style: { setProperty: () => {} }
+  },
+  body: new MockElement('body'),
+  getElementById: (id) => getOrCreate(id),
+  querySelector: (sel) => {
+    if (sel.startsWith('#')) return getOrCreate(sel.slice(1));
+    return new MockElement('div');
+  },
+  querySelectorAll: () => [],
+  activeElement: null,
+  addEventListener: () => {}
+};
+
+const window = {
+  matchMedia: (q) => {
+    const isMobile = q.includes('max-width:720px');
+    return {
+      matches: isMobile,
+      addEventListener: () => {},
+      removeEventListener: () => {}
+    };
+  },
+  addEventListener: () => {},
+  requestAnimationFrame: (cb) => { setTimeout(cb, 0); return 1; },
+  cancelAnimationFrame: () => {},
+  localStorage: {
+    getItem: () => null,
+    setItem: () => {},
+    removeItem: () => {}
+  },
+  location: { hash: '', search: '', pathname: '/' },
+  DOMPurify: { sanitize: (s) => s },
+  marked: { parse: (s) => `<p>${s}</p>` },
+  vis: {
+    DataSet: class {
+      constructor(data) { this._data = data || []; }
+      get(id) { return this._data.find(d => d.id === id); }
+      getIds() { return this._data.map(d => d.id); }
+      update() {}
+      add() {}
+      remove() {}
+      forEach(fn) { this._data.forEach(fn); }
+    },
+    Network: class {
+      constructor() {}
+      setSize() {}
+      redraw() {}
+      fit() {}
+      focus() {}
+      moveTo() {}
+      on() {}
+      selectNodes() {}
+      unselectAll() {}
+      getSelectedNodes() { return []; }
+      getScale() { return 1.0; }
+      getViewPosition() { return { x: 0, y: 0 }; }
+      getPositions() { return {}; }
+      canvasToDOM(p) { return p; }
+      getPosition() { return { x: 0, y: 0 }; }
+      setOptions() {}
+    }
+  }
+};
+
+const mockDocs = [
+  { id: 'doc-1', title: '자료 1', summary: '첫 번째 자료', fetched_at: 1700000000, seen: 1, pinned: 0, hidden: 0 },
+  { id: 'doc-2', title: '자료 2', summary: '두 번째 자료', fetched_at: 1700000000, seen: 1, pinned: 0, hidden: 0 }
+];
+
+async function fetch(url) {
+  if (url === 'whoami') return { ok: true, status: 200, json: async () => ({ scope: 'owner' }) };
+  if (url === 'auth/state') return { ok: true, status: 200, json: async () => ({ scope: 'anonymous', readonly: true }) };
+  if (url === 'documents') return { ok: true, status: 200, json: async () => ({ documents: mockDocs }) };
+  if (url.startsWith('document?id=')) return { ok: true, status: 200, json: async () => ({ id: 'doc-1', title: '자료 1', text: '본문' }) };
+  if (url === 'graph') return { ok: true, status: 200, json: async () => ({ nodes: [], edges: [], types: [], rel_types: [] }) };
+  return { ok: true, status: 200, json: async () => ({}) };
+}
+
+global.window = window;
+global.document = document;
+global.fetch = fetch;
+global.DOMPurify = window.DOMPurify;
+global.marked = window.marked;
+global.vis = window.vis;
+global.localStorage = window.localStorage;
+global.location = window.location;
+global.requestAnimationFrame = window.requestAnimationFrame;
+global.getComputedStyle = window.getComputedStyle = () => ({ getPropertyValue: () => '' });
+
+const code = fs.readFileSync(process.argv[2], 'utf8');
+eval(code);
+
+setTimeout(() => {
+  // 1. Initial state: documents are rendered in doclist
+  const initialHasDocs = document.getElementById('doclist').innerHTML.includes('자료 1');
+
+  // 2. Click search tab (focusMobileSearch)
+  focusMobileSearch();
+  const searchStatePrompt = document.getElementById('doclist').innerHTML.includes('검색어를 입력하세요');
+  const searchDocSearchActive = window.claireDebug.docSearchActive;
+
+  // 3. User types in search input
+  document.getElementById('docq').value = '자료';
+  renderDocs('자료');
+
+  // 4. User clicks docs tab (revealWorkspace('docs'))
+  revealWorkspace('docs');
+  const returnHasDocs = document.getElementById('doclist').innerHTML.includes('자료 1');
+  const returnDocSearchActive = window.claireDebug.docSearchActive;
+  const returnDocqEmpty = document.getElementById('docq').value === '';
+
+  const results = {
+    initialHasDocs,
+    searchStatePrompt,
+    searchDocSearchActive,
+    returnHasDocs,
+    returnDocSearchActive,
+    returnDocqEmpty
+  };
+  console.log("MOBILE_SEARCH_RETURN_RESULT:" + JSON.stringify(results));
+  process.exit(0);
+}, 150);
+"""
+
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as f_script:
+        f_script.write(main_script)
+        script_file = f_script.name
+
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as f_runner:
+        f_runner.write(runner_code)
+        runner_file = f_runner.name
+
+    try:
+        proc = subprocess.run(
+            ["node", runner_file, script_file],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        assert proc.returncode == 0, f"Mobile search return runner crashed:\nSTDOUT:\n{proc.stdout}\nSTDERR:\n{proc.stderr}"
+        match = re.search(r"MOBILE_SEARCH_RETURN_RESULT:(.*)", proc.stdout)
+        assert match is not None, f"Output did not contain MOBILE_SEARCH_RETURN_RESULT:\n{proc.stdout}"
+        data = json.loads(match.group(1))
+        assert data["initialHasDocs"] is True
+        assert data["searchStatePrompt"] is True
+        assert data["searchDocSearchActive"] is True
+        assert data["returnHasDocs"] is True
+        assert data["returnDocSearchActive"] is False
+        assert data["returnDocqEmpty"] is True
+    finally:
+        Path(script_file).unlink(missing_ok=True)
+        Path(runner_file).unlink(missing_ok=True)
+
+
+
 
 

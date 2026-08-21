@@ -236,3 +236,37 @@ test('tablet and desktop layouts do not squeeze the graph into three fixed colum
   await expect(page.locator('#netwrap')).toBeVisible();
   await expect(page.locator('#detailpane')).toBeVisible();
 });
+
+test('mobile bottom bar returns to doc list when switching from search tab to docs tab', async ({ page }) => {
+  const pageErrors = [];
+  page.on('pageerror', error => pageErrors.push(error.message));
+  await page.setViewportSize({ width: 390, height: 844 });
+  await waitForClaire(page);
+  await expectNoHorizontalOverflow(page);
+
+  // 1. Initially on docs tab with document list rendered
+  await expect(page.locator('#tab-docs')).toHaveAttribute('aria-selected', 'true');
+  const docItems = page.locator('#doclist .docitem');
+  await expect(docItems.first()).toBeVisible();
+  const initialDocCount = await docItems.count();
+  expect(initialDocCount).toBeGreaterThan(0);
+
+  // 2. Click search tab (검색 단추)
+  await page.locator('#tab-search').click();
+  await expect(page.locator('#docq')).toBeFocused();
+  await expect(page.locator('#doclist')).toContainText('검색어를 입력하세요');
+  await expect(page.locator('#doclist .docitem')).toHaveCount(0);
+
+  // 3. User types a query
+  await page.locator('#docq').fill('테스트');
+
+  // 4. Click docs tab (자료 단추) to return
+  await page.locator('#tab-docs').click();
+  await expect(page.locator('#tab-docs')).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator('#docq')).toHaveValue('');
+  await expect(page.locator('#doclist .docitem')).toHaveCount(initialDocCount);
+  await expect(page.locator('#doclist .docitem').first()).toBeVisible();
+
+  expect(pageErrors).toEqual([]);
+});
+

@@ -1553,9 +1553,11 @@ function revealWorkspace(name, focusTab=false){
   if(!paneNames.includes(name)) return;
   if(activePane==='graph' && !netBusy) rememberGraphCamera();
   activePane=name;
-  if(name==='docs' && !docSearchActive){
+  if(name==='docs'){
+    docSearchActive=false;
     const q=document.getElementById('docq');
-    if(q && q.value){ q.value=''; renderDocs(''); }
+    if(q && q.value){ q.value=''; }
+    renderDocs('');
   }
   detailOpen=false;
   drawerOpen=false;
@@ -1610,8 +1612,8 @@ function openGraphFromDrawer(){
   revealWorkspace('graph');
 }
 function focusMobileSearch(){
-  docSearchActive=true;
   revealWorkspace('docs');
+  docSearchActive=true;
   const q=document.getElementById('docq');
   if(q){ q.value=''; renderDocs(''); q.focus(); }
 }
@@ -3026,6 +3028,7 @@ window.claireDebug = {
   get drawerOpen(){ return drawerOpen; },
   get toolsOpen(){ return drawerOpen || detailOpen; },
   get readerOpen(){ return document.getElementById('reader').classList.contains('open'); },
+  get docSearchActive(){ return docSearchActive; },
   get stabilized(){ return graphStabilized; },
   get sourceBaseUrl(){ return '__SOURCE_BASE_URL__'; },
   get githubRepository(){ return '__GITHUB_REPOSITORY__'; },
