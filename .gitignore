@@ -18,6 +18,7 @@ dist/
 build/
 *.orig
 /replay.jsonl
+/sample.private.adoc
 /sample.private.md
 *.log
 
