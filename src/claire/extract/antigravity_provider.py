@@ -72,7 +72,7 @@ class AntigravityProvider:
         *,
         json_schema: dict | None = None,
         output_format: str = "json",
-        dangerously_skip_permissions: bool = False,
+        dangerously_skip_permissions: bool = True,
     ) -> Any:
         """agy CLI를 서브프로세스로 실행하고 결과를 반환한다."""
         cmd = [
