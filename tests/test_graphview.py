@@ -185,22 +185,20 @@ def test_graph_html_self_contained_markers():
     assert "clearTimeout(hoverTimer); hoverTimer=null;" in GRAPH_HTML
     assert "window.addEventListener('touchstart'" in GRAPH_HTML
     assert "window.addEventListener('pointerdown'" in GRAPH_HTML
-    # aside#detailpane 활성화 시 메뉴 아이콘 모드 전환 및 컴팩트 레일
-    assert "--docs-compact-width" in GRAPH_HTML and "compact-rail" in GRAPH_HTML
-    assert "id=\"docstogglebtn\"" in GRAPH_HTML and "toggleDocsCompact" in GRAPH_HTML
-    assert "compact-icons" in GRAPH_HTML and "btn-label" in GRAPH_HTML
-    assert "docs-compact" in GRAPH_HTML
+    # aside#detailpane(우측 메뉴) 활성화 시 아이콘 모드 전환 및 컴팩트 레일
+    assert "--detail-compact-width" in GRAPH_HTML and "detail-compact" in GRAPH_HTML
+    assert "id=\"detailtogglebtn\"" in GRAPH_HTML and "toggleDetailCompact" in GRAPH_HTML
+    assert "compact-rail" in GRAPH_HTML and "btn-label" in GRAPH_HTML
 
 
-def test_compact_menu_icon_mode_markers():
-    """aside#detailpane 활성화 시 좌측 문서 패널 및 도구 메뉴의 아이콘 모드 지원 검증."""
-    assert "--docs-width:280px; --docs-compact-width:56px; --detail-width:360px;" in GRAPH_HTML
-    assert "body.docs-compact #docs" in GRAPH_HTML
-    assert "#docs.compact-rail" in GRAPH_HTML
-    assert "body.docs-compact #moremenu .btn-label" in GRAPH_HTML
-    assert "toggleDocsCompact" in GRAPH_HTML
-    assert "claireDocsCompact" in GRAPH_HTML
-    assert "doc-icon-tile" in GRAPH_HTML
+def test_right_menu_compact_icon_mode_markers():
+    """aside#detailpane(우측 메뉴) 활성화 시 메뉴 아이콘 모드 지원 검증."""
+    assert "--detail-width:360px; --detail-compact-width:56px;" in GRAPH_HTML
+    assert "body.detail-compact #detailpane" in GRAPH_HTML
+    assert "#detailpane.compact-rail" in GRAPH_HTML
+    assert "body.detail-compact #detailpane #moremenu .btn-label" in GRAPH_HTML
+    assert "toggleDetailCompact" in GRAPH_HTML
+    assert "claireDetailCompact" in GRAPH_HTML
 
 
 def test_browser_dependencies_are_pinned_with_sri_and_markdown_fails_closed():

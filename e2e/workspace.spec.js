@@ -272,56 +272,48 @@ test('mobile bottom bar returns to doc list when switching from search tab to do
   expect(pageErrors).toEqual([]);
 });
 
-test('compact menu icon mode toggles and preserves accessibility and interaction', async ({ page }) => {
+test('right menu compact icon mode toggles and reduces width on desktop', async ({ page }) => {
   const pageErrors = [];
   page.on('pageerror', error => pageErrors.push(error.message));
   await page.setViewportSize({ width: 1400, height: 900 });
   await waitForClaire(page);
   await expectNoHorizontalOverflow(page);
 
-  // 1. Detailpane is visible and aria-hidden is false on desktop
+  // 1. Right detailpane is visible and aria-hidden is false on desktop
   const detailPane = page.locator('#detailpane');
   await expect(detailPane).toBeVisible();
   await expect(detailPane).toHaveAttribute('aria-hidden', 'false');
 
-  // 2. Toggle button exists in doc header
-  const toggleBtn = page.locator('#docstogglebtn');
+  // 2. Initial expanded state: detailpane width is >= 300px
+  const initialBox = await detailPane.boundingBox();
+  expect(initialBox.width).toBeGreaterThanOrEqual(300);
+
+  // 3. Toggle button exists in detailhead
+  const toggleBtn = page.locator('#detailtogglebtn');
   await expect(toggleBtn).toBeVisible();
 
-  // 3. Compact mode active when detailpane is open: docs is compact rail
-  const docs = page.locator('#docs');
-  await expect(docs).toBeVisible();
-  const docsBox = await docs.boundingBox();
-  expect(docsBox.width).toBeLessThanOrEqual(65);
-
-  // 4. In compact mode, doc items show icon tile and preserve tooltips/aria-labels
-  const firstDoc = page.locator('.docitem').first();
-  await expect(firstDoc).toBeVisible();
-  await expect(firstDoc).toHaveAttribute('title');
-  await expect(firstDoc).toHaveAttribute('aria-label');
-
-  // 5. Clicking toggle button expands to full width
+  // 4. Click toggle button to switch to compact icon rail mode
   await toggleBtn.click();
   await expect.poll(
-    () => page.evaluate(() => window.claireDebug.docsCompact),
-  ).toBe(false);
-  const expandedBox = await docs.boundingBox();
-  expect(expandedBox.width).toBeGreaterThanOrEqual(240);
-  await expect(page.locator('#docq')).toBeVisible();
-
-  // 6. Clicking toggle button again restores compact mode
-  await toggleBtn.click();
-  await expect.poll(
-    () => page.evaluate(() => window.claireDebug.docsCompact),
+    () => page.evaluate(() => window.claireDebug.detailCompact),
   ).toBe(true);
-  const recompactBox = await docs.boundingBox();
-  expect(recompactBox.width).toBeLessThanOrEqual(65);
 
-  // 7. Clicking doc item in compact mode selects document
-  await firstDoc.click();
+  // 5. In compact mode, width is reduced (<= 65px) and buttons remain accessible
+  const compactBox = await detailPane.boundingBox();
+  expect(compactBox.width).toBeLessThanOrEqual(65);
+
+  const pathBtn = page.locator('#pathbtn');
+  await expect(pathBtn).toBeVisible();
+  await expect(pathBtn).toHaveAttribute('aria-label');
+
+  // 6. Click toggle button again to restore full width
+  await toggleBtn.click();
   await expect.poll(
-    () => page.evaluate(() => window.claireDebug.activeDoc),
-  ).not.toBeNull();
+    () => page.evaluate(() => window.claireDebug.detailCompact),
+  ).toBe(false);
+
+  const restoredBox = await detailPane.boundingBox();
+  expect(restoredBox.width).toBeGreaterThanOrEqual(300);
 
   expect(pageErrors).toEqual([]);
 });

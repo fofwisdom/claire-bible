@@ -393,7 +393,7 @@ GRAPH_HTML = """<!doctype html>
     --card-bg:#ffffff; --detail-bg:#ffffff; --mark-bg:#fff8c5; --mark-fg:#633c01;
     --btn-bg:#1f883d; --btn-fg:#ffffff; --sec-bg:#eaeef2; --sec-fg:#24292f;
     --rel:#9a6700; --nodebtn-hover:#dde3ea; --shadow:rgba(31,35,40,.28);
-    --docs-width:280px; --docs-compact-width:56px; --detail-width:360px;
+    --detail-width:360px; --detail-compact-width:56px;
   }
   [data-theme="dark"]{
     --bg:#0e1116; --fg:#d7dbe0; --muted:#8b949e; --bar-bg:#161b22; --border:#2a2f37;
@@ -456,10 +456,10 @@ GRAPH_HTML = """<!doctype html>
   #drawerbackdrop{position:fixed;inset:0;z-index:35;background:rgba(0,0,0,.45);opacity:0;pointer-events:none;transition:opacity .2s ease}
   body.drawer-open #drawerbackdrop,
   body.detail-open #drawerbackdrop{opacity:1;pointer-events:auto}
-  #wrap{position:relative;display:grid;grid-template-columns:var(--docs-width,280px) minmax(420px,1fr) var(--detail-width,360px);
+  #wrap{position:relative;display:grid;grid-template-columns:280px minmax(420px,1fr) var(--detail-width,360px);
     flex:1;min-height:0;overflow:hidden;transition:grid-template-columns .2s ease}
-  body.docs-compact #wrap,
-  #wrap.docs-compact{grid-template-columns:var(--docs-compact-width,56px) minmax(420px,1fr) var(--detail-width,360px)}
+  body.detail-compact #wrap,
+  #wrap.detail-compact{grid-template-columns:280px minmax(420px,1fr) var(--detail-compact-width,56px)}
   /* #netwrap 이 위치 기준자, #net 은 vis.Network 컨테이너(vis 가 init 시 innerHTML 을
      지우므로 — 확인됨 — #zoomctl 은 #net *밖*, 형제로 둬야 살아남는다). */
   .workspace-pane{min-width:0;min-height:0}
@@ -478,12 +478,8 @@ GRAPH_HTML = """<!doctype html>
     transform:translateX(-50%);padding:7px 11px;border:1px solid var(--accent);
     border-radius:18px;background:var(--card-bg);box-shadow:0 4px 16px var(--shadow);font-size:12px}
   #graphnotice.on{display:block}
-  #docs{width:100%;display:flex;flex-direction:column;background:var(--docs-bg);border-right:1px solid var(--border);font-size:13px;overflow:hidden}
+  #docs{width:280px;display:flex;flex-direction:column;background:var(--docs-bg);border-right:1px solid var(--border);font-size:13px}
   #docs .dhead{padding:8px 10px;border-bottom:1px solid var(--border);flex-shrink:0}
-  .dhead-row{display:flex;align-items:center;gap:6px;width:100%}
-  #docstogglebtn{background:var(--sec-bg);color:var(--sec-fg);border:1px solid var(--border);border-radius:4px;
-    padding:3px 6px;font-size:13px;line-height:1;cursor:pointer;flex-shrink:0;transition:transform .2s ease}
-  #docstogglebtn:hover{background:var(--hover);border-color:var(--accent)}
   /* 즐겨찾기(고정) 섹션 */
   #pinnedhead{padding:5px 10px;font-size:11.5px;color:var(--muted);background:rgba(227,179,65,.18);flex-shrink:0}
   #pinnedlist{max-height:32%;overflow-y:auto;flex-shrink:0;border-bottom:2px solid var(--border);
@@ -500,8 +496,6 @@ GRAPH_HTML = """<!doctype html>
   .docitem.unread{border-left:3px solid var(--accent2)} .docitem.unread b{font-weight:700}
   .docitem .ubadge{color:var(--accent2);font-size:10px;margin-right:4px;vertical-align:middle}
   .docitem .wbadge{font-size:11px;margin-right:2px}
-  .docitem .doc-icon-tile{display:none}
-  .docitem .doc-icon-wrap{display:inline}
   .docitem p{margin:.25em 0 0;color:var(--muted);font-size:12px;line-height:1.45;overflow:hidden;
     display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical}
   #docs.lc0 .docitem p{display:none}
@@ -515,40 +509,6 @@ GRAPH_HTML = """<!doctype html>
     text-align:center;border-top:1px solid var(--border);background:var(--sec-bg)}
   #showhidden:hover{background:var(--hover)}
 
-  /* 아이콘 전용 컴팩트 레일 모드 (aside#detailpane aria-hidden="false" 연동 또는 수동 토글) */
-  body.docs-compact #docs .dhead,
-  #docs.compact-rail .dhead{padding:8px 6px;display:flex;flex-direction:column;align-items:center;gap:4px}
-  body.docs-compact #docs #docq,
-  #docs.compact-rail #docq{display:none}
-  body.docs-compact #docs #desclines,
-  #docs.compact-rail #desclines{display:none}
-  body.docs-compact #docs #docstogglebtn,
-  #docs.compact-rail #docstogglebtn{width:38px;height:34px;transform:rotate(180deg)}
-  body.docs-compact #docs #pinnedhead,
-  #docs.compact-rail #pinnedhead{font-size:0;text-align:center;padding:6px 0}
-  body.docs-compact #docs #pinnedhead::before,
-  #docs.compact-rail #pinnedhead::before{content:'⭐';font-size:13px}
-  body.docs-compact #docs .docitem,
-  #docs.compact-rail .docitem{padding:8px 4px;text-align:center;min-height:46px;display:flex;align-items:center;justify-content:center}
-  body.docs-compact #docs .docitem b,
-  #docs.compact-rail .docitem b{display:none}
-  body.docs-compact #docs .docitem .st,
-  #docs.compact-rail .docitem .st{display:none}
-  body.docs-compact #docs .docitem p,
-  #docs.compact-rail .docitem p{display:none}
-  body.docs-compact #docs .docitem .docactions,
-  #docs.compact-rail .docitem .docactions{display:none}
-  body.docs-compact #docs .docitem:hover .docactions,
-  #docs.compact-rail .docitem:hover .docactions{display:none}
-  body.docs-compact #docs .docitem .doc-icon-tile,
-  #docs.compact-rail .docitem .doc-icon-tile{display:inline-flex;align-items:center;justify-content:center;font-size:16px;line-height:1}
-  body.docs-compact #docs .docitem .doc-icon-wrap,
-  #docs.compact-rail .docitem .doc-icon-wrap{display:none}
-  body.docs-compact #docs .docitem.active,
-  #docs.compact-rail .docitem.active{border-left:0;border-bottom:3px solid var(--accent2);background:var(--active)}
-  body.docs-compact #docs .dday,
-  #docs.compact-rail .dday{font-size:10px;padding:3px 2px;text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-
   body:not([data-auth-scope="owner"]) #synthbtn,
   body:not([data-auth-scope="owner"]) #synthchips,
   body:not([data-auth-scope="owner"]) #addbtn,
@@ -558,10 +518,14 @@ GRAPH_HTML = """<!doctype html>
 
   /* 우측 사이드 패널 (#detailpane): 데스크톱은 3열 고정, 태블릿/모바일은 오른쪽 슬라이드 드로어 */
   #detailpane{width:var(--detail-width,360px);display:flex;flex-direction:column;background:var(--panel-bg);
-    border-left:1px solid var(--border);min-height:0;overflow:hidden}
-  #detailhead{display:none;align-items:center;justify-content:space-between;min-height:48px;
+    border-left:1px solid var(--border);min-height:0;overflow:hidden;transition:width .2s ease}
+  #detailhead{display:flex;align-items:center;justify-content:space-between;min-height:48px;
     padding:4px 12px;border-bottom:1px solid var(--border);background:var(--bar-bg);flex:none}
-  #detailclose{min-height:36px;min-width:36px;background:var(--sec-bg);color:var(--sec-fg);border:1px solid var(--border);border-radius:6px;cursor:pointer;font-size:15px}
+  #detailhead .detailhead-tools{display:flex;align-items:center;gap:4px}
+  #detailtogglebtn{min-height:34px;min-width:34px;background:var(--sec-bg);color:var(--sec-fg);border:1px solid var(--border);
+    border-radius:6px;cursor:pointer;font-size:14px;display:inline-flex;align-items:center;justify-content:center;transition:transform .2s ease}
+  #detailtogglebtn:hover{background:var(--hover);border-color:var(--accent)}
+  #detailclose{min-height:36px;min-width:36px;background:var(--sec-bg);color:var(--sec-fg);border:1px solid var(--border);border-radius:6px;cursor:pointer;font-size:15px;display:none}
   #drawerscroll{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:12px 14px;font-size:13px;line-height:1.5}
   #drawer-graph-action{display:none;margin-bottom:10px}
   #opengraphbtn{width:100%;min-height:42px;font-size:14px;font-weight:600;background:var(--accent);color:#fff;border:0;border-radius:7px;cursor:pointer}
@@ -570,11 +534,6 @@ GRAPH_HTML = """<!doctype html>
   #moremenu .action-btn-row{display:flex;flex-wrap:wrap;gap:4px;align-items:center}
   #moremenu .filter-row{display:flex;align-items:center;gap:6px;font-size:12px}
   #moremenu .sys-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:11px;color:var(--muted);margin-top:2px}
-  /* 도구 메뉴 아이콘 컴팩트 모드 */
-  body.docs-compact #moremenu .btn-label,
-  #moremenu.compact-icons .btn-label{display:none}
-  body.docs-compact #moremenu .action-btn-row button,
-  #moremenu.compact-icons .action-btn-row button{padding:4px 8px;font-size:14px}
   #stat{color:var(--muted)}
   #authstate{padding:2px 7px;border:1px solid var(--border);border-radius:4px}
   #synthchips{display:flex;gap:4px;overflow:hidden;max-width:100%;flex-wrap:wrap}
@@ -587,6 +546,40 @@ GRAPH_HTML = """<!doctype html>
     border:1px solid var(--border);color:var(--fg);font-size:11px}
   #legendbar .reltog.off{opacity:.4;text-decoration:line-through}
   #detailpane button.on{outline:2px solid var(--accent2);outline-offset:1px}
+
+  /* 우측 메뉴 아이콘 전용 컴팩트 레일 모드 (aside#detailpane aria-hidden="false" 상태에서 축소 전환) */
+  body.detail-compact #detailpane,
+  #detailpane.compact-rail{width:var(--detail-compact-width,56px)}
+  body.detail-compact #detailpane #detailhead,
+  #detailpane.compact-rail #detailhead{padding:4px 6px;justify-content:center}
+  body.detail-compact #detailpane #detailhead strong,
+  #detailpane.compact-rail #detailhead strong{display:none}
+  body.detail-compact #detailpane #detailtogglebtn,
+  #detailpane.compact-rail #detailtogglebtn{transform:rotate(180deg)}
+  body.detail-compact #detailpane #detailclose,
+  #detailpane.compact-rail #detailclose{display:none}
+  body.detail-compact #detailpane #drawerscroll,
+  #detailpane.compact-rail #drawerscroll{padding:10px 4px;overflow-x:hidden}
+  body.detail-compact #detailpane #drawer-graph-action,
+  #detailpane.compact-rail #drawer-graph-action{display:none}
+  body.detail-compact #detailpane #moremenu,
+  #detailpane.compact-rail #moremenu{border-bottom:0;padding-bottom:0;margin-bottom:0;align-items:center}
+  body.detail-compact #detailpane #moremenu .tool-row,
+  #detailpane.compact-rail #moremenu .tool-row{display:none}
+  body.detail-compact #detailpane #moremenu .filter-row,
+  #detailpane.compact-rail #moremenu .filter-row{display:none}
+  body.detail-compact #detailpane #moremenu .sys-row,
+  #detailpane.compact-rail #moremenu .sys-row{display:none}
+  body.detail-compact #detailpane #moremenu .action-btn-row,
+  #detailpane.compact-rail #moremenu .action-btn-row{flex-direction:column;align-items:center;gap:8px;width:100%}
+  body.detail-compact #detailpane #moremenu .action-btn-row button,
+  #detailpane.compact-rail #moremenu .action-btn-row button{width:42px;height:42px;padding:0;display:inline-flex;align-items:center;justify-content:center;font-size:18px}
+  body.detail-compact #detailpane #moremenu .btn-label,
+  #detailpane.compact-rail #moremenu .btn-label{display:none}
+  body.detail-compact #detailpane #moremenu .btn-icon,
+  #detailpane.compact-rail #moremenu .btn-icon{font-size:18px;line-height:1}
+  body.detail-compact #detailpane #panel,
+  #detailpane.compact-rail #panel{display:none}
 
   #panel{font-size:13px;line-height:1.5}
   #panel h2{margin:.2em 0;font-size:18px} #panel h2 small{color:var(--muted);font-size:12px;font-weight:normal}
@@ -699,10 +692,8 @@ GRAPH_HTML = """<!doctype html>
 
   /* 데스크톱/노트북 (중간 폭): 1100px 이하에서는 우측 패널을 drawer 로 (2단 보기 지원) */
   @media (max-width:1100px){
-    #wrap{grid-template-columns:var(--docs-width,280px) minmax(0,1fr);
+    #wrap{grid-template-columns:280px minmax(0,1fr);
       padding-bottom:calc(54px + env(safe-area-inset-bottom))}
-    body.docs-compact #wrap,
-    #wrap.docs-compact{grid-template-columns:var(--docs-compact-width,56px) minmax(0,1fr)}
     #morebtn{display:none!important}
 
     /* 하단 내비게이션 바: 2단 보기(1100px 이하) 및 모바일 최하단에 고정 (z-index: 50) */
@@ -727,6 +718,8 @@ GRAPH_HTML = """<!doctype html>
     body.drawer-open #detailpane{transform:translateX(0);visibility:visible;pointer-events:auto;
       transition:transform .2s ease}
     #detailhead{display:flex;border-radius:0}
+    #detailclose{display:inline-flex!important}
+    #detailtogglebtn{display:none!important}
   }
 
   /* 모바일 화면 (720px 이하):
@@ -742,9 +735,6 @@ GRAPH_HTML = """<!doctype html>
     #viewoptions #themebtn{min-width:38px;min-height:38px;padding:4px 8px}
 
     #wrap{display:grid;grid-template-columns:1fr;grid-template-rows:1fr;overflow:hidden}
-    body.docs-compact #wrap,
-    #wrap.docs-compact{grid-template-columns:1fr}
-    #docstogglebtn{display:none!important}
     .workspace-pane,#centerwrap{grid-area:1/1;visibility:hidden!important;pointer-events:none}
     body[data-active-pane="docs"] #docs{visibility:visible!important;pointer-events:auto}
     body[data-active-pane="graph"] #centerwrap{visibility:visible!important;pointer-events:auto}
@@ -804,7 +794,8 @@ GRAPH_HTML = """<!doctype html>
     #showhidden{font-size:13px;padding:10px 12px}
   }
   @media (prefers-reduced-motion:reduce){
-    #wrap,#docs,#detailpane,#docstogglebtn{transition:none!important}
+    *{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important}
+    #wrap,#detailpane,#detailtogglebtn{transition:none!important}
   }
 </style></head>
 <body class="ro" data-auth-scope="unknown" data-active-pane="docs">
@@ -832,17 +823,12 @@ GRAPH_HTML = """<!doctype html>
 <div id="drawerbackdrop" onclick="closeDrawer()" aria-hidden="true"></div>
 <div id="wrap">
   <aside id="docs" class="workspace-pane" role="tabpanel" aria-labelledby="tab-docs" tabindex="0">
-    <div class="dhead">
-      <div class="dhead-row">
-        <label class="sr-only" for="docq">자료 검색</label>
-        <input id="docq" placeholder="문서 검색(제목·요약)" oninput="docSearchActive=true;renderDocs(this.value)" style="flex:1;min-width:0"/>
-        <button id="docstogglebtn" type="button" onclick="toggleDocsCompact()" title="목록 축소/확대" aria-label="목록 축소/확대">‹</button>
-      </div>
-      <select id="desclines" onchange="setDescLines(this.value)" title="목록 설명 줄수" style="width:100%;margin-top:5px">
-        <option value="0">제목만 표시</option>
-        <option value="3">요약 표시</option>
-      </select>
-    </div>
+    <div class="dhead"><label class="sr-only" for="docq">자료 검색</label>
+      <input id="docq" placeholder="문서 검색(제목·요약)" oninput="docSearchActive=true;renderDocs(this.value)" style="width:92%"/>
+    <select id="desclines" onchange="setDescLines(this.value)" title="목록 설명 줄수" style="width:92%;margin-top:5px">
+      <option value="0">제목만 표시</option>
+      <option value="3">요약 표시</option>
+    </select></div>
     <div id="pinnedhead" style="display:none">⭐ 즐겨찾기</div>
     <div id="pinnedlist"></div>
     <div id="doclist"><p class="hint" style="padding:10px">문서 로딩…</p></div>
@@ -911,7 +897,10 @@ GRAPH_HTML = """<!doctype html>
   <aside id="detailpane" role="region" aria-label="문맥 상세" tabindex="-1">
     <div id="detailhead">
       <strong>메뉴 &amp; 상세</strong>
-      <button id="detailclose" onclick="closeDrawer()" aria-label="상세 닫기">✕</button>
+      <div class="detailhead-tools">
+        <button id="detailtogglebtn" type="button" onclick="toggleDetailCompact()" title="우측 메뉴 축소/펼치기" aria-label="우측 메뉴 축소/펼치기">›</button>
+        <button id="detailclose" onclick="closeDrawer()" aria-label="상세 닫기">✕</button>
+      </div>
     </div>
     <div id="drawerscroll">
       <div id="drawer-graph-action">
@@ -990,22 +979,19 @@ let relFilter = null;
 let pathMode = false, pathPicks = [], pathNodes = null, pathEdges = null;
 let edgeLabelsByZoom = false, selectedEdgeIds = new Set();
 let graphStabilized = false;
-let docsCompact = false, docsCompactAuto = true;
+let detailCompact = false;
 try{
-  const savedDocsCompact = localStorage.getItem('claireDocsCompact');
-  if(savedDocsCompact === 'true'){ docsCompact = true; docsCompactAuto = false; }
-  else if(savedDocsCompact === 'false'){ docsCompact = false; docsCompactAuto = false; }
+  const savedDetailCompact = localStorage.getItem('claireDetailCompact');
+  if(savedDetailCompact === 'true') detailCompact = true;
 }catch(_){}
 
-function toggleDocsCompact(force){
+function toggleDetailCompact(force){
   if(typeof force === 'boolean'){
-    docsCompact = force;
+    detailCompact = force;
   }else{
-    const cur = document.body.classList.contains('docs-compact');
-    docsCompact = !cur;
+    detailCompact = !document.body.classList.contains('detail-compact');
   }
-  docsCompactAuto = false;
-  try{ localStorage.setItem('claireDocsCompact', docsCompact ? 'true' : 'false'); }catch(_){}
+  try{ localStorage.setItem('claireDetailCompact', detailCompact ? 'true' : 'false'); }catch(_){}
   syncWorkspaceLayout();
 }
 
@@ -1619,21 +1605,18 @@ function syncWorkspaceLayout(){
     }
   }
 
-  // aside#detailpane의 aria-hidden이 false일 때 (또는 docsCompact 설정 시)
-  // 좌측 메뉴 및 도구 메뉴를 아이콘만 보여주는 컴팩트 모드로 전환
-  const shouldCompact = !mobileMQ.matches && (docsCompact || (docsCompactAuto && detailVisible));
-  document.body.classList.toggle('docs-compact', shouldCompact);
+  // aside#detailpane의 aria-hidden이 false일 때 (또는 detailCompact 설정 시)
+  // 우측 메뉴를 아이콘만 보여주는 컴팩트 레일 모드로 전환
+  const isCompact = !mobileMQ.matches && detailVisible && detailCompact;
+  document.body.classList.toggle('detail-compact', isCompact);
   const wrapEl = document.getElementById('wrap');
-  if(wrapEl) wrapEl.classList.toggle('docs-compact', shouldCompact);
-  const docsEl = document.getElementById('docs');
-  if(docsEl) docsEl.classList.toggle('compact-rail', shouldCompact);
-  const mmEl = document.getElementById('moremenu');
-  if(mmEl) mmEl.classList.toggle('compact-icons', shouldCompact);
-  const toggleBtn = document.getElementById('docstogglebtn');
+  if(wrapEl) wrapEl.classList.toggle('detail-compact', isCompact);
+  if(dp) dp.classList.toggle('compact-rail', isCompact);
+  const toggleBtn = document.getElementById('detailtogglebtn');
   if(toggleBtn){
-    toggleBtn.setAttribute('aria-expanded', shouldCompact ? 'false' : 'true');
-    toggleBtn.title = shouldCompact ? '목록 펼치기' : '목록 축소(아이콘 모드)';
-    toggleBtn.setAttribute('aria-label', shouldCompact ? '목록 펼치기' : '목록 축소(아이콘 모드)');
+    toggleBtn.setAttribute('aria-expanded', isCompact ? 'false' : 'true');
+    toggleBtn.title = isCompact ? '우측 메뉴 펼치기' : '우측 메뉴 축소(아이콘 모드)';
+    toggleBtn.setAttribute('aria-label', isCompact ? '우측 메뉴 펼치기' : '우측 메뉴 축소(아이콘 모드)');
   }
 
   if(activePane==='graph'){
@@ -2488,15 +2471,11 @@ function docItemHtml(dc){
     ? '<button class="actbtn'+(pinned?' pinned':'')+'" title="'+(pinned?'즐겨찾기 해제':'즐겨찾기에 추가')+
       '" onclick="event.stopPropagation();togglePin(\\''+dc.id+'\\','+(!pinned)+')">'+(pinned?'⭐':'☆')+'</button>'
     : '';
-  const itemIcon = pinned ? '⭐' : (watching ? '🔄' : (unread ? '●' : '📄'));
   return '<div class="docitem'+(dc.id===activeDoc?' active':'')+(unread?' unread':'')+(hid?' hidden-doc':'')+
-    '" onclick="selectDoc(\\''+dc.id+'\\')" title="'+esc(dc.title)+(dc.summary?' &#10;'+esc(dc.summary.slice(0,110)):'')+'" aria-label="'+esc(dc.title)+'">'+
+    '" onclick="selectDoc(\\''+dc.id+'\\')">'+
     (pinBtn ? '<div class=docactions>'+pinBtn+'</div>' : '')+
-    '<span class="doc-icon-tile" aria-hidden="true">'+itemIcon+'</span>'+
-    '<span class="doc-icon-wrap">'+
     (watching?'<span class=wbadge title="주기 갱신 추적(watch)">🔄</span>':'')+
     (unread?'<span class=ubadge title="아직 안 본 문서">●</span>':'')+
-    '</span>'+
     '<b>'+esc(dc.title)+'</b><span class=st>'+esc(dc.source_type||'')+'</span>'+
     (dc.summary?'<p>'+esc(dc.summary.slice(0,110))+'</p>':'')+'</div>';
 }
@@ -3106,8 +3085,8 @@ window.claireDebug = {
   get readerOpen(){ return document.getElementById('reader').classList.contains('open'); },
   get docSearchActive(){ return docSearchActive; },
   get stabilized(){ return graphStabilized; },
-  get docsCompact(){ return document.body.classList.contains('docs-compact'); },
-  toggleDocsCompact: toggleDocsCompact,
+  get detailCompact(){ return document.body.classList.contains('detail-compact'); },
+  toggleDetailCompact: toggleDetailCompact,
   get sourceBaseUrl(){ return '__SOURCE_BASE_URL__'; },
   get githubRepository(){ return '__GITHUB_REPOSITORY__'; },
 };
