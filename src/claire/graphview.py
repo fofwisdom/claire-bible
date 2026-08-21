@@ -529,7 +529,9 @@ GRAPH_HTML = """<!doctype html>
     border-radius:6px;cursor:pointer;font-size:14px;display:inline-flex;align-items:center;justify-content:center;transition:transform .2s ease}
   #detailtogglebtn:hover{background:var(--hover);border-color:var(--accent)}
   #detailclose{min-height:36px;min-width:36px;background:var(--sec-bg);color:var(--sec-fg);border:1px solid var(--border);border-radius:6px;cursor:pointer;font-size:15px;display:none}
-  #drawerscroll{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:12px 14px;font-size:13px;line-height:1.5}
+  #drawerscroll{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:12px 14px;font-size:13px;line-height:1.5;display:flex;flex-direction:column}
+  #drawerfooter{margin-top:auto;padding-top:14px;display:flex;align-items:center}
+  #repolink:hover{background:var(--hover);border-color:var(--accent)}
   #drawer-graph-action{display:none;margin-bottom:10px}
   #opengraphbtn{width:100%;min-height:42px;font-size:14px;font-weight:600;background:var(--accent);color:#fff;border:0;border-radius:7px;cursor:pointer}
   #moremenu{display:flex;flex-direction:column;gap:8px;padding-bottom:12px;margin-bottom:10px;border-bottom:1px solid var(--border)}
@@ -582,6 +584,8 @@ GRAPH_HTML = """<!doctype html>
   #detailpane.compact-rail #moremenu .btn-icon{font-size:18px;line-height:1}
   body.detail-compact #detailpane #panel,
   #detailpane.compact-rail #panel{display:none}
+  body.detail-compact #detailpane #drawerfooter,
+  #detailpane.compact-rail #drawerfooter{display:none}
 
   #panel{font-size:13px;line-height:1.5}
   #panel h2{margin:.2em 0;font-size:18px} #panel h2 small{color:var(--muted);font-size:12px;font-weight:normal}
@@ -929,11 +933,13 @@ GRAPH_HTML = """<!doctype html>
           <label>연결 ≥ <b id="fmin">0</b> <input id="fslider" type="range" min="0" max="0" value="0" oninput="setDeg(this.value)"/></label>
         </div>
         <div class="sys-row">
-          <a id="repolink" class="sec" href="__SOURCE_BASE_URL__" target="_blank" rel="noopener noreferrer" title="소스 리포지토리 (__GITHUB_REPOSITORY__)" aria-label="GitHub 리포지토리" style="display:inline-flex;align-items:center;gap:4px;text-decoration:none;padding:3px 8px;border:1px solid var(--border);border-radius:4px;font-size:12px;color:var(--sec-fg);background:var(--sec-bg)"><span class="btn-icon">🐙</span> <span class="btn-label">GitHub</span></a>
           <span id="stat" role="status" aria-live="polite">로딩…</span>
         </div>
       </div>
       <div id="panel"></div>
+      <div id="drawerfooter">
+        <a id="repolink" class="sec" href="__SOURCE_BASE_URL__" target="_blank" rel="noopener noreferrer" title="소스 리포지토리 (__GITHUB_REPOSITORY__)" aria-label="GitHub 리포지토리" style="display:inline-flex;align-items:center;gap:4px;text-decoration:none;padding:3px 8px;border:1px solid var(--border);border-radius:4px;font-size:12px;color:var(--sec-fg);background:var(--sec-bg)"><span class="btn-icon">🐙</span> <span class="btn-label">GitHub</span></a>
+      </div>
     </div>
   </aside>
 </div>
