@@ -447,10 +447,15 @@ GRAPH_HTML = """<!doctype html>
   #barsearch{display:flex;align-items:center;gap:6px;width:100%}
   #barsearch input{flex:1;min-width:0}
   #viewoptions{display:flex;align-items:center;gap:6px}
+  #authstate{display:inline-flex;align-items:center;justify-content:center;height:28px;min-height:28px;padding:0 8px;
+    font-size:12px;color:var(--muted);background:var(--sec-bg);border:1px solid var(--border);
+    border-radius:4px;white-space:nowrap;user-select:none;box-sizing:border-box}
   #morebtn{display:none;background:var(--sec-bg);color:var(--sec-fg);border:1px solid var(--border);
     border-radius:6px;cursor:pointer;font-size:18px;line-height:1}
   #morebtn:hover{background:var(--hover)}
-  #themebtn{background:transparent;color:var(--fg);border:1px solid var(--border);padding:3px 8px;font-size:14px;border-radius:4px;cursor:pointer}
+  #themebtn{display:inline-flex;align-items:center;justify-content:center;height:28px;min-height:28px;
+    background:transparent;color:var(--fg);border:1px solid var(--border);padding:0 8px;font-size:14px;
+    border-radius:4px;cursor:pointer;box-sizing:border-box;transition:background .15s ease}
   #themebtn:hover{background:var(--hover)}
   #worktabs{display:none}
   #drawerbackdrop{display:none;position:fixed;inset:0;z-index:35;background:rgba(0,0,0,.45);opacity:0;pointer-events:none;transition:opacity .2s ease}
@@ -533,7 +538,6 @@ GRAPH_HTML = """<!doctype html>
   #moremenu .filter-row{display:flex;align-items:center;gap:6px;font-size:12px}
   #moremenu .sys-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:11px;color:var(--muted);margin-top:2px}
   #stat{color:var(--muted)}
-  #authstate{padding:2px 7px;border:1px solid var(--border);border-radius:4px}
   #synthchips{display:flex;gap:4px;overflow:hidden;max-width:100%;flex-wrap:wrap}
   #synthchips .chip{background:var(--chip-bg);border-radius:10px;padding:1px 7px;font-size:11px;cursor:pointer}
   #legendbar{display:flex;flex-wrap:wrap;gap:10px;padding:4px 12px;min-height:27px;
@@ -733,7 +737,8 @@ GRAPH_HTML = """<!doctype html>
     #bar .brand{font-size:14px}
     #morebtn{display:none!important}
     #viewoptions select{font-size:13px;padding:4px 6px}
-    #viewoptions #themebtn{min-width:38px;min-height:38px;padding:4px 8px}
+    #viewoptions #authstate{min-height:38px;height:38px;padding:0 8px;font-size:12px}
+    #viewoptions #themebtn{min-width:38px;min-height:38px;height:38px;padding:4px 8px}
 
     #wrap{display:grid;grid-template-columns:1fr;grid-template-rows:1fr;overflow:hidden}
     .workspace-pane,#centerwrap{grid-area:1/1;visibility:hidden!important;pointer-events:none}
@@ -801,6 +806,7 @@ GRAPH_HTML = """<!doctype html>
 <header id="bar">
   <span class="brand" role="button" tabindex="0" onclick="resetHome()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();resetHome();}" title="첫 화면으로 이동" aria-label="첫 화면으로 이동" style="display:inline-flex;align-items:center;gap:6px"><img src="/favicon.svg" width="20" height="20" alt="" aria-hidden="true" style="display:inline-block;vertical-align:middle;filter:drop-shadow(0 0 4px rgba(0,255,170,0.5))"/>Claire Bible</span>
   <div id="viewoptions">
+    <span id="authstate">⏳ 권한 확인 중</span>
     <button id="themebtn" title="라이트/다크 전환" aria-label="라이트/다크 전환" onclick="toggleTheme()">🌙</button>
     <button id="morebtn" class="hamburg-btn" aria-expanded="false" aria-controls="detailpane"
       aria-label="도구 더보기" title="도구 더보기" onclick="toggleDrawer()">☰</button>
@@ -924,7 +930,6 @@ GRAPH_HTML = """<!doctype html>
         </div>
         <div class="sys-row">
           <a id="repolink" class="sec" href="__SOURCE_BASE_URL__" target="_blank" rel="noopener noreferrer" title="소스 리포지토리 (__GITHUB_REPOSITORY__)" aria-label="GitHub 리포지토리" style="display:inline-flex;align-items:center;gap:4px;text-decoration:none;padding:3px 8px;border:1px solid var(--border);border-radius:4px;font-size:12px;color:var(--sec-fg);background:var(--sec-bg)"><span class="btn-icon">🐙</span> <span class="btn-label">GitHub</span></a>
-          <span id="authstate">⏳ 권한 확인 중</span>
           <span id="stat" role="status" aria-live="polite">로딩…</span>
         </div>
       </div>
