@@ -483,26 +483,26 @@ GRAPH_HTML = """<!doctype html>
   #pinnedlist{max-height:32%;overflow-y:auto;flex-shrink:0;border-bottom:2px solid var(--border);
     background:rgba(227,179,65,.10)}
   #doclist{flex:1;min-height:120px;overflow-y:auto}
-  .docitem{min-height:38px;padding:8px 38px 8px 10px;border-bottom:1px solid var(--border);cursor:pointer;position:relative;overflow:hidden}
-  .docitem:not(:has(.docactions)){padding-right:10px}
+  .docitem{min-height:38px;padding:8px 10px;border-bottom:1px solid var(--border);cursor:pointer;position:relative;overflow:hidden}
   .docitem:hover{background:var(--hover)}
   .docitem.active{background:var(--active);border-left:3px solid var(--accent2)}
   .docitem.hidden-doc{opacity:.55}
-  .docitem b{font-size:13.5px;line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;
+  .docitem .doctitle-line{display:flex;align-items:flex-start;gap:4px;line-height:1.35}
+  .docitem b{font-size:13.5px;line-height:1.35;flex:1;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;
     overflow:hidden;word-break:break-word}
-  .docitem .st{color:var(--muted);font-size:11px;margin-left:6px}
+  .docitem .st{color:var(--muted);font-size:11px;margin-left:4px;flex-shrink:0}
   .docitem.unread{border-left:3px solid var(--accent2)} .docitem.unread b{font-weight:700}
-  .docitem .ubadge{color:var(--accent2);font-size:10px;margin-right:4px;vertical-align:middle}
-  .docitem .wbadge{font-size:11px;margin-right:2px}
+  .docitem .ubadge{color:var(--accent2);font-size:10px;margin-right:2px;vertical-align:middle;flex-shrink:0}
+  .docitem .wbadge{font-size:11px;margin-right:2px;flex-shrink:0}
+  .docitem .docpin-btn{background:none;border:0;padding:0 2px 0 0;font-size:13px;cursor:pointer;line-height:1.2;opacity:.7;color:var(--fg);flex-shrink:0}
+  .docitem .docpin-btn:hover{opacity:1}
+  .docitem .docpin-btn.pinned{opacity:1;color:#e3b341}
+  .docitem .docpin-icon{font-size:13px;line-height:1.2;margin-right:2px;flex-shrink:0}
+  .docitem .docpin-icon.pinned{color:#e3b341}
   .docitem p{margin:.25em 0 0;color:var(--muted);font-size:12px;line-height:1.45;overflow:hidden;
     display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical}
   #docs.lc0 .docitem p{display:none}
   #docs.lc3 .docitem p,#docs.lc4 .docitem p{-webkit-line-clamp:3}
-  .docitem .docactions{position:absolute;top:7px;right:7px;display:flex;gap:3px}
-  .docitem .actbtn{background:var(--sec-bg);color:var(--sec-fg);
-    border:1px solid var(--border);border-radius:4px;padding:2px 6px;font-size:12px;cursor:pointer;opacity:.85}
-  .docitem .actbtn:hover{opacity:1;border-color:var(--accent)}
-  .docitem .actbtn.pinned{opacity:1;color:#e3b341}
   #showhidden{display:block;padding:8px 10px;font-size:12px;color:var(--fg);cursor:pointer;
     text-align:center;border-top:1px solid var(--border);background:var(--sec-bg)}
   #showhidden:hover{background:var(--hover)}
@@ -588,9 +588,10 @@ GRAPH_HTML = """<!doctype html>
   #panel .doc p.src{margin-top:.45em}
   #panel .docmeta{color:var(--muted);font-size:12px;margin:.1em 0 .6em}
   #panel .readbtn{background:var(--accent);color:#fff;border:0;border-radius:4px;padding:3px 10px;font-size:12.5px;cursor:pointer;margin:.2em 0}
-  #panel .hidetextbtn{background:none;border:0;color:var(--muted);font-size:11.5px;cursor:pointer;
-    padding:0;margin:.3em 0;text-decoration:underline;text-underline-offset:2px}
-  #panel .hidetextbtn:hover{color:var(--danger,#e5534b)}
+  #panel .dochide-row{margin:.6em 0 .4em}
+  #panel .dochide-label{font-size:12px;display:inline-flex;align-items:center;gap:6px;cursor:pointer;color:var(--muted)}
+  #panel .dochide-label:hover{color:var(--fg)}
+  #panel .dochide-label input[type=checkbox]{margin:0;width:auto;cursor:pointer}
   #panel .nodebtns{display:flex;flex-wrap:wrap;gap:5px;margin:.3em 0}
   #panel .nodebtn{background:var(--chip-bg);color:var(--fg);border:1px solid var(--border);border-radius:12px;
     padding:3px 9px;font-size:11.5px;cursor:pointer;max-width:100%;overflow:hidden;
@@ -780,15 +781,13 @@ GRAPH_HTML = """<!doctype html>
     #zoomctl{right:max(12px,env(safe-area-inset-right));bottom:max(12px,env(safe-area-inset-bottom))}
     #zoomctl button{width:44px;height:44px}
     input,select,button{font-size:16px}
-    .docitem{min-height:54px;padding:10px 50px 10px 12px}
-    .docitem:not(:has(.docactions)){padding-right:12px}
+    .docitem{min-height:54px;padding:10px 12px}
     .docitem b{font-size:15.5px;line-height:1.35}
     .docitem p{font-size:13.5px;line-height:1.45;margin-top:4px}
     .docitem .st{font-size:12px}
     .docitem .ubadge{font-size:11px}
     .docitem .wbadge{font-size:12px}
-    .docitem .actbtn{min-width:38px;min-height:38px;font-size:13px}
-    .docitem .docactions{top:8px;right:8px;gap:4px}
+    .docitem .docpin-btn{min-width:32px;min-height:32px;font-size:16px}
     .dday{font-size:12.5px;padding:4px 12px}
     #pinnedhead{font-size:12px;padding:6px 12px}
     #showhidden{font-size:13px;padding:10px 12px}
@@ -2466,20 +2465,22 @@ function dayOf(ts){ if(!ts) return '(날짜 미상)';
   const d=new Date(ts*1000);
   return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
 // 문서 하나의 목록 아이템 HTML — 즐겨찾기/일반/숨김 목록이 모두 공유(중복 방지).
-// 클릭=그래프 nav(필터·이동), 액션 버튼(⭐즐겨찾기)은 stopPropagation.
-// 숨기기는 목록이 아니라 우측 상세 패널의 텍스트 버튼으로(사용자 요구, panelHideBtn 참조).
+// 클릭=문서 열기, 제목 좌측의 별표(⭐/☆)는 stopPropagation으로 즐겨찾기 토글.
 function docItemHtml(dc){
   const unread = dc.seen===0, watching = dc.watch===1, pinned = dc.pinned===1, hid = dc.hidden===1;
   const pinBtn = canWrite()
-    ? '<button class="actbtn'+(pinned?' pinned':'')+'" title="'+(pinned?'즐겨찾기 해제':'즐겨찾기에 추가')+
+    ? '<button class="docpin-btn'+(pinned?' pinned':'')+'" title="'+(pinned?'즐겨찾기 해제':'즐겨찾기에 추가')+
+      '" aria-label="'+(pinned?'즐겨찾기 해제':'즐겨찾기에 추가')+
       '" onclick="event.stopPropagation();togglePin(\\''+dc.id+'\\','+(!pinned)+')">'+(pinned?'⭐':'☆')+'</button>'
-    : '';
+    : (pinned ? '<span class="docpin-icon pinned" title="즐겨찾기">⭐</span>' : '');
   return '<div class="docitem'+(dc.id===activeDoc?' active':'')+(unread?' unread':'')+(hid?' hidden-doc':'')+
     '" onclick="selectDoc(\\''+dc.id+'\\')">'+
-    (pinBtn ? '<div class=docactions>'+pinBtn+'</div>' : '')+
+    '<div class=doctitle-line>'+
+    pinBtn+
     (watching?'<span class=wbadge title="주기 갱신 추적(watch)">🔄</span>':'')+
     (unread?'<span class=ubadge title="아직 안 본 문서">●</span>':'')+
     '<b>'+esc(dc.title)+'</b><span class=st>'+esc(dc.source_type||'')+'</span>'+
+    '</div>'+
     (dc.summary?'<p>'+esc(dc.summary.slice(0,110))+'</p>':'')+'</div>';
 }
 let showHidden = false;
@@ -2502,7 +2503,11 @@ function renderDocs(filter){
   const rest = visible.filter(dc=>dc.pinned!==1);
   const hiddenDocs = allDocs.filter(dc=> dc.hidden===1 && match(dc));
 
-  const ph = document.getElementById('pinnedhead'); if(ph) ph.style.display = pinned.length ? '' : 'none';
+  const ph = document.getElementById('pinnedhead');
+  if(ph){
+    ph.style.display = pinned.length ? '' : 'none';
+    ph.textContent = '⭐ 즐겨찾기 (' + pinned.length + ')';
+  }
   const pl = document.getElementById('pinnedlist'); if(pl) pl.innerHTML = pinned.map(docItemHtml).join('');
 
   const dl = document.getElementById('doclist');
@@ -2563,16 +2568,18 @@ async function toggleHide(id, val){
   }catch(e){ if(d){ d.hidden = val?0:1; renderDocs(document.getElementById('docq').value); } }
   return true;
 }
-// 상세 패널의 숨기기 텍스트 버튼 — toggleHide 결과(컨펌 취소 여부)를 보고 버튼 라벨만 갱신.
+// 상세 패널의 숨기기 체크박스 — toggleHide 결과(컨펌 취소 여부)를 보고 체크박스 및 라벨 갱신.
 async function panelToggleHide(id, val){
   if(!canWrite()) return;
   const ok = await toggleHide(id, val);
-  if(!ok) return;
-  const btn = document.getElementById('panelhidebtn');
-  if(btn){
-    btn.textContent = val ? '숨김 해제' : '숨기기';
-    btn.setAttribute('onclick', "panelToggleHide('"+id+"',"+(!val)+")");
+  const chk = document.getElementById('panelhidechk');
+  const lbl = document.getElementById('panelhidelabel');
+  if(!ok){
+    if(chk) chk.checked = !val;
+    return;
   }
+  if(chk) chk.checked = !!val;
+  if(lbl) lbl.textContent = val ? '🙈 숨김 처리됨' : '목록에서 숨기기';
 }
 function resetHome(){
   hideNodePop();
@@ -2672,9 +2679,14 @@ function renderDocPanel(dc){
   // 읽기는 중앙 팝업(마크다운·이미지)으로 — 그래프 nav 와 분리(사용자 요구).
   if(dc.summary||dc.detail) h+='<button class=readbtn data-read-doc="'+esc(dc.id)+
     '" onclick="openReader(\\''+dc.id+'\\')">📖 크게 읽기</button>';
-  // 숨기기 — 목록이 아니라 상세 패널에 텍스트 버튼으로(사용자 요구, 목록에선 오클릭 유발).
-  if(canWrite()) h+='<div><button id=panelhidebtn class=hidetextbtn onclick="panelToggleHide(\\''+dc.id+'\\','+(!dc.hidden)+')">'+
-    (dc.hidden?'숨김 해제':'숨기기')+'</button></div>';
+  // 숨기기 — 상세 패널의 FTS 스타일 체크박스로(사용자 요구).
+  if(canWrite()){
+    h+='<div class=dochide-row><label class=dochide-label>'+
+      '<input type="checkbox" id="panelhidechk" '+(dc.hidden===1?'checked':'')+
+      ' onchange="panelToggleHide(\\''+dc.id+'\\',this.checked)">'+
+      '<span id="panelhidelabel">'+(dc.hidden===1?'🙈 숨김 처리됨':'목록에서 숨기기')+'</span>'+
+      '</label></div>';
+  }
   if(dc.summary) h+='<h3>요약</h3><div class=synth>'+esc(dc.summary)+'</div>';
   // 이 문서의 노드 버튼 — 요약 바로 아래(피드백). 누르면 그래프에서 그 노드로 이동(nav).
   const ns=docNodes(dc.id);

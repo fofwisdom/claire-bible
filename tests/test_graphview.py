@@ -201,6 +201,20 @@ def test_right_menu_compact_icon_mode_markers():
     assert "claireDetailCompact" in GRAPH_HTML
 
 
+def test_favorite_and_hide_ui_markers():
+    """좌측 패널 제목 좌측 즐겨찾기 버튼 및 우측 상세 패널 숨기기 체크박스 검증."""
+    # 좌측 패널: 제목 줄 좌측 별표 버튼
+    assert "doctitle-line" in GRAPH_HTML
+    assert "docpin-btn" in GRAPH_HTML
+    assert "⭐ 즐겨찾기 (" in GRAPH_HTML
+    # 우측 패널: FTS 스타일 숨기기 체크박스
+    assert "dochide-row" in GRAPH_HTML and "dochide-label" in GRAPH_HTML
+    assert 'id="panelhidechk"' in GRAPH_HTML
+    assert 'id="panelhidelabel"' in GRAPH_HTML
+    assert "panelToggleHide" in GRAPH_HTML
+
+
+
 def test_browser_dependencies_are_pinned_with_sri_and_markdown_fails_closed():
     expected = (
         (
