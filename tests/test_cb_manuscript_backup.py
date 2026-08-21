@@ -389,27 +389,28 @@ def test_same_date_collision_is_rejected_and_replace_switches_format(
     _write_layout(root, dev=False)
     _seed_storage(root)
 
-    with _docker(DockerHarness()):
-        assert cb.main(["backup", "--format", "directory"], root=root) == 0
-    original = _visible_artifacts(root)[0]
-    original_manifest = (original / "manifest.json").read_bytes()
+    with patch.object(cb, "_backup_id", return_value="cb-20260821-120000"):
+        with _docker(DockerHarness()):
+            assert cb.main(["backup", "--format", "directory"], root=root) == 0
+        original = _visible_artifacts(root)[0]
+        original_manifest = (original / "manifest.json").read_bytes()
 
-    collision = DockerHarness(running=("api-id",))
-    with _docker(collision):
-        assert cb.main(["backup", "--format", "archive"], root=root) == 2
-    assert original.is_dir()
-    assert (original / "manifest.json").read_bytes() == original_manifest
-    assert not _has_compose_action(collision.commands, "stop")
+        collision = DockerHarness(running=("api-id",))
+        with _docker(collision):
+            assert cb.main(["backup", "--format", "archive"], root=root) == 2
+        assert original.is_dir()
+        assert (original / "manifest.json").read_bytes() == original_manifest
+        assert not _has_compose_action(collision.commands, "stop")
 
-    with _docker(DockerHarness()):
-        assert (
-            cb.main(["backup", "--format", "archive", "--replace"], root=root)
-            == 0
-        )
-    artifacts = _visible_artifacts(root)
-    assert len(artifacts) == 1
-    assert artifacts[0].is_file()
-    assert artifacts[0].name == f"{_artifact_id(original)}.tar.gz"
+        with _docker(DockerHarness()):
+            assert (
+                cb.main(["backup", "--format", "archive", "--replace"], root=root)
+                == 0
+            )
+        artifacts = _visible_artifacts(root)
+        assert len(artifacts) == 1
+        assert artifacts[0].is_file()
+        assert artifacts[0].name == f"{_artifact_id(original)}.tar.gz"
 
 
 def test_hash_tamper_is_rejected_before_service_stop(tmp_path: Path) -> None:

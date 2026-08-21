@@ -439,7 +439,8 @@ GRAPH_HTML = """<!doctype html>
   #format-warn-banner .close-btn{background:transparent;border:0;color:inherit;font-size:15px;cursor:pointer;line-height:1;padding:2px 6px;border-radius:4px;opacity:.75}
   #format-warn-banner .close-btn:hover{opacity:1;background:rgba(0,0,0,.08)}
   [data-theme="dark"] #format-warn-banner .close-btn:hover{background:rgba(255,255,255,.1)}
-  #bar .brand{font-weight:700;letter-spacing:-.01em}
+  #bar .brand{font-weight:700;letter-spacing:-.01em;cursor:pointer;user-select:none;transition:opacity .15s ease}
+  #bar .brand:hover{opacity:.85}
   #bar b{color:var(--accent2)}
   #netsearch{padding:6px 10px;border-bottom:1px solid var(--border);background:var(--panel-bg);flex-shrink:0}
   #barsearch{display:flex;align-items:center;gap:6px;width:100%}
@@ -761,7 +762,7 @@ GRAPH_HTML = """<!doctype html>
 </style></head>
 <body class="ro" data-auth-scope="unknown" data-active-pane="docs">
 <header id="bar">
-  <span class="brand" style="display:inline-flex;align-items:center;gap:6px"><img src="/favicon.svg" width="20" height="20" alt="" aria-hidden="true" style="display:inline-block;vertical-align:middle;filter:drop-shadow(0 0 4px rgba(0,255,170,0.5))"/>Claire Bible</span>
+  <span class="brand" role="button" tabindex="0" onclick="resetHome()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();resetHome();}" title="첫 화면으로 이동" aria-label="첫 화면으로 이동" style="display:inline-flex;align-items:center;gap:6px"><img src="/favicon.svg" width="20" height="20" alt="" aria-hidden="true" style="display:inline-block;vertical-align:middle;filter:drop-shadow(0 0 4px rgba(0,255,170,0.5))"/>Claire Bible</span>
   <div id="viewoptions">
     <button id="themebtn" title="라이트/다크 전환" aria-label="라이트/다크 전환" onclick="toggleTheme()">🌙</button>
     <button id="morebtn" class="hamburg-btn" aria-expanded="false" aria-controls="detailpane"
@@ -2474,6 +2475,49 @@ async function panelToggleHide(id, val){
     btn.setAttribute('onclick', "panelToggleHide('"+id+"',"+(!val)+")");
   }
 }
+function resetHome(){
+  hideNodePop();
+  closeDrawer();
+  docSearchActive = false;
+  const dq = document.getElementById('docq');
+  if(dq && dq.value){
+    dq.value = '';
+  }
+  renderDocs('');
+  const q = document.getElementById('q');
+  if(q && q.value){
+    q.value = '';
+  }
+  const sem = document.getElementById('sem');
+  if(sem && sem.checked){
+    sem.checked = false;
+    updateSearchModeUI();
+  }
+  clearTimeout(searchDebounce);
+  highlightSet = null;
+  unclusterEdges();
+  if(pathMode) clearPath();
+  if(net){
+    try{ net.unselectAll(); }catch(_){}
+  }
+  resetGraphCamera();
+  panel.innerHTML = defaultHint();
+  if(mobileMQ.matches){
+    closeReader();
+    revealWorkspace('docs');
+  } else {
+    if(allDocs && allDocs.length){
+      openReader(allDocs[0].id);
+    } else {
+      activeDoc = null;
+      selectedNodeId = null;
+      curReaderDoc = null;
+      setCenterView('reader');
+      renderDocs();
+    }
+  }
+}
+
 function selectDoc(id){
   openReader(id);
 }

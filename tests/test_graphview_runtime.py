@@ -914,4 +914,221 @@ process.exit(0);
         Path(runner_file).unlink(missing_ok=True)
 
 
+def test_graphview_reset_home(node_available: bool) -> None:
+    if not node_available:
+        pytest.skip("Node.js is not installed on the system")
+
+    scripts = extract_scripts(GRAPH_HTML)
+    main_script = "\n".join(scripts)
+
+    runner_code = r"""
+const fs = require('fs');
+
+class MockElement {
+  constructor(tag, id = '') {
+    this.tagName = (tag || 'div').toUpperCase();
+    this.id = id;
+    this.className = '';
+    this.classList = {
+      _classes: new Set(),
+      add(c) { this._classes.add(c); },
+      remove(c) { this._classes.delete(c); },
+      contains(c) { return this._classes.has(c); },
+      toggle(c, force) {
+        if (force === true) this._classes.add(c);
+        else if (force === false) this._classes.delete(c);
+        else if (this._classes.has(c)) this._classes.delete(c);
+        else this._classes.add(c);
+      }
+    };
+    this.style = {
+      display: '',
+      setProperty() {},
+      removeProperty() {}
+    };
+    this.dataset = {};
+    this.attributes = {};
+    this._innerHTML = '';
+    this._textContent = '';
+    this.value = '';
+    this.children = [];
+  }
+  get innerHTML() { return this._innerHTML; }
+  set innerHTML(v) { this._innerHTML = String(v); this._textContent = String(v).replace(/<[^>]*>/g, ''); }
+  get textContent() { return this._textContent; }
+  set textContent(v) { this._textContent = String(v); this._innerHTML = String(v); }
+  setAttribute(k, v) { this.attributes[k] = String(v); if(k==='id') this.id=String(v); }
+  getAttribute(k) { return this.attributes[k] !== undefined ? this.attributes[k] : null; }
+  removeAttribute(k) { delete this.attributes[k]; }
+  getBoundingClientRect() { return { width: 1000, height: 700, top: 0, left: 0, right: 1000, bottom: 700 }; }
+  querySelector(sel) { return new MockElement('div'); }
+  querySelectorAll(sel) { return []; }
+  addEventListener() {}
+  removeEventListener() {}
+  focus() {}
+  select() {}
+}
+
+const elements = new Map();
+function getOrCreate(id, tag='div') {
+  if (!elements.has(id)) {
+    elements.set(id, new MockElement(tag, id));
+  }
+  return elements.get(id);
+}
+
+const knownIds = [
+  'wrap', 'centerwrap', 'netwrap', 'net', 'reader', 'rtitle', 'rbody', 'rfs', 'sharebox',
+  'docs', 'docq', 'desclines', 'pinnedhead', 'pinnedlist', 'doclist', 'showhidden', 'hiddenlist',
+  'detailpane', 'panel', 'fslider', 'fmin', 'bar', 'worktabs', 'tab-docs', 'tab-graph', 'tab-search', 'tab-menu',
+  'morebtn', 'nodepop', 'stat', 'authstate', 'themebtn', 'sem', 'searchkind', 'synthchips', 'synthbtn',
+  'addbtn', 'dedupbtn', 'pathbtn', 'repolink', 'format-warn-banner', 'format-warn-text', 'format-warn-badge', 'format-warn-icon', 'format-warn-title', 'format-warn-actbtn', 'graphnotice',
+  'graphdocnav', 'graphdocpick', 'graphdoclabel', 'graphdocprev', 'graphdocnext', 'graphdocmenu', 'graphdocq', 'graphdoclist', 'graphdocempty', 'q', 'legend'
+];
+knownIds.forEach(id => getOrCreate(id));
+
+const document = {
+  documentElement: getOrCreate('html', 'html'),
+  body: getOrCreate('body', 'body'),
+  getElementById(id) { return elements.get(id) || null; },
+  querySelector(sel) {
+    if (sel.startsWith('#')) return document.getElementById(sel.slice(1));
+    return new MockElement('div');
+  },
+  querySelectorAll(sel) { return []; },
+  addEventListener() {},
+  removeEventListener() {},
+  activeElement: null
+};
+
+const window = {
+  document,
+  matchMedia(query) {
+    return {
+      matches: false,
+      media: query,
+      addEventListener() {},
+      removeEventListener() {}
+    };
+  },
+  addEventListener() {},
+  removeEventListener() {},
+  setTimeout: global.setTimeout,
+  clearTimeout: global.clearTimeout,
+  setInterval: global.setInterval,
+  clearInterval: global.clearInterval,
+  requestAnimationFrame(fn) { return global.setTimeout(fn, 0); },
+  DOMPurify: { sanitize(html) { return html; } },
+  marked: { parse(src) { return '<p>' + src + '</p>'; } },
+  vis: {
+    DataSet: class {
+      constructor(data) { this._data = data || []; }
+      get(id) { return this._data.find(d => d.id === id); }
+      getIds() { return this._data.map(d => d.id); }
+      update() {}
+      add() {}
+      remove() {}
+      forEach(fn) { this._data.forEach(fn); }
+    },
+    Network: class {
+      constructor() {}
+      setSize() {}
+      redraw() {}
+      fit() {}
+      focus() {}
+      moveTo() {}
+      on() {}
+      selectNodes() {}
+      unselectAll() {}
+      getSelectedNodes() { return []; }
+      getScale() { return 1.0; }
+      getViewPosition() { return { x: 0, y: 0 }; }
+      getPositions() { return {}; }
+      canvasToDOM(p) { return p; }
+      getPosition() { return { x: 0, y: 0 }; }
+      setOptions() {}
+    }
+  },
+  localStorage: {
+    _store: {},
+    getItem(k) { return this._store[k] || null; },
+    setItem(k, v) { this._store[k] = String(v); }
+  },
+  location: { origin: 'http://127.0.0.1:8766' }
+};
+
+async function fetch(url, opts) {
+  if (url === 'whoami') return { ok: true, status: 200, json: async () => ({ scope: 'owner' }) };
+  if (url === 'documents') return {
+    ok: true, status: 200, json: async () => ({
+      documents: [
+        { id: 'doc-1', title: '문서1', summary: '요약1', seen: 1, pinned: 0, hidden: 0, fetched_at: 1724100000 },
+        { id: 'doc-2', title: '문서2', summary: '요약2', seen: 1, pinned: 0, hidden: 0, fetched_at: 1724100000 }
+      ]
+    })
+  };
+  if (url.startsWith('document?id=')) return { ok: true, status: 200, json: async () => ({ id: 'doc-1', title: '문서1', summary: '요약1' }) };
+  if (url === 'graph') return { ok: true, status: 200, json: async () => ({ nodes: [], edges: [], types: [], rel_types: [] }) };
+  return { ok: true, status: 200, json: async () => ({}) };
+}
+
+global.window = window;
+global.document = document;
+global.fetch = fetch;
+global.DOMPurify = window.DOMPurify;
+global.marked = window.marked;
+global.vis = window.vis;
+global.localStorage = window.localStorage;
+global.location = window.location;
+global.requestAnimationFrame = window.requestAnimationFrame;
+
+const code = fs.readFileSync(process.argv[2], 'utf8');
+eval(code);
+
+setTimeout(() => {
+  // Switch to graph view or modify state
+  setCenterView('graph');
+  document.getElementById('docq').value = '테스트';
+  
+  // Call resetHome()
+  resetHome();
+
+  const results = {
+    centerView: document.body.dataset.centerView,
+    activeDoc: window.claireDebug.activeDoc,
+    docqEmpty: document.getElementById('docq').value === ''
+  };
+  console.log("RESET_HOME_RESULT:" + JSON.stringify(results));
+  process.exit(0);
+}, 150);
+"""
+
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as f_script:
+        f_script.write(main_script)
+        script_file = f_script.name
+
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as f_runner:
+        f_runner.write(runner_code)
+        runner_file = f_runner.name
+
+    try:
+        proc = subprocess.run(
+            ["node", runner_file, script_file],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        assert proc.returncode == 0, f"resetHome runner crashed:\nSTDOUT:\n{proc.stdout}\nSTDERR:\n{proc.stderr}"
+        match = re.search(r"RESET_HOME_RESULT:(.*)", proc.stdout)
+        assert match is not None, f"Output did not contain RESET_HOME_RESULT:\n{proc.stdout}"
+        data = json.loads(match.group(1))
+        assert data["centerView"] == "reader"
+        assert data["activeDoc"] == "doc-1"
+        assert data["docqEmpty"] is True
+    finally:
+        Path(script_file).unlink(missing_ok=True)
+        Path(runner_file).unlink(missing_ok=True)
+
+
+
 
