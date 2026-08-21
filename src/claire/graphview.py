@@ -360,8 +360,8 @@ GRAPH_HTML = """<!doctype html>
     min-height:48px;background:var(--bar-bg);border-bottom:1px solid var(--border);
     font-size:13px;white-space:nowrap}
   /* 상태 및 안내 배너 시스템 (ClaireStatusBanner) */
-  #format-warn-banner{display:none;align-items:center;justify-content:space-between;gap:10px;padding:8px 14px;
-    font-size:12.5px;line-height:1.45;z-index:45;border-bottom:1px solid var(--border);box-shadow:0 1px 3px rgba(0,0,0,.08)}
+  #format-warn-banner{display:none;position:relative;align-items:center;justify-content:space-between;gap:10px;padding:8px 14px;
+    font-size:12.5px;line-height:1.45;z-index:20;border-bottom:1px solid var(--border);box-shadow:0 1px 3px rgba(0,0,0,.08)}
   #format-warn-banner.banner-warning{background:#fff8e6;color:#873800;border-bottom-color:#ffd591}
   [data-theme="dark"] #format-warn-banner.banner-warning{background:#2b1d0c;color:#ffc069;border-bottom-color:#593815}
   #format-warn-banner.banner-info{background:#e6f4ff;color:#0958d9;border-bottom-color:#91caff}
@@ -2698,11 +2698,11 @@ const ClaireStatusBanner = (function(){
         const cfg = (data.configured || 'adoc').toUpperCase();
         const other = (data.configured === 'adoc' ? 'md' : 'adoc').toUpperCase();
         const count = data.mismatched || data.mismatched_docs || 0;
-        return '.env 설정은 <b>' + cfg + '</b>이나, DB 문서 중 <b>' + count + '개</b>가 <b>' + other + '</b> 포맷입니다. <code>./cb-manuscript format-migrate</code> 실행이 필요합니다.';
+        return '.env 설정은 <b>' + cfg + '</b>이나, DB 문서 중 <b>' + count + '개</b>가 <b>' + other + '</b> 포맷입니다. <code>./cb-manuscript format-migrate --format ' + (data.configured || 'adoc') + '</code> 실행이 필요합니다.';
       },
       actionLabel: '📋 명령어 복사',
       action: function(data, btn){
-        const cmd = './cb-manuscript format-migrate --format';
+        const cmd = './cb-manuscript format-migrate --format ' + (data.configured || 'adoc');
         if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
           navigator.clipboard.writeText(cmd).catch(function(){});
         }
