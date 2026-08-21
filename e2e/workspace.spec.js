@@ -318,3 +318,49 @@ test('right menu compact icon mode toggles and reduces width on desktop', async 
   expect(pageErrors).toEqual([]);
 });
 
+test('inspecting node on desktop displays details without backdrop dimming or click blocking', async ({ page }) => {
+  const pageErrors = [];
+  page.on('pageerror', error => pageErrors.push(error.message));
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await waitForClaire(page);
+  await expectNoHorizontalOverflow(page);
+
+  // 1. Switch right menu to compact mode first
+  const toggleBtn = page.locator('#detailtogglebtn');
+  await toggleBtn.click();
+  await expect.poll(
+    () => page.evaluate(() => window.claireDebug.detailCompact),
+  ).toBe(true);
+
+  // 2. Select document and switch to graph
+  await page.locator('.docitem').first().evaluate(element => element.click());
+  await expect.poll(
+    () => page.evaluate(() => window.claireDebug.activePane),
+  ).toBe('graph');
+
+  // 3. Inspect a visible node
+  const points = await page.evaluate(() => window.claireDebug.visibleNodePoints());
+  expect(points.length).toBeGreaterThan(0);
+  await page.mouse.click(points[0].x, points[0].y);
+
+  // 4. Detailpane automatically expands and displays panel content
+  await expect.poll(
+    () => page.evaluate(() => window.claireDebug.detailCompact),
+  ).toBe(false);
+
+  const detailPane = page.locator('#detailpane');
+  const detailBox = await detailPane.boundingBox();
+  expect(detailBox.width).toBeGreaterThanOrEqual(300);
+
+  // 5. Drawer backdrop must NOT be visible on desktop
+  const backdrop = page.locator('#drawerbackdrop');
+  await expect(backdrop).toBeHidden();
+
+  // 6. Panel has content and is visible
+  const panel = page.locator('#panel');
+  await expect(panel).toBeVisible();
+  await expect(panel).not.toBeEmpty();
+
+  expect(pageErrors).toEqual([]);
+});
+

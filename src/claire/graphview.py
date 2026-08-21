@@ -453,9 +453,7 @@ GRAPH_HTML = """<!doctype html>
   #themebtn{background:transparent;color:var(--fg);border:1px solid var(--border);padding:3px 8px;font-size:14px;border-radius:4px;cursor:pointer}
   #themebtn:hover{background:var(--hover)}
   #worktabs{display:none}
-  #drawerbackdrop{position:fixed;inset:0;z-index:35;background:rgba(0,0,0,.45);opacity:0;pointer-events:none;transition:opacity .2s ease}
-  body.drawer-open #drawerbackdrop,
-  body.detail-open #drawerbackdrop{opacity:1;pointer-events:auto}
+  #drawerbackdrop{display:none;position:fixed;inset:0;z-index:35;background:rgba(0,0,0,.45);opacity:0;pointer-events:none;transition:opacity .2s ease}
   #wrap{position:relative;display:grid;grid-template-columns:280px minmax(420px,1fr) var(--detail-width,360px);
     flex:1;min-height:0;overflow:hidden;transition:grid-template-columns .2s ease}
   body.detail-compact #wrap,
@@ -717,6 +715,8 @@ GRAPH_HTML = """<!doctype html>
     body.detail-open #detailpane,
     body.drawer-open #detailpane{transform:translateX(0);visibility:visible;pointer-events:auto;
       transition:transform .2s ease}
+    body.detail-open #drawerbackdrop,
+    body.drawer-open #drawerbackdrop{display:block;opacity:1;pointer-events:auto}
     #detailhead{display:flex;border-radius:0}
     #detailclose{display:inline-flex!important}
     #detailtogglebtn{display:none!important}
@@ -1583,13 +1583,14 @@ function syncWorkspaceLayout(){
       }
     }
   });
-  const isDrawerActive = drawerOpen || ((compactMQ.matches || mobileMQ.matches) && detailOpen);
-  document.body.classList.toggle('detail-open', (compactMQ.matches || mobileMQ.matches) && detailOpen);
-  document.body.classList.toggle('drawer-open', drawerOpen);
+  const isMobileOrCompact = compactMQ.matches || mobileMQ.matches;
+  const isDrawerActive = isMobileOrCompact && (drawerOpen || detailOpen);
+  document.body.classList.toggle('detail-open', isMobileOrCompact && detailOpen);
+  document.body.classList.toggle('drawer-open', isDrawerActive);
   const moreBtn = document.getElementById('morebtn');
   if(moreBtn) moreBtn.setAttribute('aria-expanded', isDrawerActive?'true':'false');
   const menuBtn = document.getElementById('tab-menu');
-  if(menuBtn) menuBtn.setAttribute('aria-expanded', drawerOpen?'true':'false');
+  if(menuBtn) menuBtn.setAttribute('aria-expanded', (isMobileOrCompact && drawerOpen)?'true':'false');
 
   const dp = document.getElementById('detailpane');
   let detailVisible = false;
@@ -1647,6 +1648,8 @@ function openDetailPane(){
   detailReturnFocus=document.activeElement;
   detailOpen=true;
   drawerOpen=true;
+  detailCompact=false;
+  try{ localStorage.setItem('claireDetailCompact', 'false'); }catch(_){}
   closeGraphDocPicker();
   syncWorkspaceLayout();
 }
