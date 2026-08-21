@@ -51,7 +51,7 @@ def resolve_redirect(url: str, timeout: float = 15.0) -> str:
         with httpx.Client(follow_redirects=True, timeout=timeout,
                           headers={"User-Agent": _UA}) as client:
             resp = client.get(url)
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         raise FetchError(f"redirect resolve failed: {e}") from e
 
     final = str(resp.url)

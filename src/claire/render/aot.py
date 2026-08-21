@@ -145,7 +145,7 @@ def render_adoc_to_html(raw: str) -> str:
 
         if not in_block:
             # 1. 인용 메타데이터: [quote, 저자, 출처]
-            qm = re.match(r"^\[quote(?:,\s*([^,\]]+))?(?:,\s*([^\]]+))?\]", trimmed, re.I)
+            qm = re.match(r"^\[quote(?:,\s*([^,\]]+))?(?:,\s*([^\]]+))?\]", trimmed, re.IGNORECASE)
             if qm:
                 pending_meta = {
                     "kind": "quote",
@@ -155,13 +155,13 @@ def render_adoc_to_html(raw: str) -> str:
                 continue
 
             # 2. Admonition 메타데이터: [NOTE], [TIP], [IMPORTANT], [WARNING], [CAUTION]
-            am = re.match(r"^\[(NOTE|IMPORTANT|TIP|WARNING|CAUTION)\]", trimmed, re.I)
+            am = re.match(r"^\[(NOTE|IMPORTANT|TIP|WARNING|CAUTION)\]", trimmed, re.IGNORECASE)
             if am:
                 pending_meta = {"kind": "admonition", "type": am.group(1).upper()}
                 continue
 
             # 3. 코드 블록 메타데이터: [source, python]
-            sm = re.match(r"^\[source(?:,\s*([a-zA-Z0-9_-]+))?\]", trimmed, re.I)
+            sm = re.match(r"^\[source(?:,\s*([a-zA-Z0-9_-]+))?\]", trimmed, re.IGNORECASE)
             if sm:
                 pending_meta = {"kind": "code", "lang": (sm.group(1) or "").strip()}
                 continue
@@ -238,7 +238,7 @@ def render_adoc_to_html(raw: str) -> str:
                 continue
 
             # 8. 단일 행 인라인 Admonition (예: NOTE: 설명)
-            single_adm = re.match(r"^(NOTE|TIP|IMPORTANT|WARNING|CAUTION):\s*(.+)$", trimmed, re.I)
+            single_adm = re.match(r"^(NOTE|TIP|IMPORTANT|WARNING|CAUTION):\s*(.+)$", trimmed, re.IGNORECASE)
             if single_adm:
                 adm_type = single_adm.group(1).upper()
                 adm_text = _inline_adoc_format(single_adm.group(2))
@@ -266,13 +266,7 @@ def render_adoc_to_html(raw: str) -> str:
 
         else:
             # 블록 내부 처리 및 블록 닫기
-            if in_block == "quote" and trimmed == "____":
-                flush_block()
-            elif in_block == "admonition" and trimmed == "====":
-                flush_block()
-            elif in_block == "code" and trimmed == "----":
-                flush_block()
-            elif in_block == "table" and trimmed == "|===":
+            if in_block == "quote" and trimmed == "____" or in_block == "admonition" and trimmed == "====" or in_block == "code" and trimmed == "----" or in_block == "table" and trimmed == "|===":
                 flush_block()
             else:
                 if in_block == "table":

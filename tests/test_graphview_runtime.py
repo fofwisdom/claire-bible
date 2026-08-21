@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from claire.graphview import GRAPH_HTML, _SHARED_HTML
+from claire.graphview import _SHARED_HTML, GRAPH_HTML
 
 
 @pytest.fixture(scope="module")

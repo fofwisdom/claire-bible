@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-import os
-from pathlib import Path
 import stat
 import subprocess
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -93,11 +92,11 @@ def _completed(
     return subprocess.CompletedProcess(argv, returncode, stdout, stderr)
 
 
-def _fake_success(argv, **_kwargs):  # noqa: ANN001
+def _fake_success(argv, **_kwargs):
     return _completed(argv)
 
 
-def _commands(mock_run) -> list[list[str]]:  # noqa: ANN001
+def _commands(mock_run) -> list[list[str]]:
     return [call.args[0] for call in mock_run.call_args_list]
 
 
@@ -657,7 +656,7 @@ def test_empty_telegram_token_does_not_enable_bot_profile(tmp_path, monkeypatch)
 def test_passthrough_preserves_arguments_tty_and_exit_code(tmp_path):
     _write_layout(tmp_path, dev=False)
 
-    def fail(argv, **kwargs):  # noqa: ANN001
+    def fail(argv, **kwargs):
         assert "stdout" not in kwargs
         assert "stderr" not in kwargs
         return _completed(argv, 37)
@@ -827,7 +826,7 @@ def test_app_delimiters_are_supported(tmp_path, capsys):
 def test_app_returns_child_exit_code(tmp_path):
     _write_layout(tmp_path, dev=False)
 
-    def fail(argv, **_kwargs):  # noqa: ANN001
+    def fail(argv, **_kwargs):
         return _completed(argv, returncode=29)
 
     with patch.object(cb.subprocess, "run", side_effect=fail):
@@ -838,9 +837,8 @@ def test_app_rejects_lock_contention_before_subprocess(tmp_path):
     _write_layout(tmp_path, dev=False)
     runtime = cb.load_runtime(cb.Layout(tmp_path))
 
-    with cb.InstanceLock(runtime):
-        with patch.object(cb.subprocess, "run") as run:
-            assert cb.main(["app", "status"], root=tmp_path) == 73
+    with cb.InstanceLock(runtime), patch.object(cb.subprocess, "run") as run:
+        assert cb.main(["app", "status"], root=tmp_path) == 73
 
     run.assert_not_called()
 
@@ -876,7 +874,7 @@ def test_app_allows_recanonicalize_dry_run_without_advanced_override(tmp_path):
 def test_install_orders_build_legacy_stop_migrate_up_and_health(tmp_path):
     _write_layout(tmp_path, dev=False)
 
-    def fake(argv, **_kwargs):  # noqa: ANN001
+    def fake(argv, **_kwargs):
         if argv[:3] == ["docker", "ps", "-q"]:
             name_filter = argv[-1]
             found = "legacy-id\n" if name_filter == "name=^/claire_api$" else ""
@@ -915,7 +913,7 @@ def test_install_orders_build_legacy_stop_migrate_up_and_health(tmp_path):
 def test_install_rerun_stops_current_project_before_migration(tmp_path):
     _write_layout(tmp_path, dev=False)
 
-    def fake(argv, **_kwargs):  # noqa: ANN001
+    def fake(argv, **_kwargs):
         if argv[:2] == ["docker", "compose"] and argv[-2:] == ["ps", "-q"]:
             return _completed(argv, stdout="existing-api\n")
         if argv[:3] == ["docker", "ps", "-q"]:
@@ -939,7 +937,7 @@ def test_install_rerun_stops_current_project_before_migration(tmp_path):
 def test_migration_failure_resumes_only_previously_running_containers(tmp_path):
     _write_layout(tmp_path, dev=False)
 
-    def fake(argv, **_kwargs):  # noqa: ANN001
+    def fake(argv, **_kwargs):
         if argv[:2] == ["docker", "compose"] and argv[-2:] == ["ps", "-q"]:
             return _completed(argv, stdout="existing-api\n")
         if argv[:3] == ["docker", "ps", "-q"]:
@@ -962,7 +960,7 @@ def test_migration_failure_resumes_only_previously_running_containers(tmp_path):
 def test_project_stop_failure_restarts_exact_previous_containers(tmp_path):
     _write_layout(tmp_path, dev=False)
 
-    def fake(argv, **_kwargs):  # noqa: ANN001
+    def fake(argv, **_kwargs):
         if argv[:2] == ["docker", "compose"] and argv[-2:] == ["ps", "-q"]:
             return _completed(argv, stdout="project-api\nproject-worker\n")
         if argv[:2] == ["docker", "compose"] and argv[-1:] == ["stop"]:
@@ -980,7 +978,7 @@ def test_project_stop_failure_restarts_exact_previous_containers(tmp_path):
 def test_partial_legacy_stop_failure_resumes_legacy_and_project(tmp_path):
     _write_layout(tmp_path, dev=False)
 
-    def fake(argv, **_kwargs):  # noqa: ANN001
+    def fake(argv, **_kwargs):
         if argv[:2] == ["docker", "compose"] and argv[-2:] == ["ps", "-q"]:
             return _completed(argv, stdout="project-api\n")
         if argv[:3] == ["docker", "ps", "-q"]:
@@ -1008,7 +1006,7 @@ def test_activation_failure_preserves_failed_state_without_starting_legacy(
 ):
     _write_layout(tmp_path, dev=False)
 
-    def fake(argv, **_kwargs):  # noqa: ANN001
+    def fake(argv, **_kwargs):
         if argv[:2] == ["docker", "compose"] and argv[-2:] == ["ps", "-q"]:
             return _completed(argv, stdout="existing-api\n")
         if argv[:3] == ["docker", "ps", "-q"]:
@@ -1030,7 +1028,7 @@ def test_activation_failure_preserves_failed_state_without_starting_legacy(
 def test_success_records_secret_free_deployment_state(tmp_path):
     _write_layout(tmp_path, dev=False, token="do-not-record")
 
-    def fake(argv, **_kwargs):  # noqa: ANN001
+    def fake(argv, **_kwargs):
         if argv[:3] == ["git", "rev-parse", "HEAD"]:
             return _completed(argv, stdout="a" * 40 + "\n")
         if argv[:3] == ["docker", "ps", "-q"]:
@@ -1051,7 +1049,7 @@ def test_success_records_secret_free_deployment_state(tmp_path):
 def test_production_and_development_keep_separate_state(tmp_path):
     _write_layout(tmp_path)
 
-    def fake(argv, **_kwargs):  # noqa: ANN001
+    def fake(argv, **_kwargs):
         if argv[:3] == ["docker", "ps", "-q"]:
             return _completed(argv, stdout="")
         return _completed(argv)
@@ -1072,7 +1070,7 @@ def test_production_and_development_keep_separate_state(tmp_path):
 def test_project_name_change_is_rejected_before_build(tmp_path):
     _write_layout(tmp_path, dev=False)
 
-    def fake(argv, **_kwargs):  # noqa: ANN001
+    def fake(argv, **_kwargs):
         if argv[:3] == ["docker", "ps", "-q"]:
             return _completed(argv, stdout="")
         return _completed(argv)
@@ -1099,7 +1097,7 @@ def test_project_name_change_is_rejected_before_build(tmp_path):
 def test_update_build_failure_does_not_stop_existing_stack(tmp_path):
     _write_layout(tmp_path, dev=False)
 
-    def fake(argv, **_kwargs):  # noqa: ANN001
+    def fake(argv, **_kwargs):
         if argv[:2] == ["git", "status"]:
             return _completed(argv, stdout="")
         if argv[:3] == ["git", "rev-parse", "--abbrev-ref"]:
@@ -1120,7 +1118,7 @@ def test_update_build_failure_does_not_stop_existing_stack(tmp_path):
 def test_update_no_fetch_skips_git_and_stops_project_after_build(tmp_path):
     _write_layout(tmp_path, dev=False)
 
-    def fake(argv, **_kwargs):  # noqa: ANN001
+    def fake(argv, **_kwargs):
         if argv[:2] == ["docker", "compose"] and argv[-2:] == ["ps", "-q"]:
             return _completed(argv, stdout="project-container\n")
         if argv[:3] == ["docker", "ps", "-q"]:
@@ -1157,7 +1155,7 @@ def test_update_backfills_missing_env_variables_and_is_idempotent(tmp_path, monk
     (tmp_path / ".env").write_text(env_text, encoding="utf-8")
     assert "NEW_FEATURE_FLAG" not in (tmp_path / ".env").read_text(encoding="utf-8")
 
-    def fake(argv, **_kwargs):  # noqa: ANN001
+    def fake(argv, **_kwargs):
         if argv[:2] == ["docker", "compose"] and argv[-2:] == ["ps", "-q"]:
             return _completed(argv, stdout="project-container\n")
         if argv[:3] == ["docker", "ps", "-q"]:
@@ -1186,7 +1184,7 @@ def test_update_backfills_missing_env_variables_and_is_idempotent(tmp_path, monk
 def test_update_rejects_dirty_tree_before_pull_build_or_stop(tmp_path):
     _write_layout(tmp_path, dev=False)
 
-    def fake(argv, **_kwargs):  # noqa: ANN001
+    def fake(argv, **_kwargs):
         if argv[:2] == ["git", "status"]:
             return _completed(argv, stdout=" M src/claire/cli.py\n")
         return _completed(argv)
@@ -1202,7 +1200,7 @@ def test_update_rejects_dirty_tree_before_pull_build_or_stop(tmp_path):
 def test_update_requires_upstream(tmp_path):
     _write_layout(tmp_path, dev=False)
 
-    def fake(argv, **_kwargs):  # noqa: ANN001
+    def fake(argv, **_kwargs):
         if argv[:2] == ["git", "status"]:
             return _completed(argv, stdout="")
         if argv[:3] == ["git", "rev-parse", "--abbrev-ref"]:
@@ -1258,7 +1256,7 @@ def test_remote_rejects_unused_extra_arguments(tmp_path):
 def test_health_returns_liveness_exit_code_and_uses_noninteractive_exec(tmp_path):
     _write_layout(tmp_path, dev=False)
 
-    def fake(argv, **_kwargs):  # noqa: ANN001
+    def fake(argv, **_kwargs):
         return _completed(argv, returncode=8)
 
     with patch.object(cb.subprocess, "run", side_effect=fake) as run:

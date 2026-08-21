@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 
 from ...ontology.base import Document
-from ..normalize import canonicalize_url, content_hash
+from ..normalize import content_hash
 from .base import FetchError
 
 _ID_RES = [
@@ -67,7 +67,7 @@ def fetch_youtube(url: str) -> Document:
             if txt:
                 parts.append(txt)
         transcript = " ".join(parts)
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         raise FetchError(f"transcript unavailable for {vid}: {e}") from e
 
     text = transcript.strip()

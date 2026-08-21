@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from claire.telegram_bot import _status_emoji, _run_with_ticker
+from claire.telegram_bot import _run_with_ticker, _status_emoji
 
 
 def test_status_emoji_maps_result():

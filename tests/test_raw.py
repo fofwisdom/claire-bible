@@ -7,14 +7,18 @@ from pathlib import Path
 
 import httpx
 
+from claire.extract.provider import MockProvider
+from claire.ingest.pipeline import _guess_kind, ingest
 from claire.ontology.base import Document
 from claire.store import db as dbm
 from claire.store.raw import (
-    save_artifact, load_artifact, raw_disk_usage, download_images, _MAX_IMAGE_BYTES,
+    _MAX_IMAGE_BYTES,
+    download_images,
+    load_artifact,
+    raw_disk_usage,
+    save_artifact,
 )
 from claire.store.vectors import VectorStore
-from claire.extract.provider import MockProvider
-from claire.ingest.pipeline import ingest, _guess_kind
 
 
 def _db():

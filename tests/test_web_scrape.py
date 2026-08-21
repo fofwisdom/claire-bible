@@ -4,10 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-import claire.ingest.fetchers.web as web
+from claire.ingest.fetchers import web
 from claire.ingest.fetchers.base import FetchError
-from claire.ingest.fetchers.discourse import _topic_json_url, _strip_html
-
+from claire.ingest.fetchers.discourse import _strip_html, _topic_json_url
 
 # --- Discourse 어댑터 ---
 

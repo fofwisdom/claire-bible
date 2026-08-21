@@ -389,7 +389,7 @@ def _document_minhash_json(doc: Document) -> str | None:
     """문서의 (제목+본문) MinHash 서명을 JSON 으로. 토큰 없으면 None."""
     from ..ingest.normalize import minhash_signature
 
-    sig = minhash_signature(((doc.title or "") + " " + (doc.raw_text or "")))
+    sig = minhash_signature((doc.title or "") + " " + (doc.raw_text or ""))
     return json.dumps(sig) if sig else None
 
 
@@ -422,9 +422,9 @@ def near_duplicate_document(
     """
     from ..ingest.normalize import minhash_estimate, minhash_signature
 
-    if doc.partial or len((doc.raw_text or "")) < min_len:
+    if doc.partial or len(doc.raw_text or "") < min_len:
         return None
-    sig = minhash_signature(((doc.title or "") + " " + (doc.raw_text or "")))
+    sig = minhash_signature((doc.title or "") + " " + (doc.raw_text or ""))
     if not sig:
         return None
     rows = conn.execute(
@@ -632,7 +632,7 @@ def set_document_title(conn: sqlite3.Connection, document_id: str, title: str | 
 
     raw_text = row["raw_text"] or ""
     clean_title = (title or "").strip() or None
-    sig = minhash_signature(((clean_title or "") + " " + raw_text))
+    sig = minhash_signature((clean_title or "") + " " + raw_text)
     sig_json = json.dumps(sig) if sig else None
 
     cur = conn.execute(
@@ -1493,7 +1493,7 @@ def update_document_content(
     갱신(재fetch 로 새로 수집된 본문 이미지 등을 보존)."""
     from ..ingest.normalize import minhash_signature
 
-    sig = minhash_signature(((title or "") + " " + (raw_text or "")))
+    sig = minhash_signature((title or "") + " " + (raw_text or ""))
     cols = ["title=?", "raw_text=?", "content_hash=?", "fetched_at=?", "minhash=?"]
     vals: list = [title, raw_text, content_hash, fetched_at,
                   json.dumps(sig) if sig else None]

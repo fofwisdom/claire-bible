@@ -102,7 +102,7 @@ def fetch(payload: str, *, _depth: int = 0) -> Document:
     if kind == "file":
         from .fetchers.textfile import fetch_file
 
-        return fetch_file(t[len("file://"):] if t.startswith("file://") else t)
+        return fetch_file(t.removeprefix("file://"))
 
     if kind == "web":
         from .fetchers.web import fetch_web

@@ -14,7 +14,12 @@ from ..extract.provider import get_provider
 from ..retrieval.query import SearchMode
 from ..store import db as dbm
 from ..store.vectors import make_vector_store
-from .pipeline import IngestReport, extract_resolve_store, ingest, merge_source_into_document
+from .pipeline import (
+    IngestReport,
+    extract_resolve_store,
+    ingest,
+    merge_source_into_document,
+)
 from .router import fetch as default_fetch
 
 
@@ -35,7 +40,7 @@ class IngestService:
         file_ref: str | None = None,
         file_name: str | None = None,
         inbox_id: int | None = None,
-        prefetched: "Document | None" = None,
+        prefetched: Document | None = None,
         format: str | None = None,
     ) -> IngestReport:
         """단건 적재. (블로킹 — 호출측에서 스레드 오프로드).
@@ -452,6 +457,7 @@ class IngestService:
         한다. 신규 적재는 자동 저장되지만 v6 이전 문서는 비어 있어 1회 백필이 필요하다.
         그래프/추출/Gemini 호출 없음. 반환: {docs, filled}."""
         import json as _json
+
         from .normalize import minhash_signature
 
         conn = dbm.connect(self.s.db_file)
@@ -463,7 +469,7 @@ class IngestService:
                 doc = dbm.get_document(conn, did)
                 if doc is None:
                     continue
-                sig = minhash_signature(((doc.title or "") + " " + (doc.raw_text or "")))
+                sig = minhash_signature((doc.title or "") + " " + (doc.raw_text or ""))
                 dbm.set_document_minhash(conn, did, _json.dumps(sig) if sig else None)
                 if sig:
                     out["filled"] += 1
@@ -478,6 +484,7 @@ class IngestService:
         실제 정리(엔티티 sources 재배치 + 중복 문서 삭제)는 파괴적이라 별도 결정/명령으로
         남긴다. 반환: {documents, clusters:[{ids, urls, score}...]}."""
         import json as _json
+
         from .normalize import minhash_estimate
 
         self.backfill_minhashes()

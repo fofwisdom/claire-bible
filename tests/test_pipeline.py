@@ -9,15 +9,16 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-import pytest
-
-from claire.ontology.base import Document
-from claire.ingest.pipeline import ingest
-from claire.ingest.normalize import canonicalize_url, content_hash
-from claire.ingest.router import classify
 from claire.extract.provider import (
-    MockProvider, ExtractionResult, ExtractedEntity, ExtractedRelation,
+    ExtractedEntity,
+    ExtractedRelation,
+    ExtractionResult,
+    MockProvider,
 )
+from claire.ingest.normalize import canonicalize_url, content_hash
+from claire.ingest.pipeline import ingest
+from claire.ingest.router import classify
+from claire.ontology.base import Document
 from claire.store import db as dbm
 from claire.store.vectors import VectorStore
 

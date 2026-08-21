@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import sqlite3
 
+from claire.expand.onehop import find_candidates
+from claire.extract.provider import MockProvider
+from claire.ingest.pipeline import ingest
 from claire.ontology.base import Document
 from claire.store import db as dbm
-from claire.expand.onehop import find_candidates
-from claire.ingest.pipeline import ingest
-from claire.extract.provider import MockProvider
 from claire.store.vectors import VectorStore
 
 

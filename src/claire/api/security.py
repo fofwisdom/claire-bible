@@ -15,14 +15,20 @@ import logging
 import re
 import secrets
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from http.cookies import SimpleCookie
-from typing import Any, Awaitable, Callable, Literal, Mapping
+from typing import Any, Literal
 from urllib.parse import parse_qs, urlsplit
 
 from starlette.exceptions import HTTPException
 from starlette.requests import Request
-from starlette.responses import JSONResponse, PlainTextResponse, RedirectResponse, Response
+from starlette.responses import (
+    JSONResponse,
+    PlainTextResponse,
+    RedirectResponse,
+    Response,
+)
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from ..store import db as dbm
@@ -248,7 +254,7 @@ class WebRuntimeConfig:
     db_file: Any = field(repr=False)
 
     @classmethod
-    def from_settings(cls, settings: Any) -> "WebRuntimeConfig":
+    def from_settings(cls, settings: Any) -> WebRuntimeConfig:
         raw_environment = str(_setting(settings, "environment"))
         environment = raw_environment.strip().lower()
         if raw_environment != environment:
@@ -733,7 +739,7 @@ class ErrorBoundaryMiddleware:
 
         try:
             await self.app(scope, receive, tracking_send)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             if response_started:
                 raise
             request_id = scope.get("state", {}).get(_REQUEST_ID_KEY, "-")

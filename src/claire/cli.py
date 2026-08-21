@@ -18,7 +18,7 @@ from .store import db as dbm
 from .store.vectors import probe_sqlite_vec
 
 
-def cmd_doctor(_args) -> int:  # noqa: ANN001
+def cmd_doctor(_args) -> int:
     s = get_settings()
     print("claire doctor")
     print("=" * 40)
@@ -45,8 +45,9 @@ def cmd_doctor(_args) -> int:  # noqa: ANN001
 
     # provider 실호출 점검 (생성 + 임베딩이 조용히 실패하지 않는지)
     if s.effective_provider == "antigravity":
-        from .extract.provider import get_provider
         import shutil
+
+        from .extract.provider import get_provider
 
         bin_path = shutil.which(s.agy_bin)
         print(f"agy binary        : {bin_path or 'NOT found'}")
@@ -81,7 +82,7 @@ def cmd_doctor(_args) -> int:  # noqa: ANN001
     return 0
 
 
-def cmd_stats(_args) -> int:  # noqa: ANN001
+def cmd_stats(_args) -> int:
     s = get_settings()
     conn = dbm.connect(s.db_file)
     dbm.init_db(conn)
@@ -92,7 +93,7 @@ def cmd_stats(_args) -> int:  # noqa: ANN001
     return 0
 
 
-def cmd_status(_args) -> int:  # noqa: ANN001
+def cmd_status(_args) -> int:
     """현황 한눈에: 운영(설정/벡터/모델) · DB(그래프 규모/소스/타입) · 진행(inbox/연결)."""
     from .status import build_status_text
 
@@ -100,7 +101,7 @@ def cmd_status(_args) -> int:  # noqa: ANN001
     return 0
 
 
-def cmd_repo(_args) -> int:  # noqa: ANN001
+def cmd_repo(_args) -> int:
     """소스 리포지토리 정보와 접근 URL 출력."""
     s = get_settings()
     print(f"Repository : {s.effective_github_repository}")
@@ -108,19 +109,19 @@ def cmd_repo(_args) -> int:  # noqa: ANN001
     return 0
 
 
-def cmd_bot(_args) -> int:  # noqa: ANN001
+def cmd_bot(_args) -> int:
     from .telegram_bot import run_bot
 
     return run_bot()
 
 
-def cmd_serve_api(_args) -> int:  # noqa: ANN001
+def cmd_serve_api(_args) -> int:
     from .api.server import run_api
 
     return run_api()
 
 
-def cmd_replay_failed(args) -> int:  # noqa: ANN001
+def cmd_replay_failed(args) -> int:
     from .ingest.service import IngestService
 
     s = get_settings()
@@ -137,7 +138,7 @@ def cmd_replay_failed(args) -> int:  # noqa: ANN001
     return 0
 
 
-def cmd_recover_run(args) -> int:  # noqa: ANN001
+def cmd_recover_run(args) -> int:
     """[자동복구] error inbox 중 재시도 도래분을 1회 재적재(게이팅·지수백오프)."""
     from .ingest.service import IngestService
 
@@ -175,7 +176,7 @@ def _alert_permanent_failures(failed_items: list[dict]) -> None:
           flush=True)
 
 
-def cmd_recover_loop(args) -> int:  # noqa: ANN001
+def cmd_recover_loop(args) -> int:
     """error inbox 를 interval 초마다 자동 재적재(전용 컨테이너용 데몬)."""
     import time
 
@@ -204,7 +205,7 @@ def cmd_recover_loop(args) -> int:  # noqa: ANN001
         time.sleep(max(60, args.interval))
 
 
-def cmd_refresh_mark(args) -> int:  # noqa: ANN001
+def cmd_refresh_mark(args) -> int:
     """갱신 대상 문서를 큐에 등록(기본: 본문 빈약 문서)."""
     from .ingest.service import IngestService
 
@@ -219,7 +220,7 @@ def cmd_refresh_mark(args) -> int:  # noqa: ANN001
     return 0
 
 
-def cmd_refresh_run(args) -> int:  # noqa: ANN001
+def cmd_refresh_run(args) -> int:
     """갱신 큐 1회 처리."""
     from .ingest.service import IngestService
 
@@ -240,7 +241,7 @@ def cmd_refresh_run(args) -> int:  # noqa: ANN001
     return 0
 
 
-def cmd_refresh_loop(args) -> int:  # noqa: ANN001
+def cmd_refresh_loop(args) -> int:
     """갱신 큐를 interval 초마다 자동 처리(전용 컨테이너용 데몬)."""
     import time
 
@@ -283,7 +284,7 @@ def _notify_expansion(results: list[dict]) -> None:
     print(f"[expand] 적재 알림 {'전송' if sent else '미전송(미설정/실패)'}", flush=True)
 
 
-def cmd_expand_run(args) -> int:  # noqa: ANN001
+def cmd_expand_run(args) -> int:
     """1홉 자동확장 큐 1회 처리."""
     from .ingest.service import IngestService
 
@@ -301,7 +302,7 @@ def cmd_expand_run(args) -> int:  # noqa: ANN001
     return 0
 
 
-def cmd_expand_loop(args) -> int:  # noqa: ANN001
+def cmd_expand_loop(args) -> int:
     """1홉 자동확장 큐를 interval 초마다 자동 처리(전용 컨테이너용 데몬)."""
     import time
 
@@ -324,7 +325,7 @@ def cmd_expand_loop(args) -> int:  # noqa: ANN001
         time.sleep(max(60, args.interval))
 
 
-def cmd_ingest(args) -> int:  # noqa: ANN001
+def cmd_ingest(args) -> int:
     from .extract.provider import get_provider
     from .ingest.pipeline import ingest
     from .store.vectors import make_vector_store
@@ -360,7 +361,7 @@ def cmd_ingest(args) -> int:  # noqa: ANN001
     return 0 if report.error is None else 1
 
 
-def cmd_reextract(args) -> int:  # noqa: ANN001
+def cmd_reextract(args) -> int:
     """저장된 raw_text 로 전체 문서를 재추출(프롬프트 변경 반영, 예: 한글화)."""
     from .ingest.service import IngestService
 
@@ -377,7 +378,7 @@ def cmd_reextract(args) -> int:  # noqa: ANN001
     return 0 if out["failed"] == 0 else 1
 
 
-def cmd_backfill_detail(args) -> int:  # noqa: ANN001
+def cmd_backfill_detail(args) -> int:
     """detail(한국어 가독 렌더링)이 없는 문서를 채운다 — 비파괴적(그래프 불변).
 
     reextract 와 달리 reset_graph/rebuild 없이 documents.detail 만 채운다(advisor).
@@ -396,7 +397,7 @@ def cmd_backfill_detail(args) -> int:  # noqa: ANN001
     return 0
 
 
-def cmd_format_status(args) -> int:  # noqa: ANN001
+def cmd_format_status(args) -> int:
     """문서 본문 렌더링 포맷(detail_format) 진단 현황을 출력."""
     import json
 
@@ -421,7 +422,7 @@ def cmd_format_status(args) -> int:  # noqa: ANN001
         conn.close()
 
 
-def cmd_backfill_images(args) -> int:  # noqa: ANN001
+def cmd_backfill_images(args) -> int:
     """본문 이미지가 없는 기존 문서를 재fetch 대상(refresh 큐)으로 등록.
 
     실제 재fetch·이미지 수집·detail 재생성은 refresh-loop(claire_refresh 컨테이너)가
@@ -436,7 +437,7 @@ def cmd_backfill_images(args) -> int:  # noqa: ANN001
     return 0
 
 
-def cmd_watch(args) -> int:  # noqa: ANN001
+def cmd_watch(args) -> int:
     """[주기 크롤링] 문서 watch(주기 재크롤) 수동 on/off·주기·목록·상태.
 
     watch 대상은 refresh-loop 가 주기적으로 재fetch → 내용 바뀌면 변경 전 원문을 스냅샷
@@ -479,7 +480,7 @@ def cmd_watch(args) -> int:  # noqa: ANN001
     return 0
 
 
-def cmd_doc_title(args) -> int:  # noqa: ANN001
+def cmd_doc_title(args) -> int:
     """문서 제목 갱신 및 MinHash 서명 재계산."""
     s = get_settings()
     conn = dbm.connect_existing(s.db_file)
@@ -494,7 +495,7 @@ def cmd_doc_title(args) -> int:  # noqa: ANN001
         conn.close()
 
 
-def cmd_dedup_scan(args) -> int:  # noqa: ANN001
+def cmd_dedup_scan(args) -> int:
     """[진단·비파괴] 근사 중복(near-duplicate) 클러스터를 보고만 한다(병합 안 함).
 
     minhash 백필 후 임계 이상으로 묶이는 문서쌍을 클러스터로 출력. content_hash·
@@ -516,7 +517,7 @@ def cmd_dedup_scan(args) -> int:  # noqa: ANN001
     return 0
 
 
-def cmd_recanonicalize(args) -> int:  # noqa: ANN001
+def cmd_recanonicalize(args) -> int:
     """기존 문서 canonical_url 을 현재 규칙으로 재계산(비파괴). arxiv 버전 정규화 등 반영.
 
     기본 적용, --dry-run 으로 변경 예정만 본다. 같은 자료의 변형이 같은 canonical 로
@@ -534,7 +535,7 @@ def cmd_recanonicalize(args) -> int:  # noqa: ANN001
     return 0
 
 
-def cmd_dedup_merge(args) -> int:  # noqa: ANN001
+def cmd_dedup_merge(args) -> int:
     """근사중복 클러스터를 각각 1개로 병합. 기본은 **계획만(dry-run)**, --apply 로 실행.
 
     keeper = 최장 본문(동률이면 최초 적재). loser 참조는 keeper 로 재배치 후 삭제.
@@ -561,7 +562,7 @@ def cmd_dedup_merge(args) -> int:  # noqa: ANN001
     return 0
 
 
-def cmd_search(args) -> int:  # noqa: ANN001
+def cmd_search(args) -> int:
     from .extract.provider import get_provider
     from .retrieval.query import search
     from .store.vectors import make_vector_store
@@ -586,7 +587,7 @@ def cmd_search(args) -> int:  # noqa: ANN001
     return 0
 
 
-def cmd_health(args) -> int:  # noqa: ANN001
+def cmd_health(args) -> int:
     """시스템 건강 상태를 JSON 으로 출력. degraded(주의 필요) 또는 db 실패 시 비0 종료."""
     import json
 
@@ -599,7 +600,7 @@ def cmd_health(args) -> int:  # noqa: ANN001
     return 0 if rep["ok"] and not rep.get("degraded") else 1
 
 
-def cmd_liveness(_args) -> int:  # noqa: ANN001
+def cmd_liveness(_args) -> int:
     """DB 접근과 현재 스키마만 확인하는 경량 상태를 출력한다."""
     import json
 
@@ -611,7 +612,7 @@ def cmd_liveness(_args) -> int:  # noqa: ANN001
     return 0 if rep["ok"] else 1
 
 
-def cmd_migrate(_args) -> int:  # noqa: ANN001
+def cmd_migrate(_args) -> int:
     """DB 스키마를 명시적으로 초기화/업그레이드하고 버전을 검증한다."""
     from .health import require_current_schema
 

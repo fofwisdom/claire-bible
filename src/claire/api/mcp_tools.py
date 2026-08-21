@@ -26,7 +26,6 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.transport_security import TransportSecuritySettings
 
 from .. import graphview
-from ..config import Settings
 from ..ontology.base import normalize_name
 from ..store import db as dbm
 
@@ -38,7 +37,7 @@ DEFAULT_DOCUMENTS_LIMIT = 30
 MAX_NODE_DOCUMENTS = 10
 
 
-def _entity_brief(ent) -> dict:  # noqa: ANN001
+def _entity_brief(ent) -> dict:
     return {"id": ent.id, "name": ent.name, "type": ent.type}
 
 

@@ -63,7 +63,7 @@ def _rrf_fuse(fts_ids: list[str], vec_ranked: list[tuple[str, float]]) -> dict[s
 def search(
     conn: sqlite3.Connection,
     vstore: VectorStore | None,
-    provider,  # noqa: ANN001
+    provider,
     query: str,
     *,
     limit: int = 8,

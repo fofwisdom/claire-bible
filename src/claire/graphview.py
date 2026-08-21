@@ -253,7 +253,7 @@ def synthesis_context(
     return "\n\n".join(blocks), names
 
 
-def synthesize(conn, provider, entity_ids: list[str], query: str | None = None) -> dict:  # noqa: ANN001
+def synthesize(conn, provider, entity_ids: list[str], query: str | None = None) -> dict:
     """선택 노드들을 아우르는 종합 지식 문서(인용 포함, 한국어)를 생성.
 
     summarize_search 재사용(검색 정리와 동일 경로) — 컨텍스트는 그래프(관찰·연결·출처요약).

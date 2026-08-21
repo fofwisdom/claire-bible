@@ -76,7 +76,7 @@ class MergeCandidate(BaseModel):
 _progress_local = threading.local()
 
 
-def set_progress_callback(cb) -> None:  # noqa: ANN001 — Callable[[str], None] | None
+def set_progress_callback(cb) -> None:
     _progress_local.cb = cb
 
 
@@ -222,7 +222,7 @@ class MockProvider:
             vals.append((b / 127.5) - 1.0)
         return vals
 
-    def judge_same_entity(self, mc: "MergeCandidate") -> bool:
+    def judge_same_entity(self, mc: MergeCandidate) -> bool:
         """결정론적 휴리스틱(테스트용): 같은 타입 + 이름/별칭 토큰 포함관계면 동일체."""
         if mc.new_type and mc.cand_type and mc.new_type != mc.cand_type:
             return False
@@ -308,7 +308,7 @@ class MockProvider:
         return out
 
 
-def get_provider(settings) -> Provider:  # noqa: ANN001
+def get_provider(settings) -> Provider:
     """effective_provider 에 따라 provider 인스턴스 반환."""
     eff = settings.effective_provider
     if eff == "antigravity":

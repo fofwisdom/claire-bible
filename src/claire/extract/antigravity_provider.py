@@ -18,20 +18,19 @@ from ..ontology.base import Document
 from ..ontology.registry import ontology_prompt_block
 from .gemini_provider import _coerce
 from .prompts import (
-    PROMPT_VERSION,
     _MERGED_DETAIL_MIN_CHARS,
-    _SYS,
+    PROMPT_VERSION,
     classify_watch_prompt,
-    doc_to_prompt as _doc_to_prompt,
-    extract_fallback_prompt,
     extract_system_prompt,
-    images_block as _images_block,
     judge_research_prompt,
     judge_same_entity_prompt,
     render_detail_prompt,
     research_prompt,
     select_followups_prompt,
     summarize_search_prompt,
+)
+from .prompts import (
+    doc_to_prompt as _doc_to_prompt,
 )
 from .provider import (
     ExtractionResult,

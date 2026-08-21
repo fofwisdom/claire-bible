@@ -21,7 +21,6 @@ from claire.api import security, server
 from claire.extract.provider import emit_progress
 from claire.store import db as dbm
 
-
 OWNER_TOKEN = "owner-" + ("o" * 32)
 READONLY_TOKEN = "readonly-" + ("r" * 32)
 OWNER_HEADERS = {"Authorization": f"Bearer {OWNER_TOKEN}"}

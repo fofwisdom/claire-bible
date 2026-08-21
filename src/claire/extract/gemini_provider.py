@@ -16,14 +16,11 @@ import time as _time
 from ..ontology.base import Document
 from ..ontology.registry import ontology_prompt_block
 from .prompts import (
-    PROMPT_VERSION,
     _MERGED_DETAIL_MIN_CHARS,
-    _SYS,
+    PROMPT_VERSION,
     classify_watch_prompt,
-    doc_to_prompt as _doc_to_prompt,
     extract_fallback_prompt,
     extract_system_prompt,
-    images_block as _images_block,
     judge_research_prompt,
     judge_same_entity_prompt,
     render_detail_prompt,
@@ -31,9 +28,19 @@ from .prompts import (
     select_followups_prompt,
     summarize_search_prompt,
 )
+from .prompts import (
+    doc_to_prompt as _doc_to_prompt,
+)
+from .prompts import (
+    images_block as _images_block,
+)
 from .provider import (
-    ExtractionResult, FollowSelection, MergeCandidate, ResearchJudgement,
-    WatchClassification, emit_progress,
+    ExtractionResult,
+    FollowSelection,
+    MergeCandidate,
+    ResearchJudgement,
+    WatchClassification,
+    emit_progress,
 )
 
 # 프로세스 전역 throttle: 모든 Gemini 호출이 공유하는 최소 간격과 마지막 호출 시각.
@@ -42,13 +49,13 @@ _LAST_CALL = [0.0]
 _RETRYABLE = (429, 500, 503)
 
 
-def _retry_delay_from_error(err) -> float | None:  # noqa: ANN001
+def _retry_delay_from_error(err) -> float | None:
     """에러 메시지에서 권장 retry 지연(초)을 best-effort 로 추출."""
     m = re.search(r"retryDelay['\"]?:\s*['\"]?(\d+(?:\.\d+)?)s", str(err))
     return float(m.group(1)) if m else None
 
 
-def _is_retryable(err) -> bool:  # noqa: ANN001
+def _is_retryable(err) -> bool:
     """429/5xx 류 일시적 오류인지 판정(라이브러리 비의존, duck-typed)."""
     code = getattr(err, "code", None) or getattr(err, "status_code", None)
     if code in _RETRYABLE:
@@ -66,7 +73,7 @@ _DAILY_MARKERS = ("perday", "per day", "per-day", "daily limit", "daily quota",
 _DAILY_RETRY_THRESHOLD = 120.0  # retryDelay 가 이 이상이면 분당 rate 가 아니라 장기 소진
 
 
-def _is_daily_quota(err) -> bool:  # noqa: ANN001
+def _is_daily_quota(err) -> bool:
     """장기 소진(일일 quota/결제 크레딧)이라 지금 재시도가 무의미한지. 분당 rate 와 구분.
 
     보수적: 마커 또는 비정상적으로 큰 retryDelay 일 때만 True. 못 잡으면 기존대로 재시도
@@ -79,7 +86,7 @@ def _is_daily_quota(err) -> bool:  # noqa: ANN001
     return d is not None and d >= _DAILY_RETRY_THRESHOLD
 
 
-def _extract_output_text(interaction) -> str:  # noqa: ANN001
+def _extract_output_text(interaction) -> str:
     """Interactions 응답에서 출력 텍스트를 방어적으로 추출."""
     if interaction is None:
         return ""
@@ -100,7 +107,7 @@ def _extract_output_text(interaction) -> str:  # noqa: ANN001
     return str(interaction)
 
 
-def _extract_sources(interaction) -> list[dict]:  # noqa: ANN001
+def _extract_sources(interaction) -> list[dict]:
     """Interactions 응답에서 grounding 출처 목록을 방어적으로 추출."""
     sources: list[dict] = []
     seen_urls: set[str] = set()
@@ -139,7 +146,7 @@ def _extract_sources(interaction) -> list[dict]:  # noqa: ANN001
 class GeminiProvider:
     name = "gemini"
 
-    def __init__(self, settings):  # noqa: ANN001
+    def __init__(self, settings):
         from google import genai
 
         self._genai = genai
@@ -160,14 +167,14 @@ class GeminiProvider:
                 _time.sleep(wait)
             _LAST_CALL[0] = _time.monotonic()
 
-    def _call(self, fn):  # noqa: ANN001
+    def _call(self, fn):
         """throttle + 429/5xx 지수 백오프 재시도로 Gemini 호출을 감싼다."""
         last = None
         for attempt in range(self.max_retries + 1):
             self._throttle()
             try:
                 return fn()
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 if not _is_retryable(e) or attempt == self.max_retries:
                     raise
                 # circuit breaker(프로세스-로컬, 무상태): 일일 quota 소진은 짧은 백오프로
@@ -211,7 +218,7 @@ class GeminiProvider:
             result.model = self.model
             result.prompt_version = PROMPT_VERSION
             return result
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             # rate limit/서버오류는 재시도 후에도 실패 → 올려서 raw_inbox 에 error 로
             # 남기고 나중에 replay-failed 로 재적재. 그 외(schema 거부 등)는 폴백.
             if _is_retryable(e):
@@ -352,7 +359,7 @@ class GeminiProvider:
             ))
             raw_text = _extract_output_text(interaction)
             return ResearchJudgement.model_validate_json(raw_text).model_dump()
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             if _is_retryable(e):
                 raise  # rate limit 은 위로 — 호출측이 오류로 안내(자동복구 루프와 정합)
             try:
@@ -387,7 +394,7 @@ class GeminiProvider:
             ))
             raw_text = _extract_output_text(interaction)
             sel = FollowSelection.model_validate_json(raw_text)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             if _is_retryable(e):
                 raise  # rate limit 은 위로 — 호출측(expand-loop)이 재시도
             try:

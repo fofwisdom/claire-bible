@@ -15,7 +15,7 @@ from .config import get_settings
 log = logging.getLogger("claire.telegram")
 
 
-def _status_emoji(error, duplicate: bool = False) -> str:  # noqa: ANN001
+def _status_emoji(error, duplicate: bool = False) -> str:
     """처리 결과 → 원본 메시지에 달 텔레그램 허용 reaction 이모지."""
     if error:
         return "👎"
@@ -24,7 +24,7 @@ def _status_emoji(error, duplicate: bool = False) -> str:  # noqa: ANN001
     return "👍"  # 신규/갱신 완료
 
 
-async def _run_with_ticker(status, label, work):  # noqa: ANN001
+async def _run_with_ticker(status, label, work):
     """work(블로킹)를 스레드에서 실행하며 status 메시지를 5초마다 편집(진행 표시).
 
     파이프라인에 단계 콜백이 없으므로 경과 시간만 갱신 = '살아있음'을 알리되 스팸 아님.
@@ -52,7 +52,7 @@ async def _run_with_ticker(status, label, work):  # noqa: ANN001
         tk.cancel()
 
 
-async def _react(msg, emoji: str) -> None:  # noqa: ANN001
+async def _react(msg, emoji: str) -> None:
     """원본 메시지에 reaction(best-effort — 불허 이모지/권한 실패는 무시)."""
     try:
         await msg.set_reaction(emoji)
@@ -99,13 +99,13 @@ def run_bot() -> int:
         return 2
 
     try:
-        from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
         from telegram.ext import (
             Application,
+            CallbackQueryHandler,
+            CommandHandler,
             ContextTypes,
             MessageHandler,
-            CommandHandler,
-            CallbackQueryHandler,
             filters,
         )
     except Exception as e:  # noqa: BLE001
@@ -444,7 +444,7 @@ def run_bot() -> int:
     app.add_handler(MessageHandler(filters.Document.ALL, on_document))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_message))
 
-    async def _post_init(application) -> None:  # noqa: ANN001
+    async def _post_init(application) -> None:
         # 텔레그램 클라이언트 입력창의 '/' 명령 메뉴에 노출.
         from telegram import BotCommand
 

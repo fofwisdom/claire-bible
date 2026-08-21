@@ -11,14 +11,12 @@ import pytest
 from claire.config import Settings
 from claire.extract.prompts import (
     render_detail_prompt,
-    render_detail_prompt_adoc,
-    render_detail_prompt_md,
 )
 from claire.extract.provider import MockProvider
-from claire.graphview import document_detail, node_detail, shared_html, GRAPH_HTML
-from claire.ingest.pipeline import ensure_document_detail, IngestReport
+from claire.graphview import GRAPH_HTML, document_detail, shared_html
+from claire.ingest.pipeline import ensure_document_detail
 from claire.ontology.base import Document
-from claire.render import render_adoc_to_html, render_md_to_html, render_to_html
+from claire.render import render_adoc_to_html, render_md_to_html
 from claire.store import db as dbm
 
 

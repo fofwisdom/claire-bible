@@ -7,13 +7,13 @@ Claire stack.
 
 from __future__ import annotations
 
-from contextlib import contextmanager
-from io import BytesIO
 import json
-from pathlib import Path, PurePosixPath
 import re
 import subprocess
 import tarfile
+from contextlib import contextmanager
+from io import BytesIO
+from pathlib import Path, PurePosixPath
 from unittest.mock import patch
 
 import pytest
@@ -21,7 +21,6 @@ import pytest
 from claire.ontology.base import Document
 from claire.store import db as dbm
 from ops import cb_manuscript as cb
-
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 _REAL_SUBPROCESS_RUN = subprocess.run
@@ -52,7 +51,7 @@ class DockerHarness:
         self.liveness_returncode = liveness_returncode
         self.commands: list[list[str]] = []
 
-    def __call__(self, argv, **kwargs):  # noqa: ANN001
+    def __call__(self, argv, **kwargs):
         command = [str(part) for part in argv]
         if not command or command[0] != "docker":
             return _REAL_SUBPROCESS_RUN(command, **kwargs)

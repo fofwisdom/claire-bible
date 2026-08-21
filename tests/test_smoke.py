@@ -4,18 +4,17 @@ from __future__ import annotations
 
 import sqlite3
 
+from claire.extract.provider import MockProvider
 from claire.ontology.base import Document, Entity, Relation, normalize_name
 from claire.ontology.registry import (
     classify_entity_type,
     classify_relation_type,
-    validate_relation,
     ontology_prompt_block,
+    validate_relation,
 )
-from claire.extract.provider import MockProvider
 from claire.store import db as dbm
 from claire.store.vectors import VectorStore, pack_vector, unpack_vector
 from claire.telegram_bot import classify_input
-
 
 # --- ontology / registry ---
 

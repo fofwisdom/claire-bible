@@ -48,10 +48,10 @@ def build_context(conn: sqlite3.Connection, node_id: str | None = None,
     return "\n\n".join(parts), focus
 
 
-def contextual_research(settings, provider, *, query: str,  # noqa: ANN001
+def contextual_research(settings, provider, *, query: str,
                         node_id: str | None = None,
                         doc_id: str | None = None,
-                        progress=None) -> dict:  # noqa: ANN001
+                        progress=None) -> dict:
     """조사→판정→(통과 시)적재 전체 흐름. 블로킹 — 호출측에서 스레드 오프로드.
 
     progress: Callable[[dict], None] | None — 단계 이벤트 {stage, msg} 를 실시간 전달
@@ -150,7 +150,7 @@ def _research_doc_text(query: str, focus: str, interpretation: str,
     return body
 
 
-def _ingest_report_doc(settings, provider, conn: sqlite3.Connection,  # noqa: ANN001
+def _ingest_report_doc(settings, provider, conn: sqlite3.Connection,
                        query: str, text: str) -> dict:
     from ..ingest.normalize import content_hash
     from ..ingest.pipeline import ingest as run_ingest

@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import re
 import sqlite3
-from typing import Callable
+from collections.abc import Callable
 
 from ..ontology.base import Entity, normalize_name
 from ..store import db as dbm

@@ -11,8 +11,8 @@ import re
 import sqlite3
 from urllib.parse import urlsplit
 
-from ..ontology.base import Document
 from ..ingest.normalize import canonicalize_url
+from ..ontology.base import Document
 
 _URL_RE = re.compile(r"https?://[^\s)\]\}<>\"']+")
 
@@ -47,7 +47,7 @@ _SKIP_PATH_PREFIXES = (
 
 def _host(url: str) -> str:
     h = urlsplit(url).netloc.lower()
-    return h[4:] if h.startswith("www.") else h
+    return h.removeprefix("www.")
 
 
 def _is_blocked(url: str, host: str) -> bool:

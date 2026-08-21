@@ -5,8 +5,6 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-import pytest
-
 import claire.extract.gemini_provider as gp
 from claire.ontology.base import Document
 

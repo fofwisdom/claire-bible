@@ -218,7 +218,7 @@ def _extract_html(
     return (title[:200] if title else None), text, links, anchors, None, images
 
 
-def _collect_images(tree, og_image: str | None) -> list[dict]:  # noqa: ANN001
+def _collect_images(tree, og_image: str | None) -> list[dict]:
     """본문 콘텐츠 이미지 후보를 휴리스틱으로 선별 — [{url, alt, caption}].
 
     명백한 장식/추적/UI 이미지(로고·아이콘·아바타·광고·1x1 픽셀·sprite)는 여기서 거르고,
@@ -228,7 +228,7 @@ def _collect_images(tree, og_image: str | None) -> list[dict]:  # noqa: ANN001
     out: list[dict] = []
     seen: set[str] = set()
 
-    def _consider(url: str, alt: str, caption: str, *, w=None, h=None,  # noqa: ANN001
+    def _consider(url: str, alt: str, caption: str, *, w=None, h=None,
                   cls: str = "") -> None:
         url = (url or "").strip()
         if not url or not url.startswith(("http://", "https://")):

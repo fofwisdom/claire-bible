@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Iterable
 from dataclasses import dataclass
 from http.cookies import SimpleCookie
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Iterable
 
 import pytest
 from starlette.applications import Starlette
@@ -18,7 +18,6 @@ from starlette.routing import Route
 
 from claire.api import security
 from claire.store import db as dbm
-
 
 OWNER_TOKEN = "owner-" + "o" * 32
 READONLY_TOKEN = "readonly-" + "r" * 32

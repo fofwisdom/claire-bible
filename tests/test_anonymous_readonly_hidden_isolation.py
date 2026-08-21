@@ -11,7 +11,6 @@ from claire.api.server import create_app
 from claire.ontology.base import Document, Entity, Relation
 from claire.store import db as dbm
 
-
 OWNER_TOKEN = "owner-" + ("o" * 32)
 READONLY_TOKEN = "readonly-" + ("r" * 32)
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 
+from claire.extract.provider import MockProvider
 from claire.graphview import (
     GRAPH_HTML,
     documents_list,
@@ -14,7 +15,6 @@ from claire.graphview import (
     synthesis_context,
     synthesize,
 )
-from claire.extract.provider import MockProvider
 from claire.ontology.base import Document, Entity, Relation
 from claire.store import db as dbm
 
@@ -285,7 +285,7 @@ def test_node_detail_includes_document_detail():
     assert node_detail(conn, "e1")["documents"][0]["detail"] == ""   # 백필 전엔 빈값
     assert ensure_document_detail(conn, MockProvider(), doc, force=True) is True
     d = node_detail(conn, "e1")
-    assert d["documents"][0]["detail"].startswith("[mock-detail]")
+    assert d["documents"][0]["detail"].startswith("[mock-detail-adoc]")
     assert dbm.counts(conn)["entities"] == 1            # 그래프는 그대로(detail 만 채움)
 
 

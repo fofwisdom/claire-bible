@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import re
-from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 # 추적용 쿼리 파라미터 — canonical_url 에서 제거
 _TRACKING = {

@@ -12,10 +12,12 @@ from __future__ import annotations
 import json
 import sqlite3
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable
 
+from ..extract.provider import Provider, emit_progress
+from ..extract.resolver import resolve_or_create
 from ..ontology.base import Document, Relation
 from ..ontology.registry import (
     classify_entity_type,
@@ -23,10 +25,8 @@ from ..ontology.registry import (
     validate_relation,
 )
 from ..store import db as dbm
-from ..store.vectors import VectorStore
 from ..store.vault import export_entities
-from ..extract.provider import Provider, emit_progress
-from ..extract.resolver import resolve_or_create
+from ..store.vectors import VectorStore
 from .router import fetch as default_fetch
 
 

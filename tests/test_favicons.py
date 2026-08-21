@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+
 import pytest
 from starlette.testclient import TestClient
 
@@ -100,7 +100,7 @@ def test_icon_query_endpoint(client: TestClient) -> None:
 
 def test_graph_ui_contains_favicon_tags(client: TestClient) -> None:
     # Even without auth, graph UI template has the head tags
-    from claire.graphview import GRAPH_HTML, _SHARED_HTML
+    from claire.graphview import _SHARED_HTML, GRAPH_HTML
     for html in (GRAPH_HTML, _SHARED_HTML):
         assert 'name="application-name" content="Claire Bible"' in html
         assert 'name="apple-mobile-web-app-title" content="Claire Bible"' in html
