@@ -2698,11 +2698,11 @@ const ClaireStatusBanner = (function(){
         const cfg = (data.configured || 'adoc').toUpperCase();
         const other = (data.configured === 'adoc' ? 'md' : 'adoc').toUpperCase();
         const count = data.mismatched || data.mismatched_docs || 0;
-        return '.env 설정은 <b>' + cfg + '</b>이나, DB 문서 중 <b>' + count + '개</b>가 <b>' + other + '</b> 포맷입니다. <code>./cb-manuscript format-migrate --format ' + (data.configured || 'adoc') + '</code> 실행이 필요합니다.';
+        return '.env 설정은 <b>' + cfg + '</b>이나, DB 문서 중 <b>' + count + '개</b>가 <b>' + other + '</b> 포맷입니다. <code>./cb-manuscript format-migrate --apply</code> 실행이 필요합니다.';
       },
       actionLabel: '📋 명령어 복사',
       action: function(data, btn){
-        const cmd = './cb-manuscript format-migrate --format ' + (data.configured || 'adoc');
+        const cmd = './cb-manuscript format-migrate --apply';
         if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
           navigator.clipboard.writeText(cmd).catch(function(){});
         }
@@ -2719,11 +2719,11 @@ const ClaireStatusBanner = (function(){
       title: '가독 렌더링 미생성',
       render: function(data){
         const count = data.missing_detail_docs || 0;
-        return '전체 문서 중 <b>' + count + '개</b>의 본문(detail)이 아직 생성되지 않았습니다. <code>./cb-manuscript format-migrate --format ' + (data.configured || 'adoc') + '</code> 실행으로 자동 생성할 수 있습니다.';
+        return '전체 문서 중 <b>' + count + '개</b>의 본문(detail)이 아직 생성되지 않았습니다. <code>./cb-manuscript format-migrate --apply</code> 실행으로 자동 생성할 수 있습니다.';
       },
       actionLabel: '📋 명령어 복사',
       action: function(data, btn){
-        const cmd = './cb-manuscript format-migrate --format ' + (data.configured || 'adoc');
+        const cmd = './cb-manuscript format-migrate --apply';
         if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
           navigator.clipboard.writeText(cmd).catch(function(){});
         }

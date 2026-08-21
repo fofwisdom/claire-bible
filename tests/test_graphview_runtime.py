@@ -846,7 +846,7 @@ tests.push({
 banner.handleAction();
 tests.push({
   name: 'format_mismatch_action',
-  copiedCmd: clipboardText.includes('format-migrate --format adoc')
+  copiedCmd: clipboardText.includes('format-migrate --apply')
 });
 
 // 4. format_missing show

@@ -18,13 +18,13 @@ def _inline_adoc_format(text: str) -> str:
     # HTML 특수문자 이스케이프 선행
     s = html.escape(text)
     # 형광 하이라이트: #텍스트# -> <mark>텍스트</mark>
-    s = re.sub(r"#([^#\n]+?)#", r"<mark>\1</mark>", s)
+    s = re.sub(r"#(?!\s)([^#\n]+?)(?<!\s)#", r"<mark>\1</mark>", s)
     # 굵은 글씨: *텍스트* -> <strong>텍스트</strong>
-    s = re.sub(r"(?<!\w)\*([^*\n]+?)\*(?!\w)", r"<strong>\1</strong>", s)
+    s = re.sub(r"\*(?!\s)([^*\n]+?)(?<!\s)\*", r"<strong>\1</strong>", s)
     # 기울임꼴: _텍스트_ -> <em>텍스트</em>
-    s = re.sub(r"(?<!\w)_([^_\n]+?)_(?!\w)", r"<em>\1</em>", s)
+    s = re.sub(r"_(?!\s)([^_\n]+?)(?<!\s)_", r"<em>\1</em>", s)
     # 인라인 코드: `텍스트` -> <code>텍스트</code>
-    s = re.sub(r"`([^`\n]+?)`", r"<code>\1</code>", s)
+    s = re.sub(r"`(?!\s)([^`\n]+?)(?<!\s)`", r"<code>\1</code>", s)
     # 명시적 링크: https://url[텍스트] -> <a href="url" target="_blank" rel="noopener">텍스트</a>
     s = re.sub(
         r"(https?://[^\s\[\]]+)\[(.*?)\]",
@@ -223,7 +223,11 @@ def render_adoc_to_html(raw: str) -> str:
                 out.append(f'<div class="colist"><span class="conum">&lt;{conum}&gt;</span> {text}</div>')
                 continue
 
-            # 7. 섹션 헤더 (==, ===, ====)
+            # 7. 섹션 헤더 (=, ==, ===, ====) 및 문서 속성
+            h1_m = re.match(r"^=\s+(.+)$", trimmed)
+            if h1_m:
+                out.append(f"<h1>{_inline_adoc_format(h1_m.group(1))}</h1>")
+                continue
             h2_m = re.match(r"^==\s+(.+)$", trimmed)
             if h2_m:
                 out.append(f"<h2>{_inline_adoc_format(h2_m.group(1))}</h2>")
@@ -235,6 +239,12 @@ def render_adoc_to_html(raw: str) -> str:
             h4_m = re.match(r"^====\s+(.+)$", trimmed)
             if h4_m:
                 out.append(f"<h4>{_inline_adoc_format(h4_m.group(1))}</h4>")
+                continue
+
+            # 문서 속성 (:key: value)
+            attr_m = re.match(r"^:[a-zA-Z0-9_-]+:\s*(.*)$", trimmed)
+            if attr_m:
+                # 일반적인 Asciidoc 속성은 시각적으로 렌더링하지 않습니다.
                 continue
 
             # 8. 단일 행 인라인 Admonition (예: NOTE: 설명)
