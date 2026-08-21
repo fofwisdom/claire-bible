@@ -53,6 +53,16 @@ _STATIC_ICONS_DIR = Path(__file__).resolve().parent.parent / "static" / "icons"
 _ICON_FILENAME_RE = re.compile(
     r"^[A-Za-z0-9_.-]+\.(?:png|svg|ico|json|xml|webmanifest)$"
 )
+_STATIC_FONTS_DIR = Path(__file__).resolve().parent.parent / "static" / "fonts"
+_FONT_FILENAME_RE = re.compile(r"^[A-Za-z0-9_.-]+\.woff2$")
+FONTS = (
+    "NotoSansKR-Regular.woff2",
+    "NotoSansKR-Bold.woff2",
+    "NotoSerifKR-Regular.woff2",
+    "NotoSerifKR-Bold.woff2",
+    "D2Coding.woff2",
+    "D2CodingBold.woff2",
+)
 _MAX_SEARCH_QUERY_LENGTH = 2000
 _MAX_SEARCH_RESULTS = 50
 _MAX_ANONYMOUS_SEARCH_RESULTS = 20
@@ -356,6 +366,32 @@ def create_app(
         elif rel.endswith(".xml"):
             media_type = "application/xml"
         return FileResponse(path, media_type=media_type)
+
+    def _create_font_file_handler(name: str) -> Any:
+        async def _font_route(_request: Request) -> Response:
+            path = _STATIC_FONTS_DIR / name
+            if not path.is_file():
+                return PlainTextResponse("Not Found", status_code=404)
+            return FileResponse(
+                path,
+                media_type="font/woff2",
+                headers={"Cache-Control": "public, max-age=31536000, immutable"},
+            )
+
+        return _font_route
+
+    async def font_file_route(request: Request) -> Response:
+        rel = request.query_params.get("p", "") or request.query_params.get("name", "")
+        if not _FONT_FILENAME_RE.fullmatch(rel):
+            return PlainTextResponse("Not Found", status_code=404)
+        path = _STATIC_FONTS_DIR / rel
+        if not path.is_file():
+            return PlainTextResponse("Not Found", status_code=404)
+        return FileResponse(
+            path,
+            media_type="font/woff2",
+            headers={"Cache-Control": "public, max-age=31536000, immutable"},
+        )
 
     async def image_route(request: Request) -> Response:
         rel = request.query_params.get("p", "")
@@ -801,6 +837,11 @@ def create_app(
         Route("/site.webmanifest", manifest_route, methods=["GET"]),
         Route("/browserconfig.xml", browserconfig_route, methods=["GET"]),
         Route("/icon", icon_file_route, methods=["GET"]),
+        Route("/font", font_file_route, methods=["GET"]),
+        *(
+            Route(f"/fonts/{font_name}", _create_font_file_handler(font_name), methods=["GET"])
+            for font_name in FONTS
+        ),
         Route("/whoami", whoami, methods=["GET"]),
         Route("/stats", stats, methods=["GET"]),
         Route("/ingest", do_ingest, methods=["POST"]),

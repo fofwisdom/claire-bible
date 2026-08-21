@@ -287,6 +287,10 @@ GRAPH_HTML = """<!doctype html>
 <link rel="manifest" href="/manifest.json"/>
 <link rel="mask-icon" href="/favicon.svg" color="#00ffaa"/>
 <meta name="theme-color" content="#0e1116"/>
+<!-- Google Fonts (Noto Sans KR, Noto Serif KR) -->
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&family=Noto+Serif+KR:wght@400;700&display=swap"/>
 <script src="https://unpkg.com/vis-network@9.1.11/standalone/umd/vis-network.min.js" integrity="sha384-60H6/hL99pRYjWacRdebxM1T2R6jvWyd9GVAb7d4fp9BSfv4f0i5sWjkprnnG0cz" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/marked@4.3.0/marked.min.js" integrity="sha384-QsSpx6a0USazT7nK7w8qXDgpSAPhFsb2XtpoLFQ5+X2yFN6hvCKnwEzN8M5FWaJb" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/dompurify@3.1.6/dist/purify.min.js" integrity="sha384-+VfUPEb0PdtChMwmBcBmykRMDd+v6D/oFmB3rZM/puCMDYcIvF968OimRh4KQY9a" crossorigin="anonymous"></script>
@@ -331,6 +335,55 @@ GRAPH_HTML = """<!doctype html>
   }, 2500);
 </script>
 <style>
+  /* --- CJK (한국어) Web Fonts (docs.asciidoctor.org) --- */
+  @font-face{
+    font-family:'Noto Sans KR';
+    font-style:normal;
+    font-weight:400;
+    font-display:swap;
+    src:local('Noto Sans KR Regular'),local('Noto Sans KR'),local('NotoSansKR-Regular'),
+        url('/fonts/NotoSansKR-Regular.woff2') format('woff2');
+  }
+  @font-face{
+    font-family:'Noto Sans KR';
+    font-style:normal;
+    font-weight:700;
+    font-display:swap;
+    src:local('Noto Sans KR Bold'),local('Noto Sans KR'),local('NotoSansKR-Bold'),
+        url('/fonts/NotoSansKR-Bold.woff2') format('woff2');
+  }
+  @font-face{
+    font-family:'Noto Serif KR';
+    font-style:normal;
+    font-weight:400;
+    font-display:swap;
+    src:local('Noto Serif KR Regular'),local('Noto Serif KR'),local('NotoSerifKR-Regular'),
+        url('/fonts/NotoSerifKR-Regular.woff2') format('woff2');
+  }
+  @font-face{
+    font-family:'Noto Serif KR';
+    font-style:normal;
+    font-weight:700;
+    font-display:swap;
+    src:local('Noto Serif KR Bold'),local('Noto Serif KR'),local('NotoSerifKR-Bold'),
+        url('/fonts/NotoSerifKR-Bold.woff2') format('woff2');
+  }
+  @font-face{
+    font-family:'D2Coding';
+    font-style:normal;
+    font-weight:400;
+    font-display:swap;
+    src:local('D2Coding'),local('D2 Coding'),
+        url('/fonts/D2Coding.woff2') format('woff2');
+  }
+  @font-face{
+    font-family:'D2Coding';
+    font-style:normal;
+    font-weight:700;
+    font-display:swap;
+    src:local('D2Coding Bold'),local('D2 Coding Bold'),
+        url('/fonts/D2CodingBold.woff2') format('woff2');
+  }
   /* 라이트 기본(:root) + 다크 옵션([data-theme=dark]). 색은 전부 CSS 변수로 — vis 캔버스
      색만 JS(THEMES)로 따로 갱신(캔버스는 CSS 변수가 안 닿음). */
   :root{
@@ -350,7 +403,7 @@ GRAPH_HTML = """<!doctype html>
     --rel:#d29922; --nodebtn-hover:#2a3344; --shadow:rgba(1,4,9,.6);
   }
   *{box-sizing:border-box}
-  html,body{margin:0;height:100%;font-family:system-ui,sans-serif;background:var(--bg);color:var(--fg)}
+  html,body{margin:0;height:100%;font-family:'Noto Sans KR','Noto Sans Korean',system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--fg);word-break:keep-all;overflow-wrap:break-word}
   body{min-height:100vh;min-height:100dvh;display:flex;flex-direction:column;overflow:hidden}
   .sr-only{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;
     margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;
@@ -374,8 +427,8 @@ GRAPH_HTML = """<!doctype html>
   .status-banner-badge{display:inline-flex;align-items:center;gap:4px;font-weight:700;white-space:nowrap;
     padding:1px 6px;border-radius:4px;background:rgba(0,0,0,.06);font-size:11.5px}
   [data-theme="dark"] .status-banner-badge{background:rgba(255,255,255,.1)}
-  .status-banner-msg{word-break:break-word}
-  #format-warn-banner code{background:rgba(0,0,0,.07);padding:2px 6px;border-radius:4px;font-family:monospace;font-size:11.5px;color:inherit;border:1px solid rgba(0,0,0,.08)}
+  .status-banner-msg{word-break:keep-all;overflow-wrap:break-word}
+  #format-warn-banner code{background:rgba(0,0,0,.07);padding:2px 6px;border-radius:4px;font-family:'D2Coding','D2 Coding','SFMono-Regular',Menlo,Monaco,Consolas,'Liberation Mono',monospace;font-size:11.5px;color:inherit;border:1px solid rgba(0,0,0,.08)}
   [data-theme="dark"] #format-warn-banner code{background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.12)}
   .status-banner-actions{display:flex;align-items:center;gap:6px;flex-shrink:0}
   .banner-act-btn{background:rgba(0,0,0,.06);color:inherit;border:1px solid rgba(0,0,0,.15);border-radius:4px;
@@ -539,16 +592,17 @@ GRAPH_HTML = """<!doctype html>
   }
   #panel input[type=radio]{width:auto;vertical-align:middle}
   /* --- 마크다운 본문(읽기 팝업 + 패널 detail) --- */
-  .md{line-height:1.75;font-size:14px;word-break:break-word}
+  .md{line-height:1.75;font-size:14px;word-break:keep-all;overflow-wrap:break-word}
   #reader .rbody .md{font-size:var(--read-fs,16px)}
   .md h1{font-size:1.5em} .md h2{font-size:1.3em;margin:1.1em 0 .4em;border-bottom:1px solid var(--border);padding-bottom:.2em}
   .md h3{font-size:1.12em;margin:1em 0 .35em;color:var(--fg);border:0}
   .md p{margin:.6em 0} .md ul,.md ol{margin:.5em 0;padding-left:1.5em} .md li{margin:.3em 0}
   .md strong{color:var(--fg)} .md a{color:var(--accent)}
   .md img{max-width:100%;height:auto;display:block;margin:.8em auto;border-radius:6px;border:1px solid var(--border)}
-  .md em{color:var(--muted)} .md blockquote{margin:.6em 0;padding:.2em .9em;border-left:3px solid var(--border);color:var(--muted)}
-  .md code{background:var(--chip-bg);padding:.1em .35em;border-radius:3px;font-size:.9em}
+  .md em{color:var(--muted)} .md blockquote{margin:.6em 0;padding:.2em .9em;border-left:3px solid var(--border);color:var(--muted);font-family:'Noto Serif KR','Noto Serif Korean',Georgia,'Times New Roman',serif}
+  .md code{background:var(--chip-bg);padding:.1em .35em;border-radius:3px;font-size:.9em;font-family:'D2Coding','D2 Coding','SFMono-Regular',Menlo,Monaco,Consolas,'Liberation Mono',monospace}
   .md pre{background:var(--card-bg);border:1px solid var(--border);border-radius:6px;padding:.8em;overflow:auto}
+  .md pre code{font-family:'D2Coding','D2 Coding','SFMono-Regular',Menlo,Monaco,Consolas,'Liberation Mono',monospace}
   .md table{border-collapse:collapse;margin:.6em 0;width:100%} .md th,.md td{border:1px solid var(--border);padding:.35em .65em}
   .md th{background:var(--chip-bg);font-weight:600}
   /* --- AsciiDoc & Markdown 확장 스타일 --- */
@@ -562,10 +616,10 @@ GRAPH_HTML = """<!doctype html>
   .md .admonitionblock.caution{border-left-color:var(--rel)}
   .md .admonitionblock .title,.md .admonitionblock td.icon{font-weight:700;margin-bottom:.3em;text-transform:uppercase;font-size:.85em;letter-spacing:.03em;color:var(--muted)}
   .md .quoteblock{margin:1.1em 0;padding:.6em 1.1em;border-left:3px solid var(--accent);background:var(--card-bg);border-radius:0 6px 6px 0}
-  .md .quoteblock blockquote{margin:0;padding:0;border:none;color:var(--fg)}
+  .md .quoteblock blockquote{margin:0;padding:0;border:none;color:var(--fg);font-family:'Noto Serif KR','Noto Serif Korean',Georgia,'Times New Roman',serif}
   .md .quoteblock .attribution{margin-top:.4em;font-size:.85em;color:var(--muted);text-align:right}
-  .md .colist{margin:.5em 0;padding-left:1.2em;font-size:.9em}
-  .md .conum{display:inline-block;background:var(--accent);color:#fff;border-radius:50%;width:18px;height:18px;line-height:18px;text-align:center;font-size:11px;font-weight:bold;margin-right:4px;vertical-align:middle}
+  .md .colist{margin:.5em 0;padding-left:1.2em;font-size:.9em;font-family:'D2Coding','D2 Coding','SFMono-Regular',Menlo,Monaco,Consolas,'Liberation Mono',monospace}
+  .md .conum{display:inline-block;background:var(--accent);color:#fff;border-radius:50%;width:18px;height:18px;line-height:18px;text-align:center;font-size:11px;font-weight:bold;margin-right:4px;vertical-align:middle;font-family:'D2Coding','D2 Coding',monospace}
   .md .imageblock{margin:1em auto;text-align:center}
   .md .imageblock img{max-width:100%;height:auto;display:block;margin:0 auto;border-radius:6px;border:1px solid var(--border)}
   .md .imageblock .title{font-size:.85em;color:var(--muted);margin-top:.4em;font-style:italic}
@@ -2930,15 +2984,68 @@ _SHARED_HTML = """<!doctype html>
 <link rel="manifest" href="/manifest.json"/>
 <link rel="mask-icon" href="/favicon.svg" color="#00ffaa"/>
 <meta name="theme-color" content="#0e1116"/>
+<!-- Google Fonts (Noto Sans KR, Noto Serif KR) -->
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&family=Noto+Serif+KR:wght@400;700&display=swap"/>
 <script src="https://unpkg.com/marked@4.3.0/marked.min.js" integrity="sha384-QsSpx6a0USazT7nK7w8qXDgpSAPhFsb2XtpoLFQ5+X2yFN6hvCKnwEzN8M5FWaJb" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/dompurify@3.1.6/dist/purify.min.js" integrity="sha384-+VfUPEb0PdtChMwmBcBmykRMDd+v6D/oFmB3rZM/puCMDYcIvF968OimRh4KQY9a" crossorigin="anonymous"></script>
 <style>
+  /* --- CJK (한국어) Web Fonts (docs.asciidoctor.org) --- */
+  @font-face{
+    font-family:'Noto Sans KR';
+    font-style:normal;
+    font-weight:400;
+    font-display:swap;
+    src:local('Noto Sans KR Regular'),local('Noto Sans KR'),local('NotoSansKR-Regular'),
+        url('/fonts/NotoSansKR-Regular.woff2') format('woff2');
+  }
+  @font-face{
+    font-family:'Noto Sans KR';
+    font-style:normal;
+    font-weight:700;
+    font-display:swap;
+    src:local('Noto Sans KR Bold'),local('Noto Sans KR'),local('NotoSansKR-Bold'),
+        url('/fonts/NotoSansKR-Bold.woff2') format('woff2');
+  }
+  @font-face{
+    font-family:'Noto Serif KR';
+    font-style:normal;
+    font-weight:400;
+    font-display:swap;
+    src:local('Noto Serif KR Regular'),local('Noto Serif KR'),local('NotoSerifKR-Regular'),
+        url('/fonts/NotoSerifKR-Regular.woff2') format('woff2');
+  }
+  @font-face{
+    font-family:'Noto Serif KR';
+    font-style:normal;
+    font-weight:700;
+    font-display:swap;
+    src:local('Noto Serif KR Bold'),local('Noto Serif KR'),local('NotoSerifKR-Bold'),
+        url('/fonts/NotoSerifKR-Bold.woff2') format('woff2');
+  }
+  @font-face{
+    font-family:'D2Coding';
+    font-style:normal;
+    font-weight:400;
+    font-display:swap;
+    src:local('D2Coding'),local('D2 Coding'),
+        url('/fonts/D2Coding.woff2') format('woff2');
+  }
+  @font-face{
+    font-family:'D2Coding';
+    font-style:normal;
+    font-weight:700;
+    font-display:swap;
+    src:local('D2Coding Bold'),local('D2 Coding Bold'),
+        url('/fonts/D2CodingBold.woff2') format('woff2');
+  }
   :root{--bg:#ffffff;--fg:#1f2328;--muted:#656d76;--border:#d0d7de;--accent:#0969da;
     --accent2:#1a7f37;--card-bg:#f6f8fa;--chip-bg:#eaeef2;--mark-bg:#fff8c5;--mark-fg:#633c01}
   @media (prefers-color-scheme:dark){:root{--bg:#0e1116;--fg:#d7dbe0;--muted:#8b949e;
     --border:#2a2f37;--accent:#58a6ff;--accent2:#7ee787;--card-bg:#161b22;--chip-bg:#1f2937;
     --mark-bg:#4d3800;--mark-fg:#ffdf5d}}
-  html,body{margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,sans-serif}
+  html,body{margin:0;background:var(--bg);color:var(--fg);font-family:'Noto Sans KR','Noto Sans Korean',system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;word-break:keep-all;overflow-wrap:break-word}
   .wrap{max-width:780px;margin:0 auto;padding:28px 18px 80px}
   h1{font-size:24px;margin:.2em 0} .meta{color:var(--muted);font-size:13px;margin:.2em 0 1.2em}
   .meta a{color:var(--accent);text-decoration:none}
@@ -2946,14 +3053,15 @@ _SHARED_HTML = """<!doctype html>
   .brand{color:var(--accent2);font-weight:600;font-size:12px}
   .foot{margin-top:2.5em;padding-top:1em;border-top:1px solid var(--border);color:var(--muted);font-size:12px}
   mark{background:var(--mark-bg);color:var(--mark-fg);padding:0 .15em;border-radius:2px}
-  .md{line-height:1.75;font-size:16px;word-break:break-word}
+  .md{line-height:1.75;font-size:16px;word-break:keep-all;overflow-wrap:break-word}
   .md h2{font-size:1.3em;margin:1.1em 0 .4em;border-bottom:1px solid var(--border);padding-bottom:.2em}
   .md h3{font-size:1.12em;margin:1em 0 .35em} .md p{margin:.6em 0}
   .md ul,.md ol{margin:.5em 0;padding-left:1.5em} .md li{margin:.3em 0}
   .md a{color:var(--accent)} .md img{max-width:100%;height:auto;display:block;margin:.8em auto;border-radius:6px;border:1px solid var(--border)}
-  .md blockquote{margin:.6em 0;padding:.2em .9em;border-left:3px solid var(--border);color:var(--muted)}
-  .md code{background:var(--chip-bg);padding:.1em .35em;border-radius:3px;font-size:.9em}
+  .md blockquote{margin:.6em 0;padding:.2em .9em;border-left:3px solid var(--border);color:var(--muted);font-family:'Noto Serif KR','Noto Serif Korean',Georgia,'Times New Roman',serif}
+  .md code{background:var(--chip-bg);padding:.1em .35em;border-radius:3px;font-size:.9em;font-family:'D2Coding','D2 Coding','SFMono-Regular',Menlo,Monaco,Consolas,'Liberation Mono',monospace}
   .md pre{background:var(--card-bg);border:1px solid var(--border);border-radius:6px;padding:.8em;overflow:auto}
+  .md pre code{font-family:'D2Coding','D2 Coding','SFMono-Regular',Menlo,Monaco,Consolas,'Liberation Mono',monospace}
   .md table{border-collapse:collapse;margin:.6em 0;width:100%} .md th,.md td{border:1px solid var(--border);padding:.35em .65em}
   .md th{background:var(--chip-bg);font-weight:600}
   /* --- AsciiDoc & Markdown 확장 스타일 --- */
@@ -2967,10 +3075,10 @@ _SHARED_HTML = """<!doctype html>
   .md .admonitionblock.caution{border-left-color:var(--rel, #9a6700)}
   .md .admonitionblock .title,.md .admonitionblock td.icon{font-weight:700;margin-bottom:.3em;text-transform:uppercase;font-size:.85em;letter-spacing:.03em;color:var(--muted)}
   .md .quoteblock{margin:1.1em 0;padding:.6em 1.1em;border-left:3px solid var(--accent);background:var(--card-bg);border-radius:0 6px 6px 0}
-  .md .quoteblock blockquote{margin:0;padding:0;border:none;color:var(--fg)}
+  .md .quoteblock blockquote{margin:0;padding:0;border:none;color:var(--fg);font-family:'Noto Serif KR','Noto Serif Korean',Georgia,'Times New Roman',serif}
   .md .quoteblock .attribution{margin-top:.4em;font-size:.85em;color:var(--muted);text-align:right}
-  .md .colist{margin:.5em 0;padding-left:1.2em;font-size:.9em}
-  .md .conum{display:inline-block;background:var(--accent);color:#fff;border-radius:50%;width:18px;height:18px;line-height:18px;text-align:center;font-size:11px;font-weight:bold;margin-right:4px;vertical-align:middle}
+  .md .colist{margin:.5em 0;padding-left:1.2em;font-size:.9em;font-family:'D2Coding','D2 Coding','SFMono-Regular',Menlo,Monaco,Consolas,'Liberation Mono',monospace}
+  .md .conum{display:inline-block;background:var(--accent);color:#fff;border-radius:50%;width:18px;height:18px;line-height:18px;text-align:center;font-size:11px;font-weight:bold;margin-right:4px;vertical-align:middle;font-family:'D2Coding','D2 Coding',monospace}
   .md .imageblock{margin:1em auto;text-align:center}
   .md .imageblock img{max-width:100%;height:auto;display:block;margin:0 auto;border-radius:6px;border:1px solid var(--border)}
   .md .imageblock .title{font-size:.85em;color:var(--muted);margin-top:.4em;font-style:italic}

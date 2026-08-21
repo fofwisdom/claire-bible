@@ -244,6 +244,13 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         "/site.webmanifest",
         "/browserconfig.xml",
         "/icon",
+        "/font",
+        "/fonts/NotoSansKR-Regular.woff2",
+        "/fonts/NotoSansKR-Bold.woff2",
+        "/fonts/NotoSerifKR-Regular.woff2",
+        "/fonts/NotoSerifKR-Bold.woff2",
+        "/fonts/D2Coding.woff2",
+        "/fonts/D2CodingBold.woff2",
         "/p",
         "/image",
     }
