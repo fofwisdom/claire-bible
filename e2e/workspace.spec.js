@@ -272,3 +272,57 @@ test('mobile bottom bar returns to doc list when switching from search tab to do
   expect(pageErrors).toEqual([]);
 });
 
+test('compact menu icon mode toggles and preserves accessibility and interaction', async ({ page }) => {
+  const pageErrors = [];
+  page.on('pageerror', error => pageErrors.push(error.message));
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await waitForClaire(page);
+  await expectNoHorizontalOverflow(page);
+
+  // 1. Detailpane is visible and aria-hidden is false on desktop
+  const detailPane = page.locator('#detailpane');
+  await expect(detailPane).toBeVisible();
+  await expect(detailPane).toHaveAttribute('aria-hidden', 'false');
+
+  // 2. Toggle button exists in doc header
+  const toggleBtn = page.locator('#docstogglebtn');
+  await expect(toggleBtn).toBeVisible();
+
+  // 3. Compact mode active when detailpane is open: docs is compact rail
+  const docs = page.locator('#docs');
+  await expect(docs).toBeVisible();
+  const docsBox = await docs.boundingBox();
+  expect(docsBox.width).toBeLessThanOrEqual(65);
+
+  // 4. In compact mode, doc items show icon tile and preserve tooltips/aria-labels
+  const firstDoc = page.locator('.docitem').first();
+  await expect(firstDoc).toBeVisible();
+  await expect(firstDoc).toHaveAttribute('title');
+  await expect(firstDoc).toHaveAttribute('aria-label');
+
+  // 5. Clicking toggle button expands to full width
+  await toggleBtn.click();
+  await expect.poll(
+    () => page.evaluate(() => window.claireDebug.docsCompact),
+  ).toBe(false);
+  const expandedBox = await docs.boundingBox();
+  expect(expandedBox.width).toBeGreaterThanOrEqual(240);
+  await expect(page.locator('#docq')).toBeVisible();
+
+  // 6. Clicking toggle button again restores compact mode
+  await toggleBtn.click();
+  await expect.poll(
+    () => page.evaluate(() => window.claireDebug.docsCompact),
+  ).toBe(true);
+  const recompactBox = await docs.boundingBox();
+  expect(recompactBox.width).toBeLessThanOrEqual(65);
+
+  // 7. Clicking doc item in compact mode selects document
+  await firstDoc.click();
+  await expect.poll(
+    () => page.evaluate(() => window.claireDebug.activeDoc),
+  ).not.toBeNull();
+
+  expect(pageErrors).toEqual([]);
+});
+

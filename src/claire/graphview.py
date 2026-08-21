@@ -393,6 +393,7 @@ GRAPH_HTML = """<!doctype html>
     --card-bg:#ffffff; --detail-bg:#ffffff; --mark-bg:#fff8c5; --mark-fg:#633c01;
     --btn-bg:#1f883d; --btn-fg:#ffffff; --sec-bg:#eaeef2; --sec-fg:#24292f;
     --rel:#9a6700; --nodebtn-hover:#dde3ea; --shadow:rgba(31,35,40,.28);
+    --docs-width:280px; --docs-compact-width:56px; --detail-width:360px;
   }
   [data-theme="dark"]{
     --bg:#0e1116; --fg:#d7dbe0; --muted:#8b949e; --bar-bg:#161b22; --border:#2a2f37;
@@ -455,8 +456,10 @@ GRAPH_HTML = """<!doctype html>
   #drawerbackdrop{position:fixed;inset:0;z-index:35;background:rgba(0,0,0,.45);opacity:0;pointer-events:none;transition:opacity .2s ease}
   body.drawer-open #drawerbackdrop,
   body.detail-open #drawerbackdrop{opacity:1;pointer-events:auto}
-  #wrap{position:relative;display:grid;grid-template-columns:280px minmax(420px,1fr) 360px;
-    flex:1;min-height:0;overflow:hidden}
+  #wrap{position:relative;display:grid;grid-template-columns:var(--docs-width,280px) minmax(420px,1fr) var(--detail-width,360px);
+    flex:1;min-height:0;overflow:hidden;transition:grid-template-columns .2s ease}
+  body.docs-compact #wrap,
+  #wrap.docs-compact{grid-template-columns:var(--docs-compact-width,56px) minmax(420px,1fr) var(--detail-width,360px)}
   /* #netwrap 이 위치 기준자, #net 은 vis.Network 컨테이너(vis 가 init 시 innerHTML 을
      지우므로 — 확인됨 — #zoomctl 은 #net *밖*, 형제로 둬야 살아남는다). */
   .workspace-pane{min-width:0;min-height:0}
@@ -475,8 +478,12 @@ GRAPH_HTML = """<!doctype html>
     transform:translateX(-50%);padding:7px 11px;border:1px solid var(--accent);
     border-radius:18px;background:var(--card-bg);box-shadow:0 4px 16px var(--shadow);font-size:12px}
   #graphnotice.on{display:block}
-  #docs{width:280px;display:flex;flex-direction:column;background:var(--docs-bg);border-right:1px solid var(--border);font-size:13px}
+  #docs{width:100%;display:flex;flex-direction:column;background:var(--docs-bg);border-right:1px solid var(--border);font-size:13px;overflow:hidden}
   #docs .dhead{padding:8px 10px;border-bottom:1px solid var(--border);flex-shrink:0}
+  .dhead-row{display:flex;align-items:center;gap:6px;width:100%}
+  #docstogglebtn{background:var(--sec-bg);color:var(--sec-fg);border:1px solid var(--border);border-radius:4px;
+    padding:3px 6px;font-size:13px;line-height:1;cursor:pointer;flex-shrink:0;transition:transform .2s ease}
+  #docstogglebtn:hover{background:var(--hover);border-color:var(--accent)}
   /* 즐겨찾기(고정) 섹션 */
   #pinnedhead{padding:5px 10px;font-size:11.5px;color:var(--muted);background:rgba(227,179,65,.18);flex-shrink:0}
   #pinnedlist{max-height:32%;overflow-y:auto;flex-shrink:0;border-bottom:2px solid var(--border);
@@ -493,6 +500,8 @@ GRAPH_HTML = """<!doctype html>
   .docitem.unread{border-left:3px solid var(--accent2)} .docitem.unread b{font-weight:700}
   .docitem .ubadge{color:var(--accent2);font-size:10px;margin-right:4px;vertical-align:middle}
   .docitem .wbadge{font-size:11px;margin-right:2px}
+  .docitem .doc-icon-tile{display:none}
+  .docitem .doc-icon-wrap{display:inline}
   .docitem p{margin:.25em 0 0;color:var(--muted);font-size:12px;line-height:1.45;overflow:hidden;
     display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical}
   #docs.lc0 .docitem p{display:none}
@@ -506,6 +515,40 @@ GRAPH_HTML = """<!doctype html>
     text-align:center;border-top:1px solid var(--border);background:var(--sec-bg)}
   #showhidden:hover{background:var(--hover)}
 
+  /* 아이콘 전용 컴팩트 레일 모드 (aside#detailpane aria-hidden="false" 연동 또는 수동 토글) */
+  body.docs-compact #docs .dhead,
+  #docs.compact-rail .dhead{padding:8px 6px;display:flex;flex-direction:column;align-items:center;gap:4px}
+  body.docs-compact #docs #docq,
+  #docs.compact-rail #docq{display:none}
+  body.docs-compact #docs #desclines,
+  #docs.compact-rail #desclines{display:none}
+  body.docs-compact #docs #docstogglebtn,
+  #docs.compact-rail #docstogglebtn{width:38px;height:34px;transform:rotate(180deg)}
+  body.docs-compact #docs #pinnedhead,
+  #docs.compact-rail #pinnedhead{font-size:0;text-align:center;padding:6px 0}
+  body.docs-compact #docs #pinnedhead::before,
+  #docs.compact-rail #pinnedhead::before{content:'⭐';font-size:13px}
+  body.docs-compact #docs .docitem,
+  #docs.compact-rail .docitem{padding:8px 4px;text-align:center;min-height:46px;display:flex;align-items:center;justify-content:center}
+  body.docs-compact #docs .docitem b,
+  #docs.compact-rail .docitem b{display:none}
+  body.docs-compact #docs .docitem .st,
+  #docs.compact-rail .docitem .st{display:none}
+  body.docs-compact #docs .docitem p,
+  #docs.compact-rail .docitem p{display:none}
+  body.docs-compact #docs .docitem .docactions,
+  #docs.compact-rail .docitem .docactions{display:none}
+  body.docs-compact #docs .docitem:hover .docactions,
+  #docs.compact-rail .docitem:hover .docactions{display:none}
+  body.docs-compact #docs .docitem .doc-icon-tile,
+  #docs.compact-rail .docitem .doc-icon-tile{display:inline-flex;align-items:center;justify-content:center;font-size:16px;line-height:1}
+  body.docs-compact #docs .docitem .doc-icon-wrap,
+  #docs.compact-rail .docitem .doc-icon-wrap{display:none}
+  body.docs-compact #docs .docitem.active,
+  #docs.compact-rail .docitem.active{border-left:0;border-bottom:3px solid var(--accent2);background:var(--active)}
+  body.docs-compact #docs .dday,
+  #docs.compact-rail .dday{font-size:10px;padding:3px 2px;text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
   body:not([data-auth-scope="owner"]) #synthbtn,
   body:not([data-auth-scope="owner"]) #synthchips,
   body:not([data-auth-scope="owner"]) #addbtn,
@@ -514,7 +557,7 @@ GRAPH_HTML = """<!doctype html>
   body:not([data-auth-scope="owner"]) .rshare{display:none!important}
 
   /* 우측 사이드 패널 (#detailpane): 데스크톱은 3열 고정, 태블릿/모바일은 오른쪽 슬라이드 드로어 */
-  #detailpane{width:360px;display:flex;flex-direction:column;background:var(--panel-bg);
+  #detailpane{width:var(--detail-width,360px);display:flex;flex-direction:column;background:var(--panel-bg);
     border-left:1px solid var(--border);min-height:0;overflow:hidden}
   #detailhead{display:none;align-items:center;justify-content:space-between;min-height:48px;
     padding:4px 12px;border-bottom:1px solid var(--border);background:var(--bar-bg);flex:none}
@@ -527,6 +570,11 @@ GRAPH_HTML = """<!doctype html>
   #moremenu .action-btn-row{display:flex;flex-wrap:wrap;gap:4px;align-items:center}
   #moremenu .filter-row{display:flex;align-items:center;gap:6px;font-size:12px}
   #moremenu .sys-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:11px;color:var(--muted);margin-top:2px}
+  /* 도구 메뉴 아이콘 컴팩트 모드 */
+  body.docs-compact #moremenu .btn-label,
+  #moremenu.compact-icons .btn-label{display:none}
+  body.docs-compact #moremenu .action-btn-row button,
+  #moremenu.compact-icons .action-btn-row button{padding:4px 8px;font-size:14px}
   #stat{color:var(--muted)}
   #authstate{padding:2px 7px;border:1px solid var(--border);border-radius:4px}
   #synthchips{display:flex;gap:4px;overflow:hidden;max-width:100%;flex-wrap:wrap}
@@ -651,8 +699,10 @@ GRAPH_HTML = """<!doctype html>
 
   /* 데스크톱/노트북 (중간 폭): 1100px 이하에서는 우측 패널을 drawer 로 (2단 보기 지원) */
   @media (max-width:1100px){
-    #wrap{grid-template-columns:280px minmax(0,1fr);
+    #wrap{grid-template-columns:var(--docs-width,280px) minmax(0,1fr);
       padding-bottom:calc(54px + env(safe-area-inset-bottom))}
+    body.docs-compact #wrap,
+    #wrap.docs-compact{grid-template-columns:var(--docs-compact-width,56px) minmax(0,1fr)}
     #morebtn{display:none!important}
 
     /* 하단 내비게이션 바: 2단 보기(1100px 이하) 및 모바일 최하단에 고정 (z-index: 50) */
@@ -692,6 +742,9 @@ GRAPH_HTML = """<!doctype html>
     #viewoptions #themebtn{min-width:38px;min-height:38px;padding:4px 8px}
 
     #wrap{display:grid;grid-template-columns:1fr;grid-template-rows:1fr;overflow:hidden}
+    body.docs-compact #wrap,
+    #wrap.docs-compact{grid-template-columns:1fr}
+    #docstogglebtn{display:none!important}
     .workspace-pane,#centerwrap{grid-area:1/1;visibility:hidden!important;pointer-events:none}
     body[data-active-pane="docs"] #docs{visibility:visible!important;pointer-events:auto}
     body[data-active-pane="graph"] #centerwrap{visibility:visible!important;pointer-events:auto}
@@ -751,7 +804,7 @@ GRAPH_HTML = """<!doctype html>
     #showhidden{font-size:13px;padding:10px 12px}
   }
   @media (prefers-reduced-motion:reduce){
-    #detailpane{transition:none!important}
+    #wrap,#docs,#detailpane,#docstogglebtn{transition:none!important}
   }
 </style></head>
 <body class="ro" data-auth-scope="unknown" data-active-pane="docs">
@@ -779,12 +832,17 @@ GRAPH_HTML = """<!doctype html>
 <div id="drawerbackdrop" onclick="closeDrawer()" aria-hidden="true"></div>
 <div id="wrap">
   <aside id="docs" class="workspace-pane" role="tabpanel" aria-labelledby="tab-docs" tabindex="0">
-    <div class="dhead"><label class="sr-only" for="docq">자료 검색</label>
-      <input id="docq" placeholder="문서 검색(제목·요약)" oninput="docSearchActive=true;renderDocs(this.value)" style="width:92%"/>
-    <select id="desclines" onchange="setDescLines(this.value)" title="목록 설명 줄수" style="width:92%;margin-top:5px">
-      <option value="0">제목만 표시</option>
-      <option value="3">요약 표시</option>
-    </select></div>
+    <div class="dhead">
+      <div class="dhead-row">
+        <label class="sr-only" for="docq">자료 검색</label>
+        <input id="docq" placeholder="문서 검색(제목·요약)" oninput="docSearchActive=true;renderDocs(this.value)" style="flex:1;min-width:0"/>
+        <button id="docstogglebtn" type="button" onclick="toggleDocsCompact()" title="목록 축소/확대" aria-label="목록 축소/확대">‹</button>
+      </div>
+      <select id="desclines" onchange="setDescLines(this.value)" title="목록 설명 줄수" style="width:100%;margin-top:5px">
+        <option value="0">제목만 표시</option>
+        <option value="3">요약 표시</option>
+      </select>
+    </div>
     <div id="pinnedhead" style="display:none">⭐ 즐겨찾기</div>
     <div id="pinnedlist"></div>
     <div id="doclist"><p class="hint" style="padding:10px">문서 로딩…</p></div>
@@ -868,16 +926,16 @@ GRAPH_HTML = """<!doctype html>
           <span id="synthchips"></span>
         </div>
         <div class="action-btn-row">
-          <button id="synthbtn" onclick="synth()">🧩 종합 (0)</button>
-          <button id="addbtn" class="sec" onclick="openIngest()" title="URL·텍스트를 그래프에 적재">➕ 적재</button>
-          <button id="dedupbtn" class="sec" onclick="openDedup()" title="근사 중복 문서를 찾아 병합">♻️ 중복정리</button>
-          <button id="pathbtn" class="sec" onclick="togglePathMode()" title="두 노드 사이 연결 경로 찾기">🔗 경로</button>
+          <button id="synthbtn" onclick="synth()" title="종합 (0)"><span class="btn-icon">🧩</span> <span class="btn-label">종합 (0)</span></button>
+          <button id="addbtn" class="sec" onclick="openIngest()" title="URL·텍스트를 그래프에 적재" aria-label="적재"><span class="btn-icon">➕</span> <span class="btn-label">적재</span></button>
+          <button id="dedupbtn" class="sec" onclick="openDedup()" title="근사 중복 문서를 찾아 병합" aria-label="중복정리"><span class="btn-icon">♻️</span> <span class="btn-label">중복정리</span></button>
+          <button id="pathbtn" class="sec" onclick="togglePathMode()" title="두 노드 사이 연결 경로 찾기" aria-label="경로"><span class="btn-icon">🔗</span> <span class="btn-label">경로</span></button>
         </div>
         <div class="filter-row">
           <label>연결 ≥ <b id="fmin">0</b> <input id="fslider" type="range" min="0" max="0" value="0" oninput="setDeg(this.value)"/></label>
         </div>
         <div class="sys-row">
-          <a id="repolink" class="sec" href="__SOURCE_BASE_URL__" target="_blank" rel="noopener noreferrer" title="소스 리포지토리 (__GITHUB_REPOSITORY__)" style="display:inline-flex;align-items:center;gap:4px;text-decoration:none;padding:3px 8px;border:1px solid var(--border);border-radius:4px;font-size:12px;color:var(--sec-fg);background:var(--sec-bg)">🐙 GitHub</a>
+          <a id="repolink" class="sec" href="__SOURCE_BASE_URL__" target="_blank" rel="noopener noreferrer" title="소스 리포지토리 (__GITHUB_REPOSITORY__)" aria-label="GitHub 리포지토리" style="display:inline-flex;align-items:center;gap:4px;text-decoration:none;padding:3px 8px;border:1px solid var(--border);border-radius:4px;font-size:12px;color:var(--sec-fg);background:var(--sec-bg)"><span class="btn-icon">🐙</span> <span class="btn-label">GitHub</span></a>
           <span id="authstate">⏳ 권한 확인 중</span>
           <span id="stat" role="status" aria-live="polite">로딩…</span>
         </div>
@@ -932,6 +990,24 @@ let relFilter = null;
 let pathMode = false, pathPicks = [], pathNodes = null, pathEdges = null;
 let edgeLabelsByZoom = false, selectedEdgeIds = new Set();
 let graphStabilized = false;
+let docsCompact = false, docsCompactAuto = true;
+try{
+  const savedDocsCompact = localStorage.getItem('claireDocsCompact');
+  if(savedDocsCompact === 'true'){ docsCompact = true; docsCompactAuto = false; }
+  else if(savedDocsCompact === 'false'){ docsCompact = false; docsCompactAuto = false; }
+}catch(_){}
+
+function toggleDocsCompact(force){
+  if(typeof force === 'boolean'){
+    docsCompact = force;
+  }else{
+    const cur = document.body.classList.contains('docs-compact');
+    docsCompact = !cur;
+  }
+  docsCompactAuto = false;
+  try{ localStorage.setItem('claireDocsCompact', docsCompact ? 'true' : 'false'); }catch(_){}
+  syncWorkspaceLayout();
+}
 
 const paneEls = {
   get docs(){ return document.getElementById('docs'); },
@@ -1530,15 +1606,36 @@ function syncWorkspaceLayout(){
   if(menuBtn) menuBtn.setAttribute('aria-expanded', drawerOpen?'true':'false');
 
   const dp = document.getElementById('detailpane');
+  let detailVisible = false;
   if(dp){
     if(compactMQ.matches || mobileMQ.matches){
       dp.setAttribute('aria-hidden', isDrawerActive?'false':'true');
       dp.inert=!isDrawerActive;
+      detailVisible = isDrawerActive;
     }else{
       dp.setAttribute('aria-hidden','false');
       dp.inert=false;
+      detailVisible = true;
     }
   }
+
+  // aside#detailpane의 aria-hidden이 false일 때 (또는 docsCompact 설정 시)
+  // 좌측 메뉴 및 도구 메뉴를 아이콘만 보여주는 컴팩트 모드로 전환
+  const shouldCompact = !mobileMQ.matches && (docsCompact || (docsCompactAuto && detailVisible));
+  document.body.classList.toggle('docs-compact', shouldCompact);
+  const wrapEl = document.getElementById('wrap');
+  if(wrapEl) wrapEl.classList.toggle('docs-compact', shouldCompact);
+  const docsEl = document.getElementById('docs');
+  if(docsEl) docsEl.classList.toggle('compact-rail', shouldCompact);
+  const mmEl = document.getElementById('moremenu');
+  if(mmEl) mmEl.classList.toggle('compact-icons', shouldCompact);
+  const toggleBtn = document.getElementById('docstogglebtn');
+  if(toggleBtn){
+    toggleBtn.setAttribute('aria-expanded', shouldCompact ? 'false' : 'true');
+    toggleBtn.title = shouldCompact ? '목록 펼치기' : '목록 축소(아이콘 모드)';
+    toggleBtn.setAttribute('aria-label', shouldCompact ? '목록 펼치기' : '목록 축소(아이콘 모드)');
+  }
+
   if(activePane==='graph'){
     requestAnimationFrame(()=>{ relayoutPreservingCamera(); applyTouchMode(); });
   }
@@ -2391,11 +2488,15 @@ function docItemHtml(dc){
     ? '<button class="actbtn'+(pinned?' pinned':'')+'" title="'+(pinned?'즐겨찾기 해제':'즐겨찾기에 추가')+
       '" onclick="event.stopPropagation();togglePin(\\''+dc.id+'\\','+(!pinned)+')">'+(pinned?'⭐':'☆')+'</button>'
     : '';
+  const itemIcon = pinned ? '⭐' : (watching ? '🔄' : (unread ? '●' : '📄'));
   return '<div class="docitem'+(dc.id===activeDoc?' active':'')+(unread?' unread':'')+(hid?' hidden-doc':'')+
-    '" onclick="selectDoc(\\''+dc.id+'\\')">'+
+    '" onclick="selectDoc(\\''+dc.id+'\\')" title="'+esc(dc.title)+(dc.summary?' &#10;'+esc(dc.summary.slice(0,110)):'')+'" aria-label="'+esc(dc.title)+'">'+
     (pinBtn ? '<div class=docactions>'+pinBtn+'</div>' : '')+
+    '<span class="doc-icon-tile" aria-hidden="true">'+itemIcon+'</span>'+
+    '<span class="doc-icon-wrap">'+
     (watching?'<span class=wbadge title="주기 갱신 추적(watch)">🔄</span>':'')+
     (unread?'<span class=ubadge title="아직 안 본 문서">●</span>':'')+
+    '</span>'+
     '<b>'+esc(dc.title)+'</b><span class=st>'+esc(dc.source_type||'')+'</span>'+
     (dc.summary?'<p>'+esc(dc.summary.slice(0,110))+'</p>':'')+'</div>';
 }
@@ -2623,7 +2724,11 @@ function renderChips(){
   const box=document.getElementById('synthchips');
   box.innerHTML=[...synthSet].map(id=>{ const n=allNodes&&allNodes.get(id);
     return '<span class=chip onclick="toggleSynth(\\''+id+'\\')" title="제거">'+esc(n?n.label:id)+' ✕</span>'; }).join('');
-  document.getElementById('synthbtn').textContent='🧩 종합 ('+synthSet.size+')';
+  const sb=document.getElementById('synthbtn');
+  if(sb){
+    sb.innerHTML='<span class="btn-icon">🧩</span> <span class="btn-label">종합 ('+synthSet.size+')</span>';
+    sb.title='종합 ('+synthSet.size+')';
+  }
 }
 
 // --- 검색: 즉시 라벨 매칭(기본) vs 의미검색 버튼(체크 시) ---
@@ -3001,6 +3106,8 @@ window.claireDebug = {
   get readerOpen(){ return document.getElementById('reader').classList.contains('open'); },
   get docSearchActive(){ return docSearchActive; },
   get stabilized(){ return graphStabilized; },
+  get docsCompact(){ return document.body.classList.contains('docs-compact'); },
+  toggleDocsCompact: toggleDocsCompact,
   get sourceBaseUrl(){ return '__SOURCE_BASE_URL__'; },
   get githubRepository(){ return '__GITHUB_REPOSITORY__'; },
 };
