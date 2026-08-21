@@ -207,7 +207,8 @@ test('tablet and desktop layouts do not squeeze the graph into three fixed colum
   await page.setViewportSize({ width: 1024, height: 768 });
   await waitForClaire(page);
   await expectNoHorizontalOverflow(page);
-  await expect(page.locator('#worktabs')).toBeHidden();
+  await expect(page.locator('#worktabs')).toBeVisible();
+  await expect(page.locator('#morebtn')).toBeHidden();
   await expect(page.locator('#graphdocnav')).toBeHidden();
   await expect(page.locator('#docs')).toBeVisible();
   await expect(page.locator('#netwrap')).toBeVisible();
@@ -219,7 +220,7 @@ test('tablet and desktop layouts do not squeeze the graph into three fixed colum
   ).toBe('graph');
   await expect(page.locator('#detailpane')).toBeHidden();
 
-  await page.locator('#morebtn').click();
+  await page.locator('#tab-menu').click();
   await expect(page.locator('#moremenu')).toBeVisible();
   await expect(page.locator('#authstate')).toContainText('익명 읽기전용');
   await expect(page.locator('#searchkind')).toHaveText('FTS');
@@ -232,6 +233,7 @@ test('tablet and desktop layouts do not squeeze the graph into three fixed colum
   await page.setViewportSize({ width: 1600, height: 900 });
   await expectNoHorizontalOverflow(page);
   await expect(page.locator('#morebtn')).toBeHidden();
+  await expect(page.locator('#worktabs')).toBeHidden();
   await expect(page.locator('#docs')).toBeVisible();
   await expect(page.locator('#netwrap')).toBeVisible();
   await expect(page.locator('#detailpane')).toBeVisible();

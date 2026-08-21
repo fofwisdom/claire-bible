@@ -651,15 +651,32 @@ GRAPH_HTML = """<!doctype html>
 
   /* 데스크톱/노트북 (중간 폭): 1100px 이하에서는 우측 패널을 drawer 로 (2단 보기 지원) */
   @media (max-width:1100px){
-    #wrap{grid-template-columns:280px minmax(0,1fr)}
-    #morebtn{display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px}
-    #detailpane{position:absolute;inset:0 0 0 auto;z-index:40;width:min(400px,82vw);
-      transform:translateX(105%);visibility:hidden;box-shadow:-12px 0 32px var(--shadow);
+    #wrap{grid-template-columns:280px minmax(0,1fr);
+      padding-bottom:calc(54px + env(safe-area-inset-bottom))}
+    #morebtn{display:none!important}
+
+    /* 하단 내비게이션 바: 2단 보기(1100px 이하) 및 모바일 최하단에 고정 (z-index: 50) */
+    #worktabs{display:flex;position:fixed;bottom:0;left:0;right:0;z-index:50;
+      height:calc(54px + env(safe-area-inset-bottom));padding-bottom:env(safe-area-inset-bottom);
+      background:var(--bar-bg);border-top:1px solid var(--border);
+      align-items:stretch;justify-content:space-around;padding-left:12px;padding-right:12px}
+    #worktabs button{flex:1;min-height:48px;background:transparent;color:var(--muted);
+      border:0;border-radius:6px;display:flex;align-items:center;justify-content:center;
+      padding:4px 0;-webkit-tap-highlight-color:transparent}
+    #worktabs button .bnav-icon{font-size:24px;line-height:1}
+    #worktabs button[aria-selected="true"]{color:var(--accent)}
+    #worktabs button:active{background:var(--hover)}
+
+    #detailpane{position:fixed;top:0;right:0;bottom:calc(54px + env(safe-area-inset-bottom));
+      z-index:40;width:min(400px,82vw);height:auto;max-height:none;
+      transform:translateX(105%);visibility:hidden;pointer-events:none;
+      border:1px solid var(--border);border-bottom:0;border-radius:0;
+      box-shadow:-12px 0 32px var(--shadow);
       transition:transform .2s ease,visibility 0s linear .2s}
     body.detail-open #detailpane,
-    body.drawer-open #detailpane{transform:translateX(0);visibility:visible;
+    body.drawer-open #detailpane{transform:translateX(0);visibility:visible;pointer-events:auto;
       transition:transform .2s ease}
-    #detailhead{display:flex}
+    #detailhead{display:flex;border-radius:0}
   }
 
   /* 모바일 화면 (720px 이하):
@@ -674,20 +691,7 @@ GRAPH_HTML = """<!doctype html>
     #viewoptions select{font-size:13px;padding:4px 6px}
     #viewoptions #themebtn{min-width:38px;min-height:38px;padding:4px 8px}
 
-    /* 최하단 바: 모바일 뷰 최하단에 항상 고정 (z-index: 50) */
-    #worktabs{display:flex;position:fixed;bottom:0;left:0;right:0;z-index:50;
-      height:calc(54px + env(safe-area-inset-bottom));padding-bottom:env(safe-area-inset-bottom);
-      background:var(--bar-bg);border-top:1px solid var(--border);
-      align-items:stretch;justify-content:space-around;padding-left:12px;padding-right:12px}
-    #worktabs button{flex:1;min-height:48px;background:transparent;color:var(--muted);
-      border:0;border-radius:6px;display:flex;align-items:center;justify-content:center;
-      padding:4px 0;-webkit-tap-highlight-color:transparent}
-    #worktabs button .bnav-icon{font-size:24px;line-height:1}
-    #worktabs button[aria-selected="true"]{color:var(--accent)}
-    #worktabs button:active{background:var(--hover)}
-
-    #wrap{display:grid;grid-template-columns:1fr;grid-template-rows:1fr;overflow:hidden;
-      padding-bottom:calc(54px + env(safe-area-inset-bottom))}
+    #wrap{display:grid;grid-template-columns:1fr;grid-template-rows:1fr;overflow:hidden}
     .workspace-pane,#centerwrap{grid-area:1/1;visibility:hidden!important;pointer-events:none}
     body[data-active-pane="docs"] #docs{visibility:visible!important;pointer-events:auto}
     body[data-active-pane="graph"] #centerwrap{visibility:visible!important;pointer-events:auto}
@@ -725,16 +729,7 @@ GRAPH_HTML = """<!doctype html>
     #reader .rbody{padding:8px 16px max(20px,env(safe-area-inset-bottom))!important}
 
     /* 모바일 우측 드로어 */
-    #detailpane{position:fixed;top:0;right:0;bottom:calc(54px + env(safe-area-inset-bottom));
-      z-index:40;width:min(340px,86vw);height:auto;max-height:none;
-      transform:translateX(105%);visibility:hidden;pointer-events:none;
-      border:1px solid var(--border);border-bottom:0;border-radius:0;
-      box-shadow:-8px 0 24px var(--shadow);
-      transition:transform .22s ease,visibility 0s linear .22s}
-    body.detail-open #detailpane,
-    body.drawer-open #detailpane{transform:translateX(0);visibility:visible;pointer-events:auto;
-      transition:transform .22s ease}
-    #detailhead{display:flex;border-radius:0}
+    #detailpane{width:min(340px,86vw);box-shadow:-8px 0 24px var(--shadow)}
     #detailclose{min-width:44px;min-height:44px}
     #drawer-graph-action{display:block}
     #drawerscroll{padding:14px 16px max(16px,env(safe-area-inset-bottom))}
@@ -1581,7 +1576,7 @@ function closeDetailPane(){
   drawerOpen=false;
   syncWorkspaceLayout();
   let target=detailReturnFocus && detailReturnFocus.isConnected ? detailReturnFocus : null;
-  if(!target) target=mobileMQ.matches ? (paneTabs[activePane] || document.getElementById('tab-docs')) : paneEls[activePane];
+  if(!target) target=(compactMQ.matches || mobileMQ.matches) ? (document.getElementById('tab-menu') || paneTabs[activePane] || document.getElementById('tab-docs')) : paneEls[activePane];
   detailReturnFocus=null;
   requestAnimationFrame(()=>{ if(target) target.focus(); });
 }
@@ -1599,7 +1594,7 @@ function closeDrawer(focus=false){
   detailOpen=false;
   syncWorkspaceLayout();
   let target=detailReturnFocus && detailReturnFocus.isConnected ? detailReturnFocus : null;
-  if(!target) target=mobileMQ.matches ? (paneTabs[activePane] || document.getElementById('tab-docs')) : document.getElementById('morebtn');
+  if(!target) target=(compactMQ.matches || mobileMQ.matches) ? (document.getElementById('tab-menu') || paneTabs[activePane] || document.getElementById('tab-docs')) : document.getElementById('morebtn');
   detailReturnFocus=null;
   if(focus && target) requestAnimationFrame(()=>target.focus());
 }
