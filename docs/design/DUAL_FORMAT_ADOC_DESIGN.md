@@ -99,7 +99,7 @@ classDiagram
 ### 1) 환경 설정 ([config.py](../../src/claire/config.py), [.env.example](../../.env.example))
 ```python
 class Settings(BaseSettings):
-    render_format: str = "md"  # "md" 또는 "adoc"
+    render_format: str = "adoc"  # "adoc" 또는 "md" (기본값 adoc)
 
     @field_validator("render_format", mode="before")
     @classmethod

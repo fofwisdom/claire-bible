@@ -148,8 +148,8 @@ class Settings(BaseSettings):
     db_path: str = Field(default="data/claire.db", alias="CLAIRE_DB_PATH")
     vault_path: str = Field(default="vault", alias="CLAIRE_VAULT_PATH")
     vector_backend: str = Field(default="auto", alias="CLAIRE_VECTOR_BACKEND")
-    # 읽기/가독 렌더링 포맷 (md: Markdown, adoc: AsciiDoc). 기본값 md.
-    render_format: str = Field(default="md", alias="CLAIRE_RENDER_FORMAT")
+    # 읽기/가독 렌더링 포맷 (md: Markdown, adoc: AsciiDoc). 기본값 adoc.
+    render_format: str = Field(default="adoc", alias="CLAIRE_RENDER_FORMAT")
 
     # --- expansion ---
     expand_max: int = Field(default=5, alias="CLAIRE_EXPAND_MAX")

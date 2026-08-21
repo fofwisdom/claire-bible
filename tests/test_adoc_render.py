@@ -23,7 +23,10 @@ from claire.store import db as dbm
 
 
 def test_config_render_format_validation():
-    """Settings 의 render_format 필드가 md 와 adoc 만 허용하고 소문자로 정규화하는지 검증."""
+    """Settings 의 render_format 필드가 기본값 adoc 이며 md 와 adoc 만 허용하고 소문자로 정규화하는지 검증."""
+    s_default = Settings()
+    assert s_default.render_format == "adoc"
+
     s_md = Settings(render_format="md")
     assert s_md.render_format == "md"
 
