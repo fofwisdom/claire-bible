@@ -483,7 +483,7 @@ GRAPH_HTML = """<!doctype html>
     background:rgba(227,179,65,.10)}
   #doclist{flex:1;min-height:120px;overflow-y:auto}
   .dday{position:sticky;top:0;background:var(--bar-bg);color:var(--accent2);font-size:11.5px;padding:3px 10px;border-bottom:1px solid var(--border);z-index:1}
-  .docitem{min-height:38px;padding:8px 80px 8px 10px;border-bottom:1px solid var(--border);cursor:pointer;position:relative;overflow:hidden}
+  .docitem{min-height:38px;padding:8px 44px 8px 10px;border-bottom:1px solid var(--border);cursor:pointer;position:relative;overflow:hidden}
   .docitem:hover{background:var(--hover)}
   .docitem.active{background:var(--active);border-left:3px solid var(--accent2)}
   .docitem.hidden-doc{opacity:.55}
@@ -502,7 +502,6 @@ GRAPH_HTML = """<!doctype html>
     border:1px solid var(--border);border-radius:4px;padding:2px 6px;font-size:12px;cursor:pointer;opacity:.85}
   .docitem .actbtn:hover{opacity:1;border-color:var(--accent)}
   .docitem .actbtn.pinned{opacity:1;color:#e3b341}
-  .docitem .actbtn.actbtn-graph{display:inline-flex}
   #showhidden{display:block;padding:8px 10px;font-size:12px;color:var(--fg);cursor:pointer;
     text-align:center;border-top:1px solid var(--border);background:var(--sec-bg)}
   #showhidden:hover{background:var(--hover)}
@@ -666,7 +665,7 @@ GRAPH_HTML = """<!doctype html>
   /* 모바일 화면 (720px 이하):
      - 최상단: 브랜드 로고 및 테마 토글만 남김 (햄버거 메뉴는 하단 바로 통합)
      - 최하단: 📑 · 🔎 · ☰ 탭 배치 (z-index: 50, 텍스트 레이블 제거)
-     - 자료 화면: 아이템 탭 시 크게 읽기 호출, 📊 버튼 시 그래프 보기 호출
+     - 자료 화면: 아이템 탭 시 크게 읽기 호출
   */
   @media (max-width:720px){
     #bar{min-height:50px;padding:max(6px,env(safe-area-inset-top)) 12px 6px;justify-content:space-between}
@@ -694,7 +693,6 @@ GRAPH_HTML = """<!doctype html>
     body[data-active-pane="graph"] #centerwrap{visibility:visible!important;pointer-events:auto}
     #docs{position:relative;inset:auto;width:100%;height:100%;
       max-width:none;transform:none;box-shadow:none;border:0;display:flex}
-    .docitem .actbtn.actbtn-graph{display:inline-flex}
     #legendbar{flex-wrap:nowrap;overflow-x:auto;min-height:36px;padding:7px 10px;scrollbar-width:thin}
     #graphdocnav{position:relative;display:flex;align-items:center;gap:4px;min-height:52px;
       padding:4px 8px;background:var(--panel-bg);border-bottom:1px solid var(--border);z-index:12}
@@ -2387,7 +2385,7 @@ function dayOf(ts){ if(!ts) return '(날짜 미상)';
   const d=new Date(ts*1000);
   return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
 // 문서 하나의 목록 아이템 HTML — 즐겨찾기/일반/숨김 목록이 모두 공유(중복 방지).
-// 클릭=그래프 nav(필터·이동), 액션 버튼(⭐즐겨찾기·📊그래프 보기)은 stopPropagation.
+// 클릭=그래프 nav(필터·이동), 액션 버튼(⭐즐겨찾기)은 stopPropagation.
 // 숨기기는 목록이 아니라 우측 상세 패널의 텍스트 버튼으로(사용자 요구, panelHideBtn 참조).
 function docItemHtml(dc){
   const unread = dc.seen===0, watching = dc.watch===1, pinned = dc.pinned===1, hid = dc.hidden===1;
@@ -2397,10 +2395,7 @@ function docItemHtml(dc){
     : '';
   return '<div class="docitem'+(dc.id===activeDoc?' active':'')+(unread?' unread':'')+(hid?' hidden-doc':'')+
     '" onclick="selectDoc(\\''+dc.id+'\\')">'+
-    '<div class=docactions>'+pinBtn+
-    '<button class="actbtn actbtn-graph" title="지식 그래프 보기" aria-label="'+
-      esc(dc.title)+' 지식 그래프 보기" onclick="event.stopPropagation();openDocGraph(\\''+dc.id+'\\')">📊</button>'+
-    '</div>'+
+    (pinBtn ? '<div class=docactions>'+pinBtn+'</div>' : '')+
     (watching?'<span class=wbadge title="주기 갱신 추적(watch)">🔄</span>':'')+
     (unread?'<span class=ubadge title="아직 안 본 문서">●</span>':'')+
     '<b>'+esc(dc.title)+'</b><span class=st>'+esc(dc.source_type||'')+'</span>'+

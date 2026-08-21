@@ -121,11 +121,9 @@ test('mobile primary tabs keep document navigation on the graph', async ({ page 
   await expect(reader).toBeVisible();
   await expect(reader).toHaveAttribute('aria-modal', 'true');
   expect(await page.locator('body').evaluate(body => body.classList.contains('reader-open'))).toBe(true);
-  await page.keyboard.press('Escape');
+  // 모바일에서 본문 읽기 팝업 내 그래프 버튼(📊) 누르면 그래프 화면으로 전환
+  await page.locator('#reader .rgraphbtn').click();
   await expect(reader).toBeHidden();
-
-  // 모바일에서 자료의 그래프 버튼(📊) 누르면 그래프 화면으로 전환
-  await page.locator('.docitem .actbtn-graph').first().click();
   await expect(page.locator('#netwrap')).toBeVisible();
   await expect(page.locator('#detailpane')).toBeHidden();
   await expect.poll(
