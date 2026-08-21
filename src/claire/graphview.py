@@ -482,8 +482,8 @@ GRAPH_HTML = """<!doctype html>
   #pinnedlist{max-height:32%;overflow-y:auto;flex-shrink:0;border-bottom:2px solid var(--border);
     background:rgba(227,179,65,.10)}
   #doclist{flex:1;min-height:120px;overflow-y:auto}
-  .dday{position:sticky;top:0;background:var(--bar-bg);color:var(--accent2);font-size:11.5px;padding:3px 10px;border-bottom:1px solid var(--border);z-index:1}
-  .docitem{min-height:38px;padding:8px 44px 8px 10px;border-bottom:1px solid var(--border);cursor:pointer;position:relative;overflow:hidden}
+  .docitem{min-height:38px;padding:8px 38px 8px 10px;border-bottom:1px solid var(--border);cursor:pointer;position:relative;overflow:hidden}
+  .docitem:not(:has(.docactions)){padding-right:10px}
   .docitem:hover{background:var(--hover)}
   .docitem.active{background:var(--active);border-left:3px solid var(--accent2)}
   .docitem.hidden-doc{opacity:.55}
@@ -742,7 +742,8 @@ GRAPH_HTML = """<!doctype html>
     #zoomctl{right:max(12px,env(safe-area-inset-right));bottom:max(12px,env(safe-area-inset-bottom))}
     #zoomctl button{width:44px;height:44px}
     input,select,button{font-size:16px}
-    .docitem{min-height:54px;padding:10px 88px 10px 12px}
+    .docitem{min-height:54px;padding:10px 50px 10px 12px}
+    .docitem:not(:has(.docactions)){padding-right:12px}
     .docitem b{font-size:15.5px;line-height:1.35}
     .docitem p{font-size:13.5px;line-height:1.45;margin-top:4px}
     .docitem .st{font-size:12px}
