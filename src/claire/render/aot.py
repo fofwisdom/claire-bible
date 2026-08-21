@@ -40,6 +40,153 @@ def _inline_adoc_format(text: str) -> str:
     return s
 
 
+def _split_table_cells(line: str) -> list[str]:
+    """한 줄에서 unescaped '|' 구분자로 셀 목록 추출."""
+    raw = line.strip()
+    if not raw.startswith("|"):
+        return [raw]
+    # 선두 '|' 제거
+    raw = raw[1:]
+    # 말미 '|' 제거 (이스케이프 되지 않은 경우)
+    if raw.endswith("|") and not raw.endswith(r"\|"):
+        raw = raw[:-1]
+    # 이스케이프 되지 않은 '|' 기준으로 분리
+    parts = re.split(r"(?<!\\)\|", raw)
+    return [p.replace(r"\|", "|").strip() for p in parts]
+
+
+def _parse_cols_attr(text: str) -> int | None:
+    """AsciiDoc [cols="..."] 속성 문자열에서 컬럼 수 파싱."""
+    if not text:
+        return None
+    m = re.search(r'cols=["\']?([^"\'\]]+)["\']?', text, re.IGNORECASE)
+    cols_val = m.group(1).strip() if m else text.strip("[] \t")
+
+    star_m = re.match(r"^(\d+)\*", cols_val)
+    if star_m:
+        return int(star_m.group(1))
+
+    if "," in cols_val:
+        parts = [p.strip() for p in cols_val.split(",") if p.strip()]
+        if parts:
+            total = 0
+            for p in parts:
+                sm = re.match(r"^(\d+)\*", p)
+                if sm:
+                    total += int(sm.group(1))
+                else:
+                    total += 1
+            return total if total > 0 else None
+
+    if cols_val.isdigit():
+        return int(cols_val)
+
+    return None
+
+
+def _parse_adoc_table_rows(
+    table_lines: list[str], explicit_cols: int | None = None
+) -> list[list[str]]:
+    """AsciiDoc 테이블 내부 줄들을 행/열 2차원 리스트로 변환."""
+    if not table_lines:
+        return []
+
+    # 1. 빈 줄을 기준으로 블록(행 후보) 분할
+    blocks: list[list[str]] = []
+    current_block: list[str] = []
+    for line in table_lines:
+        if not line.strip():
+            if current_block:
+                blocks.append(current_block)
+                current_block = []
+        else:
+            current_block.append(line)
+    if current_block:
+        blocks.append(current_block)
+
+    if not blocks:
+        return []
+
+    # 2. 각 블록에서 셀 추출 (줄바꿈 연속 텍스트 처리 포함)
+    parsed_blocks: list[list[str]] = []
+    for block in blocks:
+        block_cells: list[str] = []
+        for bl in block:
+            trimmed = bl.strip()
+            if trimmed.startswith("|"):
+                cells = _split_table_cells(trimmed)
+                block_cells.extend(cells)
+            else:
+                # '|'로 시작하지 않는 연속 줄은 직전 셀의 내용으로 이어붙임
+                if block_cells:
+                    block_cells[-1] = f"{block_cells[-1]} {trimmed}"
+                else:
+                    block_cells.append(trimmed)
+        if block_cells:
+            parsed_blocks.append(block_cells)
+
+    if not parsed_blocks:
+        return []
+
+    # 3. 컬럼 수(num_cols) 산출
+    num_cols = explicit_cols
+    if not num_cols or num_cols <= 0:
+        first_block = parsed_blocks[0]
+        first_line = blocks[0][0].strip()
+        first_line_cells = _split_table_cells(first_line) if first_line.startswith("|") else []
+        if len(first_line_cells) > 1:
+            num_cols = len(first_line_cells)
+        elif len(first_block) > 1:
+            num_cols = len(first_block)
+        else:
+            num_cols = 1
+
+    # 4. 행(rows) 조립
+    rows: list[list[str]] = []
+    for p_block in parsed_blocks:
+        if len(p_block) <= num_cols:
+            rows.append(p_block)
+        else:
+            # 블록 내 셀 수가 num_cols보다 많은 경우 (빈 줄 없이 연속된 다중 행)
+            for i in range(0, len(p_block), num_cols):
+                chunk = p_block[i : i + num_cols]
+                if chunk:
+                    rows.append(chunk)
+
+    return rows
+
+
+def _render_table_html(
+    table_lines: list[str], block_meta: dict[str, str]
+) -> str:
+    explicit_cols = _parse_cols_attr(block_meta.get("cols", ""))
+    rows = _parse_adoc_table_rows(table_lines, explicit_cols=explicit_cols)
+    if not rows:
+        return ""
+
+    t_html = ["<table>"]
+    title = block_meta.get("title")
+    if title:
+        t_html.append(f"<caption>{html.escape(title)}</caption>")
+
+    t_html.append(
+        "<thead><tr>"
+        + "".join(f"<th>{_inline_adoc_format(c)}</th>" for c in rows[0])
+        + "</tr></thead>"
+    )
+    if len(rows) > 1:
+        t_html.append("<tbody>")
+        for r in rows[1:]:
+            t_html.append(
+                "<tr>"
+                + "".join(f"<td>{_inline_adoc_format(c)}</td>" for c in r)
+                + "</tr>"
+            )
+        t_html.append("</tbody>")
+    t_html.append("</table>")
+    return "".join(t_html)
+
+
 def render_adoc_to_html(raw: str) -> str:
     """AsciiDoc 텍스트를 시맨틱 HTML 문자열로 AOT 변환."""
     if not raw or not raw.strip():
@@ -50,10 +197,9 @@ def render_adoc_to_html(raw: str) -> str:
     in_block: str | None = None
     block_meta: dict[str, str] = {}
     block_lines: list[str] = []
-    table_rows: list[list[str]] = []
 
     def flush_block() -> None:
-        nonlocal in_block, block_meta, block_lines, table_rows
+        nonlocal in_block, block_meta, block_lines
         if not in_block:
             return
 
@@ -114,29 +260,13 @@ def render_adoc_to_html(raw: str) -> str:
             )
 
         elif in_block == "table":
-            t_html = ["<table>"]
-            if table_rows:
-                t_html.append(
-                    "<thead><tr>"
-                    + "".join(f"<th>{_inline_adoc_format(c)}</th>" for c in table_rows[0])
-                    + "</tr></thead>"
-                )
-                if len(table_rows) > 1:
-                    t_html.append("<tbody>")
-                    for r in table_rows[1:]:
-                        t_html.append(
-                            "<tr>"
-                            + "".join(f"<td>{_inline_adoc_format(c)}</td>" for c in r)
-                            + "</tr>"
-                        )
-                    t_html.append("</tbody>")
-            t_html.append("</table>")
-            out.append("".join(t_html))
+            tbl_html = _render_table_html(block_lines, block_meta)
+            if tbl_html:
+                out.append(tbl_html)
 
         in_block = None
         block_meta = {}
         block_lines = []
-        table_rows = []
 
     pending_meta: dict[str, str] | None = None
 
@@ -164,6 +294,24 @@ def render_adoc_to_html(raw: str) -> str:
             sm = re.match(r"^\[source(?:,\s*([a-zA-Z0-9_-]+))?\]", trimmed, re.IGNORECASE)
             if sm:
                 pending_meta = {"kind": "code", "lang": (sm.group(1) or "").strip()}
+                continue
+
+            # 3-1. 테이블 메타데이터: [cols="..."] 또는 [%header...]
+            tm = re.match(r"^\[(.*cols.*|.*header.*|\d+\*|[0-9,]+)\]$", trimmed, re.IGNORECASE)
+            if tm:
+                if pending_meta and pending_meta.get("kind") == "table":
+                    pending_meta["cols"] = tm.group(1)
+                else:
+                    pending_meta = {"kind": "table", "cols": tm.group(1)}
+                continue
+
+            # 3-2. 테이블 제목 / 캡션: .Table Title
+            title_m = re.match(r"^\.([^\.\s].*)$", trimmed)
+            if title_m:
+                if pending_meta and pending_meta.get("kind") == "table":
+                    pending_meta["title"] = title_m.group(1).strip()
+                else:
+                    pending_meta = {"kind": "table", "title": title_m.group(1).strip()}
                 continue
 
             # 4. 블록 구분자 진입
@@ -194,9 +342,9 @@ def render_adoc_to_html(raw: str) -> str:
 
             if trimmed == "|===":
                 in_block = "table"
-                block_meta = {}
+                block_meta = pending_meta if (pending_meta and pending_meta.get("kind") == "table") else {}
                 pending_meta = None
-                table_rows = []
+                block_lines = []
                 continue
 
             # 5. 이미지 블록: image::url[alt, title="캡션"]
@@ -276,16 +424,15 @@ def render_adoc_to_html(raw: str) -> str:
 
         else:
             # 블록 내부 처리 및 블록 닫기
-            if in_block == "quote" and trimmed == "____" or in_block == "admonition" and trimmed == "====" or in_block == "code" and trimmed == "----" or in_block == "table" and trimmed == "|===":
+            if (
+                (in_block == "quote" and trimmed == "____")
+                or (in_block == "admonition" and trimmed == "====")
+                or (in_block == "code" and trimmed == "----")
+                or (in_block == "table" and trimmed == "|===")
+            ):
                 flush_block()
             else:
-                if in_block == "table":
-                    if trimmed.startswith("|"):
-                        cells = [c.strip() for c in trimmed[1:].split("|")]
-                        if cells:
-                            table_rows.append(cells)
-                else:
-                    block_lines.append(line)
+                block_lines.append(line)
 
     flush_block()
     return "\n".join(out)

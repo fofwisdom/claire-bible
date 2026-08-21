@@ -1272,6 +1272,26 @@ def get_document_detail_html(conn: sqlite3.Connection, document_id: str) -> str 
     return None
 
 
+def recompile_all_detail_html(conn: sqlite3.Connection) -> int:
+    """모든 문서의 detail_html을 현재 AOT 렌더러로 재컴파일하여 DB에 갱신."""
+    from ..render import render_to_html
+
+    rows = conn.execute(
+        "SELECT id, detail, detail_format FROM documents WHERE detail IS NOT NULL AND trim(detail) != ''"
+    ).fetchall()
+    count = 0
+    for r in rows:
+        fmt = r["detail_format"] or "md"
+        html_out = render_to_html(r["detail"], format=fmt)
+        conn.execute(
+            "UPDATE documents SET detail_html=? WHERE id=?",
+            (html_out, r["id"]),
+        )
+        count += 1
+    conn.commit()
+    return count
+
+
 def documents_missing_detail(conn: sqlite3.Connection, limit: int = 0) -> list[str]:
     """detail 이 비어있는 문서 id(최신순). 백필 대상."""
     q = ("SELECT id FROM documents WHERE detail IS NULL OR detail='' "

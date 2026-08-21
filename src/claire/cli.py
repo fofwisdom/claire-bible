@@ -422,6 +422,19 @@ def cmd_format_status(args) -> int:
         conn.close()
 
 
+def cmd_recompile_html(args) -> int:
+    """모든 문서의 detail_html을 현재 AOT 사전 렌더러로 재컴파일(LLM 호출 없음)."""
+    s = get_settings()
+    conn = dbm.connect(s.db_file)
+    dbm.init_db(conn)
+    try:
+        count = dbm.recompile_all_detail_html(conn)
+        print(f"AOT HTML 재컴파일 완료: 총 {count}건 문서 갱신")
+        return 0
+    finally:
+        conn.close()
+
+
 def cmd_backfill_images(args) -> int:
     """본문 이미지가 없는 기존 문서를 재fetch 대상(refresh 큐)으로 등록.
 
@@ -737,6 +750,10 @@ def build_parser() -> argparse.ArgumentParser:
                      help="target render format (default: config CLAIRE_RENDER_FORMAT)")
     pfs.add_argument("--json", action="store_true", help="output in json format")
     pfs.set_defaults(func=cmd_format_status)
+
+    prc = sub.add_parser("recompile-html",
+                         help="recompile detail_html for all documents using latest AOT renderer (zero LLM calls)")
+    prc.set_defaults(func=cmd_recompile_html)
 
     pbi = sub.add_parser(
         "backfill-images",

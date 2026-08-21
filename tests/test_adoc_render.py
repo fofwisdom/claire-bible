@@ -395,3 +395,106 @@ def test_backfill_details_selective_migration():
         assert status["needs_migration"] is False
         assert status["matching_docs"] == 3
         conn.close()
+
+
+def test_aot_render_adoc_table_multiline_rows():
+    """빈 줄로 구분된 다중 행/열 AsciiDoc 테이블이 올바른 <tr> 및 <td>들로 렌더링되는지 검증 (vSAN 클러스터 문서 케이스)."""
+    sample = """
+== 5. 전통적 HCI 대비 vSAN Storage Clusters 비교 (Comparison & Specifications)
+
+|===
+| 항목 | 전통적 vSAN HCI 모델 | vSAN Storage Clusters (vSAN Max)
+
+| *스토리지 아키텍처*
+| 컴퓨트 + 스토리지 결합형 (HCI)
+| 완전 분리형 중앙 공유 스토리지 (Disaggregated)
+
+| *기반 엔진*
+| vSAN OSA 또는 vSAN ESA
+| *vSAN Express Storage Architecture (ESA)* 전용
+
+| *최소 노드 요구*
+| 3 노드 (2-Node 토폴로지 제외)
+| 6 노드
+
+| *스케일링 특성*
+| 컴퓨트와 스토리지의 동시 확장 필요
+| #컴퓨트와 스토리지 독립적 스케일아웃 가능#
+|===
+"""
+    html_out = render_adoc_to_html(sample)
+    # Header 검증 (3개 헤더 열)
+    assert "<thead><tr><th>항목</th><th>전통적 vSAN HCI 모델</th><th>vSAN Storage Clusters (vSAN Max)</th></tr></thead>" in html_out
+    # Body 검증 - 각 행이 3개의 td로 구성되어야 함
+    assert "<tr><td><strong>스토리지 아키텍처</strong></td><td>컴퓨트 + 스토리지 결합형 (HCI)</td><td>완전 분리형 중앙 공유 스토리지 (Disaggregated)</td></tr>" in html_out
+    assert "<tr><td><strong>기반 엔진</strong></td><td>vSAN OSA 또는 vSAN ESA</td><td><strong>vSAN Express Storage Architecture (ESA)</strong> 전용</td></tr>" in html_out
+    assert "<tr><td><strong>최소 노드 요구</strong></td><td>3 노드 (2-Node 토폴로지 제외)</td><td>6 노드</td></tr>" in html_out
+    assert "<tr><td><strong>스케일링 특성</strong></td><td>컴퓨트와 스토리지의 동시 확장 필요</td><td><mark>컴퓨트와 스토리지 독립적 스케일아웃 가능</mark></td></tr>" in html_out
+
+
+def test_aot_render_adoc_table_with_cols_and_caption():
+    """[cols=...] 속성 및 .테이블제목 캡션이 지정된 AsciiDoc 테이블 렌더링 검증."""
+    sample = """
+.vSAN 스펙 비교표
+[cols="3*"]
+|===
+| Spec | Min | Max
+| Nodes | 6 | 32
+| Net | 25G | 100G
+|===
+"""
+    html_out = render_adoc_to_html(sample)
+    assert "<caption>vSAN 스펙 비교표</caption>" in html_out
+    assert "<thead><tr><th>Spec</th><th>Min</th><th>Max</th></tr></thead>" in html_out
+    assert "<tbody><tr><td>Nodes</td><td>6</td><td>32</td></tr><tr><td>Net</td><td>25G</td><td>100G</td></tr></tbody>" in html_out
+
+
+def test_aot_render_adoc_table_multiline_cell_and_escaped_pipe():
+    """셀 내 줄바꿈 연속 텍스트 및 이스케이프된 파이프(\\|)가 올바르게 보존되는지 검증."""
+    sample = r"""
+|===
+| Command | Description
+
+| `git status`
+현재 작업 트리의
+상태를 표시
+| `cmd \| grep`
+파이프라인 필터링
+|===
+"""
+    html_out = render_adoc_to_html(sample)
+    assert "<thead><tr><th>Command</th><th>Description</th></tr></thead>" in html_out
+    assert "<tr><td><code>git status</code></td><td>현재 작업 트리의 상태를 표시</td></tr>" in html_out
+    assert "<tr><td><code>cmd | grep</code></td><td>파이프라인 필터링</td></tr>" in html_out
+
+
+def test_db_recompile_all_detail_html():
+    """dbm.recompile_all_detail_html 이 기존 DB의 모든 detail_html 을 최신 AOT 렌더러로 정상 갱신하는지 검증."""
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    dbm.init_db(conn)
+
+    sample_adoc = """
+|===
+| A | B
+| 1
+| 2
+|===
+"""
+    doc_id = "doc-recompile-1"
+    conn.execute(
+        "INSERT INTO documents (id, title, url, raw_text, fetched_at, detail, detail_format, detail_html) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (doc_id, "테스트", "https://example.com", "본문", 1000.0, sample_adoc, "adoc", "<old_html>"),
+    )
+    conn.commit()
+
+    assert dbm.get_document_detail_html(conn, doc_id) == "<old_html>"
+
+    updated_count = dbm.recompile_all_detail_html(conn)
+    assert updated_count == 1
+
+    new_html = dbm.get_document_detail_html(conn, doc_id)
+    assert "<old_html>" not in new_html
+    assert "<table><thead><tr><th>A</th><th>B</th></tr></thead><tbody><tr><td>1</td><td>2</td></tr></tbody></table>" in new_html
+
+    conn.close()

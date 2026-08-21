@@ -1132,6 +1132,123 @@ function renderMarkdown(src){
   }catch(e){ return fallback(); }
 }
 
+function splitTableCells(line){
+  var raw=(line||'').trim();
+  if(!raw.startsWith('|')) return [raw];
+  raw=raw.substring(1);
+  if(raw.endsWith('|') && !raw.endsWith('\\\\|')){
+    raw=raw.substring(0, raw.length - 1);
+  }
+  var placeholder='\uE000';
+  var parts=raw.replace(/\\\\\\|/g, placeholder).split('|');
+  return parts.map(function(p){
+    return p.replace(new RegExp(placeholder, 'g'), '|').trim();
+  });
+}
+function parseColsAttr(text){
+  if(!text) return null;
+  var m=text.match(/cols=["']?([^"'\]]+)["']?/i);
+  var colsVal=m ? m[1].trim() : text.replace(/[\\[\\]]/g, '').trim();
+  var starM=colsVal.match(/^(\\d+)\\*/);
+  if(starM) return parseInt(starM[1], 10);
+  if(colsVal.indexOf(',') !== -1){
+    var parts=colsVal.split(',').filter(function(p){ return p.trim().length > 0; });
+    var total=0;
+    for(var i=0; i<parts.length; i++){
+      var sm=parts[i].trim().match(/^(\\d+)\\*/);
+      if(sm) total += parseInt(sm[1], 10);
+      else total += 1;
+    }
+    return total > 0 ? total : null;
+  }
+  if(/^\\d+$/.test(colsVal)) return parseInt(colsVal, 10);
+  return null;
+}
+function parseAdocTableRows(tableLines, explicitCols){
+  if(!tableLines || tableLines.length === 0) return [];
+  var blocks=[];
+  var currentBlock=[];
+  for(var i=0; i<tableLines.length; i++){
+    var l=tableLines[i];
+    if(!l.trim()){
+      if(currentBlock.length > 0){
+        blocks.push(currentBlock);
+        currentBlock=[];
+      }
+    }else{
+      currentBlock.push(l);
+    }
+  }
+  if(currentBlock.length > 0) blocks.push(currentBlock);
+  if(blocks.length === 0) return [];
+
+  var parsedBlocks=[];
+  for(var b=0; b<blocks.length; b++){
+    var blk=blocks[b];
+    var blockCells=[];
+    for(var j=0; j<blk.length; j++){
+      var trimmed=blk[j].trim();
+      if(trimmed.startsWith('|')){
+        var cells=splitTableCells(trimmed);
+        for(var k=0; k<cells.length; k++) blockCells.push(cells[k]);
+      }else{
+        if(blockCells.length > 0){
+          blockCells[blockCells.length - 1] += ' ' + trimmed;
+        }else{
+          blockCells.push(trimmed);
+        }
+      }
+    }
+    if(blockCells.length > 0) parsedBlocks.push(blockCells);
+  }
+  if(parsedBlocks.length === 0) return [];
+
+  var numCols=explicitCols;
+  if(!numCols || numCols <= 0){
+    var firstBlock=parsedBlocks[0];
+    var firstLine=blocks[0][0].trim();
+    var firstLineCells=firstLine.startsWith('|') ? splitTableCells(firstLine) : [];
+    if(firstLineCells.length > 1){
+      numCols=firstLineCells.length;
+    }else if(firstBlock.length > 1){
+      numCols=firstBlock.length;
+    }else{
+      numCols=1;
+    }
+  }
+
+  var rows=[];
+  for(var p=0; p<parsedBlocks.length; p++){
+    var pb=parsedBlocks[p];
+    if(pb.length <= numCols){
+      rows.push(pb);
+    }else{
+      for(var idx=0; idx<pb.length; idx += numCols){
+        var chunk=pb.slice(idx, idx + numCols);
+        if(chunk.length > 0) rows.push(chunk);
+      }
+    }
+  }
+  return rows;
+}
+function renderTableHtml(tableLines, blockMeta){
+  var explicitCols=parseColsAttr(blockMeta.cols || '');
+  var rows=parseAdocTableRows(tableLines, explicitCols);
+  if(!rows || rows.length === 0) return '';
+  var tHtml='<table>';
+  if(blockMeta.title) tHtml += '<caption>' + esc(blockMeta.title) + '</caption>';
+  tHtml += '<thead><tr>' + rows[0].map(function(c){ return '<th>' + renderMarkdown(c) + '</th>'; }).join('') + '</tr></thead>';
+  if(rows.length > 1){
+    tHtml += '<tbody>';
+    for(var r=1; r<rows.length; r++){
+      tHtml += '<tr>' + rows[r].map(function(c){ return '<td>' + renderMarkdown(c) + '</td>'; }).join('') + '</tr>';
+    }
+    tHtml += '</tbody>';
+  }
+  tHtml += '</table>';
+  return tHtml;
+}
+
 // 자체 완결형 경량 AsciiDoc 렌더러 (외부 CDN/루비런타임 의존성 제로, 번개같은 로딩 속도)
 function convertAsciidocToHtml(raw){
   if(!raw) return '';
@@ -1141,7 +1258,6 @@ function convertAsciidocToHtml(raw){
   let inBlock=null;
   let blockMeta={};
   let blockLines=[];
-  let tableRows=[];
 
   function flushBlock(){
     if(!inBlock) return;
@@ -1162,17 +1278,10 @@ function convertAsciidocToHtml(raw){
       const codeText=esc(blockLines.join(NL)).replace(/&lt;(\\d+)&gt;/g,'<span class="conum">&lt;$1&gt;</span>');
       out.push('<pre><code class="language-'+esc(blockMeta.lang||'')+'">'+codeText+'</code></pre>');
     }else if(inBlock==='table'){
-      let tHtml='<table>';
-      if(tableRows.length>0){
-        tHtml+='<thead><tr>'+tableRows[0].map(c=>'<th>'+renderMarkdown(c)+'</th>').join('')+'</tr></thead>';
-        if(tableRows.length>1){
-          tHtml+='<tbody>'+tableRows.slice(1).map(r=>'<tr>'+r.map(c=>'<td>'+renderMarkdown(c)+'</td>').join('')+'</tr>').join('')+'</tbody>';
-        }
-      }
-      tHtml+='</table>';
-      out.push(tHtml);
+      const tblHtml=renderTableHtml(blockLines, blockMeta);
+      if(tblHtml) out.push(tblHtml);
     }
-    inBlock=null; blockMeta={}; blockLines=[]; tableRows=[];
+    inBlock=null; blockMeta={}; blockLines=[];
   }
 
   let pendingMeta=null;
@@ -1195,6 +1304,24 @@ function convertAsciidocToHtml(raw){
         pendingMeta={kind:'code',lang:sm[1]?sm[1].trim():''};
         continue;
       }
+      const tm=trimmed.match(/^\\[(.*cols.*|.*header.*|\\d+\\*|[0-9,]+)\\]$/i);
+      if(tm){
+        if(pendingMeta && pendingMeta.kind==='table'){
+          pendingMeta.cols=tm[1];
+        }else{
+          pendingMeta={kind:'table',cols:tm[1]};
+        }
+        continue;
+      }
+      const titleM=trimmed.match(/^\\.([^\\.\\s].*)$/);
+      if(titleM){
+        if(pendingMeta && pendingMeta.kind==='table'){
+          pendingMeta.title=titleM[1].trim();
+        }else{
+          pendingMeta={kind:'table',title:titleM[1].trim()};
+        }
+        continue;
+      }
 
       if(trimmed==='____'){
         inBlock='quote';
@@ -1213,7 +1340,8 @@ function convertAsciidocToHtml(raw){
       }
       if(trimmed==='|==='){
         inBlock='table';
-        blockMeta={}; pendingMeta=null; tableRows=[]; continue;
+        blockMeta=(pendingMeta&&pendingMeta.kind==='table')?pendingMeta:{};
+        pendingMeta=null; blockLines=[]; continue;
       }
 
       const imgMatch=trimmed.match(/^image::([^\\[]+)\\[([^,\\]]*)(?:,\\s*title=(?:\"([^\"]*)\"|'([^']*)'|([^\\]]*)))?\\]/);
@@ -1244,14 +1372,7 @@ function convertAsciidocToHtml(raw){
       else if(inBlock==='code'&&trimmed==='----') flushBlock();
       else if(inBlock==='table'&&trimmed==='|===') flushBlock();
       else{
-        if(inBlock==='table'){
-          if(trimmed.startsWith('|')){
-            const cells=trimmed.substring(1).split('|').map(c=>c.trim());
-            if(cells.length>0) tableRows.push(cells);
-          }
-        }else{
-          blockLines.push(line);
-        }
+        blockLines.push(line);
       }
     }
   }
@@ -3257,6 +3378,123 @@ function renderMarkdown(src){
     return purifier.sanitize(html,{ADD_ATTR:['target'],ADD_TAGS:['mark']});
   }catch(e){ return fallback(); }
 }
+function splitTableCells(line){
+  var raw=(line||'').trim();
+  if(!raw.startsWith('|')) return [raw];
+  raw=raw.substring(1);
+  if(raw.endsWith('|') && !raw.endsWith('\\\\|')){
+    raw=raw.substring(0, raw.length - 1);
+  }
+  var placeholder='\uE000';
+  var parts=raw.replace(/\\\\\\|/g, placeholder).split('|');
+  return parts.map(function(p){
+    return p.replace(new RegExp(placeholder, 'g'), '|').trim();
+  });
+}
+function parseColsAttr(text){
+  if(!text) return null;
+  var m=text.match(/cols=["']?([^"'\]]+)["']?/i);
+  var colsVal=m ? m[1].trim() : text.replace(/[\\[\\]]/g, '').trim();
+  var starM=colsVal.match(/^(\\d+)\\*/);
+  if(starM) return parseInt(starM[1], 10);
+  if(colsVal.indexOf(',') !== -1){
+    var parts=colsVal.split(',').filter(function(p){ return p.trim().length > 0; });
+    var total=0;
+    for(var i=0; i<parts.length; i++){
+      var sm=parts[i].trim().match(/^(\\d+)\\*/);
+      if(sm) total += parseInt(sm[1], 10);
+      else total += 1;
+    }
+    return total > 0 ? total : null;
+  }
+  if(/^\\d+$/.test(colsVal)) return parseInt(colsVal, 10);
+  return null;
+}
+function parseAdocTableRows(tableLines, explicitCols){
+  if(!tableLines || tableLines.length === 0) return [];
+  var blocks=[];
+  var currentBlock=[];
+  for(var i=0; i<tableLines.length; i++){
+    var l=tableLines[i];
+    if(!l.trim()){
+      if(currentBlock.length > 0){
+        blocks.push(currentBlock);
+        currentBlock=[];
+      }
+    }else{
+      currentBlock.push(l);
+    }
+  }
+  if(currentBlock.length > 0) blocks.push(currentBlock);
+  if(blocks.length === 0) return [];
+
+  var parsedBlocks=[];
+  for(var b=0; b<blocks.length; b++){
+    var blk=blocks[b];
+    var blockCells=[];
+    for(var j=0; j<blk.length; j++){
+      var trimmed=blk[j].trim();
+      if(trimmed.startsWith('|')){
+        var cells=splitTableCells(trimmed);
+        for(var k=0; k<cells.length; k++) blockCells.push(cells[k]);
+      }else{
+        if(blockCells.length > 0){
+          blockCells[blockCells.length - 1] += ' ' + trimmed;
+        }else{
+          blockCells.push(trimmed);
+        }
+      }
+    }
+    if(blockCells.length > 0) parsedBlocks.push(blockCells);
+  }
+  if(parsedBlocks.length === 0) return [];
+
+  var numCols=explicitCols;
+  if(!numCols || numCols <= 0){
+    var firstBlock=parsedBlocks[0];
+    var firstLine=blocks[0][0].trim();
+    var firstLineCells=firstLine.startsWith('|') ? splitTableCells(firstLine) : [];
+    if(firstLineCells.length > 1){
+      numCols=firstLineCells.length;
+    }else if(firstBlock.length > 1){
+      numCols=firstBlock.length;
+    }else{
+      numCols=1;
+    }
+  }
+
+  var rows=[];
+  for(var p=0; p<parsedBlocks.length; p++){
+    var pb=parsedBlocks[p];
+    if(pb.length <= numCols){
+      rows.push(pb);
+    }else{
+      for(var idx=0; idx<pb.length; idx += numCols){
+        var chunk=pb.slice(idx, idx + numCols);
+        if(chunk.length > 0) rows.push(chunk);
+      }
+    }
+  }
+  return rows;
+}
+function renderTableHtml(tableLines, blockMeta){
+  var explicitCols=parseColsAttr(blockMeta.cols || '');
+  var rows=parseAdocTableRows(tableLines, explicitCols);
+  if(!rows || rows.length === 0) return '';
+  var tHtml='<table>';
+  if(blockMeta.title) tHtml += '<caption>' + esc(blockMeta.title) + '</caption>';
+  tHtml += '<thead><tr>' + rows[0].map(function(c){ return '<th>' + renderMarkdown(c) + '</th>'; }).join('') + '</tr></thead>';
+  if(rows.length > 1){
+    tHtml += '<tbody>';
+    for(var r=1; r<rows.length; r++){
+      tHtml += '<tr>' + rows[r].map(function(c){ return '<td>' + renderMarkdown(c) + '</td>'; }).join('') + '</tr>';
+    }
+    tHtml += '</tbody>';
+  }
+  tHtml += '</table>';
+  return tHtml;
+}
+
 function convertAsciidocToHtml(raw){
   if(!raw) return '';
   const NL=String.fromCharCode(10);
@@ -3265,7 +3503,6 @@ function convertAsciidocToHtml(raw){
   let inBlock=null;
   let blockMeta={};
   let blockLines=[];
-  let tableRows=[];
 
   function flushBlock(){
     if(!inBlock) return;
@@ -3286,17 +3523,10 @@ function convertAsciidocToHtml(raw){
       const codeText=esc(blockLines.join(NL)).replace(/&lt;(\\d+)&gt;/g,'<span class="conum">&lt;$1&gt;</span>');
       out.push('<pre><code class="language-'+esc(blockMeta.lang||'')+'">'+codeText+'</code></pre>');
     }else if(inBlock==='table'){
-      let tHtml='<table>';
-      if(tableRows.length>0){
-        tHtml+='<thead><tr>'+tableRows[0].map(c=>'<th>'+renderMarkdown(c)+'</th>').join('')+'</tr></thead>';
-        if(tableRows.length>1){
-          tHtml+='<tbody>'+tableRows.slice(1).map(r=>'<tr>'+r.map(c=>'<td>'+renderMarkdown(c)+'</td>').join('')+'</tr>').join('')+'</tbody>';
-        }
-      }
-      tHtml+='</table>';
-      out.push(tHtml);
+      const tblHtml=renderTableHtml(blockLines, blockMeta);
+      if(tblHtml) out.push(tblHtml);
     }
-    inBlock=null; blockMeta={}; blockLines=[]; tableRows=[];
+    inBlock=null; blockMeta={}; blockLines=[];
   }
 
   let pendingMeta=null;
@@ -3319,6 +3549,24 @@ function convertAsciidocToHtml(raw){
         pendingMeta={kind:'code',lang:sm[1]?sm[1].trim():''};
         continue;
       }
+      const tm=trimmed.match(/^\\[(.*cols.*|.*header.*|\\d+\\*|[0-9,]+)\\]$/i);
+      if(tm){
+        if(pendingMeta && pendingMeta.kind==='table'){
+          pendingMeta.cols=tm[1];
+        }else{
+          pendingMeta={kind:'table',cols:tm[1]};
+        }
+        continue;
+      }
+      const titleM=trimmed.match(/^\\.([^\\.\\s].*)$/);
+      if(titleM){
+        if(pendingMeta && pendingMeta.kind==='table'){
+          pendingMeta.title=titleM[1].trim();
+        }else{
+          pendingMeta={kind:'table',title:titleM[1].trim()};
+        }
+        continue;
+      }
 
       if(trimmed==='____'){
         inBlock='quote';
@@ -3337,7 +3585,8 @@ function convertAsciidocToHtml(raw){
       }
       if(trimmed==='|==='){
         inBlock='table';
-        blockMeta={}; pendingMeta=null; tableRows=[]; continue;
+        blockMeta=(pendingMeta&&pendingMeta.kind==='table')?pendingMeta:{};
+        pendingMeta=null; blockLines=[]; continue;
       }
 
       const imgMatch=trimmed.match(/^image::([^\\[]+)\\[([^,\\]]*)(?:,\\s*title=(?:\"([^\"]*)\"|'([^']*)'|([^\\]]*)))?\\]/);
@@ -3368,14 +3617,7 @@ function convertAsciidocToHtml(raw){
       else if(inBlock==='code'&&trimmed==='----') flushBlock();
       else if(inBlock==='table'&&trimmed==='|===') flushBlock();
       else{
-        if(inBlock==='table'){
-          if(trimmed.startsWith('|')){
-            const cells=trimmed.substring(1).split('|').map(c=>c.trim());
-            if(cells.length>0) tableRows.push(cells);
-          }
-        }else{
-          blockLines.push(line);
-        }
+        blockLines.push(line);
       }
     }
   }
