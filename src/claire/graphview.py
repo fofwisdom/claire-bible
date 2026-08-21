@@ -359,11 +359,33 @@ GRAPH_HTML = """<!doctype html>
   #bar{position:relative;z-index:30;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 12px;
     min-height:48px;background:var(--bar-bg);border-bottom:1px solid var(--border);
     font-size:13px;white-space:nowrap}
-  #format-warn-banner{display:none;background:#d97706;color:#ffffff;padding:8px 14px;font-size:12px;
-    align-items:center;justify-content:space-between;gap:10px;z-index:45;border-bottom:1px solid rgba(0,0,0,.12)}
-  [data-theme="dark"] #format-warn-banner{background:#b45309;color:#fef3c7}
-  #format-warn-banner code{background:rgba(0,0,0,.2);padding:2px 6px;border-radius:4px;font-family:monospace;font-size:11px}
-  #format-warn-banner .close-btn{background:transparent;border:0;color:inherit;font-size:15px;cursor:pointer;line-height:1;padding:2px 6px}
+  /* 상태 및 안내 배너 시스템 (ClaireStatusBanner) */
+  #format-warn-banner{display:none;align-items:center;justify-content:space-between;gap:10px;padding:8px 14px;
+    font-size:12.5px;line-height:1.45;z-index:45;border-bottom:1px solid var(--border);box-shadow:0 1px 3px rgba(0,0,0,.08)}
+  #format-warn-banner.banner-warning{background:#fff8e6;color:#873800;border-bottom-color:#ffd591}
+  [data-theme="dark"] #format-warn-banner.banner-warning{background:#2b1d0c;color:#ffc069;border-bottom-color:#593815}
+  #format-warn-banner.banner-info{background:#e6f4ff;color:#0958d9;border-bottom-color:#91caff}
+  [data-theme="dark"] #format-warn-banner.banner-info{background:#111d2c;color:#69b1ff;border-bottom-color:#153450}
+  #format-warn-banner.banner-success{background:#f6ffed;color:#135200;border-bottom-color:#b7eb8f}
+  [data-theme="dark"] #format-warn-banner.banner-success{background:#162312;color:#95de64;border-bottom-color:#274916}
+  #format-warn-banner.banner-error{background:#fff1f0;color:#a8071a;border-bottom-color:#ffa39e}
+  [data-theme="dark"] #format-warn-banner.banner-error{background:#2c1215;color:#ff7875;border-bottom-color:#58181c}
+  .status-banner-content{display:flex;align-items:center;flex-wrap:wrap;gap:6px 10px;flex:1;min-width:0}
+  .status-banner-badge{display:inline-flex;align-items:center;gap:4px;font-weight:700;white-space:nowrap;
+    padding:1px 6px;border-radius:4px;background:rgba(0,0,0,.06);font-size:11.5px}
+  [data-theme="dark"] .status-banner-badge{background:rgba(255,255,255,.1)}
+  .status-banner-msg{word-break:break-word}
+  #format-warn-banner code{background:rgba(0,0,0,.07);padding:2px 6px;border-radius:4px;font-family:monospace;font-size:11.5px;color:inherit;border:1px solid rgba(0,0,0,.08)}
+  [data-theme="dark"] #format-warn-banner code{background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.12)}
+  .status-banner-actions{display:flex;align-items:center;gap:6px;flex-shrink:0}
+  .banner-act-btn{background:rgba(0,0,0,.06);color:inherit;border:1px solid rgba(0,0,0,.15);border-radius:4px;
+    padding:3px 8px;font-size:11.5px;font-weight:600;cursor:pointer;line-height:1.2;white-space:nowrap;transition:background .15s ease}
+  .banner-act-btn:hover{background:rgba(0,0,0,.12);border-color:rgba(0,0,0,.25)}
+  [data-theme="dark"] .banner-act-btn{background:rgba(255,255,255,.1);border-color:rgba(255,255,255,.2)}
+  [data-theme="dark"] .banner-act-btn:hover{background:rgba(255,255,255,.18);border-color:rgba(255,255,255,.3)}
+  #format-warn-banner .close-btn{background:transparent;border:0;color:inherit;font-size:15px;cursor:pointer;line-height:1;padding:2px 6px;border-radius:4px;opacity:.75}
+  #format-warn-banner .close-btn:hover{opacity:1;background:rgba(0,0,0,.08)}
+  [data-theme="dark"] #format-warn-banner .close-btn:hover{background:rgba(255,255,255,.1)}
   #bar .brand{font-weight:700;letter-spacing:-.01em}
   #bar b{color:var(--accent2)}
   #netsearch{padding:6px 10px;border-bottom:1px solid var(--border);background:var(--panel-bg);flex-shrink:0}
@@ -692,9 +714,18 @@ GRAPH_HTML = """<!doctype html>
       aria-label="도구 더보기" title="도구 더보기" onclick="toggleDrawer()">☰</button>
   </div>
 </header>
-<div id="format-warn-banner" role="alert">
-  <div id="format-warn-text"></div>
-  <button class="close-btn" onclick="document.getElementById('format-warn-banner').style.display='none'" title="닫기">✕</button>
+<div id="format-warn-banner" class="status-banner banner-warning" role="status" aria-live="polite">
+  <div class="status-banner-content">
+    <span id="format-warn-badge" class="status-banner-badge">
+      <span id="format-warn-icon">⚠️</span>
+      <span id="format-warn-title">상태 알림</span>
+    </span>
+    <span id="format-warn-text" class="status-banner-msg"></span>
+  </div>
+  <div class="status-banner-actions">
+    <button id="format-warn-actbtn" type="button" class="banner-act-btn" style="display:none" onclick="ClaireStatusBanner.handleAction()"></button>
+    <button class="close-btn" onclick="ClaireStatusBanner.hide()" title="닫기" aria-label="안내 닫기">✕</button>
+  </div>
 </div>
 <div id="drawerbackdrop" onclick="closeDrawer()" aria-hidden="true"></div>
 <div id="wrap">
@@ -2656,6 +2687,167 @@ async function semanticSearch(q){
     : '🔎 '+actualMode+' 검색: 결과 없음';
 }
 
+// --- 고유 상태 및 안내 배너 시스템 (ClaireStatusBanner) ---
+const ClaireStatusBanner = (function(){
+  const presets = {
+    format_mismatch: {
+      level: 'warning',
+      icon: '⚠️',
+      title: '렌더링 포맷 불일치',
+      render: function(data){
+        const cfg = (data.configured || 'adoc').toUpperCase();
+        const other = (data.configured === 'adoc' ? 'md' : 'adoc').toUpperCase();
+        const count = data.mismatched || data.mismatched_docs || 0;
+        return '.env 설정은 <b>' + cfg + '</b>이나, DB 문서 중 <b>' + count + '개</b>가 <b>' + other + '</b> 포맷입니다. <code>./cb-manuscript format-migrate</code> 실행이 필요합니다.';
+      },
+      actionLabel: '📋 명령어 복사',
+      action: function(data, btn){
+        const cmd = './cb-manuscript format-migrate --format';
+        if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(cmd).catch(function(){});
+        }
+        if (btn) {
+          const orig = btn.textContent;
+          btn.textContent = '✓ 복사됨!';
+          setTimeout(function(){ if(btn) btn.textContent = orig; }, 1800);
+        }
+      }
+    },
+    format_missing: {
+      level: 'info',
+      icon: 'ℹ️',
+      title: '가독 렌더링 미생성',
+      render: function(data){
+        const count = data.missing_detail_docs || 0;
+        return '전체 문서 중 <b>' + count + '개</b>의 본문(detail)이 아직 생성되지 않았습니다. <code>./cb-manuscript format-migrate --format ' + (data.configured || 'adoc') + '</code> 실행으로 자동 생성할 수 있습니다.';
+      },
+      actionLabel: '📋 명령어 복사',
+      action: function(data, btn){
+        const cmd = './cb-manuscript format-migrate --format ' + (data.configured || 'adoc');
+        if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(cmd).catch(function(){});
+        }
+        if (btn) {
+          const orig = btn.textContent;
+          btn.textContent = '✓ 복사됨!';
+          setTimeout(function(){ if(btn) btn.textContent = orig; }, 1800);
+        }
+      }
+    },
+    format_ok: {
+      level: 'success',
+      icon: '✅',
+      title: '포맷 동기화 완료',
+      render: function(data){
+        const cfg = (data.configured || 'adoc').toUpperCase();
+        const total = data.total_docs || data.matching_docs || 0;
+        return '모든 문서(' + total + '건)가 목표 포맷(<b>' + cfg + '</b>)으로 정상 렌더링되고 있습니다.';
+      }
+    },
+    readonly_mode: {
+      level: 'info',
+      icon: '🔒',
+      title: '읽기 전용 모드',
+      render: function(){
+        return '현재 게스트(읽기 전용) 권한으로 접속 중입니다. 지식그래프 탐색 및 검색이 가능합니다.';
+      }
+    },
+    network_error: {
+      level: 'error',
+      icon: '⚡',
+      title: '연결 확인 필요',
+      render: function(data){
+        return (data && data.message) || '서버와의 통신이 원활하지 않습니다. 네트워크 연결을 확인해 주세요.';
+      },
+      actionLabel: '🔄 새로고침',
+      action: function(){
+        if (typeof window !== 'undefined' && window.location && window.location.reload) {
+          window.location.reload();
+        }
+      }
+    },
+    refresh_pending: {
+      level: 'warning',
+      icon: '⏳',
+      title: '데이터 갱신 대기',
+      render: function(data){
+        const count = (data && data.count) || '일부';
+        return '문서 갱신 작업(' + count + '건)이 대기열에 등록되어 백그라운드 처리 중입니다.';
+      }
+    },
+    custom_notice: {
+      level: 'info',
+      icon: '📢',
+      title: '안내',
+      render: function(data){
+        return (data && data.message) || '';
+      }
+    }
+  };
+
+  let activeStatus = null;
+  let activeData = null;
+
+  return {
+    presets: presets,
+    register: function(key, def){
+      presets[key] = def;
+    },
+    show: function(presetKey, data, options){
+      const banner = document.getElementById('format-warn-banner');
+      const text = document.getElementById('format-warn-text');
+      const badge = document.getElementById('format-warn-badge');
+      const iconEl = document.getElementById('format-warn-icon');
+      const titleEl = document.getElementById('format-warn-title');
+      const actBtn = document.getElementById('format-warn-actbtn');
+      if(!banner || !text) return;
+
+      const preset = presets[presetKey] || presets.custom_notice;
+      const opts = Object.assign({}, preset, options || {});
+      const pData = data || {};
+      activeStatus = presetKey;
+      activeData = pData;
+
+      banner.className = 'status-banner banner-' + (opts.level || 'warning');
+      if (iconEl) iconEl.textContent = opts.icon || 'ℹ️';
+      if (titleEl) titleEl.textContent = opts.title || '안내';
+      if (badge && opts.title === '') badge.style.display = 'none';
+      else if (badge) badge.style.display = 'inline-flex';
+
+      const html = typeof opts.render === 'function' ? opts.render(pData) : (opts.message || '');
+      text.innerHTML = html;
+
+      if (actBtn) {
+        if (opts.actionLabel && typeof opts.action === 'function') {
+          actBtn.textContent = opts.actionLabel;
+          actBtn.style.display = 'inline-block';
+        } else {
+          actBtn.style.display = 'none';
+        }
+      }
+
+      banner.style.display = 'flex';
+    },
+    hide: function(){
+      const banner = document.getElementById('format-warn-banner');
+      if (banner) banner.style.display = 'none';
+      activeStatus = null;
+      activeData = null;
+    },
+    handleAction: function(){
+      if (!activeStatus) return;
+      const preset = presets[activeStatus];
+      const actBtn = document.getElementById('format-warn-actbtn');
+      if (preset && typeof preset.action === 'function') {
+        preset.action(activeData, actBtn);
+      }
+    },
+    getStatus: function(){
+      return { status: activeStatus, data: activeData };
+    }
+  };
+})();
+
 // documents와 /whoami를 병렬로 읽되, scope가 확정되기 전 렌더는 항상 read-only다.
 syncThemeBtn();   // 저장된 테마에 맞춰 🌙/🌞 라벨 동기화(테마 자체는 head 인라인에서 선적용)
 fetch('documents').then(r=>{ if(!r.ok) throw new Error('documents fetch failed: HTTP '+r.status); return r.json(); }).then(d=>{
@@ -2664,16 +2856,14 @@ fetch('documents').then(r=>{ if(!r.ok) throw new Error('documents fetch failed: 
   if(allDocs.length && !curReaderDoc && !mobileMQ.matches){
     openReader(allDocs[0].id);
   }
-  if(d && d.format_status && d.format_status.needs_migration){
+  if(d && d.format_status){
     const fs=d.format_status;
-    const banner=document.getElementById('format-warn-banner');
-    const text=document.getElementById('format-warn-text');
-    if(banner && text){
-      const cfg=(fs.configured||'').toUpperCase();
-      const other=cfg==='ADOC'?'MD':'ADOC';
-      text.innerHTML='⚠️ <b>렌더링 포맷 불일치</b>: .env 설정은 <b>'+cfg+'</b>이나, DB 문서 중 '+
-        fs.mismatched+'개가 <b>'+other+'</b> 포맷입니다. <code>./cb-manuscript format-migrate --format '+(fs.configured||'adoc')+'</code> 실행이 필요합니다.';
-      banner.style.display='flex';
+    if(fs.needs_migration){
+      if((fs.mismatched || fs.mismatched_docs || 0) > 0){
+        ClaireStatusBanner.show('format_mismatch', fs);
+      } else if((fs.missing_detail_docs || 0) > 0){
+        ClaireStatusBanner.show('format_missing', fs);
+      }
     }
   }
 }).catch(e=>{
@@ -2694,6 +2884,8 @@ window.claireDebug = {
   get synth(){ return [...synthSet]; },
   get authScope(){ return AUTH_SCOPE; },
   get canWrite(){ return canWrite(); },
+  get statusBanner(){ return ClaireStatusBanner; },
+  get activeBannerStatus(){ return ClaireStatusBanner.getStatus(); },
   positions(ids){ return net ? net.getPositions(ids) : {}; },
   visibleNodePoints(){
     if(!net || !allNodes) return [];

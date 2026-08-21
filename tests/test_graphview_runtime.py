@@ -154,7 +154,7 @@ const knownIds = [
   'docs', 'docq', 'desclines', 'pinnedhead', 'pinnedlist', 'doclist', 'showhidden', 'hiddenlist',
   'detailpane', 'panel', 'fslider', 'fmin', 'bar', 'worktabs', 'tab-docs', 'tab-graph', 'tab-search', 'tab-menu',
   'morebtn', 'nodepop', 'stat', 'authstate', 'themebtn', 'sem', 'searchkind', 'synthchips', 'synthbtn',
-  'addbtn', 'dedupbtn', 'pathbtn', 'repolink', 'format-warn-banner', 'format-warn-text', 'graphnotice',
+  'addbtn', 'dedupbtn', 'pathbtn', 'repolink', 'format-warn-banner', 'format-warn-text', 'format-warn-badge', 'format-warn-icon', 'format-warn-title', 'format-warn-actbtn', 'graphnotice',
   'graphdocnav', 'graphdocpick', 'graphdoclabel', 'graphdocprev', 'graphdocnext', 'graphdocmenu', 'graphdocq', 'graphdoclist', 'graphdocempty'
 ];
 knownIds.forEach(id => getOrCreate(id));
@@ -421,7 +421,7 @@ const knownIds = [
   'docs', 'docq', 'desclines', 'pinnedhead', 'pinnedlist', 'doclist', 'showhidden', 'hiddenlist',
   'detailpane', 'panel', 'fslider', 'fmin', 'bar', 'worktabs', 'tab-docs', 'tab-graph', 'tab-search', 'tab-menu',
   'morebtn', 'nodepop', 'stat', 'authstate', 'themebtn', 'sem', 'searchkind', 'synthchips', 'synthbtn',
-  'addbtn', 'dedupbtn', 'pathbtn', 'repolink', 'format-warn-banner', 'format-warn-text', 'graphnotice',
+  'addbtn', 'dedupbtn', 'pathbtn', 'repolink', 'format-warn-banner', 'format-warn-text', 'format-warn-badge', 'format-warn-icon', 'format-warn-title', 'format-warn-actbtn', 'graphnotice',
   'graphdocnav', 'graphdocpick', 'graphdoclabel', 'graphdocprev', 'graphdocnext', 'graphdocmenu', 'graphdocq', 'graphdoclist', 'graphdocempty'
 ];
 knownIds.forEach(id => getOrCreate(id));
@@ -655,5 +655,263 @@ console.log("WATCHDOG_RESULT:" + JSON.stringify(result));
     finally:
         Path(script_file).unlink(missing_ok=True)
         Path(runner_file).unlink(missing_ok=True)
+
+
+def test_claire_status_banner_runtime():
+    """GRAPH_HTML 내의 ClaireStatusBanner 상태 관리 기능이 정상 동작하는지 headless Node.js 런타임으로 검증."""
+    from claire.graphview import GRAPH_HTML
+
+    scripts = re.findall(r"<script(?:\s+type=[\"']module[\"'])?>(.*?)</script>", GRAPH_HTML, re.DOTALL)
+    assert len(scripts) >= 2, "Expected at least 2 script tags in GRAPH_HTML"
+    main_script = scripts[-1]
+
+    runner_code = r"""
+const fs = require('fs');
+
+class MockElement {
+  constructor(tagName, id) {
+    this.tagName = tagName.toUpperCase();
+    this.id = id || '';
+    this.className = '';
+    this.classList = {
+      _classes: new Set(),
+      add: (c) => this.classList._classes.add(c),
+      remove: (c) => this.classList._classes.delete(c),
+      contains: (c) => this.classList._classes.has(c),
+      toggle: (c, force) => {
+        if (force === true) { this.classList._classes.add(c); return true; }
+        if (force === false) { this.classList._classes.delete(c); return false; }
+        if (this.classList._classes.has(c)) { this.classList._classes.delete(c); return false; }
+        this.classList._classes.add(c); return true;
+      }
+    };
+    this.style = {
+      _props: {},
+      setProperty(k, v) { this._props[k] = v; },
+      getPropertyValue(k) { return this._props[k] || ''; }
+    };
+    this.dataset = {};
+    this.attributes = {};
+    this._innerHTML = '';
+    this._textContent = '';
+    this.value = '';
+    this.disabled = false;
+  }
+  get innerHTML() { return this._innerHTML; }
+  set innerHTML(v) { this._innerHTML = String(v); this._textContent = String(v).replace(/<[^>]*>/g, ''); }
+  get textContent() { return this._textContent; }
+  set textContent(v) { this._textContent = String(v); this._innerHTML = String(v); }
+  setAttribute(k, v) { this.attributes[k] = String(v); }
+  getAttribute(k) { return this.attributes[k] || null; }
+  removeAttribute(k) { delete this.attributes[k]; }
+  getBoundingClientRect() { return { width: 1000, height: 700, top: 0, left: 0, right: 1000, bottom: 700 }; }
+  querySelector(sel) { return new MockElement('div'); }
+  querySelectorAll(sel) { return []; }
+  addEventListener() {}
+  removeEventListener() {}
+  focus() {}
+  blur() {}
+  click() {}
+}
+
+const elements = new Map();
+function getOrCreate(id, tag='div') {
+  if (!elements.has(id)) {
+    elements.set(id, new MockElement(tag, id));
+  }
+  return elements.get(id);
+}
+
+const knownIds = [
+  'wrap', 'centerwrap', 'netwrap', 'net', 'reader', 'rtitle', 'rbody', 'rfs', 'sharebox',
+  'docs', 'docq', 'desclines', 'pinnedhead', 'pinnedlist', 'doclist', 'showhidden', 'hiddenlist',
+  'detailpane', 'panel', 'fslider', 'fmin', 'bar', 'worktabs', 'tab-docs', 'tab-graph', 'tab-search', 'tab-menu',
+  'morebtn', 'nodepop', 'stat', 'authstate', 'themebtn', 'sem', 'searchkind', 'synthchips', 'synthbtn',
+  'addbtn', 'dedupbtn', 'pathbtn', 'repolink', 'format-warn-banner', 'format-warn-text', 'format-warn-badge',
+  'format-warn-icon', 'format-warn-title', 'format-warn-actbtn', 'graphnotice',
+  'graphdocnav', 'graphdocpick', 'graphdoclabel', 'graphdocprev', 'graphdocnext', 'graphdocmenu', 'graphdocq', 'graphdoclist', 'graphdocempty'
+];
+knownIds.forEach(id => getOrCreate(id));
+
+const document = {
+  documentElement: getOrCreate('html', 'html'),
+  body: getOrCreate('body', 'body'),
+  getElementById(id) { return elements.get(id) || null; },
+  querySelector(sel) {
+    if (sel.startsWith('#')) return document.getElementById(sel.slice(1));
+    return new MockElement('div');
+  },
+  querySelectorAll(sel) { return []; },
+  addEventListener() {},
+  removeEventListener() {},
+  activeElement: null
+};
+
+let clipboardText = '';
+const navigator = {
+  clipboard: {
+    writeText: async (t) => { clipboardText = t; }
+  }
+};
+
+const window = {
+  document,
+  navigator,
+  addEventListener() {},
+  removeEventListener() {},
+  setTimeout: global.setTimeout,
+  clearTimeout: global.clearTimeout,
+  setInterval: global.setInterval,
+  clearInterval: global.clearInterval,
+  requestAnimationFrame(fn) { return global.setTimeout(fn, 0); },
+  DOMPurify: { sanitize(html) { return html; } },
+  marked: { parse(src) { return '<p>' + src + '</p>'; } },
+  matchMedia(query) {
+    return { matches: false, media: query, addEventListener() {}, removeEventListener() {} };
+  },
+  vis: {
+    DataSet: class {
+      constructor(data) { this._data = data || []; }
+      get(id) { return this._data.find(d => d.id === id); }
+      getIds() { return this._data.map(d => d.id); }
+      update() {}
+      add() {}
+      forEach(fn) { this._data.forEach(fn); }
+    },
+    Network: class {
+      constructor() {}
+      setSize() {}
+      redraw() {}
+      fit() {}
+      focus() {}
+      moveTo() {}
+      on() {}
+      selectNodes() {}
+      unselectAll() {}
+      getSelectedNodes() { return []; }
+      getScale() { return 1.0; }
+      getViewPosition() { return { x: 0, y: 0 }; }
+      getPositions() { return {}; }
+      canvasToDOM(p) { return p; }
+      getPosition() { return { x: 0, y: 0 }; }
+      setOptions() {}
+    }
+  },
+  localStorage: {
+    _store: {},
+    getItem(k) { return this._store[k] || null; },
+    setItem(k, v) { this._store[k] = String(v); }
+  },
+  location: { origin: 'http://127.0.0.1:8766', reload() {} }
+};
+
+async function fetch(url, opts) {
+  if (url === 'whoami') return { ok: true, status: 200, json: async () => ({ scope: 'owner' }) };
+  if (url === 'documents') return { ok: true, status: 200, json: async () => ({ documents: [], format_status: { needs_migration: false } }) };
+  return { ok: true, status: 200, json: async () => ({}) };
+}
+
+global.window = window;
+global.document = document;
+global.navigator = navigator;
+global.fetch = fetch;
+
+const code = fs.readFileSync(process.argv[2], 'utf8');
+eval(code);
+
+const banner = window.claireDebug.statusBanner;
+const tests = [];
+
+// 1. Preset keys check
+const presetKeys = Object.keys(banner.presets);
+tests.push({ name: 'has_presets', ok: presetKeys.includes('format_mismatch') && presetKeys.includes('format_missing') && presetKeys.includes('format_ok') });
+
+// 2. format_mismatch show
+banner.show('format_mismatch', { configured: 'adoc', mismatched: 3 });
+const bannerEl = document.getElementById('format-warn-banner');
+const textEl = document.getElementById('format-warn-text');
+const titleEl = document.getElementById('format-warn-title');
+const actBtn = document.getElementById('format-warn-actbtn');
+
+tests.push({
+  name: 'format_mismatch_render',
+  displayed: bannerEl.style.display === 'flex',
+  isWarning: bannerEl.className.includes('banner-warning'),
+  title: titleEl.textContent === '렌더링 포맷 불일치',
+  hasText: textEl.innerHTML.includes('3개') && textEl.innerHTML.includes('MD'),
+  hasAction: actBtn.style.display === 'inline-block' && actBtn.textContent.includes('복사')
+});
+
+// 3. Action execution (clipboard copy)
+banner.handleAction();
+tests.push({
+  name: 'format_mismatch_action',
+  copiedCmd: clipboardText.includes('format-migrate --format adoc')
+});
+
+// 4. format_missing show
+banner.show('format_missing', { configured: 'adoc', missing_detail_docs: 5 });
+tests.push({
+  name: 'format_missing_render',
+  isInfo: bannerEl.className.includes('banner-info'),
+  title: titleEl.textContent === '가독 렌더링 미생성',
+  hasText: textEl.innerHTML.includes('5개')
+});
+
+// 5. format_ok show
+banner.show('format_ok', { configured: 'adoc', total_docs: 42 });
+tests.push({
+  name: 'format_ok_render',
+  isSuccess: bannerEl.className.includes('banner-success'),
+  hasText: textEl.innerHTML.includes('42건')
+});
+
+// 6. readonly_mode show
+banner.show('readonly_mode');
+tests.push({
+  name: 'readonly_mode_render',
+  title: titleEl.textContent === '읽기 전용 모드'
+});
+
+// 7. hide
+banner.hide();
+tests.push({
+  name: 'hide_banner',
+  hidden: bannerEl.style.display === 'none',
+  statusNull: window.claireDebug.activeBannerStatus.status === null
+});
+
+console.log("BANNER_TEST_RESULT:" + JSON.stringify(tests));
+process.exit(0);
+"""
+
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as f_script:
+        f_script.write(main_script)
+        script_file = f_script.name
+
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as f_runner:
+        f_runner.write(runner_code)
+        runner_file = f_runner.name
+
+    try:
+        proc = subprocess.run(
+            ["node", runner_file, script_file],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        assert proc.returncode == 0, f"Status banner runner crashed:\nSTDOUT:\n{proc.stdout}\nSTDERR:\n{proc.stderr}"
+        match = re.search(r"BANNER_TEST_RESULT:(.*)", proc.stdout)
+        assert match is not None, f"Execution output did not contain BANNER_TEST_RESULT:\n{proc.stdout}"
+
+        results = json.loads(match.group(1))
+        for t in results:
+            for k, v in t.items():
+                if k != "name":
+                    assert v is True or v == True or bool(v), f"Test {t['name']} failed on {k}: {v}"
+    finally:
+        Path(script_file).unlink(missing_ok=True)
+        Path(runner_file).unlink(missing_ok=True)
+
 
 
