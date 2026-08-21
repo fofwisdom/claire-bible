@@ -1319,12 +1319,14 @@ function openReader(docId){
   if(!docId) return;
   curReaderDoc=docId;
   activeDoc=docId;
+  selectedNodeId=null;                          // 문서 모드로 전환 — 노드 inspect 해제
   readerReturnFocus=document.activeElement;
   readerReturnDocId=docId;
   const sb=document.getElementById('sharebox'); if(sb){ sb.className='sharebox'; sb.innerHTML=''; }  // 이전 공유링크 닫기
   applyReadFS();   // 저장된 글자 크기 적용
   document.getElementById('rtitle').textContent='문서 불러오는 중…';
   document.getElementById('rbody').innerHTML='';
+  if(panel) panel.innerHTML='<p class=hint>문서 불러오는 중…</p>';
   const r=document.getElementById('reader');
   r.setAttribute('aria-hidden','false');
   r.setAttribute('aria-busy','true');
@@ -1337,13 +1339,30 @@ function openReader(docId){
     setCenterView('reader');
     renderDocs(document.getElementById('docq').value);
   }
+  applyView();
+  if(activeDoc){
+    const targetDocId=activeDoc;
+    requestAnimationFrame(()=>{ if(net && activeDoc===targetDocId){
+      const ids=[]; allNodes.forEach(n=>{ if(!n.hidden && (n.sources||[]).includes(targetDocId)) ids.push(n.id); });
+      net.fit(ids.length ? {nodes:ids, animation:graphAnimation(true)}
+        : {animation:graphAnimation(true)});
+    }});
+  }
   fetch('document?id='+encodeURIComponent(docId)).then(x=>x.json()).then(dc=>{
-    if(!dc || dc.error){ document.getElementById('rbody').innerHTML='<p class=hint>문서를 찾을 수 없습니다.</p>';
-      r.setAttribute('aria-busy','false'); return; }
+    if(!dc || dc.error){
+      document.getElementById('rbody').innerHTML='<p class=hint>문서를 찾을 수 없습니다.</p>';
+      r.setAttribute('aria-busy','false');
+      if(activeDoc===docId && panel) panel.innerHTML='<p class=hint>문서를 찾을 수 없습니다.</p>';
+      return;
+    }
     renderReader(dc);
+    if(activeDoc===docId) renderDocPanel(dc);
     markDocumentSeen(docId);
-  }).catch(()=>{ document.getElementById('rbody').innerHTML='<p class=hint>문서 로드 실패.</p>';
-    r.setAttribute('aria-busy','false'); });
+  }).catch(()=>{
+    document.getElementById('rbody').innerHTML='<p class=hint>문서 로드 실패.</p>';
+    r.setAttribute('aria-busy','false');
+    if(activeDoc===docId && panel) panel.innerHTML='<p class=hint>문서 로드 실패.</p>';
+  });
 }
 function renderReader(dc){
   curReaderDocData=dc;
@@ -1905,6 +1924,10 @@ fetch('graph').then(r=>{ if(!r.ok) throw new Error('graph fetch HTTP '+r.status)
     });
   }
   applyView();
+  if(activeDoc && !selectedNodeId){
+    if(curReaderDocData && curReaderDocData.id===activeDoc) renderDocPanel(curReaderDocData);
+    else loadDocPanel(activeDoc);
+  }
 }).catch(err => {
   console.warn('graph load error:', err);
   const st=document.getElementById('stat');
@@ -2544,10 +2567,16 @@ function setActiveDoc(id){
 
 // 좌측 문서 선택 시 우측 패널: 문서 요약 + 자세히 읽기 + '이 문서의 노드' 버튼.
 function loadDocPanel(id){
+  if(curReaderDocData && curReaderDocData.id===id){
+    renderDocPanel(curReaderDocData);
+    markDocumentSeen(id);
+    return;
+  }
   panel.innerHTML='<p class=hint>문서 불러오는 중…</p>';
   fetch('document?id='+encodeURIComponent(id)).then(r=>r.json()).then(dc=>{
     if(activeDoc!==id) return;                  // 그 사이 다른 문서/노드로 이동했으면 무시
     if(!dc || dc.error){ panel.innerHTML='<p class=hint>문서를 찾을 수 없습니다.</p>'; return; }
+    curReaderDocData=dc;
     renderDocPanel(dc);
     markDocumentSeen(id);
   }).catch(()=>{ panel.innerHTML='<p class=hint>문서 로드 실패.</p>'; });
@@ -2560,6 +2589,7 @@ function docNodes(docId){
   return out;
 }
 function renderDocPanel(dc){
+  curReaderDocData=dc;
   let h='<h2>'+esc(dc.title)+' <small>'+esc(dc.source_type||'')+'</small></h2>';
   if(dc.url) h+='<p class=docmeta><a href="'+esc(dc.url)+'" target=_blank rel=noopener>↗ 원문 열기</a></p>';
   h+=extraSourcesHtml(dc);
