@@ -420,9 +420,32 @@ def _set_session_cookie(
     )
 
 
+def _clear_session_cookie(
+    response: Response,
+    config: WebRuntimeConfig,
+) -> None:
+    response.delete_cookie(
+        "claire_session",
+        path="/",
+        secure=config.secure_cookie,
+        httponly=True,
+        samesite="lax",
+    )
+
+
 def _session_cookie_header(config: WebRuntimeConfig, token: str) -> bytes:
     response = Response()
     _set_session_cookie(response, config, token)
+    return next(
+        value
+        for name, value in response.raw_headers
+        if name.lower() == b"set-cookie"
+    )
+
+
+def _clear_session_cookie_header(config: WebRuntimeConfig) -> bytes:
+    response = Response()
+    _clear_session_cookie(response, config)
     return next(
         value
         for name, value in response.raw_headers
@@ -834,6 +857,13 @@ class AuthenticationMiddleware:
                     )
                     return
                 if len(token_values) != 1 or not token_values[0]:
+                    if self.config.anonymous_readonly:
+                        response = RedirectResponse("/", status_code=302)
+                        _clear_session_cookie(response, self.config)
+                        response.headers["Cache-Control"] = "no-store"
+                        response.headers["Referrer-Policy"] = "no-referrer"
+                        await _send_response(response, scope, receive, send)
+                        return
                     await _send_response(
                         PlainTextResponse("Not Found", status_code=404),
                         scope,
@@ -844,6 +874,13 @@ class AuthenticationMiddleware:
                 token = token_values[0]
                 exchanged = await _bootstrap_session(self.config, token)
                 if exchanged is None:
+                    if self.config.anonymous_readonly:
+                        response = RedirectResponse("/", status_code=302)
+                        _clear_session_cookie(response, self.config)
+                        response.headers["Cache-Control"] = "no-store"
+                        response.headers["Referrer-Policy"] = "no-referrer"
+                        await _send_response(response, scope, receive, send)
+                        return
                     await _send_response(
                         PlainTextResponse("Not Found", status_code=404),
                         scope,
@@ -853,6 +890,13 @@ class AuthenticationMiddleware:
                     return
                 session_scope, cookie_token = exchanged
                 if session_scope not in {"owner", "readonly"}:
+                    if self.config.anonymous_readonly:
+                        response = RedirectResponse("/", status_code=302)
+                        _clear_session_cookie(response, self.config)
+                        response.headers["Cache-Control"] = "no-store"
+                        response.headers["Referrer-Policy"] = "no-referrer"
+                        await _send_response(response, scope, receive, send)
+                        return
                     await _send_response(
                         PlainTextResponse("Not Found", status_code=404),
                         scope,
@@ -974,27 +1018,6 @@ class AuthenticationMiddleware:
             )
             return
 
-        if cookie_present and cookie_token is None:
-            if path == "/mcp":
-                await _send_response(
-                    _mcp_auth_error_response(
-                        401, "invalid_token", "Invalid cookie"
-                    ),
-                    scope,
-                    receive,
-                    send,
-                )
-                return
-            status = 403 if origin_kind == "cross" else 404
-            await _send_response(
-                PlainTextResponse(
-                    "Forbidden" if status == 403 else "Not Found", status_code=status
-                ),
-                scope,
-                receive,
-                send,
-            )
-            return
         if authorization_present and bearer is None:
             if path == "/mcp":
                 await _send_response(
@@ -1022,6 +1045,8 @@ class AuthenticationMiddleware:
         )
         auth_scope: AuthScope | None = None
         auth_channel: str | None = None
+        cookie_invalid_or_expired = False
+
         if bearer is not None:
             if _constant_equal(bearer, self.config.owner_token):
                 auth_scope, auth_channel = "owner", "bearer"
@@ -1050,9 +1075,15 @@ class AuthenticationMiddleware:
             return
 
         if auth_scope is None and origin_kind != "cross":
-            if cookie_token:
-                auth_scope = await _validate_session(self.config, cookie_token)
-                auth_channel = "cookie" if auth_scope is not None else None
+            if cookie_present:
+                if cookie_token:
+                    auth_scope = await _validate_session(self.config, cookie_token)
+                    if auth_scope is not None:
+                        auth_channel = "cookie"
+                    else:
+                        cookie_invalid_or_expired = True
+                else:
+                    cookie_invalid_or_expired = True
             elif x_session_token:
                 auth_scope = await _validate_session(self.config, x_session_token)
                 auth_channel = "x-session" if auth_scope is not None else None
@@ -1077,15 +1108,26 @@ class AuthenticationMiddleware:
             )
             return
 
+        can_fallback_anonymous = (
+            not authorization_present
+            and not x_session_present
+            and (not cookie_present or cookie_invalid_or_expired)
+        )
+
         if (
             auth_scope is None
-            and not credential_present
+            and can_fallback_anonymous
             and self.config.anonymous_readonly
             and rule.access == "read"
             and path != "/mcp"
             and origin_kind in {"none", "same"}
         ):
-            auth_scope, auth_channel = "anonymous", "anonymous"
+            auth_scope = "anonymous"
+            auth_channel = (
+                "anonymous_cleared_cookie"
+                if cookie_present
+                else "anonymous"
+            )
 
         allowed = auth_scope == "owner" or (
             auth_scope in {"anonymous", "readonly"}
@@ -1106,25 +1148,40 @@ class AuthenticationMiddleware:
                     send,
                 )
                 return
-            await _send_response(
-                PlainTextResponse("Not Found", status_code=404), scope, receive, send
-            )
+            response = PlainTextResponse("Not Found", status_code=404)
+            if cookie_present and cookie_invalid_or_expired:
+                _clear_session_cookie(response, self.config)
+            await _send_response(response, scope, receive, send)
             return
+
         state[_AUTH_SCOPE_KEY] = auth_scope
-        if auth_channel != "cookie" or not cookie_token:
-            await self.app(scope, receive, send)
+        if auth_channel == "cookie" and cookie_token:
+            refreshed_cookie = _session_cookie_header(self.config, cookie_token)
+
+            async def refresh_cookie_send(message: Message) -> None:
+                if message["type"] == "http.response.start":
+                    headers = list(message.get("headers", []))
+                    headers.append((b"set-cookie", refreshed_cookie))
+                    message = {**message, "headers": headers}
+                await send(message)
+
+            await self.app(scope, receive, refresh_cookie_send)
             return
 
-        refreshed_cookie = _session_cookie_header(self.config, cookie_token)
+        if auth_channel == "anonymous_cleared_cookie":
+            cleared_cookie = _clear_session_cookie_header(self.config)
 
-        async def refresh_cookie_send(message: Message) -> None:
-            if message["type"] == "http.response.start":
-                headers = list(message.get("headers", []))
-                headers.append((b"set-cookie", refreshed_cookie))
-                message = {**message, "headers": headers}
-            await send(message)
+            async def clear_cookie_send(message: Message) -> None:
+                if message["type"] == "http.response.start":
+                    headers = list(message.get("headers", []))
+                    headers.append((b"set-cookie", cleared_cookie))
+                    message = {**message, "headers": headers}
+                await send(message)
 
-        await self.app(scope, receive, refresh_cookie_send)
+            await self.app(scope, receive, clear_cookie_send)
+            return
+
+        await self.app(scope, receive, send)
 
 
 def _safe_log_path(path: str) -> str:

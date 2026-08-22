@@ -494,7 +494,7 @@ async def test_anonymous_readonly_cross_origin_still_requires_valid_bearer(tmp_p
 
 
 @pytest.mark.asyncio
-async def test_anonymous_readonly_does_not_fallback_from_credential_material(
+async def test_anonymous_readonly_does_not_fallback_from_explicit_headers_or_mixed_credentials(
     tmp_path,
     monkeypatch,
 ):
@@ -515,9 +515,6 @@ async def test_anonymous_readonly_does_not_fallback_from_credential_material(
             ("Authorization", f"Bearer {OWNER_TOKEN}"),
             ("Authorization", f"Bearer {OWNER_TOKEN}"),
         ],
-        [("Cookie", "claire_session=")],
-        [("Cookie", f"claire_session={unknown_session}")],
-        [("Cookie", "claire_session=a; claire_session=b")],
         [
             ("Authorization", f"Bearer {OWNER_TOKEN}"),
             ("Cookie", f"claire_session={unknown_session}"),
@@ -541,6 +538,112 @@ async def test_anonymous_readonly_does_not_fallback_from_credential_material(
         assert no_origin.status == 404
         assert same_origin.status == 404
         assert cross_origin.status == 403
+
+
+@pytest.mark.asyncio
+async def test_anonymous_readonly_fallback_and_clears_expired_or_invalid_session_cookie(
+    tmp_path,
+    monkeypatch,
+):
+    async def reject_session(_config, _token):
+        return None
+
+    monkeypatch.setattr(security, "_validate_session", reject_session)
+    app = security.wrap_web_app(
+        _inner_app(),
+        _settings(tmp_path, anonymous_readonly=True),
+    )
+    unknown_session = "s" * 43
+    cookie_cases = [
+        [("Cookie", "claire_session=")],
+        [("Cookie", f"claire_session={unknown_session}")],
+        [("Cookie", "claire_session=a; claire_session=b")],
+    ]
+
+    for credential_headers in cookie_cases:
+        no_origin = await _call(app, "/graph", headers=credential_headers)
+        same_origin = await _call(
+            app,
+            "/graph",
+            headers=[*credential_headers, ("Origin", DEV_ORIGIN)],
+        )
+        cross_origin = await _call(
+            app,
+            "/graph",
+            headers=[*credential_headers, ("Origin", CROSS_ORIGIN)],
+        )
+        assert no_origin.status == 200
+        assert no_origin.json()["scope"] == "anonymous"
+        assert "Max-Age=0" in (no_origin.header("set-cookie") or "")
+
+        assert same_origin.status == 200
+        assert same_origin.json()["scope"] == "anonymous"
+        assert "Max-Age=0" in (same_origin.header("set-cookie") or "")
+
+        # Cross origin with cookie is always forbidden
+        assert cross_origin.status == 403
+
+    # Writing routes (owner only) must still reject with 404 and clear cookie
+    owner_write = await _call(
+        app,
+        "/ingest",
+        method="POST",
+        headers=[("Cookie", f"claire_session={unknown_session}")],
+    )
+    assert owner_write.status == 404
+    assert "Max-Age=0" in (owner_write.header("set-cookie") or "")
+
+
+@pytest.mark.asyncio
+async def test_authenticated_mode_rejects_expired_session_cookie_and_clears_cookie(
+    tmp_path,
+    monkeypatch,
+):
+    async def reject_session(_config, _token):
+        return None
+
+    monkeypatch.setattr(security, "_validate_session", reject_session)
+    app = security.wrap_web_app(
+        _inner_app(),
+        _settings(tmp_path, anonymous_readonly=False),
+    )
+    unknown_session = "s" * 43
+    response = await _call(
+        app,
+        "/graph",
+        headers=[("Cookie", f"claire_session={unknown_session}")],
+    )
+    assert response.status == 404
+    assert "Max-Age=0" in (response.header("set-cookie") or "")
+
+
+@pytest.mark.asyncio
+async def test_anonymous_readonly_bootstrap_failure_redirects_and_clears_cookie(
+    tmp_path,
+):
+    settings = _settings(tmp_path, anonymous_readonly=True)
+    conn = dbm.connect(settings.db_file)
+    dbm.init_db(conn)
+    conn.close()
+    app = security.wrap_web_app(
+        _inner_app(),
+        settings,
+    )
+    expired_token = "e" * 43
+
+    # Invalid / expired token redirects to / with cleared cookie
+    redirect = await _call(app, "/", query=f"t={expired_token}")
+    assert redirect.status == 302
+    assert redirect.header("location") == "/"
+    assert redirect.header_values("cache-control") == ["no-store"]
+    assert redirect.header_values("referrer-policy") == ["no-referrer"]
+    assert "Max-Age=0" in (redirect.header("set-cookie") or "")
+
+    # Blank / malformed token also redirects
+    blank_redirect = await _call(app, "/", query="t=")
+    assert blank_redirect.status == 302
+    assert blank_redirect.header("location") == "/"
+    assert "Max-Age=0" in (blank_redirect.header("set-cookie") or "")
 
 
 @pytest.mark.asyncio
