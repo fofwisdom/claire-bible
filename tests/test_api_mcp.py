@@ -1,6 +1,6 @@
 """API 서버(server.py) MCP 엔드포인트(/mcp) 통합 테스트.
 
-- 존재 은폐 원칙: 미인증/무효 토큰 요청 시 401/403 대신 404 Not Found
+- 표준 MCP HTTP 사양: 미인증/무효 토큰 요청 시 401 Unauthorized + WWW-Authenticate: Bearer
 - X-Session 헤더 및 Bearer 토큰을 통한 단일 활성 세션 인증
 - tools/list 10종 툴 노출 및 tools/call JSON-RPC 통신
 - 세션 재발급 시 이전 세션 토큰 즉시 무효화
@@ -70,7 +70,7 @@ def _rpc(method: str, params: dict | None = None, req_id: int = 1) -> dict:
     return body
 
 
-def test_mcp_no_session_returns_404(tmp_path: Path) -> None:
+def test_mcp_no_session_returns_401(tmp_path: Path) -> None:
     s = _settings(tmp_path)
     app = _app(s)
     with TestClient(app, base_url=s.public_url) as client:
@@ -85,10 +85,15 @@ def test_mcp_no_session_returns_404(tmp_path: Path) -> None:
                 },
             ),
         )
-        assert resp.status_code == 404
+        assert resp.status_code == 401
+        assert "WWW-Authenticate" in resp.headers
+        assert resp.headers["WWW-Authenticate"].startswith("Bearer")
+        assert resp.headers["content-type"].startswith("application/json")
+        body = resp.json()
+        assert body["error"] == "invalid_token"
 
 
-def test_mcp_invalid_session_returns_404(tmp_path: Path) -> None:
+def test_mcp_invalid_session_returns_401(tmp_path: Path) -> None:
     s = _settings(tmp_path)
     app = _app(s)
     with TestClient(app, base_url=s.public_url) as client:
@@ -97,7 +102,26 @@ def test_mcp_invalid_session_returns_404(tmp_path: Path) -> None:
             json=_rpc("tools/list"),
             headers={"X-Session": "not-a-real-session-token"},
         )
-        assert resp.status_code == 404
+        assert resp.status_code == 401
+        assert "WWW-Authenticate" in resp.headers
+        assert resp.headers["WWW-Authenticate"].startswith("Bearer")
+        assert resp.headers["content-type"].startswith("application/json")
+        body = resp.json()
+        assert body["error"] == "invalid_token"
+
+
+def test_mcp_invalid_bearer_token_returns_401(tmp_path: Path) -> None:
+    s = _settings(tmp_path)
+    app = _app(s)
+    with TestClient(app, base_url=s.public_url) as client:
+        resp = client.post(
+            "/mcp",
+            json=_rpc("tools/list"),
+            headers={"Authorization": "Bearer invalid-token"},
+        )
+        assert resp.status_code == 401
+        assert "WWW-Authenticate" in resp.headers
+        assert resp.headers["WWW-Authenticate"].startswith("Bearer")
 
 
 def test_mcp_readonly_session_tools_list_and_call(tmp_path: Path) -> None:
@@ -172,4 +196,6 @@ def test_mcp_session_regeneration_invalidates_previous_token(tmp_path: Path) -> 
             json=_rpc("tools/list"),
             headers={"X-Session": tok1},
         )
-        assert resp2.status_code == 404
+        assert resp2.status_code == 401
+        assert "WWW-Authenticate" in resp2.headers
+

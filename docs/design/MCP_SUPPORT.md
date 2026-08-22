@@ -5,8 +5,8 @@
 > 목적: 축적된 지식(그래프/문서)을 **읽고 쓰는 경로를 다양화** — 텔레그램/웹 UI 외에
 > Claude Code·Claude Desktop·기타 MCP 하네스(hermes 등)에서도 접근. **v1은 read
 > 전용**(적재/종합/중복정리 등 쓰기는 범위 밖, 나중 마일스톤). 기존 owner/readonly
-> 토큰 권한 체계를 MCP에도 그대로 적용 — **토큰 없으면 MCP·사이트 존재 자체를
-> 모르게**(기존 게이트의 404 관례 유지), 토큰 있으면 권한에 맞는 툴만 노출.
+> 토큰 권한 체계를 MCP에 적용하되, **표준 MCP HTTP 사양(Streamable HTTP / RFC 6750)에 따라
+> 미인증/무효 요청 시 `401 Unauthorized` (`WWW-Authenticate: Bearer` 헤더)**로 응답.
 
 ---
 
@@ -225,11 +225,12 @@ POST /mcp  method=tools/call  params={"name":"search","arguments":{"query":"MCP"
   담는 방식**이 된다(구조화 출력을 원하면 `structured_output=True` 옵션이
   있었음 — MCPServer init 시그니처에서 확인, M1에서 채택 여부 결정).
 
-### 4.2 스펙 이탈 기록
-MCP HTTP transport 스펙은 미인증 요청에 `401 + WWW-Authenticate`를 명시하지만,
-이 프로젝트는 무토큰 요청에 **404**를 쓴다(기존 게이트 관례, §1.1). 사용자
-요구("존재도 모르게")와 일치하는 의도적 이탈이며, 대신 auth discovery가 없다 —
-토큰은 항상 out-of-band로 설정해야 한다(MCP 클라이언트 설정 시 헤더 수동 입력).
+### 4.2 표준 HTTP 사양 준수
+MCP HTTP transport 스펙(Streamable HTTP / RFC 6750)에 따라 미인증 및 인증 실패
+요청 시 **`401 Unauthorized` (`WWW-Authenticate: Bearer` 헤더 및 JSON 에러 본문)**로
+응답한다. 일반 웹 엔드포인트는 존재 은폐(404)를 유지하지만, `/mcp` 엔드포인트는 표준
+MCP 클라이언트(Claude Desktop, Cursor, Antigravity 등)와의 완벽한 프로토콜 호환성을
+위해 표준 HTTP 인증 사양을 준수한다.
 
 ---
 
@@ -242,7 +243,7 @@ DB 스키마 없음.
 |---|---|---|---|
 | 텔레그램 `/web` | `X-Session: <owner 세션 토큰>` | owner | v1: read 툴 전체 (추후: write 툴 포함) |
 | 텔레그램 `/webro` | `X-Session: <readonly 세션 토큰>` | readonly | v1: read 툴 전체 (owner와 동일 — 쓰기 툴이 생기기 전까진 구분 없음) |
-| 없음 / 만료 / 무효 | — | — | `/mcp` 자체가 404 |
+| 없음 / 만료 / 무효 | — | — | **`401 Unauthorized` (`WWW-Authenticate: Bearer`)** |
 
 **사용법**: 소유자가 텔레그램에서 `/webro`(또는 owner 권한까지 필요하면 `/web`)를
 치면 `https://.../?t=9v6gdp8gcxjc`(예시) 형태의 링크가 온다. **`t=` 뒤에 오는
@@ -316,8 +317,8 @@ GOALS.md 2026-06-11 기록)은 `X-Session` 헤더 설정과는 무관 — 링크
 
 ## 9. 테스트 목록 (음성 경로 포함, 구현 시 필수)
 
-- `X-Session` 헤더 없음 → `/mcp` 404 (존재 은폐).
-- 만료되었거나 존재하지 않는 세션 토큰 → 404(`validate_session`이 False 반환하는
+- `X-Session` / `Bearer` 헤더 없음 → `/mcp` 401 Unauthorized (`WWW-Authenticate: Bearer`).
+- 만료되었거나 존재하지 않는 세션 토큰 → 401 Unauthorized (`validate_session`이 False 반환하는
   경로 그대로).
 - `/web`으로 새 owner 세션을 발급하면 **이전 owner MCP 연결이 즉시 무효화**됨을
   확인(§5 트레이드오프 회귀 테스트 — 실수로 다중세션 허용하는 방향으로 되돌리지

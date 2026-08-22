@@ -186,7 +186,7 @@ server {
    - `X-Session: <session_token>` 또는 `Authorization: Bearer <session_token>`
    - `Authorization: Bearer <CLAIRE_INJECT_TOKEN>` (owner) 또는 `Authorization: Bearer <CLAIRE_READONLY_TOKEN>` (readonly)
    - 세션 토큰은 텔레그램 `/webro` (읽기전용) 또는 `/web` (owner) 명령으로 발급 가능
-   - 미인증 또는 무효 토큰 요청 시 존재 은폐를 위해 `404 Not Found` 반환
+   - 미인증 또는 무효 토큰 요청 시 표준 MCP HTTP 사양(RFC 6750)에 따라 `401 Unauthorized` (`WWW-Authenticate: Bearer` 헤더) 반환
  - **제공 툴셋 (10종 읽기 전용)**: `resolve_entity`, `search`, `neighbors`, `path`, `context`, `overview`, `node`, `documents`, `document`, `stats`
  
  ### Claude Desktop 설정 (`claude_desktop_config.json`)
