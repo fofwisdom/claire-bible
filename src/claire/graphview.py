@@ -650,7 +650,7 @@ GRAPH_HTML = """<!doctype html>
   .md em{color:var(--muted)} .md blockquote{margin:.6em 0;padding:.2em .9em;border-left:3px solid var(--border);color:var(--muted);font-family:'Noto Serif KR','Noto Serif Korean',Georgia,'Times New Roman',serif}
   .md code{background:var(--chip-bg);padding:.1em .35em;border-radius:3px;font-size:.9em;font-family:'D2Coding','D2 Coding','SFMono-Regular',Menlo,Monaco,Consolas,'Liberation Mono',monospace}
   .md pre{background:var(--card-bg);border:1px solid var(--border);border-radius:6px;padding:.8em;overflow:auto}
-  .md pre code{font-family:'D2Coding','D2 Coding','SFMono-Regular',Menlo,Monaco,Consolas,'Liberation Mono',monospace}
+  .md pre code{background:transparent;padding:0;border-radius:0;font-size:inherit;font-family:'D2Coding','D2 Coding','SFMono-Regular',Menlo,Monaco,Consolas,'Liberation Mono',monospace}
   .md table{border-collapse:collapse;margin:.6em 0;width:100%} .md th,.md td{border:1px solid var(--border);padding:.35em .65em}
   .md th{background:var(--chip-bg);font-weight:600}
   /* --- AsciiDoc & Markdown 확장 스타일 --- */
@@ -3338,7 +3338,7 @@ _SHARED_HTML = """<!doctype html>
   .md blockquote{margin:.6em 0;padding:.2em .9em;border-left:3px solid var(--border);color:var(--muted);font-family:'Noto Serif KR','Noto Serif Korean',Georgia,'Times New Roman',serif}
   .md code{background:var(--chip-bg);padding:.1em .35em;border-radius:3px;font-size:.9em;font-family:'D2Coding','D2 Coding','SFMono-Regular',Menlo,Monaco,Consolas,'Liberation Mono',monospace}
   .md pre{background:var(--card-bg);border:1px solid var(--border);border-radius:6px;padding:.8em;overflow:auto}
-  .md pre code{font-family:'D2Coding','D2 Coding','SFMono-Regular',Menlo,Monaco,Consolas,'Liberation Mono',monospace}
+  .md pre code{background:transparent;padding:0;border-radius:0;font-size:inherit;font-family:'D2Coding','D2 Coding','SFMono-Regular',Menlo,Monaco,Consolas,'Liberation Mono',monospace}
   .md table{border-collapse:collapse;margin:.6em 0;width:100%} .md th,.md td{border:1px solid var(--border);padding:.35em .65em}
   .md th{background:var(--chip-bg);font-weight:600}
   /* --- AsciiDoc & Markdown 확장 스타일 --- */

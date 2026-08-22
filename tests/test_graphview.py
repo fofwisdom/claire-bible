@@ -401,3 +401,14 @@ def test_render_graph_html_custom_settings():
     assert "get sourceBaseUrl(){ return 'https://custom.git/custom-team/my-kb'; }" in html
     assert "get githubRepository(){ return 'custom-team/my-kb'; }" in html
 
+
+def test_code_block_css_resets():
+    """인라인 코드(.md code) 스타일이 블록 코드(.md pre code)에 오염되지 않도록 transparent 리셋 CSS 검증."""
+    from claire.graphview import _SHARED_HTML, render_graph_html
+
+    main_html = render_graph_html()
+    assert ".md pre code{background:transparent;padding:0;border-radius:0;font-size:inherit;" in main_html
+    assert ".md pre code{background:transparent;padding:0;border-radius:0;font-size:inherit;" in _SHARED_HTML
+
+
+
