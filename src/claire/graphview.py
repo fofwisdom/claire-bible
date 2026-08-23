@@ -548,14 +548,14 @@ GRAPH_HTML = """<!doctype html>
   #detailtogglebtn:hover{background:var(--hover);border-color:var(--accent)}
   #detailclose{min-height:36px;min-width:36px;background:var(--sec-bg);color:var(--sec-fg);border:1px solid var(--border);border-radius:6px;cursor:pointer;font-size:15px;display:none}
   #drawerscroll{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:12px 14px;font-size:13px;line-height:1.5;display:flex;flex-direction:column}
-  #drawerfooter{margin-top:auto;padding-top:14px;display:flex;align-items:center}
+  #drawerfooter{margin-top:auto;padding-top:14px;border-top:1px solid var(--border);display:flex;align-items:center}
   #repolink:hover{background:var(--hover);border-color:var(--accent)}
   #moremenu{display:flex;flex-direction:column;gap:8px;padding-bottom:0;margin-bottom:10px}
   #moremenu .tool-row{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
   #moremenu .action-btn-row{display:flex;flex-wrap:wrap;gap:4px;align-items:center}
   #moremenu .filter-row{display:flex;align-items:center;gap:6px;font-size:12px}
   #moremenu .sys-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:11px;color:var(--muted);margin-top:2px}
-  #moremenu .menu-section{display:flex;flex-direction:column;gap:8px;padding-top:8px;padding-bottom:12px;margin-top:2px;border-top:1px solid var(--border);border-bottom:1px solid var(--border)}
+  #moremenu .menu-section{display:flex;flex-direction:column;gap:8px;padding-top:8px;padding-bottom:12px;margin-top:2px;border-top:1px solid var(--border)}
   #moremenu .menu-section-head{display:flex;align-items:center}
   #moremenu .menu-section-title{font-size:12px;font-weight:700;color:var(--accent2);letter-spacing:.02em}
   #stat{color:var(--muted)}
@@ -586,7 +586,7 @@ GRAPH_HTML = """<!doctype html>
   body.detail-compact #detailpane #moremenu,
   #detailpane.compact-rail #moremenu{border-bottom:0;padding-bottom:0;margin-bottom:0;align-items:center;gap:6px}
   body.detail-compact #detailpane #moremenu .menu-section,
-  #detailpane.compact-rail #moremenu .menu-section{border-bottom:0;padding-bottom:0;margin-bottom:0;padding-top:6px;margin-top:4px;border-top:1px solid var(--border);align-items:center;width:100%}
+  #detailpane.compact-rail #moremenu .menu-section{padding-bottom:0;margin-bottom:0;padding-top:6px;margin-top:4px;border-top:1px solid var(--border);align-items:center;width:100%}
   body.detail-compact #detailpane #moremenu .menu-section-head,
   #detailpane.compact-rail #moremenu .menu-section-head{display:none}
   body.detail-compact #detailpane #moremenu .tool-row,
@@ -609,8 +609,9 @@ GRAPH_HTML = """<!doctype html>
   #detailpane.compact-rail #drawerfooter{display:none}
 
   #panel{font-size:13px;line-height:1.5}
+  #panel:not(:empty){border-top:1px solid var(--border);padding-top:10px;margin-top:10px}
   #panel h2{margin:.2em 0;font-size:18px} #panel h2 small{color:var(--muted);font-size:12px;font-weight:normal}
-  #panel h3{margin:1em 0 .3em;font-size:13px;color:var(--accent2);border-bottom:1px solid var(--border);padding-bottom:2px}
+  #panel h3{margin:1em 0 .3em;font-size:13px;color:var(--accent2);border-top:1px solid var(--border);padding-top:6px}
   #panel ul{margin:.2em 0;padding-left:18px} #panel li{margin:.25em 0}
   #panel .doc{margin:.5em 0;padding:6px 8px;background:var(--card-bg);border-radius:5px}
   #panel .doc p{margin:.3em 0 0;color:var(--fg)} #panel a{color:var(--accent);text-decoration:none}
