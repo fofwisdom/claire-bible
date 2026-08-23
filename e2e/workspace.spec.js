@@ -223,7 +223,7 @@ test('tablet and desktop layouts do not squeeze the graph into three fixed colum
   await page.locator('#tab-menu').click();
   await expect(page.locator('#moremenu')).toBeVisible();
   await expect(page.locator('#authstate')).toContainText('익명 읽기전용');
-  await expect(page.locator('#searchkind')).toHaveText('FTS');
+  await expect(page.locator('#searchkind')).toHaveText('Full-Text Search');
   await expect(page.locator('#synthbtn')).toBeHidden();
   await expect(page.locator('#addbtn')).toBeHidden();
   await expect(page.locator('#dedupbtn')).toBeHidden();
