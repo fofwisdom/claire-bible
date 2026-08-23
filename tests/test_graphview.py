@@ -97,7 +97,7 @@ def test_graph_html_self_contained_markers():
     assert "let READONLY=true;" in GRAPH_HTML
     assert "function canWrite(){ return AUTH_SCOPE==='owner'; }" in GRAPH_HTML
     assert "setAccessScope(d.scope)" in GRAPH_HTML
-    assert "AUTH_SCOPE==='anonymous' ? 'FTS' : '의미'" in GRAPH_HTML
+    assert "AUTH_SCOPE==='anonymous' ? 'Full-Text Search' : 'Semantic Search'" in GRAPH_HTML
     assert "👁️ 익명 읽기전용" in GRAPH_HTML
     assert "let READONLY=false" not in GRAPH_HTML
     assert "setAuth('authed')" not in GRAPH_HTML
@@ -427,4 +427,13 @@ def test_code_block_css_resets():
     assert ".md pre code{background:transparent;padding:0;border-radius:0;font-size:inherit;" in _SHARED_HTML
 
 
+def test_advanced_search_ui_components():
+    """고급 검색 아이콘 버튼, 확장 패널, 모드 라벨 UI 요소 검증."""
+    from claire.graphview import GRAPH_HTML
 
+    assert 'id="advsearchbtn"' in GRAPH_HTML
+    assert 'id="advsearchpane"' in GRAPH_HTML
+    assert 'id="advsearchsubmitbtn"' in GRAPH_HTML
+    assert 'function toggleAdvSearch' in GRAPH_HTML
+    assert 'Full-Text Search' in GRAPH_HTML
+    assert 'Semantic Search' in GRAPH_HTML

@@ -318,7 +318,7 @@ GRAPH_HTML = """<!doctype html>
       }
       var sk = document.getElementById('searchkind');
       if (sk && sk.textContent.indexOf('확인') !== -1) {
-        sk.textContent = 'FTS';
+        sk.textContent = 'Full-Text Search';
       }
     } catch (_) {}
   };
@@ -483,6 +483,19 @@ GRAPH_HTML = """<!doctype html>
   #graphnotice.on{display:block}
   #docs{width:280px;display:flex;flex-direction:column;background:var(--docs-bg);border-right:1px solid var(--border);font-size:13px}
   #docs .dhead{padding:8px 10px;border-bottom:1px solid var(--border);flex-shrink:0}
+  .docq-search-row{display:flex;align-items:center;gap:6px;width:100%}
+  .docq-search-row input#docq{flex:1;min-width:0}
+  #advsearchbtn{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0;
+    border-radius:4px;flex-shrink:0;cursor:pointer;background:var(--sec-bg);border:1px solid var(--border);
+    color:var(--sec-fg);font-size:13px;line-height:1;transition:background .15s ease, border-color .15s ease}
+  #advsearchbtn:hover{background:var(--hover)}
+  #advsearchbtn.active{background:var(--hover);border-color:var(--accent2);color:var(--accent2)}
+  .adv-search-pane{margin-top:6px;padding:8px;border:1px solid var(--border);border-radius:6px;
+    background:var(--panel-bg);display:flex;flex-direction:column;gap:6px}
+  .adv-search-pane[hidden]{display:none !important}
+  .adv-search-body{display:flex;align-items:center;justify-content:space-between;gap:6px;flex-wrap:wrap}
+  .adv-search-option{font-size:12px;display:inline-flex;align-items:center;gap:4px;cursor:pointer;user-select:none}
+  .adv-search-hint{font-size:11px;color:var(--muted);line-height:1.3;margin:0}
   /* 즐겨찾기(고정) 섹션 */
   #pinnedhead{padding:5px 10px;font-size:11.5px;color:var(--muted);background:rgba(227,179,65,.18);flex-shrink:0}
   #pinnedlist{max-height:32%;overflow-y:auto;flex-shrink:0;border-bottom:2px solid var(--border);
@@ -834,12 +847,29 @@ GRAPH_HTML = """<!doctype html>
 <div id="drawerbackdrop" onclick="closeDrawer()" aria-hidden="true"></div>
 <div id="wrap">
   <aside id="docs" class="workspace-pane" role="tabpanel" aria-labelledby="tab-docs" tabindex="0">
-    <div class="dhead"><label class="sr-only" for="docq">자료 검색</label>
-      <input id="docq" placeholder="문서 검색(제목·요약)" oninput="docSearchActive=true;renderDocs(this.value)" style="width:92%"/>
-    <select id="desclines" onchange="setDescLines(this.value)" title="목록 설명 줄수" style="width:92%;margin-top:5px">
-      <option value="0">제목만 표시</option>
-      <option value="3">요약 표시</option>
-    </select></div>
+    <div class="dhead">
+      <div class="docq-search-row">
+        <label class="sr-only" for="docq">자료 검색</label>
+        <input id="docq" placeholder="문서 검색(제목·요약)" oninput="docSearchActive=true;renderDocs(this.value)"/>
+        <button id="advsearchbtn" type="button" class="sec" onclick="toggleAdvSearch()" title="고급 검색" aria-label="고급 검색" aria-expanded="false" aria-controls="advsearchpane">
+          <span class="btn-icon">⚙️</span>
+        </button>
+      </div>
+      <div id="advsearchpane" class="adv-search-pane" hidden aria-hidden="true">
+        <div class="adv-search-body">
+          <label class="adv-search-option">
+            <input type="checkbox" id="sem" style="width:auto" disabled/>
+            <span id="searchkind">검색 모드 확인 중</span>
+          </label>
+          <button id="advsearchsubmitbtn" class="sec" onclick="doSemantic()" style="display:none">🔎 검색</button>
+        </div>
+        <p id="advsearchhint" class="adv-search-hint">체크 시 DB 전체 지식베이스를 검색합니다 (엔터 또는 🔎).</p>
+        <select id="desclines" onchange="setDescLines(this.value)" title="목록 설명 줄수" style="width:100%;margin-top:2px">
+          <option value="0">제목만 표시</option>
+          <option value="3">요약 표시</option>
+        </select>
+      </div>
+    </div>
     <div id="pinnedhead" style="display:none">⭐ 즐겨찾기</div>
     <div id="pinnedlist"></div>
     <div id="doclist"><p class="hint" style="padding:10px">문서 로딩…</p></div>
@@ -918,12 +948,6 @@ GRAPH_HTML = """<!doctype html>
         <div class="action-btn-row">
           <button id="addbtn" class="sec" onclick="openIngest()" title="URL·텍스트를 그래프에 적재" aria-label="적재"><span class="btn-icon">➕</span> <span class="btn-label">적재</span></button>
           <button id="dedupbtn" class="sec" onclick="openDedup()" title="근사 중복 문서를 찾아 병합" aria-label="중복정리"><span class="btn-icon">♻️</span> <span class="btn-label">중복정리</span></button>
-        </div>
-        <div class="tool-row">
-          <label style="font-size:12px;display:inline-flex;align-items:center;gap:4px">
-            <input type="checkbox" id="sem" style="width:auto" disabled/>
-            <span id="searchkind">검색 모드 확인 중</span>
-          </label>
         </div>
         <div id="graph-section" class="menu-section" aria-label="그래프">
           <div class="menu-section-head">
@@ -2728,6 +2752,7 @@ async function panelToggleHide(id, val){
 function resetHome(){
   hideNodePop();
   closeDrawer();
+  toggleAdvSearch(false);
   docSearchActive = false;
   const dq = document.getElementById('docq');
   if(dq && dq.value){
@@ -2945,11 +2970,28 @@ function hl(q){
   applyView();
   clusterMatches(matches, ()=>fitToMatches(matches));   // 결과를 점차 뭉치게 한 뒤 한눈에 fit
 }
+function toggleAdvSearch(force){
+  const pane = document.getElementById('advsearchpane');
+  const btn = document.getElementById('advsearchbtn');
+  if(!pane || !btn) return;
+  const isHidden = force !== undefined ? !force : !pane.hidden;
+  pane.hidden = isHidden;
+  pane.setAttribute('aria-hidden', String(isHidden));
+  btn.setAttribute('aria-expanded', String(!isHidden));
+  btn.classList.toggle('active', !isHidden);
+}
 const semEl=document.getElementById('sem');
 if(semEl){
   semEl.addEventListener('change',e=>{
     updateSearchModeUI();
     if(e.target.checked) hl('');
+  });
+}
+const docqEl=document.getElementById('docq');
+if(docqEl){
+  docqEl.addEventListener('keydown',e=>{
+    if(e.key!=='Enter') return;
+    if(semEl && semEl.checked){ doSemantic(); }
   });
 }
 const qEl=document.getElementById('q');
@@ -2963,7 +3005,13 @@ if(qEl){
   });
   qEl.addEventListener('focus', e=> e.target.select());
 }
-function doSemantic(){ revealWorkspace('graph'); const qv=document.getElementById('q'); semanticSearch(qv?qv.value:''); }
+function doSemantic(){
+  revealWorkspace('graph');
+  const docqVal = (document.getElementById('docq') ? document.getElementById('docq').value : '').trim();
+  const qVal = (document.getElementById('q') ? document.getElementById('q').value : '').trim();
+  const qv = docqVal || qVal;
+  semanticSearch(qv);
+}
 
 // --- 인증 상태 표시 ---
 // 첫 페인트는 unknown/read-only이며, /whoami가 exact owner를 확인한 경우에만 쓰기 UI를
@@ -2972,12 +3020,18 @@ function updateSearchModeUI(){
   const sem=document.getElementById('sem');
   const kind=document.getElementById('searchkind');
   const button=document.getElementById('searchbtn');
+  const advbtn=document.getElementById('advsearchsubmitbtn');
   const unknown=AUTH_SCOPE==='unknown';
   if(sem){ sem.disabled=unknown; if(unknown) sem.checked=false; }
-  if(kind) kind.textContent = unknown ? '검색 모드 확인 중' : (AUTH_SCOPE==='anonymous' ? 'FTS' : '의미');
+  if(kind) kind.textContent = unknown ? '검색 모드 확인 중' : (AUTH_SCOPE==='anonymous' ? 'Full-Text Search' : 'Semantic Search');
+  const btnLabel = AUTH_SCOPE==='anonymous' ? '🔎 Full-Text Search' : '🔎 Semantic Search';
   if(button){
-    button.textContent = AUTH_SCOPE==='anonymous' ? '🔎 FTS 검색' : '🔎 의미검색';
+    button.textContent = btnLabel;
     button.style.display = !unknown && sem && sem.checked ? '' : 'none';
+  }
+  if(advbtn){
+    advbtn.textContent = btnLabel;
+    advbtn.style.display = !unknown && sem && sem.checked ? '' : 'none';
   }
 }
 function setAccessScope(scope, reason){
@@ -3027,8 +3081,8 @@ async function synth(){
 }
 async function semanticSearch(q){
   q=(q||'').trim(); if(!q) return;
-  const requestedMode=AUTH_SCOPE==='anonymous'?'FTS':'의미';
-  document.getElementById('stat').textContent='🔎 '+requestedMode+' 검색 중…';
+  const requestedMode=AUTH_SCOPE==='anonymous'?'Full-Text Search':'Semantic Search';
+  document.getElementById('stat').textContent='🔎 '+requestedMode+' 중…';
   let r;
   try{ r=await fetch('search',{method:'POST',
     headers:{'Content-Type':'application/json'},
@@ -3042,10 +3096,10 @@ async function semanticSearch(q){
   highlightSet = new Set(ids);   // 라벨 검색과 동일하게 강조+dim 방식 사용
   applyView();
   clusterMatches(ids, ()=>fitToMatches(ids));   // 의미검색 결과도 점차 뭉치게 + 한눈에 fit
-  const actualMode=d.mode==='fts'?'FTS':'의미';
+  const actualMode=d.mode==='fts'?'Full-Text Search':'Semantic Search';
   document.getElementById('stat').textContent=ids.length
-    ? '🔎 '+actualMode+' 검색: '+ids.length+'개'
-    : '🔎 '+actualMode+' 검색: 결과 없음';
+    ? '🔎 '+actualMode+': '+ids.length+'개'
+    : '🔎 '+actualMode+': 결과 없음';
 }
 
 // --- 고유 상태 및 안내 배너 시스템 (ClaireStatusBanner) ---
