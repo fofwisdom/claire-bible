@@ -1506,7 +1506,7 @@ function openDocGraph(docId){
   setCenterView('graph');
   revealWorkspace('graph');
   if(drawerOpen || detailOpen){
-    if(mobileMQ.matches) closeDrawer();
+    if(compactMQ.matches || mobileMQ.matches) closeDrawer();
   }
 }
 function openReader(docId){
@@ -1526,6 +1526,9 @@ function openReader(docId){
   const r=document.getElementById('reader');
   r.setAttribute('aria-hidden','false');
   r.setAttribute('aria-busy','true');
+  if(drawerOpen || detailOpen){
+    if(compactMQ.matches || mobileMQ.matches) closeDrawer();
+  }
   if(mobileMQ.matches){
     r.classList.add('open');
     document.body.classList.add('reader-open');
@@ -2195,11 +2198,11 @@ function renderPanel(d){
   if(d.observations.length){ h+='<h3>관찰 · 주장</h3><ul>'+
     d.observations.map(o=>'<li>'+esc(o)+'</li>').join('')+'</ul>'; }
   if(d.documents.length){ h+='<h3>출처 문서 ('+d.documents.length+')</h3>';
-    // 설명(summary) → 📖 읽기(중앙 팝업, 마크다운·이미지) → 원문 링크 순(사용자 요구).
+    // 설명(summary) → 📖 본문 보기(중앙 리더로 열기) → 원문 링크 순.
     d.documents.forEach(dc=>{ h+='<div class=doc><b>'+esc(dc.title)+'</b>'+
       (dc.summary?'<p>'+esc(dc.summary)+'</p>':'')+
       ((dc.detail||dc.summary)?'<button class=readbtn data-read-doc="'+esc(dc.id)+
-        '" onclick="openReader(\\''+dc.id+'\\')">📖 크게 읽기</button>':'')+
+        '" onclick="openReader(\\''+dc.id+'\\')">📖 본문 보기</button>':'')+
       (dc.url?'<p class=src><a href="'+esc(dc.url)+'" target=_blank rel=noopener>↗ 원문 열기</a></p>':'')+
       '</div>'; }); }
   if(d.neighbors.length){ h+='<h3>연결 ('+d.neighbors.length+')</h3><ul>';
@@ -2817,9 +2820,6 @@ function renderDocPanel(dc){
   let h='<h2>'+esc(dc.title)+' <small>'+esc(dc.source_type||'')+'</small></h2>';
   if(dc.url) h+='<p class=docmeta><a href="'+esc(dc.url)+'" target=_blank rel=noopener>↗ 원문 열기</a></p>';
   h+=extraSourcesHtml(dc);
-  // 읽기는 중앙 팝업(마크다운·이미지)으로 — 그래프 nav 와 분리(사용자 요구).
-  if(dc.summary||dc.detail) h+='<button class=readbtn data-read-doc="'+esc(dc.id)+
-    '" onclick="openReader(\\''+dc.id+'\\')">📖 크게 읽기</button>';
   // 숨기기 — 상세 패널의 FTS 스타일 체크박스로(사용자 요구).
   if(canWrite()){
     h+='<div class=dochide-row><label class=dochide-label>'+
