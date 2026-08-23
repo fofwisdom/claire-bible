@@ -154,7 +154,7 @@ const knownIds = [
   'docs', 'docq', 'desclines', 'pinnedhead', 'pinnedlist', 'doclist', 'showhidden', 'hiddenlist',
   'detailpane', 'detailtogglebtn', 'panel', 'fslider', 'fmin', 'bar', 'worktabs', 'tab-docs', 'tab-graph', 'tab-search', 'tab-menu',
   'morebtn', 'nodepop', 'stat', 'authstate', 'themebtn', 'sem', 'searchkind', 'synthchips', 'synthbtn',
-  'addbtn', 'dedupbtn', 'pathbtn', 'repolink', 'format-warn-banner', 'format-warn-text', 'format-warn-badge', 'format-warn-icon', 'format-warn-title', 'format-warn-actbtn', 'graphnotice',
+  'addbtn', 'dedupbtn', 'pathbtn', 'graph-section', 'repolink', 'format-warn-banner', 'format-warn-text', 'format-warn-badge', 'format-warn-icon', 'format-warn-title', 'format-warn-actbtn', 'graphnotice',
   'graphdocnav', 'graphdocpick', 'graphdoclabel', 'graphdocprev', 'graphdocnext', 'graphdocmenu', 'graphdocq', 'graphdoclist', 'graphdocempty'
 ];
 knownIds.forEach(id => getOrCreate(id));
@@ -428,7 +428,7 @@ const knownIds = [
   'docs', 'docq', 'desclines', 'pinnedhead', 'pinnedlist', 'doclist', 'showhidden', 'hiddenlist',
   'detailpane', 'detailtogglebtn', 'panel', 'fslider', 'fmin', 'bar', 'worktabs', 'tab-docs', 'tab-graph', 'tab-search', 'tab-menu',
   'morebtn', 'nodepop', 'stat', 'authstate', 'themebtn', 'sem', 'searchkind', 'synthchips', 'synthbtn',
-  'addbtn', 'dedupbtn', 'pathbtn', 'repolink', 'format-warn-banner', 'format-warn-text', 'format-warn-badge', 'format-warn-icon', 'format-warn-title', 'format-warn-actbtn', 'graphnotice',
+  'addbtn', 'dedupbtn', 'pathbtn', 'graph-section', 'repolink', 'format-warn-banner', 'format-warn-text', 'format-warn-badge', 'format-warn-icon', 'format-warn-title', 'format-warn-actbtn', 'graphnotice',
   'graphdocnav', 'graphdocpick', 'graphdoclabel', 'graphdocprev', 'graphdocnext', 'graphdocmenu', 'graphdocq', 'graphdoclist', 'graphdocempty'
 ];
 knownIds.forEach(id => getOrCreate(id));
@@ -735,7 +735,7 @@ const knownIds = [
   'docs', 'docq', 'desclines', 'pinnedhead', 'pinnedlist', 'doclist', 'showhidden', 'hiddenlist',
   'detailpane', 'detailtogglebtn', 'panel', 'fslider', 'fmin', 'bar', 'worktabs', 'tab-docs', 'tab-graph', 'tab-search', 'tab-menu',
   'morebtn', 'nodepop', 'stat', 'authstate', 'themebtn', 'sem', 'searchkind', 'synthchips', 'synthbtn',
-  'addbtn', 'dedupbtn', 'pathbtn', 'repolink', 'format-warn-banner', 'format-warn-text', 'format-warn-badge',
+  'addbtn', 'dedupbtn', 'pathbtn', 'graph-section', 'repolink', 'format-warn-banner', 'format-warn-text', 'format-warn-badge',
   'format-warn-icon', 'format-warn-title', 'format-warn-actbtn', 'graphnotice',
   'graphdocnav', 'graphdocpick', 'graphdoclabel', 'graphdocprev', 'graphdocnext', 'graphdocmenu', 'graphdocq', 'graphdoclist', 'graphdocempty'
 ];
@@ -984,7 +984,7 @@ const knownIds = [
   'docs', 'docq', 'desclines', 'pinnedhead', 'pinnedlist', 'doclist', 'showhidden', 'hiddenlist',
   'detailpane', 'detailtogglebtn', 'panel', 'fslider', 'fmin', 'bar', 'worktabs', 'tab-docs', 'tab-graph', 'tab-search', 'tab-menu',
   'morebtn', 'nodepop', 'stat', 'authstate', 'themebtn', 'sem', 'searchkind', 'synthchips', 'synthbtn',
-  'addbtn', 'dedupbtn', 'pathbtn', 'repolink', 'format-warn-banner', 'format-warn-text', 'format-warn-badge', 'format-warn-icon', 'format-warn-title', 'format-warn-actbtn', 'graphnotice',
+  'addbtn', 'dedupbtn', 'pathbtn', 'graph-section', 'repolink', 'format-warn-banner', 'format-warn-text', 'format-warn-badge', 'format-warn-icon', 'format-warn-title', 'format-warn-actbtn', 'graphnotice',
   'graphdocnav', 'graphdocpick', 'graphdoclabel', 'graphdocprev', 'graphdocnext', 'graphdocmenu', 'graphdocq', 'graphdoclist', 'graphdocempty', 'q', 'legend'
 ];
 knownIds.forEach(id => getOrCreate(id));
@@ -1205,7 +1205,7 @@ const requiredIds = [
   'graphdoclist', 'net', 'graphnotice', 'zoomctl', 'reader', 'rtitle', 'rfs',
   'reditbtn', 'sharebox', 'rbody', 'detailpane', 'detailhead', 'detailclose',
   'drawerscroll', 'drawer-graph-action', 'opengraphbtn', 'moremenu', 'sem',
-  'searchkind', 'synthchips', 'synthbtn', 'addbtn', 'dedupbtn', 'pathbtn',
+  'searchkind', 'synthchips', 'synthbtn', 'addbtn', 'dedupbtn', 'pathbtn', 'graph-section',
   'fmin', 'fslider', 'repolink', 'authstate', 'stat', 'panel', 'worktabs',
   'tab-docs', 'tab-search', 'tab-menu', 'nodepop'
 ];

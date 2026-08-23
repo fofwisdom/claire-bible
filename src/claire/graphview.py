@@ -534,11 +534,14 @@ GRAPH_HTML = """<!doctype html>
   #repolink:hover{background:var(--hover);border-color:var(--accent)}
   #drawer-graph-action{display:none;margin-bottom:10px}
   #opengraphbtn{width:100%;min-height:42px;font-size:14px;font-weight:600;background:var(--accent);color:#fff;border:0;border-radius:7px;cursor:pointer}
-  #moremenu{display:flex;flex-direction:column;gap:8px;padding-bottom:12px;margin-bottom:10px;border-bottom:1px solid var(--border)}
+  #moremenu{display:flex;flex-direction:column;gap:8px;padding-bottom:0;margin-bottom:10px}
   #moremenu .tool-row{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
   #moremenu .action-btn-row{display:flex;flex-wrap:wrap;gap:4px;align-items:center}
   #moremenu .filter-row{display:flex;align-items:center;gap:6px;font-size:12px}
   #moremenu .sys-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:11px;color:var(--muted);margin-top:2px}
+  #moremenu .menu-section{display:flex;flex-direction:column;gap:8px;padding-top:8px;padding-bottom:12px;margin-top:2px;border-top:1px solid var(--border);border-bottom:1px solid var(--border)}
+  #moremenu .menu-section-head{display:flex;align-items:center}
+  #moremenu .menu-section-title{font-size:12px;font-weight:700;color:var(--accent2);letter-spacing:.02em}
   #stat{color:var(--muted)}
   #synthchips{display:flex;gap:4px;overflow:hidden;max-width:100%;flex-wrap:wrap}
   #synthchips .chip{background:var(--chip-bg);border-radius:10px;padding:1px 7px;font-size:11px;cursor:pointer}
@@ -567,7 +570,11 @@ GRAPH_HTML = """<!doctype html>
   body.detail-compact #detailpane #drawer-graph-action,
   #detailpane.compact-rail #drawer-graph-action{display:none}
   body.detail-compact #detailpane #moremenu,
-  #detailpane.compact-rail #moremenu{border-bottom:0;padding-bottom:0;margin-bottom:0;align-items:center}
+  #detailpane.compact-rail #moremenu{border-bottom:0;padding-bottom:0;margin-bottom:0;align-items:center;gap:6px}
+  body.detail-compact #detailpane #moremenu .menu-section,
+  #detailpane.compact-rail #moremenu .menu-section{border-bottom:0;padding-bottom:0;margin-bottom:0;padding-top:6px;margin-top:4px;border-top:1px solid var(--border);align-items:center;width:100%}
+  body.detail-compact #detailpane #moremenu .menu-section-head,
+  #detailpane.compact-rail #moremenu .menu-section-head{display:none}
   body.detail-compact #detailpane #moremenu .tool-row,
   #detailpane.compact-rail #moremenu .tool-row{display:none}
   body.detail-compact #detailpane #moremenu .filter-row,
@@ -915,25 +922,32 @@ GRAPH_HTML = """<!doctype html>
       <div id="drawer-graph-action">
         <button id="opengraphbtn" onclick="openGraphFromDrawer()">📊 지식 그래프 보기</button>
       </div>
-      <div id="moremenu" aria-label="그래프 도구">
+      <div id="moremenu" aria-label="도구 및 그래프 설정">
+        <div class="action-btn-row">
+          <button id="addbtn" class="sec" onclick="openIngest()" title="URL·텍스트를 그래프에 적재" aria-label="적재"><span class="btn-icon">➕</span> <span class="btn-label">적재</span></button>
+          <button id="dedupbtn" class="sec" onclick="openDedup()" title="근사 중복 문서를 찾아 병합" aria-label="중복정리"><span class="btn-icon">♻️</span> <span class="btn-label">중복정리</span></button>
+        </div>
         <div class="tool-row">
           <label style="font-size:12px;display:inline-flex;align-items:center;gap:4px">
             <input type="checkbox" id="sem" style="width:auto" disabled/>
             <span id="searchkind">검색 모드 확인 중</span>
           </label>
-          <span id="synthchips"></span>
         </div>
-        <div class="action-btn-row">
-          <button id="synthbtn" onclick="synth()" title="종합 (0)"><span class="btn-icon">🧩</span> <span class="btn-label">종합 (0)</span></button>
-          <button id="addbtn" class="sec" onclick="openIngest()" title="URL·텍스트를 그래프에 적재" aria-label="적재"><span class="btn-icon">➕</span> <span class="btn-label">적재</span></button>
-          <button id="dedupbtn" class="sec" onclick="openDedup()" title="근사 중복 문서를 찾아 병합" aria-label="중복정리"><span class="btn-icon">♻️</span> <span class="btn-label">중복정리</span></button>
-          <button id="pathbtn" class="sec" onclick="togglePathMode()" title="두 노드 사이 연결 경로 찾기" aria-label="경로"><span class="btn-icon">🔗</span> <span class="btn-label">경로</span></button>
-        </div>
-        <div class="filter-row">
-          <label>연결 ≥ <b id="fmin">0</b> <input id="fslider" type="range" min="0" max="0" value="0" oninput="setDeg(this.value)"/></label>
-        </div>
-        <div class="sys-row">
-          <span id="stat" role="status" aria-live="polite">로딩…</span>
+        <div id="graph-section" class="menu-section" aria-label="그래프">
+          <div class="menu-section-head">
+            <span class="menu-section-title">그래프</span>
+          </div>
+          <div class="action-btn-row">
+            <button id="pathbtn" class="sec" onclick="togglePathMode()" title="두 노드 사이 연결 경로 찾기" aria-label="경로"><span class="btn-icon">🔗</span> <span class="btn-label">경로</span></button>
+            <button id="synthbtn" onclick="synth()" title="종합 (0)"><span class="btn-icon">🧩</span> <span class="btn-label">종합 (0)</span></button>
+            <span id="synthchips"></span>
+          </div>
+          <div class="filter-row">
+            <label>연결 ≥ <b id="fmin">0</b> <input id="fslider" type="range" min="0" max="0" value="0" oninput="setDeg(this.value)"/></label>
+          </div>
+          <div class="sys-row">
+            <span id="stat" role="status" aria-live="polite">로딩…</span>
+          </div>
         </div>
       </div>
       <div id="panel"></div>
