@@ -89,7 +89,7 @@ def test_graph_html_self_contained_markers():
     assert "synthesize" in GRAPH_HTML                                   # 종합 POST 경로
     assert "세션 만료" in GRAPH_HTML                                    # 만료 시 /web 재접속 안내
     assert "semanticSearch" in GRAPH_HTML and "id=\"sem\"" in GRAPH_HTML  # 의미검색 토글
-    assert "id=\"searchbtn\"" in GRAPH_HTML                             # 의미검색 버튼
+    assert "id=\"advsearchbtn\"" in GRAPH_HTML                          # 고급검색 버튼
     assert "synthSet" in GRAPH_HTML and "addToSynth" in GRAPH_HTML      # 종합 수집(inspect와 분리)
     assert "id=\"authstate\"" in GRAPH_HTML and "setAccessScope" in GRAPH_HTML
     assert '<body class="ro" data-auth-scope="unknown" data-active-pane="docs">' in GRAPH_HTML
@@ -433,7 +433,6 @@ def test_advanced_search_ui_components():
 
     assert 'id="advsearchbtn"' in GRAPH_HTML
     assert 'id="advsearchpane"' in GRAPH_HTML
-    assert 'id="advsearchsubmitbtn"' in GRAPH_HTML
     assert 'function toggleAdvSearch' in GRAPH_HTML
     assert 'Full-Text Search' in GRAPH_HTML
     assert 'Semantic Search' in GRAPH_HTML

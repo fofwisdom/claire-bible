@@ -861,9 +861,8 @@ GRAPH_HTML = """<!doctype html>
             <input type="checkbox" id="sem" style="width:auto" disabled/>
             <span id="searchkind">검색 모드 확인 중</span>
           </label>
-          <button id="advsearchsubmitbtn" class="sec" onclick="doSemantic()" style="display:none">🔎 검색</button>
         </div>
-        <p id="advsearchhint" class="adv-search-hint">체크 시 DB 전체 지식베이스를 검색합니다 (엔터 또는 🔎).</p>
+        <p id="advsearchhint" class="adv-search-hint">체크 시 DB 전체 지식베이스를 검색합니다 (검색어 입력 후 Enter).</p>
         <select id="desclines" onchange="setDescLines(this.value)" title="목록 설명 줄수" style="width:100%;margin-top:2px">
           <option value="0">제목만 표시</option>
           <option value="3">요약 표시</option>
@@ -882,7 +881,6 @@ GRAPH_HTML = """<!doctype html>
         <div id="barsearch">
           <label class="sr-only" for="q">그래프 검색</label>
           <input id="q" placeholder="그래프 노드 검색" oninput="onSearchInput(this.value)"/>
-          <button id="searchbtn" class="sec" onclick="doSemantic()" style="display:none">🔎 검색</button>
         </div>
         <button class="sec" onclick="setCenterView('reader')" title="문서 크게 읽기로 전환" aria-label="문서 크게 읽기로 전환" style="display:inline-flex;align-items:center;gap:4px;flex-shrink:0">📖 본문 읽기</button>
       </div>
@@ -3019,20 +3017,9 @@ function doSemantic(){
 function updateSearchModeUI(){
   const sem=document.getElementById('sem');
   const kind=document.getElementById('searchkind');
-  const button=document.getElementById('searchbtn');
-  const advbtn=document.getElementById('advsearchsubmitbtn');
   const unknown=AUTH_SCOPE==='unknown';
   if(sem){ sem.disabled=unknown; if(unknown) sem.checked=false; }
   if(kind) kind.textContent = unknown ? '검색 모드 확인 중' : (AUTH_SCOPE==='anonymous' ? 'Full-Text Search' : 'Semantic Search');
-  const btnLabel = AUTH_SCOPE==='anonymous' ? '🔎 Full-Text Search' : '🔎 Semantic Search';
-  if(button){
-    button.textContent = btnLabel;
-    button.style.display = !unknown && sem && sem.checked ? '' : 'none';
-  }
-  if(advbtn){
-    advbtn.textContent = btnLabel;
-    advbtn.style.display = !unknown && sem && sem.checked ? '' : 'none';
-  }
 }
 function setAccessScope(scope, reason){
   AUTH_SCOPE = ['owner','readonly','anonymous'].includes(scope) ? scope : 'unknown';

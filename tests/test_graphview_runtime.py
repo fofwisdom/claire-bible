@@ -154,7 +154,7 @@ const knownIds = [
   'docs', 'docq', 'desclines', 'pinnedhead', 'pinnedlist', 'doclist', 'showhidden', 'hiddenlist',
   'detailpane', 'detailtogglebtn', 'panel', 'fslider', 'fmin', 'bar', 'worktabs', 'tab-docs', 'tab-graph', 'tab-search', 'tab-menu',
   'morebtn', 'nodepop', 'stat', 'authstate', 'themebtn', 'sem', 'searchkind', 'synthchips', 'synthbtn',
-  'advsearchbtn', 'advsearchpane', 'advsearchsubmitbtn',
+  'advsearchbtn', 'advsearchpane',
   'addbtn', 'dedupbtn', 'pathbtn', 'graph-section', 'repolink', 'format-warn-banner', 'format-warn-text', 'format-warn-badge', 'format-warn-icon', 'format-warn-title', 'format-warn-actbtn', 'graphnotice',
   'graphdocnav', 'graphdocpick', 'graphdoclabel', 'graphdocprev', 'graphdocnext', 'graphdocmenu', 'graphdocq', 'graphdoclist', 'graphdocempty'
 ];
@@ -429,7 +429,7 @@ const knownIds = [
   'docs', 'docq', 'desclines', 'pinnedhead', 'pinnedlist', 'doclist', 'showhidden', 'hiddenlist',
   'detailpane', 'detailtogglebtn', 'panel', 'fslider', 'fmin', 'bar', 'worktabs', 'tab-docs', 'tab-graph', 'tab-search', 'tab-menu',
   'morebtn', 'nodepop', 'stat', 'authstate', 'themebtn', 'sem', 'searchkind', 'synthchips', 'synthbtn',
-  'advsearchbtn', 'advsearchpane', 'advsearchsubmitbtn',
+  'advsearchbtn', 'advsearchpane',
   'addbtn', 'dedupbtn', 'pathbtn', 'graph-section', 'repolink', 'format-warn-banner', 'format-warn-text', 'format-warn-badge', 'format-warn-icon', 'format-warn-title', 'format-warn-actbtn', 'graphnotice',
   'graphdocnav', 'graphdocpick', 'graphdoclabel', 'graphdocprev', 'graphdocnext', 'graphdocmenu', 'graphdocq', 'graphdoclist', 'graphdocempty'
 ];
@@ -737,7 +737,7 @@ const knownIds = [
   'docs', 'docq', 'desclines', 'pinnedhead', 'pinnedlist', 'doclist', 'showhidden', 'hiddenlist',
   'detailpane', 'detailtogglebtn', 'panel', 'fslider', 'fmin', 'bar', 'worktabs', 'tab-docs', 'tab-graph', 'tab-search', 'tab-menu',
   'morebtn', 'nodepop', 'stat', 'authstate', 'themebtn', 'sem', 'searchkind', 'synthchips', 'synthbtn',
-  'advsearchbtn', 'advsearchpane', 'advsearchsubmitbtn',
+  'advsearchbtn', 'advsearchpane',
   'addbtn', 'dedupbtn', 'pathbtn', 'graph-section', 'repolink', 'format-warn-banner', 'format-warn-text', 'format-warn-badge',
   'format-warn-icon', 'format-warn-title', 'format-warn-actbtn', 'graphnotice',
   'graphdocnav', 'graphdocpick', 'graphdoclabel', 'graphdocprev', 'graphdocnext', 'graphdocmenu', 'graphdocq', 'graphdoclist', 'graphdocempty'
@@ -987,7 +987,7 @@ const knownIds = [
   'docs', 'docq', 'desclines', 'pinnedhead', 'pinnedlist', 'doclist', 'showhidden', 'hiddenlist',
   'detailpane', 'detailtogglebtn', 'panel', 'fslider', 'fmin', 'bar', 'worktabs', 'tab-docs', 'tab-graph', 'tab-search', 'tab-menu',
   'morebtn', 'nodepop', 'stat', 'authstate', 'themebtn', 'sem', 'searchkind', 'synthchips', 'synthbtn',
-  'advsearchbtn', 'advsearchpane', 'advsearchsubmitbtn',
+  'advsearchbtn', 'advsearchpane',
   'addbtn', 'dedupbtn', 'pathbtn', 'graph-section', 'repolink', 'format-warn-banner', 'format-warn-text', 'format-warn-badge', 'format-warn-icon', 'format-warn-title', 'format-warn-actbtn', 'graphnotice',
   'graphdocnav', 'graphdocpick', 'graphdoclabel', 'graphdocprev', 'graphdocnext', 'graphdocmenu', 'graphdocq', 'graphdoclist', 'graphdocempty', 'q', 'legend'
 ];
@@ -1204,12 +1204,12 @@ const requiredIds = [
   'format-warn-icon', 'format-warn-title', 'format-warn-text', 'format-warn-actbtn',
   'drawerbackdrop', 'wrap', 'docs', 'docq', 'desclines', 'pinnedhead', 'pinnedlist',
   'doclist', 'showhidden', 'hiddenlist', 'centerwrap', 'netwrap', 'netsearch',
-  'barsearch', 'q', 'searchbtn', 'legendbar', 'graphdocnav', 'graphdocprev',
+  'barsearch', 'q', 'legendbar', 'graphdocnav', 'graphdocprev',
   'graphdocpick', 'graphdoclabel', 'graphdocnext', 'graphdocmenu', 'graphdocq',
   'graphdoclist', 'net', 'graphnotice', 'zoomctl', 'reader', 'rtitle', 'rfs',
   'reditbtn', 'sharebox', 'rbody', 'detailpane', 'detailhead', 'detailclose',
   'drawerscroll', 'drawer-graph-action', 'opengraphbtn', 'moremenu', 'sem',
-  'searchkind', 'advsearchbtn', 'advsearchpane', 'advsearchsubmitbtn', 'synthchips', 'synthbtn', 'addbtn', 'dedupbtn', 'pathbtn', 'graph-section',
+  'searchkind', 'advsearchbtn', 'advsearchpane', 'synthchips', 'synthbtn', 'addbtn', 'dedupbtn', 'pathbtn', 'graph-section',
   'fmin', 'fslider', 'repolink', 'authstate', 'stat', 'panel', 'worktabs',
   'tab-docs', 'tab-search', 'tab-menu', 'nodepop'
 ];
