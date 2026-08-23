@@ -858,11 +858,11 @@ GRAPH_HTML = """<!doctype html>
       </div>
       <div id="advsearchpane" class="adv-search-pane" hidden aria-hidden="true">
         <div class="adv-search-body">
-          <label class="adv-search-option">
+          <label class="adv-search-option" id="fts-opt-wrap" title="SQLite FTS5 기반 BM25">
             <input type="checkbox" id="sem" style="width:auto" disabled/>
             <span id="searchkind">Full-Text Search</span>
           </label>
-          <label class="adv-search-option" id="semantic-opt-wrap" title="Semantic Search는 인증된 사용자만 사용할 수 있습니다.">
+          <label class="adv-search-option" id="semantic-opt-wrap" title="FTS + AI RRF 기반 벡터 하이브리드">
             <input type="checkbox" id="semchk" style="width:auto" disabled/>
             <span id="semkind">Semantic Search</span>
             <span id="sembadge" class="auth-required-badge">🔒 인증 필요</span>
@@ -3057,11 +3057,15 @@ function updateSearchModeUI(){
   if(sembadge){
     sembadge.style.display = isAnon ? '' : 'none';
   }
+  const ftswrap=document.getElementById('fts-opt-wrap');
+  if(ftswrap){
+    ftswrap.title = 'SQLite FTS5 기반 BM25';
+  }
   if(semwrap){
     semwrap.style.opacity = isAnon ? '0.65' : '1';
     semwrap.title = isAnon
-      ? 'Semantic Search(AI 하이브리드 검색)는 인증된 사용자(owner/readonly) 전용입니다.'
-      : 'AI 임베딩 기반 하이브리드 의미 검색';
+      ? 'FTS + AI RRF 기반 벡터 하이브리드 (인증 필요)'
+      : 'FTS + AI RRF 기반 벡터 하이브리드';
   }
 }
 function setAccessScope(scope, reason){
