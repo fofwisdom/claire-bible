@@ -107,6 +107,7 @@ APP_ONE_OFF_COMMANDS = {
     "doc-title",
     "repo",
     "format-status",
+    "recompile-html",
 }
 APP_GUARDED_COMMANDS = {
     "migrate": "Schema lifecycle command owned by install/update",
