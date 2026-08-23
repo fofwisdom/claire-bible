@@ -477,7 +477,12 @@ def ensure_document_detail(
             text = render(doc, format=fmt)
         except TypeError:
             text = render(doc)
-    except Exception:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
+        import logging
+
+        logging.getLogger("claire.pipeline").warning(
+            "ensure_document_detail failed for doc_id=%s: %s", doc.id, e
+        )
         return False
     if text and text.strip():
         dbm.set_document_detail(conn, doc.id, text.strip(), format=fmt)

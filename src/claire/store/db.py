@@ -1194,12 +1194,38 @@ def latest_extraction_summary(conn: sqlite3.Connection, document_id: str) -> str
         "SELECT raw_response FROM extractions WHERE document_id=? ORDER BY id DESC LIMIT 1",
         (document_id,),
     ).fetchone()
-    if not row or not row["raw_response"]:
+    summary = None
+    if row and row["raw_response"]:
+        try:
+            summary = json.loads(row["raw_response"]).get("summary")
+        except (ValueError, AttributeError):
+            summary = None
+    if summary and summary.strip():
+        return summary.strip()
+
+    # Fallback: extraction 에 요약이 없으면 detail 의 첫 단락 또는 raw_text 앞부분을 요약으로 반환
+    doc_row = conn.execute(
+        "SELECT detail, raw_text, title FROM documents WHERE id=?", (document_id,)
+    ).fetchone()
+    if not doc_row:
         return None
-    try:
-        return json.loads(row["raw_response"]).get("summary") or None
-    except (ValueError, AttributeError):
-        return None
+
+    detail = (doc_row["detail"] or "").strip()
+    if detail:
+        # 제목 헤더(= 또는 # 등)를 건너뛰고 첫 본문 단락 추출
+        paras = [p.strip() for p in detail.split("\n\n") if p.strip()]
+        for p in paras:
+            clean_p = p.lstrip("=#* -").strip()
+            if len(clean_p) > 20:
+                return clean_p[:300]
+        if paras:
+            return paras[0][:300]
+
+    raw_text = (doc_row["raw_text"] or "").strip()
+    if raw_text:
+        return (raw_text[:200] + "…") if len(raw_text) > 200 else raw_text
+
+    return None
 
 
 def set_document_detail(

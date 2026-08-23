@@ -60,7 +60,7 @@ class AntigravityProvider:
         self.settings = settings
         raw_bin = getattr(settings, "agy_bin", "agy")
         self.agy_bin = find_agy_executable(raw_bin) or raw_bin
-        self.model = getattr(settings, "agy_model", "gemini-3.6-flash-high")
+        self.model = getattr(settings, "agy_model", "gemini-3.7-flash")
         self.effort = getattr(settings, "agy_effort", "medium")
         self.timeout = float(getattr(settings, "agy_timeout", 120.0))
         self.max_concurrency = int(getattr(settings, "agy_max_concurrency", 2))
@@ -87,7 +87,11 @@ class AntigravityProvider:
         ]
         if self.model:
             cmd.extend(["--model", self.model])
-        if self.effort:
+        # 모델명에 이미 -high, -medium, -low 접미사가 포함된 경우 --effort 전달 시 agy CLI 충돌 방지
+        model_has_effort = any(
+            str(self.model).endswith(f"-{suf}") for suf in ("high", "medium", "low")
+        )
+        if self.effort and not model_has_effort:
             cmd.extend(["--effort", self.effort])
         if dangerously_skip_permissions:
             cmd.append("--dangerously-skip-permissions")
@@ -170,7 +174,7 @@ class AntigravityProvider:
         body = _doc_to_prompt(doc)
         prompt = f"{sys}\n\nDOCUMENT:\n{body}"
 
-        schema = ExtractionResult.model_json_schema()
+        schema = ExtractionResult.extraction_json_schema()
         try:
             data = self._run_cli(prompt, json_schema=schema, output_format="json")
             if isinstance(data, dict):
@@ -186,6 +190,18 @@ class AntigravityProvider:
             )
             raw_text = self._run_cli(fallback_prompt, output_format="text")
             result = _coerce(str(raw_text))
+
+        # 요약이 비어있는 경우 방어적 보강
+        if not result.summary or not result.summary.strip():
+            if result.key_claims:
+                result.summary = " ".join(result.key_claims[:3])
+            elif result.entities:
+                result.summary = f"{', '.join(e.name for e in result.entities[:5])} 등에 관한 자료이다."
+            elif doc.raw_text:
+                fallback_txt = (doc.raw_text or "").strip()
+                result.summary = (fallback_txt[:200] + "…") if len(fallback_txt) > 200 else fallback_txt
+            elif doc.title:
+                result.summary = f"{doc.title}에 관한 자료이다."
 
         result.model = self.model
         result.prompt_version = PROMPT_VERSION

@@ -99,6 +99,7 @@ APP_ONE_OFF_COMMANDS = {
     "ingest",
     "search",
     "backfill-detail",
+    "backfill-summary",
     "backfill-images",
     "watch",
     "dedup-scan",

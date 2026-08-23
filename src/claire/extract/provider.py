@@ -47,7 +47,10 @@ class ExtractedRelation(BaseModel):
 
 
 class ExtractionResult(BaseModel):
-    summary: str = ""
+    summary: str = Field(
+        default="",
+        description="1-3 factual sentences in Korean written style (문어체: ~한다/~이다) summarizing the document",
+    )
     key_claims: list[str] = Field(default_factory=list)
     entities: list[ExtractedEntity] = Field(default_factory=list)
     relations: list[ExtractedRelation] = Field(default_factory=list)
@@ -55,6 +58,13 @@ class ExtractionResult(BaseModel):
     raw_response: str = ""
     model: str = ""
     prompt_version: str = ""
+
+    @classmethod
+    def extraction_json_schema(cls) -> dict:
+        """LLM 구조화 추출에 전달할 JSON Schema (summary, entities, relations 필수화)."""
+        schema = cls.model_json_schema()
+        schema["required"] = ["summary", "entities", "relations"]
+        return schema
 
 
 class MergeCandidate(BaseModel):

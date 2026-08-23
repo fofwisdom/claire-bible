@@ -201,7 +201,7 @@ class GeminiProvider:
         response_format = {
             "type": "text",
             "mime_type": "application/json",
-            "schema": ExtractionResult.model_json_schema(),
+            "schema": ExtractionResult.extraction_json_schema(),
         }
         try:
             interaction = self._call(lambda: self.client.interactions.create(
@@ -486,13 +486,24 @@ def _coerce(text: str | None) -> ExtractionResult:
     s = text.strip()
     if s.startswith("```"):
         s = re.sub(r"^```(json)?", "", s).strip().rstrip("`").strip()
+    result = None
     try:
-        return ExtractionResult.model_validate(json.loads(s))
+        result = ExtractionResult.model_validate(json.loads(s))
     except Exception:  # noqa: BLE001
         m = re.search(r"\{.*\}", s, re.DOTALL)
         if m:
             try:
-                return ExtractionResult.model_validate(json.loads(m.group(0)))
+                result = ExtractionResult.model_validate(json.loads(m.group(0)))
             except Exception:  # noqa: BLE001
                 pass
-    return ExtractionResult(summary=s[:300])
+    if result is None:
+        result = ExtractionResult(summary=s[:300])
+
+    if not result.summary or not result.summary.strip():
+        if result.key_claims:
+            result.summary = " ".join(result.key_claims[:3])
+        elif result.entities:
+            result.summary = f"{', '.join(e.name for e in result.entities[:5])} 등에 관한 자료이다."
+        else:
+            result.summary = s[:300]
+    return result
