@@ -495,6 +495,7 @@ GRAPH_HTML = """<!doctype html>
   .adv-search-pane[hidden]{display:none !important}
   .adv-search-body{display:flex;align-items:center;justify-content:space-between;gap:6px;flex-wrap:wrap}
   .adv-search-option{font-size:12px;display:inline-flex;align-items:center;gap:4px;cursor:pointer;user-select:none}
+  .auth-required-badge{font-size:10px;padding:1px 5px;border-radius:3px;background:var(--sec-bg);border:1px solid var(--border);color:var(--muted);white-space:nowrap;user-select:none}
   .adv-search-hint{font-size:11px;color:var(--muted);line-height:1.3;margin:0}
   /* 즐겨찾기(고정) 섹션 */
   #pinnedhead{padding:5px 10px;font-size:11.5px;color:var(--muted);background:rgba(227,179,65,.18);flex-shrink:0}
@@ -859,7 +860,12 @@ GRAPH_HTML = """<!doctype html>
         <div class="adv-search-body">
           <label class="adv-search-option">
             <input type="checkbox" id="sem" style="width:auto" disabled/>
-            <span id="searchkind">검색 모드 확인 중</span>
+            <span id="searchkind">Full-Text Search</span>
+          </label>
+          <label class="adv-search-option" id="semantic-opt-wrap" title="Semantic Search는 인증된 사용자만 사용할 수 있습니다.">
+            <input type="checkbox" id="semchk" style="width:auto" disabled/>
+            <span id="semkind">Semantic Search</span>
+            <span id="sembadge" class="auth-required-badge">🔒 인증 필요</span>
           </label>
         </div>
         <p id="advsearchhint" class="adv-search-hint">체크 시 DB 전체 지식베이스를 검색합니다 (검색어 입력 후 Enter).</p>
@@ -2764,8 +2770,12 @@ function resetHome(){
   const sem = document.getElementById('sem');
   if(sem && sem.checked){
     sem.checked = false;
-    updateSearchModeUI();
   }
+  const semchk = document.getElementById('semchk');
+  if(semchk && semchk.checked){
+    semchk.checked = false;
+  }
+  updateSearchModeUI();
   clearTimeout(searchDebounce);
   highlightSet = null;
   unclusterEdges();
@@ -2979,9 +2989,16 @@ function toggleAdvSearch(force){
   btn.classList.toggle('active', !isHidden);
 }
 const semEl=document.getElementById('sem');
+const semchkEl=document.getElementById('semchk');
 if(semEl){
   semEl.addEventListener('change',e=>{
-    updateSearchModeUI();
+    if(e.target.checked && semchkEl) semchkEl.checked = false;
+    if(e.target.checked) hl('');
+  });
+}
+if(semchkEl){
+  semchkEl.addEventListener('change',e=>{
+    if(e.target.checked && semEl) semEl.checked = false;
     if(e.target.checked) hl('');
   });
 }
@@ -2989,14 +3006,18 @@ const docqEl=document.getElementById('docq');
 if(docqEl){
   docqEl.addEventListener('keydown',e=>{
     if(e.key!=='Enter') return;
-    if(semEl && semEl.checked){ doSemantic(); }
+    const sem=document.getElementById('sem');
+    const semchk=document.getElementById('semchk');
+    if((sem && sem.checked) || (semchk && semchk.checked)){ doSemantic(); }
   });
 }
 const qEl=document.getElementById('q');
 if(qEl){
   qEl.addEventListener('keydown',e=>{
     if(e.key!=='Enter') return;
-    if(semEl && semEl.checked){ doSemantic(); }
+    const sem=document.getElementById('sem');
+    const semchk=document.getElementById('semchk');
+    if((sem && sem.checked) || (semchk && semchk.checked)){ doSemantic(); }
     else { clearTimeout(searchDebounce); hl(e.target.value);
            revealWorkspace('graph');
            if(net){ const m=net.getSelectedNodes(); if(m.length) loadNode(m[0]); } }
@@ -3017,9 +3038,31 @@ function doSemantic(){
 function updateSearchModeUI(){
   const sem=document.getElementById('sem');
   const kind=document.getElementById('searchkind');
+  const semchk=document.getElementById('semchk');
+  const sembadge=document.getElementById('sembadge');
+  const semwrap=document.getElementById('semantic-opt-wrap');
   const unknown=AUTH_SCOPE==='unknown';
-  if(sem){ sem.disabled=unknown; if(unknown) sem.checked=false; }
-  if(kind) kind.textContent = unknown ? '검색 모드 확인 중' : (AUTH_SCOPE==='anonymous' ? 'Full-Text Search' : 'Semantic Search');
+  const isAnon=AUTH_SCOPE==='anonymous';
+
+  if(sem){
+    sem.disabled=unknown;
+    if(unknown) sem.checked=false;
+  }
+  if(kind) kind.textContent = 'Full-Text Search';
+
+  if(semchk){
+    semchk.disabled = unknown || isAnon;
+    if(unknown || isAnon) semchk.checked = false;
+  }
+  if(sembadge){
+    sembadge.style.display = isAnon ? '' : 'none';
+  }
+  if(semwrap){
+    semwrap.style.opacity = isAnon ? '0.65' : '1';
+    semwrap.title = isAnon
+      ? 'Semantic Search(AI 하이브리드 검색)는 인증된 사용자(owner/readonly) 전용입니다.'
+      : 'AI 임베딩 기반 하이브리드 의미 검색';
+  }
 }
 function setAccessScope(scope, reason){
   AUTH_SCOPE = ['owner','readonly','anonymous'].includes(scope) ? scope : 'unknown';
@@ -3068,7 +3111,9 @@ async function synth(){
 }
 async function semanticSearch(q){
   q=(q||'').trim(); if(!q) return;
-  const requestedMode=AUTH_SCOPE==='anonymous'?'Full-Text Search':'Semantic Search';
+  const semchk=document.getElementById('semchk');
+  const isSemantic = semchk && semchk.checked && AUTH_SCOPE !== 'anonymous';
+  const requestedMode = isSemantic ? 'Semantic Search' : 'Full-Text Search';
   document.getElementById('stat').textContent='🔎 '+requestedMode+' 중…';
   let r;
   try{ r=await fetch('search',{method:'POST',

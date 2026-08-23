@@ -97,7 +97,7 @@ def test_graph_html_self_contained_markers():
     assert "let READONLY=true;" in GRAPH_HTML
     assert "function canWrite(){ return AUTH_SCOPE==='owner'; }" in GRAPH_HTML
     assert "setAccessScope(d.scope)" in GRAPH_HTML
-    assert "AUTH_SCOPE==='anonymous' ? 'Full-Text Search' : 'Semantic Search'" in GRAPH_HTML
+    assert "semchk.disabled = unknown || isAnon" in GRAPH_HTML
     assert "👁️ 익명 읽기전용" in GRAPH_HTML
     assert "let READONLY=false" not in GRAPH_HTML
     assert "setAuth('authed')" not in GRAPH_HTML
@@ -433,6 +433,9 @@ def test_advanced_search_ui_components():
 
     assert 'id="advsearchbtn"' in GRAPH_HTML
     assert 'id="advsearchpane"' in GRAPH_HTML
+    assert 'id="semchk"' in GRAPH_HTML
+    assert 'id="sembadge"' in GRAPH_HTML
+    assert '인증 필요' in GRAPH_HTML
     assert 'function toggleAdvSearch' in GRAPH_HTML
     assert 'Full-Text Search' in GRAPH_HTML
     assert 'Semantic Search' in GRAPH_HTML
