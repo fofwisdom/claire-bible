@@ -428,7 +428,7 @@ def test_code_block_css_resets():
 
 
 def test_advanced_search_ui_components():
-    """고급 검색 아이콘 버튼, 확장 패널, 모드 라벨 UI 요소 검증."""
+    """고급 검색 아이콘 버튼, 확장 패널, 모드 라벨 및 툴팁 UI 요소 검증."""
     from claire.graphview import GRAPH_HTML
 
     assert 'id="advsearchbtn"' in GRAPH_HTML
@@ -436,6 +436,8 @@ def test_advanced_search_ui_components():
     assert 'id="semchk"' in GRAPH_HTML
     assert 'id="sembadge"' in GRAPH_HTML
     assert '인증 필요' in GRAPH_HTML
+    assert 'SQLite FTS5 기반 BM25' in GRAPH_HTML
+    assert 'FTS + AI RRF 기반 벡터 하이브리드' in GRAPH_HTML
     assert 'function toggleAdvSearch' in GRAPH_HTML
     assert 'Full-Text Search' in GRAPH_HTML
     assert 'Semantic Search' in GRAPH_HTML
