@@ -202,7 +202,7 @@ def test_right_menu_compact_icon_mode_markers():
 
 
 def test_right_menu_graph_section_markers():
-    """우측 메뉴 내 '그래프' 전용 섹션 분리 및 하단 구분선 스타일 검증."""
+    """우측 메뉴 내 '그래프' 전용 섹션 분리, 그래프 전환 단추 및 하단 구분선 스타일 검증."""
     assert 'id="graph-section"' in GRAPH_HTML
     assert 'class="menu-section-title">그래프<' in GRAPH_HTML
     assert "#moremenu .menu-section" in GRAPH_HTML
@@ -210,6 +210,9 @@ def test_right_menu_graph_section_markers():
     assert "border-top:1px solid var(--border)" in GRAPH_HTML
     assert "#moremenu .menu-section-title" in GRAPH_HTML
     assert "#moremenu .menu-section-head" in GRAPH_HTML
+    assert 'id="opengraphbtn"' in GRAPH_HTML
+    assert "openDocGraph(activeDoc||curReaderDoc)" in GRAPH_HTML
+    assert "openDocGraph(docId)" in GRAPH_HTML
 
 
 def test_favorite_and_hide_ui_markers():
