@@ -310,7 +310,8 @@ GRAPH_HTML = """<!doctype html>
       }
       var dl = document.getElementById('doclist');
       if (dl && (dl.innerHTML.indexOf('문서 로딩…') !== -1 || dl.textContent.indexOf('문서 로딩') !== -1)) {
-        dl.innerHTML = '<p class="hint" style="padding:10px">문서 목록 조회 지연 (새로고침 권장)</p>';
+        dl.innerHTML = (typeof doclistToolbarHtml==='function'?doclistToolbarHtml():'')+
+          '<p class="hint" style="padding:10px">문서 목록 조회 지연 (새로고침 권장)</p>';
       }
       var st = document.getElementById('stat');
       if (st && (st.textContent.indexOf('로딩…') !== -1 || st.textContent.indexOf('확인') !== -1)) {
@@ -502,6 +503,9 @@ GRAPH_HTML = """<!doctype html>
   #pinnedlist{max-height:32%;overflow-y:auto;flex-shrink:0;border-bottom:2px solid var(--border);
     background:rgba(227,179,65,.10)}
   #doclist{flex:1;min-height:120px;overflow-y:auto}
+  .doclist-toolbar{position:sticky;top:0;z-index:2;padding:6px 10px;background:var(--docs-bg);border-bottom:1px solid var(--border)}
+  .doclist-toolbar select#desclines{width:100%;font-size:12px;padding:3px 6px;border:1px solid var(--border);border-radius:4px;background:var(--sec-bg);color:var(--fg);cursor:pointer}
+  .doclist-toolbar select#desclines:focus{outline:none;border-color:var(--accent2)}
   .docitem{min-height:38px;padding:8px 10px;border-bottom:1px solid var(--border);cursor:pointer;position:relative;overflow:hidden}
   .docitem:hover{background:var(--hover)}
   .docitem.active{background:var(--active);border-left:3px solid var(--accent2)}
@@ -869,15 +873,19 @@ GRAPH_HTML = """<!doctype html>
           </label>
         </div>
         <p id="advsearchhint" class="adv-search-hint">체크 시 DB 전체 지식베이스를 검색합니다 (검색어 입력 후 Enter).</p>
-        <select id="desclines" onchange="setDescLines(this.value)" title="목록 설명 줄수" style="width:100%;margin-top:2px">
-          <option value="0">제목만 표시</option>
-          <option value="3">요약 표시</option>
-        </select>
       </div>
     </div>
     <div id="pinnedhead" style="display:none">⭐ 즐겨찾기</div>
     <div id="pinnedlist"></div>
-    <div id="doclist"><p class="hint" style="padding:10px">문서 로딩…</p></div>
+    <div id="doclist">
+      <div class="doclist-toolbar">
+        <select id="desclines" onchange="setDescLines(this.value)" title="목록 설명 줄수" aria-label="목록 설명 줄수">
+          <option value="0">제목만 표시</option>
+          <option value="3">요약 표시</option>
+        </select>
+      </div>
+      <p class="hint" style="padding:10px">문서 로딩…</p>
+    </div>
     <div id="showhidden" style="display:none" onclick="toggleShowHidden()"></div>
     <div id="hiddenlist"></div>
   </aside>
@@ -1453,6 +1461,13 @@ function renderContent(src, format){
 // 차지한다는 피드백(사용자 지적) → #docs 에 lc0/lc4 클래스로 CSS line-clamp 토글(기본 2줄).
 let descLines = 3;
 try{ const v=parseInt(localStorage.getItem('claireDescLines')); if(v===0||v===3||v===4||v===2) descLines=(v===0?0:3); }catch(e){}
+function doclistToolbarHtml(){
+  return '<div class="doclist-toolbar">'+
+    '<select id="desclines" onchange="setDescLines(this.value)" title="목록 설명 줄수" aria-label="목록 설명 줄수">'+
+    '<option value="0"'+(descLines===0?' selected':'')+'>제목만 표시</option>'+
+    '<option value="3"'+(descLines===3?' selected':'')+'>요약 표시</option>'+
+    '</select></div>';
+}
 function applyDescLines(){
   const docs=document.getElementById('docs'); if(!docs) return;
   docs.classList.remove('lc0','lc3','lc4');
@@ -2662,7 +2677,7 @@ function renderDocs(filter){
   if(docSearchActive && !q){
     const ph = document.getElementById('pinnedhead'); if(ph) ph.style.display = 'none';
     const pl = document.getElementById('pinnedlist'); if(pl) pl.innerHTML = '';
-    const dl = document.getElementById('doclist'); if(dl) dl.innerHTML = '<p class="hint" style="padding:16px 12px;text-align:center">🔎 검색어를 입력하세요.</p>';
+    const dl = document.getElementById('doclist'); if(dl) dl.innerHTML = doclistToolbarHtml() + '<p class="hint" style="padding:16px 12px;text-align:center">🔎 검색어를 입력하세요.</p>';
     const sh = document.getElementById('showhidden'); if(sh) sh.style.display = 'none';
     const hl = document.getElementById('hiddenlist'); if(hl) hl.innerHTML = '';
     syncGraphDocNav();
@@ -2684,13 +2699,13 @@ function renderDocs(filter){
 
   const dl = document.getElementById('doclist');
   if(dl){
-    dl.innerHTML = rest.length
+    dl.innerHTML = doclistToolbarHtml() + (rest.length
       ? (()=>{ let html='', curDay=null;
           rest.forEach(dc=>{ const day=dayOf(dc.fetched_at);
             if(day!==curDay){ html+='<div class=dday>'+day+'</div>'; curDay=day; }
             html+=docItemHtml(dc); });
           return html; })()
-      : '<p class=hint style="padding:10px">문서 없음</p>';
+      : '<p class=hint style="padding:10px">문서 없음</p>');
   }
 
   const sh=document.getElementById('showhidden');
@@ -3296,7 +3311,7 @@ fetch('documents').then(r=>{ if(!r.ok) throw new Error('documents fetch failed: 
 }).catch(e=>{
   allDocs=[];
   const dl=document.getElementById('doclist');
-  if(dl) dl.innerHTML='<p class="hint" style="padding:10px">문서 로드 실패</p>';
+  if(dl) dl.innerHTML=doclistToolbarHtml()+'<p class="hint" style="padding:10px">문서 로드 실패</p>';
 });
 fetch('whoami').then(r=>{ if(!r.ok) throw new Error('whoami failed'); return r.json(); }).then(d=>{
   setAccessScope(d.scope);

@@ -456,10 +456,10 @@ def test_aot_render_adoc_table_multiline_cell_and_escaped_pipe():
 | Command | Description
 
 | `git status`
-현재 작업 트리의
+| 현재 작업 트리의
 상태를 표시
 | `cmd \| grep`
-파이프라인 필터링
+| 파이프라인 필터링
 |===
 """
     html_out = render_adoc_to_html(sample)
