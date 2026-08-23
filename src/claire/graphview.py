@@ -532,8 +532,6 @@ GRAPH_HTML = """<!doctype html>
   #drawerscroll{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:12px 14px;font-size:13px;line-height:1.5;display:flex;flex-direction:column}
   #drawerfooter{margin-top:auto;padding-top:14px;display:flex;align-items:center}
   #repolink:hover{background:var(--hover);border-color:var(--accent)}
-  #drawer-graph-action{display:none;margin-bottom:10px}
-  #opengraphbtn{width:100%;min-height:42px;font-size:14px;font-weight:600;background:var(--accent);color:#fff;border:0;border-radius:7px;cursor:pointer}
   #moremenu{display:flex;flex-direction:column;gap:8px;padding-bottom:0;margin-bottom:10px}
   #moremenu .tool-row{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
   #moremenu .action-btn-row{display:flex;flex-wrap:wrap;gap:4px;align-items:center}
@@ -567,8 +565,6 @@ GRAPH_HTML = """<!doctype html>
   #detailpane.compact-rail #detailclose{display:none}
   body.detail-compact #detailpane #drawerscroll,
   #detailpane.compact-rail #drawerscroll{padding:10px 4px;overflow-x:hidden}
-  body.detail-compact #detailpane #drawer-graph-action,
-  #detailpane.compact-rail #drawer-graph-action{display:none}
   body.detail-compact #detailpane #moremenu,
   #detailpane.compact-rail #moremenu{border-bottom:0;padding-bottom:0;margin-bottom:0;align-items:center;gap:6px}
   body.detail-compact #detailpane #moremenu .menu-section,
@@ -791,7 +787,6 @@ GRAPH_HTML = """<!doctype html>
     /* 모바일 우측 드로어 */
     #detailpane{width:min(340px,86vw);box-shadow:-8px 0 24px var(--shadow)}
     #detailclose{min-width:44px;min-height:44px}
-    #drawer-graph-action{display:block}
     #drawerscroll{padding:14px 16px max(16px,env(safe-area-inset-bottom))}
     #panel .hint br{display:none}
     #zoomctl{right:max(12px,env(safe-area-inset-right));bottom:max(12px,env(safe-area-inset-bottom))}
@@ -919,9 +914,6 @@ GRAPH_HTML = """<!doctype html>
       </div>
     </div>
     <div id="drawerscroll">
-      <div id="drawer-graph-action">
-        <button id="opengraphbtn" onclick="openGraphFromDrawer()">📊 지식 그래프 보기</button>
-      </div>
       <div id="moremenu" aria-label="도구 및 그래프 설정">
         <div class="action-btn-row">
           <button id="addbtn" class="sec" onclick="openIngest()" title="URL·텍스트를 그래프에 적재" aria-label="적재"><span class="btn-icon">➕</span> <span class="btn-label">적재</span></button>
@@ -938,6 +930,7 @@ GRAPH_HTML = """<!doctype html>
             <span class="menu-section-title">그래프</span>
           </div>
           <div class="action-btn-row">
+            <button id="opengraphbtn" class="sec" onclick="openDocGraph(activeDoc||curReaderDoc)" title="현재 선택된 자료를 지식 그래프로 보기" aria-label="그래프 보기"><span class="btn-icon">📊</span> <span class="btn-label">그래프 보기</span></button>
             <button id="pathbtn" class="sec" onclick="togglePathMode()" title="두 노드 사이 연결 경로 찾기" aria-label="경로"><span class="btn-icon">🔗</span> <span class="btn-label">경로</span></button>
             <button id="synthbtn" onclick="synth()" title="종합 (0)"><span class="btn-icon">🧩</span> <span class="btn-label">종합 (0)</span></button>
             <span id="synthchips"></span>
@@ -1507,11 +1500,13 @@ function setCenterView(mode){
   }
 }
 function openDocGraph(docId){
-  if(docId) setActiveDoc(docId);
+  const targetId = docId || activeDoc || curReaderDoc;
+  if(targetId) setActiveDoc(targetId);
+  else if(allDocs && allDocs.length) setActiveDoc(allDocs[0].id);
   setCenterView('graph');
-  if(mobileMQ.matches){
-    closeReader();
-    revealWorkspace('graph');
+  revealWorkspace('graph');
+  if(drawerOpen || detailOpen){
+    if(mobileMQ.matches) closeDrawer();
   }
 }
 function openReader(docId){
@@ -1831,8 +1826,7 @@ function toggleDrawer(){
   else openDrawer();
 }
 function openGraphFromDrawer(){
-  closeDrawer();
-  revealWorkspace('graph');
+  openDocGraph(activeDoc || curReaderDoc);
 }
 function focusMobileSearch(){
   revealWorkspace('docs');
@@ -2558,6 +2552,7 @@ function showPathHint(){
     (n===0?'시작 노드를 클릭하세요.':'끝 노드를 클릭하세요. <small>(시작: '+esc(nodeLabel(pathPicks[0]))+')</small>')+
     '</p><p class=al><small>관계 필터가 켜져 있으면 그 관계만 따라 경로를 찾습니다.</small></p>';
   setGraphNotice(n===0?'경로 시작 노드를 선택하세요':'경로 끝 노드를 선택하세요');
+  setCenterView('graph');
   revealWorkspace('graph');
 }
 function pickPathNode(id){
