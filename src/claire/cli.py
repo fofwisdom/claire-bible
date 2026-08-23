@@ -397,6 +397,18 @@ def cmd_backfill_detail(args) -> int:
     return 0
 
 
+def cmd_backfill_summary(args) -> int:
+    """요약(summary)이 비어있거나 누락된 기존 문서의 요약을 채운다 — 비파괴적."""
+    from .ingest.service import IngestService
+
+    s = get_settings()
+    svc = IngestService(s)
+    print("요약(summary) 백필 시작…", flush=True)
+    out = svc.backfill_summaries(limit=args.limit)
+    print(f"요약 백필 완료: 전체 {out['docs']} · 신규/갱신 {out['filled']} · 기존 유지 {out['already_had']}")
+    return 0
+
+
 def cmd_format_status(args) -> int:
     """문서 본문 렌더링 포맷(detail_format) 진단 현황을 출력."""
     import json
@@ -743,6 +755,11 @@ def build_parser() -> argparse.ArgumentParser:
     pbd.add_argument("--format", choices=["md", "adoc"], default=None,
                      help="detail render format (md or adoc)")
     pbd.set_defaults(func=cmd_backfill_detail)
+
+    pbs = sub.add_parser("backfill-summary",
+                         help="fill missing summaries in extractions (non-destructive)")
+    pbs.add_argument("--limit", type=int, default=0, help="cap number of docs (0=all)")
+    pbs.set_defaults(func=cmd_backfill_summary)
 
     pfs = sub.add_parser("format-status",
                          help="check document render format distribution and migration status")

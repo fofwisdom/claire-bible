@@ -450,6 +450,69 @@ class IngestService:
         finally:
             conn.close()
 
+    def backfill_summaries(self, *, limit: int = 0) -> dict:
+        """extractions 에 요약이 비어있거나 누락된 기존 문서의 요약을 채운다 — **비파괴적**."""
+        import json as _json
+
+        from ..extract.prompts import PROMPT_VERSION
+
+        conn = dbm.connect(self.s.db_file)
+        dbm.init_db(conn)
+        try:
+            rows = dbm.documents_timeline(conn, limit or 1000000)
+            out = {"docs": len(rows), "filled": 0, "already_had": 0}
+            for r in rows:
+                did = r["id"]
+                ext = conn.execute(
+                    "SELECT id, raw_response, provider, model, prompt_version FROM extractions WHERE document_id=? ORDER BY id DESC LIMIT 1",
+                    (did,),
+                ).fetchone()
+                existing_summary = None
+                if ext and ext["raw_response"]:
+                    try:
+                        existing_summary = _json.loads(ext["raw_response"]).get("summary")
+                    except Exception:
+                        existing_summary = None
+                if existing_summary and existing_summary.strip():
+                    out["already_had"] += 1
+                    continue
+
+                # summary 가 없으면 fallback 추출
+                summary = dbm.latest_extraction_summary(conn, did)
+                if not summary or not summary.strip():
+                    doc = dbm.get_document(conn, did)
+                    if doc and doc.raw_text:
+                        summary = (doc.raw_text[:200] + "…") if len(doc.raw_text) > 200 else doc.raw_text
+                    elif doc and doc.title:
+                        summary = f"{doc.title}에 관한 자료이다."
+                    else:
+                        summary = "(요약 없음)"
+
+                if ext:
+                    # 기존 extractions raw_response 갱신
+                    try:
+                        data = _json.loads(ext["raw_response"])
+                    except Exception:
+                        data = {}
+                    data["summary"] = summary
+                    new_raw = _json.dumps(data, ensure_ascii=False)
+                    conn.execute("UPDATE extractions SET raw_response=? WHERE id=?", (new_raw, ext["id"]))
+                    conn.commit()
+                    out["filled"] += 1
+                else:
+                    # extractions 레코드 신규 삽입
+                    data = {"summary": summary, "key_claims": [], "entities": [], "relations": []}
+                    new_raw = _json.dumps(data, ensure_ascii=False)
+                    dbm.log_extraction(
+                        conn, document_id=did, provider=getattr(self.provider, "name", "backfill"),
+                        model=getattr(self.provider, "model", "fallback"), prompt_version=PROMPT_VERSION,
+                        raw_response=new_raw,
+                    )
+                    out["filled"] += 1
+            return out
+        finally:
+            conn.close()
+
     def backfill_minhashes(self, *, limit: int = 0) -> dict:
         """minhash 가 비어있는 기존 문서에 서명을 채운다 — **비파괴**(컬럼만 채움).
 
