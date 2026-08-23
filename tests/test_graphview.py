@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import sqlite3
 
 from claire.extract.provider import MockProvider
@@ -441,3 +442,22 @@ def test_advanced_search_ui_components():
     assert 'function toggleAdvSearch' in GRAPH_HTML
     assert 'Full-Text Search' in GRAPH_HTML
     assert 'Semantic Search' in GRAPH_HTML
+
+
+def test_doclist_desclines_toolbar():
+    """'제목만 표시' 및 '요약 표시' 선택기가 doclist 최상단 툴바에 배치되었는지 검증."""
+    from claire.graphview import GRAPH_HTML
+
+    # advsearchpane 안에 desclines가 없어야 함
+    adv_pane_match = re.search(r'<div id="advsearchpane"[^>]*>(.*?)</div>\s*</div>', GRAPH_HTML, re.DOTALL)
+    assert adv_pane_match is not None
+    assert 'id="desclines"' not in adv_pane_match.group(1)
+
+    # doclist 안의 최상단에 .doclist-toolbar 와 id="desclines" 가 위치해야 함
+    doclist_match = re.search(r'<div id="doclist">\s*<div class="doclist-toolbar">\s*<select id="desclines"', GRAPH_HTML)
+    assert doclist_match is not None
+    assert '<option value="0">제목만 표시</option>' in GRAPH_HTML
+    assert '<option value="3">요약 표시</option>' in GRAPH_HTML
+    assert 'doclistToolbarHtml' in GRAPH_HTML
+    assert '.doclist-toolbar{position:sticky;top:0' in GRAPH_HTML
+

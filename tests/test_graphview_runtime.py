@@ -667,8 +667,11 @@ console.log("WATCHDOG_RESULT:" + JSON.stringify(result));
         Path(runner_file).unlink(missing_ok=True)
 
 
-def test_claire_status_banner_runtime():
+def test_claire_status_banner_runtime(node_available: bool) -> None:
     """GRAPH_HTML 내의 ClaireStatusBanner 상태 관리 기능이 정상 동작하는지 headless Node.js 런타임으로 검증."""
+    if not node_available:
+        pytest.skip("Node.js is not installed on the system")
+
     from claire.graphview import GRAPH_HTML
 
     scripts = re.findall(r"<script(?:\s+type=[\"']module[\"'])?>(.*?)</script>", GRAPH_HTML, re.DOTALL)
