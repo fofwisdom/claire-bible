@@ -387,6 +387,53 @@ def test_owner_search_can_run_summary_and_clamps_low_limit(
     assert response.json()["mode"] == "hybrid"
 
 
+def test_search_explicit_fts_mode_for_authenticated_scopes(
+    client: TestClient,
+    service: StubService,
+) -> None:
+    # owner requesting fts mode
+    owner_resp = client.post(
+        "/search",
+        json={"query": "claire", "mode": "fts", "summarize": True},
+        headers=OWNER_HEADERS,
+    )
+    assert owner_resp.status_code == 200
+    assert owner_resp.json()["mode"] == "fts"
+    assert service.search_calls[-1] == {
+        "query": "claire",
+        "limit": 8,
+        "summarize": False,
+        "mode": "fts",
+    }
+
+    # readonly requesting fts mode
+    ro_resp = client.post(
+        "/search",
+        json={"query": "claire", "mode": "fts", "limit": 12},
+        headers=READONLY_HEADERS,
+    )
+    assert ro_resp.status_code == 200
+    assert ro_resp.json()["mode"] == "fts"
+    assert service.search_calls[-1] == {
+        "query": "claire",
+        "limit": 12,
+        "summarize": False,
+        "mode": "fts",
+    }
+
+
+def test_search_rejects_invalid_mode(
+    client: TestClient,
+) -> None:
+    resp = client.post(
+        "/search",
+        json={"query": "claire", "mode": "invalid_mode"},
+        headers=OWNER_HEADERS,
+    )
+    assert resp.status_code == 400
+    assert "unsupported search mode" in resp.json()["error"]
+
+
 def test_anonymous_search_forces_fts_without_summary_and_clamps_limit(
     settings: StubSettings,
     service: StubService,

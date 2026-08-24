@@ -90,6 +90,8 @@ def test_graph_html_self_contained_markers():
     assert "synthesize" in GRAPH_HTML                                   # 종합 POST 경로
     assert "세션 만료" in GRAPH_HTML                                    # 만료 시 /web 재접속 안내
     assert "semanticSearch" in GRAPH_HTML and "id=\"sem\"" in GRAPH_HTML  # 의미검색 토글
+    assert "cancelServerSearch" in GRAPH_HTML and "currentSearchSeq" in GRAPH_HTML  # 비동기 검색 경쟁 방지
+    assert "mode:searchMode" in GRAPH_HTML  # FTS / Hybrid 명시적 모드 전달
     assert "id=\"advsearchbtn\"" in GRAPH_HTML                          # 고급검색 버튼
     assert "synthSet" in GRAPH_HTML and "addToSynth" in GRAPH_HTML      # 종합 수집(inspect와 분리)
     assert "id=\"authstate\"" in GRAPH_HTML and "setAccessScope" in GRAPH_HTML
