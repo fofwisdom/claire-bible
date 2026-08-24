@@ -246,16 +246,28 @@ def create_app(
             raise HTTPException(status_code=400, detail="limit must be an integer") from exc
         scope = request_auth_scope(request)
         include_hidden = scope != "anonymous"
+        requested_mode = str(body.get("mode") or "").strip().lower()
         if scope == "anonymous":
             mode = "fts"
             limit = max(1, min(_MAX_ANONYMOUS_SEARCH_RESULTS, limit))
             summarize = False
             runner = _run_anonymous_search
         elif scope in {"owner", "readonly"}:
-            mode = "hybrid"
-            limit = max(1, min(_MAX_SEARCH_RESULTS, limit))
-            summarize = scope == "owner" and bool(body.get("summarize", True))
-            runner = _run_expensive
+            if requested_mode == "fts":
+                mode = "fts"
+                limit = max(1, min(_MAX_SEARCH_RESULTS, limit))
+                summarize = False
+                runner = _run_anonymous_search
+            elif requested_mode in {"", "hybrid", "semantic"}:
+                mode = "hybrid"
+                limit = max(1, min(_MAX_SEARCH_RESULTS, limit))
+                summarize = scope == "owner" and bool(body.get("summarize", True))
+                runner = _run_expensive
+            else:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"unsupported search mode: {requested_mode}",
+                )
         else:
             raise HTTPException(status_code=401, detail="authentication required")
 

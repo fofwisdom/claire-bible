@@ -1044,6 +1044,13 @@ let allTypes = [], allRelTypes = [], allDocs = [];
 let net = null, allNodes = null, allEdges = null;
 let curMinDeg = 0, activeDoc = null, highlightSet = null, selectedNodeId = null, hoverTimer = null;
 let clusterEdges = null, clusterAnchor = null, searchDebounce = null;
+let currentSearchSeq = 0, currentSearchAbort = null;
+function cancelServerSearch(){
+  if(currentSearchAbort){
+    try{ currentSearchAbort.abort(); }catch(_){}
+    currentSearchAbort = null;
+  }
+}
 let synthSet = new Set();
 let AUTH_SCOPE='unknown'; let READONLY=true;
 let relFilter = null;
@@ -2699,6 +2706,10 @@ let showHidden = false;
 function toggleShowHidden(){ if(!canWrite()) return; showHidden=!showHidden; renderDocs(); }
 function renderDocs(filter){
   const q = (filter !== undefined ? filter : (document.getElementById('docq') ? document.getElementById('docq').value : '')).trim().toLowerCase();
+  if(docSearchActive && q){
+    cancelServerSearch();
+    currentSearchSeq++;
+  }
   if(docSearchActive && !q){
     const ph = document.getElementById('pinnedhead'); if(ph) ph.style.display = 'none';
     const pl = document.getElementById('pinnedlist'); if(pl) pl.innerHTML = '';
@@ -2803,6 +2814,8 @@ async function panelToggleHide(id, val){
   if(lbl) lbl.textContent = val ? '🙈 숨김 처리됨' : '목록에서 숨기기';
 }
 function resetHome(){
+  cancelServerSearch();
+  currentSearchSeq++;
   hideNodePop();
   closeDrawer();
   toggleAdvSearch(false);
@@ -3010,7 +3023,11 @@ function leaveNode(){ clearTimeout(hoverTimer); hideNodePop(); }
 // 타이핑마다 즉시 검색하면 매 키 입력에 강조+물리 클러스터링이 돌아 무겁고 출렁인다.
 // 디바운스: 입력이 멈춘 뒤(350ms) 한 번만 실행. 단 검색창을 비우면 즉시 해제(반응성).
 function onSearchInput(v){
-  if(document.getElementById('sem').checked) return;   // 의미검색은 버튼/엔터로만
+  const sem=document.getElementById('sem');
+  const semchk=document.getElementById('semchk');
+  if((sem && sem.checked) || (semchk && semchk.checked)) return;   // 고급검색(FTS/Semantic)은 엔터로만
+  cancelServerSearch();
+  currentSearchSeq++;
   clearTimeout(searchDebounce);
   if(!v.trim()){ hl(''); return; }                     // 비우기 → 즉시 강조/클러스터 해제
   searchDebounce=setTimeout(()=>hl(v), 550);
@@ -3018,6 +3035,8 @@ function onSearchInput(v){
 // 라벨 검색: 매치 강조 + 나머지 dim(문서 선택과 동일 방식). 색칠 대신 highlightSet+applyView.
 function hl(q){
   if(!allNodes) return;
+  cancelServerSearch();
+  currentSearchSeq++;
   q=q.trim().toLowerCase();
   if(!q){ highlightSet=null; applyView(); unclusterEdges();
     if(net){ net.unselectAll(); net.fit({animation:graphAnimation(true)}); } return; }
@@ -3042,12 +3061,16 @@ const semchkEl=document.getElementById('semchk');
 if(semEl){
   semEl.addEventListener('change',e=>{
     if(e.target.checked && semchkEl) semchkEl.checked = false;
+    cancelServerSearch();
+    currentSearchSeq++;
     if(e.target.checked) hl('');
   });
 }
 if(semchkEl){
   semchkEl.addEventListener('change',e=>{
     if(e.target.checked && semEl) semEl.checked = false;
+    cancelServerSearch();
+    currentSearchSeq++;
     if(e.target.checked) hl('');
   });
 }
@@ -3067,7 +3090,7 @@ if(qEl){
     const sem=document.getElementById('sem');
     const semchk=document.getElementById('semchk');
     if((sem && sem.checked) || (semchk && semchk.checked)){ doSemantic(); }
-    else { clearTimeout(searchDebounce); hl(e.target.value);
+    else { cancelServerSearch(); currentSearchSeq++; clearTimeout(searchDebounce); hl(e.target.value);
            revealWorkspace('graph');
            if(net){ const m=net.getSelectedNodes(); if(m.length) loadNode(m[0]); } }
   });
@@ -3164,27 +3187,51 @@ async function synth(){
 }
 async function semanticSearch(q){
   q=(q||'').trim(); if(!q) return;
+  cancelServerSearch();
+  const seq = ++currentSearchSeq;
+  let abortController = null;
+  if(typeof AbortController !== 'undefined'){
+    abortController = new AbortController();
+    currentSearchAbort = abortController;
+  }
   const semchk=document.getElementById('semchk');
   const isSemantic = semchk && semchk.checked && AUTH_SCOPE !== 'anonymous';
+  const searchMode = isSemantic ? 'hybrid' : 'fts';
   const requestedMode = isSemantic ? 'Semantic Search' : 'Full-Text Search';
-  document.getElementById('stat').textContent='🔎 '+requestedMode+' 중…';
+  const statEl = document.getElementById('stat');
+  if(statEl) statEl.textContent='🔎 '+requestedMode+' 중…';
   let r;
-  try{ r=await fetch('search',{method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({query:q, summarize:false, limit:12})}); }
-  catch(e){ document.getElementById('stat').textContent='검색 실패'; return; }
-  if(r.status===401||r.status===404){ expireWriteAccess(); document.getElementById('stat').textContent='세션 만료 — /web 으로 재접속'; return; }
-  if(r.status===429){ document.getElementById('stat').textContent='검색 요청이 많습니다 — 잠시 후 다시 시도하세요'; return; }
+  try{
+    const reqOpts = {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({query:q, summarize:false, limit:12, mode:searchMode})
+    };
+    if(abortController) reqOpts.signal = abortController.signal;
+    r=await fetch('search', reqOpts);
+  }
+  catch(e){
+    if(abortController && abortController.signal.aborted) return;
+    if(seq !== currentSearchSeq) return;
+    if(statEl) statEl.textContent='검색 실패';
+    return;
+  }
+  if(seq !== currentSearchSeq) return;
+  if(r.status===401||r.status===404){ expireWriteAccess(); if(statEl) statEl.textContent='세션 만료 — /web 으로 재접속'; return; }
+  if(r.status===429){ if(statEl) statEl.textContent='검색 요청이 많습니다 — 잠시 후 다시 시도하세요'; return; }
   let d={}; try{ d=await r.json(); }catch(_){}
-  if(!r.ok){ document.getElementById('stat').textContent='검색 실패: HTTP '+r.status; return; }
+  if(seq !== currentSearchSeq) return;
+  if(!r.ok){ if(statEl) statEl.textContent='검색 실패: HTTP '+r.status; return; }
   const ids=(d.hits||[]).map(h=>h.id).filter(Boolean);
   highlightSet = new Set(ids);   // 라벨 검색과 동일하게 강조+dim 방식 사용
   applyView();
   clusterMatches(ids, ()=>fitToMatches(ids));   // 의미검색 결과도 점차 뭉치게 + 한눈에 fit
-  const actualMode=d.mode==='fts'?'Full-Text Search':'Semantic Search';
-  document.getElementById('stat').textContent=ids.length
-    ? '🔎 '+actualMode+': '+ids.length+'개'
-    : '🔎 '+actualMode+': 결과 없음';
+  const actualMode=(d.mode==='fts'||searchMode==='fts')?'Full-Text Search':'Semantic Search';
+  if(statEl){
+    statEl.textContent=ids.length
+      ? '🔎 '+actualMode+': '+ids.length+'개'
+      : '🔎 '+actualMode+': 결과 없음';
+  }
 }
 
 // --- 고유 상태 및 안내 배너 시스템 (ClaireStatusBanner) ---

@@ -21,7 +21,14 @@ from claire.graphview import _SHARED_HTML, GRAPH_HTML
 
 @pytest.fixture(scope="module")
 def node_available() -> bool:
-    return shutil.which("node") is not None
+    if shutil.which("node") is not None:
+        return True
+    import os
+    nvm_node = Path(os.path.expanduser("~/.nvm/versions/node/v26.7.0/bin/node"))
+    if nvm_node.is_file():
+        os.environ["PATH"] = f"{nvm_node.parent}:{os.environ.get('PATH', '')}"
+        return True
+    return False
 
 
 def extract_scripts(html: str) -> list[str]:
@@ -1623,6 +1630,287 @@ setTimeout(() => {
     finally:
         Path(script_file).unlink(missing_ok=True)
         Path(runner_file).unlink(missing_ok=True)
+
+
+def test_graphview_search_concurrency_and_mode_safety(node_available: bool) -> None:
+    """Verifies that slow semantic search cannot mask or overwrite a newer fulltext search result."""
+    if not node_available:
+        pytest.skip("Node.js is not installed on the system")
+
+    scripts = extract_scripts(GRAPH_HTML)
+    assert len(scripts) >= 1
+    main_script = "\n".join(scripts)
+
+    runner_code = r"""
+const fs = require('fs');
+
+class MockElement {
+  constructor(tag, id = '') {
+    this.tagName = (tag || 'div').toUpperCase();
+    this.id = id;
+    this.className = '';
+    this.classList = {
+      _classes: new Set(),
+      add(...cls) { cls.forEach(c => this._classes.add(c)); },
+      remove(...cls) { cls.forEach(c => this._classes.delete(c)); },
+      contains(c) { return this._classes.has(c); },
+      toggle(c, force) {
+        if (force === undefined) {
+          if (this._classes.has(c)) this._classes.delete(c);
+          else this._classes.add(c);
+        } else if (force) this._classes.add(c);
+        else this._classes.delete(c);
+      }
+    };
+    this.style = {
+      _props: {},
+      setProperty(k, v) { this._props[k] = v; },
+      getPropertyValue(k) { return this._props[k] || ''; }
+    };
+    this.dataset = {};
+    this.attributes = {};
+    this._innerHTML = '';
+    this._textContent = '';
+    this.value = '';
+    this.children = [];
+    this.listeners = {};
+    this.checked = false;
+    this.disabled = false;
+  }
+  get innerHTML() { return this._innerHTML; }
+  set innerHTML(v) { this._innerHTML = String(v); this._textContent = String(v).replace(/<[^>]*>/g, ''); }
+  get textContent() { return this._textContent; }
+  set textContent(v) { this._textContent = String(v); this._innerHTML = String(v); }
+  setAttribute(k, v) { this.attributes[k] = String(v); if(k==='id') this.id=String(v); }
+  getAttribute(k) { return this.attributes[k] !== undefined ? this.attributes[k] : null; }
+  removeAttribute(k) { delete this.attributes[k]; }
+  getBoundingClientRect() { return { width: 1000, height: 700, top: 0, left: 0, right: 1000, bottom: 700 }; }
+  querySelector() { return new MockElement('div'); }
+  querySelectorAll() { return []; }
+  addEventListener(evt, fn) {
+    if(!this.listeners[evt]) this.listeners[evt] = [];
+    this.listeners[evt].push(fn);
+  }
+  removeEventListener() {}
+  dispatchEvent(evt) {
+    const list = this.listeners[evt.type] || [];
+    list.forEach(fn => fn(evt));
+  }
+  focus() {}
+  select() {}
+}
+
+const elements = new Map();
+function getOrCreate(id, tag='div') {
+  if (!elements.has(id)) {
+    elements.set(id, new MockElement(tag, id));
+  }
+  return elements.get(id);
+}
+
+const window = {
+  location: { reload() {}, href: 'http://localhost/' },
+  localStorage: { getItem: () => null, setItem: () => {}, removeItem: () => {} },
+  DOMPurify: { sanitize: (s) => s },
+  matchMedia: () => ({ matches: false, addEventListener: () => {}, removeEventListener: () => {} }),
+  addEventListener: () => {},
+  removeEventListener: () => {},
+  requestAnimationFrame: (cb) => setTimeout(cb, 0),
+  getComputedStyle: () => ({ getPropertyValue: () => '' }),
+  marked: { parse: (s) => `<p>${s}</p>` },
+  vis: {
+    DataSet: class {
+      constructor(data) { this._data = data || []; }
+      get(id) { return this._data.find(d => d.id === id); }
+      getIds() { return this._data.map(d => d.id); }
+      update() {}
+      add() {}
+      remove() {}
+      forEach(fn) { this._data.forEach(fn); }
+    },
+    Network: class {
+      constructor() {}
+      setSize() {}
+      redraw() {}
+      fit() {}
+      focus() {}
+      moveTo() {}
+      on() {}
+      selectNodes() {}
+      unselectAll() {}
+      getSelectedNodes() { return []; }
+      getScale() { return 1.0; }
+      getViewPosition() { return { x: 0, y: 0 }; }
+      getPositions() { return {}; }
+      canvasToDOM(p) { return p; }
+      getPosition() { return { x: 0, y: 0 }; }
+      setOptions() {}
+    }
+  }
+};
+
+const document = {
+  body: new MockElement('body'),
+  documentElement: new MockElement('html'),
+  getElementById(id) { return getOrCreate(id); },
+  querySelector(sel) {
+    if (sel.startsWith('#')) return getOrCreate(sel.slice(1));
+    return new MockElement('div');
+  },
+  querySelectorAll() { return []; },
+  createElement(tag) { return new MockElement(tag); },
+  createTextNode(text) { return { textContent: text }; },
+  addEventListener() {},
+  removeEventListener() {}
+};
+
+let capturedSearchRequests = [];
+
+async function fetch(url, opts) {
+  if (url === 'whoami') return { ok: true, status: 200, json: async () => ({ scope: 'owner' }) };
+  if (url === 'auth/state') return { ok: true, status: 200, json: async () => ({ scope: 'owner', readonly: false }) };
+  if (url === 'documents') return { ok: true, status: 200, json: async () => ({ documents: [] }) };
+  if (url === 'graph') return {
+    ok: true,
+    status: 200,
+    json: async () => ({
+      nodes: [
+        { id: 'node-semantic', label: 'Semantic Hit' },
+        { id: 'node-fts', label: 'FTS Hit' }
+      ],
+      edges: [],
+      types: [],
+      rel_types: [],
+      stats: { entities: 2, relations: 0, max_degree: 0 }
+    })
+  };
+  if (url === 'search') {
+    const body = JSON.parse((opts && opts.body) || '{}');
+    capturedSearchRequests.push(body);
+    const mode = body.mode || 'hybrid';
+    const isSemantic = mode === 'hybrid';
+    const delay = isSemantic ? 120 : 20;
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        if (opts && opts.signal && opts.signal.aborted) {
+          const err = new Error('The operation was aborted');
+          err.name = 'AbortError';
+          reject(err);
+          return;
+        }
+        resolve({
+          ok: true,
+          status: 200,
+          json: async () => {
+            if (isSemantic) {
+              return {
+                query: body.query,
+                mode: 'hybrid',
+                hits: [{ id: 'node-semantic', name: 'Semantic Hit' }]
+              };
+            } else {
+              return {
+                query: body.query,
+                mode: 'fts',
+                hits: [{ id: 'node-fts', name: 'FTS Hit' }]
+              };
+            }
+          }
+        });
+      }, delay);
+
+      if (opts && opts.signal) {
+        opts.signal.addEventListener('abort', () => {
+          clearTimeout(timer);
+          const err = new Error('The operation was aborted');
+          err.name = 'AbortError';
+          reject(err);
+        });
+      }
+    });
+  }
+  return { ok: true, status: 200, json: async () => ({}) };
+}
+
+global.window = window;
+global.document = document;
+global.fetch = fetch;
+global.DOMPurify = window.DOMPurify;
+global.marked = window.marked;
+global.vis = window.vis;
+global.localStorage = window.localStorage;
+global.location = window.location;
+global.requestAnimationFrame = window.requestAnimationFrame;
+global.getComputedStyle = window.getComputedStyle;
+
+const code = fs.readFileSync(process.argv[2], 'utf8') + '\nwindow.__getHighlightSet = () => highlightSet;\n';
+eval(code);
+
+setTimeout(async () => {
+  // Step 1: Trigger slow semantic search
+  const semchk = document.getElementById('semchk');
+  const sem = document.getElementById('sem');
+  semchk.checked = true;
+  sem.checked = false;
+  const p1 = semanticSearch('slow semantic query');
+
+  // Step 2: Shortly after (10ms), switch to FTS and run fast fulltext search
+  await new Promise(r => setTimeout(r, 10));
+  semchk.checked = false;
+  sem.checked = true;
+  const p2 = semanticSearch('fast fulltext query');
+
+  // Step 3: Wait for all promises
+  try { await p1; } catch(_) {}
+  try { await p2; } catch(_) {}
+  await new Promise(r => setTimeout(r, 160));
+
+  const finalStat = document.getElementById('stat').textContent;
+  const hlSet = window.__getHighlightSet ? window.__getHighlightSet() : null;
+  const finalHighlight = hlSet ? Array.from(hlSet) : [];
+
+  console.log("SEARCH_SAFETY_RESULT:" + JSON.stringify({
+    requests: capturedSearchRequests,
+    finalStat,
+    finalHighlight
+  }));
+  process.exit(0);
+}, 60);
+"""
+
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as f_script:
+        f_script.write(main_script)
+        script_file = f_script.name
+
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as f_runner:
+        f_runner.write(runner_code)
+        runner_file = f_runner.name
+
+    try:
+        proc = subprocess.run(
+            ["node", runner_file, script_file],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        assert proc.returncode == 0, f"Search concurrency test runner crashed:\nSTDOUT:\n{proc.stdout}\nSTDERR:\n{proc.stderr}"
+        match = re.search(r"SEARCH_SAFETY_RESULT:(.*)", proc.stdout)
+        assert match is not None, f"Output did not contain SEARCH_SAFETY_RESULT:\n{proc.stdout}"
+        data = json.loads(match.group(1))
+
+        # Verify requests sent correct mode
+        assert len(data["requests"]) == 2
+        assert data["requests"][0]["mode"] == "hybrid"
+        assert data["requests"][1]["mode"] == "fts"
+
+        # Verify that fast FTS search won and was NOT overwritten by the slow semantic search
+        assert "Full-Text Search" in data["finalStat"]
+        assert "Semantic Search" not in data["finalStat"]
+        assert data["finalHighlight"] == ["node-fts"]
+    finally:
+        Path(script_file).unlink(missing_ok=True)
+        Path(runner_file).unlink(missing_ok=True)
+
 
 
 
