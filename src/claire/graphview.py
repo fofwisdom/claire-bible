@@ -498,6 +498,7 @@ GRAPH_HTML = """<!doctype html>
   .adv-search-option{font-size:12px;display:inline-flex;align-items:center;gap:4px;cursor:pointer;user-select:none}
   .auth-required-badge{font-size:10px;padding:1px 5px;border-radius:3px;background:var(--sec-bg);border:1px solid var(--border);color:var(--muted);white-space:nowrap;user-select:none}
   .adv-search-hint{font-size:11px;color:var(--muted);line-height:1.3;margin:0}
+  .docsearch-stat-row{display:flex;align-items:center;justify-content:space-between;padding:4px 2px 0;font-size:11.5px;color:var(--muted);min-height:18px;line-height:1.4}
   /* 즐겨찾기(고정) 섹션 */
   #pinnedhead{padding:5px 10px;font-size:11.5px;color:var(--muted);background:rgba(227,179,65,.18);flex-shrink:0}
   #pinnedlist{max-height:32%;overflow-y:auto;flex-shrink:0;border-bottom:2px solid var(--border);
@@ -719,6 +720,20 @@ GRAPH_HTML = """<!doctype html>
   body[data-center-view="graph"] #reader{display:none!important}
   body[data-center-view="graph"] #netwrap{display:flex!important}
 
+  /* 중앙 화면 모드에 따른 우측 메뉴(aside#detailpane) 고유 표시:
+     - 그래프 모드: opengraphbtn 숨김, openreaderbtn·pathbtn·filter-row(연결 차수) 노출
+     - 본문 모드: opengraphbtn 노출, openreaderbtn·pathbtn·filter-row 숨김
+  */
+  body[data-center-view="graph"] #opengraphbtn{display:none!important}
+  body[data-center-view="graph"] #openreaderbtn{display:inline-flex!important}
+  body[data-center-view="graph"] #pathbtn{display:inline-flex!important}
+  body[data-center-view="graph"] #graph-section .filter-row{display:flex!important}
+
+  body:not([data-center-view="graph"]) #opengraphbtn{display:inline-flex!important}
+  body:not([data-center-view="graph"]) #openreaderbtn{display:none!important}
+  body:not([data-center-view="graph"]) #pathbtn{display:none!important}
+  body:not([data-center-view="graph"]) #graph-section .filter-row{display:none!important}
+
   /* 데스크톱/노트북 (중간 폭): 1100px 이하에서는 우측 패널을 drawer 로 (2단 보기 지원) */
   @media (max-width:1100px){
     #wrap{grid-template-columns:280px minmax(0,1fr);
@@ -827,7 +842,7 @@ GRAPH_HTML = """<!doctype html>
     #wrap,#detailpane,#detailtogglebtn{transition:none!important}
   }
 </style></head>
-<body class="ro" data-auth-scope="unknown" data-active-pane="docs">
+<body class="ro" data-auth-scope="unknown" data-active-pane="docs" data-center-view="reader">
 <header id="bar">
   <span class="brand" role="button" tabindex="0" onclick="resetHome()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();resetHome();}" title="첫 화면으로 이동" aria-label="첫 화면으로 이동" style="display:inline-flex;align-items:center;gap:6px"><img src="/favicon.svg" width="20" height="20" alt="" aria-hidden="true" style="display:inline-block;vertical-align:middle;filter:drop-shadow(0 0 4px rgba(0,255,170,0.5))"/>Claire Bible</span>
   <div id="viewoptions">
@@ -874,6 +889,9 @@ GRAPH_HTML = """<!doctype html>
           </label>
         </div>
         <p id="advsearchhint" class="adv-search-hint">체크 시 DB 전체 지식베이스를 검색합니다 (검색어 입력 후 Enter).</p>
+      </div>
+      <div class="docsearch-stat-row">
+        <span id="stat" role="status" aria-live="polite">로딩…</span>
       </div>
     </div>
     <div id="pinnedhead" style="display:none">⭐ 즐겨찾기</div>
@@ -962,21 +980,19 @@ GRAPH_HTML = """<!doctype html>
           <button id="addbtn" class="sec" onclick="openIngest()" title="URL·텍스트를 그래프에 적재" aria-label="적재"><span class="btn-icon">➕</span> <span class="btn-label">적재</span></button>
           <button id="dedupbtn" class="sec" onclick="openDedup()" title="근사 중복 문서를 찾아 병합" aria-label="중복정리"><span class="btn-icon">♻️</span> <span class="btn-label">중복정리</span></button>
         </div>
-        <div id="graph-section" class="menu-section" aria-label="그래프">
+        <div id="graph-section" class="menu-section" aria-label="그래프 및 문서 도구">
           <div class="menu-section-head">
-            <span class="menu-section-title">그래프</span>
+            <span class="menu-section-title" id="menu-section-title">문서와 그래프</span>
           </div>
           <div class="action-btn-row">
             <button id="opengraphbtn" class="sec" onclick="openDocGraph(activeDoc||curReaderDoc)" title="현재 선택된 자료를 지식 그래프로 보기" aria-label="그래프 보기"><span class="btn-icon">📊</span> <span class="btn-label">그래프 보기</span></button>
+            <button id="openreaderbtn" class="sec" onclick="setCenterView('reader')" title="문서 본문 읽기로 전환" aria-label="본문 읽기"><span class="btn-icon">📖</span> <span class="btn-label">본문 읽기</span></button>
             <button id="pathbtn" class="sec" onclick="togglePathMode()" title="두 노드 사이 연결 경로 찾기" aria-label="경로"><span class="btn-icon">🔗</span> <span class="btn-label">경로</span></button>
             <button id="synthbtn" onclick="synth()" title="종합 (0)"><span class="btn-icon">🧩</span> <span class="btn-label">종합 (0)</span></button>
             <span id="synthchips"></span>
           </div>
           <div class="filter-row">
             <label>연결 ≥ <b id="fmin">0</b> <input id="fslider" type="range" min="0" max="0" value="0" oninput="setDeg(this.value)"/></label>
-          </div>
-          <div class="sys-row">
-            <span id="stat" role="status" aria-live="polite">로딩…</span>
           </div>
         </div>
       </div>
@@ -1539,6 +1555,8 @@ async function markDocumentSeen(docId){
 function setCenterView(mode){
   centerView = (mode==='graph' ? 'graph' : 'reader');
   document.body.dataset.centerView = centerView;
+  const mt = document.getElementById('menu-section-title');
+  if(mt){ mt.textContent = (centerView==='graph' ? '그래프 도구' : '문서와 그래프'); }
   if(centerView==='graph'){
     requestAnimationFrame(()=>{ relayoutPreservingCamera(); applyTouchMode(); });
   }
@@ -2721,6 +2739,15 @@ function renderDocs(filter){
       sh.textContent = (showHidden?'▲ ':'▼ ')+'🙈 숨김 '+hiddenDocs.length+'개 '+(showHidden?'접기':'보기');
     }
     if(hl) hl.innerHTML = showHidden ? hiddenDocs.map(docItemHtml).join('') : '';
+  }
+  const st = document.getElementById('stat');
+  if(st){
+    if(q){
+      st.textContent = visible.length + '개 발견';
+    } else {
+      st.innerHTML = (allDocs ? allDocs.length : 0) + '개 문서' +
+        (allNodes && allNodes.length ? ' (' + allNodes.length + ' 엔티티)' : '');
+    }
   }
   syncGraphDocNav();
 }
