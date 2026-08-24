@@ -1746,3 +1746,230 @@ def counts(conn: sqlite3.Connection, include_hidden: bool = True) -> dict[str, i
         else:
             out[tbl] = conn.execute(f"SELECT COUNT(*) c FROM {tbl}").fetchone()["c"]
     return out
+
+
+def diagnose_graph(conn: sqlite3.Connection) -> dict[str, Any]:
+    """지식그래프 및 DB 무결성 상태 진단."""
+    import json as _json
+    import re as _re
+
+    # 1. 고아 관계 (dangling relations: source_id 또는 target_id 가 entities 에 없음)
+    dangling_rels = conn.execute(
+        """
+        SELECT r.id, r.type, r.source_id, r.target_id
+        FROM relations r
+        WHERE r.source_id NOT IN (SELECT id FROM entities)
+           OR r.target_id NOT IN (SELECT id FROM entities)
+        """
+    ).fetchall()
+
+    # 2. 유효하지 않은 문서 참조 (stale sources in entities & relations)
+    doc_ids = {row[0] for row in conn.execute("SELECT id FROM documents").fetchall()}
+
+    stale_entity_sources = []
+    ghost_entities = []
+    entities_rows = conn.execute("SELECT id, name, sources FROM entities").fetchall()
+
+    rel_entity_ids = set()
+    for row in conn.execute("SELECT source_id, target_id FROM relations").fetchall():
+        rel_entity_ids.add(row[0])
+        rel_entity_ids.add(row[1])
+
+    for r in entities_rows:
+        try:
+            srcs = _json.loads(r["sources"] or "[]")
+        except Exception:
+            srcs = []
+        valid_srcs = [s for s in srcs if s in doc_ids]
+        if len(valid_srcs) != len(srcs):
+            stale_entity_sources.append(
+                {"id": r["id"], "name": r["name"], "invalid_sources": [s for s in srcs if s not in doc_ids]}
+            )
+        if len(valid_srcs) == 0 and r["id"] not in rel_entity_ids:
+            ghost_entities.append({"id": r["id"], "name": r["name"]})
+
+    stale_relation_sources = []
+    for r in conn.execute("SELECT id, type, sources FROM relations").fetchall():
+        try:
+            srcs = _json.loads(r["sources"] or "[]")
+        except Exception:
+            srcs = []
+        valid_srcs = [s for s in srcs if s in doc_ids]
+        if len(valid_srcs) != len(srcs):
+            stale_relation_sources.append(
+                {"id": r["id"], "type": r["type"], "invalid_sources": [s for s in srcs if s not in doc_ids]}
+            )
+
+    # 3. 고아 임베딩
+    orphan_embeddings = conn.execute(
+        "SELECT owner_id FROM embeddings WHERE owner_id NOT IN (SELECT id FROM entities)"
+    ).fetchall()
+
+    # 4. 임베딩 누락 엔티티
+    missing_embeddings = conn.execute(
+        "SELECT id, name FROM entities WHERE id NOT IN (SELECT owner_id FROM embeddings)"
+    ).fetchall()
+
+    # 5. FTS 동기화 여부
+    total_entities = len(entities_rows)
+    has_fts = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='entities_fts'").fetchone()
+    total_fts = conn.execute("SELECT COUNT(*) FROM entities_fts").fetchone()[0] if has_fts else 0
+    fts_desync = total_entities != total_fts
+
+    # 6. ADOC 오염 요약 검사
+    def _is_corrupted(s: str | None) -> bool:
+        if not s:
+            return False
+        pats = (
+            r"(?:^|\n)={1,5}\s+",
+            r"(?:^|\n)\[(?:NOTE|TIP|IMPORTANT|WARNING|CAUTION|quote|source)[^\]]*\]",
+            r"(?:^|\n)\|===",
+            r"(?:^|\n):[a-zA-Z0-9_-]+:",
+            r"link:https?://",
+        )
+        return any(_re.search(p, s, _re.MULTILINE) for p in pats)
+
+    corrupted_summaries = []
+    has_ext = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='extractions'").fetchone()
+    if has_ext:
+        for r in conn.execute("SELECT document_id, raw_response FROM extractions ORDER BY id DESC").fetchall():
+            try:
+                summ = _json.loads(r["raw_response"] or "{}").get("summary", "")
+            except Exception:
+                summ = ""
+            if _is_corrupted(summ) and r["document_id"] not in [c["document_id"] for c in corrupted_summaries]:
+                corrupted_summaries.append(
+                    {"document_id": r["document_id"], "summary_preview": (summ[:100] + "...") if len(summ) > 100 else summ}
+                )
+
+    is_healthy = (
+        len(dangling_rels) == 0
+        and len(stale_entity_sources) == 0
+        and len(stale_relation_sources) == 0
+        and len(ghost_entities) == 0
+        and len(orphan_embeddings) == 0
+        and not fts_desync
+    )
+
+    return {
+        "is_healthy": is_healthy,
+        "total_documents": len(doc_ids),
+        "total_entities": total_entities,
+        "total_relations": conn.execute("SELECT COUNT(*) FROM relations").fetchone()[0],
+        "dangling_relations": [dict(r) for r in dangling_rels],
+        "dangling_relations_count": len(dangling_rels),
+        "stale_entity_sources_count": len(stale_entity_sources),
+        "stale_entity_sources": stale_entity_sources[:50],
+        "stale_relation_sources_count": len(stale_relation_sources),
+        "stale_relation_sources": stale_relation_sources[:50],
+        "ghost_entities_count": len(ghost_entities),
+        "ghost_entities": ghost_entities[:50],
+        "orphan_embeddings_count": len(orphan_embeddings),
+        "missing_embeddings_count": len(missing_embeddings),
+        "fts_desync": fts_desync,
+        "fts_count": total_fts,
+        "corrupted_summaries_count": len(corrupted_summaries),
+        "corrupted_summaries": corrupted_summaries,
+    }
+
+
+def heal_graph(conn: sqlite3.Connection) -> dict[str, int]:
+    """지식그래프 참조 무결성 및 인덱스를 원클릭으로 자동 수복."""
+    import json as _json
+
+    healed: dict[str, int] = {
+        "dangling_relations_removed": 0,
+        "stale_entity_sources_cleaned": 0,
+        "stale_relation_sources_cleaned": 0,
+        "ghost_entities_pruned": 0,
+        "orphan_embeddings_removed": 0,
+        "fts_reindexed": 0,
+    }
+
+    doc_ids = {row[0] for row in conn.execute("SELECT id FROM documents").fetchall()}
+
+    # 1. 고아 관계 삭제
+    del_rels = conn.execute(
+        """
+        DELETE FROM relations
+        WHERE source_id NOT IN (SELECT id FROM entities)
+           OR target_id NOT IN (SELECT id FROM entities)
+        """
+    )
+    healed["dangling_relations_removed"] = del_rels.rowcount if del_rels.rowcount > 0 else 0
+
+    # 2. 엔티티 stale sources 정제 및 고아 엔티티 선별
+    rel_entity_ids = set()
+    for row in conn.execute("SELECT source_id, target_id FROM relations").fetchall():
+        rel_entity_ids.add(row[0])
+        rel_entity_ids.add(row[1])
+
+    entities_rows = conn.execute("SELECT id, name, sources FROM entities").fetchall()
+    ghost_ids = []
+    for r in entities_rows:
+        try:
+            srcs = _json.loads(r["sources"] or "[]")
+        except Exception:
+            srcs = []
+        valid_srcs = [s for s in srcs if s in doc_ids]
+        if len(valid_srcs) != len(srcs):
+            conn.execute(
+                "UPDATE entities SET sources=? WHERE id=?",
+                (_json.dumps(valid_srcs, ensure_ascii=False), r["id"]),
+            )
+            healed["stale_entity_sources_cleaned"] += 1
+        if len(valid_srcs) == 0 and r["id"] not in rel_entity_ids:
+            ghost_ids.append(r["id"])
+
+    # 3. 고아 엔티티 삭제
+    if ghost_ids:
+        for gid in ghost_ids:
+            conn.execute("DELETE FROM entities WHERE id=?", (gid,))
+            conn.execute("DELETE FROM entities_fts WHERE entity_id=?", (gid,))
+            conn.execute("DELETE FROM embeddings WHERE owner_id=?", (gid,))
+        healed["ghost_entities_pruned"] = len(ghost_ids)
+
+    # 4. 관계 stale sources 정제
+    for r in conn.execute("SELECT id, sources FROM relations").fetchall():
+        try:
+            srcs = _json.loads(r["sources"] or "[]")
+        except Exception:
+            srcs = []
+        valid_srcs = [s for s in srcs if s in doc_ids]
+        if len(valid_srcs) != len(srcs):
+            conn.execute(
+                "UPDATE relations SET sources=? WHERE id=?",
+                (_json.dumps(valid_srcs, ensure_ascii=False), r["id"]),
+            )
+            healed["stale_relation_sources_cleaned"] += 1
+
+    # 5. 고아 임베딩 삭제
+    del_emb = conn.execute(
+        "DELETE FROM embeddings WHERE owner_id NOT IN (SELECT id FROM entities)"
+    )
+    healed["orphan_embeddings_removed"] = del_emb.rowcount if del_emb.rowcount > 0 else 0
+
+    # 6. FTS 재색인
+    has_fts = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='entities_fts'").fetchone()
+    if has_fts:
+        conn.execute("DELETE FROM entities_fts")
+        curr_entities = conn.execute("SELECT id, name, aliases, observations FROM entities").fetchall()
+        for r in curr_entities:
+            try:
+                aliases = _json.loads(r["aliases"] or "[]")
+            except Exception:
+                aliases = []
+            try:
+                obs = _json.loads(r["observations"] or "[]")
+            except Exception:
+                obs = []
+            body = " \n".join(obs) + " " + " ".join(aliases)
+            conn.execute(
+                "INSERT INTO entities_fts(entity_id,name,body) VALUES (?,?,?)",
+                (r["id"], r["name"], body),
+            )
+        healed["fts_reindexed"] = len(curr_entities)
+
+    conn.commit()
+    return healed
+

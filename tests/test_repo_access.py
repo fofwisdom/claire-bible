@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from claire.cli import cmd_doctor, cmd_repo
+from claire.cli import cmd_preflight, cmd_repo
 from claire.config import Settings, get_settings
 from claire.status import build_status_text
 
@@ -36,12 +36,12 @@ def test_cli_repo_command_prints_info(capsys: pytest.CaptureFixture[str], monkey
         get_settings.cache_clear()
 
 
-def test_cli_doctor_prints_repo_info(capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch):
+def test_cli_preflight_prints_repo_info(capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("GITHUB_REPOSITORY", "testorg/testrepo")
     monkeypatch.delenv("SOURCE_BASE_URL", raising=False)
     get_settings.cache_clear()
     try:
-        rc = cmd_doctor(SimpleNamespace())
+        rc = cmd_preflight(SimpleNamespace())
         assert rc == 0
 
         out = capsys.readouterr().out

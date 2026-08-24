@@ -1271,11 +1271,11 @@ def test_health_returns_liveness_exit_code_and_uses_noninteractive_exec(tmp_path
     ]
 
 
-def test_doctor_reports_anonymous_readonly_exposure(tmp_path, capsys):
+def test_preflight_reports_anonymous_readonly_exposure(tmp_path, capsys):
     _write_layout(tmp_path, dev=False)
 
     with patch.object(cb.subprocess, "run", side_effect=_fake_success):
-        assert cb.main(["doctor"], root=tmp_path) == 0
+        assert cb.main(["preflight"], root=tmp_path) == 0
 
     output = capsys.readouterr().out
     assert "anonymous readonly: ENABLED" in output
@@ -1455,5 +1455,136 @@ def test_format_migrate_apply_with_yes_executes_backfill(tmp_path, capsys):
     assert commands[0][-4:] == ["claire", "backfill-detail", "--format", "adoc"]
     captured = capsys.readouterr().out
     assert "completed successfully" in captured
+
+
+def test_regenerate_default_is_dry_run(tmp_path, capsys):
+    _write_layout(tmp_path, dev=False)
+    # Populate a doc with corrupted summary and share token
+    storage = cb.resolve_storage(cb.load_runtime(cb.Layout(root=tmp_path)))
+    storage.database.parent.mkdir(parents=True, exist_ok=True)
+    conn = cb.sqlite3.connect(storage.database)
+    conn.execute("CREATE TABLE documents (id TEXT PRIMARY KEY, title TEXT, canonical_url TEXT, detail TEXT, detail_format TEXT)")
+    conn.execute("CREATE TABLE doc_shares (token TEXT PRIMARY KEY, document_id TEXT)")
+    conn.execute("CREATE TABLE extractions (id INTEGER PRIMARY KEY AUTOINCREMENT, document_id TEXT, raw_response TEXT)")
+    conn.execute("INSERT INTO documents VALUES ('doc1', 'Test Title', 'https://example.com/doc1', 'detail', 'adoc')")
+    conn.execute("INSERT INTO doc_shares VALUES ('dzr73zpxh2bah4vp', 'doc1')")
+    conn.execute("INSERT INTO extractions VALUES (1, 'doc1', '{\"summary\":\"= Header corrupted summary\"}')")
+    conn.commit()
+    conn.close()
+
+    with patch.object(cb.subprocess, "run", side_effect=_fake_success) as run:
+        code = cb.main(["regenerate", "dzr73zpxh2bah4vp", "--summary"], root=tmp_path)
+        assert code == 0
+
+    commands = _commands(run)
+    assert len(commands) == 0  # Dry-run must not execute compose commands
+    captured = capsys.readouterr().out
+    assert "Dry-Run" in captured
+    assert "Test Title" in captured
+    assert "doc1" in captured
+    assert "--force" in captured
+
+
+def test_regenerate_force_with_token_and_effort(tmp_path, capsys):
+    _write_layout(tmp_path, dev=False)
+    storage = cb.resolve_storage(cb.load_runtime(cb.Layout(root=tmp_path)))
+    storage.database.parent.mkdir(parents=True, exist_ok=True)
+    conn = cb.sqlite3.connect(storage.database)
+    conn.execute("CREATE TABLE documents (id TEXT PRIMARY KEY, title TEXT, canonical_url TEXT, detail TEXT, detail_format TEXT)")
+    conn.execute("CREATE TABLE doc_shares (token TEXT PRIMARY KEY, document_id TEXT)")
+    conn.execute("CREATE TABLE extractions (id INTEGER PRIMARY KEY AUTOINCREMENT, document_id TEXT, raw_response TEXT)")
+    conn.execute("INSERT INTO documents VALUES ('doc1', 'Test Title', 'https://example.com/doc1', 'detail', 'adoc')")
+    conn.execute("INSERT INTO doc_shares VALUES ('dzr73zpxh2bah4vp', 'doc1')")
+    conn.execute("INSERT INTO extractions VALUES (1, 'doc1', '{\"summary\":\"= Header corrupted summary\"}')")
+    conn.commit()
+    conn.close()
+
+    with patch.object(cb.subprocess, "run", side_effect=_fake_success) as run:
+        code = cb.main(["regenerate", "dzr73zpxh2bah4vp", "--summary", "--force", "--effort", "high"], root=tmp_path)
+        assert code == 0
+
+    commands = _commands(run)
+    assert len(commands) == 1
+    cmd = commands[0]
+    assert "claire" in cmd
+    assert "regenerate" in cmd
+    assert "dzr73zpxh2bah4vp" in cmd
+    assert "--summary" in cmd
+    assert "--force" in cmd
+    assert "--effort" in cmd
+    assert "high" in cmd
+    captured = capsys.readouterr().out
+    assert "completed successfully" in captured
+
+
+def test_summary_regenerate_alias(tmp_path, capsys):
+    _write_layout(tmp_path, dev=False)
+    storage = cb.resolve_storage(cb.load_runtime(cb.Layout(root=tmp_path)))
+    storage.database.parent.mkdir(parents=True, exist_ok=True)
+    conn = cb.sqlite3.connect(storage.database)
+    conn.execute("CREATE TABLE documents (id TEXT PRIMARY KEY, title TEXT, canonical_url TEXT, detail TEXT, detail_format TEXT)")
+    conn.execute("CREATE TABLE doc_shares (token TEXT PRIMARY KEY, document_id TEXT)")
+    conn.execute("CREATE TABLE extractions (id INTEGER PRIMARY KEY AUTOINCREMENT, document_id TEXT, raw_response TEXT)")
+    conn.execute("INSERT INTO documents VALUES ('doc1', 'Test Title', 'https://example.com/doc1', 'detail', 'adoc')")
+    conn.execute("INSERT INTO doc_shares VALUES ('dzr73zpxh2bah4vp', 'doc1')")
+    conn.execute("INSERT INTO extractions VALUES (1, 'doc1', '{\"summary\":\"= Header corrupted summary\"}')")
+    conn.commit()
+    conn.close()
+
+    with patch.object(cb.subprocess, "run", side_effect=_fake_success) as run:
+        code = cb.main(["summary-regenerate", "dzr73zpxh2bah4vp", "--force"], root=tmp_path)
+        assert code == 0
+
+    commands = _commands(run)
+    assert len(commands) == 1
+    cmd = commands[0]
+    assert "claire" in cmd
+    assert "regenerate" in cmd
+    assert "dzr73zpxh2bah4vp" in cmd
+    assert "--force" in cmd
+
+
+def test_doctor_diagnose_graph_report(tmp_path, capsys):
+    _write_layout(tmp_path, dev=False)
+    storage = cb.resolve_storage(cb.load_runtime(cb.Layout(root=tmp_path)))
+    storage.database.parent.mkdir(parents=True, exist_ok=True)
+    conn = cb.sqlite3.connect(storage.database)
+    conn.execute("CREATE TABLE documents (id TEXT PRIMARY KEY, title TEXT)")
+    conn.execute("CREATE TABLE entities (id TEXT PRIMARY KEY, type TEXT, name TEXT, norm_name TEXT, aliases TEXT, props TEXT, observations TEXT, sources TEXT, provisional INTEGER, created_at REAL, updated_at REAL)")
+    conn.execute("CREATE TABLE relations (id TEXT PRIMARY KEY, type TEXT, source_id TEXT, target_id TEXT, props TEXT, sources TEXT, confidence REAL, provisional INTEGER, created_at REAL)")
+    conn.execute("CREATE TABLE embeddings (owner_id TEXT PRIMARY KEY, dim INTEGER, vector BLOB, model TEXT, updated_at REAL)")
+    conn.execute("CREATE TABLE extractions (id INTEGER PRIMARY KEY AUTOINCREMENT, document_id TEXT, raw_response TEXT)")
+    conn.commit()
+    conn.close()
+
+    code = cb.main(["doctor"], root=tmp_path)
+    assert code == 0
+    captured = capsys.readouterr().out
+    assert "진단 보고서" in captured
+    assert "고아 관계" in captured
+    assert "OK" in captured or "완벽합니다" in captured
+
+
+def test_doctor_heal_triggers_compose(tmp_path, capsys):
+    _write_layout(tmp_path, dev=False)
+    storage = cb.resolve_storage(cb.load_runtime(cb.Layout(root=tmp_path)))
+    storage.database.parent.mkdir(parents=True, exist_ok=True)
+    conn = cb.sqlite3.connect(storage.database)
+    conn.execute("CREATE TABLE documents (id TEXT PRIMARY KEY, title TEXT)")
+    conn.commit()
+    conn.close()
+
+    with patch.object(cb.subprocess, "run", side_effect=_fake_success) as run:
+        code = cb.main(["doctor", "--heal", "-y"], root=tmp_path)
+        assert code == 0
+
+    commands = _commands(run)
+    assert len(commands) == 1
+    cmd = commands[0]
+    assert "claire" in cmd
+    assert "doctor" in cmd
+    assert "--heal" in cmd
+
+
 
 

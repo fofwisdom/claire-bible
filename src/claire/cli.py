@@ -18,9 +18,9 @@ from .store import db as dbm
 from .store.vectors import probe_sqlite_vec
 
 
-def cmd_doctor(_args) -> int:
+def cmd_preflight(_args) -> int:
     s = get_settings()
-    print("claire doctor")
+    print("claire preflight")
     print("=" * 40)
     print(f"python            : {sys.version.split()[0]}")
     print(f"github repository : {s.effective_github_repository}")
@@ -78,8 +78,82 @@ def cmd_doctor(_args) -> int:
     print(f"db counts         : {c}")
     conn.close()
     print("=" * 40)
-    print("doctor: OK")
+    print("preflight: OK")
     return 0
+
+
+def cmd_doctor(args) -> int:
+    """지식그래프 및 DB 무결성 진단 및 자동 수복."""
+    s = get_settings()
+    conn = dbm.connect(s.db_file)
+    dbm.init_db(conn)
+    try:
+        do_heal = getattr(args, "heal", False) or getattr(args, "apply", False) or getattr(args, "repair", False)
+        if do_heal:
+            print("claire doctor: [Auto-Heal] 지식그래프 무결성 수복 시작...")
+            healed = dbm.heal_graph(conn)
+            print("=" * 50)
+            print(f"• 고아 관계 삭제             : {healed['dangling_relations_removed']} 건")
+            print(f"• 엔티티 출처 참조 정제       : {healed['stale_entity_sources_cleaned']} 건")
+            print(f"• 관계 출처 참조 정제         : {healed['stale_relation_sources_cleaned']} 건")
+            print(f"• 고아/유령 엔티티 정리       : {healed['ghost_entities_pruned']} 건")
+            print(f"• 고아 임베딩 삭제           : {healed['orphan_embeddings_removed']} 건")
+            print(f"• FTS 전문 색인 재구축        : {healed['fts_reindexed']} 건")
+            print("=" * 50)
+            print("doctor: 수복 완료 (Graph is fully healed!)")
+            return 0
+
+        report = dbm.diagnose_graph(conn)
+        if getattr(args, "json", False):
+            import json
+
+            print(json.dumps(report, ensure_ascii=False, indent=2))
+            return 0 if report["is_healthy"] else 1
+
+        print("claire doctor: 지식그래프 및 DB 무결성 진단 보고서")
+        print("=" * 50)
+        print(f"• 전체 문서 수               : {report['total_documents']} 건")
+        print(f"• 전체 엔티티 수             : {report['total_entities']} 건")
+        print(f"• 전체 관계 수               : {report['total_relations']} 건")
+        print("-" * 50)
+        print(
+            f"• 고아 관계 (Dangling)       : {report['dangling_relations_count']} 건"
+            + (" [!]" if report["dangling_relations_count"] else " [✓]")
+        )
+        print(
+            f"• 엔티티 유효하지 않은 출처 : {report['stale_entity_sources_count']} 건"
+            + (" [!]" if report["stale_entity_sources_count"] else " [✓]")
+        )
+        print(
+            f"• 관계 유효하지 않은 출처   : {report['stale_relation_sources_count']} 건"
+            + (" [!]" if report["stale_relation_sources_count"] else " [✓]")
+        )
+        print(
+            f"• 고아/유령 엔티티           : {report['ghost_entities_count']} 건"
+            + (" [!]" if report["ghost_entities_count"] else " [✓]")
+        )
+        print(
+            f"• 고아 임베딩                : {report['orphan_embeddings_count']} 건"
+            + (" [!]" if report["orphan_embeddings_count"] else " [✓]")
+        )
+        print(f"• 임베딩 누락 엔티티         : {report['missing_embeddings_count']} 건")
+        print(f"• FTS 색인 불일치 여부       : {'[!] 불일치' if report['fts_desync'] else '[✓] 동기화됨'}")
+        if report["corrupted_summaries_count"]:
+            print(
+                f"• ADOC 문법 잔존 요약       : {report['corrupted_summaries_count']} 건 [!] (claire regenerate 로 재생성 가능)"
+            )
+        print("=" * 50)
+
+        if report["is_healthy"]:
+            print("doctor: OK (지식그래프 및 DB 무결성이 완벽합니다)")
+            return 0
+        else:
+            print("[!] 그래프 무결성 문제가 발견되었습니다.")
+            print("    자동 수복을 실행하려면 다음 명령을 실행하십시오:")
+            print("    claire doctor --heal")
+            return 0
+    finally:
+        conn.close()
 
 
 def cmd_stats(_args) -> int:
@@ -409,6 +483,77 @@ def cmd_backfill_summary(args) -> int:
     return 0
 
 
+def cmd_regenerate(args) -> int:
+    """문서 파생 데이터(요약, 본문 등)를 선택적으로 재생성(기본 dry-run, --force 로 적용)."""
+    import json
+
+    from .ingest.service import IngestService
+
+    s = get_settings()
+    svc = IngestService(s)
+
+    target = getattr(args, "target", None)
+    token = getattr(args, "token", None)
+    doc_id = getattr(args, "doc_id", None)
+    summary = getattr(args, "summary", False)
+    detail = getattr(args, "detail", False)
+    all_comp = getattr(args, "all", False)
+    corrupted = getattr(args, "corrupted", False)
+    force = getattr(args, "force", False)
+    effort = getattr(args, "effort", None)
+    fmt = getattr(args, "format", None)
+
+    res = svc.regenerate_components(
+        target=target,
+        token=token,
+        doc_id=doc_id,
+        summary=summary,
+        detail=detail,
+        all_components=all_comp,
+        corrupted_summary=corrupted,
+        force=force,
+        effort=effort,
+        format=fmt,
+    )
+
+    if getattr(args, "json", False):
+        print(json.dumps(res, ensure_ascii=False, indent=2))
+        return 0
+
+    if res.get("error"):
+        print(f"[!] {res['error']}")
+        return 1 if force else 0
+
+    if res.get("dry_run"):
+        print("claire: [Dry-Run] 문서 컴포넌트 재생성 진단")
+        print("=" * 60)
+        print(f"• 탐지/선택된 대상 문서 수 : {res['count']}건")
+        for idx, t in enumerate(res["targets"], 1):
+            print(f"[{idx}] {t['title']} ({t['document_id']})")
+            if t.get("canonical_url"):
+                print(f"    URL: {t['canonical_url']}")
+            if t.get("summary_corrupted"):
+                print(f"    [!] 요약 내 ADOC/마크업 문법 잔존 감지")
+            summ_preview = (t['current_summary'][:150] + '...') if len(t['current_summary']) > 150 else t['current_summary']
+            print(f"    현재 요약: {summ_preview}")
+            print(f"    적용 예정 작업: {', '.join(t['actions'])}")
+        print("=" * 60)
+        print("실제 재생성 및 DB 덮어쓰기를 실행하려면 --force 플래그를 추가하십시오:")
+        print("  claire regenerate [target] --summary --force [--effort <level>]")
+        return 0
+
+    print("claire: 문서 컴포넌트 재생성 완료")
+    print("=" * 60)
+    print(f"• 갱신된 문서 수 : {res['count']}건")
+    print(f"• 사용 Provider  : {res.get('provider')} (model: {res.get('model')}, effort: {res.get('effort')})")
+    for idx, t in enumerate(res["targets"], 1):
+        print(f"[{idx}] {t['title']} ({t['document_id']})")
+        if t.get("new_summary"):
+            print(f"    새 요약: {t['new_summary']}")
+    print("=" * 60)
+    return 0
+
+
 def cmd_format_status(args) -> int:
     """문서 본문 렌더링 포맷(detail_format) 진단 현황을 출력."""
     import json
@@ -661,7 +806,30 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="claire", description="Claire Bible knowledge base")
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    sub.add_parser("doctor", help="check environment").set_defaults(func=cmd_doctor)
+    sub.add_parser(
+        "preflight",
+        help="check environment, python, provider, and settings",
+    ).set_defaults(func=cmd_preflight)
+
+    doc_p = sub.add_parser(
+        "doctor",
+        help="knowledge graph & DB integrity diagnosis and auto-repair",
+        description="Diagnose knowledge graph and DB integrity issues, with one-click auto-healing.",
+    )
+    doc_p.add_argument(
+        "--heal",
+        "--apply",
+        "--repair",
+        action="store_true",
+        dest="heal",
+        help="Auto-repair detected graph integrity issues (dangling relations, orphan entities, FTS sync)",
+    )
+    doc_p.add_argument(
+        "--json",
+        action="store_true",
+        help="Output diagnosis report in JSON format",
+    )
+    doc_p.set_defaults(func=cmd_doctor)
     sub.add_parser("health", help="system health json (db/queues/inbox)").set_defaults(func=cmd_health)
     sub.add_parser(
         "liveness",
@@ -760,6 +928,35 @@ def build_parser() -> argparse.ArgumentParser:
                          help="fill missing summaries in extractions (non-destructive)")
     pbs.add_argument("--limit", type=int, default=0, help="cap number of docs (0=all)")
     pbs.set_defaults(func=cmd_backfill_summary)
+
+    preg = sub.add_parser("regenerate",
+                          help="selectively regenerate document summary/detail (default: dry-run, requires --force)")
+    preg.add_argument("target", nargs="?", default=None,
+                      help="document ID, share token, or share URL (/p?s=token)")
+    preg.add_argument("--token", default=None, help="specific share token")
+    preg.add_argument("--doc-id", default=None, help="specific document ID")
+    preg.add_argument("--summary", action="store_true", help="regenerate summary only (default if no component given)")
+    preg.add_argument("--detail", action="store_true", help="regenerate detail readable text only")
+    preg.add_argument("--all", action="store_true", help="regenerate both summary and detail")
+    preg.add_argument("--corrupted", action="store_true",
+                      help="automatically scan and target all docs with corrupted ADOC syntax in summary")
+    preg.add_argument("--force", action="store_true", help="execute LLM regeneration and overwrite DB (required to apply)")
+    preg.add_argument("--effort", default=None, help="reasoning effort level (e.g. low, medium, high)")
+    preg.add_argument("--format", choices=["md", "adoc"], default=None, help="detail format (md or adoc)")
+    preg.add_argument("--json", action="store_true", help="output result in JSON format")
+    preg.set_defaults(func=cmd_regenerate)
+
+    # Alias: summary-regenerate
+    psum = sub.add_parser("summary-regenerate",
+                          help="alias for 'regenerate --summary'")
+    psum.add_argument("target", nargs="?", default=None, help="document ID, share token, or share URL")
+    psum.add_argument("--token", default=None, help="specific share token")
+    psum.add_argument("--doc-id", default=None, help="specific document ID")
+    psum.add_argument("--corrupted", action="store_true", help="scan all docs with corrupted ADOC syntax")
+    psum.add_argument("--force", action="store_true", help="execute LLM regeneration and overwrite DB")
+    psum.add_argument("--effort", default=None, help="reasoning effort level (low, medium, high)")
+    psum.add_argument("--json", action="store_true", help="output in JSON format")
+    psum.set_defaults(func=lambda args: setattr(args, "summary", True) or cmd_regenerate(args))
 
     pfs = sub.add_parser("format-status",
                          help="check document render format distribution and migration status")

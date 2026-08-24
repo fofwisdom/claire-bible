@@ -49,38 +49,34 @@ URL이나 메모 텍스트를 붙여 넣어 새 자료와 관련 링크를 지�
 
 ![두 노드를 선택한 다중 노드 종합 화면](docs/screenshots/multi-node-synthesis.png)
 
-## 로컬 소스 개발
+## 로컬 개발 빠른 시작 (Quick Start)
 
 ```bash
 uv sync                      # 의존성 설치
-cp .env.example .env         # 로컬 개발 설정 준비(기본 provider는 mock)
-uv run claire doctor         # 환경/벡터백엔드/임베딩 점검
-uv run claire health         # 시스템 건강 상태(JSON): DB·schema·큐·inbox
-uv run claire ingest "https://example.com/article"   # 단건 적재
-uv run claire search "키워드"                          # 하이브리드 검색 + LLM 정리
-uv run claire bot            # 텔레그램 봇 (long-polling)
+cp .env.example .env         # 로컬 개발 설정 준비 (기본 provider: mock)
+uv run claire preflight      # 환경/벡터백엔드/설정 사전 점검
+uv run claire doctor         # 지식그래프 및 DB 무결성 진단 (자동수복: --heal)
+uv run claire ingest "https://example.com/article"   # 문서 수집 및 적재
+uv run claire search "키워드"                          # 하이브리드 검색 + LLM 인용 정리
+uv run claire bot            # 텔레그램 봇 실행 (long-polling)
 ```
 
-`uv run claire ...`는 현재 checkout과 가상환경을 사용하는 로컬 개발·테스트 경로다.
-배포된 컨테이너의 데이터를 조회하거나 변경할 때는 이 경로와 섞지 않고
-`./cb-manuscript app ...`을 사용한다.
+## 주요 명령어 요약
 
-## 애플리케이션 CLI (`claire`)
+Claire Bible은 호스트 오케스트레이션 도구인 **`cb-manuscript`**와 애플리케이션 CLI인 **`claire`**를 제공합니다.
 
-`claire`는 컨테이너 내부 프로세스와 로컬 개발이 공유하는 애플리케이션 진입점이다.
-로컬 checkout에서는 `uv run claire ...`로, 배포 환경의 one-off 작업은 호스트에서
-`./cb-manuscript app ...`으로 실행한다.
+| 도구 | 주요 명령어 예시 | 역할 및 설명 |
+| :--- | :--- | :--- |
+| **`cb-manuscript`** | `init`, `preflight`, `install`, `update` | 호스트 환경 검증, 이미지 빌드, 롤링 업데이트 |
+| | `doctor`, `doctor --heal` | 지식그래프 참조 무결성 진단 및 원클릭 자동 수복 |
+| | `regenerate <target> --summary --force` | 특정 문서 컴포넌트(요약/본문) LLM 재생성 |
+| | `backup`, `restore`, `format-migrate` | DB/Vault 아카이브 백업·복원, 본문 포맷 일괄 변환 |
+| | `up`, `down`, `restart`, `status`, `logs` | Docker Compose 서비스 수명주기 제어 |
+| **`claire`** | `ingest`, `search` | 지식 문서 수집/적재, FTS+벡터 하이브리드 인용 검색 |
+| *(앱 CLI)* | `doctor`, `preflight`, `health`, `status` | 지식그래프 수복, 환경 점검, 헬스 JSON, 운영 상태 |
+| | `reextract`, `dedup-scan`, `dedup-merge` | 전체 그래프 재추출, 근사 중복 문서 탐지 및 병합 |
 
-| 명령 | 설명 |
-|---|---|
-| `doctor` / `health` / `status` / `stats` | 환경 점검 / 건강 JSON / 현황 / 그래프 카운트 |
-| `migrate` / `liveness` | 명시적 DB migration / 읽기 전용 DB·schema 생존 확인 |
-| `ingest <payload> [--expand]` | 단건 적재(URL/텍스트/파일) |
-| `search <q> [--no-summary]` | FTS+벡터 하이브리드 검색 + Gemini 정리(인용) |
-| `bot` / `serve-api` | 텔레그램 봇 / Starlette·Uvicorn 웹 서비스 |
-| `recover-run` / `recover-loop` | error inbox 자동 재적재(게이팅·지수백오프·영구실패 구분) |
-| `refresh-mark` / `refresh-run` / `refresh-loop` | 빈약/구버전 문서 재스크랩(복원) |
-| `replay-failed` | error inbox 수동 전량 재적재 |
+> 💡 **전체 명령어 및 세부 옵션 안내**: 모든 명령어, 세부 옵션, 미구현 상태 및 제약사항에 대한 상세 설명은 **[전체 CLI 명령어 레퍼런스 (`docs/implementation/COMMANDS.md`)](docs/implementation/COMMANDS.md)**를 참고하십시오.
 
 ## 컨테이너 운영
 
@@ -230,19 +226,19 @@ Telegram bot을 활성화할 때 `TELEGRAM_BOT_TOKEN`과 `CLAIRE_ALLOWED_USERS`�
 
 #### 4. 사전 검사, 설치, 설치 후 확인
 
-`doctor`와 `install`은 별도 명령이다. 선택한 profile에서 다음 순서로 실행한다.
+`preflight`와 `install`은 별도 명령이다. 선택한 profile에서 다음 순서로 실행한다.
 
 ```bash
 # production
-./cb-manuscript doctor
+./cb-manuscript preflight
 ./cb-manuscript install
 
 # development
-./cb-manuscript dev doctor
+./cb-manuscript dev preflight
 ./cb-manuscript dev install
 ```
 
-`doctor`는 Docker CLI·Compose·daemon, Git, 환경 파일과 Compose 문법을 확인한다.
+`preflight`는 Docker CLI·Compose·daemon, Git, 환경 파일과 Compose 문법을 확인한다.
 설치 전에 다음 운영 조건도 확인한다.
 
 - `CB_API_BIND`가 실제 host interface에 존재하는지
@@ -253,14 +249,15 @@ Telegram bot을 활성화할 때 `TELEGRAM_BOT_TOKEN`과 `CLAIRE_ALLOWED_USERS`�
 - production DNS·reverse proxy·TLS·방화벽
 - Gemini와 Telegram 자격증명의 실제 유효성
 
-설치가 끝나면 같은 profile에서 상태와 두 단계 health를 확인한다. development는 각
+설치가 끝나면 같은 profile에서 상태와 health, 지식그래프 무결성을 확인한다. development는 각
 명령 앞에 `dev`를 붙인다.
 
 ```bash
 ./cb-manuscript status
 ./cb-manuscript health
+./cb-manuscript doctor          # 지식그래프 및 DB 무결성 점검 (자동수복: --heal)
 ./cb-manuscript app health
-./cb-manuscript app doctor
+./cb-manuscript app preflight
 ./cb-manuscript logs --tail 100 api
 ```
 
