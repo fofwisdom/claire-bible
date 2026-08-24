@@ -16,7 +16,7 @@ def _inline_adoc_format(text: str) -> str:
     if not text:
         return ""
     # HTML 특수문자 이스케이프 선행
-    s = html.escape(text)
+    s = html.escape(text, quote=False)
     # 형광 하이라이트: #텍스트# -> <mark>텍스트</mark>
     s = re.sub(r"#(?!\s)([^#\n]+?)(?<!\s)#", r"<mark>\1</mark>", s)
     # 굵은 글씨: *텍스트* -> <strong>텍스트</strong>
