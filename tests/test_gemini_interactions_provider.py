@@ -176,3 +176,28 @@ def test_embed():
     vec = p.embed("some text")
     assert vec == [0.1, 0.2, 0.3]
     p.client.models.embed_content.assert_called_once()
+
+
+def test_build_generation_config_thinking_levels():
+    p = _make_provider()
+
+    p.effort = "high"
+    cfg = p._build_generation_config()
+    assert cfg["thinking_config"] == {"thinking_level": "HIGH"}
+
+    p.effort = "low"
+    cfg = p._build_generation_config()
+    assert cfg["thinking_config"] == {"thinking_level": "LOW"}
+
+    p.effort = "1024"
+    cfg = p._build_generation_config()
+    assert cfg["thinking_config"] == {"thinking_budget": 1024}
+
+    p.effort = "0"
+    cfg = p._build_generation_config()
+    assert cfg["thinking_config"] == {"thinking_budget": 0}
+
+    p.effort = "none"
+    cfg = p._build_generation_config()
+    assert cfg["thinking_config"] == {"thinking_budget": 0}
+

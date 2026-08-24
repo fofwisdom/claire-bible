@@ -130,6 +130,7 @@ class Settings(BaseSettings):
     # --- provider ---
     provider: str = Field(default="mock", alias="CLAIRE_PROVIDER")
     gemini_model: str = Field(default="gemini-3.1-flash-lite", alias="CLAIRE_GEMINI_MODEL")
+    gemini_effort: str = Field(default="medium", alias="CLAIRE_GEMINI_EFFORT")
     gemini_embed_model: str = Field(
         default="gemini-embedding-001", alias="CLAIRE_GEMINI_EMBED_MODEL"
     )

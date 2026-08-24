@@ -86,6 +86,7 @@ PASSTHROUGH_HELP = {
 }
 APP_ADVANCED_OPTION = "--advanced"
 APP_ONE_OFF_COMMANDS = {
+    "preflight",
     "doctor",
     "health",
     "liveness",
@@ -109,6 +110,8 @@ APP_ONE_OFF_COMMANDS = {
     "repo",
     "format-status",
     "recompile-html",
+    "regenerate",
+    "summary-regenerate",
 }
 APP_GUARDED_COMMANDS = {
     "migrate": "Schema lifecycle command owned by install/update",
@@ -3003,7 +3006,7 @@ def command_update(runtime: Runtime, *, no_fetch: bool) -> int:
     return 0
 
 
-def command_doctor(runtime: Runtime) -> int:
+def command_preflight(runtime: Runtime) -> int:
     run_command(("docker", "--version"), cwd=runtime.layout.root)
     run_command(("docker", "compose", "version"), cwd=runtime.layout.root)
     run_command(
@@ -3032,8 +3035,226 @@ def command_doctor(runtime: Runtime) -> int:
         else:
             print(f"antigravity binary: NOT found (will fall back to mock in container)")
         print(f"antigravity credentials: {host_gemini_dir}")
-    print("doctor: OK")
+    print("preflight: OK")
     return 0
+
+
+def _diagnose_graph_health(conn: sqlite3.Connection) -> dict[str, Any]:
+    has_docs = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='documents'").fetchone()
+    has_ents = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='entities'").fetchone()
+    has_rels = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='relations'").fetchone()
+    has_emb = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='embeddings'").fetchone()
+    has_fts = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='entities_fts'").fetchone()
+    has_ext = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='extractions'").fetchone()
+
+    doc_ids = {row[0] for row in conn.execute("SELECT id FROM documents").fetchall()} if has_docs else set()
+    total_docs = len(doc_ids)
+    total_ents = conn.execute("SELECT COUNT(*) FROM entities").fetchone()[0] if has_ents else 0
+    total_rels = conn.execute("SELECT COUNT(*) FROM relations").fetchone()[0] if has_rels else 0
+
+    dangling_rels = []
+    if has_rels and has_ents:
+        dangling_rels = conn.execute(
+            """
+            SELECT id, type, source_id, target_id
+            FROM relations
+            WHERE source_id NOT IN (SELECT id FROM entities)
+               OR target_id NOT IN (SELECT id FROM entities)
+            """
+        ).fetchall()
+
+    stale_entity_sources = []
+    ghost_entities = []
+    rel_entity_ids = set()
+    if has_rels:
+        for row in conn.execute("SELECT source_id, target_id FROM relations").fetchall():
+            rel_entity_ids.add(row[0])
+            rel_entity_ids.add(row[1])
+
+    if has_ents:
+        for r in conn.execute("SELECT id, name, sources FROM entities").fetchall():
+            try:
+                srcs = json.loads(r["sources"] or "[]")
+            except Exception:
+                srcs = []
+            valid_srcs = [s for s in srcs if s in doc_ids]
+            if len(valid_srcs) != len(srcs):
+                stale_entity_sources.append(
+                    {"id": r["id"], "name": r["name"], "invalid_sources": [s for s in srcs if s not in doc_ids]}
+                )
+            if len(valid_srcs) == 0 and r["id"] not in rel_entity_ids:
+                ghost_entities.append({"id": r["id"], "name": r["name"]})
+
+    stale_relation_sources = []
+    if has_rels:
+        for r in conn.execute("SELECT id, type, sources FROM relations").fetchall():
+            try:
+                srcs = json.loads(r["sources"] or "[]")
+            except Exception:
+                srcs = []
+            valid_srcs = [s for s in srcs if s in doc_ids]
+            if len(valid_srcs) != len(srcs):
+                stale_relation_sources.append(
+                    {"id": r["id"], "type": r["type"], "invalid_sources": [s for s in srcs if s not in doc_ids]}
+                )
+
+    orphan_embeddings = []
+    missing_embeddings = []
+    if has_emb and has_ents:
+        orphan_embeddings = conn.execute(
+            "SELECT owner_id FROM embeddings WHERE owner_id NOT IN (SELECT id FROM entities)"
+        ).fetchall()
+        missing_embeddings = conn.execute(
+            "SELECT id, name FROM entities WHERE id NOT IN (SELECT owner_id FROM embeddings)"
+        ).fetchall()
+
+    total_fts = conn.execute("SELECT COUNT(*) FROM entities_fts").fetchone()[0] if has_fts else 0
+    fts_desync = total_ents != total_fts if has_fts else False
+
+    def _is_corrupted(s: str | None) -> bool:
+        if not s:
+            return False
+        pats = (
+            r"(?:^|\n)={1,5}\s+",
+            r"(?:^|\n)\[(?:NOTE|TIP|IMPORTANT|WARNING|CAUTION|quote|source)[^\]]*\]",
+            r"(?:^|\n)\|===",
+            r"(?:^|\n):[a-zA-Z0-9_-]+:",
+            r"link:https?://",
+        )
+        return any(re.search(p, s, re.MULTILINE) for p in pats)
+
+    corrupted_summaries = []
+    if has_ext:
+        for r in conn.execute("SELECT document_id, raw_response FROM extractions ORDER BY id DESC").fetchall():
+            try:
+                summ = json.loads(r["raw_response"] or "{}").get("summary", "")
+            except Exception:
+                summ = ""
+            if _is_corrupted(summ) and r["document_id"] not in [c["document_id"] for c in corrupted_summaries]:
+                corrupted_summaries.append(
+                    {"document_id": r["document_id"], "summary_preview": (summ[:100] + "...") if len(summ) > 100 else summ}
+                )
+
+    is_healthy = (
+        len(dangling_rels) == 0
+        and len(stale_entity_sources) == 0
+        and len(stale_relation_sources) == 0
+        and len(ghost_entities) == 0
+        and len(orphan_embeddings) == 0
+        and not fts_desync
+    )
+
+    return {
+        "is_healthy": is_healthy,
+        "total_documents": total_docs,
+        "total_entities": total_ents,
+        "total_relations": total_rels,
+        "dangling_relations_count": len(dangling_rels),
+        "dangling_relations": [dict(r) for r in dangling_rels],
+        "stale_entity_sources_count": len(stale_entity_sources),
+        "stale_entity_sources": stale_entity_sources[:50],
+        "stale_relation_sources_count": len(stale_relation_sources),
+        "stale_relation_sources": stale_relation_sources[:50],
+        "ghost_entities_count": len(ghost_entities),
+        "ghost_entities": ghost_entities[:50],
+        "orphan_embeddings_count": len(orphan_embeddings),
+        "missing_embeddings_count": len(missing_embeddings),
+        "fts_desync": fts_desync,
+        "fts_count": total_fts,
+        "corrupted_summaries_count": len(corrupted_summaries),
+        "corrupted_summaries": corrupted_summaries,
+    }
+
+
+def command_doctor(
+    runtime: Runtime,
+    *,
+    heal: bool = False,
+    confirmed: bool = False,
+    json_output: bool = False,
+) -> int:
+    storage = resolve_storage(runtime)
+    if not storage.database.is_file():
+        if not heal:
+            print("cb-manuscript doctor: Database file not found.")
+            return 0
+        raise ManuscriptError("Database file not found.")
+
+    if heal:
+        if not confirmed and sys.stdin.isatty():
+            print("경고: 지식그래프 무결성 자동 수복(--heal)을 진행합니다.")
+            print("고아 관계 및 출처 참조가 정리되고, FTS 전문 색인이 재구축됩니다.")
+            val = input("계속 진행하시겠습니까? [y/N]: ").strip().lower()
+            if val not in ("y", "yes"):
+                print("취소되었습니다.")
+                return 0
+
+        with InstanceLock(runtime):
+            print("\n[*] Starting knowledge graph auto-healing...")
+            r = run_compose(
+                runtime,
+                ("run", "--rm", "--no-deps", "api", "claire", "doctor", "--heal"),
+                check=False,
+            )
+            if r.returncode != 0:
+                raise ManuscriptError(f"Doctor heal failed with exit code {r.returncode}")
+            print("\n[✓] Knowledge graph auto-healing completed successfully!")
+        return 0
+
+    # Dry-run inspection
+    conn = sqlite3.connect(storage.database)
+    conn.row_factory = sqlite3.Row
+    try:
+        report = _diagnose_graph_health(conn)
+    finally:
+        conn.close()
+
+    if json_output:
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+        return 0 if report["is_healthy"] else 1
+
+    print("cb-manuscript: [Doctor] 지식그래프 및 DB 무결성 진단 보고서")
+    print("=" * 60)
+    print(f"• 전체 문서 수               : {report['total_documents']} 건")
+    print(f"• 전체 엔티티 수             : {report['total_entities']} 건")
+    print(f"• 전체 관계 수               : {report['total_relations']} 건")
+    print("-" * 60)
+    print(
+        f"• 고아 관계 (Dangling)       : {report['dangling_relations_count']} 건"
+        + (" [!]" if report["dangling_relations_count"] else " [✓]")
+    )
+    print(
+        f"• 엔티티 유효하지 않은 출처 : {report['stale_entity_sources_count']} 건"
+        + (" [!]" if report["stale_entity_sources_count"] else " [✓]")
+    )
+    print(
+        f"• 관계 유효하지 않은 출처   : {report['stale_relation_sources_count']} 건"
+        + (" [!]" if report["stale_relation_sources_count"] else " [✓]")
+    )
+    print(
+        f"• 고아/유령 엔티티           : {report['ghost_entities_count']} 건"
+        + (" [!]" if report["ghost_entities_count"] else " [✓]")
+    )
+    print(
+        f"• 고아 임베딩                : {report['orphan_embeddings_count']} 건"
+        + (" [!]" if report["orphan_embeddings_count"] else " [✓]")
+    )
+    print(f"• 임베딩 누락 엔티티         : {report['missing_embeddings_count']} 건")
+    print(f"• FTS 색인 동기화 상태       : {'[!] 불일치' if report['fts_desync'] else '[✓] 동기화됨'}")
+    if report["corrupted_summaries_count"]:
+        print(
+            f"• ADOC 문법 잔존 요약       : {report['corrupted_summaries_count']} 건 [!] (./cb-manuscript regenerate --corrupted --summary 로 재생성 권장)"
+        )
+    print("=" * 60)
+
+    if report["is_healthy"]:
+        print("[✓] 지식그래프 및 DB 무결성이 완벽합니다 (Graph is fully healthy).")
+        return 0
+    else:
+        print("\n[안내] 그래프 무결성 문제가 발견되었습니다. (기본 Dry-Run 모드)")
+        print("자동 수복(Auto-Heal)을 실행하려면 --heal 옵션을 사용하십시오:")
+        print("  ./cb-manuscript doctor --heal")
+        return 0
 
 
 def command_health(runtime: Runtime) -> int:
@@ -3243,6 +3464,253 @@ def command_format_migrate(
     return 0
 
 
+def _inspect_regenerate_targets(
+    runtime: Runtime,
+    *,
+    target: str | None = None,
+    token: str | None = None,
+    doc_id: str | None = None,
+    corrupted: bool = False,
+) -> dict[str, Any]:
+    storage = resolve_storage(runtime)
+    if not storage.database.is_file():
+        return {"count": 0, "targets": [], "error": "Database file not found."}
+
+    resolved_token = token
+    if target:
+        raw_target = target.strip()
+        if "?" in raw_target:
+            from urllib.parse import parse_qs, urlsplit
+
+            parsed = urlsplit(raw_target)
+            qs = parse_qs(parsed.query)
+            if "s" in qs and qs["s"]:
+                resolved_token = qs["s"][0]
+        elif raw_target.startswith("?s="):
+            resolved_token = raw_target[3:]
+        elif re.match(r"^[A-Za-z0-9_-]{12,64}$", raw_target):
+            resolved_token = raw_target
+
+    try:
+        conn = sqlite3.connect(storage.database)
+        conn.row_factory = sqlite3.Row
+        try:
+            target_ids: list[str] = []
+            if resolved_token:
+                has_shares = conn.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='doc_shares'"
+                ).fetchone()
+                if has_shares:
+                    row = conn.execute(
+                        "SELECT document_id FROM doc_shares WHERE token=?", (resolved_token,)
+                    ).fetchone()
+                    if row:
+                        target_ids.append(row["document_id"])
+            if not target_ids and target and not doc_id:
+                has_docs = conn.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='documents'"
+                ).fetchone()
+                if has_docs:
+                    row = conn.execute(
+                        "SELECT id FROM documents WHERE id=?", (target.strip(),)
+                    ).fetchone()
+                    if row:
+                        target_ids.append(row["id"])
+            if doc_id and doc_id not in target_ids:
+                target_ids.append(doc_id)
+
+            def _is_corrupted(s: str | None) -> bool:
+                if not s:
+                    return False
+                pats = (
+                    r"(?:^|\n)={1,5}\s+",
+                    r"(?:^|\n)\[(?:NOTE|TIP|IMPORTANT|WARNING|CAUTION|quote|source)[^\]]*\]",
+                    r"(?:^|\n)\|===",
+                    r"(?:^|\n):[a-zA-Z0-9_-]+:",
+                    r"link:https?://",
+                )
+                return any(re.search(p, s, re.MULTILINE) for p in pats)
+
+            has_ext = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='extractions'"
+            ).fetchone()
+            if has_ext and (corrupted or (not target_ids and not target and not token and not doc_id)):
+                rows = conn.execute(
+                    "SELECT document_id, raw_response FROM extractions ORDER BY id DESC"
+                ).fetchall()
+                seen = set()
+                for r in rows:
+                    did = r["document_id"]
+                    if did in seen:
+                        continue
+                    seen.add(did)
+                    try:
+                        summ = json.loads(r["raw_response"] or "{}").get("summary", "")
+                    except Exception:
+                        summ = ""
+                    if _is_corrupted(summ) and did not in target_ids:
+                        target_ids.append(did)
+
+            targets = []
+            has_docs = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='documents'"
+            ).fetchone()
+            for did in target_ids:
+                title = "(제목 없음)"
+                canonical_url = ""
+                detail_fmt = ""
+                if has_docs:
+                    drow = conn.execute(
+                        "SELECT id, title, canonical_url, detail, detail_format FROM documents WHERE id=?",
+                        (did,),
+                    ).fetchone()
+                    if drow:
+                        title = drow["title"] or "(제목 없음)"
+                        canonical_url = drow["canonical_url"] or ""
+                        detail_fmt = drow["detail_format"] or ""
+
+                curr_summ = ""
+                if has_ext:
+                    ext = conn.execute(
+                        "SELECT raw_response FROM extractions WHERE document_id=? ORDER BY id DESC LIMIT 1",
+                        (did,),
+                    ).fetchone()
+                    if ext and ext["raw_response"]:
+                        try:
+                            curr_summ = json.loads(ext["raw_response"]).get("summary", "")
+                        except Exception:
+                            curr_summ = ""
+
+                targets.append({
+                    "document_id": did,
+                    "title": title,
+                    "canonical_url": canonical_url,
+                    "current_summary": curr_summ,
+                    "summary_corrupted": _is_corrupted(curr_summ),
+                    "current_detail_format": detail_fmt,
+                })
+            return {"count": len(targets), "targets": targets}
+        finally:
+            conn.close()
+    except Exception as e:
+        return {"count": 0, "targets": [], "error": str(e)}
+
+
+def command_regenerate(
+    runtime: Runtime,
+    *,
+    target: str | None = None,
+    token: str | None = None,
+    doc_id: str | None = None,
+    summary: bool = False,
+    detail: bool = False,
+    all_components: bool = False,
+    corrupted: bool = False,
+    force: bool = False,
+    effort: str | None = None,
+    format: str | None = None,
+    confirmed: bool = False,
+) -> int:
+    do_summary = summary or all_components
+    do_detail = detail or all_components
+    if not do_summary and not do_detail:
+        do_summary = True
+
+    comp_names = []
+    if do_summary:
+        comp_names.append("요약(summary)")
+    if do_detail:
+        comp_names.append("본문(detail)")
+    comp_label = " · ".join(comp_names)
+
+    effective_effort = (
+        effort
+        or runtime.values.get("CLAIRE_GEMINI_EFFORT", "").strip()
+        or runtime.values.get("CLAIRE_AGY_EFFORT", "medium").strip()
+        or "medium"
+    )
+    provider_name = runtime.values.get("CLAIRE_PROVIDER", "mock").strip()
+    model_name = runtime.values.get(
+        "CLAIRE_GEMINI_MODEL" if provider_name == "gemini" else "CLAIRE_AGY_MODEL", "default"
+    ).strip()
+
+    stats = _inspect_regenerate_targets(
+        runtime,
+        target=target,
+        token=token,
+        doc_id=doc_id,
+        corrupted=corrupted,
+    )
+
+    print("cb-manuscript: [Dry-Run] 문서 컴포넌트 재생성 진단")
+    print("=" * 60)
+    print(f"• 재생성 대상 컴포넌트     : {comp_label}")
+    print(f"• LLM Provider / Model     : {provider_name} ({model_name})")
+    print(f"• 사고/추론 레벨 (Effort)  : {effective_effort}")
+    print(f"• 탐지/선택된 대상 문서 수 : {stats['count']} 건")
+    print("=" * 60)
+
+    if stats["count"] == 0:
+        if stats.get("error"):
+            print(f"[!] {stats['error']}")
+        else:
+            print("[✓] 재생성 대상 문서가 없습니다.")
+        return 0
+
+    print("[대상 문서 목록]")
+    for idx, t in enumerate(stats["targets"], 1):
+        print(f"[{idx}] {t['title']} ({t['document_id']})")
+        if t.get("canonical_url"):
+            print(f"    URL: {t['canonical_url']}")
+        if t.get("summary_corrupted"):
+            print(f"    [!] 요약 내 ADOC/마크업 문법 잔존 감지")
+        summ_preview = (
+            (t["current_summary"][:150] + "...")
+            if len(t["current_summary"]) > 150
+            else (t["current_summary"] or "(요약 없음)")
+        )
+        print(f"    현재 요약: {summ_preview}")
+    print("=" * 60)
+
+    if not force:
+        print("\n[안내] 기본 Dry-Run 모드로 실행되어 실제 DB를 변경하지 않았습니다.")
+        print("실제 재생성 및 DB 덮어쓰기를 실행하려면 --force 옵션을 사용하십시오:")
+        tgt_arg = f" {target}" if target else ""
+        eff_arg = f" --effort {effective_effort}" if effort else ""
+        print(f"  ./cb-manuscript regenerate{tgt_arg} --summary --force{eff_arg}")
+        return 0
+
+    with InstanceLock(runtime):
+        print(f"\n[*] Starting forced document component regeneration...")
+        cmd_args = ["run", "--rm", "--no-deps", "api", "claire", "regenerate"]
+        if target:
+            cmd_args.append(target)
+        if token:
+            cmd_args.extend(["--token", token])
+        if doc_id:
+            cmd_args.extend(["--doc-id", doc_id])
+        if summary:
+            cmd_args.append("--summary")
+        if detail:
+            cmd_args.append("--detail")
+        if all_components:
+            cmd_args.append("--all")
+        if corrupted:
+            cmd_args.append("--corrupted")
+        if effort:
+            cmd_args.extend(["--effort", effort])
+        if format:
+            cmd_args.extend(["--format", format])
+        cmd_args.append("--force")
+
+        r = run_compose(runtime, tuple(cmd_args), check=False)
+        if r.returncode != 0:
+            raise ManuscriptError(f"Regeneration failed with exit code {r.returncode}")
+
+        print("\n[✓] Document component regeneration completed successfully!")
+    return 0
+
+
 def _app_guard_reason(args: Sequence[str]) -> str | None:
     if not args or args[0] in {"-h", "--help"}:
         return None
@@ -3397,9 +3865,9 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
 
-    # 2. doctor
+    # 2. preflight
     subparsers.add_parser(
-        "doctor",
+        "preflight",
         help="Check configuration and Docker Compose preflight",
         description=(
             "Pre-flight check deployment configuration, Docker Compose validity, network, and security constraints.\n\n"
@@ -3413,12 +3881,54 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Examples:\n"
-            "  ./cb-manuscript doctor        # Check production configuration\n"
-            "  ./cb-manuscript dev doctor    # Check development configuration"
+            "  ./cb-manuscript preflight        # Check production configuration\n"
+            "  ./cb-manuscript dev preflight    # Check development configuration"
         ),
     )
 
-    # 3. install
+    # 3. doctor
+    doc_parser = subparsers.add_parser(
+        "doctor",
+        help="Knowledge graph & DB integrity diagnosis and one-click auto-healing",
+        description=(
+            "Diagnose knowledge graph and database integrity issues with one-click auto-healing.\n\n"
+            "Diagnostics:\n"
+            "  - Dangling relations (source/target entity missing)\n"
+            "  - Stale document references in entity/relation sources\n"
+            "  - Ghost/unreferenced entities\n"
+            "  - Orphan embeddings & missing embeddings\n"
+            "  - FTS full-text index synchronization\n"
+            "  - Corrupted summary markup detection"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  ./cb-manuscript doctor          # Inspect graph health (default dry-run)\n"
+            "  ./cb-manuscript doctor --heal   # Auto-heal all graph integrity issues\n"
+            "  ./cb-manuscript doctor --heal -y"
+        ),
+    )
+    doc_parser.add_argument(
+        "--heal",
+        "--apply",
+        "--repair",
+        action="store_true",
+        dest="heal",
+        help="Auto-repair detected graph integrity issues (dangling relations, orphan entities, FTS sync)",
+    )
+    doc_parser.add_argument(
+        "--yes",
+        "-y",
+        action="store_true",
+        help="Confirm auto-healing without interactive prompt",
+    )
+    doc_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Output diagnosis report in JSON format",
+    )
+
+    # 4. install
     subparsers.add_parser(
         "install",
         help="Build images, migrate database, start services, and verify health",
@@ -3590,7 +4100,124 @@ def build_parser() -> argparse.ArgumentParser:
         help="Confirm execution without interactive prompt when --apply is used",
     )
 
-    # 9. version
+    # 9. regenerate
+    reg_parser = subparsers.add_parser(
+        "regenerate",
+        help="Selectively regenerate document components (summary, detail) with LLM (default: dry-run, requires --force)",
+        description=(
+            "Inspect and selectively regenerate document components (summary, detail) with LLM.\n\n"
+            "Behavior:\n"
+            "  - Default: Dry-run mode. Inspects target document(s) and displays plan without changes.\n"
+            "  - With --force: Regenerates selected components and overwrites DB while preserving graph.\n"
+            "  - With --effort: Customize reasoning effort level (low, medium, high)."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  ./cb-manuscript regenerate dzr73zpxh2bah4vp --summary              # Dry-run inspection (default)\n"
+            "  ./cb-manuscript regenerate dzr73zpxh2bah4vp --summary --force      # Overwrite summary in DB\n"
+            "  ./cb-manuscript regenerate dzr73zpxh2bah4vp --summary --force --effort high\n"
+            "  ./cb-manuscript regenerate --corrupted --summary                   # Scan all docs with corrupted ADOC syntax\n"
+            "  ./cb-manuscript regenerate dzr73zpxh2bah4vp --all --force          # Regenerate both summary and detail"
+        ),
+    )
+    reg_parser.add_argument(
+        "target",
+        nargs="?",
+        default=None,
+        help="Document ID, share token, or share URL (/p?s=token)",
+    )
+    reg_parser.add_argument("--token", default=None, help="Specific share token")
+    reg_parser.add_argument("--doc-id", default=None, help="Specific document ID")
+    reg_parser.add_argument(
+        "--summary", action="store_true", help="Regenerate summary (default if none given)"
+    )
+    reg_parser.add_argument("--detail", action="store_true", help="Regenerate detail text")
+    reg_parser.add_argument(
+        "--all", action="store_true", help="Regenerate both summary and detail"
+    )
+    reg_parser.add_argument(
+        "--corrupted",
+        action="store_true",
+        help="Target all docs with corrupted ADOC syntax",
+    )
+    reg_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Execute LLM regeneration and overwrite DB (required to apply)",
+    )
+    reg_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Display diagnostic plan without changes (default)",
+    )
+    reg_parser.add_argument(
+        "--effort",
+        default=None,
+        help="Reasoning effort level (e.g. low, medium, high)",
+    )
+    reg_parser.add_argument(
+        "--format",
+        choices=("md", "adoc"),
+        default=None,
+        help="Detail render format (md or adoc)",
+    )
+    reg_parser.add_argument(
+        "--yes",
+        "-y",
+        action="store_true",
+        help="Confirm execution without interactive prompt",
+    )
+
+    # 10. summary-regenerate (alias)
+    sum_parser = subparsers.add_parser(
+        "summary-regenerate",
+        help="Alias for 'regenerate --summary'",
+        description="Alias for 'regenerate --summary'. Inspects and regenerates document summary.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  ./cb-manuscript summary-regenerate dzr73zpxh2bah4vp               # Dry-run inspection\n"
+            "  ./cb-manuscript summary-regenerate dzr73zpxh2bah4vp --force       # Overwrite summary\n"
+            "  ./cb-manuscript summary-regenerate dzr73zpxh2bah4vp --force --effort high"
+        ),
+    )
+    sum_parser.add_argument(
+        "target",
+        nargs="?",
+        default=None,
+        help="Document ID, share token, or share URL",
+    )
+    sum_parser.add_argument("--token", default=None, help="Specific share token")
+    sum_parser.add_argument("--doc-id", default=None, help="Specific document ID")
+    sum_parser.add_argument(
+        "--corrupted",
+        action="store_true",
+        help="Target all docs with corrupted ADOC syntax",
+    )
+    sum_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Execute LLM regeneration and overwrite DB",
+    )
+    sum_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Dry-run inspection without changes (default)",
+    )
+    sum_parser.add_argument(
+        "--effort",
+        default=None,
+        help="Reasoning effort level (e.g. low, medium, high)",
+    )
+    sum_parser.add_argument(
+        "--yes",
+        "-y",
+        action="store_true",
+        help="Confirm execution without prompt",
+    )
+
+    # 11. version
     subparsers.add_parser(
         "version",
         help="Display wrapper and source versions",
@@ -3852,8 +4479,15 @@ def main(argv: Sequence[str] | None = None, *, root: Path | None = None) -> int:
             return command_version(layout)
 
         runtime = load_runtime(layout, legacy_dev=dev)
+        if parsed.command == "preflight":
+            return command_preflight(runtime)
         if parsed.command == "doctor":
-            return command_doctor(runtime)
+            return command_doctor(
+                runtime,
+                heal=getattr(parsed, "heal", False),
+                confirmed=getattr(parsed, "yes", False),
+                json_output=getattr(parsed, "json", False),
+            )
         if parsed.command == "install":
             return command_install(runtime)
         if parsed.command == "update":
@@ -3880,6 +4514,22 @@ def main(argv: Sequence[str] | None = None, *, root: Path | None = None) -> int:
                 apply=parsed.apply,
                 dry_run=parsed.dry_run,
                 confirmed=parsed.yes,
+            )
+        if parsed.command in ("regenerate", "summary-regenerate"):
+            summary_flag = getattr(parsed, "summary", False) or (parsed.command == "summary-regenerate")
+            return command_regenerate(
+                runtime,
+                target=getattr(parsed, "target", None),
+                token=getattr(parsed, "token", None),
+                doc_id=getattr(parsed, "doc_id", None),
+                summary=summary_flag,
+                detail=getattr(parsed, "detail", False),
+                all_components=getattr(parsed, "all", False),
+                corrupted=getattr(parsed, "corrupted", False),
+                force=getattr(parsed, "force", False),
+                effort=getattr(parsed, "effort", None),
+                format=getattr(parsed, "format", None),
+                confirmed=getattr(parsed, "yes", False),
             )
         raise ManuscriptError(f"Unknown command: {parsed.command}")
     except SystemExit as exc:

@@ -513,6 +513,238 @@ class IngestService:
         finally:
             conn.close()
 
+    def regenerate_components(
+        self,
+        *,
+        target: str | None = None,
+        token: str | None = None,
+        doc_id: str | None = None,
+        summary: bool = False,
+        detail: bool = False,
+        graph: bool = False,
+        all_components: bool = False,
+        corrupted_summary: bool = False,
+        force: bool = False,
+        effort: str | None = None,
+        format: str | None = None,
+    ) -> dict:
+        """문서의 특정 컴포넌트(요약, 본문, 그래프 등)를 선별적으로 재생성(비파괴적/선택적 덮어쓰기).
+
+        - target: URL (/p?s=token), 공유 토큰, 또는 document_id.
+        - summary: True 면 요약만 LLM 재추출하여 extractions 갱신 (엔티티/관계 보존).
+        - detail: True 면 한국어 가독 렌더링 본문만 재컴파일/재생성.
+        - all_components: True 면 요약과 본문 모두 재생성.
+        - corrupted_summary: True 면 전체 DB에서 ADOC/마크업 문법이 잔존한 요약만 자동 탐지.
+        - force: False(기본) 면 dry-run 진단만 수행하고 DB 변경 없음. True 면 실제 DB 덮어쓰기.
+        - effort: LLM 사고/추론 레벨 (low, medium, high 등) 즉석 재정의.
+        """
+        import json as _json
+        import re as _re
+        from urllib.parse import parse_qs, urlsplit
+
+        from ..extract.prompts import PROMPT_VERSION
+        from .pipeline import ensure_document_detail
+
+        # 컴포넌트 기본값 결정 (아무것도 지정 안 했으면 summary 를 기본 대상으로 간주)
+        do_summary = summary or all_components
+        do_detail = detail or all_components
+        if not do_summary and not do_detail and not graph:
+            do_summary = True
+
+        conn = dbm.connect(self.s.db_file)
+        dbm.init_db(conn)
+
+        def _is_corrupted_adoc(text: str | None) -> bool:
+            if not text:
+                return False
+            s = text.strip()
+            patterns = (
+                r"(?:^|\n)={1,5}\s+",
+                r"(?:^|\n)\[(?:NOTE|TIP|IMPORTANT|WARNING|CAUTION|quote|source)[^\]]*\]",
+                r"(?:^|\n)\|===",
+                r"(?:^|\n):[a-zA-Z0-9_-]+:",
+                r"(?:^|\n)(?:include|image|link)::",
+                r"link:https?://",
+            )
+            return any(_re.search(pat, s, _re.MULTILINE) for pat in patterns)
+
+        def _clean_summary(text: str | None) -> str:
+            if not text:
+                return ""
+            s = text.strip()
+            # If the first line is a header like "= Title" or "== Section" or "# Title", strip the entire header line
+            s = _re.sub(r"^(?:={1,5}|#{1,6})\s+[^\n]*\n+", "", s)
+            s = _re.sub(r"^(?:={1,5}|#{1,6})\s+", "", s)
+            # Strip trailing block delimiters
+            s = _re.sub(r"\n+(?:\|===|----|\.\.\.\.)\s*$", "", s)
+            return s.strip()
+
+        try:
+            # 1. 대상 document_id 목록 해소
+            target_ids: list[str] = []
+            resolved_token = token
+
+            if target:
+                raw_target = target.strip()
+                # URL 형태에서 ?s=token 추출 시도
+                if "?" in raw_target:
+                    parsed = urlsplit(raw_target)
+                    qs = parse_qs(parsed.query)
+                    if "s" in qs and qs["s"]:
+                        resolved_token = qs["s"][0]
+                elif raw_target.startswith("?s="):
+                    resolved_token = raw_target[3:]
+                elif dbm.plausible_share_token(raw_target):
+                    # 토큰 후보로 먼저 검사
+                    t_doc = dbm.resolve_doc_share(conn, raw_target)
+                    if t_doc:
+                        resolved_token = raw_target
+
+                if not resolved_token and not doc_id:
+                    # 토큰이 아니면 document ID 로 조회
+                    doc_cand = dbm.get_document(conn, raw_target)
+                    if doc_cand:
+                        target_ids.append(doc_cand.id)
+
+            if resolved_token:
+                shared_doc_id = dbm.resolve_doc_share(conn, resolved_token)
+                if not shared_doc_id:
+                    # 만료되었거나 비활성 토큰이라도 doc_shares 테이블 자체에 존재하는지 확인
+                    row = conn.execute(
+                        "SELECT document_id FROM doc_shares WHERE token=?", (resolved_token,)
+                    ).fetchone()
+                    if row:
+                        shared_doc_id = row["document_id"]
+                if shared_doc_id and shared_doc_id not in target_ids:
+                    target_ids.append(shared_doc_id)
+
+            if doc_id and doc_id not in target_ids:
+                target_ids.append(doc_id)
+
+            # 대상이 특정되지 않고 corrupted_summary 이거나 전체 스캔인 경우
+            if corrupted_summary or (not target_ids and not target and not token and not doc_id):
+                rows = conn.execute(
+                    "SELECT document_id, raw_response FROM extractions ORDER BY id DESC"
+                ).fetchall()
+                seen_docs: set[str] = set()
+                for r in rows:
+                    did = r["document_id"]
+                    if did in seen_docs:
+                        continue
+                    seen_docs.add(did)
+                    raw_resp = r["raw_response"] or ""
+                    try:
+                        curr_summ = _json.loads(raw_resp).get("summary", "")
+                    except Exception:
+                        curr_summ = ""
+                    if _is_corrupted_adoc(curr_summ) and did not in target_ids:
+                        target_ids.append(did)
+
+            if not target_ids:
+                return {
+                    "dry_run": not force,
+                    "count": 0,
+                    "targets": [],
+                    "error": "No matching documents found." if (target or token or doc_id) else "No corrupted summaries detected in database.",
+                }
+
+            # 2. 각 대상에 대해 진단 (Dry-run) 또는 실행 (Force)
+            targets_info = []
+            old_effort = getattr(self.provider, "effort", None)
+            if effort:
+                self.provider.effort = effort
+
+            try:
+                for did in target_ids:
+                    doc = dbm.get_document(conn, did)
+                    if not doc:
+                        continue
+
+                    curr_summary = dbm.latest_extraction_summary(conn, did) or ""
+                    curr_detail = dbm.get_document_detail(conn, did) or ""
+                    curr_fmt = dbm.get_document_detail_format(conn, did) or ""
+                    is_corrupted = _is_corrupted_adoc(curr_summary)
+
+                    info: dict = {
+                        "document_id": did,
+                        "title": doc.title or "(제목 없음)",
+                        "canonical_url": doc.canonical_url,
+                        "current_summary": curr_summary,
+                        "summary_corrupted": is_corrupted,
+                        "current_detail_format": curr_fmt,
+                        "actions": [],
+                    }
+                    if do_summary:
+                        info["actions"].append("regenerate_summary")
+                    if do_detail:
+                        info["actions"].append("regenerate_detail")
+
+                    if not force:
+                        targets_info.append(info)
+                        continue
+
+                    # --- 실제 실행 (Force Overwrite) ---
+                    updated_summary = None
+                    if do_summary:
+                        # LLM 요약 재추출
+                        extract_res = self.provider.extract(doc)
+                        new_summary = _clean_summary(extract_res.summary)
+                        info["new_summary"] = new_summary
+
+                        # extractions 테이블 in-place 갱신
+                        ext_row = conn.execute(
+                            "SELECT id, raw_response FROM extractions WHERE document_id=? ORDER BY id DESC LIMIT 1",
+                            (did,),
+                        ).fetchone()
+                        if ext_row:
+                            try:
+                                data = _json.loads(ext_row["raw_response"] or "{}")
+                            except Exception:
+                                data = {}
+                            data["summary"] = new_summary
+                            new_raw = _json.dumps(data, ensure_ascii=False)
+                            conn.execute(
+                                "UPDATE extractions SET raw_response=? WHERE id=?",
+                                (new_raw, ext_row["id"]),
+                            )
+                        else:
+                            data = {"summary": new_summary, "key_claims": [], "entities": [], "relations": []}
+                            new_raw = _json.dumps(data, ensure_ascii=False)
+                            dbm.log_extraction(
+                                conn,
+                                document_id=did,
+                                provider=getattr(self.provider, "name", "regenerate"),
+                                model=getattr(self.provider, "model", "fallback"),
+                                prompt_version=PROMPT_VERSION,
+                                raw_response=new_raw,
+                            )
+                        conn.commit()
+                        updated_summary = new_summary
+
+                    if do_detail:
+                        target_fmt = format or self.s.render_format
+                        ensure_document_detail(
+                            conn, self.provider, doc, force=True, format=target_fmt
+                        )
+                        info["detail_format"] = target_fmt
+
+                    info["updated"] = True
+                    targets_info.append(info)
+
+                return {
+                    "dry_run": not force,
+                    "count": len(targets_info),
+                    "targets": targets_info,
+                    "provider": getattr(self.provider, "name", "unknown"),
+                    "model": getattr(self.provider, "model", "unknown"),
+                    "effort": getattr(self.provider, "effort", "default"),
+                }
+            finally:
+                if old_effort is not None:
+                    self.provider.effort = old_effort
+        finally:
+            conn.close()
+
     def backfill_minhashes(self, *, limit: int = 0) -> dict:
         """minhash 가 비어있는 기존 문서에 서명을 채운다 — **비파괴**(컬럼만 채움).
 

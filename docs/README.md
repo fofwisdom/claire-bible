@@ -21,7 +21,8 @@ docs/
 │   └── ... (기타 설계 초안 및 기술 참고 자료)
 ├── implementation/         # [구현/운영 내역] 운영 가이드, 네트워크/인증 명세, 배포 설정
 │   ├── EXTERNAL_ACCESS.md  # 웹 접속, reverse proxy, 포트, 인증/CORS 경계 명세
-│   └── OPERATIONS.md       # cb-manuscript 호스트 운영 명령, 서비스 수명주기 가이드
+│   ├── OPERATIONS.md       # cb-manuscript 호스트 운영 명령, 서비스 수명주기 가이드
+│   └── COMMANDS.md         # 전체 CLI 명령어 및 미구현/제약사항 상세 레퍼런스
 └── screenshots/            # README 및 UI 설명용 스크린샷 이미지 자산
 ```
 
@@ -43,6 +44,7 @@ docs/
 - **예시**:
   - `EXTERNAL_ACCESS.md`: Reverse proxy 연동, 포트 바인딩, CORS 및 인증 명세
   - `OPERATIONS.md`: `cb-manuscript` 호스트 운영 명령 및 컨테이너 관리 가이드
+  - `COMMANDS.md`: `cb-manuscript` 및 `claire` 전체 CLI 상세 명세 및 옵션 상태 레퍼런스
 
 ### 3. `docs/screenshots/` (공통 에셋)
 - README 및 가이드 문서에서 참조하는 UI/그래프 캡처 이미지.

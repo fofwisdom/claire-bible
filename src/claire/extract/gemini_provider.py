@@ -153,9 +153,24 @@ class GeminiProvider:
         self.settings = settings
         self.client = genai.Client(api_key=settings.gemini_api_key)
         self.model = settings.gemini_model
+        self.effort = getattr(settings, "gemini_effort", "medium")
         self.embed_model = settings.gemini_embed_model
         self.min_interval = settings.gemini_min_interval
         self.max_retries = settings.gemini_max_retries
+
+    def _build_generation_config(self, extra: dict | None = None) -> dict:
+        """기본 generation_config 생성 (사고 레벨/thinking_config 포함)."""
+        cfg: dict = {"temperature": 0.2}
+        if extra:
+            cfg.update(extra)
+        effort = str(getattr(self, "effort", "") or "").strip().lower()
+        if effort in ("low", "medium", "high", "minimal"):
+            cfg["thinking_config"] = {"thinking_level": effort.upper()}
+        elif effort.isdigit() or (effort.startswith("-") and effort[1:].isdigit()):
+            cfg["thinking_config"] = {"thinking_budget": int(effort)}
+        elif effort in ("none", "off", "0"):
+            cfg["thinking_config"] = {"thinking_budget": 0}
+        return cfg
 
     def _throttle(self) -> None:
         """호출 간 최소 간격 보장(RPM 보호). 전역 락으로 프로세스 내 직렬화."""
@@ -209,7 +224,7 @@ class GeminiProvider:
                 input=body,
                 system_instruction=sys,
                 response_format=response_format,
-                generation_config={"temperature": 0.2},
+                generation_config=self._build_generation_config(),
                 store=False,
             ))
             raw_text = _extract_output_text(interaction)
@@ -230,6 +245,7 @@ class GeminiProvider:
         interaction = self._call(lambda: self.client.interactions.create(
             model=self.model,
             input=prompt,
+            generation_config=self._build_generation_config(),
             store=False,
         ))
         raw_text = _extract_output_text(interaction)
