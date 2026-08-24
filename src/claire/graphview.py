@@ -710,7 +710,7 @@ GRAPH_HTML = """<!doctype html>
   #reader .sharebox{display:none;margin:10px 24px 0;padding:8px 12px;background:var(--active);border:1px solid var(--accent);border-radius:6px;font-size:12px;gap:8px;align-items:center}
   #reader .sharebox.on{display:flex} #reader .sharebox input{flex:1;min-width:0}
   #reader .sharebox button{background:var(--accent);color:#fff;border:0;border-radius:4px;padding:3px 9px;font-size:12px;cursor:pointer}
-  #reader .rhead .redit,#reader .rhead .rshare,#reader .rhead .rgraphbtn{background:var(--sec-bg);color:var(--sec-fg);border:1px solid var(--border);border-radius:4px;font-size:13px;line-height:1;padding:4px 8px;cursor:pointer}
+  #reader .rhead .redit,#reader .rhead .rshare{background:var(--sec-bg);color:var(--sec-fg);border:1px solid var(--border);border-radius:4px;font-size:13px;line-height:1;padding:4px 8px;cursor:pointer}
   #reader .rbody{padding:16px 28px max(28px,env(safe-area-inset-bottom));overflow-y:auto;overscroll-behavior:contain;flex:1;min-height:0}
   #reader .rsection{color:var(--muted);font-size:11px;letter-spacing:.04em;text-transform:uppercase;margin:1.2em 0 .2em}
 
@@ -814,7 +814,7 @@ GRAPH_HTML = """<!doctype html>
     #reader .sheet{height:100vh!important;max-height:100dvh!important;border:0!important;border-radius:0!important}
     #reader .rhead{padding:max(10px,env(safe-area-inset-top)) 12px 10px!important}
     #reader .rhead h1{font-size:18px!important}
-    #reader .rzoom button,#reader .redit,#reader .rshare,#reader .rclose,#reader .rgraphbtn{min-width:44px!important;min-height:44px!important}
+    #reader .rzoom button,#reader .redit,#reader .rshare,#reader .rclose{min-width:44px!important;min-height:44px!important}
     #reader .rclose{display:inline-flex!important}
     #reader .rbody{padding:8px 16px max(20px,env(safe-area-inset-bottom))!important}
 
@@ -915,7 +915,6 @@ GRAPH_HTML = """<!doctype html>
           <label class="sr-only" for="q">그래프 검색</label>
           <input id="q" placeholder="그래프 노드 검색" oninput="onSearchInput(this.value)"/>
         </div>
-        <button class="sec" onclick="setCenterView('reader')" title="문서 크게 읽기로 전환" aria-label="문서 크게 읽기로 전환" style="display:inline-flex;align-items:center;gap:4px;flex-shrink:0">📖 본문 읽기</button>
       </div>
       <div id="legendbar" aria-label="그래프 범례와 관계 필터"></div>
       <div id="graphdocnav" aria-label="그래프 자료 전환">
@@ -948,7 +947,6 @@ GRAPH_HTML = """<!doctype html>
         <div class="rhead">
           <h1 id="rtitle">문서를 선택하세요</h1>
           <div class="rtools">
-            <button class="rgraphbtn" onclick="openDocGraph(curReaderDoc)" title="지식 그래프로 보기" aria-label="지식 그래프로 보기">📊 그래프</button>
             <div class="rzoom">
               <button onclick="setReadFS(-2)" title="글자 작게" aria-label="글자 작게">A−</button>
               <span class="fsv" id="rfs">16</span>
@@ -1006,6 +1004,9 @@ GRAPH_HTML = """<!doctype html>
 <nav id="worktabs" role="tablist" aria-label="작업 영역">
   <button id="tab-docs" role="tab" aria-selected="true" aria-controls="docs" data-pane="docs" onclick="revealWorkspace('docs')" title="자료" aria-label="자료">
     <span class="bnav-icon">📑</span>
+  </button>
+  <button id="tab-graph" role="tab" aria-selected="false" aria-controls="netwrap" data-pane="graph" onclick="revealWorkspace('graph')" title="그래프" aria-label="그래프">
+    <span class="bnav-icon">📊</span>
   </button>
   <button id="tab-search" onclick="focusMobileSearch()" title="검색" aria-label="검색">
     <span class="bnav-icon">🔎</span>
@@ -1834,6 +1835,11 @@ function revealWorkspace(name, focusTab=false){
   if(!paneNames.includes(name)) return;
   if(activePane==='graph' && !netBusy) rememberGraphCamera();
   activePane=name;
+  if(name==='graph'){
+    setCenterView('graph');
+    const r=document.getElementById('reader');
+    if(r && r.classList.contains('open') && typeof closeReader==='function') closeReader();
+  }
   if(name==='docs'){
     docSearchActive=false;
     const q=document.getElementById('docq');

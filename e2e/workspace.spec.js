@@ -40,6 +40,7 @@ test('mobile primary tabs keep document navigation on the graph', async ({ page 
 
   for (const locator of [
     page.locator('#tab-docs'),
+    page.locator('#tab-graph'),
     page.locator('#tab-search'),
     page.locator('#tab-menu'),
   ]) {
@@ -121,8 +122,8 @@ test('mobile primary tabs keep document navigation on the graph', async ({ page 
   await expect(reader).toBeVisible();
   await expect(reader).toHaveAttribute('aria-modal', 'true');
   expect(await page.locator('body').evaluate(body => body.classList.contains('reader-open'))).toBe(true);
-  // 모바일에서 본문 읽기 팝업 내 그래프 버튼(📊) 누르면 그래프 화면으로 전환
-  await page.locator('#reader .rgraphbtn').click();
+  // 모바일에서 하단 바 그래프 탭(📊) 누르면 본문 읽기 팝업이 닫히고 그래프 화면으로 전환
+  await page.locator('#tab-graph').click();
   await expect(reader).toBeHidden();
   await expect(page.locator('#netwrap')).toBeVisible();
   await expect(page.locator('#detailpane')).toBeHidden();

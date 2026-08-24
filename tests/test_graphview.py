@@ -143,10 +143,11 @@ def test_graph_html_self_contained_markers():
     assert "<mark>" in GRAPH_HTML                                       # ==형광== 강조 렌더
     assert "data-theme" in GRAPH_HTML and "toggleTheme" in GRAPH_HTML and "claireTheme" in GRAPH_HTML  # 라이트 기본+다크 토글
     assert "relayout" in GRAPH_HTML and "orientationchange" in GRAPH_HTML  # 모바일 캔버스 리사이즈
-    # 모바일 primary nav는 자료/그래프뿐이며 상세는 선택에 종속된 context sheet다.
     assert 'id="worktabs" role="tablist"' in GRAPH_HTML
     assert 'id="tab-docs" role="tab"' in GRAPH_HTML
-    assert 'id="tab-graph"' not in GRAPH_HTML
+    assert 'id="tab-graph" role="tab"' in GRAPH_HTML
+    assert 'class="rgraphbtn"' not in GRAPH_HTML
+    assert '<button class="sec" onclick="setCenterView(\'reader\')"' not in GRAPH_HTML
     assert GRAPH_HTML.count('role="tabpanel"') == 2
     assert 'id="tab-detail"' not in GRAPH_HTML
     assert 'id="detailpane" role="region" aria-label="문맥 상세"' in GRAPH_HTML
