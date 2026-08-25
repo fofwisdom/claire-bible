@@ -69,9 +69,11 @@ Fetcher는 URL, canonical URL, 제목, 작성자, 시각, 원문, 소스 종류�
    합칠 수 있다.
 4. 병합 실패 시 원래 문서 스냅샷으로 복원한다.
 5. 모델 입력에는 길이 상한을 적용하지만 저장 원문은 임의로 절단하지 않는다.
+6. 데이터 수명주기는 `.env`(`CLAIRE_DATA_LIFECYCLE`, `CLAIRE_ALLOW_PURGE`)에서 append-only(기본값)와 purgeable을 선택할 수 있다. 폐기된 레거시/오염 문서는 툼스톤(`purged_tombstones`) 등록 및 DB·디스크·그래프 연쇄 소각(`claire purge`)으로 완전히 배제할 수 있다.
 
-세부 설계는 [ONEHOP_MERGE_DESIGN.md](docs/design/ONEHOP_MERGE_DESIGN.md) 및
-[EXPAND_FILTERING_DESIGN.md](docs/design/EXPAND_FILTERING_DESIGN.md)를 참고한다.
+세부 설계는 [ONEHOP_MERGE_DESIGN.md](docs/design/ONEHOP_MERGE_DESIGN.md),
+[EXPAND_FILTERING_DESIGN.md](docs/design/EXPAND_FILTERING_DESIGN.md),
+[DATA_LIFECYCLE_AND_PURGE_DESIGN.md](docs/design/DATA_LIFECYCLE_AND_PURGE_DESIGN.md)를 참고한다.
 
 ## 4. 인증과 외부 접속
 

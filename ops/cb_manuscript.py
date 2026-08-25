@@ -112,6 +112,8 @@ APP_ONE_OFF_COMMANDS = {
     "recompile-html",
     "regenerate",
     "summary-regenerate",
+    "purge",
+    "audit",
 }
 APP_GUARDED_COMMANDS = {
     "migrate": "Schema lifecycle command owned by install/update",
@@ -3135,12 +3137,33 @@ def _diagnose_graph_health(conn: sqlite3.Connection) -> dict[str, Any]:
                     {"document_id": r["document_id"], "summary_preview": (summ[:100] + "...") if len(summ) > 100 else summ}
                 )
 
+    has_tomb = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='purged_tombstones'"
+    ).fetchone()
+    purged_tombstones_count = (
+        conn.execute("SELECT COUNT(*) FROM purged_tombstones").fetchone()[0] if has_tomb else 0
+    )
+    tombstone_violations = []
+    if has_tomb and purged_tombstones_count > 0:
+        tombstone_violations = [
+            dict(r)
+            for r in conn.execute(
+                """
+                SELECT d.id, d.url FROM documents d
+                JOIN purged_tombstones t ON d.id = t.id
+                   OR (d.canonical_url = t.canonical_url AND t.canonical_url IS NOT NULL)
+                   OR (d.content_hash = t.content_hash AND t.content_hash IS NOT NULL)
+                """
+            ).fetchall()
+        ]
+
     is_healthy = (
         len(dangling_rels) == 0
         and len(stale_entity_sources) == 0
         and len(stale_relation_sources) == 0
         and len(ghost_entities) == 0
         and len(orphan_embeddings) == 0
+        and len(tombstone_violations) == 0
         and not fts_desync
     )
 
@@ -3163,6 +3186,9 @@ def _diagnose_graph_health(conn: sqlite3.Connection) -> dict[str, Any]:
         "fts_count": total_fts,
         "corrupted_summaries_count": len(corrupted_summaries),
         "corrupted_summaries": corrupted_summaries,
+        "purged_tombstones_count": purged_tombstones_count,
+        "tombstone_violations_count": len(tombstone_violations),
+        "tombstone_violations": tombstone_violations[:50],
     }
 
 
@@ -3241,6 +3267,12 @@ def command_doctor(
     )
     print(f"• 임베딩 누락 엔티티         : {report['missing_embeddings_count']} 건")
     print(f"• FTS 색인 동기화 상태       : {'[!] 불일치' if report['fts_desync'] else '[✓] 동기화됨'}")
+    if report.get("purged_tombstones_count"):
+        print(f"• 등록된 소각 툼스톤         : {report['purged_tombstones_count']} 건")
+    if report.get("tombstone_violations_count"):
+        print(
+            f"• 툼스톤 위반 (부활 문서)    : {report['tombstone_violations_count']} 건 [!] (./cb-manuscript app purge 로 재소각 필요)"
+        )
     if report["corrupted_summaries_count"]:
         print(
             f"• ADOC 문법 잔존 요약       : {report['corrupted_summaries_count']} 건 [!] (./cb-manuscript regenerate --corrupted --summary 로 재생성 권장)"

@@ -151,6 +151,10 @@ class Settings(BaseSettings):
     vector_backend: str = Field(default="auto", alias="CLAIRE_VECTOR_BACKEND")
     # 읽기/가독 렌더링 포맷 (md: Markdown, adoc: AsciiDoc). 기본값 adoc.
     render_format: str = Field(default="adoc", alias="CLAIRE_RENDER_FORMAT")
+    # 데이터 수명주기 정책: append-only (기본값) | purgeable (또는 mutable).
+    data_lifecycle: str = Field(default="append-only", alias="CLAIRE_DATA_LIFECYCLE")
+    # 명시적 소각 허용 플래그 (0|1 또는 boolean). 기본값 False(불허).
+    allow_purge: bool = Field(default=False, alias="CLAIRE_ALLOW_PURGE")
 
     # --- expansion ---
     expand_max: int = Field(default=5, alias="CLAIRE_EXPAND_MAX")
@@ -203,6 +207,28 @@ class Settings(BaseSettings):
             return "md"
         raise ValueError("CLAIRE_RENDER_FORMAT must be 'md' or 'adoc'")
 
+    @field_validator("data_lifecycle", mode="before")
+    @classmethod
+    def _parse_data_lifecycle(cls, value: object) -> str:
+        s = str(value or "append-only").strip().lower()
+        if s in ("append-only", "append_only", "appendonly"):
+            return "append-only"
+        if s in ("purgeable", "mutable", "purge_enabled", "purge"):
+            return "purgeable"
+        raise ValueError("CLAIRE_DATA_LIFECYCLE must be 'append-only' or 'purgeable'")
+
+    @field_validator("allow_purge", mode="before")
+    @classmethod
+    def _parse_allow_purge(cls, value: object) -> bool:
+        if isinstance(value, bool):
+            return value
+        s = str(value or "").strip().lower()
+        if s in ("1", "true", "yes", "on"):
+            return True
+        if s in ("0", "false", "no", "off", ""):
+            return False
+        raise ValueError("CLAIRE_ALLOW_PURGE must be a boolean or 0/1")
+
     @field_validator("anonymous_readonly", mode="before")
     @classmethod
     def _parse_anonymous_readonly(cls, value: object) -> bool:
@@ -215,6 +241,11 @@ class Settings(BaseSettings):
         if value == "1":
             return True
         raise ValueError("CLAIRE_ANONYMOUS_READONLY must be exactly 0 or 1")
+
+    @property
+    def is_purge_allowed(self) -> bool:
+        """소각(Purge) 명령 실행 가능 여부."""
+        return self.data_lifecycle == "purgeable" or self.allow_purge
 
     @property
     def effective_github_repository(self) -> str:

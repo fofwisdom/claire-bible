@@ -92,7 +92,7 @@ def test_db_init_and_counts():
     conn = _mem_db()
     c = dbm.counts(conn)
     assert set(c) == {"documents", "entities", "relations", "embeddings", "proposals",
-                      "jobs", "raw_inbox", "extractions", "refresh_queue"}
+                      "jobs", "raw_inbox", "extractions", "refresh_queue", "purged_tombstones"}
     assert all(v == 0 for v in c.values())
 
 
