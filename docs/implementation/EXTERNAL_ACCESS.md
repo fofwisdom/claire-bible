@@ -39,7 +39,7 @@ exact `CLAIRE_ANONYMOUS_READONLY=1`(기본값)은 canonical same-origin 또는 O
 실행해 누락된 environment selector와 profile별
 `CLAIRE_ANONYMOUS_READONLY=1`을 보충한다. 이 명령은 production hostname을 추측하지
 않는다. 따라서 `.env`의 `CLAIRE_PUBLIC_URL`은 아래 production 형식으로 직접 설정한 뒤
-`./cb-manuscript doctor`를 통과시켜야 한다.
+`./cb-manuscript preflight`를 통과시켜야 한다.
 
 애플리케이션은 `Forwarded`와 `X-Forwarded-*`를 신뢰해 scheme, client IP 또는 Host를
 바꾸지 않는다. production의 외부 HTTPS 여부는 `CLAIRE_PUBLIC_URL`과 정확한 Host로
@@ -60,7 +60,7 @@ CLAIRE_CORS_ALLOWED_ORIGINS=
 ```
 
 ```bash
-CLAIRE_ENVIRONMENT=development ./cb-manuscript doctor
+CLAIRE_ENVIRONMENT=development ./cb-manuscript preflight
 CLAIRE_ENVIRONMENT=development ./cb-manuscript up
 ```
 

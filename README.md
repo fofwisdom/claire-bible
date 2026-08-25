@@ -257,7 +257,7 @@ Telegram bot을 활성화할 때 `TELEGRAM_BOT_TOKEN`과 `CLAIRE_ALLOWED_USERS`�
 ```bash
 ./cb-manuscript status
 ./cb-manuscript health
-./cb-manuscript doctor          # 지식그래프 및 DB 무결성 점검 (자동수복: --heal)
+./cb-manuscript app doctor      # 지식그래프 및 DB 무결성 점검 (자동수복: --heal)
 ./cb-manuscript app health
 ./cb-manuscript app preflight
 ./cb-manuscript logs --tail 100 api

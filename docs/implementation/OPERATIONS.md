@@ -16,7 +16,7 @@
 
 ```bash
 ./cb-manuscript init
-./cb-manuscript doctor
+./cb-manuscript preflight
 ./cb-manuscript install
 ./cb-manuscript update
 ./cb-manuscript up
@@ -71,13 +71,13 @@ hostname과 IPv6는 사전 검사에서 거부한다. loopback은 안전한 초�
   무자격증명 요청의 읽기 전용 접근을 허용한다. owner 쓰기는 계속 유효하며, 숨김 문서(`hidden=1`) 및
   그와 연관된 엔티티는 익명 읽기 계층에서 철저히 제외되어 안전하게 공개된다. `0`은 인증 전용 동작이다.
 
-`./cb-manuscript doctor`는 선택 profile의 anonymous readonly 상태를 출력한다. enabled
+`./cb-manuscript preflight`는 선택 profile의 anonymous readonly 상태를 출력한다. enabled
 표시는 의도적인 공개 결정인지 확인해야 할 운영 경보다.
 
 ### 익명 읽기 배포와 롤백
 
 먼저 `CLAIRE_ANONYMOUS_READONLY=0`인 채로 코드를 업데이트하고
-`./cb-manuscript init`, `./cb-manuscript doctor`를 통과시킨다. reverse proxy의
+`./cb-manuscript init`, `./cb-manuscript preflight`를 통과시킨다. reverse proxy의
 `/search` per-IP 제한과 backend 방화벽을 확인한 다음, trusted LAN 또는 VPN에만
 노출되는 profile의 값을 `1`로 바꾸고 `./cb-manuscript up`으로 재기동한다.
 
@@ -91,6 +91,7 @@ hostname과 IPv6는 사전 검사에서 거부한다. loopback은 안전한 초�
 `cb-manuscript app`을 사용한다.
 
 ```bash
+./cb-manuscript app doctor
 ./cb-manuscript app status
 ./cb-manuscript app stats
 ./cb-manuscript app search "키워드"
@@ -158,7 +159,7 @@ Compose 수명주기에 맡긴다. 설치·업데이트·migration처럼 서비�
 `deploy.sh`와 원격 `cb-manuscript` 모두에 production 값을 명시적으로 전달한다.
 기본 `DEPLOY_ENV_SYNC=if-missing`은 기존 원격 `.env`를 유지하므로 코드 update만으로
 anonymous readonly가 켜지지 않는다. 원격 파일을 직접 수정하거나 `always` 동기화를
-명시한 뒤 원격 `doctor` 출력으로 유효값을 확인한다.
+명시한 뒤 원격 `preflight` 출력으로 유효값을 확인한다.
 
 ## 백업과 복원
 
