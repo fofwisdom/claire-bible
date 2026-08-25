@@ -47,7 +47,14 @@ docs/
   - `COMMANDS.md`: `cb-manuscript` 및 `claire` 전체 CLI 상세 명세 및 옵션 상태 레퍼런스
 
 ### 3. `docs/screenshots/` (공통 에셋)
-- README 및 가이드 문서에서 참조하는 UI/그래프 캡처 이미지.
+- README 및 가이드 문서에서 참조하는 UI/그래프 캡처 이미지 자산.
+  - `knowledge-graph-overview.png`: 문서 목록 및 온톨로지 지식 그래프 전체 탐색 화면 (1440x1000)
+  - `search-and-node-details.png`: 검색 결과 및 선택 엔티티의 상세 문맥/관찰/출처/관계 화면 (1440x1000)
+  - `document-reader.png`: Markdown/AsciiDoc 듀얼 포맷 본문 리더 및 AI 요약 화면 (1440x1000)
+  - `connection-path.png`: 두 노드 간 최단 경로(BFS) 시각화 및 관계 단계 요약 화면 (1440x1000)
+  - `content-ingestion-form.png`: 웹 브라우저 기반 URL/메모 자료 적재 입력 화면 (1440x1000)
+  - `multi-node-synthesis.png`: 다중 노드 수집 및 LLM 교차 맥락 종합 분석 화면 (1440x1000)
+  - `favicon-preview.png`: 3D 구체 기하학 기반 파비콘 그래픽 미리보기 (1024x1024)
 
 ---
 
