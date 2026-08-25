@@ -742,6 +742,75 @@ def cmd_format_status(args) -> int:
         conn.close()
 
 
+def cmd_format_migrate(args) -> int:
+    """문서 렌더링 포맷(detail) 마이그레이션 진단 및 적용 (기본: dry-run, --apply 로 적용)."""
+    import sys
+    from .ingest.service import IngestService
+
+    s = get_settings()
+    target_format = getattr(args, "format", None) or s.render_format
+    conn = dbm.connect(s.db_file)
+    dbm.init_db(conn)
+    try:
+        status = dbm.get_format_status(conn, target_format)
+    finally:
+        conn.close()
+
+    fmt_label = status["target_format"].upper()
+    other_label = "MD" if status["target_format"] == "adoc" else "ADOC"
+
+    if getattr(args, "json", False):
+        import json
+
+        print(json.dumps(status, ensure_ascii=False, indent=2))
+        return 0
+
+    print("claire: [포맷 마이그레이션 진단 현황]")
+    print("=" * 60)
+    print(f"• 설정된 목표 포맷 (.env)  : {fmt_label} (CLAIRE_RENDER_FORMAT={status['target_format']})")
+    print(f"• 전체 문서 수             : {status['total_docs']} 건")
+    print(f"  - 목표 포맷 일치         : {status['matching_docs']} 건 ({fmt_label})")
+    print(f"  - 포맷 불일치 (변환 대상) : {status['mismatched_docs']} 건 ({other_label})")
+    print(f"  - 본문(detail) 누락     : {status['missing_detail_docs']} 건")
+    print(f"• 총 마이그레이션 대상     : {status['target_docs']} 건")
+    print("=" * 60)
+
+    apply = getattr(args, "apply", False)
+    dry_run = getattr(args, "dry_run", False)
+
+    if not apply or dry_run:
+        print("\n[안내] 기본 Dry-Run 모드로 실행되어 실제 변경을 적용하지 않았습니다.")
+        print("실제 마이그레이션을 적용하려면 --apply 옵션을 사용하십시오:")
+        print(f"  claire format-migrate --apply --format {status['target_format']}")
+        return 0
+
+    if status["target_docs"] == 0:
+        print(f"\n[✓] 모든 문서가 이미 목표 포맷({fmt_label})입니다. 마이그레이션이 필요하지 않습니다.")
+        return 0
+
+    confirmed = getattr(args, "yes", False)
+    if not confirmed:
+        if sys.stdin.isatty():
+            try:
+                answer = input(f"\n위 계획대로 포맷 마이그레이션을 진행하시겠습니까? [y/N]: ").strip().lower()
+            except (EOFError, KeyboardInterrupt):
+                print("\n마이그레이션 작업이 취소되었습니다.")
+                return 0
+            if answer not in ("y", "yes"):
+                print("마이그레이션 작업이 취소되었습니다.")
+                return 0
+        else:
+            print("\n비대화형 환경에서는 --yes (-y) 옵션을 명시하여 실행하십시오:")
+            print(f"  claire format-migrate --apply --yes --format {status['target_format']}")
+            return 2
+
+    svc = IngestService(s)
+    print(f"\n[*] Starting format migration to {fmt_label} (backfill-detail)...")
+    out = svc.backfill_details(limit=0, force=False, format=status["target_format"])
+    print(f"[✓] 포맷 마이그레이션 완료: 대상 {out['docs']} · 생성 {out['ok']} · 건너뜀 {out['skipped']}")
+    return 0
+
+
 def cmd_recompile_html(args) -> int:
     """모든 문서의 detail_html을 현재 AOT 사전 렌더러로 재컴파일(LLM 호출 없음)."""
     s = get_settings()
@@ -1127,6 +1196,18 @@ def build_parser() -> argparse.ArgumentParser:
                      help="target render format (default: config CLAIRE_RENDER_FORMAT)")
     pfs.add_argument("--json", action="store_true", help="output in json format")
     pfs.set_defaults(func=cmd_format_status)
+
+    pfm = sub.add_parser(
+        "format-migrate",
+        help="inspect and selectively migrate document render formats (default: dry-run, requires --apply)",
+    )
+    pfm.add_argument("--format", choices=["md", "adoc"], default=None,
+                     help="target render format (default: config CLAIRE_RENDER_FORMAT)")
+    pfm.add_argument("--apply", action="store_true", help="apply format migration (default: dry-run only)")
+    pfm.add_argument("--dry-run", action="store_true", help="dry-run inspection without changes (default)")
+    pfm.add_argument("--yes", "-y", action="store_true", help="confirm without interactive prompt")
+    pfm.add_argument("--json", action="store_true", help="output in json format")
+    pfm.set_defaults(func=cmd_format_migrate)
 
     prc = sub.add_parser("recompile-html",
                          help="recompile detail_html for all documents using latest AOT renderer (zero LLM calls)")

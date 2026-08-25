@@ -1348,243 +1348,55 @@ def test_all_subparsers_have_rich_descriptions():
         assert subparser.description, f"{name} subparser is missing a description"
 
 
-def test_format_migrate_default_is_dry_run(tmp_path, capsys):
+def test_top_level_rejected_domain_commands(tmp_path):
     _write_layout(tmp_path, dev=False)
-    with patch.object(cb.subprocess, "run", side_effect=_fake_success) as run:
-        code = cb.main(["format-migrate"], root=tmp_path)
-        assert code == 0
-
-    commands = _commands(run)
-    assert len(commands) == 0  # Dry-run must not run compose commands
-    captured = capsys.readouterr().out
-    assert "Dry-Run" in captured
-    assert "포맷 마이그레이션 진단 현황" in captured
-    assert "--apply" in captured
-
-
-def test_format_migrate_explicit_dry_run(tmp_path, capsys):
-    _write_layout(tmp_path, dev=False)
-    with patch.object(cb.subprocess, "run", side_effect=_fake_success) as run:
-        code = cb.main(["format-migrate", "--dry-run"], root=tmp_path)
-        assert code == 0
-
-    commands = _commands(run)
-    assert len(commands) == 0
-    captured = capsys.readouterr().out
-    assert "Dry-Run" in captured
-    assert "--apply" in captured
-
-
-def test_format_migrate_uses_env_render_format(tmp_path, capsys):
-    _write_layout(tmp_path, dev=False)
-    # Write custom format in .env
-    env_content = (tmp_path / ".env").read_text(encoding="utf-8")
-    (tmp_path / ".env").write_text(env_content + "\nCLAIRE_RENDER_FORMAT=md\n", encoding="utf-8")
-
-    code = cb.main(["format-migrate"], root=tmp_path)
-    assert code == 0
-    captured = capsys.readouterr().out
-    assert "MD (CLAIRE_RENDER_FORMAT=md)" in captured
-
-
-def test_format_migrate_no_targets_returns_zero(tmp_path, capsys):
-    _write_layout(tmp_path, dev=False)
-    code = cb.main(["format-migrate", "--apply"], root=tmp_path)
-    assert code == 0
-    captured = capsys.readouterr().out
-    assert "마이그레이션이 필요하지 않습니다" in captured
-
-
-def test_format_migrate_apply_requires_confirmation_in_non_tty(tmp_path, capsys):
-    _write_layout(tmp_path, dev=False)
-    # Populate a doc needing migration
-    storage = cb.resolve_storage(cb.load_runtime(cb.Layout(root=tmp_path)))
-    storage.database.parent.mkdir(parents=True, exist_ok=True)
-    conn = cb.sqlite3.connect(storage.database)
-    conn.execute("CREATE TABLE documents (id TEXT PRIMARY KEY, detail TEXT, detail_format TEXT)")
-    conn.execute("INSERT INTO documents VALUES ('doc1', 'text', 'md')")
-    conn.commit()
-    conn.close()
-
-    # In non-tty without --yes, format-migrate --apply should exit with code 2 and guide --yes
-    with patch.object(cb.sys.stdin, "isatty", return_value=False):
-        code = cb.main(["format-migrate", "--apply"], root=tmp_path)
+    for cmd in ["doctor", "format-migrate", "regenerate", "summary-regenerate"]:
+        code = cb.main([cmd], root=tmp_path)
         assert code == 2
-        captured = capsys.readouterr().out
-        assert "--yes" in captured
 
 
-def test_format_migrate_apply_interactive_cancellation(tmp_path, capsys):
+def test_app_doctor_dispatches_to_claire_in_container(tmp_path):
     _write_layout(tmp_path, dev=False)
-    # Populate a doc needing migration so it asks
-    storage = cb.resolve_storage(cb.load_runtime(cb.Layout(root=tmp_path)))
-    storage.database.parent.mkdir(parents=True, exist_ok=True)
-    conn = cb.sqlite3.connect(storage.database)
-    conn.execute("CREATE TABLE documents (id TEXT PRIMARY KEY, detail TEXT, detail_format TEXT)")
-    conn.execute("INSERT INTO documents VALUES ('doc1', 'text', 'md')")
-    conn.commit()
-    conn.close()
-
-    with patch.object(cb.sys.stdin, "isatty", return_value=True), \
-         patch("builtins.input", return_value="n"), \
-         patch.object(cb.subprocess, "run", side_effect=_fake_success) as run:
-        code = cb.main(["format-migrate", "--apply"], root=tmp_path)
-        assert code == 0
-        assert len(_commands(run)) == 0
-        captured = capsys.readouterr().out
-        assert "취소되었습니다" in captured
-
-
-def test_format_migrate_apply_with_yes_executes_backfill(tmp_path, capsys):
-    _write_layout(tmp_path, dev=False)
-    # Populate a doc needing migration
-    storage = cb.resolve_storage(cb.load_runtime(cb.Layout(root=tmp_path)))
-    storage.database.parent.mkdir(parents=True, exist_ok=True)
-    conn = cb.sqlite3.connect(storage.database)
-    conn.execute("CREATE TABLE documents (id TEXT PRIMARY KEY, detail TEXT, detail_format TEXT)")
-    conn.execute("INSERT INTO documents VALUES ('doc1', 'text', 'md')")
-    conn.commit()
-    conn.close()
-
     with patch.object(cb.subprocess, "run", side_effect=_fake_success) as run:
-        code = cb.main(["format-migrate", "--apply", "--yes"], root=tmp_path)
-        assert code == 0
-
-    commands = _commands(run)
-    assert len(commands) == 1
-    assert commands[0][-4:] == ["claire", "backfill-detail", "--format", "adoc"]
-    captured = capsys.readouterr().out
-    assert "completed successfully" in captured
-
-
-def test_regenerate_default_is_dry_run(tmp_path, capsys):
-    _write_layout(tmp_path, dev=False)
-    # Populate a doc with corrupted summary and share token
-    storage = cb.resolve_storage(cb.load_runtime(cb.Layout(root=tmp_path)))
-    storage.database.parent.mkdir(parents=True, exist_ok=True)
-    conn = cb.sqlite3.connect(storage.database)
-    conn.execute("CREATE TABLE documents (id TEXT PRIMARY KEY, title TEXT, canonical_url TEXT, detail TEXT, detail_format TEXT)")
-    conn.execute("CREATE TABLE doc_shares (token TEXT PRIMARY KEY, document_id TEXT)")
-    conn.execute("CREATE TABLE extractions (id INTEGER PRIMARY KEY AUTOINCREMENT, document_id TEXT, raw_response TEXT)")
-    conn.execute("INSERT INTO documents VALUES ('doc1', 'Test Title', 'https://example.com/doc1', 'detail', 'adoc')")
-    conn.execute("INSERT INTO doc_shares VALUES ('dzr73zpxh2bah4vp', 'doc1')")
-    conn.execute("INSERT INTO extractions VALUES (1, 'doc1', '{\"summary\":\"= Header corrupted summary\"}')")
-    conn.commit()
-    conn.close()
-
-    with patch.object(cb.subprocess, "run", side_effect=_fake_success) as run:
-        code = cb.main(["regenerate", "dzr73zpxh2bah4vp", "--summary"], root=tmp_path)
-        assert code == 0
-
-    commands = _commands(run)
-    assert len(commands) == 0  # Dry-run must not execute compose commands
-    captured = capsys.readouterr().out
-    assert "Dry-Run" in captured
-    assert "Test Title" in captured
-    assert "doc1" in captured
-    assert "--force" in captured
-
-
-def test_regenerate_force_with_token_and_effort(tmp_path, capsys):
-    _write_layout(tmp_path, dev=False)
-    storage = cb.resolve_storage(cb.load_runtime(cb.Layout(root=tmp_path)))
-    storage.database.parent.mkdir(parents=True, exist_ok=True)
-    conn = cb.sqlite3.connect(storage.database)
-    conn.execute("CREATE TABLE documents (id TEXT PRIMARY KEY, title TEXT, canonical_url TEXT, detail TEXT, detail_format TEXT)")
-    conn.execute("CREATE TABLE doc_shares (token TEXT PRIMARY KEY, document_id TEXT)")
-    conn.execute("CREATE TABLE extractions (id INTEGER PRIMARY KEY AUTOINCREMENT, document_id TEXT, raw_response TEXT)")
-    conn.execute("INSERT INTO documents VALUES ('doc1', 'Test Title', 'https://example.com/doc1', 'detail', 'adoc')")
-    conn.execute("INSERT INTO doc_shares VALUES ('dzr73zpxh2bah4vp', 'doc1')")
-    conn.execute("INSERT INTO extractions VALUES (1, 'doc1', '{\"summary\":\"= Header corrupted summary\"}')")
-    conn.commit()
-    conn.close()
-
-    with patch.object(cb.subprocess, "run", side_effect=_fake_success) as run:
-        code = cb.main(["regenerate", "dzr73zpxh2bah4vp", "--summary", "--force", "--effort", "high"], root=tmp_path)
+        code = cb.main(["app", "doctor", "--heal", "-y"], root=tmp_path)
         assert code == 0
 
     commands = _commands(run)
     assert len(commands) == 1
     cmd = commands[0]
-    assert "claire" in cmd
-    assert "regenerate" in cmd
-    assert "dzr73zpxh2bah4vp" in cmd
-    assert "--summary" in cmd
-    assert "--force" in cmd
-    assert "--effort" in cmd
-    assert "high" in cmd
-    captured = capsys.readouterr().out
-    assert "completed successfully" in captured
+    assert cmd[-4:] == ["claire", "doctor", "--heal", "-y"]
 
 
-def test_summary_regenerate_alias(tmp_path, capsys):
+def test_app_format_migrate_dispatches_to_claire_in_container(tmp_path):
     _write_layout(tmp_path, dev=False)
-    storage = cb.resolve_storage(cb.load_runtime(cb.Layout(root=tmp_path)))
-    storage.database.parent.mkdir(parents=True, exist_ok=True)
-    conn = cb.sqlite3.connect(storage.database)
-    conn.execute("CREATE TABLE documents (id TEXT PRIMARY KEY, title TEXT, canonical_url TEXT, detail TEXT, detail_format TEXT)")
-    conn.execute("CREATE TABLE doc_shares (token TEXT PRIMARY KEY, document_id TEXT)")
-    conn.execute("CREATE TABLE extractions (id INTEGER PRIMARY KEY AUTOINCREMENT, document_id TEXT, raw_response TEXT)")
-    conn.execute("INSERT INTO documents VALUES ('doc1', 'Test Title', 'https://example.com/doc1', 'detail', 'adoc')")
-    conn.execute("INSERT INTO doc_shares VALUES ('dzr73zpxh2bah4vp', 'doc1')")
-    conn.execute("INSERT INTO extractions VALUES (1, 'doc1', '{\"summary\":\"= Header corrupted summary\"}')")
-    conn.commit()
-    conn.close()
-
     with patch.object(cb.subprocess, "run", side_effect=_fake_success) as run:
-        code = cb.main(["summary-regenerate", "dzr73zpxh2bah4vp", "--force"], root=tmp_path)
+        code = cb.main(["app", "format-migrate", "--apply", "--yes"], root=tmp_path)
         assert code == 0
 
     commands = _commands(run)
     assert len(commands) == 1
     cmd = commands[0]
-    assert "claire" in cmd
-    assert "regenerate" in cmd
-    assert "dzr73zpxh2bah4vp" in cmd
-    assert "--force" in cmd
+    assert cmd[-4:] == ["claire", "format-migrate", "--apply", "--yes"]
 
 
-def test_doctor_diagnose_graph_report(tmp_path, capsys):
+def test_app_regenerate_dispatches_to_claire_in_container(tmp_path):
     _write_layout(tmp_path, dev=False)
-    storage = cb.resolve_storage(cb.load_runtime(cb.Layout(root=tmp_path)))
-    storage.database.parent.mkdir(parents=True, exist_ok=True)
-    conn = cb.sqlite3.connect(storage.database)
-    conn.execute("CREATE TABLE documents (id TEXT PRIMARY KEY, title TEXT)")
-    conn.execute("CREATE TABLE entities (id TEXT PRIMARY KEY, type TEXT, name TEXT, norm_name TEXT, aliases TEXT, props TEXT, observations TEXT, sources TEXT, provisional INTEGER, created_at REAL, updated_at REAL)")
-    conn.execute("CREATE TABLE relations (id TEXT PRIMARY KEY, type TEXT, source_id TEXT, target_id TEXT, props TEXT, sources TEXT, confidence REAL, provisional INTEGER, created_at REAL)")
-    conn.execute("CREATE TABLE embeddings (owner_id TEXT PRIMARY KEY, dim INTEGER, vector BLOB, model TEXT, updated_at REAL)")
-    conn.execute("CREATE TABLE extractions (id INTEGER PRIMARY KEY AUTOINCREMENT, document_id TEXT, raw_response TEXT)")
-    conn.commit()
-    conn.close()
-
-    code = cb.main(["doctor"], root=tmp_path)
-    assert code == 0
-    captured = capsys.readouterr().out
-    assert "진단 보고서" in captured
-    assert "고아 관계" in captured
-    assert "OK" in captured or "완벽합니다" in captured
-
-
-def test_doctor_heal_triggers_compose(tmp_path, capsys):
-    _write_layout(tmp_path, dev=False)
-    storage = cb.resolve_storage(cb.load_runtime(cb.Layout(root=tmp_path)))
-    storage.database.parent.mkdir(parents=True, exist_ok=True)
-    conn = cb.sqlite3.connect(storage.database)
-    conn.execute("CREATE TABLE documents (id TEXT PRIMARY KEY, title TEXT)")
-    conn.commit()
-    conn.close()
-
     with patch.object(cb.subprocess, "run", side_effect=_fake_success) as run:
-        code = cb.main(["doctor", "--heal", "-y"], root=tmp_path)
+        code = cb.main(
+            ["app", "regenerate", "dzr73zpxh2bah4vp", "--summary", "--force", "--effort", "high"],
+            root=tmp_path,
+        )
         assert code == 0
 
     commands = _commands(run)
     assert len(commands) == 1
     cmd = commands[0]
-    assert "claire" in cmd
-    assert "doctor" in cmd
-    assert "--heal" in cmd
-
-
-
-
+    assert cmd[-7:] == [
+        "claire",
+        "regenerate",
+        "dzr73zpxh2bah4vp",
+        "--summary",
+        "--force",
+        "--effort",
+        "high",
+    ]

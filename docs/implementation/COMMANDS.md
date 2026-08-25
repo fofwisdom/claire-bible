@@ -8,15 +8,14 @@
 1. [명령어 계층 및 실행 표면](#1-명령어-계층-및-실행-표면)
 2. [호스트 운영 명령어 (`cb-manuscript`)](#2-호스트-운영-명령어-cb-manuscript)
    * [2.1 수명주기 및 환경 관리](#21-수명주기-및-환경-관리)
-   * [2.2 무결성 진단 및 수복 (`doctor` / `preflight`)](#22-무결성-진단-및-수복-doctor--preflight)
-   * [2.3 컴포넌트 재생성 및 포맷 마이그레이션](#23-컴포넌트-재생성-및-포맷-마이그레이션)
-   * [2.4 백업, 복원 및 원격 관리](#24-백업-복원-및-원격-관리)
-   * [2.5 컨테이너 및 서비스 제어 (Compose Passthrough)](#25-컨테이너-및-서비스-제어-compose-passthrough)
-3. [애플리케이션 CLI 명령어 (`claire`)](#3-애플리케이션-cli-명령어-claire)
-   * [3.1 시스템 상태 및 진단](#31-시스템-상태-및-진단)
+   * [2.2 인프라 사전 점검 (`preflight`)](#22-인프라-사전-점검-preflight)
+   * [2.3 백업, 복원 및 원격 관리](#23-백업-복원-및-원격-관리)
+   * [2.4 컨테이너 및 서비스 제어 (Compose Passthrough)](#24-컨테이너-및-서비스-제어-compose-passthrough)
+3. [애플리케이션 CLI 명령어 (`claire` / `app`)](#3-애플리케이션-cli-명령어-claire--app)
+   * [3.1 시스템 상태 및 지식그래프 진단/수복](#31-시스템-상태-및-지식그래프-진단수복)
    * [3.2 수집 및 적재 (Ingest)](#32-수집-및-적재-ingest)
    * [3.3 검색 및 질의 (Search)](#33-검색-및-질의-search)
-   * [3.4 재처리, 백필 및 복구 (Backfill & Recovery)](#34-재처리-백필-및-복구-backfill--recovery)
+   * [3.4 재생성, 백필, 포맷 마이그레이션 및 복구](#34-재생성-백필-포맷-마이그레이션-및-복구)
    * [3.5 1홉 자동 확장 (Expand)](#35-1홉-자동-확장-expand)
    * [3.6 중복 정리 및 정규화 (Dedup & Canon)](#36-중복-정리-및-정규화-dedup--canon)
    * [3.7 감시 및 문서 관리 (Watch & Doc)](#37-감시-및-문서-관리-watch--doc)
@@ -28,8 +27,8 @@
 
 | 실행 환경 | 명령어 표면 | 대상 및 역할 |
 | :--- | :--- | :--- |
-| **호스트 (Host OS)** | `./cb-manuscript <command>` | 배포 환경, Docker Compose 오케스트레이션, 무결성 진단, 백업/복원 |
-| **호스트 (One-off 임시 컨테이너)** | `./cb-manuscript app <command>` | 배포된 DB/볼륨을 공유하는 `claire` 단발성 작업 실행 |
+| **호스트 (Host OS)** | `./cb-manuscript <command>` | 배포 환경, Docker Compose 오케스트레이션, 인프라 사전점검(`preflight`), 백업/복원 |
+| **호스트 (One-off 임시 컨테이너)** | `./cb-manuscript app <command>` | 배포된 DB/볼륨을 공유하는 `claire` 애플리케이션 작업 실행 (`doctor`, `format-migrate`, `regenerate` 등) |
 | **로컬 가상환경 (Local Dev)** | `uv run claire <command>` | 소스코드 개발, 로컬 SQLite/Mock 기반 단위 작업 및 테스트 |
 | **컨테이너 내부 (Inside Container)** | `claire <command>` | 서비스 상주 데몬(API 서버, 텔레그램 봇, 큐 루프 등) |
 
@@ -61,7 +60,7 @@ Git 저장소 최신 커밋을 가져와 무중단 롤링 업데이트를 수행
 
 ---
 
-### 2.2 무결성 진단 및 수복 (`doctor` / `preflight`)
+### 2.2 인프라 사전 점검 (`preflight`)
 
 #### `preflight`
 *(구 `doctor`에서 변경)* 배포 환경, Docker 데몬, Compose 문법, 네트워크 바인딩, 디렉터리 권한, 보안 토큰을 사전 검증합니다.
@@ -72,74 +71,9 @@ Git 저장소 최신 커밋을 가져와 무중단 롤링 업데이트를 수행
   * `data/` 및 `vault/` 디렉터리 권한 (`0700`)
   * 익명 읽기(`CLAIRE_ANONYMOUS_READONLY`) 노출 상태 경고
 
-#### `doctor`
-*(신규)* 지식그래프(Knowledge Graph) 및 SQLite DB의 참조 무결성을 정밀 진단하고, 결함을 원클릭으로 자동 수복(Auto-Healing)합니다.
-* **사용법**:
-  ```bash
-  ./cb-manuscript doctor          # 기본: Dry-run 진단 보고서 출력
-  ./cb-manuscript doctor --heal   # 자동 수복 실행 (확인 프롬프트 포함)
-  ./cb-manuscript doctor --heal -y # 무인 자동 수복
-  ./cb-manuscript doctor --json   # 기계 판독용 JSON 출력
-  ```
-* **옵션**:
-  * `--heal`, `--apply`, `--repair`: 고아 관계 삭제, 출처 정제, FTS 색인 재구축 등 자동 수복 적용.
-  * `--yes`, `-y`: 수복 진행 시 대화형 확인 프롬프트 생략.
-  * `--json`: 진단 결과를 JSON 포맷으로 출력.
-* **진단/수복 범위**:
-  1. **고아 관계 (Dangling Relations)**: 연결 대상 엔티티가 없는 엣지 탐지/삭제.
-  2. **유효하지 않은 출처 참조 (Stale Sources)**: 삭제된 문서를 가리키는 `sources` JSON 필터링.
-  3. **유령/고아 엔티티 (Ghost Entities)**: 유효 문서 출처 및 연결 관계가 0개인 고아 노드 회수.
-  4. **고아 임베딩 (Orphan Embeddings)**: 엔티티가 삭제된 벡터 데이터 정리.
-  5. **FTS 전문 색인 불일치 (FTS Desync)**: 실존 엔티티 기준 `entities_fts` 재색인.
-  6. **오염 요약 마크업 탐지**: AsciiDoc 문법이 섞인 요약 탐지 및 `regenerate` 안내.
-
 ---
 
-### 2.3 컴포넌트 재생성 및 포맷 마이그레이션
-
-#### `regenerate`
-특정 문서의 컴포넌트(요약, 본문 detail)를 LLM을 통해 선택적으로 재생성하고 DB를 갱신합니다.
-* **사용법**:
-  ```bash
-  ./cb-manuscript regenerate <target> --summary              # Dry-run 진단 (기본)
-  ./cb-manuscript regenerate <target> --summary --force      # 실제 LLM 호출 및 DB 덮어쓰기
-  ./cb-manuscript regenerate <target> --summary --force --effort high # 추론 레벨 지정
-  ./cb-manuscript regenerate --corrupted --summary           # 오염된 요약 일괄 스캔
-  ./cb-manuscript regenerate <target> --all --force          # 요약 + 본문 전체 재생성
-  ```
-* **옵션**:
-  * `target`: 문서 ID, 공유 토큰(예: `dzr73zpxh2bah4vp`), 또는 공유 URL (`https://.../p?s=token`).
-  * `--token <token>`: 명시적 공유 토큰 지정.
-  * `--doc-id <id>`: 명시적 문서 ID 지정.
-  * `--summary`: 요약(summary) 재생성 (기본 대상). 지식그래프 노드/엣지는 100% 보존.
-  * `--detail`: 본문(detail) 렌더링 텍스트 재생성.
-  * `--all`: 요약과 본문 동시 재생성.
-  * `--corrupted`: AsciiDoc/마크업 문법 잔존으로 오염된 요약을 가진 문서를 전체 DB에서 자동 탐지.
-  * `--force`: 실제 LLM 호출 및 DB 덮어쓰기 실행 (미지정 시 기본 dry-run).
-  * `--dry-run`: 대상 문서 정보 및 계획만 출력하고 DB 변경 없음 (기본값).
-  * `--effort <level>`: Gemini 사고/추론 레벨 오버라이드 (`low`, `medium`, `high`, `minimal`, `none`, 또는 정수 토큰 budget).
-  * `--format {md,adoc}`: 본문 detail 렌더링 포맷 지정.
-
-#### `summary-regenerate`
-`regenerate --summary`의 단축 Alias입니다.
-* **사용법**: `./cb-manuscript summary-regenerate <target> [--force] [--effort <level>]`
-
-#### `format-migrate`
-전체 문서의 detail 본문 렌더링 포맷(Markdown ↔ AsciiDoc) 현황을 점검하고 일괄 변환합니다.
-* **사용법**:
-  ```bash
-  ./cb-manuscript format-migrate          # 변환 현황 진단 (Dry-run)
-  ./cb-manuscript format-migrate --apply  # 미적용 문서 일괄 백필 변환
-  ./cb-manuscript format-migrate --apply -y
-  ```
-* **옵션**:
-  * `--apply`: 미변환 문서에 대해 LLM detail 렌더링을 실행하여 일괄 적용.
-  * `--dry-run`: 대상 문서 통계만 보고 (기본값).
-  * `--yes`, `-y`: 확인 프롬프트 생략.
-
----
-
-### 2.4 백업, 복원 및 원격 관리
+### 2.3 백업, 복원 및 원격 관리
 
 #### `backup`
 데이터베이스, Vault 마크다운, 환경 설정을 아카이브로 내보냅니다.
@@ -163,7 +97,7 @@ Git 저장소 최신 커밋을 가져와 무중단 롤링 업데이트를 수행
 
 ---
 
-### 2.5 컨테이너 및 서비스 제어 (Compose Passthrough)
+### 2.4 컨테이너 및 서비스 제어 (Compose Passthrough)
 
 | 명령 | 사용법 및 설명 | 주요 옵션 |
 | :--- | :--- | :--- |
@@ -173,28 +107,49 @@ Git 저장소 최신 커밋을 가져와 무중단 롤링 업데이트를 수행
 | `status` | `./cb-manuscript status` (`docker compose ps` 컨테이너 상태) | — |
 | `logs` | `./cb-manuscript logs [-f] [--tail N] [service...]` (로그 확인) | `-f` (follow), `--tail <N>` |
 | `shell` | `./cb-manuscript shell [service] [cmd...]` (컨테이너 셸 진입) | 기본 서비스: `api` |
-| `health` | `./cb-manuscript health` (컨테이너 내부 헬스 JSON 확인) | — |
+| `health` | `./cb-manuscript health` (컨테이너 내부 HTTP liveness 확인) | — |
 | `app` | `./cb-manuscript app <claire_cmd...>` (One-off 앱 명령 실행) | `--advanced` (안전 가드 우회) |
 | `compose` | `./cb-manuscript compose <docker_compose_args...>` | Compose 인자 직접 전달 |
 
 ---
 
-## 3. 애플리케이션 CLI 명령어 (`claire`)
+## 3. 애플리케이션 CLI 명령어 (`claire` / `app`)
 
 `claire`는 Python 패키지 내부 엔트리포인트이며, 로컬에서는 `uv run claire <cmd>`, 배포 환경에서는 `./cb-manuscript app <cmd>`로 실행합니다.
 
-### 3.1 시스템 상태 및 진단
+### 3.1 시스템 상태 및 지식그래프 진단/수복
 
 | 명령 | 사용법 | 설명 |
 | :--- | :--- | :--- |
+| `doctor` | `claire doctor [--heal] [--yes] [--json]` | 지식그래프 무결성(고아 노드/엣지, FTS 불일치) 진단 및 원클릭 자동 수복 |
 | `preflight` | `claire preflight` | 파이썬 환경, 설정값, Gemini API Key, sqlite-vec 모듈, DB 연결 사전 점검 |
-| `doctor` | `claire doctor [--heal] [--json]` | 지식그래프 무결성(고아 노드/엣지, FTS 불일치) 진단 및 자동 수복 |
 | `health` | `claire health` | DB, 큐(Queue), Inbox 상태를 담은 건강 진단 JSON 출력 |
 | `liveness` | `claire liveness` | 읽기 전용 DB 및 스키마 생존 여부 확인 (Degraded 시 비정상 종료 안 함) |
 | `status` | `claire status` | 운영 상태, DB 테이블 카운트, 프로바이더 설정 전체 출력 |
 | `stats` | `claire stats` | 지식그래프 노드(엔티티) 및 엣지(관계) 카운트 출력 |
 | `repo` | `claire repo` | Git 소스 저장소 정보 및 원격 URL 출력 |
 | `migrate` | `claire migrate` | 스키마를 최신 `SCHEMA_VERSION`으로 초기화/업그레이드 |
+
+#### `doctor`
+지식그래프(Knowledge Graph) 및 SQLite DB의 참조 무결성을 정밀 진단하고, 결함을 원클릭으로 자동 수복(Auto-Healing)합니다.
+* **사용법**:
+  ```bash
+  ./cb-manuscript app doctor          # 기본: Dry-run 진단 보고서 출력
+  ./cb-manuscript app doctor --heal   # 자동 수복 실행 (확인 프롬프트 포함)
+  ./cb-manuscript app doctor --heal -y # 무인 자동 수복
+  ./cb-manuscript app doctor --json   # 기계 판독용 JSON 출력
+  ```
+* **옵션**:
+  * `--heal`, `--apply`, `--repair`: 고아 관계 삭제, 출처 정제, FTS 색인 재구축 등 자동 수복 적용.
+  * `--yes`, `-y`: 수복 진행 시 대화형 확인 프롬프트 생략.
+  * `--json`: 진단 결과를 JSON 포맷으로 출력.
+* **진단/수복 범위**:
+  1. **고아 관계 (Dangling Relations)**: 연결 대상 엔티티가 없는 엣지 탐지/삭제.
+  2. **유효하지 않은 출처 참조 (Stale Sources)**: 삭제된 문서를 가리키는 `sources` JSON 필터링.
+  3. **유령/고아 엔티티 (Ghost Entities)**: 유효 문서 출처 및 연결 관계가 0개인 고아 노드 회수.
+  4. **고아 임베딩 (Orphan Embeddings)**: 엔티티가 삭제된 벡터 데이터 정리.
+  5. **FTS 전문 색인 불일치 (FTS Desync)**: 실존 엔티티 기준 `entities_fts` 재색인.
+  6. **오염 요약 마크업 탐지**: AsciiDoc 문법이 섞인 요약 탐지 및 `regenerate` 안내.
 
 ---
 
@@ -222,16 +177,17 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 
 ---
 
-### 3.4 재처리, 백필 및 복구 (Backfill & Recovery)
+### 3.4 재생성, 백필, 포맷 마이그레이션 및 복구
 
 | 명령 | 사용법 | 설명 |
 | :--- | :--- | :--- |
-| `regenerate` | `claire regenerate <target> [--summary] [--detail] [--all] [--force] [--effort <level>]` | 특정 문서 컴포넌트(요약/본문) 선택적 LLM 재생성 |
+| `regenerate` | `claire regenerate <target> [--summary] [--detail] [--all] [--force] [--effort <level>]` | 특정 문서 컴포넌트(요약/본문) 선택적 LLM 재생성 (기본: dry-run) |
 | `summary-regenerate`| `claire summary-regenerate <target> [--force] [--effort <level>]` | `regenerate --summary`의 단축 Alias |
+| `format-migrate` | `claire format-migrate [--format {md,adoc}] [--apply] [--yes] [--json]` | 문서 렌더링 포맷 진단 및 일괄 변환 (기본: dry-run) |
+| `format-status` | `claire format-status` | 문서 detail의 포맷별(md, adoc, 누락) 통계 출력 |
 | `backfill-detail` | `claire backfill-detail [--format {md,adoc}] [--limit N] [--force]` | detail 렌더링이 누락된 문서 일괄 생성 (그래프 불변) |
 | `backfill-summary` | `claire backfill-summary [--limit N]` | 요약이 누락된 기존 문서의 요약 일괄 생성 |
 | `backfill-images` | `claire backfill-images [--limit N]` | 문서 내 참조된 이미지 에셋 추출 및 다운로드 백필 |
-| `format-status` | `claire format-status` | 문서 detail의 포맷별(md, adoc, 누락) 통계 출력 |
 | `recompile-html` | `claire recompile-html` | 저장된 detail 본문으로부터 `detail_html` AOT 사전 컴파일 갱신 |
 | `reextract` | `claire reextract [--no-rebuild] [--limit N]` | 저장된 `raw_text`로부터 지식그래프 전체를 백지상태에서 재추출 |
 | `replay-failed` | `claire replay-failed [--limit N]` | `raw_inbox`에서 `status=error`인 실패 건 전량 수동 재적재 |
@@ -240,6 +196,48 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 | `refresh-mark` | `claire refresh-mark [--older-than-days N]` | 구버전/빈약 문서를 갱신 큐(`refresh_queue`)에 마킹 |
 | `refresh-run` | `claire refresh-run [--limit N]` | 갱신 큐 1회 배치 처리 |
 | `refresh-loop` | `claire refresh-loop [--interval N]` | 갱신 큐 상주 데몬 루프 |
+
+#### `regenerate`
+특정 문서의 컴포넌트(요약, 본문 detail)를 LLM을 통해 선택적으로 재생성하고 DB를 갱신합니다.
+* **사용법**:
+  ```bash
+  ./cb-manuscript app regenerate <target> --summary              # Dry-run 진단 (기본)
+  ./cb-manuscript app regenerate <target> --summary --force      # 실제 LLM 호출 및 DB 덮어쓰기
+  ./cb-manuscript app regenerate <target> --summary --force --effort high # 추론 레벨 지정
+  ./cb-manuscript app regenerate --corrupted --summary           # 오염된 요약 일괄 스캔
+  ./cb-manuscript app regenerate <target> --all --force          # 요약 + 본문 전체 재생성
+  ```
+* **옵션**:
+  * `target`: 문서 ID, 공유 토큰(예: `dzr73zpxh2bah4vp`), 또는 공유 URL (`https://.../p?s=token`).
+  * `--token <token>`: 명시적 공유 토큰 지정.
+  * `--doc-id <id>`: 명시적 문서 ID 지정.
+  * `--summary`: 요약(summary) 재생성 (기본 대상). 지식그래프 노드/엣지는 100% 보존.
+  * `--detail`: 본문(detail) 렌더링 텍스트 재생성.
+  * `--all`: 요약과 본문 동시 재생성.
+  * `--corrupted`: AsciiDoc/마크업 문법 잔존으로 오염된 요약을 가진 문서를 전체 DB에서 자동 탐지.
+  * `--force`: 실제 LLM 호출 및 DB 덮어쓰기 실행 (미지정 시 기본 dry-run).
+  * `--dry-run`: 대상 문서 정보 및 계획만 출력하고 DB 변경 없음 (기본값).
+  * `--effort <level>`: Gemini 사고/추론 레벨 오버라이드 (`low`, `medium`, `high`, `minimal`, `none`, 또는 정수 토큰 budget).
+  * `--format {md,adoc}`: 본문 detail 렌더링 포맷 지정.
+
+#### `summary-regenerate`
+`regenerate --summary`의 단축 Alias입니다.
+* **사용법**: `./cb-manuscript app summary-regenerate <target> [--force] [--effort <level>]`
+
+#### `format-migrate`
+전체 문서의 detail 본문 렌더링 포맷(Markdown ↔ AsciiDoc) 현황을 점검하고 일괄 변환합니다.
+* **사용법**:
+  ```bash
+  ./cb-manuscript app format-migrate          # 변환 현황 진단 (Dry-run)
+  ./cb-manuscript app format-migrate --apply  # 미적용 문서 일괄 백필 변환
+  ./cb-manuscript app format-migrate --apply -y
+  ```
+* **옵션**:
+  * `--format {md,adoc}`: 목표 포맷 지정 (미지정 시 .env의 `CLAIRE_RENDER_FORMAT` 사용).
+  * `--apply`: 미변환 문서에 대해 LLM detail 렌더링을 실행하여 일괄 적용.
+  * `--dry-run`: 대상 문서 통계만 보고 (기본값).
+  * `--yes`, `-y`: 확인 프롬프트 생략.
+  * `--json`: 진단 통계를 JSON 포맷으로 출력.
 
 ---
 
