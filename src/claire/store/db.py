@@ -15,7 +15,7 @@ from pathlib import Path
 
 from ..ontology.base import Document, Entity, Relation
 
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (
@@ -211,6 +211,18 @@ CREATE VIRTUAL TABLE IF NOT EXISTS entities_fts USING fts5(
     name,
     body
 );
+
+-- [소각 툼스톤] 폐기/소각된 오염 문서의 지문(URL/해시)을 초경량 보존하여 재수집 및 재생산 영구 차단.
+CREATE TABLE IF NOT EXISTS purged_tombstones (
+    id TEXT PRIMARY KEY,
+    url TEXT,
+    canonical_url TEXT,
+    content_hash TEXT,
+    reason TEXT NOT NULL,
+    purged_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_tombstones_canon ON purged_tombstones(canonical_url);
+CREATE INDEX IF NOT EXISTS idx_tombstones_hash ON purged_tombstones(content_hash);
 """
 
 
@@ -337,6 +349,21 @@ def _migrate(conn: sqlite3.Connection) -> None:
     _ensure_column(conn, "documents", "detail_format", "TEXT DEFAULT 'md'")
     # v11: 문서 AOT 사전 컴파일된 HTML (Antora 스타일 사전 렌더링).
     _ensure_column(conn, "documents", "detail_html", "TEXT")
+    # v11: 소각 툼스톤 테이블 (오염 문서 재유입 영구 차단).
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS purged_tombstones (
+            id TEXT PRIMARY KEY,
+            url TEXT,
+            canonical_url TEXT,
+            content_hash TEXT,
+            reason TEXT NOT NULL,
+            purged_at REAL NOT NULL
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_tombstones_canon ON purged_tombstones(canonical_url)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_tombstones_hash ON purged_tombstones(content_hash)")
 
 
 def stored_schema_version(conn: sqlite3.Connection) -> int | None:
@@ -1740,7 +1767,10 @@ def fts_search(conn: sqlite3.Connection, query: str, limit: int = 20) -> list[st
 def counts(conn: sqlite3.Connection, include_hidden: bool = True) -> dict[str, int]:
     out = {}
     for tbl in ("documents", "entities", "relations", "embeddings", "proposals",
-                "jobs", "raw_inbox", "extractions", "refresh_queue"):
+                "jobs", "raw_inbox", "extractions", "refresh_queue", "purged_tombstones"):
+        has_t = conn.execute(f"SELECT 1 FROM sqlite_master WHERE type='table' AND name='{tbl}'").fetchone()
+        if not has_t:
+            continue
         if tbl == "documents" and not include_hidden:
             out[tbl] = conn.execute("SELECT COUNT(*) c FROM documents WHERE hidden=0").fetchone()["c"]
         else:
@@ -1842,12 +1872,31 @@ def diagnose_graph(conn: sqlite3.Connection) -> dict[str, Any]:
                     {"document_id": r["document_id"], "summary_preview": (summ[:100] + "...") if len(summ) > 100 else summ}
                 )
 
+    # 7. 툼스톤(소각 지문) 및 위반 검사
+    has_tomb = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='purged_tombstones'"
+    ).fetchone()
+    purged_tombstones_count = conn.execute("SELECT COUNT(*) FROM purged_tombstones").fetchone()[0] if has_tomb else 0
+    tombstone_violations = []
+    if has_tomb and purged_tombstones_count > 0:
+        tombstone_violations = [
+            dict(r) for r in conn.execute(
+                """
+                SELECT d.id, d.url FROM documents d
+                JOIN purged_tombstones t ON d.id = t.id
+                   OR (d.canonical_url = t.canonical_url AND t.canonical_url IS NOT NULL)
+                   OR (d.content_hash = t.content_hash AND t.content_hash IS NOT NULL)
+                """
+            ).fetchall()
+        ]
+
     is_healthy = (
         len(dangling_rels) == 0
         and len(stale_entity_sources) == 0
         and len(stale_relation_sources) == 0
         and len(ghost_entities) == 0
         and len(orphan_embeddings) == 0
+        and len(tombstone_violations) == 0
         and not fts_desync
     )
 
@@ -1870,6 +1919,9 @@ def diagnose_graph(conn: sqlite3.Connection) -> dict[str, Any]:
         "fts_count": total_fts,
         "corrupted_summaries_count": len(corrupted_summaries),
         "corrupted_summaries": corrupted_summaries,
+        "purged_tombstones_count": purged_tombstones_count,
+        "tombstone_violations_count": len(tombstone_violations),
+        "tombstone_violations": tombstone_violations[:50],
     }
 
 
@@ -1972,4 +2024,291 @@ def heal_graph(conn: sqlite3.Connection) -> dict[str, int]:
 
     conn.commit()
     return healed
+
+
+def is_tombstoned(
+    conn: sqlite3.Connection,
+    url: str | None = None,
+    canonical_url: str | None = None,
+    content_hash: str | None = None,
+) -> bool:
+    """주어진 URL, Canonical URL, 또는 Content Hash가 툼스톤(소각된 지문)에 존재하는지 확인."""
+    has_tbl = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='purged_tombstones'"
+    ).fetchone()
+    if not has_tbl:
+        return False
+
+    conditions = []
+    params = []
+    if url:
+        conditions.append("url = ?")
+        params.append(url)
+    if canonical_url:
+        conditions.append("canonical_url = ?")
+        params.append(canonical_url)
+    if content_hash:
+        conditions.append("content_hash = ?")
+        params.append(content_hash)
+
+    if not conditions:
+        return False
+
+    query = f"SELECT 1 FROM purged_tombstones WHERE {' OR '.join(conditions)} LIMIT 1"
+    row = conn.execute(query, params).fetchone()
+    return row is not None
+
+
+def purge_document_cascade(
+    conn: sqlite3.Connection,
+    data_dir: Path,
+    vault_dir: Path | None,
+    target_ids: list[str],
+    reason: str = "manual_purge",
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """오염 문서를 L1/L2/DB/그래프/디스크에서 원자적으로 연쇄 소각."""
+    import time
+    from .raw import _artifacts_dir, _images_dir
+
+    if not target_ids:
+        return {"purged_count": 0, "target_documents": []}
+
+    ph = ",".join("?" for _ in target_ids)
+
+    # 1. 대상 문서 상세 조회
+    docs = conn.execute(
+        f"SELECT id, url, canonical_url, title, content_hash, fetched_at FROM documents WHERE id IN ({ph})",
+        target_ids,
+    ).fetchall()
+    target_docs = [dict(d) for d in docs]
+    matched_ids = [d["id"] for d in target_docs]
+
+    if not matched_ids:
+        return {"purged_count": 0, "target_documents": []}
+
+    ph_matched = ",".join("?" for _ in matched_ids)
+
+    # 2. 로컬 디스크 파일 경로 탐색
+    art_dir = _artifacts_dir(data_dir)
+    img_dir = _images_dir(data_dir)
+    unlinked_candidates: list[Path] = []
+
+    for did in matched_ids:
+        art_file = art_dir / f"{did}.txt.gz"
+        if art_file.exists():
+            unlinked_candidates.append(art_file)
+        for img in img_dir.glob(f"{did}_*"):
+            if img.is_file():
+                unlinked_candidates.append(img)
+        if vault_dir and vault_dir.exists():
+            for md in vault_dir.glob(f"**/*{did}*.md"):
+                if md.is_file():
+                    unlinked_candidates.append(md)
+
+    if dry_run:
+        # Dry-run 보고서 반환
+        return {
+            "dry_run": True,
+            "purged_count": len(matched_ids),
+            "target_documents": target_docs,
+            "disk_files_count": len(unlinked_candidates),
+            "disk_files": [str(p) for p in unlinked_candidates[:50]],
+        }
+
+    # 3. 실제 소각 실행 (DB 트랜잭션)
+    stats: dict[str, Any] = {
+        "dry_run": False,
+        "purged_count": len(matched_ids),
+        "target_documents": target_docs,
+    }
+
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        now = time.time()
+        for d in target_docs:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO purged_tombstones (id, url, canonical_url, content_hash, reason, purged_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (d["id"], d.get("url"), d.get("canonical_url"), d.get("content_hash"), reason, now),
+            )
+
+        # 8개 DB 테이블 연쇄 삭제
+        stats["deleted_expand_queue"] = conn.execute(
+            f"DELETE FROM expand_queue WHERE document_id IN ({ph_matched})", matched_ids
+        ).rowcount
+        stats["deleted_refresh_queue"] = conn.execute(
+            f"DELETE FROM refresh_queue WHERE document_id IN ({ph_matched})", matched_ids
+        ).rowcount
+        stats["deleted_doc_shares"] = conn.execute(
+            f"DELETE FROM doc_shares WHERE document_id IN ({ph_matched})", matched_ids
+        ).rowcount
+        stats["deleted_document_snapshots"] = conn.execute(
+            f"DELETE FROM document_snapshots WHERE document_id IN ({ph_matched})", matched_ids
+        ).rowcount
+        stats["deleted_extractions"] = conn.execute(
+            f"DELETE FROM extractions WHERE document_id IN ({ph_matched})", matched_ids
+        ).rowcount
+        stats["deleted_proposals"] = conn.execute(
+            f"DELETE FROM proposals WHERE document_id IN ({ph_matched})", matched_ids
+        ).rowcount
+        stats["deleted_raw_inbox"] = conn.execute(
+            f"DELETE FROM raw_inbox WHERE document_id IN ({ph_matched})", matched_ids
+        ).rowcount
+        stats["deleted_documents"] = conn.execute(
+            f"DELETE FROM documents WHERE id IN ({ph_matched})", matched_ids
+        ).rowcount
+
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+
+    # 4. 물리 파일 Unlink
+    unlinked_count = 0
+    for p in unlinked_candidates:
+        try:
+            if p.is_file():
+                p.unlink()
+                unlinked_count += 1
+        except Exception:
+            pass
+    stats["disk_files_unlinked"] = unlinked_count
+
+    # 5. 지식그래프 참조 무결성 수복
+    heal_stats = heal_graph(conn)
+    stats["graph_healed"] = heal_stats
+
+    # 6. DB 공간 회수 (VACUUM)
+    try:
+        conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        conn.execute("VACUUM")
+        stats["vacuum_executed"] = True
+    except Exception:
+        stats["vacuum_executed"] = False
+
+    return stats
+
+
+def audit_residuals(
+    conn: sqlite3.Connection,
+    data_dir: Path,
+    pattern_or_id: str | None = None,
+) -> dict[str, Any]:
+    """오염 잔재 0건 여부 및 시스템 스토리지 무결성 전수 감사."""
+    from .raw import _artifacts_dir, _images_dir
+
+    report: dict[str, Any] = {
+        "pattern": pattern_or_id or "",
+        "clean": True,
+        "matching_documents_count": 0,
+        "matching_documents": [],
+        "matching_inbox_count": 0,
+        "matching_extractions_count": 0,
+        "matching_snapshots_count": 0,
+        "matching_entity_sources_count": 0,
+        "matching_relation_sources_count": 0,
+        "matching_disk_artifacts_count": 0,
+        "matching_disk_images_count": 0,
+        "purged_tombstones_count": 0,
+        "tombstone_violations_count": 0,
+        "freelist_pages": 0,
+        "reclaimable_bytes": 0,
+    }
+
+    # 1. 툼스톤 통계
+    has_tomb = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='purged_tombstones'"
+    ).fetchone()
+    if has_tomb:
+        report["purged_tombstones_count"] = conn.execute(
+            "SELECT COUNT(*) FROM purged_tombstones"
+        ).fetchone()[0]
+        violations = conn.execute(
+            """
+            SELECT d.id, d.url FROM documents d
+            JOIN purged_tombstones t ON d.id = t.id 
+               OR (d.canonical_url = t.canonical_url AND t.canonical_url IS NOT NULL)
+               OR (d.content_hash = t.content_hash AND t.content_hash IS NOT NULL)
+            """
+        ).fetchall()
+        report["tombstone_violations_count"] = len(violations)
+        if len(violations) > 0:
+            report["clean"] = False
+
+    if pattern_or_id:
+        patt = f"%{pattern_or_id}%"
+        # 2. documents 매칭
+        docs = conn.execute(
+            "SELECT id, url, title FROM documents WHERE id LIKE ? OR url LIKE ? OR canonical_url LIKE ? OR title LIKE ? OR raw_text LIKE ?",
+            (patt, patt, patt, patt, patt),
+        ).fetchall()
+        report["matching_documents_count"] = len(docs)
+        report["matching_documents"] = [dict(d) for d in docs[:20]]
+
+        # 3. raw_inbox 매칭
+        inbox_c = conn.execute(
+            "SELECT COUNT(*) FROM raw_inbox WHERE document_id LIKE ? OR payload LIKE ?",
+            (patt, patt),
+        ).fetchone()[0]
+        report["matching_inbox_count"] = inbox_c
+
+        # 4. extractions 매칭
+        ext_c = conn.execute(
+            "SELECT COUNT(*) FROM extractions WHERE document_id LIKE ? OR raw_response LIKE ?",
+            (patt, patt),
+        ).fetchone()[0]
+        report["matching_extractions_count"] = ext_c
+
+        # 5. snapshots 매칭
+        snap_c = conn.execute(
+            "SELECT COUNT(*) FROM document_snapshots WHERE document_id LIKE ? OR raw_text LIKE ?",
+            (patt, patt),
+        ).fetchone()[0]
+        report["matching_snapshots_count"] = snap_c
+
+        # 6. entities / relations sources 매칭
+        ent_src_c = conn.execute(
+            "SELECT COUNT(*) FROM entities WHERE sources LIKE ?",
+            (patt,),
+        ).fetchone()[0]
+        report["matching_entity_sources_count"] = ent_src_c
+
+        rel_src_c = conn.execute(
+            "SELECT COUNT(*) FROM relations WHERE sources LIKE ?",
+            (patt,),
+        ).fetchone()[0]
+        report["matching_relation_sources_count"] = rel_src_c
+
+        # 7. 디스크 파일 매칭
+        art_dir = _artifacts_dir(data_dir)
+        img_dir = _images_dir(data_dir)
+        art_matches = list(art_dir.glob(f"*{pattern_or_id}*"))
+        img_matches = list(img_dir.glob(f"*{pattern_or_id}*"))
+        report["matching_disk_artifacts_count"] = len(art_matches)
+        report["matching_disk_images_count"] = len(img_matches)
+
+        total_matches = (
+            len(docs)
+            + inbox_c
+            + ext_c
+            + snap_c
+            + ent_src_c
+            + rel_src_c
+            + len(art_matches)
+            + len(img_matches)
+        )
+        if total_matches > 0:
+            report["clean"] = False
+
+    # 8. DB Freelist 측정
+    freelist_count = conn.execute("PRAGMA freelist_count").fetchone()[0]
+    page_size = conn.execute("PRAGMA page_size").fetchone()[0]
+    report["freelist_pages"] = freelist_count
+    report["reclaimable_bytes"] = freelist_count * page_size
+
+    return report
+
 

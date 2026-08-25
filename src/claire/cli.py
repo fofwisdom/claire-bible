@@ -33,6 +33,7 @@ def cmd_preflight(_args) -> int:
     print(f"db path           : {s.db_file}")
     print(f"vault path        : {s.vault_dir}")
     print(f"vector backend cfg: {s.vector_backend}")
+    print(f"data lifecycle    : {s.data_lifecycle} (purge_allowed={'YES' if s.is_purge_allowed else 'NO'})")
     anonymous_status = (
         "ENABLED (full knowledge base is public)"
         if s.anonymous_readonly
@@ -138,6 +139,12 @@ def cmd_doctor(args) -> int:
         )
         print(f"• 임베딩 누락 엔티티         : {report['missing_embeddings_count']} 건")
         print(f"• FTS 색인 불일치 여부       : {'[!] 불일치' if report['fts_desync'] else '[✓] 동기화됨'}")
+        if report.get("purged_tombstones_count"):
+            print(f"• 등록된 소각 툼스톤         : {report['purged_tombstones_count']} 건")
+        if report.get("tombstone_violations_count"):
+            print(
+                f"• 툼스톤 위반 (부활 문서)    : {report['tombstone_violations_count']} 건 [!] (claire purge 로 재소각 필요)"
+            )
         if report["corrupted_summaries_count"]:
             print(
                 f"• ADOC 문법 잔존 요약       : {report['corrupted_summaries_count']} 건 [!] (claire regenerate 로 재생성 가능)"
@@ -152,6 +159,162 @@ def cmd_doctor(args) -> int:
             print("    자동 수복을 실행하려면 다음 명령을 실행하십시오:")
             print("    claire doctor --heal")
             return 0
+    finally:
+        conn.close()
+
+
+def cmd_purge(args) -> int:
+    """오염된 레거시 문서를 툼스톤 등록과 함께 원자적으로 연쇄 소각."""
+    s = get_settings()
+    if not s.is_purge_allowed:
+        print("claire purge: [오류] 데이터 소각이 정책에 의해 차단되었습니다.", file=sys.stderr)
+        print("현재 환경의 데이터 수명주기(CLAIRE_DATA_LIFECYCLE)가 'append-only' 모드로 설정되어 있습니다.", file=sys.stderr)
+        print("오염 데이터 소각을 활성화하려면 .env 파일에 다음 설정을 적용하십시오:", file=sys.stderr)
+        print("  CLAIRE_DATA_LIFECYCLE=purgeable", file=sys.stderr)
+        print("  (또는 CLAIRE_ALLOW_PURGE=1)", file=sys.stderr)
+        return 1
+
+    conn = dbm.connect(s.db_file)
+    dbm.init_db(conn)
+    try:
+        # 대상 문서 식별
+        target_ids: list[str] = []
+        target = getattr(args, "target", None)
+        doc_id = getattr(args, "doc_id", None)
+        url = getattr(args, "url", None)
+        pattern = getattr(args, "pattern", None)
+        canonical_url = getattr(args, "canonical_url", None)
+
+        if doc_id:
+            target_ids.append(doc_id)
+        if target:
+            if target.startswith(("http://", "https://")):
+                url = target
+            else:
+                target_ids.append(target)
+        if url:
+            from .ingest.normalize import canonicalize_url
+
+            c_url = canonicalize_url(url)
+            rows = conn.execute(
+                "SELECT id FROM documents WHERE url=? OR canonical_url=?", (url, c_url)
+            ).fetchall()
+            for r in rows:
+                if r["id"] not in target_ids:
+                    target_ids.append(r["id"])
+        if canonical_url:
+            rows = conn.execute(
+                "SELECT id FROM documents WHERE canonical_url=?", (canonical_url,)
+            ).fetchall()
+            for r in rows:
+                if r["id"] not in target_ids:
+                    target_ids.append(r["id"])
+        if pattern:
+            patt = f"%{pattern}%"
+            rows = conn.execute(
+                "SELECT id FROM documents WHERE id LIKE ? OR url LIKE ? OR canonical_url LIKE ? OR title LIKE ? OR raw_text LIKE ?",
+                (patt, patt, patt, patt, patt),
+            ).fetchall()
+            for r in rows:
+                if r["id"] not in target_ids:
+                    target_ids.append(r["id"])
+
+        if not target_ids:
+            print("claire purge: 소각할 대상 문서를 찾을 수 없습니다.")
+            return 0
+
+        force = getattr(args, "force", False) or getattr(args, "apply", False) or getattr(args, "yes", False)
+        reason = getattr(args, "reason", "manual_purge") or "manual_purge"
+
+        if not force:
+            report = dbm.purge_document_cascade(
+                conn, data_dir=s.data_dir, vault_dir=s.vault_dir, target_ids=target_ids, reason=reason, dry_run=True
+            )
+            if getattr(args, "json", False):
+                import json
+
+                print(json.dumps(report, ensure_ascii=False, indent=2))
+                return 0
+
+            print("claire purge: [Dry-Run] 소각 대상 분석 보고서 (실제 삭제 안 됨)")
+            print("=" * 60)
+            print(f"• 소각 대상 문서 수         : {report['purged_count']} 건")
+            print(f"• 삭제 대상 디스크 파일     : {report['disk_files_count']} 개")
+            print("-" * 60)
+            print("대상 문서 목록:")
+            for d in report["target_documents"]:
+                print(f"  - [{d['id']}] {d.get('title') or '(제목 없음)'} ({d.get('url') or 'no-url'})")
+            print("=" * 60)
+            print("[안내] 실제 소각 및 DB 물리 압축(VACUUM)을 실행하려면 --force 옵션을 추가하십시오:")
+            print("  claire purge --force " + " ".join(f"'{did}'" for did in target_ids))
+            return 0
+
+        # 실행
+        print("claire purge: [소각 시작] 원자적 연쇄 소각 및 지식그래프 정화 중...")
+        report = dbm.purge_document_cascade(
+            conn, data_dir=s.data_dir, vault_dir=s.vault_dir, target_ids=target_ids, reason=reason, dry_run=False
+        )
+        if getattr(args, "json", False):
+            import json
+
+            print(json.dumps(report, ensure_ascii=False, indent=2))
+            return 0
+
+        print("=" * 60)
+        print(f"• 소각된 문서 수 (DB)       : {report['deleted_documents']} 건")
+        print(f"• 등록된 툼스톤 (재유입방지): {report['purged_count']} 건")
+        print(f"• 삭제된 L1 인박스 레코드   : {report.get('deleted_raw_inbox', 0)} 건")
+        print(f"• 삭제된 L2 디스크 파일     : {report['disk_files_unlinked']} 개")
+        gh = report.get("graph_healed", {})
+        print(f"• 정제된 엔티티 출처        : {gh.get('stale_entity_sources_cleaned', 0)} 건")
+        print(f"• 소각된 고아 엔티티        : {gh.get('ghost_entities_pruned', 0)} 건")
+        print(f"• 소각된 고아 관계          : {gh.get('dangling_relations_removed', 0)} 건")
+        print(f"• 소각된 고아 임베딩        : {gh.get('orphan_embeddings_removed', 0)} 건")
+        print(f"• FTS 재구축                : {gh.get('fts_reindexed', 0)} 건")
+        print(f"• DB VACUUM (용량 회수)     : {'완료' if report.get('vacuum_executed') else '스킵/실패'}")
+        print("=" * 60)
+        print("[✓] 오염 데이터가 시스템 전체에서 완전히 소각되었습니다.")
+        return 0
+    finally:
+        conn.close()
+
+
+def cmd_audit(args) -> int:
+    """오염 잔재 0건 여부 및 시스템 무결성 전수 감사."""
+    s = get_settings()
+    conn = dbm.connect(s.db_file)
+    dbm.init_db(conn)
+    try:
+        pattern = getattr(args, "target", None) or getattr(args, "pattern", None)
+        report = dbm.audit_residuals(conn, data_dir=s.data_dir, pattern_or_id=pattern)
+        if getattr(args, "json", False):
+            import json
+
+            print(json.dumps(report, ensure_ascii=False, indent=2))
+            return 0 if report["clean"] else 1
+
+        print("claire audit: 시스템 무결성 및 잔재 전수 감사 보고서")
+        print("=" * 60)
+        if pattern:
+            print(f"• 검사 패턴/키워드          : '{pattern}'")
+            print(f"• 잔존 문서 수              : {report['matching_documents_count']} 건" + (" [!]" if report["matching_documents_count"] else " [✓] 0건"))
+            print(f"• 잔존 L1 인박스            : {report['matching_inbox_count']} 건" + (" [!]" if report["matching_inbox_count"] else " [✓] 0건"))
+            print(f"• 잔존 L2 디스크 아티팩트   : {report['matching_disk_artifacts_count']} 개" + (" [!]" if report["matching_disk_artifacts_count"] else " [✓] 0개"))
+            print(f"• 잔존 이미지 파일          : {report['matching_disk_images_count']} 개" + (" [!]" if report["matching_disk_images_count"] else " [✓] 0개"))
+            print(f"• 엔티티 sources 잔존 참조  : {report['matching_entity_sources_count']} 건" + (" [!]" if report["matching_entity_sources_count"] else " [✓] 0건"))
+            print(f"• 관계 sources 잔존 참조    : {report['matching_relation_sources_count']} 건" + (" [!]" if report["matching_relation_sources_count"] else " [✓] 0건"))
+            print("-" * 60)
+        print(f"• 등록된 툼스톤 수          : {report['purged_tombstones_count']} 건")
+        print(f"• 툼스톤 위반 (부활된 문서) : {report['tombstone_violations_count']} 건" + (" [!]" if report["tombstone_violations_count"] else " [✓] 0건"))
+        reclaim_kb = report["reclaimable_bytes"] / 1024
+        print(f"• DB Freelist (미회수 공간) : {report['freelist_pages']} pages ({reclaim_kb:.1f} KB)")
+        print("=" * 60)
+        if report["clean"]:
+            print("[✓] 클린: 오염 데이터의 잔재가 발견되지 않았습니다.")
+            return 0
+        else:
+            print("[!] 경고: 오염 잔재 또는 툼스톤 위반 항목이 검출되었습니다.")
+            return 1
     finally:
         conn.close()
 
@@ -1007,6 +1170,31 @@ def build_parser() -> argparse.ArgumentParser:
     pdm.add_argument("--min-len", type=int, default=500, dest="min_len")
     pdm.add_argument("--apply", action="store_true", help="실제 병합(파괴적). 미지정 시 계획만.")
     pdm.set_defaults(func=cmd_dedup_merge)
+
+    ppg = sub.add_parser(
+        "purge",
+        help="atomically purge legacy/corrupted documents with tombstones, disk unlink, graph heal & vacuum",
+    )
+    ppg.add_argument("target", nargs="?", default=None, help="target document ID or URL to purge")
+    ppg.add_argument("--doc-id", default=None, help="specific document ID to purge")
+    ppg.add_argument("--url", default=None, help="specific URL to purge")
+    ppg.add_argument("--canonical-url", default=None, help="specific canonical URL to purge")
+    ppg.add_argument("--pattern", default=None, help="search pattern across document id/url/title/text")
+    ppg.add_argument("--reason", default="manual_purge", help="reason recorded in tombstone registry")
+    ppg.add_argument("--force", action="store_true", help="execute actual purge and disk compaction")
+    ppg.add_argument("--apply", action="store_true", help="alias for --force")
+    ppg.add_argument("-y", "--yes", action="store_true", help="alias for --force")
+    ppg.add_argument("--json", action="store_true", help="output result in JSON format")
+    ppg.set_defaults(func=cmd_purge)
+
+    pau = sub.add_parser(
+        "audit",
+        help="verify zero residuals and inspect storage/tombstones across DB and disk",
+    )
+    pau.add_argument("target", nargs="?", default=None, help="search keyword, URL, or ID to audit")
+    pau.add_argument("--pattern", default=None, help="search pattern across DB and disk files")
+    pau.add_argument("--json", action="store_true", help="output result in JSON format")
+    pau.set_defaults(func=cmd_audit)
 
     return p
 

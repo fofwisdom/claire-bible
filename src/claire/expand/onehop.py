@@ -95,6 +95,10 @@ def find_candidates(
 
 
 def _already_ingested(conn: sqlite3.Connection, canonical_url: str) -> bool:
+    from ..store.db import find_document_by_extra_source, is_tombstoned
+
+    if is_tombstoned(conn, canonical_url=canonical_url):
+        return True
     row = conn.execute(
         "SELECT 1 FROM documents WHERE canonical_url=? LIMIT 1", (canonical_url,)
     ).fetchone()
@@ -102,6 +106,4 @@ def _already_ingested(conn: sqlite3.Connection, canonical_url: str) -> bool:
         return True
     # 1홉 병합(ONEHOP_MERGE_DESIGN.md)은 새 Document 를 안 만들어 위 색인으로는 못 잡힘 —
     # 이미 어떤 문서에 부가 출처로 흡수된 URL 도 재제안 방지 대상.
-    from ..store.db import find_document_by_extra_source
-
     return find_document_by_extra_source(conn, canonical_url) is not None

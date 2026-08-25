@@ -124,6 +124,12 @@ def ingest(
     report.partial = doc.partial
     report.title = doc.title
 
+    # 0. 소각 툼스톤(Tombstone) 검사: 소각된 오염 데이터(URL/해시)는 재수집 원천 차단
+    if dbm.is_tombstoned(conn, url=doc.url, canonical_url=doc.canonical_url, content_hash=doc.content_hash):
+        report.error = "tombstoned: document was previously purged"
+        dbm.update_inbox(conn, inbox_id, status="error", error=report.error)
+        return report
+
     # dedup ① 내용 완전 동일(content_hash 일치) → 중복
     existing = dbm.find_document_by_hash(conn, doc.content_hash)
     if existing:

@@ -267,6 +267,17 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 
 ---
 
+### 3.8 데이터 수명주기 및 오염 소각 (Lifecycle & Purge)
+
+* `claire purge <target> [--doc-id <ID>] [--url <URL>] [--pattern <str>] [--reason <str>] [--force] [--json]`:
+  * **수명주기 게이트**: `.env`에 `CLAIRE_DATA_LIFECYCLE=purgeable` (또는 `CLAIRE_ALLOW_PURGE=1`) 설정 시에만 실행 허용 (`append-only` 시 안전 차단).
+  * **원자적 소각**: 툼스톤(`purged_tombstones`) 등록 ➔ DB 8개 테이블 연쇄 Hard Delete ➔ 로컬 파일시스템 아티팩트(`raw/artifacts`, `images`, `vault`) Unlink ➔ `heal_graph` 수복 ➔ `VACUUM` 압축을 일괄 수행.
+  * 기본 실행은 Dry-Run으로 영향 범위를 사전 출력하며, `--force` 지정 시 실제 소각 실행.
+* `claire audit [--target <pattern>] [--json]`:
+  * 특정 키워드, URL, ID, 또는 툼스톤 대상이 DB(문서/인박스/추출/스냅샷), 로컬 디스크 파일, 엔티티 sources에 1건이라도 남아있는지 전수 검사하고 Freelist 미회수 용량을 보고.
+
+---
+
 ## 4. 미구현(Unimplemented) / 부분 구현 옵션 및 상태 명세
 
 시스템 운영 및 개발 시 혼선을 방지하기 위해 현재 코드베이스의 **부분 구현, 예약된 옵션, 또는 기능적 제약사항**을 명시합니다.
