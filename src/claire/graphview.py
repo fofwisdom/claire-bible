@@ -2690,21 +2690,36 @@ function refreshGraph(){
     d.edges.forEach(e=>{ if(!allEdges.get(e.id)) allEdges.add(e); });
     document.getElementById('fslider').max = d.stats.max_degree;
     applyView();
+    if(activeDoc && curReaderDocData && curReaderDocData.id === activeDoc){
+      renderDocPanel(curReaderDocData);
+    }
   });
   fetch('documents').then(r=>r.json()).then(d=>{ allDocs=d.documents||[];
     renderDocs(document.getElementById('docq').value); });
 }
 
-// 전체 리로드 없이 새 글 반영(사용자 요구) — 가벼운 주기 폴링. /stats 문서 개수만 확인하고
+// 전체 리로드 없이 새 글/엔티티/관계 반영 — 가벼운 주기 폴링. /stats 문서/엔티티/관계 개수 확인하고
 // 바뀐 경우에만 refreshGraph()(append-only 병합) 실행 — 안 바뀌면 아무 요청도 안 함.
-let lastDocCount = null;
+let lastStatsSig = null;
 async function pollForUpdates(){
   try{
     const r = await fetch('stats');
     if(!r.ok) return;               // 401 등이면 조용히 다음 틱에 재시도
     const d = await r.json();
-    if(lastDocCount===null){ lastDocCount = d.documents; return; }  // 최초 틱=기준값만 기록
-    if(d.documents !== lastDocCount){ lastDocCount = d.documents; refreshGraph(); }
+    const sig = [d.documents, d.entities, d.relations].join(':');
+    if(lastStatsSig===null){ lastStatsSig = sig; return; }  // 최초 틱=기준값만 기록
+    if(sig !== lastStatsSig){
+      lastStatsSig = sig;
+      refreshGraph();
+      if(activeDoc){
+        fetch('document?id='+encodeURIComponent(activeDoc)).then(x=>x.json()).then(dc=>{
+          if(dc && !dc.error && activeDoc===dc.id){
+            curReaderDocData=dc;
+            renderDocPanel(dc);
+          }
+        }).catch(()=>{});
+      }
+    }
   }catch(e){ /* 네트워크 일시 오류 — 다음 틱에 재시도 */ }
 }
 setInterval(pollForUpdates, 25000);
@@ -3092,8 +3107,23 @@ function loadDocPanel(id){
     markDocumentSeen(id);
   }).catch(()=>{ panel.innerHTML='<p class=hint>문서 로드 실패.</p>'; });
 }
-// 한 문서(article)에 속한 노드 = graph node.sources 에 그 문서 id 가 든 노드(클라 계산).
-function docNodes(docId){
+// 한 문서(article)에 속한 노드 — dc.nodes(서버 실시간 DB 조회) 우선, allNodes fallback.
+function docNodes(docId, dc){
+  if(dc && Array.isArray(dc.nodes) && dc.nodes.length > 0){
+    const out = dc.nodes.map(n => {
+      const existing = (allNodes && typeof allNodes.get === 'function') ? allNodes.get(n.id) : null;
+      return {
+        id: n.id,
+        label: n.label || n.name || n.id,
+        group: n.group || n.type || 'Concept',
+        degree: existing ? (existing.degree || 0) : 0,
+        sources: existing ? (existing.sources || [docId]) : [docId],
+        obs: n.observations || (existing ? existing.obs : []),
+      };
+    });
+    out.sort((a,b)=> (b.degree||0)-(a.degree||0));
+    return out;
+  }
   const out=[]; if(!allNodes) return out;
   allNodes.forEach(n=>{ if((n.sources||[]).includes(docId)) out.push(n); });
   out.sort((a,b)=> (b.degree||0)-(a.degree||0));   // 중심성 높은 노드부터(핵심이 위로)
@@ -3114,7 +3144,7 @@ function renderDocPanel(dc){
   }
   if(dc.summary) h+='<h3>요약</h3><div class=synth>'+esc(dc.summary)+'</div>';
   // 이 문서의 노드 버튼 — 요약 바로 아래(피드백). 누르면 그래프에서 그 노드로 이동(nav).
-  const ns=docNodes(dc.id);
+  const ns=docNodes(dc.id, dc);
   h+='<h3>이 문서의 지식 노드 ('+ns.length+')</h3>';
   if(ns.length){ h+='<div class=nodebtns>'+ ns.map(n=>{
       const c=TYPE_COLORS[n.group]||'#8b949e';
@@ -3124,6 +3154,13 @@ function renderDocPanel(dc){
   } else { h+='<p class=al>이 문서에서 추출된 노드가 없습니다.</p>'; }
   if(!dc.summary && !dc.detail) h+='<p class=al>이 문서의 요약/전문이 아직 없습니다.</p>';
   panel.innerHTML=h;
+
+  if(dc && Array.isArray(dc.nodes) && dc.nodes.length > 0){
+    const missing = allNodes && typeof allNodes.get === 'function' && dc.nodes.some(n => !allNodes.get(n.id));
+    if(missing && typeof refreshGraph === 'function'){
+      refreshGraph();
+    }
+  }
 }
 // 노드 버튼 클릭 → 그래프에서 그 노드로 카메라 이동 + 선택 + 우측은 노드 상세로 전환.
 // activeDoc 은 유지 → 노드 상세 상단의 '← 문서로' 로 문서 패널에 즉시 복귀 가능.
