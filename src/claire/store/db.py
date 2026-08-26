@@ -755,6 +755,20 @@ def all_entities(conn: sqlite3.Connection) -> list[Entity]:
     return [_row_to_entity(r) for r in rows]
 
 
+def document_entities(conn: sqlite3.Connection, document_id: str) -> list[Entity]:
+    """한 문서에서 유래된(sources 에 document_id 가 포함된) 엔티티 목록."""
+    rows = conn.execute(
+        "SELECT * FROM entities WHERE sources LIKE ?",
+        (f"%{document_id}%",),
+    ).fetchall()
+    out = []
+    for r in rows:
+        ent = _row_to_entity(r)
+        if document_id in (ent.sources or []):
+            out.append(ent)
+    return out
+
+
 def _row_to_entity(row: sqlite3.Row) -> Entity:
     return Entity(
         id=row["id"], type=row["type"], name=row["name"],

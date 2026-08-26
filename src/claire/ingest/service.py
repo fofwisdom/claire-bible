@@ -548,9 +548,10 @@ class IngestService:
         from .pipeline import ensure_document_detail
 
         # 컴포넌트 기본값 결정 (아무것도 지정 안 했으면 summary 를 기본 대상으로 간주)
-        do_summary = summary or all_components
-        do_detail = detail or all_components
-        if not do_summary and not do_detail and not graph:
+        do_graph = graph or all_components or refetch
+        do_summary = summary or all_components or do_graph
+        do_detail = detail or all_components or do_graph
+        if not do_summary and not do_detail and not do_graph:
             do_summary = True
 
         conn = dbm.connect(self.s.db_file)
@@ -689,9 +690,11 @@ class IngestService:
                     }
                     if refetch:
                         info["actions"].append("refetch_content")
-                    if do_summary:
+                    if do_graph:
+                        info["actions"].append("extract_and_link_graph_nodes")
+                    if do_summary and not do_graph:
                         info["actions"].append("regenerate_summary")
-                    if do_detail:
+                    if do_detail and not do_graph:
                         info["actions"].append("regenerate_detail")
 
                     if not force:
@@ -731,49 +734,78 @@ class IngestService:
                             except Exception as e:
                                 info["refetch_error"] = str(e)
 
-                    updated_summary = None
-                    if do_summary:
-                        # LLM 요약 재추출
-                        extract_res = self.provider.extract(doc)
-                        new_summary = _clean_summary(extract_res.summary)
-                        info["new_summary"] = new_summary
+                    target_fmt = format or self.s.render_format
 
-                        # extractions 테이블 in-place 갱신
-                        ext_row = conn.execute(
-                            "SELECT id, raw_response FROM extractions WHERE document_id=? ORDER BY id DESC LIMIT 1",
-                            (did,),
-                        ).fetchone()
-                        if ext_row:
-                            try:
-                                data = _json.loads(ext_row["raw_response"] or "{}")
-                            except Exception:
-                                data = {}
-                            data["summary"] = new_summary
-                            new_raw = _json.dumps(data, ensure_ascii=False)
-                            conn.execute(
-                                "UPDATE extractions SET raw_response=? WHERE id=?",
-                                (new_raw, ext_row["id"]),
-                            )
-                        else:
-                            data = {"summary": new_summary, "key_claims": [], "entities": [], "relations": []}
-                            new_raw = _json.dumps(data, ensure_ascii=False)
-                            dbm.log_extraction(
-                                conn,
-                                document_id=did,
-                                provider=getattr(self.provider, "name", "regenerate"),
-                                model=getattr(self.provider, "model", "fallback"),
-                                prompt_version=PROMPT_VERSION,
-                                raw_response=new_raw,
-                            )
-                        conn.commit()
-                        updated_summary = new_summary
+                    if do_graph:
+                        # 엔티티/노드 추출, 지식 그래프 해소/적재, 벡터 임베딩, 관계 적재, Vault 동기화 (신규 적재와 동일한 파이프라인)
+                        from ..store.vectors import make_vector_store
+                        from .pipeline import IngestReport, extract_resolve_store
 
-                    if do_detail:
-                        target_fmt = format or self.s.render_format
-                        ensure_document_detail(
-                            conn, self.provider, doc, force=True, format=target_fmt
+                        vstore = make_vector_store(conn, self.s.vector_backend)
+                        report = IngestReport(document_id=did)
+                        ok, err = extract_resolve_store(
+                            conn,
+                            self.provider,
+                            vstore,
+                            doc,
+                            report,
+                            vault_dir=self.s.vault_dir,
+                            format=target_fmt,
                         )
-                        info["detail_format"] = target_fmt
+                        if not ok:
+                            info["error"] = err
+                        else:
+                            info["new_summary"] = _clean_summary(report.summary)
+                            info["entities_created"] = report.entities_created
+                            info["entities_linked"] = report.entities_linked
+                            info["new_entity_names"] = report.new_entity_names
+                            info["linked_entity_names"] = report.linked_entity_names
+                            info["relations_added"] = report.relations_added
+                            info["detail_format"] = target_fmt
+
+                            if self.s.auto_expand and self.s.expand_max > 0 and not doc.partial:
+                                dbm.enqueue_expand(conn, did)
+                    else:
+                        if do_summary:
+                            # 요약만 단독 재추출 (엔티티/관계 보존)
+                            extract_res = self.provider.extract(doc)
+                            new_summary = _clean_summary(extract_res.summary)
+                            info["new_summary"] = new_summary
+
+                            # extractions 테이블 in-place 갱신
+                            ext_row = conn.execute(
+                                "SELECT id, raw_response FROM extractions WHERE document_id=? ORDER BY id DESC LIMIT 1",
+                                (did,),
+                            ).fetchone()
+                            if ext_row:
+                                try:
+                                    data = _json.loads(ext_row["raw_response"] or "{}")
+                                except Exception:
+                                    data = {}
+                                data["summary"] = new_summary
+                                new_raw = _json.dumps(data, ensure_ascii=False)
+                                conn.execute(
+                                    "UPDATE extractions SET raw_response=? WHERE id=?",
+                                    (new_raw, ext_row["id"]),
+                                )
+                            else:
+                                data = {"summary": new_summary, "key_claims": [], "entities": [], "relations": []}
+                                new_raw = _json.dumps(data, ensure_ascii=False)
+                                dbm.log_extraction(
+                                    conn,
+                                    document_id=did,
+                                    provider=getattr(self.provider, "name", "regenerate"),
+                                    model=getattr(self.provider, "model", "fallback"),
+                                    prompt_version=PROMPT_VERSION,
+                                    raw_response=new_raw,
+                                )
+                            conn.commit()
+
+                        if do_detail:
+                            ensure_document_detail(
+                                conn, self.provider, doc, force=True, format=target_fmt
+                            )
+                            info["detail_format"] = target_fmt
 
                     info["updated"] = True
                     targets_info.append(info)

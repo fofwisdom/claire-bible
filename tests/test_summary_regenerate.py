@@ -238,6 +238,8 @@ def test_regenerate_detects_error_page(populated_service):
 
 
 def test_regenerate_with_refetch(populated_service, monkeypatch):
+    from claire.extract.provider import ExtractedEntity, ExtractedRelation
+
     svc, doc_id, share_token = populated_service
 
     # Mock default_fetch to return clean fresh document
@@ -255,15 +257,20 @@ def test_regenerate_with_refetch(populated_service, monkeypatch):
     svc.provider.extract = MagicMock(
         return_value=ExtractionResult(
             summary="vSAN 클러스터 장애 복구 절차에 대한 요약이다.",
-            key_claims=[],
-            entities=[],
-            relations=[],
+            key_claims=["vSAN 클러스터 복구 절차"],
+            entities=[
+                ExtractedEntity(name="vCenter", type="Technology", aliases=[], observations=["vCenter server"]),
+                ExtractedEntity(name="vSAN", type="Technology", aliases=[], observations=["vSAN cluster storage"]),
+            ],
+            relations=[
+                ExtractedRelation(source="vCenter", target="vSAN", type="manages"),
+            ],
         )
     )
 
     res = svc.regenerate_components(
         target=share_token,
-        summary=True,
+        all_components=True,
         refetch=True,
         force=True,
     )
@@ -274,11 +281,54 @@ def test_regenerate_with_refetch(populated_service, monkeypatch):
     assert target["refetched"] is True
     assert target["title"] == "[vSphere] vCenter 잃고 vSAN 고치기"
     assert target["new_summary"] == "vSAN 클러스터 장애 복구 절차에 대한 요약이다."
+    assert target["entities_created"] == 2
+    assert target["relations_added"] == 1
+    assert "vCenter" in target["new_entity_names"]
+    assert "vSAN" in target["new_entity_names"]
 
-    # Verify DB was updated with fresh document content
+    # Verify DB was updated with fresh document content AND extracted entity nodes
     conn = dbm.connect(svc.s.db_file)
     updated_doc = dbm.get_document(conn, doc_id)
     assert updated_doc.title == "[vSphere] vCenter 잃고 vSAN 고치기"
     assert "vCenter 장애 상황에서" in updated_doc.raw_text
+
+    # Verify entities were created in DB
+    ent_names = [r["name"] for r in conn.execute("SELECT name FROM entities").fetchall()]
+    assert "vCenter" in ent_names
+    assert "vSAN" in ent_names
     conn.close()
+
+
+def test_regenerate_graph_flag_extracts_entities(populated_service):
+    from claire.extract.provider import ExtractedEntity, ExtractedRelation
+
+    svc, doc_id, share_token = populated_service
+
+    svc.provider.extract = MagicMock(
+        return_value=ExtractionResult(
+            summary="AI 아키텍처 요약.",
+            key_claims=[],
+            entities=[
+                ExtractedEntity(name="NeuralNet", type="Technology", aliases=[], observations=[]),
+            ],
+            relations=[],
+        )
+    )
+
+    res = svc.regenerate_components(
+        target=share_token,
+        graph=True,
+        force=True,
+    )
+
+    assert res["dry_run"] is False
+    target = res["targets"][0]
+    assert target["entities_created"] >= 1
+    assert "NeuralNet" in target["new_entity_names"]
+
+    conn = dbm.connect(svc.s.db_file)
+    ent_names = [r["name"] for r in conn.execute("SELECT name FROM entities").fetchall()]
+    assert "NeuralNet" in ent_names
+    conn.close()
+
 

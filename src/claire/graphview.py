@@ -134,6 +134,16 @@ def document_detail(conn: sqlite3.Connection, document_id: str, include_hidden: 
         return None
     if not include_hidden and bool(row["hidden"]):
         return None
+    ents = dbm.document_entities(conn, document_id)
+    nodes = [
+        {
+            "id": e.id,
+            "label": e.name,
+            "group": e.type,
+            "observations": e.observations or [],
+        }
+        for e in ents
+    ]
     return {
         "id": document_id,
         "title": row["title"] or "(제목 없음)",
@@ -149,6 +159,7 @@ def document_detail(conn: sqlite3.Connection, document_id: str, include_hidden: 
         "extra_sources": dbm.get_document_extra_sources(conn, document_id),
         # 원시 epoch(초) — MCP 등 API 소비자용(웹 UI는 이 필드 안 씀).
         "fetched_at": row["fetched_at"],
+        "nodes": nodes,
     }
 
 
@@ -1765,6 +1776,14 @@ function renderReader(dc){
   let h='';
   if(dc.url) h+='<p class=docmeta><a href="'+esc(dc.url)+'" target=_blank rel=noopener>↗ 원문 열기</a></p>';
   h+=extraSourcesHtml(dc);
+  if((dc.nodes||[]).length){
+    h+='<div class=rsection>이 문서의 지식 노드 ('+dc.nodes.length+')</div><div class=nodebtns style="margin:.4em 0 1.2em">'+
+      dc.nodes.map(n=>{
+        const c=TYPE_COLORS[n.group]||'#8b949e';
+        return '<button class=nodebtn title="'+esc(n.group||'')+'" onclick="closeReader();focusNode(\\''+n.id+'\\')">'+
+          '<i style="background:'+c+'"></i>'+esc(n.label)+'</button>';
+      }).join('')+'</div>';
+  }
   if(dc.summary) h+='<div class=rsection>요약</div><div class="md">'+renderContent(dc.summary, dc.detail_format)+'</div>';
   if(dc.detail_html){
     const purifier=window.DOMPurify;
@@ -3753,6 +3772,9 @@ _SHARED_HTML = """<!doctype html>
   h1{font-size:24px;margin:.2em 0} .meta{color:var(--muted);font-size:13px;margin:.2em 0 1.2em}
   .meta a{color:var(--accent);text-decoration:none}
   .sec{color:var(--muted);font-size:11px;letter-spacing:.04em;text-transform:uppercase;margin:1.4em 0 .3em}
+  .nodebtns{display:flex;flex-wrap:wrap;gap:6px;margin:.4em 0 1.2em}
+  .nodebtn{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:14px;background:var(--card-bg);border:1px solid var(--border);color:var(--fg);font-size:12px;font-weight:500;text-decoration:none}
+  .nodebtn i{display:inline-block;width:8px;height:8px;border-radius:50%}
   .brand{color:var(--accent2);font-weight:600;font-size:12px}
   .foot{margin-top:2.5em;padding-top:1em;border-top:1px solid var(--border);color:var(--muted);font-size:12px}
   mark{background:var(--mark-bg);color:var(--mark-fg);padding:0 .15em;border-radius:2px}
@@ -4091,6 +4113,13 @@ if((dc.extra_sources||[]).length){
   h+='<div class=sec>병합된 출처 ('+dc.extra_sources.length+')</div><ul class=srclist>'+
     dc.extra_sources.map(s=>'<li><a href="'+esc(s.url||'')+'" target=_blank rel=noopener>'+
       esc(s.title||s.url||'')+'</a></li>').join('')+'</ul>';
+}
+if((dc.nodes||[]).length){
+  h+='<div class=sec>이 문서의 지식 노드 ('+dc.nodes.length+')</div><div class=nodebtns>'+
+    dc.nodes.map(n=>{
+      return '<span class=nodebtn><i style="background:var(--accent,#0969da)"></i>'+esc(n.label)+
+        (n.group?' <small style="color:var(--muted)">('+esc(n.group)+')</small>':'')+'</span>';
+    }).join('')+'</div>';
 }
 if(dc.summary){ h+='<div class=sec>요약</div><div class="md">'+renderContent(dc.summary, dc.detail_format)+'</div>'; }
 if(dc.detail_html){

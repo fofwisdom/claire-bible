@@ -8,6 +8,7 @@ import sqlite3
 from claire.extract.provider import MockProvider
 from claire.graphview import (
     GRAPH_HTML,
+    document_detail,
     documents_list,
     graph_json,
     node_detail,
@@ -509,3 +510,21 @@ def test_mobile_bottom_bar_graph_navigation_and_node_selection():
     assert "function recordSelectedDoc(id)" in GRAPH_HTML
 
 
+def test_document_detail_and_shared_html_includes_nodes():
+    """document_detail 및 shared_html이 문서의 연결된 노드를 포함하고 렌더링하는지 검증."""
+    conn = _db()
+    _seed_two(conn)
+
+    dd = document_detail(conn, "d1")
+    assert dd is not None
+    assert "nodes" in dd
+    assert len(dd["nodes"]) == 2
+    labels = [n["label"] for n in dd["nodes"]]
+    assert "MCP" in labels
+    assert "Claude Code" in labels
+
+    s_html = shared_html(dd)
+    assert "이 문서의 지식 노드" in s_html
+    assert "MCP" in s_html
+    assert "Claude Code" in s_html
+    assert "nodebtns" in s_html
