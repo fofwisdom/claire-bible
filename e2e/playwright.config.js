@@ -19,4 +19,19 @@ module.exports = defineConfig({
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
   },
+  webServer: {
+    command: '/home/fow/.local/bin/uv run python e2e/seed_db.py && /home/fow/.local/bin/uv run python -m claire.cli serve-api',
+    cwd: '..',
+    url: 'http://127.0.0.1:8766/',
+    reuseExistingServer: false,
+    timeout: 30_000,
+    env: {
+      ...process.env,
+      CLAIRE_DB_PATH: 'data/e2e.db',
+      CLAIRE_INJECT_PORT: '8766',
+      CLAIRE_PUBLIC_URL: 'http://127.0.0.1:8766/',
+      CLAIRE_ALLOW_INSECURE_HTTP: 'true',
+      CLAIRE_ENVIRONMENT: 'development',
+    },
+  },
 });

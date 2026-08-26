@@ -784,7 +784,7 @@ GRAPH_HTML = """<!doctype html>
     #wrap{display:grid;grid-template-columns:1fr;grid-template-rows:1fr;overflow:hidden}
     .workspace-pane,#centerwrap{grid-area:1/1;visibility:hidden!important;pointer-events:none}
     body[data-active-pane="docs"] #docs{visibility:visible!important;pointer-events:auto}
-    body[data-active-pane="graph"] #centerwrap{visibility:visible!important;pointer-events:auto}
+    body[data-active-pane="graph"] #centerwrap, body[data-active-pane="graph"] #netwrap{visibility:visible!important;pointer-events:auto}
     #docs{position:relative;inset:auto;width:100%;height:100%;
       max-width:none;transform:none;box-shadow:none;border:0;display:flex}
     #legendbar{flex-wrap:nowrap;overflow-x:auto;min-height:36px;padding:7px 10px;scrollbar-width:thin}
@@ -1053,6 +1053,59 @@ function recordSelectedDoc(id){
   if(!id) return;
   lastSelectedDocId = id;
   try{ localStorage.setItem('claireLastDoc', id); }catch(_){}
+}
+
+// --- 웹 표준 History API 기반 모바일 뒤로가기/내비게이션 관리 ---
+let isPoppingHistory = false;
+let lastPushedHistory = null;
+
+function getActiveModalName(){
+  const r = document.getElementById('reader');
+  const gdm = document.getElementById('graphdocmenu');
+  if(mobileMQ.matches && r && r.classList.contains('open')){
+    return 'reader';
+  }
+  if((compactMQ.matches || mobileMQ.matches) && (drawerOpen || detailOpen)){
+    return 'drawer';
+  }
+  if(gdm && !gdm.hidden){
+    return 'graphdocmenu';
+  }
+  return null;
+}
+
+function getAppHistorySnapshot(){
+  return {
+    pane: activePane || 'docs',
+    modal: getActiveModalName(),
+    docId: curReaderDoc || activeDoc || null,
+    nodeId: selectedNodeId || null,
+  };
+}
+
+function pushAppHistory(patch = {}){
+  if(isPoppingHistory) return;
+  if(typeof window === 'undefined' || !window.history || typeof window.history.pushState !== 'function') return;
+  const base = getAppHistorySnapshot();
+  const next = Object.assign({}, base, patch);
+  if(lastPushedHistory &&
+     lastPushedHistory.pane === next.pane &&
+     lastPushedHistory.modal === next.modal &&
+     lastPushedHistory.docId === next.docId &&
+     lastPushedHistory.nodeId === next.nodeId){
+    return;
+  }
+  lastPushedHistory = next;
+  try{ window.history.pushState(next, ''); }catch(_){}
+}
+
+function replaceAppHistory(patch = {}){
+  if(isPoppingHistory) return;
+  if(typeof window === 'undefined' || !window.history || typeof window.history.replaceState !== 'function') return;
+  const base = getAppHistorySnapshot();
+  const next = Object.assign({}, base, patch);
+  lastPushedHistory = next;
+  try{ window.history.replaceState(next, ''); }catch(_){}
 }
 
 function docWithMostNodes(){
@@ -1587,7 +1640,7 @@ function readerFocusable(){
 function handleReaderKey(e){
   const r=document.getElementById('reader');
   if(!r.classList.contains('open')) return false;
-  if(e.key==='Escape'){ e.preventDefault(); closeReader(); return true; }
+  if(e.key==='Escape'){ e.preventDefault(); closeReader(false, true); return true; }
   if(e.key!=='Tab') return false;
   const items=readerFocusable();
   if(!items.length){ e.preventDefault(); r.querySelector('.sheet').focus(); return true; }
@@ -1646,10 +1699,10 @@ function openDocGraph(docId){
   if(targetId) setActiveDoc(targetId);
   else if(allDocs && allDocs.length) setActiveDoc(allDocs[0].id);
   if(drawerOpen || detailOpen){
-    if(compactMQ.matches || mobileMQ.matches) closeDrawer();
+    if(compactMQ.matches || mobileMQ.matches) closeDrawer(false, false);
   }
 }
-function openReader(docId){
+function openReader(docId, pushHist=true){
   hideNodePop();
   if(!docId && allDocs && allDocs.length) docId = allDocs[0].id;
   if(!docId) return;
@@ -1668,12 +1721,13 @@ function openReader(docId){
   r.setAttribute('aria-hidden','false');
   r.setAttribute('aria-busy','true');
   if(drawerOpen || detailOpen){
-    if(compactMQ.matches || mobileMQ.matches) closeDrawer();
+    if(compactMQ.matches || mobileMQ.matches) closeDrawer(false, false);
   }
   if(mobileMQ.matches){
     r.classList.add('open');
     document.body.classList.add('reader-open');
     setReaderBackgroundInert(true);
+    if(pushHist) pushAppHistory({ modal: 'reader', docId: docId });
     requestAnimationFrame(()=>r.querySelector('.sheet')?.focus());
   } else {
     setCenterView('reader');
@@ -1731,7 +1785,11 @@ function extraSourcesHtml(dc){
     es.map(s=>'<li><a href="'+esc(s.url||'')+'" target=_blank rel=noopener>'+
       esc(s.title||s.url||'')+'</a></li>').join('')+'</ul>';
 }
-function closeReader(){
+function closeReader(focus=false){
+  if(typeof window !== 'undefined' && window.history && window.history.state && window.history.state.modal === 'reader' && !isPoppingHistory){
+    window.history.back();
+    return;
+  }
   hideNodePop();
   const r=document.getElementById('reader');
   r.classList.remove('open'); r.setAttribute('aria-hidden','true'); r.setAttribute('aria-busy','false');
@@ -1744,7 +1802,9 @@ function closeReader(){
   }
   if(!target) target=mobileMQ.matches ? paneTabs[activePane] : document.getElementById('q');
   readerReturnFocus=null; readerReturnDocId=null;
-  requestAnimationFrame(()=>{ if(target) target.focus(); });
+  replaceAppHistory({ modal: getActiveModalName() });
+  if(focus && target) requestAnimationFrame(()=>target.focus());
+  else requestAnimationFrame(()=>{ if(target) target.focus(); });
 }
 
 // --- 문서 공유 핫링크 — 세션 토큰(nginx 통과)과 별개의, 이 문서만 여는 읽기전용 링크 ---
@@ -1839,14 +1899,15 @@ function relayoutPreservingCamera(){
   const r=el.getBoundingClientRect();
   if(r.width<=0 || r.height<=0) return;
   const sizeChanged = Math.abs(r.width-lastNetSize.w)>=1 || Math.abs(r.height-lastNetSize.h)>=1;
-  if(!sizeChanged && graphCamera) return;
   const saved=graphCamera;
-  preservingGraphCamera=true;
-  relayout(true);
-  if(saved){
+  if(sizeChanged){
+    preservingGraphCamera=true;
+    relayout(true);
+    preservingGraphCamera=false;
+  }
+  if(saved && net){
     net.moveTo({position:saved.position,scale:saved.scale,animation:false});
   }
-  preservingGraphCamera=false;
   rememberGraphCamera();
 }
 function syncWorkspaceLayout(){
@@ -1914,6 +1975,7 @@ function revealWorkspace(name, focusTab=false){
   hideNodePop();
   if(!paneNames.includes(name)) return;
   if(activePane==='graph' && !netBusy) rememberGraphCamera();
+  if(activePane !== name) pushAppHistory({ pane: name, modal: null });
   activePane=name;
   const r=document.getElementById('reader');
   if(r && r.classList.contains('open') && typeof closeReader==='function') closeReader();
@@ -1923,9 +1985,9 @@ function revealWorkspace(name, focusTab=false){
     if(!targetDocId){
       targetDocId = getRecentDocId() || docWithMostNodes();
     }
-    if(targetDocId){
+    if(targetDocId && activeDoc !== targetDocId){
       setActiveDoc(targetDocId);
-    } else {
+    } else if(!activeDoc){
       fitGraphContext();
     }
   }
@@ -1950,10 +2012,15 @@ function openDetailPane(){
   drawerOpen=true;
   detailCompact=false;
   try{ localStorage.setItem('claireDetailCompact', 'false'); }catch(_){}
+  if((compactMQ.matches || mobileMQ.matches)) pushAppHistory({ modal: 'drawer' });
   closeGraphDocPicker();
   syncWorkspaceLayout();
 }
 function closeDetailPane(){
+  if(typeof window !== 'undefined' && window.history && window.history.state && window.history.state.modal === 'drawer' && !isPoppingHistory){
+    window.history.back();
+    return;
+  }
   hideNodePop();
   detailOpen=false;
   drawerOpen=false;
@@ -1961,6 +2028,7 @@ function closeDetailPane(){
   let target=detailReturnFocus && detailReturnFocus.isConnected ? detailReturnFocus : null;
   if(!target) target=(compactMQ.matches || mobileMQ.matches) ? (document.getElementById('tab-menu') || paneTabs[activePane] || document.getElementById('tab-docs')) : paneEls[activePane];
   detailReturnFocus=null;
+  replaceAppHistory({ modal: getActiveModalName() });
   requestAnimationFrame(()=>{ if(target) target.focus(); });
 }
 function openDrawer(){
@@ -1968,10 +2036,15 @@ function openDrawer(){
   detailReturnFocus=document.activeElement;
   drawerOpen=true;
   detailOpen=true;
+  if((compactMQ.matches || mobileMQ.matches)) pushAppHistory({ modal: 'drawer' });
   closeGraphDocPicker();
   syncWorkspaceLayout();
 }
 function closeDrawer(focus=false){
+  if(typeof window !== 'undefined' && window.history && window.history.state && window.history.state.modal === 'drawer' && !isPoppingHistory){
+    window.history.back();
+    return;
+  }
   hideNodePop();
   drawerOpen=false;
   detailOpen=false;
@@ -1979,6 +2052,7 @@ function closeDrawer(focus=false){
   let target=detailReturnFocus && detailReturnFocus.isConnected ? detailReturnFocus : null;
   if(!target) target=(compactMQ.matches || mobileMQ.matches) ? (document.getElementById('tab-menu') || paneTabs[activePane] || document.getElementById('tab-docs')) : document.getElementById('morebtn');
   detailReturnFocus=null;
+  replaceAppHistory({ modal: getActiveModalName() });
   if(focus && target) requestAnimationFrame(()=>target.focus());
 }
 function toggleDrawer(){
@@ -2038,25 +2112,33 @@ function renderGraphDocPicker(filter=''){
   if(!docs.length) h+='<div id="graphdocempty">검색 결과가 없습니다.</div>';
   document.getElementById('graphdoclist').innerHTML=h;
 }
-function openGraphDocPicker(){
+function openGraphDocPicker(pushHist=true){
   const menu=document.getElementById('graphdocmenu'), q=document.getElementById('graphdocq');
-  closeToolsMenu();
+  if(drawerOpen || detailOpen){
+    closeDrawer(false, false);
+  }
   q.value='';
   renderGraphDocPicker();
   menu.hidden=false;
   menu.inert=false;
   menu.setAttribute('aria-hidden','false');
   document.getElementById('graphdocpick').setAttribute('aria-expanded','true');
+  if(pushHist) pushAppHistory({ modal: 'graphdocmenu' });
   requestAnimationFrame(()=>q.focus());
 }
-function closeGraphDocPicker(focus=false){
+function closeGraphDocPicker(focus=true){
+  if(typeof window !== 'undefined' && window.history && window.history.state && window.history.state.modal === 'graphdocmenu' && !isPoppingHistory){
+    window.history.back();
+    return;
+  }
   const menu=document.getElementById('graphdocmenu');
   if(menu.hidden) return;
   menu.hidden=true;
   menu.inert=true;
   menu.setAttribute('aria-hidden','true');
   document.getElementById('graphdocpick').setAttribute('aria-expanded','false');
-  if(focus) document.getElementById('graphdocpick').focus();
+  replaceAppHistory({ modal: getActiveModalName() });
+  if(focus) requestAnimationFrame(()=>document.getElementById('graphdocpick').focus());
 }
 function toggleGraphDocPicker(){
   const menu=document.getElementById('graphdocmenu');
@@ -2102,14 +2184,14 @@ document.addEventListener('pointerdown',e=>{
   const bar=document.getElementById('bar');
   const pane=document.getElementById('detailpane');
   const bnav=document.getElementById('worktabs');
-  if((drawerOpen||detailOpen) && pane && (!bar||!bar.contains(e.target)) && (!bnav||!bnav.contains(e.target)) && !pane.contains(e.target)) closeDrawer();
+  if((drawerOpen||detailOpen) && pane && (!bar||!bar.contains(e.target)) && (!bnav||!bnav.contains(e.target)) && !pane.contains(e.target)) closeDrawer(false, true);
   const nav=document.getElementById('graphdocnav');
   const gdm=document.getElementById('graphdocmenu');
-  if(gdm && !gdm.hidden && nav && !nav.contains(e.target)) closeGraphDocPicker();
+  if(gdm && !gdm.hidden && nav && !nav.contains(e.target)) closeGraphDocPicker(false, true);
 });
 document.addEventListener('keydown',e=>{
   if(e.key==='Escape' && (drawerOpen||detailOpen)){
-    e.preventDefault(); closeDrawer(true);
+    e.preventDefault(); closeDrawer(true, true);
   }
 });
 function responsiveChanged(){ closeToolsMenu(); syncWorkspaceLayout(); }
@@ -2332,9 +2414,9 @@ document.addEventListener('keydown', e=>{
   if(handleReaderKey(e)) return;
   if(e.key!=='Escape') return;
   const bar=document.getElementById('bar');
-  if(!document.getElementById('graphdocmenu').hidden){ closeGraphDocPicker(true); return; }
-  if(bar.classList.contains('tools-open')){ closeToolsMenu(true); return; }
-  if(document.body.classList.contains('detail-open')){ closeDetailPane(); return; }
+  if(!document.getElementById('graphdocmenu').hidden){ closeGraphDocPicker(true, true); return; }
+  if(bar.classList.contains('tools-open')){ closeToolsMenu(true, true); return; }
+  if(document.body.classList.contains('detail-open')){ closeDetailPane(true); return; }
   clearSelections(); });
 
 function loadNode(id){
@@ -2930,8 +3012,8 @@ function resetHome(){
   resetGraphCamera();
   panel.innerHTML = defaultHint();
   if(mobileMQ.matches){
-    closeReader();
-    revealWorkspace('docs');
+    closeReader(false, false);
+    revealWorkspace('docs', false, true);
   } else {
     if(allDocs && allDocs.length){
       openReader(allDocs[0].id);
@@ -3026,11 +3108,12 @@ function renderDocPanel(dc){
 }
 // 노드 버튼 클릭 → 그래프에서 그 노드로 카메라 이동 + 선택 + 우측은 노드 상세로 전환.
 // activeDoc 은 유지 → 노드 상세 상단의 '← 문서로' 로 문서 패널에 즉시 복귀 가능.
-function focusNode(id){
+function focusNode(id, pushHist=true){
   selectedNodeId=id;
   loadNode(id);
   setCenterView('graph');
-  revealWorkspace('graph');
+  revealWorkspace('graph', false, pushHist);
+  if(pushHist) pushAppHistory({ pane: 'graph', nodeId: id, modal: (compactMQ.matches || mobileMQ.matches) ? 'drawer' : null });
   requestAnimationFrame(()=>{
     if(net){
       relayout(true);
@@ -3490,6 +3573,58 @@ fetch('documents').then(r=>{ if(!r.ok) throw new Error('documents fetch failed: 
 fetch('whoami').then(r=>{ if(!r.ok) throw new Error('whoami failed'); return r.json(); }).then(d=>{
   setAccessScope(d.scope);
 }).catch(()=>{ setAccessScope('unknown','failed'); });
+
+// --- 브라우저 히스토리 (뒤로가기 / 앞으로가기) 내비게이션 핸들러 ---
+window.addEventListener('popstate', e => {
+  isPoppingHistory = true;
+  try{
+    const state = e.state || { pane: 'docs', modal: null, docId: null, nodeId: null };
+    lastPushedHistory = state;
+    const r = document.getElementById('reader');
+    const gdm = document.getElementById('graphdocmenu');
+
+    // 1. 모달 닫기
+    if(state.modal !== 'reader' && r && r.classList.contains('open')){
+      closeReader(false, false);
+    }
+    if(state.modal !== 'drawer' && (drawerOpen || detailOpen)){
+      closeDrawer(false, false);
+    }
+    if(state.modal !== 'graphdocmenu' && gdm && !gdm.hidden){
+      closeGraphDocPicker(true, false);
+    }
+
+    // 2. 작업 영역(pane) 전환
+    if(state.pane && state.pane !== activePane){
+      revealWorkspace(state.pane, false, false);
+    }
+
+    // 3. 모달 열기
+    if(state.modal === 'reader' && state.docId){
+      if(!r || !r.classList.contains('open') || curReaderDoc !== state.docId){
+        openReader(state.docId, false);
+      }
+    } else if(state.modal === 'drawer'){
+      if(!drawerOpen && !detailOpen){
+        openDrawer(false);
+      }
+    } else if(state.modal === 'graphdocmenu'){
+      if(gdm && gdm.hidden){
+        openGraphDocPicker(false);
+      }
+    }
+
+    // 4. 노드 포커스
+    if(state.pane === 'graph' && state.nodeId && state.nodeId !== selectedNodeId){
+      focusNode(state.nodeId, false);
+    }
+  }finally{
+    isPoppingHistory = false;
+  }
+});
+
+// 초기 베이스 히스토리 엔트리 등록
+replaceAppHistory({ pane: activePane || 'docs', modal: getActiveModalName() });
 
 // 읽기전용 디버그 핸들(테스트/Playwright 검증용 — closure 상태 관찰). 부작용 없음.
 window.claireDebug = {
