@@ -501,8 +501,11 @@ def test_mobile_bottom_bar_graph_navigation_and_node_selection():
     assert "if(ids.length) net.selectNodes(ids);" in GRAPH_HTML
     assert "if(net) net.unselectAll();" in GRAPH_HTML
 
-    # 3. revealWorkspace 전환 시 열려 있는 reader 닫기 및 graph 전환 시 activeDoc 활성화
+    # 3. revealWorkspace 전환 시 열려 있는 reader 닫기 및 모바일 1단 보기 최근 문서 / 최다 노드 문서 그래프 전환
     assert "const r=document.getElementById('reader');\n  if(r && r.classList.contains('open') && typeof closeReader==='function') closeReader();" in GRAPH_HTML
-    assert "const targetDocId = activeDoc || curReaderDoc;\n    if(targetDocId){\n      setActiveDoc(targetDocId);\n    }" in GRAPH_HTML
+    assert "targetDocId = getRecentDocId() || docWithMostNodes();" in GRAPH_HTML
+    assert "function docWithMostNodes()" in GRAPH_HTML
+    assert "function getRecentDocId()" in GRAPH_HTML
+    assert "function recordSelectedDoc(id)" in GRAPH_HTML
 
 
