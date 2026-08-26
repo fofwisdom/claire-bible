@@ -27,6 +27,10 @@ private/*
 !private/.gitkeep
 
 # playwright/검증 산출물
+node_modules/
+e2e/node_modules/
+test-results/
+playwright-report/
 .playwright-mcp/
 claire-graph*.png
 

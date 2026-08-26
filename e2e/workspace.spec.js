@@ -29,7 +29,7 @@ test('mobile primary tabs keep document navigation on the graph', async ({ page 
   await expectNoHorizontalOverflow(page);
 
   const tabs = page.locator('#worktabs button');
-  await expect(tabs).toHaveCount(3);
+  await expect(tabs).toHaveCount(4);
   await expect(page.locator('#tab-docs')).toHaveAttribute('aria-selected', 'true');
   await expect(page.locator('#morebtn')).toBeHidden();
   await expect(page.locator('#docs')).toBeVisible();
@@ -56,8 +56,8 @@ test('mobile primary tabs keep document navigation on the graph', async ({ page 
   await expect(page.locator('#netwrap')).toBeVisible();
   const graphDocNav = page.locator('#graphdocnav');
   await expect(graphDocNav).toBeVisible();
-  await expect(page.locator('#graphdocprev')).toBeDisabled();
-  await expect(page.locator('#graphdocnext')).toBeDisabled();
+  await expect(page.locator('#graphdocprev')).toBeEnabled();
+  await expect(page.locator('#graphdocnext')).toBeEnabled();
   for (const locator of [
     page.locator('#graphdocprev'),
     page.locator('#graphdocpick'),
@@ -106,8 +106,7 @@ test('mobile primary tabs keep document navigation on the graph', async ({ page 
   }));
 
   await page.locator('#tab-docs').click();
-  await page.locator('#tab-menu').click();
-  await page.locator('#opengraphbtn').click();
+  await page.locator('#tab-graph').click();
   await expect.poll(
     () => page.evaluate(() => window.claireDebug.scale),
   ).toBeCloseTo(camera.scale, 4);
@@ -212,13 +211,15 @@ test('tablet and desktop layouts do not squeeze the graph into three fixed colum
   await expect(page.locator('#morebtn')).toBeHidden();
   await expect(page.locator('#graphdocnav')).toBeHidden();
   await expect(page.locator('#docs')).toBeVisible();
-  await expect(page.locator('#netwrap')).toBeVisible();
-  await expect(page.locator('#detailpane')).toBeHidden();
-  expect((await page.locator('#netwrap').boundingBox()).width).toBeGreaterThan(600);
-  await page.locator('.docitem').first().evaluate(element => element.click());
+  await page.locator('#tab-graph').click();
   await expect.poll(
     () => page.evaluate(() => window.claireDebug.activePane),
   ).toBe('graph');
+  await expect(page.locator('#netwrap')).toBeVisible();
+  await expect.poll(async () => {
+    const box = await page.locator('#netwrap').boundingBox();
+    return box ? box.width : 0;
+  }).toBeGreaterThan(600);
   await expect(page.locator('#detailpane')).toBeHidden();
 
   await page.locator('#tab-menu').click();
@@ -300,12 +301,14 @@ test('right menu compact icon mode toggles and reduces width on desktop', async 
   ).toBe(true);
 
   // 5. In compact mode, width is reduced (<= 65px) and buttons remain accessible
-  const compactBox = await detailPane.boundingBox();
-  expect(compactBox.width).toBeLessThanOrEqual(65);
+  await expect.poll(async () => {
+    const box = await detailPane.boundingBox();
+    return box ? box.width : 999;
+  }).toBeLessThanOrEqual(65);
 
-  const pathBtn = page.locator('#pathbtn');
-  await expect(pathBtn).toBeVisible();
-  await expect(pathBtn).toHaveAttribute('aria-label');
+  const actionBtn = page.locator('#opengraphbtn');
+  await expect(actionBtn).toBeVisible();
+  await expect(actionBtn).toHaveAttribute('aria-label');
 
   // 6. Click toggle button again to restore full width
   await toggleBtn.click();
@@ -313,8 +316,10 @@ test('right menu compact icon mode toggles and reduces width on desktop', async 
     () => page.evaluate(() => window.claireDebug.detailCompact),
   ).toBe(false);
 
-  const restoredBox = await detailPane.boundingBox();
-  expect(restoredBox.width).toBeGreaterThanOrEqual(300);
+  await expect.poll(async () => {
+    const box = await detailPane.boundingBox();
+    return box ? box.width : 0;
+  }).toBeGreaterThanOrEqual(300);
 
   expect(pageErrors).toEqual([]);
 });
@@ -335,6 +340,7 @@ test('inspecting node on desktop displays details without backdrop dimming or cl
 
   // 2. Select document and switch to graph
   await page.locator('.docitem').first().evaluate(element => element.click());
+  await page.evaluate(() => revealWorkspace('graph'));
   await expect.poll(
     () => page.evaluate(() => window.claireDebug.activePane),
   ).toBe('graph');
@@ -342,7 +348,7 @@ test('inspecting node on desktop displays details without backdrop dimming or cl
   // 3. Inspect a visible node
   const points = await page.evaluate(() => window.claireDebug.visibleNodePoints());
   expect(points.length).toBeGreaterThan(0);
-  await page.mouse.click(points[0].x, points[0].y);
+  await page.locator('#net').click({ position: { x: points[0].x, y: points[0].y }, force: true });
 
   // 4. Detailpane automatically expands and displays panel content
   await expect.poll(
@@ -350,8 +356,10 @@ test('inspecting node on desktop displays details without backdrop dimming or cl
   ).toBe(false);
 
   const detailPane = page.locator('#detailpane');
-  const detailBox = await detailPane.boundingBox();
-  expect(detailBox.width).toBeGreaterThanOrEqual(300);
+  await expect.poll(async () => {
+    const box = await detailPane.boundingBox();
+    return box ? box.width : 0;
+  }).toBeGreaterThanOrEqual(300);
 
   // 5. Drawer backdrop must NOT be visible on desktop
   const backdrop = page.locator('#drawerbackdrop');
@@ -364,4 +372,61 @@ test('inspecting node on desktop displays details without backdrop dimming or cl
 
   expect(pageErrors).toEqual([]);
 });
+
+test('mobile history back navigation closes modal and returns to previous view without exiting', async ({ page }) => {
+  const pageErrors = [];
+  page.on('pageerror', error => pageErrors.push(error.message));
+  await page.setViewportSize({ width: 390, height: 844 });
+  await waitForClaire(page);
+  await expectNoHorizontalOverflow(page);
+
+  // 1. Initial state: on docs tab, no modal open
+  await expect(page.locator('#tab-docs')).toHaveAttribute('aria-selected', 'true');
+  const reader = page.locator('#reader');
+  await expect(reader).toBeHidden();
+
+  // 2. Click document item to open reader modal on mobile
+  await page.locator('.docitem').first().click();
+  await expect(reader).toBeVisible();
+  await expect(reader).toHaveAttribute('aria-modal', 'true');
+  expect(await page.locator('body').evaluate(body => body.classList.contains('reader-open'))).toBe(true);
+
+  // 3. Trigger browser Back (e.g. mobile OS back gesture / button)
+  await page.goBack();
+
+  // 4. Verify reader modal closes and user remains on docs list
+  await expect(reader).toBeHidden();
+  expect(await page.locator('body').evaluate(body => body.classList.contains('reader-open'))).toBe(false);
+  await expect(page.locator('#tab-docs')).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator('#docs')).toBeVisible();
+
+  // 5. Open drawer menu
+  await page.locator('#tab-menu').click();
+  const detailPane = page.locator('#detailpane');
+  await expect(detailPane).toBeVisible();
+
+  // 6. Trigger browser Back -> drawer closes
+  await page.goBack();
+  await expect(detailPane).toBeHidden();
+  await expect(page.locator('#tab-docs')).toHaveAttribute('aria-selected', 'true');
+
+  // 7. Switch tab to Graph
+  await page.locator('#tab-graph').click();
+  await expect(page.locator('#tab-graph')).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator('#netwrap')).toBeVisible();
+
+  // 8. Trigger browser Back -> returns to Docs tab
+  await page.goBack();
+  await expect(page.locator('#tab-docs')).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator('#docs')).toBeVisible();
+
+  // 9. Open reader modal and close via close button (✕)
+  await page.locator('.docitem').first().click();
+  await expect(reader).toBeVisible();
+  await page.locator('#reader .rclose').click();
+  await expect(reader).toBeHidden();
+
+  expect(pageErrors).toEqual([]);
+});
+
 

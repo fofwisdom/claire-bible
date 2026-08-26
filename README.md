@@ -63,6 +63,23 @@ uv run claire search "키워드"                          # 하이브리드 검�
 uv run claire bot            # 텔레그램 봇 실행 (long-polling)
 ```
 
+### 테스트 및 품질 검증 (Testing)
+
+Claire Bible은 백엔드 로직과 런타임을 검증하는 단위/통합 테스트(`pytest`)와 반응형 웹 인터페이스 및 SPA 내비게이션을 검증하는 E2E 브라우저 테스트(`Playwright`)를 제공합니다.
+
+```bash
+# 1. Python 단위 및 통합 테스트 (619개)
+uv run pytest
+
+# 2. Playwright 브라우저 E2E 테스트 (최초 1회 설치)
+npm --prefix e2e install           # Playwright 의존성 설치
+npx --prefix e2e playwright install chromium # 브라우저 바이너리 설치
+npx --prefix e2e playwright test   # 모바일/태블릿/데스크톱 E2E 테스트 스위트 실행
+```
+
+> 💡 **참고**: `node_modules/`, `test-results/`, `playwright-report/`, `.pytest_cache/` 등 테스트 산출물은 `.gitignore`에 등록되어 있어 Git 저장소를 항상 깨끗하게 유지합니다.
+
+
 ## 주요 명령어 요약
 
 Claire Bible은 호스트 오케스트레이션 도구인 **`cb-manuscript`**와 애플리케이션 CLI인 **`claire`**를 제공합니다.
