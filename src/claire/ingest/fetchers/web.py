@@ -114,14 +114,20 @@ def fetch_web(url: str) -> Document:
     #   직접링크와 share/단축링크가 같은 페이지로 풀리면 같은 canonical 로 수렴 → 중복 방지.
     #   static 이 실패해 effective 를 못 얻으면 입력 url 로 폴백.
     effective = effective_url or url
+
     # link_anchors: 1홉 자동확장 LLM 선별용 신호(url→앵커 텍스트). links 와 같은 상한.
     anchor_pairs = [{"url": u, "anchor": anchors.get(u, "")} for u in links[:50]]
+    is_pdf = (
+        url.lower().split("?", 1)[0].endswith(".pdf")
+        or (effective_url and effective_url.lower().split("?", 1)[0].endswith(".pdf"))
+        or via == "pdf"
+    )
     return Document(
         url=url,
         canonical_url=canonicalize_url(effective),
         title=title,
         raw_text=text[:20000],
-        source_type="web",
+        source_type="pdf" if is_pdf else "web",
         content_hash=content_hash(title or "", text),
         # images: 본문 콘텐츠 이미지 후보(다이어그램·차트·스크린샷). render_detail 의 LLM
         # 큐레이션이 이해에 도움 되는 것만 골라 마크다운에 삽입한다(이미지/도식 보존).
@@ -147,6 +153,21 @@ def _fetch_static(
             resp = client.get(url)
         if resp.status_code >= 400:
             return None, "", [], {}, f"http {resp.status_code} for {url}", None, []
+
+        ctype = resp.headers.get("content-type", "").lower()
+        if (
+            "application/pdf" in ctype
+            or str(resp.url).lower().split("?", 1)[0].endswith(".pdf")
+            or resp.content.startswith(b"%PDF-")
+        ):
+            from .pdf import extract_pdf_bytes
+
+            fallback = str(resp.url).split("/")[-1].split("?")[0]
+            title, text, links, anchors, perr, images = extract_pdf_bytes(
+                resp.content, url=str(resp.url), fallback_title=fallback
+            )
+            return title, text, links, anchors, perr, str(resp.url), images
+
         title, text, links, anchors, perr, images = _extract_html(
             resp.text, base_url=str(resp.url))
         return title, text, links, anchors, perr, str(resp.url), images
@@ -285,6 +306,17 @@ def _fetch_scrapling(url: str) -> tuple[str | None, str, list[str], dict[str, st
         status = getattr(page, "status", 200)
         if status and status >= 400:
             return None, "", [], {}, []
+
+        body = getattr(page, "body", None)
+        if (body and isinstance(body, bytes) and body.startswith(b"%PDF-")) or url.lower().split("?", 1)[0].endswith(".pdf"):
+            from .pdf import extract_pdf_bytes
+
+            raw_bytes = body if isinstance(body, bytes) else str(body).encode("latin1", errors="ignore")
+            title, text, links, anchors, _, images = extract_pdf_bytes(
+                raw_bytes, url=url, fallback_title=url.split("/")[-1].split("?")[0]
+            )
+            return title, text, links, anchors, images
+
         html = getattr(page, "html_content", "") or ""
         title, text, links, anchors, _, images = _extract_html(str(html), base_url=url)
         return title, text, links, anchors, images
