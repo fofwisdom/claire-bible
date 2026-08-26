@@ -1043,6 +1043,56 @@ let lastNetSize = {w:0, h:0};
 let allTypes = [], allRelTypes = [], allDocs = [];
 let net = null, allNodes = null, allEdges = null;
 let curMinDeg = 0, activeDoc = null, highlightSet = null, selectedNodeId = null, hoverTimer = null;
+let lastSelectedDocId = null;
+try{
+  const savedLastDoc = localStorage.getItem('claireLastDoc');
+  if(savedLastDoc) lastSelectedDocId = savedLastDoc;
+}catch(_){}
+
+function recordSelectedDoc(id){
+  if(!id) return;
+  lastSelectedDocId = id;
+  try{ localStorage.setItem('claireLastDoc', id); }catch(_){}
+}
+
+function docWithMostNodes(){
+  if(!allDocs || !allDocs.length) return null;
+  const counts = new Map();
+  if(allNodes){
+    allNodes.forEach(n=>{
+      if(n.hidden || (typeof n.id==='string' && n.id.indexOf('cl_')===0)) return;
+      (n.sources||[]).forEach(docId=>{
+        counts.set(docId, (counts.get(docId)||0) + 1);
+      });
+    });
+  }
+  let bestDoc = null, maxCount = -1;
+  const visibleDocs = allDocs.filter(d => d.hidden !== 1);
+  const targetDocs = visibleDocs.length ? visibleDocs : allDocs;
+  for(const d of targetDocs){
+    const count = counts.get(d.id) || 0;
+    if(count > maxCount){
+      maxCount = count;
+      bestDoc = d;
+    }
+  }
+  return bestDoc ? bestDoc.id : (targetDocs[0]?.id || null);
+}
+
+function getRecentDocId(){
+  let target = activeDoc || curReaderDoc || lastSelectedDocId;
+  if(!target){
+    try{
+      const saved = localStorage.getItem('claireLastDoc');
+      if(saved) target = saved;
+    }catch(_){}
+  }
+  if(target && allDocs && allDocs.length){
+    const exists = allDocs.find(d => d.id === target && d.hidden !== 1);
+    if(exists) return exists.id;
+  }
+  return null;
+}
 let clusterEdges = null, clusterAnchor = null, searchDebounce = null;
 let currentSearchSeq = 0, currentSearchAbort = null;
 function cancelServerSearch(){
@@ -1570,7 +1620,7 @@ function setCenterView(mode){
   }
 }
 function openDocGraph(docId){
-  const targetId = docId || activeDoc || curReaderDoc;
+  const targetId = docId || activeDoc || curReaderDoc || (mobileMQ.matches ? (getRecentDocId() || docWithMostNodes()) : (allDocs && allDocs.length ? allDocs[0].id : null));
   if(targetId) setActiveDoc(targetId);
   else if(allDocs && allDocs.length) setActiveDoc(allDocs[0].id);
   setCenterView('graph');
@@ -1585,6 +1635,7 @@ function openReader(docId){
   if(!docId) return;
   curReaderDoc=docId;
   activeDoc=docId;
+  recordSelectedDoc(docId);
   selectedNodeId=null;                          // 문서 모드로 전환 — 노드 inspect 해제
   readerReturnFocus=document.activeElement;
   readerReturnDocId=docId;
@@ -1847,7 +1898,10 @@ function revealWorkspace(name, focusTab=false){
   if(r && r.classList.contains('open') && typeof closeReader==='function') closeReader();
   if(name==='graph'){
     setCenterView('graph');
-    const targetDocId = activeDoc || curReaderDoc;
+    let targetDocId = activeDoc || curReaderDoc;
+    if(mobileMQ.matches && !targetDocId){
+      targetDocId = getRecentDocId() || docWithMostNodes();
+    }
     if(targetDocId){
       setActiveDoc(targetDocId);
     }
@@ -1909,7 +1963,7 @@ function toggleDrawer(){
   else openDrawer();
 }
 function openGraphFromDrawer(){
-  openDocGraph(activeDoc || curReaderDoc);
+  openDocGraph(activeDoc || curReaderDoc || (mobileMQ.matches ? (getRecentDocId() || docWithMostNodes()) : null));
 }
 function focusMobileSearch(){
   revealWorkspace('docs');
@@ -2869,11 +2923,15 @@ function resetHome(){
 }
 
 function selectDoc(id){
+  recordSelectedDoc(id);
   openReader(id);
 }
 function setActiveDoc(id){
   activeDoc = id;
-  if(id) curReaderDoc = id;
+  if(id){
+    curReaderDoc = id;
+    recordSelectedDoc(id);
+  }
   selectedNodeId=null;                          // 문서 모드로 전환 — 노드 inspect 해제
   renderDocs(document.getElementById('docq').value);
   applyView();
@@ -3436,6 +3494,9 @@ window.claireDebug = {
   get stabilized(){ return graphStabilized; },
   get detailCompact(){ return document.body.classList.contains('detail-compact'); },
   toggleDetailCompact: toggleDetailCompact,
+  docWithMostNodes: docWithMostNodes,
+  getRecentDocId: getRecentDocId,
+  get lastSelectedDocId(){ return lastSelectedDocId; },
   get sourceBaseUrl(){ return '__SOURCE_BASE_URL__'; },
   get githubRepository(){ return '__GITHUB_REPOSITORY__'; },
 };
