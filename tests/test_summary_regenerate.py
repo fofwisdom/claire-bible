@@ -188,3 +188,34 @@ def test_regenerate_effort_passed_to_provider(populated_service):
 
     # Verify extract was called
     svc.provider.extract.assert_called_once()
+
+
+def test_summary_prompt_plain_text_definition():
+    """요약 프롬프트 템플릿 및 스키마에 AsciiDoc 금지 및 평문 작성이 명시되어 있는지 검증."""
+    from claire.extract.prompts import (
+        PROMPT_VERSION,
+        _SYS,
+        extract_fallback_prompt,
+        extract_system_prompt,
+        summarize_search_prompt,
+    )
+    from claire.extract.provider import ExtractionResult
+
+    assert PROMPT_VERSION == "extract-v5"
+
+    sys = extract_system_prompt("{ontology}")
+    assert "plain text" in sys.lower() or "평문" in sys
+    assert "asciidoc" in sys.lower()
+    assert "[NOTE]" in sys or "|===" in sys
+
+    fb = extract_fallback_prompt(sys, "sample doc")
+    assert "plain text" in fb.lower() or "평문" in fb
+
+    search_p = summarize_search_prompt("query", "context")
+    assert "plain text" in search_p.lower()
+    assert "asciidoc" in search_p.lower()
+
+    schema = ExtractionResult.extraction_json_schema()
+    summary_desc = schema["properties"]["summary"]["description"]
+    assert "plain text" in summary_desc.lower() or "평문" in summary_desc
+    assert "asciidoc" in summary_desc.lower()

@@ -49,7 +49,10 @@ class ExtractedRelation(BaseModel):
 class ExtractionResult(BaseModel):
     summary: str = Field(
         default="",
-        description="1-3 factual sentences in Korean written style (문어체: ~한다/~이다) summarizing the document",
+        description=(
+            "1-3 factual sentences in Korean written style (문어체: ~한다/~이다) summarizing "
+            "the document in pure plain text (평문, no AsciiDoc or Markdown markup)"
+        ),
     )
     key_claims: list[str] = Field(default_factory=list)
     entities: list[ExtractedEntity] = Field(default_factory=list)
