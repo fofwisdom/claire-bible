@@ -691,9 +691,9 @@ GRAPH_HTML = """<!doctype html>
   .md img{max-width:100%;height:auto;display:block;margin:.8em auto;border-radius:6px;border:1px solid var(--border)}
   .md em{color:var(--muted)} .md blockquote{margin:.6em 0;padding:.2em .9em;border-left:3px solid var(--border);color:var(--muted);font-family:'Noto Serif KR','Noto Serif Korean',Georgia,'Times New Roman',serif}
   .md code{background:var(--chip-bg);padding:.1em .35em;border-radius:3px;font-size:.9em;font-family:'D2Coding','D2 Coding','SFMono-Regular',Menlo,Monaco,Consolas,'Liberation Mono',monospace}
-  .md pre{background:var(--card-bg);border:1px solid var(--border);border-radius:6px;padding:.8em;overflow:auto}
+  .md pre{background:var(--card-bg);border:1px solid var(--border);border-radius:6px;padding:.8em;overflow-x:auto;max-width:100%;box-sizing:border-box}
   .md pre code{background:transparent;padding:0;border-radius:0;font-size:inherit;font-family:'D2Coding','D2 Coding','SFMono-Regular',Menlo,Monaco,Consolas,'Liberation Mono',monospace}
-  .md table{border-collapse:collapse;margin:.6em 0;width:100%} .md th,.md td{border:1px solid var(--border);padding:.35em .65em}
+  .md table{border-collapse:collapse;margin:.6em 0;width:100%;max-width:100%;display:block;overflow-x:auto;box-sizing:border-box} .md th,.md td{border:1px solid var(--border);padding:.35em .65em}
   .md th{background:var(--chip-bg);font-weight:600}
   /* --- AsciiDoc & Markdown 확장 스타일 --- */
   .md .admonitionblock{margin:1em 0;border-left:4px solid var(--accent);background:var(--card-bg);border-radius:6px;padding:.6em 1em}
@@ -717,7 +717,7 @@ GRAPH_HTML = """<!doctype html>
 
   /* --- 중앙 크게 읽기 (2단 보기 및 기본 중앙 패널 / 모바일 읽기) --- */
   #reader{width:100%;height:100%;display:flex;flex-direction:column;min-width:0;min-height:0;overflow:hidden;background:var(--bg);--read-fs:16px}
-  #reader .sheet{background:var(--bg);color:var(--fg);width:100%;height:100%;border-radius:0;border:0;box-shadow:none;padding:0;display:flex;flex-direction:column;overflow:hidden}
+  #reader .sheet{background:var(--bg);color:var(--fg);width:100%;height:100%;min-width:0;min-height:0;border-radius:0;border:0;box-shadow:none;padding:0;display:flex;flex-direction:column;overflow:hidden}
   #reader .rhead{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 18px;border-bottom:1px solid var(--border);background:var(--bar-bg);position:sticky;top:0;z-index:1;min-height:48px}
   #reader .rhead h1{margin:0;font-size:16px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   #reader .rhead .rmeta{color:var(--muted);font-size:11.5px;margin-left:6px;font-weight:normal}
@@ -730,7 +730,7 @@ GRAPH_HTML = """<!doctype html>
   #reader .sharebox.on{display:flex} #reader .sharebox input{flex:1;min-width:0}
   #reader .sharebox button{background:var(--accent);color:#fff;border:0;border-radius:4px;padding:3px 9px;font-size:12px;cursor:pointer}
   #reader .rhead .redit,#reader .rhead .rshare{background:var(--sec-bg);color:var(--sec-fg);border:1px solid var(--border);border-radius:4px;font-size:13px;line-height:1;padding:4px 8px;cursor:pointer}
-  #reader .rbody{padding:16px 28px max(28px,env(safe-area-inset-bottom));overflow-y:auto;overscroll-behavior:contain;flex:1;min-height:0}
+  #reader .rbody{padding:16px 28px max(28px,env(safe-area-inset-bottom));overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;flex:1;min-height:0;min-width:0;max-width:100%;box-sizing:border-box}
   #reader .rsection{color:var(--muted);font-size:11px;letter-spacing:.04em;text-transform:uppercase;margin:1.2em 0 .2em}
 
   /* 2단 보기 및 데스크톱: 크게 읽기가 기본 노출, 그래프는 호출 시에만 노출 */
@@ -826,14 +826,14 @@ GRAPH_HTML = """<!doctype html>
     #graphdocempty{padding:12px 10px;color:var(--muted)}
 
     /* 모바일 크게 읽기 모달 */
-    #reader{position:fixed!important;top:0!important;left:0!important;right:0!important;bottom:calc(54px + env(safe-area-inset-bottom))!important;height:auto!important;max-height:none!important;background:var(--shadow)!important;display:none!important;visibility:hidden!important;pointer-events:none!important;z-index:45!important;padding:0!important}
+    #reader{position:fixed!important;top:0!important;left:0!important;right:0!important;bottom:calc(54px + env(safe-area-inset-bottom))!important;height:calc(100% - 54px - env(safe-area-inset-bottom))!important;max-height:calc(100% - 54px - env(safe-area-inset-bottom))!important;width:100%!important;max-width:100%!important;min-width:0!important;min-height:0!important;box-sizing:border-box!important;overflow:hidden!important;background:var(--shadow)!important;display:none!important;visibility:hidden!important;pointer-events:none!important;z-index:45!important;padding:0!important}
     #reader.open,body.reader-open #reader{display:flex!important;visibility:visible!important;pointer-events:auto!important}
-    #reader .sheet{height:100%!important;max-height:100%!important;border:0!important;border-radius:0!important}
+    #reader .sheet{height:100%!important;max-height:100%!important;width:100%!important;max-width:100%!important;min-width:0!important;min-height:0!important;border:0!important;border-radius:0!important;display:flex!important;flex-direction:column!important;overflow:hidden!important;box-sizing:border-box!important}
     #reader .rhead{padding:max(10px,env(safe-area-inset-top)) 12px 10px!important}
     #reader .rhead h1{font-size:18px!important}
     #reader .rzoom button,#reader .redit,#reader .rshare,#reader .rclose{min-width:44px!important;min-height:44px!important}
     #reader .rclose{display:inline-flex!important}
-    #reader .rbody{padding:8px 16px max(24px,env(safe-area-inset-bottom))!important}
+    #reader .rbody{padding:8px 16px max(24px,env(safe-area-inset-bottom))!important;overflow-y:auto!important;overflow-x:hidden!important;min-width:0!important;max-width:100%!important;box-sizing:border-box!important;flex:1!important;min-height:0!important}
 
     /* 모바일 우측 드로어 */
     #detailpane{width:min(340px,86vw);box-shadow:-8px 0 24px var(--shadow)}
@@ -3838,9 +3838,9 @@ _SHARED_HTML = """<!doctype html>
   .md a{color:var(--accent)} .md img{max-width:100%;height:auto;display:block;margin:.8em auto;border-radius:6px;border:1px solid var(--border)}
   .md blockquote{margin:.6em 0;padding:.2em .9em;border-left:3px solid var(--border);color:var(--muted);font-family:'Noto Serif KR','Noto Serif Korean',Georgia,'Times New Roman',serif}
   .md code{background:var(--chip-bg);padding:.1em .35em;border-radius:3px;font-size:.9em;font-family:'D2Coding','D2 Coding','SFMono-Regular',Menlo,Monaco,Consolas,'Liberation Mono',monospace}
-  .md pre{background:var(--card-bg);border:1px solid var(--border);border-radius:6px;padding:.8em;overflow:auto}
+  .md pre{background:var(--card-bg);border:1px solid var(--border);border-radius:6px;padding:.8em;overflow-x:auto;max-width:100%;box-sizing:border-box}
   .md pre code{background:transparent;padding:0;border-radius:0;font-size:inherit;font-family:'D2Coding','D2 Coding','SFMono-Regular',Menlo,Monaco,Consolas,'Liberation Mono',monospace}
-  .md table{border-collapse:collapse;margin:.6em 0;width:100%} .md th,.md td{border:1px solid var(--border);padding:.35em .65em}
+  .md table{border-collapse:collapse;margin:.6em 0;width:100%;max-width:100%;display:block;overflow-x:auto;box-sizing:border-box} .md th,.md td{border:1px solid var(--border);padding:.35em .65em}
   .md th{background:var(--chip-bg);font-weight:600}
   /* --- AsciiDoc & Markdown 확장 스타일 --- */
   .md .admonitionblock{margin:1em 0;border-left:4px solid var(--accent);background:var(--card-bg);border-radius:6px;padding:.6em 1em}

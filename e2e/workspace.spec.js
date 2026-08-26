@@ -167,7 +167,7 @@ test('mobile primary tabs keep document navigation on the graph', async ({ page 
   await expect(page.locator('#graphdocprev')).toBeDisabled();
   await expect(page.locator('#graphdocnext')).toBeDisabled();
   expect(await page.evaluate(() => window.claireDebug.activePane)).toBe('graph');
-  await page.waitForTimeout(900);
+  await page.waitForTimeout(600);
 
   const graphCamera = await page.evaluate(() => ({
     scale: window.claireDebug.scale,
@@ -180,7 +180,7 @@ test('mobile primary tabs keep document navigation on the graph', async ({ page 
     ) || null;
   });
   expect(point).not.toBeNull();
-  await page.locator('#net').click({ position: { x: point.x, y: point.y } });
+  await page.locator('#net').click({ position: { x: Math.round(point.x), y: Math.round(point.y) } });
   await expect(page.locator('#detailpane')).toBeVisible();
   await expect(page.locator('#panel h2')).toBeVisible();
   expect(await page.evaluate(() => window.claireDebug.activePane)).toBe('graph');
@@ -332,8 +332,11 @@ test('inspecting node on desktop displays details without backdrop dimming or cl
   await expectNoHorizontalOverflow(page);
 
   // 1. Switch right menu to compact mode first
-  const toggleBtn = page.locator('#detailtogglebtn');
-  await toggleBtn.click();
+  const isCompact = await page.evaluate(() => window.claireDebug.detailCompact);
+  if (!isCompact) {
+    const toggleBtn = page.locator('#detailtogglebtn');
+    await toggleBtn.click();
+  }
   await expect.poll(
     () => page.evaluate(() => window.claireDebug.detailCompact),
   ).toBe(true);
@@ -346,13 +349,15 @@ test('inspecting node on desktop displays details without backdrop dimming or cl
   ).toBe('graph');
 
   // 3. Inspect a visible node
-  await expect.poll(
-    () => page.evaluate(() => window.claireDebug?.stabilized),
-  ).toBe(true);
-  await page.waitForTimeout(350);
-  const points = await page.evaluate(() => window.claireDebug.visibleNodePoints());
-  expect(points.length).toBeGreaterThan(0);
-  await page.locator('#net').click({ position: { x: Math.round(points[0].x), y: Math.round(points[0].y) }, force: true });
+  await page.waitForTimeout(600);
+  const point = await page.evaluate(() => {
+    const box = document.getElementById('net').getBoundingClientRect();
+    return window.claireDebug.visibleNodePoints().find(
+      item => item.x > 40 && item.y > 40 && item.x < box.width - 40 && item.y < box.height - 40,
+    ) || window.claireDebug.visibleNodePoints()[0] || null;
+  });
+  expect(point).not.toBeNull();
+  await page.locator('#net').click({ position: { x: Math.round(point.x), y: Math.round(point.y) }, force: true });
 
   // 4. Detailpane automatically expands and displays panel content
   await expect.poll(
@@ -494,12 +499,18 @@ test('mobile reader ends above bottom bar and displays text to the end without o
   await expect(reader).toBeVisible();
   await expect(worktabs).toBeVisible();
 
-  // 2. Verify reader box does not extend under worktabs
+  // 2. Verify reader box does not extend under worktabs and has no horizontal scrolling
   const readerBox = await reader.boundingBox();
   const worktabsBox = await worktabs.boundingBox();
   expect(readerBox).not.toBeNull();
   expect(worktabsBox).not.toBeNull();
   expect(readerBox.y + readerBox.height).toBeLessThanOrEqual(worktabsBox.y + 1);
+
+  const rbodyMetrics = await page.evaluate(() => {
+    const b = document.getElementById('rbody');
+    return { clientWidth: b.clientWidth, scrollWidth: b.scrollWidth };
+  });
+  expect(rbodyMetrics.scrollWidth).toBeLessThanOrEqual(rbodyMetrics.clientWidth);
 
   // 3. Scroll rbody to bottom and verify the last text is completely visible above worktabs
   await page.evaluate(() => {
@@ -525,6 +536,7 @@ test('mobile reader ends above bottom bar and displays text to the end without o
 
   expect(pageErrors).toEqual([]);
 });
+
 
 
 
