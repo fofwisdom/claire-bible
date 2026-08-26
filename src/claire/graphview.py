@@ -809,14 +809,14 @@ GRAPH_HTML = """<!doctype html>
     #graphdocempty{padding:12px 10px;color:var(--muted)}
 
     /* 모바일 크게 읽기 모달 */
-    #reader{position:fixed!important;inset:0!important;background:var(--shadow)!important;display:none!important;visibility:hidden!important;pointer-events:none!important;z-index:60!important;padding:0!important}
+    #reader{position:fixed!important;top:0!important;left:0!important;right:0!important;bottom:calc(54px + env(safe-area-inset-bottom))!important;background:var(--shadow)!important;display:none!important;visibility:hidden!important;pointer-events:none!important;z-index:45!important;padding:0!important}
     #reader.open,body.reader-open #reader{display:flex!important;visibility:visible!important;pointer-events:auto!important}
-    #reader .sheet{height:100vh!important;max-height:100dvh!important;border:0!important;border-radius:0!important}
+    #reader .sheet{height:100%!important;max-height:100%!important;border:0!important;border-radius:0!important}
     #reader .rhead{padding:max(10px,env(safe-area-inset-top)) 12px 10px!important}
     #reader .rhead h1{font-size:18px!important}
     #reader .rzoom button,#reader .redit,#reader .rshare,#reader .rclose{min-width:44px!important;min-height:44px!important}
     #reader .rclose{display:inline-flex!important}
-    #reader .rbody{padding:8px 16px max(20px,env(safe-area-inset-bottom))!important}
+    #reader .rbody{padding:8px 16px 20px!important}
 
     /* 모바일 우측 드로어 */
     #detailpane{width:min(340px,86vw);box-shadow:-8px 0 24px var(--shadow)}
@@ -1526,7 +1526,7 @@ let curReaderDocData=null; // 현재 읽기 팝업의 문서 객체
 let readerReturnFocus=null, readerReturnDocId=null;
 function setReaderBackgroundInert(on){
   if(mobileMQ.matches){
-    ['bar','worktabs'].forEach(id=>{ const el=document.getElementById(id); if(el) el.inert=on; });
+    const el=document.getElementById('bar'); if(el) el.inert=on;
   }
 }
 function readerFocusable(){
@@ -1613,6 +1613,7 @@ function openReader(docId){
     const targetDocId=activeDoc;
     requestAnimationFrame(()=>{ if(net && activeDoc===targetDocId){
       const ids=[]; allNodes.forEach(n=>{ if(!n.hidden && (n.sources||[]).includes(targetDocId)) ids.push(n.id); });
+      if(ids.length) net.selectNodes(ids);
       net.fit(ids.length ? {nodes:ids, animation:graphAnimation(true)}
         : {animation:graphAnimation(true)});
     }});
@@ -1842,10 +1843,14 @@ function revealWorkspace(name, focusTab=false){
   if(!paneNames.includes(name)) return;
   if(activePane==='graph' && !netBusy) rememberGraphCamera();
   activePane=name;
+  const r=document.getElementById('reader');
+  if(r && r.classList.contains('open') && typeof closeReader==='function') closeReader();
   if(name==='graph'){
     setCenterView('graph');
-    const r=document.getElementById('reader');
-    if(r && r.classList.contains('open') && typeof closeReader==='function') closeReader();
+    const targetDocId = activeDoc || curReaderDoc;
+    if(targetDocId){
+      setActiveDoc(targetDocId);
+    }
   }
   if(name==='docs'){
     docSearchActive=false;
@@ -2877,11 +2882,13 @@ function setActiveDoc(id){
     requestAnimationFrame(()=>{ if(net && activeDoc===docId){
       // 전체 fit 이 아니라 그 문서의 노드들만 화면에 차게 — 최적 줌/위치로 이동(피드백).
       const ids=[]; allNodes.forEach(n=>{ if(!n.hidden && (n.sources||[]).includes(docId)) ids.push(n.id); });
+      if(ids.length) net.selectNodes(ids);
       net.fit(ids.length ? {nodes:ids, animation:graphAnimation(true)}
         : {animation:graphAnimation(true)});
     }});
     loadDocPanel(activeDoc);    // wide rail/후속 문맥 작업을 위해 내용만 준비
   } else {
+    if(net) net.unselectAll();
     resetGraphCamera();
     panel.innerHTML = defaultHint();             // 해제 시 기본 힌트로 복원
   }
