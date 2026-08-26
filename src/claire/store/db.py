@@ -1200,12 +1200,24 @@ def plausible_share_token(token: str) -> bool:
 
 
 def create_doc_share(conn: sqlite3.Connection, document_id: str,
-                     *, ttl: float | None = None) -> str:
+                     *, ttl: float | None = None,
+                     reuse_existing: bool = True) -> str:
     """문서 1개의 읽기 공유 토큰을 발급(세션과 분리). ttl=None 이면 무기한.
 
-    같은 문서에 여러 번 발급해도 매번 새 토큰(서로 독립적으로 철회 가능하도록 단순 추가)."""
-    token = _short_token(_SHARE_TOKEN_LEN)
+    reuse_existing=True 이면 문서에 이미 유효한(미만료) 토큰이 있는 경우 이를 재사용하여
+    URL 파편화를 방지하고 분석/참조수 집계를 단일 정규 URL로 통합한다."""
     now = time.time()
+    if reuse_existing:
+        row = conn.execute(
+            "SELECT token, expires_at FROM doc_shares "
+            "WHERE document_id=? AND (expires_at IS NULL OR expires_at > ?) "
+            "ORDER BY created_at DESC, rowid DESC LIMIT 1",
+            (document_id, now),
+        ).fetchone()
+        if row and row["token"]:
+            return str(row["token"])
+
+    token = _short_token(_SHARE_TOKEN_LEN)
     expires = (now + ttl) if ttl else None
     conn.execute(
         "INSERT INTO doc_shares(token, document_id, created_at, expires_at) "

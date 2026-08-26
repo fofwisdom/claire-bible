@@ -298,6 +298,7 @@ GRAPH_HTML = """<!doctype html>
 <link rel="manifest" href="/manifest.json"/>
 <link rel="mask-icon" href="/favicon.svg" color="#00ffaa"/>
 <meta name="theme-color" content="#0e1116"/>
+<!-- __GA_TAG__ -->
 <!-- Google Fonts (Noto Sans KR, Noto Serif KR) -->
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
@@ -1116,6 +1117,14 @@ function pushAppHistory(patch = {}){
   }
   lastPushedHistory = next;
   try{ window.history.pushState(next, ''); }catch(_){}
+  if(typeof window.gtag === 'function'){
+    try{
+      window.gtag('event', 'page_view', {
+        page_title: document.title,
+        page_location: window.location.origin + window.location.pathname
+      });
+    }catch(_){}
+  }
 }
 
 function replaceAppHistory(patch = {}){
@@ -1878,6 +1887,9 @@ async function shareDoc(){
     const url=location.origin+d.path;
     let copied=false;
     try{ await navigator.clipboard.writeText(url); copied=true; }catch(_){}
+    if(typeof window.gtag === 'function' && curReaderDoc){
+      try{ window.gtag('event', 'share', { method: 'link', content_type: 'document', item_id: curReaderDoc }); }catch(_){}
+    }
     sb.innerHTML='<input id="shareurl" readonly value="'+esc(url)+'" onclick="this.select()"/>'+
       '<button onclick="copyShare()">'+(copied?'✓ 복사됨':'복사')+'</button>';
   }catch(e){ sb.innerHTML='<span class=pt>공유 실패: '+esc(String(e))+'</span>'; }
@@ -3272,6 +3284,9 @@ function hl(q){
   q=q.trim().toLowerCase();
   if(!q){ highlightSet=null; applyView(); unclusterEdges();
     if(net){ net.unselectAll(); net.fit({animation:graphAnimation(true)}); } return; }
+  if(typeof window.gtag === 'function'){
+    try{ window.gtag('event', 'search', { search_term: q, search_mode: 'label' }); }catch(_){}
+  }
   const matches=[];
   allNodes.forEach(n=>{ if(n.label.toLowerCase().includes(q)) matches.push(n.id); });
   highlightSet = new Set(matches);
@@ -3429,6 +3444,9 @@ async function semanticSearch(q){
   const semchk=document.getElementById('semchk');
   const isSemantic = semchk && semchk.checked && AUTH_SCOPE !== 'anonymous';
   const searchMode = isSemantic ? 'hybrid' : 'fts';
+  if(typeof window.gtag === 'function'){
+    try{ window.gtag('event', 'search', { search_term: q, search_mode: searchMode }); }catch(_){}
+  }
   const requestedMode = isSemantic ? 'Semantic Search' : 'Full-Text Search';
   const statEl = document.getElementById('stat');
   if(statEl) statEl.textContent='🔎 '+requestedMode+' 중…';
@@ -3743,6 +3761,7 @@ _SHARED_HTML = """<!doctype html>
 <link rel="manifest" href="/manifest.json"/>
 <link rel="mask-icon" href="/favicon.svg" color="#00ffaa"/>
 <meta name="theme-color" content="#0e1116"/>
+<!-- __GA_TAG__ -->
 <!-- Google Fonts (Noto Sans KR, Noto Serif KR) -->
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
@@ -4159,25 +4178,76 @@ if(dc.detail_html){
 if(!dc.summary && !dc.detail && !dc.detail_html){ h+='<p class=meta>이 문서의 요약/전문이 아직 없습니다.</p>'; }
 h+='<div class=foot>이 링크는 이 문서 하나만 읽기 전용으로 공유합니다.</div>';
 document.getElementById('wrap').innerHTML=h;
+if(typeof window.gtag === 'function' && dc && dc.id){
+  try{
+    window.gtag('event', 'select_content', {
+      content_type: 'shared_document',
+      item_id: dc.id
+    });
+  }catch(_){}
+}
 </script></body></html>
 """
 
 
-def shared_html(doc: dict) -> str:
+def render_ga_tag(measurement_id: str) -> str:
+    """Google Analytics 4 (GA4 / gtag.js) 태그 스니펫을 생성한다.
+
+    측정 ID가 없거나 유효하지 않으면 빈 문자열을 반환한다.
+    URL 쿼리 파라미터(?t=..., ?s=...) 유출을 방지하기 위해 page_location을
+    origin + pathname으로 정제하여 전송한다."""
+    import re
+
+    cleaned_id = str(measurement_id or "").strip()
+    if not cleaned_id or not re.fullmatch(r"^[A-Za-z0-9_-]+$", cleaned_id):
+        return ""
+    return (
+        f'<!-- Google Analytics (GA4) -->\n'
+        f'<script async src="https://www.googletagmanager.com/gtag/js?id={cleaned_id}"></script>\n'
+        f'<script>\n'
+        f'  window.dataLayer = window.dataLayer || [];\n'
+        f'  function gtag(){{dataLayer.push(arguments);}}\n'
+        f'  gtag("js", new Date());\n'
+        f'  gtag("config", "{cleaned_id}", {{\n'
+        f'    page_location: window.location.origin + window.location.pathname\n'
+        f'  }});\n'
+        f'</script>'
+    )
+
+
+def shared_html(doc: dict, settings: Any = None) -> str:
     """공유 문서 1개를 임베드한 경량 읽기 페이지 HTML. doc = document_detail() 결과.
 
     문서 데이터를 JSON 으로 <script> 에 임베드한다 — `</script>`·`<` 등이 스크립트를
     조기 종료/주입하지 못하게 HTML 특수문자를 \\uXXXX 로 이스케이프(스크랩 본문 유래)."""
     import json as _json
 
+    if settings is None:
+        from .config import get_settings
+
+        s = get_settings()
+    else:
+        s = settings
+
+    ga_id = getattr(
+        s,
+        "effective_ga_measurement_id",
+        getattr(s, "ga_measurement_id", ""),
+    )
+    ga_tag = render_ga_tag(ga_id)
+
     data = _json.dumps(doc, ensure_ascii=False)
     data = data.replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
     title = (doc.get("title") or "공유 문서").replace("<", "").replace(">", "")
-    return _SHARED_HTML.replace("__DATA__", data).replace("__TITLE__", title)
+    return (
+        _SHARED_HTML.replace("__DATA__", data)
+        .replace("__TITLE__", title)
+        .replace("<!-- __GA_TAG__ -->", ga_tag)
+    )
 
 
 def render_graph_html(settings: Any = None) -> str:
-    """Settings 의 저장소 변수를 반영하여 완성된 그래프 HTML 을 반환한다."""
+    """Settings 의 저장소 변수 및 GA 설정을 반영하여 완성된 그래프 HTML 을 반환한다."""
     if settings is None:
         from .config import get_settings
 
@@ -4196,8 +4266,15 @@ def render_graph_html(settings: Any = None) -> str:
     )
     if not base_url:
         base_url = f"https://github.com/{repo}"
+    ga_id = getattr(
+        s,
+        "effective_ga_measurement_id",
+        getattr(s, "ga_measurement_id", ""),
+    )
+    ga_tag = render_ga_tag(ga_id)
     return (
         GRAPH_HTML.replace("__SOURCE_BASE_URL__", base_url)
         .replace("__GITHUB_REPOSITORY__", repo)
+        .replace("<!-- __GA_TAG__ -->", ga_tag)
     )
 
