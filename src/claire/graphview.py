@@ -471,7 +471,7 @@ GRAPH_HTML = """<!doctype html>
     border-radius:4px;cursor:pointer;box-sizing:border-box;transition:background .15s ease}
   #themebtn:hover{background:var(--hover)}
   #worktabs{display:none}
-  #drawerbackdrop{display:none;position:fixed;inset:0;z-index:35;background:rgba(0,0,0,.45);opacity:0;pointer-events:none;transition:opacity .2s ease}
+  #drawerbackdrop{display:none;position:fixed;inset:0;z-index:52;background:rgba(0,0,0,.45);opacity:0;pointer-events:none;transition:opacity .2s ease}
   #wrap{position:relative;display:grid;grid-template-columns:280px minmax(420px,1fr) var(--detail-width,360px);
     flex:1;min-height:0;overflow:hidden;transition:grid-template-columns .2s ease}
   body.detail-compact #wrap,
@@ -665,7 +665,7 @@ GRAPH_HTML = """<!doctype html>
   /* ==형광== 강조 — render_detail/요약이 LLM 으로 표시한 핵심 구절(마크다운 후 <mark>). */
   mark{background:var(--mark-bg);color:var(--mark-fg);padding:0 .15em;border-radius:2px}
   /* 노드 hover 팝업 */
-  #nodepop{position:fixed;z-index:60;max-width:340px;background:var(--card-bg);color:var(--fg);
+  #nodepop{position:fixed;z-index:70;max-width:340px;background:var(--card-bg);color:var(--fg);
     border:1px solid var(--border);border-radius:7px;box-shadow:0 6px 22px var(--shadow);
     padding:8px 11px;font-size:12px;line-height:1.45;pointer-events:none;display:none}
   #nodepop b{font-size:13px} #nodepop .pt{color:var(--muted);font-size:11px}
@@ -757,8 +757,8 @@ GRAPH_HTML = """<!doctype html>
       padding-bottom:calc(54px + env(safe-area-inset-bottom))}
     #morebtn{display:none!important}
 
-    /* 하단 내비게이션 바: 2단 보기(1100px 이하) 및 모바일 최하단에 고정 (z-index: 50) */
-    #worktabs{display:flex;position:fixed;bottom:0;left:0;right:0;z-index:50;
+    /* 하단 내비게이션 바: 2단 보기(1100px 이하) 및 모바일 최하단에 고정 (z-index: 60) */
+    #worktabs{display:flex;position:fixed;bottom:0;left:0;right:0;z-index:60;
       height:calc(54px + env(safe-area-inset-bottom));padding-bottom:env(safe-area-inset-bottom);
       background:var(--bar-bg);border-top:1px solid var(--border);
       align-items:stretch;justify-content:space-around;padding-left:12px;padding-right:12px}
@@ -770,7 +770,7 @@ GRAPH_HTML = """<!doctype html>
     #worktabs button:active{background:var(--hover)}
 
     #detailpane{position:fixed;top:0;right:0;bottom:calc(54px + env(safe-area-inset-bottom));
-      z-index:40;width:min(400px,82vw);height:auto;max-height:none;
+      z-index:55;width:min(400px,82vw);height:auto;max-height:none;
       transform:translateX(105%);visibility:hidden;pointer-events:none;
       border:1px solid var(--border);border-bottom:0;border-radius:0;
       box-shadow:-12px 0 32px var(--shadow);
@@ -787,7 +787,7 @@ GRAPH_HTML = """<!doctype html>
 
   /* 모바일 화면 (720px 이하):
      - 최상단: 브랜드 로고 및 테마 토글만 남김 (햄버거 메뉴는 하단 바로 통합)
-     - 최하단: 📑 · 🔎 · ☰ 탭 배치 (z-index: 50, 텍스트 레이블 제거)
+     - 최하단: 📑 · 🔎 · ☰ 탭 배치 (z-index: 60, 텍스트 레이블 제거)
      - 자료 화면: 아이템 탭 시 크게 읽기 호출
   */
   @media (max-width:720px){
@@ -826,14 +826,14 @@ GRAPH_HTML = """<!doctype html>
     #graphdocempty{padding:12px 10px;color:var(--muted)}
 
     /* 모바일 크게 읽기 모달 */
-    #reader{position:fixed!important;top:0!important;left:0!important;right:0!important;bottom:calc(54px + env(safe-area-inset-bottom))!important;background:var(--shadow)!important;display:none!important;visibility:hidden!important;pointer-events:none!important;z-index:45!important;padding:0!important}
+    #reader{position:fixed!important;top:0!important;left:0!important;right:0!important;bottom:calc(54px + env(safe-area-inset-bottom))!important;height:auto!important;max-height:none!important;background:var(--shadow)!important;display:none!important;visibility:hidden!important;pointer-events:none!important;z-index:45!important;padding:0!important}
     #reader.open,body.reader-open #reader{display:flex!important;visibility:visible!important;pointer-events:auto!important}
     #reader .sheet{height:100%!important;max-height:100%!important;border:0!important;border-radius:0!important}
     #reader .rhead{padding:max(10px,env(safe-area-inset-top)) 12px 10px!important}
     #reader .rhead h1{font-size:18px!important}
     #reader .rzoom button,#reader .redit,#reader .rshare,#reader .rclose{min-width:44px!important;min-height:44px!important}
     #reader .rclose{display:inline-flex!important}
-    #reader .rbody{padding:8px 16px 20px!important}
+    #reader .rbody{padding:8px 16px max(24px,env(safe-area-inset-bottom))!important}
 
     /* 모바일 우측 드로어 */
     #detailpane{width:min(340px,86vw);box-shadow:-8px 0 24px var(--shadow)}
