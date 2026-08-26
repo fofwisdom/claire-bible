@@ -237,12 +237,41 @@ def test_stat_location_and_center_view_right_menu_modes():
     assert 'body[data-center-view="graph"] #opengraphbtn{display:none!important}' in GRAPH_HTML
     assert 'body[data-center-view="graph"] #openreaderbtn{display:inline-flex!important}' in GRAPH_HTML
     assert 'body[data-center-view="graph"] #pathbtn{display:inline-flex!important}' in GRAPH_HTML
-    assert 'body[data-center-view="graph"] #graph-section .filter-row{display:flex!important}' in GRAPH_HTML
 
     assert 'body:not([data-center-view="graph"]) #opengraphbtn{display:inline-flex!important}' in GRAPH_HTML
     assert 'body:not([data-center-view="graph"]) #openreaderbtn{display:none!important}' in GRAPH_HTML
     assert 'body:not([data-center-view="graph"]) #pathbtn{display:none!important}' in GRAPH_HTML
-    assert 'body:not([data-center-view="graph"]) #graph-section .filter-row{display:none!important}' in GRAPH_HTML
+
+
+def test_fslider_vertical_left_of_zoomctl():
+    """그래프 뷰 내 zoomctl 좌측에 fslider가 수직 배치(#degctl)되었는지 검증."""
+    # 1. #degctl이 #netwrap 내에 존재하며 #zoomctl 좌측(앞)에 위치
+    assert 'id="degctl"' in GRAPH_HTML
+    assert 'id="zoomctl"' in GRAPH_HTML
+    netwrap_pos = GRAPH_HTML.index('id="netwrap"')
+    degctl_pos = GRAPH_HTML.index('id="degctl"')
+    zoomctl_pos = GRAPH_HTML.index('id="zoomctl"')
+    reader_pos = GRAPH_HTML.index('id="reader"')
+    detail_pos = GRAPH_HTML.index('id="detailpane"')
+
+    assert netwrap_pos < degctl_pos < zoomctl_pos < reader_pos < detail_pos
+
+    # 2. #degctl 내에 fmin과 fslider가 포함됨
+    degctl_chunk = GRAPH_HTML[degctl_pos:zoomctl_pos]
+    assert 'id="fmin"' in degctl_chunk
+    assert 'id="fslider"' in degctl_chunk
+    assert 'orient="vertical"' in degctl_chunk
+    assert 'setDeg(this.value)' in degctl_chunk
+
+    # 3. 우측 사이드 패널(#detailpane) 내에는 fslider가 없음
+    detail_chunk = GRAPH_HTML[detail_pos:]
+    assert 'id="fslider"' not in detail_chunk
+
+    # 4. 수직 슬라이더 및 degctl 스타일 검증
+    assert "#degctl{position:absolute;right:62px;bottom:14px;" in GRAPH_HTML
+    assert "writing-mode:vertical-lr" in GRAPH_HTML
+    assert "direction:rtl" in GRAPH_HTML
+    assert "-webkit-appearance:slider-vertical" in GRAPH_HTML
 
 
 

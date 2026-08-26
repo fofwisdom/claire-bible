@@ -484,6 +484,15 @@ GRAPH_HTML = """<!doctype html>
   /* 모바일 그래프 안에서 문서를 연속 전환하는 보조 탐색. 자료/그래프의 주 계층은
      그대로 두고, 좁은 화면에서만 현재 그래프 필터를 바꾸는 지역 컨트롤로 노출한다. */
   #graphdocnav{display:none}
+  /* 최소 연결 차수(degree) 필터: zoomctl 좌측에 수직 배치 */
+  #degctl{position:absolute;right:62px;bottom:14px;display:flex;flex-direction:column;align-items:center;
+    justify-content:space-between;width:40px;height:181px;padding:8px 4px;border-radius:20px;
+    border:1px solid var(--border);background:var(--sec-bg);color:var(--sec-fg);opacity:.9;
+    box-shadow:0 2px 8px var(--shadow);z-index:5;box-sizing:border-box;user-select:none}
+  #degctl:hover{opacity:1}
+  #degctl .deg-label{font-size:11px;line-height:1.2;font-weight:600;color:var(--sec-fg);
+    text-align:center;white-space:nowrap;margin-bottom:2px;cursor:default}
+  #degctl .deg-label b{font-size:12px;color:var(--accent)}
   /* 모바일 핀치줌 대체 */
   #zoomctl{position:absolute;right:14px;bottom:14px;display:flex;flex-direction:column;gap:7px;z-index:5}
   #zoomctl button{width:40px;height:40px;border-radius:50%;border:1px solid var(--border);
@@ -565,7 +574,6 @@ GRAPH_HTML = """<!doctype html>
   #moremenu{display:flex;flex-direction:column;gap:8px;padding-bottom:0;margin-bottom:10px}
   #moremenu .tool-row{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
   #moremenu .action-btn-row{display:flex;flex-wrap:wrap;gap:4px;align-items:center}
-  #moremenu .filter-row{display:flex;align-items:center;gap:6px;font-size:12px}
   #moremenu .sys-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:11px;color:var(--muted);margin-top:2px}
   #moremenu .menu-section{display:flex;flex-direction:column;gap:8px;padding-top:8px;padding-bottom:12px;margin-top:2px;border-top:1px solid var(--border)}
   #moremenu .menu-section-head{display:flex;align-items:center}
@@ -603,8 +611,6 @@ GRAPH_HTML = """<!doctype html>
   #detailpane.compact-rail #moremenu .menu-section-head{display:none}
   body.detail-compact #detailpane #moremenu .tool-row,
   #detailpane.compact-rail #moremenu .tool-row{display:none}
-  body.detail-compact #detailpane #moremenu .filter-row,
-  #detailpane.compact-rail #moremenu .filter-row{display:none}
   body.detail-compact #detailpane #moremenu .sys-row,
   #detailpane.compact-rail #moremenu .sys-row{display:none}
   body.detail-compact #detailpane #moremenu .action-btn-row,
@@ -653,7 +659,8 @@ GRAPH_HTML = """<!doctype html>
   button{background:var(--btn-bg);color:var(--btn-fg);border:0;border-radius:4px;padding:4px 10px;cursor:pointer;font-size:13px}
   button:hover{filter:brightness(1.08)}
   button.sec{background:var(--sec-bg);color:var(--sec-fg)}
-  #fslider{width:100px;vertical-align:middle}
+  #fslider{writing-mode:vertical-lr;direction:rtl;-webkit-appearance:slider-vertical;
+    width:16px;flex:1;min-height:80px;margin:0;padding:0;cursor:pointer;accent-color:var(--accent);background:transparent}
   /* ==형광== 강조 — render_detail/요약이 LLM 으로 표시한 핵심 구절(마크다운 후 <mark>). */
   mark{background:var(--mark-bg);color:var(--mark-fg);padding:0 .15em;border-radius:2px}
   /* 노드 hover 팝업 */
@@ -732,18 +739,16 @@ GRAPH_HTML = """<!doctype html>
   body[data-center-view="graph"] #netwrap{display:flex!important}
 
   /* 중앙 화면 모드에 따른 우측 메뉴(aside#detailpane) 고유 표시:
-     - 그래프 모드: opengraphbtn 숨김, openreaderbtn·pathbtn·filter-row(연결 차수) 노출
-     - 본문 모드: opengraphbtn 노출, openreaderbtn·pathbtn·filter-row 숨김
+     - 그래프 모드: opengraphbtn 숨김, openreaderbtn·pathbtn 노출
+     - 본문 모드: opengraphbtn 노출, openreaderbtn·pathbtn 숨김
   */
   body[data-center-view="graph"] #opengraphbtn{display:none!important}
   body[data-center-view="graph"] #openreaderbtn{display:inline-flex!important}
   body[data-center-view="graph"] #pathbtn{display:inline-flex!important}
-  body[data-center-view="graph"] #graph-section .filter-row{display:flex!important}
 
   body:not([data-center-view="graph"]) #opengraphbtn{display:inline-flex!important}
   body:not([data-center-view="graph"]) #openreaderbtn{display:none!important}
   body:not([data-center-view="graph"]) #pathbtn{display:none!important}
-  body:not([data-center-view="graph"]) #graph-section .filter-row{display:none!important}
 
   /* 데스크톱/노트북 (중간 폭): 1100px 이하에서는 우측 패널을 drawer 로 (2단 보기 지원) */
   @media (max-width:1100px){
@@ -834,6 +839,8 @@ GRAPH_HTML = """<!doctype html>
     #detailclose{min-width:44px;min-height:44px}
     #drawerscroll{padding:14px 16px max(16px,env(safe-area-inset-bottom))}
     #panel .hint br{display:none}
+    #degctl{right:calc(max(12px,env(safe-area-inset-right)) + 52px);bottom:max(12px,env(safe-area-inset-bottom));
+      width:44px;height:197px;border-radius:22px;padding:10px 4px}
     #zoomctl{right:max(12px,env(safe-area-inset-right));bottom:max(12px,env(safe-area-inset-bottom))}
     #zoomctl button{width:44px;height:44px}
     input,select,button{font-size:16px}
@@ -945,6 +952,10 @@ GRAPH_HTML = """<!doctype html>
       </div>
       <div id="net" aria-label="지식 그래프"></div>
       <div id="graphnotice" role="status" aria-live="polite"></div>
+      <div id="degctl" aria-label="최소 연결 수 필터">
+        <label for="fslider" class="deg-label" title="최소 연결 수">≥<b id="fmin">0</b></label>
+        <input id="fslider" type="range" orient="vertical" min="0" max="0" value="0" oninput="setDeg(this.value)" aria-label="최소 연결 수" title="최소 연결 수 조절"/>
+      </div>
       <div id="zoomctl" aria-label="그래프 카메라">
         <button onclick="zoomBtn(1)" title="확대" aria-label="그래프 확대">+</button>
         <button onclick="zoomBtn(-1)" title="축소" aria-label="그래프 축소">−</button>
@@ -999,9 +1010,6 @@ GRAPH_HTML = """<!doctype html>
             <button id="pathbtn" class="sec" onclick="togglePathMode()" title="두 노드 사이 연결 경로 찾기" aria-label="경로"><span class="btn-icon">🔗</span> <span class="btn-label">경로</span></button>
             <button id="synthbtn" onclick="synth()" title="종합 (0)"><span class="btn-icon">🧩</span> <span class="btn-label">종합 (0)</span></button>
             <span id="synthchips"></span>
-          </div>
-          <div class="filter-row">
-            <label>연결 ≥ <b id="fmin">0</b> <input id="fslider" type="range" min="0" max="0" value="0" oninput="setDeg(this.value)"/></label>
           </div>
         </div>
       </div>
