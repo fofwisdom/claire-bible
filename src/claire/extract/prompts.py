@@ -14,7 +14,8 @@ if TYPE_CHECKING:
 
 # 추출 프롬프트 버전. _SYS 또는 핵심 추출 지침을 바꾸면 올린다.
 # v4: summary/observations/key_claims 및 주요 서술 출력에 문어체(서술체: ~한다/~이다/~함) 적용.
-PROMPT_VERSION = "extract-v4"
+# v5: summary 평문(plain text) 작성 규칙 명시 (AsciiDoc/마크다운 마크업 금지).
+PROMPT_VERSION = "extract-v5"
 
 # 단일 출처 문서의 LLM 투입 예산. 병합 문서(ONEHOP_MERGE_DESIGN.md §3.3b)는 두 출처를
 # 담아야 하니 2배 — 저장(documents.raw_text)은 안 자르고 프롬프트 투입량만 늘린다.
@@ -37,7 +38,10 @@ Rules:
   terms in their original form — do NOT transliterate (e.g. "OpenSkill", "arXiv", "LLM agent"
   stay as-is). Entity `name` and `aliases` stay in their canonical original form (usually the
   original language).
-- summary: 1-3 factual sentences in Korean written style (문어체: ~한다/~이다).
+- summary: 1-3 factual sentences in Korean written style (문어체: ~한다/~이다). Write in pure
+  plain text ONLY (평문). Do NOT use any AsciiDoc or Markdown markup syntax (e.g. NEVER use
+  headers like '= Title' or '== Section', block markers like '[NOTE]', tables '|===', links
+  'link:...', lists, bold/italic, or quote formatting).
 - entities: the key things this document is ABOUT (tools, repos, models, people, orgs, concepts...).
 - Do NOT create an entity for the publishing platform, source site, news aggregator, or
   forum that merely HOSTS or links to this content (e.g. GeekNews, Hacker News, Reddit,
@@ -84,6 +88,7 @@ def extract_fallback_prompt(sys: str, body: str) -> str:
         '"entities":[{"name":str,"type":str,"aliases":[str],'
         '"observations":[str],"proposed_type":str|null}],'
         '"relations":[{"source":str,"target":str,"type":str,"proposed_type":str|null}]}'
+        + "\n(Note: 'summary' must be 1-3 factual plain text sentences in Korean written style without any AsciiDoc or Markdown markup)\n"
         + "\n\nDOCUMENT:\n"
         + body
     )
@@ -98,6 +103,7 @@ def summarize_search_prompt(query: str, context: str) -> str:
         "Write the answer in Korean (한국어) using objective written style (문어체: ~한다/~이다, "
         "do not use conversational honorifics like ~합니다/~해요), but keep proper nouns, "
         "product/tool names, and technical terms in their original form (do not transliterate). "
+        "Write in pure plain text without any AsciiDoc or Markdown markup syntax. "
         "Be concise.\n\n"
         f"QUERY: {query}\n\nCONTEXT:\n{context}\n\nANSWER:"
     )
