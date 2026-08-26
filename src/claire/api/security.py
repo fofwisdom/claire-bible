@@ -61,18 +61,29 @@ _AUTHORITY_RE = re.compile(
     r"(?P<host>[A-Za-z0-9.-]+)(?::(?P<port>[0-9]{1,5}))?\Z"
 )
 _BEARER_RE = re.compile(r"Bearer[ \t]+([^ \t,]+)\Z", re.IGNORECASE)
-_CONTENT_SECURITY_POLICY = (
-    "default-src 'self'; "
-    "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://unpkg.com; "
-    "style-src 'self' 'unsafe-inline'; "
-    "img-src 'self' data: https:; "
-    "connect-src 'self'; "
-    "font-src 'self' data:; "
-    "object-src 'none'; "
-    "base-uri 'none'; "
-    "form-action 'self'; "
-    "frame-ancestors 'none'"
-)
+
+
+def _build_content_security_policy(ga_measurement_id: str = "") -> str:
+    script_src = "'self' 'unsafe-inline' 'unsafe-eval' https://unpkg.com"
+    connect_src = "'self'"
+    if ga_measurement_id:
+        script_src += " https://www.googletagmanager.com"
+        connect_src += " https://*.google-analytics.com https://*.analytics.google.com https://*.googletagmanager.com"
+    return (
+        "default-src 'self'; "
+        f"script-src {script_src}; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data: https:; "
+        f"connect-src {connect_src}; "
+        "font-src 'self' data:; "
+        "object-src 'none'; "
+        "base-uri 'none'; "
+        "form-action 'self'; "
+        "frame-ancestors 'none'"
+    )
+
+
+_CONTENT_SECURITY_POLICY = _build_content_security_policy()
 
 AccessLevel = Literal["public", "read", "owner"]
 AuthScope = Literal["public", "anonymous", "readonly", "owner"]
@@ -266,6 +277,7 @@ class WebRuntimeConfig:
     owner_token: str = field(repr=False)
     readonly_token: str = field(repr=False)
     db_file: Any = field(repr=False)
+    ga_measurement_id: str = ""
 
     @classmethod
     def from_settings(cls, settings: Any) -> WebRuntimeConfig:
@@ -310,6 +322,15 @@ class WebRuntimeConfig:
             )
             origins.add(origin)
 
+        ga_id = str(
+            getattr(
+                settings,
+                "effective_ga_measurement_id",
+                getattr(settings, "ga_measurement_id", ""),
+            )
+            or ""
+        ).strip()
+
         return cls(
             environment=environment,
             public_origin=public_origin,
@@ -320,6 +341,7 @@ class WebRuntimeConfig:
             owner_token=owner_token,
             readonly_token=readonly_token,
             db_file=_setting(settings, "db_file"),
+            ga_measurement_id=ga_id,
         )
 
 
@@ -1192,8 +1214,13 @@ def _safe_log_path(path: str) -> str:
 
 
 class SafeAccessLogMiddleware:
-    def __init__(self, app: ASGIApp) -> None:
+    def __init__(
+        self, app: ASGIApp, config: WebRuntimeConfig | None = None
+    ) -> None:
         self.app = app
+        self.config = config
+        ga_id = config.ga_measurement_id if config else ""
+        self.csp_header_value = _build_content_security_policy(ga_id).encode("ascii")
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
@@ -1231,7 +1258,7 @@ class SafeAccessLogMiddleware:
                     add_header(b"cache-control", b"no-store")
                 add_header(
                     b"content-security-policy",
-                    _CONTENT_SECURITY_POLICY.encode("ascii"),
+                    self.csp_header_value,
                 )
                 add_header(
                     b"permissions-policy",
@@ -1263,4 +1290,4 @@ def wrap_web_app(app: ASGIApp, settings: Any) -> ASGIApp:
     secured = BodyLimitMiddleware(secured)
     secured = CORSPolicyMiddleware(secured, config)
     secured = HostAuthorityMiddleware(secured, config)
-    return SafeAccessLogMiddleware(secured)
+    return SafeAccessLogMiddleware(secured, config)

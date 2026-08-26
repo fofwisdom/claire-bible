@@ -807,7 +807,7 @@ def create_app(
         document = await asyncio.to_thread(_load)
         if document is None:
             return PlainTextResponse("Not Found", status_code=404)
-        return HTMLResponse(shared_html(document))
+        return HTMLResponse(shared_html(document, s))
 
     mcp_app = build_mcp_app(s)
 
