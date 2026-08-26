@@ -355,7 +355,7 @@ setTimeout(() => {
         # 5. Panel (drawerscroll) must be synchronized with selected document details
         assert "클레어 바이블 문서 1" in data["panel"], f"Panel was not updated with document title: {data['panel']}"
         assert "첫 번째 요약" in data["panel"], f"Panel was not updated with document summary: {data['panel']}"
-        assert "이 문서의 노드" in data["panel"], f"Panel was not updated with document nodes section: {data['panel']}"
+        assert "이 문서의 지식 노드" in data["panel"], f"Panel was not updated with document nodes section: {data['panel']}"
 
     finally:
         Path(script_file).unlink(missing_ok=True)

@@ -510,8 +510,8 @@ def test_mobile_bottom_bar_graph_navigation_and_node_selection():
     assert "function recordSelectedDoc(id)" in GRAPH_HTML
 
 
-def test_document_detail_and_shared_html_includes_nodes():
-    """document_detail 및 shared_html이 문서의 연결된 노드를 포함하고 렌더링하는지 검증."""
+def test_document_detail_and_right_menu_includes_nodes():
+    """document_detail이 문서의 연결된 노드를 포함하고 우측 패널에 '이 문서의 지식 노드'로 렌더링되는지 검증."""
     conn = _db()
     _seed_two(conn)
 
@@ -523,8 +523,5 @@ def test_document_detail_and_shared_html_includes_nodes():
     assert "MCP" in labels
     assert "Claude Code" in labels
 
-    s_html = shared_html(dd)
-    assert "이 문서의 지식 노드" in s_html
-    assert "MCP" in s_html
-    assert "Claude Code" in s_html
-    assert "nodebtns" in s_html
+    assert "이 문서의 지식 노드" in GRAPH_HTML
+
