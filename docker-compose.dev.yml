@@ -9,6 +9,9 @@ x-claire-dev-service: &claire-dev-service
     - "${CB_VAULT_DIR:-./.dev/vault}:/app/vault"
     - ./src:/app/src
     - /etc/localtime:/etc/localtime:ro
+    - /etc/ssl/certs:/etc/ssl/certs:ro
+    - /etc/ca-certificates:/etc/ca-certificates:ro
+    - /usr/local/share/ca-certificates:/usr/local/share/ca-certificates:ro
 
 services:
   bot:

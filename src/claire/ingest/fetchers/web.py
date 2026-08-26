@@ -308,7 +308,14 @@ def _fetch_cdp(url: str) -> tuple[str | None, str, list[str], dict[str, str], li
         async def _run() -> str:
             browser = await uc.start(
                 headless=True,
-                browser_args=["--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage"],
+                browser_args=[
+                    "--no-sandbox",
+                    "--disable-gpu",
+                    "--disable-dev-shm-usage",
+                    "--ignore-certificate-errors",
+                    "--ignore-ssl-errors",
+                    "--allow-insecure-localhost",
+                ],
             )
             try:
                 page = await browser.get(url)

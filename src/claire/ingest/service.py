@@ -524,6 +524,7 @@ class IngestService:
         graph: bool = False,
         all_components: bool = False,
         corrupted_summary: bool = False,
+        refetch: bool = False,
         force: bool = False,
         effort: str | None = None,
         format: str | None = None,
@@ -535,6 +536,7 @@ class IngestService:
         - detail: True 면 한국어 가독 렌더링 본문만 재컴파일/재생성.
         - all_components: True 면 요약과 본문 모두 재생성.
         - corrupted_summary: True 면 전체 DB에서 ADOC/마크업 문법이 잔존한 요약만 자동 탐지.
+        - refetch: True 면 원본 URL에서 웹 문서를 새로 스크랩하여 본문 갱신 후 재생성.
         - force: False(기본) 면 dry-run 진단만 수행하고 DB 변경 없음. True 면 실제 DB 덮어쓰기.
         - effort: LLM 사고/추론 레벨 (low, medium, high 등) 즉석 재정의.
         """
@@ -578,6 +580,15 @@ class IngestService:
             # Strip trailing block delimiters
             s = _re.sub(r"\n+(?:\|===|----|\.\.\.\.)\s*$", "", s)
             return s.strip()
+
+        def _is_error_page(title: str | None, text: str | None) -> bool:
+            t = (title or "").lower()
+            txt = (text or "").lower()
+            if any(p in t for p in ["privacy error", "your connection is not private", "net::err_"]):
+                return True
+            if any(p in txt for p in ["err_cert_authority_invalid", "err_cert_common_name_invalid", "net::err_cert_"]):
+                return True
+            return False
 
         try:
             # 1. 대상 document_id 목록 해소
@@ -664,6 +675,7 @@ class IngestService:
                     curr_detail = dbm.get_document_detail(conn, did) or ""
                     curr_fmt = dbm.get_document_detail_format(conn, did) or ""
                     is_corrupted = _is_corrupted_adoc(curr_summary)
+                    is_err = _is_error_page(doc.title, doc.raw_text) or _is_error_page(None, curr_summary)
 
                     info: dict = {
                         "document_id": did,
@@ -671,9 +683,12 @@ class IngestService:
                         "canonical_url": doc.canonical_url,
                         "current_summary": curr_summary,
                         "summary_corrupted": is_corrupted,
+                        "is_error_page": is_err,
                         "current_detail_format": curr_fmt,
                         "actions": [],
                     }
+                    if refetch:
+                        info["actions"].append("refetch_content")
                     if do_summary:
                         info["actions"].append("regenerate_summary")
                     if do_detail:
@@ -684,6 +699,38 @@ class IngestService:
                         continue
 
                     # --- 실제 실행 (Force Overwrite) ---
+                    if refetch:
+                        fetch_payload = doc.url or doc.canonical_url
+                        if fetch_payload:
+                            from .pipeline import _download_doc_images
+                            from ..store.raw import save_artifact
+
+                            try:
+                                new_doc = default_fetch(fetch_payload)
+                                new_doc.id = did
+                                _download_doc_images(conn, new_doc, self.s.data_dir)
+                                dbm.update_document_content(
+                                    conn,
+                                    did,
+                                    title=new_doc.title,
+                                    raw_text=new_doc.raw_text,
+                                    content_hash=new_doc.content_hash,
+                                    fetched_at=new_doc.fetched_at,
+                                    source_type=new_doc.source_type,
+                                    partial=new_doc.partial,
+                                    meta=new_doc.meta,
+                                )
+                                try:
+                                    save_artifact(self.s.data_dir, did, new_doc.raw_text)
+                                except Exception:
+                                    pass
+                                doc = new_doc
+                                info["refetched"] = True
+                                info["title"] = new_doc.title or "(제목 없음)"
+                                info["new_len"] = len(new_doc.raw_text)
+                            except Exception as e:
+                                info["refetch_error"] = str(e)
+
                     updated_summary = None
                     if do_summary:
                         # LLM 요약 재추출

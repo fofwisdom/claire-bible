@@ -9,7 +9,7 @@ RUN pip install --no-cache-dir uv
 
 # nodriver(CDP) 가 JS SPA 렌더링 최후수단으로 쓸 시스템 Chromium. Playwright 자체 브라우저
 # 다운로드(+deps 별도설치)보다 가벼움 — apt 패키지 하나로 해결.
-RUN apt-get update && apt-get install -y --no-install-recommends chromium tzdata \
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates chromium tzdata \
     && rm -rf /var/lib/apt/lists/*
 
 COPY pyproject.toml uv.lock README.md ./
@@ -21,7 +21,11 @@ RUN uv sync --no-dev --extra stealth
 # Runtime processes use the environment built above directly.  uv remains a
 # build/development tool rather than an extra process wrapper for every service.
 # /host-bin allows optional host CLI tools (like Antigravity agy) to be invoked seamlessly.
-ENV PATH="/app/.venv/bin:/host-bin:$PATH"
+ENV PATH="/app/.venv/bin:/host-bin:$PATH" \
+    SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
+    SSL_CERT_DIR=/etc/ssl/certs \
+    REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt \
+    CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
 
 # 데이터/볼트는 볼륨 마운트(이미지 미포함). 기본 명령은 compose 에서 override.
 CMD ["claire", "bot"]

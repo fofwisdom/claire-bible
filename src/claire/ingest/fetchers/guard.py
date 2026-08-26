@@ -70,6 +70,29 @@ _PAYWALL_PATTERNS = (
 )
 _PAYWALL_RE = re.compile("|".join(f"(?:{p})" for p in _PAYWALL_PATTERNS), re.IGNORECASE)
 
+# 5. SSL / TLS / Browser Interstitial Error 패턴 (Chrome, Firefox 등 브라우저 보안/접속 오류 화면)
+_SSL_TITLE_PATTERNS = (
+    r"^(?:privacy error|your connection is not private)\b",
+    r"^(?:연결이\s*비공개로\s*설정되어\s*있지\s*않습니다|보안\s*인증서에\s*문제가\s*있습니다)\b",
+    r"^(?:this site can(?:'|’)?t be reached|사이트에\s*연결할\s*수\s*없음)\b",
+)
+_SSL_TITLE_RE = re.compile("|".join(f"(?:{p})" for p in _SSL_TITLE_PATTERNS), re.IGNORECASE)
+
+_SSL_BODY_PATTERNS = (
+    r"\bnet::ERR_CERT_",
+    r"\bnet::ERR_SSL_",
+    r"\bnet::ERR_CONNECTION_",
+    r"\bnet::ERR_NAME_NOT_RESOLVED\b",
+    r"\bERR_CERT_AUTHORITY_INVALID\b",
+    r"\bERR_CERT_COMMON_NAME_INVALID\b",
+    r"\bERR_CERT_DATE_INVALID\b",
+    r"attackers might be trying to steal your information",
+    r"공격자가\s*.*정보를\s*도용하려고\s*시도",
+    r"인증\s*기관을\s*신뢰할\s*수\s*없어",
+    r"신뢰하지\s*않는\s*인증\s*기관",
+)
+_SSL_BODY_RE = re.compile("|".join(f"(?:{p})" for p in _SSL_BODY_PATTERNS), re.IGNORECASE)
+
 
 def validate_web_content(title: str | None, text: str | None) -> tuple[bool, str | None]:
     """본문이 정상 콘텐츠인지 사전 검증. (ok: bool, reason: str | None).
@@ -83,6 +106,12 @@ def validate_web_content(title: str | None, text: str | None) -> tuple[bool, str
     title_str = (title or "").strip()
     length = len(t)
     
+    # 0. SSL / TLS / Browser Interstitial Error (브라우저 오류 화면은 내용 불문 차단)
+    if _SSL_TITLE_RE.search(title_str):
+        return False, "blocked: ssl_or_browser_error"
+    if length < 3000 and _SSL_BODY_RE.search(t):
+        return False, "blocked: ssl_or_browser_error"
+
     # 1. 봇 / Cloudflare / CAPTCHA 챌린지 (챌린지 페이지는 대개 3000자 미만)
     if length < 3000:
         if _CHALLENGE_RE.search(title_str) or _CHALLENGE_RE.search(t):
