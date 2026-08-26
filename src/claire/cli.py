@@ -660,6 +660,7 @@ def cmd_regenerate(args) -> int:
     doc_id = getattr(args, "doc_id", None)
     summary = getattr(args, "summary", False)
     detail = getattr(args, "detail", False)
+    graph = getattr(args, "graph", False)
     all_comp = getattr(args, "all", False)
     corrupted = getattr(args, "corrupted", False)
     refetch = getattr(args, "refetch", False)
@@ -673,6 +674,7 @@ def cmd_regenerate(args) -> int:
         doc_id=doc_id,
         summary=summary,
         detail=detail,
+        graph=graph,
         all_components=all_comp,
         corrupted_summary=corrupted,
         refetch=refetch,
@@ -706,7 +708,7 @@ def cmd_regenerate(args) -> int:
             print(f"    적용 예정 작업: {', '.join(t['actions'])}")
         print("=" * 60)
         print("실제 재생성 및 DB 덮어쓰기를 실행하려면 --force 플래그를 추가하십시오:")
-        print("  claire regenerate [target] --summary --force [--refetch] [--effort <level>]")
+        print("  claire regenerate [target] --all --force [--refetch] [--effort <level>]")
         return 0
 
     print("claire: 문서 컴포넌트 재생성 완료")
@@ -719,6 +721,14 @@ def cmd_regenerate(args) -> int:
             print(f"    원문 재수집: 완료 ({t.get('new_len', 0)}자)")
         elif t.get("refetch_error"):
             print(f"    [!] 원문 재수집 실패: {t.get('refetch_error')}")
+        if t.get("entities_created") or t.get("entities_linked"):
+            created = t.get("entities_created", 0)
+            linked = t.get("entities_linked", 0)
+            names = (t.get("new_entity_names") or []) + (t.get("linked_entity_names") or [])
+            preview = ", ".join(names[:6]) + ("..." if len(names) > 6 else "")
+            print(f"    노드 추출  : 신규 {created}건 · 연결 {linked}건 ({preview})")
+        if t.get("relations_added"):
+            print(f"    관계 적재  : {t.get('relations_added')}건")
         if t.get("new_summary"):
             print(f"    새 요약: {t['new_summary']}")
     print("=" * 60)
@@ -1177,7 +1187,8 @@ def build_parser() -> argparse.ArgumentParser:
     preg.add_argument("--doc-id", default=None, help="specific document ID")
     preg.add_argument("--summary", action="store_true", help="regenerate summary only (default if no component given)")
     preg.add_argument("--detail", action="store_true", help="regenerate detail readable text only")
-    preg.add_argument("--all", action="store_true", help="regenerate both summary and detail")
+    preg.add_argument("--graph", action="store_true", help="re-extract entities and relations, updating knowledge graph and vault")
+    preg.add_argument("--all", action="store_true", help="regenerate all components (summary, detail, graph nodes)")
     preg.add_argument("--corrupted", action="store_true",
                       help="automatically scan and target all docs with corrupted ADOC syntax in summary")
     preg.add_argument("--refetch", action="store_true",
