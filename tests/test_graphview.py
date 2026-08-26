@@ -523,9 +523,12 @@ def test_mobile_bottom_bar_graph_navigation_and_node_selection():
     """모바일 하단 바 그래프 탭 활성화 및 선택된 문서 노드 전체 선택 기능 검증."""
     from claire.graphview import GRAPH_HTML
 
-    # 1. 모바일 리더 모달이 하단 바(#worktabs)를 가리지 않고 위에 위치
-    assert '#reader{position:fixed!important;top:0!important;left:0!important;right:0!important;bottom:calc(54px + env(safe-area-inset-bottom))!important;background:var(--shadow)!important;display:none!important;visibility:hidden!important;pointer-events:none!important;z-index:45!important;padding:0!important}' in GRAPH_HTML
+    # 1. 모바일 리더 모달이 하단 바(#worktabs)를 가리지 않고 위에 위치 (height: auto로 하단바 침범 방지 및 z-index 계층 보장)
+    assert '#reader{position:fixed!important;top:0!important;left:0!important;right:0!important;bottom:calc(54px + env(safe-area-inset-bottom))!important;height:auto!important;max-height:none!important;background:var(--shadow)!important;display:none!important;visibility:hidden!important;pointer-events:none!important;z-index:45!important;padding:0!important}' in GRAPH_HTML
     assert "['bar','worktabs'].forEach" not in GRAPH_HTML
+    assert 'z-index:55;width:min(400px,82vw);height:auto;max-height:none;' in GRAPH_HTML
+    assert '#drawerbackdrop{display:none;position:fixed;inset:0;z-index:52;' in GRAPH_HTML
+    assert '#worktabs{display:flex;position:fixed;bottom:0;left:0;right:0;z-index:60;' in GRAPH_HTML
 
     # 2. setActiveDoc / openReader 호출 시 문서에 포함된 노드 전체 선택(selectNodes)
     assert "if(ids.length) net.selectNodes(ids);" in GRAPH_HTML
