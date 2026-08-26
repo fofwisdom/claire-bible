@@ -159,7 +159,7 @@ function getOrCreate(id, tag='div') {
 const knownIds = [
   'wrap', 'centerwrap', 'netwrap', 'net', 'reader', 'rtitle', 'rbody', 'rfs', 'sharebox',
   'docs', 'docq', 'desclines', 'pinnedhead', 'pinnedlist', 'doclist', 'showhidden', 'hiddenlist',
-  'detailpane', 'detailtogglebtn', 'panel', 'fslider', 'fmin', 'bar', 'worktabs', 'tab-docs', 'tab-graph', 'tab-search', 'tab-menu',
+  'detailpane', 'detailtogglebtn', 'panel', 'degctl', 'fslider', 'fmin', 'bar', 'worktabs', 'tab-docs', 'tab-graph', 'tab-search', 'tab-menu',
   'morebtn', 'nodepop', 'stat', 'authstate', 'themebtn', 'sem', 'searchkind', 'synthchips', 'synthbtn',
   'advsearchbtn', 'advsearchpane', 'fts-opt-wrap', 'semchk', 'semkind', 'sembadge', 'semantic-opt-wrap',
   'addbtn', 'dedupbtn', 'pathbtn', 'graph-section', 'repolink', 'format-warn-banner', 'format-warn-text', 'format-warn-badge', 'format-warn-icon', 'format-warn-title', 'format-warn-actbtn', 'graphnotice',
@@ -434,7 +434,7 @@ function getOrCreate(id, tag='div') {
 const knownIds = [
   'wrap', 'centerwrap', 'netwrap', 'net', 'reader', 'rtitle', 'rbody', 'rfs', 'sharebox',
   'docs', 'docq', 'desclines', 'pinnedhead', 'pinnedlist', 'doclist', 'showhidden', 'hiddenlist',
-  'detailpane', 'detailtogglebtn', 'panel', 'fslider', 'fmin', 'bar', 'worktabs', 'tab-docs', 'tab-graph', 'tab-search', 'tab-menu',
+  'detailpane', 'detailtogglebtn', 'panel', 'degctl', 'fslider', 'fmin', 'bar', 'worktabs', 'tab-docs', 'tab-graph', 'tab-search', 'tab-menu',
   'morebtn', 'nodepop', 'stat', 'authstate', 'themebtn', 'sem', 'searchkind', 'synthchips', 'synthbtn',
   'advsearchbtn', 'advsearchpane', 'fts-opt-wrap', 'semchk', 'semkind', 'sembadge', 'semantic-opt-wrap',
   'addbtn', 'dedupbtn', 'pathbtn', 'graph-section', 'repolink', 'format-warn-banner', 'format-warn-text', 'format-warn-badge', 'format-warn-icon', 'format-warn-title', 'format-warn-actbtn', 'graphnotice',
@@ -745,7 +745,7 @@ function getOrCreate(id, tag='div') {
 const knownIds = [
   'wrap', 'centerwrap', 'netwrap', 'net', 'reader', 'rtitle', 'rbody', 'rfs', 'sharebox',
   'docs', 'docq', 'desclines', 'pinnedhead', 'pinnedlist', 'doclist', 'showhidden', 'hiddenlist',
-  'detailpane', 'detailtogglebtn', 'panel', 'fslider', 'fmin', 'bar', 'worktabs', 'tab-docs', 'tab-graph', 'tab-search', 'tab-menu',
+  'detailpane', 'detailtogglebtn', 'panel', 'degctl', 'fslider', 'fmin', 'bar', 'worktabs', 'tab-docs', 'tab-graph', 'tab-search', 'tab-menu',
   'morebtn', 'nodepop', 'stat', 'authstate', 'themebtn', 'sem', 'searchkind', 'synthchips', 'synthbtn',
   'advsearchbtn', 'advsearchpane', 'fts-opt-wrap', 'semchk', 'semkind', 'sembadge', 'semantic-opt-wrap',
   'addbtn', 'dedupbtn', 'pathbtn', 'graph-section', 'repolink', 'format-warn-banner', 'format-warn-text', 'format-warn-badge',
@@ -995,7 +995,7 @@ function getOrCreate(id, tag='div') {
 const knownIds = [
   'wrap', 'centerwrap', 'netwrap', 'net', 'reader', 'rtitle', 'rbody', 'rfs', 'sharebox',
   'docs', 'docq', 'desclines', 'pinnedhead', 'pinnedlist', 'doclist', 'showhidden', 'hiddenlist',
-  'detailpane', 'detailtogglebtn', 'panel', 'fslider', 'fmin', 'bar', 'worktabs', 'tab-docs', 'tab-graph', 'tab-search', 'tab-menu',
+  'detailpane', 'detailtogglebtn', 'panel', 'degctl', 'fslider', 'fmin', 'bar', 'worktabs', 'tab-docs', 'tab-graph', 'tab-search', 'tab-menu',
   'morebtn', 'nodepop', 'stat', 'authstate', 'themebtn', 'sem', 'searchkind', 'synthchips', 'synthbtn',
   'advsearchbtn', 'advsearchpane', 'fts-opt-wrap', 'semchk', 'semkind', 'sembadge', 'semantic-opt-wrap',
   'addbtn', 'dedupbtn', 'pathbtn', 'graph-section', 'repolink', 'format-warn-banner', 'format-warn-text', 'format-warn-badge', 'format-warn-icon', 'format-warn-title', 'format-warn-actbtn', 'graphnotice',
@@ -1220,7 +1220,7 @@ const requiredIds = [
   'reditbtn', 'sharebox', 'rbody', 'detailpane', 'detailhead', 'detailclose',
   'drawerscroll', 'drawer-graph-action', 'opengraphbtn', 'openreaderbtn', 'moremenu', 'sem',
   'searchkind', 'advsearchbtn', 'advsearchpane', 'fts-opt-wrap', 'semchk', 'semkind', 'sembadge', 'semantic-opt-wrap', 'synthchips', 'synthbtn', 'addbtn', 'dedupbtn', 'pathbtn', 'graph-section', 'menu-section-title',
-  'fmin', 'fslider', 'repolink', 'authstate', 'stat', 'panel', 'worktabs',
+  'degctl', 'fmin', 'fslider', 'repolink', 'authstate', 'stat', 'panel', 'worktabs',
   'tab-docs', 'tab-search', 'tab-menu', 'nodepop'
 ];
 
@@ -1458,7 +1458,7 @@ const requiredIds = [
   'reditbtn', 'sharebox', 'rbody', 'detailpane', 'detailhead', 'detailclose',
   'drawerscroll', 'drawer-graph-action', 'opengraphbtn', 'openreaderbtn', 'moremenu', 'sem',
   'searchkind', 'advsearchbtn', 'advsearchpane', 'fts-opt-wrap', 'semchk', 'semkind', 'sembadge', 'semantic-opt-wrap', 'synthchips', 'synthbtn', 'addbtn', 'dedupbtn', 'pathbtn', 'graph-section', 'menu-section-title',
-  'fmin', 'fslider', 'repolink', 'authstate', 'stat', 'panel', 'worktabs',
+  'degctl', 'fmin', 'fslider', 'repolink', 'authstate', 'stat', 'panel', 'worktabs',
   'tab-docs', 'tab-search', 'tab-menu', 'nodepop'
 ];
 
@@ -1982,7 +1982,7 @@ function getOrCreate(id, tag = 'div') {
 const requiredIds = [
   'wrap', 'centerwrap', 'netwrap', 'net', 'reader', 'rtitle', 'rbody', 'rfs', 'sharebox',
   'docs', 'docq', 'desclines', 'pinnedhead', 'pinnedlist', 'doclist', 'showhidden', 'hiddenlist',
-  'detailpane', 'detailhead', 'detailclose', 'detailtogglebtn', 'panel', 'fslider', 'fmin', 'bar',
+  'detailpane', 'detailhead', 'detailclose', 'detailtogglebtn', 'panel', 'degctl', 'fslider', 'fmin', 'bar',
   'worktabs', 'tab-docs', 'tab-graph', 'tab-search', 'tab-menu', 'legendbar',
   'morebtn', 'nodepop', 'stat', 'authstate', 'themebtn', 'sem', 'searchkind', 'synthchips', 'synthbtn',
   'advsearchbtn', 'advsearchpane', 'fts-opt-wrap', 'semchk', 'semkind', 'sembadge', 'semantic-opt-wrap',
