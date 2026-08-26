@@ -662,6 +662,7 @@ def cmd_regenerate(args) -> int:
     detail = getattr(args, "detail", False)
     all_comp = getattr(args, "all", False)
     corrupted = getattr(args, "corrupted", False)
+    refetch = getattr(args, "refetch", False)
     force = getattr(args, "force", False)
     effort = getattr(args, "effort", None)
     fmt = getattr(args, "format", None)
@@ -674,6 +675,7 @@ def cmd_regenerate(args) -> int:
         detail=detail,
         all_components=all_comp,
         corrupted_summary=corrupted,
+        refetch=refetch,
         force=force,
         effort=effort,
         format=fmt,
@@ -695,14 +697,16 @@ def cmd_regenerate(args) -> int:
             print(f"[{idx}] {t['title']} ({t['document_id']})")
             if t.get("canonical_url"):
                 print(f"    URL: {t['canonical_url']}")
+            if t.get("is_error_page"):
+                print("    [!] 원문이 SSL/보안 오류 화면으로 감지됨 (--refetch 함께 사용 권장)")
             if t.get("summary_corrupted"):
-                print(f"    [!] 요약 내 ADOC/마크업 문법 잔존 감지")
+                print("    [!] 요약 내 ADOC/마크업 문법 잔존 감지")
             summ_preview = (t['current_summary'][:150] + '...') if len(t['current_summary']) > 150 else t['current_summary']
             print(f"    현재 요약: {summ_preview}")
             print(f"    적용 예정 작업: {', '.join(t['actions'])}")
         print("=" * 60)
         print("실제 재생성 및 DB 덮어쓰기를 실행하려면 --force 플래그를 추가하십시오:")
-        print("  claire regenerate [target] --summary --force [--effort <level>]")
+        print("  claire regenerate [target] --summary --force [--refetch] [--effort <level>]")
         return 0
 
     print("claire: 문서 컴포넌트 재생성 완료")
@@ -711,6 +715,10 @@ def cmd_regenerate(args) -> int:
     print(f"• 사용 Provider  : {res.get('provider')} (model: {res.get('model')}, effort: {res.get('effort')})")
     for idx, t in enumerate(res["targets"], 1):
         print(f"[{idx}] {t['title']} ({t['document_id']})")
+        if t.get("refetched"):
+            print(f"    원문 재수집: 완료 ({t.get('new_len', 0)}자)")
+        elif t.get("refetch_error"):
+            print(f"    [!] 원문 재수집 실패: {t.get('refetch_error')}")
         if t.get("new_summary"):
             print(f"    새 요약: {t['new_summary']}")
     print("=" * 60)
@@ -1172,6 +1180,8 @@ def build_parser() -> argparse.ArgumentParser:
     preg.add_argument("--all", action="store_true", help="regenerate both summary and detail")
     preg.add_argument("--corrupted", action="store_true",
                       help="automatically scan and target all docs with corrupted ADOC syntax in summary")
+    preg.add_argument("--refetch", action="store_true",
+                      help="re-fetch document content from URL before regenerating summary/detail")
     preg.add_argument("--force", action="store_true", help="execute LLM regeneration and overwrite DB (required to apply)")
     preg.add_argument("--effort", default=None, help="reasoning effort level (e.g. low, medium, high)")
     preg.add_argument("--format", choices=["md", "adoc"], default=None, help="detail format (md or adoc)")
@@ -1185,6 +1195,7 @@ def build_parser() -> argparse.ArgumentParser:
     psum.add_argument("--token", default=None, help="specific share token")
     psum.add_argument("--doc-id", default=None, help="specific document ID")
     psum.add_argument("--corrupted", action="store_true", help="scan all docs with corrupted ADOC syntax")
+    psum.add_argument("--refetch", action="store_true", help="re-fetch document content from URL before regenerating")
     psum.add_argument("--force", action="store_true", help="execute LLM regeneration and overwrite DB")
     psum.add_argument("--effort", default=None, help="reasoning effort level (low, medium, high)")
     psum.add_argument("--json", action="store_true", help="output in JSON format")

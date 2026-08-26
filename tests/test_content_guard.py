@@ -109,3 +109,28 @@ def test_valid_article_mentioning_404_error_passes():
     ok, reason = validate_web_content("Best Practices for HTTP Status Code Handling in REST APIs", valid_text)
     assert ok is True
     assert reason is None
+
+
+def test_chrome_privacy_error_detection():
+    # Chromium/Chrome NET::ERR_CERT_AUTHORITY_INVALID 에러 페이지 차단
+    ssl_error_text = (
+        "Your connection is not private. Attackers might be trying to steal your information from "
+        "wp.netspheres.org (for example, passwords, messages, or credit cards). "
+        "NET::ERR_CERT_AUTHORITY_INVALID. The certificate authority is not trusted. "
+    ) * 3
+    ok, reason = validate_web_content("Privacy error", ssl_error_text)
+    assert ok is False
+    assert reason == "blocked: ssl_or_browser_error"
+
+
+def test_korean_browser_ssl_error_detection():
+    # 한글 브라우저 SSL 인증서 오류 안내 화면 차단
+    kr_ssl_text = (
+        "연결이 비공개로 설정되어 있지 않습니다. 공격자가 wp.netspheres.org에서 정보를 도용하려고 시도 중일 수 있습니다. "
+        "시스템이 신뢰하지 않는 인증 기관인 Netsphere Authority R1에 의해 발급된 인증서로 인해 비공개 연결이 설정되지 않았습니다. "
+        "net::ERR_CERT_AUTHORITY_INVALID "
+    ) * 2
+    ok, reason = validate_web_content("연결이 비공개로 설정되어 있지 않습니다", kr_ssl_text)
+    assert ok is False
+    assert reason == "blocked: ssl_or_browser_error"
+

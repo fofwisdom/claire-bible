@@ -219,3 +219,66 @@ def test_summary_prompt_plain_text_definition():
     summary_desc = schema["properties"]["summary"]["description"]
     assert "plain text" in summary_desc.lower() or "평문" in summary_desc
     assert "asciidoc" in summary_desc.lower()
+
+
+def test_regenerate_detects_error_page(populated_service):
+    svc, doc_id, share_token = populated_service
+    conn = dbm.connect(svc.s.db_file)
+    # Set doc title to Privacy error
+    conn.execute(
+        "UPDATE documents SET title=?, raw_text=? WHERE id=?",
+        ("Privacy error", "NET::ERR_CERT_AUTHORITY_INVALID security error text", doc_id),
+    )
+    conn.commit()
+    conn.close()
+
+    res = svc.regenerate_components(target=share_token, summary=True, force=False)
+    assert res["dry_run"] is True
+    assert res["targets"][0]["is_error_page"] is True
+
+
+def test_regenerate_with_refetch(populated_service, monkeypatch):
+    svc, doc_id, share_token = populated_service
+
+    # Mock default_fetch to return clean fresh document
+    fresh_doc = Document(
+        id=doc_id,
+        title="[vSphere] vCenter 잃고 vSAN 고치기",
+        raw_text="vCenter 장애 상황에서 ESXi 호스트와 vSAN 클러스터를 복구하는 실무 절차를 설명한다.",
+        canonical_url="https://example.com/vsan-fix",
+        source_type="web",
+        content_hash="fresh_hash_456",
+        fetched_at=1700001000.0,
+    )
+    monkeypatch.setattr("claire.ingest.service.default_fetch", lambda _url: fresh_doc)
+
+    svc.provider.extract = MagicMock(
+        return_value=ExtractionResult(
+            summary="vSAN 클러스터 장애 복구 절차에 대한 요약이다.",
+            key_claims=[],
+            entities=[],
+            relations=[],
+        )
+    )
+
+    res = svc.regenerate_components(
+        target=share_token,
+        summary=True,
+        refetch=True,
+        force=True,
+    )
+
+    assert res["dry_run"] is False
+    assert res["count"] == 1
+    target = res["targets"][0]
+    assert target["refetched"] is True
+    assert target["title"] == "[vSphere] vCenter 잃고 vSAN 고치기"
+    assert target["new_summary"] == "vSAN 클러스터 장애 복구 절차에 대한 요약이다."
+
+    # Verify DB was updated with fresh document content
+    conn = dbm.connect(svc.s.db_file)
+    updated_doc = dbm.get_document(conn, doc_id)
+    assert updated_doc.title == "[vSphere] vCenter 잃고 vSAN 고치기"
+    assert "vCenter 장애 상황에서" in updated_doc.raw_text
+    conn.close()
+

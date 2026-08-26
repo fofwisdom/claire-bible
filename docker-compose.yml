@@ -3,6 +3,10 @@ name: "${CB_PROJECT_NAME:-claire-bible}"
 x-claire-environment: &claire-environment
   CLAIRE_ENVIRONMENT: "${CLAIRE_ENVIRONMENT:?CLAIRE_ENVIRONMENT is required}"
   TZ: "${TZ:-}"
+  SSL_CERT_FILE: "/etc/ssl/certs/ca-certificates.crt"
+  SSL_CERT_DIR: "/etc/ssl/certs"
+  REQUESTS_CA_BUNDLE: "/etc/ssl/certs/ca-certificates.crt"
+  CURL_CA_BUNDLE: "/etc/ssl/certs/ca-certificates.crt"
 
 x-claire-service: &claire-service
   image: "${CB_IMAGE:-claire-bible}:${CB_IMAGE_TAG:-local}"
@@ -18,6 +22,9 @@ x-claire-service: &claire-service
     - "${CB_GEMINI_DIR:-~/.gemini}:/root/.gemini"
     - "${CB_BIN_DIR:-~/.local/bin}:/host-bin:ro"
     - /etc/localtime:/etc/localtime:ro
+    - /etc/ssl/certs:/etc/ssl/certs:ro
+    - /etc/ca-certificates:/etc/ca-certificates:ro
+    - /usr/local/share/ca-certificates:/usr/local/share/ca-certificates:ro
 
 services:
   bot:
