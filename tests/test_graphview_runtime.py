@@ -1912,6 +1912,310 @@ setTimeout(async () => {
         Path(runner_file).unlink(missing_ok=True)
 
 
+def test_two_column_graph_menu_selection_runtime(node_available: bool) -> None:
+    """2단 보기 화면에서 그래프 메뉴(openDocGraph / revealWorkspace)를 켰을 때 선택된 노트의 노드들이 캔버스 크기 갱신과 함께 전체 표시(fit/focus)되는지 런타임 검증."""
+    if not node_available:
+        pytest.skip("Node.js is not installed on the system")
+
+    scripts = extract_scripts(GRAPH_HTML)
+    main_script = "\n".join(scripts)
+
+    runner_code = r"""
+const fs = require('fs');
+
+class MockElement {
+  constructor(tag, id = '') {
+    this.tagName = (tag || 'div').toUpperCase();
+    this.id = id;
+    this.className = '';
+    this.classList = {
+      _classes: new Set(),
+      add(c) { this._classes.add(c); },
+      remove(c) { this._classes.delete(c); },
+      contains(c) { return this._classes.has(c); },
+      toggle(c, force) {
+        if (force === true) this._classes.add(c);
+        else if (force === false) this._classes.delete(c);
+        else if (this._classes.has(c)) this._classes.delete(c);
+        else this._classes.add(c);
+      }
+    };
+    this.style = {
+      display: '',
+      setProperty() {},
+      removeProperty() {}
+    };
+    this.dataset = {};
+    this.attributes = {};
+    this._innerHTML = '';
+    this._textContent = '';
+    this.value = '';
+    this.children = [];
+  }
+  get innerHTML() { return this._innerHTML; }
+  set innerHTML(v) { this._innerHTML = String(v); this._textContent = String(v).replace(/<[^>]*>/g, ''); }
+  get textContent() { return this._textContent; }
+  set textContent(v) { this._textContent = String(v); this._innerHTML = String(v); }
+  setAttribute(k, v) { this.attributes[k] = String(v); if(k==='id') this.id=String(v); }
+  getAttribute(k) { return this.attributes[k] !== undefined ? this.attributes[k] : null; }
+  removeAttribute(k) { delete this.attributes[k]; }
+  getBoundingClientRect() {
+    if (this.id === 'net') return { width: 720, height: 600, top: 0, left: 280, right: 1000, bottom: 600 };
+    return { width: 1000, height: 700, top: 0, left: 0, right: 1000, bottom: 700 };
+  }
+  querySelector(sel) { return new MockElement('div'); }
+  querySelectorAll(sel) { return []; }
+  addEventListener() {}
+  removeEventListener() {}
+  focus() {}
+  select() {}
+}
+
+const elements = {};
+function getOrCreate(id, tag = 'div') {
+  if (!elements[id]) {
+    elements[id] = new MockElement(tag, id);
+  }
+  return elements[id];
+}
+
+const requiredIds = [
+  'wrap', 'centerwrap', 'netwrap', 'net', 'reader', 'rtitle', 'rbody', 'rfs', 'sharebox',
+  'docs', 'docq', 'desclines', 'pinnedhead', 'pinnedlist', 'doclist', 'showhidden', 'hiddenlist',
+  'detailpane', 'detailhead', 'detailclose', 'detailtogglebtn', 'panel', 'fslider', 'fmin', 'bar',
+  'worktabs', 'tab-docs', 'tab-graph', 'tab-search', 'tab-menu', 'legendbar',
+  'morebtn', 'nodepop', 'stat', 'authstate', 'themebtn', 'sem', 'searchkind', 'synthchips', 'synthbtn',
+  'advsearchbtn', 'advsearchpane', 'fts-opt-wrap', 'semchk', 'semkind', 'sembadge', 'semantic-opt-wrap',
+  'addbtn', 'dedupbtn', 'pathbtn', 'opengraphbtn', 'openreaderbtn', 'graph-section', 'menu-section-title',
+  'repolink', 'format-warn-banner', 'format-warn-text', 'format-warn-badge', 'format-warn-icon', 'format-warn-title', 'format-warn-actbtn', 'graphnotice',
+  'graphdocnav', 'graphdocpick', 'graphdoclabel', 'graphdocprev', 'graphdocnext', 'graphdocmenu', 'graphdocq', 'graphdoclist', 'graphdocempty'
+];
+requiredIds.forEach(id => getOrCreate(id));
+
+const document = {
+  documentElement: getOrCreate('html', 'html'),
+  body: getOrCreate('body', 'body'),
+  getElementById(id) { return getOrCreate(id); },
+  querySelector(sel) {
+    if (sel.startsWith('#')) return getOrCreate(sel.slice(1));
+    return new MockElement('div');
+  },
+  querySelectorAll(sel) { return []; },
+  addEventListener() {},
+  removeEventListener() {},
+  activeElement: null
+};
+
+const calls = {
+  setSize: [],
+  selectNodes: [],
+  fit: [],
+  focus: [],
+  moveTo: []
+};
+
+const window = {
+  document,
+  matchMedia(query) {
+    return {
+      matches: query.includes('1100px'), // 2단 보기 (compact layout)
+      media: query,
+      addEventListener() {},
+      removeEventListener() {}
+    };
+  },
+  addEventListener() {},
+  removeEventListener() {},
+  setTimeout: global.setTimeout,
+  clearTimeout: global.clearTimeout,
+  setInterval: global.setInterval,
+  clearInterval: global.clearInterval,
+  requestAnimationFrame(fn) { return global.setTimeout(fn, 0); },
+  DOMPurify: { sanitize(html) { return html; } },
+  marked: { parse(src) { return '<p>' + src + '</p>'; } },
+  vis: {
+    DataSet: class {
+      constructor(data) { this._data = (data || []).map(d => ({ ...d })); }
+      get(id) { return this._data.find(d => d.id === id); }
+      getIds() { return this._data.map(d => d.id); }
+      update(items) {
+        (Array.isArray(items) ? items : [items]).forEach(item => {
+          const idx = this._data.findIndex(d => d.id === item.id);
+          if (idx >= 0) Object.assign(this._data[idx], item);
+          else this._data.push({ ...item });
+        });
+      }
+      add(items) { this.update(items); }
+      forEach(fn) { this._data.forEach(fn); }
+      get length() { return this._data.length; }
+    },
+    Network: class {
+      constructor() {}
+      setSize(w, h) { calls.setSize.push({ w, h }); }
+      redraw() {}
+      fit(opts) { calls.fit.push(opts); }
+      focus(id, opts) { calls.focus.push({ id, opts }); }
+      moveTo(opts) { calls.moveTo.push(opts); }
+      on() {}
+      selectNodes(ids) { calls.selectNodes.push(ids); }
+      unselectAll() {}
+      getSelectedNodes() { return []; }
+      getScale() { return 1.0; }
+      getViewPosition() { return { x: 0, y: 0 }; }
+      getPositions() { return {}; }
+      canvasToDOM(p) { return p; }
+      getPosition() { return { x: 0, y: 0 }; }
+      setOptions() {}
+    }
+  }
+};
+
+const mockDocs = [
+  { id: 'doc-note-1', title: '노트 1 (다중 노드)', summary: '첫 번째 노트', fetched_at: 1700000000, seen: 1, pinned: 0, hidden: 0 },
+  { id: 'doc-note-2', title: '노트 2 (단일 노드)', summary: '두 번째 노트', fetched_at: 1700000000, seen: 1, pinned: 0, hidden: 0 }
+];
+
+const mockGraph = {
+  nodes: [
+    { id: 'node-A', label: '엔티티 A', group: 'Concept', degree: 2, sources: ['doc-note-1'] },
+    { id: 'node-B', label: '엔티티 B', group: 'Tool', degree: 3, sources: ['doc-note-1'] },
+    { id: 'node-C', label: '엔티티 C', group: 'Model', degree: 1, sources: ['doc-note-2'] }
+  ],
+  edges: [
+    { id: 'e1', from: 'node-A', to: 'node-B', label: '연결' }
+  ],
+  stats: { entities: 3, relations: 1, max_degree: 3 }
+};
+
+async function fetch(url) {
+  if (url === 'whoami') return { ok: true, status: 200, json: async () => ({ scope: 'owner' }) };
+  if (url === 'auth/state') return { ok: true, status: 200, json: async () => ({ scope: 'anonymous', readonly: true }) };
+  if (url === 'documents') return { ok: true, status: 200, json: async () => ({ documents: mockDocs }) };
+  if (url === 'graph') return { ok: true, status: 200, json: async () => mockGraph };
+  if (url.startsWith('document?id=')) {
+    const id = decodeURIComponent(url.split('=')[1]);
+    const doc = mockDocs.find(d => d.id === id) || mockDocs[0];
+    return { ok: true, status: 200, json: async () => ({ id: doc.id, title: doc.title, summary: doc.summary, detail: '본문' }) };
+  }
+  return { ok: true, status: 200, json: async () => ({}) };
+}
+
+global.window = window;
+global.document = document;
+global.fetch = fetch;
+global.DOMPurify = window.DOMPurify;
+global.marked = window.marked;
+global.vis = window.vis;
+global.localStorage = { getItem() { return null; }, setItem() {} };
+global.location = { origin: 'http://127.0.0.1:8766' };
+global.requestAnimationFrame = window.requestAnimationFrame;
+global.getComputedStyle = () => ({ getPropertyValue: () => '#ffffff' });
+
+const code = fs.readFileSync(process.argv[2], 'utf8');
+eval(code);
+
+setTimeout(async () => {
+  for (let i = 0; i < 50; i++) {
+    if (typeof net !== 'undefined' && net && allNodes && allNodes.length) break;
+    await new Promise(r => setTimeout(r, 10));
+  }
+
+  // 1. Initial state check: 2-column view with reader as centerView
+  selectDoc('doc-note-1');
+  await new Promise(r => setTimeout(r, 40));
+
+  // Reset call history to isolate openDocGraph actions
+  calls.setSize = [];
+  calls.selectNodes = [];
+  calls.fit = [];
+  calls.focus = [];
+  calls.moveTo = [];
+
+  // 2. Open graph for doc-note-1 (has 2 nodes: node-A, node-B)
+  openDocGraph('doc-note-1');
+  await new Promise(r => setTimeout(r, 60));
+
+  const multiNodeResult = {
+    centerView: document.body.dataset.centerView,
+    activePane: document.body.dataset.activePane,
+    setSizeCalls: [...calls.setSize],
+    selectNodesCalls: [...calls.selectNodes],
+    fitCalls: [...calls.fit],
+    focusCalls: [...calls.focus]
+  };
+
+  // Reset calls
+  calls.setSize = [];
+  calls.selectNodes = [];
+  calls.fit = [];
+  calls.focus = [];
+  calls.moveTo = [];
+
+  // 3. Open graph for doc-note-2 (has 1 node: node-C -> should focus, not fit)
+  openDocGraph('doc-note-2');
+  await new Promise(r => setTimeout(r, 60));
+
+  const singleNodeResult = {
+    centerView: document.body.dataset.centerView,
+    selectNodesCalls: [...calls.selectNodes],
+    fitCalls: [...calls.fit],
+    focusCalls: [...calls.focus]
+  };
+
+  console.log("TWO_COL_RESULT:" + JSON.stringify({
+    multiNode: multiNodeResult,
+    singleNode: singleNodeResult
+  }));
+  process.exit(0);
+}, 60);
+"""
+
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as f_script:
+        f_script.write(main_script)
+        script_file = f_script.name
+
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as f_runner:
+        f_runner.write(runner_code)
+        runner_file = f_runner.name
+
+    try:
+        proc = subprocess.run(
+            ["node", runner_file, script_file],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        assert proc.returncode == 0, f"Two-column graph menu test runner crashed:\nSTDOUT:\n{proc.stdout}\nSTDERR:\n{proc.stderr}"
+        match = re.search(r"TWO_COL_RESULT:(.*)", proc.stdout)
+        assert match is not None, f"Output did not contain TWO_COL_RESULT:\n{proc.stdout}"
+        data = json.loads(match.group(1))
+
+        # 1. Multi-node note verification
+        multi = data["multiNode"]
+        assert multi["centerView"] == "graph"
+        assert multi["activePane"] == "graph"
+        # setSize should have been called with visible 720px width
+        assert any(c["w"] == "720px" for c in multi["setSizeCalls"])
+        # Both nodes of doc-note-1 should be selected
+        assert any("node-A" in ids and "node-B" in ids for ids in multi["selectNodesCalls"])
+        # Both nodes should be fitted
+        assert any(
+            isinstance(f, dict) and "nodes" in f and "node-A" in f["nodes"] and "node-B" in f["nodes"]
+            for f in multi["fitCalls"]
+        )
+
+        # 2. Single-node note verification
+        single = data["singleNode"]
+        assert single["centerView"] == "graph"
+        assert any("node-C" in ids for ids in single["selectNodesCalls"])
+        # Single node should use focus (scale 1.2) rather than fit
+        assert any(f["id"] == "node-C" for f in single["focusCalls"])
+    finally:
+        Path(script_file).unlink(missing_ok=True)
+        Path(runner_file).unlink(missing_ok=True)
+
+
+
 
 
 

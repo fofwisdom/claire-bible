@@ -1616,15 +1616,35 @@ function setCenterView(mode){
   const mt = document.getElementById('menu-section-title');
   if(mt){ mt.textContent = (centerView==='graph' ? '그래프 도구' : '문서와 그래프'); }
   if(centerView==='graph'){
-    requestAnimationFrame(()=>{ relayoutPreservingCamera(); applyTouchMode(); });
+    graphCamera = null;
+    requestAnimationFrame(()=>{
+      relayout(true);
+      applyTouchMode();
+      if(activeDoc){
+        const docId = activeDoc;
+        const ids = [];
+        allNodes && allNodes.forEach(n => {
+          if(!n.hidden && (n.sources || []).includes(docId)) ids.push(n.id);
+        });
+        if(ids.length) net && net.selectNodes(ids);
+        if(!ids.length) resetGraphCamera(); else cameraToNodes(ids);
+      } else {
+        fitGraphContext();
+      }
+    });
   }
 }
 function openDocGraph(docId){
   const targetId = docId || activeDoc || curReaderDoc || (mobileMQ.matches ? (getRecentDocId() || docWithMostNodes()) : (allDocs && allDocs.length ? allDocs[0].id : null));
-  if(targetId) setActiveDoc(targetId);
-  else if(allDocs && allDocs.length) setActiveDoc(allDocs[0].id);
+  if(targetId){
+    activeDoc = targetId;
+    curReaderDoc = targetId;
+    recordSelectedDoc(targetId);
+  }
   setCenterView('graph');
   revealWorkspace('graph');
+  if(targetId) setActiveDoc(targetId);
+  else if(allDocs && allDocs.length) setActiveDoc(allDocs[0].id);
   if(drawerOpen || detailOpen){
     if(compactMQ.matches || mobileMQ.matches) closeDrawer();
   }
@@ -1665,8 +1685,7 @@ function openReader(docId){
     requestAnimationFrame(()=>{ if(net && activeDoc===targetDocId){
       const ids=[]; allNodes.forEach(n=>{ if(!n.hidden && (n.sources||[]).includes(targetDocId)) ids.push(n.id); });
       if(ids.length) net.selectNodes(ids);
-      net.fit(ids.length ? {nodes:ids, animation:graphAnimation(true)}
-        : {animation:graphAnimation(true)});
+      if(!ids.length) resetGraphCamera(); else cameraToNodes(ids);
     }});
   }
   fetch('document?id='+encodeURIComponent(docId)).then(x=>x.json()).then(dc=>{
@@ -1795,16 +1814,18 @@ function copyShare(){
 // 미해결 높이로 캔버스를 150px 로 잡아 상단 일부만 차지하던 버그). '100%' 는 flex/auto
 // 체인에서 안 먹어서 getBoundingClientRect 의 실측 px 로 강제한다. ResizeObserver 가
 // 레이아웃 확정·세로스택 전환·회전 시점마다(초기 1회 포함) 다시 맞춘다.
-function relayout(){ if(!net || netBusy) return;
-  const el=document.getElementById('net'); const r=el.getBoundingClientRect();
+function relayout(force=false){ if(!net) return;
+  const el=document.getElementById('net'); if(!el) return;
+  const r=el.getBoundingClientRect();
   if(r.width<=0 || r.height<=0) return;
-  // 크기 변화가 없으면 스킵 — 불필요한 setSize+redraw(churn)가 애니메이션과 겹칠 여지를 줄인다.
-  if(Math.abs(r.width-lastNetSize.w)<1 && Math.abs(r.height-lastNetSize.h)<1) return;
+  const isFirstVisibleSize = (lastNetSize.w <= 0 || lastNetSize.h <= 0);
+  if(netBusy && !force && !isFirstVisibleSize) return;
+  if(!force && !isFirstVisibleSize && Math.abs(r.width-lastNetSize.w)<1 && Math.abs(r.height-lastNetSize.h)<1) return;
   lastNetSize = {w:r.width, h:r.height};
   net.setSize(r.width+'px', r.height+'px'); net.redraw(); }
-if(window.ResizeObserver){ new ResizeObserver(relayout).observe(document.getElementById('net')); }
-window.addEventListener('resize', relayout);
-window.addEventListener('orientationchange', ()=>setTimeout(relayout, 300));
+if(window.ResizeObserver){ new ResizeObserver(()=>relayout()).observe(document.getElementById('net')); }
+window.addEventListener('resize', ()=>relayout());
+window.addEventListener('orientationchange', ()=>setTimeout(()=>relayout(), 300));
 
 function graphAnimation(value=true){ return reducedMotionMQ.matches ? false : value; }
 function rememberGraphCamera(){
@@ -1821,7 +1842,7 @@ function relayoutPreservingCamera(){
   if(!sizeChanged && graphCamera) return;
   const saved=graphCamera;
   preservingGraphCamera=true;
-  relayout();
+  relayout(true);
   if(saved){
     net.moveTo({position:saved.position,scale:saved.scale,animation:false});
   }
@@ -1899,11 +1920,13 @@ function revealWorkspace(name, focusTab=false){
   if(name==='graph'){
     setCenterView('graph');
     let targetDocId = activeDoc || curReaderDoc;
-    if(mobileMQ.matches && !targetDocId){
+    if(!targetDocId){
       targetDocId = getRecentDocId() || docWithMostNodes();
     }
     if(targetDocId){
       setActiveDoc(targetDocId);
+    } else {
+      fitGraphContext();
     }
   }
   if(name==='docs'){
@@ -2938,11 +2961,11 @@ function setActiveDoc(id){
   if(activeDoc){
     const docId=activeDoc;
     requestAnimationFrame(()=>{ if(net && activeDoc===docId){
+      if(centerView==='graph') relayout(true);
       // 전체 fit 이 아니라 그 문서의 노드들만 화면에 차게 — 최적 줌/위치로 이동(피드백).
       const ids=[]; allNodes.forEach(n=>{ if(!n.hidden && (n.sources||[]).includes(docId)) ids.push(n.id); });
       if(ids.length) net.selectNodes(ids);
-      net.fit(ids.length ? {nodes:ids, animation:graphAnimation(true)}
-        : {animation:graphAnimation(true)});
+      if(!ids.length) resetGraphCamera(); else cameraToNodes(ids);
     }});
     loadDocPanel(activeDoc);    // wide rail/후속 문맥 작업을 위해 내용만 준비
   } else {
@@ -3006,9 +3029,14 @@ function renderDocPanel(dc){
 function focusNode(id){
   selectedNodeId=id;
   loadNode(id);
+  setCenterView('graph');
   revealWorkspace('graph');
   requestAnimationFrame(()=>{
-    if(net){ net.selectNodes([id]); net.focus(id,{scale:1.3,animation:graphAnimation(true)}); }
+    if(net){
+      relayout(true);
+      net.selectNodes([id]);
+      net.focus(id,{scale:1.3,animation:graphAnimation(true)});
+    }
   });
 }
 
