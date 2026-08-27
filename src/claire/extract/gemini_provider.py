@@ -19,6 +19,7 @@ from .prompts import (
     _MERGED_DETAIL_MIN_CHARS,
     PROMPT_VERSION,
     classify_watch_prompt,
+    clean_plain_summary,
     extract_fallback_prompt,
     extract_system_prompt,
     judge_research_prompt,
@@ -513,13 +514,16 @@ def _coerce(text: str | None) -> ExtractionResult:
             except Exception:  # noqa: BLE001
                 pass
     if result is None:
-        result = ExtractionResult(summary=s[:300])
+        result = ExtractionResult(summary=clean_plain_summary(s[:300]))
+
+    if result.summary:
+        result.summary = clean_plain_summary(result.summary)
 
     if not result.summary or not result.summary.strip():
         if result.key_claims:
-            result.summary = " ".join(result.key_claims[:3])
+            result.summary = clean_plain_summary(" ".join(result.key_claims[:3]))
         elif result.entities:
             result.summary = f"{', '.join(e.name for e in result.entities[:5])} 등에 관한 자료이다."
         else:
-            result.summary = s[:300]
+            result.summary = clean_plain_summary(s[:300])
     return result

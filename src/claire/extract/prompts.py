@@ -54,6 +54,133 @@ Rules:
 - Do NOT invent facts not supported by the document.
 """
 
+import re
+
+_ADOC_CORRUPTED_PATTERNS = (
+    r"(?:^|\n)={1,5}\s+",
+    r"(?:^|\n)#{1,6}\s+",
+    r"(?:^|\n)\[(?:NOTE|TIP|IMPORTANT|WARNING|CAUTION|quote|source|cols|caption)[^\]]*\]",
+    r"(?:^|\n)\|===",
+    r"(?:^|\n):[a-zA-Z0-9_-]+:",
+    r"(?:^|\n)(?:include|image|link)::",
+    r"link:https?://",
+    r"(?:^|\n)(?:_{4,}|={4,}|-{4,}|\.{4,}|`{3,})",
+)
+
+
+def is_corrupted_summary(text: str | None) -> bool:
+    """텍스트에 AsciiDoc 또는 마크다운 구조/블록/속성 마크업이 잔존하는지 판정."""
+    if not text:
+        return False
+    s = text.strip()
+    return any(re.search(pat, s, re.MULTILINE | re.IGNORECASE) for pat in _ADOC_CORRUPTED_PATTERNS)
+
+
+def clean_plain_summary(text: str | None) -> str:
+    """요약 텍스트 또는 상세 본문(detail/raw_text)에서 모든 AsciiDoc/마크다운 마크업을 제거하고 순수 평문 추출."""
+    if not text:
+        return ""
+    s = text.strip()
+    if not s:
+        return ""
+
+    lines = s.splitlines()
+    cleaned_paragraphs: list[list[str]] = []
+    current_p: list[str] = []
+    extracted_title: str | None = None
+
+    for raw_line in lines:
+        line = raw_line.strip()
+        if not line:
+            if current_p:
+                cleaned_paragraphs.append(current_p)
+                current_p = []
+            continue
+
+        # 1. 문서 제목 헤더 추출 (= Title 또는 # Title)
+        h_m = re.match(r"^(?:={1,5}|#{1,6})\s+(.+)$", line)
+        if h_m:
+            if not extracted_title:
+                extracted_title = h_m.group(1).strip()
+            # 제목 라인은 본문 단락에서 제외
+            continue
+
+        # 2. 문서 속성 (:key: value, :toc:, :toc-title: 등) 스킵
+        if re.match(r"^:[a-zA-Z0-9_-]+:\s*.*$", line):
+            continue
+
+        # 3. 블록 레이블/메타데이터 ([quote...], [NOTE], [source...], [cols...] 등) 스킵
+        if re.match(r"^\[(?:NOTE|TIP|IMPORTANT|WARNING|CAUTION|quote|source|cols|caption)[^\]]*\]$", line, re.IGNORECASE):
+            continue
+
+        # 4. 블록 구분선 (____, ====, ----, ...., |===, ```) 스킵
+        if re.match(r"^(?:\|===|_{4,}|={4,}|-{4,}|\.{4,}|`{3,})\s*$", line):
+            continue
+
+        # 5. 인라인 콜아웃 라인 (<1> 설명) 스킵
+        if re.match(r"^<\d+>\s*.*$", line):
+            continue
+
+        # 6. 테이블 행 (| col1 | col2) 스킵
+        if line.startswith("|"):
+            continue
+
+        # 7. 이미지/매크로 (image::url[...], include::...) 스킵
+        if re.match(r"^(?:image|include)::[^\[]*\[.*\]$", line, re.IGNORECASE):
+            continue
+
+        # 8. 인라인 서식 제거
+        # 형광/하이라이트: #text# or ==text== -> text
+        line = re.sub(r"#([^#\n]+)#", r"\1", line)
+        line = re.sub(r"==([^=\n]+)==", r"\1", line)
+        # 굵게: **text** or *text* -> text
+        line = re.sub(r"\*\*([^*\n]+)\*\*", r"\1", line)
+        line = re.sub(r"\*([^*\n]+)\*", r"\1", line)
+        # 기울임: _text_ -> text
+        line = re.sub(r"_([^_\n]+)_", r"\1", line)
+        # 인라인 코드: `text` -> text
+        line = re.sub(r"`([^`\n]+)`", r"\1", line)
+        # 링크: link:https://url[text] -> text / https://url[text] -> text
+        line = re.sub(r"link:https?://[^\s\[\]]+\[(.*?)\]", r"\1", line)
+        line = re.sub(r"https?://[^\s\[\]]+\[(.*?)\]", r"\1", line)
+        # 콜아웃: // <1> or <1>
+        line = re.sub(r"//\s*<\d+>", "", line)
+        line = re.sub(r"<\d+>", "", line)
+        # 인라인 블록 태그 및 구분자 잔여물 ([NOTE], |===, ____ 등) 제거
+        line = re.sub(r"\[(?:NOTE|TIP|IMPORTANT|WARNING|CAUTION|quote|source|cols|caption)[^\]]*\]", "", line, flags=re.IGNORECASE)
+        line = re.sub(r"\|={2,}", "", line)
+        line = re.sub(r"_{4,}|={4,}|-{4,}|\.{4,}|`{3,}", "", line)
+        # 리스트 기호 (* item, - item) 제거
+        line = re.sub(r"^[*-]\s+", "", line)
+        line = re.sub(r"\s+", " ", line)
+
+        line = line.strip()
+        if line:
+            current_p.append(line)
+
+    if current_p:
+        cleaned_paragraphs.append(current_p)
+
+    # 본문 단락 중 가장 의미 있는 서술 단락 선택
+    for p_lines in cleaned_paragraphs:
+        p_text = " ".join(p_lines).strip()
+        if len(p_text) >= 20:
+            return p_text
+
+    # 만약 20자 이상인 단락이 없으면 첫 번째 단락 반환
+    if cleaned_paragraphs:
+        p_text = " ".join(cleaned_paragraphs[0]).strip()
+        if p_text:
+            return p_text
+
+    # 만약 본문 단락이 전혀 없지만 제목이 있었다면 제목 기반 요약 반환
+    if extracted_title:
+        extracted_title = clean_plain_summary(extracted_title)
+        if extracted_title:
+            return f"{extracted_title}에 관한 자료이다."
+
+    return ""
+
 
 def extract_system_prompt(ontology_block: str) -> str:
     """구조화 추출을 위한 시스템 프롬프트 반환."""

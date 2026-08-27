@@ -1557,12 +1557,18 @@ function convertAsciidocToHtml(raw){
         out.push('<div class="colist"><span class="conum">&lt;'+colMatch[1]+'&gt;</span> '+renderMarkdown(colMatch[2])+'</div>');
         continue;
       }
+      const h1Match=trimmed.match(/^=\\s+(.+)$/);
+      if(h1Match){ out.push('<h1>'+renderMarkdown(h1Match[1])+'</h1>'); continue; }
       const h2Match=trimmed.match(/^==\\s+(.+)$/);
       if(h2Match){ out.push('<h2>'+renderMarkdown(h2Match[1])+'</h2>'); continue; }
       const h3Match=trimmed.match(/^===\\s+(.+)$/);
       if(h3Match){ out.push('<h3>'+renderMarkdown(h3Match[1])+'</h3>'); continue; }
       const h4Match=trimmed.match(/^====\\s+(.+)$/);
       if(h4Match){ out.push('<h4>'+renderMarkdown(h4Match[1])+'</h4>'); continue; }
+
+      // 문서 속성 (:key: value, :toc: 등) 스킵
+      const attrMatch=trimmed.match(/^:[a-zA-Z0-9_-]+:\\s*(.*)$/);
+      if(attrMatch){ continue; }
 
       out.push(renderMarkdown(line.replace(/#([^#]+?)#/g,'<mark>$1</mark>')));
     }else{
@@ -4104,12 +4110,18 @@ function convertAsciidocToHtml(raw){
         out.push('<div class="colist"><span class="conum">&lt;'+colMatch[1]+'&gt;</span> '+renderMarkdown(colMatch[2])+'</div>');
         continue;
       }
+      const h1Match=trimmed.match(/^=\\s+(.+)$/);
+      if(h1Match){ out.push('<h1>'+renderMarkdown(h1Match[1])+'</h1>'); continue; }
       const h2Match=trimmed.match(/^==\\s+(.+)$/);
       if(h2Match){ out.push('<h2>'+renderMarkdown(h2Match[1])+'</h2>'); continue; }
       const h3Match=trimmed.match(/^===\\s+(.+)$/);
       if(h3Match){ out.push('<h3>'+renderMarkdown(h3Match[1])+'</h3>'); continue; }
       const h4Match=trimmed.match(/^====\\s+(.+)$/);
       if(h4Match){ out.push('<h4>'+renderMarkdown(h4Match[1])+'</h4>'); continue; }
+
+      // 문서 속성 (:key: value, :toc: 등) 스킵
+      const attrMatch=trimmed.match(/^:[a-zA-Z0-9_-]+:\\s*(.*)$/);
+      if(attrMatch){ continue; }
 
       out.push(renderMarkdown(line.replace(/#([^#]+?)#/g,'<mark>$1</mark>')));
     }else{

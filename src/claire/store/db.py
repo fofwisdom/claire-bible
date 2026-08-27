@@ -1243,6 +1243,8 @@ def resolve_doc_share(conn: sqlite3.Connection, token: str) -> str | None:
 def latest_extraction_summary(conn: sqlite3.Connection, document_id: str) -> str | None:
     """문서의 최신 추출 결과에서 summary 를 꺼낸다(documents 엔 summary 컬럼이 없고
     extractions.raw_response = ExtractionResult JSON 에 들어있다). 노드 상세 패널용."""
+    from ..extract.prompts import clean_plain_summary
+
     row = conn.execute(
         "SELECT raw_response FROM extractions WHERE document_id=? ORDER BY id DESC LIMIT 1",
         (document_id,),
@@ -1254,9 +1256,11 @@ def latest_extraction_summary(conn: sqlite3.Connection, document_id: str) -> str
         except (ValueError, AttributeError):
             summary = None
     if summary and summary.strip():
-        return summary.strip()
+        cleaned = clean_plain_summary(summary)
+        if cleaned:
+            return cleaned
 
-    # Fallback: extraction 에 요약이 없으면 detail 의 첫 단락 또는 raw_text 앞부분을 요약으로 반환
+    # Fallback: extraction 에 요약이 없거나 정제 후 빈 경우, detail 또는 raw_text 에서 평문 단락 추출
     doc_row = conn.execute(
         "SELECT detail, raw_text, title FROM documents WHERE id=?", (document_id,)
     ).fetchone()
@@ -1265,18 +1269,18 @@ def latest_extraction_summary(conn: sqlite3.Connection, document_id: str) -> str
 
     detail = (doc_row["detail"] or "").strip()
     if detail:
-        # 제목 헤더(= 또는 # 등)를 건너뛰고 첫 본문 단락 추출
-        paras = [p.strip() for p in detail.split("\n\n") if p.strip()]
-        for p in paras:
-            clean_p = p.lstrip("=#* -").strip()
-            if len(clean_p) > 20:
-                return clean_p[:300]
-        if paras:
-            return paras[0][:300]
+        cleaned_detail = clean_plain_summary(detail)
+        if cleaned_detail:
+            return (cleaned_detail[:300] + "…") if len(cleaned_detail) > 300 else cleaned_detail
 
     raw_text = (doc_row["raw_text"] or "").strip()
     if raw_text:
-        return (raw_text[:200] + "…") if len(raw_text) > 200 else raw_text
+        cleaned_raw = clean_plain_summary(raw_text)
+        if cleaned_raw:
+            return (cleaned_raw[:200] + "…") if len(cleaned_raw) > 200 else cleaned_raw
+
+    if doc_row["title"]:
+        return f"{doc_row['title']}에 관한 자료이다."
 
     return None
 
