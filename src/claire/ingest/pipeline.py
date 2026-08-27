@@ -268,6 +268,7 @@ def extract_resolve_store(
     vault_dir: Path | None = None,
     format: str | None = None,
     directive: str | None = None,
+    on_progress: Callable[[str, str], None] | None = None,
 ) -> tuple[bool, str | None]:
     """문서 1건의 추출→엔티티 해소/머지→관계 검증/적재→vault export.
 
@@ -275,6 +276,10 @@ def extract_resolve_store(
     refresh 시 같은 id 로 호출하면 기존 엔티티 sources 에 누적된다(연결 보존).
     추출 실패 시 (False, error). 성공 시 (True, None).
     """
+    if on_progress:
+        pname = getattr(provider, "name", "?")
+        on_progress("LLM 요약 및 엔티티/관계 구조화 추출", f"provider={pname}")
+
     try:
         result = provider.extract(doc, None)  # type: ignore[arg-type]
     except Exception as e:  # noqa: BLE001
@@ -291,6 +296,9 @@ def extract_resolve_store(
 
     # 한국어 가독 렌더링(detail) — 구조화 추출과 독립된 별도 LLM 호출. 그래프와 무관해
     # 실패해도 적재를 깨지 않는다(조용히 건너뜀). refresh/reextract 도 같은 경로라 갱신됨.
+    if on_progress:
+        on_progress("LLM 가독 본문(detail) 렌더링 생성", f"format={format or '기본'}")
+
     ensure_document_detail(
         conn, provider, doc, force=True, format=format, directive=directive
     )
@@ -310,7 +318,12 @@ def extract_resolve_store(
 
     name_to_id: dict[str, str] = {}
     touched_entities = []
-    for ee in result.entities:
+    total_entities = len(result.entities)
+
+    if on_progress:
+        on_progress("지식 그래프 엔티티 해소/병합", f"추출된 엔티티 {total_entities}개")
+
+    for idx_e, ee in enumerate(result.entities, 1):
         etype, prov = classify_entity_type(ee.type)
         if ee.proposed_type:
             dbm.log_proposal(conn, "entity_type", ee.proposed_type,
@@ -323,11 +336,16 @@ def extract_resolve_store(
             except Exception:  # noqa: BLE001
                 return None
 
+        def _on_judge_candidate(name1: str, name2: str):
+            if on_progress:
+                on_progress("엔티티 LLM 동일체 판정", f"[{idx_e}/{total_entities}] '{name1}' ↔ '{name2}'")
+
         ent, created = resolve_or_create(
             conn, vstore,
             name=ee.name, etype=etype, aliases=ee.aliases,
             observations=ee.observations, document_id=doc.id,
             embed_fn=_embed, judge_fn=_judge_fn, provisional=prov,
+            on_judge=_on_judge_candidate,
         )
         name_to_id[ee.name] = ent.id
         touched_entities.append(ent)
@@ -337,6 +355,9 @@ def extract_resolve_store(
         else:
             report.entities_linked += 1
             report.linked_entity_names.append(ent.name)
+
+    if on_progress:
+        on_progress("관계(Relation) 검증 및 적재", f"총 {len(result.relations)}개 관계")
 
     for er in result.relations:
         src_id = name_to_id.get(er.source)
@@ -363,6 +384,8 @@ def extract_resolve_store(
             report.relations_added += 1
 
     if vault_dir is not None and touched_entities:
+        if on_progress:
+            on_progress("Vault 마크다운 동기화", f"{len(touched_entities)}개 노드")
         neighbor_ids = set()
         for ent in touched_entities:
             for r in dbm.neighbors(conn, ent.id):

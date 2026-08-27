@@ -338,6 +338,33 @@ def cmd_status(_args) -> int:
     return 0
 
 
+def cmd_queue(args) -> int:
+    """비동기 큐 (inbox / refresh / expand) 상태 및 대기/실패 항목 조회."""
+    import json
+    from .status import build_queue_dashboard
+
+    s = get_settings()
+    queue_name = getattr(args, "name", None)
+    limit = getattr(args, "limit", 20) or 20
+
+    if getattr(args, "json", False):
+        conn = dbm.connect(s.db_file)
+        dbm.init_db(conn)
+        try:
+            data = {
+                "inbox": dbm.inbox_status_counts(conn),
+                "refresh": dbm.refresh_status_counts(conn),
+                "expand": dbm.expand_status_counts(conn),
+            }
+            print(json.dumps(data, ensure_ascii=False, indent=2))
+            return 0
+        finally:
+            conn.close()
+
+    print(build_queue_dashboard(s, queue_name=queue_name, limit=limit))
+    return 0
+
+
 def cmd_repo(_args) -> int:
     """소스 리포지토리 정보와 접근 URL 출력."""
     s = get_settings()
@@ -378,13 +405,28 @@ def cmd_replay_failed(args) -> int:
 def cmd_recover_run(args) -> int:
     """[자동복구] error inbox 중 재시도 도래분을 1회 재적재(게이팅·지수백오프)."""
     from .ingest.service import IngestService
+    from .progress import track_batch_progress
 
-    svc = IngestService(get_settings())
-    results = svc.recover_failed(
-        max_attempts=args.max_attempts, base_delay=args.base_delay, limit=args.limit)
-    if not results:
+    s = get_settings()
+    conn = dbm.connect(s.db_file)
+    dbm.init_db(conn)
+    due_count = len(dbm.due_for_recovery(conn, max_attempts=args.max_attempts, limit=args.limit))
+    conn.close()
+
+    if due_count == 0:
         print("재적재 대상(도래분) 없음.")
         return 0
+
+    svc = IngestService(s)
+    try:
+        with track_batch_progress("수신 실패 자동 복구", due_count) as reporter:
+            results = svc.recover_failed(
+                max_attempts=args.max_attempts, base_delay=args.base_delay, limit=args.limit,
+                reporter=reporter)
+            reporter.print_summary()
+    except KeyboardInterrupt:
+        return 130
+
     for r in results:
         if r["status"] in ("done", "duplicate"):
             print(f"  ✅ inbox#{r['inbox_id']}: {r['status']}")
@@ -460,11 +502,26 @@ def cmd_refresh_mark(args) -> int:
 def cmd_refresh_run(args) -> int:
     """갱신 큐 1회 처리."""
     from .ingest.service import IngestService
+    from .progress import track_batch_progress
 
-    results = IngestService(get_settings()).run_refresh_queue(limit=args.limit)
-    if not results:
+    s = get_settings()
+    conn = dbm.connect(s.db_file)
+    dbm.init_db(conn)
+    rows = dbm.pending_refresh(conn, limit=args.limit)
+    conn.close()
+
+    if not rows:
         print("갱신 대기 항목 없음.")
         return 0
+
+    svc = IngestService(s)
+    try:
+        with track_batch_progress("문서 갱신 큐 처리", len(rows)) as reporter:
+            results = svc.run_refresh_queue(limit=args.limit, reporter=reporter)
+            reporter.print_summary()
+    except KeyboardInterrupt:
+        return 130
+
     for r in results:
         if r["status"] == "done":
             print(f"  ✅ {r['document_id']}: {r['old_len']}→{r['new_len']}자 "
@@ -524,17 +581,32 @@ def _notify_expansion(results: list[dict]) -> None:
 def cmd_expand_run(args) -> int:
     """1홉 자동확장 큐 1회 처리."""
     from .ingest.service import IngestService
+    from .progress import track_batch_progress
 
-    results = IngestService(get_settings()).run_expand_queue(limit=args.limit)
-    if not results:
+    s = get_settings()
+    conn = dbm.connect(s.db_file)
+    dbm.init_db(conn)
+    rows = dbm.pending_expand(conn, limit=args.limit)
+    conn.close()
+
+    if not rows:
         print("확장 대기 항목 없음.")
         return 0
+
+    svc = IngestService(s)
+    try:
+        with track_batch_progress("1홉 자동확장 큐 처리", len(rows)) as reporter:
+            results = svc.run_expand_queue(limit=args.limit, reporter=reporter)
+            reporter.print_summary()
+    except KeyboardInterrupt:
+        return 130
+
     for r in results:
         if r.get("error"):
-            print(f"  ❌ {r['document_id']}: {str(r['error'])[:60]}")
+            print(f"  ❌ {r.get('document_id', '?')}: {str(r['error'])[:60]}")
         else:
-            print(f"  🔗 {r['document_id']}: 후보 {r['candidates']}·선별 {r['selected']}"
-                  f"·적재 {r['stored']}·스킵 {r['skipped']}")
+            print(f"  🔗 {r.get('document_id', '?')}: 후보 {r.get('candidates', 0)}·선별 {r.get('selected', 0)}"
+                  f"·적재 {r.get('stored', 0)}·스킵 {r.get('skipped', 0)}")
     print(f"처리 {len(results)}건, 적재 {sum(r.get('stored',0) for r in results)}")
     return 0
 
@@ -604,19 +676,38 @@ def cmd_ingest(args) -> int:
 def cmd_reextract(args) -> int:
     """저장된 raw_text 로 전체 또는 표(Table) 포함 문서를 재추출(프롬프트 변경 반영, 예: 한글화, 표 보존)."""
     from .ingest.service import IngestService
+    from .progress import track_batch_progress
 
     s = get_settings()
     svc = IngestService(s)
     tables_only = getattr(args, "tables", False) or getattr(args, "has_tables", False)
-    print(f"(provider={svc.provider.name}) 재추출 시작"
-          f"{' (tables-only)' if tables_only else ''}"
-          f"{' (rebuild)' if not args.no_rebuild else ''}…", flush=True)
-    out = svc.reextract_all(
-        rebuild=not args.no_rebuild,
-        limit=args.limit,
-        format=getattr(args, "format", None),
-        tables_only=tables_only,
-    )
+
+    conn = dbm.connect(s.db_file)
+    dbm.init_db(conn)
+    if tables_only:
+        table_docs = dbm.documents_with_tables(conn, limit=args.limit, check_detail=False)
+        total_docs = len(table_docs)
+    else:
+        total_docs = len(dbm.documents_timeline(conn, args.limit or 1000000))
+    conn.close()
+
+    if total_docs == 0:
+        print("재추출 대상 문서 없음.")
+        return 0
+
+    try:
+        with track_batch_progress(f"문서 재추출 ({svc.provider.name})", total_docs) as reporter:
+            out = svc.reextract_all(
+                rebuild=not args.no_rebuild,
+                limit=args.limit,
+                format=getattr(args, "format", None),
+                tables_only=tables_only,
+                reporter=reporter,
+            )
+            reporter.print_summary()
+    except KeyboardInterrupt:
+        return 130
+
     print(f"재추출 완료: 문서 {out['docs']} · 성공 {out['ok']} · 실패 {out['failed']}")
     for e in out["errors"][:20]:
         print(f"  - 실패 {e['document_id']}: {e['error']}")
@@ -624,27 +715,45 @@ def cmd_reextract(args) -> int:
 
 
 def cmd_backfill_detail(args) -> int:
-    """detail(한국어 가독 렌더링)이 없는 문서 또는 표(Table) 포함 문서를 채운다 — 비파괴적(그래프 불변).
-
-    reextract 와 달리 reset_graph/rebuild 없이 documents.detail 만 채운다(advisor).
-    문서당 Gemini 1회(quota). --force 면 기존 detail 도 재생성.
-    """
+    """detail(한국어 가독 렌더링)이 없는 문서 또는 표(Table) 포함 문서를 채운다 — 비파괴적(그래프 불변)."""
     from .ingest.service import IngestService
+    from .progress import track_batch_progress
 
     s = get_settings()
     svc = IngestService(s)
     tables_only = getattr(args, "tables", False) or getattr(args, "has_tables", False)
-    print(f"(provider={svc.provider.name}) detail 백필 시작"
-          f"{' (tables-only)' if tables_only else ''}"
-          f"{' (force)' if args.force else ''}…", flush=True)
+    fmt = getattr(args, "format", None) or s.render_format
+
+    conn = dbm.connect(s.db_file)
+    dbm.init_db(conn)
+    if tables_only:
+        target_ids = [d["id"] for d in dbm.documents_with_tables(conn, limit=args.limit, check_detail=True)]
+    elif args.force:
+        target_ids = [r["id"] for r in dbm.documents_timeline(conn, args.limit or 1000000)]
+    else:
+        target_ids = dbm.documents_needing_detail_format(conn, fmt, args.limit)
+    conn.close()
+
+    total_docs = len(target_ids)
+    if total_docs == 0:
+        print("detail 백필 대상 문서 없음.")
+        return 0
+
     directive = getattr(args, "orientation", None) or getattr(args, "directive", None)
-    out = svc.backfill_details(
-        limit=args.limit,
-        force=args.force,
-        format=getattr(args, "format", None),
-        directive=directive,
-        tables_only=tables_only,
-    )
+    try:
+        with track_batch_progress(f"detail 백필 ({svc.provider.name})", total_docs) as reporter:
+            out = svc.backfill_details(
+                limit=args.limit,
+                force=args.force,
+                format=fmt,
+                directive=directive,
+                tables_only=tables_only,
+                reporter=reporter,
+            )
+            reporter.print_summary()
+    except KeyboardInterrupt:
+        return 130
+
     print(f"백필 완료: 대상 {out['docs']} · 생성 {out['ok']} · 건너뜀 {out['skipped']}")
     return 0
 
@@ -652,11 +761,26 @@ def cmd_backfill_detail(args) -> int:
 def cmd_backfill_summary(args) -> int:
     """요약(summary)이 비어있거나 누락된 기존 문서의 요약을 채운다 — 비파괴적."""
     from .ingest.service import IngestService
+    from .progress import track_batch_progress
 
     s = get_settings()
+    conn = dbm.connect(s.db_file)
+    dbm.init_db(conn)
+    total_docs = len(dbm.documents_timeline(conn, args.limit or 1000000))
+    conn.close()
+
+    if total_docs == 0:
+        print("요약 백필 대상 문서 없음.")
+        return 0
+
     svc = IngestService(s)
-    print("요약(summary) 백필 시작…", flush=True)
-    out = svc.backfill_summaries(limit=args.limit)
+    try:
+        with track_batch_progress("요약(summary) 백필", total_docs) as reporter:
+            out = svc.backfill_summaries(limit=args.limit, reporter=reporter)
+            reporter.print_summary()
+    except KeyboardInterrupt:
+        return 130
+
     print(f"요약 백필 완료: 전체 {out['docs']} · 신규/갱신 {out['filled']} · 기존 유지 {out['already_had']}")
     return 0
 
@@ -666,6 +790,7 @@ def cmd_regenerate(args) -> int:
     import json
 
     from .ingest.service import IngestService
+    from .progress import track_batch_progress
 
     s = get_settings()
     svc = IngestService(s)
@@ -685,32 +810,33 @@ def cmd_regenerate(args) -> int:
     fmt = getattr(args, "format", None)
     directive = getattr(args, "orientation", None) or getattr(args, "directive", None)
 
-    res = svc.regenerate_components(
-        target=target,
-        token=token,
-        doc_id=doc_id,
-        summary=summary,
-        detail=detail,
-        graph=graph,
-        all_components=all_comp,
-        corrupted_summary=corrupted,
-        tables=tables,
-        refetch=refetch,
-        force=force,
-        effort=effort,
-        format=fmt,
-        directive=directive,
-    )
+    if not force:
+        # Dry-run 진단
+        res = svc.regenerate_components(
+            target=target,
+            token=token,
+            doc_id=doc_id,
+            summary=summary,
+            detail=detail,
+            graph=graph,
+            all_components=all_comp,
+            corrupted_summary=corrupted,
+            tables=tables,
+            refetch=refetch,
+            force=False,
+            effort=effort,
+            format=fmt,
+            directive=directive,
+        )
 
-    if getattr(args, "json", False):
-        print(json.dumps(res, ensure_ascii=False, indent=2))
-        return 0
+        if getattr(args, "json", False):
+            print(json.dumps(res, ensure_ascii=False, indent=2))
+            return 0
 
-    if res.get("error"):
-        print(f"[!] {res['error']}")
-        return 1 if force else 0
+        if res.get("error"):
+            print(f"[!] {res['error']}")
+            return 0
 
-    if res.get("dry_run"):
         print("claire: [Dry-Run] 문서 컴포넌트 재생성 진단")
         print("=" * 60)
         print(f"• 탐지/선택된 대상 문서 수 : {res['count']}건")
@@ -733,6 +859,55 @@ def cmd_regenerate(args) -> int:
         print("=" * 60)
         print("실제 재생성 및 DB 덮어쓰기를 실행하려면 --force 플래그를 추가하십시오:")
         print("  claire regenerate [target] --all --force [--refetch] [--effort <level>]")
+        return 0
+
+    # Force 실행: 사전 진단으로 대상 수 특정 후 실시간 진행률 추적
+    diag = svc.regenerate_components(
+        target=target,
+        token=token,
+        doc_id=doc_id,
+        summary=summary,
+        detail=detail,
+        graph=graph,
+        all_components=all_comp,
+        corrupted_summary=corrupted,
+        tables=tables,
+        refetch=refetch,
+        force=False,
+        effort=effort,
+        format=fmt,
+        directive=directive,
+    )
+    if diag.get("error"):
+        print(f"[!] {diag['error']}")
+        return 1
+
+    total_targets = diag.get("count", 0)
+    try:
+        with track_batch_progress("문서 컴포넌트 재생성", total_targets) as reporter:
+            res = svc.regenerate_components(
+                target=target,
+                token=token,
+                doc_id=doc_id,
+                summary=summary,
+                detail=detail,
+                graph=graph,
+                all_components=all_comp,
+                corrupted_summary=corrupted,
+                tables=tables,
+                refetch=refetch,
+                force=True,
+                effort=effort,
+                format=fmt,
+                directive=directive,
+                reporter=reporter,
+            )
+            reporter.print_summary()
+    except KeyboardInterrupt:
+        return 130
+
+    if getattr(args, "json", False):
+        print(json.dumps(res, ensure_ascii=False, indent=2))
         return 0
 
     print("claire: 문서 컴포넌트 재생성 완료")
@@ -758,6 +933,7 @@ def cmd_regenerate(args) -> int:
         if t.get("new_summary"):
             print(f"    새 요약: {t['new_summary']}")
     print("=" * 60)
+    return 0
     return 0
 
 
@@ -828,7 +1004,7 @@ def cmd_format_migrate(args) -> int:
         print(f"  claire format-migrate --apply --format {status['target_format']}")
         return 0
 
-    if status["target_docs"] == 0:
+    if status["non_target_docs"] == 0:
         print(f"\n[✓] 모든 문서가 이미 목표 포맷({fmt_label})입니다. 마이그레이션이 필요하지 않습니다.")
         return 0
 
@@ -849,8 +1025,15 @@ def cmd_format_migrate(args) -> int:
             return 2
 
     svc = IngestService(s)
-    print(f"\n[*] Starting format migration to {fmt_label} (backfill-detail)...")
-    out = svc.backfill_details(limit=0, force=False, format=status["target_format"])
+    from .progress import track_batch_progress
+
+    try:
+        with track_batch_progress(f"포맷 마이그레이션 ({fmt_label})", status["non_target_docs"]) as reporter:
+            out = svc.backfill_details(limit=0, force=False, format=status["target_format"], reporter=reporter)
+            reporter.print_summary()
+    except KeyboardInterrupt:
+        return 130
+
     print(f"[✓] 포맷 마이그레이션 완료: 대상 {out['docs']} · 생성 {out['ok']} · 건너뜀 {out['skipped']}")
     return 0
 
@@ -1338,13 +1521,24 @@ def build_parser() -> argparse.ArgumentParser:
     pau.add_argument("--json", action="store_true", help="output result in JSON format")
     pau.set_defaults(func=cmd_audit)
 
+    pq = sub.add_parser("queue", help="inspect asynchronous queues (inbox, refresh, expand)")
+    pq.add_argument("action", nargs="?", default="status", choices=["status", "list"], help="status or list")
+    pq.add_argument("--name", choices=["inbox", "refresh", "expand"], default=None, help="filter specific queue")
+    pq.add_argument("--limit", type=int, default=20, help="limit items shown (default 20)")
+    pq.add_argument("--json", action="store_true", help="output in json format")
+    pq.set_defaults(func=cmd_queue)
+
     return p
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    return args.func(args)
+    try:
+        return args.func(args)
+    except KeyboardInterrupt:
+        print("\n[!] 사용자에 의해 작업이 중단되었습니다.", file=sys.stderr)
+        return 130
 
 
 if __name__ == "__main__":

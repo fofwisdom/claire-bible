@@ -115,6 +115,7 @@ APP_ONE_OFF_COMMANDS = {
     "summary-regenerate",
     "purge",
     "audit",
+    "queue",
 }
 APP_GUARDED_COMMANDS = {
     "migrate": "Schema lifecycle command owned by install/update",
