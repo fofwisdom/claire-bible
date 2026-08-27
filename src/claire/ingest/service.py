@@ -454,7 +454,7 @@ class IngestService:
         """extractions 에 요약이 비어있거나 누락된 기존 문서의 요약을 채운다 — **비파괴적**."""
         import json as _json
 
-        from ..extract.prompts import PROMPT_VERSION
+        from ..extract.prompts import PROMPT_VERSION, clean_plain_summary, is_corrupted_summary
 
         conn = dbm.connect(self.s.db_file)
         dbm.init_db(conn)
@@ -474,6 +474,19 @@ class IngestService:
                     except Exception:
                         existing_summary = None
                 if existing_summary and existing_summary.strip():
+                    cleaned = clean_plain_summary(existing_summary)
+                    if is_corrupted_summary(existing_summary) and cleaned != existing_summary.strip():
+                        if ext:
+                            try:
+                                data = _json.loads(ext["raw_response"])
+                            except Exception:
+                                data = {}
+                            data["summary"] = cleaned
+                            new_raw = _json.dumps(data, ensure_ascii=False)
+                            conn.execute("UPDATE extractions SET raw_response=? WHERE id=?", (new_raw, ext["id"]))
+                            conn.commit()
+                            out["filled"] += 1
+                            continue
                     out["already_had"] += 1
                     continue
 
@@ -482,11 +495,13 @@ class IngestService:
                 if not summary or not summary.strip():
                     doc = dbm.get_document(conn, did)
                     if doc and doc.raw_text:
-                        summary = (doc.raw_text[:200] + "…") if len(doc.raw_text) > 200 else doc.raw_text
+                        summary = clean_plain_summary(doc.raw_text) or ((doc.raw_text[:200] + "…") if len(doc.raw_text) > 200 else doc.raw_text)
                     elif doc and doc.title:
                         summary = f"{doc.title}에 관한 자료이다."
                     else:
                         summary = "(요약 없음)"
+                else:
+                    summary = clean_plain_summary(summary)
 
                 if ext:
                     # 기존 extractions raw_response 갱신
@@ -524,6 +539,7 @@ class IngestService:
         graph: bool = False,
         all_components: bool = False,
         corrupted_summary: bool = False,
+        corrupted_detail: bool = False,
         refetch: bool = False,
         force: bool = False,
         effort: str | None = None,
@@ -544,7 +560,7 @@ class IngestService:
         import re as _re
         from urllib.parse import parse_qs, urlsplit
 
-        from ..extract.prompts import PROMPT_VERSION
+        from ..extract.prompts import PROMPT_VERSION, clean_plain_summary, is_corrupted_summary
         from .pipeline import ensure_document_detail
 
         # 컴포넌트 기본값 결정 (아무것도 지정 안 했으면 summary 를 기본 대상으로 간주)
@@ -558,29 +574,10 @@ class IngestService:
         dbm.init_db(conn)
 
         def _is_corrupted_adoc(text: str | None) -> bool:
-            if not text:
-                return False
-            s = text.strip()
-            patterns = (
-                r"(?:^|\n)={1,5}\s+",
-                r"(?:^|\n)\[(?:NOTE|TIP|IMPORTANT|WARNING|CAUTION|quote|source)[^\]]*\]",
-                r"(?:^|\n)\|===",
-                r"(?:^|\n):[a-zA-Z0-9_-]+:",
-                r"(?:^|\n)(?:include|image|link)::",
-                r"link:https?://",
-            )
-            return any(_re.search(pat, s, _re.MULTILINE) for pat in patterns)
+            return is_corrupted_summary(text)
 
         def _clean_summary(text: str | None) -> str:
-            if not text:
-                return ""
-            s = text.strip()
-            # If the first line is a header like "= Title" or "== Section" or "# Title", strip the entire header line
-            s = _re.sub(r"^(?:={1,5}|#{1,6})\s+[^\n]*\n+", "", s)
-            s = _re.sub(r"^(?:={1,5}|#{1,6})\s+", "", s)
-            # Strip trailing block delimiters
-            s = _re.sub(r"\n+(?:\|===|----|\.\.\.\.)\s*$", "", s)
-            return s.strip()
+            return clean_plain_summary(text)
 
         def _is_error_page(title: str | None, text: str | None) -> bool:
             t = (title or "").lower()
@@ -672,10 +669,20 @@ class IngestService:
                     if not doc:
                         continue
 
+                    ext_row = conn.execute(
+                        "SELECT raw_response FROM extractions WHERE document_id=? ORDER BY id DESC LIMIT 1",
+                        (did,),
+                    ).fetchone()
+                    raw_summ = ""
+                    if ext_row and ext_row["raw_response"]:
+                        try:
+                            raw_summ = _json.loads(ext_row["raw_response"]).get("summary", "")
+                        except Exception:
+                            raw_summ = ""
                     curr_summary = dbm.latest_extraction_summary(conn, did) or ""
                     curr_detail = dbm.get_document_detail(conn, did) or ""
                     curr_fmt = dbm.get_document_detail_format(conn, did) or ""
-                    is_corrupted = _is_corrupted_adoc(curr_summary)
+                    is_corrupted = _is_corrupted_adoc(raw_summ) or _is_corrupted_adoc(curr_summary)
                     is_err = _is_error_page(doc.title, doc.raw_text) or _is_error_page(None, curr_summary)
 
                     info: dict = {

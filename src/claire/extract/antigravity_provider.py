@@ -21,6 +21,7 @@ from .prompts import (
     _MERGED_DETAIL_MIN_CHARS,
     PROMPT_VERSION,
     classify_watch_prompt,
+    clean_plain_summary,
     extract_system_prompt,
     judge_research_prompt,
     judge_same_entity_prompt,
@@ -191,15 +192,18 @@ class AntigravityProvider:
             raw_text = self._run_cli(fallback_prompt, output_format="text")
             result = _coerce(str(raw_text))
 
-        # 요약이 비어있는 경우 방어적 보강
+        # 요약 평문 정제 및 비어있는 경우 방어적 보강
+        if result.summary:
+            result.summary = clean_plain_summary(result.summary)
+
         if not result.summary or not result.summary.strip():
             if result.key_claims:
-                result.summary = " ".join(result.key_claims[:3])
+                result.summary = clean_plain_summary(" ".join(result.key_claims[:3]))
             elif result.entities:
                 result.summary = f"{', '.join(e.name for e in result.entities[:5])} 등에 관한 자료이다."
             elif doc.raw_text:
                 fallback_txt = (doc.raw_text or "").strip()
-                result.summary = (fallback_txt[:200] + "…") if len(fallback_txt) > 200 else fallback_txt
+                result.summary = clean_plain_summary((fallback_txt[:200] + "…") if len(fallback_txt) > 200 else fallback_txt)
             elif doc.title:
                 result.summary = f"{doc.title}에 관한 자료이다."
 

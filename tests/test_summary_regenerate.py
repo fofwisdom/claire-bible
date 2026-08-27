@@ -92,10 +92,14 @@ def test_regenerate_dry_run_by_token(populated_service):
     assert target["summary_corrupted"] is True
     assert "regenerate_summary" in target["actions"]
 
-    # Verify DB was NOT modified during dry-run
+    # Verify DB extractions raw_response was NOT modified during dry-run
     conn = dbm.connect(svc.s.db_file)
-    curr_summary = dbm.latest_extraction_summary(conn, doc_id)
-    assert "= Section Header" in curr_summary
+    ext_row = conn.execute(
+        "SELECT raw_response FROM extractions WHERE document_id=? ORDER BY id DESC LIMIT 1",
+        (doc_id,),
+    ).fetchone()
+    raw_data = json.loads(ext_row["raw_response"])
+    assert "= Section Header" in raw_data["summary"]
     conn.close()
 
 
@@ -330,5 +334,101 @@ def test_regenerate_graph_flag_extracts_entities(populated_service):
     ent_names = [r["name"] for r in conn.execute("SELECT name FROM entities").fetchall()]
     assert "NeuralNet" in ent_names
     conn.close()
+
+
+def test_clean_plain_summary_asciidoc_variants():
+    """AsciiDoc 및 마크다운 다양한 오염 패턴에 대해 clean_plain_summary가 순수 평문을 반환하는지 검증."""
+    from claire.extract.prompts import clean_plain_summary, is_corrupted_summary
+
+    # 1. 실제 사고 케이스 1: 헤더 + 문서 속성만 있는 경우
+    raw1 = "kubectl Usage Conventions: kubectl 사용 규칙 및 모범 사례\n:toc:\n:toc-title: 목차"
+    assert is_corrupted_summary(raw1) is True
+    assert clean_plain_summary(raw1) == "kubectl Usage Conventions: kubectl 사용 규칙 및 모범 사례"
+
+    # 2. 실제 사고 케이스 2: 헤더 + 속성 + 인용 블록
+    raw2 = (
+        "= kubectl Usage Conventions: kubectl 사용 규칙 및 모범 사례\n"
+        ":toc:\n"
+        ":toc-title: 목차\n\n"
+        "[quote, Kubernetes Documentation]\n"
+        "____\n"
+        "스크립트의 안정적인 실행과 인프라 관리의 예측 가능성을 확보하기 위해서는 `kubectl`의 출력 형식, "
+        "버전 명시, 하위 리소스(subresources) 처리, 그리고 보안 설정에 대한 명확한 규칙을 준수해야 한다.\n"
+        "____\n\n"
+        "== 개요\n\n"
+        "`kubectl`은 Kubernetes 클러스터와 통신하며 리소스를 관리하는 도구이다."
+    )
+    assert is_corrupted_summary(raw2) is True
+    cleaned2 = clean_plain_summary(raw2)
+    assert ":toc:" not in cleaned2
+    assert "[quote" not in cleaned2
+    assert "____" not in cleaned2
+    assert "스크립트의 안정적인 실행과 인프라 관리의 예측 가능성을 확보하기 위해서는" in cleaned2
+
+    # 3. Admonition 및 테이블/링크 오염
+    raw3 = (
+        "[NOTE]\n"
+        "이것은 중요한 알림입니다.\n"
+        "|===\n"
+        "| Col1 | Col2\n"
+        "|===\n"
+        "link:https://example.com[공식 사이트]를 참고하라."
+    )
+    assert is_corrupted_summary(raw3) is True
+    cleaned3 = clean_plain_summary(raw3)
+    assert "[NOTE]" not in cleaned3
+    assert "|===" not in cleaned3
+    assert "link:" not in cleaned3
+    assert "이것은 중요한 알림입니다. 공식 사이트를 참고하라." in cleaned3 or "이것은 중요한 알림입니다." in cleaned3
+
+
+def test_latest_extraction_summary_with_corrupted_detail_fallback(temp_db):
+    """extraction 이 없고 detail 이 ADOC 헤더(:toc:)로 시작할 때 latest_extraction_summary가 평문을 반환하는지 검증."""
+    conn = dbm.connect(temp_db)
+    doc_id = "doc_fallback_test"
+    doc_detail = (
+        "= kubectl Usage Conventions: kubectl 사용 규칙 및 모범 사례\n"
+        ":toc:\n"
+        ":toc-title: 목차\n\n"
+        "[quote, Kubernetes Documentation]\n"
+        "____\n"
+        "스크립트의 안정적인 실행과 인프라 관리의 예측 가능성을 확보하기 위한 규칙이다.\n"
+        "____"
+    )
+    doc = Document(
+        id=doc_id,
+        title="kubectl Usage Conventions",
+        raw_text="kubectl convention details",
+        canonical_url="https://kubernetes.io/docs/conventions",
+        source_type="web",
+        content_hash="h_fallback_1",
+        fetched_at=1700000000.0,
+    )
+    dbm.insert_document(conn, doc)
+    dbm.set_document_detail(conn, doc_id, doc_detail, format="adoc")
+
+    summary = dbm.latest_extraction_summary(conn, doc_id)
+    assert summary is not None
+    assert ":toc:" not in summary
+    assert ":toc-title:" not in summary
+    assert "[quote" not in summary
+    assert "스크립트의 안정적인 실행과 인프라 관리의 예측 가능성을 확보하기 위한 규칙이다." in summary
+    conn.close()
+
+
+def test_backfill_summary_repairs_corrupted_extractions(populated_service):
+    """backfill_summaries 가 기존 DB의 오염된 extractions.raw_response 내 요약을 자동 수복하는지 검증."""
+    svc, doc_id, _ = populated_service
+    res = svc.backfill_summaries()
+
+    assert res["filled"] >= 1
+    conn = dbm.connect(svc.s.db_file)
+    summary = dbm.latest_extraction_summary(conn, doc_id)
+    assert "= Section Header" not in summary
+    assert "[NOTE]" not in summary
+    assert "|===" not in summary
+    assert "This is corrupted adoc summary with table. Link" in summary or "This is corrupted adoc summary" in summary
+    conn.close()
+
 
 
