@@ -340,6 +340,24 @@ def test_api_server_orientation(tmp_path: Path):
         stream_detail = dbm.get_document_detail(conn, stream_doc_id)
         assert "[directive: 스트림 방향성 전달 테스트]" in stream_detail
         assert dbm.get_document_directive(conn, stream_doc_id) == "스트림 방향성 전달 테스트"
+
+        # 3. Ingest stream via API with payload containing double-newline directive
+        resp_double_nl = client.post(
+            "/ingest-stream",
+            json={
+                "payload": "제목: 웹 브라우저 적재 테스트\n본문: 본문 내용입니다.\n\n[방향성] 더블 줄바꿈 자동 분리 테스트",
+            },
+            headers={"Authorization": f"Bearer {settings.inject_token}"},
+        )
+        assert resp_double_nl.status_code == 200
+        lines2 = resp_double_nl.text.strip().split("\n")
+        final_event2 = json.loads(lines2[-1])
+        assert final_event2.get("done") is True
+        doc_id2 = final_event2["result"]["document_id"]
+
+        detail2 = dbm.get_document_detail(conn, doc_id2)
+        assert "[directive: 더블 줄바꿈 자동 분리 테스트]" in detail2
+        assert dbm.get_document_directive(conn, doc_id2) == "더블 줄바꿈 자동 분리 테스트"
         conn.close()
 
 
