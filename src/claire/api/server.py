@@ -219,6 +219,13 @@ def create_app(
         directive = (
             str(body.get("orientation") or body.get("directive") or "").strip() or None
         )
+        if not directive:
+            from ..telegram_bot import parse_message_directive
+
+            payload, parsed_dir = parse_message_directive(payload)
+            if parsed_dir:
+                directive = parsed_dir
+
         ingest_kwargs: dict[str, Any] = {
             "source": "api",
             "expand_max": expand_max,
@@ -678,6 +685,12 @@ def create_app(
         directive = (
             str(body.get("orientation") or body.get("directive") or "").strip() or None
         )
+        if not directive:
+            from ..telegram_bot import parse_message_directive
+
+            payload, parsed_dir = parse_message_directive(payload)
+            if parsed_dir:
+                directive = parsed_dir
 
         _reserve_expensive_job()
         loop = asyncio.get_running_loop()

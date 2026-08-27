@@ -2633,10 +2633,11 @@ function renderResearchResult(d, backId){
 function openIngest(){
   if(!canWrite()) return;
   panel.innerHTML='<h2>➕ 자료 적재</h2>'+
-    '<p class=al>URL · 메모 텍스트 · "제목 URL" 공유문구를 붙여넣고 보내면 적재됩니다. '+
-    '관련 링크는 백그라운드에서 자동으로 따라가 함께 쌓입니다.</p>'+
-    '<textarea id="ingin" rows="4" style="width:100%;box-sizing:border-box" '+
-    'placeholder="https://example.com/article   또는   메모 텍스트"></textarea>'+
+    '<p class=al>URL 또는 메모 텍스트를 입력하고 보내면 AI가 내용을 분석하고 구조화하여 그래프 및 맞춤형 가독 본문으로 적재합니다.</p>'+
+    '<p class=al style="color:var(--text-dim, #888);font-size:0.9em;margin:.4em 0;line-height:1.4">💡 <b>본문 작성 방향성(초점/관점) 지정:</b><br>'+
+    'URL을 입력한 후 <b>줄바꿈 두 번(엔터 2회)</b> 뒤에 원하는 작성 지침(예: 시스템 아키텍처 중심, 초보자 튜토리얼 관점 등)을 입력하면 맞춤형으로 본문이 작성됩니다.</p>'+
+    '<textarea id="ingin" rows="5" style="width:100%;box-sizing:border-box" '+
+    'placeholder="https://example.com/article&#10;&#10;시스템 아키텍처 및 내부 구조 중심 (줄바꿈 2번 후 방향성 입력)"></textarea>'+
     '<div style="margin:.5em 0"><button onclick="runIngest()">보내기</button></div>';
   openDetailPane();
   const ta=document.getElementById('ingin'); if(ta) ta.focus();
@@ -2644,17 +2645,34 @@ function openIngest(){
 async function runIngest(){
   if(!canWrite()) return;
   const ta=document.getElementById('ingin');
-  const payload=((ta||{}).value||'').trim();
-  if(!payload){ alert('적재할 URL 또는 텍스트를 입력하세요.'); return; }
-  panel.innerHTML='<h2>➕ 적재 중</h2><p class="al" id="ielapsed">시작…</p><ul id="iprog"></ul>';
+  const rawText=((ta||{}).value||'').trim();
+  if(!rawText){ alert('적재할 URL 또는 텍스트를 입력하세요.'); return; }
+  let payload = rawText;
+  let directive = null;
+  const sepIdx = rawText.search(/\\r?\\n\\s*\\r?\\n/);
+  if(sepIdx !== -1){
+    const firstPart = rawText.slice(0, sepIdx).trim();
+    const secondPart = rawText.slice(sepIdx).trim();
+    if(firstPart && secondPart){
+      payload = firstPart;
+      directive = secondPart;
+    }
+  }
+  let labelText = '시작…';
+  if(directive){
+    labelText = '시작… (방향성: ' + (directive.length > 20 ? directive.slice(0, 20) + '…' : directive) + ')';
+  }
+  panel.innerHTML='<h2>➕ 적재 중</h2><p class="al" id="ielapsed">' + esc(labelText) + '</p><ul id="iprog"></ul>';
   openDetailPane();
   const t0=Date.now();
   const timer=setInterval(()=>{ const el=document.getElementById('ielapsed');
-    if(el) el.textContent='⏱ 경과 '+Math.round((Date.now()-t0)/1000)+'s'; else clearInterval(timer); },1000);
+    if(el) el.textContent='⏱ 경과 '+Math.round((Date.now()-t0)/1000)+'s' + (directive ? ' (방향성: ' + esc(directive.length > 15 ? directive.slice(0, 15) + '…' : directive) + ')' : ''); else clearInterval(timer); },1000);
   let result=null;
   try{
+    const bodyObj = {payload: payload};
+    if(directive) bodyObj.directive = directive;
     const r=await fetch('ingest-stream',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({payload:payload})});
+      body:JSON.stringify(bodyObj)});
     if(r.status===401||r.status===404){ clearInterval(timer); expireWriteAccess();
       panel.innerHTML='<p class=hint>세션 만료 — 텔레그램 /web 으로 다시 접속하세요</p>'; return; }
     if(!r.ok){ clearInterval(timer); let d={};
@@ -2686,6 +2704,7 @@ function renderIngestResult(d){
     '<p class=al>원본은 보관되어 자동복구(recover) 대상이 됩니다.</p>'; return; }
   let h='<h2>'+(d.duplicate?'♻️ 이미 있는 자료':(d.updated?'🔄 내용 갱신':'✅ 적재 완료'))+'</h2>';
   h+='<p class=al><b>'+esc(d.title||d.document_id||'(제목 없음)')+'</b>'+(d.partial?' <small>⚠️ 부분 처리</small>':'')+'</p>';
+  if(d.directive) h+='<p class=al><b>초점/방향성:</b> '+esc(d.directive)+'</p>';
   if(!d.duplicate) h+='<p class=al>노드 신규 '+(d.entities_created||0)+' · 기존연결 '+
     (d.entities_linked||0)+' · 관계 '+(d.relations_added||0)+'</p>';
   if(d.summary) h+='<div class=synth>'+esc(d.summary)+'</div>';
