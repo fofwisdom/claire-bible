@@ -1,7 +1,7 @@
 # Multi-Provider & Hyperscaler Calibration Architecture Design
 
 > **문서 상태**: 설계 완료 (Proposal)  
-> **관련 문서**: [SYNTHESIS_REDESIGN.md](SYNTHESIS_REDESIGN.md), [ONEHOP_MERGE_DESIGN.md](ONEHOP_MERGE_DESIGN.md)
+> **관련 문서**: [SYNTHESIS_REDESIGN.md](../../upstream/SYNTHESIS_REDESIGN.md), [ONEHOP_MERGE_DESIGN.md](../../upstream/ONEHOP_MERGE_DESIGN.md)
 
 ---
 
