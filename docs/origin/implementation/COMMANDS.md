@@ -13,13 +13,16 @@
    * [2.4 컨테이너 및 서비스 제어 (Compose Passthrough)](#24-컨테이너-및-서비스-제어-compose-passthrough)
 3. [애플리케이션 CLI 명령어 (`claire` / `app`)](#3-애플리케이션-cli-명령어-claire--app)
    * [3.1 시스템 상태 및 지식그래프 진단/수복](#31-시스템-상태-및-지식그래프-진단수복)
+   * [`queue` 큐 대시보드](#queue-큐-대시보드)
    * [3.2 수집 및 적재 (Ingest)](#32-수집-및-적재-ingest)
    * [3.3 검색 및 질의 (Search)](#33-검색-및-질의-search)
    * [3.4 재생성, 백필, 포맷 마이그레이션 및 복구](#34-재생성-백필-포맷-마이그레이션-및-복구)
+   * [작업 진행률 및 중단 보고](#작업-진행률-및-중단-보고)
    * [3.5 1홉 자동 확장 (Expand)](#35-1홉-자동-확장-expand)
    * [3.6 중복 정리 및 정규화 (Dedup & Canon)](#36-중복-정리-및-정규화-dedup--canon)
    * [3.7 감시 및 문서 관리 (Watch & Doc)](#37-감시-및-문서-관리-watch--doc)
 4. [미구현(Unimplemented) / 부분 구현 옵션 및 상태 명세](#4-미구현unimplemented--부분-구현-옵션-및-상태-명세)
+5. [참고문헌](#5-참고문헌)
 
 ---
 
@@ -126,6 +129,7 @@ Git 저장소 최신 커밋을 가져와 무중단 롤링 업데이트를 수행
 | `health` | `claire health` | DB, 큐(Queue), Inbox 상태를 담은 건강 진단 JSON 출력 |
 | `liveness` | `claire liveness` | 읽기 전용 DB 및 스키마 생존 여부 확인 (Degraded 시 비정상 종료 안 함) |
 | `status` | `claire status` | 운영 상태, DB 테이블 카운트, 프로바이더 설정 전체 출력 |
+| `queue` | `claire queue status` / `claire queue list <inbox\|refresh\|expand>` | 비동기 큐 상태 분포와 대기·오류 항목 조회 |
 | `stats` | `claire stats` | 지식그래프 노드(엔티티) 및 엣지(관계) 카운트 출력 |
 | `repo` | `claire repo` | Git 소스 저장소 정보 및 원격 URL 출력 |
 | `migrate` | `claire migrate` | 스키마를 최신 `SCHEMA_VERSION`으로 초기화/업그레이드 |
@@ -150,6 +154,26 @@ Git 저장소 최신 커밋을 가져와 무중단 롤링 업데이트를 수행
   4. **고아 임베딩 (Orphan Embeddings)**: 엔티티가 삭제된 벡터 데이터 정리.
   5. **FTS 전문 색인 불일치 (FTS Desync)**: 실존 엔티티 기준 `entities_fts` 재색인.
   6. **오염 요약 마크업 탐지**: AsciiDoc 문법이 섞인 요약 탐지 및 `regenerate` 안내.
+
+#### `queue` 큐 대시보드
+`queue`는 `raw_inbox`, `refresh_queue`, `expand_queue`의 상태 분포와 처리 대기·오류 항목을 한 번에 조회한다.[^queue-implementation]
+
+* **사용법**:
+  ```bash
+  ./cb-manuscript app queue status          # 세 큐의 집계 및 대기·오류 항목
+  ./cb-manuscript app queue list inbox      # raw_inbox만 조회
+  ./cb-manuscript app queue list refresh    # refresh_queue만 조회
+  ./cb-manuscript app queue list expand     # expand_queue만 조회
+  ./cb-manuscript app queue list inbox --limit 50
+  ```
+* **출력 범위**:
+  * `inbox`는 상태별 건수, 즉시 재시도 가능한 `error` 항목 수, 최근 `error`·`failed` 항목을 표시한다.
+  * `refresh`와 `expand`는 상태별 건수와 `pending`·`error` 항목을 표시한다. `refresh`는 URL과 사유를, `expand`는 문서 ID를 포함한다.
+  * `list`에는 `inbox`, `refresh`, `expand` 중 하나가 필수다. 누락하면 종료 코드 `2`를 반환한다. `--name`은 위치 인수와 같은 역할을 하는 호환 별칭이다.
+  * `--json`은 현재 세 큐 모두의 상태별 건수만 출력하며, `list`의 상세 행이나 큐 필터를 JSON에 반영하지 않는다.
+
+> [!CAUTION]
+> 텍스트 대시보드는 `raw_inbox` 페이로드와 `refresh_queue` URL의 앞부분을 표시한다. 터미널 로그를 외부로 전달하거나 공유 저장소에 보관하지 않는다.[^queue-implementation]
 
 ---
 
@@ -271,6 +295,14 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
   * `--format {md,adoc}`: detail 본문 포맷 지정.
   * `--limit <N>`: 처리할 최대 문서 개수.
 
+#### 작업 진행률 및 중단 보고
+다음의 **1회 실행 배치 명령**은 진행률 추적기를 사용한다: `regenerate --force`, `reextract`, `backfill-detail`, `backfill-summary`, `format-migrate --apply`, `recover-run`, `refresh-run`, `expand-run`.[^progress-implementation]
+
+* **정상 진행 출력**: 시작 시 전체 대상 수를 표시하고, 각 항목마다 `[현재/전체]`, 백분율, 대상 ID와 제목을 출력한다. 두 번째 항목부터는 완료 항목의 평균 시간으로 잔여 시간을 추정한다. 가능한 파이프라인에서는 구조화 추출, detail 렌더링, 엔티티 해소·동일체 판정, 관계 적재, Vault 동기화의 현재 단계를 함께 출력한다.[^progress-implementation]
+* **`Ctrl+C` 처리**: 현재 문서·제목·URL·단계, 완료/잔여 수, 경과 시간과 재개 명령을 포함한 중단 보고서를 출력하고 해당 CLI 명령은 종료 코드 `130`을 반환한다. 보고서의 데이터 보존 문구는 이미 완료된 항목을 대상으로 한다.[^progress-implementation]
+* **오류 경계**: 배치 본문에서 발생한 일반 예외도 중단 보고서를 먼저 출력하지만 예외 자체는 다시 전파된다. 따라서 오류를 종료 코드로 변환하거나 후속 처리를 재시도하지 않는다.[^progress-implementation]
+* **적용 제외**: `replay-failed`와 `recover-loop`·`refresh-loop`·`expand-loop`에는 이 항목별 추적기가 연결되어 있지 않다. 이 경로들은 기존의 결과 요약 또는 주기 로그만 출력한다.[^progress-implementation]
+
 ---
 
 ### 3.5 1홉 자동 확장 (Expand)
@@ -334,3 +366,10 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 
 ### 4.5 `claire backfill-images`
 * 문서 내 포함된 이미지 URL을 파싱하여 로컬 볼륨으로 다운로드합니다. 외부 이미지 호스트가 접근 차단(Hotlinking 방지) 또는 404인 경우 다운로드가 스킵되며, 원본 URL 링크 형태로 유지됩니다.
+
+---
+
+## 5. 참고문헌
+
+[^queue-implementation]: Claire Bible 구현 근거: [`src/claire/cli.py`](../../../src/claire/cli.py), [`src/claire/status.py`](../../../src/claire/status.py), [`ops/cb_manuscript.py`](../../../ops/cb_manuscript.py) (2026-08-27 확인).
+[^progress-implementation]: Claire Bible 구현 근거: [`src/claire/progress.py`](../../../src/claire/progress.py), [`src/claire/cli.py`](../../../src/claire/cli.py), [`src/claire/ingest/service.py`](../../../src/claire/ingest/service.py), [`src/claire/ingest/pipeline.py`](../../../src/claire/ingest/pipeline.py) (2026-08-27 확인).
