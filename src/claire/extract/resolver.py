@@ -63,6 +63,7 @@ def resolve_or_create(
     embed_fn: EmbedFn | None = None,
     judge_fn: JudgeFn | None = None,
     provisional: bool = False,
+    on_judge: Callable[[str, str], None] | None = None,
 ) -> tuple[Entity, bool]:
     """기존 엔티티에 머지하거나 신규 생성. (entity, created?) 반환."""
     norm = normalize_name(name)
@@ -73,6 +74,8 @@ def resolve_or_create(
 
     # 2) 새 별칭이 기존 name 또는 기존 alias 와 일치 (임베딩 불필요)
     for alias in aliases:
+        if not alias:
+            continue
         for cand in dbm.find_entities_by_name_or_alias(conn, normalize_name(alias)):
             return _merge(conn, cand, aliases + [name], observations, document_id), False
 
@@ -121,6 +124,11 @@ def resolve_or_create(
         # borderline → LLM judge (게이팅)
         if judge_fn is not None and judged < MAX_JUDGE:
             judged += 1
+            if on_judge is not None:
+                try:
+                    on_judge(name, cand.name)
+                except Exception:
+                    pass
             if judge_fn(name, etype, observations, cand):
                 merged = _merge(conn, cand, aliases + [name], observations, document_id)
                 return merged, False

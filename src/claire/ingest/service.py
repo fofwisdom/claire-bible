@@ -7,7 +7,9 @@ DB 커넥션은 호출마다 짧게 연다(WAL + busy_timeout 로 다중 프로�
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from pathlib import Path
+from typing import Any, Callable
 
 from ..config import Settings
 from ..extract.provider import get_provider
@@ -21,6 +23,30 @@ from .pipeline import (
     merge_source_into_document,
 )
 from .router import fetch as default_fetch
+
+
+@contextmanager
+def _item_context(
+    reporter: Any | None,
+    on_progress: Callable[[str, str], None] | None,
+    index: int,
+    item_id: str,
+    title: str = "",
+    url: str = "",
+):
+    """ProgressReporter 또는 on_progress 콜백을 공통 인터페이스로 래핑."""
+    if reporter is not None and hasattr(reporter, "item"):
+        with reporter.item(index, item_id, title=title, url=url) as step_cb:
+            yield step_cb
+    else:
+        def step_cb(stage: str, detail: str = "") -> None:
+            if on_progress is not None:
+                try:
+                    on_progress(stage, detail)
+                except Exception:
+                    pass
+
+        yield step_cb
 
 
 class IngestService:
@@ -171,7 +197,13 @@ class IngestService:
                                        "error": rep.error})
         return result
 
-    def run_expand_queue(self, *, limit: int = 0) -> list[dict]:
+    def run_expand_queue(
+        self,
+        *,
+        limit: int = 0,
+        reporter: Any | None = None,
+        on_progress: Callable[[str, str], None] | None = None,
+    ) -> list[dict]:
         """[1홉 자동확장] 대기열의 pending 문서를 처리(expand-loop 데몬이 호출).
 
         각 문서를 expand_document 로 확장하고 done/error 로 마킹. 반환: 처리 요약 목록.
@@ -184,29 +216,37 @@ class IngestService:
         conn.close()
 
         out: list[dict] = []
-        for row in rows:
-            try:
-                res = self.expand_document(row["document_id"])
-            except Exception as e:  # noqa: BLE001
+        for idx, row in enumerate(rows, 1):
+            did = row["document_id"]
+            with _item_context(reporter, on_progress, idx, f"expand#{row['id']}:{did}", title=f"1홉 확장 ({did})") as step_cb:
+                step_cb("1홉 자동확장 링크 선별 및 판정 중...")
+                try:
+                    res = self.expand_document(did)
+                except Exception as e:  # noqa: BLE001
+                    conn2 = dbm.connect(self.s.db_file)
+                    try:
+                        dbm.update_expand(conn2, row["id"], status="error", error=str(e))
+                    finally:
+                        conn2.close()
+                    out.append({"document_id": did, "error": str(e)})
+                    continue
+                status = "error" if res.get("error") else "done"
                 conn2 = dbm.connect(self.s.db_file)
                 try:
-                    dbm.update_expand(conn2, row["id"], status="error", error=str(e))
+                    dbm.update_expand(conn2, row["id"], status=status,
+                                      error=res.get("error"), result=_json.dumps(res)[:2000])
                 finally:
                     conn2.close()
-                out.append({"document_id": row["document_id"], "error": str(e)})
-                continue
-            status = "error" if res.get("error") else "done"
-            conn2 = dbm.connect(self.s.db_file)
-            try:
-                dbm.update_expand(conn2, row["id"], status=status,
-                                  error=res.get("error"), result=_json.dumps(res)[:2000])
-            finally:
-                conn2.close()
-            out.append(res)
+                out.append(res)
         return out
 
     def refresh_document(
-        self, document_id: str, payload: str, *, format: str | None = None
+        self,
+        document_id: str,
+        payload: str,
+        *,
+        format: str | None = None,
+        on_progress: Callable[[str, str], None] | None = None,
     ) -> dict:
         """[복원] 한 문서를 원본 payload 로 재fetch→재추출하여 in-place 갱신.
 
@@ -227,6 +267,9 @@ class IngestService:
                 return {"status": "error", "document_id": document_id,
                         "error": "document not found"}
             old_len = len(old["raw_text"]) if old["raw_text"] else 0
+
+            if on_progress:
+                on_progress("원문 재수집 (Refetching from payload)...", payload[:40])
 
             try:
                 doc = default_fetch(payload)
@@ -280,7 +323,8 @@ class IngestService:
             fmt = format or self.s.render_format
             report = IngestReport(document_id=document_id)
             ok, err = extract_resolve_store(
-                conn, self.provider, vstore, doc, report, vault_dir=self.s.vault_dir, format=fmt)
+                conn, self.provider, vstore, doc, report, vault_dir=self.s.vault_dir, format=fmt,
+                on_progress=on_progress)
             if not ok:
                 return {"status": "error", "document_id": document_id, "error": err}
             return {"status": "done", "document_id": document_id,
@@ -290,22 +334,31 @@ class IngestService:
         finally:
             conn.close()
 
-    def run_refresh_queue(self, *, limit: int = 0) -> list[dict]:
+    def run_refresh_queue(
+        self,
+        *,
+        limit: int = 0,
+        reporter: Any | None = None,
+        on_progress: Callable[[str, str], None] | None = None,
+    ) -> list[dict]:
         """대기열의 pending 항목을 처리. 각 결과로 큐 상태 갱신. 결과 리스트 반환."""
         conn = dbm.connect(self.s.db_file)
         dbm.init_db(conn)
         rows = dbm.pending_refresh(conn, limit=limit)
         conn.close()
         out = []
-        for row in rows:
-            res = self.refresh_document(row["document_id"], row["payload"])
-            conn2 = dbm.connect(self.s.db_file)
-            try:
-                st = res["status"] if res["status"] in ("done", "nochange") else "error"
-                dbm.update_refresh(conn2, row["id"], status=st, error=res.get("error"))
-            finally:
-                conn2.close()
-            out.append({**res, "queue_id": row["id"]})
+        for idx, row in enumerate(rows, 1):
+            did = row["document_id"]
+            payload = row["payload"]
+            with _item_context(reporter, on_progress, idx, f"refresh#{row['id']}:{did}", title=f"갱신 ({did})", url=payload) as step_cb:
+                res = self.refresh_document(did, payload, on_progress=step_cb)
+                conn2 = dbm.connect(self.s.db_file)
+                try:
+                    st = res["status"] if res["status"] in ("done", "nochange") else "error"
+                    dbm.update_refresh(conn2, row["id"], status=st, error=res.get("error"))
+                finally:
+                    conn2.close()
+                out.append({**res, "queue_id": row["id"]})
         return out
 
     def enqueue_due_watch(self, *, limit: int = 0) -> int:
@@ -387,6 +440,8 @@ class IngestService:
         limit: int = 0,
         format: str | None = None,
         tables_only: bool = False,
+        reporter: Any | None = None,
+        on_progress: Callable[[str, str], None] | None = None,
     ) -> dict:
         """저장된 raw_text 로 전체 문서를 재추출(프롬프트 변경 반영 — 예: 한글화, 표 보존).
 
@@ -414,20 +469,21 @@ class IngestService:
             if rebuild:
                 dbm.reset_graph(conn)
             out = {"docs": 0, "ok": 0, "failed": 0, "errors": []}
-            for did in ids:
+            for idx, did in enumerate(ids, 1):
                 doc = dbm.get_document(conn, did)
                 if doc is None:
                     continue
                 out["docs"] += 1
                 report = IngestReport(document_id=did)
-                ok, err = extract_resolve_store(
-                    conn, self.provider, vstore, doc, report,
-                    vault_dir=self.s.vault_dir, format=fmt)
-                if ok:
-                    out["ok"] += 1
-                else:
-                    out["failed"] += 1
-                    out["errors"].append({"document_id": did, "error": err})
+                with _item_context(reporter, on_progress, idx, did, title=doc.title or "", url=doc.canonical_url or doc.url or "") as step_cb:
+                    ok, err = extract_resolve_store(
+                        conn, self.provider, vstore, doc, report,
+                        vault_dir=self.s.vault_dir, format=fmt, on_progress=step_cb)
+                    if ok:
+                        out["ok"] += 1
+                    else:
+                        out["failed"] += 1
+                        out["errors"].append({"document_id": did, "error": err})
             return out
         finally:
             conn.close()
@@ -440,6 +496,8 @@ class IngestService:
         format: str | None = None,
         directive: str | None = None,
         tables_only: bool = False,
+        reporter: Any | None = None,
+        on_progress: Callable[[str, str], None] | None = None,
     ) -> dict:
         """detail(한국어 가독 렌더링)이 없거나 포맷이 다른 기존 문서를 채운다 — **비파괴적**.
 
@@ -463,22 +521,30 @@ class IngestService:
             else:
                 ids = dbm.documents_needing_detail_format(conn, fmt, limit)
             out = {"docs": len(ids), "ok": 0, "skipped": 0}
-            for did in ids:
+            for idx, did in enumerate(ids, 1):
                 doc = dbm.get_document(conn, did)
                 if doc is None:
                     out["skipped"] += 1
                     continue
-                if ensure_document_detail(
-                    conn, self.provider, doc, force=force or tables_only, format=fmt, directive=directive
-                ):
-                    out["ok"] += 1
-                else:
-                    out["skipped"] += 1
+                with _item_context(reporter, on_progress, idx, did, title=doc.title or "", url=doc.canonical_url or doc.url or "") as step_cb:
+                    step_cb("가독 본문(detail) 렌더링 생성 중", f"format={fmt}")
+                    if ensure_document_detail(
+                        conn, self.provider, doc, force=force or tables_only, format=fmt, directive=directive
+                    ):
+                        out["ok"] += 1
+                    else:
+                        out["skipped"] += 1
             return out
         finally:
             conn.close()
 
-    def backfill_summaries(self, *, limit: int = 0) -> dict:
+    def backfill_summaries(
+        self,
+        *,
+        limit: int = 0,
+        reporter: Any | None = None,
+        on_progress: Callable[[str, str], None] | None = None,
+    ) -> dict:
         """extractions 에 요약이 비어있거나 누락된 기존 문서의 요약을 채운다 — **비파괴적**."""
         import json as _json
 
@@ -489,69 +555,73 @@ class IngestService:
         try:
             rows = dbm.documents_timeline(conn, limit or 1000000)
             out = {"docs": len(rows), "filled": 0, "already_had": 0}
-            for r in rows:
+            for idx, r in enumerate(rows, 1):
                 did = r["id"]
-                ext = conn.execute(
-                    "SELECT id, raw_response, provider, model, prompt_version FROM extractions WHERE document_id=? ORDER BY id DESC LIMIT 1",
-                    (did,),
-                ).fetchone()
-                existing_summary = None
-                if ext and ext["raw_response"]:
-                    try:
-                        existing_summary = _json.loads(ext["raw_response"]).get("summary")
-                    except Exception:
-                        existing_summary = None
-                if existing_summary and existing_summary.strip():
-                    cleaned = clean_plain_summary(existing_summary)
-                    if is_corrupted_summary(existing_summary) and cleaned != existing_summary.strip():
-                        if ext:
-                            try:
-                                data = _json.loads(ext["raw_response"])
-                            except Exception:
-                                data = {}
-                            data["summary"] = cleaned
-                            new_raw = _json.dumps(data, ensure_ascii=False)
-                            conn.execute("UPDATE extractions SET raw_response=? WHERE id=?", (new_raw, ext["id"]))
-                            conn.commit()
-                            out["filled"] += 1
-                            continue
-                    out["already_had"] += 1
-                    continue
+                doc = dbm.get_document(conn, did)
+                title = doc.title if doc else ""
+                with _item_context(reporter, on_progress, idx, did, title=title) as step_cb:
+                    ext = conn.execute(
+                        "SELECT id, raw_response, provider, model, prompt_version FROM extractions WHERE document_id=? ORDER BY id DESC LIMIT 1",
+                        (did,),
+                    ).fetchone()
+                    existing_summary = None
+                    if ext and ext["raw_response"]:
+                        try:
+                            existing_summary = _json.loads(ext["raw_response"]).get("summary")
+                        except Exception:
+                            existing_summary = None
+                    if existing_summary and existing_summary.strip():
+                        cleaned = clean_plain_summary(existing_summary)
+                        if is_corrupted_summary(existing_summary) and cleaned != existing_summary.strip():
+                            if ext:
+                                try:
+                                    data = _json.loads(ext["raw_response"])
+                                except Exception:
+                                    data = {}
+                                data["summary"] = cleaned
+                                new_raw = _json.dumps(data, ensure_ascii=False)
+                                conn.execute("UPDATE extractions SET raw_response=? WHERE id=?", (new_raw, ext["id"]))
+                                conn.commit()
+                                step_cb("손상된 요약 정리 완료")
+                                out["filled"] += 1
+                                continue
+                        out["already_had"] += 1
+                        continue
 
-                # summary 가 없으면 fallback 추출
-                summary = dbm.latest_extraction_summary(conn, did)
-                if not summary or not summary.strip():
-                    doc = dbm.get_document(conn, did)
-                    if doc and doc.raw_text:
-                        summary = clean_plain_summary(doc.raw_text) or ((doc.raw_text[:200] + "…") if len(doc.raw_text) > 200 else doc.raw_text)
-                    elif doc and doc.title:
-                        summary = f"{doc.title}에 관한 자료이다."
+                    # summary 가 없으면 fallback 추출
+                    step_cb("요약 추출 및 보강 중")
+                    summary = dbm.latest_extraction_summary(conn, did)
+                    if not summary or not summary.strip():
+                        if doc and doc.raw_text:
+                            summary = clean_plain_summary(doc.raw_text) or ((doc.raw_text[:200] + "…") if len(doc.raw_text) > 200 else doc.raw_text)
+                        elif doc and doc.title:
+                            summary = f"{doc.title}에 관한 자료이다."
+                        else:
+                            summary = "(요약 없음)"
                     else:
-                        summary = "(요약 없음)"
-                else:
-                    summary = clean_plain_summary(summary)
+                        summary = clean_plain_summary(summary)
 
-                if ext:
-                    # 기존 extractions raw_response 갱신
-                    try:
-                        data = _json.loads(ext["raw_response"])
-                    except Exception:
-                        data = {}
-                    data["summary"] = summary
-                    new_raw = _json.dumps(data, ensure_ascii=False)
-                    conn.execute("UPDATE extractions SET raw_response=? WHERE id=?", (new_raw, ext["id"]))
-                    conn.commit()
-                    out["filled"] += 1
-                else:
-                    # extractions 레코드 신규 삽입
-                    data = {"summary": summary, "key_claims": [], "entities": [], "relations": []}
-                    new_raw = _json.dumps(data, ensure_ascii=False)
-                    dbm.log_extraction(
-                        conn, document_id=did, provider=getattr(self.provider, "name", "backfill"),
-                        model=getattr(self.provider, "model", "fallback"), prompt_version=PROMPT_VERSION,
-                        raw_response=new_raw,
-                    )
-                    out["filled"] += 1
+                    if ext:
+                        # 기존 extractions raw_response 갱신
+                        try:
+                            data = _json.loads(ext["raw_response"])
+                        except Exception:
+                            data = {}
+                        data["summary"] = summary
+                        new_raw = _json.dumps(data, ensure_ascii=False)
+                        conn.execute("UPDATE extractions SET raw_response=? WHERE id=?", (new_raw, ext["id"]))
+                        conn.commit()
+                        out["filled"] += 1
+                    else:
+                        # extractions 레코드 신규 삽입
+                        data = {"summary": summary, "key_claims": [], "entities": [], "relations": []}
+                        new_raw = _json.dumps(data, ensure_ascii=False)
+                        dbm.log_extraction(
+                            conn, document_id=did, provider=getattr(self.provider, "name", "backfill"),
+                            model=getattr(self.provider, "model", "fallback"), prompt_version=PROMPT_VERSION,
+                            raw_response=new_raw,
+                        )
+                        out["filled"] += 1
             return out
         finally:
             conn.close()
@@ -574,6 +644,8 @@ class IngestService:
         effort: str | None = None,
         format: str | None = None,
         directive: str | None = None,
+        reporter: Any | None = None,
+        on_progress: Callable[[str, str], None] | None = None,
     ) -> dict:
         """문서의 특정 컴포넌트(요약, 본문, 그래프 등)를 선별적으로 재생성(비파괴적/선택적 덮어쓰기).
 
@@ -708,7 +780,7 @@ class IngestService:
                 self.provider.effort = effort
 
             try:
-                for did in target_ids:
+                for idx, did in enumerate(target_ids, 1):
                     doc = dbm.get_document(conn, did)
                     if not doc:
                         continue
@@ -766,117 +838,129 @@ class IngestService:
                         continue
 
                     # --- 실제 실행 (Force Overwrite) ---
-                    if refetch:
-                        fetch_payload = doc.url or doc.canonical_url
-                        if fetch_payload:
-                            from .pipeline import _download_doc_images
-                            from ..store.raw import save_artifact
+                    with _item_context(
+                        reporter,
+                        on_progress,
+                        idx,
+                        did,
+                        title=doc.title or "(제목 없음)",
+                        url=doc.canonical_url or doc.url or "",
+                    ) as step_cb:
+                        if refetch:
+                            step_cb("원문 재수집 (Refetching from source)...", doc.url or doc.canonical_url or "")
+                            fetch_payload = doc.url or doc.canonical_url
+                            if fetch_payload:
+                                from .pipeline import _download_doc_images
+                                from ..store.raw import save_artifact
 
-                            try:
-                                new_doc = default_fetch(fetch_payload)
-                                new_doc.id = did
-                                _download_doc_images(conn, new_doc, self.s.data_dir)
-                                dbm.update_document_content(
-                                    conn,
-                                    did,
-                                    title=new_doc.title,
-                                    raw_text=new_doc.raw_text,
-                                    content_hash=new_doc.content_hash,
-                                    fetched_at=new_doc.fetched_at,
-                                    source_type=new_doc.source_type,
-                                    partial=new_doc.partial,
-                                    meta=new_doc.meta,
-                                )
                                 try:
-                                    save_artifact(self.s.data_dir, did, new_doc.raw_text)
-                                except Exception:
-                                    pass
-                                doc = new_doc
-                                info["refetched"] = True
-                                info["title"] = new_doc.title or "(제목 없음)"
-                                info["new_len"] = len(new_doc.raw_text)
-                            except Exception as e:
-                                info["refetch_error"] = str(e)
+                                    new_doc = default_fetch(fetch_payload)
+                                    new_doc.id = did
+                                    _download_doc_images(conn, new_doc, self.s.data_dir)
+                                    dbm.update_document_content(
+                                        conn,
+                                        did,
+                                        title=new_doc.title,
+                                        raw_text=new_doc.raw_text,
+                                        content_hash=new_doc.content_hash,
+                                        fetched_at=new_doc.fetched_at,
+                                        source_type=new_doc.source_type,
+                                        partial=new_doc.partial,
+                                        meta=new_doc.meta,
+                                    )
+                                    try:
+                                        save_artifact(self.s.data_dir, did, new_doc.raw_text)
+                                    except Exception:
+                                        pass
+                                    doc = new_doc
+                                    info["refetched"] = True
+                                    info["title"] = new_doc.title or "(제목 없음)"
+                                    info["new_len"] = len(new_doc.raw_text)
+                                except Exception as e:
+                                    info["refetch_error"] = str(e)
 
-                    target_fmt = format or self.s.render_format
+                        target_fmt = format or self.s.render_format
 
-                    if do_graph:
-                        # 엔티티/노드 추출, 지식 그래프 해소/적재, 벡터 임베딩, 관계 적재, Vault 동기화 (신규 적재와 동일한 파이프라인)
-                        from ..store.vectors import make_vector_store
-                        from .pipeline import IngestReport, extract_resolve_store
+                        if do_graph:
+                            # 엔티티/노드 추출, 지식 그래프 해소/적재, 벡터 임베딩, 관계 적재, Vault 동기화
+                            from ..store.vectors import make_vector_store
+                            from .pipeline import IngestReport, extract_resolve_store
 
-                        vstore = make_vector_store(conn, self.s.vector_backend)
-                        report = IngestReport(document_id=did)
-                        ok, err = extract_resolve_store(
-                            conn,
-                            self.provider,
-                            vstore,
-                            doc,
-                            report,
-                            vault_dir=self.s.vault_dir,
-                            format=target_fmt,
-                        )
-                        if not ok:
-                            info["error"] = err
-                        else:
-                            info["new_summary"] = _clean_summary(report.summary)
-                            info["entities_created"] = report.entities_created
-                            info["entities_linked"] = report.entities_linked
-                            info["new_entity_names"] = report.new_entity_names
-                            info["linked_entity_names"] = report.linked_entity_names
-                            info["relations_added"] = report.relations_added
-                            info["detail_format"] = target_fmt
-
-                            if self.s.auto_expand and self.s.expand_max > 0 and not doc.partial:
-                                dbm.enqueue_expand(conn, did)
-                    else:
-                        if do_summary:
-                            # 요약만 단독 재추출 (엔티티/관계 보존)
-                            extract_res = self.provider.extract(doc)
-                            new_summary = _clean_summary(extract_res.summary)
-                            info["new_summary"] = new_summary
-
-                            # extractions 테이블 in-place 갱신
-                            ext_row = conn.execute(
-                                "SELECT id, raw_response FROM extractions WHERE document_id=? ORDER BY id DESC LIMIT 1",
-                                (did,),
-                            ).fetchone()
-                            if ext_row:
-                                try:
-                                    data = _json.loads(ext_row["raw_response"] or "{}")
-                                except Exception:
-                                    data = {}
-                                data["summary"] = new_summary
-                                new_raw = _json.dumps(data, ensure_ascii=False)
-                                conn.execute(
-                                    "UPDATE extractions SET raw_response=? WHERE id=?",
-                                    (new_raw, ext_row["id"]),
-                                )
-                            else:
-                                data = {"summary": new_summary, "key_claims": [], "entities": [], "relations": []}
-                                new_raw = _json.dumps(data, ensure_ascii=False)
-                                dbm.log_extraction(
-                                    conn,
-                                    document_id=did,
-                                    provider=getattr(self.provider, "name", "regenerate"),
-                                    model=getattr(self.provider, "model", "fallback"),
-                                    prompt_version=PROMPT_VERSION,
-                                    raw_response=new_raw,
-                                )
-                            conn.commit()
-
-                        if do_detail:
-                            ensure_document_detail(
+                            vstore = make_vector_store(conn, self.s.vector_backend)
+                            report = IngestReport(document_id=did)
+                            ok, err = extract_resolve_store(
                                 conn,
                                 self.provider,
+                                vstore,
                                 doc,
-                                force=True,
+                                report,
+                                vault_dir=self.s.vault_dir,
                                 format=target_fmt,
-                                directive=directive,
+                                on_progress=step_cb,
                             )
-                            info["detail_format"] = target_fmt
-                            if directive:
-                                info["directive"] = directive
+                            if not ok:
+                                info["error"] = err
+                            else:
+                                info["new_summary"] = _clean_summary(report.summary)
+                                info["entities_created"] = report.entities_created
+                                info["entities_linked"] = report.entities_linked
+                                info["new_entity_names"] = report.new_entity_names
+                                info["linked_entity_names"] = report.linked_entity_names
+                                info["relations_added"] = report.relations_added
+                                info["detail_format"] = target_fmt
+
+                                if self.s.auto_expand and self.s.expand_max > 0 and not doc.partial:
+                                    dbm.enqueue_expand(conn, did)
+                        else:
+                            if do_summary:
+                                # 요약만 단독 재추출 (엔티티/관계 보존)
+                                step_cb("요약 LLM 재추출 중...", f"provider={getattr(self.provider, 'name', '?')}")
+                                extract_res = self.provider.extract(doc)
+                                new_summary = _clean_summary(extract_res.summary)
+                                info["new_summary"] = new_summary
+
+                                # extractions 테이블 in-place 갱신
+                                ext_row = conn.execute(
+                                    "SELECT id, raw_response FROM extractions WHERE document_id=? ORDER BY id DESC LIMIT 1",
+                                    (did,),
+                                ).fetchone()
+                                if ext_row:
+                                    try:
+                                        data = _json.loads(ext_row["raw_response"] or "{}")
+                                    except Exception:
+                                        data = {}
+                                    data["summary"] = new_summary
+                                    new_raw = _json.dumps(data, ensure_ascii=False)
+                                    conn.execute(
+                                        "UPDATE extractions SET raw_response=? WHERE id=?",
+                                        (new_raw, ext_row["id"]),
+                                    )
+                                else:
+                                    data = {"summary": new_summary, "key_claims": [], "entities": [], "relations": []}
+                                    new_raw = _json.dumps(data, ensure_ascii=False)
+                                    dbm.log_extraction(
+                                        conn,
+                                        document_id=did,
+                                        provider=getattr(self.provider, "name", "regenerate"),
+                                        model=getattr(self.provider, "model", "fallback"),
+                                        prompt_version=PROMPT_VERSION,
+                                        raw_response=new_raw,
+                                    )
+                                conn.commit()
+
+                            if do_detail:
+                                step_cb("가독 본문(detail) 렌더링 생성 중...", f"format={target_fmt}")
+                                ensure_document_detail(
+                                    conn,
+                                    self.provider,
+                                    doc,
+                                    force=True,
+                                    format=target_fmt,
+                                    directive=directive,
+                                )
+                                info["detail_format"] = target_fmt
+                                if directive:
+                                    info["directive"] = directive
 
                     info["updated"] = True
                     targets_info.append(info)
@@ -1247,7 +1331,13 @@ class IngestService:
         return rep
 
     def recover_failed(
-        self, *, max_attempts: int = 5, base_delay: float = 300.0, limit: int = 0
+        self,
+        *,
+        max_attempts: int = 5,
+        base_delay: float = 300.0,
+        limit: int = 0,
+        reporter: Any | None = None,
+        on_progress: Callable[[str, str], None] | None = None,
     ) -> list[dict]:
         """[자동복구] error inbox 중 재시도 시각이 도래한 항목을 자동 재적재.
 
@@ -1267,39 +1357,49 @@ class IngestService:
         conn.close()
 
         out: list[dict] = []
-        for row in rows:
-            # 핵심 분기: extract 단계에서 실패한 행은 document 가 이미 적재돼 있어(=
-            # document_id 보유) full re-ingest 하면 dedup 에 걸려 추출이 영영 안 된다.
-            # 그 경우 기존 문서로 extract 만 재실행(dedup/nochange 우회)한다.
-            # document_id 가 없으면 fetch 단계에서 실패한 것 → full re-ingest.
-            if row["document_id"]:
-                rep = self._retry_extract(row["document_id"], row["id"])
-            else:
-                payload = row["file_ref"] or row["payload"]
-                rep = self.ingest(
-                    payload, source="recover", inbox_id=row["id"],
-                    inbox_kind=row["kind"], file_name=row["file_name"],
-                    file_ref=row["file_ref"],
-                )
-            if rep.error is None:
-                # ingest 가 이미 done/duplicate 로 갱신함 → due 에 다시 안 잡힘.
-                out.append({"inbox_id": row["id"],
-                            "status": "duplicate" if rep.duplicate else "done"})
-                continue
-            attempts_now = (row["attempts"] or 0) + 1
-            if attempts_now >= max_attempts:
-                final, nra = "failed", None
-            else:
-                final = "error"
-                nra = _time.time() + base_delay * (2 ** (row["attempts"] or 0))
-            conn2 = dbm.connect(self.s.db_file)
-            try:
-                dbm.record_recovery_attempt(
-                    conn2, row["id"], status=final,
-                    document_id=rep.document_id, error=rep.error, next_retry_at=nra)
-            finally:
-                conn2.close()
-            out.append({"inbox_id": row["id"], "status": final, "error": rep.error})
+        for idx, row in enumerate(rows, 1):
+            with _item_context(
+                reporter,
+                on_progress,
+                idx,
+                f"inbox#{row['id']}",
+                title=f"수신 복구 ({row['document_id'] or row['kind']})",
+                url=str(row['payload'] or ''),
+            ) as step_cb:
+                # 핵심 분기: extract 단계에서 실패한 행은 document 가 이미 적재돼 있어(=
+                # document_id 보유) full re-ingest 하면 dedup 에 걸려 추출이 영영 안 된다.
+                # 그 경우 기존 문서로 extract 만 재실행(dedup/nochange 우회)한다.
+                # document_id 가 없으면 fetch 단계에서 실패한 것 → full re-ingest.
+                if row["document_id"]:
+                    step_cb("기존 적재 문서 추출 재실행 중...")
+                    rep = self._retry_extract(row["document_id"], row["id"])
+                else:
+                    payload = row["file_ref"] or row["payload"]
+                    step_cb("원문 재수집 및 파이프라인 재실행 중...")
+                    rep = self.ingest(
+                        payload, source="recover", inbox_id=row["id"],
+                        inbox_kind=row["kind"], file_name=row["file_name"],
+                        file_ref=row["file_ref"],
+                    )
+                if rep.error is None:
+                    # ingest 가 이미 done/duplicate 로 갱신함 → due 에 다시 안 잡힘.
+                    out.append({"inbox_id": row["id"],
+                                "status": "duplicate" if rep.duplicate else "done"})
+                    continue
+                attempts_now = (row["attempts"] or 0) + 1
+                if attempts_now >= max_attempts:
+                    final, nra = "failed", None
+                else:
+                    final = "error"
+                    nra = _time.time() + base_delay * (2 ** (row["attempts"] or 0))
+                conn2 = dbm.connect(self.s.db_file)
+                try:
+                    dbm.record_recovery_attempt(
+                        conn2, row["id"], status=final,
+                        document_id=rep.document_id, error=rep.error, next_retry_at=nra)
+                finally:
+                    conn2.close()
+                out.append({"inbox_id": row["id"], "status": final, "error": rep.error})
         return out
 
     def save_inbound_file(self, inbox_seq: int, src_path: Path, name: str) -> str:
