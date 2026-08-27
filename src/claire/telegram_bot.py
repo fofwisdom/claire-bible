@@ -150,16 +150,18 @@ def parse_message_directive(text: str) -> tuple[str, str | None]:
             full_dir = "\n".join([part_b] + extra_lines).strip() if (part_b or extra_lines) else None
             return part_a, full_dir
 
-    # 4. 첫 줄이 URL이고 줄바꿈(2번째 줄 이상) 뒤에 텍스트가 있는 경우 (URL\n지침 형태)
+    # 4. URL 뒤에 두 번 이상의 줄바꿈(빈 줄)을 사이에 두고 평문 텍스트가 오는 경우
+    # (줄바꿈 1번은 단순 오타/오입력 사고일 수 있으므로 빈 줄이 있는 2번째 줄바꿈에서만 분리)
     from .ingest.router import _URL_RE
-    if len(lines) >= 2:
-        first = lines[0]
-        if _URL_RE.fullmatch(first) or (first.lower().startswith(("http://", "https://")) and len(first.split()) == 1):
-            rest = "\n".join(lines[1:]).strip()
+    blocks = [b.strip() for b in re.split(r"\n\s*\n", t) if b.strip()]
+    if len(blocks) >= 2:
+        first_block = blocks[0]
+        if _URL_RE.fullmatch(first_block) or (first_block.lower().startswith(("http://", "https://")) and len(first_block.split()) == 1):
+            rest = "\n\n".join(blocks[1:]).strip()
             pm = _DIRECTIVE_PREFIX_RE.match(rest)
             if pm:
                 rest = pm.group(1).strip()
-            return first, rest or None
+            return first_block, rest or None
 
     return t, None
 
@@ -252,7 +254,9 @@ def run_bot() -> int:
         "\n"
         "💡 본문 작성 방향성(초점/관점) 지정 방법:\n"
         "  • 파이프 구분: https://example.com/doc | 시스템 아키텍처 중심\n"
-        "  • 줄바꿈 구분: https://example.com/doc\n    초보자 튜토리얼 관점으로 작성해줘\n"
+        "  • 빈 줄(두 번 줄바꿈) 구분:\n"
+        "    https://example.com/doc\n\n"
+        "    초보자 튜토리얼 관점으로 작성해줘\n"
         "  • 파일/PDF 전송 시 캡션에 원하는 방향성을 적어서 전송\n"
         "\n"
         "명령어:\n"
