@@ -344,8 +344,13 @@ def cmd_queue(args) -> int:
     from .status import build_queue_dashboard
 
     s = get_settings()
-    queue_name = getattr(args, "name", None)
+    action = getattr(args, "action", "status")
+    queue_name = getattr(args, "queue_name", None) or getattr(args, "name", None)
     limit = getattr(args, "limit", 20) or 20
+
+    if action == "list" and queue_name is None:
+        print("claire queue list: 조회할 큐를 지정하십시오 (inbox | refresh | expand).", file=sys.stderr)
+        return 2
 
     if getattr(args, "json", False):
         conn = dbm.connect(s.db_file)
@@ -1004,7 +1009,7 @@ def cmd_format_migrate(args) -> int:
         print(f"  claire format-migrate --apply --format {status['target_format']}")
         return 0
 
-    if status["non_target_docs"] == 0:
+    if status["target_docs"] == 0:
         print(f"\n[✓] 모든 문서가 이미 목표 포맷({fmt_label})입니다. 마이그레이션이 필요하지 않습니다.")
         return 0
 
@@ -1028,7 +1033,7 @@ def cmd_format_migrate(args) -> int:
     from .progress import track_batch_progress
 
     try:
-        with track_batch_progress(f"포맷 마이그레이션 ({fmt_label})", status["non_target_docs"]) as reporter:
+        with track_batch_progress(f"포맷 마이그레이션 ({fmt_label})", status["target_docs"]) as reporter:
             out = svc.backfill_details(limit=0, force=False, format=status["target_format"], reporter=reporter)
             reporter.print_summary()
     except KeyboardInterrupt:
@@ -1523,7 +1528,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     pq = sub.add_parser("queue", help="inspect asynchronous queues (inbox, refresh, expand)")
     pq.add_argument("action", nargs="?", default="status", choices=["status", "list"], help="status or list")
-    pq.add_argument("--name", choices=["inbox", "refresh", "expand"], default=None, help="filter specific queue")
+    pq.add_argument("queue_name", nargs="?", choices=["inbox", "refresh", "expand"],
+                    help="queue for `list` (inbox, refresh, or expand)")
+    pq.add_argument("--name", choices=["inbox", "refresh", "expand"], default=None,
+                    help="deprecated alias for the positional queue name")
     pq.add_argument("--limit", type=int, default=20, help="limit items shown (default 20)")
     pq.add_argument("--json", action="store_true", help="output in json format")
     pq.set_defaults(func=cmd_queue)
