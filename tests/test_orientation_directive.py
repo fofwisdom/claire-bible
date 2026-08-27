@@ -153,6 +153,23 @@ def test_pipeline_ingest_directive(tmp_path: Path):
     assert "[directive: 핵심 알고리즘 및 수학적 원리 중심]" in detail
     assert dbm.get_document_directive(conn, doc_id) == "핵심 알고리즘 및 수학적 원리 중심"
 
+    # 2. 동일 내용의 문서에 대해 새로운 방향성(directive)으로 재적재 요청 시 -> 중복 스킵하지 않고 본문 재생성/갱신
+    report2 = ingest(
+        payload,
+        conn=conn,
+        provider=provider,
+        vstore=vstore,
+        directive="시스템 아키텍처 및 내부 컴포넌트 관점",
+    )
+    assert report2.error is None
+    assert report2.document_id == doc_id
+    assert report2.updated is True
+    assert report2.duplicate is False
+
+    detail2 = dbm.get_document_detail(conn, doc_id)
+    assert "[directive: 시스템 아키텍처 및 내부 컴포넌트 관점]" in detail2
+    assert dbm.get_document_directive(conn, doc_id) == "시스템 아키텍처 및 내부 컴포넌트 관점"
+
     conn.close()
 
 

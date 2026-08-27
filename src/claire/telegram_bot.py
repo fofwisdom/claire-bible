@@ -139,21 +139,22 @@ def parse_message_directive(text: str) -> tuple[str, str | None]:
     if dir_lines and payload_lines:
         return "\n".join(payload_lines), " ".join(dir_lines)
 
-    # 3. 구분자 검사 (파이프 | 또는 대시): 단일 라인에서 `URL | 지침` 또는 `URL -- 지침`
-    if len(lines) == 1:
-        line = lines[0]
-        m_sep = _DIRECTIVE_SEP_RE.search(line)
-        if m_sep:
-            part_a = line[:m_sep.start()].strip()
-            part_b = line[m_sep.end():].strip()
-            if part_a and part_b:
-                return part_a, part_b
+    # 3. 첫 줄에 파이프/대시 구분자가 있는 경우 (단일행 또는 다중행 모두 지원)
+    first_line = lines[0]
+    m_sep = _DIRECTIVE_SEP_RE.search(first_line)
+    if m_sep:
+        part_a = first_line[:m_sep.start()].strip()
+        part_b = first_line[m_sep.end():].strip()
+        if part_a:
+            extra_lines = lines[1:]
+            full_dir = "\n".join([part_b] + extra_lines).strip() if (part_b or extra_lines) else None
+            return part_a, full_dir
 
-    # 4. 첫 줄이 완전한 URL 하나이고 2번째 줄 이상이 있는 경우
+    # 4. 첫 줄이 URL이고 줄바꿈(2번째 줄 이상) 뒤에 텍스트가 있는 경우 (URL\n지침 형태)
     from .ingest.router import _URL_RE
     if len(lines) >= 2:
         first = lines[0]
-        if _URL_RE.fullmatch(first):
+        if _URL_RE.fullmatch(first) or (first.lower().startswith(("http://", "https://")) and len(first.split()) == 1):
             rest = "\n".join(lines[1:]).strip()
             pm = _DIRECTIVE_PREFIX_RE.match(rest)
             if pm:

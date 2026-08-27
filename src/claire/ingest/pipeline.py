@@ -135,9 +135,25 @@ def ingest(
         dbm.update_inbox(conn, inbox_id, status="error", error=report.error)
         return report
 
-    # dedup ① 내용 완전 동일(content_hash 일치) → 중복
+    # dedup ① 내용 완전 동일(content_hash 일치)
     existing = dbm.find_document_by_hash(conn, doc.content_hash)
     if existing:
+        # 사용자가 새 directive(방향성)를 명시적으로 지정한 경우:
+        # 단순 중복 스킵하지 않고, 해당 문서의 방향성을 갱신하고 가독 본문(detail)을 즉시 재생성(재적재)
+        if directive and directive.strip():
+            doc_obj = dbm.get_document(conn, existing)
+            if doc_obj:
+                dbm.set_document_directive(conn, existing, directive.strip())
+                ensure_document_detail(
+                    conn, provider, doc_obj, format=format, directive=directive.strip(), force=True
+                )
+                report.document_id = existing
+                report.updated = True
+                report.duplicate = False
+                report.title = doc_obj.title or doc.title
+                dbm.update_inbox(conn, inbox_id, status="done", document_id=existing)
+                return report
+
         report.document_id = existing
         report.duplicate = True
         dbm.update_inbox(conn, inbox_id, status="duplicate", document_id=existing)
