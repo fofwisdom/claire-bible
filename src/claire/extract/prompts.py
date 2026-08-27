@@ -286,7 +286,14 @@ def images_block_adoc(images: list[dict]) -> str:
     )
 
 
-def render_detail_prompt_md(body: str, images: list[dict], *, merged: bool, scale: int = 1) -> str:
+def render_detail_prompt_md(
+    body: str,
+    images: list[dict],
+    *,
+    merged: bool,
+    scale: int = 1,
+    directive: str | None = None,
+) -> str:
     """원문을 한국어 마크다운으로 재구성하는 프롬프트(요약 아님, 여러 단락, 문어체)."""
     if merged:
         length_hint = f"대략 A4 {2 * scale}~{4 * scale}장 분량"
@@ -297,12 +304,20 @@ def render_detail_prompt_md(body: str, images: list[dict], *, merged: bool, scal
     else:
         length_hint = "대략 A4 1~2장 분량"
         merge_hint = ""
+
+    dir_hint = (
+        f"\n[중점 작성 방향성/초점]\n- 다음 사용자의 요청/방향성에 맞춰 내용을 중점적으로 재구성하라: {directive.strip()}\n"
+        if directive and directive.strip()
+        else ""
+    )
+
     return (
         "아래 원문을 한국어 **마크다운**으로 '편하게 읽을 수 있는 글'로 재구성하라. "
         "단순 1~2문장 요약이 아니라, 독자가 원문을 직접 읽지 않아도 핵심 내용·배경 "
         f"맥락·중요한 세부까지 충분히 파악할 수 있도록 여러 단락({length_hint})으로 "
         "풀어 써라.\n\n"
         + merge_hint
+        + dir_hint
         + "작성 규칙(마크다운):\n"
         "1. 문체 및 어조: 일관된 문어체(서술체: '~한다', '~이다', '~됨')로 서술하라. "
         "대화형 경어체('~합니다', '~해요')나 구어체는 사용하지 않는다.\n"
@@ -319,7 +334,14 @@ def render_detail_prompt_md(body: str, images: list[dict], *, merged: bool, scal
     )
 
 
-def render_detail_prompt_adoc(body: str, images: list[dict], *, merged: bool, scale: int = 1) -> str:
+def render_detail_prompt_adoc(
+    body: str,
+    images: list[dict],
+    *,
+    merged: bool,
+    scale: int = 1,
+    directive: str | None = None,
+) -> str:
     """원문을 한국어 AsciiDoc(ADOC)으로 실용적·복합적으로 재구성하는 프롬프트."""
     if merged:
         length_hint = f"대략 A4 {2 * scale}~{4 * scale}장 분량"
@@ -329,12 +351,20 @@ def render_detail_prompt_adoc(body: str, images: list[dict], *, merged: bool, sc
     else:
         length_hint = "대략 A4 1~2장 분량"
         merge_hint = ""
+
+    dir_hint = (
+        f"\n[중점 작성 방향성/초점]\n- 다음 사용자의 요청/방향성에 맞춰 내용을 중점적으로 재구성하라: {directive.strip()}\n"
+        if directive and directive.strip()
+        else ""
+    )
+
     return (
         "아래 원문을 한국어 **AsciiDoc(ADOC)**으로 '편하게 읽을 수 있는 지식 문서'로 재구성하라. "
         "단순 1~2문장 요약이 아니라, 독자가 원문을 직접 읽지 않아도 핵심 내용·배경 "
         f"맥락·중요한 세부까지 충분히 파악할 수 있도록 여러 단락({length_hint})으로 "
         "풀어 써라.\n\n"
         + merge_hint
+        + dir_hint
         + "작성 규칙(AsciiDoc 실용 가이드라인):\n"
         "1. 문체 및 어조: 일관된 문어체(서술체: '~한다', '~이다', '~됨')로 서술하라. "
         "대화형 경어체('~합니다', '~해요')나 구어체는 사용하지 않는다.\n"
@@ -363,11 +393,16 @@ def render_detail_prompt(
     merged: bool,
     scale: int = 1,
     format: str = "md",
+    directive: str | None = None,
 ) -> str:
     """포맷(md 또는 adoc)에 맞춰 가독 렌더링 프롬프트를 라우팅."""
     if (format or "md").strip().lower() in ("asciidoc", "adoc"):
-        return render_detail_prompt_adoc(body, images, merged=merged, scale=scale)
-    return render_detail_prompt_md(body, images, merged=merged, scale=scale)
+        return render_detail_prompt_adoc(
+            body, images, merged=merged, scale=scale, directive=directive
+        )
+    return render_detail_prompt_md(
+        body, images, merged=merged, scale=scale, directive=directive
+    )
 
 
 def classify_watch_prompt(body: str) -> str:

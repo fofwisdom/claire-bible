@@ -215,12 +215,23 @@ def create_app(
         if not payload:
             raise HTTPException(status_code=400, detail="payload required")
         expand_max = body.get("expand_max")
+        format_arg = str(body.get("format") or "").strip() or None
+        directive = (
+            str(body.get("orientation") or body.get("directive") or "").strip() or None
+        )
+        ingest_kwargs: dict[str, Any] = {
+            "source": "api",
+            "expand_max": expand_max,
+        }
+        if format_arg is not None:
+            ingest_kwargs["format"] = format_arg
+        if directive is not None:
+            ingest_kwargs["directive"] = directive
         try:
             report = await _run_expensive(
                 svc.ingest,
                 payload,
-                source="api",
-                expand_max=expand_max,
+                **ingest_kwargs,
             )
         except HTTPException:
             raise
@@ -663,6 +674,10 @@ def create_app(
         if not payload:
             raise HTTPException(status_code=400, detail="payload required")
         expand_max = body.get("expand_max")
+        format_arg = str(body.get("format") or "").strip() or None
+        directive = (
+            str(body.get("orientation") or body.get("directive") or "").strip() or None
+        )
 
         _reserve_expensive_job()
         loop = asyncio.get_running_loop()
@@ -686,10 +701,17 @@ def create_app(
         def _run() -> Any:
             set_progress_callback(on_progress)
             try:
+                ingest_kwargs: dict[str, Any] = {
+                    "source": "web",
+                    "expand_max": expand_max,
+                }
+                if format_arg is not None:
+                    ingest_kwargs["format"] = format_arg
+                if directive is not None:
+                    ingest_kwargs["directive"] = directive
                 return svc.ingest(
                     payload,
-                    source="web",
-                    expand_max=expand_max,
+                    **ingest_kwargs,
                 )
             finally:
                 set_progress_callback(None)

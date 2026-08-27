@@ -42,6 +42,7 @@ class IngestService:
         inbox_id: int | None = None,
         prefetched: Document | None = None,
         format: str | None = None,
+        directive: str | None = None,
     ) -> IngestReport:
         """단건 적재. (블로킹 — 호출측에서 스레드 오프로드).
 
@@ -63,7 +64,7 @@ class IngestService:
                 expand_max=em, source=source, user_id=user_id, chat_id=chat_id,
                 inbox_kind=inbox_kind, file_ref=file_ref, file_name=file_name,
                 inbox_id=inbox_id, prefetched=prefetched, auto_expand=auto,
-                format=fmt,
+                format=fmt, directive=directive,
             )
         finally:
             conn.close()
@@ -419,7 +420,14 @@ class IngestService:
         finally:
             conn.close()
 
-    def backfill_details(self, *, limit: int = 0, force: bool = False, format: str | None = None) -> dict:
+    def backfill_details(
+        self,
+        *,
+        limit: int = 0,
+        force: bool = False,
+        format: str | None = None,
+        directive: str | None = None,
+    ) -> dict:
         """detail(한국어 가독 렌더링)이 없거나 포맷이 다른 기존 문서를 채운다 — **비파괴적**.
 
         그래프(엔티티/관계)를 건드리지 않고 documents.detail 컬럼만 채우므로 reextract 의
@@ -442,7 +450,9 @@ class IngestService:
                 if doc is None:
                     out["skipped"] += 1
                     continue
-                if ensure_document_detail(conn, self.provider, doc, force=force, format=fmt):
+                if ensure_document_detail(
+                    conn, self.provider, doc, force=force, format=fmt, directive=directive
+                ):
                     out["ok"] += 1
                 else:
                     out["skipped"] += 1
@@ -544,6 +554,7 @@ class IngestService:
         force: bool = False,
         effort: str | None = None,
         format: str | None = None,
+        directive: str | None = None,
     ) -> dict:
         """문서의 특정 컴포넌트(요약, 본문, 그래프 등)를 선별적으로 재생성(비파괴적/선택적 덮어쓰기).
 
@@ -555,6 +566,7 @@ class IngestService:
         - refetch: True 면 원본 URL에서 웹 문서를 새로 스크랩하여 본문 갱신 후 재생성.
         - force: False(기본) 면 dry-run 진단만 수행하고 DB 변경 없음. True 면 실제 DB 덮어쓰기.
         - effort: LLM 사고/추론 레벨 (low, medium, high 등) 즉석 재정의.
+        - directive: 가독 렌더링 본문 작성 방향성/초점 지침.
         """
         import json as _json
         import re as _re
@@ -810,9 +822,16 @@ class IngestService:
 
                         if do_detail:
                             ensure_document_detail(
-                                conn, self.provider, doc, force=True, format=target_fmt
+                                conn,
+                                self.provider,
+                                doc,
+                                force=True,
+                                format=target_fmt,
+                                directive=directive,
                             )
                             info["detail_format"] = target_fmt
+                            if directive:
+                                info["directive"] = directive
 
                     info["updated"] = True
                     targets_info.append(info)

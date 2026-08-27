@@ -40,3 +40,90 @@ async def test_run_with_ticker_propagates_exception():
     except RuntimeError:
         raised = True
     assert raised  # work 예외는 호출측으로 전파(핸들러가 👎 처리)
+
+
+def test_parse_message_directive():
+    from claire.telegram_bot import parse_message_directive
+
+    # 1. Flag style
+    p, d = parse_message_directive("https://example.com/a --orientation 시스템 아키텍처 중심")
+    assert p == "https://example.com/a"
+    assert d == "시스템 아키텍처 중심"
+
+    p, d = parse_message_directive("https://example.com/b --directive 보안 취약점 관점")
+    assert p == "https://example.com/b"
+    assert d == "보안 취약점 관점"
+
+    p, d = parse_message_directive("https://example.com/c -o 초보자 튜토리얼")
+    assert p == "https://example.com/c"
+    assert d == "초보자 튜토리얼"
+
+    # 2. Separator style
+    p, d = parse_message_directive("https://example.com/d -- 핵심 알고리즘 중심")
+    assert p == "https://example.com/d"
+    assert d == "핵심 알고리즘 중심"
+
+    p, d = parse_message_directive("https://example.com/e | 비즈니스 모델 중심")
+    assert p == "https://example.com/e"
+    assert d == "비즈니스 모델 중심"
+
+    # 3. Bracket / hashtag / colon prefix
+    p, d = parse_message_directive("https://example.com/f\n[방향성] 성능 최적화 관점")
+    assert p == "https://example.com/f"
+    assert d == "성능 최적화 관점"
+
+    p, d = parse_message_directive("https://example.com/g\n#방향 실습 예제 중심")
+    assert p == "https://example.com/g"
+    assert d == "실습 예제 중심"
+
+    p, d = parse_message_directive("https://example.com/h\n초점: 데이터 파이프라인 수명주기")
+    assert p == "https://example.com/h"
+    assert d == "데이터 파이프라인 수명주기"
+
+    # 4. Multi-line URL + plain text directive
+    p, d = parse_message_directive("https://example.com/i\n이 문서는 초보자를 위한 상세 튜토리얼 관점으로 작성해줘")
+    assert p == "https://example.com/i"
+    assert d == "이 문서는 초보자를 위한 상세 튜토리얼 관점으로 작성해줘"
+
+    # 5. Plain text memo with tag
+    p, d = parse_message_directive("회의록 메모 본문\n방향성: 액션 아이템 중심")
+    assert p == "회의록 메모 본문"
+    assert d == "액션 아이템 중심"
+
+    # 6. Plain URL / text without directive
+    p, d = parse_message_directive("https://example.com/plain")
+    assert p == "https://example.com/plain"
+    assert d is None
+
+    p, d = parse_message_directive("단순한 메모 텍스트")
+    assert p == "단순한 메모 텍스트"
+    assert d is None
+
+    p, d = parse_message_directive("")
+    assert p == ""
+    assert d is None
+
+
+def test_parse_caption_directive():
+    from claire.telegram_bot import parse_caption_directive
+
+    assert parse_caption_directive(None) is None
+    assert parse_caption_directive("") is None
+    assert parse_caption_directive("시스템 아키텍처 중심") == "시스템 아키텍처 중심"
+    assert parse_caption_directive("[방향성] 보안 분석 중심") == "보안 분석 중심"
+    assert parse_caption_directive("방향: 튜토리얼 관점") == "튜토리얼 관점"
+
+
+def test_ingest_report_telegram_summary_with_directive():
+    from claire.ingest.pipeline import IngestReport
+
+    report = IngestReport(
+        document_id="doc_1",
+        title="테스트 문서",
+        summary="요약 내용입니다.",
+        directive="시스템 아키텍처 및 내부 구조 중심",
+    )
+    summary = report.telegram_summary()
+    assert "✅ 적재 완료: 테스트 문서" in summary
+    assert "초점/방향성: 시스템 아키텍처 및 내부 구조 중심" in summary
+

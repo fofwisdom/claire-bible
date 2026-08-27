@@ -49,6 +49,7 @@ class IngestReport:
     new_entity_names: list[str] = field(default_factory=list)
     linked_entity_names: list[str] = field(default_factory=list)
     candidates: list[str] = field(default_factory=list)  # 1홉 확장 후보 URL
+    directive: str | None = None
 
     def telegram_summary(self) -> str:
         if self.error:
@@ -57,6 +58,8 @@ class IngestReport:
             return f"♻️ 이미 있는 자료입니다 (dedup): {self.title or self.document_id}"
         head = "🔄 자료 업데이트(내용 변경 반영)" if self.updated else "✅ 적재 완료"
         parts = [f"{head}: {self.title or self.document_id}"]
+        if self.directive:
+            parts.append(f"초점/방향성: {self.directive}")
         if self.partial:
             parts.append("⚠️ 부분 처리(partial)")
         parts.append(f"요약: {self.summary[:300]}")
@@ -93,6 +96,7 @@ def ingest(
     prefetched: Document | None = None,
     auto_expand: bool = False,
     format: str | None = None,
+    directive: str | None = None,
 ) -> IngestReport:
     report = IngestReport()
     # None 이면 호출 시점에 모듈 전역 default_fetch 를 조회(monkeypatch/교체 반영).
@@ -123,6 +127,7 @@ def ingest(
     report.source_type = doc.source_type
     report.partial = doc.partial
     report.title = doc.title
+    report.directive = directive
 
     # 0. 소각 툼스톤(Tombstone) 검사: 소각된 오염 데이터(URL/해시)는 재수집 원천 차단
     if dbm.is_tombstoned(conn, url=doc.url, canonical_url=doc.canonical_url, content_hash=doc.content_hash):
@@ -158,7 +163,7 @@ def ingest(
                 pass
         _download_doc_images(conn, doc, data_dir)
         ok, err = extract_resolve_store(
-            conn, provider, vstore, doc, report, vault_dir=vault_dir, format=format)
+            conn, provider, vstore, doc, report, vault_dir=vault_dir, format=format, directive=directive)
         if not ok:
             report.error = err
             dbm.update_inbox(conn, inbox_id, status="error",
@@ -194,7 +199,7 @@ def ingest(
 
     # 추출 → 해소 → 관계 → vault (ingest/refresh 공용)
     ok, err = extract_resolve_store(
-        conn, provider, vstore, doc, report, vault_dir=vault_dir, format=format)
+        conn, provider, vstore, doc, report, vault_dir=vault_dir, format=format, directive=directive)
     if not ok:
         report.error = err
         dbm.update_inbox(conn, inbox_id, status="error", document_id=doc.id, error=err)
@@ -246,6 +251,7 @@ def extract_resolve_store(
     *,
     vault_dir: Path | None = None,
     format: str | None = None,
+    directive: str | None = None,
 ) -> tuple[bool, str | None]:
     """문서 1건의 추출→엔티티 해소/머지→관계 검증/적재→vault export.
 
@@ -269,7 +275,9 @@ def extract_resolve_store(
 
     # 한국어 가독 렌더링(detail) — 구조화 추출과 독립된 별도 LLM 호출. 그래프와 무관해
     # 실패해도 적재를 깨지 않는다(조용히 건너뜀). refresh/reextract 도 같은 경로라 갱신됨.
-    ensure_document_detail(conn, provider, doc, force=True, format=format)
+    ensure_document_detail(
+        conn, provider, doc, force=True, format=format, directive=directive
+    )
 
     _judge_method = getattr(provider, "judge_same_entity", None)
 
@@ -450,6 +458,7 @@ def ensure_document_detail(
     *,
     force: bool = False,
     format: str | None = None,
+    directive: str | None = None,
 ) -> bool:
     """문서의 한국어 가독 렌더링(detail)을 생성·저장. **그래프와 독립**(별도 LLM 호출).
 
@@ -468,10 +477,13 @@ def ensure_document_detail(
     else:
         fmt = "md"
 
+    dir_val = directive if directive is not None else (doc.meta or {}).get("directive")
+
     if not force:
         existing_detail = dbm.get_document_detail(conn, doc.id)
         existing_fmt = dbm.get_document_detail_format(conn, doc.id)
-        if existing_detail and existing_fmt == fmt:
+        existing_dir = (doc.meta or {}).get("directive") or dbm.get_document_directive(conn, doc.id)
+        if existing_detail and existing_fmt == fmt and existing_dir == dir_val:
             return False
 
     render = getattr(provider, "render_detail", None)
@@ -480,9 +492,12 @@ def ensure_document_detail(
 
     try:
         try:
-            text = render(doc, format=fmt)
+            text = render(doc, format=fmt, directive=dir_val)
         except TypeError:
-            text = render(doc)
+            try:
+                text = render(doc, format=fmt)
+            except TypeError:
+                text = render(doc)
     except Exception as e:  # noqa: BLE001
         import logging
 
@@ -492,6 +507,11 @@ def ensure_document_detail(
         return False
     if text and text.strip():
         dbm.set_document_detail(conn, doc.id, text.strip(), format=fmt)
+        if dir_val is not None:
+            if doc.meta is None:
+                doc.meta = {}
+            doc.meta["directive"] = dir_val
+            dbm.set_document_directive(conn, doc.id, dir_val)
         return True
     return False
 
