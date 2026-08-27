@@ -20,6 +20,7 @@ docs/origin/
 │   ├── OPERATIONAL_MIGRATION.md          # 운영 지원 업데이트 및 환경변수/DB 마이그레이션 설계
 │   ├── RIGHT_MENU_COMPACT_DESIGN.md      # 우측 메뉴 컴팩트화 및 반응형 UI 설계
 │   ├── SYNTHESIS_REDESIGN.md             # 다중 노드 종합 재설계
+│   ├── TABLE_INGESTION_DESIGN.md         # 원문 테이블 적재 및 본문 글자 수 제한 제외 설계
 │   ├── codegraph.md                      # 코드 그래프 리서치
 │   ├── files.md                          # 마크다운 파서 리서치
 │   ├── graphify.md                       # 지식 그래프 시각화 리서치
