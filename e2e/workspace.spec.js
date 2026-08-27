@@ -30,10 +30,10 @@ test('mobile primary tabs keep document navigation on the graph', async ({ page 
 
   const tabs = page.locator('#worktabs button');
   await expect(tabs).toHaveCount(4);
-  await expect(page.locator('#tab-docs')).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator('#tab-graph')).toHaveAttribute('aria-selected', 'true');
   await expect(page.locator('#morebtn')).toBeHidden();
-  await expect(page.locator('#docs')).toBeVisible();
-  await expect(page.locator('#netwrap')).toBeHidden();
+  await expect(page.locator('#netwrap')).toBeVisible();
+  await expect(page.locator('#docs')).toBeHidden();
   await expect(page.locator('#detailpane')).toBeHidden();
   await expect(page.locator('#detailpane')).toHaveAttribute('aria-hidden', 'true');
   expect(await page.locator('#detailpane').evaluate(element => element.inert)).toBe(true);
@@ -49,10 +49,11 @@ test('mobile primary tabs keep document navigation on the graph', async ({ page 
     expect(box.height).toBeGreaterThanOrEqual(44);
   }
 
-  // 메뉴 탭 열기 및 지식 그래프 보기 버튼으로 그래프 진입
+  // 메뉴 탭 열기 및 닫기
   await page.locator('#tab-menu').click();
   await expect(page.locator('#detailpane')).toBeVisible();
-  await page.locator('#opengraphbtn').click();
+  await page.locator('#detailclose').click();
+  await expect(page.locator('#detailpane')).toBeHidden();
   await expect(page.locator('#netwrap')).toBeVisible();
   const graphDocNav = page.locator('#graphdocnav');
   await expect(graphDocNav).toBeVisible();
@@ -207,14 +208,10 @@ test('tablet and desktop layouts do not squeeze the graph into three fixed colum
   await page.setViewportSize({ width: 1024, height: 768 });
   await waitForClaire(page);
   await expectNoHorizontalOverflow(page);
-  await expect(page.locator('#worktabs')).toBeVisible();
-  await expect(page.locator('#morebtn')).toBeHidden();
+  await expect(page.locator('#worktabs')).toBeHidden();
+  await expect(page.locator('#morebtn')).toBeVisible();
   await expect(page.locator('#graphdocnav')).toBeHidden();
   await expect(page.locator('#docs')).toBeVisible();
-  await page.locator('#tab-graph').click();
-  await expect.poll(
-    () => page.evaluate(() => window.claireDebug.activePane),
-  ).toBe('graph');
   await expect(page.locator('#netwrap')).toBeVisible();
   await expect.poll(async () => {
     const box = await page.locator('#netwrap').boundingBox();
@@ -222,7 +219,7 @@ test('tablet and desktop layouts do not squeeze the graph into three fixed colum
   }).toBeGreaterThan(600);
   await expect(page.locator('#detailpane')).toBeHidden();
 
-  await page.locator('#tab-menu').click();
+  await page.locator('#morebtn').click();
   await expect(page.locator('#moremenu')).toBeVisible();
   await expect(page.locator('#authstate')).toContainText('익명 읽기전용');
   await expect(page.locator('#searchkind')).toHaveText('Full-Text Search');
@@ -248,7 +245,8 @@ test('mobile bottom bar returns to doc list when switching from search tab to do
   await waitForClaire(page);
   await expectNoHorizontalOverflow(page);
 
-  // 1. Initially on docs tab with document list rendered
+  // 1. Switch to docs tab with document list rendered
+  await page.locator('#tab-docs').click();
   await expect(page.locator('#tab-docs')).toHaveAttribute('aria-selected', 'true');
   const docItems = page.locator('#doclist .docitem');
   await expect(docItems.first()).toBeVisible();
@@ -306,7 +304,7 @@ test('right menu compact icon mode toggles and reduces width on desktop', async 
     return box ? box.width : 999;
   }).toBeLessThanOrEqual(65);
 
-  const actionBtn = page.locator('#opengraphbtn');
+  const actionBtn = page.locator('#themebtn');
   await expect(actionBtn).toBeVisible();
   await expect(actionBtn).toHaveAttribute('aria-label');
 
@@ -389,7 +387,8 @@ test('mobile history back navigation closes modal and returns to previous view w
   await waitForClaire(page);
   await expectNoHorizontalOverflow(page);
 
-  // 1. Initial state: on docs tab, no modal open
+  // 1. Switch to docs tab, no modal open
+  await page.locator('#tab-docs').click();
   await expect(page.locator('#tab-docs')).toHaveAttribute('aria-selected', 'true');
   const reader = page.locator('#reader');
   await expect(reader).toBeHidden();
@@ -446,6 +445,7 @@ test('mobile reader allows opening hamburger menu with detailpane and backdrop a
   await expectNoHorizontalOverflow(page);
 
   // 1. Open reader modal by clicking document
+  await page.locator('#tab-docs').click();
   await page.locator('.docitem').first().click();
   const reader = page.locator('#reader');
   await expect(reader).toBeVisible();
@@ -492,6 +492,7 @@ test('mobile reader ends above bottom bar and displays text to the end without o
   await expectNoHorizontalOverflow(page);
 
   // 1. Open reader modal
+  await page.locator('#tab-docs').click();
   await page.locator('.docitem').first().click();
   const reader = page.locator('#reader');
   const worktabs = page.locator('#worktabs');

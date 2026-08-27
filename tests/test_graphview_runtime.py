@@ -301,17 +301,26 @@ try {
 
 // Wait for async promises to resolve
 setTimeout(() => {
-  const result = {
+  const initialResult = {
     authstate: document.getElementById('authstate').textContent,
     doclist: document.getElementById('doclist').innerHTML,
     stat: document.getElementById('stat').textContent,
-    rtitle: document.getElementById('rtitle').textContent,
-    panel: document.getElementById('panel').innerHTML,
     bodyCenterView: document.body.dataset.centerView,
     activePane: document.body.dataset.activePane
   };
-  console.log("EXEC_RESULT:" + JSON.stringify(result));
-  process.exit(0);
+
+  selectDoc('doc-101');
+
+  setTimeout(() => {
+    const result = {
+      ...initialResult,
+      rtitle: document.getElementById('rtitle').textContent,
+      panel: document.getElementById('panel').innerHTML,
+      selectedCenterView: document.body.dataset.centerView
+    };
+    console.log("EXEC_RESULT:" + JSON.stringify(result));
+    process.exit(0);
+  }, 50);
 }, 150);
 """;
 
@@ -349,10 +358,13 @@ setTimeout(() => {
         # 3. Stat must transition away from '로딩…'
         assert data["stat"] != "로딩…", f"Stat remained frozen at loading state: {data['stat']}"
 
-        # 4. Reader must have loaded first document on desktop view
-        assert "클레어 바이블 문서 1" in data["rtitle"], f"First document was not loaded in reader: {data['rtitle']}"
+        # 4. Initial view is full graph
+        assert data["bodyCenterView"] == "graph"
+        assert data["activePane"] == "graph"
 
-        # 5. Panel (drawerscroll) must be synchronized with selected document details
+        # 5. After selecting document, reader and panel are loaded
+        assert data["selectedCenterView"] == "reader"
+        assert "클레어 바이블 문서 1" in data["rtitle"], f"Selected document was not loaded in reader: {data['rtitle']}"
         assert "클레어 바이블 문서 1" in data["panel"], f"Panel was not updated with document title: {data['panel']}"
         assert "첫 번째 요약" in data["panel"], f"Panel was not updated with document summary: {data['panel']}"
         assert "이 문서의 지식 노드" in data["panel"], f"Panel was not updated with document nodes section: {data['panel']}"
@@ -1138,8 +1150,8 @@ setTimeout(() => {
         match = re.search(r"RESET_HOME_RESULT:(.*)", proc.stdout)
         assert match is not None, f"Output did not contain RESET_HOME_RESULT:\n{proc.stdout}"
         data = json.loads(match.group(1))
-        assert data["centerView"] == "reader"
-        assert data["activeDoc"] == "doc-1"
+        assert data["centerView"] == "graph"
+        assert data["activeDoc"] is None
         assert data["docqEmpty"] is True
     finally:
         Path(script_file).unlink(missing_ok=True)
@@ -1620,7 +1632,7 @@ setTimeout(() => {
         match = re.search(r"CENTER_VIEW_STAT_RESULT:(.*)", proc.stdout)
         assert match is not None, f"Output did not contain CENTER_VIEW_STAT_RESULT:\n{proc.stdout}"
         data = json.loads(match.group(1))
-        assert data["initialCenterView"] == "reader"
+        assert data["initialCenterView"] == "graph"
         assert data["graphCenterView"] == "graph"
         assert data["graphTitle"] == "그래프 도구"
         assert data["readerCenterView"] == "reader"
