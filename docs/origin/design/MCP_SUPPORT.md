@@ -29,7 +29,7 @@
 - `docker-compose.yml`은 `claire_api`를 `127.0.0.1:8765`로만 바인드(변경 없음).
 - 하지만 원격 호스트에 **시스템 nginx가 `claire.blackan.net`을 이미 리버스프록시
   중**(`/etc/nginx/sites-enabled/claire.blackan.net` → `proxy_pass
-  http://127.0.0.1:8765`), Cloudflare 뒤에서 이미 공개 운영 중. `docs/EXTERNAL_ACCESS.md`
+  http://127.0.0.1:8765`), Cloudflare 뒤에서 이미 공개 운영 중. `../implementation/EXTERNAL_ACCESS.md`
   (2026-06-11 작성)는 "외부노출 미실행/설계만"이라 되어 있어 **문서가 현재 상태를
   반영하지 못함**(별도 정정 필요, §12 잔여 결정사항 참고).
 - nginx는 Cloudflare IP 대역만 origin 접근을 허용(`geo`+`return 403`)하지만, 설정
@@ -445,7 +445,7 @@ GOALS.md 2026-06-11 기록)은 `X-Session` 헤더 설정과는 무관 — 링크
 
 - [x] ~~`CLAIRE_READONLY_TOKEN` 신설~~ — 배제(§1.3, §5, 사용자 결정: 격리 수준을
       낮추는 변경이라 안 함). `/web`·`/webro` 기한제 세션 재사용으로 확정.
-- [ ] `docs/EXTERNAL_ACCESS.md` 상태 정정(§1.2) — 이번 문서에 사실관계만 기록해둠,
+- [ ] `../implementation/EXTERNAL_ACCESS.md` 상태 정정(§1.2) — 이번 문서에 사실관계만 기록해둠,
       원본 문서 갱신 여부는 사용자 결정.
 - [ ] Cloudflare Access를 실제로 켤지(nginx 주석의 원래 의도대로) 여부 — MCP와
       무관하게 현재 앱 게이트가 유일한 방어선이라는 게 맞는 상태인지 확인 필요.

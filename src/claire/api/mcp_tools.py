@@ -1,14 +1,14 @@
 """MCP(Model Context Protocol) 지원 — 에이전트용 read-only 그래프 탐색 툴.
 
-설계 근거: docs/design/MCP_SUPPORT.md. 인증은 이 모듈이 아니라 server.py / security.py의
+설계 근거: docs/origin/design/MCP_SUPPORT.md. 인증은 이 모듈이 아니라 server.py / security.py의
 게이트 미들웨어가 담당(무토큰/미인증 요청은 /mcp 자체가 존재하지 않는 것처럼 404) — 여기
 등록된 툴은 전부 read-only이고 owner/readonly 세션 둘 다 동일하게 접근 가능
-(v1, docs/design/MCP_SUPPORT.md — 쓰기 툴이 생기는 다음 마일스톤에서 스코프 구분 도입 필요).
+(v1, docs/origin/design/MCP_SUPPORT.md — 쓰기 툴이 생기는 다음 마일스톤에서 스코프 구분 도입 필요).
 
 **중요**: `IngestService.search`(`retrieval.query.search`)는 `summarize=False`
 여도 벡터 검색을 위해 `provider.embed(query)`를 무조건 호출한다(Gemini 호출).
 MCP `search` 툴은 그래서 그 함수를 재사용하지 않고 `db.fts_search`만 직접
-써서 Gemini 호출 0을 보장한다(docs/design/MCP_SUPPORT.md 원칙).
+써서 Gemini 호출 0을 보장한다(docs/origin/design/MCP_SUPPORT.md 원칙).
 
 각 툴은 `_xxx_impl(conn, ...)` 순수 함수 + `@mcp.tool()` 얇은 커넥션 래퍼로
 나뉜다 — impl 함수는 `sqlite3.Connection`을 직접 받아 테스트에서 in-memory

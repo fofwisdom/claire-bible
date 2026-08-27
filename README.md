@@ -19,37 +19,37 @@ Claire Bible은 적재된 지식베이스를 시각적으로 탐색하고 분석
 
 좌측의 일자별 문서 목록과 중앙의 온톨로지 지식 그래프를 연계하여 전체 지식 구조와 관계망을 직관적으로 탐색합니다. 노드 타입별 컬러링, 연결 차수(Degree) 기반 물리 레이아웃, 상단 범례를 통한 관계 필터링 및 카메라 줌/포커스 컨트롤을 지원합니다.
 
-![문서 목록과 지식 그래프 전체 화면](docs/screenshots/knowledge-graph-overview.png)
+![문서 목록과 지식 그래프 전체 화면](docs/origin/screenshots/knowledge-graph-overview.png)
 
 ### 검색과 노드 상세
 
 키워드로 그래프 내 엔티티를 검색하고, 선택된 노드의 관찰·주장(Observations), 별칭(Aliases), 출처 문서(AI 요약 및 원문 링크), 방향성이 포함된 타입 관계(Neighbors), 실시간 웹 맥락 조사(🔬 더 알아보기) 기능을 한 화면에서 확인합니다.
 
-![검색 결과와 노드 상세 화면](docs/screenshots/search-and-node-details.png)
+![검색 결과와 노드 상세 화면](docs/origin/screenshots/search-and-node-details.png)
 
 ### 문서 읽기
 
 수집된 기술 문서와 아티클을 전용 리더 뷰로 쾌적하게 열람합니다. Markdown과 AsciiDoc(.adoc) 듀얼 포맷 본문 렌더링, AI 요약 하이라이트, 글자 크기 조절(A−/A+), 제목 편집(✏️), 공유 링크(🔗) 및 FTS5/시맨틱 하이브리드 검색을 제공합니다.
 
-![요약과 본문을 보여주는 문서 읽기 화면](docs/screenshots/document-reader.png)
+![요약과 본문을 보여주는 문서 읽기 화면](docs/origin/screenshots/document-reader.png)
 
 ### 연결 경로
 
 지식 베이스 내 임의의 두 엔티티 간 최단 관계 경로(BFS)를 계산하여 그래프 상에 시각적으로 강조합니다. 우측 패널에서 단계별 관계 전개 과정(`A → 관계 → B → ...`)을 요약하여 복잡한 개념 간의 연결 고리를 손쉽게 파악할 수 있습니다.
 
-![두 노드 사이의 연결 경로 화면](docs/screenshots/connection-path.png)
+![두 노드 사이의 연결 경로 화면](docs/origin/screenshots/connection-path.png)
 
 ### 자료 적재
 
 웹 브라우저에서 URL, 원문 텍스트, 메모, "제목 URL" 공유 문구를 직접 입력하여 지식 그래프에 즉시 적재합니다. NDJSON 실시간 스트리밍으로 수집/추출 진행 상황을 확인하며, 수집된 문서 내의 관련 링크는 백그라운드 1홉 자동 확장을 통해 함께 구축됩니다.
 
-![URL과 메모 텍스트를 입력하는 자료 적재 화면](docs/screenshots/content-ingestion-form.png)
+![URL과 메모 텍스트를 입력하는 자료 적재 화면](docs/origin/screenshots/content-ingestion-form.png)
 
 ### 다중 노드 종합
 
 관심 있는 복수의 엔티티를 바구니(🧩 종합)에 담아 LLM으로 공통 맥락과 상호 작용을 종합 분석합니다. 서로 다른 문서에서 추출된 지식들이 어떻게 융합되고 연계되는지 심층 브리핑 형태로 도출합니다.
 
-![두 노드를 선택한 다중 노드 종합 화면](docs/screenshots/multi-node-synthesis.png)
+![두 노드를 선택한 다중 노드 종합 화면](docs/origin/screenshots/multi-node-synthesis.png)
 
 ## 로컬 개발 빠른 시작 (Quick Start)
 
@@ -95,7 +95,7 @@ Claire Bible은 호스트 오케스트레이션 도구인 **`cb-manuscript`**와
 | *(앱 CLI)* | `doctor`, `preflight`, `health`, `status` | 지식그래프 수복, 환경 점검, 헬스 JSON, 운영 상태 |
 | | `reextract`, `dedup-scan`, `dedup-merge` | 전체 그래프 재추출, 근사 중복 문서 탐지 및 병합 |
 
-> 💡 **전체 명령어 및 세부 옵션 안내**: 모든 명령어, 세부 옵션, 미구현 상태 및 제약사항에 대한 상세 설명은 **[전체 CLI 명령어 레퍼런스 (`docs/implementation/COMMANDS.md`)](docs/implementation/COMMANDS.md)**를 참고하십시오.
+> 💡 **전체 명령어 및 세부 옵션 안내**: 모든 명령어, 세부 옵션, 미구현 상태 및 제약사항에 대한 상세 설명은 **[전체 CLI 명령어 레퍼런스 (`docs/origin/implementation/COMMANDS.md`)](docs/origin/implementation/COMMANDS.md)**를 참고하십시오.
 
 ## 컨테이너 운영
 
@@ -103,7 +103,7 @@ Claire Bible은 호스트 오케스트레이션 도구인 **`cb-manuscript`**와
 `cb-manuscript`는 `.env`, 설치·업데이트와 Compose를 담당하고,
 `cb-manuscript app`은 같은 배포 설정과 데이터로 `claire` one-off 명령을 실행한다.
 영속 서비스의 컨테이너 내부 명령은 Compose가 직접 `claire`를 호출한다. 세부 경계와
-health 종료 코드 차이는 [운영 명령 경계](docs/implementation/OPERATIONS.md)를 참고한다.
+health 종료 코드 차이는 [운영 명령 경계](docs/origin/implementation/OPERATIONS.md)를 참고한다.
 
 ### 최초 설치 및 구성
 
@@ -209,7 +209,7 @@ CLAIRE_ANONYMOUS_READONLY=1
   mount와 쓰기 권한을 확인한다.
 
 DNS, reverse proxy, TLS, Host 전달과 방화벽 구성은 [외부 접속과 reverse
-proxy](docs/implementation/EXTERNAL_ACCESS.md)를 따른다.
+proxy](docs/origin/implementation/EXTERNAL_ACCESS.md)를 따른다.
 
 #### 3. Provider와 Telegram 선택
 
@@ -324,7 +324,7 @@ exact `CLAIRE_ANONYMOUS_READONLY=1`(기본값)은 canonical same-origin 또는 O
 요청에서 자격증명 없는 읽기 전용 접근을 허용한다. 이는 owner 인증이나 쓰기 기능을 끄는
 설정이 아니며, 숨김 문서(`hidden=1`) 및 그와 연관된 엔티티는 익명 읽기 계층에서 철저히
 제외되어 안전하게 공개된다. 완전히 인증 전용으로 운영하려면 `CLAIRE_ANONYMOUS_READONLY=0`으로
-설정한다. 공개 전에 [외부 접속과 reverse proxy](docs/implementation/EXTERNAL_ACCESS.md)의
+설정한다. 공개 전에 [외부 접속과 reverse proxy](docs/origin/implementation/EXTERNAL_ACCESS.md)의
 방화벽·rate limit 경계를 적용한다.
 
 `app`, `shell`, 고급 `compose` one-off는 인스턴스 잠금을 잡아 lifecycle 및 백업·복원과
@@ -431,7 +431,7 @@ cp .env.deploy.example .env.deploy
 반드시 필요하다. `remote install` 전에 원격 호스트의 Python·Docker·Compose 버전,
 daemon 접근, 배포 경로 권한과 build 네트워크를 확인한다.
 
-웹 접속은 [외부 접속과 reverse proxy](docs/implementation/EXTERNAL_ACCESS.md)를 따른다. development는
+웹 접속은 [외부 접속과 reverse proxy](docs/origin/implementation/EXTERNAL_ACCESS.md)를 따른다. development는
 고정 IPv4로 직접 HTTP 접속하고, production은 별도 LAN reverse proxy가 hostname과
 클라이언트 TLS를 담당한 뒤 Claire의 HTTP upstream으로 전달한다. production HTTPS와
 인증서 발급·갱신은 LAN reverse proxy에서 관리한다.

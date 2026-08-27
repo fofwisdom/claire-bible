@@ -200,7 +200,7 @@ def test_overview_counts():
 def test_document_impl_does_not_mark_seen():
     """읽기전용 원칙 — 사람용 웹 라우트(server.py document_detail_route)는
     조회 시 set_document_seen(seen=True)를 같이 부르지만, MCP 툴은 graphview.
-    document_detail만 호출해 이 부작용을 상속하지 않는다(docs/design/MCP_SUPPORT.md)."""
+    document_detail만 호출해 이 부작용을 상속하지 않는다(docs/origin/design/MCP_SUPPORT.md)."""
     conn = _db()
     _seed_graph(conn)
     dbm.set_document_seen(conn, "d1", seen=False)  # 안읽음 상태로 명시 설정

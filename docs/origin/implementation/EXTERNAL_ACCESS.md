@@ -234,7 +234,7 @@ server {
  }
  ```
  
- 자세한 아키텍처 및 툴 상세 명세는 [docs/design/MCP_SUPPORT.md](../design/MCP_SUPPORT.md)를 참고한다.
+ 자세한 아키텍처 및 툴 상세 명세는 [MCP_SUPPORT.md](../design/MCP_SUPPORT.md)를 참고한다.
  
  ## 적용 확인
  

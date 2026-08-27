@@ -1,6 +1,6 @@
 # 1홉 확장(EXPAND)의 깊이 및 연관성 필터링 설계
 
-작성일: 2026-08-19 · 상태: **설계 검토 기반 시험 적용 (Trial / Continuous Evaluation)** · 기준: [GOALS.md](../../GOALS.md) 트랙2(추출·연결 품질) /
+작성일: 2026-08-19 · 상태: **설계 검토 기반 시험 적용 (Trial / Continuous Evaluation)** · 기준: [GOALS.md](../../../GOALS.md) 트랙2(추출·연결 품질) /
 관련: [ONEHOP_MERGE_DESIGN.md](ONEHOP_MERGE_DESIGN.md)(1홉 확장 중복 완화 및 동일 주제 병합)
 
 > [!NOTE]
