@@ -224,7 +224,7 @@ def synthesis_context(
 
     결정론적(LLM 없음) — 이 텍스트가 summarize_search 의 근거가 된다. (context, names).
     compact=True (MCP 용): 관찰은 앞 3개로 자르고 출처요약은 생략해 에이전트의
-    컨텍스트 윈도우를 아낀다(docs/design/MCP_SUPPORT.md 참고)."""
+    컨텍스트 윈도우를 아낀다(docs/origin/design/MCP_SUPPORT.md 참고)."""
     blocks: list[str] = []
     names: list[str] = []
     hidden_doc_ids = set() if include_hidden else dbm.hidden_document_ids(conn)

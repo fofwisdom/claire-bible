@@ -1,12 +1,14 @@
-# MCP 지원 — 설계안 (구현 전 검토용)
+# MCP 지원 — 설계안 (M1 구현·배포 완료)
 
-작성일: 2026-08-15 · 상태: **설계만 (미구현)** · 결정 대기(사용자)
+작성일: 2026-08-15 · 상태: **M1 배포됨**(`feature/mcp-support` → master 병합,
+`claire.blackan.net`에서 실행 중, 원격 실그래프로 검증 완료) · M2(쓰기 툴)는
+별도 계획 필요, §12 잔여 결정사항 일부 미해결
 
 > 목적: 축적된 지식(그래프/문서)을 **읽고 쓰는 경로를 다양화** — 텔레그램/웹 UI 외에
 > Claude Code·Claude Desktop·기타 MCP 하네스(hermes 등)에서도 접근. **v1은 read
 > 전용**(적재/종합/중복정리 등 쓰기는 범위 밖, 나중 마일스톤). 기존 owner/readonly
-> 토큰 권한 체계를 MCP에 적용하되, **표준 MCP HTTP 사양(Streamable HTTP / RFC 6750)에 따라
-> 미인증/무효 요청 시 `401 Unauthorized` (`WWW-Authenticate: Bearer` 헤더)**로 응답.
+> 토큰 권한 체계를 MCP에도 그대로 적용 — **토큰 없으면 MCP·사이트 존재 자체를
+> 모르게**(기존 게이트의 404 관례 유지), 토큰 있으면 권한에 맞는 툴만 노출.
 
 ---
 
@@ -29,7 +31,7 @@
 - `docker-compose.yml`은 `claire_api`를 `127.0.0.1:8765`로만 바인드(변경 없음).
 - 하지만 원격 호스트에 **시스템 nginx가 `claire.blackan.net`을 이미 리버스프록시
   중**(`/etc/nginx/sites-enabled/claire.blackan.net` → `proxy_pass
-  http://127.0.0.1:8765`), Cloudflare 뒤에서 이미 공개 운영 중. `../implementation/EXTERNAL_ACCESS.md`
+  http://127.0.0.1:8765`), Cloudflare 뒤에서 이미 공개 운영 중. `docs/EXTERNAL_ACCESS.md`
   (2026-06-11 작성)는 "외부노출 미실행/설계만"이라 되어 있어 **문서가 현재 상태를
   반영하지 못함**(별도 정정 필요, §12 잔여 결정사항 참고).
 - nginx는 Cloudflare IP 대역만 origin 접근을 허용(`geo`+`return 403`)하지만, 설정
@@ -141,19 +143,15 @@ JSON-RPC/세션ID/SSE 협상을 직접 구현하는 hand-roll은 스펙 드리�
   Host 헤더를 421로 거부한다(로컬 테스트에서 실제로 걸림). 배포 시
   `allowed_hosts=["claire.blackan.net"]`(및 로컬 검증용 `localhost`)을 명시해야
   함 — 안 하면 nginx를 정상 통과한 요청도 SDK 레벨에서 421.
-- **필요 작업(미검증 가정 — §3 권장안 A 전체가 이 가정에 의존)**: `MCPServer.
-  streamable_http_app()`이 돌려주는 건 표준 ASGI 콜러블(`app(scope, receive,
-  send)`) — aiohttp의 `web.Request`를 ASGI `scope`로 변환하고, 요청 바디를 ASGI
-  `receive()`로, 응답을 aiohttp `Response`(또는 SSE면 `StreamResponse`)로
-  되돌리는 **얇은 어댑터**(httpx의 `ASGITransport`가 테스트 목적으로 하는 것과
-  같은 부류의 변환)만 있으면 그 앱을 그대로 호출할 수 있다. 이번 조사는
-  **Starlette 앱 자체가 정상 동작하는 것까지는 httpx.ASGITransport로 실제
-  검증**(§4.1)했지만, **aiohttp 쪽 어댑터는 아직 안 짜봤다** — lifespan
-  이벤트(시작 시 `StreamableHTTPSessionManager`의 내부 태스크그룹이 떠야
-  요청을 처리함, §4.1에서 수동으로 lifespan을 돌려야 했던 것과 동일 이슈)를
-  aiohttp의 `on_startup`/`on_cleanup`에 정확히 연결하는 부분이 특히 처음
-  붙여보는 지점 — 이 어댑터를 작성해 `tools/list` 왕복까지 확인하는 스파이크가
-  **M1의 첫 작업**이다. 실패하면 §3의 권장안(A) 재검토.
+- **구현 완료·검증됨(2026-08-15, 더 이상 가정 아님)**: `MCPServer.
+  streamable_http_app()`이 돌려주는 표준 ASGI 콜러블(`app(scope, receive,
+  send)`)을, aiohttp의 `web.Request`↔ASGI `scope`/`receive`/`send` 변환 어댑터
+  (`server.py`의 `mcp_route`)로 감싸 실제로 붙였다. lifespan(시작 시
+  `StreamableHTTPSessionManager`의 내부 태스크그룹을 띄우는 부분)은
+  `app.on_startup`/`on_cleanup`에 연결. **로컬(합성 그래프+curl+공식 SDK
+  클라이언트)과 원격 프로덕션(`claire.blackan.net`, 실제 그래프로
+  `overview` 등 호출) 양쪽에서 end-to-end 검증 완료** — §3 권장안(A)이
+  가정이 아니라 배포된 사실이 됨.
 - GET `/mcp`(서버 개시 스트림)는 v1 불필요 — POST만 등록. **실측 정정**: 무인증
   GET은 게이트가 먼저 걸러 여전히 404(존재 은폐 유지). 유효 세션을 **가진**
   클라이언트가 실수로 GET을 보내면 aiohttp 라우터가 "경로는 있는데 메서드가
@@ -225,12 +223,11 @@ POST /mcp  method=tools/call  params={"name":"search","arguments":{"query":"MCP"
   담는 방식**이 된다(구조화 출력을 원하면 `structured_output=True` 옵션이
   있었음 — MCPServer init 시그니처에서 확인, M1에서 채택 여부 결정).
 
-### 4.2 표준 HTTP 사양 준수
-MCP HTTP transport 스펙(Streamable HTTP / RFC 6750)에 따라 미인증 및 인증 실패
-요청 시 **`401 Unauthorized` (`WWW-Authenticate: Bearer` 헤더 및 JSON 에러 본문)**로
-응답한다. 일반 웹 엔드포인트는 존재 은폐(404)를 유지하지만, `/mcp` 엔드포인트는 표준
-MCP 클라이언트(Claude Desktop, Cursor, Antigravity 등)와의 완벽한 프로토콜 호환성을
-위해 표준 HTTP 인증 사양을 준수한다.
+### 4.2 스펙 이탈 기록
+MCP HTTP transport 스펙은 미인증 요청에 `401 + WWW-Authenticate`를 명시하지만,
+이 프로젝트는 무토큰 요청에 **404**를 쓴다(기존 게이트 관례, §1.1). 사용자
+요구("존재도 모르게")와 일치하는 의도적 이탈이며, 대신 auth discovery가 없다 —
+토큰은 항상 out-of-band로 설정해야 한다(MCP 클라이언트 설정 시 헤더 수동 입력).
 
 ---
 
@@ -243,7 +240,7 @@ DB 스키마 없음.
 |---|---|---|---|
 | 텔레그램 `/web` | `X-Session: <owner 세션 토큰>` | owner | v1: read 툴 전체 (추후: write 툴 포함) |
 | 텔레그램 `/webro` | `X-Session: <readonly 세션 토큰>` | readonly | v1: read 툴 전체 (owner와 동일 — 쓰기 툴이 생기기 전까진 구분 없음) |
-| 없음 / 만료 / 무효 | — | — | **`401 Unauthorized` (`WWW-Authenticate: Bearer`)** |
+| 없음 / 만료 / 무효 | — | — | `/mcp` 자체가 404 |
 
 **사용법**: 소유자가 텔레그램에서 `/webro`(또는 owner 권한까지 필요하면 `/web`)를
 치면 `https://.../?t=9v6gdp8gcxjc`(예시) 형태의 링크가 온다. **`t=` 뒤에 오는
@@ -285,9 +282,9 @@ GOALS.md 2026-06-11 기록)은 `X-Session` 헤더 설정과는 무관 — 링크
 |---|---|---|
 | `search` | **`IngestService.search` 재사용 안 함** — `db.fts_search` 직접 호출(§7 참고, 구현 중 발견) | **`entity_type`/`near_ids` 필터 포함**(§11.1). raw hits만 반환, Gemini 호출 0. |
 | `graph` | `graphview.graph_json` | **전체 그래프 덤프 금지** — 노드 1개 기준 N-hop 이웃 + 상한(cap)으로 스코프 축소. 정확한 hop 수/cap 값은 구현 단계에서 결정(잔여 결정사항). |
-| `node` | `graphview.node_detail` | 그대로 재사용 가능. |
-| `documents` | `graphview.documents_list` | 그대로 재사용 가능. |
-| `document` | `graphview.document_detail` | **부작용 제거 필요** — 웹 핸들러(`server.py:352`)는 조회 시 `set_document_seen(seen=True)`를 같이 호출해 "안읽음" 마커를 지운다. MCP 조회가 이 부작용을 상속하면 readonly 툴이 사용자의 안읽음 상태를 몰래 바꾸게 됨 — MCP 경로는 `mark_seen` 없이 `graphview.document_detail`만 호출. |
+| `node` | `graphview.node_detail` | **그대로 재사용 안 됨** — 실사용 중 발견(§11.2 하단 추가 항목): 소스 문서마다 `detail`(본문 전문)을 통째로 넣어, 소스 48개짜리 허브 노드는 응답이 통째로 터진다. MCP 레이어(`node_impl`)에서 최신 10개(`MAX_NODE_DOCUMENTS`)로 캡하고, 기본은 `summary`만(전문은 `full=True`일 때만) 반환하도록 후처리. `documents_truncated`/`documents_omitted` 포함. |
+| `documents` | `graphview.documents_list` | **그대로 재사용 안 됨** — 실사용 중 `limit=300` 호출이 134KB/3,100줄로 도구 응답 한도를 넘어 파일 강제저장까지 발생(§11.2). `MAX_DOCUMENTS=100` 하드캡 + `since`/`query` 필터(`db.documents_timeline`/`documents_count`에 선택적 파라미터로 추가, 웹 UI 호출부는 무필터라 하위호환 유지) + `truncated`/`omitted`로 해결. |
+| `document` | `graphview.document_detail` | **부작용 제거 필요** — 웹 핸들러(`server.py:352`)는 조회 시 `set_document_seen(seen=True)`를 같이 호출해 "안읽음" 마커를 지운다. MCP 조회가 이 부작용을 상속하면 readonly 툴이 사용자의 안읽음 상태를 몰래 바꾸게 됨 — MCP 경로는 `mark_seen` 없이 `graphview.document_detail`만 호출. `fetched_at`은 ISO8601 UTC로 변환해 노출(§11.2). |
 | `stats` | `dbm.counts` | 그대로 재사용 가능. |
 
 ---
@@ -317,8 +314,8 @@ GOALS.md 2026-06-11 기록)은 `X-Session` 헤더 설정과는 무관 — 링크
 
 ## 9. 테스트 목록 (음성 경로 포함, 구현 시 필수)
 
-- `X-Session` / `Bearer` 헤더 없음 → `/mcp` 401 Unauthorized (`WWW-Authenticate: Bearer`).
-- 만료되었거나 존재하지 않는 세션 토큰 → 401 Unauthorized (`validate_session`이 False 반환하는
+- `X-Session` 헤더 없음 → `/mcp` 404 (존재 은폐).
+- 만료되었거나 존재하지 않는 세션 토큰 → 404(`validate_session`이 False 반환하는
   경로 그대로).
 - `/web`으로 새 owner 세션을 발급하면 **이전 owner MCP 연결이 즉시 무효화**됨을
   확인(§5 트레이드오프 회귀 테스트 — 실수로 다중세션 허용하는 방향으로 되돌리지
@@ -342,10 +339,11 @@ GOALS.md 2026-06-11 기록)은 `X-Session` 헤더 설정과는 무관 — 링크
 
 ## 10. 마일스톤
 
-- **M1(이번 계획 범위)**: `/mcp` read 전용 5툴(search/graph/node/documents/
-  document) + `stats`(+ §11 에이전트 전용 툴 채택분). 공식 SDK 임베드(§4). §9
-  테스트. 배포 전 §12 잔여 결정사항 전부 해소. **코드 착수 시 master에 바로
-  안 하고 feature 브랜치 먼저 생성**(사용자 요구).
+- **M1 — 완료·배포됨(2026-08-15)**: `/mcp` read 전용 10툴(resolve_entity/
+  search/neighbors/path/context/overview/node/documents/document/stats).
+  공식 SDK 임베드(§4). 테스트 25개(§9 목록 반영, `tests/test_mcp_tools.py`
+  `tests/test_api.py`). `feature/mcp-support` → master 병합 → `claire.blackan.net`
+  배포·실그래프 검증 완료.
 - **M2(보류, 별도 계획 필요)**: 쓰기 툴(ingest 등) — 스코프 테이블에 owner 전용
   항목 추가. NDJSON 스트리밍 라우트(`/ingest-stream`, `/research`,
   `/synthesize/research`)는 단일 MCP 툴 응답과 형태가 안 맞음(수십 초~수 분) —
@@ -438,6 +436,23 @@ GOALS.md 2026-06-11 기록)은 `X-Session` 헤더 설정과는 무관 — 링크
   쓰는지"(예: `context`: "충분히 좁힌 후 마지막에 호출 — 넓은 ID 집합에는
   쓰지 말 것")까지 적어야 한다(§4.1에서 확인했듯 `description`은 그대로
   `tools/list` 응답에 실린다 — 에이전트가 보는 유일한 안내문).
+- **`documents`/`node`도 "그대로 재사용" 원칙이 안 통했다** — 배포 후 실제
+  MCP 클라이언트로 붙어 써보다 발견(2026-08-15). `documents(limit=300)`이
+  134KB/3,100줄로 도구 응답 한도를 넘겨 파일 강제저장이 두 번 발생했고,
+  소스 48개짜리 허브 노드에 `node()`를 부르면 본문 전문이 통째로 딸려오는
+  걸 실측으로 확인(AGENTS.md 엔티티 조회 시 기사 2편 전문이 그대로 반환됨).
+  `context`(§11.2 위 항목)와 같은 유형의 결함 — 사람 UI는 한 화면에 한
+  문서/한 노드만 펼치니 상한이 필요 없었지만, 에이전트는 그 함수를 호출
+  한 번으로 컨텍스트 윈도우를 태울 수 있다. `documents`는 `MAX_DOCUMENTS=100`
+  하드캡+`since`/`query` 필터, `node`는 소스문서 최신 10개 캡+기본
+  summary-only(`full=True`로 opt-in)로 수정.
+- **`fetched_at`은 ISO8601, UTC 타임존 명시(`+00:00`)로 노출한다** — KST
+  등 로컬 시간대로 임의 변환하지 않는 이유: 서버는 MCP 호출자(에이전트/
+  하네스)가 어느 시간대에 있는지 알 방법이 없고, 클라이언트가 필요하면
+  UTC 오프셋에서 스스로 변환하는 게 유일하게 모호하지 않은 방향이다.
+  `document`/`node`/`documents` 세 툴 모두 원시 epoch가 아니라 이 형식으로
+  통일(웹 UI JS가 쓰는 기존 `fetched_at` 키/포맷은 안 건드림 — MCP 응답
+  전용 후처리).
 
 ---
 
@@ -445,7 +460,7 @@ GOALS.md 2026-06-11 기록)은 `X-Session` 헤더 설정과는 무관 — 링크
 
 - [x] ~~`CLAIRE_READONLY_TOKEN` 신설~~ — 배제(§1.3, §5, 사용자 결정: 격리 수준을
       낮추는 변경이라 안 함). `/web`·`/webro` 기한제 세션 재사용으로 확정.
-- [ ] `../implementation/EXTERNAL_ACCESS.md` 상태 정정(§1.2) — 이번 문서에 사실관계만 기록해둠,
+- [ ] `docs/EXTERNAL_ACCESS.md` 상태 정정(§1.2) — 이번 문서에 사실관계만 기록해둠,
       원본 문서 갱신 여부는 사용자 결정.
 - [ ] Cloudflare Access를 실제로 켤지(nginx 주석의 원래 의도대로) 여부 — MCP와
       무관하게 현재 앱 게이트가 유일한 방어선이라는 게 맞는 상태인지 확인 필요.
@@ -454,4 +469,5 @@ GOALS.md 2026-06-11 기록)은 `X-Session` 헤더 설정과는 무관 — 링크
       **현재 세션 메커니즘 그대로 감수**할지, 아니면 절대 만료 상한(예: 발급 후
       N일이면 슬라이딩과 무관하게 무조건 만료) 같은 별도 장치를 원하는지 확인
       필요. 후자는 스키마/로직 변경이라 "가볍게 훑고 넘어갈 항목 아님".
-- [ ] M1 구현 착수 승인(코드 변경 없이 이 문서까지만 이번 세션 범위).
+- [x] M1 구현 착수 승인 및 완료 — 구현·테스트·배포까지 완료(사용자 승인 후
+      같은 세션에서 진행).

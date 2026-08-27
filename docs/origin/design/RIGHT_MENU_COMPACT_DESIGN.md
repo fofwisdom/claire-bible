@@ -1,6 +1,6 @@
 # aside#detailpane(우측 메뉴) 아이콘 모드(Icon-Only) 전환 설계
 
-작성일: 2026-08-21 · 상태: **구현 및 적용 (Implemented)** · 기준: [GOALS.md](../../GOALS.md) / [PLAN.md](../../PLAN.md)
+작성일: 2026-08-21 · 상태: **구현 및 적용 (Implemented)** · 기준: [GOALS.md](../../../GOALS.md) / [PLAN.md](../../../PLAN.md)
 관련: `src/claire/graphview.py`
 
 ---
