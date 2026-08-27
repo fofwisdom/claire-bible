@@ -1,6 +1,6 @@
 # 원문 테이블 적재 및 문자 수 제한 예외 처리 보완 설계
 
-작성일: 2026-08-27 · 상태: **설계 및 구현 완료** · 기준: [GOALS.md](../../GOALS.md) 트랙2(추출·연결 품질) / 관련: [ONEHOP_MERGE_DESIGN.md](ONEHOP_MERGE_DESIGN.md)
+작성일: 2026-08-27 · 상태: **설계 및 구현 완료** · 기준: [GOALS.md](../../../GOALS.md) 트랙2(추출·연결 품질) / 관련: [ONEHOP_MERGE_DESIGN.md](ONEHOP_MERGE_DESIGN.md)
 
 ---
 
