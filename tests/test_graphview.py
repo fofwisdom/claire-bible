@@ -96,7 +96,7 @@ def test_graph_html_self_contained_markers():
     assert "id=\"advsearchbtn\"" in GRAPH_HTML                          # 고급검색 버튼
     assert "synthSet" in GRAPH_HTML and "addToSynth" in GRAPH_HTML      # 종합 수집(inspect와 분리)
     assert "id=\"authstate\"" in GRAPH_HTML and "setAccessScope" in GRAPH_HTML
-    assert '<body class="ro" data-auth-scope="unknown" data-active-pane="docs" data-center-view="reader">' in GRAPH_HTML
+    assert '<body class="ro" data-auth-scope="unknown" data-active-pane="graph" data-center-view="graph">' in GRAPH_HTML
     assert "let AUTH_SCOPE='unknown';" in GRAPH_HTML
     assert "let READONLY=true;" in GRAPH_HTML
     assert "function canWrite(){ return AUTH_SCOPE==='owner'; }" in GRAPH_HTML
@@ -149,13 +149,13 @@ def test_graph_html_self_contained_markers():
     assert 'id="worktabs" role="tablist"' in GRAPH_HTML
     assert 'id="tab-docs" role="tab"' in GRAPH_HTML
     assert 'id="tab-graph" role="tab"' in GRAPH_HTML
-    assert 'class="rgraphbtn"' not in GRAPH_HTML
-    assert '<button class="sec" onclick="setCenterView(\'reader\')"' not in GRAPH_HTML
+    assert '<div class="head">' in GRAPH_HTML
+    assert 'class="rhead"' not in GRAPH_HTML
     assert GRAPH_HTML.count('role="tabpanel"') == 2
     assert 'id="tab-detail"' not in GRAPH_HTML
     assert 'id="detailpane" role="region" aria-label="문맥 상세"' in GRAPH_HTML
     assert "function revealWorkspace" in GRAPH_HTML and "data-active-pane" in GRAPH_HTML
-    assert "function openDetailPane()" in GRAPH_HTML and "let activePane='docs', detailOpen=false" in GRAPH_HTML
+    assert "function openDetailPane()" in GRAPH_HTML and "let activePane='graph', detailOpen=false" in GRAPH_HTML
     assert "const paneNames=['docs','graph'];" in GRAPH_HTML
     assert "mobileScrollTo" not in GRAPH_HTML and "scrollIntoView" not in GRAPH_HTML
     assert "const mobileMQ = window.matchMedia('(max-width:720px)')" in GRAPH_HTML
@@ -209,7 +209,7 @@ def test_right_menu_compact_icon_mode_markers():
 
 
 def test_right_menu_graph_section_markers():
-    """우측 메뉴 내 그래프/문서 도구 전용 섹션 분리, 그래프 전환 단추 및 섹션 상단 1px 구분선 스타일 검증."""
+    """우측 메뉴 내 그래프/문서 도구 전용 섹션 분리 및 head 내 전환 단추 검증."""
     assert 'id="graph-section"' in GRAPH_HTML
     assert 'class="menu-section-title" id="menu-section-title">문서와 그래프<' in GRAPH_HTML
     assert "#moremenu .menu-section" in GRAPH_HTML
@@ -218,12 +218,12 @@ def test_right_menu_graph_section_markers():
     assert "#moremenu .menu-section-head" in GRAPH_HTML
     assert 'id="opengraphbtn"' in GRAPH_HTML
     assert 'id="openreaderbtn"' in GRAPH_HTML
-    assert "openDocGraph(activeDoc||curReaderDoc)" in GRAPH_HTML
+    assert "openDocGraph(curReaderDoc||activeDoc)" in GRAPH_HTML
     assert "openDocGraph(docId)" in GRAPH_HTML
 
 
 def test_stat_location_and_center_view_right_menu_modes():
-    """span#stat의 좌측 검색 옵션 하단 배치 및 중앙 화면 모드별 우측 메뉴 고유 표시 CSS 검증."""
+    """span#stat의 좌측 검색 옵션 하단 배치 및 중앙 화면 모드별 경로 버튼 표시 CSS 검증."""
     # 1. span#stat가 좌측 패널(aside#docs .dhead)의 docsearch-stat-row 내에 위치
     assert '<div class="docsearch-stat-row">' in GRAPH_HTML
     assert '<span id="stat" role="status" aria-live="polite">로딩…</span>' in GRAPH_HTML
@@ -233,14 +233,11 @@ def test_stat_location_and_center_view_right_menu_modes():
     detail_pos = GRAPH_HTML.index('id="detailpane"')
     assert docs_pos < stat_pos < pinned_pos < detail_pos
 
-    # 2. 중앙 화면 모드에 따른 우측 메뉴 고유 표시 CSS 분기
-    assert 'body[data-center-view="graph"] #opengraphbtn{display:none!important}' in GRAPH_HTML
-    assert 'body[data-center-view="graph"] #openreaderbtn{display:inline-flex!important}' in GRAPH_HTML
+    # 2. 중앙 화면 모드에 따른 경로 버튼 표시 CSS 분기
     assert 'body[data-center-view="graph"] #pathbtn{display:inline-flex!important}' in GRAPH_HTML
-
-    assert 'body:not([data-center-view="graph"]) #opengraphbtn{display:inline-flex!important}' in GRAPH_HTML
-    assert 'body:not([data-center-view="graph"]) #openreaderbtn{display:none!important}' in GRAPH_HTML
     assert 'body:not([data-center-view="graph"]) #pathbtn{display:none!important}' in GRAPH_HTML
+    assert '#barsearch #openreaderbtn' in GRAPH_HTML
+    assert '#reader .head #opengraphbtn' in GRAPH_HTML
 
 
 def test_fslider_vertical_left_of_zoomctl():
@@ -536,9 +533,9 @@ def test_mobile_bottom_bar_graph_navigation_and_node_selection():
     assert "if(ids.length) net.selectNodes(ids);" in GRAPH_HTML
     assert "if(net) net.unselectAll();" in GRAPH_HTML
 
-    # 3. revealWorkspace 전환 시 열려 있는 reader 닫기 및 모바일 1단 보기 최근 문서 / 최다 노드 문서 그래프 전환
+    # 3. revealWorkspace 전환 시 열려 있는 reader 닫기 및 전체 그래프 맞춤
     assert "const r=document.getElementById('reader');\n  if(r && r.classList.contains('open') && typeof closeReader==='function') closeReader();" in GRAPH_HTML
-    assert "targetDocId = getRecentDocId() || docWithMostNodes();" in GRAPH_HTML
+    assert "if(name==='graph'){\n    setCenterView('graph');\n    if(!activeDoc){\n      fitGraphContext();\n    }\n  }" in GRAPH_HTML
     assert "function docWithMostNodes()" in GRAPH_HTML
     assert "function getRecentDocId()" in GRAPH_HTML
     assert "function recordSelectedDoc(id)" in GRAPH_HTML
