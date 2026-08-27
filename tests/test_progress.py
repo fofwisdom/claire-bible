@@ -8,6 +8,7 @@ import sys
 
 import pytest
 
+from claire import cli
 from claire.config import Settings
 from claire.ontology.base import Document
 from claire.progress import ProgressReporter, track_batch_progress
@@ -117,7 +118,7 @@ def test_track_batch_progress_keyboard_interrupt():
 
 def test_queue_dashboard_output(tmp_path):
     db_file = tmp_path / "test.db"
-    s = Settings(db_file=db_file)
+    s = Settings(db_path=str(db_file))
     conn = dbm.connect(db_file)
     dbm.init_db(conn)
 
@@ -150,3 +151,32 @@ def test_queue_dashboard_output(tmp_path):
     # status 텍스트에도 expand_queue 반영 확인
     st = build_status_text(s, full=True)
     assert "[자동확장 큐]" in st
+
+
+def test_queue_list_accepts_positional_queue_name(tmp_path, monkeypatch, capsys):
+    db_file = tmp_path / "queue.db"
+    conn = dbm.connect(db_file)
+    dbm.init_db(conn)
+    inbox_id = dbm.log_inbox(
+        conn, source="cli", payload="https://example.com/failed", kind="url"
+    )
+    dbm.update_inbox(conn, inbox_id, status="failed", error="404 Not Found")
+    conn.close()
+
+    monkeypatch.setenv("CLAIRE_DB_PATH", str(db_file))
+    cli.get_settings.cache_clear()
+    try:
+        assert cli.main(["queue", "list", "inbox"]) == 0
+    finally:
+        cli.get_settings.cache_clear()
+
+    output = capsys.readouterr().out
+    assert "raw_inbox" in output
+    assert "https://example.com/failed" in output
+    assert "[2]" not in output
+    assert "[3]" not in output
+
+
+def test_queue_list_requires_queue_name(capsys):
+    assert cli.main(["queue", "list"]) == 2
+    assert "조회할 큐를 지정" in capsys.readouterr().err
