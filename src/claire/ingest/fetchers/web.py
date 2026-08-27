@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import re
 
+from ...extract.table_budget import slice_text_with_table_exemption
 from ...ontology.base import Document
 from ..normalize import canonicalize_url, content_hash
 from .base import FetchError
@@ -126,7 +127,7 @@ def fetch_web(url: str) -> Document:
         url=url,
         canonical_url=canonicalize_url(effective),
         title=title,
-        raw_text=text[:20000],
+        raw_text=slice_text_with_table_exemption(text, 20000),
         source_type="pdf" if is_pdf else "web",
         content_hash=content_hash(title or "", text),
         # images: 본문 콘텐츠 이미지 후보(다이어그램·차트·스크린샷). render_detail 의 LLM
@@ -233,10 +234,72 @@ def _extract_html(
         if bad.getparent() is not None:
             bad.getparent().remove(bad)
     images = _collect_images(tree, og_image)
-    text = " ".join(t.strip() for t in tree.xpath("//body//text()") if t.strip())
+
+    # 테이블 요소는 데이터 누락 및 왜곡을 방지하기 위해 마크다운 테이블로 사전 변환하여 보존
+    _format_html_tables_to_markdown(tree)
+
+    body_nodes = tree.xpath("//body")
+    root_node = body_nodes[0] if body_nodes else tree
+    text_pieces = list(root_node.itertext())
+    text = "\n\n".join(
+        chunk.strip()
+        for chunk in "\n".join(t for t in text_pieces if t).split("\n\n")
+        if chunk.strip()
+    )
     if not text:
         text = " ".join(t.strip() for t in tree.xpath("//text()") if t.strip())
     return (title[:200] if title else None), text, links, anchors, None, images
+
+
+def _format_html_tables_to_markdown(tree) -> None:
+    """HTML <table> 태그들을 마크다운 테이블 텍스트로 변환하여 구조와 데이터를 온전히 보존."""
+    for tbl in list(tree.xpath("//table")):
+        rows: list[list[str]] = []
+        caption_txt = ""
+        caps = tbl.xpath(".//caption")
+        if caps:
+            caption_txt = " ".join(caps[0].text_content().split())
+
+        for tr in tbl.xpath(".//tr"):
+            cells = tr.xpath("./th | ./td")
+            if not cells:
+                continue
+            row = [" ".join(c.text_content().split()).replace("|", "\\|") for c in cells]
+            if any(row):
+                rows.append(row)
+
+        if not rows:
+            if tbl.getparent() is not None:
+                tbl.getparent().remove(tbl)
+            continue
+
+        max_cols = max(len(r) for r in rows)
+        if max_cols == 0:
+            if tbl.getparent() is not None:
+                tbl.getparent().remove(tbl)
+            continue
+
+        norm_rows = [r + [""] * (max_cols - len(r)) for r in rows]
+        md_lines: list[str] = []
+        if caption_txt:
+            md_lines.append(f"**[Table: {caption_txt}]**")
+
+        header = norm_rows[0]
+        md_lines.append("| " + " | ".join(header) + " |")
+        md_lines.append("| " + " | ".join(["---"] * max_cols) + " |")
+        for r in norm_rows[1:]:
+            md_lines.append("| " + " | ".join(r) + " |")
+
+        md_table_text = "\n\n" + "\n".join(md_lines) + "\n\n"
+
+        parent = tbl.getparent()
+        if parent is not None:
+            prev = tbl.getprevious()
+            if prev is not None:
+                prev.tail = (prev.tail or "") + md_table_text
+            else:
+                parent.text = (parent.text or "") + md_table_text
+            parent.remove(tbl)
 
 
 def _collect_images(tree, og_image: str | None) -> list[dict]:

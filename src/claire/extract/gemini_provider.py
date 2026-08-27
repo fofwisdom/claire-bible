@@ -490,27 +490,6 @@ def _images_block(images: list[dict]) -> str:
     )
 
 
-# 단일 출처 문서의 LLM 투입 예산. 병합 문서(ONEHOP_MERGE_DESIGN.md §3.3b)는 두 출처를
-# 담아야 하니 2배 — 저장(documents.raw_text)은 안 자르고 프롬프트 투입량만 늘린다.
-_SINGLE_DOC_CHAR_BUDGET = 12000
-_MERGED_DOC_CHAR_BUDGET = _SINGLE_DOC_CHAR_BUDGET * 2
-# render_detail 재시도 하한선(ONEHOP_MERGE_DESIGN.md §3.3b) — 이보다 짧으면 두 출처를
-# 담기엔 명백히 부족하다고 보고 목표 분량을 올려 재시도.
-_MERGED_DETAIL_MIN_CHARS = 1000
-
-
-def _doc_to_prompt(doc: Document) -> str:
-    head = []
-    if doc.title:
-        head.append(f"TITLE: {doc.title}")
-    if doc.url:
-        head.append(f"URL: {doc.url}")
-    head.append(f"SOURCE_TYPE: {doc.source_type}")
-    limit = (_MERGED_DOC_CHAR_BUDGET if (doc.meta or {}).get("extra_sources")
-             else _SINGLE_DOC_CHAR_BUDGET)
-    return "\n".join(head) + "\n\nCONTENT:\n" + (doc.raw_text or "")[:limit]
-
-
 def _coerce(text: str | None) -> ExtractionResult:
     import json
 
