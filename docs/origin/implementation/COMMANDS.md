@@ -243,6 +243,34 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
   * `--yes`, `-y`: 확인 프롬프트 생략.
   * `--json`: 진단 통계를 JSON 포맷으로 출력.
 
+#### `backfill-detail`
+가독 본문(`detail`)이 누락된 문서 또는 표(`--tables`)가 포함된 문서를 선별하여 본문을 일괄 생성/재생성합니다 (지식그래프 불변, 비파괴).
+* **사용법**:
+  ```bash
+  ./cb-manuscript app backfill-detail                     # detail 누락 문서만 생성
+  ./cb-manuscript app backfill-detail --force             # 전체 문서 detail 강제 재생성
+  ./cb-manuscript app backfill-detail --tables            # 표 포함 문서만 선별하여 detail 재생성
+  ```
+* **옵션**:
+  * `--tables`, `--has-tables`: 원문/본문에 표(Markdown, AsciiDoc, HTML)가 포함된 문서만 선별하여 재생성.
+  * `--force`: 기존에 detail이 있더라도 강제로 재생성.
+  * `--format {md,adoc}`: 생성할 본문 포맷 지정.
+  * `--limit <N>`: 처리할 최대 문서 개수.
+
+#### `reextract`
+저장된 `raw_text`로부터 전체(또는 표 포함) 문서의 지식그래프(엔티티, 관계, 요약, 본문)를 백지 상태에서 재추출·재구축합니다.
+* **사용법**:
+  ```bash
+  ./cb-manuscript app --advanced reextract                # 전체 그래프 초기화 및 재추출
+  ./cb-manuscript app --advanced reextract --tables       # 표 포함 문서만 선별 재추출
+  ./cb-manuscript app --advanced reextract --no-rebuild   # 그래프를 비우지 않고 누적 병합
+  ```
+* **옵션**:
+  * `--tables`, `--has-tables`: 표가 포함된 문서만 선별하여 재추출.
+  * `--no-rebuild`: 그래프 초기화(reset_graph) 없이 기존 그래프에 누적 추출.
+  * `--format {md,adoc}`: detail 본문 포맷 지정.
+  * `--limit <N>`: 처리할 최대 문서 개수.
+
 ---
 
 ### 3.5 1홉 자동 확장 (Expand)

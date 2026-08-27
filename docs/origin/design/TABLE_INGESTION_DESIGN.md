@@ -52,3 +52,38 @@ Claire Bible은 웹, PDF, 로컬 파일 등 다양한 소스로부터 문서를 
   - `TABLES & DATA MATRICES`: 테이블 안의 엔티티/수치/속성/관계를 누락 없이 정밀하게 추출하도록 룰 추가.
 - **`render_detail_prompt_md` & `render_detail_prompt_adoc`**:
   - 원문에 포함된 테이블을 가독 문서 생성 시 생략하거나 뭉개지 않고 온전한 표 형식으로 재구성하도록 가이드라인 강화.
+
+---
+
+## 4. 테이블 포함 문서 선별 및 일괄 재추출/재생성 (`--tables`)
+
+테이블 보존 로직이 도입되기 전에 적재되었거나, 표가 포함된 문서만 선택적으로 재추출/재생성하고자 할 때 **불필요한 LLM API 쿼터 소모를 방지하고 표 문서만 정밀 처리**할 수 있는 CLI 파이프라인을 제공합니다.
+
+### 4.1 선별 메커니즘
+1. **DB 레벨 고속 프리필터링 (`src/claire/store/db.py` - `documents_with_tables`)**:
+   - SQLite `LIKE '%|%' OR LIKE '%<table%'` 쿼리로 후보 문서를 1차 축약한 후, `table_budget.extract_tables_from_text` 정규식으로 마크다운/AsciiDoc/HTML 표를 정밀 판정.
+   - 각 문서의 표 개수(`total_tables`, `raw_tables_count`, `detail_tables_count`) 및 첫 번째 표의 미리보기 스니펫을 추출.
+2. **서비스 계층 연동 (`src/claire/ingest/service.py`)**:
+   - `regenerate_components(tables=True)`: 표 포함 문서만 자동 타겟팅하여 요약/가독본문/그래프 재생성.
+   - `backfill_details(tables_only=True)`: 표 포함 문서의 가독 본문(detail)만 비파괴 일괄 갱신.
+   - `reextract_all(tables_only=True)`: 표 포함 문서의 원문(`raw_text`) 기준 지식그래프 재추출.
+
+### 4.2 주요 명령어
+```bash
+# 1) 표 포함 문서 진단 보고 (Dry-run: 대상 문서, 표 개수, 표 미리보기 출력)
+uv run claire regenerate --tables --all
+./cb-manuscript app regenerate --tables --all
+
+# 2) 표 포함 문서 일괄 재생성 및 그래프 재추출 적용 (Force)
+uv run claire regenerate --tables --all --force
+./cb-manuscript app regenerate --tables --all --force
+
+# 3) 지식그래프는 보존하고 가독 본문(detail)의 표 렌더링만 일괄 갱신
+uv run claire backfill-detail --tables --force
+./cb-manuscript app backfill-detail --tables --force
+
+# 4) 원문(raw_text) 기준 표 포함 문서 지식그래프 재추출
+uv run claire reextract --tables
+./cb-manuscript app --advanced reextract --tables
+```
+
