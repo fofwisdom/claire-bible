@@ -68,7 +68,7 @@ uv run claire bot            # 텔레그램 봇 실행 (long-polling)
 Claire Bible은 백엔드 로직과 런타임을 검증하는 단위/통합 테스트(`pytest`)와 반응형 웹 인터페이스 및 SPA 내비게이션을 검증하는 E2E 브라우저 테스트(`Playwright`)를 제공합니다.
 
 ```bash
-# 1. Python 단위 및 통합 테스트 (619개)
+# 1. Python 단위 및 통합 테스트 (2026-08-27 기준: 673개)
 uv run pytest
 
 # 2. Playwright 브라우저 E2E 테스트 (최초 1회 설치)
@@ -94,8 +94,11 @@ Claire Bible은 호스트 오케스트레이션 도구인 **`cb-manuscript`**와
 | **`claire`** | `ingest`, `search` | 지식 문서 수집/적재, FTS+벡터 하이브리드 인용 검색 |
 | *(앱 CLI)* | `doctor`, `preflight`, `health`, `status` | 지식그래프 수복, 환경 점검, 헬스 JSON, 운영 상태 |
 | | `reextract`, `backfill-detail`, `dedup-merge`| 전체/표 선별 그래프 재추출, 본문 백필, 근사 중복 문서 병합 |
+| | `queue status`, `queue list inbox` | `raw_inbox`·`refresh_queue`·`expand_queue`의 상태 분포와 대기·오류 항목 조회 |
 
 > 💡 **전체 명령어 및 세부 옵션 안내**: 모든 명령어, 세부 옵션, 미구현 상태 및 제약사항에 대한 상세 설명은 **[전체 CLI 명령어 레퍼런스 (`docs/origin/implementation/COMMANDS.md`)](docs/origin/implementation/COMMANDS.md)**를 참고하십시오.
+
+`regenerate --force`, `reextract`, 백필, 포맷 적용과 큐 1회 실행은 문서별 진행률·세부 단계·중단 위치를 표준 오류 출력으로 보고한다. 대상별 적용 범위와 재개 경계는 [작업 진행률 및 중단 보고](docs/origin/implementation/COMMANDS.md#작업-진행률-및-중단-보고)를 따른다.
 
 ## 컨테이너 운영
 
