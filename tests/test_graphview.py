@@ -233,11 +233,19 @@ def test_stat_location_and_center_view_right_menu_modes():
     detail_pos = GRAPH_HTML.index('id="detailpane"')
     assert docs_pos < stat_pos < pinned_pos < detail_pos
 
-    # 2. 중앙 화면 모드에 따른 경로 버튼 표시 CSS 분기
+    # 2. 중앙 화면 모드에 따른 경로 버튼 표시 CSS 분기 및 전환 버튼 폭/위치 통일성 검증
     assert 'body[data-center-view="graph"] #pathbtn{display:inline-flex!important}' in GRAPH_HTML
     assert 'body:not([data-center-view="graph"]) #pathbtn{display:none!important}' in GRAPH_HTML
     assert '#barsearch #openreaderbtn' in GRAPH_HTML
     assert '#reader .head #opengraphbtn' in GRAPH_HTML
+    assert 'width:104px;min-width:104px;height:28px' in GRAPH_HTML
+    assert '#netsearch{padding:8px 18px;border-bottom:1px solid var(--border)' in GRAPH_HTML
+    # reader head 내 도구 순서: rzoom < redit < rshare < opengraphbtn < rclose (그래프 전환 버튼이 오른쪽 끝에 위치)
+    redit_pos = GRAPH_HTML.index('class="redit"')
+    rshare_pos = GRAPH_HTML.index('class="rshare"')
+    opengraph_pos = GRAPH_HTML.index('id="opengraphbtn"')
+    rclose_pos = GRAPH_HTML.index('class="rclose"')
+    assert redit_pos < rshare_pos < opengraph_pos < rclose_pos
 
 
 def test_fslider_vertical_left_of_zoomctl():
@@ -452,6 +460,8 @@ def test_render_graph_html_default():
     assert "fofwisdom/claire-bible" in html
     assert '<span class="brand"' in html
     assert 'onclick="resetHome()"' in html
+    assert 'title="전체 지식 그래프 보기"' in html
+    assert 'aria-label="전체 지식 그래프 보기"' in html
     assert 'function resetHome()' in html
     assert 'id="repolink"' in html
     assert "get sourceBaseUrl(){ return 'https://github.com/fofwisdom/claire-bible'; }" in html

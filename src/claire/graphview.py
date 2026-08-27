@@ -456,7 +456,7 @@ GRAPH_HTML = """<!doctype html>
   #bar .brand{font-weight:700;letter-spacing:-.01em;cursor:pointer;user-select:none;transition:opacity .15s ease}
   #bar .brand:hover{opacity:.85}
   #bar b{color:var(--accent2)}
-  #netsearch{padding:6px 10px;border-bottom:1px solid var(--border);background:var(--panel-bg);flex-shrink:0}
+  #netsearch{padding:8px 18px;border-bottom:1px solid var(--border);background:var(--panel-bg);flex-shrink:0;min-height:48px;box-sizing:border-box;display:flex;align-items:center}
   #barsearch{display:flex;align-items:center;gap:6px;width:100%}
   #barsearch input{flex:1;min-width:0}
   #viewoptions{display:flex;align-items:center;gap:6px}
@@ -729,8 +729,16 @@ GRAPH_HTML = """<!doctype html>
   #reader .sharebox{display:none;margin:10px 24px 0;padding:8px 12px;background:var(--active);border:1px solid var(--accent);border-radius:6px;font-size:12px;gap:8px;align-items:center}
   #reader .sharebox.on{display:flex} #reader .sharebox input{flex:1;min-width:0}
   #reader .sharebox button{background:var(--accent);color:#fff;border:0;border-radius:4px;padding:3px 9px;font-size:12px;cursor:pointer}
-  #reader .head .redit,#reader .head .rshare,#reader .head #opengraphbtn{background:var(--sec-bg);color:var(--sec-fg);border:1px solid var(--border);border-radius:4px;font-size:13px;line-height:1;padding:4px 8px;cursor:pointer;display:inline-flex;align-items:center;gap:4px}
-  #barsearch #openreaderbtn{background:var(--sec-bg);color:var(--sec-fg);border:1px solid var(--border);border-radius:4px;font-size:12.5px;line-height:1;padding:4px 8px;cursor:pointer;display:inline-flex;align-items:center;gap:4px;flex-shrink:0;height:28px;box-sizing:border-box}
+  #reader .head .redit,#reader .head .rshare{background:var(--sec-bg);color:var(--sec-fg);border:1px solid var(--border);border-radius:4px;font-size:13px;line-height:1;padding:4px 8px;cursor:pointer;display:inline-flex;align-items:center;gap:4px;height:28px;box-sizing:border-box}
+  #barsearch #openreaderbtn,
+  #reader .head #opengraphbtn{
+    width:104px;min-width:104px;height:28px;box-sizing:border-box;
+    display:inline-flex;align-items:center;justify-content:center;gap:4px;
+    padding:0 8px;border:1px solid var(--border);border-radius:4px;
+    background:var(--sec-bg);color:var(--sec-fg);font-size:12.5px;
+    line-height:1;cursor:pointer;flex-shrink:0;white-space:nowrap;user-select:none;
+    transition:background .15s ease,border-color .15s ease
+  }
   #barsearch #openreaderbtn:hover,#reader .head #opengraphbtn:hover{background:var(--hover);border-color:var(--accent)}
   #reader .rbody{padding:16px 28px max(28px,env(safe-area-inset-bottom));overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;flex:1;min-height:0;min-width:0;max-width:100%;box-sizing:border-box}
   #reader .rsection{color:var(--muted);font-size:11px;letter-spacing:.04em;text-transform:uppercase;margin:1.2em 0 .2em}
@@ -863,7 +871,7 @@ GRAPH_HTML = """<!doctype html>
 </style></head>
 <body class="ro" data-auth-scope="unknown" data-active-pane="graph" data-center-view="graph">
 <header id="bar">
-  <span class="brand" role="button" tabindex="0" onclick="resetHome()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();resetHome();}" title="첫 화면으로 이동" aria-label="첫 화면으로 이동" style="display:inline-flex;align-items:center;gap:6px"><img src="/favicon.svg" width="20" height="20" alt="" aria-hidden="true" style="display:inline-block;vertical-align:middle;filter:drop-shadow(0 0 4px rgba(0,255,170,0.5))"/>Claire Bible</span>
+  <span class="brand" role="button" tabindex="0" onclick="resetHome()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();resetHome();}" title="전체 지식 그래프 보기" aria-label="전체 지식 그래프 보기" style="display:inline-flex;align-items:center;gap:6px"><img src="/favicon.svg" width="20" height="20" alt="" aria-hidden="true" style="display:inline-block;vertical-align:middle;filter:drop-shadow(0 0 4px rgba(0,255,170,0.5))"/>Claire Bible</span>
   <div id="viewoptions">
     <span id="authstate">⏳ 권한 확인 중</span>
     <button id="themebtn" title="라이트/다크 전환" aria-label="라이트/다크 전환" onclick="toggleTheme()">🌙</button>
@@ -971,7 +979,6 @@ GRAPH_HTML = """<!doctype html>
         <div class="head">
           <h1 id="rtitle">문서를 선택하세요</h1>
           <div class="rtools">
-            <button id="opengraphbtn" class="sec" onclick="openDocGraph(curReaderDoc||activeDoc)" title="현재 선택된 자료를 지식 그래프로 보기" aria-label="그래프 보기"><span class="btn-icon">📊</span> <span class="btn-label">그래프 보기</span></button>
             <div class="rzoom">
               <button onclick="setReadFS(-2)" title="글자 작게" aria-label="글자 작게">A−</button>
               <span class="fsv" id="rfs">16</span>
@@ -979,6 +986,7 @@ GRAPH_HTML = """<!doctype html>
             </div>
             <button class="redit" id="reditbtn" onclick="editDocTitle()" title="제목 수정" aria-label="제목 수정">✏️</button>
             <button class="rshare" onclick="shareDoc()" title="공유 링크 만들기" aria-label="공유 링크 만들기">🔗</button>
+            <button id="opengraphbtn" class="sec" onclick="openDocGraph(curReaderDoc||activeDoc)" title="현재 선택된 자료를 지식 그래프로 보기" aria-label="그래프 보기"><span class="btn-icon">📊</span> <span class="btn-label">그래프 보기</span></button>
             <button class="rclose" onclick="closeReader()" title="닫기(ESC)" aria-label="읽기 닫기">✕</button>
           </div>
         </div>
@@ -3066,6 +3074,7 @@ function resetHome(){
   setCenterView('graph');
   revealWorkspace('graph', false, true);
   renderDocs();
+  applyView();
   resetGraphCamera();
   syncGraphDocNav();
   if(mobileMQ.matches){
