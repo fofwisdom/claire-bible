@@ -18,9 +18,8 @@ if TYPE_CHECKING:
 # v6: 테이블 및 매트릭스 데이터 누락 방지 및 본문 글자 수 계산 제외 규칙 적용.
 PROMPT_VERSION = "extract-v6"
 
-# 단일 출처 문서의 LLM 투입 예산. 병합 문서(ONEHOP_MERGE_DESIGN.md §3.3b)는 두 출처를
-# 담아야 하니 2배 — 저장(documents.raw_text)은 안 자르고 프롬프트 투입량만 늘린다.
-_SINGLE_DOC_CHAR_BUDGET = 12000
+# 단일 출처 문서의 LLM 투입 예산 (수집 상한인 20,000자에 맞춤). 병합 문서는 2배 (40,000자).
+_SINGLE_DOC_CHAR_BUDGET = 20000
 _MERGED_DOC_CHAR_BUDGET = _SINGLE_DOC_CHAR_BUDGET * 2
 # render_detail 재시도 하한선(ONEHOP_MERGE_DESIGN.md §3.3b) — 이보다 짧으면 두 출처를
 # 담기엔 명백히 부족하다고 보고 목표 분량을 올려 재시도.
@@ -316,7 +315,9 @@ def render_detail_prompt_md(
         merge_hint = ""
 
     dir_hint = (
-        f"\n[중점 작성 방향성/초점]\n- 다음 사용자의 요청/방향성에 맞춰 내용을 중점적으로 재구성하라: {directive.strip()}\n"
+        f"\n[★ 최우선 중점 작성 방향성/초점]\n"
+        f"- 사용자가 요청한 다음 핵심 방향성 및 구성 요소를 최우선으로 하여 본문 전체를 재구성하라: **{directive.strip()}**\n"
+        f"- 원문에서 위 방향성과 관련된 핵심 개념, 구성 요소, 정의, 작동 원리, 사례, 수치를 빠짐없이 상세히 독립된 섹션/문단으로 다루어라.\n\n"
         if directive and directive.strip()
         else ""
     )
@@ -366,7 +367,9 @@ def render_detail_prompt_adoc(
         merge_hint = ""
 
     dir_hint = (
-        f"\n[중점 작성 방향성/초점]\n- 다음 사용자의 요청/방향성에 맞춰 내용을 중점적으로 재구성하라: {directive.strip()}\n"
+        f"\n[★ 최우선 중점 작성 방향성/초점]\n"
+        f"- 사용자가 요청한 다음 핵심 방향성 및 구성 요소를 최우선으로 하여 본문 전체를 재구성하라: **{directive.strip()}**\n"
+        f"- 원문에서 위 방향성과 관련된 핵심 개념, 구성 요소, 정의, 작동 원리, 사례, 수치를 빠짐없이 상세히 독립된 섹션/문단으로 다루어라.\n\n"
         if directive and directive.strip()
         else ""
     )

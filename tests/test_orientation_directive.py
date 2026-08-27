@@ -30,29 +30,29 @@ def test_prompts_with_directive():
 
     # 1. Markdown prompt without directive
     md_no_dir = render_detail_prompt_md(body, images, merged=False)
-    assert "[중점 작성 방향성/초점]" not in md_no_dir
+    assert "중점 작성 방향성/초점" not in md_no_dir
 
     # 2. Markdown prompt with directive
     md_with_dir = render_detail_prompt_md(body, images, merged=False, directive=directive)
-    assert "[중점 작성 방향성/초점]" in md_with_dir
+    assert "중점 작성 방향성/초점" in md_with_dir
     assert directive in md_with_dir
 
     # 3. AsciiDoc prompt without directive
     adoc_no_dir = render_detail_prompt_adoc(body, images, merged=False)
-    assert "[중점 작성 방향성/초점]" not in adoc_no_dir
+    assert "중점 작성 방향성/초점" not in adoc_no_dir
 
     # 4. AsciiDoc prompt with directive
     adoc_with_dir = render_detail_prompt_adoc(body, images, merged=False, directive=directive)
-    assert "[중점 작성 방향성/초점]" in adoc_with_dir
+    assert "중점 작성 방향성/초점" in adoc_with_dir
     assert directive in adoc_with_dir
 
     # 5. Router function render_detail_prompt
     routed_md = render_detail_prompt(body, images, merged=False, format="md", directive=directive)
-    assert "[중점 작성 방향성/초점]" in routed_md
+    assert "중점 작성 방향성/초점" in routed_md
     assert directive in routed_md
 
     routed_adoc = render_detail_prompt(body, images, merged=False, format="adoc", directive=directive)
-    assert "[중점 작성 방향성/초점]" in routed_adoc
+    assert "중점 작성 방향성/초점" in routed_adoc
     assert directive in routed_adoc
 
 
