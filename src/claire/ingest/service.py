@@ -380,9 +380,17 @@ class IngestService:
         finally:
             conn.close()
 
-    def reextract_all(self, *, rebuild: bool = True, limit: int = 0, format: str | None = None) -> dict:
-        """저장된 raw_text 로 전체 문서를 재추출(프롬프트 변경 반영 — 예: 한글화).
+    def reextract_all(
+        self,
+        *,
+        rebuild: bool = True,
+        limit: int = 0,
+        format: str | None = None,
+        tables_only: bool = False,
+    ) -> dict:
+        """저장된 raw_text 로 전체 문서를 재추출(프롬프트 변경 반영 — 예: 한글화, 표 보존).
 
+        tables_only=True: raw_text 에 표(Table)가 포함된 문서만 선별하여 재추출.
         rebuild=True: 먼저 그래프(엔티티/관계/임베딩/추출)를 비우고 처음부터 재구축한다.
         _merge 는 observations 를 *추가*하므로, 비우지 않으면 기존(영문)+신규(한글)가 섞인다.
         documents·raw_inbox·artifact 는 보존하므로 입력은 그대로. **파괴적**이므로
@@ -395,10 +403,14 @@ class IngestService:
         vstore = make_vector_store(conn, self.s.vector_backend)
         fmt = format or self.s.render_format
         try:
-            rows = dbm.documents_timeline(conn, limit or 1000000)
-            ids = [r["id"] for r in rows][::-1]  # 오래된 것부터
-            if limit:
-                ids = ids[:limit]
+            if tables_only:
+                table_docs = dbm.documents_with_tables(conn, limit=limit, check_detail=False)
+                ids = [d["id"] for d in table_docs][::-1]
+            else:
+                rows = dbm.documents_timeline(conn, limit or 1000000)
+                ids = [r["id"] for r in rows][::-1]  # 오래된 것부터
+                if limit:
+                    ids = ids[:limit]
             if rebuild:
                 dbm.reset_graph(conn)
             out = {"docs": 0, "ok": 0, "failed": 0, "errors": []}
@@ -427,9 +439,11 @@ class IngestService:
         force: bool = False,
         format: str | None = None,
         directive: str | None = None,
+        tables_only: bool = False,
     ) -> dict:
         """detail(한국어 가독 렌더링)이 없거나 포맷이 다른 기존 문서를 채운다 — **비파괴적**.
 
+        tables_only=True: raw_text 또는 detail 에 표(Table)가 포함된 문서만 선별 백필.
         그래프(엔티티/관계)를 건드리지 않고 documents.detail 컬럼만 채우므로 reextract 의
         reset_graph/rebuild 가 불필요(advisor). 문서당 Gemini 1회(quota). force=True 면
         이미 있는 detail 도 재생성. 반환: {docs, ok, skipped}."""
@@ -439,11 +453,15 @@ class IngestService:
         dbm.init_db(conn)
         fmt = format or self.s.render_format
         try:
-            ids = (
-                [r["id"] for r in dbm.documents_timeline(conn, limit or 1000000)]
-                if force
-                else dbm.documents_needing_detail_format(conn, fmt, limit)
-            )
+            if tables_only:
+                table_docs = dbm.documents_with_tables(conn, limit=limit, check_detail=True)
+                ids = [d["id"] for d in table_docs]
+            elif force:
+                ids = [r["id"] for r in dbm.documents_timeline(conn, limit or 1000000)]
+                if limit:
+                    ids = ids[:limit]
+            else:
+                ids = dbm.documents_needing_detail_format(conn, fmt, limit)
             out = {"docs": len(ids), "ok": 0, "skipped": 0}
             for did in ids:
                 doc = dbm.get_document(conn, did)
@@ -451,7 +469,7 @@ class IngestService:
                     out["skipped"] += 1
                     continue
                 if ensure_document_detail(
-                    conn, self.provider, doc, force=force, format=fmt, directive=directive
+                    conn, self.provider, doc, force=force or tables_only, format=fmt, directive=directive
                 ):
                     out["ok"] += 1
                 else:
@@ -550,6 +568,7 @@ class IngestService:
         all_components: bool = False,
         corrupted_summary: bool = False,
         corrupted_detail: bool = False,
+        tables: bool = False,
         refetch: bool = False,
         force: bool = False,
         effort: str | None = None,
@@ -563,6 +582,7 @@ class IngestService:
         - detail: True 면 한국어 가독 렌더링 본문만 재컴파일/재생성.
         - all_components: True 면 요약과 본문 모두 재생성.
         - corrupted_summary: True 면 전체 DB에서 ADOC/마크업 문법이 잔존한 요약만 자동 탐지.
+        - tables: True 면 원문(raw_text) 또는 본문(detail)에 표가 포함된 문서만 자동 탐지하여 일괄 대상 지정.
         - refetch: True 면 원본 URL에서 웹 문서를 새로 스크랩하여 본문 갱신 후 재생성.
         - force: False(기본) 면 dry-run 진단만 수행하고 DB 변경 없음. True 면 실제 DB 덮어쓰기.
         - effort: LLM 사고/추론 레벨 (low, medium, high 등) 즉석 재정의.
@@ -573,6 +593,7 @@ class IngestService:
         from urllib.parse import parse_qs, urlsplit
 
         from ..extract.prompts import PROMPT_VERSION, clean_plain_summary, is_corrupted_summary
+        from ..extract.table_budget import extract_tables_from_text
         from .pipeline import ensure_document_detail
 
         # 컴포넌트 기본값 결정 (아무것도 지정 안 했으면 summary 를 기본 대상으로 간주)
@@ -642,8 +663,14 @@ class IngestService:
             if doc_id and doc_id not in target_ids:
                 target_ids.append(doc_id)
 
-            # 대상이 특정되지 않고 corrupted_summary 이거나 전체 스캔인 경우
-            if corrupted_summary or (not target_ids and not target and not token and not doc_id):
+            # 대상이 특정되지 않고 tables, corrupted_summary 이거나 전체 스캔인 경우
+            if tables:
+                table_docs = dbm.documents_with_tables(conn, limit=0, check_detail=True)
+                for td in table_docs:
+                    did = td["id"]
+                    if did not in target_ids:
+                        target_ids.append(did)
+            elif corrupted_summary or (not target_ids and not target and not token and not doc_id):
                 rows = conn.execute(
                     "SELECT document_id, raw_response FROM extractions ORDER BY id DESC"
                 ).fetchall()
@@ -662,11 +689,16 @@ class IngestService:
                         target_ids.append(did)
 
             if not target_ids:
+                error_msg = "No matching documents found."
+                if tables:
+                    error_msg = "No documents containing tables detected in database."
+                elif not target and not token and not doc_id:
+                    error_msg = "No corrupted summaries detected in database."
                 return {
                     "dry_run": not force,
                     "count": 0,
                     "targets": [],
-                    "error": "No matching documents found." if (target or token or doc_id) else "No corrupted summaries detected in database.",
+                    "error": error_msg,
                 }
 
             # 2. 각 대상에 대해 진단 (Dry-run) 또는 실행 (Force)
@@ -697,6 +729,15 @@ class IngestService:
                     is_corrupted = _is_corrupted_adoc(raw_summ) or _is_corrupted_adoc(curr_summary)
                     is_err = _is_error_page(doc.title, doc.raw_text) or _is_error_page(None, curr_summary)
 
+                    _, raw_tables = extract_tables_from_text(doc.raw_text or "")
+                    _, detail_tables = extract_tables_from_text(curr_detail)
+                    total_tables = len(raw_tables) + len(detail_tables)
+                    table_preview = ""
+                    if raw_tables:
+                        table_preview = raw_tables[0].strip()
+                    elif detail_tables:
+                        table_preview = detail_tables[0].strip()
+
                     info: dict = {
                         "document_id": did,
                         "title": doc.title or "(제목 없음)",
@@ -705,6 +746,10 @@ class IngestService:
                         "summary_corrupted": is_corrupted,
                         "is_error_page": is_err,
                         "current_detail_format": curr_fmt,
+                        "total_tables": total_tables,
+                        "raw_tables_count": len(raw_tables),
+                        "detail_tables_count": len(detail_tables),
+                        "table_preview": table_preview,
                         "actions": [],
                     }
                     if refetch:

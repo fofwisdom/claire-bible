@@ -602,15 +602,20 @@ def cmd_ingest(args) -> int:
 
 
 def cmd_reextract(args) -> int:
-    """저장된 raw_text 로 전체 문서를 재추출(프롬프트 변경 반영, 예: 한글화)."""
+    """저장된 raw_text 로 전체 또는 표(Table) 포함 문서를 재추출(프롬프트 변경 반영, 예: 한글화, 표 보존)."""
     from .ingest.service import IngestService
 
     s = get_settings()
     svc = IngestService(s)
+    tables_only = getattr(args, "tables", False) or getattr(args, "has_tables", False)
     print(f"(provider={svc.provider.name}) 재추출 시작"
+          f"{' (tables-only)' if tables_only else ''}"
           f"{' (rebuild)' if not args.no_rebuild else ''}…", flush=True)
     out = svc.reextract_all(
-        rebuild=not args.no_rebuild, limit=args.limit, format=getattr(args, "format", None)
+        rebuild=not args.no_rebuild,
+        limit=args.limit,
+        format=getattr(args, "format", None),
+        tables_only=tables_only,
     )
     print(f"재추출 완료: 문서 {out['docs']} · 성공 {out['ok']} · 실패 {out['failed']}")
     for e in out["errors"][:20]:
@@ -619,7 +624,7 @@ def cmd_reextract(args) -> int:
 
 
 def cmd_backfill_detail(args) -> int:
-    """detail(한국어 가독 렌더링)이 없는 문서를 채운다 — 비파괴적(그래프 불변).
+    """detail(한국어 가독 렌더링)이 없는 문서 또는 표(Table) 포함 문서를 채운다 — 비파괴적(그래프 불변).
 
     reextract 와 달리 reset_graph/rebuild 없이 documents.detail 만 채운다(advisor).
     문서당 Gemini 1회(quota). --force 면 기존 detail 도 재생성.
@@ -628,7 +633,9 @@ def cmd_backfill_detail(args) -> int:
 
     s = get_settings()
     svc = IngestService(s)
+    tables_only = getattr(args, "tables", False) or getattr(args, "has_tables", False)
     print(f"(provider={svc.provider.name}) detail 백필 시작"
+          f"{' (tables-only)' if tables_only else ''}"
           f"{' (force)' if args.force else ''}…", flush=True)
     directive = getattr(args, "orientation", None) or getattr(args, "directive", None)
     out = svc.backfill_details(
@@ -636,6 +643,7 @@ def cmd_backfill_detail(args) -> int:
         force=args.force,
         format=getattr(args, "format", None),
         directive=directive,
+        tables_only=tables_only,
     )
     print(f"백필 완료: 대상 {out['docs']} · 생성 {out['ok']} · 건너뜀 {out['skipped']}")
     return 0
@@ -670,6 +678,7 @@ def cmd_regenerate(args) -> int:
     graph = getattr(args, "graph", False)
     all_comp = getattr(args, "all", False)
     corrupted = getattr(args, "corrupted", False)
+    tables = getattr(args, "tables", False) or getattr(args, "has_tables", False)
     refetch = getattr(args, "refetch", False)
     force = getattr(args, "force", False)
     effort = getattr(args, "effort", None)
@@ -685,6 +694,7 @@ def cmd_regenerate(args) -> int:
         graph=graph,
         all_components=all_comp,
         corrupted_summary=corrupted,
+        tables=tables,
         refetch=refetch,
         force=force,
         effort=effort,
@@ -712,6 +722,11 @@ def cmd_regenerate(args) -> int:
                 print("    [!] 원문이 SSL/보안 오류 화면으로 감지됨 (--refetch 함께 사용 권장)")
             if t.get("summary_corrupted"):
                 print("    [!] 요약 내 ADOC/마크업 문법 잔존 감지")
+            if t.get("total_tables"):
+                print(f"    [📊] 표 {t['total_tables']}개 감지 (원문: {t.get('raw_tables_count',0)}개, 본문: {t.get('detail_tables_count',0)}개)")
+                if t.get("table_preview"):
+                    first_line = t["table_preview"].splitlines()[0]
+                    print(f"         표 미리보기: {first_line}")
             summ_preview = (t['current_summary'][:150] + '...') if len(t['current_summary']) > 150 else t['current_summary']
             print(f"    현재 요약: {summ_preview}")
             print(f"    적용 예정 작업: {', '.join(t['actions'])}")
@@ -730,6 +745,8 @@ def cmd_regenerate(args) -> int:
             print(f"    원문 재수집: 완료 ({t.get('new_len', 0)}자)")
         elif t.get("refetch_error"):
             print(f"    [!] 원문 재수집 실패: {t.get('refetch_error')}")
+        if t.get("total_tables"):
+            print(f"    표 보존/추출 : 총 {t['total_tables']}개 표 반영")
         if t.get("entities_created") or t.get("entities_linked"):
             created = t.get("entities_created", 0)
             linked = t.get("entities_linked", 0)
@@ -1169,18 +1186,22 @@ def build_parser() -> argparse.ArgumentParser:
     ps.set_defaults(func=cmd_search)
 
     pre = sub.add_parser("reextract",
-                         help="re-extract all docs from stored raw_text (apply prompt change, e.g. Korean)")
+                         help="re-extract all docs from stored raw_text (apply prompt change, e.g. Korean, table preservation)")
     pre.add_argument("--no-rebuild", action="store_true",
                      help="merge into existing graph instead of wiping first (may mix old/new)")
+    pre.add_argument("--tables", "--has-tables", action="store_true", dest="tables",
+                     help="only re-extract documents that contain markdown, asciidoc, or html tables")
     pre.add_argument("--limit", type=int, default=0, help="cap number of docs (0=all)")
     pre.add_argument("--format", choices=["md", "adoc"], default=None,
                      help="detail render format (md or adoc)")
     pre.set_defaults(func=cmd_reextract)
 
     pbd = sub.add_parser("backfill-detail",
-                         help="fill Korean readable 'detail' for docs missing it (non-destructive)")
+                         help="fill Korean readable 'detail' for docs missing it or containing tables (non-destructive)")
     pbd.add_argument("--limit", type=int, default=0, help="cap number of docs (0=all)")
     pbd.add_argument("--force", action="store_true", help="regenerate even if detail exists")
+    pbd.add_argument("--tables", "--has-tables", action="store_true", dest="tables",
+                     help="only backfill/regenerate documents that contain tables")
     pbd.add_argument("--format", choices=["md", "adoc"], default=None,
                      help="detail render format (md or adoc)")
     pbd.add_argument("--orientation", "--directive", default=None,
@@ -1204,6 +1225,8 @@ def build_parser() -> argparse.ArgumentParser:
     preg.add_argument("--all", action="store_true", help="regenerate all components (summary, detail, graph nodes)")
     preg.add_argument("--corrupted", action="store_true",
                       help="automatically scan and target all docs with corrupted ADOC syntax in summary")
+    preg.add_argument("--tables", "--has-tables", action="store_true", dest="tables",
+                      help="automatically scan and target all docs containing markdown/adoc/html tables")
     preg.add_argument("--refetch", action="store_true",
                       help="re-fetch document content from URL before regenerating summary/detail")
     preg.add_argument("--force", action="store_true", help="execute LLM regeneration and overwrite DB (required to apply)")
@@ -1220,6 +1243,8 @@ def build_parser() -> argparse.ArgumentParser:
     psum.add_argument("--token", default=None, help="specific share token")
     psum.add_argument("--doc-id", default=None, help="specific document ID")
     psum.add_argument("--corrupted", action="store_true", help="scan all docs with corrupted ADOC syntax")
+    psum.add_argument("--tables", "--has-tables", action="store_true", dest="tables",
+                      help="automatically scan and target all docs containing tables")
     psum.add_argument("--refetch", action="store_true", help="re-fetch document content from URL before regenerating")
     psum.add_argument("--force", action="store_true", help="execute LLM regeneration and overwrite DB")
     psum.add_argument("--effort", default=None, help="reasoning effort level (low, medium, high)")

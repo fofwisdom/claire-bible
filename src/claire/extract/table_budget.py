@@ -23,7 +23,7 @@ _MD_TABLE_RE = re.compile(
 
 # HTML 테이블 패턴 (혹시 raw HTML로 들어온 경우)
 _HTML_TABLE_RE = re.compile(
-    r"(?:\n|^)<table\b[^>]*>[\s\S]*?</table>(?:\n|$)",
+    r"<table\b[^>]*>[\s\S]*?</table>",
     re.MULTILINE | re.IGNORECASE,
 )
 
@@ -129,3 +129,20 @@ def slice_text_with_table_exemption(text: str, limit: int) -> str:
             # 예산이 소진된 이후의 일반 본문은 생략됨 (단, 뒤에 나오는 테이블은 계속 보존)
 
     return "".join(out_parts)
+
+
+def has_tables(text: str | None) -> bool:
+    """텍스트에 마크다운, AsciiDoc 또는 HTML 표가 1개 이상 포함되어 있는지 여부 반환."""
+    if not text:
+        return False
+    _, tables = extract_tables_from_text(text)
+    return len(tables) > 0
+
+
+def count_tables(text: str | None) -> int:
+    """텍스트에 포함된 표 개수 반환."""
+    if not text:
+        return 0
+    _, tables = extract_tables_from_text(text)
+    return len(tables)
+

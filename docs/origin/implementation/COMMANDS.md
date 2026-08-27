@@ -181,15 +181,15 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 
 | 명령 | 사용법 | 설명 |
 | :--- | :--- | :--- |
-| `regenerate` | `claire regenerate <target> [--summary] [--detail] [--all] [--force] [--effort <level>]` | 특정 문서 컴포넌트(요약/본문) 선택적 LLM 재생성 (기본: dry-run) |
-| `summary-regenerate`| `claire summary-regenerate <target> [--force] [--effort <level>]` | `regenerate --summary`의 단축 Alias |
+| `regenerate` | `claire regenerate [<target>] [--tables] [--summary] [--detail] [--all] [--force] [--effort <level>]` | 특정 문서 또는 표(Table) 포함 문서 컴포넌트(요약/본문/그래프) 선택적 LLM 재생성 (기본: dry-run) |
+| `summary-regenerate`| `claire summary-regenerate [<target>] [--tables] [--force] [--effort <level>]` | `regenerate --summary`의 단축 Alias |
 | `format-migrate` | `claire format-migrate [--format {md,adoc}] [--apply] [--yes] [--json]` | 문서 렌더링 포맷 진단 및 일괄 변환 (기본: dry-run) |
 | `format-status` | `claire format-status` | 문서 detail의 포맷별(md, adoc, 누락) 통계 출력 |
-| `backfill-detail` | `claire backfill-detail [--format {md,adoc}] [--limit N] [--force]` | detail 렌더링이 누락된 문서 일괄 생성 (그래프 불변) |
+| `backfill-detail` | `claire backfill-detail [--tables] [--format {md,adoc}] [--limit N] [--force]` | detail 렌더링이 누락되었거나 표가 포함된 문서 일괄 생성 (그래프 불변) |
 | `backfill-summary` | `claire backfill-summary [--limit N]` | 요약이 누락된 기존 문서의 요약 일괄 생성 |
 | `backfill-images` | `claire backfill-images [--limit N]` | 문서 내 참조된 이미지 에셋 추출 및 다운로드 백필 |
 | `recompile-html` | `claire recompile-html` | 저장된 detail 본문으로부터 `detail_html` AOT 사전 컴파일 갱신 |
-| `reextract` | `claire reextract [--no-rebuild] [--limit N]` | 저장된 `raw_text`로부터 지식그래프 전체를 백지상태에서 재추출 |
+| `reextract` | `claire reextract [--tables] [--no-rebuild] [--limit N]` | 저장된 `raw_text`로부터 지식그래프 전체(또는 표 포함 문서)를 재추출 |
 | `replay-failed` | `claire replay-failed [--limit N]` | `raw_inbox`에서 `status=error`인 실패 건 전량 수동 재적재 |
 | `recover-run` | `claire recover-run [--limit N]` | 에러 큐 단건/배치 복구 실행 (게이팅/지수 백오프 적용) |
 | `recover-loop` | `claire recover-loop [--interval N]` | 에러 복구 자동 데몬 루프 |
@@ -198,14 +198,16 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 | `refresh-loop` | `claire refresh-loop [--interval N]` | 갱신 큐 상주 데몬 루프 |
 
 #### `regenerate`
-특정 문서의 컴포넌트(요약, 본문 detail)를 LLM을 통해 선택적으로 재생성하고 DB를 갱신합니다.
+특정 문서의 컴포넌트(요약, 본문 detail, 그래프 노드/엣지)를 LLM을 통해 선택적으로 재생성하고 DB를 갱신합니다.
 * **사용법**:
   ```bash
   ./cb-manuscript app regenerate <target> --summary              # Dry-run 진단 (기본)
   ./cb-manuscript app regenerate <target> --summary --force      # 실제 LLM 호출 및 DB 덮어쓰기
   ./cb-manuscript app regenerate <target> --summary --force --effort high # 추론 레벨 지정
   ./cb-manuscript app regenerate --corrupted --summary           # 오염된 요약 일괄 스캔
-  ./cb-manuscript app regenerate <target> --all --force          # 요약 + 본문 전체 재생성
+  ./cb-manuscript app regenerate --tables --all                  # 표 포함 문서 일괄 진단 (Dry-run)
+  ./cb-manuscript app regenerate --tables --all --force          # 표 포함 문서 요약/본문/그래프 일괄 재생성
+  ./cb-manuscript app regenerate <target> --all --force          # 특정 문서 전체 재생성
   ```
 * **옵션**:
   * `target`: 문서 ID, 공유 토큰(예: `dzr73zpxh2bah4vp`), 또는 공유 URL (`https://.../p?s=token`).
@@ -213,8 +215,10 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
   * `--doc-id <id>`: 명시적 문서 ID 지정.
   * `--summary`: 요약(summary) 재생성 (기본 대상). 지식그래프 노드/엣지는 100% 보존.
   * `--detail`: 본문(detail) 렌더링 텍스트 재생성.
-  * `--all`: 요약과 본문 동시 재생성.
+  * `--graph`: 엔티티와 관계 재추출 및 지식그래프/Vault 갱신.
+  * `--all`: 요약, 본문, 그래프 전체 동시 재생성.
   * `--corrupted`: AsciiDoc/마크업 문법 잔존으로 오염된 요약을 가진 문서를 전체 DB에서 자동 탐지.
+  * `--tables`, `--has-tables`: 마크다운(`|...|`), AsciiDoc(`|===`), HTML(`<table>`) 표가 포함된 문서를 전체 DB에서 자동 탐지하여 일괄 대상으로 지정.
   * `--force`: 실제 LLM 호출 및 DB 덮어쓰기 실행 (미지정 시 기본 dry-run).
   * `--dry-run`: 대상 문서 정보 및 계획만 출력하고 DB 변경 없음 (기본값).
   * `--effort <level>`: Gemini 사고/추론 레벨 오버라이드 (`low`, `medium`, `high`, `minimal`, `none`, 또는 정수 토큰 budget).
