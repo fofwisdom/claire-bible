@@ -115,8 +115,14 @@ def test_parse_message_directive():
     assert p == "https://example.com/h"
     assert d == "데이터 파이프라인 수명주기"
 
-    # 4. Multi-line URL + plain text directive (URL 아래 줄바꿈 후 자유 텍스트 방향성)
-    p, d = parse_message_directive("https://example.com/i\n이 문서는 초보자를 위한 상세 튜토리얼 관점으로 작성해줘")
+    # 4. Multi-line URL + plain text directive (줄바꿈 1번은 사고 방지 유지, 2번째 줄바꿈/빈 줄에서 분리)
+    # 4-1. 줄바꿈 1번(태그 없음) -> 단순 사고/메모로 보고 분리하지 않음
+    p, d = parse_message_directive("https://example.com/i\n단순 메모 텍스트")
+    assert p == "https://example.com/i\n단순 메모 텍스트"
+    assert d is None
+
+    # 4-2. 빈 줄(2번째 줄바꿈)이 있는 경우 -> 명백한 의도로 보고 URL과 방향성 텍스트 분리
+    p, d = parse_message_directive("https://example.com/i\n\n이 문서는 초보자를 위한 상세 튜토리얼 관점으로 작성해줘")
     assert p == "https://example.com/i"
     assert d == "이 문서는 초보자를 위한 상세 튜토리얼 관점으로 작성해줘"
 
