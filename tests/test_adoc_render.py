@@ -498,3 +498,84 @@ def test_db_recompile_all_detail_html():
     assert "<table><thead><tr><th>A</th><th>B</th></tr></thead><tbody><tr><td>1</td><td>2</td></tr></tbody></table>" in new_html
 
     conn.close()
+
+
+def test_aot_render_adoc_table_rowspan_and_colspan():
+    """AsciiDoc 셀 접두사 문법(.2+|, 2+|, 2.2+|, ^|)에 따른 rowspan, colspan, align 및 행/열 배치가 정상 렌더링되는지 검증."""
+    sample = """
+|===
+| H1 | H2 | H3
+
+.2+| Row 1-2 Col 1
+| Row 1 Col 2
+| Row 1 Col 3
+
+| Row 2 Col 2
+| Row 2 Col 3
+
+2+| Span 2 Cols
+^| Centered Col 3
+|===
+"""
+    html_out = render_adoc_to_html(sample)
+    assert "<thead><tr><th>H1</th><th>H2</th><th>H3</th></tr></thead>" in html_out
+    assert '<tr><td rowspan="2">Row 1-2 Col 1</td><td>Row 1 Col 2</td><td>Row 1 Col 3</td></tr>' in html_out
+    assert "<tr><td>Row 2 Col 2</td><td>Row 2 Col 3</td></tr>" in html_out
+    assert '<tr><td colspan="2">Span 2 Cols</td><td style="text-align:center">Centered Col 3</td></tr>' in html_out
+    assert ".2+|" not in html_out
+    assert "2+|" not in html_out
+    assert "^|" not in html_out
+
+
+def test_aot_render_adoc_table_building_blocks_case():
+    """9 Building Blocks 문서의 4열 다중 행 병합(.2+|, .3+|) 테이블이 열 밀림 없이 완벽히 렌더링되는지 검증."""
+    sample = """
+|===
+| 영역 (Area) | 빌딩 블록 (Building Block) | 약칭 | 주요 역할 및 개념 정의
+
+.2+| Customers (고객)
+| Customer Segments
+| CS
+| 조직이 도달하고 서비스하려는 하나 이상의 고객 그룹
+
+| Customer Relationships
+| CR
+| 각 고객 세그먼트와 수립하고 유지하는 관계의 유형
+
+| Offer (제안)
+| Value Propositions
+| VP
+| 고객의 문제를 해결하고 요구를 충족시키는 가치의 묶음
+
+.3+| Infrastructure (인프라)
+| Channels
+| CH
+| 가치 제안을 고객에게 전달하는 커뮤니케이션·유통·영업 채널
+
+| Key Resources
+| KR
+| 가치 제안 제공 및 비즈니스 모델 운영에 필수적인 핵심 자산
+
+| Key Activities
+| KA
+| 비즈니스 모델을 원활히 작동시키기 위해 수행해야 하는 핵심 활동
+|===
+"""
+    html_out = render_adoc_to_html(sample)
+    # 1. 태그 누출 방지 검증
+    assert ".2+|" not in html_out
+    assert ".3+|" not in html_out
+    # 2. 헤더 검증 (4열)
+    assert "<thead><tr><th>영역 (Area)</th><th>빌딩 블록 (Building Block)</th><th>약칭</th><th>주요 역할 및 개념 정의</th></tr></thead>" in html_out
+    # 3. Row 1 검증: Customers (rowspan=2), Customer Segments, CS, 설명
+    assert '<tr><td rowspan="2">Customers (고객)</td><td>Customer Segments</td><td>CS</td><td>조직이 도달하고 서비스하려는 하나 이상의 고객 그룹</td></tr>' in html_out
+    # 4. Row 2 검증: Customer Relationships 가 1열로 밀리지 않고 3개 셀로 바르게 구성
+    assert "<tr><td>Customer Relationships</td><td>CR</td><td>각 고객 세그먼트와 수립하고 유지하는 관계의 유형</td></tr>" in html_out
+    # 5. Row 3 검증: Offer (1x1 4열)
+    assert "<tr><td>Offer (제안)</td><td>Value Propositions</td><td>VP</td><td>고객의 문제를 해결하고 요구를 충족시키는 가치의 묶음</td></tr>" in html_out
+    # 6. Row 4 검증: Infrastructure (rowspan=3), Channels, CH, 설명
+    assert '<tr><td rowspan="3">Infrastructure (인프라)</td><td>Channels</td><td>CH</td><td>가치 제안을 고객에게 전달하는 커뮤니케이션·유통·영업 채널</td></tr>' in html_out
+    # 7. Row 5 & Row 6 검증
+    assert "<tr><td>Key Resources</td><td>KR</td><td>가치 제안 제공 및 비즈니스 모델 운영에 필수적인 핵심 자산</td></tr>" in html_out
+    assert "<tr><td>Key Activities</td><td>KA</td><td>비즈니스 모델을 원활히 작동시키기 위해 수행해야 하는 핵심 활동</td></tr>" in html_out
+

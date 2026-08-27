@@ -17,6 +17,8 @@ def _inline_adoc_format(text: str) -> str:
         return ""
     # HTML 특수문자 이스케이프 선행
     s = html.escape(text, quote=False)
+    # 줄바꿈: ' +' (공백 + 플러스 기호가 라인 끝 또는 뒤에 올 때) -> <br>
+    s = re.sub(r"\s+\+\s*(?:$|\n)", "<br>", s)
     # 형광 하이라이트: #텍스트# -> <mark>텍스트</mark>
     s = re.sub(r"#(?!\s)([^#\n]+?)(?<!\s)#", r"<mark>\1</mark>", s)
     # 굵은 글씨: *텍스트* -> <strong>텍스트</strong>
@@ -55,6 +57,50 @@ def _split_table_cells(line: str) -> list[str]:
     return [p.replace(r"\|", "|").strip() for p in parts]
 
 
+def _parse_cell_spec(spec_str: str) -> tuple[int, int, str | None, str | None]:
+    """AsciiDoc 셀 접두사(spec)에서 (colspan, rowspan, align, style) 파싱."""
+    colspan = 1
+    rowspan = 1
+    align = None
+    style = None
+    if not spec_str:
+        return colspan, rowspan, align, style
+
+    spec = spec_str.strip()
+    m_span = re.search(r"(\d+)?\.(\d+)\+", spec)
+    if m_span:
+        if m_span.group(1):
+            colspan = int(m_span.group(1))
+        if m_span.group(2):
+            rowspan = int(m_span.group(2))
+    else:
+        m_col = re.search(r"(?<!\.)(\d+)\+", spec)
+        if m_col:
+            colspan = int(m_col.group(1))
+        m_row = re.search(r"\.(\d+)\+", spec)
+        if m_row:
+            rowspan = int(m_row.group(1))
+        m_dup = re.search(r"^(\d+)\*$", spec)
+        if m_dup:
+            colspan = int(m_dup.group(1))
+
+    if "^" in spec:
+        align = "center"
+    elif ">" in spec:
+        align = "right"
+    elif "<" in spec:
+        align = "left"
+
+    return colspan, rowspan, align, style
+
+
+class _AdocTableCell:
+    def __init__(self, text: str, spec: str = ""):
+        self.text = text
+        self.spec = spec
+        self.colspan, self.rowspan, self.align, self.style = _parse_cell_spec(spec)
+
+
 def _parse_cols_attr(text: str) -> int | None:
     """AsciiDoc [cols="..."] 속성 문자열에서 컬럼 수 파싱."""
     if not text:
@@ -84,74 +130,109 @@ def _parse_cols_attr(text: str) -> int | None:
     return None
 
 
-def _parse_adoc_table_rows(
+def _extract_adoc_table_cells(
     table_lines: list[str], explicit_cols: int | None = None
-) -> list[list[str]]:
-    """AsciiDoc 테이블 내부 줄들을 행/열 2차원 리스트로 변환."""
-    if not table_lines:
-        return []
+) -> tuple[list[_AdocTableCell], int]:
+    """AsciiDoc 테이블 줄들에서 개별 셀 객체 목록과 전체 열(column) 수를 파싱 및 산출."""
+    placeholder = "\x00"
+    cell_token_re = re.compile(
+        r"(?:^|(?<=\s))((?:\d*\.?\d+\+|\d+\*)?[\^<>]?[a-z]?|[\^<>]?[a-z]?)\|"
+    )
 
-    # 1. 빈 줄을 기준으로 블록(행 후보) 분할
-    blocks: list[list[str]] = []
-    current_block: list[str] = []
+    cells: list[_AdocTableCell] = []
+    first_line_cols: int | None = None
+    first_block_cols = 0
+    in_first_block = True
+
     for line in table_lines:
-        if not line.strip():
-            if current_block:
-                blocks.append(current_block)
-                current_block = []
-        else:
-            current_block.append(line)
-    if current_block:
-        blocks.append(current_block)
+        raw = line.strip()
+        if not raw:
+            if in_first_block and cells:
+                in_first_block = False
+            continue
 
-    if not blocks:
-        return []
+        safe = raw.replace(r"\|", placeholder)
+        matches = list(cell_token_re.finditer(safe))
 
-    # 2. 각 블록에서 셀 추출 (줄바꿈 연속 텍스트 처리 포함)
-    parsed_blocks: list[list[str]] = []
-    for block in blocks:
-        block_cells: list[str] = []
-        for bl in block:
-            trimmed = bl.strip()
-            if trimmed.startswith("|"):
-                cells = _split_table_cells(trimmed)
-                block_cells.extend(cells)
-            else:
-                # '|'로 시작하지 않는 연속 줄은 직전 셀의 내용으로 이어붙임
-                if block_cells:
-                    block_cells[-1] = f"{block_cells[-1]} {trimmed}"
-                else:
-                    block_cells.append(trimmed)
-        if block_cells:
-            parsed_blocks.append(block_cells)
+        if not matches or matches[0].start() > 0:
+            # 선두 구분자가 없는 경우 -> 직전 셀 텍스트의 줄바꿈 연속으로 처리
+            if cells and not matches:
+                cells[-1].text += " " + raw.replace(r"\|", "|")
+                continue
+            elif not matches:
+                cell = _AdocTableCell(raw.replace(r"\|", "|"))
+                cells.append(cell)
+                if in_first_block:
+                    first_block_cols += cell.colspan
+                continue
 
-    if not parsed_blocks:
-        return []
+        line_cells_count = 0
+        for i in range(len(matches)):
+            m = matches[i]
+            spec = m.group(1).strip()
+            start_pos = m.end()
+            end_pos = matches[i + 1].start() if i + 1 < len(matches) else len(safe)
+            cell_text = safe[start_pos:end_pos].strip().replace(placeholder, "|")
+            cell = _AdocTableCell(cell_text, spec)
+            cells.append(cell)
+            line_cells_count += cell.colspan
+            if in_first_block:
+                first_block_cols += cell.colspan
 
-    # 3. 컬럼 수(num_cols) 산출
+        if first_line_cols is None and line_cells_count > 0:
+            first_line_cols = line_cells_count
+
     num_cols = explicit_cols
     if not num_cols or num_cols <= 0:
-        first_block = parsed_blocks[0]
-        first_line = blocks[0][0].strip()
-        first_line_cells = _split_table_cells(first_line) if first_line.startswith("|") else []
-        if len(first_line_cells) > 1:
-            num_cols = len(first_line_cells)
-        elif len(first_block) > 1:
-            num_cols = len(first_block)
+        if first_line_cols and first_line_cols > 1:
+            num_cols = first_line_cols
+        elif first_block_cols > 1:
+            num_cols = first_block_cols
         else:
             num_cols = 1
 
-    # 4. 행(rows) 조립
-    rows: list[list[str]] = []
-    for p_block in parsed_blocks:
-        if len(p_block) <= num_cols:
-            rows.append(p_block)
-        else:
-            # 블록 내 셀 수가 num_cols보다 많은 경우 (빈 줄 없이 연속된 다중 행)
-            for i in range(0, len(p_block), num_cols):
-                chunk = p_block[i : i + num_cols]
-                if chunk:
-                    rows.append(chunk)
+    return cells, num_cols
+
+
+def _parse_adoc_table_rows(
+    table_lines: list[str], explicit_cols: int | None = None
+) -> list[list[_AdocTableCell]]:
+    """AsciiDoc 테이블 셀들을 rowspan/colspan 및 빈 열을 고려하여 2차원 행/열 그리드로 조립."""
+    cells, num_cols = _extract_adoc_table_cells(table_lines, explicit_cols=explicit_cols)
+    if not cells:
+        return []
+
+    rows: list[list[_AdocTableCell]] = []
+    cell_idx = 0
+    occupied = [0] * num_cols
+
+    while cell_idx < len(cells):
+        row_cells: list[_AdocTableCell] = []
+        col = 0
+        while col < num_cols and cell_idx < len(cells):
+            if occupied[col] > 0:
+                occupied[col] -= 1
+                col += 1
+                continue
+
+            cell = cells[cell_idx]
+            cell_idx += 1
+            row_cells.append(cell)
+
+            if cell.rowspan > 1:
+                for span_c in range(cell.colspan):
+                    if col + span_c < num_cols:
+                        occupied[col + span_c] = cell.rowspan - 1
+
+            col += cell.colspan
+
+        while col < num_cols:
+            if occupied[col] > 0:
+                occupied[col] -= 1
+            col += 1
+
+        if row_cells:
+            rows.append(row_cells)
 
     return rows
 
@@ -169,9 +250,20 @@ def _render_table_html(
     if title:
         t_html.append(f"<caption>{html.escape(title)}</caption>")
 
+    def _render_cell(cell: _AdocTableCell, tag: str) -> str:
+        attrs = []
+        if cell.rowspan > 1:
+            attrs.append(f'rowspan="{cell.rowspan}"')
+        if cell.colspan > 1:
+            attrs.append(f'colspan="{cell.colspan}"')
+        if cell.align:
+            attrs.append(f'style="text-align:{cell.align}"')
+        attr_str = (" " + " ".join(attrs)) if attrs else ""
+        return f"<{tag}{attr_str}>{_inline_adoc_format(cell.text)}</{tag}>"
+
     t_html.append(
         "<thead><tr>"
-        + "".join(f"<th>{_inline_adoc_format(c)}</th>" for c in rows[0])
+        + "".join(_render_cell(c, "th") for c in rows[0])
         + "</tr></thead>"
     )
     if len(rows) > 1:
@@ -179,7 +271,7 @@ def _render_table_html(
         for r in rows[1:]:
             t_html.append(
                 "<tr>"
-                + "".join(f"<td>{_inline_adoc_format(c)}</td>" for c in r)
+                + "".join(_render_cell(c, "td") for c in r)
                 + "</tr>"
             )
         t_html.append("</tbody>")

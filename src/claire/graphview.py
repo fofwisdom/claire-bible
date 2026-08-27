@@ -1354,7 +1354,7 @@ function splitTableCells(line){
 }
 function parseColsAttr(text){
   if(!text) return null;
-  var m=text.match(/cols=["']?([^"'\]]+)["']?/i);
+  var m=text.match(/cols=["']?([^"'\\]]+)["']?/i);
   var colsVal=m ? m[1].trim() : text.replace(/[\\[\\]]/g, '').trim();
   var starM=colsVal.match(/^(\\d+)\\*/);
   if(starM) return parseInt(starM[1], 10);
@@ -1371,70 +1371,123 @@ function parseColsAttr(text){
   if(/^\\d+$/.test(colsVal)) return parseInt(colsVal, 10);
   return null;
 }
-function parseAdocTableRows(tableLines, explicitCols){
-  if(!tableLines || tableLines.length === 0) return [];
-  var blocks=[];
-  var currentBlock=[];
-  for(var i=0; i<tableLines.length; i++){
-    var l=tableLines[i];
-    if(!l.trim()){
-      if(currentBlock.length > 0){
-        blocks.push(currentBlock);
-        currentBlock=[];
-      }
-    }else{
-      currentBlock.push(l);
-    }
+function parseCellSpec(specStr){
+  var res={colspan:1, rowspan:1, align:null, style:null};
+  if(!specStr) return res;
+  var spec=specStr.trim();
+  var mSpan=spec.match(/(\\d+)?\\.(\\d+)\\+/);
+  if(mSpan){
+    if(mSpan[1]) res.colspan=parseInt(mSpan[1], 10);
+    if(mSpan[2]) res.rowspan=parseInt(mSpan[2], 10);
+  }else{
+    var mCol=spec.match(/(?<!\\.)(\\d+)\\+/);
+    if(mCol) res.colspan=parseInt(mCol[1], 10);
+    var mRow=spec.match(/\\.(\\d+)\\+/);
+    if(mRow) res.rowspan=parseInt(mRow[1], 10);
+    var mDup=spec.match(/^(\\d+)\\*$/);
+    if(mDup) res.colspan=parseInt(mDup[1], 10);
   }
-  if(currentBlock.length > 0) blocks.push(currentBlock);
-  if(blocks.length === 0) return [];
+  if(spec.indexOf('^') !== -1) res.align='center';
+  else if(spec.indexOf('>') !== -1) res.align='right';
+  else if(spec.indexOf('<') !== -1) res.align='left';
+  return res;
+}
+function extractCellsAndCols(tableLines, explicitCols){
+  var placeholder='\uE000';
+  var cellTokenRe=/(?:^|(?<=\\s))((?:\\d*\\.?\\d+\\+|\\d+\\*)?[\\^<>]?[a-z]?|[\\^<>]?[a-z]?)\\|/g;
+  var cells=[];
+  var firstLineCols=null;
+  var firstBlockCols=0;
+  var inFirstBlock=true;
 
-  var parsedBlocks=[];
-  for(var b=0; b<blocks.length; b++){
-    var blk=blocks[b];
-    var blockCells=[];
-    for(var j=0; j<blk.length; j++){
-      var trimmed=blk[j].trim();
-      if(trimmed.startsWith('|')){
-        var cells=splitTableCells(trimmed);
-        for(var k=0; k<cells.length; k++) blockCells.push(cells[k]);
-      }else{
-        if(blockCells.length > 0){
-          blockCells[blockCells.length - 1] += ' ' + trimmed;
-        }else{
-          blockCells.push(trimmed);
-        }
+  for(var i=0; i<tableLines.length; i++){
+    var raw=tableLines[i].trim();
+    if(!raw){
+      if(inFirstBlock && cells.length > 0) inFirstBlock=false;
+      continue;
+    }
+    var safe=raw.replace(/\\\\\\|/g, placeholder);
+    var matches=[];
+    var m;
+    cellTokenRe.lastIndex=0;
+    while((m=cellTokenRe.exec(safe)) !== null){
+      matches.push({index: m.index, spec: m[1] || '', length: m[0].length});
+    }
+
+    if(matches.length === 0 || matches[0].index > 0){
+      if(cells.length > 0 && matches.length === 0){
+        cells[cells.length - 1].text += ' ' + raw.replace(/\\\\\\|/g, '|');
+        continue;
+      }else if(matches.length === 0){
+        var specObj=parseCellSpec('');
+        cells.push({text: raw.replace(/\\\\\\|/g, '|'), spec: '', colspan: specObj.colspan, rowspan: specObj.rowspan, align: specObj.align});
+        if(inFirstBlock) firstBlockCols += specObj.colspan;
+        continue;
       }
     }
-    if(blockCells.length > 0) parsedBlocks.push(blockCells);
+
+    var lineCellsCount=0;
+    for(var j=0; j<matches.length; j++){
+      var cur=matches[j];
+      var spec=(cur.spec || '').trim();
+      var specObj=parseCellSpec(spec);
+      var startPos=cur.index + cur.length;
+      var endPos=(j + 1 < matches.length) ? matches[j + 1].index : safe.length;
+      var cellText=safe.substring(startPos, endPos).trim().replace(new RegExp(placeholder, 'g'), '|');
+      cells.push({text: cellText, spec: spec, colspan: specObj.colspan, rowspan: specObj.rowspan, align: specObj.align});
+      lineCellsCount += specObj.colspan;
+      if(inFirstBlock) firstBlockCols += specObj.colspan;
+    }
+    if(firstLineCols === null && lineCellsCount > 0){
+      firstLineCols=lineCellsCount;
+    }
   }
-  if(parsedBlocks.length === 0) return [];
 
   var numCols=explicitCols;
   if(!numCols || numCols <= 0){
-    var firstBlock=parsedBlocks[0];
-    var firstLine=blocks[0][0].trim();
-    var firstLineCells=firstLine.startsWith('|') ? splitTableCells(firstLine) : [];
-    if(firstLineCells.length > 1){
-      numCols=firstLineCells.length;
-    }else if(firstBlock.length > 1){
-      numCols=firstBlock.length;
-    }else{
-      numCols=1;
-    }
+    if(firstLineCols && firstLineCols > 1) numCols=firstLineCols;
+    else if(firstBlockCols > 1) numCols=firstBlockCols;
+    else numCols=1;
   }
+  return {cells: cells, numCols: numCols};
+}
+function parseAdocTableRows(tableLines, explicitCols){
+  var res=extractCellsAndCols(tableLines, explicitCols);
+  var cells=res.cells;
+  var numCols=res.numCols;
+  if(!cells || cells.length === 0) return [];
+  if(numCols <= 0) numCols=1;
 
   var rows=[];
-  for(var p=0; p<parsedBlocks.length; p++){
-    var pb=parsedBlocks[p];
-    if(pb.length <= numCols){
-      rows.push(pb);
-    }else{
-      for(var idx=0; idx<pb.length; idx += numCols){
-        var chunk=pb.slice(idx, idx + numCols);
-        if(chunk.length > 0) rows.push(chunk);
+  var cellIdx=0;
+  var occupied=[];
+  for(var c=0; c<numCols; c++) occupied.push(0);
+
+  while(cellIdx < cells.length){
+    var rowCells=[];
+    var col=0;
+    while(col < numCols && cellIdx < cells.length){
+      if(occupied[col] > 0){
+        occupied[col]--;
+        col++;
+        continue;
       }
+      var cell=cells[cellIdx++];
+      rowCells.push(cell);
+      if(cell.rowspan > 1){
+        for(var spanC=0; spanC<cell.colspan; spanC++){
+          if(col + spanC < numCols){
+            occupied[col + spanC]=cell.rowspan - 1;
+          }
+        }
+      }
+      col += cell.colspan;
     }
+    while(col < numCols){
+      if(occupied[col] > 0) occupied[col]--;
+      col++;
+    }
+    if(rowCells.length > 0) rows.push(rowCells);
   }
   return rows;
 }
@@ -1444,11 +1497,21 @@ function renderTableHtml(tableLines, blockMeta){
   if(!rows || rows.length === 0) return '';
   var tHtml='<table>';
   if(blockMeta.title) tHtml += '<caption>' + esc(blockMeta.title) + '</caption>';
-  tHtml += '<thead><tr>' + rows[0].map(function(c){ return '<th>' + renderMarkdown(c) + '</th>'; }).join('') + '</tr></thead>';
+
+  function renderCell(cell, tag){
+    var attrs=[];
+    if(cell.rowspan > 1) attrs.push('rowspan=\"' + cell.rowspan + '\"');
+    if(cell.colspan > 1) attrs.push('colspan=\"' + cell.colspan + '\"');
+    if(cell.align) attrs.push('style=\"text-align:' + cell.align + '\"');
+    var attrStr=attrs.length > 0 ? ' ' + attrs.join(' ') : '';
+    return '<' + tag + attrStr + '>' + renderMarkdown(cell.text) + '</' + tag + '>';
+  }
+
+  tHtml += '<thead><tr>' + rows[0].map(function(c){ return renderCell(c, 'th'); }).join('') + '</tr></thead>';
   if(rows.length > 1){
     tHtml += '<tbody>';
     for(var r=1; r<rows.length; r++){
-      tHtml += '<tr>' + rows[r].map(function(c){ return '<td>' + renderMarkdown(c) + '</td>'; }).join('') + '</tr>';
+      tHtml += '<tr>' + rows[r].map(function(c){ return renderCell(c, 'td'); }).join('') + '</tr>';
     }
     tHtml += '</tbody>';
   }
@@ -3900,7 +3963,7 @@ function splitTableCells(line){
 }
 function parseColsAttr(text){
   if(!text) return null;
-  var m=text.match(/cols=["']?([^"'\]]+)["']?/i);
+  var m=text.match(/cols=["']?([^"'\\]]+)["']?/i);
   var colsVal=m ? m[1].trim() : text.replace(/[\\[\\]]/g, '').trim();
   var starM=colsVal.match(/^(\\d+)\\*/);
   if(starM) return parseInt(starM[1], 10);
@@ -3917,70 +3980,123 @@ function parseColsAttr(text){
   if(/^\\d+$/.test(colsVal)) return parseInt(colsVal, 10);
   return null;
 }
-function parseAdocTableRows(tableLines, explicitCols){
-  if(!tableLines || tableLines.length === 0) return [];
-  var blocks=[];
-  var currentBlock=[];
-  for(var i=0; i<tableLines.length; i++){
-    var l=tableLines[i];
-    if(!l.trim()){
-      if(currentBlock.length > 0){
-        blocks.push(currentBlock);
-        currentBlock=[];
-      }
-    }else{
-      currentBlock.push(l);
-    }
+function parseCellSpec(specStr){
+  var res={colspan:1, rowspan:1, align:null, style:null};
+  if(!specStr) return res;
+  var spec=specStr.trim();
+  var mSpan=spec.match(/(\\d+)?\\.(\\d+)\\+/);
+  if(mSpan){
+    if(mSpan[1]) res.colspan=parseInt(mSpan[1], 10);
+    if(mSpan[2]) res.rowspan=parseInt(mSpan[2], 10);
+  }else{
+    var mCol=spec.match(/(?<!\\.)(\\d+)\\+/);
+    if(mCol) res.colspan=parseInt(mCol[1], 10);
+    var mRow=spec.match(/\\.(\\d+)\\+/);
+    if(mRow) res.rowspan=parseInt(mRow[1], 10);
+    var mDup=spec.match(/^(\\d+)\\*$/);
+    if(mDup) res.colspan=parseInt(mDup[1], 10);
   }
-  if(currentBlock.length > 0) blocks.push(currentBlock);
-  if(blocks.length === 0) return [];
+  if(spec.indexOf('^') !== -1) res.align='center';
+  else if(spec.indexOf('>') !== -1) res.align='right';
+  else if(spec.indexOf('<') !== -1) res.align='left';
+  return res;
+}
+function extractCellsAndCols(tableLines, explicitCols){
+  var placeholder='\uE000';
+  var cellTokenRe=/(?:^|(?<=\\s))((?:\\d*\\.?\\d+\\+|\\d+\\*)?[\\^<>]?[a-z]?|[\\^<>]?[a-z]?)\\|/g;
+  var cells=[];
+  var firstLineCols=null;
+  var firstBlockCols=0;
+  var inFirstBlock=true;
 
-  var parsedBlocks=[];
-  for(var b=0; b<blocks.length; b++){
-    var blk=blocks[b];
-    var blockCells=[];
-    for(var j=0; j<blk.length; j++){
-      var trimmed=blk[j].trim();
-      if(trimmed.startsWith('|')){
-        var cells=splitTableCells(trimmed);
-        for(var k=0; k<cells.length; k++) blockCells.push(cells[k]);
-      }else{
-        if(blockCells.length > 0){
-          blockCells[blockCells.length - 1] += ' ' + trimmed;
-        }else{
-          blockCells.push(trimmed);
-        }
+  for(var i=0; i<tableLines.length; i++){
+    var raw=tableLines[i].trim();
+    if(!raw){
+      if(inFirstBlock && cells.length > 0) inFirstBlock=false;
+      continue;
+    }
+    var safe=raw.replace(/\\\\\\|/g, placeholder);
+    var matches=[];
+    var m;
+    cellTokenRe.lastIndex=0;
+    while((m=cellTokenRe.exec(safe)) !== null){
+      matches.push({index: m.index, spec: m[1] || '', length: m[0].length});
+    }
+
+    if(matches.length === 0 || matches[0].index > 0){
+      if(cells.length > 0 && matches.length === 0){
+        cells[cells.length - 1].text += ' ' + raw.replace(/\\\\\\|/g, '|');
+        continue;
+      }else if(matches.length === 0){
+        var specObj=parseCellSpec('');
+        cells.push({text: raw.replace(/\\\\\\|/g, '|'), spec: '', colspan: specObj.colspan, rowspan: specObj.rowspan, align: specObj.align});
+        if(inFirstBlock) firstBlockCols += specObj.colspan;
+        continue;
       }
     }
-    if(blockCells.length > 0) parsedBlocks.push(blockCells);
+
+    var lineCellsCount=0;
+    for(var j=0; j<matches.length; j++){
+      var cur=matches[j];
+      var spec=(cur.spec || '').trim();
+      var specObj=parseCellSpec(spec);
+      var startPos=cur.index + cur.length;
+      var endPos=(j + 1 < matches.length) ? matches[j + 1].index : safe.length;
+      var cellText=safe.substring(startPos, endPos).trim().replace(new RegExp(placeholder, 'g'), '|');
+      cells.push({text: cellText, spec: spec, colspan: specObj.colspan, rowspan: specObj.rowspan, align: specObj.align});
+      lineCellsCount += specObj.colspan;
+      if(inFirstBlock) firstBlockCols += specObj.colspan;
+    }
+    if(firstLineCols === null && lineCellsCount > 0){
+      firstLineCols=lineCellsCount;
+    }
   }
-  if(parsedBlocks.length === 0) return [];
 
   var numCols=explicitCols;
   if(!numCols || numCols <= 0){
-    var firstBlock=parsedBlocks[0];
-    var firstLine=blocks[0][0].trim();
-    var firstLineCells=firstLine.startsWith('|') ? splitTableCells(firstLine) : [];
-    if(firstLineCells.length > 1){
-      numCols=firstLineCells.length;
-    }else if(firstBlock.length > 1){
-      numCols=firstBlock.length;
-    }else{
-      numCols=1;
-    }
+    if(firstLineCols && firstLineCols > 1) numCols=firstLineCols;
+    else if(firstBlockCols > 1) numCols=firstBlockCols;
+    else numCols=1;
   }
+  return {cells: cells, numCols: numCols};
+}
+function parseAdocTableRows(tableLines, explicitCols){
+  var res=extractCellsAndCols(tableLines, explicitCols);
+  var cells=res.cells;
+  var numCols=res.numCols;
+  if(!cells || cells.length === 0) return [];
+  if(numCols <= 0) numCols=1;
 
   var rows=[];
-  for(var p=0; p<parsedBlocks.length; p++){
-    var pb=parsedBlocks[p];
-    if(pb.length <= numCols){
-      rows.push(pb);
-    }else{
-      for(var idx=0; idx<pb.length; idx += numCols){
-        var chunk=pb.slice(idx, idx + numCols);
-        if(chunk.length > 0) rows.push(chunk);
+  var cellIdx=0;
+  var occupied=[];
+  for(var c=0; c<numCols; c++) occupied.push(0);
+
+  while(cellIdx < cells.length){
+    var rowCells=[];
+    var col=0;
+    while(col < numCols && cellIdx < cells.length){
+      if(occupied[col] > 0){
+        occupied[col]--;
+        col++;
+        continue;
       }
+      var cell=cells[cellIdx++];
+      rowCells.push(cell);
+      if(cell.rowspan > 1){
+        for(var spanC=0; spanC<cell.colspan; spanC++){
+          if(col + spanC < numCols){
+            occupied[col + spanC]=cell.rowspan - 1;
+          }
+        }
+      }
+      col += cell.colspan;
     }
+    while(col < numCols){
+      if(occupied[col] > 0) occupied[col]--;
+      col++;
+    }
+    if(rowCells.length > 0) rows.push(rowCells);
   }
   return rows;
 }
@@ -3990,11 +4106,21 @@ function renderTableHtml(tableLines, blockMeta){
   if(!rows || rows.length === 0) return '';
   var tHtml='<table>';
   if(blockMeta.title) tHtml += '<caption>' + esc(blockMeta.title) + '</caption>';
-  tHtml += '<thead><tr>' + rows[0].map(function(c){ return '<th>' + renderMarkdown(c) + '</th>'; }).join('') + '</tr></thead>';
+
+  function renderCell(cell, tag){
+    var attrs=[];
+    if(cell.rowspan > 1) attrs.push('rowspan=\"' + cell.rowspan + '\"');
+    if(cell.colspan > 1) attrs.push('colspan=\"' + cell.colspan + '\"');
+    if(cell.align) attrs.push('style=\"text-align:' + cell.align + '\"');
+    var attrStr=attrs.length > 0 ? ' ' + attrs.join(' ') : '';
+    return '<' + tag + attrStr + '>' + renderMarkdown(cell.text) + '</' + tag + '>';
+  }
+
+  tHtml += '<thead><tr>' + rows[0].map(function(c){ return renderCell(c, 'th'); }).join('') + '</tr></thead>';
   if(rows.length > 1){
     tHtml += '<tbody>';
     for(var r=1; r<rows.length; r++){
-      tHtml += '<tr>' + rows[r].map(function(c){ return '<td>' + renderMarkdown(c) + '</td>'; }).join('') + '</tr>';
+      tHtml += '<tr>' + rows[r].map(function(c){ return renderCell(c, 'td'); }).join('') + '</tr>';
     }
     tHtml += '</tbody>';
   }
