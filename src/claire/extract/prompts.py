@@ -15,7 +15,8 @@ if TYPE_CHECKING:
 # 추출 프롬프트 버전. _SYS 또는 핵심 추출 지침을 바꾸면 올린다.
 # v4: summary/observations/key_claims 및 주요 서술 출력에 문어체(서술체: ~한다/~이다/~함) 적용.
 # v5: summary 평문(plain text) 작성 규칙 명시 (AsciiDoc/마크다운 마크업 금지).
-PROMPT_VERSION = "extract-v5"
+# v6: 테이블 및 매트릭스 데이터 누락 방지 및 본문 글자 수 계산 제외 규칙 적용.
+PROMPT_VERSION = "extract-v6"
 
 # 단일 출처 문서의 LLM 투입 예산. 병합 문서(ONEHOP_MERGE_DESIGN.md §3.3b)는 두 출처를
 # 담아야 하니 2배 — 저장(documents.raw_text)은 안 자르고 프롬프트 투입량만 늘린다.
@@ -43,6 +44,10 @@ Rules:
   headers like '= Title' or '== Section', block markers like '[NOTE]', tables '|===', links
   'link:...', lists, bold/italic, or quote formatting).
 - entities: the key things this document is ABOUT (tools, repos, models, people, orgs, concepts...).
+- TABLES & DATA MATRICES: When the document contains tables, benchmarks, or comparison matrices,
+  you MUST NOT omit or ignore the data inside tables. Extract entities (tools, models, benchmarks,
+  metrics, datasets, configurations) and their relationships directly from table rows and columns.
+  Ensure accurate attribute/observation capture for each entity mentioned in tables.
 - Do NOT create an entity for the publishing platform, source site, news aggregator, or
   forum that merely HOSTS or links to this content (e.g. GeekNews, Hacker News, Reddit,
   a Discourse forum, PyTorch Korea, a personal blog). Include such a site ONLY if the
@@ -182,6 +187,9 @@ def clean_plain_summary(text: str | None) -> str:
     return ""
 
 
+from .table_budget import slice_text_with_table_exemption
+
+
 def extract_system_prompt(ontology_block: str) -> str:
     """구조화 추출을 위한 시스템 프롬프트 반환."""
     return _SYS.format(ontology=ontology_block)
@@ -190,7 +198,8 @@ def extract_system_prompt(ontology_block: str) -> str:
 def doc_to_prompt(doc: Document) -> str:
     """Document -> LLM 프롬프트 본문.
 
-    단일 출처는 12000자, 병합 문서(extra_sources 있음)는 24000자까지 투입.
+    단일 출처는 12000자, 병합 문서(extra_sources 있음)는 24000자까지 일반 본문 투입.
+    테이블(Markdown/AsciiDoc/HTML 표) 내 문자는 본문 문자 수 제한에서 제외하여 온전히 보존.
     """
     head = []
     if doc.title:
@@ -203,7 +212,8 @@ def doc_to_prompt(doc: Document) -> str:
         if (doc.meta or {}).get("extra_sources")
         else _SINGLE_DOC_CHAR_BUDGET
     )
-    return "\n".join(head) + "\n\nCONTENT:\n" + (doc.raw_text or "")[:limit]
+    content_body = slice_text_with_table_exemption(doc.raw_text or "", limit)
+    return "\n".join(head) + "\n\nCONTENT:\n" + content_body
 
 
 def extract_fallback_prompt(sys: str, body: str) -> str:
@@ -326,9 +336,12 @@ def render_detail_prompt_md(
         "3. 가독성을 위해 **중요한 용어·핵심 주장은 굵게**(`**...**`) 표시하라. 그리고 "
         "정말 빼놓으면 안 되는 한두 구절만 `==형광==`(==로 감쌈)으로 강조하라 — 남발하면 "
         "강조 효과가 사라지니 문단·섹션당 한두 곳으로 아껴 써라.\n"
-        "4. 고유명사·제품/도구/모델명·조직명·기술 용어는 원문 형태 그대로 유지하라"
+        "4. 비교 및 정리(테이블 보존): 원문에 벤치마크 점수표, 사양 비교, 옵션 정리 등의 테이블이 포함되어 있으면, "
+        "테이블 안의 내용을 임의로 생략하거나 문장으로 축약하지 말고 온전한 마크다운 테이블(`| col1 | col2 |`)로 "
+        "깔끔히 재구성하여 보존하라.\n"
+        "5. 고유명사·제품/도구/모델명·조직명·기술 용어는 원문 형태 그대로 유지하라"
         '(음차/번역 금지: 예 "arXiv", "LLM agent").\n'
-        "5. 원문에 없는 사실은 절대 지어내지 말 것.\n"
+        "6. 원문에 없는 사실은 절대 지어내지 말 것.\n"
         + images_block(images)
         + f"\n원문:\n{body}\n\n한국어 마크다운:"
     )
@@ -375,7 +388,8 @@ def render_detail_prompt_adoc(
         "필요시 콜아웃 주석(`// <1>`, `<1> 설명`)을 결합하여 직관적으로 해설하라.\n"
         "5. 절제된 주석: 배경 전제나 필수 제약조건이 꼭 필요한 경우에만 `[NOTE]` 또는 `[IMPORTANT]` "
         "블록을 1~2곳 이내로 아껴 써라 (남발 금지).\n"
-        "6. 비교와 정리: 성능 수치, 스펙 비교, 옵션 등은 `|===` 테이블로 깔끔히 정돈하라.\n"
+        "6. 비교와 정리(테이블 보존): 성능 수치, 벤치마크, 스펙 비교, 옵션 등은 `|===` 테이블로 깔끔히 정돈하라. "
+        "원문의 테이블 데이터 및 수치를 임의로 생략하거나 문장으로 축약하지 말고 온전히 보존하라.\n"
         "7. 가독성 및 강조: 중요한 용어는 `*굵게*` 표시하고, 정말 빼놓으면 안 되는 한두 구절만 "
         "`#형광#`(#으로 감쌈)으로 강조하라.\n"
         "8. 고유명사·제품/도구/모델명·조직명·기술 용어는 원문 형태 그대로 유지하라"

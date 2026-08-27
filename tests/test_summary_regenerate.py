@@ -205,7 +205,7 @@ def test_summary_prompt_plain_text_definition():
     )
     from claire.extract.provider import ExtractionResult
 
-    assert PROMPT_VERSION == "extract-v5"
+    assert PROMPT_VERSION == "extract-v6"
 
     sys = extract_system_prompt("{ontology}")
     assert "plain text" in sys.lower() or "평문" in sys
