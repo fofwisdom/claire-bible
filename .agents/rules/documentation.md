@@ -11,7 +11,7 @@ AI 에이전트와 개발자는 프로젝트 관련 문서를 작성하거나 �
 
 2. **오리진 설계 내역 (`docs/origin/design/`)**:
    - 아키텍처 구상, 기능 기획/재설계, 알고리즘 및 파이프라인 설계, 시스템 설계 아티클, 기술 조사/리서치 자료 등은 반드시 `docs/origin/design/` 디렉터리에 저장합니다.
-   - 예시: `docs/origin/design/ONEHOP_MERGE_DESIGN.md`, `docs/origin/design/SYNTHESIS_REDESIGN.md`, `docs/origin/design/MULTI_PROVIDER_DESIGN.md`
+   - 예시: `docs/origin/design/DATA_LIFECYCLE_AND_PURGE_DESIGN.md`, `docs/origin/design/DUAL_FORMAT_ADOC_DESIGN.md`, `docs/origin/design/MULTI_PROVIDER_DESIGN.md`
 
 3. **오리진 구현 및 운영 내역 (`docs/origin/implementation/`)**:
    - 실제 코드베이스에 구현된 기능의 동작 명세, 호스트 및 컨테이너 운영 가이드, 네트워크/인증/CORS 설정 명세, 배포 가이드는 반드시 `docs/origin/implementation/` 디렉터리에 저장합니다.
