@@ -1407,6 +1407,55 @@ def documents_needing_detail_format(
     return [r["id"] for r in conn.execute(q, (fmt,)).fetchall()]
 
 
+def documents_with_tables(
+    conn: sqlite3.Connection,
+    limit: int = 0,
+    check_detail: bool = True,
+) -> list[dict[str, Any]]:
+    """raw_text 또는 detail 에 표(Table)가 포함된 문서 목록을 반환.
+
+    반환: list of {id, title, canonical_url, raw_tables_count, detail_tables_count, total_tables, table_preview}
+    """
+    from ..extract.table_budget import extract_tables_from_text
+
+    # SQLite LIKE 1차 프리필터 (빠른 스캔 축약)
+    rows = conn.execute(
+        "SELECT id, title, canonical_url, raw_text, detail, fetched_at "
+        "FROM documents "
+        "WHERE (raw_text LIKE '%|%' OR raw_text LIKE '%<table%') "
+        "   OR (detail LIKE '%|%' OR detail LIKE '%<table%') "
+        "ORDER BY fetched_at DESC"
+    ).fetchall()
+
+    results: list[dict[str, Any]] = []
+    for r in rows:
+        raw_text = r["raw_text"] or ""
+        detail_text = (r["detail"] or "") if check_detail else ""
+        _, raw_tables = extract_tables_from_text(raw_text)
+        _, detail_tables = extract_tables_from_text(detail_text) if check_detail else (detail_text, [])
+
+        total_tables = len(raw_tables) + len(detail_tables)
+        if total_tables > 0:
+            preview = ""
+            if raw_tables:
+                preview = raw_tables[0].strip()[:200]
+            elif detail_tables:
+                preview = detail_tables[0].strip()[:200]
+            results.append({
+                "id": r["id"],
+                "title": r["title"] or "(제목 없음)",
+                "canonical_url": r["canonical_url"],
+                "raw_tables_count": len(raw_tables),
+                "detail_tables_count": len(detail_tables),
+                "total_tables": total_tables,
+                "table_preview": preview,
+            })
+            if limit and len(results) >= limit:
+                break
+    return results
+
+
+
 def get_format_status(
     conn: sqlite3.Connection,
     configured_format: str,
