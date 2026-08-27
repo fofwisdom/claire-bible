@@ -84,6 +84,92 @@ def classify_input(text: str) -> str:
     return "text"
 
 
+import re
+
+_DIRECTIVE_FLAG_RE = re.compile(
+    r"(?:\s+|^)(?:--orientation|--directive|-o)\s+([^\n]+)",
+    re.IGNORECASE,
+)
+_DIRECTIVE_PREFIX_RE = re.compile(
+    r"^(?:\[(?:방향성|방향|초점|관점|지침|directive|orientation)\]|#(?:방향성|방향|초점|관점|지침|directive|orientation)|(?:방향성|방향|초점|관점|지침|directive|orientation)\s*[:：])\s*(.+)$",
+    re.IGNORECASE,
+)
+
+
+def parse_message_directive(text: str) -> tuple[str, str | None]:
+    """메시지 본문에서 페이로드(URL/텍스트)와 본문 작성 방향성(directive)을 분리 추출.
+
+    지원 패턴:
+    1. 플래그: `URL --orientation <지침>` 또는 `URL -o <지침>`
+    2. 구분자: `URL -- <지침>` 또는 `URL | <지침>`
+    3. 명시적 키워드/태그: `URL\n[방향성] <지침>` 또는 `URL\n방향: <지침>` 또는 `#방향 <지침>`
+    4. 2줄 분리: 첫 줄이 단일 URL이고 다음 줄에 텍스트가 오는 경우
+    5. 일반 메모 내 명시적 지침 블록
+    """
+    t = (text or "").strip()
+    if not t:
+        return "", None
+
+    # 1. 플래그 (--orientation, --directive, -o)
+    m = _DIRECTIVE_FLAG_RE.search(t)
+    if m:
+        dir_val = m.group(1).strip()
+        payload = (t[:m.start()] + " " + t[m.end():]).strip()
+        if payload:
+            return payload, dir_val or None
+
+    lines = [line.strip() for line in t.splitlines() if line.strip()]
+    if not lines:
+        return t, None
+
+    # 2. 줄 단위 명시적 프리픽스 ([방향성], 방향:, #방향 등) 검사
+    dir_lines = []
+    payload_lines = []
+    for line in lines:
+        pm = _DIRECTIVE_PREFIX_RE.match(line)
+        if pm:
+            dir_lines.append(pm.group(1).strip())
+        else:
+            payload_lines.append(line)
+
+    if dir_lines and payload_lines:
+        return "\n".join(payload_lines), " ".join(dir_lines)
+
+    # 3. 구분자 (-- 또는 |) 검사: 단일 라인에서 `URL -- 지침` 또는 `URL | 지침`
+    if len(lines) == 1:
+        line = lines[0]
+        for sep in (" -- ", " — ", " | "):
+            if sep in line:
+                part_a, part_b = line.split(sep, 1)
+                part_a, part_b = part_a.strip(), part_b.strip()
+                if part_a and part_b:
+                    return part_a, part_b
+
+    # 4. 첫 줄이 완전한 URL 하나이고 2번째 줄 이상이 있는 경우
+    from .ingest.router import _URL_RE
+    if len(lines) >= 2:
+        first = lines[0]
+        if _URL_RE.fullmatch(first):
+            rest = "\n".join(lines[1:]).strip()
+            pm = _DIRECTIVE_PREFIX_RE.match(rest)
+            if pm:
+                rest = pm.group(1).strip()
+            return first, rest or None
+
+    return t, None
+
+
+def parse_caption_directive(caption: str | None) -> str | None:
+    """파일/문서 첨부 캡션에서 방향성 추출."""
+    c = (caption or "").strip()
+    if not c:
+        return None
+    pm = _DIRECTIVE_PREFIX_RE.match(c)
+    if pm:
+        return pm.group(1).strip() or None
+    return c
+
+
 def _is_allowed(user_id: int | None) -> bool:
     s = get_settings()
     allow = s.allowed_user_ids
@@ -154,13 +240,21 @@ def run_bot() -> int:
         "\n"
         "그냥 보내면 적재됩니다:\n"
         "  • 링크(웹/유튜브/x.com/google share)\n"
-        "  • PDF·텍스트 파일\n"
+        "  • PDF·텍스트 파일 (캡션에 방향성 작성 가능)\n"
         "  • 키워드/메모 등 자유 텍스트\n"
         "→ 스크랩 → Gemini 구조화 → 그래프로 저장, 기존 항목과 자동 연결.\n"
         "  관련 링크가 보이면 '가져오기' 버튼으로 1홉 확장.\n"
         "\n"
+        "💡 본문 작성 방향성(초점/관점) 지정 방법:\n"
+        "  • URL 뒤에 플래그: https://example.com/doc --orientation 시스템 아키텍처 중심\n"
+        "  • URL 뒤에 구분자: https://example.com/doc -- 초보자 튜토리얼 관점\n"
+        "  • 줄바꿈 + 태그: https://example.com/doc\n    [방향] 핵심 수식 및 원리 중심\n"
+        "  • 파일/PDF 전송 시 캡션에 원하는 방향성을 적어서 전송\n"
+        "\n"
         "명령어:\n"
         "  /search <키워드> — 하이브리드 검색 + 요약(인용)\n"
+        "  /ingest <URL|텍스트> [-- <방향>] — 방향성 지정 적재\n"
+        "  /regenerate <문서ID|토큰|URL> [새 방향성] — 가독 본문(detail) 맞춤 재생성\n"
         "  /web — 1회용 웹 로그인 링크 발급(로그인 쿠키 7일, 적재/수정 가능)\n"
         "  /webro — 읽기전용 웹 링크 발급(그래프·검색·문서만, 공유해도 안전)\n"
         "  /repo — 소스 리포지토리 접근 링크\n"
@@ -185,15 +279,25 @@ def run_bot() -> int:
         text = (update.message.text or "").strip()
         if not text:
             return
+        payload, directive = parse_message_directive(text)
         msg = update.message
-        label = f"처리 중… ({classify_input(text)})"
+        label = f"처리 중… ({classify_input(payload)})"
+        if directive:
+            label += f" [방향: {directive[:20]}]"
         status = await msg.reply_text(f"⏳ {label}")
         uid = user.id if user else None
         cid = update.effective_chat.id if update.effective_chat else None
         try:
             report = await _run_with_ticker(
                 status, label,
-                lambda: svc.ingest(text, source="telegram", user_id=uid, chat_id=cid))
+                lambda: svc.ingest(
+                    payload,
+                    source="telegram",
+                    user_id=uid,
+                    chat_id=cid,
+                    directive=directive,
+                ),
+            )
             summary, cands = report.telegram_summary(), report.candidates
             emoji = _status_emoji(report.error, report.duplicate)
         except Exception as e:  # noqa: BLE001
@@ -211,7 +315,11 @@ def run_bot() -> int:
             return
         name = doc.file_name or "document"
         msg = update.message
+        caption = update.message.caption
+        directive = parse_caption_directive(caption)
         label = f"파일 처리 중… ({name})"
+        if directive:
+            label += f" [방향: {directive[:20]}]"
         status = await msg.reply_text(f"⏳ {label}")
         uid = user.id if user else None
         cid = update.effective_chat.id if update.effective_chat else None
@@ -231,8 +339,16 @@ def run_bot() -> int:
 
         def _work():
             kept = svc.save_inbound_file(int(update.update_id), Path(tmp_path), name)
-            return svc.ingest(kept, source="telegram", user_id=uid, chat_id=cid,
-                              inbox_kind="document", file_ref=kept, file_name=name)
+            return svc.ingest(
+                kept,
+                source="telegram",
+                user_id=uid,
+                chat_id=cid,
+                inbox_kind="document",
+                file_ref=kept,
+                file_name=name,
+                directive=directive,
+            )
 
         try:
             report = await _run_with_ticker(status, label, _work)
@@ -242,6 +358,100 @@ def run_bot() -> int:
             summary, cands, emoji = f"❌ 처리 오류: {e}", [], "👎"
         await _react(msg, emoji)
         await _settle(status, msg, summary, cands, update.update_id)
+
+    async def on_ingest(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        user = update.effective_user
+        if not _is_allowed(user.id if user else None):
+            await update.message.reply_text("허용되지 않은 사용자입니다.")
+            return
+        raw = " ".join(ctx.args) if ctx.args else ""
+        if not raw:
+            await update.message.reply_text(
+                "사용법:\n"
+                "  /ingest <URL 또는 텍스트>\n"
+                "  /ingest <URL> --orientation <방향성>\n"
+                "  /ingest <URL> -- <방향성>"
+            )
+            return
+        payload, directive = parse_message_directive(raw)
+        msg = update.message
+        label = f"적재 처리 중… ({classify_input(payload)})"
+        if directive:
+            label += f" [방향: {directive[:20]}]"
+        status = await msg.reply_text(f"⏳ {label}")
+        uid = user.id if user else None
+        cid = update.effective_chat.id if update.effective_chat else None
+        try:
+            report = await _run_with_ticker(
+                status, label,
+                lambda: svc.ingest(
+                    payload,
+                    source="telegram",
+                    user_id=uid,
+                    chat_id=cid,
+                    directive=directive,
+                ),
+            )
+            summary, cands = report.telegram_summary(), report.candidates
+            emoji = _status_emoji(report.error, report.duplicate)
+        except Exception as e:  # noqa: BLE001
+            summary, cands, emoji = f"❌ 처리 오류: {e}", [], "👎"
+        await _react(msg, emoji)
+        await _settle(status, msg, summary, cands, update.update_id)
+
+    async def on_regenerate(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        user = update.effective_user
+        if not _is_allowed(user.id if user else None):
+            await update.message.reply_text("허용되지 않은 사용자입니다.")
+            return
+        raw = " ".join(ctx.args) if ctx.args else ""
+        if not raw:
+            await update.message.reply_text(
+                "사용법:\n"
+                "  /regenerate <문서ID|토큰|URL> [새 방향성]\n"
+                "  /regenerate <문서ID> --orientation <새 방향성>\n"
+                "  예: /regenerate doc_123456789012 시스템 아키텍처 중심"
+            )
+            return
+        target, directive = parse_message_directive(raw)
+        tokens = raw.split(None, 1)
+        if directive is None and len(tokens) > 1:
+            target = tokens[0]
+            directive = tokens[1].strip()
+        else:
+            target = target or (tokens[0] if tokens else "")
+
+        msg = update.message
+        label = f"본문 재생성 중… ({target})"
+        if directive:
+            label += f" [방향: {directive[:20]}]"
+        status = await msg.reply_text(f"⏳ {label}")
+        try:
+            res = await _run_with_ticker(
+                status, label,
+                lambda: svc.regenerate_components(
+                    target=target,
+                    detail=True,
+                    force=True,
+                    directive=directive,
+                ),
+            )
+            if res.get("error"):
+                ans = f"❌ 재생성 실패: {res['error']}"
+                emoji = "👎"
+            elif res.get("count", 0) > 0:
+                tinfo = res["targets"][0]
+                dir_msg = f"\n초점/방향성: {directive}" if directive else ""
+                ans = f"✅ 본문 재생성 완료: {tinfo.get('title', target)}{dir_msg}"
+                emoji = "👍"
+            else:
+                ans = f"⚠️ 대상 문서를 찾을 수 없습니다: {target}"
+                emoji = "🤔"
+        except Exception as e:  # noqa: BLE001
+            ans = f"❌ 재생성 오류: {e}"
+            emoji = "👎"
+        await _react(msg, emoji)
+        await status.edit_text(ans)
 
     async def on_callback(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
         query = update.callback_query
@@ -436,6 +646,9 @@ def run_bot() -> int:
     app.add_handler(CommandHandler("status", on_status))
     app.add_handler(CommandHandler("repo", on_repo))
     app.add_handler(CommandHandler("search", on_search))
+    app.add_handler(CommandHandler("ingest", on_ingest))
+    app.add_handler(CommandHandler("regenerate", on_regenerate))
+    app.add_handler(CommandHandler("regen", on_regenerate))
     app.add_handler(CommandHandler("web", on_web))
     app.add_handler(CommandHandler("webro", on_webro))
     app.add_handler(CommandHandler("failed", on_failed))
@@ -453,6 +666,8 @@ def run_bot() -> int:
             BotCommand("status", "현황(그래프/수렴/최근)"),
             BotCommand("repo", "소스 리포지토리 링크"),
             BotCommand("search", "검색 + 요약"),
+            BotCommand("ingest", "방향성 지정 적재"),
+            BotCommand("regenerate", "본문 방향성 재생성"),
             BotCommand("web", "웹 접속 링크 발급"),
             BotCommand("webro", "읽기전용 웹 링크 발급"),
             BotCommand("failed", "실패/영구실패 점검"),

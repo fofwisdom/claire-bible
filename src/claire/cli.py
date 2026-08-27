@@ -573,11 +573,13 @@ def cmd_ingest(args) -> int:
     provider = get_provider(s)
     vstore = make_vector_store(conn, s.vector_backend)
     print(f"(provider={provider.name})")
+    directive = getattr(args, "orientation", None) or getattr(args, "directive", None)
     report = ingest(
         args.payload, conn=conn, provider=provider, vstore=vstore,
         vault_dir=s.vault_dir, data_dir=s.data_dir, source="cli",
         expand_max=(0 if args.no_expand else s.expand_max),
         format=getattr(args, "format", None),
+        directive=directive,
     )
     print(report.telegram_summary())
 
@@ -587,7 +589,8 @@ def cmd_ingest(args) -> int:
         for url in report.candidates:
             sub = ingest(url, conn=conn, provider=provider, vstore=vstore,
                          vault_dir=s.vault_dir, data_dir=s.data_dir, source="cli-expand",
-                         expand_max=0, format=getattr(args, "format", None))  # 2홉 방지
+                         expand_max=0, format=getattr(args, "format", None),
+                         directive=directive)  # 2홉 방지
             print(f"  - {url}\n    {sub.telegram_summary().splitlines()[0]}")
     elif report.candidates:
         print("\n[expand] 후보 URL (적재하려면 --expand):")
@@ -627,8 +630,12 @@ def cmd_backfill_detail(args) -> int:
     svc = IngestService(s)
     print(f"(provider={svc.provider.name}) detail 백필 시작"
           f"{' (force)' if args.force else ''}…", flush=True)
+    directive = getattr(args, "orientation", None) or getattr(args, "directive", None)
     out = svc.backfill_details(
-        limit=args.limit, force=args.force, format=getattr(args, "format", None)
+        limit=args.limit,
+        force=args.force,
+        format=getattr(args, "format", None),
+        directive=directive,
     )
     print(f"백필 완료: 대상 {out['docs']} · 생성 {out['ok']} · 건너뜀 {out['skipped']}")
     return 0
@@ -667,6 +674,7 @@ def cmd_regenerate(args) -> int:
     force = getattr(args, "force", False)
     effort = getattr(args, "effort", None)
     fmt = getattr(args, "format", None)
+    directive = getattr(args, "orientation", None) or getattr(args, "directive", None)
 
     res = svc.regenerate_components(
         target=target,
@@ -681,6 +689,7 @@ def cmd_regenerate(args) -> int:
         force=force,
         effort=effort,
         format=fmt,
+        directive=directive,
     )
 
     if getattr(args, "json", False):
@@ -1149,6 +1158,8 @@ def build_parser() -> argparse.ArgumentParser:
                     help="do not even detect expansion candidates")
     pi.add_argument("--format", choices=["md", "adoc"], default=None,
                     help="detail render format (md or adoc, default: config CLAIRE_RENDER_FORMAT)")
+    pi.add_argument("--orientation", "--directive", default=None,
+                    help="content perspective or directive for detail rendering (e.g. '시스템 아키텍처 중심')")
     pi.set_defaults(func=cmd_ingest)
 
     ps = sub.add_parser("search", help="hybrid search (FTS+vector) + LLM summary")
@@ -1172,6 +1183,8 @@ def build_parser() -> argparse.ArgumentParser:
     pbd.add_argument("--force", action="store_true", help="regenerate even if detail exists")
     pbd.add_argument("--format", choices=["md", "adoc"], default=None,
                      help="detail render format (md or adoc)")
+    pbd.add_argument("--orientation", "--directive", default=None,
+                     help="content perspective or directive for detail rendering")
     pbd.set_defaults(func=cmd_backfill_detail)
 
     pbs = sub.add_parser("backfill-summary",
@@ -1196,6 +1209,7 @@ def build_parser() -> argparse.ArgumentParser:
     preg.add_argument("--force", action="store_true", help="execute LLM regeneration and overwrite DB (required to apply)")
     preg.add_argument("--effort", default=None, help="reasoning effort level (e.g. low, medium, high)")
     preg.add_argument("--format", choices=["md", "adoc"], default=None, help="detail format (md or adoc)")
+    preg.add_argument("--orientation", "--directive", default=None, help="content perspective or directive for detail rendering")
     preg.add_argument("--json", action="store_true", help="output result in JSON format")
     preg.set_defaults(func=cmd_regenerate)
 

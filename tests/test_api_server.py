@@ -55,9 +55,17 @@ class StubService:
         *,
         source: str,
         expand_max: int | None = None,
+        format: str | None = None,
+        directive: str | None = None,
+        **kwargs: Any,
     ) -> dict[str, Any]:
         emit_progress(f"{source}:{payload}")
-        return {"ok": True, "payload": payload, "expand_max": expand_max}
+        res: dict[str, Any] = {"ok": True, "payload": payload, "expand_max": expand_max}
+        if format is not None:
+            res["format"] = format
+        if directive is not None:
+            res["directive"] = directive
+        return res
 
     def search(
         self,

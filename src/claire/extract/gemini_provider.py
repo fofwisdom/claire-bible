@@ -271,7 +271,9 @@ class GeminiProvider:
         ))
         return _extract_output_text(interaction).strip()
 
-    def render_detail(self, doc: Document, format: str = "md") -> str:
+    def render_detail(
+        self, doc: Document, format: str = "md", directive: str | None = None
+    ) -> str:
         """원문을 한국어 가독 렌더링(MD 또는 ADOC)으로 '편하게 읽을 수 있는 글'로 재구성(요약 아님).
 
         짧은 summary 와 별개 — 원문을 직접 안 읽어도 핵심·맥락·세부를 파악할 수 있게
@@ -286,18 +288,32 @@ class GeminiProvider:
         body = _doc_to_prompt(doc)
         images = (doc.meta or {}).get("images") or []
         merged = bool((doc.meta or {}).get("extra_sources"))
-        text = self._render_detail_call(body, images, merged=merged, scale=1, format=format)
+        dir_val = directive or (doc.meta or {}).get("directive")
+        text = self._render_detail_call(
+            body, images, merged=merged, scale=1, format=format, directive=dir_val
+        )
         if merged:
             for scale in (2, 4):
                 if len(text) >= _MERGED_DETAIL_MIN_CHARS:
                     break
-                text = self._render_detail_call(body, images, merged=merged, scale=scale, format=format)
+                text = self._render_detail_call(
+                    body, images, merged=merged, scale=scale, format=format, directive=dir_val
+                )
         return text
 
     def _render_detail_call(
-        self, body: str, images: list, *, merged: bool, scale: int, format: str = "md"
+        self,
+        body: str,
+        images: list,
+        *,
+        merged: bool,
+        scale: int,
+        format: str = "md",
+        directive: str | None = None,
     ) -> str:
-        prompt = render_detail_prompt(body, images, merged=merged, scale=scale, format=format)
+        prompt = render_detail_prompt(
+            body, images, merged=merged, scale=scale, format=format, directive=directive
+        )
         interaction = self._call(lambda: self.client.interactions.create(
             model=self.model,
             input=prompt,

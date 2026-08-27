@@ -1648,6 +1648,28 @@ def get_document_extra_sources(conn: sqlite3.Connection, doc_id: str) -> list[di
     return json.loads(row["meta"] or "{}").get("extra_sources") or []
 
 
+def set_document_directive(conn: sqlite3.Connection, doc_id: str, directive: str | None) -> None:
+    """문서 meta 에 가독 렌더링 작성 방향성(directive)을 기록/갱신(다른 meta 키 보존)."""
+    row = conn.execute("SELECT meta FROM documents WHERE id=?", (doc_id,)).fetchone()
+    if row is None:
+        return
+    meta = json.loads(row["meta"] or "{}")
+    if directive and directive.strip():
+        meta["directive"] = directive.strip()
+    else:
+        meta.pop("directive", None)
+    conn.execute("UPDATE documents SET meta=? WHERE id=?", (json.dumps(meta), doc_id))
+    conn.commit()
+
+
+def get_document_directive(conn: sqlite3.Connection, doc_id: str) -> str | None:
+    """문서 meta 에서 가독 렌더링 작성 방향성(directive) 조회."""
+    row = conn.execute("SELECT meta FROM documents WHERE id=?", (doc_id,)).fetchone()
+    if row is None:
+        return None
+    return json.loads(row["meta"] or "{}").get("directive")
+
+
 def find_document_by_extra_source(conn: sqlite3.Connection, canonical_url: str | None) -> str | None:
     """이미 어떤 문서에 병합 출처로 흡수된 canonical_url 인지 — 1홉 후보 재제안 방지용
     (병합 경로는 새 Document 행을 안 만들어 documents.canonical_url 색인으로는 못 잡음).
