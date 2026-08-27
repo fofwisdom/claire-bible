@@ -65,6 +65,20 @@ def classify(payload: str) -> str:
     return "text"
 
 
+def _clean_url(url_candidate: str) -> str:
+    """URL 문자열 뒤에 공백이나 트레일링 텍스트/디렉티브가 섞여 있는 경우 순수 URL만 추출."""
+    t = (url_candidate or "").strip()
+    if not t.lower().startswith(("http://", "https://")):
+        return t
+    tokens = t.split()
+    if len(tokens) > 1:
+        first = tokens[0].rstrip(".,;)。")
+        m = _URL_RE.fullmatch(first)
+        if m:
+            return m.group(0)
+    return t
+
+
 def fetch(payload: str, *, _depth: int = 0) -> Document:
     """라우팅 + fetch. redirect 는 1회 재귀로 최종 URL 재라우팅."""
     t = payload.strip()
@@ -74,6 +88,9 @@ def fetch(payload: str, *, _depth: int = 0) -> Document:
         if shared:
             t = shared
     kind = classify(t)
+
+    if kind in ("web", "youtube", "xcom", "redirect"):
+        t = _clean_url(t)
 
     if kind == "youtube":
         from .fetchers.youtube import fetch_youtube

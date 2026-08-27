@@ -86,13 +86,19 @@ def classify_input(text: str) -> str:
 
 import re
 
+# 플래그: ASCII 하이픈(-, --), en-dash(–, ––), em-dash(—, ——), horizontal bar(―) 및 한국어 플래그 지원
+# 예: --orientation, —orientation, –orientation, -orientation, --directive, —directive, --관점, —관점, -o, —o
 _DIRECTIVE_FLAG_RE = re.compile(
-    r"(?:\s+|^)(?:--orientation|--directive|-o)\s+([^\n]+)",
+    r"(?:\s+|^)(?:[-–—―]{1,2}(?:orientation|directive|focus|perspective|관점|방향성|방향|초점|지침)|[-–—―]o)\s+([^\n]+)",
     re.IGNORECASE,
 )
 _DIRECTIVE_PREFIX_RE = re.compile(
-    r"^(?:\[(?:방향성|방향|초점|관점|지침|directive|orientation)\]|#(?:방향성|방향|초점|관점|지침|directive|orientation)|(?:방향성|방향|초점|관점|지침|directive|orientation)\s*[:：])\s*(.+)$",
+    r"^(?:\[(?:방향성|방향|초점|관점|지침|directive|orientation|focus|perspective)\]|#(?:방향성|방향|초점|관점|지침|directive|orientation|focus|perspective)|(?:방향성|방향|초점|관점|지침|directive|orientation|focus|perspective)\s*[:：])\s*(.+)$",
     re.IGNORECASE,
+)
+# 파이프(|, ｜, ¦) 또는 대시(--, —, –) 구분자 지원 (파이프 중심 통일)
+_DIRECTIVE_SEP_RE = re.compile(
+    r"(?:\s*([|｜¦])\s*|\s+([—–-]{1,2})\s+)",
 )
 
 
@@ -100,17 +106,15 @@ def parse_message_directive(text: str) -> tuple[str, str | None]:
     """메시지 본문에서 페이로드(URL/텍스트)와 본문 작성 방향성(directive)을 분리 추출.
 
     지원 패턴:
-    1. 플래그: `URL --orientation <지침>` 또는 `URL -o <지침>`
-    2. 구분자: `URL -- <지침>` 또는 `URL | <지침>`
-    3. 명시적 키워드/태그: `URL\n[방향성] <지침>` 또는 `URL\n방향: <지침>` 또는 `#방향 <지침>`
-    4. 2줄 분리: 첫 줄이 단일 URL이고 다음 줄에 텍스트가 오는 경우
-    5. 일반 메모 내 명시적 지침 블록
+    1. 파이프 구분: `URL | <지침>` 또는 `URL | <지침>` (주 문법)
+    2. 줄바꿈 구분: 첫 줄이 단일 URL이고 다음 줄에 텍스트나 [방향] 태그가 오는 경우
+    3. 구분자/플래그: `URL -- <지침>`, `URL — <지침>`, `URL --orientation <지침>` 등 (호환)
     """
     t = (text or "").strip()
     if not t:
         return "", None
 
-    # 1. 플래그 (--orientation, --directive, -o)
+    # 1. 플래그 호환 (--orientation, —orientation, -o 등)
     m = _DIRECTIVE_FLAG_RE.search(t)
     if m:
         dir_val = m.group(1).strip()
@@ -135,15 +139,15 @@ def parse_message_directive(text: str) -> tuple[str, str | None]:
     if dir_lines and payload_lines:
         return "\n".join(payload_lines), " ".join(dir_lines)
 
-    # 3. 구분자 (-- 또는 |) 검사: 단일 라인에서 `URL -- 지침` 또는 `URL | 지침`
+    # 3. 구분자 검사 (파이프 | 또는 대시): 단일 라인에서 `URL | 지침` 또는 `URL -- 지침`
     if len(lines) == 1:
         line = lines[0]
-        for sep in (" -- ", " — ", " | "):
-            if sep in line:
-                part_a, part_b = line.split(sep, 1)
-                part_a, part_b = part_a.strip(), part_b.strip()
-                if part_a and part_b:
-                    return part_a, part_b
+        m_sep = _DIRECTIVE_SEP_RE.search(line)
+        if m_sep:
+            part_a = line[:m_sep.start()].strip()
+            part_b = line[m_sep.end():].strip()
+            if part_a and part_b:
+                return part_a, part_b
 
     # 4. 첫 줄이 완전한 URL 하나이고 2번째 줄 이상이 있는 경우
     from .ingest.router import _URL_RE
@@ -246,15 +250,14 @@ def run_bot() -> int:
         "  관련 링크가 보이면 '가져오기' 버튼으로 1홉 확장.\n"
         "\n"
         "💡 본문 작성 방향성(초점/관점) 지정 방법:\n"
-        "  • URL 뒤에 플래그: https://example.com/doc --orientation 시스템 아키텍처 중심\n"
-        "  • URL 뒤에 구분자: https://example.com/doc -- 초보자 튜토리얼 관점\n"
-        "  • 줄바꿈 + 태그: https://example.com/doc\n    [방향] 핵심 수식 및 원리 중심\n"
+        "  • 파이프 구분: https://example.com/doc | 시스템 아키텍처 중심\n"
+        "  • 줄바꿈 구분: https://example.com/doc\n    초보자 튜토리얼 관점으로 작성해줘\n"
         "  • 파일/PDF 전송 시 캡션에 원하는 방향성을 적어서 전송\n"
         "\n"
         "명령어:\n"
         "  /search <키워드> — 하이브리드 검색 + 요약(인용)\n"
-        "  /ingest <URL|텍스트> [-- <방향>] — 방향성 지정 적재\n"
-        "  /regenerate <문서ID|토큰|URL> [새 방향성] — 가독 본문(detail) 맞춤 재생성\n"
+        "  /ingest <URL|텍스트> [| <방향>] — 방향성 지정 적재\n"
+        "  /regenerate <문서ID|토큰|URL> [| <새 방향성>] — 가독 본문(detail) 맞춤 재생성\n"
         "  /web — 1회용 웹 로그인 링크 발급(로그인 쿠키 7일, 적재/수정 가능)\n"
         "  /webro — 읽기전용 웹 링크 발급(그래프·검색·문서만, 공유해도 안전)\n"
         "  /repo — 소스 리포지토리 접근 링크\n"
@@ -369,8 +372,8 @@ def run_bot() -> int:
             await update.message.reply_text(
                 "사용법:\n"
                 "  /ingest <URL 또는 텍스트>\n"
-                "  /ingest <URL> --orientation <방향성>\n"
-                "  /ingest <URL> -- <방향성>"
+                "  /ingest <URL 또는 텍스트> | <방향성>\n"
+                "  예: /ingest https://example.com/doc | 시스템 아키텍처 중심"
             )
             return
         payload, directive = parse_message_directive(raw)
@@ -408,9 +411,9 @@ def run_bot() -> int:
         if not raw:
             await update.message.reply_text(
                 "사용법:\n"
-                "  /regenerate <문서ID|토큰|URL> [새 방향성]\n"
-                "  /regenerate <문서ID> --orientation <새 방향성>\n"
-                "  예: /regenerate doc_123456789012 시스템 아키텍처 중심"
+                "  /regenerate <문서ID|토큰|URL>\n"
+                "  /regenerate <문서ID|토큰|URL> | <새 방향성>\n"
+                "  예: /regenerate doc_123456789012 | 보안 및 취약점 분석 관점"
             )
             return
         target, directive = parse_message_directive(raw)

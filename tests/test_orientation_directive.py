@@ -324,3 +324,20 @@ def test_api_server_orientation(tmp_path: Path):
         assert "[directive: 스트림 방향성 전달 테스트]" in stream_detail
         assert dbm.get_document_directive(conn, stream_doc_id) == "스트림 방향성 전달 테스트"
         conn.close()
+
+
+def test_router_clean_url_with_trailing_directive():
+    from claire.ingest.router import _clean_url
+
+    # 1. Pure URL
+    assert _clean_url("https://example.com/doc.pdf") == "https://example.com/doc.pdf"
+
+    # 2. URL with trailing em-dash directive
+    assert _clean_url("https://example.com/doc.pdf —orientation Key Activities") == "https://example.com/doc.pdf"
+
+    # 3. URL with trailing plain directive
+    assert _clean_url("https://example.com/doc.pdf — Key Activities, Key Partners") == "https://example.com/doc.pdf"
+
+    # 4. Non-URL plain text
+    assert _clean_url("Plain text memo") == "Plain text memo"
+
