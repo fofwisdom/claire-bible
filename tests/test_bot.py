@@ -45,27 +45,62 @@ async def test_run_with_ticker_propagates_exception():
 def test_parse_message_directive():
     from claire.telegram_bot import parse_message_directive
 
-    # 1. Flag style
+    # 1. Flag style (ASCII, em-dash, en-dash, aliases)
     p, d = parse_message_directive("https://example.com/a --orientation 시스템 아키텍처 중심")
     assert p == "https://example.com/a"
     assert d == "시스템 아키텍처 중심"
+
+    # em-dash (—) flag: 모바일 스마트 대시 변환 지원
+    p, d = parse_message_directive("https://example.com/a.pdf —orientation Key Activities, Key Partners")
+    assert p == "https://example.com/a.pdf"
+    assert d == "Key Activities, Key Partners"
+
+    # en-dash (–) flag
+    p, d = parse_message_directive("https://example.com/a.pdf –orientation The 9 Building Blocks")
+    assert p == "https://example.com/a.pdf"
+    assert d == "The 9 Building Blocks"
 
     p, d = parse_message_directive("https://example.com/b --directive 보안 취약점 관점")
     assert p == "https://example.com/b"
     assert d == "보안 취약점 관점"
 
+    p, d = parse_message_directive("https://example.com/b —관점 비즈니스 모델")
+    assert p == "https://example.com/b"
+    assert d == "비즈니스 모델"
+
     p, d = parse_message_directive("https://example.com/c -o 초보자 튜토리얼")
     assert p == "https://example.com/c"
     assert d == "초보자 튜토리얼"
 
-    # 2. Separator style
+    p, d = parse_message_directive("https://example.com/c —o 초보자 튜토리얼")
+    assert p == "https://example.com/c"
+    assert d == "초보자 튜토리얼"
+
+    # 2. Pipe separator style (주 문법: | 및 ｜)
+    p, d = parse_message_directive("https://example.com/e | 비즈니스 모델 중심")
+    assert p == "https://example.com/e"
+    assert d == "비즈니스 모델 중심"
+
+    p, d = parse_message_directive("https://example.com/e|비즈니스 모델 중심")
+    assert p == "https://example.com/e"
+    assert d == "비즈니스 모델 중심"
+
+    p, d = parse_message_directive("https://example.com/e ｜ 전각 파이프 방향성")
+    assert p == "https://example.com/e"
+    assert d == "전각 파이프 방향성"
+
+    p, d = parse_message_directive("/regenerate doc_123456789012 | 보안 취약점 분석 관점")
+    assert p == "/regenerate doc_123456789012"
+    assert d == "보안 취약점 분석 관점"
+
+    # Dash separators (호환: ASCII --, em-dash —, en-dash –)
     p, d = parse_message_directive("https://example.com/d -- 핵심 알고리즘 중심")
     assert p == "https://example.com/d"
     assert d == "핵심 알고리즘 중심"
 
-    p, d = parse_message_directive("https://example.com/e | 비즈니스 모델 중심")
-    assert p == "https://example.com/e"
-    assert d == "비즈니스 모델 중심"
+    p, d = parse_message_directive("https://example.com/d.pdf — Key Activities, Key Partners, Key Resources")
+    assert p == "https://example.com/d.pdf"
+    assert d == "Key Activities, Key Partners, Key Resources"
 
     # 3. Bracket / hashtag / colon prefix
     p, d = parse_message_directive("https://example.com/f\n[방향성] 성능 최적화 관점")
