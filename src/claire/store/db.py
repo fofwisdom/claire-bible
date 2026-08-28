@@ -2656,7 +2656,8 @@ def scan_truncation_status(
         # 2. 산문(Prose) 상한 검사
         from ..config import get_settings
 
-        budget = get_settings().raw_char_budget
+        settings = get_settings()
+        budget = settings.pdf_max_extract_chars if src_type == "pdf" else settings.raw_char_budget
         tables, prose_parts = extract_tables_from_text(raw_text)
         prose_len = sum(len(p) for p in prose_parts)
         is_limit = (prose_len == budget) or (raw_len == budget)
@@ -2742,7 +2743,8 @@ def backfill_truncation_metadata(
             prose_len = sum(len(p) for p in prose_parts)
             from ..config import get_settings
 
-            budget = get_settings().raw_char_budget
+            settings = get_settings()
+            budget = settings.pdf_max_extract_chars if src_type == "pdf" else settings.raw_char_budget
             is_limit = (prose_len == budget) or (len(raw_text) == budget)
             is_trunc = hash_mismatch or is_limit
             targets.append({

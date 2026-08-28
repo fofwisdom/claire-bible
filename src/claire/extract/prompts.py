@@ -208,11 +208,12 @@ def doc_to_prompt(doc: Document) -> str:
         head.append(f"URL: {doc.url}")
     head.append(f"SOURCE_TYPE: {doc.source_type}")
     settings = get_settings()
-    limit = (
-        settings.effective_merged_extract_char_budget
-        if (doc.meta or {}).get("extra_sources")
-        else settings.extract_char_budget
-    )
+    if (doc.meta or {}).get("extra_sources"):
+        limit = settings.effective_merged_extract_char_budget
+    elif doc.source_type == "pdf":
+        limit = settings.pdf_max_extract_chars
+    else:
+        limit = settings.extract_char_budget
     content_body = slice_text(doc.raw_text or "", limit, strategy=settings.slicing_strategy)
     return "\n".join(head) + "\n\nCONTENT:\n" + content_body
 
@@ -525,3 +526,19 @@ def judge_same_entity_prompt(mc: MergeCandidate) -> str:
         f"   notes={' | '.join(mc.cand_observations)[:400]}\n\n"
         "Answer with exactly one word: SAME or DIFFERENT."
     )
+
+
+def classify_paper_prompt(title: str, text_head: str) -> str:
+    """학술 논문/연구 보고서 여부 판별용 경량 프롬프트."""
+    return (
+        "당신은 문서 분류기다. 주어진 문서의 제목과 도입부(초록/서론 등)를 분석하여 "
+        "이 문서가 학술 논문(Research Paper / Working Paper / Conference Paper / Journal Article / Preprint / Technical Report)인지 판별하라.\n\n"
+        "판별 기준:\n"
+        "- 논문(true): 학술 연구 논문, NBER/arXiv/SSRN 워킹 페이퍼, 컨퍼런스/저널 논문, 학술적 연구 보고서 등.\n"
+        "- 비논문(false): 일반 웹 기사, 블로그 포스트, 제품 매뉴얼, API 문서, 마케팅 자료, 공지사항, 일반 텍스트 등.\n\n"
+        "반드시 아래 JSON 형식으로만 응답하라:\n"
+        '{"is_paper": true, "reason": "간결한 판정 근거 (1문장)"}\n\n'
+        f"[제목]\n{title or '(제목 없음)'}\n\n"
+        f"[도입부 텍스트]\n{text_head[:3000]}"
+    )
+

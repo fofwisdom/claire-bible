@@ -328,6 +328,14 @@ class MockProvider:
                 out.append(i)
         return out
 
+    def classify_paper(self, doc: Document, *, effort: str | None = None) -> tuple[bool, str]:
+        """결정론 stub — 논문 여부 판정 배선 검증 (테스트)."""
+        blob = ((doc.title or "") + " " + (doc.url or "") + " " + (doc.raw_text or "")[:1000]).lower()
+        paper_kws = ("arxiv", "paper", "working paper", "nber", "abstract", "논문", "journal", "conference", "ieee")
+        is_paper = any(k in blob for k in paper_kws)
+        return is_paper, "keyword match (mock)" if is_paper else "not paper (mock)"
+
+
 
 def get_provider(settings) -> Provider:
     """effective_provider 에 따라 provider 인스턴스 반환."""

@@ -49,8 +49,9 @@ def fetch_file(path: str) -> Document:
 
         raise FetchError(f"unsupported file type (M1): {suffix}")
     settings = get_settings()
+    budget = settings.pdf_max_extract_chars if source_type == "pdf" else settings.raw_char_budget
     raw_text, is_truncated, orig_chars, raw_chars = slice_document_text(
-        text or "", settings.raw_char_budget, strategy=settings.slicing_strategy
+        text or "", budget, strategy=settings.slicing_strategy
     )
     return Document(
         url=f"file://{p.resolve()}",

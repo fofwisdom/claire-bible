@@ -74,6 +74,7 @@ class AntigravityProvider:
         json_schema: dict | None = None,
         output_format: str = "json",
         dangerously_skip_permissions: bool = True,
+        effort: str | None = None,
     ) -> Any:
         """agy CLI를 서브프로세스로 실행하고 결과를 반환한다."""
         cmd = [
@@ -92,8 +93,9 @@ class AntigravityProvider:
         model_has_effort = any(
             str(self.model).endswith(f"-{suf}") for suf in ("high", "medium", "low")
         )
-        if self.effort and not model_has_effort:
-            cmd.extend(["--effort", self.effort])
+        eff = effort or self.effort
+        if eff and not model_has_effort:
+            cmd.extend(["--effort", eff])
         if dangerously_skip_permissions:
             cmd.append("--dangerously-skip-permissions")
         if json_schema and output_format == "json":
@@ -168,7 +170,13 @@ class AntigravityProvider:
 
         return payload
 
-    def extract(self, doc: Document, ontology_block: str | None = None) -> ExtractionResult:
+    def extract(
+        self,
+        doc: Document,
+        ontology_block: str | None = None,
+        *,
+        effort: str | None = None,
+    ) -> ExtractionResult:
         """지식그래프 구조화 추출 (JSON Schema 강제)."""
         block = ontology_block or ontology_prompt_block()
         sys = extract_system_prompt(block)
@@ -177,7 +185,7 @@ class AntigravityProvider:
 
         schema = ExtractionResult.extraction_json_schema()
         try:
-            data = self._run_cli(prompt, json_schema=schema, output_format="json")
+            data = self._run_cli(prompt, json_schema=schema, output_format="json", effort=effort)
             if isinstance(data, dict):
                 result = ExtractionResult.model_validate(data)
             else:
@@ -189,7 +197,7 @@ class AntigravityProvider:
                 f"{prompt}\n\nReturn ONLY valid JSON matching this schema:\n"
                 f"{json.dumps(schema)}"
             )
-            raw_text = self._run_cli(fallback_prompt, output_format="text")
+            raw_text = self._run_cli(fallback_prompt, output_format="text", effort=effort)
             result = _coerce(str(raw_text))
 
         # 요약 평문 정제 및 비어있는 경우 방어적 보강
@@ -244,7 +252,12 @@ class AntigravityProvider:
         return str(res).strip()
 
     def render_detail(
-        self, doc: Document, format: str = "md", directive: str | None = None
+        self,
+        doc: Document,
+        format: str = "md",
+        directive: str | None = None,
+        *,
+        effort: str | None = None,
     ) -> str:
         """원문을 한국어 가독 렌더링(MD 또는 ADOC)으로 '편하게 읽을 수 있는 글'로 재구성."""
         body = _doc_to_prompt(doc)
@@ -252,14 +265,14 @@ class AntigravityProvider:
         merged = bool((doc.meta or {}).get("extra_sources"))
         dir_val = directive or (doc.meta or {}).get("directive")
         text = self._render_detail_call(
-            body, images, merged=merged, scale=1, format=format, directive=dir_val
+            body, images, merged=merged, scale=1, format=format, directive=dir_val, effort=effort
         )
         if merged:
             for scale in (2, 4):
                 if len(text) >= _MERGED_DETAIL_MIN_CHARS:
                     break
                 text = self._render_detail_call(
-                    body, images, merged=merged, scale=scale, format=format, directive=dir_val
+                    body, images, merged=merged, scale=scale, format=format, directive=dir_val, effort=effort
                 )
         return text
 
@@ -272,12 +285,38 @@ class AntigravityProvider:
         scale: int,
         format: str = "md",
         directive: str | None = None,
+        effort: str | None = None,
     ) -> str:
         prompt = render_detail_prompt(
             body, images, merged=merged, scale=scale, format=format, directive=directive
         )
-        res = self._run_cli(prompt, output_format="text")
+        res = self._run_cli(prompt, output_format="text", effort=effort)
         return str(res).strip()
+
+    def classify_paper(
+        self, doc: Document, *, effort: str | None = None
+    ) -> tuple[bool, str]:
+        """학술 논문(Research/Working Paper 등) 여부 판정 (경량 호출)."""
+        from .prompts import classify_paper_prompt
+
+        prompt = classify_paper_prompt(doc.title or "", doc.raw_text or "")
+        eff = effort or getattr(self.settings, "pdf_classifier_effort", "low")
+        schema = {
+            "type": "object",
+            "properties": {
+                "is_paper": {"type": "boolean"},
+                "reason": {"type": "string"},
+            },
+            "required": ["is_paper", "reason"],
+        }
+        try:
+            data = self._run_cli(prompt, json_schema=schema, output_format="json", effort=eff)
+            if isinstance(data, dict):
+                return bool(data.get("is_paper", False)), str(data.get("reason", ""))
+            parsed = json.loads(str(data))
+            return bool(parsed.get("is_paper", False)), str(parsed.get("reason", ""))
+        except Exception as e:  # noqa: BLE001
+            return False, f"classify_paper failed: {e}"
 
     def classify_watch(self, doc: Document) -> dict:
         """[주기 크롤링] 문서가 '주기적으로 내용이 바뀌는 콘텐츠'인지 판단."""

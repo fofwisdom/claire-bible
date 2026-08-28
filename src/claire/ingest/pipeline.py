@@ -97,6 +97,7 @@ def ingest(
     auto_expand: bool = False,
     format: str | None = None,
     directive: str | None = None,
+    effort: str | None = None,
 ) -> IngestReport:
     report = IngestReport()
     # None 이면 호출 시점에 모듈 전역 default_fetch 를 조회(monkeypatch/교체 반영).
@@ -184,7 +185,7 @@ def ingest(
                 pass
         _download_doc_images(conn, doc, data_dir)
         ok, err = extract_resolve_store(
-            conn, provider, vstore, doc, report, vault_dir=vault_dir, format=format, directive=directive)
+            conn, provider, vstore, doc, report, vault_dir=vault_dir, format=format, directive=directive, effort=effort)
         if not ok:
             report.error = err
             dbm.update_inbox(conn, inbox_id, status="error",
@@ -220,7 +221,7 @@ def ingest(
 
     # 추출 → 해소 → 관계 → vault (ingest/refresh 공용)
     ok, err = extract_resolve_store(
-        conn, provider, vstore, doc, report, vault_dir=vault_dir, format=format, directive=directive)
+        conn, provider, vstore, doc, report, vault_dir=vault_dir, format=format, directive=directive, effort=effort)
     if not ok:
         report.error = err
         dbm.update_inbox(conn, inbox_id, status="error", document_id=doc.id, error=err)
@@ -273,6 +274,7 @@ def extract_resolve_store(
     vault_dir: Path | None = None,
     format: str | None = None,
     directive: str | None = None,
+    effort: str | None = None,
     on_progress: Callable[[str, str], None] | None = None,
 ) -> tuple[bool, str | None]:
     """문서 1건의 추출→엔티티 해소/머지→관계 검증/적재→vault export.
@@ -281,12 +283,38 @@ def extract_resolve_store(
     refresh 시 같은 id 로 호출하면 기존 엔티티 sources 에 누적된다(연결 보존).
     추출 실패 시 (False, error). 성공 시 (True, None).
     """
+    from ..config import get_settings
+    from ..extract.classifier import classify_paper
+
+    settings = get_settings()
+    eff = effort
+    if eff is None:
+        if doc.source_type == "pdf":
+            # 무료 어댑터 우선 최저 effort('low')로 논문 여부 1차 판정
+            is_paper, reason = classify_paper(doc, settings)
+            if doc.meta is None:
+                doc.meta = {}
+            doc.meta["paper_classification"] = {
+                "is_paper": is_paper,
+                "reason": reason,
+                "raw_chars": len(doc.raw_text or ""),
+            }
+            if is_paper and len(doc.raw_text or "") >= settings.pdf_paper_threshold_chars:
+                eff = settings.pdf_paper_effort or "high"
+            else:
+                eff = settings.pdf_default_effort or getattr(provider, "effort", "medium")
+        else:
+            eff = getattr(provider, "effort", "medium")
+
     if on_progress:
         pname = getattr(provider, "name", "?")
-        on_progress("LLM 요약 및 엔티티/관계 구조화 추출", f"provider={pname}")
+        on_progress("LLM 요약 및 엔티티/관계 구조화 추출", f"provider={pname}, effort={eff}")
 
     try:
-        result = provider.extract(doc, None)  # type: ignore[arg-type]
+        try:
+            result = provider.extract(doc, None, effort=eff)  # type: ignore[arg-type]
+        except TypeError:
+            result = provider.extract(doc, None)  # type: ignore[arg-type]
     except Exception as e:  # noqa: BLE001
         return False, f"extract failed: {e}"
     report.summary = result.summary
@@ -302,10 +330,10 @@ def extract_resolve_store(
     # 한국어 가독 렌더링(detail) — 구조화 추출과 독립된 별도 LLM 호출. 그래프와 무관해
     # 실패해도 적재를 깨지 않는다(조용히 건너뜀). refresh/reextract 도 같은 경로라 갱신됨.
     if on_progress:
-        on_progress("LLM 가독 본문(detail) 렌더링 생성", f"format={format or '기본'}")
+        on_progress("LLM 가독 본문(detail) 렌더링 생성", f"format={format or '기본'}, effort={eff}")
 
     ensure_document_detail(
-        conn, provider, doc, force=True, format=format, directive=directive
+        conn, provider, doc, force=True, format=format, directive=directive, effort=eff
     )
 
     _judge_method = getattr(provider, "judge_same_entity", None)
@@ -503,6 +531,7 @@ def ensure_document_detail(
     force: bool = False,
     format: str | None = None,
     directive: str | None = None,
+    effort: str | None = None,
 ) -> bool:
     """문서의 한국어 가독 렌더링(detail)을 생성·저장. **그래프와 독립**(별도 LLM 호출).
 
@@ -534,14 +563,43 @@ def ensure_document_detail(
     if render is None:
         return False
 
+    eff = effort
+    if eff is None:
+        if doc.source_type == "pdf":
+            from ..config import get_settings
+            from ..extract.classifier import classify_paper
+
+            settings = get_settings()
+            classification = (doc.meta or {}).get("paper_classification")
+            if classification and isinstance(classification, dict):
+                is_paper = classification.get("is_paper", False)
+            else:
+                is_paper, reason = classify_paper(doc, settings)
+                if doc.meta is None:
+                    doc.meta = {}
+                doc.meta["paper_classification"] = {
+                    "is_paper": is_paper,
+                    "reason": reason,
+                    "raw_chars": len(doc.raw_text or ""),
+                }
+            if is_paper and len(doc.raw_text or "") >= settings.pdf_paper_threshold_chars:
+                eff = settings.pdf_paper_effort or "high"
+            else:
+                eff = settings.pdf_default_effort or getattr(provider, "effort", "medium")
+        else:
+            eff = getattr(provider, "effort", "medium")
+
     try:
         try:
-            text = render(doc, format=fmt, directive=dir_val)
+            text = render(doc, format=fmt, directive=dir_val, effort=eff)
         except TypeError:
             try:
-                text = render(doc, format=fmt)
+                text = render(doc, format=fmt, directive=dir_val)
             except TypeError:
-                text = render(doc)
+                try:
+                    text = render(doc, format=fmt)
+                except TypeError:
+                    text = render(doc)
     except Exception as e:  # noqa: BLE001
         import logging
 
