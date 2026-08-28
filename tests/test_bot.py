@@ -158,8 +158,9 @@ def test_parse_caption_directive():
     assert parse_caption_directive(None) is None
     assert parse_caption_directive("") is None
     assert parse_caption_directive("시스템 아키텍처 중심") == "시스템 아키텍처 중심"
+    assert parse_caption_directive("[초점] 보안 분석 중심") == "보안 분석 중심"
     assert parse_caption_directive("[방향성] 보안 분석 중심") == "보안 분석 중심"
-    assert parse_caption_directive("방향: 튜토리얼 관점") == "튜토리얼 관점"
+    assert parse_caption_directive("초점: 튜토리얼 관점") == "튜토리얼 관점"
 
 
 def test_ingest_report_telegram_summary_with_directive():
@@ -173,5 +174,5 @@ def test_ingest_report_telegram_summary_with_directive():
     )
     summary = report.telegram_summary()
     assert "✅ 적재 완료: 테스트 문서" in summary
-    assert "초점/방향성: 시스템 아키텍처 및 내부 구조 중심" in summary
+    assert "초점: 시스템 아키텍처 및 내부 구조 중심" in summary
 

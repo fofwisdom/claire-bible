@@ -59,7 +59,7 @@ class IngestReport:
         head = "🔄 자료 업데이트(내용 변경 반영)" if self.updated else "✅ 적재 완료"
         parts = [f"{head}: {self.title or self.document_id}"]
         if self.directive:
-            parts.append(f"초점/방향성: {self.directive}")
+            parts.append(f"초점: {self.directive}")
         if self.partial:
             parts.append("⚠️ 부분 처리(partial)")
         parts.append(f"요약: {self.summary[:300]}")
@@ -142,8 +142,8 @@ def ingest(
     # dedup ① 내용 완전 동일(content_hash 일치)
     existing = dbm.find_document_by_hash(conn, doc.content_hash)
     if existing:
-        # 사용자가 새 directive(방향성)를 명시적으로 지정한 경우:
-        # 단순 중복 스킵하지 않고, 해당 문서의 방향성을 갱신하고 가독 본문(detail)을 즉시 재생성(재적재)
+        # 사용자가 새 directive(초점)를 명시적으로 지정한 경우:
+        # 단순 중복 스킵하지 않고, 해당 문서의 초점을 갱신하고 가독 본문(detail)을 즉시 재생성(재적재)
         if directive and directive.strip():
             doc_obj = dbm.get_document(conn, existing)
             if doc_obj:

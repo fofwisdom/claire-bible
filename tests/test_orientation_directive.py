@@ -30,29 +30,29 @@ def test_prompts_with_directive():
 
     # 1. Markdown prompt without directive
     md_no_dir = render_detail_prompt_md(body, images, merged=False)
-    assert "중점 작성 방향성/초점" not in md_no_dir
+    assert "중점 작성 초점" not in md_no_dir
 
     # 2. Markdown prompt with directive
     md_with_dir = render_detail_prompt_md(body, images, merged=False, directive=directive)
-    assert "중점 작성 방향성/초점" in md_with_dir
+    assert "중점 작성 초점" in md_with_dir
     assert directive in md_with_dir
 
     # 3. AsciiDoc prompt without directive
     adoc_no_dir = render_detail_prompt_adoc(body, images, merged=False)
-    assert "중점 작성 방향성/초점" not in adoc_no_dir
+    assert "중점 작성 초점" not in adoc_no_dir
 
     # 4. AsciiDoc prompt with directive
     adoc_with_dir = render_detail_prompt_adoc(body, images, merged=False, directive=directive)
-    assert "중점 작성 방향성/초점" in adoc_with_dir
+    assert "중점 작성 초점" in adoc_with_dir
     assert directive in adoc_with_dir
 
     # 5. Router function render_detail_prompt
     routed_md = render_detail_prompt(body, images, merged=False, format="md", directive=directive)
-    assert "중점 작성 방향성/초점" in routed_md
+    assert "중점 작성 초점" in routed_md
     assert directive in routed_md
 
     routed_adoc = render_detail_prompt(body, images, merged=False, format="adoc", directive=directive)
-    assert "중점 작성 방향성/초점" in routed_adoc
+    assert "중점 작성 초점" in routed_adoc
     assert directive in routed_adoc
 
 
@@ -239,13 +239,14 @@ def test_cli_orientation_parsing(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("CLAIRE_VECTOR_BACKEND", "mock")
     get_settings.cache_clear()
 
-    # CLI Ingest with --orientation
+    # 1. CLI Ingest with primary --focus
     args = argparse.Namespace(
         payload="제목: CLI 고유 테스트\n본문: CLI 명령어를 통한 적재를 검증합니다.",
         expand=False,
         no_expand=True,
         format="md",
-        orientation="CLI 방향성 테스트",
+        focus="CLI 초점 테스트",
+        orientation=None,
         directive=None,
     )
     ret = cli.cmd_ingest(args)
@@ -255,9 +256,22 @@ def test_cli_orientation_parsing(tmp_path: Path, monkeypatch):
     row = conn.execute("SELECT id FROM documents LIMIT 1").fetchone()
     assert row is not None
     doc_id = row["id"]
-    assert dbm.get_document_directive(conn, doc_id) == "CLI 방향성 테스트"
+    assert dbm.get_document_directive(conn, doc_id) == "CLI 초점 테스트"
 
-    # CLI Regenerate with --directive alias
+    # 2. CLI Ingest with legacy --orientation alias
+    args_orient = argparse.Namespace(
+        payload="제목: CLI 호환 테스트\n본문: CLI 명령어를 통한 호환 적재를 검증합니다.",
+        expand=False,
+        no_expand=True,
+        format="md",
+        focus=None,
+        orientation="CLI 방향성 테스트",
+        directive=None,
+    )
+    ret_orient = cli.cmd_ingest(args_orient)
+    assert ret_orient == 0
+
+    # 3. CLI Regenerate with primary --focus
     args_regen = argparse.Namespace(
         target=doc_id,
         token=None,
@@ -272,16 +286,17 @@ def test_cli_orientation_parsing(tmp_path: Path, monkeypatch):
         force=True,
         effort=None,
         format="adoc",
+        focus="CLI 재생성 초점",
         orientation=None,
-        directive="CLI 재생성 방향성",
+        directive=None,
         json=False,
     )
     ret_regen = cli.cmd_regenerate(args_regen)
     assert ret_regen == 0
 
     detail_adoc = dbm.get_document_detail(conn, doc_id)
-    assert "[mock-detail-adoc] [directive: CLI 재생성 방향성]" in detail_adoc
-    assert dbm.get_document_directive(conn, doc_id) == "CLI 재생성 방향성"
+    assert "[mock-detail-adoc] [directive: CLI 재생성 초점]" in detail_adoc
+    assert dbm.get_document_directive(conn, doc_id) == "CLI 재생성 초점"
 
     conn.close()
     get_settings.cache_clear()
@@ -302,12 +317,12 @@ def test_api_server_orientation(tmp_path: Path):
     )
     app = server.create_app(settings)
     with TestClient(app, base_url=settings.public_url) as client:
-        # 1. Ingest via API with orientation
+        # 1. Ingest via API with primary focus field
         resp = client.post(
             "/ingest",
             json={
-                "payload": "제목: API 테스트\n본문: REST API를 통한 방향성 적재를 테스트합니다.",
-                "orientation": "API 방향성 전달 테스트",
+                "payload": "제목: API 테스트\n본문: REST API를 통한 초점 적재를 테스트합니다.",
+                "focus": "API 초점 전달 테스트",
             },
             headers={"Authorization": f"Bearer {settings.inject_token}"},
         )
@@ -318,9 +333,20 @@ def test_api_server_orientation(tmp_path: Path):
 
         conn = dbm.connect(db_file)
         detail = dbm.get_document_detail(conn, doc_id)
-        assert "[directive: API 방향성 전달 테스트]" in detail
-        assert dbm.get_document_directive(conn, doc_id) == "API 방향성 전달 테스트"
+        assert "[directive: API 초점 전달 테스트]" in detail
+        assert dbm.get_document_directive(conn, doc_id) == "API 초점 전달 테스트"
         conn.close()
+
+        # 2. Ingest via API with legacy orientation field (backward compatibility)
+        resp_compat = client.post(
+            "/ingest",
+            json={
+                "payload": "제목: API 호환 테스트\n본문: REST API를 통한 방향성 호환을 테스트합니다.",
+                "orientation": "API 방향성 전달 테스트",
+            },
+            headers={"Authorization": f"Bearer {settings.inject_token}"},
+        )
+        assert resp_compat.status_code == 200
 
         # 2. Ingest stream via API with directive
         resp_stream = client.post(

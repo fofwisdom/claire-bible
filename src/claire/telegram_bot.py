@@ -87,13 +87,13 @@ def classify_input(text: str) -> str:
 import re
 
 # 플래그: ASCII 하이픈(-, --), en-dash(–, ––), em-dash(—, ——), horizontal bar(―) 및 한국어 플래그 지원
-# 예: --orientation, —orientation, –orientation, -orientation, --directive, —directive, --관점, —관점, -o, —o
+# 예: --focus, —focus, –focus, -focus, --초점, —초점, --orientation, --directive, --관점, -o
 _DIRECTIVE_FLAG_RE = re.compile(
-    r"(?:\s+|^)(?:[-–—―]{1,2}(?:orientation|directive|focus|perspective|관점|방향성|방향|초점|지침)|[-–—―]o)\s+([^\n]+)",
+    r"(?:\s+|^)(?:[-–—―]{1,2}(?:focus|초점|orientation|directive|perspective|관점|방향성|방향|지침)|[-–—―]o)\s+([^\n]+)",
     re.IGNORECASE,
 )
 _DIRECTIVE_PREFIX_RE = re.compile(
-    r"^(?:\[(?:방향성|방향|초점|관점|지침|directive|orientation|focus|perspective)\]|#(?:방향성|방향|초점|관점|지침|directive|orientation|focus|perspective)|(?:방향성|방향|초점|관점|지침|directive|orientation|focus|perspective)\s*[:：])\s*(.+)$",
+    r"^(?:\[(?:초점|focus|방향성|방향|관점|지침|directive|orientation|perspective)\]|#(?:초점|focus|방향성|방향|관점|지침|directive|orientation|perspective)|(?:초점|focus|방향성|방향|관점|지침|directive|orientation|perspective)\s*[:：])\s*(.+)$",
     re.IGNORECASE,
 )
 # 파이프(|, ｜, ¦) 또는 대시(--, —, –) 구분자 지원 (파이프 중심 통일)
@@ -103,12 +103,12 @@ _DIRECTIVE_SEP_RE = re.compile(
 
 
 def parse_message_directive(text: str) -> tuple[str, str | None]:
-    """메시지 본문에서 페이로드(URL/텍스트)와 본문 작성 방향성(directive)을 분리 추출.
+    """메시지 본문에서 페이로드(URL/텍스트)와 본문 작성 초점(focus/directive)을 분리 추출.
 
     지원 패턴:
-    1. 파이프 구분: `URL | <지침>` 또는 `URL | <지침>` (주 문법)
-    2. 줄바꿈 구분: 첫 줄이 단일 URL이고 다음 줄에 텍스트나 [방향] 태그가 오는 경우
-    3. 구분자/플래그: `URL -- <지침>`, `URL — <지침>`, `URL --orientation <지침>` 등 (호환)
+    1. 파이프 구분: `URL | <초점>` 또는 `URL ｜ <초점>` (주 문법)
+    2. 줄바꿈 구분: 첫 줄이 단일 URL이고 다음 줄에 텍스트나 [초점] 태그가 오는 경우
+    3. 구분자/플래그: `URL --focus <초점>`, `URL -- <초점>`, `URL --orientation <초점>` 등 (호환)
     """
     t = (text or "").strip()
     if not t:
@@ -167,7 +167,7 @@ def parse_message_directive(text: str) -> tuple[str, str | None]:
 
 
 def parse_caption_directive(caption: str | None) -> str | None:
-    """파일/문서 첨부 캡션에서 방향성 추출."""
+    """파일/문서 첨부 캡션에서 초점 추출."""
     c = (caption or "").strip()
     if not c:
         return None
@@ -247,22 +247,22 @@ def run_bot() -> int:
         "\n"
         "그냥 보내면 적재됩니다:\n"
         "  • 링크(웹/유튜브/x.com/google share)\n"
-        "  • PDF·텍스트 파일 (캡션에 방향성 작성 가능)\n"
+        "  • PDF·텍스트 파일 (캡션에 초점 작성 가능)\n"
         "  • 키워드/메모 등 자유 텍스트\n"
         "→ 스크랩 → Gemini 구조화 → 그래프로 저장, 기존 항목과 자동 연결.\n"
         "  관련 링크가 보이면 '가져오기' 버튼으로 1홉 확장.\n"
         "\n"
-        "💡 본문 작성 방향성(초점/관점) 지정 방법:\n"
+        "💡 본문 작성 초점(Focus) 지정 방법:\n"
         "  • 파이프 구분: https://example.com/doc | 시스템 아키텍처 중심\n"
         "  • 빈 줄(두 번 줄바꿈) 구분:\n"
         "    https://example.com/doc\n\n"
         "    초보자 튜토리얼 관점으로 작성해줘\n"
-        "  • 파일/PDF 전송 시 캡션에 원하는 방향성을 적어서 전송\n"
+        "  • 파일/PDF 전송 시 캡션에 원하는 초점을 적어서 전송\n"
         "\n"
         "명령어:\n"
         "  /search <키워드> — 하이브리드 검색 + 요약(인용)\n"
-        "  /ingest <URL|텍스트> [| <방향>] — 방향성 지정 적재\n"
-        "  /regenerate <문서ID|토큰|URL> [| <새 방향성>] — 가독 본문(detail) 맞춤 재생성\n"
+        "  /ingest <URL|텍스트> [| <초점>] — 초점 지정 적재\n"
+        "  /regenerate <문서ID|토큰|URL> [| <새 초점>] — 가독 본문(detail) 맞춤 재생성\n"
         "  /web — 1회용 웹 로그인 링크 발급(로그인 쿠키 7일, 적재/수정 가능)\n"
         "  /webro — 읽기전용 웹 링크 발급(그래프·검색·문서만, 공유해도 안전)\n"
         "  /repo — 소스 리포지토리 접근 링크\n"
@@ -377,7 +377,7 @@ def run_bot() -> int:
             await update.message.reply_text(
                 "사용법:\n"
                 "  /ingest <URL 또는 텍스트>\n"
-                "  /ingest <URL 또는 텍스트> | <방향성>\n"
+                "  /ingest <URL 또는 텍스트> | <초점>\n"
                 "  예: /ingest https://example.com/doc | 시스템 아키텍처 중심"
             )
             return
@@ -385,7 +385,7 @@ def run_bot() -> int:
         msg = update.message
         label = f"적재 처리 중… ({classify_input(payload)})"
         if directive:
-            label += f" [방향: {directive[:20]}]"
+            label += f" [초점: {directive[:20]}]"
         status = await msg.reply_text(f"⏳ {label}")
         uid = user.id if user else None
         cid = update.effective_chat.id if update.effective_chat else None
@@ -417,7 +417,7 @@ def run_bot() -> int:
             await update.message.reply_text(
                 "사용법:\n"
                 "  /regenerate <문서ID|토큰|URL>\n"
-                "  /regenerate <문서ID|토큰|URL> | <새 방향성>\n"
+                "  /regenerate <문서ID|토큰|URL> | <새 초점>\n"
                 "  예: /regenerate doc_123456789012 | 보안 및 취약점 분석 관점"
             )
             return
@@ -432,7 +432,7 @@ def run_bot() -> int:
         msg = update.message
         label = f"본문 재생성 중… ({target})"
         if directive:
-            label += f" [방향: {directive[:20]}]"
+            label += f" [초점: {directive[:20]}]"
         status = await msg.reply_text(f"⏳ {label}")
         try:
             res = await _run_with_ticker(
@@ -449,7 +449,7 @@ def run_bot() -> int:
                 emoji = "👎"
             elif res.get("count", 0) > 0:
                 tinfo = res["targets"][0]
-                dir_msg = f"\n초점/방향성: {directive}" if directive else ""
+                dir_msg = f"\n초점: {directive}" if directive else ""
                 ans = f"✅ 본문 재생성 완료: {tinfo.get('title', target)}{dir_msg}"
                 emoji = "👍"
             else:
@@ -674,8 +674,8 @@ def run_bot() -> int:
             BotCommand("status", "현황(그래프/수렴/최근)"),
             BotCommand("repo", "소스 리포지토리 링크"),
             BotCommand("search", "검색 + 요약"),
-            BotCommand("ingest", "방향성 지정 적재"),
-            BotCommand("regenerate", "본문 방향성 재생성"),
+            BotCommand("ingest", "초점 지정 적재"),
+            BotCommand("regenerate", "본문 초점 재생성"),
             BotCommand("web", "웹 접속 링크 발급"),
             BotCommand("webro", "읽기전용 웹 링크 발급"),
             BotCommand("failed", "실패/영구실패 점검"),
