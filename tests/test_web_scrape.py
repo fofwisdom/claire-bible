@@ -54,13 +54,15 @@ def test_strip_html_multiroot_safe():
 # --- fetch_web fallback 체인 + thin-guard ---
 
 def _patch_chain(monkeypatch, *, static=("T", "", [], {}, None, None, []),
-                 discourse=None, scrapling=(None, "", [], {}, []),
+                 law=None, discourse=None, scrapling=(None, "", [], {}, []),
                  cdp=(None, "", [], {}, [])):
     monkeypatch.setattr(web, "_fetch_static", lambda url: static)
     monkeypatch.setattr(web, "_fetch_scrapling", lambda url: scrapling)
     monkeypatch.setattr(web, "_fetch_cdp", lambda url: cdp)
     import claire.ingest.fetchers.discourse as disc
     monkeypatch.setattr(disc, "try_discourse", lambda url: discourse)
+    import claire.ingest.fetchers.law as law_mod
+    monkeypatch.setattr(law_mod, "try_law_kr", lambda url: law)
 
 
 def test_static_rich_used_directly(monkeypatch):
@@ -96,6 +98,18 @@ def test_canonical_falls_back_to_input_when_no_effective(monkeypatch):
     assert doc.meta["fetch_via"] == "scrapling"
     # 입력 url 폴백이되 canonicalize 는 적용(끝슬래시 제거).
     assert doc.canonical_url == "https://openai.com/index/foo"
+
+
+def test_law_escalation_when_static_thin(monkeypatch):
+    rich = "제1조(목적) 이 법은 인공지능의 발전을 규정한다. " * 30  # >300
+    _patch_chain(monkeypatch,
+                 static=("인공지능기본법", "짧음", [], {}, None, None, []),
+                 law=("인공지능 발전과 신뢰 기반 조성 등에 관한 기본법", rich, ["https://ref.go.kr"], {}, []))
+    doc = web.fetch_web("https://www.law.go.kr/법령/인공지능발전과신뢰기반조성등에관한기본법")
+    assert doc.meta["fetch_via"] == "law"
+    assert doc.title == "인공지능 발전과 신뢰 기반 조성 등에 관한 기본법"
+    assert len(doc.raw_text) >= 300
+    assert "ref.go.kr" in doc.meta["links"][0]
 
 
 def test_discourse_escalation_when_static_thin(monkeypatch):
