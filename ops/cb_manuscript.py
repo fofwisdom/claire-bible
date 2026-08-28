@@ -116,6 +116,10 @@ APP_ONE_OFF_COMMANDS = {
     "purge",
     "audit",
     "queue",
+    "truncation-status",
+    "truncation-scan",
+    "truncation-backfill",
+    "backfill-truncation",
 }
 APP_GUARDED_COMMANDS = {
     "migrate": "Schema lifecycle command owned by install/update",

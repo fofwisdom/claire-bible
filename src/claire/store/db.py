@@ -2602,3 +2602,185 @@ def audit_residuals(
     return report
 
 
+# --- 원문 절단(Truncation) 탐지 및 메타데이터 소급 갱신 ---
+
+def scan_truncation_status(
+    conn: sqlite3.Connection,
+    doc_id: str | None = None,
+) -> dict:
+    """데이터베이스 내 문서들의 원문 절단(슬라이싱) 현황 및 메타데이터 기록 상태 스캔.
+
+    - content_hash 불일치: 수집 당시 원문 전체로 계산된 hash != DB에 저장된 raw_text hash
+    - 산문(Prose) 20,000자 상한: 표를 제외한 본문 글자 수가 20,000자에 도달
+    - raw_truncated 메타데이터 기록 여부 분류
+    """
+    from ..extract.table_budget import extract_tables_from_text
+    from ..ingest.normalize import content_hash
+
+    where_sql = "WHERE id = ?" if doc_id else ""
+    params = [doc_id] if doc_id else []
+
+    rows = conn.execute(
+        f"SELECT id, title, url, source_type, raw_text, content_hash, meta "
+        f"FROM documents {where_sql} ORDER BY fetched_at DESC, id DESC",
+        params,
+    ).fetchall()
+
+    total = len(rows)
+    intact_count = 0
+    recorded_truncated = 0
+    unmarked_truncated = 0
+    unmarked_items = []
+
+    for r in rows:
+        meta_raw = r["meta"]
+        meta = {}
+        if meta_raw:
+            try:
+                meta = json.loads(meta_raw)
+            except Exception:
+                meta = {}
+
+        raw_text = r["raw_text"] or ""
+        raw_len = len(raw_text)
+        src_type = r["source_type"] or "web"
+
+        # 1. content_hash 재계산
+        if src_type in ("youtube", "text"):
+            calc_hash = content_hash(raw_text)
+        else:
+            calc_hash = content_hash(r["title"] or "", raw_text)
+
+        hash_mismatch = bool(r["content_hash"] and calc_hash != r["content_hash"])
+
+        # 2. 산문(Prose) 20,000자 상한 검사
+        tables, prose_parts = extract_tables_from_text(raw_text)
+        prose_len = sum(len(p) for p in prose_parts)
+        is_limit = (prose_len == 20000) or (raw_len == 20000)
+
+        # 3. 메타데이터 기록 상태
+        is_meta_truncated = bool(meta.get("raw_truncated"))
+        is_actually_truncated = hash_mismatch or is_limit or is_meta_truncated
+
+        reasons = []
+        if hash_mismatch:
+            reasons.append("hash_mismatch (원문 > 적재본)")
+        if is_limit:
+            reasons.append(f"20k_limit (산문 {prose_len}자 / 전체 {raw_len}자)")
+
+        if is_meta_truncated:
+            recorded_truncated += 1
+        elif is_actually_truncated:
+            unmarked_truncated += 1
+            unmarked_items.append({
+                "id": r["id"],
+                "title": r["title"] or "(제목 없음)",
+                "url": r["url"] or "",
+                "source_type": src_type,
+                "raw_len": raw_len,
+                "prose_len": prose_len,
+                "table_count": len(tables),
+                "hash_mismatch": hash_mismatch,
+                "is_limit": is_limit,
+                "reasons": reasons,
+                "meta": meta,
+            })
+        else:
+            intact_count += 1
+
+    return {
+        "total_documents": total,
+        "intact_count": intact_count,
+        "recorded_truncated_count": recorded_truncated,
+        "unmarked_truncated_count": unmarked_truncated,
+        "unmarked_items": unmarked_items,
+    }
+
+
+def backfill_truncation_metadata(
+    conn: sqlite3.Connection,
+    *,
+    doc_id: str | None = None,
+    force: bool = False,
+    mark_refresh: bool = False,
+) -> dict:
+    """메타데이터가 누락된 절단 문서의 documents.meta에 raw_truncated를 소급 갱신."""
+    from ..extract.table_budget import extract_tables_from_text
+    from ..ingest.normalize import content_hash
+
+    scan = scan_truncation_status(conn, doc_id=doc_id)
+    targets = scan["unmarked_items"]
+
+    if force:
+        where_sql = "WHERE id = ?" if doc_id else ""
+        params = [doc_id] if doc_id else []
+        rows = conn.execute(
+            f"SELECT id, title, url, source_type, raw_text, content_hash, meta "
+            f"FROM documents {where_sql}",
+            params,
+        ).fetchall()
+        targets = []
+        for r in rows:
+            meta = {}
+            if r["meta"]:
+                try:
+                    meta = json.loads(r["meta"])
+                except Exception:
+                    meta = {}
+            raw_text = r["raw_text"] or ""
+            src_type = r["source_type"] or "web"
+
+            if src_type in ("youtube", "text"):
+                calc_hash = content_hash(raw_text)
+            else:
+                calc_hash = content_hash(r["title"] or "", raw_text)
+            hash_mismatch = bool(r["content_hash"] and calc_hash != r["content_hash"])
+            tables, prose_parts = extract_tables_from_text(raw_text)
+            prose_len = sum(len(p) for p in prose_parts)
+            is_limit = (prose_len == 20000) or (len(raw_text) == 20000)
+            is_trunc = hash_mismatch or is_limit
+            targets.append({
+                "id": r["id"],
+                "title": r["title"] or "(제목 없음)",
+                "url": r["url"] or "",
+                "source_type": src_type,
+                "raw_len": len(raw_text),
+                "is_truncated": is_trunc,
+                "meta": meta,
+            })
+
+    updated_count = 0
+    refreshed_count = 0
+
+    for item in targets:
+        doc_id_val = item["id"]
+        meta = item["meta"]
+        raw_len = item.get("raw_len", len(meta.get("raw_text", "")))
+        is_trunc = item.get("is_truncated", True)
+
+        meta["raw_truncated"] = is_trunc
+        meta["raw_chars"] = raw_len
+        if "orig_chars" not in meta and not is_trunc:
+            meta["orig_chars"] = raw_len
+
+        conn.execute(
+            "UPDATE documents SET meta=? WHERE id=?",
+            (json.dumps(meta, ensure_ascii=False), doc_id_val),
+        )
+        updated_count += 1
+
+        if mark_refresh and is_trunc:
+            payload = item.get("url") or item.get("title") or doc_id_val
+            enqueue_refresh(conn, document_id=doc_id_val, payload=payload, reason="truncated_backfill")
+            refreshed_count += 1
+
+    conn.commit()
+    return {
+        "scanned_total": scan["total_documents"],
+        "updated_count": updated_count,
+        "refreshed_count": refreshed_count,
+        "items": targets,
+    }
+
+
+
