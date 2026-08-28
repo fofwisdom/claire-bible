@@ -322,8 +322,8 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 
 ### 3.7 감시 및 문서 관리 (Watch & Doc)
 
-* `claire watch [--list | <doc_id> --on/--off --interval-days N]`: 주기적 재수집 대상 문서 목록 조회 및 주기 설정.
-* `claire doc-title <doc_id> "<new_title>"`: 특정 문서의 제목을 수동 수정하고 MinHash 서명 재계산.
+* `claire watch [--list | <target> --on/--off --interval-days N]`: 주기적 재수집 대상 문서 목록 조회 및 주기 설정. `target`으로 문서 ID, 일반 URL, 공유 URL(`/p?s=token`)을 스마트 인식.
+* `claire doc-title <target> "<new_title>"`: 특정 문서의 제목을 수동 수정하고 MinHash 서명 재계산. `target`으로 문서 ID, 일반 URL, 공유 URL 지원.
 * `claire serve-api`: Starlette + Uvicorn 기반 웹 인터페이스 및 REST API 서비스 실행.
 * `claire bot`: Telegram Long-polling 봇 서비스 실행.
 
@@ -331,11 +331,13 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 
 ### 3.8 데이터 수명주기 및 오염 소각 (Lifecycle & Purge)
 
-* `claire purge <target> [--doc-id <ID>] [--url <URL>] [--pattern <str>] [--reason <str>] [--force] [--json]`:
+* `claire purge <target> [--doc-id <ID>] [--token <token>] [--url <URL>] [--pattern <str>] [--reason <str>] [--force] [--json]`:
+  * **스마트 타깃 자동 판별**: `target` 하나로 문서 ID(SHA256/UUID), 공유 링크(`/p?s=token`), 일반 원본 URL, 정규화된 canonical URL, 프로토콜 누락 도메인(`domain.com/...`), 제목 키워드를 4단계 우선순위로 자동 판별.
   * **수명주기 게이트**: `.env`에 `CLAIRE_DATA_LIFECYCLE=purgeable` (또는 `CLAIRE_ALLOW_PURGE=1`) 설정 시에만 실행 허용 (`append-only` 시 안전 차단).
   * **원자적 소각**: 툼스톤(`purged_tombstones`) 등록 ➔ DB 8개 테이블 연쇄 Hard Delete ➔ 로컬 파일시스템 아티팩트(`raw/artifacts`, `images`, `vault`) Unlink ➔ `heal_graph` 수복 ➔ `VACUUM` 압축을 일괄 수행.
+  * **공유 링크 소각 경고**: 공유 링크로 식별된 경우 단순 링크 무효화가 아닌 원본 문서 전체 파괴임을 Dry-Run에 명시적 경고.
   * 기본 실행은 Dry-Run으로 영향 범위를 사전 출력하며, `--force` 지정 시 실제 소각 실행.
-* `claire audit [--target <pattern>] [--json]`:
+* `claire audit [<target>] [--pattern <str>] [--json]`:
   * 특정 키워드, URL, ID, 또는 툼스톤 대상이 DB(문서/인박스/추출/스냅샷), 로컬 디스크 파일, 엔티티 sources에 1건이라도 남아있는지 전수 검사하고 Freelist 미회수 용량을 보고.
 
 ---

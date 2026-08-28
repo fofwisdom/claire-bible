@@ -1240,6 +1240,195 @@ def resolve_doc_share(conn: sqlite3.Connection, token: str) -> str | None:
     return row["document_id"]
 
 
+def resolve_document_targets(
+    conn: sqlite3.Connection,
+    target: str | None = None,
+    *,
+    doc_id: str | None = None,
+    url: str | None = None,
+    canonical_url: str | None = None,
+    token: str | None = None,
+    pattern: str | None = None,
+    limit: int = 50,
+) -> list[dict[str, Any]]:
+    """입력값(target, doc_id, url, token, pattern 등)을 4단계 표준에 따라 분석하여 문서 목록을 반환."""
+    from urllib.parse import parse_qs, urlsplit
+    from ..ingest.normalize import canonicalize_url
+
+    results: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+
+    def _add_doc(row: sqlite3.Row | dict[str, Any], matched_by: str, is_from_share_token: bool = False) -> None:
+        d = dict(row) if not isinstance(row, dict) else row
+        did = d["id"]
+        if did not in seen_ids:
+            seen_ids.add(did)
+            results.append({
+                "id": did,
+                "url": d.get("url"),
+                "canonical_url": d.get("canonical_url"),
+                "title": d.get("title"),
+                "content_hash": d.get("content_hash"),
+                "fetched_at": d.get("fetched_at"),
+                "matched_by": matched_by,
+                "is_from_share_token": is_from_share_token,
+            })
+
+    # 1. 명시적 doc_id
+    if doc_id:
+        row = conn.execute(
+            "SELECT id, url, canonical_url, title, content_hash, fetched_at FROM documents WHERE id=?",
+            (doc_id,),
+        ).fetchone()
+        if row:
+            _add_doc(row, matched_by="doc_id")
+
+    # 2. 명시적 token
+    if token:
+        shared_id = resolve_doc_share(conn, token)
+        if not shared_id:
+            row_share = conn.execute("SELECT document_id FROM doc_shares WHERE token=?", (token,)).fetchone()
+            if row_share:
+                shared_id = row_share["document_id"]
+        if shared_id:
+            row = conn.execute(
+                "SELECT id, url, canonical_url, title, content_hash, fetched_at FROM documents WHERE id=?",
+                (shared_id,),
+            ).fetchone()
+            if row:
+                _add_doc(row, matched_by="token", is_from_share_token=True)
+
+    # 3. 명시적 url / canonical_url
+    if url:
+        c_url = canonicalize_url(url)
+        rows = conn.execute(
+            "SELECT id, url, canonical_url, title, content_hash, fetched_at FROM documents WHERE url=? OR canonical_url=?",
+            (url, c_url),
+        ).fetchall()
+        for r in rows:
+            _add_doc(r, matched_by="url")
+
+    if canonical_url:
+        rows = conn.execute(
+            "SELECT id, url, canonical_url, title, content_hash, fetched_at FROM documents WHERE canonical_url=?",
+            (canonical_url,),
+        ).fetchall()
+        for r in rows:
+            _add_doc(r, matched_by="canonical_url")
+
+    # 4. 명시적 pattern
+    if pattern:
+        patt = f"%{pattern}%"
+        rows = conn.execute(
+            "SELECT id, url, canonical_url, title, content_hash, fetched_at FROM documents WHERE id LIKE ? OR url LIKE ? OR canonical_url LIKE ? OR title LIKE ? LIMIT ?",
+            (patt, patt, patt, patt, limit),
+        ).fetchall()
+        for r in rows:
+            _add_doc(r, matched_by="pattern")
+
+    # 5. 스마트 단일 입력 (target) 해석 (4단계 우선순위)
+    if target and not results:
+        raw_target = target.strip()
+
+        # 5-1. 정확한 ID 일치
+        row = conn.execute(
+            "SELECT id, url, canonical_url, title, content_hash, fetched_at FROM documents WHERE id=?",
+            (raw_target,),
+        ).fetchone()
+        if row:
+            _add_doc(row, matched_by="id")
+            return results
+
+        # 5-2. 공유 링크 (?s=token) 또는 16자리 공유 토큰
+        resolved_token = None
+        if "?" in raw_target:
+            parsed = urlsplit(raw_target)
+            qs = parse_qs(parsed.query)
+            if "s" in qs and qs["s"]:
+                resolved_token = qs["s"][0]
+        elif raw_target.startswith("?s="):
+            resolved_token = raw_target[3:]
+        elif plausible_share_token(raw_target):
+            resolved_token = raw_target
+
+        if resolved_token:
+            shared_id = resolve_doc_share(conn, resolved_token)
+            if not shared_id:
+                row_share = conn.execute("SELECT document_id FROM doc_shares WHERE token=?", (resolved_token,)).fetchone()
+                if row_share:
+                    shared_id = row_share["document_id"]
+            if shared_id:
+                row = conn.execute(
+                    "SELECT id, url, canonical_url, title, content_hash, fetched_at FROM documents WHERE id=?",
+                    (shared_id,),
+                ).fetchone()
+                if row:
+                    _add_doc(row, matched_by="share_token", is_from_share_token=True)
+                    return results
+
+        # 5-3. URL 및 Canonical URL 일치
+        test_url = raw_target if raw_target.startswith(("http://", "https://")) else f"https://{raw_target}"
+        c_url = canonicalize_url(test_url)
+        c_raw = canonicalize_url(raw_target)
+
+        rows = conn.execute(
+            """
+            SELECT id, url, canonical_url, title, content_hash, fetched_at
+            FROM documents
+            WHERE url = ? OR canonical_url = ? OR url = ? OR canonical_url = ? OR url = ? OR canonical_url = ?
+            """,
+            (raw_target, raw_target, test_url, c_url, test_url.replace("https://", "http://"), c_raw),
+        ).fetchall()
+        for r in rows:
+            _add_doc(r, matched_by="url")
+
+        if results:
+            return results
+
+        # 5-4. 제목 / URL 부분 검색 (Fallback)
+        patt = f"%{raw_target}%"
+        rows = conn.execute(
+            """
+            SELECT id, url, canonical_url, title, content_hash, fetched_at
+            FROM documents
+            WHERE title LIKE ? OR url LIKE ? OR canonical_url LIKE ? OR id LIKE ?
+            ORDER BY fetched_at DESC LIMIT ?
+            """,
+            (patt, patt, patt, patt, limit),
+        ).fetchall()
+        for r in rows:
+            _add_doc(r, matched_by="pattern")
+
+    return results
+
+
+def resolve_single_document_target(
+    conn: sqlite3.Connection,
+    target: str | None = None,
+    *,
+    doc_id: str | None = None,
+    url: str | None = None,
+    token: str | None = None,
+) -> dict[str, Any] | None:
+    """단일 문서를 요구하는 명령어에서 안전하게 1건을 식별. 다건 매칭 시 ValueError 발생."""
+    targets = resolve_document_targets(conn, target, doc_id=doc_id, url=url, token=token, limit=5)
+    if not targets:
+        return None
+    if len(targets) == 1:
+        return targets[0]
+
+    # 정확 일치(id 또는 token)가 1건만 있다면 그것을 우선
+    exact = [t for t in targets if t["matched_by"] in ("id", "doc_id", "token", "share_token")]
+    if len(exact) == 1:
+        return exact[0]
+
+    matched_summary = ", ".join(f"[{t['id'][:8]}] {t.get('title') or t.get('url') or ''}" for t in targets[:3])
+    raise ValueError(
+        f"입력값 '{target or doc_id or url}'에 여러 문서({len(targets)}건)가 일치합니다 ({matched_summary}...). "
+        "정확한 문서 ID 또는 전체 URL을 입력해 주십시오."
+    )
+
+
 def latest_extraction_summary(conn: sqlite3.Connection, document_id: str) -> str | None:
     """문서의 최신 추출 결과에서 summary 를 꺼낸다(documents 엔 summary 컬럼이 없고
     extractions.raw_response = ExtractionResult JSON 에 들어있다). 노드 상세 패널용."""

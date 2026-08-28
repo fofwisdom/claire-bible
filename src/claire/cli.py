@@ -177,54 +177,43 @@ def cmd_purge(args) -> int:
     conn = dbm.connect(s.db_file)
     dbm.init_db(conn)
     try:
-        # 대상 문서 식별
-        target_ids: list[str] = []
+        # 대상 문서 식별 (스마트 타깃 리졸버)
         target = getattr(args, "target", None)
         doc_id = getattr(args, "doc_id", None)
         url = getattr(args, "url", None)
         pattern = getattr(args, "pattern", None)
         canonical_url = getattr(args, "canonical_url", None)
+        token = getattr(args, "token", None)
 
-        if doc_id:
-            target_ids.append(doc_id)
-        if target:
-            if target.startswith(("http://", "https://")):
-                url = target
-            else:
-                target_ids.append(target)
-        if url:
-            from .ingest.normalize import canonicalize_url
-
-            c_url = canonicalize_url(url)
-            rows = conn.execute(
-                "SELECT id FROM documents WHERE url=? OR canonical_url=?", (url, c_url)
-            ).fetchall()
-            for r in rows:
-                if r["id"] not in target_ids:
-                    target_ids.append(r["id"])
-        if canonical_url:
-            rows = conn.execute(
-                "SELECT id FROM documents WHERE canonical_url=?", (canonical_url,)
-            ).fetchall()
-            for r in rows:
-                if r["id"] not in target_ids:
-                    target_ids.append(r["id"])
-        if pattern:
-            patt = f"%{pattern}%"
-            rows = conn.execute(
-                "SELECT id FROM documents WHERE id LIKE ? OR url LIKE ? OR canonical_url LIKE ? OR title LIKE ? OR raw_text LIKE ?",
-                (patt, patt, patt, patt, patt),
-            ).fetchall()
-            for r in rows:
-                if r["id"] not in target_ids:
-                    target_ids.append(r["id"])
+        matched_targets = dbm.resolve_document_targets(
+            conn,
+            target=target,
+            doc_id=doc_id,
+            url=url,
+            canonical_url=canonical_url,
+            token=token,
+            pattern=pattern,
+        )
+        target_ids = [t["id"] for t in matched_targets]
 
         if not target_ids:
-            print("claire purge: 소각할 대상 문서를 찾을 수 없습니다.")
+            query_hint = target or doc_id or url or canonical_url or pattern or "(입력 없음)"
+            print(f"claire purge: 입력값 '{query_hint}'에 일치하는 소각 대상 문서를 찾을 수 없습니다.", file=sys.stderr)
+            recent_docs = conn.execute(
+                "SELECT id, title, url, canonical_url FROM documents ORDER BY fetched_at DESC LIMIT 5"
+            ).fetchall()
+            if recent_docs:
+                print("\n[참고] 최근 수집된 문서 목록:", file=sys.stderr)
+                for rd in recent_docs:
+                    u = rd["url"] or rd["canonical_url"] or "no-url"
+                    print(f"  • [{rd['id'][:12]}] {rd['title'] or '(제목 없음)'} ({u})", file=sys.stderr)
+            print("\n전체 문서를 검색하려면 `claire search <검색어>` 또는 `claire status`를 확인하십시오.", file=sys.stderr)
             return 0
 
         force = getattr(args, "force", False) or getattr(args, "apply", False) or getattr(args, "yes", False)
         reason = getattr(args, "reason", "manual_purge") or "manual_purge"
+
+        has_share_token = any(t.get("is_from_share_token") for t in matched_targets)
 
         if not force:
             report = dbm.purge_document_cascade(
@@ -233,17 +222,28 @@ def cmd_purge(args) -> int:
             if getattr(args, "json", False):
                 import json
 
+                report["targets_info"] = matched_targets
                 print(json.dumps(report, ensure_ascii=False, indent=2))
                 return 0
 
             print("claire purge: [Dry-Run] 소각 대상 분석 보고서 (실제 삭제 안 됨)")
             print("=" * 60)
+            if has_share_token:
+                print(" [⚠️  주의] 공유 링크(?s=token)로 식별된 문서가 포함되어 있습니다.")
+                print("      이 작업은 단순 공유 취소가 아니라 원본 문서, 지식그래프 노드, 디스크 파일 전체를 영구 소각합니다.")
+                print("-" * 60)
             print(f"• 소각 대상 문서 수         : {report['purged_count']} 건")
             print(f"• 삭제 대상 디스크 파일     : {report['disk_files_count']} 개")
             print("-" * 60)
             print("대상 문서 목록:")
             for d in report["target_documents"]:
-                print(f"  - [{d['id']}] {d.get('title') or '(제목 없음)'} ({d.get('url') or 'no-url'})")
+                m_info = next((t for t in matched_targets if t["id"] == d["id"]), {})
+                by_str = f" [식별: {m_info.get('matched_by', 'direct')}]" if m_info else ""
+                print(f"  - [{d['id']}] {d.get('title') or '(제목 없음)'}{by_str}")
+                if d.get("url"):
+                    print(f"      원본 URL: {d['url']}")
+                if d.get("canonical_url") and d.get("canonical_url") != d.get("url"):
+                    print(f"      표준 URL: {d['canonical_url']}")
             print("=" * 60)
             print("[안내] 실제 소각 및 DB 물리 압축(VACUUM)을 실행하려면 --force 옵션을 추가하십시오:")
             print("  claire purge --force " + " ".join(f"'{did}'" for did in target_ids))
@@ -1092,25 +1092,39 @@ def cmd_watch(args) -> int:
             iv = f"{(r['watch_interval'] or 0) / 86400:.1f}일" if r["watch_interval"] else "기본주기"
             print(f"  {r['id']}  주기={iv}  {r['title'] or ''}  [{r['watch_reason'] or ''}]")
         return 0
-    if not args.document_id:
-        print("document_id 가 필요합니다 (또는 --list)")
+    raw_target = getattr(args, "document_id", None) or getattr(args, "target", None)
+    if not raw_target:
+        print("대상 문서 ID 또는 URL이 필요합니다 (또는 --list)", file=sys.stderr)
         return 1
     if args.on and args.off:
-        print("--on 과 --off 는 동시에 쓸 수 없습니다")
+        print("--on 과 --off 는 동시에 쓸 수 없습니다", file=sys.stderr)
         return 1
+
+    try:
+        doc_info = dbm.resolve_single_document_target(conn, raw_target)
+    except ValueError as e:
+        print(f"[!] {e}", file=sys.stderr)
+        return 1
+
+    if not doc_info:
+        print(f"문서 없음: {raw_target}")
+        return 1
+
+    document_id = doc_info["id"]
     enabled = True if args.on else (False if args.off else None)
     interval = float(args.interval_days) * 86400 if args.interval_days else None
     if enabled is None and interval is None:
-        r = dbm.get_document_row(conn, args.document_id)
+        r = dbm.get_document_row(conn, document_id)
         if r is None:
-            print("문서 없음")
+            print(f"문서 없음: {raw_target}")
             return 1
         print(f"watch_enabled={r['watch_enabled']} interval={r['watch_interval']} "
-              f"last_watched_at={r['last_watched_at']} reason={r['watch_reason']}")
+              f"last_watched_at={r['last_watched_at']} reason={r['watch_reason']} "
+              f"title='{r['title'] or ''}' (id={document_id})")
         return 0
-    dbm.set_document_watch(conn, args.document_id, enabled=enabled,
+    dbm.set_document_watch(conn, document_id, enabled=enabled,
                            interval=interval, reason="manual")
-    print(f"watch 설정: {args.document_id} enabled={enabled} interval_days={args.interval_days}")
+    print(f"watch 설정: [{document_id[:12]}] '{doc_info.get('title') or ''}' enabled={enabled} interval_days={args.interval_days}")
     return 0
 
 
@@ -1119,11 +1133,23 @@ def cmd_doc_title(args) -> int:
     s = get_settings()
     conn = dbm.connect_existing(s.db_file)
     try:
-        ok = dbm.set_document_title(conn, args.document_id, args.title)
-        if not ok:
-            print(f"문서 없음: {args.document_id}")
+        raw_target = getattr(args, "document_id", None) or getattr(args, "target", None)
+        try:
+            doc_info = dbm.resolve_single_document_target(conn, raw_target)
+        except ValueError as e:
+            print(f"[!] {e}")
             return 1
-        print(f"제목 갱신 완료: {args.document_id} → '{args.title}'")
+
+        if not doc_info:
+            print(f"문서 없음: {raw_target}")
+            return 1
+
+        document_id = doc_info["id"]
+        ok = dbm.set_document_title(conn, document_id, args.title)
+        if not ok:
+            print(f"제목 갱신 실패: {document_id}")
+            return 1
+        print(f"제목 갱신 완료: {document_id} → '{args.title}'")
         return 0
     finally:
         conn.close()
@@ -1469,7 +1495,8 @@ def build_parser() -> argparse.ArgumentParser:
     pbi.set_defaults(func=cmd_backfill_images)
 
     pw = sub.add_parser("watch", help="주기 크롤링 watch on/off·주기·목록(수동)")
-    pw.add_argument("document_id", nargs="?", help="대상 문서 id (생략+--list 면 목록)")
+    pw.add_argument("target", nargs="?", default=None, help="target document ID, URL, or share URL (or omit with --list)")
+    pw.add_argument("--doc-id", default=None, help="specific document ID")
     pw.add_argument("--on", action="store_true", help="watch 켜기")
     pw.add_argument("--off", action="store_true", help="watch 끄기")
     pw.add_argument("--interval-days", type=float, default=None, help="재확인 주기(일)")
@@ -1477,7 +1504,7 @@ def build_parser() -> argparse.ArgumentParser:
     pw.set_defaults(func=cmd_watch)
 
     pdt = sub.add_parser("doc-title", help="update document title and recompute minhash signature")
-    pdt.add_argument("document_id", help="대상 문서 id")
+    pdt.add_argument("target", help="target document ID, URL, or share URL")
     pdt.add_argument("title", help="새 제목")
     pdt.set_defaults(func=cmd_doc_title)
 
@@ -1505,8 +1532,9 @@ def build_parser() -> argparse.ArgumentParser:
         "purge",
         help="atomically purge legacy/corrupted documents with tombstones, disk unlink, graph heal & vacuum",
     )
-    ppg.add_argument("target", nargs="?", default=None, help="target document ID or URL to purge")
+    ppg.add_argument("target", nargs="?", default=None, help="target document ID, URL, share URL (/p?s=...), or search keyword to purge")
     ppg.add_argument("--doc-id", default=None, help="specific document ID to purge")
+    ppg.add_argument("--token", default=None, help="specific share token to identify document")
     ppg.add_argument("--url", default=None, help="specific URL to purge")
     ppg.add_argument("--canonical-url", default=None, help="specific canonical URL to purge")
     ppg.add_argument("--pattern", default=None, help="search pattern across document id/url/title/text")

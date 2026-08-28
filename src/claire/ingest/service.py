@@ -698,42 +698,16 @@ class IngestService:
             target_ids: list[str] = []
             resolved_token = token
 
-            if target:
-                raw_target = target.strip()
-                # URL 형태에서 ?s=token 추출 시도
-                if "?" in raw_target:
-                    parsed = urlsplit(raw_target)
-                    qs = parse_qs(parsed.query)
-                    if "s" in qs and qs["s"]:
-                        resolved_token = qs["s"][0]
-                elif raw_target.startswith("?s="):
-                    resolved_token = raw_target[3:]
-                elif dbm.plausible_share_token(raw_target):
-                    # 토큰 후보로 먼저 검사
-                    t_doc = dbm.resolve_doc_share(conn, raw_target)
-                    if t_doc:
-                        resolved_token = raw_target
-
-                if not resolved_token and not doc_id:
-                    # 토큰이 아니면 document ID 로 조회
-                    doc_cand = dbm.get_document(conn, raw_target)
-                    if doc_cand:
-                        target_ids.append(doc_cand.id)
-
-            if resolved_token:
-                shared_doc_id = dbm.resolve_doc_share(conn, resolved_token)
-                if not shared_doc_id:
-                    # 만료되었거나 비활성 토큰이라도 doc_shares 테이블 자체에 존재하는지 확인
-                    row = conn.execute(
-                        "SELECT document_id FROM doc_shares WHERE token=?", (resolved_token,)
-                    ).fetchone()
-                    if row:
-                        shared_doc_id = row["document_id"]
-                if shared_doc_id and shared_doc_id not in target_ids:
-                    target_ids.append(shared_doc_id)
-
-            if doc_id and doc_id not in target_ids:
-                target_ids.append(doc_id)
+            if target or token or doc_id:
+                matched = dbm.resolve_document_targets(
+                    conn,
+                    target=target,
+                    token=token,
+                    doc_id=doc_id,
+                )
+                for m in matched:
+                    if m["id"] not in target_ids:
+                        target_ids.append(m["id"])
 
             # 대상이 특정되지 않고 tables, corrupted_summary 이거나 전체 스캔인 경우
             if tables:
