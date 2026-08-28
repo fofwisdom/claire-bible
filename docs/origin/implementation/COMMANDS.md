@@ -80,15 +80,15 @@ Git 저장소 최신 커밋을 가져와 무중단 롤링 업데이트를 수행
 
 #### `backup`
 데이터베이스, Vault 마크다운, 환경 설정을 아카이브로 내보냅니다.
-* **사용법**: `./cb-manuscript backup [--format {tgz,zip,dir}] [--component {all,db,vault,env}] [--replace]`
+* **사용법**: `./cb-manuscript backup [--format {tgz,zip,dir}] [--component {all,db,vault,env}] [--replace | --force | -f]`
 * **옵션**:
   * `--format`: 압축 포맷 지정 (`tgz` 기본값, `zip`, `dir`).
   * `--component`: 백업 대상 지정 (`all` 기본값, `db`, `vault`, `env`).
-  * `--replace`: 동일 일자/경로의 기존 백업 덮어쓰기.
+  * `--replace`, `--force`, `-f`: 동일 일자/경로의 기존 백업 덮어쓰기.
 
 #### `restore`
 백업 아카이브로부터 데이터와 설정을 복원합니다.
-* **사용법**: `./cb-manuscript restore <source> [--component {all,db,vault,env}] [--yes]`
+* **사용법**: `./cb-manuscript restore <source> [--component {all,db,vault,env}] [--yes | -y]`
 * **옵션**:
   * `source`: 백업 디렉터리 또는 아카이브 파일 경로.
   * `--component`: 복원 대상 컴포넌트.
@@ -124,7 +124,7 @@ Git 저장소 최신 커밋을 가져와 무중단 롤링 업데이트를 수행
 
 | 명령 | 사용법 | 설명 |
 | :--- | :--- | :--- |
-| `doctor` | `claire doctor [--heal] [--yes] [--json]` | 지식그래프 무결성(고아 노드/엣지, FTS 불일치) 진단 및 원클릭 자동 수복 |
+| `doctor` | `claire doctor [--heal \| --apply] [--yes] [--json]` | 지식그래프 무결성(고아 노드/엣지, FTS 불일치) 진단 및 원클릭 자동 수복 |
 | `preflight` | `claire preflight` | 파이썬 환경, 설정값, Gemini API Key, sqlite-vec 모듈, DB 연결 사전 점검 |
 | `health` | `claire health` | DB, 큐(Queue), Inbox 상태를 담은 건강 진단 JSON 출력 |
 | `liveness` | `claire liveness` | 읽기 전용 DB 및 스키마 생존 여부 확인 (Degraded 시 비정상 종료 안 함) |
@@ -139,13 +139,14 @@ Git 저장소 최신 커밋을 가져와 무중단 롤링 업데이트를 수행
 * **사용법**:
   ```bash
   ./cb-manuscript app doctor          # 기본: Dry-run 진단 보고서 출력
-  ./cb-manuscript app doctor --heal   # 자동 수복 실행 (확인 프롬프트 포함)
+  ./cb-manuscript app doctor --heal   # 자동 수복 실행
+  ./cb-manuscript app doctor --apply  # 자동 수복 실행 (동일)
   ./cb-manuscript app doctor --heal -y # 무인 자동 수복
   ./cb-manuscript app doctor --json   # 기계 판독용 JSON 출력
   ```
 * **옵션**:
-  * `--heal`, `--apply`, `--repair`: 고아 관계 삭제, 출처 정제, FTS 색인 재구축 등 자동 수복 적용.
-  * `--yes`, `-y`: 수복 진행 시 대화형 확인 프롬프트 생략.
+  * `--heal`, `--apply`: 고아 관계 삭제, 출처 정제, FTS 색인 재구축 등 자동 수복 적용.
+  * `--yes`, `-y`: 확인 프롬프트 생략.
   * `--json`: 진단 결과를 JSON 포맷으로 출력.
 * **진단/수복 범위**:
   1. **고아 관계 (Dangling Relations)**: 연결 대상 엔티티가 없는 엣지 탐지/삭제.
@@ -205,9 +206,9 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 
 | 명령 | 사용법 | 설명 |
 | :--- | :--- | :--- |
-| `regenerate` | `claire regenerate [<target>] [--tables] [--summary] [--detail] [--all] [--force] [--effort <level>]` | 특정 문서 또는 표(Table) 포함 문서 컴포넌트(요약/본문/그래프) 선택적 LLM 재생성 (기본: dry-run) |
-| `summary-regenerate`| `claire summary-regenerate [<target>] [--tables] [--force] [--effort <level>]` | `regenerate --summary`의 단축 Alias |
-| `format-migrate` | `claire format-migrate [--format {md,adoc}] [--apply] [--yes] [--json]` | 문서 렌더링 포맷 진단 및 일괄 변환 (기본: dry-run) |
+| `regenerate` | `claire regenerate [<target>] [--tables] [--summary] [--detail] [--all] [--apply] [--force] [--effort <level>]` | 특정 문서 또는 표(Table) 포함 문서 컴포넌트(요약/본문/그래프) 선택적 LLM 재생성 (기본: dry-run, 실행: `--apply`) |
+| `summary-regenerate`| `claire summary-regenerate [<target>] [--tables] [--apply] [--force] [--effort <level>]` | `regenerate --summary`의 단축 Alias |
+| `format-migrate` | `claire format-migrate [--format {md,adoc}] [--apply] [--yes] [--json]` | 문서 렌더링 포맷 진단 및 일괄 변환 (기본: dry-run, 실행: `--apply`) |
 | `format-status` | `claire format-status` | 문서 detail의 포맷별(md, adoc, 누락) 통계 출력 |
 | `backfill-detail` | `claire backfill-detail [--tables] [--format {md,adoc}] [--limit N] [--force]` | detail 렌더링이 누락되었거나 표가 포함된 문서 일괄 생성 (그래프 불변) |
 | `backfill-summary` | `claire backfill-summary [--limit N]` | 요약이 누락된 기존 문서의 요약 일괄 생성 |
@@ -226,12 +227,12 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 * **사용법**:
   ```bash
   ./cb-manuscript app regenerate <target> --summary              # Dry-run 진단 (기본)
-  ./cb-manuscript app regenerate <target> --summary --force      # 실제 LLM 호출 및 DB 덮어쓰기
-  ./cb-manuscript app regenerate <target> --summary --force --effort high # 추론 레벨 지정
+  ./cb-manuscript app regenerate <target> --summary --apply      # 실제 LLM 호출 및 DB 갱신
+  ./cb-manuscript app regenerate <target> --summary --apply --effort high # 추론 레벨 지정
   ./cb-manuscript app regenerate --corrupted --summary           # 오염된 요약 일괄 스캔
   ./cb-manuscript app regenerate --tables --all                  # 표 포함 문서 일괄 진단 (Dry-run)
-  ./cb-manuscript app regenerate --tables --all --force          # 표 포함 문서 요약/본문/그래프 일괄 재생성
-  ./cb-manuscript app regenerate <target> --all --force          # 특정 문서 전체 재생성
+  ./cb-manuscript app regenerate --tables --all --apply          # 표 포함 문서 요약/본문/그래프 일괄 재생성
+  ./cb-manuscript app regenerate <target> --all --apply          # 특정 문서 전체 재생성
   ```
 * **옵션**:
   * `target`: 문서 ID, 공유 토큰(예: `dzr73zpxh2bah4vp`), 또는 공유 URL (`https://.../p?s=token`).
@@ -243,14 +244,16 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
   * `--all`: 요약, 본문, 그래프 전체 동시 재생성.
   * `--corrupted`: AsciiDoc/마크업 문법 잔존으로 오염된 요약을 가진 문서를 전체 DB에서 자동 탐지.
   * `--tables`, `--has-tables`: 마크다운(`|...|`), AsciiDoc(`|===`), HTML(`<table>`) 표가 포함된 문서를 전체 DB에서 자동 탐지하여 일괄 대상으로 지정.
-  * `--force`: 실제 LLM 호출 및 DB 덮어쓰기 실행 (미지정 시 기본 dry-run).
+  * `--refetch`: 재생성 전 최신 웹 문서 재스크랩.
+  * `--apply`: 실제 LLM 호출 및 DB 덮어쓰기 실행 (미지정 시 기본 dry-run).
+  * `--force`, `-f`: 기존 컴포넌트가 이미 유효하더라도 강제 재생성/덮어쓰기.
   * `--dry-run`: 대상 문서 정보 및 계획만 출력하고 DB 변경 없음 (기본값).
   * `--effort <level>`: Gemini 사고/추론 레벨 오버라이드 (`low`, `medium`, `high`, `minimal`, `none`, 또는 정수 토큰 budget).
   * `--format {md,adoc}`: 본문 detail 렌더링 포맷 지정.
 
 #### `summary-regenerate`
 `regenerate --summary`의 단축 Alias입니다.
-* **사용법**: `./cb-manuscript app summary-regenerate <target> [--force] [--effort <level>]`
+* **사용법**: `./cb-manuscript app summary-regenerate <target> [--apply] [--effort <level>]`
 
 #### `format-migrate`
 전체 문서의 detail 본문 렌더링 포맷(Markdown ↔ AsciiDoc) 현황을 점검하고 일괄 변환합니다.
@@ -277,7 +280,7 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
   ```
 * **옵션**:
   * `--tables`, `--has-tables`: 원문/본문에 표(Markdown, AsciiDoc, HTML)가 포함된 문서만 선별하여 재생성.
-  * `--force`: 기존에 detail이 있더라도 강제로 재생성.
+  * `--force`, `-f`: 기존에 detail이 있더라도 강제로 재생성.
   * `--format {md,adoc}`: 생성할 본문 포맷 지정.
   * `--limit <N>`: 처리할 최대 문서 개수.
 
@@ -296,7 +299,7 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
   * `--limit <N>`: 처리할 최대 문서 개수.
 
 #### 작업 진행률 및 중단 보고
-다음의 **1회 실행 배치 명령**은 진행률 추적기를 사용한다: `regenerate --force`, `reextract`, `backfill-detail`, `backfill-summary`, `format-migrate --apply`, `recover-run`, `refresh-run`, `expand-run`.[^progress-implementation]
+다음의 **1회 실행 배치 명령**은 진행률 추적기를 사용한다: `regenerate --apply`, `reextract`, `backfill-detail`, `backfill-summary`, `format-migrate --apply`, `recover-run`, `refresh-run`, `expand-run`.[^progress-implementation]
 
 * **정상 진행 출력**: 시작 시 전체 대상 수를 표시하고, 각 항목마다 `[현재/전체]`, 백분율, 대상 ID와 제목을 출력한다. 두 번째 항목부터는 완료 항목의 평균 시간으로 잔여 시간을 추정한다. 가능한 파이프라인에서는 구조화 추출, detail 렌더링, 엔티티 해소·동일체 판정, 관계 적재, Vault 동기화의 현재 단계를 함께 출력한다.[^progress-implementation]
 * **`Ctrl+C` 처리**: 현재 문서·제목·URL·단계, 완료/잔여 수, 경과 시간과 재개 명령을 포함한 중단 보고서를 출력하고 해당 CLI 명령은 종료 코드 `130`을 반환한다. 보고서의 데이터 보존 문구는 이미 완료된 항목을 대상으로 한다.[^progress-implementation]
@@ -315,8 +318,8 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 ### 3.6 중복 정리 및 정규화 (Dedup & Canon)
 
 * `claire dedup-scan [--threshold 0.85] [--min-len 200]`: MinHash LSH 기반으로 내용이 유사한 근사 중복(Near-duplicate) 문서 클러스터 탐지 및 보고 (비파괴 진단).
-* `claire dedup-merge [--threshold 0.85] [--apply]`: 탐지된 중복 문서를 대표 문서(Keeper)로 병합하고 지식그래프 엣지 통합.
-* `claire recanonicalize [--dry-run]`: URL 정규화 규칙(ArXiv 버전 번호 통일 등)을 기존 문서에 재계산하여 일괄 갱신.
+* `claire dedup-merge [--threshold 0.85] [--apply] [--yes]`: 탐지된 중복 문서를 대표 문서(Keeper)로 병합하고 지식그래프 엣지 통합 (기본: dry-run, 실행: `--apply`).
+* `claire recanonicalize [--apply] [--dry-run]`: URL 정규화 규칙(ArXiv 버전 번호 통일 등)을 기존 문서에 재계산하여 일괄 갱신 (기본: dry-run, 실행: `--apply`).
 
 ---
 
@@ -331,12 +334,12 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 
 ### 3.8 데이터 수명주기 및 오염 소각 (Lifecycle & Purge)
 
-* `claire purge <target> [--doc-id <ID>] [--token <token>] [--url <URL>] [--pattern <str>] [--reason <str>] [--force] [--json]`:
+* `claire purge <target> [--doc-id <ID>] [--token <token>] [--url <URL>] [--pattern <str>] [--reason <str>] [--apply] [--yes] [--json]`:
   * **스마트 타깃 자동 판별**: `target` 하나로 문서 ID(SHA256/UUID), 공유 링크(`/p?s=token`), 일반 원본 URL, 정규화된 canonical URL, 프로토콜 누락 도메인(`domain.com/...`), 제목 키워드를 4단계 우선순위로 자동 판별.
   * **수명주기 게이트**: `.env`에 `CLAIRE_DATA_LIFECYCLE=purgeable` (또는 `CLAIRE_ALLOW_PURGE=1`) 설정 시에만 실행 허용 (`append-only` 시 안전 차단).
   * **원자적 소각**: 툼스톤(`purged_tombstones`) 등록 ➔ DB 8개 테이블 연쇄 Hard Delete ➔ 로컬 파일시스템 아티팩트(`raw/artifacts`, `images`, `vault`) Unlink ➔ `heal_graph` 수복 ➔ `VACUUM` 압축을 일괄 수행.
   * **공유 링크 소각 경고**: 공유 링크로 식별된 경우 단순 링크 무효화가 아닌 원본 문서 전체 파괴임을 Dry-Run에 명시적 경고.
-  * 기본 실행은 Dry-Run으로 영향 범위를 사전 출력하며, `--force` 지정 시 실제 소각 실행.
+  * 기본 실행은 Dry-Run으로 영향 범위를 사전 출력하며, `--apply` 지정 시 실제 소각 실행 (대화형 `[y/N]` 확인 또는 `--yes`/`-y`로 무인 실행).
 * `claire audit [<target>] [--pattern <str>] [--json]`:
   * 특정 키워드, URL, ID, 또는 툼스톤 대상이 DB(문서/인박스/추출/스냅샷), 로컬 디스크 파일, 엔티티 sources에 1건이라도 남아있는지 전수 검사하고 Freelist 미회수 용량을 보고.
 

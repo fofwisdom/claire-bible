@@ -730,7 +730,7 @@ def test_app_help_is_forwarded_to_claire(tmp_path, app_args):
         ("reextract",),
         ("dedup-merge", "--apply"),
         ("dedup-merge", "--a"),
-        ("recanonicalize",),
+        ("recanonicalize", "--apply"),
     ),
 )
 def test_app_rejects_managed_or_unsafe_commands_by_default(
@@ -754,7 +754,7 @@ def test_app_rejects_managed_or_unsafe_commands_by_default(
         ("serve-api",),
         ("reextract", "--limit", "2"),
         ("dedup-merge", "--apply"),
-        ("recanonicalize",),
+        ("recanonicalize", "--apply"),
     ),
 )
 def test_app_advanced_override_runs_managed_or_unsafe_commands(
@@ -1383,7 +1383,7 @@ def test_app_regenerate_dispatches_to_claire_in_container(tmp_path):
     _write_layout(tmp_path, dev=False)
     with patch.object(cb.subprocess, "run", side_effect=_fake_success) as run:
         code = cb.main(
-            ["app", "regenerate", "dzr73zpxh2bah4vp", "--summary", "--force", "--effort", "high"],
+            ["app", "regenerate", "dzr73zpxh2bah4vp", "--summary", "--apply", "--effort", "high"],
             root=tmp_path,
         )
         assert code == 0
@@ -1396,7 +1396,7 @@ def test_app_regenerate_dispatches_to_claire_in_container(tmp_path):
         "regenerate",
         "dzr73zpxh2bah4vp",
         "--summary",
-        "--force",
+        "--apply",
         "--effort",
         "high",
     ]

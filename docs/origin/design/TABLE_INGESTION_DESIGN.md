@@ -74,9 +74,9 @@ Claire Bible은 웹, PDF, 로컬 파일 등 다양한 소스로부터 문서를 
 uv run claire regenerate --tables --all
 ./cb-manuscript app regenerate --tables --all
 
-# 2) 표 포함 문서 일괄 재생성 및 그래프 재추출 적용 (Force)
-uv run claire regenerate --tables --all --force
-./cb-manuscript app regenerate --tables --all --force
+# 2) 표 포함 문서 일괄 재생성 및 그래프 재추출 적용 (Apply)
+uv run claire regenerate --tables --all --apply
+./cb-manuscript app regenerate --tables --all --apply
 
 # 3) 지식그래프는 보존하고 가독 본문(detail)의 표 렌더링만 일괄 갱신
 uv run claire backfill-detail --tables --force

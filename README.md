@@ -88,7 +88,7 @@ Claire Bible은 호스트 오케스트레이션 도구인 **`cb-manuscript`**와
 | :--- | :--- | :--- |
 | **`cb-manuscript`** | `init`, `preflight`, `install`, `update` | 호스트 환경 검증, 이미지 빌드, 롤링 업데이트 |
 | | `doctor`, `doctor --heal` | 지식그래프 참조 무결성 진단 및 원클릭 자동 수복 |
-| | `regenerate --tables --all --force` | 특정 문서 또는 표(Table) 포함 문서 컴포넌트 LLM 재생성 |
+| | `regenerate --tables --all --apply` | 특정 문서 또는 표(Table) 포함 문서 컴포넌트 LLM 재생성 |
 | | `backup`, `restore`, `format-migrate` | DB/Vault 아카이브 백업·복원, 본문 포맷 일괄 변환 |
 | | `up`, `down`, `restart`, `status`, `logs` | Docker Compose 서비스 수명주기 제어 |
 | **`claire`** | `ingest`, `search` | 지식 문서 수집/적재, FTS+벡터 하이브리드 인용 검색 |
@@ -98,7 +98,7 @@ Claire Bible은 호스트 오케스트레이션 도구인 **`cb-manuscript`**와
 
 > 💡 **전체 명령어 및 세부 옵션 안내**: 모든 명령어, 세부 옵션, 미구현 상태 및 제약사항에 대한 상세 설명은 **[전체 CLI 명령어 레퍼런스 (`docs/origin/implementation/COMMANDS.md`)](docs/origin/implementation/COMMANDS.md)**를 참고하십시오.
 
-`regenerate --force`, `reextract`, 백필, 포맷 적용과 큐 1회 실행은 문서별 진행률·세부 단계·중단 위치를 표준 오류 출력으로 보고한다. 대상별 적용 범위와 재개 경계는 [작업 진행률 및 중단 보고](docs/origin/implementation/COMMANDS.md#작업-진행률-및-중단-보고)를 따른다.
+`regenerate --apply`, `reextract`, 백필, 포맷 적용과 큐 1회 실행은 문서별 진행률·세부 단계·중단 위치를 표준 오류 출력으로 보고한다. 대상별 적용 범위와 재개 경계는 [작업 진행률 및 중단 보고](docs/origin/implementation/COMMANDS.md#작업-진행률-및-중단-보고)를 따른다.
 
 ## 컨테이너 운영
 

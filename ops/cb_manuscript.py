@@ -3103,15 +3103,15 @@ def _app_guard_reason(args: Sequence[str]) -> str | None:
         return "claire global option unclassified in cb-manuscript safety policy"
     if command in APP_GUARDED_COMMANDS:
         return APP_GUARDED_COMMANDS[command]
-    applies_merge = any(
+    applies = any(
         token.startswith("--")
         and len(token) > 2
         and "--apply".startswith(token)
         for token in args[1:]
     )
-    if command == "dedup-merge" and applies_merge:
+    if command == "dedup-merge" and applies:
         return "destructive maintenance command that deletes documents"
-    if command == "recanonicalize" and "--dry-run" not in args[1:]:
+    if command == "recanonicalize" and applies:
         return "maintenance command that modifies persistent data"
     if command in APP_ONE_OFF_COMMANDS:
         return None
@@ -3349,7 +3349,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     backup.add_argument(
         "--replace",
+        "--force",
+        "-f",
         action="store_true",
+        dest="replace",
         help="Replace existing backup if present",
     )
 
@@ -3367,7 +3370,7 @@ def build_parser() -> argparse.ArgumentParser:
             "Examples:\n"
             "  ./cb-manuscript restore                                # Interactive backup selection from list\n"
             "  ./cb-manuscript restore backups/cb-20260820-193000 --yes # Direct restore with confirmation\n"
-            "  ./cb-manuscript restore backups/cb-20260820-193000.tar.gz --component data --yes"
+            "  ./cb-manuscript restore backups/cb-20260820-193000.tar.gz --component data -y"
         ),
     )
     restore.add_argument(
@@ -3384,7 +3387,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     restore.add_argument(
         "--yes",
+        "-y",
         action="store_true",
+        dest="yes",
         help="Explicitly confirm replacement of current selected components without prompt",
     )
 
