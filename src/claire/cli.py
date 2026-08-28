@@ -666,7 +666,7 @@ def cmd_ingest(args) -> int:
     provider = get_provider(s)
     vstore = make_vector_store(conn, s.vector_backend)
     print(f"(provider={provider.name})")
-    directive = getattr(args, "orientation", None) or getattr(args, "directive", None)
+    directive = getattr(args, "focus", None) or getattr(args, "orientation", None) or getattr(args, "directive", None)
     report = ingest(
         args.payload, conn=conn, provider=provider, vstore=vstore,
         vault_dir=s.vault_dir, data_dir=s.data_dir, source="cli",
@@ -760,7 +760,7 @@ def cmd_backfill_detail(args) -> int:
         print("detail 백필 대상 문서 없음.")
         return 0
 
-    directive = getattr(args, "orientation", None) or getattr(args, "directive", None)
+    directive = getattr(args, "focus", None) or getattr(args, "orientation", None) or getattr(args, "directive", None)
     try:
         with track_batch_progress(f"detail 백필 ({svc.provider.name})", total_docs) as reporter:
             out = svc.backfill_details(
@@ -830,7 +830,7 @@ def cmd_regenerate(args) -> int:
     force = getattr(args, "force", False)
     effort = getattr(args, "effort", None)
     fmt = getattr(args, "format", None)
-    directive = getattr(args, "orientation", None) or getattr(args, "directive", None)
+    directive = getattr(args, "focus", None) or getattr(args, "orientation", None) or getattr(args, "directive", None)
 
     if not apply:
         # Dry-run 진단
@@ -1430,8 +1430,8 @@ def build_parser() -> argparse.ArgumentParser:
                     help="do not even detect expansion candidates")
     pi.add_argument("--format", choices=["md", "adoc"], default=None,
                     help="detail render format (md or adoc, default: config CLAIRE_RENDER_FORMAT)")
-    pi.add_argument("--orientation", "--directive", default=None,
-                    help="content perspective or directive for detail rendering (e.g. '시스템 아키텍처 중심')")
+    pi.add_argument("--focus", "--orientation", "--directive", default=None,
+                    help="가독 본문 작성을 위한 집중 초점 (content focus for detail rendering, e.g. '시스템 아키텍처 중심')")
     pi.set_defaults(func=cmd_ingest)
 
     ps = sub.add_parser("search", help="hybrid search (FTS+vector) + LLM summary")
@@ -1459,8 +1459,8 @@ def build_parser() -> argparse.ArgumentParser:
                      help="only backfill/regenerate documents that contain tables")
     pbd.add_argument("--format", choices=["md", "adoc"], default=None,
                      help="detail render format (md or adoc)")
-    pbd.add_argument("--orientation", "--directive", default=None,
-                     help="content perspective or directive for detail rendering")
+    pbd.add_argument("--focus", "--orientation", "--directive", default=None,
+                     help="가독 본문 작성을 위한 집중 초점 (content focus for detail rendering)")
     pbd.set_defaults(func=cmd_backfill_detail)
 
     pbs = sub.add_parser("backfill-summary",
@@ -1489,7 +1489,7 @@ def build_parser() -> argparse.ArgumentParser:
     preg.add_argument("--dry-run", action="store_true", help="dry-run inspection without changes (default)")
     preg.add_argument("--effort", default=None, help="reasoning effort level (e.g. low, medium, high)")
     preg.add_argument("--format", choices=["md", "adoc"], default=None, help="detail format (md or adoc)")
-    preg.add_argument("--orientation", "--directive", default=None, help="content perspective or directive for detail rendering")
+    preg.add_argument("--focus", "--orientation", "--directive", default=None, help="가독 본문 작성을 위한 집중 초점 (content focus for detail rendering)")
     preg.add_argument("--json", action="store_true", help="output result in JSON format")
     preg.set_defaults(func=cmd_regenerate)
 

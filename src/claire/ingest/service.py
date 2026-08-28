@@ -658,7 +658,7 @@ class IngestService:
         - refetch: True 면 원본 URL에서 웹 문서를 새로 스크랩하여 본문 갱신 후 재생성.
         - force: False(기본) 면 dry-run 진단만 수행하고 DB 변경 없음. True 면 실제 DB 덮어쓰기.
         - effort: LLM 사고/추론 레벨 (low, medium, high 등) 즉석 재정의.
-        - directive: 가독 렌더링 본문 작성 방향성/초점 지침.
+        - directive: 가독 렌더링 본문 작성 초점(focus) 지침.
         """
         import json as _json
         import re as _re

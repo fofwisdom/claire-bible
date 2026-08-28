@@ -217,7 +217,7 @@ def create_app(
         expand_max = body.get("expand_max")
         format_arg = str(body.get("format") or "").strip() or None
         directive = (
-            str(body.get("orientation") or body.get("directive") or "").strip() or None
+            str(body.get("focus") or body.get("orientation") or body.get("directive") or "").strip() or None
         )
         if not directive:
             from ..telegram_bot import parse_message_directive
@@ -683,7 +683,7 @@ def create_app(
         expand_max = body.get("expand_max")
         format_arg = str(body.get("format") or "").strip() or None
         directive = (
-            str(body.get("orientation") or body.get("directive") or "").strip() or None
+            str(body.get("focus") or body.get("orientation") or body.get("directive") or "").strip() or None
         )
         if not directive:
             from ..telegram_bot import parse_message_directive

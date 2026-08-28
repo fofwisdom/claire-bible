@@ -182,8 +182,9 @@ Git 저장소 최신 커밋을 가져와 무중단 롤링 업데이트를 수행
 
 #### `ingest <payload>`
 URL, 일반 텍스트, 또는 로컬 파일로부터 문서를 수집하고 지식그래프를 구축합니다.
-* **사용법**: `claire ingest "https://example.com/article" [--expand] [--title "제목"] [--format {md,adoc}]`
+* **사용법**: `claire ingest "https://example.com/article" [--expand] [--title "제목"] [--format {md,adoc}] [--focus "초점 지침"]`
 * **주요 옵션**:
+  * `--focus <focus>`: 가독 본문(detail) 작성을 위한 집중 초점/지침 지정 (호환 별칭: `--orientation`, `--directive`).
   * `--expand`: 본문에서 추출된 외부 링크 URL들을 1홉 확장 큐(`expand_queue`)에 등록.
   * `--title <title>`: 자동 추출 제목 대신 수동 제목 지정.
   * `--format {md,adoc}`: 본문 detail 렌더링 포맷 지정.
@@ -206,11 +207,11 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 
 | 명령 | 사용법 | 설명 |
 | :--- | :--- | :--- |
-| `regenerate` | `claire regenerate [<target>] [--tables] [--summary] [--detail] [--all] [--apply] [--force] [--effort <level>]` | 특정 문서 또는 표(Table) 포함 문서 컴포넌트(요약/본문/그래프) 선택적 LLM 재생성 (기본: dry-run, 실행: `--apply`) |
+| `regenerate` | `claire regenerate [<target>] [--tables] [--summary] [--detail] [--all] [--apply] [--force] [--effort <level>] [--focus <focus>]` | 특정 문서 또는 표(Table) 포함 문서 컴포넌트(요약/본문/그래프) 선택적 LLM 재생성 (기본: dry-run, 실행: `--apply`) |
 | `summary-regenerate`| `claire summary-regenerate [<target>] [--tables] [--apply] [--force] [--effort <level>]` | `regenerate --summary`의 단축 Alias |
 | `format-migrate` | `claire format-migrate [--format {md,adoc}] [--apply] [--yes] [--json]` | 문서 렌더링 포맷 진단 및 일괄 변환 (기본: dry-run, 실행: `--apply`) |
 | `format-status` | `claire format-status` | 문서 detail의 포맷별(md, adoc, 누락) 통계 출력 |
-| `backfill-detail` | `claire backfill-detail [--tables] [--format {md,adoc}] [--limit N] [--force]` | detail 렌더링이 누락되었거나 표가 포함된 문서 일괄 생성 (그래프 불변) |
+| `backfill-detail` | `claire backfill-detail [--tables] [--format {md,adoc}] [--limit N] [--force] [--focus <focus>]` | detail 렌더링이 누락되었거나 표가 포함된 문서 일괄 생성 (그래프 불변) |
 | `backfill-summary` | `claire backfill-summary [--limit N]` | 요약이 누락된 기존 문서의 요약 일괄 생성 |
 | `backfill-images` | `claire backfill-images [--limit N]` | 문서 내 참조된 이미지 에셋 추출 및 다운로드 백필 |
 | `recompile-html` | `claire recompile-html` | 저장된 detail 본문으로부터 `detail_html` AOT 사전 컴파일 갱신 |
@@ -250,6 +251,7 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
   * `--dry-run`: 대상 문서 정보 및 계획만 출력하고 DB 변경 없음 (기본값).
   * `--effort <level>`: Gemini 사고/추론 레벨 오버라이드 (`low`, `medium`, `high`, `minimal`, `none`, 또는 정수 토큰 budget).
   * `--format {md,adoc}`: 본문 detail 렌더링 포맷 지정.
+  * `--focus <focus>`: 가독 본문(detail) 작성을 위한 집중 초점/지침 지정 (호환 별칭: `--orientation`, `--directive`).
 
 #### `summary-regenerate`
 `regenerate --summary`의 단축 Alias입니다.

@@ -1887,7 +1887,7 @@ def get_document_extra_sources(conn: sqlite3.Connection, doc_id: str) -> list[di
 
 
 def set_document_directive(conn: sqlite3.Connection, doc_id: str, directive: str | None) -> None:
-    """문서 meta 에 가독 렌더링 작성 방향성(directive)을 기록/갱신(다른 meta 키 보존)."""
+    """문서 meta 에 가독 렌더링 작성 초점(focus/directive)을 기록/갱신(다른 meta 키 보존)."""
     row = conn.execute("SELECT meta FROM documents WHERE id=?", (doc_id,)).fetchone()
     if row is None:
         return
@@ -1901,7 +1901,7 @@ def set_document_directive(conn: sqlite3.Connection, doc_id: str, directive: str
 
 
 def get_document_directive(conn: sqlite3.Connection, doc_id: str) -> str | None:
-    """문서 meta 에서 가독 렌더링 작성 방향성(directive) 조회."""
+    """문서 meta 에서 가독 렌더링 작성 초점(focus/directive) 조회."""
     row = conn.execute("SELECT meta FROM documents WHERE id=?", (doc_id,)).fetchone()
     if row is None:
         return None
