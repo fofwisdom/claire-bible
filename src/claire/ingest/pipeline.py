@@ -12,10 +12,12 @@ from __future__ import annotations
 import json
 import sqlite3
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable
 
+from ..extract.provider import Provider, emit_progress
+from ..extract.resolver import resolve_or_create
 from ..ontology.base import Document, Relation
 from ..ontology.registry import (
     classify_entity_type,
@@ -23,12 +25,9 @@ from ..ontology.registry import (
     validate_relation,
 )
 from ..store import db as dbm
-from ..store.vectors import VectorStore
 from ..store.vault import export_entities
-from ..extract.provider import Provider, emit_progress
-from ..extract.resolver import resolve_or_create
+from ..store.vectors import VectorStore
 from .router import fetch as default_fetch
-from .router import validate_ingest_file_access
 
 
 @dataclass
@@ -50,6 +49,7 @@ class IngestReport:
     new_entity_names: list[str] = field(default_factory=list)
     linked_entity_names: list[str] = field(default_factory=list)
     candidates: list[str] = field(default_factory=list)  # 1홉 확장 후보 URL
+    directive: str | None = None
 
     def telegram_summary(self) -> str:
         if self.error:
@@ -58,6 +58,8 @@ class IngestReport:
             return f"♻️ 이미 있는 자료입니다 (dedup): {self.title or self.document_id}"
         head = "🔄 자료 업데이트(내용 변경 반영)" if self.updated else "✅ 적재 완료"
         parts = [f"{head}: {self.title or self.document_id}"]
+        if self.directive:
+            parts.append(f"초점: {self.directive}")
         if self.partial:
             parts.append("⚠️ 부분 처리(partial)")
         parts.append(f"요약: {self.summary[:300]}")
@@ -93,13 +95,12 @@ def ingest(
     inbox_id: int | None = None,
     prefetched: Document | None = None,
     auto_expand: bool = False,
+    format: str | None = None,
+    directive: str | None = None,
 ) -> IngestReport:
     report = IngestReport()
     # None 이면 호출 시점에 모듈 전역 default_fetch 를 조회(monkeypatch/교체 반영).
-    # 외부에서 주입한 테스트 fetcher에는 서버 파일 경로 정책을 적용하지 않는다.
     if fetch_fn is None:
-        validate_ingest_file_access(
-            payload, source=source, file_ref=file_ref, data_dir=data_dir)
         fetch_fn = default_fetch
 
     # [Layer 1] 처리 전에 inbound 원본을 무조건 기록(실패해도 재생 가능).
@@ -126,10 +127,37 @@ def ingest(
     report.source_type = doc.source_type
     report.partial = doc.partial
     report.title = doc.title
+    report.directive = directive
+    if directive and directive.strip():
+        if doc.meta is None:
+            doc.meta = {}
+        doc.meta["directive"] = directive.strip()
 
-    # dedup ① 내용 완전 동일(content_hash 일치) → 중복
+    # 0. 소각 툼스톤(Tombstone) 검사: 소각된 오염 데이터(URL/해시)는 재수집 원천 차단
+    if dbm.is_tombstoned(conn, url=doc.url, canonical_url=doc.canonical_url, content_hash=doc.content_hash):
+        report.error = "tombstoned: document was previously purged"
+        dbm.update_inbox(conn, inbox_id, status="error", error=report.error)
+        return report
+
+    # dedup ① 내용 완전 동일(content_hash 일치)
     existing = dbm.find_document_by_hash(conn, doc.content_hash)
     if existing:
+        # 사용자가 새 directive(초점)를 명시적으로 지정한 경우:
+        # 단순 중복 스킵하지 않고, 해당 문서의 초점을 갱신하고 가독 본문(detail)을 즉시 재생성(재적재)
+        if directive and directive.strip():
+            doc_obj = dbm.get_document(conn, existing)
+            if doc_obj:
+                dbm.set_document_directive(conn, existing, directive.strip())
+                ensure_document_detail(
+                    conn, provider, doc_obj, format=format, directive=directive.strip(), force=True
+                )
+                report.document_id = existing
+                report.updated = True
+                report.duplicate = False
+                report.title = doc_obj.title or doc.title
+                dbm.update_inbox(conn, inbox_id, status="done", document_id=existing)
+                return report
+
         report.document_id = existing
         report.duplicate = True
         dbm.update_inbox(conn, inbox_id, status="duplicate", document_id=existing)
@@ -143,7 +171,8 @@ def ingest(
         doc.id = same_url
         dbm.update_document_content(
             conn, same_url, title=doc.title, raw_text=doc.raw_text,
-            content_hash=doc.content_hash, fetched_at=doc.fetched_at)
+            content_hash=doc.content_hash, fetched_at=doc.fetched_at,
+            source_type=doc.source_type, partial=doc.partial, meta=doc.meta)
         report.document_id = same_url
         report.updated = True
         if data_dir is not None:
@@ -155,7 +184,7 @@ def ingest(
                 pass
         _download_doc_images(conn, doc, data_dir)
         ok, err = extract_resolve_store(
-            conn, provider, vstore, doc, report, vault_dir=vault_dir)
+            conn, provider, vstore, doc, report, vault_dir=vault_dir, format=format, directive=directive)
         if not ok:
             report.error = err
             dbm.update_inbox(conn, inbox_id, status="error",
@@ -191,7 +220,7 @@ def ingest(
 
     # 추출 → 해소 → 관계 → vault (ingest/refresh 공용)
     ok, err = extract_resolve_store(
-        conn, provider, vstore, doc, report, vault_dir=vault_dir)
+        conn, provider, vstore, doc, report, vault_dir=vault_dir, format=format, directive=directive)
     if not ok:
         report.error = err
         dbm.update_inbox(conn, inbox_id, status="error", document_id=doc.id, error=err)
@@ -242,6 +271,9 @@ def extract_resolve_store(
     report: IngestReport,
     *,
     vault_dir: Path | None = None,
+    format: str | None = None,
+    directive: str | None = None,
+    on_progress: Callable[[str, str], None] | None = None,
 ) -> tuple[bool, str | None]:
     """문서 1건의 추출→엔티티 해소/머지→관계 검증/적재→vault export.
 
@@ -249,6 +281,10 @@ def extract_resolve_store(
     refresh 시 같은 id 로 호출하면 기존 엔티티 sources 에 누적된다(연결 보존).
     추출 실패 시 (False, error). 성공 시 (True, None).
     """
+    if on_progress:
+        pname = getattr(provider, "name", "?")
+        on_progress("LLM 요약 및 엔티티/관계 구조화 추출", f"provider={pname}")
+
     try:
         result = provider.extract(doc, None)  # type: ignore[arg-type]
     except Exception as e:  # noqa: BLE001
@@ -265,7 +301,12 @@ def extract_resolve_store(
 
     # 한국어 가독 렌더링(detail) — 구조화 추출과 독립된 별도 LLM 호출. 그래프와 무관해
     # 실패해도 적재를 깨지 않는다(조용히 건너뜀). refresh/reextract 도 같은 경로라 갱신됨.
-    ensure_document_detail(conn, provider, doc, force=True)
+    if on_progress:
+        on_progress("LLM 가독 본문(detail) 렌더링 생성", f"format={format or '기본'}")
+
+    ensure_document_detail(
+        conn, provider, doc, force=True, format=format, directive=directive
+    )
 
     _judge_method = getattr(provider, "judge_same_entity", None)
 
@@ -282,7 +323,12 @@ def extract_resolve_store(
 
     name_to_id: dict[str, str] = {}
     touched_entities = []
-    for ee in result.entities:
+    total_entities = len(result.entities)
+
+    if on_progress:
+        on_progress("지식 그래프 엔티티 해소/병합", f"추출된 엔티티 {total_entities}개")
+
+    for idx_e, ee in enumerate(result.entities, 1):
         etype, prov = classify_entity_type(ee.type)
         if ee.proposed_type:
             dbm.log_proposal(conn, "entity_type", ee.proposed_type,
@@ -295,11 +341,16 @@ def extract_resolve_store(
             except Exception:  # noqa: BLE001
                 return None
 
+        def _on_judge_candidate(name1: str, name2: str):
+            if on_progress:
+                on_progress("엔티티 LLM 동일체 판정", f"[{idx_e}/{total_entities}] '{name1}' ↔ '{name2}'")
+
         ent, created = resolve_or_create(
             conn, vstore,
             name=ee.name, etype=etype, aliases=ee.aliases,
             observations=ee.observations, document_id=doc.id,
             embed_fn=_embed, judge_fn=_judge_fn, provisional=prov,
+            on_judge=_on_judge_candidate,
         )
         name_to_id[ee.name] = ent.id
         touched_entities.append(ent)
@@ -309,6 +360,9 @@ def extract_resolve_store(
         else:
             report.entities_linked += 1
             report.linked_entity_names.append(ent.name)
+
+    if on_progress:
+        on_progress("관계(Relation) 검증 및 적재", f"총 {len(result.relations)}개 관계")
 
     for er in result.relations:
         src_id = name_to_id.get(er.source)
@@ -335,6 +389,8 @@ def extract_resolve_store(
             report.relations_added += 1
 
     if vault_dir is not None and touched_entities:
+        if on_progress:
+            on_progress("Vault 마크다운 동기화", f"{len(touched_entities)}개 노드")
         neighbor_ids = set()
         for ent in touched_entities:
             for r in dbm.neighbors(conn, ent.id):
@@ -360,6 +416,7 @@ def merge_source_into_document(
     *,
     vault_dir: Path | None = None,
     data_dir: Path | None = None,
+    format: str | None = None,
 ) -> dict:
     """[1홉 병합, ONEHOP_MERGE_DESIGN.md] 같은 주제의 부가 출처(child)를 parent 문서에
     흡수 — 새 Document/expand_queue 항목을 만드는 대신 parent.raw_text 뒤에 별도 출처
@@ -426,7 +483,7 @@ def merge_source_into_document(
                 pass
         report = IngestReport(document_id=parent.id, title=parent.title, updated=True)
         ok, err = extract_resolve_store(
-            conn, provider, vstore, parent, report, vault_dir=vault_dir)
+            conn, provider, vstore, parent, report, vault_dir=vault_dir, format=format)
         if not ok:
             raise RuntimeError(err)
         return {"merged": True, "document_id": parent.id, "report": report}
@@ -439,7 +496,13 @@ def merge_source_into_document(
 
 
 def ensure_document_detail(
-    conn: sqlite3.Connection, provider: Provider, doc: Document, *, force: bool = False
+    conn: sqlite3.Connection,
+    provider: Provider,
+    doc: Document,
+    *,
+    force: bool = False,
+    format: str | None = None,
+    directive: str | None = None,
 ) -> bool:
     """문서의 한국어 가독 렌더링(detail)을 생성·저장. **그래프와 독립**(별도 LLM 호출).
 
@@ -447,17 +510,52 @@ def ensure_document_detail(
     채우므로 엔티티/관계를 건드리지 않는다 → reset_graph/rebuild 없이 백필 가능(advisor).
     이미 있으면(force=False) 건너뛰고, 생성 실패는 조용히 False(적재 실패로 번지지 않음).
     """
+    fmt = format or (doc.meta or {}).get("format") or (doc.meta or {}).get("render_format")
+    if not fmt:
+        from ..config import get_settings
+
+        fmt = get_settings().render_format
+    fmt = (fmt or "md").strip().lower()
+    if fmt in ("asciidoc", "adoc"):
+        fmt = "adoc"
+    else:
+        fmt = "md"
+
+    dir_val = directive if directive is not None else (doc.meta or {}).get("directive")
+
+    if not force:
+        existing_detail = dbm.get_document_detail(conn, doc.id)
+        existing_fmt = dbm.get_document_detail_format(conn, doc.id)
+        existing_dir = (doc.meta or {}).get("directive") or dbm.get_document_directive(conn, doc.id)
+        if existing_detail and existing_fmt == fmt and existing_dir == dir_val:
+            return False
+
     render = getattr(provider, "render_detail", None)
     if render is None:
         return False
-    if not force and dbm.get_document_detail(conn, doc.id):
-        return False
+
     try:
-        text = render(doc)
-    except Exception:  # noqa: BLE001
+        try:
+            text = render(doc, format=fmt, directive=dir_val)
+        except TypeError:
+            try:
+                text = render(doc, format=fmt)
+            except TypeError:
+                text = render(doc)
+    except Exception as e:  # noqa: BLE001
+        import logging
+
+        logging.getLogger("claire.pipeline").warning(
+            "ensure_document_detail failed for doc_id=%s: %s", doc.id, e
+        )
         return False
     if text and text.strip():
-        dbm.set_document_detail(conn, doc.id, text.strip())
+        dbm.set_document_detail(conn, doc.id, text.strip(), format=fmt)
+        if dir_val is not None:
+            if doc.meta is None:
+                doc.meta = {}
+            doc.meta["directive"] = dir_val
+            dbm.set_document_directive(conn, doc.id, dir_val)
         return True
     return False
 

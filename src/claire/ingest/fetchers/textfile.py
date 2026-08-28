@@ -17,31 +17,46 @@ def fetch_text(payload: str) -> Document:
         raw_text=text,
         source_type="text",
         content_hash=content_hash(text),
+        meta={"raw_truncated": False, "orig_chars": len(text), "raw_chars": len(text)},
     )
 
 
 def fetch_file(path: str) -> Document:
-    """로컬 파일 (.md/.txt). PDF 등 바이너리는 후순위."""
+    """로컬 파일 (.md/.txt/.pdf 등)."""
     p = Path(path)
     if not p.exists():
         from .base import FetchError
 
         raise FetchError(f"file not found: {path}")
-    if not p.is_file():
-        from .base import FetchError
-
-        raise FetchError(f"not a regular file: {path}")
     suffix = p.suffix.lower()
     if suffix in {".md", ".txt", ".markdown", ".rst", ""}:
         text = p.read_text(encoding="utf-8", errors="ignore")
+        title = p.stem
+        source_type = "file"
+    elif suffix == ".pdf":
+        from .pdf import extract_pdf_bytes
+
+        title, text, _, _, perr, _ = extract_pdf_bytes(p.read_bytes(), fallback_title=p.stem)
+        if perr or not text:
+            from .base import FetchError
+
+            raise FetchError(perr or f"empty PDF file: {path}")
+        source_type = "pdf"
     else:
         from .base import FetchError
 
         raise FetchError(f"unsupported file type (M1): {suffix}")
+    raw_text = text[:20000]
     return Document(
         url=f"file://{p.resolve()}",
-        title=p.stem,
-        raw_text=text,
-        source_type="file",
-        content_hash=content_hash(text),
+        title=title or p.stem,
+        raw_text=raw_text,
+        source_type=source_type,
+        content_hash=content_hash(title or "", text),
+        meta={
+            "raw_truncated": len(text) > 20000,
+            "orig_chars": len(text),
+            "raw_chars": len(raw_text),
+        },
     )
+

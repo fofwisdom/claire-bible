@@ -19,11 +19,11 @@ from __future__ import annotations
 
 import sqlite3
 
-from ..ontology.base import Document
 from ..ingest.normalize import canonicalize_url
+from ..ontology.base import Document
 from ..store import db as dbm
 from .onehop import _already_ingested, _host, _is_blocked
-from .research import QUALITY_MIN, RELEVANCE_MIN  # noqa: F401 (재노출)
+from .research import QUALITY_MIN, RELEVANCE_MIN
 
 # LLM 선별 전에 제시할 후보 상한. 너무 많으면 토큰 낭비, 너무 적으면 선택지 부족.
 PREFILTER_CAP = 30

@@ -62,7 +62,7 @@ def _images_dir(data_dir: Path) -> Path:
 
 _EXT_BY_CTYPE = {
     "image/jpeg": ".jpg", "image/jpg": ".jpg", "image/png": ".png",
-    "image/webp": ".webp", "image/gif": ".gif", "image/svg+xml": ".svg",
+    "image/webp": ".webp", "image/gif": ".gif",
 }
 _MAX_IMAGE_BYTES = 8 * 1024 * 1024  # 8MB — 비정상적으로 큰 파일(오탐/공격성 URL) 방어
 # 이미지 CDN(위키미디어 등)이 기본 httpx UA 를 403 으로 막는 경우가 있어(실측: upload.
@@ -81,7 +81,7 @@ def download_images(data_dir: Path, doc_id: str, images: list[dict]) -> list[dic
     (data_dir 기준 상대경로, `images/<doc_id>_<i>.<ext>`)을 추가해 반환한다. 개별 이미지
     다운로드 실패(네트워크·403·404·비이미지 응답·용량초과)는 그 이미지만 원본 url 유지 —
     한 장이 실패해도 나머지·적재 자체를 막지 않는다."""
-    from ..ingest.netpolicy import safe_httpx_get
+    import httpx
 
     out = []
     for i, im in enumerate(images):
@@ -89,11 +89,13 @@ def download_images(data_dir: Path, doc_id: str, images: list[dict]) -> list[dic
         url = im.get("url") or ""
         if url:
             try:
-                resp = safe_httpx_get(url, timeout=10, headers={"User-Agent": _UA})
+                with httpx.Client(follow_redirects=True, timeout=10,
+                                  headers={"User-Agent": _UA}) as client:
+                    resp = client.get(url)
                 ctype = resp.headers.get("content-type", "").split(";")[0].strip().lower()
-                if (resp.status_code < 400 and ctype.startswith("image/")
+                if (resp.status_code < 400 and ctype in _EXT_BY_CTYPE
                         and len(resp.content) <= _MAX_IMAGE_BYTES):
-                    ext = _EXT_BY_CTYPE.get(ctype) or (Path(url.split("?", 1)[0]).suffix or ".jpg")
+                    ext = _EXT_BY_CTYPE[ctype]
                     path = _images_dir(data_dir) / f"{doc_id}_{i}{ext}"
                     path.write_bytes(resp.content)
                     im["local"] = f"images/{doc_id}_{i}{ext}"

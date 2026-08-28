@@ -4,18 +4,17 @@ from __future__ import annotations
 
 import sqlite3
 
+from claire.extract.provider import MockProvider
 from claire.ontology.base import Document, Entity, Relation, normalize_name
 from claire.ontology.registry import (
     classify_entity_type,
     classify_relation_type,
-    validate_relation,
     ontology_prompt_block,
+    validate_relation,
 )
-from claire.extract.provider import MockProvider
 from claire.store import db as dbm
 from claire.store.vectors import VectorStore, pack_vector, unpack_vector
 from claire.telegram_bot import classify_input
-
 
 # --- ontology / registry ---
 
@@ -93,7 +92,7 @@ def test_db_init_and_counts():
     conn = _mem_db()
     c = dbm.counts(conn)
     assert set(c) == {"documents", "entities", "relations", "embeddings", "proposals",
-                      "jobs", "raw_inbox", "extractions", "refresh_queue"}
+                      "jobs", "raw_inbox", "extractions", "refresh_queue", "purged_tombstones"}
     assert all(v == 0 for v in c.values())
 
 

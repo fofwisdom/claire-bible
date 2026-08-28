@@ -1,31 +1,31 @@
 """MCP(Model Context Protocol) 지원 — 에이전트용 read-only 그래프 탐색 툴.
 
-설계 근거: docs/MCP_SUPPORT.md. 인증은 이 모듈이 아니라 server.py의 `gate`
-미들웨어가 담당(무토큰 요청은 /mcp 자체가 존재하지 않는 것처럼 404) — 여기
+설계 근거: docs/origin/design/MCP_SUPPORT.md. 인증은 이 모듈이 아니라 server.py / security.py의
+게이트 미들웨어가 담당(무토큰/미인증 요청은 /mcp 자체가 존재하지 않는 것처럼 404) — 여기
 등록된 툴은 전부 read-only이고 owner/readonly 세션 둘 다 동일하게 접근 가능
-(v1, docs/MCP_SUPPORT.md §2 — 쓰기 툴이 생기는 다음 마일스톤에서 스코프 구분
-도입 필요).
+(v1, docs/origin/design/MCP_SUPPORT.md — 쓰기 툴이 생기는 다음 마일스톤에서 스코프 구분 도입 필요).
 
 **중요**: `IngestService.search`(`retrieval.query.search`)는 `summarize=False`
 여도 벡터 검색을 위해 `provider.embed(query)`를 무조건 호출한다(Gemini 호출).
 MCP `search` 툴은 그래서 그 함수를 재사용하지 않고 `db.fts_search`만 직접
-써서 Gemini 호출 0을 보장한다(docs/MCP_SUPPORT.md §7 원칙).
+써서 Gemini 호출 0을 보장한다(docs/origin/design/MCP_SUPPORT.md 원칙).
 
 각 툴은 `_xxx_impl(conn, ...)` 순수 함수 + `@mcp.tool()` 얇은 커넥션 래퍼로
 나뉜다 — impl 함수는 `sqlite3.Connection`을 직접 받아 테스트에서 in-memory
-DB로 바로 부를 수 있다(test_mcp_tools.py, test_graphview.py와 동일 패턴)."""
+DB로 바로 부를 수 있다(test_mcp_tools.py, test_graphview.py와 동일 패턴).
+"""
 
 from __future__ import annotations
 
 import sqlite3
 from collections import deque
 from datetime import datetime, timezone
+from urllib.parse import urlparse
 
 from mcp.server.mcpserver import MCPServer
 from mcp.server.transport_security import TransportSecuritySettings
 
 from .. import graphview
-from ..config import Settings
 from ..ontology.base import normalize_name
 from ..store import db as dbm
 
@@ -37,7 +37,7 @@ DEFAULT_DOCUMENTS_LIMIT = 30
 MAX_NODE_DOCUMENTS = 10
 
 
-def _entity_brief(ent) -> dict:  # noqa: ANN001
+def _entity_brief(ent) -> dict:
     return {"id": ent.id, "name": ent.name, "type": ent.type}
 
 
@@ -74,12 +74,15 @@ def resolve_entity_impl(conn: sqlite3.Connection, name: str) -> dict:
 
 
 def search_impl(
-    conn: sqlite3.Connection, query: str, entity_type: str | None = None,
-    near_ids: list[str] | None = None, limit: int = 8,
+    conn: sqlite3.Connection,
+    query: str,
+    entity_type: str | None = None,
+    near_ids: list[str] | None = None,
+    limit: int = 8,
 ) -> dict:
     # entity_type/near_ids 필터는 FTS 랭킹 뒤에 파이썬에서 거른다 — 후보 풀이
     # 너무 좁으면(headroom) "필터 통과작이 상위 후보에 없어서" 실제로는 있는
-    # 매치를 조용히 0건으로 보고하는 거짓음성이 생긴다(advisor 지적) — 필터를
+    # 매치를 조용히 0건으로 보고하는 거짓음성이 생긴다 — 필터를
     # 쓸 때는 후보 풀을 넉넉히 넓힌다(이 규모의 FTS 쿼리는 비용이 무시할 만함).
     headroom = max(limit * 4, 20)
     if entity_type or near_ids:
@@ -105,8 +108,10 @@ def search_impl(
 
 
 def neighbors_impl(
-    conn: sqlite3.Connection, entity_ids: str | list[str],
-    exclude_ids: list[str] | None = None, limit: int = 50,
+    conn: sqlite3.Connection,
+    entity_ids: str | list[str],
+    exclude_ids: list[str] | None = None,
+    limit: int = 50,
 ) -> dict:
     seeds = [entity_ids] if isinstance(entity_ids, str) else list(entity_ids)
     seen_ids = set(seeds) | set(exclude_ids or [])
@@ -117,9 +122,15 @@ def neighbors_impl(
             other_id = r.target_id if out else r.source_id
             if other_id in seen_ids:
                 continue
-            entry = found.setdefault(other_id, {
-                "id": other_id, "name": None, "type": None, "via": [],
-            })
+            entry = found.setdefault(
+                other_id,
+                {
+                    "id": other_id,
+                    "name": None,
+                    "type": None,
+                    "via": [],
+                },
+            )
             entry["via"].append({"from": seed, "rel": r.type, "dir": "out" if out else "in"})
     out_list = []
     for oid, entry in found.items():
@@ -141,7 +152,10 @@ def neighbors_impl(
 
 
 def path_impl(
-    conn: sqlite3.Connection, from_id: str, to_id: str, max_hops: int = 4,
+    conn: sqlite3.Connection,
+    from_id: str,
+    to_id: str,
+    max_hops: int = 4,
 ) -> dict:
     max_hops = max(1, min(max_hops, MAX_PATH_HOPS))
     if from_id == to_id:
@@ -199,35 +213,42 @@ def path_impl(
 
 
 def context_impl(
-    conn: sqlite3.Connection, entity_ids: list[str], compact: bool = True,
+    conn: sqlite3.Connection,
+    entity_ids: list[str],
+    compact: bool = True,
 ) -> dict:
     truncated = len(entity_ids) > MAX_CONTEXT_ENTITIES
     capped = entity_ids[:MAX_CONTEXT_ENTITIES]
     text, names = graphview.synthesis_context(conn, capped, compact=compact)
     return {
-        "context": text, "entities": names,
-        "truncated": truncated, "omitted": max(0, len(entity_ids) - len(capped)),
+        "context": text,
+        "entities": names,
+        "truncated": truncated,
+        "omitted": max(0, len(entity_ids) - len(capped)),
     }
 
 
 def overview_impl(conn: sqlite3.Connection) -> dict:
     return {
         "entity_types": [
-            {"type": t, "count": n} for t, n in dbm.entity_type_counts(conn)],
+            {"type": t, "count": n} for t, n in dbm.entity_type_counts(conn)
+        ],
         "source_types": [
-            {"source_type": t, "count": n} for t, n in dbm.source_type_counts(conn)],
+            {"source_type": t, "count": n} for t, n in dbm.source_type_counts(conn)
+        ],
         "hubs": [
             {"name": n, "type": t, "degree": d}
-            for n, t, d in dbm.top_connected_entities(conn, limit=10)],
+            for n, t, d in dbm.top_connected_entities(conn, limit=10)
+        ],
         "most_corroborated": [
             {"name": n, "type": t, "source_count": c}
-            for n, t, c in dbm.most_merged_entities(conn, limit=10)],
+            for n, t, c in dbm.most_merged_entities(conn, limit=10)
+        ],
     }
 
 
 def document_impl(conn: sqlite3.Connection, document_id: str) -> dict:
-    # graphview.document_detail 자체는 부작용이 없다(안읽음 마커는 아이오홉프
-    # 라우트 핸들러 쪽에서만 건드림, docs/MCP_SUPPORT.md §6) — 그대로 호출.
+    # graphview.document_detail 자체는 부작용이 없다(안읽음 마커는 웹 핸들러에서만 변경)
     rep = graphview.document_detail(conn, document_id)
     if rep is None:
         return {"error": "not found"}
@@ -258,8 +279,10 @@ def node_impl(conn: sqlite3.Connection, entity_id: str, full: bool = False) -> d
 
 
 def documents_impl(
-    conn: sqlite3.Connection, limit: int = DEFAULT_DOCUMENTS_LIMIT,
-    since: str | None = None, query: str | None = None,
+    conn: sqlite3.Connection,
+    limit: int = DEFAULT_DOCUMENTS_LIMIT,
+    since: str | None = None,
+    query: str | None = None,
 ) -> dict:
     limit = max(1, min(limit, MAX_DOCUMENTS))
     try:
@@ -277,12 +300,12 @@ def documents_impl(
     }
 
 
-def build_mcp_app(s: Settings):
-    """`/mcp` 라우트에 물릴 Starlette ASGI 앱을 만든다(aiohttp 쪽 어댑터는
-    server.py에서 별도로 붙인다 — docs/MCP_SUPPORT.md §4 참고)."""
+def build_mcp_app(s: Any):
+    """`/mcp` 엔드포인트에 물릴 Starlette ASGI 앱을 생성한다."""
 
     def _conn() -> sqlite3.Connection:
-        conn = dbm.connect(s.db_file)
+        db_file = getattr(s, "db_file", getattr(s, "db_path", "data/claire.db"))
+        conn = dbm.connect(db_file)
         dbm.init_db(conn)
         return conn
 
@@ -309,7 +332,7 @@ def build_mcp_app(s: Settings):
         직접 함). entity_type으로 타입 필터, near_ids를 주면 그 노드들의
         1홉 이웃 범위 안에서만 찾는다(지금 탐색 중인 프론티어를 좁혀 검색할
         때 사용 — resolve_entity/neighbors로 얻은 id를 그대로 넘기면 됨).
-        결과가 limit을 넘으면 truncated=true(0건이라고 "매치 없음"으로
+        결과가 limit을 넘으면 truncated=true(0건이라고 '매치 없음'으로
         오인하지 말 것 — omitted 확인)."""
         conn = _conn()
         try:
@@ -337,7 +360,7 @@ def build_mcp_app(s: Settings):
 
     @mcp.tool()
     async def path(from_id: str, to_id: str, max_hops: int = 4) -> dict:
-        """두 엔티티 사이의 최단 경로(무방향 BFS). "A와 B가 왜 연결돼있나"에
+        """두 엔티티 사이의 최단 경로(무방향 BFS). 'A와 B가 왜 연결돼있나'에
         직접 답한다 — neighbors를 반복 호출해 스스로 경로를 찾을 필요 없음."""
         conn = _conn()
         try:
@@ -396,7 +419,7 @@ def build_mcp_app(s: Settings):
     ) -> dict:
         """최신순 문서 목록(제목·요약·출처타입·안읽음/즐겨찾기 상태,
         fetched_at은 ISO8601 UTC). limit 최대 100(그 이상 요청해도 잘림).
-        since(예: "2026-08-01" 또는 전체 ISO8601)로 그 시각 이후만, query로
+        since(예: '2026-08-01' 또는 전체 ISO8601)로 그 시각 이후만, query로
         제목/URL 부분일치 검색 — 전체를 다 훑지 말고 좁혀서 찾을 것. limit을
         넘으면 truncated=true, omitted에 잘린 개수(0으로 오인 금지)."""
         conn = _conn()
@@ -425,15 +448,11 @@ def build_mcp_app(s: Settings):
         finally:
             conn.close()
 
-    # allowed_hosts는 Host 헤더 문자열과 완전일치(포트 포함) — nginx 뒤에서는
-    # 클라이언트가 본 호스트명(포트 없음, 표준 443)이 그대로 전달되지만,
-    # serve-api 를 직접 포트로 찌르는 로컬 검증에서는 Host 에 포트가 붙으므로
-    # 그 조합도 같이 허용해둔다(운영 보안범위는 public_url 호스트명이 결정).
-    hosts = {"localhost", "127.0.0.1", f"localhost:{s.inject_port}", f"127.0.0.1:{s.inject_port}"}
-    if s.public_url:
-        from urllib.parse import urlparse
-
-        host = urlparse(s.public_url).hostname
+    port = getattr(s, "inject_port", 8765)
+    hosts = {"localhost", "127.0.0.1", f"localhost:{port}", f"127.0.0.1:{port}"}
+    public_url = getattr(s, "public_url", "")
+    if public_url:
+        host = urlparse(public_url).hostname
         if host:
             hosts.add(host)
 

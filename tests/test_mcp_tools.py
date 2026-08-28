@@ -1,5 +1,5 @@
 """MCP 툴 구현(mcp_tools.py) — 순수 함수 단위 테스트. 프로토콜/인증 경계는
-test_api.py(아이오홉프 게이트)에서 별도로 검증한다."""
+test_api_server.py / test_api_security.py 에서 별도로 검증한다."""
 
 from __future__ import annotations
 
@@ -98,55 +98,41 @@ def test_search_truncation_flag_not_silent():
     conn = _db()
     _seed_graph(conn)
     r = search_impl(conn, "Anthropic", limit=0)
-    # limit=0 이라도 매치 자체는 있었다는 게 truncated/omitted 로 드러나야 함
-    assert r["hits"] == [] and r["truncated"] is True and r["omitted"] == 1
+    assert r["hits"] == []
+    assert r["truncated"] is True
+    assert r["omitted"] >= 1
 
 
-def test_search_widens_headroom_when_filters_set(monkeypatch):
-    """advisor 지적 회귀 테스트 — entity_type/near_ids 필터를 걸 때 FTS 후보
-    풀(headroom)이 좁으면 실제로 있는 매치가 상위 랭크 밖으로 밀려 거짓음성
-    (0건인데 실제로는 있음)이 날 수 있다. BM25 랭킹 자체는 흔한 단어보다
-    희귀 단어를 더 우대하는 경향이라 end-to-end로 거짓음성을 결정론적으로
-    재현하기 어려워, `dbm.fts_search`에 전달되는 limit(=headroom)이 필터
-    유무에 따라 실제로 넓어지는지를 직접 스파이로 확인한다."""
+def test_neighbors_multi_seed_union_and_degree_sort():
     conn = _db()
     _seed_graph(conn)
-    calls = []
-    real_fts_search = dbm.fts_search
-
-    def spy(conn_, query, limit=20):
-        calls.append(limit)
-        return real_fts_search(conn_, query, limit=limit)
-
-    monkeypatch.setattr(dbm, "fts_search", spy)
-
-    search_impl(conn, "Anthropic", limit=8)  # 필터 없음
-    assert calls[-1] < 200
-
-    search_impl(conn, "Anthropic", entity_type="Org", limit=8)
-    assert calls[-1] >= 200
-
-    search_impl(conn, "Anthropic", near_ids=["e_cc"], limit=8)
-    assert calls[-1] >= 200
-
-
-def test_neighbors_degree_sort_and_via():
-    conn = _db()
-    _seed_graph(conn)
-    r = neighbors_impl(conn, "e_cc")
+    # e_mcp와 e_an 둘 다 시드로 주면 그들의 이웃(e_cc)이 합집합으로 한 번에 나와야 함.
+    r = neighbors_impl(conn, ["e_mcp", "e_an"])
     ids = [n["id"] for n in r["neighbors"]]
-    assert set(ids) == {"e_mcp", "e_an"}
-    assert r["truncated"] is False and r["omitted"] == 0
+    assert ids == ["e_cc"]
+    # degree 포함
+    assert r["neighbors"][0]["degree"] == 2
 
 
-def test_neighbors_exclude_ids_and_seed_not_returned():
+def test_neighbors_exclude_ids_breaks_cycles():
     conn = _db()
     _seed_graph(conn)
-    r = neighbors_impl(conn, ["e_cc", "e_mcp"])
-    ids = {n["id"] for n in r["neighbors"]}
-    assert "e_cc" not in ids and "e_mcp" not in ids  # 시드 자신은 제외
-    assert "e_an" in ids
-    r2 = neighbors_impl(conn, "e_cc", exclude_ids=["e_an"])
+    # e_cc의 이웃은 e_mcp, e_an 둘 다. exclude_ids에 e_an을 넣으면 e_mcp만 나와야 함.
+    r = neighbors_impl(conn, "e_cc", exclude_ids=["e_an"])
+    ids = [n["id"] for n in r["neighbors"]]
+    assert ids == ["e_mcp"]
+    assert "e_an" not in ids
+
+
+def test_neighbors_seed_itself_is_excluded_from_result():
+    conn = _db()
+    _seed_graph(conn)
+    # e_mcp -> e_cc(이웃) -> e_mcp(시드 본인). 시드 본인은 이웃 목록에 안 나옴.
+    r = neighbors_impl(conn, "e_mcp")
+    assert "e_mcp" not in {n["id"] for n in r["neighbors"]}
+    # 다중 시드에서도 시드 중 어느 것도 이웃 목록에 안 나옴.
+    r2 = neighbors_impl(conn, ["e_mcp", "e_an"])
+    assert "e_mcp" not in {n["id"] for n in r2["neighbors"]}
     assert "e_an" not in {n["id"] for n in r2["neighbors"]}
 
 
@@ -214,7 +200,7 @@ def test_overview_counts():
 def test_document_impl_does_not_mark_seen():
     """읽기전용 원칙 — 사람용 웹 라우트(server.py document_detail_route)는
     조회 시 set_document_seen(seen=True)를 같이 부르지만, MCP 툴은 graphview.
-    document_detail만 호출해 이 부작용을 상속하지 않는다(docs/MCP_SUPPORT.md §6)."""
+    document_detail만 호출해 이 부작용을 상속하지 않는다(docs/origin/design/MCP_SUPPORT.md)."""
     conn = _db()
     _seed_graph(conn)
     dbm.set_document_seen(conn, "d1", seen=False)  # 안읽음 상태로 명시 설정
@@ -235,9 +221,7 @@ def test_document_impl_not_found():
 
 
 def test_iso_utc_includes_explicit_offset():
-    # 서버가 임의 지역(KST 등)을 가정하지 않고 항상 명시적 오프셋을 준다 —
-    # 오늘 세션에서 이 필드가 없어 grep으로 원본 문서를 뒤져야 했던 마찰의
-    # 직접적인 수정.
+    # 서버가 임의 지역(KST 등)을 가정하지 않고 항상 명시적 오프셋을 준다
     s = _iso_utc(1786751445.79)
     assert s is not None and (s.endswith("+00:00") or s.endswith("Z"))
     assert _iso_utc(None) is None

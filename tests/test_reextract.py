@@ -7,11 +7,11 @@
 from __future__ import annotations
 
 from claire.config import Settings
+from claire.ingest import pipeline as pipemod
+from claire.ingest import service as svcmod
+from claire.ingest.service import IngestService
 from claire.ontology.base import Document
 from claire.store import db as dbm
-from claire.ingest import service as svcmod
-from claire.ingest import pipeline as pipemod
-from claire.ingest.service import IngestService
 
 
 def _mem(monkeypatch, tmp_path):

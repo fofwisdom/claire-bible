@@ -7,14 +7,18 @@ from pathlib import Path
 
 import httpx
 
+from claire.extract.provider import MockProvider
+from claire.ingest.pipeline import _guess_kind, ingest
 from claire.ontology.base import Document
 from claire.store import db as dbm
 from claire.store.raw import (
-    save_artifact, load_artifact, raw_disk_usage, download_images, _MAX_IMAGE_BYTES,
+    _MAX_IMAGE_BYTES,
+    download_images,
+    load_artifact,
+    raw_disk_usage,
+    save_artifact,
 )
 from claire.store.vectors import VectorStore
-from claire.extract.provider import MockProvider
-from claire.ingest.pipeline import ingest, _guess_kind
 
 
 def _db():
@@ -106,17 +110,28 @@ class _FakeResp:
         self.headers = {"content-type": content_type}
 
 
+class _FakeHttpxClient:
+    """httpx.Client 대역(네트워크 없이) — url→응답 매핑."""
+    def __init__(self, responses, *a, **kw):
+        self._responses = responses
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def get(self, url):
+        resp = self._responses.get(url)
+        if resp is None:
+            raise RuntimeError(f"unexpected fetch: {url}")
+        return resp
+
+
 def test_download_images_saves_local_copy(monkeypatch, tmp_path: Path):
     """정상 이미지 응답 → 로컬 파일 저장 + local 경로 부여(사용자 요구 — 외부링크 유실 대비)."""
-    import claire.ingest.netpolicy as netpolicy
-    monkeypatch.setattr(
-        netpolicy, "_make_pinned_transport",
-        lambda _allowed: httpx.MockTransport(
-            lambda _request: httpx.Response(
-                200, content=b"PNGBYTES", headers={"content-type": "image/png"},
-            ),
-        ),
-    )
+    responses = {"https://x/a.png": _FakeResp(content=b"PNGBYTES", content_type="image/png")}
+    monkeypatch.setattr(httpx, "Client", lambda *a, **kw: _FakeHttpxClient(responses))
     out = download_images(tmp_path, "doc_1", [{"url": "https://x/a.png", "alt": "a"}])
     assert out[0]["local"] == "images/doc_1_0.png"
     assert (tmp_path / "images" / "doc_1_0.png").read_bytes() == b"PNGBYTES"
@@ -129,25 +144,10 @@ def test_download_images_failure_modes_fall_back_to_url(monkeypatch, tmp_path: P
     big = b"x" * (_MAX_IMAGE_BYTES + 1)
     responses = {
         "https://x/404.png": _FakeResp(status_code=404),
-        "https://x/notimg.png": _FakeResp(
-            content=b"<html>", content_type="text/html",
-        ),
-        "https://x/big.png": _FakeResp(
-            content=big, content_type="image/png",
-        ),
+        "https://x/notimg.png": _FakeResp(content=b"<html>", content_type="text/html"),
+        "https://x/big.png": _FakeResp(content=big, content_type="image/png"),
     }
-    import claire.ingest.netpolicy as netpolicy
-
-    def handler(request):
-        fake = responses[str(request.url)]
-        return httpx.Response(
-            fake.status_code, content=fake.content, headers=fake.headers,
-        )
-
-    monkeypatch.setattr(
-        netpolicy, "_make_pinned_transport",
-        lambda _allowed: httpx.MockTransport(handler),
-    )
+    monkeypatch.setattr(httpx, "Client", lambda *a, **kw: _FakeHttpxClient(responses))
     images = [
         {"url": "https://x/404.png"},
         {"url": "https://x/notimg.png"},
@@ -160,15 +160,13 @@ def test_download_images_failure_modes_fall_back_to_url(monkeypatch, tmp_path: P
 
 def test_download_images_network_error_is_caught(monkeypatch, tmp_path: Path):
     """httpx 예외(DNS 실패 등)도 개별 이미지만 원본 url 로 폴백 — 적재를 막지 않는다."""
-    import claire.ingest.netpolicy as netpolicy
+    class _BoomClient:
+        def __init__(self, *a, **kw): pass
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def get(self, url): raise OSError("network unreachable")
 
-    def fail(request):
-        raise httpx.ConnectError("network unreachable", request=request)
-
-    monkeypatch.setattr(
-        netpolicy, "_make_pinned_transport",
-        lambda _allowed: httpx.MockTransport(fail),
-    )
+    monkeypatch.setattr(httpx, "Client", lambda *a, **kw: _BoomClient())
     out = download_images(tmp_path, "doc_1", [{"url": "https://dead/x.png"}])
     assert "local" not in out[0]
     assert out[0]["url"] == "https://dead/x.png"

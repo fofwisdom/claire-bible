@@ -1,0 +1,111 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <!-- Glow filters -->
+    <filter id="neon-glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="5" result="blur1"/>
+      <feGaussianBlur stdDeviation="14" result="blur2"/>
+      <feMerge>
+        <feMergeNode in="blur2"/>
+        <feMergeNode in="blur1"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    
+    <filter id="core-glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="12" result="coreBlur"/>
+      <feMerge>
+        <feMergeNode in="coreBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <radialGradient id="sphere-vol" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#00f5b8" stop-opacity="0.16"/>
+      <stop offset="75%" stop-color="#00f0a0" stop-opacity="0.08"/>
+      <stop offset="96%" stop-color="#00ffb0" stop-opacity="0.28"/>
+      <stop offset="100%" stop-color="#00ffa0" stop-opacity="0.0"/>
+    </radialGradient>
+
+    <radialGradient id="core-flare" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="1.0"/>
+      <stop offset="25%" stop-color="#d0f4ff" stop-opacity="0.95"/>
+      <stop offset="60%" stop-color="#38b6ff" stop-opacity="0.6"/>
+      <stop offset="100%" stop-color="#0080ff" stop-opacity="0.0"/>
+    </radialGradient>
+
+    <linearGradient id="flare-vert" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#c8f0ff" stop-opacity="0.0"/>
+      <stop offset="50%" stop-color="#ffffff" stop-opacity="0.95"/>
+      <stop offset="100%" stop-color="#c8f0ff" stop-opacity="0.0"/>
+    </linearGradient>
+  </defs>
+
+  <!-- 1. Sphere Volume & Subtle Outer Aura -->
+  <circle cx="256" cy="256" r="228" fill="url(#sphere-vol)" />
+  <circle cx="256" cy="256" r="228" fill="none" stroke="#00ffaa" stroke-width="2.5" stroke-opacity="0.4" filter="url(#neon-glow)" />
+
+  <!-- 2. Back Lattice Energy Lines -->
+  <g fill="none" stroke="#00ff9d" stroke-opacity="0.32" stroke-width="1.8">
+    <ellipse cx="256" cy="256" rx="228" ry="75" />
+    <ellipse cx="256" cy="256" rx="75" ry="228" />
+    <ellipse cx="256" cy="256" rx="162" ry="228" transform="rotate(45 256 256)" />
+    <ellipse cx="256" cy="256" rx="162" ry="228" transform="rotate(-45 256 256)" />
+  </g>
+
+  <!-- 3. Back Magic Seals (Translucent) -->
+  <g fill="none" stroke="#00e690" stroke-opacity="0.45" stroke-width="2.5">
+    <ellipse cx="256" cy="95" rx="88" ry="36" />
+    <polygon points="256,62 294,112 218,112" />
+    <polygon points="256,128 294,78 218,78" />
+    <ellipse cx="108" cy="210" rx="40" ry="88" transform="rotate(-20 108 210)" />
+    <ellipse cx="404" cy="210" rx="40" ry="88" transform="rotate(20 404 210)" />
+  </g>
+
+  <!-- 4. Central Core Light Flare -->
+  <g filter="url(#core-glow)">
+    <ellipse cx="256" cy="265" rx="82" ry="96" fill="url(#core-flare)" />
+    <ellipse cx="256" cy="265" rx="14" ry="125" fill="url(#flare-vert)" />
+    <circle cx="256" cy="265" r="22" fill="#ffffff" />
+  </g>
+
+  <!-- 5. Front Magic Seals (Vibrant Glowing Neon Green) -->
+  <g filter="url(#neon-glow)" fill="none" stroke="#26ffaa" stroke-linecap="round" stroke-linejoin="round">
+    <!-- UPPER-FRONT SEAL (Large central-top hexagram) -->
+    <g stroke-width="4.5">
+      <ellipse cx="256" cy="158" rx="124" ry="94" />
+      <ellipse cx="256" cy="158" rx="106" ry="80" stroke-width="3" stroke="#a6ffe0" />
+      <polygon points="256,80 348,197 164,197" stroke-width="3.5" stroke="#ffffff" />
+      <polygon points="256,236 348,119 164,119" stroke-width="3.5" stroke="#ffffff" />
+    </g>
+
+    <!-- LEFT SEAL -->
+    <g stroke-width="4.5" transform="rotate(-22 135 250)">
+      <ellipse cx="135" cy="250" rx="55" ry="122" />
+      <ellipse cx="135" cy="250" rx="47" ry="105" stroke-width="3" stroke="#a6ffe0" />
+      <polygon points="135,148 176,302 94,302" stroke-width="3.5" stroke="#ffffff" />
+      <polygon points="135,352 176,198 94,198" stroke-width="3.5" stroke="#ffffff" />
+    </g>
+
+    <!-- RIGHT SEAL -->
+    <g stroke-width="4.5" transform="rotate(22 377 250)">
+      <ellipse cx="377" cy="250" rx="55" ry="122" />
+      <ellipse cx="377" cy="250" rx="47" ry="105" stroke-width="3" stroke="#a6ffe0" />
+      <polygon points="377,148 418,302 336,302" stroke-width="3.5" stroke="#ffffff" />
+      <polygon points="377,352 418,198 336,198" stroke-width="3.5" stroke="#ffffff" />
+    </g>
+
+    <!-- BOTTOM-FRONT SEAL -->
+    <g stroke-width="4.5">
+      <ellipse cx="256" cy="390" rx="122" ry="58" />
+      <ellipse cx="256" cy="390" rx="104" ry="50" stroke-width="3" stroke="#a6ffe0" />
+      <polygon points="256,342 346,414 166,414" stroke-width="3.5" stroke="#ffffff" />
+      <polygon points="256,438 346,366 166,366" stroke-width="3.5" stroke="#ffffff" />
+    </g>
+  </g>
+
+  <!-- 6. Ultra-bright white core line highlights -->
+  <g fill="none" stroke="#ffffff" stroke-width="1.8" stroke-opacity="0.9">
+    <ellipse cx="256" cy="158" rx="106" ry="80" />
+    <ellipse cx="256" cy="390" rx="104" ry="50" />
+  </g>
+</svg>

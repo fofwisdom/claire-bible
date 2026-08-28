@@ -14,10 +14,10 @@ from dataclasses import dataclass, field
 
 import pytest
 
+from claire.extract.resolver import AUTO_MERGE, CANDIDATE_FLOOR, resolve_or_create
 from claire.ontology.base import Entity
 from claire.store import db as dbm
 from claire.store.vectors import VectorStore
-from claire.extract.resolver import resolve_or_create, AUTO_MERGE, CANDIDATE_FLOOR
 
 
 def _db():

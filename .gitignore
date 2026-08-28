@@ -1,9 +1,14 @@
 .env
 .env.*
 !.env.example
+!.env.dev.example
+!.env.deploy.example
 __pycache__/
 *.pyc
 .venv/
+.dev/
+.cb-manuscript/
+/backups/
 data/
 vault/
 research/
@@ -12,8 +17,24 @@ research/
 dist/
 build/
 *.orig
-*.jsonl
+/replay.jsonl
+/sample.private.adoc
+/sample.private.md
+*.log
+
+# private 디렉터리 및 개인 설정 산출물
+private/*
+!private/.gitkeep
 
 # playwright/검증 산출물
+node_modules/
+e2e/node_modules/
+test-results/
+playwright-report/
 .playwright-mcp/
 claire-graph*.png
+
+# macOS System Files
+.DS_Store
+.AppleDouble
+.LSOverride

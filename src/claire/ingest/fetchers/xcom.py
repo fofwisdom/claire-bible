@@ -101,14 +101,13 @@ def _fetch_api(screen: str | None, sid: str) -> tuple[dict | None, str | None]:
 
 def _try_host(host: str, screen: str | None, sid: str) -> dict | None:
     """한 미러 호스트에서 트윗 JSON 1회 시도. 실패(404/5xx/HTML/timeout) 시 None."""
-    from ..netpolicy import safe_httpx_get
+    import httpx
 
     path = f"{screen}/status/{sid}" if screen else f"status/{sid}"
     headers = {"User-Agent": _UA, "Accept": "application/json"}
     try:
-        resp = safe_httpx_get(
-            f"https://{host}/{path}", timeout=12, headers=headers,
-        )
+        with httpx.Client(follow_redirects=True, timeout=12, headers=headers) as c:
+            resp = c.get(f"https://{host}/{path}")
         if resp.status_code != 200:
             return None  # 404(일시 rate limit 포함)/5xx
         # vxtwitter 는 실패해도 200+HTML('Failed to scan…')을 준다 → 가드.
@@ -218,13 +217,14 @@ def _build_document(url: str, tweet: dict, *, via: str | None = None) -> Documen
     lang = tweet.get("lang")
 
     canonical_src = tweet.get("url") or url
+    raw_text = text[:20000]
     return Document(
         url=url,
         canonical_url=canonicalize_url(canonical_src),
         title=title,
         author=who or None,
         published_at=published,
-        raw_text=text[:20000],
+        raw_text=raw_text,
         source_type="xcom",
         content_hash=content_hash(title or "", text),
         lang=lang,
@@ -238,6 +238,9 @@ def _build_document(url: str, tweet: dict, *, via: str | None = None) -> Documen
             },
             "fetch_via": via or "fxtwitter",
             "is_article": bool(article_title),
+            "raw_truncated": len(text) > 20000,
+            "orig_chars": len(text),
+            "raw_chars": len(raw_text),
         },
     )
 

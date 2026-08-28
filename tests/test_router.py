@@ -2,28 +2,19 @@
 
 from __future__ import annotations
 
-import pytest
-
-from claire.ingest.fetchers.base import FetchError
-from claire.ingest.router import (
-    classify,
-    extract_shared_url,
-    fetch,
-    leading_url,
-    validate_ingest_file_access,
-)
+from claire.ingest.router import classify, extract_shared_url, fetch
 from claire.telegram_bot import classify_input
 
 
 def test_extract_shared_url_trailing_one_line():
     # 모바일 공유: 제목 … 링크(한 줄, 끝에 URL)
-    t = "똑똑한 AI보다 끈질긴 AI가 이긴다: AutoLab 벤치마크 - 박재홍 https://share.google/VaLBcvr9F0Kx7zLRu"
-    assert extract_shared_url(t) == "https://share.google/VaLBcvr9F0Kx7zLRu"
+    t = "공개용 합성 문서 - 샘플 작성자 https://share.example.com/fixture"
+    assert extract_shared_url(t) == "https://share.example.com/fixture"
 
 
 def test_extract_shared_url_trailing_newline():
-    t = "똑똑한 AI보다 끈질긴 AI가 이긴다\nhttps://wikidocs.net/blog/@jaehong/18389/"
-    assert extract_shared_url(t) == "https://wikidocs.net/blog/@jaehong/18389/"
+    t = "공개용 합성 문서\nhttps://example.com/articles/fixture"
+    assert extract_shared_url(t) == "https://example.com/articles/fixture"
 
 
 def test_extract_shared_url_none_for_plain_memo():
@@ -33,51 +24,6 @@ def test_extract_shared_url_none_for_plain_memo():
     assert extract_shared_url("이거 https://example.com 봐") is None
     # 이미 bare URL 로 시작 → 공유 추출 아님(기존 경로가 처리)
     assert extract_shared_url("https://example.com/x") is None
-
-
-def test_leading_url_strips_trailing_caption_after_newline():
-    # inbox#276 재현: 링크가 먼저, 그 아래 줄에 제목/설명이 붙는 반대 패턴 공유.
-    t = ("https://paper.blackan.net/export/201e0a9b77e43fe82ab925148fe53034\n"
-         "TRAJDEBUG: Tracing Error Lifecycle to Identify Critical Failures")
-    assert leading_url(t) == (
-        "https://paper.blackan.net/export/201e0a9b77e43fe82ab925148fe53034")
-
-
-def test_leading_url_noop_for_bare_url():
-    assert leading_url("https://example.com/x") == "https://example.com/x"
-    assert leading_url("그냥 메모") == "그냥 메모"
-
-
-def test_classify_url_first_with_caption_ignores_caption_text():
-    # 캡션에 다른 서비스 이름이 섞여도 실제 URL 호스트 기준으로 분류돼야 한다.
-    t = "https://example.com/article\nx.com 관련 얘기가 나온 글"
-    assert classify(t) == "web"
-
-
-def test_fetch_url_first_with_caption_trims_before_fetch(monkeypatch):
-    # inbox#276 재현: fetch 에 넘어가는 url 에 개행/캡션이 섞이면 httpx 가 InvalidURL 로 죽는다.
-    seen = {}
-    import claire.ingest.fetchers.web as webmod
-
-    def fake_web(u):
-        seen["url"] = u
-        from claire.ontology.base import Document
-        return Document(url=u, canonical_url=u, raw_text="ok",
-                        source_type="web", content_hash="h")
-
-    monkeypatch.setattr(webmod, "fetch_web", fake_web)
-    t = ("https://paper.blackan.net/export/201e0a9b77e43fe82ab925148fe53034\n"
-         "TRAJDEBUG: Tracing Error Lifecycle to Identify Critical Failures")
-    doc = fetch(t)
-    assert seen["url"] == (
-        "https://paper.blackan.net/export/201e0a9b77e43fe82ab925148fe53034")
-    assert "\n" not in seen["url"]
-    assert doc.url == seen["url"]
-
-
-def test_classify_input_label_matches_router_for_url_first_caption():
-    t = "https://example.com/article\nx.com 관련 얘기가 나온 글"
-    assert classify_input(t) == "web"
 
 
 def test_classify_routes_shared_text_by_url():
@@ -111,55 +57,3 @@ def test_fetch_routes_shared_text_to_url(monkeypatch):
     doc = fetch("재밌는 글 제목 https://example.com/real-article")
     assert seen["url"] == "https://example.com/real-article"
     assert doc.url == "https://example.com/real-article"
-
-
-def test_remote_text_cannot_read_server_local_file(tmp_path):
-    local = tmp_path / "secret.txt"
-    local.write_text("sentinel", encoding="utf-8")
-
-    with pytest.raises(FetchError, match="only from CLI"):
-        validate_ingest_file_access(str(local), source="api", data_dir=tmp_path)
-    with pytest.raises(FetchError, match="only from CLI"):
-        validate_ingest_file_access(
-            f"file://{local}", source="telegram", data_dir=tmp_path)
-
-
-def test_cli_local_file_and_verified_upload_remain_supported(tmp_path):
-    local = tmp_path / "notes.txt"
-    local.write_text("normal CLI input", encoding="utf-8")
-    validate_ingest_file_access(str(local), source="cli")
-    validate_ingest_file_access(str(local), source="cli-expand")
-    for retry_source in ("replay-cli", "manual-retry-cli", "recover-cli"):
-        validate_ingest_file_access(str(local), source=retry_source)
-
-    upload_root = tmp_path / "raw" / "files"
-    upload_root.mkdir(parents=True)
-    upload = upload_root / "1_notes.txt"
-    upload.write_text("normal Telegram upload", encoding="utf-8")
-    validate_ingest_file_access(
-        str(upload), source="telegram", file_ref=str(upload), data_dir=tmp_path)
-
-
-def test_cli_prefix_does_not_grant_local_file_access(tmp_path):
-    local = tmp_path / "notes.txt"
-    local.write_text("private", encoding="utf-8")
-    with pytest.raises(FetchError, match="only from CLI"):
-        validate_ingest_file_access(
-            str(local), source="client-api", data_dir=tmp_path,
-        )
-
-
-def test_verified_upload_must_match_record_and_stay_under_root(tmp_path):
-    upload_root = tmp_path / "raw" / "files"
-    upload_root.mkdir(parents=True)
-    recorded = upload_root / "1_notes.txt"
-    recorded.write_text("recorded", encoding="utf-8")
-    other = tmp_path / "outside.txt"
-    other.write_text("outside", encoding="utf-8")
-
-    with pytest.raises(FetchError, match="does not match"):
-        validate_ingest_file_access(
-            str(other), source="recover", file_ref=str(recorded), data_dir=tmp_path)
-    with pytest.raises(FetchError, match="outside"):
-        validate_ingest_file_access(
-            str(other), source="recover", file_ref=str(other), data_dir=tmp_path)

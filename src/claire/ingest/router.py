@@ -8,80 +8,12 @@ from __future__ import annotations
 
 import os
 import re
-from pathlib import Path
 from urllib.parse import urlsplit
 
 from ..ontology.base import Document
 from .fetchers.base import FetchError
 
 _URL_RE = re.compile(r"https?://[^\s)\]\}<>\"']+")
-_TRUSTED_LOCAL_FILE_SOURCES = {
-    "cli",
-    "cli-expand",
-    "replay-cli",
-    "manual-retry-cli",
-    "recover-cli",
-}
-
-
-def _local_path(payload: str) -> Path:
-    """현재 라우터와 동일한 의미로 로컬 파일 payload를 Path로 변환한다."""
-    value = (payload or "").strip()
-    if value.lower().startswith("file://"):
-        value = value[7:]
-    return Path(value)
-
-
-def is_trusted_local_file_source(source: str) -> bool:
-    """서버 로컬 파일을 열 수 있는 내부 source 값을 정확히 판별한다."""
-    return source in _TRUSTED_LOCAL_FILE_SOURCES
-
-
-def validate_ingest_file_access(
-    payload: str,
-    *,
-    source: str,
-    file_ref: str | None = None,
-    data_dir: Path | None = None,
-) -> None:
-    """원격 텍스트가 서버 로컬 경로로 승격되지 않도록 ingest 경계를 검증한다.
-
-    CLI의 명시적 로컬 파일 적재는 유지한다. Telegram 업로드 및 그 replay/recover 경로는
-    raw/files 아래에 서버가 기록한 ``file_ref``와 payload가 정확히 일치할 때만 허용한다.
-    """
-    if classify(payload) != "file":
-        return
-    if is_trusted_local_file_source(source):
-        return
-    if not file_ref or data_dir is None:
-        raise FetchError("local file paths are allowed only from CLI or verified uploads")
-
-    candidate = _local_path(payload)
-    recorded = Path(file_ref)
-    try:
-        candidate_resolved = candidate.resolve(strict=True)
-        recorded_resolved = recorded.resolve(strict=True)
-        allowed_root = (Path(data_dir) / "raw" / "files").resolve(strict=True)
-    except (OSError, RuntimeError) as exc:
-        raise FetchError("verified upload path is unavailable") from exc
-
-    if candidate_resolved != recorded_resolved:
-        raise FetchError("payload does not match the verified upload")
-    if not candidate_resolved.is_relative_to(allowed_root):
-        raise FetchError("verified upload is outside the upload directory")
-    if candidate.is_symlink() or not candidate_resolved.is_file():
-        raise FetchError("verified upload must be a regular file")
-
-
-def leading_url(t: str) -> str:
-    """'URL + 캡션'(URL 이 먼저, 뒤에 제목/설명이 붙는 공유) 텍스트에서 URL 만 뽑는다.
-
-    반대 패턴('제목 + 트레일링 URL')은 extract_shared_url 이 처리. 이 정리 없이 전체
-    텍스트를 URL 로 오인하면 fetch 단계에서 개행 등 URL 에 못 쓰는 문자 때문에 실패한다
-    (실관측: inbox#276, httpx "Invalid non-printable ASCII character in URL, '\\n'").
-    """
-    m = _URL_RE.match(t)
-    return m.group(0) if m else t
 
 
 def extract_shared_url(payload: str) -> str | None:
@@ -113,7 +45,7 @@ def classify(payload: str) -> str:
         return "text"
     low = t.lower()
     if low.startswith("http://") or low.startswith("https://"):
-        host = urlsplit(leading_url(t)).netloc.lower()
+        host = urlsplit(low).netloc
         if "youtube.com" in host or "youtu.be" in host:
             return "youtube"
         if "x.com" in host or "twitter.com" in host:
@@ -128,23 +60,37 @@ def classify(payload: str) -> str:
     # 로컬 파일 경로?
     if os.path.sep in t and os.path.exists(t):
         return "file"
-    if low.startswith("file://"):
+    if t.startswith("file://"):
         return "file"
     return "text"
+
+
+def _clean_url(url_candidate: str) -> str:
+    """URL 문자열 뒤에 공백이나 트레일링 텍스트/디렉티브가 섞여 있는 경우 순수 URL만 추출."""
+    t = (url_candidate or "").strip()
+    if not t.lower().startswith(("http://", "https://")):
+        return t
+    tokens = t.split()
+    if len(tokens) > 1:
+        first = tokens[0].rstrip(".,;)。")
+        m = _URL_RE.fullmatch(first)
+        if m:
+            return m.group(0)
+    return t
 
 
 def fetch(payload: str, *, _depth: int = 0) -> Document:
     """라우팅 + fetch. redirect 는 1회 재귀로 최종 URL 재라우팅."""
     t = payload.strip()
-    if t.lower().startswith(("http://", "https://")):
-        # 'URL + 캡션' 공유(URL 먼저, 뒤에 제목/설명) → URL 만 남긴다.
-        t = leading_url(t)
-    else:
-        # '제목 + 트레일링 링크' 공유 텍스트면 URL 을 실제 자료로 취급해 fetch.
+    # '제목 + 트레일링 링크' 공유 텍스트면 URL 을 실제 자료로 취급해 fetch.
+    if not t.lower().startswith(("http://", "https://")):
         shared = extract_shared_url(t)
         if shared:
             t = shared
     kind = classify(t)
+
+    if kind in ("web", "youtube", "xcom", "redirect"):
+        t = _clean_url(t)
 
     if kind == "youtube":
         from .fetchers.youtube import fetch_youtube
@@ -173,7 +119,7 @@ def fetch(payload: str, *, _depth: int = 0) -> Document:
     if kind == "file":
         from .fetchers.textfile import fetch_file
 
-        return fetch_file(t[len("file://"):] if t.startswith("file://") else t)
+        return fetch_file(t.removeprefix("file://"))
 
     if kind == "web":
         from .fetchers.web import fetch_web

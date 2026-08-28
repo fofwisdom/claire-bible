@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 
-from claire.ontology.base import Entity, Relation, Document
+from claire.ontology.base import Document, Entity, Relation
 from claire.store import db as dbm
 
 

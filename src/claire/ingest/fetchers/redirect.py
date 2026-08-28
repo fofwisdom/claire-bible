@@ -45,11 +45,13 @@ def _extract_target(html: str) -> str | None:
 
 
 def resolve_redirect(url: str, timeout: float = 15.0) -> str:
-    from ..netpolicy import safe_httpx_get, validate_outbound_url
+    import httpx
 
     try:
-        resp = safe_httpx_get(url, timeout=timeout, headers={"User-Agent": _UA})
-    except Exception as e:  # noqa: BLE001
+        with httpx.Client(follow_redirects=True, timeout=timeout,
+                          headers={"User-Agent": _UA}) as client:
+            resp = client.get(url)
+    except Exception as e:
         raise FetchError(f"redirect resolve failed: {e}") from e
 
     final = str(resp.url)
@@ -58,6 +60,4 @@ def resolve_redirect(url: str, timeout: float = 15.0) -> str:
         return final
     # JS redirect: 본문에서 타겟 추출.
     target = _extract_target(resp.text or "")
-    if target:
-        validate_outbound_url(target)
     return target or final

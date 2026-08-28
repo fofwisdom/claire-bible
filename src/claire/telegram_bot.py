@@ -9,29 +9,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import secrets
-import tempfile
-import time
-from dataclasses import dataclass
-from pathlib import Path
 
 from .config import get_settings
-from .logging_config import configure_logging
 
 log = logging.getLogger("claire.telegram")
-_PENDING_EXPANSION_TTL_SECONDS = 10 * 60
-_MAX_TELEGRAM_FILE_BYTES = 20 * 1024 * 1024
 
 
-@dataclass(frozen=True)
-class _PendingExpansion:
-    urls: tuple[str, ...]
-    user_id: int
-    chat_id: int
-    expires_at: float
-
-
-def _status_emoji(error, duplicate: bool = False) -> str:  # noqa: ANN001
+def _status_emoji(error, duplicate: bool = False) -> str:
     """처리 결과 → 원본 메시지에 달 텔레그램 허용 reaction 이모지."""
     if error:
         return "👎"
@@ -40,7 +24,7 @@ def _status_emoji(error, duplicate: bool = False) -> str:  # noqa: ANN001
     return "👍"  # 신규/갱신 완료
 
 
-async def _run_with_ticker(status, label, work):  # noqa: ANN001
+async def _run_with_ticker(status, label, work):
     """work(블로킹)를 스레드에서 실행하며 status 메시지를 5초마다 편집(진행 표시).
 
     파이프라인에 단계 콜백이 없으므로 경과 시간만 갱신 = '살아있음'을 알리되 스팸 아님.
@@ -68,7 +52,7 @@ async def _run_with_ticker(status, label, work):  # noqa: ANN001
         tk.cancel()
 
 
-async def _react(msg, emoji: str) -> None:  # noqa: ANN001
+async def _react(msg, emoji: str) -> None:
     """원본 메시지에 reaction(best-effort — 불허 이모지/권한 실패는 무시)."""
     try:
         await msg.set_reaction(emoji)
@@ -81,14 +65,8 @@ def classify_input(text: str) -> str:
     t = (text or "").strip()
     if not t:
         return "empty"
-    # 공유 텍스트는 router 와 동일 규칙으로 URL 만 뽑아 라벨링.
-    if t.lower().startswith(("http://", "https://")):
-        # 'URL + 캡션'(URL 먼저, 뒤에 제목/설명) → URL 만 남긴다.
-        from .ingest.router import leading_url
-
-        t = leading_url(t)
-    else:
-        # '제목 + 트레일링 링크'(끝에 URL) → 그 링크 기준으로 라벨링.
+    # '제목 + 트레일링 링크' 공유 텍스트면 그 링크 기준으로 라벨링(router 와 동일 규칙).
+    if not t.lower().startswith(("http://", "https://")):
         from .ingest.router import extract_shared_url
 
         shared = extract_shared_url(t)
@@ -106,66 +84,105 @@ def classify_input(text: str) -> str:
     return "text"
 
 
+import re
+
+# 플래그: ASCII 하이픈(-, --), en-dash(–, ––), em-dash(—, ——), horizontal bar(―) 및 한국어 플래그 지원
+# 예: --focus, —focus, –focus, -focus, --초점, —초점, --orientation, --directive, --관점, -o
+_DIRECTIVE_FLAG_RE = re.compile(
+    r"(?:\s+|^)(?:[-–—―]{1,2}(?:focus|초점|orientation|directive|perspective|관점|방향성|방향|지침)|[-–—―]o)\s+([^\n]+)",
+    re.IGNORECASE,
+)
+_DIRECTIVE_PREFIX_RE = re.compile(
+    r"^(?:\[(?:초점|focus|방향성|방향|관점|지침|directive|orientation|perspective)\]|#(?:초점|focus|방향성|방향|관점|지침|directive|orientation|perspective)|(?:초점|focus|방향성|방향|관점|지침|directive|orientation|perspective)\s*[:：])\s*(.+)$",
+    re.IGNORECASE,
+)
+# 파이프(|, ｜, ¦) 또는 대시(--, —, –) 구분자 지원 (파이프 중심 통일)
+_DIRECTIVE_SEP_RE = re.compile(
+    r"(?:\s*([|｜¦])\s*|\s+([—–-]{1,2})\s+)",
+)
+
+
+def parse_message_directive(text: str) -> tuple[str, str | None]:
+    """메시지 본문에서 페이로드(URL/텍스트)와 본문 작성 초점(focus/directive)을 분리 추출.
+
+    지원 패턴:
+    1. 파이프 구분: `URL | <초점>` 또는 `URL ｜ <초점>` (주 문법)
+    2. 줄바꿈 구분: 첫 줄이 단일 URL이고 다음 줄에 텍스트나 [초점] 태그가 오는 경우
+    3. 구분자/플래그: `URL --focus <초점>`, `URL -- <초점>`, `URL --orientation <초점>` 등 (호환)
+    """
+    t = (text or "").strip()
+    if not t:
+        return "", None
+
+    # 1. 플래그 호환 (--orientation, —orientation, -o 등)
+    m = _DIRECTIVE_FLAG_RE.search(t)
+    if m:
+        dir_val = m.group(1).strip()
+        payload = (t[:m.start()] + " " + t[m.end():]).strip()
+        if payload:
+            return payload, dir_val or None
+
+    lines = [line.strip() for line in t.splitlines() if line.strip()]
+    if not lines:
+        return t, None
+
+    # 2. 줄 단위 명시적 프리픽스 ([방향성], 방향:, #방향 등) 검사
+    dir_lines = []
+    payload_lines = []
+    for line in lines:
+        pm = _DIRECTIVE_PREFIX_RE.match(line)
+        if pm:
+            dir_lines.append(pm.group(1).strip())
+        else:
+            payload_lines.append(line)
+
+    if dir_lines and payload_lines:
+        return "\n".join(payload_lines), " ".join(dir_lines)
+
+    # 3. 첫 줄에 파이프/대시 구분자가 있는 경우 (단일행 또는 다중행 모두 지원)
+    first_line = lines[0]
+    m_sep = _DIRECTIVE_SEP_RE.search(first_line)
+    if m_sep:
+        part_a = first_line[:m_sep.start()].strip()
+        part_b = first_line[m_sep.end():].strip()
+        if part_a:
+            extra_lines = lines[1:]
+            full_dir = "\n".join([part_b] + extra_lines).strip() if (part_b or extra_lines) else None
+            return part_a, full_dir
+
+    # 4. URL 뒤에 두 번 이상의 줄바꿈(빈 줄)을 사이에 두고 평문 텍스트가 오는 경우
+    # (줄바꿈 1번은 단순 오타/오입력 사고일 수 있으므로 빈 줄이 있는 2번째 줄바꿈에서만 분리)
+    from .ingest.router import _URL_RE
+    blocks = [b.strip() for b in re.split(r"\n\s*\n", t) if b.strip()]
+    if len(blocks) >= 2:
+        first_block = blocks[0]
+        if _URL_RE.fullmatch(first_block) or (first_block.lower().startswith(("http://", "https://")) and len(first_block.split()) == 1):
+            rest = "\n\n".join(blocks[1:]).strip()
+            pm = _DIRECTIVE_PREFIX_RE.match(rest)
+            if pm:
+                rest = pm.group(1).strip()
+            return first_block, rest or None
+
+    return t, None
+
+
+def parse_caption_directive(caption: str | None) -> str | None:
+    """파일/문서 첨부 캡션에서 초점 추출."""
+    c = (caption or "").strip()
+    if not c:
+        return None
+    pm = _DIRECTIVE_PREFIX_RE.match(c)
+    if pm:
+        return pm.group(1).strip() or None
+    return c
+
+
 def _is_allowed(user_id: int | None) -> bool:
     s = get_settings()
     allow = s.allowed_user_ids
     if not allow:
-        return s.allow_all_users
+        return True
     return user_id in allow
-
-
-def _prune_pending_expansions(
-    pending: dict[str, _PendingExpansion], now: float,
-) -> None:
-    for token, item in list(pending.items()):
-        if item.expires_at <= now:
-            pending.pop(token, None)
-
-
-def _create_pending_expansion(
-    pending: dict[str, _PendingExpansion],
-    candidates: list[str],
-    user_id: int,
-    chat_id: int,
-    *,
-    now: float | None = None,
-    ttl_seconds: float = _PENDING_EXPANSION_TTL_SECONDS,
-) -> str:
-    """확장 후보를 예측 불가능한 1회용 토큰으로 사용자·채팅에 묶어 보관."""
-    if ttl_seconds <= 0:
-        raise ValueError("pending expansion TTL must be positive")
-    current = time.monotonic() if now is None else now
-    _prune_pending_expansions(pending, current)
-    token = secrets.token_urlsafe(12)
-    while token in pending:
-        token = secrets.token_urlsafe(12)
-    pending[token] = _PendingExpansion(
-        urls=tuple(candidates),
-        user_id=user_id,
-        chat_id=chat_id,
-        expires_at=current + ttl_seconds,
-    )
-    return token
-
-
-def _consume_pending_expansion(
-    pending: dict[str, _PendingExpansion],
-    token: str,
-    user_id: int | None,
-    chat_id: int | None,
-    *,
-    now: float | None = None,
-) -> list[str] | None:
-    """허용된 최초 요청자·채팅의 유효한 콜백만 1회 소비한다."""
-    current = time.monotonic() if now is None else now
-    _prune_pending_expansions(pending, current)
-    if user_id is None or chat_id is None or not _is_allowed(user_id):
-        return None
-    item = pending.get(token)
-    if item is None or item.user_id != user_id or item.chat_id != chat_id:
-        return None
-    pending.pop(token, None)
-    return list(item.urls)
 
 
 def run_bot() -> int:
@@ -173,35 +190,34 @@ def run_bot() -> int:
     if not s.telegram_bot_token:
         print("TELEGRAM_BOT_TOKEN 이 없습니다. .env 에 설정하세요.")
         return 2
-    if not s.allowed_user_ids and not s.allow_all_users:
-        print(
-            "CLAIRE_ALLOWED_USERS가 비어 있습니다. 허용할 숫자 사용자 ID를 설정하세요. "
-            "개발용 전체 허용은 CLAIRE_ALLOW_ALL_USERS=true로 명시해야 합니다."
-        )
-        return 2
 
     try:
-        from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
         from telegram.ext import (
             Application,
+            CallbackQueryHandler,
+            CommandHandler,
             ContextTypes,
             MessageHandler,
-            CommandHandler,
-            CallbackQueryHandler,
             filters,
         )
     except Exception as e:  # noqa: BLE001
         print(f"python-telegram-bot 미설치: {e}\n  uv sync 후 다시 시도하세요.")
         return 2
 
+    import asyncio
+    import tempfile
+    from pathlib import Path
+
     from .ingest.service import IngestService
 
-    configure_logging()
+    logging.basicConfig(level=logging.INFO)
     svc = IngestService(s)
-    pending: dict[str, _PendingExpansion] = {}
+    pending: dict[str, list[str]] = {}  # 확장 후보 임시 보관(콜백 토큰 -> urls)
 
-    def _markup(user_id: int, chat_id: int, candidates: list[str]):
-        token = _create_pending_expansion(pending, candidates, user_id, chat_id)
+    def _markup(update_id: int, candidates: list[str]):
+        token = f"{update_id}"
+        pending[token] = candidates
         kb = [
             [InlineKeyboardButton(
                 f"🔗 관련 링크 {len(candidates)}개 가져오기",
@@ -210,23 +226,15 @@ def run_bot() -> int:
         ]
         return InlineKeyboardMarkup(kb)
 
-    async def _settle(
-        status, msg, summary: str, cands: list,
-        user_id: int | None, chat_id: int | None,
-    ) -> None:
+    async def _settle(status, msg, summary: str, cands: list, update_id: int) -> None:
         """완료 처리: 1홉 후보가 있으면 진행 메시지를 결과+버튼으로 편집(버튼 보존),
         없으면 진행 메시지를 삭제(스팸 방지 — 결과는 원본 reaction 으로 표시됨)."""
-        if cands and user_id is not None and chat_id is not None:
-            markup = _markup(user_id, chat_id, cands)
+        if cands:
+            markup = _markup(update_id, cands)
             try:
                 await status.edit_text(summary, reply_markup=markup)
             except Exception:  # noqa: BLE001
                 await msg.reply_text(summary, reply_markup=markup)
-        elif cands:
-            try:
-                await status.edit_text(summary)
-            except Exception:  # noqa: BLE001
-                await msg.reply_text(summary)
         else:
             try:
                 await status.delete()
@@ -234,19 +242,30 @@ def run_bot() -> int:
                 pass
 
     HELP = (
-        "📚 claire_bible — 개인 지식베이스 봇\n"
+        "📚 Claire Bible — 개인 지식베이스 봇\n"
+        f"  (리포지토리: {s.effective_source_base_url})\n"
         "\n"
         "그냥 보내면 적재됩니다:\n"
         "  • 링크(웹/유튜브/x.com/google share)\n"
-        "  • PDF·텍스트 파일\n"
+        "  • PDF·텍스트 파일 (캡션에 초점 작성 가능)\n"
         "  • 키워드/메모 등 자유 텍스트\n"
         "→ 스크랩 → Gemini 구조화 → 그래프로 저장, 기존 항목과 자동 연결.\n"
         "  관련 링크가 보이면 '가져오기' 버튼으로 1홉 확장.\n"
         "\n"
+        "💡 본문 작성 초점(Focus) 지정 방법:\n"
+        "  • 파이프 구분: https://example.com/doc | 시스템 아키텍처 중심\n"
+        "  • 빈 줄(두 번 줄바꿈) 구분:\n"
+        "    https://example.com/doc\n\n"
+        "    초보자 튜토리얼 관점으로 작성해줘\n"
+        "  • 파일/PDF 전송 시 캡션에 원하는 초점을 적어서 전송\n"
+        "\n"
         "명령어:\n"
         "  /search <키워드> — 하이브리드 검색 + 요약(인용)\n"
-        "  /web — 웹 그래프 접속 링크 발급(7일·접속 시 연장, 적재/수정 가능)\n"
+        "  /ingest <URL|텍스트> [| <초점>] — 초점 지정 적재\n"
+        "  /regenerate <문서ID|토큰|URL> [| <새 초점>] — 가독 본문(detail) 맞춤 재생성\n"
+        "  /web — 1회용 웹 로그인 링크 발급(로그인 쿠키 7일, 적재/수정 가능)\n"
         "  /webro — 읽기전용 웹 링크 발급(그래프·검색·문서만, 공유해도 안전)\n"
+        "  /repo — 소스 리포지토리 접근 링크\n"
         "  /status — 현황(그래프 규모·수렴·최근 수신)\n"
         "  /failed — 실패/영구실패 항목 점검\n"
         "  /retry <번호> — 특정 실패 항목 재시도\n"
@@ -268,21 +287,31 @@ def run_bot() -> int:
         text = (update.message.text or "").strip()
         if not text:
             return
+        payload, directive = parse_message_directive(text)
         msg = update.message
-        label = f"처리 중… ({classify_input(text)})"
+        label = f"처리 중… ({classify_input(payload)})"
+        if directive:
+            label += f" [방향: {directive[:20]}]"
         status = await msg.reply_text(f"⏳ {label}")
         uid = user.id if user else None
         cid = update.effective_chat.id if update.effective_chat else None
         try:
             report = await _run_with_ticker(
                 status, label,
-                lambda: svc.ingest(text, source="telegram", user_id=uid, chat_id=cid))
+                lambda: svc.ingest(
+                    payload,
+                    source="telegram",
+                    user_id=uid,
+                    chat_id=cid,
+                    directive=directive,
+                ),
+            )
             summary, cands = report.telegram_summary(), report.candidates
             emoji = _status_emoji(report.error, report.duplicate)
         except Exception as e:  # noqa: BLE001
             summary, cands, emoji = f"❌ 처리 오류: {e}", [], "👎"
         await _react(msg, emoji)
-        await _settle(status, msg, summary, cands, uid, cid)
+        await _settle(status, msg, summary, cands, update.update_id)
 
     async def on_document(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
         user = update.effective_user
@@ -292,29 +321,21 @@ def run_bot() -> int:
         doc = update.message.document
         if not doc:
             return
-        if doc.file_size is not None and doc.file_size > _MAX_TELEGRAM_FILE_BYTES:
-            await update.message.reply_text("파일이 너무 큽니다. 최대 20MB까지 처리할 수 있습니다.")
-            return
-        name = Path(doc.file_name or "document").name or "document"
+        name = doc.file_name or "document"
         msg = update.message
+        caption = update.message.caption
+        directive = parse_caption_directive(caption)
         label = f"파일 처리 중… ({name})"
+        if directive:
+            label += f" [방향: {directive[:20]}]"
         status = await msg.reply_text(f"⏳ {label}")
         uid = user.id if user else None
         cid = update.effective_chat.id if update.effective_chat else None
 
         async def _download() -> str:
             tg_file = await doc.get_file()
-            with tempfile.NamedTemporaryFile(
-                prefix="claire_", suffix=Path(name).suffix, delete=False,
-            ) as handle:
-                tmp = Path(handle.name)
-            try:
-                await tg_file.download_to_drive(str(tmp))
-                if tmp.stat().st_size > _MAX_TELEGRAM_FILE_BYTES:
-                    raise ValueError("다운로드된 파일이 20MB 제한을 초과했습니다.")
-            except Exception:
-                tmp.unlink(missing_ok=True)
-                raise
+            tmp = Path(tempfile.gettempdir()) / f"claire_{doc.file_unique_id}_{name}"
+            await tg_file.download_to_drive(str(tmp))
             return str(tmp)
 
         try:
@@ -326,33 +347,129 @@ def run_bot() -> int:
 
         def _work():
             kept = svc.save_inbound_file(int(update.update_id), Path(tmp_path), name)
-            return svc.ingest(kept, source="telegram", user_id=uid, chat_id=cid,
-                              inbox_kind="document", file_ref=kept, file_name=name)
+            return svc.ingest(
+                kept,
+                source="telegram",
+                user_id=uid,
+                chat_id=cid,
+                inbox_kind="document",
+                file_ref=kept,
+                file_name=name,
+                directive=directive,
+            )
 
         try:
-            try:
-                report = await _run_with_ticker(status, label, _work)
-                summary, cands = report.telegram_summary(), report.candidates
-                emoji = _status_emoji(report.error, report.duplicate)
-            except Exception as e:  # noqa: BLE001
-                summary, cands, emoji = f"❌ 처리 오류: {e}", [], "👎"
-        finally:
-            Path(tmp_path).unlink(missing_ok=True)
+            report = await _run_with_ticker(status, label, _work)
+            summary, cands = report.telegram_summary(), report.candidates
+            emoji = _status_emoji(report.error, report.duplicate)
+        except Exception as e:  # noqa: BLE001
+            summary, cands, emoji = f"❌ 처리 오류: {e}", [], "👎"
         await _react(msg, emoji)
-        await _settle(status, msg, summary, cands, uid, cid)
+        await _settle(status, msg, summary, cands, update.update_id)
+
+    async def on_ingest(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        user = update.effective_user
+        if not _is_allowed(user.id if user else None):
+            await update.message.reply_text("허용되지 않은 사용자입니다.")
+            return
+        raw = " ".join(ctx.args) if ctx.args else ""
+        if not raw:
+            await update.message.reply_text(
+                "사용법:\n"
+                "  /ingest <URL 또는 텍스트>\n"
+                "  /ingest <URL 또는 텍스트> | <초점>\n"
+                "  예: /ingest https://example.com/doc | 시스템 아키텍처 중심"
+            )
+            return
+        payload, directive = parse_message_directive(raw)
+        msg = update.message
+        label = f"적재 처리 중… ({classify_input(payload)})"
+        if directive:
+            label += f" [초점: {directive[:20]}]"
+        status = await msg.reply_text(f"⏳ {label}")
+        uid = user.id if user else None
+        cid = update.effective_chat.id if update.effective_chat else None
+        try:
+            report = await _run_with_ticker(
+                status, label,
+                lambda: svc.ingest(
+                    payload,
+                    source="telegram",
+                    user_id=uid,
+                    chat_id=cid,
+                    directive=directive,
+                ),
+            )
+            summary, cands = report.telegram_summary(), report.candidates
+            emoji = _status_emoji(report.error, report.duplicate)
+        except Exception as e:  # noqa: BLE001
+            summary, cands, emoji = f"❌ 처리 오류: {e}", [], "👎"
+        await _react(msg, emoji)
+        await _settle(status, msg, summary, cands, update.update_id)
+
+    async def on_regenerate(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        user = update.effective_user
+        if not _is_allowed(user.id if user else None):
+            await update.message.reply_text("허용되지 않은 사용자입니다.")
+            return
+        raw = " ".join(ctx.args) if ctx.args else ""
+        if not raw:
+            await update.message.reply_text(
+                "사용법:\n"
+                "  /regenerate <문서ID|토큰|URL>\n"
+                "  /regenerate <문서ID|토큰|URL> | <새 초점>\n"
+                "  예: /regenerate doc_123456789012 | 보안 및 취약점 분석 관점"
+            )
+            return
+        target, directive = parse_message_directive(raw)
+        tokens = raw.split(None, 1)
+        if directive is None and len(tokens) > 1:
+            target = tokens[0]
+            directive = tokens[1].strip()
+        else:
+            target = target or (tokens[0] if tokens else "")
+
+        msg = update.message
+        label = f"본문 재생성 중… ({target})"
+        if directive:
+            label += f" [초점: {directive[:20]}]"
+        status = await msg.reply_text(f"⏳ {label}")
+        try:
+            res = await _run_with_ticker(
+                status, label,
+                lambda: svc.regenerate_components(
+                    target=target,
+                    detail=True,
+                    force=True,
+                    directive=directive,
+                ),
+            )
+            if res.get("error"):
+                ans = f"❌ 재생성 실패: {res['error']}"
+                emoji = "👎"
+            elif res.get("count", 0) > 0:
+                tinfo = res["targets"][0]
+                dir_msg = f"\n초점: {directive}" if directive else ""
+                ans = f"✅ 본문 재생성 완료: {tinfo.get('title', target)}{dir_msg}"
+                emoji = "👍"
+            else:
+                ans = f"⚠️ 대상 문서를 찾을 수 없습니다: {target}"
+                emoji = "🤔"
+        except Exception as e:  # noqa: BLE001
+            ans = f"❌ 재생성 오류: {e}"
+            emoji = "👎"
+        await _react(msg, emoji)
+        await status.edit_text(ans)
 
     async def on_callback(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
         query = update.callback_query
+        await query.answer()
         data = query.data or ""
-        user = update.effective_user
-        user_id = user.id if user else None
-        chat_id = update.effective_chat.id if update.effective_chat else None
-        if user_id is None or not _is_allowed(user_id):
-            await query.answer("허용되지 않은 사용자입니다.", show_alert=True)
-            return
         if data.startswith("auth:"):
             # 웹 UI 접속 승인 — 소유자만. DB 에 세션 토큰 발급(웹이 poll 로 수령).
-            await query.answer()
+            user = update.effective_user
+            if not _is_allowed(user.id if user else None):
+                return
             from .store import db as dbm
 
             conn = dbm.connect(svc.s.db_file)
@@ -369,30 +486,17 @@ def run_bot() -> int:
         if data.startswith("no:"):
             # 거절: 진행/결과 메시지를 아예 삭제(스팸 감소 — 적재 결과는 원본 reaction 으로
             # 이미 표시됨). 삭제 불가(시간초과 등)면 버튼만 제거로 폴백.
-            urls = _consume_pending_expansion(
-                pending, data[3:], user_id, chat_id,
-            )
-            if urls is None:
-                await query.answer(
-                    "만료되었거나 다른 사용자의 요청입니다.", show_alert=True,
-                )
-                return
-            await query.answer()
+            pending.pop(data[3:], None)
             try:
                 await query.message.delete()
             except Exception:  # noqa: BLE001
                 await query.edit_message_reply_markup(reply_markup=None)
             return
         if data.startswith("exp:"):
-            urls = _consume_pending_expansion(
-                pending, data[4:], user_id, chat_id,
-            )
-            if urls is None:
-                await query.answer(
-                    "만료되었거나 다른 사용자의 요청입니다.", show_alert=True,
-                )
+            urls = pending.pop(data[4:], [])
+            if not urls:
+                await query.edit_message_reply_markup(reply_markup=None)
                 return
-            await query.answer()
             # 같은 메시지를 in-place 편집해 진행→결과로 갱신(새 메시지 2개 더 안 만든다).
             async def _edit(text: str) -> None:
                 try:
@@ -409,8 +513,6 @@ def run_bot() -> int:
                 except Exception as e:  # noqa: BLE001
                     lines.append(f"• ❌ {url}: {e}")
             await _edit("🔗 확장 적재 결과\n" + "\n".join(lines))
-            return
-        await query.answer()
 
     async def on_search(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         if not _is_allowed(update.effective_user.id if update.effective_user else None):
@@ -429,7 +531,7 @@ def run_bot() -> int:
 
     async def on_web(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
         # 웹 접속 링크 발급: 세션 토큰 즉시 발급 → ?t= 가 붙은 1회용 진입 URL 회신.
-        # 토큰은 접속할 때마다 7일씩 자동 연장(슬라이딩). 소유자만.
+        # 링크는 첫 접속에서 cookie 세션으로 회전하고 URL 자체는 즉시 무효화된다.
         if not _is_allowed(update.effective_user.id if update.effective_user else None):
             return
         from .store import db as dbm
@@ -450,8 +552,11 @@ def run_bot() -> int:
         tok = await asyncio.to_thread(_mint)
         url = f"{s.public_url.rstrip('/')}/?t={tok}"
         await update.message.reply_text(
-            "🔗 웹 접속 링크 (7일 · 접속 시 자동 연장):\n" + url +
-            "\n\n링크를 열면 쿠키로 로그인됩니다. 공유하지 마세요.")
+            "🔗 1회용 웹 로그인 링크:\n" + url +
+            "\n\n첫 접속 뒤 URL은 무효가 되고 로그인 쿠키가 7일간 자동 연장됩니다. "
+            "공유하지 마세요.",
+            disable_web_page_preview=True,
+        )
 
     async def on_webro(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
         # 읽기전용 웹 링크: /web 과 동일 메커니즘(세션+쿠키, 7일 슬라이딩)이지만
@@ -481,7 +586,9 @@ def run_bot() -> int:
         await update.message.reply_text(
             "🔗 읽기전용 웹 링크 (7일 · 접속 시 자동 연장):\n" + url +
             "\n\n그래프·검색·문서만 볼 수 있고 적재/수정은 안 됩니다. 다른 사람과 공유해도 "
-            "안전합니다(다시 /webro 하면 이전 읽기전용 링크만 무효화 — /web 세션은 안 건드림).")
+            "안전합니다(다시 /webro 하면 이전 읽기전용 링크만 무효화 — /web 세션은 안 건드림).",
+            disable_web_page_preview=True,
+        )
 
     async def on_status(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
         if not _is_allowed(update.effective_user.id if update.effective_user else None):
@@ -493,6 +600,15 @@ def run_bot() -> int:
         except Exception as e:  # noqa: BLE001
             text = f"❌ status 오류: {e}"
         await update.message.reply_text(text)
+
+    async def on_repo(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        if not _is_allowed(update.effective_user.id if update.effective_user else None):
+            return
+        await update.message.reply_text(
+            f"🐙 Claire Bible 소스 리포지토리:\n{s.effective_source_base_url}\n"
+            f"(저장소: {s.effective_github_repository})",
+            disable_web_page_preview=False,
+        )
 
     async def on_failed(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
         # SSH 없이 폰에서 점검 가능하게: error/영구실패 목록 + /retry 사용법.
@@ -536,7 +652,11 @@ def run_bot() -> int:
     app.add_handler(CommandHandler("start", on_start))
     app.add_handler(CommandHandler("help", on_help))
     app.add_handler(CommandHandler("status", on_status))
+    app.add_handler(CommandHandler("repo", on_repo))
     app.add_handler(CommandHandler("search", on_search))
+    app.add_handler(CommandHandler("ingest", on_ingest))
+    app.add_handler(CommandHandler("regenerate", on_regenerate))
+    app.add_handler(CommandHandler("regen", on_regenerate))
     app.add_handler(CommandHandler("web", on_web))
     app.add_handler(CommandHandler("webro", on_webro))
     app.add_handler(CommandHandler("failed", on_failed))
@@ -545,14 +665,17 @@ def run_bot() -> int:
     app.add_handler(MessageHandler(filters.Document.ALL, on_document))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_message))
 
-    async def _post_init(application) -> None:  # noqa: ANN001
+    async def _post_init(application) -> None:
         # 텔레그램 클라이언트 입력창의 '/' 명령 메뉴에 노출.
         from telegram import BotCommand
 
         await application.bot.set_my_commands([
             BotCommand("help", "사용법"),
             BotCommand("status", "현황(그래프/수렴/최근)"),
+            BotCommand("repo", "소스 리포지토리 링크"),
             BotCommand("search", "검색 + 요약"),
+            BotCommand("ingest", "초점 지정 적재"),
+            BotCommand("regenerate", "본문 초점 재생성"),
             BotCommand("web", "웹 접속 링크 발급"),
             BotCommand("webro", "읽기전용 웹 링크 발급"),
             BotCommand("failed", "실패/영구실패 점검"),

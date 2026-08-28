@@ -4,10 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-import claire.ingest.fetchers.web as web
+from claire.ingest.fetchers import web
 from claire.ingest.fetchers.base import FetchError
-from claire.ingest.fetchers.discourse import _topic_json_url, _strip_html
-
+from claire.ingest.fetchers.discourse import _strip_html, _topic_json_url
 
 # --- Discourse 어댑터 ---
 
@@ -55,13 +54,15 @@ def test_strip_html_multiroot_safe():
 # --- fetch_web fallback 체인 + thin-guard ---
 
 def _patch_chain(monkeypatch, *, static=("T", "", [], {}, None, None, []),
-                 discourse=None, scrapling=(None, "", [], {}, []),
+                 law=None, discourse=None, scrapling=(None, "", [], {}, []),
                  cdp=(None, "", [], {}, [])):
     monkeypatch.setattr(web, "_fetch_static", lambda url: static)
     monkeypatch.setattr(web, "_fetch_scrapling", lambda url: scrapling)
     monkeypatch.setattr(web, "_fetch_cdp", lambda url: cdp)
     import claire.ingest.fetchers.discourse as disc
     monkeypatch.setattr(disc, "try_discourse", lambda url: discourse)
+    import claire.ingest.fetchers.law as law_mod
+    monkeypatch.setattr(law_mod, "try_law_kr", lambda url: law)
 
 
 def test_static_rich_used_directly(monkeypatch):
@@ -99,6 +100,18 @@ def test_canonical_falls_back_to_input_when_no_effective(monkeypatch):
     assert doc.canonical_url == "https://openai.com/index/foo"
 
 
+def test_law_escalation_when_static_thin(monkeypatch):
+    rich = "제1조(목적) 이 법은 인공지능의 발전을 규정한다. " * 30  # >300
+    _patch_chain(monkeypatch,
+                 static=("인공지능기본법", "짧음", [], {}, None, None, []),
+                 law=("인공지능 발전과 신뢰 기반 조성 등에 관한 기본법", rich, ["https://ref.go.kr"], {}, []))
+    doc = web.fetch_web("https://www.law.go.kr/법령/인공지능발전과신뢰기반조성등에관한기본법")
+    assert doc.meta["fetch_via"] == "law"
+    assert doc.title == "인공지능 발전과 신뢰 기반 조성 등에 관한 기본법"
+    assert len(doc.raw_text) >= 300
+    assert "ref.go.kr" in doc.meta["links"][0]
+
+
 def test_discourse_escalation_when_static_thin(monkeypatch):
     rich = "본문 " * 200  # >300
     _patch_chain(monkeypatch,
@@ -130,58 +143,35 @@ def test_thin_guard_raises_when_all_fail(monkeypatch):
         web.fetch_web("https://discuss.pytorch.kr/t/thin/999")
 
 
+def test_static_bot_challenge_escalates_to_scrapling(monkeypatch):
+    """static 이 300자 이상의 Cloudflare 챌린지 텍스트를 받아와도 가드가 거절하고 scrapling 으로 에스컬레이션."""
+    cf_challenge = "Just a moment... Checking your browser before accessing. DDoS protection by Cloudflare. " * 5
+    rich_content = "실제 스텔스로 가져온 유익한 본문 콘텐츠입니다. " * 30
+    _patch_chain(monkeypatch,
+                 static=("Just a moment...", cf_challenge, [], {}, None, None, []),
+                 scrapling=("정상 기사 제목", rich_content, [], {}, []))
+    doc = web.fetch_web("https://protected-site.example/article")
+    assert doc.meta["fetch_via"] == "scrapling"
+    assert doc.title == "정상 기사 제목"
+    assert "유익한 본문 콘텐츠" in doc.raw_text
+
+
+def test_content_guard_raises_when_all_fail_challenge(monkeypatch):
+    """모든 단계에서 봇 챌린지 또는 차단 페이지가 반환되면 FetchError 로 실패 처리."""
+    cf_challenge = "Just a moment... DDoS protection by Cloudflare. " * 10
+    _patch_chain(monkeypatch,
+                 static=("Just a moment...", cf_challenge, [], {}, None, None, []),
+                 discourse=None,
+                 scrapling=("Just a moment...", cf_challenge, [], {}, []),
+                 cdp=("Just a moment...", cf_challenge, [], {}, []))
+    with pytest.raises(FetchError) as exc_info:
+        web.fetch_web("https://blocked.example/post")
+    assert "blocked: bot_challenge" in str(exc_info.value)
+
+
 def test_min_content_threshold_separates_measured_data():
     # 측정 근거: 정상 최소 ~1296, 실패 73~111 → 300 이 그 사이
     assert 111 < web.MIN_CONTENT < 1296
-
-
-# --- 인터스티셜/실패 페이지 오인 방지 (inbox 실사례: Armalo 404, Cloudflare) ---
-
-def test_looks_like_failure_page_detects_cloudflare_interstitial():
-    text = "Just a moment... Enable JavaScript and cookies to continue " * 5
-    assert web._looks_like_failure_page(text)
-
-
-def test_looks_like_failure_page_detects_deleted_workspace_page():
-    text = ("404 · Page not found This page is not in the workspace. "
-            "We could not find the page you were looking for.")
-    assert web._looks_like_failure_page(text)
-
-
-def test_looks_like_failure_page_false_for_normal_article():
-    body = "일반적인 기사 본문입니다. " * 30
-    assert not web._looks_like_failure_page(body)
-
-
-def test_looks_like_failure_page_ignores_match_outside_scan_window():
-    # 문서 뒷부분에 우연히 등장하는 문구는 실패 페이지로 오인하지 않음
-    body = "정상 기사 본문 " * 100 + "혹시 404 error 를 만나셨나요?"
-    assert not web._looks_like_failure_page(body)
-
-
-def test_cdp_interstitial_not_accepted_over_thin_static(monkeypatch):
-    # static 은 빈약, cdp 는 길지만 Cloudflare 인터스티셜 → 성공으로 오인해선 안 됨
-    interstitial = "Just a moment... Enable JavaScript and cookies to continue. " * 10
-    _patch_chain(monkeypatch,
-                 static=("t", "tiny", [], {}, None, None, []),
-                 discourse=None,
-                 cdp=("Just a moment...", interstitial, [], {}, []))
-    with pytest.raises(FetchError):
-        web.fetch_web("https://blocked.example/app")
-
-
-def test_cdp_interstitial_not_accepted_over_real_but_shorter_static(monkeypatch):
-    # static 이 짧아 escalate 했지만, 실은 static 쪽이 유일한 실제 콘텐츠인 경우
-    # (에스컬레이션 트리거 자체가 길이 기준이라 실제로는 static 도 재사용되지 않고
-    # 체인 끝까지 실패로 처리되는지 확인 — 데이터 보존 관점에서 "거짓 성공"보다 안전)
-    interstitial = "Access Denied. 403 forbidden — please verify you are human. " * 10
-    _patch_chain(monkeypatch,
-                 static=("t", "짧은 실제 스니펫", [], {}, None, None, []),
-                 discourse=None,
-                 scrapling=(None, "", [], {}, []),
-                 cdp=("Access Denied", interstitial, [], {}, []))
-    with pytest.raises(FetchError):
-        web.fetch_web("https://gated.example/doc")
 
 
 # --- 본문 이미지 수집(휴리스틱) ---

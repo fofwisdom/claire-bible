@@ -11,7 +11,6 @@ from claire.ingest.fetchers.xcom import (
     parse_status,
 )
 
-
 # --- URL 파싱 ---
 
 def test_parse_status_basic():

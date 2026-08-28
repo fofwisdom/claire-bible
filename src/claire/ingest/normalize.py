@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import re
-from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 # 추적용 쿼리 파라미터 — canonical_url 에서 제거
 _TRACKING = {
@@ -125,13 +125,7 @@ def minhash_signature(text: str) -> list[int] | None:
     sh = _shingles(text)
     if not sh:
         return None
-    # SHA-1은 인증/무결성이 아닌 MinHash 유사도용 비보안 fingerprint다.
-    base = [int.from_bytes(
-                hashlib.sha1(
-                    s.encode("utf-8", "ignore"), usedforsecurity=False,
-                ).digest()[:8],
-                "big",
-            )
+    base = [int.from_bytes(hashlib.sha1(s.encode("utf-8", "ignore")).digest()[:8], "big")
             for s in sh]
     return [min((h ^ salt) & _MASK64 for h in base) for salt in _SALTS]
 

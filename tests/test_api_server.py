@@ -1,0 +1,722 @@
+"""Starlette API integration contracts for the redesigned web service."""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import threading
+from dataclasses import dataclass
+from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
+
+import pytest
+from httpx import ASGITransport, AsyncClient
+from starlette.applications import Starlette
+from starlette.routing import Route
+from starlette.testclient import TestClient
+
+from claire.api import security, server
+from claire.extract.provider import emit_progress
+from claire.store import db as dbm
+
+OWNER_TOKEN = "owner-" + ("o" * 32)
+READONLY_TOKEN = "readonly-" + ("r" * 32)
+OWNER_HEADERS = {"Authorization": f"Bearer {OWNER_TOKEN}"}
+READONLY_HEADERS = {"Authorization": f"Bearer {READONLY_TOKEN}"}
+
+
+@dataclass
+class StubSettings:
+    db_file: Path
+    data_dir: Path
+    environment: str = "development"
+    public_url: str = "http://127.0.0.1:8765"
+    inject_token: str = OWNER_TOKEN
+    readonly_token: str = READONLY_TOKEN
+    cors_allowed_origins: str = ""
+    anonymous_readonly: bool = False
+
+
+class StubService:
+    def __init__(self) -> None:
+        self.provider = SimpleNamespace(name="stub")
+        self.dedup_scan_calls = 0
+        self.search_calls: list[dict[str, Any]] = []
+
+    def dedup_scan(self) -> dict[str, str]:
+        self.dedup_scan_calls += 1
+        return {"scan": "stub"}
+
+    def ingest(
+        self,
+        payload: str,
+        *,
+        source: str,
+        expand_max: int | None = None,
+        format: str | None = None,
+        directive: str | None = None,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        emit_progress(f"{source}:{payload}")
+        res: dict[str, Any] = {"ok": True, "payload": payload, "expand_max": expand_max}
+        if format is not None:
+            res["format"] = format
+        if directive is not None:
+            res["directive"] = directive
+        return res
+
+    def search(
+        self,
+        query: str,
+        *,
+        limit: int,
+        summarize: bool,
+        mode: str,
+    ) -> SimpleNamespace:
+        self.search_calls.append(
+            {
+                "query": query,
+                "limit": limit,
+                "summarize": summarize,
+                "mode": mode,
+            }
+        )
+        return SimpleNamespace(query=query, answer=None, hits=[])
+
+
+class BlockingSearchService(StubService):
+    def __init__(self, *, blocked_mode: str) -> None:
+        super().__init__()
+        self.blocked_mode = blocked_mode
+        self.started = threading.Event()
+        self.release = threading.Event()
+        self._lock = threading.Lock()
+        self._active = 0
+
+    def search(
+        self,
+        query: str,
+        *,
+        limit: int,
+        summarize: bool,
+        mode: str,
+    ) -> SimpleNamespace:
+        if mode == self.blocked_mode:
+            with self._lock:
+                self._active += 1
+                if self._active == 4:
+                    self.started.set()
+            if not self.release.wait(timeout=10):
+                raise AssertionError("blocking search was not released")
+            with self._lock:
+                self._active -= 1
+        return super().search(
+            query,
+            limit=limit,
+            summarize=summarize,
+            mode=mode,
+        )
+
+
+@pytest.fixture
+def settings(tmp_path: Path) -> StubSettings:
+    return StubSettings(db_file=tmp_path / "claire.db", data_dir=tmp_path)
+
+
+@pytest.fixture
+def service() -> StubService:
+    return StubService()
+
+
+@pytest.fixture
+def client(settings: StubSettings, service: StubService):
+    app = server.create_app(settings, service)
+    with TestClient(app, base_url=settings.public_url) as test_client:
+        yield test_client
+
+
+def test_public_health_exposes_only_minimal_liveness(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from claire import health
+
+    monkeypatch.setattr(
+        health,
+        "liveness_report",
+        lambda _settings: {
+            "ok": True,
+            "schema_version": dbm.SCHEMA_VERSION,
+        },
+    )
+
+    response = client.get("/health")
+
+    assert response.status_code == 200
+    assert response.json() == {"ok": True}
+
+
+def test_whoami_returns_actual_authenticated_scope(client: TestClient) -> None:
+    owner_response = client.get("/whoami", headers=OWNER_HEADERS)
+    readonly_response = client.get("/whoami", headers=READONLY_HEADERS)
+
+    assert owner_response.status_code == 200
+    assert owner_response.json() == {"scope": "owner"}
+    assert readonly_response.status_code == 200
+    assert readonly_response.json() == {"scope": "readonly"}
+
+
+def test_readonly_document_get_does_not_mark_document_seen(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from claire import graphview
+
+    monkeypatch.setattr(
+        graphview,
+        "document_detail",
+        lambda _conn, document_id: {"id": document_id, "title": "stub"},
+    )
+
+    def unexpected_seen_mutation(*_args: Any, **_kwargs: Any) -> None:
+        raise AssertionError("GET /document must not mutate seen state")
+
+    monkeypatch.setattr(dbm, "set_document_seen", unexpected_seen_mutation)
+
+    response = client.get(
+        "/document",
+        params={"id": "doc-1"},
+        headers=READONLY_HEADERS,
+    )
+
+    assert response.status_code == 200
+    assert response.json()["id"] == "doc-1"
+
+
+def test_owner_document_seen_post_marks_document_seen(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, bool]] = []
+    monkeypatch.setattr(
+        dbm,
+        "get_document_row",
+        lambda _conn, document_id: {"id": document_id},
+    )
+
+    def record_seen(_conn: Any, document_id: str, *, seen: bool) -> bool:
+        calls.append((document_id, seen))
+        return True
+
+    monkeypatch.setattr(dbm, "set_document_seen", record_seen)
+
+    response = client.post(
+        "/document/seen",
+        json={"id": "doc-1"},
+        headers=OWNER_HEADERS,
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"id": "doc-1", "seen": True}
+    assert calls == [("doc-1", True)]
+
+
+def test_owner_document_title_updates_title(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, str | None]] = []
+
+    def record_title(_conn: Any, document_id: str, title: str | None) -> bool:
+        calls.append((document_id, title))
+        return True
+
+    monkeypatch.setattr(dbm, "set_document_title", record_title)
+
+    response = client.post(
+        "/document/title",
+        json={"id": "doc-1", "title": "New Title"},
+        headers=OWNER_HEADERS,
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"id": "doc-1", "title": "New Title"}
+    assert calls == [("doc-1", "New Title")]
+
+
+def test_owner_document_title_rejects_missing_id(client: TestClient) -> None:
+    response = client.post(
+        "/document/title",
+        json={"title": "New Title"},
+        headers=OWNER_HEADERS,
+    )
+
+    assert response.status_code == 400
+
+
+def test_owner_document_title_returns_404_when_document_missing(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(dbm, "set_document_title", lambda _conn, _id, _t: False)
+
+    response = client.post(
+        "/document/title",
+        json={"id": "doc-missing", "title": "New Title"},
+        headers=OWNER_HEADERS,
+    )
+
+    assert response.status_code == 404
+
+
+def test_legacy_dedup_route_is_absent(client: TestClient) -> None:
+    response = client.get("/dedup", headers=OWNER_HEADERS)
+
+    assert response.status_code == 404
+
+
+def test_owner_dedup_scan_post_reaches_service(
+    client: TestClient,
+    service: StubService,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from claire import graphview
+
+    monkeypatch.setattr(
+        graphview,
+        "dedup_clusters",
+        lambda _conn, scan: {"clusters": [], "scan": scan},
+    )
+
+    response = client.post("/dedup/scan", headers=OWNER_HEADERS)
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "clusters": [],
+        "scan": {"scan": "stub"},
+    }
+    assert service.dedup_scan_calls == 1
+
+
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [
+        ("POST", "/auth/request"),
+        ("GET", "/auth/poll"),
+    ],
+)
+def test_legacy_auth_routes_are_absent(
+    client: TestClient,
+    method: str,
+    path: str,
+) -> None:
+    response = client.request(method, path, headers=OWNER_HEADERS)
+
+    assert response.status_code == 404
+
+
+def test_image_route_rejects_svg(
+    client: TestClient,
+    settings: StubSettings,
+) -> None:
+    image_dir = settings.data_dir / "images"
+    image_dir.mkdir()
+    (image_dir / "sample.svg").write_text("<svg/>", encoding="utf-8")
+
+    response = client.get("/image", params={"p": "images/sample.svg"})
+
+    assert response.status_code == 404
+
+
+def test_ingest_stream_returns_newline_delimited_final_done_event(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(server, "report_to_dict", lambda report: report)
+
+    response = client.post(
+        "/ingest-stream",
+        json={"payload": "hello", "expand_max": 2},
+        headers=OWNER_HEADERS,
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("application/x-ndjson")
+    assert response.content.endswith(b"\n")
+    events = [json.loads(line) for line in response.text.splitlines()]
+    assert events == [
+        {"stage": "work", "msg": "web:hello"},
+        {
+            "done": True,
+            "result": {"ok": True, "payload": "hello", "expand_max": 2},
+        },
+    ]
+
+
+def test_readonly_search_never_runs_summary_and_limits_result_count(
+    client: TestClient,
+    service: StubService,
+) -> None:
+    response = client.post(
+        "/search",
+        json={"query": "faith", "limit": 999, "summarize": True},
+        headers=READONLY_HEADERS,
+    )
+
+    assert response.status_code == 200
+    assert service.search_calls[-1] == {
+        "query": "faith",
+        "limit": 50,
+        "summarize": False,
+        "mode": "hybrid",
+    }
+    assert response.json()["mode"] == "hybrid"
+
+
+def test_owner_search_can_run_summary_and_clamps_low_limit(
+    client: TestClient,
+    service: StubService,
+) -> None:
+    response = client.post(
+        "/search",
+        json={"query": "hope", "limit": -4, "summarize": True},
+        headers=OWNER_HEADERS,
+    )
+
+    assert response.status_code == 200
+    assert service.search_calls[-1] == {
+        "query": "hope",
+        "limit": 1,
+        "summarize": True,
+        "mode": "hybrid",
+    }
+    assert response.json()["mode"] == "hybrid"
+
+
+def test_search_explicit_fts_mode_for_authenticated_scopes(
+    client: TestClient,
+    service: StubService,
+) -> None:
+    # owner requesting fts mode
+    owner_resp = client.post(
+        "/search",
+        json={"query": "claire", "mode": "fts", "summarize": True},
+        headers=OWNER_HEADERS,
+    )
+    assert owner_resp.status_code == 200
+    assert owner_resp.json()["mode"] == "fts"
+    assert service.search_calls[-1] == {
+        "query": "claire",
+        "limit": 8,
+        "summarize": False,
+        "mode": "fts",
+    }
+
+    # readonly requesting fts mode
+    ro_resp = client.post(
+        "/search",
+        json={"query": "claire", "mode": "fts", "limit": 12},
+        headers=READONLY_HEADERS,
+    )
+    assert ro_resp.status_code == 200
+    assert ro_resp.json()["mode"] == "fts"
+    assert service.search_calls[-1] == {
+        "query": "claire",
+        "limit": 12,
+        "summarize": False,
+        "mode": "fts",
+    }
+
+
+def test_search_rejects_invalid_mode(
+    client: TestClient,
+) -> None:
+    resp = client.post(
+        "/search",
+        json={"query": "claire", "mode": "invalid_mode"},
+        headers=OWNER_HEADERS,
+    )
+    assert resp.status_code == 400
+    assert "unsupported search mode" in resp.json()["error"]
+
+
+def test_anonymous_search_forces_fts_without_summary_and_clamps_limit(
+    settings: StubSettings,
+    service: StubService,
+) -> None:
+    settings.anonymous_readonly = True
+    app = server.create_app(settings, service)
+
+    with TestClient(app, base_url=settings.public_url) as anonymous_client:
+        whoami_response = anonymous_client.get("/whoami")
+        search_response = anonymous_client.post(
+            "/search",
+            json={
+                "query": "faith",
+                "limit": 999,
+                "summarize": True,
+                "mode": "hybrid",
+            },
+        )
+
+    assert whoami_response.status_code == 200
+    assert whoami_response.json() == {"scope": "anonymous"}
+    assert search_response.status_code == 200
+    assert search_response.json()["mode"] == "fts"
+    assert service.search_calls[-1] == {
+        "query": "faith",
+        "limit": 20,
+        "summarize": False,
+        "mode": "fts",
+    }
+
+
+def test_anonymous_search_has_separate_rate_limit_with_retry_after(
+    settings: StubSettings,
+    service: StubService,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings.anonymous_readonly = True
+    monkeypatch.setattr(server, "_MAX_ANONYMOUS_SEARCH_JOBS", 0)
+    app = server.create_app(settings, service)
+
+    with TestClient(app, base_url=settings.public_url) as anonymous_client:
+        response = anonymous_client.post(
+            "/search",
+            json={"query": "faith"},
+        )
+
+    assert response.status_code == 429
+    assert response.headers["retry-after"] == "1"
+    assert response.json() == {"error": "too many search requests"}
+    assert service.search_calls == []
+
+
+@pytest.mark.asyncio
+async def test_anonymous_search_exact_four_job_cap_releases_and_isolates_hybrid(
+    settings: StubSettings,
+) -> None:
+    settings.anonymous_readonly = True
+    service = BlockingSearchService(blocked_mode="fts")
+    app = server.create_app(settings, service)
+    transport = ASGITransport(app=app)
+
+    async with AsyncClient(
+        transport=transport,
+        base_url=settings.public_url,
+    ) as async_client:
+        active = [
+            asyncio.create_task(
+                async_client.post("/search", json={"query": f"anon-{index}"})
+            )
+            for index in range(4)
+        ]
+        try:
+            assert await asyncio.to_thread(service.started.wait, 5)
+            saturated = await asyncio.wait_for(
+                async_client.post("/search", json={"query": "fifth"}),
+                timeout=2,
+            )
+            hybrid = await asyncio.wait_for(
+                async_client.post(
+                    "/search",
+                    json={"query": "owner"},
+                    headers=OWNER_HEADERS,
+                ),
+                timeout=2,
+            )
+            assert saturated.status_code == 429
+            assert saturated.headers["retry-after"] == "1"
+            assert hybrid.status_code == 200
+            assert hybrid.json()["mode"] == "hybrid"
+        finally:
+            service.release.set()
+        assert all(response.status_code == 200 for response in await asyncio.gather(*active))
+
+        reentered = await async_client.post(
+            "/search",
+            json={"query": "after-release"},
+        )
+        assert reentered.status_code == 200
+        assert reentered.json()["mode"] == "fts"
+
+
+@pytest.mark.asyncio
+async def test_all_hybrid_searches_share_four_job_cap_and_isolate_anonymous(
+    settings: StubSettings,
+) -> None:
+    settings.anonymous_readonly = True
+    service = BlockingSearchService(blocked_mode="hybrid")
+    app = server.create_app(settings, service)
+    transport = ASGITransport(app=app)
+    requests = [
+        (OWNER_HEADERS, True),
+        (READONLY_HEADERS, True),
+        (OWNER_HEADERS, False),
+        (READONLY_HEADERS, False),
+    ]
+
+    async with AsyncClient(
+        transport=transport,
+        base_url=settings.public_url,
+    ) as async_client:
+        active = [
+            asyncio.create_task(
+                async_client.post(
+                    "/search",
+                    json={"query": f"hybrid-{index}", "summarize": summarize},
+                    headers=headers,
+                )
+            )
+            for index, (headers, summarize) in enumerate(requests)
+        ]
+        try:
+            assert await asyncio.to_thread(service.started.wait, 5)
+            saturated = await asyncio.wait_for(
+                async_client.post(
+                    "/search",
+                    json={"query": "fifth"},
+                    headers=OWNER_HEADERS,
+                ),
+                timeout=2,
+            )
+            anonymous = await asyncio.wait_for(
+                async_client.post("/search", json={"query": "anonymous"}),
+                timeout=2,
+            )
+            assert saturated.status_code == 503
+            assert anonymous.status_code == 200
+            assert anonymous.json()["mode"] == "fts"
+        finally:
+            service.release.set()
+        assert all(response.status_code == 200 for response in await asyncio.gather(*active))
+
+        reentered = await async_client.post(
+            "/search",
+            json={"query": "after-release"},
+            headers=READONLY_HEADERS,
+        )
+        assert reentered.status_code == 200
+        assert reentered.json()["mode"] == "hybrid"
+
+
+def test_search_rejects_oversized_query(client: TestClient) -> None:
+    response = client.post(
+        "/search",
+        json={"query": "x" * 2001},
+        headers=OWNER_HEADERS,
+    )
+
+    assert response.status_code == 400
+
+
+def test_ingest_failure_is_500_without_internal_error_text(
+    client: TestClient,
+    service: StubService,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    secret = "https://private.example/token"
+
+    def fail(*_args: Any, **_kwargs: Any) -> None:
+        raise RuntimeError(secret)
+
+    monkeypatch.setattr(service, "ingest", fail)
+    response = client.post(
+        "/ingest",
+        json={"payload": "x"},
+        headers=OWNER_HEADERS,
+    )
+
+    assert response.status_code == 500
+    assert response.json() == {"error": "ingest failed", "ok": False}
+    assert secret not in response.text
+    assert secret not in caplog.text
+
+
+def test_server_routes_exactly_match_security_policy_with_explicit_head(
+    settings: StubSettings,
+    service: StubService,
+) -> None:
+    app: Any = server.create_app(settings, service)
+    while not isinstance(app, Starlette):
+        app = app.app
+
+    actual = {
+        (method, route.path)
+        for route in app.routes
+        if isinstance(route, Route)
+        for method in route.methods
+    }
+
+    assert actual == set(security.ROUTE_POLICY)
+    assert all(
+        ("HEAD", path) in actual
+        for method, path in actual
+        if method == "GET"
+    )
+
+
+def test_unregistered_method_path_pair_is_hidden(client: TestClient) -> None:
+    response = client.post("/health")
+
+    assert response.status_code == 404
+    assert "allow" not in response.headers
+
+
+def test_expensive_job_limit_applies_to_sync_and_stream_ingest(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(server, "_MAX_EXPENSIVE_JOBS", 0)
+
+    sync_response = client.post(
+        "/ingest",
+        json={"payload": "x"},
+        headers=OWNER_HEADERS,
+    )
+    stream_response = client.post(
+        "/ingest-stream",
+        json={"payload": "x"},
+        headers=OWNER_HEADERS,
+    )
+    search_response = client.post(
+        "/search",
+        json={"query": "faith", "summarize": False},
+        headers=READONLY_HEADERS,
+    )
+
+    assert sync_response.status_code == 503
+    assert sync_response.json() == {"error": "server is busy"}
+    assert stream_response.status_code == 503
+    assert stream_response.json() == {"error": "server is busy"}
+    assert search_response.status_code == 503
+    assert search_response.json() == {"error": "server is busy"}
+
+
+def test_endpoint_exception_is_generic_500_without_secret_logs(
+    client: TestClient,
+    service: StubService,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    secret = "private-provider-response"
+
+    def fail(*_args: Any, **_kwargs: Any) -> None:
+        raise RuntimeError(secret)
+
+    monkeypatch.setattr(service, "search", fail)
+    caplog.set_level(logging.WARNING, logger="claire.api.access")
+    response = client.post(
+        "/search",
+        json={"query": "x", "summarize": False},
+        headers=OWNER_HEADERS,
+    )
+
+    assert response.status_code == 500
+    assert response.json() == {"error": "internal server error"}
+    assert secret not in response.text
+    assert secret not in caplog.text
+    assert "error_type=RuntimeError" in caplog.text

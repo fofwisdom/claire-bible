@@ -11,8 +11,8 @@ import re
 import sqlite3
 from urllib.parse import urlsplit
 
-from ..ontology.base import Document
 from ..ingest.normalize import canonicalize_url
+from ..ontology.base import Document
 
 _URL_RE = re.compile(r"https?://[^\s)\]\}<>\"']+")
 
@@ -47,7 +47,7 @@ _SKIP_PATH_PREFIXES = (
 
 def _host(url: str) -> str:
     h = urlsplit(url).netloc.lower()
-    return h[4:] if h.startswith("www.") else h
+    return h.removeprefix("www.")
 
 
 def _is_blocked(url: str, host: str) -> bool:
@@ -95,6 +95,10 @@ def find_candidates(
 
 
 def _already_ingested(conn: sqlite3.Connection, canonical_url: str) -> bool:
+    from ..store.db import find_document_by_extra_source, is_tombstoned
+
+    if is_tombstoned(conn, canonical_url=canonical_url):
+        return True
     row = conn.execute(
         "SELECT 1 FROM documents WHERE canonical_url=? LIMIT 1", (canonical_url,)
     ).fetchone()
@@ -102,6 +106,4 @@ def _already_ingested(conn: sqlite3.Connection, canonical_url: str) -> bool:
         return True
     # 1홉 병합(ONEHOP_MERGE_DESIGN.md)은 새 Document 를 안 만들어 위 색인으로는 못 잡힘 —
     # 이미 어떤 문서에 부가 출처로 흡수된 URL 도 재제안 방지 대상.
-    from ..store.db import find_document_by_extra_source
-
     return find_document_by_extra_source(conn, canonical_url) is not None

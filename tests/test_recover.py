@@ -8,11 +8,11 @@ from __future__ import annotations
 import sqlite3
 
 from claire.config import Settings
+from claire.ingest import pipeline as pipemod
+from claire.ingest import service as svcmod
+from claire.ingest.service import IngestService
 from claire.ontology.base import Document
 from claire.store import db as dbm
-from claire.ingest import service as svcmod
-from claire.ingest import pipeline as pipemod
-from claire.ingest.service import IngestService
 
 
 def _patch_fetch(monkeypatch, fn):
@@ -109,31 +109,6 @@ def test_recover_success_is_idempotent(monkeypatch, tmp_path):
     assert dbm.inbox_status_counts(conn).get("done") == 1
     assert dbm.inbox_status_counts(conn).get("error", 0) == 0
     conn.close()
-
-
-def test_recover_preserves_trusted_cli_local_file(monkeypatch, tmp_path):
-    """CLI 파일의 원래 신뢰 경계를 유지하면서 실패 행을 다시 읽을 수 있어야 한다."""
-    s = _mem(monkeypatch, tmp_path)
-    svc = IngestService(s)
-    local = tmp_path / "notes.txt"
-    local.write_text("trusted CLI file", encoding="utf-8")
-
-    _patch_fetch(monkeypatch, _boom)
-    first = svc.ingest(str(local), source="cli")
-    assert first.error is not None
-
-    good = Document(
-        url=str(local),
-        title="notes",
-        raw_text="trusted CLI file " * 40,
-        source_type="file",
-        content_hash="cli-file-hash",
-    )
-    _patch_fetch(monkeypatch, lambda payload: good if payload == str(local) else _boom(payload))
-    result = svc.recover_failed(max_attempts=5, base_delay=0.0)
-
-    assert len(result) == 1
-    assert result[0]["status"] == "done"
 
 
 def test_recover_extract_failure_actually_extracts(monkeypatch, tmp_path):

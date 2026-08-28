@@ -1,10 +1,11 @@
 """일반 웹 fetcher — 명시적 fallback 체인.
 
   1) static   : httpx + lxml 정적 추출 (가장 싸고 빠름, 브라우저 불필요)
-  2) discourse : 본문 빈약 + Discourse 토픽이면 `.json` API 로 본문 확보 (싸고 결정적)
-  3) scrapling : Scrapling Fetcher (curl-cffi + browserforge 스텔스 헤더). 브라우저 불필요.
+  2) law      : 국가법령정보센터(law.go.kr) iframe/AJAX 2중 구조 역추적 및 조문 정적 확보
+  3) discourse : 본문 빈약 + Discourse 토픽이면 `.json` API 로 본문 확보 (싸고 결정적)
+  4) scrapling : Scrapling Fetcher (curl-cffi + browserforge 스텔스 헤더). 브라우저 불필요.
                  정적 UA 를 403 으로 막는 봇차단(예: openai.com) 우회용.
-  4) cdp       : nodriver(Chrome DevTools Protocol 직접 제어)로 실제 렌더링. 최후수단 —
+  5) cdp       : nodriver(Chrome DevTools Protocol 직접 제어)로 실제 렌더링. 최후수단 —
                  JS 로만 그려지는 SPA(해시 라우팅 등)는 static/scrapling 이 빈 껍데기만
                  받아오므로 진짜 브라우저 실행이 필요. Playwright/patchright 는 안 쓰고
                  시스템 Chromium 을 CDP 로 직접 제어(이미지에 apt chromium 패키지 하나만
@@ -19,9 +20,14 @@ from __future__ import annotations
 
 import re
 
+from ...extract.table_budget import (
+    slice_text_with_table_exemption,
+    slice_text_with_table_exemption_info,
+)
 from ...ontology.base import Document
 from ..normalize import canonicalize_url, content_hash
 from .base import FetchError
+from .guard import validate_web_content
 
 _UA = (
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
@@ -31,35 +37,13 @@ _UA = (
 # 본문이 이 길이 미만이면 "빈약"으로 보고 다음 fallback 시도, 끝까지 미달이면 실패.
 MIN_CONTENT = 300
 
-# Cloudflare 등 봇차단 인터스티셜/삭제·404 안내 페이지의 전형적 문구.
-# 본문 앞부분(_FAILURE_SCAN_CHARS)에서만 검사 — 정상 기사 중간에 우연히
-# 섞인 단어까지 걸리지 않도록. 길이 기준(MIN_CONTENT)만으로는 이런 페이지도
-# "본문 충분"으로 오인해 정상 콘텐츠처럼 채택/저장되는 문제(inbox 실사례:
-# Cloudflare "Just a moment...", 삭제된 페이지의 "Page not found ... This
-# page is not in the workspace ...")를 막기 위한 가드.
-_FAILURE_SCAN_CHARS = 400
-_FAILURE_RE = re.compile(
-    r"just a moment|checking your browser|verify you are (?:a )?human|"
-    r"attention required|complete the security check|"
-    r"enable javascript and cookies|"
-    r"page not found|not in the workspace|we could not find the page|"
-    r"404 error|error 404|403 forbidden|401 unauthorized",
-    re.IGNORECASE,
-)
 
+def _is_usable(title: str | None, text: str | None) -> tuple[bool, str | None]:
+    """본문이 최소 길이를 만족하고 차단/저품질 가드를 통과하는지 확인."""
+    if not text or len(text) < MIN_CONTENT:
+        return False, f"본문 빈약(len={len(text or '')})"
+    return validate_web_content(title, text)
 
-def _looks_like_failure_page(text: str | None) -> bool:
-    """본문이 봇차단 인터스티셜/삭제·404 안내 페이지로 보이면 True."""
-    if not text:
-        return False
-    return bool(_FAILURE_RE.search(text[:_FAILURE_SCAN_CHARS]))
-
-
-def _content_score(text: str | None) -> int:
-    """길이 비교용 점수 — 실패 페이지로 보이면 0(다음 fallback 이 더 나은 후보로 채택)."""
-    if not text or _looks_like_failure_page(text):
-        return 0
-    return len(text)
 
 # 본문 콘텐츠 이미지(다이어그램·차트·스크린샷·도식)만 후보로. 장식/추적/UI 잡동사니는 사전 제외.
 # (최종 선별은 render_detail 의 LLM 큐레이션이 한 번 더 — 여기선 명백한 잡음만 거른다.)
@@ -76,60 +60,114 @@ _IMG_MIN_DIM = 150      # width/height 속성이 명시돼 있고 이보다 작�
 def fetch_web(url: str) -> Document:
     via = "static"
     title, text, links, anchors, err, effective_url, images = _fetch_static(url)
+    usable, guard_err = _is_usable(title, text)
 
-    # 2) Discourse JSON 에스컬레이션
-    if _content_score(text) < MIN_CONTENT:
+    # 2) law.go.kr 에스컬레이션 — 국가법령정보센터 iframe / ajax 구조 해소
+    if not usable:
+        from .law import try_law_kr
+
+        l = try_law_kr(url)
+        if l is not None:
+            l_title, l_text, l_links, l_anchors, l_images = l
+            l_usable, l_guard_err = _is_usable(l_title or title, l_text)
+            if l_usable:
+                title, text, links, anchors, images, via = (
+                    l_title or title, l_text, l_links or links, l_anchors or anchors,
+                    l_images or images, "law"
+                )
+                usable, guard_err = True, None
+            elif len(l_text) > len(text or ""):
+                title, text, links, anchors, images, via = (
+                    l_title or title, l_text, l_links or links, l_anchors or anchors,
+                    l_images or images, "law"
+                )
+                usable, guard_err = l_usable, l_guard_err
+
+    # 3) Discourse JSON 에스컬레이션
+    if not usable:
         from .discourse import try_discourse
 
         d = try_discourse(url)
         if d is not None:
             d_title, d_text, d_links = d
-            if _content_score(d_text) > _content_score(text):
+            d_usable, d_guard_err = _is_usable(d_title or title, d_text)
+            if d_usable:
                 title, text, links, via = d_title or title, d_text, d_links or links, "discourse"
+                usable, guard_err = True, None
+            elif len(d_text) > len(text or ""):
+                title, text, links, via = d_title or title, d_text, d_links or links, "discourse"
+                usable, guard_err = d_usable, d_guard_err
 
-    # 3) Scrapling Fetcher 에스컬레이션 — curl-cffi + browserforge 헤더 위장.
+    # 4) Scrapling Fetcher 에스컬레이션 — curl-cffi + browserforge 헤더 위장.
     #    브라우저 불필요. 정적 UA 를 막는 봇차단(예: openai.com 403)을 우회.
-    if _content_score(text) < MIN_CONTENT:
+    if not usable:
         c_title, c_text, c_links, c_anchors, c_images = _fetch_scrapling(url)
-        if c_text and _content_score(c_text) > _content_score(text):
+        c_usable, c_guard_err = _is_usable(c_title or title, c_text)
+        if c_usable:
             title, text, links, anchors, images, via = (
                 c_title or title, c_text, c_links or links, c_anchors or anchors,
                 c_images or images, "scrapling")
+            usable, guard_err = True, None
+        elif c_text and len(c_text) > len(text or ""):
+            title, text, links, anchors, images, via = (
+                c_title or title, c_text, c_links or links, c_anchors or anchors,
+                c_images or images, "scrapling")
+            usable, guard_err = c_usable, c_guard_err
 
     # 4) CDP(nodriver) 에스컬레이션 — 실제 Chromium 렌더링. 최후수단(느림, 브라우저 필요).
-    if _content_score(text) < MIN_CONTENT:
+    if not usable:
         d_title, d_text, d_links, d_anchors, d_images = _fetch_cdp(url)
-        if d_text and _content_score(d_text) > _content_score(text):
+        d_usable, d_guard_err = _is_usable(d_title or title, d_text)
+        if d_usable:
             title, text, links, anchors, images, via = (
                 d_title or title, d_text, d_links or links, d_anchors or anchors,
                 d_images or images, "cdp")
+            usable, guard_err = True, None
+        elif d_text and len(d_text) > len(text or ""):
+            title, text, links, anchors, images, via = (
+                d_title or title, d_text, d_links or links, d_anchors or anchors,
+                d_images or images, "cdp")
+            usable, guard_err = d_usable, d_guard_err
 
-    # thin-guard: 체인 끝까지 빈약하거나 인터스티셜/실패 페이지면 실패 처리
-    # (raw_inbox error → replay-failed 대상). 봇차단/삭제 안내 페이지가 길이
-    # 기준만으로 정상 콘텐츠로 오인되지 않도록 _content_score 로 함께 판정.
-    if not text or _content_score(text) < MIN_CONTENT:
-        reason = "인터스티셜/실패 페이지로 판단" if _looks_like_failure_page(text) else "본문 빈약"
+    # thin-guard & content-guard: 체인 끝까지 미달/차단이면 실패 처리(raw_inbox error → replay-failed 대상)
+    if not usable:
+        fail_reason = guard_err or err or f"본문 빈약(len={len(text or '')})"
         raise FetchError(
-            err or f"{reason}(len={len(text or '')}, via={via}): {url}"
+            f"{fail_reason} (via={via}): {url}"
         )
 
     # canonical 은 서버 redirect 이후의 *실제 도달 URL* 기준(dedup 핵심).
     #   직접링크와 share/단축링크가 같은 페이지로 풀리면 같은 canonical 로 수렴 → 중복 방지.
     #   static 이 실패해 effective 를 못 얻으면 입력 url 로 폴백.
     effective = effective_url or url
+
     # link_anchors: 1홉 자동확장 LLM 선별용 신호(url→앵커 텍스트). links 와 같은 상한.
     anchor_pairs = [{"url": u, "anchor": anchors.get(u, "")} for u in links[:50]]
+    is_pdf = (
+        url.lower().split("?", 1)[0].endswith(".pdf")
+        or (effective_url and effective_url.lower().split("?", 1)[0].endswith(".pdf"))
+        or via == "pdf"
+    )
+    raw_text, is_truncated, orig_chars, raw_chars = slice_text_with_table_exemption_info(text or "", 20000)
     return Document(
         url=url,
         canonical_url=canonicalize_url(effective),
         title=title,
-        raw_text=text[:20000],
-        source_type="web",
+        raw_text=raw_text,
+        source_type="pdf" if is_pdf else "web",
         content_hash=content_hash(title or "", text),
         # images: 본문 콘텐츠 이미지 후보(다이어그램·차트·스크린샷). render_detail 의 LLM
         # 큐레이션이 이해에 도움 되는 것만 골라 마크다운에 삽입한다(이미지/도식 보존).
-        meta={"links": links[:50], "link_anchors": anchor_pairs, "fetch_via": via,
-              "effective_url": effective, "images": images or []},
+        meta={
+            "links": links[:50],
+            "link_anchors": anchor_pairs,
+            "fetch_via": via,
+            "effective_url": effective,
+            "images": images or [],
+            "raw_truncated": is_truncated,
+            "orig_chars": orig_chars,
+            "raw_chars": raw_chars,
+        },
     )
 
 
@@ -142,12 +180,29 @@ def _fetch_static(
     canonical 기준. 실패하면 None. 실패해도 예외 대신 빈 결과를 돌려준다. images 는
     본문 이미지 후보(상대경로는 effective_url 기준으로 절대경로화).
     """
-    from ..netpolicy import safe_httpx_get
+    import httpx
 
     try:
-        resp = safe_httpx_get(url, timeout=30, headers={"User-Agent": _UA})
+        with httpx.Client(follow_redirects=True, timeout=30,
+                          headers={"User-Agent": _UA}) as client:
+            resp = client.get(url)
         if resp.status_code >= 400:
             return None, "", [], {}, f"http {resp.status_code} for {url}", None, []
+
+        ctype = resp.headers.get("content-type", "").lower()
+        if (
+            "application/pdf" in ctype
+            or str(resp.url).lower().split("?", 1)[0].endswith(".pdf")
+            or resp.content.startswith(b"%PDF-")
+        ):
+            from .pdf import extract_pdf_bytes
+
+            fallback = str(resp.url).split("/")[-1].split("?")[0]
+            title, text, links, anchors, perr, images = extract_pdf_bytes(
+                resp.content, url=str(resp.url), fallback_title=fallback
+            )
+            return title, text, links, anchors, perr, str(resp.url), images
+
         title, text, links, anchors, perr, images = _extract_html(
             resp.text, base_url=str(resp.url))
         return title, text, links, anchors, perr, str(resp.url), images
@@ -213,13 +268,75 @@ def _extract_html(
         if bad.getparent() is not None:
             bad.getparent().remove(bad)
     images = _collect_images(tree, og_image)
-    text = " ".join(t.strip() for t in tree.xpath("//body//text()") if t.strip())
+
+    # 테이블 요소는 데이터 누락 및 왜곡을 방지하기 위해 마크다운 테이블로 사전 변환하여 보존
+    _format_html_tables_to_markdown(tree)
+
+    body_nodes = tree.xpath("//body")
+    root_node = body_nodes[0] if body_nodes else tree
+    text_pieces = list(root_node.itertext())
+    text = "\n\n".join(
+        chunk.strip()
+        for chunk in "\n".join(t for t in text_pieces if t).split("\n\n")
+        if chunk.strip()
+    )
     if not text:
         text = " ".join(t.strip() for t in tree.xpath("//text()") if t.strip())
     return (title[:200] if title else None), text, links, anchors, None, images
 
 
-def _collect_images(tree, og_image: str | None) -> list[dict]:  # noqa: ANN001
+def _format_html_tables_to_markdown(tree) -> None:
+    """HTML <table> 태그들을 마크다운 테이블 텍스트로 변환하여 구조와 데이터를 온전히 보존."""
+    for tbl in list(tree.xpath("//table")):
+        rows: list[list[str]] = []
+        caption_txt = ""
+        caps = tbl.xpath(".//caption")
+        if caps:
+            caption_txt = " ".join(caps[0].text_content().split())
+
+        for tr in tbl.xpath(".//tr"):
+            cells = tr.xpath("./th | ./td")
+            if not cells:
+                continue
+            row = [" ".join(c.text_content().split()).replace("|", "\\|") for c in cells]
+            if any(row):
+                rows.append(row)
+
+        if not rows:
+            if tbl.getparent() is not None:
+                tbl.getparent().remove(tbl)
+            continue
+
+        max_cols = max(len(r) for r in rows)
+        if max_cols == 0:
+            if tbl.getparent() is not None:
+                tbl.getparent().remove(tbl)
+            continue
+
+        norm_rows = [r + [""] * (max_cols - len(r)) for r in rows]
+        md_lines: list[str] = []
+        if caption_txt:
+            md_lines.append(f"**[Table: {caption_txt}]**")
+
+        header = norm_rows[0]
+        md_lines.append("| " + " | ".join(header) + " |")
+        md_lines.append("| " + " | ".join(["---"] * max_cols) + " |")
+        for r in norm_rows[1:]:
+            md_lines.append("| " + " | ".join(r) + " |")
+
+        md_table_text = "\n\n" + "\n".join(md_lines) + "\n\n"
+
+        parent = tbl.getparent()
+        if parent is not None:
+            prev = tbl.getprevious()
+            if prev is not None:
+                prev.tail = (prev.tail or "") + md_table_text
+            else:
+                parent.text = (parent.text or "") + md_table_text
+            parent.remove(tbl)
+
+
+def _collect_images(tree, og_image: str | None) -> list[dict]:
     """본문 콘텐츠 이미지 후보를 휴리스틱으로 선별 — [{url, alt, caption}].
 
     명백한 장식/추적/UI 이미지(로고·아이콘·아바타·광고·1x1 픽셀·sprite)는 여기서 거르고,
@@ -229,7 +346,7 @@ def _collect_images(tree, og_image: str | None) -> list[dict]:  # noqa: ANN001
     out: list[dict] = []
     seen: set[str] = set()
 
-    def _consider(url: str, alt: str, caption: str, *, w=None, h=None,  # noqa: ANN001
+    def _consider(url: str, alt: str, caption: str, *, w=None, h=None,
                   cls: str = "") -> None:
         url = (url or "").strip()
         if not url or not url.startswith(("http://", "https://")):
@@ -280,37 +397,28 @@ def _fetch_scrapling(url: str) -> tuple[str | None, str, list[str], dict[str, st
     title/본문/링크(1홉 후보)/앵커/이미지 추출 일관성 유지. 미설치/실패 시 빈 결과.
     """
     try:
-        from ..netpolicy import validate_outbound_url
         from scrapling.fetchers import Fetcher
 
-        validate_outbound_url(url)
-        page = Fetcher.get(
-            url,
-            stealthy_headers=True,
-            timeout=30,
-            follow_redirects="safe",
-            max_redirects=5,
-        )
+        page = Fetcher.get(url, stealthy_headers=True, timeout=30)
         status = getattr(page, "status", 200)
         if status and status >= 400:
             return None, "", [], {}, []
+
+        body = getattr(page, "body", None)
+        if (body and isinstance(body, bytes) and body.startswith(b"%PDF-")) or url.lower().split("?", 1)[0].endswith(".pdf"):
+            from .pdf import extract_pdf_bytes
+
+            raw_bytes = body if isinstance(body, bytes) else str(body).encode("latin1", errors="ignore")
+            title, text, links, anchors, _, images = extract_pdf_bytes(
+                raw_bytes, url=url, fallback_title=url.split("/")[-1].split("?")[0]
+            )
+            return title, text, links, anchors, images
+
         html = getattr(page, "html_content", "") or ""
         title, text, links, anchors, _, images = _extract_html(str(html), base_url=url)
         return title, text, links, anchors, images
     except Exception:  # noqa: BLE001
         return None, "", [], {}, []
-
-
-def _validate_browser_request_url(url: str) -> None:
-    """CDP가 실제 네트워크로 내보내는 URL만 공통 outbound 정책으로 검증한다."""
-    from urllib.parse import urlsplit
-
-    # 문서 내부에서 만들어지는 로컬 리소스는 네트워크 연결을 만들지 않는다.
-    if urlsplit(url).scheme.lower() in {"about", "blob", "data"}:
-        return
-    from ..netpolicy import validate_outbound_url
-
-    validate_outbound_url(url)
 
 
 def _fetch_cdp(url: str) -> tuple[str | None, str, list[str], dict[str, str], list[dict]]:
@@ -325,39 +433,21 @@ def _fetch_cdp(url: str) -> tuple[str | None, str, list[str], dict[str, str], li
         import asyncio
 
         import nodriver as uc
-        from ..netpolicy import validate_outbound_url
-
-        validate_outbound_url(url)
 
         async def _run() -> str:
             browser = await uc.start(
                 headless=True,
-                browser_args=["--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage"],
+                browser_args=[
+                    "--no-sandbox",
+                    "--disable-gpu",
+                    "--disable-dev-shm-usage",
+                    "--ignore-certificate-errors",
+                    "--ignore-ssl-errors",
+                    "--allow-insecure-localhost",
+                ],
             )
             try:
-                # 최초 navigation 전에 Fetch domain을 켜 redirect·JS navigation·하위
-                # 리소스 각각을 검사한다. private 요청은 브라우저가 보내기 전에 중단한다.
-                page = browser.tabs[0]
-
-                async def _guard_request(event, connection) -> None:
-                    try:
-                        await asyncio.to_thread(
-                            _validate_browser_request_url, event.request.url,
-                        )
-                    except Exception:  # noqa: BLE001
-                        await connection.send(uc.cdp.fetch.fail_request(
-                            event.request_id,
-                            uc.cdp.network.ErrorReason.BLOCKED_BY_CLIENT,
-                        ))
-                        return
-                    await connection.send(
-                        uc.cdp.fetch.continue_request(event.request_id))
-
-                page.add_handler(uc.cdp.fetch.RequestPaused, _guard_request)
-                await page.send(uc.cdp.fetch.enable())
-                # Tab.get()은 attach를 다시 수행해 Fetch domain/session을 바꾸므로,
-                # 현재 CDP session을 유지한 채 Page.navigate를 직접 보낸다.
-                await page.send(uc.cdp.page.navigate(url))
+                page = await browser.get(url)
                 await page.sleep(2.5)  # JS 렌더링 대기(SPA 초기 로드)
                 return await page.get_content()
             finally:

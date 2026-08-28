@@ -47,7 +47,13 @@ class ExtractedRelation(BaseModel):
 
 
 class ExtractionResult(BaseModel):
-    summary: str = ""
+    summary: str = Field(
+        default="",
+        description=(
+            "1-3 factual sentences in Korean written style (문어체: ~한다/~이다) summarizing "
+            "the document in pure plain text (평문, no AsciiDoc or Markdown markup)"
+        ),
+    )
     key_claims: list[str] = Field(default_factory=list)
     entities: list[ExtractedEntity] = Field(default_factory=list)
     relations: list[ExtractedRelation] = Field(default_factory=list)
@@ -55,6 +61,13 @@ class ExtractionResult(BaseModel):
     raw_response: str = ""
     model: str = ""
     prompt_version: str = ""
+
+    @classmethod
+    def extraction_json_schema(cls) -> dict:
+        """LLM 구조화 추출에 전달할 JSON Schema (summary, entities, relations 필수화)."""
+        schema = cls.model_json_schema()
+        schema["required"] = ["summary", "entities", "relations"]
+        return schema
 
 
 class MergeCandidate(BaseModel):
@@ -76,7 +89,7 @@ class MergeCandidate(BaseModel):
 _progress_local = threading.local()
 
 
-def set_progress_callback(cb) -> None:  # noqa: ANN001 — Callable[[str], None] | None
+def set_progress_callback(cb) -> None:
     _progress_local.cb = cb
 
 
@@ -112,26 +125,6 @@ class ResearchJudgement(BaseModel):
     reason: str = ""
 
 
-class PlannedQuestion(BaseModel):
-    """종합(synthesis) 심화조사 계획의 하위 질문 하나."""
-
-    question: str
-    rationale: str = ""  # 왜 이 질문을 조사할 가치가 있는지(한국어 한 문장)
-
-
-class ResearchPlan(BaseModel):
-    """plan_research() 구조화 출력 — 하위 질문 목록."""
-
-    questions: list[PlannedQuestion] = Field(default_factory=list)
-
-
-class ComposedDocument(BaseModel):
-    """compose_document() 구조화 출력 — 여러 하위조사 결과를 합성한 문서."""
-
-    title: str
-    body: str
-
-
 class FollowSelection(BaseModel):
     """1홉 자동확장 — 따라갈 후보 링크의 인덱스 목록(LLM 이 선별).
 
@@ -164,6 +157,10 @@ class Provider(Protocol):
     def embed(self, text: str) -> list[float]: ...
 
     def judge_same_entity(self, mc: MergeCandidate) -> bool: ...
+
+    def render_detail(
+        self, doc: Document, format: str = "md", directive: str | None = None
+    ) -> str: ...
 
 
 # --- mock provider ---
@@ -242,7 +239,7 @@ class MockProvider:
             vals.append((b / 127.5) - 1.0)
         return vals
 
-    def judge_same_entity(self, mc: "MergeCandidate") -> bool:
+    def judge_same_entity(self, mc: MergeCandidate) -> bool:
         """결정론적 휴리스틱(테스트용): 같은 타입 + 이름/별칭 토큰 포함관계면 동일체."""
         if mc.new_type and mc.cand_type and mc.new_type != mc.cand_type:
             return False
@@ -256,20 +253,33 @@ class MockProvider:
         답으로 나오는지(파이프라인 연결)만 결정론적으로 보장한다."""
         return f"[mock] {query} :: {context[:120]}"
 
-    def render_detail(self, doc: Document) -> str:
-        """결정론적 stub — 문서 가독 렌더링(detail, 마크다운) 파이프라인 연결만 보장.
+    def render_detail(
+        self, doc: Document, format: str = "md", directive: str | None = None
+    ) -> str:
+        """결정론적 stub — 문서 가독 렌더링(detail, MD 또는 ADOC) 파이프라인 연결만 보장.
 
-        실제 분량/품질(A4 1~2장 마크다운+강조+이미지 큐레이션)은 실 Gemini 로 검증한다.
-        여기선 마크다운 구조·강조·수집 이미지가 detail 로 흘러가는지(배선)만 보장한다."""
+        실제 분량/품질(A4 1~2장 마크다운/AsciiDoc+강조+이미지 큐레이션)은 실 Gemini 로 검증한다.
+        여기선 문서 구조·강조·수집 이미지가 detail 로 흘러가는지(배선)만 보장한다."""
         title = (doc.title or doc.url or "untitled").strip()
         text = (doc.raw_text or "").strip()
         images = (doc.meta or {}).get("images") or []
-        parts = [f"[mock-detail] **{title}**", "", text[:600]]
-        if images:  # 수집된 첫 이미지를 마크다운 + 캡션(이탤릭) 으로 끼워 보존/캡션 배선을 드러냄
-            im = images[0]
-            cap = im.get("caption") or im.get("alt") or "그림"
-            src = ("/image?p=" + im["local"]) if im.get("local") else im.get("url", "")
-            parts += ["", f"![{im.get('alt', '')}]({src})", f"*{cap}*"]
+        dir_val = directive or (doc.meta or {}).get("directive")
+        dir_tag = f" [directive: {dir_val}]" if dir_val else ""
+        is_adoc = (format or "md").strip().lower() in ("asciidoc", "adoc")
+        if is_adoc:
+            parts = [f"[mock-detail-adoc]{dir_tag} *{title}*", "", text[:600]]
+            if images:
+                im = images[0]
+                cap = im.get("caption") or im.get("alt") or "그림"
+                src = ("/image?p=" + im["local"]) if im.get("local") else im.get("url", "")
+                parts += ["", f'image::{src}[{im.get("alt", "")}, title="{cap}"]']
+        else:
+            parts = [f"[mock-detail]{dir_tag} **{title}**", "", text[:600]]
+            if images:  # 수집된 첫 이미지를 마크다운 + 캡션(이탤릭) 으로 끼워 보존/캡션 배선을 드러냄
+                im = images[0]
+                cap = im.get("caption") or im.get("alt") or "그림"
+                src = ("/image?p=" + im["local"]) if im.get("local") else im.get("url", "")
+                parts += ["", f"![{im.get('alt', '')}]({src})", f"*{cap}*"]
         return "\n".join(parts)
 
     def classify_watch(self, doc: Document) -> dict:
@@ -306,23 +316,6 @@ class MockProvider:
                 "interpretation": f"[mock] '{query}' 를 맥락 내 의미로 해석",
                 "reason": "mock judge"}
 
-    def plan_research(self, context: str, synth_answer: str, n: int) -> list[dict]:
-        """결정론적 stub — 종합→조사계획 파이프라인 배선 검증용(실제 계획은 Gemini).
-
-        synth_answer 앞부분을 소재 삼아 n개의 하위질문을 결정론적으로 만든다."""
-        base = (synth_answer or context or "주제").strip()[:40] or "주제"
-        return [{"question": f"{base} 관련 하위질문 {i + 1}",
-                 "rationale": f"[mock] {i + 1}번째 조사 방향"} for i in range(n)]
-
-    def compose_document(self, context: str, synth_answer: str,
-                         results: list[dict]) -> dict:
-        """결정론적 stub — 다단계 조사 결과 합성 파이프라인 배선 검증용(실제 합성은 Gemini).
-
-        각 결과의 question/report 를 그대로 이어붙인다(품질 보장 안 함)."""
-        body = "\n\n".join(
-            f"## {r.get('question', '')}\n\n{r.get('report', '')}" for r in results)
-        return {"title": f"조사 합성: {(synth_answer or '종합')[:40]}", "body": body}
-
     def select_followups(self, context: str, candidates: list[dict]) -> list[int]:
         """결정론적 stub — 1홉 확장에서 따라갈 후보 선별(파고들지 여부=LLM 결정 모사).
 
@@ -336,14 +329,14 @@ class MockProvider:
         return out
 
 
-def get_provider(settings) -> Provider:  # noqa: ANN001
-    """effective_provider 에 따라 provider 인스턴스 반환.
-
-    gemini 백엔드는 키 도착 후 구현 예정. 현재는 항상 mock.
-    """
+def get_provider(settings) -> Provider:
+    """effective_provider 에 따라 provider 인스턴스 반환."""
     eff = settings.effective_provider
+    if eff == "antigravity":
+        from .antigravity_provider import AntigravityProvider  # lazy import
+
+        return AntigravityProvider(settings)
     if eff == "gemini":
-        # TODO(M2): GeminiProvider 구현. 키 도착 전까지 도달하지 않음.
         from .gemini_provider import GeminiProvider  # lazy import
 
         return GeminiProvider(settings)
