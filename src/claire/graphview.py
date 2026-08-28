@@ -6,6 +6,7 @@ ASGI 웹 서비스(Starlette/Uvicorn)가 /graph(JSON)·/node·/documents·/synth
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from collections import Counter
 
@@ -144,6 +145,18 @@ def document_detail(conn: sqlite3.Connection, document_id: str, include_hidden: 
         }
         for e in ents
     ]
+    raw_meta = None
+    try:
+        raw_meta = row["meta"]
+    except (IndexError, KeyError):
+        raw_meta = None
+    meta_dict: dict = {}
+    if raw_meta:
+        try:
+            meta_dict = json.loads(raw_meta)
+        except Exception:
+            meta_dict = {}
+
     return {
         "id": document_id,
         "title": row["title"] or "(제목 없음)",
@@ -160,6 +173,11 @@ def document_detail(conn: sqlite3.Connection, document_id: str, include_hidden: 
         # 원시 epoch(초) — MCP 등 API 소비자용(웹 UI는 이 필드 안 씀).
         "fetched_at": row["fetched_at"],
         "nodes": nodes,
+        "raw_truncated": bool(meta_dict.get("raw_truncated", False)),
+        "orig_chars": meta_dict.get("orig_chars"),
+        "raw_chars": meta_dict.get("raw_chars"),
+        "directive": meta_dict.get("directive"),
+        "meta": meta_dict,
     }
 
 
@@ -635,7 +653,10 @@ GRAPH_HTML = """<!doctype html>
   #panel .doc{margin:.5em 0;padding:6px 8px;background:var(--card-bg);border-radius:5px}
   #panel .doc p{margin:.3em 0 0;color:var(--fg)} #panel a{color:var(--accent);text-decoration:none}
   #panel .doc p.src{margin-top:.45em}
-  #panel .docmeta{color:var(--muted);font-size:12px;margin:.1em 0 .6em}
+  #panel .docmeta, #reader .docmeta, #rbody .docmeta, .docmeta{color:var(--muted);font-size:12px;margin:.1em 0 .6em;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px}
+  .docmeta .docmeta-tags{display:inline-flex;align-items:center;gap:6px;margin-left:auto;flex-wrap:wrap}
+  .docmeta .trunc-tag{display:inline-flex;align-items:center;gap:4px;color:#d29922;background:rgba(210,153,34,0.12);border:1px solid rgba(210,153,34,0.3);border-radius:10px;padding:1px 7px;font-size:11px;cursor:help;white-space:nowrap;line-height:1.4}
+  .docmeta .directive-tag{display:inline-flex;align-items:center;gap:4px;color:var(--accent2,#58a6ff);background:rgba(88,166,255,0.12);border:1px solid rgba(88,166,255,0.3);border-radius:10px;padding:1px 7px;font-size:11px;cursor:help;white-space:nowrap;line-height:1.4}
   #panel .readbtn{background:var(--accent);color:#fff;border:0;border-radius:4px;padding:3px 10px;font-size:12.5px;cursor:pointer;margin:.2em 0}
   #panel .dochide-row{margin:.6em 0 .4em}
   #panel .dochide-label{font-size:12px;display:inline-flex;align-items:center;gap:6px;cursor:pointer;color:var(--muted)}
@@ -1881,13 +1902,53 @@ function openReader(docId, pushHist=true){
     if(activeDoc===docId && panel) panel.innerHTML='<p class=hint>문서 로드 실패.</p>';
   });
 }
+function docMetaHtml(dc){
+  if(!dc) return '';
+  const hasUrl = !!dc.url;
+  const isTrunc = !!(dc.raw_truncated || (dc.meta && dc.meta.raw_truncated));
+  const directive = (dc.directive || (dc.meta && dc.meta.directive) || '').trim();
+  if(!hasUrl && !isTrunc && !directive) return '';
+  let h='<p class=docmeta>';
+  if(hasUrl){
+    h+='<a href="'+esc(dc.url)+'" target=_blank rel=noopener>↗ 원문 열기</a>';
+  } else {
+    h+='<span></span>';
+  }
+  let tags=[];
+  if(directive){
+    const dispDir = directive.length > 25 ? directive.slice(0, 25) + '…' : directive;
+    tags.push('<span class="directive-tag" title="적재 시 지정된 초점/방향성: '+esc(directive)+'">🎯 '+esc(dispDir)+'</span>');
+  }
+  if(isTrunc){
+    const orig=(dc.orig_chars || (dc.meta && dc.meta.orig_chars)) || 0;
+    const raw=(dc.raw_chars || (dc.meta && dc.meta.raw_chars)) || 0;
+    let tip='원문이 글자 수 상한(20,000자)으로 인해 일부 절단되어 적재되었습니다.';
+    let label='✂️ 원문 일부 절단';
+    if(orig > 0 && raw > 0){
+      tip+=' (원문: '+orig.toLocaleString()+'자 → 적재: '+raw.toLocaleString()+'자)';
+      label+=' ('+raw.toLocaleString()+' / '+orig.toLocaleString()+'자)';
+    } else if(raw > 0){
+      label+=' ('+raw.toLocaleString()+'자)';
+    }
+    tags.push('<span class="trunc-tag" title="'+esc(tip)+'">'+esc(label)+'</span>');
+  }
+  if(tags.length){
+    h+='<span class="docmeta-tags">'+tags.join(' ')+'</span>';
+  }
+  h+='</p>';
+  return h;
+}
 function renderReader(dc){
   curReaderDocData=dc;
   document.getElementById('rtitle').innerHTML = esc(dc.title||'(제목 없음)')
     + (dc.source_type?' <span class=rmeta>'+esc(dc.source_type)+'</span>':'');
   let h='';
-  if(dc.url) h+='<p class=docmeta><a href="'+esc(dc.url)+'" target=_blank rel=noopener>↗ 원문 열기</a></p>';
+  h+=docMetaHtml(dc);
   h+=extraSourcesHtml(dc);
+  const directive = (dc.directive || (dc.meta && dc.meta.directive) || '').trim();
+  if(directive){
+    h+='<div class="rsection">초점 / 방향성</div><div class="md" style="margin-bottom:.8em">🎯 <strong>'+esc(directive)+'</strong></div>';
+  }
   if(dc.summary) h+='<div class=rsection>요약</div><div class="md">'+renderContent(dc.summary, dc.detail_format)+'</div>';
   if(dc.detail_html){
     const purifier=window.DOMPurify;
@@ -3251,8 +3312,12 @@ function docNodes(docId, dc){
 function renderDocPanel(dc){
   curReaderDocData=dc;
   let h='<h2>'+esc(dc.title)+' <small>'+esc(dc.source_type||'')+'</small></h2>';
-  if(dc.url) h+='<p class=docmeta><a href="'+esc(dc.url)+'" target=_blank rel=noopener>↗ 원문 열기</a></p>';
+  h+=docMetaHtml(dc);
   h+=extraSourcesHtml(dc);
+  const directive = (dc.directive || (dc.meta && dc.meta.directive) || '').trim();
+  if(directive){
+    h+='<div style="margin:.4em 0 .6em;padding:6px 8px;background:var(--card-bg);border:1px solid var(--border);border-radius:5px;font-size:12px"><b style="color:var(--accent2)">🎯 초점/방향성:</b> '+esc(directive)+'</div>';
+  }
   // 숨기기 — 상세 패널의 FTS 스타일 체크박스로(사용자 요구).
   if(canWrite()){
     h+='<div class=dochide-row><label class=dochide-label>'+
@@ -4350,7 +4415,9 @@ const dc=JSON.parse(document.getElementById('docdata').textContent||'{}');
 let h='<div class=brand>Claire Bible · 공유 문서</div>';
 h+='<h1>'+esc(dc.title||'(제목 없음)')+'</h1>';
 h+='<div class=meta>'+(dc.source_type?esc(dc.source_type):'')+
-  (dc.url?' · <a href="'+esc(dc.url)+'" target=_blank rel=noopener>↗ 원문 열기</a>':'')+'</div>';
+  (dc.url?' · <a href="'+esc(dc.url)+'" target=_blank rel=noopener>↗ 원문 열기</a>':'')+
+  ((dc.directive||(dc.meta&&dc.meta.directive))?' · <span style="color:var(--accent2,#58a6ff)" title="적재 시 지정된 초점/방향성: '+esc(dc.directive||dc.meta.directive)+'">🎯 초점: '+esc((dc.directive||dc.meta.directive).length>30?(dc.directive||dc.meta.directive).slice(0,30)+'…':(dc.directive||dc.meta.directive))+'</span>':'')+
+  ((dc.raw_truncated||(dc.meta&&dc.meta.raw_truncated))?' · <span style="color:#d29922" title="원문이 글자 수 상한(20,000자)으로 인해 일부 절단되어 적재되었습니다.">✂️ 원문 일부 절단'+((dc.raw_chars&&dc.orig_chars)?' ('+dc.raw_chars.toLocaleString()+' / '+dc.orig_chars.toLocaleString()+'자)':'')+'</span>':'')+'</div>';
 if((dc.extra_sources||[]).length){
   h+='<div class=sec>병합된 출처 ('+dc.extra_sources.length+')</div><ul class=srclist>'+
     dc.extra_sources.map(s=>'<li><a href="'+esc(s.url||'')+'" target=_blank rel=noopener>'+

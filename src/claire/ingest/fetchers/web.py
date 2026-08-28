@@ -20,7 +20,10 @@ from __future__ import annotations
 
 import re
 
-from ...extract.table_budget import slice_text_with_table_exemption
+from ...extract.table_budget import (
+    slice_text_with_table_exemption,
+    slice_text_with_table_exemption_info,
+)
 from ...ontology.base import Document
 from ..normalize import canonicalize_url, content_hash
 from .base import FetchError
@@ -145,17 +148,26 @@ def fetch_web(url: str) -> Document:
         or (effective_url and effective_url.lower().split("?", 1)[0].endswith(".pdf"))
         or via == "pdf"
     )
+    raw_text, is_truncated, orig_chars, raw_chars = slice_text_with_table_exemption_info(text or "", 20000)
     return Document(
         url=url,
         canonical_url=canonicalize_url(effective),
         title=title,
-        raw_text=slice_text_with_table_exemption(text, 20000),
+        raw_text=raw_text,
         source_type="pdf" if is_pdf else "web",
         content_hash=content_hash(title or "", text),
         # images: 본문 콘텐츠 이미지 후보(다이어그램·차트·스크린샷). render_detail 의 LLM
         # 큐레이션이 이해에 도움 되는 것만 골라 마크다운에 삽입한다(이미지/도식 보존).
-        meta={"links": links[:50], "link_anchors": anchor_pairs, "fetch_via": via,
-              "effective_url": effective, "images": images or []},
+        meta={
+            "links": links[:50],
+            "link_anchors": anchor_pairs,
+            "fetch_via": via,
+            "effective_url": effective,
+            "images": images or [],
+            "raw_truncated": is_truncated,
+            "orig_chars": orig_chars,
+            "raw_chars": raw_chars,
+        },
     )
 
 

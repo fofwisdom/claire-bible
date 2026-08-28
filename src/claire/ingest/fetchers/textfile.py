@@ -17,6 +17,7 @@ def fetch_text(payload: str) -> Document:
         raw_text=text,
         source_type="text",
         content_hash=content_hash(text),
+        meta={"raw_truncated": False, "orig_chars": len(text), "raw_chars": len(text)},
     )
 
 
@@ -45,11 +46,17 @@ def fetch_file(path: str) -> Document:
         from .base import FetchError
 
         raise FetchError(f"unsupported file type (M1): {suffix}")
+    raw_text = text[:20000]
     return Document(
         url=f"file://{p.resolve()}",
         title=title or p.stem,
-        raw_text=text[:20000],
+        raw_text=raw_text,
         source_type=source_type,
         content_hash=content_hash(title or "", text),
+        meta={
+            "raw_truncated": len(text) > 20000,
+            "orig_chars": len(text),
+            "raw_chars": len(raw_text),
+        },
     )
 

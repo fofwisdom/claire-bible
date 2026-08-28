@@ -128,6 +128,10 @@ def ingest(
     report.partial = doc.partial
     report.title = doc.title
     report.directive = directive
+    if directive and directive.strip():
+        if doc.meta is None:
+            doc.meta = {}
+        doc.meta["directive"] = directive.strip()
 
     # 0. 소각 툼스톤(Tombstone) 검사: 소각된 오염 데이터(URL/해시)는 재수집 원천 차단
     if dbm.is_tombstoned(conn, url=doc.url, canonical_url=doc.canonical_url, content_hash=doc.content_hash):
@@ -167,7 +171,8 @@ def ingest(
         doc.id = same_url
         dbm.update_document_content(
             conn, same_url, title=doc.title, raw_text=doc.raw_text,
-            content_hash=doc.content_hash, fetched_at=doc.fetched_at)
+            content_hash=doc.content_hash, fetched_at=doc.fetched_at,
+            source_type=doc.source_type, partial=doc.partial, meta=doc.meta)
         report.document_id = same_url
         report.updated = True
         if data_dir is not None:
