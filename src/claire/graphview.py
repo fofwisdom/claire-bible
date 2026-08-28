@@ -1922,7 +1922,7 @@ function docMetaHtml(dc){
   if(isTrunc){
     const orig=(dc.orig_chars || (dc.meta && dc.meta.orig_chars)) || 0;
     const raw=(dc.raw_chars || (dc.meta && dc.meta.raw_chars)) || 0;
-    let tip='원문이 글자 수 상한(20,000자)으로 인해 일부 절단되어 적재되었습니다.';
+    let tip='원문이 글자 수 상한으로 인해 일부 절단되어 적재되었습니다.';
     let label='✂️ 원문 일부 절단';
     if(orig > 0 && raw > 0){
       tip+=' (원문: '+orig.toLocaleString()+'자 → 적재: '+raw.toLocaleString()+'자)';
@@ -4417,7 +4417,7 @@ h+='<h1>'+esc(dc.title||'(제목 없음)')+'</h1>';
 h+='<div class=meta>'+(dc.source_type?esc(dc.source_type):'')+
   (dc.url?' · <a href="'+esc(dc.url)+'" target=_blank rel=noopener>↗ 원문 열기</a>':'')+
   ((dc.directive||(dc.meta&&dc.meta.directive))?' · <span style="color:var(--accent2,#58a6ff)" title="적재 시 지정된 초점: '+esc(dc.directive||dc.meta.directive)+'">🎯 초점: '+esc((dc.directive||dc.meta.directive).length>30?(dc.directive||dc.meta.directive).slice(0,30)+'…':(dc.directive||dc.meta.directive))+'</span>':'')+
-  ((dc.raw_truncated||(dc.meta&&dc.meta.raw_truncated))?' · <span style="color:#d29922" title="원문이 글자 수 상한(20,000자)으로 인해 일부 절단되어 적재되었습니다.">✂️ 원문 일부 절단'+((dc.raw_chars&&dc.orig_chars)?' ('+dc.raw_chars.toLocaleString()+' / '+dc.orig_chars.toLocaleString()+'자)':'')+'</span>':'')+'</div>';
+  ((dc.raw_truncated||(dc.meta&&dc.meta.raw_truncated))?' · <span style="color:#d29922" title="원문이 글자 수 상한으로 인해 일부 절단되어 적재되었습니다.'+(((dc.orig_chars||(dc.meta&&dc.meta.orig_chars))&&(dc.raw_chars||(dc.meta&&dc.meta.raw_chars)))?' (원문: '+(dc.orig_chars||dc.meta.orig_chars).toLocaleString()+'자 → 적재: '+(dc.raw_chars||dc.meta.raw_chars).toLocaleString()+'자)':'')+'">✂️ 원문 일부 절단'+(((dc.raw_chars||(dc.meta&&dc.meta.raw_chars))&&(dc.orig_chars||(dc.meta&&dc.meta.orig_chars)))?' ('+(dc.raw_chars||dc.meta.raw_chars).toLocaleString()+' / '+(dc.orig_chars||dc.meta.orig_chars).toLocaleString()+'자)':((dc.raw_chars||(dc.meta&&dc.meta.raw_chars))?' ('+(dc.raw_chars||dc.meta.raw_chars).toLocaleString()+'자)':''))+'</span>':'')+'</div>';
 if((dc.extra_sources||[]).length){
   h+='<div class=sec>병합된 출처 ('+dc.extra_sources.length+')</div><ul class=srclist>'+
     dc.extra_sources.map(s=>'<li><a href="'+esc(s.url||'')+'" target=_blank rel=noopener>'+
