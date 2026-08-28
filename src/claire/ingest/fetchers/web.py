@@ -20,7 +20,9 @@ from __future__ import annotations
 
 import re
 
+from ...config import get_settings
 from ...extract.table_budget import (
+    slice_document_text,
     slice_text_with_table_exemption,
     slice_text_with_table_exemption_info,
 )
@@ -148,7 +150,10 @@ def fetch_web(url: str) -> Document:
         or (effective_url and effective_url.lower().split("?", 1)[0].endswith(".pdf"))
         or via == "pdf"
     )
-    raw_text, is_truncated, orig_chars, raw_chars = slice_text_with_table_exemption_info(text or "", 20000)
+    settings = get_settings()
+    raw_text, is_truncated, orig_chars, raw_chars = slice_document_text(
+        text or "", settings.raw_char_budget, strategy=settings.slicing_strategy
+    )
     return Document(
         url=url,
         canonical_url=canonicalize_url(effective),

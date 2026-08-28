@@ -2653,10 +2653,13 @@ def scan_truncation_status(
 
         hash_mismatch = bool(r["content_hash"] and calc_hash != r["content_hash"])
 
-        # 2. 산문(Prose) 20,000자 상한 검사
+        # 2. 산문(Prose) 상한 검사
+        from ..config import get_settings
+
+        budget = get_settings().raw_char_budget
         tables, prose_parts = extract_tables_from_text(raw_text)
         prose_len = sum(len(p) for p in prose_parts)
-        is_limit = (prose_len == 20000) or (raw_len == 20000)
+        is_limit = (prose_len == budget) or (raw_len == budget)
 
         # 3. 메타데이터 기록 상태
         is_meta_truncated = bool(meta.get("raw_truncated"))
@@ -2666,7 +2669,7 @@ def scan_truncation_status(
         if hash_mismatch:
             reasons.append("hash_mismatch (원문 > 적재본)")
         if is_limit:
-            reasons.append(f"20k_limit (산문 {prose_len}자 / 전체 {raw_len}자)")
+            reasons.append(f"{budget}char_limit (산문 {prose_len}자 / 전체 {raw_len}자)")
 
         if is_meta_truncated:
             recorded_truncated += 1
@@ -2737,7 +2740,10 @@ def backfill_truncation_metadata(
             hash_mismatch = bool(r["content_hash"] and calc_hash != r["content_hash"])
             tables, prose_parts = extract_tables_from_text(raw_text)
             prose_len = sum(len(p) for p in prose_parts)
-            is_limit = (prose_len == 20000) or (len(raw_text) == 20000)
+            from ..config import get_settings
+
+            budget = get_settings().raw_char_budget
+            is_limit = (prose_len == budget) or (len(raw_text) == budget)
             is_trunc = hash_mismatch or is_limit
             targets.append({
                 "id": r["id"],

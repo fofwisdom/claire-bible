@@ -186,7 +186,8 @@ def clean_plain_summary(text: str | None) -> str:
     return ""
 
 
-from .table_budget import slice_text_with_table_exemption
+from ..config import get_settings
+from .table_budget import slice_text, slice_text_with_table_exemption
 
 
 def extract_system_prompt(ontology_block: str) -> str:
@@ -197,8 +198,8 @@ def extract_system_prompt(ontology_block: str) -> str:
 def doc_to_prompt(doc: Document) -> str:
     """Document -> LLM 프롬프트 본문.
 
-    단일 출처는 12000자, 병합 문서(extra_sources 있음)는 24000자까지 일반 본문 투입.
-    테이블(Markdown/AsciiDoc/HTML 표) 내 문자는 본문 문자 수 제한에서 제외하여 온전히 보존.
+    단일 출처 및 병합 문서의 텍스트 투입 한도를 get_settings()에서 동적으로 결정.
+    테이블(Markdown/AsciiDoc/HTML 표) 내 문자는 슬라이싱 전략(기본 table-exemption)에 따라 보존.
     """
     head = []
     if doc.title:
@@ -206,12 +207,13 @@ def doc_to_prompt(doc: Document) -> str:
     if doc.url:
         head.append(f"URL: {doc.url}")
     head.append(f"SOURCE_TYPE: {doc.source_type}")
+    settings = get_settings()
     limit = (
-        _MERGED_DOC_CHAR_BUDGET
+        settings.effective_merged_extract_char_budget
         if (doc.meta or {}).get("extra_sources")
-        else _SINGLE_DOC_CHAR_BUDGET
+        else settings.extract_char_budget
     )
-    content_body = slice_text_with_table_exemption(doc.raw_text or "", limit)
+    content_body = slice_text(doc.raw_text or "", limit, strategy=settings.slicing_strategy)
     return "\n".join(head) + "\n\nCONTENT:\n" + content_body
 
 

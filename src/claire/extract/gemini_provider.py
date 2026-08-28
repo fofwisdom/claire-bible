@@ -257,8 +257,11 @@ class GeminiProvider:
         return result
 
     def embed(self, text: str) -> list[float]:
+        from ..config import get_settings
+
+        limit = get_settings().embed_char_budget
         resp = self._call(lambda: self.client.models.embed_content(
-            model=self.embed_model, contents=text[:8000] or " "))
+            model=self.embed_model, contents=text[:limit] or " "))
         return list(resp.embeddings[0].values)
 
     def summarize_search(self, query: str, context: str) -> str:
