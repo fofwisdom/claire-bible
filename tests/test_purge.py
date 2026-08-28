@@ -245,3 +245,80 @@ def test_audit_and_doctor_diagnostics(tmp_path, monkeypatch):
     assert diag["tombstone_violations_count"] == 0
 
     conn.close()
+
+
+def test_purge_cli_smart_targets(tmp_path, monkeypatch, capsys):
+    """CLI purge 명령에서 URL, 도메인, 공유링크, 키워드 자동 식별 및 경고/소각 검증."""
+    from claire.config import get_settings
+    get_settings.cache_clear()
+
+    db_file = tmp_path / "claire.db"
+    data_dir = tmp_path / "data"
+    vault_dir = tmp_path / "vault"
+    monkeypatch.setenv("CLAIRE_DB_PATH", str(db_file))
+    monkeypatch.setenv("CLAIRE_DATA_LIFECYCLE", "purgeable")
+    get_settings.cache_clear()
+
+    conn = dbm.connect(db_file)
+    dbm.init_db(conn)
+    prov = MockProvider()
+    vstore = make_vector_store(conn, "brute")
+
+    doc = Document(
+        url="https://news.example.com/tech/article-123?utm_source=twitter",
+        canonical_url="https://news.example.com/tech/article-123",
+        title="Spam Polluted Article",
+        raw_text="스팸 오염 문서 본문입니다. " * 5,
+        source_type="web",
+        content_hash="hash-spam-123",
+    )
+    rep = ingest(
+        payload="https://news.example.com/tech/article-123?utm_source=twitter",
+        conn=conn,
+        provider=prov,
+        vstore=vstore,
+        vault_dir=vault_dir,
+        data_dir=data_dir,
+        source="web",
+        fetch_fn=_fetch_doc(doc),
+    )
+    doc_id = rep.document_id
+
+    # 공유 토큰 발급
+    share_token = dbm.create_doc_share(conn, doc_id)
+    conn.close()
+
+    parser = build_parser()
+
+    # 1. 0건 검색 시 친절 안내 검증
+    args_notfound = parser.parse_args(["purge", "nonexistent_target_xyz"])
+    rc = cmd_purge(args_notfound)
+    assert rc == 0
+    cap = capsys.readouterr()
+    assert "일치하는 소각 대상 문서를 찾을 수 없습니다" in cap.err
+    assert "최근 수집된 문서 목록" in cap.err
+
+    # 2. 공유 URL로 Dry-Run 검증 (경고 문구 출력)
+    share_url = f"https://myclaire.local/p?s={share_token}"
+    args_share = parser.parse_args(["purge", share_url])
+    rc = cmd_purge(args_share)
+    assert rc == 0
+    cap = capsys.readouterr()
+    assert "[Dry-Run]" in cap.out
+    assert "공유 링크(?s=token)로 식별된 문서가 포함되어 있습니다" in cap.out
+    assert "Spam Polluted Article" in cap.out
+
+    # 3. 프로토콜 없는 도메인/경로로 --force 소각 검증
+    no_proto_target = "news.example.com/tech/article-123"
+    args_purge = parser.parse_args(["purge", no_proto_target, "--force"])
+    rc = cmd_purge(args_purge)
+    assert rc == 0
+    cap = capsys.readouterr()
+    assert "소각된 문서 수 (DB)" in cap.out
+    assert "등록된 툼스톤" in cap.out
+
+    # DB에 소각 및 툼스톤 확인
+    conn2 = dbm.connect(db_file)
+    assert dbm.get_document_row(conn2, doc_id) is None
+    assert dbm.is_tombstoned(conn2, canonical_url="https://news.example.com/tech/article-123") is True
+    conn2.close()
