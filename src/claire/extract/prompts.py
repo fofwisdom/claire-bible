@@ -134,16 +134,16 @@ def clean_plain_summary(text: str | None) -> str:
             continue
 
         # 8. 인라인 서식 제거
-        # 형광/하이라이트: #text# or ==text== -> text
-        line = re.sub(r"#([^#\n]+)#", r"\1", line)
-        line = re.sub(r"==([^=\n]+)==", r"\1", line)
-        # 굵게: **text** or *text* -> text
-        line = re.sub(r"\*\*([^*\n]+)\*\*", r"\1", line)
-        line = re.sub(r"\*([^*\n]+)\*", r"\1", line)
-        # 기울임: _text_ -> text
-        line = re.sub(r"_([^_\n]+)_", r"\1", line)
         # 인라인 코드: `text` -> text
         line = re.sub(r"`([^`\n]+)`", r"\1", line)
+        # 형광/하이라이트: #text# or ==text== -> text
+        line = re.sub(r"(?<!#)#(?![\s#])([^#\n]+?)(?<![\s#])#(?!#)", r"\1", line)
+        line = re.sub(r"(?<!=)==(?!=)([^=\n]+?)(?<!=)==(?!=)", r"\1", line)
+        # 굵게: **text** or *text* -> text
+        line = re.sub(r"(?<!\*)\*\*(?!\*)([^*\n]+?)(?<!\*)\*\*(?!\*)", r"\1", line)
+        line = re.sub(r"(?<!\*)\*(?![\s\*])([^*\n]+?)(?<![\s\*])\*(?!\*)", r"\1", line)
+        # 기울임: _text_ -> text
+        line = re.sub(r"(?<!_)_(?![\s_])([^_\n]+?)(?<![\s_])_(?!_)", r"\1", line)
         # 링크: link:https://url[text] -> text / https://url[text] -> text
         line = re.sub(r"link:https?://[^\s\[\]]+\[(.*?)\]", r"\1", line)
         line = re.sub(r"https?://[^\s\[\]]+\[(.*?)\]", r"\1", line)

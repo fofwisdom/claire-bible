@@ -1641,7 +1641,23 @@ function convertAsciidocToHtml(raw){
       const attrMatch=trimmed.match(/^:[a-zA-Z0-9_-]+:\\s*(.*)$/);
       if(attrMatch){ continue; }
 
-      out.push(renderMarkdown(line.replace(/#([^#]+?)#/g,'<mark>$1</mark>')));
+      if(pendingMeta){
+        if(pendingMeta.kind==='quote'){
+          var attrText=pendingMeta.author?esc(pendingMeta.author)+(pendingMeta.source?' — '+esc(pendingMeta.source):''):'';
+          out.push('<div class="quoteblock"><blockquote><p>'+renderMarkdown(trimmed.replace(/(?<!#)#(?![\\s#])([^#\\n]+?)(?<![\\s#])#(?!#)/g,'<mark>$1</mark>'))+'</p></blockquote>'+(attrText?'<div class="attribution">'+attrText+'</div>':'')+'</div>');
+          pendingMeta=null;
+          continue;
+        }else if(pendingMeta.kind==='admonition'){
+          var admType=(pendingMeta.type||'NOTE').toLowerCase();
+          var admTitle=esc(pendingMeta.type||'NOTE');
+          out.push('<div class="admonitionblock '+admType+'"><div class="title">'+admTitle+'</div><div class="content"><p>'+renderMarkdown(trimmed.replace(/(?<!#)#(?![\\s#])([^#\\n]+?)(?<![\\s#])#(?!#)/g,'<mark>$1</mark>'))+'</p></div></div>');
+          pendingMeta=null;
+          continue;
+        }
+        pendingMeta=null;
+      }
+
+      out.push(renderMarkdown(line.replace(/(?<!#)#(?![\\s#])([^#\\n]+?)(?<![\\s#])#(?!#)/g,'<mark>$1</mark>')));
     }else{
       if(inBlock==='quote'&&trimmed==='____') flushBlock();
       else if(inBlock==='admonition'&&trimmed==='====') flushBlock();
@@ -4268,7 +4284,23 @@ function convertAsciidocToHtml(raw){
       const attrMatch=trimmed.match(/^:[a-zA-Z0-9_-]+:\\s*(.*)$/);
       if(attrMatch){ continue; }
 
-      out.push(renderMarkdown(line.replace(/#([^#]+?)#/g,'<mark>$1</mark>')));
+      if(pendingMeta){
+        if(pendingMeta.kind==='quote'){
+          var attrText=pendingMeta.author?esc(pendingMeta.author)+(pendingMeta.source?' — '+esc(pendingMeta.source):''):'';
+          out.push('<div class="quoteblock"><blockquote><p>'+renderMarkdown(trimmed.replace(/(?<!#)#(?![\\s#])([^#\\n]+?)(?<![\\s#])#(?!#)/g,'<mark>$1</mark>'))+'</p></blockquote>'+(attrText?'<div class="attribution">'+attrText+'</div>':'')+'</div>');
+          pendingMeta=null;
+          continue;
+        }else if(pendingMeta.kind==='admonition'){
+          var admType=(pendingMeta.type||'NOTE').toLowerCase();
+          var admTitle=esc(pendingMeta.type||'NOTE');
+          out.push('<div class="admonitionblock '+admType+'"><div class="title">'+admTitle+'</div><div class="content"><p>'+renderMarkdown(trimmed.replace(/(?<!#)#(?![\\s#])([^#\\n]+?)(?<![\\s#])#(?!#)/g,'<mark>$1</mark>'))+'</p></div></div>');
+          pendingMeta=null;
+          continue;
+        }
+        pendingMeta=null;
+      }
+
+      out.push(renderMarkdown(line.replace(/(?<!#)#(?![\\s#])([^#\\n]+?)(?<![\\s#])#(?!#)/g,'<mark>$1</mark>')));
     }else{
       if(inBlock==='quote'&&trimmed==='____') flushBlock();
       else if(inBlock==='admonition'&&trimmed==='====') flushBlock();
