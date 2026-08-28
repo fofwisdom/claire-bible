@@ -199,7 +199,7 @@ class ProgressReporter:
         lines.append("     ./cb-manuscript app status")
         lines.append("     ./cb-manuscript app queue status")
         lines.append("  2. 미완료 문서 또는 특정 컴포넌트 재생성 재개:")
-        lines.append("     ./cb-manuscript app regenerate --tables --all --force")
+        lines.append("     ./cb-manuscript app regenerate --tables --all --apply")
         lines.append("=" * 64 + "\n")
 
         return "\n".join(lines)

@@ -308,9 +308,9 @@ def test_purge_cli_smart_targets(tmp_path, monkeypatch, capsys):
     assert "공유 링크(?s=token)로 식별된 문서가 포함되어 있습니다" in cap.out
     assert "Spam Polluted Article" in cap.out
 
-    # 3. 프로토콜 없는 도메인/경로로 --force 소각 검증
+    # 3. 프로토콜 없는 도메인/경로로 --apply -y 소각 검증
     no_proto_target = "news.example.com/tech/article-123"
-    args_purge = parser.parse_args(["purge", no_proto_target, "--force"])
+    args_purge = parser.parse_args(["purge", no_proto_target, "--apply", "-y"])
     rc = cmd_purge(args_purge)
     assert rc == 0
     cap = capsys.readouterr()

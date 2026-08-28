@@ -268,6 +268,7 @@ def test_cli_orientation_parsing(tmp_path: Path, monkeypatch):
         all=False,
         corrupted=False,
         refetch=False,
+        apply=True,
         force=True,
         effort=None,
         format="adoc",

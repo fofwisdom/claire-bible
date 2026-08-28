@@ -101,7 +101,7 @@ sequenceDiagram
     participant Disk as File System (data/raw, images, vault)
     participant Graph as Graph Doctor (heal_graph)
 
-    Admin->>Engine: claire purge --doc-id <ID> --force
+    Admin->>Engine: claire purge --doc-id <ID> --apply
     Engine->>Engine: 1. .env 수명주기 정책 검증 (is_purge_allowed)
     Engine->>DB: 2. purged_tombstones에 지문 등록 (URL, 해시)
     Engine->>DB: 3. DB 8개 테이블 연쇄 Hard Delete (documents, inbox, extractions, queues 등)

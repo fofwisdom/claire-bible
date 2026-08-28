@@ -89,7 +89,7 @@ def cmd_doctor(args) -> int:
     conn = dbm.connect(s.db_file)
     dbm.init_db(conn)
     try:
-        do_heal = getattr(args, "heal", False) or getattr(args, "apply", False) or getattr(args, "repair", False)
+        do_heal = getattr(args, "heal", False) or getattr(args, "apply", False)
         if do_heal:
             print("claire doctor: [Auto-Heal] 지식그래프 무결성 수복 시작...")
             healed = dbm.heal_graph(conn)
@@ -157,7 +157,7 @@ def cmd_doctor(args) -> int:
         else:
             print("[!] 그래프 무결성 문제가 발견되었습니다.")
             print("    자동 수복을 실행하려면 다음 명령을 실행하십시오:")
-            print("    claire doctor --heal")
+            print("    claire doctor --heal (또는 claire doctor --apply)")
             return 0
     finally:
         conn.close()
@@ -210,12 +210,12 @@ def cmd_purge(args) -> int:
             print("\n전체 문서를 검색하려면 `claire search <검색어>` 또는 `claire status`를 확인하십시오.", file=sys.stderr)
             return 0
 
-        force = getattr(args, "force", False) or getattr(args, "apply", False) or getattr(args, "yes", False)
+        apply = getattr(args, "apply", False)
         reason = getattr(args, "reason", "manual_purge") or "manual_purge"
 
         has_share_token = any(t.get("is_from_share_token") for t in matched_targets)
 
-        if not force:
+        if not apply:
             report = dbm.purge_document_cascade(
                 conn, data_dir=s.data_dir, vault_dir=s.vault_dir, target_ids=target_ids, reason=reason, dry_run=True
             )
@@ -245,9 +245,25 @@ def cmd_purge(args) -> int:
                 if d.get("canonical_url") and d.get("canonical_url") != d.get("url"):
                     print(f"      표준 URL: {d['canonical_url']}")
             print("=" * 60)
-            print("[안내] 실제 소각 및 DB 물리 압축(VACUUM)을 실행하려면 --force 옵션을 추가하십시오:")
-            print("  claire purge --force " + " ".join(f"'{did}'" for did in target_ids))
+            print("[안내] 실제 소각 및 DB 물리 압축(VACUUM)을 실행하려면 --apply 옵션을 추가하십시오:")
+            print("  claire purge --apply " + " ".join(f"'{did}'" for did in target_ids))
             return 0
+
+        confirmed = getattr(args, "yes", False)
+        if not confirmed:
+            if sys.stdin.isatty():
+                try:
+                    answer = input(f"\n정말 위 {len(target_ids)}건의 문서를 영구 소각하시겠습니까? [y/N]: ").strip().lower()
+                except (EOFError, KeyboardInterrupt):
+                    print("\n소각 작업이 취소되었습니다.")
+                    return 0
+                if answer not in ("y", "yes"):
+                    print("소각 작업이 취소되었습니다.")
+                    return 0
+            else:
+                print("\n비대화형 환경에서는 --yes (-y) 옵션을 명시하여 실행하십시오:")
+                print("  claire purge --apply --yes " + " ".join(f"'{did}'" for did in target_ids))
+                return 2
 
         # 실행
         print("claire purge: [소각 시작] 원자적 연쇄 소각 및 지식그래프 정화 중...")
@@ -810,12 +826,13 @@ def cmd_regenerate(args) -> int:
     corrupted = getattr(args, "corrupted", False)
     tables = getattr(args, "tables", False) or getattr(args, "has_tables", False)
     refetch = getattr(args, "refetch", False)
+    apply = getattr(args, "apply", False)
     force = getattr(args, "force", False)
     effort = getattr(args, "effort", None)
     fmt = getattr(args, "format", None)
     directive = getattr(args, "orientation", None) or getattr(args, "directive", None)
 
-    if not force:
+    if not apply:
         # Dry-run 진단
         res = svc.regenerate_components(
             target=target,
@@ -862,11 +879,11 @@ def cmd_regenerate(args) -> int:
             print(f"    현재 요약: {summ_preview}")
             print(f"    적용 예정 작업: {', '.join(t['actions'])}")
         print("=" * 60)
-        print("실제 재생성 및 DB 덮어쓰기를 실행하려면 --force 플래그를 추가하십시오:")
-        print("  claire regenerate [target] --all --force [--refetch] [--effort <level>]")
+        print("실제 재생성 및 DB 덮어쓰기를 실행하려면 --apply 플래그를 추가하십시오:")
+        print("  claire regenerate [target] --all --apply [--refetch] [--effort <level>]")
         return 0
 
-    # Force 실행: 사전 진단으로 대상 수 특정 후 실시간 진행률 추적
+    # Apply 실행: 사전 진단으로 대상 수 특정 후 실시간 진행률 추적
     diag = svc.regenerate_components(
         target=target,
         token=token,
@@ -1178,17 +1195,18 @@ def cmd_dedup_scan(args) -> int:
 
 
 def cmd_recanonicalize(args) -> int:
-    """기존 문서 canonical_url 을 현재 규칙으로 재계산(비파괴). arxiv 버전 정규화 등 반영.
+    """기존 문서 canonical_url 을 현재 규칙으로 재계산(기본: dry-run, --apply 로 적용).
 
-    기본 적용, --dry-run 으로 변경 예정만 본다. 같은 자료의 변형이 같은 canonical 로
+    --apply 로 실제 DB에 반영. 같은 자료의 변형이 같은 canonical 로
     수렴 → 이후 dedup-merge 가 깨끗한 URL 을 keeper 로 남긴다.
     """
     from .ingest.service import IngestService
 
     s = get_settings()
     svc = IngestService(s)
-    out = svc.recanonicalize_documents(apply=not args.dry_run)
-    mode = "변경 예정(dry-run)" if args.dry_run else "재계산 적용"
+    apply = getattr(args, "apply", False) and not getattr(args, "dry_run", False)
+    out = svc.recanonicalize_documents(apply=apply)
+    mode = "재계산 적용" if apply else "변경 예정(dry-run, --apply 로 실행)"
     print(f"{mode}: 문서 {out['docs']} · 변경 {out['changed']}")
     for sm in out["samples"]:
         print(f"    {sm['id']}  {sm['from']}  →  {sm['to']}")
@@ -1204,7 +1222,25 @@ def cmd_dedup_merge(args) -> int:
 
     s = get_settings()
     svc = IngestService(s)
-    out = svc.dedup_merge(threshold=args.threshold, min_len=args.min_len, apply=args.apply)
+    apply = getattr(args, "apply", False)
+    confirmed = getattr(args, "yes", False)
+
+    if apply and not confirmed:
+        if sys.stdin.isatty():
+            try:
+                answer = input("\n중복 문서를 영구 병합 및 삭제하시겠습니까? [y/N]: ").strip().lower()
+            except (EOFError, KeyboardInterrupt):
+                print("\n병합 작업이 취소되었습니다.")
+                return 0
+            if answer not in ("y", "yes"):
+                print("병합 작업이 취소되었습니다.")
+                return 0
+        else:
+            print("\n비대화형 환경에서는 --yes (-y) 옵션을 명시하여 실행하십시오:")
+            print("  claire dedup-merge --apply --yes")
+            return 2
+
+    out = svc.dedup_merge(threshold=args.threshold, min_len=args.min_len, apply=apply)
     mode = "병합 실행" if out["applied"] else "계획(dry-run, --apply 로 실행)"
     print(f"{mode}: 클러스터 {out['merged']}개")
     for i, c in enumerate(out["clusters"], 1):
@@ -1309,10 +1345,15 @@ def build_parser() -> argparse.ArgumentParser:
     doc_p.add_argument(
         "--heal",
         "--apply",
-        "--repair",
         action="store_true",
         dest="heal",
         help="Auto-repair detected graph integrity issues (dangling relations, orphan entities, FTS sync)",
+    )
+    doc_p.add_argument(
+        "--yes",
+        "-y",
+        action="store_true",
+        help="confirm without interactive prompt",
     )
     doc_p.add_argument(
         "--json",
@@ -1413,7 +1454,7 @@ def build_parser() -> argparse.ArgumentParser:
     pbd = sub.add_parser("backfill-detail",
                          help="fill Korean readable 'detail' for docs missing it or containing tables (non-destructive)")
     pbd.add_argument("--limit", type=int, default=0, help="cap number of docs (0=all)")
-    pbd.add_argument("--force", action="store_true", help="regenerate even if detail exists")
+    pbd.add_argument("--force", "-f", action="store_true", help="regenerate even if detail exists")
     pbd.add_argument("--tables", "--has-tables", action="store_true", dest="tables",
                      help="only backfill/regenerate documents that contain tables")
     pbd.add_argument("--format", choices=["md", "adoc"], default=None,
@@ -1428,7 +1469,7 @@ def build_parser() -> argparse.ArgumentParser:
     pbs.set_defaults(func=cmd_backfill_summary)
 
     preg = sub.add_parser("regenerate",
-                          help="selectively regenerate document summary/detail (default: dry-run, requires --force)")
+                          help="selectively regenerate document summary/detail (default: dry-run, requires --apply)")
     preg.add_argument("target", nargs="?", default=None,
                       help="document ID, share token, or share URL (/p?s=token)")
     preg.add_argument("--token", default=None, help="specific share token")
@@ -1443,7 +1484,9 @@ def build_parser() -> argparse.ArgumentParser:
                       help="automatically scan and target all docs containing markdown/adoc/html tables")
     preg.add_argument("--refetch", action="store_true",
                       help="re-fetch document content from URL before regenerating summary/detail")
-    preg.add_argument("--force", action="store_true", help="execute LLM regeneration and overwrite DB (required to apply)")
+    preg.add_argument("--apply", action="store_true", help="execute LLM regeneration and overwrite DB (default: dry-run)")
+    preg.add_argument("--force", "-f", action="store_true", help="force overwrite even if target components are already up-to-date")
+    preg.add_argument("--dry-run", action="store_true", help="dry-run inspection without changes (default)")
     preg.add_argument("--effort", default=None, help="reasoning effort level (e.g. low, medium, high)")
     preg.add_argument("--format", choices=["md", "adoc"], default=None, help="detail format (md or adoc)")
     preg.add_argument("--orientation", "--directive", default=None, help="content perspective or directive for detail rendering")
@@ -1460,7 +1503,9 @@ def build_parser() -> argparse.ArgumentParser:
     psum.add_argument("--tables", "--has-tables", action="store_true", dest="tables",
                       help="automatically scan and target all docs containing tables")
     psum.add_argument("--refetch", action="store_true", help="re-fetch document content from URL before regenerating")
-    psum.add_argument("--force", action="store_true", help="execute LLM regeneration and overwrite DB")
+    psum.add_argument("--apply", action="store_true", help="execute LLM regeneration and overwrite DB (default: dry-run)")
+    psum.add_argument("--force", "-f", action="store_true", help="force overwrite even if summary is already up-to-date")
+    psum.add_argument("--dry-run", action="store_true", help="dry-run inspection without changes (default)")
     psum.add_argument("--effort", default=None, help="reasoning effort level (low, medium, high)")
     psum.add_argument("--json", action="store_true", help="output in JSON format")
     psum.set_defaults(func=lambda args: setattr(args, "summary", True) or cmd_regenerate(args))
@@ -1517,20 +1562,23 @@ def build_parser() -> argparse.ArgumentParser:
     pds.set_defaults(func=cmd_dedup_scan)
 
     prc2 = sub.add_parser("recanonicalize",
-                          help="recompute canonical_url with current rules (e.g. arxiv versions)")
-    prc2.add_argument("--dry-run", action="store_true", help="변경 예정만 출력")
+                          help="recompute canonical_url with current rules (default: dry-run, requires --apply)")
+    prc2.add_argument("--apply", action="store_true", help="apply canonical_url recalculation (default: dry-run only)")
+    prc2.add_argument("--dry-run", action="store_true", help="dry-run inspection without changes (default)")
     prc2.set_defaults(func=cmd_recanonicalize)
 
     pdm = sub.add_parser("dedup-merge",
                          help="merge near-duplicate clusters into one doc each (dry-run unless --apply)")
     pdm.add_argument("--threshold", type=float, default=0.90)
     pdm.add_argument("--min-len", type=int, default=500, dest="min_len")
-    pdm.add_argument("--apply", action="store_true", help="실제 병합(파괴적). 미지정 시 계획만.")
+    pdm.add_argument("--apply", action="store_true", help="apply actual merge and deletion (destructive, default: dry-run)")
+    pdm.add_argument("--dry-run", action="store_true", help="dry-run inspection without changes (default)")
+    pdm.add_argument("--yes", "-y", action="store_true", help="confirm without interactive prompt")
     pdm.set_defaults(func=cmd_dedup_merge)
 
     ppg = sub.add_parser(
         "purge",
-        help="atomically purge legacy/corrupted documents with tombstones, disk unlink, graph heal & vacuum",
+        help="atomically purge legacy/corrupted documents with tombstones, disk unlink, graph heal & vacuum (default: dry-run, requires --apply)",
     )
     ppg.add_argument("target", nargs="?", default=None, help="target document ID, URL, share URL (/p?s=...), or search keyword to purge")
     ppg.add_argument("--doc-id", default=None, help="specific document ID to purge")
@@ -1539,9 +1587,9 @@ def build_parser() -> argparse.ArgumentParser:
     ppg.add_argument("--canonical-url", default=None, help="specific canonical URL to purge")
     ppg.add_argument("--pattern", default=None, help="search pattern across document id/url/title/text")
     ppg.add_argument("--reason", default="manual_purge", help="reason recorded in tombstone registry")
-    ppg.add_argument("--force", action="store_true", help="execute actual purge and disk compaction")
-    ppg.add_argument("--apply", action="store_true", help="alias for --force")
-    ppg.add_argument("-y", "--yes", action="store_true", help="alias for --force")
+    ppg.add_argument("--apply", action="store_true", help="apply actual purge, tombstone creation, and disk compaction (default: dry-run only)")
+    ppg.add_argument("--dry-run", action="store_true", help="dry-run inspection without changes (default)")
+    ppg.add_argument("--yes", "-y", action="store_true", help="confirm without interactive prompt")
     ppg.add_argument("--json", action="store_true", help="output result in JSON format")
     ppg.set_defaults(func=cmd_purge)
 
