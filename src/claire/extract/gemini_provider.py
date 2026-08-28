@@ -159,17 +159,19 @@ class GeminiProvider:
         self.min_interval = settings.gemini_min_interval
         self.max_retries = settings.gemini_max_retries
 
-    def _build_generation_config(self, extra: dict | None = None) -> dict:
+    def _build_generation_config(
+        self, extra: dict | None = None, effort: str | None = None
+    ) -> dict:
         """기본 generation_config 생성 (사고 레벨/thinking_config 포함)."""
         cfg: dict = {"temperature": 0.2}
         if extra:
             cfg.update(extra)
-        effort = str(getattr(self, "effort", "") or "").strip().lower()
-        if effort in ("low", "medium", "high", "minimal"):
-            cfg["thinking_config"] = {"thinking_level": effort.upper()}
-        elif effort.isdigit() or (effort.startswith("-") and effort[1:].isdigit()):
-            cfg["thinking_config"] = {"thinking_budget": int(effort)}
-        elif effort in ("none", "off", "0"):
+        eff = str(effort or getattr(self, "effort", "") or "").strip().lower()
+        if eff in ("low", "medium", "high", "minimal"):
+            cfg["thinking_config"] = {"thinking_level": eff.upper()}
+        elif eff.isdigit() or (eff.startswith("-") and eff[1:].isdigit()):
+            cfg["thinking_config"] = {"thinking_budget": int(eff)}
+        elif eff in ("none", "off", "0"):
             cfg["thinking_config"] = {"thinking_budget": 0}
         return cfg
 
@@ -209,7 +211,13 @@ class GeminiProvider:
             raise last
         raise RuntimeError("unreachable")
 
-    def extract(self, doc: Document, ontology_block: str | None = None) -> ExtractionResult:
+    def extract(
+        self,
+        doc: Document,
+        ontology_block: str | None = None,
+        *,
+        effort: str | None = None,
+    ) -> ExtractionResult:
         block = ontology_block or ontology_prompt_block()
         sys = extract_system_prompt(block)
         body = _doc_to_prompt(doc)
@@ -225,7 +233,7 @@ class GeminiProvider:
                 input=body,
                 system_instruction=sys,
                 response_format=response_format,
-                generation_config=self._build_generation_config(),
+                generation_config=self._build_generation_config(effort=effort),
                 store=False,
             ))
             raw_text = _extract_output_text(interaction)
@@ -239,14 +247,16 @@ class GeminiProvider:
             # 남기고 나중에 replay-failed 로 재적재. 그 외(schema 거부 등)는 폴백.
             if _is_retryable(e):
                 raise
-            return self._extract_json_fallback(sys, body)
+            return self._extract_json_fallback(sys, body, effort=effort)
 
-    def _extract_json_fallback(self, sys: str, body: str) -> ExtractionResult:
+    def _extract_json_fallback(
+        self, sys: str, body: str, *, effort: str | None = None
+    ) -> ExtractionResult:
         prompt = extract_fallback_prompt(sys, body)
         interaction = self._call(lambda: self.client.interactions.create(
             model=self.model,
             input=prompt,
-            generation_config=self._build_generation_config(),
+            generation_config=self._build_generation_config(effort=effort),
             store=False,
         ))
         raw_text = _extract_output_text(interaction)
@@ -275,7 +285,12 @@ class GeminiProvider:
         return _extract_output_text(interaction).strip()
 
     def render_detail(
-        self, doc: Document, format: str = "md", directive: str | None = None
+        self,
+        doc: Document,
+        format: str = "md",
+        directive: str | None = None,
+        *,
+        effort: str | None = None,
     ) -> str:
         """원문을 한국어 가독 렌더링(MD 또는 ADOC)으로 '편하게 읽을 수 있는 글'로 재구성(요약 아님).
 
@@ -293,14 +308,14 @@ class GeminiProvider:
         merged = bool((doc.meta or {}).get("extra_sources"))
         dir_val = directive or (doc.meta or {}).get("directive")
         text = self._render_detail_call(
-            body, images, merged=merged, scale=1, format=format, directive=dir_val
+            body, images, merged=merged, scale=1, format=format, directive=dir_val, effort=effort
         )
         if merged:
             for scale in (2, 4):
                 if len(text) >= _MERGED_DETAIL_MIN_CHARS:
                     break
                 text = self._render_detail_call(
-                    body, images, merged=merged, scale=scale, format=format, directive=dir_val
+                    body, images, merged=merged, scale=scale, format=format, directive=dir_val, effort=effort
                 )
         return text
 
@@ -313,6 +328,7 @@ class GeminiProvider:
         scale: int,
         format: str = "md",
         directive: str | None = None,
+        effort: str | None = None,
     ) -> str:
         prompt = render_detail_prompt(
             body, images, merged=merged, scale=scale, format=format, directive=directive
@@ -320,9 +336,35 @@ class GeminiProvider:
         interaction = self._call(lambda: self.client.interactions.create(
             model=self.model,
             input=prompt,
+            generation_config=self._build_generation_config(effort=effort),
             store=False,
         ))
         return _extract_output_text(interaction).strip()
+
+    def classify_paper(
+        self, doc: Document, *, effort: str | None = None
+    ) -> tuple[bool, str]:
+        """학술 논문(Research/Working Paper 등) 여부 판정 (경량 호출)."""
+        from .prompts import classify_paper_prompt
+
+        prompt = classify_paper_prompt(doc.title or "", doc.raw_text or "")
+        eff = effort or getattr(self.settings, "pdf_classifier_effort", "low")
+        try:
+            interaction = self._call(lambda: self.client.interactions.create(
+                model=self.model,
+                input=prompt,
+                response_format={
+                    "type": "text",
+                    "mime_type": "application/json",
+                },
+                generation_config=self._build_generation_config(effort=eff),
+                store=False,
+            ))
+            raw_text = _extract_output_text(interaction)
+            parsed = json.loads(raw_text)
+            return bool(parsed.get("is_paper", False)), str(parsed.get("reason", ""))
+        except Exception as e:  # noqa: BLE001
+            return False, f"classify_paper failed: {e}"
 
     def classify_watch(self, doc: Document) -> dict:
         """[주기 크롤링] 문서가 '주기적으로 내용이 바뀌는 콘텐츠'인지 판단(별도 경량 호출).

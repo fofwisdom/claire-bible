@@ -169,6 +169,14 @@ class Settings(BaseSettings):
     raw_char_budget: int = Field(default=20000, alias="CLAIRE_RAW_CHAR_BUDGET")
     # PDF 스트림에서 추출할 최대 텍스트 분량
     pdf_max_extract_chars: int = Field(default=50000, alias="CLAIRE_PDF_MAX_EXTRACT_CHARS")
+    # PDF 논문 판단 시 high effort 적용 기준 글자 수
+    pdf_paper_threshold_chars: int = Field(default=15000, alias="CLAIRE_PDF_PAPER_THRESHOLD_CHARS")
+    # 15,000자 이상 논문 PDF 적재 시 사고/추론 레벨
+    pdf_paper_effort: str = Field(default="high", alias="CLAIRE_PDF_PAPER_EFFORT")
+    # 15,000자 미만 또는 비논문 PDF 적재 시 기본 레벨 (빈 문자열이면 프로바이더 기본 env 사용)
+    pdf_default_effort: str = Field(default="", alias="CLAIRE_PDF_DEFAULT_EFFORT")
+    # 무료 어댑터 우선 1차 논문 판정 시 사용할 최저 effort
+    pdf_classifier_effort: str = Field(default="low", alias="CLAIRE_PDF_CLASSIFIER_EFFORT")
     # 단일 문서 KG 추출 LLM 프롬프트 투입 본문 상한
     extract_char_budget: int = Field(default=20000, alias="CLAIRE_EXTRACT_CHAR_BUDGET")
     # 병합 문서 KG 추출 투입 본문 상한 (0 지정 시 extract_char_budget * 2 자동 계산)

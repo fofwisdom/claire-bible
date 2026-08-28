@@ -246,6 +246,8 @@ Telegram bot을 활성화할 때 `TELEGRAM_BOT_TOKEN`과 `CLAIRE_ALLOWED_USERS`�
 `CLAIRE_ANONYMOUS_READONLY=1`(기본값)은 숨김 문서를 제외한 공개 지식베이스의 읽기 API를
 자격증명 없이 공개한다. 완전히 인증 전용(비공개)으로 운영하려면 `0`으로 변경한다.
 
+PDF 논문 및 심층 문서 적재 시 원문 추출 상한(`CLAIRE_PDF_MAX_EXTRACT_CHARS=50000`)과 1차 논문 분류 최저 effort(`CLAIRE_PDF_CLASSIFIER_EFFORT=low`), 15,000자 이상 논문에 대한 고수준 추론(`CLAIRE_PDF_PAPER_EFFORT=high`)이 자동으로 적용된다. (.env 내 여러 프로바이더 선언 시 최저 effort 프로바이더를 1차 분류기로 자동 선택) 상세 내용은 [PDF_INGESTION_AND_ADAPTIVE_EFFORT_DESIGN.md](docs/origin/design/PDF_INGESTION_AND_ADAPTIVE_EFFORT_DESIGN.md)를 참조한다.
+
 #### 4. 사전 검사, 설치, 설치 후 확인
 
 `preflight`와 `install`은 별도 명령이다. 선택한 profile에서 다음 순서로 실행한다.
