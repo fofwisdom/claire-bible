@@ -8,8 +8,9 @@ from typing import BinaryIO
 
 import pypdf
 
+from ...config import get_settings
+
 _URL_RE = re.compile(r"https?://[^\s)\]\}<>\"']+")
-_MAX_EXTRACT_CHARS = 50000
 
 
 def extract_pdf_stream(
@@ -70,7 +71,8 @@ def extract_pdf_stream(
             except Exception:
                 pass
 
-            if total_len >= _MAX_EXTRACT_CHARS:
+            max_chars = get_settings().pdf_max_extract_chars
+            if total_len >= max_chars:
                 break
 
         full_text = "\n\n".join(pages_text).replace("\x00", "")

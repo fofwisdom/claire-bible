@@ -150,6 +150,40 @@ def slice_text_with_table_exemption(text: str, limit: int) -> str:
     return sliced_text
 
 
+def slice_document_text(
+    text: str,
+    limit: int,
+    strategy: str = "table-exemption",
+) -> tuple[str, bool, int, int]:
+    """지정된 슬라이싱 전략에 따라 텍스트를 슬라이싱하고 절단 정보를 반환.
+
+    반환: (sliced_text, is_truncated, orig_chars, sliced_chars)
+    - 'table-exemption': 테이블 내용을 본문 글자 수 계산에서 면제하여 온전히 보존.
+    - 'strict': 테이블 여부와 무관하게 정확히 `limit` 글자 수로 단순 절단.
+    """
+    if not text:
+        return "", False, 0, 0
+    orig_chars = len(text)
+    if limit <= 0:
+        return text, False, orig_chars, orig_chars
+
+    if strategy == "strict":
+        sliced = text[:limit]
+        return sliced, len(text) > limit, orig_chars, len(sliced)
+
+    return slice_text_with_table_exemption_info(text, limit)
+
+
+def slice_text(
+    text: str,
+    limit: int,
+    strategy: str = "table-exemption",
+) -> str:
+    """지정된 슬라이싱 전략에 따라 텍스트를 슬라이싱한 결과 문자열 반환."""
+    sliced_text, _, _, _ = slice_document_text(text, limit, strategy=strategy)
+    return sliced_text
+
+
 def has_tables(text: str | None) -> bool:
     """텍스트에 마크다운, AsciiDoc 또는 HTML 표가 1개 이상 포함되어 있는지 여부 반환."""
     if not text:

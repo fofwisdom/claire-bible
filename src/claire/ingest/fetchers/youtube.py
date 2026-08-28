@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import re
 
+from ...config import get_settings
+from ...extract.table_budget import slice_document_text
 from ...ontology.base import Document
 from ..normalize import content_hash
 from .base import FetchError
@@ -76,7 +78,10 @@ def fetch_youtube(url: str) -> Document:
 
     title = fetch_video_title(vid) or f"YouTube {vid}"
 
-    raw_text = text[:20000]
+    settings = get_settings()
+    raw_text, is_truncated, orig_chars, raw_chars = slice_document_text(
+        text or "", settings.raw_char_budget, strategy=settings.slicing_strategy
+    )
     return Document(
         url=url,
         canonical_url=f"https://youtube.com/watch?v={vid}",
@@ -86,8 +91,8 @@ def fetch_youtube(url: str) -> Document:
         content_hash=content_hash(text),
         meta={
             "video_id": vid,
-            "raw_truncated": len(text) > 20000,
-            "orig_chars": len(text),
-            "raw_chars": len(raw_text),
+            "raw_truncated": is_truncated,
+            "orig_chars": orig_chars,
+            "raw_chars": raw_chars,
         },
     )

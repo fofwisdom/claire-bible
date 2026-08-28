@@ -164,6 +164,24 @@ class Settings(BaseSettings):
     # 주기 크롤링: watch 문서의 기본 재확인 주기(일). 문서별 watch_interval 이 있으면 그게 우선.
     watch_interval_days: float = Field(default=1.0, alias="CLAIRE_WATCH_INTERVAL_DAYS")
 
+    # --- text slicing & char budgets ---
+    # 원문 수집 시 기본 보관 본문 상한 (web, text, xcom, youtube)
+    raw_char_budget: int = Field(default=20000, alias="CLAIRE_RAW_CHAR_BUDGET")
+    # PDF 스트림에서 추출할 최대 텍스트 분량
+    pdf_max_extract_chars: int = Field(default=50000, alias="CLAIRE_PDF_MAX_EXTRACT_CHARS")
+    # 단일 문서 KG 추출 LLM 프롬프트 투입 본문 상한
+    extract_char_budget: int = Field(default=20000, alias="CLAIRE_EXTRACT_CHAR_BUDGET")
+    # 병합 문서 KG 추출 투입 본문 상한 (0 지정 시 extract_char_budget * 2 자동 계산)
+    merged_extract_char_budget: int = Field(default=0, alias="CLAIRE_MERGED_EXTRACT_CHAR_BUDGET")
+    # 슬라이싱 전략 (table-exemption: 표 보존형, strict: 단순 절단형)
+    slicing_strategy: str = Field(default="table-exemption", alias="CLAIRE_SLICING_STRATEGY")
+    # 임베딩 생성 시 본문 슬라이싱 상한
+    embed_char_budget: int = Field(default=8000, alias="CLAIRE_EMBED_CHAR_BUDGET")
+    # 1홉 자동확장 및 선별 시 컨텍스트 상한
+    expand_char_budget: int = Field(default=2000, alias="CLAIRE_EXPAND_CHAR_BUDGET")
+    # 리서치 보고서/맥락 상한
+    research_context_budget: int = Field(default=8000, alias="CLAIRE_RESEARCH_CONTEXT_BUDGET")
+
     # --- web service (DM 과 동일 ingest 통로 + graph UI) ---
     # 운영 명령의 canonical selector. cb-manuscript가 development에서는 .env.dev
     # overlay까지 해소한 뒤 모든 컨테이너에 같은 값을 전달한다.
@@ -246,6 +264,16 @@ class Settings(BaseSettings):
             return True
         raise ValueError("CLAIRE_ANONYMOUS_READONLY must be exactly 0 or 1")
 
+    @field_validator("slicing_strategy", mode="before")
+    @classmethod
+    def _parse_slicing_strategy(cls, value: object) -> str:
+        s = str(value or "table-exemption").strip().lower()
+        if s in ("table-exemption", "table_exemption", "table", "exemption"):
+            return "table-exemption"
+        if s in ("strict", "truncate", "cut"):
+            return "strict"
+        raise ValueError("CLAIRE_SLICING_STRATEGY must be 'table-exemption' or 'strict'")
+
     @field_validator("ga_measurement_id", mode="before")
     @classmethod
     def _parse_ga_measurement_id(cls, value: object) -> str:
@@ -259,6 +287,13 @@ class Settings(BaseSettings):
                 "CLAIRE_GA_MEASUREMENT_ID must contain only alphanumeric characters, dashes, and underscores"
             )
         return s
+
+    @property
+    def effective_merged_extract_char_budget(self) -> int:
+        """병합 문서 추출 예산 (0 이하이면 단일 문서 예산의 2배)."""
+        if self.merged_extract_char_budget > 0:
+            return self.merged_extract_char_budget
+        return self.extract_char_budget * 2
 
     @property
     def effective_ga_measurement_id(self) -> str:

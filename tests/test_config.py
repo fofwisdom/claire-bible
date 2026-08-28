@@ -134,3 +134,56 @@ def test_source_base_url_custom_explicit_override(monkeypatch):
 
     assert settings.effective_source_base_url == "https://gitlab.com/custom/source"
 
+
+def test_slicing_config_defaults(monkeypatch):
+    monkeypatch.delenv("CLAIRE_RAW_CHAR_BUDGET", raising=False)
+    monkeypatch.delenv("CLAIRE_PDF_MAX_EXTRACT_CHARS", raising=False)
+    monkeypatch.delenv("CLAIRE_EXTRACT_CHAR_BUDGET", raising=False)
+    monkeypatch.delenv("CLAIRE_MERGED_EXTRACT_CHAR_BUDGET", raising=False)
+    monkeypatch.delenv("CLAIRE_SLICING_STRATEGY", raising=False)
+    monkeypatch.delenv("CLAIRE_EMBED_CHAR_BUDGET", raising=False)
+    monkeypatch.delenv("CLAIRE_EXPAND_CHAR_BUDGET", raising=False)
+    monkeypatch.delenv("CLAIRE_RESEARCH_CONTEXT_BUDGET", raising=False)
+
+    settings = Settings(_env_file=None)
+
+    assert settings.raw_char_budget == 20000
+    assert settings.pdf_max_extract_chars == 50000
+    assert settings.extract_char_budget == 20000
+    assert settings.merged_extract_char_budget == 0
+    assert settings.effective_merged_extract_char_budget == 40000
+    assert settings.slicing_strategy == "table-exemption"
+    assert settings.embed_char_budget == 8000
+    assert settings.expand_char_budget == 2000
+    assert settings.research_context_budget == 8000
+
+
+def test_slicing_config_custom_env(monkeypatch):
+    monkeypatch.setenv("CLAIRE_RAW_CHAR_BUDGET", "15000")
+    monkeypatch.setenv("CLAIRE_PDF_MAX_EXTRACT_CHARS", "80000")
+    monkeypatch.setenv("CLAIRE_EXTRACT_CHAR_BUDGET", "10000")
+    monkeypatch.setenv("CLAIRE_MERGED_EXTRACT_CHAR_BUDGET", "25000")
+    monkeypatch.setenv("CLAIRE_SLICING_STRATEGY", "strict")
+    monkeypatch.setenv("CLAIRE_EMBED_CHAR_BUDGET", "4000")
+    monkeypatch.setenv("CLAIRE_EXPAND_CHAR_BUDGET", "1500")
+    monkeypatch.setenv("CLAIRE_RESEARCH_CONTEXT_BUDGET", "5000")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.raw_char_budget == 15000
+    assert settings.pdf_max_extract_chars == 80000
+    assert settings.extract_char_budget == 10000
+    assert settings.merged_extract_char_budget == 25000
+    assert settings.effective_merged_extract_char_budget == 25000
+    assert settings.slicing_strategy == "strict"
+    assert settings.embed_char_budget == 4000
+    assert settings.expand_char_budget == 1500
+    assert settings.research_context_budget == 5000
+
+
+def test_slicing_strategy_invalid(monkeypatch):
+    monkeypatch.setenv("CLAIRE_SLICING_STRATEGY", "invalid_strategy")
+
+    with pytest.raises(ValidationError, match="CLAIRE_SLICING_STRATEGY must be 'table-exemption' or 'strict'"):
+        Settings(_env_file=None)
+

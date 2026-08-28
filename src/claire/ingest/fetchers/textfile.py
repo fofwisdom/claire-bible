@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from ...config import get_settings
+from ...extract.table_budget import slice_document_text
 from ...ontology.base import Document
 from ..normalize import content_hash
 
@@ -46,7 +48,10 @@ def fetch_file(path: str) -> Document:
         from .base import FetchError
 
         raise FetchError(f"unsupported file type (M1): {suffix}")
-    raw_text = text[:20000]
+    settings = get_settings()
+    raw_text, is_truncated, orig_chars, raw_chars = slice_document_text(
+        text or "", settings.raw_char_budget, strategy=settings.slicing_strategy
+    )
     return Document(
         url=f"file://{p.resolve()}",
         title=title or p.stem,
@@ -54,9 +59,9 @@ def fetch_file(path: str) -> Document:
         source_type=source_type,
         content_hash=content_hash(title or "", text),
         meta={
-            "raw_truncated": len(text) > 20000,
-            "orig_chars": len(text),
-            "raw_chars": len(raw_text),
+            "raw_truncated": is_truncated,
+            "orig_chars": orig_chars,
+            "raw_chars": raw_chars,
         },
     )
 

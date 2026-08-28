@@ -223,7 +223,8 @@ class AntigravityProvider:
 
                 client = genai.Client(api_key=self.settings.gemini_api_key)
                 embed_model = getattr(self.settings, "gemini_embed_model", "gemini-embedding-001")
-                resp = client.models.embed_content(model=embed_model, contents=text[:8000] or " ")
+                limit = getattr(self.settings, "embed_char_budget", 8000)
+                resp = client.models.embed_content(model=embed_model, contents=text[:limit] or " ")
                 return list(resp.embeddings[0].values)
             except Exception as e:
                 logger.warning("Gemini embedding fallback to deterministic hash: %s", e)
