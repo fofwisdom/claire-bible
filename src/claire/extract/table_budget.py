@@ -98,21 +98,24 @@ def extract_tables_from_text(text: str) -> tuple[str, list[str]]:
     return "".join(prose_parts), tables
 
 
-def slice_text_with_table_exemption(text: str, limit: int) -> str:
-    """테이블 컨텐트를 본문 문자 수 제한에서 제외하고 슬라이싱.
+def slice_text_with_table_exemption_info(text: str, limit: int) -> tuple[str, bool, int, int]:
+    """테이블 컨텐트를 본문 문자 수 제한에서 제외하고 슬라이싱하며 절단 정보를 함께 반환.
 
+    반환: (sliced_text, is_truncated, orig_chars, sliced_chars)
     - 일반 본문(Prose)은 최대 `limit` 글자 수까지만 포함된다.
     - 테이블(Table)은 글자 수 카운트에 포함되지 않으며 100% 온전하게 보존된다.
     - 원문에서의 본문과 테이블 간의 배치 순서를 유지하여 결합한다.
     """
     if not text:
-        return ""
+        return "", False, 0, 0
+    orig_chars = len(text)
     if limit <= 0:
-        return text
+        return text, False, orig_chars, orig_chars
 
     segments = split_text_segments(text)
     out_parts: list[str] = []
     remaining_budget = limit
+    is_truncated = False
 
     for seg in segments:
         if seg.is_table:
@@ -126,9 +129,25 @@ def slice_text_with_table_exemption(text: str, limit: int) -> str:
                 else:
                     out_parts.append(seg.content[:remaining_budget])
                     remaining_budget = 0
+                    is_truncated = True
+            else:
+                if seg.content:
+                    is_truncated = True
             # 예산이 소진된 이후의 일반 본문은 생략됨 (단, 뒤에 나오는 테이블은 계속 보존)
 
-    return "".join(out_parts)
+    sliced_text = "".join(out_parts)
+    return sliced_text, is_truncated, orig_chars, len(sliced_text)
+
+
+def slice_text_with_table_exemption(text: str, limit: int) -> str:
+    """테이블 컨텐트를 본문 문자 수 제한에서 제외하고 슬라이싱.
+
+    - 일반 본문(Prose)은 최대 `limit` 글자 수까지만 포함된다.
+    - 테이블(Table)은 글자 수 카운트에 포함되지 않으며 100% 온전하게 보존된다.
+    - 원문에서의 본문과 테이블 간의 배치 순서를 유지하여 결합한다.
+    """
+    sliced_text, _, _, _ = slice_text_with_table_exemption_info(text, limit)
+    return sliced_text
 
 
 def has_tables(text: str | None) -> bool:

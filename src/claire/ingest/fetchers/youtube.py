@@ -76,12 +76,18 @@ def fetch_youtube(url: str) -> Document:
 
     title = fetch_video_title(vid) or f"YouTube {vid}"
 
+    raw_text = text[:20000]
     return Document(
         url=url,
         canonical_url=f"https://youtube.com/watch?v={vid}",
         title=title,
-        raw_text=text[:20000],
+        raw_text=raw_text,
         source_type="youtube",
         content_hash=content_hash(text),
-        meta={"video_id": vid},
+        meta={
+            "video_id": vid,
+            "raw_truncated": len(text) > 20000,
+            "orig_chars": len(text),
+            "raw_chars": len(raw_text),
+        },
     )

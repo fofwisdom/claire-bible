@@ -217,13 +217,14 @@ def _build_document(url: str, tweet: dict, *, via: str | None = None) -> Documen
     lang = tweet.get("lang")
 
     canonical_src = tweet.get("url") or url
+    raw_text = text[:20000]
     return Document(
         url=url,
         canonical_url=canonicalize_url(canonical_src),
         title=title,
         author=who or None,
         published_at=published,
-        raw_text=text[:20000],
+        raw_text=raw_text,
         source_type="xcom",
         content_hash=content_hash(title or "", text),
         lang=lang,
@@ -237,6 +238,9 @@ def _build_document(url: str, tweet: dict, *, via: str | None = None) -> Documen
             },
             "fetch_via": via or "fxtwitter",
             "is_article": bool(article_title),
+            "raw_truncated": len(text) > 20000,
+            "orig_chars": len(text),
+            "raw_chars": len(raw_text),
         },
     )
 
