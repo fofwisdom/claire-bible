@@ -1060,6 +1060,166 @@ def cmd_format_migrate(args) -> int:
     return 0
 
 
+def cmd_truncation_status(args) -> int:
+    """원문 절단(슬라이싱) 현황 및 메타데이터 누락 상태 점검/출력."""
+    import json
+    import sys
+    from .store import db as dbm
+
+    s = get_settings()
+    conn = dbm.connect(s.db_file)
+    dbm.init_db(conn)
+    try:
+        raw_target = getattr(args, "target", None) or getattr(args, "doc_id", None)
+        target_doc_id = None
+        if raw_target:
+            try:
+                doc_info = dbm.resolve_single_document_target(conn, raw_target)
+                if not doc_info:
+                    print(f"문서 없음: {raw_target}", file=sys.stderr)
+                    return 1
+                target_doc_id = doc_info["id"]
+            except ValueError as e:
+                print(f"[!] {e}", file=sys.stderr)
+                return 1
+
+        res = dbm.scan_truncation_status(conn, doc_id=target_doc_id)
+    finally:
+        conn.close()
+
+    if getattr(args, "json", False):
+        print(json.dumps(res, ensure_ascii=False, indent=2))
+        return 0
+
+    print("claire: [원문 절단(슬라이싱) 및 메타데이터 현황]")
+    print("=" * 65)
+    print(f"• 전체 검사 문서 수             : {res['total_documents']} 건")
+    print(f"  - 원문 보존 온전 문서         : {res['intact_count']} 건")
+    print(f"  - 기기록된 절단 문서          : {res['recorded_truncated_count']} 건 (raw_truncated=True)")
+    print(f"  - 메타데이터 누락 절단 문서   : {res['unmarked_truncated_count']} 건 (소급 대상)")
+    print("=" * 65)
+
+    if res["unmarked_truncated_count"] > 0:
+        print("\n[!] 메타데이터가 누락된 절단 의심 문서 목록:")
+        for item in res["unmarked_items"]:
+            reasons_str = ", ".join(item["reasons"])
+            print(f"  • [{item['id']}] '{item['title']}' ({item['source_type']})")
+            print(f"    - 길이: 적재 {item['raw_len']}자 (산문 {item['prose_len']}자, 표 {item['table_count']}개)")
+            print(f"    - 판정 사유: {reasons_str}")
+        print("\n[안내] 위 문서들에 메타데이터를 소급 적용하려면 다음 명령을 실행하십시오:")
+        print("  claire truncation-backfill --apply")
+    else:
+        print("\n[✓] 메타데이터가 누락된 절단 문서가 없습니다. 모든 상태가 온전합니다.")
+
+    return 0
+
+
+def cmd_truncation_backfill(args) -> int:
+    """메타데이터가 누락된 절단 문서에 raw_truncated를 소급 갱신."""
+    import json
+    import sys
+    from .store import db as dbm
+
+    s = get_settings()
+    conn = dbm.connect(s.db_file)
+    dbm.init_db(conn)
+    try:
+        raw_target = getattr(args, "target", None) or getattr(args, "doc_id", None)
+        target_doc_id = None
+        if raw_target:
+            try:
+                doc_info = dbm.resolve_single_document_target(conn, raw_target)
+                if not doc_info:
+                    print(f"문서 없음: {raw_target}", file=sys.stderr)
+                    return 1
+                target_doc_id = doc_info["id"]
+            except ValueError as e:
+                print(f"[!] {e}", file=sys.stderr)
+                return 1
+
+        force = getattr(args, "force", False)
+        mark_refresh = getattr(args, "mark_refresh", False)
+        scan = dbm.scan_truncation_status(conn, doc_id=target_doc_id)
+    finally:
+        conn.close()
+
+    target_count = len(scan["unmarked_items"]) if not force else scan["total_documents"]
+    is_json = getattr(args, "json", False)
+
+    if is_json and not getattr(args, "apply", False):
+        print(json.dumps({"dry_run": True, "target_count": target_count, "items": scan["unmarked_items"]}, ensure_ascii=False, indent=2))
+        return 0
+
+    if not is_json:
+        print("claire: [원문 절단 메타데이터 소급 갱신(Backfill)]")
+        print("=" * 65)
+        print(f"• 전체 문서 수               : {scan['total_documents']} 건")
+        print(f"• 소급 적용 대상 문서 수     : {target_count} 건")
+        print(f"• 옵션                       : force={force}, mark_refresh={mark_refresh}")
+        print("=" * 65)
+
+    if target_count == 0:
+        if is_json:
+            print(json.dumps({"scanned_total": scan["total_documents"], "updated_count": 0, "refreshed_count": 0, "items": []}, ensure_ascii=False, indent=2))
+        else:
+            print("\n[✓] 소급 적용이 필요한 문서가 없습니다.")
+        return 0
+
+    apply = getattr(args, "apply", False)
+    dry_run = getattr(args, "dry_run", False)
+
+    if not apply or dry_run:
+        print(f"\n[안내] 기본 Dry-Run 모드로 실행되어 {target_count}건의 대상만 확인했습니다.")
+        for it in scan["unmarked_items"][:10]:
+            print(f"  - [{it['id']}] '{it['title']}' ({it['source_type']}, {it['raw_len']}자)")
+        if target_count > 10:
+            print(f"  ... 외 {target_count - 10}건")
+        print("\n실제 메타데이터를 소급 적용하려면 --apply 옵션을 사용하십시오:")
+        cmd_hint = "claire truncation-backfill --apply"
+        if mark_refresh:
+            cmd_hint += " --mark-refresh"
+        if force:
+            cmd_hint += " --force"
+        if raw_target:
+            cmd_hint += f" --target {raw_target}"
+        print(f"  {cmd_hint}")
+        return 0
+
+    confirmed = getattr(args, "yes", False)
+    if not confirmed:
+        if sys.stdin.isatty():
+            try:
+                answer = input(f"\n위 {target_count}건의 문서에 메타데이터를 소급 적용하시겠습니까? [y/N]: ").strip().lower()
+            except (EOFError, KeyboardInterrupt):
+                print("\n소급 작업이 취소되었습니다.")
+                return 0
+            if answer not in ("y", "yes"):
+                print("소급 작업이 취소되었습니다.")
+                return 0
+        else:
+            print("\n비대화형 환경에서는 --yes (-y) 옵션을 명시하여 실행하십시오:")
+            print(f"  claire truncation-backfill --apply --yes")
+            return 2
+
+    conn2 = dbm.connect(s.db_file)
+    dbm.init_db(conn2)
+    try:
+        res = dbm.backfill_truncation_metadata(
+            conn2, doc_id=target_doc_id, force=force, mark_refresh=mark_refresh
+        )
+    finally:
+        conn2.close()
+
+    if getattr(args, "json", False):
+        print(json.dumps(res, ensure_ascii=False, indent=2))
+        return 0
+
+    print(f"\n[✓] 소급 갱신 완료: 총 {res['updated_count']}건 메타데이터 업데이트 완료" +
+          (f" (재수집 큐 등록 {res['refreshed_count']}건)" if mark_refresh else ""))
+    return 0
+
+
+
 def cmd_recompile_html(args) -> int:
     """모든 문서의 detail_html을 현재 AOT 사전 렌더러로 재컴파일(LLM 호출 없음)."""
     s = get_settings()
@@ -1611,6 +1771,31 @@ def build_parser() -> argparse.ArgumentParser:
     pq.add_argument("--limit", type=int, default=20, help="limit items shown (default 20)")
     pq.add_argument("--json", action="store_true", help="output in json format")
     pq.set_defaults(func=cmd_queue)
+
+    pts = sub.add_parser(
+        "truncation-status",
+        aliases=["truncation-scan"],
+        help="inspect raw text truncation status and missing metadata across documents",
+    )
+    pts.add_argument("target", nargs="?", default=None, help="target document ID, URL, or share URL")
+    pts.add_argument("--doc-id", default=None, help="specific document ID")
+    pts.add_argument("--json", action="store_true", help="output in json format")
+    pts.set_defaults(func=cmd_truncation_status)
+
+    ptb = sub.add_parser(
+        "truncation-backfill",
+        aliases=["backfill-truncation"],
+        help="backfill raw_truncated metadata for historical sliced documents (default: dry-run, requires --apply)",
+    )
+    ptb.add_argument("target", nargs="?", default=None, help="target document ID, URL, or share URL")
+    ptb.add_argument("--doc-id", default=None, help="specific document ID")
+    ptb.add_argument("--apply", action="store_true", help="apply actual metadata backfill to documents.meta (default: dry-run only)")
+    ptb.add_argument("--dry-run", action="store_true", help="dry-run inspection without changes (default)")
+    ptb.add_argument("--force", action="store_true", help="force re-evaluation for all documents even if already marked")
+    ptb.add_argument("--mark-refresh", action="store_true", help="queue truncated documents into refresh queue for re-fetching full text")
+    ptb.add_argument("--yes", "-y", action="store_true", help="confirm without interactive prompt")
+    ptb.add_argument("--json", action="store_true", help="output result in JSON format")
+    ptb.set_defaults(func=cmd_truncation_backfill)
 
     return p
 

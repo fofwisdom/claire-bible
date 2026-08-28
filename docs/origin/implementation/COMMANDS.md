@@ -211,6 +211,8 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 | `summary-regenerate`| `claire summary-regenerate [<target>] [--tables] [--apply] [--force] [--effort <level>]` | `regenerate --summary`의 단축 Alias |
 | `format-migrate` | `claire format-migrate [--format {md,adoc}] [--apply] [--yes] [--json]` | 문서 렌더링 포맷 진단 및 일괄 변환 (기본: dry-run, 실행: `--apply`) |
 | `format-status` | `claire format-status` | 문서 detail의 포맷별(md, adoc, 누락) 통계 출력 |
+| `truncation-status` | `claire truncation-status [<target>] [--json]` | 원문 절단(20k 슬라이싱) 및 메타데이터 누락 문서 진단 리포트 (단축: `truncation-scan`) |
+| `truncation-backfill` | `claire truncation-backfill [<target>] [--apply] [--mark-refresh] [--force] [--yes] [--json]` | 메타데이터 누락 절단 문서에 `raw_truncated` 소급 기록 (기본: dry-run, 실행: `--apply`, 단축: `backfill-truncation`) |
 | `backfill-detail` | `claire backfill-detail [--tables] [--format {md,adoc}] [--limit N] [--force] [--focus <focus>]` | detail 렌더링이 누락되었거나 표가 포함된 문서 일괄 생성 (그래프 불변) |
 | `backfill-summary` | `claire backfill-summary [--limit N]` | 요약이 누락된 기존 문서의 요약 일괄 생성 |
 | `backfill-images` | `claire backfill-images [--limit N]` | 문서 내 참조된 이미지 에셋 추출 및 다운로드 백필 |
@@ -271,6 +273,34 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
   * `--dry-run`: 대상 문서 통계만 보고 (기본값).
   * `--yes`, `-y`: 확인 프롬프트 생략.
   * `--json`: 진단 통계를 JSON 포맷으로 출력.
+
+#### `truncation-status` (단축: `truncation-scan`)
+데이터베이스 내 문서들의 원문 20,000자 슬라이싱 여부 및 `raw_truncated` 메타데이터 누락 상태를 스캔하고 상세 리포트를 출력합니다.
+* **사용법**:
+  ```bash
+  ./cb-manuscript app truncation-status                   # 전체 문서 절단 진단 리포트
+  ./cb-manuscript app truncation-status <target>          # 특정 문서 단건 진단
+  ./cb-manuscript app truncation-status --json            # JSON 포맷 출력
+  ```
+* **판정 기준**:
+  * `content_hash` 불일치: 수집 당시 원문 전체로 계산된 해시 $\neq$ DB에 적재된 `raw_text` 해시.
+  * 20,000자 상한 도달: 표(Table)를 제외한 산문(Prose) 글자 수가 정확히 20,000자에 도달.
+
+#### `truncation-backfill` (단축: `backfill-truncation`)
+과거에 슬라이싱되었으나 메타데이터가 누락된 문서의 `documents.meta`에 `raw_truncated: true`, `raw_chars: <len>`를 소급 기록합니다.
+* **사용법**:
+  ```bash
+  ./cb-manuscript app truncation-backfill                 # Dry-run 진단 (기본)
+  ./cb-manuscript app truncation-backfill --apply         # 실제 DB 메타데이터 소급 갱신
+  ./cb-manuscript app truncation-backfill --apply --mark-refresh # 소급 갱신 + 원본 재수집(refresh) 큐 등록
+  ./cb-manuscript app truncation-backfill <target> --apply # 특정 문서 단건 소급
+  ```
+* **옵션**:
+  * `--apply`: 실제 DB `documents.meta` 갱신을 적용 (미지정 시 기본 dry-run).
+  * `--mark-refresh`: 검출된 절단 문서를 원문 온전 재수집을 위해 `refresh_queue`에 자동 등록.
+  * `--force`: 이미 `raw_truncated` 플래그가 있는 문서까지 포함하여 전체 재평가 및 갱신.
+  * `--yes`, `-y`: 대화형 확인 프롬프트 생략.
+  * `--json`: 결과를 JSON 포맷으로 출력.
 
 #### `backfill-detail`
 가독 본문(`detail`)이 누락된 문서 또는 표(`--tables`)가 포함된 문서를 선별하여 본문을 일괄 생성/재생성합니다 (지식그래프 불변, 비파괴).

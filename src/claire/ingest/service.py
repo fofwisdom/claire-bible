@@ -1381,3 +1381,30 @@ class IngestService:
         from ..store.raw import save_raw_file
 
         return save_raw_file(self.s.data_dir, inbox_seq, src_path, name)
+
+    def scan_truncation_status(self, doc_id: str | None = None) -> dict:
+        """데이터베이스 내 문서들의 원문 절단 및 메타데이터 현황 스캔."""
+        conn = dbm.connect(self.s.db_file)
+        dbm.init_db(conn)
+        try:
+            return dbm.scan_truncation_status(conn, doc_id=doc_id)
+        finally:
+            conn.close()
+
+    def backfill_truncation(
+        self,
+        *,
+        doc_id: str | None = None,
+        force: bool = False,
+        mark_refresh: bool = False,
+    ) -> dict:
+        """메타데이터 누락 절단 문서에 raw_truncated 소급 갱신."""
+        conn = dbm.connect(self.s.db_file)
+        dbm.init_db(conn)
+        try:
+            return dbm.backfill_truncation_metadata(
+                conn, doc_id=doc_id, force=force, mark_refresh=mark_refresh
+            )
+        finally:
+            conn.close()
+
