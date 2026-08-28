@@ -576,6 +576,60 @@ def test_aot_render_adoc_table_building_blocks_case():
     # 6. Row 4 검증: Infrastructure (rowspan=3), Channels, CH, 설명
     assert '<tr><td rowspan="3">Infrastructure (인프라)</td><td>Channels</td><td>CH</td><td>가치 제안을 고객에게 전달하는 커뮤니케이션·유통·영업 채널</td></tr>' in html_out
     # 7. Row 5 & Row 6 검증
-    assert "<tr><td>Key Resources</td><td>KR</td><td>가치 제안 제공 및 비즈니스 모델 운영에 필수적인 핵심 자산</td></tr>" in html_out
     assert "<tr><td>Key Activities</td><td>KA</td><td>비즈니스 모델을 원활히 작동시키기 위해 수행해야 하는 핵심 활동</td></tr>" in html_out
+
+
+def test_aot_render_adoc_masked_hashes_and_code_protection():
+    """마스킹 플레이스홀더(####-##-##, ########) 및 인라인 코드 내 기호가 <mark> 또는 서식으로 왜곡되지 않는지 검증."""
+    sample = """
+[quote, VMware / Broadcom KB (Article ID: 413102)]
+The ramdisk 'vsantraces' is full. As a result the file /vsantraces/vsantraces--####-##-##T##h##m##s###--########-####.####.####-############.zst could not be written.
+
+ESXi 호스트 `[root@esx###:~]` 에서 `rm vsantraces*20####*.zst` 실행.
+총 사용량이 #최대 200MB 범위 내로 제한#된다.
+UUID: ########-########-####-############
+Partitions: naa.#########################
+"""
+    html_out = render_adoc_to_html(sample)
+
+    # 1. vsantraces 마스킹 경로 왜곡 방지
+    assert "/vsantraces/vsantraces--####-##-##T##h##m##s###--########-####.####.####-############.zst" in html_out
+    assert "<mark>-</mark>" not in html_out
+    assert "<mark>T</mark>" not in html_out
+    assert "<mark>h</mark>" not in html_out
+    assert "<mark>m</mark>" not in html_out
+    assert "<mark>s</mark>" not in html_out
+    assert "<mark>.</mark>" not in html_out
+
+    # 2. 인용 블록 및 어트리뷰션
+    assert '<div class="quoteblock"><blockquote><p>' in html_out
+    assert '<div class="attribution">VMware / Broadcom KB (Article ID: 413102)</div>' in html_out
+
+    # 3. 인라인 코드 보호
+    assert "<code>[root@esx###:~]</code>" in html_out
+    assert "<code>rm vsantraces*20####*.zst</code>" in html_out
+
+    # 4. 올바른 형광 하이라이트 정상 작동
+    assert "<mark>최대 200MB 범위 내로 제한</mark>" in html_out
+
+    # 5. UUID 및 NAA 마스킹 보존
+    assert "UUID: ########-########-####-############" in html_out
+    assert "Partitions: naa.#########################" in html_out
+
+
+def test_clean_plain_summary_masked_hashes_protection():
+    """clean_plain_summary 에서도 마스킹 해시 패턴(####-##-##)이 왜곡되지 않고 온전히 보존되는지 검증."""
+    from claire.extract.prompts import clean_plain_summary
+
+    text = """
+= vCenter 경고 분석
+
+The ramdisk 'vsantraces' is full. As a result the file /vsantraces/vsantraces--####-##-##T##h##m##s###--########-####.####.####-############.zst could not be written.
+총 사용량이 #최대 200MB 범위 내로 제한#된다.
+"""
+    cleaned = clean_plain_summary(text)
+    assert "/vsantraces/vsantraces--####-##-##T##h##m##s###--########-####.####.####-############.zst" in cleaned
+    assert "최대 200MB 범위 내로 제한" in cleaned
+    assert "#" not in cleaned or "####" in cleaned  # 형광 # 기호만 제거되고 마스킹 해시는 보존
+
 

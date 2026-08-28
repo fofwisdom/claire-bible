@@ -17,28 +17,52 @@ def _inline_adoc_format(text: str) -> str:
         return ""
     # HTML 특수문자 이스케이프 선행
     s = html.escape(text, quote=False)
-    # 줄바꿈: ' +' (공백 + 플러스 기호가 라인 끝 또는 뒤에 올 때) -> <br>
+
+    # 1. 인라인 코드 보호 (코드 블록 내부의 *, _, # 등이 다른 서식으로 변환되는 것 방지)
+    code_spans: list[str] = []
+
+    def _save_code(m: re.Match) -> str:
+        code_spans.append(f"<code>{m.group(1)}</code>")
+        return f"\x00ADOCCODE{len(code_spans)-1}\x00"
+
+    s = re.sub(r"`(?!\s)([^`\n]+?)(?<!\s)`", _save_code, s)
+
+    # 2. 명시적 링크 보호: https://url[텍스트] -> <a href="url" target="_blank" rel="noopener">텍스트</a>
+    link_spans: list[str] = []
+
+    def _save_explicit_link(m: re.Match) -> str:
+        url, label = m.group(1), m.group(2)
+        link_spans.append(f'<a href="{url}" target="_blank" rel="noopener">{label}</a>')
+        return f"\x00ADOCLINK{len(link_spans)-1}\x00"
+
+    s = re.sub(r"(https?://[^\s\[\]]+)\[(.*?)\]", _save_explicit_link, s)
+
+    # 3. 자동 URL 링크 (대괄호 없는 단독 URL)
+    def _save_auto_link(m: re.Match) -> str:
+        url = m.group(1)
+        link_spans.append(f'<a href="{url}" target="_blank" rel="noopener">{url}</a>')
+        return f"\x00ADOCLINK{len(link_spans)-1}\x00"
+
+    s = re.sub(r'(?<!href=")(https?://[^\s<>"\'\)]+)', _save_auto_link, s)
+
+    # 4. 줄바꿈: ' +' (공백 + 플러스 기호가 라인 끝 또는 뒤에 올 때) -> <br>
     s = re.sub(r"\s+\+\s*(?:$|\n)", "<br>", s)
-    # 형광 하이라이트: #텍스트# -> <mark>텍스트</mark>
-    s = re.sub(r"#(?!\s)([^#\n]+?)(?<!\s)#", r"<mark>\1</mark>", s)
-    # 굵은 글씨: *텍스트* -> <strong>텍스트</strong>
-    s = re.sub(r"\*(?!\s)([^*\n]+?)(?<!\s)\*", r"<strong>\1</strong>", s)
-    # 기울임꼴: _텍스트_ -> <em>텍스트</em>
-    s = re.sub(r"_(?!\s)([^_\n]+?)(?<!\s)_", r"<em>\1</em>", s)
-    # 인라인 코드: `텍스트` -> <code>텍스트</code>
-    s = re.sub(r"`(?!\s)([^`\n]+?)(?<!\s)`", r"<code>\1</code>", s)
-    # 명시적 링크: https://url[텍스트] -> <a href="url" target="_blank" rel="noopener">텍스트</a>
-    s = re.sub(
-        r"(https?://[^\s\[\]]+)\[(.*?)\]",
-        r'<a href="\1" target="_blank" rel="noopener">\2</a>',
-        s,
-    )
-    # 자동 URL 링크 (대괄호 없는 단독 URL)
-    s = re.sub(
-        r'(?<!href=")(https?://[^\s<>"\'\)]+)',
-        r'<a href="\1" target="_blank" rel="noopener">\1</a>',
-        s,
-    )
+
+    # 5. 형광 하이라이트: 단독 #텍스트# (2개 이상의 연속된 ## 마스킹/패턴 등 제외)
+    s = re.sub(r"(?<!#)#(?![\s#])([^#\n]+?)(?<![\s#])#(?!#)", r"<mark>\1</mark>", s)
+
+    # 6. 굵은 글씨: 단독 *텍스트* (2개 이상의 연속된 ** 제외)
+    s = re.sub(r"(?<!\*)\*(?![\s\*])([^*\n]+?)(?<![\s\*])\*(?!\*)", r"<strong>\1</strong>", s)
+
+    # 7. 기울임꼴: 단독 _텍스트_ (2개 이상의 연속된 __ 제외)
+    s = re.sub(r"(?<!_)_(?![\s_])([^_\n]+?)(?<![\s_])_(?!_)", r"<em>\1</em>", s)
+
+    # 8. 보호된 링크 및 인라인 코드 복원
+    for i, span in enumerate(link_spans):
+        s = s.replace(f"\x00ADOCLINK{i}\x00", span)
+    for i, span in enumerate(code_spans):
+        s = s.replace(f"\x00ADOCCODE{i}\x00", span)
+
     return s
 
 
@@ -511,7 +535,30 @@ def render_adoc_to_html(raw: str) -> str:
             if not trimmed:
                 continue
 
-            # 11. 일반 단락
+            # 11. 일반 단락 (또는 블록 구분자 없는 단일 단락 quote / admonition)
+            if pending_meta:
+                p_kind = pending_meta.get("kind")
+                if p_kind == "quote":
+                    author = html.escape(pending_meta.get("author", ""))
+                    source = html.escape(pending_meta.get("source", ""))
+                    attr_text = author + (f" — {source}" if source else "")
+                    attr = f'<div class="attribution">{attr_text}</div>' if attr_text else ""
+                    out.append(f'<div class="quoteblock"><blockquote><p>{_inline_adoc_format(trimmed)}</p></blockquote>{attr}</div>')
+                    pending_meta = None
+                    continue
+                elif p_kind == "admonition":
+                    adm_type = (pending_meta.get("type") or "NOTE").lower()
+                    title = html.escape(pending_meta.get("type") or "NOTE")
+                    out.append(
+                        f'<div class="admonitionblock {adm_type}">'
+                        f'<div class="title">{title}</div>'
+                        f'<div class="content"><p>{_inline_adoc_format(trimmed)}</p></div>'
+                        f'</div>'
+                    )
+                    pending_meta = None
+                    continue
+                pending_meta = None
+
             out.append(f"<p>{_inline_adoc_format(trimmed)}</p>")
 
         else:
