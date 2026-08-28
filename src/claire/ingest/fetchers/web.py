@@ -1,10 +1,11 @@
 """일반 웹 fetcher — 명시적 fallback 체인.
 
   1) static   : httpx + lxml 정적 추출 (가장 싸고 빠름, 브라우저 불필요)
-  2) discourse : 본문 빈약 + Discourse 토픽이면 `.json` API 로 본문 확보 (싸고 결정적)
-  3) scrapling : Scrapling Fetcher (curl-cffi + browserforge 스텔스 헤더). 브라우저 불필요.
+  2) law      : 국가법령정보센터(law.go.kr) iframe/AJAX 2중 구조 역추적 및 조문 정적 확보
+  3) discourse : 본문 빈약 + Discourse 토픽이면 `.json` API 로 본문 확보 (싸고 결정적)
+  4) scrapling : Scrapling Fetcher (curl-cffi + browserforge 스텔스 헤더). 브라우저 불필요.
                  정적 UA 를 403 으로 막는 봇차단(예: openai.com) 우회용.
-  4) cdp       : nodriver(Chrome DevTools Protocol 직접 제어)로 실제 렌더링. 최후수단 —
+  5) cdp       : nodriver(Chrome DevTools Protocol 직접 제어)로 실제 렌더링. 최후수단 —
                  JS 로만 그려지는 SPA(해시 라우팅 등)는 static/scrapling 이 빈 껍데기만
                  받아오므로 진짜 브라우저 실행이 필요. Playwright/patchright 는 안 쓰고
                  시스템 Chromium 을 CDP 로 직접 제어(이미지에 apt chromium 패키지 하나만
@@ -58,7 +59,28 @@ def fetch_web(url: str) -> Document:
     title, text, links, anchors, err, effective_url, images = _fetch_static(url)
     usable, guard_err = _is_usable(title, text)
 
-    # 2) Discourse JSON 에스컬레이션
+    # 2) law.go.kr 에스컬레이션 — 국가법령정보센터 iframe / ajax 구조 해소
+    if not usable:
+        from .law import try_law_kr
+
+        l = try_law_kr(url)
+        if l is not None:
+            l_title, l_text, l_links, l_anchors, l_images = l
+            l_usable, l_guard_err = _is_usable(l_title or title, l_text)
+            if l_usable:
+                title, text, links, anchors, images, via = (
+                    l_title or title, l_text, l_links or links, l_anchors or anchors,
+                    l_images or images, "law"
+                )
+                usable, guard_err = True, None
+            elif len(l_text) > len(text or ""):
+                title, text, links, anchors, images, via = (
+                    l_title or title, l_text, l_links or links, l_anchors or anchors,
+                    l_images or images, "law"
+                )
+                usable, guard_err = l_usable, l_guard_err
+
+    # 3) Discourse JSON 에스컬레이션
     if not usable:
         from .discourse import try_discourse
 
@@ -73,7 +95,7 @@ def fetch_web(url: str) -> Document:
                 title, text, links, via = d_title or title, d_text, d_links or links, "discourse"
                 usable, guard_err = d_usable, d_guard_err
 
-    # 3) Scrapling Fetcher 에스컬레이션 — curl-cffi + browserforge 헤더 위장.
+    # 4) Scrapling Fetcher 에스컬레이션 — curl-cffi + browserforge 헤더 위장.
     #    브라우저 불필요. 정적 UA 를 막는 봇차단(예: openai.com 403)을 우회.
     if not usable:
         c_title, c_text, c_links, c_anchors, c_images = _fetch_scrapling(url)
