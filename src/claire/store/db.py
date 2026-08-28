@@ -2660,7 +2660,7 @@ def scan_truncation_status(
         budget = settings.pdf_max_extract_chars if src_type == "pdf" else settings.raw_char_budget
         tables, prose_parts = extract_tables_from_text(raw_text)
         prose_len = sum(len(p) for p in prose_parts)
-        is_limit = (prose_len == budget) or (raw_len == budget)
+        is_limit = (budget > 0 and (prose_len == budget or raw_len == budget)) or (src_type != "pdf" and (prose_len == 20000 or raw_len == 20000))
 
         # 3. 메타데이터 기록 상태
         is_meta_truncated = bool(meta.get("raw_truncated"))

@@ -71,8 +71,8 @@ def extract_pdf_stream(
             except Exception:
                 pass
 
-            max_chars = get_settings().pdf_max_extract_chars
-            if total_len >= max_chars:
+            # 대용량 DoS 방어 안전 상한 (1,000페이지 또는 1,000만 자)
+            if len(pages_text) >= 1000 or total_len >= 10_000_000:
                 break
 
         full_text = "\n\n".join(pages_text).replace("\x00", "")

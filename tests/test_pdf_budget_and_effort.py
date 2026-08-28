@@ -28,6 +28,8 @@ def test_pdf_budget_in_fetch_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     """fetch_file()에서 .pdf 파일은 raw_char_budget이 아닌 pdf_max_extract_chars 한도로 보존되는지 검증."""
     monkeypatch.setenv("CLAIRE_PDF_MAX_EXTRACT_CHARS", "40000")
     monkeypatch.setenv("CLAIRE_RAW_CHAR_BUDGET", "10000")
+    from claire.config import get_settings
+    get_settings.cache_clear()
 
     # 25,000자 텍스트 생성
     pdf_text = "A" * 25000
@@ -49,6 +51,8 @@ def test_pdf_budget_in_fetch_web(monkeypatch: pytest.MonkeyPatch):
     """fetch_web()에서 PDF 웹 문서는 pdf_max_extract_chars 한도로 보존되는지 검증."""
     monkeypatch.setenv("CLAIRE_PDF_MAX_EXTRACT_CHARS", "40000")
     monkeypatch.setenv("CLAIRE_RAW_CHAR_BUDGET", "10000")
+    from claire.config import get_settings
+    get_settings.cache_clear()
 
     pdf_text = "B" * 30000
     with patch("claire.ingest.fetchers.web._fetch_static") as mock_static:
@@ -69,10 +73,65 @@ def test_pdf_budget_in_fetch_web(monkeypatch: pytest.MonkeyPatch):
     assert not doc.meta["raw_truncated"]
 
 
+def test_pdf_extract_stream_full_page_and_true_orig_chars(monkeypatch: pytest.MonkeyPatch):
+    """PDF 추출 시 페이지 루프에서 조기 중단하지 않고 전체 원문 길이를 측정하여 슬라이싱하는지 검증."""
+    import pypdf
+    from claire.ingest.fetchers.pdf import extract_pdf_bytes
+
+    class MultiPage:
+        def __init__(self, text: str):
+            self._text = text
+
+        def extract_text(self):
+            return self._text
+
+        def get(self, key):
+            return None
+
+    # 10개 페이지, 각 페이지 10,000자 -> 총 100,000자 PDF
+    fake_pages = [MultiPage(f"Page {i}: " + "Z" * 9990) for i in range(10)]
+
+    class FakeMultiPageReader:
+        is_encrypted = False
+        metadata = {"/Title": "Large PDF Paper"}
+        pages = fake_pages
+
+    monkeypatch.setattr(pypdf, "PdfReader", lambda stream: FakeMultiPageReader())
+    monkeypatch.setenv("CLAIRE_PDF_MAX_EXTRACT_CHARS", "30000")
+    monkeypatch.setenv("CLAIRE_RAW_CHAR_BUDGET", "10000")
+    from claire.config import get_settings
+    get_settings.cache_clear()
+
+    title, full_text, links, anchors, err, imgs = extract_pdf_bytes(b"%PDF-dummy")
+    assert err is None
+    # extract_pdf_bytes는 30,000자에서 중간에 멈추지 않고 100,000자 전체를 추출하여 반환해야 함
+    assert len(full_text) >= 90000
+
+    # fetch_file이나 fetch_web을 통할 때 30,000자로 슬라이싱되되, orig_chars는 100,000자 전체로 기록되어야 함
+    with patch("claire.ingest.fetchers.web._fetch_static") as mock_static:
+        mock_static.return_value = (
+            "Large PDF Paper",
+            full_text,
+            [],
+            {},
+            None,
+            "https://example.com/large.pdf",
+            [],
+        )
+        doc = fetch_web("https://example.com/large.pdf")
+
+    assert doc.meta["raw_truncated"] is True
+    assert doc.meta["raw_chars"] == 30000
+    assert doc.meta["orig_chars"] == len(full_text)
+    assert len(doc.raw_text) == 30000
+
+
 def test_doc_to_prompt_pdf_limit(monkeypatch: pytest.MonkeyPatch):
     """_doc_to_prompt()에서 PDF 문서는 pdf_max_extract_chars 한도로 프롬프트에 투입되는지 검증."""
     monkeypatch.setenv("CLAIRE_PDF_MAX_EXTRACT_CHARS", "50000")
     monkeypatch.setenv("CLAIRE_EXTRACT_CHAR_BUDGET", "20000")
+    from claire.config import get_settings
+    get_settings.cache_clear()
 
     # 35,000자 PDF 문서
     pdf_doc = Document(
@@ -101,6 +160,8 @@ def test_truncation_scan_pdf_budget(monkeypatch: pytest.MonkeyPatch):
     """db.scan_truncation_status에서 PDF 문서는 pdf_max_extract_chars를 기준으로 판정하는지 검증."""
     monkeypatch.setenv("CLAIRE_PDF_MAX_EXTRACT_CHARS", "50000")
     monkeypatch.setenv("CLAIRE_RAW_CHAR_BUDGET", "20000")
+    from claire.config import get_settings
+    get_settings.cache_clear()
 
     conn = sqlite3.connect(":memory:")
     conn.row_factory = sqlite3.Row

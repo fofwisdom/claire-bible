@@ -136,6 +136,7 @@ def slice_text_with_table_exemption_info(text: str, limit: int) -> tuple[str, bo
             # 예산이 소진된 이후의 일반 본문은 생략됨 (단, 뒤에 나오는 테이블은 계속 보존)
 
     sliced_text = "".join(out_parts)
+    is_truncated = is_truncated and (len(sliced_text) < orig_chars)
     return sliced_text, is_truncated, orig_chars, len(sliced_text)
 
 

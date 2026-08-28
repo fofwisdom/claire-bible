@@ -130,6 +130,8 @@ def test_graph_html_contains_truncation_ui_and_css():
     assert "docMetaHtml" in html
     assert "✂️ 원문 일부 절단" in html
     assert "🎯" in html
+    # 20,000자가 하드코딩되어 있지 않고 동적이어야 함
+    assert "(20,000자)" not in html
 
 
 def test_document_detail_and_ui_with_directive():
