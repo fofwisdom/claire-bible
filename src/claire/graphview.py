@@ -2121,15 +2121,15 @@ function relayoutPreservingCamera(){
   if(!el) return;
   const r=el.getBoundingClientRect();
   if(r.width<=0 || r.height<=0) return;
-  const sizeChanged = Math.abs(r.width-lastNetSize.w)>=1 || Math.abs(r.height-lastNetSize.h)>=1;
+  const sizeChanged = Math.abs(r.width-lastNetSize.w)>=2 || Math.abs(r.height-lastNetSize.h)>=2;
   const saved=graphCamera;
   if(sizeChanged){
     preservingGraphCamera=true;
     relayout(true);
     preservingGraphCamera=false;
-  }
-  if(saved && net){
-    net.moveTo({position:saved.position,scale:saved.scale,animation:false});
+    if(saved && net){
+      net.moveTo({position:saved.position,scale:saved.scale,animation:false});
+    }
   }
   rememberGraphCamera();
 }
@@ -2625,7 +2625,7 @@ fetch('graph').then(r=>{ if(!r.ok) throw new Error('graph fetch HTTP '+r.status)
       if(!canShowNodePop(p.node)) return;
       hoverTimer=setTimeout(()=>showNodePop(p.node), 1500);
     });
-    net.on('blurNode', () => { hideNodePop(); restoreSelection(); });
+    net.on('blurNode', () => { hideNodePop(); });
     net.on('hold', hideNodePop);
     net.on('dragStart', hideNodePop);   // 드래그/줌 중엔 팝업 숨김(커서를 따라다니지 않게)
     net.on('selectEdge', p=>{ selectedEdgeIds=new Set(p.edges||[]); applyView(); });
@@ -3528,14 +3528,10 @@ function unclusterEdges(){
   clusterEdges=null; clusterAnchor=null;
   if(net && !isDraggingNode) net.setOptions({physics:false});
 }
-// 우측 '이 문서의 노드' 버튼 hover — 그래프뷰를 그 노드로 부드럽게 이동(선택/상세는 안 바꿈).
-// 우측 '이 문서의 노드' hover — 그래프 카메라를 그 노드로 옮기고(기존), 1.5초 머물면
-// 그래프 hover 와 같은 요약 팝업을 버튼 진입 위치에 띄운다(사용자 요구). leave 시 취소.
+// 우측 '이 문서의 노드' 버튼 hover — 요약 팝업(1.5초 머물 시). 클릭 시 focusNode 로 카메라 이동.
 function peekNode(ev, id){
-  if(net) net.focus(id,{scale:1.2,
-    animation:graphAnimation({duration:400,easingFunction:'easeInOutQuad'})});
   clearTimeout(hoverTimer);
-  if(!canShowNodePop()) return;
+  if(!canShowNodePop(id)) return;
   const x=ev.clientX, y=ev.clientY;
   hoverTimer=setTimeout(()=>showNodePop(id, x, y), 1500);
 }
