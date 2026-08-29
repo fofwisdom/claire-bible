@@ -226,7 +226,6 @@ const window = {
       canvasToDOM(p) { return p; }
       getPosition() { return { x: 0, y: 0 }; }
       setOptions() {}
-      once(ev, fn) { if(typeof fn === 'function') fn(); }
     }
   },
   localStorage: {
@@ -514,7 +513,6 @@ const window = {
       canvasToDOM(p) { return p; }
       getPosition() { return { x: 0, y: 0 }; }
       setOptions() {}
-      once(ev, fn) { if(typeof fn === 'function') fn(); }
     }
   },
   localStorage: {
@@ -830,7 +828,6 @@ const window = {
       canvasToDOM(p) { return p; }
       getPosition() { return { x: 0, y: 0 }; }
       setOptions() {}
-      once(ev, fn) { if(typeof fn === 'function') fn(); }
     }
   },
   localStorage: {
@@ -1078,7 +1075,6 @@ const window = {
       canvasToDOM(p) { return p; }
       getPosition() { return { x: 0, y: 0 }; }
       setOptions() {}
-      once(ev, fn) { if(typeof fn === 'function') fn(); }
     }
   },
   localStorage: {
@@ -1306,7 +1302,6 @@ const window = {
       canvasToDOM(p) { return p; }
       getPosition() { return { x: 0, y: 0 }; }
       setOptions() {}
-      once(ev, fn) { if(typeof fn === 'function') fn(); }
     }
   }
 };
@@ -1549,7 +1544,6 @@ const window = {
       canvasToDOM(p) { return p; }
       getPosition() { return { x: 0, y: 0 }; }
       setOptions() {}
-      once(ev, fn) { if(typeof fn === 'function') fn(); }
     }
   }
 };
@@ -1763,7 +1757,6 @@ const window = {
       canvasToDOM(p) { return p; }
       getPosition() { return { x: 0, y: 0 }; }
       setOptions() {}
-      once(ev, fn) { if(typeof fn === 'function') fn(); }
     }
   }
 };
@@ -2085,7 +2078,6 @@ const window = {
       canvasToDOM(p) { return p; }
       getPosition() { return { x: 0, y: 0 }; }
       setOptions() {}
-      once(ev, fn) { if(typeof fn === 'function') fn(); }
     }
   }
 };

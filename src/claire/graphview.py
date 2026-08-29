@@ -2475,12 +2475,25 @@ fetch('graph').then(r=>{ if(!r.ok) throw new Error('graph fetch HTTP '+r.status)
       edges:{color:{color:th.edge,highlight:th.edgeHi},
         font:{color:th.nodeFont,size:0,strokeWidth:3,strokeColor:netBg},smooth:false},
       groups:buildGroups(),
-      physics:{stabilization:{iterations:200},barnesHut:{gravitationalConstant:-12000,springLength:170}},
-      interaction:{hover:true,tooltipDelay:120,multiselect:true,zoomView:false,hideEdgesOnZoom:true,hideEdgesOnDrag:true}
+      physics:{
+        solver:'barnesHut',
+        barnesHut:{
+          gravitationalConstant:-12000,
+          centralGravity:0.3,
+          springLength:150,
+          springConstant:0.05,
+          damping:0.25,
+          avoidOverlap:0.2
+        },
+        minVelocity:0.75,
+        maxVelocity:50,
+        timestep:0.5,
+        stabilization:{iterations:200}
+      },
+      interaction:{hover:true,tooltipDelay:120,multiselect:true,zoomView:false}
     };
     const netEl = document.getElementById('net');
     if(netEl) net = new vis.Network(netEl, {nodes:allNodes, edges:allEdges}, opts);
-    if(net) net.once('stabilizationIterationsDone', () => net.setOptions({physics:false}));
     requestAnimationFrame(()=>{ relayout(); setTimeout(relayout, 300); });
     applyTouchMode();
     setupWheelZoom();
@@ -2557,12 +2570,17 @@ fetch('graph').then(r=>{ if(!r.ok) throw new Error('graph fetch HTTP '+r.status)
     net.on('dragStart', hideNodePop);   // 드래그/줌 중엔 팝업 숨김(커서를 따라다니지 않게)
     net.on('selectEdge', p=>{ selectedEdgeIds=new Set(p.edges||[]); applyView(); });
     net.on('deselectEdge', ()=>{ selectedEdgeIds.clear(); applyView(); });
+    let zoomDebounceTimer = null;
     net.on('zoom', ()=>{
       hideNodePop();
       if(!netBusy){
-        const show=net.getScale()>=1.45;
-        if(show!==edgeLabelsByZoom){ edgeLabelsByZoom=show; applyView(); }
         rememberGraphCamera();
+        clearTimeout(zoomDebounceTimer);
+        zoomDebounceTimer = setTimeout(()=>{
+          if(!net) return;
+          const show=net.getScale()>=1.45;
+          if(show!==edgeLabelsByZoom){ edgeLabelsByZoom=show; applyView(); }
+        }, 120);
       }
     });
   }
@@ -3403,7 +3421,6 @@ function clusterMatches(ids, done){
   unclusterEdges();
   const vs=(ids||[]).filter(id=>{ const n=allNodes&&allNodes.get(id); return n && !n.hidden; });
   if(!net || !allEdges || vs.length<2){ if(done) done(); return; }
-  net.setOptions({physics:true});  // 안정화 후 꺼둔 물리를 뭉치는 동안만 다시 켬
   const c=net.getViewPosition();   // 현재 화면 중앙 좌표에 앵커를 둔다
   allNodes.add({id:'cl_anchor', x:c.x, y:c.y, fixed:true, physics:true, hidden:true,
                 mass:ANCHOR_MASS, label:'', shape:'dot', size:1});
@@ -3426,7 +3443,6 @@ function unclusterEdges(){
   }
   if(clusterAnchor && allNodes){ try{ allNodes.remove(clusterAnchor); }catch(e){} }
   clusterEdges=null; clusterAnchor=null;
-  if(net) net.setOptions({physics:false});  // 뭉치기 끝 — 성능을 위해 다시 끔
 }
 // 우측 '이 문서의 노드' 버튼 hover — 그래프뷰를 그 노드로 부드럽게 이동(선택/상세는 안 바꿈).
 // 우측 '이 문서의 노드' hover — 그래프 카메라를 그 노드로 옮기고(기존), 1.5초 머물면
