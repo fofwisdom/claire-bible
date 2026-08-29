@@ -571,15 +571,18 @@ def test_origin_graph_physics_tuning():
     """오리진 지식 그래프 물리 수렴 튜닝 및 렌더링 최적화 검증."""
     from claire.graphview import GRAPH_HTML
 
-    # 1. 물리 수렴 튜닝 (damping, minVelocity, avoidOverlap)
-    assert "damping:0.25" in GRAPH_HTML
+    # 1. 물리 수렴 튜닝 (damping, avoidOverlap, 2.5s settle timer)
+    assert "damping:0.35" in GRAPH_HTML
     assert "minVelocity:0.75" in GRAPH_HTML
-    assert "gravitationalConstant:-12000" in GRAPH_HTML
-    assert "centralGravity:0.3" in GRAPH_HTML
-    assert "springLength:150" in GRAPH_HTML
-    assert "springConstant:0.05" in GRAPH_HTML
-    assert "avoidOverlap:0.2" in GRAPH_HTML
-    # 물리를 강제로 끄지 않고 오리진의 물리 상호작용 보존
+    assert "gravitationalConstant:-10000" in GRAPH_HTML
+    assert "centralGravity:0.15" in GRAPH_HTML
+    assert "springLength:140" in GRAPH_HTML
+    assert "springConstant:0.04" in GRAPH_HTML
+    assert "let isDraggingNode = false, settleTimer = null;" in GRAPH_HTML
+    assert "settleTimer = setTimeout" in GRAPH_HTML
+    assert "2500);" in GRAPH_HTML
+    assert "isDraggingNode" in GRAPH_HTML
+    # 초기화 시점이 아닌 2.5s 후 자동 안착 및 드래그 토글로 물리 보존
     assert "net.once('stabilizationIterationsDone'" not in GRAPH_HTML
 
     # 2. 줌 이벤트 디바운스 적용
@@ -594,5 +597,6 @@ def test_origin_graph_physics_tuning():
     assert "hover:{background:c, border: lit?th.lit:th.nodeBorder}" in GRAPH_HTML
     assert "function canShowNodePop(id){" in GRAPH_HTML
     assert "if(id && selectedNodeId && id === selectedNodeId) return false;" in GRAPH_HTML
+
 
 
