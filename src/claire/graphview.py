@@ -1148,9 +1148,17 @@ function pushAppHistory(patch = {}){
   try{ window.history.pushState(next, ''); }catch(_){}
   if(typeof window.gtag === 'function'){
     try{
+      let virtPath = '/';
+      if(next.modal === 'reader' && next.docId){
+        virtPath = '/doc/' + next.docId;
+      } else if(next.nodeId){
+        virtPath = '/node/' + next.nodeId;
+      } else if(next.pane && next.pane !== 'graph'){
+        virtPath = '/' + next.pane;
+      }
       window.gtag('event', 'page_view', {
         page_title: document.title,
-        page_location: window.location.origin + window.location.pathname
+        page_location: window.location.origin + virtPath
       });
     }catch(_){}
   }
@@ -1940,6 +1948,11 @@ function docMetaHtml(dc){
 }
 function renderReader(dc){
   curReaderDocData=dc;
+  if(dc && dc.title){
+    document.title = dc.title + ' — Claire Bible';
+  } else {
+    document.title = '문서 — Claire Bible';
+  }
   document.getElementById('rtitle').innerHTML = esc(dc.title||'(제목 없음)')
     + (dc.source_type?' <span class=rmeta>'+esc(dc.source_type)+'</span>':'');
   let h='';
@@ -1960,6 +1973,18 @@ function renderReader(dc){
   if(!dc.summary && !dc.detail && !dc.detail_html) h+='<p class=hint>이 문서의 요약/전문이 아직 없습니다.</p>';
   const body=document.getElementById('rbody'); body.innerHTML=h; body.scrollTop=0;
   document.getElementById('reader').setAttribute('aria-busy','false');
+  if(typeof window.gtag === 'function' && dc && dc.id){
+    try{
+      window.gtag('event', 'page_view', {
+        page_title: document.title,
+        page_location: window.location.origin + '/doc/' + dc.id
+      });
+      window.gtag('event', 'select_content', {
+        content_type: 'document',
+        item_id: dc.id
+      });
+    }catch(_){}
+  }
 }
 // [1홉 병합, ONEHOP_MERGE_DESIGN.md] 이 문서에 흡수된 부가 출처 목록(원문 링크 계보).
 function extraSourcesHtml(dc){
@@ -1974,6 +1999,7 @@ function closeReader(focus=false){
     window.history.back();
     return;
   }
+  document.title = 'Claire Bible — 지식 그래프';
   hideNodePop();
   const r=document.getElementById('reader');
   r.classList.remove('open'); r.setAttribute('aria-hidden','true'); r.setAttribute('aria-busy','false');
@@ -1989,6 +2015,14 @@ function closeReader(focus=false){
   replaceAppHistory({ modal: getActiveModalName() });
   if(focus && target) requestAnimationFrame(()=>target.focus());
   else requestAnimationFrame(()=>{ if(target) target.focus(); });
+  if(typeof window.gtag === 'function'){
+    try{
+      window.gtag('event', 'page_view', {
+        page_title: document.title,
+        page_location: window.location.origin + '/'
+      });
+    }catch(_){}
+  }
 }
 
 // --- 문서 공유 핫링크 — 세션 토큰(nginx 통과)과 별개의, 이 문서만 여는 읽기전용 링크 ---
@@ -2658,6 +2692,14 @@ function renderPanel(d){
     '<button onclick="doResearch()">조사</button></div>'+
     '<p class=al>지금 보는 맥락에 맞춰 웹 조사 → 맥락 일치·품질 통과 시 그래프에 추가됩니다.</p>';
   panel.innerHTML=h;
+  if(typeof window.gtag === 'function' && d && d.id){
+    try{
+      window.gtag('event', 'select_content', {
+        content_type: 'node',
+        item_id: d.id
+      });
+    }catch(_){}
+  }
 }
 
 // --- 맥락 확장 조사: 조사(grounding)→판정 게이트→통과 시 그래프 적재(서버) ---
@@ -3256,8 +3298,17 @@ function resetHome(){
   applyView();
   resetGraphCamera();
   syncGraphDocNav();
+  document.title = 'Claire Bible — 지식 그래프';
   if(mobileMQ.matches){
     closeReader(false, false);
+  }
+  if(typeof window.gtag === 'function'){
+    try{
+      window.gtag('event', 'page_view', {
+        page_title: document.title,
+        page_location: window.location.origin + '/'
+      });
+    }catch(_){}
   }
 }
 
@@ -4466,17 +4517,22 @@ if(typeof window.gtag === 'function' && dc && dc.id){
 """
 
 
-def render_ga_tag(measurement_id: str) -> str:
+def render_ga_tag(measurement_id: str, doc_id: str = "") -> str:
     """Google Analytics 4 (GA4 / gtag.js) 태그 스니펫을 생성한다.
 
     측정 ID가 없거나 유효하지 않으면 빈 문자열을 반환한다.
     URL 쿼리 파라미터(?t=..., ?s=...) 유출을 방지하기 위해 page_location을
-    origin + pathname으로 정제하여 전송한다."""
+    origin + pathname (또는 /p/<doc_id>)으로 정제하여 전송한다."""
     import re
 
     cleaned_id = str(measurement_id or "").strip()
     if not cleaned_id or not re.fullmatch(r"^[A-Za-z0-9_-]+$", cleaned_id):
         return ""
+    clean_doc_id = str(doc_id or "").strip()
+    if clean_doc_id:
+        loc_expr = f"window.location.origin + '/p/{clean_doc_id}'"
+    else:
+        loc_expr = "window.location.origin + window.location.pathname"
     return (
         f'<!-- Google Analytics (GA4) -->\n'
         f'<script async src="https://www.googletagmanager.com/gtag/js?id={cleaned_id}"></script>\n'
@@ -4485,7 +4541,9 @@ def render_ga_tag(measurement_id: str) -> str:
         f'  function gtag(){{dataLayer.push(arguments);}}\n'
         f'  gtag("js", new Date());\n'
         f'  gtag("config", "{cleaned_id}", {{\n'
-        f'    page_location: window.location.origin + window.location.pathname\n'
+        f'    page_location: {loc_expr},\n'
+        f'    cookie_domain: window.location.hostname,\n'
+        f'    cookie_flags: "SameSite=Lax;Secure"\n'
         f'  }});\n'
         f'</script>'
     )
@@ -4510,7 +4568,8 @@ def shared_html(doc: dict, settings: Any = None) -> str:
         "effective_ga_measurement_id",
         getattr(s, "ga_measurement_id", ""),
     )
-    ga_tag = render_ga_tag(ga_id)
+    doc_id = str((doc or {}).get("id", "") or "").strip()
+    ga_tag = render_ga_tag(ga_id, doc_id=doc_id)
 
     data = _json.dumps(doc, ensure_ascii=False)
     data = data.replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")

@@ -44,18 +44,24 @@ def test_ga_measurement_id_config_validation():
 
 
 def test_render_ga_tag_helper():
-    """render_ga_tag 스니펫 생성 및 URL 정제 검증."""
+    """render_ga_tag 스니펫 생성, 쿠키 격리 및 URL 정제 검증."""
     # 비어있을 때
     assert render_ga_tag("") == ""
     assert render_ga_tag("   ") == ""
     assert render_ga_tag("<invalid>") == ""
 
-    # 유효한 ID 설정 시
+    # 유효한 ID 설정 시 (기본)
     tag = render_ga_tag("G-TEST1234")
     assert "https://www.googletagmanager.com/gtag/js?id=G-TEST1234" in tag
     assert "gtag(\"config\", \"G-TEST1234\"" in tag
     # 쿼리스트링/토큰 유출 방지를 위한 page_location 정제 검증
     assert "page_location: window.location.origin + window.location.pathname" in tag
+    assert "cookie_domain: window.location.hostname" in tag
+    assert "cookie_flags: \"SameSite=Lax;Secure\"" in tag
+
+    # 문서 ID 지정 시
+    tag_doc = render_ga_tag("G-TEST1234", doc_id="doc-42")
+    assert "page_location: window.location.origin + '/p/doc-42'" in tag_doc
 
 
 def test_render_graph_html_with_and_without_ga():
@@ -104,6 +110,7 @@ def test_shared_html_with_and_without_ga():
     assert "https://www.googletagmanager.com/gtag/js?id=G-SHARED42" in html_ga
     assert "G-SHARED42" in html_ga
     assert "select_content" in html_ga
+    assert "page_location: window.location.origin + '/p/doc-test-1'" in html_ga
 
 
 def test_graph_html_contains_search_and_share_event_handlers():
@@ -111,6 +118,8 @@ def test_graph_html_contains_search_and_share_event_handlers():
     assert "window.gtag('event', 'search'" in GRAPH_HTML
     assert "window.gtag('event', 'share'" in GRAPH_HTML
     assert "window.gtag('event', 'page_view'" in GRAPH_HTML
+    assert "window.gtag('event', 'select_content'" in GRAPH_HTML
+    assert "document.title = dc.title + ' — Claire Bible'" in GRAPH_HTML
 
 
 def test_dynamic_csp_policy_headers():
@@ -120,12 +129,16 @@ def test_dynamic_csp_policy_headers():
     assert "https://www.googletagmanager.com" not in csp_default
     assert "connect-src 'self';" in csp_default
 
-    # 2. GA 설정 시: googletagmanager 및 google-analytics 허용
+    # 2. GA 설정 시: googletagmanager, google-analytics 및 doubleclick 허용
     csp_ga = security._build_content_security_policy("G-SAMPLE123")
     assert "https://www.googletagmanager.com" in csp_ga
     assert "https://*.google-analytics.com" in csp_ga
+    assert "https://google-analytics.com" in csp_ga
     assert "https://*.analytics.google.com" in csp_ga
+    assert "https://analytics.google.com" in csp_ga
     assert "https://*.googletagmanager.com" in csp_ga
+    assert "https://stats.g.doubleclick.net" in csp_ga
+    assert "https://*.doubleclick.net" in csp_ga
 
 
 @pytest.mark.asyncio

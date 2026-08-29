@@ -67,8 +67,17 @@ def _build_content_security_policy(ga_measurement_id: str = "") -> str:
     script_src = "'self' 'unsafe-inline' 'unsafe-eval' https://unpkg.com"
     connect_src = "'self'"
     if ga_measurement_id:
-        script_src += " https://www.googletagmanager.com"
-        connect_src += " https://*.google-analytics.com https://*.analytics.google.com https://*.googletagmanager.com"
+        script_src += (
+            " https://www.googletagmanager.com https://*.googletagmanager.com"
+            " https://www.google-analytics.com https://*.google-analytics.com"
+            " https://google-analytics.com"
+        )
+        connect_src += (
+            " https://*.google-analytics.com https://google-analytics.com"
+            " https://*.analytics.google.com https://analytics.google.com"
+            " https://*.googletagmanager.com https://googletagmanager.com"
+            " https://stats.g.doubleclick.net https://*.doubleclick.net https://*.g.doubleclick.net"
+        )
     return (
         "default-src 'self'; "
         f"script-src {script_src}; "
