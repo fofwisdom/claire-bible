@@ -566,3 +566,21 @@ def test_document_detail_and_right_menu_includes_nodes():
 
     assert "이 문서의 지식 노드" in GRAPH_HTML
 
+
+def test_graph_performance_optimizations():
+    """지식 그래프 렌더링 성능 최적화 마커 검증."""
+    from claire.graphview import GRAPH_HTML
+
+    # 1. 초기 안정화 후 물리 엔진 정지 및 엣지 숨김 최적화
+    assert "hideEdgesOnZoom:true,hideEdgesOnDrag:true" in GRAPH_HTML
+    assert "gravitationalConstant:-12000,springLength:170" in GRAPH_HTML
+    assert "net.once('stabilizationIterationsDone', () => net.setOptions({physics:false}))" in GRAPH_HTML
+
+    # 2. clusterMatches / unclusterEdges 에서의 물리 토글
+    assert "net.setOptions({physics:true})" in GRAPH_HTML
+    assert "if(net) net.setOptions({physics:false})" in GRAPH_HTML
+
+    # 3. applyView 루프 내부의 Layout Thrashing 방지 (getComputedStyle 캐싱)
+    assert "const netBg=(typeof getComputedStyle==='function'?getComputedStyle(document.documentElement).getPropertyValue('--net-bg').trim():'')||'#ffffff';" in GRAPH_HTML
+    assert "strokeColor:netBg" in GRAPH_HTML
+
