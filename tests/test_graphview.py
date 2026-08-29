@@ -567,18 +567,23 @@ def test_document_detail_and_right_menu_includes_nodes():
     assert "이 문서의 지식 노드" in GRAPH_HTML
 
 
-def test_graph_performance_optimizations():
-    """지식 그래프 렌더링 성능 최적화 마커 검증."""
+def test_origin_graph_physics_tuning():
+    """오리진 지식 그래프 물리 수렴 튜닝 및 렌더링 최적화 검증."""
     from claire.graphview import GRAPH_HTML
 
-    # 1. 초기 안정화 후 물리 엔진 정지 및 엣지 숨김 최적화
-    assert "hideEdgesOnZoom:true,hideEdgesOnDrag:true" in GRAPH_HTML
-    assert "gravitationalConstant:-12000,springLength:170" in GRAPH_HTML
-    assert "net.once('stabilizationIterationsDone', () => net.setOptions({physics:false}))" in GRAPH_HTML
+    # 1. 물리 수렴 튜닝 (damping, minVelocity, avoidOverlap)
+    assert "damping:0.25" in GRAPH_HTML
+    assert "minVelocity:0.75" in GRAPH_HTML
+    assert "gravitationalConstant:-12000" in GRAPH_HTML
+    assert "centralGravity:0.3" in GRAPH_HTML
+    assert "springLength:150" in GRAPH_HTML
+    assert "springConstant:0.05" in GRAPH_HTML
+    assert "avoidOverlap:0.2" in GRAPH_HTML
+    # 물리를 강제로 끄지 않고 오리진의 물리 상호작용 보존
+    assert "net.once('stabilizationIterationsDone'" not in GRAPH_HTML
 
-    # 2. clusterMatches / unclusterEdges 에서의 물리 토글
-    assert "net.setOptions({physics:true})" in GRAPH_HTML
-    assert "if(net) net.setOptions({physics:false})" in GRAPH_HTML
+    # 2. 줌 이벤트 디바운스 적용
+    assert "zoomDebounceTimer" in GRAPH_HTML
 
     # 3. applyView 루프 내부의 Layout Thrashing 방지 (getComputedStyle 캐싱)
     assert "const netBg=(typeof getComputedStyle==='function'?getComputedStyle(document.documentElement).getPropertyValue('--net-bg').trim():'')||'#ffffff';" in GRAPH_HTML
