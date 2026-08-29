@@ -1088,6 +1088,7 @@ const paneNames=['docs','graph'];
 let activePane='graph', detailOpen=false, centerView='graph', drawerOpen=false;
 let detailReturnFocus=null, docSearchActive=false;
 let graphCamera = null, preservingGraphCamera = false, netBusy = false;
+let isDraggingNode = false, settleTimer = null;
 let lastNetSize = {w:0, h:0};
 let allTypes = [], allRelTypes = [], allDocs = [];
 let net = null, allNodes = null, allEdges = null;
@@ -2513,22 +2514,29 @@ fetch('graph').then(r=>{ if(!r.ok) throw new Error('graph fetch HTTP '+r.status)
       physics:{
         solver:'barnesHut',
         barnesHut:{
-          gravitationalConstant:-12000,
-          centralGravity:0.3,
-          springLength:150,
-          springConstant:0.05,
-          damping:0.25,
-          avoidOverlap:0.2
+          gravitationalConstant:-10000,
+          centralGravity:0.15,
+          springLength:140,
+          springConstant:0.04,
+          damping:0.35,
+          avoidOverlap:0
         },
         minVelocity:0.75,
         maxVelocity:50,
         timestep:0.5,
-        stabilization:{iterations:200}
+        stabilization:{iterations:100}
       },
       interaction:{hover:true,tooltipDelay:120,multiselect:true,zoomView:false}
     };
     const netEl = document.getElementById('net');
     if(netEl) net = new vis.Network(netEl, {nodes:allNodes, edges:allEdges}, opts);
+    isDraggingNode = false;
+    clearTimeout(settleTimer);
+    settleTimer = setTimeout(()=>{
+      if(net && !isDraggingNode){
+        net.setOptions({physics:false});
+      }
+    }, 2500);
     requestAnimationFrame(()=>{ relayout(); setTimeout(relayout, 300); });
     applyTouchMode();
     setupWheelZoom();
@@ -2549,8 +2557,25 @@ fetch('graph').then(r=>{ if(!r.ok) throw new Error('graph fetch HTTP '+r.status)
     return 1000;
   }
   if(net){
-    net.on('dragStart', () => { netBusy = true; });
-    net.on('dragEnd', () => { netBusy = false; rememberGraphCamera(); });
+    net.on('dragStart', p => {
+      netBusy = true;
+      hideNodePop();
+      if(p && p.nodes && p.nodes.length){
+        isDraggingNode = true;
+        clearTimeout(settleTimer);
+        net.setOptions({physics:true});
+      }
+    });
+    net.on('dragEnd', () => {
+      netBusy = false;
+      rememberGraphCamera();
+      if(isDraggingNode){
+        isDraggingNode = false;
+        setTimeout(()=>{
+          if(net && !isDraggingNode) net.setOptions({physics:false});
+        }, 800);
+      }
+    });
     net.on('animationFinished', () => {
       netBusy = false;
       clearTimeout(busyTimer);
@@ -3427,6 +3452,10 @@ function focusNode(id, pushHist=true){
   setCenterView('graph');
   revealWorkspace('graph', false, pushHist);
   if(pushHist) pushAppHistory({ pane: 'graph', nodeId: id, modal: (compactMQ.matches || mobileMQ.matches) ? 'drawer' : null });
+  if(net && !isDraggingNode){
+    clearTimeout(settleTimer);
+    net.setOptions({physics:false});
+  }
   requestAnimationFrame(()=>{
     if(net){
       relayout(true);
@@ -3474,6 +3503,7 @@ function clusterMatches(ids, done){
   unclusterEdges();
   const vs=(ids||[]).filter(id=>{ const n=allNodes&&allNodes.get(id); return n && !n.hidden; });
   if(!net || !allEdges || vs.length<2){ if(done) done(); return; }
+  net.setOptions({physics:true});
   const c=net.getViewPosition();   // 현재 화면 중앙 좌표에 앵커를 둔다
   allNodes.add({id:'cl_anchor', x:c.x, y:c.y, fixed:true, physics:true, hidden:true,
                 mass:ANCHOR_MASS, label:'', shape:'dot', size:1});
@@ -3496,6 +3526,7 @@ function unclusterEdges(){
   }
   if(clusterAnchor && allNodes){ try{ allNodes.remove(clusterAnchor); }catch(e){} }
   clusterEdges=null; clusterAnchor=null;
+  if(net && !isDraggingNode) net.setOptions({physics:false});
 }
 // 우측 '이 문서의 노드' 버튼 hover — 그래프뷰를 그 노드로 부드럽게 이동(선택/상세는 안 바꿈).
 // 우측 '이 문서의 노드' hover — 그래프 카메라를 그 노드로 옮기고(기존), 1.5초 머물면
