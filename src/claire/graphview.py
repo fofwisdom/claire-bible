@@ -1271,7 +1271,8 @@ function esc(s){return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>'
 let mouseXY={x:0,y:0};
 let lastTouchTime=0;
 function isTouchActive(){ return (Date.now()-lastTouchTime)<1200; }
-function canShowNodePop(){
+function canShowNodePop(id){
+  if(id && selectedNodeId && id === selectedNodeId) return false;
   if(window.matchMedia && window.matchMedia('(hover: none)').matches) return false;
   if(isTouchActive()) return false;
   if(detailOpen || document.body.classList.contains('detail-open') || document.body.classList.contains('reader-open')) return false;
@@ -1289,7 +1290,7 @@ let popExpandTimer=null;  // '좀 더 기다리면' 출처 문서를 펼치는 �
 // 1단계: 클라 데이터(이름·타입·연결수+관찰 첫 줄)로 즉시. 2단계: node fetch 로 관찰 3개.
 // 3단계: 더 끌면 출처 문서 1건(제목+글)을 덧붙인다(점진적 공개, 사용자 요구).
 function showNodePop(id, x, y){
-  if(!canShowNodePop()){ hideNodePop(); return; }
+  if(!canShowNodePop(id)){ hideNodePop(); return; }
   const n=allNodes&&allNodes.get(id); if(!n){ hideNodePop(); return; }
   popReqId=id; clearTimeout(popExpandTimer);
   const px = x==null?mouseXY.x:x, py = y==null?mouseXY.y:y;
@@ -1301,14 +1302,14 @@ function showNodePop(id, x, y){
   nodepop.style.display='block';
   positionPop(px, py);                  // 표시 후(폭/높이 확정) 화면 밖으로 안 나가게 배치
   fetch('node?id='+encodeURIComponent(id)).then(r=>r.json()).then(d=>{
-    if(!canShowNodePop() || popReqId!==id || nodepop.style.display==='none' || !d || d.error) return;  // 이미 떠났거나 상세 열렸으면 무시
+    if(!canShowNodePop(id) || popReqId!==id || nodepop.style.display==='none' || !d || d.error) return;  // 이미 떠났거나 상세 열렸으면 무시
     const obs=(d.observations||[]).slice(0,3);   // 관찰 최대 3개(설명이 너무 적던 문제)
     const base=head + obs.map(o=>'<div class=po>'+esc((o||'').slice(0,200))+'</div>').join('');
     nodepop.innerHTML=base; positionPop(+nodepop.dataset.x, +nodepop.dataset.y);
     const docs=d.documents||[];
     if(docs.length){                    // 좀 더 머물면 출처 문서 1건을 덧붙임
       popExpandTimer=setTimeout(()=>{
-        if(!canShowNodePop() || popReqId!==id || nodepop.style.display==='none') return;
+        if(!canShowNodePop(id) || popReqId!==id || nodepop.style.display==='none') return;
         nodepop.innerHTML=base+popSource(docs[0]);
         positionPop(+nodepop.dataset.x, +nodepop.dataset.y);
       }, 1400);
@@ -1337,7 +1338,7 @@ function hideNodePop(){
 // 타입별 노드 그룹 색(테마별 테두리). 테마 전환 시 다시 만들어 setOptions 로 적용.
 function buildGroups(){ const g={}, th=T();
   allTypes.forEach(t=>{ const c=TYPE_COLORS[t]||'#8b949e';
-    g[t]={color:{background:c,border:th.nodeBorder,highlight:{background:c,border:th.lit}}}; });
+    g[t]={color:{background:c,border:th.nodeBorder,highlight:{background:c,border:th.lit},hover:{background:c,border:th.lit}}}; });
   return g; }
 function syncThemeBtn(){ const b=document.getElementById('themebtn');
   if(b) b.textContent = curTheme()==='dark'?'🌞':'🌙'; }
@@ -2596,10 +2597,10 @@ fetch('graph').then(r=>{ if(!r.ok) throw new Error('graph fetch HTTP '+r.status)
     // 우측 패널은 클릭(inspect)일 때만 바뀐다 → hover 가 패널/선택을 흔들지 않아 복원 로직도 불필요.
     net.on('hoverNode', p => {
       clearTimeout(hoverTimer);
-      if(!canShowNodePop()) return;
+      if(!canShowNodePop(p.node)) return;
       hoverTimer=setTimeout(()=>showNodePop(p.node), 1500);
     });
-    net.on('blurNode', () => { hideNodePop(); });
+    net.on('blurNode', () => { hideNodePop(); restoreSelection(); });
     net.on('hold', hideNodePop);
     net.on('dragStart', hideNodePop);   // 드래그/줌 중엔 팝업 숨김(커서를 따라다니지 않게)
     net.on('selectEdge', p=>{ selectedEdgeIds=new Set(p.edges||[]); applyView(); });
@@ -3024,7 +3025,8 @@ function applyView(){
     if(match) matchedNodes.add(n.id);
     nodeUpdates.push({id:n.id, hidden:false, opacity: match?1:DIM, borderWidth: lit?3:1,
       color:{background:c, border: lit?th.lit:th.nodeBorder,
-             highlight:{background:c, border:th.lit}}});
+             highlight:{background:c, border:th.lit},
+             hover:{background:c, border: lit?th.lit:th.nodeBorder}}});
     shown++; if(match) emph++;
   });
   if(nodeUpdates.length) allNodes.update(nodeUpdates);  // 1회 배치(개별 호출 대신)

@@ -188,7 +188,7 @@ def test_graph_html_self_contained_markers():
     # 터치스크린 및 상세/읽기 뷰 오픈 시 롤오버 팝업 화면 가림 방지
     assert "body.detail-open #nodepop" in GRAPH_HTML and "body.reader-open #nodepop" in GRAPH_HTML
     assert "@media (hover:none)" in GRAPH_HTML
-    assert "function canShowNodePop()" in GRAPH_HTML and "isTouchActive()" in GRAPH_HTML
+    assert "function canShowNodePop" in GRAPH_HTML and "isTouchActive()" in GRAPH_HTML
     assert "clearTimeout(hoverTimer); hoverTimer=null;" in GRAPH_HTML
     assert "window.addEventListener('touchstart'" in GRAPH_HTML
     assert "window.addEventListener('pointerdown'" in GRAPH_HTML
@@ -588,4 +588,11 @@ def test_origin_graph_physics_tuning():
     # 3. applyView 루프 내부의 Layout Thrashing 방지 (getComputedStyle 캐싱)
     assert "const netBg=(typeof getComputedStyle==='function'?getComputedStyle(document.documentElement).getPropertyValue('--net-bg').trim():'')||'#ffffff';" in GRAPH_HTML
     assert "strokeColor:netBg" in GRAPH_HTML
+
+    # 4. hover/blur 노드 상호작용 및 선택 상태 보존
+    assert "net.on('blurNode', () => { hideNodePop(); restoreSelection(); });" in GRAPH_HTML
+    assert "hover:{background:c, border: lit?th.lit:th.nodeBorder}" in GRAPH_HTML
+    assert "function canShowNodePop(id){" in GRAPH_HTML
+    assert "if(id && selectedNodeId && id === selectedNodeId) return false;" in GRAPH_HTML
+
 
