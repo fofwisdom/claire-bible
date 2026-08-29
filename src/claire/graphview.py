@@ -2469,17 +2469,18 @@ fetch('graph').then(r=>{ if(!r.ok) throw new Error('graph fetch HTTP '+r.status)
     allRelTypes=[...new Set(((d && d.edges) || []).map(e=>e.label).filter(Boolean))].sort();
     renderLegend();
     const th=T();
+    const netBg = (typeof getComputedStyle==='function'?getComputedStyle(document.documentElement).getPropertyValue('--net-bg').trim():'')||'#ffffff';
     const opts = {
       nodes:{shape:'dot',size:14,font:{color:th.nodeFont,size:13},borderWidth:1,borderWidthSelected:3},
       edges:{color:{color:th.edge,highlight:th.edgeHi},
-        font:{color:th.nodeFont,size:0,strokeWidth:3,strokeColor:getComputedStyle(document.documentElement)
-          .getPropertyValue('--net-bg').trim()||'#ffffff'},smooth:false},
+        font:{color:th.nodeFont,size:0,strokeWidth:3,strokeColor:netBg},smooth:false},
       groups:buildGroups(),
-      physics:{stabilization:{iterations:200},barnesHut:{gravitationalConstant:-8000,springLength:120}},
-      interaction:{hover:true,tooltipDelay:120,multiselect:true,zoomView:false}
+      physics:{stabilization:{iterations:200},barnesHut:{gravitationalConstant:-12000,springLength:170}},
+      interaction:{hover:true,tooltipDelay:120,multiselect:true,zoomView:false,hideEdgesOnZoom:true,hideEdgesOnDrag:true}
     };
     const netEl = document.getElementById('net');
     if(netEl) net = new vis.Network(netEl, {nodes:allNodes, edges:allEdges}, opts);
+    if(net) net.once('stabilizationIterationsDone', () => net.setOptions({physics:false}));
     requestAnimationFrame(()=>{ relayout(); setTimeout(relayout, 300); });
     applyTouchMode();
     setupWheelZoom();
@@ -2944,6 +2945,7 @@ function applyView(){
   if(!allNodes) return;
   let shown=0, emph=0;
   const th=T();
+  const netBg=(typeof getComputedStyle==='function'?getComputedStyle(document.documentElement).getPropertyValue('--net-bg').trim():'')||'#ffffff';
   const pathActive = !!(pathNodes && pathNodes.size);
   const hasFilter = activeDoc || highlightSet || pathActive;
   const nodeUpdates=[], matchedNodes=new Set();
@@ -2983,7 +2985,7 @@ function applyView(){
       color:onPath ? {color:th.lit,highlight:th.lit,opacity:1}
         : {color:th.edge,highlight:th.edgeHi,opacity:muted ? 0.08 : 1},
       font:{size:labelOn?10:0,color:th.nodeFont,strokeWidth:3,
-        strokeColor:getComputedStyle(document.documentElement).getPropertyValue('--net-bg').trim()||'#ffffff'}});
+        strokeColor:netBg}});
   });
   if(edgeUpdates.length) allEdges.update(edgeUpdates);  // 1회 배치
   document.getElementById('stat').innerHTML =
@@ -3401,6 +3403,7 @@ function clusterMatches(ids, done){
   unclusterEdges();
   const vs=(ids||[]).filter(id=>{ const n=allNodes&&allNodes.get(id); return n && !n.hidden; });
   if(!net || !allEdges || vs.length<2){ if(done) done(); return; }
+  net.setOptions({physics:true});  // 안정화 후 꺼둔 물리를 뭉치는 동안만 다시 켬
   const c=net.getViewPosition();   // 현재 화면 중앙 좌표에 앵커를 둔다
   allNodes.add({id:'cl_anchor', x:c.x, y:c.y, fixed:true, physics:true, hidden:true,
                 mass:ANCHOR_MASS, label:'', shape:'dot', size:1});
@@ -3423,6 +3426,7 @@ function unclusterEdges(){
   }
   if(clusterAnchor && allNodes){ try{ allNodes.remove(clusterAnchor); }catch(e){} }
   clusterEdges=null; clusterAnchor=null;
+  if(net) net.setOptions({physics:false});  // 뭉치기 끝 — 성능을 위해 다시 끔
 }
 // 우측 '이 문서의 노드' 버튼 hover — 그래프뷰를 그 노드로 부드럽게 이동(선택/상세는 안 바꿈).
 // 우측 '이 문서의 노드' hover — 그래프 카메라를 그 노드로 옮기고(기존), 1.5초 머물면
