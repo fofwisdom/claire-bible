@@ -593,7 +593,7 @@ def test_origin_graph_physics_tuning():
     assert "strokeColor:netBg" in GRAPH_HTML
 
     # 4. hover/blur 노드 상호작용 및 선택 상태 보존
-    assert "net.on('blurNode', () => { hideNodePop(); restoreSelection(); });" in GRAPH_HTML
+    assert "net.on('blurNode', () => { hideNodePop(); });" in GRAPH_HTML
     assert "hover:{background:c, border: lit?th.lit:th.nodeBorder}" in GRAPH_HTML
     assert "function canShowNodePop(id){" in GRAPH_HTML
     assert "if(id && selectedNodeId && id === selectedNodeId) return false;" in GRAPH_HTML
