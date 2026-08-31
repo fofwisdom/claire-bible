@@ -1273,8 +1273,8 @@ function esc(s){return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>'
 let mouseXY={x:0,y:0};
 function canShowNodePop(id){
   const isMobile = (compactMQ && compactMQ.matches) || (mobileMQ && mobileMQ.matches);
-  if(!isMobile && id && selectedNodeId && id === selectedNodeId && detailOpen) return false;
-  if(detailOpen || document.body.classList.contains('detail-open') || document.body.classList.contains('reader-open') || document.body.classList.contains('drawer-open')) return false;
+  if(document.body.classList.contains('detail-open') || document.body.classList.contains('reader-open') || document.body.classList.contains('drawer-open')) return false;
+  if(isMobile && (drawerOpen || detailOpen)) return false;
   return true;
 }
 window.addEventListener('pointerdown', e=>{
@@ -1329,10 +1329,20 @@ function popSource(d){
     (body?'<div class=psb>'+esc(body.slice(0,240))+(body.length>240?'…':'')+'</div>':'')+'</div>';
 }
 function positionPop(x, y){
-  const pad=14, pw=nodepop.offsetWidth, ph=nodepop.offsetHeight;
+  const pad=14, pw=nodepop.offsetWidth || 280, ph=nodepop.offsetHeight || 120;
   let nx=x+pad, ny=y+pad;
-  if(nx+pw > window.innerWidth-4) nx=x-pad-pw;     // 오른쪽 넘치면 커서 왼쪽으로
-  if(ny+ph > window.innerHeight-4) ny=y-pad-ph;    // 아래 넘치면 커서 위로
+  const isMobile = (compactMQ && compactMQ.matches) || (mobileMQ && mobileMQ.matches);
+  if(isMobile){
+    if(nx + pw > window.innerWidth - 8){
+      nx = Math.max(12, window.innerWidth - pw - 12);
+    }
+    if(ny + ph > window.innerHeight - 56){
+      ny = Math.max(50, y - pad - ph);
+    }
+  } else {
+    if(nx+pw > window.innerWidth-4) nx=x-pad-pw;     // 오른쪽 넘치면 커서 왼쪽으로
+    if(ny+ph > window.innerHeight-4) ny=y-pad-ph;    // 아래 넘치면 커서 위로
+  }
   nodepop.style.left=Math.max(4,nx)+'px'; nodepop.style.top=Math.max(4,ny)+'px';
 }
 function hideNodePop(){
@@ -2623,13 +2633,31 @@ fetch('graph').then(r=>{ if(!r.ok) throw new Error('graph fetch HTTP '+r.status)
       if(ev && (ev.ctrlKey||ev.metaKey) && canWrite()){ hideNodePop(); toggleSynth(id); } // owner만 종합 수집
       else {
         const isMobile = (compactMQ && compactMQ.matches) || (mobileMQ && mobileMQ.matches);
-        let px = (p.pointer && p.pointer.DOM && p.pointer.DOM.x) || (ev && ev.clientX);
-        let py = (p.pointer && p.pointer.DOM && p.pointer.DOM.y) || (ev && ev.clientY);
+        let px = null, py = null;
+        if(ev){
+          if(ev.clientX != null && ev.clientY != null){
+            px = ev.clientX; py = ev.clientY;
+          } else if(ev.changedTouches && ev.changedTouches[0]){
+            px = ev.changedTouches[0].clientX; py = ev.changedTouches[0].clientY;
+          } else if(ev.touches && ev.touches[0]){
+            px = ev.touches[0].clientX; py = ev.touches[0].clientY;
+          }
+        }
         if(px == null || py == null){
           try {
-            const pos = net.canvasToDOM(net.getPosition(id));
-            px = pos.x; py = pos.y;
+            const netRect = netEl ? netEl.getBoundingClientRect() : { left: 0, top: 0 };
+            if(p.pointer && p.pointer.DOM){
+              px = p.pointer.DOM.x + netRect.left;
+              py = p.pointer.DOM.y + netRect.top;
+            } else {
+              const domPos = net.canvasToDOM(net.getPosition(id));
+              px = domPos.x + netRect.left;
+              py = domPos.y + netRect.top;
+            }
           } catch(_) {}
+        }
+        if(px == null || py == null){
+          px = mouseXY.x; py = mouseXY.y;
         }
         if(isMobile){
           // 모바일: 탭 시 마우스 롤오버 요약 팝업 표시 및 노드 선택
@@ -2653,12 +2681,20 @@ fetch('graph').then(r=>{ if(!r.ok) throw new Error('graph fetch HTTP '+r.status)
     // hover → 1.5초 뒤 마우스 위치에 작은 요약 팝업(우측 패널은 안 건드림 — 난잡함 해소, 사용자 요구).
     // 우측 패널은 클릭(inspect)일 때만 바뀐다 → hover 가 패널/선택을 흔들지 않아 복원 로직도 불필요.
     net.on('hoverNode', p => {
+      const isMobile = (compactMQ && compactMQ.matches) || (mobileMQ && mobileMQ.matches);
+      if(isMobile) return;
       clearTimeout(hoverTimer);
       if(!canShowNodePop(p.node)) return;
       hoverTimer=setTimeout(()=>showNodePop(p.node), 1500);
     });
-    net.on('blurNode', () => { hideNodePop(); });
-    net.on('hold', hideNodePop);
+    net.on('blurNode', () => {
+      const isMobile = (compactMQ && compactMQ.matches) || (mobileMQ && mobileMQ.matches);
+      if(!isMobile) hideNodePop();
+    });
+    net.on('hold', () => {
+      const isMobile = (compactMQ && compactMQ.matches) || (mobileMQ && mobileMQ.matches);
+      if(!isMobile) hideNodePop();
+    });
     net.on('dragStart', hideNodePop);   // 드래그/줌 중엔 팝업 숨김(커서를 따라다니지 않게)
     net.on('selectEdge', p=>{ selectedEdgeIds=new Set(p.edges||[]); applyView(); });
     net.on('deselectEdge', ()=>{ selectedEdgeIds.clear(); applyView(); });

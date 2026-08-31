@@ -2484,9 +2484,14 @@ setTimeout(async () => {
   clickHandler({
     nodes: ['n1'],
     pointer: { DOM: { x: 100, y: 150 } },
-    event: { srcEvent: {} }
+    event: { srcEvent: { changedTouches: [{ clientX: 120, clientY: 180 }] } }
   });
   await new Promise(r => setTimeout(r, 40));
+
+  // Simulate vis-network firing blurNode and hold right after tap on mobile:
+  if (netCallbacks['blurNode']) netCallbacks['blurNode']();
+  if (netCallbacks['hold']) netCallbacks['hold']();
+  await new Promise(r => setTimeout(r, 20));
 
   const dbg1 = window.__getDebug();
   const firstTapResult = {
