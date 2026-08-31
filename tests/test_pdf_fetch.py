@@ -127,3 +127,73 @@ def test_fetch_web_pdf_url(monkeypatch):
     assert doc.meta["fetch_via"] == "static"
     assert doc.canonical_url == "https://nber.org/system/files/working_papers/w35574/w35574.pdf"
 
+
+def test_fetch_static_detects_pdf_content_type(monkeypatch):
+    """_fetch_static이 Content-Type: application/pdf 및 쿼리 URL을 PDF로 올바르게 판정하는지 검증."""
+    from claire.ingest.fetchers.web import _fetch_static
+
+    fake_pdf = b"%PDF-1.4 sample content"
+
+    monkeypatch.setattr(
+        "claire.ingest.fetchers.pdf.extract_pdf_bytes",
+        lambda data, url=None, fallback_title=None: (
+            "KDB Smart Construction",
+            "Smart Construction Research Content in full detail",
+            ["https://example.com/ref"],
+            {},
+            None,
+            [],
+        ),
+    )
+
+    class FakeResponse:
+        status_code = 200
+        url = "https://file.kdb.co.kr/fileView?groupId=F5A76F50&fileId=4E3E5F35"
+        headers = {"content-type": "application/pdf; charset=utf-8"}
+        content = fake_pdf
+        text = ""
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            pass
+        def get(self, url):
+            return FakeResponse()
+
+    monkeypatch.setattr("httpx.Client", FakeClient)
+
+    title, text, links, anchors, err, eff_url, imgs, is_pdf = _fetch_static(
+        "https://file.kdb.co.kr/fileView?groupId=F5A76F50&fileId=4E3E5F35"
+    )
+    assert is_pdf is True
+    assert err is None
+    assert title == "KDB Smart Construction"
+    assert "Smart Construction" in text
+    assert eff_url == "https://file.kdb.co.kr/fileView?groupId=F5A76F50&fileId=4E3E5F35"
+
+
+def test_fetch_file_magic_bytes_without_pdf_extension(tmp_path: Path, monkeypatch):
+    """확장자가 없는 파일이라도 %PDF- 매직 바이트가 있으면 source_type='pdf'로 처리되는지 검증."""
+    monkeypatch.setattr(
+        "claire.ingest.fetchers.pdf.extract_pdf_bytes",
+        lambda data, url=None, fallback_title=None: (
+            "Magic Header PDF",
+            "PDF text content without extension.",
+            [],
+            {},
+            None,
+            [],
+        ),
+    )
+    doc_path = tmp_path / "downloaded_blob"
+    doc_path.write_bytes(b"%PDF-1.7 binary data")
+
+    doc = fetch_file(str(doc_path))
+    assert doc.source_type == "pdf"
+    assert doc.title == "Magic Header PDF"
+    assert "PDF text content" in doc.raw_text
+    assert doc.meta["raw_truncated"] is False
+

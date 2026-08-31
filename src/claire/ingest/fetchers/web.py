@@ -61,7 +61,9 @@ _IMG_MIN_DIM = 150      # width/height 속성이 명시돼 있고 이보다 작�
 
 def fetch_web(url: str) -> Document:
     via = "static"
-    title, text, links, anchors, err, effective_url, images = _fetch_static(url)
+    res = _fetch_static(url)
+    title, text, links, anchors, err, effective_url, images = res[:7]
+    is_pdf = bool(res[7]) if len(res) > 7 else False
     usable, guard_err = _is_usable(title, text)
 
     # 2) law.go.kr 에스컬레이션 — 국가법령정보센터 iframe / ajax 구조 해소
@@ -77,13 +79,13 @@ def fetch_web(url: str) -> Document:
                     l_title or title, l_text, l_links or links, l_anchors or anchors,
                     l_images or images, "law"
                 )
-                usable, guard_err = True, None
+                usable, guard_err, is_pdf = True, None, False
             elif len(l_text) > len(text or ""):
                 title, text, links, anchors, images, via = (
                     l_title or title, l_text, l_links or links, l_anchors or anchors,
                     l_images or images, "law"
                 )
-                usable, guard_err = l_usable, l_guard_err
+                usable, guard_err, is_pdf = l_usable, l_guard_err, False
 
     # 3) Discourse JSON 에스컬레이션
     if not usable:
@@ -95,26 +97,28 @@ def fetch_web(url: str) -> Document:
             d_usable, d_guard_err = _is_usable(d_title or title, d_text)
             if d_usable:
                 title, text, links, via = d_title or title, d_text, d_links or links, "discourse"
-                usable, guard_err = True, None
+                usable, guard_err, is_pdf = True, None, False
             elif len(d_text) > len(text or ""):
                 title, text, links, via = d_title or title, d_text, d_links or links, "discourse"
-                usable, guard_err = d_usable, d_guard_err
+                usable, guard_err, is_pdf = d_usable, d_guard_err, False
 
     # 4) Scrapling Fetcher 에스컬레이션 — curl-cffi + browserforge 헤더 위장.
     #    브라우저 불필요. 정적 UA 를 막는 봇차단(예: openai.com 403)을 우회.
     if not usable:
-        c_title, c_text, c_links, c_anchors, c_images = _fetch_scrapling(url)
+        c_res = _fetch_scrapling(url)
+        c_title, c_text, c_links, c_anchors, c_images = c_res[:5]
+        c_is_pdf = bool(c_res[5]) if len(c_res) > 5 else False
         c_usable, c_guard_err = _is_usable(c_title or title, c_text)
         if c_usable:
             title, text, links, anchors, images, via = (
                 c_title or title, c_text, c_links or links, c_anchors or anchors,
                 c_images or images, "scrapling")
-            usable, guard_err = True, None
+            usable, guard_err, is_pdf = True, None, c_is_pdf
         elif c_text and len(c_text) > len(text or ""):
             title, text, links, anchors, images, via = (
                 c_title or title, c_text, c_links or links, c_anchors or anchors,
                 c_images or images, "scrapling")
-            usable, guard_err = c_usable, c_guard_err
+            usable, guard_err, is_pdf = c_usable, c_guard_err, c_is_pdf
 
     # 4) CDP(nodriver) 에스컬레이션 — 실제 Chromium 렌더링. 최후수단(느림, 브라우저 필요).
     if not usable:
@@ -124,12 +128,12 @@ def fetch_web(url: str) -> Document:
             title, text, links, anchors, images, via = (
                 d_title or title, d_text, d_links or links, d_anchors or anchors,
                 d_images or images, "cdp")
-            usable, guard_err = True, None
+            usable, guard_err, is_pdf = True, None, False
         elif d_text and len(d_text) > len(text or ""):
             title, text, links, anchors, images, via = (
                 d_title or title, d_text, d_links or links, d_anchors or anchors,
                 d_images or images, "cdp")
-            usable, guard_err = d_usable, d_guard_err
+            usable, guard_err, is_pdf = d_usable, d_guard_err, False
 
     # thin-guard & content-guard: 체인 끝까지 미달/차단이면 실패 처리(raw_inbox error → replay-failed 대상)
     if not usable:
@@ -145,8 +149,9 @@ def fetch_web(url: str) -> Document:
 
     # link_anchors: 1홉 자동확장 LLM 선별용 신호(url→앵커 텍스트). links 와 같은 상한.
     anchor_pairs = [{"url": u, "anchor": anchors.get(u, "")} for u in links[:50]]
-    is_pdf = (
-        url.lower().split("?", 1)[0].endswith(".pdf")
+    is_pdf = bool(
+        is_pdf
+        or url.lower().split("?", 1)[0].endswith(".pdf")
         or (effective_url and effective_url.lower().split("?", 1)[0].endswith(".pdf"))
         or via == "pdf"
     )
@@ -179,8 +184,8 @@ def fetch_web(url: str) -> Document:
 
 def _fetch_static(
     url: str,
-) -> tuple[str | None, str, list[str], dict[str, str], str | None, str | None, list[dict]]:
-    """(title, text, links, anchors, error, effective_url, images). httpx + lxml.
+) -> tuple[str | None, str, list[str], dict[str, str], str | None, str | None, list[dict], bool]:
+    """(title, text, links, anchors, error, effective_url, images, is_pdf). httpx + lxml.
 
     effective_url 은 httpx 의 follow_redirects 가 따라간 최종 URL(resp.url) — dedup 의
     canonical 기준. 실패하면 None. 실패해도 예외 대신 빈 결과를 돌려준다. images 는
@@ -193,11 +198,17 @@ def _fetch_static(
                           headers={"User-Agent": _UA}) as client:
             resp = client.get(url)
         if resp.status_code >= 400:
-            return None, "", [], {}, f"http {resp.status_code} for {url}", None, []
+            return None, "", [], {}, f"http {resp.status_code} for {url}", None, [], False
 
         ctype = resp.headers.get("content-type", "").lower()
+        cdisp = resp.headers.get("content-disposition", "").lower()
         if (
             "application/pdf" in ctype
+            or "application/x-pdf" in ctype
+            or "application/vnd.pdf" in ctype
+            or "application/acrobat" in ctype
+            or "text/pdf" in ctype
+            or ".pdf" in cdisp
             or str(resp.url).lower().split("?", 1)[0].endswith(".pdf")
             or resp.content.startswith(b"%PDF-")
         ):
@@ -207,13 +218,13 @@ def _fetch_static(
             title, text, links, anchors, perr, images = extract_pdf_bytes(
                 resp.content, url=str(resp.url), fallback_title=fallback
             )
-            return title, text, links, anchors, perr, str(resp.url), images
+            return title, text, links, anchors, perr, str(resp.url), images, True
 
         title, text, links, anchors, perr, images = _extract_html(
             resp.text, base_url=str(resp.url))
-        return title, text, links, anchors, perr, str(resp.url), images
+        return title, text, links, anchors, perr, str(resp.url), images, False
     except Exception as e:  # noqa: BLE001
-        return None, "", [], {}, f"fetch failed: {e}", None, []
+        return None, "", [], {}, f"fetch failed: {e}", None, [], False
 
 
 def _extract_html(
@@ -395,7 +406,9 @@ def _collect_images(tree, og_image: str | None) -> list[dict]:
     return out[:_MAX_IMAGES]
 
 
-def _fetch_scrapling(url: str) -> tuple[str | None, str, list[str], dict[str, str], list[dict]]:
+def _fetch_scrapling(
+    url: str,
+) -> tuple[str | None, str, list[str], dict[str, str], list[dict], bool]:
     """Scrapling Fetcher (curl-cffi + browserforge 스텔스 헤더). 브라우저 불필요.
 
     정적 httpx UA 를 403 으로 막는 봇차단(예: openai.com)을, 브라우저 지문에
@@ -408,23 +421,39 @@ def _fetch_scrapling(url: str) -> tuple[str | None, str, list[str], dict[str, st
         page = Fetcher.get(url, stealthy_headers=True, timeout=30)
         status = getattr(page, "status", 200)
         if status and status >= 400:
-            return None, "", [], {}, []
+            return None, "", [], {}, [], False
 
         body = getattr(page, "body", None)
-        if (body and isinstance(body, bytes) and body.startswith(b"%PDF-")) or url.lower().split("?", 1)[0].endswith(".pdf"):
+        ctype = str(
+            getattr(page, "content_type", "")
+            or (getattr(page, "headers", {}) or {}).get("content-type", "")
+        ).lower()
+        cdisp = str(
+            (getattr(page, "headers", {}) or {}).get("content-disposition", "")
+        ).lower()
+        if (
+            "application/pdf" in ctype
+            or "application/x-pdf" in ctype
+            or "application/vnd.pdf" in ctype
+            or "application/acrobat" in ctype
+            or "text/pdf" in ctype
+            or ".pdf" in cdisp
+            or (body and isinstance(body, bytes) and body.startswith(b"%PDF-"))
+            or url.lower().split("?", 1)[0].endswith(".pdf")
+        ):
             from .pdf import extract_pdf_bytes
 
             raw_bytes = body if isinstance(body, bytes) else str(body).encode("latin1", errors="ignore")
             title, text, links, anchors, _, images = extract_pdf_bytes(
                 raw_bytes, url=url, fallback_title=url.split("/")[-1].split("?")[0]
             )
-            return title, text, links, anchors, images
+            return title, text, links, anchors, images, True
 
         html = getattr(page, "html_content", "") or ""
         title, text, links, anchors, _, images = _extract_html(str(html), base_url=url)
-        return title, text, links, anchors, images
+        return title, text, links, anchors, images, False
     except Exception:  # noqa: BLE001
-        return None, "", [], {}, []
+        return None, "", [], {}, [], False
 
 
 def _fetch_cdp(url: str) -> tuple[str | None, str, list[str], dict[str, str], list[dict]]:
