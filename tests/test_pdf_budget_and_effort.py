@@ -73,6 +73,38 @@ def test_pdf_budget_in_fetch_web(monkeypatch: pytest.MonkeyPatch):
     assert not doc.meta["raw_truncated"]
 
 
+def test_pdf_budget_in_fetch_web_query_url(monkeypatch: pytest.MonkeyPatch):
+    """URL에 .pdf 확장자가 없는 쿼리 스트링 URL(예: KDB fileView)도 source_type='pdf' 및 50,000자 예산이 적용되는지 검증."""
+    monkeypatch.setenv("CLAIRE_PDF_MAX_EXTRACT_CHARS", "50000")
+    monkeypatch.setenv("CLAIRE_RAW_CHAR_BUDGET", "20000")
+    from claire.config import get_settings
+    get_settings.cache_clear()
+
+    # 45,000자 대형 연구 보고서 텍스트
+    report_text = "KDB 산은조사월보 스마트 건설 현황과 시사점 " * 1500  # ~45,000자
+    query_url = "https://file.kdb.co.kr/fileView?groupId=F5A76F50-0120-6AEC-D82E-643C87B02A5D&fileId=4E3E5F35-13C7-41E6-25C6-AD8DB2BE1BDC"
+
+    with patch("claire.ingest.fetchers.web._fetch_static") as mock_static:
+        mock_static.return_value = (
+            "스마트 건설 현황과 시사점",
+            report_text,
+            [],
+            {},
+            None,
+            query_url,
+            [],
+            True,  # is_pdf=True
+        )
+        doc = fetch_web(query_url)
+
+    assert doc.source_type == "pdf"
+    assert doc.title == "스마트 건설 현황과 시사점"
+    # raw_char_budget(20,000 / 25,000)으로 잘리지 않고 45,000자 전체가 보존되어야 함
+    assert len(doc.raw_text) == len(report_text)
+    assert doc.meta["raw_chars"] == len(report_text)
+    assert doc.meta["raw_truncated"] is False
+
+
 def test_pdf_extract_stream_full_page_and_true_orig_chars(monkeypatch: pytest.MonkeyPatch):
     """PDF 추출 시 페이지 루프에서 조기 중단하지 않고 전체 원문 길이를 측정하여 슬라이싱하는지 검증."""
     import pypdf

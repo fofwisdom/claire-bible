@@ -31,19 +31,20 @@ def fetch_file(path: str) -> Document:
 
         raise FetchError(f"file not found: {path}")
     suffix = p.suffix.lower()
-    if suffix in {".md", ".txt", ".markdown", ".rst", ""}:
-        text = p.read_text(encoding="utf-8", errors="ignore")
-        title = p.stem
-        source_type = "file"
-    elif suffix == ".pdf":
+    raw_bytes = p.read_bytes()
+    if suffix == ".pdf" or raw_bytes.startswith(b"%PDF-"):
         from .pdf import extract_pdf_bytes
 
-        title, text, _, _, perr, _ = extract_pdf_bytes(p.read_bytes(), fallback_title=p.stem)
+        title, text, _, _, perr, _ = extract_pdf_bytes(raw_bytes, fallback_title=p.stem)
         if perr or not text:
             from .base import FetchError
 
             raise FetchError(perr or f"empty PDF file: {path}")
         source_type = "pdf"
+    elif suffix in {".md", ".txt", ".markdown", ".rst", ""}:
+        text = raw_bytes.decode(encoding="utf-8", errors="ignore")
+        title = p.stem
+        source_type = "file"
     else:
         from .base import FetchError
 
