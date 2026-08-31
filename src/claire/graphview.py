@@ -685,22 +685,23 @@ GRAPH_HTML = """<!doctype html>
     width:16px;flex:1;min-height:80px;margin:0;padding:0;cursor:pointer;accent-color:var(--accent);background:transparent}
   /* ==형광== 강조 — render_detail/요약이 LLM 으로 표시한 핵심 구절(마크다운 후 <mark>). */
   mark{background:var(--mark-bg);color:var(--mark-fg);padding:0 .15em;border-radius:2px}
-  /* 노드 hover 팝업 */
-  #nodepop{position:fixed;z-index:70;max-width:340px;background:var(--card-bg);color:var(--fg);
+  /* 노드 hover 및 모바일 탭 요약 팝업 */
+  #nodepop{position:fixed;z-index:70;max-width:min(340px,calc(100vw - 24px));background:var(--card-bg);color:var(--fg);
     border:1px solid var(--border);border-radius:7px;box-shadow:0 6px 22px var(--shadow);
-    padding:8px 11px;font-size:12px;line-height:1.45;pointer-events:none;display:none}
+    padding:8px 11px;font-size:12px;line-height:1.45;pointer-events:auto;display:none}
   #nodepop b{font-size:13px} #nodepop .pt{color:var(--muted);font-size:11px}
   #nodepop .po{margin-top:.4em} #nodepop i{display:inline-block;width:8px;height:8px;
     border-radius:50%;margin-right:5px;vertical-align:middle}
   #nodepop .psrc{margin-top:.55em;border-top:1px solid var(--border);padding-top:.45em}
   #nodepop .ptt{font-weight:600;color:var(--accent);margin-bottom:.25em}
   #nodepop .psb{color:var(--muted);font-size:11px;line-height:1.45}
+  #nodepop .pact{margin-top:.5em;text-align:right;border-top:1px dashed var(--border);padding-top:.35em}
+  #nodepop .pact button{background:transparent;color:var(--accent);border:0;padding:2px 4px;font-size:11px;cursor:pointer;font-weight:600}
+  #nodepop .phead{display:flex;justify-content:space-between;align-items:flex-start;gap:6px}
+  #nodepop .pclose{background:transparent;border:0;color:var(--muted);cursor:pointer;padding:0 2px;font-size:13px;line-height:1}
   body.detail-open #nodepop,
   body.drawer-open #nodepop,
   body.reader-open #nodepop{display:none!important}
-  @media (hover:none){
-    #nodepop{display:none!important}
-  }
   #panel input[type=radio]{width:auto;vertical-align:middle}
   /* --- 마크다운 본문(읽기 팝업 + 패널 detail) --- */
   .md{line-height:1.75;font-size:14px;word-break:keep-all;overflow-wrap:break-word}
@@ -1267,20 +1268,21 @@ function defaultHint(){
 if(panel) panel.innerHTML = defaultHint();
 function esc(s){return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 
-// --- 노드 hover 요약 팝업(마우스 위치) — fetch 없이 클라 데이터(allNodes)만 쓴다 ---
+// --- 노드 hover 및 모바일 탭 요약 팝업(마우스/탭 위치) — fetch 없이 클라 데이터(allNodes)만 쓴다 ---
 // vis hoverNode 이벤트는 진입 위치를 안 주므로 #net 위 mousemove 로 커서 좌표를 추적해 둔다.
 let mouseXY={x:0,y:0};
-let lastTouchTime=0;
-function isTouchActive(){ return (Date.now()-lastTouchTime)<1200; }
 function canShowNodePop(id){
-  if(id && selectedNodeId && id === selectedNodeId) return false;
-  if(window.matchMedia && window.matchMedia('(hover: none)').matches) return false;
-  if(isTouchActive()) return false;
-  if(detailOpen || document.body.classList.contains('detail-open') || document.body.classList.contains('reader-open')) return false;
+  const isMobile = (compactMQ && compactMQ.matches) || (mobileMQ && mobileMQ.matches);
+  if(!isMobile && id && selectedNodeId && id === selectedNodeId && detailOpen) return false;
+  if(detailOpen || document.body.classList.contains('detail-open') || document.body.classList.contains('reader-open') || document.body.classList.contains('drawer-open')) return false;
   return true;
 }
-window.addEventListener('touchstart', ()=>{ lastTouchTime=Date.now(); hideNodePop(); }, {passive:true,capture:true});
-window.addEventListener('pointerdown', e=>{ if(e.pointerType==='touch'){ lastTouchTime=Date.now(); hideNodePop(); } }, {passive:true,capture:true});
+window.addEventListener('pointerdown', e=>{
+  const np = document.getElementById('nodepop');
+  if(np && np.style.display!=='none' && !np.contains(e.target) && !e.target.closest('#net')){
+    hideNodePop();
+  }
+}, {passive:true});
 const netEl = document.getElementById('net');
 if(netEl) netEl.addEventListener('mousemove', e=>{ mouseXY.x=e.clientX; mouseXY.y=e.clientY; });
 const nodepop = document.getElementById('nodepop');
@@ -1297,21 +1299,24 @@ function showNodePop(id, x, y){
   const px = x==null?mouseXY.x:x, py = y==null?mouseXY.y:y;
   nodepop.dataset.x=px; nodepop.dataset.y=py;   // fetch 보강 후 재배치에 쓰려고 보관
   const c=TYPE_COLORS[n.group]||'#8b949e';
-  const head='<b>'+esc(n.label)+'</b> <span class=pt>'+esc(n.group||'')+'</span>'+
+  const isMobile = (compactMQ && compactMQ.matches) || (mobileMQ && mobileMQ.matches);
+  const head='<div class=phead><div><b>'+esc(n.label)+'</b> <span class=pt>'+esc(n.group||'')+'</span></div>'+
+    '<button type="button" class=pclose onclick="event.stopPropagation();hideNodePop()" aria-label="닫기">✕</button></div>'+
     '<div class=pt><i style="background:'+c+'"></i>연결 '+(n.degree||0)+'개</div>';
-  nodepop.innerHTML=head+(n.obs?'<div class=po>'+esc(n.obs)+'</div>':'');
+  const foot=isMobile?'<div class=pact><button type="button" onclick="event.stopPropagation();hideNodePop();openDetailPane()">자세히 보기 ›</button></div>':'';
+  nodepop.innerHTML=head+(n.obs?'<div class=po>'+esc(n.obs)+'</div>':'')+foot;
   nodepop.style.display='block';
   positionPop(px, py);                  // 표시 후(폭/높이 확정) 화면 밖으로 안 나가게 배치
   fetch('node?id='+encodeURIComponent(id)).then(r=>r.json()).then(d=>{
     if(!canShowNodePop(id) || popReqId!==id || nodepop.style.display==='none' || !d || d.error) return;  // 이미 떠났거나 상세 열렸으면 무시
     const obs=(d.observations||[]).slice(0,3);   // 관찰 최대 3개(설명이 너무 적던 문제)
     const base=head + obs.map(o=>'<div class=po>'+esc((o||'').slice(0,200))+'</div>').join('');
-    nodepop.innerHTML=base; positionPop(+nodepop.dataset.x, +nodepop.dataset.y);
+    nodepop.innerHTML=base+foot; positionPop(+nodepop.dataset.x, +nodepop.dataset.y);
     const docs=d.documents||[];
     if(docs.length){                    // 좀 더 머물면 출처 문서 1건을 덧붙임
       popExpandTimer=setTimeout(()=>{
         if(!canShowNodePop(id) || popReqId!==id || nodepop.style.display==='none') return;
-        nodepop.innerHTML=base+popSource(docs[0]);
+        nodepop.innerHTML=base+popSource(docs[0])+foot;
         positionPop(+nodepop.dataset.x, +nodepop.dataset.y);
       }, 1400);
     }
@@ -2604,19 +2609,46 @@ fetch('graph').then(r=>{ if(!r.ok) throw new Error('graph fetch HTTP '+r.status)
       return _moveTo(opts);
     };
     net.on('click', p => {
-      hideNodePop();
       if(!p.nodes.length){
         // 빈 캔버스 클릭: inspect 만 해제하고 검색(라벨/의미) 강조 선택은 유지(이슈4).
         // vis 가 내부적으로 선택을 비우므로 그 뒤에 검색 선택을 다시 적용한다.
+        hideNodePop();
         selectedNodeId=null;
         applyView();
         if(highlightSet && highlightSet.size) setTimeout(restoreSelection, 0);
         return;
       }
       const id=p.nodes[0], ev=p.event.srcEvent;
-      if(pathMode){ pickPathNode(id); return; }                // 경로 모드: 클릭으로 시작/끝 노드 지정
-      if(ev && (ev.ctrlKey||ev.metaKey) && canWrite()){ toggleSynth(id); } // owner만 종합 수집
-      else { selectedNodeId=id; loadNode(id); openDetailPane(); }  // 일반 클릭/탭 = 문맥 상세 inspect
+      if(pathMode){ hideNodePop(); pickPathNode(id); return; }                // 경로 모드: 클릭으로 시작/끝 노드 지정
+      if(ev && (ev.ctrlKey||ev.metaKey) && canWrite()){ hideNodePop(); toggleSynth(id); } // owner만 종합 수집
+      else {
+        const isMobile = (compactMQ && compactMQ.matches) || (mobileMQ && mobileMQ.matches);
+        let px = (p.pointer && p.pointer.DOM && p.pointer.DOM.x) || (ev && ev.clientX);
+        let py = (p.pointer && p.pointer.DOM && p.pointer.DOM.y) || (ev && ev.clientY);
+        if(px == null || py == null){
+          try {
+            const pos = net.canvasToDOM(net.getPosition(id));
+            px = pos.x; py = pos.y;
+          } catch(_) {}
+        }
+        if(isMobile){
+          // 모바일: 탭 시 마우스 롤오버 요약 팝업 표시 및 노드 선택
+          // 이미 팝업이 떠 있는 동일 노드를 다시 탭하면 상세 서랍을 열어준다
+          if(selectedNodeId === id && nodepop && nodepop.style.display !== 'none'){
+            hideNodePop();
+            openDetailPane();
+          } else {
+            selectedNodeId=id;
+            loadNode(id, false);
+            showNodePop(id, px, py);
+          }
+        } else {
+          hideNodePop();
+          selectedNodeId=id;
+          loadNode(id, true);
+          openDetailPane();
+        }
+      }
     });
     // hover → 1.5초 뒤 마우스 위치에 작은 요약 팝업(우측 패널은 안 건드림 — 난잡함 해소, 사용자 요구).
     // 우측 패널은 클릭(inspect)일 때만 바뀐다 → hover 가 패널/선택을 흔들지 않아 복원 로직도 불필요.
@@ -2680,8 +2712,8 @@ document.addEventListener('keydown', e=>{
   if(document.body.classList.contains('detail-open')){ closeDetailPane(true); return; }
   clearSelections(); });
 
-function loadNode(id){
-  hideNodePop();
+function loadNode(id, hidePop=true){
+  if(hidePop) hideNodePop();
   if(net) net.selectNodes([id]);   // 클릭 inspect — hover 는 더 이상 패널을 안 쓴다(팝업으로 분리)
   applyView();                     // 선택 노드 주변 엣지만 강조하고 관계 라벨을 펼친다
   fetch('node?id='+encodeURIComponent(id)).then(r=>r.json()).then(renderPanel);

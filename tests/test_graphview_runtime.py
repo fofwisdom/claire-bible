@@ -2227,6 +2227,360 @@ setTimeout(async () => {
         Path(runner_file).unlink(missing_ok=True)
 
 
+def test_mobile_node_tap_popup_runtime(node_available: bool) -> None:
+    """Simulates mobile node tap interaction and verifies popup display.
+
+    Verifies:
+    1. Tapping a node in mobile mode shows #nodepop with label, degree, and action buttons.
+    2. Mobile 1st tap keeps detail drawer closed so the graph remains unobscured.
+    3. Tapping empty canvas hides #nodepop.
+    4. Tapping the same node again opens detail pane.
+    """
+    if not node_available:
+        pytest.skip("Node.js is not installed on the system")
+
+    scripts = extract_scripts(GRAPH_HTML)
+    assert len(scripts) >= 1
+    main_script = scripts[-1]
+
+    runner_code = r"""
+const fs = require('fs');
+
+class MockElement {
+  constructor(tag, id = '') {
+    this.tagName = (tag || 'div').toUpperCase();
+    this.id = id;
+    this.className = '';
+    this.classList = {
+      _classes: new Set(),
+      add(...cls) { cls.forEach(c => this._classes.add(c)); },
+      remove(...cls) { cls.forEach(c => this._classes.delete(c)); },
+      contains(c) { return this._classes.has(c); },
+      toggle(c, force) {
+        if (force === undefined) {
+          if (this._classes.has(c)) this._classes.delete(c);
+          else this._classes.add(c);
+        } else if (force) this._classes.add(c);
+        else this._classes.delete(c);
+      }
+    };
+    this.style = {
+      _props: {},
+      setProperty(k, v) { this._props[k] = v; },
+      getPropertyValue(k) { return this._props[k] || ''; }
+    };
+    this.dataset = {};
+    this.attributes = {};
+    this._innerHTML = '';
+    this._textContent = '';
+    this.value = '';
+    this.children = [];
+    this.offsetWidth = 260;
+    this.offsetHeight = 120;
+  }
+  get innerHTML() { return this._innerHTML; }
+  set innerHTML(v) { this._innerHTML = String(v); this._textContent = String(v).replace(/<[^>]*>/g, ''); }
+  get textContent() { return this._textContent; }
+  set textContent(v) { this._textContent = String(v); this._innerHTML = String(v); }
+  setAttribute(k, v) { this.attributes[k] = String(v); if(k==='id') this.id=String(v); }
+  getAttribute(k) { return this.attributes[k] !== undefined ? this.attributes[k] : null; }
+  removeAttribute(k) { delete this.attributes[k]; }
+  getBoundingClientRect() { return { width: 400, height: 700, top: 0, left: 0, right: 400, bottom: 700 }; }
+  querySelector(sel) { return new MockElement('div'); }
+  querySelectorAll(sel) { return []; }
+  addEventListener() {}
+  removeEventListener() {}
+  focus() {}
+  select() {}
+  contains() { return false; }
+  closest() { return null; }
+}
+
+const elements = new Map();
+function getOrCreate(id, tag='div') {
+  if (!elements.has(id)) {
+    elements.set(id, new MockElement(tag, id));
+  }
+  return elements.get(id);
+}
+
+const knownIds = [
+  'wrap', 'centerwrap', 'netwrap', 'net', 'reader', 'rtitle', 'rbody', 'rfs', 'sharebox',
+  'docs', 'docq', 'desclines', 'pinnedhead', 'pinnedlist', 'doclist', 'showhidden', 'hiddenlist',
+  'detailpane', 'detailtogglebtn', 'panel', 'degctl', 'fslider', 'fmin', 'bar', 'worktabs', 'tab-docs', 'tab-graph', 'tab-search', 'tab-menu',
+  'morebtn', 'nodepop', 'stat', 'authstate', 'themebtn', 'sem', 'searchkind', 'synthchips', 'synthbtn',
+  'advsearchbtn', 'advsearchpane', 'fts-opt-wrap', 'semchk', 'semkind', 'sembadge', 'semantic-opt-wrap',
+  'addbtn', 'dedupbtn', 'pathbtn', 'graph-section', 'repolink', 'format-warn-banner', 'format-warn-text', 'format-warn-badge', 'format-warn-icon', 'format-warn-title', 'format-warn-actbtn', 'graphnotice',
+  'graphdocnav', 'graphdocpick', 'graphdoclabel', 'graphdocprev', 'graphdocnext', 'graphdocmenu', 'graphdocq', 'graphdoclist', 'graphdocempty',
+  'legendbar'
+];
+knownIds.forEach(id => getOrCreate(id));
+
+const document = {
+  documentElement: getOrCreate('html', 'html'),
+  body: getOrCreate('body', 'body'),
+  getElementById(id) { return elements.get(id) || null; },
+  querySelector(sel) {
+    if (sel.startsWith('#')) return document.getElementById(sel.slice(1));
+    return new MockElement('div');
+  },
+  querySelectorAll(sel) { return []; },
+  addEventListener() {},
+  removeEventListener() {},
+  activeElement: null
+};
+
+const netCallbacks = {};
+const window = {
+  document,
+  innerWidth: 412,
+  innerHeight: 800,
+  matchMedia(query) {
+    const isMobile = query.includes('720px') || query.includes('1100px');
+    return {
+      matches: isMobile,
+      media: query,
+      addEventListener() {},
+      removeEventListener() {}
+    };
+  },
+  addEventListener() {},
+  removeEventListener() {},
+  setTimeout: global.setTimeout,
+  clearTimeout: global.clearTimeout,
+  setInterval: global.setInterval,
+  clearInterval: global.clearInterval,
+  requestAnimationFrame(fn) { return global.setTimeout(fn, 0); },
+  DOMPurify: { sanitize(html) { return html; } },
+  marked: { parse(src) { return '<p>' + src + '</p>'; } },
+  vis: {
+    DataSet: class {
+      constructor(data) { this._data = data || []; }
+      get(id) {
+        if (id === undefined) return this._data;
+        if (Array.isArray(id)) return id.map(i => this._data.find(d => d.id === i)).filter(Boolean);
+        return this._data.find(d => d.id === id) || null;
+      }
+      getIds() { return this._data.map(d => d.id); }
+      update(items) {
+        (Array.isArray(items) ? items : [items]).forEach(item => {
+          const idx = this._data.findIndex(d => d.id === item.id);
+          if (idx >= 0) Object.assign(this._data[idx], item);
+          else this._data.push(Object.assign({}, item));
+        });
+      }
+      add(items) { this.update(items); }
+      forEach(fn) { this._data.forEach(fn); }
+      get length() { return this._data.length; }
+    },
+    Network: class {
+      constructor() {}
+      setSize() {}
+      redraw() {}
+      fit() {}
+      focus() {}
+      moveTo() {}
+      on(ev, fn) { netCallbacks[ev] = fn; }
+      selectNodes() {}
+      unselectAll() {}
+      getSelectedNodes() { return []; }
+      getScale() { return 1.0; }
+      getViewPosition() { return { x: 0, y: 0 }; }
+      getPositions() { return { 'n1': { x: 50, y: 50 } }; }
+      canvasToDOM(p) { return { x: 100, y: 150 }; }
+      getPosition() { return { x: 50, y: 50 }; }
+      setOptions() {}
+    }
+  },
+  localStorage: {
+    _store: {},
+    getItem(k) { return this._store[k] || null; },
+    setItem(k, v) { this._store[k] = String(v); }
+  },
+  location: { origin: 'http://127.0.0.1:8766' }
+};
+
+// Mock fetch
+async function fetch(url, opts) {
+  if (url === 'whoami') {
+    return { ok: true, status: 200, json: async () => ({ scope: 'owner' }) };
+  }
+  if (url === 'documents') {
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        documents: [
+          { id: 'doc-101', title: '클레어 바이블 문서 1', summary: '첫 번째 요약', seen: 0, pinned: 0, hidden: 0, fetched_at: 1724100000 }
+        ],
+        format_status: { needs_migration: false }
+      })
+    };
+  }
+  if (url === 'graph') {
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        nodes: [{ id: 'n1', label: '엔티티1', group: 'Concept', degree: 2, obs: '첫 번째 관찰' }],
+        edges: [{ from: 'n1', to: 'n2', label: '관련' }],
+        stats: { max_degree: 2 }
+      })
+    };
+  }
+  if (url.startsWith('node?id=')) {
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        id: 'n1',
+        name: '엔티티1',
+        type: 'Concept',
+        observations: ['첫 번째 관찰', '두 번째 관찰'],
+        aliases: [],
+        neighbors: [],
+        documents: [{ id: 'doc-101', title: '클레어 바이블 문서 1', summary: '문서 요약' }]
+      })
+    };
+  }
+  return { ok: true, status: 200, json: async () => ({}) };
+}
+
+global.window = window;
+global.document = document;
+global.fetch = fetch;
+global.vis = window.vis;
+global.DOMPurify = window.DOMPurify;
+global.marked = window.marked;
+global.localStorage = window.localStorage;
+global.location = window.location;
+global.getComputedStyle = () => ({ getPropertyValue: () => '#ffffff' });
+global.requestAnimationFrame = window.requestAnimationFrame;
+
+const scriptContent = fs.readFileSync(process.argv[2], 'utf8') +
+  '\nwindow.__getDebug = () => ({ allNodes, selectedNodeId: typeof selectedNodeId !== "undefined" ? selectedNodeId : null, detailOpen: typeof detailOpen !== "undefined" ? detailOpen : false, drawerOpen: typeof drawerOpen !== "undefined" ? drawerOpen : false });\n';
+try {
+  eval(scriptContent);
+} catch (err) {
+  console.error("FATAL_EVAL_ERROR:", err.stack || err);
+  process.exit(1);
+}
+
+setTimeout(async () => {
+  for (let i = 0; i < 50; i++) {
+    if (netCallbacks['click']) break;
+    await new Promise(r => setTimeout(r, 20));
+  }
+
+  const nodepopEl = document.getElementById('nodepop');
+  const clickHandler = netCallbacks['click'];
+  if (!clickHandler) {
+    const st = document.getElementById('stat');
+    console.error("clickHandler not registered. Stat text:", st ? st.textContent : "no stat");
+    process.exit(1);
+  }
+
+  // 1. First mobile tap on n1: should display #nodepop and keep detail drawer closed
+  clickHandler({
+    nodes: ['n1'],
+    pointer: { DOM: { x: 100, y: 150 } },
+    event: { srcEvent: {} }
+  });
+  await new Promise(r => setTimeout(r, 40));
+
+  const dbg1 = window.__getDebug();
+  const firstTapResult = {
+    popDisplay: nodepopEl.style.display,
+    popHtml: nodepopEl.innerHTML,
+    selectedNodeId: dbg1.selectedNodeId,
+    detailOpen: dbg1.detailOpen,
+    drawerOpen: dbg1.drawerOpen
+  };
+
+  // 2. Empty canvas tap: should hide #nodepop
+  clickHandler({
+    nodes: [],
+    pointer: { DOM: { x: 50, y: 50 } },
+    event: { srcEvent: {} }
+  });
+  await new Promise(r => setTimeout(r, 30));
+
+  const emptyTapResult = {
+    popDisplay: nodepopEl.style.display
+  };
+
+  // 3. Second tap on n1 (tap while already selected with popup) -> opens detail drawer
+  clickHandler({
+    nodes: ['n1'],
+    pointer: { DOM: { x: 100, y: 150 } },
+    event: { srcEvent: {} }
+  });
+  await new Promise(r => setTimeout(r, 20));
+  // Tap again on same node:
+  clickHandler({
+    nodes: ['n1'],
+    pointer: { DOM: { x: 100, y: 150 } },
+    event: { srcEvent: {} }
+  });
+  await new Promise(r => setTimeout(r, 30));
+
+  const dbg2 = window.__getDebug();
+  const secondTapResult = {
+    detailOpen: dbg2.detailOpen,
+    drawerOpen: dbg2.drawerOpen
+  };
+
+  console.log("MOBILE_POPUP_RESULT:" + JSON.stringify({
+    firstTap: firstTapResult,
+    emptyTap: emptyTapResult,
+    secondTap: secondTapResult
+  }));
+  process.exit(0);
+}, 80);
+"""
+
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as f_script:
+        f_script.write(main_script)
+        script_file = f_script.name
+
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as f_runner:
+        f_runner.write(runner_code)
+        runner_file = f_runner.name
+
+    try:
+        proc = subprocess.run(
+            ["node", runner_file, script_file],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        assert proc.returncode == 0, f"Mobile node popup test runner crashed:\nSTDOUT:\n{proc.stdout}\nSTDERR:\n{proc.stderr}"
+        match = re.search(r"MOBILE_POPUP_RESULT:(.*)", proc.stdout)
+        assert match is not None, f"Output did not contain MOBILE_POPUP_RESULT:\n{proc.stdout}"
+        data = json.loads(match.group(1))
+
+        # 1. First tap: popup must be shown, content must contain node label and action, drawer remains closed
+        first = data["firstTap"]
+        assert first["popDisplay"] == "block"
+        assert "엔티티1" in first["popHtml"]
+        assert "자세히 보기" in first["popHtml"]
+        assert first["selectedNodeId"] == "n1"
+        assert first["detailOpen"] is False
+        assert first["drawerOpen"] is False
+
+        # 2. Empty tap: popup hidden
+        assert data["emptyTap"]["popDisplay"] == "none"
+
+        # 3. Second tap: detail drawer opens
+        assert data["secondTap"]["detailOpen"] is True
+        assert data["secondTap"]["drawerOpen"] is True
+    finally:
+        Path(script_file).unlink(missing_ok=True)
+        Path(runner_file).unlink(missing_ok=True)
+
+
+
+
 
 
 
