@@ -185,12 +185,11 @@ def test_graph_html_self_contained_markers():
     assert "renderResearchResult" in GRAPH_HTML                         # 진행/결과 렌더 분리
     assert "borderWidth: lit?3:1" in GRAPH_HTML                         # 강조(문서/검색) 흰 테두리
     assert "d.checkpoint" in GRAPH_HTML and "내부 체크포인트" in GRAPH_HTML
-    # 터치스크린 및 상세/읽기 뷰 오픈 시 롤오버 팝업 화면 가림 방지
+    # 모바일 탭 및 데스크톱 롤오버 요약 팝업과 상세/읽기 뷰 오픈 시 가림 방지
     assert "body.detail-open #nodepop" in GRAPH_HTML and "body.reader-open #nodepop" in GRAPH_HTML
-    assert "@media (hover:none)" in GRAPH_HTML
-    assert "function canShowNodePop" in GRAPH_HTML and "isTouchActive()" in GRAPH_HTML
+    assert "function canShowNodePop(id)" in GRAPH_HTML
     assert "clearTimeout(hoverTimer); hoverTimer=null;" in GRAPH_HTML
-    assert "window.addEventListener('touchstart'" in GRAPH_HTML
+    assert "showNodePop(id, px, py)" in GRAPH_HTML
     assert "window.addEventListener('pointerdown'" in GRAPH_HTML
     # aside#detailpane(우측 메뉴) 활성화 시 아이콘 모드 전환 및 컴팩트 레일
     assert "--detail-compact-width" in GRAPH_HTML and "detail-compact" in GRAPH_HTML
@@ -592,11 +591,27 @@ def test_origin_graph_physics_tuning():
     assert "const netBg=(typeof getComputedStyle==='function'?getComputedStyle(document.documentElement).getPropertyValue('--net-bg').trim():'')||'#ffffff';" in GRAPH_HTML
     assert "strokeColor:netBg" in GRAPH_HTML
 
-    # 4. hover/blur 노드 상호작용 및 선택 상태 보존
+    # 4. hover/blur 및 모바일 탭 노드 상호작용 및 선택 상태 보존
     assert "net.on('blurNode', () => { hideNodePop(); });" in GRAPH_HTML
     assert "hover:{background:c, border: lit?th.lit:th.nodeBorder}" in GRAPH_HTML
     assert "function canShowNodePop(id){" in GRAPH_HTML
-    assert "if(id && selectedNodeId && id === selectedNodeId) return false;" in GRAPH_HTML
+    assert "showNodePop(id, px, py);" in GRAPH_HTML
+
+
+def test_mobile_node_tap_popup_markers():
+    """모바일 환경에서 노드 탭 시 롤오버 요약 팝업(nodepop) 지원 마커 검증."""
+    # 1. CSS: @media (hover:none) 미차단, 반응형 최대폭 및 닫기/액션 버튼 스타일
+    assert "@media (hover:none)" not in GRAPH_HTML
+    assert "max-width:min(340px,calc(100vw - 24px))" in GRAPH_HTML
+    assert "#nodepop .pclose" in GRAPH_HTML
+    assert "#nodepop .pact" in GRAPH_HTML
+
+    # 2. JS: 모바일/컴팩트 화면에서 노드 탭 시 showNodePop 및 패널 열기 분기
+    assert "const isMobile = (compactMQ && compactMQ.matches) || (mobileMQ && mobileMQ.matches);" in GRAPH_HTML
+    assert "showNodePop(id, px, py);" in GRAPH_HTML
+    assert "function loadNode(id, hidePop=true)" in GRAPH_HTML
+    assert "openDetailPane()" in GRAPH_HTML
+
 
 
 
