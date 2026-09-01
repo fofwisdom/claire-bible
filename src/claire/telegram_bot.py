@@ -291,9 +291,11 @@ def build_app(settings: Settings | None = None) -> Any:
         "→ 스크랩 → Gemini 구조화 → 그래프로 저장, 기존 항목과 자동 연결.\n"
         "  관련 링크가 보이면 '가져오기' 버튼으로 1홉 확장.\n"
         "\n"
-        "💡 공유 URL 관리 (원터치 액션):\n"
+        "💡 공유 URL 관리 (원터치 액션 & 플래그):\n"
         "  • 보관된 문서의 공유 URL(/p?s=...) 또는 문서ID를 전송하면\n"
         "    본문 재생성 및 원문 재수집(길이 제한 / 전체 길이) 버튼이 제공됩니다.\n"
+        "  • 옵션과 함께 전송하면 즉시 실행됩니다:\n"
+        "    예: https://.../p?s=token --refetch-full --effort high | 새 초점\n"
         "\n"
         "💡 본문 작성 초점(Focus) 지정 방법:\n"
         "  • 파이프 구분: https://example.com/doc | 시스템 아키텍처 중심\n"
@@ -305,9 +307,6 @@ def build_app(settings: Settings | None = None) -> Any:
         "명령어:\n"
         "  /search <키워드> — 하이브리드 검색 + 요약(인용)\n"
         "  /ingest <URL|텍스트> [| <초점>] — 초점 지정 적재\n"
-        "  /regenerate <문서ID|토큰|URL> [--refetch|--refetch-full] [--effort <level>] [| <새 초점>] — 가독 본문(detail) 맞춤 재생성\n"
-        "  /refetch <문서ID|토큰|URL> [--effort <level>] [| <새 초점>] — 길이 제한 원문 재수집 후 재생성\n"
-        "  /refetch_full <문서ID|토큰|URL> [--effort <level>] [| <새 초점>] — 전체 길이 원문 재수집 후 재생성\n"
         "  /web — 1회용 웹 로그인 링크 발급(로그인 쿠키 7일, 적재/수정 가능)\n"
         "  /webro — 읽기전용 웹 링크 발급(그래프·검색·문서만, 공유해도 안전)\n"
         "  /repo — 소스 리포지토리 접근 링크\n"
@@ -564,97 +563,6 @@ def build_app(settings: Settings | None = None) -> Any:
         await _react(msg, emoji)
         await _settle(status, msg, summary, cands, update.update_id)
 
-    async def _handle_regenerate_flow(
-        update: Update,
-        raw_args: str,
-        *,
-        default_refetch: bool = False,
-        default_refetch_full: bool = False,
-    ) -> None:
-        user = update.effective_user
-        if not _is_allowed(user.id if user else None):
-            await update.message.reply_text("허용되지 않은 사용자입니다.")
-            return
-        raw = raw_args.strip()
-        if not raw:
-            await update.message.reply_text(
-                "사용법:\n"
-                "  /regenerate <문서ID|토큰|공유URL> [--refetch|--refetch-full] [--effort <level>] [| <새 초점>]\n"
-                "  /refetch <문서ID|토큰|공유URL> [--effort <level>] [| <새 초점>] (길이 제한 재수집)\n"
-                "  /refetch_full <문서ID|토큰|공유URL> [--effort <level>] [| <새 초점>] (전체 길이 재수집)\n"
-                "  예: /regenerate doc_123456789012 --refetch-full --effort high | 보안 관점"
-            )
-            return
-
-        payload, directive = parse_message_directive(raw)
-        payload_clean, has_refetch, has_refetch_full, has_effort = parse_regenerate_flags(payload)
-        tokens = payload_clean.split(None, 1)
-        target = tokens[0] if tokens else ""
-        if directive is None and len(tokens) > 1:
-            directive = tokens[1].strip()
-
-        refetch_flag = default_refetch or has_refetch
-        refetch_full_flag = default_refetch_full or has_refetch_full
-
-        msg = update.message
-        label = f"본문 재생성 중… ({target})"
-        if refetch_full_flag:
-            label += " [원문 전체 재수집]"
-        elif refetch_flag:
-            label += " [원문 재수집]"
-        if directive:
-            label += f" [초점: {directive[:20]}]"
-        if has_effort:
-            label += f" [추론: {has_effort}]"
-
-        status = await msg.reply_text(f"⏳ {label}")
-        try:
-            res = await _run_with_ticker(
-                status, label,
-                lambda: svc.regenerate_components(
-                    target=target,
-                    detail=True,
-                    refetch=refetch_flag,
-                    refetch_full=refetch_full_flag,
-                    effort=has_effort,
-                    force=True,
-                    directive=directive,
-                ),
-            )
-            if res.get("error"):
-                ans = f"❌ 재생성 실패: {res['error']}"
-                emoji = "👎"
-            elif res.get("count", 0) > 0:
-                tinfo = res["targets"][0]
-                dir_msg = f"\n초점: {directive}" if directive else ""
-                ref_msg = ""
-                if tinfo.get("refetched_full"):
-                    ref_msg = f" (원문 전체 재수집 {tinfo.get('new_len', 0):,}자)"
-                elif tinfo.get("refetched"):
-                    ref_msg = f" (원문 재수집 {tinfo.get('new_len', 0):,}자)"
-                ans = f"✅ 본문 재생성 완료: {tinfo.get('title', target)}{ref_msg}{dir_msg}"
-                emoji = "👍"
-            else:
-                ans = f"⚠️ 대상 문서를 찾을 수 없습니다: {target}"
-                emoji = "🤔"
-        except Exception as e:  # noqa: BLE001
-            ans = f"❌ 재생성 오류: {e}"
-            emoji = "👎"
-        await _react(msg, emoji)
-        await status.edit_text(ans)
-
-    async def on_regenerate(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-        raw = " ".join(ctx.args) if ctx.args else ""
-        await _handle_regenerate_flow(update, raw)
-
-    async def on_refetch(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-        raw = " ".join(ctx.args) if ctx.args else ""
-        await _handle_regenerate_flow(update, raw, default_refetch=True)
-
-    async def on_refetch_full(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-        raw = " ".join(ctx.args) if ctx.args else ""
-        await _handle_regenerate_flow(update, raw, default_refetch_full=True)
-
     async def on_callback(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
         query = update.callback_query
         await query.answer()
@@ -885,10 +793,6 @@ def build_app(settings: Settings | None = None) -> Any:
     app.add_handler(CommandHandler("repo", on_repo))
     app.add_handler(CommandHandler("search", on_search))
     app.add_handler(CommandHandler("ingest", on_ingest))
-    app.add_handler(CommandHandler("regenerate", on_regenerate))
-    app.add_handler(CommandHandler("regen", on_regenerate))
-    app.add_handler(CommandHandler("refetch", on_refetch))
-    app.add_handler(CommandHandler("refetch_full", on_refetch_full))
     app.add_handler(CommandHandler("web", on_web))
     app.add_handler(CommandHandler("webro", on_webro))
     app.add_handler(CommandHandler("failed", on_failed))
@@ -907,9 +811,6 @@ def build_app(settings: Settings | None = None) -> Any:
             BotCommand("repo", "소스 리포지토리 링크"),
             BotCommand("search", "검색 + 요약"),
             BotCommand("ingest", "초점 지정 적재"),
-            BotCommand("regenerate", "본문 초점 재생성"),
-            BotCommand("refetch", "길이 제한 원문 재수집"),
-            BotCommand("refetch_full", "전체 길이 원문 재수집"),
             BotCommand("web", "웹 접속 링크 발급"),
             BotCommand("webro", "읽기전용 웹 링크 발급"),
             BotCommand("failed", "실패/영구실패 점검"),

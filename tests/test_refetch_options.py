@@ -332,8 +332,8 @@ async def test_telegram_bot_handlers(clean_db, monkeypatch: pytest.MonkeyPatch):
 
     assert msg_handler is not None
     assert cb_handler is not None
-    assert "refetch" in cmd_handlers
-    assert "refetch_full" in cmd_handlers
+    assert "refetch" not in cmd_handlers
+    assert "regenerate" not in cmd_handlers
 
     # 1. Test sending own share URL -> Expect reply with InlineKeyboardMarkup buttons
     fake_msg = MagicMock()
@@ -381,22 +381,23 @@ async def test_telegram_bot_handlers(clean_db, monkeypatch: pytest.MonkeyPatch):
         assert regen_kwargs["refetch_full"] is True
         assert regen_kwargs["force"] is True
 
-    # 3. Test /refetch command handler
-    refetch_cmd_handler = cmd_handlers["refetch"]
-    fake_cmd_msg = MagicMock()
-    fake_cmd_msg.reply_text = AsyncMock(return_value=status_msg)
-    fake_cmd_update = MagicMock()
-    fake_cmd_update.message = fake_cmd_msg
-    fake_cmd_update.effective_user.id = 100
-    fake_ctx.args = [doc_id, "--effort", "high", "|", "보안 관점"]
+    # 3. Test sending share URL directly with flags & directive (e.g. --refetch-full --effort high | 보안 관점)
+    fake_msg_flags = MagicMock()
+    fake_msg_flags.text = f"https://claire.example.org/p?s={share_token} --refetch-full --effort high | 보안 관점"
+    fake_msg_flags.reply_text = AsyncMock(return_value=status_msg)
+    fake_update_flags = MagicMock()
+    fake_update_flags.message = fake_msg_flags
+    fake_update_flags.effective_user.id = 100
+    fake_update_flags.effective_chat.id = 200
+    fake_update_flags.update_id = 2
 
-    with patch.object(IngestService, "regenerate_components", return_value={"count": 1, "targets": [{"title": "Telegram Flow Doc", "new_len": 200, "refetched": True}]}) as mock_regen:
+    with patch.object(IngestService, "regenerate_components", return_value={"count": 1, "targets": [{"title": "Telegram Flow Doc", "new_len": 600, "refetched_full": True}]}) as mock_regen:
         with patch("claire.telegram_bot._react", new=AsyncMock()):
-            await refetch_cmd_handler.callback(fake_cmd_update, fake_ctx)
+            await msg_handler.callback(fake_update_flags, fake_ctx)
             mock_regen.assert_called_once()
             _, regen_kwargs = mock_regen.call_args
-            assert regen_kwargs["target"] == doc_id
-            assert regen_kwargs["refetch"] is True
-            assert regen_kwargs["refetch_full"] is False
+            assert regen_kwargs["doc_id"] == doc_id
+            assert regen_kwargs["refetch_full"] is True
+            assert regen_kwargs["refetch"] is False
             assert regen_kwargs["effort"] == "high"
             assert regen_kwargs["directive"] == "보안 관점"
