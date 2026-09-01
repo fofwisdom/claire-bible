@@ -864,6 +864,7 @@ def cmd_regenerate(args) -> int:
     corrupted = getattr(args, "corrupted", False)
     tables = getattr(args, "tables", False) or getattr(args, "has_tables", False)
     refetch = getattr(args, "refetch", False)
+    refetch_full = getattr(args, "refetch_full", False)
     apply = getattr(args, "apply", False)
     force = getattr(args, "force", False)
     effort = getattr(args, "effort", None)
@@ -883,6 +884,7 @@ def cmd_regenerate(args) -> int:
             corrupted_summary=corrupted,
             tables=tables,
             refetch=refetch,
+            refetch_full=refetch_full,
             force=False,
             effort=effort,
             format=fmt,
@@ -905,7 +907,7 @@ def cmd_regenerate(args) -> int:
             if t.get("canonical_url"):
                 print(f"    URL: {t['canonical_url']}")
             if t.get("is_error_page"):
-                print("    [!] 원문이 SSL/보안 오류 화면으로 감지됨 (--refetch 함께 사용 권장)")
+                print("    [!] 원문이 SSL/보안 오류 화면으로 감지됨 (--refetch 또는 --refetch-full 함께 사용 권장)")
             if t.get("summary_corrupted"):
                 print("    [!] 요약 내 ADOC/마크업 문법 잔존 감지")
             if t.get("total_tables"):
@@ -918,7 +920,7 @@ def cmd_regenerate(args) -> int:
             print(f"    적용 예정 작업: {', '.join(t['actions'])}")
         print("=" * 60)
         print("실제 재생성 및 DB 덮어쓰기를 실행하려면 --apply 플래그를 추가하십시오:")
-        print("  claire regenerate [target] --all --apply [--refetch] [--effort <level>]")
+        print("  claire regenerate [target] --all --apply [--refetch | --refetch-full] [--effort <level>]")
         return 0
 
     # Apply 실행: 사전 진단으로 대상 수 특정 후 실시간 진행률 추적
@@ -933,6 +935,7 @@ def cmd_regenerate(args) -> int:
         corrupted_summary=corrupted,
         tables=tables,
         refetch=refetch,
+        refetch_full=refetch_full,
         force=False,
         effort=effort,
         format=fmt,
@@ -956,6 +959,7 @@ def cmd_regenerate(args) -> int:
                 corrupted_summary=corrupted,
                 tables=tables,
                 refetch=refetch,
+                refetch_full=refetch_full,
                 force=True,
                 effort=effort,
                 format=fmt,
@@ -976,8 +980,10 @@ def cmd_regenerate(args) -> int:
     print(f"• 사용 Provider  : {res.get('provider')} (model: {res.get('model')}, effort: {res.get('effort')})")
     for idx, t in enumerate(res["targets"], 1):
         print(f"[{idx}] {t['title']} ({t['document_id']})")
-        if t.get("refetched"):
-            print(f"    원문 재수집: 완료 ({t.get('new_len', 0)}자)")
+        if t.get("refetched_full"):
+            print(f"    원문 재수집 (전체 길이): 완료 ({t.get('new_len', 0)}자)")
+        elif t.get("refetched"):
+            print(f"    원문 재수집 (길이 제한 적용): 완료 ({t.get('new_len', 0)}자)")
         elif t.get("refetch_error"):
             print(f"    [!] 원문 재수집 실패: {t.get('refetch_error')}")
         if t.get("total_tables"):
@@ -1680,8 +1686,11 @@ def build_parser() -> argparse.ArgumentParser:
                       help="automatically scan and target all docs with corrupted ADOC syntax in summary")
     preg.add_argument("--tables", "--has-tables", action="store_true", dest="tables",
                       help="automatically scan and target all docs containing markdown/adoc/html tables")
-    preg.add_argument("--refetch", action="store_true",
-                      help="re-fetch document content from URL before regenerating summary/detail")
+    preg_refetch = preg.add_mutually_exclusive_group()
+    preg_refetch.add_argument("--refetch", action="store_true",
+                              help="re-fetch document content from URL before regenerating (applies raw_char_budget env limit)")
+    preg_refetch.add_argument("--refetch-full", action="store_true",
+                              help="re-fetch full document content without length limit (ignores raw_char_budget env limit)")
     preg.add_argument("--apply", action="store_true", help="execute LLM regeneration and overwrite DB (default: dry-run)")
     preg.add_argument("--force", "-f", action="store_true", help="force overwrite even if target components are already up-to-date")
     preg.add_argument("--dry-run", action="store_true", help="dry-run inspection without changes (default)")
@@ -1700,7 +1709,11 @@ def build_parser() -> argparse.ArgumentParser:
     psum.add_argument("--corrupted", action="store_true", help="scan all docs with corrupted ADOC syntax")
     psum.add_argument("--tables", "--has-tables", action="store_true", dest="tables",
                       help="automatically scan and target all docs containing tables")
-    psum.add_argument("--refetch", action="store_true", help="re-fetch document content from URL before regenerating")
+    psum_refetch = psum.add_mutually_exclusive_group()
+    psum_refetch.add_argument("--refetch", action="store_true",
+                              help="re-fetch document content with length limit")
+    psum_refetch.add_argument("--refetch-full", action="store_true",
+                              help="re-fetch full document content without length limit")
     psum.add_argument("--apply", action="store_true", help="execute LLM regeneration and overwrite DB (default: dry-run)")
     psum.add_argument("--force", "-f", action="store_true", help="force overwrite even if summary is already up-to-date")
     psum.add_argument("--dry-run", action="store_true", help="dry-run inspection without changes (default)")

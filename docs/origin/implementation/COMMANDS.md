@@ -247,7 +247,8 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
   * `--all`: 요약, 본문, 그래프 전체 동시 재생성.
   * `--corrupted`: AsciiDoc/마크업 문법 잔존으로 오염된 요약을 가진 문서를 전체 DB에서 자동 탐지.
   * `--tables`, `--has-tables`: 마크다운(`|...|`), AsciiDoc(`|===`), HTML(`<table>`) 표가 포함된 문서를 전체 DB에서 자동 탐지하여 일괄 대상으로 지정.
-  * `--refetch`: 재생성 전 최신 웹 문서 재스크랩.
+  * `--refetch`: 환경변수(`CLAIRE_RAW_CHAR_BUDGET`)의 수집 길이 제한을 적용하여 원본 URL에서 최신 문서 재스크랩 후 재생성.
+  * `--refetch-full`: 환경변수 길이 제한 없이 원본 URL에서 원문 전체 길이를 수집 후 재생성.
   * `--apply`: 실제 LLM 호출 및 DB 덮어쓰기 실행 (미지정 시 기본 dry-run).
   * `--force`, `-f`: 기존 컴포넌트가 이미 유효하더라도 강제 재생성/덮어쓰기.
   * `--dry-run`: 대상 문서 정보 및 계획만 출력하고 DB 변경 없음 (기본값).
@@ -257,7 +258,7 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 
 #### `summary-regenerate`
 `regenerate --summary`의 단축 Alias입니다.
-* **사용법**: `./cb-manuscript app summary-regenerate <target> [--apply] [--effort <level>]`
+* **사용법**: `./cb-manuscript app summary-regenerate <target> [--refetch | --refetch-full] [--apply] [--effort <level>]`
 
 #### `format-migrate`
 전체 문서의 detail 본문 렌더링 포맷(Markdown ↔ AsciiDoc) 현황을 점검하고 일괄 변환합니다.

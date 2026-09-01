@@ -59,7 +59,7 @@ _MAX_IMAGES = 12        # 문서당 후보 이미지 상한(LLM 큐레이션 입
 _IMG_MIN_DIM = 150      # width/height 속성이 명시돼 있고 이보다 작으면 장식/아이콘으로 보고 제외
 
 
-def fetch_web(url: str) -> Document:
+def fetch_web(url: str, *, full_content: bool = False) -> Document:
     via = "static"
     res = _fetch_static(url)
     title, text, links, anchors, err, effective_url, images = res[:7]
@@ -156,7 +156,7 @@ def fetch_web(url: str) -> Document:
         or via == "pdf"
     )
     settings = get_settings()
-    budget = settings.pdf_max_extract_chars if is_pdf else settings.raw_char_budget
+    budget = 0 if full_content else (settings.pdf_max_extract_chars if is_pdf else settings.raw_char_budget)
     raw_text, is_truncated, orig_chars, raw_chars = slice_document_text(
         text or "", budget, strategy=settings.slicing_strategy
     )

@@ -53,22 +53,22 @@ def parse_status(url: str) -> tuple[str | None, str | None]:
     return None, None
 
 
-def fetch_xcom(url: str) -> Document:
+def fetch_xcom(url: str, *, full_content: bool = False) -> Document:
     screen, sid = parse_status(url)
     if not sid:
         # status id 가 없으면(프로필·검색 등) 트윗 API 대상이 아니다 → web 으로.
         from .web import fetch_web
 
-        return fetch_web(url)
+        return fetch_web(url, full_content=full_content)
 
     tweet, via = _fetch_api(screen, sid)
     if tweet is None:
         # API 미러가 모두 실패 → 일반 web fetcher(scrapling 포함) 최후 시도.
         from .web import fetch_web
 
-        return fetch_web(url)
+        return fetch_web(url, full_content=full_content)
 
-    return _build_document(url, tweet, via=via)
+    return _build_document(url, tweet, via=via, full_content=full_content)
 
 
 def _fetch_api(screen: str | None, sid: str) -> tuple[dict | None, str | None]:
@@ -160,7 +160,7 @@ def _normalize_vx(data: dict) -> dict:
     return out
 
 
-def _build_document(url: str, tweet: dict, *, via: str | None = None) -> Document:
+def _build_document(url: str, tweet: dict, *, via: str | None = None, full_content: bool = False) -> Document:
     author = tweet.get("author") or {}
     name = (author.get("name") or "").strip()
     screen = (author.get("screen_name") or "").strip()
@@ -220,8 +220,9 @@ def _build_document(url: str, tweet: dict, *, via: str | None = None) -> Documen
 
     canonical_src = tweet.get("url") or url
     settings = get_settings()
+    budget = 0 if full_content else settings.raw_char_budget
     raw_text, is_truncated, orig_chars, raw_chars = slice_document_text(
-        text or "", settings.raw_char_budget, strategy=settings.slicing_strategy
+        text or "", budget, strategy=settings.slicing_strategy
     )
     return Document(
         url=url,

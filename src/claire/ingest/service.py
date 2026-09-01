@@ -641,6 +641,7 @@ class IngestService:
         corrupted_detail: bool = False,
         tables: bool = False,
         refetch: bool = False,
+        refetch_full: bool = False,
         force: bool = False,
         effort: str | None = None,
         format: str | None = None,
@@ -656,7 +657,8 @@ class IngestService:
         - all_components: True 면 요약과 본문 모두 재생성.
         - corrupted_summary: True 면 전체 DB에서 ADOC/마크업 문법이 잔존한 요약만 자동 탐지.
         - tables: True 면 원문(raw_text) 또는 본문(detail)에 표가 포함된 문서만 자동 탐지하여 일괄 대상 지정.
-        - refetch: True 면 원본 URL에서 웹 문서를 새로 스크랩하여 본문 갱신 후 재생성.
+        - refetch: True 면 환경변수(raw_char_budget) 제한을 적용하여 원본 URL에서 웹 문서를 새로 스크랩 후 재생성.
+        - refetch_full: True 면 환경변수 제한 없이 원문 전체 길이를 수집하여 본문 갱신 후 재생성.
         - force: False(기본) 면 dry-run 진단만 수행하고 DB 변경 없음. True 면 실제 DB 덮어쓰기.
         - effort: LLM 사고/추론 레벨 (low, medium, high 등) 즉석 재정의.
         - directive: 가독 렌더링 본문 작성 초점(focus) 지침.
@@ -670,7 +672,8 @@ class IngestService:
         from .pipeline import ensure_document_detail
 
         # 컴포넌트 기본값 결정 (아무것도 지정 안 했으면 summary 를 기본 대상으로 간주)
-        do_graph = graph or all_components or refetch
+        do_refetch = refetch or refetch_full
+        do_graph = graph or all_components or do_refetch
         do_summary = summary or all_components or do_graph
         do_detail = detail or all_components or do_graph
         if not do_summary and not do_detail and not do_graph:
@@ -799,7 +802,9 @@ class IngestService:
                         "table_preview": table_preview,
                         "actions": [],
                     }
-                    if refetch:
+                    if refetch_full:
+                        info["actions"].append("refetch_full_content")
+                    elif refetch:
                         info["actions"].append("refetch_content")
                     if do_graph:
                         info["actions"].append("extract_and_link_graph_nodes")
@@ -821,15 +826,23 @@ class IngestService:
                         title=doc.title or "(제목 없음)",
                         url=doc.canonical_url or doc.url or "",
                     ) as step_cb:
-                        if refetch:
-                            step_cb("원문 재수집 (Refetching from source)...", doc.url or doc.canonical_url or "")
+                        if do_refetch:
+                            step_msg = (
+                                "원문 전체 재수집 (Refetching full content from source)..."
+                                if refetch_full
+                                else "원문 재수집 (Refetching from source)..."
+                            )
+                            step_cb(step_msg, doc.url or doc.canonical_url or "")
                             fetch_payload = doc.url or doc.canonical_url
                             if fetch_payload:
                                 from .pipeline import _download_doc_images
                                 from ..store.raw import save_artifact
 
                                 try:
-                                    new_doc = default_fetch(fetch_payload)
+                                    try:
+                                        new_doc = default_fetch(fetch_payload, full_content=bool(refetch_full))
+                                    except TypeError:
+                                        new_doc = default_fetch(fetch_payload)
                                     new_doc.id = did
                                     _download_doc_images(conn, new_doc, self.s.data_dir)
                                     dbm.update_document_content(
@@ -849,6 +862,7 @@ class IngestService:
                                         pass
                                     doc = new_doc
                                     info["refetched"] = True
+                                    info["refetched_full"] = bool(refetch_full)
                                     info["title"] = new_doc.title or "(제목 없음)"
                                     info["new_len"] = len(new_doc.raw_text)
                                 except Exception as e:
@@ -872,6 +886,7 @@ class IngestService:
                                 vault_dir=self.s.vault_dir,
                                 format=target_fmt,
                                 on_progress=step_cb,
+                                effort=effort,
                             )
                             if not ok:
                                 info["error"] = err
@@ -932,6 +947,7 @@ class IngestService:
                                     force=True,
                                     format=target_fmt,
                                     directive=directive,
+                                    effort=effort,
                                 )
                                 info["detail_format"] = target_fmt
                                 if directive:

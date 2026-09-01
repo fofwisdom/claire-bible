@@ -10,7 +10,7 @@ from ...ontology.base import Document
 from ..normalize import content_hash
 
 
-def fetch_text(payload: str) -> Document:
+def fetch_text(payload: str, *, full_content: bool = False) -> Document:
     """자유 텍스트/키워드 → Note 성격의 Document."""
     text = payload.strip()
     title = text.splitlines()[0][:80] if text else "untitled note"
@@ -23,7 +23,7 @@ def fetch_text(payload: str) -> Document:
     )
 
 
-def fetch_file(path: str) -> Document:
+def fetch_file(path: str, *, full_content: bool = False) -> Document:
     """로컬 파일 (.md/.txt/.pdf 등)."""
     p = Path(path)
     if not p.exists():
@@ -50,7 +50,7 @@ def fetch_file(path: str) -> Document:
 
         raise FetchError(f"unsupported file type (M1): {suffix}")
     settings = get_settings()
-    budget = settings.pdf_max_extract_chars if source_type == "pdf" else settings.raw_char_budget
+    budget = 0 if full_content else (settings.pdf_max_extract_chars if source_type == "pdf" else settings.raw_char_budget)
     raw_text, is_truncated, orig_chars, raw_chars = slice_document_text(
         text or "", budget, strategy=settings.slicing_strategy
     )
