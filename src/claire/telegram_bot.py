@@ -86,10 +86,10 @@ def classify_input(text: str) -> str:
 
 import re
 
-# 플래그: ASCII 하이픈(-, --), en-dash(–, ––), em-dash(—, ——), horizontal bar(―) 및 한국어 플래그 지원
-# 예: --focus, —focus, –focus, -focus, --초점, —초점, --orientation, --directive, --관점, -o
+# 플래그: ASCII 하이픈(-, --), en-dash(–, ––), em-dash(—, ——), horizontal bar(―) 지원
+# 예: --focus, —focus, –focus, -focus, --orientation, --directive, --perspective, -o
 _DIRECTIVE_FLAG_RE = re.compile(
-    r"(?:\s+|^)(?:[-–—―]{1,2}(?:focus|초점|orientation|directive|perspective|관점|방향성|방향|지침)|[-–—―]o)\s+([^\n]+)",
+    r"(?:\s+|^)(?:[-–—―]{1,2}(?:focus|orientation|directive|perspective)|[-–—―]o)\s+([^\n]+)",
     re.IGNORECASE,
 )
 _DIRECTIVE_PREFIX_RE = re.compile(
@@ -168,13 +168,13 @@ def parse_message_directive(text: str) -> tuple[str, str | None]:
 
 # 재생성 / 재수집 / 추론 레벨 플래그 정규식
 _EFFORT_FLAG_RE = re.compile(
-    r"(?:\s+|^)(?:[-–—―]{1,2}(?i:effort|추론|사고|reasoning)|-[eE])\s+([a-zA-Z0-9_-]+)",
+    r"(?:\s+|^)(?:[-–—―]{1,2}(?i:effort|reasoning)|-[eE])\s+([a-zA-Z0-9_-]+)",
 )
 _REFETCH_FULL_FLAG_RE = re.compile(
-    r"(?:\s+|^)(?:[-–—―]{1,2}(?i:refetch[-_]full|full[-_]refetch|전체재수집|전체수집)|-R)(?:\s+|$)",
+    r"(?:\s+|^)(?:[-–—―]{1,2}(?i:refetch[-_]full|full[-_]refetch)|-R)(?:\s+|$)",
 )
 _REFETCH_FLAG_RE = re.compile(
-    r"(?:\s+|^)(?:[-–—―]{1,2}(?i:refetch|재수집)|-r)(?:\s+|$)",
+    r"(?:\s+|^)(?:[-–—―]{1,2}(?i:refetch)|-r)(?:\s+|$)",
 )
 
 
