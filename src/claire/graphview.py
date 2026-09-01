@@ -505,13 +505,18 @@ GRAPH_HTML = """<!doctype html>
   #graphdocnav{display:none}
   /* 최소 연결 차수(degree) 필터: zoomctl 좌측에 수직 배치 */
   #degctl{position:absolute;right:62px;bottom:14px;display:flex;flex-direction:column;align-items:center;
-    justify-content:space-between;width:40px;height:181px;padding:8px 4px;border-radius:20px;
-    border:1px solid var(--border);background:var(--sec-bg);color:var(--sec-fg);opacity:.9;
-    box-shadow:0 2px 8px var(--shadow);z-index:5;box-sizing:border-box;user-select:none}
+    justify-content:space-between;width:44px;height:240px;padding:8px 4px;border-radius:22px;
+    border:1px solid var(--border);background:var(--sec-bg);color:var(--sec-fg);opacity:.92;
+    box-shadow:0 2px 8px var(--shadow);z-index:5;box-sizing:border-box;user-select:none;gap:4px}
   #degctl:hover{opacity:1}
   #degctl .deg-label{font-size:11px;line-height:1.2;font-weight:600;color:var(--sec-fg);
     text-align:center;white-space:nowrap;margin-bottom:2px;cursor:default}
   #degctl .deg-label b{font-size:12px;color:var(--accent)}
+  .deg-presets{display:flex;flex-direction:column;gap:3px;width:100%;align-items:center}
+  .deg-preset-btn{width:32px;height:20px;padding:0;font-size:10px;font-weight:600;border-radius:4px;
+    border:1px solid var(--border);background:var(--card-bg);color:var(--muted);cursor:pointer;line-height:18px;text-align:center}
+  .deg-preset-btn:hover{color:var(--fg);border-color:var(--accent2)}
+  .deg-preset-btn.active{background:var(--accent);color:#fff;border-color:var(--accent)}
   /* 모바일 핀치줌 대체 */
   #zoomctl{position:absolute;right:14px;bottom:14px;display:flex;flex-direction:column;gap:7px;z-index:5}
   #zoomctl button{width:40px;height:40px;border-radius:50%;border:1px solid var(--border);
@@ -875,7 +880,8 @@ GRAPH_HTML = """<!doctype html>
     #drawerscroll{padding:14px 16px max(16px,env(safe-area-inset-bottom))}
     #panel .hint br{display:none}
     #degctl{right:calc(max(12px,env(safe-area-inset-right)) + 52px);bottom:max(12px,env(safe-area-inset-bottom));
-      width:44px;height:197px;border-radius:22px;padding:10px 4px}
+      width:46px;height:252px;border-radius:23px;padding:8px 4px}
+    .deg-preset-btn{width:34px;height:22px;font-size:10.5px;line-height:20px}
     #zoomctl{right:max(12px,env(safe-area-inset-right));bottom:max(12px,env(safe-area-inset-bottom))}
     #zoomctl button{width:44px;height:44px}
     #barsearch #openreaderbtn{min-height:44px;min-width:44px;font-size:14px;padding:4px 10px}
@@ -991,6 +997,12 @@ GRAPH_HTML = """<!doctype html>
       <div id="graphnotice" role="status" aria-live="polite"></div>
       <div id="degctl" aria-label="최소 연결 수 필터">
         <label for="fslider" class="deg-label" title="최소 연결 수">≥<b id="fmin">0</b></label>
+        <div id="degpresets" class="deg-presets" aria-label="밀집도 빠른 설정">
+          <button type="button" class="deg-preset-btn" data-deg="5" onclick="setDeg(5)" title="주요 허브 (5+)">5+</button>
+          <button type="button" class="deg-preset-btn" data-deg="2" onclick="setDeg(2)" title="핵심 노드 (2+)">2+</button>
+          <button type="button" class="deg-preset-btn" data-deg="1" onclick="setDeg(1)" title="연결된 노드 (1+)">1+</button>
+          <button type="button" class="deg-preset-btn active" data-deg="0" onclick="setDeg(0)" title="전체 노드 (0+)">0+</button>
+        </div>
         <input id="fslider" type="range" orient="vertical" min="0" max="0" value="0" oninput="setDeg(this.value)" aria-label="최소 연결 수" title="최소 연결 수 조절"/>
       </div>
       <div id="zoomctl" aria-label="그래프 카메라">
@@ -2753,12 +2765,30 @@ function resetGraphCamera(){
 
 fetch('graph').then(r=>{ if(!r.ok) throw new Error('graph fetch HTTP '+r.status); return r.json(); }).then(d=>{
   if(typeof vis !== 'undefined' && vis.DataSet && vis.Network){
-    allNodes = new vis.DataSet((d && d.nodes) || []);
+    const rawNodes = ((d && d.nodes) || []).map(n => ({
+      ...n,
+      size: nodeRadius(n.degree),
+      font: { size: nodeFontSize(n.degree) }
+    }));
+    allNodes = new vis.DataSet(rawNodes);
     allEdges = new vis.DataSet((d && d.edges) || []);
     if(!d || !d.nodes || !d.nodes.length){ graphStabilized=true; }
+    const totalCount = rawNodes.length;
+    let initialDeg = 0;
+    if(totalCount >= 200){
+      initialDeg = 2;
+    } else if(totalCount >= 80){
+      initialDeg = 1;
+    } else {
+      initialDeg = 0;
+    }
+    curMinDeg = initialDeg;
     const sl = document.getElementById('fslider');
-    if(sl){ sl.max = (d && d.stats && d.stats.max_degree) || 0; sl.value = 0; }
-    allTypes=[...new Set(((d && d.nodes) || []).map(n=>n.group))].sort();
+    if(sl){ sl.max = (d && d.stats && d.stats.max_degree) || 0; sl.value = initialDeg; }
+    const fmin = document.getElementById('fmin');
+    if(fmin) fmin.textContent = initialDeg;
+    updateDegPresets();
+    allTypes=[...new Set(rawNodes.map(n=>n.group))].sort();
     allRelTypes=[...new Set(((d && d.edges) || []).map(e=>e.label).filter(Boolean))].sort();
     renderLegend();
     const th=T();
@@ -2768,21 +2798,7 @@ fetch('graph').then(r=>{ if(!r.ok) throw new Error('graph fetch HTTP '+r.status)
       edges:{color:{color:th.edge,highlight:th.edgeHi},
         font:{color:th.nodeFont,size:0,strokeWidth:3,strokeColor:netBg},smooth:false},
       groups:buildGroups(),
-      physics:{
-        solver:'barnesHut',
-        barnesHut:{
-          gravitationalConstant:-10000,
-          centralGravity:0.15,
-          springLength:140,
-          springConstant:0.04,
-          damping:0.35,
-          avoidOverlap:0
-        },
-        minVelocity:0.75,
-        maxVelocity:50,
-        timestep:0.5,
-        stabilization:{iterations:100}
-      },
+      physics:getPhysicsOpts(totalCount),
       interaction:{hover:true,tooltipDelay:120,multiselect:true,zoomView:false}
     };
     const netEl = document.getElementById('net');
@@ -3261,13 +3277,18 @@ function refreshGraph(){
     // applyView 와 동일한 이유(그래프가 클수록 개별 update() 호출이 선형으로 느려짐)로
     // 갱신분을 모아 한 번에 반영 — 신규 노드(add)는 기존 add 도 이미 배열을 받으므로 그대로.
     const changed=[], added=[];
-    d.nodes.forEach(n=>{ if(allNodes.get(n.id))
-      changed.push({id:n.id, degree:n.degree, sources:n.sources, obs:n.obs});
-      else added.push(n); });
+    d.nodes.forEach(n=>{
+      const r = nodeRadius(n.degree), fs = nodeFontSize(n.degree);
+      if(allNodes.get(n.id))
+        changed.push({id:n.id, degree:n.degree, size:r, font:{size:fs}, sources:n.sources, obs:n.obs});
+      else
+        added.push({...n, size:r, font:{size:fs}});
+    });
     if(changed.length) allNodes.update(changed);
     if(added.length) allNodes.add(added);
     d.edges.forEach(e=>{ if(!allEdges.get(e.id)) allEdges.add(e); });
     document.getElementById('fslider').max = d.stats.max_degree;
+    updateDegPresets();
     applyView();
     if(activeDoc && curReaderDocData && curReaderDocData.id === activeDoc){
       renderDocPanel(curReaderDocData);
@@ -3330,7 +3351,73 @@ function toggleRel(i){
 }
 function nodeLabel(id){ const n=allNodes&&allNodes.get(id); return n?n.label:id; }
 
-function setDeg(v){ curMinDeg=+v; document.getElementById('fmin').textContent=v; applyView(); }
+function nodeRadius(deg){
+  const d = deg || 0;
+  if(d <= 1) return 10;
+  if(d === 2) return 12;
+  return Math.min(26, Math.round(11 + Math.sqrt(d) * 2.2));
+}
+
+function nodeFontSize(deg){
+  const d = deg || 0;
+  if(d <= 1) return 11;
+  if(d === 2) return 12;
+  return Math.min(15, Math.round(11 + Math.log2(d + 1)));
+}
+
+function getPhysicsOpts(nodeCount){
+  const count = nodeCount || 0;
+  let grav = -12000, cg = 0.12, spring = 150, overlap = 0.8;
+  if(count >= 500){
+    grav = -35000;
+    cg = 0.04;
+    spring = 220;
+    overlap = 1.0;
+  } else if(count >= 200){
+    grav = -25000;
+    cg = 0.06;
+    spring = 190;
+    overlap = 0.9;
+  } else if(count >= 80){
+    grav = -18000;
+    cg = 0.09;
+    spring = 170;
+    overlap = 0.8;
+  }
+  return {
+    solver: 'barnesHut',
+    barnesHut: {
+      gravitationalConstant: grav,
+      centralGravity: cg,
+      springLength: spring,
+      springConstant: 0.03,
+      damping: 0.4,
+      avoidOverlap: overlap
+    },
+    minVelocity: 0.75,
+    maxVelocity: 50,
+    timestep: 0.5,
+    stabilization: { iterations: 150 }
+  };
+}
+
+function updateDegPresets(){
+  const btns = document.querySelectorAll('.deg-preset-btn');
+  btns.forEach(b => {
+    const d = parseInt(b.getAttribute('data-deg'), 10);
+    b.classList.toggle('active', curMinDeg === d);
+  });
+}
+
+function setDeg(v){
+  curMinDeg = +v;
+  const sl = document.getElementById('fslider');
+  if(sl && +sl.value !== curMinDeg) sl.value = curMinDeg;
+  const fm = document.getElementById('fmin');
+  if(fm) fm.textContent = v;
+  updateDegPresets();
+  applyView();
+}
 // 노드/엣지 개수가 늘수록 클릭마다 체감 지연이 커지던 원인: 아래 두 루프가 예전엔
 // DataSet.update() 를 노드/엣지마다 하나씩(수백~천 회) 개별 호출했다 — vis DataSet 은
 // update 호출마다 change 이벤트를 쏘고 Network 가 그때마다 리드로우를 예약해, 그래프가
@@ -3358,7 +3445,11 @@ function applyView(){
     // 노드별 color 가 group 색을 덮으므로 background/highlight 를 같이 명시해 유지한다.
     const lit = hasFilter && match, c = TYPE_COLORS[n.group]||'#8b949e';
     if(match) matchedNodes.add(n.id);
-    nodeUpdates.push({id:n.id, hidden:false, opacity: match?1:DIM, borderWidth: lit?3:1,
+    const r = nodeRadius(n.degree);
+    const fs = nodeFontSize(n.degree);
+    nodeUpdates.push({id:n.id, hidden:false, size:r,
+      font:{size:fs, color:th.nodeFont},
+      opacity: match?1:DIM, borderWidth: lit?3:1,
       color:{background:c, border: lit?th.lit:th.nodeBorder,
              highlight:{background:c, border:th.lit},
              hover:{background:c, border: lit?th.lit:th.nodeBorder}}});

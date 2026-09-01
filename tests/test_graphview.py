@@ -570,28 +570,30 @@ def test_origin_graph_physics_tuning():
     """오리진 지식 그래프 물리 수렴 튜닝 및 렌더링 최적화 검증."""
     from claire.graphview import GRAPH_HTML
 
-    # 1. 물리 수렴 튜닝 (damping, avoidOverlap, 2.5s settle timer)
-    assert "damping:0.35" in GRAPH_HTML
-    assert "minVelocity:0.75" in GRAPH_HTML
-    assert "gravitationalConstant:-10000" in GRAPH_HTML
-    assert "centralGravity:0.15" in GRAPH_HTML
-    assert "springLength:140" in GRAPH_HTML
-    assert "springConstant:0.04" in GRAPH_HTML
-    assert "let isDraggingNode = false, settleTimer = null;" in GRAPH_HTML
+    # 1. 적응형 물리 수렴 튜닝 (getPhysicsOpts, avoidOverlap, 2.5s settle timer)
+    assert "function getPhysicsOpts(nodeCount){" in GRAPH_HTML
+    assert "avoidOverlap:" in GRAPH_HTML
+    assert "minVelocity: 0.75" in GRAPH_HTML
+    assert "isDraggingNode" in GRAPH_HTML
     assert "settleTimer = setTimeout" in GRAPH_HTML
     assert "2500);" in GRAPH_HTML
-    assert "isDraggingNode" in GRAPH_HTML
     # 초기화 시점이 아닌 2.5s 후 자동 안착 및 드래그 토글로 물리 보존
     assert "net.once('stabilizationIterationsDone'" not in GRAPH_HTML
 
-    # 2. 줌 이벤트 디바운스 적용
+    # 2. 노드 시각적 위계 및 밀집도 프리셋
+    assert "function nodeRadius(deg){" in GRAPH_HTML
+    assert "function nodeFontSize(deg){" in GRAPH_HTML
+    assert "function updateDegPresets(){" in GRAPH_HTML
+    assert "class=\"deg-preset-btn\"" in GRAPH_HTML
+
+    # 3. 줌 이벤트 디바운스 적용
     assert "zoomDebounceTimer" in GRAPH_HTML
 
-    # 3. applyView 루프 내부의 Layout Thrashing 방지 (getComputedStyle 캐싱)
+    # 4. applyView 루프 내부의 Layout Thrashing 방지 (getComputedStyle 캐싱)
     assert "const netBg=(typeof getComputedStyle==='function'?getComputedStyle(document.documentElement).getPropertyValue('--net-bg').trim():'')||'#ffffff';" in GRAPH_HTML
     assert "strokeColor:netBg" in GRAPH_HTML
 
-    # 4. hover/blur 및 모바일 탭 노드 상호작용 및 선택 상태 보존
+    # 5. hover/blur 및 모바일 탭 노드 상호작용 및 선택 상태 보존
     assert "net.on('blurNode'," in GRAPH_HTML
     assert "hover:{background:c, border: lit?th.lit:th.nodeBorder}" in GRAPH_HTML
     assert "function canShowNodePop(id){" in GRAPH_HTML
@@ -613,5 +615,24 @@ def test_mobile_node_tap_popup_markers():
     assert "openDetailPane()" in GRAPH_HTML
 
 
+def test_adaptive_physics_and_visual_hierarchy_html_markers():
+    """대규모 노드 밀집도 완화 및 시각적 위계(Visual Hierarchy), 퀵 프리셋 검증."""
+    from claire.graphview import GRAPH_HTML
 
+    # 1. 밀집도 퀵 프리셋 UI
+    assert 'id="degpresets"' in GRAPH_HTML
+    assert 'data-deg="0"' in GRAPH_HTML
+    assert 'data-deg="1"' in GRAPH_HTML
+    assert 'data-deg="2"' in GRAPH_HTML
+    assert 'data-deg="5"' in GRAPH_HTML
 
+    # 2. 적응형 초기 필터 (총 노드 수에 따른 initialDeg)
+    assert "if(totalCount >= 200)" in GRAPH_HTML
+    assert "initialDeg = 2;" in GRAPH_HTML
+    assert "curMinDeg = initialDeg;" in GRAPH_HTML
+
+    # 3. 노드 크기 및 폰트 차등화 함수
+    assert "function nodeRadius(deg)" in GRAPH_HTML
+    assert "function nodeFontSize(deg)" in GRAPH_HTML
+    assert "Math.sqrt(d)" in GRAPH_HTML
+    assert "Math.log2(d + 1)" in GRAPH_HTML
