@@ -717,6 +717,11 @@ GRAPH_HTML = """<!doctype html>
   .md pre code{background:transparent;padding:0;border-radius:0;font-size:inherit;font-family:'D2Coding','D2 Coding','SFMono-Regular',Menlo,Monaco,Consolas,'Liberation Mono',monospace}
   .md table{border-collapse:collapse;margin:.6em 0;width:100%;max-width:100%;display:block;overflow-x:auto;box-sizing:border-box} .md th,.md td{border:1px solid var(--border);padding:.35em .65em}
   .md th{background:var(--chip-bg);font-weight:600}
+  .md table td ul,.md table td ol{padding-left:1.2em;margin:.2em 0}
+  .md table td li{margin:.15em 0}
+  .md li > p{margin:.3em 0}
+  .md li > p:first-child{margin-top:0}
+  .md li > p:last-child{margin-bottom:0}
   /* --- AsciiDoc & Markdown 확장 스타일 --- */
   .md .admonitionblock{margin:1em 0;border-left:4px solid var(--accent);background:var(--card-bg);border-radius:6px;padding:.6em 1em}
   .md .admonitionblock.note{border-left-color:var(--accent)}
@@ -1421,21 +1426,23 @@ function parseCellSpec(specStr){
   var res={colspan:1, rowspan:1, align:null, style:null};
   if(!specStr) return res;
   var spec=specStr.trim();
-  var mSpan=spec.match(/(\\d+)?\\.(\\d+)\\+/);
+  var mSpan=spec.match(/(\\\\d+)?\\\\.(\\\\d+)\\\\+/);
   if(mSpan){
     if(mSpan[1]) res.colspan=parseInt(mSpan[1], 10);
     if(mSpan[2]) res.rowspan=parseInt(mSpan[2], 10);
   }else{
-    var mCol=spec.match(/(?<!\\.)(\\d+)\\+/);
+    var mCol=spec.match(/(?<!\\\\.)(\\\\d+)\\\\+/);
     if(mCol) res.colspan=parseInt(mCol[1], 10);
-    var mRow=spec.match(/\\.(\\d+)\\+/);
+    var mRow=spec.match(/\\\\.(\\\\d+)\\\\+/);
     if(mRow) res.rowspan=parseInt(mRow[1], 10);
-    var mDup=spec.match(/^(\\d+)\\*$/);
+    var mDup=spec.match(/^(\\\\d+)\\\\*$/);
     if(mDup) res.colspan=parseInt(mDup[1], 10);
   }
   if(spec.indexOf('^') !== -1) res.align='center';
   else if(spec.indexOf('>') !== -1) res.align='right';
   else if(spec.indexOf('<') !== -1) res.align='left';
+  var mStyle=spec.match(/([a-z])(?=\\\\|$)/i);
+  if(mStyle) res.style=mStyle[1].toLowerCase();
   return res;
 }
 function extractCellsAndCols(tableLines, explicitCols){
@@ -1462,11 +1469,11 @@ function extractCellsAndCols(tableLines, explicitCols){
 
     if(matches.length === 0 || matches[0].index > 0){
       if(cells.length > 0 && matches.length === 0){
-        cells[cells.length - 1].text += ' ' + raw.replace(/\\\\\\|/g, '|');
+        cells[cells.length - 1].text += '\\n' + raw.replace(/\\\\\\|/g, '|');
         continue;
       }else if(matches.length === 0){
         var specObj=parseCellSpec('');
-        cells.push({text: raw.replace(/\\\\\\|/g, '|'), spec: '', colspan: specObj.colspan, rowspan: specObj.rowspan, align: specObj.align});
+        cells.push({text: raw.replace(/\\\\\\|/g, '|'), spec: '', colspan: specObj.colspan, rowspan: specObj.rowspan, align: specObj.align, style: specObj.style});
         if(inFirstBlock) firstBlockCols += specObj.colspan;
         continue;
       }
@@ -1480,7 +1487,7 @@ function extractCellsAndCols(tableLines, explicitCols){
       var startPos=cur.index + cur.length;
       var endPos=(j + 1 < matches.length) ? matches[j + 1].index : safe.length;
       var cellText=safe.substring(startPos, endPos).trim().replace(new RegExp(placeholder, 'g'), '|');
-      cells.push({text: cellText, spec: spec, colspan: specObj.colspan, rowspan: specObj.rowspan, align: specObj.align});
+      cells.push({text: cellText, spec: spec, colspan: specObj.colspan, rowspan: specObj.rowspan, align: specObj.align, style: specObj.style});
       lineCellsCount += specObj.colspan;
       if(inFirstBlock) firstBlockCols += specObj.colspan;
     }
@@ -1550,7 +1557,21 @@ function renderTableHtml(tableLines, blockMeta){
     if(cell.colspan > 1) attrs.push('colspan=\"' + cell.colspan + '\"');
     if(cell.align) attrs.push('style=\"text-align:' + cell.align + '\"');
     var attrStr=attrs.length > 0 ? ' ' + attrs.join(' ') : '';
-    return '<' + tag + attrStr + '>' + renderMarkdown(cell.text) + '</' + tag + '>';
+    var text=(cell.text || '').trim();
+    var innerHtml='';
+    if(cell.style==='a' || (text.indexOf('\\n')!==-1 && /(?:^|\\n)\\s*[\\*\\-\\.]\\s+/.test(text))){
+      innerHtml=convertAsciidocToHtml(text);
+      if(innerHtml.startsWith('<p>') && innerHtml.endsWith('</p>') && (innerHtml.match(/<p>/g)||[]).length===1 && innerHtml.indexOf('\\n')===-1){
+        innerHtml=innerHtml.substring(3, innerHtml.length-4);
+      }
+    }else if(text.indexOf('\\n\\n')!==-1){
+      innerHtml=convertAsciidocToHtml(text);
+    }else{
+      var rawLines=text.split('\\n');
+      var parts=rawLines.map(function(l){ return inlineAdocFormat(l); });
+      innerHtml=parts.join(' ');
+    }
+    return '<' + tag + attrStr + '>' + innerHtml + '</' + tag + '>';
   }
 
   tHtml += '<thead><tr>' + rows[0].map(function(c){ return renderCell(c, 'th'); }).join('') + '</tr></thead>';
@@ -1565,6 +1586,40 @@ function renderTableHtml(tableLines, blockMeta){
   return tHtml;
 }
 
+function inlineAdocFormat(text){
+  if(!text) return '';
+  var s=esc(text);
+  var codeSpans=[];
+  s=s.replace(/`(?![\\s])([^`\\n]+?)(?<![\\s])`/g, function(_, m1){
+    codeSpans.push('<code>'+m1+'</code>');
+    return '\\x00ADOCCODE'+(codeSpans.length-1)+'\\x00';
+  });
+  s=s.replace(/\\+\\+(?![\\s])([^\\+\\n]+?)(?<![\\s])\\+\\+/g, function(_, m1){
+    codeSpans.push('<code>'+m1+'</code>');
+    return '\\x00ADOCCODE'+(codeSpans.length-1)+'\\x00';
+  });
+  var linkSpans=[];
+  s=s.replace(/(https?:\\/\\/[^\\s\\[\\]]+)\\[(.*?)\\]/g, function(_, u, l){
+    linkSpans.push('<a href=\"'+u+'\" target=\"_blank\" rel=\"noopener\">'+l+'</a>');
+    return '\\x00ADOCLINK'+(linkSpans.length-1)+'\\x00';
+  });
+  s=s.replace(/(?<!href=\")(https?:\\/\\/[^\\s<>\"\\'\\)]+)/g, function(_, u){
+    linkSpans.push('<a href=\"'+u+'\" target=\"_blank\" rel=\"noopener\">'+u+'</a>');
+    return '\\x00ADOCLINK'+(linkSpans.length-1)+'\\x00';
+  });
+  s=s.replace(/\\s+\\+\\s*$/g, '<br>');
+  s=s.replace(/(?<!#)#(?![\\s#])([^#\\n]+?)(?<![\\s#])#(?!#)/g, '<mark>$1</mark>');
+  s=s.replace(/\\*\\*(?![\\s\\*])([^*\\n]+?)(?<![\\s\\*])\\*\\*/g, '<strong>$1</strong>');
+  s=s.replace(/(?<!\\*)\\*(?![\\s\\*])([^*\\n]+?)(?<![\\s\\*])\\*(?!\\*)/g, '<strong>$1</strong>');
+  s=s.replace(/__(?![\\s_])([^_\\n]+?)(?<![\\s_])__/g, '<em>$1</em>');
+  s=s.replace(/(?<!_)_(?![\\s_])([^_\\n]+?)(?<![\\s_])_(?!_)/g, '<em>$1</em>');
+  s=s.replace(/\\^(?![\\s\\^])([^\\^\\n]+?)(?<![\\s\\^])\\^/g, '<sup>$1</sup>');
+  s=s.replace(/~(?![\\s~])([^~\\n]+?)(?<![\\s~])~/g, '<sub>$1</sub>');
+  for(var i=0; i<linkSpans.length; i++) s=s.replace('\\x00ADOCLINK'+i+'\\x00', linkSpans[i]);
+  for(var j=0; j<codeSpans.length; j++) s=s.replace('\\x00ADOCCODE'+j+'\\x00', codeSpans[j]);
+  return s;
+}
+
 // 자체 완결형 경량 AsciiDoc 렌더러 (외부 CDN/루비런타임 의존성 제로, 번개같은 로딩 속도)
 function convertAsciidocToHtml(raw){
   if(!raw) return '';
@@ -1575,135 +1630,318 @@ function convertAsciidocToHtml(raw){
   let blockMeta={};
   let blockLines=[];
 
+  var listStack=[];
+  var inItem=false;
+  var inContinuation=false;
+  var pendingContinuation=false;
+  var continuationLines=[];
+  var pendingMeta=null;
+  var pendingBlockLines=[];
+  var normalPLines=[];
+
+  function closeItem(){
+    if(inItem){ inItem=false; return ['</li>']; }
+    return [];
+  }
+  function flushList(){
+    if(listStack.length===0) return;
+    out.push.apply(out, closeItem());
+    while(listStack.length>0){
+      var entry=listStack.pop();
+      out.push('</'+entry.tag+'>');
+      if(listStack.length>0) out.push('</li>');
+    }
+  }
+  function adjustListLevel(tag, level){
+    if(listStack.length===0){
+      out.push('<'+tag+'>');
+      listStack.push({tag:tag, level:level});
+      return;
+    }
+    var top=listStack[listStack.length-1];
+    if(level > top.level){
+      out.push('<'+tag+'>');
+      listStack.push({tag:tag, level:level});
+    }else if(level < top.level){
+      out.push.apply(out, closeItem());
+      while(listStack.length>0 && listStack[listStack.length-1].level > level){
+        var e=listStack.pop();
+        out.push('</'+e.tag+'>');
+        if(listStack.length>0) out.push('</li>');
+      }
+      if(listStack.length>0 && listStack[listStack.length-1].tag !== tag){
+        var old=listStack.pop();
+        out.push('</'+old.tag+'>');
+        out.push('<'+tag+'>');
+        listStack.push({tag:tag, level:level});
+      }
+    }else{
+      if(top.tag !== tag){
+        out.push.apply(out, closeItem());
+        listStack.pop();
+        out.push('</'+top.tag+'>');
+        out.push('<'+tag+'>');
+        listStack.push({tag:tag, level:level});
+      }else{
+        out.push.apply(out, closeItem());
+      }
+    }
+  }
+
+  function formatParagraphLines(pLines){
+    if(!pLines || pLines.length===0) return '';
+    var formattedParts=pLines.map(function(l){ return inlineAdocFormat(l); });
+    var res='';
+    for(var i=0; i<formattedParts.length; i++){
+      var p=formattedParts[i];
+      if(i===0){ res=p; }
+      else{
+        if(res.endsWith('<br>')) res += p;
+        else res += ' ' + p;
+      }
+    }
+    return res;
+  }
+
+  function flushPendingSingleBlock(){
+    if(!pendingMeta || (pendingMeta.kind!=='quote' && pendingMeta.kind!=='admonition')) return;
+    if(pendingBlockLines.length===0){ pendingMeta=null; return; }
+    var pContent=formatParagraphLines(pendingBlockLines);
+    if(pendingMeta.kind==='quote'){
+      var attrText=pendingMeta.author?esc(pendingMeta.author)+(pendingMeta.source?' — '+esc(pendingMeta.source):''):'';
+      out.push('<div class=\"quoteblock\"><blockquote><p>'+pContent+'</p></blockquote>'+(attrText?'<div class=\"attribution\">'+attrText+'</div>':'')+'</div>');
+    }else if(pendingMeta.kind==='admonition'){
+      var admType=(pendingMeta.type||'NOTE').toLowerCase();
+      var admTitle=esc(pendingMeta.type||'NOTE');
+      out.push('<div class=\"admonitionblock '+admType+'\"><div class=\"title\">'+admTitle+'</div><div class=\"content\"><p>'+pContent+'</p></div></div>');
+    }
+    pendingMeta=null;
+    pendingBlockLines=[];
+  }
+
+  function flushContinuation(){
+    if(inContinuation && continuationLines.length>0){
+      out.push('<p>'+formatParagraphLines(continuationLines)+'</p>');
+    }
+    inContinuation=false;
+    pendingContinuation=false;
+    continuationLines=[];
+  }
+
+  function flushNormalP(){
+    if(normalPLines.length>0){
+      flushList();
+      out.push('<p>'+formatParagraphLines(normalPLines)+'</p>');
+      normalPLines=[];
+    }
+  }
+
   function flushBlock(){
     if(!inBlock) return;
     if(inBlock==='quote'){
-      const qText=renderMarkdown(blockLines.join(NL));
-      let attr='';
+      var qParagraphs=[];
+      var currP=[];
+      for(var b=0; b<blockLines.length; b++){
+        var bl=blockLines[b];
+        if(!bl.trim()){
+          if(currP.length>0){ qParagraphs.push(formatParagraphLines(currP)); currP=[]; }
+        }else{ currP.push(bl); }
+      }
+      if(currP.length>0) qParagraphs.push(formatParagraphLines(currP));
+      var qContent=qParagraphs.map(function(p){ return '<p>'+p+'</p>'; }).join('');
+      var attr='';
       if(blockMeta.author||blockMeta.source){
-        attr='<div class="attribution">'+esc(blockMeta.author||'')+
+        attr='<div class=\"attribution\">'+esc(blockMeta.author||'')+
              (blockMeta.source?' — '+esc(blockMeta.source):'')+'</div>';
       }
-      out.push('<div class="quoteblock"><blockquote>'+qText+'</blockquote>'+attr+'</div>');
+      out.push('<div class=\"quoteblock\"><blockquote>'+qContent+'</blockquote>'+attr+'</div>');
     }else if(inBlock==='admonition'){
-      const admText=renderMarkdown(blockLines.join(NL));
-      const type=(blockMeta.type||'NOTE').toLowerCase();
-      out.push('<div class="admonitionblock '+esc(type)+'"><div class="title">'+
-               esc(blockMeta.type||'NOTE')+'</div><div class="content">'+admText+'</div></div>');
+      var admParagraphs=[];
+      var currP=[];
+      for(var b=0; b<blockLines.length; b++){
+        var bl=blockLines[b];
+        if(!bl.trim()){
+          if(currP.length>0){ admParagraphs.push(formatParagraphLines(currP)); currP=[]; }
+        }else{ currP.push(bl); }
+      }
+      if(currP.length>0) admParagraphs.push(formatParagraphLines(currP));
+      var admContent=admParagraphs.map(function(p){ return '<p>'+p+'</p>'; }).join('');
+      var type=(blockMeta.type||'NOTE').toLowerCase();
+      out.push('<div class=\"admonitionblock '+esc(type)+'\"><div class=\"title\">'+
+               esc(blockMeta.type||'NOTE')+'</div><div class=\"content\">'+admContent+'</div></div>');
     }else if(inBlock==='code'){
-      const codeText=esc(blockLines.join(NL)).replace(/&lt;(\\d+)&gt;/g,'<span class="conum">&lt;$1&gt;</span>');
-      out.push('<pre><code class="language-'+esc(blockMeta.lang||'')+'">'+codeText+'</code></pre>');
+      var codeText=esc(blockLines.join(NL)).replace(/&lt;(\\d+)&gt;/g,'<span class=\"conum\">&lt;$1&gt;</span>');
+      out.push('<div class=\"listingblock\"><div class=\"content\"><pre><code class=\"language-'+esc(blockMeta.lang||'')+'\">'+codeText+'</code></pre></div></div>');
     }else if(inBlock==='table'){
-      const tblHtml=renderTableHtml(blockLines, blockMeta);
+      var tblHtml=renderTableHtml(blockLines, blockMeta);
       if(tblHtml) out.push(tblHtml);
     }
     inBlock=null; blockMeta={}; blockLines=[];
   }
 
-  let pendingMeta=null;
-  for(let i=0;i<lines.length;i++){
-    const line=lines[i];
-    const trimmed=line.trim();
+  function matchList(trimmed){
+    var mStar=trimmed.match(/^(\\*{1,5})\\s+(.+)$/);
+    if(mStar) return {tag:'ul', level:mStar[1].length, text:mStar[2]};
+    var mHyphen=trimmed.match(/^-\\s+(.+)$/);
+    if(mHyphen) return {tag:'ul', level:1, text:mHyphen[1]};
+    var mDot=trimmed.match(/^(\\.{1,5})\\s+(.+)$/);
+    if(mDot) return {tag:'ol', level:mDot[1].length, text:mDot[2]};
+    var mNum=trimmed.match(/^\\d+[\\.\\)]\\s+(.+)$/);
+    if(mNum) return {tag:'ol', level:1, text:mNum[1]};
+    return null;
+  }
+
+  for(var i=0; i<lines.length; i++){
+    var line=lines[i];
+    var trimmed=line.trim();
+
     if(!inBlock){
-      const qm=trimmed.match(/^\\[quote(?:,\\s*([^,\\]]+))?(?:,\\s*([^\\]]+))?\\]/i);
+      var qm=trimmed.match(/^\\[quote(?:,\\s*([^,\\]]+))?(?:,\\s*([^\\]]+))?\\]/i);
       if(qm){
-        pendingMeta={kind:'quote',author:qm[1]?qm[1].trim():'',source:qm[2]?qm[2].trim():''};
+        flushNormalP(); flushContinuation(); flushPendingSingleBlock(); flushList();
+        pendingMeta={kind:'quote', author:qm[1]?qm[1].trim():'', source:qm[2]?qm[2].trim():''};
+        pendingBlockLines=[];
         continue;
       }
-      const am=trimmed.match(/^\\[(NOTE|IMPORTANT|TIP|WARNING|CAUTION)\\]/i);
+      var am=trimmed.match(/^\\[(NOTE|IMPORTANT|TIP|WARNING|CAUTION)\\]/i);
       if(am){
-        pendingMeta={kind:'admonition',type:am[1].toUpperCase()};
+        flushNormalP(); flushContinuation(); flushPendingSingleBlock(); flushList();
+        pendingMeta={kind:'admonition', type:am[1].toUpperCase()};
+        pendingBlockLines=[];
         continue;
       }
-      const sm=trimmed.match(/^\\[source(?:,\\s*([a-zA-Z0-9_-]+))?\\]/i);
+      var sm=trimmed.match(/^\\[source(?:,\\s*([a-zA-Z0-9_-]+))?\\]/i);
       if(sm){
-        pendingMeta={kind:'code',lang:sm[1]?sm[1].trim():''};
+        flushNormalP(); flushContinuation(); flushPendingSingleBlock(); flushList();
+        pendingMeta={kind:'code', lang:sm[1]?sm[1].trim():''};
         continue;
       }
-      const tm=trimmed.match(/^\\[(.*cols.*|.*header.*|\\d+\\*|[0-9,]+)\\]$/i);
+      var tm=trimmed.match(/^\\[(.*cols.*|.*header.*|\\d+\\*|[0-9,]+)\\]$/i);
       if(tm){
+        flushNormalP(); flushContinuation(); flushPendingSingleBlock(); flushList();
         if(pendingMeta && pendingMeta.kind==='table'){
           pendingMeta.cols=tm[1];
         }else{
-          pendingMeta={kind:'table',cols:tm[1]};
+          pendingMeta={kind:'table', cols:tm[1]};
         }
         continue;
       }
-      const titleM=trimmed.match(/^\\.([^\\.\\s].*)$/);
+      var titleM=trimmed.match(/^\\.([^\\.\\s].*)$/);
       if(titleM){
+        flushNormalP(); flushContinuation(); flushPendingSingleBlock(); flushList();
         if(pendingMeta && pendingMeta.kind==='table'){
           pendingMeta.title=titleM[1].trim();
         }else{
-          pendingMeta={kind:'table',title:titleM[1].trim()};
+          pendingMeta={kind:'table', title:titleM[1].trim()};
         }
         continue;
       }
 
       if(trimmed==='____'){
+        flushNormalP(); flushContinuation(); flushList();
         inBlock='quote';
         blockMeta=(pendingMeta&&pendingMeta.kind==='quote')?pendingMeta:{};
-        pendingMeta=null; blockLines=[]; continue;
+        pendingMeta=null; pendingBlockLines=[]; blockLines=[];
+        continue;
       }
       if(trimmed==='===='){
+        flushNormalP(); flushContinuation(); flushList();
         inBlock='admonition';
         blockMeta=(pendingMeta&&pendingMeta.kind==='admonition')?pendingMeta:{type:'NOTE'};
-        pendingMeta=null; blockLines=[]; continue;
+        pendingMeta=null; pendingBlockLines=[]; blockLines=[];
+        continue;
       }
       if(trimmed==='----'){
+        flushNormalP(); flushContinuation(); flushList();
         inBlock='code';
         blockMeta=(pendingMeta&&pendingMeta.kind==='code')?pendingMeta:{};
-        pendingMeta=null; blockLines=[]; continue;
+        pendingMeta=null; pendingBlockLines=[]; blockLines=[];
+        continue;
       }
       if(trimmed==='|==='){
+        flushNormalP(); flushContinuation(); flushList();
         inBlock='table';
         blockMeta=(pendingMeta&&pendingMeta.kind==='table')?pendingMeta:{};
-        pendingMeta=null; blockLines=[]; continue;
+        pendingMeta=null; pendingBlockLines=[]; blockLines=[];
+        continue;
       }
 
-      const imgMatch=trimmed.match(/^image::([^\\[]+)\\[([^,\\]]*)(?:,\\s*title=(?:\"([^\"]*)\"|'([^']*)'|([^\\]]*)))?\\]/);
+      var imgMatch=trimmed.match(/^image::([^\\[]+)\\[([^,\\]]*)(?:,\\s*title=(?:\"([^\"]*)\"|'([^']*)'|([^\\]]*)))?\\]/);
       if(imgMatch){
-        const src=imgMatch[1].trim();
-        const alt=imgMatch[2]?imgMatch[2].trim():'';
-        const cap=imgMatch[3]||imgMatch[4]||imgMatch[5]||'';
-        out.push('<div class="imageblock"><img src="'+esc(src)+'" alt="'+esc(alt)+'">'+
-                 (cap?'<div class="title">'+esc(cap)+'</div>':'')+'</div>');
+        flushNormalP(); flushContinuation(); flushPendingSingleBlock(); flushList();
+        var src=imgMatch[1].trim();
+        var alt=imgMatch[2]?imgMatch[2].trim():'';
+        var cap=imgMatch[3]||imgMatch[4]||imgMatch[5]||'';
+        out.push('<div class=\"imageblock\"><img src=\"'+esc(src)+'\" alt=\"'+esc(alt)+'\">'+
+                 (cap?'<div class=\"title\">'+esc(cap)+'</div>':'')+'</div>');
         continue;
       }
-      const colMatch=trimmed.match(/^<(\\d+)>\\s*(.+)/);
+      var colMatch=trimmed.match(/^<(\\d+)>\\s*(.+)/);
       if(colMatch){
-        out.push('<div class="colist"><span class="conum">&lt;'+colMatch[1]+'&gt;</span> '+renderMarkdown(colMatch[2])+'</div>');
+        flushNormalP(); flushContinuation(); flushPendingSingleBlock(); flushList();
+        out.push('<div class=\"colist\"><span class=\"conum\">&lt;'+colMatch[1]+'&gt;</span> '+inlineAdocFormat(colMatch[2])+'</div>');
         continue;
       }
-      const h1Match=trimmed.match(/^=\\s+(.+)$/);
-      if(h1Match){ out.push('<h1>'+renderMarkdown(h1Match[1])+'</h1>'); continue; }
-      const h2Match=trimmed.match(/^==\\s+(.+)$/);
-      if(h2Match){ out.push('<h2>'+renderMarkdown(h2Match[1])+'</h2>'); continue; }
-      const h3Match=trimmed.match(/^===\\s+(.+)$/);
-      if(h3Match){ out.push('<h3>'+renderMarkdown(h3Match[1])+'</h3>'); continue; }
-      const h4Match=trimmed.match(/^====\\s+(.+)$/);
-      if(h4Match){ out.push('<h4>'+renderMarkdown(h4Match[1])+'</h4>'); continue; }
+      var h1Match=trimmed.match(/^=\\s+(.+)$/);
+      if(h1Match){ flushNormalP(); flushContinuation(); flushPendingSingleBlock(); flushList(); out.push('<h1>'+inlineAdocFormat(h1Match[1])+'</h1>'); continue; }
+      var h2Match=trimmed.match(/^==\\s+(.+)$/);
+      if(h2Match){ flushNormalP(); flushContinuation(); flushPendingSingleBlock(); flushList(); out.push('<h2>'+inlineAdocFormat(h2Match[1])+'</h2>'); continue; }
+      var h3Match=trimmed.match(/^===\\s+(.+)$/);
+      if(h3Match){ flushNormalP(); flushContinuation(); flushPendingSingleBlock(); flushList(); out.push('<h3>'+inlineAdocFormat(h3Match[1])+'</h3>'); continue; }
+      var h4Match=trimmed.match(/^====\\s+(.+)$/);
+      if(h4Match){ flushNormalP(); flushContinuation(); flushPendingSingleBlock(); flushList(); out.push('<h4>'+inlineAdocFormat(h4Match[1])+'</h4>'); continue; }
 
-      // 문서 속성 (:key: value, :toc: 등) 스킵
-      const attrMatch=trimmed.match(/^:[a-zA-Z0-9_-]+:\\s*(.*)$/);
+      var attrMatch=trimmed.match(/^:[a-zA-Z0-9_-]+:\\s*(.*)$/);
       if(attrMatch){ continue; }
 
-      if(pendingMeta){
-        if(pendingMeta.kind==='quote'){
-          var attrText=pendingMeta.author?esc(pendingMeta.author)+(pendingMeta.source?' — '+esc(pendingMeta.source):''):'';
-          out.push('<div class="quoteblock"><blockquote><p>'+renderMarkdown(trimmed.replace(/(?<!#)#(?![\\s#])([^#\\n]+?)(?<![\\s#])#(?!#)/g,'<mark>$1</mark>'))+'</p></blockquote>'+(attrText?'<div class="attribution">'+attrText+'</div>':'')+'</div>');
-          pendingMeta=null;
-          continue;
-        }else if(pendingMeta.kind==='admonition'){
-          var admType=(pendingMeta.type||'NOTE').toLowerCase();
-          var admTitle=esc(pendingMeta.type||'NOTE');
-          out.push('<div class="admonitionblock '+admType+'"><div class="title">'+admTitle+'</div><div class="content"><p>'+renderMarkdown(trimmed.replace(/(?<!#)#(?![\\s#])([^#\\n]+?)(?<![\\s#])#(?!#)/g,'<mark>$1</mark>'))+'</p></div></div>');
-          pendingMeta=null;
-          continue;
-        }
-        pendingMeta=null;
+      var singleAdm=trimmed.match(/^(NOTE|TIP|IMPORTANT|WARNING|CAUTION):\\s*(.+)$/i);
+      if(singleAdm){
+        flushNormalP(); flushContinuation(); flushPendingSingleBlock(); flushList();
+        var admType=singleAdm[1].toUpperCase();
+        out.push('<div class=\"admonitionblock '+admType.toLowerCase()+'\"><div class=\"title\">'+esc(admType)+'</div><div class=\"content\"><p>'+inlineAdocFormat(singleAdm[2])+'</p></div></div>');
+        continue;
       }
 
-      out.push(renderMarkdown(line.replace(/(?<!#)#(?![\\s#])([^#\\n]+?)(?<![\\s#])#(?!#)/g,'<mark>$1</mark>')));
+      if(trimmed==='+'){
+        if(inItem){
+          flushContinuation();
+          pendingContinuation=true;
+        }
+        continue;
+      }
+
+      var listM=matchList(trimmed);
+      if(listM){
+        flushNormalP(); flushContinuation(); pendingContinuation=false; flushPendingSingleBlock();
+        var itemText=inlineAdocFormat(listM.text);
+        adjustListLevel(listM.tag, listM.level);
+        out.push('<li>'+itemText);
+        inItem=true;
+        inContinuation=false;
+        continue;
+      }
+
+      if(!trimmed){
+        if(inContinuation){
+          flushContinuation();
+        }
+        flushNormalP(); flushPendingSingleBlock();
+        continue;
+      }
+
+      if(pendingMeta && (pendingMeta.kind==='quote' || pendingMeta.kind==='admonition')){
+        pendingBlockLines.push(trimmed);
+        continue;
+      }
+
+      if((pendingContinuation || inContinuation) && inItem){
+        pendingContinuation=false;
+        inContinuation=true;
+        continuationLines.push(trimmed);
+        continue;
+      }
+
+      normalPLines.push(trimmed);
     }else{
       if(inBlock==='quote'&&trimmed==='____') flushBlock();
       else if(inBlock==='admonition'&&trimmed==='====') flushBlock();
@@ -1715,6 +1953,10 @@ function convertAsciidocToHtml(raw){
     }
   }
   flushBlock();
+  flushNormalP();
+  flushContinuation();
+  flushPendingSingleBlock();
+  flushList();
   return out.join(NL);
 }
 
@@ -4179,6 +4421,11 @@ _SHARED_HTML = """<!doctype html>
   .md pre code{background:transparent;padding:0;border-radius:0;font-size:inherit;font-family:'D2Coding','D2 Coding','SFMono-Regular',Menlo,Monaco,Consolas,'Liberation Mono',monospace}
   .md table{border-collapse:collapse;margin:.6em 0;width:100%;max-width:100%;display:block;overflow-x:auto;box-sizing:border-box} .md th,.md td{border:1px solid var(--border);padding:.35em .65em}
   .md th{background:var(--chip-bg);font-weight:600}
+  .md table td ul,.md table td ol{padding-left:1.2em;margin:.2em 0}
+  .md table td li{margin:.15em 0}
+  .md li > p{margin:.3em 0}
+  .md li > p:first-child{margin-top:0}
+  .md li > p:last-child{margin-bottom:0}
   /* --- AsciiDoc & Markdown 확장 스타일 --- */
   .md .admonitionblock{margin:1em 0;border-left:4px solid var(--accent);background:var(--card-bg);border-radius:6px;padding:.6em 1em}
   .md .admonitionblock.note{border-left-color:var(--accent)}
@@ -4252,21 +4499,23 @@ function parseCellSpec(specStr){
   var res={colspan:1, rowspan:1, align:null, style:null};
   if(!specStr) return res;
   var spec=specStr.trim();
-  var mSpan=spec.match(/(\\d+)?\\.(\\d+)\\+/);
+  var mSpan=spec.match(/(\\\\d+)?\\\\.(\\\\d+)\\\\+/);
   if(mSpan){
     if(mSpan[1]) res.colspan=parseInt(mSpan[1], 10);
     if(mSpan[2]) res.rowspan=parseInt(mSpan[2], 10);
   }else{
-    var mCol=spec.match(/(?<!\\.)(\\d+)\\+/);
+    var mCol=spec.match(/(?<!\\\\.)(\\\\d+)\\\\+/);
     if(mCol) res.colspan=parseInt(mCol[1], 10);
-    var mRow=spec.match(/\\.(\\d+)\\+/);
+    var mRow=spec.match(/\\\\.(\\\\d+)\\\\+/);
     if(mRow) res.rowspan=parseInt(mRow[1], 10);
-    var mDup=spec.match(/^(\\d+)\\*$/);
+    var mDup=spec.match(/^(\\\\d+)\\\\*$/);
     if(mDup) res.colspan=parseInt(mDup[1], 10);
   }
   if(spec.indexOf('^') !== -1) res.align='center';
   else if(spec.indexOf('>') !== -1) res.align='right';
   else if(spec.indexOf('<') !== -1) res.align='left';
+  var mStyle=spec.match(/([a-z])(?=\\\\|$)/i);
+  if(mStyle) res.style=mStyle[1].toLowerCase();
   return res;
 }
 function extractCellsAndCols(tableLines, explicitCols){
@@ -4293,11 +4542,11 @@ function extractCellsAndCols(tableLines, explicitCols){
 
     if(matches.length === 0 || matches[0].index > 0){
       if(cells.length > 0 && matches.length === 0){
-        cells[cells.length - 1].text += ' ' + raw.replace(/\\\\\\|/g, '|');
+        cells[cells.length - 1].text += '\\n' + raw.replace(/\\\\\\|/g, '|');
         continue;
       }else if(matches.length === 0){
         var specObj=parseCellSpec('');
-        cells.push({text: raw.replace(/\\\\\\|/g, '|'), spec: '', colspan: specObj.colspan, rowspan: specObj.rowspan, align: specObj.align});
+        cells.push({text: raw.replace(/\\\\\\|/g, '|'), spec: '', colspan: specObj.colspan, rowspan: specObj.rowspan, align: specObj.align, style: specObj.style});
         if(inFirstBlock) firstBlockCols += specObj.colspan;
         continue;
       }
@@ -4311,7 +4560,7 @@ function extractCellsAndCols(tableLines, explicitCols){
       var startPos=cur.index + cur.length;
       var endPos=(j + 1 < matches.length) ? matches[j + 1].index : safe.length;
       var cellText=safe.substring(startPos, endPos).trim().replace(new RegExp(placeholder, 'g'), '|');
-      cells.push({text: cellText, spec: spec, colspan: specObj.colspan, rowspan: specObj.rowspan, align: specObj.align});
+      cells.push({text: cellText, spec: spec, colspan: specObj.colspan, rowspan: specObj.rowspan, align: specObj.align, style: specObj.style});
       lineCellsCount += specObj.colspan;
       if(inFirstBlock) firstBlockCols += specObj.colspan;
     }
@@ -4381,7 +4630,21 @@ function renderTableHtml(tableLines, blockMeta){
     if(cell.colspan > 1) attrs.push('colspan=\"' + cell.colspan + '\"');
     if(cell.align) attrs.push('style=\"text-align:' + cell.align + '\"');
     var attrStr=attrs.length > 0 ? ' ' + attrs.join(' ') : '';
-    return '<' + tag + attrStr + '>' + renderMarkdown(cell.text) + '</' + tag + '>';
+    var text=(cell.text || '').trim();
+    var innerHtml='';
+    if(cell.style==='a' || (text.indexOf('\\n')!==-1 && /(?:^|\\n)\\s*[\\*\\-\\.]\\s+/.test(text))){
+      innerHtml=convertAsciidocToHtml(text);
+      if(innerHtml.startsWith('<p>') && innerHtml.endsWith('</p>') && (innerHtml.match(/<p>/g)||[]).length===1 && innerHtml.indexOf('\\n')===-1){
+        innerHtml=innerHtml.substring(3, innerHtml.length-4);
+      }
+    }else if(text.indexOf('\\n\\n')!==-1){
+      innerHtml=convertAsciidocToHtml(text);
+    }else{
+      var rawLines=text.split('\\n');
+      var parts=rawLines.map(function(l){ return inlineAdocFormat(l); });
+      innerHtml=parts.join(' ');
+    }
+    return '<' + tag + attrStr + '>' + innerHtml + '</' + tag + '>';
   }
 
   tHtml += '<thead><tr>' + rows[0].map(function(c){ return renderCell(c, 'th'); }).join('') + '</tr></thead>';
@@ -4396,6 +4659,41 @@ function renderTableHtml(tableLines, blockMeta){
   return tHtml;
 }
 
+function inlineAdocFormat(text){
+  if(!text) return '';
+  var s=esc(text);
+  var codeSpans=[];
+  s=s.replace(/`(?![\\s])([^`\\n]+?)(?<![\\s])`/g, function(_, m1){
+    codeSpans.push('<code>'+m1+'</code>');
+    return '\\x00ADOCCODE'+(codeSpans.length-1)+'\\x00';
+  });
+  s=s.replace(/\\+\\+(?![\\s])([^\\+\\n]+?)(?<![\\s])\\+\\+/g, function(_, m1){
+    codeSpans.push('<code>'+m1+'</code>');
+    return '\\x00ADOCCODE'+(codeSpans.length-1)+'\\x00';
+  });
+  var linkSpans=[];
+  s=s.replace(/(https?:\\/\\/[^\\s\\[\\]]+)\\[(.*?)\\]/g, function(_, u, l){
+    linkSpans.push('<a href=\"'+u+'\" target=\"_blank\" rel=\"noopener\">'+l+'</a>');
+    return '\\x00ADOCLINK'+(linkSpans.length-1)+'\\x00';
+  });
+  s=s.replace(/(?<!href=\")(https?:\\/\\/[^\\s<>\"\\'\\)]+)/g, function(_, u){
+    linkSpans.push('<a href=\"'+u+'\" target=\"_blank\" rel=\"noopener\">'+u+'</a>');
+    return '\\x00ADOCLINK'+(linkSpans.length-1)+'\\x00';
+  });
+  s=s.replace(/\\s+\\+\\s*$/g, '<br>');
+  s=s.replace(/(?<!#)#(?![\\s#])([^#\\n]+?)(?<![\\s#])#(?!#)/g, '<mark>$1</mark>');
+  s=s.replace(/\\*\\*(?![\\s\\*])([^*\\n]+?)(?<![\\s\\*])\\*\\*/g, '<strong>$1</strong>');
+  s=s.replace(/(?<!\\*)\\*(?![\\s\\*])([^*\\n]+?)(?<![\\s\\*])\\*(?!\\*)/g, '<strong>$1</strong>');
+  s=s.replace(/__(?![\\s_])([^_\\n]+?)(?<![\\s_])__/g, '<em>$1</em>');
+  s=s.replace(/(?<!_)_(?![\\s_])([^_\\n]+?)(?<![\\s_])_(?!_)/g, '<em>$1</em>');
+  s=s.replace(/\\^(?![\\s\\^])([^\\^\\n]+?)(?<![\\s\\^])\\^/g, '<sup>$1</sup>');
+  s=s.replace(/~(?![\\s~])([^~\\n]+?)(?<![\\s~])~/g, '<sub>$1</sub>');
+  for(var i=0; i<linkSpans.length; i++) s=s.replace('\\x00ADOCLINK'+i+'\\x00', linkSpans[i]);
+  for(var j=0; j<codeSpans.length; j++) s=s.replace('\\x00ADOCCODE'+j+'\\x00', codeSpans[j]);
+  return s;
+}
+
+// 자체 완결형 경량 AsciiDoc 렌더러 (외부 CDN/루비런타임 의존성 제로, 번개같은 로딩 속도)
 function convertAsciidocToHtml(raw){
   if(!raw) return '';
   const NL=String.fromCharCode(10);
@@ -4405,135 +4703,318 @@ function convertAsciidocToHtml(raw){
   let blockMeta={};
   let blockLines=[];
 
+  var listStack=[];
+  var inItem=false;
+  var inContinuation=false;
+  var pendingContinuation=false;
+  var continuationLines=[];
+  var pendingMeta=null;
+  var pendingBlockLines=[];
+  var normalPLines=[];
+
+  function closeItem(){
+    if(inItem){ inItem=false; return ['</li>']; }
+    return [];
+  }
+  function flushList(){
+    if(listStack.length===0) return;
+    out.push.apply(out, closeItem());
+    while(listStack.length>0){
+      var entry=listStack.pop();
+      out.push('</'+entry.tag+'>');
+      if(listStack.length>0) out.push('</li>');
+    }
+  }
+  function adjustListLevel(tag, level){
+    if(listStack.length===0){
+      out.push('<'+tag+'>');
+      listStack.push({tag:tag, level:level});
+      return;
+    }
+    var top=listStack[listStack.length-1];
+    if(level > top.level){
+      out.push('<'+tag+'>');
+      listStack.push({tag:tag, level:level});
+    }else if(level < top.level){
+      out.push.apply(out, closeItem());
+      while(listStack.length>0 && listStack[listStack.length-1].level > level){
+        var e=listStack.pop();
+        out.push('</'+e.tag+'>');
+        if(listStack.length>0) out.push('</li>');
+      }
+      if(listStack.length>0 && listStack[listStack.length-1].tag !== tag){
+        var old=listStack.pop();
+        out.push('</'+old.tag+'>');
+        out.push('<'+tag+'>');
+        listStack.push({tag:tag, level:level});
+      }
+    }else{
+      if(top.tag !== tag){
+        out.push.apply(out, closeItem());
+        listStack.pop();
+        out.push('</'+top.tag+'>');
+        out.push('<'+tag+'>');
+        listStack.push({tag:tag, level:level});
+      }else{
+        out.push.apply(out, closeItem());
+      }
+    }
+  }
+
+  function formatParagraphLines(pLines){
+    if(!pLines || pLines.length===0) return '';
+    var formattedParts=pLines.map(function(l){ return inlineAdocFormat(l); });
+    var res='';
+    for(var i=0; i<formattedParts.length; i++){
+      var p=formattedParts[i];
+      if(i===0){ res=p; }
+      else{
+        if(res.endsWith('<br>')) res += p;
+        else res += ' ' + p;
+      }
+    }
+    return res;
+  }
+
+  function flushPendingSingleBlock(){
+    if(!pendingMeta || (pendingMeta.kind!=='quote' && pendingMeta.kind!=='admonition')) return;
+    if(pendingBlockLines.length===0){ pendingMeta=null; return; }
+    var pContent=formatParagraphLines(pendingBlockLines);
+    if(pendingMeta.kind==='quote'){
+      var attrText=pendingMeta.author?esc(pendingMeta.author)+(pendingMeta.source?' — '+esc(pendingMeta.source):''):'';
+      out.push('<div class=\"quoteblock\"><blockquote><p>'+pContent+'</p></blockquote>'+(attrText?'<div class=\"attribution\">'+attrText+'</div>':'')+'</div>');
+    }else if(pendingMeta.kind==='admonition'){
+      var admType=(pendingMeta.type||'NOTE').toLowerCase();
+      var admTitle=esc(pendingMeta.type||'NOTE');
+      out.push('<div class=\"admonitionblock '+admType+'\"><div class=\"title\">'+admTitle+'</div><div class=\"content\"><p>'+pContent+'</p></div></div>');
+    }
+    pendingMeta=null;
+    pendingBlockLines=[];
+  }
+
+  function flushContinuation(){
+    if(inContinuation && continuationLines.length>0){
+      out.push('<p>'+formatParagraphLines(continuationLines)+'</p>');
+    }
+    inContinuation=false;
+    pendingContinuation=false;
+    continuationLines=[];
+  }
+
+  function flushNormalP(){
+    if(normalPLines.length>0){
+      flushList();
+      out.push('<p>'+formatParagraphLines(normalPLines)+'</p>');
+      normalPLines=[];
+    }
+  }
+
   function flushBlock(){
     if(!inBlock) return;
     if(inBlock==='quote'){
-      const qText=renderMarkdown(blockLines.join(NL));
-      let attr='';
+      var qParagraphs=[];
+      var currP=[];
+      for(var b=0; b<blockLines.length; b++){
+        var bl=blockLines[b];
+        if(!bl.trim()){
+          if(currP.length>0){ qParagraphs.push(formatParagraphLines(currP)); currP=[]; }
+        }else{ currP.push(bl); }
+      }
+      if(currP.length>0) qParagraphs.push(formatParagraphLines(currP));
+      var qContent=qParagraphs.map(function(p){ return '<p>'+p+'</p>'; }).join('');
+      var attr='';
       if(blockMeta.author||blockMeta.source){
-        attr='<div class="attribution">'+esc(blockMeta.author||'')+
+        attr='<div class=\"attribution\">'+esc(blockMeta.author||'')+
              (blockMeta.source?' — '+esc(blockMeta.source):'')+'</div>';
       }
-      out.push('<div class="quoteblock"><blockquote>'+qText+'</blockquote>'+attr+'</div>');
+      out.push('<div class=\"quoteblock\"><blockquote>'+qContent+'</blockquote>'+attr+'</div>');
     }else if(inBlock==='admonition'){
-      const admText=renderMarkdown(blockLines.join(NL));
-      const type=(blockMeta.type||'NOTE').toLowerCase();
-      out.push('<div class="admonitionblock '+esc(type)+'"><div class="title">'+
-               esc(blockMeta.type||'NOTE')+'</div><div class="content">'+admText+'</div></div>');
+      var admParagraphs=[];
+      var currP=[];
+      for(var b=0; b<blockLines.length; b++){
+        var bl=blockLines[b];
+        if(!bl.trim()){
+          if(currP.length>0){ admParagraphs.push(formatParagraphLines(currP)); currP=[]; }
+        }else{ currP.push(bl); }
+      }
+      if(currP.length>0) admParagraphs.push(formatParagraphLines(currP));
+      var admContent=admParagraphs.map(function(p){ return '<p>'+p+'</p>'; }).join('');
+      var type=(blockMeta.type||'NOTE').toLowerCase();
+      out.push('<div class=\"admonitionblock '+esc(type)+'\"><div class=\"title\">'+
+               esc(blockMeta.type||'NOTE')+'</div><div class=\"content\">'+admContent+'</div></div>');
     }else if(inBlock==='code'){
-      const codeText=esc(blockLines.join(NL)).replace(/&lt;(\\d+)&gt;/g,'<span class="conum">&lt;$1&gt;</span>');
-      out.push('<pre><code class="language-'+esc(blockMeta.lang||'')+'">'+codeText+'</code></pre>');
+      var codeText=esc(blockLines.join(NL)).replace(/&lt;(\\d+)&gt;/g,'<span class=\"conum\">&lt;$1&gt;</span>');
+      out.push('<div class=\"listingblock\"><div class=\"content\"><pre><code class=\"language-'+esc(blockMeta.lang||'')+'\">'+codeText+'</code></pre></div></div>');
     }else if(inBlock==='table'){
-      const tblHtml=renderTableHtml(blockLines, blockMeta);
+      var tblHtml=renderTableHtml(blockLines, blockMeta);
       if(tblHtml) out.push(tblHtml);
     }
     inBlock=null; blockMeta={}; blockLines=[];
   }
 
-  let pendingMeta=null;
-  for(let i=0;i<lines.length;i++){
-    const line=lines[i];
-    const trimmed=line.trim();
+  function matchList(trimmed){
+    var mStar=trimmed.match(/^(\\*{1,5})\\s+(.+)$/);
+    if(mStar) return {tag:'ul', level:mStar[1].length, text:mStar[2]};
+    var mHyphen=trimmed.match(/^-\\s+(.+)$/);
+    if(mHyphen) return {tag:'ul', level:1, text:mHyphen[1]};
+    var mDot=trimmed.match(/^(\\.{1,5})\\s+(.+)$/);
+    if(mDot) return {tag:'ol', level:mDot[1].length, text:mDot[2]};
+    var mNum=trimmed.match(/^\\d+[\\.\\)]\\s+(.+)$/);
+    if(mNum) return {tag:'ol', level:1, text:mNum[1]};
+    return null;
+  }
+
+  for(var i=0; i<lines.length; i++){
+    var line=lines[i];
+    var trimmed=line.trim();
+
     if(!inBlock){
-      const qm=trimmed.match(/^\\[quote(?:,\\s*([^,\\]]+))?(?:,\\s*([^\\]]+))?\\]/i);
+      var qm=trimmed.match(/^\\[quote(?:,\\s*([^,\\]]+))?(?:,\\s*([^\\]]+))?\\]/i);
       if(qm){
-        pendingMeta={kind:'quote',author:qm[1]?qm[1].trim():'',source:qm[2]?qm[2].trim():''};
+        flushNormalP(); flushContinuation(); flushPendingSingleBlock(); flushList();
+        pendingMeta={kind:'quote', author:qm[1]?qm[1].trim():'', source:qm[2]?qm[2].trim():''};
+        pendingBlockLines=[];
         continue;
       }
-      const am=trimmed.match(/^\\[(NOTE|IMPORTANT|TIP|WARNING|CAUTION)\\]/i);
+      var am=trimmed.match(/^\\[(NOTE|IMPORTANT|TIP|WARNING|CAUTION)\\]/i);
       if(am){
-        pendingMeta={kind:'admonition',type:am[1].toUpperCase()};
+        flushNormalP(); flushContinuation(); flushPendingSingleBlock(); flushList();
+        pendingMeta={kind:'admonition', type:am[1].toUpperCase()};
+        pendingBlockLines=[];
         continue;
       }
-      const sm=trimmed.match(/^\\[source(?:,\\s*([a-zA-Z0-9_-]+))?\\]/i);
+      var sm=trimmed.match(/^\\[source(?:,\\s*([a-zA-Z0-9_-]+))?\\]/i);
       if(sm){
-        pendingMeta={kind:'code',lang:sm[1]?sm[1].trim():''};
+        flushNormalP(); flushContinuation(); flushPendingSingleBlock(); flushList();
+        pendingMeta={kind:'code', lang:sm[1]?sm[1].trim():''};
         continue;
       }
-      const tm=trimmed.match(/^\\[(.*cols.*|.*header.*|\\d+\\*|[0-9,]+)\\]$/i);
+      var tm=trimmed.match(/^\\[(.*cols.*|.*header.*|\\d+\\*|[0-9,]+)\\]$/i);
       if(tm){
+        flushNormalP(); flushContinuation(); flushPendingSingleBlock(); flushList();
         if(pendingMeta && pendingMeta.kind==='table'){
           pendingMeta.cols=tm[1];
         }else{
-          pendingMeta={kind:'table',cols:tm[1]};
+          pendingMeta={kind:'table', cols:tm[1]};
         }
         continue;
       }
-      const titleM=trimmed.match(/^\\.([^\\.\\s].*)$/);
+      var titleM=trimmed.match(/^\\.([^\\.\\s].*)$/);
       if(titleM){
+        flushNormalP(); flushContinuation(); flushPendingSingleBlock(); flushList();
         if(pendingMeta && pendingMeta.kind==='table'){
           pendingMeta.title=titleM[1].trim();
         }else{
-          pendingMeta={kind:'table',title:titleM[1].trim()};
+          pendingMeta={kind:'table', title:titleM[1].trim()};
         }
         continue;
       }
 
       if(trimmed==='____'){
+        flushNormalP(); flushContinuation(); flushList();
         inBlock='quote';
         blockMeta=(pendingMeta&&pendingMeta.kind==='quote')?pendingMeta:{};
-        pendingMeta=null; blockLines=[]; continue;
+        pendingMeta=null; pendingBlockLines=[]; blockLines=[];
+        continue;
       }
       if(trimmed==='===='){
+        flushNormalP(); flushContinuation(); flushList();
         inBlock='admonition';
         blockMeta=(pendingMeta&&pendingMeta.kind==='admonition')?pendingMeta:{type:'NOTE'};
-        pendingMeta=null; blockLines=[]; continue;
+        pendingMeta=null; pendingBlockLines=[]; blockLines=[];
+        continue;
       }
       if(trimmed==='----'){
+        flushNormalP(); flushContinuation(); flushList();
         inBlock='code';
         blockMeta=(pendingMeta&&pendingMeta.kind==='code')?pendingMeta:{};
-        pendingMeta=null; blockLines=[]; continue;
+        pendingMeta=null; pendingBlockLines=[]; blockLines=[];
+        continue;
       }
       if(trimmed==='|==='){
+        flushNormalP(); flushContinuation(); flushList();
         inBlock='table';
         blockMeta=(pendingMeta&&pendingMeta.kind==='table')?pendingMeta:{};
-        pendingMeta=null; blockLines=[]; continue;
+        pendingMeta=null; pendingBlockLines=[]; blockLines=[];
+        continue;
       }
 
-      const imgMatch=trimmed.match(/^image::([^\\[]+)\\[([^,\\]]*)(?:,\\s*title=(?:\"([^\"]*)\"|'([^']*)'|([^\\]]*)))?\\]/);
+      var imgMatch=trimmed.match(/^image::([^\\[]+)\\[([^,\\]]*)(?:,\\s*title=(?:\"([^\"]*)\"|'([^']*)'|([^\\]]*)))?\\]/);
       if(imgMatch){
-        const src=imgMatch[1].trim();
-        const alt=imgMatch[2]?imgMatch[2].trim():'';
-        const cap=imgMatch[3]||imgMatch[4]||imgMatch[5]||'';
-        out.push('<div class="imageblock"><img src="'+esc(src)+'" alt="'+esc(alt)+'">'+
-                 (cap?'<div class="title">'+esc(cap)+'</div>':'')+'</div>');
+        flushNormalP(); flushContinuation(); flushPendingSingleBlock(); flushList();
+        var src=imgMatch[1].trim();
+        var alt=imgMatch[2]?imgMatch[2].trim():'';
+        var cap=imgMatch[3]||imgMatch[4]||imgMatch[5]||'';
+        out.push('<div class=\"imageblock\"><img src=\"'+esc(src)+'\" alt=\"'+esc(alt)+'\">'+
+                 (cap?'<div class=\"title\">'+esc(cap)+'</div>':'')+'</div>');
         continue;
       }
-      const colMatch=trimmed.match(/^<(\\d+)>\\s*(.+)/);
+      var colMatch=trimmed.match(/^<(\\d+)>\\s*(.+)/);
       if(colMatch){
-        out.push('<div class="colist"><span class="conum">&lt;'+colMatch[1]+'&gt;</span> '+renderMarkdown(colMatch[2])+'</div>');
+        flushNormalP(); flushContinuation(); flushPendingSingleBlock(); flushList();
+        out.push('<div class=\"colist\"><span class=\"conum\">&lt;'+colMatch[1]+'&gt;</span> '+inlineAdocFormat(colMatch[2])+'</div>');
         continue;
       }
-      const h1Match=trimmed.match(/^=\\s+(.+)$/);
-      if(h1Match){ out.push('<h1>'+renderMarkdown(h1Match[1])+'</h1>'); continue; }
-      const h2Match=trimmed.match(/^==\\s+(.+)$/);
-      if(h2Match){ out.push('<h2>'+renderMarkdown(h2Match[1])+'</h2>'); continue; }
-      const h3Match=trimmed.match(/^===\\s+(.+)$/);
-      if(h3Match){ out.push('<h3>'+renderMarkdown(h3Match[1])+'</h3>'); continue; }
-      const h4Match=trimmed.match(/^====\\s+(.+)$/);
-      if(h4Match){ out.push('<h4>'+renderMarkdown(h4Match[1])+'</h4>'); continue; }
+      var h1Match=trimmed.match(/^=\\s+(.+)$/);
+      if(h1Match){ flushNormalP(); flushContinuation(); flushPendingSingleBlock(); flushList(); out.push('<h1>'+inlineAdocFormat(h1Match[1])+'</h1>'); continue; }
+      var h2Match=trimmed.match(/^==\\s+(.+)$/);
+      if(h2Match){ flushNormalP(); flushContinuation(); flushPendingSingleBlock(); flushList(); out.push('<h2>'+inlineAdocFormat(h2Match[1])+'</h2>'); continue; }
+      var h3Match=trimmed.match(/^===\\s+(.+)$/);
+      if(h3Match){ flushNormalP(); flushContinuation(); flushPendingSingleBlock(); flushList(); out.push('<h3>'+inlineAdocFormat(h3Match[1])+'</h3>'); continue; }
+      var h4Match=trimmed.match(/^====\\s+(.+)$/);
+      if(h4Match){ flushNormalP(); flushContinuation(); flushPendingSingleBlock(); flushList(); out.push('<h4>'+inlineAdocFormat(h4Match[1])+'</h4>'); continue; }
 
-      // 문서 속성 (:key: value, :toc: 등) 스킵
-      const attrMatch=trimmed.match(/^:[a-zA-Z0-9_-]+:\\s*(.*)$/);
+      var attrMatch=trimmed.match(/^:[a-zA-Z0-9_-]+:\\s*(.*)$/);
       if(attrMatch){ continue; }
 
-      if(pendingMeta){
-        if(pendingMeta.kind==='quote'){
-          var attrText=pendingMeta.author?esc(pendingMeta.author)+(pendingMeta.source?' — '+esc(pendingMeta.source):''):'';
-          out.push('<div class="quoteblock"><blockquote><p>'+renderMarkdown(trimmed.replace(/(?<!#)#(?![\\s#])([^#\\n]+?)(?<![\\s#])#(?!#)/g,'<mark>$1</mark>'))+'</p></blockquote>'+(attrText?'<div class="attribution">'+attrText+'</div>':'')+'</div>');
-          pendingMeta=null;
-          continue;
-        }else if(pendingMeta.kind==='admonition'){
-          var admType=(pendingMeta.type||'NOTE').toLowerCase();
-          var admTitle=esc(pendingMeta.type||'NOTE');
-          out.push('<div class="admonitionblock '+admType+'"><div class="title">'+admTitle+'</div><div class="content"><p>'+renderMarkdown(trimmed.replace(/(?<!#)#(?![\\s#])([^#\\n]+?)(?<![\\s#])#(?!#)/g,'<mark>$1</mark>'))+'</p></div></div>');
-          pendingMeta=null;
-          continue;
-        }
-        pendingMeta=null;
+      var singleAdm=trimmed.match(/^(NOTE|TIP|IMPORTANT|WARNING|CAUTION):\\s*(.+)$/i);
+      if(singleAdm){
+        flushNormalP(); flushContinuation(); flushPendingSingleBlock(); flushList();
+        var admType=singleAdm[1].toUpperCase();
+        out.push('<div class=\"admonitionblock '+admType.toLowerCase()+'\"><div class=\"title\">'+esc(admType)+'</div><div class=\"content\"><p>'+inlineAdocFormat(singleAdm[2])+'</p></div></div>');
+        continue;
       }
 
-      out.push(renderMarkdown(line.replace(/(?<!#)#(?![\\s#])([^#\\n]+?)(?<![\\s#])#(?!#)/g,'<mark>$1</mark>')));
+      if(trimmed==='+'){
+        if(inItem){
+          flushContinuation();
+          pendingContinuation=true;
+        }
+        continue;
+      }
+
+      var listM=matchList(trimmed);
+      if(listM){
+        flushNormalP(); flushContinuation(); pendingContinuation=false; flushPendingSingleBlock();
+        var itemText=inlineAdocFormat(listM.text);
+        adjustListLevel(listM.tag, listM.level);
+        out.push('<li>'+itemText);
+        inItem=true;
+        inContinuation=false;
+        continue;
+      }
+
+      if(!trimmed){
+        if(inContinuation){
+          flushContinuation();
+        }
+        flushNormalP(); flushPendingSingleBlock();
+        continue;
+      }
+
+      if(pendingMeta && (pendingMeta.kind==='quote' || pendingMeta.kind==='admonition')){
+        pendingBlockLines.push(trimmed);
+        continue;
+      }
+
+      if((pendingContinuation || inContinuation) && inItem){
+        pendingContinuation=false;
+        inContinuation=true;
+        continuationLines.push(trimmed);
+        continue;
+      }
+
+      normalPLines.push(trimmed);
     }else{
       if(inBlock==='quote'&&trimmed==='____') flushBlock();
       else if(inBlock==='admonition'&&trimmed==='====') flushBlock();
@@ -4545,6 +5026,10 @@ function convertAsciidocToHtml(raw){
     }
   }
   flushBlock();
+  flushNormalP();
+  flushContinuation();
+  flushPendingSingleBlock();
+  flushList();
   return out.join(NL);
 }
 
