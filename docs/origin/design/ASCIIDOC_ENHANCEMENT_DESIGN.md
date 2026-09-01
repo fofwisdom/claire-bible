@@ -1,6 +1,6 @@
 # AsciiDoc 기능 고도화 및 확장 설계 명세서 (AsciiDoc Capability Expansion Design)
 
-작성일: 2026-09-01 · 상태: **설계 및 로드맵 수립 (Proposed / Roadmap)** · 기준: [GOALS.md](../../../GOALS.md) 트랙2(추출·연결 품질) 및 트랙3(가독성·소비 품질) / 관련: [DUAL_FORMAT_ADOC_DESIGN.md](DUAL_FORMAT_ADOC_DESIGN.md), [TABLE_INGESTION_DESIGN.md](TABLE_INGESTION_DESIGN.md)
+작성일: 2026-09-01 · 상태: **Phase 1 구현 및 검증 완료 (In Progress / Phase 1 Complete)** · 기준: [GOALS.md](../../../GOALS.md) 트랙2(추출·연결 품질) 및 트랙3(가독성·소비 품질) / 관련: [DUAL_FORMAT_ADOC_DESIGN.md](DUAL_FORMAT_ADOC_DESIGN.md), [TABLE_INGESTION_DESIGN.md](TABLE_INGESTION_DESIGN.md)
 
 ---
 
@@ -55,12 +55,12 @@ flowchart TD
 
 ---
 
-### 1) Phase 1: 즉각적 가독성 및 문서 품질 향상
+### 1) Phase 1: 즉각적 가독성 및 문서 품질 향상 (✅ 구현 및 검증 완료)
 
-#### A. 수식(Math) 네이티브 지원 (`stem:[...]`, `[latexmath]`)
+#### A. 수식(Math) 네이티브 지원 (`stem:[...]`, `latexmath:[...]`, `[latexmath]`)
 - **도입 목적**: AI/ML 논문(arXiv), 암호학, 알고리즘 수식의 손실 없는 표현 및 렌더링.
 - **문법 표준**:
-  - 인라인 수식: `stem:[E = mc^2]` 또는 `latexmath:[O(N \log N)]`
+  - 인라인 수식: `stem:[E = mc^2]`, `latexmath:[O(N \log N)]`, `asciimath:[sqrt(x)]`
   - 블록 수식:
     ```asciidoc
     [latexmath]
@@ -68,27 +68,45 @@ flowchart TD
     \nabla \times \mathbf{E} = -\frac{\partial \mathbf{B}}{\partial t}
     ++++
     ```
-- **파이프라인 구현 방안**:
-  1. **프롬프트 (`prompts.py`)**: LLM이 기술 문서 재구성 시 수학/물리/알고리즘 공식을 `stem:[...]` 또는 `[latexmath]`로 서술하도록 가이드라인 추가.
+    또는
+    ```asciidoc
+    [stem]
+    ----
+    x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}
+    ----
+    ```
+- **파이프라인 구현 완료 내역**:
+  1. **프롬프트 (`prompts.py`)**: `render_detail_prompt_adoc` 규칙 9번에 수학/물리/알고리즘 공식을 `stem:[...]` 또는 `[latexmath]`로 서술하도록 가이드라인 추가 완료.
   2. **AOT 렌더러 (`aot.py`)**:
-     - `stem:[...]` $\rightarrow$ `<span class="math inline" data-math="...">...</span>`
-     - `[latexmath]` 블록 $\rightarrow$ `<div class="math display" data-math="...">...</div>`
-  3. **UI 렌더링**: CSP `'self'`를 준수하는 KaTeX 사전 렌더링 또는 프론트엔드 안전 모듈 연동.
+     - `stem:[...]`, `latexmath:[...]`, `asciimath:[...]` $\rightarrow$ `<span class="math inline" data-math="..."><code>...</code></span>`
+     - `[latexmath]++++` 또는 `[stem]----` 블록 $\rightarrow$ `<div class="mathblock display" data-math="..."><div class="content"><pre class="math"><code>...</code></pre></div></div>`
+  3. **UI 렌더링 & CSS (`graphview.py`)**:
+     - KaTeX/TeX 수식 폰트(`KaTeX_Math`, `Times New Roman`, `serif`) 및 패딩/스크롤 스타일(`.md .math`, `.md .mathblock`) 적용.
+     - `GRAPH_HTML` 및 `shared_html` 클라이언트 사이드 Fallback 렌더러에 동일 JS 파서 동기화 완료.
 
-#### B. 크로스레퍼런스 및 내부 앵커 (`<<anchor>>`, `[#anchor]`)
-- **도입 목적**: A4 2~4장에 달하는 긴 가독 본문 내에서 목차 $\leftrightarrow$ 세부 섹션, 또는 용어 정의 $\leftrightarrow$ 본문 간 매끄러운 인페이지 내비게이션 제공.
+#### B. 크로스레퍼런스 및 내부 앵커 (`<<anchor>>`, `xref:...[]`, `[#anchor]`)
+- **도입 목적**: 긴 가독 본문 내에서 목차 $\leftrightarrow$ 세부 섹션, 또는 용어 정의 $\leftrightarrow$ 본문 간 매끄러운 인페이지 내비게이션 제공.
 - **문법 표준**:
   ```asciidoc
-  상세 설정은 <<config-section, 환경 설정 섹션>>을 참조하라.
+  상세 설정은 <<config-section, 환경 설정 섹션>> 및 <<sec-intro>>를 참조하라.
+  또한 xref:note-box[주의사항]도 확인하라.
 
   [#config-section]
   == 환경 설정
+
+  == [#sec-intro] 서론
+  [[inline-anchor]]인라인 앵커 예시
   ```
-- **파이프라인 구현 방안**:
+- **파이프라인 구현 완료 내역**:
   1. **AOT 렌더러 (`aot.py`)**:
-     - `[#id]` 및 `[[id]]` 블록 메타데이터를 파싱하여 직후 등장하는 헤더/블록에 `id="id"` 속성 부여.
-     - `<<anchor, Label>>` 또는 `<<anchor>>`를 `<a href="#anchor" class="xref">Label</a>` 링크로 컴파일.
-  2. **리더 뷰 UI**: 클릭 시 모달 내부 부드러운 스크롤(`scrollIntoView({behavior: 'smooth'})`) 및 하이라이트 애니메이션 적용.
+     - `[#id]`, `[[id]]`, `== [#id] 제목`, `== 제목 [#id]`를 파싱하여 대상 헤더, 단락, Admonition, 블록 및 표에 `id="id"` 속성 주입.
+     - 인라인 `[[id]]` $\rightarrow$ `<a id="id" class="anchor"></a>`
+     - `<<anchor, Label>>`, `<<anchor>>`, `xref:anchor[Label]` $\rightarrow$ `<a href="#anchor" class="xref">Label</a>` 링크 컴파일.
+  2. **리더 뷰 UI & CSS (`graphview.py`)**:
+     - 상호 참조 링크 전용 스타일(`.md a.xref`) 및 `:target` 도달 시 부드러운 하이라이트 애니메이션(`xref-target-highlight`) 적용.
+     - `GRAPH_HTML` 및 `shared_html` 클라이언트 렌더러에 앵커/크로스레퍼런스 동기화 완료.
+  3. **프롬프트 (`prompts.py`)**:
+     - `render_detail_prompt_adoc` 규칙 10번에 긴 문서 주요 섹션 앵커(`[#섹션ID]`) 및 상호 참조(`<<섹션ID, 제목>>`) 지침 추가 완료.
 
 ---
 
@@ -149,8 +167,8 @@ flowchart TD
 
 ---
 
-## 5. 결론 및 권장 실행 단계
+## 5. 결론 및 실행 현황
 
-1. **1단계 (즉시 적용 권장)**: `stem:[...]` 수식 렌더링 및 `<<anchor>>` 상호 참조 지원을 [`render/aot.py`](../../src/claire/render/aot.py)와 [`extract/prompts.py`](../../src/claire/extract/prompts.py)에 반영하여 기술/학술 문서의 리더 경험을 극대화.
-2. **2단계 (중기 적용)**: 다중 노드 종합(Synthesis) 고도화 시점에 `include::doc_id` 트랜스클루전 및 문서 속성(`:key: val`) 메타 바 구축.
-3. **3단계 (장기 적용)**: Asciidoctor PDF 툴체인을 결합한 지식 아카이브 전자책 내보내기 기능 구현.
+1. **1단계 (Phase 1, ✅ 구현 및 검증 완료)**: `stem:[...]` 수식 렌더링 및 `<<anchor>>`, `xref:anchor[]`, `[#anchor]` 상호 참조 지원을 [`render/aot.py`](../../src/claire/render/aot.py), [`graphview.py`](../../src/claire/graphview.py), [`extract/prompts.py`](../../src/claire/extract/prompts.py)에 반영 완료 (`tests/test_adoc_render.py` 단위 테스트 검증 완료).
+2. **2단계 (Phase 2, 차기 예정)**: 다중 노드 종합(Synthesis) 고도화 시점에 `include::doc_id` 트랜스클루전 및 문서 속성(`:key: val`) 메타 바 구축, CSV 테이블(`[%header,format=csv]|===`) 지원.
+3. **3단계 (Phase 3, 장기 예정)**: Asciidoctor PDF/EPUB 툴체인을 결합한 지식 아카이브 전자책 내보내기 기능 구현.

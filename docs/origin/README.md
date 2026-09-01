@@ -14,7 +14,7 @@ docs/origin/
 ├── README.md                   # 오리진 문서 보관 규칙 및 구조 안내 (본 문서)
 ├── FAVICON.md                  # 파비콘 3D 기하학 그래픽 디자인 및 생성 명세
 ├── design/                     # [설계 내역] 오리진 자체 신규/개정 아키텍처 및 시스템 설계
-│   ├── ASCIIDOC_ENHANCEMENT_DESIGN.md    # AsciiDoc 기능 고도화 및 확장 설계 명세서
+│   ├── ASCIIDOC_ENHANCEMENT_DESIGN.md    # AsciiDoc 기능 고도화 및 확장 설계 명세서 (Phase 1 수식·상호참조 구현 완료)
 │   ├── DATA_LIFECYCLE_AND_PURGE_DESIGN.md # 데이터 수명주기 및 정리(Purge) 설계
 │   ├── DUAL_FORMAT_ADOC_DESIGN.md        # AsciiDoc 및 듀얼 포맷 본문 파이프라인 설계
 │   ├── EXPAND_FILTERING_DESIGN.md        # 1홉 확장의 깊이 및 연관성 필터링 설계
@@ -48,7 +48,7 @@ docs/origin/
 ### 1. `docs/origin/design/` (설계 내역)
 - **대상**: 오리진 자체 아키텍처 설계, 신규 기능 기획, 알고리즘 및 파이프라인 설계, 업스트림 설계를 기반으로 대폭 개정/확장한 명세.
 - **예시**:
-  - `ASCIIDOC_ENHANCEMENT_DESIGN.md`: AsciiDoc 기능 고도화 및 확장 설계 명세서
+  - `ASCIIDOC_ENHANCEMENT_DESIGN.md`: AsciiDoc 기능 고도화 및 확장 설계 명세서 (Phase 1 수식·상호참조 구현 완료)
   - `DATA_LIFECYCLE_AND_PURGE_DESIGN.md`: 데이터 수명주기 및 연쇄 소각 설계
   - `INGESTION_INTEGRITY_AND_POLLUTION_CONTROL_RESEARCH.md`: 원문 보존·서비스 보호·오염 통제 상충 및 지식 무결성 거버넌스 연구
   - `DUAL_FORMAT_ADOC_DESIGN.md`: AsciiDoc/Markdown 듀얼 포맷 렌더링 파이프라인
