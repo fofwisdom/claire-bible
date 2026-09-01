@@ -869,5 +869,79 @@ process.exit(0);
     assert "<li>운영 리스크 완화 (Mitigate Operational Risk)\n<p>컴퓨트, 스토리지, 네트워킹 계층 전반의 관리를 표준화하여 설정 오류(misconfigurations), 다운타임, 보안 취약점을 최소화한다.</p>\n</li>" in js_html
 
 
+def test_aot_render_adoc_math():
+    """인라인 stem/latexmath/asciimath 및 블록 latexmath 수식이 올바른 시맨틱 HTML 로 컴파일되는지 검증."""
+    sample = """
+== 수식 테스트
+아인슈타인의 공식은 stem:[E = mc^2] 이며,
+통계 공식은 latexmath:[\\sum_{i=1}^n x_i] 입니다.
+또한 간단한 수식은 asciimath:[sqrt(x)] 로 표기합니다.
+
+[latexmath]
+++++
+\\nabla \\times \\mathbf{E} = -\\frac{\\partial \\mathbf{B}}{\\partial t}
+++++
+
+[stem]
+----
+x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}
+----
+"""
+    html_out = render_adoc_to_html(sample)
+    # 1. 인라인 수식 검증
+    assert '<span class="math inline" data-math="stem"><code>E = mc^2</code></span>' in html_out
+    assert '<span class="math inline" data-math="latexmath"><code>\\sum_{i=1}^n x_i</code></span>' in html_out
+    assert '<span class="math inline" data-math="asciimath"><code>sqrt(x)</code></span>' in html_out
+
+    # 2. 블록 수식 검증
+    assert '<div class="mathblock display" data-math="latexmath"><div class="content"><pre class="math"><code>\\nabla \\times \\mathbf{E} = -\\frac{\\partial \\mathbf{B}}{\\partial t}</code></pre></div></div>' in html_out
+    assert '<div class="mathblock display" data-math="stem"><div class="content"><pre class="math"><code>x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}</code></pre></div></div>' in html_out
+
+
+def test_aot_render_adoc_cross_reference_and_anchors():
+    """앵커 식별자([#id], [[id]]) 및 크로스레퍼런스(<<id, label>>, xref:id[label]) 렌더링 검증."""
+    sample = """
+상세 내용은 <<sec-arch, 아키텍처 섹션>> 및 <<sec-intro>> 를 참조하라.
+또한 xref:note-box[주의사항] 도 확인해야 한다.
+
+[#sec-intro]
+== 서론 섹션
+[[inline-anchor]]이곳은 인라인 앵커가 포함된 본문입니다.
+
+== [#sec-arch] 아키텍처 섹션
+
+[#note-box]
+[NOTE]
+====
+중요 주의사항입니다.
+====
+
+[#p-target]
+이 단락은 단독 앵커가 부여된 단락입니다.
+"""
+    html_out = render_adoc_to_html(sample)
+    # 1. 크로스레퍼런스 링크 검증
+    assert '<a href="#sec-arch" class="xref">아키텍처 섹션</a>' in html_out
+    assert '<a href="#sec-intro" class="xref">sec-intro</a>' in html_out
+    assert '<a href="#note-box" class="xref">주의사항</a>' in html_out
+
+    # 2. 앵커 주입 검증
+    assert '<h2 id="sec-intro">서론 섹션</h2>' in html_out
+    assert '<a id="inline-anchor" class="anchor"></a>' in html_out
+    assert '<h2 id="sec-arch">아키텍처 섹션</h2>' in html_out
+    assert '<div class="admonitionblock note" id="note-box">' in html_out
+    assert '<p id="p-target">이 단락은 단독 앵커가 부여된 단락입니다.</p>' in html_out
+
+
+def test_prompts_adoc_phase1_guidelines():
+    """render_detail_prompt_adoc 에 수식 및 상호참조 지침이 정상 포함되는지 검증."""
+    prompt_adoc = render_detail_prompt("샘플 텍스트", [], merged=False, format="adoc")
+    assert "stem:[공식]" in prompt_adoc
+    assert "[latexmath]" in prompt_adoc
+    assert "[#섹션ID]" in prompt_adoc
+    assert "<<섹션ID, 제목>>" in prompt_adoc
+
+
+
 
 
