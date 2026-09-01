@@ -303,8 +303,24 @@ def _extract_html(
 
 
 def _format_html_tables_to_markdown(tree) -> None:
-    """HTML <table> 태그들을 마크다운 테이블 텍스트로 변환하여 구조와 데이터를 온전히 보존."""
+    """HTML <table> 태그들을 마크다운 테이블 텍스트로 변환하여 구조와 데이터를 온전히 보존.
+
+    테이블 내 미디어 제거 허용 정책에 따라, 표 셀 내부의 이미지·아이콘·동영상 등
+    미디어 태그는 제거하고 순수 데이터와 텍스트만 보존한다.
+    """
     for tbl in list(tree.xpath("//table")):
+        # 테이블 내부 미디어 요소(img, svg, video, audio, iframe, canvas, picture 등) 제거 (tail 텍스트 보존)
+        for media in list(tbl.xpath(".//img | .//svg | .//video | .//audio | .//iframe | .//canvas | .//picture")):
+            parent = media.getparent()
+            if parent is not None:
+                if media.tail:
+                    prev = media.getprevious()
+                    if prev is not None:
+                        prev.tail = (prev.tail or "") + media.tail
+                    else:
+                        parent.text = (parent.text or "") + media.tail
+                parent.remove(media)
+
         rows: list[list[str]] = []
         caption_txt = ""
         caps = tbl.xpath(".//caption")
@@ -356,8 +372,9 @@ def _format_html_tables_to_markdown(tree) -> None:
 def _collect_images(tree, og_image: str | None) -> list[dict]:
     """본문 콘텐츠 이미지 후보를 휴리스틱으로 선별 — [{url, alt, caption}].
 
-    명백한 장식/추적/UI 이미지(로고·아이콘·아바타·광고·1x1 픽셀·sprite)는 여기서 거르고,
-    최종 '이해에 도움 되는가'는 render_detail 의 LLM 큐레이션이 한 번 더 판단한다.
+    명백한 장식/추적/UI 이미지(로고·아이콘·아바타·광고·1x1 픽셀·sprite) 및
+    테이블(표) 내부 미디어는 여기서 거르고, 최종 '이해에 도움 되는가'는
+    render_detail 의 LLM 큐레이션이 한 번 더 판단한다.
     상대경로는 _extract_html 에서 이미 절대경로화됨. og:image 는 대표 이미지로 합류시킨다.
     """
     out: list[dict] = []
@@ -384,7 +401,8 @@ def _collect_images(tree, og_image: str | None) -> list[dict]:
         out.append({"url": url, "alt": (alt or "").strip()[:200],
                     "caption": (caption or "").strip()[:300]})
 
-    for img in tree.xpath("//img"):
+    # 테이블 내부 이미지는 본문 주요 콘텐츠 이미지 후보에서 제외
+    for img in tree.xpath("//img[not(ancestor::table)]"):
         if len(out) >= _MAX_IMAGES:
             break
         # lazy-load 패턴(data-src 등)도 본다 — 많은 사이트가 src 에 placeholder 를 둔다.

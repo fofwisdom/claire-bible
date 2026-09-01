@@ -163,12 +163,81 @@ def test_prompt_rules_contain_table_preservation_directives():
     assert "TABLES & DATA MATRICES" in sys_prompt
     assert "MUST NOT omit or ignore the data inside tables" in sys_prompt
 
-    # 2. 마크다운 가독 렌더링 프롬프트 검증
+    # 2. 마크다운 가독 렌더링 프롬프트 검증 (테이블 보존 + 미디어 제거 허용 조건)
     md_prompt = render_detail_prompt_md("Sample Body", [], merged=False)
     assert "테이블 보존" in md_prompt
     assert "임의로 생략하거나 문장으로 축약하지 말고" in md_prompt
+    assert "테이블 내에 들어있는 미디어" in md_prompt
+    assert "제거·생략을 허용한다" in md_prompt
 
-    # 3. AsciiDoc 가독 렌더링 프롬프트 검증
+    # 3. AsciiDoc 가독 렌더링 프롬프트 검증 (테이블 보존 + 미디어 제거 허용 조건)
     adoc_prompt = render_detail_prompt_adoc("Sample Body", [], merged=False)
     assert "테이블 보존" in adoc_prompt
     assert "|===" in adoc_prompt
+    assert "테이블 내에 들어있는 미디어" in adoc_prompt
+    assert "제거·생략을 허용한다" in adoc_prompt
+
+    # 4. 이미지 블록 지침 검증
+    from claire.extract.prompts import images_block, images_block_adoc
+
+    imgs = [{"url": "https://example.com/diag.png", "alt": "도식", "caption": "설명"}]
+    img_block_md = images_block(imgs)
+    img_block_adoc = images_block_adoc(imgs)
+    assert "테이블(표) 내부에 삽입되어 있던 부속 아이콘/미디어" in img_block_md
+    assert "테이블(표) 내부에 삽입되어 있던 부속 아이콘/미디어" in img_block_adoc
+
+
+def test_extract_html_table_with_media_removal():
+    """테이블 셀 내부에 이미지/아이콘/미디어 태그가 포함되어 있어도 텍스트가 안전하게 보존되고 미디어는 제거되는지 검증."""
+    html = """
+    <html>
+      <head><title>System Architecture Benchmark</title></head>
+      <body>
+        <h1>Benchmark Report</h1>
+        <figure>
+          <img src="https://example.com/arch-diag.png" alt="Architecture Diagram" width="800" height="600" />
+          <figcaption>System Architecture Overview Diagram</figcaption>
+        </figure>
+        <p>Comparison of systems with status icons in table.</p>
+        <table class="data-table">
+          <caption>System Feature Matrix</caption>
+          <thead>
+            <tr>
+              <th><img src="https://example.com/header-icon.png" /> Feature</th>
+              <th>Status</th>
+              <th>Performance</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><img src="https://example.com/tick.png" width="16" height="16" /> Core Engine</td>
+              <td><svg><circle cx="5" cy="5" r="5"/></svg> Operational</td>
+              <td>1200 req/s <iframe src="https://example.com/embed"></iframe></td>
+            </tr>
+            <tr>
+              <td><img src="https://example.com/cross.png" /> Legacy Bridge</td>
+              <td><video src="https://example.com/video.mp4"></video> Deprecated</td>
+              <td>0 req/s</td>
+            </tr>
+          </tbody>
+        </table>
+        <p>End of report.</p>
+      </body>
+    </html>
+    """
+    title, text, links, anchors, err, images = _extract_html(html, base_url="https://example.com")
+    assert title == "System Architecture Benchmark"
+    assert err is None
+
+    # 1. 마크다운 테이블 구조 및 텍스트/수치가 온전히 추출되었는지 검증
+    assert "| Feature | Status | Performance |" in text
+    assert "| Core Engine | Operational | 1200 req/s |" in text
+    assert "| Legacy Bridge | Deprecated | 0 req/s |" in text
+
+    # 2. 테이블 내부 이미지는 후보 이미지 목록(images)에서 제외되고, 본문 figure 다이어그램만 수집되었는지 검증
+    img_urls = [im["url"] for im in images]
+    assert "https://example.com/arch-diag.png" in img_urls
+    assert "https://example.com/header-icon.png" not in img_urls
+    assert "https://example.com/tick.png" not in img_urls
+    assert "https://example.com/cross.png" not in img_urls
+

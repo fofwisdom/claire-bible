@@ -28,6 +28,9 @@ Claire Bible은 웹, PDF, 로컬 파일 등 다양한 소스로부터 문서를 
 2. **테이블 문자 수의 본문 문자 수 제한 제외 (Table Content Budget Exemption)**:
    - LLM 프롬프트 투입 예산(`limit`: 단일 12,000자 / 병합 24,000자)을 적용할 때, **일반 본문(Prose) 텍스트에만 예산을 차감**한다.
    - **테이블(Table) 영역의 글자 수는 본문 글자 수 카운트에서 전액 제외**하며, 테이블 전체를 100% 무손실로 보존하여 프롬프트에 주입한다.
+3. **테이블 내 미디어 제거 허용 (Media inside Tables Removal Allowed)**:
+   - 마크다운/AsciiDoc 표 셀 내부에 이미지(`![alt](url)` / `image::url[]`), 아이콘, 뱃지, 미디어 태그 등이 삽입되면 서식이 붕괴되거나 가독성이 저하되므로, **테이블 내에 포함된 미디어는 제거·생략을 명시적으로 허용**한다.
+   - 수집기(`fetch_web`)는 표 내부의 이미지를 본문 큐레이션 후보(`meta.images`)에서 사전 제외하고, 표 셀 내부의 미디어 요소를 정제하여 순수 텍스트·데이터 매트릭스로 보존한다.
 
 ---
 
@@ -35,23 +38,28 @@ Claire Bible은 웹, PDF, 로컬 파일 등 다양한 소스로부터 문서를 
 
 ### 3.1 HTML 테이블 변환기 (`src/claire/ingest/fetchers/web.py`)
 - `_extract_html` 단계에서 `<table>` 요소를 감지하여 `_html_table_to_markdown`을 통해 마크다운 테이블 텍스트로 변환.
+- `_collect_images`에서 `//img[not(ancestor::table)]`를 적용하여 테이블 내부 부속 아이콘/미디어가 본문 큐레이션 후보 목록을 오염시키지 않도록 사전 차단.
+- `_format_html_tables_to_markdown`에서 표 셀 내부의 `<img>`, `<svg>`, `<video>`, `<audio>`, `<iframe>` 등 미디어 요소를 제거(tail 텍스트 보존)하고 순수 텍스트/수치만 마크다운 표로 변환.
 - `<th>`, `<tr>`, `<td>`, `<caption>`을 분석하여 행/열 정렬 및 공백 정규화.
 - 불필요한 레이아웃 테이블(데이터 없는 빈 테이블 등)은 필터링하고 데이터 테이블을 온전히 보존.
 
 ### 3.2 테이블-본문 분리 및 예외 슬라이싱 (`src/claire/extract/table_budget.py`)
 - **`extract_tables_from_text(text: str) -> tuple[str, list[str]]`**:
-  - 마크다운 테이블(`|...|\n|---|...|`) 및 AsciiDoc 테이블(`|===...|===`) 정규식을 통해 본문 내 테이블 블록을 감지 및 분리.
+   - 마크다운 테이블(`|...|\n|---|...|`) 및 AsciiDoc 테이블(`|===...|===`) 정규식을 통해 본문 내 테이블 블록을 감지 및 분리.
 - **`slice_text_with_table_exemption(text: str, limit: int) -> str`**:
-  - 일반 본문 텍스트에 대해서만 `limit` 글자 수까지 슬라이싱.
-  - 테이블 블록은 글자 수 카운트에서 제외하여 온전히 보존한 후 결합.
+   - 일반 본문 텍스트에 대해서만 `limit` 글자 수까지 슬라이싱.
+   - 테이블 블록은 글자 수 카운트에서 제외하여 온전히 보존한 후 결합.
 
 ### 3.3 프롬프트 및 템플릿 보완 (`src/claire/extract/prompts.py`)
 - **`doc_to_prompt(doc)`**:
-  - `(doc.raw_text or "")[:limit]`을 `slice_text_with_table_exemption(doc.raw_text, limit)`으로 교체.
+   - `(doc.raw_text or "")[:limit]`을 `slice_text_with_table_exemption(doc.raw_text, limit)`으로 교체.
 - **`extract_system_prompt`**:
-  - `TABLES & DATA MATRICES`: 테이블 안의 엔티티/수치/속성/관계를 누락 없이 정밀하게 추출하도록 룰 추가.
+   - `TABLES & DATA MATRICES`: 테이블 안의 엔티티/수치/속성/관계를 누락 없이 정밀하게 추출하도록 룰 추가.
 - **`render_detail_prompt_md` & `render_detail_prompt_adoc`**:
-  - 원문에 포함된 테이블을 가독 문서 생성 시 생략하거나 뭉개지 않고 온전한 표 형식으로 재구성하도록 가이드라인 강화.
+   - 원문에 포함된 테이블을 가독 문서 생성 시 생략하거나 뭉개지 않고 온전한 표 형식으로 재구성하도록 가이드라인 강화.
+   - 단서 조항 추가: **"단, 테이블 내에 들어있는 미디어(이미지·아이콘·뱃지 등)는 표의 가독성과 서식 유지를 위해 제거·생략을 허용한다."**
+- **`images_block` & `images_block_adoc`**:
+   - 후보 이미지 제외 대상에 **"테이블(표) 내부에 삽입되어 있던 부속 아이콘/미디어"** 명시.
 
 ---
 
