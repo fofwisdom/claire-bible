@@ -633,3 +633,241 @@ The ramdisk 'vsantraces' is full. As a result the file /vsantraces/vsantraces--#
     assert "#" not in cleaned or "####" in cleaned  # 형광 # 기호만 제거되고 마스킹 해시는 보존
 
 
+def test_aot_render_adoc_list_continuation_and_grouping():
+    """AsciiDoc 목록 연속 연산자(+) 및 중첩/순서형 목록 그룹화 검증."""
+    sample = """
+* 첫 번째 항목
++
+첫 번째 항목에 연결된 상세 단락입니다.
++
+첫 번째 항목에 연결된 두 번째 단락입니다.
+
+* 두 번째 항목
+** 하위 항목 1
+** 하위 항목 2
+* 세 번째 항목
+
+. 순서형 1번
+.. 순서형 하위 1-1
+.. 순서형 하위 1-2
+. 순서형 2번
+"""
+    html_out = render_adoc_to_html(sample)
+    # 1. '+' 기호가 원문 텍스트나 <p>+</p> 로 노출되지 않는지 검증
+    assert "<p>+</p>" not in html_out
+    assert ">+<" not in html_out
+    assert "\n+\n" not in html_out
+
+    # 2. 첫 번째 항목 내부에 두 개의 단락이 <li> 안에 위치하는지 검증
+    assert "<li>첫 번째 항목\n<p>첫 번째 항목에 연결된 상세 단락입니다.</p>\n<p>첫 번째 항목에 연결된 두 번째 단락입니다.</p>\n</li>" in html_out
+
+    # 3. 중첩 목록 그룹화 검증
+    assert "<li>두 번째 항목\n<ul>\n<li>하위 항목 1\n</li>\n<li>하위 항목 2\n</li>\n</ul>\n</li>" in html_out
+    assert "<li>세 번째 항목\n</li>" in html_out
+
+    # 4. 순서형 목록 검증
+    assert "<ol>" in html_out
+    assert "<li>순서형 1번\n<ol>\n<li>순서형 하위 1-1\n</li>" in html_out
+
+
+def test_aot_render_adoc_user_sample_case():
+    """사용자가 보고한 프라이빗 클라우드 자격 검증 문서(doc_fbcb4fa7a67a) 본문 발췌 케이스 렌더링 검증."""
+    sample = """
+== 프라이빗 클라우드 자격 검증의 전략적 가치
+
+* 운영 리스크 완화 (Mitigate Operational Risk)
+
++
+
+컴퓨트, 스토리지, 네트워킹 계층 전반의 관리를 표준화하여 설정 오류(misconfigurations), 다운타임, 보안 취약점을 최소화한다.
+
+* 현대적 워크로드 격차 해소 (Bridge Modern Workload Gap)
+
++
+
+표준 가상 머신과 Kubernetes 오케스트레이션을 단일하고 일관된 프라이빗 클라우드 환경으로 결합한다.
+
+* 커리어 경로 확장 (Enhance Career Trajectory)
+
++
+
+엔터프라이즈 하이브리드 클라우드 전환을 주도할 수 있는 역량을 증명하여 아키텍트 및 엔지니어로서의 전문성을 강화한다.
+"""
+    html_out = render_adoc_to_html(sample)
+
+    # 1. 헤더 검증
+    assert "<h2>프라이빗 클라우드 자격 검증의 전략적 가치</h2>" in html_out
+
+    # 2. 독립된 <p>+</p> 태그 및 + 기호 누출 완전 제거 검증
+    assert "<p>+</p>" not in html_out
+    assert "<p>+ </p>" not in html_out
+    assert ">+<" not in html_out
+
+    # 3. 각 항목과 설명 단락이 동일 <li> 내에 올바르게 결합되어 렌더링되는지 검증
+    assert "<li>운영 리스크 완화 (Mitigate Operational Risk)\n<p>컴퓨트, 스토리지, 네트워킹 계층 전반의 관리를 표준화하여 설정 오류(misconfigurations), 다운타임, 보안 취약점을 최소화한다.</p>\n</li>" in html_out
+    assert "<li>현대적 워크로드 격차 해소 (Bridge Modern Workload Gap)\n<p>표준 가상 머신과 Kubernetes 오케스트레이션을 단일하고 일관된 프라이빗 클라우드 환경으로 결합한다.</p>\n</li>" in html_out
+    assert "<li>커리어 경로 확장 (Enhance Career Trajectory)\n<p>엔터프라이즈 하이브리드 클라우드 전환을 주도할 수 있는 역량을 증명하여 아키텍트 및 엔지니어로서의 전문성을 강화한다.</p>\n</li>" in html_out
+
+    # 4. 전체 항목들이 하나의 <ul> 안에 그룹화되어 있는지 검증
+    assert html_out.count("<ul") == 1
+    assert html_out.count("</ul") == 1
+
+
+def test_aot_render_adoc_table_with_embedded_lists():
+    """테이블 셀 내에 작성된 다중 행 목록(* 불릿)이 <strong>이 아닌 <ul><li> 로 정상 변환되는지 검증."""
+    sample = """
+|===
+| 영역 | 세부 항목
+
+| 리스크
+| * 설정 오류 최소화
+* 다운타임 감소
+* 보안 강화
+|===
+"""
+    html_out = render_adoc_to_html(sample)
+    assert "<table>" in html_out
+    assert "<thead><tr><th>영역</th><th>세부 항목</th></tr></thead>" in html_out
+    assert "<ul>\n<li>설정 오류 최소화\n</li>\n<li>다운타임 감소\n</li>\n<li>보안 강화\n</li>\n</ul>" in html_out
+    assert "<strong>설정 오류 최소화</strong>" not in html_out
+
+
+def test_client_js_convert_asciidoc_to_html_runtime():
+    """클라이언트 사이드 JavaScript convertAsciidocToHtml 런타임 결과가 Python AOT 결과와 일치하는지 Node.js 로 검증."""
+    import json
+    import subprocess
+    import shutil
+
+    if shutil.which("node") is None:
+        import os
+        nvm_node = Path(os.path.expanduser("~/.nvm/versions/node/v26.7.0/bin/node"))
+        if nvm_node.is_file():
+            os.environ["PATH"] = f"{nvm_node.parent}:{os.environ.get('PATH', '')}"
+        else:
+            pytest.skip("Node.js is not installed on the system")
+
+    from claire.graphview import GRAPH_HTML
+    from tests.test_graphview_runtime import extract_scripts
+
+    scripts = extract_scripts(GRAPH_HTML)
+    main_script = scripts[1]  # The main JS logic script
+
+    sample = """
+== 프라이빗 클라우드 자격 검증의 전략적 가치
+
+* 운영 리스크 완화 (Mitigate Operational Risk)
+
++
+
+컴퓨트, 스토리지, 네트워킹 계층 전반의 관리를 표준화하여 설정 오류(misconfigurations), 다운타임, 보안 취약점을 최소화한다.
+
+* 현대적 워크로드 격차 해소 (Bridge Modern Workload Gap)
+
++
+
+표준 가상 머신과 Kubernetes 오케스트레이션을 단일하고 일관된 프라이빗 클라우드 환경으로 결합한다.
+"""
+    runner_code = f"""
+const fs = require('fs');
+const scriptContent = fs.readFileSync(process.argv[2], 'utf8');
+
+// Mock browser globals
+class MockElement {{
+  constructor(tag, id = '') {{
+    this.tagName = (tag || 'div').toUpperCase();
+    this.id = id;
+    this.className = '';
+    this.classList = {{
+      _classes: new Set(),
+      add(...cls) {{ cls.forEach(c => this._classes.add(c)); }},
+      remove(...cls) {{ cls.forEach(c => this._classes.delete(c)); }},
+      contains(c) {{ return this._classes.has(c); }},
+      toggle(c, force) {{
+        if (force === undefined) {{
+          if (this._classes.has(c)) this._classes.delete(c);
+          else this._classes.add(c);
+        }} else if (force) this._classes.add(c);
+        else this._classes.delete(c);
+      }}
+    }};
+    this.style = {{}};
+    this.dataset = {{}};
+    this.attributes = {{}};
+    this.innerHTML = '';
+    this.textContent = '';
+    this.value = '';
+    this.children = [];
+  }}
+  setAttribute(k, v) {{ this.attributes[k] = String(v); }}
+  getAttribute(k) {{ return this.attributes[k] !== undefined ? this.attributes[k] : null; }}
+  removeAttribute(k) {{ delete this.attributes[k]; }}
+  getBoundingClientRect() {{ return {{ width: 1000, height: 700, top: 0, left: 0, right: 1000, bottom: 700 }}; }}
+  querySelector(sel) {{ return new MockElement('div'); }}
+  querySelectorAll(sel) {{ return []; }}
+  addEventListener() {{}}
+  removeEventListener() {{}}
+  focus() {{}}
+  select() {{}}
+}}
+
+const elements = new Map();
+function getOrCreate(id, tag='div') {{
+  if (!elements.has(id)) {{
+    elements.set(id, new MockElement(tag, id));
+  }}
+  return elements.get(id);
+}}
+
+global.window = {{
+  matchMedia: () => ({{ matches: false, addEventListener: () => {{}}, removeEventListener: () => {{}} }}),
+  addEventListener: () => {{}},
+  removeEventListener: () => {{}},
+  location: {{ search: '', hash: '' }},
+  localStorage: {{ getItem: () => null, setItem: () => {{}} }}
+}};
+global.document = {{
+  documentElement: getOrCreate('html', 'html'),
+  body: getOrCreate('body', 'body'),
+  getElementById(id) {{ return getOrCreate(id); }},
+  querySelector(sel) {{
+    if (sel.startsWith('#')) return document.getElementById(sel.slice(1));
+    return new MockElement('div');
+  }},
+  querySelectorAll(sel) {{ return []; }},
+  addEventListener() {{}},
+  removeEventListener() {{}},
+  createElement(tag) {{ return new MockElement(tag); }}
+}};
+global.location = global.window.location;
+global.localStorage = global.window.localStorage;
+global.requestAnimationFrame = (cb) => setTimeout(cb, 0);
+
+eval(scriptContent);
+
+const input = {json.dumps(sample)};
+const result = convertAsciidocToHtml(input);
+console.log(JSON.stringify({{ html: result }}));
+process.exit(0);
+"""
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as f_script:
+        f_script.write(main_script)
+        script_file = f_script.name
+
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as f_runner:
+        f_runner.write(runner_code)
+        runner_file = f_runner.name
+
+    proc = subprocess.run(["node", runner_file, script_file], capture_output=True, text=True, timeout=5)
+    assert proc.returncode == 0, f"Node eval failed: {proc.stderr}"
+    res_data = json.loads(proc.stdout)
+    js_html = res_data["html"]
+
+    # JS 런타임 결과 검증
+    assert "<h2>프라이빗 클라우드 자격 검증의 전략적 가치</h2>" in js_html
+    assert "<p>+</p>" not in js_html
+    assert ">+<" not in js_html
+    assert "<li>운영 리스크 완화 (Mitigate Operational Risk)\n<p>컴퓨트, 스토리지, 네트워킹 계층 전반의 관리를 표준화하여 설정 오류(misconfigurations), 다운타임, 보안 취약점을 최소화한다.</p>\n</li>" in js_html
+
+
+
+
