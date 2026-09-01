@@ -79,7 +79,7 @@ def _clean_url(url_candidate: str) -> str:
     return t
 
 
-def fetch(payload: str, *, _depth: int = 0) -> Document:
+def fetch(payload: str, *, full_content: bool = False, _depth: int = 0) -> Document:
     """라우팅 + fetch. redirect 는 1회 재귀로 최종 URL 재라우팅."""
     t = payload.strip()
     # '제목 + 트레일링 링크' 공유 텍스트면 URL 을 실제 자료로 취급해 fetch.
@@ -92,10 +92,16 @@ def fetch(payload: str, *, _depth: int = 0) -> Document:
     if kind in ("web", "youtube", "xcom", "redirect"):
         t = _clean_url(t)
 
+    def _call_fetcher(fn, *args, **kwargs):
+        try:
+            return fn(*args, full_content=full_content, **kwargs)
+        except TypeError:
+            return fn(*args, **kwargs)
+
     if kind == "youtube":
         from .fetchers.youtube import fetch_youtube
 
-        return fetch_youtube(t)
+        return _call_fetcher(fetch_youtube, t)
 
     if kind == "redirect":
         if _depth > 2:
@@ -104,28 +110,28 @@ def fetch(payload: str, *, _depth: int = 0) -> Document:
 
         final = resolve_redirect(t)
         if final and final != t:
-            return fetch(final, _depth=_depth + 1)
+            return fetch(final, full_content=full_content, _depth=_depth + 1)
         # 해석 실패 시 web 으로 시도
         from .fetchers.web import fetch_web
 
-        return fetch_web(t)
+        return _call_fetcher(fetch_web, t)
 
     if kind == "xcom":
         # fxtwitter JSON API 로 트윗 본문을 실제 스크랩(실패 시 web 폴백은 fetcher 내부).
         from .fetchers.xcom import fetch_xcom
 
-        return fetch_xcom(t)
+        return _call_fetcher(fetch_xcom, t)
 
     if kind == "file":
         from .fetchers.textfile import fetch_file
 
-        return fetch_file(t.removeprefix("file://"))
+        return _call_fetcher(fetch_file, t.removeprefix("file://"))
 
     if kind == "web":
         from .fetchers.web import fetch_web
 
-        return fetch_web(t)
+        return _call_fetcher(fetch_web, t)
 
     from .fetchers.textfile import fetch_text
 
-    return fetch_text(t)
+    return _call_fetcher(fetch_text, t)

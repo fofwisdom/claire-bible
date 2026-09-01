@@ -166,6 +166,47 @@ def parse_message_directive(text: str) -> tuple[str, str | None]:
     return t, None
 
 
+# 재생성 / 재수집 / 추론 레벨 플래그 정규식
+_EFFORT_FLAG_RE = re.compile(
+    r"(?:\s+|^)(?:[-–—―]{1,2}(?i:effort|추론|사고|reasoning)|-[eE])\s+([a-zA-Z0-9_-]+)",
+)
+_REFETCH_FULL_FLAG_RE = re.compile(
+    r"(?:\s+|^)(?:[-–—―]{1,2}(?i:refetch[-_]full|full[-_]refetch|전체재수집|전체수집)|-R)(?:\s+|$)",
+)
+_REFETCH_FLAG_RE = re.compile(
+    r"(?:\s+|^)(?:[-–—―]{1,2}(?i:refetch|재수집)|-r)(?:\s+|$)",
+)
+
+
+def parse_regenerate_flags(text: str) -> tuple[str, bool, bool, str | None]:
+    """(cleaned_text, refetch, refetch_full, effort) 추출."""
+    t = (text or "").strip()
+    if not t:
+        return "", False, False, None
+
+    refetch_full = False
+    refetch = False
+    effort = None
+
+    m_full = _REFETCH_FULL_FLAG_RE.search(t)
+    if m_full:
+        refetch_full = True
+        t = (t[:m_full.start()] + " " + t[m_full.end():]).strip()
+
+    m_ref = _REFETCH_FLAG_RE.search(t)
+    if m_ref:
+        if not refetch_full:
+            refetch = True
+        t = (t[:m_ref.start()] + " " + t[m_ref.end():]).strip()
+
+    m_eff = _EFFORT_FLAG_RE.search(t)
+    if m_eff:
+        effort = m_eff.group(1).strip()
+        t = (t[:m_eff.start()] + " " + t[m_eff.end():]).strip()
+
+    return t, refetch, refetch_full, effort
+
+
 def parse_caption_directive(caption: str | None) -> str | None:
     """파일/문서 첨부 캡션에서 초점 추출."""
     c = (caption or "").strip()
@@ -185,11 +226,10 @@ def _is_allowed(user_id: int | None) -> bool:
     return user_id in allow
 
 
-def run_bot() -> int:
-    s = get_settings()
+def build_app(settings: Settings | None = None) -> Any:
+    s = settings or get_settings()
     if not s.telegram_bot_token:
-        print("TELEGRAM_BOT_TOKEN 이 없습니다. .env 에 설정하세요.")
-        return 2
+        raise ValueError("TELEGRAM_BOT_TOKEN 이 없습니다. .env 에 설정하세요.")
 
     try:
         from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -202,8 +242,7 @@ def run_bot() -> int:
             filters,
         )
     except Exception as e:  # noqa: BLE001
-        print(f"python-telegram-bot 미설치: {e}\n  uv sync 후 다시 시도하세요.")
-        return 2
+        raise RuntimeError(f"python-telegram-bot 미설치: {e}\n  uv sync 후 다시 시도하세요.") from e
 
     import asyncio
     import tempfile
@@ -252,6 +291,10 @@ def run_bot() -> int:
         "→ 스크랩 → Gemini 구조화 → 그래프로 저장, 기존 항목과 자동 연결.\n"
         "  관련 링크가 보이면 '가져오기' 버튼으로 1홉 확장.\n"
         "\n"
+        "💡 공유 URL 관리 (원터치 액션):\n"
+        "  • 보관된 문서의 공유 URL(/p?s=...) 또는 문서ID를 전송하면\n"
+        "    본문 재생성 및 원문 재수집(길이 제한 / 전체 길이) 버튼이 제공됩니다.\n"
+        "\n"
         "💡 본문 작성 초점(Focus) 지정 방법:\n"
         "  • 파이프 구분: https://example.com/doc | 시스템 아키텍처 중심\n"
         "  • 빈 줄(두 번 줄바꿈) 구분:\n"
@@ -262,7 +305,9 @@ def run_bot() -> int:
         "명령어:\n"
         "  /search <키워드> — 하이브리드 검색 + 요약(인용)\n"
         "  /ingest <URL|텍스트> [| <초점>] — 초점 지정 적재\n"
-        "  /regenerate <문서ID|토큰|URL> [| <새 초점>] — 가독 본문(detail) 맞춤 재생성\n"
+        "  /regenerate <문서ID|토큰|URL> [--refetch|--refetch-full] [--effort <level>] [| <새 초점>] — 가독 본문(detail) 맞춤 재생성\n"
+        "  /refetch <문서ID|토큰|URL> [--effort <level>] [| <새 초점>] — 길이 제한 원문 재수집 후 재생성\n"
+        "  /refetch_full <문서ID|토큰|URL> [--effort <level>] [| <새 초점>] — 전체 길이 원문 재수집 후 재생성\n"
         "  /web — 1회용 웹 로그인 링크 발급(로그인 쿠키 7일, 적재/수정 가능)\n"
         "  /webro — 읽기전용 웹 링크 발급(그래프·검색·문서만, 공유해도 안전)\n"
         "  /repo — 소스 리포지토리 접근 링크\n"
@@ -287,8 +332,120 @@ def run_bot() -> int:
         text = (update.message.text or "").strip()
         if not text:
             return
+
+        from .config import extract_own_share_token
+        from .store import db as dbm
+
         payload, directive = parse_message_directive(text)
+        payload_clean, has_refetch, has_refetch_full, has_effort = parse_regenerate_flags(payload)
+
+        # 자체 FQDN의 공유 링크 또는 document_id 검사 (타 사이트 /p?s= 오인 방지)
+        target_doc_id = None
+        share_tok = extract_own_share_token(payload_clean, s)
+        if share_tok:
+            conn = dbm.connect(svc.s.db_file)
+            try:
+                dbm.init_db(conn)
+                target_doc_id = dbm.resolve_doc_share(conn, share_tok)
+                if not target_doc_id:
+                    row = conn.execute("SELECT document_id FROM doc_shares WHERE token=?", (share_tok,)).fetchone()
+                    if row:
+                        target_doc_id = row["document_id"]
+            finally:
+                conn.close()
+        elif payload_clean.startswith("doc_") and len(payload_clean.split()) == 1:
+            conn = dbm.connect(svc.s.db_file)
+            try:
+                dbm.init_db(conn)
+                row = conn.execute("SELECT id FROM documents WHERE id=?", (payload_clean,)).fetchone()
+                if row:
+                    target_doc_id = row["id"]
+            finally:
+                conn.close()
+
         msg = update.message
+
+        if target_doc_id:
+            # 1. 지침, 초점, 또는 재수집 플래그가 함께 전달된 경우 -> 즉시 실행
+            if has_refetch or has_refetch_full or has_effort or directive:
+                label = f"본문 재생성 중… ({target_doc_id})"
+                if has_refetch_full:
+                    label += " [원문 전체 재수집]"
+                elif has_refetch:
+                    label += " [원문 재수집]"
+                if directive:
+                    label += f" [초점: {directive[:20]}]"
+                if has_effort:
+                    label += f" [추론: {has_effort}]"
+                status = await msg.reply_text(f"⏳ {label}")
+                try:
+                    res = await _run_with_ticker(
+                        status, label,
+                        lambda: svc.regenerate_components(
+                            doc_id=target_doc_id,
+                            detail=True,
+                            refetch=has_refetch,
+                            refetch_full=has_refetch_full,
+                            effort=has_effort,
+                            directive=directive,
+                            force=True,
+                        ),
+                    )
+                    if res.get("error"):
+                        ans = f"❌ 재생성 실패: {res['error']}"
+                        emoji = "👎"
+                    elif res.get("count", 0) > 0:
+                        tinfo = res["targets"][0]
+                        dir_msg = f"\n초점: {directive}" if directive else ""
+                        ref_msg = ""
+                        if tinfo.get("refetched_full"):
+                            ref_msg = f" (원문 전체 재수집 {tinfo.get('new_len', 0):,}자)"
+                        elif tinfo.get("refetched"):
+                            ref_msg = f" (원문 재수집 {tinfo.get('new_len', 0):,}자)"
+                        ans = f"✅ 본문 재생성 완료: {tinfo.get('title', target_doc_id)}{ref_msg}{dir_msg}"
+                        emoji = "👍"
+                    else:
+                        ans = f"⚠️ 대상 문서를 찾을 수 없습니다: {target_doc_id}"
+                        emoji = "🤔"
+                except Exception as e:
+                    ans = f"❌ 재생성 오류: {e}"
+                    emoji = "👎"
+                await _react(msg, emoji)
+                await status.edit_text(ans)
+                return
+
+            # 2. 순수 공유 링크/doc_id만 보낸 경우 -> 원터치 스마트 인라인 액션 버튼 제공
+            conn = dbm.connect(svc.s.db_file)
+            doc = None
+            try:
+                doc = dbm.get_document(conn, target_doc_id)
+            finally:
+                conn.close()
+
+            doc_title = (doc.title if doc else None) or target_doc_id
+            raw_len = len(doc.raw_text) if doc and doc.raw_text else 0
+            trunc_info = ""
+            if doc and (doc.meta or {}).get("raw_truncated"):
+                orig = (doc.meta or {}).get("orig_chars", raw_len)
+                trunc_info = f"\n⚠️ 원문이 환경변수 상한으로 절단됨 ({raw_len:,}자 / 원본 {orig:,}자)"
+
+            kb = [
+                [InlineKeyboardButton("🔄 본문 재생성", callback_data=f"rg:det:{target_doc_id}")],
+                [
+                    InlineKeyboardButton("📥 원문 재수집 (길이 제한)", callback_data=f"rg:ref:{target_doc_id}"),
+                    InlineKeyboardButton("🌐 전체 원문 재수집 (전체 길이)", callback_data=f"rg:full:{target_doc_id}"),
+                ],
+            ]
+            markup = InlineKeyboardMarkup(kb)
+            await msg.reply_text(
+                f"📄 {doc_title}\n"
+                f"• 보관 본문: {raw_len:,}자{trunc_info}\n\n"
+                "수행할 작업을 선택하세요:",
+                reply_markup=markup,
+            )
+            return
+
+        # 일반 외부 웹페이지/텍스트 신규 적재
         label = f"처리 중… ({classify_input(payload)})"
         if directive:
             label += f" [방향: {directive[:20]}]"
@@ -407,32 +564,49 @@ def run_bot() -> int:
         await _react(msg, emoji)
         await _settle(status, msg, summary, cands, update.update_id)
 
-    async def on_regenerate(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    async def _handle_regenerate_flow(
+        update: Update,
+        raw_args: str,
+        *,
+        default_refetch: bool = False,
+        default_refetch_full: bool = False,
+    ) -> None:
         user = update.effective_user
         if not _is_allowed(user.id if user else None):
             await update.message.reply_text("허용되지 않은 사용자입니다.")
             return
-        raw = " ".join(ctx.args) if ctx.args else ""
+        raw = raw_args.strip()
         if not raw:
             await update.message.reply_text(
                 "사용법:\n"
-                "  /regenerate <문서ID|토큰|URL>\n"
-                "  /regenerate <문서ID|토큰|URL> | <새 초점>\n"
-                "  예: /regenerate doc_123456789012 | 보안 및 취약점 분석 관점"
+                "  /regenerate <문서ID|토큰|공유URL> [--refetch|--refetch-full] [--effort <level>] [| <새 초점>]\n"
+                "  /refetch <문서ID|토큰|공유URL> [--effort <level>] [| <새 초점>] (길이 제한 재수집)\n"
+                "  /refetch_full <문서ID|토큰|공유URL> [--effort <level>] [| <새 초점>] (전체 길이 재수집)\n"
+                "  예: /regenerate doc_123456789012 --refetch-full --effort high | 보안 관점"
             )
             return
-        target, directive = parse_message_directive(raw)
-        tokens = raw.split(None, 1)
+
+        payload, directive = parse_message_directive(raw)
+        payload_clean, has_refetch, has_refetch_full, has_effort = parse_regenerate_flags(payload)
+        tokens = payload_clean.split(None, 1)
+        target = tokens[0] if tokens else ""
         if directive is None and len(tokens) > 1:
-            target = tokens[0]
             directive = tokens[1].strip()
-        else:
-            target = target or (tokens[0] if tokens else "")
+
+        refetch_flag = default_refetch or has_refetch
+        refetch_full_flag = default_refetch_full or has_refetch_full
 
         msg = update.message
         label = f"본문 재생성 중… ({target})"
+        if refetch_full_flag:
+            label += " [원문 전체 재수집]"
+        elif refetch_flag:
+            label += " [원문 재수집]"
         if directive:
             label += f" [초점: {directive[:20]}]"
+        if has_effort:
+            label += f" [추론: {has_effort}]"
+
         status = await msg.reply_text(f"⏳ {label}")
         try:
             res = await _run_with_ticker(
@@ -440,6 +614,9 @@ def run_bot() -> int:
                 lambda: svc.regenerate_components(
                     target=target,
                     detail=True,
+                    refetch=refetch_flag,
+                    refetch_full=refetch_full_flag,
+                    effort=has_effort,
                     force=True,
                     directive=directive,
                 ),
@@ -450,7 +627,12 @@ def run_bot() -> int:
             elif res.get("count", 0) > 0:
                 tinfo = res["targets"][0]
                 dir_msg = f"\n초점: {directive}" if directive else ""
-                ans = f"✅ 본문 재생성 완료: {tinfo.get('title', target)}{dir_msg}"
+                ref_msg = ""
+                if tinfo.get("refetched_full"):
+                    ref_msg = f" (원문 전체 재수집 {tinfo.get('new_len', 0):,}자)"
+                elif tinfo.get("refetched"):
+                    ref_msg = f" (원문 재수집 {tinfo.get('new_len', 0):,}자)"
+                ans = f"✅ 본문 재생성 완료: {tinfo.get('title', target)}{ref_msg}{dir_msg}"
                 emoji = "👍"
             else:
                 ans = f"⚠️ 대상 문서를 찾을 수 없습니다: {target}"
@@ -461,10 +643,58 @@ def run_bot() -> int:
         await _react(msg, emoji)
         await status.edit_text(ans)
 
+    async def on_regenerate(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        raw = " ".join(ctx.args) if ctx.args else ""
+        await _handle_regenerate_flow(update, raw)
+
+    async def on_refetch(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        raw = " ".join(ctx.args) if ctx.args else ""
+        await _handle_regenerate_flow(update, raw, default_refetch=True)
+
+    async def on_refetch_full(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        raw = " ".join(ctx.args) if ctx.args else ""
+        await _handle_regenerate_flow(update, raw, default_refetch_full=True)
+
     async def on_callback(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
         query = update.callback_query
         await query.answer()
         data = query.data or ""
+        if data.startswith(("rg:det:", "rg:ref:", "rg:full:")):
+            user = update.effective_user
+            if not _is_allowed(user.id if user else None):
+                return
+            mode, did = data.split(":", 2)[1], data.split(":", 2)[2]
+            do_refetch = (mode == "ref")
+            do_refetch_full = (mode == "full")
+            mode_name = "전체 재수집 및 재생성" if do_refetch_full else ("재수집 및 재생성" if do_refetch else "본문 재생성")
+            try:
+                await query.edit_message_reply_markup(reply_markup=None)
+            except Exception:
+                pass
+            status_msg = await query.message.reply_text(f"⏳ {mode_name} 처리 중… ({did})")
+            try:
+                res = await _run_with_ticker(
+                    status_msg, mode_name,
+                    lambda: svc.regenerate_components(
+                        doc_id=did,
+                        detail=True,
+                        refetch=do_refetch,
+                        refetch_full=do_refetch_full,
+                        force=True,
+                    ),
+                )
+                if res.get("error"):
+                    ans = f"❌ {mode_name} 실패: {res['error']}"
+                elif res.get("count", 0) > 0:
+                    tinfo = res["targets"][0]
+                    len_info = f" ({tinfo.get('new_len', 0):,}자)" if (do_refetch or do_refetch_full) else ""
+                    ans = f"✅ {mode_name} 완료: {tinfo.get('title', did)}{len_info}"
+                else:
+                    ans = f"⚠️ 대상 문서를 찾을 수 없습니다: {did}"
+            except Exception as e:
+                ans = f"❌ {mode_name} 오류: {e}"
+            await status_msg.edit_text(ans)
+            return
         if data.startswith("auth:"):
             # 웹 UI 접속 승인 — 소유자만. DB 에 세션 토큰 발급(웹이 poll 로 수령).
             user = update.effective_user
@@ -657,6 +887,8 @@ def run_bot() -> int:
     app.add_handler(CommandHandler("ingest", on_ingest))
     app.add_handler(CommandHandler("regenerate", on_regenerate))
     app.add_handler(CommandHandler("regen", on_regenerate))
+    app.add_handler(CommandHandler("refetch", on_refetch))
+    app.add_handler(CommandHandler("refetch_full", on_refetch_full))
     app.add_handler(CommandHandler("web", on_web))
     app.add_handler(CommandHandler("webro", on_webro))
     app.add_handler(CommandHandler("failed", on_failed))
@@ -676,6 +908,8 @@ def run_bot() -> int:
             BotCommand("search", "검색 + 요약"),
             BotCommand("ingest", "초점 지정 적재"),
             BotCommand("regenerate", "본문 초점 재생성"),
+            BotCommand("refetch", "길이 제한 원문 재수집"),
+            BotCommand("refetch_full", "전체 길이 원문 재수집"),
             BotCommand("web", "웹 접속 링크 발급"),
             BotCommand("webro", "읽기전용 웹 링크 발급"),
             BotCommand("failed", "실패/영구실패 점검"),
@@ -684,6 +918,21 @@ def run_bot() -> int:
         ])
 
     app.post_init = _post_init
+    return app
+
+
+def run_bot() -> int:
+    s = get_settings()
+    if not s.telegram_bot_token:
+        print("TELEGRAM_BOT_TOKEN 이 없습니다. .env 에 설정하세요.")
+        return 2
+
+    try:
+        app = build_app(s)
+    except Exception as e:
+        print(f"Telegram bot 초기화 실패: {e}")
+        return 2
+
     print("claire telegram bot 시작 (long-polling). Ctrl+C 로 종료.")
     app.run_polling()
     return 0

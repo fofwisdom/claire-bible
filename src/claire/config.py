@@ -227,6 +227,8 @@ class Settings(BaseSettings):
     )
     # 브라우저 기준 canonical URL. Host 검증, same-origin 판정, /web 링크 생성에 함께 쓴다.
     public_url: str = Field(default="", alias="CLAIRE_PUBLIC_URL")
+    # FQDN 또는 공개 도메인 호스트명 (예: claire.example.com). 미설정 시 public_url 호스트명 사용.
+    fqdn: str = Field(default="", alias="CLAIRE_FQDN")
     # 브라우저 cross-origin 호출을 허용할 exact origin 목록. 인증은 Bearer만 허용한다.
     cors_allowed_origins: str = Field(
         default="", alias="CLAIRE_CORS_ALLOWED_ORIGINS"
@@ -394,6 +396,58 @@ class Settings(BaseSettings):
             return self.owner_chat_id
         ids = self.allowed_user_ids
         return min(ids) if ids else 0
+
+    @property
+    def effective_fqdn(self) -> str:
+        """FQDN 호스트명. CLAIRE_FQDN 우선, 없으면 CLAIRE_PUBLIC_URL 에서 추출."""
+        if self.fqdn:
+            return self.fqdn.strip().lower()
+        if self.public_url:
+            from urllib.parse import urlsplit
+            host = urlsplit(self.public_url).hostname
+            if host:
+                return host.strip().lower()
+        return ""
+
+
+def extract_own_share_token(url_candidate: str, settings: Settings | None = None) -> str | None:
+    """URL이 자체 인스턴스의 공유 링크(/p?s=token)인 경우에만 token을 추출. 타 사이트 URL은 None."""
+    from urllib.parse import parse_qs, urlsplit
+    s = settings or get_settings()
+    t = (url_candidate or "").strip()
+    if not t:
+        return None
+
+    # 상대 경로인 경우 (?s=token 또는 /p?s=token)
+    if t.startswith("?s="):
+        return t[3:].split("&")[0].strip() or None
+    if t.startswith("/p?") or t.startswith("/p/?"):
+        qs = parse_qs(urlsplit(t).query)
+        toks = qs.get("s")
+        return toks[0].strip() if toks and toks[0].strip() else None
+
+    # 절대 URL인 경우
+    if t.lower().startswith(("http://", "https://")):
+        parsed = urlsplit(t)
+        host = (parsed.hostname or "").lower()
+        eff_fqdn = s.effective_fqdn
+        pub_host = (urlsplit(s.public_url).hostname or "").lower() if s.public_url else ""
+
+        is_match = False
+        if eff_fqdn and host == eff_fqdn:
+            is_match = True
+        elif pub_host and host == pub_host:
+            is_match = True
+        elif not eff_fqdn and not pub_host and host in ("localhost", "127.0.0.1"):
+            is_match = True
+
+        if is_match and parsed.path.rstrip("/") == "/p":
+            qs = parse_qs(parsed.query)
+            toks = qs.get("s")
+            if toks and toks[0].strip():
+                return toks[0].strip()
+
+    return None
 
 
 @lru_cache

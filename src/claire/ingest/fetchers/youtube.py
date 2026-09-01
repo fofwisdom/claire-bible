@@ -45,7 +45,7 @@ def fetch_video_title(vid: str) -> str | None:
     return None
 
 
-def fetch_youtube(url: str) -> Document:
+def fetch_youtube(url: str, *, full_content: bool = False) -> Document:
     vid = video_id(url)
     if not vid:
         raise FetchError(f"no youtube video id in {url}")
@@ -79,8 +79,9 @@ def fetch_youtube(url: str) -> Document:
     title = fetch_video_title(vid) or f"YouTube {vid}"
 
     settings = get_settings()
+    budget = 0 if full_content else settings.raw_char_budget
     raw_text, is_truncated, orig_chars, raw_chars = slice_document_text(
-        text or "", settings.raw_char_budget, strategy=settings.slicing_strategy
+        text or "", budget, strategy=settings.slicing_strategy
     )
     return Document(
         url=url,
