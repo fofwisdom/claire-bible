@@ -53,6 +53,8 @@ classDiagram
         +[source,lang] 코드 + <1> 콜아웃 주석
         +[NOTE] 맥락 보충/주의 박스
         +|=== 표 정리
+        +stem:[...] 수식 (LaTeX/AsciiMath)
+        +<<anchor, Label>> 상호 참조
     }
     MarkdownGuidelines <|-- AsciiDocGuidelines : 철학 계승 및 표현력 확장
 ```
@@ -89,8 +91,22 @@ classDiagram
    |기능 |마크다운(MD) |아스키독(ADOC)
    |인용 |`>` 단순 블록 |`[quote]` 출처/맥락 메타데이터 지원
    |코드 주석 |본문 별도 설명 |`<1>` 인라인 번호 뱃지 콜아웃
+   |수식 |미지원 / 플러그인 의존 |`stem:[...]`, `[latexmath]++++` 네이티브
+   |상호 참조 |raw HTML 앵커 |`<<anchor, Label>>`, `[#anchor]` 네이티브
    |===
    ```
+5. **수식 및 과학 기호 (Math Formulas)**:
+   - 인라인 수식: `stem:[E = mc^2]`, `latexmath:[\sum_{i=1}^n x_i]`
+   - 블록 수식:
+     ```asciidoc
+     [latexmath]
+     ++++
+     \nabla \times \mathbf{E} = -\frac{\partial \mathbf{B}}{\partial t}
+     ++++
+     ```
+6. **상호 참조 및 앵커 (Cross-references & Anchors)**:
+   - 섹션 및 단락 앵커 지정: `[#sec-arch]`, `== [#sec-arch] 아키텍처`, `[[inline-anchor]]`
+   - 본문 상호 참조 링크: `<<sec-arch, 아키텍처 섹션>>`, `xref:sec-arch[아키텍처]`
 
 ---
 
@@ -178,7 +194,7 @@ claire backfill-detail --format adoc
 
 ## 5. 검증 결과
 
-본 기능은 [tests/test_adoc_render.py](../../tests/test_adoc_render.py)를 통해 다음 8가지 핵심 항목을 검증 완료하였습니다:
+본 기능은 [tests/test_adoc_render.py](../../tests/test_adoc_render.py)를 통해 다음 11가지 핵심 항목을 검증 완료하였습니다:
 1. `test_config_render_format_validation`: 환경설정 유효성 및 소문자 정규화 검증.
 2. `test_aot_render_adoc`: AOT 렌더러의 AsciiDoc 문법 전체(인용, 코드 콜아웃, Admonition, 표, 형광, 이미지 등) 시맨틱 HTML 컴파일 검증.
 3. `test_aot_render_md`: AOT 렌더러의 Markdown 및 `==형광==` 컴파일 검증.
@@ -187,4 +203,7 @@ claire backfill-detail --format adoc
 6. `test_mock_provider_dual_format`: MockProvider의 포맷별 stub 생성 검증.
 7. `test_pipeline_ensure_document_detail_format`: 파이프라인의 포맷 반영 및 `detail_html` DB 저장 검증.
 8. `test_graphview_detail_format_and_html`: Graphview API 응답의 `detail_html` 포함 및 HTML 템플릿의 Asciidoctor CDN 미포함(Zero-eval) 검증.
+9. `test_aot_render_adoc_math`: 인라인 `stem:[...]`/`latexmath:[...]` 및 블록 `[latexmath]++++` 시맨틱 HTML 컴파일 검증.
+10. `test_aot_render_adoc_cross_reference_and_anchors`: 크로스레퍼런스(`<<id, label>>`, `xref:id[]`) 링크 및 앵커(`[#id]`, `[[id]]`) ID 주입 검증.
+11. `test_prompts_adoc_phase1_guidelines`: AsciiDoc 프롬프트 내 수식 보존 및 상호참조 가이드라인 포함 검증.
 
