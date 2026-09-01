@@ -64,7 +64,7 @@ def test_parse_message_directive():
     assert p == "https://example.com/b"
     assert d == "보안 취약점 관점"
 
-    p, d = parse_message_directive("https://example.com/b —관점 비즈니스 모델")
+    p, d = parse_message_directive("https://example.com/b —perspective 비즈니스 모델")
     assert p == "https://example.com/b"
     assert d == "비즈니스 모델"
 
