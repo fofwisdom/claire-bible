@@ -89,6 +89,16 @@ def find_agy_executable(agy_bin: str = "agy") -> str | None:
     return None
 
 
+def find_codex_executable(codex_bin: str = "codex") -> str | None:
+    """명시 경로 또는 현재 PATH에서만 Codex CLI를 찾는다."""
+    raw = str(codex_bin or "codex").strip() or "codex"
+    explicit = Path(raw).expanduser()
+    if explicit.is_file() and os.access(explicit, os.X_OK):
+        return str(explicit.resolve())
+    found = shutil.which(raw)
+    return str(Path(found).resolve()) if found else None
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=ROOT / ".env",
@@ -144,6 +154,15 @@ class Settings(BaseSettings):
     agy_effort: str = Field(default="medium", alias="CLAIRE_AGY_EFFORT")
     agy_timeout: float = Field(default=120.0, alias="CLAIRE_AGY_TIMEOUT")
     agy_max_concurrency: int = Field(default=2, alias="CLAIRE_AGY_MAX_CONCURRENCY")
+
+    # --- Codex CLI (native host only) ---
+    codex_bin: str = Field(default="codex", alias="CLAIRE_CODEX_BIN")
+    codex_model: str = Field(default="", alias="CLAIRE_CODEX_MODEL")
+    codex_effort: str = Field(default="medium", alias="CLAIRE_CODEX_EFFORT")
+    codex_timeout: float = Field(default=300.0, alias="CLAIRE_CODEX_TIMEOUT")
+    codex_max_concurrency: int = Field(
+        default=1, alias="CLAIRE_CODEX_MAX_CONCURRENCY"
+    )
 
     # --- storage ---
     db_path: str = Field(default="data/claire.db", alias="CLAIRE_DB_PATH")
@@ -328,13 +347,18 @@ class Settings(BaseSettings):
     @property
     def effective_provider(self) -> str:
         """키나 실행 환경이 갖춰지지 않으면 provider 는 mock 으로 떨어진다."""
-        if self.provider in ("antigravity", "agy"):
+        raw = self.provider.strip().lower()
+        if raw in ("antigravity", "agy"):
             if find_agy_executable(self.agy_bin) is not None:
                 return "antigravity"
             return "mock"
-        if self.provider == "gemini" and not self.gemini_api_key:
+        if raw in ("codex", "codex-cli"):
+            if find_codex_executable(self.codex_bin) is not None:
+                return "codex"
             return "mock"
-        return self.provider
+        if raw == "gemini" and not self.gemini_api_key:
+            return "mock"
+        return raw
 
     @property
     def db_file(self) -> Path:

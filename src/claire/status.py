@@ -28,7 +28,24 @@ def build_status_text(settings: Settings, *, full: bool = True) -> str:
     # 운영
     lines.append("[운영]")
     lines.append(f"  repo     : {s.effective_github_repository} ({s.effective_source_base_url})")
-    if s.effective_provider == "antigravity":
+    configured_provider = s.provider.strip().lower()
+    if configured_provider in ("codex", "codex-cli"):
+        from .extract.codex_provider import probe_codex_cli
+
+        probe = probe_codex_cli(s)
+        lines.append(
+            f"  provider : {s.effective_provider} "
+            f"(configured=codex, model={s.codex_model or 'codex-cli-default'}, "
+            f"effort={s.codex_effort})"
+        )
+        lines.append(
+            f"  codex    : {probe['binary']} · {probe['version']} · login={probe['login']}"
+        )
+        if s.gemini_api_key:
+            lines.append(f"  embedding: gemini (model={s.gemini_embed_model})")
+        else:
+            lines.append("  embedding: unavailable · search=fts-only")
+    elif s.effective_provider == "antigravity":
         lines.append(f"  provider : {s.effective_provider} "
                      f"(model={s.agy_model}, effort={s.agy_effort})")
     else:

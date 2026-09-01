@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from claire.config import Settings
+from claire.config import Settings, find_codex_executable
 
 
 def test_anonymous_readonly_defaults_enabled(monkeypatch):
@@ -187,3 +187,39 @@ def test_slicing_strategy_invalid(monkeypatch):
     with pytest.raises(ValidationError, match="CLAIRE_SLICING_STRATEGY must be 'table-exemption' or 'strict'"):
         Settings(_env_file=None)
 
+
+def test_codex_config_defaults(monkeypatch):
+    for name in (
+        "CLAIRE_CODEX_BIN",
+        "CLAIRE_CODEX_MODEL",
+        "CLAIRE_CODEX_EFFORT",
+        "CLAIRE_CODEX_TIMEOUT",
+        "CLAIRE_CODEX_MAX_CONCURRENCY",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+    settings = Settings(_env_file=None)
+
+    assert settings.codex_bin == "codex"
+    assert settings.codex_model == ""
+    assert settings.codex_effort == "medium"
+    assert settings.codex_timeout == 300.0
+    assert settings.codex_max_concurrency == 1
+
+
+def test_find_codex_executable_checks_only_explicit_path_or_path(
+    tmp_path: Path, monkeypatch
+):
+    executable = tmp_path / "codex-custom"
+    executable.write_text("#!/bin/sh\n", encoding="utf-8")
+    executable.chmod(0o700)
+
+    assert find_codex_executable(str(executable)) == str(executable.resolve())
+
+    monkeypatch.setattr("claire.config.shutil.which", lambda _name: None)
+    assert find_codex_executable("codex-not-on-path") is None
+
+    monkeypatch.setattr(
+        "claire.config.shutil.which", lambda _name: str(executable)
+    )
+    assert find_codex_executable("codex-from-path") == str(executable.resolve())

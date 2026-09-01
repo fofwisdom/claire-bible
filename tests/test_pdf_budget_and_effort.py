@@ -245,6 +245,45 @@ def test_lowest_effort_provider_selection(monkeypatch: pytest.MonkeyPatch):
     prov5 = get_lowest_effort_provider(s5)
     assert prov5.name == "mock"
 
+    # Case 6: Codex는 명시 선택+바이너리 존재 시에만 후보가 되고, 동점이면 선택된다.
+    s6 = Settings(
+        provider="codex",
+        codex_effort="medium",
+        agy_effort="medium",
+        gemini_api_key="dummy-key",
+        gemini_effort="medium",
+    )
+    with (
+        patch(
+            "claire.extract.classifier.find_codex_executable",
+            return_value="/usr/local/bin/codex",
+        ),
+        patch(
+            "claire.extract.classifier.find_agy_executable",
+            return_value="/usr/local/bin/agy",
+        ),
+    ):
+        prov6 = get_lowest_effort_provider(s6)
+        assert prov6.name == "codex"
+
+    # Case 7: 다른 provider를 선택한 경우 Codex 바이너리가 있어도 후보로 끼어들지 않는다.
+    s7 = Settings(
+        provider="gemini",
+        gemini_api_key="dummy-key",
+        gemini_effort="medium",
+        agy_effort="high",
+        codex_effort="low",
+    )
+    with (
+        patch(
+            "claire.extract.classifier.find_codex_executable",
+            return_value="/usr/local/bin/codex",
+        ),
+        patch("claire.extract.classifier.find_agy_executable", return_value=None),
+    ):
+        prov7 = get_lowest_effort_provider(s7)
+        assert prov7.name == "gemini"
+
 
 def test_classify_paper_logic():
     """classify_paper()가 학술 논문 여부를 올바르게 식별하는지 검증."""
