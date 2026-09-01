@@ -264,18 +264,12 @@ def test_parse_regenerate_flags():
     assert refetch_full is True
     assert effort == "low"
 
-    # 3. Korean flags
-    text, refetch, refetch_full, effort = parse_regenerate_flags("doc_123 --전체재수집 --추론 medium")
+    # 3. Full refetch alias
+    text, refetch, refetch_full, effort = parse_regenerate_flags("doc_123 --full-refetch --effort medium")
     assert text == "doc_123"
     assert refetch is False
     assert refetch_full is True
     assert effort == "medium"
-
-    text, refetch, refetch_full, effort = parse_regenerate_flags("doc_123 --재수집 --사고 high")
-    assert text == "doc_123"
-    assert refetch is True
-    assert refetch_full is False
-    assert effort == "high"
 
     # 4. Short flags (-r, -R, -e)
     text, refetch, refetch_full, effort = parse_regenerate_flags("doc_123 -R -e 2000")
