@@ -51,9 +51,21 @@ def fetch_file(path: str, *, full_content: bool = False) -> Document:
         raise FetchError(f"unsupported file type (M1): {suffix}")
     settings = get_settings()
     budget = 0 if full_content else (settings.pdf_max_extract_chars if source_type == "pdf" else settings.raw_char_budget)
-    raw_text, is_truncated, orig_chars, raw_chars = slice_document_text(
-        text or "", budget, strategy=settings.slicing_strategy
-    )
+    appendix_truncated = False
+    if source_type == "pdf":
+        from .pdf import slice_pdf_text
+
+        exclude_app = False if full_content else settings.pdf_exclude_appendix
+        raw_text, is_truncated, appendix_truncated, orig_chars, raw_chars = slice_pdf_text(
+            text or "",
+            budget,
+            strategy=settings.slicing_strategy,
+            exclude_appendix=exclude_app,
+        )
+    else:
+        raw_text, is_truncated, orig_chars, raw_chars = slice_document_text(
+            text or "", budget, strategy=settings.slicing_strategy
+        )
     return Document(
         url=f"file://{p.resolve()}",
         title=title or p.stem,
@@ -62,6 +74,7 @@ def fetch_file(path: str, *, full_content: bool = False) -> Document:
         content_hash=content_hash(title or "", text),
         meta={
             "raw_truncated": is_truncated,
+            "appendix_truncated": appendix_truncated,
             "orig_chars": orig_chars,
             "raw_chars": raw_chars,
         },

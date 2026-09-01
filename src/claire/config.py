@@ -190,6 +190,8 @@ class Settings(BaseSettings):
     pdf_max_extract_chars: int = Field(default=50000, alias="CLAIRE_PDF_MAX_EXTRACT_CHARS")
     # PDF 논문 판단 시 high effort 적용 기준 글자 수
     pdf_paper_threshold_chars: int = Field(default=15000, alias="CLAIRE_PDF_PAPER_THRESHOLD_CHARS")
+    # PDF 논문 적재 시 부록(Appendix) 제외 정책
+    pdf_exclude_appendix: bool = Field(default=True, alias="CLAIRE_PDF_EXCLUDE_APPENDIX")
     # 15,000자 이상 논문 PDF 적재 시 사고/추론 레벨
     pdf_paper_effort: str = Field(default="high", alias="CLAIRE_PDF_PAPER_EFFORT")
     # 15,000자 미만 또는 비논문 PDF 적재 시 기본 레벨 (빈 문자열이면 프로바이더 기본 env 사용)

@@ -12,6 +12,102 @@ from ...config import get_settings
 
 _URL_RE = re.compile(r"https?://[^\s)\]\}<>\"']+")
 
+APPENDIX_PATTERNS = [
+    # 1. Appendix / Appendices / APPENDIX / APPENDICES with optional numbering/title
+    re.compile(
+        r"(?:\n\s*\n|\n)(?:#{1,4}\s*|=+\s*|\*{1,2})?"
+        r"(?:APPENDIX|Appendix|APPENDICES|Appendices)"
+        r"(?:[^\S\n]+(?:[A-Z0-9IVX]+(?:\.[0-9]+)*|[A-Z]\b))?"
+        r"(?:[^\S\n]*[:.\-–—][^\S\n]*[^\n]+|[^\S\n]+[^\n]{1,80})?"
+        r"[^\S\n]*(?=\n|$)",
+    ),
+    # 2. Supplementary / Supplemental Material / Information
+    re.compile(
+        r"(?:\n\s*\n|\n)(?:#{1,4}\s*|=+\s*|\*{1,2})?"
+        r"(?:Supplementary|Supplemental|SUPPLEMENTARY|SUPPLEMENTAL)[^\S\n]+"
+        r"(?:Material|Materials|Information|Note|Notes|Appendix|Appendices|MATERIAL|MATERIALS|INFORMATION)"
+        r"(?:[^\S\n]*[:.\-–—][^\S\n]*[^\n]+|[^\S\n]+[^\n]{1,80})?"
+        r"[^\S\n]*(?=\n|$)",
+    ),
+    # 3. Korean 부록 patterns
+    re.compile(
+        r"(?:\n\s*\n|\n)(?:#{1,4}\s*|=+\s*|\*{1,2})?"
+        r"(?:부[^\S\n]*록|\[부록\]|【부록】|<부록>)"
+        r"(?:[^\S\n]+(?:[A-Z0-9가-힣]+(?:\.[0-9]+)*|[A-Z]\b))?"
+        r"(?:[^\S\n]*[:.\-–—][^\S\n]*[^\n]+|[^\S\n]+[^\n]{1,80})?"
+        r"[^\S\n]*(?=\n|$)",
+    ),
+]
+
+
+def find_appendix_split(text: str) -> tuple[int, str] | None:
+    """PDF 본문에서 부록(Appendix) 섹션 시작 위치 검출.
+
+    반환: (split_index: int, matched_heading: str) | None
+    - 인라인 문장 내 언급(False Positive)을 배제하고 단독 섹션 헤더만 매칭.
+    - 본문 시작 직후(0자)나 본문이 비어있게 되는 경우는 제외.
+    """
+    if not text:
+        return None
+    matches: list[tuple[int, str]] = []
+    for pat in APPENDIX_PATTERNS:
+        for m in pat.finditer(text):
+            # 문서 시작 지점(0자)이 아니며, 앞부분에 본문이 존재하는 경우
+            if m.start() > 0:
+                header = m.group(0).strip()
+                matches.append((m.start(), header))
+    if not matches:
+        return None
+    matches.sort(key=lambda x: x[0])
+    return matches[0]
+
+
+def slice_pdf_text(
+    text: str,
+    limit: int,
+    *,
+    strategy: str = "table-exemption",
+    exclude_appendix: bool = True,
+) -> tuple[str, bool, bool, int, int]:
+    """PDF 텍스트 슬라이싱 및 Appendix 제외 처리.
+
+    반환: (sliced_text, is_truncated, appendix_truncated, orig_chars, raw_chars)
+    - exclude_appendix=True 시 본문에서 부록(Appendix) 섹션을 검출하여 제외.
+    - 부록만 잘려나가고 본문이 온전한 경우: is_truncated=True, appendix_truncated=True.
+    - 본문도 예산(limit)을 초과하여 추가 절단된 경우: is_truncated=True, appendix_truncated=False.
+    - 부록이 없고 예산 내인 경우: is_truncated=False, appendix_truncated=False.
+    """
+    from ...extract.table_budget import slice_document_text
+
+    if not text:
+        return "", False, False, 0, 0
+
+    orig_chars = len(text)
+    if limit <= 0 and not exclude_appendix:
+        return text, False, False, orig_chars, orig_chars
+
+    # 1. Appendix 제외 검사
+    if exclude_appendix:
+        app_split = find_appendix_split(text)
+        if app_split is not None:
+            app_idx, _ = app_split
+            main_text = text[:app_idx].rstrip()
+            if main_text:  # 본문이 존재하는 경우에만 부록 제외
+                if limit <= 0:
+                    return main_text, True, True, orig_chars, len(main_text)
+                sliced_text, is_main_trunc, _, _ = slice_document_text(
+                    main_text, limit, strategy=strategy
+                )
+                is_truncated = True
+                appendix_truncated = not is_main_trunc
+                return sliced_text, is_truncated, appendix_truncated, orig_chars, len(sliced_text)
+
+    # 2. 일반 예산 슬라이싱 (부록 없거나 미제외)
+    sliced_text, is_truncated, _, _ = slice_document_text(
+        text, limit, strategy=strategy
+    )
+    return sliced_text, is_truncated, False, orig_chars, len(sliced_text)
+
 
 def extract_pdf_stream(
     stream: BinaryIO,

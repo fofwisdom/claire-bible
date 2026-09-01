@@ -157,9 +157,21 @@ def fetch_web(url: str, *, full_content: bool = False) -> Document:
     )
     settings = get_settings()
     budget = 0 if full_content else (settings.pdf_max_extract_chars if is_pdf else settings.raw_char_budget)
-    raw_text, is_truncated, orig_chars, raw_chars = slice_document_text(
-        text or "", budget, strategy=settings.slicing_strategy
-    )
+    appendix_truncated = False
+    if is_pdf:
+        from .pdf import slice_pdf_text
+
+        exclude_app = False if full_content else settings.pdf_exclude_appendix
+        raw_text, is_truncated, appendix_truncated, orig_chars, raw_chars = slice_pdf_text(
+            text or "",
+            budget,
+            strategy=settings.slicing_strategy,
+            exclude_appendix=exclude_app,
+        )
+    else:
+        raw_text, is_truncated, orig_chars, raw_chars = slice_document_text(
+            text or "", budget, strategy=settings.slicing_strategy
+        )
     return Document(
         url=url,
         canonical_url=canonicalize_url(effective),
@@ -176,6 +188,7 @@ def fetch_web(url: str, *, full_content: bool = False) -> Document:
             "effective_url": effective,
             "images": images or [],
             "raw_truncated": is_truncated,
+            "appendix_truncated": appendix_truncated,
             "orig_chars": orig_chars,
             "raw_chars": raw_chars,
         },
