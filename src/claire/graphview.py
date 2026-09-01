@@ -2104,8 +2104,8 @@ function applyMathRendering(container){
         delimiters: [
           {left: '$$', right: '$$', display: true},
           {left: '$', right: '$', display: false},
-          {left: '\\(', right: '\\)', display: false},
-          {left: '\\[', right: '\\]', display: true}
+          {left: '\\\\(', right: '\\\\)', display: false},
+          {left: '\\\\[', right: '\\\\]', display: true}
         ],
         ignoredTags: ['script', 'noscript', 'style', 'textarea', 'pre', 'code', 'option'],
         throwOnError: false
@@ -5414,8 +5414,8 @@ function applyMathRendering(container){
         delimiters: [
           {left: '$$', right: '$$', display: true},
           {left: '$', right: '$', display: false},
-          {left: '\\(', right: '\\)', display: false},
-          {left: '\\[', right: '\\]', display: true}
+          {left: '\\\\(', right: '\\\\)', display: false},
+          {left: '\\\\[', right: '\\\\]', display: true}
         ],
         ignoredTags: ['script', 'noscript', 'style', 'textarea', 'pre', 'code', 'option'],
         throwOnError: false

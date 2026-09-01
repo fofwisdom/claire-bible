@@ -996,6 +996,10 @@ def test_graphview_and_shared_html_katex_integration():
         assert "applyMathRendering" in page
         assert "renderMathInElement" in page
         assert "DOMPURIFY_OPTS" in page
+        # LaTeX 수식 구분자 \\( 및 \\[ 가 올바르게 이스케이프되어 브라우저 JS 에 전달되는지 검증
+        assert "{left: '\\\\(', right: '\\\\)', display: false}" in page
+        assert "{left: '\\\\[', right: '\\\\]', display: true}" in page
+
 
 
 
