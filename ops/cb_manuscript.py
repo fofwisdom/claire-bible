@@ -3112,6 +3112,106 @@ def command_version(layout: Layout) -> int:
     return 0
 
 
+def command_clean(
+    runtime: Runtime,
+    *,
+    dry_run: bool = False,
+    all_images: bool = False,
+    builder: bool = False,
+    legacy_only: bool = False,
+) -> int:
+    print("cb-manuscript clean: scanning for unused Docker resources...")
+
+    # 1. Check legacy containers
+    legacy_found: list[str] = []
+    for name in LEGACY_CONTAINERS:
+        check_proc = run_command(
+            ("docker", "ps", "-a", "-q", "--filter", f"name=^/{name}$"),
+            cwd=runtime.layout.root,
+            capture=True,
+            check=False,
+        )
+        if _captured_stdout(check_proc).strip():
+            legacy_found.append(name)
+
+    if legacy_found:
+        print(f"Legacy containers found: {', '.join(legacy_found)}")
+        if not dry_run:
+            for name in legacy_found:
+                run_command(
+                    ("docker", "rm", "-f", name),
+                    cwd=runtime.layout.root,
+                    check=False,
+                )
+            print(f"Legacy containers removed: {', '.join(legacy_found)}")
+        else:
+            print("  [dry-run] would remove legacy containers")
+    else:
+        print("Legacy containers: none found")
+
+    if legacy_only:
+        print("cb-manuscript clean: legacy container cleanup completed.")
+        return 0
+
+    # 2. Check stopped compose containers for current project
+    if not dry_run:
+        rm_res = run_compose(runtime, ("rm", "-f"), check=False, capture=True)
+        cleaned = _captured_stdout(rm_res).strip()
+        if cleaned:
+            print(f"Removed stopped project containers:\n{cleaned}")
+        else:
+            print("Stopped project containers: none")
+    else:
+        ps_res = run_compose(
+            runtime,
+            ("ps", "-a", "--status", "exited", "-q"),
+            check=False,
+            capture=True,
+        )
+        exited = _captured_stdout(ps_res).split()
+        if exited:
+            print(f"Stopped project containers: {len(exited)} container(s) found to remove")
+        else:
+            print("Stopped project containers: none")
+
+    # 3. Clean dangling or unused images
+    if all_images:
+        print("Pruning all unused Docker images (--all)...")
+        if not dry_run:
+            run_command(
+                ("docker", "image", "prune", "-a", "-f"),
+                cwd=runtime.layout.root,
+                check=False,
+            )
+        else:
+            print("  [dry-run] would run docker image prune -a -f")
+    else:
+        print("Pruning dangling Docker images...")
+        if not dry_run:
+            run_command(
+                ("docker", "image", "prune", "-f"),
+                cwd=runtime.layout.root,
+                check=False,
+            )
+        else:
+            print("  [dry-run] would run docker image prune -f")
+
+    # 4. Clean builder cache if requested
+    if builder or all_images:
+        print("Pruning Docker builder cache...")
+        if not dry_run:
+            run_command(
+                ("docker", "builder", "prune", "-f"),
+                cwd=runtime.layout.root,
+                check=False,
+            )
+        else:
+            print("  [dry-run] would run docker builder prune -f")
+
+    print("cb-manuscript clean: cleanup completed successfully.")
+    return 0
+
+
 def _app_guard_reason(args: Sequence[str]) -> str | None:
     if not args or args[0] in {"-h", "--help"}:
         return None
@@ -3434,6 +3534,54 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
 
+    # 9. clean
+    clean = subparsers.add_parser(
+        "clean",
+        help="Remove unneeded containers, legacy containers, dangling images, and build caches",
+        description=(
+            "Clean up stopped/legacy Docker containers, dangling images, and build cache to reclaim disk space.\n\n"
+            "Actions:\n"
+            "  - Stop and remove legacy containers (claire_bot, claire_api, etc.)\n"
+            "  - Remove stopped/exited Compose containers\n"
+            "  - Prune dangling images (or all unused images with --all)\n"
+            "  - Prune Docker builder cache (with --builder or --all)"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  ./cb-manuscript clean                # Remove legacy containers, stopped containers & dangling images\n"
+            "  ./cb-manuscript clean --dry-run      # Preview cleanup actions without deleting\n"
+            "  ./cb-manuscript clean --all          # Prune all unused images and build cache\n"
+            "  ./cb-manuscript clean --builder      # Also prune Docker build cache (BuildKit)\n"
+            "  ./cb-manuscript clean --legacy-only  # Clean only legacy named containers\n"
+            "  ./cb-manuscript dev clean            # Clean development containers and images"
+        ),
+    )
+    clean.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Preview actions without removing containers or images",
+    )
+    clean.add_argument(
+        "--all",
+        "-a",
+        dest="all_images",
+        action="store_true",
+        help="Prune all unused images and build cache, not just dangling ones",
+    )
+    clean.add_argument(
+        "--builder",
+        "--build-cache",
+        dest="builder",
+        action="store_true",
+        help="Prune Docker build cache (BuildKit)",
+    )
+    clean.add_argument(
+        "--legacy-only",
+        action="store_true",
+        help="Remove only legacy named containers (claire_bot, claire_api, etc.)",
+    )
+
     # 9. up
     subparsers.add_parser(
         "up",
@@ -3710,6 +3858,15 @@ def main(argv: Sequence[str] | None = None, *, root: Path | None = None) -> int:
             )
         if parsed.command == "health":
             return command_health(runtime)
+        if parsed.command == "clean":
+            with InstanceLock(runtime):
+                return command_clean(
+                    runtime,
+                    dry_run=parsed.dry_run,
+                    all_images=parsed.all_images,
+                    builder=parsed.builder,
+                    legacy_only=parsed.legacy_only,
+                )
         raise ManuscriptError(f"Unknown command: {parsed.command}")
     except SystemExit as exc:
         if argv is None:
