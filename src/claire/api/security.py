@@ -81,10 +81,10 @@ def _build_content_security_policy(ga_measurement_id: str = "") -> str:
     return (
         "default-src 'self'; "
         f"script-src {script_src}; "
-        "style-src 'self' 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://unpkg.com; "
         "img-src 'self' data: https:; "
         f"connect-src {connect_src}; "
-        "font-src 'self' data:; "
+        "font-src 'self' data: https://fonts.gstatic.com https://unpkg.com; "
         "object-src 'none'; "
         "base-uri 'none'; "
         "form-action 'self'; "

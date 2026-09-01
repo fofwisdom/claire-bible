@@ -18,7 +18,7 @@ def _inline_adoc_format(text: str) -> str:
     # HTML 특수문자 이스케이프 선행
     s = html.escape(text, quote=False)
 
-    # 1. 수식(Math) 보호: stem:[...], latexmath:[...], asciimath:[...]
+    # 1. 수식(Math) 보호: stem:[...], latexmath:[...], asciimath:[...], $...$, \(...\)
     math_spans: list[str] = []
 
     def _save_math(m: re.Match) -> str:
@@ -28,6 +28,15 @@ def _inline_adoc_format(text: str) -> str:
         return f"\x00ADOCMATH{len(math_spans)-1}\x00"
 
     s = re.sub(r"(stem|latexmath|asciimath):\[(.*?)\]", _save_math, s, flags=re.IGNORECASE)
+
+    def _save_latex_inline(m: re.Match) -> str:
+        math_content = m.group(1)
+        math_spans.append(f'<span class="math inline" data-math="latex"><code>{math_content}</code></span>')
+        return f"\x00ADOCMATH{len(math_spans)-1}\x00"
+
+    s = re.sub(r"\\\((.*?)\\\)", _save_latex_inline, s)
+    s = re.sub(r"\$\$([^\$]+?)\$\$", _save_latex_inline, s)
+    s = re.sub(r"(?<![\w\\\$])\$([^\$\n]+?)\$(?![\w\$])", _save_latex_inline, s)
 
     # 2. 인라인 코드 보호 (코드 블록 내부의 *, _, # 등이 다른 서식으로 변환되는 것 방지)
     code_spans: list[str] = []

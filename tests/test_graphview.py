@@ -308,6 +308,18 @@ def test_browser_dependencies_are_pinned_with_sri_and_markdown_fails_closed():
             "https://unpkg.com/dompurify@3.1.6/dist/purify.min.js",
             "sha384-+VfUPEb0PdtChMwmBcBmykRMDd+v6D/oFmB3rZM/puCMDYcIvF968OimRh4KQY9a",
         ),
+        (
+            "https://unpkg.com/katex@0.16.11/dist/katex.min.css",
+            "sha384-nB0miv6/jRmo5UMMR1wu3Gz6NLsoTkbqJghGIsx//Rlm+ZU03BU6SQNC66uf4l5+",
+        ),
+        (
+            "https://unpkg.com/katex@0.16.11/dist/katex.min.js",
+            "sha384-7zkQWkzuo3B5mTepMUcHkMB5jZaolc2xDwL6VFqjFALcbeS9Ggm/Yr2r3Dy4lfFg",
+        ),
+        (
+            "https://unpkg.com/katex@0.16.11/dist/contrib/auto-render.min.js",
+            "sha384-43gviWU0YVjaDtb/GhzOouOXtZMP/7XUzwPTstBeZFe/+rCMvRwr4yROQP43s0Xk",
+        ),
     )
     shared = shared_html({"title": "x"})
     for url, integrity in expected:

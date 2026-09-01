@@ -321,9 +321,12 @@ GRAPH_HTML = """<!doctype html>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&family=Noto+Serif+KR:wght@400;700&display=swap"/>
+<link rel="stylesheet" href="https://unpkg.com/katex@0.16.11/dist/katex.min.css" integrity="sha384-nB0miv6/jRmo5UMMR1wu3Gz6NLsoTkbqJghGIsx//Rlm+ZU03BU6SQNC66uf4l5+" crossorigin="anonymous"/>
 <script src="https://unpkg.com/vis-network@9.1.11/standalone/umd/vis-network.min.js" integrity="sha384-60H6/hL99pRYjWacRdebxM1T2R6jvWyd9GVAb7d4fp9BSfv4f0i5sWjkprnnG0cz" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/marked@4.3.0/marked.min.js" integrity="sha384-QsSpx6a0USazT7nK7w8qXDgpSAPhFsb2XtpoLFQ5+X2yFN6hvCKnwEzN8M5FWaJb" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/dompurify@3.1.6/dist/purify.min.js" integrity="sha384-+VfUPEb0PdtChMwmBcBmykRMDd+v6D/oFmB3rZM/puCMDYcIvF968OimRh4KQY9a" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/katex@0.16.11/dist/katex.min.js" integrity="sha384-7zkQWkzuo3B5mTepMUcHkMB5jZaolc2xDwL6VFqjFALcbeS9Ggm/Yr2r3Dy4lfFg" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/katex@0.16.11/dist/contrib/auto-render.min.js" integrity="sha384-43gviWU0YVjaDtb/GhzOouOXtZMP/7XUzwPTstBeZFe/+rCMvRwr4yROQP43s0Xk" crossorigin="anonymous"></script>
 <script>
   // 깜빡임 방지: 페인트 전에 저장된 테마를 documentElement 에 적용. 기본값=light(사용자 요구).
   (function(){ try{ var t=localStorage.getItem('claireTheme')||'light';
@@ -1397,6 +1400,10 @@ function toggleTheme(){ const next = curTheme()==='dark'?'light':'dark';
 }
 
 // 마크다운/AsciiDoc → 안전한 HTML. DOMPurify 로 스크랩 본문 유래 위험 태그 제거.
+const DOMPURIFY_OPTS = {
+  ADD_ATTR: ['target', 'aria-hidden', 'data-math', 'style', 'xmlns', 'display', 'class'],
+  ADD_TAGS: ['mark', 'math', 'semantics', 'mrow', 'mi', 'mo', 'mn', 'msup', 'msub', 'msubsup', 'mfrac', 'munder', 'mover', 'munderover', 'mtable', 'mtr', 'mtd', 'mtext', 'mspace', 'mpadded', 'mphantom', 'annotation', 'span']
+};
 function renderMarkdown(src){
   if(!src) return '';
   const raw=String(src);
@@ -1407,7 +1414,7 @@ function renderMarkdown(src){
   try{
     const s=raw.replace(/==([^=]+?)==/g,'<mark>$1</mark>');
     const html=typeof parser.parse==='function'?parser.parse(s):parser(s);
-    return purifier.sanitize(html,{ADD_ATTR:['target'],ADD_TAGS:['mark']});
+    return purifier.sanitize(html, DOMPURIFY_OPTS);
   }catch(e){ return fallback(); }
 }
 
@@ -1614,6 +1621,18 @@ function inlineAdocFormat(text){
   var mathSpans=[];
   s=s.replace(/(stem|latexmath|asciimath):\\\\[(.*?)\\\\]/gi, function(_, kind, content){
     mathSpans.push('<span class=\"math inline\" data-math=\"'+kind.toLowerCase()+'\"><code>'+content+'</code></span>');
+    return '\\x00ADOCMATH'+(mathSpans.length-1)+'\\x00';
+  });
+  s=s.replace(/\\\\\\((.*?)\\\\\\)/g, function(_, content){
+    mathSpans.push('<span class=\"math inline\" data-math=\"latex\"><code>'+content+'</code></span>');
+    return '\\x00ADOCMATH'+(mathSpans.length-1)+'\\x00';
+  });
+  s=s.replace(/\\$\\$([^\\$]+?)\\$\\$/g, function(_, content){
+    mathSpans.push('<span class=\"math inline\" data-math=\"latex\"><code>'+content+'</code></span>');
+    return '\\x00ADOCMATH'+(mathSpans.length-1)+'\\x00';
+  });
+  s=s.replace(/(?<![\\w\\\\\\$])\\$([^\\$\\n]+?)\\$(?![\\w\\$])/g, function(_, content){
+    mathSpans.push('<span class=\"math inline\" data-math=\"latex\"><code>'+content+'</code></span>');
     return '\\x00ADOCMATH'+(mathSpans.length-1)+'\\x00';
   });
   var codeSpans=[];
@@ -2062,11 +2081,59 @@ function renderAsciidoc(src){
   try{
     const html = convertAsciidocToHtml(raw);
     if(purifier && typeof purifier.sanitize==='function'){
-      return purifier.sanitize(html,{ADD_ATTR:['target'],ADD_TAGS:['mark']});
+      return purifier.sanitize(html, DOMPURIFY_OPTS);
     }
     return html;
   }catch(_){
     return renderMarkdown(raw);
+  }
+}
+
+function applyMathRendering(container){
+  if(!container) return;
+  if(typeof renderMathInElement === 'function'){
+    try{
+      renderMathInElement(container, {
+        delimiters: [
+          {left: '$$', right: '$$', display: true},
+          {left: '$', right: '$', display: false},
+          {left: '\\(', right: '\\)', display: false},
+          {left: '\\[', right: '\\]', display: true}
+        ],
+        ignoredTags: ['script', 'noscript', 'style', 'textarea', 'pre', 'code', 'option'],
+        throwOnError: false
+      });
+    }catch(_){}
+  }
+  if(typeof katex !== 'undefined'){
+    try{
+      container.querySelectorAll('.mathblock').forEach(function(mb){
+        var codeEl = mb.querySelector('pre.math code, pre.math');
+        if(codeEl && !mb.getAttribute('data-katex-rendered')){
+          var text = (codeEl.textContent || '').trim();
+          if(text){
+            try{
+              mb.innerHTML = '';
+              katex.render(text, mb, { displayMode: true, throwOnError: false });
+              mb.setAttribute('data-katex-rendered', 'true');
+            }catch(_){}
+          }
+        }
+      });
+      container.querySelectorAll('.math.inline').forEach(function(mi){
+        var codeEl = mi.querySelector('code') || mi;
+        if(codeEl && !mi.getAttribute('data-katex-rendered')){
+          var text = (codeEl.textContent || '').trim();
+          if(text){
+            try{
+              var span = document.createElement('span');
+              katex.render(text, span, { displayMode: false, throwOnError: false });
+              mi.parentNode.replaceChild(span, mi);
+            }catch(_){}
+          }
+        }
+      });
+    }catch(_){}
   }
 }
 
@@ -2319,13 +2386,14 @@ function renderReader(dc){
   if(dc.summary) h+='<div class=rsection>요약</div><div class="md">'+renderContent(dc.summary, dc.detail_format)+'</div>';
   if(dc.detail_html){
     const purifier=window.DOMPurify;
-    const cleanHtml=(purifier && typeof purifier.sanitize==='function')?purifier.sanitize(dc.detail_html,{ADD_ATTR:['target'],ADD_TAGS:['mark']}):dc.detail_html;
+    const cleanHtml=(purifier && typeof purifier.sanitize==='function')?purifier.sanitize(dc.detail_html, DOMPURIFY_OPTS):dc.detail_html;
     h+='<div class=rsection>자세히 읽기</div><div class="md">'+cleanHtml+'</div>';
   }else if(dc.detail){
     h+='<div class=rsection>자세히 읽기</div><div class="md">'+renderContent(dc.detail, dc.detail_format)+'</div>';
   }
   if(!dc.summary && !dc.detail && !dc.detail_html) h+='<p class=hint>이 문서의 요약/전문이 아직 없습니다.</p>';
   const body=document.getElementById('rbody'); body.innerHTML=h; body.scrollTop=0;
+  applyMathRendering(body);
   document.getElementById('reader').setAttribute('aria-busy','false');
   if(typeof window.gtag === 'function' && dc && dc.id){
     try{
@@ -4519,8 +4587,11 @@ _SHARED_HTML = """<!doctype html>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&family=Noto+Serif+KR:wght@400;700&display=swap"/>
+<link rel="stylesheet" href="https://unpkg.com/katex@0.16.11/dist/katex.min.css" integrity="sha384-nB0miv6/jRmo5UMMR1wu3Gz6NLsoTkbqJghGIsx//Rlm+ZU03BU6SQNC66uf4l5+" crossorigin="anonymous"/>
 <script src="https://unpkg.com/marked@4.3.0/marked.min.js" integrity="sha384-QsSpx6a0USazT7nK7w8qXDgpSAPhFsb2XtpoLFQ5+X2yFN6hvCKnwEzN8M5FWaJb" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/dompurify@3.1.6/dist/purify.min.js" integrity="sha384-+VfUPEb0PdtChMwmBcBmykRMDd+v6D/oFmB3rZM/puCMDYcIvF968OimRh4KQY9a" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/katex@0.16.11/dist/katex.min.js" integrity="sha384-7zkQWkzuo3B5mTepMUcHkMB5jZaolc2xDwL6VFqjFALcbeS9Ggm/Yr2r3Dy4lfFg" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/katex@0.16.11/dist/contrib/auto-render.min.js" integrity="sha384-43gviWU0YVjaDtb/GhzOouOXtZMP/7XUzwPTstBeZFe/+rCMvRwr4yROQP43s0Xk" crossorigin="anonymous"></script>
 <style>
   /* --- CJK (한국어) Web Fonts (docs.asciidoctor.org) --- */
   @font-face{
@@ -4633,6 +4704,10 @@ _SHARED_HTML = """<!doctype html>
 <script id="docdata" type="application/json">__DATA__</script>
 <script>
 function esc(s){return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+const DOMPURIFY_OPTS = {
+  ADD_ATTR: ['target', 'aria-hidden', 'data-math', 'style', 'xmlns', 'display', 'class'],
+  ADD_TAGS: ['mark', 'math', 'semantics', 'mrow', 'mi', 'mo', 'mn', 'msup', 'msub', 'msubsup', 'mfrac', 'munder', 'mover', 'munderover', 'mtable', 'mtr', 'mtd', 'mtext', 'mspace', 'mpadded', 'mphantom', 'annotation', 'span']
+};
 function renderMarkdown(src){
   if(!src) return '';
   const raw=String(src);
@@ -4643,7 +4718,7 @@ function renderMarkdown(src){
   try{
     const s=raw.replace(/==([^=]+?)==/g,'<mark>$1</mark>');
     const html=typeof parser.parse==='function'?parser.parse(s):parser(s);
-    return purifier.sanitize(html,{ADD_ATTR:['target'],ADD_TAGS:['mark']});
+    return purifier.sanitize(html, DOMPURIFY_OPTS);
   }catch(e){ return fallback(); }
 }
 function splitTableCells(line){
@@ -4849,6 +4924,18 @@ function inlineAdocFormat(text){
   var mathSpans=[];
   s=s.replace(/(stem|latexmath|asciimath):\\\\[(.*?)\\\\]/gi, function(_, kind, content){
     mathSpans.push('<span class=\"math inline\" data-math=\"'+kind.toLowerCase()+'\"><code>'+content+'</code></span>');
+    return '\\x00ADOCMATH'+(mathSpans.length-1)+'\\x00';
+  });
+  s=s.replace(/\\\\\\((.*?)\\\\\\)/g, function(_, content){
+    mathSpans.push('<span class=\"math inline\" data-math=\"latex\"><code>'+content+'</code></span>');
+    return '\\x00ADOCMATH'+(mathSpans.length-1)+'\\x00';
+  });
+  s=s.replace(/\\$\\$([^\\$]+?)\\$\\$/g, function(_, content){
+    mathSpans.push('<span class=\"math inline\" data-math=\"latex\"><code>'+content+'</code></span>');
+    return '\\x00ADOCMATH'+(mathSpans.length-1)+'\\x00';
+  });
+  s=s.replace(/(?<![\\w\\\\\\$])\\$([^\\$\\n]+?)\\$(?![\\w\\$])/g, function(_, content){
+    mathSpans.push('<span class=\"math inline\" data-math=\"latex\"><code>'+content+'</code></span>');
     return '\\x00ADOCMATH'+(mathSpans.length-1)+'\\x00';
   });
   var codeSpans=[];
@@ -5297,11 +5384,59 @@ function renderAsciidoc(src){
   try{
     const html = convertAsciidocToHtml(raw);
     if(purifier && typeof purifier.sanitize==='function'){
-      return purifier.sanitize(html,{ADD_ATTR:['target'],ADD_TAGS:['mark']});
+      return purifier.sanitize(html, DOMPURIFY_OPTS);
     }
     return html;
   }catch(_){
     return renderMarkdown(raw);
+  }
+}
+
+function applyMathRendering(container){
+  if(!container) return;
+  if(typeof renderMathInElement === 'function'){
+    try{
+      renderMathInElement(container, {
+        delimiters: [
+          {left: '$$', right: '$$', display: true},
+          {left: '$', right: '$', display: false},
+          {left: '\\(', right: '\\)', display: false},
+          {left: '\\[', right: '\\]', display: true}
+        ],
+        ignoredTags: ['script', 'noscript', 'style', 'textarea', 'pre', 'code', 'option'],
+        throwOnError: false
+      });
+    }catch(_){}
+  }
+  if(typeof katex !== 'undefined'){
+    try{
+      container.querySelectorAll('.mathblock').forEach(function(mb){
+        var codeEl = mb.querySelector('pre.math code, pre.math');
+        if(codeEl && !mb.getAttribute('data-katex-rendered')){
+          var text = (codeEl.textContent || '').trim();
+          if(text){
+            try{
+              mb.innerHTML = '';
+              katex.render(text, mb, { displayMode: true, throwOnError: false });
+              mb.setAttribute('data-katex-rendered', 'true');
+            }catch(_){}
+          }
+        }
+      });
+      container.querySelectorAll('.math.inline').forEach(function(mi){
+        var codeEl = mi.querySelector('code') || mi;
+        if(codeEl && !mi.getAttribute('data-katex-rendered')){
+          var text = (codeEl.textContent || '').trim();
+          if(text){
+            try{
+              var span = document.createElement('span');
+              katex.render(text, span, { displayMode: false, throwOnError: false });
+              mi.parentNode.replaceChild(span, mi);
+            }catch(_){}
+          }
+        }
+      });
+    }catch(_){}
   }
 }
 function isAsciidoc(src, format){
@@ -5336,7 +5471,7 @@ if((dc.extra_sources||[]).length){
 if(dc.summary){ h+='<div class=sec>요약</div><div class="md">'+renderContent(dc.summary, dc.detail_format)+'</div>'; }
 if(dc.detail_html){
   const purifier=window.DOMPurify;
-  const cleanHtml=(purifier && typeof purifier.sanitize==='function')?purifier.sanitize(dc.detail_html,{ADD_ATTR:['target'],ADD_TAGS:['mark']}):dc.detail_html;
+  const cleanHtml=(purifier && typeof purifier.sanitize==='function')?purifier.sanitize(dc.detail_html, DOMPURIFY_OPTS):dc.detail_html;
   h+='<div class=sec>자세히 읽기</div><div class="md">'+cleanHtml+'</div>';
 }else if(dc.detail){
   h+='<div class=sec>자세히 읽기</div><div class="md">'+renderContent(dc.detail, dc.detail_format)+'</div>';
@@ -5344,6 +5479,7 @@ if(dc.detail_html){
 if(!dc.summary && !dc.detail && !dc.detail_html){ h+='<p class=meta>이 문서의 요약/전문이 아직 없습니다.</p>'; }
 h+='<div class=foot>이 링크는 이 문서 하나만 읽기 전용으로 공유합니다.</div>';
 document.getElementById('wrap').innerHTML=h;
+applyMathRendering(document.getElementById('wrap'));
 if(typeof window.gtag === 'function' && dc && dc.id){
   try{
     window.gtag('event', 'select_content', {
