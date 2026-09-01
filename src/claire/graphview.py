@@ -1993,6 +1993,13 @@ function convertAsciidocToHtml(raw){
         out.push('<div class=\"colist\"><span class=\"conum\">&lt;'+colMatch[1]+'&gt;</span> '+inlineAdocFormat(colMatch[2])+'</div>');
         continue;
       }
+      if(/^'{3,}$/.test(trimmed)){
+        flushNormalP(); flushContinuation(); flushPendingSingleBlock(); flushList();
+        var anchorAttr=pendingAnchor ? ' id=\"'+esc(pendingAnchor)+'\"' : '';
+        pendingAnchor=null;
+        out.push('<hr' + anchorAttr + '>');
+        continue;
+      }
       var h1Match=trimmed.match(/^=\\s+(.+)$/);
       if(h1Match){ flushNormalP(); flushContinuation(); flushPendingSingleBlock(); flushList(); var hInfo=extractHeadingAnchor(h1Match[1]); var idAttr=hInfo.anchor?' id=\"'+esc(hInfo.anchor)+'\"':''; out.push('<h1'+idAttr+'>'+inlineAdocFormat(hInfo.text)+'</h1>'); continue; }
       var h2Match=trimmed.match(/^==\\s+(.+)$/);
@@ -5294,6 +5301,13 @@ function convertAsciidocToHtml(raw){
       if(colMatch){
         flushNormalP(); flushContinuation(); flushPendingSingleBlock(); flushList();
         out.push('<div class=\"colist\"><span class=\"conum\">&lt;'+colMatch[1]+'&gt;</span> '+inlineAdocFormat(colMatch[2])+'</div>');
+        continue;
+      }
+      if(/^'{3,}$/.test(trimmed)){
+        flushNormalP(); flushContinuation(); flushPendingSingleBlock(); flushList();
+        var anchorAttr=pendingAnchor ? ' id=\"'+esc(pendingAnchor)+'\"' : '';
+        pendingAnchor=null;
+        out.push('<hr' + anchorAttr + '>');
         continue;
       }
       var h1Match=trimmed.match(/^=\\s+(.+)$/);

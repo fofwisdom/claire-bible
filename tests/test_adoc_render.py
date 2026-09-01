@@ -45,6 +45,8 @@ def test_aot_render_adoc():
 *굵은 글씨* 및 _기울임_ 및 #형광 하이라이트# 및 `인라인 코드`
 https://example.com[링크 텍스트]
 
+'''
+
 [quote, 댄 앨런, 안토라 리드]
 ____
 AOT 사전 렌더링으로 브라우저 eval을 완전히 제거합니다.
@@ -76,6 +78,7 @@ image::https://example.com/diagram.png[구조도, title="AOT 파이프라인"]
     assert "<mark>형광 하이라이트</mark>" in html_out
     assert "<code>인라인 코드</code>" in html_out
     assert '<a href="https://example.com" target="_blank" rel="noopener">링크 텍스트</a>' in html_out
+    assert "<hr>" in html_out
     assert '<div class="quoteblock"><blockquote><p>AOT 사전 렌더링으로 브라우저 eval을 완전히 제거합니다.</p></blockquote><div class="attribution">댄 앨런 — 안토라 리드</div></div>' in html_out
     assert '<div class="admonitionblock note"><div class="title">NOTE</div><div class="content"><p>중요한 노트 알림 상자입니다.</p></div></div>' in html_out
     assert '<pre><code class=" language-python">' in html_out or '<pre><code class="language-python">' in html_out
@@ -83,6 +86,31 @@ image::https://example.com/diagram.png[구조도, title="AOT 파이프라인"]
     assert '<div class="colist"><span class="conum">&lt;1&gt;</span> 인사말 반환 함수</div>' in html_out
     assert "<table><thead><tr><th>기능</th><th>AOT</th><th>JIT</th></tr></thead>" in html_out
     assert '<div class="imageblock"><img src="https://example.com/diagram.png" alt="구조도"><div class="title">AOT 파이프라인</div></div>' in html_out
+
+
+def test_adoc_thematic_break_strict_standards():
+    """AsciiDoc 표준 수평선(''')은 <hr>로 변환되고 Markdown 수평선(---)은 변환되지 않음을 검증."""
+    # AsciiDoc 표준: ''' -> <hr>
+    adoc_with_standard_hr = "단락 1\n\n'''\n\n단락 2"
+    html_std = render_adoc_to_html(adoc_with_standard_hr)
+    assert "<hr>" in html_std
+    assert "<p>단락 1</p>" in html_std
+    assert "<p>단락 2</p>" in html_std
+
+    # Markdown 비표준: --- -> <hr>가 되지 않고 <p>---</p>로 격리됨 (혼용 렌더링 방지)
+    adoc_with_md_hr = "단락 1\n\n---\n\n단락 2"
+    html_md = render_adoc_to_html(adoc_with_md_hr)
+    assert "<hr>" not in html_md
+    assert "<p>---</p>" in html_md
+
+
+def test_prompts_strict_adoc_purity():
+    """render_detail_prompt_adoc 에 Markdown 혼용 절대 금지 및 ''' 표준 규칙이 명시되어 있는지 검증."""
+    body = "샘플 본문"
+    prompt = render_detail_prompt(body, [], merged=False, format="adoc")
+    assert "Markdown 혼용 절대 금지" in prompt
+    assert "'''" in prompt
+    assert "---" in prompt  # '---'는 절대 사용 금지 명시 포함
 
 
 def test_aot_render_md():

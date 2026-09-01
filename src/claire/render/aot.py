@@ -829,6 +829,17 @@ def render_adoc_to_html(raw: str) -> str:
                 out.append(f'<div class="colist"><span class="conum">&lt;{conum}&gt;</span> {text}</div>')
                 continue
 
+            # 6-1. Thematic Break / 수평선: AsciiDoc 표준 (''')
+            if re.match(r"^'{3,}$", trimmed):
+                flush_normal_p()
+                flush_continuation()
+                flush_pending_single_block()
+                flush_list()
+                anchor_attr = f' id="{html.escape(pending_anchor)}"' if pending_anchor else ""
+                pending_anchor = None
+                out.append(f"<hr{anchor_attr}>")
+                continue
+
             # 7. 섹션 헤더 (=, ==, ===, ====) 및 문서 속성
             h1_m = re.match(r"^=\s+(.+)$", trimmed)
             if h1_m:

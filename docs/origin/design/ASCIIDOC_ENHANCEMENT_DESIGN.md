@@ -169,6 +169,10 @@ flowchart TD
 
 ## 5. 결론 및 실행 현황
 
-1. **1단계 (Phase 1, ✅ 구현 및 검증 완료)**: `stem:[...]` 수식 렌더링 및 `<<anchor>>`, `xref:anchor[]`, `[#anchor]` 상호 참조 지원을 [`render/aot.py`](../../src/claire/render/aot.py), [`graphview.py`](../../src/claire/graphview.py), [`extract/prompts.py`](../../src/claire/extract/prompts.py)에 반영 완료 (`tests/test_adoc_render.py` 단위 테스트 검증 완료).
-2. **2단계 (Phase 2, 차기 예정)**: 다중 노드 종합(Synthesis) 고도화 시점에 `include::doc_id` 트랜스클루전 및 문서 속성(`:key: val`) 메타 바 구축, CSV 테이블(`[%header,format=csv]|===`) 지원.
-3. **3단계 (Phase 3, 장기 예정)**: Asciidoctor PDF/EPUB 툴체인을 결합한 지식 아카이브 전자책 내보내기 기능 구현.
+1. **1단계 (Phase 1, ✅ 구현 및 검증 완료)**: `stem:[...]` 수식 렌더링, `<<anchor>>`, `xref:anchor[]`, `[#anchor]` 상호 참조 지원, 및 AsciiDoc 표준 수평선(`'''`) 파싱을 [`render/aot.py`](../../src/claire/render/aot.py), [`graphview.py`](../../src/claire/graphview.py), [`extract/prompts.py`](../../src/claire/extract/prompts.py)에 반영 완료 (`tests/test_adoc_render.py` 단위 테스트 검증 완료).
+2. **단일 포맷 순수성 및 비표준 혼용 거부 원칙 (Strict Format Purity & Refusal Policy)**:
+   - AsciiDoc 모드(`CLAIRE_RENDER_FORMAT=adoc`)에서는 순수 AsciiDoc 표준 문법만을 엄격히 준수하며, Markdown 문법(`---`, `###`, `[text](url)` 등)의 혼용을 원천 차단.
+   - 구분선(Thematic Break)은 오직 AsciiDoc 표준 `'''`만을 `<hr>`로 렌더링.
+   - 향후 비표준 혼용 렌더링 허용 요청(Ad-hoc patch)은 설계 원칙에 따라 단호히 거부(Refuse)하고 프롬프트/문서 표준을 교정함([DUAL_FORMAT_ADOC_DESIGN.md Section 6](DUAL_FORMAT_ADOC_DESIGN.md#6-단일-포맷-순수성-및-비표준-혼용-거부-정책-strict-format-purity--refusal-policy) 참조).
+3. **2단계 (Phase 2, 차기 예정)**: 다중 노드 종합(Synthesis) 고도화 시점에 `include::doc_id` 트랜스클루전 및 문서 속성(`:key: val`) 메타 바 구축, CSV 테이블(`[%header,format=csv]|===`) 지원.
+4. **3단계 (Phase 3, 장기 예정)**: Asciidoctor PDF/EPUB 툴체인을 결합한 지식 아카이브 전자책 내보내기 기능 구현.
