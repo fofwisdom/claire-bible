@@ -23,6 +23,7 @@ docs/
     ├── README.md           # 오리진 문서 분류 규칙 및 작성 가이드
     ├── FAVICON.md          # 파비콘 3D 기하학 그래픽 디자인 명세
     ├── design/             # [설계 내역] 오리진 자체 신규/개정 아키텍처 및 시스템 설계
+    │   ├── ASCIIDOC_ENHANCEMENT_DESIGN.md    # AsciiDoc 기능 고도화 및 확장 설계 명세서
     │   ├── DATA_LIFECYCLE_AND_PURGE_DESIGN.md # 데이터 수명주기 및 정리(Purge) 설계
     │   ├── DUAL_FORMAT_ADOC_DESIGN.md        # AsciiDoc 및 듀얼 포맷 본문 파이프라인 설계
     │   ├── EXPAND_FILTERING_DESIGN.md        # 1홉 확장의 깊이 및 연관성 필터링 설계
