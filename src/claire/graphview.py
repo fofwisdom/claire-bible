@@ -174,6 +174,7 @@ def document_detail(conn: sqlite3.Connection, document_id: str, include_hidden: 
         "fetched_at": row["fetched_at"],
         "nodes": nodes,
         "raw_truncated": bool(meta_dict.get("raw_truncated", False)),
+        "appendix_truncated": bool(meta_dict.get("appendix_truncated", False)),
         "orig_chars": meta_dict.get("orig_chars"),
         "raw_chars": meta_dict.get("raw_chars"),
         "directive": meta_dict.get("directive"),
@@ -664,6 +665,7 @@ GRAPH_HTML = """<!doctype html>
   #panel .docmeta, #reader .docmeta, #rbody .docmeta, .docmeta{color:var(--muted);font-size:12px;margin:.1em 0 .6em;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px}
   .docmeta .docmeta-tags{display:inline-flex;align-items:center;gap:6px;margin-left:auto;flex-wrap:wrap}
   .docmeta .trunc-tag{display:inline-flex;align-items:center;gap:4px;color:#d29922;background:rgba(210,153,34,0.12);border:1px solid rgba(210,153,34,0.3);border-radius:10px;padding:1px 7px;font-size:11px;cursor:help;white-space:nowrap;line-height:1.4}
+  .docmeta .trunc-tag.trunc-appendix, .docmeta .trunc-tag-appendix{color:#3fb950;background:rgba(63,185,80,0.12);border:1px solid rgba(63,185,80,0.3)}
   .docmeta .directive-tag{display:inline-flex;align-items:center;gap:4px;color:var(--accent2,#58a6ff);background:rgba(88,166,255,0.12);border:1px solid rgba(88,166,255,0.3);border-radius:10px;padding:1px 7px;font-size:11px;cursor:help;white-space:nowrap;line-height:1.4}
   #panel .readbtn{background:var(--accent);color:#fff;border:0;border-radius:4px;padding:3px 10px;font-size:12.5px;cursor:pointer;margin:.2em 0}
   #panel .dochide-row{margin:.6em 0 .4em}
@@ -2342,6 +2344,7 @@ function docMetaHtml(dc){
   if(!dc) return '';
   const hasUrl = !!dc.url;
   const isTrunc = !!(dc.raw_truncated || (dc.meta && dc.meta.raw_truncated));
+  const isAppTrunc = isTrunc && !!(dc.appendix_truncated || (dc.meta && dc.meta.appendix_truncated));
   const directive = (dc.directive || (dc.meta && dc.meta.directive) || '').trim();
   if(!hasUrl && !isTrunc && !directive) return '';
   let h='<p class=docmeta>';
@@ -2358,7 +2361,9 @@ function docMetaHtml(dc){
   if(isTrunc){
     const orig=(dc.orig_chars || (dc.meta && dc.meta.orig_chars)) || 0;
     const raw=(dc.raw_chars || (dc.meta && dc.meta.raw_chars)) || 0;
-    let tip='원문이 글자 수 상한으로 인해 일부 절단되어 적재되었습니다.';
+    let tip = isAppTrunc
+      ? '원문의 부록(Appendix) 부분이 절단되어 적재되었습니다.'
+      : '원문이 글자 수 상한으로 인해 일부 절단되어 적재되었습니다.';
     let label='✂️ 원문 일부 절단';
     if(orig > 0 && raw > 0){
       tip+=' (원문: '+orig.toLocaleString()+'자 → 적재: '+raw.toLocaleString()+'자)';
@@ -2366,7 +2371,8 @@ function docMetaHtml(dc){
     } else if(raw > 0){
       label+=' ('+raw.toLocaleString()+'자)';
     }
-    tags.push('<span class="trunc-tag" title="'+esc(tip)+'">'+esc(label)+'</span>');
+    const tagClass = isAppTrunc ? 'trunc-tag trunc-appendix' : 'trunc-tag';
+    tags.push('<span class="'+tagClass+'" title="'+esc(tip)+'">'+esc(label)+'</span>');
   }
   if(tags.length){
     h+='<span class="docmeta-tags">'+tags.join(' ')+'</span>';
@@ -5476,7 +5482,7 @@ h+='<h1>'+esc(dc.title||'(제목 없음)')+'</h1>';
 h+='<div class=meta>'+(dc.source_type?esc(dc.source_type):'')+
   (dc.url?' · <a href="'+esc(dc.url)+'" target=_blank rel=noopener>↗ 원문 열기</a>':'')+
   ((dc.directive||(dc.meta&&dc.meta.directive))?' · <span style="color:var(--accent2,#58a6ff)" title="적재 시 지정된 초점: '+esc(dc.directive||dc.meta.directive)+'">🎯 초점: '+esc((dc.directive||dc.meta.directive).length>30?(dc.directive||dc.meta.directive).slice(0,30)+'…':(dc.directive||dc.meta.directive))+'</span>':'')+
-  ((dc.raw_truncated||(dc.meta&&dc.meta.raw_truncated))?' · <span style="color:#d29922" title="원문이 글자 수 상한으로 인해 일부 절단되어 적재되었습니다.'+(((dc.orig_chars||(dc.meta&&dc.meta.orig_chars))&&(dc.raw_chars||(dc.meta&&dc.meta.raw_chars)))?' (원문: '+(dc.orig_chars||dc.meta.orig_chars).toLocaleString()+'자 → 적재: '+(dc.raw_chars||dc.meta.raw_chars).toLocaleString()+'자)':'')+'">✂️ 원문 일부 절단'+(((dc.raw_chars||(dc.meta&&dc.meta.raw_chars))&&(dc.orig_chars||(dc.meta&&dc.meta.orig_chars)))?' ('+(dc.raw_chars||dc.meta.raw_chars).toLocaleString()+' / '+(dc.orig_chars||dc.meta.orig_chars).toLocaleString()+'자)':((dc.raw_chars||(dc.meta&&dc.meta.raw_chars))?' ('+(dc.raw_chars||dc.meta.raw_chars).toLocaleString()+'자)':''))+'</span>':'')+'</div>';
+  ((dc.raw_truncated||(dc.meta&&dc.meta.raw_truncated))?' · <span style="color:'+((dc.appendix_truncated||(dc.meta&&dc.meta.appendix_truncated))?'#3fb950':'#d29922')+'" title="'+((dc.appendix_truncated||(dc.meta&&dc.meta.appendix_truncated))?'원문의 부록(Appendix) 부분이 절단되어 적재되었습니다.':'원문이 글자 수 상한으로 인해 일부 절단되어 적재되었습니다.')+(((dc.orig_chars||(dc.meta&&dc.meta.orig_chars))&&(dc.raw_chars||(dc.meta&&dc.meta.raw_chars)))?' (원문: '+(dc.orig_chars||dc.meta.orig_chars).toLocaleString()+'자 → 적재: '+(dc.raw_chars||dc.meta.raw_chars).toLocaleString()+'자)':'')+'">✂️ 원문 일부 절단'+(((dc.raw_chars||(dc.meta&&dc.meta.raw_chars))&&(dc.orig_chars||(dc.meta&&dc.meta.orig_chars)))?' ('+(dc.raw_chars||dc.meta.raw_chars).toLocaleString()+' / '+(dc.orig_chars||dc.meta.orig_chars).toLocaleString()+'자)':((dc.raw_chars||(dc.meta&&dc.meta.raw_chars))?' ('+(dc.raw_chars||dc.meta.raw_chars).toLocaleString()+'자)':''))+'</span>':'')+'</div>';
 if((dc.extra_sources||[]).length){
   h+='<div class=sec>병합된 출처 ('+dc.extra_sources.length+')</div><ul class=srclist>'+
     dc.extra_sources.map(s=>'<li><a href="'+esc(s.url||'')+'" target=_blank rel=noopener>'+

@@ -426,7 +426,10 @@ def build_app(settings: Settings | None = None) -> Any:
             trunc_info = ""
             if doc and (doc.meta or {}).get("raw_truncated"):
                 orig = (doc.meta or {}).get("orig_chars", raw_len)
-                trunc_info = f"\n⚠️ 원문이 환경변수 상한으로 절단됨 ({raw_len:,}자 / 원본 {orig:,}자)"
+                if (doc.meta or {}).get("appendix_truncated"):
+                    trunc_info = f"\n✂️ 부록(Appendix) 제외 정책으로 원문 일부 절단됨 ({raw_len:,}자 / 원본 {orig:,}자)"
+                else:
+                    trunc_info = f"\n⚠️ 원문이 환경변수 상한으로 절단됨 ({raw_len:,}자 / 원본 {orig:,}자)"
 
             kb = [
                 [InlineKeyboardButton("🔄 본문 재생성", callback_data=f"rg:det:{target_doc_id}")],
