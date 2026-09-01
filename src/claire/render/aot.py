@@ -18,7 +18,18 @@ def _inline_adoc_format(text: str) -> str:
     # HTML 특수문자 이스케이프 선행
     s = html.escape(text, quote=False)
 
-    # 1. 인라인 코드 보호 (코드 블록 내부의 *, _, # 등이 다른 서식으로 변환되는 것 방지)
+    # 1. 수식(Math) 보호: stem:[...], latexmath:[...], asciimath:[...]
+    math_spans: list[str] = []
+
+    def _save_math(m: re.Match) -> str:
+        kind = m.group(1).lower()
+        math_content = m.group(2)
+        math_spans.append(f'<span class="math inline" data-math="{kind}"><code>{math_content}</code></span>')
+        return f"\x00ADOCMATH{len(math_spans)-1}\x00"
+
+    s = re.sub(r"(stem|latexmath|asciimath):\[(.*?)\]", _save_math, s, flags=re.IGNORECASE)
+
+    # 2. 인라인 코드 보호 (코드 블록 내부의 *, _, # 등이 다른 서식으로 변환되는 것 방지)
     code_spans: list[str] = []
 
     def _save_code(m: re.Match) -> str:
@@ -28,7 +39,7 @@ def _inline_adoc_format(text: str) -> str:
     s = re.sub(r"`(?!\s)([^`\n]+?)(?<!\s)`", _save_code, s)
     s = re.sub(r"\+\+(?!\s)([^\+\n]+?)(?<!\s)\+\+", _save_code, s)
 
-    # 2. 명시적 링크 보호: https://url[텍스트] -> <a href="url" target="_blank" rel="noopener">{label}</a>
+    # 3. 명시적 링크 보호: https://url[텍스트] -> <a href="url" target="_blank" rel="noopener">{label}</a>
     link_spans: list[str] = []
 
     def _save_explicit_link(m: re.Match) -> str:
@@ -38,7 +49,7 @@ def _inline_adoc_format(text: str) -> str:
 
     s = re.sub(r"(https?://[^\s\[\]]+)\[(.*?)\]", _save_explicit_link, s)
 
-    # 3. 자동 URL 링크 (대괄호 없는 단독 URL)
+    # 4. 자동 URL 링크 (대괄호 없는 단독 URL)
     def _save_auto_link(m: re.Match) -> str:
         url = m.group(1)
         link_spans.append(f'<a href="{url}" target="_blank" rel="noopener">{url}</a>')
@@ -46,29 +57,46 @@ def _inline_adoc_format(text: str) -> str:
 
     s = re.sub(r'(?<!href=")(https?://[^\s<>"\'\)]+)', _save_auto_link, s)
 
-    # 4. 줄바꿈: ' +' (공백 + 플러스 기호가 라인 끝에 올 때) -> <br>
+    # 5. 상호 참조(Cross-references): <<anchor, label>>, <<anchor>>, xref:anchor[label]
+    def _save_xref(m: re.Match) -> str:
+        anchor = m.group(1).strip()
+        label = (m.group(2) if len(m.groups()) >= 2 and m.group(2) else anchor).strip()
+        link_spans.append(f'<a href="#{anchor}" class="xref">{label}</a>')
+        return f"\x00ADOCLINK{len(link_spans)-1}\x00"
+
+    s = re.sub(r"&lt;&lt;([a-zA-Z0-9_\-\.\:\/]+)(?:,\s*([^&]+?))?&gt;&gt;", _save_xref, s)
+    s = re.sub(r"xref:([a-zA-Z0-9_\-\.\:\/]+)\[(.*?)\]", _save_xref, s, flags=re.IGNORECASE)
+
+    # 6. 인라인 앵커: [[anchor-id]]
+    s = re.sub(r"\[\[([a-zA-Z0-9_\-\.\:\/]+)\]\]", r'<a id="\1" class="anchor"></a>', s)
+
+    # 7. 줄바꿈: ' +' (공백 + 플러스 기호가 라인 끝에 올 때) -> <br>
     s = re.sub(r"\s+\+\s*$", "<br>", s)
 
-    # 5. 형광 하이라이트: 단독 #텍스트# (2개 이상의 연속된 ### 마스킹/패턴 등 제외)
+    # 8. 형광 하이라이트: 단독 #텍스트# (2개 이상의 연속된 ### 마스킹/패턴 등 제외)
     s = re.sub(r"(?<!#)#(?![\s#])([^#\n]+?)(?<![\s#])#(?!#)", r"<mark>\1</mark>", s)
 
-    # 6. 굵은 글씨: **텍스트** 또는 단독 *텍스트* (2개 이상의 연속된 *** 제외)
+    # 9. 굵은 글씨: **텍스트** 또는 단독 *텍스트* (2개 이상의 연속된 *** 제외)
     s = re.sub(r"\*\*(?![\s\*])([^*\n]+?)(?<![\s\*])\*\*", r"<strong>\1</strong>", s)
     s = re.sub(r"(?<!\*)\*(?![\s\*])([^*\n]+?)(?<![\s\*])\*(?!\*)", r"<strong>\1</strong>", s)
 
-    # 7. 기울임꼴: __텍스트__ 또는 단독 _텍스트_ (2개 이상의 연속된 ___ 제외)
+    # 10. 기울임꼴: __텍스트__ 또는 단독 _텍스트_ (2개 이상의 연속된 ___ 제외)
     s = re.sub(r"__(?![\s_])([^_\n]+?)(?<![\s_])__", r"<em>\1</em>", s)
     s = re.sub(r"(?<!_)_(?![\s_])([^_\n]+?)(?<![\s_])_(?!_)", r"<em>\1</em>", s)
 
-    # 8. 첨자: ^위첨자^, ~아래첨자~
+    # 11. 첨자: ^위첨자^, ~아래첨자~
     s = re.sub(r"\^(?![\s\^])([^\^\n]+?)(?<![\s\^])\^", r"<sup>\1</sup>", s)
     s = re.sub(r"~(?![\s~])([^~\n]+?)(?<![\s~])~", r"<sub>\1</sub>", s)
 
-    # 9. 보호된 링크 및 인라인 코드 복원
+    # 12. 보호된 링크, 인라인 코드, 수식 복원
     for i, span in enumerate(link_spans):
         s = s.replace(f"\x00ADOCLINK{i}\x00", span)
     for i, span in enumerate(code_spans):
         s = s.replace(f"\x00ADOCCODE{i}\x00", span)
+    for i, span in enumerate(math_spans):
+        s = s.replace(f"\x00ADOCMATH{i}\x00", span)
+
+    return s
 
     return s
 
@@ -290,14 +318,15 @@ def _parse_adoc_table_rows(
 
 
 def _render_table_html(
-    table_lines: list[str], block_meta: dict[str, str]
+    table_lines: list[str], block_meta: dict[str, str], anchor_id: str | None = None
 ) -> str:
     explicit_cols = _parse_cols_attr(block_meta.get("cols", ""))
     rows = _parse_adoc_table_rows(table_lines, explicit_cols=explicit_cols)
     if not rows:
         return ""
 
-    t_html = ["<table>"]
+    id_attr = f' id="{html.escape(anchor_id)}"' if anchor_id else ""
+    t_html = [f"<table{id_attr}>"]
     title = block_meta.get("title")
     if title:
         t_html.append(f"<caption>{html.escape(title)}</caption>")
@@ -446,15 +475,19 @@ def render_adoc_to_html(raw: str) -> str:
     block_lines: list[str] = []
 
     list_ctx = _ListContext()
+    pending_anchor: str | None = None
 
     def flush_list() -> None:
         if list_ctx.is_active():
             out.extend(list_ctx.close_all())
 
     def flush_block() -> None:
-        nonlocal in_block, block_meta, block_lines
+        nonlocal in_block, block_meta, block_lines, pending_anchor
         if not in_block:
             return
+
+        anchor_attr = f' id="{html.escape(pending_anchor)}"' if pending_anchor else ""
+        pending_anchor = None
 
         if in_block == "quote":
             q_paragraphs = []
@@ -476,7 +509,7 @@ def render_adoc_to_html(raw: str) -> str:
                 source = html.escape(block_meta.get("source", ""))
                 attr_text = author + (f" — {source}" if source else "")
                 attr = f'<div class="attribution">{attr_text}</div>'
-            out.append(f'<div class="quoteblock"><blockquote>{q_content}</blockquote>{attr}</div>')
+            out.append(f'<div class="quoteblock"{anchor_attr}><blockquote>{q_content}</blockquote>{attr}</div>')
 
         elif in_block == "admonition":
             adm_paragraphs = []
@@ -495,7 +528,7 @@ def render_adoc_to_html(raw: str) -> str:
             adm_type = (block_meta.get("type") or "NOTE").lower()
             title = html.escape(block_meta.get("type") or "NOTE")
             out.append(
-                f'<div class="admonitionblock {adm_type}">'
+                f'<div class="admonitionblock {adm_type}"{anchor_attr}>'
                 f'<div class="title">{title}</div>'
                 f'<div class="content">{adm_content}</div>'
                 f'</div>'
@@ -507,13 +540,22 @@ def render_adoc_to_html(raw: str) -> str:
             lang = html.escape(block_meta.get("lang", ""))
             lang_cls = f" language-{lang}" if lang else ""
             out.append(
-                f'<div class="listingblock"><div class="content">'
+                f'<div class="listingblock"{anchor_attr}><div class="content">'
                 f'<pre><code class="{lang_cls}">{code_text}</code></pre>'
                 f'</div></div>'
             )
 
+        elif in_block == "math":
+            math_type = html.escape(block_meta.get("type") or "latex")
+            math_text = html.escape("\n".join(block_lines))
+            out.append(
+                f'<div class="mathblock display"{anchor_attr} data-math="{math_type}"><div class="content">'
+                f'<pre class="math"><code>{math_text}</code></pre>'
+                f'</div></div>'
+            )
+
         elif in_block == "table":
-            tbl_html = _render_table_html(block_lines, block_meta)
+            tbl_html = _render_table_html(block_lines, block_meta, anchor_id=anchor_attr.replace(' id="', '').rstrip('"') if anchor_attr else None)
             if tbl_html:
                 out.append(tbl_html)
 
@@ -529,12 +571,14 @@ def render_adoc_to_html(raw: str) -> str:
     pending_continuation: bool = False
 
     def flush_pending_single_block() -> None:
-        nonlocal pending_meta, pending_block_lines
+        nonlocal pending_meta, pending_block_lines, pending_anchor
         if not pending_meta or pending_meta.get("kind") not in ("quote", "admonition"):
             return
         if not pending_block_lines:
             pending_meta = None
             return
+        anchor_attr = f' id="{html.escape(pending_anchor)}"' if pending_anchor else ""
+        pending_anchor = None
         p_kind = pending_meta.get("kind")
         p_content = _format_paragraph_lines(pending_block_lines)
         if p_kind == "quote":
@@ -542,12 +586,12 @@ def render_adoc_to_html(raw: str) -> str:
             source = html.escape(pending_meta.get("source", ""))
             attr_text = author + (f" — {source}" if source else "")
             attr = f'<div class="attribution">{attr_text}</div>' if attr_text else ""
-            out.append(f'<div class="quoteblock"><blockquote><p>{p_content}</p></blockquote>{attr}</div>')
+            out.append(f'<div class="quoteblock"{anchor_attr}><blockquote><p>{p_content}</p></blockquote>{attr}</div>')
         elif p_kind == "admonition":
             adm_type = (pending_meta.get("type") or "NOTE").lower()
             title = html.escape(pending_meta.get("type") or "NOTE")
             out.append(
-                f'<div class="admonitionblock {adm_type}">'
+                f'<div class="admonitionblock {adm_type}"{anchor_attr}>'
                 f'<div class="title">{title}</div>'
                 f'<div class="content"><p>{p_content}</p></div>'
                 f'</div>'
@@ -556,26 +600,52 @@ def render_adoc_to_html(raw: str) -> str:
         pending_block_lines = []
 
     def flush_continuation() -> None:
-        nonlocal in_continuation, pending_continuation, continuation_lines
+        nonlocal in_continuation, pending_continuation, continuation_lines, pending_anchor
         if in_continuation and continuation_lines:
             p_text = _format_paragraph_lines(continuation_lines)
-            out.append(f"<p>{p_text}</p>")
+            anchor_attr = f' id="{html.escape(pending_anchor)}"' if pending_anchor else ""
+            pending_anchor = None
+            out.append(f"<p{anchor_attr}>{p_text}</p>")
         in_continuation = False
         pending_continuation = False
         continuation_lines = []
 
     def flush_normal_p() -> None:
-        nonlocal normal_p_lines
+        nonlocal normal_p_lines, pending_anchor
         if normal_p_lines:
             flush_list()
             p_text = _format_paragraph_lines(normal_p_lines)
-            out.append(f"<p>{p_text}</p>")
+            anchor_attr = f' id="{html.escape(pending_anchor)}"' if pending_anchor else ""
+            pending_anchor = None
+            out.append(f"<p{anchor_attr}>{p_text}</p>")
             normal_p_lines = []
+
+    def _extract_heading_anchor(h_text: str) -> tuple[str, str | None]:
+        nonlocal pending_anchor
+        m = re.search(r"\[#([a-zA-Z0-9_\-\.\:\/]+)\]|\[\[([a-zA-Z0-9_\-\.\:\/]+)\]\]", h_text)
+        if m:
+            anc = m.group(1) or m.group(2)
+            clean = (h_text[:m.start()] + h_text[m.end():]).strip()
+            return clean, anc
+        anc = pending_anchor
+        pending_anchor = None
+        return h_text, anc
 
     for line in lines:
         trimmed = line.strip()
 
         if not in_block:
+            # 0. 앵커 정의 라인: [#anchor-id] 또는 [[anchor-id]]
+            anchor_m = re.match(r"^\[#([a-zA-Z0-9_\-\.\:\/]+)\]$", trimmed) or re.match(
+                r"^\[\[([a-zA-Z0-9_\-\.\:\/]+)\]\]$", trimmed
+            )
+            if anchor_m:
+                flush_normal_p()
+                flush_continuation()
+                flush_pending_single_block()
+                pending_anchor = anchor_m.group(1).strip()
+                continue
+
             # 1. 인용 메타데이터: [quote, 저자, 출처]
             qm = re.match(r"^\[quote(?:,\s*([^,\]]+))?(?:,\s*([^\]]+))?\]", trimmed, re.IGNORECASE)
             if qm:
@@ -610,6 +680,16 @@ def render_adoc_to_html(raw: str) -> str:
                 flush_pending_single_block()
                 flush_list()
                 pending_meta = {"kind": "code", "lang": (sm.group(1) or "").strip()}
+                continue
+
+            # 3-0. 수식 블록 메타데이터: [latexmath], [stem], [asciimath]
+            math_m = re.match(r"^\[(latexmath|stem|asciimath)\]$", trimmed, re.IGNORECASE)
+            if math_m:
+                flush_normal_p()
+                flush_continuation()
+                flush_pending_single_block()
+                flush_list()
+                pending_meta = {"kind": "math", "type": math_m.group(1).lower()}
                 continue
 
             # 3-1. 테이블 메타데이터: [cols="..."] 또는 [%header...]
@@ -669,8 +749,27 @@ def render_adoc_to_html(raw: str) -> str:
                 flush_normal_p()
                 flush_continuation()
                 flush_list()
-                in_block = "code"
-                block_meta = pending_meta if (pending_meta and pending_meta.get("kind") == "code") else {}
+                if pending_meta and pending_meta.get("kind") == "math":
+                    in_block = "math"
+                    block_meta = pending_meta
+                else:
+                    in_block = "code"
+                    block_meta = pending_meta if (pending_meta and pending_meta.get("kind") == "code") else {}
+                pending_meta = None
+                pending_block_lines = []
+                block_lines = []
+                continue
+
+            if trimmed == "++++":
+                flush_normal_p()
+                flush_continuation()
+                flush_list()
+                in_block = "math"
+                block_meta = (
+                    pending_meta
+                    if (pending_meta and pending_meta.get("kind") == "math")
+                    else {"kind": "math", "type": "latex"}
+                )
                 pending_meta = None
                 pending_block_lines = []
                 block_lines = []
@@ -701,8 +800,10 @@ def render_adoc_to_html(raw: str) -> str:
                 alt = (img_m.group(2) or "").strip()
                 cap = img_m.group(3) or img_m.group(4) or img_m.group(5) or ""
                 cap_html = f'<div class="title">{html.escape(cap)}</div>' if cap else ""
+                anchor_attr = f' id="{html.escape(pending_anchor)}"' if pending_anchor else ""
+                pending_anchor = None
                 out.append(
-                    f'<div class="imageblock"><img src="{html.escape(src)}" alt="{html.escape(alt)}">'
+                    f'<div class="imageblock"{anchor_attr}><img src="{html.escape(src)}" alt="{html.escape(alt)}">'
                     f"{cap_html}</div>"
                 )
                 continue
@@ -726,7 +827,9 @@ def render_adoc_to_html(raw: str) -> str:
                 flush_continuation()
                 flush_pending_single_block()
                 flush_list()
-                out.append(f"<h1>{_inline_adoc_format(h1_m.group(1))}</h1>")
+                clean_h, h_anc = _extract_heading_anchor(h1_m.group(1))
+                id_attr = f' id="{html.escape(h_anc)}"' if h_anc else ""
+                out.append(f"<h1{id_attr}>{_inline_adoc_format(clean_h)}</h1>")
                 continue
             h2_m = re.match(r"^==\s+(.+)$", trimmed)
             if h2_m:
@@ -734,7 +837,9 @@ def render_adoc_to_html(raw: str) -> str:
                 flush_continuation()
                 flush_pending_single_block()
                 flush_list()
-                out.append(f"<h2>{_inline_adoc_format(h2_m.group(1))}</h2>")
+                clean_h, h_anc = _extract_heading_anchor(h2_m.group(1))
+                id_attr = f' id="{html.escape(h_anc)}"' if h_anc else ""
+                out.append(f"<h2{id_attr}>{_inline_adoc_format(clean_h)}</h2>")
                 continue
             h3_m = re.match(r"^===\s+(.+)$", trimmed)
             if h3_m:
@@ -742,7 +847,9 @@ def render_adoc_to_html(raw: str) -> str:
                 flush_continuation()
                 flush_pending_single_block()
                 flush_list()
-                out.append(f"<h3>{_inline_adoc_format(h3_m.group(1))}</h3>")
+                clean_h, h_anc = _extract_heading_anchor(h3_m.group(1))
+                id_attr = f' id="{html.escape(h_anc)}"' if h_anc else ""
+                out.append(f"<h3{id_attr}>{_inline_adoc_format(clean_h)}</h3>")
                 continue
             h4_m = re.match(r"^====\s+(.+)$", trimmed)
             if h4_m:
@@ -750,7 +857,9 @@ def render_adoc_to_html(raw: str) -> str:
                 flush_continuation()
                 flush_pending_single_block()
                 flush_list()
-                out.append(f"<h4>{_inline_adoc_format(h4_m.group(1))}</h4>")
+                clean_h, h_anc = _extract_heading_anchor(h4_m.group(1))
+                id_attr = f' id="{html.escape(h_anc)}"' if h_anc else ""
+                out.append(f"<h4{id_attr}>{_inline_adoc_format(clean_h)}</h4>")
                 continue
 
             # 문서 속성 (:key: value)
@@ -767,8 +876,10 @@ def render_adoc_to_html(raw: str) -> str:
                 flush_list()
                 adm_type = single_adm.group(1).upper()
                 adm_text = _inline_adoc_format(single_adm.group(2))
+                anchor_attr = f' id="{html.escape(pending_anchor)}"' if pending_anchor else ""
+                pending_anchor = None
                 out.append(
-                    f'<div class="admonitionblock {adm_type.lower()}">'
+                    f'<div class="admonitionblock {adm_type.lower()}"{anchor_attr}>'
                     f'<div class="title">{html.escape(adm_type)}</div>'
                     f'<div class="content"><p>{adm_text}</p></div>'
                     f'</div>'
@@ -827,6 +938,7 @@ def render_adoc_to_html(raw: str) -> str:
                 (in_block == "quote" and trimmed == "____")
                 or (in_block == "admonition" and trimmed == "====")
                 or (in_block == "code" and trimmed == "----")
+                or (in_block == "math" and (trimmed == "++++" or trimmed == "----"))
                 or (in_block == "table" and trimmed == "|===")
             ):
                 flush_block()

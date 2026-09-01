@@ -745,6 +745,15 @@ GRAPH_HTML = """<!doctype html>
   .md .imageblock{margin:1em auto;text-align:center}
   .md .imageblock img{max-width:100%;height:auto;display:block;margin:0 auto;border-radius:6px;border:1px solid var(--border)}
   .md .imageblock .title{font-size:.85em;color:var(--muted);margin-top:.4em;font-style:italic}
+  .md .math{font-family:'KaTeX_Math','Cambria Math','STIX Two Math','DejaVu Math TeX Gyre',Cambria,Georgia,serif;font-style:italic;color:var(--fg)}
+  .md .math.inline{padding:0 .25em;background:var(--chip-bg);border-radius:3px;font-size:1.02em}
+  .md .math.inline code{background:transparent;padding:0;font-family:inherit;font-size:inherit}
+  .md .mathblock{margin:1em 0;padding:.8em 1.2em;background:var(--card-bg);border:1px solid var(--border);border-radius:6px;text-align:center;overflow-x:auto}
+  .md .mathblock pre.math{background:transparent;border:0;padding:0;margin:0;display:inline-block;text-align:left;font-family:'KaTeX_Math','Cambria Math','STIX Two Math','DejaVu Math TeX Gyre',Cambria,Georgia,serif;font-size:1.08em}
+  .md a.xref{color:var(--accent);text-decoration:none;border-bottom:1px dashed var(--accent);cursor:pointer;transition:border-color .15s ease}
+  .md a.xref:hover{border-bottom-style:solid}
+  .md :target{animation:target-highlight 2s ease-out;border-radius:4px}
+  @keyframes target-highlight{0%{background-color:rgba(56,139,253,.25)}100%{background-color:transparent}}
   .md .lead{font-size:1.1em;line-height:1.6;font-weight:500;color:var(--fg)}
 
   /* --- 중앙 크게 읽기 (2단 보기 및 기본 중앙 패널 / 모바일 읽기) --- */
@@ -1556,11 +1565,12 @@ function parseAdocTableRows(tableLines, explicitCols){
   }
   return rows;
 }
-function renderTableHtml(tableLines, blockMeta){
+function renderTableHtml(tableLines, blockMeta, anchorId){
   var explicitCols=parseColsAttr(blockMeta.cols || '');
   var rows=parseAdocTableRows(tableLines, explicitCols);
   if(!rows || rows.length === 0) return '';
-  var tHtml='<table>';
+  var idAttr=anchorId ? ' id=\"' + esc(anchorId) + '\"' : '';
+  var tHtml='<table' + idAttr + '>';
   if(blockMeta.title) tHtml += '<caption>' + esc(blockMeta.title) + '</caption>';
 
   function renderCell(cell, tag){
@@ -1601,6 +1611,11 @@ function renderTableHtml(tableLines, blockMeta){
 function inlineAdocFormat(text){
   if(!text) return '';
   var s=esc(text);
+  var mathSpans=[];
+  s=s.replace(/(stem|latexmath|asciimath):\\\\[(.*?)\\\\]/gi, function(_, kind, content){
+    mathSpans.push('<span class=\"math inline\" data-math=\"'+kind.toLowerCase()+'\"><code>'+content+'</code></span>');
+    return '\\x00ADOCMATH'+(mathSpans.length-1)+'\\x00';
+  });
   var codeSpans=[];
   s=s.replace(/`(?![\\s])([^`\\n]+?)(?<![\\s])`/g, function(_, m1){
     codeSpans.push('<code>'+m1+'</code>');
@@ -1619,6 +1634,17 @@ function inlineAdocFormat(text){
     linkSpans.push('<a href=\"'+u+'\" target=\"_blank\" rel=\"noopener\">'+u+'</a>');
     return '\\x00ADOCLINK'+(linkSpans.length-1)+'\\x00';
   });
+  s=s.replace(/&lt;&lt;([a-zA-Z0-9_\\-\\.\\:\\/]+)(?:,\\s*([^&]+?))?&gt;&gt;/g, function(_, a, l){
+    var label=(l||a).trim();
+    linkSpans.push('<a href=\"#'+a.trim()+'\" class=\"xref\">'+label+'</a>');
+    return '\\x00ADOCLINK'+(linkSpans.length-1)+'\\x00';
+  });
+  s=s.replace(/xref:([a-zA-Z0-9_\\-\\.\\:\\/]+)\\[(.*?)\\]/gi, function(_, a, l){
+    var label=(l||a).trim();
+    linkSpans.push('<a href=\"#'+a.trim()+'\" class=\"xref\">'+label+'</a>');
+    return '\\x00ADOCLINK'+(linkSpans.length-1)+'\\x00';
+  });
+  s=s.replace(/\\[\\[([a-zA-Z0-9_\\-\\.\\:\\/]+)\\]\\]/g, '<a id=\"$1\" class=\"anchor\"></a>');
   s=s.replace(/\\s+\\+\\s*$/g, '<br>');
   s=s.replace(/(?<!#)#(?![\\s#])([^#\\n]+?)(?<![\\s#])#(?!#)/g, '<mark>$1</mark>');
   s=s.replace(/\\*\\*(?![\\s\\*])([^*\\n]+?)(?<![\\s\\*])\\*\\*/g, '<strong>$1</strong>');
@@ -1629,6 +1655,7 @@ function inlineAdocFormat(text){
   s=s.replace(/~(?![\\s~])([^~\\n]+?)(?<![\\s~])~/g, '<sub>$1</sub>');
   for(var i=0; i<linkSpans.length; i++) s=s.replace('\\x00ADOCLINK'+i+'\\x00', linkSpans[i]);
   for(var j=0; j<codeSpans.length; j++) s=s.replace('\\x00ADOCCODE'+j+'\\x00', codeSpans[j]);
+  for(var k=0; k<mathSpans.length; k++) s=s.replace('\\x00ADOCMATH'+k+'\\x00', mathSpans[k]);
   return s;
 }
 
@@ -1650,6 +1677,7 @@ function convertAsciidocToHtml(raw){
   var pendingMeta=null;
   var pendingBlockLines=[];
   var normalPLines=[];
+  var pendingAnchor=null;
 
   function closeItem(){
     if(inItem){ inItem=false; return ['</li>']; }
@@ -1718,14 +1746,16 @@ function convertAsciidocToHtml(raw){
   function flushPendingSingleBlock(){
     if(!pendingMeta || (pendingMeta.kind!=='quote' && pendingMeta.kind!=='admonition')) return;
     if(pendingBlockLines.length===0){ pendingMeta=null; return; }
+    var anchorAttr=pendingAnchor ? ' id=\"'+esc(pendingAnchor)+'\"' : '';
+    pendingAnchor=null;
     var pContent=formatParagraphLines(pendingBlockLines);
     if(pendingMeta.kind==='quote'){
       var attrText=pendingMeta.author?esc(pendingMeta.author)+(pendingMeta.source?' — '+esc(pendingMeta.source):''):'';
-      out.push('<div class=\"quoteblock\"><blockquote><p>'+pContent+'</p></blockquote>'+(attrText?'<div class=\"attribution\">'+attrText+'</div>':'')+'</div>');
+      out.push('<div class=\"quoteblock\"' + anchorAttr + '><blockquote><p>'+pContent+'</p></blockquote>'+(attrText?'<div class=\"attribution\">'+attrText+'</div>':'')+'</div>');
     }else if(pendingMeta.kind==='admonition'){
       var admType=(pendingMeta.type||'NOTE').toLowerCase();
       var admTitle=esc(pendingMeta.type||'NOTE');
-      out.push('<div class=\"admonitionblock '+admType+'\"><div class=\"title\">'+admTitle+'</div><div class=\"content\"><p>'+pContent+'</p></div></div>');
+      out.push('<div class=\"admonitionblock '+admType+'\"' + anchorAttr + '><div class=\"title\">'+admTitle+'</div><div class=\"content\"><p>'+pContent+'</p></div></div>');
     }
     pendingMeta=null;
     pendingBlockLines=[];
@@ -1733,7 +1763,9 @@ function convertAsciidocToHtml(raw){
 
   function flushContinuation(){
     if(inContinuation && continuationLines.length>0){
-      out.push('<p>'+formatParagraphLines(continuationLines)+'</p>');
+      var anchorAttr=pendingAnchor ? ' id=\"'+esc(pendingAnchor)+'\"' : '';
+      pendingAnchor=null;
+      out.push('<p' + anchorAttr + '>'+formatParagraphLines(continuationLines)+'</p>');
     }
     inContinuation=false;
     pendingContinuation=false;
@@ -1743,13 +1775,18 @@ function convertAsciidocToHtml(raw){
   function flushNormalP(){
     if(normalPLines.length>0){
       flushList();
-      out.push('<p>'+formatParagraphLines(normalPLines)+'</p>');
+      var anchorAttr=pendingAnchor ? ' id=\"'+esc(pendingAnchor)+'\"' : '';
+      pendingAnchor=null;
+      out.push('<p' + anchorAttr + '>'+formatParagraphLines(normalPLines)+'</p>');
       normalPLines=[];
     }
   }
 
   function flushBlock(){
     if(!inBlock) return;
+    var anchorAttr=pendingAnchor ? ' id=\"'+esc(pendingAnchor)+'\"' : '';
+    pendingAnchor=null;
+
     if(inBlock==='quote'){
       var qParagraphs=[];
       var currP=[];
@@ -1766,7 +1803,7 @@ function convertAsciidocToHtml(raw){
         attr='<div class=\"attribution\">'+esc(blockMeta.author||'')+
              (blockMeta.source?' — '+esc(blockMeta.source):'')+'</div>';
       }
-      out.push('<div class=\"quoteblock\"><blockquote>'+qContent+'</blockquote>'+attr+'</div>');
+      out.push('<div class=\"quoteblock\"' + anchorAttr + '><blockquote>'+qContent+'</blockquote>'+attr+'</div>');
     }else if(inBlock==='admonition'){
       var admParagraphs=[];
       var currP=[];
@@ -1779,13 +1816,17 @@ function convertAsciidocToHtml(raw){
       if(currP.length>0) admParagraphs.push(formatParagraphLines(currP));
       var admContent=admParagraphs.map(function(p){ return '<p>'+p+'</p>'; }).join('');
       var type=(blockMeta.type||'NOTE').toLowerCase();
-      out.push('<div class=\"admonitionblock '+esc(type)+'\"><div class=\"title\">'+
+      out.push('<div class=\"admonitionblock '+esc(type)+'\"' + anchorAttr + '><div class=\"title\">'+
                esc(blockMeta.type||'NOTE')+'</div><div class=\"content\">'+admContent+'</div></div>');
     }else if(inBlock==='code'){
       var codeText=esc(blockLines.join(NL)).replace(/&lt;(\\d+)&gt;/g,'<span class=\"conum\">&lt;$1&gt;</span>');
-      out.push('<div class=\"listingblock\"><div class=\"content\"><pre><code class=\"language-'+esc(blockMeta.lang||'')+'\">'+codeText+'</code></pre></div></div>');
+      out.push('<div class=\"listingblock\"' + anchorAttr + '><div class=\"content\"><pre><code class=\"language-'+esc(blockMeta.lang||'')+'\">'+codeText+'</code></pre></div></div>');
+    }else if(inBlock==='math'){
+      var mathText=esc(blockLines.join(NL));
+      var mType=esc(blockMeta.type||'latex');
+      out.push('<div class=\"mathblock display\"' + anchorAttr + ' data-math=\"'+mType+'\"><div class=\"content\"><pre class=\"math\"><code>'+mathText+'</code></pre></div></div>');
     }else if(inBlock==='table'){
-      var tblHtml=renderTableHtml(blockLines, blockMeta);
+      var tblHtml=renderTableHtml(blockLines, blockMeta, anchorAttr.replace(' id=\"', '').replace('\"', ''));
       if(tblHtml) out.push(tblHtml);
     }
     inBlock=null; blockMeta={}; blockLines=[];
@@ -1803,11 +1844,30 @@ function convertAsciidocToHtml(raw){
     return null;
   }
 
+  function extractHeadingAnchor(hText){
+    var m=hText.match(/\\[#([a-zA-Z0-9_\\-\\.\\:\\/]+)\\]|\\[\\[([a-zA-Z0-9_\\-\\.\\:\\/]+)\\]\\]/);
+    if(m){
+      var anc=m[1]||m[2];
+      var clean=(hText.substring(0, m.index)+hText.substring(m.index+m[0].length)).trim();
+      return {text:clean, anchor:anc};
+    }
+    var anc2=pendingAnchor;
+    pendingAnchor=null;
+    return {text:hText, anchor:anc2};
+  }
+
   for(var i=0; i<lines.length; i++){
     var line=lines[i];
     var trimmed=line.trim();
 
     if(!inBlock){
+      var anchorM=trimmed.match(/^\\[#([a-zA-Z0-9_\\-\\.\\:\\/]+)\\]$/) || trimmed.match(/^\\[\\[([a-zA-Z0-9_\\-\\.\\:\\/]+)\\]\\]$/);
+      if(anchorM){
+        flushNormalP(); flushContinuation(); flushPendingSingleBlock();
+        pendingAnchor=anchorM[1].trim();
+        continue;
+      }
+
       var qm=trimmed.match(/^\\[quote(?:,\\s*([^,\\]]+))?(?:,\\s*([^\\]]+))?\\]/i);
       if(qm){
         flushNormalP(); flushContinuation(); flushPendingSingleBlock(); flushList();
@@ -1826,6 +1886,12 @@ function convertAsciidocToHtml(raw){
       if(sm){
         flushNormalP(); flushContinuation(); flushPendingSingleBlock(); flushList();
         pendingMeta={kind:'code', lang:sm[1]?sm[1].trim():''};
+        continue;
+      }
+      var mathM=trimmed.match(/^\\[(latexmath|stem|asciimath)\\]$/i);
+      if(mathM){
+        flushNormalP(); flushContinuation(); flushPendingSingleBlock(); flushList();
+        pendingMeta={kind:'math', type:mathM[1].toLowerCase()};
         continue;
       }
       var tm=trimmed.match(/^\\[(.*cols.*|.*header.*|\\d+\\*|[0-9,]+)\\]$/i);
@@ -1865,8 +1931,20 @@ function convertAsciidocToHtml(raw){
       }
       if(trimmed==='----'){
         flushNormalP(); flushContinuation(); flushList();
-        inBlock='code';
-        blockMeta=(pendingMeta&&pendingMeta.kind==='code')?pendingMeta:{};
+        if(pendingMeta && pendingMeta.kind==='math'){
+          inBlock='math';
+          blockMeta=pendingMeta;
+        }else{
+          inBlock='code';
+          blockMeta=(pendingMeta&&pendingMeta.kind==='code')?pendingMeta:{};
+        }
+        pendingMeta=null; pendingBlockLines=[]; blockLines=[];
+        continue;
+      }
+      if(trimmed==='++++'){
+        flushNormalP(); flushContinuation(); flushList();
+        inBlock='math';
+        blockMeta=(pendingMeta&&pendingMeta.kind==='math')?pendingMeta:{kind:'math', type:'latex'};
         pendingMeta=null; pendingBlockLines=[]; blockLines=[];
         continue;
       }
@@ -1884,7 +1962,9 @@ function convertAsciidocToHtml(raw){
         var src=imgMatch[1].trim();
         var alt=imgMatch[2]?imgMatch[2].trim():'';
         var cap=imgMatch[3]||imgMatch[4]||imgMatch[5]||'';
-        out.push('<div class=\"imageblock\"><img src=\"'+esc(src)+'\" alt=\"'+esc(alt)+'\">'+
+        var anchorAttr=pendingAnchor ? ' id=\"'+esc(pendingAnchor)+'\"' : '';
+        pendingAnchor=null;
+        out.push('<div class=\"imageblock\"' + anchorAttr + '><img src=\"'+esc(src)+'\" alt=\"'+esc(alt)+'\">'+
                  (cap?'<div class=\"title\">'+esc(cap)+'</div>':'')+'</div>');
         continue;
       }
@@ -1895,13 +1975,13 @@ function convertAsciidocToHtml(raw){
         continue;
       }
       var h1Match=trimmed.match(/^=\\s+(.+)$/);
-      if(h1Match){ flushNormalP(); flushContinuation(); flushPendingSingleBlock(); flushList(); out.push('<h1>'+inlineAdocFormat(h1Match[1])+'</h1>'); continue; }
+      if(h1Match){ flushNormalP(); flushContinuation(); flushPendingSingleBlock(); flushList(); var hInfo=extractHeadingAnchor(h1Match[1]); var idAttr=hInfo.anchor?' id=\"'+esc(hInfo.anchor)+'\"':''; out.push('<h1'+idAttr+'>'+inlineAdocFormat(hInfo.text)+'</h1>'); continue; }
       var h2Match=trimmed.match(/^==\\s+(.+)$/);
-      if(h2Match){ flushNormalP(); flushContinuation(); flushPendingSingleBlock(); flushList(); out.push('<h2>'+inlineAdocFormat(h2Match[1])+'</h2>'); continue; }
+      if(h2Match){ flushNormalP(); flushContinuation(); flushPendingSingleBlock(); flushList(); var hInfo=extractHeadingAnchor(h2Match[1]); var idAttr=hInfo.anchor?' id=\"'+esc(hInfo.anchor)+'\"':''; out.push('<h2'+idAttr+'>'+inlineAdocFormat(hInfo.text)+'</h2>'); continue; }
       var h3Match=trimmed.match(/^===\\s+(.+)$/);
-      if(h3Match){ flushNormalP(); flushContinuation(); flushPendingSingleBlock(); flushList(); out.push('<h3>'+inlineAdocFormat(h3Match[1])+'</h3>'); continue; }
+      if(h3Match){ flushNormalP(); flushContinuation(); flushPendingSingleBlock(); flushList(); var hInfo=extractHeadingAnchor(h3Match[1]); var idAttr=hInfo.anchor?' id=\"'+esc(hInfo.anchor)+'\"':''; out.push('<h3'+idAttr+'>'+inlineAdocFormat(hInfo.text)+'</h3>'); continue; }
       var h4Match=trimmed.match(/^====\\s+(.+)$/);
-      if(h4Match){ flushNormalP(); flushContinuation(); flushPendingSingleBlock(); flushList(); out.push('<h4>'+inlineAdocFormat(h4Match[1])+'</h4>'); continue; }
+      if(h4Match){ flushNormalP(); flushContinuation(); flushPendingSingleBlock(); flushList(); var hInfo=extractHeadingAnchor(h4Match[1]); var idAttr=hInfo.anchor?' id=\"'+esc(hInfo.anchor)+'\"':''; out.push('<h4'+idAttr+'>'+inlineAdocFormat(hInfo.text)+'</h4>'); continue; }
 
       var attrMatch=trimmed.match(/^:[a-zA-Z0-9_-]+:\\s*(.*)$/);
       if(attrMatch){ continue; }
@@ -1910,7 +1990,9 @@ function convertAsciidocToHtml(raw){
       if(singleAdm){
         flushNormalP(); flushContinuation(); flushPendingSingleBlock(); flushList();
         var admType=singleAdm[1].toUpperCase();
-        out.push('<div class=\"admonitionblock '+admType.toLowerCase()+'\"><div class=\"title\">'+esc(admType)+'</div><div class=\"content\"><p>'+inlineAdocFormat(singleAdm[2])+'</p></div></div>');
+        var anchorAttr=pendingAnchor ? ' id=\"'+esc(pendingAnchor)+'\"' : '';
+        pendingAnchor=null;
+        out.push('<div class=\"admonitionblock '+admType.toLowerCase()+'\"' + anchorAttr + '><div class=\"title\">'+esc(admType)+'</div><div class=\"content\"><p>'+inlineAdocFormat(singleAdm[2])+'</p></div></div>');
         continue;
       }
 
@@ -1958,6 +2040,7 @@ function convertAsciidocToHtml(raw){
       if(inBlock==='quote'&&trimmed==='____') flushBlock();
       else if(inBlock==='admonition'&&trimmed==='====') flushBlock();
       else if(inBlock==='code'&&trimmed==='----') flushBlock();
+      else if(inBlock==='math'&&(trimmed==='++++'||trimmed==='----')) flushBlock();
       else if(inBlock==='table'&&trimmed==='|===') flushBlock();
       else{
         blockLines.push(line);
@@ -4535,6 +4618,15 @@ _SHARED_HTML = """<!doctype html>
   .md .imageblock{margin:1em auto;text-align:center}
   .md .imageblock img{max-width:100%;height:auto;display:block;margin:0 auto;border-radius:6px;border:1px solid var(--border)}
   .md .imageblock .title{font-size:.85em;color:var(--muted);margin-top:.4em;font-style:italic}
+  .md .math{font-family:'KaTeX_Math','Cambria Math','STIX Two Math','DejaVu Math TeX Gyre',Cambria,Georgia,serif;font-style:italic;color:var(--fg)}
+  .md .math.inline{padding:0 .25em;background:var(--chip-bg);border-radius:3px;font-size:1.02em}
+  .md .math.inline code{background:transparent;padding:0;font-family:inherit;font-size:inherit}
+  .md .mathblock{margin:1em 0;padding:.8em 1.2em;background:var(--card-bg);border:1px solid var(--border);border-radius:6px;text-align:center;overflow-x:auto}
+  .md .mathblock pre.math{background:transparent;border:0;padding:0;margin:0;display:inline-block;text-align:left;font-family:'KaTeX_Math','Cambria Math','STIX Two Math','DejaVu Math TeX Gyre',Cambria,Georgia,serif;font-size:1.08em}
+  .md a.xref{color:var(--accent);text-decoration:none;border-bottom:1px dashed var(--accent);cursor:pointer;transition:border-color .15s ease}
+  .md a.xref:hover{border-bottom-style:solid}
+  .md :target{animation:target-highlight 2s ease-out;border-radius:4px}
+  @keyframes target-highlight{0%{background-color:rgba(56,139,253,.25)}100%{background-color:transparent}}
   .md .lead{font-size:1.1em;line-height:1.6;font-weight:500;color:var(--fg)}
 </style></head>
 <body><div class="wrap" id="wrap"></div>
@@ -4708,11 +4800,12 @@ function parseAdocTableRows(tableLines, explicitCols){
   }
   return rows;
 }
-function renderTableHtml(tableLines, blockMeta){
+function renderTableHtml(tableLines, blockMeta, anchorId){
   var explicitCols=parseColsAttr(blockMeta.cols || '');
   var rows=parseAdocTableRows(tableLines, explicitCols);
   if(!rows || rows.length === 0) return '';
-  var tHtml='<table>';
+  var idAttr=anchorId ? ' id=\"' + esc(anchorId) + '\"' : '';
+  var tHtml='<table' + idAttr + '>';
   if(blockMeta.title) tHtml += '<caption>' + esc(blockMeta.title) + '</caption>';
 
   function renderCell(cell, tag){
@@ -4753,6 +4846,11 @@ function renderTableHtml(tableLines, blockMeta){
 function inlineAdocFormat(text){
   if(!text) return '';
   var s=esc(text);
+  var mathSpans=[];
+  s=s.replace(/(stem|latexmath|asciimath):\\\\[(.*?)\\\\]/gi, function(_, kind, content){
+    mathSpans.push('<span class=\"math inline\" data-math=\"'+kind.toLowerCase()+'\"><code>'+content+'</code></span>');
+    return '\\x00ADOCMATH'+(mathSpans.length-1)+'\\x00';
+  });
   var codeSpans=[];
   s=s.replace(/`(?![\\s])([^`\\n]+?)(?<![\\s])`/g, function(_, m1){
     codeSpans.push('<code>'+m1+'</code>');
@@ -4771,6 +4869,17 @@ function inlineAdocFormat(text){
     linkSpans.push('<a href=\"'+u+'\" target=\"_blank\" rel=\"noopener\">'+u+'</a>');
     return '\\x00ADOCLINK'+(linkSpans.length-1)+'\\x00';
   });
+  s=s.replace(/&lt;&lt;([a-zA-Z0-9_\\-\\.\\:\\/]+)(?:,\\s*([^&]+?))?&gt;&gt;/g, function(_, a, l){
+    var label=(l||a).trim();
+    linkSpans.push('<a href=\"#'+a.trim()+'\" class=\"xref\">'+label+'</a>');
+    return '\\x00ADOCLINK'+(linkSpans.length-1)+'\\x00';
+  });
+  s=s.replace(/xref:([a-zA-Z0-9_\\-\\.\\:\\/]+)\\[(.*?)\\]/gi, function(_, a, l){
+    var label=(l||a).trim();
+    linkSpans.push('<a href=\"#'+a.trim()+'\" class=\"xref\">'+label+'</a>');
+    return '\\x00ADOCLINK'+(linkSpans.length-1)+'\\x00';
+  });
+  s=s.replace(/\\[\\[([a-zA-Z0-9_\\-\\.\\:\\/]+)\\]\\]/g, '<a id=\"$1\" class=\"anchor\"></a>');
   s=s.replace(/\\s+\\+\\s*$/g, '<br>');
   s=s.replace(/(?<!#)#(?![\\s#])([^#\\n]+?)(?<![\\s#])#(?!#)/g, '<mark>$1</mark>');
   s=s.replace(/\\*\\*(?![\\s\\*])([^*\\n]+?)(?<![\\s\\*])\\*\\*/g, '<strong>$1</strong>');
@@ -4781,6 +4890,7 @@ function inlineAdocFormat(text){
   s=s.replace(/~(?![\\s~])([^~\\n]+?)(?<![\\s~])~/g, '<sub>$1</sub>');
   for(var i=0; i<linkSpans.length; i++) s=s.replace('\\x00ADOCLINK'+i+'\\x00', linkSpans[i]);
   for(var j=0; j<codeSpans.length; j++) s=s.replace('\\x00ADOCCODE'+j+'\\x00', codeSpans[j]);
+  for(var k=0; k<mathSpans.length; k++) s=s.replace('\\x00ADOCMATH'+k+'\\x00', mathSpans[k]);
   return s;
 }
 
@@ -4802,6 +4912,7 @@ function convertAsciidocToHtml(raw){
   var pendingMeta=null;
   var pendingBlockLines=[];
   var normalPLines=[];
+  var pendingAnchor=null;
 
   function closeItem(){
     if(inItem){ inItem=false; return ['</li>']; }
@@ -4870,14 +4981,16 @@ function convertAsciidocToHtml(raw){
   function flushPendingSingleBlock(){
     if(!pendingMeta || (pendingMeta.kind!=='quote' && pendingMeta.kind!=='admonition')) return;
     if(pendingBlockLines.length===0){ pendingMeta=null; return; }
+    var anchorAttr=pendingAnchor ? ' id=\"'+esc(pendingAnchor)+'\"' : '';
+    pendingAnchor=null;
     var pContent=formatParagraphLines(pendingBlockLines);
     if(pendingMeta.kind==='quote'){
       var attrText=pendingMeta.author?esc(pendingMeta.author)+(pendingMeta.source?' — '+esc(pendingMeta.source):''):'';
-      out.push('<div class=\"quoteblock\"><blockquote><p>'+pContent+'</p></blockquote>'+(attrText?'<div class=\"attribution\">'+attrText+'</div>':'')+'</div>');
+      out.push('<div class=\"quoteblock\"' + anchorAttr + '><blockquote><p>'+pContent+'</p></blockquote>'+(attrText?'<div class=\"attribution\">'+attrText+'</div>':'')+'</div>');
     }else if(pendingMeta.kind==='admonition'){
       var admType=(pendingMeta.type||'NOTE').toLowerCase();
       var admTitle=esc(pendingMeta.type||'NOTE');
-      out.push('<div class=\"admonitionblock '+admType+'\"><div class=\"title\">'+admTitle+'</div><div class=\"content\"><p>'+pContent+'</p></div></div>');
+      out.push('<div class=\"admonitionblock '+admType+'\"' + anchorAttr + '><div class=\"title\">'+admTitle+'</div><div class=\"content\"><p>'+pContent+'</p></div></div>');
     }
     pendingMeta=null;
     pendingBlockLines=[];
@@ -4885,7 +4998,9 @@ function convertAsciidocToHtml(raw){
 
   function flushContinuation(){
     if(inContinuation && continuationLines.length>0){
-      out.push('<p>'+formatParagraphLines(continuationLines)+'</p>');
+      var anchorAttr=pendingAnchor ? ' id=\"'+esc(pendingAnchor)+'\"' : '';
+      pendingAnchor=null;
+      out.push('<p' + anchorAttr + '>'+formatParagraphLines(continuationLines)+'</p>');
     }
     inContinuation=false;
     pendingContinuation=false;
@@ -4895,13 +5010,18 @@ function convertAsciidocToHtml(raw){
   function flushNormalP(){
     if(normalPLines.length>0){
       flushList();
-      out.push('<p>'+formatParagraphLines(normalPLines)+'</p>');
+      var anchorAttr=pendingAnchor ? ' id=\"'+esc(pendingAnchor)+'\"' : '';
+      pendingAnchor=null;
+      out.push('<p' + anchorAttr + '>'+formatParagraphLines(normalPLines)+'</p>');
       normalPLines=[];
     }
   }
 
   function flushBlock(){
     if(!inBlock) return;
+    var anchorAttr=pendingAnchor ? ' id=\"'+esc(pendingAnchor)+'\"' : '';
+    pendingAnchor=null;
+
     if(inBlock==='quote'){
       var qParagraphs=[];
       var currP=[];
@@ -4918,7 +5038,7 @@ function convertAsciidocToHtml(raw){
         attr='<div class=\"attribution\">'+esc(blockMeta.author||'')+
              (blockMeta.source?' — '+esc(blockMeta.source):'')+'</div>';
       }
-      out.push('<div class=\"quoteblock\"><blockquote>'+qContent+'</blockquote>'+attr+'</div>');
+      out.push('<div class=\"quoteblock\"' + anchorAttr + '><blockquote>'+qContent+'</blockquote>'+attr+'</div>');
     }else if(inBlock==='admonition'){
       var admParagraphs=[];
       var currP=[];
@@ -4931,13 +5051,17 @@ function convertAsciidocToHtml(raw){
       if(currP.length>0) admParagraphs.push(formatParagraphLines(currP));
       var admContent=admParagraphs.map(function(p){ return '<p>'+p+'</p>'; }).join('');
       var type=(blockMeta.type||'NOTE').toLowerCase();
-      out.push('<div class=\"admonitionblock '+esc(type)+'\"><div class=\"title\">'+
+      out.push('<div class=\"admonitionblock '+esc(type)+'\"' + anchorAttr + '><div class=\"title\">'+
                esc(blockMeta.type||'NOTE')+'</div><div class=\"content\">'+admContent+'</div></div>');
     }else if(inBlock==='code'){
       var codeText=esc(blockLines.join(NL)).replace(/&lt;(\\d+)&gt;/g,'<span class=\"conum\">&lt;$1&gt;</span>');
-      out.push('<div class=\"listingblock\"><div class=\"content\"><pre><code class=\"language-'+esc(blockMeta.lang||'')+'\">'+codeText+'</code></pre></div></div>');
+      out.push('<div class=\"listingblock\"' + anchorAttr + '><div class=\"content\"><pre><code class=\"language-'+esc(blockMeta.lang||'')+'\">'+codeText+'</code></pre></div></div>');
+    }else if(inBlock==='math'){
+      var mathText=esc(blockLines.join(NL));
+      var mType=esc(blockMeta.type||'latex');
+      out.push('<div class=\"mathblock display\"' + anchorAttr + ' data-math=\"'+mType+'\"><div class=\"content\"><pre class=\"math\"><code>'+mathText+'</code></pre></div></div>');
     }else if(inBlock==='table'){
-      var tblHtml=renderTableHtml(blockLines, blockMeta);
+      var tblHtml=renderTableHtml(blockLines, blockMeta, anchorAttr.replace(' id=\"', '').replace('\"', ''));
       if(tblHtml) out.push(tblHtml);
     }
     inBlock=null; blockMeta={}; blockLines=[];
@@ -4955,11 +5079,30 @@ function convertAsciidocToHtml(raw){
     return null;
   }
 
+  function extractHeadingAnchor(hText){
+    var m=hText.match(/\\[#([a-zA-Z0-9_\\-\\.\\:\\/]+)\\]|\\[\\[([a-zA-Z0-9_\\-\\.\\:\\/]+)\\]\\]/);
+    if(m){
+      var anc=m[1]||m[2];
+      var clean=(hText.substring(0, m.index)+hText.substring(m.index+m[0].length)).trim();
+      return {text:clean, anchor:anc};
+    }
+    var anc2=pendingAnchor;
+    pendingAnchor=null;
+    return {text:hText, anchor:anc2};
+  }
+
   for(var i=0; i<lines.length; i++){
     var line=lines[i];
     var trimmed=line.trim();
 
     if(!inBlock){
+      var anchorM=trimmed.match(/^\\[#([a-zA-Z0-9_\\-\\.\\:\\/]+)\\]$/) || trimmed.match(/^\\[\\[([a-zA-Z0-9_\\-\\.\\:\\/]+)\\]\\]$/);
+      if(anchorM){
+        flushNormalP(); flushContinuation(); flushPendingSingleBlock();
+        pendingAnchor=anchorM[1].trim();
+        continue;
+      }
+
       var qm=trimmed.match(/^\\[quote(?:,\\s*([^,\\]]+))?(?:,\\s*([^\\]]+))?\\]/i);
       if(qm){
         flushNormalP(); flushContinuation(); flushPendingSingleBlock(); flushList();
@@ -4978,6 +5121,12 @@ function convertAsciidocToHtml(raw){
       if(sm){
         flushNormalP(); flushContinuation(); flushPendingSingleBlock(); flushList();
         pendingMeta={kind:'code', lang:sm[1]?sm[1].trim():''};
+        continue;
+      }
+      var mathM=trimmed.match(/^\\[(latexmath|stem|asciimath)\\]$/i);
+      if(mathM){
+        flushNormalP(); flushContinuation(); flushPendingSingleBlock(); flushList();
+        pendingMeta={kind:'math', type:mathM[1].toLowerCase()};
         continue;
       }
       var tm=trimmed.match(/^\\[(.*cols.*|.*header.*|\\d+\\*|[0-9,]+)\\]$/i);
@@ -5017,8 +5166,20 @@ function convertAsciidocToHtml(raw){
       }
       if(trimmed==='----'){
         flushNormalP(); flushContinuation(); flushList();
-        inBlock='code';
-        blockMeta=(pendingMeta&&pendingMeta.kind==='code')?pendingMeta:{};
+        if(pendingMeta && pendingMeta.kind==='math'){
+          inBlock='math';
+          blockMeta=pendingMeta;
+        }else{
+          inBlock='code';
+          blockMeta=(pendingMeta&&pendingMeta.kind==='code')?pendingMeta:{};
+        }
+        pendingMeta=null; pendingBlockLines=[]; blockLines=[];
+        continue;
+      }
+      if(trimmed==='++++'){
+        flushNormalP(); flushContinuation(); flushList();
+        inBlock='math';
+        blockMeta=(pendingMeta&&pendingMeta.kind==='math')?pendingMeta:{kind:'math', type:'latex'};
         pendingMeta=null; pendingBlockLines=[]; blockLines=[];
         continue;
       }
@@ -5036,7 +5197,9 @@ function convertAsciidocToHtml(raw){
         var src=imgMatch[1].trim();
         var alt=imgMatch[2]?imgMatch[2].trim():'';
         var cap=imgMatch[3]||imgMatch[4]||imgMatch[5]||'';
-        out.push('<div class=\"imageblock\"><img src=\"'+esc(src)+'\" alt=\"'+esc(alt)+'\">'+
+        var anchorAttr=pendingAnchor ? ' id=\"'+esc(pendingAnchor)+'\"' : '';
+        pendingAnchor=null;
+        out.push('<div class=\"imageblock\"' + anchorAttr + '><img src=\"'+esc(src)+'\" alt=\"'+esc(alt)+'\">'+
                  (cap?'<div class=\"title\">'+esc(cap)+'</div>':'')+'</div>');
         continue;
       }
@@ -5047,13 +5210,13 @@ function convertAsciidocToHtml(raw){
         continue;
       }
       var h1Match=trimmed.match(/^=\\s+(.+)$/);
-      if(h1Match){ flushNormalP(); flushContinuation(); flushPendingSingleBlock(); flushList(); out.push('<h1>'+inlineAdocFormat(h1Match[1])+'</h1>'); continue; }
+      if(h1Match){ flushNormalP(); flushContinuation(); flushPendingSingleBlock(); flushList(); var hInfo=extractHeadingAnchor(h1Match[1]); var idAttr=hInfo.anchor?' id=\"'+esc(hInfo.anchor)+'\"':''; out.push('<h1'+idAttr+'>'+inlineAdocFormat(hInfo.text)+'</h1>'); continue; }
       var h2Match=trimmed.match(/^==\\s+(.+)$/);
-      if(h2Match){ flushNormalP(); flushContinuation(); flushPendingSingleBlock(); flushList(); out.push('<h2>'+inlineAdocFormat(h2Match[1])+'</h2>'); continue; }
+      if(h2Match){ flushNormalP(); flushContinuation(); flushPendingSingleBlock(); flushList(); var hInfo=extractHeadingAnchor(h2Match[1]); var idAttr=hInfo.anchor?' id=\"'+esc(hInfo.anchor)+'\"':''; out.push('<h2'+idAttr+'>'+inlineAdocFormat(hInfo.text)+'</h2>'); continue; }
       var h3Match=trimmed.match(/^===\\s+(.+)$/);
-      if(h3Match){ flushNormalP(); flushContinuation(); flushPendingSingleBlock(); flushList(); out.push('<h3>'+inlineAdocFormat(h3Match[1])+'</h3>'); continue; }
+      if(h3Match){ flushNormalP(); flushContinuation(); flushPendingSingleBlock(); flushList(); var hInfo=extractHeadingAnchor(h3Match[1]); var idAttr=hInfo.anchor?' id=\"'+esc(hInfo.anchor)+'\"':''; out.push('<h3'+idAttr+'>'+inlineAdocFormat(hInfo.text)+'</h3>'); continue; }
       var h4Match=trimmed.match(/^====\\s+(.+)$/);
-      if(h4Match){ flushNormalP(); flushContinuation(); flushPendingSingleBlock(); flushList(); out.push('<h4>'+inlineAdocFormat(h4Match[1])+'</h4>'); continue; }
+      if(h4Match){ flushNormalP(); flushContinuation(); flushPendingSingleBlock(); flushList(); var hInfo=extractHeadingAnchor(h4Match[1]); var idAttr=hInfo.anchor?' id=\"'+esc(hInfo.anchor)+'\"':''; out.push('<h4'+idAttr+'>'+inlineAdocFormat(hInfo.text)+'</h4>'); continue; }
 
       var attrMatch=trimmed.match(/^:[a-zA-Z0-9_-]+:\\s*(.*)$/);
       if(attrMatch){ continue; }
@@ -5062,7 +5225,9 @@ function convertAsciidocToHtml(raw){
       if(singleAdm){
         flushNormalP(); flushContinuation(); flushPendingSingleBlock(); flushList();
         var admType=singleAdm[1].toUpperCase();
-        out.push('<div class=\"admonitionblock '+admType.toLowerCase()+'\"><div class=\"title\">'+esc(admType)+'</div><div class=\"content\"><p>'+inlineAdocFormat(singleAdm[2])+'</p></div></div>');
+        var anchorAttr=pendingAnchor ? ' id=\"'+esc(pendingAnchor)+'\"' : '';
+        pendingAnchor=null;
+        out.push('<div class=\"admonitionblock '+admType.toLowerCase()+'\"' + anchorAttr + '><div class=\"title\">'+esc(admType)+'</div><div class=\"content\"><p>'+inlineAdocFormat(singleAdm[2])+'</p></div></div>');
         continue;
       }
 
@@ -5110,6 +5275,7 @@ function convertAsciidocToHtml(raw){
       if(inBlock==='quote'&&trimmed==='____') flushBlock();
       else if(inBlock==='admonition'&&trimmed==='====') flushBlock();
       else if(inBlock==='code'&&trimmed==='----') flushBlock();
+      else if(inBlock==='math'&&(trimmed==='++++'||trimmed==='----')) flushBlock();
       else if(inBlock==='table'&&trimmed==='|===') flushBlock();
       else{
         blockLines.push(line);
