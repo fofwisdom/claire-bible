@@ -942,6 +942,35 @@ def test_prompts_adoc_phase1_guidelines():
     assert "<<섹션ID, 제목>>" in prompt_adoc
 
 
+def test_aot_render_latex_math_delimiters():
+    """인라인 $...$, $$...$$, \\(...\\) 수식이 올바른 시맨틱 HTML 로 컴파일되는지 검증."""
+    sample = """
+경제 내 과업 $t \\in \\{1, \\dots, T\\}$ 및 직종 고용 비중 $\\lambda_o$ 입니다.
+인라인 괄호 수식은 \\(\\omega_{o,t} \\ge 0\\) 입니다.
+블록 수식은 다음과 같습니다:
+$$Y = \\sum_{o} \\lambda_o \\sum_{t} \\omega_{o,t} y_{o,t}$$
+"""
+    html_out = render_adoc_to_html(sample)
+    assert '<span class="math inline" data-math="latex"><code>t \\in \\{1, \\dots, T\\}</code></span>' in html_out
+    assert '<span class="math inline" data-math="latex"><code>\\lambda_o</code></span>' in html_out
+    assert '<span class="math inline" data-math="latex"><code>\\omega_{o,t} \\ge 0</code></span>' in html_out
+    assert '<span class="math inline" data-math="latex"><code>Y = \\sum_{o} \\lambda_o \\sum_{t} \\omega_{o,t} y_{o,t}</code></span>' in html_out
+
+
+def test_graphview_and_shared_html_katex_integration():
+    """GRAPH_HTML 및 shared_html 에 KaTeX 의존성 및 렌더링 파이프라인이 정상 통합되었는지 검증."""
+    shared = shared_html({"title": "수식 문서", "detail": "경제 모형 $\\lambda_o$ 및 stem:[E = mc^2]"})
+
+    for page in (GRAPH_HTML, shared):
+        assert "katex.min.css" in page
+        assert "katex.min.js" in page
+        assert "auto-render.min.js" in page
+        assert "applyMathRendering" in page
+        assert "renderMathInElement" in page
+        assert "DOMPURIFY_OPTS" in page
+
+
+
 
 
 
