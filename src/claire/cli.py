@@ -20,6 +20,7 @@ from .store.vectors import probe_sqlite_vec
 
 def cmd_preflight(_args) -> int:
     s = get_settings()
+    configured_provider = s.provider.strip().lower()
     print("claire preflight")
     print("=" * 40)
     print(f"python            : {sys.version.split()[0]}")
@@ -27,7 +28,11 @@ def cmd_preflight(_args) -> int:
     print(f"source base url   : {s.effective_source_base_url}")
     print(f"provider (config) : {s.provider}")
     print(f"provider (eff*)   : {s.effective_provider}")
-    print(f"  gemini key set  : {'yes' if s.gemini_api_key else 'NO (-> mock)'}")
+    if configured_provider in ("codex", "codex-cli"):
+        gemini_state = "yes (embedding=gemini)" if s.gemini_api_key else "NO (search=fts-only)"
+    else:
+        gemini_state = "yes" if s.gemini_api_key else "NO (-> mock)"
+    print(f"  gemini key set  : {gemini_state}")
     print(f"telegram token    : {'set' if s.telegram_bot_token else 'NOT set'}")
     print(f"allowed users     : {sorted(s.allowed_user_ids) or 'ALL'}")
     print(f"db path           : {s.db_file}")
@@ -45,7 +50,22 @@ def cmd_preflight(_args) -> int:
     print(f"sqlite-vec probe  : {'OK' if ok else 'fallback->brute'} ({detail})")
 
     # provider 실호출 점검 (생성 + 임베딩이 조용히 실패하지 않는지)
-    if s.effective_provider == "antigravity":
+    if configured_provider in ("codex", "codex-cli"):
+        from .extract.codex_provider import probe_codex_cli
+
+        probe = probe_codex_cli(s)
+        print(f"codex binary      : {probe['binary']}")
+        print(f"codex version     : {probe['version']}")
+        print(f"codex login       : {probe['login']}")
+        print(
+            f"codex model       : {s.codex_model or 'codex-cli-default'} "
+            f"(effort={s.codex_effort})"
+        )
+        if s.gemini_api_key:
+            print(f"codex embedding   : gemini (model={s.gemini_embed_model})")
+        else:
+            print("codex embedding   : unavailable (search=fts-only)")
+    elif s.effective_provider == "antigravity":
         import shutil
 
         from .extract.provider import get_provider
@@ -112,6 +132,24 @@ def cmd_doctor(args) -> int:
             return 0 if report["is_healthy"] else 1
 
         print("claire doctor: 지식그래프 및 DB 무결성 진단 보고서")
+        if s.provider.strip().lower() in ("codex", "codex-cli"):
+            from .extract.codex_provider import probe_codex_cli
+
+            probe = probe_codex_cli(s)
+            print(
+                f"Codex: binary={probe['binary']} · version={probe['version']} · "
+                f"login={probe['login']}"
+            )
+            print(
+                f"Codex model={s.codex_model or 'codex-cli-default'} · "
+                f"effort={s.codex_effort}"
+            )
+            embedding = (
+                f"gemini ({s.gemini_embed_model})"
+                if s.gemini_api_key
+                else "unavailable · search=fts-only"
+            )
+            print(f"Codex embedding={embedding}")
         print("=" * 50)
         print(f"• 전체 문서 수               : {report['total_documents']} 건")
         print(f"• 전체 엔티티 수             : {report['total_entities']} 건")

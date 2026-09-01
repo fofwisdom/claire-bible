@@ -158,6 +158,20 @@ class Provider(Protocol):
 
     def judge_same_entity(self, mc: MergeCandidate) -> bool: ...
 
+    def summarize_search(self, query: str, context: str) -> str: ...
+
+    def classify_paper(
+        self, doc: Document, *, effort: str | None = None
+    ) -> tuple[bool, str]: ...
+
+    def classify_watch(self, doc: Document) -> dict: ...
+
+    def research(self, query: str, context: str) -> dict: ...
+
+    def judge_research(self, query: str, context: str, report: str) -> dict: ...
+
+    def select_followups(self, context: str, candidates: list[dict]) -> list[int]: ...
+
     def render_detail(
         self, doc: Document, format: str = "md", directive: str | None = None
     ) -> str: ...
@@ -340,6 +354,10 @@ class MockProvider:
 def get_provider(settings) -> Provider:
     """effective_provider 에 따라 provider 인스턴스 반환."""
     eff = settings.effective_provider
+    if eff == "codex":
+        from .codex_provider import CodexProvider  # lazy import
+
+        return CodexProvider(settings)
     if eff == "antigravity":
         from .antigravity_provider import AntigravityProvider  # lazy import
 

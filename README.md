@@ -1,6 +1,6 @@
 # Claire Bible
 
-텔레그램으로 던진 링크/문서/키워드를 **스크랩 → Gemini로 구조화 → 팔란티어식 타입 온톨로지 그래프**로 적재하고,
+텔레그램으로 던진 링크/문서/키워드를 **스크랩 → 선택한 LLM 프로바이더로 구조화 → 팔란티어식 타입 온톨로지 그래프**로 적재하고,
 새 자료를 **기존에 쌓인 그래프와 연결**하며, 나중에 키워드로 **검색 → LLM 정리**해 보여주는 **개인용 지식베이스**.
 
 - 설계 상세: [PLAN.md](PLAN.md) · 비전·로드맵: [GOALS.md](GOALS.md)
@@ -62,6 +62,62 @@ uv run claire ingest "https://example.com/article"   # 문서 수집 및 적재
 uv run claire search "키워드"                          # 하이브리드 검색 + LLM 인용 정리
 uv run claire bot            # 텔레그램 봇 실행 (long-polling)
 ```
+
+### Codex CLI 프로바이더(네이티브 전용)
+
+Codex CLI 프로바이더는 호스트에 설치하고 인증한 `codex`를 `uv run claire`에서
+비대화형으로 호출한다. Docker 이미지와 Compose에는 Codex CLI나 인증 정보를 넣지
+않으며, `CLAIRE_PROVIDER=codex` 또는 `codex-cli`를 선택한 Docker profile은
+`cb-manuscript preflight`에서 거부한다.
+
+먼저 호스트에서 CLI 설치와 로그인 상태를 확인한다. `codex login status`는 현재 인증
+방식을 표시하고 로그인된 경우 종료 코드 0을 반환한다.[^codex-auth]
+
+```bash
+codex --version
+codex login status
+```
+
+호스트의 `.env`에 다음 값을 설정한다. `codex-cli`는 `codex`의 별칭이다.
+`CLAIRE_CODEX_MODEL`을 비우면 인증 계정의 기본 모델을 사용하며 extraction 계보에는
+`codex-cli-default`로 기록한다.
+
+```dotenv
+CLAIRE_PROVIDER=codex
+CLAIRE_CODEX_BIN=codex
+CLAIRE_CODEX_MODEL=
+CLAIRE_CODEX_EFFORT=medium
+CLAIRE_CODEX_TIMEOUT=300
+CLAIRE_CODEX_MAX_CONCURRENCY=1
+```
+
+설정 후에는 컨테이너 명령이 아니라 호스트의 애플리케이션 CLI로 점검하고 실행한다.
+
+```bash
+uv run claire preflight
+uv run claire doctor
+uv run claire status
+uv run claire ingest "https://example.com/article"
+uv run claire search "키워드"
+```
+
+임베딩과 검색 후보 회수 방식은 `GEMINI_API_KEY` 유무에 따라 달라진다.
+
+- 키가 있으면 기존 Gemini embedding 모델과 입력 예산을 사용한다.
+- 키가 없으면 임의 벡터를 만들지 않고 새 임베딩 저장을 생략하며, 검색 후보는 FTS
+  전용으로 회수한다. Codex를 이용한 검색 결과 종합은 계속 수행한다.
+
+각 Codex 호출은 프롬프트를 stdin으로 전달하고 빈 임시 작업 디렉터리에서 신규 세션으로
+실행한다. Claire는 session rollout, 사용자 config와 rules, shell·apply-patch,
+plugins·apps·memories·multi-agent·tool discovery를 비활성화하고 read-only sandbox와
+승인 정책 `never`를 강제한다. 네이티브 웹 검색은 `research()`에서만 허용한다. Codex
+CLI는 비대화형 실행, stdin 프롬프트, JSON Schema 출력, 최종 메시지 파일, ephemeral
+실행, config·rules 무시와 sandbox 선택 옵션을 제공한다.[^codex-cli-reference]
+
+추출·렌더링·분류·종합·리서치 호출은 로그인 계정의 Codex 사용량과 한도를 소비한다.
+운영 전후에 `uv run claire status`, `uv run claire doctor`와 계정 사용량 화면을 함께
+확인하고, timeout이나 quota 오류가 누적되면 모델·effort·동시성을 낮추거나 작업을
+나누어 재개한다.[^codex-usage]
 
 ### 테스트 및 품질 검증 (Testing)
 
@@ -240,6 +296,11 @@ CLAIRE_PROVIDER=gemini
 GEMINI_API_KEY=replace-with-gemini-api-key
 ```
 
+Codex CLI 프로바이더는 이 컨테이너 profile에서 지원하지 않는다. `.env`에
+`CLAIRE_PROVIDER=codex` 또는 `codex-cli`를 설정하면 preflight가 중단되므로,
+[Codex CLI 프로바이더(네이티브 전용)](#codex-cli-프로바이더네이티브-전용)의 호스트
+명령을 사용한다.
+
 Telegram bot을 활성화할 때 `TELEGRAM_BOT_TOKEN`과 `CLAIRE_ALLOWED_USERS`의 허용할
 숫자 user ID를 설정한다.
 
@@ -271,7 +332,7 @@ PDF 논문 및 심층 문서 적재 시 원문 추출 상한(`CLAIRE_PDF_MAX_EXT
 - custom data/vault 경로의 mount·쓰기 권한
 - registry·APT·Python package index 접근
 - production DNS·reverse proxy·TLS·방화벽
-- Gemini와 Telegram 자격증명의 실제 유효성
+- 선택한 컨테이너 프로바이더와 Telegram 자격증명의 실제 유효성
 
 설치가 끝나면 같은 profile에서 상태와 health, 지식그래프 무결성을 확인한다. development는 각
 명령 앞에 `dev`를 붙인다.
@@ -286,7 +347,7 @@ PDF 논문 및 심층 문서 적재 시 원문 추출 상한(`CLAIRE_PDF_MAX_EXT
 ```
 
 `install`의 마지막 검증 범위는 API 컨테이너의 DB·schema liveness다. 설치 후 실제
-환경에서 Gemini 호출, Telegram 메시지, scraping, reverse proxy와 브라우저 접속을
+환경에서 선택한 컨테이너 프로바이더 호출, Telegram 메시지, scraping, reverse proxy와 브라우저 접속을
 각각 확인한다.
 
 ### 주요 운영 명령
@@ -443,7 +504,7 @@ daemon 접근, 배포 경로 권한과 build 네트워크를 확인한다.
 
 ### 장애 대응
 
-- **추출 실패(Gemini 429/quota/크레딧 소진)**: 원본은 `raw_inbox` error 로 보관(유실 0).
+- **추출 실패(프로바이더 quota/크레딧 소진)**: 원본은 `raw_inbox` error 로 보관(유실 0).
   `recover`가 지수백오프로 자동 재적재. 영구실패(`failed`) 누적 시 텔레그램으로 소유자 경보.
   크레딧 충전 등으로 회복되면 due 항목이 자동 복구된다.
 - **기동 여부 확인**: `./cb-manuscript health`로 API 컨테이너의 liveness를 확인한다.
@@ -462,8 +523,20 @@ src/claire/
   notify.py        텔레그램 소유자 경보
   ingest/          fetcher 라우터 + normalize + dedup + IngestService(공유 통로) + 자동복구
   ontology/        타입 온톨로지(코드 인터페이스) + registry(domain/range)
-  extract/         structured 추출 + provider 어댑터(mock/gemini/antigravity) + resolver(약어 동의어 수렴) + circuit breaker
+  extract/         structured 추출 + provider 어댑터(mock/gemini/antigravity/codex) + resolver(약어 동의어 수렴) + circuit breaker
   store/           SQLite(graph+FTS+vec) + 마이그레이션 + vault(.md) export
   expand/          1홉 자동 확장
   retrieval/       하이브리드 검색 + LLM 정리
 ```
+
+## 각주
+
+[^codex-auth]: OpenAI의 Codex 인증 문서는 `codex login status`로 현재 인증 방식을 확인할 수 있다고 설명하며, CLI 레퍼런스는 인증 정보가 있으면 이 명령이 종료 코드 0을 반환한다고 명시한다.
+[^codex-cli-reference]: OpenAI Codex CLI 레퍼런스의 `codex exec` 옵션을 기준으로 한다. Claire가 추가로 비활성화하는 도구와 환경변수 allowlist는 이 프로젝트의 보안 경계이다.
+[^codex-usage]: Codex의 사용량은 인증한 계정·플랜, 선택한 모델, 입력·출력 및 도구 사용에 따라 달라질 수 있다. 정확한 잔여 사용량은 계정 사용량 화면에서 확인한다.
+
+## 참고문헌
+
+1. OpenAI, [Authentication](https://developers.openai.com/codex/auth), 2026-09-01 확인.
+2. OpenAI, [Codex CLI reference](https://developers.openai.com/codex/cli/reference), 2026-09-01 확인.
+3. OpenAI, [ChatGPT and Codex pricing](https://learn.chatgpt.com/docs/pricing), 2026-09-01 확인.

@@ -40,6 +40,7 @@ ANONYMOUS_READONLY_KEY = "CLAIRE_ANONYMOUS_READONLY"
 DEVELOPMENT = "development"
 PRODUCTION = "production"
 ENVIRONMENTS = frozenset((DEVELOPMENT, PRODUCTION))
+CODEX_PROVIDER_ALIASES = frozenset(("codex", "codex-cli"))
 BACKUP_FORMAT_VERSION = 1
 BACKUP_COMPONENTS = ("data", "vault")
 BACKUP_ARCHIVE_SUFFIX = ".tar.gz"
@@ -838,7 +839,18 @@ def load_runtime(layout: Layout, *, legacy_dev: bool = False) -> Runtime:
     )
 
 
+def _reject_native_only_provider(runtime: Runtime) -> None:
+    raw_provider = runtime.values.get("CLAIRE_PROVIDER", "").strip().lower()
+    if raw_provider in CODEX_PROVIDER_ALIASES:
+        raise ManuscriptError(
+            "Codex provider는 네이티브 전용(native-only)이며 cb-manuscript "
+            "Docker profile에서 실행할 수 없습니다. 대신 `uv run claire ...`로 "
+            "Claire를 네이티브 실행하십시오."
+        )
+
+
 def config_preflight(runtime: Runtime) -> None:
+    _reject_native_only_provider(runtime)
     for path in (*runtime.env_files, *runtime.compose_files):
         if not path.is_file():
             raise ManuscriptError(f"Required file not found: {path}")
@@ -3015,6 +3027,7 @@ def command_update(runtime: Runtime, *, no_fetch: bool) -> int:
 
 
 def command_preflight(runtime: Runtime) -> int:
+    _reject_native_only_provider(runtime)
     run_command(("docker", "--version"), cwd=runtime.layout.root)
     run_command(("docker", "compose", "version"), cwd=runtime.layout.root)
     run_command(
