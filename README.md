@@ -364,6 +364,7 @@ PDF 논문 및 심층 문서 적재 시 원문 추출 상한(`CLAIRE_PDF_MAX_EXT
 | `./cb-manuscript restore` | 대화형 백업 목록 조회 및 번호 선택 복원 |
 | `./cb-manuscript restore backups/cb-YYYYMMDD-HHMMSS --yes` | 특정 백업 지정 복원 |
 | `./cb-manuscript health` | 실행 중인 API 컨테이너의 DB·schema liveness 확인 |
+| `./cb-manuscript clean` | 미사용/레거시 컨테이너, 댕글링 이미지, 빌드 캐시 정리 |
 | `./cb-manuscript logs -f api` | API 컨테이너 실시간 로그 확인 |
 | `./cb-manuscript shell` | 컨테이너 셸 접속 |
 | `./cb-manuscript app --help` | 배포 이미지의 전체 앱 명령 확인 |

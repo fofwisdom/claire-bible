@@ -1438,3 +1438,80 @@ def test_app_regenerate_dispatches_to_claire_in_container(tmp_path):
         "--effort",
         "high",
     ]
+
+
+def test_clean_removes_legacy_stopped_containers_and_prunes_images(tmp_path):
+    _write_layout(tmp_path, dev=False)
+
+    def side_effect(argv, **_kwargs):
+        cmd = list(argv)
+        # Mock finding a legacy container
+        if cmd[:5] == ["docker", "ps", "-a", "-q", "--filter"] and "name=^/claire_bot$" in cmd[5]:
+            return _completed(cmd, stdout="c123456\n")
+        return _completed(cmd)
+
+    with patch.object(cb.subprocess, "run", side_effect=side_effect) as run:
+        code = cb.main(["clean"], root=tmp_path)
+        assert code == 0
+
+    commands = _commands(run)
+    # Check legacy removal
+    assert ["docker", "rm", "-f", "claire_bot"] in commands
+    # Check compose rm
+    compose_rm = [c for c in commands if "rm" in c and "-f" in c and "docker" in c]
+    assert len(compose_rm) >= 1
+    # Check image prune
+    assert ["docker", "image", "prune", "-f"] in commands
+
+
+def test_clean_dry_run_does_not_mutate(tmp_path):
+    _write_layout(tmp_path, dev=False)
+
+    def side_effect(argv, **_kwargs):
+        cmd = list(argv)
+        if cmd[:5] == ["docker", "ps", "-a", "-q", "--filter"] and "name=^/claire_bot$" in cmd[5]:
+            return _completed(cmd, stdout="c123456\n")
+        return _completed(cmd)
+
+    with patch.object(cb.subprocess, "run", side_effect=side_effect) as run:
+        code = cb.main(["clean", "--dry-run"], root=tmp_path)
+        assert code == 0
+
+    commands = _commands(run)
+    # Ensure no destructive rm or prune was called
+    for cmd in commands:
+        assert "rm" not in cmd
+        assert "prune" not in cmd
+
+
+def test_clean_with_all_and_builder_options(tmp_path):
+    _write_layout(tmp_path, dev=False)
+
+    with patch.object(cb.subprocess, "run", side_effect=_fake_success) as run:
+        code = cb.main(["clean", "--all"], root=tmp_path)
+        assert code == 0
+
+    commands = _commands(run)
+    assert ["docker", "image", "prune", "-a", "-f"] in commands
+    assert ["docker", "builder", "prune", "-f"] in commands
+
+
+def test_clean_legacy_only_skips_compose_and_images(tmp_path):
+    _write_layout(tmp_path, dev=False)
+
+    def side_effect(argv, **_kwargs):
+        cmd = list(argv)
+        if cmd[:5] == ["docker", "ps", "-a", "-q", "--filter"] and "name=^/claire_bot$" in cmd[5]:
+            return _completed(cmd, stdout="c123456\n")
+        return _completed(cmd)
+
+    with patch.object(cb.subprocess, "run", side_effect=side_effect) as run:
+        code = cb.main(["clean", "--legacy-only"], root=tmp_path)
+        assert code == 0
+
+    commands = _commands(run)
+    assert ["docker", "rm", "-f", "claire_bot"] in commands
+    # Should not prune images or run compose rm
+    assert ["docker", "image", "prune", "-f"] not in commands
+    assert ["docker", "builder", "prune", "-f"] not in commands
+
