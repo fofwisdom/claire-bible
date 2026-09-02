@@ -99,6 +99,31 @@ def find_codex_executable(codex_bin: str = "codex") -> str | None:
     return str(Path(found).resolve()) if found else None
 
 
+def find_ffmpeg_executable(ffmpeg_bin: str = "ffmpeg") -> str | None:
+    """Find ffmpeg executable in PATH or standard locations."""
+    if not ffmpeg_bin:
+        ffmpeg_bin = "ffmpeg"
+    raw = str(ffmpeg_bin).strip()
+    explicit = Path(raw).expanduser()
+    if explicit.is_file() and os.access(explicit, os.X_OK):
+        return str(explicit.resolve())
+    found = shutil.which(raw)
+    if found:
+        return str(Path(found).resolve())
+    extra_dirs = [
+        "/usr/bin",
+        "/usr/local/bin",
+        "/host-bin",
+        str(Path.home() / ".local" / "bin"),
+        "/root/.local/bin",
+    ]
+    for d in extra_dirs:
+        cand = Path(d) / raw
+        if cand.is_file() and os.access(cand, os.X_OK):
+            return str(cand.resolve())
+    return None
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=ROOT / ".env",
@@ -163,6 +188,15 @@ class Settings(BaseSettings):
     codex_max_concurrency: int = Field(
         default=1, alias="CLAIRE_CODEX_MAX_CONCURRENCY"
     )
+
+    # --- Video & Audio Transcription (STT) ---
+    enable_video_transcription: bool = Field(
+        default=True, alias="CLAIRE_ENABLE_VIDEO_TRANSCRIPTION"
+    )
+    stt_provider: str = Field(default="antigravity", alias="CLAIRE_STT_PROVIDER")
+    stt_model: str = Field(default="", alias="CLAIRE_STT_MODEL")
+    stt_language: str = Field(default="ko", alias="CLAIRE_STT_LANGUAGE")
+    ffmpeg_bin: str = Field(default="ffmpeg", alias="CLAIRE_FFMPEG_BIN")
 
     # --- storage ---
     db_path: str = Field(default="data/claire.db", alias="CLAIRE_DB_PATH")
@@ -288,6 +322,18 @@ class Settings(BaseSettings):
             return False
         raise ValueError("CLAIRE_ALLOW_PURGE must be a boolean or 0/1")
 
+    @field_validator("enable_video_transcription", mode="before")
+    @classmethod
+    def _parse_enable_video_transcription(cls, value: object) -> bool:
+        if isinstance(value, bool):
+            return value
+        s = str(value or "").strip().lower()
+        if s in ("1", "true", "yes", "on"):
+            return True
+        if s in ("0", "false", "no", "off", ""):
+            return False
+        raise ValueError("CLAIRE_ENABLE_VIDEO_TRANSCRIPTION must be a boolean or 0/1")
+
     @field_validator("anonymous_readonly", mode="before")
     @classmethod
     def _parse_anonymous_readonly(cls, value: object) -> bool:
@@ -381,6 +427,20 @@ class Settings(BaseSettings):
         if raw in ("codex", "codex-cli"):
             if find_codex_executable(self.codex_bin) is not None:
                 return "codex"
+            return "mock"
+        if raw == "gemini" and not self.gemini_api_key:
+            return "mock"
+        return raw
+
+    @property
+    def effective_stt_provider(self) -> str:
+        """비디오 전사 기능 활성화 및 실행 환경에 따른 STT provider 반환."""
+        if not self.enable_video_transcription:
+            return "mock"
+        raw = (self.stt_provider or "antigravity").strip().lower()
+        if raw in ("antigravity", "agy"):
+            if find_agy_executable(self.agy_bin) is not None or self.gemini_api_key:
+                return "antigravity"
             return "mock"
         if raw == "gemini" and not self.gemini_api_key:
             return "mock"

@@ -1,8 +1,8 @@
 # 비디오 음성 자막(전사) 생성 및 지식 적재 파이프라인 설계 (`VIDEO_AUDIO_TRANSCRIPTION_AND_INGESTION_DESIGN.md`)
 
-> **상태**: 검토 및 설계 완료 (Design Phase)  
+> **상태**: 구현 및 검증 완료 (Implemented & Verified)  
 > **대상 플랫폼 예시**: VMware Explore Video (`https://www.vmware.com/explore/video/6403821753112`)  
-> **적용 모듈**: `claire.ingest.fetchers`, `claire.extract.transcript`, `claire.extract.provider`
+> **적용 모듈**: `claire.ingest.fetchers.video`, `claire.extract.transcript`, `claire.config`, `claire.ingest.router`
 
 ---
 
@@ -118,13 +118,80 @@ class TranscriptProvider(Protocol):
 4. **`LocalWhisperProvider` (확장 - 에어갭/로컬 처리)**:
    * `faster-whisper` 기반 CTranslate2 로컬 GPU/CPU 추론.
 
-### 4.3. 미디어 오디오 스트림 추출 최적화
+### 4.3. 미디어 스트림 리졸버 아키텍처 (`MediaStreamResolver`)
 
-* 1080p 고화질 비디오(수백 MB ~ 수 GB)를 그대로 다운로드하지 않고, `ffmpeg` 스트림 파이프로 오디오 트랙만 선택 추출합니다:
-  ```bash
-  ffmpeg -i "<STREAM_URL>" -vn -ac 1 -ar 16000 -b:a 32k -f mp3 output.mp3
-  ```
-* 43.5분 영상 기준 오디오 파일 크기는 **약 10.4MB** 수준으로 압축되어 네트워크 대역폭 및 I/O 오버헤드를 최소화합니다.
+웹페이지 URL로부터 실제 재생 가능한 오디오/비디오 스트림 URL 및 영상 메타데이터를 정밀하게 추출하는 전용 리졸버 체인을 구성합니다.
+
+```
+ [ URL 입력 ]
+      │
+      ▼
+┌──────────────────────────────────────────────────────────────┐
+│ MediaStreamResolver Registry (우선순위 기반 체인)                  │
+├──────────────────────────────────────────────────────────────┤
+│ 1. BrightcoveResolver: VMware Explore / Brightcove Video Cloud │
+│    - 페이지 스크립트에서 Account ID, Video ID, Policy Key 추출   │
+│    - Playback API (/playback/v1/accounts/.../videos/...) 호출 │
+│    - 최적 MP4/HLS 스트림 URL, 공식 세션명, 설명문, 썸네일 확보     │
+├──────────────────────────────────────────────────────────────┤
+│ 2. YouTubeAudioResolver: 유튜브 자막 부재 영상 폴백               │
+│    - youtube-transcript-api 자막 획득 실패 시 활성화            │
+│    - yt-dlp / oEmbed 기반 오디오 스트림 URL 해석                │
+├──────────────────────────────────────────────────────────────┤
+│ 3. GenericWebVideoResolver: 일반 웹 비디오                     │
+│    - <video src="...">, <source type="application/x-mpegURL">│
+│    - og:video, twitter:player:stream, JSON-LD VideoObject    │
+├──────────────────────────────────────────────────────────────┤
+│ 4. DirectMediaResolver: 직접 미디어 파일 (.mp4, .m3u8, .mp3 등)  │
+└──────────────────────────────────────────────────────────────┘
+```
+
+### 4.4. 비디오 페처 동작 생명주기 (`fetch_video`)
+
+1. **URL 라우팅 (`router.py`)**:
+   - `vmware.com/explore/video/`, `brightcove.net`, `.mp4`, `.m3u8` 등의 패턴 감지 시 `fetch_video`로 라우팅.
+2. **스트림 해석 및 메타데이터 확보**:
+   - `MediaStreamResolver`를 실행하여 `StreamInfo(stream_url, title, author, description, duration_sec, thumbnail_url)` 획득.
+3. **환경변수 분기 처리 (`CLAIRE_ENABLE_VIDEO_TRANSCRIPTION`)**:
+   - **`CLAIRE_ENABLE_VIDEO_TRANSCRIPTION=0` (비활성)**:
+     - 오디오 다운로드 및 STT를 건너뛰고, 페이지 메타데이터(제목, 발표자, 설명문)만으로 경량 `Document(source_type="video", raw_text=..., partial=True)` 생성.
+   - **`CLAIRE_ENABLE_VIDEO_TRANSCRIPTION=1` (활성)**:
+     - `ffmpeg` 스트림 파이프로 원본 비디오 다운로드 없이 16kHz 모노 MP3 임시 파일(`/tmp/claire_audio_<hash>.mp3`) 추출.
+     - `TranscriptProvider.transcribe(audio_file)` 호출로 타임스탬프 전사 획득.
+     - 임시 오디오 파일 즉시 안전 삭제 (`try ... finally`).
+4. **`Document` 생성 및 포맷팅**:
+   - 본문(`raw_text`)에 메타데이터 헤더와 타임스탬프 전사문(`[05:20] 발화 내용...`) 결합.
+   - `meta` 딕셔너리에 `duration_sec`, `has_transcript=True`, `transcript_segments`, `platform` 저장.
+
+### 4.5. 지식 그래프 및 엔티티 해소 연동 (`resolver.py` & Pipeline)
+
+1. **화자(Person) 및 발표 주체(Org) 자동 식별**:
+   - 영상 메타데이터의 `author` 및 전사 본문 도입부 발화에서 화자/소속 기업 엔티티 추출.
+2. **타임스탬프 관찰(Observation) 앵커링**:
+   - 추출된 엔티티의 `observations`에 타임스탬프 앵커(`[12:34]`)가 보존되어, 향후 지식 검색 및 UI 조회 시 원본 영상의 재생 시각 딥링크(`https://...#t=754`)로 연결.
+3. **약어 ↔ 풀네임 결정론적 수렴 (Zero-Quota Resolution)**:
+   - 발표에서 자주 언급되는 IT/인프라 약어(VCF $\leftrightarrow$ VMware Cloud Foundation, GPU, vSAN, LLM 등)는 `resolver.py`의 약어 수렴 규칙(§2.5)에 따라 별도의 임베딩/판정 비용 없이 기존 그래프 노드와 즉시 병합.
+
+### 4.6. 환경변수 기반 활성화 및 런타임 제어
+
+기능의 활성화 여부 및 프로바이더 선택은 환경변수를 통해 결정론적으로 제어됩니다.
+
+| 환경변수 | 기본값 | 허용값 / 설명 |
+| :--- | :--- | :--- |
+| `CLAIRE_ENABLE_VIDEO_TRANSCRIPTION` | `1` | `0` (비활성) \| `1` (활성). `0`일 경우 무거운 오디오 STT를 수행하지 않고 메타데이터만 수집하거나 안내 반환. |
+| `CLAIRE_STT_PROVIDER` | `antigravity` | `antigravity` \| `whisper` \| `groq` \| `gcp` \| `local` \| `mock` |
+| `CLAIRE_STT_MODEL` | `""` | 프로바이더별 모델명 오버라이드 (예: `gemini-3.7-flash`, `whisper-large-v3`) |
+| `CLAIRE_STT_LANGUAGE` | `ko` | 전사 기본/선호 언어 코드 (`ko`, `en` 등 또는 빈 값 시 자동 감지) |
+| `CLAIRE_FFMPEG_BIN` | `ffmpeg` | 시스템 `ffmpeg` 실행 파일 경로 또는 바이너리명 |
+
+### 4.7. 빌드 환경 및 컨테이너 통합 (Build Specifications)
+
+1. **컨테이너 이미지 (`Dockerfile`)**:
+   - `apt-get install`에 `ffmpeg` 패키지를 추가하여 스트림 오디오 트랜스코딩 바이너리를 내장합니다.
+2. **패키지 명세 (`pyproject.toml`)**:
+   - `[project.optional-dependencies]`에 `audio` 그룹을 정의하고, 빌드 시 `uv sync --extra audio`로 필요한 라이브러리를 설치합니다.
+3. **Graceful Fallback**:
+   - `ffmpeg`가 누락되었거나 `CLAIRE_ENABLE_VIDEO_TRANSCRIPTION=0`인 환경에서도 시스템 전체가 실패하지 않고 안전하게 대체 경로로 동작하도록 설계합니다.
 
 ---
 
@@ -174,7 +241,7 @@ class TranscriptProvider(Protocol):
 ## 6. 구현 단계 및 권장 사항
 
 1. **1단계: 의존성 및 미디어 리졸버 구축**
-   * 시스템 환경 내 `ffmpeg` 도구 확보 및 Brightcove/HTML5 스트림 URL 파서 작성.
+   * 시스템 환경 내 `ffmpeg` 도구 확보 및 `yt-dlp` 기반 Brightcove/YouTube/HTML5 스트림 URL 파서 작성.
 2. **2단계: `TranscriptProvider` 추상화 및 Antigravity 어댑터 구현**
    * `claire.extract.transcript` 패키지 신설 및 `AntigravityTranscriptProvider` 구현.
    * 타임스탬프가 포함된 `TranscriptResult` 스키마 고정.
@@ -183,3 +250,19 @@ class TranscriptProvider(Protocol):
    * 자막 생성 결과를 `Document(source_type="video", raw_text=...)`로 변환하여 기존 그래프 적재 파이프라인에 연결.
 4. **4단계: 타임스탬프 앵커링 지원**
    * 가독 본문(AsciiDoc/Markdown) 및 지식 그래프 관찰(Observations)에 영상 타임스탬프 링크(예: `[12:34](url#t=754)`)를 보존하여 원본 재생 위치로 바로 이동할 수 있도록 UI 지원.
+
+---
+
+## 7. 구현 완료 및 검증 결과
+
+* **신규 모듈 및 컴포넌트**:
+  * `src/claire/extract/transcript/`: `base.py`, `mock_stt.py`, `antigravity_stt.py`, `factory.py`
+  * `src/claire/ingest/fetchers/video.py`: `resolve_video_target_url()`, `fetch_video()`
+  * `src/claire/config.py`: `enable_video_transcription`, `stt_provider`, `ffmpeg_bin`, `find_ffmpeg_executable()`
+  * `src/claire/ingest/router.py` & `src/claire/telegram_bot.py`: `video` 입력 라우팅 및 분류 연동
+* **빌드 및 패키징**:
+  * `pyproject.toml` `[project.optional-dependencies]`에 `audio = ["yt-dlp>=2024.8.0"]` 추가
+  * `Dockerfile`에 `ffmpeg` apt 패키지 설치 및 `uv sync --extra audio` 연동
+* **테스트 검증**:
+  * 전용 단위 테스트 12건 (`tests/test_config_video.py`, `tests/test_transcript_provider.py`, `tests/test_video_fetcher.py`) 신설 및 전체 테스트 스위트 811건 100% 통과.
+

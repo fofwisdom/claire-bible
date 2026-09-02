@@ -38,16 +38,24 @@ def extract_shared_url(payload: str) -> str | None:
 def classify(payload: str) -> str:
     """payload → 라우팅 종류. telegram_bot.classify_input 과 정합.
 
-    종류: youtube | xcom | redirect | web | file | text
+    종류: youtube | video | xcom | redirect | web | file | text
     """
     t = (payload or "").strip()
     if not t:
         return "text"
     low = t.lower()
     if low.startswith("http://") or low.startswith("https://"):
-        host = urlsplit(low).netloc
+        parsed = urlsplit(low)
+        host = parsed.netloc
+        path = parsed.path
         if "youtube.com" in host or "youtu.be" in host:
             return "youtube"
+        if ("vmware.com" in host and "/explore/video/" in path) or "brightcove.net" in host:
+            return "video"
+        if "vimeo.com" in host:
+            return "video"
+        if path.endswith((".mp4", ".m3u8", ".mpd", ".webm", ".m4a", ".mp3")):
+            return "video"
         if "x.com" in host or "twitter.com" in host:
             return "xcom"
         if "share.google" in host or host.startswith("share."):
@@ -89,7 +97,7 @@ def fetch(payload: str, *, full_content: bool = False, _depth: int = 0) -> Docum
             t = shared
     kind = classify(t)
 
-    if kind in ("web", "youtube", "xcom", "redirect"):
+    if kind in ("web", "youtube", "video", "xcom", "redirect"):
         t = _clean_url(t)
 
     def _call_fetcher(fn, *args, **kwargs):
@@ -97,6 +105,11 @@ def fetch(payload: str, *, full_content: bool = False, _depth: int = 0) -> Docum
             return fn(*args, full_content=full_content, **kwargs)
         except TypeError:
             return fn(*args, **kwargs)
+
+    if kind == "video":
+        from .fetchers.video import fetch_video
+
+        return _call_fetcher(fetch_video, t)
 
     if kind == "youtube":
         from .fetchers.youtube import fetch_youtube
