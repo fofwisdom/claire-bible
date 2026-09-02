@@ -157,6 +157,25 @@ def document_detail(conn: sqlite3.Connection, document_id: str, include_hidden: 
         except Exception:
             meta_dict = {}
 
+    raw_text = None
+    try:
+        raw_text = row["raw_text"]
+    except (IndexError, KeyError):
+        raw_text = None
+
+    is_stt = bool(
+        meta_dict.get("is_stt", False)
+        or meta_dict.get("stt_applied", False)
+        or meta_dict.get("stt", False)
+        or (isinstance(meta_dict.get("transcript_segments"), list) and len(meta_dict["transcript_segments"]) > 0)
+        or (raw_text and ("[영상 음성 전사 (STT)]" in raw_text or "[음성 전사 (STT)]" in raw_text))
+    )
+
+    stt_data = dbm.extract_stt_transcript(raw_text, meta_dict) if is_stt else None
+    stt_transcript = stt_data["text"] if stt_data else ""
+    stt_segments = stt_data["segments"] if stt_data else []
+    stt_truncated = bool(stt_data["stt_truncated"]) if stt_data else False
+
     return {
         "id": document_id,
         "title": row["title"] or "(제목 없음)",
@@ -178,7 +197,12 @@ def document_detail(conn: sqlite3.Connection, document_id: str, include_hidden: 
         "orig_chars": meta_dict.get("orig_chars"),
         "raw_chars": meta_dict.get("raw_chars"),
         "directive": meta_dict.get("directive"),
-        "is_stt": bool(meta_dict.get("is_stt", False) or meta_dict.get("stt_applied", False) or meta_dict.get("stt", False)),
+        "is_stt": is_stt,
+        "stt_transcript": stt_transcript,
+        "transcript_segments": stt_segments,
+        "stt_truncated": stt_truncated,
+        "stt_orig_chars": meta_dict.get("stt_orig_chars") or meta_dict.get("orig_chars"),
+        "stt_raw_chars": meta_dict.get("stt_raw_chars") or meta_dict.get("raw_chars"),
         "meta": meta_dict,
     }
 
@@ -669,6 +693,35 @@ GRAPH_HTML = """<!doctype html>
   .docmeta .trunc-tag.trunc-appendix, .docmeta .trunc-tag-appendix{color:#3fb950;background:rgba(63,185,80,0.12);border:1px solid rgba(63,185,80,0.3)}
   .docmeta .directive-tag{display:inline-flex;align-items:center;gap:4px;color:var(--accent2,#58a6ff);background:rgba(88,166,255,0.12);border:1px solid rgba(88,166,255,0.3);border-radius:10px;padding:1px 7px;font-size:11px;cursor:help;white-space:nowrap;line-height:1.4}
   .docmeta .stt-tag{display:inline-flex;align-items:center;gap:4px;color:#a371f7;background:rgba(163,113,247,0.12);border:1px solid rgba(163,113,247,0.3);border-radius:10px;padding:1px 7px;font-size:11px;cursor:help;white-space:nowrap;line-height:1.4}
+  .docmeta .trunc-tag.trunc-stt{color:#f0883e;background:rgba(240,136,62,0.12);border:1px solid rgba(240,136,62,0.35)}
+  .docmeta a.stt-link{color:var(--accent);text-decoration:none;margin-left:8px;font-weight:500;cursor:pointer}
+  .docmeta a.stt-link:hover{text-decoration:underline}
+  .stt-trunc-banner{background:rgba(240,136,62,0.12);border:1px solid rgba(240,136,62,0.35);color:var(--fg);border-radius:6px;padding:10px 14px;margin:0 0 14px;font-size:13px;line-height:1.5}
+  .stt-trunc-banner strong{color:#f0883e}
+  .stt-trunc-banner code{background:var(--chip-bg);border:1px solid var(--border);border-radius:4px;padding:2px 6px;font-size:11.5px;font-family:'D2Coding','D2 Coding',monospace}
+  /* STT 전사 열기 모달 */
+  #sttmodal{position:fixed;top:0;left:0;right:0;bottom:0;z-index:70;background:rgba(0,0,0,0.65);display:none;align-items:center;justify-content:center;padding:max(16px,env(safe-area-inset-top)) 16px max(16px,env(safe-area-inset-bottom));backdrop-filter:blur(4px);box-sizing:border-box}
+  #sttmodal.open{display:flex!important}
+  .sttsheet{background:var(--bg);color:var(--fg);width:min(880px,96vw);height:min(840px,90dvh);border:1px solid var(--border);border-radius:12px;box-shadow:0 16px 48px var(--shadow);display:flex;flex-direction:column;overflow:hidden}
+  .stthead{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 18px;border-bottom:1px solid var(--border);background:var(--bar-bg);flex-shrink:0}
+  .stthead h2{margin:0;font-size:16px;display:flex;align-items:center;gap:6px;color:var(--fg)}
+  .sttmeta{color:var(--muted);font-size:12px;margin:3px 0 0}
+  .stttools{display:flex;align-items:center;gap:6px;flex-shrink:0}
+  .stttools button{background:var(--sec-bg);color:var(--sec-fg);border:1px solid var(--border);border-radius:6px;font-size:12px;padding:5px 10px;cursor:pointer;display:inline-flex;align-items:center;gap:4px;transition:background .15s ease,border-color .15s ease}
+  .stttools button:hover{background:var(--hover);border-color:var(--accent)}
+  .stttools .sttclose{font-size:16px;padding:4px 9px;line-height:1}
+  .sttsearchbar{display:flex;align-items:center;gap:10px;padding:8px 18px;border-bottom:1px solid var(--border);background:var(--card-bg);flex-shrink:0}
+  .sttsearchbar input{flex:1;min-width:0;height:32px;padding:0 10px;background:var(--input-bg,var(--bg));color:var(--fg);border:1px solid var(--border);border-radius:6px;font-size:13px}
+  .sttsearchbar .sttcount{font-size:12px;color:var(--muted);white-space:nowrap}
+  .sttbody{flex:1;overflow-y:auto;padding:16px 20px;min-height:0;line-height:1.65;font-size:14px;overscroll-behavior:contain}
+  .stt-line{display:flex;gap:12px;margin-bottom:8px;padding:4px 6px;border-radius:4px;transition:background .1s ease}
+  .stt-line:hover{background:var(--hover)}
+  .stt-line.highlight{background:rgba(234,179,8,0.15)}
+  .stt-ts{font-family:'D2Coding','D2 Coding',monospace;font-size:12px;color:var(--accent);background:var(--chip-bg);border:1px solid var(--border);border-radius:4px;padding:1px 6px;height:fit-content;flex-shrink:0;user-select:none;cursor:pointer}
+  .stt-ts:hover{background:var(--active);border-color:var(--accent)}
+  .stt-text{flex:1;word-break:break-word;color:var(--fg)}
+  .stt-text mark{background:#ffe066;color:#111;border-radius:2px;padding:0 2px}
+  [data-theme="dark"] .stt-text mark{background:#b28b00;color:#fff}
   #panel .readbtn{background:var(--accent);color:#fff;border:0;border-radius:4px;padding:3px 10px;font-size:12.5px;cursor:pointer;margin:.2em 0}
   #panel .dochide-row{margin:.6em 0 .4em}
   #panel .dochide-label{font-size:12px;display:inline-flex;align-items:center;gap:6px;cursor:pointer;color:var(--muted)}
@@ -1049,6 +1102,26 @@ GRAPH_HTML = """<!doctype html>
         <div class="rbody" id="rbody">
           <p class="hint" style="padding:20px;text-align:center">왼쪽 목록에서 문서를 선택하면 본문이 표시됩니다.</p>
         </div>
+      </div>
+    </div>
+    <div id="sttmodal" class="sttmodal" role="dialog" aria-modal="true" aria-labelledby="stttitle" style="display:none" onclick="if(event.target===this)closeSttReader()">
+      <div class="sttsheet" tabindex="-1">
+        <div class="stthead">
+          <div>
+            <h2 id="stttitle">🎙️ 음성 전사 (STT)</h2>
+            <p class="sttmeta" id="sttmeta"></p>
+          </div>
+          <div class="stttools">
+            <button class="sec" onclick="copySttText(false)" title="전사 텍스트만 복사">📋 텍스트 복사</button>
+            <button class="sec" onclick="copySttText(true)" title="타임스탬프 포함 복사">⏱️ 타임스탬프 복사</button>
+            <button class="rclose sttclose" onclick="closeSttReader()" title="닫기(ESC)" aria-label="전사 닫기">✕</button>
+          </div>
+        </div>
+        <div class="sttsearchbar">
+          <input id="sttq" placeholder="전사 내용 검색 (단어 또는 타임스탬프)..." oninput="filterSttLines(this.value)"/>
+          <span id="sttcount" class="sttcount"></span>
+        </div>
+        <div id="sttbody" class="sttbody"></div>
       </div>
     </div>
   </div>
@@ -2363,12 +2436,20 @@ function docMetaHtml(dc){
   const isAppTrunc = isTrunc && !!(dc.appendix_truncated || (dc.meta && dc.meta.appendix_truncated));
   const directive = (dc.directive || (dc.meta && dc.meta.directive) || '').trim();
   const isStt = !!(dc.is_stt || (dc.meta && (dc.meta.is_stt || dc.meta.stt_applied || dc.meta.stt)));
+  const isSttTrunc = isStt && !!(dc.stt_truncated || (dc.meta && dc.meta.stt_truncated) || isTrunc);
   if(!hasUrl && !isTrunc && !directive && !isStt) return '';
   let h='<p class=docmeta>';
   if(hasUrl){
     h+='<a href="'+esc(dc.url)+'" target=_blank rel=noopener>↗ 원문 열기</a>';
+    if(isStt){
+      h+=' <a href="#" class="stt-link" onclick="openSttReader();return false;" title="음성 인식(STT) 전사 텍스트 열기">↗ 전사 열기</a>';
+    }
   } else {
-    h+='<span></span>';
+    if(isStt){
+      h+='<a href="#" class="stt-link" onclick="openSttReader();return false;" title="음성 인식(STT) 전사 텍스트 열기">↗ 전사 열기</a>';
+    } else {
+      h+='<span></span>';
+    }
   }
   let tags=[];
   if(directive){
@@ -2378,12 +2459,10 @@ function docMetaHtml(dc){
   if(isStt){
     tags.push('<span class="directive-tag stt-tag" title="음성 인식(STT)을 적용하여 작성한 문서">🎙️ STT</span>');
   }
-  if(isTrunc){
+  if(isAppTrunc){
     const orig=(dc.orig_chars || (dc.meta && dc.meta.orig_chars)) || 0;
     const raw=(dc.raw_chars || (dc.meta && dc.meta.raw_chars)) || 0;
-    let tip = isAppTrunc
-      ? '원문의 부록(Appendix) 부분을 절단한 문서'
-      : '글자 수 상한으로 원문 일부를 절단한 문서';
+    let tip = '원문의 부록(Appendix) 부분을 절단한 문서';
     let label='✂️ 원문 일부 절단';
     if(orig > 0 && raw > 0){
       tip+=' (원문: '+orig.toLocaleString()+'자 → 적재: '+raw.toLocaleString()+'자)';
@@ -2391,8 +2470,31 @@ function docMetaHtml(dc){
     } else if(raw > 0){
       label+=' ('+raw.toLocaleString()+'자)';
     }
-    const tagClass = isAppTrunc ? 'trunc-tag trunc-appendix' : 'trunc-tag';
-    tags.push('<span class="'+tagClass+'" title="'+esc(tip)+'">'+esc(label)+'</span>');
+    tags.push('<span class="trunc-tag trunc-appendix" title="'+esc(tip)+'">'+esc(label)+'</span>');
+  } else if(isSttTrunc){
+    const orig=(dc.stt_orig_chars || (dc.meta && dc.meta.stt_orig_chars) || dc.orig_chars || (dc.meta && dc.meta.orig_chars)) || 0;
+    const raw=(dc.stt_raw_chars || (dc.meta && dc.meta.stt_raw_chars) || dc.raw_chars || (dc.meta && dc.meta.raw_chars)) || 0;
+    let tip = '음성 전사(STT) 전문이 일부 절단된 상태에서 본문(상세)이 작성된 문서';
+    let label = '✂️ STT 일부 절단';
+    if(orig > 0 && raw > 0){
+      tip += ' (원문: '+orig.toLocaleString()+'자 → 적재: '+raw.toLocaleString()+'자)';
+      label += ' ('+raw.toLocaleString()+' / '+orig.toLocaleString()+'자)';
+    } else if(raw > 0){
+      label += ' ('+raw.toLocaleString()+'자)';
+    }
+    tags.push('<span class="trunc-tag trunc-stt" title="'+esc(tip)+'">'+esc(label)+'</span>');
+  } else if(isTrunc){
+    const orig=(dc.orig_chars || (dc.meta && dc.meta.orig_chars)) || 0;
+    const raw=(dc.raw_chars || (dc.meta && dc.meta.raw_chars)) || 0;
+    let tip = '글자 수 상한으로 원문 일부를 절단한 문서';
+    let label='✂️ 원문 일부 절단';
+    if(orig > 0 && raw > 0){
+      tip+=' (원문: '+orig.toLocaleString()+'자 → 적재: '+raw.toLocaleString()+'자)';
+      label+=' ('+raw.toLocaleString()+' / '+orig.toLocaleString()+'자)';
+    } else if(raw > 0){
+      label+=' ('+raw.toLocaleString()+'자)';
+    }
+    tags.push('<span class="trunc-tag" title="'+esc(tip)+'">'+esc(label)+'</span>');
   }
   if(tags.length){
     h+='<span class="docmeta-tags">'+tags.join(' ')+'</span>';
@@ -2411,6 +2513,11 @@ function renderReader(dc){
     + (dc.source_type?' <span class=rmeta>'+esc(dc.source_type)+'</span>':'');
   let h='';
   h+=docMetaHtml(dc);
+  const isStt = !!(dc.is_stt || (dc.meta && (dc.meta.is_stt || dc.meta.stt_applied || dc.meta.stt)));
+  const isSttTrunc = isStt && !!(dc.stt_truncated || (dc.meta && dc.meta.stt_truncated) || dc.raw_truncated || (dc.meta && dc.meta.raw_truncated));
+  if(isSttTrunc){
+    h+='<div class="stt-trunc-banner">⚠️ <strong>음성 전사(STT) 일부 절단 안내</strong>: 전체 전사 내용 중 일부만 반영된 상태에서 본문(상세)이 작성되었습니다. 전체 재전사 명령: <code>claire video-reprocess --doc-id '+esc(dc.id||'')+' --apply --full-content</code></div>';
+  }
   h+=extraSourcesHtml(dc);
   const directive = (dc.directive || (dc.meta && dc.meta.directive) || '').trim();
   if(directive){
@@ -2440,6 +2547,216 @@ function renderReader(dc){
       });
     }catch(_){}
   }
+}
+
+// --- STT 전사 열기 모달 뷰어 제어 ---
+let curSttData = null;
+let curSttFilter = '';
+
+function openSttReader(docId){
+  const did = docId || curReaderDoc || (curReaderDocData && curReaderDocData.id);
+  if(!did && !curReaderDocData) return;
+
+  function _render(dc){
+    if(!dc) return;
+    curSttData = dc;
+    const modal = document.getElementById('sttmodal');
+    if(!modal) return;
+
+    if(!dc.is_stt && !(dc.meta && (dc.meta.is_stt || dc.meta.transcript_segments))){
+      alert('음성 전사(STT) 데이터가 없는 문서입니다.');
+      return;
+    }
+
+    const titleEl = document.getElementById('stttitle');
+    if(titleEl) titleEl.textContent = '🎙️ 음성 전사 (STT) — ' + (dc.title || '(제목 없음)');
+
+    const metaEl = document.getElementById('sttmeta');
+    let metaTxt = '';
+    const dur = (dc.meta && dc.meta.duration_sec) || dc.duration_sec || 0;
+    if(dur > 0){
+      const m = Math.floor(dur / 60);
+      const s = Math.floor(dur % 60);
+      metaTxt += '재생 시간: ' + m + '분 ' + s + '초';
+    }
+    const segs = dc.transcript_segments || (dc.meta && dc.meta.transcript_segments) || [];
+    if(segs.length > 0){
+      metaTxt += (metaTxt ? ' · ' : '') + '총 ' + segs.length.toLocaleString() + '개 발화 구간';
+    }
+    if(metaEl) metaEl.textContent = metaTxt;
+
+    const input = document.getElementById('sttq');
+    if(input) input.value = '';
+    curSttFilter = '';
+
+    renderSttLines();
+    modal.classList.add('open');
+    modal.style.display = 'flex';
+    document.body.classList.add('stt-modal-open');
+    if(input) requestAnimationFrame(()=>input.focus());
+  }
+
+  if(curReaderDocData && (!docId || curReaderDocData.id === docId) && (curReaderDocData.stt_transcript || curReaderDocData.transcript_segments)){
+    _render(curReaderDocData);
+  } else {
+    fetch('document?id=' + encodeURIComponent(did)).then(r=>r.json()).then(dc=>{
+      _render(dc);
+    }).catch(e=>{
+      alert('전사 데이터를 불러오지 못했습니다: ' + e);
+    });
+  }
+}
+
+function closeSttReader(){
+  const modal = document.getElementById('sttmodal');
+  if(!modal) return;
+  modal.classList.remove('open');
+  modal.style.display = 'none';
+  document.body.classList.remove('stt-modal-open');
+}
+
+function renderSttLines(){
+  const body = document.getElementById('sttbody');
+  const countEl = document.getElementById('sttcount');
+  if(!body || !curSttData) return;
+
+  const dc = curSttData;
+  let segs = dc.transcript_segments || (dc.meta && dc.meta.transcript_segments) || [];
+  let rawText = dc.stt_transcript || '';
+
+  let h = '';
+  const isTrunc = !!(dc.stt_truncated || (dc.meta && dc.meta.stt_truncated));
+  if(isTrunc){
+    h += '<div class="stt-trunc-banner">⚠️ <strong>전사 일부 절단 상태</strong>: 글자 수 상한 또는 오디오 구간 누락으로 인해 음성 전사의 일부만 반영되었습니다. 전체 내용을 복원하려면 <code>claire video-reprocess --doc-id ' + esc(dc.id||'') + ' --apply --full-content</code>를 실행하십시오.</div>';
+  }
+
+  const q = (curSttFilter || '').toLowerCase().trim();
+  let matchCount = 0;
+  let totalCount = 0;
+
+  if(segs && segs.length > 0){
+    totalCount = segs.length;
+    segs.forEach(s => {
+      const startF = s.start_sec != null ? s.start_sec : (s.start != null ? s.start : 0.0);
+      const totalSec = Math.floor(startF);
+      const hrs = Math.floor(totalSec / 3600);
+      const mins = Math.floor((totalSec % 3600) / 60);
+      const secs = totalSec % 60;
+      const ts = hrs > 0 ? (String(hrs).padStart(2,'0')+':'+String(mins).padStart(2,'0')+':'+String(secs).padStart(2,'0')) : (String(mins).padStart(2,'0')+':'+String(secs).padStart(2,'0'));
+      const txt = String(s.text || '');
+
+      const isMatch = !q || txt.toLowerCase().includes(q) || ts.includes(q);
+      if(isMatch){
+        matchCount++;
+        let dispTxt = esc(txt);
+        if(q){
+          let ltxt = txt.toLowerCase(), lq = q.toLowerCase();
+          let idx = 0, out = '';
+          while(true){
+            let next = ltxt.indexOf(lq, idx);
+            if(next === -1){ out += esc(txt.slice(idx)); break; }
+            out += esc(txt.slice(idx, next)) + '<mark>' + esc(txt.slice(next, next + q.length)) + '</mark>';
+            idx = next + q.length;
+          }
+          dispTxt = out;
+        }
+        h += '<div class="stt-line' + (q ? ' highlight' : '') + '">';
+        h += '<span class="stt-ts" title="클릭하여 타임스탬프 복사" data-ts="' + esc(ts) + '" onclick="copyTimestamp(this.dataset.ts)">[' + esc(ts) + ']</span>';
+        h += '<span class="stt-text">' + dispTxt + '</span>';
+        h += '</div>';
+      }
+    });
+  } else if(rawText) {
+    const lines = rawText.split('\\n');
+    totalCount = lines.length;
+    lines.forEach(line => {
+      const trimmed = line.trim();
+      if(!trimmed) return;
+      const isMatch = !q || trimmed.toLowerCase().includes(q);
+      if(isMatch){
+        matchCount++;
+        let dispTxt = esc(trimmed);
+        if(q){
+          let ltxt = trimmed.toLowerCase(), lq = q.toLowerCase();
+          let idx = 0, out = '';
+          while(true){
+            let next = ltxt.indexOf(lq, idx);
+            if(next === -1){ out += esc(trimmed.slice(idx)); break; }
+            out += esc(trimmed.slice(idx, next)) + '<mark>' + esc(trimmed.slice(next, next + q.length)) + '</mark>';
+            idx = next + q.length;
+          }
+          dispTxt = out;
+        }
+        h += '<div class="stt-line' + (q ? ' highlight' : '') + '"><span class="stt-text">' + dispTxt + '</span></div>';
+      }
+    });
+  } else {
+    h = '<p class="hint">저장된 전사 내용이 없습니다.</p>';
+  }
+
+  body.innerHTML = h;
+  if(countEl){
+    if(q){
+      countEl.textContent = matchCount.toLocaleString() + ' / ' + totalCount.toLocaleString() + '개 일치';
+    } else {
+      countEl.textContent = totalCount > 0 ? totalCount.toLocaleString() + '개 항목' : '';
+    }
+  }
+}
+
+function filterSttLines(val){
+  curSttFilter = val;
+  renderSttLines();
+}
+
+function copyTimestamp(ts){
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText('[' + ts + ']').catch(()=>{});
+  }
+}
+
+function copySttText(withTs){
+  if(!curSttData) return;
+  const dc = curSttData;
+  const segs = dc.transcript_segments || (dc.meta && dc.meta.transcript_segments) || [];
+  let out = '';
+  if(segs && segs.length > 0){
+    const lines = segs.map(s => {
+      const startF = s.start_sec != null ? s.start_sec : (s.start != null ? s.start : 0.0);
+      const totalSec = Math.floor(startF);
+      const hrs = Math.floor(totalSec / 3600);
+      const mins = Math.floor((totalSec % 3600) / 60);
+      const secs = totalSec % 60;
+      const ts = hrs > 0 ? (String(hrs).padStart(2,'0')+':'+String(mins).padStart(2,'0')+':'+String(secs).padStart(2,'0')) : (String(mins).padStart(2,'0')+':'+String(secs).padStart(2,'0'));
+      const txt = String(s.text || '').trim();
+      return withTs ? ('[' + ts + '] ' + txt) : txt;
+    });
+    out = lines.join('\\n');
+  } else if(dc.stt_transcript) {
+    out = dc.stt_transcript;
+    if(!withTs){
+      out = out.replace(/^\\[\\d{1,2}:\\d{2}(?::\\d{2})?\\]\\s*/gm, '');
+    }
+  }
+  if(out){
+    navigator.clipboard.writeText(out).then(()=>{
+      alert('클립보드에 전사 내용이 복사되었습니다.');
+    }).catch(()=>{
+      alert('복사에 실패했습니다.');
+    });
+  }
+}
+
+if(typeof window !== 'undefined' && typeof window.addEventListener === 'function'){
+  window.addEventListener('keydown', function(e){
+    if(e.key === 'Escape'){
+      const m = document.getElementById('sttmodal');
+      if(m && m.classList.contains('open')){
+        e.stopPropagation();
+        closeSttReader();
+      }
+    }
+  });
 }
 // [1홉 병합, ONEHOP_MERGE_DESIGN.md] 이 문서에 흡수된 부가 출처 목록(원문 링크 계보).
 function extraSourcesHtml(dc){
@@ -4691,6 +5008,35 @@ _SHARED_HTML = """<!doctype html>
   .docmeta .trunc-tag.trunc-appendix, .docmeta .trunc-tag-appendix{color:#3fb950;background:rgba(63,185,80,0.12);border:1px solid rgba(63,185,80,0.3)}
   .docmeta .directive-tag{display:inline-flex;align-items:center;gap:4px;color:var(--accent2,#58a6ff);background:rgba(88,166,255,0.12);border:1px solid rgba(88,166,255,0.3);border-radius:10px;padding:1px 7px;font-size:11px;cursor:help;white-space:nowrap;line-height:1.4}
   .docmeta .stt-tag{display:inline-flex;align-items:center;gap:4px;color:#a371f7;background:rgba(163,113,247,0.12);border:1px solid rgba(163,113,247,0.3);border-radius:10px;padding:1px 7px;font-size:11px;cursor:help;white-space:nowrap;line-height:1.4}
+  .docmeta .trunc-tag.trunc-stt{color:#f0883e;background:rgba(240,136,62,0.12);border:1px solid rgba(240,136,62,0.35)}
+  .docmeta a.stt-link{color:var(--accent);text-decoration:none;margin-left:8px;font-weight:500;cursor:pointer}
+  .docmeta a.stt-link:hover{text-decoration:underline}
+  .stt-trunc-banner{background:rgba(240,136,62,0.12);border:1px solid rgba(240,136,62,0.35);color:var(--fg);border-radius:6px;padding:10px 14px;margin:0 0 14px;font-size:13px;line-height:1.5}
+  .stt-trunc-banner strong{color:#f0883e}
+  .stt-trunc-banner code{background:var(--chip-bg);border:1px solid var(--border);border-radius:4px;padding:2px 6px;font-size:11.5px;font-family:'D2Coding','D2 Coding',monospace}
+  /* STT 전사 열기 모달 */
+  #sttmodal{position:fixed;top:0;left:0;right:0;bottom:0;z-index:70;background:rgba(0,0,0,0.65);display:none;align-items:center;justify-content:center;padding:max(16px,env(safe-area-inset-top)) 16px max(16px,env(safe-area-inset-bottom));backdrop-filter:blur(4px);box-sizing:border-box}
+  #sttmodal.open{display:flex!important}
+  .sttsheet{background:var(--bg);color:var(--fg);width:min(880px,96vw);height:min(840px,90dvh);border:1px solid var(--border);border-radius:12px;box-shadow:0 16px 48px var(--shadow);display:flex;flex-direction:column;overflow:hidden}
+  .stthead{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 18px;border-bottom:1px solid var(--border);background:var(--bar-bg);flex-shrink:0}
+  .stthead h2{margin:0;font-size:16px;display:flex;align-items:center;gap:6px;color:var(--fg)}
+  .sttmeta{color:var(--muted);font-size:12px;margin:3px 0 0}
+  .stttools{display:flex;align-items:center;gap:6px;flex-shrink:0}
+  .stttools button{background:var(--sec-bg);color:var(--sec-fg);border:1px solid var(--border);border-radius:6px;font-size:12px;padding:5px 10px;cursor:pointer;display:inline-flex;align-items:center;gap:4px;transition:background .15s ease,border-color .15s ease}
+  .stttools button:hover{background:var(--hover);border-color:var(--accent)}
+  .stttools .sttclose{font-size:16px;padding:4px 9px;line-height:1}
+  .sttsearchbar{display:flex;align-items:center;gap:10px;padding:8px 18px;border-bottom:1px solid var(--border);background:var(--card-bg);flex-shrink:0}
+  .sttsearchbar input{flex:1;min-width:0;height:32px;padding:0 10px;background:var(--input-bg,var(--bg));color:var(--fg);border:1px solid var(--border);border-radius:6px;font-size:13px}
+  .sttsearchbar .sttcount{font-size:12px;color:var(--muted);white-space:nowrap}
+  .sttbody{flex:1;overflow-y:auto;padding:16px 20px;min-height:0;line-height:1.65;font-size:14px;overscroll-behavior:contain}
+  .stt-line{display:flex;gap:12px;margin-bottom:8px;padding:4px 6px;border-radius:4px;transition:background .1s ease}
+  .stt-line:hover{background:var(--hover)}
+  .stt-line.highlight{background:rgba(234,179,8,0.15)}
+  .stt-ts{font-family:'D2Coding','D2 Coding',monospace;font-size:12px;color:var(--accent);background:var(--chip-bg);border:1px solid var(--border);border-radius:4px;padding:1px 6px;height:fit-content;flex-shrink:0;user-select:none;cursor:pointer}
+  .stt-ts:hover{background:var(--active);border-color:var(--accent)}
+  .stt-text{flex:1;word-break:break-word;color:var(--fg)}
+  .stt-text mark{background:#ffe066;color:#111;border-radius:2px;padding:0 2px}
+  [data-theme="dark"] .stt-text mark{background:#b28b00;color:#fff}
   .meta{color:var(--muted);font-size:13px;margin:.2em 0 1.2em}
   .meta a{color:var(--accent);text-decoration:none}
   .sec{color:var(--muted);font-size:11px;letter-spacing:.04em;text-transform:uppercase;margin:1.4em 0 .3em}
@@ -4741,8 +5087,27 @@ _SHARED_HTML = """<!doctype html>
   .md :target{animation:target-highlight 2s ease-out;border-radius:4px}
   @keyframes target-highlight{0%{background-color:rgba(56,139,253,.25)}100%{background-color:transparent}}
   .md .lead{font-size:1.1em;line-height:1.6;font-weight:500;color:var(--fg)}
-</style></head>
 <body><div class="wrap" id="wrap"></div>
+<div id="sttmodal" class="sttmodal" role="dialog" aria-modal="true" aria-labelledby="stttitle" style="display:none" onclick="if(event.target===this)closeSttReader()">
+  <div class="sttsheet" tabindex="-1">
+    <div class="stthead">
+      <div>
+        <h2 id="stttitle">🎙️ 음성 전사 (STT)</h2>
+        <p class="sttmeta" id="sttmeta"></p>
+      </div>
+      <div class="stttools">
+        <button class="sec" onclick="copySttText(false)" title="전사 텍스트만 복사">📋 텍스트 복사</button>
+        <button class="sec" onclick="copySttText(true)" title="타임스탬프 포함 복사">⏱️ 타임스탬프 복사</button>
+        <button class="rclose sttclose" onclick="closeSttReader()" title="닫기(ESC)" aria-label="전사 닫기">✕</button>
+      </div>
+    </div>
+    <div class="sttsearchbar">
+      <input id="sttq" placeholder="전사 내용 검색 (단어 또는 타임스탬프)..." oninput="filterSttLines(this.value)"/>
+      <span id="sttcount" class="sttcount"></span>
+    </div>
+    <div id="sttbody" class="sttbody"></div>
+  </div>
+</div>
 <script id="docdata" type="application/json">__DATA__</script>
 <script>
 function esc(s){return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
@@ -5526,12 +5891,20 @@ function docMetaHtml(dc){
   const isAppTrunc = isTrunc && !!(dc.appendix_truncated || (dc.meta && dc.meta.appendix_truncated));
   const directive = (dc.directive || (dc.meta && dc.meta.directive) || '').trim();
   const isStt = !!(dc.is_stt || (dc.meta && (dc.meta.is_stt || dc.meta.stt_applied || dc.meta.stt)));
+  const isSttTrunc = isStt && !!(dc.stt_truncated || (dc.meta && dc.meta.stt_truncated) || isTrunc);
   if(!hasUrl && !isTrunc && !directive && !isStt) return '';
   let h='<p class=docmeta>';
   if(hasUrl){
     h+='<a href="'+esc(dc.url)+'" target=_blank rel=noopener>↗ 원문 열기</a>';
+    if(isStt){
+      h+=' <a href="#" class="stt-link" onclick="openSttReader();return false;" title="음성 인식(STT) 전사 텍스트 열기">↗ 전사 열기</a>';
+    }
   } else {
-    h+='<span></span>';
+    if(isStt){
+      h+='<a href="#" class="stt-link" onclick="openSttReader();return false;" title="음성 인식(STT) 전사 텍스트 열기">↗ 전사 열기</a>';
+    } else {
+      h+='<span></span>';
+    }
   }
   let tags=[];
   if(directive){
@@ -5541,12 +5914,35 @@ function docMetaHtml(dc){
   if(isStt){
     tags.push('<span class="directive-tag stt-tag" title="음성 인식(STT)을 적용하여 작성한 문서">🎙️ STT</span>');
   }
-  if(isTrunc){
+  if(isAppTrunc){
     const orig=(dc.orig_chars || (dc.meta && dc.meta.orig_chars)) || 0;
     const raw=(dc.raw_chars || (dc.meta && dc.meta.raw_chars)) || 0;
-    let tip = isAppTrunc
-      ? '원문의 부록(Appendix) 부분을 절단한 문서'
-      : '글자 수 상한으로 원문 일부를 절단한 문서';
+    let tip = '원문의 부록(Appendix) 부분을 절단한 문서';
+    let label='✂️ 원문 일부 절단';
+    if(orig > 0 && raw > 0){
+      tip+=' (원문: '+orig.toLocaleString()+'자 → 적재: '+raw.toLocaleString()+'자)';
+      label+=' ('+raw.toLocaleString()+' / '+orig.toLocaleString()+'자)';
+    } else if(raw > 0){
+      label+=' ('+raw.toLocaleString()+'자)';
+    }
+    const tagClass = isAppTrunc ? 'trunc-tag trunc-appendix' : 'trunc-tag';
+    tags.push('<span class="'+tagClass+'" title="'+esc(tip)+'">'+esc(label)+'</span>');
+  } else if(isSttTrunc){
+    const orig=(dc.stt_orig_chars || (dc.meta && dc.meta.stt_orig_chars) || dc.orig_chars || (dc.meta && dc.meta.orig_chars)) || 0;
+    const raw=(dc.stt_raw_chars || (dc.meta && dc.meta.stt_raw_chars) || dc.raw_chars || (dc.meta && dc.meta.raw_chars)) || 0;
+    let tip = '음성 전사(STT) 전문이 일부 절단된 상태에서 본문(상세)이 작성된 문서';
+    let label = '✂️ STT 일부 절단';
+    if(orig > 0 && raw > 0){
+      tip += ' (원문: '+orig.toLocaleString()+'자 → 적재: '+raw.toLocaleString()+'자)';
+      label += ' ('+raw.toLocaleString()+' / '+orig.toLocaleString()+'자)';
+    } else if(raw > 0){
+      label += ' ('+raw.toLocaleString()+'자)';
+    }
+    tags.push('<span class="trunc-tag trunc-stt" title="'+esc(tip)+'">'+esc(label)+'</span>');
+  } else if(isTrunc){
+    const orig=(dc.orig_chars || (dc.meta && dc.meta.orig_chars)) || 0;
+    const raw=(dc.raw_chars || (dc.meta && dc.meta.raw_chars)) || 0;
+    let tip = '글자 수 상한으로 원문 일부를 절단한 문서';
     let label='✂️ 원문 일부 절단';
     if(orig > 0 && raw > 0){
       tip+=' (원문: '+orig.toLocaleString()+'자 → 적재: '+raw.toLocaleString()+'자)';
@@ -5567,6 +5963,11 @@ const dc=JSON.parse(document.getElementById('docdata').textContent||'{}');
 let h='<div class=brand>Claire Bible · 공유 문서</div>';
 h+='<h1>'+esc(dc.title||'(제목 없음)')+(dc.source_type?' <span class=rmeta>'+esc(dc.source_type)+'</span>':'')+'</h1>';
 h+=docMetaHtml(dc);
+const isStt = !!(dc.is_stt || (dc.meta && (dc.meta.is_stt || dc.meta.stt_applied || dc.meta.stt)));
+const isSttTrunc = isStt && !!(dc.stt_truncated || (dc.meta && dc.meta.stt_truncated) || dc.raw_truncated || (dc.meta && dc.meta.raw_truncated));
+if(isSttTrunc){
+  h+='<div class="stt-trunc-banner">⚠️ <strong>음성 전사(STT) 일부 절단 안내</strong>: 전체 전사 내용 중 일부만 반영된 상태에서 본문(상세)이 작성되었습니다. 전체 재전사 명령: <code>claire video-reprocess --doc-id '+esc(dc.id||'')+' --apply --full-content</code></div>';
+}
 if((dc.extra_sources||[]).length){
   h+='<div class=sec>병합된 출처 ('+dc.extra_sources.length+')</div><ul class=srclist>'+
     dc.extra_sources.map(s=>'<li><a href="'+esc(s.url||'')+'" target=_blank rel=noopener>'+
@@ -5588,6 +5989,195 @@ if(!dc.summary && !dc.detail && !dc.detail_html){ h+='<p class=meta>문서에 �
 h+='<div class=foot>이 링크는 이 문서 하나만 읽기 전용으로 공유합니다.</div>';
 document.getElementById('wrap').innerHTML=h;
 applyMathRendering(document.getElementById('wrap'));
+
+// --- 공유 페이지 STT 전사 열기 모달 뷰어 제어 ---
+let curSttData = dc;
+let curSttFilter = '';
+
+function openSttReader(docId){
+  const modal = document.getElementById('sttmodal');
+  if(!modal) return;
+  curSttData = dc;
+
+  if(!dc.is_stt && !(dc.meta && (dc.meta.is_stt || dc.meta.transcript_segments))){
+    alert('음성 전사(STT) 데이터가 없는 문서입니다.');
+    return;
+  }
+
+  const titleEl = document.getElementById('stttitle');
+  if(titleEl) titleEl.textContent = '🎙️ 음성 전사 (STT) — ' + (dc.title || '(제목 없음)');
+
+  const metaEl = document.getElementById('sttmeta');
+  let metaTxt = '';
+  const dur = (dc.meta && dc.meta.duration_sec) || dc.duration_sec || 0;
+  if(dur > 0){
+    const m = Math.floor(dur / 60);
+    const s = Math.floor(dur % 60);
+    metaTxt += '재생 시간: ' + m + '분 ' + s + '초';
+  }
+  const segs = dc.transcript_segments || (dc.meta && dc.meta.transcript_segments) || [];
+  if(segs.length > 0){
+    metaTxt += (metaTxt ? ' · ' : '') + '총 ' + segs.length.toLocaleString() + '개 발화 구간';
+  }
+  if(metaEl) metaEl.textContent = metaTxt;
+
+  const input = document.getElementById('sttq');
+  if(input) input.value = '';
+  curSttFilter = '';
+
+  renderSttLines();
+  modal.classList.add('open');
+  modal.style.display = 'flex';
+  if(input) requestAnimationFrame(()=>input.focus());
+}
+
+function closeSttReader(){
+  const modal = document.getElementById('sttmodal');
+  if(!modal) return;
+  modal.classList.remove('open');
+  modal.style.display = 'none';
+}
+
+function renderSttLines(){
+  const body = document.getElementById('sttbody');
+  const countEl = document.getElementById('sttcount');
+  if(!body || !curSttData) return;
+
+  let segs = dc.transcript_segments || (dc.meta && dc.meta.transcript_segments) || [];
+  let rawText = dc.stt_transcript || '';
+
+  let h = '';
+  const isTrunc = !!(dc.stt_truncated || (dc.meta && dc.meta.stt_truncated));
+  if(isTrunc){
+    h += '<div class="stt-trunc-banner">⚠️ <strong>전사 일부 절단 상태</strong>: 글자 수 상한 또는 오디오 구간 누락으로 인해 음성 전사의 일부만 반영되었습니다. 전체 내용을 복원하려면 <code>claire video-reprocess --doc-id ' + esc(dc.id||'') + ' --apply --full-content</code>를 실행하십시오.</div>';
+  }
+
+  const q = (curSttFilter || '').toLowerCase().trim();
+  let matchCount = 0;
+  let totalCount = 0;
+
+  if(segs && segs.length > 0){
+    totalCount = segs.length;
+    segs.forEach(s => {
+      const startF = s.start_sec != null ? s.start_sec : (s.start != null ? s.start : 0.0);
+      const totalSec = Math.floor(startF);
+      const hrs = Math.floor(totalSec / 3600);
+      const mins = Math.floor((totalSec % 3600) / 60);
+      const secs = totalSec % 60;
+      const ts = hrs > 0 ? (String(hrs).padStart(2,'0')+':'+String(mins).padStart(2,'0')+':'+String(secs).padStart(2,'0')) : (String(mins).padStart(2,'0')+':'+String(secs).padStart(2,'0'));
+      const txt = String(s.text || '');
+
+      const isMatch = !q || txt.toLowerCase().includes(q) || ts.includes(q);
+      if(isMatch){
+        matchCount++;
+        let dispTxt = esc(txt);
+        if(q){
+          let ltxt = txt.toLowerCase(), lq = q.toLowerCase();
+          let idx = 0, out = '';
+          while(true){
+            let next = ltxt.indexOf(lq, idx);
+            if(next === -1){ out += esc(txt.slice(idx)); break; }
+            out += esc(txt.slice(idx, next)) + '<mark>' + esc(txt.slice(next, next + q.length)) + '</mark>';
+            idx = next + q.length;
+          }
+          dispTxt = out;
+        }
+        h += '<div class="stt-line' + (q ? ' highlight' : '') + '">';
+        h += '<span class="stt-ts" title="클릭하여 타임스탬프 복사" data-ts="' + esc(ts) + '" onclick="copyTimestamp(this.dataset.ts)">[' + esc(ts) + ']</span>';
+        h += '<span class="stt-text">' + dispTxt + '</span>';
+        h += '</div>';
+      }
+    });
+  } else if(rawText) {
+    const lines = rawText.split('\\n');
+    totalCount = lines.length;
+    lines.forEach(line => {
+      const trimmed = line.trim();
+      if(!trimmed) return;
+      const isMatch = !q || trimmed.toLowerCase().includes(q);
+      if(isMatch){
+        matchCount++;
+        let dispTxt = esc(trimmed);
+        if(q){
+          let ltxt = trimmed.toLowerCase(), lq = q.toLowerCase();
+          let idx = 0, out = '';
+          while(true){
+            let next = ltxt.indexOf(lq, idx);
+            if(next === -1){ out += esc(trimmed.slice(idx)); break; }
+            out += esc(trimmed.slice(idx, next)) + '<mark>' + esc(trimmed.slice(next, next + q.length)) + '</mark>';
+            idx = next + q.length;
+          }
+          dispTxt = out;
+        }
+        h += '<div class="stt-line' + (q ? ' highlight' : '') + '"><span class="stt-text">' + dispTxt + '</span></div>';
+      }
+    });
+  } else {
+    h = '<p class="hint">저장된 전사 내용이 없습니다.</p>';
+  }
+
+  body.innerHTML = h;
+  if(countEl){
+    if(q){
+      countEl.textContent = matchCount.toLocaleString() + ' / ' + totalCount.toLocaleString() + '개 일치';
+    } else {
+      countEl.textContent = totalCount > 0 ? totalCount.toLocaleString() + '개 항목' : '';
+    }
+  }
+}
+
+function filterSttLines(val){
+  curSttFilter = val;
+  renderSttLines();
+}
+
+function copyTimestamp(ts){
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText('[' + ts + ']').catch(()=>{});
+  }
+}
+
+function copySttText(withTs){
+  let segs = dc.transcript_segments || (dc.meta && dc.meta.transcript_segments) || [];
+  let out = '';
+  if(segs && segs.length > 0){
+    const lines = segs.map(s => {
+      const startF = s.start_sec != null ? s.start_sec : (s.start != null ? s.start : 0.0);
+      const totalSec = Math.floor(startF);
+      const hrs = Math.floor(totalSec / 3600);
+      const mins = Math.floor((totalSec % 3600) / 60);
+      const secs = totalSec % 60;
+      const ts = hrs > 0 ? (String(hrs).padStart(2,'0')+':'+String(mins).padStart(2,'0')+':'+String(secs).padStart(2,'0')) : (String(mins).padStart(2,'0')+':'+String(secs).padStart(2,'0'));
+      const txt = String(s.text || '').trim();
+      return withTs ? ('[' + ts + '] ' + txt) : txt;
+    });
+    out = lines.join('\\n');
+  } else if(dc.stt_transcript) {
+    out = dc.stt_transcript;
+    if(!withTs){
+      out = out.replace(/^\\[\\d{1,2}:\\d{2}(?::\\d{2})?\\]\\s*/gm, '');
+    }
+  }
+  if(out){
+    navigator.clipboard.writeText(out).then(()=>{
+      alert('클립보드에 전사 내용이 복사되었습니다.');
+    }).catch(()=>{
+      alert('복사에 실패했습니다.');
+    });
+  }
+}
+
+if(typeof window !== 'undefined' && typeof window.addEventListener === 'function'){
+  window.addEventListener('keydown', function(e){
+    if(e.key === 'Escape'){
+      const m = document.getElementById('sttmodal');
+      if(m && m.classList.contains('open')){
+        e.stopPropagation();
+        closeSttReader();
+      }
+    }
+  });
+}
 if(typeof window.gtag === 'function' && dc && dc.id){
   try{
     window.gtag('event', 'select_content', {
