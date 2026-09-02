@@ -329,7 +329,9 @@ class GeminiTranscriptProvider(TranscriptProvider):
                                 "timestamp_granularities": ["word"],
                             }
                         }
-                        if target_lang:
+                        # language_codes는 생략 시 Google이 음성 언어를 자동 감지(en, ko 등).
+                        # 명시적으로 target_lang이 auto나 기본 ko가 아닌 특정 언어일 때 주입.
+                        if target_lang and target_lang not in ("auto", "ko"):
                             trans_cfg["language_codes"] = [target_lang]
 
                         try:
@@ -365,8 +367,8 @@ class GeminiTranscriptProvider(TranscriptProvider):
 
                         # interaction.steps 내 word annotations 파싱하여 타임스탬프 문장 목록 추출
                         annotations = []
-                        for step in getattr(interaction, "steps", []):
-                            for c in getattr(step, "content", []):
+                        for step in (getattr(interaction, "steps", None) or []):
+                            for c in (getattr(step, "content", None) or []):
                                 for a in (getattr(c, "annotations", None) or []):
                                     if getattr(a, "type", None) == "word_info":
                                         annotations.append(a)
@@ -403,7 +405,7 @@ class GeminiTranscriptProvider(TranscriptProvider):
                                 )
                             return segments
 
-                        chunk_text = interaction.output_text or ""
+                        chunk_text = getattr(interaction, "output_text", None) or ""
                         return parse_raw_transcript_lines(chunk_text, offset_sec=offset_sec)
 
                     else:
