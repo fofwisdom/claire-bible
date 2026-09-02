@@ -2802,4 +2802,136 @@ def backfill_truncation_metadata(
     }
 
 
+def scan_stt_documents(
+    conn: sqlite3.Connection,
+    doc_id: str | None = None,
+) -> dict:
+    """데이터베이스 내 문서들 중 STT(음성 인식/전사)가 적용된 문서 현황 및 메타데이터 기록 상태 스캔.
+
+    판정 기준:
+    1. meta.is_stt / meta.stt_applied / meta.stt 가 True
+    2. meta.transcript_segments 가 비어있지 않은 리스트 (STT 프로바이더 실행 시에만 생성됨)
+    3. meta.video_cached 또는 meta.video_cache_used 가 True (STT 오디오 파이프라인에서만 사용됨)
+    4. raw_text 에 '[영상 음성 전사 (STT)]' 또는 '[음성 전사 (STT)]' 헤더 포함
+
+    ※ 주의: 제작자 제공 자막(source_type == 'video' & has_transcript == True)은
+      transcript_segments가 비어 있고 STT 파이프라인을 거치지 않으므로 STT로 오인하지 않음.
+    """
+    where_sql = "WHERE id = ?" if doc_id else ""
+    params = [doc_id] if doc_id else []
+
+    rows = conn.execute(
+        f"SELECT id, title, url, source_type, raw_text, meta "
+        f"FROM documents {where_sql} ORDER BY fetched_at DESC, id DESC",
+        params,
+    ).fetchall()
+
+    total = len(rows)
+    stt_documents = []
+    unmarked_items = []
+    recorded_stt = 0
+
+    for r in rows:
+        meta_raw = r["meta"]
+        meta = {}
+        if meta_raw:
+            try:
+                meta = json.loads(meta_raw)
+            except Exception:
+                meta = {}
+
+        raw_text = r["raw_text"] or ""
+        src_type = r["source_type"] or "web"
+
+        # 1. 명시적 메타 플래그
+        is_meta_stt = bool(meta.get("is_stt") or meta.get("stt_applied") or meta.get("stt"))
+
+        # 2. STT 전사 세그먼트 존재 여부 (STT 실행 시에만 타임스탬프 세그먼트가 생성됨)
+        segments = meta.get("transcript_segments")
+        has_segments = bool(isinstance(segments, list) and len(segments) > 0)
+
+        # 3. 비디오 오디오 캐시 사용 여부 (오디오 다운로드 및 STT 파이프라인에서만 생성됨)
+        has_audio_cache = bool(
+            (meta.get("video_cached") or meta.get("video_cache_used"))
+            and meta.get("has_transcript")
+        )
+
+        # 4. 명시적 STT 본문 헤더
+        has_stt_header = (
+            "[영상 음성 전사 (STT)]" in raw_text
+            or "[영상 자막 / 음성 전사 (STT)]" in raw_text
+            or "[음성 전사 (STT)]" in raw_text
+        )
+
+        is_stt_detected = is_meta_stt or has_segments or has_audio_cache or has_stt_header
+
+        reasons = []
+        if is_meta_stt:
+            reasons.append("meta.is_stt")
+        if has_segments:
+            reasons.append(f"transcript_segments ({len(segments)} segments)")
+        if has_audio_cache:
+            reasons.append("video audio cache with transcript")
+        if has_stt_header:
+            reasons.append("raw_text STT header")
+
+        if is_stt_detected:
+            item_info = {
+                "id": r["id"],
+                "title": r["title"] or "(제목 없음)",
+                "url": r["url"] or "",
+                "source_type": src_type,
+                "is_meta_stt": is_meta_stt,
+                "reasons": reasons,
+                "meta": meta,
+            }
+            stt_documents.append(item_info)
+            if is_meta_stt:
+                recorded_stt += 1
+            else:
+                unmarked_items.append(item_info)
+
+    return {
+        "total_documents": total,
+        "stt_detected_count": len(stt_documents),
+        "recorded_stt_count": recorded_stt,
+        "unmarked_stt_count": len(unmarked_items),
+        "unmarked_items": unmarked_items,
+        "stt_documents": stt_documents,
+    }
+
+
+def backfill_stt_metadata(
+    conn: sqlite3.Connection,
+    *,
+    doc_id: str | None = None,
+    force: bool = False,
+) -> dict:
+    """STT가 적용되었으나 메타데이터(is_stt)가 누락된 문서에 is_stt: True 를 소급 갱신."""
+    scan = scan_stt_documents(conn, doc_id=doc_id)
+    targets = scan["stt_documents"] if force else scan["unmarked_items"]
+
+    updated_count = 0
+    for item in targets:
+        doc_id_val = item["id"]
+        meta = item["meta"]
+        meta["is_stt"] = True
+        meta["stt"] = True
+
+        conn.execute(
+            "UPDATE documents SET meta=? WHERE id=?",
+            (json.dumps(meta, ensure_ascii=False), doc_id_val),
+        )
+        updated_count += 1
+
+    conn.commit()
+    return {
+        "scanned_total": scan["total_documents"],
+        "stt_detected_count": scan["stt_detected_count"],
+        "updated_count": updated_count,
+        "items": targets,
+    }
+
+
+
 
