@@ -195,10 +195,12 @@ def extract_system_prompt(ontology_block: str) -> str:
     return _SYS.format(ontology=ontology_block)
 
 
-def doc_to_prompt(doc: Document) -> str:
+def doc_to_prompt(doc: Document, *, full_content: bool = False) -> str:
     """Document -> LLM 프롬프트 본문.
 
     단일 출처 및 병합 문서의 텍스트 투입 한도를 get_settings()에서 동적으로 결정.
+    full_content=True 또는 doc.meta['full_content']=True 인 경우 글자 수 상한 슬라이싱을 건너뛰고
+    Safety Cap(기본 100,000자) 한도 내에서 전문을 온전히 보존.
     테이블(Markdown/AsciiDoc/HTML 표) 내 문자는 슬라이싱 전략(기본 table-exemption)에 따라 보존.
     """
     head = []
@@ -208,7 +210,10 @@ def doc_to_prompt(doc: Document) -> str:
         head.append(f"URL: {doc.url}")
     head.append(f"SOURCE_TYPE: {doc.source_type}")
     settings = get_settings()
-    if (doc.meta or {}).get("extra_sources"):
+    is_full = full_content or bool((doc.meta or {}).get("full_content"))
+    if is_full:
+        limit = max(100000, settings.pdf_max_extract_chars * 2)
+    elif (doc.meta or {}).get("extra_sources"):
         limit = settings.effective_merged_extract_char_budget
     elif doc.source_type == "pdf":
         limit = settings.pdf_max_extract_chars

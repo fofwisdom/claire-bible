@@ -50,6 +50,8 @@ class IngestReport:
     linked_entity_names: list[str] = field(default_factory=list)
     candidates: list[str] = field(default_factory=list)  # 1홉 확장 후보 URL
     directive: str | None = None
+    full_content: bool = False
+    effort: str | None = None
 
     def telegram_summary(self) -> str:
         if self.error:
@@ -58,6 +60,13 @@ class IngestReport:
             return f"♻️ 이미 있는 자료입니다 (dedup): {self.title or self.document_id}"
         head = "🔄 자료 업데이트(내용 변경 반영)" if self.updated else "✅ 적재 완료"
         parts = [f"{head}: {self.title or self.document_id}"]
+        meta_badges = []
+        if self.full_content:
+            meta_badges.append("🌐 원문 무절단 수집")
+        if self.effort:
+            meta_badges.append(f"🧠 추론: {self.effort}")
+        if meta_badges:
+            parts.append(" · ".join(meta_badges))
         if self.directive:
             parts.append(f"초점: {self.directive}")
         if self.partial:
@@ -98,8 +107,11 @@ def ingest(
     format: str | None = None,
     directive: str | None = None,
     effort: str | None = None,
+    full_content: bool = False,
 ) -> IngestReport:
     report = IngestReport()
+    report.full_content = full_content
+    report.effort = effort
     # None 이면 호출 시점에 모듈 전역 default_fetch 를 조회(monkeypatch/교체 반영).
     if fetch_fn is None:
         fetch_fn = default_fetch
@@ -119,11 +131,25 @@ def ingest(
         # prefetched: 1홉 확장이 판정용으로 이미 가져온 Document 재사용(중복 fetch 방지).
         if prefetched is None:
             emit_progress("원문 가져오는 중…")  # 콜백 미설정 시 no-op(웹 스트림 적재만 표시)
-        doc = prefetched if prefetched is not None else fetch_fn(payload)
+            try:
+                doc = fetch_fn(payload, full_content=full_content)
+            except TypeError:
+                doc = fetch_fn(payload)
+        else:
+            doc = prefetched
     except Exception as e:  # noqa: BLE001
         report.error = str(e)
         dbm.update_inbox(conn, inbox_id, status="error", error=str(e))
         return report
+
+    if full_content:
+        if doc.meta is None:
+            doc.meta = {}
+        doc.meta["full_content"] = True
+    if effort:
+        if doc.meta is None:
+            doc.meta = {}
+        doc.meta["applied_effort"] = effort
 
     report.source_type = doc.source_type
     report.partial = doc.partial
@@ -185,7 +211,7 @@ def ingest(
                 pass
         _download_doc_images(conn, doc, data_dir)
         ok, err = extract_resolve_store(
-            conn, provider, vstore, doc, report, vault_dir=vault_dir, format=format, directive=directive, effort=effort)
+            conn, provider, vstore, doc, report, vault_dir=vault_dir, format=format, directive=directive, effort=effort, full_content=full_content)
         if not ok:
             report.error = err
             dbm.update_inbox(conn, inbox_id, status="error",
@@ -221,7 +247,7 @@ def ingest(
 
     # 추출 → 해소 → 관계 → vault (ingest/refresh 공용)
     ok, err = extract_resolve_store(
-        conn, provider, vstore, doc, report, vault_dir=vault_dir, format=format, directive=directive, effort=effort)
+        conn, provider, vstore, doc, report, vault_dir=vault_dir, format=format, directive=directive, effort=effort, full_content=full_content)
     if not ok:
         report.error = err
         dbm.update_inbox(conn, inbox_id, status="error", document_id=doc.id, error=err)
@@ -275,6 +301,7 @@ def extract_resolve_store(
     format: str | None = None,
     directive: str | None = None,
     effort: str | None = None,
+    full_content: bool = False,
     on_progress: Callable[[str, str], None] | None = None,
 ) -> tuple[bool, str | None]:
     """문서 1건의 추출→엔티티 해소/머지→관계 검증/적재→vault export.
@@ -306,6 +333,21 @@ def extract_resolve_store(
         else:
             eff = getattr(provider, "effort", "medium")
 
+    if doc.meta is None:
+        doc.meta = {}
+    doc.meta["applied_effort"] = eff
+    if full_content:
+        doc.meta["full_content"] = True
+    report.effort = eff
+    if full_content:
+        report.full_content = True
+
+    if getattr(doc, "id", None):
+        try:
+            dbm.update_document_meta(conn, doc.id, doc.meta)
+        except Exception:
+            pass
+
     if on_progress:
         pname = getattr(provider, "name", "?")
         on_progress("LLM 요약 및 엔티티/관계 구조화 추출", f"provider={pname}, effort={eff}")
@@ -333,7 +375,7 @@ def extract_resolve_store(
         on_progress("LLM 가독 본문(detail) 렌더링 생성", f"format={format or '기본'}, effort={eff}")
 
     ensure_document_detail(
-        conn, provider, doc, force=True, format=format, directive=directive, effort=eff
+        conn, provider, doc, force=True, format=format, directive=directive, effort=eff, full_content=full_content
     )
 
     _judge_method = getattr(provider, "judge_same_entity", None)
@@ -532,6 +574,7 @@ def ensure_document_detail(
     format: str | None = None,
     directive: str | None = None,
     effort: str | None = None,
+    full_content: bool = False,
 ) -> bool:
     """문서의 한국어 가독 렌더링(detail)을 생성·저장. **그래프와 독립**(별도 LLM 호출).
 
@@ -539,6 +582,11 @@ def ensure_document_detail(
     채우므로 엔티티/관계를 건드리지 않는다 → reset_graph/rebuild 없이 백필 가능(advisor).
     이미 있으면(force=False) 건너뛰고, 생성 실패는 조용히 False(적재 실패로 번지지 않음).
     """
+    if full_content:
+        if doc.meta is None:
+            doc.meta = {}
+        doc.meta["full_content"] = True
+
     fmt = format or (doc.meta or {}).get("format") or (doc.meta or {}).get("render_format")
     if not fmt:
         from ..config import get_settings

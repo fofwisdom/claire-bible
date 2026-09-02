@@ -706,12 +706,16 @@ def cmd_ingest(args) -> int:
     vstore = make_vector_store(conn, s.vector_backend)
     print(f"(provider={provider.name})")
     directive = getattr(args, "focus", None) or getattr(args, "orientation", None) or getattr(args, "directive", None)
+    effort = getattr(args, "effort", None)
+    full_content = getattr(args, "full_content", False)
     report = ingest(
         args.payload, conn=conn, provider=provider, vstore=vstore,
         vault_dir=s.vault_dir, data_dir=s.data_dir, source="cli",
         expand_max=(0 if args.no_expand else s.expand_max),
         format=getattr(args, "format", None),
         directive=directive,
+        effort=effort,
+        full_content=full_content,
     )
     print(report.telegram_summary())
 
@@ -722,7 +726,7 @@ def cmd_ingest(args) -> int:
             sub = ingest(url, conn=conn, provider=provider, vstore=vstore,
                          vault_dir=s.vault_dir, data_dir=s.data_dir, source="cli-expand",
                          expand_max=0, format=getattr(args, "format", None),
-                         directive=directive)  # 2홉 방지
+                         directive=directive, effort=effort, full_content=full_content)  # 2홉 방지
             print(f"  - {url}\n    {sub.telegram_summary().splitlines()[0]}")
     elif report.candidates:
         print("\n[expand] 후보 URL (적재하려면 --expand):")
@@ -1629,6 +1633,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     pi = sub.add_parser("ingest", help="ingest a single payload")
     pi.add_argument("payload", help="url / text / file path")
+    pi.add_argument("--full", "--full-content", "--no-truncate", action="store_true", dest="full_content",
+                    help="원문 글자 수 상한(budget) 없이 전문을 온전히 수집 및 LLM에 투입 (lossless ingestion)")
+    pi.add_argument("--effort", "-e", choices=["none", "minimal", "low", "medium", "high", "max"], default=None,
+                    help="LLM 사고/추론 레벨 (reasoning effort) 명시 지정 (기본값: 프로바이더/환경변수 기본값)")
     pi.add_argument("--expand", action="store_true",
                     help="also fetch 1-hop related links found in the content")
     pi.add_argument("--no-expand", action="store_true",

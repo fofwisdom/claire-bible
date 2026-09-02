@@ -70,6 +70,7 @@ class IngestService:
         format: str | None = None,
         directive: str | None = None,
         effort: str | None = None,
+        full_content: bool = False,
     ) -> IngestReport:
         """단건 적재. (블로킹 — 호출측에서 스레드 오프로드).
 
@@ -91,7 +92,7 @@ class IngestService:
                 expand_max=em, source=source, user_id=user_id, chat_id=chat_id,
                 inbox_kind=inbox_kind, file_ref=file_ref, file_name=file_name,
                 inbox_id=inbox_id, prefetched=prefetched, auto_expand=auto,
-                format=fmt, directive=directive, effort=effort,
+                format=fmt, directive=directive, effort=effort, full_content=full_content,
             )
         finally:
             conn.close()
