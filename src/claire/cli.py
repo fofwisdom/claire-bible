@@ -1349,7 +1349,8 @@ def cmd_video_reprocess(args) -> int:
             print(f"대상 문서 수: {res.get('count', 0)}건")
             if res.get("targets"):
                 for t in res["targets"]:
-                    print(f"  - [{t['id']}] {t.get('title', '')} ({t.get('url', '')})")
+                    did = t.get("document_id") or t.get("id", "")
+                    print(f"  - [{did}] {t.get('title', '')} ({t.get('url', '')})")
             print("실제 재전사 및 적재를 실행하려면 --apply 또는 --force 옵션을 추가하십시오:")
             tgt_hint = f"--doc-id {doc_id}" if doc_id else (target or "")
             print(f"  claire video-reprocess {tgt_hint} --apply")
