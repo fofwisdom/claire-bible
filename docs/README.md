@@ -37,6 +37,7 @@ docs/
     │   └── VIDEO_AUDIO_TRANSCRIPTION_AND_INGESTION_DESIGN.md # 비디오 음성 자막(전사) 생성 및 지식 적재 파이프라인 설계
     ├── implementation/     # [구현/운영 내역] 운영 가이드, 네트워크/인증 명세, 배포 설정
     │   ├── COMMANDS.md     # 전체 CLI 명령어 및 미구현/제약사항 상세 레퍼런스
+    │   ├── ENVIRONMENT_VARIABLES.md # 환경변수 설정, .env 계층, Pydantic 검증 및 운영 종합 매뉴얼
     │   ├── EXTERNAL_ACCESS.md # 웹 접속, reverse proxy, 포트, 인증/CORS 경계 명세 (오리진 구현본)
     │   └── OPERATIONS.md   # cb-manuscript 호스트 운영 명령, 서비스 수명주기 가이드
     └── screenshots/        # README 및 UI 설명용 스크린샷 이미지 자산 (7종)
