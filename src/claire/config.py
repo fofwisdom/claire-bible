@@ -218,6 +218,9 @@ class Settings(BaseSettings):
     ytdlp_extractor_args: str = Field(
         default="generic:impersonate", alias="CLAIRE_YTDLP_EXTRACTOR_ARGS"
     )
+    video_cache_ttl_sec: int = Field(
+        default=259200, alias="CLAIRE_VIDEO_CACHE_TTL_SEC"
+    )  # 3 days (사흘)
 
     # --- storage ---
     db_path: str = Field(default="data/claire.db", alias="CLAIRE_DB_PATH")

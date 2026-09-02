@@ -1314,6 +1314,15 @@ def cmd_video_reprocess(args) -> int:
         conn.close()
 
     if matched:
+        from .store.video_cache import get_cached_video_file
+
+        for t in matched:
+            t_url = t.get("url") or ""
+            if t_url:
+                c = get_cached_video_file(s.data_dir, t_url, max_age_sec=s.video_cache_ttl_sec)
+                if c:
+                    print(f"[캐시] 문서 [{t['id']}]의 사흘(3일) 보존 비디오 캐시 감지: {c.name} ({c.stat().st_size / (1024*1024):.1f}MB, 재다운로드 없이 사용)")
+
         res = svc.regenerate_components(
             target=target,
             doc_id=doc_id,
@@ -1345,6 +1354,12 @@ def cmd_video_reprocess(args) -> int:
         url = target or (args.target if hasattr(args, "target") else None)
         parsed = urlparse(url or "")
         if parsed.scheme in ("http", "https"):
+            from .store.video_cache import get_cached_video_file
+
+            c = get_cached_video_file(s.data_dir, url, max_age_sec=s.video_cache_ttl_sec)
+            if c:
+                print(f"[캐시] 대상 URL의 사흘(3일) 보존 비디오 캐시 감지: {c.name} ({c.stat().st_size / (1024*1024):.1f}MB, 재다운로드 없이 사용)")
+
             if not do_apply:
                 print(f"[안내] 신규 비디오 적재 대상 (Dry-Run): {url}")
                 print("실제 수집 및 전사를 실행하려면 --apply 옵션을 추가하십시오:")
