@@ -2719,7 +2719,7 @@ def backfill_truncation_metadata(
     force: bool = False,
     mark_refresh: bool = False,
 ) -> dict:
-    """메타데이터가 누락된 절단 문서의 documents.meta에 raw_truncated를 소급 갱신."""
+    """메타데이터를 누락한 절단 문서의 documents.meta에 raw_truncated를 소급 갱신."""
     from ..extract.table_budget import extract_tables_from_text
     from ..ingest.normalize import content_hash
 

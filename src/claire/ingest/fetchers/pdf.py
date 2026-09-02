@@ -74,7 +74,7 @@ def slice_pdf_text(
     반환: (sliced_text, is_truncated, appendix_truncated, orig_chars, raw_chars)
     - exclude_appendix=True 시 본문에서 부록(Appendix) 섹션을 검출하여 제외.
     - 부록만 잘려나가고 본문이 온전한 경우: is_truncated=True, appendix_truncated=True.
-    - 본문도 예산(limit)을 초과하여 추가 절단된 경우: is_truncated=True, appendix_truncated=False.
+    - 본문도 예산(limit)을 초과하여 추가 절단한 경우: is_truncated=True, appendix_truncated=False.
     - 부록이 없고 예산 내인 경우: is_truncated=False, appendix_truncated=False.
     """
     from ...extract.table_budget import slice_document_text
