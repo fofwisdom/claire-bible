@@ -402,13 +402,25 @@ def build_app(settings: Settings | None = None) -> Any:
                     elif res.get("count", 0) > 0:
                         tinfo = res["targets"][0]
                         dir_msg = f"\n초점: {directive}" if directive else ""
-                        ref_msg = ""
-                        if tinfo.get("refetched_full"):
-                            ref_msg = f" (원문 전체 재수집 {tinfo.get('new_len', 0):,}자)"
-                        elif tinfo.get("refetched"):
-                            ref_msg = f" (원문 재수집 {tinfo.get('new_len', 0):,}자)"
-                        ans = f"✅ 본문 재생성 완료: {tinfo.get('title', target_doc_id)}{ref_msg}{dir_msg}"
-                        emoji = "👍"
+                        if tinfo.get("refetch_error"):
+                            ans = f"⚠️ 원문 재수집 오류: {tinfo['refetch_error']}"
+                            emoji = "👎"
+                        elif tinfo.get("error"):
+                            ans = f"⚠️ 지식 생성 오류: {tinfo['error']}"
+                            emoji = "👎"
+                        elif (has_refetch or has_refetch_full) and tinfo.get("source_type") == "video" and tinfo.get("has_transcript") is False:
+                            stt_err = tinfo.get("stt_error")
+                            err_detail = f" (오류: {stt_err})" if stt_err else ""
+                            ans = f"⚠️ 비디오 STT 전사 실패: 음성 자막이 추출되지 않아 본문에 반영되지 못했습니다.{err_detail}"
+                            emoji = "⚠️"
+                        else:
+                            ref_msg = ""
+                            if tinfo.get("refetched_full"):
+                                ref_msg = f" (원문 전체 재수집 {tinfo.get('new_len', 0):,}자)"
+                            elif tinfo.get("refetched"):
+                                ref_msg = f" (원문 재수집 {tinfo.get('new_len', 0):,}자)"
+                            ans = f"✅ 본문 재생성 완료: {tinfo.get('title', target_doc_id)}{ref_msg}{dir_msg}"
+                            emoji = "👍"
                     else:
                         ans = f"⚠️ 대상 문서를 찾을 수 없습니다: {target_doc_id}"
                         emoji = "🤔"
@@ -437,17 +449,31 @@ def build_app(settings: Settings | None = None) -> Any:
                 else:
                     trunc_info = f"\n⚠️ 원문이 환경변수 상한으로 절단됨 ({raw_len:,}자 / 원본 {orig:,}자)"
 
-            kb = [
-                [InlineKeyboardButton("🔄 본문 재생성", callback_data=f"rg:det:{target_doc_id}")],
-                [
-                    InlineKeyboardButton("📥 원문 재수집 (길이 제한)", callback_data=f"rg:ref:{target_doc_id}"),
-                    InlineKeyboardButton("🌐 전체 원문 재수집 (전체 길이)", callback_data=f"rg:full:{target_doc_id}"),
-                ],
-            ]
+            is_video = bool(doc and doc.source_type == "video")
+            has_ts = bool((doc.meta or {}).get("has_transcript")) if doc else False
+            video_info = ""
+            if is_video and not has_ts:
+                video_info = "\n🎙️ 영상 음성 자막(STT) 미추출 상태 — 아래 전사 버튼으로 재수집을 권장합니다."
+
+            if is_video and not has_ts:
+                kb = [
+                    [InlineKeyboardButton("🎙️ 비디오 음성 재전사 및 적재", callback_data=f"rg:full:{target_doc_id}")],
+                    [
+                        InlineKeyboardButton("🔄 본문 재생성 (기존 텍스트 기준)", callback_data=f"rg:det:{target_doc_id}"),
+                    ],
+                ]
+            else:
+                kb = [
+                    [InlineKeyboardButton("🔄 본문 재생성", callback_data=f"rg:det:{target_doc_id}")],
+                    [
+                        InlineKeyboardButton("📥 원문 재수집 (길이 제한)", callback_data=f"rg:ref:{target_doc_id}"),
+                        InlineKeyboardButton("🌐 전체 원문 재수집 (전체 길이)", callback_data=f"rg:full:{target_doc_id}"),
+                    ],
+                ]
             markup = InlineKeyboardMarkup(kb)
             await msg.reply_text(
                 f"📄 {doc_title}\n"
-                f"• 보관 본문: {raw_len:,}자{trunc_info}\n\n"
+                f"• 보관 본문: {raw_len:,}자{trunc_info}{video_info}\n\n"
                 "수행할 작업을 선택하세요:",
                 reply_markup=markup,
             )
@@ -628,8 +654,17 @@ def build_app(settings: Settings | None = None) -> Any:
                     ans = f"❌ {mode_name} 실패: {res['error']}"
                 elif res.get("count", 0) > 0:
                     tinfo = res["targets"][0]
-                    len_info = f" ({tinfo.get('new_len', 0):,}자)" if (do_refetch or do_refetch_full) else ""
-                    ans = f"✅ {mode_name} 완료: {tinfo.get('title', did)}{len_info}"
+                    if tinfo.get("refetch_error"):
+                        ans = f"⚠️ 원문 재수집 오류: {tinfo['refetch_error']}"
+                    elif tinfo.get("error"):
+                        ans = f"⚠️ 지식 생성 오류: {tinfo['error']}"
+                    elif (do_refetch or do_refetch_full) and tinfo.get("source_type") == "video" and tinfo.get("has_transcript") is False:
+                        stt_err = tinfo.get("stt_error")
+                        err_detail = f" (오류: {stt_err})" if stt_err else ""
+                        ans = f"⚠️ {mode_name} 부분 완료: 오디오 STT 음성 전사에 실패하여 본문에 전사 내용이 포함되지 않았습니다.{err_detail}"
+                    else:
+                        len_info = f" ({tinfo.get('new_len', 0):,}자)" if (do_refetch or do_refetch_full) else ""
+                        ans = f"✅ {mode_name} 완료: {tinfo.get('title', did)}{len_info}"
                 else:
                     ans = f"⚠️ 대상 문서를 찾을 수 없습니다: {did}"
             except Exception as e:

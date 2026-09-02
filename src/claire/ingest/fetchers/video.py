@@ -233,11 +233,15 @@ def fetch_video(
                     )
                     transcript_text = stt_result.full_text
                     segments_data = [s.model_dump() for s in stt_result.segments]
-                    if not duration_sec and stt_result.duration_sec:
-                        duration_sec = stt_result.duration_sec
-                    # 전사 성공 시 사용 완료된 캐시 정리
-                    if effective_data_dir:
-                        delete_cached_video_file(effective_data_dir, url, canonical_url=resolved_url)
+                    if not transcript_text:
+                        stt_error_msg = "Cached STT returned empty transcript"
+                        if effective_data_dir:
+                            delete_cached_video_file(effective_data_dir, url, canonical_url=resolved_url)
+                        cached_file = None
+                    else:
+                        # 전사 성공 시 사용 완료된 캐시 정리
+                        if effective_data_dir:
+                            delete_cached_video_file(effective_data_dir, url, canonical_url=resolved_url)
                 except Exception as e:
                     stt_error_msg = f"{type(e).__name__}: {e}"
                     logger.warning("Cached audio STT transcription failed for %s: %s", url, e)
@@ -291,9 +295,12 @@ def fetch_video(
                             segments_data = [s.model_dump() for s in stt_result.segments]
                             if not duration_sec and stt_result.duration_sec:
                                 duration_sec = stt_result.duration_sec
-                            # 적재 성공 시 기존 캐시가 있다면 정리
-                            if effective_data_dir:
-                                delete_cached_video_file(effective_data_dir, url, canonical_url=resolved_url)
+                            if not transcript_text:
+                                stt_error_msg = "STT provider returned empty transcript"
+                            else:
+                                # 적재 성공 시 기존 캐시가 있다면 정리
+                                if effective_data_dir:
+                                    delete_cached_video_file(effective_data_dir, url, canonical_url=resolved_url)
                     except Exception as e:
                         stt_error_msg = f"{type(e).__name__}: {e}"
                         logger.warning("Audio extraction & STT failed for %s: %s", url, e)
