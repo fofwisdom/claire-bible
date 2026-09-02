@@ -313,38 +313,107 @@ class GeminiTranscriptProvider(TranscriptProvider):
                 f"4. Do NOT output commentary or markdown headers, only the timestamped transcript lines."
             )
 
-            # 3. 모델 호출 (gemini-3.5-transcribe 전용, 429 시 retryDelay 대기 및 재시도)
+            # 3. 모델 호출 (gemini-3.5-transcribe는 Interactions API 전용, 타 모델은 generate_content)
             model_name = self.model
-            chunk_text = ""
             max_retries = 5
 
             for attempt in range(1, max_retries + 1):
                 try:
-                    gen_cfg = None
-                    if "gemini-3.5-transcribe" in model_name:
-                        from google.genai import types
+                    if "gemini-3.5-transcribe" in model_name and hasattr(client, "interactions"):
+                        # gemini-3.5-transcribe는 전용 음성 인식 모델로서 Interactions API를 사용해야 함.
+                        # verbatim 모드 + word 타임스탬프로 단어/문장별 정확한 타임스탬프 획득.
+                        # 주의: custom_vocabulary는 timestamps 옵션과 비호환(400 에러)되므로 단독 사용.
+                        trans_cfg: dict[str, Any] = {
+                            "mode": {
+                                "type": "verbatim",
+                                "timestamp_granularities": ["word"],
+                            }
+                        }
+                        if target_lang:
+                            trans_cfg["language_codes"] = [target_lang]
 
-                        gen_cfg = types.GenerateContentConfig(
-                            audio_timestamp=True,
-                        )
-                    try:
+                        try:
+                            interaction = client.interactions.create(
+                                model=model_name,
+                                input=[{
+                                    "type": "audio",
+                                    "uri": uploaded.uri,
+                                    "mime_type": uploaded.mime_type or "audio/mp3",
+                                }],
+                                generation_config={
+                                    "transcription_config": trans_cfg,
+                                },
+                            )
+                        except Exception as inter_err:
+                            if "400" in str(inter_err):
+                                # 타임스탬프 비호환 언어 또는 옵션 충돌 시 smart 모드 단독 폴백
+                                interaction = client.interactions.create(
+                                    model=model_name,
+                                    input=[{
+                                        "type": "audio",
+                                        "uri": uploaded.uri,
+                                        "mime_type": uploaded.mime_type or "audio/mp3",
+                                    }],
+                                    generation_config={
+                                        "transcription_config": {
+                                            "mode": {"type": "smart"},
+                                        },
+                                    },
+                                )
+                            else:
+                                raise
+
+                        # interaction.steps 내 word annotations 파싱하여 타임스탬프 문장 목록 추출
+                        annotations = []
+                        for step in getattr(interaction, "steps", []):
+                            for c in getattr(step, "content", []):
+                                for a in (getattr(c, "annotations", None) or []):
+                                    if getattr(a, "type", None) == "word_info":
+                                        annotations.append(a)
+
+                        if annotations:
+                            segments: list[TranscriptSegment] = []
+                            curr_words: list[str] = []
+                            curr_start: float | None = None
+                            curr_end: float = 0.0
+                            for w in annotations:
+                                start_f = float(str(w.start_offset).rstrip("s"))
+                                end_f = float(str(w.end_offset).rstrip("s"))
+                                if curr_start is None:
+                                    curr_start = start_f
+                                curr_end = end_f
+                                curr_words.append(w.text)
+                                if any(w.text.endswith(p) for p in [".", "?", "!", "\n"]) or len(curr_words) >= 20:
+                                    segments.append(
+                                        TranscriptSegment(
+                                            start_sec=curr_start + offset_sec,
+                                            end_sec=curr_end + offset_sec,
+                                            text=" ".join(curr_words),
+                                        )
+                                    )
+                                    curr_words = []
+                                    curr_start = None
+                            if curr_words:
+                                segments.append(
+                                    TranscriptSegment(
+                                        start_sec=(curr_start or 0.0) + offset_sec,
+                                        end_sec=curr_end + offset_sec,
+                                        text=" ".join(curr_words),
+                                    )
+                                )
+                            return segments
+
+                        chunk_text = interaction.output_text or ""
+                        return parse_raw_transcript_lines(chunk_text, offset_sec=offset_sec)
+
+                    else:
                         resp = client.models.generate_content(
                             model=model_name,
                             contents=[uploaded, prompt],
-                            config=gen_cfg,
                         )
-                    except Exception as call_err:
-                        if "gemini-3.5-transcribe" in model_name and "400" in str(call_err):
-                            # gemini-3.5-transcribe 전용 순수 오디오 contents=[uploaded] 폴백
-                            resp = client.models.generate_content(
-                                model=model_name,
-                                contents=[uploaded],
-                                config=gen_cfg,
-                            )
-                        else:
-                            raise
-                    chunk_text = resp.text or ""
-                    break
+                        chunk_text = resp.text or ""
+                        return parse_raw_transcript_lines(chunk_text, offset_sec=offset_sec)
+
                 except Exception as call_err:
                     err_str = str(call_err).lower()
                     is_429 = "429" in err_str or "resource_exhausted" in err_str or "quota" in err_str
@@ -373,8 +442,6 @@ class GeminiTranscriptProvider(TranscriptProvider):
                             raise
 
                     raise
-
-            return parse_raw_transcript_lines(chunk_text, offset_sec=offset_sec)
 
         finally:
             # 4. 사용 완료한 클라우드 파일 즉각 삭제
