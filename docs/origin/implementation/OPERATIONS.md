@@ -95,6 +95,8 @@ hostname과 IPv6는 사전 검사에서 거부한다. loopback은 안전한 초�
 * **`CLAIRE_STT_PROVIDER=antigravity`**:
   * `antigravity` (Gemini 멀티모달 오디오 전사), `mock` (테스트용) 등을 선택할 수 있습니다.
 * **`CLAIRE_STT_LANGUAGE=ko`**: 전사 선호 언어 코드.
+* **`CLAIRE_YTDLP_EXTRACTOR_ARGS=generic:impersonate`**:
+  * CDN/Cloudflare 봇 차단 우회를 위한 `yt-dlp` 추출기 인자 (브라우저 TLS 핑거프린트 위장).
 
 ## 배포된 앱의 one-off 명령
 

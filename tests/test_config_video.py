@@ -12,6 +12,7 @@ def test_config_video_defaults(monkeypatch):
     assert s.stt_provider == "antigravity"
     assert s.stt_language == "ko"
     assert s.ffmpeg_bin == "ffmpeg"
+    assert s.ytdlp_extractor_args == "generic:impersonate"
 
 
 def test_config_video_toggle(monkeypatch):

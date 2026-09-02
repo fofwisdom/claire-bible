@@ -183,13 +183,15 @@ class TranscriptProvider(Protocol):
 | `CLAIRE_STT_MODEL` | `""` | 프로바이더별 모델명 오버라이드 (예: `gemini-3.7-flash`, `whisper-large-v3`) |
 | `CLAIRE_STT_LANGUAGE` | `ko` | 전사 기본/선호 언어 코드 (`ko`, `en` 등 또는 빈 값 시 자동 감지) |
 | `CLAIRE_FFMPEG_BIN` | `ffmpeg` | 시스템 `ffmpeg` 실행 파일 경로 또는 바이너리명 |
+| `CLAIRE_YTDLP_EXTRACTOR_ARGS` | `generic:impersonate` | `yt-dlp` 추출기 인자. CDN/봇 가드 우회를 위한 `--extractor-args "generic:impersonate"` (브라우저 TLS 핑거프린트 위장) 지원. |
 
 ### 4.7. 빌드 환경 및 컨테이너 통합 (Build Specifications)
 
 1. **컨테이너 이미지 (`Dockerfile`)**:
    - `apt-get install`에 `ffmpeg` 패키지를 추가하여 스트림 오디오 트랜스코딩 바이너리를 내장합니다.
+   - 최신 비디오 플랫폼 시그니처 및 TLS 위장(`curl-cffi`) 지원을 위해 `yt-dlp[curl-cffi]`를 빌드 시 항상 최신 릴리스로 업그레이드합니다.
 2. **패키지 명세 (`pyproject.toml`)**:
-   - `[project.optional-dependencies]`에 `audio` 그룹을 정의하고, 빌드 시 `uv sync --extra audio`로 필요한 라이브러리를 설치합니다.
+   - `[project.optional-dependencies]`에 `audio = ["yt-dlp[curl-cffi]>=2024.8.0"]` 그룹을 정의하고, 빌드 시 `uv sync --extra audio`로 필요한 라이브러리를 설치합니다.
 3. **Graceful Fallback**:
    - `ffmpeg`가 누락되었거나 `CLAIRE_ENABLE_VIDEO_TRANSCRIPTION=0`인 환경에서도 시스템 전체가 실패하지 않고 안전하게 대체 경로로 동작하도록 설계합니다.
 
