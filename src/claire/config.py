@@ -211,6 +211,12 @@ class Settings(BaseSettings):
     # 리서치 보고서/맥락 상한
     research_context_budget: int = Field(default=8000, alias="CLAIRE_RESEARCH_CONTEXT_BUDGET")
 
+    # --- languages & localization ---
+    # 프로젝트 광역 선호 언어 목록 (쉼표 구분, 기본값 'ko'). 'en'은 항상 공통 폴백으로 포함됨.
+    preferred_languages: str = Field(
+        default="ko", alias="CLAIRE_PREFERRED_LANGUAGES"
+    )
+
     # --- web service (DM 과 동일 ingest 통로 + graph UI) ---
     # 운영 명령의 canonical selector. cb-manuscript가 development에서는 .env.dev
     # overlay까지 해소한 뒤 모든 컨테이너에 같은 값을 전달한다.
@@ -347,6 +353,22 @@ class Settings(BaseSettings):
             return f"https://github.com/{repo}"
         url = raw_url.replace("$GITHUB_REPOSITORY", repo).replace("${GITHUB_REPOSITORY}", repo)
         return url.rstrip("/")
+
+    @property
+    def effective_preferred_languages(self) -> list[str]:
+        """프로젝트 광역 선호 언어(기본 ko 등) + 항상 기본 포함되는 'en' 목록."""
+        langs: list[str] = []
+        for raw in self.preferred_languages.split(","):
+            code = raw.strip().lower()
+            if code and code not in langs and code != "en":
+                langs.append(code)
+        langs.append("en")
+        return langs
+
+    @property
+    def effective_youtube_languages(self) -> list[str]:
+        """YouTube 등 하위 기능 호환용 선호 언어 프로퍼티 (effective_preferred_languages 위임)."""
+        return self.effective_preferred_languages
 
     @property
     def effective_provider(self) -> str:

@@ -223,3 +223,15 @@ def test_find_codex_executable_checks_only_explicit_path_or_path(
         "claire.config.shutil.which", lambda _name: str(executable)
     )
     assert find_codex_executable("codex-from-path") == str(executable.resolve())
+
+
+def test_preferred_languages_config(monkeypatch):
+    monkeypatch.setenv("CLAIRE_PREFERRED_LANGUAGES", "ko, ja, zh")
+    settings = Settings(_env_file=None)
+    assert settings.effective_preferred_languages == ["ko", "ja", "zh", "en"]
+    assert settings.effective_youtube_languages == ["ko", "ja", "zh", "en"]
+
+    monkeypatch.setenv("CLAIRE_PREFERRED_LANGUAGES", "en, fr")
+    settings_fr = Settings(_env_file=None)
+    assert settings_fr.effective_preferred_languages == ["fr", "en"]
+
