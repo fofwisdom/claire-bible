@@ -129,9 +129,10 @@ def fetch_video(
     *,
     full_content: bool = False,
     preferred_languages: list[str] | None = None,
+    settings: Settings | None = None,
 ) -> Document:
     """비디오 URL에서 메타데이터와 음성 자막(STT)을 추출하여 Document 생성."""
-    settings = get_settings()
+    settings = settings or get_settings()
     target_langs = (
         preferred_languages
         if preferred_languages is not None
@@ -195,9 +196,51 @@ def fetch_video(
 
     # 3. 자막이 없고 전사 활성화(CLAIRE_ENABLE_VIDEO_TRANSCRIPTION=1) 시 오디오 STT 실행
     stt_error_msg: str | None = None
-    if not transcript_text and settings.enable_video_transcription and has_ytdlp:
+    cached_used: bool = False
+    cached_saved: bool = False
+    if not transcript_text and settings.enable_video_transcription:
+        from ...store.video_cache import (
+            delete_cached_video_file,
+            get_cached_video_file,
+            save_video_file_to_cache,
+        )
+
+        effective_data_dir = getattr(settings, "data_dir", None)
+        cached_file: Path | None = None
+        if effective_data_dir:
+            cached_file = get_cached_video_file(
+                effective_data_dir,
+                url,
+                canonical_url=resolved_url,
+                max_age_sec=getattr(settings, "video_cache_ttl_sec", 259200),
+            )
+            if cached_file:
+                logger.info("Using cached video media file: %s for %s", cached_file, url)
+                cached_used = True
+
         ffmpeg_exec = find_ffmpeg_executable(settings.ffmpeg_bin)
-        if ffmpeg_exec:
+        if not ffmpeg_exec:
+            stt_error_msg = f"ffmpeg binary not found ({settings.ffmpeg_bin})"
+            logger.info("ffmpeg binary not found (%s), skipping audio extraction", settings.ffmpeg_bin)
+        elif cached_file:
+            # 캐시된 미디어가 있으면 다운로드 없이 즉시 STT 실행!
+            try:
+                stt_provider = get_transcript_provider(settings)
+                lang_code = settings.stt_language or (target_langs[0] if target_langs else "ko")
+                stt_result = stt_provider.transcribe(
+                    cached_file, language=lang_code, timestamps=True
+                )
+                transcript_text = stt_result.full_text
+                segments_data = [s.model_dump() for s in stt_result.segments]
+                if not duration_sec and stt_result.duration_sec:
+                    duration_sec = stt_result.duration_sec
+                # 전사 성공 시 사용 완료된 캐시 정리
+                if effective_data_dir:
+                    delete_cached_video_file(effective_data_dir, url, canonical_url=resolved_url)
+            except Exception as e:
+                stt_error_msg = f"{type(e).__name__}: {e}"
+                logger.warning("Cached audio STT transcription failed for %s: %s", url, e)
+        elif has_ytdlp:
             with tempfile.TemporaryDirectory(prefix="claire_audio_") as tmp_dir:
                 tmp_out = Path(tmp_dir) / "audio.%(ext)s"
                 audio_opts = {
@@ -211,6 +254,7 @@ def fetch_video(
                 }
                 if ext_args:
                     audio_opts["extractor_args"] = ext_args
+                downloaded_file: Path | None = None
                 try:
                     import yt_dlp
 
@@ -230,22 +274,34 @@ def fetch_video(
                         if p.is_file() and not p.name.endswith((".part", ".ytdl"))
                     ]
                     if audio_candidates:
-                        audio_file = audio_candidates[0]
+                        downloaded_file = audio_candidates[0]
                         stt_provider = get_transcript_provider(settings)
                         lang_code = settings.stt_language or (target_langs[0] if target_langs else "ko")
                         stt_result = stt_provider.transcribe(
-                            audio_file, language=lang_code, timestamps=True
+                            downloaded_file, language=lang_code, timestamps=True
                         )
                         transcript_text = stt_result.full_text
                         segments_data = [s.model_dump() for s in stt_result.segments]
                         if not duration_sec and stt_result.duration_sec:
                             duration_sec = stt_result.duration_sec
+                        # 적재 성공 시 기존 캐시가 있다면 정리
+                        if effective_data_dir:
+                            delete_cached_video_file(effective_data_dir, url, canonical_url=resolved_url)
                 except Exception as e:
                     stt_error_msg = f"{type(e).__name__}: {e}"
                     logger.warning("Audio extraction & STT failed for %s: %s", url, e)
-        else:
-            stt_error_msg = f"ffmpeg binary not found ({settings.ffmpeg_bin})"
-            logger.info("ffmpeg binary not found (%s), skipping audio extraction", settings.ffmpeg_bin)
+                finally:
+                    # 다운로드는 성공했으나 STT 또는 처리가 실패한 경우 사흘(3일)간 캐시 저장!
+                    if not transcript_text and downloaded_file and downloaded_file.is_file() and effective_data_dir:
+                        saved_path = save_video_file_to_cache(
+                            effective_data_dir,
+                            url,
+                            downloaded_file,
+                            canonical_url=resolved_url,
+                        )
+                        if saved_path:
+                            cached_saved = True
+                            logger.info("Saved downloaded video media to 3-day cache: %s", saved_path)
 
     # 4. 텍스트 본문 결합 구성
     sections: list[str] = []
@@ -261,7 +317,8 @@ def fetch_video(
     elif not settings.enable_video_transcription:
         sections.append("[영상 자막]\n(비디오 음성 전사 기능이 비활성화되어 있습니다. CLAIRE_ENABLE_VIDEO_TRANSCRIPTION=1 설정 시 생성됩니다.)")
     elif stt_error_msg:
-        sections.append(f"[영상 자막]\n(음성 전사 처리 중 오류가 발생했습니다: {stt_error_msg})")
+        cached_notice = " (다운로드된 영상 미디어는 사흘간 로컬 캐시로 안전하게 보관되며, 재적재 시 즉시 재사용됩니다.)" if cached_saved else ""
+        sections.append(f"[영상 자막]\n(음성 전사 처리 중 오류가 발생했습니다: {stt_error_msg}{cached_notice})")
     else:
         sections.append("[영상 자막]\n(추출된 자막이 없거나 음성 추출이 지원되지 않는 스트림입니다.)")
 
@@ -301,5 +358,7 @@ def fetch_video(
             "orig_chars": orig_chars,
             "raw_chars": raw_chars,
             "stt_error": stt_error_msg,
+            "video_cached": cached_saved or cached_used,
+            "video_cache_used": cached_used,
         },
     )
