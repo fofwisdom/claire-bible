@@ -83,7 +83,10 @@ def test_gemini_provider_transcribe_mocked(tmp_path, monkeypatch):
     mock_client.files.get.return_value = mock_file
 
     mock_resp = MagicMock()
-    mock_resp.text = "[00:10] Private AI Services and GPU consumption in VCF 9.1.\n[00:45] RoCE network configuration."
+    mock_resp.output_text = "[00:10] Private AI Services and GPU consumption in VCF 9.1.\n[00:45] RoCE network configuration."
+    mock_resp.text = mock_resp.output_text
+    mock_resp.steps = []
+    mock_client.interactions.create.return_value = mock_resp
     mock_client.models.generate_content.return_value = mock_resp
 
     with patch.object(provider, "_get_genai_client", return_value=mock_client), \
@@ -157,10 +160,13 @@ def test_gemini_provider_429_retry_success(tmp_path):
     mock_client.files.get.return_value = mock_file
 
     mock_resp = MagicMock()
-    mock_resp.text = "[00:01] Hello from retry"
+    mock_resp.output_text = "[00:01] Hello from retry"
+    mock_resp.text = mock_resp.output_text
+    mock_resp.steps = []
 
     # 1회차 429 오류, 2회차 성공
     err_429 = Exception("429 RESOURCE_EXHAUSTED. Please retry in 1.5s.")
+    mock_client.interactions.create.side_effect = [err_429, mock_resp]
     mock_client.models.generate_content.side_effect = [err_429, mock_resp]
 
     with (
@@ -194,6 +200,7 @@ def test_gemini_provider_429_max_retries_exhausted_raises(tmp_path):
     mock_client.files.get.return_value = mock_file
 
     err_429 = Exception("429 RESOURCE_EXHAUSTED. Please retry in 1s.")
+    mock_client.interactions.create.side_effect = err_429
     mock_client.models.generate_content.side_effect = err_429
 
     with (
@@ -205,7 +212,7 @@ def test_gemini_provider_429_max_retries_exhausted_raises(tmp_path):
             provider.transcribe(fake_audio)
         assert "RESOURCE_EXHAUSTED" in str(exc_info.value)
         # 5회 재시도 모두 gemini-3.5-transcribe 모델로만 호출되었는지 확인
-        assert mock_client.models.generate_content.call_count == 5
-        for call_args in mock_client.models.generate_content.call_args_list:
+        assert mock_client.interactions.create.call_count == 5
+        for call_args in mock_client.interactions.create.call_args_list:
             assert call_args[1]["model"] == "gemini-3.5-transcribe"
 
