@@ -68,6 +68,21 @@ def resolve_video_target_url(url: str, html_text: str = "") -> str:
     return url
 
 
+def is_valid_speech_vtt(text: str) -> bool:
+    """WebVTT 텍스트가 실제 음성 자막인지 검증 (썸네일 스프라이트 xywh 좌표 오탐 방지)."""
+    if not text or not text.strip():
+        return False
+    if ".jpg#xywh=" in text or ".png#xywh=" in text or "xywh=" in text:
+        return False
+    clean = re.sub(
+        r"(\d{2}:\d{2}:\d{2}\.\d{3}\s*-->\s*\d{2}:\d{2}:\d{2}\.\d{3}|WEBVTT|NOTE.*)",
+        "",
+        text,
+    )
+    letters = sum(1 for c in clean if c.isalnum() or c in (" ", "\n", ".", ",", "?", "!"))
+    return letters >= 20
+
+
 def _extract_captions_from_info(info: dict, target_langs: list[str]) -> str:
     """yt-dlp info dict에 포함된 수동/자동 자막 추출 (네트워크 추가 다운로드 없이 텍스트 파싱)."""
     subtitles = info.get("subtitles") or {}
@@ -79,13 +94,17 @@ def _extract_captions_from_info(info: dict, target_langs: list[str]) -> str:
             tracks = subtitles[lang]
             for track in tracks:
                 if track.get("data"):
-                    return str(track["data"]).strip()
+                    candidate = str(track["data"]).strip()
+                    if is_valid_speech_vtt(candidate):
+                        return candidate
         # 2. 자동 자막
         if lang in auto_captions:
             tracks = auto_captions[lang]
             for track in tracks:
                 if track.get("data"):
-                    return str(track["data"]).strip()
+                    candidate = str(track["data"]).strip()
+                    if is_valid_speech_vtt(candidate):
+                        return candidate
 
     return ""
 
@@ -175,24 +194,27 @@ def fetch_video(
         transcript_text = _extract_captions_from_info(info, target_langs)
 
     # 3. 자막이 없고 전사 활성화(CLAIRE_ENABLE_VIDEO_TRANSCRIPTION=1) 시 오디오 STT 실행
+    stt_error_msg: str | None = None
     if not transcript_text and settings.enable_video_transcription and has_ytdlp:
         ffmpeg_exec = find_ffmpeg_executable(settings.ffmpeg_bin)
         if ffmpeg_exec:
             with tempfile.TemporaryDirectory(prefix="claire_audio_") as tmp_dir:
                 tmp_out = Path(tmp_dir) / "audio.mp3"
                 audio_opts = {
-                    "format": "bestaudio/best",
+                    "format": "ba/ba*/b[height<=360]/b[height<=480]/b",
                     "outtmpl": str(tmp_out.with_suffix("")),
                     "postprocessors": [
                         {
                             "key": "FFmpegExtractAudio",
                             "preferredcodec": "mp3",
-                            "preferredquality": "32",
+                            "preferredquality": "64",
                         }
                     ],
                     "ffmpeg_location": ffmpeg_exec,
                     "quiet": True,
                     "no_warnings": True,
+                    "retries": 5,
+                    "fragment_retries": 10,
                 }
                 if ext_args:
                     audio_opts["extractor_args"] = ext_args
@@ -216,8 +238,10 @@ def fetch_video(
                         if not duration_sec and stt_result.duration_sec:
                             duration_sec = stt_result.duration_sec
                 except Exception as e:
+                    stt_error_msg = f"{type(e).__name__}: {e}"
                     logger.warning("Audio extraction & STT failed for %s: %s", url, e)
         else:
+            stt_error_msg = f"ffmpeg binary not found ({settings.ffmpeg_bin})"
             logger.info("ffmpeg binary not found (%s), skipping audio extraction", settings.ffmpeg_bin)
 
     # 4. 텍스트 본문 결합 구성
@@ -233,6 +257,8 @@ def fetch_video(
         sections.append(f"[영상 자막 / 음성 전사]\n{transcript_text}")
     elif not settings.enable_video_transcription:
         sections.append("[영상 자막]\n(비디오 음성 전사 기능이 비활성화되어 있습니다. CLAIRE_ENABLE_VIDEO_TRANSCRIPTION=1 설정 시 생성됩니다.)")
+    elif stt_error_msg:
+        sections.append(f"[영상 자막]\n(음성 전사 처리 중 오류가 발생했습니다: {stt_error_msg})")
     else:
         sections.append("[영상 자막]\n(추출된 자막이 없거나 음성 추출이 지원되지 않는 스트림입니다.)")
 
@@ -246,7 +272,8 @@ def fetch_video(
     if not full_text_blob:
         raise FetchError(f"Failed to extract video details for {url}")
 
-    budget = 0 if full_content else settings.raw_char_budget
+    video_budget = getattr(settings, "video_max_extract_chars", 200000)
+    budget = 0 if full_content else video_budget
     raw_text, is_truncated, orig_chars, raw_chars = slice_document_text(
         full_text_blob, budget, strategy=settings.slicing_strategy
     )
@@ -261,7 +288,7 @@ def fetch_video(
         raw_text=raw_text,
         source_type="video",
         content_hash=content_hash(full_text_blob),
-        partial=not bool(transcript_text),
+        partial=bool(not transcript_text or is_truncated),
         meta={
             "duration_sec": duration_sec,
             "has_transcript": bool(transcript_text),
@@ -270,5 +297,6 @@ def fetch_video(
             "raw_truncated": is_truncated,
             "orig_chars": orig_chars,
             "raw_chars": raw_chars,
+            "stt_error": stt_error_msg,
         },
     )

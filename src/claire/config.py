@@ -121,6 +121,14 @@ def find_ffmpeg_executable(ffmpeg_bin: str = "ffmpeg") -> str | None:
         cand = Path(d) / raw
         if cand.is_file() and os.access(cand, os.X_OK):
             return str(cand.resolve())
+    try:
+        import static_ffmpeg
+        static_ffmpeg.add_paths()
+        found = shutil.which(raw)
+        if found:
+            return str(Path(found).resolve())
+    except Exception:
+        pass
     return None
 
 
@@ -196,6 +204,16 @@ class Settings(BaseSettings):
     stt_provider: str = Field(default="antigravity", alias="CLAIRE_STT_PROVIDER")
     stt_model: str = Field(default="", alias="CLAIRE_STT_MODEL")
     stt_language: str = Field(default="ko", alias="CLAIRE_STT_LANGUAGE")
+    stt_timeout: float = Field(default=600.0, alias="CLAIRE_STT_TIMEOUT")
+    video_chunk_duration_sec: int = Field(
+        default=900, alias="CLAIRE_VIDEO_CHUNK_DURATION_SEC"
+    )
+    video_max_extract_chars: int = Field(
+        default=200000, alias="CLAIRE_VIDEO_MAX_EXTRACT_CHARS"
+    )
+    stt_custom_vocabulary: list[str] = Field(
+        default_factory=list, alias="CLAIRE_STT_CUSTOM_VOCABULARY"
+    )
     ffmpeg_bin: str = Field(default="ffmpeg", alias="CLAIRE_FFMPEG_BIN")
     ytdlp_extractor_args: str = Field(
         default="generic:impersonate", alias="CLAIRE_YTDLP_EXTRACTOR_ARGS"
@@ -374,6 +392,32 @@ class Settings(BaseSettings):
             )
         return s
 
+    @field_validator("stt_provider", mode="before")
+    @classmethod
+    def _parse_stt_provider(cls, value: object) -> str:
+        s = str(value or "").strip()
+        if not s:
+            s = os.environ.get("STT_PROVIDER", "").strip() or os.environ.get("CLAIRE_STT_PROVIDER", "").strip()
+        return s or "antigravity"
+
+    @field_validator("stt_model", mode="before")
+    @classmethod
+    def _parse_stt_model(cls, value: object) -> str:
+        s = str(value or "").strip()
+        if not s:
+            s = os.environ.get("STT_MODEL", "").strip() or os.environ.get("CLAIRE_STT_MODEL", "").strip()
+        return s
+
+    @field_validator("stt_custom_vocabulary", mode="before")
+    @classmethod
+    def _parse_stt_custom_vocabulary(cls, value: object) -> list[str]:
+        if isinstance(value, list):
+            return [str(x).strip() for x in value if str(x).strip()]
+        if isinstance(value, str):
+            parts = [p.strip() for p in value.replace("\n", ",").split(",") if p.strip()]
+            return parts
+        return []
+
     @property
     def effective_merged_extract_char_budget(self) -> int:
         """병합 문서 추출 예산 (0 이하이면 단일 문서 예산의 2배)."""
@@ -441,11 +485,17 @@ class Settings(BaseSettings):
         if not self.enable_video_transcription:
             return "mock"
         raw = (self.stt_provider or "antigravity").strip().lower()
+        if raw in ("gemini", "google"):
+            if self.gemini_api_key:
+                return "gemini"
+            return "mock"
         if raw in ("antigravity", "agy"):
-            if find_agy_executable(self.agy_bin) is not None or self.gemini_api_key:
+            if self.gemini_api_key:
+                return "gemini"
+            if find_agy_executable(self.agy_bin) is not None:
                 return "antigravity"
             return "mock"
-        if raw == "gemini" and not self.gemini_api_key:
+        if raw == "mock":
             return "mock"
         return raw
 

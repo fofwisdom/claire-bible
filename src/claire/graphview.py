@@ -1620,6 +1620,28 @@ function renderTableHtml(tableLines, blockMeta, anchorId){
 function inlineAdocFormat(text){
   if(!text) return '';
   var s=esc(text);
+  var codeSpans=[];
+  s=s.replace(/`(?![\\s])([^`\\n]+?)(?<![\\s])`/g, function(_, m1){
+    codeSpans.push('<code>'+m1+'</code>');
+    return '\\x00ADOCCODE'+(codeSpans.length-1)+'\\x00';
+  });
+  s=s.replace(/\\+\\+(?![\\s])([^\\+\\n]+?)(?<![\\s])\\+\\+/g, function(_, m1){
+    codeSpans.push('<code>'+m1+'</code>');
+    return '\\x00ADOCCODE'+(codeSpans.length-1)+'\\x00';
+  });
+  var varSpans=[];
+  s=s.replace(/(?<![\\w\\\\\\$])\\$[A-Z_][A-Za-z0-9_]*\\b/g, function(m){
+    varSpans.push(m);
+    return '\\x00ADOCVAR'+(varSpans.length-1)+'\\x00';
+  });
+  s=s.replace(/(?<![\\w\\\\\\$])\\$\\{[A-Za-z0-9_]+\\}/g, function(m){
+    varSpans.push(m);
+    return '\\x00ADOCVAR'+(varSpans.length-1)+'\\x00';
+  });
+  s=s.replace(/(?<![\\w\\\\\\$])\\$\\d+(?:,\\d{3})*(?:\\.\\d+)?\\b/g, function(m){
+    varSpans.push(m);
+    return '\\x00ADOCVAR'+(varSpans.length-1)+'\\x00';
+  });
   var mathSpans=[];
   s=s.replace(/(stem|latexmath|asciimath):\\\\[(.*?)\\\\]/gi, function(_, kind, content){
     mathSpans.push('<span class=\"math inline\" data-math=\"'+kind.toLowerCase()+'\"><code>'+content+'</code></span>');
@@ -1636,15 +1658,6 @@ function inlineAdocFormat(text){
   s=s.replace(/(?<![\\w\\\\\\$])\\$([^\\$\\n]+?)\\$(?![\\w\\$])/g, function(_, content){
     mathSpans.push('<span class=\"math inline\" data-math=\"latex\"><code>'+content+'</code></span>');
     return '\\x00ADOCMATH'+(mathSpans.length-1)+'\\x00';
-  });
-  var codeSpans=[];
-  s=s.replace(/`(?![\\s])([^`\\n]+?)(?<![\\s])`/g, function(_, m1){
-    codeSpans.push('<code>'+m1+'</code>');
-    return '\\x00ADOCCODE'+(codeSpans.length-1)+'\\x00';
-  });
-  s=s.replace(/\\+\\+(?![\\s])([^\\+\\n]+?)(?<![\\s])\\+\\+/g, function(_, m1){
-    codeSpans.push('<code>'+m1+'</code>');
-    return '\\x00ADOCCODE'+(codeSpans.length-1)+'\\x00';
   });
   var linkSpans=[];
   s=s.replace(/(https?:\\/\\/[^\\s\\[\\]]+)\\[(.*?)\\]/g, function(_, u, l){
@@ -1677,6 +1690,7 @@ function inlineAdocFormat(text){
   for(var i=0; i<linkSpans.length; i++) s=s.replace('\\x00ADOCLINK'+i+'\\x00', linkSpans[i]);
   for(var j=0; j<codeSpans.length; j++) s=s.replace('\\x00ADOCCODE'+j+'\\x00', codeSpans[j]);
   for(var k=0; k<mathSpans.length; k++) s=s.replace('\\x00ADOCMATH'+k+'\\x00', mathSpans[k]);
+  for(var v=0; v<varSpans.length; v++) s=s.replace('\\x00ADOCVAR'+v+'\\x00', varSpans[v]);
   return s;
 }
 
@@ -4934,6 +4948,28 @@ function renderTableHtml(tableLines, blockMeta, anchorId){
 function inlineAdocFormat(text){
   if(!text) return '';
   var s=esc(text);
+  var codeSpans=[];
+  s=s.replace(/`(?![\\s])([^`\\n]+?)(?<![\\s])`/g, function(_, m1){
+    codeSpans.push('<code>'+m1+'</code>');
+    return '\\x00ADOCCODE'+(codeSpans.length-1)+'\\x00';
+  });
+  s=s.replace(/\\+\\+(?![\\s])([^\\+\\n]+?)(?<![\\s])\\+\\+/g, function(_, m1){
+    codeSpans.push('<code>'+m1+'</code>');
+    return '\\x00ADOCCODE'+(codeSpans.length-1)+'\\x00';
+  });
+  var varSpans=[];
+  s=s.replace(/(?<![\\w\\\\\\$])\\$[A-Z_][A-Za-z0-9_]*\\b/g, function(m){
+    varSpans.push(m);
+    return '\\x00ADOCVAR'+(varSpans.length-1)+'\\x00';
+  });
+  s=s.replace(/(?<![\\w\\\\\\$])\\$\\{[A-Za-z0-9_]+\\}/g, function(m){
+    varSpans.push(m);
+    return '\\x00ADOCVAR'+(varSpans.length-1)+'\\x00';
+  });
+  s=s.replace(/(?<![\\w\\\\\\$])\\$\\d+(?:,\\d{3})*(?:\\.\\d+)?\\b/g, function(m){
+    varSpans.push(m);
+    return '\\x00ADOCVAR'+(varSpans.length-1)+'\\x00';
+  });
   var mathSpans=[];
   s=s.replace(/(stem|latexmath|asciimath):\\\\[(.*?)\\\\]/gi, function(_, kind, content){
     mathSpans.push('<span class=\"math inline\" data-math=\"'+kind.toLowerCase()+'\"><code>'+content+'</code></span>');
@@ -4950,15 +4986,6 @@ function inlineAdocFormat(text){
   s=s.replace(/(?<![\\w\\\\\\$])\\$([^\\$\\n]+?)\\$(?![\\w\\$])/g, function(_, content){
     mathSpans.push('<span class=\"math inline\" data-math=\"latex\"><code>'+content+'</code></span>');
     return '\\x00ADOCMATH'+(mathSpans.length-1)+'\\x00';
-  });
-  var codeSpans=[];
-  s=s.replace(/`(?![\\s])([^`\\n]+?)(?<![\\s])`/g, function(_, m1){
-    codeSpans.push('<code>'+m1+'</code>');
-    return '\\x00ADOCCODE'+(codeSpans.length-1)+'\\x00';
-  });
-  s=s.replace(/\\+\\+(?![\\s])([^\\+\\n]+?)(?<![\\s])\\+\\+/g, function(_, m1){
-    codeSpans.push('<code>'+m1+'</code>');
-    return '\\x00ADOCCODE'+(codeSpans.length-1)+'\\x00';
   });
   var linkSpans=[];
   s=s.replace(/(https?:\\/\\/[^\\s\\[\\]]+)\\[(.*?)\\]/g, function(_, u, l){
@@ -4991,6 +5018,7 @@ function inlineAdocFormat(text){
   for(var i=0; i<linkSpans.length; i++) s=s.replace('\\x00ADOCLINK'+i+'\\x00', linkSpans[i]);
   for(var j=0; j<codeSpans.length; j++) s=s.replace('\\x00ADOCCODE'+j+'\\x00', codeSpans[j]);
   for(var k=0; k<mathSpans.length; k++) s=s.replace('\\x00ADOCMATH'+k+'\\x00', mathSpans[k]);
+  for(var v=0; v<varSpans.length; v++) s=s.replace('\\x00ADOCVAR'+v+'\\x00', varSpans[v]);
   return s;
 }
 

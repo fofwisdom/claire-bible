@@ -14,10 +14,18 @@ def get_transcript_provider(settings: Any = None) -> TranscriptProvider:
     s = settings or get_settings()
     eff = s.effective_stt_provider
 
+    if eff == "gemini":
+        from .gemini_stt import GeminiTranscriptProvider
+
+        return GeminiTranscriptProvider(s)
+
     if eff == "antigravity":
+        if getattr(s, "gemini_api_key", None):
+            from .gemini_stt import GeminiTranscriptProvider
+
+            return GeminiTranscriptProvider(s)
         from .antigravity_stt import AntigravityTranscriptProvider
 
         return AntigravityTranscriptProvider(s)
 
-    # 향후 whisper / groq / gcp 등 추가 확장 지점
     return MockTranscriptProvider(s)
