@@ -318,7 +318,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
     _ensure_column(conn, "raw_inbox", "next_retry_at", "REAL")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_raw_inbox_retry "
                  "ON raw_inbox(status, next_retry_at)")
-    # v5: 문서 한국어 가독 렌더링(detail) — 짧은 summary 와 별개의 '여러 단락' 본문 재구성.
+    # v5: 문서 가독 렌더(detail) — 짧은 summary 와 별개의 '여러 단락' 상세 재구성.
     # 구조화 추출과 독립된 별도 LLM 호출로 채운다(그래프 rebuild 없이 백필 가능).
     _ensure_column(conn, "documents", "detail", "TEXT")
     # v6: 근사 중복 탐지용 MinHash 서명(JSON). content_hash/canonical_url 을 비껴가는
@@ -1481,7 +1481,7 @@ def set_document_detail(
     format: str = "md",
     html: str | None = None,
 ) -> None:
-    """문서의 한국어 가독 렌더링(detail), 포맷(detail_format), 사전 컴파일 HTML(detail_html)을 저장."""
+    """문서의 가독 렌더(detail), 포맷(detail_format), 사전 컴파일 HTML(detail_html)을 저장."""
     fmt = (format or "md").strip().lower()
     if fmt in ("asciidoc", "adoc"):
         fmt = "adoc"
@@ -1503,7 +1503,7 @@ def set_document_detail(
 
 
 def get_document_detail(conn: sqlite3.Connection, document_id: str) -> str | None:
-    """문서의 detail(한국어 가독 렌더링 원본 텍스트). 없으면 None."""
+    """문서의 detail(가독 렌더 원본 텍스트). 없으면 None."""
     row = conn.execute(
         "SELECT detail FROM documents WHERE id=?", (document_id,)).fetchone()
     return (row["detail"] if row else None) or None

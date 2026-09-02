@@ -412,8 +412,8 @@ def test_latest_extraction_summary_fallbacks(tmp_path):
     # 2) extractions 은 없으나 detail 이 있는 문서 -> detail 첫 단락 fallback
     doc2 = Document(id="doc2", title="Doc 2", raw_text="본문 2", source_type="text")
     dbm.insert_document(conn, doc2)
-    dbm.set_document_detail(conn, "doc2", "= 문서 제목\n\n이것은 상세 전문의 첫 번째 단락입니다.\n\n두 번째 단락")
-    assert dbm.latest_extraction_summary(conn, "doc2") == "이것은 상세 전문의 첫 번째 단락입니다."
+    dbm.set_document_detail(conn, "doc2", "= 문서 제목\n\n이것은 상세 내용의 첫 번째 단락입니다.\n\n두 번째 단락")
+    assert dbm.latest_extraction_summary(conn, "doc2") == "이것은 상세 내용의 첫 번째 단락입니다."
 
     # 3) extractions 도 detail 도 없으나 raw_text 가 있는 문서 -> raw_text fallback
     doc3 = Document(id="doc3", title="Doc 3", raw_text="원문 본문 텍스트입니다.", source_type="text")

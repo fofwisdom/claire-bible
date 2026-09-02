@@ -389,7 +389,7 @@ def test_node_detail_missing_returns_none():
 
 
 def test_node_detail_includes_document_detail():
-    """설명(summary)과 별개로 '자세히 읽기'용 detail(여러 단락)이 문서에 실린다(이슈2).
+    """설명(summary)과 별개로 '상세'용 detail(여러 단락)이 문서에 실린다(이슈2).
 
     detail 은 구조화 추출과 독립된 별도 컬럼/LLM 호출 → 백필 시 그래프(엔티티) 불변."""
     from claire.ingest.pipeline import ensure_document_detail

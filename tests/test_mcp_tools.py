@@ -263,7 +263,7 @@ def test_node_impl_default_drops_full_detail_keeps_summary():
     dbm.insert_document(conn, Document(
         id="d1", url="https://example.com/x", title="X", raw_text="raw",
         source_type="web", content_hash="h1"))
-    dbm.set_document_detail(conn, "d1", "매우 긴 본문 전문" * 100)
+    dbm.set_document_detail(conn, "d1", "매우 긴 상세" * 100)
     dbm.upsert_entity(conn, Entity(id="e1", type="Concept", name="MCP", sources=["d1"]))
     rep = node_impl(conn, "e1")
     assert "detail" not in rep["documents"][0]
@@ -275,10 +275,10 @@ def test_node_impl_full_true_includes_detail():
     dbm.insert_document(conn, Document(
         id="d1", url="https://example.com/x", title="X", raw_text="raw",
         source_type="web", content_hash="h1"))
-    dbm.set_document_detail(conn, "d1", "전문")
+    dbm.set_document_detail(conn, "d1", "상세")
     dbm.upsert_entity(conn, Entity(id="e1", type="Concept", name="MCP", sources=["d1"]))
     rep = node_impl(conn, "e1", full=True)
-    assert rep["documents"][0]["detail"] == "전문"
+    assert rep["documents"][0]["detail"] == "상세"
 
 
 def test_node_impl_documents_capped_and_flagged():

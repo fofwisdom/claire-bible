@@ -108,7 +108,7 @@ def node_detail(conn: sqlite3.Connection, entity_id: str, include_hidden: bool =
                 "title": row["title"] or "(제목 없음)",
                 "url": row["url"],
                 "summary": dbm.latest_extraction_summary(conn, did) or "",
-                # 한국어 가독 렌더링(여러 단락) — 패널에서 '자세히 읽기'로 펼친다.
+                # 가독 렌더(여러 단락) — 패널에서 '상세'로 펼친다.
                 "detail": dbm.get_document_detail(conn, did) or "",
                 "detail_format": dbm.get_document_detail_format(conn, did),
                 "detail_html": dbm.get_document_detail_html(conn, did) or "",
@@ -125,9 +125,9 @@ def node_detail(conn: sqlite3.Connection, entity_id: str, include_hidden: bool =
 
 
 def document_detail(conn: sqlite3.Connection, document_id: str, include_hidden: bool = True) -> dict | None:
-    """한 문서(article)의 우측 패널용 상세 — 제목·출처·요약·자세히읽기(detail). 없으면 None.
+    """한 문서(article)의 우측 패널용 상세 — 제목·출처·요약·상세(detail). 없으면 None.
 
-    좌측 문서를 고르면 그래프 강조에 더해 우측에 이 요약/전문을 펼친다(노드 클릭 없이
+    좌측 문서를 고르면 그래프 강조에 더해 우측에 이 요약/상세를 펼친다(노드 클릭 없이
     문서 자체를 읽게). 노드 목록은 클라이언트가 graph 의 node.sources 로 계산하므로
     여기선 싣지 않는다(중복 전송 방지)."""
     row = dbm.get_document_row(conn, document_id)
@@ -715,7 +715,7 @@ GRAPH_HTML = """<!doctype html>
   body.drawer-open #nodepop,
   body.reader-open #nodepop{display:none!important}
   #panel input[type=radio]{width:auto;vertical-align:middle}
-  /* --- 마크다운 본문(읽기 팝업 + 패널 detail) --- */
+  /* --- 마크다운 상세(읽기 팝업 + 패널 detail) --- */
   .md{line-height:1.75;font-size:14px;word-break:keep-all;overflow-wrap:break-word}
   #reader .rbody .md{font-size:var(--read-fs,16px)}
   .md h1{font-size:1.5em} .md h2{font-size:1.3em;margin:1.1em 0 .4em;border-bottom:1px solid var(--border);padding-bottom:.2em}
@@ -1355,7 +1355,7 @@ function showNodePop(id, x, y){
     }
   }).catch(()=>{});
 }
-// 팝업 하단의 출처 문서 한 건 — 제목 + 글(요약 우선, 없으면 전문 앞부분) 일부.
+// 팝업 하단의 출처 문서 한 건 — 제목 + 글(요약 우선, 없으면 상세 앞부분) 일부.
 function popSource(d){
   const body=((d.summary||d.detail||'').replace(/\\s+/g,' ').trim());
   return '<div class=psrc><div class=ptt>📄 '+esc(d.title||'(제목 없음)')+'</div>'+
@@ -2420,11 +2420,11 @@ function renderReader(dc){
   if(dc.detail_html){
     const purifier=window.DOMPurify;
     const cleanHtml=(purifier && typeof purifier.sanitize==='function')?purifier.sanitize(dc.detail_html, DOMPURIFY_OPTS):dc.detail_html;
-    h+='<div class=rsection>자세히 읽기</div><div class="md">'+cleanHtml+'</div>';
+    h+='<div class=rsection>상세</div><div class="md">'+cleanHtml+'</div>';
   }else if(dc.detail){
-    h+='<div class=rsection>자세히 읽기</div><div class="md">'+renderContent(dc.detail, dc.detail_format)+'</div>';
+    h+='<div class=rsection>상세</div><div class="md">'+renderContent(dc.detail, dc.detail_format)+'</div>';
   }
-  if(!dc.summary && !dc.detail && !dc.detail_html) h+='<p class=hint>이 문서의 요약/전문이 아직 없습니다.</p>';
+  if(!dc.summary && !dc.detail && !dc.detail_html) h+='<p class=hint>문서에 요약/상세 내용이 없습니다.</p>';
   const body=document.getElementById('rbody'); body.innerHTML=h; body.scrollTop=0;
   applyMathRendering(body);
   document.getElementById('reader').setAttribute('aria-busy','false');
@@ -3954,7 +3954,7 @@ function setActiveDoc(id){
   }
 }
 
-// 좌측 문서 선택 시 우측 패널: 문서 요약 + 자세히 읽기 + '이 문서의 노드' 버튼.
+// 좌측 문서 선택 시 우측 패널: 문서 요약 + 상세 + '이 문서의 노드' 버튼.
 function loadDocPanel(id){
   if(curReaderDocData && curReaderDocData.id===id){
     renderDocPanel(curReaderDocData);
@@ -4019,7 +4019,7 @@ function renderDocPanel(dc){
         'onmouseleave="leaveNode()" onclick="focusNode(\\''+n.id+'\\')">'+
         '<i style="background:'+c+'"></i>'+esc(n.label)+'</button>'; }).join('')+'</div>';
   } else { h+='<p class=al>이 문서에서 추출된 노드가 없습니다.</p>'; }
-  if(!dc.summary && !dc.detail) h+='<p class=al>이 문서의 요약/전문이 아직 없습니다.</p>';
+  if(!dc.summary && !dc.detail) h+='<p class=al>문서에 요약/상세 내용이 없습니다.</p>';
   panel.innerHTML=h;
 
   if(dc && Array.isArray(dc.nodes) && dc.nodes.length > 0){
@@ -4361,7 +4361,7 @@ const ClaireStatusBanner = (function(){
       title: '가독 렌더링 미생성',
       render: function(data){
         const count = data.missing_detail_docs || 0;
-        return '전체 문서 중 <b>' + count + '개</b>의 본문(detail)이 아직 생성되지 않았습니다. <code>./cb-manuscript app format-migrate --apply</code> 실행으로 자동 생성할 수 있습니다.';
+        return '전체 문서 중 <b>' + count + '개</b>의 상세(detail)가 아직 생성되지 않았습니다. <code>./cb-manuscript app format-migrate --apply</code> 실행으로 자동 생성할 수 있습니다.';
       }
     },
     format_ok: {
@@ -5526,11 +5526,11 @@ if(dc.summary){ h+='<div class=sec>요약</div><div class="md">'+renderContent(d
 if(dc.detail_html){
   const purifier=window.DOMPurify;
   const cleanHtml=(purifier && typeof purifier.sanitize==='function')?purifier.sanitize(dc.detail_html, DOMPURIFY_OPTS):dc.detail_html;
-  h+='<div class=sec>자세히 읽기</div><div class="md">'+cleanHtml+'</div>';
+  h+='<div class=sec>상세</div><div class="md">'+cleanHtml+'</div>';
 }else if(dc.detail){
-  h+='<div class=sec>자세히 읽기</div><div class="md">'+renderContent(dc.detail, dc.detail_format)+'</div>';
+  h+='<div class=sec>상세</div><div class="md">'+renderContent(dc.detail, dc.detail_format)+'</div>';
 }
-if(!dc.summary && !dc.detail && !dc.detail_html){ h+='<p class=meta>이 문서의 요약/전문이 아직 없습니다.</p>'; }
+if(!dc.summary && !dc.detail && !dc.detail_html){ h+='<p class=meta>문서에 요약/상세 내용이 없습니다.</p>'; }
 h+='<div class=foot>이 링크는 이 문서 하나만 읽기 전용으로 공유합니다.</div>';
 document.getElementById('wrap').innerHTML=h;
 applyMathRendering(document.getElementById('wrap'));

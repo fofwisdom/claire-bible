@@ -282,7 +282,7 @@ class IngestService:
             if doc.content_hash == old["content_hash"]:
                 # 본문은 그대로지만, 재fetch 로 새로 수집된 본문 이미지를 로컬로 내려받아
                 # 보존(외부 사이트/링크 삭제 대비, 사용자 요구)하고 meta 에 반영한 뒤
-                # detail(마크다운 가독 렌더)을 재생성한다 — 이미지/강조 백필 경로.
+                # detail(가독 렌더)을 재생성한다 — 이미지/강조 백필 경로.
                 # 그래프(엔티티)는 건드리지 않음(비파괴).
                 from .pipeline import _download_doc_images, ensure_document_detail
 
@@ -501,7 +501,7 @@ class IngestService:
         reporter: Any | None = None,
         on_progress: Callable[[str, str], None] | None = None,
     ) -> dict:
-        """detail(한국어 가독 렌더링)이 없거나 포맷이 다른 기존 문서를 채운다 — **비파괴적**.
+        """detail(가독 렌더)이 없거나 포맷이 다른 기존 문서를 채운다 — **비파괴적**.
 
         tables_only=True: raw_text 또는 detail 에 표(Table)가 포함된 문서만 선별 백필.
         그래프(엔티티/관계)를 건드리지 않고 documents.detail 컬럼만 채우므로 reextract 의
@@ -529,7 +529,7 @@ class IngestService:
                     out["skipped"] += 1
                     continue
                 with _item_context(reporter, on_progress, idx, did, title=doc.title or "", url=doc.canonical_url or doc.url or "") as step_cb:
-                    step_cb("가독 본문(detail) 렌더링 생성 중", f"format={fmt}")
+                    step_cb("가독 상세(detail) 렌더링 생성 중", f"format={fmt}")
                     if ensure_document_detail(
                         conn, self.provider, doc, force=force or tables_only, format=fmt, directive=directive
                     ):
@@ -650,19 +650,19 @@ class IngestService:
         reporter: Any | None = None,
         on_progress: Callable[[str, str], None] | None = None,
     ) -> dict:
-        """문서의 특정 컴포넌트(요약, 본문, 그래프 등)를 선별적으로 재생성(비파괴적/선택적 덮어쓰기).
+        """문서의 특정 컴포넌트(요약, 상세, 그래프 등)를 선별적으로 재생성(비파괴적/선택적 덮어쓰기).
 
         - target: URL (/p?s=token), 공유 토큰, 또는 document_id.
         - summary: True 면 요약만 LLM 재추출하여 extractions 갱신 (엔티티/관계 보존).
-        - detail: True 면 한국어 가독 렌더링 본문만 재컴파일/재생성.
-        - all_components: True 면 요약과 본문 모두 재생성.
+        - detail: True 면 가독 렌더 상세만 재컴파일/재생성.
+        - all_components: True 면 요약과 상세 모두 재생성.
         - corrupted_summary: True 면 전체 DB에서 ADOC/마크업 문법이 잔존한 요약만 자동 탐지.
-        - tables: True 면 원문(raw_text) 또는 본문(detail)에 표가 포함된 문서만 자동 탐지하여 일괄 대상 지정.
+        - tables: True 면 원문(raw_text) 또는 상세(detail)에 표가 포함된 문서만 자동 탐지하여 일괄 대상 지정.
         - refetch: True 면 환경변수(raw_char_budget) 제한을 적용하여 원본 URL에서 웹 문서를 새로 스크랩 후 재생성.
         - refetch_full: True 면 환경변수 제한 없이 원문 전체 길이를 수집하여 본문 갱신 후 재생성.
         - force: False(기본) 면 dry-run 진단만 수행하고 DB 변경 없음. True 면 실제 DB 덮어쓰기.
         - effort: LLM 사고/추론 레벨 (low, medium, high 등) 즉석 재정의.
-        - directive: 가독 렌더링 본문 작성 초점(focus) 지침.
+        - directive: 가독 렌더 상세 작성 초점(focus) 지침.
         """
         import json as _json
         import re as _re
@@ -944,7 +944,7 @@ class IngestService:
                                 conn.commit()
 
                             if do_detail:
-                                step_cb("가독 본문(detail) 렌더링 생성 중...", f"format={target_fmt}")
+                                step_cb("가독 상세(detail) 렌더링 생성 중...", f"format={target_fmt}")
                                 ensure_document_detail(
                                     conn,
                                     self.provider,
