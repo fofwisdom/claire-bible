@@ -1282,6 +1282,87 @@ def cmd_recompile_html(args) -> int:
         conn.close()
 
 
+def cmd_video_reprocess(args) -> int:
+    """비디오 문서를 최신 STT 및 비디오 예산으로 재전사/재적재(in-place 갱신 또는 신규 적재)."""
+    import json
+    import sys
+    from urllib.parse import urlparse
+
+    from .ingest.service import IngestService
+    from .store import db as dbm
+
+    s = get_settings()
+    svc = IngestService(s)
+
+    target = getattr(args, "target", None)
+    doc_id = getattr(args, "doc_id", None)
+    apply = getattr(args, "apply", False)
+    force = getattr(args, "force", False)
+    effort = getattr(args, "effort", None)
+    fmt = getattr(args, "format", None)
+
+    do_apply = apply or force
+
+    # target이나 doc_id가 DB에 존재하는지 확인
+    conn = dbm.connect(s.db_file)
+    dbm.init_db(conn)
+    try:
+        matched = []
+        if target or doc_id:
+            matched = dbm.resolve_document_targets(conn, target=target, doc_id=doc_id)
+    finally:
+        conn.close()
+
+    if matched:
+        res = svc.regenerate_components(
+            target=target,
+            doc_id=doc_id,
+            refetch_full=True,
+            all_components=True,
+            force=do_apply,
+            effort=effort,
+            format=fmt,
+        )
+
+        if getattr(args, "json", False):
+            print(json.dumps(res, ensure_ascii=False, indent=2))
+            return 0
+
+        if not do_apply:
+            print("[안내] 기본 Dry-Run 모드로 실행되었습니다.")
+            print(f"대상 문서 수: {res.get('count', 0)}건")
+            if res.get("targets"):
+                for t in res["targets"]:
+                    print(f"  - [{t['id']}] {t.get('title', '')} ({t.get('url', '')})")
+            print("실제 재전사 및 적재를 실행하려면 --apply 또는 --force 옵션을 추가하십시오:")
+            tgt_hint = f"--doc-id {doc_id}" if doc_id else (target or "")
+            print(f"  claire video-reprocess {tgt_hint} --apply")
+            return 0
+
+        print(f"[✓] 기존 비디오 문서 재전사 및 지식 갱신 완료: {res.get('count', 0)}건 처리됨")
+        return 0
+    else:
+        url = target or (args.target if hasattr(args, "target") else None)
+        parsed = urlparse(url or "")
+        if parsed.scheme in ("http", "https"):
+            if not do_apply:
+                print(f"[안내] 신규 비디오 적재 대상 (Dry-Run): {url}")
+                print("실제 수집 및 전사를 실행하려면 --apply 옵션을 추가하십시오:")
+                print(f"  claire video-reprocess {url} --apply")
+                return 0
+
+            print(f"[→] 신규 비디오 수집 및 STT 전사 시작: {url}")
+            report = svc.ingest(url, full_content=True, format=fmt, effort=effort)
+            if report.error:
+                print(f"[!] 비디오 수집 실패: {report.error}", file=sys.stderr)
+                return 1
+            print(f"[✓] 비디오 수집 및 지식 적재 완료: [{report.document_id}] '{report.title}'")
+            return 0
+        else:
+            print(f"[!] 대상을 찾을 수 없습니다: target={target}, doc_id={doc_id}", file=sys.stderr)
+            return 1
+
+
 def cmd_backfill_images(args) -> int:
     """본문 이미지가 없는 기존 문서를 재fetch 대상(refresh 큐)으로 등록.
 
@@ -1856,6 +1937,20 @@ def build_parser() -> argparse.ArgumentParser:
     ptb.add_argument("--yes", "-y", action="store_true", help="confirm without interactive prompt")
     ptb.add_argument("--json", action="store_true", help="output result in JSON format")
     ptb.set_defaults(func=cmd_truncation_backfill)
+
+    pvr = sub.add_parser(
+        "video-reprocess",
+        aliases=["reprocess-video"],
+        help="re-extract audio, transcribe with STT, and refresh video document in-place",
+    )
+    pvr.add_argument("target", nargs="?", default=None, help="document ID or video URL to reprocess")
+    pvr.add_argument("--doc-id", default=None, help="specific document ID (e.g. doc_b19da8da2980)")
+    pvr.add_argument("--apply", action="store_true", help="execute actual reprocessing (default: dry-run)")
+    pvr.add_argument("--force", "-f", action="store_true", help="force overwrite even if transcript exists")
+    pvr.add_argument("--effort", default=None, help="reasoning effort level (low, medium, high)")
+    pvr.add_argument("--format", choices=["md", "adoc"], default=None, help="detail format")
+    pvr.add_argument("--json", action="store_true", help="output result in JSON format")
+    pvr.set_defaults(func=cmd_video_reprocess)
 
     return p
 

@@ -121,6 +121,8 @@ APP_ONE_OFF_COMMANDS = {
     "truncation-scan",
     "truncation-backfill",
     "backfill-truncation",
+    "video-reprocess",
+    "reprocess-video",
 }
 APP_GUARDED_COMMANDS = {
     "migrate": "Schema lifecycle command owned by install/update",

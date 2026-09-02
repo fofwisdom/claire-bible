@@ -18,7 +18,28 @@ def _inline_adoc_format(text: str) -> str:
     # HTML 특수문자 이스케이프 선행
     s = html.escape(text, quote=False)
 
-    # 1. 수식(Math) 보호: stem:[...], latexmath:[...], asciimath:[...], $...$, \(...\)
+    # 1. 인라인 코드 보호 (코드 블록 내부의 *, _, #, $ 등이 다른 서식으로 변환되는 것 방지)
+    code_spans: list[str] = []
+
+    def _save_code(m: re.Match) -> str:
+        code_spans.append(f"<code>{m.group(1)}</code>")
+        return f"\x00ADOCCODE{len(code_spans)-1}\x00"
+
+    s = re.sub(r"`(?!\s)([^`\n]+?)(?<!\s)`", _save_code, s)
+    s = re.sub(r"\+\+(?!\s)([^\+\n]+?)(?<!\s)\+\+", _save_code, s)
+
+    # 2. 셸 환경변수 ($VAR, $GPU_DEVICE) 및 화폐 표기 ($500) 사전 보호 (LaTeX 수식 오탐 방지)
+    var_spans: list[str] = []
+
+    def _save_var(m: re.Match) -> str:
+        var_spans.append(m.group(0))
+        return f"\x00ADOCVAR{len(var_spans)-1}\x00"
+
+    s = re.sub(r"(?<![\w\\\$])\$[A-Z_][A-Za-z0-9_]*\b", _save_var, s)
+    s = re.sub(r"(?<![\w\\\$])\$\{[A-Za-z0-9_]+\}", _save_var, s)
+    s = re.sub(r"(?<![\w\\\$])\$\d+(?:,\d{3})*(?:\.\d+)?\b", _save_var, s)
+
+    # 3. 수식(Math) 보호: stem:[...], latexmath:[...], asciimath:[...], $...$, \(...\)
     math_spans: list[str] = []
 
     def _save_math(m: re.Match) -> str:
@@ -38,17 +59,7 @@ def _inline_adoc_format(text: str) -> str:
     s = re.sub(r"\$\$([^\$]+?)\$\$", _save_latex_inline, s)
     s = re.sub(r"(?<![\w\\\$])\$([^\$\n]+?)\$(?![\w\$])", _save_latex_inline, s)
 
-    # 2. 인라인 코드 보호 (코드 블록 내부의 *, _, # 등이 다른 서식으로 변환되는 것 방지)
-    code_spans: list[str] = []
-
-    def _save_code(m: re.Match) -> str:
-        code_spans.append(f"<code>{m.group(1)}</code>")
-        return f"\x00ADOCCODE{len(code_spans)-1}\x00"
-
-    s = re.sub(r"`(?!\s)([^`\n]+?)(?<!\s)`", _save_code, s)
-    s = re.sub(r"\+\+(?!\s)([^\+\n]+?)(?<!\s)\+\+", _save_code, s)
-
-    # 3. 명시적 링크 보호: https://url[텍스트] -> <a href="url" target="_blank" rel="noopener">{label}</a>
+    # 4. 명시적 링크 보호: https://url[텍스트] -> <a href="url" target="_blank" rel="noopener">{label}</a>
     link_spans: list[str] = []
 
     def _save_explicit_link(m: re.Match) -> str:
@@ -104,8 +115,8 @@ def _inline_adoc_format(text: str) -> str:
         s = s.replace(f"\x00ADOCCODE{i}\x00", span)
     for i, span in enumerate(math_spans):
         s = s.replace(f"\x00ADOCMATH{i}\x00", span)
-
-    return s
+    for i, span in enumerate(var_spans):
+        s = s.replace(f"\x00ADOCVAR{i}\x00", span)
 
     return s
 
