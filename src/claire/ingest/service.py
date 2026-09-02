@@ -866,6 +866,10 @@ class IngestService:
                                     info["refetched_full"] = bool(refetch_full)
                                     info["title"] = new_doc.title or "(제목 없음)"
                                     info["new_len"] = len(new_doc.raw_text)
+                                    info["source_type"] = new_doc.source_type
+                                    if new_doc.source_type == "video":
+                                        info["has_transcript"] = bool(new_doc.meta.get("has_transcript"))
+                                        info["stt_error"] = new_doc.meta.get("stt_error")
                                 except Exception as e:
                                     info["refetch_error"] = str(e)
 

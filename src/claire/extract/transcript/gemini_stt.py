@@ -320,10 +320,29 @@ class GeminiTranscriptProvider(TranscriptProvider):
 
             for attempt in range(1, max_retries + 1):
                 try:
-                    resp = client.models.generate_content(
-                        model=model_name,
-                        contents=[uploaded, prompt],
-                    )
+                    gen_cfg = None
+                    if "gemini-3.5-transcribe" in model_name:
+                        from google.genai import types
+
+                        gen_cfg = types.GenerateContentConfig(
+                            audio_timestamp=True,
+                        )
+                    try:
+                        resp = client.models.generate_content(
+                            model=model_name,
+                            contents=[uploaded, prompt],
+                            config=gen_cfg,
+                        )
+                    except Exception as call_err:
+                        if "gemini-3.5-transcribe" in model_name and "400" in str(call_err):
+                            # gemini-3.5-transcribe 전용 순수 오디오 contents=[uploaded] 폴백
+                            resp = client.models.generate_content(
+                                model=model_name,
+                                contents=[uploaded],
+                                config=gen_cfg,
+                            )
+                        else:
+                            raise
                     chunk_text = resp.text or ""
                     break
                 except Exception as call_err:
