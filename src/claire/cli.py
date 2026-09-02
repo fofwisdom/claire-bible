@@ -1323,6 +1323,12 @@ def cmd_video_reprocess(args) -> int:
                 if c:
                     print(f"[캐시] 문서 [{t['id']}]의 사흘(3일) 보존 비디오 캐시 감지: {c.name} ({c.stat().st_size / (1024*1024):.1f}MB, 재다운로드 없이 사용)")
 
+        def _on_reprocess_progress(stage: str, detail: str = "") -> None:
+            if detail:
+                print(f"[{stage}] {detail}")
+            else:
+                print(f"[{stage}]")
+
         res = svc.regenerate_components(
             target=target,
             doc_id=doc_id,
@@ -1331,6 +1337,7 @@ def cmd_video_reprocess(args) -> int:
             force=do_apply,
             effort=effort,
             format=fmt,
+            on_progress=_on_reprocess_progress if do_apply else None,
         )
 
         if getattr(args, "json", False):
@@ -1347,6 +1354,36 @@ def cmd_video_reprocess(args) -> int:
             tgt_hint = f"--doc-id {doc_id}" if doc_id else (target or "")
             print(f"  claire video-reprocess {tgt_hint} --apply")
             return 0
+
+        # 실행 결과 검증: 재수집 에러, 지식생성 에러 및 STT 전사 성공 여부 확인
+        targets = res.get("targets", [])
+        has_errors = False
+        conn = dbm.connect(s.db_file)
+        try:
+            for t in targets:
+                did = t.get("document_id") or ""
+                doc_row = dbm.get_document(conn, did)
+                if doc_row:
+                    stt_err = doc_row.meta.get("stt_error")
+                    has_ts = doc_row.meta.get("has_transcript")
+                    if not has_ts:
+                        has_errors = True
+                        if stt_err:
+                            print(f"[!] 비디오 STT 음성 전사 실패: {stt_err}", file=sys.stderr)
+                        else:
+                            print(f"[!] 비디오 음성 자막(전사)이 추출되지 못했습니다.", file=sys.stderr)
+                if t.get("refetch_error"):
+                    has_errors = True
+                    print(f"[!] 원문 재수집 오류: {t['refetch_error']}", file=sys.stderr)
+                if t.get("error"):
+                    has_errors = True
+                    print(f"[!] 지식 그래프 생성 오류: {t['error']}", file=sys.stderr)
+        finally:
+            conn.close()
+
+        if has_errors:
+            print(f"[!] 비디오 문서 재전사 실패: 음성 자막이나 지식이 갱신되지 못했습니다.", file=sys.stderr)
+            return 1
 
         print(f"[✓] 기존 비디오 문서 재전사 및 지식 갱신 완료: {res.get('count', 0)}건 처리됨")
         return 0

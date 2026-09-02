@@ -222,86 +222,93 @@ def fetch_video(
         if not ffmpeg_exec:
             stt_error_msg = f"ffmpeg binary not found ({settings.ffmpeg_bin})"
             logger.info("ffmpeg binary not found (%s), skipping audio extraction", settings.ffmpeg_bin)
-        elif cached_file:
-            # 캐시된 미디어가 있으면 다운로드 없이 즉시 STT 실행!
-            try:
-                stt_provider = get_transcript_provider(settings)
-                lang_code = settings.stt_language or (target_langs[0] if target_langs else "ko")
-                stt_result = stt_provider.transcribe(
-                    cached_file, language=lang_code, timestamps=True
-                )
-                transcript_text = stt_result.full_text
-                segments_data = [s.model_dump() for s in stt_result.segments]
-                if not duration_sec and stt_result.duration_sec:
-                    duration_sec = stt_result.duration_sec
-                # 전사 성공 시 사용 완료된 캐시 정리
-                if effective_data_dir:
-                    delete_cached_video_file(effective_data_dir, url, canonical_url=resolved_url)
-            except Exception as e:
-                stt_error_msg = f"{type(e).__name__}: {e}"
-                logger.warning("Cached audio STT transcription failed for %s: %s", url, e)
-        elif has_ytdlp:
-            with tempfile.TemporaryDirectory(prefix="claire_audio_") as tmp_dir:
-                tmp_out = Path(tmp_dir) / "audio.%(ext)s"
-                audio_opts = {
-                    "format": "ba[protocol!*=dash]/ba/b[height<=360]/b[height<=480]/b",
-                    "outtmpl": str(tmp_out),
-                    "ffmpeg_location": ffmpeg_exec,
-                    "quiet": True,
-                    "no_warnings": True,
-                    "retries": 5,
-                    "fragment_retries": 10,
-                }
-                if ext_args:
-                    audio_opts["extractor_args"] = ext_args
-                downloaded_file: Path | None = None
+        else:
+            if cached_file:
+                # 1. 캐시된 미디어가 있으면 다운로드 없이 즉시 STT 실행 시도
                 try:
-                    import yt_dlp
-
-                    try:
-                        with yt_dlp.YoutubeDL(audio_opts) as ydl:
-                            ydl.download([resolved_url])
-                    except Exception as dl_err:
-                        logger.debug("Primary audio format download failed, trying fallback: %s", dl_err)
-                        fallback_opts = dict(audio_opts)
-                        fallback_opts["format"] = "ba/b[height<=360]/b"
-                        with yt_dlp.YoutubeDL(fallback_opts) as ydl:
-                            ydl.download([resolved_url])
-
-                    # 다운로드된 오디오 파일 탐색 (.mp3, .m4a, .mp4 등)
-                    audio_candidates = [
-                        p for p in Path(tmp_dir).glob("audio.*")
-                        if p.is_file() and not p.name.endswith((".part", ".ytdl"))
-                    ]
-                    if audio_candidates:
-                        downloaded_file = audio_candidates[0]
-                        stt_provider = get_transcript_provider(settings)
-                        lang_code = settings.stt_language or (target_langs[0] if target_langs else "ko")
-                        stt_result = stt_provider.transcribe(
-                            downloaded_file, language=lang_code, timestamps=True
-                        )
-                        transcript_text = stt_result.full_text
-                        segments_data = [s.model_dump() for s in stt_result.segments]
-                        if not duration_sec and stt_result.duration_sec:
-                            duration_sec = stt_result.duration_sec
-                        # 적재 성공 시 기존 캐시가 있다면 정리
-                        if effective_data_dir:
-                            delete_cached_video_file(effective_data_dir, url, canonical_url=resolved_url)
+                    stt_provider = get_transcript_provider(settings)
+                    lang_code = settings.stt_language or (target_langs[0] if target_langs else "ko")
+                    stt_result = stt_provider.transcribe(
+                        cached_file, language=lang_code, timestamps=True
+                    )
+                    transcript_text = stt_result.full_text
+                    segments_data = [s.model_dump() for s in stt_result.segments]
+                    if not duration_sec and stt_result.duration_sec:
+                        duration_sec = stt_result.duration_sec
+                    # 전사 성공 시 사용 완료된 캐시 정리
+                    if effective_data_dir:
+                        delete_cached_video_file(effective_data_dir, url, canonical_url=resolved_url)
                 except Exception as e:
                     stt_error_msg = f"{type(e).__name__}: {e}"
-                    logger.warning("Audio extraction & STT failed for %s: %s", url, e)
-                finally:
-                    # 다운로드는 성공했으나 STT 또는 처리가 실패한 경우 사흘(3일)간 캐시 저장!
-                    if not transcript_text and downloaded_file and downloaded_file.is_file() and effective_data_dir:
-                        saved_path = save_video_file_to_cache(
-                            effective_data_dir,
-                            url,
-                            downloaded_file,
-                            canonical_url=resolved_url,
-                        )
-                        if saved_path:
-                            cached_saved = True
-                            logger.info("Saved downloaded video media to 3-day cache: %s", saved_path)
+                    logger.warning("Cached audio STT transcription failed for %s: %s", url, e)
+                    # 손상되었거나 전사에 실패한 캐시 파일은 즉시 정리
+                    if effective_data_dir:
+                        delete_cached_video_file(effective_data_dir, url, canonical_url=resolved_url)
+                    cached_file = None
+
+            # 2. 캐시가 없거나 캐시 STT가 실패한 경우, yt-dlp로 원격 스트림 다운로드 진행
+            if not transcript_text and has_ytdlp:
+                with tempfile.TemporaryDirectory(prefix="claire_audio_") as tmp_dir:
+                    tmp_out = Path(tmp_dir) / "audio.%(ext)s"
+                    audio_opts = {
+                        "format": "ba[protocol!*=dash]/ba/b[height<=360]/b[height<=480]/b",
+                        "outtmpl": str(tmp_out),
+                        "ffmpeg_location": ffmpeg_exec,
+                        "quiet": True,
+                        "no_warnings": True,
+                        "retries": 5,
+                        "fragment_retries": 10,
+                    }
+                    if ext_args:
+                        audio_opts["extractor_args"] = ext_args
+                    downloaded_file: Path | None = None
+                    try:
+                        import yt_dlp
+
+                        try:
+                            with yt_dlp.YoutubeDL(audio_opts) as ydl:
+                                ydl.download([resolved_url])
+                        except Exception as dl_err:
+                            logger.debug("Primary audio format download failed, trying fallback: %s", dl_err)
+                            fallback_opts = dict(audio_opts)
+                            fallback_opts["format"] = "ba/b[height<=360]/b"
+                            with yt_dlp.YoutubeDL(fallback_opts) as ydl:
+                                ydl.download([resolved_url])
+
+                        # 다운로드된 오디오 파일 탐색 (.mp3, .m4a, .mp4 등)
+                        audio_candidates = [
+                            p for p in Path(tmp_dir).glob("audio.*")
+                            if p.is_file() and not p.name.endswith((".part", ".ytdl"))
+                        ]
+                        if audio_candidates:
+                            downloaded_file = audio_candidates[0]
+                            stt_provider = get_transcript_provider(settings)
+                            lang_code = settings.stt_language or (target_langs[0] if target_langs else "ko")
+                            stt_result = stt_provider.transcribe(
+                                downloaded_file, language=lang_code, timestamps=True
+                            )
+                            transcript_text = stt_result.full_text
+                            segments_data = [s.model_dump() for s in stt_result.segments]
+                            if not duration_sec and stt_result.duration_sec:
+                                duration_sec = stt_result.duration_sec
+                            # 적재 성공 시 기존 캐시가 있다면 정리
+                            if effective_data_dir:
+                                delete_cached_video_file(effective_data_dir, url, canonical_url=resolved_url)
+                    except Exception as e:
+                        stt_error_msg = f"{type(e).__name__}: {e}"
+                        logger.warning("Audio extraction & STT failed for %s: %s", url, e)
+                    finally:
+                        # 다운로드는 성공했으나 STT 또는 처리가 실패한 경우 사흘(3일)간 캐시 저장!
+                        if not transcript_text and downloaded_file and downloaded_file.is_file() and effective_data_dir:
+                            saved_path = save_video_file_to_cache(
+                                effective_data_dir,
+                                url,
+                                downloaded_file,
+                                canonical_url=resolved_url,
+                            )
+                            if saved_path:
+                                cached_saved = True
+                                logger.info("Saved downloaded video media to 3-day cache: %s", saved_path)
 
     # 4. 텍스트 본문 결합 구성
     sections: list[str] = []

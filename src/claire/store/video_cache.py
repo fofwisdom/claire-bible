@@ -83,10 +83,12 @@ def get_cached_video_file(
     *,
     canonical_url: str | None = None,
     max_age_sec: float = DEFAULT_VIDEO_CACHE_TTL_SEC,
+    min_size_bytes: int = 1024,
 ) -> Path | None:
     """해당 URL에 대해 사흘 이내에 캐시된 유효한 비디오/오디오 미디어 파일 탐색.
 
-    만료된 캐시는 자동 삭제하고 None 반환. 유효 파일 발견 시 Path 반환.
+    만료되었거나 최소 크기(min_size_bytes) 미만인 손상 파일은 자동 삭제하고 None 반환.
+    유효 파일 발견 시 Path 반환.
     """
     cache_dir = get_video_cache_dir(data_dir)
     keys = compute_video_cache_keys(url, canonical_url)
@@ -116,15 +118,27 @@ def get_cached_video_file(
                     meta_path.unlink(missing_ok=True)
                     continue
 
-                if stat.st_size > 0:
-                    logger.info(
-                        "Found valid cached video file (%s, %.1fMB, age %.1fh) for %s",
+                if stat.st_size < min_size_bytes:
+                    logger.warning(
+                        "Corrupt or incomplete video cache file found (%s, %d bytes < %d bytes), deleting: %s",
                         cand.name,
-                        stat.st_size / (1024 * 1024),
-                        age / 3600,
-                        url,
+                        stat.st_size,
+                        min_size_bytes,
+                        cand,
                     )
-                    return cand
+                    cand.unlink(missing_ok=True)
+                    meta_path = cache_dir / f"{key}.meta.json"
+                    meta_path.unlink(missing_ok=True)
+                    continue
+
+                logger.info(
+                    "Found valid cached video file (%s, %.1fMB, age %.1fh) for %s",
+                    cand.name,
+                    stat.st_size / (1024 * 1024),
+                    age / 3600,
+                    url,
+                )
+                return cand
             except OSError:
                 continue
 
