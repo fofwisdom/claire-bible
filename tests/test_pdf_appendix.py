@@ -97,7 +97,7 @@ def test_find_appendix_split_false_positives():
 
 
 def test_slice_pdf_text_pure_appendix_truncated():
-    """본문이 예산 내에 있고 부록만 절단된 경우 appendix_truncated=True 검증."""
+    """본문이 예산 내에 있고 부록만 절단한 경우 appendix_truncated=True 검증."""
     main_text = "Paper Main Body Paragraph. " * 500  # ~13,500자
     appendix_text = "\n\nAppendix A. Additional Proofs\n" + ("Proof detail. " * 300)
     full_text = main_text + appendix_text
@@ -291,5 +291,5 @@ def test_graphview_appendix_truncation_ui():
     html = render_graph_html()
     assert ".trunc-tag.trunc-appendix" in html
     assert "#3fb950" in html
-    assert "원문의 부록(Appendix) 부분이 절단되어 적재되었습니다." in html
+    assert "원문의 부록(Appendix) 부분을 절단한 문서" in html
     assert "isAppTrunc" in html

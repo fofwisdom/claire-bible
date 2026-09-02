@@ -1144,12 +1144,12 @@ def cmd_truncation_status(args) -> int:
     print("=" * 65)
     print(f"• 전체 검사 문서 수             : {res['total_documents']} 건")
     print(f"  - 원문 보존 온전 문서         : {res['intact_count']} 건")
-    print(f"  - 기기록된 절단 문서          : {res['recorded_truncated_count']} 건 (raw_truncated=True)")
+    print(f"  - 기기록한 절단 문서          : {res['recorded_truncated_count']} 건 (raw_truncated=True)")
     print(f"  - 메타데이터 누락 절단 문서   : {res['unmarked_truncated_count']} 건 (소급 대상)")
     print("=" * 65)
 
     if res["unmarked_truncated_count"] > 0:
-        print("\n[!] 메타데이터가 누락된 절단 의심 문서 목록:")
+        print("\n[!] 메타데이터를 누락한 절단 의심 문서 목록:")
         for item in res["unmarked_items"]:
             reasons_str = ", ".join(item["reasons"])
             print(f"  • [{item['id']}] '{item['title']}' ({item['source_type']})")
@@ -1158,13 +1158,13 @@ def cmd_truncation_status(args) -> int:
         print("\n[안내] 위 문서들에 메타데이터를 소급 적용하려면 다음 명령을 실행하십시오:")
         print("  claire truncation-backfill --apply")
     else:
-        print("\n[✓] 메타데이터가 누락된 절단 문서가 없습니다. 모든 상태가 온전합니다.")
+        print("\n[✓] 메타데이터를 누락한 절단 문서가 없습니다. 모든 상태가 온전합니다.")
 
     return 0
 
 
 def cmd_truncation_backfill(args) -> int:
-    """메타데이터가 누락된 절단 문서에 raw_truncated를 소급 갱신."""
+    """메타데이터를 누락한 절단 문서에 raw_truncated를 소급 갱신."""
     import json
     import sys
     from .store import db as dbm

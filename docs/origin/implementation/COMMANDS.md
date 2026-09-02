@@ -298,7 +298,7 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
   ```
 * **옵션**:
   * `--apply`: 실제 DB `documents.meta` 갱신을 적용 (미지정 시 기본 dry-run).
-  * `--mark-refresh`: 검출된 절단 문서를 원문 온전 재수집을 위해 `refresh_queue`에 자동 등록.
+  * `--mark-refresh`: 검출한 절단 문서를 원문 온전 재수집을 위해 `refresh_queue`에 자동 등록.
   * `--force`: 이미 `raw_truncated` 플래그가 있는 문서까지 포함하여 전체 재평가 및 갱신.
   * `--yes`, `-y`: 대화형 확인 프롬프트 생략.
   * `--json`: 결과를 JSON 포맷으로 출력.

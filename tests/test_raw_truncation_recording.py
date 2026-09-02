@@ -132,6 +132,12 @@ def test_graph_html_contains_truncation_ui_and_css():
     assert "✂️ 원문 일부 절단" in html
     assert "🎯" in html
     assert "🎙️ STT" in html
+    assert "음성 인식(STT)을 적용하여 작성한 문서" in html
+    assert "적재 시 지정한 초점: " in html
+    assert "원문의 부록(Appendix) 부분을 절단한 문서" in html
+    assert "글자 수 상한으로 원문 일부를 절단한 문서" in html
+    assert "작성된 본문" not in html
+    assert "적재되었습니다" not in html
     # 20,000자가 하드코딩되어 있지 않고 동적이어야 함
     assert "(20,000자)" not in html
 
@@ -161,6 +167,12 @@ def test_shared_html_contains_docmeta_ui_and_css():
     assert "✂️ 원문 일부 절단" in html
     assert "🎯" in html
     assert "🎙️ STT" in html
+    assert "음성 인식(STT)을 적용하여 작성한 문서" in html
+    assert "적재 시 지정한 초점: " in html
+    assert "원문의 부록(Appendix) 부분을 절단한 문서" in html
+    assert "글자 수 상한으로 원문 일부를 절단한 문서" in html
+    assert "작성된 본문" not in html
+    assert "적재되었습니다" not in html
     assert "h1 .rmeta" in html
     assert "(20,000자)" not in html
 

@@ -2373,17 +2373,17 @@ function docMetaHtml(dc){
   let tags=[];
   if(directive){
     const dispDir = directive.length > 25 ? directive.slice(0, 25) + '…' : directive;
-    tags.push('<span class="directive-tag" title="적재 시 지정된 초점: '+esc(directive)+'">🎯 '+esc(dispDir)+'</span>');
+    tags.push('<span class="directive-tag" title="적재 시 지정한 초점: '+esc(directive)+'">🎯 '+esc(dispDir)+'</span>');
   }
   if(isStt){
-    tags.push('<span class="directive-tag stt-tag" title="음성 인식(STT)을 적용하여 작성된 본문">🎙️ STT</span>');
+    tags.push('<span class="directive-tag stt-tag" title="음성 인식(STT)을 적용하여 작성한 문서">🎙️ STT</span>');
   }
   if(isTrunc){
     const orig=(dc.orig_chars || (dc.meta && dc.meta.orig_chars)) || 0;
     const raw=(dc.raw_chars || (dc.meta && dc.meta.raw_chars)) || 0;
     let tip = isAppTrunc
-      ? '원문의 부록(Appendix) 부분이 절단되어 적재되었습니다.'
-      : '원문이 글자 수 상한으로 인해 일부 절단되어 적재되었습니다.';
+      ? '원문의 부록(Appendix) 부분을 절단한 문서'
+      : '글자 수 상한으로 원문 일부를 절단한 문서';
     let label='✂️ 원문 일부 절단';
     if(orig > 0 && raw > 0){
       tip+=' (원문: '+orig.toLocaleString()+'자 → 적재: '+raw.toLocaleString()+'자)';
@@ -5536,17 +5536,17 @@ function docMetaHtml(dc){
   let tags=[];
   if(directive){
     const dispDir = directive.length > 25 ? directive.slice(0, 25) + '…' : directive;
-    tags.push('<span class="directive-tag" title="적재 시 지정된 초점: '+esc(directive)+'">🎯 '+esc(dispDir)+'</span>');
+    tags.push('<span class="directive-tag" title="적재 시 지정한 초점: '+esc(directive)+'">🎯 '+esc(dispDir)+'</span>');
   }
   if(isStt){
-    tags.push('<span class="directive-tag stt-tag" title="음성 인식(STT)을 적용하여 작성된 본문">🎙️ STT</span>');
+    tags.push('<span class="directive-tag stt-tag" title="음성 인식(STT)을 적용하여 작성한 문서">🎙️ STT</span>');
   }
   if(isTrunc){
     const orig=(dc.orig_chars || (dc.meta && dc.meta.orig_chars)) || 0;
     const raw=(dc.raw_chars || (dc.meta && dc.meta.raw_chars)) || 0;
     let tip = isAppTrunc
-      ? '원문의 부록(Appendix) 부분이 절단되어 적재되었습니다.'
-      : '원문이 글자 수 상한으로 인해 일부 절단되어 적재되었습니다.';
+      ? '원문의 부록(Appendix) 부분을 절단한 문서'
+      : '글자 수 상한으로 원문 일부를 절단한 문서';
     let label='✂️ 원문 일부 절단';
     if(orig > 0 && raw > 0){
       tip+=' (원문: '+orig.toLocaleString()+'자 → 적재: '+raw.toLocaleString()+'자)';
