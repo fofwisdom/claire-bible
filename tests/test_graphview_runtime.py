@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from claire.graphview import _SHARED_HTML, GRAPH_HTML
+from claire.graphview import _SHARED_HTML, GRAPH_HTML, shared_html
 
 
 @pytest.fixture(scope="module")
@@ -79,6 +79,95 @@ def test_shared_html_js_syntax(node_available: bool) -> None:
             assert res.returncode == 0, f"JS Syntax error in _SHARED_HTML script #{i + 1}:\n{res.stderr}"
         finally:
             Path(tmp_path).unlink(missing_ok=True)
+
+
+def test_shared_html_headless_dom_runtime(node_available: bool) -> None:
+    """Simulates page execution of shared_html in Node.js with mock DOM.
+
+    Verifies:
+    1. Zero uncaught exceptions during page startup.
+    2. wrap.innerHTML contains docmeta element with .docmeta, .docmeta-tags,
+       truncation tag, directive tag, STT tag, and rmeta.
+    """
+    if not node_available:
+        pytest.skip("Node.js is not installed on the system")
+
+    doc = {
+        "id": "doc_shared_runtime",
+        "title": "런타임 공유 문서",
+        "url": "https://example.com/runtime-doc",
+        "source_type": "web",
+        "raw_truncated": True,
+        "appendix_truncated": True,
+        "orig_chars": 30000,
+        "raw_chars": 20000,
+        "directive": "시스템 아키텍처",
+        "is_stt": True,
+        "summary": "간단 요약",
+        "detail": "상세 본문",
+    }
+    rendered_html = shared_html(doc)
+    scripts = extract_scripts(rendered_html)
+    assert len(scripts) >= 1
+
+    script_content = scripts[-1]
+
+    runner_code = r"""
+const docData = """ + json.dumps(doc) + r""";
+
+class MockElement {
+  constructor(tag, id = '') {
+    this.tagName = (tag || 'div').toUpperCase();
+    this.id = id;
+    this.className = '';
+    this.innerHTML = '';
+    this.textContent = '';
+  }
+  setAttribute(k, v) {}
+  getAttribute(k) { return null; }
+  querySelectorAll() { return []; }
+}
+
+const elements = new Map();
+const docDataEl = new MockElement('script', 'docdata');
+docDataEl.textContent = JSON.stringify(docData);
+elements.set('docdata', docDataEl);
+
+const wrapEl = new MockElement('div', 'wrap');
+elements.set('wrap', wrapEl);
+
+global.document = {
+  getElementById(id) { return elements.get(id) || new MockElement('div', id); },
+  title: '',
+};
+global.window = {
+  location: { origin: 'http://localhost:8766', pathname: '/p' },
+};
+
+""" + script_content + r"""
+
+console.log('WRAP_HTML_START' + wrapEl.innerHTML + 'WRAP_HTML_END');
+"""
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as f:
+        f.write(runner_code)
+        tmp_path = f.name
+    try:
+        res = subprocess.run(["node", tmp_path], capture_output=True, text=True)
+        assert res.returncode == 0, f"Error executing shared_html script in Node.js:\n{res.stderr}"
+        output = res.stdout
+        assert "WRAP_HTML_START" in output
+        html_body = output.split("WRAP_HTML_START")[1].split("WRAP_HTML_END")[0]
+        assert "class=docmeta" in html_body or 'class="docmeta"' in html_body
+        assert "docmeta-tags" in html_body
+        assert "directive-tag" in html_body
+        assert "stt-tag" in html_body
+        assert "trunc-tag" in html_body
+        assert "✂️ 원문 일부 절단" in html_body
+        assert "🎯" in html_body
+        assert "🎙️ STT" in html_body
+        assert "rmeta" in html_body
+    finally:
+        Path(tmp_path).unlink(missing_ok=True)
 
 
 def test_graphview_headless_dom_runtime(node_available: bool) -> None:
