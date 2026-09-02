@@ -176,7 +176,7 @@ _EFFORT_FLAG_RE = re.compile(
     r"(?:\s+|^)(?:[-–—―]{1,2}(?i:effort|reasoning)|-[eE])\s+([a-zA-Z0-9_-]+)",
 )
 _REFETCH_FULL_FLAG_RE = re.compile(
-    r"(?:\s+|^)(?:[-–—―]{1,2}(?i:refetch[-_]full|full[-_]refetch)|-R)(?:\s+|$)",
+    r"(?:\s+|^)(?:[-–—―]{1,2}(?i:refetch[-_]full|full[-_]refetch|full[-_]content|full|no[-_]truncate)|-R)(?:\s+|$)",
 )
 _REFETCH_FLAG_RE = re.compile(
     r"(?:\s+|^)(?:[-–—―]{1,2}(?i:refetch)|-r)(?:\s+|$)",
@@ -302,12 +302,13 @@ def build_app(settings: Settings | None = None) -> Any:
         "  • 옵션과 함께 전송하면 즉시 실행됩니다:\n"
         "    예: https://.../p?s=token --refetch-full --effort high | 새 초점\n"
         "\n"
-        "💡 본문 작성 초점(Focus) 지정 방법:\n"
+        "💡 본문 작성 초점(Focus) 및 옵션 지정 방법:\n"
         "  • 파이프 구분: https://example.com/doc | 시스템 아키텍처 중심\n"
+        "  • 무절단/추론 레벨 옵션: https://example.com/doc --full --effort high | 아키텍처 중심\n"
         "  • 빈 줄(두 번 줄바꿈) 구분:\n"
         "    https://example.com/doc\n\n"
         "    초보자 튜토리얼 관점으로 작성해줘\n"
-        "  • 파일/PDF 전송 시 캡션에 원하는 초점을 적어서 전송\n"
+        "  • 파일/PDF 전송 시 캡션에 원하는 초점 및 옵션(--full, --effort high)을 적어서 전송\n"
         "\n"
         "명령어:\n"
         "  /search <키워드> — 하이브리드 검색 + 요약(인용)\n"
@@ -453,7 +454,12 @@ def build_app(settings: Settings | None = None) -> Any:
             return
 
         # 일반 외부 웹페이지/텍스트 신규 적재
-        label = f"처리 중… ({classify_input(payload)})"
+        payload_to_ingest = payload_clean or payload
+        label = f"처리 중… ({classify_input(payload_to_ingest)})"
+        if has_refetch_full:
+            label += " [원문 전체]"
+        if has_effort:
+            label += f" [추론: {has_effort}]"
         if directive:
             label += f" [방향: {directive[:20]}]"
         status = await msg.reply_text(f"⏳ {label}")
@@ -463,11 +469,13 @@ def build_app(settings: Settings | None = None) -> Any:
             report = await _run_with_ticker(
                 status, label,
                 lambda: svc.ingest(
-                    payload,
+                    payload_to_ingest,
                     source="telegram",
                     user_id=uid,
                     chat_id=cid,
                     directive=directive,
+                    effort=has_effort,
+                    full_content=has_refetch_full,
                 ),
             )
             summary, cands = report.telegram_summary(), report.candidates
@@ -489,9 +497,15 @@ def build_app(settings: Settings | None = None) -> Any:
         msg = update.message
         caption = update.message.caption
         directive = parse_caption_directive(caption)
+        caption_clean, _, has_refetch_full, has_effort = parse_regenerate_flags(directive or "")
+        clean_dir = caption_clean or None
         label = f"파일 처리 중… ({name})"
-        if directive:
-            label += f" [방향: {directive[:20]}]"
+        if has_refetch_full:
+            label += " [원문 전체]"
+        if has_effort:
+            label += f" [추론: {has_effort}]"
+        if clean_dir:
+            label += f" [방향: {clean_dir[:20]}]"
         status = await msg.reply_text(f"⏳ {label}")
         uid = user.id if user else None
         cid = update.effective_chat.id if update.effective_chat else None
@@ -519,7 +533,9 @@ def build_app(settings: Settings | None = None) -> Any:
                 inbox_kind="document",
                 file_ref=kept,
                 file_name=name,
-                directive=directive,
+                directive=clean_dir,
+                effort=has_effort,
+                full_content=has_refetch_full,
             )
 
         try:
@@ -542,12 +558,19 @@ def build_app(settings: Settings | None = None) -> Any:
                 "사용법:\n"
                 "  /ingest <URL 또는 텍스트>\n"
                 "  /ingest <URL 또는 텍스트> | <초점>\n"
-                "  예: /ingest https://example.com/doc | 시스템 아키텍처 중심"
+                "  /ingest <URL 또는 텍스트> --full --effort high | <초점>\n"
+                "  예: /ingest https://example.com/doc --full --effort high | 시스템 아키텍처 중심"
             )
             return
         payload, directive = parse_message_directive(raw)
+        payload_clean, _, has_refetch_full, has_effort = parse_regenerate_flags(payload)
+        payload_to_ingest = payload_clean or payload
         msg = update.message
-        label = f"적재 처리 중… ({classify_input(payload)})"
+        label = f"적재 처리 중… ({classify_input(payload_to_ingest)})"
+        if has_refetch_full:
+            label += " [원문 전체]"
+        if has_effort:
+            label += f" [추론: {has_effort}]"
         if directive:
             label += f" [초점: {directive[:20]}]"
         status = await msg.reply_text(f"⏳ {label}")
@@ -557,11 +580,13 @@ def build_app(settings: Settings | None = None) -> Any:
             report = await _run_with_ticker(
                 status, label,
                 lambda: svc.ingest(
-                    payload,
+                    payload_to_ingest,
                     source="telegram",
                     user_id=uid,
                     chat_id=cid,
                     directive=directive,
+                    effort=has_effort,
+                    full_content=has_refetch_full,
                 ),
             )
             summary, cands = report.telegram_summary(), report.candidates

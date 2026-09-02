@@ -1908,6 +1908,17 @@ def get_document_directive(conn: sqlite3.Connection, doc_id: str) -> str | None:
     return json.loads(row["meta"] or "{}").get("directive")
 
 
+def update_document_meta(conn: sqlite3.Connection, doc_id: str, meta: dict) -> None:
+    """문서 meta 를 갱신(기존 키 유지하며 meta 내용 병합 반영)."""
+    row = conn.execute("SELECT meta FROM documents WHERE id=?", (doc_id,)).fetchone()
+    if row is None:
+        return
+    current = json.loads(row["meta"] or "{}")
+    current.update(meta)
+    conn.execute("UPDATE documents SET meta=? WHERE id=?", (json.dumps(current), doc_id))
+    conn.commit()
+
+
 def find_document_by_extra_source(conn: sqlite3.Connection, canonical_url: str | None) -> str | None:
     """이미 어떤 문서에 병합 출처로 흡수된 canonical_url 인지 — 1홉 후보 재제안 방지용
     (병합 경로는 새 Document 행을 안 만들어 documents.canonical_url 색인으로는 못 잡음).

@@ -226,10 +226,17 @@ def create_app(
             if parsed_dir:
                 directive = parsed_dir
 
+        full_content = bool(body.get("full_content") or body.get("no_truncate") or False)
+        effort = str(body.get("effort") or "").strip() or None
+
         ingest_kwargs: dict[str, Any] = {
             "source": "api",
             "expand_max": expand_max,
         }
+        if full_content:
+            ingest_kwargs["full_content"] = True
+        if effort is not None:
+            ingest_kwargs["effort"] = effort
         if format_arg is not None:
             ingest_kwargs["format"] = format_arg
         if directive is not None:
@@ -692,6 +699,9 @@ def create_app(
             if parsed_dir:
                 directive = parsed_dir
 
+        full_content = bool(body.get("full_content") or body.get("no_truncate") or False)
+        effort = str(body.get("effort") or "").strip() or None
+
         _reserve_expensive_job()
         loop = asyncio.get_running_loop()
         events: asyncio.Queue[dict[str, str]] = asyncio.Queue(
@@ -718,6 +728,10 @@ def create_app(
                     "source": "web",
                     "expand_max": expand_max,
                 }
+                if full_content:
+                    ingest_kwargs["full_content"] = True
+                if effort is not None:
+                    ingest_kwargs["effort"] = effort
                 if format_arg is not None:
                     ingest_kwargs["format"] = format_arg
                 if directive is not None:
