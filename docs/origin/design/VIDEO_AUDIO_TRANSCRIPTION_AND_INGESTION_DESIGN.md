@@ -189,10 +189,12 @@ class TranscriptProvider(Protocol):
 
 1. **컨테이너 이미지 (`Dockerfile`)**:
    - `apt-get install`에 `ffmpeg` 패키지를 추가하여 스트림 오디오 트랜스코딩 바이너리를 내장합니다.
-   - 최신 비디오 플랫폼 시그니처 및 TLS 위장(`curl-cffi`) 지원을 위해 `yt-dlp[curl-cffi]`를 빌드 시 항상 최신 릴리스로 업그레이드합니다.
+   - 최신 비디오 플랫폼 시그니처 및 TLS 위장(`curl-cffi`) 지원을 위해 `yt-dlp[curl-cffi]`를 빌드 시 항상 최신 릴리스로 업그레이드합니다 (`uv pip install --no-cache -U "yt-dlp[curl-cffi]"`).
 2. **패키지 명세 (`pyproject.toml`)**:
    - `[project.optional-dependencies]`에 `audio = ["yt-dlp[curl-cffi]>=2024.8.0"]` 그룹을 정의하고, 빌드 시 `uv sync --extra audio`로 필요한 라이브러리를 설치합니다.
-3. **Graceful Fallback**:
+3. **호스트 완전 무설치 (Zero Host Dependencies)**:
+   - `ffmpeg`, `yt-dlp`, Python 가상환경 등 모든 미디어 추출 바이너리와 라이브러리를 100% Docker 컨테이너 내부에 캡슐화하여 호스트 OS에 종속성 설치가 전혀 필요 없습니다.
+4. **Graceful Fallback**:
    - `ffmpeg`가 누락되었거나 `CLAIRE_ENABLE_VIDEO_TRANSCRIPTION=0`인 환경에서도 시스템 전체가 실패하지 않고 안전하게 대체 경로로 동작하도록 설계합니다.
 
 ---
@@ -259,12 +261,12 @@ class TranscriptProvider(Protocol):
 
 * **신규 모듈 및 컴포넌트**:
   * `src/claire/extract/transcript/`: `base.py`, `mock_stt.py`, `antigravity_stt.py`, `factory.py`
-  * `src/claire/ingest/fetchers/video.py`: `resolve_video_target_url()`, `fetch_video()`
-  * `src/claire/config.py`: `enable_video_transcription`, `stt_provider`, `ffmpeg_bin`, `find_ffmpeg_executable()`
+  * `src/claire/ingest/fetchers/video.py`: `resolve_video_target_url()`, `parse_ytdlp_extractor_args()`, `fetch_video()`
+  * `src/claire/config.py`: `enable_video_transcription`, `stt_provider`, `ffmpeg_bin`, `ytdlp_extractor_args`, `find_ffmpeg_executable()`
   * `src/claire/ingest/router.py` & `src/claire/telegram_bot.py`: `video` 입력 라우팅 및 분류 연동
 * **빌드 및 패키징**:
-  * `pyproject.toml` `[project.optional-dependencies]`에 `audio = ["yt-dlp>=2024.8.0"]` 추가
-  * `Dockerfile`에 `ffmpeg` apt 패키지 설치 및 `uv sync --extra audio` 연동
+  * `pyproject.toml` `[project.optional-dependencies]`에 `audio = ["yt-dlp[curl-cffi]>=2024.8.0"]` 추가
+  * `Dockerfile`에 `ffmpeg` apt 패키지 설치 및 빌드 시 최신 `yt-dlp[curl-cffi]` 업그레이드 연동
 * **테스트 검증**:
-  * 전용 단위 테스트 12건 (`tests/test_config_video.py`, `tests/test_transcript_provider.py`, `tests/test_video_fetcher.py`) 신설 및 전체 테스트 스위트 811건 100% 통과.
+  * 전용 단위 테스트 13건 (`tests/test_config_video.py`, `tests/test_transcript_provider.py`, `tests/test_video_fetcher.py`) 신설 및 전체 테스트 스위트 811건 100% 통과.
 
