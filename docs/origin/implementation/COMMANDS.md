@@ -188,7 +188,7 @@ URL, 일반 텍스트, 또는 로컬 파일로부터 문서를 수집하고 지�
   * `--expand`: 본문에서 추출된 외부 링크 URL들을 1홉 확장 큐(`expand_queue`)에 등록.
   * `--title <title>`: 자동 추출 제목 대신 수동 제목 지정.
   * `--format {md,adoc}`: 본문 detail 렌더링 포맷 지정.
-  * `--source-type {web,text,youtube,discourse,xcom}`: 수집 소스 유형 강제 지정.
+  * `--source-type {web,text,youtube,video,discourse,xcom}`: 수집 소스 유형 강제 지정 (video: 비디오 스트림 및 음성 전사).
 
 ---
 

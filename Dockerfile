@@ -7,16 +7,14 @@ ENV PYTHONUNBUFFERED=1
 
 RUN pip install --no-cache-dir uv
 
-# nodriver(CDP) 가 JS SPA 렌더링 최후수단으로 쓸 시스템 Chromium. Playwright 자체 브라우저
-# 다운로드(+deps 별도설치)보다 가벼움 — apt 패키지 하나로 해결.
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates chromium tzdata \
+# nodriver(CDP) 가 JS SPA 렌더링 최후수단으로 쓸 시스템 Chromium + 오디오 스트림 추출용 ffmpeg.
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates chromium ffmpeg tzdata \
     && rm -rf /var/lib/apt/lists/*
 
 COPY pyproject.toml uv.lock README.md ./
 COPY src/ ./src/
-# stealth extra = scrapling[fetchers](curl-cffi/browserforge, 봇차단 403 우회) + nodriver
-# (CDP 로 위 apt chromium 을 직접 제어, JS 렌더링 최후수단).
-RUN uv sync --no-dev --extra stealth
+# stealth extra = scrapling[fetchers] + nodriver, audio extra = yt-dlp
+RUN uv sync --no-dev --extra stealth --extra audio
 
 # Runtime processes use the environment built above directly.  uv remains a
 # build/development tool rather than an extra process wrapper for every service.

@@ -85,6 +85,17 @@ hostname과 IPv6는 사전 검사에서 거부한다. loopback은 안전한 초�
 이 모드의 보장 범위는 API 시작 완료 뒤의 익명 HTTP 요청뿐이다. 시작 migration과
 별도 worker, Telegram bot, CLI의 쓰기는 계속 동작하며 범위 밖이다.
 
+### 비디오 음성 전사 (STT) 운영 및 환경변수
+
+웹 비디오(VMware Explore/Brightcove, YouTube 등)의 음성 전사(STT) 기능은 컨테이너에 내장된 `ffmpeg`와 `yt-dlp` 및 STT 프로바이더(기본 `antigravity`)를 통해 동작합니다.
+
+* **`CLAIRE_ENABLE_VIDEO_TRANSCRIPTION=1` (기본값: 활성)**:
+  * 비디오 URL 적재 시 내장 자막이 없으면 오디오 스트림(16kHz 모노 MP3)을 임시 추출하여 STT로 타임스탬프 자막을 생성합니다.
+  * `0`으로 설정 시 무거운 오디오 다운로드/STT를 건너뛰고 비디오 페이지의 메타데이터만 수집하여 경량 문서로 적재합니다.
+* **`CLAIRE_STT_PROVIDER=antigravity`**:
+  * `antigravity` (Gemini 멀티모달 오디오 전사), `mock` (테스트용) 등을 선택할 수 있습니다.
+* **`CLAIRE_STT_LANGUAGE=ko`**: 전사 선호 언어 코드.
+
 ## 배포된 앱의 one-off 명령
 
 배포된 인스턴스와 같은 설정·데이터로 앱 명령을 한 번 실행할 때
