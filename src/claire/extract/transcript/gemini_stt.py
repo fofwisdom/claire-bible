@@ -219,6 +219,24 @@ def split_audio_into_chunks(
     return chunks
 
 
+def _parse_retry_delay(exc: Exception, default_delay: float = 35.0) -> float:
+    """Gemini API 429 에러 응답에서 retryDelay(초) 추출."""
+    err_str = str(exc)
+    m = re.search(r"retry in\s+([0-9.]+)s", err_str, re.IGNORECASE)
+    if m:
+        try:
+            return float(m.group(1))
+        except ValueError:
+            pass
+    m = re.search(r"['\"]?retryDelay['\"]?\s*:\s*['\"]?([0-9.]+)s?['\"]?", err_str, re.IGNORECASE)
+    if m:
+        try:
+            return float(m.group(1))
+        except ValueError:
+            pass
+    return default_delay
+
+
 class GeminiTranscriptProvider(TranscriptProvider):
     """Google Gemini API 전용 STT 프로바이더 (gemini-3.5-transcribe)."""
 
@@ -234,7 +252,7 @@ class GeminiTranscriptProvider(TranscriptProvider):
         self.model = raw_model.strip() or "gemini-3.5-transcribe"
         self.language = getattr(settings, "stt_language", "ko")
         self.timeout = float(getattr(settings, "stt_timeout", 600.0))
-        self.chunk_duration = float(getattr(settings, "video_chunk_duration_sec", 900.0))
+        self.chunk_duration = float(getattr(settings, "video_chunk_duration_sec", 240.0))
         user_vocab = getattr(settings, "stt_custom_vocabulary", [])
         if isinstance(user_vocab, list) and user_vocab:
             self.custom_vocabulary = list(user_vocab)
@@ -295,30 +313,46 @@ class GeminiTranscriptProvider(TranscriptProvider):
                 f"4. Do NOT output commentary or markdown headers, only the timestamped transcript lines."
             )
 
-            # 3. 모델 호출 (gemini-3.5-transcribe 우선, 모델명 404 시 gemini-3.7-flash 폴백)
+            # 3. 모델 호출 (gemini-3.5-transcribe 전용, 429 시 retryDelay 대기 및 재시도)
             model_name = self.model
             chunk_text = ""
-            try:
-                resp = client.models.generate_content(
-                    model=model_name,
-                    contents=[uploaded, prompt],
-                )
-                chunk_text = resp.text or ""
-            except Exception as call_err:
-                err_str = str(call_err).lower()
-                if "404" in err_str or "not found" in err_str:
-                    logger.warning(
-                        "Model '%s' not found or unsupported via generate_content. "
-                        "Falling back to 'gemini-3.7-flash'. Error: %s",
-                        model_name,
-                        call_err,
-                    )
+            max_retries = 5
+
+            for attempt in range(1, max_retries + 1):
+                try:
                     resp = client.models.generate_content(
-                        model="gemini-3.7-flash",
+                        model=model_name,
                         contents=[uploaded, prompt],
                     )
                     chunk_text = resp.text or ""
-                else:
+                    break
+                except Exception as call_err:
+                    err_str = str(call_err).lower()
+                    is_429 = "429" in err_str or "resource_exhausted" in err_str or "quota" in err_str
+
+                    if is_429:
+                        delay = _parse_retry_delay(call_err, default_delay=35.0)
+                        wait_sec = min(delay + 2.0, 120.0)
+                        logger.warning(
+                            "Gemini 429 rate limit (10k TPM limit) on model '%s' (attempt %d/%d). "
+                            "Waiting %.1fs before retry...",
+                            model_name,
+                            attempt,
+                            max_retries,
+                            wait_sec,
+                        )
+                        if attempt < max_retries:
+                            time.sleep(wait_sec)
+                            continue
+                        else:
+                            logger.error(
+                                "Model '%s' quota exceeded after %d retries: %s",
+                                model_name,
+                                max_retries,
+                                call_err,
+                            )
+                            raise
+
                     raise
 
             return parse_raw_transcript_lines(chunk_text, offset_sec=offset_sec)
@@ -348,18 +382,40 @@ class GeminiTranscriptProvider(TranscriptProvider):
         ff_bin = getattr(self.settings, "ffmpeg_bin", "ffmpeg")
         total_duration = get_audio_duration_sec(p, ffmpeg_bin=ff_bin)
 
-        # 15분 단위 청킹 분할
+        # gemini-3.5-transcribe는 분당 입력 토큰 한도가 10,000(10K TPM)으로 엄격함.
+        # 오디오 1초 = 약 25.2토큰이므로, 240초(4분) 청크는 약 6,000토큰으로 10K 한도 내에 안전하게 안착.
+        effective_chunk_duration = self.chunk_duration
+        if "gemini-3.5-transcribe" in self.model:
+            effective_chunk_duration = min(self.chunk_duration, 240.0)
+
+        # 청킹 분할
         with tempfile.TemporaryDirectory(prefix="claire_gemini_chunks_") as tmp_dir_str:
             tmp_dir = Path(tmp_dir_str)
             chunks = split_audio_into_chunks(
                 p,
-                chunk_duration_sec=self.chunk_duration,
+                chunk_duration_sec=effective_chunk_duration,
                 ffmpeg_bin=ff_bin,
                 tmp_dir=tmp_dir,
             )
 
             all_segments: list[TranscriptSegment] = []
-            for chunk_file, offset in chunks:
+            last_request_start = 0.0
+
+            for chunk_idx, (chunk_file, offset) in enumerate(chunks):
+                # gemini-3.5-transcribe 10k TPM 분당 할당량 초과 방지를 위한 윈도우 페이싱
+                if "gemini-3.5-transcribe" in self.model and last_request_start > 0:
+                    elapsed = time.time() - last_request_start
+                    if elapsed < 62.0:
+                        pace_sleep = 62.0 - elapsed
+                        logger.info(
+                            "gemini-3.5-transcribe 10k TPM pacing: waiting %.1fs before chunk %d/%d...",
+                            pace_sleep,
+                            chunk_idx + 1,
+                            len(chunks),
+                        )
+                        time.sleep(pace_sleep)
+
+                last_request_start = time.time()
                 segs = self._transcribe_single_file(
                     client=client,
                     audio_file=chunk_file,
