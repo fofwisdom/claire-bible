@@ -328,8 +328,27 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 * **옵션**:
   * `--tables`, `--has-tables`: 표가 포함된 문서만 선별하여 재추출.
   * `--no-rebuild`: 그래프 초기화(reset_graph) 없이 기존 그래프에 누적 추출.
-  * `--format {md,adoc}`: detail 본문 포맷 지정.
-  * `--limit <N>`: 처리할 최대 문서 개수.
+#### `video-reprocess` (단축: `reprocess-video`)
+기존에 자막 없이 적재되었거나 전사가 누락된 비디오 문서에 대해 오디오 스트림을 재추출/재다운로드하고, STT 음성 전사를 수행하여 자막과 지식그래프를 in-place 갱신합니다. 처리 실패 시 사흘(3일)간 로컬 캐시(`data/cache/video/`)에 보존된 미디어를 재다운로드 없이 재사용합니다.
+* **사용법**:
+  ```bash
+  ./cb-manuscript app video-reprocess --doc-id <doc_id>          # Dry-run 진단 (기본)
+  ./cb-manuscript app video-reprocess --doc-id <doc_id> --apply  # 실제 재전사 및 지식 갱신 실행
+  ./cb-manuscript app video-reprocess <target_url> --apply       # URL 기반 재전사 및 갱신 실행
+  ./cb-manuscript app video-reprocess <target> --apply --effort high --format adoc # 옵션 지정
+  ```
+* **옵션**:
+  * `target`: 대상 비디오 URL 또는 문서 ID / 공유 URL.
+  * `--doc-id <ID>`: 특정 문서 ID (예: `doc_b19da8da2980`).
+  * `--apply`: 실제 재다운로드, STT 전사 및 지식베이스 갱신을 실행 (미지정 시 기본 dry-run).
+  * `--force`, `-f`: 기존 전사문이 있더라도 강제 덮어쓰기.
+  * `--effort {low,medium,high}`: LLM 요약/본문 생성 추론 레벨 오버라이드.
+  * `--format {md,adoc}`: 가독 본문(detail) 렌더링 포맷.
+  * `--json`: 결과를 JSON 포맷으로 출력.
+* **동작 특징**:
+  * **3일 미디어 캐시 재사용**: 이전 수집 실패 시 `data/cache/video/`에 저장된 오디오 미디어가 있으면 외부 다운로드를 생략하고 즉시 STT를 진행합니다.
+  * **실시간 단계별 진행률 스트리밍**: `[원문 전체 재수집]`, `[오디오 다운로드/변환]`, `[STT 청크 전사]`, `[LLM 요약 및 지식 그래프 추출]` 단계가 터미널에 실시간 출력됩니다.
+  * **전사 무결성 검증**: STT 전사가 실패하거나 `has_transcript`가 `False`인 경우 즉시 에러 원인을 `stderr`에 출력하고 종료 코드 `1`을 반환하여 거짓 완료를 원천 차단합니다.
 
 #### 작업 진행률 및 중단 보고
 다음의 **1회 실행 배치 명령**은 진행률 추적기를 사용한다: `regenerate --apply`, `reextract`, `backfill-detail`, `backfill-summary`, `format-migrate --apply`, `recover-run`, `refresh-run`, `expand-run`.[^progress-implementation]
