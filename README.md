@@ -425,7 +425,7 @@ SQLite migration 중에는 짧은 쓰기 중단이 발생한다. migration 전�
 유지하며 자동 rollback으로 오인하지 않는다. 이 update 실패 정책은 별도의
 `cb-manuscript restore` component rollback과 구분한다.
 
-환경 파일:
+환경 파일 (전체 환경변수 상세 명세는 **[환경변수 매뉴얼 (`docs/origin/implementation/ENVIRONMENT_VARIABLES.md`)](docs/origin/implementation/ENVIRONMENT_VARIABLES.md)**을 참고하십시오):
 
 | 파일 | 역할 |
 |---|---|
