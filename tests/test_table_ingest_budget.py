@@ -163,7 +163,7 @@ def test_prompt_rules_contain_table_preservation_directives():
     assert "TABLES & DATA MATRICES" in sys_prompt
     assert "MUST NOT omit or ignore the data inside tables" in sys_prompt
 
-    # 2. 마크다운 가독 렌더링 프롬프트 검증 (테이블 보존 + 미디어 제거 허용 조건)
+    # 2. 가독 렌더 프롬프트 검증 (테이블 보존 + 미디어 제거 허용 조건)
     md_prompt = render_detail_prompt_md("Sample Body", [], merged=False)
     assert "테이블 보존" in md_prompt
     assert "임의로 생략하거나 문장으로 축약하지 말고" in md_prompt

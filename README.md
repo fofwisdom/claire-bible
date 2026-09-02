@@ -29,9 +29,9 @@ Claire Bible은 적재된 지식베이스를 시각적으로 탐색하고 분석
 
 ### 문서 읽기
 
-수집된 기술 문서와 아티클을 전용 리더 뷰로 쾌적하게 열람합니다. Markdown과 AsciiDoc(.adoc) 듀얼 포맷 본문 렌더링, AI 요약 하이라이트, 글자 크기 조절(A−/A+), 제목 편집(✏️), 공유 링크(🔗) 및 FTS5/시맨틱 하이브리드 검색을 제공합니다.
+수집된 기술 문서와 아티클을 전용 리더 뷰로 쾌적하게 열람합니다. Markdown과 AsciiDoc(.adoc) 듀얼 포맷 상세 렌더링, AI 요약 하이라이트, 글자 크기 조절(A−/A+), 제목 편집(✏️), 공유 링크(🔗) 및 FTS5/시맨틱 하이브리드 검색을 제공합니다.
 
-![요약과 본문을 보여주는 문서 읽기 화면](docs/origin/screenshots/document-reader.png)
+![요약과 상세를 보여주는 문서 읽기 화면](docs/origin/screenshots/document-reader.png)
 
 ### 연결 경로
 
@@ -145,11 +145,11 @@ Claire Bible은 호스트 오케스트레이션 도구인 **`cb-manuscript`**와
 | **`cb-manuscript`** | `init`, `preflight`, `install`, `update` | 호스트 환경 검증, 이미지 빌드, 롤링 업데이트 |
 | | `doctor`, `doctor --heal` | 지식그래프 참조 무결성 진단 및 원클릭 자동 수복 |
 | | `regenerate --tables --all --apply` | 특정 문서 또는 표(Table) 포함 문서 컴포넌트 LLM 재생성 |
-| | `backup`, `restore`, `format-migrate` | DB/Vault 아카이브 백업·복원, 본문 포맷 일괄 변환 |
+| | `backup`, `restore`, `format-migrate` | DB/Vault 아카이브 백업·복원, 상세 포맷 일괄 변환 |
 | | `up`, `down`, `restart`, `status`, `logs` | Docker Compose 서비스 수명주기 제어 |
 | **`claire`** | `ingest`, `search` | 지식 문서 수집/적재, FTS+벡터 하이브리드 인용 검색 |
 | *(앱 CLI)* | `doctor`, `preflight`, `health`, `status` | 지식그래프 수복, 환경 점검, 헬스 JSON, 운영 상태 |
-| | `reextract`, `backfill-detail`, `dedup-merge`| 전체/표 선별 그래프 재추출, 본문 백필, 근사 중복 문서 병합 |
+| | `reextract`, `backfill-detail`, `dedup-merge`| 전체/표 선별 그래프 재추출, 상세 백필, 근사 중복 문서 병합 |
 | | `queue status`, `queue list inbox` | `raw_inbox`·`refresh_queue`·`expand_queue`의 상태 분포와 대기·오류 항목 조회 |
 
 > 💡 **전체 명령어 및 세부 옵션 안내**: 모든 명령어, 세부 옵션, 미구현 상태 및 제약사항에 대한 상세 설명은 **[전체 CLI 명령어 레퍼런스 (`docs/origin/implementation/COMMANDS.md`)](docs/origin/implementation/COMMANDS.md)**를 참고하십시오.

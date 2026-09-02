@@ -97,8 +97,8 @@ parent.raw_text 뒤에 자식 본문을 별도 섹션으로 append
    (신규 컬럼 아님 — set_document_images 와 동일 패턴의 새 헬퍼 set_document_extra_sources.
    documents.meta 는 이미 존재하는 JSON 컬럼이라 스키마 변경·마이그레이션 불필요)
 → extract_resolve_store(conn, provider, vstore, parent, report, vault_dir)  # doc.id 그대로 재실행
-   → 엔티티는 resolve_or_create 가 병합된 본문 기준으로 다시 뽑아 기존 노드에 관찰 누적
-   → render_detail 도 합쳐진 본문으로 재생성 → 실제로 "더 풍부한 글"이 됨(사용자 목표)
+    → 엔티티는 resolve_or_create 가 병합된 본문 기준으로 다시 뽑아 기존 노드에 관찰 누적
+    → render_detail 도 합쳐진 상세로 재생성 → 실제로 "더 풍부한 글"이 됨(사용자 목표)
 → raw_inbox 는 신규 document_id 없이 status='merged', document_id=parent.id 로 기록
    (Layer-1 원문 보존 협약 — 자식 raw_text 도 artifact 로 별도 저장, 재추출 대비)
 ```

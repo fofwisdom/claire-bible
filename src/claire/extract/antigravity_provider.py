@@ -259,7 +259,7 @@ class AntigravityProvider:
         *,
         effort: str | None = None,
     ) -> str:
-        """원문을 한국어 가독 렌더링(MD 또는 ADOC)으로 '편하게 읽을 수 있는 글'로 재구성."""
+        """원문을 가독 렌더(MD 또는 ADOC)로 '편하게 읽을 수 있는 글'로 재구성."""
         body = _doc_to_prompt(doc)
         images = (doc.meta or {}).get("images") or []
         merged = bool((doc.meta or {}).get("extra_sources"))

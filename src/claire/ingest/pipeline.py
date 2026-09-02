@@ -170,7 +170,7 @@ def ingest(
     existing = dbm.find_document_by_hash(conn, doc.content_hash)
     if existing:
         # 사용자가 새 directive(초점)를 명시적으로 지정한 경우:
-        # 단순 중복 스킵하지 않고, 해당 문서의 초점을 갱신하고 가독 본문(detail)을 즉시 재생성(재적재)
+        # 단순 중복 스킵하지 않고, 해당 문서의 초점을 갱신하고 가독 상세(detail)를 즉시 재생성(재적재)
         if directive and directive.strip():
             doc_obj = dbm.get_document(conn, existing)
             if doc_obj:
@@ -369,10 +369,10 @@ def extract_resolve_store(
             raw_response=result.raw_response,
         )
 
-    # 한국어 가독 렌더링(detail) — 구조화 추출과 독립된 별도 LLM 호출. 그래프와 무관해
+    # 가독 렌더(detail) — 구조화 추출과 독립된 별도 LLM 호출. 그래프와 무관해
     # 실패해도 적재를 깨지 않는다(조용히 건너뜀). refresh/reextract 도 같은 경로라 갱신됨.
     if on_progress:
-        on_progress("LLM 가독 본문(detail) 렌더링 생성", f"format={format or '기본'}, effort={eff}")
+        on_progress("LLM 가독 상세(detail) 렌더링 생성", f"format={format or '기본'}, effort={eff}")
 
     ensure_document_detail(
         conn, provider, doc, force=True, format=format, directive=directive, effort=eff, full_content=full_content
@@ -491,7 +491,7 @@ def merge_source_into_document(
     """[1홉 병합, ONEHOP_MERGE_DESIGN.md] 같은 주제의 부가 출처(child)를 parent 문서에
     흡수 — 새 Document/expand_queue 항목을 만드는 대신 parent.raw_text 뒤에 별도 출처
     섹션으로 append 하고 **같은 doc.id** 로 재추출한다(엔티티는 resolve_or_create 가 병합된
-    본문 기준으로 기존 노드에 관찰을 누적, render_detail 도 합쳐진 본문으로 재생성돼 실제로
+    본문 기준으로 기존 노드에 관찰을 누적, render_detail 도 합쳐진 상세로 재생성돼 실제로
     더 풍부한 글이 된다).
 
     저장은 원문 보존 협약대로 자르지 않는다 — LLM 프롬프트 투입량 상한(2배)은
@@ -576,7 +576,7 @@ def ensure_document_detail(
     effort: str | None = None,
     full_content: bool = False,
 ) -> bool:
-    """문서의 한국어 가독 렌더링(detail)을 생성·저장. **그래프와 독립**(별도 LLM 호출).
+    """문서의 가독 렌더(detail)를 생성·저장. **그래프와 독립**(별도 LLM 호출).
 
     신규 적재(extract_resolve_store)와 기존 문서 백필이 공유하는 단일 경로. detail 컬럼만
     채우므로 엔티티/관계를 건드리지 않는다 → reset_graph/rebuild 없이 백필 가능(advisor).

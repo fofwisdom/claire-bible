@@ -184,10 +184,10 @@ Git 저장소 최신 커밋을 가져와 무중단 롤링 업데이트를 수행
 URL, 일반 텍스트, 또는 로컬 파일로부터 문서를 수집하고 지식그래프를 구축합니다.
 * **사용법**: `claire ingest "https://example.com/article" [--expand] [--title "제목"] [--format {md,adoc}] [--focus "초점 지침"]`
 * **주요 옵션**:
-  * `--focus <focus>`: 가독 본문(detail) 작성을 위한 집중 초점/지침 지정 (호환 별칭: `--orientation`, `--directive`).
+  * `--focus <focus>`: 가독 상세(detail) 작성을 위한 집중 초점/지침 지정 (호환 별칭: `--orientation`, `--directive`).
   * `--expand`: 본문에서 추출된 외부 링크 URL들을 1홉 확장 큐(`expand_queue`)에 등록.
   * `--title <title>`: 자동 추출 제목 대신 수동 제목 지정.
-  * `--format {md,adoc}`: 본문 detail 렌더링 포맷 지정.
+  * `--format {md,adoc}`: 상세 detail 렌더링 포맷 지정.
   * `--source-type {web,text,youtube,video,discourse,xcom}`: 수집 소스 유형 강제 지정 (video: 비디오 스트림 및 음성 전사).
 
 ---
@@ -207,16 +207,16 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 
 | 명령 | 사용법 | 설명 |
 | :--- | :--- | :--- |
-| `regenerate` | `claire regenerate [<target>] [--tables] [--summary] [--detail] [--all] [--apply] [--force] [--effort <level>] [--focus <focus>]` | 특정 문서 또는 표(Table) 포함 문서 컴포넌트(요약/본문/그래프) 선택적 LLM 재생성 (기본: dry-run, 실행: `--apply`) |
+| `regenerate` | `claire regenerate [<target>] [--tables] [--summary] [--detail] [--all] [--apply] [--force] [--effort <level>] [--focus <focus>]` | 특정 문서 또는 표(Table) 포함 문서 컴포넌트(요약/상세/그래프) 선택적 LLM 재생성 (기본: dry-run, 실행: `--apply`) |
 | `summary-regenerate`| `claire summary-regenerate [<target>] [--tables] [--apply] [--force] [--effort <level>]` | `regenerate --summary`의 단축 Alias |
 | `format-migrate` | `claire format-migrate [--format {md,adoc}] [--apply] [--yes] [--json]` | 문서 렌더링 포맷 진단 및 일괄 변환 (기본: dry-run, 실행: `--apply`) |
 | `format-status` | `claire format-status` | 문서 detail의 포맷별(md, adoc, 누락) 통계 출력 |
 | `truncation-status` | `claire truncation-status [<target>] [--json]` | 원문 절단(20k 슬라이싱) 및 메타데이터 누락 문서 진단 리포트 (단축: `truncation-scan`) |
 | `truncation-backfill` | `claire truncation-backfill [<target>] [--apply] [--mark-refresh] [--force] [--yes] [--json]` | 메타데이터 누락 절단 문서에 `raw_truncated` 소급 기록 (기본: dry-run, 실행: `--apply`, 단축: `backfill-truncation`) |
-| `backfill-detail` | `claire backfill-detail [--tables] [--format {md,adoc}] [--limit N] [--force] [--focus <focus>]` | detail 렌더링이 누락되었거나 표가 포함된 문서 일괄 생성 (그래프 불변) |
+| `backfill-detail` | `claire backfill-detail [--tables] [--format {md,adoc}] [--limit N] [--force] [--focus <focus>]` | 상세(detail) 렌더링이 누락되었거나 표가 포함된 문서 일괄 생성 (그래프 불변) |
 | `backfill-summary` | `claire backfill-summary [--limit N]` | 요약이 누락된 기존 문서의 요약 일괄 생성 |
 | `backfill-images` | `claire backfill-images [--limit N]` | 문서 내 참조된 이미지 에셋 추출 및 다운로드 백필 |
-| `recompile-html` | `claire recompile-html` | 저장된 detail 본문으로부터 `detail_html` AOT 사전 컴파일 갱신 |
+| `recompile-html` | `claire recompile-html` | 저장된 상세(detail)로부터 `detail_html` AOT 사전 컴파일 갱신 |
 | `reextract` | `claire reextract [--tables] [--no-rebuild] [--limit N]` | 저장된 `raw_text`로부터 지식그래프 전체(또는 표 포함 문서)를 재추출 |
 | `replay-failed` | `claire replay-failed [--limit N]` | `raw_inbox`에서 `status=error`인 실패 건 전량 수동 재적재 |
 | `recover-run` | `claire recover-run [--limit N]` | 에러 큐 단건/배치 복구 실행 (게이팅/지수 백오프 적용) |
@@ -226,7 +226,7 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 | `refresh-loop` | `claire refresh-loop [--interval N]` | 갱신 큐 상주 데몬 루프 |
 
 #### `regenerate`
-특정 문서의 컴포넌트(요약, 본문 detail, 그래프 노드/엣지)를 LLM을 통해 선택적으로 재생성하고 DB를 갱신합니다.
+특정 문서의 컴포넌트(요약, 상세 detail, 그래프 노드/엣지)를 LLM을 통해 선택적으로 재생성하고 DB를 갱신합니다.
 * **사용법**:
   ```bash
   ./cb-manuscript app regenerate <target> --summary              # Dry-run 진단 (기본)
@@ -234,7 +234,7 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
   ./cb-manuscript app regenerate <target> --summary --apply --effort high # 추론 레벨 지정
   ./cb-manuscript app regenerate --corrupted --summary           # 오염된 요약 일괄 스캔
   ./cb-manuscript app regenerate --tables --all                  # 표 포함 문서 일괄 진단 (Dry-run)
-  ./cb-manuscript app regenerate --tables --all --apply          # 표 포함 문서 요약/본문/그래프 일괄 재생성
+  ./cb-manuscript app regenerate --tables --all --apply          # 표 포함 문서 요약/상세/그래프 일괄 재생성
   ./cb-manuscript app regenerate <target> --all --apply          # 특정 문서 전체 재생성
   ```
 * **옵션**:
@@ -242,9 +242,9 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
   * `--token <token>`: 명시적 공유 토큰 지정.
   * `--doc-id <id>`: 명시적 문서 ID 지정.
   * `--summary`: 요약(summary) 재생성 (기본 대상). 지식그래프 노드/엣지는 100% 보존.
-  * `--detail`: 본문(detail) 렌더링 텍스트 재생성.
+  * `--detail`: 상세(detail) 렌더링 텍스트 재생성.
   * `--graph`: 엔티티와 관계 재추출 및 지식그래프/Vault 갱신.
-  * `--all`: 요약, 본문, 그래프 전체 동시 재생성.
+  * `--all`: 요약, 상세, 그래프 전체 동시 재생성.
   * `--corrupted`: AsciiDoc/마크업 문법 잔존으로 오염된 요약을 가진 문서를 전체 DB에서 자동 탐지.
   * `--tables`, `--has-tables`: 마크다운(`|...|`), AsciiDoc(`|===`), HTML(`<table>`) 표가 포함된 문서를 전체 DB에서 자동 탐지하여 일괄 대상으로 지정.
   * `--refetch`: 환경변수(`CLAIRE_RAW_CHAR_BUDGET`)의 수집 길이 제한을 적용하여 원본 URL에서 최신 문서 재스크랩 후 재생성.
@@ -253,15 +253,15 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
   * `--force`, `-f`: 기존 컴포넌트가 이미 유효하더라도 강제 재생성/덮어쓰기.
   * `--dry-run`: 대상 문서 정보 및 계획만 출력하고 DB 변경 없음 (기본값).
   * `--effort <level>`: Gemini 사고/추론 레벨 오버라이드 (`low`, `medium`, `high`, `minimal`, `none`, 또는 정수 토큰 budget).
-  * `--format {md,adoc}`: 본문 detail 렌더링 포맷 지정.
-  * `--focus <focus>`: 가독 본문(detail) 작성을 위한 집중 초점/지침 지정 (호환 별칭: `--orientation`, `--directive`).
+  * `--format {md,adoc}`: 상세 detail 렌더링 포맷 지정.
+  * `--focus <focus>`: 가독 상세(detail) 작성을 위한 집중 초점/지침 지정 (호환 별칭: `--orientation`, `--directive`).
 
 #### `summary-regenerate`
 `regenerate --summary`의 단축 Alias입니다.
 * **사용법**: `./cb-manuscript app summary-regenerate <target> [--refetch | --refetch-full] [--apply] [--effort <level>]`
 
 #### `format-migrate`
-전체 문서의 detail 본문 렌더링 포맷(Markdown ↔ AsciiDoc) 현황을 점검하고 일괄 변환합니다.
+전체 문서의 detail 상세 렌더링 포맷(Markdown ↔ AsciiDoc) 현황을 점검하고 일괄 변환합니다.
 * **사용법**:
   ```bash
   ./cb-manuscript app format-migrate          # 변환 현황 진단 (Dry-run)
@@ -304,7 +304,7 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
   * `--json`: 결과를 JSON 포맷으로 출력.
 
 #### `backfill-detail`
-가독 본문(`detail`)이 누락된 문서 또는 표(`--tables`)가 포함된 문서를 선별하여 본문을 일괄 생성/재생성합니다 (지식그래프 불변, 비파괴).
+가독 상세(`detail`)가 누락된 문서 또는 표(`--tables`)가 포함된 문서를 선별하여 상세를 일괄 생성/재생성합니다 (지식그래프 불변, 비파괴).
 * **사용법**:
   ```bash
   ./cb-manuscript app backfill-detail                     # detail 누락 문서만 생성
@@ -312,13 +312,13 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
   ./cb-manuscript app backfill-detail --tables            # 표 포함 문서만 선별하여 detail 재생성
   ```
 * **옵션**:
-  * `--tables`, `--has-tables`: 원문/본문에 표(Markdown, AsciiDoc, HTML)가 포함된 문서만 선별하여 재생성.
+  * `--tables`, `--has-tables`: 원문/상세에 표(Markdown, AsciiDoc, HTML)가 포함된 문서만 선별하여 재생성.
   * `--force`, `-f`: 기존에 detail이 있더라도 강제로 재생성.
-  * `--format {md,adoc}`: 생성할 본문 포맷 지정.
+  * `--format {md,adoc}`: 생성할 상세 포맷 지정.
   * `--limit <N>`: 처리할 최대 문서 개수.
 
 #### `reextract`
-저장된 `raw_text`로부터 전체(또는 표 포함) 문서의 지식그래프(엔티티, 관계, 요약, 본문)를 백지 상태에서 재추출·재구축합니다.
+저장된 `raw_text`로부터 전체(또는 표 포함) 문서의 지식그래프(엔티티, 관계, 요약, 상세)를 백지 상태에서 재추출·재구축합니다.
 * **사용법**:
   ```bash
   ./cb-manuscript app --advanced reextract                # 전체 그래프 초기화 및 재추출
@@ -342,8 +342,8 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
   * `--doc-id <ID>`: 특정 문서 ID (예: `doc_b19da8da2980`).
   * `--apply`: 실제 재다운로드, STT 전사 및 지식베이스 갱신을 실행 (미지정 시 기본 dry-run).
   * `--force`, `-f`: 기존 전사문이 있더라도 강제 덮어쓰기.
-  * `--effort {low,medium,high}`: LLM 요약/본문 생성 추론 레벨 오버라이드.
-  * `--format {md,adoc}`: 가독 본문(detail) 렌더링 포맷.
+  * `--effort {low,medium,high}`: LLM 요약/상세 생성 추론 레벨 오버라이드.
+  * `--format {md,adoc}`: 가독 상세(detail) 렌더링 포맷.
   * `--json`: 결과를 JSON 포맷으로 출력.
 * **동작 특징**:
   * **3일 미디어 캐시 재사용**: 이전 수집 실패 시 `data/cache/video/`에 저장된 오디오 미디어가 있으면 외부 다운로드를 생략하고 즉시 STT를 진행합니다.
@@ -411,7 +411,7 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
   * Thinking을 지원하지 않는 구형 모델이나 Mock Provider에서는 `--effort` 인자가 주어져도 API 에러를 내지 않고 조용히 무시(Graceful fallback)됩니다.
 * **`--detail` 재생성 후 그래프 동기화 (순차 수복 필요)**:
   * `regenerate --summary`는 `extractions.raw_response`의 요약만 교체하므로 그래프 무결성에 영향이 없습니다.
-  * `regenerate --detail`은 본문 렌더링 텍스트를 새로 작성하지만, 본문 변경에 따른 새로운 엔티티/관계의 자동 재추출은 수행하지 않습니다. 본문 내용 변경에 따른 전체 그래프 갱신이 필요할 경우 `reextract`를 실행해야 합니다.
+  * `regenerate --detail`은 상세 렌더링 텍스트를 새로 작성하지만, 본문 변경에 따른 새로운 엔티티/관계의 자동 재추출은 수행하지 않습니다. 본문 내용 변경에 따른 전체 그래프 갱신이 필요할 경우 `reextract`를 실행해야 합니다.
 
 ### 4.3 `claire doctor` (무결성 수복) vs `claire dedup-merge`
 * **결정론적 무결성 수복 (`doctor --heal`)**: 고아 관계 제거, 출처 배열 정제, 고아 엔티티 삭제, FTS 재구축 등 SQL/규칙 기반 수복은 100% 완전 자동 지원됩니다.

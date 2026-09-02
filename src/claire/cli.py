@@ -779,7 +779,7 @@ def cmd_reextract(args) -> int:
 
 
 def cmd_backfill_detail(args) -> int:
-    """detail(한국어 가독 렌더링)이 없는 문서 또는 표(Table) 포함 문서를 채운다 — 비파괴적(그래프 불변)."""
+    """detail(가독 렌더)이 없는 문서 또는 표(Table) 포함 문서를 채운다 — 비파괴적(그래프 불변)."""
     from .ingest.service import IngestService
     from .progress import track_batch_progress
 
@@ -850,7 +850,7 @@ def cmd_backfill_summary(args) -> int:
 
 
 def cmd_regenerate(args) -> int:
-    """문서 파생 데이터(요약, 본문 등)를 선택적으로 재생성(기본 dry-run, --force 로 적용)."""
+    """문서 파생 데이터(요약, 상세 등)를 선택적으로 재생성(기본 dry-run, --force 로 적용)."""
     import json
 
     from .ingest.service import IngestService
@@ -916,7 +916,7 @@ def cmd_regenerate(args) -> int:
             if t.get("summary_corrupted"):
                 print("    [!] 요약 내 ADOC/마크업 문법 잔존 감지")
             if t.get("total_tables"):
-                print(f"    [📊] 표 {t['total_tables']}개 감지 (원문: {t.get('raw_tables_count',0)}개, 본문: {t.get('detail_tables_count',0)}개)")
+                print(f"    [📊] 표 {t['total_tables']}개 감지 (원문: {t.get('raw_tables_count',0)}개, 상세: {t.get('detail_tables_count',0)}개)")
                 if t.get("table_preview"):
                     first_line = t["table_preview"].splitlines()[0]
                     print(f"         표 미리보기: {first_line}")
@@ -1009,7 +1009,7 @@ def cmd_regenerate(args) -> int:
 
 
 def cmd_format_status(args) -> int:
-    """문서 본문 렌더링 포맷(detail_format) 진단 현황을 출력."""
+    """문서 상세 렌더링 포맷(detail_format) 진단 현황을 출력."""
     import json
 
     s = get_settings()
@@ -1062,7 +1062,7 @@ def cmd_format_migrate(args) -> int:
     print(f"• 전체 문서 수             : {status['total_docs']} 건")
     print(f"  - 목표 포맷 일치         : {status['matching_docs']} 건 ({fmt_label})")
     print(f"  - 포맷 불일치 (변환 대상) : {status['mismatched_docs']} 건 ({other_label})")
-    print(f"  - 본문(detail) 누락     : {status['missing_detail_docs']} 건")
+    print(f"  - 상세(detail) 누락     : {status['missing_detail_docs']} 건")
     print(f"• 총 마이그레이션 대상     : {status['target_docs']} 건")
     print("=" * 60)
 
@@ -1870,7 +1870,7 @@ def build_parser() -> argparse.ArgumentParser:
     pi.add_argument("--format", choices=["md", "adoc"], default=None,
                     help="detail render format (md or adoc, default: config CLAIRE_RENDER_FORMAT)")
     pi.add_argument("--focus", "--orientation", "--directive", default=None,
-                    help="가독 본문 작성을 위한 집중 초점 (content focus for detail rendering, e.g. '시스템 아키텍처 중심')")
+                    help="가독 상세 작성을 위한 집중 초점 (content focus for detail rendering, e.g. '시스템 아키텍처 중심')")
     pi.set_defaults(func=cmd_ingest)
 
     ps = sub.add_parser("search", help="hybrid search (FTS+vector) + LLM summary")
@@ -1899,7 +1899,7 @@ def build_parser() -> argparse.ArgumentParser:
     pbd.add_argument("--format", choices=["md", "adoc"], default=None,
                      help="detail render format (md or adoc)")
     pbd.add_argument("--focus", "--orientation", "--directive", default=None,
-                     help="가독 본문 작성을 위한 집중 초점 (content focus for detail rendering)")
+                     help="가독 상세 작성을 위한 집중 초점 (content focus for detail rendering)")
     pbd.set_defaults(func=cmd_backfill_detail)
 
     pbs = sub.add_parser("backfill-summary",
@@ -1931,7 +1931,7 @@ def build_parser() -> argparse.ArgumentParser:
     preg.add_argument("--dry-run", action="store_true", help="dry-run inspection without changes (default)")
     preg.add_argument("--effort", default=None, help="reasoning effort level (e.g. low, medium, high)")
     preg.add_argument("--format", choices=["md", "adoc"], default=None, help="detail format (md or adoc)")
-    preg.add_argument("--focus", "--orientation", "--directive", default=None, help="가독 본문 작성을 위한 집중 초점 (content focus for detail rendering)")
+    preg.add_argument("--focus", "--orientation", "--directive", default=None, help="가독 상세 작성을 위한 집중 초점 (content focus for detail rendering)")
     preg.add_argument("--json", action="store_true", help="output result in JSON format")
     preg.set_defaults(func=cmd_regenerate)
 

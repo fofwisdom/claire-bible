@@ -401,8 +401,8 @@ def build_mcp_app(s: Any):
         먼저. 소스 문서는 최신 10개까지만(초과 시 documents_truncated=true,
         documents_omitted에 잘린 개수) — 문서 본문 전체가 아니라 요약만
         포함(허브 엔티티는 소스가 수십 개라 본문 전체를 다 넣으면 응답이
-        터진다). 특정 문서의 본문 전문이 필요하면 document(document_id)를
-        따로 호출할 것. full=True면 이 10개 문서에 한해 본문 전문도 포함(주의:
+        터진다). 특정 문서의 상세가 필요하면 document(document_id)를
+        따로 호출할 것. full=True면 이 10개 문서에 한해 상세도 포함(주의:
         허브 엔티티에서 쓰면 응답이 매우 커질 수 있음). fetched_at은
         ISO8601(UTC, 타임존 명시)."""
         conn = _conn()
@@ -430,7 +430,7 @@ def build_mcp_app(s: Any):
 
     @mcp.tool()
     async def document(document_id: str) -> dict:
-        """문서 하나의 상세(제목·요약·자세히읽기 전문·원문 URL·fetched_at은
+        """문서 하나의 상세(제목·요약·상세·원문 URL·fetched_at은
         ISO8601 UTC). 사람용 웹 핸들러와 달리 안읽음(seen) 상태를 바꾸지
         않는다(읽기전용 원칙)."""
         conn = _conn()
