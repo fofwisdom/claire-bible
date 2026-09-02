@@ -45,6 +45,7 @@ def cmd_preflight(_args) -> int:
         else "disabled"
     )
     print(f"anonymous readonly: {anonymous_status}")
+    print(f"preferred langs   : {', '.join(s.effective_preferred_languages)}")
 
     ok, detail = probe_sqlite_vec()
     print(f"sqlite-vec probe  : {'OK' if ok else 'fallback->brute'} ({detail})")

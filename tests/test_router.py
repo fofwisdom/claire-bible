@@ -57,3 +57,22 @@ def test_fetch_routes_shared_text_to_url(monkeypatch):
     doc = fetch("재밌는 글 제목 https://example.com/real-article")
     assert seen["url"] == "https://example.com/real-article"
     assert doc.url == "https://example.com/real-article"
+
+
+def test_youtube_live_url_recognition():
+    from claire.ingest.fetchers.youtube import video_id
+
+    live_url = "https://www.youtube.com/live/ti9FHqP1i-w"
+    assert video_id(live_url) == "ti9FHqP1i-w"
+    assert classify(live_url) == "youtube"
+
+
+def test_youtube_shared_text_with_hyphen_title(monkeypatch):
+    from claire.telegram_bot import parse_message_directive
+
+    msg = "AI Assistant for VMware vDefend - Firewall\nhttps://www.youtube.com/watch?v=ti9FHqP1i-w"
+    payload, directive = parse_message_directive(msg)
+    assert directive is None
+    assert classify(payload) == "youtube"
+    assert extract_shared_url(payload) == "https://www.youtube.com/watch?v=ti9FHqP1i-w"
+
