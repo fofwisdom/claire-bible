@@ -56,6 +56,7 @@ docs/origin/
   - `DUAL_FORMAT_ADOC_DESIGN.md`: AsciiDoc/Markdown 듀얼 포맷 렌더링 파이프라인
   - `MULTI_PROVIDER_DESIGN.md`: 멀티 LLM 프로바이더 및 캘리브레이션 설계
   - `MCP_SUPPORT.md`: RFC 6750 표준 인증 기반 MCP 지원 설계
+  - `VIDEO_AUDIO_TRANSCRIPTION_AND_INGESTION_DESIGN.md`: 비디오 음성 자막(STT) 생성 및 지식 적재 파이프라인 설계 (Docker 격리 및 yt-dlp 롤링 최신화 완료)
 
 ### 2. `docs/origin/implementation/` (구현 및 운영 내역)
 - **대상**: 현재 시스템에 실제 구현 및 배포된 기능의 운영 가이드, 호스트 명령 명세, 네트워크 및 프록시 설정, 환경변수 및 보안 경계 가이드.
