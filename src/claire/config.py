@@ -206,7 +206,7 @@ class Settings(BaseSettings):
     stt_language: str = Field(default="ko", alias="CLAIRE_STT_LANGUAGE")
     stt_timeout: float = Field(default=600.0, alias="CLAIRE_STT_TIMEOUT")
     video_chunk_duration_sec: int = Field(
-        default=900, alias="CLAIRE_VIDEO_CHUNK_DURATION_SEC"
+        default=240, alias="CLAIRE_VIDEO_CHUNK_DURATION_SEC"
     )
     video_max_extract_chars: int = Field(
         default=200000, alias="CLAIRE_VIDEO_MAX_EXTRACT_CHARS"

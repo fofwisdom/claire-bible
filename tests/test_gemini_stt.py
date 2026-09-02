@@ -122,3 +122,90 @@ def test_video_character_budget_protection(monkeypatch):
     vid_text, vid_trunc, _, _ = slice_document_text(long_transcript, 10000)
     assert vid_trunc is False
     assert len(vid_text) == 5000
+
+
+def test_parse_retry_delay():
+    from claire.extract.transcript.gemini_stt import _parse_retry_delay
+
+    err1 = Exception("429 RESOURCE_EXHAUSTED. Please retry in 29.191573879s.")
+    assert abs(_parse_retry_delay(err1) - 29.191573879) < 0.01
+
+    err2 = Exception("details: [{'@type': '...RetryInfo', 'retryDelay': '45s'}]")
+    assert _parse_retry_delay(err2) == 45.0
+
+    err3 = Exception("Unknown 429 error")
+    assert _parse_retry_delay(err3, default_delay=30.0) == 30.0
+
+
+def test_gemini_provider_429_retry_success(tmp_path):
+    fake_audio = tmp_path / "test.mp3"
+    fake_audio.write_bytes(b"dummy")
+
+    s = Settings(
+        enable_video_transcription=True,
+        stt_provider="gemini",
+        stt_model="gemini-3.5-transcribe",
+        gemini_api_key="fake-key",
+    )
+    provider = GeminiTranscriptProvider(s)
+
+    mock_client = MagicMock()
+    mock_file = MagicMock()
+    mock_file.name = "files/test_audio"
+    mock_file.state = types.FileState.ACTIVE
+    mock_client.files.upload.return_value = mock_file
+    mock_client.files.get.return_value = mock_file
+
+    mock_resp = MagicMock()
+    mock_resp.text = "[00:01] Hello from retry"
+
+    # 1회차 429 오류, 2회차 성공
+    err_429 = Exception("429 RESOURCE_EXHAUSTED. Please retry in 1.5s.")
+    mock_client.models.generate_content.side_effect = [err_429, mock_resp]
+
+    with (
+        patch.object(provider, "_get_genai_client", return_value=mock_client),
+        patch("claire.extract.transcript.gemini_stt.get_audio_duration_sec", return_value=30.0),
+        patch("time.sleep") as mock_sleep,
+    ):
+        res = provider.transcribe(fake_audio)
+        assert res.full_text == "[00:01] Hello from retry"
+        # 1.5s + 2.0s = 3.5s sleep 호출 확인
+        mock_sleep.assert_called_with(3.5)
+
+
+def test_gemini_provider_429_max_retries_exhausted_raises(tmp_path):
+    fake_audio = tmp_path / "test.mp3"
+    fake_audio.write_bytes(b"dummy")
+
+    s = Settings(
+        enable_video_transcription=True,
+        stt_provider="gemini",
+        stt_model="gemini-3.5-transcribe",
+        gemini_api_key="fake-key",
+    )
+    provider = GeminiTranscriptProvider(s)
+
+    mock_client = MagicMock()
+    mock_file = MagicMock()
+    mock_file.name = "files/test_audio"
+    mock_file.state = types.FileState.ACTIVE
+    mock_client.files.upload.return_value = mock_file
+    mock_client.files.get.return_value = mock_file
+
+    err_429 = Exception("429 RESOURCE_EXHAUSTED. Please retry in 1s.")
+    mock_client.models.generate_content.side_effect = err_429
+
+    with (
+        patch.object(provider, "_get_genai_client", return_value=mock_client),
+        patch("claire.extract.transcript.gemini_stt.get_audio_duration_sec", return_value=30.0),
+        patch("time.sleep"),
+    ):
+        with pytest.raises(Exception) as exc_info:
+            provider.transcribe(fake_audio)
+        assert "RESOURCE_EXHAUSTED" in str(exc_info.value)
+        # 5회 재시도 모두 gemini-3.5-transcribe 모델로만 호출되었는지 확인
+        assert mock_client.models.generate_content.call_count == 5
+        for call_args in mock_client.models.generate_content.call_args_list:
+            assert call_args[1]["model"] == "gemini-3.5-transcribe"
+
