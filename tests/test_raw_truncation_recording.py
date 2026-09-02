@@ -6,7 +6,7 @@ from claire.extract.table_budget import (
     slice_text_with_table_exemption,
     slice_text_with_table_exemption_info,
 )
-from claire.graphview import document_detail, render_graph_html
+from claire.graphview import document_detail, render_graph_html, shared_html
 from claire.ingest.fetchers.textfile import fetch_file, fetch_text
 from claire.ingest.fetchers.web import fetch_web
 from claire.ontology.base import Document
@@ -134,6 +134,36 @@ def test_graph_html_contains_truncation_ui_and_css():
     assert "🎙️ STT" in html
     # 20,000자가 하드코딩되어 있지 않고 동적이어야 함
     assert "(20,000자)" not in html
+
+
+def test_shared_html_contains_docmeta_ui_and_css():
+    doc = {
+        "id": "doc_test_share",
+        "title": "공유 문서 테스트",
+        "url": "https://example.com/share-doc",
+        "source_type": "web",
+        "raw_truncated": True,
+        "appendix_truncated": True,
+        "orig_chars": 50000,
+        "raw_chars": 20000,
+        "directive": "핵심 알고리즘 분석",
+        "is_stt": True,
+        "summary": "테스트 요약",
+    }
+    html = shared_html(doc)
+    assert ".docmeta" in html
+    assert ".docmeta-tags" in html
+    assert ".trunc-tag" in html
+    assert ".trunc-tag.trunc-appendix" in html
+    assert ".directive-tag" in html
+    assert ".stt-tag" in html
+    assert "docMetaHtml" in html
+    assert "✂️ 원문 일부 절단" in html
+    assert "🎯" in html
+    assert "🎙️ STT" in html
+    assert "h1 .rmeta" in html
+    assert "(20,000자)" not in html
+
 
 
 def test_document_detail_and_ui_with_directive():
