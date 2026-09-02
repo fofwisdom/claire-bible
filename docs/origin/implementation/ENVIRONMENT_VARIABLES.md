@@ -125,7 +125,7 @@ graph TD
 ### 2.6 Antigravity CLI 프로바이더 (`CLAIRE_AGY_*`)
 
 > [!WARNING]
-> Codex CLI 프로바이더는 호스트 네이티브 실행 환경 전용입니다. 
+> Antigravity CLI 프로바이더는 호스트 네이티브 실행 환경 전용입니다. 
 
 `CLAIRE_PROVIDER=antigravity` 또는 `CLAIRE_STT_PROVIDER=antigravity` 사용할 때 적용됩니다.
 
