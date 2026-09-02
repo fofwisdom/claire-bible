@@ -260,13 +260,45 @@ class TranscriptProvider(Protocol):
 ## 7. 구현 완료 및 검증 결과
 
 * **신규 모듈 및 컴포넌트**:
-  * `src/claire/extract/transcript/`: `base.py`, `mock_stt.py`, `antigravity_stt.py`, `factory.py`
-  * `src/claire/ingest/fetchers/video.py`: `resolve_video_target_url()`, `parse_ytdlp_extractor_args()`, `fetch_video()`
-  * `src/claire/config.py`: `enable_video_transcription`, `stt_provider`, `ffmpeg_bin`, `ytdlp_extractor_args`, `find_ffmpeg_executable()`
-  * `src/claire/ingest/router.py` & `src/claire/telegram_bot.py`: `video` 입력 라우팅 및 분류 연동
+  * `src/claire/extract/transcript/`: `base.py`, `gemini_stt.py`, `antigravity_stt.py`, `mock_stt.py`, `factory.py`
+  * `src/claire/store/video_cache.py`: 다운로드 미디어 3일 보존, 만료(TTL) 관리, 1KB 미만 손상 캐시 자동 삭제
+  * `src/claire/ingest/fetchers/video.py`: `resolve_video_target_url()`, `parse_ytdlp_extractor_args()`, `fetch_video()` (캐시 실패 시 원격 다운로드 폴백)
+  * `src/claire/config.py`: `enable_video_transcription`, `stt_provider`, `stt_model`, `video_chunk_duration_sec`, `video_cache_ttl_sec`, `ffmpeg_bin`, `ytdlp_extractor_args`
+  * `src/claire/cli.py`: `claire video-reprocess` (단축: `reprocess-video`), 실시간 진행률 스트리밍 및 `has_transcript` 무결성 검증
+  * `src/claire/telegram_bot.py`: 공유 링크 / `doc_id` 수신 시 `[ 🌐 전체 원문 재수집 ]` 원터치 버튼 및 `--refetch-full` 플래그 즉시 재전사 연동
 * **빌드 및 패키징**:
   * `pyproject.toml` `[project.optional-dependencies]`에 `audio = ["yt-dlp[curl-cffi]>=2024.8.0"]` 추가
   * `Dockerfile`에 `ffmpeg` apt 패키지 설치 및 빌드 시 최신 `yt-dlp[curl-cffi]` 업그레이드 연동
 * **테스트 검증**:
-  * 전용 단위 테스트 13건 (`tests/test_config_video.py`, `tests/test_transcript_provider.py`, `tests/test_video_fetcher.py`) 신설 및 전체 테스트 스위트 811건 100% 통과.
+  * `tests/test_gemini_stt.py` (8건 통과: 10k TPM 페이싱, 429 retryDelay 파싱, 최대 5회 백오프 재시도)
+  * `tests/test_video_cache.py` (6건 통과: 3일 캐시 보존/만료, 1KB 미만 손상 파일 소각, 원격 다운로드 폴백, CLI 에러 검증)
+  * 전체 테스트 스위트 831건 100% 통과.
+
+---
+
+## 8. 프로덕션 운영 및 장애 대응 지침
+
+### 8.1. Gemini 3.5 Transcribe 10K TPM 제한 준수 전략
+`gemini-3.5-transcribe`는 분당 입력 토큰 한도가 10,000(10K TPM)으로 엄격합니다. 오디오 1초는 약 25.18 토큰으로 환산되므로, 15분(900초) 단일 청크는 약 22.67K 토큰으로 즉시 429 에러가 발생합니다.
+- **240초(4분) 청크 분할**: 오디오를 240초(약 6,000 토큰) 단위로 분할하여 단일 청크가 10K 한도를 넘지 않도록 제어.
+- **62초 페이싱 (Pacing)**: 청크 호출 간 최소 62초의 대기 시간을 두어 분당 슬라이딩 윈도우 한도를 보호.
+- **지능형 429 백오프**: 429 응답 헤더 내 `retryDelay`를 파싱하여 권장 대기 시간 + 2초 버퍼 대기 후 최대 5회 자동 재시도.
+
+### 8.2. 사흘(3일) 미디어 캐시 정책
+네트워크 불안정이나 STT API 한도 등으로 적재가 실패할 경우, 다운로드된 대용량 오디오 미디어를 `data/cache/video/`에 3일(259,200초)간 보존합니다.
+- 재적재(`video-reprocess` 또는 `ingest`) 시 불필요한 대역폭 낭비 없이 캐시된 로컬 미디어를 즉시 재사용합니다.
+- 전사가 정상 완료되면 사용된 캐시 파일은 디스크 용량 절약을 위해 자동 삭제됩니다.
+- 1KB 미만의 비정상/더미 파일은 탐색 시 즉시 소각되며, 캐시 파일로 STT 실패 시에도 캐시를 즉시 삭제하고 `yt-dlp` 원격 다운로드로 자동 전환됩니다.
+
+### 8.3. 재전사 실행 명령 (CLI 및 텔레그램)
+- **CLI**:
+  ```bash
+  # Dry-run 진단
+  ./cb-manuscript app video-reprocess --doc-id doc_b19da8da2980
+  # 실제 적용 (실시간 진행 로그 출력)
+  ./cb-manuscript app video-reprocess --doc-id doc_b19da8da2980 --apply
+  ```
+- **텔레그램**:
+  - 봇 채팅방에 `https://cb.netspheres.org/p?s=8at3mxrnfyrd63s6` 전송 후 `[ 🌐 전체 원문 재수집 (전체 길이) ]` 버튼 클릭.
+  - 또는 `doc_b19da8da2980 --refetch-full` 메시지 전송으로 백그라운드 원스톱 실행.
 

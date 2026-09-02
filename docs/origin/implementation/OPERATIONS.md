@@ -87,16 +87,33 @@ hostname과 IPv6는 사전 검사에서 거부한다. loopback은 안전한 초�
 
 ### 비디오 음성 전사 (STT) 운영 및 환경변수
 
-웹 비디오(VMware Explore/Brightcove, YouTube 등)의 음성 전사(STT) 기능은 컨테이너에 내장된 `ffmpeg`와 `yt-dlp` 및 STT 프로바이더(기본 `antigravity`)를 통해 동작합니다.
+웹 비디오(VMware Explore/Brightcove, YouTube 등)의 음성 전사(STT) 기능은 컨테이너에 내장된 `ffmpeg`와 `yt-dlp` 및 STT 프로바이더(프로덕션 권장: `gemini` - `gemini-3.5-transcribe`)를 통해 동작합니다.
 
 * **`CLAIRE_ENABLE_VIDEO_TRANSCRIPTION=1` (기본값: 활성)**:
-  * 비디오 URL 적재 시 내장 자막이 없으면 오디오 스트림(16kHz 모노 MP3)을 임시 추출하여 STT로 타임스탬프 자막을 생성합니다.
+  * 비디오 URL 적재 시 내장 자막이 없으면 오디오 스트림을 추출하여 STT로 타임스탬프 자막을 생성합니다.
   * `0`으로 설정 시 무거운 오디오 다운로드/STT를 건너뛰고 비디오 페이지의 메타데이터만 수집하여 경량 문서로 적재합니다.
-* **`CLAIRE_STT_PROVIDER=antigravity`**:
-  * `antigravity` (Gemini 멀티모달 오디오 전사), `mock` (테스트용) 등을 선택할 수 있습니다.
-* **`CLAIRE_STT_LANGUAGE=ko`**: 전사 선호 언어 코드.
-* **`CLAIRE_YTDLP_EXTRACTOR_ARGS=generic:impersonate`**:
-  * CDN/Cloudflare 봇 차단 우회를 위한 `yt-dlp` 추출기 인자 (브라우저 TLS 핑거프린트 위장).
+* **`CLAIRE_STT_PROVIDER=gemini` (또는 `STT_PROVIDER=gemini`)**:
+  * `gemini`: Google GenAI SDK 기반 고성능 STT (기본 모델: `gemini-3.5-transcribe`).
+  * `antigravity`: 호스트 Antigravity CLI 기반 폴백.
+* **`CLAIRE_STT_MODEL=gemini-3.5-transcribe` (또는 `STT_MODEL=gemini-3.5-transcribe`)**:
+  * 최신 전문 음성 전사 전용 모델 사용.
+* **`CLAIRE_VIDEO_CHUNK_DURATION_SEC=240`**:
+  * `gemini-3.5-transcribe`의 분당 10K 입력 토큰(TPM) 한도를 준수하기 위해 단일 청크를 240초(4분, 약 6,000 토큰)로 제한.
+  * 청크 간 최소 62초 슬라이딩 윈도우 페이싱(Pacing)을 적용하여 1분당 1개 청크만 안전하게 호출.
+  * 429 응답 발생 시 API 응답 헤더의 `retryDelay`를 파싱하여 해당 시간 대기 후 최대 5회 자동 재시도.
+* **`CLAIRE_VIDEO_CACHE_TTL_SEC=259200` (사흘 = 3일 보존)**:
+  * 다운로드 후 STT 실패 시 대용량 오디오 미디어를 `data/cache/video/`에 3일간 자동 보존.
+  * 재처리(`video-reprocess`) 실행 시 원격 다운로드를 생략하고 로컬 캐시를 즉시 재사용.
+  * 1KB 미만의 손상/더미 파일은 자동 삭제되며, 캐시 STT 실패 시에도 손상 캐시를 즉시 삭제하고 원격 재다운로드로 자동 폴백.
+* **비디오 재전사 실행 경로**:
+  1. **CLI 실행**:
+     ```bash
+     ./cb-manuscript app video-reprocess --doc-id <doc_id> --apply
+     ```
+     터미널에서 단계별 진행 상황(`[원문 전체 재수집]`, `[오디오 변환]`, `[STT 청크 N/M 전사]`, `[LLM 요약 및 본문 렌더링]`)이 실시간 스트리밍 출력됩니다.
+  2. **텔레그램 봇 실행**:
+     - 텔레그램 봇 채팅방에 문서 공유 링크(`https://.../p?s=...`) 또는 `doc_id` 전송 후 **`[ 🌐 전체 원문 재수집 (전체 길이) ]`** 버튼 클릭.
+     - 또는 `doc_id --refetch-full` 한 줄 메시지 전송으로 즉시 원스톱 백그라운드 재전사 실행.
 
 ## 배포된 앱의 one-off 명령
 

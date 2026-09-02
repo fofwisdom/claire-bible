@@ -156,9 +156,11 @@ graph TD
 | 환경변수명 | 기본값 | 허용 값 / 타입 | 설명 |
 | :--- | :--- | :--- | :--- |
 | `CLAIRE_ENABLE_VIDEO_TRANSCRIPTION` | `1` (`true`) | `0`, `1`, `true`, `false` | 자막이 없는 비디오/오디오 웹 문서 적재 시 ffmpeg/yt-dlp 및 STT 파이프라인 활성화 여부. ([VIDEO_AUDIO_TRANSCRIPTION_AND_INGESTION_DESIGN.md](../design/VIDEO_AUDIO_TRANSCRIPTION_AND_INGESTION_DESIGN.md) 참조) |
-| `CLAIRE_STT_PROVIDER` | `antigravity` | `antigravity`, `gemini`, `mock` | 음성 텍스트 변환(STT)에 사용할 프로바이더. |
-| `CLAIRE_STT_MODEL` | `""` | 문자열 | STT 전용 모델명 (비어있으면 프로바이더 기본 모델 사용). |
-| `CLAIRE_STT_LANGUAGE` | `ko` | ISO 언어 코드 (예: `ko`, `en`, `ja`) | STT 기본 인식 대상 언어. |
+| `CLAIRE_STT_PROVIDER` | `antigravity` | `gemini`, `antigravity`, `mock` | 음성 텍스트 변환(STT)에 사용할 프로바이더 (`gemini` 권장, `STT_PROVIDER`, `STT_PROIVDER` 별칭 지원). |
+| `CLAIRE_STT_MODEL` | `""` | 문자열 | STT 전용 모델명 (예: `gemini-3.5-transcribe`, `STT_MODEL` 별칭 지원). 비어있을 경우 프로바이더 기본 모델 사용. |
+| `CLAIRE_STT_LANGUAGE` | `ko` | ISO 언어 코드 (예: `ko`, `en`, `ja`) | STT 기본 인식 대상 언어 (비어있을 경우 자동 감지). |
+| `CLAIRE_VIDEO_CHUNK_DURATION_SEC` | `240` | 정수 (초) | 단일 오디오 분할 청크 길이. `gemini-3.5-transcribe`의 10K TPM 한도 보호를 위해 기본 240초(4분, 약 6,000 토큰)로 제한. |
+| `CLAIRE_VIDEO_CACHE_TTL_SEC` | `259200` | 정수 (초) | 비디오 오디오 스트림 처리/적재 실패 시 로컬 보존 기간 (기본 3일 = 259,200초). 재적재 시 원격 다운로드를 건너뛰고 캐시 재사용. |
 | `CLAIRE_FFMPEG_BIN` | `ffmpeg` | 실행 파일명 또는 경로 | 오디오 추출 및 다운샘플링에 사용할 `ffmpeg` 바이너리 경로. |
 | `CLAIRE_YTDLP_EXTRACTOR_ARGS` | `generic:impersonate` | 문자열 | yt-dlp 브라우저 핑거프린트 위장 인자. |
 
