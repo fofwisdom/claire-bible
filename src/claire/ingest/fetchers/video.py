@@ -199,17 +199,10 @@ def fetch_video(
         ffmpeg_exec = find_ffmpeg_executable(settings.ffmpeg_bin)
         if ffmpeg_exec:
             with tempfile.TemporaryDirectory(prefix="claire_audio_") as tmp_dir:
-                tmp_out = Path(tmp_dir) / "audio.mp3"
+                tmp_out = Path(tmp_dir) / "audio.%(ext)s"
                 audio_opts = {
-                    "format": "ba/ba*/b[height<=360]/b[height<=480]/b",
-                    "outtmpl": str(tmp_out.with_suffix("")),
-                    "postprocessors": [
-                        {
-                            "key": "FFmpegExtractAudio",
-                            "preferredcodec": "mp3",
-                            "preferredquality": "64",
-                        }
-                    ],
+                    "format": "ba[protocol!*=dash]/ba/b[height<=360]/b[height<=480]/b",
+                    "outtmpl": str(tmp_out),
                     "ffmpeg_location": ffmpeg_exec,
                     "quiet": True,
                     "no_warnings": True,
@@ -221,12 +214,22 @@ def fetch_video(
                 try:
                     import yt_dlp
 
-                    with yt_dlp.YoutubeDL(audio_opts) as ydl:
-                        ydl.download([resolved_url])
+                    try:
+                        with yt_dlp.YoutubeDL(audio_opts) as ydl:
+                            ydl.download([resolved_url])
+                    except Exception as dl_err:
+                        logger.debug("Primary audio format download failed, trying fallback: %s", dl_err)
+                        fallback_opts = dict(audio_opts)
+                        fallback_opts["format"] = "ba/b[height<=360]/b"
+                        with yt_dlp.YoutubeDL(fallback_opts) as ydl:
+                            ydl.download([resolved_url])
 
-                    # 다운로드된 오디오 파일 탐색 (.mp3 또는 .m4a 등)
-                    audio_candidates = list(Path(tmp_dir).glob("audio*"))
-                    if audio_candidates and audio_candidates[0].is_file():
+                    # 다운로드된 오디오 파일 탐색 (.mp3, .m4a, .mp4 등)
+                    audio_candidates = [
+                        p for p in Path(tmp_dir).glob("audio.*")
+                        if p.is_file() and not p.name.endswith((".part", ".ytdl"))
+                    ]
+                    if audio_candidates:
                         audio_file = audio_candidates[0]
                         stt_provider = get_transcript_provider(settings)
                         lang_code = settings.stt_language or (target_langs[0] if target_langs else "ko")
