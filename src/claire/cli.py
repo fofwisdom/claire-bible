@@ -1268,6 +1268,65 @@ def cmd_truncation_backfill(args) -> int:
     return 0
 
 
+def cmd_stt_scan(args) -> int:
+    """STT 적용 문서 및 절단/본문 작성 상태를 진단/스캔."""
+    import json
+    import sys
+    from .store import db as dbm
+
+    s = get_settings()
+    conn = dbm.connect(s.db_file)
+    dbm.init_db(conn)
+    try:
+        raw_target = getattr(args, "target", None) or getattr(args, "doc_id", None)
+        target_doc_id = None
+        if raw_target:
+            try:
+                doc_info = dbm.resolve_single_document_target(conn, raw_target)
+                if not doc_info:
+                    print(f"문서 없음: {raw_target}", file=sys.stderr)
+                    return 1
+                target_doc_id = doc_info["id"]
+            except ValueError as e:
+                print(f"[!] {e}", file=sys.stderr)
+                return 1
+
+        scan = dbm.scan_stt_documents(conn, doc_id=target_doc_id)
+    finally:
+        conn.close()
+
+    is_json = getattr(args, "json", False)
+    if is_json:
+        print(json.dumps(scan, ensure_ascii=False, indent=2))
+        return 0
+
+    print("claire: [음성 인식(STT) 적용 문서 및 절단/본문 진단 스캔]")
+    print("=" * 68)
+    print(f"• 전체 문서 수                     : {scan['total_documents']:,} 건")
+    print(f"• STT 감지 문서 수                 : {scan['stt_detected_count']:,} 건 (기존 메타 기록: {scan['recorded_stt_count']:,}건)")
+    print(f"  - 온전 적재 STT 문서             : {scan['stt_intact_count']:,} 건")
+    print(f"  - 일부 절단 STT 문서             : {scan['stt_truncated_count']:,} 건")
+    print(f"  - ⚠️ 절단 상태로 본문 작성된 문서 : {scan['stt_truncated_with_detail_count']:,} 건")
+    print("=" * 68)
+
+    if scan["stt_truncated_count"] == 0:
+        print("\n[✓] 절단된 STT 문서가 없습니다. 모든 STT 문서가 온전하게 적재되었습니다.")
+        return 0
+
+    print(f"\n[⚠️ STT 일부 절단 문서 목록 ({scan['stt_truncated_count']}건)]:")
+    for it in scan["stt_truncated_items"][:20]:
+        reasons = ", ".join(it.get("stt_trunc_reasons", []))
+        detail_mark = " [본문작성완료 ⚠️]" if it.get("has_detail") else " [본문미작성]"
+        print(f"  • [{it['id']}] '{it['title']}'{detail_mark}")
+        print(f"    - 절단 사유: {reasons}")
+        print(f"    - 복구 안내: claire video-reprocess --doc-id {it['id']} --apply --full-content")
+
+    if scan["stt_truncated_count"] > 20:
+        print(f"  ... 외 {scan['stt_truncated_count'] - 20}건")
+
+    return 0
+
+
 def cmd_stt_backfill(args) -> int:
     """STT가 적용된 기존 문서를 스캔하여 is_stt 메타데이터 및 STT 태그를 소급 갱신."""
     import json
@@ -1309,6 +1368,7 @@ def cmd_stt_backfill(args) -> int:
         print("=" * 65)
         print(f"• 전체 문서 수               : {scan['total_documents']} 건")
         print(f"• STT 감지 문서 수           : {scan['stt_detected_count']} 건 (기존 기록: {scan['recorded_stt_count']}건)")
+        print(f"• STT 절단 문서 수           : {scan['stt_truncated_count']} 건 (본문 작성됨: {scan['stt_truncated_with_detail_count']}건)")
         print(f"• 소급 적용 대상 문서 수     : {target_count} 건")
         print(f"• 옵션                       : force={force}")
         print("=" * 65)
@@ -2082,6 +2142,16 @@ def build_parser() -> argparse.ArgumentParser:
     ptb.add_argument("--yes", "-y", action="store_true", help="confirm without interactive prompt")
     ptb.add_argument("--json", action="store_true", help="output result in JSON format")
     ptb.set_defaults(func=cmd_truncation_backfill)
+
+    pscan = sub.add_parser(
+        "stt-scan",
+        aliases=["scan-stt"],
+        help="scan and diagnose STT documents, truncation status, and detail writing state",
+    )
+    pscan.add_argument("target", nargs="?", default=None, help="target document ID, URL, or share URL")
+    pscan.add_argument("--doc-id", default=None, help="specific document ID")
+    pscan.add_argument("--json", action="store_true", help="output result in JSON format")
+    pscan.set_defaults(func=cmd_stt_scan)
 
     pstt = sub.add_parser(
         "stt-backfill",

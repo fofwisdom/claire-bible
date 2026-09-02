@@ -2802,26 +2802,91 @@ def backfill_truncation_metadata(
     }
 
 
+def extract_stt_transcript(raw_text: str | None, meta: dict | None = None) -> dict | None:
+    """STT가 적용된 문서에 한해 순수 음성 전사 전문과 세그먼트 데이터를 추출 (저작권 보호: 비-STT 문서는 None 반환)."""
+    meta_dict = meta or {}
+    raw_str = raw_text or ""
+
+    is_stt = bool(
+        meta_dict.get("is_stt")
+        or meta_dict.get("stt_applied")
+        or meta_dict.get("stt")
+        or (isinstance(meta_dict.get("transcript_segments"), list) and len(meta_dict["transcript_segments"]) > 0)
+        or ("[영상 음성 전사 (STT)]" in raw_str)
+        or ("[영상 자막 / 음성 전사 (STT)]" in raw_str)
+        or ("[음성 전사 (STT)]" in raw_str)
+    )
+    if not is_stt:
+        return None
+
+    segments = meta_dict.get("transcript_segments") or []
+    text_body = ""
+
+    for marker in ["[영상 음성 전사 (STT)]", "[영상 자막 / 음성 전사 (STT)]", "[음성 전사 (STT)]"]:
+        if marker in raw_str:
+            after = raw_str.split(marker, 1)[1].lstrip("\r\n")
+            for end_marker in ["\n\n[영상 설명]", "\n\n[태그]", "\n\n[부록]", "\n\n[출처]"]:
+                if end_marker in after:
+                    after = after.split(end_marker, 1)[0]
+            text_body = after.strip()
+            break
+
+    if not text_body and segments:
+        lines = []
+        for s in segments:
+            start_f = float(s.get("start_sec", s.get("start", 0.0)))
+            total_sec = int(start_f)
+            h = total_sec // 3600
+            m = (total_sec % 3600) // 60
+            sec = total_sec % 60
+            ts = f"{h:02d}:{m:02d}:{sec:02d}" if h > 0 else f"{m:02d}:{sec:02d}"
+            txt = str(s.get("text", "")).strip()
+            lines.append(f"[{ts}] {txt}")
+        text_body = "\n".join(lines)
+
+    if not text_body and not segments:
+        return None
+
+    duration_sec = float(meta_dict.get("duration_sec") or 0.0)
+    last_end = 0.0
+    if segments:
+        last_end = float(segments[-1].get("end_sec", segments[-1].get("end", 0.0)))
+    duration_gap = bool(duration_sec > 0 and last_end > 0 and (duration_sec - last_end > 120.0))
+
+    stt_truncated = bool(
+        meta_dict.get("stt_truncated")
+        or meta_dict.get("raw_truncated")
+        or duration_gap
+    )
+
+    return {
+        "text": text_body,
+        "segments": segments,
+        "duration_sec": duration_sec,
+        "is_stt": True,
+        "stt_truncated": stt_truncated,
+    }
+
+
 def scan_stt_documents(
     conn: sqlite3.Connection,
     doc_id: str | None = None,
 ) -> dict:
-    """데이터베이스 내 문서들 중 STT(음성 인식/전사)가 적용된 문서 현황 및 메타데이터 기록 상태 스캔.
+    """데이터베이스 내 문서들 중 STT(음성 인식/전사) 적용 문서 및 절단/본문 작성 상태 스캔.
 
     판정 기준:
-    1. meta.is_stt / meta.stt_applied / meta.stt 가 True
-    2. meta.transcript_segments 가 비어있지 않은 리스트 (STT 프로바이더 실행 시에만 생성됨)
-    3. meta.video_cached 또는 meta.video_cache_used 가 True (STT 오디오 파이프라인에서만 사용됨)
-    4. raw_text 에 '[영상 음성 전사 (STT)]' 또는 '[음성 전사 (STT)]' 헤더 포함
-
-    ※ 주의: 제작자 제공 자막(source_type == 'video' & has_transcript == True)은
-      transcript_segments가 비어 있고 STT 파이프라인을 거치지 않으므로 STT로 오인하지 않음.
+    1. STT 적용 감지: meta.is_stt 플래그, transcript_segments 존재, 오디오 캐시 사용, STT 본문 헤더
+    2. STT 절단(Truncation) 감지:
+       - 글자 수 상한 슬라이싱 (stt_truncated, raw_truncated, orig_chars > raw_chars)
+       - 재생 시간 갭 (duration_sec 대비 마지막 세그먼트 간 120초 이상 차이)
+    3. 본문 작성(Detail Written) 연계:
+       - 절단된 STT 상태에서 LLM 상세 본문(detail)이 이미 작성되었는지 여부 확인
     """
     where_sql = "WHERE id = ?" if doc_id else ""
     params = [doc_id] if doc_id else []
 
     rows = conn.execute(
-        f"SELECT id, title, url, source_type, raw_text, meta "
+        f"SELECT id, title, url, source_type, raw_text, meta, detail "
         f"FROM documents {where_sql} ORDER BY fetched_at DESC, id DESC",
         params,
     ).fetchall()
@@ -2830,6 +2895,8 @@ def scan_stt_documents(
     stt_documents = []
     unmarked_items = []
     recorded_stt = 0
+    stt_truncated_items = []
+    stt_truncated_with_detail_items = []
 
     for r in rows:
         meta_raw = r["meta"]
@@ -2841,7 +2908,10 @@ def scan_stt_documents(
                 meta = {}
 
         raw_text = r["raw_text"] or ""
+        raw_len = len(raw_text)
         src_type = r["source_type"] or "web"
+        detail = r["detail"] or ""
+        has_detail = bool(detail and len(detail.strip()) > 0)
 
         # 1. 명시적 메타 플래그
         is_meta_stt = bool(meta.get("is_stt") or meta.get("stt_applied") or meta.get("stt"))
@@ -2876,6 +2946,34 @@ def scan_stt_documents(
             reasons.append("raw_text STT header")
 
         if is_stt_detected:
+            # 복합 절단 조건 판정
+            duration_sec = float(meta.get("duration_sec") or 0.0)
+            last_seg_end = 0.0
+            if has_segments:
+                last_seg_end = float(segments[-1].get("end_sec", segments[-1].get("end", 0.0)))
+
+            duration_gap = bool(duration_sec > 0 and last_seg_end > 0 and (duration_sec - last_seg_end > 120.0))
+            is_sliced = bool(
+                meta.get("stt_truncated")
+                or meta.get("raw_truncated")
+                or (meta.get("orig_chars", 0) > meta.get("raw_chars", 0) > 0)
+                or (meta.get("stt_orig_chars", 0) > meta.get("stt_raw_chars", 0) > 0)
+            )
+            is_stt_truncated = bool(is_sliced or duration_gap)
+
+            trunc_reasons = []
+            if is_sliced:
+                orig = meta.get("stt_orig_chars") or meta.get("orig_chars") or 0
+                raw = meta.get("stt_raw_chars") or meta.get("raw_chars") or raw_len
+                if orig > raw > 0:
+                    trunc_reasons.append(f"char_limit (원문 {orig:,}자 → 적재 {raw:,}자)")
+                else:
+                    trunc_reasons.append("char_limit (글자수 상한 슬라이싱)")
+            if duration_gap:
+                d_min = int(duration_sec // 60)
+                s_min = int(last_seg_end // 60)
+                trunc_reasons.append(f"duration_gap (전체 {d_min}분 중 {s_min}분까지만 전사됨)")
+
             item_info = {
                 "id": r["id"],
                 "title": r["title"] or "(제목 없음)",
@@ -2884,12 +2982,22 @@ def scan_stt_documents(
                 "is_meta_stt": is_meta_stt,
                 "reasons": reasons,
                 "meta": meta,
+                "is_stt_truncated": is_stt_truncated,
+                "stt_trunc_reasons": trunc_reasons,
+                "has_detail": has_detail,
+                "duration_sec": duration_sec,
+                "last_seg_end": last_seg_end,
             }
             stt_documents.append(item_info)
             if is_meta_stt:
                 recorded_stt += 1
             else:
                 unmarked_items.append(item_info)
+
+            if is_stt_truncated:
+                stt_truncated_items.append(item_info)
+                if has_detail:
+                    stt_truncated_with_detail_items.append(item_info)
 
     return {
         "total_documents": total,
@@ -2898,6 +3006,11 @@ def scan_stt_documents(
         "unmarked_stt_count": len(unmarked_items),
         "unmarked_items": unmarked_items,
         "stt_documents": stt_documents,
+        "stt_truncated_count": len(stt_truncated_items),
+        "stt_truncated_with_detail_count": len(stt_truncated_with_detail_items),
+        "stt_intact_count": len(stt_documents) - len(stt_truncated_items),
+        "stt_truncated_items": stt_truncated_items,
+        "stt_truncated_with_detail_items": stt_truncated_with_detail_items,
     }
 
 
@@ -2907,7 +3020,7 @@ def backfill_stt_metadata(
     doc_id: str | None = None,
     force: bool = False,
 ) -> dict:
-    """STT가 적용되었으나 메타데이터(is_stt)가 누락된 문서에 is_stt: True 를 소급 갱신."""
+    """STT가 적용되었으나 메타데이터(is_stt, stt_truncated)가 누락된 문서에 메타데이터를 소급 갱신."""
     scan = scan_stt_documents(conn, doc_id=doc_id)
     targets = scan["stt_documents"] if force else scan["unmarked_items"]
 
@@ -2917,6 +3030,7 @@ def backfill_stt_metadata(
         meta = item["meta"]
         meta["is_stt"] = True
         meta["stt"] = True
+        meta["stt_truncated"] = bool(item.get("is_stt_truncated"))
 
         conn.execute(
             "UPDATE documents SET meta=? WHERE id=?",
@@ -2928,6 +3042,8 @@ def backfill_stt_metadata(
     return {
         "scanned_total": scan["total_documents"],
         "stt_detected_count": scan["stt_detected_count"],
+        "stt_truncated_count": scan["stt_truncated_count"],
+        "stt_truncated_with_detail_count": scan["stt_truncated_with_detail_count"],
         "updated_count": updated_count,
         "items": targets,
     }

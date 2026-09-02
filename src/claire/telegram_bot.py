@@ -442,9 +442,11 @@ def build_app(settings: Settings | None = None) -> Any:
             doc_title = (doc.title if doc else None) or target_doc_id
             raw_len = len(doc.raw_text) if doc and doc.raw_text else 0
             trunc_info = ""
-            if doc and (doc.meta or {}).get("raw_truncated"):
-                orig = (doc.meta or {}).get("orig_chars", raw_len)
-                if (doc.meta or {}).get("appendix_truncated"):
+            if doc and ((doc.meta or {}).get("stt_truncated") or (doc.meta or {}).get("raw_truncated")):
+                orig = (doc.meta or {}).get("stt_orig_chars") or (doc.meta or {}).get("orig_chars", raw_len)
+                if (doc.meta or {}).get("stt_truncated"):
+                    trunc_info = f"\n✂️ 음성 전사(STT)가 일부 절단된 상태로 적재됨 ({raw_len:,}자 / 원본 {orig:,}자)"
+                elif (doc.meta or {}).get("appendix_truncated"):
                     trunc_info = f"\n✂️ 부록(Appendix) 제외 정책으로 원문 일부 절단함 ({raw_len:,}자 / 원본 {orig:,}자)"
                 else:
                     trunc_info = f"\n⚠️ 환경변수 상한으로 원문 일부 절단함 ({raw_len:,}자 / 원본 {orig:,}자)"

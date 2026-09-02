@@ -121,6 +121,8 @@ APP_ONE_OFF_COMMANDS = {
     "truncation-scan",
     "truncation-backfill",
     "backfill-truncation",
+    "stt-scan",
+    "scan-stt",
     "stt-backfill",
     "backfill-stt",
     "video-reprocess",

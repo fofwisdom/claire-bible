@@ -358,6 +358,14 @@ def fetch_video(
 
     canonical = canonicalize_url(info.get("webpage_url") or url)
 
+    # STT 절단 여부 판정: 글자 수 상한 슬라이싱 또는 120초 이상의 전사 구간 누락
+    stt_duration_gap = False
+    if is_stt and duration_sec > 0 and segments_data:
+        last_seg_end = float(segments_data[-1].get("end_sec", 0.0))
+        if (duration_sec - last_seg_end) > 120.0:
+            stt_duration_gap = True
+    stt_truncated = bool(is_stt and (is_truncated or stt_duration_gap))
+
     return Document(
         url=url,
         canonical_url=canonical,
@@ -380,5 +388,9 @@ def fetch_video(
             "video_cache_used": cached_used,
             "is_stt": is_stt,
             "stt": is_stt,
+            "stt_truncated": stt_truncated,
+            "stt_orig_chars": orig_chars if is_stt else None,
+            "stt_raw_chars": raw_chars if is_stt else None,
+            "stt_duration_gap": stt_duration_gap,
         },
     )
