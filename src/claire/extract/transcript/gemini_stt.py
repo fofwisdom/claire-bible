@@ -165,19 +165,21 @@ def split_audio_into_chunks(
 
     ff_exec = find_ffmpeg_executable(ffmpeg_bin) or "ffmpeg"
     total_sec = get_audio_duration_sec(audio_path, ffmpeg_bin=ff_exec)
-    if total_sec <= chunk_duration_sec:
+    base_dir = tmp_dir or audio_path.parent
+
+    # 이미 15분 이하이고 mp3인 경우 분할 없이 그대로 사용
+    if total_sec <= chunk_duration_sec and audio_path.suffix.lower() == ".mp3":
         return [(audio_path, 0.0)]
 
-    num_chunks = math.ceil(total_sec / chunk_duration_sec)
+    num_chunks = max(1, math.ceil(total_sec / chunk_duration_sec))
     chunks: list[tuple[Path, float]] = []
-    base_dir = tmp_dir or audio_path.parent
 
     for idx in range(num_chunks):
         offset = idx * chunk_duration_sec
         dur = min(chunk_duration_sec, total_sec - offset)
         if dur <= 0:
             break
-        chunk_file = base_dir / f"chunk_{idx:03d}_{audio_path.name}"
+        chunk_file = base_dir / f"chunk_{idx:03d}_{audio_path.stem}.mp3"
         cmd = [
             ff_exec,
             "-y",
@@ -187,12 +189,15 @@ def split_audio_into_chunks(
             f"{dur:.2f}",
             "-i",
             str(audio_path),
+            "-vn",
+            "-acodec",
+            "libmp3lame",
             "-ac",
             "1",
             "-ar",
             "16000",
             "-b:a",
-            "48k",
+            "64k",
             str(chunk_file),
         ]
         try:
@@ -201,7 +206,7 @@ def split_audio_into_chunks(
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 check=True,
-                timeout=120,
+                timeout=300,
             )
             chunks.append((chunk_file, offset))
         except Exception as e:
