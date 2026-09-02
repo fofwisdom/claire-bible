@@ -127,9 +127,11 @@ def test_graph_html_contains_truncation_ui_and_css():
     html = render_graph_html()
     assert ".trunc-tag" in html
     assert ".directive-tag" in html
+    assert ".stt-tag" in html
     assert "docMetaHtml" in html
     assert "✂️ 원문 일부 절단" in html
     assert "🎯" in html
+    assert "🎙️ STT" in html
     # 20,000자가 하드코딩되어 있지 않고 동적이어야 함
     assert "(20,000자)" not in html
 
@@ -157,3 +159,30 @@ def test_document_detail_and_ui_with_directive():
     assert detail is not None
     assert detail["directive"] == "시스템 아키텍처 및 내부 구조 중심"
     assert detail["meta"]["directive"] == "시스템 아키텍처 및 내부 구조 중심"
+
+
+def test_document_detail_and_ui_with_stt():
+    import sqlite3
+
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    dbm.init_db(conn)
+    doc = Document(
+        id="doc_stt_test",
+        title="STT Video Test",
+        url="https://example.com/video",
+        raw_text="STT transcribed speech content",
+        source_type="video",
+        meta={
+            "is_stt": True,
+            "has_transcript": True,
+            "raw_truncated": False,
+        },
+    )
+    dbm.insert_document(conn, doc)
+
+    detail = document_detail(conn, "doc_stt_test")
+    assert detail is not None
+    assert detail["is_stt"] is True
+    assert detail["meta"]["is_stt"] is True
+

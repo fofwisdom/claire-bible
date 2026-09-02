@@ -51,6 +51,7 @@ def test_fetch_video_disabled_stt(monkeypatch):
     assert "CLOB1244LV" in doc.title or "6403821753112" in doc.url
     assert "비디오 음성 전사 기능이 비활성화되어 있습니다" in doc.raw_text
     assert doc.meta["has_transcript"] is False
+    assert doc.meta.get("is_stt") is False
 
 
 def test_fetch_video_with_mock_stt(monkeypatch, tmp_path):
@@ -64,3 +65,4 @@ def test_fetch_video_with_mock_stt(monkeypatch, tmp_path):
     assert doc.source_type == "video"
     assert doc.title != ""
     assert doc.meta["duration_sec"] > 0
+    assert doc.meta.get("is_stt") is True
