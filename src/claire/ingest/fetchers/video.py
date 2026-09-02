@@ -330,7 +330,8 @@ def fetch_video(
         sections.append(f"재생 시간: {mins}분 {secs}초 ({duration_sec:.1f}초)")
 
     if transcript_text:
-        sections.append(f"[영상 자막 / 음성 전사]\n{transcript_text}")
+        header = "[영상 음성 전사 (STT)]" if is_stt else "[영상 자막]"
+        sections.append(f"{header}\n{transcript_text}")
     elif not settings.enable_video_transcription:
         sections.append("[영상 자막]\n(비디오 음성 전사 기능이 비활성화되어 있습니다. CLAIRE_ENABLE_VIDEO_TRANSCRIPTION=1 설정 시 생성됩니다.)")
     elif stt_error_msg:

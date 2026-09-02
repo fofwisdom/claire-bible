@@ -1268,6 +1268,98 @@ def cmd_truncation_backfill(args) -> int:
     return 0
 
 
+def cmd_stt_backfill(args) -> int:
+    """STT가 적용된 기존 문서를 스캔하여 is_stt 메타데이터 및 STT 태그를 소급 갱신."""
+    import json
+    import sys
+    from .store import db as dbm
+
+    s = get_settings()
+    conn = dbm.connect(s.db_file)
+    dbm.init_db(conn)
+    try:
+        raw_target = getattr(args, "target", None) or getattr(args, "doc_id", None)
+        target_doc_id = None
+        if raw_target:
+            try:
+                doc_info = dbm.resolve_single_document_target(conn, raw_target)
+                if not doc_info:
+                    print(f"문서 없음: {raw_target}", file=sys.stderr)
+                    return 1
+                target_doc_id = doc_info["id"]
+            except ValueError as e:
+                print(f"[!] {e}", file=sys.stderr)
+                return 1
+
+        force = getattr(args, "force", False)
+        scan = dbm.scan_stt_documents(conn, doc_id=target_doc_id)
+    finally:
+        conn.close()
+
+    target_count = scan["stt_detected_count"] if force else scan["unmarked_stt_count"]
+    target_items = scan["stt_documents"] if force else scan["unmarked_items"]
+    is_json = getattr(args, "json", False)
+
+    if is_json and not getattr(args, "apply", False):
+        print(json.dumps({"dry_run": True, "target_count": target_count, "items": target_items}, ensure_ascii=False, indent=2))
+        return 0
+
+    if not is_json:
+        print("claire: [STT 적용 문서 메타데이터 소급 갱신(Backfill)]")
+        print("=" * 65)
+        print(f"• 전체 문서 수               : {scan['total_documents']} 건")
+        print(f"• STT 감지 문서 수           : {scan['stt_detected_count']} 건 (기존 기록: {scan['recorded_stt_count']}건)")
+        print(f"• 소급 적용 대상 문서 수     : {target_count} 건")
+        print(f"• 옵션                       : force={force}")
+        print("=" * 65)
+
+    if target_count == 0:
+        if is_json:
+            print(json.dumps({"scanned_total": scan["total_documents"], "updated_count": 0, "items": []}, ensure_ascii=False, indent=2))
+        else:
+            print("\n[✓] 소급 적용이 필요한 STT 문서가 없습니다.")
+        return 0
+
+    apply = getattr(args, "apply", False)
+    dry_run = getattr(args, "dry_run", False)
+
+    if not apply or dry_run:
+        print(f"\n[안내] 기본 Dry-Run 모드로 실행되어 {target_count}건의 대상만 확인했습니다.")
+        for it in target_items[:10]:
+            reasons_str = ", ".join(it["reasons"])
+            print(f"  - [{it['id']}] '{it['title']}' ({it['source_type']}) → 근거: {reasons_str}")
+        if target_count > 10:
+            print(f"  ... 외 {target_count - 10}건")
+        print("\n실제 메타데이터를 소급 적용하려면 --apply 옵션을 사용하십시오:")
+        cmd_hint = "claire stt-backfill --apply"
+        if force:
+            cmd_hint += " --force"
+        if raw_target:
+            cmd_hint += f" {raw_target}"
+        print(f"  {cmd_hint}")
+        return 0
+
+    conn = dbm.connect(s.db_file)
+    try:
+        res = dbm.backfill_stt_metadata(
+            conn,
+            doc_id=target_doc_id,
+            force=force,
+        )
+    finally:
+        conn.close()
+
+    if is_json:
+        print(json.dumps(res, ensure_ascii=False, indent=2))
+        return 0
+
+    print(f"\n[✓] STT 메타데이터 소급 적용 완료: 총 {res['updated_count']}건 갱신됨")
+    for it in res["items"][:10]:
+        print(f"  - [{it['id']}] '{it['title']}' (STT 플래그 부여 완료)")
+    if len(res["items"]) > 10:
+        print(f"  ... 외 {len(res['items']) - 10}건")
+    return 0
+
 
 def cmd_recompile_html(args) -> int:
     """모든 문서의 detail_html을 현재 AOT 사전 렌더러로 재컴파일(LLM 호출 없음)."""
@@ -1990,6 +2082,19 @@ def build_parser() -> argparse.ArgumentParser:
     ptb.add_argument("--yes", "-y", action="store_true", help="confirm without interactive prompt")
     ptb.add_argument("--json", action="store_true", help="output result in JSON format")
     ptb.set_defaults(func=cmd_truncation_backfill)
+
+    pstt = sub.add_parser(
+        "stt-backfill",
+        aliases=["backfill-stt"],
+        help="backfill is_stt metadata and STT tag for historical STT documents (default: dry-run, requires --apply)",
+    )
+    pstt.add_argument("target", nargs="?", default=None, help="target document ID, URL, or share URL")
+    pstt.add_argument("--doc-id", default=None, help="specific document ID")
+    pstt.add_argument("--apply", action="store_true", help="apply actual metadata backfill to documents.meta (default: dry-run only)")
+    pstt.add_argument("--dry-run", action="store_true", help="dry-run inspection without changes (default)")
+    pstt.add_argument("--force", action="store_true", help="force re-evaluation for all STT documents even if already marked")
+    pstt.add_argument("--json", action="store_true", help="output result in JSON format")
+    pstt.set_defaults(func=cmd_stt_backfill)
 
     pvr = sub.add_parser(
         "video-reprocess",
