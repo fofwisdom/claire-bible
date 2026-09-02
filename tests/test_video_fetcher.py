@@ -2,8 +2,21 @@
 
 import pytest
 from claire.ingest.router import classify
-from claire.ingest.fetchers.video import resolve_video_target_url, fetch_video
+from claire.ingest.fetchers.video import (
+    resolve_video_target_url,
+    fetch_video,
+    parse_ytdlp_extractor_args,
+)
 from claire.ontology.base import Document
+
+
+def test_parse_ytdlp_extractor_args():
+    parsed = parse_ytdlp_extractor_args("generic:impersonate")
+    assert "generic" in parsed
+    assert "impersonate" in parsed["generic"]
+
+    empty = parse_ytdlp_extractor_args("")
+    assert empty == {}
 
 
 def test_classify_video_urls():

@@ -197,6 +197,9 @@ class Settings(BaseSettings):
     stt_model: str = Field(default="", alias="CLAIRE_STT_MODEL")
     stt_language: str = Field(default="ko", alias="CLAIRE_STT_LANGUAGE")
     ffmpeg_bin: str = Field(default="ffmpeg", alias="CLAIRE_FFMPEG_BIN")
+    ytdlp_extractor_args: str = Field(
+        default="generic:impersonate", alias="CLAIRE_YTDLP_EXTRACTOR_ARGS"
+    )
 
     # --- storage ---
     db_path: str = Field(default="data/claire.db", alias="CLAIRE_DB_PATH")

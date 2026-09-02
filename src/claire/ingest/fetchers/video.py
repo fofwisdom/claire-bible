@@ -90,6 +90,21 @@ def _extract_captions_from_info(info: dict, target_langs: list[str]) -> str:
     return ""
 
 
+def parse_ytdlp_extractor_args(args_str: str) -> dict[str, dict[str, list[str]]]:
+    """'generic:impersonate,youtube:player_client=android' 등의 문자열을 yt-dlp extractor_args 딕셔너리로 변환."""
+    if not args_str or not args_str.strip():
+        return {}
+    try:
+        import yt_dlp.options
+
+        parser = yt_dlp.options.create_parser()
+        opts = parser.parse_args(["--extractor-args", args_str.strip()])[0]
+        return opts.extractor_args or {}
+    except Exception as e:
+        logger.warning("Failed to parse extractor_args '%s': %s", args_str, e)
+        return {"generic": {"impersonate": [""]}}
+
+
 def fetch_video(
     url: str,
     *,
@@ -105,6 +120,9 @@ def fetch_video(
     )
 
     resolved_url = resolve_video_target_url(url)
+    ext_args = parse_ytdlp_extractor_args(
+        getattr(settings, "ytdlp_extractor_args", "generic:impersonate")
+    )
 
     # 1. yt-dlp 라이브러리 사용 시도
     info: dict[str, Any] = {}
@@ -121,6 +139,9 @@ def fetch_video(
             "writeautomaticsub": True,
             "subtitleslangs": target_langs,
         }
+        if ext_args:
+            ydl_opts["extractor_args"] = ext_args
+
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             try:
                 info = ydl.extract_info(resolved_url, download=False) or {}
@@ -173,6 +194,8 @@ def fetch_video(
                     "quiet": True,
                     "no_warnings": True,
                 }
+                if ext_args:
+                    audio_opts["extractor_args"] = ext_args
                 try:
                     import yt_dlp
 
