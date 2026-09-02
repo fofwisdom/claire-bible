@@ -178,6 +178,7 @@ def document_detail(conn: sqlite3.Connection, document_id: str, include_hidden: 
         "orig_chars": meta_dict.get("orig_chars"),
         "raw_chars": meta_dict.get("raw_chars"),
         "directive": meta_dict.get("directive"),
+        "is_stt": bool(meta_dict.get("is_stt", False) or meta_dict.get("stt_applied", False) or meta_dict.get("stt", False)),
         "meta": meta_dict,
     }
 
@@ -667,6 +668,7 @@ GRAPH_HTML = """<!doctype html>
   .docmeta .trunc-tag{display:inline-flex;align-items:center;gap:4px;color:#d29922;background:rgba(210,153,34,0.12);border:1px solid rgba(210,153,34,0.3);border-radius:10px;padding:1px 7px;font-size:11px;cursor:help;white-space:nowrap;line-height:1.4}
   .docmeta .trunc-tag.trunc-appendix, .docmeta .trunc-tag-appendix{color:#3fb950;background:rgba(63,185,80,0.12);border:1px solid rgba(63,185,80,0.3)}
   .docmeta .directive-tag{display:inline-flex;align-items:center;gap:4px;color:var(--accent2,#58a6ff);background:rgba(88,166,255,0.12);border:1px solid rgba(88,166,255,0.3);border-radius:10px;padding:1px 7px;font-size:11px;cursor:help;white-space:nowrap;line-height:1.4}
+  .docmeta .stt-tag{display:inline-flex;align-items:center;gap:4px;color:#a371f7;background:rgba(163,113,247,0.12);border:1px solid rgba(163,113,247,0.3);border-radius:10px;padding:1px 7px;font-size:11px;cursor:help;white-space:nowrap;line-height:1.4}
   #panel .readbtn{background:var(--accent);color:#fff;border:0;border-radius:4px;padding:3px 10px;font-size:12.5px;cursor:pointer;margin:.2em 0}
   #panel .dochide-row{margin:.6em 0 .4em}
   #panel .dochide-label{font-size:12px;display:inline-flex;align-items:center;gap:6px;cursor:pointer;color:var(--muted)}
@@ -2360,7 +2362,8 @@ function docMetaHtml(dc){
   const isTrunc = !!(dc.raw_truncated || (dc.meta && dc.meta.raw_truncated));
   const isAppTrunc = isTrunc && !!(dc.appendix_truncated || (dc.meta && dc.meta.appendix_truncated));
   const directive = (dc.directive || (dc.meta && dc.meta.directive) || '').trim();
-  if(!hasUrl && !isTrunc && !directive) return '';
+  const isStt = !!(dc.is_stt || (dc.meta && (dc.meta.is_stt || dc.meta.stt_applied || dc.meta.stt)));
+  if(!hasUrl && !isTrunc && !directive && !isStt) return '';
   let h='<p class=docmeta>';
   if(hasUrl){
     h+='<a href="'+esc(dc.url)+'" target=_blank rel=noopener>↗ 원문 열기</a>';
@@ -2371,6 +2374,9 @@ function docMetaHtml(dc){
   if(directive){
     const dispDir = directive.length > 25 ? directive.slice(0, 25) + '…' : directive;
     tags.push('<span class="directive-tag" title="적재 시 지정된 초점: '+esc(directive)+'">🎯 '+esc(dispDir)+'</span>');
+  }
+  if(isStt){
+    tags.push('<span class="directive-tag stt-tag" title="음성 인식(STT)을 적용하여 작성된 본문">🎙️ STT</span>');
   }
   if(isTrunc){
     const orig=(dc.orig_chars || (dc.meta && dc.meta.orig_chars)) || 0;
