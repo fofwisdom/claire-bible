@@ -2673,6 +2673,20 @@ setTimeout(async () => {
         Path(runner_file).unlink(missing_ok=True)
 
 
+def test_html_tag_structure_integrity():
+    """Verify that GRAPH_HTML and _SHARED_HTML have well-formed, matching structural tags."""
+    from claire.graphview import GRAPH_HTML, _SHARED_HTML
+
+    for name, html in [("GRAPH_HTML", GRAPH_HTML), ("_SHARED_HTML", _SHARED_HTML)]:
+        assert "<style>" in html
+        assert "</style>" in html
+        assert html.count("<style>") == html.count("</style>"), f"{name}: unmatched <style> tags"
+        assert "</style></head>" in html or ("</style>" in html and "</head>" in html), f"{name}: missing </style> or </head>"
+        assert len(re.findall(r"<head(?:\s+[^>]*)?>", html)) == html.count("</head>"), f"{name}: unmatched <head> tags"
+        assert len(re.findall(r"<body(?:\s+[^>]*)?>", html)) == html.count("</body>"), f"{name}: unmatched <body> tags"
+        assert '<div class="wrap" id="wrap"></div>' in html or '<div id="wrap">' in html
+
+
 
 
 

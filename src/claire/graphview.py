@@ -5087,6 +5087,7 @@ _SHARED_HTML = """<!doctype html>
   .md :target{animation:target-highlight 2s ease-out;border-radius:4px}
   @keyframes target-highlight{0%{background-color:rgba(56,139,253,.25)}100%{background-color:transparent}}
   .md .lead{font-size:1.1em;line-height:1.6;font-weight:500;color:var(--fg)}
+</style></head>
 <body><div class="wrap" id="wrap"></div>
 <div id="sttmodal" class="sttmodal" role="dialog" aria-modal="true" aria-labelledby="stttitle" style="display:none" onclick="if(event.target===this)closeSttReader()">
   <div class="sttsheet" tabindex="-1">
