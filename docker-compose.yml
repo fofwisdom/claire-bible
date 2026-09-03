@@ -3,6 +3,7 @@ name: "${CB_PROJECT_NAME:-claire-bible}"
 x-claire-environment: &claire-environment
   CLAIRE_ENVIRONMENT: "${CLAIRE_ENVIRONMENT:?CLAIRE_ENVIRONMENT is required}"
   TZ: "${TZ:-}"
+  HF_HOME: "/app/data/cache/huggingface"
   SSL_CERT_FILE: "/etc/ssl/certs/ca-certificates.crt"
   SSL_CERT_DIR: "/etc/ssl/certs"
   REQUESTS_CA_BUNDLE: "/etc/ssl/certs/ca-certificates.crt"
