@@ -7,6 +7,7 @@ import sqlite3
 
 from claire.extract.provider import MockProvider
 from claire.graphview import (
+    _SHARED_HTML,
     GRAPH_HTML,
     document_detail,
     documents_list,
@@ -231,6 +232,17 @@ def test_right_menu_graph_section_markers():
     assert 'id="openreaderbtn"' in GRAPH_HTML
     assert "openDocGraph(curReaderDoc||activeDoc)" in GRAPH_HTML
     assert "openDocGraph(docId)" in GRAPH_HTML
+
+
+def test_shared_stt_modal_has_mobile_layout():
+    """공유 문서 전사 모달은 좁은 화면에서 제목과 동작을 겹치지 않게 재배치한다."""
+    assert "@media (max-width:600px)" in _SHARED_HTML
+    assert ".sttsheet{width:100%;height:100dvh;max-height:none;border:0;border-radius:0}" in _SHARED_HTML
+    assert ".stttools{grid-column:1 / -1;grid-row:2;display:grid;" in _SHARED_HTML
+    assert ".sttsearchbar input{flex-basis:100%;height:44px;font-size:16px}" in _SHARED_HTML
+    assert 'class="sttdoctitle" id="sttdoctitle"' in _SHARED_HTML
+    assert "document.body.classList.add('stt-modal-open')" in _SHARED_HTML
+    assert "document.body.classList.remove('stt-modal-open')" in _SHARED_HTML
 
 
 def test_stat_location_and_center_view_right_menu_modes():
