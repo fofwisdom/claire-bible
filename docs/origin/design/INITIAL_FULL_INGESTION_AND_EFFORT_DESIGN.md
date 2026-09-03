@@ -53,6 +53,8 @@
    - `doc.raw_text` 및 gzip 아티팩트(`data/raw/artifacts/*.txt.gz`) 무절단 저장뿐 아니라, LLM 프롬프트 투입 시에도 절단 없이 전문 컨텍스트를 투입합니다 (모델 컨텍스트 윈도우 보호를 위한 가드 레일 포함).
 4. **명시적 관측성 및 메타데이터 기록 (Observable Metadata)**:
    - `doc.meta`에 무절단 여부(`full_content: true`), 원문 길이, 적용된 추론 레벨(`applied_effort`)을 기록하고 Web UI 및 텔레그램 완료 메시지에 투명하게 노출합니다.
+5. **절단 적재 시 내용 유실 섹션 상세 작성 배제 (Exclusion of Truncated Sections in Detail)**:
+   - 무절단 모드가 아닌 일반 절단 수집(`full_content=False`) 상태에서 가독 상세(`render_detail`)를 작성할 경우, 절단으로 인해 내용이 유실된 섹션은 상세를 작성하지 않고 온전히 보존된 섹션까지만 상세를 작성합니다.
 
 ---
 
