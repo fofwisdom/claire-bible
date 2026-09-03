@@ -13,10 +13,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
 
 COPY pyproject.toml uv.lock README.md ./
 COPY src/ ./src/
-# stealth extra = scrapling[fetchers] + nodriver, audio extra = yt-dlp[curl-cffi], docling extra = docling
+# stealth extra = scrapling[fetchers] + nodriver, audio extra = yt-dlp[curl-cffi]
+# CLAIRE_PDF_PARSER=docling 인 경우에만 docling 및 대용량 의존성을 빌드에 포함하고,
+# pypdf(기본값)일 때는 docling을 빌드하지 않아 초경량/초고속 빌드를 유지합니다.
 # 최신 비디오 플랫폼 시그니처 대응을 위해 yt-dlp는 빌드 시 항상 최신 릴리스로 업그레이드
-ARG EXTRAS="--extra stealth --extra audio --extra docling"
-RUN uv sync --no-dev $EXTRAS \
+ARG CLAIRE_PDF_PARSER="pypdf"
+RUN if [ "$CLAIRE_PDF_PARSER" = "docling" ]; then \
+        echo "Building with docling layout parser..." \
+        && uv sync --no-dev --extra stealth --extra audio --extra docling; \
+    else \
+        echo "Building lightweight image (pypdf only, docling excluded)..." \
+        && uv sync --no-dev --extra stealth --extra audio; \
+    fi \
     && uv pip install --no-cache -U "yt-dlp[curl-cffi]"
 
 # Runtime processes use the environment built above directly.  uv remains a

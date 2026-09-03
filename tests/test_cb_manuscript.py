@@ -275,6 +275,21 @@ def test_compose_environment_includes_tz(tmp_path, monkeypatch):
     assert env.get("TZ") == "Asia/Seoul"
 
 
+def test_compose_environment_includes_claire_pdf_parser(tmp_path):
+    # 1. 기본값(미설정 시) pypdf
+    _write_layout(tmp_path, dev=False)
+    runtime = cb.load_runtime(cb.Layout(tmp_path))
+    env = runtime.compose_environment()
+    assert env.get("CLAIRE_PDF_PARSER") == "pypdf"
+
+    # 2. .env에 docling 명시 시 docling 전달
+    env_content = (tmp_path / ".env").read_text(encoding="utf-8")
+    (tmp_path / ".env").write_text(env_content + "\nCLAIRE_PDF_PARSER=docling\n", encoding="utf-8")
+    runtime = cb.load_runtime(cb.Layout(tmp_path))
+    env = runtime.compose_environment()
+    assert env.get("CLAIRE_PDF_PARSER") == "docling"
+
+
 def test_load_runtime_validates_readonly_token_rules(tmp_path):
     _write_layout(tmp_path, dev=False)
     # 1. Blank readonly token is allowed (fail-closed default)

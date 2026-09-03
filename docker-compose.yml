@@ -13,6 +13,8 @@ x-claire-service: &claire-service
   image: "${CB_IMAGE:-claire-bible}:${CB_IMAGE_TAG:-local}"
   build:
     context: .
+    args:
+      CLAIRE_PDF_PARSER: "${CLAIRE_PDF_PARSER:-pypdf}"
   restart: unless-stopped
   environment: *claire-environment
   env_file:
