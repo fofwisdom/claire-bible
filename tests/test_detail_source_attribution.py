@@ -104,7 +104,7 @@ def test_ensure_document_detail_cleans_before_storage(tmp_path):
     conn.close()
 
 
-def test_existing_detail_is_cleaned_during_read_without_writing(tmp_path):
+def test_recompile_all_detail_html_cleans_existing_documents(tmp_path):
     db_file = tmp_path / "claire.db"
     conn = dbm.connect(db_file)
     dbm.init_db(conn)
@@ -120,22 +120,26 @@ def test_existing_detail_is_cleaned_during_read_without_writing(tmp_path):
         ("doc-existing", "제목", "본문", detail, "adoc", "<p>stale source</p>"),
     )
     conn.commit()
-    conn.close()
 
-    readonly_conn = dbm.connect_existing(db_file, readonly=True)
-    assert dbm.get_document_detail(readonly_conn, "doc-existing") == (
-        "= 제목\n_출처: Example_\n\n'''\n\n== 개요\n본문"
-    )
-    html = dbm.get_document_detail_html(readonly_conn, "doc-existing")
+    # 조회 시점에는 런타임 우회나 몽키패칭 없이 DB 캐시를 그대로 반환 (O(1))
+    assert dbm.get_document_detail(conn, "doc-existing") == detail
+    assert dbm.get_document_detail_html(conn, "doc-existing") == "<p>stale source</p>"
+
+    # 마이그레이션 / 재컴파일 실행 시 일괄 정제되어 영구 반영
+    updated = dbm.recompile_all_detail_html(conn)
+    assert updated == 1
+
+    expected_detail = "= 제목\n_출처: Example_\n\n'''\n\n== 개요\n본문"
+    assert dbm.get_document_detail(conn, "doc-existing") == expected_detail
+    html = dbm.get_document_detail_html(conn, "doc-existing")
+    assert html is not None
     assert "stale source" not in html
     assert "출처: Example" in html
     assert "<h2>개요</h2>" in html
-    readonly_conn.close()
 
-    conn = dbm.connect(db_file)
     stored = conn.execute(
         "SELECT detail, detail_html FROM documents WHERE id='doc-existing'"
     ).fetchone()
-    assert stored["detail"] == detail
-    assert stored["detail_html"] == "<p>stale source</p>"
+    assert stored["detail"] == expected_detail
+    assert stored["detail_html"] == html
     conn.close()
