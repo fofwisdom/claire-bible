@@ -386,6 +386,9 @@ class Runtime:
         host_bin_dir, host_gemini_dir = detect_host_antigravity_paths(self.values)
         env["CB_BIN_DIR"] = env.get("CB_BIN_DIR", "").strip() or host_bin_dir
         env["CB_GEMINI_DIR"] = env.get("CB_GEMINI_DIR", "").strip() or host_gemini_dir
+
+        pdf_parser = self.values.get("CLAIRE_PDF_PARSER", "").strip() or env.get("CLAIRE_PDF_PARSER", "").strip() or "pypdf"
+        env["CLAIRE_PDF_PARSER"] = pdf_parser
         return env
 
 
