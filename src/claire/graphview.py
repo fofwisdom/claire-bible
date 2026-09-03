@@ -194,6 +194,10 @@ def document_detail(conn: sqlite3.Connection, document_id: str, include_hidden: 
         "nodes": nodes,
         "raw_truncated": bool(meta_dict.get("raw_truncated", False)),
         "appendix_truncated": bool(meta_dict.get("appendix_truncated", False)),
+        "references_truncated": bool(meta_dict.get("references_truncated", False)),
+        "author": row["author"] or meta_dict.get("author") or ((meta_dict.get("biblio") or {}).get("author") if isinstance(meta_dict.get("biblio"), dict) else None),
+        "published_at": row["published_at"] or meta_dict.get("published_at") or ((meta_dict.get("biblio") or {}).get("published_at") if isinstance(meta_dict.get("biblio"), dict) else None),
+        "biblio": meta_dict.get("biblio") or {},
         "orig_chars": meta_dict.get("orig_chars"),
         "raw_chars": meta_dict.get("raw_chars"),
         "directive": meta_dict.get("directive"),
@@ -691,6 +695,7 @@ GRAPH_HTML = """<!doctype html>
   .docmeta .docmeta-tags{display:inline-flex;align-items:center;gap:6px;margin-left:auto;flex-wrap:wrap}
   .docmeta .trunc-tag{display:inline-flex;align-items:center;gap:4px;color:#d29922;background:rgba(210,153,34,0.12);border:1px solid rgba(210,153,34,0.3);border-radius:10px;padding:1px 7px;font-size:11px;cursor:help;white-space:nowrap;line-height:1.4}
   .docmeta .trunc-tag.trunc-appendix, .docmeta .trunc-tag-appendix{color:#3fb950;background:rgba(63,185,80,0.12);border:1px solid rgba(63,185,80,0.3)}
+  .docmeta .trunc-tag.trunc-references{color:#bc8cff;background:rgba(188,140,255,0.12);border:1px solid rgba(188,140,255,0.3)}
   .docmeta .directive-tag{display:inline-flex;align-items:center;gap:4px;color:var(--accent2,#58a6ff);background:rgba(88,166,255,0.12);border:1px solid rgba(88,166,255,0.3);border-radius:10px;padding:1px 7px;font-size:11px;cursor:help;white-space:nowrap;line-height:1.4}
   .docmeta .stt-tag{display:inline-flex;align-items:center;gap:4px;color:#a371f7;background:rgba(163,113,247,0.12);border:1px solid rgba(163,113,247,0.3);border-radius:10px;padding:1px 7px;font-size:11px;cursor:help;white-space:nowrap;line-height:1.4}
   .docmeta .trunc-tag.trunc-stt{color:#f0883e;background:rgba(240,136,62,0.12);border:1px solid rgba(240,136,62,0.35)}
@@ -2434,10 +2439,13 @@ function docMetaHtml(dc){
   const hasUrl = !!dc.url;
   const isTrunc = !!(dc.raw_truncated || (dc.meta && dc.meta.raw_truncated));
   const isAppTrunc = isTrunc && !!(dc.appendix_truncated || (dc.meta && dc.meta.appendix_truncated));
+  const isRefTrunc = isTrunc && !!(dc.references_truncated || (dc.meta && dc.meta.references_truncated));
   const directive = (dc.directive || (dc.meta && dc.meta.directive) || '').trim();
+  const author = (dc.author || (dc.meta && dc.meta.author) || (dc.biblio && dc.biblio.author) || (dc.meta && dc.meta.biblio && dc.meta.biblio.author) || '').trim();
+  const pubAt = (dc.published_at || (dc.meta && dc.meta.published_at) || (dc.biblio && dc.biblio.published_at) || (dc.meta && dc.meta.biblio && dc.meta.biblio.published_at) || '').trim();
   const isStt = !!(dc.is_stt || (dc.meta && (dc.meta.is_stt || dc.meta.stt_applied || dc.meta.stt)));
   const isSttTrunc = isStt && !!(dc.stt_truncated || (dc.meta && dc.meta.stt_truncated) || isTrunc);
-  if(!hasUrl && !isTrunc && !directive && !isStt) return '';
+  if(!hasUrl && !isTrunc && !directive && !isStt && !author && !pubAt) return '';
   let h='<p class=docmeta>';
   if(hasUrl){
     h+='<a href="'+esc(dc.url)+'" target=_blank rel=noopener>↗ 원문 열기</a>';
@@ -2452,6 +2460,13 @@ function docMetaHtml(dc){
     }
   }
   let tags=[];
+  if(author || pubAt){
+    let bibTxt = '';
+    if(author && pubAt) bibTxt = author + ' (' + pubAt + ')';
+    else if(author) bibTxt = author;
+    else if(pubAt) bibTxt = pubAt;
+    tags.push('<span class="directive-tag" style="background:rgba(255,255,255,0.06);border-color:rgba(255,255,255,0.15);color:var(--muted)" title="서지 메타데이터: '+esc(bibTxt)+'">✍️ '+esc(bibTxt)+'</span>');
+  }
   if(directive){
     const dispDir = directive.length > 25 ? directive.slice(0, 25) + '…' : directive;
     tags.push('<span class="directive-tag" title="적재 시 지정한 초점: '+esc(directive)+'">🎯 '+esc(dispDir)+'</span>');
@@ -2459,7 +2474,31 @@ function docMetaHtml(dc){
   if(isStt){
     tags.push('<span class="directive-tag stt-tag" title="음성 인식(STT)을 적용하여 작성한 문서">🎙️ STT</span>');
   }
-  if(isAppTrunc){
+  if(isAppTrunc && isRefTrunc){
+    const orig=(dc.orig_chars || (dc.meta && dc.meta.orig_chars)) || 0;
+    const raw=(dc.raw_chars || (dc.meta && dc.meta.raw_chars)) || 0;
+    let tip = '원문의 부록(Appendix) 및 참고문헌(References) 부분을 제외한 문서';
+    let label='✂️ 부록·참고문헌 제외';
+    if(orig > 0 && raw > 0){
+      tip+=' (원문: '+orig.toLocaleString()+'자 → 적재: '+raw.toLocaleString()+'자)';
+      label+=' ('+raw.toLocaleString()+' / '+orig.toLocaleString()+'자)';
+    } else if(raw > 0){
+      label+=' ('+raw.toLocaleString()+'자)';
+    }
+    tags.push('<span class="trunc-tag trunc-appendix" title="'+esc(tip)+'">'+esc(label)+'</span>');
+  } else if(isRefTrunc){
+    const orig=(dc.orig_chars || (dc.meta && dc.meta.orig_chars)) || 0;
+    const raw=(dc.raw_chars || (dc.meta && dc.meta.raw_chars)) || 0;
+    let tip = '원문의 참고문헌(References) 부분을 제외한 문서';
+    let label='✂️ 참고문헌 제외';
+    if(orig > 0 && raw > 0){
+      tip+=' (원문: '+orig.toLocaleString()+'자 → 적재: '+raw.toLocaleString()+'자)';
+      label+=' ('+raw.toLocaleString()+' / '+orig.toLocaleString()+'자)';
+    } else if(raw > 0){
+      label+=' ('+raw.toLocaleString()+'자)';
+    }
+    tags.push('<span class="trunc-tag trunc-references" title="'+esc(tip)+'">'+esc(label)+'</span>');
+  } else if(isAppTrunc){
     const orig=(dc.orig_chars || (dc.meta && dc.meta.orig_chars)) || 0;
     const raw=(dc.raw_chars || (dc.meta && dc.meta.raw_chars)) || 0;
     let tip = '원문의 부록(Appendix) 부분을 절단한 문서';
@@ -5006,6 +5045,7 @@ _SHARED_HTML = """<!doctype html>
   .docmeta .docmeta-tags{display:inline-flex;align-items:center;gap:6px;margin-left:auto;flex-wrap:wrap}
   .docmeta .trunc-tag{display:inline-flex;align-items:center;gap:4px;color:#d29922;background:rgba(210,153,34,0.12);border:1px solid rgba(210,153,34,0.3);border-radius:10px;padding:1px 7px;font-size:11px;cursor:help;white-space:nowrap;line-height:1.4}
   .docmeta .trunc-tag.trunc-appendix, .docmeta .trunc-tag-appendix{color:#3fb950;background:rgba(63,185,80,0.12);border:1px solid rgba(63,185,80,0.3)}
+  .docmeta .trunc-tag.trunc-references{color:#bc8cff;background:rgba(188,140,255,0.12);border:1px solid rgba(188,140,255,0.3)}
   .docmeta .directive-tag{display:inline-flex;align-items:center;gap:4px;color:var(--accent2,#58a6ff);background:rgba(88,166,255,0.12);border:1px solid rgba(88,166,255,0.3);border-radius:10px;padding:1px 7px;font-size:11px;cursor:help;white-space:nowrap;line-height:1.4}
   .docmeta .stt-tag{display:inline-flex;align-items:center;gap:4px;color:#a371f7;background:rgba(163,113,247,0.12);border:1px solid rgba(163,113,247,0.3);border-radius:10px;padding:1px 7px;font-size:11px;cursor:help;white-space:nowrap;line-height:1.4}
   .docmeta .trunc-tag.trunc-stt{color:#f0883e;background:rgba(240,136,62,0.12);border:1px solid rgba(240,136,62,0.35)}
@@ -5890,10 +5930,13 @@ function docMetaHtml(dc){
   const hasUrl = !!dc.url;
   const isTrunc = !!(dc.raw_truncated || (dc.meta && dc.meta.raw_truncated));
   const isAppTrunc = isTrunc && !!(dc.appendix_truncated || (dc.meta && dc.meta.appendix_truncated));
+  const isRefTrunc = isTrunc && !!(dc.references_truncated || (dc.meta && dc.meta.references_truncated));
   const directive = (dc.directive || (dc.meta && dc.meta.directive) || '').trim();
+  const author = (dc.author || (dc.meta && dc.meta.author) || (dc.biblio && dc.biblio.author) || (dc.meta && dc.meta.biblio && dc.meta.biblio.author) || '').trim();
+  const pubAt = (dc.published_at || (dc.meta && dc.meta.published_at) || (dc.biblio && dc.biblio.published_at) || (dc.meta && dc.meta.biblio && dc.meta.biblio.published_at) || '').trim();
   const isStt = !!(dc.is_stt || (dc.meta && (dc.meta.is_stt || dc.meta.stt_applied || dc.meta.stt)));
   const isSttTrunc = isStt && !!(dc.stt_truncated || (dc.meta && dc.meta.stt_truncated) || isTrunc);
-  if(!hasUrl && !isTrunc && !directive && !isStt) return '';
+  if(!hasUrl && !isTrunc && !directive && !isStt && !author && !pubAt) return '';
   let h='<p class=docmeta>';
   if(hasUrl){
     h+='<a href="'+esc(dc.url)+'" target=_blank rel=noopener>↗ 원문 열기</a>';
@@ -5908,6 +5951,13 @@ function docMetaHtml(dc){
     }
   }
   let tags=[];
+  if(author || pubAt){
+    let bibTxt = '';
+    if(author && pubAt) bibTxt = author + ' (' + pubAt + ')';
+    else if(author) bibTxt = author;
+    else if(pubAt) bibTxt = pubAt;
+    tags.push('<span class="directive-tag" style="background:rgba(255,255,255,0.06);border-color:rgba(255,255,255,0.15);color:var(--muted)" title="서지 메타데이터: '+esc(bibTxt)+'">✍️ '+esc(bibTxt)+'</span>');
+  }
   if(directive){
     const dispDir = directive.length > 25 ? directive.slice(0, 25) + '…' : directive;
     tags.push('<span class="directive-tag" title="적재 시 지정한 초점: '+esc(directive)+'">🎯 '+esc(dispDir)+'</span>');
@@ -5915,7 +5965,31 @@ function docMetaHtml(dc){
   if(isStt){
     tags.push('<span class="directive-tag stt-tag" title="음성 인식(STT)을 적용하여 작성한 문서">🎙️ STT</span>');
   }
-  if(isAppTrunc){
+  if(isAppTrunc && isRefTrunc){
+    const orig=(dc.orig_chars || (dc.meta && dc.meta.orig_chars)) || 0;
+    const raw=(dc.raw_chars || (dc.meta && dc.meta.raw_chars)) || 0;
+    let tip = '원문의 부록(Appendix) 및 참고문헌(References) 부분을 제외한 문서';
+    let label='✂️ 부록·참고문헌 제외';
+    if(orig > 0 && raw > 0){
+      tip+=' (원문: '+orig.toLocaleString()+'자 → 적재: '+raw.toLocaleString()+'자)';
+      label+=' ('+raw.toLocaleString()+' / '+orig.toLocaleString()+'자)';
+    } else if(raw > 0){
+      label+=' ('+raw.toLocaleString()+'자)';
+    }
+    tags.push('<span class="trunc-tag trunc-appendix" title="'+esc(tip)+'">'+esc(label)+'</span>');
+  } else if(isRefTrunc){
+    const orig=(dc.orig_chars || (dc.meta && dc.meta.orig_chars)) || 0;
+    const raw=(dc.raw_chars || (dc.meta && dc.meta.raw_chars)) || 0;
+    let tip = '원문의 참고문헌(References) 부분을 제외한 문서';
+    let label='✂️ 참고문헌 제외';
+    if(orig > 0 && raw > 0){
+      tip+=' (원문: '+orig.toLocaleString()+'자 → 적재: '+raw.toLocaleString()+'자)';
+      label+=' ('+raw.toLocaleString()+' / '+orig.toLocaleString()+'자)';
+    } else if(raw > 0){
+      label+=' ('+raw.toLocaleString()+'자)';
+    }
+    tags.push('<span class="trunc-tag trunc-references" title="'+esc(tip)+'">'+esc(label)+'</span>');
+  } else if(isAppTrunc){
     const orig=(dc.orig_chars || (dc.meta && dc.meta.orig_chars)) || 0;
     const raw=(dc.raw_chars || (dc.meta && dc.meta.raw_chars)) || 0;
     let tip = '원문의 부록(Appendix) 부분을 절단한 문서';
@@ -5926,8 +6000,7 @@ function docMetaHtml(dc){
     } else if(raw > 0){
       label+=' ('+raw.toLocaleString()+'자)';
     }
-    const tagClass = isAppTrunc ? 'trunc-tag trunc-appendix' : 'trunc-tag';
-    tags.push('<span class="'+tagClass+'" title="'+esc(tip)+'">'+esc(label)+'</span>');
+    tags.push('<span class="trunc-tag trunc-appendix" title="'+esc(tip)+'">'+esc(label)+'</span>');
   } else if(isSttTrunc){
     const orig=(dc.stt_orig_chars || (dc.meta && dc.meta.stt_orig_chars) || dc.orig_chars || (dc.meta && dc.meta.orig_chars)) || 0;
     const raw=(dc.stt_raw_chars || (dc.meta && dc.meta.stt_raw_chars) || dc.raw_chars || (dc.meta && dc.meta.raw_chars)) || 0;

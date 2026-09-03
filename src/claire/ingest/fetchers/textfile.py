@@ -32,10 +32,13 @@ def fetch_file(path: str, *, full_content: bool = False) -> Document:
         raise FetchError(f"file not found: {path}")
     suffix = p.suffix.lower()
     raw_bytes = p.read_bytes()
+    biblio: dict[str, Any] = {}
     if suffix == ".pdf" or raw_bytes.startswith(b"%PDF-"):
         from .pdf import extract_pdf_bytes
 
-        title, text, _, _, perr, _ = extract_pdf_bytes(raw_bytes, fallback_title=p.stem)
+        pdf_res = extract_pdf_bytes(raw_bytes, fallback_title=p.stem)
+        title, text, _, _, perr, _ = pdf_res[:6]
+        biblio = getattr(pdf_res, "biblio", None) or (pdf_res[6] if len(pdf_res) > 6 and isinstance(pdf_res[6], dict) else {})
         if perr or not text:
             from .base import FetchError
 
@@ -52,31 +55,40 @@ def fetch_file(path: str, *, full_content: bool = False) -> Document:
     settings = get_settings()
     budget = 0 if full_content else (settings.pdf_max_extract_chars if source_type == "pdf" else settings.raw_char_budget)
     appendix_truncated = False
+    references_truncated = False
     if source_type == "pdf":
         from .pdf import slice_pdf_text
 
         exclude_app = False if full_content else settings.pdf_exclude_appendix
-        raw_text, is_truncated, appendix_truncated, orig_chars, raw_chars = slice_pdf_text(
+        exclude_ref = False if full_content else settings.pdf_exclude_references
+        raw_text, is_truncated, appendix_truncated, references_truncated, orig_chars, raw_chars = slice_pdf_text(
             text or "",
             budget,
             strategy=settings.slicing_strategy,
             exclude_appendix=exclude_app,
+            exclude_references=exclude_ref,
         )
     else:
         raw_text, is_truncated, orig_chars, raw_chars = slice_document_text(
             text or "", budget, strategy=settings.slicing_strategy
         )
+    meta: dict[str, Any] = {
+        "raw_truncated": is_truncated,
+        "appendix_truncated": appendix_truncated,
+        "references_truncated": references_truncated,
+        "orig_chars": orig_chars,
+        "raw_chars": raw_chars,
+    }
+    if biblio:
+        meta["biblio"] = biblio
     return Document(
         url=f"file://{p.resolve()}",
         title=title or p.stem,
+        author=biblio.get("author") if biblio else None,
+        published_at=biblio.get("published_at") if biblio else None,
         raw_text=raw_text,
         source_type=source_type,
         content_hash=content_hash(title or "", text),
-        meta={
-            "raw_truncated": is_truncated,
-            "appendix_truncated": appendix_truncated,
-            "orig_chars": orig_chars,
-            "raw_chars": raw_chars,
-        },
+        meta=meta,
     )
 

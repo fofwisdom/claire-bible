@@ -59,11 +59,30 @@ _MAX_IMAGES = 12        # 문서당 후보 이미지 상한(LLM 큐레이션 입
 _IMG_MIN_DIM = 150      # width/height 속성이 명시돼 있고 이보다 작으면 장식/아이콘으로 보고 제외
 
 
+class FetchStaticResult(tuple):
+    """8개 튜플(title, text, links, anchors, error, effective_url, images, is_pdf) 호환 객체."""
+
+    def __new__(cls, title, text, links, anchors, error, effective_url, images, is_pdf, biblio=None):
+        inst = super().__new__(cls, (title, text, links, anchors, error, effective_url, images, is_pdf))
+        inst.biblio = biblio or {}
+        return inst
+
+
+class FetchScraplingResult(tuple):
+    """6개 튜플(title, text, links, anchors, images, is_pdf) 호환 객체."""
+
+    def __new__(cls, title, text, links, anchors, images, is_pdf, biblio=None):
+        inst = super().__new__(cls, (title, text, links, anchors, images, is_pdf))
+        inst.biblio = biblio or {}
+        return inst
+
+
 def fetch_web(url: str, *, full_content: bool = False) -> Document:
     via = "static"
     res = _fetch_static(url)
     title, text, links, anchors, err, effective_url, images = res[:7]
     is_pdf = bool(res[7]) if len(res) > 7 else False
+    biblio: dict[str, Any] = getattr(res, "biblio", None) or (res[8] if len(res) > 8 and isinstance(res[8], dict) else {})
     usable, guard_err = _is_usable(title, text)
 
     # 2) law.go.kr 에스컬레이션 — 국가법령정보센터 iframe / ajax 구조 해소
@@ -106,19 +125,19 @@ def fetch_web(url: str, *, full_content: bool = False) -> Document:
     #    브라우저 불필요. 정적 UA 를 막는 봇차단(예: openai.com 403)을 우회.
     if not usable:
         c_res = _fetch_scrapling(url)
-        c_title, c_text, c_links, c_anchors, c_images = c_res[:5]
-        c_is_pdf = bool(c_res[5]) if len(c_res) > 5 else False
+        c_title, c_text, c_links, c_anchors, c_images, c_is_pdf = c_res[:6]
+        c_biblio = getattr(c_res, "biblio", None) or (c_res[6] if len(c_res) > 6 and isinstance(c_res[6], dict) else {})
         c_usable, c_guard_err = _is_usable(c_title or title, c_text)
         if c_usable:
             title, text, links, anchors, images, via = (
                 c_title or title, c_text, c_links or links, c_anchors or anchors,
                 c_images or images, "scrapling")
-            usable, guard_err, is_pdf = True, None, c_is_pdf
+            usable, guard_err, is_pdf, biblio = True, None, c_is_pdf, c_biblio
         elif c_text and len(c_text) > len(text or ""):
             title, text, links, anchors, images, via = (
                 c_title or title, c_text, c_links or links, c_anchors or anchors,
                 c_images or images, "scrapling")
-            usable, guard_err, is_pdf = c_usable, c_guard_err, c_is_pdf
+            usable, guard_err, is_pdf, biblio = c_usable, c_guard_err, c_is_pdf, c_biblio
 
     # 4) CDP(nodriver) 에스컬레이션 — 실제 Chromium 렌더링. 최후수단(느림, 브라우저 필요).
     if not usable:
@@ -158,40 +177,49 @@ def fetch_web(url: str, *, full_content: bool = False) -> Document:
     settings = get_settings()
     budget = 0 if full_content else (settings.pdf_max_extract_chars if is_pdf else settings.raw_char_budget)
     appendix_truncated = False
+    references_truncated = False
     if is_pdf:
         from .pdf import slice_pdf_text
 
         exclude_app = False if full_content else settings.pdf_exclude_appendix
-        raw_text, is_truncated, appendix_truncated, orig_chars, raw_chars = slice_pdf_text(
+        exclude_ref = False if full_content else settings.pdf_exclude_references
+        raw_text, is_truncated, appendix_truncated, references_truncated, orig_chars, raw_chars = slice_pdf_text(
             text or "",
             budget,
             strategy=settings.slicing_strategy,
             exclude_appendix=exclude_app,
+            exclude_references=exclude_ref,
         )
     else:
         raw_text, is_truncated, orig_chars, raw_chars = slice_document_text(
             text or "", budget, strategy=settings.slicing_strategy
         )
+    meta: dict[str, Any] = {
+        "links": links[:50],
+        "link_anchors": anchor_pairs,
+        "fetch_via": via,
+        "effective_url": effective,
+        "images": images or [],
+        "raw_truncated": is_truncated,
+        "appendix_truncated": appendix_truncated,
+        "references_truncated": references_truncated,
+        "orig_chars": orig_chars,
+        "raw_chars": raw_chars,
+    }
+    if biblio:
+        meta["biblio"] = biblio
     return Document(
         url=url,
         canonical_url=canonicalize_url(effective),
         title=title,
+        author=biblio.get("author") if biblio else None,
+        published_at=biblio.get("published_at") if biblio else None,
         raw_text=raw_text,
         source_type="pdf" if is_pdf else "web",
         content_hash=content_hash(title or "", text),
         # images: 본문 콘텐츠 이미지 후보(다이어그램·차트·스크린샷). render_detail 의 LLM
         # 큐레이션이 이해에 도움 되는 것만 골라 마크다운에 삽입한다(이미지/도식 보존).
-        meta={
-            "links": links[:50],
-            "link_anchors": anchor_pairs,
-            "fetch_via": via,
-            "effective_url": effective,
-            "images": images or [],
-            "raw_truncated": is_truncated,
-            "appendix_truncated": appendix_truncated,
-            "orig_chars": orig_chars,
-            "raw_chars": raw_chars,
-        },
+        meta=meta,
     )
 
 
@@ -211,7 +239,7 @@ def _fetch_static(
                           headers={"User-Agent": _UA}) as client:
             resp = client.get(url)
         if resp.status_code >= 400:
-            return None, "", [], {}, f"http {resp.status_code} for {url}", None, [], False
+            return FetchStaticResult(None, "", [], {}, f"http {resp.status_code} for {url}", None, [], False, {})
 
         ctype = resp.headers.get("content-type", "").lower()
         cdisp = resp.headers.get("content-disposition", "").lower()
@@ -228,16 +256,18 @@ def _fetch_static(
             from .pdf import extract_pdf_bytes
 
             fallback = str(resp.url).split("/")[-1].split("?")[0]
-            title, text, links, anchors, perr, images = extract_pdf_bytes(
+            pdf_res = extract_pdf_bytes(
                 resp.content, url=str(resp.url), fallback_title=fallback
             )
-            return title, text, links, anchors, perr, str(resp.url), images, True
+            title, text, links, anchors, perr, images = pdf_res[:6]
+            biblio = getattr(pdf_res, "biblio", None) or (pdf_res[6] if len(pdf_res) > 6 and isinstance(pdf_res[6], dict) else {})
+            return FetchStaticResult(title, text, links, anchors, perr, str(resp.url), images, True, biblio)
 
         title, text, links, anchors, perr, images = _extract_html(
             resp.text, base_url=str(resp.url))
-        return title, text, links, anchors, perr, str(resp.url), images, False
+        return FetchStaticResult(title, text, links, anchors, perr, str(resp.url), images, False, {})
     except Exception as e:  # noqa: BLE001
-        return None, "", [], {}, f"fetch failed: {e}", None, [], False
+        return FetchStaticResult(None, "", [], {}, f"fetch failed: {e}", None, [], False, {})
 
 
 def _extract_html(
@@ -475,16 +505,18 @@ def _fetch_scrapling(
             from .pdf import extract_pdf_bytes
 
             raw_bytes = body if isinstance(body, bytes) else str(body).encode("latin1", errors="ignore")
-            title, text, links, anchors, _, images = extract_pdf_bytes(
+            pdf_res = extract_pdf_bytes(
                 raw_bytes, url=url, fallback_title=url.split("/")[-1].split("?")[0]
             )
-            return title, text, links, anchors, images, True
+            title, text, links, anchors, _, images = pdf_res[:6]
+            biblio = getattr(pdf_res, "biblio", None) or (pdf_res[6] if len(pdf_res) > 6 and isinstance(pdf_res[6], dict) else {})
+            return FetchScraplingResult(title, text, links, anchors, images, True, biblio)
 
         html = getattr(page, "html_content", "") or ""
         title, text, links, anchors, _, images = _extract_html(str(html), base_url=url)
-        return title, text, links, anchors, images, False
+        return FetchScraplingResult(title, text, links, anchors, images, False, {})
     except Exception:  # noqa: BLE001
-        return None, "", [], {}, [], False
+        return FetchScraplingResult(None, "", [], {}, [], False, {})
 
 
 def _fetch_cdp(url: str) -> tuple[str | None, str, list[str], dict[str, str], list[dict]]:
