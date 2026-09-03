@@ -57,15 +57,22 @@ flowchart TD
 
 ### 3.2 선택형 PDF 파서 아키텍처 (`pypdf` / `docling`) 및 런타임 실패 보고 체계
 PDF 문서는 2단(Two-Column) 레이아웃, 복잡한 데이터 표, 수식 등 다양한 형태를 가집니다. 이를 위해 플러그형 선택 파서 구조를 제공합니다:
-- **`pypdf` (기본값)**: 순수 파이썬 기반으로 초경량, 초고속 텍스트 및 메타데이터 추출.
+- **`pypdf` (기본값)**: 순수 파이썬 기반으로 초경량, 초고속 텍스트 및 메타데이터 추출. 리소스 제약이 있는 서버 환경에서 디스크/메모리 부하 없이 즉시 안정적으로 작동.
 - **`docling` (고급 레이아웃 분석)**: 딥러닝 기반 레이아웃 파서를 통해 2단 칼럼의 텍스트 뒤섞임(interleaving)을 방지하고 올바른 읽기 순서로 복원하며, 데이터 표를 마크다운 테이블로 구조화.
+- **컨테이너 운영 시 리소스 고려사항**:
+  - `docling` 의존성은 기본적으로 PyTorch 및 대용량 신경망/CUDA 라이브러리(~3.5GB~4.5GB 비압축 용량)를 포함합니다.
+  - `docker compose build`를 통해 여러 서비스(`api`, `bot`, `expand`, `refresh`, `recover`)를 병렬 빌드할 경우, Docker BuildKit이 각 서비스 타겟별로 스냅샷 레이어를 동시에 언패킹하면서 순간적인 피크 디스크 사용량(약 20GB+)이 발생할 수 있습니다.
+  - **운영 서버 권장 빌드 방식**:
+    1. 단일 기본 이미지를 1회 선행 빌드: `docker build -t claire-bible:local .` 실행 후 `cb-manuscript update` 수행 (디스크 피크를 4.5GB로 최소화).
+    2. 또는 CPU 전용 휠 선설치(`--index-url https://download.pytorch.org/whl/cpu torch torchvision`)를 통해 이미지 레이어 크기를 95% 이상 절감.
+    3. 모델 캐시 영구화: `HF_HOME=/app/data/cache/huggingface`를 설정하여 컨테이너 재빌드 시 모델 가중치 재다운로드 방지.
 - **Graceful Fallback & 전방위 경과 보고 체계**:
   - `CLAIRE_PDF_PARSER=docling` 설정 상태에서 모델 다운로드 실패, 컨테이너 메모리 부족(OOM), CPU 타임아웃, 런타임 변환 오류 등으로 docling이 실패할 경우, 경고 로깅 후 `pypdf`로 자동 폴백하여 무중단 수집을 보장합니다.
   - 이때 단순 무음 폴백에 그치지 않고 실패 원인을 정밀 분류하여 **전방위 보고 채널**로 경과를 통지합니다:
     1. **문서 메타데이터 (`doc.meta`)**: `pdf_parser_requested`, `pdf_parser_used`, `pdf_parser_fallback`, `pdf_parser_fallback_reason` 명시 저장.
     2. **GraphView 웹 UI**: 문서 상세 메타 영역에 주황색 배지 `⚠️ Docling 폴백 (PyPDF)` 노출 및 툴팁으로 실제 실패 사유 안내.
     3. **CLI 적재 리포트 및 텔레그램 완료 알림**: `IngestReport.telegram_summary`에 `⚠️ PDF 파서 대체 적재 (Docling 실패 → PyPDF)` 및 구체적 원인 명시.
-    4. **컨테이너 빌드 완비**: `Dockerfile`의 `uv sync`에 `--extra docling`을 포함하여 프로덕션 이미지 빌드 시 의존성 누락 원천 차단.
+    4. **안정성 우선 정책**: 프로덕션 기본 파서는 `CLAIRE_PDF_PARSER=pypdf`로 유지하여 예측 가능하고 신속한 적재를 보장하며, 다단 분석이 필수적인 경우에 한해 선택적으로 활성화.
 
 ---
 
