@@ -5139,6 +5139,29 @@ _SHARED_HTML = """<!doctype html>
   .stt-text{flex:1;word-break:break-word;color:var(--fg)}
   .stt-text mark{background:#ffe066;color:#111;border-radius:2px;padding:0 2px}
   [data-theme="dark"] .stt-text mark{background:#b28b00;color:#fff}
+  .sttheading{min-width:0;flex:1}
+  .sttdoctitle{margin:4px 0 0;font-size:13px;font-weight:600;line-height:1.4;color:var(--fg);overflow-wrap:anywhere}
+  .stttools button,.sttclose{background:var(--card-bg);color:var(--fg)}
+  .sttclose{align-self:flex-start;border:1px solid var(--border);border-radius:6px;font-size:16px;padding:4px 9px;line-height:1;cursor:pointer}
+  .sttclose:hover{background:var(--hover);border-color:var(--accent)}
+  body.stt-modal-open{overflow:hidden}
+  @media (max-width:600px){
+    #sttmodal{padding:0;align-items:stretch}
+    .sttsheet{width:100%;height:100dvh;max-height:none;border:0;border-radius:0}
+    .stthead{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 12px;padding:max(12px,env(safe-area-inset-top)) 14px 12px}
+    .sttheading{grid-column:1;grid-row:1}
+    .stthead h2{font-size:17px}
+    .sttdoctitle{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
+    .sttmeta{line-height:1.45}
+    .stttools{grid-column:1 / -1;grid-row:2;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+    .stttools button{justify-content:center;min-height:44px;margin:0;font-size:13px;padding:7px 8px}
+    .sttclose{grid-column:2;grid-row:1;min-width:44px;min-height:44px;font-size:20px;padding:7px}
+    .sttsearchbar{flex-wrap:wrap;gap:5px;padding:10px 14px}
+    .sttsearchbar input{flex-basis:100%;height:44px;font-size:16px}
+    .sttsearchbar .sttcount{width:100%;text-align:right}
+    .sttbody{padding:12px 14px max(16px,env(safe-area-inset-bottom));font-size:15px;line-height:1.6}
+    .stt-line{gap:10px;margin-bottom:10px;padding:4px 0}
+  }
   .meta{color:var(--muted);font-size:13px;margin:.2em 0 1.2em}
   .meta a{color:var(--accent);text-decoration:none}
   .sec{color:var(--muted);font-size:11px;letter-spacing:.04em;text-transform:uppercase;margin:1.4em 0 .3em}
@@ -5195,15 +5218,16 @@ _SHARED_HTML = """<!doctype html>
 <div id="sttmodal" class="sttmodal" role="dialog" aria-modal="true" aria-labelledby="stttitle" style="display:none" onclick="if(event.target===this)closeSttReader()">
   <div class="sttsheet" tabindex="-1">
     <div class="stthead">
-      <div>
-        <h2 id="stttitle">🎙️ 음성 전사 (STT)</h2>
+      <div class="sttheading">
+        <h2 id="stttitle">🎙️ 음성 전사</h2>
+        <p class="sttdoctitle" id="sttdoctitle"></p>
         <p class="sttmeta" id="sttmeta"></p>
       </div>
       <div class="stttools">
-        <button class="sec" onclick="copySttText(false)" title="전사 텍스트만 복사">📋 텍스트 복사</button>
-        <button class="sec" onclick="copySttText(true)" title="타임스탬프 포함 복사">⏱️ 타임스탬프 복사</button>
-        <button class="rclose sttclose" onclick="closeSttReader()" title="닫기(ESC)" aria-label="전사 닫기">✕</button>
+        <button onclick="copySttText(false)" title="전사 텍스트만 복사">📋 텍스트 복사</button>
+        <button onclick="copySttText(true)" title="타임스탬프 포함 복사">⏱️ 타임스탬프 복사</button>
       </div>
+      <button class="rclose sttclose" onclick="closeSttReader()" title="닫기(ESC)" aria-label="전사 닫기">✕</button>
     </div>
     <div class="sttsearchbar">
       <input id="sttq" placeholder="전사 내용 검색 (단어 또는 타임스탬프)..." oninput="filterSttLines(this.value)"/>
@@ -6146,8 +6170,8 @@ function openSttReader(docId){
     return;
   }
 
-  const titleEl = document.getElementById('stttitle');
-  if(titleEl) titleEl.textContent = '🎙️ 음성 전사 (STT) — ' + (dc.title || '(제목 없음)');
+  const docTitleEl = document.getElementById('sttdoctitle');
+  if(docTitleEl) docTitleEl.textContent = dc.title || '(제목 없음)';
 
   const metaEl = document.getElementById('sttmeta');
   let metaTxt = '';
@@ -6170,6 +6194,7 @@ function openSttReader(docId){
   renderSttLines();
   modal.classList.add('open');
   modal.style.display = 'flex';
+  document.body.classList.add('stt-modal-open');
   if(input) requestAnimationFrame(()=>input.focus());
 }
 
@@ -6178,6 +6203,7 @@ function closeSttReader(){
   if(!modal) return;
   modal.classList.remove('open');
   modal.style.display = 'none';
+  document.body.classList.remove('stt-modal-open');
 }
 
 function renderSttLines(){
