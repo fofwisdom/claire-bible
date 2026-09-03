@@ -127,7 +127,7 @@ graph TD
 > [!WARNING]
 > Antigravity CLI 프로바이더는 호스트 네이티브 실행 환경 전용입니다. 
 
-`CLAIRE_PROVIDER=antigravity` 또는 `CLAIRE_STT_PROVIDER=antigravity` 사용할 때 적용됩니다.
+`CLAIRE_PROVIDER=antigravity` 사용할 때 적용됩니다.
 
 | 환경변수명 | 기본값 | 허용 값 / 타입 | 설명 |
 | :--- | :--- | :--- | :--- |
@@ -159,7 +159,7 @@ graph TD
 | 환경변수명 | 기본값 | 허용 값 / 타입 | 설명 |
 | :--- | :--- | :--- | :--- |
 | `CLAIRE_ENABLE_VIDEO_TRANSCRIPTION` | `1` (`true`) | `0`, `1`, `true`, `false` | 자막이 없는 비디오/오디오 웹 문서 적재 시 ffmpeg/yt-dlp 및 STT 파이프라인 활성화 여부. ([VIDEO_AUDIO_TRANSCRIPTION_AND_INGESTION_DESIGN.md](../design/VIDEO_AUDIO_TRANSCRIPTION_AND_INGESTION_DESIGN.md) 참조) |
-| `CLAIRE_STT_PROVIDER` | `antigravity` | `gemini`, `antigravity`, `mock` | 음성 텍스트 변환(STT)에 사용할 프로바이더 (`gemini` 권장, `STT_PROVIDER`, `STT_PROIVDER` 별칭 지원). |
+| `CLAIRE_STT_PROVIDER` | `gemini` | `gemini`, `mock` | 음성 텍스트 변환(STT)에 사용할 프로바이더 (Google AI Studio Gemini 전용. Antigravity CLI는 STT 미지원. `STT_PROVIDER`, `STT_PROIVDER` 별칭 지원). `GEMINI_API_KEY` 누락 시 `mock`으로 폴백. |
 | `CLAIRE_STT_MODEL` | `""` | 문자열 | STT 전용 모델명 (예: `gemini-3.5-transcribe`, `STT_MODEL` 별칭 지원). 비어있을 경우 프로바이더 기본 모델 사용. |
 | `CLAIRE_STT_LANGUAGE` | `ko` | ISO 언어 코드 (예: `ko`, `en`, `ja`) | STT 기본 인식 대상 언어 (비어있을 경우 자동 감지). |
 | `CLAIRE_VIDEO_CHUNK_DURATION_SEC` | `240` | 정수 (초) | 단일 오디오 분할 청크 길이. `gemini-3.5-transcribe`의 10K TPM 한도 보호를 위해 기본 240초(4분, 약 6,000 토큰)로 제한. |

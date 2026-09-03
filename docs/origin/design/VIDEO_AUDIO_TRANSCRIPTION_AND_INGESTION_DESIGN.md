@@ -15,7 +15,7 @@
 2. **내장 텍스트 자막 부재**: 플레이어 매니페스트에 썸네일 탐색용 VTT(`thumbnail.webvtt`)만 포함되어 있을 뿐, 실제 음성 전사(Closed Caption) 텍스트가 제공되지 않습니다.
 3. **음성 트랙 기반 지식화 필수**: 영상의 오디오 스트림에서 음성을 추출하여 고품질 전사(STT)를 수행한 뒤 지식 그래프로 적재해야 합니다.
 
-본 문서는 **웹 비디오의 오디오 추출 $\rightarrow$ 다중 프로바이더 기반 자막 생성 $\rightarrow$ Claire 지식 베이스 적재 파이프라인**을 설계하고, **Gemini / Antigravity 환경에서의 모델 자원 소모율을 정밀 예측**합니다.
+본 문서는 **웹 비디오의 오디오 추출 $\rightarrow$ 다중 프로바이더 기반 자막 생성 $\rightarrow$ Claire 지식 베이스 적재 파이프라인**을 설계하고, **Gemini API 환경에서의 모델 자원 소모율을 정밀 예측**합니다.
 
 ---
 
@@ -50,7 +50,7 @@ flowchart TD
     
     subgraph S2 [2. Pluggable Transcript Provider Layer]
         E --> F[TranscriptProvider Protocol]
-        F --> G[AntigravityTranscriptProvider<br>Gemini 3.7 / 2.5 Flash]
+        F --> G[GeminiTranscriptProvider<br>gemini-3.5-transcribe / gemini-2.5-flash]
         F -.-> H[WhisperTranscriptProvider<br>OpenAI / Groq]
         F -.-> I[GoogleCloudSTTProvider<br>Chirp v2]
         F -.-> J[LocalWhisperProvider<br>faster-whisper]
@@ -70,7 +70,7 @@ flowchart TD
 
 ### 4.1. 전사 프로바이더 추상 인터페이스 (`TranscriptProvider`)
 
-전략 패턴(Strategy Pattern)을 적용하여 초기에는 Antigravity CLI를 사용하고, 이후 설정값(`CLAIRE_STT_PROVIDER`) 하나로 다양한 외부 프로바이더로 교체할 수 있도록 설계합니다.
+전략 패턴(Strategy Pattern)을 적용하여 현재는 실질적인 외부 전사 구현체인 Google AI Studio의 Gemini를 사용하고, 향후 설정값(`CLAIRE_STT_PROVIDER`) 하나로 다양한 외부 프로바이더(Whisper, Groq 등)로 교체/확장할 수 있도록 설계합니다.
 
 ```python
 from __future__ import annotations
@@ -105,18 +105,23 @@ class TranscriptProvider(Protocol):
         ...
 ```
 
-### 4.2. 프로바이더 구현체 계획
+### 4.2. 프로바이더 구현체 계획 및 현실화
 
-1. **`AntigravityTranscriptProvider` (초기 기본 구현)**:
-   * `agy` CLI 또는 Google GenAI SDK의 네이티브 오디오 멀티모달 기능을 활용합니다.
-   * 프롬프트: 전문 IT 용어(VCF, vSAN, GPU, Kubernetes 등) 보존 지침 및 타임스탬프 포맷 강제.
-   * 장점: 별도의 외부 STT 서비스 결제나 API 키 추가 없이 현재 계정 인프라에서 즉시 실행 가능.
-2. **`WhisperTranscriptProvider` (확장 - OpenAI / Groq)**:
-   * Groq Whisper v3 (분당 초고속 처리, 극저비용) 또는 OpenAI Whisper API 연동.
-3. **`GoogleCloudSTTProvider` (확장 - Google Cloud Speech-to-Text v2)**:
-   * 대규모 엔터프라이즈 배치 전사 및 실시간 스트리밍 지원.
-4. **`LocalWhisperProvider` (확장 - 에어갭/로컬 처리)**:
-   * `faster-whisper` 기반 CTranslate2 로컬 GPU/CPU 추론.
+> [!IMPORTANT]
+> **Antigravity CLI의 음성 전사(STT) 구현 불가 사유**:
+> 초기 기획에서는 Antigravity CLI(`agy`)를 활용한 계정 쿼터 내 오디오 전사를 검토하였으나, `agy` CLI는 개발자/에이전트 텍스트 프롬프트 기반 도구로서 오디오 바이너리 스트리밍 및 음성 인식 전용 인터페이스를 제공하지 않아 **STT 구현이 불가능**함을 확인하였습니다.
+> 따라서 현재 프로덕션 환경에서 실질적으로 지원 및 반영 가능한 유일한 외부 STT 프로바이더는 **Google AI Studio의 Gemini (`gemini`)**뿐입니다.
+
+1. **`GeminiTranscriptProvider` (현재 프로덕션 유일 외부 구현체)**:
+   * Google AI Studio의 Gemini API (`gemini-3.5-transcribe` 전용 음성 인식 모델 또는 `gemini-2.5-flash` 멀티모달 오디오)를 활용합니다.
+   * 240초(4분) 청크 분할, VAD, 10K TPM 페이싱(62초 대기), 타임스탬프 리베이싱 및 IT 전문 어휘(`custom_vocabulary`) 주입 파이프라인 탑재.
+   * 필수 조건: 유효한 `GEMINI_API_KEY` 설정 필요 (미설정 시 `MockTranscriptProvider`로 안전 폴백).
+2. **`MockTranscriptProvider` (테스트/개발 및 미지원 폴백)**:
+   * API 키가 없거나 단위 테스트, 개발 환경, 비지원 프로바이더 지정 시 결정론적 더미 전사 제공.
+3. **향후 확장 계획 (미구현)**:
+   * `WhisperTranscriptProvider`: Groq Whisper v3 (분당 초고속 처리, 극저비용) 또는 OpenAI Whisper API 연동.
+   * `GoogleCloudSTTProvider`: Google Cloud Speech-to-Text v2 (엔터프라이즈 대규모 배치 및 실시간 스트리밍).
+   * `LocalWhisperProvider`: `faster-whisper` 기반 CTranslate2 로컬 GPU/CPU 추론.
 
 ### 4.3. 미디어 스트림 리졸버 아키텍처 (`MediaStreamResolver`)
 
@@ -179,8 +184,8 @@ class TranscriptProvider(Protocol):
 | 환경변수 | 기본값 | 허용값 / 설명 |
 | :--- | :--- | :--- |
 | `CLAIRE_ENABLE_VIDEO_TRANSCRIPTION` | `1` | `0` (비활성) \| `1` (활성). `0`일 경우 무거운 오디오 STT를 수행하지 않고 메타데이터만 수집하거나 안내 반환. |
-| `CLAIRE_STT_PROVIDER` | `antigravity` | `antigravity` \| `whisper` \| `groq` \| `gcp` \| `local` \| `mock` |
-| `CLAIRE_STT_MODEL` | `""` | 프로바이더별 모델명 오버라이드 (예: `gemini-3.7-flash`, `whisper-large-v3`) |
+| `CLAIRE_STT_PROVIDER` | `gemini` | `gemini` \| `mock` (향후 확장: `whisper` \| `groq` \| `gcp` \| `local`) |
+| `CLAIRE_STT_MODEL` | `""` | 프로바이더별 모델명 오버라이드 (기본: `gemini-3.5-transcribe` 또는 `gemini-2.5-flash`) |
 | `CLAIRE_STT_LANGUAGE` | `ko` | 전사 기본/선호 언어 코드 (`ko`, `en` 등 또는 빈 값 시 자동 감지) |
 | `CLAIRE_FFMPEG_BIN` | `ffmpeg` | 시스템 `ffmpeg` 실행 파일 경로 또는 바이너리명 |
 | `CLAIRE_YTDLP_EXTRACTOR_ARGS` | `generic:impersonate` | `yt-dlp` 추출기 인자. CDN/봇 가드 우회를 위한 `--extractor-args "generic:impersonate"` (브라우저 TLS 핑거프린트 위장) 지원. |
@@ -238,7 +243,7 @@ class TranscriptProvider(Protocol):
 | **지식 그래프 추출 및 렌더링** | 입력 10k / 출력 4k tokens | 약 **\$0.0020** (약 2.7원) |
 | **합계 (비디오 1편 전체)** | **자막 생성 + 지식 베이스 완결 적재** | **약 \$0.011 ~ \$0.015 (한화 약 15원 ~ 20원)** |
 
-> *참고: Antigravity 구독/무료 환경에서 실행 시 별도의 API 비용 과금 없이 기본 세션 쿼터 내에서 \$0으로 처리됩니다.*
+> *참고: Antigravity CLI는 바이너리 오디오 STT를 지원하지 않으므로, 음성 전사는 Google AI Studio의 Gemini API 키(`GEMINI_API_KEY`)를 통해 수행됩니다.*
 
 ---
 
@@ -246,9 +251,9 @@ class TranscriptProvider(Protocol):
 
 1. **1단계: 의존성 및 미디어 리졸버 구축**
    * 시스템 환경 내 `ffmpeg` 도구 확보 및 `yt-dlp` 기반 Brightcove/YouTube/HTML5 스트림 URL 파서 작성.
-2. **2단계: `TranscriptProvider` 추상화 및 Antigravity 어댑터 구현**
-   * `claire.extract.transcript` 패키지 신설 및 `AntigravityTranscriptProvider` 구현.
-   * 타임스탬프가 포함된 `TranscriptResult` 스키마 고정.
+2. **2단계: `TranscriptProvider` 추상화 및 Gemini 3.5 Transcribe 엔진 구현**
+   * `claire.extract.transcript` 패키지 신설 및 `GeminiTranscriptProvider`, `MockTranscriptProvider` 구현.
+   * 타임스탬프가 포함된 `TranscriptResult` 스키마 고정 및 Antigravity CLI STT 불가 스텁 정리.
 3. **3단계: 라우터 및 인제스트 파이프라인 통합**
    * `ingest/fetchers/video.py`를 신설하여 `fetch_video` 구현.
    * 자막 생성 결과를 `Document(source_type="video", raw_text=...)`로 변환하여 기존 그래프 적재 파이프라인에 연결.
