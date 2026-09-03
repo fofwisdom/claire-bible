@@ -507,12 +507,26 @@ def test_render_graph_html_custom_settings():
 
 
 def test_code_block_css_resets():
-    """인라인 코드(.md code) 스타일이 블록 코드(.md pre code)에 오염되지 않도록 transparent 리셋 CSS 검증."""
+    """인라인 코드(.doc-content code) 스타일이 블록 코드(.doc-content pre code)에 오염되지 않도록 transparent 리셋 CSS 검증."""
     from claire.graphview import _SHARED_HTML, render_graph_html
 
     main_html = render_graph_html()
-    assert ".md pre code{background:transparent;padding:0;border-radius:0;font-size:inherit;" in main_html
-    assert ".md pre code{background:transparent;padding:0;border-radius:0;font-size:inherit;" in _SHARED_HTML
+    assert ".doc-content pre code{background:transparent;padding:0;border-radius:0;font-size:inherit;" in main_html
+    assert ".doc-content pre code{background:transparent;padding:0;border-radius:0;font-size:inherit;" in _SHARED_HTML
+
+
+def test_rendered_document_uses_format_neutral_class_and_justifies_top_level_paragraphs():
+    """Markdown와 AsciiDoc 공통 컨테이너가 중립 명칭과 제한된 문단 양끝 정렬을 사용한다."""
+    from claire.graphview import _SHARED_HTML, render_graph_html
+
+    main_html = render_graph_html()
+    expected_rule = ".doc-content > p{text-align:justify;text-align-last:start;text-justify:auto}"
+
+    for html in (main_html, _SHARED_HTML):
+        assert 'class="doc-content"' in html
+        assert expected_rule in html
+        assert 'class="md"' not in html
+        assert ".md{" not in html
 
 
 def test_advanced_search_ui_components():
@@ -559,8 +573,8 @@ def test_mobile_bottom_bar_graph_navigation_and_node_selection():
     assert 'z-index:55;width:min(400px,82vw);height:auto;max-height:none;' in GRAPH_HTML
     assert '#drawerbackdrop{display:none;position:fixed;inset:0;z-index:52;' in GRAPH_HTML
     assert '#worktabs{display:flex;position:fixed;bottom:0;left:0;right:0;z-index:60;' in GRAPH_HTML
-    assert '.md table{border-collapse:collapse;margin:.6em 0;width:100%;max-width:100%;display:block;overflow-x:auto;box-sizing:border-box}' in GRAPH_HTML
-    assert '.md pre{background:var(--card-bg);border:1px solid var(--border);border-radius:6px;padding:.8em;overflow-x:auto;max-width:100%;box-sizing:border-box}' in GRAPH_HTML
+    assert '.doc-content table{border-collapse:collapse;margin:.6em 0;width:100%;max-width:100%;display:block;overflow-x:auto;box-sizing:border-box}' in GRAPH_HTML
+    assert '.doc-content pre{background:var(--card-bg);border:1px solid var(--border);border-radius:6px;padding:.8em;overflow-x:auto;max-width:100%;box-sizing:border-box}' in GRAPH_HTML
 
     # 2. setActiveDoc / openReader 호출 시 문서에 포함된 노드 전체 선택(selectNodes)
     assert "if(ids.length) net.selectNodes(ids);" in GRAPH_HTML

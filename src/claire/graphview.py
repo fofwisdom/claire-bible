@@ -800,53 +800,54 @@ GRAPH_HTML = """<!doctype html>
   body.drawer-open #nodepop,
   body.reader-open #nodepop{display:none!important}
   #panel input[type=radio]{width:auto;vertical-align:middle}
-  /* --- 마크다운 상세(읽기 팝업 + 패널 detail) --- */
-  .md{line-height:1.75;font-size:14px;word-break:keep-all;overflow-wrap:break-word}
-  #reader .rbody .md{font-size:var(--read-fs,16px)}
-  .md h1{font-size:1.5em} .md h2{font-size:1.3em;margin:1.1em 0 .4em;border-bottom:1px solid var(--border);padding-bottom:.2em}
-  .md h3{font-size:1.12em;margin:1em 0 .35em;color:var(--fg);border:0}
-  .md p{margin:.6em 0} .md ul,.md ol{margin:.5em 0;padding-left:1.5em} .md li{margin:.3em 0}
-  .md strong{color:var(--fg)} .md a{color:var(--accent)}
-  .md img{max-width:100%;height:auto;display:block;margin:.8em auto;border-radius:6px;border:1px solid var(--border)}
-  .md em{color:var(--muted)} .md blockquote{margin:.6em 0;padding:.2em .9em;border-left:3px solid var(--border);color:var(--muted);font-family:'Noto Serif KR','Noto Serif Korean',Georgia,'Times New Roman',serif}
-  .md code{background:var(--chip-bg);padding:.1em .35em;border-radius:3px;font-size:.9em;font-family:'D2Coding','D2 Coding','SFMono-Regular',Menlo,Monaco,Consolas,'Liberation Mono',monospace}
-  .md pre{background:var(--card-bg);border:1px solid var(--border);border-radius:6px;padding:.8em;overflow-x:auto;max-width:100%;box-sizing:border-box}
-  .md pre code{background:transparent;padding:0;border-radius:0;font-size:inherit;font-family:'D2Coding','D2 Coding','SFMono-Regular',Menlo,Monaco,Consolas,'Liberation Mono',monospace}
-  .md table{border-collapse:collapse;margin:.6em 0;width:100%;max-width:100%;display:block;overflow-x:auto;box-sizing:border-box} .md th,.md td{border:1px solid var(--border);padding:.35em .65em}
-  .md th{background:var(--chip-bg);font-weight:600}
-  .md table td ul,.md table td ol{padding-left:1.2em;margin:.2em 0}
-  .md table td li{margin:.15em 0}
-  .md li > p{margin:.3em 0}
-  .md li > p:first-child{margin-top:0}
-  .md li > p:last-child{margin-bottom:0}
+  /* --- 포맷 중립 문서 본문(Markdown/AsciiDoc, 읽기 팝업 + 패널 detail) --- */
+  .doc-content{line-height:1.75;font-size:14px;word-break:keep-all;overflow-wrap:break-word}
+  #reader .rbody .doc-content{font-size:var(--read-fs,16px)}
+  .doc-content h1{font-size:1.5em} .doc-content h2{font-size:1.3em;margin:1.1em 0 .4em;border-bottom:1px solid var(--border);padding-bottom:.2em}
+  .doc-content h3{font-size:1.12em;margin:1em 0 .35em;color:var(--fg);border:0}
+  .doc-content p{margin:.6em 0} .doc-content > p{text-align:justify;text-align-last:start;text-justify:auto}
+  .doc-content ul,.doc-content ol{margin:.5em 0;padding-left:1.5em} .doc-content li{margin:.3em 0}
+  .doc-content strong{color:var(--fg)} .doc-content a{color:var(--accent)}
+  .doc-content img{max-width:100%;height:auto;display:block;margin:.8em auto;border-radius:6px;border:1px solid var(--border)}
+  .doc-content em{color:var(--muted)} .doc-content blockquote{margin:.6em 0;padding:.2em .9em;border-left:3px solid var(--border);color:var(--muted);font-family:'Noto Serif KR','Noto Serif Korean',Georgia,'Times New Roman',serif}
+  .doc-content code{background:var(--chip-bg);padding:.1em .35em;border-radius:3px;font-size:.9em;font-family:'D2Coding','D2 Coding','SFMono-Regular',Menlo,Monaco,Consolas,'Liberation Mono',monospace}
+  .doc-content pre{background:var(--card-bg);border:1px solid var(--border);border-radius:6px;padding:.8em;overflow-x:auto;max-width:100%;box-sizing:border-box}
+  .doc-content pre code{background:transparent;padding:0;border-radius:0;font-size:inherit;font-family:'D2Coding','D2 Coding','SFMono-Regular',Menlo,Monaco,Consolas,'Liberation Mono',monospace}
+  .doc-content table{border-collapse:collapse;margin:.6em 0;width:100%;max-width:100%;display:block;overflow-x:auto;box-sizing:border-box} .doc-content th,.doc-content td{border:1px solid var(--border);padding:.35em .65em}
+  .doc-content th{background:var(--chip-bg);font-weight:600}
+  .doc-content table td ul,.doc-content table td ol{padding-left:1.2em;margin:.2em 0}
+  .doc-content table td li{margin:.15em 0}
+  .doc-content li > p{margin:.3em 0}
+  .doc-content li > p:first-child{margin-top:0}
+  .doc-content li > p:last-child{margin-bottom:0}
   /* --- AsciiDoc & Markdown 확장 스타일 --- */
-  .md .admonitionblock{margin:1em 0;border-left:4px solid var(--accent);background:var(--card-bg);border-radius:6px;padding:.6em 1em}
-  .md .admonitionblock.note{border-left-color:var(--accent)}
-  .md .admonitionblock.important{border-left-color:#8250df}
-  [data-theme="dark"] .md .admonitionblock.important{border-left-color:#a371f7}
-  .md .admonitionblock.tip{border-left-color:var(--accent2)}
-  .md .admonitionblock.warning{border-left-color:#cf222e}
-  [data-theme="dark"] .md .admonitionblock.warning{border-left-color:#f85149}
-  .md .admonitionblock.caution{border-left-color:var(--rel)}
-  .md .admonitionblock .title,.md .admonitionblock td.icon{font-weight:700;margin-bottom:.3em;text-transform:uppercase;font-size:.85em;letter-spacing:.03em;color:var(--muted)}
-  .md .quoteblock{margin:1.1em 0;padding:.6em 1.1em;border-left:3px solid var(--accent);background:var(--card-bg);border-radius:0 6px 6px 0}
-  .md .quoteblock blockquote{margin:0;padding:0;border:none;color:var(--fg);font-family:'Noto Serif KR','Noto Serif Korean',Georgia,'Times New Roman',serif}
-  .md .quoteblock .attribution{margin-top:.4em;font-size:.85em;color:var(--muted);text-align:right}
-  .md .colist{margin:.5em 0;padding-left:1.2em;font-size:.9em;font-family:'D2Coding','D2 Coding','SFMono-Regular',Menlo,Monaco,Consolas,'Liberation Mono',monospace}
-  .md .conum{display:inline-block;background:var(--accent);color:#fff;border-radius:50%;width:18px;height:18px;line-height:18px;text-align:center;font-size:11px;font-weight:bold;margin-right:4px;vertical-align:middle;font-family:'D2Coding','D2 Coding',monospace}
-  .md .imageblock{margin:1em auto;text-align:center}
-  .md .imageblock img{max-width:100%;height:auto;display:block;margin:0 auto;border-radius:6px;border:1px solid var(--border)}
-  .md .imageblock .title{font-size:.85em;color:var(--muted);margin-top:.4em;font-style:italic}
-  .md .math{font-family:'KaTeX_Math','Cambria Math','STIX Two Math','DejaVu Math TeX Gyre',Cambria,Georgia,serif;font-style:italic;color:var(--fg)}
-  .md .math.inline{padding:0 .25em;background:var(--chip-bg);border-radius:3px;font-size:1.02em}
-  .md .math.inline code{background:transparent;padding:0;font-family:inherit;font-size:inherit}
-  .md .mathblock{margin:1em 0;padding:.8em 1.2em;background:var(--card-bg);border:1px solid var(--border);border-radius:6px;text-align:center;overflow-x:auto}
-  .md .mathblock pre.math{background:transparent;border:0;padding:0;margin:0;display:inline-block;text-align:left;font-family:'KaTeX_Math','Cambria Math','STIX Two Math','DejaVu Math TeX Gyre',Cambria,Georgia,serif;font-size:1.08em}
-  .md a.xref{color:var(--accent);text-decoration:none;border-bottom:1px dashed var(--accent);cursor:pointer;transition:border-color .15s ease}
-  .md a.xref:hover{border-bottom-style:solid}
-  .md :target{animation:target-highlight 2s ease-out;border-radius:4px}
+  .doc-content .admonitionblock{margin:1em 0;border-left:4px solid var(--accent);background:var(--card-bg);border-radius:6px;padding:.6em 1em}
+  .doc-content .admonitionblock.note{border-left-color:var(--accent)}
+  .doc-content .admonitionblock.important{border-left-color:#8250df}
+  [data-theme="dark"] .doc-content .admonitionblock.important{border-left-color:#a371f7}
+  .doc-content .admonitionblock.tip{border-left-color:var(--accent2)}
+  .doc-content .admonitionblock.warning{border-left-color:#cf222e}
+  [data-theme="dark"] .doc-content .admonitionblock.warning{border-left-color:#f85149}
+  .doc-content .admonitionblock.caution{border-left-color:var(--rel)}
+  .doc-content .admonitionblock .title,.doc-content .admonitionblock td.icon{font-weight:700;margin-bottom:.3em;text-transform:uppercase;font-size:.85em;letter-spacing:.03em;color:var(--muted)}
+  .doc-content .quoteblock{margin:1.1em 0;padding:.6em 1.1em;border-left:3px solid var(--accent);background:var(--card-bg);border-radius:0 6px 6px 0}
+  .doc-content .quoteblock blockquote{margin:0;padding:0;border:none;color:var(--fg);font-family:'Noto Serif KR','Noto Serif Korean',Georgia,'Times New Roman',serif}
+  .doc-content .quoteblock .attribution{margin-top:.4em;font-size:.85em;color:var(--muted);text-align:right}
+  .doc-content .colist{margin:.5em 0;padding-left:1.2em;font-size:.9em;font-family:'D2Coding','D2 Coding','SFMono-Regular',Menlo,Monaco,Consolas,'Liberation Mono',monospace}
+  .doc-content .conum{display:inline-block;background:var(--accent);color:#fff;border-radius:50%;width:18px;height:18px;line-height:18px;text-align:center;font-size:11px;font-weight:bold;margin-right:4px;vertical-align:middle;font-family:'D2Coding','D2 Coding',monospace}
+  .doc-content .imageblock{margin:1em auto;text-align:center}
+  .doc-content .imageblock img{max-width:100%;height:auto;display:block;margin:0 auto;border-radius:6px;border:1px solid var(--border)}
+  .doc-content .imageblock .title{font-size:.85em;color:var(--muted);margin-top:.4em;font-style:italic}
+  .doc-content .math{font-family:'KaTeX_Math','Cambria Math','STIX Two Math','DejaVu Math TeX Gyre',Cambria,Georgia,serif;font-style:italic;color:var(--fg)}
+  .doc-content .math.inline{padding:0 .25em;background:var(--chip-bg);border-radius:3px;font-size:1.02em}
+  .doc-content .math.inline code{background:transparent;padding:0;font-family:inherit;font-size:inherit}
+  .doc-content .mathblock{margin:1em 0;padding:.8em 1.2em;background:var(--card-bg);border:1px solid var(--border);border-radius:6px;text-align:center;overflow-x:auto}
+  .doc-content .mathblock pre.math{background:transparent;border:0;padding:0;margin:0;display:inline-block;text-align:left;font-family:'KaTeX_Math','Cambria Math','STIX Two Math','DejaVu Math TeX Gyre',Cambria,Georgia,serif;font-size:1.08em}
+  .doc-content a.xref{color:var(--accent);text-decoration:none;border-bottom:1px dashed var(--accent);cursor:pointer;transition:border-color .15s ease}
+  .doc-content a.xref:hover{border-bottom-style:solid}
+  .doc-content :target{animation:target-highlight 2s ease-out;border-radius:4px}
   @keyframes target-highlight{0%{background-color:rgba(56,139,253,.25)}100%{background-color:transparent}}
-  .md .lead{font-size:1.1em;line-height:1.6;font-weight:500;color:var(--fg)}
+  .doc-content .lead{font-size:1.1em;line-height:1.6;font-weight:500;color:var(--fg)}
 
   /* --- 중앙 크게 읽기 (2단 보기 및 기본 중앙 패널 / 모바일 읽기) --- */
   #reader{width:100%;height:100%;display:flex;flex-direction:column;min-width:0;min-height:0;overflow:hidden;background:var(--bg);--read-fs:16px}
@@ -2311,7 +2312,7 @@ function setDescLines(v){
 }
 applyDescLines();
 
-// 읽기 글자 크기(A−/A+) — 브라우저에 기억. 팝업의 --read-fs 변수로 .md 본문에 적용.
+// 읽기 글자 크기(A−/A+) — 브라우저에 기억. 팝업의 --read-fs 변수로 .doc-content 본문에 적용.
 let readFS = 16;
 try{ const v=parseInt(localStorage.getItem('claireReadFS')); if(v>=12 && v<=28) readFS=v; }catch(e){}
 function applyReadFS(){
@@ -2592,15 +2593,15 @@ function renderReader(dc){
   h+=extraSourcesHtml(dc);
   const directive = (dc.directive || (dc.meta && dc.meta.directive) || '').trim();
   if(directive){
-    h+='<div class="rsection">초점</div><div class="md" style="margin-bottom:.8em">🎯 <strong>'+esc(directive)+'</strong></div>';
+    h+='<div class="rsection">초점</div><div class="doc-content" style="margin-bottom:.8em">🎯 <strong>'+esc(directive)+'</strong></div>';
   }
-  if(dc.summary) h+='<div class=rsection>요약</div><div class="md">'+renderContent(dc.summary, dc.detail_format)+'</div>';
+  if(dc.summary) h+='<div class=rsection>요약</div><div class="doc-content">'+renderContent(dc.summary, dc.detail_format)+'</div>';
   if(dc.detail_html){
     const purifier=window.DOMPurify;
     const cleanHtml=(purifier && typeof purifier.sanitize==='function')?purifier.sanitize(dc.detail_html, DOMPURIFY_OPTS):dc.detail_html;
-    h+='<div class=rsection>상세</div><div class="md">'+cleanHtml+'</div>';
+    h+='<div class=rsection>상세</div><div class="doc-content">'+cleanHtml+'</div>';
   }else if(dc.detail){
-    h+='<div class=rsection>상세</div><div class="md">'+renderContent(dc.detail, dc.detail_format)+'</div>';
+    h+='<div class=rsection>상세</div><div class="doc-content">'+renderContent(dc.detail, dc.detail_format)+'</div>';
   }
   if(!dc.summary && !dc.detail && !dc.detail_html) h+='<p class=hint>문서에 요약/상세 내용이 없습니다.</p>';
   const body=document.getElementById('rbody'); body.innerHTML=h; body.scrollTop=0;
@@ -5144,50 +5145,51 @@ _SHARED_HTML = """<!doctype html>
   .brand{color:var(--accent2);font-weight:600;font-size:12px}
   .foot{margin-top:2.5em;padding-top:1em;border-top:1px solid var(--border);color:var(--muted);font-size:12px}
   mark{background:var(--mark-bg);color:var(--mark-fg);padding:0 .15em;border-radius:2px}
-  .md{line-height:1.75;font-size:16px;word-break:keep-all;overflow-wrap:break-word}
-  .md h2{font-size:1.3em;margin:1.1em 0 .4em;border-bottom:1px solid var(--border);padding-bottom:.2em}
-  .md h3{font-size:1.12em;margin:1em 0 .35em} .md p{margin:.6em 0}
-  .md ul,.md ol{margin:.5em 0;padding-left:1.5em} .md li{margin:.3em 0}
-  .md a{color:var(--accent)} .md img{max-width:100%;height:auto;display:block;margin:.8em auto;border-radius:6px;border:1px solid var(--border)}
-  .md blockquote{margin:.6em 0;padding:.2em .9em;border-left:3px solid var(--border);color:var(--muted);font-family:'Noto Serif KR','Noto Serif Korean',Georgia,'Times New Roman',serif}
-  .md code{background:var(--chip-bg);padding:.1em .35em;border-radius:3px;font-size:.9em;font-family:'D2Coding','D2 Coding','SFMono-Regular',Menlo,Monaco,Consolas,'Liberation Mono',monospace}
-  .md pre{background:var(--card-bg);border:1px solid var(--border);border-radius:6px;padding:.8em;overflow-x:auto;max-width:100%;box-sizing:border-box}
-  .md pre code{background:transparent;padding:0;border-radius:0;font-size:inherit;font-family:'D2Coding','D2 Coding','SFMono-Regular',Menlo,Monaco,Consolas,'Liberation Mono',monospace}
-  .md table{border-collapse:collapse;margin:.6em 0;width:100%;max-width:100%;display:block;overflow-x:auto;box-sizing:border-box} .md th,.md td{border:1px solid var(--border);padding:.35em .65em}
-  .md th{background:var(--chip-bg);font-weight:600}
-  .md table td ul,.md table td ol{padding-left:1.2em;margin:.2em 0}
-  .md table td li{margin:.15em 0}
-  .md li > p{margin:.3em 0}
-  .md li > p:first-child{margin-top:0}
-  .md li > p:last-child{margin-bottom:0}
+  .doc-content{line-height:1.75;font-size:16px;word-break:keep-all;overflow-wrap:break-word}
+  .doc-content h2{font-size:1.3em;margin:1.1em 0 .4em;border-bottom:1px solid var(--border);padding-bottom:.2em}
+  .doc-content h3{font-size:1.12em;margin:1em 0 .35em} .doc-content p{margin:.6em 0}
+  .doc-content > p{text-align:justify;text-align-last:start;text-justify:auto}
+  .doc-content ul,.doc-content ol{margin:.5em 0;padding-left:1.5em} .doc-content li{margin:.3em 0}
+  .doc-content a{color:var(--accent)} .doc-content img{max-width:100%;height:auto;display:block;margin:.8em auto;border-radius:6px;border:1px solid var(--border)}
+  .doc-content blockquote{margin:.6em 0;padding:.2em .9em;border-left:3px solid var(--border);color:var(--muted);font-family:'Noto Serif KR','Noto Serif Korean',Georgia,'Times New Roman',serif}
+  .doc-content code{background:var(--chip-bg);padding:.1em .35em;border-radius:3px;font-size:.9em;font-family:'D2Coding','D2 Coding','SFMono-Regular',Menlo,Monaco,Consolas,'Liberation Mono',monospace}
+  .doc-content pre{background:var(--card-bg);border:1px solid var(--border);border-radius:6px;padding:.8em;overflow-x:auto;max-width:100%;box-sizing:border-box}
+  .doc-content pre code{background:transparent;padding:0;border-radius:0;font-size:inherit;font-family:'D2Coding','D2 Coding','SFMono-Regular',Menlo,Monaco,Consolas,'Liberation Mono',monospace}
+  .doc-content table{border-collapse:collapse;margin:.6em 0;width:100%;max-width:100%;display:block;overflow-x:auto;box-sizing:border-box} .doc-content th,.doc-content td{border:1px solid var(--border);padding:.35em .65em}
+  .doc-content th{background:var(--chip-bg);font-weight:600}
+  .doc-content table td ul,.doc-content table td ol{padding-left:1.2em;margin:.2em 0}
+  .doc-content table td li{margin:.15em 0}
+  .doc-content li > p{margin:.3em 0}
+  .doc-content li > p:first-child{margin-top:0}
+  .doc-content li > p:last-child{margin-bottom:0}
   /* --- AsciiDoc & Markdown 확장 스타일 --- */
-  .md .admonitionblock{margin:1em 0;border-left:4px solid var(--accent);background:var(--card-bg);border-radius:6px;padding:.6em 1em}
-  .md .admonitionblock.note{border-left-color:var(--accent)}
-  .md .admonitionblock.important{border-left-color:#8250df}
-  @media (prefers-color-scheme:dark){.md .admonitionblock.important{border-left-color:#a371f7}}
-  .md .admonitionblock.tip{border-left-color:var(--accent2)}
-  .md .admonitionblock.warning{border-left-color:#cf222e}
-  @media (prefers-color-scheme:dark){.md .admonitionblock.warning{border-left-color:#f85149}}
-  .md .admonitionblock.caution{border-left-color:var(--rel, #9a6700)}
-  .md .admonitionblock .title,.md .admonitionblock td.icon{font-weight:700;margin-bottom:.3em;text-transform:uppercase;font-size:.85em;letter-spacing:.03em;color:var(--muted)}
-  .md .quoteblock{margin:1.1em 0;padding:.6em 1.1em;border-left:3px solid var(--accent);background:var(--card-bg);border-radius:0 6px 6px 0}
-  .md .quoteblock blockquote{margin:0;padding:0;border:none;color:var(--fg);font-family:'Noto Serif KR','Noto Serif Korean',Georgia,'Times New Roman',serif}
-  .md .quoteblock .attribution{margin-top:.4em;font-size:.85em;color:var(--muted);text-align:right}
-  .md .colist{margin:.5em 0;padding-left:1.2em;font-size:.9em;font-family:'D2Coding','D2 Coding','SFMono-Regular',Menlo,Monaco,Consolas,'Liberation Mono',monospace}
-  .md .conum{display:inline-block;background:var(--accent);color:#fff;border-radius:50%;width:18px;height:18px;line-height:18px;text-align:center;font-size:11px;font-weight:bold;margin-right:4px;vertical-align:middle;font-family:'D2Coding','D2 Coding',monospace}
-  .md .imageblock{margin:1em auto;text-align:center}
-  .md .imageblock img{max-width:100%;height:auto;display:block;margin:0 auto;border-radius:6px;border:1px solid var(--border)}
-  .md .imageblock .title{font-size:.85em;color:var(--muted);margin-top:.4em;font-style:italic}
-  .md .math{font-family:'KaTeX_Math','Cambria Math','STIX Two Math','DejaVu Math TeX Gyre',Cambria,Georgia,serif;font-style:italic;color:var(--fg)}
-  .md .math.inline{padding:0 .25em;background:var(--chip-bg);border-radius:3px;font-size:1.02em}
-  .md .math.inline code{background:transparent;padding:0;font-family:inherit;font-size:inherit}
-  .md .mathblock{margin:1em 0;padding:.8em 1.2em;background:var(--card-bg);border:1px solid var(--border);border-radius:6px;text-align:center;overflow-x:auto}
-  .md .mathblock pre.math{background:transparent;border:0;padding:0;margin:0;display:inline-block;text-align:left;font-family:'KaTeX_Math','Cambria Math','STIX Two Math','DejaVu Math TeX Gyre',Cambria,Georgia,serif;font-size:1.08em}
-  .md a.xref{color:var(--accent);text-decoration:none;border-bottom:1px dashed var(--accent);cursor:pointer;transition:border-color .15s ease}
-  .md a.xref:hover{border-bottom-style:solid}
-  .md :target{animation:target-highlight 2s ease-out;border-radius:4px}
+  .doc-content .admonitionblock{margin:1em 0;border-left:4px solid var(--accent);background:var(--card-bg);border-radius:6px;padding:.6em 1em}
+  .doc-content .admonitionblock.note{border-left-color:var(--accent)}
+  .doc-content .admonitionblock.important{border-left-color:#8250df}
+  @media (prefers-color-scheme:dark){.doc-content .admonitionblock.important{border-left-color:#a371f7}}
+  .doc-content .admonitionblock.tip{border-left-color:var(--accent2)}
+  .doc-content .admonitionblock.warning{border-left-color:#cf222e}
+  @media (prefers-color-scheme:dark){.doc-content .admonitionblock.warning{border-left-color:#f85149}}
+  .doc-content .admonitionblock.caution{border-left-color:var(--rel, #9a6700)}
+  .doc-content .admonitionblock .title,.doc-content .admonitionblock td.icon{font-weight:700;margin-bottom:.3em;text-transform:uppercase;font-size:.85em;letter-spacing:.03em;color:var(--muted)}
+  .doc-content .quoteblock{margin:1.1em 0;padding:.6em 1.1em;border-left:3px solid var(--accent);background:var(--card-bg);border-radius:0 6px 6px 0}
+  .doc-content .quoteblock blockquote{margin:0;padding:0;border:none;color:var(--fg);font-family:'Noto Serif KR','Noto Serif Korean',Georgia,'Times New Roman',serif}
+  .doc-content .quoteblock .attribution{margin-top:.4em;font-size:.85em;color:var(--muted);text-align:right}
+  .doc-content .colist{margin:.5em 0;padding-left:1.2em;font-size:.9em;font-family:'D2Coding','D2 Coding','SFMono-Regular',Menlo,Monaco,Consolas,'Liberation Mono',monospace}
+  .doc-content .conum{display:inline-block;background:var(--accent);color:#fff;border-radius:50%;width:18px;height:18px;line-height:18px;text-align:center;font-size:11px;font-weight:bold;margin-right:4px;vertical-align:middle;font-family:'D2Coding','D2 Coding',monospace}
+  .doc-content .imageblock{margin:1em auto;text-align:center}
+  .doc-content .imageblock img{max-width:100%;height:auto;display:block;margin:0 auto;border-radius:6px;border:1px solid var(--border)}
+  .doc-content .imageblock .title{font-size:.85em;color:var(--muted);margin-top:.4em;font-style:italic}
+  .doc-content .math{font-family:'KaTeX_Math','Cambria Math','STIX Two Math','DejaVu Math TeX Gyre',Cambria,Georgia,serif;font-style:italic;color:var(--fg)}
+  .doc-content .math.inline{padding:0 .25em;background:var(--chip-bg);border-radius:3px;font-size:1.02em}
+  .doc-content .math.inline code{background:transparent;padding:0;font-family:inherit;font-size:inherit}
+  .doc-content .mathblock{margin:1em 0;padding:.8em 1.2em;background:var(--card-bg);border:1px solid var(--border);border-radius:6px;text-align:center;overflow-x:auto}
+  .doc-content .mathblock pre.math{background:transparent;border:0;padding:0;margin:0;display:inline-block;text-align:left;font-family:'KaTeX_Math','Cambria Math','STIX Two Math','DejaVu Math TeX Gyre',Cambria,Georgia,serif;font-size:1.08em}
+  .doc-content a.xref{color:var(--accent);text-decoration:none;border-bottom:1px dashed var(--accent);cursor:pointer;transition:border-color .15s ease}
+  .doc-content a.xref:hover{border-bottom-style:solid}
+  .doc-content :target{animation:target-highlight 2s ease-out;border-radius:4px}
   @keyframes target-highlight{0%{background-color:rgba(56,139,253,.25)}100%{background-color:transparent}}
-  .md .lead{font-size:1.1em;line-height:1.6;font-weight:500;color:var(--fg)}
+  .doc-content .lead{font-size:1.1em;line-height:1.6;font-weight:500;color:var(--fg)}
 </style></head>
 <body><div class="wrap" id="wrap"></div>
 <div id="sttmodal" class="sttmodal" role="dialog" aria-modal="true" aria-labelledby="stttitle" style="display:none" onclick="if(event.target===this)closeSttReader()">
@@ -6115,15 +6117,15 @@ if((dc.extra_sources||[]).length){
 }
 const directive = (dc.directive || (dc.meta && dc.meta.directive) || '').trim();
 if(directive){
-  h+='<div class=sec>초점</div><div class="md" style="margin-bottom:.8em">🎯 <strong>'+esc(directive)+'</strong></div>';
+  h+='<div class=sec>초점</div><div class="doc-content" style="margin-bottom:.8em">🎯 <strong>'+esc(directive)+'</strong></div>';
 }
-if(dc.summary){ h+='<div class=sec>요약</div><div class="md">'+renderContent(dc.summary, dc.detail_format)+'</div>'; }
+if(dc.summary){ h+='<div class=sec>요약</div><div class="doc-content">'+renderContent(dc.summary, dc.detail_format)+'</div>'; }
 if(dc.detail_html){
   const purifier=window.DOMPurify;
   const cleanHtml=(purifier && typeof purifier.sanitize==='function')?purifier.sanitize(dc.detail_html, DOMPURIFY_OPTS):dc.detail_html;
-  h+='<div class=sec>상세</div><div class="md">'+cleanHtml+'</div>';
+  h+='<div class=sec>상세</div><div class="doc-content">'+cleanHtml+'</div>';
 }else if(dc.detail){
-  h+='<div class=sec>상세</div><div class="md">'+renderContent(dc.detail, dc.detail_format)+'</div>';
+  h+='<div class=sec>상세</div><div class="doc-content">'+renderContent(dc.detail, dc.detail_format)+'</div>';
 }
 if(!dc.summary && !dc.detail && !dc.detail_html){ h+='<p class=meta>문서에 요약/상세 내용이 없습니다.</p>'; }
 h+='<div class=foot>이 링크는 이 문서 하나만 읽기 전용으로 공유합니다.</div>';

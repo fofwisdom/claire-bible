@@ -81,7 +81,8 @@ flowchart TD
      - `stem:[...]`, `latexmath:[...]`, `asciimath:[...]` $\rightarrow$ `<span class="math inline" data-math="..."><code>...</code></span>`
      - `[latexmath]++++` 또는 `[stem]----` 블록 $\rightarrow$ `<div class="mathblock display" data-math="..."><div class="content"><pre class="math"><code>...</code></pre></div></div>`
   3. **UI 렌더링 & CSS (`graphview.py`)**:
-     - KaTeX/TeX 수식 폰트(`KaTeX_Math`, `Times New Roman`, `serif`) 및 패딩/스크롤 스타일(`.md .math`, `.md .mathblock`) 적용.
+     - KaTeX/TeX 수식 폰트(`KaTeX_Math`, `Times New Roman`, `serif`) 및 패딩/스크롤 스타일(`.doc-content .math`, `.doc-content .mathblock`) 적용.
+     - Markdown과 AsciiDoc 공통 렌더링 컨테이너는 포맷 중립 클래스 `.doc-content`를 사용하며, 최상위 문단(`.doc-content > p`)에 `text-align: justify`, `text-align-last: start`, `text-justify: auto`를 적용.
      - `GRAPH_HTML` 및 `shared_html` 클라이언트 사이드 Fallback 렌더러에 동일 JS 파서 동기화 완료.
 
 #### B. 크로스레퍼런스 및 내부 앵커 (`<<anchor>>`, `xref:...[]`, `[#anchor]`)
@@ -103,7 +104,7 @@ flowchart TD
      - 인라인 `[[id]]` $\rightarrow$ `<a id="id" class="anchor"></a>`
      - `<<anchor, Label>>`, `<<anchor>>`, `xref:anchor[Label]` $\rightarrow$ `<a href="#anchor" class="xref">Label</a>` 링크 컴파일.
   2. **리더 뷰 UI & CSS (`graphview.py`)**:
-     - 상호 참조 링크 전용 스타일(`.md a.xref`) 및 `:target` 도달 시 부드러운 하이라이트 애니메이션(`xref-target-highlight`) 적용.
+     - 상호 참조 링크 전용 스타일(`.doc-content a.xref`) 및 `:target` 도달 시 부드러운 하이라이트 애니메이션(`xref-target-highlight`) 적용.
      - `GRAPH_HTML` 및 `shared_html` 클라이언트 렌더러에 앵커/크로스레퍼런스 동기화 완료.
   3. **프롬프트 (`prompts.py`)**:
      - `render_detail_prompt_adoc` 규칙 10번에 긴 문서 주요 섹션 앵커(`[#섹션ID]`) 및 상호 참조(`<<섹션ID, 제목>>`) 지침 추가 완료.
