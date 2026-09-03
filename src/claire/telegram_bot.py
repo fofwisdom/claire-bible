@@ -15,9 +15,9 @@ from .config import get_settings
 log = logging.getLogger("claire.telegram")
 
 
-def _status_emoji(error, duplicate: bool = False) -> str:
+def _status_emoji(error, duplicate: bool = False, *, stt_error: str | None = None) -> str:
     """처리 결과 → 원본 메시지에 달 텔레그램 허용 reaction 이모지."""
-    if error:
+    if error or stt_error:
         return "👎"
     if duplicate:
         return "🤔"
@@ -58,6 +58,61 @@ async def _react(msg, emoji: str) -> None:
         await msg.set_reaction(emoji)
     except Exception:  # noqa: BLE001
         pass
+
+
+async def _settle_status(
+    status,
+    msg,
+    summary: str,
+    cands: list,
+    *,
+    has_error: bool = False,
+    is_stt_failed: bool = False,
+    retry_doc_id: str | None = None,
+    cands_markup: Any = None,
+) -> None:
+    """완료 처리:
+    - 1홉 후보가 있으면 진행 메시지를 결과+후보 선택 버튼으로 편집(버튼 보존)
+    - STT 전사 실패 시 진행 메시지를 삭제하지 않고 실패 안내 + 재전사/재적재 원터치 버튼 제공
+    - 기타 에러 발생 시 진행 메시지를 삭제하지 않고 오류 안내 보존
+    - 정상 완료이면서 1홉 후보가 없을 때만 진행 메시지 삭제(스팸 방지 — 결과는 원본 reaction 으로 표시됨)
+    """
+    if cands and cands_markup:
+        try:
+            await status.edit_text(summary, reply_markup=cands_markup)
+        except Exception:  # noqa: BLE001
+            await msg.reply_text(summary, reply_markup=cands_markup)
+    elif is_stt_failed and retry_doc_id:
+        markup = None
+        try:
+            from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+            kb = [
+                [InlineKeyboardButton("🎙️ 비디오 음성 재전사 및 적재", callback_data=f"rg:full:{retry_doc_id}")],
+            ]
+            markup = InlineKeyboardMarkup(kb)
+        except Exception:  # noqa: BLE001
+            markup = None
+        try:
+            if markup:
+                await status.edit_text(summary, reply_markup=markup)
+            else:
+                await status.edit_text(summary)
+        except Exception:  # noqa: BLE001
+            if markup:
+                await msg.reply_text(summary, reply_markup=markup)
+            else:
+                await msg.reply_text(summary)
+    elif has_error or is_stt_failed:
+        try:
+            await status.edit_text(summary)
+        except Exception:  # noqa: BLE001
+            await msg.reply_text(summary)
+    else:
+        try:
+            await status.delete()
+        except Exception:  # noqa: BLE001
+            pass
 
 
 def classify_input(text: str) -> str:
@@ -270,20 +325,28 @@ def build_app(settings: Settings | None = None) -> Any:
         ]
         return InlineKeyboardMarkup(kb)
 
-    async def _settle(status, msg, summary: str, cands: list, update_id: int) -> None:
-        """완료 처리: 1홉 후보가 있으면 진행 메시지를 결과+버튼으로 편집(버튼 보존),
-        없으면 진행 메시지를 삭제(스팸 방지 — 결과는 원본 reaction 으로 표시됨)."""
-        if cands:
-            markup = _markup(update_id, cands)
-            try:
-                await status.edit_text(summary, reply_markup=markup)
-            except Exception:  # noqa: BLE001
-                await msg.reply_text(summary, reply_markup=markup)
-        else:
-            try:
-                await status.delete()
-            except Exception:  # noqa: BLE001
-                pass
+    async def _settle(
+        status,
+        msg,
+        summary: str,
+        cands: list,
+        update_id: int,
+        *,
+        has_error: bool = False,
+        is_stt_failed: bool = False,
+        retry_doc_id: str | None = None,
+    ) -> None:
+        cands_markup = _markup(update_id, cands) if cands else None
+        await _settle_status(
+            status,
+            msg,
+            summary,
+            cands,
+            has_error=has_error,
+            is_stt_failed=is_stt_failed,
+            retry_doc_id=retry_doc_id,
+            cands_markup=cands_markup,
+        )
 
     HELP = (
         "📚 Claire Bible — 개인 지식베이스 봇\n"
@@ -412,7 +475,7 @@ def build_app(settings: Settings | None = None) -> Any:
                             stt_err = tinfo.get("stt_error")
                             err_detail = f" (오류: {stt_err})" if stt_err else ""
                             ans = f"⚠️ 비디오 STT 전사 실패: 음성 자막이 추출되지 않아 본문에 반영되지 못했습니다.{err_detail}"
-                            emoji = "⚠️"
+                            emoji = "👎"
                         else:
                             ref_msg = ""
                             if tinfo.get("refetched_full"):
@@ -507,11 +570,26 @@ def build_app(settings: Settings | None = None) -> Any:
                 ),
             )
             summary, cands = report.telegram_summary(), report.candidates
-            emoji = _status_emoji(report.error, report.duplicate)
+            is_stt_failed = bool(
+                report.stt_error
+                or (report.source_type == "video" and report.has_transcript is False and report.stt_error)
+            )
+            has_error = bool(report.error)
+            emoji = _status_emoji(report.error, report.duplicate, stt_error=report.stt_error)
+            did = report.document_id
         except Exception as e:  # noqa: BLE001
-            summary, cands, emoji = f"❌ 처리 오류: {e}", [], "👎"
+            summary, cands, emoji, is_stt_failed, has_error, did = f"❌ 처리 오류: {e}", [], "👎", False, True, None
         await _react(msg, emoji)
-        await _settle(status, msg, summary, cands, update.update_id)
+        await _settle(
+            status,
+            msg,
+            summary,
+            cands,
+            update.update_id,
+            has_error=has_error,
+            is_stt_failed=is_stt_failed,
+            retry_doc_id=did,
+        )
 
     async def on_document(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
         user = update.effective_user
@@ -569,11 +647,26 @@ def build_app(settings: Settings | None = None) -> Any:
         try:
             report = await _run_with_ticker(status, label, _work)
             summary, cands = report.telegram_summary(), report.candidates
-            emoji = _status_emoji(report.error, report.duplicate)
+            is_stt_failed = bool(
+                report.stt_error
+                or (report.source_type == "video" and report.has_transcript is False and report.stt_error)
+            )
+            has_error = bool(report.error)
+            emoji = _status_emoji(report.error, report.duplicate, stt_error=report.stt_error)
+            did = report.document_id
         except Exception as e:  # noqa: BLE001
-            summary, cands, emoji = f"❌ 처리 오류: {e}", [], "👎"
+            summary, cands, emoji, is_stt_failed, has_error, did = f"❌ 처리 오류: {e}", [], "👎", False, True, None
         await _react(msg, emoji)
-        await _settle(status, msg, summary, cands, update.update_id)
+        await _settle(
+            status,
+            msg,
+            summary,
+            cands,
+            update.update_id,
+            has_error=has_error,
+            is_stt_failed=is_stt_failed,
+            retry_doc_id=did,
+        )
 
     async def on_ingest(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         user = update.effective_user
@@ -618,11 +711,26 @@ def build_app(settings: Settings | None = None) -> Any:
                 ),
             )
             summary, cands = report.telegram_summary(), report.candidates
-            emoji = _status_emoji(report.error, report.duplicate)
+            is_stt_failed = bool(
+                report.stt_error
+                or (report.source_type == "video" and report.has_transcript is False and report.stt_error)
+            )
+            has_error = bool(report.error)
+            emoji = _status_emoji(report.error, report.duplicate, stt_error=report.stt_error)
+            did = report.document_id
         except Exception as e:  # noqa: BLE001
-            summary, cands, emoji = f"❌ 처리 오류: {e}", [], "👎"
+            summary, cands, emoji, is_stt_failed, has_error, did = f"❌ 처리 오류: {e}", [], "👎", False, True, None
         await _react(msg, emoji)
-        await _settle(status, msg, summary, cands, update.update_id)
+        await _settle(
+            status,
+            msg,
+            summary,
+            cands,
+            update.update_id,
+            has_error=has_error,
+            is_stt_failed=is_stt_failed,
+            retry_doc_id=did,
+        )
 
     async def on_callback(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
         query = update.callback_query
@@ -663,7 +771,10 @@ def build_app(settings: Settings | None = None) -> Any:
                     elif (do_refetch or do_refetch_full) and tinfo.get("source_type") == "video" and tinfo.get("has_transcript") is False:
                         stt_err = tinfo.get("stt_error")
                         err_detail = f" (오류: {stt_err})" if stt_err else ""
-                        ans = f"⚠️ {mode_name} 부분 완료: 오디오 STT 음성 전사에 실패하여 본문에 전사 내용이 포함되지 않았습니다.{err_detail}"
+                        ans = f"⚠️ {mode_name} 실패: 오디오 STT 음성 전사에 실패하여 본문에 전사 내용이 포함되지 않았습니다.{err_detail}"
+                        kb = [[InlineKeyboardButton("🎙️ 비디오 음성 재전사 및 적재", callback_data=f"rg:full:{did}")]]
+                        await status_msg.edit_text(ans, reply_markup=InlineKeyboardMarkup(kb))
+                        return
                     else:
                         len_info = f" ({tinfo.get('new_len', 0):,}자)" if (do_refetch or do_refetch_full) else ""
                         ans = f"✅ {mode_name} 완료: {tinfo.get('title', did)}{len_info}"

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from claire.telegram_bot import _run_with_ticker, _status_emoji
+from claire.telegram_bot import _run_with_ticker, _settle_status, _status_emoji
 
 
 def test_status_emoji_maps_result():
@@ -10,6 +10,8 @@ def test_status_emoji_maps_result():
     assert _status_emoji(None, True) == "🤔"    # 중복
     assert _status_emoji("boom", False) == "👎"  # 실패
     assert _status_emoji("boom", True) == "👎"   # error 가 duplicate 보다 우선
+    assert _status_emoji(None, False, stt_error="RateLimitError: 429") == "👎"  # STT 실패 시 👎
+    assert _status_emoji(None, True, stt_error="RateLimitError: 429") == "👎"   # stt_error 가 duplicate 보다 우선
 
 
 async def test_run_with_ticker_returns_work_result():
@@ -175,4 +177,77 @@ def test_ingest_report_telegram_summary_with_directive():
     summary = report.telegram_summary()
     assert "✅ 적재 완료: 테스트 문서" in summary
     assert "초점: 시스템 아키텍처 및 내부 구조 중심" in summary
+
+
+def test_ingest_report_telegram_summary_stt_failure():
+    from claire.ingest.pipeline import IngestReport
+
+    report = IngestReport(
+        document_id="doc_30e5a1923bff",
+        title="APPB1629LV",
+        source_type="video",
+        has_transcript=False,
+        stt_error="RateLimitError: 429",
+        summary="VMware Cloud Foundation 관리자를 대상으로...",
+    )
+    summary = report.telegram_summary()
+    assert "⚠️ 부분 적재 (STT 전사 실패): APPB1629LV" in summary
+    assert "✅ 적재 완료" not in summary
+    assert "🎙️ 오디오 STT 전사 실패: 음성 자막이 추출되지 못했습니다. (오류: RateLimitError: 429)" in summary
+
+
+async def test_settle_status_behavior():
+    class FakeStatus:
+        def __init__(self):
+            self.edited_text = None
+            self.markup = None
+            self.deleted = False
+
+        async def edit_text(self, text, reply_markup=None):
+            self.edited_text = text
+            self.markup = reply_markup
+
+        async def delete(self):
+            self.deleted = True
+
+    class FakeMsg:
+        def __init__(self):
+            self.replied_text = None
+
+        async def reply_text(self, text, reply_markup=None):
+            self.replied_text = text
+
+    # 1. Normal success without candidates -> status message deleted (no spam)
+    st1 = FakeStatus()
+    await _settle_status(st1, FakeMsg(), "✅ 적재 완료", [])
+    assert st1.deleted is True
+    assert st1.edited_text is None
+
+    # 2. STT failure with doc_id -> message preserved, retry button attached, not deleted
+    st2 = FakeStatus()
+    await _settle_status(
+        st2,
+        FakeMsg(),
+        "⚠️ 부분 적재 (STT 전사 실패)",
+        [],
+        is_stt_failed=True,
+        retry_doc_id="doc_123",
+    )
+    assert st2.deleted is False
+    assert st2.edited_text == "⚠️ 부분 적재 (STT 전사 실패)"
+    assert st2.markup is not None
+    assert st2.markup.inline_keyboard[0][0].callback_data == "rg:full:doc_123"
+
+    # 3. General error -> message preserved, not deleted
+    st3 = FakeStatus()
+    await _settle_status(
+        st3,
+        FakeMsg(),
+        "❌ 처리 오류",
+        [],
+        has_error=True,
+    )
+    assert st3.deleted is False
+    assert st3.edited_text == "❌ 처리 오류"
+
 

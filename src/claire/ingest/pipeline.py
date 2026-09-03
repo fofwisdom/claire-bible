@@ -52,14 +52,31 @@ class IngestReport:
     directive: str | None = None
     full_content: bool = False
     effort: str | None = None
+    has_transcript: bool | None = None
+    stt_error: str | None = None
 
     def telegram_summary(self) -> str:
         if self.error:
             return f"❌ 적재 실패: {self.error}"
         if self.duplicate:
             return f"♻️ 이미 있는 자료입니다 (dedup): {self.title or self.document_id}"
-        head = "🔄 자료 업데이트(내용 변경 반영)" if self.updated else "✅ 적재 완료"
+
+        is_stt_failed = bool(
+            self.stt_error
+            or (self.source_type == "video" and self.has_transcript is False and self.stt_error)
+        )
+        if is_stt_failed:
+            head = "⚠️ 부분 적재 (STT 전사 실패)"
+        elif self.updated:
+            head = "🔄 자료 업데이트(내용 변경 반영)"
+        else:
+            head = "✅ 적재 완료"
+
         parts = [f"{head}: {self.title or self.document_id}"]
+        if is_stt_failed:
+            err_detail = f" (오류: {self.stt_error})" if self.stt_error else ""
+            parts.append(f"🎙️ 오디오 STT 전사 실패: 음성 자막이 추출되지 못했습니다.{err_detail}")
+
         meta_badges = []
         if self.full_content:
             meta_badges.append("🌐 원문 무절단 수집")
@@ -69,7 +86,7 @@ class IngestReport:
             parts.append(" · ".join(meta_badges))
         if self.directive:
             parts.append(f"초점: {self.directive}")
-        if self.partial:
+        if self.partial and not is_stt_failed:
             parts.append("⚠️ 부분 처리(partial)")
         parts.append(f"요약: {self.summary[:300]}")
         parts.append(
@@ -155,6 +172,11 @@ def ingest(
     report.partial = doc.partial
     report.title = doc.title
     report.directive = directive
+    if doc.meta:
+        if "has_transcript" in doc.meta:
+            report.has_transcript = bool(doc.meta.get("has_transcript"))
+        if "stt_error" in doc.meta:
+            report.stt_error = doc.meta.get("stt_error")
     if directive and directive.strip():
         if doc.meta is None:
             doc.meta = {}
