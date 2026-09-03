@@ -54,6 +54,8 @@ class IngestReport:
     effort: str | None = None
     has_transcript: bool | None = None
     stt_error: str | None = None
+    pdf_parser_fallback: bool = False
+    pdf_parser_fallback_reason: str | None = None
 
     def telegram_summary(self) -> str:
         if self.error:
@@ -67,12 +69,17 @@ class IngestReport:
         )
         if is_stt_failed:
             head = "⚠️ 부분 적재 (STT 전사 실패)"
+        elif self.pdf_parser_fallback:
+            head = "⚠️ PDF 파서 대체 적재 (Docling 실패 → PyPDF)"
         elif self.updated:
             head = "🔄 자료 업데이트(내용 변경 반영)"
         else:
             head = "✅ 적재 완료"
 
         parts = [f"{head}: {self.title or self.document_id}"]
+        if self.pdf_parser_fallback:
+            reason = self.pdf_parser_fallback_reason or "Docling 런타임 오류"
+            parts.append(f"📄 Docling 레이아웃 파서 실패로 PyPDF가 대체 사용되었습니다. (사유: {reason})")
         if is_stt_failed:
             err_detail = f" (오류: {self.stt_error})" if self.stt_error else ""
             parts.append(f"🎙️ 오디오 STT 전사 실패: 음성 자막이 추출되지 못했습니다.{err_detail}")
@@ -177,6 +184,10 @@ def ingest(
             report.has_transcript = bool(doc.meta.get("has_transcript"))
         if "stt_error" in doc.meta:
             report.stt_error = doc.meta.get("stt_error")
+        if "pdf_parser_fallback" in doc.meta:
+            report.pdf_parser_fallback = bool(doc.meta.get("pdf_parser_fallback"))
+        if "pdf_parser_fallback_reason" in doc.meta:
+            report.pdf_parser_fallback_reason = doc.meta.get("pdf_parser_fallback_reason")
     if directive and directive.strip():
         if doc.meta is None:
             doc.meta = {}
@@ -363,6 +374,11 @@ def extract_resolve_store(
     report.effort = eff
     if full_content:
         report.full_content = True
+    if doc.meta:
+        if "pdf_parser_fallback" in doc.meta:
+            report.pdf_parser_fallback = bool(doc.meta.get("pdf_parser_fallback"))
+        if "pdf_parser_fallback_reason" in doc.meta:
+            report.pdf_parser_fallback_reason = doc.meta.get("pdf_parser_fallback_reason")
 
     if getattr(doc, "id", None):
         try:

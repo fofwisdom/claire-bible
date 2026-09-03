@@ -79,6 +79,12 @@ def fetch_file(path: str, *, full_content: bool = False) -> Document:
         "orig_chars": orig_chars,
         "raw_chars": raw_chars,
     }
+    if source_type == "pdf" and "pdf_res" in locals():
+        meta["pdf_parser_requested"] = getattr(pdf_res, "parser_requested", "pypdf")
+        meta["pdf_parser_used"] = getattr(pdf_res, "parser_used", "pypdf")
+        meta["pdf_parser_fallback"] = bool(getattr(pdf_res, "parser_fallback", False))
+        if getattr(pdf_res, "parser_fallback_reason", None):
+            meta["pdf_parser_fallback_reason"] = getattr(pdf_res, "parser_fallback_reason")
     if biblio:
         meta["biblio"] = biblio
     return Document(

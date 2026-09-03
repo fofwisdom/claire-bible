@@ -62,18 +62,20 @@ _IMG_MIN_DIM = 150      # width/height 속성이 명시돼 있고 이보다 작�
 class FetchStaticResult(tuple):
     """8개 튜플(title, text, links, anchors, error, effective_url, images, is_pdf) 호환 객체."""
 
-    def __new__(cls, title, text, links, anchors, error, effective_url, images, is_pdf, biblio=None):
+    def __new__(cls, title, text, links, anchors, error, effective_url, images, is_pdf, biblio=None, parser_info=None):
         inst = super().__new__(cls, (title, text, links, anchors, error, effective_url, images, is_pdf))
         inst.biblio = biblio or {}
+        inst.parser_info = parser_info or {}
         return inst
 
 
 class FetchScraplingResult(tuple):
     """6개 튜플(title, text, links, anchors, images, is_pdf) 호환 객체."""
 
-    def __new__(cls, title, text, links, anchors, images, is_pdf, biblio=None):
+    def __new__(cls, title, text, links, anchors, images, is_pdf, biblio=None, parser_info=None):
         inst = super().__new__(cls, (title, text, links, anchors, images, is_pdf))
         inst.biblio = biblio or {}
+        inst.parser_info = parser_info or {}
         return inst
 
 
@@ -83,6 +85,7 @@ def fetch_web(url: str, *, full_content: bool = False) -> Document:
     title, text, links, anchors, err, effective_url, images = res[:7]
     is_pdf = bool(res[7]) if len(res) > 7 else False
     biblio: dict[str, Any] = getattr(res, "biblio", None) or (res[8] if len(res) > 8 and isinstance(res[8], dict) else {})
+    parser_info: dict[str, Any] = getattr(res, "parser_info", {}) or {}
     usable, guard_err = _is_usable(title, text)
 
     # 2) law.go.kr 에스컬레이션 — 국가법령정보센터 iframe / ajax 구조 해소
@@ -206,6 +209,8 @@ def fetch_web(url: str, *, full_content: bool = False) -> Document:
         "orig_chars": orig_chars,
         "raw_chars": raw_chars,
     }
+    if is_pdf and parser_info:
+        meta.update(parser_info)
     if biblio:
         meta["biblio"] = biblio
     return Document(
@@ -261,7 +266,14 @@ def _fetch_static(
             )
             title, text, links, anchors, perr, images = pdf_res[:6]
             biblio = getattr(pdf_res, "biblio", None) or (pdf_res[6] if len(pdf_res) > 6 and isinstance(pdf_res[6], dict) else {})
-            return FetchStaticResult(title, text, links, anchors, perr, str(resp.url), images, True, biblio)
+            parser_info = {
+                "pdf_parser_requested": getattr(pdf_res, "parser_requested", "pypdf"),
+                "pdf_parser_used": getattr(pdf_res, "parser_used", "pypdf"),
+                "pdf_parser_fallback": bool(getattr(pdf_res, "parser_fallback", False)),
+            }
+            if getattr(pdf_res, "parser_fallback_reason", None):
+                parser_info["pdf_parser_fallback_reason"] = getattr(pdf_res, "parser_fallback_reason")
+            return FetchStaticResult(title, text, links, anchors, perr, str(resp.url), images, True, biblio, parser_info=parser_info)
 
         title, text, links, anchors, perr, images = _extract_html(
             resp.text, base_url=str(resp.url))
@@ -510,7 +522,14 @@ def _fetch_scrapling(
             )
             title, text, links, anchors, _, images = pdf_res[:6]
             biblio = getattr(pdf_res, "biblio", None) or (pdf_res[6] if len(pdf_res) > 6 and isinstance(pdf_res[6], dict) else {})
-            return FetchScraplingResult(title, text, links, anchors, images, True, biblio)
+            parser_info = {
+                "pdf_parser_requested": getattr(pdf_res, "parser_requested", "pypdf"),
+                "pdf_parser_used": getattr(pdf_res, "parser_used", "pypdf"),
+                "pdf_parser_fallback": bool(getattr(pdf_res, "parser_fallback", False)),
+            }
+            if getattr(pdf_res, "parser_fallback_reason", None):
+                parser_info["pdf_parser_fallback_reason"] = getattr(pdf_res, "parser_fallback_reason")
+            return FetchScraplingResult(title, text, links, anchors, images, True, biblio, parser_info=parser_info)
 
         html = getattr(page, "html_content", "") or ""
         title, text, links, anchors, _, images = _extract_html(str(html), base_url=url)

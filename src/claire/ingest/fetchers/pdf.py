@@ -224,7 +224,7 @@ def extract_bibliographic_metadata(
 
 
 class PdfExtractResult(tuple):
-    """6개 튜플(title, text, links, anchors, error, images)과 완벽 호환되면서 .biblio 속성을 제공."""
+    """6개 튜플(title, text, links, anchors, error, images)과 완벽 호환되면서 .biblio 및 파서 실행 이력 속성을 제공."""
 
     def __new__(
         cls,
@@ -235,9 +235,17 @@ class PdfExtractResult(tuple):
         error: str | None,
         images: list[dict],
         biblio: dict[str, Any] | None = None,
+        parser_requested: str = "pypdf",
+        parser_used: str = "pypdf",
+        parser_fallback: bool = False,
+        parser_fallback_reason: str | None = None,
     ):
         instance = super().__new__(cls, (title, text, links, anchors, error, images))
         instance.biblio = biblio or {}
+        instance.parser_requested = parser_requested
+        instance.parser_used = parser_used
+        instance.parser_fallback = parser_fallback
+        instance.parser_fallback_reason = parser_fallback_reason
         return instance
 
     @property
@@ -263,6 +271,36 @@ class PdfExtractResult(tuple):
     @property
     def images(self) -> list[dict]:
         return self[5]
+
+
+def classify_docling_failure(exc: Exception) -> str:
+    """컨테이너 및 서버 환경에서 Docling 실패 원인을 정밀 진단하여 인지 가능한 사유로 정제."""
+    err_str = str(exc)
+    err_type = type(exc).__name__
+
+    # 1. 컨테이너 메모리 부족 (OOM)
+    if isinstance(exc, MemoryError) or "outofmemory" in err_str.lower() or "cuda out of memory" in err_str.lower():
+        return "컨테이너 메모리(RAM) 부족 (OOM)"
+
+    # 2. CPU 추론 시간 초과
+    if isinstance(exc, TimeoutError) or ("timeout" in err_type.lower() and "connect" not in err_type.lower()):
+        return "CPU 추론 시간 초과 (Timeout)"
+
+    # 3. AI 모델 가중치(Weights) 다운로드 및 외부 네트워크 장애
+    if (
+        any(k in err_str.lower() for k in ("hfhub", "huggingface", "connectionerror", "connecttimeout", "getaddrinfo failed", "max retries exceeded"))
+        or "Connection" in err_type
+        or "ConnectTimeout" in err_type
+    ):
+        return "AI 모델 가중치(Weights) 다운로드 실패 (외부 네트워크 차단 또는 HuggingFace 연결 불가)"
+
+    # 4. 라이브러리 또는 C++ 의존성 누락
+    if isinstance(exc, (ImportError, ModuleNotFoundError)):
+        return f"Docling 또는 C++ 런타임 라이브러리 누락 ({exc})"
+
+    # 5. 기타 런타임 변환 오류
+    clean_msg = err_str.strip().replace("\n", " ")[:150]
+    return f"문서 변환 중 런타임 오류 ({err_type}: {clean_msg})"
 
 
 def extract_pdf_stream_pypdf(
@@ -404,23 +442,40 @@ def extract_pdf_stream(
     """(title, text, links, anchors, error, images) 6개 튜플 호환 객체(biblio 속성 포함).
 
     선택된 엔진(pypdf 또는 docling)으로 PDF를 추출한다.
-    docling 실패 또는 미설치 시 pypdf로 안전하게 자동 폴백한다.
+    docling 실패 또는 미설치 시 정밀한 원인을 진단/기록하고 pypdf로 안전하게 자동 폴백한다.
     """
     settings = get_settings()
     selected_engine = (engine or getattr(settings, "pdf_parser", "pypdf") or "pypdf").lower().strip()
 
     if selected_engine == "docling":
         try:
-            return extract_pdf_stream_docling(stream, url=url, fallback_title=fallback_title)
+            res = extract_pdf_stream_docling(stream, url=url, fallback_title=fallback_title)
+            res.parser_requested = "docling"
+            res.parser_used = "docling"
+            res.parser_fallback = False
+            return res
         except Exception as e:
-            logger.warning("Docling PDF extraction failed or unavailable: %s. Falling back to pypdf.", e)
+            reason = classify_docling_failure(e)
+            logger.warning(
+                "Docling PDF extraction failed: %s (%s). Falling back to pypdf.",
+                reason, e,
+            )
             try:
                 stream.seek(0)
             except Exception:
                 pass
-            return extract_pdf_stream_pypdf(stream, url=url, fallback_title=fallback_title)
+            pypdf_res = extract_pdf_stream_pypdf(stream, url=url, fallback_title=fallback_title)
+            pypdf_res.parser_requested = "docling"
+            pypdf_res.parser_used = "pypdf"
+            pypdf_res.parser_fallback = True
+            pypdf_res.parser_fallback_reason = reason
+            return pypdf_res
 
-    return extract_pdf_stream_pypdf(stream, url=url, fallback_title=fallback_title)
+    res = extract_pdf_stream_pypdf(stream, url=url, fallback_title=fallback_title)
+    res.parser_requested = "pypdf"
+    res.parser_used = "pypdf"
+    res.parser_fallback = False
+    return res
 
 
 def extract_pdf_bytes(
