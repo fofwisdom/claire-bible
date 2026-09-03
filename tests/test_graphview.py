@@ -105,6 +105,18 @@ def test_graph_html_self_contained_markers():
     assert "👁️ 익명 읽기전용" in GRAPH_HTML
     assert "let READONLY=false" not in GRAPH_HTML
     assert "setAuth('authed')" not in GRAPH_HTML
+    # 적재 폼은 CLI의 분량/사고 수준 옵션을 원클릭 선택으로 제공하고 초점을 별도 입력한다.
+    assert 'id="ingamount-standard" type="radio" name="ingest-amount" value="standard" checked' in GRAPH_HTML
+    assert 'id="ingamount-full" type="radio" name="ingest-amount" value="full"' in GRAPH_HTML
+    for effort in ("none", "minimal", "low", "medium", "high", "max"):
+        assert f'name="ingest-effort" value="{effort}"' in GRAPH_HTML
+    assert 'id="ingeffort-default" type="radio" name="ingest-effort" value="" checked' in GRAPH_HTML
+    assert 'id="ingfocus"' in GRAPH_HTML
+    assert "const bodyObj = {payload:payload, full_content:fullContent};" in GRAPH_HTML
+    assert "if(effort) bodyObj.effort=effort;" in GRAPH_HTML
+    assert "if(focus) bodyObj.focus=focus;" in GRAPH_HTML
+    assert "const sepIdx = rawText.search" not in GRAPH_HTML
+    assert "줄바꿈 두 번" not in GRAPH_HTML
     for guarded_write in (
         "async function markDocumentSeen(docId){\n  if(!canWrite()) return;",
         "async function shareDoc(){\n  if(!canWrite() || !curReaderDoc) return;",

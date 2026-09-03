@@ -323,6 +323,8 @@ def test_api_server_orientation(tmp_path: Path):
             json={
                 "payload": "제목: API 테스트\n본문: REST API를 통한 초점 적재를 테스트합니다.",
                 "focus": "API 초점 전달 테스트",
+                "full_content": True,
+                "effort": "high",
             },
             headers={"Authorization": f"Bearer {settings.inject_token}"},
         )
@@ -330,11 +332,16 @@ def test_api_server_orientation(tmp_path: Path):
         data = resp.json()
         doc_id = data.get("document_id")
         assert doc_id is not None
+        assert data["full_content"] is True
+        assert data["effort"] == "high"
 
         conn = dbm.connect(db_file)
         detail = dbm.get_document_detail(conn, doc_id)
         assert "[directive: API 초점 전달 테스트]" in detail
         assert dbm.get_document_directive(conn, doc_id) == "API 초점 전달 테스트"
+        saved_doc = dbm.get_document(conn, doc_id)
+        assert saved_doc.meta["full_content"] is True
+        assert saved_doc.meta["applied_effort"] == "high"
         conn.close()
 
         # 2. Ingest via API with legacy orientation field (backward compatibility)
@@ -402,4 +409,3 @@ def test_router_clean_url_with_trailing_directive():
 
     # 4. Non-URL plain text
     assert _clean_url("Plain text memo") == "Plain text memo"
-
