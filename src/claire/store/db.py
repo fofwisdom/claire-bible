@@ -1482,13 +1482,16 @@ def set_document_detail(
     html: str | None = None,
 ) -> None:
     """문서의 가독 렌더(detail), 포맷(detail_format), 사전 컴파일 HTML(detail_html)을 저장."""
+    from ..extract.prompts import remove_leading_original_link
+
     fmt = (format or "md").strip().lower()
     if fmt in ("asciidoc", "adoc"):
         fmt = "adoc"
     else:
         fmt = "md"
 
-    if html is None and detail and detail.strip():
+    detail = remove_leading_original_link(detail)
+    if html is None and detail:
         from ..render import render_to_html
 
         html_content = render_to_html(detail, format=fmt)
@@ -1504,9 +1507,12 @@ def set_document_detail(
 
 def get_document_detail(conn: sqlite3.Connection, document_id: str) -> str | None:
     """문서의 detail(가독 렌더 원본 텍스트). 없으면 None."""
+    from ..extract.prompts import remove_leading_original_link
+
     row = conn.execute(
         "SELECT detail FROM documents WHERE id=?", (document_id,)).fetchone()
-    return (row["detail"] if row else None) or None
+    detail = (row["detail"] if row else None) or None
+    return remove_leading_original_link(detail) or None
 
 
 def get_document_detail_format(conn: sqlite3.Connection, document_id: str) -> str:
@@ -1518,19 +1524,33 @@ def get_document_detail_format(conn: sqlite3.Connection, document_id: str) -> st
 
 def get_document_detail_html(conn: sqlite3.Connection, document_id: str) -> str | None:
     """문서의 detail_html(AOT 사전 컴파일된 HTML). 없으면 detail 로부터 실시간 생성 및 캐싱."""
+    from ..extract.prompts import remove_leading_original_link
+
     row = conn.execute(
         "SELECT detail, detail_format, detail_html FROM documents WHERE id=?",
         (document_id,),
     ).fetchone()
     if not row:
         return None
-    if row["detail_html"]:
-        return row["detail_html"]
-    if row["detail"] and row["detail"].strip():
+    detail = remove_leading_original_link(row["detail"])
+    if detail != (row["detail"] or "").strip():
         from ..render import render_to_html
 
         fmt = row["detail_format"] or "md"
-        rendered = render_to_html(row["detail"], format=fmt)
+        rendered = render_to_html(detail, format=fmt) if detail else ""
+        conn.execute(
+            "UPDATE documents SET detail=?, detail_html=? WHERE id=?",
+            (detail, rendered, document_id),
+        )
+        conn.commit()
+        return rendered or None
+    if row["detail_html"]:
+        return row["detail_html"]
+    if detail:
+        from ..render import render_to_html
+
+        fmt = row["detail_format"] or "md"
+        rendered = render_to_html(detail, format=fmt)
         if rendered:
             try:
                 conn.execute(
@@ -1546,6 +1566,7 @@ def get_document_detail_html(conn: sqlite3.Connection, document_id: str) -> str 
 
 def recompile_all_detail_html(conn: sqlite3.Connection) -> int:
     """모든 문서의 detail_html을 현재 AOT 렌더러로 재컴파일하여 DB에 갱신."""
+    from ..extract.prompts import remove_leading_original_link
     from ..render import render_to_html
 
     rows = conn.execute(
@@ -1554,10 +1575,11 @@ def recompile_all_detail_html(conn: sqlite3.Connection) -> int:
     count = 0
     for r in rows:
         fmt = r["detail_format"] or "md"
-        html_out = render_to_html(r["detail"], format=fmt)
+        detail = remove_leading_original_link(r["detail"])
+        html_out = render_to_html(detail, format=fmt)
         conn.execute(
-            "UPDATE documents SET detail_html=? WHERE id=?",
-            (html_out, r["id"]),
+            "UPDATE documents SET detail=?, detail_html=? WHERE id=?",
+            (detail, html_out, r["id"]),
         )
         count += 1
     conn.commit()
@@ -3047,7 +3069,4 @@ def backfill_stt_metadata(
         "updated_count": updated_count,
         "items": targets,
     }
-
-
-
 

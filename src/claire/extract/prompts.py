@@ -60,6 +60,114 @@ Rules:
 
 import re
 
+_LEADING_BIBLIO_LABEL_RE = re.compile(
+    r"(?:저자|작성자|발행(?:일자|일)?|출처|원문|URL|DOI|arXiv(?:\s+ID)?|"
+    r"Author|Published(?:\s+(?:at|date))?|Source)\s*:",
+    re.IGNORECASE,
+)
+_DOCUMENT_HEADING_RE = re.compile(r"^(?:=|#)\s+\S")
+_THEMATIC_BREAK_RE = re.compile(r"^(?:'{3}|-{3,}|\*{3,}|_{3,})$")
+_ORIGINAL_LINK_FIELD_RE = re.compile(
+    r"^(?:URL|원문(?:\s*(?:URL|링크))?)\s*:", re.IGNORECASE
+)
+_PAREN_MD_LINK_RE = re.compile(
+    r"\s*\(\s*\[[^\]]+\]\(https?://[^)]+\)\s*\)", re.IGNORECASE
+)
+_PAREN_ADOC_LINK_RE = re.compile(
+    r"\s*\(\s*https?://[^\s\[]+\[[^\]]*\]\s*\)", re.IGNORECASE
+)
+_PAREN_RAW_URL_RE = re.compile(
+    r"\s*\(\s*https?://[^\s)]+\s*\)", re.IGNORECASE
+)
+_MD_LINK_RE = re.compile(r"\[([^\]]+)\]\(https?://[^)]+\)", re.IGNORECASE)
+_ADOC_LINK_RE = re.compile(r"https?://[^\s\[]+\[([^\]]*)\]", re.IGNORECASE)
+_RAW_URL_RE = re.compile(r"https?://\S+", re.IGNORECASE)
+
+
+def remove_leading_original_link(text: str | None) -> str:
+    """상세 본문 선두 서지 행에서 중복 원문 링크만 제거한다.
+
+    문서 제목 직후(또는 제목이 없으면 첫 행)의 서지 메타데이터만 대상으로 한다.
+    저자·발행일·출처명·세션 ID·DOI 등은 보존하고, UI의 ``원문 열기``와 중복되는
+    URL/하이퍼링크만 제거한다. 본문 안의 링크와 인용은 변경하지 않는다.
+    """
+    if not text:
+        return ""
+
+    lines = text.splitlines()
+    first = next((i for i, line in enumerate(lines) if line.strip()), None)
+    if first is None:
+        return ""
+
+    candidate = first
+    if _DOCUMENT_HEADING_RE.match(lines[first].strip()):
+        candidate = first + 1
+        while candidate < len(lines) and not lines[candidate].strip():
+            candidate += 1
+
+    if candidate >= len(lines):
+        return text.strip()
+
+    candidate_text = lines[candidate].strip()
+    candidate_core = candidate_text.lstrip(">_*` ([")
+    if (
+        not _LEADING_BIBLIO_LABEL_RE.match(candidate_core)
+        or not re.search(r"https?://", candidate_text, re.IGNORECASE)
+    ):
+        return text.strip()
+
+    prefix = ""
+    suffix = ""
+    inner = candidate_text
+    if inner.startswith("_") and inner.endswith("_") and len(inner) > 1:
+        prefix, suffix, inner = "_", "_", inner[1:-1]
+    elif inner.startswith("**") and inner.endswith("**") and len(inner) > 3:
+        prefix, suffix, inner = "**", "**", inner[2:-2]
+    elif inner.startswith(">"):
+        prefix, inner = "> ", inner[1:].lstrip()
+
+    cleaned_parts: list[str] = []
+    for part in re.split(r"\s+\|\s+", inner):
+        if _ORIGINAL_LINK_FIELD_RE.match(part) and re.search(
+            r"https?://", part, re.IGNORECASE
+        ):
+            continue
+        part = _PAREN_MD_LINK_RE.sub("", part)
+        part = _PAREN_ADOC_LINK_RE.sub("", part)
+        part = _MD_LINK_RE.sub(r"\1", part)
+        part = _ADOC_LINK_RE.sub(r"\1", part)
+        part = _PAREN_RAW_URL_RE.sub("", part)
+        part = _RAW_URL_RE.sub("", part)
+        part = re.sub(r"\s+", " ", part).strip()
+        if part and not re.fullmatch(
+            r"(?:URL|원문(?:\s*(?:URL|링크))?)\s*:", part, re.IGNORECASE
+        ):
+            cleaned_parts.append(part)
+
+    replacement = " | ".join(cleaned_parts)
+    if replacement:
+        lines[candidate] = f"{prefix}{replacement}{suffix}"
+        return "\n".join(lines).strip()
+
+    end = candidate + 1
+    while end < len(lines) and not lines[end].strip():
+        end += 1
+    if end < len(lines) and _THEMATIC_BREAK_RE.fullmatch(lines[end].strip()):
+        end += 1
+        while end < len(lines) and not lines[end].strip():
+            end += 1
+
+    kept_prefix = lines[:candidate]
+    while kept_prefix and not kept_prefix[-1].strip():
+        kept_prefix.pop()
+    kept_suffix = lines[end:]
+    while kept_suffix and not kept_suffix[0].strip():
+        kept_suffix.pop(0)
+
+    if kept_prefix and kept_suffix:
+        return "\n".join(kept_prefix + [""] + kept_suffix).strip()
+    return "\n".join(kept_prefix + kept_suffix).strip()
+
 _ADOC_CORRUPTED_PATTERNS = (
     r"(?:^|\n)={1,5}\s+",
     r"(?:^|\n)#{1,6}\s+",
@@ -365,7 +473,8 @@ def render_detail_prompt_md(
         "5. 고유명사·제품/도구/모델명·조직명·기술 용어는 원문 형태 그대로 유지하라"
         '(음차/번역 금지: 예 "arXiv", "LLM agent").\n'
         "6. 원문에 없는 사실은 절대 지어내지 말 것.\n"
-        "7. 서지 정보 표기: 원문 헤더에 저자(AUTHORS), 발행일자(PUBLISHED_AT), DOI, arXiv ID 등의 서지 정보가 명시되어 있다면, 문서 최상단에 인용구 형태(예: `> 저자: ... | 발행: ... | DOI: ...`)로 간결히 기재하여 출처를 명시하라.\n"
+        "7. 서지 정보 표기: 원문 헤더에 저자(AUTHORS), 발행일자(PUBLISHED_AT), DOI, arXiv ID, 출처명 등의 서지 정보가 명시되어 있다면, 문서 최상단에 인용구 형태(예: `> 저자: ... | 발행: ... | DOI: ... | 출처: ...`)로 간결히 기재하라. "
+        "저자·발행일·출처명·문서/세션 ID·DOI 등의 서지 정보는 보존한다. 단, 독자 화면에 '원문 열기' 기능이 별도로 있으므로 입력 헤더의 `URL:` 값, 원본 URL, `[원문](URL)` 같은 원문 하이퍼링크는 이 서지 행에 중복 기재하지 마라.\n"
         "8. 절단 섹션 상세 작성 배제(적재 정책): 원문을 절단하여 적재 및 상세 작성 시, 절단되어 내용이 유실된 섹션은 상세를 작성하지 않는다. 본문 중간이나 말미에서 텍스트가 끊겨 온전히 이어지지 않는 불완전한 섹션(잘린 문단, 미완성 소제목·조항 등)은 억지로 추론하거나 불완전하게 작성하지 말고 완전히 제외(생략)하며, 온전하게 보존된 섹션까지만 상세를 작성하라.\n"
         + images_block(images)
         + f"\n원문:\n{body}\n\n한국어 마크다운:"
@@ -431,7 +540,8 @@ def render_detail_prompt_adoc(
         "10. 수식 및 공식 보존: 수학, 통계, 암호학, 알고리즘 공식 및 기호는 원문을 온전히 보존하라. 문장 내에 등장하는 개별 그리스 문자(예: \\lambda, \\omega, \\alpha)나 수학 기호(\\in, \\ge, \\sum)라도 반드시 인라인 수식 `stem:[공식]`(예: `stem:[E = mc^2]`, `stem:[\\lambda_o]`) 또는 `$ \\lambda_o $`로 감싸라. 블록 수식은 `[latexmath]\\n++++\\n수식\\n++++` 또는 `$$ 수식 $$`을 사용하여 기호나 공식을 정확하게 보존하라.\n"
         "11. 상호 참조 및 앵커: 긴 문서의 주요 섹션에는 `[#섹션ID]` 앵커를 부여하고, 필요시 `<<섹션ID, 제목>>` 상호 참조를 활용하라.\n"
         "12. 원문에 없는 사실은 절대 지어내지 말 것.\n"
-        "13. 서지 정보 표기: 원문 헤더에 저자(AUTHORS), 발행일자(PUBLISHED_AT), DOI 등의 서지 정보가 명시되어 있다면, 문서 최상단에 이탤릭/인용구 형태(예: `_저자: ... | 발행: ..._`)로 간결히 기재하여 출처를 명시하라.\n"
+        "13. 서지 정보 표기: 원문 헤더에 저자(AUTHORS), 발행일자(PUBLISHED_AT), DOI, arXiv ID, 출처명 등의 서지 정보가 명시되어 있다면, 문서 최상단에 이탤릭/인용구 형태(예: `_저자: ... | 발행: ... | DOI: ... | 출처: ..._`)로 간결히 기재하라. "
+        "저자·발행일·출처명·문서/세션 ID·DOI 등의 서지 정보는 보존한다. 단, 독자 화면에 '원문 열기' 기능이 별도로 있으므로 입력 헤더의 `URL:` 값, 원본 URL, `https://example.com[원문]` 같은 원문 하이퍼링크는 이 서지 행에 중복 기재하지 마라.\n"
         "14. 절단 섹션 상세 작성 배제(적재 정책): 원문을 절단하여 적재 및 상세 작성 시, 절단되어 내용이 유실된 섹션은 상세를 작성하지 않는다. 본문 중간이나 말미에서 텍스트가 끊겨 온전히 이어지지 않는 불완전한 섹션(잘린 문단, 미완성 소제목·조항 등)은 억지로 추론하거나 불완전하게 작성하지 말고 완전히 제외(생략)하며, 온전하게 보존된 섹션까지만 상세를 작성하라.\n"
         + images_block_adoc(images)
         + f"\n원문:\n{body}\n\n한국어 AsciiDoc:"
@@ -573,4 +683,3 @@ def classify_paper_prompt(title: str, text_head: str) -> str:
         f"[제목]\n{title or '(제목 없음)'}\n\n"
         f"[도입부 텍스트]\n{text_head[:3000]}"
     )
-
