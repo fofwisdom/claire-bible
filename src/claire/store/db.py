@@ -1538,11 +1538,6 @@ def get_document_detail_html(conn: sqlite3.Connection, document_id: str) -> str 
 
         fmt = row["detail_format"] or "md"
         rendered = render_to_html(detail, format=fmt) if detail else ""
-        conn.execute(
-            "UPDATE documents SET detail=?, detail_html=? WHERE id=?",
-            (detail, rendered, document_id),
-        )
-        conn.commit()
         return rendered or None
     if row["detail_html"]:
         return row["detail_html"]
@@ -3069,4 +3064,3 @@ def backfill_stt_metadata(
         "updated_count": updated_count,
         "items": targets,
     }
-
