@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import re
-import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -63,7 +61,11 @@ def parse_raw_transcript_lines(raw_text: str) -> list[TranscriptSegment]:
 
 
 class AntigravityTranscriptProvider(TranscriptProvider):
-    """Antigravity CLI (agy) 및 Gemini 멀티모달 오디오 전사 프로바이더."""
+    """Antigravity CLI 기반 오디오 전사 프로바이더 (STT 미지원 스텁).
+    
+    Antigravity CLI(agy)는 오디오 바이너리 스트리밍 및 전사 인터페이스를 제공하지 않으므로
+    STT 구현이 불가능합니다. 현재 음성 전사는 Google AI Studio의 Gemini('gemini')만 지원됩니다.
+    """
 
     name = "antigravity"
 
@@ -86,112 +88,8 @@ class AntigravityTranscriptProvider(TranscriptProvider):
         if not p.is_file():
             raise FileNotFoundError(f"Audio file not found: {p}")
 
-        target_lang = language or self.language or "ko"
-
-        # 1. Gemini API 키가 직접 설정되어 있는 경우 google-genai SDK 우선 시도
-        api_key = getattr(self.settings, "gemini_api_key", None)
-        if api_key:
-            try:
-                return self._transcribe_via_gemini_sdk(p, target_lang, timestamps)
-            except Exception as e:
-                logger.warning("Gemini SDK audio transcription failed: %s, trying agy CLI", e)
-
-        # 2. Antigravity CLI (agy) 서브프로세스 호출
-        return self._transcribe_via_agy_cli(p, target_lang, timestamps)
-
-    def _transcribe_via_gemini_sdk(
-        self,
-        audio_file: Path,
-        language: str,
-        timestamps: bool,
-    ) -> TranscriptResult:
-        from google import genai
-        from google.genai import types
-
-        client = genai.Client(api_key=self.settings.gemini_api_key)
-        uploaded = client.files.upload(file=str(audio_file))
-
-        prompt = (
-            f"You are an expert audio transcription system. Transcribe the entire speech in the provided audio file "
-            f"accurately in its spoken language. Preserve technical terms, acronyms, and proper nouns correctly. "
-            f"Format the output as chronological lines with timestamps, e.g. '[MM:SS] Transcribed sentence...'. "
-            f"Do not omit any sections."
-        )
-
-        try:
-            model_name = self.model or "gemini-2.5-flash"
-            resp = client.models.generate_content(
-                model=model_name,
-                contents=[uploaded, prompt],
-            )
-            raw_text = (resp.text or "").strip()
-        finally:
-            try:
-                client.files.delete(name=uploaded.name)
-            except Exception:  # noqa: BLE001
-                pass
-
-        segments = parse_raw_transcript_lines(raw_text)
-        max_duration = max((s.end_sec for s in segments), default=0.0)
-
-        return TranscriptResult(
-            full_text=raw_text,
-            segments=segments,
-            language=language,
-            duration_sec=max_duration,
-            provider="antigravity",
-            model=model_name,
-        )
-
-    def _transcribe_via_agy_cli(
-        self,
-        audio_file: Path,
-        language: str,
-        timestamps: bool,
-    ) -> TranscriptResult:
-        from ...config import find_agy_executable
-
-        raw_bin = getattr(self.settings, "agy_bin", "agy")
-        agy_bin = find_agy_executable(raw_bin) or raw_bin
-
-        prompt = (
-            f"Transcribe the spoken audio from the file '{audio_file}' completely with timestamps in '[MM:SS] text' format. "
-            f"Preserve all technical terminology accurately. Return plain text lines."
-        )
-
-        cmd = [
-            agy_bin,
-            "-p",
-            prompt,
-            "--output-format",
-            "text",
-            "--disable-slash-commands",
-            "--dangerously-skip-permissions",
-        ]
-        if self.model:
-            cmd.extend(["--model", self.model])
-
-        proc = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=self.timeout,
-            check=False,
-        )
-
-        if proc.returncode != 0:
-            err = (proc.stderr or proc.stdout or "").strip()
-            raise RuntimeError(f"agy audio transcription failed (code {proc.returncode}): {err[:300]}")
-
-        raw_text = proc.stdout.strip()
-        segments = parse_raw_transcript_lines(raw_text)
-        max_duration = max((s.end_sec for s in segments), default=0.0)
-
-        return TranscriptResult(
-            full_text=raw_text,
-            segments=segments,
-            language=language,
-            duration_sec=max_duration,
-            provider="antigravity",
-            model=self.model,
+        raise NotImplementedError(
+            "Antigravity CLI does not support audio transcription (STT). "
+            "Currently, Google AI Studio Gemini ('gemini') is the only supported production STT provider. "
+            "Please configure CLAIRE_STT_PROVIDER=gemini with a valid GEMINI_API_KEY."
         )

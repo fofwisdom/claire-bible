@@ -201,7 +201,7 @@ class Settings(BaseSettings):
     enable_video_transcription: bool = Field(
         default=True, alias="CLAIRE_ENABLE_VIDEO_TRANSCRIPTION"
     )
-    stt_provider: str = Field(default="antigravity", alias="CLAIRE_STT_PROVIDER")
+    stt_provider: str = Field(default="gemini", alias="CLAIRE_STT_PROVIDER")
     stt_model: str = Field(default="", alias="CLAIRE_STT_MODEL")
     stt_language: str = Field(default="ko", alias="CLAIRE_STT_LANGUAGE")
     stt_timeout: float = Field(default=600.0, alias="CLAIRE_STT_TIMEOUT")
@@ -401,7 +401,7 @@ class Settings(BaseSettings):
         s = str(value or "").strip()
         if not s:
             s = os.environ.get("STT_PROVIDER", "").strip() or os.environ.get("CLAIRE_STT_PROVIDER", "").strip()
-        return s or "antigravity"
+        return s or "gemini"
 
     @field_validator("stt_model", mode="before")
     @classmethod
@@ -487,20 +487,15 @@ class Settings(BaseSettings):
         """비디오 전사 기능 활성화 및 실행 환경에 따른 STT provider 반환."""
         if not self.enable_video_transcription:
             return "mock"
-        raw = (self.stt_provider or "antigravity").strip().lower()
+        raw = (self.stt_provider or "gemini").strip().lower()
         if raw in ("gemini", "google"):
             if self.gemini_api_key:
                 return "gemini"
             return "mock"
-        if raw in ("antigravity", "agy"):
-            if self.gemini_api_key:
-                return "gemini"
-            if find_agy_executable(self.agy_bin) is not None:
-                return "antigravity"
-            return "mock"
         if raw == "mock":
             return "mock"
-        return raw
+        # antigravity 등 오디오 전사(STT) 미지원 프로바이더는 gemini로 하이잭하지 않고 안전하게 mock으로 폴백
+        return "mock"
 
     @property
     def db_file(self) -> Path:

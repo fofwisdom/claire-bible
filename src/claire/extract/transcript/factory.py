@@ -19,13 +19,5 @@ def get_transcript_provider(settings: Any = None) -> TranscriptProvider:
 
         return GeminiTranscriptProvider(s)
 
-    if eff == "antigravity":
-        if getattr(s, "gemini_api_key", None):
-            from .gemini_stt import GeminiTranscriptProvider
-
-            return GeminiTranscriptProvider(s)
-        from .antigravity_stt import AntigravityTranscriptProvider
-
-        return AntigravityTranscriptProvider(s)
-
+    # mock 또는 미지원 STT 프로바이더 (antigravity 등)는 MockTranscriptProvider 반환
     return MockTranscriptProvider(s)

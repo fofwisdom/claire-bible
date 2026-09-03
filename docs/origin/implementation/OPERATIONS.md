@@ -93,8 +93,8 @@ hostname과 IPv6는 사전 검사에서 거부한다. loopback은 안전한 초�
   * 비디오 URL 적재 시 내장 자막이 없으면 오디오 스트림을 추출하여 STT로 타임스탬프 자막을 생성합니다.
   * `0`으로 설정 시 무거운 오디오 다운로드/STT를 건너뛰고 비디오 페이지의 메타데이터만 수집하여 경량 문서로 적재합니다.
 * **`CLAIRE_STT_PROVIDER=gemini` (또는 `STT_PROVIDER=gemini`)**:
-  * `gemini`: Google GenAI SDK 기반 고성능 STT (기본 모델: `gemini-3.5-transcribe`).
-  * `antigravity`: 호스트 Antigravity CLI 기반 폴백.
+  * `gemini`: Google GenAI SDK 기반 고성능 STT (기본 모델: `gemini-3.5-transcribe` 또는 `gemini-2.5-flash`). 현재 프로덕션에 반영 가능한 유일한 외부 STT 프로바이더입니다 (`GEMINI_API_KEY` 필요).
+  * *참고: Antigravity CLI(`agy`)는 오디오 바이너리 스트리밍/전사 인터페이스 부재로 STT 구현이 불가능하여 지원되지 않으며, 설정 시 안전하게 `mock`으로 폴백됩니다.*
 * **`CLAIRE_STT_MODEL=gemini-3.5-transcribe` (또는 `STT_MODEL=gemini-3.5-transcribe`)**:
   * 최신 전문 음성 전사 전용 모델 사용.
 * **`CLAIRE_VIDEO_CHUNK_DURATION_SEC=240`**:
