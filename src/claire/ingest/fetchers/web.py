@@ -128,19 +128,25 @@ def fetch_web(url: str, *, full_content: bool = False) -> Document:
     #    브라우저 불필요. 정적 UA 를 막는 봇차단(예: openai.com 403)을 우회.
     if not usable:
         c_res = _fetch_scrapling(url)
-        c_title, c_text, c_links, c_anchors, c_images, c_is_pdf = c_res[:6]
+        c_title, c_text, c_links, c_anchors, c_images = c_res[:5]
+        c_is_pdf = bool(c_res[5]) if len(c_res) > 5 else False
         c_biblio = getattr(c_res, "biblio", None) or (c_res[6] if len(c_res) > 6 and isinstance(c_res[6], dict) else {})
+        c_parser_info = getattr(c_res, "parser_info", None) or (c_res[7] if len(c_res) > 7 and isinstance(c_res[7], dict) else {})
         c_usable, c_guard_err = _is_usable(c_title or title, c_text)
         if c_usable:
             title, text, links, anchors, images, via = (
                 c_title or title, c_text, c_links or links, c_anchors or anchors,
                 c_images or images, "scrapling")
             usable, guard_err, is_pdf, biblio = True, None, c_is_pdf, c_biblio
+            if c_parser_info:
+                parser_info = c_parser_info
         elif c_text and len(c_text) > len(text or ""):
             title, text, links, anchors, images, via = (
                 c_title or title, c_text, c_links or links, c_anchors or anchors,
                 c_images or images, "scrapling")
             usable, guard_err, is_pdf, biblio = c_usable, c_guard_err, c_is_pdf, c_biblio
+            if c_parser_info:
+                parser_info = c_parser_info
 
     # 4) CDP(nodriver) 에스컬레이션 — 실제 Chromium 렌더링. 최후수단(느림, 브라우저 필요).
     if not usable:

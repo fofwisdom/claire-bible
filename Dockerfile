@@ -26,7 +26,8 @@ ENV PATH="/app/.venv/bin:/host-bin:$PATH" \
     SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
     SSL_CERT_DIR=/etc/ssl/certs \
     REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt \
-    CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+    CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt \
+    HF_HOME=/app/data/cache/huggingface
 
 # 데이터/볼트는 볼륨 마운트(이미지 미포함). 기본 명령은 compose 에서 override.
 CMD ["claire", "bot"]
