@@ -750,6 +750,28 @@ GRAPH_HTML = """<!doctype html>
   #panel .research{display:flex;gap:6px;margin:.4em 0}
   #panel .research input{flex:1;min-width:0}
   #panel .meter{color:var(--muted);font-size:11px}
+  #panel .ingest-form{display:grid;gap:12px;margin:.8em 0 0}
+  #panel .ingest-field{display:grid;gap:5px;min-width:0}
+  #panel .ingest-label{font-weight:700;color:var(--fg);font-size:12px}
+  #panel .ingest-help{color:var(--muted);font-size:11px;font-weight:400}
+  #panel #ingin,#panel #ingfocus{width:100%;box-sizing:border-box;background:var(--bg);color:var(--fg);
+    border:1px solid var(--border);border-radius:6px;padding:8px 9px;font:inherit;line-height:1.45;resize:vertical}
+  #panel #ingfocus{resize:none}
+  #panel .ingest-options{border:0;padding:0;margin:0;min-width:0}
+  #panel .ingest-options legend{padding:0;margin:0 0 5px}
+  #panel .ingest-choice-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px}
+  #panel .ingest-choice-grid.effort{grid-template-columns:repeat(4,minmax(0,1fr))}
+  #panel .ingest-choice{position:relative;min-width:0}
+  #panel .ingest-choice input{position:absolute;opacity:0;pointer-events:none}
+  #panel .ingest-choice label{display:flex;align-items:center;justify-content:center;min-height:34px;padding:5px 4px;
+    border:1px solid var(--border);border-radius:6px;background:var(--card-bg);color:var(--muted);
+    cursor:pointer;text-align:center;font-size:12px;line-height:1.2;user-select:none}
+  #panel .ingest-choice label:hover{border-color:var(--accent);color:var(--fg)}
+  #panel .ingest-choice input:checked+label{border-color:var(--accent);background:var(--active);color:var(--fg);font-weight:700;
+    box-shadow:inset 0 0 0 1px var(--accent)}
+  #panel .ingest-choice input:focus-visible+label{outline:3px solid var(--accent);outline-offset:2px}
+  #panel .ingest-submit{display:flex;justify-content:flex-end;margin-top:1px}
+  #panel .ingest-submit button{min-height:34px}
   #rprog{margin:.3em 0;padding-left:18px} #rprog li{margin:.3em 0;color:var(--muted);font-size:12px}
   input{background:var(--bg);color:var(--fg);border:1px solid var(--border);border-radius:4px;padding:3px 8px;font-size:13px}
   #q{width:150px}
@@ -3673,44 +3695,68 @@ function renderResearchResult(d, backId){
 function openIngest(){
   if(!canWrite()) return;
   panel.innerHTML='<h2>➕ 자료 적재</h2>'+
-    '<p class=al>URL 또는 메모 텍스트를 입력하고 보내면 AI가 내용을 분석하고 구조화하여 그래프 및 맞춤형 가독 본문으로 적재합니다.</p>'+
-    '<p class=al style="color:var(--text-dim, #888);font-size:0.9em;margin:.4em 0;line-height:1.4">💡 <b>본문 작성 초점(Focus) 지정:</b><br>'+
-    'URL을 입력한 후 <b>줄바꿈 두 번(엔터 2회)</b> 뒤에 원하는 작성 초점(예: 시스템 아키텍처 중심, 초보자 튜토리얼 관점 등)을 입력하면 맞춤형으로 본문이 작성됩니다.</p>'+
-    '<textarea id="ingin" rows="5" style="width:100%;box-sizing:border-box" '+
-    'placeholder="https://example.com/article&#10;&#10;시스템 아키텍처 및 내부 구조 중심 (줄바꿈 2번 후 초점 입력)"></textarea>'+
-    '<div style="margin:.5em 0"><button onclick="runIngest()">보내기</button></div>';
+    '<p class=al>URL 또는 메모 텍스트를 입력하고 적재 방식을 선택하세요.</p>'+
+    '<div class="ingest-form">'+
+      '<div class="ingest-field">'+
+        '<label class="ingest-label" for="ingin">자료 <span class="ingest-help">URL 또는 텍스트</span></label>'+
+        '<textarea id="ingin" rows="5" placeholder="https://example.com/article"></textarea>'+
+      '</div>'+
+      '<fieldset class="ingest-options">'+
+        '<legend class="ingest-label">적재 분량</legend>'+
+        '<div class="ingest-choice-grid">'+
+          '<div class="ingest-choice"><input id="ingamount-standard" type="radio" name="ingest-amount" value="standard" checked><label for="ingamount-standard" title="설정된 글자 수 상한을 적용합니다">일반</label></div>'+
+          '<div class="ingest-choice"><input id="ingamount-full" type="radio" name="ingest-amount" value="full"><label for="ingamount-full" title="원문을 절단하지 않고 전문을 수집하고 분석합니다">전문</label></div>'+
+        '</div>'+
+      '</fieldset>'+
+      '<fieldset class="ingest-options">'+
+        '<legend class="ingest-label">사고 수준 <span class="ingest-help">미지정 시 서버 설정 사용</span></legend>'+
+        '<div class="ingest-choice-grid effort">'+
+          '<div class="ingest-choice"><input id="ingeffort-default" type="radio" name="ingest-effort" value="" checked><label for="ingeffort-default">기본</label></div>'+
+          '<div class="ingest-choice"><input id="ingeffort-none" type="radio" name="ingest-effort" value="none"><label for="ingeffort-none">없음</label></div>'+
+          '<div class="ingest-choice"><input id="ingeffort-minimal" type="radio" name="ingest-effort" value="minimal"><label for="ingeffort-minimal">최소</label></div>'+
+          '<div class="ingest-choice"><input id="ingeffort-low" type="radio" name="ingest-effort" value="low"><label for="ingeffort-low">낮음</label></div>'+
+          '<div class="ingest-choice"><input id="ingeffort-medium" type="radio" name="ingest-effort" value="medium"><label for="ingeffort-medium">중간</label></div>'+
+          '<div class="ingest-choice"><input id="ingeffort-high" type="radio" name="ingest-effort" value="high"><label for="ingeffort-high">높음</label></div>'+
+          '<div class="ingest-choice"><input id="ingeffort-max" type="radio" name="ingest-effort" value="max"><label for="ingeffort-max">최대</label></div>'+
+        '</div>'+
+      '</fieldset>'+
+      '<div class="ingest-field">'+
+        '<label class="ingest-label" for="ingfocus">초점 <span class="ingest-help">선택 사항</span></label>'+
+        '<textarea id="ingfocus" rows="2" placeholder="예: 시스템 아키텍처와 내부 동작 중심"></textarea>'+
+      '</div>'+
+      '<div class="ingest-submit"><button type="button" onclick="runIngest()">적재 시작</button></div>'+
+    '</div>';
   openDetailPane();
   const ta=document.getElementById('ingin'); if(ta) ta.focus();
 }
 async function runIngest(){
   if(!canWrite()) return;
   const ta=document.getElementById('ingin');
-  const rawText=((ta||{}).value||'').trim();
-  if(!rawText){ alert('적재할 URL 또는 텍스트를 입력하세요.'); return; }
-  let payload = rawText;
-  let directive = null;
-  const sepIdx = rawText.search(/\\r?\\n\\s*\\r?\\n/);
-  if(sepIdx !== -1){
-    const firstPart = rawText.slice(0, sepIdx).trim();
-    const secondPart = rawText.slice(sepIdx).trim();
-    if(firstPart && secondPart){
-      payload = firstPart;
-      directive = secondPart;
-    }
-  }
+  const payload=((ta||{}).value||'').trim();
+  if(!payload){ alert('적재할 URL 또는 텍스트를 입력하세요.'); return; }
+  const focus=((document.getElementById('ingfocus')||{}).value||'').trim();
+  const amountChoice=document.querySelector('input[name="ingest-amount"]:checked');
+  const effortChoice=document.querySelector('input[name="ingest-effort"]:checked');
+  const fullContent=!!amountChoice && amountChoice.value==='full';
+  const effort=effortChoice ? effortChoice.value : '';
   let labelText = '시작…';
-  if(directive){
-    labelText = '시작… (초점: ' + (directive.length > 20 ? directive.slice(0, 20) + '…' : directive) + ')';
+  const optionLabels=[];
+  if(fullContent) optionLabels.push('전문 적재');
+  if(effort) optionLabels.push('사고: '+effort);
+  if(focus) optionLabels.push('초점: '+(focus.length > 20 ? focus.slice(0,20)+'…' : focus));
+  if(optionLabels.length){
+    labelText += ' ('+optionLabels.join(' · ')+')';
   }
   panel.innerHTML='<h2>➕ 적재 중</h2><p class="al" id="ielapsed">' + esc(labelText) + '</p><ul id="iprog"></ul>';
   openDetailPane();
   const t0=Date.now();
   const timer=setInterval(()=>{ const el=document.getElementById('ielapsed');
-    if(el) el.textContent='⏱ 경과 '+Math.round((Date.now()-t0)/1000)+'s' + (directive ? ' (초점: ' + esc(directive.length > 15 ? directive.slice(0, 15) + '…' : directive) + ')' : ''); else clearInterval(timer); },1000);
+    if(el) el.textContent='⏱ 경과 '+Math.round((Date.now()-t0)/1000)+'s'+(optionLabels.length?' ('+optionLabels.join(' · ')+')':''); else clearInterval(timer); },1000);
   let result=null;
   try{
-    const bodyObj = {payload: payload};
-    if(directive) bodyObj.directive = directive;
+    const bodyObj = {payload:payload, full_content:fullContent};
+    if(effort) bodyObj.effort=effort;
+    if(focus) bodyObj.focus=focus;
     const r=await fetch('ingest-stream',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify(bodyObj)});
     if(r.status===401||r.status===404){ clearInterval(timer); expireWriteAccess();
@@ -3745,6 +3791,10 @@ function renderIngestResult(d){
   let h='<h2>'+(d.duplicate?'♻️ 이미 있는 자료':(d.updated?'🔄 내용 갱신':'✅ 적재 완료'))+'</h2>';
   h+='<p class=al><b>'+esc(d.title||d.document_id||'(제목 없음)')+'</b>'+(d.partial?' <small>⚠️ 부분 처리</small>':'')+'</p>';
   if(d.directive) h+='<p class=al><b>초점:</b> '+esc(d.directive)+'</p>';
+  const appliedOptions=[];
+  if(d.full_content) appliedOptions.push('전문 적재');
+  if(d.effort) appliedOptions.push('사고 수준 '+esc(d.effort));
+  if(appliedOptions.length) h+='<p class=al><b>적용 설정:</b> '+appliedOptions.join(' · ')+'</p>';
   if(!d.duplicate) h+='<p class=al>노드 신규 '+(d.entities_created||0)+' · 기존연결 '+
     (d.entities_linked||0)+' · 관계 '+(d.relations_added||0)+'</p>';
   if(d.summary) h+='<div class=synth>'+esc(d.summary)+'</div>';
@@ -6375,4 +6425,3 @@ def render_graph_html(settings: Any = None) -> str:
         .replace("__GITHUB_REPOSITORY__", repo)
         .replace("<!-- __GA_TAG__ -->", ga_tag)
     )
-
