@@ -102,11 +102,12 @@ def test_slice_pdf_text_pure_appendix_truncated():
     appendix_text = "\n\nAppendix A. Additional Proofs\n" + ("Proof detail. " * 300)
     full_text = main_text + appendix_text
 
-    sliced, is_trunc, app_trunc, orig, raw = slice_pdf_text(
+    sliced, is_trunc, app_trunc, ref_trunc, orig, raw = slice_pdf_text(
         full_text, limit=50000, exclude_appendix=True
     )
     assert is_trunc is True
     assert app_trunc is True
+    assert ref_trunc is False
     assert orig == len(full_text)
     assert raw == len(main_text.rstrip())
     assert sliced == main_text.rstrip()
@@ -120,7 +121,7 @@ def test_slice_pdf_text_length_and_appendix_truncated():
     full_text = main_text + appendix_text
 
     # limit=20,000자로 본문도 잘리는 경우
-    sliced, is_trunc, app_trunc, orig, raw = slice_pdf_text(
+    sliced, is_trunc, app_trunc, ref_trunc, orig, raw = slice_pdf_text(
         full_text, limit=20000, exclude_appendix=True
     )
     assert is_trunc is True
@@ -134,16 +135,18 @@ def test_slice_pdf_text_no_appendix():
     """부록이 없는 PDF는 일반 슬라이싱 규칙을 따르는지 검증."""
     # 1. 예산 내
     short_text = "Standard paper without any appendix."
-    s1, is_t1, app_t1, o1, r1 = slice_pdf_text(short_text, limit=50000)
+    s1, is_t1, app_t1, ref_t1, o1, r1 = slice_pdf_text(short_text, limit=50000)
     assert is_t1 is False
     assert app_t1 is False
+    assert ref_t1 is False
     assert s1 == short_text
 
     # 2. 예산 초과
     long_text = "Long text without appendix. " * 2000
-    s2, is_t2, app_t2, o2, r2 = slice_pdf_text(long_text, limit=10000)
+    s2, is_t2, app_t2, ref_t2, o2, r2 = slice_pdf_text(long_text, limit=10000)
     assert is_t2 is True
     assert app_t2 is False
+    assert ref_t2 is False
     assert r2 == 10000
 
 

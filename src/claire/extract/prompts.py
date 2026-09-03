@@ -209,6 +209,19 @@ def doc_to_prompt(doc: Document, *, full_content: bool = False) -> str:
     if doc.url:
         head.append(f"URL: {doc.url}")
     head.append(f"SOURCE_TYPE: {doc.source_type}")
+    biblio = (doc.meta or {}).get("biblio") or {}
+    author = doc.author or biblio.get("author")
+    if author:
+        head.append(f"AUTHORS: {author}")
+    published = doc.published_at or biblio.get("published_at")
+    if published:
+        head.append(f"PUBLISHED_AT: {published}")
+    if biblio.get("doi"):
+        head.append(f"DOI: {biblio.get('doi')}")
+    if biblio.get("arxiv_id"):
+        head.append(f"ARXIV_ID: {biblio.get('arxiv_id')}")
+    if biblio.get("venue"):
+        head.append(f"VENUE: {biblio.get('venue')}")
     settings = get_settings()
     is_full = full_content or bool((doc.meta or {}).get("full_content"))
     if is_full:
@@ -352,6 +365,7 @@ def render_detail_prompt_md(
         "5. 고유명사·제품/도구/모델명·조직명·기술 용어는 원문 형태 그대로 유지하라"
         '(음차/번역 금지: 예 "arXiv", "LLM agent").\n'
         "6. 원문에 없는 사실은 절대 지어내지 말 것.\n"
+        "7. 서지 정보 표기: 원문 헤더에 저자(AUTHORS), 발행일자(PUBLISHED_AT), DOI, arXiv ID 등의 서지 정보가 명시되어 있다면, 문서 최상단에 인용구 형태(예: `> 저자: ... | 발행: ... | DOI: ...`)로 간결히 기재하여 출처를 명시하라.\n"
         + images_block(images)
         + f"\n원문:\n{body}\n\n한국어 마크다운:"
     )
@@ -416,6 +430,7 @@ def render_detail_prompt_adoc(
         "10. 수식 및 공식 보존: 수학, 통계, 암호학, 알고리즘 공식 및 기호는 원문을 온전히 보존하라. 문장 내에 등장하는 개별 그리스 문자(예: \\lambda, \\omega, \\alpha)나 수학 기호(\\in, \\ge, \\sum)라도 반드시 인라인 수식 `stem:[공식]`(예: `stem:[E = mc^2]`, `stem:[\\lambda_o]`) 또는 `$ \\lambda_o $`로 감싸라. 블록 수식은 `[latexmath]\\n++++\\n수식\\n++++` 또는 `$$ 수식 $$`을 사용하여 기호나 공식을 정확하게 보존하라.\n"
         "11. 상호 참조 및 앵커: 긴 문서의 주요 섹션에는 `[#섹션ID]` 앵커를 부여하고, 필요시 `<<섹션ID, 제목>>` 상호 참조를 활용하라.\n"
         "12. 원문에 없는 사실은 절대 지어내지 말 것.\n"
+        "13. 서지 정보 표기: 원문 헤더에 저자(AUTHORS), 발행일자(PUBLISHED_AT), DOI 등의 서지 정보가 명시되어 있다면, 문서 최상단에 이탤릭/인용구 형태(예: `_저자: ... | 발행: ..._`)로 간결히 기재하여 출처를 명시하라.\n"
         + images_block_adoc(images)
         + f"\n원문:\n{body}\n\n한국어 AsciiDoc:"
     )

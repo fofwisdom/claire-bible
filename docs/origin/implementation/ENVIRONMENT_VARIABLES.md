@@ -197,9 +197,11 @@ graph TD
 | 환경변수명 | 기본값 | 허용 값 / 타입 | 설명 |
 | :--- | :--- | :--- | :--- |
 | `CLAIRE_RAW_CHAR_BUDGET` | `20000` | 정수 (글자 수) | 원문 텍스트 수집 기본 보관 상한 (웹, 텍스트 파일, X, 유튜브 등). |
+| `CLAIRE_PDF_PARSER` | `pypdf` | `pypdf`, `docling` | PDF 텍스트 추출 엔진 (`pypdf`: 초경량 파서, `docling`: 딥러닝 기반 다단 칼럼 및 표 레이아웃 분석 파서, 실패/미설치 시 pypdf 자동 폴백). ([PDF_INGESTION_AND_ADAPTIVE_EFFORT_DESIGN.md](../design/PDF_INGESTION_AND_ADAPTIVE_EFFORT_DESIGN.md) 참조) |
 | `CLAIRE_PDF_MAX_EXTRACT_CHARS` | `50000` | 정수 (글자 수) | PDF 파싱 시 스트림에서 추출할 최대 텍스트 분량. ([PDF_INGESTION_AND_ADAPTIVE_EFFORT_DESIGN.md](../design/PDF_INGESTION_AND_ADAPTIVE_EFFORT_DESIGN.md) 참조) |
 | `CLAIRE_PDF_PAPER_THRESHOLD_CHARS` | `15000` | 정수 (글자 수) | 학술 논문 PDF 판정 및 고성능 추론(high effort) 적용 기준 글자 수. |
-| `CLAIRE_PDF_EXCLUDE_APPENDIX` | `true` | `true`, `false`, `1`, `0` | 학술 논문 PDF 적재 시 참고문헌/부록(Appendix) 자동 제외 여부. |
+| `CLAIRE_PDF_EXCLUDE_APPENDIX` | `true` | `true`, `false`, `1`, `0` | 학술 논문 PDF 적재 시 부록(Appendix/Supplementary) 자동 제외 여부. |
+| `CLAIRE_PDF_EXCLUDE_REFERENCES` | `true` | `true`, `false`, `1`, `0` | 학술 논문 PDF 적재 시 참고문헌(References/Bibliography) 자동 제외 여부. |
 | `CLAIRE_PDF_PAPER_EFFORT` | `high` | `low`, `medium`, `high` | 15,000자 이상 학술 논문 PDF 지식 추출 시 적용할 추론 레벨. |
 | `CLAIRE_PDF_DEFAULT_EFFORT` | `""` | `low`, `medium`, `high`, `""` | 15,000자 미만 또는 일반 PDF 적재 시 기본 추론 레벨 (비어있으면 프로바이더 기본값 사용). |
 | `CLAIRE_PDF_CLASSIFIER_EFFORT` | `low` | `low`, `medium`, `high` | 무료/저비용 어댑터 기반 1차 논문 분류 시 사용할 추론 레벨. |

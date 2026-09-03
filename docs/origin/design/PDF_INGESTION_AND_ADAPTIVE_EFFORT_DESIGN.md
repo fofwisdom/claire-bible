@@ -55,7 +55,35 @@ flowchart TD
 
 ---
 
-### 3.2 최저 Effort 프로바이더 기반 1차 논문 판별 ([`classifier.py`](file:///home/fow/Projects/claire-bible/src/claire/extract/classifier.py))
+### 3.2 선택형 PDF 파서 아키텍처 (`pypdf` / `docling`)
+PDF 문서는 2단(Two-Column) 레이아웃, 복잡한 데이터 표, 수식 등 다양한 형태를 가집니다. 이를 위해 플러그형 선택 파서 구조를 제공합니다:
+- **`pypdf` (기본값)**: 순수 파이썬 기반으로 초경량, 초고속 텍스트 및 메타데이터 추출.
+- **`docling` (고급 레이아웃 분석)**: 딥러닝 기반 레이아웃 파서를 통해 2단 칼럼의 텍스트 뒤섞임(interleaving)을 방지하고 올바른 읽기 순서로 복원하며, 데이터 표를 마크다운 테이블로 구조화.
+- **Graceful Fallback**: `CLAIRE_PDF_PARSER=docling` 설정 상태에서 docling 미설치이거나 파싱 실패 시 경고 로깅 후 `pypdf`로 자동 폴백하여 무중단 수집 보장.
+
+---
+
+### 3.3 부록(Appendix) 및 참고문헌(References) 제외 정책
+학술 논문은 본문 후반부에 대량의 참고문헌(References/Bibliography)과 부록(Appendix/Supplementary Material)을 포함하여 핵심 본문 예산을 잠식합니다.
+- **제외 옵션**: `CLAIRE_PDF_EXCLUDE_APPENDIX=true`, `CLAIRE_PDF_EXCLUDE_REFERENCES=true`
+- **분리 기준**: 본문 뒤에서 가장 먼저 등장하는 헤더 위치(min split index)를 기준으로 본문만 추출하여 보존.
+- **메타데이터 추적**:
+  - `appendix_truncated`: 부록 섹션 제외 여부 (웹 UI 초록색 배지)
+  - `references_truncated`: 참고문헌 섹션 제외 여부 (웹 UI 보라색 배지)
+  - 둘 다 제외된 경우 UI에 `✂️ 부록·참고문헌 제외` 결합 태그 표시.
+
+---
+
+### 3.4 서지 메타데이터 추출 및 글자 수 한도 완전 제외 (Budget Exemption)
+- **추출 항목**: 저자(Author), 발행일자(Published At), DOI, arXiv ID.
+- **추출 경로**: PDF `/Author`, `/CreationDate` 메타데이터 및 본문 서두 정규식 탐지.
+- **예산 면제 (Budget Exemption)**:
+  - 추출된 서지 정보는 `Document.author`, `Document.published_at` 및 `doc.meta["biblio"]`에 정형 데이터로 저장됩니다.
+  - LLM 프롬프트 투입 시(`doc_to_prompt`), 본문 50,000자 슬라이싱 한도(`limit`)에 합산되지 않고 **상단 헤더(`head`)에 직접 주입**되어 본문 글자 수를 전혀 잠식하지 않고 100% 무손실로 LLM에 전달됩니다.
+
+---
+
+### 3.5 최저 Effort 프로바이더 기반 1차 논문 판별 ([`classifier.py`](file:///home/fow/Projects/claire-bible/src/claire/extract/classifier.py))
 
 `.env`에 여러 프로바이더가 동시에 선언되어 있는 경우(예: 로컬 `Antigravity CLI`와 원격 `Gemini API`), 비용 및 지연을 최소화하기 위해 **선언된 프로바이더 중 환경변수 effort 레벨이 가장 낮은 프로바이더**를 1차 분류기로 자동 선택합니다.
 
@@ -76,7 +104,7 @@ flowchart TD
 
 ---
 
-### 3.3 동적 Effort 적용 규칙 ([`pipeline.py`](file:///home/fow/Projects/claire-bible/src/claire/ingest/pipeline.py))
+### 3.6 동적 Effort 적용 규칙 ([`pipeline.py`](file:///home/fow/Projects/claire-bible/src/claire/ingest/pipeline.py))
 
 문서 적재(`extract_resolve_store`) 및 가독 본문 생성(`ensure_document_detail`) 시 다음과 같이 조건부 effort를 적용합니다:
 
@@ -84,7 +112,28 @@ flowchart TD
 | :--- | :--- | :--- | :--- |
 | **학술 논문 (`is_paper=True`)** | $\ge 15,000$ (`CLAIRE_PDF_PAPER_THRESHOLD_CHARS`) | **`high`** (`CLAIRE_PDF_PAPER_EFFORT`) | 깊은 사고/추론을 통해 방대한 개념 구조와 정밀한 요약/상세 렌더링 생성 |
 | **학술 논문 (`is_paper=True`)** | $< 15,000$ | `CLAIRE_PDF_DEFAULT_EFFORT` 또는 프로바이더 기본 env | 분량이 짧은 단문 논문/프리프린트의 과도한 자원 소모 방지 |
-| **비논문 PDF (`is_paper=False`)** | 무관 | `CLAIRE_PDF_DEFAULT_EFFORT` 또는 프로바이더 기본 env | 매뉴얼, 보고서, 안내서 등 일반 문서는 기본 effort로 신속 적재 |
+### 3.7 멀티 칼럼 레이아웃 분석 요소 도입 제언 (Multi-Column Layout Analysis Roadmap)
+
+#### 1. 문제 상황 및 기술적 난제
+학술 논문(IEEE, ACM, Nature, arXiv 등)은 대다수가 2단(Two-Column) 레이아웃으로 조판됩니다.
+기존의 스트림 기반 단순 텍스트 추출기(`pypdf` 등)는 문자 객체의 Y좌표 순서대로 텍스트를 읽기 때문에, **좌측 칼럼의 1번째 줄과 우측 칼럼의 1번째 줄이 번갈아 뒤섞이는 현상(Interleaving)**이 발생할 위험이 있습니다. 이는 LLM의 문맥 이해도와 엔티티 관계 추출 정확도를 급격히 떨어뜨립니다.
+
+#### 2. 주요 오픈소스 파서 기술 비교
+| 파서 엔진 | 레이아웃 복원 원리 | 강점 | 한계 및 비용 | 적합한 사용 시나리오 |
+| :--- | :--- | :--- | :--- | :--- |
+| **`pypdf`** | 문자 스트림 순차 추출 | 무설치 수준의 초경량, CPU 메모리 극소화, 초고속 | 다단 칼럼 줄 뒤섞임 및 복잡한 표 구조 파괴 위험 | 단일 칼럼 문서, 단순 보고서, 빠른 인덱싱 |
+| **`docling`** (IBM) | LayoutLMv3 + TableFormer 딥러닝 분석 | 다단 레이아웃을 정확한 읽기 순서로 복원, 마크다운 표/수식 완벽 변환, 풍부한 메타데이터 | 의존성 용량(~1.5GB+ 모델 다운로드), CPU 추론 시 수 초 소요 | 정밀한 학술 논문, 다단 보고서, 데이터 표가 많은 문서 (현재 optional 지원) |
+| **`Marker`** (VikParuchuri) | Nougat + Surya OCR/Layout 파이프라인 | 최고 수준의 마크다운 렌더링 품질, 수식 LaTeX 변환 탁월 | PyTorch/CUDA 의존성, 고사양 리소스 필요 | GPU 서버 환경에서의 대규모 학술 논문 변환 파이프라인 |
+| **`PyMuPDF (fitz)`** | 텍스트 Bounding Box 좌표 휴리스틱 클러스터링 | C 라이브러리 기반 초고속, 블록 좌표 기반 칼럼 분리 지원, 가벼운 의존성 | 비정형 다단이나 복잡한 표 셀 병합 복원에는 한계 | 딥러닝 없이 가볍게 80% 이상의 표준 2단 칼럼 순서를 교정할 때 |
+
+#### 3. 3단계 채택 로드맵
+1. **1단계 (현재 구현 완료)**:
+   - `CLAIRE_PDF_PARSER` 환경변수를 통해 `pypdf`(기본)와 `docling`(선택형) 플러그인 아키텍처 구축.
+   - `pip install 'claire[docling]'`을 통해 필요한 환경에서만 선택 설치 가능하며, 미설치 시 안전한 `pypdf` graceful fallback 제공.
+2. **2단계 (중기 개선안 - 경량 좌표 휴리스틱 도입)**:
+   - 무거운 딥러닝 모델 다운로드 없이도, `PyMuPDF` 또는 `pypdf`의 Bounding Box 좌표(x0, y0, x1, y1)를 분석하여 페이지 중앙 여백(gutter)을 기준으로 좌/우 칼럼 블록을 먼저 정렬한 후 읽는 경량 Bounding-Box 휴리스틱 도입.
+3. **3단계 (장기 개선안 - VLM 기반 멀티모달 파이프라인)**:
+   - 복잡한 수식과 다이어그램이 핵심인 최첨단 논문의 경우, 온디바이스 VLM(ColPali, Nougat) 또는 Gemini Multimodal PDF 직접 인라인 분석 파이프라인과의 연계 지원.
 
 ---
 
@@ -92,6 +141,9 @@ flowchart TD
 
 | 환경변수명 | 기본값 | 설명 |
 | :--- | :--- | :--- |
+| `CLAIRE_PDF_PARSER` | `pypdf` | PDF 추출 엔진 (`pypdf`: 기본 경량 파서, `docling`: 고급 다단/표 분석 파서) |
+| `CLAIRE_PDF_EXCLUDE_APPENDIX` | `true` | PDF 논문 적재 시 부록(Appendix/Supplementary) 자동 제외 여부 |
+| `CLAIRE_PDF_EXCLUDE_REFERENCES` | `true` | PDF 논문 적재 시 참고문헌(References/Bibliography) 자동 제외 여부 |
 | `CLAIRE_PDF_MAX_EXTRACT_CHARS` | `50000` | PDF 스트림 텍스트 추출, DB/아티팩트 보존, LLM 프롬프트 투입 최대 글자 수 |
 | `CLAIRE_PDF_PAPER_THRESHOLD_CHARS` | `15000` | 논문 PDF에 대해 `high` effort를 적용할 최소 글자 수 임계값 |
 | `CLAIRE_PDF_PAPER_EFFORT` | `high` | 15,000자 이상 논문 PDF 적재 시 적용할 reasoning effort |
