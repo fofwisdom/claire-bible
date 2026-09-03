@@ -55,11 +55,17 @@ flowchart TD
 
 ---
 
-### 3.2 선택형 PDF 파서 아키텍처 (`pypdf` / `docling`)
+### 3.2 선택형 PDF 파서 아키텍처 (`pypdf` / `docling`) 및 런타임 실패 보고 체계
 PDF 문서는 2단(Two-Column) 레이아웃, 복잡한 데이터 표, 수식 등 다양한 형태를 가집니다. 이를 위해 플러그형 선택 파서 구조를 제공합니다:
 - **`pypdf` (기본값)**: 순수 파이썬 기반으로 초경량, 초고속 텍스트 및 메타데이터 추출.
 - **`docling` (고급 레이아웃 분석)**: 딥러닝 기반 레이아웃 파서를 통해 2단 칼럼의 텍스트 뒤섞임(interleaving)을 방지하고 올바른 읽기 순서로 복원하며, 데이터 표를 마크다운 테이블로 구조화.
-- **Graceful Fallback**: `CLAIRE_PDF_PARSER=docling` 설정 상태에서 docling 미설치이거나 파싱 실패 시 경고 로깅 후 `pypdf`로 자동 폴백하여 무중단 수집 보장.
+- **Graceful Fallback & 전방위 경과 보고 체계**:
+  - `CLAIRE_PDF_PARSER=docling` 설정 상태에서 모델 다운로드 실패, 컨테이너 메모리 부족(OOM), CPU 타임아웃, 런타임 변환 오류 등으로 docling이 실패할 경우, 경고 로깅 후 `pypdf`로 자동 폴백하여 무중단 수집을 보장합니다.
+  - 이때 단순 무음 폴백에 그치지 않고 실패 원인을 정밀 분류하여 **전방위 보고 채널**로 경과를 통지합니다:
+    1. **문서 메타데이터 (`doc.meta`)**: `pdf_parser_requested`, `pdf_parser_used`, `pdf_parser_fallback`, `pdf_parser_fallback_reason` 명시 저장.
+    2. **GraphView 웹 UI**: 문서 상세 메타 영역에 주황색 배지 `⚠️ Docling 폴백 (PyPDF)` 노출 및 툴팁으로 실제 실패 사유 안내.
+    3. **CLI 적재 리포트 및 텔레그램 완료 알림**: `IngestReport.telegram_summary`에 `⚠️ PDF 파서 대체 적재 (Docling 실패 → PyPDF)` 및 구체적 원인 명시.
+    4. **컨테이너 빌드 완비**: `Dockerfile`의 `uv sync`에 `--extra docling`을 포함하여 프로덕션 이미지 빌드 시 의존성 누락 원천 차단.
 
 ---
 

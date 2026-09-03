@@ -509,10 +509,18 @@ def build_app(settings: Settings | None = None) -> Any:
                 orig = (doc.meta or {}).get("stt_orig_chars") or (doc.meta or {}).get("orig_chars", raw_len)
                 if (doc.meta or {}).get("stt_truncated"):
                     trunc_info = f"\n✂️ 음성 전사(STT)가 일부 절단된 상태로 적재됨 ({raw_len:,}자 / 원본 {orig:,}자)"
+                elif (doc.meta or {}).get("appendix_truncated") and (doc.meta or {}).get("references_truncated"):
+                    trunc_info = f"\n✂️ 부록 및 참고문헌 제외 정책으로 원문 일부 절단함 ({raw_len:,}자 / 원본 {orig:,}자)"
+                elif (doc.meta or {}).get("references_truncated"):
+                    trunc_info = f"\n✂️ 참고문헌(References) 제외 정책으로 원문 일부 절단함 ({raw_len:,}자 / 원본 {orig:,}자)"
                 elif (doc.meta or {}).get("appendix_truncated"):
                     trunc_info = f"\n✂️ 부록(Appendix) 제외 정책으로 원문 일부 절단함 ({raw_len:,}자 / 원본 {orig:,}자)"
                 else:
                     trunc_info = f"\n⚠️ 환경변수 상한으로 원문 일부 절단함 ({raw_len:,}자 / 원본 {orig:,}자)"
+
+            if doc and (doc.meta or {}).get("pdf_parser_fallback"):
+                reason = (doc.meta or {}).get("pdf_parser_fallback_reason") or "Docling 런타임 오류"
+                trunc_info += f"\n⚠️ PDF 파서 대체: Docling 실패로 PyPDF 적용 ({reason})"
 
             is_video = bool(doc and doc.source_type == "video")
             has_ts = bool((doc.meta or {}).get("has_transcript")) if doc else False

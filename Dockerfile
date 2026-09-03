@@ -13,9 +13,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
 
 COPY pyproject.toml uv.lock README.md ./
 COPY src/ ./src/
-# stealth extra = scrapling[fetchers] + nodriver, audio extra = yt-dlp[curl-cffi]
+# stealth extra = scrapling[fetchers] + nodriver, audio extra = yt-dlp[curl-cffi], docling extra = docling
 # 최신 비디오 플랫폼 시그니처 대응을 위해 yt-dlp는 빌드 시 항상 최신 릴리스로 업그레이드
-RUN uv sync --no-dev --extra stealth --extra audio \
+ARG EXTRAS="--extra stealth --extra audio --extra docling"
+RUN uv sync --no-dev $EXTRAS \
     && uv pip install --no-cache -U "yt-dlp[curl-cffi]"
 
 # Runtime processes use the environment built above directly.  uv remains a
