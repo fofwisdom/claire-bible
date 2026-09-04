@@ -883,14 +883,14 @@ GRAPH_HTML = """<!doctype html>
 
   /* --- 우측 슬림 마름모 바 & 탄성 확장 헤딩 내비게이션 레일 --- */
   .cb-heading-rail{
-    position:absolute;right:8px;top:50%;transform:translateY(-50%);
-    width:28px;height:65%;min-height:160px;max-height:480px;
+    position:absolute;right:8px;top:20px;bottom:max(20px,env(safe-area-inset-bottom));
+    width:28px;height:auto;
     display:none;align-items:center;justify-content:center;
     z-index:15;touch-action:none;user-select:none;
-    transition:height .3s cubic-bezier(0.16,1,0.3,1),opacity .2s ease;
+    opacity:1;transition:opacity .2s ease;
   }
   .cb-heading-rail.visible{display:flex}
-  .cb-heading-rail.is-expanding{height:88%!important;max-height:none!important}
+  .cb-heading-rail.is-expanding .cb-rail-track{width:6px;background:rgba(128,128,128,0.5)}
   .cb-rail-track{
     position:relative;width:3.5px;height:100%;
     background:rgba(128,128,128,0.22);border-radius:9999px;
@@ -2786,8 +2786,8 @@ function updateReaderRail(){
         ratio = count > 1 ? (idx / (count - 1)) : 0.5;
       }
       item.percent = ratio * 100;
-      const uniform = count > 1 ? (idx / (count - 1)) * 90 + 5 : 50;
-      item.expandedPercent = item.percent * 0.35 + uniform * 0.65;
+      const uniform = count > 1 ? (idx / (count - 1)) * 96 + 2 : 50;
+      item.expandedPercent = item.percent * 0.2 + uniform * 0.8;
     });
   }
 
@@ -5408,14 +5408,14 @@ _SHARED_HTML = """<!doctype html>
 
   /* --- 우측 슬림 마름모 바 & 탄성 확장 헤딩 내비게이션 레일 (공유 페이지) --- */
   .cb-heading-rail{
-    position:fixed;right:14px;top:50%;transform:translateY(-50%);
-    width:28px;height:65%;min-height:160px;max-height:480px;
+    position:fixed;right:14px;top:24px;bottom:max(24px,env(safe-area-inset-bottom));
+    width:28px;height:auto;
     display:none;align-items:center;justify-content:center;
     z-index:40;touch-action:none;user-select:none;
-    transition:height .3s cubic-bezier(0.16,1,0.3,1),opacity .2s ease;
+    opacity:1;transition:opacity .2s ease;
   }
   .cb-heading-rail.visible{display:flex}
-  .cb-heading-rail.is-expanding{height:88%!important;max-height:none!important}
+  .cb-heading-rail.is-expanding .cb-rail-track{width:6px;background:rgba(128,128,128,0.5)}
   .cb-rail-track{
     position:relative;width:3.5px;height:100%;
     background:rgba(128,128,128,0.22);border-radius:9999px;
@@ -6611,14 +6611,18 @@ function updateSharedRail(){
   function computePositions(){
     const dEl = (typeof document !== 'undefined' && document.documentElement) || null;
     const tScroll = dEl ? (dEl.scrollHeight - (window.innerHeight || 0)) : 0;
-    if(tScroll <= 0) return;
     const count = railHeadings.length;
     railHeadings.forEach((item, idx) => {
-      const topOffset = item.el.getBoundingClientRect ? (item.el.getBoundingClientRect().top + (window.scrollY || 0)) : 0;
-      const ratio = Math.max(0, Math.min(1, topOffset / tScroll));
+      let ratio = 0;
+      if(tScroll > 0){
+        const topOffset = item.el.getBoundingClientRect ? (item.el.getBoundingClientRect().top + (window.scrollY || 0)) : 0;
+        ratio = Math.max(0, Math.min(1, topOffset / tScroll));
+      } else {
+        ratio = count > 1 ? (idx / (count - 1)) : 0.5;
+      }
       item.percent = ratio * 100;
-      const uniform = count > 1 ? (idx / (count - 1)) * 90 + 5 : 50;
-      item.expandedPercent = item.percent * 0.35 + uniform * 0.65;
+      const uniform = count > 1 ? (idx / (count - 1)) * 96 + 2 : 50;
+      item.expandedPercent = item.percent * 0.2 + uniform * 0.8;
     });
   }
 
