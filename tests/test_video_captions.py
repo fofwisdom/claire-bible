@@ -29,6 +29,14 @@ This caption is provided by the publisher.
 """
 
 
+@pytest.fixture(autouse=True)
+def _presentation_absent(monkeypatch):
+    monkeypatch.setattr(
+        "claire.ingest.fetchers.video.discover_presentations",
+        lambda _url: SimpleNamespace(status="absent", candidates=[], error=None),
+    )
+
+
 def test_language_normalization_and_direct_https_manual_caption_selection():
     info = {
         "subtitles": {

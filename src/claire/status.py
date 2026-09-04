@@ -67,7 +67,7 @@ def build_status_text(settings: Settings, *, full: bool = True) -> str:
         lines.append(f"  새 타입 제안 대기 {c['proposals']}")
     usage = raw_disk_usage(s.data_dir)
     lines.append(f"  raw 보관 : artifacts {_mb(usage['artifacts'])} · files {_mb(usage['files'])} "
-                 f"· images {_mb(usage['images'])}")
+                 f"· attachments {_mb(usage['attachments'])} · images {_mb(usage['images'])}")
     src = dbm.source_type_counts(conn)
     if src:
         lines.append("  소스 : " + ", ".join(f"{t}={n}" for t, n in src))

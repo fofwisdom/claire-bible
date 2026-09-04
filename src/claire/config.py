@@ -221,6 +221,11 @@ class Settings(BaseSettings):
     video_cache_ttl_sec: int = Field(
         default=259200, alias="CLAIRE_VIDEO_CACHE_TTL_SEC"
     )  # 3 days (사흘)
+    presentation_pdf_max_bytes: int = Field(
+        default=64 * 1024 * 1024,
+        alias="CLAIRE_PRESENTATION_PDF_MAX_BYTES",
+        gt=0,
+    )
 
     # --- storage ---
     db_path: str = Field(default="data/claire.db", alias="CLAIRE_DB_PATH")

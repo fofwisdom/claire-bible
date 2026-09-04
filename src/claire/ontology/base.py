@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 import time
 import uuid
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 from slugify import slugify
@@ -74,6 +74,20 @@ class Relation(BaseModel):
         return self.type in {t.value for t in RelationType}
 
 
+class SourceAttachment(BaseModel):
+    """Fetcher에서 원문 저장 계층까지 전달하는 비영속 바이너리 아티팩트."""
+
+    kind: Literal["presentation_pdf"]
+    source_url: str = Field(repr=False)
+    canonical_url: str
+    filename: str
+    media_type: str
+    byte_length: int
+    content_sha256: str
+    content: bytes = Field(exclude=True, repr=False)
+    required: bool = True
+
+
 class Document(BaseModel):
     """fetcher 가 산출하는 정규화된 소스 문서."""
 
@@ -90,3 +104,5 @@ class Document(BaseModel):
     lang: str | None = None
     partial: bool = False  # 부분 처리(예: x.com oEmbed 제목만)
     meta: dict[str, Any] = Field(default_factory=dict)
+    # DB JSON/로그에 바이너리를 직렬화하지 않는다. ingest가 원본 저장 후 meta에 경로만 기록한다.
+    attachments: list[SourceAttachment] = Field(default_factory=list, exclude=True)

@@ -159,7 +159,7 @@ def test_extract_html_table_to_markdown():
 def test_prompt_rules_contain_table_preservation_directives():
     # 1. 추출 프롬프트 검증
     sys_prompt = extract_system_prompt("{ontology}")
-    assert "PROMPT_VERSION" in globals() or PROMPT_VERSION == "extract-v6"
+    assert "PROMPT_VERSION" in globals() or PROMPT_VERSION == "extract-v7"
     assert "TABLES & DATA MATRICES" in sys_prompt
     assert "MUST NOT omit or ignore the data inside tables" in sys_prompt
 
@@ -240,4 +240,3 @@ def test_extract_html_table_with_media_removal():
     assert "https://example.com/header-icon.png" not in img_urls
     assert "https://example.com/tick.png" not in img_urls
     assert "https://example.com/cross.png" not in img_urls
-

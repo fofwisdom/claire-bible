@@ -1,8 +1,12 @@
 import os
+import sys
 import tempfile
 import time
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from claire.config import get_settings
 from claire.ingest.fetchers.video import fetch_video
@@ -14,6 +18,16 @@ from claire.store.video_cache import (
     prune_expired_video_cache,
     save_video_file_to_cache,
 )
+
+
+@pytest.fixture(autouse=True)
+def _presentation_absent(monkeypatch):
+    monkeypatch.setattr(
+        "claire.ingest.fetchers.video.discover_presentations",
+        lambda _url: type(
+            "Discovery", (), {"status": "absent", "candidates": [], "error": None}
+        )(),
+    )
 
 
 def test_video_cache_id_extraction():
@@ -115,11 +129,13 @@ def test_fetch_video_failure_caching_and_reingest_reuse():
             def transcribe(self, *args, **kwargs):
                 raise RuntimeError("API quota exceeded or network timeout")
 
+        fake_ytdlp = SimpleNamespace(YoutubeDL=MagicMock())
         with (
+            patch.dict(sys.modules, {"yt_dlp": fake_ytdlp}),
             patch("claire.ingest.fetchers.video.get_settings", return_value=s),
             patch("claire.ingest.fetchers.video.get_transcript_provider", return_value=FailingSTT()),
             patch("claire.ingest.fetchers.video.find_ffmpeg_executable", return_value="/bin/ffmpeg"),
-            patch("yt_dlp.YoutubeDL") as mock_ydl_cls,
+            patch.object(fake_ytdlp, "YoutubeDL") as mock_ydl_cls,
         ):
             def mock_download(urls):
                 opts = mock_ydl_cls.call_args[0][0] if mock_ydl_cls.call_args else {}
@@ -162,11 +178,13 @@ def test_fetch_video_failure_caching_and_reingest_reuse():
                     full_text="Hello world",
                 )
 
+        fake_ytdlp = SimpleNamespace(YoutubeDL=MagicMock())
         with (
+            patch.dict(sys.modules, {"yt_dlp": fake_ytdlp}),
             patch("claire.ingest.fetchers.video.get_settings", return_value=s),
             patch("claire.ingest.fetchers.video.get_transcript_provider", return_value=SuccessSTT()),
             patch("claire.ingest.fetchers.video.find_ffmpeg_executable", return_value="/bin/ffmpeg"),
-            patch("yt_dlp.YoutubeDL") as mock_ydl_cls,
+            patch.object(fake_ytdlp, "YoutubeDL") as mock_ydl_cls,
         ):
             mock_ydl_instance = MagicMock()
             mock_ydl_instance.download.side_effect = AssertionError("yt-dlp download should NOT be called when cache is present!")
@@ -244,4 +262,3 @@ def test_cmd_video_reprocess_fails_cleanly_when_stt_fails(tmp_path, capsys):
         assert ret == 1
         captured = capsys.readouterr()
         assert "STT 음성 전사 실패" in captured.err or "실패" in captured.err
-

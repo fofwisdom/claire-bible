@@ -34,7 +34,8 @@ docs/
     │   ├── PREFERRED_LANGUAGES_DESIGN.md     # 프로젝트 광역 선호 언어(Preferred Languages) 설계
     │   ├── RIGHT_MENU_COMPACT_DESIGN.md      # 우측 메뉴 컴팩트화 및 반응형 UI 설계
     │   ├── TABLE_INGESTION_DESIGN.md         # 원문 테이블 적재 및 본문 글자 수 제한 제외 설계
-    │   └── VIDEO_AUDIO_TRANSCRIPTION_AND_INGESTION_DESIGN.md # 비디오 음성 자막(전사) 생성 및 지식 적재 파이프라인 설계
+    │   ├── VIDEO_AUDIO_TRANSCRIPTION_AND_INGESTION_DESIGN.md # 비디오 음성 자막(전사) 생성 및 지식 적재 파이프라인 설계
+    │   └── VIDEO_PRESENTATION_BUNDLE_INGESTION_DESIGN.md # VMware Explore 비디오·Presentation PDF 동시 적재 설계 (구현 완료)
     ├── implementation/     # [구현/운영 내역] 운영 가이드, 네트워크/인증 명세, 배포 설정
     │   ├── COMMANDS.md     # 전체 CLI 명령어 및 미구현/제약사항 상세 레퍼런스
     │   ├── ENVIRONMENT_VARIABLES.md # 환경변수 설정, .env 계층, Pydantic 검증 및 운영 종합 매뉴얼

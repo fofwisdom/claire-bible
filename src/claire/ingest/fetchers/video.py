@@ -10,12 +10,21 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from ...config import find_ffmpeg_executable, get_settings
+from ...extract.provider import emit_progress
 from ...extract.table_budget import slice_document_text
 from ...extract.transcript.factory import get_transcript_provider
 from ...ontology.base import Document
 from ..normalize import canonicalize_url, content_hash
 from .base import FetchError
 from .captions import CaptionAcquisition, acquire_caption, is_valid_speech_vtt
+from .presentation_vmware_explore import (
+    PresentationDiscovery,
+    compose_video_presentations,
+    discover_presentations,
+    download_presentation,
+    extract_presentation,
+    vmware_explore_video_id,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +108,28 @@ def fetch_video(
         else settings.effective_preferred_languages
     )
 
+    presentation_discovery: PresentationDiscovery | None = None
+    presentations = []
+    if vmware_explore_video_id(url) is not None:
+        emit_progress("영상 페이지 자료 탐색 중…")
+        presentation_discovery = discover_presentations(url)
+        if presentation_discovery.status == "discovery_failed":
+            raise FetchError(
+                "presentation_pdf.discovery_failed: "
+                f"{presentation_discovery.error or 'unable to determine availability'}"
+            )
+        for candidate in presentation_discovery.candidates:
+            emit_progress("Presentation PDF 검증·추출 중…")
+            attachment = download_presentation(candidate, settings)
+            presentations.append(
+                extract_presentation(
+                    attachment,
+                    settings,
+                    full_content=full_content,
+                )
+            )
+
+    emit_progress("발행자 CC 확인 및 필요 시 STT 처리 중…")
     resolved_url = resolve_video_target_url(url)
     ext_args = parse_ytdlp_extractor_args(
         getattr(settings, "ytdlp_extractor_args", "generic:impersonate")
@@ -336,7 +367,7 @@ def fetch_video(
             stt_duration_gap = True
     stt_truncated = bool(is_stt and (is_truncated or stt_duration_gap))
 
-    return Document(
+    doc = Document(
         url=url,
         canonical_url=canonical,
         title=title,
@@ -370,3 +401,9 @@ def fetch_video(
             "caption_error": caption.error,
         },
     )
+    if presentation_discovery is not None:
+        if presentation_discovery.status == "available":
+            emit_progress("자막·Presentation PDF 결합 중…")
+            return compose_video_presentations(doc, presentations)
+        doc.meta["presentation_pdf"] = {"status": "absent"}
+    return doc

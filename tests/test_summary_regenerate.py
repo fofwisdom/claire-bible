@@ -205,7 +205,7 @@ def test_summary_prompt_plain_text_definition():
     )
     from claire.extract.provider import ExtractionResult
 
-    assert PROMPT_VERSION == "extract-v6"
+    assert PROMPT_VERSION == "extract-v7"
 
     sys = extract_system_prompt("{ontology}")
     assert "plain text" in sys.lower() or "평문" in sys
@@ -429,6 +429,5 @@ def test_backfill_summary_repairs_corrupted_extractions(populated_service):
     assert "|===" not in summary
     assert "This is corrupted adoc summary with table. Link" in summary or "This is corrupted adoc summary" in summary
     conn.close()
-
 
 
