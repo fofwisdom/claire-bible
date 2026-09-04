@@ -2511,15 +2511,18 @@ function docMetaHtml(dc){
     const pdfChars = Number(presentation.raw_chars || 0);
     const pdfParser = String(presentation.parser_used || '').trim();
     const artifactState = presentation.artifact_path ? '원본 보존됨' : '원본 경로 미확인';
-    const pdfParts = [];
-    if(pdfChars > 0) pdfParts.push(pdfChars.toLocaleString()+'자');
-    if(pdfParser) pdfParts.push(pdfParser);
     const bundleIcon = isStt ? '🎙️+📄' : '🔤+📄';
     const bundleType = isStt ? 'STT+PDF' : 'CC+PDF';
-    const pdfLabel = bundleIcon+' '+bundleType+(pdfParts.length ? ' ('+pdfParts.join(' · ')+')' : '');
-    const bundleSource = isStt ? '영상 음성 전사(STT)' : '영상 자막';
+    const pdfLabel = bundleIcon+' '+bundleType;
+    const bundleSource = isStt ? '영상 음성 전사와' : '영상 자막과';
+    const metaParts = [];
+    if(pdfChars > 0) metaParts.push(pdfChars.toLocaleString()+'자');
+    if(pdfParser) metaParts.push(pdfParser);
+    if(presentation.parser_fallback) metaParts.push('Docling 폴백');
+    const metaDetail = metaParts.length ? ' ('+metaParts.join(' · ')+')' : '';
+    const tip = bundleSource+' 원본 PDF 함께 적재'+metaDetail+' · '+artifactState;
     const tagClass = 'directive-tag' + (isStt ? ' stt-tag' : '');
-    tags.push('<span class="'+tagClass+'" title="원본 PDF가 '+bundleSource+'과 함께 적재됨 · '+artifactState+'">'+pdfLabel+'</span>');
+    tags.push('<span class="'+tagClass+'" title="'+esc(tip)+'">'+pdfLabel+'</span>');
   }
   if(directive){
     const dispDir = directive.length > 25 ? directive.slice(0, 25) + '…' : directive;
@@ -6080,15 +6083,18 @@ function docMetaHtml(dc){
     const pdfChars = Number(presentation.raw_chars || 0);
     const pdfParser = String(presentation.parser_used || '').trim();
     const artifactState = presentation.artifact_path ? '원본 보존됨' : '원본 경로 미확인';
-    const pdfParts = [];
-    if(pdfChars > 0) pdfParts.push(pdfChars.toLocaleString()+'자');
-    if(pdfParser) pdfParts.push(pdfParser);
     const bundleIcon = isStt ? '🎙️+📄' : '🔤+📄';
     const bundleType = isStt ? 'STT+PDF' : 'CC+PDF';
-    const pdfLabel = bundleIcon+' '+bundleType+(pdfParts.length ? ' ('+pdfParts.join(' · ')+')' : '');
-    const bundleSource = isStt ? '영상 음성 전사(STT)' : '영상 자막';
+    const pdfLabel = bundleIcon+' '+bundleType;
+    const bundleSource = isStt ? '영상 음성 전사와' : '영상 자막과';
+    const metaParts = [];
+    if(pdfChars > 0) metaParts.push(pdfChars.toLocaleString()+'자');
+    if(pdfParser) metaParts.push(pdfParser);
+    if(presentation.parser_fallback) metaParts.push('Docling 폴백');
+    const metaDetail = metaParts.length ? ' ('+metaParts.join(' · ')+')' : '';
+    const tip = bundleSource+' 원본 PDF 함께 적재'+metaDetail+' · '+artifactState;
     const tagClass = 'directive-tag' + (isStt ? ' stt-tag' : '');
-    tags.push('<span class="'+tagClass+'" title="원본 PDF가 '+bundleSource+'과 함께 적재됨 · '+artifactState+'">'+pdfLabel+'</span>');
+    tags.push('<span class="'+tagClass+'" title="'+esc(tip)+'">'+pdfLabel+'</span>');
   }
   if(directive){
     const dispDir = directive.length > 25 ? directive.slice(0, 25) + '…' : directive;

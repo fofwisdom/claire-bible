@@ -864,16 +864,25 @@ def test_graphview_doc_meta_html_renders_cc_and_stt_bundles():
     res = subprocess.run(["node", "-e", js], capture_output=True, text=True, check=True)
     out = json.loads(res.stdout)
 
-    # CC 검증: '🔤+📄 CC+PDF' 라벨, 클립 아이콘 제외, 자막 툴팁, 중복 STT 태그 부재
-    assert "🔤+📄 CC+PDF (25,183자 · pypdf)" in out["cc"]
+    # CC 검증: '🔤+📄 CC+PDF' 라벨, 호버 툴팁(자막 선언급, 적재, 파서 접두사 제거)
+    assert ">🔤+📄 CC+PDF<" in out["cc"]
+    assert "25,183자" in out["cc"]
+    assert "pypdf" in out["cc"]
+    assert "파서: " not in out["cc"]
     assert "📎" not in out["cc"]
-    assert "원본 PDF가 영상 자막과 함께 적재됨" in out["cc"]
+    assert "영상 자막과 원본 PDF 함께 적재 (25,183자 · pypdf)" in out["cc"]
+    assert "적재됨" not in out["cc"]
     assert "stt-tag" not in out["cc"]
 
-    # STT 검증: '🎙️+📄 STT+PDF' 라벨, 클립 아이콘 제외, STT 툴팁, 전사 열기 링크 포함, stt-tag 스타일링
-    assert "🎙️+📄 STT+PDF (25,183자 · pypdf)" in out["stt"]
+    # STT 검증: '🎙️+📄 STT+PDF' 라벨, 호버 툴팁(음성 전사 선언급, (STT) 제거, 적재)
+    assert ">🎙️+📄 STT+PDF<" in out["stt"]
+    assert "25,183자" in out["stt"]
+    assert "pypdf" in out["stt"]
+    assert "파서: " not in out["stt"]
     assert "📎" not in out["stt"]
-    assert "원본 PDF가 영상 음성 전사(STT)과 함께 적재됨" in out["stt"]
+    assert "영상 음성 전사와 원본 PDF 함께 적재 (25,183자 · pypdf)" in out["stt"]
+    assert "음성 전사(STT)" not in out["stt"]
+    assert "적재됨" not in out["stt"]
     assert "stt-tag" in out["stt"]
     assert "↗ 전사 열기" in out["stt"]
     assert "🎙️ STT" not in out["stt"]  # 중복 분리 태그 방지
