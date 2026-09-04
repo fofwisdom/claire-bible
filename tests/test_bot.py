@@ -250,4 +250,46 @@ async def test_settle_status_behavior():
     assert st3.deleted is False
     assert st3.edited_text == "❌ 처리 오류"
 
+    # 4. Status edit fails -> falls back to msg.reply_text
+    class FailingStatus(FakeStatus):
+        async def edit_text(self, text, reply_markup=None):
+            raise RuntimeError("Telegram API timeout")
+
+    failing_st = FailingStatus()
+    fake_msg = FakeMsg()
+    await _settle_status(
+        failing_st,
+        fake_msg,
+        "❌ 처리 오류",
+        [],
+        has_error=True,
+    )
+    assert fake_msg.replied_text == "❌ 처리 오류"
+
+    # 5. Both status.edit_text and msg.reply_text fail -> does NOT raise uncaught exception
+    class FailingMsg(FakeMsg):
+        async def reply_text(self, text, reply_markup=None):
+            raise RuntimeError("Telegram network disconnect")
+
+    await _settle_status(
+        FailingStatus(),
+        FailingMsg(),
+        "❌ 처리 오류",
+        [],
+        has_error=True,
+    )
+
+    # 6. Status delete fails -> does NOT raise uncaught exception
+    class FailingDeleteStatus(FakeStatus):
+        async def delete(self):
+            raise RuntimeError("Message already deleted or network down")
+
+    await _settle_status(
+        FailingDeleteStatus(),
+        FakeMsg(),
+        "✅ 적재 완료",
+        [],
+    )
+
+
 
