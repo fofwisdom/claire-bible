@@ -446,6 +446,9 @@ def extract_pdf_stream(
     """
     settings = get_settings()
     selected_engine = (engine or getattr(settings, "pdf_parser", "pypdf") or "pypdf").lower().strip()
+    from ...extract.provider import emit_progress
+
+    emit_progress(f"PDF 텍스트 추출 중 ({selected_engine})…")
 
     if selected_engine == "docling":
         try:

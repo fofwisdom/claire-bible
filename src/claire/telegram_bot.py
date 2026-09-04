@@ -24,29 +24,50 @@ def _status_emoji(error, duplicate: bool = False, *, stt_error: str | None = Non
     return "👍"  # 신규/갱신 완료
 
 
-async def _run_with_ticker(status, label, work):
+async def _run_with_ticker(status, label: str, work, interval: float = 5.0):
     """work(블로킹)를 스레드에서 실행하며 status 메시지를 5초마다 편집(진행 표시).
 
-    파이프라인에 단계 콜백이 없으므로 경과 시간만 갱신 = '살아있음'을 알리되 스팸 아님.
-    덕타이핑(status.edit_text)이라 PTB 의존 없음."""
+    emit_progress 콜백을 통해 파이프라인의 실시간 진행 단계(원문 수집, STT, LLM 추출 등)를
+    수신하고, 5초 주기로 Telegram 메시지를 갱신하여 텔레그램 부하 기준(초당 1회 이하)을 충족합니다."""
     stop = asyncio.Event()
+    current_stage: str = ""
+    last_sent_text: str = ""
+
+    def on_progress(msg: str) -> None:
+        nonlocal current_stage
+        if msg:
+            current_stage = str(msg).strip()
+
+    def _worker():
+        from .extract.provider import set_progress_callback
+
+        set_progress_callback(on_progress)
+        try:
+            return work()
+        finally:
+            set_progress_callback(None)
 
     async def tick():
         t = 0
+        nonlocal last_sent_text
         while not stop.is_set():
             try:
-                await asyncio.sleep(5)
+                await asyncio.sleep(interval)
             except asyncio.CancelledError:
                 break
-            t += 5
-            try:
-                await status.edit_text(f"⏳ {label} ({t}s)")
-            except Exception:  # noqa: BLE001
-                pass  # 편집 실패(동일내용/rate)는 무시
+            t += int(interval)
+            stage_part = f"\n• {current_stage}" if current_stage else ""
+            text = f"⏳ {label} ({t}s){stage_part}"
+            if text != last_sent_text:
+                try:
+                    await status.edit_text(text)
+                    last_sent_text = text
+                except Exception:  # noqa: BLE001
+                    pass  # 편집 실패(동일내용/rate)는 무시
 
     tk = asyncio.create_task(tick())
     try:
-        return await asyncio.to_thread(work)
+        return await asyncio.to_thread(_worker)
     finally:
         stop.set()
         tk.cancel()

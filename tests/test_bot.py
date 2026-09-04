@@ -44,6 +44,32 @@ async def test_run_with_ticker_propagates_exception():
     assert raised  # work 예외는 호출측으로 전파(핸들러가 👎 처리)
 
 
+async def test_run_with_ticker_displays_progress_stage():
+    import time
+    from claire.extract.provider import emit_progress
+
+    class FakeStatus:
+        def __init__(self):
+            self.edits = []
+
+        async def edit_text(self, t):
+            self.edits.append(t)
+
+    def work():
+        emit_progress("원문 가져오는 중…")
+        time.sleep(0.08)
+        emit_progress("구조화 추출·그래프 적재 중…")
+        time.sleep(0.08)
+        return "done"
+
+    st = FakeStatus()
+    out = await _run_with_ticker(st, "테스트 작업", work, interval=0.05)
+    assert out == "done"
+    assert len(st.edits) > 0
+    assert any("• 원문 가져오는 중…" in e or "• 구조화 추출·그래프 적재 중…" in e for e in st.edits)
+
+
+
 def test_parse_message_directive():
     from claire.telegram_bot import parse_message_directive
 
