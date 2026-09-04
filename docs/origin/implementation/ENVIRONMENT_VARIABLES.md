@@ -156,6 +156,8 @@ graph TD
 
 ### 2.8 비디오 및 오디오 음성 전사 (STT Pipeline)
 
+비디오 적재는 이 설정과 무관하게 선호 언어의 발행자 CC를 먼저 탐색·다운로드합니다. 아래 변수는 유효한 CC가 없을 때의 오디오 STT 폴백을 제어합니다.[^video-caption-settings]
+
 | 환경변수명 | 기본값 | 허용 값 / 타입 | 설명 |
 | :--- | :--- | :--- | :--- |
 | `CLAIRE_ENABLE_VIDEO_TRANSCRIPTION` | `1` (`true`) | `0`, `1`, `true`, `false` | 자막이 없는 비디오/오디오 웹 문서 적재 시 ffmpeg/yt-dlp 및 STT 파이프라인 활성화 여부. ([VIDEO_AUDIO_TRANSCRIPTION_AND_INGESTION_DESIGN.md](../design/VIDEO_AUDIO_TRANSCRIPTION_AND_INGESTION_DESIGN.md) 참조) |
@@ -368,3 +370,9 @@ CLAIRE_PUBLIC_URL=http://127.0.0.1:8766
 - [OPERATIONS.md](OPERATIONS.md): 호스트 운영 및 서비스 수명주기 관리 가이드
 - [EXTERNAL_ACCESS.md](EXTERNAL_ACCESS.md): 웹 접속, Reverse Proxy, 포트 및 인증/CORS 경계 명세
 - [OPERATIONAL_MIGRATION.md](../design/OPERATIONAL_MIGRATION.md): 환경변수 및 DB 스키마 자동 마이그레이션 설계 명세
+
+---
+
+## 6. 참고문헌
+
+[^video-caption-settings]: Claire Bible 구현 근거: [`src/claire/ingest/fetchers/captions.py`](../../../src/claire/ingest/fetchers/captions.py), [`src/claire/ingest/fetchers/video.py`](../../../src/claire/ingest/fetchers/video.py), [`tests/test_video_captions.py`](../../../tests/test_video_captions.py) (2026-09-04 확인).

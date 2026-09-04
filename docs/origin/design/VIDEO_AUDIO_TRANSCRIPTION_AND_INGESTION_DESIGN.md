@@ -1,8 +1,10 @@
-# 비디오 음성 자막(전사) 생성 및 지식 적재 파이프라인 설계 (`VIDEO_AUDIO_TRANSCRIPTION_AND_INGESTION_DESIGN.md`)
+# 비디오 CC 우선 수집·음성 전사 및 지식 적재 파이프라인 설계 (`VIDEO_AUDIO_TRANSCRIPTION_AND_INGESTION_DESIGN.md`)
 
 > **상태**: 구현 및 검증 완료 (Implemented & Verified)  
-> **대상 플랫폼 예시**: VMware Explore Video (`https://www.vmware.com/explore/video/6403821753112`)  
-> **적용 모듈**: `claire.ingest.fetchers.video`, `claire.extract.transcript`, `claire.config`, `claire.ingest.router`
+>
+> **대상 플랫폼 예시**: VMware Explore Video (`6403821753112`, `6403820644112`)
+>
+> **적용 모듈**: `claire.ingest.fetchers.video`, `claire.ingest.fetchers.captions`, `claire.extract.transcript`, `claire.config`, `claire.ingest.router`
 
 ---
 
@@ -12,14 +14,17 @@
 
 그러나 기술 세미나, 컨퍼런스(예: VMware Explore, AWS re:Invent), 엔터프라이즈 미디어 포털 등의 웹 비디오 플랫폼은 다음과 같은 특성을 가집니다:
 1. **HTML 본문 부재**: 웹페이지 내에 발표 본문 텍스트가 거의 없고, 세션 제목과 짧은 설명문만 존재합니다.
-2. **내장 텍스트 자막 부재**: 플레이어 매니페스트에 썸네일 탐색용 VTT(`thumbnail.webvtt`)만 포함되어 있을 뿐, 실제 음성 전사(Closed Caption) 텍스트가 제공되지 않습니다.
-3. **음성 트랙 기반 지식화 필수**: 영상의 오디오 스트림에서 음성을 추출하여 고품질 전사(STT)를 수행한 뒤 지식 그래프로 적재해야 합니다.
+2. **외부 참조형 CC**: 플레이어 메타데이터가 자막 본문을 직접 포함하지 않고, 만료 가능한 URL로 WebVTT 트랙을 참조할 수 있습니다. Brightcove의 `text_tracks`도 자막 파일의 `src`를 별도 필드로 제공합니다.[^brightcove-text-tracks]
+3. **자막 상태의 다양성**: 음성 CC가 있는 영상, 썸네일 탐색용 VTT만 있는 영상, 자막이 전혀 없는 영상이 공존합니다.
+4. **조건부 STT**: 선호 언어의 유효한 CC가 없을 때에만 오디오 스트림에서 음성을 추출해 STT를 수행합니다.
 
-본 문서는 **웹 비디오의 오디오 추출 $\rightarrow$ 다중 프로바이더 기반 자막 생성 $\rightarrow$ Claire 지식 베이스 적재 파이프라인**을 설계하고, **Gemini API 환경에서의 모델 자원 소모율을 정밀 예측**합니다.
+본 문서는 **발행자 CC 탐색·다운로드 $\rightarrow$ 필요할 때만 다중 프로바이더 기반 STT $\rightarrow$ Claire 지식 베이스 적재** 파이프라인을 설계하고, STT가 필요한 경우의 Gemini API 자원 소모율을 예측합니다.
 
 ---
 
-## 2. 대상 영상 실측 분석 (`VMware Explore 6403821753112`)
+## 2. 대상 영상 실측 분석
+
+### 2.1. 초기 무자막 기준 영상의 상태 변경 (`VMware Explore 6403821753112`)
 
 * **URL**: `https://www.vmware.com/explore/video/6403821753112`
 * **세션명**: *Introducing VMware AI Factory: The Software-Defined Foundation of VMware Private AI Cloud* (세션 코드: `CLOB1244LV`)
@@ -27,40 +32,49 @@
   * Account ID: `6164421911001`
   * Video ID: `6403821753112`
 * **영상 재생 시간**: **2,609.152초 (43분 29.15초)**
-* **기존 자막 상태**: `text_tracks`에 오직 썸네일 미리보기 트랙만 존재하며, **음성 텍스트 자막이 0건**임을 확인.
+* **초기 설계 당시 자막 상태**: `text_tracks`에 썸네일 미리보기 트랙만 존재하는 무자막 사례로 기록되었습니다.
+* **2026-09-04 재검증**: 현재는 `en-US` 수동 WebVTT CC를 제공하므로 더 이상 무자막 회귀 테스트의 외부 fixture로 사용할 수 없습니다. 무자막·STT 폴백 단위 테스트는 외부 서비스 상태와 분리한 고정 메타데이터 fixture를 사용합니다.[^vmware-caption-state-change]
 * **미디어 스트림**:
   * HLS 매니페스트: `https://manifest.prod.boltdns.net/manifest/v1/hls/...`
   * 서명된 MP4 스트림: `https://fastly-signed-us-east-1-prod.brightcovecdn.com/...`
+
+### 2.2. CC 제공 회귀 영상 (`VMware Explore 6403820644112`)
+
+* **URL**: `https://www.vmware.com/explore/video/6403820644112`
+* **세션명**: *Introduction to VMware Cloud Foundation 9.0: Private Cloud Platform for All Applications*
+* **CC 상태**: 플레이어에서 English CC를 제공하며, `yt-dlp` 메타데이터에는 `en-US`/`en-us` 수동 WebVTT 트랙이 URL 형태로 노출됩니다.[^vmware-cc-sample]
+* **설계 결론**: `extract_info(..., download=False)`의 메타데이터 조회만으로는 URL 참조 자막 본문이 채워지지 않으므로, 선택한 트랙을 별도로 다운로드해야 합니다. `yt-dlp`의 추출 결과 계약도 자막 트랙에 `url` 또는 인라인 `data`가 올 수 있음을 명시합니다.[^ytdlp-subtitle-schema]
 
 ---
 
 ## 3. 전체 아키텍처 설계
 
-시스템은 **(1) 미디어 추출**, **(2) 플러그형 전사(STT) 프로바이더**, **(3) 지식 그래프 인제스트**의 3단계로 구성됩니다.
+시스템은 **(1) 메타데이터와 CC 획득**, **(2) 조건부 오디오 STT**, **(3) 기존 지식 그래프 인제스트**의 3단계로 구성됩니다. CC 수집은 기존 `fetch_video` 앞단에 추가하며, 라우터·`Document`·`IngestService` 계약은 변경하지 않습니다.
 
 ```mermaid
 flowchart TD
     A[입력 URL / 미디어 소스] --> B[ingest/router.py]
     B -->|비디오 플랫폼/스트림 감지| C[ingest/fetchers/video.py]
     
-    subgraph S1 [1. 미디어 & 오디오 추출]
+    subgraph S1 [1. 메타데이터 & CC 획득]
         C --> D[Brightcove / YouTube / HTML5 Stream Resolver]
-        D --> E[ffmpeg 경량 모노 오디오 변환<br>16kHz AAC/MP3 ~10MB]
+        D --> E[CC 후보 선택<br>언어·수동/자동·전송 형식]
+        E --> F{유효한 음성 WebVTT?}
     end
-    
+
     subgraph S2 [2. Pluggable Transcript Provider Layer]
-        E --> F[TranscriptProvider Protocol]
-        F --> G[GeminiTranscriptProvider<br>gemini-3.5-transcribe / gemini-2.5-flash]
-        F -.-> H[WhisperTranscriptProvider<br>OpenAI / Groq]
-        F -.-> I[GoogleCloudSTTProvider<br>Chirp v2]
-        F -.-> J[LocalWhisperProvider<br>faster-whisper]
+        F -->|없음 또는 무효| G[ffmpeg 오디오 추출]
+        G --> H[TranscriptProvider Protocol]
+        H --> I[GeminiTranscriptProvider]
+        H -.-> J[향후 Transcript Provider]
     end
-    
+
     subgraph S3 [3. Claire Ingest & Graph Pipeline]
-        G & H & I & J --> K[TranscriptResult<br>전사 텍스트 + 타임스탬프]
-        K --> L[Document source_type=video]
-        L --> M[extract_resolve_store<br>엔티티/관계/요약/가독 본문 생성]
-        M --> N[(SQLite DB & Obsidian Vault)]
+        F -->|있음| K[발행자 CC 원문]
+        I & J --> L[TranscriptResult]
+        K & L --> M[Document source_type=video]
+        M --> N[기존 extract_resolve_store]
+        N --> O[(SQLite DB & Obsidian Vault)]
     end
 ```
 
@@ -155,18 +169,26 @@ class TranscriptProvider(Protocol):
 
 1. **URL 라우팅 (`router.py`)**:
    - `vmware.com/explore/video/`, `brightcove.net`, `.mp4`, `.m3u8` 등의 패턴 감지 시 `fetch_video`로 라우팅.
-2. **스트림 해석 및 메타데이터 확보**:
-   - `MediaStreamResolver`를 실행하여 `StreamInfo(stream_url, title, author, description, duration_sec, thumbnail_url)` 획득.
-3. **환경변수 분기 처리 (`CLAIRE_ENABLE_VIDEO_TRANSCRIPTION`)**:
+2. **메타데이터와 CC 후보 확보**:
+   - `yt-dlp`로 영상 메타데이터의 `subtitles`와 `automatic_captions`를 조회합니다.
+   - 언어 태그를 소문자 BCP 47 형태로 정규화하고, 설정된 선호 언어 순서에서 정확 일치 후 주 언어(primary subtag) 일치를 허용합니다. 예를 들어 `en`은 `en-US`와 일치합니다.
+   - 같은 언어 일치 등급에서는 수동 CC를 자동 생성 자막보다 우선하고, 인라인 본문, 직접 HTTPS VTT, 직접 HTTP VTT, 조각형/기타 트랙 순으로 시도합니다.
+3. **CC 다운로드·검증**:
+   - 인라인 `data`는 그대로 읽고 URL 트랙은 기존 `yt-dlp` 세션과 요청 헤더를 사용해 임시 파일로 다운로드합니다. 자막 원문 크기는 8 MiB로 제한합니다.
+   - `WEBVTT` 헤더, 타임드 큐, 실제 문자 내용을 확인하고 `xywh` 썸네일 스프라이트를 제외합니다.
+   - 유효한 CC는 `raw_text`의 `[영상 자막]` 영역에 원문 그대로 포함하고 STT·오디오 다운로드를 건너뜁니다.
+   - 선호 언어의 CC가 광고되었지만 모든 다운로드가 실패하면 복구 가능한 `FetchError`로 종료합니다. 서명 URL과 쿼리 토큰은 메타데이터·오류 문자열에 저장하지 않습니다.
+4. **환경변수 분기 처리 (`CLAIRE_ENABLE_VIDEO_TRANSCRIPTION`)**:
    - **`CLAIRE_ENABLE_VIDEO_TRANSCRIPTION=0` (비활성)**:
-     - 오디오 다운로드 및 STT를 건너뛰고, 페이지 메타데이터(제목, 발표자, 설명문)만으로 경량 `Document(source_type="video", raw_text=..., partial=True)` 생성.
+     - 유효한 CC가 없을 때 오디오 다운로드 및 STT를 건너뛰고, 페이지 메타데이터만으로 경량 `Document(source_type="video", raw_text=..., partial=True)` 생성.
    - **`CLAIRE_ENABLE_VIDEO_TRANSCRIPTION=1` (활성)**:
-     - `ffmpeg` 스트림 파이프로 원본 비디오 다운로드 없이 16kHz 모노 MP3 임시 파일(`/tmp/claire_audio_<hash>.mp3`) 추출.
+     - 유효한 CC가 없거나 CC가 음성 자막 검증을 통과하지 못한 경우에만 기존 미디어 캐시와 `ffmpeg` 오디오 추출 경로를 실행합니다.
      - `TranscriptProvider.transcribe(audio_file)` 호출로 타임스탬프 전사 획득.
      - 임시 오디오 파일 즉시 안전 삭제 (`try ... finally`).
-4. **`Document` 생성 및 포맷팅**:
+5. **`Document` 생성 및 포맷팅**:
    - 본문(`raw_text`)에 메타데이터 헤더와 타임스탬프 전사문(`[05:20] 발화 내용...`) 결합.
-   - `meta` 딕셔너리에 `duration_sec`, `has_transcript=True`, `transcript_segments`, `platform` 저장.
+   - 기존 필드에 `transcript_source`, `caption_status`, `caption_language`, `caption_format`, `caption_content_hash`, `caption_error`를 추가합니다.
+   - `transcript_source`는 `manual_caption`, `automatic_caption`, `stt` 중 하나이며, URL 자체는 저장하지 않습니다.
 
 ### 4.5. 지식 그래프 및 엔티티 해소 연동 (`resolver.py` & Pipeline)
 
@@ -183,7 +205,7 @@ class TranscriptProvider(Protocol):
 
 | 환경변수 | 기본값 | 허용값 / 설명 |
 | :--- | :--- | :--- |
-| `CLAIRE_ENABLE_VIDEO_TRANSCRIPTION` | `1` | `0` (비활성) \| `1` (활성). `0`일 경우 무거운 오디오 STT를 수행하지 않고 메타데이터만 수집하거나 안내 반환. |
+| `CLAIRE_ENABLE_VIDEO_TRANSCRIPTION` | `1` | `0` (비활성) \| `1` (활성). 발행자 CC 탐색·다운로드와 무관하며, 유효한 CC가 없을 때의 오디오 STT 폴백만 제어. |
 | `CLAIRE_STT_PROVIDER` | `gemini` | `gemini` \| `mock` (향후 확장: `whisper` \| `groq` \| `gcp` \| `local`) |
 | `CLAIRE_STT_MODEL` | `""` | 프로바이더별 모델명 오버라이드 (기본: `gemini-3.5-transcribe` 또는 `gemini-2.5-flash`) |
 | `CLAIRE_STT_LANGUAGE` | `ko` | 전사 기본/선호 언어 코드 (`ko`, `en` 등 또는 빈 값 시 자동 감지) |
@@ -267,7 +289,8 @@ class TranscriptProvider(Protocol):
 * **신규 모듈 및 컴포넌트**:
   * `src/claire/extract/transcript/`: `base.py`, `gemini_stt.py`, `antigravity_stt.py`, `mock_stt.py`, `factory.py`
   * `src/claire/store/video_cache.py`: 다운로드 미디어 3일 보존, 만료(TTL) 관리, 1KB 미만 손상 캐시 자동 삭제
-  * `src/claire/ingest/fetchers/video.py`: `resolve_video_target_url()`, `parse_ytdlp_extractor_args()`, `fetch_video()` (캐시 실패 시 원격 다운로드 폴백)
+  * `src/claire/ingest/fetchers/captions.py`: 언어별 CC 후보 선택, URL 자막 다운로드, 음성 WebVTT 검증, 무결성 해시 생성
+  * `src/claire/ingest/fetchers/video.py`: CC 우선 `fetch_video()`와 CC 부재 시 기존 캐시·STT 폴백 통합
   * `src/claire/config.py`: `enable_video_transcription`, `stt_provider`, `stt_model`, `video_chunk_duration_sec`, `video_cache_ttl_sec`, `ffmpeg_bin`, `ytdlp_extractor_args`
   * `src/claire/cli.py`: `claire video-reprocess` (단축: `reprocess-video`), 실시간 진행률 스트리밍 및 `has_transcript` 무결성 검증
   * `src/claire/telegram_bot.py`: 공유 링크 / `doc_id` 수신 시 `[ 🌐 전체 원문 재수집 ]` 원터치 버튼 및 `--refetch-full` 플래그 즉시 재전사 연동
@@ -275,9 +298,10 @@ class TranscriptProvider(Protocol):
   * `pyproject.toml` `[project.optional-dependencies]`에 `audio = ["yt-dlp[curl-cffi]>=2024.8.0"]` 추가
   * `Dockerfile`에 `ffmpeg` apt 패키지 설치 및 빌드 시 최신 `yt-dlp[curl-cffi]` 업그레이드 연동
 * **테스트 검증**:
+  * `tests/test_video_captions.py` (8건 통과: 언어 태그 일치, HTTPS·수동 CC 우선순위, URL 다운로드, STT 우회, 무효 CC 폴백, 실패 복구성, 토큰 비노출)
   * `tests/test_gemini_stt.py` (8건 통과: 10k TPM 페이싱, 429 retryDelay 파싱, 최대 5회 백오프 재시도)
   * `tests/test_video_cache.py` (6건 통과: 3일 캐시 보존/만료, 1KB 미만 손상 파일 소각, 원격 다운로드 폴백, CLI 에러 검증)
-  * 전체 테스트 스위트 831건 100% 통과.
+  * 2026-09-04 기준 전체 테스트 886건과 서브테스트 6건이 통과했습니다.[^cc-test-evidence]
 
 ---
 
@@ -295,15 +319,24 @@ class TranscriptProvider(Protocol):
 - 전사가 정상 완료되면 사용된 캐시 파일은 디스크 용량 절약을 위해 자동 삭제됩니다.
 - 1KB 미만의 비정상/더미 파일은 탐색 시 즉시 소각되며, 캐시 파일로 STT 실패 시에도 캐시를 즉시 삭제하고 `yt-dlp` 원격 다운로드로 자동 전환됩니다.
 
-### 8.3. 재전사 실행 명령 (CLI 및 텔레그램)
+### 8.3. 비디오 자막 재수집 명령 (CLI 및 텔레그램)
 - **CLI**:
   ```bash
   # Dry-run 진단
   ./cb-manuscript app video-reprocess --doc-id doc_b19da8da2980
-  # 실제 적용 (실시간 진행 로그 출력)
+  # 실제 자막 재수집 적용 (CC 우선, 필요 시 STT)
   ./cb-manuscript app video-reprocess --doc-id doc_b19da8da2980 --apply
   ```
 - **텔레그램**:
   - 봇 채팅방에 `https://cb.netspheres.org/p?s=8at3mxrnfyrd63s6` 전송 후 `[ 🌐 전체 원문 재수집 (전체 길이) ]` 버튼 클릭.
   - 또는 `doc_b19da8da2980 --refetch-full` 메시지 전송으로 백그라운드 원스톱 실행.
 
+---
+
+## 9. 참고문헌
+
+[^brightcove-text-tracks]: Brightcove, [Playback API Video Fields Reference — `text_tracks`](https://apis.support.brightcove.com/playback/references/playback-api-video-fields-reference.html), 2026-09-04 확인.
+[^vmware-caption-state-change]: VMware Explore, [Introducing VMware AI Factory: The Software-Defined Foundation of VMware Private AI Cloud](https://www.vmware.com/explore/video/6403821753112); `yt-dlp 2026.07.04 --dump-single-json --skip-download` 및 자막 다운로드 재검증, 2026-09-04.
+[^vmware-cc-sample]: VMware Explore, [Introduction to VMware Cloud Foundation 9.0: Private Cloud Platform for All Applications](https://www.vmware.com/explore/video/6403820644112); `yt-dlp 2026.07.04 --dump-single-json --skip-download` 및 `--write-subs --sub-langs en-US` 실측, 2026-09-04.
+[^ytdlp-subtitle-schema]: yt-dlp, [`InfoExtractor` output template and subtitle format schema](https://github.com/yt-dlp/yt-dlp/blob/master/yt_dlp/extractor/common.py), 2026-09-04 확인.
+[^cc-test-evidence]: Claire Bible 구현 근거: [`src/claire/ingest/fetchers/captions.py`](../../../src/claire/ingest/fetchers/captions.py), [`src/claire/ingest/fetchers/video.py`](../../../src/claire/ingest/fetchers/video.py), [`tests/test_video_captions.py`](../../../tests/test_video_captions.py), [`tests/test_gemini_stt.py`](../../../tests/test_gemini_stt.py), [`tests/test_video_cache.py`](../../../tests/test_video_cache.py), [`tests/test_router.py`](../../../tests/test_router.py), [`tests/test_youtube_fetcher.py`](../../../tests/test_youtube_fetcher.py) (2026-09-04 확인).

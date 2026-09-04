@@ -1,6 +1,9 @@
 """비디오 페처 및 라우팅 단위 테스트."""
 
-import pytest
+import sys
+from pathlib import Path
+from types import SimpleNamespace
+
 from claire.ingest.router import classify
 from claire.ingest.fetchers.video import (
     resolve_video_target_url,
@@ -41,7 +44,25 @@ def test_resolve_video_target_url():
 
 
 def test_fetch_video_disabled_stt(monkeypatch):
+    class MetadataOnlyYDL:
+        def __init__(self, _options):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def extract_info(self, _url, download=False):
+            assert download is False
+            return {"title": "Video without captions", "duration": 120.0}
+
+    monkeypatch.setitem(
+        sys.modules, "yt_dlp", SimpleNamespace(YoutubeDL=MetadataOnlyYDL)
+    )
     monkeypatch.setenv("CLAIRE_ENABLE_VIDEO_TRANSCRIPTION", "0")
+    monkeypatch.setenv("CLAIRE_YTDLP_EXTRACTOR_ARGS", "")
     from claire.config import get_settings
     get_settings.cache_clear()
 
@@ -54,9 +75,33 @@ def test_fetch_video_disabled_stt(monkeypatch):
     assert doc.meta.get("is_stt") is False
 
 
-def test_fetch_video_with_mock_stt(monkeypatch, tmp_path):
+def test_fetch_video_with_mock_stt(monkeypatch):
+    class CaptionlessYDL:
+        def __init__(self, options):
+            self.options = options
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def extract_info(self, _url, download=False):
+            assert download is False
+            return {"title": "Video without captions", "duration": 120.0}
+
+        def download(self, _urls):
+            outtmpl = Path(self.options["outtmpl"])
+            (outtmpl.parent / "audio.mp4").write_bytes(b"synthetic audio fixture")
+
+    monkeypatch.setitem(sys.modules, "yt_dlp", SimpleNamespace(YoutubeDL=CaptionlessYDL))
+    monkeypatch.setattr(
+        "claire.ingest.fetchers.video.find_ffmpeg_executable",
+        lambda _configured: "/bin/ffmpeg",
+    )
     monkeypatch.setenv("CLAIRE_ENABLE_VIDEO_TRANSCRIPTION", "1")
     monkeypatch.setenv("CLAIRE_STT_PROVIDER", "mock")
+    monkeypatch.setenv("CLAIRE_YTDLP_EXTRACTOR_ARGS", "")
     from claire.config import get_settings
     get_settings.cache_clear()
 
@@ -66,3 +111,4 @@ def test_fetch_video_with_mock_stt(monkeypatch, tmp_path):
     assert doc.title != ""
     assert doc.meta["duration_sec"] > 0
     assert doc.meta.get("is_stt") is True
+    assert doc.meta.get("transcript_source") == "stt"
