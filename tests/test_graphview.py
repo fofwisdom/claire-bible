@@ -727,3 +727,18 @@ def test_adaptive_physics_and_visual_hierarchy_html_markers():
     assert "function nodeFontSize(deg)" in GRAPH_HTML
     assert "Math.sqrt(d)" in GRAPH_HTML
     assert "Math.log2(d + 1)" in GRAPH_HTML
+
+
+def test_progress_lists_no_double_bullets():
+    """웹 적재(iprog) 및 조사(rprog) 진행 목록에서 불릿 중복(• •) 방지 검증."""
+    from claire.graphview import GRAPH_HTML
+
+    # li.textContent에 별도의 불릿('• ')을 중복 추가하지 않아야 함
+    assert "li.textContent='• '" not in GRAPH_HTML
+    assert "li.textContent='• '+" not in GRAPH_HTML
+    assert "(ev.stage==='llm'?'⏳ ':'• ')" not in GRAPH_HTML
+
+    # iprog 및 rprog 진행 메시지에서 선행 불릿 문자 자동 정제 및 1회 불릿 적용
+    assert "document.getElementById('iprog')" in GRAPH_HTML
+    assert "document.getElementById('rprog')" in GRAPH_HTML
+    assert "#rprog, #iprog" in GRAPH_HTML
