@@ -1,0 +1,633 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>__TITLE__ — Claire Bible</title>
+<meta name="mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<meta name="apple-mobile-web-app-title" content="Claire Bible"/>
+<meta name="application-name" content="Claire Bible"/>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg"/>
+<link rel="icon" type="image/png" sizes="192x192" href="/icon?p=android-chrome-192x192.png"/>
+<link rel="icon" type="image/png" sizes="512x512" href="/icon?p=android-chrome-512x512.png"/>
+<link rel="alternate icon" href="/favicon.ico"/>
+<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png"/>
+<link rel="manifest" href="/manifest.json"/>
+<link rel="mask-icon" href="/favicon.svg" color="#00ffaa"/>
+<meta name="theme-color" content="#0e1116"/>
+<!-- __GA_TAG__ -->
+<!-- Google Fonts (Noto Sans KR, Noto Serif KR) -->
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&family=Noto+Serif+KR:wght@400;700&display=swap"/>
+<link rel="stylesheet" href="https://unpkg.com/katex@0.16.11/dist/katex.min.css" integrity="sha384-nB0miv6/jRmo5UMMR1wu3Gz6NLsoTkbqJghGIsx//Rlm+ZU03BU6SQNC66uf4l5+" crossorigin="anonymous"/>
+<script src="https://unpkg.com/marked@4.3.0/marked.min.js" integrity="sha384-QsSpx6a0USazT7nK7w8qXDgpSAPhFsb2XtpoLFQ5+X2yFN6hvCKnwEzN8M5FWaJb" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/dompurify@3.1.6/dist/purify.min.js" integrity="sha384-+VfUPEb0PdtChMwmBcBmykRMDd+v6D/oFmB3rZM/puCMDYcIvF968OimRh4KQY9a" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/katex@0.16.11/dist/katex.min.js" integrity="sha384-7zkQWkzuo3B5mTepMUcHkMB5jZaolc2xDwL6VFqjFALcbeS9Ggm/Yr2r3Dy4lfFg" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/katex@0.16.11/dist/contrib/auto-render.min.js" integrity="sha384-43gviWU0YVjaDtb/GhzOouOXtZMP/7XUzwPTstBeZFe/+rCMvRwr4yROQP43s0Xk" crossorigin="anonymous"></script>
+<link rel=stylesheet href=/static/css/theme.css/>
+<link rel=stylesheet href=/static/css/reader.css/>
+<script src=/static/js/renderers/adoc_parser.js></script>
+</head>
+<body><div class="wrap" id="wrap"></div>
+<aside class="cb-heading-rail" id="srail" aria-label="문서 내비게이션 바">
+  <div class="cb-rail-track" id="srail-track" title="클릭하여 이동, 탭/누른 상태에서 늘어남">
+    <div class="cb-rail-fill" id="srail-fill"></div>
+    <div class="cb-diamond-layer" id="srail-diamonds"></div>
+  </div>
+</aside>
+<div id="sttmodal" class="sttmodal" role="dialog" aria-modal="true" aria-labelledby="stttitle" style="display:none" onclick="if(event.target===this)closeSttReader()">
+  <div class="sttsheet" tabindex="-1">
+    <div class="stthead">
+      <div class="sttheading">
+        <h2 id="stttitle">🎙️ 음성 전사</h2>
+        <p class="sttdoctitle" id="sttdoctitle"></p>
+        <p class="sttmeta" id="sttmeta"></p>
+      </div>
+      <div class="stttools">
+        <button onclick="copySttText(false)" title="전사 텍스트만 복사">📋 텍스트 복사</button>
+        <button onclick="copySttText(true)" title="타임스탬프 포함 복사">⏱️ 타임스탬프 복사</button>
+      </div>
+      <button class="rclose sttclose" onclick="closeSttReader()" title="닫기(ESC)" aria-label="전사 닫기">✕</button>
+    </div>
+    <div class="sttsearchbar">
+      <input id="sttq" placeholder="전사 내용 검색 (단어 또는 타임스탬프)..." oninput="filterSttLines(this.value)"/>
+      <span id="sttcount" class="sttcount"></span>
+    </div>
+    <div id="sttbody" class="sttbody"></div>
+  </div>
+</div>
+<script id="docdata" type="application/json">__DATA__</script>
+<script>
+function docMetaHtml(dc){
+  if(!dc) return '';
+  const hasUrl = !!dc.url;
+  const isTrunc = !!(dc.raw_truncated || (dc.meta && dc.meta.raw_truncated));
+  const isAppTrunc = isTrunc && !!(dc.appendix_truncated || (dc.meta && dc.meta.appendix_truncated));
+  const isRefTrunc = isTrunc && !!(dc.references_truncated || (dc.meta && dc.meta.references_truncated));
+  const isParserFallback = !!(dc.pdf_parser_fallback || (dc.meta && dc.meta.pdf_parser_fallback));
+  const fallbackReason = (dc.pdf_parser_fallback_reason || (dc.meta && dc.meta.pdf_parser_fallback_reason) || 'Docling 런타임 오류');
+  const directive = (dc.directive || (dc.meta && dc.meta.directive) || '').trim();
+  const author = (dc.author || (dc.meta && dc.meta.author) || (dc.biblio && dc.biblio.author) || (dc.meta && dc.meta.biblio && dc.meta.biblio.author) || '').trim();
+  const pubAt = (dc.published_at || (dc.meta && dc.meta.published_at) || (dc.biblio && dc.biblio.published_at) || (dc.meta && dc.meta.biblio && dc.meta.biblio.published_at) || '').trim();
+  const isStt = !!(dc.is_stt || (dc.meta && (dc.meta.is_stt || dc.meta.stt_applied || dc.meta.stt)));
+  const isSttTrunc = isStt && !!(dc.stt_truncated || (dc.meta && dc.meta.stt_truncated) || isTrunc);
+  const presentation = dc.presentation_pdf || (dc.meta && dc.meta.presentation_pdf) || {};
+  const hasPresentation = presentation.status === 'available' && !!presentation.public_url;
+  if(!hasUrl && !isTrunc && !directive && !isStt && !author && !pubAt && !isParserFallback && !hasPresentation) return '';
+  let h='<p class=docmeta>';
+  if(hasUrl){
+    h+='<a href="'+esc(dc.url)+'" target=_blank rel=noopener>↗ 원문 열기</a>';
+    if(isStt){
+      h+=' <a href="#" class="stt-link" onclick="openSttReader();return false;" title="음성 인식(STT) 전사 텍스트 열기">↗ 전사 열기</a>';
+    }
+    if(hasPresentation){
+      h+=' <a href="'+esc(presentation.public_url)+'" target=_blank rel=noopener>↗ Presentation PDF</a>';
+    }
+  } else {
+    if(isStt){
+      h+='<a href="#" class="stt-link" onclick="openSttReader();return false;" title="음성 인식(STT) 전사 텍스트 열기">↗ 전사 열기</a>';
+    } else {
+      h+='<span></span>';
+    }
+  }
+  let tags=[];
+  if(author || pubAt){
+    let bibTxt = '';
+    if(author && pubAt) bibTxt = author + ' (' + pubAt + ')';
+    else if(author) bibTxt = author;
+    else if(pubAt) bibTxt = pubAt;
+    tags.push('<span class="directive-tag" style="background:rgba(255,255,255,0.06);border-color:rgba(255,255,255,0.15);color:var(--muted)" title="서지 메타데이터: '+esc(bibTxt)+'">✍️ '+esc(bibTxt)+'</span>');
+  }
+  if(isParserFallback){
+    tags.push('<span class="trunc-tag parser-fallback-tag" title="Docling 실패 사유: '+esc(fallbackReason)+'">⚠️ Docling 폴백 (PyPDF)</span>');
+  }
+  if(hasPresentation){
+    const pdfChars = Number(presentation.raw_chars || 0);
+    const pdfParser = String(presentation.parser_used || '').trim();
+    const artifactState = presentation.artifact_path ? '원본 보존됨' : '원본 경로 미확인';
+    const bundleIcon = isStt ? '🎙️⚡📄' : '🔤⚡📄';
+    const bundleType = isStt ? 'STT×PDF' : 'CC×PDF';
+    const pdfLabel = bundleIcon+' '+bundleType;
+    const bundleSource = isStt ? '영상 음성 전사와' : '영상 자막과';
+    const metaParts = [];
+    if(pdfChars > 0) metaParts.push(pdfChars.toLocaleString()+'자');
+    if(pdfParser) metaParts.push(pdfParser);
+    if(presentation.parser_fallback) metaParts.push('Docling 폴백');
+    const metaDetail = metaParts.length ? ' ('+metaParts.join(' · ')+')' : '';
+    const tip = bundleSource+' 원본 PDF 함께 적재'+metaDetail+' · '+artifactState;
+    const tagClass = 'directive-tag' + (isStt ? ' stt-tag' : '');
+    tags.push('<span class="'+tagClass+'" title="'+esc(tip)+'">'+pdfLabel+'</span>');
+  }
+  if(directive){
+    const dispDir = directive.length > 25 ? directive.slice(0, 25) + '…' : directive;
+    tags.push('<span class="directive-tag" title="적재 시 지정한 초점: '+esc(directive)+'">🎯 '+esc(dispDir)+'</span>');
+  }
+  if(isStt && !hasPresentation){
+    tags.push('<span class="directive-tag stt-tag" title="음성 인식(STT)을 적용하여 작성한 문서">🎙️ STT</span>');
+  }
+  if(isAppTrunc && isRefTrunc){
+    const orig=(dc.orig_chars || (dc.meta && dc.meta.orig_chars)) || 0;
+    const raw=(dc.raw_chars || (dc.meta && dc.meta.raw_chars)) || 0;
+    let tip = '원문의 부록(Appendix) 및 참고문헌(References) 부분을 제외한 문서';
+    let label='✂️ 부록·참고문헌 제외';
+    if(orig > 0 && raw > 0){
+      tip+=' (원문: '+orig.toLocaleString()+'자 → 적재: '+raw.toLocaleString()+'자)';
+      label+=' ('+raw.toLocaleString()+' / '+orig.toLocaleString()+'자)';
+    } else if(raw > 0){
+      label+=' ('+raw.toLocaleString()+'자)';
+    }
+    tags.push('<span class="trunc-tag trunc-appendix" title="'+esc(tip)+'">'+esc(label)+'</span>');
+  } else if(isRefTrunc){
+    const orig=(dc.orig_chars || (dc.meta && dc.meta.orig_chars)) || 0;
+    const raw=(dc.raw_chars || (dc.meta && dc.meta.raw_chars)) || 0;
+    let tip = '원문의 참고문헌(References) 부분을 제외한 문서';
+    let label='✂️ 참고문헌 제외';
+    if(orig > 0 && raw > 0){
+      tip+=' (원문: '+orig.toLocaleString()+'자 → 적재: '+raw.toLocaleString()+'자)';
+      label+=' ('+raw.toLocaleString()+' / '+orig.toLocaleString()+'자)';
+    } else if(raw > 0){
+      label+=' ('+raw.toLocaleString()+'자)';
+    }
+    tags.push('<span class="trunc-tag trunc-references" title="'+esc(tip)+'">'+esc(label)+'</span>');
+  } else if(isAppTrunc){
+    const orig=(dc.orig_chars || (dc.meta && dc.meta.orig_chars)) || 0;
+    const raw=(dc.raw_chars || (dc.meta && dc.meta.raw_chars)) || 0;
+    let tip = '원문의 부록(Appendix) 부분을 절단한 문서';
+    let label='✂️ 원문 일부 절단';
+    if(orig > 0 && raw > 0){
+      tip+=' (원문: '+orig.toLocaleString()+'자 → 적재: '+raw.toLocaleString()+'자)';
+      label+=' ('+raw.toLocaleString()+' / '+orig.toLocaleString()+'자)';
+    } else if(raw > 0){
+      label+=' ('+raw.toLocaleString()+'자)';
+    }
+    tags.push('<span class="trunc-tag trunc-appendix" title="'+esc(tip)+'">'+esc(label)+'</span>');
+  } else if(isSttTrunc){
+    const orig=(dc.stt_orig_chars || (dc.meta && dc.meta.stt_orig_chars) || dc.orig_chars || (dc.meta && dc.meta.orig_chars)) || 0;
+    const raw=(dc.stt_raw_chars || (dc.meta && dc.meta.stt_raw_chars) || dc.raw_chars || (dc.meta && dc.meta.raw_chars)) || 0;
+    let tip = '음성 전사(STT) 전문이 일부 절단된 상태에서 본문(상세)이 작성된 문서';
+    let label = '✂️ STT 일부 절단';
+    if(orig > 0 && raw > 0){
+      tip += ' (원문: '+orig.toLocaleString()+'자 → 적재: '+raw.toLocaleString()+'자)';
+      label += ' ('+raw.toLocaleString()+' / '+orig.toLocaleString()+'자)';
+    } else if(raw > 0){
+      label += ' ('+raw.toLocaleString()+'자)';
+    }
+    tags.push('<span class="trunc-tag trunc-stt" title="'+esc(tip)+'">'+esc(label)+'</span>');
+  } else if(isTrunc){
+    const orig=(dc.orig_chars || (dc.meta && dc.meta.orig_chars)) || 0;
+    const raw=(dc.raw_chars || (dc.meta && dc.meta.raw_chars)) || 0;
+    let tip = '글자 수 상한으로 원문 일부를 절단한 문서';
+    let label='✂️ 원문 일부 절단';
+    if(orig > 0 && raw > 0){
+      tip+=' (원문: '+orig.toLocaleString()+'자 → 적재: '+raw.toLocaleString()+'자)';
+      label+=' ('+raw.toLocaleString()+' / '+orig.toLocaleString()+'자)';
+    } else if(raw > 0){
+      label+=' ('+raw.toLocaleString()+'자)';
+    }
+    const tagClass = isAppTrunc ? 'trunc-tag trunc-appendix' : 'trunc-tag';
+    tags.push('<span class="'+tagClass+'" title="'+esc(tip)+'">'+esc(label)+'</span>');
+  }
+  if(tags.length){
+    h+='<span class="docmeta-tags">'+tags.join(' ')+'</span>';
+  }
+  h+='</p>';
+  return h;
+}
+const dc=JSON.parse(document.getElementById('docdata').textContent||'{}');
+let h='<div class=brand>Claire Bible · 공유 문서</div>';
+h+='<h1>'+esc(dc.title||'(제목 없음)')+(dc.source_type?' <span class=rmeta>'+esc(dc.source_type)+'</span>':'')+'</h1>';
+h+=docMetaHtml(dc);
+const isStt = !!(dc.is_stt || (dc.meta && (dc.meta.is_stt || dc.meta.stt_applied || dc.meta.stt)));
+const isSttTrunc = isStt && !!(dc.stt_truncated || (dc.meta && dc.meta.stt_truncated) || dc.raw_truncated || (dc.meta && dc.meta.raw_truncated));
+if(isSttTrunc){
+  h+='<div class="stt-trunc-banner">⚠️ <strong>음성 전사(STT) 일부 절단 안내</strong>: 전체 전사 내용 중 일부만 반영된 상태에서 본문(상세)이 작성되었습니다. 전체 재전사 명령: <code>claire video-reprocess --doc-id '+esc(dc.id||'')+' --apply --full-content</code></div>';
+}
+if((dc.extra_sources||[]).length){
+  h+='<div class=sec>병합된 출처 ('+dc.extra_sources.length+')</div><ul class=srclist>'+
+    dc.extra_sources.map(s=>'<li><a href="'+esc(s.url||'')+'" target=_blank rel=noopener>'+
+      esc(s.title||s.url||'')+'</a></li>').join('')+'</ul>';
+}
+const directive = (dc.directive || (dc.meta && dc.meta.directive) || '').trim();
+if(directive){
+  h+='<div class=sec>초점</div><div class="doc-content" style="margin-bottom:.8em">🎯 <strong>'+esc(directive)+'</strong></div>';
+}
+if(dc.summary){ h+='<div class=sec>요약</div><div class="doc-content">'+renderContent(dc.summary, dc.detail_format)+'</div>'; }
+if(dc.detail_html){
+  const purifier=window.DOMPurify;
+  const cleanHtml=(purifier && typeof purifier.sanitize==='function')?purifier.sanitize(dc.detail_html, DOMPURIFY_OPTS):dc.detail_html;
+  h+='<div class=sec>상세</div><div class="doc-content">'+cleanHtml+'</div>';
+}else if(dc.detail){
+  h+='<div class=sec>상세</div><div class="doc-content">'+renderContent(dc.detail, dc.detail_format)+'</div>';
+}
+if(!dc.summary && !dc.detail && !dc.detail_html){ h+='<p class=meta>문서에 요약/상세 내용이 없습니다.</p>'; }
+h+='<div class=foot>이 링크는 이 문서 하나만 읽기 전용으로 공유합니다.</div>';
+document.getElementById('wrap').innerHTML=h;
+applyMathRendering(document.getElementById('wrap'));
+updateSharedRail();
+
+// --- 슬림 마름모 바 & 탄성 확장 헤딩 내비게이션 레일 제어 (공유 페이지) ---
+function _sClsAdd(el, c){ if(el && el.classList && el.classList.add) el.classList.add(c); else if(el && el.className!==undefined && !el.className.includes(c)) el.className = (el.className+' '+c).trim(); }
+function _sClsRem(el, c){ if(el && el.classList && el.classList.remove) el.classList.remove(c); else if(el && el.className) el.className = el.className.replace(new RegExp('\b'+c+'\b','g'),'').trim(); }
+
+function updateSharedRail(){
+  const wrap = document.getElementById('wrap');
+  const rail = document.getElementById('srail');
+  const track = document.getElementById('srail-track');
+  const fill = document.getElementById('srail-fill');
+  const diamonds = document.getElementById('srail-diamonds');
+  if(!wrap || !rail || !track || !fill || !diamonds) return;
+
+  const docEl = (typeof document !== 'undefined' && document.documentElement) || null;
+  const headingEls = wrap.querySelectorAll ? wrap.querySelectorAll('.sec, .doc-content h1, .doc-content h2, .doc-content h3, .doc-content h4') : [];
+  const totalScroll = docEl ? (docEl.scrollHeight - (window.innerHeight || 0)) : 0;
+
+  if(!docEl || headingEls.length <= 1 || totalScroll <= 80){
+    _sClsRem(rail, 'visible');
+    diamonds.innerHTML = '';
+    return;
+  }
+
+  _sClsAdd(rail, 'visible');
+  const railHeadings = Array.from(headingEls).map((el, idx) => {
+    let tag = 'h2';
+    if(el.classList.contains('sec')) tag = 'rsec';
+    else if(el.tagName === 'H1') tag = 'h1';
+    else if(el.tagName === 'H2') tag = 'h2';
+    else if(el.tagName === 'H3') tag = 'h3';
+    else if(el.tagName === 'H4') tag = 'h4';
+
+    return {
+      el: el,
+      tag: tag,
+      title: el.innerText ? el.innerText.trim() : '',
+      percent: 0,
+      expandedPercent: 0
+    };
+  });
+
+  function computePositions(){
+    const dEl = (typeof document !== 'undefined' && document.documentElement) || null;
+    const tScroll = dEl ? (dEl.scrollHeight - (window.innerHeight || 0)) : 0;
+    const count = railHeadings.length;
+    railHeadings.forEach((item, idx) => {
+      let ratio = 0;
+      if(tScroll > 0){
+        const topOffset = item.el.getBoundingClientRect ? (item.el.getBoundingClientRect().top + (window.scrollY || 0)) : 0;
+        ratio = Math.max(0, Math.min(1, topOffset / tScroll));
+      } else {
+        ratio = count > 1 ? (idx / (count - 1)) : 0.5;
+      }
+      item.percent = ratio * 100;
+      const uniform = count > 1 ? (idx / (count - 1)) * 96 + 2 : 50;
+      item.expandedPercent = item.percent * 0.2 + uniform * 0.8;
+    });
+  }
+
+  computePositions();
+
+  diamonds.innerHTML = '';
+  railHeadings.forEach((item, idx) => {
+    const marker = document.createElement('div');
+    marker.className = 'cb-diamond-marker cb-marker-' + item.tag;
+    marker.style.top = item.percent + '%';
+    marker.dataset.index = idx;
+    marker.innerHTML = '<div class="cb-diamond-tooltip">' + esc(item.title) + '</div><div class="cb-diamond-shape"></div>';
+
+    marker.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const topOffset = item.el.getBoundingClientRect ? (item.el.getBoundingClientRect().top + (window.scrollY || 0)) : 0;
+      window.scrollTo({ top: Math.max(0, topOffset - 16), behavior: 'smooth' });
+    });
+
+    diamonds.appendChild(marker);
+  });
+
+  function onWindowScroll(){
+    const top = (typeof window !== 'undefined' && window.scrollY) || (document.documentElement ? document.documentElement.scrollTop : 0);
+    const dEl = (typeof document !== 'undefined' && document.documentElement) || null;
+    const tScroll = dEl ? (dEl.scrollHeight - (window.innerHeight || 0)) : 0;
+    const ratio = tScroll > 0 ? top / tScroll : 0;
+    const pct = Math.min(100, Math.max(0, Math.round(ratio * 100)));
+    fill.style.height = pct + '%';
+
+    let activeIdx = 0;
+    const threshold = top + 90;
+    for(let i = 0; i < railHeadings.length; i++){
+      const itemTop = railHeadings[i].el.getBoundingClientRect ? (railHeadings[i].el.getBoundingClientRect().top + (window.scrollY || 0)) : 0;
+      if(itemTop <= threshold){
+        activeIdx = i;
+      } else {
+        break;
+      }
+    }
+
+    const markers = diamonds.querySelectorAll ? diamonds.querySelectorAll('.cb-diamond-marker') : [];
+    markers.forEach((m, i) => {
+      if(i === activeIdx){
+        _sClsAdd(m, 'active');
+      } else {
+        _sClsRem(m, 'active');
+      }
+    });
+  }
+
+  if(typeof window !== 'undefined' && window.addEventListener){
+    window.addEventListener('scroll', onWindowScroll, { passive: true });
+    onWindowScroll();
+  }
+
+  let isPressing = false;
+  let scrubIdx = -1;
+
+  function startExpand(clientY){
+    isPressing = true;
+    _sClsAdd(rail, 'is-expanding');
+    const markers = diamonds.querySelectorAll ? diamonds.querySelectorAll('.cb-diamond-marker') : [];
+    markers.forEach((m, idx) => {
+      if(railHeadings[idx]){
+        m.style.top = railHeadings[idx].expandedPercent + '%';
+      }
+    });
+    updateScrubFocus(clientY);
+  }
+
+  function updateScrubFocus(clientY){
+    if(!isPressing) return;
+    const rect = track.getBoundingClientRect ? track.getBoundingClientRect() : { top: 0, height: 100 };
+    const relY = clientY - rect.top;
+    const ratio = Math.max(0, Math.min(1, relY / rect.height));
+    const curPct = ratio * 100;
+
+    let closestIdx = 0;
+    let minDiff = 999;
+    railHeadings.forEach((item, idx) => {
+      const diff = Math.abs(item.expandedPercent - curPct);
+      if(diff < minDiff){
+        minDiff = diff;
+        closestIdx = idx;
+      }
+    });
+    scrubIdx = closestIdx;
+
+    const markers = diamonds.querySelectorAll ? diamonds.querySelectorAll('.cb-diamond-marker') : [];
+    markers.forEach((m, idx) => {
+      if(idx === scrubIdx){
+        _sClsAdd(m, 'scrub-focus');
+      } else {
+        _sClsRem(m, 'scrub-focus');
+      }
+    });
+  }
+
+  function endExpand(){
+    if(!isPressing) return;
+    isPressing = false;
+    _sClsRem(rail, 'is-expanding');
+
+    if(scrubIdx >= 0 && railHeadings[scrubIdx]){
+      const topOffset = railHeadings[scrubIdx].el.getBoundingClientRect ? (railHeadings[scrubIdx].el.getBoundingClientRect().top + (window.scrollY || 0)) : 0;
+      window.scrollTo({ top: Math.max(0, topOffset - 16), behavior: 'smooth' });
+    }
+
+    const markers = diamonds.querySelectorAll ? diamonds.querySelectorAll('.cb-diamond-marker') : [];
+    markers.forEach((m, idx) => {
+      _sClsRem(m, 'scrub-focus');
+      if(railHeadings[idx]){
+        m.style.top = railHeadings[idx].percent + '%';
+      }
+    });
+    scrubIdx = -1;
+  }
+
+  if(!rail._boundEvents){
+    rail._boundEvents = true;
+    rail.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      startExpand(e.clientY);
+    });
+    window.addEventListener('mousemove', (e) => {
+      if(isPressing) updateScrubFocus(e.clientY);
+    });
+    window.addEventListener('mouseup', () => {
+      endExpand();
+    });
+
+    rail.addEventListener('touchstart', (e) => {
+      if(e.touches.length > 0) startExpand(e.touches[0].clientY);
+    }, { passive: true });
+    window.addEventListener('touchmove', (e) => {
+      if(isPressing && e.touches.length > 0) updateScrubFocus(e.touches[0].clientY);
+    }, { passive: true });
+    window.addEventListener('touchend', () => {
+      endExpand();
+    });
+
+    window.addEventListener('resize', () => {
+      computePositions();
+      onWindowScroll();
+    });
+  }
+}
+
+// --- 공유 페이지 STT 전사 열기 모달 뷰어 제어 ---
+let curSttData = dc;
+let curSttFilter = '';
+
+function openSttReader(docId){
+  const modal = document.getElementById('sttmodal');
+  if(!modal) return;
+  curSttData = dc;
+
+  if(!dc.is_stt && !(dc.meta && (dc.meta.is_stt || dc.meta.transcript_segments))){
+    alert('음성 전사(STT) 데이터가 없는 문서입니다.');
+    return;
+  }
+
+  const docTitleEl = document.getElementById('sttdoctitle');
+  if(docTitleEl) docTitleEl.textContent = dc.title || '(제목 없음)';
+
+  const metaEl = document.getElementById('sttmeta');
+  let metaTxt = '';
+  const dur = (dc.meta && dc.meta.duration_sec) || dc.duration_sec || 0;
+  if(dur > 0){
+    const m = Math.floor(dur / 60);
+    const s = Math.floor(dur % 60);
+    metaTxt += '재생 시간: ' + m + '분 ' + s + '초';
+  }
+  const segs = dc.transcript_segments || (dc.meta && dc.meta.transcript_segments) || [];
+  if(segs.length > 0){
+    metaTxt += (metaTxt ? ' · ' : '') + '총 ' + segs.length.toLocaleString() + '개 발화 구간';
+  }
+  if(metaEl) metaEl.textContent = metaTxt;
+
+  const input = document.getElementById('sttq');
+  if(input) input.value = '';
+  curSttFilter = '';
+
+  renderSttLines();
+  modal.classList.add('open');
+  modal.style.display = 'flex';
+  document.body.classList.add('stt-modal-open');
+  if(input) requestAnimationFrame(()=>input.focus());
+}
+
+function closeSttReader(){
+  const modal = document.getElementById('sttmodal');
+  if(!modal) return;
+  modal.classList.remove('open');
+  modal.style.display = 'none';
+  document.body.classList.remove('stt-modal-open');
+}
+
+function renderSttLines(){
+  const body = document.getElementById('sttbody');
+  const countEl = document.getElementById('sttcount');
+  if(!body || !curSttData) return;
+
+  let segs = dc.transcript_segments || (dc.meta && dc.meta.transcript_segments) || [];
+  let rawText = dc.stt_transcript || '';
+
+  let h = '';
+  const isTrunc = !!(dc.stt_truncated || (dc.meta && dc.meta.stt_truncated));
+  if(isTrunc){
+    h += '<div class="stt-trunc-banner">⚠️ <strong>전사 일부 절단 상태</strong>: 글자 수 상한 또는 오디오 구간 누락으로 인해 음성 전사의 일부만 반영되었습니다. 전체 내용을 복원하려면 <code>claire video-reprocess --doc-id ' + esc(dc.id||'') + ' --apply --full-content</code>를 실행하십시오.</div>';
+  }
+
+  const q = (curSttFilter || '').toLowerCase().trim();
+  let matchCount = 0;
+  let totalCount = 0;
+
+  if(segs && segs.length > 0){
+    totalCount = segs.length;
+    segs.forEach(s => {
+      const startF = s.start_sec != null ? s.start_sec : (s.start != null ? s.start : 0.0);
+      const totalSec = Math.floor(startF);
+      const hrs = Math.floor(totalSec / 3600);
+      const mins = Math.floor((totalSec % 3600) / 60);
+      const secs = totalSec % 60;
+      const ts = hrs > 0 ? (String(hrs).padStart(2,'0')+':'+String(mins).padStart(2,'0')+':'+String(secs).padStart(2,'0')) : (String(mins).padStart(2,'0')+':'+String(secs).padStart(2,'0'));
+      const txt = String(s.text || '');
+
+      const isMatch = !q || txt.toLowerCase().includes(q) || ts.includes(q);
+      if(isMatch){
+        matchCount++;
+        let dispTxt = esc(txt);
+        if(q){
+          let ltxt = txt.toLowerCase(), lq = q.toLowerCase();
+          let idx = 0, out = '';
+          while(true){
+            let next = ltxt.indexOf(lq, idx);
+            if(next === -1){ out += esc(txt.slice(idx)); break; }
+            out += esc(txt.slice(idx, next)) + '<mark>' + esc(txt.slice(next, next + q.length)) + '</mark>';
+            idx = next + q.length;
+          }
+          dispTxt = out;
+        }
+        h += '<div class="stt-line' + (q ? ' highlight' : '') + '">';
+        h += '<span class="stt-ts" title="클릭하여 타임스탬프 복사" data-ts="' + esc(ts) + '" onclick="copyTimestamp(this.dataset.ts)">[' + esc(ts) + ']</span>';
+        h += '<span class="stt-text">' + dispTxt + '</span>';
+        h += '</div>';
+      }
+    });
+  } else if(rawText) {
+    const lines = rawText.split('\n');
+    totalCount = lines.length;
+    lines.forEach(line => {
+      const trimmed = line.trim();
+      if(!trimmed) return;
+      const isMatch = !q || trimmed.toLowerCase().includes(q);
+      if(isMatch){
+        matchCount++;
+        let dispTxt = esc(trimmed);
+        if(q){
+          let ltxt = trimmed.toLowerCase(), lq = q.toLowerCase();
+          let idx = 0, out = '';
+          while(true){
+            let next = ltxt.indexOf(lq, idx);
+            if(next === -1){ out += esc(trimmed.slice(idx)); break; }
+            out += esc(trimmed.slice(idx, next)) + '<mark>' + esc(trimmed.slice(next, next + q.length)) + '</mark>';
+            idx = next + q.length;
+          }
+          dispTxt = out;
+        }
+        h += '<div class="stt-line' + (q ? ' highlight' : '') + '"><span class="stt-text">' + dispTxt + '</span></div>';
+      }
+    });
+  } else {
+    h = '<p class="hint">저장된 전사 내용이 없습니다.</p>';
+  }
+
+  body.innerHTML = h;
+  if(countEl){
+    if(q){
+      countEl.textContent = matchCount.toLocaleString() + ' / ' + totalCount.toLocaleString() + '개 일치';
+    } else {
+      countEl.textContent = totalCount > 0 ? totalCount.toLocaleString() + '개 항목' : '';
+    }
+  }
+}
+
+function filterSttLines(val){
+  curSttFilter = val;
+  renderSttLines();
+}
+
+function copyTimestamp(ts){
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText('[' + ts + ']').catch(()=>{});
+  }
+}
+
+function copySttText(withTs){
+  let segs = dc.transcript_segments || (dc.meta && dc.meta.transcript_segments) || [];
+  let out = '';
+  if(segs && segs.length > 0){
+    const lines = segs.map(s => {
+      const startF = s.start_sec != null ? s.start_sec : (s.start != null ? s.start : 0.0);
+      const totalSec = Math.floor(startF);
+      const hrs = Math.floor(totalSec / 3600);
+      const mins = Math.floor((totalSec % 3600) / 60);
+      const secs = totalSec % 60;
+      const ts = hrs > 0 ? (String(hrs).padStart(2,'0')+':'+String(mins).padStart(2,'0')+':'+String(secs).padStart(2,'0')) : (String(mins).padStart(2,'0')+':'+String(secs).padStart(2,'0'));
+      const txt = String(s.text || '').trim();
+      return withTs ? ('[' + ts + '] ' + txt) : txt;
+    });
+    out = lines.join('\n');
+  } else if(dc.stt_transcript) {
+    out = dc.stt_transcript;
+    if(!withTs){
+      out = out.replace(/^\[\d{1,2}:\d{2}(?::\d{2})?\]\s*/gm, '');
+    }
+  }
+  if(out){
+    navigator.clipboard.writeText(out).then(()=>{
+      alert('클립보드에 전사 내용이 복사되었습니다.');
+    }).catch(()=>{
+      alert('복사에 실패했습니다.');
+    });
+  }
+}
+
+if(typeof window !== 'undefined' && typeof window.addEventListener === 'function'){
+  window.addEventListener('keydown', function(e){
+    if(e.key === 'Escape'){
+      const m = document.getElementById('sttmodal');
+      if(m && m.classList.contains('open')){
+        e.stopPropagation();
+        closeSttReader();
+      }
+    }
+  });
+}
+if(typeof window.gtag === 'function' && dc && dc.id){
+  try{
+    window.gtag('event', 'select_content', {
+      content_type: 'shared_document',
+      item_id: dc.id
+    });
+  }catch(_){}
+}
+</script>
+</body>
+</html>

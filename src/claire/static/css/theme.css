@@ -1,0 +1,84 @@
+/* --- CJK (한국어) Web Fonts (docs.asciidoctor.org) --- */
+  @font-face{
+    font-family:'Noto Sans KR';
+    font-style:normal;
+    font-weight:400;
+    font-display:swap;
+    src:local('Noto Sans KR Regular'),local('Noto Sans KR'),local('NotoSansKR-Regular'),
+        url('/fonts/NotoSansKR-Regular.woff2') format('woff2');
+  }
+  @font-face{
+    font-family:'Noto Sans KR';
+    font-style:normal;
+    font-weight:700;
+    font-display:swap;
+    src:local('Noto Sans KR Bold'),local('Noto Sans KR'),local('NotoSansKR-Bold'),
+        url('/fonts/NotoSansKR-Bold.woff2') format('woff2');
+  }
+  @font-face{
+    font-family:'Noto Serif KR';
+    font-style:normal;
+    font-weight:400;
+    font-display:swap;
+    src:local('Noto Serif KR Regular'),local('Noto Serif KR'),local('NotoSerifKR-Regular'),
+        url('/fonts/NotoSerifKR-Regular.woff2') format('woff2');
+  }
+  @font-face{
+    font-family:'Noto Serif KR';
+    font-style:normal;
+    font-weight:700;
+    font-display:swap;
+    src:local('Noto Serif KR Bold'),local('Noto Serif KR'),local('NotoSerifKR-Bold'),
+        url('/fonts/NotoSerifKR-Bold.woff2') format('woff2');
+  }
+  @font-face{
+    font-family:'D2Coding';
+    font-style:normal;
+    font-weight:400;
+    font-display:swap;
+    src:local('D2Coding'),local('D2 Coding'),
+        url('/fonts/D2Coding.woff2') format('woff2');
+  }
+  @font-face{
+    font-family:'D2Coding';
+    font-style:normal;
+    font-weight:700;
+    font-display:swap;
+    src:local('D2Coding Bold'),local('D2 Coding Bold'),
+        url('/fonts/D2CodingBold.woff2') format('woff2');
+  }
+  /* 라이트 기본(:root) + 다크 옵션([data-theme=dark]). 색은 전부 CSS 변수로 — vis 캔버스
+     색만 JS(THEMES)로 따로 갱신(캔버스는 CSS 변수가 안 닿음). */
+  :root{
+    --bg:#ffffff; --fg:#1f2328; --muted:#656d76; --bar-bg:#f6f8fa; --border:#d0d7de;
+    --panel-bg:#f6f8fa; --docs-bg:#f6f8fa; --accent:#0969da; --accent2:#1a7f37;
+    --chip-bg:#eaeef2; --hover:#eef1f4; --active:#ddf4ff; --net-bg:#ffffff;
+    --card-bg:#ffffff; --detail-bg:#ffffff; --mark-bg:#fff8c5; --mark-fg:#633c01;
+    --btn-bg:#1f883d; --btn-fg:#ffffff; --sec-bg:#eaeef2; --sec-fg:#24292f;
+    --rel:#9a6700; --nodebtn-hover:#dde3ea; --shadow:rgba(31,35,40,.28);
+    --detail-width:360px; --detail-compact-width:56px;
+  }
+  [data-theme="dark"]{
+    --bg:#0e1116; --fg:#d7dbe0; --muted:#8b949e; --bar-bg:#161b22; --border:#2a2f37;
+    --panel-bg:#10151c; --docs-bg:#10151c; --accent:#58a6ff; --accent2:#7ee787;
+    --chip-bg:#1f2937; --hover:#161b22; --active:#1f2937; --net-bg:#0e1116;
+    --card-bg:#161b22; --detail-bg:#0e1116; --mark-bg:#4d3800; --mark-fg:#ffdf5d;
+    --btn-bg:#238636; --btn-fg:#ffffff; --sec-bg:#30363d; --sec-fg:#d7dbe0;
+    --rel:#d29922; --nodebtn-hover:#2a3344; --shadow:rgba(1,4,9,.6);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;font-family:'Noto Sans KR','Noto Sans Korean',system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--fg);word-break:keep-all;overflow-wrap:break-word}
+  body{min-height:100vh;min-height:100dvh;display:flex;flex-direction:column;overflow:hidden}
+  .sr-only{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;
+    margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;
+    white-space:nowrap!important;border:0!important}
+  :focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+
+/* 시스템 다크 모드 선호 대응 */
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#0e1116;--fg:#d7dbe0;--muted:#8b949e;--border:#2a2f37;--accent:#58a6ff;--accent2:#7ee787;--card-bg:#161b22;--chip-bg:#1f2937;--mark-bg:#4d3800;--mark-fg:#ffdf5d;
+  }
+}
+
+button, input, select, textarea { font-family: inherit; }
