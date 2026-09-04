@@ -776,7 +776,7 @@ GRAPH_HTML = """<!doctype html>
   #panel .ingest-choice input:focus-visible+label{outline:3px solid var(--accent);outline-offset:2px}
   #panel .ingest-submit{display:flex;justify-content:flex-end;margin-top:1px}
   #panel .ingest-submit button{min-height:34px}
-  #rprog{margin:.3em 0;padding-left:18px} #rprog li{margin:.3em 0;color:var(--muted);font-size:12px}
+  #rprog, #iprog{margin:.3em 0;padding-left:18px} #rprog li, #iprog li{margin:.3em 0;color:var(--muted);font-size:12px}
   input{background:var(--bg);color:var(--fg);border:1px solid var(--border);border-radius:4px;padding:3px 8px;font-size:13px}
   #q{width:150px}
   button{background:var(--btn-bg);color:var(--btn-fg);border:0;border-radius:4px;padding:4px 10px;cursor:pointer;font-size:13px}
@@ -3689,7 +3689,8 @@ async function doResearch(){
         if(ev.done){ result=ev.result; continue; }
         const ul=document.getElementById('rprog');
         if(ul){ const li=document.createElement('li'); li.className='al';
-          li.textContent=(ev.stage==='llm'?'⏳ ':'• ')+(ev.msg||'');
+          const msg=(ev.msg||'').replace(/^[•*-]\\\\s*/, '');
+          li.textContent=(ev.stage==='llm'?'⏳ ':'')+msg;
           ul.appendChild(li); }
       }
     }
@@ -3804,7 +3805,7 @@ async function runIngest(){
         if(ev.done){ result=ev.result; continue; }
         const ul=document.getElementById('iprog');
         if(ul){ const li=document.createElement('li'); li.className='al';
-          li.textContent='• '+(ev.msg||''); ul.appendChild(li); }
+          li.textContent=(ev.msg||'').replace(/^[•*-]\\\\s*/, ''); ul.appendChild(li); }
       }
     }
   }catch(e){ clearInterval(timer);
