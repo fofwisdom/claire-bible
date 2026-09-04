@@ -2687,6 +2687,152 @@ def test_html_tag_structure_integrity():
         assert '<div class="wrap" id="wrap"></div>' in html or '<div id="wrap">' in html
 
 
+def test_shared_html_scrolling_and_fixed_rail(node_available: bool) -> None:
+    """Verify that shared document page allows normal scrolling and #srail uses position: fixed."""
+    from claire.graphview import _SHARED_HTML, shared_html
+
+    doc = {
+        "id": "doc_test_scroll_rail",
+        "title": "스크롤 및 레일트랙 검증 문서",
+        "summary": "테스트 요약",
+        "detail": "## 섹션 1\n내용 1\n\n## 섹션 2\n내용 2\n\n## 섹션 3\n내용 3\n\n## 섹션 4\n내용 4",
+    }
+    html = shared_html(doc)
+
+    # 1. Markup verification
+    assert '<html lang="ko" class="shared-page">' in html
+    assert '<body class="shared-page">' in html
+    assert '<aside class="cb-heading-rail" id="srail"' in html
+
+    # 2. CSS verification for scrollability & fixed position
+    assert "overflow-y: auto" in html or "overflow-y:auto" in html
+    assert "#srail{position:fixed}" in html or "#srail { position: fixed; }" in html or "#srail {\n  position: fixed;" in html or "#srail{position:fixed" in html
+
+    # 3. Verify Node.js runtime script execution with headings and scroll height
+    if not node_available:
+        return
+
+    scripts = extract_scripts(html)
+    assert len(scripts) >= 1
+    script_content = scripts[-1]
+
+    runner_code = r"""
+const docData = """ + json.dumps(doc) + r""";
+
+class MockElement {
+  constructor(tag, id = '') {
+    this.tagName = (tag || 'div').toUpperCase();
+    this.id = id;
+    const classes = new Set();
+    this._classes = classes;
+    this.classList = {
+      contains: c => classes.has(c),
+      add: c => classes.add(c),
+      remove: c => classes.delete(c),
+      has: c => classes.has(c),
+    };
+    this.style = {};
+    this.children = [];
+    this.dataset = {};
+    this.innerHTML = '';
+    this.textContent = '';
+    this._listeners = {};
+  }
+  get className() { return Array.from(this._classes).join(' '); }
+  set className(v) { this._classes = new Set((v || '').split(/\s+/).filter(Boolean)); }
+  setAttribute(k, v) { this[k] = v; }
+  getAttribute(k) { return this[k] || null; }
+  appendChild(child) { this.children.push(child); }
+  addEventListener(evt, fn) {
+    if (!this._listeners[evt]) this._listeners[evt] = [];
+    this._listeners[evt].push(fn);
+  }
+  dispatchEvent(evt) {
+    const list = this._listeners[evt] || [];
+    list.forEach(fn => fn({ stopPropagation() {}, preventDefault() {} }));
+  }
+  getBoundingClientRect() {
+    return { top: 150, height: 40, bottom: 190 };
+  }
+  querySelectorAll(sel) {
+    if (sel.includes('.sec') || sel.includes('h2')) {
+      return [
+        Object.assign(new MockElement('div'), { innerText: '섹션 1', tagName: 'H2', getBoundingClientRect() { return { top: 200 }; } }),
+        Object.assign(new MockElement('div'), { innerText: '섹션 2', tagName: 'H2', getBoundingClientRect() { return { top: 800 }; } }),
+        Object.assign(new MockElement('div'), { innerText: '섹션 3', tagName: 'H2', getBoundingClientRect() { return { top: 1500 }; } }),
+      ];
+    }
+    if (sel.includes('.cb-diamond-marker')) {
+      return this.children.filter(c => c.classList.has('cb-diamond-marker'));
+    }
+    return [];
+  }
+}
+
+const elements = new Map();
+const docDataEl = new MockElement('script', 'docdata');
+docDataEl.textContent = JSON.stringify(docData);
+elements.set('docdata', docDataEl);
+
+const wrapEl = new MockElement('div', 'wrap');
+wrapEl.scrollHeight = 3000;
+elements.set('wrap', wrapEl);
+
+const srail = new MockElement('aside', 'srail');
+elements.set('srail', srail);
+
+const srailTrack = new MockElement('div', 'srail-track');
+srailTrack.getBoundingClientRect = () => ({ top: 14, height: 700 });
+elements.set('srail-track', srailTrack);
+
+const srailFill = new MockElement('div', 'srail-fill');
+elements.set('srail-fill', srailFill);
+
+const srailDiamonds = new MockElement('div', 'srail-diamonds');
+elements.set('srail-diamonds', srailDiamonds);
+
+global.document = {
+  documentElement: { scrollHeight: 3000, scrollTop: 0 },
+  body: { scrollHeight: 3000, scrollTop: 0, classList: new Set() },
+  getElementById(id) { return elements.get(id) || new MockElement('div', id); },
+  createElement(tag) { return new MockElement(tag); },
+  title: '',
+};
+global.window = {
+  scrollY: 0,
+  innerHeight: 800,
+  scrollTo({ top }) {
+    global.window.scrollY = top;
+    global.document.documentElement.scrollTop = top;
+  },
+  location: { origin: 'http://localhost:8766', pathname: '/p' },
+  addEventListener() {},
+};
+
+""" + script_content + r"""
+
+console.log(JSON.stringify({
+  railVisible: srail.classList.has('visible'),
+  markerCount: srailDiamonds.children.length,
+  firstMarkerTop: srailDiamonds.children[0] ? srailDiamonds.children[0].style.top : null,
+}));
+"""
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as f:
+        f.write(runner_code)
+        tmp_path = f.name
+    try:
+        res = subprocess.run(["node", tmp_path], capture_output=True, text=True)
+        assert res.returncode == 0, f"Error executing shared_html script in Node.js:\n{res.stderr}"
+        last_line = res.stdout.strip().split("\n")[-1]
+        data = json.loads(last_line)
+        assert data["railVisible"] is True, "Rail should be visible when headings > 1 and totalScroll > 80"
+        assert data["markerCount"] == 3, f"Expected 3 markers, got {data['markerCount']}"
+        assert data["firstMarkerTop"] is not None
+    finally:
+        Path(tmp_path).unlink(missing_ok=True)
+
+
+
 
 
 
