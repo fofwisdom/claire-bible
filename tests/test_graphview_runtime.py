@@ -2834,6 +2834,207 @@ console.log(JSON.stringify({
         Path(tmp_path).unlink(missing_ok=True)
 
 
+def test_reader_keyboard_navigation_runtime(node_available: bool) -> None:
+    """선택한 문서 뷰어(#rbody)의 키보드 스크롤(상하/좌우/홈/엔드) 및 접근성 런타임 동작 검증."""
+    if not node_available:
+        pytest.skip("Node.js is not installed on the system")
+
+    scripts = extract_scripts(GRAPH_HTML)
+    main_script = "\n".join(scripts)
+
+    runner_code = r"""
+class MockElement {
+  constructor(tag, id = '') {
+    this.tagName = (tag || 'div').toUpperCase();
+    this.id = id;
+    this.className = '';
+    const classes = new Set();
+    this.classList = {
+      add: (...c) => c.forEach(x => classes.add(x)),
+      remove: (...c) => c.forEach(x => classes.delete(x)),
+      contains: c => classes.has(c),
+      toggle: (c, f) => { if (f === undefined) { classes.has(c) ? classes.delete(c) : classes.add(c); } else { f ? classes.add(c) : classes.delete(c); } }
+    };
+    this.style = {};
+    this.dataset = {};
+    this.attributes = {};
+    this._innerHTML = '';
+    this._textContent = '';
+    this.value = '';
+    this.children = [];
+    this.scrollTop = 0;
+    this.scrollLeft = 0;
+    this.scrollHeight = 2000;
+    this.scrollWidth = 1000;
+    this.clientHeight = 600;
+    this.clientWidth = 800;
+  }
+  get innerHTML() { return this._innerHTML; }
+  set innerHTML(v) { this._innerHTML = String(v); this._textContent = String(v).replace(/<[^>]*>/g, ''); }
+  get textContent() { return this._textContent; }
+  set textContent(v) { this._textContent = String(v); this._innerHTML = String(v); }
+  setAttribute(k, v) { this.attributes[k] = String(v); if(k==='id') this.id=String(v); }
+  getAttribute(k) { return this.attributes[k] !== undefined ? this.attributes[k] : null; }
+  hasAttribute(k) { return this.attributes[k] !== undefined; }
+  removeAttribute(k) { delete this.attributes[k]; }
+  getBoundingClientRect() { return { width: this.clientWidth, height: this.clientHeight, top: 0, left: 0, right: this.clientWidth, bottom: this.clientHeight }; }
+  querySelector(sel) { return null; }
+  querySelectorAll(sel) { return []; }
+  addEventListener() {}
+  removeEventListener() {}
+  focus() { global.document.activeElement = this; }
+  scrollBy({ top = 0, left = 0 }) { this.scrollTop += top; this.scrollLeft += left; }
+  scrollTo({ top = 0, left = 0 }) { this.scrollTop = top; this.scrollLeft = left; }
+}
+
+const elements = new Map();
+function getOrCreate(id, tag = 'div') {
+  if (!elements.has(id)) {
+    elements.set(id, new MockElement(tag, id));
+  }
+  return elements.get(id);
+}
+
+const requiredIds = [
+  'bar', 'docs', 'doclist', 'docq', 'stat', 'netwrap', 'net', 'reader',
+  'rtitle', 'rbody', 'rfs', 'rrail', 'rrail-track', 'rrail-fill', 'rrail-diamonds',
+  'sharebox', 'detailpane', 'panel', 'fslider', 'sttmodal', 'menu-section-title'
+];
+requiredIds.forEach(id => getOrCreate(id));
+
+const rbodyEl = getOrCreate('rbody');
+rbodyEl.setAttribute('tabindex', '0');
+rbodyEl.setAttribute('role', 'region');
+rbodyEl.setAttribute('aria-label', '문서 본문');
+
+global.document = {
+  documentElement: new MockElement('html'),
+  activeElement: rbodyEl,
+  getElementById(id) { return getOrCreate(id); },
+  querySelector(sel) {
+    if (sel === '.sheet') return getOrCreate('sheet');
+    return null;
+  },
+  querySelectorAll(sel) { return []; },
+  createElement(tag) { return new MockElement(tag); },
+  body: Object.assign(new MockElement('body'), {
+    dataset: { centerView: 'reader' }
+  }),
+  title: '',
+  addEventListener() {}
+};
+
+global.requestAnimationFrame = cb => cb();
+global.window = {
+  innerWidth: 1024,
+  innerHeight: 768,
+  matchMedia(q) {
+    return { matches: false, addEventListener() {}, removeEventListener() {} };
+  },
+  requestAnimationFrame(cb) { cb(); },
+  addEventListener() {},
+  gtag() {}
+};
+global.DOMPurify = { sanitize: s => s };
+global.marked = { parse: s => s };
+
+""" + main_script + r"""
+
+// 1. Initial verification: centerView is 'reader'
+setCenterView('reader');
+
+// Test Space key (Page Down)
+rbodyEl.scrollTop = 0;
+let spaceHandled = handleReaderKey({ key: ' ', preventDefault() {} });
+const scrollAfterSpace = rbodyEl.scrollTop;
+
+// Test Shift+Space key (Page Up)
+let shiftSpaceHandled = handleReaderKey({ key: ' ', shiftKey: true, preventDefault() {} });
+const scrollAfterShiftSpace = rbodyEl.scrollTop;
+
+// Test ArrowDown
+rbodyEl.scrollTop = 100;
+let arrowDownHandled = handleReaderKey({ key: 'ArrowDown', preventDefault() {} });
+const scrollAfterArrowDown = rbodyEl.scrollTop;
+
+// Test ArrowUp
+let arrowUpHandled = handleReaderKey({ key: 'ArrowUp', preventDefault() {} });
+const scrollAfterArrowUp = rbodyEl.scrollTop;
+
+// Test ArrowRight & ArrowLeft
+rbodyEl.scrollLeft = 100;
+let arrowRightHandled = handleReaderKey({ key: 'ArrowRight', preventDefault() {} });
+const scrollAfterArrowRight = rbodyEl.scrollLeft;
+
+let arrowLeftHandled = handleReaderKey({ key: 'ArrowLeft', preventDefault() {} });
+const scrollAfterArrowLeft = rbodyEl.scrollLeft;
+
+// Test End & Home
+let endHandled = handleReaderKey({ key: 'End', preventDefault() {} });
+const scrollAfterEnd = rbodyEl.scrollTop;
+
+let homeHandled = handleReaderKey({ key: 'Home', preventDefault() {} });
+const scrollAfterHome = rbodyEl.scrollTop;
+
+// Test input field protection: typing in input should NOT be handled by reader
+const inputEl = new MockElement('input', 'test-input');
+global.document.activeElement = inputEl;
+let spaceInInputHandled = handleReaderKey({ key: ' ', preventDefault() {} });
+let arrowDownInInputHandled = handleReaderKey({ key: 'ArrowDown', preventDefault() {} });
+
+console.log(JSON.stringify({
+  spaceHandled,
+  scrollAfterSpace,
+  shiftSpaceHandled,
+  scrollAfterShiftSpace,
+  arrowDownHandled,
+  scrollAfterArrowDown,
+  arrowUpHandled,
+  scrollAfterArrowUp,
+  arrowRightHandled,
+  scrollAfterArrowRight,
+  arrowLeftHandled,
+  scrollAfterArrowLeft,
+  endHandled,
+  scrollAfterEnd,
+  homeHandled,
+  scrollAfterHome,
+  spaceInInputHandled,
+  arrowDownInInputHandled
+}));
+process.exit(0);
+"""
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as f:
+        f.write(runner_code)
+        tmp_path = f.name
+    try:
+        res = subprocess.run(["node", tmp_path], capture_output=True, text=True)
+        assert res.returncode == 0, f"Error executing reader keyboard runtime in Node.js:\n{res.stderr}"
+        last_line = res.stdout.strip().split("\n")[-1]
+        data = json.loads(last_line)
+        assert data["spaceHandled"] is True
+        assert data["scrollAfterSpace"] > 0
+        assert data["shiftSpaceHandled"] is True
+        assert data["scrollAfterShiftSpace"] < data["scrollAfterSpace"]
+        assert data["arrowDownHandled"] is True
+        assert data["scrollAfterArrowDown"] == 160
+        assert data["arrowUpHandled"] is True
+        assert data["scrollAfterArrowUp"] == 100
+        assert data["arrowRightHandled"] is True
+        assert data["scrollAfterArrowRight"] == 150
+        assert data["arrowLeftHandled"] is True
+        assert data["scrollAfterArrowLeft"] == 100
+        assert data["endHandled"] is True
+        assert data["scrollAfterEnd"] == 2000
+        assert data["homeHandled"] is True
+        assert data["scrollAfterHome"] == 0
+        assert data["spaceInInputHandled"] is False
+        assert data["arrowDownInInputHandled"] is False
+    finally:
+        Path(tmp_path).unlink(missing_ok=True)
+
+
+
 
 
 

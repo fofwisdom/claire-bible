@@ -55,20 +55,144 @@ function readerFocusable(){
     '#reader input:not([disabled]),#reader [tabindex]:not([tabindex="-1"])')]
     .filter(el=>el.getClientRects().length>0);
 }
+
+function _scrollReaderBy(el, top, left, behavior){
+  if(!el) return;
+  if(typeof el.scrollBy === 'function'){
+    try{ el.scrollBy({ top: top, left: left, behavior: behavior || 'auto' }); return; }catch(_){}
+  }
+  if(top) el.scrollTop = (el.scrollTop || 0) + top;
+  if(left) el.scrollLeft = (el.scrollLeft || 0) + left;
+}
+
+function _scrollReaderTo(el, top, left, behavior){
+  if(!el) return;
+  if(typeof el.scrollTo === 'function'){
+    try{ el.scrollTo({ top: top, left: left, behavior: behavior || 'auto' }); return; }catch(_){}
+  }
+  if(top !== undefined) el.scrollTop = top;
+  if(left !== undefined) el.scrollLeft = left;
+}
+
+function setupReaderAccessibleBlocks(container){
+  if(!container || typeof container.querySelectorAll !== 'function') return;
+  const blocks = container.querySelectorAll('table, pre, .mathblock');
+  blocks.forEach(el => {
+    if(!el.hasAttribute('tabindex')) el.setAttribute('tabindex', '0');
+    if(!el.hasAttribute('role')) el.setAttribute('role', 'region');
+    if(!el.hasAttribute('aria-label')){
+      const label = el.tagName === 'TABLE' ? '데이터 표' : (el.tagName === 'PRE' ? '코드 블록' : '수식 블록');
+      el.setAttribute('aria-label', label);
+    }
+  });
+}
+
 function handleReaderKey(e){
   const r=document.getElementById('reader');
-  if(!r.classList.contains('open')) return false;
-  if(e.key==='Escape'){ e.preventDefault(); closeReader(false, true); return true; }
-  if(e.key!=='Tab') return false;
-  const items=readerFocusable();
-  if(!items.length){ e.preventDefault(); r.querySelector('.sheet').focus(); return true; }
-  const first=items[0], last=items[items.length-1];
-  if(e.shiftKey && (document.activeElement===first || document.activeElement===r.querySelector('.sheet'))){
-    e.preventDefault(); last.focus();
-  }else if(!e.shiftKey && document.activeElement===last){
-    e.preventDefault(); first.focus();
+  if(!r) return false;
+
+  const isMobileOpen = r.classList && r.classList.contains('open');
+  const isDesktopOpen = typeof centerView !== 'undefined' && centerView === 'reader' && (typeof mobileMQ === 'undefined' || !mobileMQ.matches);
+  if(!isMobileOpen && !isDesktopOpen) return false;
+
+  const activeEl = document.activeElement;
+  const isInput = activeEl && (
+    activeEl.tagName === 'INPUT' ||
+    activeEl.tagName === 'TEXTAREA' ||
+    activeEl.tagName === 'SELECT' ||
+    activeEl.isContentEditable
+  );
+  if(isInput) return false;
+
+  const docsPane = document.getElementById('docs');
+  if(docsPane && typeof docsPane.contains === 'function' && docsPane.contains(activeEl)) return false;
+  const detailPane = document.getElementById('detailpane');
+  if(detailPane && typeof detailPane.contains === 'function' && detailPane.contains(activeEl)) return false;
+
+  if(e.key==='Escape' && isMobileOpen){
+    e.preventDefault();
+    closeReader(false, true);
+    return true;
   }
-  return true;
+
+  if(e.key==='Tab' && isMobileOpen){
+    const items=readerFocusable();
+    if(!items.length){ e.preventDefault(); r.querySelector('.sheet')?.focus(); return true; }
+    const first=items[0], last=items[items.length-1];
+    if(e.shiftKey && (activeEl===first || activeEl===r.querySelector('.sheet'))){
+      e.preventDefault(); last.focus(); return true;
+    }else if(!e.shiftKey && activeEl===last){
+      e.preventDefault(); first.focus(); return true;
+    }
+    return true;
+  }
+
+  const rbody = document.getElementById('rbody');
+  if(!rbody) return false;
+
+  if(e.key === ' ' && activeEl && (activeEl.tagName === 'BUTTON' || activeEl.tagName === 'A')){
+    return false;
+  }
+
+  if(e.key === ' ' || e.key === 'PageDown' || e.key === 'PageUp'){
+    e.preventDefault();
+    const clientH = rbody.clientHeight || (typeof window !== 'undefined' && window.innerHeight ? window.innerHeight * 0.75 : 600);
+    const scrollStep = Math.max(120, Math.round(clientH * 0.85));
+    const isUp = (e.key === 'PageUp' || (e.key === ' ' && e.shiftKey));
+    _scrollReaderBy(rbody, isUp ? -scrollStep : scrollStep, 0, 'smooth');
+    return true;
+  }
+
+  if(e.key === 'ArrowDown' || e.key === 'ArrowUp'){
+    if(activeEl && activeEl !== rbody && typeof rbody.contains === 'function' && rbody.contains(activeEl) && activeEl.scrollHeight > activeEl.clientHeight){
+      _scrollReaderBy(activeEl, e.key === 'ArrowDown' ? 60 : -60, 0, 'auto');
+      e.preventDefault();
+      return true;
+    }
+    e.preventDefault();
+    _scrollReaderBy(rbody, e.key === 'ArrowDown' ? 60 : -60, 0, 'auto');
+    return true;
+  }
+
+  if(e.key === 'ArrowLeft' || e.key === 'ArrowRight'){
+    const hStep = e.key === 'ArrowRight' ? 50 : -50;
+    if(activeEl && activeEl !== rbody && typeof rbody.contains === 'function' && rbody.contains(activeEl) && activeEl.scrollWidth > activeEl.clientWidth){
+      _scrollReaderBy(activeEl, 0, hStep, 'auto');
+      e.preventDefault();
+      return true;
+    }
+    if(rbody.scrollWidth > rbody.clientWidth){
+      _scrollReaderBy(rbody, 0, hStep, 'auto');
+      e.preventDefault();
+      return true;
+    }
+    if(typeof rbody.querySelectorAll === 'function'){
+      const rbodyRect = (typeof rbody.getBoundingClientRect === 'function')
+        ? rbody.getBoundingClientRect()
+        : { top: 0, bottom: (typeof window !== 'undefined' && window.innerHeight) ? window.innerHeight : 800 };
+      const scrollables = Array.from(rbody.querySelectorAll('table, pre, .mathblock')).filter(el => {
+        if(el.scrollWidth <= el.clientWidth) return false;
+        if(typeof el.getBoundingClientRect !== 'function') return true;
+        const rect = el.getBoundingClientRect();
+        return rect.bottom > rbodyRect.top && rect.top < rbodyRect.bottom;
+      });
+      if(scrollables.length > 0){
+        _scrollReaderBy(scrollables[0], 0, hStep, 'auto');
+        e.preventDefault();
+        return true;
+      }
+    }
+    return false;
+  }
+
+  if(e.key === 'Home' || e.key === 'End'){
+    e.preventDefault();
+    const targetTop = (e.key === 'Home' ? 0 : (rbody.scrollHeight || 100000));
+    _scrollReaderTo(rbody, targetTop, 0, 'smooth');
+    return true;
+  }
+
+  return false;
 }
 async function markDocumentSeen(docId){
   if(!canWrite()) return;
@@ -342,10 +466,18 @@ function renderReader(dc){
     h+='<div class=rsection>상세</div><div class="doc-content">'+renderContent(dc.detail, dc.detail_format)+'</div>';
   }
   if(!dc.summary && !dc.detail && !dc.detail_html) h+='<p class=hint>문서에 요약/상세 내용이 없습니다.</p>';
-  const body=document.getElementById('rbody'); body.innerHTML=h; body.scrollTop=0;
+  const body=document.getElementById('rbody'); body.innerHTML=h; body.scrollTop=0; body.scrollLeft=0;
   applyMathRendering(body);
   document.getElementById('reader').setAttribute('aria-busy','false');
   updateReaderRail();
+  setupReaderAccessibleBlocks(body);
+  if(typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function'){
+    window.requestAnimationFrame(()=>{
+      if(body && typeof body.focus === 'function'){
+        try{ body.focus({preventScroll:true}); }catch(_){ body.focus(); }
+      }
+    });
+  }
   if(typeof window.gtag === 'function' && dc && dc.id){
     try{
       window.gtag('event', 'page_view', {
