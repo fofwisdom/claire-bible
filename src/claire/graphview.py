@@ -855,7 +855,7 @@ GRAPH_HTML = """<!doctype html>
 
   /* --- 중앙 크게 읽기 (2단 보기 및 기본 중앙 패널 / 모바일 읽기) --- */
   #reader{width:100%;height:100%;display:flex;flex-direction:column;min-width:0;min-height:0;overflow:hidden;background:var(--bg);--read-fs:16px}
-  #reader .sheet{background:var(--bg);color:var(--fg);width:100%;height:100%;min-width:0;min-height:0;border-radius:0;border:0;box-shadow:none;padding:0;display:flex;flex-direction:column;overflow:hidden}
+  #reader .sheet{background:var(--bg);color:var(--fg);width:100%;height:100%;min-width:0;min-height:0;border-radius:0;border:0;box-shadow:none;padding:0;display:flex;flex-direction:column;overflow:hidden;position:relative}
   #reader .head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 18px;border-bottom:1px solid var(--border);background:var(--bar-bg);position:sticky;top:0;z-index:1;min-height:48px}
   #reader .head h1{margin:0;font-size:16px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   #reader .head .rmeta{color:var(--muted);font-size:11.5px;margin-left:6px;font-weight:normal}
@@ -878,8 +878,83 @@ GRAPH_HTML = """<!doctype html>
     transition:background .15s ease,border-color .15s ease
   }
   #barsearch #openreaderbtn:hover,#reader .head #opengraphbtn:hover{background:var(--hover);border-color:var(--accent)}
-  #reader .rbody{padding:16px 28px max(28px,env(safe-area-inset-bottom));overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;flex:1;min-height:0;min-width:0;max-width:100%;box-sizing:border-box}
+  #reader .rbody{padding:16px 42px max(28px,env(safe-area-inset-bottom)) 28px;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;flex:1;min-height:0;min-width:0;max-width:100%;box-sizing:border-box}
   #reader .rsection{color:var(--muted);font-size:11px;letter-spacing:.04em;text-transform:uppercase;margin:1.2em 0 .2em}
+
+  /* --- 우측 슬림 마름모 바 & 탄성 확장 헤딩 내비게이션 레일 --- */
+  .cb-heading-rail{
+    position:absolute;right:8px;top:50%;transform:translateY(-50%);
+    width:28px;height:65%;min-height:160px;max-height:480px;
+    display:none;align-items:center;justify-content:center;
+    z-index:15;touch-action:none;user-select:none;
+    transition:height .3s cubic-bezier(0.16,1,0.3,1),opacity .2s ease;
+  }
+  .cb-heading-rail.visible{display:flex}
+  .cb-heading-rail.is-expanding{height:88%!important;max-height:none!important}
+  .cb-rail-track{
+    position:relative;width:3.5px;height:100%;
+    background:rgba(128,128,128,0.22);border-radius:9999px;
+    cursor:pointer;transition:width .2s,background .2s;
+  }
+  .cb-heading-rail:hover .cb-rail-track,
+  .cb-heading-rail.is-expanding .cb-rail-track{
+    width:5px;background:rgba(128,128,128,0.4);
+  }
+  .cb-rail-fill{
+    position:absolute;top:0;left:0;right:0;height:0%;
+    background:var(--accent);border-radius:9999px;
+    pointer-events:none;box-shadow:0 0 6px var(--accent);
+  }
+  .cb-diamond-layer{
+    position:absolute;top:0;bottom:0;left:0;right:0;pointer-events:none;
+  }
+  .cb-diamond-marker{
+    position:absolute;left:50%;transform:translate(-50%,-50%);
+    pointer-events:auto;cursor:pointer;z-index:20;
+    display:flex;align-items:center;justify-content:center;
+    transition:top .25s cubic-bezier(0.16,1,0.3,1),transform .15s ease;
+  }
+  .cb-diamond-shape{
+    transform:rotate(45deg);border-radius:1.5px;
+    background:var(--bg,#0e1116);border:1.5px solid var(--muted,#8b949e);
+    transition:all .2s cubic-bezier(0.16,1,0.3,1);
+  }
+  .cb-marker-h1 .cb-diamond-shape, .cb-marker-rsec .cb-diamond-shape{
+    width:9px;height:9px;border:1.8px solid var(--accent);background:var(--card-bg,#161b22);
+  }
+  .cb-marker-h2 .cb-diamond-shape{
+    width:7.5px;height:7.5px;border:1.5px solid var(--muted);
+  }
+  .cb-marker-h3 .cb-diamond-shape, .cb-marker-h4 .cb-diamond-shape{
+    width:5.5px;height:5.5px;border:1.2px solid var(--muted);opacity:0.75;
+  }
+  .cb-diamond-marker:hover .cb-diamond-shape{
+    transform:rotate(45deg) scale(1.35);
+    background:var(--accent);border-color:#ffffff;box-shadow:0 0 8px var(--accent);
+  }
+  .cb-diamond-marker.active .cb-diamond-shape{
+    transform:rotate(45deg) scale(1.4);
+    background:var(--accent);border-color:#ffffff;box-shadow:0 0 10px var(--accent);
+  }
+  .cb-diamond-marker.scrub-focus .cb-diamond-shape{
+    transform:rotate(45deg) scale(1.8);
+    background:var(--accent2,#3fb950)!important;border-color:#ffffff!important;
+    box-shadow:0 0 12px var(--accent2,#3fb950)!important;
+  }
+  .cb-diamond-tooltip{
+    position:absolute;right:18px;
+    background:var(--card-bg,#161b22);border:1px solid var(--border,#30363d);
+    border-left:3px solid var(--accent);color:var(--fg,#e6edf3);
+    font-size:11px;font-weight:600;padding:3px 8px;border-radius:4px;
+    white-space:nowrap;pointer-events:none;opacity:0;
+    transform:translateX(6px);transition:all .15s ease;
+    box-shadow:0 4px 14px rgba(0,0,0,0.35);
+    max-width:240px;overflow:hidden;text-overflow:ellipsis;
+  }
+  .cb-diamond-marker:hover .cb-diamond-tooltip,
+  .cb-diamond-marker.scrub-focus .cb-diamond-tooltip{
+    opacity:1;transform:translateX(0);
+  }
 
   /* 2단 보기 및 데스크톱: 크게 읽기가 기본 노출, 그래프는 호출 시에만 노출 */
   body:not([data-center-view="graph"]) #netwrap{display:none!important}
@@ -973,7 +1048,7 @@ GRAPH_HTML = """<!doctype html>
     #reader .head h1{font-size:18px!important}
     #reader .rzoom button,#reader .redit,#reader .rshare,#reader .rclose,#reader #opengraphbtn{min-width:44px!important;min-height:44px!important}
     #reader .rclose{display:inline-flex!important}
-    #reader .rbody{padding:8px 16px max(24px,env(safe-area-inset-bottom))!important;overflow-y:auto!important;overflow-x:hidden!important;min-width:0!important;max-width:100%!important;box-sizing:border-box!important;flex:1!important;min-height:0!important}
+    #reader .rbody{padding:8px 36px max(24px,env(safe-area-inset-bottom)) 16px!important;overflow-y:auto!important;overflow-x:hidden!important;min-width:0!important;max-width:100%!important;box-sizing:border-box!important;flex:1!important;min-height:0!important}
 
     /* 모바일 우측 드로어 */
     #detailpane{position:fixed;top:0;right:0;bottom:calc(54px + env(safe-area-inset-bottom));
@@ -1139,6 +1214,12 @@ GRAPH_HTML = """<!doctype html>
         <div class="rbody" id="rbody">
           <p class="hint" style="padding:20px;text-align:center">왼쪽 목록에서 문서를 선택하면 본문이 표시됩니다.</p>
         </div>
+        <aside class="cb-heading-rail" id="rrail" aria-label="문서 내비게이션 바">
+          <div class="cb-rail-track" id="rrail-track" title="클릭하여 이동, 탭/누른 상태에서 늘어남">
+            <div class="cb-rail-fill" id="rrail-fill"></div>
+            <div class="cb-diamond-layer" id="rrail-diamonds"></div>
+          </div>
+        </aside>
       </div>
     </div>
     <div id="sttmodal" class="sttmodal" role="dialog" aria-modal="true" aria-labelledby="stttitle" style="display:none" onclick="if(event.target===this)closeSttReader()">
@@ -2636,6 +2717,7 @@ function renderReader(dc){
   const body=document.getElementById('rbody'); body.innerHTML=h; body.scrollTop=0;
   applyMathRendering(body);
   document.getElementById('reader').setAttribute('aria-busy','false');
+  updateReaderRail();
   if(typeof window.gtag === 'function' && dc && dc.id){
     try{
       window.gtag('event', 'page_view', {
@@ -2647,6 +2729,197 @@ function renderReader(dc){
         item_id: dc.id
       });
     }catch(_){}
+  }
+}
+
+// --- 슬림 마름모 바 & 탄성 확장 헤딩 내비게이션 레일 제어 ---
+let curRailHeadings = [];
+let isRailPressing = false;
+let railScrubFocusIdx = -1;
+
+function _rClsAdd(el, c){ if(el && el.classList && el.classList.add) el.classList.add(c); else if(el && el.className!==undefined && !el.className.includes(c)) el.className = (el.className+' '+c).trim(); }
+function _rClsRem(el, c){ if(el && el.classList && el.classList.remove) el.classList.remove(c); else if(el && el.className) el.className = el.className.replace(new RegExp('\\b'+c+'\\b','g'),'').trim(); }
+
+function updateReaderRail(){
+  const rbody = document.getElementById('rbody');
+  const rail = document.getElementById('rrail');
+  const track = document.getElementById('rrail-track');
+  const fill = document.getElementById('rrail-fill');
+  const diamonds = document.getElementById('rrail-diamonds');
+  if(!rbody || !rail || !track || !fill || !diamonds) return;
+
+  const headingEls = rbody.querySelectorAll('.rsection, .doc-content h1, .doc-content h2, .doc-content h3, .doc-content h4');
+  if(headingEls.length <= 1){
+    _rClsRem(rail, 'visible');
+    diamonds.innerHTML = '';
+    curRailHeadings = [];
+    return;
+  }
+
+  _rClsAdd(rail, 'visible');
+  curRailHeadings = Array.from(headingEls).map((el, idx) => {
+    let tag = 'h2';
+    if(el.classList.contains('rsection')) tag = 'rsec';
+    else if(el.tagName === 'H1') tag = 'h1';
+    else if(el.tagName === 'H2') tag = 'h2';
+    else if(el.tagName === 'H3') tag = 'h3';
+    else if(el.tagName === 'H4') tag = 'h4';
+
+    return {
+      el: el,
+      tag: tag,
+      title: el.innerText ? el.innerText.trim() : '',
+      percent: 0,
+      expandedPercent: 0
+    };
+  });
+
+  function computeRailPositions(){
+    const tScroll = rbody.scrollHeight - rbody.clientHeight;
+    const count = curRailHeadings.length;
+    curRailHeadings.forEach((item, idx) => {
+      let ratio = 0;
+      if(tScroll > 0){
+        const topOffset = item.el.offsetTop - rbody.offsetTop;
+        ratio = Math.max(0, Math.min(1, topOffset / tScroll));
+      } else {
+        ratio = count > 1 ? (idx / (count - 1)) : 0.5;
+      }
+      item.percent = ratio * 100;
+      const uniform = count > 1 ? (idx / (count - 1)) * 90 + 5 : 50;
+      item.expandedPercent = item.percent * 0.35 + uniform * 0.65;
+    });
+  }
+
+  computeRailPositions();
+
+  diamonds.innerHTML = '';
+  curRailHeadings.forEach((item, idx) => {
+    const marker = document.createElement('div');
+    marker.className = 'cb-diamond-marker cb-marker-' + item.tag;
+    marker.style.top = item.percent + '%';
+    marker.dataset.index = idx;
+    marker.innerHTML = '<div class="cb-diamond-tooltip">' + esc(item.title) + '</div><div class="cb-diamond-shape"></div>';
+
+    marker.addEventListener('click', (e) => {
+      e.stopPropagation();
+      rbody.scrollTo({ top: Math.max(0, item.el.offsetTop - rbody.offsetTop - 12), behavior: 'smooth' });
+    });
+
+    diamonds.appendChild(marker);
+  });
+
+  function onRbodyScroll(){
+    const top = rbody.scrollTop;
+    const tScroll = rbody.scrollHeight - rbody.clientHeight;
+    const ratio = tScroll > 0 ? top / tScroll : 0;
+    const pct = Math.min(100, Math.max(0, Math.round(ratio * 100)));
+    fill.style.height = pct + '%';
+
+    let activeIdx = 0;
+    const threshold = top + 80;
+    for(let i = 0; i < curRailHeadings.length; i++){
+      if(curRailHeadings[i].el.offsetTop - rbody.offsetTop <= threshold){
+        activeIdx = i;
+      } else {
+        break;
+      }
+    }
+
+    const markers = diamonds.querySelectorAll('.cb-diamond-marker');
+    markers.forEach((m, i) => {
+      if(i === activeIdx){
+        _rClsAdd(m, 'active');
+      } else {
+        _rClsRem(m, 'active');
+      }
+    });
+  }
+
+  rbody.onscroll = onRbodyScroll;
+  onRbodyScroll();
+
+  function startRailExpand(clientY){
+    isRailPressing = true;
+    _rClsAdd(rail, 'is-expanding');
+    const markers = diamonds.querySelectorAll('.cb-diamond-marker');
+    markers.forEach((m, idx) => {
+      if(curRailHeadings[idx]){
+        m.style.top = curRailHeadings[idx].expandedPercent + '%';
+      }
+    });
+    updateScrub(clientY);
+  }
+
+  function updateScrub(clientY){
+    if(!isRailPressing) return;
+    const rect = track.getBoundingClientRect ? track.getBoundingClientRect() : { top: 0, height: 100 };
+    const relY = clientY - rect.top;
+    const ratio = Math.max(0, Math.min(1, relY / rect.height));
+    const curPct = ratio * 100;
+
+    let closestIdx = 0;
+    let minDiff = 999;
+    curRailHeadings.forEach((item, idx) => {
+      const diff = Math.abs(item.expandedPercent - curPct);
+      if(diff < minDiff){
+        minDiff = diff;
+        closestIdx = idx;
+      }
+    });
+    railScrubFocusIdx = closestIdx;
+
+    const markers = diamonds.querySelectorAll('.cb-diamond-marker');
+    markers.forEach((m, idx) => {
+      if(idx === railScrubFocusIdx){
+        _rClsAdd(m, 'scrub-focus');
+      } else {
+        _rClsRem(m, 'scrub-focus');
+      }
+    });
+  }
+
+  function endRailExpand(){
+    if(!isRailPressing) return;
+    isRailPressing = false;
+    _rClsRem(rail, 'is-expanding');
+
+    if(railScrubFocusIdx >= 0 && curRailHeadings[railScrubFocusIdx]){
+      rbody.scrollTo({ top: Math.max(0, curRailHeadings[railScrubFocusIdx].el.offsetTop - rbody.offsetTop - 12), behavior: 'smooth' });
+    }
+
+    const markers = diamonds.querySelectorAll('.cb-diamond-marker');
+    markers.forEach((m, idx) => {
+      _rClsRem(m, 'scrub-focus');
+      if(curRailHeadings[idx]){
+        m.style.top = curRailHeadings[idx].percent + '%';
+      }
+    });
+    railScrubFocusIdx = -1;
+  }
+
+  if(!rail._boundEvents){
+    rail._boundEvents = true;
+    rail.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      startRailExpand(e.clientY);
+    });
+    window.addEventListener('mousemove', (e) => {
+      if(isRailPressing) updateScrub(e.clientY);
+    });
+    window.addEventListener('mouseup', () => {
+      endRailExpand();
+    });
+
+    rail.addEventListener('touchstart', (e) => {
+      if(e.touches.length > 0) startRailExpand(e.touches[0].clientY);
+    }, { passive: true });
+    window.addEventListener('touchmove', (e) => {
+      if(isRailPressing && e.touches.length > 0) updateScrub(e.touches[0].clientY);
+    }, { passive: true });
+    window.addEventListener('touchend', () => {
+      endRailExpand();
+    });
   }
 }
 
@@ -5131,7 +5404,82 @@ _SHARED_HTML = """<!doctype html>
     --border:#2a2f37;--accent:#58a6ff;--accent2:#7ee787;--card-bg:#161b22;--chip-bg:#1f2937;
     --mark-bg:#4d3800;--mark-fg:#ffdf5d}}
   html,body{margin:0;background:var(--bg);color:var(--fg);font-family:'Noto Sans KR','Noto Sans Korean',system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;word-break:keep-all;overflow-wrap:break-word}
-  .wrap{max-width:780px;margin:0 auto;padding:28px 18px 80px}
+  .wrap{max-width:780px;margin:0 auto;padding:28px 42px 80px 18px}
+
+  /* --- 우측 슬림 마름모 바 & 탄성 확장 헤딩 내비게이션 레일 (공유 페이지) --- */
+  .cb-heading-rail{
+    position:fixed;right:14px;top:50%;transform:translateY(-50%);
+    width:28px;height:65%;min-height:160px;max-height:480px;
+    display:none;align-items:center;justify-content:center;
+    z-index:40;touch-action:none;user-select:none;
+    transition:height .3s cubic-bezier(0.16,1,0.3,1),opacity .2s ease;
+  }
+  .cb-heading-rail.visible{display:flex}
+  .cb-heading-rail.is-expanding{height:88%!important;max-height:none!important}
+  .cb-rail-track{
+    position:relative;width:3.5px;height:100%;
+    background:rgba(128,128,128,0.22);border-radius:9999px;
+    cursor:pointer;transition:width .2s,background .2s;
+  }
+  .cb-heading-rail:hover .cb-rail-track,
+  .cb-heading-rail.is-expanding .cb-rail-track{
+    width:5px;background:rgba(128,128,128,0.4);
+  }
+  .cb-rail-fill{
+    position:absolute;top:0;left:0;right:0;height:0%;
+    background:var(--accent);border-radius:9999px;
+    pointer-events:none;box-shadow:0 0 6px var(--accent);
+  }
+  .cb-diamond-layer{
+    position:absolute;top:0;bottom:0;left:0;right:0;pointer-events:none;
+  }
+  .cb-diamond-marker{
+    position:absolute;left:50%;transform:translate(-50%,-50%);
+    pointer-events:auto;cursor:pointer;z-index:20;
+    display:flex;align-items:center;justify-content:center;
+    transition:top .25s cubic-bezier(0.16,1,0.3,1),transform .15s ease;
+  }
+  .cb-diamond-shape{
+    transform:rotate(45deg);border-radius:1.5px;
+    background:var(--bg,#0e1116);border:1.5px solid var(--muted,#8b949e);
+    transition:all .2s cubic-bezier(0.16,1,0.3,1);
+  }
+  .cb-marker-h1 .cb-diamond-shape, .cb-marker-rsec .cb-diamond-shape{
+    width:9px;height:9px;border:1.8px solid var(--accent);background:var(--card-bg,#161b22);
+  }
+  .cb-marker-h2 .cb-diamond-shape{
+    width:7.5px;height:7.5px;border:1.5px solid var(--muted);
+  }
+  .cb-marker-h3 .cb-diamond-shape, .cb-marker-h4 .cb-diamond-shape{
+    width:5.5px;height:5.5px;border:1.2px solid var(--muted);opacity:0.75;
+  }
+  .cb-diamond-marker:hover .cb-diamond-shape{
+    transform:rotate(45deg) scale(1.35);
+    background:var(--accent);border-color:#ffffff;box-shadow:0 0 8px var(--accent);
+  }
+  .cb-diamond-marker.active .cb-diamond-shape{
+    transform:rotate(45deg) scale(1.4);
+    background:var(--accent);border-color:#ffffff;box-shadow:0 0 10px var(--accent);
+  }
+  .cb-diamond-marker.scrub-focus .cb-diamond-shape{
+    transform:rotate(45deg) scale(1.8);
+    background:var(--accent2,#3fb950)!important;border-color:#ffffff!important;
+    box-shadow:0 0 12px var(--accent2,#3fb950)!important;
+  }
+  .cb-diamond-tooltip{
+    position:absolute;right:18px;
+    background:var(--card-bg,#161b22);border:1px solid var(--border,#30363d);
+    border-left:3px solid var(--accent);color:var(--fg,#e6edf3);
+    font-size:11px;font-weight:600;padding:3px 8px;border-radius:4px;
+    white-space:nowrap;pointer-events:none;opacity:0;
+    transform:translateX(6px);transition:all .15s ease;
+    box-shadow:0 4px 14px rgba(0,0,0,0.35);
+    max-width:240px;overflow:hidden;text-overflow:ellipsis;
+  }
+  .cb-diamond-marker:hover .cb-diamond-tooltip,
+  .cb-diamond-marker.scrub-focus .cb-diamond-tooltip{
+    opacity:1;transform:translateX(0);
+  }
   h1{font-size:24px;margin:.2em 0}
   h1 .rmeta{color:var(--muted);font-size:13px;margin-left:8px;font-weight:normal}
   .docmeta{color:var(--muted);font-size:12px;margin:.1em 0 .6em;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px}
@@ -5248,6 +5596,12 @@ _SHARED_HTML = """<!doctype html>
   .doc-content .lead{font-size:1.1em;line-height:1.6;font-weight:500;color:var(--fg)}
 </style></head>
 <body><div class="wrap" id="wrap"></div>
+<aside class="cb-heading-rail" id="srail" aria-label="문서 내비게이션 바">
+  <div class="cb-rail-track" id="srail-track" title="클릭하여 이동, 탭/누른 상태에서 늘어남">
+    <div class="cb-rail-fill" id="srail-fill"></div>
+    <div class="cb-diamond-layer" id="srail-diamonds"></div>
+  </div>
+</aside>
 <div id="sttmodal" class="sttmodal" role="dialog" aria-modal="true" aria-labelledby="stttitle" style="display:none" onclick="if(event.target===this)closeSttReader()">
   <div class="sttsheet" tabindex="-1">
     <div class="stthead">
@@ -6212,6 +6566,207 @@ if(!dc.summary && !dc.detail && !dc.detail_html){ h+='<p class=meta>문서에 �
 h+='<div class=foot>이 링크는 이 문서 하나만 읽기 전용으로 공유합니다.</div>';
 document.getElementById('wrap').innerHTML=h;
 applyMathRendering(document.getElementById('wrap'));
+updateSharedRail();
+
+// --- 슬림 마름모 바 & 탄성 확장 헤딩 내비게이션 레일 제어 (공유 페이지) ---
+function _sClsAdd(el, c){ if(el && el.classList && el.classList.add) el.classList.add(c); else if(el && el.className!==undefined && !el.className.includes(c)) el.className = (el.className+' '+c).trim(); }
+function _sClsRem(el, c){ if(el && el.classList && el.classList.remove) el.classList.remove(c); else if(el && el.className) el.className = el.className.replace(new RegExp('\\b'+c+'\\b','g'),'').trim(); }
+
+function updateSharedRail(){
+  const wrap = document.getElementById('wrap');
+  const rail = document.getElementById('srail');
+  const track = document.getElementById('srail-track');
+  const fill = document.getElementById('srail-fill');
+  const diamonds = document.getElementById('srail-diamonds');
+  if(!wrap || !rail || !track || !fill || !diamonds) return;
+
+  const docEl = (typeof document !== 'undefined' && document.documentElement) || null;
+  const headingEls = wrap.querySelectorAll ? wrap.querySelectorAll('.sec, .doc-content h1, .doc-content h2, .doc-content h3, .doc-content h4') : [];
+  const totalScroll = docEl ? (docEl.scrollHeight - (window.innerHeight || 0)) : 0;
+
+  if(!docEl || headingEls.length <= 1 || totalScroll <= 80){
+    _sClsRem(rail, 'visible');
+    diamonds.innerHTML = '';
+    return;
+  }
+
+  _sClsAdd(rail, 'visible');
+  const railHeadings = Array.from(headingEls).map((el, idx) => {
+    let tag = 'h2';
+    if(el.classList.contains('sec')) tag = 'rsec';
+    else if(el.tagName === 'H1') tag = 'h1';
+    else if(el.tagName === 'H2') tag = 'h2';
+    else if(el.tagName === 'H3') tag = 'h3';
+    else if(el.tagName === 'H4') tag = 'h4';
+
+    return {
+      el: el,
+      tag: tag,
+      title: el.innerText ? el.innerText.trim() : '',
+      percent: 0,
+      expandedPercent: 0
+    };
+  });
+
+  function computePositions(){
+    const dEl = (typeof document !== 'undefined' && document.documentElement) || null;
+    const tScroll = dEl ? (dEl.scrollHeight - (window.innerHeight || 0)) : 0;
+    if(tScroll <= 0) return;
+    const count = railHeadings.length;
+    railHeadings.forEach((item, idx) => {
+      const topOffset = item.el.getBoundingClientRect ? (item.el.getBoundingClientRect().top + (window.scrollY || 0)) : 0;
+      const ratio = Math.max(0, Math.min(1, topOffset / tScroll));
+      item.percent = ratio * 100;
+      const uniform = count > 1 ? (idx / (count - 1)) * 90 + 5 : 50;
+      item.expandedPercent = item.percent * 0.35 + uniform * 0.65;
+    });
+  }
+
+  computePositions();
+
+  diamonds.innerHTML = '';
+  railHeadings.forEach((item, idx) => {
+    const marker = document.createElement('div');
+    marker.className = 'cb-diamond-marker cb-marker-' + item.tag;
+    marker.style.top = item.percent + '%';
+    marker.dataset.index = idx;
+    marker.innerHTML = '<div class="cb-diamond-tooltip">' + esc(item.title) + '</div><div class="cb-diamond-shape"></div>';
+
+    marker.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const topOffset = item.el.getBoundingClientRect ? (item.el.getBoundingClientRect().top + (window.scrollY || 0)) : 0;
+      window.scrollTo({ top: Math.max(0, topOffset - 16), behavior: 'smooth' });
+    });
+
+    diamonds.appendChild(marker);
+  });
+
+  function onWindowScroll(){
+    const top = (typeof window !== 'undefined' && window.scrollY) || (document.documentElement ? document.documentElement.scrollTop : 0);
+    const dEl = (typeof document !== 'undefined' && document.documentElement) || null;
+    const tScroll = dEl ? (dEl.scrollHeight - (window.innerHeight || 0)) : 0;
+    const ratio = tScroll > 0 ? top / tScroll : 0;
+    const pct = Math.min(100, Math.max(0, Math.round(ratio * 100)));
+    fill.style.height = pct + '%';
+
+    let activeIdx = 0;
+    const threshold = top + 90;
+    for(let i = 0; i < railHeadings.length; i++){
+      const itemTop = railHeadings[i].el.getBoundingClientRect ? (railHeadings[i].el.getBoundingClientRect().top + (window.scrollY || 0)) : 0;
+      if(itemTop <= threshold){
+        activeIdx = i;
+      } else {
+        break;
+      }
+    }
+
+    const markers = diamonds.querySelectorAll ? diamonds.querySelectorAll('.cb-diamond-marker') : [];
+    markers.forEach((m, i) => {
+      if(i === activeIdx){
+        _sClsAdd(m, 'active');
+      } else {
+        _sClsRem(m, 'active');
+      }
+    });
+  }
+
+  if(typeof window !== 'undefined' && window.addEventListener){
+    window.addEventListener('scroll', onWindowScroll, { passive: true });
+    onWindowScroll();
+  }
+
+  let isPressing = false;
+  let scrubIdx = -1;
+
+  function startExpand(clientY){
+    isPressing = true;
+    _sClsAdd(rail, 'is-expanding');
+    const markers = diamonds.querySelectorAll ? diamonds.querySelectorAll('.cb-diamond-marker') : [];
+    markers.forEach((m, idx) => {
+      if(railHeadings[idx]){
+        m.style.top = railHeadings[idx].expandedPercent + '%';
+      }
+    });
+    updateScrubFocus(clientY);
+  }
+
+  function updateScrubFocus(clientY){
+    if(!isPressing) return;
+    const rect = track.getBoundingClientRect ? track.getBoundingClientRect() : { top: 0, height: 100 };
+    const relY = clientY - rect.top;
+    const ratio = Math.max(0, Math.min(1, relY / rect.height));
+    const curPct = ratio * 100;
+
+    let closestIdx = 0;
+    let minDiff = 999;
+    railHeadings.forEach((item, idx) => {
+      const diff = Math.abs(item.expandedPercent - curPct);
+      if(diff < minDiff){
+        minDiff = diff;
+        closestIdx = idx;
+      }
+    });
+    scrubIdx = closestIdx;
+
+    const markers = diamonds.querySelectorAll ? diamonds.querySelectorAll('.cb-diamond-marker') : [];
+    markers.forEach((m, idx) => {
+      if(idx === scrubIdx){
+        _sClsAdd(m, 'scrub-focus');
+      } else {
+        _sClsRem(m, 'scrub-focus');
+      }
+    });
+  }
+
+  function endExpand(){
+    if(!isPressing) return;
+    isPressing = false;
+    _sClsRem(rail, 'is-expanding');
+
+    if(scrubIdx >= 0 && railHeadings[scrubIdx]){
+      const topOffset = railHeadings[scrubIdx].el.getBoundingClientRect ? (railHeadings[scrubIdx].el.getBoundingClientRect().top + (window.scrollY || 0)) : 0;
+      window.scrollTo({ top: Math.max(0, topOffset - 16), behavior: 'smooth' });
+    }
+
+    const markers = diamonds.querySelectorAll ? diamonds.querySelectorAll('.cb-diamond-marker') : [];
+    markers.forEach((m, idx) => {
+      _sClsRem(m, 'scrub-focus');
+      if(railHeadings[idx]){
+        m.style.top = railHeadings[idx].percent + '%';
+      }
+    });
+    scrubIdx = -1;
+  }
+
+  if(!rail._boundEvents){
+    rail._boundEvents = true;
+    rail.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      startExpand(e.clientY);
+    });
+    window.addEventListener('mousemove', (e) => {
+      if(isPressing) updateScrubFocus(e.clientY);
+    });
+    window.addEventListener('mouseup', () => {
+      endExpand();
+    });
+
+    rail.addEventListener('touchstart', (e) => {
+      if(e.touches.length > 0) startExpand(e.touches[0].clientY);
+    }, { passive: true });
+    window.addEventListener('touchmove', (e) => {
+      if(isPressing && e.touches.length > 0) updateScrubFocus(e.touches[0].clientY);
+    }, { passive: true });
+    window.addEventListener('touchend', () => {
+      endExpand();
+    });
+
+    window.addEventListener('resize', () => {
+      computePositions();
+      onWindowScroll();
+    });
+  }
+}
 
 // --- 공유 페이지 STT 전사 열기 모달 뷰어 제어 ---
 let curSttData = dc;
