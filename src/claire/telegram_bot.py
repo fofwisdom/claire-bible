@@ -77,11 +77,31 @@ async def _settle_status(
     - 기타 에러 발생 시 진행 메시지를 삭제하지 않고 오류 안내 보존
     - 정상 완료이면서 1홉 후보가 없을 때만 진행 메시지 삭제(스팸 방지 — 결과는 원본 reaction 으로 표시됨)
     """
+    async def _safe_send_or_edit(text: str, reply_markup: Any = None) -> None:
+        for attempt in range(2):
+            try:
+                if reply_markup is not None:
+                    await status.edit_text(text, reply_markup=reply_markup)
+                else:
+                    await status.edit_text(text)
+                return
+            except Exception:  # noqa: BLE001
+                if attempt == 0:
+                    await asyncio.sleep(0.5)
+        # Fallback: 원래 메시지에 답장 전송 (네트워크 오류 시 태스크 크래시 방지)
+        for attempt in range(2):
+            try:
+                if reply_markup is not None:
+                    await msg.reply_text(text, reply_markup=reply_markup)
+                else:
+                    await msg.reply_text(text)
+                return
+            except Exception:  # noqa: BLE001
+                if attempt == 0:
+                    await asyncio.sleep(0.5)
+
     if cands and cands_markup:
-        try:
-            await status.edit_text(summary, reply_markup=cands_markup)
-        except Exception:  # noqa: BLE001
-            await msg.reply_text(summary, reply_markup=cands_markup)
+        await _safe_send_or_edit(summary, reply_markup=cands_markup)
     elif is_stt_failed and retry_doc_id:
         markup = None
         try:
@@ -93,26 +113,17 @@ async def _settle_status(
             markup = InlineKeyboardMarkup(kb)
         except Exception:  # noqa: BLE001
             markup = None
-        try:
-            if markup:
-                await status.edit_text(summary, reply_markup=markup)
-            else:
-                await status.edit_text(summary)
-        except Exception:  # noqa: BLE001
-            if markup:
-                await msg.reply_text(summary, reply_markup=markup)
-            else:
-                await msg.reply_text(summary)
+        await _safe_send_or_edit(summary, reply_markup=markup)
     elif has_error or is_stt_failed:
-        try:
-            await status.edit_text(summary)
-        except Exception:  # noqa: BLE001
-            await msg.reply_text(summary)
+        await _safe_send_or_edit(summary)
     else:
-        try:
-            await status.delete()
-        except Exception:  # noqa: BLE001
-            pass
+        for attempt in range(2):
+            try:
+                await status.delete()
+                return
+            except Exception:  # noqa: BLE001
+                if attempt == 0:
+                    await asyncio.sleep(0.5)
 
 
 def classify_input(text: str) -> str:

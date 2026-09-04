@@ -592,6 +592,8 @@ def render_html_cdp(
             "page_action": _page_action,
             "retries": 1,
             "google_search": False,
+            "disable_resources": True,
+            "block_ads": True,
             "extra_flags": [
                 "--no-sandbox",
                 "--disable-gpu",
