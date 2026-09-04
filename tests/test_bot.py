@@ -347,4 +347,110 @@ async def test_settle_status_behavior():
     assert st_dup2.markup is None
 
 
+async def test_on_message_handles_ingest_report_error_without_unbound_local_error(monkeypatch):
+    """svc.ingest가 report.error를 반환할 때 has_error가 정상 바인딩되어 UnboundLocalError 없이 _settle된다."""
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, MagicMock
+    from claire.config import Settings
+    from claire.ingest.service import IngestReport
+    from claire.telegram_bot import build_app
+
+    settings = Settings(
+        telegram_bot_token="12345:fake_token_for_test",
+        allowed_user_ids=[],
+    )
+    app = build_app(settings)
+
+    on_message_callback = None
+    for handler in app.handlers[0]:
+        if hasattr(handler, "callback") and getattr(handler.callback, "__name__", "") == "on_message":
+            on_message_callback = handler.callback
+            break
+    assert on_message_callback is not None
+
+    error_report = IngestReport(
+        title="Test Doc",
+        error="extract failed: [Errno 7] Argument list too long: '/host-bin/agy'",
+    )
+    monkeypatch.setattr("claire.ingest.service.IngestService.ingest", lambda *args, **kwargs: error_report)
+
+    status_msg = AsyncMock()
+    status_msg.edit_text = AsyncMock()
+    status_msg.delete = AsyncMock()
+
+    msg = AsyncMock()
+    msg.text = "https://example.com/test --full --effort high"
+    msg.reply_text = AsyncMock(return_value=status_msg)
+    msg.set_reaction = AsyncMock()
+
+    update = MagicMock()
+    update.effective_user = SimpleNamespace(id=12345)
+    update.effective_chat = SimpleNamespace(id=67890)
+    update.message = msg
+    update.update_id = 1001
+
+    await on_message_callback(update, None)
+
+    # 1. '👎' 반응 등록
+    msg.set_reaction.assert_awaited_with("👎")
+    # 2. 상태 메시지가 삭제되지 않고 에러 내용으로 편집되었는지 검증 (UnboundLocalError 방지 확인)
+    status_msg.delete.assert_not_called()
+    assert status_msg.edit_text.await_count > 0
+    edited_text = status_msg.edit_text.call_args[0][0]
+    assert "❌ 적재 실패" in edited_text
+
+
+async def test_on_ingest_handles_ingest_report_error(monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, MagicMock
+    from claire.config import Settings
+    from claire.ingest.service import IngestReport
+    from claire.telegram_bot import build_app
+
+    settings = Settings(
+        telegram_bot_token="12345:fake_token_for_test",
+        allowed_user_ids=[],
+    )
+    app = build_app(settings)
+
+    on_ingest_callback = None
+    for handler in app.handlers[0]:
+        if hasattr(handler, "callback") and getattr(handler.callback, "__name__", "") == "on_ingest":
+            on_ingest_callback = handler.callback
+            break
+    assert on_ingest_callback is not None
+
+    error_report = IngestReport(
+        title="Test Ingest Doc",
+        error="extract failed: something went wrong",
+    )
+    monkeypatch.setattr("claire.ingest.service.IngestService.ingest", lambda *args, **kwargs: error_report)
+
+    status_msg = AsyncMock()
+    status_msg.edit_text = AsyncMock()
+    status_msg.delete = AsyncMock()
+
+    msg = AsyncMock()
+    msg.reply_text = AsyncMock(return_value=status_msg)
+    msg.set_reaction = AsyncMock()
+
+    update = MagicMock()
+    update.effective_user = SimpleNamespace(id=12345)
+    update.effective_chat = SimpleNamespace(id=67890)
+    update.message = msg
+    update.update_id = 1002
+
+    ctx = MagicMock()
+    ctx.args = ["https://example.com/ingest_doc", "--full"]
+
+    await on_ingest_callback(update, ctx)
+
+    msg.set_reaction.assert_awaited_with("👎")
+    status_msg.delete.assert_not_called()
+    assert status_msg.edit_text.await_count > 0
+    assert "❌ 적재 실패" in status_msg.edit_text.call_args[0][0]
+
+
+
+
 

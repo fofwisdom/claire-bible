@@ -6,6 +6,7 @@ Gemini API 직접 호출 대신 로컬에 인증된 `agy` CLI를 비대화형(`-
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
 import logging
@@ -77,40 +78,67 @@ class AntigravityProvider:
         effort: str | None = None,
     ) -> Any:
         """agy CLI를 서브프로세스로 실행하고 결과를 반환한다."""
-        cmd = [
-            self.agy_bin,
-            "-p",
-            prompt,
-            "--output-format",
-            output_format,
-            "--disable-slash-commands",
-            "--log-file",
-            "/tmp/agy.log",
-        ]
-        if self.model:
-            cmd.extend(["--model", self.model])
-        # 모델명에 이미 -high, -medium, -low 접미사가 포함된 경우 --effort 전달 시 agy CLI 충돌 방지
-        model_has_effort = any(
-            str(self.model).endswith(f"-{suf}") for suf in ("high", "medium", "low")
-        )
-        eff = effort or self.effort
-        if eff and not model_has_effort:
-            cmd.extend(["--effort", eff])
-        if dangerously_skip_permissions:
-            cmd.append("--dangerously-skip-permissions")
-        if json_schema and output_format == "json":
-            cmd.extend(["--json-schema", json.dumps(json_schema)])
+        def _build_cmd(*, use_stdin: bool) -> list[str]:
+            cmd = [self.agy_bin]
+            if not use_stdin:
+                cmd.extend(["-p", prompt])
+            cmd.extend([
+                "--output-format",
+                output_format,
+                "--disable-slash-commands",
+                "--log-file",
+                "/tmp/agy.log",
+            ])
+            if self.model:
+                cmd.extend(["--model", self.model])
+            # 모델명에 이미 -high, -medium, -low 접미사가 포함된 경우 --effort 전달 시 agy CLI 충돌 방지
+            model_has_effort = any(
+                str(self.model).endswith(f"-{suf}") for suf in ("high", "medium", "low")
+            )
+            eff = effort or self.effort
+            if eff and not model_has_effort:
+                cmd.extend(["--effort", eff])
+            if dangerously_skip_permissions:
+                cmd.append("--dangerously-skip-permissions")
+            if json_schema and output_format == "json":
+                cmd.extend(["--json-schema", json.dumps(json_schema)])
+            return cmd
+
+        # Linux execve MAX_ARG_STRLEN(128KB) 제한을 고려하여, UTF-8 바이트 길이가 40KB를 초과하면
+        # 커맨드라인 인수(-p) 대신 stdin 파이프로 전달
+        prompt_bytes = len(prompt.encode("utf-8", errors="replace"))
+        use_stdin = prompt_bytes > 40_000
+        cmd = _build_cmd(use_stdin=use_stdin)
+        stdin_data = prompt if use_stdin else None
 
         with self._sem:
             emit_progress(f"Antigravity CLI 호출 ({self.model})")
             try:
                 proc = subprocess.run(
                     cmd,
+                    input=stdin_data,
                     capture_output=True,
                     text=True,
                     timeout=self.timeout,
                     check=False,
                 )
+            except OSError as e:
+                # 예상치 못한 E2BIG(Argument list too long) 발생 시 stdin 방식으로 즉시 재시도
+                if getattr(e, "errno", None) == errno.E2BIG and not use_stdin:
+                    logger.warning("agy CLI argument list too long (E2BIG), retrying via stdin")
+                    use_stdin = True
+                    cmd = _build_cmd(use_stdin=True)
+                    proc = subprocess.run(
+                        cmd,
+                        input=prompt,
+                        capture_output=True,
+                        text=True,
+                        timeout=self.timeout,
+                        check=False,
+                    )
+                else:
+                    logger.error("agy CLI execution error: %s", e)
+                    raise
             except subprocess.TimeoutExpired as e:
                 logger.error("agy CLI invocation timed out after %ss", self.timeout)
                 raise RuntimeError(f"agy CLI timed out after {self.timeout}s") from e
