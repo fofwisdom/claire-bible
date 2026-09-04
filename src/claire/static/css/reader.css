@@ -99,6 +99,7 @@
     opacity:1;transition:opacity .2s ease;
   }
   .cb-heading-rail.visible{display:flex}
+  #srail{position:fixed}
   .cb-heading-rail.is-expanding .cb-rail-track{width:6px;background:rgba(128,128,128,0.5)}
   .cb-rail-track{
     position:relative;width:3.5px;height:100%;
@@ -191,6 +192,20 @@
 
 
 /* --- Shared Page & General Reader Elements --- */
+html.shared-page, body.shared-page,
+html:has(#srail), body:has(#srail){
+  height:auto;
+  min-height:100vh;
+  min-height:100dvh;
+  overflow-x:hidden;
+  overflow-y:auto;
+}
+body.shared-page, body:has(#srail){
+  display:block;
+}
+body.shared-page.stt-modal-open, body:has(#srail).stt-modal-open{
+  overflow:hidden;
+}
 .wrap{max-width:780px;margin:0 auto;padding:28px 42px 80px 18px}
 .brand{color:var(--accent2);font-weight:600;font-size:12px}
 h1{font-size:24px;margin:.2em 0}

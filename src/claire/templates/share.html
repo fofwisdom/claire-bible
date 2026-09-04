@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ko"><head><meta charset="utf-8"/>
+<html lang="ko" class="shared-page"><head><meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>__TITLE__ — Claire Bible</title>
 <meta name="mobile-web-app-capable" content="yes"/>
@@ -27,9 +27,14 @@
 <script src="https://unpkg.com/katex@0.16.11/dist/contrib/auto-render.min.js" integrity="sha384-43gviWU0YVjaDtb/GhzOouOXtZMP/7XUzwPTstBeZFe/+rCMvRwr4yROQP43s0Xk" crossorigin="anonymous"></script>
 <link rel=stylesheet href=/static/css/theme.css/>
 <link rel=stylesheet href=/static/css/reader.css/>
+<style>
+html.shared-page, body.shared-page{height:auto;min-height:100vh;min-height:100dvh;overflow-x:hidden;overflow-y:auto;display:block}
+body.shared-page.stt-modal-open{overflow:hidden}
+#srail{position:fixed}
+</style>
 <script src=/static/js/renderers/adoc_parser.js></script>
 </head>
-<body><div class="wrap" id="wrap"></div>
+<body class="shared-page"><div class="wrap" id="wrap"></div>
 <aside class="cb-heading-rail" id="srail" aria-label="문서 내비게이션 바">
   <div class="cb-rail-track" id="srail-track" title="클릭하여 이동, 탭/누른 상태에서 늘어남">
     <div class="cb-rail-fill" id="srail-fill"></div>
@@ -228,7 +233,30 @@ updateSharedRail();
 
 // --- 슬림 마름모 바 & 탄성 확장 헤딩 내비게이션 레일 제어 (공유 페이지) ---
 function _sClsAdd(el, c){ if(el && el.classList && el.classList.add) el.classList.add(c); else if(el && el.className!==undefined && !el.className.includes(c)) el.className = (el.className+' '+c).trim(); }
-function _sClsRem(el, c){ if(el && el.classList && el.classList.remove) el.classList.remove(c); else if(el && el.className) el.className = el.className.replace(new RegExp('\b'+c+'\b','g'),'').trim(); }
+function _sClsRem(el, c){ if(el && el.classList && el.classList.remove) el.classList.remove(c); else if(el && el.className) el.className = el.className.replace(new RegExp('\\b'+c+'\\b','g'),'').trim(); }
+
+function _getScrollTop(){
+  return (typeof window !== 'undefined' && (window.scrollY || window.pageYOffset)) ||
+    (document.documentElement ? document.documentElement.scrollTop : 0) ||
+    (document.body ? document.body.scrollTop : 0) || 0;
+}
+
+function _getDocTotalScroll(){
+  const d = document.documentElement;
+  const b = document.body;
+  const sH = Math.max(
+    d ? d.scrollHeight : 0,
+    d ? d.offsetHeight : 0,
+    b ? b.scrollHeight : 0,
+    b ? b.offsetHeight : 0
+  );
+  return Math.max(0, sH - (window.innerHeight || 0));
+}
+
+function _getElDocTop(el){
+  if(!el || !el.getBoundingClientRect) return 0;
+  return el.getBoundingClientRect().top + _getScrollTop();
+}
 
 function updateSharedRail(){
   const wrap = document.getElementById('wrap');
@@ -240,7 +268,7 @@ function updateSharedRail(){
 
   const docEl = (typeof document !== 'undefined' && document.documentElement) || null;
   const headingEls = wrap.querySelectorAll ? wrap.querySelectorAll('.sec, .doc-content h1, .doc-content h2, .doc-content h3, .doc-content h4') : [];
-  const totalScroll = docEl ? (docEl.scrollHeight - (window.innerHeight || 0)) : 0;
+  const totalScroll = _getDocTotalScroll();
 
   if(!docEl || headingEls.length <= 1 || totalScroll <= 80){
     _sClsRem(rail, 'visible');
@@ -251,7 +279,8 @@ function updateSharedRail(){
   _sClsAdd(rail, 'visible');
   const railHeadings = Array.from(headingEls).map((el, idx) => {
     let tag = 'h2';
-    if(el.classList.contains('sec')) tag = 'rsec';
+    const isSec = (el.classList && el.classList.contains) ? el.classList.contains('sec') : ((el.className || '').indexOf('sec') !== -1);
+    if(isSec) tag = 'rsec';
     else if(el.tagName === 'H1') tag = 'h1';
     else if(el.tagName === 'H2') tag = 'h2';
     else if(el.tagName === 'H3') tag = 'h3';
@@ -267,13 +296,12 @@ function updateSharedRail(){
   });
 
   function computePositions(){
-    const dEl = (typeof document !== 'undefined' && document.documentElement) || null;
-    const tScroll = dEl ? (dEl.scrollHeight - (window.innerHeight || 0)) : 0;
+    const tScroll = _getDocTotalScroll();
     const count = railHeadings.length;
     railHeadings.forEach((item, idx) => {
       let ratio = 0;
       if(tScroll > 0){
-        const topOffset = item.el.getBoundingClientRect ? (item.el.getBoundingClientRect().top + (window.scrollY || 0)) : 0;
+        const topOffset = _getElDocTop(item.el);
         ratio = Math.max(0, Math.min(1, topOffset / tScroll));
       } else {
         ratio = count > 1 ? (idx / (count - 1)) : 0.5;
@@ -281,6 +309,13 @@ function updateSharedRail(){
       item.percent = ratio * 100;
       const uniform = count > 1 ? (idx / (count - 1)) * 96 + 2 : 50;
       item.expandedPercent = item.percent * 0.2 + uniform * 0.8;
+    });
+
+    const markers = diamonds.querySelectorAll ? diamonds.querySelectorAll('.cb-diamond-marker') : [];
+    markers.forEach((m, idx) => {
+      if(railHeadings[idx] && !isPressing){
+        m.style.top = railHeadings[idx].percent + '%';
+      }
     });
   }
 
@@ -296,7 +331,7 @@ function updateSharedRail(){
 
     marker.addEventListener('click', (e) => {
       e.stopPropagation();
-      const topOffset = item.el.getBoundingClientRect ? (item.el.getBoundingClientRect().top + (window.scrollY || 0)) : 0;
+      const topOffset = _getElDocTop(item.el);
       window.scrollTo({ top: Math.max(0, topOffset - 16), behavior: 'smooth' });
     });
 
@@ -304,9 +339,8 @@ function updateSharedRail(){
   });
 
   function onWindowScroll(){
-    const top = (typeof window !== 'undefined' && window.scrollY) || (document.documentElement ? document.documentElement.scrollTop : 0);
-    const dEl = (typeof document !== 'undefined' && document.documentElement) || null;
-    const tScroll = dEl ? (dEl.scrollHeight - (window.innerHeight || 0)) : 0;
+    const top = _getScrollTop();
+    const tScroll = _getDocTotalScroll();
     const ratio = tScroll > 0 ? top / tScroll : 0;
     const pct = Math.min(100, Math.max(0, Math.round(ratio * 100)));
     fill.style.height = pct + '%';
@@ -314,7 +348,7 @@ function updateSharedRail(){
     let activeIdx = 0;
     const threshold = top + 90;
     for(let i = 0; i < railHeadings.length; i++){
-      const itemTop = railHeadings[i].el.getBoundingClientRect ? (railHeadings[i].el.getBoundingClientRect().top + (window.scrollY || 0)) : 0;
+      const itemTop = _getElDocTop(railHeadings[i].el);
       if(itemTop <= threshold){
         activeIdx = i;
       } else {
@@ -386,7 +420,7 @@ function updateSharedRail(){
     _sClsRem(rail, 'is-expanding');
 
     if(scrubIdx >= 0 && railHeadings[scrubIdx]){
-      const topOffset = railHeadings[scrubIdx].el.getBoundingClientRect ? (railHeadings[scrubIdx].el.getBoundingClientRect().top + (window.scrollY || 0)) : 0;
+      const topOffset = _getElDocTop(railHeadings[scrubIdx].el);
       window.scrollTo({ top: Math.max(0, topOffset - 16), behavior: 'smooth' });
     }
 
@@ -424,6 +458,10 @@ function updateSharedRail(){
     });
 
     window.addEventListener('resize', () => {
+      computePositions();
+      onWindowScroll();
+    });
+    window.addEventListener('load', () => {
       computePositions();
       onWindowScroll();
     });

@@ -538,6 +538,83 @@ test('mobile reader ends above bottom bar and displays text to the end without o
   expect(pageErrors).toEqual([]);
 });
 
+test('shared document page allows scrolling and maintains visible fixed rail track when scrolling', async ({ page }) => {
+  const pageErrors = [];
+  page.on('pageerror', error => pageErrors.push(error.message));
+
+  await page.setViewportSize({ width: 1024, height: 768 });
+  await page.goto('/p?s=23456789abcdefgh', { waitUntil: 'domcontentloaded' });
+
+  // 1. Verify title and heading rendered
+  await expect(page.locator('h1')).toContainText('테스트 문서 1');
+
+  // 2. Verify page scrollability styles
+  const scrollStyles = await page.evaluate(() => {
+    const htmlStyle = window.getComputedStyle(document.documentElement);
+    const bodyStyle = window.getComputedStyle(document.body);
+    return {
+      htmlOverflowY: htmlStyle.overflowY,
+      bodyOverflowY: bodyStyle.overflowY,
+      bodyHeight: bodyStyle.height,
+      scrollHeight: document.documentElement.scrollHeight,
+      innerHeight: window.innerHeight,
+    };
+  });
+
+  expect(scrollStyles.bodyOverflowY).not.toBe('hidden');
+  expect(scrollStyles.scrollHeight).toBeGreaterThan(scrollStyles.innerHeight);
+
+  // 3. Verify #srail has position: fixed and is visible
+  const rail = page.locator('#srail');
+  await expect(rail).toBeVisible();
+
+  const railPosition = await rail.evaluate(el => window.getComputedStyle(el).position);
+  expect(railPosition).toBe('fixed');
+
+  const initialRailBox = await rail.boundingBox();
+  expect(initialRailBox).not.toBeNull();
+  expect(initialRailBox.y).toBeGreaterThanOrEqual(10);
+  expect(initialRailBox.y + initialRailBox.height).toBeLessThanOrEqual(768);
+
+  // 4. Verify diamond markers rendered
+  const markers = page.locator('.cb-diamond-marker');
+  const markerCount = await markers.count();
+  expect(markerCount).toBeGreaterThanOrEqual(5);
+
+  // 5. Scroll page down using window.scrollTo and verify rail stays in exact same viewport position
+  await page.evaluate(() => window.scrollTo({ top: 600, behavior: 'instant' }));
+  await page.waitForTimeout(200);
+
+  const scrolledY = await page.evaluate(() => window.scrollY);
+  expect(scrolledY).toBeGreaterThanOrEqual(500);
+
+  // The rail MUST still be visible and at the exact same screen coordinates!
+  await expect(rail).toBeVisible();
+  const scrolledRailBox = await rail.boundingBox();
+  expect(scrolledRailBox).not.toBeNull();
+  expect(Math.abs(scrolledRailBox.y - initialRailBox.y)).toBeLessThanOrEqual(2);
+  expect(Math.abs(scrolledRailBox.height - initialRailBox.height)).toBeLessThanOrEqual(2);
+
+  // 6. Click a diamond marker to navigate and verify smooth navigation and rail persistence
+  const targetMarker = markers.nth(3);
+  await targetMarker.click();
+  await page.waitForTimeout(400);
+
+  // Rail MUST still be visible after marker navigation
+  await expect(rail).toBeVisible();
+  const afterNavRailBox = await rail.boundingBox();
+  expect(afterNavRailBox).not.toBeNull();
+  expect(Math.abs(afterNavRailBox.y - initialRailBox.y)).toBeLessThanOrEqual(2);
+
+  // 7. Verify wheel scroll works without impediment
+  await page.mouse.wheel(0, -300);
+  await page.waitForTimeout(200);
+  await expect(rail).toBeVisible();
+
+  expect(pageErrors).toEqual([]);
+});
+
+
 
 
 

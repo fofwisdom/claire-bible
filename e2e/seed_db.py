@@ -32,10 +32,14 @@ def seed(db_path: Path) -> None:
         dbm.insert_document(conn, doc1)
         dbm.insert_document(conn, doc2)
 
+        long_detail = "\n\n".join([
+            f"## 섹션 {i}\n" + "첫 번째 테스트 문서의 스크롤 및 레일 내비게이션 검증을 위한 상세 본문 내용입니다. " * 15
+            for i in range(1, 10)
+        ])
         dbm.set_document_detail(
             conn,
             "doc-1",
-            detail="첫 번째 테스트 문서의 자세한 본문 내용입니다.",
+            detail=long_detail,
             format="md",
         )
         dbm.set_document_detail(
@@ -43,6 +47,10 @@ def seed(db_path: Path) -> None:
             "doc-2",
             detail="두 번째 테스트 문서의 자세한 본문 내용입니다.",
             format="md",
+        )
+        conn.execute(
+            "INSERT OR REPLACE INTO doc_shares(token, document_id, created_at, expires_at) VALUES (?,?,?,?)",
+            ("23456789abcdefgh", "doc-1", 1700000000, None),
         )
 
         e1 = Entity(
