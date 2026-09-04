@@ -288,8 +288,8 @@ class Document(BaseModel):
 
 ## 8. 관측성과 사용자 표시
 
-- CLI·텔레그램 완료 결과: `📎 Presentation PDF 포함 (9,247자, pypdf)`
-- GraphView 문서 메타: `Presentation PDF`, 파서, 크기, 원문 링크, 로컬 아티팩트 상태
+- CLI·텔레그램 완료 결과: `🔤+📄 CC+PDF 포함 (9,247자, pypdf)` 또는 `🎙️+📄 STT+PDF 포함` (클립 아이콘 대체 및 결합 출처 명시)
+- GraphView 문서 메타: `🔤+📄 CC+PDF` / `🎙️+📄 STT+PDF` 배지, 파서, 크기, 원문 링크, 로컬 아티팩트 상태
 - 경고: `discovery_failed`, `download_failed`, `invalid`, `extract_failed`를 서로 다른 코드로 표시
 - 진행 단계: `영상 페이지 자료 탐색` → `Presentation PDF 검증·추출` → `CC/STT 획득` → `결합 적재`
 - 기존 `video-reprocess`가 같은 경로를 사용하며 Presentation 전용 별도 명령은 만들지 않는다.

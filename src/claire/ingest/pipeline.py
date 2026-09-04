@@ -53,6 +53,7 @@ class IngestReport:
     full_content: bool = False
     effort: str | None = None
     has_transcript: bool | None = None
+    is_stt: bool = False
     stt_error: str | None = None
     pdf_parser_fallback: bool = False
     pdf_parser_fallback_reason: str | None = None
@@ -92,8 +93,10 @@ class IngestReport:
                 presentation_details.append(f"{self.presentation_pdf_chars:,}자")
             if self.presentation_pdf_parsers:
                 presentation_details.append("/".join(self.presentation_pdf_parsers))
+            bundle_icon = "🎙️+📄" if self.is_stt else "🔤+📄"
+            bundle_label = "STT+PDF" if self.is_stt else "CC+PDF"
             parts.append(
-                "📎 Presentation PDF 포함 ("
+                f"{bundle_icon} {bundle_label} 포함 ("
                 + " · ".join(presentation_details)
                 + ")"
             )
@@ -196,6 +199,12 @@ def ingest(
     if doc.meta:
         if "has_transcript" in doc.meta:
             report.has_transcript = bool(doc.meta.get("has_transcript"))
+        if "is_stt" in doc.meta or "stt_applied" in doc.meta or "stt" in doc.meta:
+            report.is_stt = bool(
+                doc.meta.get("is_stt")
+                or doc.meta.get("stt_applied")
+                or doc.meta.get("stt")
+            )
         if "stt_error" in doc.meta:
             report.stt_error = doc.meta.get("stt_error")
         if "pdf_parser_fallback" in doc.meta:

@@ -2514,14 +2514,18 @@ function docMetaHtml(dc){
     const pdfParts = [];
     if(pdfChars > 0) pdfParts.push(pdfChars.toLocaleString()+'자');
     if(pdfParser) pdfParts.push(pdfParser);
-    const pdfLabel = '📎 Presentation PDF'+(pdfParts.length ? ' ('+pdfParts.join(' · ')+')' : '');
-    tags.push('<span class="directive-tag" title="원본 PDF가 영상 자막과 함께 적재됨 · '+artifactState+'">'+pdfLabel+'</span>');
+    const bundleIcon = isStt ? '🎙️+📄' : '🔤+📄';
+    const bundleType = isStt ? 'STT+PDF' : 'CC+PDF';
+    const pdfLabel = bundleIcon+' '+bundleType+(pdfParts.length ? ' ('+pdfParts.join(' · ')+')' : '');
+    const bundleSource = isStt ? '영상 음성 전사(STT)' : '영상 자막';
+    const tagClass = 'directive-tag' + (isStt ? ' stt-tag' : '');
+    tags.push('<span class="'+tagClass+'" title="원본 PDF가 '+bundleSource+'과 함께 적재됨 · '+artifactState+'">'+pdfLabel+'</span>');
   }
   if(directive){
     const dispDir = directive.length > 25 ? directive.slice(0, 25) + '…' : directive;
     tags.push('<span class="directive-tag" title="적재 시 지정한 초점: '+esc(directive)+'">🎯 '+esc(dispDir)+'</span>');
   }
-  if(isStt){
+  if(isStt && !hasPresentation){
     tags.push('<span class="directive-tag stt-tag" title="음성 인식(STT)을 적용하여 작성한 문서">🎙️ STT</span>');
   }
   if(isAppTrunc && isRefTrunc){
@@ -6079,14 +6083,18 @@ function docMetaHtml(dc){
     const pdfParts = [];
     if(pdfChars > 0) pdfParts.push(pdfChars.toLocaleString()+'자');
     if(pdfParser) pdfParts.push(pdfParser);
-    const pdfLabel = '📎 Presentation PDF'+(pdfParts.length ? ' ('+pdfParts.join(' · ')+')' : '');
-    tags.push('<span class="directive-tag" title="원본 PDF가 영상 자막과 함께 적재됨 · '+artifactState+'">'+pdfLabel+'</span>');
+    const bundleIcon = isStt ? '🎙️+📄' : '🔤+📄';
+    const bundleType = isStt ? 'STT+PDF' : 'CC+PDF';
+    const pdfLabel = bundleIcon+' '+bundleType+(pdfParts.length ? ' ('+pdfParts.join(' · ')+')' : '');
+    const bundleSource = isStt ? '영상 음성 전사(STT)' : '영상 자막';
+    const tagClass = 'directive-tag' + (isStt ? ' stt-tag' : '');
+    tags.push('<span class="'+tagClass+'" title="원본 PDF가 '+bundleSource+'과 함께 적재됨 · '+artifactState+'">'+pdfLabel+'</span>');
   }
   if(directive){
     const dispDir = directive.length > 25 ? directive.slice(0, 25) + '…' : directive;
     tags.push('<span class="directive-tag" title="적재 시 지정한 초점: '+esc(directive)+'">🎯 '+esc(dispDir)+'</span>');
   }
-  if(isStt){
+  if(isStt && !hasPresentation){
     tags.push('<span class="directive-tag stt-tag" title="음성 인식(STT)을 적용하여 작성한 문서">🎙️ STT</span>');
   }
   if(isAppTrunc && isRefTrunc){
