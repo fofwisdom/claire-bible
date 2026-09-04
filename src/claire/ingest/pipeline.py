@@ -590,6 +590,8 @@ def extract_resolve_store(
     if on_progress:
         pname = getattr(provider, "name", "?")
         on_progress("LLM 요약 및 엔티티/관계 구조화 추출", f"provider={pname}, effort={eff}")
+    eff_badge = f" ({eff})" if eff else ""
+    emit_progress(f"LLM 요약 및 엔티티/관계 구조화 추출{eff_badge}")
 
     try:
         try:
@@ -612,6 +614,7 @@ def extract_resolve_store(
     # 실패해도 적재를 깨지 않는다(조용히 건너뜀). refresh/reextract 도 같은 경로라 갱신됨.
     if on_progress:
         on_progress("LLM 가독 상세(detail) 렌더링 생성", f"format={format or '기본'}, effort={eff}")
+    emit_progress(f"LLM 가독 상세(detail) 렌더링 생성{eff_badge}")
 
     ensure_document_detail(
         conn, provider, doc, force=True, format=format, directive=directive, effort=eff, full_content=full_content
@@ -636,6 +639,7 @@ def extract_resolve_store(
 
     if on_progress:
         on_progress("지식 그래프 엔티티 해소/병합", f"추출된 엔티티 {total_entities}개")
+    emit_progress(f"지식 그래프 엔티티 해소/병합 ({total_entities}개)")
 
     for idx_e, ee in enumerate(result.entities, 1):
         etype, prov = classify_entity_type(ee.type)
@@ -672,6 +676,7 @@ def extract_resolve_store(
 
     if on_progress:
         on_progress("관계(Relation) 검증 및 적재", f"총 {len(result.relations)}개 관계")
+    emit_progress(f"관계(Relation) 검증 및 적재 ({len(result.relations)}개)")
 
     for er in result.relations:
         src_id = name_to_id.get(er.source)
@@ -700,6 +705,7 @@ def extract_resolve_store(
     if vault_dir is not None and touched_entities:
         if on_progress:
             on_progress("Vault 마크다운 동기화", f"{len(touched_entities)}개 노드")
+        emit_progress(f"Vault 마크다운 동기화 ({len(touched_entities)}개 노드)")
         neighbor_ids = set()
         for ent in touched_entities:
             for r in dbm.neighbors(conn, ent.id):
