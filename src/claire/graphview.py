@@ -878,12 +878,13 @@ GRAPH_HTML = """<!doctype html>
     transition:background .15s ease,border-color .15s ease
   }
   #barsearch #openreaderbtn:hover,#reader .head #opengraphbtn:hover{background:var(--hover);border-color:var(--accent)}
+  #reader .rbody-wrap{position:relative;flex:1;min-height:0;min-width:0;display:flex;flex-direction:column;overflow:hidden}
   #reader .rbody{padding:16px 42px max(28px,env(safe-area-inset-bottom)) 28px;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;flex:1;min-height:0;min-width:0;max-width:100%;box-sizing:border-box}
   #reader .rsection{color:var(--muted);font-size:11px;letter-spacing:.04em;text-transform:uppercase;margin:1.2em 0 .2em}
 
   /* --- 우측 슬림 마름모 바 & 탄성 확장 헤딩 내비게이션 레일 --- */
   .cb-heading-rail{
-    position:absolute;right:8px;top:20px;bottom:max(20px,env(safe-area-inset-bottom));
+    position:absolute;right:8px;top:14px;bottom:max(16px,env(safe-area-inset-bottom));
     width:28px;height:auto;
     display:none;align-items:center;justify-content:center;
     z-index:15;touch-action:none;user-select:none;
@@ -1211,15 +1212,17 @@ GRAPH_HTML = """<!doctype html>
           </div>
         </div>
         <div class="sharebox" id="sharebox"></div>
-        <div class="rbody" id="rbody">
-          <p class="hint" style="padding:20px;text-align:center">왼쪽 목록에서 문서를 선택하면 본문이 표시됩니다.</p>
-        </div>
-        <aside class="cb-heading-rail" id="rrail" aria-label="문서 내비게이션 바">
-          <div class="cb-rail-track" id="rrail-track" title="클릭하여 이동, 탭/누른 상태에서 늘어남">
-            <div class="cb-rail-fill" id="rrail-fill"></div>
-            <div class="cb-diamond-layer" id="rrail-diamonds"></div>
+        <div class="rbody-wrap">
+          <div class="rbody" id="rbody">
+            <p class="hint" style="padding:20px;text-align:center">왼쪽 목록에서 문서를 선택하면 본문이 표시됩니다.</p>
           </div>
-        </aside>
+          <aside class="cb-heading-rail" id="rrail" aria-label="문서 내비게이션 바">
+            <div class="cb-rail-track" id="rrail-track" title="클릭하여 이동, 탭/누른 상태에서 늘어남">
+              <div class="cb-rail-fill" id="rrail-fill"></div>
+              <div class="cb-diamond-layer" id="rrail-diamonds"></div>
+            </div>
+          </aside>
+        </div>
       </div>
     </div>
     <div id="sttmodal" class="sttmodal" role="dialog" aria-modal="true" aria-labelledby="stttitle" style="display:none" onclick="if(event.target===this)closeSttReader()">
@@ -2774,13 +2777,18 @@ function updateReaderRail(){
     };
   });
 
+  function _getElTop(el){
+    if(!el) return 0;
+    return (el.offsetParent === rbody) ? el.offsetTop : Math.max(0, (el.offsetTop || 0) - (rbody.offsetTop || 0));
+  }
+
   function computeRailPositions(){
     const tScroll = rbody.scrollHeight - rbody.clientHeight;
     const count = curRailHeadings.length;
     curRailHeadings.forEach((item, idx) => {
       let ratio = 0;
       if(tScroll > 0){
-        const topOffset = item.el.offsetTop - rbody.offsetTop;
+        const topOffset = _getElTop(item.el);
         ratio = Math.max(0, Math.min(1, topOffset / tScroll));
       } else {
         ratio = count > 1 ? (idx / (count - 1)) : 0.5;
@@ -2803,7 +2811,7 @@ function updateReaderRail(){
 
     marker.addEventListener('click', (e) => {
       e.stopPropagation();
-      rbody.scrollTo({ top: Math.max(0, item.el.offsetTop - rbody.offsetTop - 12), behavior: 'smooth' });
+      rbody.scrollTo({ top: Math.max(0, _getElTop(item.el) - 12), behavior: 'smooth' });
     });
 
     diamonds.appendChild(marker);
@@ -2819,7 +2827,7 @@ function updateReaderRail(){
     let activeIdx = 0;
     const threshold = top + 80;
     for(let i = 0; i < curRailHeadings.length; i++){
-      if(curRailHeadings[i].el.offsetTop - rbody.offsetTop <= threshold){
+      if(_getElTop(curRailHeadings[i].el) <= threshold){
         activeIdx = i;
       } else {
         break;
@@ -2885,7 +2893,7 @@ function updateReaderRail(){
     _rClsRem(rail, 'is-expanding');
 
     if(railScrubFocusIdx >= 0 && curRailHeadings[railScrubFocusIdx]){
-      rbody.scrollTo({ top: Math.max(0, curRailHeadings[railScrubFocusIdx].el.offsetTop - rbody.offsetTop - 12), behavior: 'smooth' });
+      rbody.scrollTo({ top: Math.max(0, _getElTop(curRailHeadings[railScrubFocusIdx].el) - 12), behavior: 'smooth' });
     }
 
     const markers = diamonds.querySelectorAll('.cb-diamond-marker');
