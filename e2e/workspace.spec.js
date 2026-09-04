@@ -509,9 +509,14 @@ test('mobile reader ends above bottom bar and displays text to the end without o
 
   const rbodyMetrics = await page.evaluate(() => {
     const b = document.getElementById('rbody');
-    return { clientWidth: b.clientWidth, scrollWidth: b.scrollWidth };
+    return {
+      clientWidth: b.clientWidth,
+      scrollWidth: b.scrollWidth,
+      scrollbarWidth: window.getComputedStyle(b).scrollbarWidth,
+    };
   });
   expect(rbodyMetrics.scrollWidth).toBeLessThanOrEqual(rbodyMetrics.clientWidth);
+  expect(rbodyMetrics.scrollbarWidth).toBe('none');
 
   // 3. Scroll rbody to bottom and verify the last text is completely visible above worktabs
   await page.evaluate(() => {
@@ -548,13 +553,15 @@ test('shared document page allows scrolling and maintains visible fixed rail tra
   // 1. Verify title and heading rendered
   await expect(page.locator('h1')).toContainText('테스트 문서 1');
 
-  // 2. Verify page scrollability styles
+  // 2. Verify page scrollability styles and hidden scrollbars
   const scrollStyles = await page.evaluate(() => {
     const htmlStyle = window.getComputedStyle(document.documentElement);
     const bodyStyle = window.getComputedStyle(document.body);
     return {
       htmlOverflowY: htmlStyle.overflowY,
       bodyOverflowY: bodyStyle.overflowY,
+      htmlScrollbarWidth: htmlStyle.scrollbarWidth,
+      bodyScrollbarWidth: bodyStyle.scrollbarWidth,
       bodyHeight: bodyStyle.height,
       scrollHeight: document.documentElement.scrollHeight,
       innerHeight: window.innerHeight,
@@ -563,6 +570,8 @@ test('shared document page allows scrolling and maintains visible fixed rail tra
 
   expect(scrollStyles.bodyOverflowY).not.toBe('hidden');
   expect(scrollStyles.scrollHeight).toBeGreaterThan(scrollStyles.innerHeight);
+  expect(scrollStyles.htmlScrollbarWidth).toBe('none');
+  expect(scrollStyles.bodyScrollbarWidth).toBe('none');
 
   // 3. Verify #srail has position: fixed and is visible
   const rail = page.locator('#srail');

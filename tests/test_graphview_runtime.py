@@ -2704,8 +2704,10 @@ def test_shared_html_scrolling_and_fixed_rail(node_available: bool) -> None:
     assert '<body class="shared-page">' in html
     assert '<aside class="cb-heading-rail" id="srail"' in html
 
-    # 2. CSS verification for scrollability & fixed position
+    # 2. CSS verification for scrollability & fixed position & hidden scrollbar
     assert "overflow-y: auto" in html or "overflow-y:auto" in html
+    assert "scrollbar-width: none" in html or "scrollbar-width:none" in html
+    assert "::-webkit-scrollbar" in html
     assert "#srail{position:fixed}" in html or "#srail { position: fixed; }" in html or "#srail {\n  position: fixed;" in html or "#srail{position:fixed" in html
 
     # 3. Verify Node.js runtime script execution with headings and scroll height
