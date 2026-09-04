@@ -809,7 +809,7 @@ GRAPH_HTML = """<!doctype html>
   #reader .rbody .doc-content{font-size:var(--read-fs,16px)}
   .doc-content h1{font-size:1.5em} .doc-content h2{font-size:1.3em;margin:1.1em 0 .4em;border-bottom:1px solid var(--border);padding-bottom:.2em}
   .doc-content h3{font-size:1.12em;margin:1em 0 .35em;color:var(--fg);border:0}
-  .doc-content p{margin:.6em 0} .doc-content > p{text-align:justify;text-align-last:start;text-justify:auto}
+  .doc-content p{margin:.6em 0} .doc-content > p{text-align:justify;text-align-last:start;text-justify:auto;text-indent:1em} .doc-content > p:has(> img:only-child),.doc-content > p:has(> a:only-child > img:only-child){text-indent:0}
   .doc-content ul,.doc-content ol{margin:.5em 0;padding-left:1.5em} .doc-content li{margin:.3em 0}
   .doc-content strong{color:var(--fg)} .doc-content a{color:var(--accent)}
   .doc-content img{max-width:100%;height:auto;display:block;margin:.8em auto;border-radius:6px;border:1px solid var(--border)}
@@ -5560,7 +5560,7 @@ _SHARED_HTML = """<!doctype html>
   .doc-content{line-height:1.75;font-size:16px;word-break:keep-all;overflow-wrap:break-word}
   .doc-content h2{font-size:1.3em;margin:1.1em 0 .4em;border-bottom:1px solid var(--border);padding-bottom:.2em}
   .doc-content h3{font-size:1.12em;margin:1em 0 .35em} .doc-content p{margin:.6em 0}
-  .doc-content > p{text-align:justify;text-align-last:start;text-justify:auto}
+  .doc-content > p{text-align:justify;text-align-last:start;text-justify:auto;text-indent:1em} .doc-content > p:has(> img:only-child),.doc-content > p:has(> a:only-child > img:only-child){text-indent:0}
   .doc-content ul,.doc-content ol{margin:.5em 0;padding-left:1.5em} .doc-content li{margin:.3em 0}
   .doc-content a{color:var(--accent)} .doc-content img{max-width:100%;height:auto;display:block;margin:.8em auto;border-radius:6px;border:1px solid var(--border)}
   .doc-content blockquote{margin:.6em 0;padding:.2em .9em;border-left:3px solid var(--border);color:var(--muted);font-family:'Noto Serif KR','Noto Serif Korean',Georgia,'Times New Roman',serif}
