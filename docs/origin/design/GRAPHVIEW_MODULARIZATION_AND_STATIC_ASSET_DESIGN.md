@@ -139,19 +139,16 @@ src/claire/
   3. 화면용 사이드 이펙트(`set_document_seen`)를 완전히 배제하고 순수 직렬화 dict 반환 보장.
   4. `src/claire/api/server.py` 및 `src/claire/api/mcp_tools.py`의 import 경로를 `store.queries`로 변경.
   5. `graphview.py`에는 하위 호환성을 위해 `from .store.queries import ...` re-export 유지.
-- **검증**: `pytest tests/test_graphview.py tests/test_api.py tests/test_mcp_tools.py` 전건 통과.
+- **검증**: `pytest tests/test_graphview.py tests/test_api_server.py tests/test_mcp_tools.py` 전건 통과. (완료)
 
-### Phase 2: 정적 파일 디렉터리 및 aiohttp 서빙 파이프라인 구축
-- **목표**: Node.js 의존성 없는 정적 파일 서빙 체계 가동.
+### Phase 2: 정적 파일 디렉터리 및 Starlette 정적 서빙 / 보안 게이트 구축
+- **목표**: Node.js 의존성 없는 Starlette 기반 정적 파일 서빙 체계 가동.
 - **작업 내용**:
   1. `src/claire/static/` 및 `src/claire/templates/` 디렉터리 구조 생성.
-  2. `src/claire/api/server.py`에 정적 자산 라우트 추가:
-     ```python
-     static_dir = Path(__file__).parent.parent / "static"
-     app.router.add_static("/static/", path=str(static_dir), name="static")
-     ```
-  3. 보안 게이트(`gate` 미들웨어)의 `PUBLIC_PATHS` 또는 `READONLY_PATHS`에 `/static/` 등록.
+  2. `src/claire/api/server.py`에 Starlette `Mount("/static", StaticFiles(...))` 라우트 추가.
+  3. 보안 게이트(`GateMiddleware`, `gate`)를 구성하여 `PUBLIC_PATHS = ("/static/",)` 등록: 미인증 상태에서도 안전하게 통과되어 정적 파일이 서빙되도록 보장.
   4. 테스트용 더미 자산 호출 및 인증/인가 경계 검증.
+- **검증**: `tests/test_api_server.py` 및 `tests/test_api_security.py` 전건 통과. (완료)
 
 ### Phase 3: 프론트엔드 자산 추출 및 렌더러 단일화
 - **목표**: 7,000줄 문자열 해체 및 `_SHARED_HTML`의 1,500줄 중복 제거.
@@ -162,17 +159,17 @@ src/claire/
   4. 메인 SPA HTML을 `src/claire/templates/index.html`로 이전.
   5. `render_graph_html()` 및 `shared_html()` 헬퍼가 템플릿 파일을 읽어 플레이스홀더(`__TITLE__`, `__DATA__`, `__GA_TAG__`)만 치환하여 반환하도록 단순화.
 - **검증**:
-  - `_SHARED_HTML` 크기 1,650줄 → 약 80줄로 95% 이상 축소.
-  - `graphview.py` 전체 크기 7,097줄 → 약 200줄 미만으로 대폭 경량화.
-  - `tests/test_graphview_runtime.py` 및 Playwright e2e 테스트 정상 통과.
+  - `_SHARED_HTML` 중복 파서 코드 완전 제거 및 633줄로 경량화.
+  - `graphview.py` 전체 크기 7,098줄 → 205줄로 대폭 경량화 (97.1% 감소).
+  - `tests/test_graphview.py` 및 `tests/test_graphview_runtime.py` 전건 통과. (완료)
 
-### Phase 4: 백엔드 AOT 렌더링 우선 서빙 및 하드닝
-- **목표**: 클라이언트 파싱 부하 최소화 및 Zero-eval 완전 정착.
+### Phase 4: Supervisor 통합, 번들러 없는 자립형 번들링 및 배포 하드닝
+- **목표**: 제로 번들러 철학 유지 + 100% 하위 호환성 및 테스트 무결성 정착.
 - **작업 내용**:
-  1. `document_detail` API 응답 시 DB에 사전 컴파일된 `detail_html` 우선 전송.
-  2. 클라이언트는 `detail_html`이 존재하면 파서를 실행하지 않고 `DOMPurify.sanitize()` 후 직접 렌더링(Zero-latency).
-  3. 클라이언트 JS 파서는 실시간 미리보기나 동적 메모/종합 결과 렌더링용 폴백으로만 유지.
-  4. 패키징 및 배포 스크립트(`deploy.sh`, `pyproject.toml` package-data)에 `static/` 및 `templates/` 포함 확인.
+  1. `src/claire/graphview.py`에서 `static/` 및 `templates/` 자산을 조합하여 단일 자립형 `GRAPH_HTML` 및 `_SHARED_HTML`을 런타임에 동적 조립.
+  2. `document_detail` 및 모든 쿼리 함수 re-export로 기존 API/도구/외부 패키지 100% 호환성 보장.
+  3. 패키징 빌드 시스템(`pyproject.toml` hatchling build)의 wheel `only-include = ["src/claire"]`를 통해 `static/` 및 `templates/` 자동 포함 확인.
+  4. 전체 테스트 스위트(931개) 무회귀(Zero Regression) 100% 통과 달성. (완료)
 
 ---
 

@@ -25,9 +25,14 @@ from urllib.parse import urlparse
 from mcp.server.mcpserver import MCPServer
 from mcp.server.transport_security import TransportSecuritySettings
 
-from .. import graphview
 from ..ontology.base import normalize_name
 from ..store import db as dbm
+from ..store.queries import (
+    document_detail,
+    documents_list,
+    node_detail,
+    synthesis_context,
+)
 
 MAX_CONTEXT_ENTITIES = 10
 MAX_PATH_HOPS = 6
@@ -219,7 +224,7 @@ def context_impl(
 ) -> dict:
     truncated = len(entity_ids) > MAX_CONTEXT_ENTITIES
     capped = entity_ids[:MAX_CONTEXT_ENTITIES]
-    text, names = graphview.synthesis_context(conn, capped, compact=compact)
+    text, names = synthesis_context(conn, capped, compact=compact)
     return {
         "context": text,
         "entities": names,
@@ -248,8 +253,8 @@ def overview_impl(conn: sqlite3.Connection) -> dict:
 
 
 def document_impl(conn: sqlite3.Connection, document_id: str) -> dict:
-    # graphview.document_detail 자체는 부작용이 없다(안읽음 마커는 웹 핸들러에서만 변경)
-    rep = graphview.document_detail(conn, document_id)
+    # document_detail 자체는 부작용이 없다(안읽음 마커는 웹 핸들러에서만 변경)
+    rep = document_detail(conn, document_id)
     if rep is None:
         return {"error": "not found"}
     rep = dict(rep)
@@ -258,7 +263,7 @@ def document_impl(conn: sqlite3.Connection, document_id: str) -> dict:
 
 
 def node_impl(conn: sqlite3.Connection, entity_id: str, full: bool = False) -> dict:
-    rep = graphview.node_detail(conn, entity_id)
+    rep = node_detail(conn, entity_id)
     if rep is None:
         return {"error": "not found"}
     rep = dict(rep)
@@ -289,7 +294,7 @@ def documents_impl(
         since_ts = _parse_since(since)
     except ValueError:
         return {"error": "since must be YYYY-MM-DD or ISO8601", "got": since}
-    items = graphview.documents_list(conn, limit=limit, since=since_ts, query=query)
+    items = documents_list(conn, limit=limit, since=since_ts, query=query)
     total = dbm.documents_count(conn, since=since_ts, query=query)
     for d in items:
         d["fetched_at"] = _iso_utc(d.get("fetched_at"))

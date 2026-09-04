@@ -28,8 +28,11 @@ from starlette.responses import (
     Response,
     StreamingResponse,
 )
-from starlette.routing import Route
-from starlette.types import ASGIApp
+from starlette.routing import Mount, Route
+from starlette.staticfiles import StaticFiles
+from starlette.types import ASGIApp, Receive, Scope, Send
+
+PUBLIC_PATHS: tuple[str, ...] = ("/static/",)
 
 from ..config import Settings, get_settings
 from ..ingest.report_json import report_to_dict
@@ -69,6 +72,52 @@ _MAX_ANONYMOUS_SEARCH_RESULTS = 20
 _MAX_EXPENSIVE_JOBS = 4
 _MAX_ANONYMOUS_SEARCH_JOBS = 4
 _PROGRESS_QUEUE_SIZE = 64
+
+
+class GateMiddleware:
+    """gate 미들웨어 — PUBLIC_PATHS에 등록된 공개 정적 자산(/static/) 등은
+    인증 실패로 차단되지 않도록 Starlette 라우터로 통과시키며,
+    그 외 경로는 기존 보안 래퍼(wrap_web_app)로 전달한다.
+    """
+
+    def __init__(
+        self,
+        inner: ASGIApp,
+        secured: ASGIApp,
+        public_paths: tuple[str, ...] = PUBLIC_PATHS,
+    ) -> None:
+        self.inner = inner
+        self.app = secured
+        self.public_paths = public_paths
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "http":
+            path = scope.get("path", "")
+            method = str(scope.get("method", "")).upper()
+            if any(path.startswith(prefix) for prefix in self.public_paths):
+                if method in {"GET", "HEAD"}:
+                    await self.inner(scope, receive, send)
+                    return
+                resp = PlainTextResponse("Method Not Allowed", status_code=405)
+                await resp(scope, receive, send)
+                return
+        await self.app(scope, receive, send)
+
+
+gate = GateMiddleware
+
+
+def _resolve_query_func(name: str, default: Any) -> Any:
+    """테스트 monkeypatch 및 하위 호환성을 위해 graphview 속성이 패치된 경우 우선 사용한다."""
+    try:
+        from .. import graphview
+
+        fn = getattr(graphview, name, None)
+        if fn is not None and fn is not default:
+            return fn
+    except ImportError:
+        pass
+    return default
 
 
 async def _http_error(_request: Request, exc: HTTPException) -> JSONResponse:
@@ -333,17 +382,18 @@ def create_app(
         )
 
     async def graph_data(request: Request) -> JSONResponse:
-        from ..graphview import graph_json
+        from ..store.queries import graph_json
 
+        _graph_json = _resolve_query_func("graph_json", graph_json)
         include_hidden = request_auth_scope(request) != "anonymous"
 
         def _graph() -> dict[str, Any]:
             conn = dbm.connect_existing(s.db_file, readonly=True)
             try:
                 try:
-                    return graph_json(conn, include_hidden=include_hidden)
+                    return _graph_json(conn, include_hidden=include_hidden)
                 except TypeError:
-                    return graph_json(conn)
+                    return _graph_json(conn)
             finally:
                 conn.close()
 
@@ -440,8 +490,9 @@ def create_app(
         return FileResponse(path)
 
     async def documents_list_route(request: Request) -> JSONResponse:
-        from ..graphview import documents_list
+        from ..store.queries import documents_list
 
+        _documents_list = _resolve_query_func("documents_list", documents_list)
         include_hidden = request_auth_scope(request) != "anonymous"
 
         def _documents() -> dict[str, Any]:
@@ -449,9 +500,9 @@ def create_app(
             try:
                 format_status = dbm.check_format_mismatch(conn, getattr(s, "render_format", "md"))
                 try:
-                    docs = documents_list(conn, include_hidden=include_hidden)
+                    docs = _documents_list(conn, limit=300, include_hidden=include_hidden)
                 except TypeError:
-                    docs = documents_list(conn)
+                    docs = _documents_list(conn)
                 return {
                     "documents": docs,
                     "format_status": format_status,
@@ -462,8 +513,9 @@ def create_app(
         return JSONResponse(await asyncio.to_thread(_documents))
 
     async def node_detail(request: Request) -> JSONResponse:
-        from ..graphview import node_detail as _detail
+        from ..store.queries import node_detail as _detail
 
+        _detail = _resolve_query_func("node_detail", _detail)
         node_id = request.query_params.get("id", "")
         if not node_id:
             raise HTTPException(status_code=400, detail="id required")
@@ -486,8 +538,9 @@ def create_app(
         return JSONResponse(report)
 
     async def document_detail_route(request: Request) -> JSONResponse:
-        from ..graphview import document_detail
+        from ..store.queries import document_detail
 
+        _document_detail = _resolve_query_func("document_detail", document_detail)
         document_id = request.query_params.get("id", "")
         if not document_id:
             raise HTTPException(status_code=400, detail="id required")
@@ -499,9 +552,9 @@ def create_app(
             try:
                 # GET은 readonly 사용자에게도 열리므로 열람 상태를 변경하지 않는다.
                 try:
-                    return document_detail(conn, document_id, include_hidden=include_hidden)
+                    return _document_detail(conn, document_id, include_hidden=include_hidden)
                 except TypeError:
-                    return document_detail(conn, document_id)
+                    return _document_detail(conn, document_id)
             finally:
                 conn.close()
 
@@ -586,22 +639,23 @@ def create_app(
         return JSONResponse({"id": document_id, "title": title})
 
     async def synthesize_route(request: Request) -> JSONResponse:
-        from ..graphview import synthesize
+        from ..store.queries import synthesize
 
+        _synthesize = _resolve_query_func("synthesize", synthesize)
         body = await _json_object(request)
         entity_ids = body.get("node_ids") or []
         if not isinstance(entity_ids, list) or not entity_ids:
             raise HTTPException(status_code=400, detail="node_ids required")
         query = body.get("query")
 
-        def _synthesize() -> dict[str, Any]:
+        def _synthesize_job() -> dict[str, Any]:
             conn = dbm.connect_existing(s.db_file, readonly=True)
             try:
-                return synthesize(conn, svc.provider, entity_ids, query)
+                return _synthesize(conn, svc.provider, entity_ids, query)
             finally:
                 conn.close()
 
-        return JSONResponse(await _run_expensive(_synthesize))
+        return JSONResponse(await _run_expensive(_synthesize_job))
 
     async def research_route(request: Request) -> StreamingResponse:
         from ..expand.research import contextual_research
@@ -782,13 +836,15 @@ def create_app(
         return StreamingResponse(stream(), media_type="application/x-ndjson")
 
     async def dedup_scan_route(_request: Request) -> JSONResponse:
-        from ..graphview import dedup_clusters
+        from ..store.queries import dedup_clusters
+
+        _dedup_clusters = _resolve_query_func("dedup_clusters", dedup_clusters)
 
         def _scan() -> dict[str, Any]:
             scan = svc.dedup_scan()
             conn = dbm.connect_existing(s.db_file, readonly=True)
             try:
-                return dedup_clusters(conn, scan)
+                return _dedup_clusters(conn, scan)
             finally:
                 conn.close()
 
@@ -837,8 +893,10 @@ def create_app(
         return JSONResponse({"token": token, "path": "/p?s=" + token})
 
     async def shared_doc_page(request: Request) -> Response:
-        from ..graphview import document_detail, shared_html
+        from ..graphview import shared_html
+        from ..store.queries import document_detail
 
+        _document_detail = _resolve_query_func("document_detail", document_detail)
         token = request.query_params.get("s", "")
         if not dbm.plausible_share_token(token):
             return PlainTextResponse("Not Found", status_code=404)
@@ -849,7 +907,7 @@ def create_app(
                 document_id = dbm.resolve_doc_share(conn, token)
                 if not document_id:
                     return None
-                return document_detail(conn, document_id)
+                return _document_detail(conn, document_id)
             finally:
                 conn.close()
 
@@ -888,6 +946,9 @@ def create_app(
         async with mcp_app.router.lifespan_context(mcp_app):
             yield
 
+    static_dir = Path(__file__).resolve().parent.parent / "static"
+    static_dir.mkdir(parents=True, exist_ok=True)
+
     routes = [
         Route("/health", health, methods=["GET"]),
         Route("/favicon.ico", favicon_ico_route, methods=["GET"]),
@@ -925,6 +986,7 @@ def create_app(
         Route("/share", create_share_route, methods=["POST"]),
         Route("/p", shared_doc_page, methods=["GET"]),
         Route("/mcp", mcp_route, methods=["GET", "POST"]),
+        Mount("/static", StaticFiles(directory=str(static_dir), check_dir=False), name="static"),
     ]
     app = Starlette(
         debug=False,
@@ -934,7 +996,21 @@ def create_app(
         exception_handlers={HTTPException: _http_error},
         lifespan=app_lifespan,
     )
-    return wrap_web_app(app, s)
+
+    def _add_static(prefix: str, path: str | Path, name: str = "static") -> None:
+        p = Path(path)
+        p.mkdir(parents=True, exist_ok=True)
+        norm_prefix = "/" + prefix.strip("/")
+        for r in app.router.routes:
+            if isinstance(r, Mount) and r.path == norm_prefix:
+                return
+        app.router.mount(norm_prefix, StaticFiles(directory=str(p), check_dir=False), name=name)
+
+    app.router.add_static = _add_static  # type: ignore[attr-defined]
+    app.router.add_static("/static/", path=str(static_dir), name="static")
+
+    secured = wrap_web_app(app, s)
+    return GateMiddleware(app, secured, PUBLIC_PATHS)
 
 
 def run_api() -> int:
