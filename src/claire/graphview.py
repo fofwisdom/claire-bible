@@ -1781,17 +1781,19 @@ function inlineAdocFormat(text){
     linkSpans.push('<a href=\"'+u+'\" target=\"_blank\" rel=\"noopener\">'+u+'</a>');
     return '\\x00ADOCLINK'+(linkSpans.length-1)+'\\x00';
   });
-  s=s.replace(/&lt;&lt;([a-zA-Z0-9_\\-\\.\\:\\/]+)(?:,\\s*([^&]+?))?&gt;&gt;/g, function(_, a, l){
+  s=s.replace(/&lt;&lt;([^\\s\\[\\],>&]+)(?:,\\s*([^&]+?))?&gt;&gt;/g, function(_, a, l){
+    var anc=a.trim().replace(/^#/, '');
     var label=(l||a).trim();
-    linkSpans.push('<a href=\"#'+a.trim()+'\" class=\"xref\">'+label+'</a>');
+    linkSpans.push('<a href=\"#'+anc+'\" class=\"xref\">'+label+'</a>');
     return '\\x00ADOCLINK'+(linkSpans.length-1)+'\\x00';
   });
-  s=s.replace(/xref:([a-zA-Z0-9_\\-\\.\\:\\/]+)\\[(.*?)\\]/gi, function(_, a, l){
+  s=s.replace(/xref:([^\\s\\[\\],]+)\\[(.*?)\\]/gi, function(_, a, l){
+    var anc=a.trim().replace(/^#/, '');
     var label=(l||a).trim();
-    linkSpans.push('<a href=\"#'+a.trim()+'\" class=\"xref\">'+label+'</a>');
+    linkSpans.push('<a href=\"#'+anc+'\" class=\"xref\">'+label+'</a>');
     return '\\x00ADOCLINK'+(linkSpans.length-1)+'\\x00';
   });
-  s=s.replace(/\\[\\[([a-zA-Z0-9_\\-\\.\\:\\/]+)\\]\\]/g, '<a id=\"$1\" class=\"anchor\"></a>');
+  s=s.replace(/\\[\\[([^\\s\\[\\],]+)\\]\\]/g, '<a id=\"$1\" class=\"anchor\"></a>');
   s=s.replace(/\\s+\\+\\s*$/g, '<br>');
   s=s.replace(/(?<!#)#(?![\\s#])([^#\\n]+?)(?<![\\s#])#(?!#)/g, '<mark>$1</mark>');
   s=s.replace(/\\*\\*(?![\\s\\*])([^*\\n]+?)(?<![\\s\\*])\\*\\*/g, '<strong>$1</strong>');
@@ -1993,7 +1995,7 @@ function convertAsciidocToHtml(raw){
   }
 
   function extractHeadingAnchor(hText){
-    var m=hText.match(/\\[#([a-zA-Z0-9_\\-\\.\\:\\/]+)\\]|\\[\\[([a-zA-Z0-9_\\-\\.\\:\\/]+)\\]\\]/);
+    var m=hText.match(/\\[#([^\\s\\[\\],]+)\\]|\\[\\[([^\\s\\[\\],]+)\\]\\]/);
     if(m){
       var anc=m[1]||m[2];
       var clean=(hText.substring(0, m.index)+hText.substring(m.index+m[0].length)).trim();
@@ -2009,7 +2011,7 @@ function convertAsciidocToHtml(raw){
     var trimmed=line.trim();
 
     if(!inBlock){
-      var anchorM=trimmed.match(/^\\[#([a-zA-Z0-9_\\-\\.\\:\\/]+)\\]$/) || trimmed.match(/^\\[\\[([a-zA-Z0-9_\\-\\.\\:\\/]+)\\]\\]$/);
+      var anchorM=trimmed.match(/^\\[#([^\\s\\[\\],]+)\\]$/) || trimmed.match(/^\\[\\[([^\\s\\[\\],]+)\\]\\]$/);
       if(anchorM){
         flushNormalP(); flushContinuation(); flushPendingSingleBlock();
         pendingAnchor=anchorM[1].trim();
@@ -5535,17 +5537,19 @@ function inlineAdocFormat(text){
     linkSpans.push('<a href=\"'+u+'\" target=\"_blank\" rel=\"noopener\">'+u+'</a>');
     return '\\x00ADOCLINK'+(linkSpans.length-1)+'\\x00';
   });
-  s=s.replace(/&lt;&lt;([a-zA-Z0-9_\\-\\.\\:\\/]+)(?:,\\s*([^&]+?))?&gt;&gt;/g, function(_, a, l){
+  s=s.replace(/&lt;&lt;([^\\s\\[\\],>&]+)(?:,\\s*([^&]+?))?&gt;&gt;/g, function(_, a, l){
+    var anc=a.trim().replace(/^#/, '');
     var label=(l||a).trim();
-    linkSpans.push('<a href=\"#'+a.trim()+'\" class=\"xref\">'+label+'</a>');
+    linkSpans.push('<a href=\"#'+anc+'\" class=\"xref\">'+label+'</a>');
     return '\\x00ADOCLINK'+(linkSpans.length-1)+'\\x00';
   });
-  s=s.replace(/xref:([a-zA-Z0-9_\\-\\.\\:\\/]+)\\[(.*?)\\]/gi, function(_, a, l){
+  s=s.replace(/xref:([^\\s\\[\\],]+)\\[(.*?)\\]/gi, function(_, a, l){
+    var anc=a.trim().replace(/^#/, '');
     var label=(l||a).trim();
-    linkSpans.push('<a href=\"#'+a.trim()+'\" class=\"xref\">'+label+'</a>');
+    linkSpans.push('<a href=\"#'+anc+'\" class=\"xref\">'+label+'</a>');
     return '\\x00ADOCLINK'+(linkSpans.length-1)+'\\x00';
   });
-  s=s.replace(/\\[\\[([a-zA-Z0-9_\\-\\.\\:\\/]+)\\]\\]/g, '<a id=\"$1\" class=\"anchor\"></a>');
+  s=s.replace(/\\[\\[([^\\s\\[\\],]+)\\]\\]/g, '<a id=\"$1\" class=\"anchor\"></a>');
   s=s.replace(/\\s+\\+\\s*$/g, '<br>');
   s=s.replace(/(?<!#)#(?![\\s#])([^#\\n]+?)(?<![\\s#])#(?!#)/g, '<mark>$1</mark>');
   s=s.replace(/\\*\\*(?![\\s\\*])([^*\\n]+?)(?<![\\s\\*])\\*\\*/g, '<strong>$1</strong>');
@@ -5747,7 +5751,7 @@ function convertAsciidocToHtml(raw){
   }
 
   function extractHeadingAnchor(hText){
-    var m=hText.match(/\\[#([a-zA-Z0-9_\\-\\.\\:\\/]+)\\]|\\[\\[([a-zA-Z0-9_\\-\\.\\:\\/]+)\\]\\]/);
+    var m=hText.match(/\\[#([^\\s\\[\\],]+)\\]|\\[\\[([^\\s\\[\\],]+)\\]\\]/);
     if(m){
       var anc=m[1]||m[2];
       var clean=(hText.substring(0, m.index)+hText.substring(m.index+m[0].length)).trim();
@@ -5763,7 +5767,7 @@ function convertAsciidocToHtml(raw){
     var trimmed=line.trim();
 
     if(!inBlock){
-      var anchorM=trimmed.match(/^\\[#([a-zA-Z0-9_\\-\\.\\:\\/]+)\\]$/) || trimmed.match(/^\\[\\[([a-zA-Z0-9_\\-\\.\\:\\/]+)\\]\\]$/);
+      var anchorM=trimmed.match(/^\\[#([^\\s\\[\\],]+)\\]$/) || trimmed.match(/^\\[\\[([^\\s\\[\\],]+)\\]\\]$/);
       if(anchorM){
         flushNormalP(); flushContinuation(); flushPendingSingleBlock();
         pendingAnchor=anchorM[1].trim();

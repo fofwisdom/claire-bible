@@ -781,6 +781,9 @@ def test_client_js_convert_asciidoc_to_html_runtime():
     main_script = scripts[1]  # The main JS logic script
 
     sample = """
+상세 내용은 <<자격-검증-가치, 자격 검증 가치 섹션>> 을 참조하라.
+
+[#자격-검증-가치]
 == 프라이빗 클라우드 자격 검증의 전략적 가치
 
 * 운영 리스크 완화 (Mitigate Operational Risk)
@@ -891,7 +894,9 @@ process.exit(0);
     js_html = res_data["html"]
 
     # JS 런타임 결과 검증
-    assert "<h2>프라이빗 클라우드 자격 검증의 전략적 가치</h2>" in js_html
+    assert '<h2 id="자격-검증-가치">프라이빗 클라우드 자격 검증의 전략적 가치</h2>' in js_html
+    assert '<a href="#자격-검증-가치" class="xref">자격 검증 가치 섹션</a>' in js_html
+    assert "<p>[#" not in js_html
     assert "<p>+</p>" not in js_html
     assert ">+<" not in js_html
     assert "<li>운영 리스크 완화 (Mitigate Operational Risk)\n<p>컴퓨트, 스토리지, 네트워킹 계층 전반의 관리를 표준화하여 설정 오류(misconfigurations), 다운타임, 보안 취약점을 최소화한다.</p>\n</li>" in js_html
@@ -959,6 +964,130 @@ def test_aot_render_adoc_cross_reference_and_anchors():
     assert '<h2 id="sec-arch">아키텍처 섹션</h2>' in html_out
     assert '<div class="admonitionblock note" id="note-box">' in html_out
     assert '<p id="p-target">이 단락은 단독 앵커가 부여된 단락입니다.</p>' in html_out
+
+    # 3. 원시 문법 누출 차단 검증 (Negative Assertion)
+    assert "<p>[#" not in html_out
+    assert "<p>[[" not in html_out
+    assert "&lt;&lt;" not in html_out
+    assert "xref:" not in html_out
+
+
+def test_aot_render_adoc_korean_anchors_and_prompt_alignment():
+    """프롬프트 지침([#섹션ID], <<섹션ID, 제목>>) 및 한글/다국어 앵커와 상호참조 파싱 검증."""
+    sample = """
+상세 내용은 <<개요, 1. 개요 섹션>> 및 <<sec-intro>> 를 참조하라.
+또한 xref:하드웨어-용량-산정[용량 산정 지침] 과 <<#마스터-플랜, 마스터 플랜>> 도 확인하라.
+
+[#개요]
+== 1. 개요 및 배경
+[[인라인-앵커]]이곳은 한글 인라인 앵커입니다.
+
+== [#하드웨어-용량-산정] 2. 하드웨어 및 용량 산정
+
+[#핵심-설계-영역-비교]
+[NOTE]
+====
+중요 주의사항입니다.
+====
+
+[#마스터-플랜]
+== 7. 성공적인 VCF 도입을 위한 4단계 마스터 플랜
+
+[#단락-앵커]
+이 단락은 한글 앵커가 부여된 단락입니다.
+"""
+    html_out = render_adoc_to_html(sample)
+
+    # 1. 크로스레퍼런스 링크 검증
+    assert '<a href="#개요" class="xref">1. 개요 섹션</a>' in html_out
+    assert '<a href="#sec-intro" class="xref">sec-intro</a>' in html_out
+    assert '<a href="#하드웨어-용량-산정" class="xref">용량 산정 지침</a>' in html_out
+    assert '<a href="#마스터-플랜" class="xref">마스터 플랜</a>' in html_out
+
+    # 2. 앵커 속성 주입 검증
+    assert '<h2 id="개요">1. 개요 및 배경</h2>' in html_out
+    assert '<a id="인라인-앵커" class="anchor"></a>' in html_out
+    assert '<h2 id="하드웨어-용량-산정">2. 하드웨어 및 용량 산정</h2>' in html_out
+    assert '<div class="admonitionblock note" id="핵심-설계-영역-비교">' in html_out
+    assert '<h2 id="마스터-플랜">7. 성공적인 VCF 도입을 위한 4단계 마스터 플랜</h2>' in html_out
+    assert '<p id="단락-앵커">이 단락은 한글 앵커가 부여된 단락입니다.</p>' in html_out
+
+    # 3. 원시 문법 누출 차단 검증 (Negative Assertion)
+    assert "<p>[#" not in html_out
+    assert "<p>[[" not in html_out
+    assert "&lt;&lt;" not in html_out
+    assert "xref:" not in html_out
+
+
+def test_aot_render_adoc_vcf_live_case():
+    """사용자가 보고한 실제 VCF 9 라이브 문서(doc_903ea0b3a59f)의 7개 한글 섹션 앵커가 온전히 렌더링되는지 검증."""
+    sample = """
+= 50회 이상의 VCF 구축 사례로 본 핵심 함정과 아키텍처 설계 가이드
+
+[#개요]
+== 1. 개요 및 배경
+
+[#하드웨어-용량-산정]
+== 2. 하드웨어 및 용량 산정(Hardware and Capacity Planning)
+
+[#플릿-인스턴스-지연시간]
+== 3. 플릿, 인스턴스 및 네트워크 지연 시간(Fleets, Instances, and Latency)
+
+[#네트워킹-설계]
+== 4. VCF 소프트웨어 정의 네트워킹(VCF Networking)
+
+[#운영-자동화-확장]
+== 5. 운영 고도화와 확장 생태계(VCF Operations, Automation & Beyond)
+
+[#핵심-설계-영역-비교]
+== 6. VCF 5대 핵심 설계 영역 비교 요약
+
+[#마스터-플랜]
+== 7. 성공적인 VCF 도입을 위한 4단계 마스터 플랜
+"""
+    html_out = render_adoc_to_html(sample)
+
+    expected_anchors = [
+        "개요",
+        "하드웨어-용량-산정",
+        "플릿-인스턴스-지연시간",
+        "네트워킹-설계",
+        "운영-자동화-확장",
+        "핵심-설계-영역-비교",
+        "마스터-플랜",
+    ]
+    for anc in expected_anchors:
+        assert f'id="{anc}"' in html_out, f'Missing expected id="{anc}" in rendered HTML'
+        assert f"<p>[#{anc}]</p>" not in html_out
+
+    assert "<p>[#" not in html_out
+
+
+def test_clean_plain_summary_anchors_and_xrefs():
+    """clean_plain_summary 및 is_corrupted_summary 가 한글/영문 앵커 및 상호참조 마크업을 올바르게 판정 및 정제하는지 검증."""
+    from claire.extract.prompts import clean_plain_summary, is_corrupted_summary
+
+    sample = """
+[#개요]
+== 1. 개요 및 배경
+
+상세 내용은 <<개요, 1. 개요>> 및 xref:설정-가이드[설정 가이드] 를 참조하라.
+클라우드 인프라 아키텍처의 설계 표준을 확립한다.
+"""
+    # 1. 오염 판정 검증
+    assert is_corrupted_summary("[#개요]\n본문입니다.") is True
+    assert is_corrupted_summary("본문 <<개요>> 참조") is True
+    assert is_corrupted_summary("본문 xref:설정[라벨] 참조") is True
+    assert is_corrupted_summary("[[앵커]] 본문") is True
+    assert is_corrupted_summary("순수 일반 텍스트 요약입니다.") is False
+
+    # 2. 정제 결과 검증
+    cleaned = clean_plain_summary(sample)
+    assert "[#개요]" not in cleaned
+    assert "<<" not in cleaned
+    assert ">>" not in cleaned
+    assert "xref:" not in cleaned
+    assert "1. 개요" in cleaned or "클라우드 인프라 아키텍처의 설계 표준을 확립한다." in cleaned
 
 
 def test_prompts_adoc_phase1_guidelines():

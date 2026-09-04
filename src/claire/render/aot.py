@@ -79,16 +79,16 @@ def _inline_adoc_format(text: str) -> str:
 
     # 5. 상호 참조(Cross-references): <<anchor, label>>, <<anchor>>, xref:anchor[label]
     def _save_xref(m: re.Match) -> str:
-        anchor = m.group(1).strip()
+        anchor = m.group(1).strip().lstrip("#")
         label = (m.group(2) if len(m.groups()) >= 2 and m.group(2) else anchor).strip()
         link_spans.append(f'<a href="#{anchor}" class="xref">{label}</a>')
         return f"\x00ADOCLINK{len(link_spans)-1}\x00"
 
-    s = re.sub(r"&lt;&lt;([a-zA-Z0-9_\-\.\:\/]+)(?:,\s*([^&]+?))?&gt;&gt;", _save_xref, s)
-    s = re.sub(r"xref:([a-zA-Z0-9_\-\.\:\/]+)\[(.*?)\]", _save_xref, s, flags=re.IGNORECASE)
+    s = re.sub(r"&lt;&lt;([^\s\[\],>&]+)(?:,\s*([^&]+?))?&gt;&gt;", _save_xref, s)
+    s = re.sub(r"xref:([^\s\[\],]+)\[(.*?)\]", _save_xref, s, flags=re.IGNORECASE)
 
     # 6. 인라인 앵커: [[anchor-id]]
-    s = re.sub(r"\[\[([a-zA-Z0-9_\-\.\:\/]+)\]\]", r'<a id="\1" class="anchor"></a>', s)
+    s = re.sub(r"\[\[([^\s\[\],]+)\]\]", r'<a id="\1" class="anchor"></a>', s)
 
     # 7. 줄바꿈: ' +' (공백 + 플러스 기호가 라인 끝에 올 때) -> <br>
     s = re.sub(r"\s+\+\s*$", "<br>", s)
@@ -642,7 +642,7 @@ def render_adoc_to_html(raw: str) -> str:
 
     def _extract_heading_anchor(h_text: str) -> tuple[str, str | None]:
         nonlocal pending_anchor
-        m = re.search(r"\[#([a-zA-Z0-9_\-\.\:\/]+)\]|\[\[([a-zA-Z0-9_\-\.\:\/]+)\]\]", h_text)
+        m = re.search(r"\[#([^\s\[\],]+)\]|\[\[([^\s\[\],]+)\]\]", h_text)
         if m:
             anc = m.group(1) or m.group(2)
             clean = (h_text[:m.start()] + h_text[m.end():]).strip()
@@ -656,8 +656,8 @@ def render_adoc_to_html(raw: str) -> str:
 
         if not in_block:
             # 0. 앵커 정의 라인: [#anchor-id] 또는 [[anchor-id]]
-            anchor_m = re.match(r"^\[#([a-zA-Z0-9_\-\.\:\/]+)\]$", trimmed) or re.match(
-                r"^\[\[([a-zA-Z0-9_\-\.\:\/]+)\]\]$", trimmed
+            anchor_m = re.match(r"^\[#([^\s\[\],]+)\]$", trimmed) or re.match(
+                r"^\[\[([^\s\[\],]+)\]\]$", trimmed
             )
             if anchor_m:
                 flush_normal_p()
