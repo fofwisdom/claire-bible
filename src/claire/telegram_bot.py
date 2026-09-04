@@ -614,6 +614,10 @@ def build_app(settings: Settings | None = None) -> Any:
         status = await msg.reply_text(f"⏳ {label}")
         uid = user.id if user else None
         cid = update.effective_chat.id if update.effective_chat else None
+        has_error = False
+        is_stt_failed = False
+        is_duplicate = False
+        did = None
         try:
             report = await _run_with_ticker(
                 status, label,
@@ -632,6 +636,7 @@ def build_app(settings: Settings | None = None) -> Any:
                 report.stt_error
                 or (report.source_type == "video" and report.has_transcript is False and report.stt_error)
             )
+            has_error = bool(report.error)
             is_duplicate = bool(report.duplicate)
             emoji = _status_emoji(report.error, report.duplicate, stt_error=report.stt_error)
             did = report.document_id
@@ -703,6 +708,10 @@ def build_app(settings: Settings | None = None) -> Any:
                 full_content=has_refetch_full,
             )
 
+        has_error = False
+        is_stt_failed = False
+        is_duplicate = False
+        did = None
         try:
             report = await _run_with_ticker(status, label, _work)
             summary, cands = report.telegram_summary(), report.candidates
@@ -758,6 +767,10 @@ def build_app(settings: Settings | None = None) -> Any:
         status = await msg.reply_text(f"⏳ {label}")
         uid = user.id if user else None
         cid = update.effective_chat.id if update.effective_chat else None
+        has_error = False
+        is_stt_failed = False
+        is_duplicate = False
+        did = None
         try:
             report = await _run_with_ticker(
                 status, label,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import json
 import subprocess
 from types import SimpleNamespace
@@ -101,6 +102,75 @@ def test_extract_structured_success(mock_run):
     assert "json" in cmd
     assert "--json-schema" in cmd
     assert "--log-file" in cmd
+
+
+@patch("subprocess.run")
+def test_extract_large_prompt_uses_stdin(mock_run):
+    """40KB를 초과하는 대용량 프롬프트는 Argument list too long 방지를 위해 -p 대신 stdin으로 전달된다."""
+    payload = {
+        "status": "SUCCESS",
+        "structured_output": {
+            "summary": "대용량 문서 요약",
+            "key_claims": ["클레임"],
+            "entities": [],
+            "relations": [],
+        },
+    }
+    mock_run.return_value = SimpleNamespace(
+        returncode=0,
+        stdout=json.dumps(payload),
+        stderr="",
+    )
+
+    s = _make_settings()
+    prov = AntigravityProvider(s)
+    large_text = "이것은 긴 문서 텍스트입니다. " * 3000
+    doc = Document(id="doc_large", title="Large Doc", raw_text=large_text, source_type="video")
+
+    result = prov.extract(doc)
+    assert result.summary == "대용량 문서 요약"
+
+    mock_run.assert_called_once()
+    cmd = mock_run.call_args[0][0]
+    kwargs = mock_run.call_args[1]
+    assert "-p" not in cmd
+    assert kwargs.get("input") is not None
+    assert len(kwargs["input"].encode("utf-8")) > 40_000
+
+
+@patch("subprocess.run")
+def test_extract_e2big_retries_with_stdin(mock_run):
+    """E2BIG(Argument list too long) 발생 시 stdin 방식으로 즉시 재시도한다."""
+    payload = {
+        "status": "SUCCESS",
+        "structured_output": {
+            "summary": "재시도 요약",
+            "key_claims": [],
+            "entities": [],
+            "relations": [],
+        },
+    }
+    e2big_err = OSError(errno.E2BIG, "Argument list too long")
+    mock_run.side_effect = [
+        e2big_err,
+        SimpleNamespace(returncode=0, stdout=json.dumps(payload), stderr=""),
+    ]
+
+    s = _make_settings()
+    prov = AntigravityProvider(s)
+    doc = Document(id="doc_retry", title="Retry Doc", raw_text="Short text", source_type="text")
+
+    result = prov.extract(doc)
+    assert result.summary == "재시도 요약"
+    assert mock_run.call_count == 2
+
+    first_call_cmd = mock_run.call_args_list[0][0][0]
+    assert "-p" in first_call_cmd
+
+    second_call_cmd = mock_run.call_args_list[1][0][0]
+    second_call_kwargs = mock_run.call_args_list[1][1]
+    assert "-p" not in second_call_cmd
+    assert second_call_kwargs.get("input") is not None
 
 
 @patch("subprocess.run")
