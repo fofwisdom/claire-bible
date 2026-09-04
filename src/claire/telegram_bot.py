@@ -20,7 +20,7 @@ def _status_emoji(error, duplicate: bool = False, *, stt_error: str | None = Non
     if error or stt_error:
         return "👎"
     if duplicate:
-        return "🤔"
+        return "👌"
     return "👍"  # 신규/갱신 완료
 
 
@@ -89,12 +89,14 @@ async def _settle_status(
     *,
     has_error: bool = False,
     is_stt_failed: bool = False,
+    is_duplicate: bool = False,
     retry_doc_id: str | None = None,
     cands_markup: Any = None,
 ) -> None:
     """완료 처리:
     - 1홉 후보가 있으면 진행 메시지를 결과+후보 선택 버튼으로 편집(버튼 보존)
     - 비디오 자막 추출 실패 시 진행 메시지를 삭제하지 않고 재수집/재적재 원터치 버튼 제공
+    - 이미 적재된 문서(중복/dedup)일 때 메시지를 삭제하지 않고 중복 안내 및 재생성/재수집 원터치 버튼 제공
     - 기타 에러 발생 시 진행 메시지를 삭제하지 않고 오류 안내 보존
     - 정상 완료이면서 1홉 후보가 없을 때만 진행 메시지 삭제(스팸 방지 — 결과는 원본 reaction 으로 표시됨)
     """
@@ -130,12 +132,26 @@ async def _settle_status(
 
             kb = [
                 [InlineKeyboardButton("🎙️ 비디오 자막 재수집 및 적재", callback_data=f"rg:full:{retry_doc_id}")],
+                [InlineKeyboardButton("🔄 본문 재생성 (기존 텍스트 기준)", callback_data=f"rg:det:{retry_doc_id}")],
             ]
             markup = InlineKeyboardMarkup(kb)
         except Exception:  # noqa: BLE001
             markup = None
         await _safe_send_or_edit(summary, reply_markup=markup)
-    elif has_error or is_stt_failed:
+    elif is_duplicate and retry_doc_id:
+        markup = None
+        try:
+            from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+            kb = [
+                [InlineKeyboardButton("🔄 본문 재생성 (기존 텍스트)", callback_data=f"rg:det:{retry_doc_id}")],
+                [InlineKeyboardButton("🌐 전체 원문 재수집 및 재생성", callback_data=f"rg:full:{retry_doc_id}")],
+            ]
+            markup = InlineKeyboardMarkup(kb)
+        except Exception:  # noqa: BLE001
+            markup = None
+        await _safe_send_or_edit(summary, reply_markup=markup)
+    elif has_error or is_stt_failed or is_duplicate:
         await _safe_send_or_edit(summary)
     else:
         for attempt in range(2):
@@ -366,6 +382,7 @@ def build_app(settings: Settings | None = None) -> Any:
         *,
         has_error: bool = False,
         is_stt_failed: bool = False,
+        is_duplicate: bool = False,
         retry_doc_id: str | None = None,
     ) -> None:
         cands_markup = _markup(update_id, cands) if cands else None
@@ -376,6 +393,7 @@ def build_app(settings: Settings | None = None) -> Any:
             cands,
             has_error=has_error,
             is_stt_failed=is_stt_failed,
+            is_duplicate=is_duplicate,
             retry_doc_id=retry_doc_id,
             cands_markup=cands_markup,
         )
@@ -614,11 +632,11 @@ def build_app(settings: Settings | None = None) -> Any:
                 report.stt_error
                 or (report.source_type == "video" and report.has_transcript is False and report.stt_error)
             )
-            has_error = bool(report.error)
+            is_duplicate = bool(report.duplicate)
             emoji = _status_emoji(report.error, report.duplicate, stt_error=report.stt_error)
             did = report.document_id
         except Exception as e:  # noqa: BLE001
-            summary, cands, emoji, is_stt_failed, has_error, did = f"❌ 처리 오류: {e}", [], "👎", False, True, None
+            summary, cands, emoji, is_stt_failed, has_error, is_duplicate, did = f"❌ 처리 오류: {e}", [], "👎", False, True, False, None
         await _react(msg, emoji)
         await _settle(
             status,
@@ -628,6 +646,7 @@ def build_app(settings: Settings | None = None) -> Any:
             update.update_id,
             has_error=has_error,
             is_stt_failed=is_stt_failed,
+            is_duplicate=is_duplicate,
             retry_doc_id=did,
         )
 
@@ -692,10 +711,11 @@ def build_app(settings: Settings | None = None) -> Any:
                 or (report.source_type == "video" and report.has_transcript is False and report.stt_error)
             )
             has_error = bool(report.error)
+            is_duplicate = bool(report.duplicate)
             emoji = _status_emoji(report.error, report.duplicate, stt_error=report.stt_error)
             did = report.document_id
         except Exception as e:  # noqa: BLE001
-            summary, cands, emoji, is_stt_failed, has_error, did = f"❌ 처리 오류: {e}", [], "👎", False, True, None
+            summary, cands, emoji, is_stt_failed, has_error, is_duplicate, did = f"❌ 처리 오류: {e}", [], "👎", False, True, False, None
         await _react(msg, emoji)
         await _settle(
             status,
@@ -705,6 +725,7 @@ def build_app(settings: Settings | None = None) -> Any:
             update.update_id,
             has_error=has_error,
             is_stt_failed=is_stt_failed,
+            is_duplicate=is_duplicate,
             retry_doc_id=did,
         )
 
@@ -756,10 +777,11 @@ def build_app(settings: Settings | None = None) -> Any:
                 or (report.source_type == "video" and report.has_transcript is False and report.stt_error)
             )
             has_error = bool(report.error)
+            is_duplicate = bool(report.duplicate)
             emoji = _status_emoji(report.error, report.duplicate, stt_error=report.stt_error)
             did = report.document_id
         except Exception as e:  # noqa: BLE001
-            summary, cands, emoji, is_stt_failed, has_error, did = f"❌ 처리 오류: {e}", [], "👎", False, True, None
+            summary, cands, emoji, is_stt_failed, has_error, is_duplicate, did = f"❌ 처리 오류: {e}", [], "👎", False, True, False, None
         await _react(msg, emoji)
         await _settle(
             status,
@@ -769,6 +791,7 @@ def build_app(settings: Settings | None = None) -> Any:
             update.update_id,
             has_error=has_error,
             is_stt_failed=is_stt_failed,
+            is_duplicate=is_duplicate,
             retry_doc_id=did,
         )
 
@@ -952,18 +975,24 @@ def build_app(settings: Settings | None = None) -> Any:
     async def on_status(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
         if not _is_allowed(update.effective_user.id if update.effective_user else None):
             return
+        msg = update.effective_message
+        if not msg:
+            return
         from .status import build_status_text
 
         try:
             text = await asyncio.to_thread(build_status_text, s, full=False)
         except Exception as e:  # noqa: BLE001
             text = f"❌ status 오류: {e}"
-        await update.message.reply_text(text)
+        await msg.reply_text(text)
 
     async def on_repo(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
         if not _is_allowed(update.effective_user.id if update.effective_user else None):
             return
-        await update.message.reply_text(
+        msg = update.effective_message
+        if not msg:
+            return
+        await msg.reply_text(
             f"🐙 Claire Bible 소스 리포지토리:\n{s.effective_source_base_url}\n"
             f"(저장소: {s.effective_github_repository})",
             disable_web_page_preview=False,
@@ -973,13 +1002,16 @@ def build_app(settings: Settings | None = None) -> Any:
         # SSH 없이 폰에서 점검 가능하게: error/영구실패 목록 + /retry 사용법.
         if not _is_allowed(update.effective_user.id if update.effective_user else None):
             return
+        msg = update.effective_message
+        if not msg:
+            return
         try:
             items = await asyncio.to_thread(svc.list_failures, limit=10)
         except Exception as e:  # noqa: BLE001
-            await update.message.reply_text(f"❌ 조회 오류: {e}")
+            await msg.reply_text(f"❌ 조회 오류: {e}")
             return
         if not items:
-            await update.message.reply_text("✅ 실패 항목 없음.")
+            await msg.reply_text("✅ 실패 항목 없음.")
             return
         lines = ["⚠️ 최근 실패 항목 (최대 10건):"]
         for it in items:
@@ -988,17 +1020,20 @@ def build_app(settings: Settings | None = None) -> Any:
                 f"#{it['id']} {mark} (시도 {it['attempts']}) "
                 f"{it['payload']}\n   └ {it['error']}")
         lines.append("\n특정 건 재시도: /retry <번호>  (예: /retry " + str(items[0]["id"]) + ")")
-        await update.message.reply_text("\n".join(lines))
+        await msg.reply_text("\n".join(lines))
 
     async def on_retry(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         if not _is_allowed(update.effective_user.id if update.effective_user else None):
             return
+        msg = update.effective_message
+        if not msg:
+            return
         arg = ctx.args[0] if ctx.args else ""
         if not arg.isdigit():
-            await update.message.reply_text("사용법: /retry <inbox 번호>  (/failed 로 번호 확인)")
+            await msg.reply_text("사용법: /retry <inbox 번호>  (/failed 로 번호 확인)")
             return
         inbox_id = int(arg)
-        status = await update.message.reply_text(f"⏳ inbox#{inbox_id} 재시도 중…")
+        status = await msg.reply_text(f"⏳ inbox#{inbox_id} 재시도 중…")
         try:
             report = await _run_with_ticker(
                 status, f"inbox#{inbox_id} 재시도",

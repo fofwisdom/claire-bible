@@ -7,7 +7,7 @@ from claire.telegram_bot import _run_with_ticker, _settle_status, _status_emoji
 
 def test_status_emoji_maps_result():
     assert _status_emoji(None, False) == "👍"   # 신규/갱신 완료
-    assert _status_emoji(None, True) == "🤔"    # 중복
+    assert _status_emoji(None, True) == "👌"    # 중복
     assert _status_emoji("boom", False) == "👎"  # 실패
     assert _status_emoji("boom", True) == "👎"   # error 가 duplicate 보다 우선
     assert _status_emoji(None, False, stt_error="RateLimitError: 429") == "👎"  # STT 실패 시 👎
@@ -316,6 +316,35 @@ async def test_settle_status_behavior():
         "✅ 적재 완료",
         [],
     )
+
+    # 7. Duplicate with retry_doc_id -> message preserved, buttons attached
+    st_dup = FakeStatus()
+    await _settle_status(
+        st_dup,
+        FakeMsg(),
+        "♻️ 이미 있는 자료입니다 (dedup): DocTitle",
+        [],
+        is_duplicate=True,
+        retry_doc_id="doc_123",
+    )
+    assert st_dup.deleted is False
+    assert st_dup.edited_text == "♻️ 이미 있는 자료입니다 (dedup): DocTitle"
+    assert st_dup.markup is not None
+    assert st_dup.markup.inline_keyboard[0][0].callback_data == "rg:det:doc_123"
+    assert st_dup.markup.inline_keyboard[1][0].callback_data == "rg:full:doc_123"
+
+    # 8. Duplicate without retry_doc_id -> message preserved without markup
+    st_dup2 = FakeStatus()
+    await _settle_status(
+        st_dup2,
+        FakeMsg(),
+        "♻️ 이미 있는 자료입니다 (dedup): DocTitle",
+        [],
+        is_duplicate=True,
+    )
+    assert st_dup2.deleted is False
+    assert st_dup2.edited_text == "♻️ 이미 있는 자료입니다 (dedup): DocTitle"
+    assert st_dup2.markup is None
 
 
 
