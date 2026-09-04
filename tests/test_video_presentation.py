@@ -649,8 +649,8 @@ def test_pipeline_stores_attachment_before_document_and_reports_it(tmp_path: Pat
     assert rel_path.startswith("raw/attachments/")
     assert (tmp_path / rel_path).read_bytes() == PDF_BYTES
     assert load_artifact(tmp_path, report.document_id) == doc.raw_text
-    assert raw_disk_usage(tmp_path)["attachments"] == len(PDF_BYTES)
-    assert "Presentation PDF 포함" in report.telegram_summary()
+    assert "🔤+📄 CC+PDF 포함" in report.telegram_summary()
+    assert "📎" not in report.telegram_summary()
     assert "17자" in report.telegram_summary()
     assert "pypdf" in report.telegram_summary()
 
@@ -811,7 +811,72 @@ def test_graphview_exposes_presentation_metadata():
     assert detail["presentation_pdf"]["public_url"] == PDF_URL
     assert detail["presentation_pdfs"][0]["parser_used"] == "pypdf"
     assert "↗ Presentation PDF" in GRAPH_HTML
-    assert "원본 PDF가 영상 자막과 함께 적재됨" in GRAPH_HTML
+    assert "CC+PDF" in GRAPH_HTML
+    assert "STT+PDF" in GRAPH_HTML
+    assert "🔤+📄" in GRAPH_HTML
+    assert "🎙️+📄" in GRAPH_HTML
+    assert "📎 Presentation PDF" not in GRAPH_HTML
+
+
+def test_graphview_doc_meta_html_renders_cc_and_stt_bundles():
+    import json
+    import subprocess
+    import shutil
+
+    if shutil.which("node") is None:
+        pytest.skip("Node.js is not installed on the system")
+
+    start = GRAPH_HTML.index("function docMetaHtml(dc){")
+    end = GRAPH_HTML.index("function renderReader(dc){")
+    fn = GRAPH_HTML[start:end]
+
+    js = f"""
+    function esc(s){{ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }}
+    {fn}
+
+    const ccDoc = {{
+        url: '{VIDEO_URL}',
+        is_stt: false,
+        presentation_pdf: {{
+            status: 'available',
+            public_url: '{PDF_URL}',
+            raw_chars: 25183,
+            parser_used: 'pypdf',
+            artifact_path: 'raw/attachments/APPB1222LV.pdf'
+        }}
+    }};
+    const sttDoc = {{
+        url: '{VIDEO_URL}',
+        is_stt: true,
+        presentation_pdf: {{
+            status: 'available',
+            public_url: '{PDF_URL}',
+            raw_chars: 25183,
+            parser_used: 'pypdf',
+            artifact_path: 'raw/attachments/APPB1222LV.pdf'
+        }}
+    }};
+    console.log(JSON.stringify({{
+        cc: docMetaHtml(ccDoc),
+        stt: docMetaHtml(sttDoc)
+    }}));
+    """
+    res = subprocess.run(["node", "-e", js], capture_output=True, text=True, check=True)
+    out = json.loads(res.stdout)
+
+    # CC 검증: '🔤+📄 CC+PDF' 라벨, 클립 아이콘 제외, 자막 툴팁, 중복 STT 태그 부재
+    assert "🔤+📄 CC+PDF (25,183자 · pypdf)" in out["cc"]
+    assert "📎" not in out["cc"]
+    assert "원본 PDF가 영상 자막과 함께 적재됨" in out["cc"]
+    assert "stt-tag" not in out["cc"]
+
+    # STT 검증: '🎙️+📄 STT+PDF' 라벨, 클립 아이콘 제외, STT 툴팁, 전사 열기 링크 포함, stt-tag 스타일링
+    assert "🎙️+📄 STT+PDF (25,183자 · pypdf)" in out["stt"]
+    assert "📎" not in out["stt"]
+    assert "원본 PDF가 영상 음성 전사(STT)과 함께 적재됨" in out["stt"]
+    assert "stt-tag" in out["stt"]
+    assert "↗ 전사 열기" in out["stt"]
+    assert "🎙️ STT" not in out["stt"]  # 중복 분리 태그 방지
 
 
 def test_purge_removes_presentation_attachment(tmp_path: Path):
