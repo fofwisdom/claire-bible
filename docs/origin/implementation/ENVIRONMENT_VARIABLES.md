@@ -252,6 +252,7 @@ VMware Explore 숫자형 영상 상세 페이지가 Presentation PDF를 명시�
 | :--- | :--- | :--- | :--- |
 | `GITHUB_REPOSITORY` | `fofwisdom/claire-bible` | `소유자/저장소` | 애플리케이션 원본 소스 코드 저장소 식별자. |
 | `SOURCE_BASE_URL` | `""` | URL 문자열 | 소스 코드 링크 베이스 URL. 비어있으면 `https://github.com/$GITHUB_REPOSITORY`로 자동 해석됩니다. |
+| `CLAIRE_SORCERER` | `owner` | 문자열 | 드로어 하단(drawerfooter)에 `지식 관리자: <환경변수>` 형태로 표기될 지식 관리자 명칭 (기본값: `owner`). |
 
 ---
 

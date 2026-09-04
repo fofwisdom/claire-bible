@@ -322,6 +322,11 @@ class Settings(BaseSettings):
         default="",
         alias="SOURCE_BASE_URL",
     )
+    # 지식 관리자 (drawerfooter 에 '지식 관리자: <환경변수>' 형태로 표기, 기본값 'owner')
+    sorcerer: str = Field(
+        default="owner",
+        alias="CLAIRE_SORCERER",
+    )
 
     @field_validator("render_format", mode="before")
     @classmethod
@@ -449,6 +454,26 @@ class Settings(BaseSettings):
     @property
     def effective_github_repository(self) -> str:
         return self.github_repository.strip() or "fofwisdom/claire-bible"
+
+    @property
+    def effective_sorcerer(self) -> str:
+        return self.sorcerer.strip() or "owner"
+
+    @property
+    def owner(self) -> str:
+        return self.sorcerer
+
+    @property
+    def effective_owner(self) -> str:
+        return self.effective_sorcerer
+
+    @property
+    def knowledge_manager(self) -> str:
+        return self.effective_sorcerer
+
+    @property
+    def effective_knowledge_manager(self) -> str:
+        return self.effective_sorcerer
 
     @property
     def effective_source_base_url(self) -> str:

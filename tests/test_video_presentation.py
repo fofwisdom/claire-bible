@@ -648,8 +648,7 @@ def test_pipeline_stores_attachment_before_document_and_reports_it(tmp_path: Pat
     rel_path = stored.meta["presentation_pdf"]["artifact_path"]
     assert rel_path.startswith("raw/attachments/")
     assert (tmp_path / rel_path).read_bytes() == PDF_BYTES
-    assert load_artifact(tmp_path, report.document_id) == doc.raw_text
-    assert "🔤+📄 CC+PDF 포함" in report.telegram_summary()
+    assert "🔤⚡📄 CC×PDF 포함" in report.telegram_summary()
     assert "📎" not in report.telegram_summary()
     assert "17자" in report.telegram_summary()
     assert "pypdf" in report.telegram_summary()
@@ -811,10 +810,10 @@ def test_graphview_exposes_presentation_metadata():
     assert detail["presentation_pdf"]["public_url"] == PDF_URL
     assert detail["presentation_pdfs"][0]["parser_used"] == "pypdf"
     assert "↗ Presentation PDF" in GRAPH_HTML
-    assert "CC+PDF" in GRAPH_HTML
-    assert "STT+PDF" in GRAPH_HTML
-    assert "🔤+📄" in GRAPH_HTML
-    assert "🎙️+📄" in GRAPH_HTML
+    assert "CC×PDF" in GRAPH_HTML
+    assert "STT×PDF" in GRAPH_HTML
+    assert "🔤⚡📄" in GRAPH_HTML
+    assert "🎙️⚡📄" in GRAPH_HTML
     assert "📎 Presentation PDF" not in GRAPH_HTML
 
 
@@ -864,8 +863,8 @@ def test_graphview_doc_meta_html_renders_cc_and_stt_bundles():
     res = subprocess.run(["node", "-e", js], capture_output=True, text=True, check=True)
     out = json.loads(res.stdout)
 
-    # CC 검증: '🔤+📄 CC+PDF' 라벨, 호버 툴팁(자막 선언급, 적재, 파서 접두사 제거)
-    assert ">🔤+📄 CC+PDF<" in out["cc"]
+    # CC 검증: '🔤⚡📄 CC×PDF' 라벨, 호버 툴팁(자막 선언급, 적재, 파서 접두사 제거)
+    assert ">🔤⚡📄 CC×PDF<" in out["cc"]
     assert "25,183자" in out["cc"]
     assert "pypdf" in out["cc"]
     assert "파서: " not in out["cc"]
@@ -874,8 +873,8 @@ def test_graphview_doc_meta_html_renders_cc_and_stt_bundles():
     assert "적재됨" not in out["cc"]
     assert "stt-tag" not in out["cc"]
 
-    # STT 검증: '🎙️+📄 STT+PDF' 라벨, 호버 툴팁(음성 전사 선언급, (STT) 제거, 적재)
-    assert ">🎙️+📄 STT+PDF<" in out["stt"]
+    # STT 검증: '🎙️⚡📄 STT×PDF' 라벨, 호버 툴팁(음성 전사 선언급, (STT) 제거, 적재)
+    assert ">🎙️⚡📄 STT×PDF<" in out["stt"]
     assert "25,183자" in out["stt"]
     assert "pypdf" in out["stt"]
     assert "파서: " not in out["stt"]

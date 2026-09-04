@@ -93,8 +93,8 @@ class IngestReport:
                 presentation_details.append(f"{self.presentation_pdf_chars:,}자")
             if self.presentation_pdf_parsers:
                 presentation_details.append("/".join(self.presentation_pdf_parsers))
-            bundle_icon = "🎙️+📄" if self.is_stt else "🔤+📄"
-            bundle_label = "STT+PDF" if self.is_stt else "CC+PDF"
+            bundle_icon = "🎙️⚡📄" if self.is_stt else "🔤⚡📄"
+            bundle_label = "STT×PDF" if self.is_stt else "CC×PDF"
             parts.append(
                 f"{bundle_icon} {bundle_label} 포함 ("
                 + " · ".join(presentation_details)

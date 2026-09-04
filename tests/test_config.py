@@ -135,6 +135,32 @@ def test_source_base_url_custom_explicit_override(monkeypatch):
     assert settings.effective_source_base_url == "https://gitlab.com/custom/source"
 
 
+def test_sorcerer_defaults(monkeypatch):
+    monkeypatch.delenv("CLAIRE_SORCERER", raising=False)
+
+    settings = Settings(_env_file=None)
+
+    assert settings.sorcerer == "owner"
+    assert settings.effective_sorcerer == "owner"
+    assert settings.owner == "owner"
+    assert settings.effective_owner == "owner"
+    assert settings.knowledge_manager == "owner"
+    assert settings.effective_knowledge_manager == "owner"
+
+
+def test_sorcerer_custom_env(monkeypatch):
+    monkeypatch.setenv("CLAIRE_SORCERER", "merlin")
+    s1 = Settings(_env_file=None)
+    assert s1.sorcerer == "merlin"
+    assert s1.effective_sorcerer == "merlin"
+    assert s1.owner == "merlin"
+    assert s1.effective_owner == "merlin"
+
+    monkeypatch.setenv("CLAIRE_SORCERER", "   ")
+    s2 = Settings(_env_file=None)
+    assert s2.effective_sorcerer == "owner"
+
+
 def test_slicing_config_defaults(monkeypatch):
     monkeypatch.delenv("CLAIRE_RAW_CHAR_BUDGET", raising=False)
     monkeypatch.delenv("CLAIRE_PDF_MAX_EXTRACT_CHARS", raising=False)
