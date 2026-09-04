@@ -632,7 +632,9 @@ GRAPH_HTML = """<!doctype html>
   #detailtogglebtn:hover{background:var(--hover);border-color:var(--accent)}
   #detailclose{min-height:36px;min-width:36px;background:var(--sec-bg);color:var(--sec-fg);border:1px solid var(--border);border-radius:6px;cursor:pointer;font-size:15px;display:none}
   #drawerscroll{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:12px 14px;font-size:13px;line-height:1.5;display:flex;flex-direction:column}
-  #drawerfooter{margin-top:auto;padding-top:14px;border-top:1px solid var(--border);display:flex;align-items:center}
+  #drawerfooter{margin-top:auto;padding-top:14px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:8px}
+  #drawermanager{font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+  #repolink{margin-left:auto;flex-shrink:0}
   #repolink:hover{background:var(--hover);border-color:var(--accent)}
   #moremenu{display:flex;flex-direction:column;gap:8px;padding-bottom:0;margin-bottom:10px}
   #moremenu .tool-row{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
@@ -1187,7 +1189,8 @@ GRAPH_HTML = """<!doctype html>
       </div>
       <div id="panel"></div>
       <div id="drawerfooter">
-        <a id="repolink" class="sec" href="__SOURCE_BASE_URL__" target="_blank" rel="noopener noreferrer" title="소스 리포지토리 (__GITHUB_REPOSITORY__)" aria-label="GitHub 리포지토리" style="display:inline-flex;align-items:center;gap:4px;text-decoration:none;padding:3px 8px;border:1px solid var(--border);border-radius:4px;font-size:12px;color:var(--sec-fg);background:var(--sec-bg)"><span class="btn-icon">🐙</span> <span class="btn-label">GitHub</span></a>
+        <span id="drawermanager" class="drawer-manager" title="지식 관리자: __SORCERER__">지식 관리자: __SORCERER__</span>
+        <a id="repolink" class="sec" href="__SOURCE_BASE_URL__" target="_blank" rel="noopener noreferrer" title="소스 리포지토리 (__GITHUB_REPOSITORY__)" aria-label="GitHub 리포지토리" style="display:inline-flex;align-items:center;gap:4px;text-decoration:none;padding:3px 8px;border:1px solid var(--border);border-radius:4px;font-size:12px;color:var(--sec-fg);background:var(--sec-bg);margin-left:auto;flex-shrink:0"><span class="btn-icon">🐙</span> <span class="btn-label">GitHub</span></a>
       </div>
     </div>
   </aside>
@@ -2511,8 +2514,8 @@ function docMetaHtml(dc){
     const pdfChars = Number(presentation.raw_chars || 0);
     const pdfParser = String(presentation.parser_used || '').trim();
     const artifactState = presentation.artifact_path ? '원본 보존됨' : '원본 경로 미확인';
-    const bundleIcon = isStt ? '🎙️+📄' : '🔤+📄';
-    const bundleType = isStt ? 'STT+PDF' : 'CC+PDF';
+    const bundleIcon = isStt ? '🎙️⚡📄' : '🔤⚡📄';
+    const bundleType = isStt ? 'STT×PDF' : 'CC×PDF';
     const pdfLabel = bundleIcon+' '+bundleType;
     const bundleSource = isStt ? '영상 음성 전사와' : '영상 자막과';
     const metaParts = [];
@@ -5031,6 +5034,9 @@ window.claireDebug = {
   get lastSelectedDocId(){ return lastSelectedDocId; },
   get sourceBaseUrl(){ return '__SOURCE_BASE_URL__'; },
   get githubRepository(){ return '__GITHUB_REPOSITORY__'; },
+  get sorcerer(){ return '__SORCERER__'; },
+  get owner(){ return '__SORCERER__'; },
+  get knowledgeManager(){ return '__SORCERER__'; },
 };
 </script></body></html>
 """
@@ -6083,8 +6089,8 @@ function docMetaHtml(dc){
     const pdfChars = Number(presentation.raw_chars || 0);
     const pdfParser = String(presentation.parser_used || '').trim();
     const artifactState = presentation.artifact_path ? '원본 보존됨' : '원본 경로 미확인';
-    const bundleIcon = isStt ? '🎙️+📄' : '🔤+📄';
-    const bundleType = isStt ? 'STT+PDF' : 'CC+PDF';
+    const bundleIcon = isStt ? '🎙️⚡📄' : '🔤⚡📄';
+    const bundleType = isStt ? 'STT×PDF' : 'CC×PDF';
     const pdfLabel = bundleIcon+' '+bundleType;
     const bundleSource = isStt ? '영상 음성 전사와' : '영상 자막과';
     const metaParts = [];
@@ -6469,7 +6475,7 @@ def shared_html(doc: dict, settings: Any = None) -> str:
 
 
 def render_graph_html(settings: Any = None) -> str:
-    """Settings 의 저장소 변수 및 GA 설정을 반영하여 완성된 그래프 HTML 을 반환한다."""
+    """Settings 의 저장소 변수, 관리자 변수 및 GA 설정을 반영하여 완성된 그래프 HTML 을 반환한다."""
     if settings is None:
         from .config import get_settings
 
@@ -6494,8 +6500,26 @@ def render_graph_html(settings: Any = None) -> str:
         getattr(s, "ga_measurement_id", ""),
     )
     ga_tag = render_ga_tag(ga_id)
+    sorcerer = getattr(
+        s,
+        "effective_sorcerer",
+        getattr(
+            s,
+            "sorcerer",
+            getattr(s, "effective_owner", getattr(s, "owner", "owner")),
+        ),
+    )
+    raw_sorcerer = str(sorcerer).strip() if sorcerer is not None else ""
+    if not raw_sorcerer:
+        raw_sorcerer = "owner"
+    import html as _html
+
+    safe_sorcerer = _html.escape(raw_sorcerer, quote=True)
     return (
         GRAPH_HTML.replace("__SOURCE_BASE_URL__", base_url)
         .replace("__GITHUB_REPOSITORY__", repo)
         .replace("<!-- __GA_TAG__ -->", ga_tag)
+        .replace("__SORCERER__", safe_sorcerer)
+        .replace("__OWNER__", safe_sorcerer)
+        .replace("__KNOWLEDGE_MANAGER__", safe_sorcerer)
     )

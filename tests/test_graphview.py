@@ -499,8 +499,13 @@ def test_render_graph_html_default():
     assert 'aria-label="전체 지식 그래프 보기"' in html
     assert 'function resetHome()' in html
     assert 'id="repolink"' in html
+    assert 'id="drawermanager"' in html
+    assert "지식 관리자: owner" in html
+    assert html.index('id="drawermanager"') < html.index('id="repolink"')
     assert "get sourceBaseUrl(){ return 'https://github.com/fofwisdom/claire-bible'; }" in html
     assert "get githubRepository(){ return 'fofwisdom/claire-bible'; }" in html
+    assert "get sorcerer(){ return 'owner'; }" in html
+    assert "get owner(){ return 'owner'; }" in html
 
 
 def test_render_graph_html_custom_settings():
@@ -509,13 +514,49 @@ def test_render_graph_html_custom_settings():
     settings = Settings(
         GITHUB_REPOSITORY="custom-team/my-kb",
         SOURCE_BASE_URL="https://custom.git/custom-team/my-kb",
+        CLAIRE_SORCERER="custom_admin",
         _env_file=None,
     )
     html = render_graph_html(settings)
     assert 'href="https://custom.git/custom-team/my-kb"' in html
     assert 'title="custom-team/my-kb (GitHub)"' in html or 'custom-team/my-kb' in html
+    assert "지식 관리자: custom_admin" in html
     assert "get sourceBaseUrl(){ return 'https://custom.git/custom-team/my-kb'; }" in html
     assert "get githubRepository(){ return 'custom-team/my-kb'; }" in html
+    assert "get sorcerer(){ return 'custom_admin'; }" in html
+    assert "get owner(){ return 'custom_admin'; }" in html
+
+
+def test_drawerfooter_knowledge_manager_and_github_icon_layout():
+    """drawerfooter 내 좌측 지식 관리자 표기 및 우측 끝 GitHub 아이콘 배치 검증."""
+    from claire.config import Settings
+
+    # 1. CSS 규칙 검증: drawerfooter justify-content:space-between, drawermanager, repolink 우측 정렬
+    html = render_graph_html()
+    assert "#drawerfooter{margin-top:auto;padding-top:14px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:8px}" in html
+    assert "#drawermanager{font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}" in html
+    assert "#repolink{margin-left:auto;flex-shrink:0}" in html
+
+    # 2. HTML 구조 검증: drawermanager가 GitHub 아이콘 원래 위치(좌측)에 오고, repolink는 우측으로 이동
+    footer_idx = html.find('<div id="drawerfooter">')
+    assert footer_idx != -1
+    footer_end_idx = html.find('</div>', footer_idx)
+    footer_html = html[footer_idx:footer_end_idx]
+
+    assert 'id="drawermanager"' in footer_html
+    assert 'id="repolink"' in footer_html
+    assert footer_html.index('id="drawermanager"') < footer_html.index('id="repolink"')
+    assert "지식 관리자: owner" in footer_html
+
+    # 3. XSS 방지 이스케이프 검증
+    settings_xss = Settings(
+        CLAIRE_SORCERER="<script>alert(1)</script>",
+        _env_file=None,
+    )
+    html_xss = render_graph_html(settings_xss)
+    assert "<script>alert(1)</script>" not in html_xss
+    assert "&lt;script&gt;alert(1)&lt;/script&gt;" in html_xss
+    assert "지식 관리자: &lt;script&gt;alert(1)&lt;/script&gt;" in html_xss
 
 
 def test_code_block_css_resets():
