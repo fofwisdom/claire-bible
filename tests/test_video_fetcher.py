@@ -4,6 +4,8 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from claire.ingest.router import classify
 from claire.ingest.fetchers.video import (
     resolve_video_target_url,
@@ -11,6 +13,14 @@ from claire.ingest.fetchers.video import (
     parse_ytdlp_extractor_args,
 )
 from claire.ontology.base import Document
+
+
+@pytest.fixture(autouse=True)
+def _presentation_absent(monkeypatch):
+    monkeypatch.setattr(
+        "claire.ingest.fetchers.video.discover_presentations",
+        lambda _url: SimpleNamespace(status="absent", candidates=[], error=None),
+    )
 
 
 def test_parse_ytdlp_extractor_args():

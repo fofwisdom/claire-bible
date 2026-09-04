@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import re
 import secrets
+import shutil
 import sqlite3
 import time
 from pathlib import Path
@@ -2398,6 +2399,7 @@ def purge_document_cascade(
     # 2. 로컬 디스크 파일 경로 탐색
     art_dir = _artifacts_dir(data_dir)
     img_dir = _images_dir(data_dir)
+    attachments_root = data_dir / "raw" / "attachments"
     unlinked_candidates: list[Path] = []
 
     for did in matched_ids:
@@ -2407,6 +2409,11 @@ def purge_document_cascade(
         for img in img_dir.glob(f"{did}_*"):
             if img.is_file():
                 unlinked_candidates.append(img)
+        attachment_dir = attachments_root / did
+        if attachment_dir.exists():
+            for attachment in attachment_dir.rglob("*"):
+                if attachment.is_file():
+                    unlinked_candidates.append(attachment)
         if vault_dir and vault_dir.exists():
             for md in vault_dir.glob(f"**/*{did}*.md"):
                 if md.is_file():
@@ -2481,6 +2488,13 @@ def purge_document_cascade(
                 unlinked_count += 1
         except Exception:
             pass
+    for did in matched_ids:
+        attachment_dir = attachments_root / did
+        if attachment_dir.exists():
+            try:
+                shutil.rmtree(attachment_dir)
+            except Exception:
+                pass
     stats["disk_files_unlinked"] = unlinked_count
 
     # 5. 지식그래프 참조 무결성 수복

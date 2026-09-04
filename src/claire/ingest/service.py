@@ -279,6 +279,26 @@ class IngestService:
                 return {"status": "error", "document_id": document_id, "error": str(e)}
 
             doc.id = document_id
+            from .pipeline import (
+                _store_required_doc_attachments,
+                preserve_presentation_history,
+            )
+
+            try:
+                import json as _json
+
+                old_meta = _json.loads(old["meta"] or "{}")
+            except Exception:
+                old_meta = {}
+            preserve_presentation_history(old_meta, doc)
+            try:
+                _store_required_doc_attachments(doc, self.s.data_dir)
+            except Exception as e:  # noqa: BLE001
+                return {
+                    "status": "error",
+                    "document_id": document_id,
+                    "error": f"attachment_store_failed: {type(e).__name__}: {e}",
+                }
             if doc.content_hash == old["content_hash"]:
                 # 본문은 그대로지만, 재fetch 로 새로 수집된 본문 이미지를 로컬로 내려받아
                 # 보존(외부 사이트/링크 삭제 대비, 사용자 요구)하고 meta 에 반영한 뒤
@@ -287,6 +307,7 @@ class IngestService:
                 from .pipeline import _download_doc_images, ensure_document_detail
 
                 _download_doc_images(conn, doc, self.s.data_dir)
+                dbm.update_document_meta(conn, document_id, doc.meta)
                 imgs = (doc.meta or {}).get("images")
                 fmt = format or self.s.render_format
                 detail_updated = ensure_document_detail(
@@ -836,7 +857,11 @@ class IngestService:
                             step_cb(step_msg, doc.url or doc.canonical_url or "")
                             fetch_payload = doc.url or doc.canonical_url
                             if fetch_payload:
-                                from .pipeline import _download_doc_images
+                                from .pipeline import (
+                                    _download_doc_images,
+                                    _store_required_doc_attachments,
+                                    preserve_presentation_history,
+                                )
                                 from ..store.raw import save_artifact
 
                                 try:
@@ -845,6 +870,10 @@ class IngestService:
                                     except TypeError:
                                         new_doc = default_fetch(fetch_payload)
                                     new_doc.id = did
+                                    preserve_presentation_history(doc.meta or {}, new_doc)
+                                    _store_required_doc_attachments(
+                                        new_doc, self.s.data_dir
+                                    )
                                     _download_doc_images(conn, new_doc, self.s.data_dir)
                                     dbm.update_document_content(
                                         conn,
@@ -1429,4 +1458,3 @@ class IngestService:
             )
         finally:
             conn.close()
-

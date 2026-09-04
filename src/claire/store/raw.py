@@ -14,8 +14,14 @@ fetcher 가 가져온 원본(HTML/transcript/PDF 추출텍스트)을 gzip 으로
 from __future__ import annotations
 
 import gzip
+import hashlib
+import os
 import shutil
+import tempfile
 from pathlib import Path
+
+from ..ingest.fetchers.http_policy import BROWSER_USER_AGENT
+from ..ontology.base import Document, SourceAttachment
 
 
 def _artifacts_dir(data_dir: Path) -> Path:
@@ -54,6 +60,97 @@ def save_raw_file(data_dir: Path, inbox_id: int, src_path: Path, name: str) -> s
     return str(dest)
 
 
+def _safe_path_component(value: str, fallback: str) -> str:
+    safe = "".join(c for c in value if c.isalnum() or c in "._-")
+    return safe or fallback
+
+
+def _attachment_path(data_dir: Path, doc_id: str, attachment: SourceAttachment) -> Path:
+    safe_doc_id = _safe_path_component(doc_id, "document")
+    safe_kind = "presentation" if attachment.kind == "presentation_pdf" else "attachment"
+    digest = attachment.content_sha256.lower()
+    if len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest):
+        raise ValueError("attachment content_sha256 must be a lowercase SHA-256 digest")
+    suffix = ".pdf" if attachment.kind == "presentation_pdf" else ".bin"
+    return data_dir / "raw" / "attachments" / safe_doc_id / safe_kind / f"{digest}{suffix}"
+
+
+def save_attachment(data_dir: Path, doc_id: str, attachment: SourceAttachment) -> str:
+    """검증된 첨부를 임시 파일+fsync+원자적 rename으로 저장하고 상대 경로를 반환한다."""
+    actual_digest = hashlib.sha256(attachment.content).hexdigest()
+    if actual_digest != attachment.content_sha256:
+        raise ValueError("attachment content hash mismatch")
+    if len(attachment.content) != attachment.byte_length:
+        raise ValueError("attachment byte length mismatch")
+
+    destination = _attachment_path(data_dir, doc_id, attachment)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    if destination.exists():
+        existing_digest = hashlib.sha256(destination.read_bytes()).hexdigest()
+        if existing_digest != actual_digest:
+            raise ValueError("stored attachment hash mismatch")
+        return str(destination.relative_to(data_dir))
+
+    fd, temp_name = tempfile.mkstemp(
+        prefix=".incoming-",
+        suffix=destination.suffix,
+        dir=destination.parent,
+    )
+    temp_path = Path(temp_name)
+    try:
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(attachment.content)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temp_path, destination)
+        try:
+            dir_fd = os.open(destination.parent, os.O_RDONLY)
+            try:
+                os.fsync(dir_fd)
+            finally:
+                os.close(dir_fd)
+        except OSError:
+            pass
+    except Exception:
+        temp_path.unlink(missing_ok=True)
+        raise
+    return str(destination.relative_to(data_dir))
+
+
+def save_document_attachments(data_dir: Path, doc: Document) -> list[str]:
+    """문서의 필수 첨부를 모두 저장하고 presentation 메타데이터에 경로를 반영한다."""
+    if not doc.attachments:
+        return []
+    saved: list[str] = []
+    created: list[Path] = []
+    try:
+        for attachment in doc.attachments:
+            destination = _attachment_path(data_dir, doc.id, attachment)
+            existed = destination.exists()
+            rel_path = save_attachment(data_dir, doc.id, attachment)
+            saved.append(rel_path)
+            if not existed:
+                created.append(destination)
+    except Exception:
+        for path in created:
+            path.unlink(missing_ok=True)
+        raise
+
+    by_hash = {
+        attachment.content_sha256: saved[index]
+        for index, attachment in enumerate(doc.attachments)
+    }
+    items = list((doc.meta or {}).get("presentation_pdfs") or [])
+    for item in items:
+        digest = item.get("content_sha256")
+        if digest in by_hash:
+            item["artifact_path"] = by_hash[digest]
+    if items:
+        doc.meta["presentation_pdfs"] = items
+        doc.meta["presentation_pdf"] = items[0]
+    return saved
+
+
 def _images_dir(data_dir: Path) -> Path:
     d = data_dir / "images"
     d.mkdir(parents=True, exist_ok=True)
@@ -65,14 +162,6 @@ _EXT_BY_CTYPE = {
     "image/webp": ".webp", "image/gif": ".gif",
 }
 _MAX_IMAGE_BYTES = 8 * 1024 * 1024  # 8MB — 비정상적으로 큰 파일(오탐/공격성 URL) 방어
-# 이미지 CDN(위키미디어 등)이 기본 httpx UA 를 403 으로 막는 경우가 있어(실측: upload.
-# wikimedia.org) web.py 의 정적 fetcher 와 같은 브라우저 UA 를 준다.
-_UA = (
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
-)
-
-
 def download_images(data_dir: Path, doc_id: str, images: list[dict]) -> list[dict]:
     """본문 이미지 후보를 로컬로 내려받아 보존(사용자 요구 — 원본 사이트/링크가 나중에
     사라지면 외부링크뿐인 이미지는 다 깨진다).
@@ -90,7 +179,7 @@ def download_images(data_dir: Path, doc_id: str, images: list[dict]) -> list[dic
         if url:
             try:
                 with httpx.Client(follow_redirects=True, timeout=10,
-                                  headers={"User-Agent": _UA}) as client:
+                                  headers={"User-Agent": BROWSER_USER_AGENT}) as client:
                     resp = client.get(url)
                 ctype = resp.headers.get("content-type", "").split(";")[0].strip().lower()
                 if (resp.status_code < 400 and ctype in _EXT_BY_CTYPE
@@ -107,14 +196,19 @@ def download_images(data_dir: Path, doc_id: str, images: list[dict]) -> list[dic
 
 def raw_disk_usage(data_dir: Path) -> dict[str, int]:
     """raw 보관 용량(bytes) — 모니터링용."""
-    out = {"artifacts": 0, "files": 0, "images": 0}
+    out = {"artifacts": 0, "files": 0, "attachments": 0, "images": 0}
     a = data_dir / "raw" / "artifacts"
     f = data_dir / "raw" / "files"
+    att = data_dir / "raw" / "attachments"
     im = data_dir / "images"
     if a.exists():
         out["artifacts"] = sum(p.stat().st_size for p in a.glob("*") if p.is_file())
     if f.exists():
         out["files"] = sum(p.stat().st_size for p in f.glob("*") if p.is_file())
+    if att.exists():
+        out["attachments"] = sum(
+            p.stat().st_size for p in att.rglob("*") if p.is_file()
+        )
     if im.exists():
         out["images"] = sum(p.stat().st_size for p in im.glob("*") if p.is_file())
     return out

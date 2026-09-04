@@ -329,7 +329,7 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
   * `--tables`, `--has-tables`: 표가 포함된 문서만 선별하여 재추출.
   * `--no-rebuild`: 그래프 초기화(reset_graph) 없이 기존 그래프에 누적 추출.
 #### `video-reprocess` (단축: `reprocess-video`)
-기존에 자막 없이 적재되었거나 전사가 누락된 비디오 문서를 다시 수집합니다. 발행자가 선호 언어 CC를 제공하면 해당 자막을 내려받아 보존하고, 유효한 CC가 없을 때만 오디오와 STT 경로를 실행합니다. STT 처리 실패 시 사흘(3일)간 로컬 캐시(`data/cache/video/`)에 보존된 미디어를 재다운로드 없이 재사용합니다.[^video-caption-implementation]
+기존에 자막 없이 적재되었거나 전사가 누락된 비디오 문서를 다시 수집합니다. 발행자가 선호 언어 CC를 제공하면 해당 자막을 내려받아 보존하고, 유효한 CC가 없을 때만 오디오와 STT 경로를 실행합니다. VMware Explore 상세 페이지가 Presentation PDF를 제공하면 검증된 원본 PDF와 추출 텍스트를 같은 영상 문서에 함께 갱신합니다. STT 처리 실패 시 사흘(3일)간 로컬 캐시(`data/cache/video/`)에 보존된 미디어를 재다운로드 없이 재사용합니다.[^video-caption-implementation][^video-presentation-implementation]
 * **사용법**:
   ```bash
   ./cb-manuscript app video-reprocess --doc-id <doc_id>          # Dry-run 진단 (기본)
@@ -348,6 +348,8 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 * **동작 특징**:
   * **CC 우선**: 선호 언어, 언어 태그 정확도, 수동/자동 구분, 전송 형식을 기준으로 후보를 정렬합니다. 유효한 WebVTT를 확보하면 오디오 다운로드와 STT를 생략합니다.[^video-caption-implementation]
   * **실패의 복구 가능성**: 광고된 선호 언어 CC의 다운로드가 모두 실패하면 STT로 숨기지 않고 오류로 반환합니다. 자막 URL의 서명·쿼리 토큰은 문서 메타데이터와 오류 문자열에 저장하지 않습니다.[^video-caption-implementation]
+  * **Presentation 번들 원자성**: VMware Explore가 명시한 Presentation PDF는 허용 호스트·공개 IP·리다이렉트·크기·MIME·PDF 매직을 검증하고 기존 PDF 파서로 추출합니다. 광고된 PDF의 다운로드·추출·원본 저장이 실패하면 CC/STT만 성공한 것으로 적재하지 않습니다.[^video-presentation-implementation]
+  * **원본 및 버전 보존**: PDF 원본은 `data/raw/attachments/<document_id>/presentation/<sha256>.pdf`에 저장하며, 새 버전은 기존 파일을 삭제하지 않고 `presentation_history`와 함께 추가합니다.[^video-presentation-implementation]
   * **3일 미디어 캐시 재사용**: 유효한 CC가 없고 이전 STT 수집이 실패했을 때 `data/cache/video/`에 저장된 오디오 미디어가 있으면 외부 미디어 다운로드를 생략하고 STT를 진행합니다.
   * **실시간 단계별 진행률 스트리밍**: `[원문 전체 재수집]`, 필요한 경우의 `[오디오 다운로드/변환]`, `[STT 청크 전사]`, `[LLM 요약 및 지식 그래프 추출]` 단계가 터미널에 출력됩니다.
   * **전사 무결성 검증**: CC 획득 또는 STT가 실패하거나 `has_transcript`가 `False`인 경우 오류 원인을 `stderr`에 출력하고 종료 코드 `1`을 반환합니다.
@@ -391,7 +393,7 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 * `claire purge <target> [--doc-id <ID>] [--token <token>] [--url <URL>] [--pattern <str>] [--reason <str>] [--apply] [--yes] [--json]`:
   * **스마트 타깃 자동 판별**: `target` 하나로 문서 ID(SHA256/UUID), 공유 링크(`/p?s=token`), 일반 원본 URL, 정규화된 canonical URL, 프로토콜 누락 도메인(`domain.com/...`), 제목 키워드를 4단계 우선순위로 자동 판별.
   * **수명주기 게이트**: `.env`에 `CLAIRE_DATA_LIFECYCLE=purgeable` (또는 `CLAIRE_ALLOW_PURGE=1`) 설정 시에만 실행 허용 (`append-only` 시 안전 차단).
-  * **원자적 소각**: 툼스톤(`purged_tombstones`) 등록 ➔ DB 8개 테이블 연쇄 Hard Delete ➔ 로컬 파일시스템 아티팩트(`raw/artifacts`, `images`, `vault`) Unlink ➔ `heal_graph` 수복 ➔ `VACUUM` 압축을 일괄 수행.
+  * **원자적 소각**: 툼스톤(`purged_tombstones`) 등록 ➔ DB 8개 테이블 연쇄 Hard Delete ➔ 로컬 파일시스템 아티팩트(`raw/artifacts`, `raw/attachments`, `images`, `vault`) Unlink ➔ `heal_graph` 수복 ➔ `VACUUM` 압축을 일괄 수행.[^video-presentation-implementation]
   * **공유 링크 소각 경고**: 공유 링크로 식별된 경우 단순 링크 무효화가 아닌 원본 문서 전체 파괴임을 Dry-Run에 명시적 경고.
   * 기본 실행은 Dry-Run으로 영향 범위를 사전 출력하며, `--apply` 지정 시 실제 소각 실행 (대화형 `[y/N]` 확인 또는 `--yes`/`-y`로 무인 실행).
 * `claire audit [<target>] [--pattern <str>] [--json]`:
@@ -433,3 +435,4 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 [^queue-implementation]: Claire Bible 구현 근거: [`src/claire/cli.py`](../../../src/claire/cli.py), [`src/claire/status.py`](../../../src/claire/status.py), [`ops/cb_manuscript.py`](../../../ops/cb_manuscript.py) (2026-08-27 확인).
 [^progress-implementation]: Claire Bible 구현 근거: [`src/claire/progress.py`](../../../src/claire/progress.py), [`src/claire/cli.py`](../../../src/claire/cli.py), [`src/claire/ingest/service.py`](../../../src/claire/ingest/service.py), [`src/claire/ingest/pipeline.py`](../../../src/claire/ingest/pipeline.py) (2026-08-27 확인).
 [^video-caption-implementation]: Claire Bible 구현 근거: [`src/claire/ingest/fetchers/captions.py`](../../../src/claire/ingest/fetchers/captions.py), [`src/claire/ingest/fetchers/video.py`](../../../src/claire/ingest/fetchers/video.py), [`tests/test_video_captions.py`](../../../tests/test_video_captions.py) (2026-09-04 확인).
+[^video-presentation-implementation]: Claire Bible 구현 근거: [`src/claire/ingest/fetchers/presentation_vmware_explore.py`](../../../src/claire/ingest/fetchers/presentation_vmware_explore.py), [`src/claire/ingest/fetchers/pdf.py`](../../../src/claire/ingest/fetchers/pdf.py), [`src/claire/ingest/pipeline.py`](../../../src/claire/ingest/pipeline.py), [`src/claire/store/raw.py`](../../../src/claire/store/raw.py), [`tests/test_video_presentation.py`](../../../tests/test_video_presentation.py) (2026-09-04 확인). 설계 근거: [VIDEO_PRESENTATION_BUNDLE_INGESTION_DESIGN.md](../design/VIDEO_PRESENTATION_BUNDLE_INGESTION_DESIGN.md).

@@ -7,13 +7,13 @@ ENV PYTHONUNBUFFERED=1
 
 RUN pip install --no-cache-dir uv
 
-# nodriver(CDP) 가 JS SPA 렌더링 최후수단으로 쓸 시스템 Chromium + 오디오 스트림 추출용 ffmpeg.
+# Scrapling DynamicFetcher가 JS SPA 렌더링에 쓸 시스템 Chromium + 오디오 스트림 추출용 ffmpeg.
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates chromium ffmpeg tzdata \
     && rm -rf /var/lib/apt/lists/*
 
 COPY pyproject.toml uv.lock README.md ./
 COPY src/ ./src/
-# stealth extra = scrapling[fetchers] + nodriver, audio extra = yt-dlp[curl-cffi]
+# stealth extra = scrapling[fetchers], audio extra = yt-dlp[curl-cffi]
 # CLAIRE_PDF_PARSER=docling 인 경우에만 docling 및 대용량 의존성을 빌드에 포함하고,
 # pypdf(기본값)일 때는 docling을 빌드하지 않아 초경량/초고속 빌드를 유지합니다.
 # 최신 비디오 플랫폼 시그니처 대응을 위해 yt-dlp는 빌드 시 항상 최신 릴리스로 업그레이드

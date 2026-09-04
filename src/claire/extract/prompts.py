@@ -16,7 +16,8 @@ if TYPE_CHECKING:
 # v4: summary/observations/key_claims 및 주요 서술 출력에 문어체(서술체: ~한다/~이다/~함) 적용.
 # v5: summary 평문(plain text) 작성 규칙 명시 (AsciiDoc/마크다운 마크업 금지).
 # v6: 테이블 및 매트릭스 데이터 누락 방지 및 본문 글자 수 계산 제외 규칙 적용.
-PROMPT_VERSION = "extract-v6"
+# v7: 복합 문서의 자막·Presentation 구성요소별 최소 예산 보장.
+PROMPT_VERSION = "extract-v7"
 
 # 단일 출처 문서의 LLM 투입 예산 (수집 상한인 20,000자에 맞춤). 병합 문서는 2배 (40,000자).
 _SINGLE_DOC_CHAR_BUDGET = 20000
@@ -295,7 +296,83 @@ def clean_plain_summary(text: str | None) -> str:
 
 
 from ..config import get_settings
-from .table_budget import slice_text, slice_text_with_table_exemption
+from .table_budget import split_text_segments, slice_text, slice_text_with_table_exemption
+
+
+def _budgeted_length(text: str, strategy: str) -> int:
+    if strategy == "strict":
+        return len(text)
+    return sum(
+        len(segment.content)
+        for segment in split_text_segments(text)
+        if not segment.is_table
+    )
+
+
+def _slice_component_content(
+    text: str,
+    components: list[dict],
+    limit: int,
+    *,
+    strategy: str,
+) -> str:
+    """복합 원문의 주요 구성요소에 예산을 먼저 배정한 뒤 원래 순서로 조립한다."""
+    if limit <= 0 or not text:
+        return text
+
+    spans: list[tuple[int, int, dict]] = []
+    last_end = 0
+    for raw in components:
+        if not isinstance(raw, dict):
+            return slice_text(text, limit, strategy=strategy)
+        try:
+            start = int(raw.get("start"))
+            end = int(raw.get("end"))
+        except (TypeError, ValueError):
+            return slice_text(text, limit, strategy=strategy)
+        if start < last_end or start < 0 or end <= start or end > len(text):
+            return slice_text(text, limit, strategy=strategy)
+        spans.append((start, end, raw))
+        last_end = end
+    if len(spans) < 2:
+        return slice_text(text, limit, strategy=strategy)
+
+    component_costs = [
+        _budgeted_length(text[start:end], strategy) for start, end, _ in spans
+    ]
+    reserve = max(1, limit // max(3, len(spans)))
+    allocations = [min(cost, reserve) for cost in component_costs]
+    remaining = max(0, limit - sum(allocations))
+
+    # 짧은 구성요소의 잔여분부터 완전히 채운 뒤 긴 구성요소에 남은 예산을 준다.
+    for index in sorted(
+        range(len(spans)),
+        key=lambda i: (component_costs[i] - allocations[i], i),
+    ):
+        need = component_costs[index] - allocations[index]
+        if need <= 0 or remaining <= 0:
+            continue
+        extra = min(need, remaining)
+        allocations[index] += extra
+        remaining -= extra
+
+    output: list[str] = []
+    cursor = 0
+    for index, (start, end, _raw) in enumerate(spans):
+        if start > cursor and remaining > 0:
+            context = text[cursor:start]
+            context_cost = _budgeted_length(context, strategy)
+            context_budget = min(context_cost, remaining)
+            if context_budget:
+                output.append(slice_text(context, context_budget, strategy=strategy))
+                remaining -= context_budget
+        output.append(
+            slice_text(text[start:end], allocations[index], strategy=strategy)
+        )
+        cursor = end
+    if cursor < len(text) and remaining > 0:
+        output.append(slice_text(text[cursor:], remaining, strategy=strategy))
+    return "\n\n".join(part.strip() for part in output if part.strip())
 
 
 def extract_system_prompt(ontology_block: str) -> str:
@@ -340,7 +417,18 @@ def doc_to_prompt(doc: Document, *, full_content: bool = False) -> str:
         limit = settings.pdf_max_extract_chars
     else:
         limit = settings.extract_char_budget
-    content_body = slice_text(doc.raw_text or "", limit, strategy=settings.slicing_strategy)
+    components = (doc.meta or {}).get("content_components") or []
+    if isinstance(components, list) and len(components) >= 2:
+        content_body = _slice_component_content(
+            doc.raw_text or "",
+            components,
+            limit,
+            strategy=settings.slicing_strategy,
+        )
+    else:
+        content_body = slice_text(
+            doc.raw_text or "", limit, strategy=settings.slicing_strategy
+        )
     return "\n".join(head) + "\n\nCONTENT:\n" + content_body
 
 

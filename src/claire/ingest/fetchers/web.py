@@ -5,11 +5,10 @@
   3) discourse : 본문 빈약 + Discourse 토픽이면 `.json` API 로 본문 확보 (싸고 결정적)
   4) scrapling : Scrapling Fetcher (curl-cffi + browserforge 스텔스 헤더). 브라우저 불필요.
                  정적 UA 를 403 으로 막는 봇차단(예: openai.com) 우회용.
-  5) cdp       : nodriver(Chrome DevTools Protocol 직접 제어)로 실제 렌더링. 최후수단 —
-                 JS 로만 그려지는 SPA(해시 라우팅 등)는 static/scrapling 이 빈 껍데기만
-                 받아오므로 진짜 브라우저 실행이 필요. Playwright/patchright 는 안 쓰고
-                 시스템 Chromium 을 CDP 로 직접 제어(이미지에 apt chromium 패키지 하나만
-                 추가하면 됨 — Playwright 자체 브라우저 번들보다 가벼움).
+  5) cdp       : Scrapling DynamicFetcher로 시스템 Chromium을 제어해 실제 렌더링.
+                 JS로만 그려지는 SPA(해시 라우팅 등)는 static/scrapling 정적 경로가
+                 빈 셸만 받아오므로 진짜 브라우저 실행이 필요. Python 패키지와
+                 브라우저 바이너리를 분리하여 이미지에는 시스템 Chromium만 설치한다.
 
 체인을 다 돌고도 본문이 MIN_CONTENT 미만이면 FetchError 로 *실패 처리* —
 제목만 적재되는 빈약 스크랩을 막고 raw_inbox 에 error 로 남겨 replay-failed 로 재적재.
@@ -19,6 +18,8 @@
 from __future__ import annotations
 
 import re
+import shutil
+from pathlib import Path
 
 from ...config import get_settings
 from ...extract.table_budget import (
@@ -30,11 +31,9 @@ from ...ontology.base import Document
 from ..normalize import canonicalize_url, content_hash
 from .base import FetchError
 from .guard import validate_web_content
+from .http_policy import BROWSER_USER_AGENT
 
-_UA = (
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
-)
+_UA = BROWSER_USER_AGENT
 
 # 본문이 이 길이 미만이면 "빈약"으로 보고 다음 fallback 시도, 끝까지 미달이면 실패.
 MIN_CONTENT = 300
@@ -544,39 +543,100 @@ def _fetch_scrapling(
         return FetchScraplingResult(None, "", [], {}, [], False, {})
 
 
+def render_html_cdp(
+    url: str,
+    *,
+    wait_seconds: float = 2.5,
+    click_tab_label: str | None = None,
+    interaction_timeout_seconds: float = 12.0,
+    post_click_wait_seconds: float = 1.5,
+) -> str:
+    """Scrapling과 시스템 Chromium으로 렌더링된 최종 HTML을 반환한다.
+
+    일반 웹 fallback과 사이트별 구조 탐색이 같은 브라우저 경계를 공유하도록 HTML 획득만
+    담당한다. ``click_tab_label``이 있으면 렌더링된 ``role=tab`` 요소 중 텍스트가 정확히
+    일치하는 탭을 선택한 뒤 최종 DOM을 반환한다. 브라우저 미설치·렌더링 실패는 빈
+    문자열로 반환하며, 호출자가 성공/실패 정책을 결정한다.
+    """
+    try:
+        from scrapling.fetchers import DynamicFetcher
+
+        interaction_failed = False
+
+        def _page_action(page) -> None:
+            nonlocal interaction_failed
+            if wait_seconds > 0:
+                page.wait_for_timeout(int(wait_seconds * 1000))
+            if click_tab_label:
+                try:
+                    target = page.get_by_role("tab", name=click_tab_label, exact=True)
+                    if target.count() == 0:
+                        return
+                    target.click(timeout=int(interaction_timeout_seconds * 1000))
+                except Exception:
+                    interaction_failed = True
+                    raise
+                if post_click_wait_seconds > 0:
+                    page.wait_for_timeout(int(post_click_wait_seconds * 1000))
+
+        kwargs = {
+            "headless": True,
+            "useragent": BROWSER_USER_AGENT,
+            "timeout": max(
+                30_000,
+                int(
+                    (wait_seconds + interaction_timeout_seconds + post_click_wait_seconds)
+                    * 1000
+                ),
+            ),
+            "page_action": _page_action,
+            "retries": 1,
+            "google_search": False,
+            "extra_flags": [
+                "--no-sandbox",
+                "--disable-gpu",
+                "--disable-dev-shm-usage",
+                "--ignore-certificate-errors",
+                "--ignore-ssl-errors",
+                "--allow-insecure-localhost",
+            ],
+        }
+        executable = _system_chromium_executable()
+        if executable:
+            kwargs["executable_path"] = executable
+        response = DynamicFetcher.fetch(url, **kwargs)
+        if interaction_failed:
+            return ""
+        return response.body.decode("utf-8", errors="replace")
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def _system_chromium_executable() -> str | None:
+    """Linux/macOS의 시스템 Chromium 계열 브라우저를 찾는다."""
+    for command in ("chromium", "chromium-browser", "google-chrome", "google-chrome-stable"):
+        executable = shutil.which(command)
+        if executable:
+            return executable
+    for candidate in (
+        Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
+        Path("/Applications/Chromium.app/Contents/MacOS/Chromium"),
+    ):
+        if candidate.is_file():
+            return str(candidate)
+    return None
+
+
 def _fetch_cdp(url: str) -> tuple[str | None, str, list[str], dict[str, str], list[dict]]:
-    """nodriver 로 시스템 Chromium 을 CDP 직접 제어해 실제 렌더링(브라우저 필요).
+    """Scrapling으로 시스템 Chromium을 제어해 실제 렌더링(브라우저 필요).
 
     JS SPA(해시 라우팅 등, 예: uniclawbench.github.io)는 static/scrapling(curl-cffi, 무JS)
-    으로는 빈 셸만 받아온다 — 진짜 브라우저 실행이 필요한 최후수단. Playwright/patchright
-    없이 nodriver(순수 CDP 클라이언트)로 apt 설치된 chromium 바이너리를 직접 제어한다.
+    으로는 빈 셸만 받아온다 — 진짜 브라우저 실행이 필요한 최후수단으로
+    ``scrapling[fetchers]``와 apt 설치된 chromium 바이너리를 재사용한다.
     미설치/실패 시 빈 결과(체인의 다음 단계 없음 → thin-guard 가 최종 실패 처리).
     """
     try:
-        import asyncio
-
-        import nodriver as uc
-
-        async def _run() -> str:
-            browser = await uc.start(
-                headless=True,
-                browser_args=[
-                    "--no-sandbox",
-                    "--disable-gpu",
-                    "--disable-dev-shm-usage",
-                    "--ignore-certificate-errors",
-                    "--ignore-ssl-errors",
-                    "--allow-insecure-localhost",
-                ],
-            )
-            try:
-                page = await browser.get(url)
-                await page.sleep(2.5)  # JS 렌더링 대기(SPA 초기 로드)
-                return await page.get_content()
-            finally:
-                browser.stop()
-
-        html = asyncio.run(_run())
+        html = render_html_cdp(url)
         if not html:
             return None, "", [], {}, []
         title, text, links, anchors, _, images = _extract_html(str(html), base_url=url)

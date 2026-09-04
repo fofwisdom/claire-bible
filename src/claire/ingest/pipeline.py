@@ -56,6 +56,9 @@ class IngestReport:
     stt_error: str | None = None
     pdf_parser_fallback: bool = False
     pdf_parser_fallback_reason: str | None = None
+    presentation_pdfs: int = 0
+    presentation_pdf_chars: int = 0
+    presentation_pdf_parsers: list[str] = field(default_factory=list)
 
     def telegram_summary(self) -> str:
         if self.error:
@@ -83,6 +86,17 @@ class IngestReport:
         if is_stt_failed:
             err_detail = f" (오류: {self.stt_error})" if self.stt_error else ""
             parts.append(f"🎙️ 오디오 STT 전사 실패: 음성 자막이 추출되지 못했습니다.{err_detail}")
+        if self.presentation_pdfs:
+            presentation_details = [f"{self.presentation_pdfs}개"]
+            if self.presentation_pdf_chars:
+                presentation_details.append(f"{self.presentation_pdf_chars:,}자")
+            if self.presentation_pdf_parsers:
+                presentation_details.append("/".join(self.presentation_pdf_parsers))
+            parts.append(
+                "📎 Presentation PDF 포함 ("
+                + " · ".join(presentation_details)
+                + ")"
+            )
 
         meta_badges = []
         if self.full_content:
@@ -188,6 +202,30 @@ def ingest(
             report.pdf_parser_fallback = bool(doc.meta.get("pdf_parser_fallback"))
         if "pdf_parser_fallback_reason" in doc.meta:
             report.pdf_parser_fallback_reason = doc.meta.get("pdf_parser_fallback_reason")
+        presentation_items = doc.meta.get("presentation_pdfs") or []
+        if isinstance(presentation_items, list):
+            report.presentation_pdfs = len(presentation_items)
+            report.presentation_pdf_chars = sum(
+                int(item.get("raw_chars") or 0)
+                for item in presentation_items
+                if isinstance(item, dict)
+            )
+            report.presentation_pdf_parsers = list(
+                dict.fromkeys(
+                    str(item.get("parser_used"))
+                    for item in presentation_items
+                    if isinstance(item, dict) and item.get("parser_used")
+                )
+            )
+        presentation_primary = doc.meta.get("presentation_pdf") or {}
+        if isinstance(presentation_primary, dict):
+            if presentation_primary.get("status") == "available" and not report.presentation_pdfs:
+                report.presentation_pdfs = 1
+            if presentation_primary.get("parser_fallback"):
+                report.pdf_parser_fallback = True
+                report.pdf_parser_fallback_reason = presentation_primary.get(
+                    "parser_fallback_reason"
+                )
     if directive and directive.strip():
         if doc.meta is None:
             doc.meta = {}
@@ -199,9 +237,47 @@ def ingest(
         dbm.update_inbox(conn, inbox_id, status="error", error=report.error)
         return report
 
+    # 직접 PDF URL이 이미 VMware 비디오 문서의 Presentation 출처로 포함됐으면
+    # 동일 원문을 독립 문서로 다시 만들지 않는다.
+    if doc.source_type == "pdf" and doc.canonical_url:
+        bundled_id = dbm.find_document_by_extra_source(conn, doc.canonical_url)
+        if bundled_id:
+            report.document_id = bundled_id
+            report.duplicate = True
+            dbm.update_inbox(conn, inbox_id, status="duplicate", document_id=bundled_id)
+            return report
+
+    _link_existing_presentation_documents(conn, doc)
+
     # dedup ① 내용 완전 동일(content_hash 일치)
     existing = dbm.find_document_by_hash(conn, doc.content_hash)
     if existing:
+        existing_row = dbm.get_document_row(conn, existing)
+        same_canonical = bool(
+            existing_row
+            and doc.canonical_url
+            and existing_row["canonical_url"] == doc.canonical_url
+        )
+        old_meta: dict = {}
+        old_presentation_state: tuple = ()
+        if same_canonical and existing_row is not None:
+            try:
+                old_meta = json.loads(existing_row["meta"] or "{}")
+            except Exception:
+                old_meta = {}
+            old_presentation_state = _presentation_state(old_meta)
+            preserve_presentation_history(old_meta, doc)
+        if not _store_doc_attachments_or_report(
+            conn, inbox_id, doc, existing, data_dir, report
+        ):
+            return report
+        if same_canonical and _presentation_state(doc.meta or {}) != old_presentation_state:
+            dbm.update_document_meta(conn, existing, doc.meta)
+            report.document_id = existing
+            report.updated = True
+            report.duplicate = False
+            dbm.update_inbox(conn, inbox_id, status="done", document_id=existing)
+            return report
         # 사용자가 새 directive(초점)를 명시적으로 지정한 경우:
         # 단순 중복 스킵하지 않고, 해당 문서의 초점을 갱신하고 가독 상세(detail)를 즉시 재생성(재적재)
         if directive and directive.strip():
@@ -229,6 +305,17 @@ def ingest(
     same_url = dbm.find_document_by_canonical_url(conn, doc.canonical_url)
     if same_url:
         doc.id = same_url
+        old_row = dbm.get_document_row(conn, same_url)
+        if old_row is not None:
+            try:
+                old_meta = json.loads(old_row["meta"] or "{}")
+            except Exception:
+                old_meta = {}
+            preserve_presentation_history(old_meta, doc)
+        if not _store_doc_attachments_or_report(
+            conn, inbox_id, doc, same_url, data_dir, report
+        ):
+            return report
         dbm.update_document_content(
             conn, same_url, title=doc.title, raw_text=doc.raw_text,
             content_hash=doc.content_hash, fetched_at=doc.fetched_at,
@@ -265,6 +352,10 @@ def ingest(
         return report
 
     emit_progress("구조화 추출·그래프 적재 중…")
+    if not _store_doc_attachments_or_report(
+        conn, inbox_id, doc, doc.id, data_dir, report
+    ):
+        return report
     dbm.insert_document(conn, doc)
     report.document_id = doc.id
 
@@ -321,6 +412,116 @@ def _download_doc_images(conn: sqlite3.Connection, doc: Document, data_dir: Path
     enriched = download_images(data_dir, doc.id, images)
     doc.meta["images"] = enriched
     dbm.set_document_images(conn, doc.id, enriched)
+
+
+def _store_required_doc_attachments(doc: Document, data_dir: Path | None) -> list[str]:
+    """필수 첨부를 DB 쓰기 전에 보존한다. 저장 위치가 없으면 부분 적재를 거부한다."""
+    required = [attachment for attachment in doc.attachments if attachment.required]
+    if not required:
+        return []
+    if data_dir is None:
+        raise RuntimeError("data directory is required for source attachments")
+    from ..store.raw import save_document_attachments
+
+    return save_document_attachments(data_dir, doc)
+
+
+def _store_doc_attachments_or_report(
+    conn: sqlite3.Connection,
+    inbox_id: int,
+    doc: Document,
+    document_id: str,
+    data_dir: Path | None,
+    report: IngestReport,
+) -> bool:
+    doc.id = document_id
+    try:
+        _store_required_doc_attachments(doc, data_dir)
+        return True
+    except Exception as exc:  # noqa: BLE001
+        report.error = f"attachment_store_failed: {type(exc).__name__}: {exc}"
+        dbm.update_inbox(
+            conn,
+            inbox_id,
+            status="error",
+            document_id=document_id if dbm.get_document_row(conn, document_id) else None,
+            error=report.error,
+        )
+        return False
+
+
+def _presentation_items(meta: dict) -> list[dict]:
+    items = meta.get("presentation_pdfs")
+    if isinstance(items, list):
+        return [dict(item) for item in items if isinstance(item, dict)]
+    primary = meta.get("presentation_pdf")
+    if isinstance(primary, dict) and primary.get("status") == "available":
+        return [dict(primary)]
+    return []
+
+
+def _presentation_state(meta: dict) -> tuple:
+    """추출 텍스트가 같아도 원본 PDF 버전·저장 상태 변경을 감지한다."""
+    return tuple(
+        (
+            item.get("content_sha256"),
+            item.get("artifact_path"),
+            item.get("public_url"),
+        )
+        for item in _presentation_items(meta)
+    )
+
+
+def preserve_presentation_history(old_meta: dict, doc: Document) -> None:
+    """PDF 교체 시 이전 URL·해시·아티팩트 경로를 append-only history에 보존한다."""
+    if not doc.meta:
+        return
+    history = [
+        dict(item)
+        for item in (old_meta.get("presentation_history") or [])
+        if isinstance(item, dict)
+    ]
+    new_hashes = {
+        item.get("content_sha256") for item in _presentation_items(doc.meta)
+    }
+    history_hashes = {item.get("content_sha256") for item in history}
+    for item in _presentation_items(old_meta):
+        digest = item.get("content_sha256")
+        if not digest or digest in new_hashes or digest in history_hashes:
+            continue
+        history.append(
+            {
+                "public_url": item.get("public_url"),
+                "content_sha256": digest,
+                "text_sha256": item.get("text_sha256"),
+                "artifact_path": item.get("artifact_path"),
+                "byte_length": item.get("byte_length"),
+                "replaced_at": time.time(),
+            }
+        )
+        history_hashes.add(digest)
+    if history:
+        doc.meta["presentation_history"] = history
+
+
+def _link_existing_presentation_documents(
+    conn: sqlite3.Connection,
+    doc: Document,
+) -> None:
+    """이미 독립 적재된 PDF는 삭제·흡수하지 않고 영상 메타데이터에서 참조한다."""
+    if doc.source_type != "video" or not doc.meta:
+        return
+    linked: list[str] = []
+    for item in _presentation_items(doc.meta):
+        url = item.get("public_url")
+        if not url:
+            continue
+        existing_id = dbm.find_document_by_canonical_url(conn, url)
+        if existing_id and existing_id != doc.id and existing_id not in linked:
+            linked.append(existing_id)
+    if linked:
+        doc.meta["presentation_document_ids"] = linked
+        doc.meta["presentation_document_id"] = linked[0]
 
 
 def extract_resolve_store(

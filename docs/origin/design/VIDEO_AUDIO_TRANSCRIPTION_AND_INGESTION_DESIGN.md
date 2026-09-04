@@ -6,6 +6,9 @@
 >
 > **적용 모듈**: `claire.ingest.fetchers.video`, `claire.ingest.fetchers.captions`, `claire.extract.transcript`, `claire.config`, `claire.ingest.router`
 
+> [!NOTE]
+> VMware Explore가 Presentation PDF도 제공하는 경우의 CC/STT·PDF 복합 적재는 별도 [VIDEO_PRESENTATION_BUNDLE_INGESTION_DESIGN.md](VIDEO_PRESENTATION_BUNDLE_INGESTION_DESIGN.md)에 설계·구현되어 있습니다.[^presentation-bundle-implementation]
+
 ---
 
 ## 1. 개요 및 배경
@@ -340,3 +343,4 @@ class TranscriptProvider(Protocol):
 [^vmware-cc-sample]: VMware Explore, [Introduction to VMware Cloud Foundation 9.0: Private Cloud Platform for All Applications](https://www.vmware.com/explore/video/6403820644112); `yt-dlp 2026.07.04 --dump-single-json --skip-download` 및 `--write-subs --sub-langs en-US` 실측, 2026-09-04.
 [^ytdlp-subtitle-schema]: yt-dlp, [`InfoExtractor` output template and subtitle format schema](https://github.com/yt-dlp/yt-dlp/blob/master/yt_dlp/extractor/common.py), 2026-09-04 확인.
 [^cc-test-evidence]: Claire Bible 구현 근거: [`src/claire/ingest/fetchers/captions.py`](../../../src/claire/ingest/fetchers/captions.py), [`src/claire/ingest/fetchers/video.py`](../../../src/claire/ingest/fetchers/video.py), [`tests/test_video_captions.py`](../../../tests/test_video_captions.py), [`tests/test_gemini_stt.py`](../../../tests/test_gemini_stt.py), [`tests/test_video_cache.py`](../../../tests/test_video_cache.py), [`tests/test_router.py`](../../../tests/test_router.py), [`tests/test_youtube_fetcher.py`](../../../tests/test_youtube_fetcher.py) (2026-09-04 확인).
+[^presentation-bundle-implementation]: Claire Bible 구현 근거: [`src/claire/ingest/fetchers/presentation_vmware_explore.py`](../../../src/claire/ingest/fetchers/presentation_vmware_explore.py), [`src/claire/store/raw.py`](../../../src/claire/store/raw.py), [`tests/test_video_presentation.py`](../../../tests/test_video_presentation.py) (2026-09-04 확인).

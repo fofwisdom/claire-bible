@@ -199,6 +199,8 @@ def document_detail(conn: sqlite3.Connection, document_id: str, include_hidden: 
         "pdf_parser_used": meta_dict.get("pdf_parser_used"),
         "pdf_parser_fallback": bool(meta_dict.get("pdf_parser_fallback", False)),
         "pdf_parser_fallback_reason": meta_dict.get("pdf_parser_fallback_reason"),
+        "presentation_pdf": meta_dict.get("presentation_pdf") or {},
+        "presentation_pdfs": meta_dict.get("presentation_pdfs") or [],
         "author": row["author"] or meta_dict.get("author") or ((meta_dict.get("biblio") or {}).get("author") if isinstance(meta_dict.get("biblio"), dict) else None),
         "published_at": row["published_at"] or meta_dict.get("published_at") or ((meta_dict.get("biblio") or {}).get("published_at") if isinstance(meta_dict.get("biblio"), dict) else None),
         "biblio": meta_dict.get("biblio") or {},
@@ -2475,12 +2477,17 @@ function docMetaHtml(dc){
   const pubAt = (dc.published_at || (dc.meta && dc.meta.published_at) || (dc.biblio && dc.biblio.published_at) || (dc.meta && dc.meta.biblio && dc.meta.biblio.published_at) || '').trim();
   const isStt = !!(dc.is_stt || (dc.meta && (dc.meta.is_stt || dc.meta.stt_applied || dc.meta.stt)));
   const isSttTrunc = isStt && !!(dc.stt_truncated || (dc.meta && dc.meta.stt_truncated) || isTrunc);
-  if(!hasUrl && !isTrunc && !directive && !isStt && !author && !pubAt && !isParserFallback) return '';
+  const presentation = dc.presentation_pdf || (dc.meta && dc.meta.presentation_pdf) || {};
+  const hasPresentation = presentation.status === 'available' && !!presentation.public_url;
+  if(!hasUrl && !isTrunc && !directive && !isStt && !author && !pubAt && !isParserFallback && !hasPresentation) return '';
   let h='<p class=docmeta>';
   if(hasUrl){
     h+='<a href="'+esc(dc.url)+'" target=_blank rel=noopener>↗ 원문 열기</a>';
     if(isStt){
       h+=' <a href="#" class="stt-link" onclick="openSttReader();return false;" title="음성 인식(STT) 전사 텍스트 열기">↗ 전사 열기</a>';
+    }
+    if(hasPresentation){
+      h+=' <a href="'+esc(presentation.public_url)+'" target=_blank rel=noopener>↗ Presentation PDF</a>';
     }
   } else {
     if(isStt){
@@ -2499,6 +2506,16 @@ function docMetaHtml(dc){
   }
   if(isParserFallback){
     tags.push('<span class="trunc-tag parser-fallback-tag" title="Docling 실패 사유: '+esc(fallbackReason)+'">⚠️ Docling 폴백 (PyPDF)</span>');
+  }
+  if(hasPresentation){
+    const pdfChars = Number(presentation.raw_chars || 0);
+    const pdfParser = String(presentation.parser_used || '').trim();
+    const artifactState = presentation.artifact_path ? '원본 보존됨' : '원본 경로 미확인';
+    const pdfParts = [];
+    if(pdfChars > 0) pdfParts.push(pdfChars.toLocaleString()+'자');
+    if(pdfParser) pdfParts.push(pdfParser);
+    const pdfLabel = '📎 Presentation PDF'+(pdfParts.length ? ' ('+pdfParts.join(' · ')+')' : '');
+    tags.push('<span class="directive-tag" title="원본 PDF가 영상 자막과 함께 적재됨 · '+artifactState+'">'+pdfLabel+'</span>');
   }
   if(directive){
     const dispDir = directive.length > 25 ? directive.slice(0, 25) + '…' : directive;
@@ -6025,12 +6042,17 @@ function docMetaHtml(dc){
   const pubAt = (dc.published_at || (dc.meta && dc.meta.published_at) || (dc.biblio && dc.biblio.published_at) || (dc.meta && dc.meta.biblio && dc.meta.biblio.published_at) || '').trim();
   const isStt = !!(dc.is_stt || (dc.meta && (dc.meta.is_stt || dc.meta.stt_applied || dc.meta.stt)));
   const isSttTrunc = isStt && !!(dc.stt_truncated || (dc.meta && dc.meta.stt_truncated) || isTrunc);
-  if(!hasUrl && !isTrunc && !directive && !isStt && !author && !pubAt && !isParserFallback) return '';
+  const presentation = dc.presentation_pdf || (dc.meta && dc.meta.presentation_pdf) || {};
+  const hasPresentation = presentation.status === 'available' && !!presentation.public_url;
+  if(!hasUrl && !isTrunc && !directive && !isStt && !author && !pubAt && !isParserFallback && !hasPresentation) return '';
   let h='<p class=docmeta>';
   if(hasUrl){
     h+='<a href="'+esc(dc.url)+'" target=_blank rel=noopener>↗ 원문 열기</a>';
     if(isStt){
       h+=' <a href="#" class="stt-link" onclick="openSttReader();return false;" title="음성 인식(STT) 전사 텍스트 열기">↗ 전사 열기</a>';
+    }
+    if(hasPresentation){
+      h+=' <a href="'+esc(presentation.public_url)+'" target=_blank rel=noopener>↗ Presentation PDF</a>';
     }
   } else {
     if(isStt){
@@ -6049,6 +6071,16 @@ function docMetaHtml(dc){
   }
   if(isParserFallback){
     tags.push('<span class="trunc-tag parser-fallback-tag" title="Docling 실패 사유: '+esc(fallbackReason)+'">⚠️ Docling 폴백 (PyPDF)</span>');
+  }
+  if(hasPresentation){
+    const pdfChars = Number(presentation.raw_chars || 0);
+    const pdfParser = String(presentation.parser_used || '').trim();
+    const artifactState = presentation.artifact_path ? '원본 보존됨' : '원본 경로 미확인';
+    const pdfParts = [];
+    if(pdfChars > 0) pdfParts.push(pdfChars.toLocaleString()+'자');
+    if(pdfParser) pdfParts.push(pdfParser);
+    const pdfLabel = '📎 Presentation PDF'+(pdfParts.length ? ' ('+pdfParts.join(' · ')+')' : '');
+    tags.push('<span class="directive-tag" title="원본 PDF가 영상 자막과 함께 적재됨 · '+artifactState+'">'+pdfLabel+'</span>');
   }
   if(directive){
     const dispDir = directive.length > 25 ? directive.slice(0, 25) + '…' : directive;

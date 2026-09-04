@@ -158,6 +158,8 @@ graph TD
 
 비디오 적재는 이 설정과 무관하게 선호 언어의 발행자 CC를 먼저 탐색·다운로드합니다. 아래 변수는 유효한 CC가 없을 때의 오디오 STT 폴백을 제어합니다.[^video-caption-settings]
 
+VMware Explore 숫자형 영상 상세 페이지가 Presentation PDF를 명시적으로 제공하면 PDF 원본과 추출 텍스트를 같은 영상 문서에 함께 보존합니다. 광고된 PDF의 획득·검증·저장에 실패하면 자막만 부분 적재하지 않습니다.[^video-presentation-settings]
+
 | 환경변수명 | 기본값 | 허용 값 / 타입 | 설명 |
 | :--- | :--- | :--- | :--- |
 | `CLAIRE_ENABLE_VIDEO_TRANSCRIPTION` | `1` (`true`) | `0`, `1`, `true`, `false` | 자막이 없는 비디오/오디오 웹 문서 적재 시 ffmpeg/yt-dlp 및 STT 파이프라인 활성화 여부. ([VIDEO_AUDIO_TRANSCRIPTION_AND_INGESTION_DESIGN.md](../design/VIDEO_AUDIO_TRANSCRIPTION_AND_INGESTION_DESIGN.md) 참조) |
@@ -166,6 +168,7 @@ graph TD
 | `CLAIRE_STT_LANGUAGE` | `ko` | ISO 언어 코드 (예: `ko`, `en`, `ja`) | STT 기본 인식 대상 언어 (비어있을 경우 자동 감지). |
 | `CLAIRE_VIDEO_CHUNK_DURATION_SEC` | `240` | 정수 (초) | 단일 오디오 분할 청크 길이. `gemini-3.5-transcribe`의 10K TPM 한도 보호를 위해 기본 240초(4분, 약 6,000 토큰)로 제한. |
 | `CLAIRE_VIDEO_CACHE_TTL_SEC` | `259200` | 정수 (초) | 비디오 오디오 스트림 처리/적재 실패 시 로컬 보존 기간 (기본 3일 = 259,200초). 재적재 시 원격 다운로드를 건너뛰고 캐시 재사용. |
+| `CLAIRE_PRESENTATION_PDF_MAX_BYTES` | `67108864` | 양의 정수 (bytes) | 지원되는 영상 상세 페이지에서 내려받는 Presentation PDF 원본 1개의 최대 크기. 기본값은 64 MiB이며 `Content-Length`와 실제 스트림 누적 크기를 모두 검사합니다.[^video-presentation-settings] |
 | `CLAIRE_FFMPEG_BIN` | `ffmpeg` | 실행 파일명 또는 경로 | 오디오 추출 및 다운샘플링에 사용할 `ffmpeg` 바이너리 경로. |
 | `CLAIRE_YTDLP_EXTRACTOR_ARGS` | `generic:impersonate` | 문자열 | yt-dlp 브라우저 핑거프린트 위장 인자. |
 
@@ -376,3 +379,4 @@ CLAIRE_PUBLIC_URL=http://127.0.0.1:8766
 ## 6. 참고문헌
 
 [^video-caption-settings]: Claire Bible 구현 근거: [`src/claire/ingest/fetchers/captions.py`](../../../src/claire/ingest/fetchers/captions.py), [`src/claire/ingest/fetchers/video.py`](../../../src/claire/ingest/fetchers/video.py), [`tests/test_video_captions.py`](../../../tests/test_video_captions.py) (2026-09-04 확인).
+[^video-presentation-settings]: Claire Bible 구현 근거: [`src/claire/config.py`](../../../src/claire/config.py), [`src/claire/ingest/fetchers/presentation_vmware_explore.py`](../../../src/claire/ingest/fetchers/presentation_vmware_explore.py), [`src/claire/ingest/pipeline.py`](../../../src/claire/ingest/pipeline.py), [`src/claire/store/raw.py`](../../../src/claire/store/raw.py), [`tests/test_video_presentation.py`](../../../tests/test_video_presentation.py) (2026-09-04 확인). 설계 근거: [VIDEO_PRESENTATION_BUNDLE_INGESTION_DESIGN.md](../design/VIDEO_PRESENTATION_BUNDLE_INGESTION_DESIGN.md).

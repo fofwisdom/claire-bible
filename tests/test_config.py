@@ -138,6 +138,7 @@ def test_source_base_url_custom_explicit_override(monkeypatch):
 def test_slicing_config_defaults(monkeypatch):
     monkeypatch.delenv("CLAIRE_RAW_CHAR_BUDGET", raising=False)
     monkeypatch.delenv("CLAIRE_PDF_MAX_EXTRACT_CHARS", raising=False)
+    monkeypatch.delenv("CLAIRE_PRESENTATION_PDF_MAX_BYTES", raising=False)
     monkeypatch.delenv("CLAIRE_EXTRACT_CHAR_BUDGET", raising=False)
     monkeypatch.delenv("CLAIRE_MERGED_EXTRACT_CHAR_BUDGET", raising=False)
     monkeypatch.delenv("CLAIRE_SLICING_STRATEGY", raising=False)
@@ -149,6 +150,7 @@ def test_slicing_config_defaults(monkeypatch):
 
     assert settings.raw_char_budget == 20000
     assert settings.pdf_max_extract_chars == 50000
+    assert settings.presentation_pdf_max_bytes == 64 * 1024 * 1024
     assert settings.extract_char_budget == 20000
     assert settings.merged_extract_char_budget == 0
     assert settings.effective_merged_extract_char_budget == 40000
@@ -161,6 +163,7 @@ def test_slicing_config_defaults(monkeypatch):
 def test_slicing_config_custom_env(monkeypatch):
     monkeypatch.setenv("CLAIRE_RAW_CHAR_BUDGET", "15000")
     monkeypatch.setenv("CLAIRE_PDF_MAX_EXTRACT_CHARS", "80000")
+    monkeypatch.setenv("CLAIRE_PRESENTATION_PDF_MAX_BYTES", "1048576")
     monkeypatch.setenv("CLAIRE_EXTRACT_CHAR_BUDGET", "10000")
     monkeypatch.setenv("CLAIRE_MERGED_EXTRACT_CHAR_BUDGET", "25000")
     monkeypatch.setenv("CLAIRE_SLICING_STRATEGY", "strict")
@@ -172,6 +175,7 @@ def test_slicing_config_custom_env(monkeypatch):
 
     assert settings.raw_char_budget == 15000
     assert settings.pdf_max_extract_chars == 80000
+    assert settings.presentation_pdf_max_bytes == 1048576
     assert settings.extract_char_budget == 10000
     assert settings.merged_extract_char_budget == 25000
     assert settings.effective_merged_extract_char_budget == 25000
@@ -185,6 +189,13 @@ def test_slicing_strategy_invalid(monkeypatch):
     monkeypatch.setenv("CLAIRE_SLICING_STRATEGY", "invalid_strategy")
 
     with pytest.raises(ValidationError, match="CLAIRE_SLICING_STRATEGY must be 'table-exemption' or 'strict'"):
+        Settings(_env_file=None)
+
+
+def test_presentation_pdf_max_bytes_must_be_positive(monkeypatch):
+    monkeypatch.setenv("CLAIRE_PRESENTATION_PDF_MAX_BYTES", "0")
+
+    with pytest.raises(ValidationError, match="greater than 0"):
         Settings(_env_file=None)
 
 
@@ -234,4 +245,3 @@ def test_preferred_languages_config(monkeypatch):
     monkeypatch.setenv("CLAIRE_PREFERRED_LANGUAGES", "en, fr")
     settings_fr = Settings(_env_file=None)
     assert settings_fr.effective_preferred_languages == ["fr", "en"]
-
