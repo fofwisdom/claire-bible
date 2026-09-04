@@ -172,7 +172,10 @@ def remove_leading_original_link(text: str | None) -> str:
 _ADOC_CORRUPTED_PATTERNS = (
     r"(?:^|\n)={1,5}\s+",
     r"(?:^|\n)#{1,6}\s+",
-    r"(?:^|\n)\[(?:NOTE|TIP|IMPORTANT|WARNING|CAUTION|quote|source|cols|caption)[^\]]*\]",
+    r"(?:^|\n)\[(?:NOTE|TIP|IMPORTANT|WARNING|CAUTION|quote|source|cols|caption|#)[^\]]*\]",
+    r"(?:^|\n)\[\[[^\]]+\]\]",
+    r"<<[^>]+>>",
+    r"xref:[^\[]+\[[^\]]*\]",
     r"(?:^|\n)\|===",
     r"(?:^|\n):[a-zA-Z0-9_-]+:",
     r"(?:^|\n)(?:include|image|link)::",
@@ -222,8 +225,8 @@ def clean_plain_summary(text: str | None) -> str:
         if re.match(r"^:[a-zA-Z0-9_-]+:\s*.*$", line):
             continue
 
-        # 3. 블록 레이블/메타데이터 ([quote...], [NOTE], [source...], [cols...] 등) 스킵
-        if re.match(r"^\[(?:NOTE|TIP|IMPORTANT|WARNING|CAUTION|quote|source|cols|caption)[^\]]*\]$", line, re.IGNORECASE):
+        # 3. 블록 레이블/메타데이터 ([quote...], [NOTE], [source...], [cols...], [#anchor], [[anchor]] 등) 스킵
+        if re.match(r"^\[(?:NOTE|TIP|IMPORTANT|WARNING|CAUTION|quote|source|cols|caption|#)[^\]]*\]$", line, re.IGNORECASE) or re.match(r"^\[\[[^\]]*\]\]$", line):
             continue
 
         # 4. 블록 구분선 (____, ====, ----, ...., |===, ```) 스킵
@@ -253,6 +256,12 @@ def clean_plain_summary(text: str | None) -> str:
         line = re.sub(r"(?<!\*)\*(?![\s\*])([^*\n]+?)(?<![\s\*])\*(?!\*)", r"\1", line)
         # 기울임: _text_ -> text
         line = re.sub(r"(?<!_)_(?![\s_])([^_\n]+?)(?<![\s_])_(?!_)", r"\1", line)
+        # 상호참조/앵커: <<anchor, label>> -> label / xref:anchor[label] -> label / [[anchor]] -> 제거
+        line = re.sub(r"&lt;&lt;(?:[^,>]+,\s*)?([^&>]+)&gt;&gt;", r"\1", line)
+        line = re.sub(r"<<(?:[^,>]+,\s*)?([^>]+)>>", r"\1", line)
+        line = re.sub(r"xref:[^\[]+\[(.*?)\]", r"\1", line)
+        line = re.sub(r"\[\[[^\]]+\]\]", "", line)
+        line = re.sub(r"\[#[^\]]+\]", "", line)
         # 링크: link:https://url[text] -> text / https://url[text] -> text
         line = re.sub(r"link:https?://[^\s\[\]]+\[(.*?)\]", r"\1", line)
         line = re.sub(r"https?://[^\s\[\]]+\[(.*?)\]", r"\1", line)
@@ -260,7 +269,7 @@ def clean_plain_summary(text: str | None) -> str:
         line = re.sub(r"//\s*<\d+>", "", line)
         line = re.sub(r"<\d+>", "", line)
         # 인라인 블록 태그 및 구분자 잔여물 ([NOTE], |===, ____ 등) 제거
-        line = re.sub(r"\[(?:NOTE|TIP|IMPORTANT|WARNING|CAUTION|quote|source|cols|caption)[^\]]*\]", "", line, flags=re.IGNORECASE)
+        line = re.sub(r"\[(?:NOTE|TIP|IMPORTANT|WARNING|CAUTION|quote|source|cols|caption|#)[^\]]*\]", "", line, flags=re.IGNORECASE)
         line = re.sub(r"\|={2,}", "", line)
         line = re.sub(r"_{4,}|={4,}|-{4,}|\.{4,}|`{3,}", "", line)
         # 리스트 기호 (* item, - item) 제거
