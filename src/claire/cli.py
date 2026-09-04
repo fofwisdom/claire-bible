@@ -1435,7 +1435,7 @@ def cmd_recompile_html(args) -> int:
 
 
 def cmd_video_reprocess(args) -> int:
-    """비디오 문서를 최신 STT 및 비디오 예산으로 재전사/재적재(in-place 갱신 또는 신규 적재)."""
+    """비디오 문서를 CC 우선 정책과 현재 비디오 예산으로 재수집·재적재한다."""
     import json
     import sys
     from urllib.parse import urlparse
@@ -1503,12 +1503,12 @@ def cmd_video_reprocess(args) -> int:
                 for t in res["targets"]:
                     did = t.get("document_id") or t.get("id", "")
                     print(f"  - [{did}] {t.get('title', '')} ({t.get('url', '')})")
-            print("실제 재전사 및 적재를 실행하려면 --apply 또는 --force 옵션을 추가하십시오:")
+            print("실제 자막 재수집 및 적재를 실행하려면 --apply 또는 --force 옵션을 추가하십시오:")
             tgt_hint = f"--doc-id {doc_id}" if doc_id else (target or "")
             print(f"  claire video-reprocess {tgt_hint} --apply")
             return 0
 
-        # 실행 결과 검증: 재수집 에러, 지식생성 에러 및 STT 전사 성공 여부 확인
+        # 실행 결과 검증: 재수집·지식 생성 오류와 CC/STT 본문 확보 여부 확인
         targets = res.get("targets", [])
         has_errors = False
         conn = dbm.connect(s.db_file)
@@ -1524,7 +1524,7 @@ def cmd_video_reprocess(args) -> int:
                         if stt_err:
                             print(f"[!] 비디오 STT 음성 전사 실패: {stt_err}", file=sys.stderr)
                         else:
-                            print(f"[!] 비디오 음성 자막(전사)이 추출되지 못했습니다.", file=sys.stderr)
+                            print(f"[!] 비디오 자막(CC/STT)이 추출되지 못했습니다.", file=sys.stderr)
                 if t.get("refetch_error"):
                     has_errors = True
                     print(f"[!] 원문 재수집 오류: {t['refetch_error']}", file=sys.stderr)
@@ -1535,10 +1535,10 @@ def cmd_video_reprocess(args) -> int:
             conn.close()
 
         if has_errors:
-            print(f"[!] 비디오 문서 재전사 실패: 음성 자막이나 지식이 갱신되지 못했습니다.", file=sys.stderr)
+            print(f"[!] 비디오 문서 재처리 실패: 자막이나 지식이 갱신되지 못했습니다.", file=sys.stderr)
             return 1
 
-        print(f"[✓] 기존 비디오 문서 재전사 및 지식 갱신 완료: {res.get('count', 0)}건 처리됨")
+        print(f"[✓] 기존 비디오 문서 자막 재수집 및 지식 갱신 완료: {res.get('count', 0)}건 처리됨")
         return 0
     else:
         url = target or (args.target if hasattr(args, "target") else None)
@@ -1552,11 +1552,11 @@ def cmd_video_reprocess(args) -> int:
 
             if not do_apply:
                 print(f"[안내] 신규 비디오 적재 대상 (Dry-Run): {url}")
-                print("실제 수집 및 전사를 실행하려면 --apply 옵션을 추가하십시오:")
+                print("실제 자막 수집 및 적재를 실행하려면 --apply 옵션을 추가하십시오:")
                 print(f"  claire video-reprocess {url} --apply")
                 return 0
 
-            print(f"[→] 신규 비디오 수집 및 STT 전사 시작: {url}")
+            print(f"[→] 신규 비디오 자막 수집(CC 우선, 필요 시 STT) 시작: {url}")
             report = svc.ingest(url, full_content=True, format=fmt, effort=effort)
             if report.error:
                 print(f"[!] 비디오 수집 실패: {report.error}", file=sys.stderr)
@@ -2169,7 +2169,7 @@ def build_parser() -> argparse.ArgumentParser:
     pvr = sub.add_parser(
         "video-reprocess",
         aliases=["reprocess-video"],
-        help="re-extract audio, transcribe with STT, and refresh video document in-place",
+        help="re-fetch publisher CC or fall back to STT, then refresh the video document",
     )
     pvr.add_argument("target", nargs="?", default=None, help="document ID or video URL to reprocess")
     pvr.add_argument("--doc-id", default=None, help="specific document ID (e.g. doc_b19da8da2980)")

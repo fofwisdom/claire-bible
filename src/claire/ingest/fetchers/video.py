@@ -1,4 +1,4 @@
-"""비디오 페처 — 웹 비디오 / Brightcove / YouTube / 스트림에서 메타데이터 및 자막(STT) 추출."""
+"""비디오 페처 — 메타데이터와 발행자 CC를 수집하고 필요할 때만 STT를 수행한다."""
 
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ from ...extract.transcript.factory import get_transcript_provider
 from ...ontology.base import Document
 from ..normalize import canonicalize_url, content_hash
 from .base import FetchError
+from .captions import CaptionAcquisition, acquire_caption, is_valid_speech_vtt
 
 logger = logging.getLogger(__name__)
 
@@ -68,47 +69,6 @@ def resolve_video_target_url(url: str, html_text: str = "") -> str:
     return url
 
 
-def is_valid_speech_vtt(text: str) -> bool:
-    """WebVTT 텍스트가 실제 음성 자막인지 검증 (썸네일 스프라이트 xywh 좌표 오탐 방지)."""
-    if not text or not text.strip():
-        return False
-    if ".jpg#xywh=" in text or ".png#xywh=" in text or "xywh=" in text:
-        return False
-    clean = re.sub(
-        r"(\d{2}:\d{2}:\d{2}\.\d{3}\s*-->\s*\d{2}:\d{2}:\d{2}\.\d{3}|WEBVTT|NOTE.*)",
-        "",
-        text,
-    )
-    letters = sum(1 for c in clean if c.isalnum() or c in (" ", "\n", ".", ",", "?", "!"))
-    return letters >= 20
-
-
-def _extract_captions_from_info(info: dict, target_langs: list[str]) -> str:
-    """yt-dlp info dict에 포함된 수동/자동 자막 추출 (네트워크 추가 다운로드 없이 텍스트 파싱)."""
-    subtitles = info.get("subtitles") or {}
-    auto_captions = info.get("automatic_captions") or {}
-
-    for lang in target_langs:
-        # 1. 수동 자막
-        if lang in subtitles:
-            tracks = subtitles[lang]
-            for track in tracks:
-                if track.get("data"):
-                    candidate = str(track["data"]).strip()
-                    if is_valid_speech_vtt(candidate):
-                        return candidate
-        # 2. 자동 자막
-        if lang in auto_captions:
-            tracks = auto_captions[lang]
-            for track in tracks:
-                if track.get("data"):
-                    candidate = str(track["data"]).strip()
-                    if is_valid_speech_vtt(candidate):
-                        return candidate
-
-    return ""
-
-
 def parse_ytdlp_extractor_args(args_str: str) -> dict[str, dict[str, list[str]]]:
     """'generic:impersonate,youtube:player_client=android' 등의 문자열을 yt-dlp extractor_args 딕셔너리로 변환."""
     if not args_str or not args_str.strip():
@@ -131,7 +91,7 @@ def fetch_video(
     preferred_languages: list[str] | None = None,
     settings: Settings | None = None,
 ) -> Document:
-    """비디오 URL에서 메타데이터와 음성 자막(STT)을 추출하여 Document 생성."""
+    """비디오 URL에서 메타데이터와 CC 또는 STT를 추출하여 Document를 생성한다."""
     settings = settings or get_settings()
     target_langs = (
         preferred_languages
@@ -147,12 +107,14 @@ def fetch_video(
     # 1. yt-dlp 라이브러리 사용 시도
     info: dict[str, Any] = {}
     has_ytdlp = False
+    caption = CaptionAcquisition()
     try:
         import yt_dlp
 
         has_ytdlp = True
         ydl_opts = {
             "quiet": True,
+            "noprogress": True,
             "no_warnings": True,
             "skip_download": True,
             "writesubtitles": True,
@@ -173,8 +135,16 @@ def fetch_video(
                         info = ydl.extract_info(url, download=False) or {}
                     except Exception:  # noqa: BLE001
                         pass
+            if info:
+                caption = acquire_caption(info, target_langs, ydl)
     except ImportError:
         logger.info("yt-dlp is not installed, falling back to minimal video fetch")
+
+    if caption.status == "download_failed":
+        raise FetchError(
+            "Advertised caption download failed "
+            f"({caption.error or 'unknown caption download error'})"
+        )
 
     title = str(info.get("title") or "").strip()
     uploader = str(info.get("uploader") or info.get("channel") or "").strip()
@@ -187,14 +157,10 @@ def fetch_video(
         # URL 기반 기본 제목
         title = Path(urlsplit(url).path).stem or "Video"
 
-    transcript_text = ""
+    transcript_text = caption.text
     segments_data: list[dict] = []
 
-    # 2. 기존 내장 자막 탐색 (yt-dlp info 내)
-    if info:
-        transcript_text = _extract_captions_from_info(info, target_langs)
-
-    # 3. 자막이 없고 전사 활성화(CLAIRE_ENABLE_VIDEO_TRANSCRIPTION=1) 시 오디오 STT 실행
+    # 2. 유효한 CC가 없고 전사 활성화(CLAIRE_ENABLE_VIDEO_TRANSCRIPTION=1) 시 오디오 STT 실행
     stt_error_msg: str | None = None
     cached_used: bool = False
     cached_saved: bool = False
@@ -320,7 +286,11 @@ def fetch_video(
                                 cached_saved = True
                                 logger.info("Saved downloaded video media to 3-day cache: %s", saved_path)
 
-    # 4. 텍스트 본문 결합 구성
+    transcript_source = caption.source if caption.status == "available" else None
+    if is_stt:
+        transcript_source = "stt"
+
+    # 3. 텍스트 본문 결합 구성
     sections: list[str] = []
     if uploader:
         sections.append(f"발표자/채널: {uploader}")
@@ -392,5 +362,11 @@ def fetch_video(
             "stt_orig_chars": orig_chars if is_stt else None,
             "stt_raw_chars": raw_chars if is_stt else None,
             "stt_duration_gap": stt_duration_gap,
+            "transcript_source": transcript_source,
+            "caption_status": caption.status,
+            "caption_language": caption.language,
+            "caption_format": caption.format,
+            "caption_content_hash": caption.content_hash,
+            "caption_error": caption.error,
         },
     )

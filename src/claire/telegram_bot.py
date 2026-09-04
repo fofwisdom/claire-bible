@@ -73,7 +73,7 @@ async def _settle_status(
 ) -> None:
     """완료 처리:
     - 1홉 후보가 있으면 진행 메시지를 결과+후보 선택 버튼으로 편집(버튼 보존)
-    - STT 전사 실패 시 진행 메시지를 삭제하지 않고 실패 안내 + 재전사/재적재 원터치 버튼 제공
+    - 비디오 자막 추출 실패 시 진행 메시지를 삭제하지 않고 재수집/재적재 원터치 버튼 제공
     - 기타 에러 발생 시 진행 메시지를 삭제하지 않고 오류 안내 보존
     - 정상 완료이면서 1홉 후보가 없을 때만 진행 메시지 삭제(스팸 방지 — 결과는 원본 reaction 으로 표시됨)
     """
@@ -88,7 +88,7 @@ async def _settle_status(
             from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
             kb = [
-                [InlineKeyboardButton("🎙️ 비디오 음성 재전사 및 적재", callback_data=f"rg:full:{retry_doc_id}")],
+                [InlineKeyboardButton("🎙️ 비디오 자막 재수집 및 적재", callback_data=f"rg:full:{retry_doc_id}")],
             ]
             markup = InlineKeyboardMarkup(kb)
         except Exception:  # noqa: BLE001
@@ -474,7 +474,7 @@ def build_app(settings: Settings | None = None) -> Any:
                         elif (has_refetch or has_refetch_full) and tinfo.get("source_type") == "video" and tinfo.get("has_transcript") is False:
                             stt_err = tinfo.get("stt_error")
                             err_detail = f" (오류: {stt_err})" if stt_err else ""
-                            ans = f"⚠️ 비디오 STT 전사 실패: 음성 자막이 추출되지 않아 본문에 반영되지 못했습니다.{err_detail}"
+                            ans = f"⚠️ 비디오 자막 수집/전사 실패: 자막이 본문에 반영되지 못했습니다.{err_detail}"
                             emoji = "👎"
                         else:
                             ref_msg = ""
@@ -526,11 +526,11 @@ def build_app(settings: Settings | None = None) -> Any:
             has_ts = bool((doc.meta or {}).get("has_transcript")) if doc else False
             video_info = ""
             if is_video and not has_ts:
-                video_info = "\n🎙️ 영상 음성 자막(STT) 미추출 상태 — 아래 전사 버튼으로 재수집을 권장합니다."
+                video_info = "\n🎙️ 영상 자막(CC/STT) 미추출 상태 — 아래 버튼으로 재수집을 권장합니다."
 
             if is_video and not has_ts:
                 kb = [
-                    [InlineKeyboardButton("🎙️ 비디오 음성 재전사 및 적재", callback_data=f"rg:full:{target_doc_id}")],
+                    [InlineKeyboardButton("🎙️ 비디오 자막 재수집 및 적재", callback_data=f"rg:full:{target_doc_id}")],
                     [
                         InlineKeyboardButton("🔄 본문 재생성 (기존 텍스트 기준)", callback_data=f"rg:det:{target_doc_id}"),
                     ],
@@ -779,8 +779,8 @@ def build_app(settings: Settings | None = None) -> Any:
                     elif (do_refetch or do_refetch_full) and tinfo.get("source_type") == "video" and tinfo.get("has_transcript") is False:
                         stt_err = tinfo.get("stt_error")
                         err_detail = f" (오류: {stt_err})" if stt_err else ""
-                        ans = f"⚠️ {mode_name} 실패: 오디오 STT 음성 전사에 실패하여 본문에 전사 내용이 포함되지 않았습니다.{err_detail}"
-                        kb = [[InlineKeyboardButton("🎙️ 비디오 음성 재전사 및 적재", callback_data=f"rg:full:{did}")]]
+                        ans = f"⚠️ {mode_name} 실패: CC 수집 또는 오디오 STT에 실패하여 자막이 포함되지 않았습니다.{err_detail}"
+                        kb = [[InlineKeyboardButton("🎙️ 비디오 자막 재수집 및 적재", callback_data=f"rg:full:{did}")]]
                         await status_msg.edit_text(ans, reply_markup=InlineKeyboardMarkup(kb))
                         return
                     else:
