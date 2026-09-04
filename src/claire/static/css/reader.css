@@ -89,6 +89,9 @@
   #reader .rbody-wrap{position:relative;flex:1;min-height:0;min-width:0;display:flex;flex-direction:column;overflow:hidden}
   #reader .rbody{padding:16px 42px max(28px,env(safe-area-inset-bottom)) 28px;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;flex:1;min-height:0;min-width:0;max-width:100%;box-sizing:border-box;scrollbar-width:none;-ms-overflow-style:none}
   #reader .rbody::-webkit-scrollbar{display:none}
+  #reader .rbody:focus-visible{outline:1px solid var(--accent);outline-offset:-1px}
+  #reader .rbody:focus:not(:focus-visible){outline:none}
+  .doc-content table:focus-visible,.doc-content pre:focus-visible,.doc-content .mathblock:focus-visible{outline:1.5px solid var(--accent);outline-offset:2px}
   #reader .rsection{color:var(--muted);font-size:11px;letter-spacing:.04em;text-transform:uppercase;margin:1.2em 0 .2em}
 
   /* --- 우측 슬림 마름모 바 & 탄성 확장 헤딩 내비게이션 레일 --- */
@@ -265,5 +268,5 @@ body.stt-modal-open{overflow:hidden}
     #reader .head h1{font-size:18px!important}
     #reader .rzoom button,#reader .redit,#reader .rshare,#reader .rclose,#reader #opengraphbtn{min-width:44px!important;min-height:44px!important}
     #reader .rclose{display:inline-flex!important}
-    #reader .rbody{padding:8px 36px max(24px,env(safe-area-inset-bottom)) 16px!important;overflow-y:auto!important;overflow-x:hidden!important;min-width:0!important;max-width:100%!important;box-sizing:border-box!important;flex:1!important;min-height:0!important;scrollbar-width:none!important;-ms-overflow-style:none!important}
+    #reader .rbody{padding:8px 36px max(24px,env(safe-area-inset-bottom)) 16px!important;overflow-y:auto!important;overflow-x:auto!important;min-width:0!important;max-width:100%!important;box-sizing:border-box!important;flex:1!important;min-height:0!important;scrollbar-width:none!important;-ms-overflow-style:none!important}
 }

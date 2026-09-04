@@ -744,3 +744,26 @@ def test_progress_lists_no_double_bullets():
     assert "document.getElementById('iprog')" in GRAPH_HTML
     assert "document.getElementById('rprog')" in GRAPH_HTML
     assert "#rprog, #iprog" in GRAPH_HTML
+
+
+def test_reader_keyboard_navigation_markup_and_styles():
+    """문서 읽기 키보드 탐색 및 포커스, 모바일 가로 스크롤 허용 검증."""
+    from claire.graphview import GRAPH_HTML
+
+    # 1. #rbody의 tabindex 및 접근성 명시
+    assert '<div class="rbody" id="rbody" tabindex="0" role="region" aria-label="문서 본문">' in GRAPH_HTML
+
+    # 2. #rbody 및 블록 컨테이너 포커스 스타일
+    assert "#reader .rbody:focus-visible{outline:1px solid var(--accent);outline-offset:-1px}" in GRAPH_HTML
+    assert "#reader .rbody:focus:not(:focus-visible){outline:none}" in GRAPH_HTML
+    assert ".doc-content table:focus-visible,.doc-content pre:focus-visible,.doc-content .mathblock:focus-visible" in GRAPH_HTML
+
+    # 3. 데스크톱 overflow-x: hidden 유지 및 모바일 overflow-x: auto 적용
+    assert "#reader .rbody{padding:16px 42px max(28px,env(safe-area-inset-bottom)) 28px;overflow-y:auto;overflow-x:hidden" in GRAPH_HTML
+    assert "overflow-y:auto!important;overflow-x:auto!important" in GRAPH_HTML
+
+    # 4. handleReaderKey 및 자동 포커스/접근성 함수 존재
+    assert "function handleReaderKey(e)" in GRAPH_HTML
+    assert "setupReaderAccessibleBlocks" in GRAPH_HTML
+    assert "_scrollReaderBy" in GRAPH_HTML
+
