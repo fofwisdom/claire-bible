@@ -82,7 +82,7 @@ flowchart TD
      - `[latexmath]++++` 또는 `[stem]----` 블록 $\rightarrow$ `<div class="mathblock display" data-math="..."><div class="content"><pre class="math"><code>...</code></pre></div></div>`
   3. **UI 렌더링 & CSS (`graphview.py`)**:
      - KaTeX/TeX 수식 폰트(`KaTeX_Math`, `Times New Roman`, `serif`) 및 패딩/스크롤 스타일(`.doc-content .math`, `.doc-content .mathblock`) 적용.
-     - Markdown과 AsciiDoc 공통 렌더링 컨테이너는 포맷 중립 클래스 `.doc-content`를 사용하며, 최상위 문단(`.doc-content > p`)에 `text-align: justify`, `text-align-last: start`, `text-justify: auto`를 적용.
+     - Markdown과 AsciiDoc 공통 렌더링 컨테이너는 포맷 중립 클래스 `.doc-content`를 사용하며, 최상위 문단(`.doc-content > p`)에 `text-align: justify`, `text-align-last: start`, `text-justify: auto`, `text-indent: 1em`(한국어/동아시아 타이포그래피 표준 첫 줄 들여쓰기) 및 단독 이미지 들여쓰기 초기화(`.doc-content > p:has(> img:only-child), .doc-content > p:has(> a:only-child > img:only-child) { text-indent: 0; }`)를 적용.
      - `GRAPH_HTML` 및 `shared_html` 클라이언트 사이드 Fallback 렌더러에 동일 JS 파서 동기화 완료.
 
 #### B. 크로스레퍼런스 및 내부 앵커 (`<<anchor>>`, `xref:...[]`, `[#anchor]`)

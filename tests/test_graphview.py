@@ -573,11 +573,13 @@ def test_rendered_document_uses_format_neutral_class_and_justifies_top_level_par
     from claire.graphview import _SHARED_HTML, render_graph_html
 
     main_html = render_graph_html()
-    expected_rule = ".doc-content > p{text-align:justify;text-align-last:start;text-justify:auto}"
+    expected_rule = ".doc-content > p{text-align:justify;text-align-last:start;text-justify:auto;text-indent:1em}"
+    img_reset_rule = ".doc-content > p:has(> img:only-child),.doc-content > p:has(> a:only-child > img:only-child){text-indent:0}"
 
     for html in (main_html, _SHARED_HTML):
         assert 'class="doc-content"' in html
         assert expected_rule in html
+        assert img_reset_rule in html
         assert 'class="md"' not in html
         assert ".md{" not in html
 
