@@ -18,6 +18,7 @@ docs/origin/
 │   ├── DATA_LIFECYCLE_AND_PURGE_DESIGN.md # 데이터 수명주기 및 정리(Purge) 설계
 │   ├── DUAL_FORMAT_ADOC_DESIGN.md        # AsciiDoc 및 듀얼 포맷 본문 파이프라인 설계
 │   ├── EXPAND_FILTERING_DESIGN.md        # 1홉 확장의 깊이 및 연관성 필터링 설계
+│   ├── GRAPHVIEW_MODULARIZATION_AND_STATIC_ASSET_DESIGN.md # graphview.py 모듈화 및 정적 자산 분리 설계
 │   ├── INGESTION_INTEGRITY_AND_POLLUTION_CONTROL_RESEARCH.md # 원문 보존·서비스 보호·오염 통제 거버넌스 연구
 │   ├── MCP_SUPPORT.md                    # MCP 지원 아키텍처 및 표준 인증 명세 (오리진 개정본)
 │   ├── MULTI_PROVIDER_DESIGN.md          # 멀티 LLM 프로바이더 및 캘리브레이션 설계
@@ -56,6 +57,7 @@ docs/origin/
   - `DATA_LIFECYCLE_AND_PURGE_DESIGN.md`: 데이터 수명주기 및 연쇄 소각 설계
   - `INGESTION_INTEGRITY_AND_POLLUTION_CONTROL_RESEARCH.md`: 원문 보존·서비스 보호·오염 통제 상충 및 지식 무결성 거버넌스 연구
   - `DUAL_FORMAT_ADOC_DESIGN.md`: AsciiDoc/Markdown 듀얼 포맷 렌더링 파이프라인
+  - `GRAPHVIEW_MODULARIZATION_AND_STATIC_ASSET_DESIGN.md`: graphview.py 모듈화, 정적 자산 분리 및 Phase 1~4 로드맵
   - `MULTI_PROVIDER_DESIGN.md`: 멀티 LLM 프로바이더 및 캘리브레이션 설계
   - `MCP_SUPPORT.md`: RFC 6750 표준 인증 기반 MCP 지원 설계
   - `VIDEO_AUDIO_TRANSCRIPTION_AND_INGESTION_DESIGN.md`: 비디오 음성 자막(STT) 생성 및 지식 적재 파이프라인 설계 (Gemini 3.5 Transcribe 고도화, 10k TPM 페이싱, 3일 미디어 캐시, CLI/텔레그램 재전사 완비)
