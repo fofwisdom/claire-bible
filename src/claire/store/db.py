@@ -2373,13 +2373,14 @@ def purge_document_cascade(
     target_ids: list[str],
     reason: str = "manual_purge",
     dry_run: bool = False,
+    tombstone: bool = True,
 ) -> dict[str, Any]:
     """오염 문서를 L1/L2/DB/그래프/디스크에서 원자적으로 연쇄 소각."""
     import time
     from .raw import _artifacts_dir, _images_dir
 
     if not target_ids:
-        return {"purged_count": 0, "target_documents": []}
+        return {"purged_count": 0, "target_documents": [], "tombstone_recorded": tombstone}
 
     ph = ",".join("?" for _ in target_ids)
 
@@ -2392,7 +2393,7 @@ def purge_document_cascade(
     matched_ids = [d["id"] for d in target_docs]
 
     if not matched_ids:
-        return {"purged_count": 0, "target_documents": []}
+        return {"purged_count": 0, "target_documents": [], "tombstone_recorded": tombstone}
 
     ph_matched = ",".join("?" for _ in matched_ids)
 
@@ -2427,6 +2428,7 @@ def purge_document_cascade(
             "target_documents": target_docs,
             "disk_files_count": len(unlinked_candidates),
             "disk_files": [str(p) for p in unlinked_candidates[:50]],
+            "tombstone_recorded": tombstone,
         }
 
     # 3. 실제 소각 실행 (DB 트랜잭션)
@@ -2434,19 +2436,22 @@ def purge_document_cascade(
         "dry_run": False,
         "purged_count": len(matched_ids),
         "target_documents": target_docs,
+        "tombstone_recorded": tombstone,
+        "purged_tombstones_registered": len(matched_ids) if tombstone else 0,
     }
 
     try:
         conn.execute("BEGIN IMMEDIATE")
         now = time.time()
-        for d in target_docs:
-            conn.execute(
-                """
-                INSERT OR REPLACE INTO purged_tombstones (id, url, canonical_url, content_hash, reason, purged_at)
-                VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (d["id"], d.get("url"), d.get("canonical_url"), d.get("content_hash"), reason, now),
-            )
+        if tombstone:
+            for d in target_docs:
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO purged_tombstones (id, url, canonical_url, content_hash, reason, purged_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (d["id"], d.get("url"), d.get("canonical_url"), d.get("content_hash"), reason, now),
+                )
 
         # 8개 DB 테이블 연쇄 삭제
         stats["deleted_expand_queue"] = conn.execute(

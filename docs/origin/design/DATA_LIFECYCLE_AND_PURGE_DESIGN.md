@@ -112,7 +112,7 @@ sequenceDiagram
 ```
 
 1. **정책 검증**: `settings.is_purge_allowed` 확인. 미허용 시 차단.
-2. **툼스톤 기록**: 대상 문서의 `url`, `canonical_url`, `content_hash`를 `purged_tombstones`에 영구 기록.
+2. **툼스톤 기록**: 대상 문서의 `url`, `canonical_url`, `content_hash`를 `purged_tombstones`에 영구 기록. (`--no-tombstone` 지정 시 툼스톤 등록 건너뜀 — 향후 재수집 허용)
 3. **DB 연쇄 삭제 (Single Transaction)**:
    - `expand_queue`, `refresh_queue`, `doc_shares`, `document_snapshots`, `extractions`, `proposals`, `raw_inbox`, `documents`
 4. **로컬 파일 소각 (Disk Unlink)**:
