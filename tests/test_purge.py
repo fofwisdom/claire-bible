@@ -12,7 +12,7 @@ import pytest
 from pydantic import ValidationError
 
 from claire.cli import build_parser, cmd_audit, cmd_purge
-from claire.config import Settings
+from claire.config import Settings, get_settings
 from claire.extract.provider import MockProvider
 from claire.ingest.normalize import content_hash
 from claire.ingest.pipeline import IngestReport, extract_resolve_store, ingest
@@ -322,3 +322,131 @@ def test_purge_cli_smart_targets(tmp_path, monkeypatch, capsys):
     assert dbm.get_document_row(conn2, doc_id) is None
     assert dbm.is_tombstoned(conn2, canonical_url="https://news.example.com/tech/article-123") is True
     conn2.close()
+
+
+def test_purge_cascade_without_tombstone(tmp_path, monkeypatch):
+    """tombstone=False 일 때 툼스톤이 기록되지 않고 재수집이 허용되는지 검증."""
+    db_file = tmp_path / "claire.db"
+    data_dir = tmp_path / "data"
+    vault_dir = tmp_path / "vault"
+    monkeypatch.setenv("CLAIRE_DB_PATH", str(db_file))
+    monkeypatch.setenv("CLAIRE_DATA_LIFECYCLE", "purgeable")
+
+    conn = dbm.connect(db_file)
+    dbm.init_db(conn)
+    prov = MockProvider()
+    vstore = make_vector_store(conn, "brute")
+
+    url = "https://example.com/reingest-article"
+    mock_doc = Document(
+        url=url,
+        canonical_url=url,
+        title="Reusable Article",
+        raw_text="This article will be purged without tombstone and re-ingested.",
+    )
+
+    rep = ingest(
+        payload=url,
+        conn=conn,
+        provider=prov,
+        vstore=vstore,
+        vault_dir=vault_dir,
+        data_dir=data_dir,
+        source="web",
+        fetch_fn=_fetch_doc(mock_doc),
+    )
+    assert rep.document_id is not None
+    doc_id = rep.document_id
+
+    # 소각 (tombstone=False)
+    report = dbm.purge_document_cascade(
+        conn,
+        data_dir=data_dir,
+        vault_dir=vault_dir,
+        target_ids=[doc_id],
+        reason="test_no_tombstone",
+        dry_run=False,
+        tombstone=False,
+    )
+    assert report["deleted_documents"] == 1
+    assert report["tombstone_recorded"] is False
+    assert report["purged_tombstones_registered"] == 0
+
+    # 툼스톤이 등록되지 않았는지 확인
+    assert dbm.is_tombstoned(conn, url=url) is False
+    assert dbm.is_tombstoned(conn, canonical_url=url) is False
+    assert conn.execute("SELECT COUNT(*) FROM purged_tombstones WHERE id=?", (doc_id,)).fetchone()[0] == 0
+
+    # 동일 URL로 재수집 시도 -> 툼스톤 차단 없이 정상 적재 확인
+    rep2 = ingest(
+        payload=url,
+        conn=conn,
+        provider=prov,
+        vstore=vstore,
+        vault_dir=vault_dir,
+        data_dir=data_dir,
+        source="web",
+        fetch_fn=_fetch_doc(mock_doc),
+    )
+    assert rep2.error is None
+    assert rep2.document_id is not None
+    assert dbm.get_document(conn, rep2.document_id) is not None
+    conn.close()
+
+
+def test_cli_purge_no_tombstone(tmp_path, monkeypatch, capsys):
+    """CLI에서 --no-tombstone 옵션 적용 시 dry-run 및 소각 동작 검증."""
+    db_file = tmp_path / "claire.db"
+    data_dir = tmp_path / "data"
+    vault_dir = tmp_path / "vault"
+    monkeypatch.setenv("CLAIRE_DB_PATH", str(db_file))
+    monkeypatch.setenv("CLAIRE_DATA_DIR", str(data_dir))
+    monkeypatch.setenv("CLAIRE_VAULT_DIR", str(vault_dir))
+    monkeypatch.setenv("CLAIRE_DATA_LIFECYCLE", "purgeable")
+    get_settings.cache_clear()
+
+    conn = dbm.connect(db_file)
+    dbm.init_db(conn)
+    prov = MockProvider()
+    vstore = make_vector_store(conn, "brute")
+
+    url = "https://example.com/clean-purge-test"
+    doc = Document(url=url, canonical_url=url, title="Clean Purge Title", raw_text="content text")
+    rep = ingest(
+        payload=url,
+        conn=conn,
+        provider=prov,
+        vstore=vstore,
+        vault_dir=vault_dir,
+        data_dir=data_dir,
+        source="web",
+        fetch_fn=_fetch_doc(doc),
+    )
+    doc_id = rep.document_id
+    conn.close()
+
+    parser = build_parser()
+
+    # 1. --no-tombstone Dry-run 검증
+    args_dry = parser.parse_args(["purge", doc_id, "--no-tombstone"])
+    rc = cmd_purge(args_dry)
+    assert rc == 0
+    cap = capsys.readouterr()
+    assert "[Dry-Run]" in cap.out
+    assert "미등록 (--no-tombstone, 재수집 허용)" in cap.out
+    assert "--no-tombstone" in cap.out
+
+    # 2. --no-tombstone --apply --yes 실제 소각 검증
+    args_apply = parser.parse_args(["purge", doc_id, "--no-tombstone", "--apply", "--yes"])
+    rc = cmd_purge(args_apply)
+    assert rc == 0
+    cap = capsys.readouterr()
+    assert "소각된 문서 수 (DB)" in cap.out
+    assert "등록된 툼스톤 (재유입방지): 0 건 (--no-tombstone 적용, 재수집 가능)" in cap.out
+
+    # 3. 툼스톤 미등록 검증
+    conn2 = dbm.connect(db_file)
+    assert dbm.get_document(conn2, doc_id) is None
+    assert dbm.is_tombstoned(conn2, url=url) is False
+    conn2.close()
+

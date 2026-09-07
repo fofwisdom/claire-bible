@@ -251,12 +251,14 @@ def cmd_purge(args) -> int:
 
         apply = getattr(args, "apply", False)
         reason = getattr(args, "reason", "manual_purge") or "manual_purge"
+        no_tombstone = getattr(args, "no_tombstone", False)
+        tombstone = not no_tombstone
 
         has_share_token = any(t.get("is_from_share_token") for t in matched_targets)
 
         if not apply:
             report = dbm.purge_document_cascade(
-                conn, data_dir=s.data_dir, vault_dir=s.vault_dir, target_ids=target_ids, reason=reason, dry_run=True
+                conn, data_dir=s.data_dir, vault_dir=s.vault_dir, target_ids=target_ids, reason=reason, dry_run=True, tombstone=tombstone
             )
             if getattr(args, "json", False):
                 import json
@@ -272,6 +274,7 @@ def cmd_purge(args) -> int:
                 print("      이 작업은 단순 공유 취소가 아니라 원본 문서, 지식그래프 노드, 디스크 파일 전체를 영구 소각합니다.")
                 print("-" * 60)
             print(f"• 소각 대상 문서 수         : {report['purged_count']} 건")
+            print(f"• 툼스톤 등록 여부          : {'미등록 (--no-tombstone, 재수집 허용)' if no_tombstone else '등록 (재수집 영구 차단)'}")
             print(f"• 삭제 대상 디스크 파일     : {report['disk_files_count']} 개")
             print("-" * 60)
             print("대상 문서 목록:")
@@ -285,7 +288,8 @@ def cmd_purge(args) -> int:
                     print(f"      표준 URL: {d['canonical_url']}")
             print("=" * 60)
             print("[안내] 실제 소각 및 DB 물리 압축(VACUUM)을 실행하려면 --apply 옵션을 추가하십시오:")
-            print("  claire purge --apply " + " ".join(f"'{did}'" for did in target_ids))
+            extra_flags = " --no-tombstone" if no_tombstone else ""
+            print(f"  claire purge --apply{extra_flags} " + " ".join(f"'{did}'" for did in target_ids))
             return 0
 
         confirmed = getattr(args, "yes", False)
@@ -300,14 +304,15 @@ def cmd_purge(args) -> int:
                     print("소각 작업이 취소되었습니다.")
                     return 0
             else:
+                extra_flags = " --no-tombstone" if no_tombstone else ""
                 print("\n비대화형 환경에서는 --yes (-y) 옵션을 명시하여 실행하십시오:")
-                print("  claire purge --apply --yes " + " ".join(f"'{did}'" for did in target_ids))
+                print(f"  claire purge --apply --yes{extra_flags} " + " ".join(f"'{did}'" for did in target_ids))
                 return 2
 
         # 실행
         print("claire purge: [소각 시작] 원자적 연쇄 소각 및 지식그래프 정화 중...")
         report = dbm.purge_document_cascade(
-            conn, data_dir=s.data_dir, vault_dir=s.vault_dir, target_ids=target_ids, reason=reason, dry_run=False
+            conn, data_dir=s.data_dir, vault_dir=s.vault_dir, target_ids=target_ids, reason=reason, dry_run=False, tombstone=tombstone
         )
         if getattr(args, "json", False):
             import json
@@ -317,7 +322,10 @@ def cmd_purge(args) -> int:
 
         print("=" * 60)
         print(f"• 소각된 문서 수 (DB)       : {report['deleted_documents']} 건")
-        print(f"• 등록된 툼스톤 (재유입방지): {report['purged_count']} 건")
+        if no_tombstone:
+            print(f"• 등록된 툼스톤 (재유입방지): 0 건 (--no-tombstone 적용, 재수집 가능)")
+        else:
+            print(f"• 등록된 툼스톤 (재유입방지): {report['purged_count']} 건")
         print(f"• 삭제된 L1 인박스 레코드   : {report.get('deleted_raw_inbox', 0)} 건")
         print(f"• 삭제된 L2 디스크 파일     : {report['disk_files_unlinked']} 개")
         gh = report.get("graph_healed", {})
@@ -2093,6 +2101,11 @@ def build_parser() -> argparse.ArgumentParser:
     ppg.add_argument("--canonical-url", default=None, help="specific canonical URL to purge")
     ppg.add_argument("--pattern", default=None, help="search pattern across document id/url/title/text")
     ppg.add_argument("--reason", default="manual_purge", help="reason recorded in tombstone registry")
+    ppg.add_argument(
+        "--no-tombstone",
+        action="store_true",
+        help="skip registering document fingerprints into purged_tombstones (allows future re-ingestion)",
+    )
     ppg.add_argument("--apply", action="store_true", help="apply actual purge, tombstone creation, and disk compaction (default: dry-run only)")
     ppg.add_argument("--dry-run", action="store_true", help="dry-run inspection without changes (default)")
     ppg.add_argument("--yes", "-y", action="store_true", help="confirm without interactive prompt")

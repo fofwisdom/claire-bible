@@ -390,10 +390,11 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 
 ### 3.8 데이터 수명주기 및 오염 소각 (Lifecycle & Purge)
 
-* `claire purge <target> [--doc-id <ID>] [--token <token>] [--url <URL>] [--pattern <str>] [--reason <str>] [--apply] [--yes] [--json]`:
+* `claire purge <target> [--doc-id <ID>] [--token <token>] [--url <URL>] [--pattern <str>] [--reason <str>] [--no-tombstone] [--apply] [--yes] [--json]`:
   * **스마트 타깃 자동 판별**: `target` 하나로 문서 ID(SHA256/UUID), 공유 링크(`/p?s=token`), 일반 원본 URL, 정규화된 canonical URL, 프로토콜 누락 도메인(`domain.com/...`), 제목 키워드를 4단계 우선순위로 자동 판별.
   * **수명주기 게이트**: `.env`에 `CLAIRE_DATA_LIFECYCLE=purgeable` (또는 `CLAIRE_ALLOW_PURGE=1`) 설정 시에만 실행 허용 (`append-only` 시 안전 차단).
   * **원자적 소각**: 툼스톤(`purged_tombstones`) 등록 ➔ DB 8개 테이블 연쇄 Hard Delete ➔ 로컬 파일시스템 아티팩트(`raw/artifacts`, `raw/attachments`, `images`, `vault`) Unlink ➔ `heal_graph` 수복 ➔ `VACUUM` 압축을 일괄 수행.[^video-presentation-implementation]
+  * **툼스톤 등록 제어 (`--no-tombstone`)**: 기본값은 소각 시 `purged_tombstones`에 지문을 등록하여 동일 URL/해시의 영구 재유입을 차단합니다. 테스트 목적 또는 포맷/옵션을 변경하여 즉시 재수집(re-ingest)하려는 경우 `--no-tombstone` 옵션을 지정하면 툼스톤 등록을 건너뛰어 향후 재수집이 가능합니다.
   * **공유 링크 소각 경고**: 공유 링크로 식별된 경우 단순 링크 무효화가 아닌 원본 문서 전체 파괴임을 Dry-Run에 명시적 경고.
   * 기본 실행은 Dry-Run으로 영향 범위를 사전 출력하며, `--apply` 지정 시 실제 소각 실행 (대화형 `[y/N]` 확인 또는 `--yes`/`-y`로 무인 실행).
 * `claire audit [<target>] [--pattern <str>] [--json]`:
