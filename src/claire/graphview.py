@@ -116,28 +116,238 @@ def render_ga_tag(measurement_id: str, doc_id: str = "") -> str:
     )
 
 
-def shared_html(doc: dict, settings: Any = None) -> str:
+def sanitize_preview_text(text: str | None, max_chars: int = 220) -> str:
+    """Markdown, AsciiDoc, LaTeX, HTML 서식을 제거하고 단일 행으로 정규화하여 절단한다."""
+    if not text:
+        return ""
+    s = _html.unescape(str(text))
+
+    # 1. 코드 블록 및 블록 선언 제거
+    s = re.sub(r"```[\s\S]*?```", " ", s)
+    s = re.sub(r"(\+\+\+\+|----|\.\.\.\.|====|\|===)[\s\S]*?\1", " ", s)
+    s = re.sub(r"^\s*\[(?:latexmath|stem|asciimath|source[^\]]*)\]\s*$", " ", s, flags=re.MULTILINE)
+
+    # 2. 수식 문법 정제 (stem:[...], latexmath:[...], asciimath:[...])
+    s = re.sub(r"(?:stem|latexmath|asciimath):\[(.*?)\]", r"\1", s)
+    s = re.sub(r"\$\$([\s\S]*?)\$\$", r"\1", s)
+    s = re.sub(r"\\\[([\s\S]*?)\\\]", r"\1", s)
+    s = re.sub(r"\$([^\$\n]+)\$", r"\1", s)
+    s = re.sub(r"\\\((.*?)\\\)", r"\1", s)
+
+    # 3. 링크 및 이미지 마크업 정제 (대체 텍스트만 보존)
+    s = re.sub(r"!\[([^\]]*)\]\([^\)]+\)", r"\1", s)
+    s = re.sub(r"\[([^\]]+)\]\([^\)]+\)", r"\1", s)
+    s = re.sub(r"image::?[^\[]*\[(.*?)\]", r"\1", s)
+    s = re.sub(r"(?:https?://\S+|link:\S+)\[(.*?)\]", r"\1", s)
+
+    # 4. 헤딩, 인용, Admonition, 인라인 서식(*, _, `, +) 제거
+    s = re.sub(r"^\s*#{1,6}\s+", " ", s, flags=re.MULTILINE)
+    s = re.sub(r"^\s*={1,6}\s+", " ", s, flags=re.MULTILINE)
+    s = re.sub(r"^\s*>\s+", " ", s, flags=re.MULTILINE)
+    s = re.sub(r"\b(?:NOTE|TIP|IMPORTANT|WARNING|CAUTION):\s*", " ", s)
+
+    # 5. 인라인 서식 기호 제거 (매칭되는 쌍만 제거하여 수학 기호 +, _ 등 보존)
+    s = re.sub(r"\*\*([^*]+)\*\*", r"\1", s)
+    s = re.sub(r"\*([^*]+)\*", r"\1", s)
+    s = re.sub(r"__([^_]+)__", r"\1", s)
+    s = re.sub(r"(?<!\w)_([^_]+)_(?!\w)", r"\1", s)
+    s = re.sub(r"~~([^~]+)~~", r"\1", s)
+    s = re.sub(r"`([^`]+)`", r"\1", s)
+
+    # 6. HTML 태그 제거 (스크립트, 스타일 태그는 내용 포함 제거)
+    s = re.sub(r"<script[\s\S]*?</script>", " ", s, flags=re.IGNORECASE)
+    s = re.sub(r"<style[\s\S]*?</style>", " ", s, flags=re.IGNORECASE)
+    s = re.sub(r"<[a-zA-Z/][^>]*>", " ", s)
+
+    # 7. 연속 공백 정규화
+    s = re.sub(r"\s+", " ", s).strip()
+
+    # 8. 길이 제한 및 말줄임표 처리
+    if len(s) > max_chars:
+        cut = s[:max_chars]
+        last_space = cut.rfind(" ")
+        if last_space > int(max_chars * 0.75):
+            cut = cut[:last_space]
+        s = cut.rstrip(" .,!?;:") + "…"
+
+    return s
+
+
+def resolve_preview_image(doc: dict, base_url: str = "") -> tuple[str, str]:
+    """미리보기용 대표 이미지 URL과 twitter:card 타입 ('summary' | 'summary_large_image')을 반환한다."""
+    base = base_url.rstrip("/") if base_url else ""
+    meta = (doc or {}).get("meta") or {}
+
+    candidates: list[str] = []
+
+    # 1. meta.get("og_image") 또는 meta.get("image")
+    for k in ("og_image", "image", "thumbnail"):
+        v = (doc or {}).get(k) or meta.get(k)
+        if v and isinstance(v, str) and v.strip():
+            candidates.append(v.strip())
+
+    # 2. meta.images 목록
+    images = meta.get("images") or []
+    if isinstance(images, list):
+        for im in images:
+            if isinstance(im, dict):
+                loc = str(im.get("local") or "").strip()
+                if loc:
+                    rel = loc.lstrip("/")
+                    candidates.append(f"/image?p={rel}")
+                u = str(im.get("url") or "").strip()
+                if u:
+                    candidates.append(u)
+
+    # 3. detail 본문 내 첫 번째 이미지 탐색
+    detail = str((doc or {}).get("detail") or "")
+    if detail:
+        m_md = re.search(r"!\[.*?\]\((https?://[^\s\)]+)\)", detail)
+        if m_md:
+            candidates.append(m_md.group(1).strip())
+        m_adoc = re.search(r"image::?(https?://[^\s\[]+)\[", detail)
+        if m_adoc:
+            candidates.append(m_adoc.group(1).strip())
+
+    for c in candidates:
+        if c.startswith(("http://", "https://")):
+            return c, "summary_large_image"
+        if c.startswith("/"):
+            return f"{base}{c}" if base else c, "summary_large_image"
+
+    # 4. 문서 이미지 부재 시 고해상도 브랜드 아이콘 (512x512) 폴백
+    icon_path = "/icon?p=android-chrome-512x512.png"
+    return f"{base}{icon_path}" if base else icon_path, "summary"
+
+
+def extract_knowledge_node_tags(doc: dict) -> list[str]:
+    """문서의 지식 노드(nodes)에서 태그 목록을 추출하고 정제한다."""
+    nodes = (doc or {}).get("nodes") or []
+    tags: list[str] = []
+    seen: set[str] = set()
+
+    for n in nodes:
+        if isinstance(n, dict):
+            name = str(n.get("label") or n.get("name") or "").strip()
+        elif isinstance(n, str):
+            name = n.strip()
+        else:
+            continue
+        if name and name not in seen:
+            seen.add(name)
+            tags.append(name)
+    return tags
+
+
+def render_open_graph_tags(
+    doc: dict,
+    base_url: str = "",
+    share_token: str = "",
+) -> str:
+    """텔레그램, 마스토돈, 슬랙, 디스코드, X 등과 호환되는 Open Graph 및 Twitter Cards 메타태그 스니펫을 생성한다."""
+    base = base_url.rstrip("/") if base_url else ""
+
+    raw_title = str((doc or {}).get("title") or "공유 문서").strip()
+    title = sanitize_preview_text(raw_title, max_chars=100) or "공유 문서"
+
+    raw_desc = (
+        (doc or {}).get("summary")
+        or (doc or {}).get("detail")
+        or (doc or {}).get("directive")
+        or ""
+    )
+    desc = sanitize_preview_text(raw_desc, max_chars=220)
+    if not desc:
+        desc = "Claire Bible에서 공유된 지식 문서입니다."
+
+    image_url, card_type = resolve_preview_image(doc, base_url=base)
+
+    author = str((doc or {}).get("author") or "").strip()
+    published_at = str((doc or {}).get("published_at") or "").strip()
+
+    if share_token:
+        page_url = f"{base}/p?s={share_token}" if base else f"/p?s={share_token}"
+    else:
+        page_url = f"{base}/p" if base else "/p"
+
+    esc_title = _html.escape(title, quote=True)
+    esc_desc = _html.escape(desc, quote=True)
+    esc_image = _html.escape(image_url, quote=True)
+    esc_url = _html.escape(page_url, quote=True)
+    esc_author = _html.escape(author, quote=True) if author else ""
+    esc_pub = _html.escape(published_at, quote=True) if published_at else ""
+
+    tags = [
+        "<!-- Open Graph / Web Preview (Telegram, Mastodon, KakaoTalk, etc.) -->",
+        f'<meta name="description" content="{esc_desc}"/>',
+        '<meta property="og:site_name" content="Claire Bible"/>',
+        '<meta property="og:type" content="article"/>',
+        f'<meta property="og:title" content="{esc_title}"/>',
+        f'<meta property="og:description" content="{esc_desc}"/>',
+        f'<meta property="og:url" content="{esc_url}"/>',
+        f'<meta property="og:image" content="{esc_image}"/>',
+        f'<meta property="og:image:alt" content="{esc_title}"/>',
+    ]
+
+    if esc_author:
+        tags.append(f'<meta property="article:author" content="{esc_author}"/>')
+        tags.append(f'<meta name="author" content="{esc_author}"/>')
+    if esc_pub:
+        tags.append(f'<meta property="article:published_time" content="{esc_pub}"/>')
+
+    node_tags = extract_knowledge_node_tags(doc)
+    if node_tags:
+        esc_keywords = _html.escape(", ".join(node_tags), quote=True)
+        tags.append(f'<meta name="keywords" content="{esc_keywords}"/>')
+        for t in node_tags:
+            esc_t = _html.escape(t, quote=True)
+            tags.append(f'<meta property="article:tag" content="{esc_t}"/>')
+
+    tags.extend([
+        "<!-- Twitter Cards (X, Slack, Discord, etc.) -->",
+        f'<meta name="twitter:card" content="{card_type}"/>',
+        f'<meta name="twitter:title" content="{esc_title}"/>',
+        f'<meta name="twitter:description" content="{esc_desc}"/>',
+        f'<meta name="twitter:image" content="{esc_image}"/>',
+        f'<link rel="canonical" href="{esc_url}"/>',
+    ])
+
+    return "\n".join(tags)
+
+
+def shared_html(
+    doc: dict,
+    settings: Any = None,
+    *,
+    base_url: str = "",
+    share_token: str = "",
+) -> str:
     """공유 문서 1개를 임베드한 경량 읽기 페이지 HTML. doc = document_detail() 결과.
 
     문서 데이터를 JSON 으로 <script> 에 임베드한다 — `</script>`·`<` 등이 스크립트를
     조기 종료/주입하지 못하게 HTML 특수문자를 \\uXXXX 로 이스케이프(스크랩 본문 유래).
+    Open Graph 및 Twitter Card 메타태그를 주입하여 텔레그램/마스토돈 등의 미리보기를 지원한다.
     """
     if isinstance(settings, str):
         ga_id = settings
+        resolved_base_url = base_url
     elif settings is None:
         from .config import get_settings
 
         s = get_settings()
         ga_id = getattr(s, "effective_ga_measurement_id", getattr(s, "ga_measurement_id", ""))
+        resolved_base_url = base_url or getattr(s, "public_url", "")
     else:
         ga_id = getattr(
             settings,
             "effective_ga_measurement_id",
             getattr(settings, "ga_measurement_id", ""),
         )
+        resolved_base_url = base_url or getattr(settings, "public_url", "")
 
     doc_id = str((doc or {}).get("id", "") or "").strip()
     ga_tag = render_ga_tag(ga_id, doc_id=doc_id)
+    og_tags = render_open_graph_tags(doc, base_url=resolved_base_url, share_token=share_token)
 
     data = _json.dumps(doc, ensure_ascii=False)
     data = data.replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
@@ -146,6 +356,7 @@ def shared_html(doc: dict, settings: Any = None) -> str:
         _SHARED_HTML.replace("__DATA__", data)
         .replace("__TITLE__", title)
         .replace("<!-- __GA_TAG__ -->", ga_tag)
+        .replace("<!-- __OG_TAGS__ -->", og_tags)
     )
 
 
@@ -205,10 +416,14 @@ __all__ = [
     "dedup_clusters",
     "document_detail",
     "documents_list",
+    "extract_knowledge_node_tags",
     "graph_json",
     "node_detail",
     "render_ga_tag",
     "render_graph_html",
+    "render_open_graph_tags",
+    "resolve_preview_image",
+    "sanitize_preview_text",
     "shared_html",
     "synthesis_context",
     "synthesize",
