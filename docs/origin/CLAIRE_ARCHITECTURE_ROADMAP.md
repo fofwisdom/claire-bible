@@ -59,6 +59,7 @@ flowchart TD
 ```
 
 ### 2.1 [과제 1 / Phase 1] 컨테이너 경량화 및 의존성 분리
+* **상세 규격**: [design/CONTAINER_SLIMMING_AND_DEPENDENCY_DECOUPLING_DESIGN.md](design/CONTAINER_SLIMMING_AND_DEPENDENCY_DECOUPLING_DESIGN.md)
 * **배경**: 현재 프로덕션 컨테이너의 코어 이미지가 약 582MB(압축) / 2.17GB(비압축)에 달해, 소형 VPS 환경 배포와 자원 효율성에 부담이 됨.
 * **실행 사양**:
   1. Multi-stage 빌드를 적용하여 불필요한 빌드 도구와 캐시 레이어를 제거.
@@ -124,7 +125,7 @@ flowchart LR
 ## 4. 결론
 
 1. **기능 구현과 인프라 설계의 분리**:
-   - PDF 파서 및 시각 오염 가드레일은 [design/PDF_PARSER_AND_VISION_GUARDRAILS_DESIGN.md](design/PDF_PARSER_AND_VISION_GUARDRAILS_DESIGN.md)에서 독립적으로 관리됩니다.
+   - 컨테이너 경량화 및 의존성 분리는 [design/CONTAINER_SLIMMING_AND_DEPENDENCY_DECOUPLING_DESIGN.md](design/CONTAINER_SLIMMING_AND_DEPENDENCY_DECOUPLING_DESIGN.md)에서, PDF 파서 및 시각 오염 가드레일은 [design/PDF_PARSER_AND_VISION_GUARDRAILS_DESIGN.md](design/PDF_PARSER_AND_VISION_GUARDRAILS_DESIGN.md)에서 독립적으로 관리됩니다.
 2. **산출물 안정성을 고려한 점진적 최적화**:
    - 컨테이너 경량화(Phase 1) 단계에서는 기존 프롬프트 구조를 유지하여 결과물 일관성을 지키고, 프롬프트 퓨전은 Phase 4에서 충분한 비교 벤치마크를 거쳐 신중하게 도입합니다.
 3. **OS 상호운영성 및 연구 환경 지원**:
