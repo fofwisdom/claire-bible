@@ -49,6 +49,29 @@ class CaptionAcquisition:
     error: str | None = None
 
 
+def format_chapters(chapters: list[dict[str, Any]] | None) -> str:
+    """yt-dlp chapters 리스트를 가독성 있는 '[00:00] 제목' 목록 형식으로 포맷팅."""
+    if not chapters or not isinstance(chapters, list):
+        return ""
+    lines: list[str] = []
+    for ch in chapters:
+        if not isinstance(ch, dict):
+            continue
+        start_sec = float(ch.get("start_time", 0.0) or 0.0)
+        title = str(ch.get("title") or "").strip()
+        if not title:
+            continue
+        hours = int(start_sec // 3600)
+        mins = int((start_sec % 3600) // 60)
+        secs = int(start_sec % 60)
+        if hours > 0:
+            time_str = f"{hours:02d}:{mins:02d}:{secs:02d}"
+        else:
+            time_str = f"{mins:02d}:{secs:02d}"
+        lines.append(f"- [{time_str}] {title}")
+    return "\n".join(lines).strip()
+
+
 def normalize_language_tag(value: object) -> str:
     """BCP 47 비교용 정규화. 원래 표기는 CaptionCandidate에 그대로 보존한다."""
     return str(value or "").strip().replace("_", "-").lower()

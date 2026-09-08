@@ -16,7 +16,12 @@ from ...extract.transcript.factory import get_transcript_provider
 from ...ontology.base import Document
 from ..normalize import canonicalize_url, content_hash
 from .base import FetchError
-from .captions import CaptionAcquisition, acquire_caption, is_valid_speech_vtt
+from .captions import (
+    CaptionAcquisition,
+    acquire_caption,
+    format_chapters,
+    is_valid_speech_vtt,
+)
 from .presentation_vmware_explore import (
     PresentationDiscovery,
     compose_video_presentations,
@@ -183,6 +188,8 @@ def fetch_video(
     duration_val = info.get("duration")
     duration_sec = float(duration_val) if duration_val is not None else 0.0
     tags = info.get("tags") or info.get("categories") or []
+    chapters = info.get("chapters") or []
+    formatted_chapters = format_chapters(chapters)
 
     if not title:
         # URL 기반 기본 제목
@@ -330,6 +337,9 @@ def fetch_video(
         secs = int(duration_sec % 60)
         sections.append(f"재생 시간: {mins}분 {secs}초 ({duration_sec:.1f}초)")
 
+    if formatted_chapters:
+        sections.append(f"[영상 챕터]\n{formatted_chapters}")
+
     if transcript_text:
         header = "[영상 음성 전사 (STT)]" if is_stt else "[영상 자막]"
         sections.append(f"{header}\n{transcript_text}")
@@ -378,6 +388,17 @@ def fetch_video(
         partial=bool(not transcript_text or is_truncated),
         meta={
             "duration_sec": duration_sec,
+            "chapters": [
+                {
+                    "title": ch.get("title"),
+                    "start_time": ch.get("start_time"),
+                    "end_time": ch.get("end_time"),
+                }
+                for ch in chapters
+                if isinstance(ch, dict)
+            ]
+            if chapters
+            else [],
             "has_transcript": bool(transcript_text),
             "transcript_segments": segments_data,
             "resolved_stream_url": resolved_url if resolved_url != url else None,

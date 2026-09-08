@@ -6,12 +6,25 @@ import pytest
 
 from claire.config import get_settings
 from claire.ingest.fetchers.base import FetchError
+from claire.ingest.fetchers.captions import CaptionAcquisition, format_chapters
 from claire.ingest.fetchers.youtube import (
     fetch_transcript,
     fetch_video_details,
     fetch_youtube,
     video_id,
 )
+
+
+@pytest.fixture(autouse=True)
+def _mock_ytdlp_and_stt_defaults(monkeypatch):
+    monkeypatch.setattr(
+        "claire.ingest.fetchers.youtube.extract_youtube_ytdlp",
+        lambda _url, _langs, _settings: ({}, CaptionAcquisition(status="absent")),
+    )
+    monkeypatch.setattr(
+        "claire.ingest.fetchers.youtube.transcribe_youtube_audio",
+        lambda _url, _canonical_url, **_kw: ("", [], 0.0, None, False, False),
+    )
 
 
 def test_video_id_patterns():
@@ -135,3 +148,131 @@ def test_fetch_transcript_passes_configured_languages(monkeypatch: pytest.Monkey
     text = fetch_transcript("ti9FHqP1i-w")
     assert captured_langs == [["ja", "en"]]
     assert text == "Japanese text"
+
+
+def test_format_chapters():
+    assert format_chapters(None) == ""
+    assert format_chapters([]) == ""
+    chapters = [
+        {"title": "Introduction", "start_time": 0.0, "end_time": 30.0},
+        {"title": "Architecture Deep Dive", "start_time": 125.0, "end_time": 3600.0},
+        {"title": "Q&A and Wrap Up", "start_time": 3665.0, "end_time": 4000.0},
+    ]
+    formatted = format_chapters(chapters)
+    assert "- [00:00] Introduction" in formatted
+    assert "- [02:05] Architecture Deep Dive" in formatted
+    assert "- [01:01:05] Q&A and Wrap Up" in formatted
+
+
+def test_fetch_youtube_ytdlp_recovers_captions_and_chapters(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr("claire.ingest.fetchers.youtube.fetch_transcript", lambda vid, **kw: "")
+    monkeypatch.setattr(
+        "claire.ingest.fetchers.youtube.fetch_video_details",
+        lambda vid: {"title": "", "author": "", "description": "", "keywords": []},
+    )
+
+    fake_ytdlp_info = {
+        "title": "yt-dlp Discovered Title",
+        "uploader": "Advanced Channel",
+        "description": "yt-dlp description",
+        "tags": ["cloud", "k8s"],
+        "duration": 360.0,
+        "chapters": [
+            {"title": "Start", "start_time": 0.0, "end_time": 60.0},
+            {"title": "Main Content", "start_time": 60.0, "end_time": 360.0},
+        ],
+    }
+    fake_caption = CaptionAcquisition(
+        status="available",
+        text="yt-dlp extracted WebVTT captions text.",
+        language="en-us",
+        source="manual_caption",
+    )
+
+    monkeypatch.setattr(
+        "claire.ingest.fetchers.youtube.extract_youtube_ytdlp",
+        lambda _url, _langs, _settings: (fake_ytdlp_info, fake_caption),
+    )
+
+    doc = fetch_youtube("https://www.youtube.com/watch?v=ti9FHqP1i-w")
+    assert doc.title == "yt-dlp Discovered Title"
+    assert doc.author == "Advanced Channel"
+    assert doc.source_type == "youtube"
+    assert doc.canonical_url == "https://youtube.com/watch?v=ti9FHqP1i-w"
+    assert "[영상 챕터]" in doc.raw_text
+    assert "- [00:00] Start" in doc.raw_text
+    assert "- [01:00] Main Content" in doc.raw_text
+    assert "[영상 자막]" in doc.raw_text
+    assert "yt-dlp extracted WebVTT captions text." in doc.raw_text
+    assert doc.meta["has_transcript"] is True
+    assert doc.meta["is_stt"] is False
+    assert doc.meta["transcript_source"] == "manual_caption"
+    assert doc.meta["duration_sec"] == 360.0
+    assert len(doc.meta["chapters"]) == 2
+
+
+def test_fetch_youtube_stt_fallback(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("CLAIRE_ENABLE_VIDEO_TRANSCRIPTION", "1")
+    get_settings.cache_clear()
+
+    monkeypatch.setattr("claire.ingest.fetchers.youtube.fetch_transcript", lambda vid, **kw: "")
+    monkeypatch.setattr(
+        "claire.ingest.fetchers.youtube.fetch_video_details",
+        lambda vid: {"title": "No Captions Video", "author": "Live Speaker", "description": "Desc", "keywords": []},
+    )
+
+    # yt-dlp has no captions either
+    monkeypatch.setattr(
+        "claire.ingest.fetchers.youtube.extract_youtube_ytdlp",
+        lambda _url, _langs, _settings: (
+            {
+                "title": "No Captions Video",
+                "uploader": "Live Speaker",
+                "duration": 180.0,
+                "chapters": [],
+            },
+            CaptionAcquisition(status="absent"),
+        ),
+    )
+
+    # STT succeeds
+    monkeypatch.setattr(
+        "claire.ingest.fetchers.youtube.transcribe_youtube_audio",
+        lambda _url, _canonical_url, **_kw: (
+            "Spoken audio transcribed by Gemini STT.",
+            [{"start_sec": 0.0, "end_sec": 10.0, "text": "Spoken audio"}],
+            180.0,
+            None,
+            False,
+            False,
+        ),
+    )
+
+    doc = fetch_youtube("https://www.youtube.com/watch?v=ti9FHqP1i-w")
+    assert doc.title == "No Captions Video"
+    assert doc.source_type == "youtube"
+    assert "[영상 음성 전사 (STT)]" in doc.raw_text
+    assert "Spoken audio transcribed by Gemini STT." in doc.raw_text
+    assert doc.meta["has_transcript"] is True
+    assert doc.meta["is_stt"] is True
+    assert doc.meta["transcript_source"] == "stt"
+    assert len(doc.meta["transcript_segments"]) == 1
+
+
+def test_fetch_youtube_stt_disabled_fallback(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("CLAIRE_ENABLE_VIDEO_TRANSCRIPTION", "0")
+    get_settings.cache_clear()
+
+    monkeypatch.setattr("claire.ingest.fetchers.youtube.fetch_transcript", lambda vid, **kw: "")
+    monkeypatch.setattr(
+        "claire.ingest.fetchers.youtube.fetch_video_details",
+        lambda vid: {"title": "Mute Video", "author": "Silent Author", "description": "Only description", "keywords": []},
+    )
+
+    doc = fetch_youtube("https://www.youtube.com/watch?v=ti9FHqP1i-w")
+    assert doc.title == "Mute Video"
+    assert doc.source_type == "youtube"
+    assert doc.meta["has_transcript"] is False
+    assert doc.meta["is_stt"] is False
+    assert "[영상 설명]" in doc.raw_text
+    assert "Only description" in doc.raw_text
