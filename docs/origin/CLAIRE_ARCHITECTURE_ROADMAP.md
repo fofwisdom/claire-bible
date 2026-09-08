@@ -125,7 +125,7 @@ flowchart LR
 ## 4. 결론
 
 1. **기능 구현과 인프라 설계의 분리**:
-   - 컨테이너 경량화 및 의존성 분리는 [design/CONTAINER_SLIMMING_AND_DEPENDENCY_DECOUPLING_DESIGN.md](design/CONTAINER_SLIMMING_AND_DEPENDENCY_DECOUPLING_DESIGN.md)에서, PDF 파서 및 시각 오염 가드레일은 [design/PDF_PARSER_AND_VISION_GUARDRAILS_DESIGN.md](design/PDF_PARSER_AND_VISION_GUARDRAILS_DESIGN.md)에서 독립적으로 관리됩니다.
+   - 컨테이너 경량화 및 의존성 분리는 [design/CONTAINER_SLIMMING_AND_DEPENDENCY_DECOUPLING_DESIGN.md](design/CONTAINER_SLIMMING_AND_DEPENDENCY_DECOUPLING_DESIGN.md)에서, PDF 파서 및 시각 오염 가드레일은 [design/PDF_PARSER_AND_VISION_GUARDRAILS_DESIGN.md](design/PDF_PARSER_AND_VISION_GUARDRAILS_DESIGN.md)에서, 품질 검증 가드레일 런타임 컴포넌트화 및 요약 무결성 설계는 [design/QUALITY_GUARDRAILS_AND_SUMMARY_INTEGRITY_DESIGN.md](design/QUALITY_GUARDRAILS_AND_SUMMARY_INTEGRITY_DESIGN.md)에서 독립적으로 관리됩니다.
 2. **산출물 안정성을 고려한 점진적 최적화**:
    - 컨테이너 경량화(Phase 1) 단계에서는 기존 프롬프트 구조를 유지하여 결과물 일관성을 지키고, 프롬프트 퓨전은 Phase 4에서 충분한 비교 벤치마크를 거쳐 신중하게 도입합니다.
 3. **OS 상호운영성 및 연구 환경 지원**:
