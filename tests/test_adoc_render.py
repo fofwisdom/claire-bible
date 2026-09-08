@@ -763,8 +763,8 @@ def test_aot_render_adoc_table_with_embedded_lists():
 def test_client_js_convert_asciidoc_to_html_runtime():
     """클라이언트 사이드 JavaScript convertAsciidocToHtml 런타임 결과가 Python AOT 결과와 일치하는지 Node.js 로 검증."""
     import json
-    import subprocess
     import shutil
+    import subprocess
 
     if shutil.which("node") is None:
         import os
@@ -774,11 +774,8 @@ def test_client_js_convert_asciidoc_to_html_runtime():
         else:
             pytest.skip("Node.js is not installed on the system")
 
-    from claire.graphview import GRAPH_HTML
-    from tests.test_graphview_runtime import extract_scripts
-
-    scripts = extract_scripts(GRAPH_HTML)
-    main_script = scripts[1]  # The main JS logic script
+    adoc_js_path = Path(__file__).resolve().parent.parent / "src" / "claire" / "static" / "js" / "renderers" / "adoc_parser.js"
+    assert adoc_js_path.is_file(), f"adoc_parser.js not found at {adoc_js_path}"
 
     sample = """
 상세 내용은 <<자격-검증-가치, 자격 검증 가치 섹션>> 을 참조하라.
@@ -800,79 +797,9 @@ def test_client_js_convert_asciidoc_to_html_runtime():
 """
     runner_code = f"""
 const fs = require('fs');
-const scriptContent = fs.readFileSync(process.argv[2], 'utf8');
-
-// Mock browser globals
-class MockElement {{
-  constructor(tag, id = '') {{
-    this.tagName = (tag || 'div').toUpperCase();
-    this.id = id;
-    this.className = '';
-    this.classList = {{
-      _classes: new Set(),
-      add(...cls) {{ cls.forEach(c => this._classes.add(c)); }},
-      remove(...cls) {{ cls.forEach(c => this._classes.delete(c)); }},
-      contains(c) {{ return this._classes.has(c); }},
-      toggle(c, force) {{
-        if (force === undefined) {{
-          if (this._classes.has(c)) this._classes.delete(c);
-          else this._classes.add(c);
-        }} else if (force) this._classes.add(c);
-        else this._classes.delete(c);
-      }}
-    }};
-    this.style = {{}};
-    this.dataset = {{}};
-    this.attributes = {{}};
-    this.innerHTML = '';
-    this.textContent = '';
-    this.value = '';
-    this.children = [];
-  }}
-  setAttribute(k, v) {{ this.attributes[k] = String(v); }}
-  getAttribute(k) {{ return this.attributes[k] !== undefined ? this.attributes[k] : null; }}
-  removeAttribute(k) {{ delete this.attributes[k]; }}
-  getBoundingClientRect() {{ return {{ width: 1000, height: 700, top: 0, left: 0, right: 1000, bottom: 700 }}; }}
-  querySelector(sel) {{ return new MockElement('div'); }}
-  querySelectorAll(sel) {{ return []; }}
-  addEventListener() {{}}
-  removeEventListener() {{}}
-  focus() {{}}
-  select() {{}}
-}}
-
-const elements = new Map();
-function getOrCreate(id, tag='div') {{
-  if (!elements.has(id)) {{
-    elements.set(id, new MockElement(tag, id));
-  }}
-  return elements.get(id);
-}}
-
-global.window = {{
-  matchMedia: () => ({{ matches: false, addEventListener: () => {{}}, removeEventListener: () => {{}} }}),
-  addEventListener: () => {{}},
-  removeEventListener: () => {{}},
-  location: {{ search: '', hash: '' }},
-  localStorage: {{ getItem: () => null, setItem: () => {{}} }}
-}};
-global.document = {{
-  documentElement: getOrCreate('html', 'html'),
-  body: getOrCreate('body', 'body'),
-  getElementById(id) {{ return getOrCreate(id); }},
-  querySelector(sel) {{
-    if (sel.startsWith('#')) return document.getElementById(sel.slice(1));
-    return new MockElement('div');
-  }},
-  querySelectorAll(sel) {{ return []; }},
-  addEventListener() {{}},
-  removeEventListener() {{}},
-  createElement(tag) {{ return new MockElement(tag); }}
-}};
-global.location = global.window.location;
-global.localStorage = global.window.localStorage;
-global.requestAnimationFrame = (cb) => setTimeout(cb, 0);
-
+global.window = {{}};
+global.document = {{}};
+const scriptContent = fs.readFileSync({json.dumps(str(adoc_js_path))}, 'utf8');
 eval(scriptContent);
 
 const input = {json.dumps(sample)};
@@ -880,26 +807,26 @@ const result = convertAsciidocToHtml(input);
 console.log(JSON.stringify({{ html: result }}));
 process.exit(0);
 """
-    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as f_script:
-        f_script.write(main_script)
-        script_file = f_script.name
-
     with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as f_runner:
         f_runner.write(runner_code)
         runner_file = f_runner.name
 
-    proc = subprocess.run(["node", runner_file, script_file], capture_output=True, text=True, timeout=5)
-    assert proc.returncode == 0, f"Node eval failed: {proc.stderr}"
-    res_data = json.loads(proc.stdout)
-    js_html = res_data["html"]
+    try:
+        proc = subprocess.run(["node", runner_file], capture_output=True, text=True, timeout=5)
+        assert proc.returncode == 0, f"Node eval failed: {proc.stderr}"
+        res_data = json.loads(proc.stdout)
+        js_html = res_data["html"]
 
-    # JS 런타임 결과 검증
-    assert '<h2 id="자격-검증-가치">프라이빗 클라우드 자격 검증의 전략적 가치</h2>' in js_html
-    assert '<a href="#자격-검증-가치" class="xref">자격 검증 가치 섹션</a>' in js_html
-    assert "<p>[#" not in js_html
-    assert "<p>+</p>" not in js_html
-    assert ">+<" not in js_html
-    assert "<li>운영 리스크 완화 (Mitigate Operational Risk)\n<p>컴퓨트, 스토리지, 네트워킹 계층 전반의 관리를 표준화하여 설정 오류(misconfigurations), 다운타임, 보안 취약점을 최소화한다.</p>\n</li>" in js_html
+        # JS 런타임 결과 검증
+        assert '<h2 id="자격-검증-가치">프라이빗 클라우드 자격 검증의 전략적 가치</h2>' in js_html
+        assert '<a href="#자격-검증-가치" class="xref">자격 검증 가치 섹션</a>' in js_html
+        assert "<p>[#" not in js_html
+        assert "<p>+</p>" not in js_html
+        assert ">+<" not in js_html
+        assert "<li>운영 리스크 완화 (Mitigate Operational Risk)\n<p>컴퓨트, 스토리지, 네트워킹 계층 전반의 관리를 표준화하여 설정 오류(misconfigurations), 다운타임, 보안 취약점을 최소화한다.</p>\n</li>" in js_html
+    finally:
+        Path(runner_file).unlink(missing_ok=True)
+
 
 
 def test_aot_render_adoc_math():

@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 import sqlite3
 
+from claire import graphview
 from claire.extract.provider import MockProvider
 from claire.graphview import (
     _SHARED_HTML,
@@ -20,6 +21,7 @@ from claire.graphview import (
 )
 from claire.ontology.base import Document, Entity, Relation
 from claire.store import db as dbm
+from claire.store import queries as store_queries
 
 
 def _db():
@@ -27,6 +29,25 @@ def _db():
     conn.row_factory = sqlite3.Row
     dbm.init_db(conn)
     return conn
+
+
+def test_queries_module_separation_and_reexport_compatibility():
+    """claire.store.queries 순수 쿼리 함수들이 분리되었으며, claire.graphview에서 동일 객체로 re-export되는지 검증."""
+    query_names = [
+        "graph_json",
+        "documents_list",
+        "node_detail",
+        "document_detail",
+        "dedup_clusters",
+        "synthesis_context",
+        "synthesize",
+    ]
+    for name in query_names:
+        assert hasattr(store_queries, name), f"store.queries missing {name}"
+        assert getattr(store_queries, name) is getattr(graphview, name), (
+            f"graphview.{name} is not re-exported from store.queries"
+        )
+
 
 
 def test_graph_json_nodes_edges():
