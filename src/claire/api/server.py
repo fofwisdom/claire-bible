@@ -914,7 +914,21 @@ def create_app(
         document = await asyncio.to_thread(_load)
         if document is None:
             return PlainTextResponse("Not Found", status_code=404)
-        return HTMLResponse(shared_html(document, s))
+
+        base_url = ""
+        if getattr(s, "public_url", ""):
+            base_url = s.public_url.rstrip("/")
+        else:
+            proto = request.headers.get("x-forwarded-proto") or request.url.scheme
+            host = request.headers.get("x-forwarded-host") or request.headers.get("host") or request.url.netloc
+            if proto and host:
+                base_url = f"{proto}://{host}".rstrip("/")
+            else:
+                base_url = str(request.base_url).rstrip("/")
+
+        return HTMLResponse(
+            shared_html(document, s, base_url=base_url, share_token=token)
+        )
 
     mcp_app = build_mcp_app(s)
 
