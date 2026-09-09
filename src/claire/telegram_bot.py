@@ -326,8 +326,8 @@ def parse_caption_directive(caption: str | None) -> str | None:
     return c
 
 
-def _is_allowed(user_id: int | None) -> bool:
-    s = get_settings()
+def _is_allowed(user_id: int | None, settings: Settings | None = None) -> bool:
+    s = settings or get_settings()
     allow = s.allowed_user_ids
     if not allow:
         return True
@@ -338,6 +338,11 @@ def build_app(settings: Settings | None = None) -> Any:
     s = settings or get_settings()
     if not s.telegram_bot_token:
         raise ValueError("TELEGRAM_BOT_TOKEN 이 없습니다. .env 에 설정하세요.")
+
+    def _is_allowed(user_id: int | None) -> bool:
+        if not s.allowed_user_ids:
+            return True
+        return user_id in s.allowed_user_ids
 
     try:
         from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -426,6 +431,7 @@ def build_app(settings: Settings | None = None) -> Any:
         "명령어:\n"
         "  /search <키워드> — 하이브리드 검색 + 요약(인용)\n"
         "  /ingest <URL|텍스트> [| <초점>] — 초점 지정 적재\n"
+        "  /support bundle [일수] [대상] — 진단 Support Bundle 생성 (기본 1일, 6시간 자동 파기)\n"
         "  /web — 1회용 웹 로그인 링크 발급(로그인 쿠키 7일, 적재/수정 가능)\n"
         "  /webro — 읽기전용 웹 링크 발급(그래프·검색·문서만, 공유해도 안전)\n"
         "  /repo — 소스 리포지토리 접근 링크\n"
@@ -584,6 +590,7 @@ def build_app(settings: Settings | None = None) -> Any:
                     [
                         InlineKeyboardButton("🔄 본문 재생성 (기존 텍스트 기준)", callback_data=f"rg:det:{target_doc_id}"),
                     ],
+                    [InlineKeyboardButton("📦 Support Bundle 생성", callback_data=f"sb:{target_doc_id}")],
                 ]
             else:
                 kb = [
@@ -592,6 +599,7 @@ def build_app(settings: Settings | None = None) -> Any:
                         InlineKeyboardButton("📥 원문 재수집 (길이 제한)", callback_data=f"rg:ref:{target_doc_id}"),
                         InlineKeyboardButton("🌐 전체 원문 재수집 (전체 길이)", callback_data=f"rg:full:{target_doc_id}"),
                     ],
+                    [InlineKeyboardButton("📦 Support Bundle 생성", callback_data=f"sb:{target_doc_id}")],
                 ]
             markup = InlineKeyboardMarkup(kb)
             await msg.reply_text(
@@ -860,6 +868,43 @@ def build_app(settings: Settings | None = None) -> Any:
                 ans = f"❌ {mode_name} 오류: {e}"
             await status_msg.edit_text(ans)
             return
+        if data.startswith("sb:"):
+            user = update.effective_user
+            if not _is_allowed(user.id if user else None):
+                return
+            did = data[3:]
+            try:
+                await query.edit_message_reply_markup(reply_markup=None)
+            except Exception:
+                pass
+            status_msg = await query.message.reply_text(f"⏳ 문서 `{did}` 대상 Support Bundle 생성 중…")
+            try:
+                from .support_bundle import create_support_bundle
+
+                info = await asyncio.to_thread(create_support_bundle, s, days=1, target=did)
+                reply_text = (
+                    f"📦 문서 `{did}` Support Bundle 생성 완료\n\n"
+                    f"• 번들 ID: `{info.bundle_id}`\n"
+                    f"• 파일 크기: {info.size_bytes / 1024:.1f} KB (zstd 압축)\n"
+                    f"• 수집 기간: 최근 {info.days_covered}일\n"
+                    f"• 유효 기한: 6시간 후 자동 파기\n"
+                    f"• 다운로드 링크 (6시간 유효):\n{info.download_url}\n\n"
+                    "⚠️ 6시간 경과 시 다운로드 링크 및 디스크 아카이브는 자동 파기됩니다."
+                )
+                await status_msg.edit_text(reply_text, disable_web_page_preview=True)
+                if info.filepath.is_file() and info.size_bytes < 45 * 1024 * 1024:
+                    try:
+                        with open(info.filepath, "rb") as doc_file:
+                            await query.message.reply_document(
+                                document=doc_file,
+                                filename=info.filename,
+                                caption=f"Support Bundle: {info.bundle_id}",
+                            )
+                    except Exception as doc_err:
+                        log.warning("Failed to send support bundle as telegram document: %s", doc_err)
+            except Exception as exc:
+                await status_msg.edit_text(f"❌ Support Bundle 생성 오류: {exc}")
+            return
         if data.startswith("auth:"):
             # 웹 UI 접속 승인 — 소유자만. DB 에 세션 토큰 발급(웹이 poll 로 수령).
             user = update.effective_user
@@ -999,6 +1044,127 @@ def build_app(settings: Settings | None = None) -> Any:
             text = f"❌ status 오류: {e}"
         await msg.reply_text(text)
 
+    async def on_support(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        user = update.effective_user
+        if not _is_allowed(user.id if user else None):
+            await update.message.reply_text("허용되지 않은 사용자입니다.")
+            return
+        msg = update.effective_message
+        if not msg:
+            return
+
+        args = list(ctx.args) if ctx.args else []
+        if not args or args[0].lower() in ("help", "-h", "--help"):
+            await msg.reply_text(
+                "📦 Claire Support Bundle 사용법:\n"
+                "  /support bundle              — 최근 1일 Support Bundle 생성 (zstd 압축)\n"
+                "  /support bundle <일수>        — 지정 일수(최대 30일) 번들 생성\n"
+                "  /support bundle <공유링크|문서ID> — 특정 문서 추적 번들 생성\n"
+                "  /support bundle <일수> <대상> — 기간 및 대상 지정 생성\n"
+                "  /support bundle list         — 활성 Support Bundle 목록 조회\n"
+                "  /support bundle purge        — 6시간 초과 만료 번들 즉시 파기"
+            )
+            return
+
+        subcmd = args[0].lower()
+        if subcmd != "bundle":
+            await msg.reply_text(
+                f"알 수 없는 하위 명령: '{subcmd}'\n"
+                "Support Bundle은 '/support bundle' 명령을 사용하세요.\n"
+                "도움말: /support help"
+            )
+            return
+
+        sub_args = args[1:]
+        from .support_bundle import (
+            DEFAULT_SUPPORT_BUNDLE_DAYS,
+            create_support_bundle,
+            list_active_support_bundles,
+            purge_expired_bundles,
+            validate_bundle_days,
+        )
+
+        if sub_args and sub_args[0].lower() == "list":
+            bundles = await asyncio.to_thread(list_active_support_bundles, s.data_dir)
+            if not bundles:
+                await msg.reply_text("현재 활성화된 유효 Support Bundle이 없습니다.")
+                return
+            import datetime
+            lines = ["📦 활성 Support Bundle 목록 (최대 6시간 보존):"]
+            for b in bundles:
+                e_str = datetime.datetime.fromtimestamp(b["expires_at"]).strftime("%H:%M")
+                size_kb = f"{b['size_bytes'] / 1024:.1f}KB"
+                tgt = f" (문서: {b['target_doc_id']})" if b.get("target_doc_id") else ""
+                lines.append(f"• `{b['bundle_id']}` ({size_kb}, {b['days_covered']}일) ~{e_str} 만료{tgt}")
+                pub_url = s.public_url.rstrip('/') if s.public_url else ""
+                dl = f"{pub_url}/support/bundle?token={b['token']}" if pub_url else f"/support/bundle?token={b['token']}"
+                lines.append(f"  ↳ 링크: {dl}")
+            await msg.reply_text("\n".join(lines), disable_web_page_preview=True)
+            return
+
+        if sub_args and sub_args[0].lower() == "purge":
+            purged = await asyncio.to_thread(purge_expired_bundles, s.data_dir)
+            await msg.reply_text(f"🧹 만료(6시간 초과) Support Bundle {purged}건을 파기했습니다.")
+            return
+
+        # Parse days and target from sub_args
+        days = DEFAULT_SUPPORT_BUNDLE_DAYS
+        target = None
+        idx = 0
+        while idx < len(sub_args):
+            a = sub_args[idx]
+            if a in ("--days", "-d") and idx + 1 < len(sub_args) and sub_args[idx + 1].isdigit():
+                days = int(sub_args[idx + 1])
+                idx += 2
+            elif a in ("--target", "-t") and idx + 1 < len(sub_args):
+                target = sub_args[idx + 1]
+                idx += 2
+            elif a.isdigit():
+                days = int(a)
+                idx += 1
+            else:
+                if not target:
+                    target = a
+                idx += 1
+
+        max_ret = getattr(s, "telemetry_retention_days", 30)
+        try:
+            validate_bundle_days(days, max_ret)
+        except ValueError as exc:
+            await msg.reply_text(f"⚠️ {exc}")
+            return
+
+        target_info = f" (대상: {target})" if target else ""
+        status_msg = await msg.reply_text(f"⏳ Support Bundle 생성 중… (최근 {days}일){target_info}")
+
+        try:
+            info = await asyncio.to_thread(create_support_bundle, s, days=days, target=target)
+            tgt_line = f"• 추적 대상: `{info.target_doc_id}` ({info.target_matched_by})\n" if info.target_doc_id else ""
+            reply_text = (
+                "📦 Support Bundle 생성 완료\n\n"
+                f"• 번들 ID: `{info.bundle_id}`\n"
+                f"• 파일 크기: {info.size_bytes / 1024:.1f} KB (zstd 압축)\n"
+                f"• 수집 기간: 최근 {info.days_covered}일\n"
+                f"{tgt_line}"
+                f"• 유효 기한: 6시간 후 자동 파기\n"
+                f"• 다운로드 링크 (6시간 유효):\n{info.download_url}\n\n"
+                "⚠️ 6시간 경과 시 다운로드 링크 및 디스크 아카이브는 자동 파기됩니다."
+            )
+            await status_msg.edit_text(reply_text, disable_web_page_preview=True)
+
+            if info.filepath.is_file() and info.size_bytes < 45 * 1024 * 1024:
+                try:
+                    with open(info.filepath, "rb") as doc_file:
+                        await msg.reply_document(
+                            document=doc_file,
+                            filename=info.filename,
+                            caption=f"Support Bundle: {info.bundle_id}",
+                        )
+                except Exception as doc_err:
+                    log.warning("Failed to send support bundle as telegram document: %s", doc_err)
+        except Exception as exc:
+            await status_msg.edit_text(f"❌ Support Bundle 생성 오류: {exc}")
+
     async def on_repo(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
         if not _is_allowed(update.effective_user.id if update.effective_user else None):
             return
@@ -1059,6 +1225,7 @@ def build_app(settings: Settings | None = None) -> Any:
     app.add_handler(CommandHandler("start", on_start))
     app.add_handler(CommandHandler("help", on_help))
     app.add_handler(CommandHandler("status", on_status))
+    app.add_handler(CommandHandler("support", on_support))
     app.add_handler(CommandHandler("repo", on_repo))
     app.add_handler(CommandHandler("search", on_search))
     app.add_handler(CommandHandler("ingest", on_ingest))
@@ -1077,6 +1244,7 @@ def build_app(settings: Settings | None = None) -> Any:
         await application.bot.set_my_commands([
             BotCommand("help", "사용법"),
             BotCommand("status", "현황(그래프/수렴/최근)"),
+            BotCommand("support", "Support Bundle 관리 (/support bundle)"),
             BotCommand("repo", "소스 리포지토리 링크"),
             BotCommand("search", "검색 + 요약"),
             BotCommand("ingest", "초점 지정 적재"),
