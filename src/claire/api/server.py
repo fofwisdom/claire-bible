@@ -955,8 +955,82 @@ def create_app(
             resp.headers[name] = v.decode("latin-1")
         return resp
 
+    async def create_support_bundle_route(request: Request) -> JSONResponse:
+        from ..support_bundle import (
+            DEFAULT_SUPPORT_BUNDLE_DAYS,
+            create_support_bundle,
+            validate_bundle_days,
+        )
+
+        content_type = request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+        if content_type in ("application/json", "application/problem+json"):
+            body = await _json_object(request)
+        else:
+            body = {}
+
+        raw_days = body.get("days", DEFAULT_SUPPORT_BUNDLE_DAYS)
+        try:
+            days = int(raw_days)
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=400, detail="days must be an integer")
+
+        target = body.get("target") or body.get("share") or body.get("doc_id")
+        if target is not None:
+            target = str(target).strip() or None
+
+        max_ret = getattr(s, "telemetry_retention_days", 30)
+        try:
+            validate_bundle_days(days, max_ret)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+
+        def _generate() -> dict[str, Any]:
+            info = create_support_bundle(s, days=days, target=target)
+            return info.to_dict()
+
+        try:
+            bundle_dict = await asyncio.to_thread(_generate)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc))
+        return JSONResponse(bundle_dict)
+
+    async def download_support_bundle_route(request: Request) -> Response:
+        from ..support_bundle import get_support_bundle, lookup_support_bundle_by_token
+
+        token = request.query_params.get("token", "").strip()
+        if not token or len(token) < 16:
+            return PlainTextResponse("Not Found", status_code=404)
+
+        record = await asyncio.to_thread(lookup_support_bundle_by_token, s.data_dir, token)
+        if not record:
+            return PlainTextResponse("Not Found", status_code=404)
+
+        bundle = await asyncio.to_thread(get_support_bundle, s.data_dir, token)
+        if not bundle:
+            return JSONResponse(
+                {"error": "support bundle has expired and was purged"},
+                status_code=410,
+            )
+
+        filepath = Path(bundle["filepath"])
+        if not filepath.is_file():
+            return PlainTextResponse("Not Found", status_code=404)
+
+        return FileResponse(
+            str(filepath),
+            media_type="application/zstd",
+            filename=bundle["filename"],
+            headers={
+                "Cache-Control": "no-store, private",
+                "Content-Disposition": f'attachment; filename="{bundle["filename"]}"',
+            },
+        )
+
     @asynccontextmanager
     async def app_lifespan(_app: Starlette):
+        from ..support_bundle import purge_expired_bundles
+
+        await asyncio.to_thread(purge_expired_bundles, s.data_dir)
         async with mcp_app.router.lifespan_context(mcp_app):
             yield
 
@@ -999,9 +1073,12 @@ def create_app(
         Route("/dedup/merge", dedup_merge_route, methods=["POST"]),
         Route("/share", create_share_route, methods=["POST"]),
         Route("/p", shared_doc_page, methods=["GET"]),
+        Route("/support/bundle", create_support_bundle_route, methods=["POST"]),
+        Route("/support/bundle", download_support_bundle_route, methods=["GET"]),
         Route("/mcp", mcp_route, methods=["GET", "POST"]),
         Mount("/static", StaticFiles(directory=str(static_dir), check_dir=False), name="static"),
     ]
+
     app = Starlette(
         debug=False,
         routes=routes,

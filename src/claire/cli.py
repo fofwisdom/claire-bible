@@ -1907,7 +1907,85 @@ def cmd_telemetry(args) -> int:
     return 0
 
 
+def cmd_support_bundle(args) -> int:
+    """근본 원인 분석 및 트러블슈팅을 위한 Support Bundle 생성 및 관리."""
+    import datetime
+    import json
+    import sys
+    from .support_bundle import (
+        DEFAULT_SUPPORT_BUNDLE_DAYS,
+        create_support_bundle,
+        list_active_support_bundles,
+        purge_expired_bundles,
+        validate_bundle_days,
+    )
+
+    s = get_settings()
+    data_dir = s.data_dir
+
+    if getattr(args, "purge", False):
+        purged = purge_expired_bundles(data_dir)
+        print(f"claire support-bundle: 만료(6시간 초과) 번들 {purged}건 파기 완료.")
+        return 0
+
+    if getattr(args, "list", False):
+        bundles = list_active_support_bundles(data_dir)
+        if getattr(args, "json", False):
+            print(json.dumps(bundles, ensure_ascii=False, indent=2))
+            return 0
+        if not bundles:
+            print("현재 활성화된 유효 Support Bundle이 없습니다.")
+            return 0
+        print("=" * 95)
+        print(f"{'Bundle ID':<26} | {'생성시각':<19} | {'만료시각':<19} | {'크기(KB)':<9} | {'기간'}")
+        print("-" * 95)
+        for b in bundles:
+            created_str = datetime.datetime.fromtimestamp(b["created_at"]).strftime("%Y-%m-%d %H:%M:%S")
+            expires_str = datetime.datetime.fromtimestamp(b["expires_at"]).strftime("%Y-%m-%d %H:%M:%S")
+            size_kb = f"{b['size_bytes'] / 1024:.1f}"
+            days = f"{b['days_covered']}일"
+            print(f"{b['bundle_id']:<26} | {created_str:<19} | {expires_str:<19} | {size_kb:>9} | {days}")
+            print(f"  ↳ 토큰: {b['token']}")
+        print("=" * 95)
+        return 0
+
+    days = getattr(args, "days", DEFAULT_SUPPORT_BUNDLE_DAYS)
+    target = getattr(args, "target", None)
+
+    max_ret = getattr(s, "telemetry_retention_days", 30)
+    try:
+        validate_bundle_days(days, max_ret)
+    except ValueError as exc:
+        print(f"오류: {exc}", file=sys.stderr)
+        return 2
+
+    try:
+        info = create_support_bundle(s, days=days, target=target)
+    except Exception as exc:
+        print(f"Support Bundle 생성 실패: {exc}", file=sys.stderr)
+        return 1
+
+    if getattr(args, "json", False):
+        print(json.dumps(info.to_dict(), ensure_ascii=False, indent=2))
+        return 0
+
+    print("=" * 70)
+    print("claire: [Support Bundle 생성 완료]")
+    print("=" * 70)
+    print(f"• 번들 ID      : {info.bundle_id}")
+    print(f"• 압축 파일 경로 : {info.filepath}")
+    print(f"• 파일 크기     : {info.size_bytes / 1024:.1f} KB (zstd 압축)")
+    print(f"• 수집 대상 기간 : 최근 {info.days_covered}일")
+    if info.target_doc_id:
+        print(f"• 추적 대상 문서 : {info.target_doc_id} (기준: {info.target_matched_by})")
+    print(f"• 유효 만료 시각 : 6시간 후 자동 파기 ({info.to_dict()['expires_at']})")
+    print(f"• 다운로드 링크  : {info.download_url}")
+    print("=" * 70)
+    return 0
+
+
 def cmd_health(args) -> int:
+
     """시스템 건강 상태를 JSON 으로 출력. degraded(주의 필요) 또는 db 실패 시 비0 종료."""
     import json
 
@@ -1996,6 +2074,17 @@ def build_parser() -> argparse.ArgumentParser:
     ptel.add_argument("--json", action="store_true", help="output JSON format")
     ptel.add_argument("--prune", type=int, default=None, metavar="DAYS", help="prune records older than DAYS (e.g. 14)")
     ptel.set_defaults(func=cmd_telemetry)
+
+    psb = sub.add_parser(
+        "support-bundle",
+        help="generate zstd-compressed Support Bundle for RCA and troubleshooting (auto-purged after 6h)",
+    )
+    psb.add_argument("--days", type=int, default=1, help="days of data to include (default: 1, cannot exceed telemetry retention limit)")
+    psb.add_argument("--target", type=str, default=None, help="track specific document by share link (e.g. /p?s=xxx), token, or doc ID")
+    psb.add_argument("--list", action="store_true", help="list active unexpired support bundles")
+    psb.add_argument("--purge", action="store_true", help="purge all expired support bundles immediately")
+    psb.add_argument("--json", action="store_true", help="output JSON format")
+    psb.set_defaults(func=cmd_support_bundle)
 
     sub.add_parser("health", help="system health json (db/queues/inbox)").set_defaults(func=cmd_health)
     sub.add_parser(
