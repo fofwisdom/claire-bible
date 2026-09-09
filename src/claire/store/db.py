@@ -2377,7 +2377,7 @@ def purge_document_cascade(
 ) -> dict[str, Any]:
     """오염 문서를 L1/L2/DB/그래프/디스크에서 원자적으로 연쇄 소각."""
     import time
-    from .raw import _artifacts_dir, _images_dir
+    from .raw import _artifacts_dir, _images_dir, artifact_paths
 
     if not target_ids:
         return {"purged_count": 0, "target_documents": [], "tombstone_recorded": tombstone}
@@ -2404,9 +2404,8 @@ def purge_document_cascade(
     unlinked_candidates: list[Path] = []
 
     for did in matched_ids:
-        art_file = art_dir / f"{did}.txt.gz"
-        if art_file.exists():
-            unlinked_candidates.append(art_file)
+        for art in artifact_paths(data_dir, did):
+            unlinked_candidates.append(art)
         for img in img_dir.glob(f"{did}_*"):
             if img.is_file():
                 unlinked_candidates.append(img)

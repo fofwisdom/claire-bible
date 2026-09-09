@@ -107,9 +107,12 @@ def test_purge_cascade_and_tombstones(tmp_path, monkeypatch):
     assert rep.document_id is not None
     doc_id = rep.document_id
 
-    # 2. 관련 파일 생성 확인
-    art_file = data_dir / "raw" / "artifacts" / f"{doc_id}.txt.gz"
-    assert art_file.exists()
+    # 2. 관련 파일 생성 확인 (.txt.zst 신규 생성 및 레거시 .txt.gz 동시 공존 시뮬레이션)
+    art_file_zst = data_dir / "raw" / "artifacts" / f"{doc_id}.txt.zst"
+    art_file_gz = data_dir / "raw" / "artifacts" / f"{doc_id}.txt.gz"
+    assert art_file_zst.exists()
+    art_file_gz.write_bytes(b"legacy-gz-simulated-content")
+    assert art_file_gz.exists()
 
     # 스냅샷, 큐, inbox 에 레코드 존재하는지 확인
     dbm.enqueue_refresh(conn, document_id=doc_id, payload=url, reason="test")
@@ -124,7 +127,7 @@ def test_purge_cascade_and_tombstones(tmp_path, monkeypatch):
     )
     assert dry_report["dry_run"] is True
     assert dry_report["purged_count"] == 1
-    assert dry_report["disk_files_count"] >= 1
+    assert dry_report["disk_files_count"] >= 2
     # DB에 여전히 남아있어야 함
     assert dbm.get_document(conn, doc_id) is not None
 
@@ -134,8 +137,9 @@ def test_purge_cascade_and_tombstones(tmp_path, monkeypatch):
     )
     assert purge_report["dry_run"] is False
     assert purge_report["deleted_documents"] == 1
-    assert purge_report["disk_files_unlinked"] >= 1
-    assert not art_file.exists()
+    assert purge_report["disk_files_unlinked"] >= 2
+    assert not art_file_zst.exists()
+    assert not art_file_gz.exists()
 
     # 5. DB 8개 테이블에서 완전 소각되었는지 확인
     assert dbm.get_document(conn, doc_id) is None
