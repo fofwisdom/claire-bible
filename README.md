@@ -151,6 +151,7 @@ Claire Bible은 호스트 오케스트레이션 도구인 **`cb-manuscript`**와
 | *(앱 CLI)* | `doctor`, `preflight`, `health`, `status` | 지식그래프 수복, 환경 점검, 헬스 JSON, 운영 상태 |
 | | `reextract`, `backfill-detail`, `dedup-merge`| 전체/표 선별 그래프 재추출, 상세 백필, 근사 중복 문서 병합 |
 | | `queue status`, `queue list inbox` | `raw_inbox`·`refresh_queue`·`expand_queue`의 상태 분포와 대기·오류 항목 조회 |
+| | `telemetry`, `support-bundle` | 프로바이더 호출 텔레메트리 통계 조회, zstd 압축 Support Bundle 생성·조회·파기 |
 
 > 💡 **전체 명령어 및 세부 옵션 안내**: 모든 명령어, 세부 옵션, 미구현 상태 및 제약사항에 대한 상세 설명은 **[전체 CLI 명령어 레퍼런스 (`docs/origin/implementation/COMMANDS.md`)](docs/origin/implementation/COMMANDS.md)**를 참고하십시오.
 
@@ -522,10 +523,11 @@ src/claire/
   api/             ASGI API와 웹 UI
   health.py        건강 상태 산출(/health · CLI 공유)
   notify.py        텔레그램 소유자 경보
+  support_bundle.py Support Bundle 생성, zstd 스트리밍 압축, 수명주기 관리
   ingest/          fetcher 라우터 + normalize + dedup + IngestService(공유 통로) + 자동복구
   ontology/        타입 온톨로지(코드 인터페이스) + registry(domain/range)
   extract/         structured 추출 + provider 어댑터(mock/gemini/antigravity/codex) + resolver(약어 동의어 수렴) + circuit breaker
-  store/           SQLite(graph+FTS+vec) + 마이그레이션 + vault(.md) export
+  store/           SQLite(graph+FTS+vec) + 격리 텔레메트리 + 마이그레이션 + vault(.md) export
   expand/          1홉 자동 확장
   retrieval/       하이브리드 검색 + LLM 정리
 ```

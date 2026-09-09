@@ -21,6 +21,8 @@
    * [3.5 1홉 자동 확장 (Expand)](#35-1홉-자동-확장-expand)
    * [3.6 중복 정리 및 정규화 (Dedup & Canon)](#36-중복-정리-및-정규화-dedup--canon)
    * [3.7 감시 및 문서 관리 (Watch & Doc)](#37-감시-및-문서-관리-watch--doc)
+   * [3.8 데이터 수명주기 및 오염 소각 (Lifecycle & Purge)](#38-데이터-수명주기-및-오염-소각-lifecycle--purge)
+   * [3.9 관측성 및 문제 해결 (Observability, Telemetry & Support Bundle)](#39-관측성-및-문제-해결-observability-telemetry--support-bundle)
 4. [미구현(Unimplemented) / 부분 구현 옵션 및 상태 명세](#4-미구현unimplemented--부분-구현-옵션-및-상태-명세)
 5. [참고문헌](#5-참고문헌)
 
@@ -402,6 +404,34 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 
 ---
 
+### 3.9 관측성 및 문제 해결 (Observability, Telemetry & Support Bundle)
+
+* `claire telemetry [--limit N] [--failed] [--doc <ID>] [--provider <name>] [--stats] [--prune <days>] [--json]`:
+  * **물리적 스토리지 격리**: 정본 지식 DB(`claire.db`)와의 쓰기 락 충돌을 100% 방지하기 위해 완전히 독립된 `data/telemetry.db`(WAL 모드)를 사용.[^telemetry-implementation]
+  * **Google 정책/가이드라인 차단 진단**: `RECITATION`, `SAFETY`, `RATE_LIMIT_429`, `QUOTA_EXCEEDED`, `MAX_TOKENS`, `INVALID_SCHEMA`, `TIMEOUT`, `ENV_MISSING` 코드를 정밀 자동 분류.
+  * **요약 품질 판정**: `REAL_LLM`(정상), `RAW_SLICE_200`(200자 방어 슬라이싱 폴백), `MOCK_PREFIX`(`[mock]` 접두어), `EMPTY` 감지.
+  * **옵션**:
+    * `--limit N`: 조회 레코드 수 (기본값: 30).
+    * `--failed`: 실패, 차단, 또는 저품질 폴백된 호출만 필터링.
+    * `--doc <ID>`: 특정 문서 ID의 호출 이력만 필터링.
+    * `--provider <name>`: 특정 프로바이더명으로 필터링.
+    * `--stats`: 총 호출 수, 성공률, p50/p95 레이턴시, 차단 사유별 통계 요약 출력.
+    * `--prune <DAYS>`: 지정 일수(예: 14일, 30일)를 초과한 구 텔레메트리 레코드 즉시 정리.
+    * `--json`: 기계 판독용 JSON 포맷 출력.
+
+* `claire support-bundle [--days N] [--target <target>] [--list] [--purge] [--json]`:
+  * **RCA 전용 zstd 압축 아카이브**: 시스템 진단, 마스킹된 설정, 텔레메트리, 인박스 실패 내역, 활성 공유 링크 인덱스, 프로바이더 로그를 `.tar.zst`로 패키징.[^telemetry-implementation]
+  * **공유 링크 기반 문서 특정 및 역추적**: `target`으로 공유 링크(`/p?s=token`), 공유 토큰, URL, 문서 ID를 입력받아 `tracked_document/` 디렉터리에 해당 문서의 전 라이프사이클을 집중 추적 패키징.
+  * **6시간 자동 파기**: 번들 생성 시 6시간 유효한 보안 다운로드 토큰(`GET /support/bundle?token=...`)을 발급하며, 생성 6시간 경과 시 디스크 및 DB에서 자동 파기 (`410 Gone`).
+  * **옵션**:
+    * `--days N`: 수집 대상 기간 (기본값: 1일). 텔레메트리 보관 기한(기본 30일)을 초과할 수 없음.
+    * `--target <target>`: 추적 대상 공유 링크, 토큰, URL 또는 문서 ID 지정.
+    * `--list`: 현재 유효한(미만료) Support Bundle 목록 및 토큰 조회.
+    * `--purge`: 6시간을 초과한 만료 번들 즉시 수동 파기.
+    * `--json`: 번들 메타데이터를 JSON 포맷으로 출력.
+
+---
+
 ## 4. 미구현(Unimplemented) / 부분 구현 옵션 및 상태 명세
 
 시스템 운영 및 개발 시 혼선을 방지하기 위해 현재 코드베이스의 **부분 구현, 예약된 옵션, 또는 기능적 제약사항**을 명시합니다.
@@ -437,3 +467,4 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 [^progress-implementation]: Claire Bible 구현 근거: [`src/claire/progress.py`](../../../src/claire/progress.py), [`src/claire/cli.py`](../../../src/claire/cli.py), [`src/claire/ingest/service.py`](../../../src/claire/ingest/service.py), [`src/claire/ingest/pipeline.py`](../../../src/claire/ingest/pipeline.py) (2026-08-27 확인).
 [^video-caption-implementation]: Claire Bible 구현 근거: [`src/claire/ingest/fetchers/captions.py`](../../../src/claire/ingest/fetchers/captions.py), [`src/claire/ingest/fetchers/video.py`](../../../src/claire/ingest/fetchers/video.py), [`tests/test_video_captions.py`](../../../tests/test_video_captions.py) (2026-09-04 확인).
 [^video-presentation-implementation]: Claire Bible 구현 근거: [`src/claire/ingest/fetchers/presentation_vmware_explore.py`](../../../src/claire/ingest/fetchers/presentation_vmware_explore.py), [`src/claire/ingest/fetchers/pdf.py`](../../../src/claire/ingest/fetchers/pdf.py), [`src/claire/ingest/pipeline.py`](../../../src/claire/ingest/pipeline.py), [`src/claire/store/raw.py`](../../../src/claire/store/raw.py), [`tests/test_video_presentation.py`](../../../tests/test_video_presentation.py) (2026-09-04 확인). 설계 근거: [VIDEO_PRESENTATION_BUNDLE_INGESTION_DESIGN.md](../design/VIDEO_PRESENTATION_BUNDLE_INGESTION_DESIGN.md).
+[^telemetry-implementation]: Claire Bible 구현 근거: [`src/claire/store/telemetry.py`](../../../src/claire/store/telemetry.py), [`src/claire/support_bundle.py`](../../../src/claire/support_bundle.py), [`src/claire/cli.py`](../../../src/claire/cli.py), [`ops/cb_manuscript.py`](../../../ops/cb_manuscript.py), [`tests/test_telemetry.py`](../../../tests/test_telemetry.py), [`tests/test_support_bundle.py`](../../../tests/test_support_bundle.py) (2026-09-10 확인). 설계 근거: [TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md](../design/TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md).

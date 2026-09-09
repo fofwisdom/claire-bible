@@ -184,6 +184,7 @@ VMware Explore 숫자형 영상 상세 페이지가 Presentation PDF를 명시�
 | `CLAIRE_RENDER_FORMAT` | `adoc` | `adoc` (`asciidoc`), `md` (`markdown`) | 문서 읽기 및 저장 기본 렌더링 포맷. ([DUAL_FORMAT_ADOC_DESIGN.md](../design/DUAL_FORMAT_ADOC_DESIGN.md) 참조) |
 | `CLAIRE_DATA_LIFECYCLE` | `append-only` | `append-only`, `purgeable` | **데이터 수명주기 정책**. `append-only`(기본값, 무손실 보존 모드)에서는 파괴적 소각(`claire purge`) 명령이 정책상 차단됩니다. |
 | `CLAIRE_ALLOW_PURGE` | `0` (`false`) | `0`, `1`, `true`, `false` | 명시적 데이터 소각 허용 플래그. `1`로 설정하거나 `CLAIRE_DATA_LIFECYCLE=purgeable`이어야 소각 명령이 통과됩니다. ([DATA_LIFECYCLE_AND_PURGE_DESIGN.md](../design/DATA_LIFECYCLE_AND_PURGE_DESIGN.md) 참조) |
+| `CLAIRE_TELEMETRY_RETENTION_DAYS` | `30` | 양의 정수 (일) | **텔레메트리 보관 기한**. 격리된 `data/telemetry.db`의 호출 계측 데이터 최대 보존 일수이자 Support Bundle 생성 시 지정 가능한 최대 기간(`days`) 상한. ([TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md](../design/TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md) 참조) |
 
 ---
 
