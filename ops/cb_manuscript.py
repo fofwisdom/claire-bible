@@ -128,6 +128,7 @@ APP_ONE_OFF_COMMANDS = {
     "backfill-stt",
     "video-reprocess",
     "reprocess-video",
+    "telemetry",
 }
 APP_GUARDED_COMMANDS = {
     "migrate": "Schema lifecycle command owned by install/update",

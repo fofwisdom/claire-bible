@@ -13,10 +13,17 @@ import logging
 import re
 import subprocess
 import threading
+import time
+from pathlib import Path
 from typing import Any
 
 from ..ontology.base import Document
 from ..ontology.registry import ontology_prompt_block
+from ..store.telemetry import (
+    diagnose_google_block,
+    evaluate_summary_verdict,
+    record_telemetry,
+)
 from .gemini_provider import _coerce
 from .prompts import (
     _MERGED_DETAIL_MIN_CHARS,
@@ -68,6 +75,17 @@ class AntigravityProvider:
         self.max_concurrency = int(getattr(settings, "agy_max_concurrency", 2))
         self._sem = threading.Semaphore(max(1, self.max_concurrency))
 
+    def _get_log_file(self) -> str:
+        data_dir = getattr(self.settings, "data_dir", None)
+        if data_dir:
+            log_dir = Path(data_dir) / "logs"
+            try:
+                log_dir.mkdir(parents=True, exist_ok=True)
+                return str(log_dir / "agy.log")
+            except Exception:
+                pass
+        return "/tmp/agy.log"
+
     def _run_cli(
         self,
         prompt: str,
@@ -76,6 +94,8 @@ class AntigravityProvider:
         output_format: str = "json",
         dangerously_skip_permissions: bool = True,
         effort: str | None = None,
+        call_type: str = "cli",
+        document_id: str | None = None,
     ) -> Any:
         """agy CLI를 서브프로세스로 실행하고 결과를 반환한다."""
         def _build_cmd(*, use_stdin: bool) -> list[str]:
@@ -87,7 +107,7 @@ class AntigravityProvider:
                 output_format,
                 "--disable-slash-commands",
                 "--log-file",
-                "/tmp/agy.log",
+                self._get_log_file(),
             ])
             if self.model:
                 cmd.extend(["--model", self.model])
@@ -104,12 +124,17 @@ class AntigravityProvider:
                 cmd.extend(["--json-schema", json.dumps(json_schema)])
             return cmd
 
-        # Linux execve MAX_ARG_STRLEN(128KB) 제한을 고려하여, UTF-8 바이트 길이가 40KB를 초과하면
-        # 커맨드라인 인수(-p) 대신 stdin 파이프로 전달
+        start_t = time.monotonic()
         prompt_bytes = len(prompt.encode("utf-8", errors="replace"))
+        input_chars = len(prompt)
         use_stdin = prompt_bytes > 40_000
+        delivery_mode = "stdin" if use_stdin else "argv"
         cmd = _build_cmd(use_stdin=use_stdin)
         stdin_data = prompt if use_stdin else None
+        proc = None
+        exit_code = None
+        stdout = ""
+        stderr = ""
 
         with self._sem:
             emit_progress(f"Antigravity CLI 호출 ({self.model})")
@@ -122,11 +147,15 @@ class AntigravityProvider:
                     timeout=self.timeout,
                     check=False,
                 )
+                exit_code = proc.returncode
+                stdout = proc.stdout.strip()
+                stderr = (proc.stderr or "").strip()
             except OSError as e:
                 # 예상치 못한 E2BIG(Argument list too long) 발생 시 stdin 방식으로 즉시 재시도
                 if getattr(e, "errno", None) == errno.E2BIG and not use_stdin:
                     logger.warning("agy CLI argument list too long (E2BIG), retrying via stdin")
                     use_stdin = True
+                    delivery_mode = "stdin"
                     cmd = _build_cmd(use_stdin=True)
                     proc = subprocess.run(
                         cmd,
@@ -136,24 +165,107 @@ class AntigravityProvider:
                         timeout=self.timeout,
                         check=False,
                     )
+                    exit_code = proc.returncode
+                    stdout = proc.stdout.strip()
+                    stderr = (proc.stderr or "").strip()
                 else:
+                    duration_ms = int((time.monotonic() - start_t) * 1000)
+                    record_telemetry(
+                        getattr(self.settings, "data_dir", None),
+                        document_id=document_id,
+                        provider=self.name,
+                        model=self.model,
+                        call_type=call_type,
+                        input_chars=input_chars,
+                        input_bytes=prompt_bytes,
+                        delivery_mode=delivery_mode,
+                        exit_code=None,
+                        duration_ms=duration_ms,
+                        status="CLI_ERROR",
+                        google_block_reason="ENV_MISSING" if getattr(e, "errno", None) == errno.ENOENT else "UNKNOWN",
+                        error_message=str(e),
+                    )
                     logger.error("agy CLI execution error: %s", e)
                     raise
             except subprocess.TimeoutExpired as e:
+                duration_ms = int((time.monotonic() - start_t) * 1000)
+                record_telemetry(
+                    getattr(self.settings, "data_dir", None),
+                    document_id=document_id,
+                    provider=self.name,
+                    model=self.model,
+                    call_type=call_type,
+                    input_chars=input_chars,
+                    input_bytes=prompt_bytes,
+                    delivery_mode=delivery_mode,
+                    exit_code=None,
+                    duration_ms=duration_ms,
+                    status="TIMEOUT",
+                    google_block_reason="TIMEOUT",
+                    error_message=f"agy CLI timed out after {self.timeout}s",
+                )
                 logger.error("agy CLI invocation timed out after %ss", self.timeout)
                 raise RuntimeError(f"agy CLI timed out after {self.timeout}s") from e
             except Exception as e:
+                duration_ms = int((time.monotonic() - start_t) * 1000)
+                record_telemetry(
+                    getattr(self.settings, "data_dir", None),
+                    document_id=document_id,
+                    provider=self.name,
+                    model=self.model,
+                    call_type=call_type,
+                    input_chars=input_chars,
+                    input_bytes=prompt_bytes,
+                    delivery_mode=delivery_mode,
+                    exit_code=None,
+                    duration_ms=duration_ms,
+                    status="CLI_ERROR",
+                    google_block_reason="UNKNOWN",
+                    error_message=str(e),
+                )
                 logger.error("agy CLI execution error: %s", e)
                 raise
 
-        if proc.returncode != 0:
-            err_msg = (proc.stderr or proc.stdout or "").strip()
-            logger.error("agy CLI returned non-zero code %d: %s", proc.returncode, err_msg)
-            raise RuntimeError(f"agy CLI failed (code {proc.returncode}): {err_msg[:300]}")
+        duration_ms = int((time.monotonic() - start_t) * 1000)
+        google_block = diagnose_google_block(exit_code, stderr, stdout)
 
-        stdout = proc.stdout.strip()
+        if exit_code != 0:
+            err_msg = (stderr or stdout).strip()
+            record_telemetry(
+                getattr(self.settings, "data_dir", None),
+                document_id=document_id,
+                provider=self.name,
+                model=self.model,
+                call_type=call_type,
+                input_chars=input_chars,
+                input_bytes=prompt_bytes,
+                delivery_mode=delivery_mode,
+                exit_code=exit_code,
+                duration_ms=duration_ms,
+                status="CLI_ERROR",
+                google_block_reason=google_block,
+                error_message=err_msg[:1000],
+                output_snippet=stdout[:500] if stdout else None,
+            )
+            logger.error("agy CLI returned non-zero code %d: %s", exit_code, err_msg)
+            raise RuntimeError(f"agy CLI failed (code {exit_code}): {err_msg[:300]}")
 
         if output_format == "text":
+            record_telemetry(
+                getattr(self.settings, "data_dir", None),
+                document_id=document_id,
+                provider=self.name,
+                model=self.model,
+                call_type=call_type,
+                input_chars=input_chars,
+                input_bytes=prompt_bytes,
+                delivery_mode=delivery_mode,
+                exit_code=0,
+                duration_ms=duration_ms,
+                status="SUCCESS",
+                google_block_reason=google_block,
+                output_snippet=stdout[:500] if stdout else None,
+            )
             return stdout
 
         # JSON 출력 파싱
@@ -166,13 +278,58 @@ class AntigravityProvider:
                 try:
                     payload = json.loads(m.group(0))
                 except Exception as e:
+                    record_telemetry(
+                        getattr(self.settings, "data_dir", None),
+                        document_id=document_id,
+                        provider=self.name,
+                        model=self.model,
+                        call_type=call_type,
+                        input_chars=input_chars,
+                        input_bytes=prompt_bytes,
+                        delivery_mode=delivery_mode,
+                        exit_code=0,
+                        duration_ms=duration_ms,
+                        status="PARSE_ERROR",
+                        google_block_reason=google_block,
+                        error_message=f"Failed to parse agy JSON output: {stdout[:200]}",
+                    )
                     raise RuntimeError(f"Failed to parse agy JSON output: {stdout[:200]}") from e
             else:
+                record_telemetry(
+                    getattr(self.settings, "data_dir", None),
+                    document_id=document_id,
+                    provider=self.name,
+                    model=self.model,
+                    call_type=call_type,
+                    input_chars=input_chars,
+                    input_bytes=prompt_bytes,
+                    delivery_mode=delivery_mode,
+                    exit_code=0,
+                    duration_ms=duration_ms,
+                    status="PARSE_ERROR",
+                    google_block_reason=google_block,
+                    error_message=f"Invalid JSON from agy: {stdout[:200]}",
+                )
                 raise RuntimeError(f"Invalid JSON from agy: {stdout[:200]}")
 
         if isinstance(payload, dict):
             # 1) structured_output이 존재하면 내부 도구 에러/경고로 인한 status=ERROR와 무관하게 우선 채택
             if "structured_output" in payload and payload["structured_output"] is not None:
+                record_telemetry(
+                    getattr(self.settings, "data_dir", None),
+                    document_id=document_id,
+                    provider=self.name,
+                    model=self.model,
+                    call_type=call_type,
+                    input_chars=input_chars,
+                    input_bytes=prompt_bytes,
+                    delivery_mode=delivery_mode,
+                    exit_code=0,
+                    duration_ms=duration_ms,
+                    status="SUCCESS",
+                    google_block_reason="NONE",
+                    output_snippet=stdout[:500] if stdout else None,
+                )
                 return payload["structured_output"]
 
             # 2) response 문자열이 있으면 JSON 파싱 시도
@@ -180,22 +337,100 @@ class AntigravityProvider:
                 resp_str = payload["response"].strip()
                 if json_schema:
                     try:
-                        return json.loads(resp_str)
+                        parsed_resp = json.loads(resp_str)
+                        record_telemetry(
+                            getattr(self.settings, "data_dir", None),
+                            document_id=document_id,
+                            provider=self.name,
+                            model=self.model,
+                            call_type=call_type,
+                            input_chars=input_chars,
+                            input_bytes=prompt_bytes,
+                            delivery_mode=delivery_mode,
+                            exit_code=0,
+                            duration_ms=duration_ms,
+                            status="SUCCESS",
+                            google_block_reason="NONE",
+                            output_snippet=stdout[:500] if stdout else None,
+                        )
+                        return parsed_resp
                     except Exception:
                         m = re.search(r"\{.*\}", resp_str, re.DOTALL)
                         if m:
                             try:
-                                return json.loads(m.group(0))
+                                parsed_m = json.loads(m.group(0))
+                                record_telemetry(
+                                    getattr(self.settings, "data_dir", None),
+                                    document_id=document_id,
+                                    provider=self.name,
+                                    model=self.model,
+                                    call_type=call_type,
+                                    input_chars=input_chars,
+                                    input_bytes=prompt_bytes,
+                                    delivery_mode=delivery_mode,
+                                    exit_code=0,
+                                    duration_ms=duration_ms,
+                                    status="SUCCESS",
+                                    google_block_reason="NONE",
+                                    output_snippet=stdout[:500] if stdout else None,
+                                )
+                                return parsed_m
                             except Exception:
                                 pass
                 elif not payload.get("status") or payload.get("status") == "SUCCESS":
+                    record_telemetry(
+                        getattr(self.settings, "data_dir", None),
+                        document_id=document_id,
+                        provider=self.name,
+                        model=self.model,
+                        call_type=call_type,
+                        input_chars=input_chars,
+                        input_bytes=prompt_bytes,
+                        delivery_mode=delivery_mode,
+                        exit_code=0,
+                        duration_ms=duration_ms,
+                        status="SUCCESS",
+                        google_block_reason="NONE",
+                        output_snippet=stdout[:500] if stdout else None,
+                    )
                     return resp_str
 
             # 3) 구조화된 결과나 유효 응답이 없고 status가 에러인 경우 예외 발생
-            status = payload.get("status")
-            if status and status != "SUCCESS":
-                raise RuntimeError(f"agy CLI returned status={status}: {payload}")
+            status_val = payload.get("status")
+            if status_val and status_val != "SUCCESS":
+                google_block = diagnose_google_block(0, str(payload), str(payload), status=status_val)
+                record_telemetry(
+                    getattr(self.settings, "data_dir", None),
+                    document_id=document_id,
+                    provider=self.name,
+                    model=self.model,
+                    call_type=call_type,
+                    input_chars=input_chars,
+                    input_bytes=prompt_bytes,
+                    delivery_mode=delivery_mode,
+                    exit_code=0,
+                    duration_ms=duration_ms,
+                    status="BLOCKED" if google_block != "NONE" else "CLI_ERROR",
+                    google_block_reason=google_block,
+                    error_message=f"agy CLI returned status={status_val}: {str(payload)[:300]}",
+                )
+                raise RuntimeError(f"agy CLI returned status={status_val}: {payload}")
 
+        record_telemetry(
+            getattr(self.settings, "data_dir", None),
+            document_id=document_id,
+            provider=self.name,
+            model=self.model,
+            call_type=call_type,
+            input_chars=input_chars,
+            input_bytes=prompt_bytes,
+            delivery_mode=delivery_mode,
+            exit_code=0,
+            duration_ms=duration_ms,
+            status="SUCCESS",
+            google_block_reason="NONE",
+            output_snippet=stdout[:500] if stdout else None,
+        )
         return payload
 
     def extract(
@@ -206,26 +441,42 @@ class AntigravityProvider:
         effort: str | None = None,
     ) -> ExtractionResult:
         """지식그래프 구조화 추출 (JSON Schema 강제)."""
+        extract_start_t = time.monotonic()
         block = ontology_block or ontology_prompt_block()
         sys = extract_system_prompt(block)
         body = _doc_to_prompt(doc)
         prompt = f"{sys}\n\nDOCUMENT:\n{body}"
 
         schema = ExtractionResult.extraction_json_schema()
+        fallback_used = False
         try:
-            data = self._run_cli(prompt, json_schema=schema, output_format="json", effort=effort)
+            data = self._run_cli(
+                prompt,
+                json_schema=schema,
+                output_format="json",
+                effort=effort,
+                call_type="extract_json",
+                document_id=getattr(doc, "id", None),
+            )
             if isinstance(data, dict):
                 result = ExtractionResult.model_validate(data)
             else:
                 result = _coerce(str(data))
         except Exception as e:
+            fallback_used = True
             logger.warning("agy structured extraction fallback: %s", e)
             # 폴백: 일반 텍스트 모드로 JSON 요청
             fallback_prompt = (
                 f"{prompt}\n\nReturn ONLY valid JSON matching this schema:\n"
                 f"{json.dumps(schema)}"
             )
-            raw_text = self._run_cli(fallback_prompt, output_format="text", effort=effort)
+            raw_text = self._run_cli(
+                fallback_prompt,
+                output_format="text",
+                effort=effort,
+                call_type="extract_text_fallback",
+                document_id=getattr(doc, "id", None),
+            )
             result = _coerce(str(raw_text))
 
         # 요약 평문 정제 및 비어있는 경우 방어적 보강
@@ -249,6 +500,22 @@ class AntigravityProvider:
             result.raw_response = result.model_dump_json(
                 exclude={"raw_response", "model", "prompt_version"}
             )
+
+        verdict = evaluate_summary_verdict(result.summary, doc.raw_text, provider_name=self.name)
+        total_duration = int((time.monotonic() - extract_start_t) * 1000)
+        record_telemetry(
+            getattr(self.settings, "data_dir", None),
+            document_id=getattr(doc, "id", None),
+            provider=self.name,
+            model=self.model,
+            call_type="extract_summary",
+            input_chars=len(doc.raw_text or ""),
+            duration_ms=total_duration,
+            status="SUCCESS" if verdict == "REAL_LLM" else "DEGRADED",
+            google_block_reason="NONE" if verdict == "REAL_LLM" else ("FALLBACK_TEXT" if fallback_used else "FALLBACK_DETECTED"),
+            summary_verdict=verdict,
+            output_snippet=result.summary[:500] if result.summary else None,
+        )
         return result
 
     def embed(self, text: str) -> list[float]:
@@ -292,15 +559,16 @@ class AntigravityProvider:
         images = (doc.meta or {}).get("images") or []
         merged = bool((doc.meta or {}).get("extra_sources"))
         dir_val = directive or (doc.meta or {}).get("directive")
+        doc_id = getattr(doc, "id", None)
         text = self._render_detail_call(
-            body, images, merged=merged, scale=1, format=format, directive=dir_val, effort=effort
+            body, images, merged=merged, scale=1, format=format, directive=dir_val, effort=effort, document_id=doc_id
         )
         if merged:
             for scale in (2, 4):
                 if len(text) >= _MERGED_DETAIL_MIN_CHARS:
                     break
                 text = self._render_detail_call(
-                    body, images, merged=merged, scale=scale, format=format, directive=dir_val, effort=effort
+                    body, images, merged=merged, scale=scale, format=format, directive=dir_val, effort=effort, document_id=doc_id
                 )
         return text
 
@@ -314,11 +582,14 @@ class AntigravityProvider:
         format: str = "md",
         directive: str | None = None,
         effort: str | None = None,
+        document_id: str | None = None,
     ) -> str:
         prompt = render_detail_prompt(
             body, images, merged=merged, scale=scale, format=format, directive=directive
         )
-        res = self._run_cli(prompt, output_format="text", effort=effort)
+        res = self._run_cli(
+            prompt, output_format="text", effort=effort, call_type="render_detail", document_id=document_id
+        )
         return str(res).strip()
 
     def classify_paper(
@@ -338,7 +609,14 @@ class AntigravityProvider:
             "required": ["is_paper", "reason"],
         }
         try:
-            data = self._run_cli(prompt, json_schema=schema, output_format="json", effort=eff)
+            data = self._run_cli(
+                prompt,
+                json_schema=schema,
+                output_format="json",
+                effort=eff,
+                call_type="classify_paper",
+                document_id=getattr(doc, "id", None),
+            )
             if isinstance(data, dict):
                 return bool(data.get("is_paper", False)), str(data.get("reason", ""))
             parsed = json.loads(str(data))
@@ -352,7 +630,13 @@ class AntigravityProvider:
         prompt = classify_watch_prompt(body)
         schema = WatchClassification.model_json_schema()
         try:
-            data = self._run_cli(prompt, json_schema=schema, output_format="json")
+            data = self._run_cli(
+                prompt,
+                json_schema=schema,
+                output_format="json",
+                call_type="classify_watch",
+                document_id=getattr(doc, "id", None),
+            )
             if isinstance(data, dict):
                 return WatchClassification.model_validate(data).model_dump()
             return WatchClassification.model_validate_json(str(data)).model_dump()

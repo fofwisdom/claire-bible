@@ -89,6 +89,60 @@ def find_agy_executable(agy_bin: str = "agy") -> str | None:
     return None
 
 
+def diagnose_agy_environment(agy_bin: str = "agy") -> dict:
+    """agy 바이너리 탐색 및 실행 환경에 대한 상세 진단 정보 수집."""
+    if not agy_bin:
+        agy_bin = "agy"
+
+    diagnosis: dict = {
+        "raw_bin": agy_bin,
+        "found_path": None,
+        "is_executable": False,
+        "checked_paths": [],
+        "uid": os.getuid() if hasattr(os, "getuid") else None,
+        "path_env": os.environ.get("PATH", ""),
+        "error": None,
+    }
+
+    p = Path(agy_bin)
+    if p.is_file():
+        exec_ok = os.access(p, os.X_OK)
+        diagnosis["checked_paths"].append({"path": str(p), "exists": True, "executable": exec_ok})
+        if exec_ok:
+            diagnosis["found_path"] = str(p.resolve())
+            diagnosis["is_executable"] = True
+            return diagnosis
+    else:
+        diagnosis["checked_paths"].append({"path": str(p), "exists": False, "executable": False})
+
+    which_found = shutil.which(agy_bin)
+    if which_found:
+        diagnosis["checked_paths"].append({"path": which_found, "via": "which", "exists": True, "executable": True})
+        diagnosis["found_path"] = which_found
+        diagnosis["is_executable"] = True
+        return diagnosis
+
+    extra_dirs = [
+        "/host-bin",
+        "/usr/local/bin",
+        "/usr/bin",
+        str(Path.home() / ".local" / "bin"),
+        "/root/.local/bin",
+    ]
+    for d in extra_dirs:
+        cand = Path(d) / agy_bin
+        exists = cand.is_file()
+        exec_ok = exists and os.access(cand, os.X_OK)
+        diagnosis["checked_paths"].append({"path": str(cand), "exists": exists, "executable": exec_ok})
+        if exec_ok:
+            diagnosis["found_path"] = str(cand.resolve())
+            diagnosis["is_executable"] = True
+            return diagnosis
+
+    diagnosis["error"] = f"agy binary '{agy_bin}' not found or not executable in checked paths"
+    return diagnosis
+
+
 def find_codex_executable(codex_bin: str = "codex") -> str | None:
     """명시 경로 또는 현재 PATH에서만 Codex CLI를 찾는다."""
     raw = str(codex_bin or "codex").strip() or "codex"
@@ -507,6 +561,21 @@ class Settings(BaseSettings):
         if raw in ("antigravity", "agy"):
             if find_agy_executable(self.agy_bin) is not None:
                 return "antigravity"
+            try:
+                from .store.telemetry import record_telemetry
+
+                diag = diagnose_agy_environment(self.agy_bin)
+                record_telemetry(
+                    getattr(self, "data_dir", None),
+                    provider="antigravity",
+                    call_type="env_discovery",
+                    status="DEGRADED",
+                    google_block_reason="ENV_MISSING",
+                    error_message=diag.get("error"),
+                    summary_verdict="MOCK_PREFIX",
+                )
+            except Exception:
+                pass
             return "mock"
         if raw in ("codex", "codex-cli"):
             if find_codex_executable(self.codex_bin) is not None:
