@@ -430,6 +430,11 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
     * `--purge`: 6시간을 초과한 만료 번들 즉시 수동 파기.
     * `--json`: 번들 메타데이터를 JSON 포맷으로 출력.
 
+* `Telegram 봇: /support bundle [<일수>] [<대상>]`, `/support bundle list`, `/support bundle purge`:
+  * **원격 진단 번들 발급**: 텔레그램 채팅창에서 `/support bundle` 명령으로 즉시 최근 1일(또는 지정 일수, 대상 문서)의 zstd 진단 번들을 생성하고 6시간 다운로드 링크를 회신받음.[^telemetry-implementation]
+  * **인라인 원터치 액션 (`sb:{doc_id}`)**: 보관 문서의 공유 링크(`/p?s=token`) 또는 문서 ID를 봇에 전송하면 나타나는 스마트 액션 메뉴에 `[📦 Support Bundle 생성]` 버튼이 제공되어 원클릭으로 특정 문서 추적 번들 생성 가능.
+  * **문서 첨부 전송**: 봇은 6시간 다운로드 URL 회신과 함께 생성된 `.tar.zst` 파일을 텔레그램 문서로 채팅방에 직접 첨부 전송(best-effort).
+
 ---
 
 ## 4. 미구현(Unimplemented) / 부분 구현 옵션 및 상태 명세
@@ -467,4 +472,4 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 [^progress-implementation]: Claire Bible 구현 근거: [`src/claire/progress.py`](../../../src/claire/progress.py), [`src/claire/cli.py`](../../../src/claire/cli.py), [`src/claire/ingest/service.py`](../../../src/claire/ingest/service.py), [`src/claire/ingest/pipeline.py`](../../../src/claire/ingest/pipeline.py) (2026-08-27 확인).
 [^video-caption-implementation]: Claire Bible 구현 근거: [`src/claire/ingest/fetchers/captions.py`](../../../src/claire/ingest/fetchers/captions.py), [`src/claire/ingest/fetchers/video.py`](../../../src/claire/ingest/fetchers/video.py), [`tests/test_video_captions.py`](../../../tests/test_video_captions.py) (2026-09-04 확인).
 [^video-presentation-implementation]: Claire Bible 구현 근거: [`src/claire/ingest/fetchers/presentation_vmware_explore.py`](../../../src/claire/ingest/fetchers/presentation_vmware_explore.py), [`src/claire/ingest/fetchers/pdf.py`](../../../src/claire/ingest/fetchers/pdf.py), [`src/claire/ingest/pipeline.py`](../../../src/claire/ingest/pipeline.py), [`src/claire/store/raw.py`](../../../src/claire/store/raw.py), [`tests/test_video_presentation.py`](../../../tests/test_video_presentation.py) (2026-09-04 확인). 설계 근거: [VIDEO_PRESENTATION_BUNDLE_INGESTION_DESIGN.md](../design/VIDEO_PRESENTATION_BUNDLE_INGESTION_DESIGN.md).
-[^telemetry-implementation]: Claire Bible 구현 근거: [`src/claire/store/telemetry.py`](../../../src/claire/store/telemetry.py), [`src/claire/support_bundle.py`](../../../src/claire/support_bundle.py), [`src/claire/cli.py`](../../../src/claire/cli.py), [`ops/cb_manuscript.py`](../../../ops/cb_manuscript.py), [`tests/test_telemetry.py`](../../../tests/test_telemetry.py), [`tests/test_support_bundle.py`](../../../tests/test_support_bundle.py) (2026-09-10 확인). 설계 근거: [TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md](../design/TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md).
+[^telemetry-implementation]: Claire Bible 구현 근거: [`src/claire/store/telemetry.py`](../../../src/claire/store/telemetry.py), [`src/claire/support_bundle.py`](../../../src/claire/support_bundle.py), [`src/claire/telegram_bot.py`](../../../src/claire/telegram_bot.py), [`src/claire/cli.py`](../../../src/claire/cli.py), [`ops/cb_manuscript.py`](../../../ops/cb_manuscript.py), [`tests/test_telemetry.py`](../../../tests/test_telemetry.py), [`tests/test_support_bundle.py`](../../../tests/test_support_bundle.py), [`tests/test_bot.py`](../../../tests/test_bot.py) (2026-09-10 확인). 설계 근거: [TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md](../design/TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md).

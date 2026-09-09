@@ -152,6 +152,7 @@ Claire Bible은 호스트 오케스트레이션 도구인 **`cb-manuscript`**와
 | | `reextract`, `backfill-detail`, `dedup-merge`| 전체/표 선별 그래프 재추출, 상세 백필, 근사 중복 문서 병합 |
 | | `queue status`, `queue list inbox` | `raw_inbox`·`refresh_queue`·`expand_queue`의 상태 분포와 대기·오류 항목 조회 |
 | | `telemetry`, `support-bundle` | 프로바이더 호출 텔레메트리 통계 조회, zstd 압축 Support Bundle 생성·조회·파기 |
+| | *(텔레그램 봇)* `/support bundle` | 텔레그램 채팅창에서 원격 Support Bundle 생성·다운로드·파기 |
 
 > 💡 **전체 명령어 및 세부 옵션 안내**: 모든 명령어, 세부 옵션, 미구현 상태 및 제약사항에 대한 상세 설명은 **[전체 CLI 명령어 레퍼런스 (`docs/origin/implementation/COMMANDS.md`)](docs/origin/implementation/COMMANDS.md)**를 참고하십시오.
 

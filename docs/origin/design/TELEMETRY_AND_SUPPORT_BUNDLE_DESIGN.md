@@ -117,7 +117,7 @@ support_bundle_<id>/
 
 ---
 
-## 4. API 및 CLI 운영 인터페이스
+## 4. API, CLI 및 텔레그램 봇 운영 인터페이스
 
 ### 4.1 REST API 엔드포인트
 
@@ -142,13 +142,30 @@ support_bundle_<id>/
 - `claire support-bundle --list`: 활성 유효 번들 및 토큰 목록 조회.
 - `claire support-bundle --purge`: 만료 번들 즉시 수동 파기.
 
+### 4.3 텔레그램 봇 인터페이스 (`/support bundle`)
+
+모바일이나 원격 환경에서 서버 직접 접속(SSH) 없이 즉시 장애 원인을 진단하고 서포트 번들을 수령할 수 있도록 텔레그램 봇 명령 및 스마트 인라인 액션을 제공합니다.
+
+1. **명령어 구문**:
+   - `/support bundle`: 기본 1일치 zstd 압축 진단 번들 생성, 6시간 다운로드 링크 회신 및 파일 직접 첨부 전송(best-effort).
+   - `/support bundle <일수>`: 지정 일수(최대 30일) 번들 생성 (예: `/support bundle 3`).
+   - `/support bundle <공유URL|문서ID>`: 특정 문서 집중 추적 번들 생성 (예: `/support bundle https://kb.example.com/p?s=token`).
+   - `/support bundle <일수> <대상>`: 기간 및 특정 문서 동시 지정.
+   - `/support bundle list`: 현재 활성(미만료) 번들 목록 및 다운로드 URL 확인.
+   - `/support bundle purge`: 6시간을 경과한 만료 번들 즉시 파기.
+
+2. **공유 링크 원터치 인라인 액션 (`sb:{doc_id}`)**:
+   - 사용자가 텔레그램 채팅창에 보관 문서의 공유 링크(`/p?s=token`)나 문서 ID를 전송하면, 재생성/재수집 버튼과 함께 `[📦 Support Bundle 생성]` 인라인 버튼이 자동 제공됩니다.
+   - 버튼 클릭 시 해당 문서를 대상으로 즉시 Support Bundle을 생성하고 다운로드 링크와 첨부 파일을 제공합니다.
+
 ---
 
 ## 5. 구현 참조 파일
 - 텔레메트리 격리 스토어: [`src/claire/store/telemetry.py`](../../../src/claire/store/telemetry.py)
 - Support Bundle 코어: [`src/claire/support_bundle.py`](../../../src/claire/support_bundle.py)
+- 텔레그램 봇 인터페이스: [`src/claire/telegram_bot.py`](../../../src/claire/telegram_bot.py)
 - 프로바이더 계측: [`src/claire/extract/antigravity_provider.py`](../../../src/claire/extract/antigravity_provider.py)
 - 웹 API 및 보안 경계: [`src/claire/api/server.py`](../../../src/claire/api/server.py), [`src/claire/api/security.py`](../../../src/claire/api/security.py)
 - CLI 인터페이스: [`src/claire/cli.py`](../../../src/claire/cli.py)
 - 호스트 운영 래퍼: [`ops/cb_manuscript.py`](../../../ops/cb_manuscript.py)
-- 자동화 테스트: [`tests/test_telemetry.py`](../../../tests/test_telemetry.py), [`tests/test_support_bundle.py`](../../../tests/test_support_bundle.py)
+- 자동화 테스트: [`tests/test_telemetry.py`](../../../tests/test_telemetry.py), [`tests/test_support_bundle.py`](../../../tests/test_support_bundle.py), [`tests/test_bot.py`](../../../tests/test_bot.py)

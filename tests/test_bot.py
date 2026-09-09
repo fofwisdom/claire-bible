@@ -451,6 +451,353 @@ async def test_on_ingest_handles_ingest_report_error(monkeypatch):
     assert "❌ 적재 실패" in status_msg.edit_text.call_args[0][0]
 
 
+async def test_on_support_help():
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, MagicMock
+    from claire.config import Settings
+    from claire.telegram_bot import build_app
+
+    settings = Settings(telegram_bot_token="12345:fake_token_for_test", allowed_user_ids=[])
+    app = build_app(settings)
+
+    on_support = next(h.callback for h in app.handlers[0] if getattr(h.callback, "__name__", "") == "on_support")
+
+    msg = AsyncMock()
+    msg.reply_text = AsyncMock()
+    update = MagicMock()
+    update.effective_user = SimpleNamespace(id=100)
+    update.effective_message = msg
+
+    # 1. No args
+    ctx = MagicMock()
+    ctx.args = []
+    await on_support(update, ctx)
+    assert "/support bundle" in msg.reply_text.call_args[0][0]
+
+    # 2. help arg
+    ctx.args = ["help"]
+    await on_support(update, ctx)
+    assert "/support bundle" in msg.reply_text.call_args[0][0]
+
+
+async def test_on_support_unknown_subcommand():
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, MagicMock
+    from claire.config import Settings
+    from claire.telegram_bot import build_app
+
+    settings = Settings(telegram_bot_token="12345:fake_token_for_test", allowed_user_ids=[])
+    app = build_app(settings)
+
+    on_support = next(h.callback for h in app.handlers[0] if getattr(h.callback, "__name__", "") == "on_support")
+
+    msg = AsyncMock()
+    msg.reply_text = AsyncMock()
+    update = MagicMock()
+    update.effective_user = SimpleNamespace(id=100)
+    update.effective_message = msg
+
+    ctx = MagicMock()
+    ctx.args = ["unknown_cmd"]
+    await on_support(update, ctx)
+    assert "알 수 없는 하위 명령" in msg.reply_text.call_args[0][0]
+
+
+async def test_on_support_bundle_default(tmp_path, monkeypatch):
+    from pathlib import Path
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, MagicMock
+    from claire.config import Settings
+    from claire.support_bundle import SupportBundleInfo
+    from claire.telegram_bot import build_app
+
+    dummy_archive = tmp_path / "support_bundle_fake.tar.zst"
+    dummy_archive.write_bytes(b"dummy zstd archive")
+
+    fake_info = SupportBundleInfo(
+        bundle_id="sb_20260910_000000_12345678",
+        token="test_token_abc",
+        filename="support_bundle_fake.tar.zst",
+        filepath=dummy_archive,
+        days_covered=1,
+        size_bytes=len(dummy_archive.read_bytes()),
+        created_at=1700000000.0,
+        expires_at=1700021600.0,
+        download_url="https://kb.example.com/support/bundle?token=test_token_abc",
+    )
+
+    created_kwargs = {}
+    def fake_create(s, days=1, target=None):
+        created_kwargs["days"] = days
+        created_kwargs["target"] = target
+        return fake_info
+
+    monkeypatch.setattr("claire.support_bundle.create_support_bundle", fake_create)
+
+    settings = Settings(
+        telegram_bot_token="12345:fake_token_for_test",
+        allowed_user_ids=[],
+        data_dir=tmp_path,
+    )
+    app = build_app(settings)
+    on_support = next(h.callback for h in app.handlers[0] if getattr(h.callback, "__name__", "") == "on_support")
+
+    status_msg = AsyncMock()
+    status_msg.edit_text = AsyncMock()
+
+    msg = AsyncMock()
+    msg.reply_text = AsyncMock(return_value=status_msg)
+    msg.reply_document = AsyncMock()
+
+    update = MagicMock()
+    update.effective_user = SimpleNamespace(id=100)
+    update.effective_message = msg
+
+    ctx = MagicMock()
+    ctx.args = ["bundle"]
+
+    await on_support(update, ctx)
+
+    assert created_kwargs["days"] == 1
+    assert created_kwargs["target"] is None
+    assert status_msg.edit_text.await_count == 1
+    edited = status_msg.edit_text.call_args[0][0]
+    assert "sb_20260910_000000_12345678" in edited
+    assert "https://kb.example.com/support/bundle?token=test_token_abc" in edited
+    assert "6시간 후 자동 파기" in edited
+    assert msg.reply_document.await_count == 1
+
+
+async def test_on_support_bundle_with_days_and_target(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, MagicMock
+    from claire.config import Settings
+    from claire.support_bundle import SupportBundleInfo
+    from claire.telegram_bot import build_app
+
+    dummy_archive = tmp_path / "support_bundle_targeted.tar.zst"
+    dummy_archive.write_bytes(b"dummy target")
+
+    fake_info = SupportBundleInfo(
+        bundle_id="sb_target_123",
+        token="tok_targeted",
+        filename="support_bundle_targeted.tar.zst",
+        filepath=dummy_archive,
+        days_covered=5,
+        size_bytes=100,
+        created_at=1700000000.0,
+        expires_at=1700021600.0,
+        download_url="https://kb.example.com/support/bundle?token=tok_targeted",
+        target_doc_id="doc_target_abc",
+        target_matched_by="share_url",
+    )
+
+    created_kwargs = {}
+    def fake_create(s, days=1, target=None):
+        created_kwargs["days"] = days
+        created_kwargs["target"] = target
+        return fake_info
+
+    monkeypatch.setattr("claire.support_bundle.create_support_bundle", fake_create)
+
+    settings = Settings(telegram_bot_token="12345:fake_token_for_test", allowed_user_ids=[], data_dir=tmp_path)
+    app = build_app(settings)
+    on_support = next(h.callback for h in app.handlers[0] if getattr(h.callback, "__name__", "") == "on_support")
+
+    status_msg = AsyncMock()
+    status_msg.edit_text = AsyncMock()
+
+    msg = AsyncMock()
+    msg.reply_text = AsyncMock(return_value=status_msg)
+    msg.reply_document = AsyncMock()
+
+    update = MagicMock()
+    update.effective_user = SimpleNamespace(id=100)
+    update.effective_message = msg
+
+    ctx = MagicMock()
+    ctx.args = ["bundle", "5", "https://kb.example.com/p?s=share123"]
+
+    await on_support(update, ctx)
+
+    assert created_kwargs["days"] == 5
+    assert created_kwargs["target"] == "https://kb.example.com/p?s=share123"
+    edited = status_msg.edit_text.call_args[0][0]
+    assert "doc_target_abc" in edited
+
+
+async def test_on_support_bundle_validation_error(tmp_path):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, MagicMock
+    from claire.config import Settings
+    from claire.telegram_bot import build_app
+
+    settings = Settings(
+        telegram_bot_token="12345:fake_token_for_test",
+        allowed_user_ids=[],
+        data_dir=tmp_path,
+        telemetry_retention_days=30,
+    )
+    app = build_app(settings)
+    on_support = next(h.callback for h in app.handlers[0] if getattr(h.callback, "__name__", "") == "on_support")
+
+    msg = AsyncMock()
+    msg.reply_text = AsyncMock()
+    update = MagicMock()
+    update.effective_user = SimpleNamespace(id=100)
+    update.effective_message = msg
+
+    ctx = MagicMock()
+    ctx.args = ["bundle", "45"]
+
+    await on_support(update, ctx)
+
+    msg.reply_text.assert_awaited_once()
+    assert "cannot exceed telemetry retention limit" in msg.reply_text.call_args[0][0]
+
+
+async def test_on_support_bundle_list_and_purge(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, MagicMock
+    from claire.config import Settings
+    from claire.telegram_bot import build_app
+
+    monkeypatch.setattr(
+        "claire.support_bundle.list_active_support_bundles",
+        lambda data_dir: [
+            {
+                "bundle_id": "sb_active_1",
+                "token": "tok1",
+                "days_covered": 1,
+                "size_bytes": 10240,
+                "created_at": 1700000000.0,
+                "expires_at": 1700021600.0,
+                "target_doc_id": "doc_xyz",
+            }
+        ],
+    )
+    monkeypatch.setattr("claire.support_bundle.purge_expired_bundles", lambda data_dir: 3)
+
+    settings = Settings(telegram_bot_token="12345:fake_token_for_test", allowed_user_ids=[], data_dir=tmp_path)
+    app = build_app(settings)
+    on_support = next(h.callback for h in app.handlers[0] if getattr(h.callback, "__name__", "") == "on_support")
+
+    # 1. list
+    msg = AsyncMock()
+    msg.reply_text = AsyncMock()
+    update = MagicMock()
+    update.effective_user = SimpleNamespace(id=100)
+    update.effective_message = msg
+
+    ctx = MagicMock()
+    ctx.args = ["bundle", "list"]
+    await on_support(update, ctx)
+    assert "sb_active_1" in msg.reply_text.call_args[0][0]
+    assert "doc_xyz" in msg.reply_text.call_args[0][0]
+
+    # 2. purge
+    msg_purge = AsyncMock()
+    msg_purge.reply_text = AsyncMock()
+    update_purge = MagicMock()
+    update_purge.effective_user = SimpleNamespace(id=100)
+    update_purge.effective_message = msg_purge
+
+    ctx_purge = MagicMock()
+    ctx_purge.args = ["bundle", "purge"]
+    await on_support(update_purge, ctx_purge)
+    assert "3건을 파기했습니다" in msg_purge.reply_text.call_args[0][0]
+
+
+async def test_on_callback_support_bundle_button(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, MagicMock
+    from claire.config import Settings
+    from claire.support_bundle import SupportBundleInfo
+    from claire.telegram_bot import build_app
+
+    dummy_archive = tmp_path / "support_bundle_cb.tar.zst"
+    dummy_archive.write_bytes(b"dummy cb archive")
+
+    fake_info = SupportBundleInfo(
+        bundle_id="sb_cb_999",
+        token="tok_cb",
+        filename="support_bundle_cb.tar.zst",
+        filepath=dummy_archive,
+        days_covered=1,
+        size_bytes=len(dummy_archive.read_bytes()),
+        created_at=1700000000.0,
+        expires_at=1700021600.0,
+        download_url="https://kb.example.com/support/bundle?token=tok_cb",
+        target_doc_id="doc_btn_test",
+    )
+
+    created_target = None
+    def fake_create(s, days=1, target=None):
+        nonlocal created_target
+        created_target = target
+        return fake_info
+
+    monkeypatch.setattr("claire.support_bundle.create_support_bundle", fake_create)
+
+    settings = Settings(telegram_bot_token="12345:fake_token_for_test", allowed_user_ids=[], data_dir=tmp_path)
+    app = build_app(settings)
+    on_callback = next(h.callback for h in app.handlers[0] if getattr(h.callback, "__name__", "") == "on_callback")
+
+    query = AsyncMock()
+    query.data = "sb:doc_btn_test"
+    query.answer = AsyncMock()
+    query.edit_message_reply_markup = AsyncMock()
+
+    status_msg = AsyncMock()
+    status_msg.edit_text = AsyncMock()
+
+    message_mock = AsyncMock()
+    message_mock.reply_text = AsyncMock(return_value=status_msg)
+    message_mock.reply_document = AsyncMock()
+    query.message = message_mock
+
+    update = MagicMock()
+    update.effective_user = SimpleNamespace(id=100)
+    update.callback_query = query
+
+    await on_callback(update, None)
+
+    assert created_target == "doc_btn_test"
+    assert status_msg.edit_text.await_count == 1
+    edited = status_msg.edit_text.call_args[0][0]
+    assert "sb_cb_999" in edited
+    assert "https://kb.example.com/support/bundle?token=tok_cb" in edited
+
+
+async def test_on_support_unallowed_user(tmp_path):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, MagicMock
+    from claire.config import Settings
+    from claire.telegram_bot import build_app
+
+    settings = Settings(
+        telegram_bot_token="12345:fake_token_for_test",
+        allowed_users="9999",
+        data_dir=tmp_path,
+    )
+    app = build_app(settings)
+    on_support = next(h.callback for h in app.handlers[0] if getattr(h.callback, "__name__", "") == "on_support")
+
+    msg = AsyncMock()
+    msg.reply_text = AsyncMock()
+    update = MagicMock()
+    update.effective_user = SimpleNamespace(id=100)
+    update.message = msg
+    update.effective_message = msg
+
+    ctx = MagicMock()
+    ctx.args = ["bundle"]
+    await on_support(update, ctx)
+
+    msg.reply_text.assert_awaited_with("허용되지 않은 사용자입니다.")
+
+
+
 
 
 
