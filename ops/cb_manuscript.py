@@ -111,6 +111,7 @@ APP_ONE_OFF_COMMANDS = {
     "repo",
     "format-status",
     "format-migrate",
+    "artifact-migrate",
     "recompile-html",
     "regenerate",
     "summary-regenerate",

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import gzip
 import sqlite3
 from pathlib import Path
+from unittest.mock import patch
 
 import httpx
 
@@ -13,9 +15,14 @@ from claire.ontology.base import Document
 from claire.store import db as dbm
 from claire.store.raw import (
     _MAX_IMAGE_BYTES,
+    _get_compressor,
+    _get_decompressor,
+    artifact_paths,
     download_images,
     load_artifact,
+    migrate_artifacts,
     raw_disk_usage,
+    remove_artifact,
     save_artifact,
 )
 from claire.store.vectors import VectorStore
@@ -98,9 +105,182 @@ def test_layer2_artifact_saved_and_loadable(tmp_path: Path):
 
 
 def test_save_artifact_roundtrip(tmp_path: Path):
-    save_artifact(tmp_path, "doc_1", "héllo 안녕 <b>x</b>")
+    saved_path = save_artifact(tmp_path, "doc_1", "héllo 안녕 <b>x</b>")
+    assert saved_path.endswith("doc_1.txt.zst")
+    assert (tmp_path / "raw" / "artifacts" / "doc_1.txt.zst").exists()
     assert load_artifact(tmp_path, "doc_1") == "héllo 안녕 <b>x</b>"
     assert load_artifact(tmp_path, "missing") is None
+
+
+def test_legacy_gzip_transparent_load(tmp_path: Path):
+    """레거시 .txt.gz 파일만 존재하는 경우에도 투명하게 로드되어야 함."""
+    art_dir = tmp_path / "raw" / "artifacts"
+    art_dir.mkdir(parents=True, exist_ok=True)
+    gz_file = art_dir / "legacy_doc.txt.gz"
+    with gzip.open(gz_file, "wt", encoding="utf-8") as f:
+        f.write("legacy gzip raw text content")
+
+    # .txt.zst 가 없어도 .txt.gz 로 투명하게 로드
+    assert not (art_dir / "legacy_doc.txt.zst").exists()
+    loaded = load_artifact(tmp_path, "legacy_doc")
+    assert loaded == "legacy gzip raw text content"
+
+
+def test_corrupted_zst_fallback_to_gzip(tmp_path: Path):
+    """손상된 .txt.zst 파일이 존재할 경우 경고 로깅 후 유효한 .txt.gz 로 안전하게 폴백."""
+    art_dir = tmp_path / "raw" / "artifacts"
+    art_dir.mkdir(parents=True, exist_ok=True)
+
+    # 손상된 zst 파일
+    zst_file = art_dir / "fallback_doc.txt.zst"
+    zst_file.write_bytes(b"corrupted-non-zstd-garbage-data")
+
+    # 정상 레거시 gz 파일
+    gz_file = art_dir / "fallback_doc.txt.gz"
+    with gzip.open(gz_file, "wt", encoding="utf-8") as f:
+        f.write("fallback valid content from gzip")
+
+    # load_artifact 호출 시 손상된 zst 예외를 잡고 gz 로 폴백
+    loaded = load_artifact(tmp_path, "fallback_doc")
+    assert loaded == "fallback valid content from gzip"
+
+
+def test_atomic_write_and_legacy_cleanup(tmp_path: Path):
+    """신규 zst 저장 성공 시 레거시 .txt.gz는 원자적으로 정리되고 임시 파일이 남지 않아야 함."""
+    art_dir = tmp_path / "raw" / "artifacts"
+    art_dir.mkdir(parents=True, exist_ok=True)
+
+    # 1. 레거시 gz 생성
+    gz_file = art_dir / "doc_atomic.txt.gz"
+    with gzip.open(gz_file, "wt", encoding="utf-8") as f:
+        f.write("old version in gzip")
+    assert gz_file.exists()
+
+    # 2. 신규 zst 저장
+    save_artifact(tmp_path, "doc_atomic", "new version in zstd")
+    zst_file = art_dir / "doc_atomic.txt.zst"
+    assert zst_file.exists()
+    # 기존 gz는 삭제되어야 함
+    assert not gz_file.exists()
+    # 임시 파일(.tmp-)이 남지 않아야 함
+    tmp_files = list(art_dir.glob(".tmp-*"))
+    assert len(tmp_files) == 0
+    # 새 내용 로드 확인
+    assert load_artifact(tmp_path, "doc_atomic") == "new version in zstd"
+
+
+def test_atomic_write_failure_preserves_legacy(tmp_path: Path):
+    """신규 zst 저장 중 오류 발생 시 임시 파일 정리 및 레거시 .gz 무손실 보존."""
+    art_dir = tmp_path / "raw" / "artifacts"
+    art_dir.mkdir(parents=True, exist_ok=True)
+
+    gz_file = art_dir / "doc_fail.txt.gz"
+    with gzip.open(gz_file, "wt", encoding="utf-8") as f:
+        f.write("precious legacy content")
+
+    # os.replace 시점에 인위적 I/O 오류 주입
+    with patch("os.replace", side_effect=OSError("simulated disk full")):
+        try:
+            save_artifact(tmp_path, "doc_fail", "failed text")
+        except OSError:
+            pass
+
+    # 기존 gz가 여전히 온전히 보존되어야 함 (무손실 원칙)
+    assert gz_file.exists()
+    assert load_artifact(tmp_path, "doc_fail") == "precious legacy content"
+    # 임시 파일이 정리되었는지 확인
+    tmp_files = list(art_dir.glob(".tmp-*"))
+    assert len(tmp_files) == 0
+
+
+def test_artifact_paths_and_remove_artifact(tmp_path: Path):
+    """artifact_paths 와 remove_artifact 라이프사이클 헬퍼 검증."""
+    art_dir = tmp_path / "raw" / "artifacts"
+    art_dir.mkdir(parents=True, exist_ok=True)
+
+    zst = art_dir / "target_doc.txt.zst"
+    gz = art_dir / "target_doc.txt.gz"
+    zst.write_bytes(b"zst")
+    gz.write_bytes(b"gz")
+
+    paths = artifact_paths(tmp_path, "target_doc")
+    assert set(paths) == {zst, gz}
+
+    removed = remove_artifact(tmp_path, "target_doc")
+    assert set(removed) == {zst, gz}
+    assert not zst.exists()
+    assert not gz.exists()
+    assert artifact_paths(tmp_path, "target_doc") == []
+
+
+def test_migrate_artifacts_dry_run_and_apply(tmp_path: Path):
+    """migrate_artifacts 의 dry-run, apply, SHA-256 검증 및 반복 실행 멱등성 검증."""
+    art_dir = tmp_path / "raw" / "artifacts"
+    art_dir.mkdir(parents=True, exist_ok=True)
+
+    doc_data = {
+        "mig_1": "첫 번째 문서 내용입니다. " * 20,
+        "mig_2": "두 번째 마이그레이션 대상 문서입니다. " * 30,
+        "mig_3": "세 번째 문서입니다.",
+    }
+
+    for did, text in doc_data.items():
+        with gzip.open(art_dir / f"{did}.txt.gz", "wt", encoding="utf-8") as f:
+            f.write(text)
+
+    # 1. Dry-run 실행 (apply=False)
+    dry_res = migrate_artifacts(tmp_path, apply=False, level=3)
+    assert dry_res["dry_run"] is True
+    assert dry_res["total"] == 3
+    assert dry_res["migrated"] == 3
+    assert dry_res["already_zst"] == 0
+    assert dry_res["errors"] == 0
+    assert dry_res["bytes_before"] > 0
+    assert dry_res["bytes_after"] > 0
+    # 파일 상태 불변 확인
+    for did in doc_data:
+        assert (art_dir / f"{did}.txt.gz").exists()
+        assert not (art_dir / f"{did}.txt.zst").exists()
+
+    # 2. Apply 실행 (apply=True)
+    apply_res = migrate_artifacts(tmp_path, apply=True, level=3)
+    assert apply_res["dry_run"] is False
+    assert apply_res["total"] == 3
+    assert apply_res["migrated"] == 3
+    assert apply_res["already_zst"] == 0
+    assert apply_res["errors"] == 0
+
+    # 변환된 zst 파일 확인 및 원문과 완벽 일치 확인, gz 파일 제거 확인
+    for did, orig_text in doc_data.items():
+        assert not (art_dir / f"{did}.txt.gz").exists()
+        assert (art_dir / f"{did}.txt.zst").exists()
+        assert load_artifact(tmp_path, did) == orig_text
+
+    # 3. 멱등성 검증: 다시 실행 시 already_zst 가 카운트되어야 함
+    repeat_res = migrate_artifacts(tmp_path, apply=True, level=3)
+    assert repeat_res["total"] == 3
+    assert repeat_res["already_zst"] == 3
+    assert repeat_res["migrated"] == 0
+    assert repeat_res["errors"] == 0
+
+
+def test_migrate_artifacts_sha256_corruption_safety(tmp_path: Path):
+    """손상된 .gz 파일 발견 시 오류 기록 및 원본 보존 검증."""
+    art_dir = tmp_path / "raw" / "artifacts"
+    art_dir.mkdir(parents=True, exist_ok=True)
+
+    bad_gz = art_dir / "bad_doc.txt.gz"
+    bad_gz.write_bytes(b"not-a-valid-gzip-header-junk")
+
+    res = migrate_artifacts(tmp_path, apply=True, stop_on_error=False)
+    assert res["total"] == 1
+    assert res["migrated"] == 0
+    assert res["errors"] == 1
+    assert len(res["error_details"]) == 1
+    assert res["error_details"][0]["doc_id"] == "bad_doc"
+    # 손상된 원본이라도 임의 삭제하지 않고 보존
+    assert bad_gz.exists()
+    assert not (art_dir / "bad_doc.txt.zst").exists()
 
 
 class _FakeResp:
@@ -170,3 +350,77 @@ def test_download_images_network_error_is_caught(monkeypatch, tmp_path: Path):
     out = download_images(tmp_path, "doc_1", [{"url": "https://dead/x.png"}])
     assert "local" not in out[0]
     assert out[0]["url"] == "https://dead/x.png"
+
+
+def test_thread_local_context_caching_and_isolation():
+    """스레드 로컬 zstd 컨텍스트가 단일 스레드 내에서는 재사용되고, 다른 스레드 간에는 격리되는지 검증."""
+    import concurrent.futures
+
+    c1 = _get_compressor(3)
+    c2 = _get_compressor(3)
+    d1 = _get_decompressor()
+    d2 = _get_decompressor()
+
+    # 동일 스레드 내에서는 인스턴스가 100% 동일하게 캐싱 재사용되어야 함
+    assert c1 is c2
+    assert d1 is d2
+
+    # 레벨이 다른 경우 별도 인스턴스 생성
+    c_lvl5 = _get_compressor(5)
+    assert c_lvl5 is not c1
+
+    # 별도 스레드에서는 스레드 안전성을 위해 별개의 C-API 컨텍스트를 소유해야 함
+    def worker():
+        other_c = _get_compressor(3)
+        other_d = _get_decompressor()
+        return id(other_c), id(other_d)
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+        future = executor.submit(worker)
+        other_c_id, other_d_id = future.result()
+
+    assert id(c1) != other_c_id
+    assert id(d1) != other_d_id
+
+
+def test_concurrent_save_and_load_artifact(tmp_path: Path):
+    """다중 스레드 동시 save_artifact 및 load_artifact 수행 시 C-API 동시성 크래시(SIGSEGV)나 데이터 불일치가 없어야 함."""
+    import concurrent.futures
+
+    art_dir = tmp_path / "raw" / "artifacts"
+    art_dir.mkdir(parents=True, exist_ok=True)
+
+    def worker_task(i: int) -> bool:
+        doc_id = f"concurrent_doc_{i}"
+        payload = f"Payload for concurrent worker {i} with special chars: 안녕 <b>x</b> {i * 7}" * 10
+        saved_path = save_artifact(tmp_path, doc_id, payload)
+        loaded = load_artifact(tmp_path, doc_id)
+        return loaded == payload and saved_path.endswith(f"{doc_id}.txt.zst")
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+        results = list(executor.map(worker_task, range(50)))
+
+    assert all(results)
+    assert len(list(art_dir.glob("*.txt.zst"))) == 50
+
+
+def test_migrate_artifacts_batch_fsync(tmp_path: Path):
+    """migrate_artifacts 의 batch_fsync_interval 옵션 동작 및 마이그레이션 정상 완료 검증."""
+    art_dir = tmp_path / "raw" / "artifacts"
+    art_dir.mkdir(parents=True, exist_ok=True)
+
+    for i in range(15):
+        did = f"batch_doc_{i}"
+        with gzip.open(art_dir / f"{did}.txt.gz", "wt", encoding="utf-8") as f:
+            f.write(f"Batch content {i} " * 20)
+
+    # batch_fsync_interval=5 로 배치 플러시 테스트
+    res = migrate_artifacts(tmp_path, apply=True, level=3, batch_fsync_interval=5)
+    assert res["total"] == 15
+    assert res["migrated"] == 15
+    assert res["errors"] == 0
+    assert len(list(art_dir.glob("*.txt.zst"))) == 15
+    assert len(list(art_dir.glob("*.txt.gz"))) == 0
+    for i in range(15):
+        assert load_artifact(tmp_path, f"batch_doc_{i}") == f"Batch content {i} " * 20
+

@@ -1122,11 +1122,11 @@ class IngestService:
             res = dbm.merge_documents(conn, keeper, losers)
         finally:
             conn.close()
+        from ..store.raw import remove_artifact
+
         for d in losers:                       # keeper 로 옮긴 loser 의 원문 artifact 정리
             try:
-                p = self.s.data_dir / "raw" / "artifacts" / f"{d}.txt.gz"
-                if p.exists():
-                    p.unlink()
+                remove_artifact(self.s.data_dir, d)
             except Exception:  # noqa: BLE001
                 pass
         res["checkpoint"] = checkpoint_path
@@ -1194,11 +1194,11 @@ class IngestService:
                 if apply:
                     res = dbm.merge_documents(conn, keeper, losers)
                     plan["result"] = res
+                    from ..store.raw import remove_artifact
+
                     for d in losers:
                         try:
-                            p = self.s.data_dir / "raw" / "artifacts" / f"{d}.txt.gz"
-                            if p.exists():
-                                p.unlink()
+                            remove_artifact(self.s.data_dir, d)
                         except Exception:  # noqa: BLE001
                             pass
                 plans.append(plan)

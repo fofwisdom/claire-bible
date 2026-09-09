@@ -382,6 +382,52 @@ def cmd_audit(args) -> int:
         conn.close()
 
 
+def cmd_artifact_migrate(args) -> int:
+    """마이그레이션: 레거시 gzip(.txt.gz) 아티팩트를 zstandard(.txt.zst)로 변환."""
+    import json
+    from .store.raw import migrate_artifacts
+
+    s = get_settings()
+    apply = getattr(args, "apply", False) and not getattr(args, "dry_run", False)
+    level = getattr(args, "level", 3)
+    stop_on_error = getattr(args, "stop_on_error", False)
+    as_json = getattr(args, "json", False)
+
+    result = migrate_artifacts(
+        data_dir=s.data_dir,
+        apply=apply,
+        level=level,
+        stop_on_error=stop_on_error,
+    )
+
+    if as_json:
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 1 if result["errors"] > 0 else 0
+
+    mode_str = "APPLY (실제 변환)" if apply else "DRY-RUN (시뮬레이션)"
+    print(f"=== Artifact Compression Migration ({mode_str}) ===")
+    print(f"  총 아티팩트 대상: {result['total']}건")
+    print(f"  변환 완료/예정:   {result['migrated']}건")
+    print(f"  이미 zstd 변환됨: {result['already_zst']}건")
+    print(f"  변환 오류:        {result['errors']}건")
+    if result["bytes_before"] > 0:
+        kb_before = result["bytes_before"] / 1024
+        kb_after = result["bytes_after"] / 1024
+        print(f"  용량 변화:        {kb_before:.1f} KB -> {kb_after:.1f} KB")
+        print(f"  절감율:           {result['savings_pct']}%")
+
+    if result["errors"] > 0:
+        print(f"\n[오류 내역 ({result['errors']}건)]")
+        for err in result.get("error_details", [])[:10]:
+            print(f"  - doc_id={err.get('doc_id')}: {err.get('error')}")
+        return 1
+
+    if not apply and result["migrated"] > 0:
+        print("\n실제 변환을 적용하려면 --apply 옵션을 추가하여 다시 실행하십시오.")
+
+    return 0
+
+
 def cmd_stats(_args) -> int:
     s = get_settings()
     conn = dbm.connect(s.db_file)
@@ -2120,6 +2166,17 @@ def build_parser() -> argparse.ArgumentParser:
     pau.add_argument("--pattern", default=None, help="search pattern across DB and disk files")
     pau.add_argument("--json", action="store_true", help="output result in JSON format")
     pau.set_defaults(func=cmd_audit)
+
+    pam = sub.add_parser(
+        "artifact-migrate",
+        help="migrate legacy gzip (.txt.gz) artifacts to zstandard (.txt.zst) (default: dry-run, requires --apply)",
+    )
+    pam.add_argument("--apply", action="store_true", help="apply actual migration from gzip to zstandard (default: dry-run)")
+    pam.add_argument("--dry-run", action="store_true", help="dry-run inspection without changes (default)")
+    pam.add_argument("--level", type=int, default=3, help="zstandard compression level (1-22, default: 3)")
+    pam.add_argument("--stop-on-error", action="store_true", help="stop immediately if an error occurs during migration")
+    pam.add_argument("--json", action="store_true", help="output result in JSON format")
+    pam.set_defaults(func=cmd_artifact_migrate)
 
     pq = sub.add_parser("queue", help="inspect asynchronous queues (inbox, refresh, expand)")
     pq.add_argument("action", nargs="?", default="status", choices=["status", "list"], help="status or list")
