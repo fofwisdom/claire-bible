@@ -1,0 +1,154 @@
+# 프로바이더 텔레메트리 격리 및 Support Bundle 아키텍처 설계
+
+이 문서는 Antigravity(`agy`) 및 멀티 LLM 프로바이더 실행 시 발생하는 이상 현상(mock 요약, Google 정책 차단, 응답 결손)의 실증 데이터를 수집하기 위한 **물리적으로 격리된 텔레메트리 서브시스템**과 근본 원인 분석(RCA)을 위한 **Support Bundle(zstd 압축, 공유 링크 추적, 6시간 자동 파기)** 아키텍처 설계를 기술합니다.
+
+---
+
+## 1. 설계 배경 및 변경 사유
+
+### 1.1 문제 정의: 간헐적 Mock 및 방어 슬라이스 요약 재발
+인제스트 파이프라인 운영 중, Antigravity(`agy`) 프로바이더를 사용할 때 요약 결과가 간헐적으로 `[mock]` 또는 본문 첫 200자 슬라이스(`raw_text[:200]`)로 대체되는 현상이 보고되었습니다.
+- **원인 분석의 한계**: CLI 표준 에러(stderr)가 `/tmp/agy.log` 등 휘발성 경로에 기록되어 프로세스 종료 후 증거가 소실되었고, Google 정책 차단인지, RPM 429인지, 바이너리 실행 권한 문제인지 추론에 의존해야 했습니다.
+- **방어 슬라이싱의 착시**: `AntigravityProvider.extract` 내에서 CLI 실패 시 `raw_text[:200]`을 요약으로 반환하는 방어 로직이 존재하여, 파이프라인은 오류가 아닌 정상 완료(`status='done'`)로 처리해 결손이 은폐되었습니다.
+
+### 1.2 핵심 제약 조건: 정본 지식 DB(`claire.db`) 무부하·무경합 원칙
+관측성 데이터를 수집하되, **정본 지식 데이터베이스(`data/claire.db`)의 안전성과 성능을 100% 보존**해야 했습니다:
+1. **단일 작성자 락 경합(Single-Writer Lock Contention) 배제**: SQLite는 트랜잭션 쓰기 시 파일 전체 락을 점유합니다. 대량 문서 인제스트 도중 텔레메트리 레코드를 동일 DB에 기록하면 `busy_timeout` 초과 및 `database is locked` 에러가 발생할 위험이 있습니다.
+2. **지식 DB 비대화(Bloat) 차단**: CLI 호출마다 누적되는 입출력 스니펫, 에러 로그, 통계 데이터가 본체 지식 그래프 용량을 오염시키지 않아야 합니다.
+3. **Fire-and-Forget 안전성**: 텔레메트리 기록 실패가 본선 문서 인제스트 트랜잭션을 롤백시키거나 중단시켜서는 안 됩니다.
+
+---
+
+## 2. 물리적으로 격리된 텔레메트리 서브시스템
+
+```mermaid
+graph TD
+    subgraph Ingestion_Pipeline [지식 인제스트 파이프라인]
+        Worker["IngestService / AntigravityProvider"] -->|정본 지식 저장| ClaireDB[("data/claire.db (정본 지식 DB)")]
+        Worker -.->|비동기/안전 기록 (Fire-and-Forget)| TelemetryStore["claire.store.telemetry"]
+    end
+
+    subgraph Isolated_Observability [격리된 관측성 스토리지]
+        TelemetryStore -->|독립 WAL / 1s 타임아웃| TelemetryDB[("data/telemetry.db (독립 텔레메트리 DB)")]
+        Worker -->|영구 로깅| PersistentLog["data/logs/agy.log"]
+    end
+
+    subgraph RCA_Subsystem [근본 원인 분석 (Support Bundle)]
+        BundleManager["claire.support_bundle"] -->|조회| TelemetryDB
+        BundleManager -->|읽기 전용 조회| ClaireDB
+        BundleManager -->|로그 수집| PersistentLog
+        BundleManager -->|zstd 압축 (Level 3)| BundleArchive["data/support_bundles/*.tar.zst"]
+    end
+
+    style ClaireDB fill:#dbeafe,stroke:#3b82f6,stroke-width:2px
+    style TelemetryDB fill:#d1fae5,stroke:#10b981,stroke-width:2px
+    style BundleArchive fill:#fef3c7,stroke:#f59e0b,stroke-width:2px
+```
+
+### 2.1 스토리지 물리 분리 (`data/telemetry.db`)
+- `src/claire/store/telemetry.py`에 완전 독립된 SQLite 연결 풀 구성.
+- 전용 WAL 모드(`PRAGMA journal_mode=WAL;`) 및 단기 타임아웃(`PRAGMA busy_timeout=1000;`) 적용.
+- 본선 트랜잭션과 쓰기 락이 완벽히 분리되어 상호 간섭 0%.
+
+### 2.2 Google 가이드라인 및 API 정책 차단 정밀 진단 (`diagnose_google_block`)
+CLI 반환 코드, stderr, stdout을 분석하여 차단 원인을 8개 카테고리로 자동 분류합니다:
+
+| 진단 코드 | 분류 기준 및 원인 |
+| :--- | :--- |
+| `RECITATION` | 학술 논문이나 저작권 텍스트 복제 방지 필터에 걸려 생성이 중단된 경우 |
+| `SAFETY` | 금융, 보안, 위험 물질 등 Google 안전 가이드라인 위반으로 차단된 경우 |
+| `RATE_LIMIT_429` | 분당 요청 수(RPM) 또는 동시 요청 한도 초과 (`ResourceExhausted`) |
+| `QUOTA_EXCEEDED` | 일일/계정 할당량이 소진된 경우 |
+| `MAX_TOKENS` | Gemini 3.7 Flash 등의 Thinking 토큰 과다 소모로 응답이 잘린 경우 |
+| `INVALID_SCHEMA` | 구조화 JSON 스키마 미준수로 인한 파싱 실패 |
+| `TIMEOUT` | 네트워크 지연 또는 CLI 프로세스 데드라인 초과 |
+| `ENV_MISSING` | `agy` 바이너리 부재, 실행 권한 없음, 또는 잘못된 PATH |
+| `NONE` / `CLI_ERROR` | 차단 없음 (정상 완료 또는 일반 CLI 에러) |
+
+### 2.3 요약 품질 판정 체계 (`evaluate_summary_verdict`)
+생성된 요약이 실제 LLM 생성문인지, 방어 슬라이스인지 자동 판정:
+- `REAL_LLM`: 정상적인 LLM 생성 텍스트.
+- `RAW_SLICE_200`: 오류 시 `raw_text[:200]`로 방어 슬라이싱된 폴백 요약 감지.
+- `MOCK_PREFIX`: `[mock]` 접두어가 붙은 mock 요약 감지.
+- `EMPTY`: 내용 없음.
+
+---
+
+## 3. Support Bundle 서브시스템 설계
+
+근본 원인 분석(RCA) 및 원격 디버깅을 위해 최근 데이터와 시스템 상태를 단일 아카이브로 패키징하고, 6시간 후 안전하게 자동 파기합니다.
+
+### 3.1 4대 핵심 요구사항
+1. **zstd 압축**: Python 내장 `zstandard` 모듈(`level=3`)과 `tarfile` 스트리밍을 결합하여 고효율 압축 `.tar.zst` 생성.
+2. **공유 링크 기반 문서 특정 및 역추적**:
+   - `resolve_document_targets`를 활용하여 공유 링크(`/p?s=token`), 공유 토큰, URL, 문서 ID를 스마트 인식.
+   - 대상 문서 지정 시 `tracked_document/`에 원본 상세, 수집 인박스 상태, 에러 이력, 해당 문서 텔레메트리 집중 패키징.
+   - 모든 번들에 `pipeline/shares_index.json`을 포함하여 임의의 공유 링크로도 문서를 역추적 가능.
+3. **기본 기간 1일 및 보관 기한 상한 검증**:
+   - 기본 lookback 기간은 **1일(`days = 1`)**.
+   - 텔레메트리 보관 기한(기본 30일)을 초과하는 요청은 API 400 Bad Request, CLI 종료 코드 2로 엄격 차단.
+4. **6시간 유효기간 및 자동 파기 (`SUPPORT_BUNDLE_TTL_SECONDS = 21600`)**:
+   - 번들 생성 시, 다운로드 시, 서버 기동 시(`app_lifespan`), CLI 수동 파기 시 6시간이 지난 아카이브 파일 언링크 및 DB 레코드 삭제.
+
+### 3.2 Support Bundle 아카이브 구조
+
+```text
+support_bundle_<id>/
+├── manifest.json                  # 번들 ID, 생성/만료 시각(TTL 6h), 커버 기간, Git 해시, 타깃 정보
+├── diagnostics/
+│   ├── system.json                # OS, Python, CPU, 디스크 용량, SQLite/zstd 버전, agy 환경 진단
+│   └── config_sanitized.json      # 마스킹된 애플리케이션 설정 (시크릿/토큰 ***REDACTED***)
+├── telemetry/
+│   ├── telemetry_records.jsonl    # 지정 기간 내 프로바이더 호출/차단 텔레메트리 전량
+│   └── telemetry_stats.json       # 성공률, 지연시간 백분위(p50/p95), 차단 사유별 집계 통계
+├── logs/
+│   └── agy.log                    # 최근 프로바이더 입출력/에러 로그 (민감정보 마스킹)
+├── pipeline/
+│   ├── inbox_summary.json         # raw_inbox 상태별 건수
+│   ├── failed_items.json          # 에러/실패 인박스 항목 상세 (RCA 핵심)
+│   ├── shares_index.json          # 활성 공유 링크와 문서 ID 매핑 인덱스
+│   └── db_integrity.json          # claire.db 및 telemetry.db quick_check 결과
+└── tracked_document/              # (특정 대상 지정 시에만 생성)
+    ├── target_resolution.json     # 타깃 해석 결과 (matched_by, share_token 여부)
+    ├── document_detail.json       # 정본 문서 메타데이터 및 온톨로지 정보
+    ├── inbox_record.json          # 인입 원본 상태 및 재시도 이력
+    └── telemetry_history.jsonl    # 해당 문서에 특화된 텔레메트리 호출 이력
+```
+
+---
+
+## 4. API 및 CLI 운영 인터페이스
+
+### 4.1 REST API 엔드포인트
+
+| 메소드 | 경로 | 권한 | 설명 |
+| :--- | :--- | :--- | :--- |
+| `POST` | `/support/bundle` | `owner` | Support Bundle 생성 요청. JSON `{"days": 1, "target": "..."}` 지원 |
+| `GET` | `/support/bundle?token=...` | `public` | 6시간 유효 토큰 기반 zstd 아카이브 다운로드. 만료 시 `410 Gone` 및 파일 자동 삭제 |
+
+### 4.2 CLI 명령어
+
+#### `claire telemetry`
+- `claire telemetry`: 최근 텔레메트리 기록 30건 조회.
+- `claire telemetry --failed`: 실패, Google 정책 차단, 저품질 폴백 건만 필터링.
+- `claire telemetry --doc <id>`: 특정 문서의 호출 및 차단 이력 조회.
+- `claire telemetry --stats`: 성공률, p50/p95 레이턴시, 차단 사유별 통계 요약.
+- `claire telemetry --prune <days>`: 보관 기한 초과 레코드 정리.
+
+#### `claire support-bundle`
+- `claire support-bundle`: 기본 1일치 번들 생성 및 다운로드 링크/만료시각 출력.
+- `claire support-bundle --target "<share_link>"`: 특정 공유 링크/문서 전용 추적 번들 생성.
+- `claire support-bundle --days N`: 기간 설정 (30일 초과 시 차단).
+- `claire support-bundle --list`: 활성 유효 번들 및 토큰 목록 조회.
+- `claire support-bundle --purge`: 만료 번들 즉시 수동 파기.
+
+---
+
+## 5. 구현 참조 파일
+- 텔레메트리 격리 스토어: [`src/claire/store/telemetry.py`](../../../src/claire/store/telemetry.py)
+- Support Bundle 코어: [`src/claire/support_bundle.py`](../../../src/claire/support_bundle.py)
+- 프로바이더 계측: [`src/claire/extract/antigravity_provider.py`](../../../src/claire/extract/antigravity_provider.py)
+- 웹 API 및 보안 경계: [`src/claire/api/server.py`](../../../src/claire/api/server.py), [`src/claire/api/security.py`](../../../src/claire/api/security.py)
+- CLI 인터페이스: [`src/claire/cli.py`](../../../src/claire/cli.py)
+- 호스트 운영 래퍼: [`ops/cb_manuscript.py`](../../../ops/cb_manuscript.py)
+- 자동화 테스트: [`tests/test_telemetry.py`](../../../tests/test_telemetry.py), [`tests/test_support_bundle.py`](../../../tests/test_support_bundle.py)

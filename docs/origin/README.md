@@ -28,6 +28,7 @@ docs/origin/
 │   ├── QUALITY_GUARDRAILS_AND_SUMMARY_INTEGRITY_DESIGN.md # 품질 검증 가드레일 런타임 컴포넌트화, 요약 무결성 및 관측성 개선 설계
 │   ├── RIGHT_MENU_COMPACT_DESIGN.md      # 우측 메뉴 컴팩트화 및 반응형 UI 설계
 │   ├── TABLE_INGESTION_DESIGN.md         # 원문 테이블 적재 및 본문 글자 수 제한 제외 설계
+│   ├── TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md # 프로바이더 텔레메트리 격리 및 Support Bundle 아키텍처 설계
 │   ├── VIDEO_AUDIO_TRANSCRIPTION_AND_INGESTION_DESIGN.md # 비디오 음성 자막(전사) 생성 및 지식 적재 파이프라인 설계
 │   └── VIDEO_PRESENTATION_BUNDLE_INGESTION_DESIGN.md # VMware Explore 비디오·Presentation PDF 동시 적재 설계 (구현 완료)
 ├── implementation/             # [구현/운영 내역] 운영 가이드, 네트워크/인증 명세, 배포 설정
@@ -61,6 +62,7 @@ docs/origin/
   - `GRAPHVIEW_MODULARIZATION_AND_STATIC_ASSET_DESIGN.md`: graphview.py 모듈화, 정적 자산 분리 및 Phase 1~4 로드맵
   - `MULTI_PROVIDER_DESIGN.md`: 멀티 LLM 프로바이더 및 캘리브레이션 설계
   - `QUALITY_GUARDRAILS_AND_SUMMARY_INTEGRITY_DESIGN.md`: 품질 검증 가드레일 런타임 컴포넌트화, 요약 무결성 및 관측성 개선 설계
+  - `TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md`: 프로바이더 텔레메트리 격리 및 Support Bundle 아키텍처 설계 (zstd 압축, 공유 링크 추적, 6시간 자동 파기)
   - `MCP_SUPPORT.md`: RFC 6750 표준 인증 기반 MCP 지원 설계
   - `VIDEO_AUDIO_TRANSCRIPTION_AND_INGESTION_DESIGN.md`: 비디오 음성 자막(STT) 생성 및 지식 적재 파이프라인 설계 (Gemini 3.5 Transcribe 고도화, 10k TPM 페이싱, 3일 미디어 캐시, CLI/텔레그램 재전사 완비)
   - `VIDEO_PRESENTATION_BUNDLE_INGESTION_DESIGN.md`: VMware Explore 영상에서 CC/STT와 Presentation PDF를 단일 세션 문서로 원자적 적재하는 설계 및 구현 명세

@@ -236,7 +236,20 @@ server {
  
  자세한 아키텍처 및 툴 상세 명세는 [MCP_SUPPORT.md](../design/MCP_SUPPORT.md)를 참고한다.
  
- ## 적용 확인
+## Support Bundle (RCA 및 진단 번들)
+
+시스템 상태, 프로바이더 텔레메트리, 인박스 실패 내역 및 특정 문서 추적 정보를 zstd 압축 아카이브(`.tar.zst`)로 안전하게 제공하는 엔드포인트입니다.
+
+- **생성 엔드포인트**: `POST /support/bundle`
+  - **인증**: `Authorization: Bearer <CLAIRE_INJECT_TOKEN>` (owner 전용)
+  - **본문**: `{"days": 1, "target": "<optional_share_url_or_doc_id>"}`
+  - **응답**: `{"bundle_id": "...", "token": "...", "expires_at": "...", "download_url": "..."}`
+- **다운로드 엔드포인트**: `GET /support/bundle?token=<token>`
+  - **인증**: `public` (추측 불가능한 6시간 보안 토큰 쿼리 파라미터 기반)
+  - **응답 헤더**: `Content-Type: application/zstd`, `Content-Disposition: attachment; filename="..."`
+  - **수명주기**: 생성 후 6시간이 지나면 파일 및 레코드가 자동 파기되며 `410 Gone`을 반환합니다. 자세한 내용은 [TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md](../design/TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md)를 참고한다.
+
+## 적용 확인
  
  development에서는 설정한 IPv4 URL로 직접 접속하고 다른 interface에 port가 게시되지
  않았는지 확인한다. production에서는 다음을 각각 확인한다.
