@@ -1832,6 +1832,81 @@ def cmd_search(args) -> int:
     return 0
 
 
+def cmd_telemetry(args) -> int:
+    """프로바이더 텔레메트리 및 Google 정책 차단 진단 데이터 조회."""
+    import json
+    import time
+    from .store.telemetry import (
+        prune_old_telemetry,
+        query_telemetry,
+        telemetry_summary_stats,
+    )
+
+    s = get_settings()
+    data_dir = s.data_dir
+
+    if getattr(args, "prune", None) is not None:
+        deleted = prune_old_telemetry(data_dir, retention_days=args.prune)
+        print(f"claire telemetry: {args.prune}일 경과 텔레메트리 {deleted}건 삭제 완료.")
+        return 0
+
+    if getattr(args, "stats", False):
+        stats = telemetry_summary_stats(data_dir)
+        if getattr(args, "json", False):
+            print(json.dumps(stats, ensure_ascii=False, indent=2))
+            return 0
+        print("=" * 65)
+        print("claire: [프로바이더 텔레메트리 집계 통계]")
+        print("=" * 65)
+        print(f"• 총 호출 횟수   : {stats['total_calls']}회")
+        print(f"• 성공 횟수     : {stats['success_calls']}회 (성공률: {stats['success_rate']*100:.1f}%)")
+        print(f"• 실패/결손 횟수 : {stats['failed_calls']}회")
+        print("\n[상태별 분포]")
+        for k, v in stats.get("by_status", {}).items():
+            print(f"  - {k:<15}: {v:>4}회")
+        print("\n[Google 차단/진단 사유별 분포]")
+        for k, v in stats.get("by_block_reason", {}).items():
+            print(f"  - {k:<15}: {v:>4}회")
+        print("\n[요약 품질 판정 분포]")
+        for k, v in stats.get("by_verdict", {}).items():
+            print(f"  - {k:<15}: {v:>4}회")
+        print("=" * 65)
+        return 0
+
+    records = query_telemetry(
+        data_dir,
+        limit=args.limit,
+        failed_only=getattr(args, "failed", False),
+        document_id=getattr(args, "doc", None),
+        provider=getattr(args, "provider", None),
+    )
+
+    if getattr(args, "json", False):
+        print(json.dumps(records, ensure_ascii=False, indent=2))
+        return 0
+
+    if not records:
+        print("조회된 텔레메트리 기록이 없습니다.")
+        return 0
+
+    print("=" * 110)
+    print(f"{'시간':<19} | {'프로바이더':<11} | {'호출종류':<16} | {'상태':<10} | {'차단/진단사유':<15} | {'품질판정':<12} | {'지연(ms)':<8}")
+    print("-" * 110)
+    for r in records:
+        ts_str = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(r["timestamp"]))
+        prov = str(r["provider"] or "")[:11]
+        ctype = str(r["call_type"] or "")[:16]
+        st = str(r["status"] or "")[:10]
+        reason = str(r["google_block_reason"] or "NONE")[:15]
+        verdict = str(r["summary_verdict"] or "N/A")[:12]
+        dur = f"{r['duration_ms']}ms" if r["duration_ms"] is not None else "-"
+        print(f"{ts_str:<19} | {prov:<11} | {ctype:<16} | {st:<10} | {reason:<15} | {verdict:<12} | {dur:<8}")
+        if r.get("error_message"):
+            print(f"  ↳ [ERROR] {r['error_message'][:120]}")
+    print("=" * 110)
+    return 0
+
+
 def cmd_health(args) -> int:
     """시스템 건강 상태를 JSON 으로 출력. degraded(주의 필요) 또는 db 실패 시 비0 종료."""
     import json
@@ -1909,7 +1984,19 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Output diagnosis report in JSON format",
     )
-    doc_p.set_defaults(func=cmd_doctor)
+    ptel = sub.add_parser(
+        "telemetry",
+        help="inspect LLM/CLI provider execution telemetry and Google block diagnostics",
+    )
+    ptel.add_argument("--limit", type=int, default=30, help="number of telemetry records to show (default: 30)")
+    ptel.add_argument("--failed", action="store_true", help="show only failed or degraded invocations")
+    ptel.add_argument("--doc", type=str, default=None, help="filter by document ID")
+    ptel.add_argument("--provider", type=str, default=None, help="filter by provider name")
+    ptel.add_argument("--stats", action="store_true", help="show aggregate telemetry statistics")
+    ptel.add_argument("--json", action="store_true", help="output JSON format")
+    ptel.add_argument("--prune", type=int, default=None, metavar="DAYS", help="prune records older than DAYS (e.g. 14)")
+    ptel.set_defaults(func=cmd_telemetry)
+
     sub.add_parser("health", help="system health json (db/queues/inbox)").set_defaults(func=cmd_health)
     sub.add_parser(
         "liveness",
