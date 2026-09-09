@@ -129,6 +129,7 @@ APP_ONE_OFF_COMMANDS = {
     "video-reprocess",
     "reprocess-video",
     "telemetry",
+    "support-bundle",
 }
 APP_GUARDED_COMMANDS = {
     "migrate": "Schema lifecycle command owned by install/update",

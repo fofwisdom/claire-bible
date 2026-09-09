@@ -16,6 +16,8 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_TELEMETRY_RETENTION_DAYS = 30
+
 TELEMETRY_SCHEMA = """
 CREATE TABLE IF NOT EXISTS provider_telemetry (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -39,7 +41,22 @@ CREATE INDEX IF NOT EXISTS idx_telemetry_doc ON provider_telemetry(document_id);
 CREATE INDEX IF NOT EXISTS idx_telemetry_status ON provider_telemetry(status);
 CREATE INDEX IF NOT EXISTS idx_telemetry_reason ON provider_telemetry(google_block_reason);
 CREATE INDEX IF NOT EXISTS idx_telemetry_time ON provider_telemetry(timestamp);
+
+CREATE TABLE IF NOT EXISTS support_bundles (
+    bundle_id TEXT PRIMARY KEY,
+    token TEXT NOT NULL UNIQUE,
+    filename TEXT NOT NULL,
+    filepath TEXT NOT NULL,
+    days_covered INTEGER NOT NULL,
+    target_doc_id TEXT,
+    size_bytes INTEGER NOT NULL,
+    created_at REAL NOT NULL,
+    expires_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_support_bundles_token ON support_bundles(token);
+CREATE INDEX IF NOT EXISTS idx_support_bundles_expires ON support_bundles(expires_at);
 """
+
 
 
 def get_telemetry_db_path(data_dir: Path | str | None) -> Path:
@@ -189,6 +206,7 @@ def query_telemetry(
     failed_only: bool = False,
     document_id: str | None = None,
     provider: str | None = None,
+    since: float | str | None = None,
 ) -> list[dict[str, Any]]:
     """격리된 telemetry.db에서 최근 텔레메트리 레코드 조회."""
     db_path = get_telemetry_db_path(data_dir)
@@ -208,6 +226,18 @@ def query_telemetry(
     if provider:
         conditions.append("provider = ?")
         params.append(provider)
+    if since is not None:
+        try:
+            val = float(since)
+        except (ValueError, TypeError):
+            # ISO format
+            try:
+                from datetime import datetime
+                val = datetime.fromisoformat(str(since)).timestamp()
+            except Exception:
+                val = time.time()
+        conditions.append("timestamp >= ?")
+        params.append(val)
 
     where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
     query = f"SELECT * FROM provider_telemetry {where_clause} ORDER BY id DESC LIMIT ?"
@@ -225,7 +255,11 @@ def query_telemetry(
         return []
 
 
-def telemetry_summary_stats(data_dir: Path | str | None) -> dict[str, Any]:
+def telemetry_summary_stats(
+    data_dir: Path | str | None,
+    *,
+    since: float | str | None = None,
+) -> dict[str, Any]:
     """텔레메트리 집계 통계 반환."""
     db_path = get_telemetry_db_path(data_dir)
     if not db_path.is_file():
@@ -240,10 +274,24 @@ def telemetry_summary_stats(data_dir: Path | str | None) -> dict[str, Any]:
             "by_verdict": {},
         }
 
+    where = ""
+    params: list[Any] = []
+    if since is not None:
+        try:
+            val = float(since)
+        except (ValueError, TypeError):
+            try:
+                from datetime import datetime
+                val = datetime.fromisoformat(str(since)).timestamp()
+            except Exception:
+                val = time.time()
+        where = "WHERE timestamp >= ?"
+        params.append(val)
+
     try:
         conn = connect_telemetry(db_path)
         try:
-            total = conn.execute("SELECT COUNT(*) as cnt FROM provider_telemetry").fetchone()["cnt"]
+            total = conn.execute(f"SELECT COUNT(*) as cnt FROM provider_telemetry {where}", params).fetchone()["cnt"]
             if total == 0:
                 return {
                     "total_calls": 0,
@@ -256,10 +304,12 @@ def telemetry_summary_stats(data_dir: Path | str | None) -> dict[str, Any]:
                     "by_verdict": {},
                 }
 
-            succ = conn.execute("SELECT COUNT(*) as cnt FROM provider_telemetry WHERE status='SUCCESS'").fetchone()["cnt"]
+            succ_where = f"{where} AND status='SUCCESS'" if where else "WHERE status='SUCCESS'"
+            succ = conn.execute(f"SELECT COUNT(*) as cnt FROM provider_telemetry {succ_where}", params).fetchone()["cnt"]
 
             def _group_counts(col: str) -> dict[str, int]:
-                rows = conn.execute(f"SELECT {col}, COUNT(*) as cnt FROM provider_telemetry GROUP BY {col}").fetchall()
+                q = f"SELECT {col}, COUNT(*) as cnt FROM provider_telemetry {where} GROUP BY {col}"
+                rows = conn.execute(q, params).fetchall()
                 return {str(r[col] or "unknown"): r["cnt"] for r in rows}
 
             return {
@@ -301,3 +351,123 @@ def prune_old_telemetry(data_dir: Path | str | None, retention_days: int = 14) -
     except Exception as e:  # noqa: BLE001
         logger.warning("Failed to prune telemetry in %s: %s", db_path, e)
         return 0
+
+
+def register_support_bundle(
+    data_dir: Path | str | None,
+    *,
+    bundle_id: str,
+    token: str,
+    filename: str,
+    filepath: str,
+    days_covered: int,
+    size_bytes: int,
+    created_at: float,
+    expires_at: float,
+    target_doc_id: str | None = None,
+) -> None:
+    """생성된 Support Bundle 메타데이터를 telemetry.db에 등록."""
+    db_path = get_telemetry_db_path(data_dir)
+    conn = connect_telemetry(db_path)
+    try:
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO support_bundles (
+                bundle_id, token, filename, filepath, days_covered,
+                target_doc_id, size_bytes, created_at, expires_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                bundle_id,
+                token,
+                filename,
+                str(filepath),
+                days_covered,
+                target_doc_id,
+                size_bytes,
+                created_at,
+                expires_at,
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def lookup_support_bundle_by_token(
+    data_dir: Path | str | None,
+    token: str,
+) -> dict[str, Any] | None:
+    """다운로드 토큰으로 Support Bundle 레코드 조회."""
+    db_path = get_telemetry_db_path(data_dir)
+    if not db_path.is_file():
+        return None
+    conn = connect_telemetry(db_path)
+    try:
+        row = conn.execute(
+            "SELECT * FROM support_bundles WHERE token = ?",
+            (token,),
+        ).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def delete_support_bundle(
+    data_dir: Path | str | None,
+    bundle_id: str,
+) -> None:
+    """Support Bundle 레코드 삭제."""
+    db_path = get_telemetry_db_path(data_dir)
+    if not db_path.is_file():
+        return
+    conn = connect_telemetry(db_path)
+    try:
+        conn.execute("DELETE FROM support_bundles WHERE bundle_id = ?", (bundle_id,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def list_active_support_bundles(
+    data_dir: Path | str | None,
+    now_epoch: float | None = None,
+) -> list[dict[str, Any]]:
+    """만료되지 않은 활성 Support Bundle 목록 조회."""
+    db_path = get_telemetry_db_path(data_dir)
+    if not db_path.is_file():
+        return []
+    now = now_epoch if now_epoch is not None else time.time()
+    conn = connect_telemetry(db_path)
+    try:
+        rows = conn.execute(
+            "SELECT * FROM support_bundles WHERE expires_at > ? ORDER BY created_at DESC",
+            (now,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def clean_expired_support_bundles(
+    data_dir: Path | str | None,
+    now_epoch: float | None = None,
+) -> list[str]:
+    """만료된(기본 6시간 초과) Support Bundle 레코드 정리 및 대상 파일 경로 목록 반환."""
+    db_path = get_telemetry_db_path(data_dir)
+    if not db_path.is_file():
+        return []
+    now = now_epoch if now_epoch is not None else time.time()
+    conn = connect_telemetry(db_path)
+    try:
+        rows = conn.execute(
+            "SELECT filepath FROM support_bundles WHERE expires_at <= ?",
+            (now,),
+        ).fetchall()
+        expired_paths = [r["filepath"] for r in rows]
+        conn.execute("DELETE FROM support_bundles WHERE expires_at <= ?", (now,))
+        conn.commit()
+        return expired_paths
+    finally:
+        conn.close()
+
