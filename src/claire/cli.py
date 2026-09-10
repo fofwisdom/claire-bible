@@ -2328,8 +2328,8 @@ def build_parser() -> argparse.ArgumentParser:
     ptd.add_argument("--json", action="store_true", help="output in json format")
     ptd.set_defaults(func=cmd_theme)
 
-    ptu = ptheme_sub.add_parser("update", help="update theme label, description, or icon")
-    ptu.add_argument("id", help="theme ID or sequence number")
+    ptu = ptheme_sub.add_parser("update", help="update theme label, description, icon, or visibility")
+    ptu.add_argument("id", help="theme ID, sequence number, or label")
     ptu.add_argument("--label", "-l", default=None, help="new theme label")
     ptu.add_argument("--desc", "--description", default=None, help="new theme description")
     ptu.add_argument("--icon", default=None, help="new theme icon")

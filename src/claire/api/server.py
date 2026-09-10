@@ -417,7 +417,7 @@ def create_app(
         if not theme_id:
             raise HTTPException(status_code=400, detail="id is required")
         label = body.get("label")
-        desc = body.get("description")
+        desc = body.get("description") if "description" in body else body.get("desc")
         icon = body.get("icon")
         is_pub = (
             body.get("is_public")

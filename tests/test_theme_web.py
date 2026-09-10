@@ -109,3 +109,29 @@ def test_render_graph_html_visibility_isolation(tmp_path: Path):
     assert '비밀 연구' in owner_html
     assert 'style="display:inline-flex"' in owner_html
     assert 'id="thememanagebtn"' in owner_html
+
+
+def test_theme_selector_ux_and_modification_features(tmp_path: Path):
+    """테마 선택기의 단일 아이콘/일련번호 미표시 및 웹 UI 테마 변경 기능 탑재 검증."""
+    s = Settings(
+        db_path=str(tmp_path / "claire.db"),
+        vault_path=str(tmp_path / "vault"),
+        CLAIRE_MULTI_THEME=True,
+    )
+    html = render_graph_html(s)
+
+    # 1. 헤더 선택기 옵션에 중복 아이콘(${icon}) 및 일련번호(${idStr})가 포함되지 않음 확인
+    assert "function renderThemeSelector()" in html
+    # renderThemeSelector 내에서 `<option value="${t.id}" ...>${label}${lockStr}</option>` 패턴으로 렌더링됨
+    assert "${label}${lockStr}</option>" in html
+
+    # 2. 테마 관리(openThemeManager) 내에 테마 수정 UI(수정 버튼, 수정 폼) 및 전송 함수 탑재 확인
+    assert "showThemeEditForm" in html
+    assert "hideThemeEditForm" in html
+    assert "updateThemeFromUI" in html
+    assert "editthemep-label-" in html
+    assert "editthemep-desc-" in html
+    assert "editthemep-icon-" in html
+    assert "editthemep-pub-" in html
+    assert "✏️ 수정" in html
+

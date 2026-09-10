@@ -164,3 +164,40 @@ def test_cli_theme_visibility_flags(cli_theme_env, capsys):
     data_after = json.loads(capsys.readouterr().out)
     t1_after = next(t for t in data_after["themes"] if t["id"] == 1)
     assert t1_after["is_public"] is True
+
+
+def test_cli_theme_update_full_options(cli_theme_env, capsys):
+    """CLI에서 생성 시 지원하는 모든 옵션(--label, --desc, --icon, --public/--private) 및 이름 기반 수정 검증."""
+    settings, tm = cli_theme_env
+
+    # 1. 새 테마 정의
+    ret = cli.main(["theme", "define", "--label", "초기 테마", "--desc", "설명 원본", "--icon", "📁"])
+    assert ret == 0
+    capsys.readouterr()
+
+    # 2. 모든 옵션 수정 (ID로 지정)
+    ret = cli.main([
+        "theme", "update", "1",
+        "--label", "전면 개편",
+        "--description", "업데이트된 상세 설명",
+        "--icon", "🚀",
+        "--private",
+    ])
+    assert ret == 0
+    captured = capsys.readouterr().out
+    assert "전면 개편" in captured
+    assert "업데이트된 상세 설명" in captured
+    assert "🚀" in captured
+    assert "비공개 (Private 🔒)" in captured
+
+    # 3. 테마 이름(레이블)으로 찾아 수정
+    ret = cli.main([
+        "theme", "update", "전면 개편",
+        "--desc", "이름 기반으로 바꾼 설명",
+        "--public",
+    ])
+    assert ret == 0
+    captured_by_name = capsys.readouterr().out
+    assert "이름 기반으로 바꾼 설명" in captured_by_name
+    assert "공개 (Public)" in captured_by_name
+

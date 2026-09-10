@@ -186,11 +186,9 @@ function renderThemeSelector(){
   }
 
   sel.innerHTML = availableThemes.map(t => {
-    const icon = t.icon || '📚';
     const label = esc(t.label);
-    const idStr = t.id === 0 ? '기본' : ('#' + t.id);
     const lockStr = t.is_public === false ? ' 🔒 (비공개)' : '';
-    return `<option value="${t.id}" ${t.id === activeThemeId ? 'selected' : ''}>${icon} ${label} (${idStr})${lockStr}</option>`;
+    return `<option value="${t.id}" ${t.id === activeThemeId ? 'selected' : ''}>${label}${lockStr}</option>`;
   }).join('');
 
   if(iconEl && current){
@@ -218,9 +216,8 @@ function renderThemeOptions(selectedId){
   return themes.map(t => {
     const icon = t.icon || '📚';
     const label = esc(t.label);
-    const idStr = t.id === 0 ? '기본' : ('#' + t.id);
     const lockStr = t.is_public === false ? ' 🔒 (비공개)' : '';
-    return `<option value="${t.id}" ${t.id === activeId ? 'selected' : ''}>${icon} ${label} (${idStr})${lockStr}</option>`;
+    return `<option value="${t.id}" ${t.id === activeId ? 'selected' : ''}>${icon} ${label}${lockStr}</option>`;
   }).join('');
 }
 
@@ -2405,9 +2402,22 @@ async function openThemeManager(){
           <div style="display:flex;align-items:center;gap:6px;">
             ${pubBadge}
             ${toggleBtn}
+            <button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="showThemeEditForm(${t.id})">✏️ 수정</button>
           </div>
         </div>
         ${t.description ? `<p style="margin:4px 0 0;font-size:12px;opacity:0.8">${esc(t.description)}</p>` : ''}
+        <div id="theme-edit-form-${t.id}" style="display:none;margin-top:10px;padding-top:8px;border-top:1px dashed var(--border);flex-direction:column;gap:8px;">
+          <div><label style="font-size:11px;opacity:0.8">레이블(이름)</label><input id="editthemep-label-${t.id}" style="width:100%;box-sizing:border-box" value="${esc(t.label)}"/></div>
+          <div><label style="font-size:11px;opacity:0.8">설명</label><input id="editthemep-desc-${t.id}" style="width:100%;box-sizing:border-box" value="${esc(t.description || '')}"/></div>
+          <div style="display:flex;gap:8px;">
+            <div style="flex:1"><label style="font-size:11px;opacity:0.8">아이콘</label><input id="editthemep-icon-${t.id}" style="width:100%;box-sizing:border-box" value="${esc(t.icon || '📁')}"/></div>
+            <div style="flex:2;display:flex;align-items:center;padding-top:14px;"><label style="font-size:12px;cursor:pointer;"><input id="editthemep-pub-${t.id}" type="checkbox" ${isPub ? 'checked' : ''} style="width:auto;margin-right:4px;vertical-align:middle;"/>익명 사용자에게 공개</label></div>
+          </div>
+          <div style="display:flex;gap:6px;margin-top:4px;">
+            <button type="button" style="padding:4px 12px;" onclick="updateThemeFromUI(${t.id})">저장</button>
+            <button type="button" class="sec" style="padding:4px 12px;" onclick="hideThemeEditForm(${t.id})">취소</button>
+          </div>
+        </div>
       </div>`;
     }
     h += '</div>';
@@ -2425,6 +2435,51 @@ async function openThemeManager(){
     panel.innerHTML = h;
   }catch(e){
     panel.innerHTML = '<p class="hint">테마 목록 조회 실패: ' + esc(String(e)) + '</p>';
+  }
+}
+
+function showThemeEditForm(themeId){
+  const form = document.getElementById('theme-edit-form-' + themeId);
+  if(form){
+    form.style.display = form.style.display === 'none' ? 'flex' : 'none';
+  }
+}
+
+function hideThemeEditForm(themeId){
+  const form = document.getElementById('theme-edit-form-' + themeId);
+  if(form){
+    form.style.display = 'none';
+  }
+}
+
+async function updateThemeFromUI(themeId){
+  if(!canWrite()) return;
+  const labelEl = document.getElementById('editthemep-label-' + themeId);
+  const descEl = document.getElementById('editthemep-desc-' + themeId);
+  const iconEl = document.getElementById('editthemep-icon-' + themeId);
+  const pubEl = document.getElementById('editthemep-pub-' + themeId);
+
+  const label = ((labelEl||{}).value||'').trim();
+  if(!label){ alert('테마 이름을 입력하세요.'); return; }
+  const description = ((descEl||{}).value||'').trim();
+  const icon = ((iconEl||{}).value||'📁').trim() || '📁';
+  const is_public = pubEl ? pubEl.checked : true;
+
+  try{
+    const r = await fetch('themes', {
+      method: 'PATCH',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({id: themeId, label, description, icon, is_public})
+    });
+    if(!r.ok){
+      const err = await r.json().catch(()=>({}));
+      alert('테마 수정 실패: ' + (err.detail || err.error || ('HTTP ' + r.status)));
+      return;
+    }
+    await fetchThemes();
+    openThemeManager();
+  }catch(e){
+    alert('오류: ' + e);
   }
 }
 
