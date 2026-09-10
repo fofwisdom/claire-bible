@@ -163,13 +163,23 @@ Compose 수명주기에 맡긴다. 설치·업데이트·migration처럼 서비�
 ```
 
 - `cb-manuscript health`는 실행 중인 `api` 컨테이너에서 `claire liveness`를 호출한다.
-  DB 접근과 현재 schema가 정상이면 성공한다. 출력에 `degraded` 진단이 있더라도
-  liveness 성공 여부에는 반영하지 않는다.
+  모든 활성 테마 DB의 읽기 전용 접근과 현재 schema 조회가 정상이면
+  성공한다. 출력에 `degraded` 진단이 있더라도 liveness 성공 여부에는 반영하지 않는다.
 - `cb-manuscript app health`는 임시 컨테이너에서 전체 애플리케이션 health를 계산한다.
-  DB·큐·inbox 상태를 출력하며, `degraded`이면 종료 코드 1을 반환한다.
+  활성 테마별 DB·큐·inbox 진단과 전체 합계를 출력하며, 어느 DB라도 실패하거나
+  전체 합계가 `degraded`이면 종료 코드 1을 반환한다.[^multi-theme-operations]
 
 따라서 배포 직후와 감시용 생존 확인에는 전자를, 누적 실패와 사람의 조치가 필요한
 상태 진단에는 후자를 사용한다.
+
+멀티 테마 모드의 설치·업데이트에서 실행되는 `claire migrate`는 등록된 DB를 테마 ID
+순서로 모두 처리한다. 개별 실패는 모아서 출력하고 나머지 DB를 계속 처리하지만,
+최종적으로 하나라도 실패하면 서비스 기동 전 단계가 종료 코드 `1`로 중단된다.
+`recover-loop`, `refresh-loop`, `expand-loop`는 Compose singleton 구성을 유지하면서 매
+cycle 활성 테마를 다시 읽고, 전역 batch 한도 안에서 시작 테마를 회전시킨다. 삭제된
+테마 서비스 캐시는 제거되고 새 테마는 다음 cycle부터 편입되며, 한 테마의 큐 오류는
+다른 테마 처리를 중단시키지 않는다. 자동 확장 적재 알림도 결과와 링크를 테마별로
+구분한다.[^multi-theme-operations]
 
 ## 고급 Compose 탈출구
 
@@ -232,3 +242,7 @@ filesystem의 sibling staging에서 준비하고 기존 경로와 교체한다. 
 
 `backups/`는 Git, Docker build context와 원격 `rsync --delete`에서 모두 제외한다.
 운영 backup을 컨테이너 내부 `claire` 명령으로 만들거나 복원하지 않는다.
+
+## 참고문헌
+
+[^multi-theme-operations]: Claire Bible 멀티 테마 운영 data-plane 구현 근거: [`src/claire/store/theme.py`](../../../src/claire/store/theme.py), [`src/claire/health.py`](../../../src/claire/health.py), [`src/claire/cli.py`](../../../src/claire/cli.py), [`tests/test_health.py`](../../../tests/test_health.py), [`tests/test_migrate.py`](../../../tests/test_migrate.py), [`tests/test_multi_theme_workers.py`](../../../tests/test_multi_theme_workers.py) (2026-09-11 확인).

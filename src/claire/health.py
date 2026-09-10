@@ -12,6 +12,7 @@ from pathlib import Path
 
 from .config import Settings
 from .store import db as dbm
+from .store.theme import ThemeInfo, ThemeManager
 
 RECOVER_MAX_ATTEMPTS = 5  # recover-loop 기본값과 동일(due 계산용)
 
@@ -54,24 +55,62 @@ def require_current_schema(conn: sqlite3.Connection) -> int:
     return actual
 
 
+def _active_databases(s: Settings) -> list[tuple[ThemeInfo, Settings]]:
+    """읽기 전용 점검 대상 목록을 만든다(레지스트리 생성 금지)."""
+    manager = ThemeManager(s, create_registry=False)
+    return manager.active_theme_settings(s)
+
+
+def _check_database(theme: ThemeInfo, theme_settings: Settings) -> dict:
+    item: dict = {
+        "theme_id": theme.id,
+        "theme_label": theme.label,
+        "db_path": str(theme_settings.db_file),
+        "ok": True,
+    }
+    try:
+        if not theme_settings.db_file.is_file():
+            raise FileNotFoundError(f"database missing: {theme_settings.db_file}")
+        conn = _connect_readonly(theme_settings.db_file)
+        try:
+            item["schema_version"] = require_current_schema(conn)
+        finally:
+            conn.close()
+    except Exception as exc:  # noqa: BLE001
+        item["ok"] = False
+        item["db"] = f"error: {exc}"
+        return item
+    item["db"] = "ok"
+    return item
+
+
 def liveness_report(s: Settings) -> dict:
-    """DB 접근과 현재 schema version만 확인하는 공개/컨테이너용 경량 점검."""
+    """모든 활성 DB의 접근성과 현재 schema version을 읽기 전용 점검."""
 
     out: dict = {
         "ok": True,
         "expected_schema_version": dbm.SCHEMA_VERSION,
     }
     try:
-        conn = _connect_readonly(s.db_file)
-        try:
-            out["schema_version"] = require_current_schema(conn)
-        finally:
-            conn.close()
+        targets = _active_databases(s)
     except Exception as e:  # noqa: BLE001
         out["ok"] = False
-        out["db"] = f"error: {e}"
+        out["db"] = f"error: theme registry: {e}"
+        out["databases"] = []
         return out
-    out["db"] = "ok"
+
+    databases = [_check_database(theme, ts) for theme, ts in targets]
+    out["databases"] = databases
+    out["ok"] = all(item["ok"] for item in databases)
+    out["db"] = (
+        "ok"
+        if out["ok"]
+        else databases[0]["db"]
+        if len(databases) == 1
+        else "error: one or more theme databases failed"
+    )
+    if len(databases) == 1 and databases[0].get("schema_version") is not None:
+        out["schema_version"] = databases[0]["schema_version"]
     return out
 
 
@@ -82,27 +121,75 @@ def health_report(s: Settings, provider_name: str) -> dict:
         "expected_schema_version": dbm.SCHEMA_VERSION,
     }
     try:
-        conn = _connect_readonly(s.db_file)
-        try:
-            out["schema_version"] = require_current_schema(conn)
-            inbox = dbm.inbox_status_counts(conn)
-            refresh_pending = len(dbm.pending_refresh(conn))
-            recover_due = len(dbm.due_for_recovery(conn, max_attempts=RECOVER_MAX_ATTEMPTS))
-            expand_pending = len(dbm.pending_expand(conn))
-            graph = dbm.counts(conn)
-        finally:
-            conn.close()
+        targets = _active_databases(s)
     except Exception as e:  # noqa: BLE001
         out["ok"] = False
-        out["db"] = f"error: {e}"
+        out["db"] = f"error: theme registry: {e}"
+        out["databases"] = []
         return out
 
-    out["db"] = "ok"
+    databases: list[dict] = []
+    inbox: dict[str, int] = {}
+    refresh_pending = 0
+    recover_due = 0
+    expand_pending = 0
+    graph = {"documents": 0, "entities": 0, "relations": 0}
+    for theme, theme_settings in targets:
+        item = _check_database(theme, theme_settings)
+        if item["ok"]:
+            try:
+                conn = _connect_readonly(theme_settings.db_file)
+                try:
+                    item_inbox = dbm.inbox_status_counts(conn)
+                    item_refresh = len(dbm.pending_refresh(conn))
+                    item_recover = len(
+                        dbm.due_for_recovery(
+                            conn, max_attempts=RECOVER_MAX_ATTEMPTS
+                        )
+                    )
+                    item_expand = len(dbm.pending_expand(conn))
+                    counts = dbm.counts(conn)
+                finally:
+                    conn.close()
+                item_graph = {
+                    key: counts[key]
+                    for key in ("documents", "entities", "relations")
+                }
+                item.update(
+                    inbox=item_inbox,
+                    refresh_pending=item_refresh,
+                    recover_due=item_recover,
+                    expand_pending=item_expand,
+                    graph=item_graph,
+                )
+                for key, value in item_inbox.items():
+                    inbox[key] = inbox.get(key, 0) + value
+                refresh_pending += item_refresh
+                recover_due += item_recover
+                expand_pending += item_expand
+                for key, value in item_graph.items():
+                    graph[key] += value
+            except Exception as exc:  # noqa: BLE001
+                item["ok"] = False
+                item["db"] = f"error: {exc}"
+        databases.append(item)
+
+    out["databases"] = databases
+    out["ok"] = all(item["ok"] for item in databases)
+    out["db"] = (
+        "ok"
+        if out["ok"]
+        else databases[0]["db"]
+        if len(databases) == 1
+        else "error: one or more theme databases failed"
+    )
+    if len(databases) == 1 and databases[0].get("schema_version") is not None:
+        out["schema_version"] = databases[0]["schema_version"]
     out["inbox"] = inbox
     out["refresh_pending"] = refresh_pending
     out["recover_due"] = recover_due
     out["expand_pending"] = expand_pending
-    out["graph"] = {k: graph[k] for k in ("documents", "entities", "relations")}
+    out["graph"] = graph
 
     errors = inbox.get("error", 0)
     failed = inbox.get("failed", 0)

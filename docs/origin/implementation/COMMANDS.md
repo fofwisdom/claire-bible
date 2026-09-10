@@ -129,13 +129,19 @@ Git 저장소 최신 커밋을 가져와 무중단 롤링 업데이트를 수행
 | :--- | :--- | :--- |
 | `doctor` | `claire doctor [--heal \| --apply] [--yes] [--json]` | 지식그래프 무결성(고아 노드/엣지, FTS 불일치) 진단 및 원클릭 자동 수복 |
 | `preflight` | `claire preflight` | 파이썬 환경, 설정값, Gemini API Key, sqlite-vec 모듈, DB 연결 사전 점검 |
-| `health` | `claire health` | DB, 큐(Queue), Inbox 상태를 담은 건강 진단 JSON 출력 |
-| `liveness` | `claire liveness` | 읽기 전용 DB 및 스키마 생존 여부 확인 (Degraded 시 비정상 종료 안 함) |
+| `health` | `claire health` | DB, 큐(Queue), Inbox 상태를 담은 건강 진단 JSON 출력. 멀티 테마 모드에서는 등록 DB별 진단과 전체 합계를 출력 |
+| `liveness` | `claire liveness` | 모든 활성 DB의 읽기 전용 접근·현재 스키마 확인 (Degraded 시 비정상 종료 안 함) |
 | `status` | `claire status` | 운영 상태, DB 테이블 카운트, 프로바이더 설정 전체 출력 |
 | `queue` | `claire queue status` / `claire queue list <inbox\|refresh\|expand>` | 비동기 큐 상태 분포와 대기·오류 항목 조회 |
 | `stats` | `claire stats [-t <theme>]` | 지식그래프 노드(엔티티) 및 엣지(관계) 카운트 출력 (멀티 테마 지원) |
 | `repo` | `claire repo` | Git 소스 저장소 정보 및 원격 URL 출력 |
-| `migrate` | `claire migrate` | 스키마를 최신 `SCHEMA_VERSION`으로 초기화/업그레이드 |
+| `migrate` | `claire migrate` | 싱글 모드에서는 기본 DB, 멀티 테마 모드에서는 등록된 모든 DB를 최신 `SCHEMA_VERSION`으로 초기화/업그레이드 |
+
+`CLAIRE_MULTI_THEME=1`일 때 `migrate`는 레지스트리를 테마 ID 순서로 읽고 각 DB의
+마이그레이션 결과를 개별 출력한다. 한 DB가 실패해도 나머지를 계속 점검하며, 하나라도
+실패하면 최종 종료 코드는 `1`이다. `health`와 `liveness`는 DB를 생성하거나
+마이그레이션하지 않고 읽기 전용 연결과 스키마 메타데이터 조회로 상태를 검사한다. 손상된
+`themes.json`도 기본 레지스트리로 덮어쓰지 않고 실패로 보고한다.[^multi-theme-operations]
 
 #### `doctor`
 지식그래프(Knowledge Graph) 및 SQLite DB의 참조 무결성을 정밀 진단하고, 결함을 원클릭으로 자동 수복(Auto-Healing)합니다.
@@ -224,10 +230,10 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 | `reextract` | `claire reextract [--tables] [--no-rebuild] [--limit N]` | 저장된 `raw_text`로부터 지식그래프 전체(또는 표 포함 문서)를 재추출 |
 | `replay-failed` | `claire replay-failed [--limit N]` | `raw_inbox`에서 `status=error`인 실패 건 전량 수동 재적재 |
 | `recover-run` | `claire recover-run [--limit N]` | 에러 큐 단건/배치 복구 실행 (게이팅/지수 백오프 적용) |
-| `recover-loop` | `claire recover-loop [--interval N]` | 에러 복구 자동 데몬 루프 |
+| `recover-loop` | `claire recover-loop [--interval N] [--batch N]` | 모든 활성 테마의 에러 복구 큐를 전역 batch 한도 안에서 순환 처리하는 자동 데몬 |
 | `refresh-mark` | `claire refresh-mark [--older-than-days N]` | 구버전/빈약 문서를 갱신 큐(`refresh_queue`)에 마킹 |
 | `refresh-run` | `claire refresh-run [--limit N]` | 갱신 큐 1회 배치 처리 |
-| `refresh-loop` | `claire refresh-loop [--interval N]` | 갱신 큐 상주 데몬 루프 |
+| `refresh-loop` | `claire refresh-loop [--interval N] [--batch N]` | 모든 활성 테마의 watch·갱신 큐를 순환 처리하는 상주 데몬 |
 
 #### `regenerate`
 특정 문서의 컴포넌트(요약, 상세 detail, 그래프 노드/엣지)를 LLM을 통해 선택적으로 재생성하고 DB를 갱신합니다.
@@ -371,7 +377,7 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 ### 3.5 1홉 자동 확장 (Expand)
 
 * `claire expand-run [--limit N]`: 1홉 확장 큐(`expand_queue`)에 대기 중인 URL 후보를 선별하여 자동 수집 및 적재 1회 실행.
-* `claire expand-loop [--interval N] [--batch N]`: 1홉 확장을 백그라운드에서 주기적으로 수행하는 데몬 루프.
+* `claire expand-loop [--interval N] [--batch N]`: 모든 활성 테마의 1홉 확장을 전역 batch 한도 안에서 순환 처리하는 데몬 루프. 확장 알림은 적재 결과와 링크를 테마별로 묶는다. 세 상주 루프는 매 cycle 레지스트리를 다시 읽어 신규·삭제 테마를 반영하고, 한 테마의 오류를 다른 테마 처리와 격리한다.[^multi-theme-operations]
 
 ---
 
@@ -528,4 +534,5 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 [^video-caption-implementation]: Claire Bible 구현 근거: [`src/claire/ingest/fetchers/captions.py`](../../../src/claire/ingest/fetchers/captions.py), [`src/claire/ingest/fetchers/video.py`](../../../src/claire/ingest/fetchers/video.py), [`tests/test_video_captions.py`](../../../tests/test_video_captions.py) (2026-09-04 확인).
 [^video-presentation-implementation]: Claire Bible 구현 근거: [`src/claire/ingest/fetchers/presentation_vmware_explore.py`](../../../src/claire/ingest/fetchers/presentation_vmware_explore.py), [`src/claire/ingest/fetchers/pdf.py`](../../../src/claire/ingest/fetchers/pdf.py), [`src/claire/ingest/pipeline.py`](../../../src/claire/ingest/pipeline.py), [`src/claire/store/raw.py`](../../../src/claire/store/raw.py), [`tests/test_video_presentation.py`](../../../tests/test_video_presentation.py) (2026-09-04 확인). 설계 근거: [VIDEO_PRESENTATION_BUNDLE_INGESTION_DESIGN.md](../design/VIDEO_PRESENTATION_BUNDLE_INGESTION_DESIGN.md).
 [^telemetry-implementation]: Claire Bible 구현 근거: [`src/claire/store/telemetry.py`](../../../src/claire/store/telemetry.py), [`src/claire/store/db.py`](../../../src/claire/store/db.py), [`src/claire/support_bundle.py`](../../../src/claire/support_bundle.py), [`src/claire/telegram_bot.py`](../../../src/claire/telegram_bot.py), [`src/claire/cli.py`](../../../src/claire/cli.py), [`ops/cb_manuscript.py`](../../../ops/cb_manuscript.py), [`tests/test_migrate.py`](../../../tests/test_migrate.py), [`tests/test_telemetry.py`](../../../tests/test_telemetry.py), [`tests/test_support_bundle.py`](../../../tests/test_support_bundle.py), [`tests/test_bot.py`](../../../tests/test_bot.py) (2026-09-11 확인). 설계 근거: [TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md](../design/TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md).
-[^theme-implementation]: Claire Bible 구현 근거: [`src/claire/theme.py`](../../../src/claire/theme.py), [`src/claire/cli.py`](../../../src/claire/cli.py), [`src/claire/web.py`](../../../src/claire/web.py), [`src/claire/telegram_bot.py`](../../../src/claire/telegram_bot.py), [`tests/test_cli_theme.py`](../../../tests/test_cli_theme.py), [`tests/test_theme_manager.py`](../../../tests/test_theme_manager.py), [`tests/test_theme_api.py`](../../../tests/test_theme_api.py), [`tests/test_theme_collaborator.py`](../../../tests/test_theme_collaborator.py), [`tests/test_theme_web.py`](../../../tests/test_theme_web.py) (2026-09-10 확인). 설계 근거: [MULTI_THEME_ARCHITECTURE_DESIGN.md](../design/MULTI_THEME_ARCHITECTURE_DESIGN.md).
+[^theme-implementation]: Claire Bible 구현 근거: [`src/claire/store/theme.py`](../../../src/claire/store/theme.py), [`src/claire/cli.py`](../../../src/claire/cli.py), [`src/claire/api/server.py`](../../../src/claire/api/server.py), [`src/claire/telegram_bot.py`](../../../src/claire/telegram_bot.py), [`tests/test_cli_theme.py`](../../../tests/test_cli_theme.py), [`tests/test_theme_manager.py`](../../../tests/test_theme_manager.py), [`tests/test_theme_api.py`](../../../tests/test_theme_api.py), [`tests/test_theme_collaborator.py`](../../../tests/test_theme_collaborator.py), [`tests/test_theme_web.py`](../../../tests/test_theme_web.py) (2026-09-10 확인). 설계 근거: [MULTI_THEME_ARCHITECTURE_DESIGN.md](../design/MULTI_THEME_ARCHITECTURE_DESIGN.md).
+[^multi-theme-operations]: Claire Bible 멀티 테마 운영 data-plane 구현 근거: [`src/claire/store/theme.py`](../../../src/claire/store/theme.py), [`src/claire/health.py`](../../../src/claire/health.py), [`src/claire/cli.py`](../../../src/claire/cli.py), [`tests/test_theme_manager.py`](../../../tests/test_theme_manager.py), [`tests/test_health.py`](../../../tests/test_health.py), [`tests/test_migrate.py`](../../../tests/test_migrate.py), [`tests/test_multi_theme_workers.py`](../../../tests/test_multi_theme_workers.py) (2026-09-11 확인).

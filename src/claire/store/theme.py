@@ -85,8 +85,14 @@ class ThemeInfo:
 class ThemeManager:
     """테마 레지스트리 및 일련번호 기반 스토리지 디렉터리 관리자."""
 
-    def __init__(self, base_settings: Settings | None = None) -> None:
+    def __init__(
+        self,
+        base_settings: Settings | None = None,
+        *,
+        create_registry: bool = True,
+    ) -> None:
         self.settings = base_settings or get_settings()
+        self.create_registry = create_registry
         self.registry_path = self.settings.data_dir / THEMES_REGISTRY_FILENAME
         self._themes: dict[int, ThemeInfo] = {}
         self._next_seq: int = 1
@@ -94,7 +100,12 @@ class ThemeManager:
         self.reload()
 
     def reload(self) -> None:
-        """themes.json 레지스트리를 읽고 메모리에 적재한다. 없으면 기본 테마로 초기화."""
+        """themes.json 레지스트리를 읽고 메모리에 적재한다.
+
+        싱글 테마 모드에서는 레지스트리를 전혀 읽지 않는다. 멀티 테마 모드에서
+        레지스트리가 없으면 기본 레지스트리를 만들지만, 이미 존재하는 레지스트리가
+        손상됐으면 기본값으로 덮어쓰거나 숨기지 않고 오류를 전파한다.
+        """
         if not getattr(self.settings, "multi_theme", False):
             # 싱글 테마 모드: 파일 I/O 및 락을 원천 차단하고 메모리 상의 기본 테마 1개만 고정 유지
             if not self._themes or 0 not in self._themes:
@@ -102,11 +113,15 @@ class ThemeManager:
             return
 
         if not self.registry_path.is_file():
+            if not self.create_registry:
+                raise FileNotFoundError(f"테마 레지스트리가 없습니다: {self.registry_path}")
             self._init_default_registry()
             return
 
         try:
             raw = json.loads(self.registry_path.read_text(encoding="utf-8"))
+            if not isinstance(raw, dict):
+                raise ValueError("registry root must be an object")
             themes_data = raw.get("themes", [])
             self._next_seq = int(raw.get("next_seq", 1))
             self._default_theme_id = int(raw.get("default_theme_id", 0))
@@ -114,16 +129,29 @@ class ThemeManager:
             loaded: dict[int, ThemeInfo] = {}
             if isinstance(themes_data, list):
                 for item in themes_data:
+                    if not isinstance(item, dict):
+                        raise ValueError("theme entry must be an object")
                     t = ThemeInfo.from_dict(item)
+                    if t.id in loaded:
+                        raise ValueError(f"duplicate theme id: {t.id}")
                     loaded[t.id] = t
             elif isinstance(themes_data, dict):
-                for k, item in themes_data.items():
+                for item in themes_data.values():
+                    if not isinstance(item, dict):
+                        raise ValueError("theme entry must be an object")
                     t = ThemeInfo.from_dict(item)
+                    if t.id in loaded:
+                        raise ValueError(f"duplicate theme id: {t.id}")
                     loaded[t.id] = t
+            else:
+                raise ValueError("themes must be a list or object")
 
             if 0 not in loaded:
-                default_theme = self._build_default_theme()
-                loaded[0] = default_theme
+                raise ValueError("default theme id 0 is missing")
+            if self._default_theme_id not in loaded:
+                raise ValueError(
+                    f"default_theme_id is not registered: {self._default_theme_id}"
+                )
 
             self._themes = loaded
             max_seq = max((t.seq for t in self._themes.values()), default=0)
@@ -131,8 +159,9 @@ class ThemeManager:
                 self._next_seq = max_seq + 1
 
         except Exception as exc:
-            log.warning("themes.json 읽기 실패 (%s). 기본 테마로 복구합니다.", exc)
-            self._init_default_registry()
+            raise RuntimeError(
+                f"테마 레지스트리를 읽을 수 없습니다: {self.registry_path}: {exc}"
+            ) from exc
 
     def _build_default_theme(self) -> ThemeInfo:
         now = time.time()
@@ -477,6 +506,12 @@ class ThemeManager:
         theme = self.get_theme(theme_ref)
         base = base_settings or self.settings
 
+        return self._settings_for_theme_info(theme, base)
+
+    @staticmethod
+    def _settings_for_theme_info(theme: ThemeInfo, base: Settings | Any) -> Any:
+        """글로벌 설정을 유지하고 테마별 저장 경로 두 개만 덮어쓴다."""
+
         if hasattr(base, "model_copy"):
             override = {
                 "db_path": theme.db_path,
@@ -495,6 +530,27 @@ class ThemeManager:
         if hasattr(st, "vault_dir"):
             st.vault_dir = Path(theme.vault_path)
         return st
+
+    def active_theme_settings(
+        self,
+        base_settings: Settings | Any | None = None,
+    ) -> list[tuple[ThemeInfo, Any]]:
+        """활성 테마와 경로가 적용된 설정을 테마 ID 순서로 반환한다.
+
+        멀티 테마가 꺼져 있으면 레지스트리 I/O 없이 기본 설정 한 개만 반환한다.
+        멀티 테마가 켜져 있으면 레지스트리를 매번 다시 읽어 신규/삭제 테마를
+        반영하며, 손상된 레지스트리 오류는 호출자에게 그대로 전파한다.
+        """
+        base = base_settings or self.settings
+        if not getattr(base, "multi_theme", False):
+            theme = self._build_default_theme()
+            return [(theme, self._settings_for_theme_info(theme, base))]
+
+        self.reload()
+        return [
+            (theme, self._settings_for_theme_info(theme, base))
+            for theme in sorted(self._themes.values(), key=lambda item: item.id)
+        ]
 
     def resolve_share_token(self, token: str) -> tuple[int, str, dict[str, Any]] | None:
         """등록된 테마 DB를 검색하여 공유 토큰의 (theme_id, document_id, doc_dict)를 자동 해소."""

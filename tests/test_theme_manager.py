@@ -60,6 +60,53 @@ def test_theme_manager_single_mode(tmp_path):
         manager.delete_theme(0)
 
 
+def test_active_theme_settings_single_mode_never_reads_registry(tmp_path):
+    data_dir = tmp_path / "single_data"
+    data_dir.mkdir()
+    registry = data_dir / "themes.json"
+    registry.write_text("{broken", encoding="utf-8")
+    settings = Settings(
+        CLAIRE_DB_PATH=str(data_dir / "claire.db"),
+        CLAIRE_VAULT_PATH=str(tmp_path / "vault"),
+        CLAIRE_PROVIDER="mock",
+        CLAIRE_MULTI_THEME=False,
+    )
+
+    manager = ThemeManager(base_settings=settings)
+    active = manager.active_theme_settings(settings)
+
+    assert [(theme.id, themed.db_file) for theme, themed in active] == [
+        (0, settings.db_file)
+    ]
+    assert registry.read_text(encoding="utf-8") == "{broken"
+
+
+def test_active_theme_settings_are_sorted_and_only_override_storage(temp_theme_env):
+    manager, _, _ = temp_theme_env
+    manager.define_theme("첫 번째")
+    manager.define_theme("두 번째")
+
+    active = manager.active_theme_settings(manager.settings)
+
+    assert [theme.id for theme, _ in active] == [0, 1, 2]
+    for theme, themed in active:
+        assert themed.db_path == theme.db_path
+        assert themed.vault_path == theme.vault_path
+        assert themed.provider == manager.settings.provider
+        assert themed.multi_theme == manager.settings.multi_theme
+
+
+def test_corrupt_registry_is_not_overwritten_or_hidden(temp_theme_env):
+    manager, _, _ = temp_theme_env
+    original = "{not-json"
+    manager.registry_path.write_text(original, encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="테마 레지스트리를 읽을 수 없습니다"):
+        manager.active_theme_settings()
+
+    assert manager.registry_path.read_text(encoding="utf-8") == original
+
+
 def test_default_theme_initialization(temp_theme_env):
     manager, data_dir, _ = temp_theme_env
     themes = manager.list_themes()
@@ -252,5 +299,4 @@ def test_theme_default_focus(temp_theme_env):
     # 6. default_focus를 빈 문자열로 리셋
     cleared = manager.update_theme(1, default_focus="")
     assert cleared.default_focus == ""
-
 

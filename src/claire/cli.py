@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import argparse
 import sys
+from dataclasses import dataclass, field
+from typing import Any, Callable
 
 from .config import get_settings
 from .store import db as dbm
@@ -793,7 +795,8 @@ def _alert_permanent_failures(failed_items: list[dict]) -> None:
     s = get_settings()
     lines = [f"⛔ claire 자동복구 영구실패 {len(failed_items)}건 (재시도 상한 도달)"]
     for r in failed_items[:5]:
-        lines.append(f"• inbox#{r['inbox_id']}: {str(r.get('error', ''))[:100]}")
+        theme = f"theme#{r['_theme_id']} " if "_theme_id" in r else ""
+        lines.append(f"• {theme}inbox#{r['inbox_id']}: {str(r.get('error', ''))[:100]}")
     if len(failed_items) > 5:
         lines.append(f"… 외 {len(failed_items) - 5}건")
     lines.append("텔레그램 `/failed` 로 목록 확인 후 `/retry <번호>` 로 재시도하세요.")
@@ -802,20 +805,145 @@ def _alert_permanent_failures(failed_items: list[dict]) -> None:
           flush=True)
 
 
+@dataclass
+class _ThemeLoopState:
+    """상주 큐 루프의 서비스 캐시와 다음 round-robin 시작점을 보존한다."""
+
+    services: dict[int, tuple[tuple[str, str], Any]] = field(default_factory=dict)
+    next_theme_id: int | None = None
+
+
+def _close_theme_service(service: Any) -> None:
+    """캐시에서 제거되는 서비스가 보유한 선택적 provider client를 정리한다."""
+    for resource in (
+        service,
+        getattr(service, "provider", None),
+        getattr(getattr(service, "provider", None), "client", None),
+    ):
+        close = getattr(resource, "close", None)
+        if callable(close):
+            try:
+                close()
+            except Exception:  # noqa: BLE001
+                pass
+            return
+
+
+def _theme_services_for_cycle(
+    base_settings: Any,
+    state: _ThemeLoopState,
+    service_factory: Callable[[Any], Any],
+) -> list[tuple[Any, Any]]:
+    """매 cycle 레지스트리를 재조회하고 활성 테마 서비스를 순환 순서로 반환."""
+    from .store.theme import ThemeManager
+
+    active = ThemeManager(
+        base_settings, create_registry=False
+    ).active_theme_settings(base_settings)
+    active_ids = {theme.id for theme, _ in active}
+    for removed_id in set(state.services) - active_ids:
+        removed = state.services.pop(removed_id, None)
+        if removed is not None:
+            _close_theme_service(removed[1])
+
+    ordered: list[tuple[Any, Any]] = []
+    for theme, theme_settings in active:
+        fingerprint = (str(theme_settings.db_file), str(theme_settings.vault_dir))
+        cached = state.services.get(theme.id)
+        if cached is None or cached[0] != fingerprint:
+            if cached is not None:
+                _close_theme_service(cached[1])
+            service = service_factory(theme_settings)
+            state.services[theme.id] = (fingerprint, service)
+        else:
+            service = cached[1]
+        ordered.append((theme, service))
+
+    if not ordered:
+        return []
+    ids = [theme.id for theme, _ in ordered]
+    if state.next_theme_id in ids:
+        start = ids.index(state.next_theme_id)
+    else:
+        start = 0
+    rotated = ordered[start:] + ordered[:start]
+    state.next_theme_id = ids[(start + 1) % len(ids)]
+    return rotated
+
+
+def _run_queue_round_robin(
+    services: list[tuple[Any, Any]],
+    *,
+    batch: int,
+    operation: Callable[[Any], list[dict]],
+) -> tuple[list[dict], list[dict]]:
+    """테마마다 한 건씩 처리해 전체 batch 상한과 오류 격리를 보장한다."""
+    remaining = max(0, int(batch))
+    active = list(services)
+    results: list[dict] = []
+    errors: list[dict] = []
+    while remaining > 0 and active:
+        progressed = False
+        next_active: list[tuple[Any, Any]] = []
+        for theme, service in active:
+            if remaining <= 0:
+                break
+            try:
+                current = operation(service)
+            except Exception as exc:  # noqa: BLE001
+                errors.append(
+                    {"theme_id": theme.id, "theme_label": theme.label, "error": str(exc)}
+                )
+                continue
+            if not current:
+                continue
+            progressed = True
+            for item in current:
+                item["_theme_id"] = theme.id
+                item["_theme_label"] = theme.label
+            results.extend(current)
+            remaining -= len(current)
+            if remaining > 0:
+                next_active.append((theme, service))
+        if not progressed:
+            break
+        active = next_active
+    return results, errors
+
+
+def _run_recover_cycle(
+    base_settings: Any,
+    args: Any,
+    state: _ThemeLoopState,
+    service_factory: Callable[[Any], Any],
+) -> dict:
+    services = _theme_services_for_cycle(base_settings, state, service_factory)
+    results, errors = _run_queue_round_robin(
+        services,
+        batch=args.batch,
+        operation=lambda service: service.recover_failed(
+            max_attempts=args.max_attempts,
+            base_delay=args.base_delay,
+            limit=1,
+        ),
+    )
+    return {"results": results, "errors": errors, "themes": len(services)}
+
+
 def cmd_recover_loop(args) -> int:
     """error inbox 를 interval 초마다 자동 재적재(전용 컨테이너용 데몬)."""
     import time
 
     from .ingest.service import IngestService
 
-    svc = IngestService(get_settings())
+    s = get_settings()
+    state = _ThemeLoopState()
     print(f"claire recover-loop 시작 (interval={args.interval}s, batch={args.batch}, "
           f"max_attempts={args.max_attempts}). Ctrl+C 종료.", flush=True)
     while True:
         try:
-            results = svc.recover_failed(
-                max_attempts=args.max_attempts, base_delay=args.base_delay,
-                limit=args.batch)
+            cycle = _run_recover_cycle(s, args, state, IngestService)
+            results = cycle["results"]
             if results:
                 ok = sum(1 for r in results if r["status"] in ("done", "duplicate"))
                 failed_items = [r for r in results if r["status"] == "failed"]
@@ -826,6 +954,12 @@ def cmd_recover_loop(args) -> int:
                     _alert_permanent_failures(failed_items)
             else:
                 print("[recover] 재적재 대상 없음, 대기", flush=True)
+            for error in cycle["errors"]:
+                print(
+                    f"[recover] theme#{error['theme_id']} [{error['theme_label']}] 오류: "
+                    f"{error['error']}",
+                    flush=True,
+                )
         except Exception as e:  # noqa: BLE001
             print(f"[recover] 오류: {e}", flush=True)
         time.sleep(max(60, args.interval))
@@ -888,20 +1022,28 @@ def cmd_refresh_loop(args) -> int:
 
     from .ingest.service import IngestService
 
-    svc = IngestService(get_settings())
+    s = get_settings()
+    state = _ThemeLoopState()
     print(f"claire refresh-loop 시작 (interval={args.interval}s, batch={args.batch}). Ctrl+C 종료.", flush=True)
     while True:
         try:
-            due = svc.enqueue_due_watch(limit=args.batch)  # 주기 크롤링: due watch → 큐 등록
+            cycle = _run_refresh_cycle(s, args, state, IngestService)
+            due = cycle["enqueued"]
             if due:
                 print(f"[refresh] watch 재크롤 {due}건 큐 등록", flush=True)
-            results = svc.run_refresh_queue(limit=args.batch)
+            results = cycle["results"]
             if results:
                 done = sum(1 for r in results if r["status"] == "done")
                 print(f"[refresh] {len(results)}건 처리, 갱신 {done}", flush=True)
             else:
                 # 큐가 비어도 살아있음을 알리는 heartbeat(로그 가시성 확보).
                 print("[refresh] 큐 비어있음, 대기", flush=True)
+            for error in cycle["errors"]:
+                print(
+                    f"[refresh] theme#{error['theme_id']} [{error['theme_label']}] "
+                    f"{error['stage']} 오류: {error['error']}",
+                    flush=True,
+                )
         except Exception as e:  # noqa: BLE001
             print(f"[refresh] 오류: {e}", flush=True)
         time.sleep(max(60, args.interval))
@@ -918,6 +1060,11 @@ def _notify_expansion(results: list[dict]) -> None:
     total = sum(r["stored"] for r in stored)
     lines = [f"🔗 1홉 자동확장: {total}개 링크를 따라가 지식에 추가했습니다."]
     for r in stored[:5]:
+        theme_id = r.get("_theme_id")
+        theme_label = str(r.get("_theme_label") or "").strip()
+        if theme_id is not None:
+            label = f" [{theme_label}]" if theme_label else ""
+            lines.append(f"theme#{theme_id}{label}: {r['stored']}건 적재")
         for f in r.get("followed", []):
             if f.get("stored"):
                 lines.append(f"• {f.get('title') or f.get('url')}")
@@ -958,24 +1105,97 @@ def cmd_expand_run(args) -> int:
     return 0
 
 
+def _run_refresh_cycle(
+    base_settings: Any,
+    args: Any,
+    state: _ThemeLoopState,
+    service_factory: Callable[[Any], Any],
+) -> dict:
+    services = _theme_services_for_cycle(base_settings, state, service_factory)
+    enqueued = 0
+    errors: list[dict] = []
+    watch_candidates = list(services)
+    while enqueued < args.batch and watch_candidates:
+        progressed = False
+        next_candidates: list[tuple[Any, Any]] = []
+        for theme, service in watch_candidates:
+            if enqueued >= args.batch:
+                break
+            try:
+                count = service.enqueue_due_watch(limit=1)
+            except Exception as exc:  # noqa: BLE001
+                errors.append(
+                    {
+                        "theme_id": theme.id,
+                        "theme_label": theme.label,
+                        "stage": "watch",
+                        "error": str(exc),
+                    }
+                )
+                continue
+            if count:
+                progressed = True
+                enqueued += count
+                next_candidates.append((theme, service))
+        if not progressed:
+            break
+        watch_candidates = next_candidates
+
+    results, queue_errors = _run_queue_round_robin(
+        services,
+        batch=args.batch,
+        operation=lambda service: service.run_refresh_queue(limit=1),
+    )
+    errors.extend({**item, "stage": "queue"} for item in queue_errors)
+    return {
+        "results": results,
+        "errors": errors,
+        "enqueued": enqueued,
+        "themes": len(services),
+    }
+
+
+def _run_expand_cycle(
+    base_settings: Any,
+    args: Any,
+    state: _ThemeLoopState,
+    service_factory: Callable[[Any], Any],
+) -> dict:
+    services = _theme_services_for_cycle(base_settings, state, service_factory)
+    results, errors = _run_queue_round_robin(
+        services,
+        batch=args.batch,
+        operation=lambda service: service.run_expand_queue(limit=1),
+    )
+    return {"results": results, "errors": errors, "themes": len(services)}
+
+
 def cmd_expand_loop(args) -> int:
     """1홉 자동확장 큐를 interval 초마다 자동 처리(전용 컨테이너용 데몬)."""
     import time
 
     from .ingest.service import IngestService
 
-    svc = IngestService(get_settings())
+    s = get_settings()
+    state = _ThemeLoopState()
     print(f"claire expand-loop 시작 (interval={args.interval}s, batch={args.batch}). "
           "Ctrl+C 종료.", flush=True)
     while True:
         try:
-            results = svc.run_expand_queue(limit=args.batch)
+            cycle = _run_expand_cycle(s, args, state, IngestService)
+            results = cycle["results"]
             if results:
                 stored = sum(r.get("stored", 0) for r in results)
                 print(f"[expand] {len(results)}건 처리, 적재 {stored}", flush=True)
                 _notify_expansion(results)
             else:
                 print("[expand] 큐 비어있음, 대기", flush=True)
+            for error in cycle["errors"]:
+                print(
+                    f"[expand] theme#{error['theme_id']} [{error['theme_label']}] 오류: "
+                    f"{error['error']}",
+                    flush=True,
+                )
         except Exception as e:  # noqa: BLE001
             print(f"[expand] 오류: {e}", flush=True)
         time.sleep(max(60, args.interval))
@@ -2263,19 +2483,56 @@ def cmd_migrate(_args) -> int:
     from .health import require_current_schema
 
     s = get_settings()
-    conn = None
+    if not getattr(s, "multi_theme", False):
+        conn = None
+        try:
+            conn = dbm.connect(s.db_file)
+            dbm.init_db(conn)
+            version = require_current_schema(conn)
+        except Exception as e:  # noqa: BLE001
+            print(f"migrate: error: {e}", file=sys.stderr)
+            return 1
+        finally:
+            if conn is not None:
+                conn.close()
+        print(f"schema_version={version} expected={dbm.SCHEMA_VERSION}")
+        return 0
+
+    from .store.theme import ThemeManager
+
     try:
-        conn = dbm.connect(s.db_file)
-        dbm.init_db(conn)
-        version = require_current_schema(conn)
-    except Exception as e:  # noqa: BLE001
-        print(f"migrate: error: {e}", file=sys.stderr)
+        targets = ThemeManager(s).active_theme_settings(s)
+    except Exception as exc:  # noqa: BLE001
+        print(f"migrate: registry error: {exc}", file=sys.stderr)
         return 1
-    finally:
-        if conn is not None:
-            conn.close()
-    print(f"schema_version={version} expected={dbm.SCHEMA_VERSION}")
-    return 0
+
+    failures: list[tuple[int, str, Exception]] = []
+    successes: list[tuple[int, str, int]] = []
+    for theme, theme_settings in targets:
+        conn = None
+        try:
+            conn = dbm.connect(theme_settings.db_file)
+            dbm.init_db(conn)
+            version = require_current_schema(conn)
+            successes.append((theme.id, theme.label, version))
+        except Exception as exc:  # noqa: BLE001
+            failures.append((theme.id, theme.label, exc))
+        finally:
+            if conn is not None:
+                conn.close()
+
+    for theme_id, label, version in successes:
+        print(
+            f"theme#{theme_id} [{label}]: schema_version={version} "
+            f"expected={dbm.SCHEMA_VERSION}"
+        )
+    for theme_id, label, exc in failures:
+        print(f"theme#{theme_id} [{label}]: error: {exc}", file=sys.stderr)
+    print(
+        f"migrate: themes={len(targets)} succeeded={len(successes)} "
+        f"failed={len(failures)}"
+    )
+    return 1 if failures else 0
 
 
 def build_parser() -> argparse.ArgumentParser:

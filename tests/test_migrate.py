@@ -7,6 +7,7 @@ import json
 from claire import cli
 from claire.config import Settings
 from claire.store import db as dbm
+from claire.store.theme import ThemeManager
 
 
 def _settings(monkeypatch, tmp_path):
@@ -32,6 +33,71 @@ def test_migrate_creates_and_validates_current_schema(monkeypatch, tmp_path, cap
             "SELECT value FROM meta WHERE key='schema_version'"
         ).fetchone()
         assert int(row["value"]) == dbm.SCHEMA_VERSION
+    finally:
+        conn.close()
+
+
+def test_migrate_updates_all_registered_theme_databases(monkeypatch, tmp_path, capsys):
+    s = _settings(monkeypatch, tmp_path).model_copy(update={"multi_theme": True})
+    conn = dbm.connect(s.db_file)
+    dbm.init_db(conn)
+    conn.close()
+    manager = ThemeManager(s)
+    theme = manager.define_theme("추가 테마")
+    themed = manager.get_settings_for_theme(theme.id, s)
+    for path in (s.db_file, themed.db_file):
+        conn = dbm.connect(path)
+        conn.execute(
+            "UPDATE meta SET value=? WHERE key='schema_version'",
+            (str(dbm.SCHEMA_VERSION - 1),),
+        )
+        conn.commit()
+        conn.close()
+    monkeypatch.setattr(cli, "get_settings", lambda: s)
+
+    assert cli.main(["migrate"]) == 0
+    output = capsys.readouterr().out
+    assert "theme#0" in output
+    assert "theme#1" in output
+    assert "themes=2 succeeded=2 failed=0" in output
+    for path in (s.db_file, themed.db_file):
+        conn = dbm.connect(path)
+        try:
+            assert dbm.stored_schema_version(conn) == dbm.SCHEMA_VERSION
+        finally:
+            conn.close()
+
+
+def test_migrate_collects_theme_failures_and_continues(monkeypatch, tmp_path, capsys):
+    s = _settings(monkeypatch, tmp_path).model_copy(update={"multi_theme": True})
+    conn = dbm.connect(s.db_file)
+    dbm.init_db(conn)
+    conn.execute(
+        "UPDATE meta SET value=? WHERE key='schema_version'",
+        (str(dbm.SCHEMA_VERSION - 1),),
+    )
+    conn.commit()
+    conn.close()
+    manager = ThemeManager(s)
+    theme = manager.define_theme("미래 스키마")
+    themed = manager.get_settings_for_theme(theme.id, s)
+    conn = dbm.connect(themed.db_file)
+    conn.execute(
+        "UPDATE meta SET value=? WHERE key='schema_version'",
+        (str(dbm.SCHEMA_VERSION + 1),),
+    )
+    conn.commit()
+    conn.close()
+    monkeypatch.setattr(cli, "get_settings", lambda: s)
+
+    assert cli.main(["migrate"]) == 1
+    captured = capsys.readouterr()
+    assert "theme#0" in captured.out
+    assert "failed=1" in captured.out
+    assert "theme#1" in captured.err
+    conn = dbm.connect(s.db_file)
+    try:
+        assert dbm.stored_schema_version(conn) == dbm.SCHEMA_VERSION
     finally:
         conn.close()
 
