@@ -243,11 +243,11 @@ async def test_settle_status_behavior():
         async def reply_text(self, text, reply_markup=None):
             self.replied_text = text
 
-    # 1. Normal success without candidates -> status message deleted (no spam)
+    # 1. Normal success without candidates -> status message preserved with summary (not deleted)
     st1 = FakeStatus()
     await _settle_status(st1, FakeMsg(), "✅ 적재 완료", [])
-    assert st1.deleted is True
-    assert st1.edited_text is None
+    assert st1.deleted is False
+    assert st1.edited_text == "✅ 적재 완료"
 
     # 2. STT failure with doc_id -> message preserved, retry button attached, not deleted
     st2 = FakeStatus()
@@ -305,17 +305,16 @@ async def test_settle_status_behavior():
         has_error=True,
     )
 
-    # 6. Status delete fails -> does NOT raise uncaught exception
-    class FailingDeleteStatus(FakeStatus):
-        async def delete(self):
-            raise RuntimeError("Message already deleted or network down")
-
+    # 6. Status edit fails on normal success -> falls back to msg.reply_text without uncaught exception
+    failing_st_succ = FailingStatus()
+    fake_msg_succ = FakeMsg()
     await _settle_status(
-        FailingDeleteStatus(),
-        FakeMsg(),
+        failing_st_succ,
+        fake_msg_succ,
         "✅ 적재 완료",
         [],
     )
+    assert fake_msg_succ.replied_text == "✅ 적재 완료"
 
     # 7. Duplicate with retry_doc_id -> message preserved, buttons attached
     st_dup = FakeStatus()
@@ -345,6 +344,73 @@ async def test_settle_status_behavior():
     assert st_dup2.deleted is False
     assert st_dup2.edited_text == "♻️ 이미 있는 자료입니다 (dedup): DocTitle"
     assert st_dup2.markup is None
+
+
+async def test_settle_status_reader_button(tmp_path: Path, monkeypatch):
+    """정상 적재 완료 시 retry_doc_id가 주어지면 '📖 문서 열람 (Reader)' 버튼이 부착되는지 검증."""
+    from pathlib import Path
+    from claire.config import get_settings
+    from claire.store import db as dbm
+    from claire.ontology.base import Document
+
+    class FakeStatus:
+        def __init__(self):
+            self.edited_text = None
+            self.markup = None
+            self.deleted = False
+
+        async def edit_text(self, text, reply_markup=None):
+            self.edited_text = text
+            self.markup = reply_markup
+
+        async def delete(self):
+            self.deleted = True
+
+    class FakeMsg:
+        def __init__(self):
+            self.replied_text = None
+
+        async def reply_text(self, text, reply_markup=None):
+            self.replied_text = text
+
+    db_file = tmp_path / "test.db"
+    conn = dbm.connect(db_file)
+    dbm.init_db(conn)
+    doc = Document(
+        id="doc_reader_test",
+        url="https://example.com/reader",
+        canonical_url="https://example.com/reader",
+        title="Reader Test Doc",
+        raw_text="Test content",
+        summary="Test summary",
+        source_type="web",
+        content_hash="h_reader_1",
+    )
+    dbm.insert_document(conn, doc)
+    conn.close()
+
+    monkeypatch.setenv("CLAIRE_DB_FILE", str(db_file))
+    monkeypatch.setenv("CLAIRE_PUBLIC_URL", "https://cb.example.com")
+    get_settings.cache_clear()
+
+    try:
+        st = FakeStatus()
+        msg = FakeMsg()
+        await _settle_status(
+            st,
+            msg,
+            "✅ 적재 완료: Reader Test Doc",
+            [],
+            retry_doc_id="doc_reader_test",
+        )
+        assert st.deleted is False
+        assert st.edited_text == "✅ 적재 완료: Reader Test Doc"
+        assert st.markup is not None
+        button = st.markup.inline_keyboard[0][0]
+        assert button.text == "📖 문서 열람 (Reader)"
+        assert "https://cb.example.com/p?s=" in button.url
+    finally:
+        get_settings.cache_clear()
 
 
 async def test_on_message_handles_ingest_report_error_without_unbound_local_error(monkeypatch):
