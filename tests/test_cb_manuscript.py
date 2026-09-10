@@ -290,6 +290,20 @@ def test_compose_environment_includes_claire_pdf_parser(tmp_path):
     assert env.get("CLAIRE_PDF_PARSER") == "docling"
 
 
+def test_dockerfile_keeps_dynamic_identity_after_dependency_layers():
+    dockerfile = (
+        Path(__file__).resolve().parents[1] / "Dockerfile"
+    ).read_text(encoding="utf-8")
+
+    dependency_layer = dockerfile.index("uv sync --locked")
+    source_layer = dockerfile.index("COPY src/")
+    identity_layer = dockerfile.index('ARG CLAIRE_BUILD_COMMIT="unknown"')
+
+    assert dependency_layer < source_layer < identity_layer
+    assert "--no-install-project" in dockerfile
+    assert dockerfile.count("ARG CLAIRE_BUILD_COMMIT") == 1
+
+
 def test_load_runtime_validates_readonly_token_rules(tmp_path):
     _write_layout(tmp_path, dev=False)
     # 1. Blank readonly token is allowed (fail-closed default)

@@ -6,7 +6,9 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
+import logging
 import re
 import secrets
 import shutil
@@ -16,7 +18,24 @@ from pathlib import Path
 
 from ..ontology.base import Document, Entity, Relation
 
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 11
+_LOCAL_SUPPORT_SCHEMA_VERSION = 12
+logger = logging.getLogger(__name__)
+
+_LOCAL_SUPPORT_V12_COLUMNS = {
+    "ingest_attempts": (
+        "id", "inbox_id", "attempt_number", "status", "document_id", "error",
+        "recorded_at",
+    ),
+    "fetch_attempts": (
+        "id", "trace_id", "inbox_id", "document_id", "stage_order", "stage",
+        "started_at", "duration_ms", "status", "http_status", "input_url",
+        "effective_url", "content_type", "response_bytes", "usable", "guard_error",
+        "error_type", "error_message", "metadata", "snapshot_path",
+        "snapshot_sha256", "snapshot_original_bytes", "snapshot_stored_bytes",
+        "snapshot_truncated",
+    ),
+}
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (
@@ -126,53 +145,6 @@ CREATE TABLE IF NOT EXISTS raw_inbox (
     next_retry_at REAL
 );
 CREATE INDEX IF NOT EXISTS idx_raw_inbox_status ON raw_inbox(status);
-
--- [진단 원장] raw_inbox 현재 상태가 덮어써지더라도 최초 수집과 재시도별 결과를
--- append-only 이벤트로 보존한다. attempt_number=1은 최초 처리, 2 이상은 재시도다.
-CREATE TABLE IF NOT EXISTS ingest_attempts (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    inbox_id INTEGER NOT NULL,
-    attempt_number INTEGER NOT NULL,
-    status TEXT NOT NULL,
-    document_id TEXT,
-    error TEXT,
-    recorded_at REAL NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_ingest_attempts_inbox
-    ON ingest_attempts(inbox_id, id);
-
--- 웹 수집 fallback 단계별 진단. DOM 본문은 DB에 넣지 않고 snapshot_path가 가리키는
--- 정제·압축 파일로 보존하여 DB 락과 크기 증가를 피한다.
-CREATE TABLE IF NOT EXISTS fetch_attempts (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    trace_id TEXT NOT NULL,
-    inbox_id INTEGER NOT NULL,
-    document_id TEXT,
-    stage_order INTEGER NOT NULL,
-    stage TEXT NOT NULL,
-    started_at REAL,
-    duration_ms INTEGER,
-    status TEXT,
-    http_status INTEGER,
-    input_url TEXT,
-    effective_url TEXT,
-    content_type TEXT,
-    response_bytes INTEGER,
-    usable INTEGER,
-    guard_error TEXT,
-    error_type TEXT,
-    error_message TEXT,
-    metadata TEXT,
-    snapshot_path TEXT,
-    snapshot_sha256 TEXT,
-    snapshot_original_bytes INTEGER,
-    snapshot_stored_bytes INTEGER,
-    snapshot_truncated INTEGER DEFAULT 0
-);
-CREATE INDEX IF NOT EXISTS idx_fetch_attempts_inbox
-    ON fetch_attempts(inbox_id, id);
-CREATE INDEX IF NOT EXISTS idx_fetch_attempts_document
-    ON fetch_attempts(document_id, id);
 
 -- [재적재 LLM tier] 모델이 반환한 raw 출력 보관. 후처리만 바뀌면 재호출 없이 재생.
 CREATE TABLE IF NOT EXISTS extractions (
@@ -412,64 +384,6 @@ def _migrate(conn: sqlite3.Connection) -> None:
     )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_tombstones_canon ON purged_tombstones(canonical_url)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_tombstones_hash ON purged_tombstones(content_hash)")
-    # v12: 수집 요청/재시도 및 웹 fallback 단계별 append-only 진단 원장.
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS ingest_attempts (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            inbox_id INTEGER NOT NULL,
-            attempt_number INTEGER NOT NULL,
-            status TEXT NOT NULL,
-            document_id TEXT,
-            error TEXT,
-            recorded_at REAL NOT NULL
-        )
-        """
-    )
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_ingest_attempts_inbox "
-        "ON ingest_attempts(inbox_id, id)"
-    )
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS fetch_attempts (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            trace_id TEXT NOT NULL,
-            inbox_id INTEGER NOT NULL,
-            document_id TEXT,
-            stage_order INTEGER NOT NULL,
-            stage TEXT NOT NULL,
-            started_at REAL,
-            duration_ms INTEGER,
-            status TEXT,
-            http_status INTEGER,
-            input_url TEXT,
-            effective_url TEXT,
-            content_type TEXT,
-            response_bytes INTEGER,
-            usable INTEGER,
-            guard_error TEXT,
-            error_type TEXT,
-            error_message TEXT,
-            metadata TEXT,
-            snapshot_path TEXT,
-            snapshot_sha256 TEXT,
-            snapshot_original_bytes INTEGER,
-            snapshot_stored_bytes INTEGER,
-            snapshot_truncated INTEGER DEFAULT 0
-        )
-        """
-    )
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_fetch_attempts_inbox "
-        "ON fetch_attempts(inbox_id, id)"
-    )
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_fetch_attempts_document "
-        "ON fetch_attempts(document_id, id)"
-    )
-
-
 def stored_schema_version(conn: sqlite3.Connection) -> int | None:
     """Return an existing schema version without creating or changing anything."""
 
@@ -489,8 +403,107 @@ def stored_schema_version(conn: sqlite3.Connection) -> int | None:
         raise RuntimeError(f"invalid schema_version: {row['value']!r}") from exc
 
 
+def _table_columns(conn: sqlite3.Connection, table: str) -> tuple[str, ...]:
+    return tuple(str(row["name"]) for row in conn.execute(f"PRAGMA table_info({table})"))
+
+
+def _is_local_support_v12(conn: sqlite3.Connection) -> bool:
+    return all(
+        _table_columns(conn, table) == columns
+        for table, columns in _LOCAL_SUPPORT_V12_COLUMNS.items()
+    )
+
+
+def _database_path(conn: sqlite3.Connection) -> Path:
+    row = conn.execute("PRAGMA database_list").fetchone()
+    if row is None or not row["file"]:
+        raise RuntimeError("cannot resolve SQLite database path for v12 rollback")
+    return Path(str(row["file"])).resolve()
+
+
+def _export_local_support_v12(conn: sqlite3.Connection) -> Path:
+    """Drop 전 진단 전용 v12 행을 권한 제한 JSONL 아티팩트로 보존한다."""
+    db_path = _database_path(conn)
+    path_key = hashlib.sha256(str(db_path).encode("utf-8")).hexdigest()[:12]
+    stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+    export_dir = (
+        db_path.parent / "raw" / "migrations" /
+        f"support-diagnostics-v12-to-v11-{stamp}-{path_key}-{secrets.token_hex(4)}"
+    )
+    export_dir.mkdir(parents=True, mode=0o700, exist_ok=False)
+    export_dir.chmod(0o700)
+    counts: dict[str, int] = {}
+    for table in _LOCAL_SUPPORT_V12_COLUMNS:
+        rows = [dict(row) for row in conn.execute(f"SELECT * FROM {table} ORDER BY id")]
+        counts[table] = len(rows)
+        output = export_dir / f"{table}.jsonl"
+        output.write_text(
+            "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows),
+            encoding="utf-8",
+        )
+        output.chmod(0o600)
+    manifest = export_dir / "manifest.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "migration": "local-support-v12-to-v11",
+                "source_database": db_path.name,
+                "from_schema_version": _LOCAL_SUPPORT_SCHEMA_VERSION,
+                "to_schema_version": SCHEMA_VERSION,
+                "created_at": time.time(),
+                "row_counts": counts,
+            },
+            ensure_ascii=False,
+            indent=2,
+        ) + "\n",
+        encoding="utf-8",
+    )
+    manifest.chmod(0o600)
+    return export_dir
+
+
+def _restore_local_support_v12_to_v11(conn: sqlite3.Connection) -> Path:
+    """이번 Support Bundle 확장으로 생성된 v12만 보존 후 v11로 되돌린다."""
+    if not _is_local_support_v12(conn):
+        raise RuntimeError(
+            "database schema v12 does not match the local Support Bundle extension; "
+            "refusing automatic rollback"
+        )
+    export_dir = _export_local_support_v12(conn)
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        if stored_schema_version(conn) != _LOCAL_SUPPORT_SCHEMA_VERSION:
+            raise RuntimeError("database schema changed during v12 rollback")
+        if not _is_local_support_v12(conn):
+            raise RuntimeError("database table signature changed during v12 rollback")
+        conn.execute("DROP INDEX IF EXISTS idx_fetch_attempts_document")
+        conn.execute("DROP INDEX IF EXISTS idx_fetch_attempts_inbox")
+        conn.execute("DROP INDEX IF EXISTS idx_ingest_attempts_inbox")
+        conn.execute("DROP TABLE fetch_attempts")
+        conn.execute("DROP TABLE ingest_attempts")
+        conn.execute(
+            "UPDATE meta SET value=? WHERE key='schema_version'",
+            (str(SCHEMA_VERSION),),
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    logger.warning(
+        "Restored local Support Bundle schema v12 to v11; diagnostics exported to %s",
+        export_dir,
+    )
+    return export_dir
+
+
 def init_db(conn: sqlite3.Connection) -> None:
     existing_version = stored_schema_version(conn)
+    if (
+        existing_version == _LOCAL_SUPPORT_SCHEMA_VERSION
+        and _is_local_support_v12(conn)
+    ):
+        _restore_local_support_v12_to_v11(conn)
+        existing_version = stored_schema_version(conn)
     if existing_version is not None and existing_version > SCHEMA_VERSION:
         raise RuntimeError(
             "database schema is newer than this code: "
@@ -980,49 +993,8 @@ def log_inbox(
         "file_name,file_ref,status) VALUES (?,?,?,?,?,?,?,?, 'received')",
         (time.time(), source, user_id, chat_id, kind, payload, file_name, file_ref),
     )
-    inbox_id = int(cur.lastrowid)
-    conn.execute(
-        "INSERT INTO ingest_attempts(inbox_id,attempt_number,status,recorded_at) "
-        "VALUES (?,?,?,?)",
-        (inbox_id, 0, "received", time.time()),
-    )
     conn.commit()
-    return inbox_id
-
-
-def _append_ingest_attempt(
-    conn: sqlite3.Connection,
-    inbox_id: int,
-    *,
-    status: str,
-    document_id: str | None = None,
-    error: str | None = None,
-    attempt_number: int | None = None,
-    recorded_at: float | None = None,
-) -> None:
-    """현재 raw_inbox 요약과 별개로 시도 결과를 append-only로 기록한다."""
-    if attempt_number is None:
-        row = conn.execute(
-            "SELECT COALESCE(MAX(attempt_number), 0) AS attempt_number "
-            "FROM ingest_attempts WHERE inbox_id=?",
-            (inbox_id,),
-        ).fetchone()
-        attempt_number = int(row["attempt_number"] if row else 0) + 1
-    conn.execute(
-        """
-        INSERT INTO ingest_attempts(
-            inbox_id,attempt_number,status,document_id,error,recorded_at
-        ) VALUES (?,?,?,?,?,?)
-        """,
-        (
-            inbox_id,
-            attempt_number,
-            status,
-            document_id,
-            error,
-            time.time() if recorded_at is None else recorded_at,
-        ),
-    )
+    return int(cur.lastrowid)
 
 
 def update_inbox(
@@ -1033,19 +1005,6 @@ def update_inbox(
         "UPDATE raw_inbox SET status=?, document_id=?, error=? WHERE id=?",
         (status, document_id, error, inbox_id),
     )
-    _append_ingest_attempt(
-        conn,
-        inbox_id,
-        status=status,
-        document_id=document_id,
-        error=error,
-    )
-    if document_id:
-        conn.execute(
-            "UPDATE fetch_attempts SET document_id=? "
-            "WHERE inbox_id=? AND (document_id IS NULL OR document_id='')",
-            (document_id, inbox_id),
-        )
     conn.commit()
 
 
@@ -1098,59 +1057,12 @@ def record_recovery_attempt(
 ) -> None:
     """재적재 1회 시도 결과 기록(attempts+1, last_attempt, next_retry_at 갱신)."""
     now = time.time() if now is None else now
-    row = conn.execute(
-        "SELECT COALESCE(MAX(attempt_number), 0) AS attempt_number "
-        "FROM ingest_attempts WHERE inbox_id=?",
-        (inbox_id,),
-    ).fetchone()
-    attempt_number = int(row["attempt_number"] if row else 0)
-    if attempt_number == 0:
-        attempt_number = 1
     conn.execute(
         "UPDATE raw_inbox SET status=?, document_id=?, error=?, "
         "attempts=attempts+1, last_attempt=?, next_retry_at=? WHERE id=?",
         (status, document_id, error, now, next_retry_at, inbox_id),
     )
-    _append_ingest_attempt(
-        conn,
-        inbox_id,
-        status=status,
-        document_id=document_id,
-        error=error,
-        attempt_number=attempt_number,
-        recorded_at=now,
-    )
-    if document_id:
-        conn.execute(
-            "UPDATE fetch_attempts SET document_id=? "
-            "WHERE inbox_id=? AND (document_id IS NULL OR document_id='')",
-            (document_id, inbox_id),
-        )
     conn.commit()
-
-
-def ingest_attempts_for_inbox(
-    conn: sqlite3.Connection, inbox_ids: list[int]
-) -> list[sqlite3.Row]:
-    if not inbox_ids:
-        return []
-    placeholders = ",".join("?" for _ in inbox_ids)
-    return conn.execute(
-        f"SELECT * FROM ingest_attempts WHERE inbox_id IN ({placeholders}) ORDER BY id",
-        tuple(inbox_ids),
-    ).fetchall()
-
-
-def fetch_attempts_for_inbox(
-    conn: sqlite3.Connection, inbox_ids: list[int]
-) -> list[sqlite3.Row]:
-    if not inbox_ids:
-        return []
-    placeholders = ",".join("?" for _ in inbox_ids)
-    return conn.execute(
-        f"SELECT * FROM fetch_attempts WHERE inbox_id IN ({placeholders}) ORDER BY id",
-        tuple(inbox_ids),
-    ).fetchall()
 
 
 # --- status / 집계 (claire status 용) ---

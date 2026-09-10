@@ -157,7 +157,7 @@ Claire Bible은 호스트 오케스트레이션 도구인 **`cb-manuscript`**와
 | | `theme define/list/update/delete` | 시퀀스 기반 지식 테마 생성·조회·수정 및 영구 소각(`--purge`) |
 | | `reextract`, `backfill-detail`, `dedup-merge`| 전체/표 선별 그래프 재추출, 상세 백필, 근사 중복 문서 병합 |
 | | `queue status`, `queue list inbox` | `raw_inbox`·`refresh_queue`·`expand_queue`의 상태 분포와 대기·오류 항목 조회 |
-| | `telemetry`, `support-bundle` | 프로바이더 호출 텔레메트리 통계 조회, 요청/재시도·fetch 단계·정제 DOM·빌드 SHA를 포함한 zstd Support Bundle 생성·조회·파기[^support-bundle] |
+| | `telemetry`, `support-bundle` | 프로바이더 호출 텔레메트리 통계 조회, strict 타깃 역추적·빌드 SHA를 포함한 zstd Support Bundle 생성·조회·파기[^support-bundle] |
 | | *(텔레그램 봇)* `/support bundle` | 텔레그램 채팅창에서 원격 Support Bundle 생성·다운로드·파기 |
 
 > 💡 **전체 명령어 및 세부 옵션 안내**: 모든 명령어, 세부 옵션, 미구현 상태 및 제약사항에 대한 상세 설명은 **[전체 CLI 명령어 레퍼런스 (`docs/origin/implementation/COMMANDS.md`)](docs/origin/implementation/COMMANDS.md)**를 참고하십시오.
@@ -544,7 +544,7 @@ src/claire/
 [^codex-auth]: OpenAI의 Codex 인증 문서는 `codex login status`로 현재 인증 방식을 확인할 수 있다고 설명하며, CLI 레퍼런스는 인증 정보가 있으면 이 명령이 종료 코드 0을 반환한다고 명시한다.
 [^codex-cli-reference]: OpenAI Codex CLI 레퍼런스의 `codex exec` 옵션을 기준으로 한다. Claire가 추가로 비활성화하는 도구와 환경변수 allowlist는 이 프로젝트의 보안 경계이다.
 [^codex-usage]: Codex의 사용량은 인증한 계정·플랜, 선택한 모델, 입력·출력 및 도구 사용에 따라 달라질 수 있다. 정확한 잔여 사용량은 계정 사용량 화면에서 확인한다.
-[^support-bundle]: Claire Bible 구현 근거: [`src/claire/support_bundle.py`](src/claire/support_bundle.py), [`src/claire/ingest/fetch_diagnostics.py`](src/claire/ingest/fetch_diagnostics.py), [`src/claire/store/db.py`](src/claire/store/db.py), [`Dockerfile`](Dockerfile), [`tests/test_support_bundle.py`](tests/test_support_bundle.py) (2026-09-11 확인).
+[^support-bundle]: Claire Bible 구현 근거: [`src/claire/support_bundle.py`](src/claire/support_bundle.py), [`src/claire/store/db.py`](src/claire/store/db.py), [`Dockerfile`](Dockerfile), [`tests/test_support_bundle.py`](tests/test_support_bundle.py), [`tests/test_migrate.py`](tests/test_migrate.py) (2026-09-11 확인).
 
 ## 참고문헌
 
