@@ -108,7 +108,14 @@ def get_effective_settings(args: Any) -> tuple[Any, Any | None]:
     s = get_settings()
     theme_ref = getattr(args, "theme", None)
     if theme_ref is not None:
+        if not getattr(s, "multi_theme", False):
+            print(
+                f"[경고] 멀티 테마 모드가 비활성화되어 있어 --theme={theme_ref} 옵션이 무시되고 기본 테마가 사용됩니다 (CLAIRE_MULTI_THEME=1 필요).",
+                file=sys.stderr,
+            )
+            return s, None
         from .store.theme import get_theme_manager
+
         tm = get_theme_manager(s)
         try:
             theme = tm.get_theme(theme_ref)
@@ -450,10 +457,57 @@ def cmd_theme(args) -> int:
     from .store.queries import theme_summary
     from .store.theme import get_theme_manager
 
-    tm = get_theme_manager()
+    s = get_settings()
+    tm = get_theme_manager(s)
     action = getattr(args, "theme_action", None) or "list"
 
+    if action in ("define", "update", "delete"):
+        if not getattr(s, "multi_theme", False):
+            print(
+                "[오류] 멀티 테마 모드가 비활성화되어 있습니다.\n"
+                "새 테마를 정의하거나 수정/삭제하려면 환경변수 CLAIRE_MULTI_THEME=1 설정이 필요합니다.",
+                file=sys.stderr,
+            )
+            return 1
+
     if action == "list":
+        if not getattr(s, "multi_theme", False):
+            as_json = getattr(args, "json", False)
+            stats = {"documents": 0, "entities": 0, "relations": 0}
+            if s.db_file.is_file():
+                try:
+                    conn = dbm.connect_existing(s.db_file, readonly=True)
+                    try:
+                        stats = theme_summary(conn, include_hidden=True)
+                    finally:
+                        conn.close()
+                except Exception:
+                    pass
+            out = [{
+                "id": 0,
+                "seq": 0,
+                "label": "기본 지식베이스",
+                "description": "일반 수집 자료 및 기본 지식",
+                "icon": "📚",
+                "db_path": str(s.db_path),
+                "vault_path": str(s.vault_path),
+                "is_default": True,
+                "stats": stats,
+            }]
+            if as_json:
+                print(json.dumps({"themes": out, "multi_theme": False}, ensure_ascii=False, indent=2))
+                return 0
+
+            print("Claire 지식베이스 테마 목록 (싱글 테마 모드 / CLAIRE_MULTI_THEME=0)")
+            print("=" * 68)
+            print(f"{'ID':<4} {'아이콘':<4} {'레이블':<22} {'문서/엔티티/관계':<18} {'기본여부'}")
+            print("-" * 68)
+            st = f"{stats['documents']} / {stats['entities']} / {stats['relations']}"
+            print(f"{0:<4} {'📚':<4} {'기본 지식베이스':<22} {st:<18} {'★ 기본'}")
+            print(f"     ㄴ DB  : {s.db_path}")
+            print("=" * 68)
+            print("  ※ 멀티 테마를 활성화하려면 환경변수 CLAIRE_MULTI_THEME=1을 설정하십시오.")
+            return 0
         tm.reload()
         themes = tm.list_themes()
         as_json = getattr(args, "json", False)

@@ -31,10 +31,65 @@ def theme_app_client(tmp_path):
         CLAIRE_INJECT_TOKEN=OWNER_TOKEN,
         CLAIRE_READONLY_TOKEN=READONLY_TOKEN,
         CLAIRE_ANONYMOUS_READONLY=True,
+        CLAIRE_MULTI_THEME=True,
     )
     app = create_app(settings=settings)
     client = TestClient(app, base_url=settings.public_url)
     yield client, settings
+
+
+def test_theme_api_single_mode_behavior(tmp_path):
+    """CLAIRE_MULTI_THEME=0(기본값, 싱글 모드) 시의 API 보안 가드 및 고정 동작 검증."""
+    data_dir = tmp_path / "single_data"
+    vault_dir = tmp_path / "single_vault"
+    data_dir.mkdir(parents=True)
+    vault_dir.mkdir(parents=True)
+
+    s = Settings(
+        CLAIRE_DB_PATH=str(data_dir / "claire.db"),
+        CLAIRE_VAULT_PATH=str(vault_dir),
+        CLAIRE_PROVIDER="mock",
+        CLAIRE_ENVIRONMENT="development",
+        CLAIRE_PUBLIC_URL="http://127.0.0.1:8765",
+        CLAIRE_INJECT_TOKEN=OWNER_TOKEN,
+        CLAIRE_READONLY_TOKEN=READONLY_TOKEN,
+        CLAIRE_ANONYMOUS_READONLY=True,
+        CLAIRE_MULTI_THEME=False,
+    )
+    app = create_app(settings=s)
+    with TestClient(app, base_url=s.public_url) as client:
+        # 1. GET /themes -> multi_theme: False 및 기본 지식베이스 1개만 반환
+        resp = client.get("/themes")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data.get("multi_theme") is False
+        assert len(data["themes"]) == 1
+        assert data["themes"][0]["id"] == 0
+        assert data["themes"][0]["label"] == "기본 지식베이스"
+
+        # 2. POST /themes -> 403 차단
+        resp_post = client.post("/themes", json={"label": "새 테마"}, headers=OWNER_HEADERS)
+        assert resp_post.status_code == 403
+        assert "멀티 테마 모드가 비활성화되어 있습니다" in resp_post.json().get("error", "")
+
+        # 3. PATCH /themes -> 403 차단
+        resp_patch = client.patch("/themes", json={"id": 0, "label": "수정"}, headers=OWNER_HEADERS)
+        assert resp_patch.status_code == 403
+        assert "멀티 테마 모드가 비활성화되어 있습니다" in resp_patch.json().get("error", "")
+
+        # 4. DELETE /themes -> 403 차단
+        resp_del = client.delete("/themes?id=1", headers=OWNER_HEADERS)
+        assert resp_del.status_code == 403
+        assert "멀티 테마 모드가 비활성화되어 있습니다" in resp_del.json().get("error", "")
+
+        # 5. POST /ingest with arbitrary theme param -> 싱글 모드에서는 0번 기본 DB로 일관 격리/적재
+        ingest_resp = client.post(
+            "/ingest",
+            json={"payload": "싱글 테마 모드 적재 내용", "theme": 999},
+            headers=OWNER_HEADERS,
+        )
+        assert ingest_resp.status_code == 200
+        assert ingest_resp.json().get("theme_id") == 0
 
 
 def test_get_themes_anonymous_allowed(theme_app_client):

@@ -880,6 +880,86 @@ def test_setup_telegram_logging(tmp_path: Path):
     assert "Test telegram logging message from unit test 12345" in content
 
 
+def test_parse_message_theme_multi_vs_single(tmp_path: Path):
+    """parse_message_theme이 CLAIRE_MULTI_THEME에 따라 올바르게 동작하는지 검증."""
+    from unittest.mock import MagicMock
+    from claire.config import Settings
+    from claire.store.theme import ThemeManager
+    from claire.telegram_bot import parse_message_theme
+
+    data_dir = tmp_path / "data"
+    vault_dir = tmp_path / "vault"
+    data_dir.mkdir(parents=True)
+    vault_dir.mkdir(parents=True)
+
+    # 1. Multi theme mode enabled
+    s_multi = Settings(
+        CLAIRE_DB_PATH=str(data_dir / "claire.db"),
+        CLAIRE_VAULT_PATH=str(vault_dir),
+        CLAIRE_PROVIDER="mock",
+        CLAIRE_MULTI_THEME=True,
+    )
+    tm_multi = ThemeManager(s_multi)
+    tm_multi.define_theme("AI연구", icon="🤖")
+
+    clean, tid = parse_message_theme("안녕하세요 #1 논문입니다", tm_multi)
+    assert tid == 1
+    assert clean == "안녕하세요 논문입니다"
+
+    clean2, tid2 = parse_message_theme("자료 요약 #AI연구 부탁", tm_multi)
+    assert tid2 == 1
+    assert clean2 == "자료 요약 부탁"
+
+    # 2. Single theme mode (CLAIRE_MULTI_THEME=False) -> 해시태그 파싱을 바이패스하고 원문 보존
+    s_single = Settings(
+        CLAIRE_DB_PATH=str(data_dir / "claire.db"),
+        CLAIRE_VAULT_PATH=str(vault_dir),
+        CLAIRE_PROVIDER="mock",
+        CLAIRE_MULTI_THEME=False,
+    )
+    tm_single = ThemeManager(s_single)
+    clean_single, tid_single = parse_message_theme("안녕하세요 #1 논문입니다", tm_single)
+    assert tid_single is None
+    assert clean_single == "안녕하세요 #1 논문입니다"
+
+
+async def test_on_theme_single_mode_reply(tmp_path: Path):
+    """CLAIRE_MULTI_THEME=False 상태에서 /theme 명령 수신 시 안내 메시지 응답 검증."""
+    from unittest.mock import AsyncMock, MagicMock
+    from types import SimpleNamespace
+    from claire.config import Settings
+    from claire.ingest.service import IngestService
+    from claire.telegram_bot import build_app
+
+    s = Settings(
+        CLAIRE_DB_PATH=str(tmp_path / "claire.db"),
+        CLAIRE_VAULT_PATH=str(tmp_path / "vault"),
+        CLAIRE_PROVIDER="mock",
+        telegram_bot_token="12345:fake_token",
+        allowed_users="100",
+        CLAIRE_MULTI_THEME=False,
+    )
+    app = build_app(s)
+    on_theme = next(h.callback for h in app.handlers[0] if getattr(h.callback, "__name__", "") == "on_theme")
+
+    msg = AsyncMock()
+    msg.reply_text = AsyncMock()
+    update = MagicMock()
+    update.effective_user = SimpleNamespace(id=100)
+    update.message = msg
+    update.effective_message = msg
+
+    ctx = MagicMock()
+    ctx.args = []
+    await on_theme(update, ctx)
+
+    msg.reply_text.assert_awaited_once()
+    reply = msg.reply_text.call_args[0][0]
+    assert "현재 싱글 테마 모드로 동작 중입니다" in reply
+    assert "CLAIRE_MULTI_THEME=1" in reply
+
+
+
 
 
 

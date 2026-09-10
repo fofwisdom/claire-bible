@@ -291,6 +291,8 @@ class Settings(BaseSettings):
     data_lifecycle: str = Field(default="append-only", alias="CLAIRE_DATA_LIFECYCLE")
     # 명시적 소각 허용 플래그 (0|1 또는 boolean). 기본값 False(불허).
     allow_purge: bool = Field(default=False, alias="CLAIRE_ALLOW_PURGE")
+    # 멀티 테마(다중 데이터베이스) 모드 활성화 여부. 0(기본값)이면 단일 DB(data/claire.db) 고정, 1이면 멀티 테마 활성화
+    multi_theme: bool = Field(default=False, alias="CLAIRE_MULTI_THEME")
 
     # --- expansion ---
     expand_max: int = Field(default=5, alias="CLAIRE_EXPAND_MAX")
@@ -413,6 +415,18 @@ class Settings(BaseSettings):
         if s in ("0", "false", "no", "off", ""):
             return False
         raise ValueError("CLAIRE_ALLOW_PURGE must be a boolean or 0/1")
+
+    @field_validator("multi_theme", mode="before")
+    @classmethod
+    def _parse_multi_theme(cls, value: object) -> bool:
+        if isinstance(value, bool):
+            return value
+        s = str(value or "").strip().lower()
+        if s in ("1", "true", "yes", "on"):
+            return True
+        if s in ("0", "false", "no", "off", ""):
+            return False
+        raise ValueError("CLAIRE_MULTI_THEME must be a boolean or 0/1")
 
     @field_validator("enable_video_transcription", mode="before")
     @classmethod

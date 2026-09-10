@@ -74,12 +74,12 @@
 <header id="bar">
   <div class="bar-brand-group">
     <span class="brand" role="button" tabindex="0" onclick="resetHome()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();resetHome();}" title="전체 지식 그래프 보기" aria-label="전체 지식 그래프 보기" style="display:inline-flex;align-items:center;gap:6px"><img src="/favicon.svg" width="20" height="20" alt="" aria-hidden="true" style="display:inline-block;vertical-align:middle;filter:drop-shadow(0 0 4px rgba(0,255,170,0.5))"/>Claire Bible</span>
-    <div class="theme-picker-wrap" id="theme-picker-wrap" title="지식 테마 선택 (데이터베이스 전환)">
+    <div class="theme-picker-wrap" id="theme-picker-wrap" title="지식 테마 선택 (데이터베이스 전환)" __THEME_PICKER_STYLE_ATTR__>
       <label for="theme-select" class="sr-only">지식 테마 선택</label>
       <div class="theme-select-control">
         <span class="theme-icon" id="theme-curr-icon" aria-hidden="true">📚</span>
         <select id="theme-select" class="theme-select" onchange="switchKnowledgeTheme(this.value)" title="지식 테마 선택 (데이터베이스 전환)" aria-label="지식 테마 선택">
-          <option value="0">기본 테마</option>
+          <option value="0">기본 지식베이스</option>
         </select>
         <span class="theme-caret" aria-hidden="true">▾</span>
       </div>
@@ -299,7 +299,9 @@
     githubRepository: '__GITHUB_REPOSITORY__',
     sorcerer: '__SORCERER__',
     owner: '__OWNER__',
-    knowledgeManager: '__KNOWLEDGE_MANAGER__'
+    knowledgeManager: '__KNOWLEDGE_MANAGER__',
+    themeMode: '__THEME_MODE__',
+    themes: __THEMES_JSON__
   };
 </script>
 <script src=/static/js/renderers/adoc_parser.js></script>

@@ -69,6 +69,12 @@ class ThemeManager:
 
     def reload(self) -> None:
         """themes.json 레지스트리를 읽고 메모리에 적재한다. 없으면 기본 테마로 초기화."""
+        if not getattr(self.settings, "multi_theme", False):
+            # 싱글 테마 모드: 파일 I/O 및 락을 원천 차단하고 메모리 상의 기본 테마 1개만 고정 유지
+            if not self._themes or 0 not in self._themes:
+                self._themes = {0: self._build_default_theme()}
+            return
+
         if not self.registry_path.is_file():
             self._init_default_registry()
             return
@@ -135,7 +141,8 @@ class ThemeManager:
         self._themes = {0: default_theme}
         self._next_seq = 1
         self._default_theme_id = 0
-        self._save_registry()
+        if getattr(self.settings, "multi_theme", False):
+            self._save_registry()
 
     def _save_registry(self) -> None:
         """원자적(atomic write)으로 themes.json 파일 갱신."""
@@ -201,6 +208,9 @@ class ThemeManager:
         icon: str = "📁",
     ) -> ThemeInfo:
         """지식 관리자: 순차 일련번호를 발급하여 새 테마 디렉터리 생성 및 DB 스키마 초기화."""
+        if not getattr(self.settings, "multi_theme", False):
+            raise RuntimeError("멀티 테마 모드가 비활성화되어 있습니다 (CLAIRE_MULTI_THEME=1 필요)")
+
         cleaned_label = str(label or "").strip()
         if not cleaned_label:
             raise ValueError("테마 레이블(이름)을 입력해야 합니다.")
@@ -268,6 +278,9 @@ class ThemeManager:
         icon: str | None = None,
     ) -> ThemeInfo:
         """지식 관리자: 테마 레이블, 설명, 아이콘 수정 (물리 폴더 경로는 절대 변경되지 않음)."""
+        if not getattr(self.settings, "multi_theme", False):
+            raise RuntimeError("멀티 테마 모드가 비활성화되어 있습니다 (CLAIRE_MULTI_THEME=1 필요)")
+
         self.reload()
         try:
             tid = int(theme_id)
@@ -302,6 +315,9 @@ class ThemeManager:
 
     def delete_theme(self, theme_id: int | str, *, purge: bool = False) -> ThemeInfo:
         """지식 관리자: 테마 삭제 (기본 테마 id 0은 삭제 불가)."""
+        if not getattr(self.settings, "multi_theme", False):
+            raise RuntimeError("멀티 테마 모드가 비활성화되어 있습니다 (CLAIRE_MULTI_THEME=1 필요)")
+
         self.reload()
         try:
             tid = int(theme_id)
@@ -372,8 +388,26 @@ class ThemeManager:
         return st
 
     def resolve_share_token(self, token: str) -> tuple[int, str, dict[str, Any]] | None:
-        """등록된 모든 테마 DB를 검색하여 공유 토큰의 (theme_id, document_id, doc_dict)를 자동 해소."""
+        """등록된 테마 DB를 검색하여 공유 토큰의 (theme_id, document_id, doc_dict)를 자동 해소."""
         from .queries import document_detail
+
+        if not getattr(self.settings, "multi_theme", False):
+            abs_db = getattr(self.settings, "db_file", None) or Path("data/claire.db")
+            if not abs_db.is_file():
+                return None
+            try:
+                conn = dbm.connect_existing(abs_db, readonly=True)
+                try:
+                    doc_id = dbm.resolve_doc_share(conn, token)
+                    if doc_id:
+                        doc = document_detail(conn, doc_id, include_hidden=True)
+                        if doc:
+                            return (0, doc_id, doc)
+                finally:
+                    conn.close()
+            except Exception:
+                pass
+            return None
 
         self.reload()
         for t in self._themes.values():

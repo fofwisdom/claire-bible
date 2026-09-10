@@ -55,7 +55,9 @@ def _build_standalone_graph_html() -> str:
     githubRepository: '__GITHUB_REPOSITORY__',
     sorcerer: '__SORCERER__',
     owner: '__OWNER__',
-    knowledgeManager: '__KNOWLEDGE_MANAGER__'
+    knowledgeManager: '__KNOWLEDGE_MANAGER__',
+    themeMode: '__THEME_MODE__',
+    themes: __THEMES_JSON__
   };"""
 
     js_bundle = f"<script>\n{config_js}\n\n{adoc_js}\n{reader_js}\n{app_js}\n</script>"
@@ -401,6 +403,37 @@ def render_graph_html(settings: Any = None) -> str:
         raw_sorcerer = "owner"
 
     safe_sorcerer = _html.escape(raw_sorcerer, quote=True)
+
+    is_multi = bool(getattr(s, "multi_theme", False))
+    theme_mode = "multi" if is_multi else "single"
+    if is_multi:
+        from .store.theme import get_theme_manager
+
+        tm = get_theme_manager(s)
+        themes_list = [t.to_dict() for t in tm.list_themes()]
+    else:
+        themes_list = [
+            {
+                "id": 0,
+                "seq": 0,
+                "label": "기본 지식베이스",
+                "description": "일반 수집 자료 및 기본 지식",
+                "icon": "📚",
+                "is_default": True,
+            }
+        ]
+    themes_json = _json.dumps(themes_list, ensure_ascii=False)
+    themes_json_safe = (
+        themes_json.replace("<", "\\u003c")
+        .replace(">", "\\u003e")
+        .replace("&", "\\u0026")
+    )
+
+    if is_multi and len(themes_list) > 1:
+        picker_style_attr = 'style="display:inline-flex"'
+    else:
+        picker_style_attr = 'style="display:none"'
+
     return (
         GRAPH_HTML.replace("__SOURCE_BASE_URL__", base_url)
         .replace("__GITHUB_REPOSITORY__", repo)
@@ -408,6 +441,9 @@ def render_graph_html(settings: Any = None) -> str:
         .replace("__SORCERER__", safe_sorcerer)
         .replace("__OWNER__", safe_sorcerer)
         .replace("__KNOWLEDGE_MANAGER__", safe_sorcerer)
+        .replace("__THEME_MODE__", theme_mode)
+        .replace("__THEMES_JSON__", themes_json_safe)
+        .replace("__THEME_PICKER_STYLE_ATTR__", picker_style_attr)
     )
 
 
