@@ -2495,7 +2495,10 @@ def cmd_migrate(_args) -> int:
         finally:
             if conn is not None:
                 conn.close()
-        print(f"schema_version={version} expected={dbm.SCHEMA_VERSION}")
+        print(
+            f"schema_version={version} expected={dbm.SCHEMA_VERSION} "
+            f"lineage={dbm.SCHEMA_LINEAGE}"
+        )
         return 0
 
     from .store.theme import ThemeManager
@@ -2524,7 +2527,7 @@ def cmd_migrate(_args) -> int:
     for theme_id, label, version in successes:
         print(
             f"theme#{theme_id} [{label}]: schema_version={version} "
-            f"expected={dbm.SCHEMA_VERSION}"
+            f"expected={dbm.SCHEMA_VERSION} lineage={dbm.SCHEMA_LINEAGE}"
         )
     for theme_id, label, exc in failures:
         print(f"theme#{theme_id} [{label}]: error: {exc}", file=sys.stderr)
@@ -2599,7 +2602,7 @@ def build_parser() -> argparse.ArgumentParser:
     ).set_defaults(func=cmd_liveness)
     sub.add_parser(
         "migrate",
-        help="initialize/upgrade DB schema once and verify schema_version",
+        help="initialize/upgrade DB schema and verify its version and lineage",
     ).set_defaults(func=cmd_migrate)
     sub.add_parser("status", help="full status: ops / db / progress / connections").set_defaults(func=cmd_status)
     sub.add_parser("repo", help="print source repository information and URL").set_defaults(func=cmd_repo)

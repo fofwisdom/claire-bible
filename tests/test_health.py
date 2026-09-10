@@ -24,7 +24,10 @@ def test_healthy_when_no_errors(monkeypatch, tmp_path):
     assert rep["ok"] is True
     assert rep["db"] == "ok"
     assert rep["schema_version"] == dbm.SCHEMA_VERSION
+    assert rep["schema_lineage"] == dbm.SCHEMA_LINEAGE
     assert rep["expected_schema_version"] == dbm.SCHEMA_VERSION
+    assert rep["expected_schema_lineage"] == dbm.SCHEMA_LINEAGE
+    assert rep["databases"][0]["schema_lineage"] == dbm.SCHEMA_LINEAGE
     assert rep["degraded"] is False
     assert "attention" not in rep
     assert rep["graph"] == {"documents": 0, "entities": 0, "relations": 0}
@@ -70,7 +73,7 @@ def test_health_rejects_stale_schema_without_migrating(monkeypatch, tmp_path):
     s = _settings(monkeypatch, tmp_path)
     conn = dbm.connect(s.db_file)
     dbm.init_db(conn)
-    stale = dbm.SCHEMA_VERSION - 1
+    stale = dbm._RETIRED_SUPPORT_RECOVERY_TARGET
     conn.execute(
         "UPDATE meta SET value=? WHERE key='schema_version'", (str(stale),)
     )
@@ -87,6 +90,27 @@ def test_health_rejects_stale_schema_without_migrating(monkeypatch, tmp_path):
             "SELECT value FROM meta WHERE key='schema_version'"
         ).fetchone()
         assert int(row["value"]) == stale
+    finally:
+        conn.close()
+
+
+def test_health_rejects_foreign_lineage_without_migrating(monkeypatch, tmp_path):
+    s = _settings(monkeypatch, tmp_path)
+    conn = dbm.connect(s.db_file)
+    dbm.init_db(conn)
+    conn.execute(
+        "UPDATE meta SET value='unrelated/root' WHERE key='schema_lineage'"
+    )
+    conn.commit()
+    conn.close()
+
+    rep = health_report(s, "mock")
+
+    assert rep["ok"] is False
+    assert "schema_lineage mismatch" in rep["db"]
+    conn = dbm.connect(s.db_file)
+    try:
+        assert dbm.stored_schema_lineage(conn) == "unrelated/root"
     finally:
         conn.close()
 
@@ -125,7 +149,7 @@ def test_multi_theme_health_fails_when_one_database_is_stale(monkeypatch, tmp_pa
     conn = dbm.connect(themed.db_file)
     conn.execute(
         "UPDATE meta SET value=? WHERE key='schema_version'",
-        (str(dbm.SCHEMA_VERSION - 1),),
+        (str(dbm._RETIRED_SUPPORT_RECOVERY_TARGET),),
     )
     conn.commit()
     conn.close()
@@ -169,7 +193,7 @@ def test_multi_theme_liveness_fails_for_each_database_fault(
         conn = dbm.connect(themed.db_file)
         conn.execute(
             "UPDATE meta SET value=? WHERE key='schema_version'",
-            (str(dbm.SCHEMA_VERSION - 1),),
+            (str(dbm._RETIRED_SUPPORT_RECOVERY_TARGET),),
         )
         conn.commit()
         conn.close()

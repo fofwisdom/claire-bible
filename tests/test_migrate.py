@@ -79,6 +79,7 @@ def _create_retired_support_v12(db_path, *, with_rows=True):
             ("ft_test", 3287, 1, "cdp", "exception", "{}"),
         )
     conn.execute("UPDATE meta SET value='12' WHERE key='schema_version'")
+    conn.execute("DELETE FROM meta WHERE key='schema_lineage'")
     conn.commit()
     conn.close()
 
@@ -99,6 +100,7 @@ def test_migrate_creates_and_validates_current_schema(monkeypatch, tmp_path, cap
             "SELECT value FROM meta WHERE key='schema_version'"
         ).fetchone()
         assert int(row["value"]) == dbm.SCHEMA_VERSION
+        assert dbm.stored_schema_lineage(conn) == dbm.SCHEMA_LINEAGE
     finally:
         conn.close()
 
@@ -115,7 +117,7 @@ def test_migrate_updates_all_registered_theme_databases(monkeypatch, tmp_path, c
         conn = dbm.connect(path)
         conn.execute(
             "UPDATE meta SET value=? WHERE key='schema_version'",
-            (str(dbm.SCHEMA_VERSION - 1),),
+            (str(dbm._RETIRED_SUPPORT_RECOVERY_TARGET),),
         )
         conn.commit()
         conn.close()
@@ -130,6 +132,7 @@ def test_migrate_updates_all_registered_theme_databases(monkeypatch, tmp_path, c
         conn = dbm.connect(path)
         try:
             assert dbm.stored_schema_version(conn) == dbm.SCHEMA_VERSION
+            assert dbm.stored_schema_lineage(conn) == dbm.SCHEMA_LINEAGE
         finally:
             conn.close()
 
@@ -140,7 +143,7 @@ def test_migrate_collects_theme_failures_and_continues(monkeypatch, tmp_path, ca
     dbm.init_db(conn)
     conn.execute(
         "UPDATE meta SET value=? WHERE key='schema_version'",
-        (str(dbm.SCHEMA_VERSION - 1),),
+        (str(dbm._RETIRED_SUPPORT_RECOVERY_TARGET),),
     )
     conn.commit()
     conn.close()
@@ -183,6 +186,9 @@ def test_liveness_checks_only_database_and_schema(monkeypatch, tmp_path, capsys)
     assert "degraded" not in report
     assert "inbox" not in report
     assert report["schema_version"] == dbm.SCHEMA_VERSION
+    assert report["schema_lineage"] == dbm.SCHEMA_LINEAGE
+    assert report["expected_schema_lineage"] == dbm.SCHEMA_LINEAGE
+    assert report["databases"][0]["schema_lineage"] == dbm.SCHEMA_LINEAGE
 
 
 def test_liveness_rejects_stale_schema_without_migrating(
@@ -191,7 +197,7 @@ def test_liveness_rejects_stale_schema_without_migrating(
     s = _settings(monkeypatch, tmp_path)
     conn = dbm.connect(s.db_file)
     dbm.init_db(conn)
-    stale = dbm.SCHEMA_VERSION - 1
+    stale = dbm._RETIRED_SUPPORT_RECOVERY_TARGET
     conn.execute(
         "UPDATE meta SET value=? WHERE key='schema_version'", (str(stale),)
     )
@@ -220,7 +226,7 @@ def test_migrate_rejects_newer_schema_without_rewriting_version(
     s = _settings(monkeypatch, tmp_path)
     conn = dbm.connect(s.db_file)
     dbm.init_db(conn)
-    newer = dbm._RETIRED_SUPPORT_SCHEMA_VERSION + 1
+    newer = dbm.SCHEMA_VERSION + 1
     conn.execute(
         "UPDATE meta SET value=? WHERE key='schema_version'", (str(newer),)
     )
@@ -238,7 +244,7 @@ def test_migrate_rejects_newer_schema_without_rewriting_version(
         conn.close()
 
 
-def test_migrate_restores_local_support_v12_to_v11(
+def test_migrate_withdraws_local_support_v12_before_v13(
     monkeypatch, tmp_path, capsys
 ):
     s = _settings(monkeypatch, tmp_path)
@@ -246,11 +252,14 @@ def test_migrate_restores_local_support_v12_to_v11(
     monkeypatch.setattr(cli, "get_settings", lambda: s)
 
     assert cli.main(["migrate"]) == 0
-    assert "schema_version=11 expected=11" in capsys.readouterr().out
+    output = capsys.readouterr().out
+    assert "schema_version=13 expected=13" in output
+    assert "lineage=claire-bible/common" in output
 
     conn = dbm.connect(s.db_file)
     try:
-        assert dbm.stored_schema_version(conn) == 11
+        assert dbm.stored_schema_version(conn) == 13
+        assert dbm.stored_schema_lineage(conn) == dbm.SCHEMA_LINEAGE
         tables = {
             row["name"]
             for row in conn.execute(
@@ -306,7 +315,7 @@ def test_migrate_restores_local_support_v12_to_v11(
 def test_retired_v12_always_recovers_to_v11(monkeypatch, tmp_path):
     db_path = tmp_path / "retired.db"
     _create_retired_support_v12(db_path, with_rows=False)
-    monkeypatch.setattr(dbm, "SCHEMA_VERSION", 13)
+    monkeypatch.setattr(dbm, "SCHEMA_VERSION", 14)
 
     conn = dbm.connect(db_path)
     export_dir = dbm._restore_local_support_v12_to_v11(conn)
@@ -387,7 +396,8 @@ def test_migrate_restores_v12_for_every_active_theme(
     for path in (s.db_file, themed.db_file):
         conn = dbm.connect(path)
         try:
-            assert dbm.stored_schema_version(conn) == 11
+            assert dbm.stored_schema_version(conn) == 13
+            assert dbm.stored_schema_lineage(conn) == dbm.SCHEMA_LINEAGE
         finally:
             conn.close()
         exports = list(

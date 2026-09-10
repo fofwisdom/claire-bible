@@ -100,7 +100,7 @@ support_bundle_<id>/
 ├── diagnostics/
 │   ├── system.json                # OS, Python, CPU, 디스크 용량, SQLite/zstd 버전, agy 환경 진단
 │   ├── config_sanitized.json      # 마스킹된 애플리케이션 설정 (시크릿/토큰 ***REDACTED***)
-│   ├── build.json                 # 이미지에 내장된 Git SHA, 패키지·DB 스키마·이미지 버전
+│   ├── build.json                 # 이미지에 내장된 Git SHA, 패키지·DB 스키마 버전·계보·이미지 버전
 │   └── collector_warnings.json    # 타깃 모호성, 아티팩트 누락, 빌드 식별 실패
 ├── telemetry/
 │   ├── telemetry_records.jsonl    # 지정 기간 내 프로바이더 호출/차단 텔레메트리 전량

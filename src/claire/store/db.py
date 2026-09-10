@@ -19,7 +19,9 @@ from pathlib import Path
 
 from ..ontology.base import Document, Entity, Relation
 
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 13
+SCHEMA_LINEAGE = "claire-bible/common"
+RETIRED_SCHEMA_VERSIONS = frozenset({12})
 _RETIRED_SUPPORT_SCHEMA_VERSION = 12
 _RETIRED_SUPPORT_RECOVERY_TARGET = 11
 logger = logging.getLogger(__name__)
@@ -62,7 +64,14 @@ CREATE TABLE IF NOT EXISTS documents (
     minhash TEXT,
     detail TEXT,
     detail_format TEXT DEFAULT 'md',
-    detail_html TEXT
+    detail_html TEXT,
+    seen INTEGER DEFAULT 1,
+    watch_enabled INTEGER,
+    watch_interval REAL,
+    last_watched_at REAL,
+    watch_reason TEXT,
+    pinned INTEGER DEFAULT 0,
+    hidden INTEGER DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_documents_hash ON documents(content_hash);
 CREATE INDEX IF NOT EXISTS idx_documents_canon ON documents(canonical_url);
@@ -184,7 +193,8 @@ CREATE TABLE IF NOT EXISTS auth_sessions (
     session_token TEXT,
     approved INTEGER DEFAULT 0,
     created_at REAL,
-    expires_at REAL
+    expires_at REAL,
+    scope TEXT DEFAULT 'owner'
 );
 
 -- [문서 공유 핫링크] 세션 토큰(claire_session, 전체 UI 인증)과 **완전 분리**된, 문서 1개의
@@ -386,23 +396,74 @@ def _migrate(conn: sqlite3.Connection) -> None:
     )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_tombstones_canon ON purged_tombstones(canonical_url)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_tombstones_hash ON purged_tombstones(content_hash)")
-def stored_schema_version(conn: sqlite3.Connection) -> int | None:
-    """Return an existing schema version without creating or changing anything."""
 
+
+def _stored_meta_value(conn: sqlite3.Connection, key: str) -> str | None:
     meta_exists = conn.execute(
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name='meta'"
     ).fetchone()
     if meta_exists is None:
         return None
-    row = conn.execute(
-        "SELECT value FROM meta WHERE key='schema_version'"
-    ).fetchone()
-    if row is None:
+    row = conn.execute("SELECT value FROM meta WHERE key=?", (key,)).fetchone()
+    return str(row["value"]) if row is not None else None
+
+
+def stored_schema_version(conn: sqlite3.Connection) -> int | None:
+    """Return an existing schema version without creating or changing anything."""
+    raw = _stored_meta_value(conn, "schema_version")
+    if raw is None:
         return None
     try:
-        return int(row["value"])
+        return int(raw)
     except (TypeError, ValueError) as exc:
-        raise RuntimeError(f"invalid schema_version: {row['value']!r}") from exc
+        raise RuntimeError(f"invalid schema_version: {raw!r}") from exc
+
+
+def stored_schema_lineage(conn: sqlite3.Connection) -> str | None:
+    """Return the Git-independent common schema lineage without mutation."""
+    return _stored_meta_value(conn, "schema_lineage")
+
+
+def _validate_migration_source(
+    version: int | None, lineage: str | None
+) -> None:
+    if version in RETIRED_SCHEMA_VERSIONS:
+        raise RuntimeError(
+            "schema v12 is retired; run the origin v12-to-v11 withdrawal "
+            "before migrating to the common v13 schema"
+        )
+    if version is not None and version > SCHEMA_VERSION:
+        raise RuntimeError(
+            "database schema is newer than this code: "
+            f"actual={version}, expected<={SCHEMA_VERSION}"
+        )
+    if lineage is not None and lineage != SCHEMA_LINEAGE:
+        raise RuntimeError(
+            "database schema lineage does not match this project: "
+            f"actual={lineage!r}, expected={SCHEMA_LINEAGE!r}"
+        )
+    if version == SCHEMA_VERSION and lineage is None:
+        raise RuntimeError(
+            "schema v13 is missing its common lineage marker; "
+            "refusing to guess compatibility"
+        )
+
+
+def require_current_schema(conn: sqlite3.Connection) -> int:
+    """Validate the current common version and lineage without mutation."""
+    version = stored_schema_version(conn)
+    lineage = stored_schema_lineage(conn)
+    if version != SCHEMA_VERSION:
+        raise RuntimeError(
+            "schema_version mismatch: "
+            f"actual={version}, expected={SCHEMA_VERSION}"
+        )
+    if lineage != SCHEMA_LINEAGE:
+        raise RuntimeError(
+            "schema_lineage mismatch: "
+            f"actual={lineage!r}, expected={SCHEMA_LINEAGE!r}"
+        )
+    return version
 
 
 def _table_columns(conn: sqlite3.Connection, table: str) -> tuple[str, ...]:
@@ -540,30 +601,29 @@ def _restore_local_support_v12_to_v11(conn: sqlite3.Connection) -> Path:
 
 def init_db(conn: sqlite3.Connection) -> None:
     existing_version = stored_schema_version(conn)
+    existing_lineage = stored_schema_lineage(conn)
+    if existing_lineage is not None and existing_lineage != SCHEMA_LINEAGE:
+        _validate_migration_source(existing_version, existing_lineage)
     if existing_version == _RETIRED_SUPPORT_SCHEMA_VERSION:
         _restore_local_support_v12_to_v11(conn)
         existing_version = stored_schema_version(conn)
-    if existing_version is not None and existing_version > SCHEMA_VERSION:
-        raise RuntimeError(
-            "database schema is newer than this code: "
-            f"actual={existing_version}, expected<={SCHEMA_VERSION}"
-        )
+        existing_lineage = stored_schema_lineage(conn)
+    _validate_migration_source(existing_version, existing_lineage)
 
     conn.executescript(SCHEMA)
     _migrate(conn)
-    cur = conn.execute("SELECT value FROM meta WHERE key='schema_version'")
-    row = cur.fetchone()
-    if row is None:
-        conn.execute(
-            "INSERT INTO meta(key, value) VALUES ('schema_version', ?)",
-            (str(SCHEMA_VERSION),),
-        )
-    else:
-        conn.execute(
-            "UPDATE meta SET value=? WHERE key='schema_version'",
-            (str(SCHEMA_VERSION),),
-        )
+    conn.execute(
+        "INSERT INTO meta(key, value) VALUES ('schema_version', ?) "
+        "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        (str(SCHEMA_VERSION),),
+    )
+    conn.execute(
+        "INSERT INTO meta(key, value) VALUES ('schema_lineage', ?) "
+        "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        (SCHEMA_LINEAGE,),
+    )
     conn.commit()
+    require_current_schema(conn)
 
 
 # --- documents ---
