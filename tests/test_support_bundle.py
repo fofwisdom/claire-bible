@@ -243,6 +243,7 @@ def test_support_bundle_share_link_tracking(tmp_path: Path):
 
     assert any(n.endswith("tracked_document/target_resolution.json") for n in names)
     assert any(n.endswith("tracked_document/document_detail.json") for n in names)
+    assert any(n.endswith("tracked_document/extractions.json") for n in names)
     assert any(n.endswith("tracked_document/inbox_record.json") for n in names)
     assert any(n.endswith("tracked_document/telemetry_history.jsonl") for n in names)
 
@@ -251,6 +252,12 @@ def test_support_bundle_share_link_tracking(tmp_path: Path):
     assert res_data["document_id"] == "doc_test_123"
     assert res_data["matched_by"] == "share_token"
     assert res_data["is_from_share_token"] is True
+    assert "latest_summary" in res_data
+
+    doc_detail_name = [n for n in names if n.endswith("tracked_document/document_detail.json")][0]
+    doc_detail_data = json.loads(tar.extractfile(doc_detail_name).read().decode("utf-8"))
+    assert "extractions" in doc_detail_data
+    assert "latest_summary" in doc_detail_data
 
     # 2. shares_index.json에 생성된 공유 링크가 인덱싱되어 있는지 확인
     shares_name = [n for n in names if n.endswith("pipeline/shares_index.json")][0]

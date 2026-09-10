@@ -111,7 +111,7 @@ def sanitize_sensitive_data(obj: Any) -> Any:
     if isinstance(obj, dict):
         sanitized = {}
         for k, v in obj.items():
-            if isinstance(k, str) and _SENSITIVE_KEY_RE.search(k):
+            if isinstance(k, str) and _SENSITIVE_KEY_RE.search(k) and not isinstance(v, bool):
                 sanitized[k] = "***REDACTED***"
             else:
                 sanitized[k] = sanitize_sensitive_data(v)
@@ -429,26 +429,42 @@ def create_support_bundle(
                         doc_shares = conn.execute(
                             "SELECT * FROM doc_shares WHERE document_id = ?", (target_doc_id,)
                         ).fetchall()
+                        extractions = conn.execute(
+                            "SELECT * FROM extractions WHERE document_id = ? ORDER BY id DESC",
+                            (target_doc_id,),
+                        ).fetchall()
+                        latest_summary = dbm.latest_extraction_summary(conn, target_doc_id)
                     finally:
                         conn.close()
 
                     # 해당 문서에 특화된 텔레메트리 내역
                     doc_telemetry = query_telemetry(data_dir, document_id=target_doc_id, limit=200)
 
+                    if target_info is not None:
+                        target_info["latest_summary"] = latest_summary
+
+                    extractions_data = [dict(e) for e in extractions]
                     tracked_doc_detail = {
                         "resolution": target_info,
                         "document": dict(doc_row) if doc_row else None,
                         "shares": [dict(s) for s in doc_shares],
+                        "extractions": extractions_data,
+                        "latest_summary": latest_summary,
                     }
                     _add_tar_bytes(
                         tar,
                         f"{root_arcname}/tracked_document/target_resolution.json",
-                        json.dumps(target_info, ensure_ascii=False, indent=2).encode("utf-8"),
+                        json.dumps(sanitize_sensitive_data(target_info), ensure_ascii=False, indent=2).encode("utf-8"),
                     )
                     _add_tar_bytes(
                         tar,
                         f"{root_arcname}/tracked_document/document_detail.json",
                         json.dumps(sanitize_sensitive_data(tracked_doc_detail), ensure_ascii=False, indent=2).encode("utf-8"),
+                    )
+                    _add_tar_bytes(
+                        tar,
+                        f"{root_arcname}/tracked_document/extractions.json",
+                        json.dumps(sanitize_sensitive_data(extractions_data), ensure_ascii=False, indent=2).encode("utf-8"),
                     )
                     _add_tar_bytes(
                         tar,

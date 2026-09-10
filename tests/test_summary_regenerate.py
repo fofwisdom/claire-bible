@@ -431,3 +431,69 @@ def test_backfill_summary_repairs_corrupted_extractions(populated_service):
     conn.close()
 
 
+def test_clean_plain_summary_skips_biblio_and_metadata_headers():
+    """clean_plain_summary 가 서지 정보/메타데이터 헤더 라인 및 구분선(''' 등)을 건너뛰고 본문 서술 단락을 선택하는지 검증."""
+    from claire.extract.prompts import clean_plain_summary
+
+    # 1. 실제 번들 사고 케이스: 상단 서지 정보 + 제목 + 인용구 + 구분선 + 본문
+    sample1 = (
+        "_저자: Chungsu Lee | 발행일: 2026-09-10 (문서 표기: 2026.08) | 출처: VMware by Broadcom_\n\n"
+        "= 기존 인프라에서 시작하는 공공 AX: 안전한 LLM 운영을 위한 Private AI\n\n"
+        "[quote, VMware by Broadcom]\n"
+        "VCF Private AI Service는 오픈소스 조합의 복잡성과 불확실성을 제거하고, 엔터프라이즈급 RAG AI 환경을 빠르고 안정적으로 제공한다.\n\n"
+        "'''\n\n"
+        "== 1. 엔터프라이즈 및 공공 AI 도입 트렌드와 직면 과제\n\n"
+        "IDC가 2024년 7월 실시한 AI 인프라 설문조사에 따르면, 온프레미스 환경 도입이 활발히 전개되고 있다."
+    )
+    cleaned1 = clean_plain_summary(sample1)
+    assert "저자: Chungsu Lee" not in cleaned1
+    assert "발행일: 2026-09-10" not in cleaned1
+    assert "출처: VMware by Broadcom" not in cleaned1
+    assert "VCF Private AI Service는 오픈소스 조합의 복잡성과 불확실성을 제거하고" in cleaned1
+
+    # 2. 마크다운 인용구 형태의 서지 정보
+    sample2 = (
+        "> 저자: 홍길동 | 발행: 2025-01-01 | DOI: 10.1234/test | 출처: arXiv\n\n"
+        "# 대규모 언어 모델의 추론 효율화 연구\n\n"
+        "본 논문에서는 양자화 및 KV 캐시 최적화를 통해 메모리 사용량을 절감하는 기법을 제안한다."
+    )
+    cleaned2 = clean_plain_summary(sample2)
+    assert "저자: 홍길동" not in cleaned2
+    assert "본 논문에서는 양자화 및 KV 캐시 최적화를 통해" in cleaned2
+
+    # 3. '저자는 ~한다' 등 본문 서술문에 '저자' 단어가 들어간 경우는 서지 정보로 오인하지 않고 보존
+    sample3 = "저자는 논문에서 트랜스포머 기반의 새로운 경량화 모델을 제안하여 추론 속도를 2배 향상시켰다."
+    cleaned3 = clean_plain_summary(sample3)
+    assert cleaned3 == sample3
+
+
+def test_latest_extraction_summary_with_biblio_header_detail_fallback(temp_db):
+    """extraction 이 없고 detail 최상단에 _저자: ..._ 서지 정보가 있을 때, 서지 정보 대신 본문 단락이 요약으로 추출되는지 검증."""
+    conn = dbm.connect(temp_db)
+    doc_id = "doc_biblio_fallback_test"
+    doc_detail = (
+        "_저자: Chungsu Lee | 발행일: 2026-09-10 (문서 표기: 2026.08) | 출처: VMware by Broadcom_\n\n"
+        "= 기존 인프라에서 시작하는 공공 AX: 안전한 LLM 운영을 위한 Private AI\n\n"
+        "[quote, VMware by Broadcom]\n"
+        "VCF Private AI Service는 오픈소스 조합의 복잡성과 불확실성을 제거하고, 엔터프라이즈급 RAG AI 환경을 빠르고 안정적으로 제공한다.\n"
+    )
+    doc = Document(
+        id=doc_id,
+        title="공공 AX Private AI",
+        raw_text="원문 텍스트 내용",
+        canonical_url="https://example.com/private-ai.pdf",
+        source_type="pdf",
+        content_hash="h_biblio_1",
+        fetched_at=1700000000.0,
+    )
+    dbm.insert_document(conn, doc)
+    dbm.set_document_detail(conn, doc_id, doc_detail, format="adoc")
+
+    summary = dbm.latest_extraction_summary(conn, doc_id)
+    assert summary is not None
+    assert "저자: Chungsu Lee" not in summary
+    assert "발행일: 2026-09-10" not in summary
+    assert "VCF Private AI Service는 오픈소스 조합의 복잡성과 불확실성을 제거하고" in summary
+    conn.close()
+
+

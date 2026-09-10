@@ -98,7 +98,7 @@ async def _settle_status(
     - 비디오 자막 추출 실패 시 진행 메시지를 삭제하지 않고 재수집/재적재 원터치 버튼 제공
     - 이미 적재된 문서(중복/dedup)일 때 메시지를 삭제하지 않고 중복 안내 및 재생성/재수집 원터치 버튼 제공
     - 기타 에러 발생 시 진행 메시지를 삭제하지 않고 오류 안내 보존
-    - 정상 완료이면서 1홉 후보가 없을 때만 진행 메시지 삭제(스팸 방지 — 결과는 원본 reaction 으로 표시됨)
+    - 정상 완료이면서 1홉 후보가 없을 때도 진행 메시지를 삭제하지 않고 완료 요약 및 열람 링크로 편집하여 보존
     """
     async def _safe_send_or_edit(text: str, reply_markup: Any = None) -> None:
         for attempt in range(2):
@@ -154,13 +154,31 @@ async def _settle_status(
     elif has_error or is_stt_failed or is_duplicate:
         await _safe_send_or_edit(summary)
     else:
-        for attempt in range(2):
+        markup = None
+        if retry_doc_id:
             try:
-                await status.delete()
-                return
+                from pathlib import Path
+                from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+                from .config import get_settings
+                from .store import db as dbm
+
+                cfg = get_settings()
+                base_url = (getattr(cfg, "public_url", "") or "").rstrip("/")
+                if base_url and cfg.db_file and Path(cfg.db_file).exists():
+                    conn = dbm.connect_existing(cfg.db_file, readonly=False)
+                    try:
+                        share_tok = dbm.create_doc_share(conn, retry_doc_id)
+                    finally:
+                        conn.close()
+                    if share_tok:
+                        share_url = f"{base_url}/p?s={share_tok}"
+                        markup = InlineKeyboardMarkup(
+                            [[InlineKeyboardButton("📖 문서 열람 (Reader)", url=share_url)]]
+                        )
             except Exception:  # noqa: BLE001
-                if attempt == 0:
-                    await asyncio.sleep(0.5)
+                markup = None
+        await _safe_send_or_edit(summary, reply_markup=markup)
 
 
 def classify_input(text: str) -> str:
@@ -367,15 +385,30 @@ def build_app(settings: Settings | None = None) -> Any:
     svc = IngestService(s)
     pending: dict[str, list[str]] = {}  # 확장 후보 임시 보관(콜백 토큰 -> urls)
 
-    def _markup(update_id: int, candidates: list[str]):
+    def _markup(update_id: int, candidates: list[str], doc_id: str | None = None):
         token = f"{update_id}"
         pending[token] = candidates
-        kb = [
+        kb = []
+        if doc_id:
+            try:
+                base_url = (getattr(s, "public_url", "") or "").rstrip("/")
+                if base_url and s.db_file and Path(s.db_file).exists():
+                    conn = dbm.connect_existing(s.db_file, readonly=False)
+                    try:
+                        share_tok = dbm.create_doc_share(conn, doc_id)
+                    finally:
+                        conn.close()
+                    if share_tok:
+                        share_url = f"{base_url}/p?s={share_tok}"
+                        kb.append([InlineKeyboardButton("📖 문서 열람 (Reader)", url=share_url)])
+            except Exception:  # noqa: BLE001
+                pass
+        kb.extend([
             [InlineKeyboardButton(
                 f"🔗 관련 링크 {len(candidates)}개 가져오기",
                 callback_data=f"exp:{token}")],
             [InlineKeyboardButton("아니요", callback_data=f"no:{token}")],
-        ]
+        ])
         return InlineKeyboardMarkup(kb)
 
     async def _settle(
@@ -390,7 +423,7 @@ def build_app(settings: Settings | None = None) -> Any:
         is_duplicate: bool = False,
         retry_doc_id: str | None = None,
     ) -> None:
-        cands_markup = _markup(update_id, cands) if cands else None
+        cands_markup = _markup(update_id, cands, retry_doc_id) if cands else None
         await _settle_status(
             status,
             msg,

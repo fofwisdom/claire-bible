@@ -225,27 +225,43 @@ def clean_plain_summary(text: str | None) -> str:
         if re.match(r"^:[a-zA-Z0-9_-]+:\s*.*$", line):
             continue
 
-        # 3. 블록 레이블/메타데이터 ([quote...], [NOTE], [source...], [cols...], [#anchor], [[anchor]] 등) 스킵
+        # 3. 서지 정보 및 메타데이터 헤더 스킵 (예: _저자: ... | 발행일: ... | 출처: ..._ / > 저자: ... / 저자: ...)
+        unwrapped = re.sub(r"^>+\s*", "", line).strip("_*` \t")
+        if re.match(
+            r"^(?:저자|작성자|글쓴이|Author(?:s)?|발행(?:일|일자)?|게시일|날짜|Date|Published|출처|Source|DOI|arXiv(?: ID)?|URL|Link|카테고리|Category|분류)\s*:",
+            unwrapped,
+            re.IGNORECASE,
+        ) or (
+            "|" in unwrapped
+            and re.search(
+                r"(?:저자|작성자|글쓴이|Author|발행|게시일|날짜|Date|Published|출처|Source|DOI|arXiv)\s*:",
+                unwrapped,
+                re.IGNORECASE,
+            )
+        ):
+            continue
+
+        # 4. 블록 레이블/메타데이터 ([quote...], [NOTE], [source...], [cols...], [#anchor], [[anchor]] 등) 스킵
         if re.match(r"^\[(?:NOTE|TIP|IMPORTANT|WARNING|CAUTION|quote|source|cols|caption|#)[^\]]*\]$", line, re.IGNORECASE) or re.match(r"^\[\[[^\]]*\]\]$", line):
             continue
 
-        # 4. 블록 구분선 (____, ====, ----, ...., |===, ```) 스킵
-        if re.match(r"^(?:\|===|_{4,}|={4,}|-{4,}|\.{4,}|`{3,})\s*$", line):
+        # 5. 블록 구분선 (____, ====, ----, ...., |===, ```, ''', ***) 스킵
+        if re.match(r"^(?:\|===|_{3,}|={3,}|-{3,}|\.{3,}|`{3,}|\*{3,}|'{3,})\s*$", line):
             continue
 
-        # 5. 인라인 콜아웃 라인 (<1> 설명) 스킵
+        # 6. 인라인 콜아웃 라인 (<1> 설명) 스킵
         if re.match(r"^<\d+>\s*.*$", line):
             continue
 
-        # 6. 테이블 행 (| col1 | col2) 스킵
+        # 7. 테이블 행 (| col1 | col2) 스킵
         if line.startswith("|"):
             continue
 
-        # 7. 이미지/매크로 (image::url[...], include::...) 스킵
+        # 8. 이미지/매크로 (image::url[...], include::...) 스킵
         if re.match(r"^(?:image|include)::[^\[]*\[.*\]$", line, re.IGNORECASE):
             continue
 
-        # 8. 인라인 서식 제거
+        # 9. 인라인 서식 제거
         # 인라인 코드: `text` -> text
         line = re.sub(r"`([^`\n]+)`", r"\1", line)
         # 형광/하이라이트: #text# or ==text== -> text
@@ -271,8 +287,9 @@ def clean_plain_summary(text: str | None) -> str:
         # 인라인 블록 태그 및 구분자 잔여물 ([NOTE], |===, ____ 등) 제거
         line = re.sub(r"\[(?:NOTE|TIP|IMPORTANT|WARNING|CAUTION|quote|source|cols|caption|#)[^\]]*\]", "", line, flags=re.IGNORECASE)
         line = re.sub(r"\|={2,}", "", line)
-        line = re.sub(r"_{4,}|={4,}|-{4,}|\.{4,}|`{3,}", "", line)
-        # 리스트 기호 (* item, - item) 제거
+        line = re.sub(r"_{3,}|={3,}|-{3,}|\.{3,}|`{3,}|\*{3,}|'{3,}", "", line)
+        # 인용 및 리스트 기호 (> quote, * item, - item) 제거
+        line = re.sub(r"^>+\s*", "", line)
         line = re.sub(r"^[*-]\s+", "", line)
         line = re.sub(r"\s+", " ", line)
 
