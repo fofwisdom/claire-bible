@@ -94,8 +94,8 @@ def _build_content_security_policy(ga_measurement_id: str = "") -> str:
 
 _CONTENT_SECURITY_POLICY = _build_content_security_policy()
 
-AccessLevel = Literal["public", "read", "owner"]
-AuthScope = Literal["public", "anonymous", "readonly", "owner"]
+AccessLevel = Literal["public", "read", "collaborator", "owner"]
+AuthScope = Literal["public", "anonymous", "readonly", "collaborator", "owner"]
 RouteKey = tuple[str, str]
 
 
@@ -170,8 +170,8 @@ ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     ("POST", "/themes"): _rule("owner"),
     ("PATCH", "/themes"): _rule("owner"),
     ("DELETE", "/themes"): _rule("owner"),
-    ("POST", "/ingest"): _rule("owner"),
-    ("POST", "/ingest-stream"): _rule("owner"),
+    ("POST", "/ingest"): _rule("collaborator"),
+    ("POST", "/ingest-stream"): _rule("collaborator"),
     ("POST", "/document/seen"): _rule("owner"),
     ("POST", "/document/pin"): _rule("owner"),
     ("POST", "/document/hide"): _rule("owner"),
@@ -293,6 +293,7 @@ class WebRuntimeConfig:
     anonymous_readonly: bool
     owner_token: str = field(repr=False)
     readonly_token: str = field(repr=False)
+    collaborator_token: str = field(repr=False)
     db_file: Any = field(repr=False)
     ga_measurement_id: str = ""
 
@@ -326,6 +327,23 @@ class WebRuntimeConfig:
             )
         if readonly_token and _constant_equal(owner_token, readonly_token):
             raise ValueError("owner and readonly tokens must be different")
+
+        collaborator_token = str(getattr(settings, "collaborator_token", "") or "")
+        if collaborator_token != collaborator_token.strip():
+            raise ValueError("CLAIRE_COLLABORATOR_TOKEN must not contain outer whitespace")
+        if collaborator_token and not dbm.plausible_session_token(collaborator_token):
+            raise ValueError(
+                "CLAIRE_COLLABORATOR_TOKEN must be a 32-128 character URL-safe token"
+            )
+        if collaborator_token and _constant_equal(owner_token, collaborator_token):
+            raise ValueError("owner and collaborator tokens must be different")
+        if (
+            collaborator_token
+            and readonly_token
+            and _constant_equal(readonly_token, collaborator_token)
+        ):
+            raise ValueError("readonly and collaborator tokens must be different")
+
         anonymous_readonly = getattr(settings, "anonymous_readonly", False)
         if not isinstance(anonymous_readonly, bool):
             raise ValueError("CLAIRE_ANONYMOUS_READONLY must be a boolean")
@@ -357,6 +375,7 @@ class WebRuntimeConfig:
             anonymous_readonly=anonymous_readonly,
             owner_token=owner_token,
             readonly_token=readonly_token,
+            collaborator_token=collaborator_token,
             db_file=_setting(settings, "db_file"),
             ga_measurement_id=ga_id,
         )
@@ -543,7 +562,7 @@ async def _bootstrap_session(
             exchanged = dbm.exchange_session_token(
                 conn,
                 token,
-                scopes=("owner",),
+                scopes=("owner", "collaborator"),
             )
             if exchanged is not None:
                 return exchanged
@@ -928,7 +947,7 @@ class AuthenticationMiddleware:
                     )
                     return
                 session_scope, cookie_token = exchanged
-                if session_scope not in {"owner", "readonly"}:
+                if session_scope not in {"owner", "collaborator", "readonly"}:
                     if self.config.anonymous_readonly:
                         response = RedirectResponse("/", status_code=302)
                         _clear_session_cookie(response, self.config)
@@ -1089,7 +1108,9 @@ class AuthenticationMiddleware:
         if bearer is not None:
             if _constant_equal(bearer, self.config.owner_token):
                 auth_scope, auth_channel = "owner", "bearer"
-            elif _constant_equal(bearer, self.config.readonly_token):
+            elif self.config.collaborator_token and _constant_equal(bearer, self.config.collaborator_token):
+                auth_scope, auth_channel = "collaborator", "bearer"
+            elif self.config.readonly_token and _constant_equal(bearer, self.config.readonly_token):
                 auth_scope, auth_channel = "readonly", "bearer"
             elif origin_kind != "cross":
                 auth_scope = await _validate_session(self.config, bearer)
@@ -1168,10 +1189,17 @@ class AuthenticationMiddleware:
                 else "anonymous"
             )
 
-        allowed = auth_scope == "owner" or (
-            auth_scope in {"anonymous", "readonly"}
-            and rule.access == "read"
-            and (path != "/mcp" or auth_scope != "anonymous")
+        allowed = (
+            auth_scope == "owner"
+            or (
+                auth_scope == "collaborator"
+                and rule.access in {"read", "collaborator"}
+            )
+            or (
+                auth_scope in {"anonymous", "readonly"}
+                and rule.access == "read"
+                and (path != "/mcp" or auth_scope != "anonymous")
+            )
         )
         if not allowed:
             if path == "/mcp":

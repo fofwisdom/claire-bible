@@ -350,6 +350,8 @@ class Settings(BaseSettings):
     # 읽기 전용 공개 토큰 — owner bearer(inject_token)와 별개. GET(검색/그래프/노드상세/
     # 문서목록)만 통과시키고 쓰기(ingest/dedup-merge/공유링크발급 등)는 차단(에이전트 조회용).
     readonly_token: str = Field(default="", alias="CLAIRE_READONLY_TOKEN")
+    # 협력자 토큰 — 추가 지식 테마에 대한 읽기 및 적재(ingest) 허용, 기본 테마 쓰기 및 관리 차단.
+    collaborator_token: str = Field(default="", alias="CLAIRE_COLLABORATOR_TOKEN")
     # exact 0|1 opt-in. True면 자격증명 없는 same-origin 요청을 읽기 전용으로만
     # 허용한다(숨김 문서는 제외). owner 인증과 쓰기 경로는 그대로 유지된다.
     anonymous_readonly: bool = Field(

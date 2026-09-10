@@ -574,6 +574,7 @@ def build_app(settings: Settings | None = None) -> Any:
         "  /ingest <URL|텍스트> [| <초점>] — 초점 지정 적재\n"
         "  /support bundle [일수] [대상] — 진단 Support Bundle 생성 (기본 1일, 6시간 자동 파기)\n"
         "  /web — 1회용 웹 로그인 링크 발급(로그인 쿠키 7일, 적재/수정 가능)\n"
+        "  /webco — 협력자 웹 링크 발급(추가 테마 적재·열람, 기본 테마 보호)\n"
         "  /webro — 읽기전용 웹 링크 발급(그래프·검색·문서만, 공유해도 안전)\n"
         "  /repo — 소스 리포지토리 접근 링크\n"
         "  /status — 현황(그래프 규모·수렴·최근 수신)\n"
@@ -1330,6 +1331,35 @@ def build_app(settings: Settings | None = None) -> Any:
             disable_web_page_preview=True,
         )
 
+    async def on_webco(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        # 협력자(Collaborator) 웹 링크: /web 과 동일 메커니즘이지만 scope='collaborator'
+        # 공개된 추가 지식 테마에 접근하고 자료를 적재할 수 있으며, 기본 지식베이스 및 관리 기능은 제한된다.
+        if not _is_allowed(update.effective_user.id if update.effective_user else None):
+            return
+        from .store import db as dbm
+
+        if not s.public_url:
+            await update.message.reply_text(
+                "CLAIRE_PUBLIC_URL 이 설정되지 않았습니다(.env). 외부 URL 을 먼저 지정하세요.")
+            return
+
+        def _mint() -> str:
+            conn = dbm.connect(svc.s.db_file)
+            try:
+                dbm.init_db(conn)
+                return dbm.create_session(conn, scope="collaborator")
+            finally:
+                conn.close()
+
+        tok = await asyncio.to_thread(_mint)
+        url = f"{s.public_url.rstrip('/')}/?t={tok}"
+        await update.message.reply_text(
+            "🔗 협력자(Collaborator) 웹 링크 (7일 · 접속 시 자동 연장):\n" + url +
+            "\n\n공개된 추가 지식 테마에 자료를 적재하고 그래프를 탐색할 수 있습니다. "
+            "기본 지식베이스 및 관리 기능은 제한됩니다.",
+            disable_web_page_preview=True,
+        )
+
     async def on_status(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
         if not _is_allowed(update.effective_user.id if update.effective_user else None):
             return
@@ -1531,6 +1561,7 @@ def build_app(settings: Settings | None = None) -> Any:
     app.add_handler(CommandHandler("search", on_search))
     app.add_handler(CommandHandler("ingest", on_ingest))
     app.add_handler(CommandHandler("web", on_web))
+    app.add_handler(CommandHandler(["webco", "webcollab"], on_webco))
     app.add_handler(CommandHandler("webro", on_webro))
     app.add_handler(CommandHandler("failed", on_failed))
     app.add_handler(CommandHandler("retry", on_retry))
@@ -1551,6 +1582,7 @@ def build_app(settings: Settings | None = None) -> Any:
             BotCommand("search", "검색 + 요약"),
             BotCommand("ingest", "초점 지정 적재"),
             BotCommand("web", "웹 접속 링크 발급"),
+            BotCommand("webco", "협력자 웹 링크 발급"),
             BotCommand("webro", "읽기전용 웹 링크 발급"),
             BotCommand("failed", "실패/영구실패 점검"),
             BotCommand("retry", "실패 항목 재시도"),

@@ -257,9 +257,11 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
     }
     read_get = {"/", "/whoami", "/stats", "/graph", "/node", "/documents", "/document", "/mcp", "/themes"}
     read_post = {"/search", "/mcp"}
-    owner_post = {
+    collaborator_post = {
         "/ingest",
         "/ingest-stream",
+    }
+    owner_post = {
         "/document/seen",
         "/document/pin",
         "/document/hide",
@@ -288,6 +290,7 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
             for method in ("GET", "HEAD")
         },
         **{("POST", path): "read" for path in read_post},
+        **{("POST", path): "collaborator" for path in collaborator_post},
         **{("POST", path): "owner" for path in owner_post},
         **{key: "owner" for key in owner_methods},
     }

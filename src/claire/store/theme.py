@@ -35,6 +35,7 @@ class ThemeInfo:
     vault_path: str = ""
     is_default: bool = False
     is_public: bool = True
+    is_collaborator_accessible: bool = True
     created_at: float = 0.0
     updated_at: float = 0.0
 
@@ -43,16 +44,25 @@ class ThemeInfo:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ThemeInfo:
+        is_def = bool(data.get("is_default", False))
+        tid = int(data.get("id", 0))
+        default_collab = not (is_def or tid == 0)
         return cls(
-            id=int(data.get("id", 0)),
+            id=tid,
             seq=int(data.get("seq", data.get("id", 0))),
             label=str(data.get("label", "")),
             description=str(data.get("description", "")),
             icon=str(data.get("icon", "📁")),
             db_path=str(data.get("db_path", "")),
             vault_path=str(data.get("vault_path", "")),
-            is_default=bool(data.get("is_default", False)),
+            is_default=is_def,
             is_public=bool(data.get("is_public", data.get("public", True))),
+            is_collaborator_accessible=bool(
+                data.get(
+                    "is_collaborator_accessible",
+                    data.get("collaborator_accessible", data.get("collaborator", default_collab)),
+                )
+            ),
             created_at=float(data.get("created_at", 0.0)),
             updated_at=float(data.get("updated_at", 0.0)),
         )
@@ -135,6 +145,7 @@ class ThemeManager:
             vault_path=str(vault_path),
             is_default=True,
             is_public=True,
+            is_collaborator_accessible=False,
             created_at=now,
             updated_at=now,
         )
@@ -163,16 +174,22 @@ class ThemeManager:
             tmp_name = tf.name
         os.replace(tmp_name, self.registry_path)
 
-    def list_themes(self, *, include_private: bool = True) -> list[ThemeInfo]:
+    def list_themes(
+        self, *, include_private: bool = True, collaborator: bool = False
+    ) -> list[ThemeInfo]:
         """등록된 테마 목록을 일련번호 순서로 반환.
 
-        include_private=False 인 경우 공개(is_public=True) 테마만 필터링하여 반환.
+        include_private=True 인 경우 모든 테마 반환.
+        collaborator=True 인 경우 공개(is_public=True) 또는 Collaborator 공개(is_collaborator_accessible=True) 테마 반환.
+        include_private=False 및 collaborator=False 인 경우 공개(is_public=True) 테마만 필터링하여 반환.
         """
         self.reload()
         themes = sorted(self._themes.values(), key=lambda t: t.id)
-        if not include_private:
-            return [t for t in themes if t.is_public]
-        return themes
+        if include_private:
+            return themes
+        if collaborator:
+            return [t for t in themes if t.is_public or t.is_collaborator_accessible]
+        return [t for t in themes if t.is_public]
 
     def get_theme(
         self,
@@ -180,13 +197,15 @@ class ThemeManager:
         *,
         strict: bool = False,
         include_private: bool = True,
+        collaborator: bool = False,
     ) -> ThemeInfo:
         """일련번호(int/str) 또는 레이블로 테마를 검색.
 
         - theme_ref 가 None 이거나 빈 문자열이면 기본 테마(0) 반환.
         - 일련번호(숫자) 일치 우선.
         - 레이블(대소문자 무시 정확 일치) 차선.
-        - include_private=False 이고 매칭된 테마가 비공개인 경우, strict=True 면 KeyError, strict=False 면 기본 공개 테마 반환.
+        - include_private=False, collaborator=False 이고 매칭된 테마가 비공개인 경우, strict=True 면 KeyError, strict=False 면 기본 공개 테마 반환.
+        - collaborator=True 이고 매칭된 테마가 비공개이며 is_collaborator_accessible=False 인 경우 동일하게 제한.
         - 찾지 못한 경우 strict=False 이면 기본 테마(0) 반환, strict=True 이면 KeyError.
         """
         self.reload()
@@ -217,15 +236,22 @@ class ThemeManager:
                         found = t
                         break
 
+        def _is_accessible(t: ThemeInfo) -> bool:
+            if include_private:
+                return True
+            if collaborator:
+                return t.is_public or t.is_collaborator_accessible
+            return t.is_public
+
         if found is not None:
-            if not include_private and not found.is_public:
+            if not _is_accessible(found):
                 if strict:
                     raise KeyError(f"비공개 테마입니다: {theme_ref}")
                 default_t = self._themes.get(0, self._build_default_theme())
-                if default_t.is_public:
+                if _is_accessible(default_t):
                     return default_t
                 for t in sorted(self._themes.values(), key=lambda x: x.id):
-                    if t.is_public:
+                    if _is_accessible(t):
                         return t
                 return found
             return found
@@ -233,9 +259,9 @@ class ThemeManager:
         if strict:
             raise KeyError(f"테마를 찾을 수 없습니다: {theme_ref}")
         default_t = self._themes.get(0, self._build_default_theme())
-        if not include_private and not default_t.is_public:
+        if not _is_accessible(default_t):
             for t in sorted(self._themes.values(), key=lambda x: x.id):
-                if t.is_public:
+                if _is_accessible(t):
                     return t
         return default_t
 
@@ -246,6 +272,7 @@ class ThemeManager:
         description: str = "",
         icon: str = "📁",
         is_public: bool = True,
+        is_collaborator_accessible: bool = True,
     ) -> ThemeInfo:
         """지식 관리자: 순차 일련번호를 발급하여 새 테마 디렉터리 생성 및 DB 스키마 초기화."""
         if not getattr(self.settings, "multi_theme", False):
@@ -301,13 +328,21 @@ class ThemeManager:
             vault_path=rel_vault_path,
             is_default=False,
             is_public=bool(is_public),
+            is_collaborator_accessible=bool(is_collaborator_accessible),
             created_at=now,
             updated_at=now,
         )
 
         self._themes[seq] = theme
         self._save_registry()
-        log.info("새 테마 #%d [%s] (공개: %s) 정의 및 생성 완료 (경로: %s)", seq, cleaned_label, theme.is_public, rel_db_path)
+        log.info(
+            "새 테마 #%d [%s] (공개: %s, 협력자: %s) 정의 및 생성 완료 (경로: %s)",
+            seq,
+            cleaned_label,
+            theme.is_public,
+            theme.is_collaborator_accessible,
+            rel_db_path,
+        )
         return theme
 
     def update_theme(
@@ -318,8 +353,9 @@ class ThemeManager:
         description: str | None = None,
         icon: str | None = None,
         is_public: bool | None = None,
+        is_collaborator_accessible: bool | None = None,
     ) -> ThemeInfo:
-        """지식 관리자: 테마 레이블, 설명, 아이콘, 공개 여부 수정 (물리 폴더 경로는 절대 변경되지 않음)."""
+        """지식 관리자: 테마 레이블, 설명, 아이콘, 공개 여부, 협력자 공개 여부 수정 (물리 폴더 경로는 절대 변경되지 않음)."""
         if not getattr(self.settings, "multi_theme", False):
             raise RuntimeError("멀티 테마 모드가 비활성화되어 있습니다 (CLAIRE_MULTI_THEME=1 필요)")
 
@@ -353,6 +389,12 @@ class ThemeManager:
 
         if is_public is not None:
             theme.is_public = bool(is_public)
+
+        if is_collaborator_accessible is not None:
+            if tid == 0:
+                theme.is_collaborator_accessible = False
+            else:
+                theme.is_collaborator_accessible = bool(is_collaborator_accessible)
 
         theme.updated_at = time.time()
         self._save_registry()

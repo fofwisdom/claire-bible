@@ -476,6 +476,7 @@ const paneTabs = {
 
 const panel = document.getElementById('panel');
 function canWrite(){ return AUTH_SCOPE==='owner'; }
+function canIngest(){ return AUTH_SCOPE==='owner' || AUTH_SCOPE==='collaborator'; }
 // 함수로 둔 이유: READONLY 는 /whoami 가 비동기로 확정하므로, 호출 시점 기준으로
 // 종합 안내 줄을 넣을지 뺄지 판단해야 한다(고정 문자열이면 초기 로드 시점 값에 박제됨).
 function defaultHint(){
@@ -1354,16 +1355,37 @@ function renderResearchResult(d, backId){
 // --- 웹 적재: URL/텍스트를 그래프에 적재(서버 /ingest-stream, /research 와 동일 NDJSON 스트리밍) ---
 // 텔레그램 DM 과 같은 통로(svc.ingest, source='web') — 관련 링크 1홉 자동확장도 동일하게 동작.
 function openIngest(){
-  if(!canWrite()) return;
+  if(!canIngest()) return;
   const isMulti = isMultiThemeEnabled();
-  const themeFieldHtml = (isMulti && availableThemes && availableThemes.length > 1)
-    ? ('<div class="ingest-field">'+
+  let themeFieldHtml = '';
+  if(isMulti && availableThemes && availableThemes.length > 0){
+    if(AUTH_SCOPE === 'collaborator'){
+      const eligibleThemes = availableThemes.filter(t => t.id > 0 && t.is_collaborator_accessible !== false);
+      if(eligibleThemes.length === 0){
+        themeFieldHtml = '<div class="ingest-field"><p class="hint" style="color:var(--warn,#f39c12);margin:0;">⚠️ 적재 가능한 협업 테마가 없습니다. 지식 관리자(owner)에게 테마 공개를 요청하세요.</p></div>';
+      } else {
+        const selId = eligibleThemes.some(t => t.id === activeThemeId) ? activeThemeId : eligibleThemes[0].id;
+        const opts = eligibleThemes.map(t => {
+          const icon = t.icon || '📁';
+          const label = esc(t.label);
+          return `<option value="${t.id}" ${t.id === selId ? 'selected' : ''}>${icon} ${label}</option>`;
+        }).join('');
+        themeFieldHtml = ('<div class="ingest-field">'+
+          '<label class="ingest-label" for="ingtheme">적재 대상 테마 <span class="ingest-help">협업이 허용된 지식 테마</span></label>'+
+          '<select id="ingtheme" class="ingest-theme-select">'+
+            opts+
+          '</select>'+
+        '</div>');
+      }
+    } else if(availableThemes.length > 1){
+      themeFieldHtml = ('<div class="ingest-field">'+
         '<label class="ingest-label" for="ingtheme">적재 대상 테마 <span class="ingest-help">지식 관리자가 정의한 테마</span></label>'+
         '<select id="ingtheme" class="ingest-theme-select">'+
           renderThemeOptions(activeThemeId)+
         '</select>'+
-      '</div>')
-    : '';
+      '</div>');
+    }
+  }
   panel.innerHTML='<h2>➕ 자료 적재</h2>'+
     '<p class=al>URL 또는 메모 텍스트를 입력하고 적재 방식을 선택하세요.</p>'+
     '<div class="ingest-form">'+
@@ -1401,13 +1423,19 @@ function openIngest(){
   const ta=document.getElementById('ingin'); if(ta) ta.focus();
 }
 async function runIngest(){
-  if(!canWrite()) return;
+  if(!canIngest()) return;
   const isMulti = isMultiThemeEnabled();
   const ta=document.getElementById('ingin');
   const payload=((ta||{}).value||'').trim();
   if(!payload){ alert('적재할 URL 또는 텍스트를 입력하세요.'); return; }
   const ingthemeEl = document.getElementById('ingtheme');
   const targetThemeId = (isMulti && ingthemeEl) ? parseInt(ingthemeEl.value, 10) : (isMulti ? activeThemeId : 0);
+  if(AUTH_SCOPE === 'collaborator'){
+    if(!targetThemeId || targetThemeId === 0){
+      alert('기본 지식베이스(ID 0)에는 협업자 권한으로 적재할 수 없습니다. 협업이 허용된 추가 지식 테마를 선택하세요.');
+      return;
+    }
+  }
   const focus=((document.getElementById('ingfocus')||{}).value||'').trim();
   const amountChoice=document.querySelector('input[name="ingest-amount"]:checked');
   const effortChoice=document.querySelector('input[name="ingest-effort"]:checked');
@@ -2347,13 +2375,14 @@ function updateSearchModeUI(){
   }
 }
 function setAccessScope(scope, reason){
-  AUTH_SCOPE = ['owner','readonly','anonymous'].includes(scope) ? scope : 'unknown';
+  AUTH_SCOPE = ['owner','collaborator','readonly','anonymous'].includes(scope) ? scope : 'unknown';
   READONLY = !canWrite();
   document.body.dataset.authScope=AUTH_SCOPE;
   document.body.classList.toggle('ro', READONLY);
   const label=document.getElementById('authstate');
   if(label) label.textContent =
     AUTH_SCOPE==='owner' ? '🔒 인증됨' :
+    AUTH_SCOPE==='collaborator' ? '🤝 협업자' :
     AUTH_SCOPE==='readonly' ? '👁️ 읽기전용' :
     AUTH_SCOPE==='anonymous' ? '👁️ 익명 읽기전용' :
     reason==='expired' ? '🔓 쓰기 세션 만료 — /web 재접속' : '⚠️ 권한 확인 실패';
@@ -2395,13 +2424,22 @@ async function openThemeManager(){
       const toggleBtn = isPub
         ? `<button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="toggleThemeVisibility(${t.id}, false)">비공개로 전환</button>`
         : `<button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="toggleThemeVisibility(${t.id}, true)">공개로 전환</button>`;
+      const isCollab = t.is_collaborator_accessible !== false;
+      const collabBadge = isCollab
+        ? '<span style="color:#60a5fa;font-weight:600;font-size:12px;background:rgba(96,165,250,0.1);padding:2px 6px;border-radius:4px">협업자 공개 🤝</span>'
+        : '<span style="color:var(--muted,#888);font-weight:600;font-size:12px;background:rgba(136,136,136,0.1);padding:2px 6px;border-radius:4px">협업자 차단 🚫</span>';
+      const toggleCollabBtn = isCollab
+        ? `<button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="toggleThemeCollaborator(${t.id}, false)">협업자 차단</button>`
+        : `<button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="toggleThemeCollaborator(${t.id}, true)">협업자 공개</button>`;
       const idLabel = t.id === 0 ? '기본 (ID 0)' : `테마 #${t.id}`;
       h += `<div style="border:1px solid var(--border);border-radius:6px;padding:8px 10px;background:var(--sec-bg);">
-        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">
           <strong style="font-size:13px;">${t.icon || '📁'} ${esc(t.label)} <small style="opacity:0.7">(${idLabel})</small></strong>
-          <div style="display:flex;align-items:center;gap:6px;">
+          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
             ${pubBadge}
             ${toggleBtn}
+            ${t.id > 0 ? collabBadge : ''}
+            ${t.id > 0 ? toggleCollabBtn : ''}
             <button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="showThemeEditForm(${t.id})">✏️ 수정</button>
           </div>
         </div>
@@ -2409,9 +2447,10 @@ async function openThemeManager(){
         <div id="theme-edit-form-${t.id}" style="display:none;margin-top:10px;padding-top:8px;border-top:1px dashed var(--border);flex-direction:column;gap:8px;">
           <div><label style="font-size:11px;opacity:0.8">레이블(이름)</label><input id="editthemep-label-${t.id}" style="width:100%;box-sizing:border-box" value="${esc(t.label)}"/></div>
           <div><label style="font-size:11px;opacity:0.8">설명</label><input id="editthemep-desc-${t.id}" style="width:100%;box-sizing:border-box" value="${esc(t.description || '')}"/></div>
-          <div style="display:flex;gap:8px;">
-            <div style="flex:1"><label style="font-size:11px;opacity:0.8">아이콘</label><input id="editthemep-icon-${t.id}" style="width:100%;box-sizing:border-box" value="${esc(t.icon || '📁')}"/></div>
-            <div style="flex:2;display:flex;align-items:center;padding-top:14px;"><label style="font-size:12px;cursor:pointer;"><input id="editthemep-pub-${t.id}" type="checkbox" ${isPub ? 'checked' : ''} style="width:auto;margin-right:4px;vertical-align:middle;"/>익명 사용자에게 공개</label></div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <div style="flex:1;min-width:80px;"><label style="font-size:11px;opacity:0.8">아이콘</label><input id="editthemep-icon-${t.id}" style="width:100%;box-sizing:border-box" value="${esc(t.icon || '📁')}"/></div>
+            <div style="flex:1;display:flex;align-items:center;padding-top:14px;"><label style="font-size:12px;cursor:pointer;"><input id="editthemep-pub-${t.id}" type="checkbox" ${isPub ? 'checked' : ''} style="width:auto;margin-right:4px;vertical-align:middle;"/>익명 사용자에게 공개</label></div>
+            ${t.id > 0 ? `<div style="flex:1;display:flex;align-items:center;padding-top:14px;"><label style="font-size:12px;cursor:pointer;"><input id="editthemep-collab-${t.id}" type="checkbox" ${isCollab ? 'checked' : ''} style="width:auto;margin-right:4px;vertical-align:middle;"/>협업자에게 공개</label></div>` : ''}
           </div>
           <div style="display:flex;gap:6px;margin-top:4px;">
             <button type="button" style="padding:4px 12px;" onclick="updateThemeFromUI(${t.id})">저장</button>
@@ -2427,8 +2466,9 @@ async function openThemeManager(){
     h += '<div style="display:flex;flex-direction:column;gap:8px;margin-top:8px;">';
     h += '<div><label style="font-size:11px;opacity:0.8">레이블(이름)</label><input id="newthemep-label" style="width:100%;box-sizing:border-box" placeholder="예: 경제 및 금융"/></div>';
     h += '<div><label style="font-size:11px;opacity:0.8">설명</label><input id="newthemep-desc" style="width:100%;box-sizing:border-box" placeholder="예: 거시경제 및 시장 분석"/></div>';
-    h += '<div style="display:flex;gap:8px;"><div style="flex:1"><label style="font-size:11px;opacity:0.8">아이콘</label><input id="newthemep-icon" style="width:100%;box-sizing:border-box" value="📁"/></div>';
-    h += '<div style="flex:2;display:flex;align-items:center;padding-top:14px;"><label style="font-size:12px;cursor:pointer;"><input id="newthemep-pub" type="checkbox" checked style="width:auto;margin-right:4px;vertical-align:middle;"/>익명 사용자에게 공개</label></div></div>';
+    h += '<div style="display:flex;gap:8px;flex-wrap:wrap;"><div style="flex:1;min-width:80px;"><label style="font-size:11px;opacity:0.8">아이콘</label><input id="newthemep-icon" style="width:100%;box-sizing:border-box" value="📁"/></div>';
+    h += '<div style="flex:1;display:flex;align-items:center;padding-top:14px;"><label style="font-size:12px;cursor:pointer;"><input id="newthemep-pub" type="checkbox" checked style="width:auto;margin-right:4px;vertical-align:middle;"/>익명 사용자에게 공개</label></div>';
+    h += '<div style="flex:1;display:flex;align-items:center;padding-top:14px;"><label style="font-size:12px;cursor:pointer;"><input id="newthemep-collab" type="checkbox" checked style="width:auto;margin-right:4px;vertical-align:middle;"/>협업자에게 공개</label></div></div>';
     h += '<button type="button" style="align-self:flex-start;padding:4px 12px;margin-top:4px;" onclick="createThemeFromUI()">테마 생성</button>';
     h += '</div></details>';
 
@@ -2458,6 +2498,7 @@ async function updateThemeFromUI(themeId){
   const descEl = document.getElementById('editthemep-desc-' + themeId);
   const iconEl = document.getElementById('editthemep-icon-' + themeId);
   const pubEl = document.getElementById('editthemep-pub-' + themeId);
+  const collabEl = document.getElementById('editthemep-collab-' + themeId);
 
   const label = ((labelEl||{}).value||'').trim();
   if(!label){ alert('테마 이름을 입력하세요.'); return; }
@@ -2465,11 +2506,16 @@ async function updateThemeFromUI(themeId){
   const icon = ((iconEl||{}).value||'📁').trim() || '📁';
   const is_public = pubEl ? pubEl.checked : true;
 
+  const payload = {id: themeId, label, description, icon, is_public};
+  if(collabEl){
+    payload.is_collaborator_accessible = collabEl.checked;
+  }
+
   try{
     const r = await fetch('themes', {
       method: 'PATCH',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({id: themeId, label, description, icon, is_public})
+      body: JSON.stringify(payload)
     });
     if(!r.ok){
       const err = await r.json().catch(()=>({}));
@@ -2503,22 +2549,44 @@ async function toggleThemeVisibility(themeId, newVisibility){
   }
 }
 
+async function toggleThemeCollaborator(themeId, newAccess){
+  if(!canWrite()) return;
+  try{
+    const r = await fetch('themes', {
+      method: 'PATCH',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({id: themeId, is_collaborator_accessible: newAccess})
+    });
+    if(!r.ok){
+      const err = await r.json().catch(()=>({}));
+      alert('협업자 공개 여부 수정 실패: ' + (err.detail || err.error || ('HTTP ' + r.status)));
+      return;
+    }
+    await fetchThemes();
+    openThemeManager();
+  }catch(e){
+    alert('오류: ' + e);
+  }
+}
+
 async function createThemeFromUI(){
   if(!canWrite()) return;
   const labelEl = document.getElementById('newthemep-label');
   const descEl = document.getElementById('newthemep-desc');
   const iconEl = document.getElementById('newthemep-icon');
   const pubEl = document.getElementById('newthemep-pub');
+  const collabEl = document.getElementById('newthemep-collab');
   const label = ((labelEl||{}).value||'').trim();
   if(!label){ alert('테마 이름을 입력하세요.'); return; }
   const description = ((descEl||{}).value||'').trim();
   const icon = ((iconEl||{}).value||'📁').trim() || '📁';
   const is_public = pubEl ? pubEl.checked : true;
+  const is_collaborator_accessible = collabEl ? collabEl.checked : true;
   try{
     const r = await fetch('themes', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({label, description, icon, is_public})
+      body: JSON.stringify({label, description, icon, is_public, is_collaborator_accessible})
     });
     if(!r.ok){
       const err = await r.json().catch(()=>({}));
@@ -2808,6 +2876,7 @@ window.claireDebug = {
   get synth(){ return [...synthSet]; },
   get authScope(){ return AUTH_SCOPE; },
   get canWrite(){ return canWrite(); },
+  get canIngest(){ return canIngest(); },
   get statusBanner(){ return ClaireStatusBanner; },
   get activeBannerStatus(){ return ClaireStatusBanner.getStatus(); },
   positions(ids){ return net ? net.getPositions(ids) : {}; },
