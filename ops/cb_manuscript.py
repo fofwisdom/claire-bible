@@ -436,11 +436,15 @@ def run_compose(
     all_profiles: bool = False,
     capture: bool = False,
     check: bool = True,
+    build_revision: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
+    compose_env = runtime.compose_environment()
+    if build_revision:
+        compose_env["CLAIRE_BUILD_COMMIT"] = build_revision
     return run_command(
         runtime.compose_argv(*args, all_profiles=all_profiles),
         cwd=runtime.layout.root,
-        env=runtime.compose_environment(),
+        env=compose_env,
         capture=capture,
         check=check,
     )
@@ -3009,7 +3013,11 @@ def command_install(runtime: Runtime) -> int:
         previous_revision = previous_state.get("source_revision")
         if not isinstance(previous_revision, str):
             previous_revision = None
-        run_compose(runtime, ("build",))
+        run_compose(
+            runtime,
+            ("build",),
+            build_revision=_source_revision(runtime.layout),
+        )
         _transition(runtime)
         _record_success(
             runtime,
@@ -3041,7 +3049,11 @@ def command_update(runtime: Runtime, *, no_fetch: bool) -> int:
         config_preflight(runtime)
 
         # Existing containers continue serving throughout fetch and build.
-        run_compose(runtime, ("build",))
+        run_compose(
+            runtime,
+            ("build",),
+            build_revision=_source_revision(runtime.layout),
+        )
         _transition(runtime)
         _record_success(
             runtime,

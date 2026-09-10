@@ -1158,7 +1158,13 @@ def build_app(settings: Settings | None = None) -> Any:
             try:
                 from .support_bundle import create_support_bundle
 
-                info = await asyncio.to_thread(create_support_bundle, s, days=1, target=did)
+                info = await asyncio.to_thread(
+                    create_support_bundle,
+                    s,
+                    days=1,
+                    target=did,
+                    request_context={"channel": "telegram_callback"},
+                )
                 reply_text = (
                     f"📦 문서 `{did}` Support Bundle 생성 완료\n\n"
                     f"• 번들 ID: `{info.bundle_id}`\n"
@@ -1478,9 +1484,20 @@ def build_app(settings: Settings | None = None) -> Any:
         status_msg = await msg.reply_text(f"⏳ Support Bundle 생성 중… (최근 {days}일){target_info}")
 
         try:
-            info = await asyncio.to_thread(create_support_bundle, s, days=days, target=target)
+            info = await asyncio.to_thread(
+                create_support_bundle,
+                s,
+                days=days,
+                target=target,
+                request_context={"channel": "telegram_command"},
+            )
             theme_str = f", 테마 #{info.target_theme_id}" if info.target_theme_id else ""
-            tgt_line = f"• 추적 대상: `{info.target_doc_id}` ({info.target_matched_by}{theme_str})\n" if info.target_doc_id else ""
+            if info.target_doc_id:
+                tgt_line = f"• 추적 대상: `{info.target_doc_id}` ({info.target_matched_by}{theme_str})\n"
+            elif info.target_resolution_status:
+                tgt_line = f"• 타깃 해석 상태: `{info.target_resolution_status}`\n"
+            else:
+                tgt_line = ""
             reply_text = (
                 "📦 Support Bundle 생성 완료\n\n"
                 f"• 번들 ID: `{info.bundle_id}`\n"

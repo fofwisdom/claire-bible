@@ -148,8 +148,10 @@ def test_support_bundle_resolves_theme_document_by_share_url(tmp_path):
 
     # 5-4. pipeline/shares_index.json (테마 1의 공유 링크도 포함)
     shares = json.loads(files[f"{root_prefix}/pipeline/shares_index.json"].decode("utf-8"))
-    found_share = next((s for s in shares if s["token"] == share_token), None)
+    found_share = next((s for s in shares if s["document_id"] == doc_id), None)
     assert found_share is not None
+    assert found_share["token"] == "***REDACTED***"
+    assert len(found_share["token_sha256"]) == 64
     assert found_share["document_id"] == doc_id
     assert found_share["theme_id"] == 1
 
@@ -199,8 +201,8 @@ def test_support_bundle_resolves_theme_document_by_doc_id(tmp_path):
     assert info.target_theme_id == 1
 
 
-def test_support_bundle_target_not_found_raises(tmp_path):
-    """존재하지 않는 문서를 target으로 지정 시 명확한 ValueError 발생 검증."""
+def test_support_bundle_target_not_observed_is_explicit(tmp_path):
+    """미관측 target도 전역 진단 번들을 만들되 임의 문서로 해석하지 않는다."""
     data_dir = tmp_path / "data"
     vault_dir = tmp_path / "vault"
     data_dir.mkdir(parents=True)
@@ -219,8 +221,9 @@ def test_support_bundle_target_not_found_raises(tmp_path):
     conn0.close()
 
     non_existent = "https://cb.netspheres.org/p?s=non_existent_token"
-    with pytest.raises(ValueError, match="Target document not found"):
-        create_support_bundle(settings, days=1, target=non_existent)
+    info = create_support_bundle(settings, days=1, target=non_existent)
+    assert info.target_doc_id is None
+    assert info.target_resolution_status == "not_observed"
 
 
 def test_support_bundle_single_theme_mode(tmp_path):
@@ -255,4 +258,6 @@ def test_support_bundle_single_theme_mode(tmp_path):
     files = _read_tar_zst(info.filepath)
     root_prefix = f"support_bundle_{info.bundle_id[-8:]}"
     shares = json.loads(files[f"{root_prefix}/pipeline/shares_index.json"].decode("utf-8"))
-    assert any(s["token"] == token for s in shares)
+    item = next(s for s in shares if s["document_id"] == doc_id)
+    assert item["token"] == "***REDACTED***"
+    assert len(item["token_sha256"]) == 64

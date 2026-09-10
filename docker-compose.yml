@@ -2,6 +2,8 @@ name: "${CB_PROJECT_NAME:-claire-bible}"
 
 x-claire-environment: &claire-environment
   CLAIRE_ENVIRONMENT: "${CLAIRE_ENVIRONMENT:?CLAIRE_ENVIRONMENT is required}"
+  CLAIRE_BUILD_COMMIT: "${CLAIRE_BUILD_COMMIT:-unknown}"
+  CLAIRE_IMAGE_TAG: "${CB_IMAGE_TAG:-local}"
   TZ: "${TZ:-}"
   HF_HOME: "/app/data/cache/huggingface"
   SSL_CERT_FILE: "/etc/ssl/certs/ca-certificates.crt"
@@ -15,6 +17,8 @@ x-claire-service: &claire-service
     context: .
     args:
       CLAIRE_PDF_PARSER: "${CLAIRE_PDF_PARSER:-pypdf}"
+      CLAIRE_BUILD_COMMIT: "${CLAIRE_BUILD_COMMIT:-unknown}"
+      CLAIRE_IMAGE_TAG: "${CB_IMAGE_TAG:-local}"
   restart: unless-stopped
   environment: *claire-environment
   env_file:

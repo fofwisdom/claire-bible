@@ -80,10 +80,12 @@ CLI 반환 코드, stderr, stdout을 분석하여 차단 원인을 8개 카테�
 
 ### 3.1 4대 핵심 요구사항
 1. **zstd 압축**: Python 내장 `zstandard` 모듈(`level=3`)과 `tarfile` 스트리밍을 결합하여 고효율 압축 `.tar.zst` 생성.
-2. **공유 링크 기반 문서 특정 및 역추적**:
+2. **요청 기반 strict 타깃 특정 및 역추적**:
    - `resolve_document_targets`를 활용하여 공유 링크(`/p?s=token`), 공유 토큰, URL, 문서 ID를 스마트 인식.
-   - 대상 문서 지정 시 `tracked_document/`에 원본 상세, 수집 인박스 상태, 에러 이력, 해당 문서 텔레메트리 집중 패키징.
-   - 모든 번들에 `pipeline/shares_index.json`을 포함하여 임의의 공유 링크로도 문서를 역추적 가능.
+   - 복수 후보를 첫 문서로 임의 선택하지 않고 `ambiguous`로 기록하며 후보 목록을 함께 보존.
+   - 문서 생성 전에 실패한 URL도 `raw_inbox.payload` 정확 일치로 찾아 `failed_inbox` 상태의 타깃 번들을 생성.
+   - 대상 지정 시 `tracked_document/`에 문서 상세, 전체 인박스 행, append-only 시도 이력, fetch 단계 및 해당 문서 텔레메트리를 집중 패키징.
+   - 모든 번들의 `pipeline/shares_index.json`은 공유 토큰 원문 대신 SHA-256을 수록하여 노출 없이 대조 가능.
 3. **기본 기간 1일 및 보관 기한 상한 검증**:
    - 기본 lookback 기간은 **1일(`days = 1`)**.
    - 텔레메트리 보관 기한(기본 30일)을 초과하는 요청은 API 400 Bad Request, CLI 종료 코드 2로 엄격 차단.
@@ -94,10 +96,12 @@ CLI 반환 코드, stderr, stdout을 분석하여 차단 원인을 8개 카테�
 
 ```text
 support_bundle_<id>/
-├── manifest.json                  # 번들 ID, 생성/만료 시각(TTL 6h), 커버 기간, Git 해시, 타깃 정보
+├── manifest.json                  # format v2, 생성/만료 시각, 빌드 식별자, 요청·타깃 해석 상태
 ├── diagnostics/
 │   ├── system.json                # OS, Python, CPU, 디스크 용량, SQLite/zstd 버전, agy 환경 진단
-│   └── config_sanitized.json      # 마스킹된 애플리케이션 설정 (시크릿/토큰 ***REDACTED***)
+│   ├── config_sanitized.json      # 마스킹된 애플리케이션 설정 (시크릿/토큰 ***REDACTED***)
+│   ├── build.json                 # 이미지에 내장된 Git SHA, 패키지·DB 스키마·이미지 버전
+│   └── collector_warnings.json    # 타깃 모호성, 아티팩트 누락, 빌드 식별 실패
 ├── telemetry/
 │   ├── telemetry_records.jsonl    # 지정 기간 내 프로바이더 호출/차단 텔레메트리 전량
 │   └── telemetry_stats.json       # 성공률, 지연시간 백분위(p50/p95), 차단 사유별 집계 통계
@@ -106,14 +110,25 @@ support_bundle_<id>/
 ├── pipeline/
 │   ├── inbox_summary.json         # raw_inbox 상태별 건수
 │   ├── failed_items.json          # 에러/실패 인박스 항목 상세 (RCA 핵심)
-│   ├── shares_index.json          # 활성 공유 링크와 문서 ID 매핑 인덱스
+│   ├── shares_index.json          # 토큰 SHA-256과 문서 ID 매핑(토큰 원문은 마스킹)
 │   └── db_integrity.json          # claire.db 및 telemetry.db quick_check 결과
 └── tracked_document/              # (특정 대상 지정 시에만 생성)
     ├── target_resolution.json     # 타깃 해석 결과 (matched_by, share_token 여부)
     ├── document_detail.json       # 정본 문서 메타데이터 및 온톨로지 정보
-    ├── inbox_record.json          # 인입 원본 상태 및 재시도 이력
+    ├── inbox_record.json          # 하위 호환용 최신 인입 상태
+    ├── inbox_records.jsonl        # URL·문서에 연결된 전체 인입 행
+    ├── ingest_attempts.jsonl      # 최초 처리와 재시도별 append-only 상태 전이
+    ├── fetch_trace.jsonl          # static/law/discourse/scrapling/CDP 단계별 상태·시간·가드·브라우저 메타데이터
+    ├── fetch_snapshots/*.html.zst # 스크립트·폼 값·토큰을 제거한 정제 응답 HTML/최종 DOM
     └── telemetry_history.jsonl    # 해당 문서에 특화된 텔레메트리 호출 이력
 ```
+
+`manifest.json`에는 다운로드 토큰을 넣지 않는다. 컨테이너의 Git 식별자는 런타임
+`git rev-parse`에 의존하지 않고 `cb-manuscript`가 `CLAIRE_BUILD_COMMIT` build argument로
+주입하며 OCI `org.opencontainers.image.revision` label에도 같은 값을 기록한다.[^support-build]
+
+HTML 스냅샷은 원본 바이트의 SHA-256·길이를 기록하되 디스크와 번들에는 최대 2 MiB의
+정제 DOM만 보존한다. 쿠키는 값 없이 개수·도메인·Secure·HttpOnly 집계만 기록한다.
 
 ---
 
@@ -168,4 +183,6 @@ support_bundle_<id>/
 - 웹 API 및 보안 경계: [`src/claire/api/server.py`](../../../src/claire/api/server.py), [`src/claire/api/security.py`](../../../src/claire/api/security.py)
 - CLI 인터페이스: [`src/claire/cli.py`](../../../src/claire/cli.py)
 - 호스트 운영 래퍼: [`ops/cb_manuscript.py`](../../../ops/cb_manuscript.py)
-- 자동화 테스트: [`tests/test_telemetry.py`](../../../tests/test_telemetry.py), [`tests/test_support_bundle.py`](../../../tests/test_support_bundle.py), [`tests/test_bot.py`](../../../tests/test_bot.py)
+- 자동화 테스트: [`tests/test_fetch_diagnostics.py`](../../../tests/test_fetch_diagnostics.py), [`tests/test_telemetry.py`](../../../tests/test_telemetry.py), [`tests/test_support_bundle.py`](../../../tests/test_support_bundle.py), [`tests/test_bot.py`](../../../tests/test_bot.py)
+
+[^support-build]: Claire Bible 구현 근거: [`Dockerfile`](../../../Dockerfile), [`docker-compose.yml`](../../../docker-compose.yml), [`ops/cb_manuscript.py`](../../../ops/cb_manuscript.py), [`src/claire/support_bundle.py`](../../../src/claire/support_bundle.py) (2026-09-11 확인).

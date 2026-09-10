@@ -17,6 +17,7 @@ from starlette.testclient import TestClient
 
 from claire.api import server
 from claire.cli import build_parser
+from claire.ingest.fetch_diagnostics import FetchTraceSession
 from claire.ontology.base import Document, Entity, Relation
 from claire.store import db as dbm
 from claire.store.telemetry import (
@@ -244,8 +245,11 @@ def test_support_bundle_creation_and_zstd_archive(tmp_path: Path):
     manifest_name = [n for n in names if n.endswith("manifest.json")][0]
     manifest_data = json.loads(tar.extractfile(manifest_name).read().decode("utf-8"))
     assert manifest_data["bundle_id"] == info.bundle_id
+    assert manifest_data["bundle_format_version"] == 2
     assert manifest_data["ttl_hours"] == 6.0
     assert manifest_data["days_covered"] == 1
+    assert "token" not in manifest_data
+    assert "build" in manifest_data
 
     # Sanitized config 검증
     config_name = [n for n in names if n.endswith("config_sanitized.json")][0]
@@ -318,7 +322,106 @@ def test_support_bundle_share_link_tracking(tmp_path: Path):
     # 2. shares_index.json에 생성된 공유 링크가 인덱싱되어 있는지 확인
     shares_name = [n for n in names if n.endswith("pipeline/shares_index.json")][0]
     shares_data = json.loads(tar.extractfile(shares_name).read().decode("utf-8"))
-    assert any(item["token"] == share_token for item in shares_data)
+    tracked_share = next(item for item in shares_data if item["document_id"] == "doc_test_123")
+    assert tracked_share["token"] == "***REDACTED***"
+    assert len(tracked_share["token_sha256"]) == 64
+
+
+def test_support_bundle_tracks_failed_url_without_document(tmp_path: Path):
+    s = StubSettings(db_file=tmp_path / "claire.db", data_dir=tmp_path)
+    conn = dbm.connect(s.db_file)
+    dbm.init_db(conn)
+    failed_url = "https://example.com/entry/3287?token=private"
+    inbox_id = dbm.log_inbox(conn, source="test", payload=failed_url, kind="url")
+    trace = FetchTraceSession(s.data_dir, inbox_id)
+    trace.record(
+        "cdp",
+        status="error",
+        input_url=failed_url,
+        http_status=403,
+        metadata={"cookie_count": 1, "cookie_domains": ["example.com"]},
+    )
+    trace.capture_html(
+        "cdp",
+        '<html><body><input value="private-form-value"><script>private-script</script></body></html>',
+    )
+    trace.persist(conn, status="error", error="blocked by challenge")
+    dbm.update_inbox(conn, inbox_id, status="error", error="blocked by challenge")
+    conn.close()
+
+    info = create_support_bundle(s, target=failed_url)
+    assert info.target_doc_id is None
+    assert info.target_matched_by == "raw_inbox"
+    assert info.target_resolution_status == "failed_inbox"
+
+    dctx = zstd.ZstdDecompressor()
+    data = dctx.decompress(info.filepath.read_bytes(), max_output_size=50_000_000)
+    tar = tarfile.open(fileobj=io.BytesIO(data), mode="r:")
+    files = {name: tar.extractfile(name).read() for name in tar.getnames() if tar.getmember(name).isfile()}
+    resolution_name = next(name for name in files if name.endswith("target_resolution.json"))
+    resolution = json.loads(files[resolution_name])
+    assert resolution["resolution_status"] == "failed_inbox"
+    assert resolution["requested_target"].endswith("token=***REDACTED***")
+    inbox_name = next(name for name in files if name.endswith("inbox_records.jsonl"))
+    inbox_rows = [json.loads(line) for line in files[inbox_name].decode().splitlines()]
+    assert [row["id"] for row in inbox_rows] == [inbox_id]
+    assert inbox_rows[0]["error"] == "blocked by challenge"
+    attempts_name = next(name for name in files if name.endswith("ingest_attempts.jsonl"))
+    attempts = [json.loads(line) for line in files[attempts_name].decode().splitlines()]
+    assert [row["status"] for row in attempts] == ["received", "error"]
+    fetch_trace_name = next(name for name in files if name.endswith("fetch_trace.jsonl"))
+    fetch_rows = [json.loads(line) for line in files[fetch_trace_name].decode().splitlines()]
+    assert fetch_rows[0]["stage"] == "cdp"
+    assert fetch_rows[0]["http_status"] == 403
+    assert fetch_rows[0]["input_url"].endswith("token=***REDACTED***")
+    assert "db_file" not in fetch_rows[0]
+    snapshot_name = next(name for name in files if "/fetch_snapshots/" in name)
+    snapshot = dctx.decompress(files[snapshot_name]).decode()
+    assert "private-form-value" not in snapshot
+    assert "private-script" not in snapshot
+    manifest_name = next(name for name in files if name.endswith("manifest.json"))
+    manifest = json.loads(files[manifest_name])
+    assert manifest["target"]["requested_target"].endswith("token=***REDACTED***")
+
+
+def test_support_bundle_uses_embedded_build_commit(tmp_path: Path, monkeypatch):
+    s = StubSettings(db_file=tmp_path / "claire.db", data_dir=tmp_path)
+    _seed_db(s.db_file)
+    revision = "a" * 40
+    monkeypatch.setenv("CLAIRE_BUILD_COMMIT", revision)
+
+    info = create_support_bundle(s)
+    dctx = zstd.ZstdDecompressor()
+    data = dctx.decompress(info.filepath.read_bytes(), max_output_size=50_000_000)
+    tar = tarfile.open(fileobj=io.BytesIO(data), mode="r:")
+    manifest_name = next(name for name in tar.getnames() if name.endswith("manifest.json"))
+    manifest = json.loads(tar.extractfile(manifest_name).read())
+    assert manifest["git_commit"] == revision
+    assert manifest["build"]["revision_source"] == "build_arg"
+
+
+def test_support_bundle_does_not_select_first_ambiguous_url(tmp_path: Path):
+    s = StubSettings(db_file=tmp_path / "claire.db", data_dir=tmp_path)
+    conn = dbm.connect(s.db_file)
+    dbm.init_db(conn)
+    url = "https://example.com/entry/shared"
+    for doc_id in ("doc_a", "doc_b"):
+        dbm.insert_document(
+            conn,
+            Document(
+                id=doc_id,
+                url=url,
+                canonical_url=url,
+                title=doc_id,
+                raw_text="본문 " * 200,
+                content_hash=f"hash_{doc_id}",
+            ),
+        )
+    conn.close()
+
+    info = create_support_bundle(s, target=url)
+    assert info.target_doc_id is None
+    assert info.target_resolution_status == "ambiguous"
 
 
 def test_support_bundle_auto_purge_after_6_hours(tmp_path: Path):

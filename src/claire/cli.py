@@ -2201,7 +2201,12 @@ def cmd_support_bundle(args) -> int:
         return 2
 
     try:
-        info = create_support_bundle(s, days=days, target=target)
+        info = create_support_bundle(
+            s,
+            days=days,
+            target=target,
+            request_context={"channel": "cli"},
+        )
     except Exception as exc:
         print(f"Support Bundle 생성 실패: {exc}", file=sys.stderr)
         return 1
@@ -2219,6 +2224,8 @@ def cmd_support_bundle(args) -> int:
     print(f"• 수집 대상 기간 : 최근 {info.days_covered}일")
     if info.target_doc_id:
         print(f"• 추적 대상 문서 : {info.target_doc_id} (기준: {info.target_matched_by})")
+    elif info.target_resolution_status:
+        print(f"• 타깃 해석 상태 : {info.target_resolution_status}")
     print(f"• 유효 만료 시각 : 6시간 후 자동 파기 ({info.to_dict()['expires_at']})")
     print(f"• 다운로드 링크  : {info.download_url}")
     print("=" * 70)

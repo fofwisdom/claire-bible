@@ -168,20 +168,45 @@ def ingest(
         )
     report.inbox_id = inbox_id
 
+    trace_session = None
     try:
         # prefetched: 1홉 확장이 판정용으로 이미 가져온 Document 재사용(중복 fetch 방지).
         if prefetched is None:
             emit_progress("원문 가져오는 중…")  # 콜백 미설정 시 no-op(웹 스트림 적재만 표시)
-            try:
-                doc = fetch_fn(payload, full_content=full_content)
-            except TypeError:
-                doc = fetch_fn(payload)
+            if data_dir is not None:
+                from .fetch_diagnostics import fetch_trace
+
+                with fetch_trace(data_dir, inbox_id) as trace_session:
+                    try:
+                        doc = fetch_fn(payload, full_content=full_content)
+                    except TypeError:
+                        doc = fetch_fn(payload)
+            else:
+                try:
+                    doc = fetch_fn(payload, full_content=full_content)
+                except TypeError:
+                    doc = fetch_fn(payload)
         else:
             doc = prefetched
     except Exception as e:  # noqa: BLE001
         report.error = str(e)
+        if trace_session is not None:
+            try:
+                trace_session.persist(conn, status="error", error=str(e))
+            except Exception:  # noqa: BLE001
+                pass
         dbm.update_inbox(conn, inbox_id, status="error", error=str(e))
         return report
+
+    if trace_session is not None:
+        try:
+            trace_session.persist(
+                conn,
+                document_id=doc.id,
+                status="fetched",
+            )
+        except Exception:  # noqa: BLE001
+            pass
 
     if full_content:
         if doc.meta is None:
