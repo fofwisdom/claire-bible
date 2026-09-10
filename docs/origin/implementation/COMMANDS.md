@@ -135,13 +135,13 @@ Git 저장소 최신 커밋을 가져와 무중단 롤링 업데이트를 수행
 | `queue` | `claire queue status` / `claire queue list <inbox\|refresh\|expand>` | 비동기 큐 상태 분포와 대기·오류 항목 조회 |
 | `stats` | `claire stats [-t <theme>]` | 지식그래프 노드(엔티티) 및 엣지(관계) 카운트 출력 (멀티 테마 지원) |
 | `repo` | `claire repo` | Git 소스 저장소 정보 및 원격 URL 출력 |
-| `migrate` | `claire migrate` | 싱글 모드에서는 기본 DB, 멀티 테마 모드에서는 등록된 모든 DB를 최신 `SCHEMA_VERSION`으로 초기화/업그레이드 |
+| `migrate` | `claire migrate` | 싱글 모드에서는 기본 DB, 멀티 테마 모드에서는 등록된 모든 DB를 공통 v13으로 초기화/업그레이드하고 버전·계보를 검증 |
 
-`CLAIRE_MULTI_THEME=1`일 때 `migrate`는 레지스트리를 테마 ID 순서로 읽고 각 DB의
-마이그레이션 결과를 개별 출력한다. 한 DB가 실패해도 나머지를 계속 점검하며, 하나라도
-실패하면 최종 종료 코드는 `1`이다. `health`와 `liveness`는 DB를 생성하거나
-마이그레이션하지 않고 읽기 전용 연결과 스키마 메타데이터 조회로 상태를 검사한다. 손상된
-`themes.json`도 기본 레지스트리로 덮어쓰지 않고 실패로 보고한다.[^multi-theme-operations]
+`CLAIRE_MULTI_THEME=1`일 때 `migrate`는 레지스트리를 테마 ID 순서로 읽고 각 DB의 마이그레이션 결과를 개별 출력한다.
+한 DB가 실패해도 나머지를 계속 점검하며, 하나라도 실패하면 최종 종료 코드는 `1`이다.
+`health`와 `liveness`는 DB를 생성하거나 마이그레이션하지 않고 읽기 전용 연결과 스키마 버전·계보를 검사한다.
+v12는 진단 행을 보존해 v11로 철회한 뒤 같은 실행에서 v13으로 승격한다.
+손상된 `themes.json`도 기본 레지스트리로 덮어쓰지 않고 실패로 보고한다.[^multi-theme-operations]
 
 #### `doctor`
 지식그래프(Knowledge Graph) 및 SQLite DB의 참조 무결성을 정밀 진단하고, 결함을 원클릭으로 자동 수복(Auto-Healing)합니다.
@@ -431,7 +431,7 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
   * **RCA 전용 zstd 압축 아카이브**: 시스템 진단, 마스킹된 설정, 텔레메트리, 인박스 실패 내역, 활성 공유 링크 인덱스, 프로바이더 로그를 `.tar.zst`로 패키징.[^telemetry-implementation]
   * **요청 기반 strict 타깃 역추적**: `target`으로 공유 링크(`/p?s=token`), 공유 토큰, URL, 문서 ID를 입력받는다. 복수 후보는 첫 문서로 임의 선택하지 않고 `ambiguous`, 미관측 대상은 `not_observed`, 문서 생성 전 실패 URL은 `failed_inbox`로 기록한다.
   * **인박스 이력**: `tracked_document/`에 URL·문서에 연결된 전체 `raw_inbox` 행을 포함한다. 관측성 데이터는 정본 `claire.db`에 신규 테이블을 추가하지 않는다.[^telemetry-implementation]
-  * **빌드 식별**: `manifest.json`과 `diagnostics/build.json`에 이미지 빌드 시 주입된 Git commit, 패키지 버전, DB 스키마 버전 및 이미지 태그를 기록한다.
+  * **빌드 식별**: `manifest.json`과 `diagnostics/build.json`에 이미지 빌드 시 주입된 Git commit, 패키지 버전, DB 스키마 버전·계보 및 이미지 태그를 기록한다.
   * **6시간 자동 파기**: 번들 생성 시 6시간 유효한 보안 다운로드 토큰(`GET /support/bundle?token=...`)을 발급하며, 생성 6시간 경과 시 디스크 및 DB에서 자동 파기 (`410 Gone`).
   * **옵션**:
     * `--days N`: 수집 대상 기간 (기본값: 1일). 텔레메트리 보관 기한(기본 30일)을 초과할 수 없음.

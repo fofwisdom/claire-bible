@@ -34,6 +34,7 @@ docs/
     │   ├── PDF_INGESTION_AND_ADAPTIVE_EFFORT_DESIGN.md # PDF 추출 예산 및 적응형 추론(Effort) 설계
     │   ├── PREFERRED_LANGUAGES_DESIGN.md     # 프로젝트 광역 선호 언어(Preferred Languages) 설계
     │   ├── RIGHT_MENU_COMPACT_DESIGN.md      # 우측 메뉴 컴팩트화 및 반응형 UI 설계
+    │   ├── SCHEMA_VERSIONING.md               # 업스트림·오리진 공통 스키마 버전 및 계보 정책
     │   ├── TABLE_INGESTION_DESIGN.md         # 원문 테이블 적재 및 본문 글자 수 제한 제외 설계
     │   ├── TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md # 프로바이더 텔레메트리 격리 및 Support Bundle 아키텍처 설계
     │   ├── VIDEO_AUDIO_TRANSCRIPTION_AND_INGESTION_DESIGN.md # 비디오 음성 자막(전사) 생성 및 지식 적재 파이프라인 설계

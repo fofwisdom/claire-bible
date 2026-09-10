@@ -249,6 +249,8 @@ def test_support_bundle_creation_and_zstd_archive(tmp_path: Path):
     assert manifest_data["days_covered"] == 1
     assert "token" not in manifest_data
     assert "build" in manifest_data
+    assert manifest_data["build"]["schema_version"] == dbm.SCHEMA_VERSION
+    assert manifest_data["build"]["schema_lineage"] == dbm.SCHEMA_LINEAGE
 
     # Sanitized config 검증
     config_name = [n for n in names if n.endswith("config_sanitized.json")][0]

@@ -46,13 +46,8 @@ def schema_version(conn: sqlite3.Connection) -> int:
 
 
 def require_current_schema(conn: sqlite3.Connection) -> int:
-    """현재 코드가 기대하는 스키마인지 검증하고 실제 버전을 반환한다."""
-    actual = schema_version(conn)
-    if actual != dbm.SCHEMA_VERSION:
-        raise RuntimeError(
-            f"schema_version mismatch: actual={actual}, expected={dbm.SCHEMA_VERSION}"
-        )
-    return actual
+    """현재 공통 버전과 계보인지 읽기 전용으로 검증한다."""
+    return dbm.require_current_schema(conn)
 
 
 def _active_databases(s: Settings) -> list[tuple[ThemeInfo, Settings]]:
@@ -74,6 +69,7 @@ def _check_database(theme: ThemeInfo, theme_settings: Settings) -> dict:
         conn = _connect_readonly(theme_settings.db_file)
         try:
             item["schema_version"] = require_current_schema(conn)
+            item["schema_lineage"] = dbm.stored_schema_lineage(conn)
         finally:
             conn.close()
     except Exception as exc:  # noqa: BLE001
@@ -85,11 +81,12 @@ def _check_database(theme: ThemeInfo, theme_settings: Settings) -> dict:
 
 
 def liveness_report(s: Settings) -> dict:
-    """모든 활성 DB의 접근성과 현재 schema version을 읽기 전용 점검."""
+    """모든 활성 DB의 접근성과 현재 schema version/lineage를 읽기 전용 점검."""
 
     out: dict = {
         "ok": True,
         "expected_schema_version": dbm.SCHEMA_VERSION,
+        "expected_schema_lineage": dbm.SCHEMA_LINEAGE,
     }
     try:
         targets = _active_databases(s)
@@ -111,6 +108,7 @@ def liveness_report(s: Settings) -> dict:
     )
     if len(databases) == 1 and databases[0].get("schema_version") is not None:
         out["schema_version"] = databases[0]["schema_version"]
+        out["schema_lineage"] = databases[0]["schema_lineage"]
     return out
 
 
@@ -119,6 +117,7 @@ def health_report(s: Settings, provider_name: str) -> dict:
         "ok": True,
         "provider": provider_name,
         "expected_schema_version": dbm.SCHEMA_VERSION,
+        "expected_schema_lineage": dbm.SCHEMA_LINEAGE,
     }
     try:
         targets = _active_databases(s)
@@ -185,6 +184,7 @@ def health_report(s: Settings, provider_name: str) -> dict:
     )
     if len(databases) == 1 and databases[0].get("schema_version") is not None:
         out["schema_version"] = databases[0]["schema_version"]
+        out["schema_lineage"] = databases[0]["schema_lineage"]
     out["inbox"] = inbox
     out["refresh_pending"] = refresh_pending
     out["recover_due"] = recover_due

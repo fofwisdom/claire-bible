@@ -1780,6 +1780,12 @@ def _validate_sqlite_database(path: Path) -> dict[str, object]:
                 raise ManuscriptError(
                     f"Invalid SQLite schema_version: {path}: {row[0]!r}"
                 ) from exc
+            lineage_row = conn.execute(
+                "SELECT value FROM meta WHERE key='schema_lineage'"
+            ).fetchone()
+            schema_lineage = (
+                str(lineage_row[0]) if lineage_row is not None else None
+            )
         finally:
             conn.close()
     except ManuscriptError:
@@ -1789,6 +1795,7 @@ def _validate_sqlite_database(path: Path) -> dict[str, object]:
     return {
         "path": "",
         "schema_version": schema_version,
+        "schema_lineage": schema_lineage,
         "quick_check": "ok",
         "foreign_key_check": "ok",
     }
@@ -1902,6 +1909,21 @@ def _current_schema_version(layout: Layout) -> int:
     if match is None:
         raise ManuscriptError(f"Current DB schema version not found: {path}")
     return int(match.group(1))
+
+
+def _current_schema_lineage(layout: Layout) -> str:
+    path = layout.root / "src" / "claire" / "store" / "db.py"
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise ManuscriptError(f"Cannot read current DB schema lineage: {path}") from exc
+    match = re.search(
+        r'(?m)^SCHEMA_LINEAGE\s*=\s*["\']([^"\']+)["\']\s*$',
+        text,
+    )
+    if match is None:
+        raise ManuscriptError(f"Current DB schema lineage not found: {path}")
+    return match.group(1)
 
 
 def _backup_paths(layout: Layout, backup_id: str) -> tuple[Path, Path]:
@@ -2059,8 +2081,21 @@ def _validate_backup_manifest(root: Path) -> dict[str, object]:
             database.get("quick_check") != "ok"
             or database.get("foreign_key_check") != "ok"
             or database.get("schema_version") != report["schema_version"]
-            or set(database)
-            != {"path", "schema_version", "quick_check", "foreign_key_check"}
+            or database.get("schema_lineage") != report["schema_lineage"]
+            or frozenset(database) not in {
+                frozenset(
+                    {"path", "schema_version", "quick_check", "foreign_key_check"}
+                ),
+                frozenset(
+                    {
+                        "path",
+                        "schema_version",
+                        "schema_lineage",
+                        "quick_check",
+                        "foreign_key_check",
+                    }
+                ),
+            }
         ):
             raise ManuscriptError("Database metadata does not match actual database.")
     elif database is not None:
@@ -2831,13 +2866,27 @@ def command_restore(
                         f"{database.get('path')!r} != {expected_database!r}"
                     )
                 schema_version = database.get("schema_version")
+                schema_lineage = database.get("schema_lineage")
+                current_schema_version = _current_schema_version(runtime.layout)
+                current_schema_lineage = _current_schema_lineage(runtime.layout)
                 if (
                     not isinstance(schema_version, int)
                     or isinstance(schema_version, bool)
-                    or schema_version > _current_schema_version(runtime.layout)
+                    or schema_version > current_schema_version
                 ):
                     raise ManuscriptError(
                         "Cannot restore DB schema backup newer than current code."
+                    )
+                if schema_lineage not in {None, current_schema_lineage}:
+                    raise ManuscriptError(
+                        "Cannot restore DB backup from a different schema lineage."
+                    )
+                if (
+                    schema_version == current_schema_version
+                    and schema_lineage != current_schema_lineage
+                ):
+                    raise ManuscriptError(
+                        "Cannot restore current-version DB backup without its schema lineage."
                     )
 
             swaps = _prepare_restore_swaps(

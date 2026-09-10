@@ -189,6 +189,7 @@ def _get_build_identity() -> dict[str, Any]:
         ),
         "package_version": package_version,
         "schema_version": dbm.SCHEMA_VERSION,
+        "schema_lineage": dbm.SCHEMA_LINEAGE,
         "image_tag": os.environ.get("CLAIRE_IMAGE_TAG", "").strip() or None,
     }
 

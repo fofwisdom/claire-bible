@@ -61,6 +61,7 @@ Claire Bible은 적재된 지식베이스를 시각적으로 탐색하고 분석
 uv sync                      # 의존성 설치
 cp .env.example .env         # 로컬 개발 설정 준비 (기본 provider: mock)
 uv run claire preflight      # 환경/벡터백엔드/설정 사전 점검
+uv run claire migrate        # 공통 DB 스키마 v13 전환 및 버전·계보 검증
 uv run claire doctor         # 지식그래프 및 DB 무결성 진단 (자동수복: --heal)
 uv run claire ingest "https://example.com/article"   # 문서 수집 및 적재
 uv run claire search "키워드"                          # 하이브리드 검색 + LLM 인용 정리
@@ -153,6 +154,7 @@ Claire Bible은 호스트 오케스트레이션 도구인 **`cb-manuscript`**와
 | | `up`, `down`, `restart`, `status`, `logs` | Docker Compose 서비스 수명주기 제어 |
 | **`claire`** | `ingest [-t <theme>]`, `search` | 지식 문서 수집/적재 (테마 지정 지원), FTS+벡터 하이브리드 인용 검색 |
 | *(앱 CLI)* | `doctor`, `preflight`, `health`, `status` | 지식그래프 수복, 환경 점검, 헬스 JSON, 운영 상태 |
+| | `migrate` | 폐기된 v12를 보존 철회하고 공통 v13 버전·계보로 전환 |
 | | `stats [-t <theme>]` | 지식그래프 노드/엣지 통계 (테마 지정 지원) |
 | | `theme define/list/update/delete` | 시퀀스 기반 지식 테마 생성·조회·수정 및 영구 소각(`--purge`) |
 | | `reextract`, `backfill-detail`, `dedup-merge`| 전체/표 선별 그래프 재추출, 상세 백필, 근사 중복 문서 병합 |

@@ -126,7 +126,8 @@ def _write_layout(
     schema_source = root / "src" / "claire" / "store" / "db.py"
     schema_source.parent.mkdir(parents=True, exist_ok=True)
     schema_source.write_text(
-        f"SCHEMA_VERSION = {dbm.SCHEMA_VERSION}\n",
+        f"SCHEMA_VERSION = {dbm.SCHEMA_VERSION}\n"
+        f"SCHEMA_LINEAGE = {dbm.SCHEMA_LINEAGE!r}\n",
         encoding="utf-8",
     )
     (root / "docker-compose.yml").write_text(
@@ -305,6 +306,8 @@ def test_directory_and_archive_round_trip(
     assert manifest["profile"] == "production"
     assert manifest["project"] == "claire-bible"
     assert _manifest_components(manifest) == {"data", "vault"}
+    assert manifest["database"]["schema_version"] == dbm.SCHEMA_VERSION
+    assert manifest["database"]["schema_lineage"] == dbm.SCHEMA_LINEAGE
     assert "test-only-secret" not in json.dumps(manifest, ensure_ascii=False)
 
     artifact_bytes = artifact.read_bytes() if artifact.is_file() else None
@@ -586,6 +589,29 @@ def test_prod_and_dev_profile_mismatch_is_rejected_before_stop(
     assert not _has_compose_action(restore.commands, "stop")
 
 
+def test_foreign_schema_lineage_is_rejected_before_stop(tmp_path: Path) -> None:
+    root = tmp_path / "project"
+    _write_layout(root, dev=False)
+    _seed_storage(root)
+    conn = dbm.connect(root / "data" / "claire.db")
+    conn.execute(
+        "UPDATE meta SET value='unrelated/root' WHERE key='schema_lineage'"
+    )
+    conn.commit()
+    conn.close()
+
+    with _docker(DockerHarness()):
+        assert cb.main(["backup", "--format", "directory"], root=root) == 0
+
+    artifact = _visible_artifacts(root)[0]
+    assert _read_manifest(artifact)["database"]["schema_lineage"] == "unrelated/root"
+    restore = DockerHarness(running=("api-id",))
+    with _docker(restore):
+        assert cb.main(["restore", str(artifact), "--yes"], root=root) == 2
+
+    assert not _has_compose_action(restore.commands, "stop")
+
+
 def test_relative_storage_path_overrides_are_round_tripped(tmp_path: Path) -> None:
     root = tmp_path / "project"
     data = "./state/prod-data"
@@ -761,5 +787,4 @@ def test_restore_non_interactive_without_source_fails(tmp_path: Path) -> None:
                 raw_components=None,
                 confirmed=True,
             )
-
 
