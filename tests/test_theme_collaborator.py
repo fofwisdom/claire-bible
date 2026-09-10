@@ -336,3 +336,31 @@ async def test_telegram_webco_command(tmp_path: Path):
     sent_text = msg.reply_text.call_args[0][0]
     assert "협력자(Collaborator) 웹 링크" in sent_text
     assert "?t=" in sent_text
+
+
+def test_collaborator_theme_management_view_options(tmp_path: Path):
+    """협업자 웹 UI에서 테마 관리 메뉴 접근 및 테마 옵션 상세 뷰 탑재 검증."""
+    from claire.graphview import render_graph_html
+
+    settings = Settings(
+        db_path=str(tmp_path / "claire.db"),
+        vault_path=str(tmp_path / "vault"),
+        CLAIRE_MULTI_THEME=True,
+    )
+    html = render_graph_html(settings, collaborator=True)
+
+    # 1. 협업자도 멀티테마 시 테마 관리 버튼 활성화 조건 탑재
+    assert "canAccessThemes = (canWrite() || AUTH_SCOPE === 'collaborator') && isMultiThemeEnabled()" in html
+    assert "tmBtn.style.display = canAccessThemes ? '' : 'none'" in html
+
+    # 2. openThemeManager에서 협업자 진입 허용 확인
+    assert "const isCollab = AUTH_SCOPE === 'collaborator';" in html
+    assert "if(!isOwner && !isCollab) return;" in html
+
+    # 3. 테마 옵션 상세 뷰 토글 함수 및 템플릿 요소 탑재 확인
+    assert "toggleThemeOptionsView" in html
+    assert "⚙️ 테마 설정 옵션" in html
+    assert "theme-options-view-" in html
+    assert "⚙️ 옵션 보기" in html
+    assert "협업자(collaborator)는 권한이 부여된 테마의 상세 설정 및 옵션을 확인할 수 있습니다" in html
+
