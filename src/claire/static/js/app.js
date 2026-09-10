@@ -189,7 +189,8 @@ function renderThemeSelector(){
     const icon = t.icon || '📚';
     const label = esc(t.label);
     const idStr = t.id === 0 ? '기본' : ('#' + t.id);
-    return `<option value="${t.id}" ${t.id === activeThemeId ? 'selected' : ''}>${icon} ${label} (${idStr})</option>`;
+    const lockStr = t.is_public === false ? ' 🔒 (비공개)' : '';
+    return `<option value="${t.id}" ${t.id === activeThemeId ? 'selected' : ''}>${icon} ${label} (${idStr})${lockStr}</option>`;
   }).join('');
 
   if(iconEl && current){
@@ -218,7 +219,8 @@ function renderThemeOptions(selectedId){
     const icon = t.icon || '📚';
     const label = esc(t.label);
     const idStr = t.id === 0 ? '기본' : ('#' + t.id);
-    return `<option value="${t.id}" ${t.id === activeId ? 'selected' : ''}>${icon} ${label} (${idStr})</option>`;
+    const lockStr = t.is_public === false ? ' 🔒 (비공개)' : '';
+    return `<option value="${t.id}" ${t.id === activeId ? 'selected' : ''}>${icon} ${label} (${idStr})${lockStr}</option>`;
   }).join('');
 }
 
@@ -2358,6 +2360,8 @@ function setAccessScope(scope, reason){
     AUTH_SCOPE==='readonly' ? '👁️ 읽기전용' :
     AUTH_SCOPE==='anonymous' ? '👁️ 익명 읽기전용' :
     reason==='expired' ? '🔓 쓰기 세션 만료 — /web 재접속' : '⚠️ 권한 확인 실패';
+  const tmBtn = document.getElementById('thememanagebtn');
+  if(tmBtn) tmBtn.style.display = (canWrite() && isMultiThemeEnabled()) ? '' : 'none';
   if(!canWrite()){
     synthSet.clear();
     showHidden=false;
@@ -2373,6 +2377,105 @@ function setAccessScope(scope, reason){
   else panel.innerHTML=defaultHint();
 }
 function expireWriteAccess(){ setAccessScope('unknown','expired'); }
+
+async function openThemeManager(){
+  if(!canWrite()) return;
+  openDetailPane();
+  panel.innerHTML = '<h2>📁 지식 테마 관리</h2><p class="hint">테마 목록 조회 중…</p>';
+  try{
+    const r = await fetch('themes');
+    if(!r.ok) throw new Error('HTTP ' + r.status);
+    const data = await r.json();
+    const themes = data.themes || [];
+    let h = '<h2>📁 지식 테마 관리</h2>';
+    h += '<p class="al">지식 관리자(owner)는 테마별로 공개 여부를 설정할 수 있습니다. 비공개 테마는 익명 사용자에게 노출되지 않습니다.</p>';
+    h += '<div class="theme-manager-list" style="display:flex;flex-direction:column;gap:10px;margin-bottom:16px;">';
+    for(const t of themes){
+      const isPub = t.is_public !== false;
+      const pubBadge = isPub
+        ? '<span style="color:var(--accent,#00ffaa);font-weight:600;font-size:12px;background:rgba(0,255,170,0.1);padding:2px 6px;border-radius:4px">공개</span>'
+        : '<span style="color:var(--warn,#f39c12);font-weight:600;font-size:12px;background:rgba(243,156,18,0.1);padding:2px 6px;border-radius:4px">비공개 🔒</span>';
+      const toggleBtn = isPub
+        ? `<button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="toggleThemeVisibility(${t.id}, false)">비공개로 전환</button>`
+        : `<button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="toggleThemeVisibility(${t.id}, true)">공개로 전환</button>`;
+      const idLabel = t.id === 0 ? '기본 (ID 0)' : `테마 #${t.id}`;
+      h += `<div style="border:1px solid var(--border);border-radius:6px;padding:8px 10px;background:var(--sec-bg);">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+          <strong style="font-size:13px;">${t.icon || '📁'} ${esc(t.label)} <small style="opacity:0.7">(${idLabel})</small></strong>
+          <div style="display:flex;align-items:center;gap:6px;">
+            ${pubBadge}
+            ${toggleBtn}
+          </div>
+        </div>
+        ${t.description ? `<p style="margin:4px 0 0;font-size:12px;opacity:0.8">${esc(t.description)}</p>` : ''}
+      </div>`;
+    }
+    h += '</div>';
+
+    // 신규 테마 정의 폼
+    h += '<details style="border:1px solid var(--border);border-radius:6px;padding:8px 10px;background:var(--sec-bg);"><summary style="cursor:pointer;font-weight:600;font-size:13px;">➕ 새 테마 추가</summary>';
+    h += '<div style="display:flex;flex-direction:column;gap:8px;margin-top:8px;">';
+    h += '<div><label style="font-size:11px;opacity:0.8">레이블(이름)</label><input id="newthemep-label" style="width:100%;box-sizing:border-box" placeholder="예: 경제 및 금융"/></div>';
+    h += '<div><label style="font-size:11px;opacity:0.8">설명</label><input id="newthemep-desc" style="width:100%;box-sizing:border-box" placeholder="예: 거시경제 및 시장 분석"/></div>';
+    h += '<div style="display:flex;gap:8px;"><div style="flex:1"><label style="font-size:11px;opacity:0.8">아이콘</label><input id="newthemep-icon" style="width:100%;box-sizing:border-box" value="📁"/></div>';
+    h += '<div style="flex:2;display:flex;align-items:center;padding-top:14px;"><label style="font-size:12px;cursor:pointer;"><input id="newthemep-pub" type="checkbox" checked style="width:auto;margin-right:4px;vertical-align:middle;"/>익명 사용자에게 공개</label></div></div>';
+    h += '<button type="button" style="align-self:flex-start;padding:4px 12px;margin-top:4px;" onclick="createThemeFromUI()">테마 생성</button>';
+    h += '</div></details>';
+
+    panel.innerHTML = h;
+  }catch(e){
+    panel.innerHTML = '<p class="hint">테마 목록 조회 실패: ' + esc(String(e)) + '</p>';
+  }
+}
+
+async function toggleThemeVisibility(themeId, newVisibility){
+  if(!canWrite()) return;
+  try{
+    const r = await fetch('themes', {
+      method: 'PATCH',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({id: themeId, is_public: newVisibility})
+    });
+    if(!r.ok){
+      const err = await r.json().catch(()=>({}));
+      alert('테마 공개 여부 수정 실패: ' + (err.detail || err.error || ('HTTP ' + r.status)));
+      return;
+    }
+    await fetchThemes();
+    openThemeManager();
+  }catch(e){
+    alert('오류: ' + e);
+  }
+}
+
+async function createThemeFromUI(){
+  if(!canWrite()) return;
+  const labelEl = document.getElementById('newthemep-label');
+  const descEl = document.getElementById('newthemep-desc');
+  const iconEl = document.getElementById('newthemep-icon');
+  const pubEl = document.getElementById('newthemep-pub');
+  const label = ((labelEl||{}).value||'').trim();
+  if(!label){ alert('테마 이름을 입력하세요.'); return; }
+  const description = ((descEl||{}).value||'').trim();
+  const icon = ((iconEl||{}).value||'📁').trim() || '📁';
+  const is_public = pubEl ? pubEl.checked : true;
+  try{
+    const r = await fetch('themes', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({label, description, icon, is_public})
+    });
+    if(!r.ok){
+      const err = await r.json().catch(()=>({}));
+      alert('테마 생성 실패: ' + (err.detail || err.error || ('HTTP ' + r.status)));
+      return;
+    }
+    await fetchThemes();
+    openThemeManager();
+  }catch(e){
+    alert('오류: ' + e);
+  }
+}
 async function synth(){
   if(!canWrite()) return;
   const ids=[...synthSet];

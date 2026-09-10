@@ -201,3 +201,75 @@ def test_theme_update_label(theme_app_client):
     themes = list_resp.json()["themes"]
     t1 = next(t for t in themes if t["id"] == 1)
     assert t1["label"] == "변경된 이름"
+
+
+def test_theme_visibility_api_security(theme_app_client):
+    """지식 관리자의 비공개 테마 설정 및 익명 사용자 격리/보안 검증."""
+    client, _ = theme_app_client
+
+    # 1. owner 권한으로 비공개 테마(id: 1, is_public: false) 정의
+    resp_create = client.post(
+        "/themes",
+        json={"label": "비밀 연구 테마", "icon": "🔒", "is_public": False},
+        headers=OWNER_HEADERS,
+    )
+    assert resp_create.status_code == 201
+    assert resp_create.json()["theme"]["is_public"] is False
+
+    # 2. owner 권한으로 비공개 테마에 문서 적재
+    ingest_resp = client.post(
+        "/ingest",
+        json={"payload": "비밀 프로젝트 기밀 문서", "theme": 1},
+        headers=OWNER_HEADERS,
+    )
+    assert ingest_resp.status_code == 200
+    assert ingest_resp.json().get("theme_id") == 1
+
+    # 3. 익명(anonymous) 사용자 GET /themes -> 비공개 테마(1)는 목록에서 완전히 배제
+    anon_list = client.get("/themes")
+    assert anon_list.status_code == 200
+    anon_theme_ids = [t["id"] for t in anon_list.json()["themes"]]
+    assert 0 in anon_theme_ids
+    assert 1 not in anon_theme_ids
+
+    # 4. 인증된 owner 및 readonly 사용자 GET /themes -> 비공개 테마(1) 포함 및 is_public=False 표기
+    owner_list = client.get("/themes", headers=OWNER_HEADERS)
+    assert owner_list.status_code == 200
+    owner_themes = owner_list.json()["themes"]
+    t1 = next(t for t in owner_themes if t["id"] == 1)
+    assert t1["is_public"] is False
+
+    readonly_list = client.get("/themes", headers=READONLY_HEADERS)
+    assert readonly_list.status_code == 200
+    ro_theme_ids = [t["id"] for t in readonly_list.json()["themes"]]
+    assert 1 in ro_theme_ids
+
+    # 5. 익명 사용자가 비공개 테마에 직접 접근 시도 -> 404 차단
+    # 5-1. /stats?theme=1
+    assert client.get("/stats?theme=1").status_code == 404
+    # 5-2. /documents?theme=1
+    assert client.get("/documents?theme=1").status_code == 404
+    # 5-3. /graph?theme=1
+    assert client.get("/graph?theme=1").status_code == 404
+    # 5-4. X-Claire-Theme 헤더로 접근
+    assert client.get("/stats", headers={"X-Claire-Theme": "1"}).status_code == 404
+
+    # 6. 인증된 owner는 비공개 테마 데이터 접근 정상 허용
+    assert client.get("/stats?theme=1", headers=OWNER_HEADERS).status_code == 200
+    assert client.get("/documents?theme=1", headers=OWNER_HEADERS).status_code == 200
+    assert client.get("/graph?theme=1", headers=OWNER_HEADERS).status_code == 200
+
+    # 7. 지식 관리자(owner)가 테마를 공개로 전환 (PATCH /themes, is_public: true)
+    patch_resp = client.patch(
+        "/themes",
+        json={"id": 1, "is_public": True},
+        headers=OWNER_HEADERS,
+    )
+    assert patch_resp.status_code == 200
+    assert patch_resp.json()["theme"]["is_public"] is True
+
+    # 8. 공개 전환 후 익명 사용자에게도 정상 노출 및 접근 허용
+    anon_list_after = client.get("/themes")
+    assert 1 in [t["id"] for t in anon_list_after.json()["themes"]]
+    assert client.get("/stats?theme=1").status_code == 200
+    assert client.get("/documents?theme=1").status_code == 200

@@ -129,3 +129,38 @@ def test_cli_theme_define_update_delete(cli_theme_env, capsys):
     # 6. 목록에서 제거되었는지 확인
     tm.reload()
     assert 1 not in [t.id for t in tm.list_themes()]
+
+
+def test_cli_theme_visibility_flags(cli_theme_env, capsys):
+    """CLI에서 --public / --private 옵션으로 테마 공개 여부 정의 및 수정 검증."""
+    settings, tm = cli_theme_env
+
+    # 1. 비공개 테마 정의 (--private)
+    ret = cli.main(["theme", "define", "--label", "비공개 보안", "--private", "--desc", "내부 전용"])
+    assert ret == 0
+    captured = capsys.readouterr().out
+    assert "비공개 (Private 🔒)" in captured
+
+    # 2. 목록 확인 (테이블 및 JSON)
+    ret = cli.main(["theme", "list"])
+    assert ret == 0
+    table_out = capsys.readouterr().out
+    assert "비공개 🔒" in table_out
+
+    ret = cli.main(["theme", "list", "--json"])
+    assert ret == 0
+    data = json.loads(capsys.readouterr().out)
+    t1 = next(t for t in data["themes"] if t["id"] == 1)
+    assert t1["is_public"] is False
+
+    # 3. 공개 테마로 수정 (--public)
+    ret = cli.main(["theme", "update", "1", "--public"])
+    assert ret == 0
+    captured_update = capsys.readouterr().out
+    assert "공개 (Public)" in captured_update
+
+    ret = cli.main(["theme", "list", "--json"])
+    assert ret == 0
+    data_after = json.loads(capsys.readouterr().out)
+    t1_after = next(t for t in data_after["themes"] if t["id"] == 1)
+    assert t1_after["is_public"] is True
