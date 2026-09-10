@@ -113,8 +113,17 @@ def test_update_theme_label_does_not_change_folder(temp_theme_env):
 
 def test_cannot_delete_default_theme(temp_theme_env):
     manager, _, _ = temp_theme_env
+    # 1. 숫자 0으로 삭제 시도 -> ValueError 차단
     with pytest.raises(ValueError, match="기본 테마.*삭제할 수 없습니다"):
         manager.delete_theme(0)
+
+    # 2. 문자열 "0"으로 삭제 시도 -> ValueError 차단
+    with pytest.raises(ValueError, match="기본 테마.*삭제할 수 없습니다"):
+        manager.delete_theme("0")
+
+    # 3. 레이블 이름("기본 지식베이스")으로 삭제 시도 -> ValueError 차단
+    with pytest.raises(ValueError, match="기본 테마.*삭제할 수 없습니다"):
+        manager.delete_theme("기본 지식베이스")
 
 
 def test_delete_and_purge_custom_theme(temp_theme_env):
@@ -122,10 +131,19 @@ def test_delete_and_purge_custom_theme(temp_theme_env):
     t1 = manager.define_theme("임시 테마")
     assert manager.get_theme(t1.id).id == t1.id
 
-    manager.delete_theme(t1.id, purge=True)
+    # 테마 이름(레이블)으로 삭제 및 소각(purge)
+    deleted = manager.delete_theme("임시 테마", purge=True)
+    assert deleted.id == 1
+    assert deleted.label == "임시 테마"
     assert len(manager.list_themes()) == 1
+
     # 삭제된 ID 조회 시 기본 테마 0 반환 (strict=False)
     assert manager.get_theme(t1.id).id == 0
+
+    # 존재하지 않는 테마 삭제 시도 시 KeyError
+    with pytest.raises(KeyError):
+        manager.delete_theme("존재하지않는테마")
+
 
 
 def test_theme_visibility_define_and_update(temp_theme_env):

@@ -2441,6 +2441,7 @@ async function openThemeManager(){
             ${t.id > 0 ? collabBadge : ''}
             ${t.id > 0 ? toggleCollabBtn : ''}
             <button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="showThemeEditForm(${t.id})">✏️ 수정</button>
+            ${t.id > 0 ? `<button type="button" class="sec danger-btn" style="font-size:11px;padding:3px 8px;color:var(--err,#cf222e);border-color:rgba(207,34,46,0.3);" onclick="deleteThemeFromUI(${t.id}, '${esc(t.label)}')">🗑️ 삭제</button>` : ''}
           </div>
         </div>
         ${t.description ? `<p style="margin:4px 0 0;font-size:12px;opacity:0.8">${esc(t.description)}</p>` : ''}
@@ -2452,9 +2453,10 @@ async function openThemeManager(){
             <div style="flex:1;display:flex;align-items:center;padding-top:14px;"><label style="font-size:12px;cursor:pointer;"><input id="editthemep-pub-${t.id}" type="checkbox" ${isPub ? 'checked' : ''} style="width:auto;margin-right:4px;vertical-align:middle;"/>익명 사용자에게 공개</label></div>
             ${t.id > 0 ? `<div style="flex:1;display:flex;align-items:center;padding-top:14px;"><label style="font-size:12px;cursor:pointer;"><input id="editthemep-collab-${t.id}" type="checkbox" ${isCollab ? 'checked' : ''} style="width:auto;margin-right:4px;vertical-align:middle;"/>협업자에게 공개</label></div>` : ''}
           </div>
-          <div style="display:flex;gap:6px;margin-top:4px;">
+          <div style="display:flex;gap:6px;margin-top:4px;align-items:center;">
             <button type="button" style="padding:4px 12px;" onclick="updateThemeFromUI(${t.id})">저장</button>
             <button type="button" class="sec" style="padding:4px 12px;" onclick="hideThemeEditForm(${t.id})">취소</button>
+            ${t.id > 0 ? `<button type="button" class="sec danger-btn" style="margin-left:auto;padding:4px 10px;font-size:11px;color:var(--err,#cf222e);border-color:rgba(207,34,46,0.3);" onclick="deleteThemeFromUI(${t.id}, '${esc(t.label)}')">🗑️ 테마 완전 삭제</button>` : ''}
           </div>
         </div>
       </div>`;
@@ -2594,6 +2596,37 @@ async function createThemeFromUI(){
       return;
     }
     await fetchThemes();
+    openThemeManager();
+  }catch(e){
+    alert('오류: ' + e);
+  }
+}
+
+async function deleteThemeFromUI(themeId, label){
+  if(!canWrite()) return;
+  if(themeId === 0){
+    alert('기본 지식베이스(기본 테마)는 삭제할 수 없습니다.');
+    return;
+  }
+  const confirmed = confirm(`'${label}' 테마를 완전히 삭제하시겠습니까?\n\n이 테마에 저장된 데이터베이스 및 모든 파일이 영구 삭제(소각)됩니다.`);
+  if(!confirmed) return;
+
+  try{
+    const r = await fetch(`themes?id=${themeId}&purge=1`, {
+      method: 'DELETE'
+    });
+    if(!r.ok){
+      const err = await r.json().catch(()=>({}));
+      alert('테마 삭제 실패: ' + (err.detail || err.error || ('HTTP ' + r.status)));
+      return;
+    }
+    if(activeThemeId === themeId){
+      activeThemeId = 0;
+      try{ localStorage.setItem('claire_active_theme', '0'); }catch(e){}
+    }
+    await fetchThemes();
+    await reloadThemeData();
+    await loadThemeDocuments();
     openThemeManager();
   }catch(e){
     alert('오류: ' + e);

@@ -135,3 +135,10 @@ def test_theme_selector_ux_and_modification_features(tmp_path: Path):
     assert "editthemep-pub-" in html
     assert "✏️ 수정" in html
 
+    # 3. 기본 지식베이스(ID 0) 제외 추가 테마 삭제 UI(삭제 버튼 및 deleteThemeFromUI 함수) 탑재 확인
+    assert "deleteThemeFromUI" in html
+    assert "기본 지식베이스(기본 테마)는 삭제할 수 없습니다" in html
+    assert "🗑️ 삭제" in html
+    assert "🗑️ 테마 완전 삭제" in html
+
+

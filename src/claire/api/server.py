@@ -486,25 +486,34 @@ def create_app(
                 status_code=403,
                 detail="멀티 테마 모드가 비활성화되어 있습니다 (CLAIRE_MULTI_THEME=1 필요)",
             )
-        theme_id = (
-            request.query_params.get("id")
-            or request.path_params.get("theme_id", "")
-        )
-        if not theme_id and request.headers.get("content-type") == "application/json":
+        body: dict[str, Any] = {}
+        if request.headers.get("content-type") == "application/json":
             try:
-                body = await _json_object(request)
-                if body and body.get("id") is not None:
-                    theme_id = str(body["id"])
+                raw_body = await _json_object(request)
+                if isinstance(raw_body, dict):
+                    body = raw_body
             except Exception:
                 pass
+
+        theme_id = (
+            request.query_params.get("id")
+            or (str(body.get("id")) if body.get("id") is not None else None)
+            or request.path_params.get("theme_id", "")
+        )
         if not theme_id:
             raise HTTPException(status_code=400, detail="id is required")
+
         purge = (
             request.query_params.get("purge", "0").strip().lower()
             in ("1", "true", "yes")
         )
+        if not purge and isinstance(body, dict):
+            purge = bool(body.get("purge", False))
+
         try:
             deleted = theme_mgr.delete_theme(theme_id, purge=purge)
+            if hasattr(service_pool, "remove_service"):
+                service_pool.remove_service(deleted.id)
             return JSONResponse({"ok": True, "deleted": deleted.to_dict()})
         except KeyError as k_err:
             raise HTTPException(status_code=404, detail=str(k_err)) from k_err
