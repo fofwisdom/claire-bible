@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 import re
 import secrets
 import shutil
@@ -19,7 +20,8 @@ from pathlib import Path
 from ..ontology.base import Document, Entity, Relation
 
 SCHEMA_VERSION = 11
-_LOCAL_SUPPORT_SCHEMA_VERSION = 12
+_RETIRED_SUPPORT_SCHEMA_VERSION = 12
+_RETIRED_SUPPORT_RECOVERY_TARGET = 11
 logger = logging.getLogger(__name__)
 
 _LOCAL_SUPPORT_V12_COLUMNS = {
@@ -421,61 +423,101 @@ def _database_path(conn: sqlite3.Connection) -> Path:
     return Path(str(row["file"])).resolve()
 
 
+def _write_durable_export_file(path: Path, payload: bytes) -> str:
+    """새 export 파일을 0600으로 쓰고 데이터 블록을 디스크에 동기화한다."""
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(payload)
+            stream.flush()
+            os.fsync(stream.fileno())
+    except Exception:
+        path.unlink(missing_ok=True)
+        raise
+    path.chmod(0o600)
+    return hashlib.sha256(payload).hexdigest()
+
+
+def _fsync_directory(path: Path) -> None:
+    descriptor = os.open(path, os.O_RDONLY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
 def _export_local_support_v12(conn: sqlite3.Connection) -> Path:
-    """Drop 전 진단 전용 v12 행을 권한 제한 JSONL 아티팩트로 보존한다."""
+    """잠긴 v12 행을 권한 제한 JSONL로 내구성 있게 보존한다."""
+    if not conn.in_transaction:
+        raise RuntimeError("v12 export requires an active database transaction")
     db_path = _database_path(conn)
     path_key = hashlib.sha256(str(db_path).encode("utf-8")).hexdigest()[:12]
     stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+    migrations_dir = db_path.parent / "raw" / "migrations"
     export_dir = (
-        db_path.parent / "raw" / "migrations" /
+        migrations_dir /
         f"support-diagnostics-v12-to-v11-{stamp}-{path_key}-{secrets.token_hex(4)}"
     )
+    migrations_dir.mkdir(parents=True, exist_ok=True)
     export_dir.mkdir(parents=True, mode=0o700, exist_ok=False)
     export_dir.chmod(0o700)
-    counts: dict[str, int] = {}
-    for table in _LOCAL_SUPPORT_V12_COLUMNS:
-        rows = [dict(row) for row in conn.execute(f"SELECT * FROM {table} ORDER BY id")]
-        counts[table] = len(rows)
-        output = export_dir / f"{table}.jsonl"
-        output.write_text(
-            "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows),
-            encoding="utf-8",
+    try:
+        counts: dict[str, int] = {}
+        files: dict[str, dict[str, str | int]] = {}
+        for table in _LOCAL_SUPPORT_V12_COLUMNS:
+            rows = [
+                dict(row)
+                for row in conn.execute(f"SELECT * FROM {table} ORDER BY id")
+            ]
+            counts[table] = len(rows)
+            output = export_dir / f"{table}.jsonl"
+            payload = "".join(
+                json.dumps(row, ensure_ascii=False) + "\n" for row in rows
+            ).encode("utf-8")
+            digest = _write_durable_export_file(output, payload)
+            files[output.name] = {
+                "rows": len(rows),
+                "bytes": len(payload),
+                "sha256": digest,
+            }
+        manifest = export_dir / "manifest.json"
+        manifest_payload = (
+            json.dumps(
+                {
+                    "migration": "local-support-v12-to-v11",
+                    "source_database": db_path.name,
+                    "from_schema_version": _RETIRED_SUPPORT_SCHEMA_VERSION,
+                    "to_schema_version": _RETIRED_SUPPORT_RECOVERY_TARGET,
+                    "created_at": time.time(),
+                    "row_counts": counts,
+                    "files": files,
+                },
+                ensure_ascii=False,
+                indent=2,
+            ) + "\n"
         )
-        output.chmod(0o600)
-    manifest = export_dir / "manifest.json"
-    manifest.write_text(
-        json.dumps(
-            {
-                "migration": "local-support-v12-to-v11",
-                "source_database": db_path.name,
-                "from_schema_version": _LOCAL_SUPPORT_SCHEMA_VERSION,
-                "to_schema_version": SCHEMA_VERSION,
-                "created_at": time.time(),
-                "row_counts": counts,
-            },
-            ensure_ascii=False,
-            indent=2,
-        ) + "\n",
-        encoding="utf-8",
-    )
-    manifest.chmod(0o600)
+        _write_durable_export_file(manifest, manifest_payload.encode("utf-8"))
+        _fsync_directory(export_dir)
+        _fsync_directory(migrations_dir)
+    except Exception:
+        shutil.rmtree(export_dir, ignore_errors=True)
+        _fsync_directory(migrations_dir)
+        raise
     return export_dir
 
 
 def _restore_local_support_v12_to_v11(conn: sqlite3.Connection) -> Path:
     """이번 Support Bundle 확장으로 생성된 v12만 보존 후 v11로 되돌린다."""
-    if not _is_local_support_v12(conn):
-        raise RuntimeError(
-            "database schema v12 does not match the local Support Bundle extension; "
-            "refusing automatic rollback"
-        )
-    export_dir = _export_local_support_v12(conn)
     try:
         conn.execute("BEGIN IMMEDIATE")
-        if stored_schema_version(conn) != _LOCAL_SUPPORT_SCHEMA_VERSION:
+        if stored_schema_version(conn) != _RETIRED_SUPPORT_SCHEMA_VERSION:
             raise RuntimeError("database schema changed during v12 rollback")
         if not _is_local_support_v12(conn):
-            raise RuntimeError("database table signature changed during v12 rollback")
+            raise RuntimeError(
+                "database schema v12 does not match the retired Support Bundle "
+                "extension; refusing automatic rollback"
+            )
+        export_dir = _export_local_support_v12(conn)
         conn.execute("DROP INDEX IF EXISTS idx_fetch_attempts_document")
         conn.execute("DROP INDEX IF EXISTS idx_fetch_attempts_inbox")
         conn.execute("DROP INDEX IF EXISTS idx_ingest_attempts_inbox")
@@ -483,7 +525,7 @@ def _restore_local_support_v12_to_v11(conn: sqlite3.Connection) -> Path:
         conn.execute("DROP TABLE ingest_attempts")
         conn.execute(
             "UPDATE meta SET value=? WHERE key='schema_version'",
-            (str(SCHEMA_VERSION),),
+            (str(_RETIRED_SUPPORT_RECOVERY_TARGET),),
         )
         conn.commit()
     except Exception:
@@ -498,10 +540,7 @@ def _restore_local_support_v12_to_v11(conn: sqlite3.Connection) -> Path:
 
 def init_db(conn: sqlite3.Connection) -> None:
     existing_version = stored_schema_version(conn)
-    if (
-        existing_version == _LOCAL_SUPPORT_SCHEMA_VERSION
-        and _is_local_support_v12(conn)
-    ):
+    if existing_version == _RETIRED_SUPPORT_SCHEMA_VERSION:
         _restore_local_support_v12_to_v11(conn)
         existing_version = stored_schema_version(conn)
     if existing_version is not None and existing_version > SCHEMA_VERSION:
