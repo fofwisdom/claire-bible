@@ -409,33 +409,30 @@ class ThemeManager:
         self.reload()
         try:
             tid = int(theme_id)
-        except (ValueError, TypeError) as err:
-            raise KeyError(f"유효하지 않은 테마 ID: {theme_id}") from err
+            if tid not in self._themes:
+                raise KeyError(f"존재하지 않는 테마 ID: {tid}")
+        except (ValueError, TypeError):
+            target = self.get_theme(theme_id, strict=True)
+            tid = target.id
 
         if tid == 0:
             raise ValueError("기본 테마(ID 0)는 삭제할 수 없습니다.")
 
-        if tid not in self._themes:
-            raise KeyError(f"존재하지 않는 테마 ID: {tid}")
+        theme = self._themes[tid]
+        t_settings = self.get_settings_for_theme(tid)
 
-        theme = self._themes.pop(tid)
+        self._themes.pop(tid)
         self._save_registry()
 
         if purge:
             # 완전 소각: DB 파일 및 vault 디렉터리 삭제
             try:
-                t_settings = self.get_settings_for_theme(tid)
                 db_p = t_settings.db_file
-                if db_p.is_file():
-                    db_p.unlink()
-                # WAL/SHM 정리
-                for ext in ("-wal", "-shm"):
-                    extra = Path(str(db_p) + ext)
-                    if extra.is_file():
-                        extra.unlink()
                 if db_p.parent.name == str(tid) and db_p.parent.is_dir():
                     import shutil
                     shutil.rmtree(db_p.parent, ignore_errors=True)
+                elif db_p.is_file():
+                    db_p.unlink()
 
                 vault_p = t_settings.vault_dir
                 if vault_p.name == str(tid) and vault_p.is_dir():

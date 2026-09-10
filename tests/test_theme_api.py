@@ -273,3 +273,40 @@ def test_theme_visibility_api_security(theme_app_client):
     assert 1 in [t["id"] for t in anon_list_after.json()["themes"]]
     assert client.get("/stats?theme=1").status_code == 200
     assert client.get("/documents?theme=1").status_code == 200
+
+
+def test_delete_theme_api(theme_app_client):
+    """기본 테마 삭제 차단 및 추가 테마 삭제/소각(purge) API 검증."""
+    client, _ = theme_app_client
+
+    # 1. 새 테마 생성 (id: 1, 2)
+    resp1 = client.post("/themes", json={"label": "삭제 대상 1"}, headers=OWNER_HEADERS)
+    assert resp1.status_code == 201
+    resp2 = client.post("/themes", json={"label": "삭제 대상 2"}, headers=OWNER_HEADERS)
+    assert resp2.status_code == 201
+
+    # 2. 기본 테마(0) 삭제 시도 -> 400 에러 차단
+    del_default = client.delete("/themes?id=0", headers=OWNER_HEADERS)
+    assert del_default.status_code == 400
+    err_msg = str(del_default.json().get("error") or del_default.json().get("detail") or "")
+    assert "기본 테마" in err_msg or "기본 지식베이스" in err_msg
+
+    # 3. 권한 없는 사용자(익명/readonly) 삭제 시도 -> 403/404 차단
+    assert client.delete("/themes?id=1").status_code in (403, 404)
+    assert client.delete("/themes?id=1", headers=READONLY_HEADERS).status_code in (403, 404)
+
+    # 4. owner 사용자가 쿼리 파라미터로 추가 테마 1 삭제 (purge=1)
+    del_t1 = client.delete("/themes?id=1&purge=1", headers=OWNER_HEADERS)
+    assert del_t1.status_code == 200
+    assert del_t1.json()["deleted"]["id"] == 1
+
+    # 5. owner 사용자가 JSON body로 추가 테마 2 삭제 (purge: true)
+    del_t2 = client.request("DELETE", "/themes", json={"id": 2, "purge": True}, headers=OWNER_HEADERS)
+    assert del_t2.status_code == 200
+    assert del_t2.json()["deleted"]["id"] == 2
+
+    # 6. 테마 목록 조회 -> 추가 테마들이 정상 제거되었고 기본 테마 0만 남았는지 확인
+    themes_after = client.get("/themes", headers=OWNER_HEADERS).json()["themes"]
+    remaining_ids = [t["id"] for t in themes_after]
+    assert remaining_ids == [0]
+

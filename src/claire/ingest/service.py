@@ -1499,3 +1499,8 @@ class IngestServicePool:
         )
         self._services[theme.id] = svc
         return svc
+
+    def remove_service(self, theme_id: int) -> None:
+        """테마 삭제 시 캐싱된 IngestService 인스턴스 정리."""
+        self._services.pop(theme_id, None)
+

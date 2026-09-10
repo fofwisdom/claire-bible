@@ -201,3 +201,27 @@ def test_cli_theme_update_full_options(cli_theme_env, capsys):
     assert "이름 기반으로 바꾼 설명" in captured_by_name
     assert "공개 (Public)" in captured_by_name
 
+
+def test_cli_theme_delete_additional_only(cli_theme_env, capsys):
+    """CLI에서 기본 테마(0) 삭제 차단 및 추가 테마 삭제 검증."""
+    settings, tm = cli_theme_env
+
+    # 1. 기본 테마(0) 삭제 시도 -> 에러 차단
+    ret = cli.main(["theme", "delete", "0", "-y"])
+    assert ret == 1
+    err = capsys.readouterr().err
+    assert "기본" in err and "삭제할 수 없습니다" in err
+
+    # 2. 추가 테마 생성
+    ret = cli.main(["theme", "define", "--label", "삭제용 테마"])
+    assert ret == 0
+    capsys.readouterr()
+
+    # 3. 레이블 이름으로 추가 테마 삭제
+    ret = cli.main(["theme", "delete", "삭제용 테마", "--purge", "-y"])
+    assert ret == 0
+    out = capsys.readouterr().out
+    assert "삭제 완료" in out
+    assert "삭제용 테마" in out
+
+
