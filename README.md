@@ -51,6 +51,10 @@ Claire Bible은 적재된 지식베이스를 시각적으로 탐색하고 분석
 
 ![두 노드를 선택한 다중 노드 종합 화면](docs/origin/screenshots/multi-node-synthesis.png)
 
+### 멀티 테마 지식베이스 (Multi-Theme)
+
+`CLAIRE_MULTI_THEME=1` 활성화 시 단일 인스턴스 내에서 시퀀스 기반의 물리적 DB/Vault 격리(`data/themes/{seq}/`, `vault/themes/{seq}/`)를 제공합니다. 웹 UI 우측 상단의 테마 선택기(Theme Selector)를 통해 관심 분야별 지식베이스를 즉시 전환할 수 있으며, 테마별 기본 적재 초점(`default_focus`) 및 협력자 권한 제어를 지원합니다. (상세: [MULTI_THEME_ARCHITECTURE_DESIGN.md](docs/origin/design/MULTI_THEME_ARCHITECTURE_DESIGN.md))
+
 ## 로컬 개발 빠른 시작 (Quick Start)
 
 ```bash
@@ -147,8 +151,10 @@ Claire Bible은 호스트 오케스트레이션 도구인 **`cb-manuscript`**와
 | | `regenerate --tables --all --apply` | 특정 문서 또는 표(Table) 포함 문서 컴포넌트 LLM 재생성 |
 | | `backup`, `restore`, `format-migrate` | DB/Vault 아카이브 백업·복원, 상세 포맷 일괄 변환 |
 | | `up`, `down`, `restart`, `status`, `logs` | Docker Compose 서비스 수명주기 제어 |
-| **`claire`** | `ingest`, `search` | 지식 문서 수집/적재, FTS+벡터 하이브리드 인용 검색 |
+| **`claire`** | `ingest [-t <theme>]`, `search` | 지식 문서 수집/적재 (테마 지정 지원), FTS+벡터 하이브리드 인용 검색 |
 | *(앱 CLI)* | `doctor`, `preflight`, `health`, `status` | 지식그래프 수복, 환경 점검, 헬스 JSON, 운영 상태 |
+| | `stats [-t <theme>]` | 지식그래프 노드/엣지 통계 (테마 지정 지원) |
+| | `theme define/list/update/delete` | 시퀀스 기반 지식 테마 생성·조회·수정 및 영구 소각(`--purge`) |
 | | `reextract`, `backfill-detail`, `dedup-merge`| 전체/표 선별 그래프 재추출, 상세 백필, 근사 중복 문서 병합 |
 | | `queue status`, `queue list inbox` | `raw_inbox`·`refresh_queue`·`expand_queue`의 상태 분포와 대기·오류 항목 조회 |
 | | `telemetry`, `support-bundle` | 프로바이더 호출 텔레메트리 통계 조회, zstd 압축 Support Bundle 생성·조회·파기 |

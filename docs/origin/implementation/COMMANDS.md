@@ -23,6 +23,7 @@
    * [3.7 감시 및 문서 관리 (Watch & Doc)](#37-감시-및-문서-관리-watch--doc)
    * [3.8 데이터 수명주기 및 오염 소각 (Lifecycle & Purge)](#38-데이터-수명주기-및-오염-소각-lifecycle--purge)
    * [3.9 관측성 및 문제 해결 (Observability, Telemetry & Support Bundle)](#39-관측성-및-문제-해결-observability-telemetry--support-bundle)
+   * [3.10 지식 테마 관리 및 다중 DB 격리 (Theme Management)](#310-지식-테마-관리-및-다중-db-격리-theme-management)
 4. [미구현(Unimplemented) / 부분 구현 옵션 및 상태 명세](#4-미구현unimplemented--부분-구현-옵션-및-상태-명세)
 5. [참고문헌](#5-참고문헌)
 
@@ -132,7 +133,7 @@ Git 저장소 최신 커밋을 가져와 무중단 롤링 업데이트를 수행
 | `liveness` | `claire liveness` | 읽기 전용 DB 및 스키마 생존 여부 확인 (Degraded 시 비정상 종료 안 함) |
 | `status` | `claire status` | 운영 상태, DB 테이블 카운트, 프로바이더 설정 전체 출력 |
 | `queue` | `claire queue status` / `claire queue list <inbox\|refresh\|expand>` | 비동기 큐 상태 분포와 대기·오류 항목 조회 |
-| `stats` | `claire stats` | 지식그래프 노드(엔티티) 및 엣지(관계) 카운트 출력 |
+| `stats` | `claire stats [-t <theme>]` | 지식그래프 노드(엔티티) 및 엣지(관계) 카운트 출력 (멀티 테마 지원) |
 | `repo` | `claire repo` | Git 소스 저장소 정보 및 원격 URL 출력 |
 | `migrate` | `claire migrate` | 스키마를 최신 `SCHEMA_VERSION`으로 초기화/업그레이드 |
 
@@ -184,9 +185,10 @@ Git 저장소 최신 커밋을 가져와 무중단 롤링 업데이트를 수행
 
 #### `ingest <payload>`
 URL, 일반 텍스트, 또는 로컬 파일로부터 문서를 수집하고 지식그래프를 구축합니다.
-* **사용법**: `claire ingest "https://example.com/article" [--expand] [--title "제목"] [--format {md,adoc}] [--focus "초점 지침"]`
+* **사용법**: `claire ingest "https://example.com/article" [-t <theme>] [--expand] [--title "제목"] [--format {md,adoc}] [--focus "초점 지침"]`
 * **주요 옵션**:
-  * `--focus <focus>`: 가독 상세(detail) 작성을 위한 집중 초점/지침 지정 (호환 별칭: `--orientation`, `--directive`).
+  * `-t <theme>`, `--theme <theme>`: 적재 대상 테마 지정 (테마 ID, 일련번호, 또는 레이블 이름 지원). 미지정 시 기본 지식베이스(ID 0)에 적재. 대상 추가 테마에 `default_focus`가 설정되어 있고 명시적 `--focus`가 없으면 해당 기본 초점이 자동 적용됩니다.
+  * `--focus <focus>`: 가독 상세(detail) 작성을 위한 집중 초점/지침 지정 (호환 별칭: `--orientation`, `--directive`). 지정 시 테마의 기본 초점보다 우선하여 덮어씁니다.
   * `--expand`: 본문에서 추출된 외부 링크 URL들을 1홉 확장 큐(`expand_queue`)에 등록.
   * `--title <title>`: 자동 추출 제목 대신 수동 제목 지정.
   * `--format {md,adoc}`: 상세 detail 렌더링 포맷 지정.
@@ -437,6 +439,57 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 
 ---
 
+### 3.10 지식 테마 관리 및 다중 DB 격리 (Theme Management)
+
+`claire theme` 명령군은 지식 테마 레지스트리(`themes.json`) 및 시퀀스 기반의 물리적 저장소(`data/themes/{seq}/claire.db`, `vault/themes/{seq}/`)를 생성, 변경, 조회, 삭제/소각(`--purge`)하는 관리자 CLI 도구입니다.[^theme-implementation]
+
+| 명령 | 사용법 | 설명 |
+| :--- | :--- | :--- |
+| `theme list` | `claire theme list [--json]` | 등록된 테마 목록, 활성화 상태, 공개 여부 및 통계(문서/엔티티/관계) 조회 |
+| `theme define` | `claire theme define --label <L> [--desc <D>] [--icon <I>] [--focus <F>] [--public\|--private] [--collaborator\|--no-collaborator] [--json]` | 다음 시퀀스 번호의 신규 테마 디렉토리 및 DB/볼륨을 자동 프로비저닝하여 등록 |
+| `theme update` | `claire theme update <id_or_label> [--label <L>] [--desc <D>] [--icon <I>] [--focus <F>] [--public\|--private] [--collaborator\|--no-collaborator] [--json]` | 기존 테마의 레이블, 설명, 아이콘, 기본 초점, 공개/협력자 접근 권한 수정 |
+| `theme delete` | `claire theme delete <id> [--purge] [--yes] [--json]` | 테마 레지스트리에서 비활성화/삭제. `--purge` 지정 시 물리적 DB 및 vault 영구 소각 (기본 테마 `0`은 삭제 불가 보호) |
+
+#### `claire theme list`
+* **사용법**: `claire theme list [--json]` (또는 `claire theme` 단독 실행 시 기본 동작)
+* **출력 항목**:
+  * Sequence ID, 레이블(Label), 아이콘(Icon), 설명(Description)
+  * 공개 여부 (Public / Private), 협력자 접근 허용 여부 (Collab O/X)
+  * 기본 초점 (Default Focus: 지식 적재 시 자동 적용될 Directive)
+  * 문서/엔티티/관계 통계 및 물리적 DB 경로 (`data/themes/{seq}/claire.db`)
+* **`--json`**: 기계 가독형 JSON 배열로 출력.
+
+#### `claire theme define`
+* **사용법**: `claire theme define --label <L> [--desc <D>] [--icon <I>] [--focus <F>] [--public|--private] [--collaborator|--no-collaborator] [--json]`
+* **주요 옵션**:
+  * `--label`, `-l` *(필수)*: 테마 명칭 (예: `기계학습`, `재정/회계`). 기존 테마 레이블과 중복 불가.
+  * `--desc`, `--description`: 테마 설명 (웹 UI 테마 선택 팝오버 및 텔레그램 안내에 노출).
+  * `--icon`: 테마 식별 이모지 (기본값: `📁`).
+  * `--focus`, `--default-focus`: 해당 테마에 문서 적재 시 기본 적용될 초점(지시문/Directive). 사용자가 적재 시 별도 `--focus`를 주지 않으면 이 값이 자동으로 적용됩니다.
+  * `--public` / `--private`: 테마 공개 여부 (기본값: `--public`). `--private` 시 비인증(Anonymous) 사용자의 웹/API 열람이 차단되며(404 Not Found), 세션 토큰 소유자만 접근 가능합니다.
+  * `--collaborator` / `--no-collaborator`: 협력자 세션(`CLAIRE_COLLABORATOR_TOKEN`) 접근 허용 여부 (기본값: `--collaborator`). `--no-collaborator` 지정 시 시스템 관리자(Owner)만 열람/적재 가능합니다.
+* **디렉토리 프로비저닝**: 테마 생성 즉시 `data/themes/{seq}/` 및 `vault/themes/{seq}/` 디렉토리가 생성되고 독립된 SQLite DB 초기화(`init_db`)가 수행됩니다.
+
+#### `claire theme update`
+* **사용법**: `claire theme update <id_or_label> [--label <L>] [--desc <D>] [--icon <I>] [--focus <F>] [--public|--private] [--collaborator|--no-collaborator] [--json]`
+* **주요 옵션**:
+  * `id`: 대상 테마의 ID, 시퀀스 번호, 또는 레이블.
+  * `--focus ""`: 빈 문자열을 전달하여 기존에 설정된 기본 초점을 해제(초기화) 가능.
+  * `--private`, `--no-collaborator`: 기존 공개/협력자 허용 테마의 접근 권한을 동적으로 즉시 회수 가능.
+  * 기본 테마 `0`(Default Theme)의 경우 레이블, 설명, 아이콘, 공개 여부는 변경 가능하지만 기본 초점은 `""`로 고정됩니다.
+
+#### `claire theme delete`
+* **사용법**: `claire theme delete <id> [--purge] [--yes] [--json]`
+* **주요 옵션**:
+  * `id`: 삭제할 테마의 ID 또는 시퀀스 번호.
+  * `--purge`: 테마 레지스트리 제거뿐만 아니라 디스크 상의 `data/themes/{seq}/claire.db` 파일 및 `vault/themes/{seq}/` 보관소 디렉토리까지 영구 소각(shredding/rmtree).
+  * `--yes`, `-y`: 삭제 확인 대화형 프롬프트 건너뛰기.
+* **안전 보호 장치 (Safety Guard)**:
+  * **기본 테마 `0` 삭제 불가**: 테마 `0`은 시스템의 루트 지식베이스이므로 삭제 시도 시 즉시 거부되고 오류 코드 1을 반환합니다.
+  * 비정상 접근 및 오염 방지를 위해 `--purge` 누락 시에는 레지스트리에서만 비활성화/제거되고 물리적 파일은 디스크에 보존됩니다.
+
+---
+
 ## 4. 미구현(Unimplemented) / 부분 구현 옵션 및 상태 명세
 
 시스템 운영 및 개발 시 혼선을 방지하기 위해 현재 코드베이스의 **부분 구현, 예약된 옵션, 또는 기능적 제약사항**을 명시합니다.
@@ -473,3 +526,5 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 [^video-caption-implementation]: Claire Bible 구현 근거: [`src/claire/ingest/fetchers/captions.py`](../../../src/claire/ingest/fetchers/captions.py), [`src/claire/ingest/fetchers/video.py`](../../../src/claire/ingest/fetchers/video.py), [`tests/test_video_captions.py`](../../../tests/test_video_captions.py) (2026-09-04 확인).
 [^video-presentation-implementation]: Claire Bible 구현 근거: [`src/claire/ingest/fetchers/presentation_vmware_explore.py`](../../../src/claire/ingest/fetchers/presentation_vmware_explore.py), [`src/claire/ingest/fetchers/pdf.py`](../../../src/claire/ingest/fetchers/pdf.py), [`src/claire/ingest/pipeline.py`](../../../src/claire/ingest/pipeline.py), [`src/claire/store/raw.py`](../../../src/claire/store/raw.py), [`tests/test_video_presentation.py`](../../../tests/test_video_presentation.py) (2026-09-04 확인). 설계 근거: [VIDEO_PRESENTATION_BUNDLE_INGESTION_DESIGN.md](../design/VIDEO_PRESENTATION_BUNDLE_INGESTION_DESIGN.md).
 [^telemetry-implementation]: Claire Bible 구현 근거: [`src/claire/store/telemetry.py`](../../../src/claire/store/telemetry.py), [`src/claire/support_bundle.py`](../../../src/claire/support_bundle.py), [`src/claire/telegram_bot.py`](../../../src/claire/telegram_bot.py), [`src/claire/cli.py`](../../../src/claire/cli.py), [`ops/cb_manuscript.py`](../../../ops/cb_manuscript.py), [`tests/test_telemetry.py`](../../../tests/test_telemetry.py), [`tests/test_support_bundle.py`](../../../tests/test_support_bundle.py), [`tests/test_bot.py`](../../../tests/test_bot.py) (2026-09-10 확인). 설계 근거: [TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md](../design/TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md).
+[^theme-implementation]: Claire Bible 구현 근거: [`src/claire/theme.py`](../../../src/claire/theme.py), [`src/claire/cli.py`](../../../src/claire/cli.py), [`src/claire/web.py`](../../../src/claire/web.py), [`src/claire/telegram_bot.py`](../../../src/claire/telegram_bot.py), [`tests/test_cli_theme.py`](../../../tests/test_cli_theme.py), [`tests/test_theme_manager.py`](../../../tests/test_theme_manager.py), [`tests/test_theme_api.py`](../../../tests/test_theme_api.py), [`tests/test_theme_collaborator.py`](../../../tests/test_theme_collaborator.py), [`tests/test_theme_web.py`](../../../tests/test_theme_web.py) (2026-09-10 확인). 설계 근거: [MULTI_THEME_ARCHITECTURE_DESIGN.md](../design/MULTI_THEME_ARCHITECTURE_DESIGN.md).
+

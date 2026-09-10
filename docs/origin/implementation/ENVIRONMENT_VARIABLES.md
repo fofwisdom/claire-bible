@@ -184,6 +184,7 @@ VMware Explore 숫자형 영상 상세 페이지가 Presentation PDF를 명시�
 | `CLAIRE_RENDER_FORMAT` | `adoc` | `adoc` (`asciidoc`), `md` (`markdown`) | 문서 읽기 및 저장 기본 렌더링 포맷. ([DUAL_FORMAT_ADOC_DESIGN.md](../design/DUAL_FORMAT_ADOC_DESIGN.md) 참조) |
 | `CLAIRE_DATA_LIFECYCLE` | `append-only` | `append-only`, `purgeable` | **데이터 수명주기 정책**. `append-only`(기본값, 무손실 보존 모드)에서는 파괴적 소각(`claire purge`) 명령이 정책상 차단됩니다. |
 | `CLAIRE_ALLOW_PURGE` | `0` (`false`) | `0`, `1`, `true`, `false` | 명시적 데이터 소각 허용 플래그. `1`로 설정하거나 `CLAIRE_DATA_LIFECYCLE=purgeable`이어야 소각 명령이 통과됩니다. ([DATA_LIFECYCLE_AND_PURGE_DESIGN.md](../design/DATA_LIFECYCLE_AND_PURGE_DESIGN.md) 참조) |
+| `CLAIRE_MULTI_THEME` | `0` (`false`) | `0`, `1`, `true`, `false` | **멀티 테마(다중 DB 격리) 활성화 플래그**. 기본값 `0`(싱글 테마 모드)에서는 `themes.json` 스캔과 UI 테마 선택기가 비활성화되며, `1`로 설정 시 일련번호 기반 다중 테마 정의·스위칭·적재 및 권한 제어가 활성화됩니다. ([MULTI_THEME_ARCHITECTURE_DESIGN.md](../design/MULTI_THEME_ARCHITECTURE_DESIGN.md) 참조) |
 | `CLAIRE_TELEMETRY_RETENTION_DAYS` | `30` | 양의 정수 (일) | **텔레메트리 보관 기한**. 격리된 `data/telemetry.db`의 호출 계측 데이터 최대 보존 일수이자 Support Bundle 생성 시 지정 가능한 최대 기간(`days`) 상한. ([TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md](../design/TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md) 참조) |
 
 ---
@@ -238,6 +239,7 @@ VMware Explore 숫자형 영상 상세 페이지가 Presentation PDF를 명시�
 | `CLAIRE_INJECT_HOST` | `127.0.0.1` | IPv4 주소 | API 서버 바인딩 호스트 (컨테이너 내부는 `0.0.0.0`으로 고정). |
 | `CLAIRE_INJECT_PORT` | `8765` / `8766` | 정수 (`1~65535`) | API 서버 내부 포트 번호. |
 | `CLAIRE_INJECT_TOKEN` | `""` | 32~128자 URL-safe 문자열 | **Owner 쓰기 토큰**. 문서 적재(Ingest), 중복 병합, 소유자 전용 API 호출에 필수적입니다. `./cb-manuscript init` 실행 시 비어있으면 32자 무작위 토큰으로 자동 생성됩니다. |
+| `CLAIRE_COLLABORATOR_TOKEN` | `""` | 32~128자 URL-safe 문자열 | **Collaborator 협업 토큰**. 협업자에게 허용된 추가 테마에 대한 읽기 및 적재 권한을 부여하며, 기본 지식베이스(ID 0) 및 소유자 전용 설정 변경은 차단됩니다. (텔레그램 `/webco`로 세션 링크 발급 가능) |
 | `CLAIRE_READONLY_TOKEN` | `""` | 32~128자 URL-safe 문자열 | **Readonly 조회 토큰**. 에이전트/외부 시스템이 검색, 그래프 조회, 노드 상세 조회만 수행할 수 있도록 허용하는 읽기 전용 토큰입니다 (쓰기 차단). |
 | `CLAIRE_ANONYMOUS_READONLY` | `1` | **exact `0` 또는 `1`** | **익명 Same-Origin 읽기 허용 플래그**. `1`이면 자격증명 없이 브라우저에서 읽기 전용 웹 UI 및 검색이 가능합니다 (숨김 문서는 제외). 쓰기 경로는 여전히 Owner 인증을 요구합니다. |
 | `CLAIRE_PUBLIC_URL` | `""` / `http://127.0.0.1:8766` | URL (예: `https://claire.example.com`) | **[필수]** 브라우저 기준 canonical 공개 URL. Host 헤더 검증, Same-Origin 판정, 공유 링크(`/p?s=...`) 생성에 사용됩니다. |

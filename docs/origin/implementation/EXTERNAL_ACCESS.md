@@ -177,6 +177,49 @@ server {
 같은 proxy의 unmatched/default server는 연결을 거부해야 한다. `$request_uri`는 query를
 포함하므로 위 안전 로그에서는 사용하지 않는다.
 
+---
+
+## 인증 계층 및 접근 권한 제어 (Authentication & RBAC)
+
+Claire Bible은 시스템 소유자(Owner), 협력자(Collaborator), 읽기 전용(Readonly), 익명 사용자(Anonymous)로 구성된 4단계 역할 기반 접근 제어(RBAC)를 제공합니다.
+
+| 역할 (Scope) | 자격 증명 (토큰 / 헤더) | 기본 테마 (`seq=0`) | 추가 테마 (공개) | 추가 테마 (비공개) | 테마 관리 (생성/수정/삭제) |
+| :--- | :--- | :---: | :---: | :---: | :---: |
+| **시스템 관리자 (`owner`)** | `CLAIRE_INJECT_TOKEN` 또는 텔레그램 `/web` 발급 세션 | 읽기 / 쓰기 | 읽기 / 쓰기 | 읽기 / 쓰기 | 가능 (`define`, `update`, `delete`) |
+| **협력자 (`collaborator`)** | `CLAIRE_COLLABORATOR_TOKEN` 또는 텔레그램 `/webco` 발급 세션 | **쓰기 불가 (차단)**<br>(읽기만 가능) | 읽기 / 쓰기 | 허용 테마만<br>읽기 / 쓰기 | 불가 |
+| **읽기 전용 (`readonly`)** | `CLAIRE_READONLY_TOKEN` 또는 텔레그램 `/webro` 발급 세션 | 읽기 전용 | 읽기 전용 | 읽기 전용 | 불가 |
+| **익명 사용자 (`anonymous`)** | 자격증명 없음 (`CLAIRE_ANONYMOUS_READONLY=1`) | 공개 읽기<br>(숨김 문서 제외) | 공개 읽기<br>(숨김 문서 제외) | **404 Not Found**<br>(존재 은닉) | 불가 |
+
+### 협력자 세션 (`collaborator`) 및 안전 정책
+- **발급 및 진입**: 텔레그램 봇의 `/webco` 명령을 통해 24시간 유효한 일회성/재사용 가능 협력자 세션 링크(`/webco?token=...`)를 발급받습니다.
+- **기본 지식베이스 보호**: 협력자는 시스템의 핵심 기반인 기본 테마(`seq=0`)에 데이터를 적재하거나 수정할 수 없습니다(`403 Forbidden`). 오직 `is_collaborator_accessible=true`로 설정된 추가 테마에만 수집 및 적재가 허용됩니다.
+- **세션 헤더**: API 호출 시 `X-Session: <token>` 또는 `Authorization: Bearer <token>` 헤더를 전달합니다.
+
+---
+
+## 멀티 테마 웹/API 접근 정책 (Multi-Theme Access Policy)
+
+멀티 테마 모드(`CLAIRE_MULTI_THEME=1`)에서는 요청별로 대상 테마를 명시적으로 지정하여 격리된 SQLite DB와 Vault를 조회 및 적재할 수 있습니다.
+
+### HTTP 요청 시 테마 지정 방식
+1. **HTTP 헤더**: `X-Claire-Theme: <theme_id_or_label>`
+   - 권장 REST/MCP 클라이언트 방식.
+   - 예: `X-Claire-Theme: 1` 또는 `X-Claire-Theme: AI 및 클라우드 시스템`
+2. **URL 쿼리 파라미터**: `?theme=<theme_id_or_label>`
+   - 브라우저 주소창 직접 접근 및 공유 링크 방식.
+   - 예: `https://claire.example.com/graph?theme=1`, `https://claire.example.com/doc/42?theme=research`
+3. **폴백 (Fallback)**: 테마 헤더 및 쿼리 파라미터가 모두 생략된 경우, 기본 지식베이스인 Theme `0`으로 자동 라우팅됩니다.
+
+### 비공개(Private) 테마의 Fail-Closed 보안
+- 테마의 가시성이 `is_public: false`로 설정된 경우, 인증되지 않은 익명 사용자가 해당 테마로 접근하면 보안상 테마의 존재 자체를 은닉하기 위해 `403 Forbidden` 대신 **`404 Not Found`**를 반환합니다.
+- `owner`, `collaborator`(허용된 경우), `readonly` 세션을 지닌 사용자에게만 테마 메타데이터와 지식그래프가 노출됩니다.
+
+### Web UI 상태 동기화
+- 웹 인터페이스 우상단 테마 선택기(Theme Selector)에서 사용자가 선택한 테마는 브라우저 `localStorage`(`claire_selected_theme`)에 저장됩니다.
+- 페이지 전환 시 브라우저 히스토리(`history.pushState`) 및 URL `?theme=` 파라미터와 양방향 동기화되어 새로고침 후에도 선택 테마가 유지됩니다.
+
+---
+
 ## MCP (Model Context Protocol) 연동
  
  외부 LLM 클라이언트(Claude Desktop, Cursor 등)에서 지식베이스를 조회할 수 있도록 `/mcp` HTTP 엔드포인트를 제공한다.
@@ -184,8 +227,8 @@ server {
  - **엔드포인트**: `POST /mcp` (Streamable / Stateless HTTP JSON-RPC)
  - **인증**:
    - `X-Session: <session_token>` 또는 `Authorization: Bearer <session_token>`
-   - `Authorization: Bearer <CLAIRE_INJECT_TOKEN>` (owner) 또는 `Authorization: Bearer <CLAIRE_READONLY_TOKEN>` (readonly)
-   - 세션 토큰은 텔레그램 `/webro` (읽기전용) 또는 `/web` (owner) 명령으로 발급 가능
+   - `Authorization: Bearer <CLAIRE_INJECT_TOKEN>` (owner), `Authorization: Bearer <CLAIRE_COLLABORATOR_TOKEN>` (collaborator) 또는 `Authorization: Bearer <CLAIRE_READONLY_TOKEN>` (readonly)
+   - 세션 토큰은 텔레그램 `/web` (owner), `/webco` (협력자), `/webro` (읽기전용) 명령으로 발급 가능
    - 미인증 또는 무효 토큰 요청 시 표준 MCP HTTP 사양(RFC 6750)에 따라 `401 Unauthorized` (`WWW-Authenticate: Bearer` 헤더) 반환
  - **제공 툴셋 (10종 읽기 전용)**: `resolve_entity`, `search`, `neighbors`, `path`, `context`, `overview`, `node`, `documents`, `document`, `stats`
  
