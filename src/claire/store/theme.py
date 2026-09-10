@@ -326,11 +326,12 @@ class ThemeManager:
         self.reload()
         try:
             tid = int(theme_id)
-        except (ValueError, TypeError) as err:
-            raise KeyError(f"유효하지 않은 테마 ID: {theme_id}") from err
-
-        if tid not in self._themes:
-            raise KeyError(f"존재하지 않는 테마 ID: {tid}")
+            if tid not in self._themes:
+                raise KeyError(f"존재하지 않는 테마 ID: {tid}")
+        except (ValueError, TypeError):
+            # 문자열 레이블/이름으로 지정된 경우 get_theme로 검색
+            target = self.get_theme(theme_id, strict=True)
+            tid = target.id
 
         theme = self._themes[tid]
 

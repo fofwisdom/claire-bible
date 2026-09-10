@@ -168,3 +168,37 @@ def test_theme_visibility_define_and_update(temp_theme_env):
     public_themes_after = manager.list_themes(include_private=False)
     assert len(public_themes_after) == 3
     assert any(t.id == 1 for t in public_themes_after)
+
+
+def test_theme_update_all_options_and_by_label(temp_theme_env):
+    """테마 생성 시 제공되는 모든 옵션(label, description, icon, is_public)에 대한 변경 및 레이블 검색 수정 검증."""
+    manager, _, _ = temp_theme_env
+    t1 = manager.define_theme("초기 테마", description="초기 설명", icon="📁", is_public=True)
+    assert t1.id == 1
+
+    # 1. 모든 옵션을 한 번에 변경
+    updated = manager.update_theme(
+        1,
+        label="완전 개편 테마",
+        description="완전 개편 설명",
+        icon="🚀",
+        is_public=False,
+    )
+    assert updated.label == "완전 개편 테마"
+    assert updated.description == "완전 개편 설명"
+    assert updated.icon == "🚀"
+    assert updated.is_public is False
+
+    # 2. 레이블(이름)을 인자로 넘겨서 수정 가능한지 검증
+    by_name = manager.update_theme("완전 개편 테마", description="이름으로 찾아서 바꾼 설명", icon="⚡")
+    assert by_name.id == 1
+    assert by_name.description == "이름으로 찾아서 바꾼 설명"
+    assert by_name.icon == "⚡"
+
+    # 3. 기본 테마(0)의 메타데이터 수정 가능 여부 검증
+    t0_updated = manager.update_theme(0, label="마스터 지식베이스", description="수정된 기본 설명", icon="📖")
+    assert t0_updated.id == 0
+    assert t0_updated.label == "마스터 지식베이스"
+    assert t0_updated.description == "수정된 기본 설명"
+    assert t0_updated.icon == "📖"
+
