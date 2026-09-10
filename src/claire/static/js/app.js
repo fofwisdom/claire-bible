@@ -2409,7 +2409,8 @@ function setAccessScope(scope, reason){
     AUTH_SCOPE==='anonymous' ? '👁️ 익명 읽기전용' :
     reason==='expired' ? '🔓 쓰기 세션 만료 — /web 재접속' : '⚠️ 권한 확인 실패';
   const tmBtn = document.getElementById('thememanagebtn');
-  if(tmBtn) tmBtn.style.display = (canWrite() && isMultiThemeEnabled()) ? '' : 'none';
+  const canAccessThemes = (canWrite() || AUTH_SCOPE === 'collaborator') && isMultiThemeEnabled();
+  if(tmBtn) tmBtn.style.display = canAccessThemes ? '' : 'none';
   if(!canWrite()){
     synthSet.clear();
     showHidden=false;
@@ -2427,7 +2428,9 @@ function setAccessScope(scope, reason){
 function expireWriteAccess(){ setAccessScope('unknown','expired'); }
 
 async function openThemeManager(){
-  if(!canWrite()) return;
+  const isOwner = canWrite();
+  const isCollab = AUTH_SCOPE === 'collaborator';
+  if(!isOwner && !isCollab) return;
   openDetailPane();
   panel.innerHTML = '<h2>📁 지식 테마 관리</h2><p class="hint">테마 목록 조회 중…</p>';
   try{
@@ -2436,7 +2439,11 @@ async function openThemeManager(){
     const data = await r.json();
     const themes = data.themes || [];
     let h = '<h2>📁 지식 테마 관리</h2>';
-    h += '<p class="al">지식 관리자(owner)는 테마별로 공개 여부를 설정할 수 있습니다. 비공개 테마는 익명 사용자에게 노출되지 않습니다.</p>';
+    if(isOwner){
+      h += '<p class="al">지식 관리자(owner)는 테마별로 공개 여부 및 협업자 접근을 설정할 수 있습니다. 비공개 테마는 익명 사용자에게 노출되지 않습니다.</p>';
+    } else {
+      h += '<p class="al">협업자(collaborator)는 권한이 부여된 테마의 상세 설정 및 옵션을 확인할 수 있습니다. (테마 수정/생성/삭제는 소유자 전용)</p>';
+    }
     h += '<div class="theme-manager-list" style="display:flex;flex-direction:column;gap:10px;margin-bottom:16px;">';
     for(const t of themes){
       const isPub = t.is_public !== false;
@@ -2446,62 +2453,89 @@ async function openThemeManager(){
       const toggleBtn = isPub
         ? `<button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="toggleThemeVisibility(${t.id}, false)">비공개로 전환</button>`
         : `<button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="toggleThemeVisibility(${t.id}, true)">공개로 전환</button>`;
-      const isCollab = t.is_collaborator_accessible !== false;
-      const collabBadge = isCollab
+      const isCollabAcc = t.is_collaborator_accessible !== false;
+      const collabBadge = isCollabAcc
         ? '<span style="color:#60a5fa;font-weight:600;font-size:12px;background:rgba(96,165,250,0.1);padding:2px 6px;border-radius:4px">협업자 공개 🤝</span>'
         : '<span style="color:var(--muted,#888);font-weight:600;font-size:12px;background:rgba(136,136,136,0.1);padding:2px 6px;border-radius:4px">협업자 차단 🚫</span>';
-      const toggleCollabBtn = isCollab
+      const toggleCollabBtn = isCollabAcc
         ? `<button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="toggleThemeCollaborator(${t.id}, false)">협업자 차단</button>`
         : `<button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="toggleThemeCollaborator(${t.id}, true)">협업자 공개</button>`;
+      const canIngestHere = t.id > 0 && isCollabAcc;
       const idLabel = t.id === 0 ? '기본 (ID 0)' : `테마 #${t.id}`;
       h += `<div style="border:1px solid var(--border);border-radius:6px;padding:8px 10px;background:var(--sec-bg);">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">
           <strong style="font-size:13px;">${t.icon || '📁'} ${esc(t.label)} <small style="opacity:0.7">(${idLabel})</small></strong>
           <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
             ${pubBadge}
-            ${toggleBtn}
+            ${isOwner ? toggleBtn : ''}
             ${t.id > 0 ? collabBadge : ''}
-            ${t.id > 0 ? toggleCollabBtn : ''}
-            <button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="showThemeEditForm(${t.id})">✏️ 수정</button>
-            ${t.id > 0 ? `<button type="button" class="sec danger-btn" style="font-size:11px;padding:3px 8px;color:var(--err,#cf222e);border-color:rgba(207,34,46,0.3);" onclick="deleteThemeFromUI(${t.id}, '${esc(t.label)}')">🗑️ 삭제</button>` : ''}
+            ${(isOwner && t.id > 0) ? toggleCollabBtn : ''}
+            ${isOwner ? `<button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="showThemeEditForm(${t.id})">✏️ 수정</button>` : ''}
+            <button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="toggleThemeOptionsView(${t.id})">⚙️ 옵션 보기</button>
+            ${(isOwner && t.id > 0) ? `<button type="button" class="sec danger-btn" style="font-size:11px;padding:3px 8px;color:var(--err,#cf222e);border-color:rgba(207,34,46,0.3);" onclick="deleteThemeFromUI(${t.id}, '${esc(t.label)}')">🗑️ 삭제</button>` : ''}
           </div>
         </div>
         ${t.description ? `<p style="margin:4px 0 0;font-size:12px;opacity:0.8">${esc(t.description)}</p>` : ''}
         ${(t.id > 0 && t.default_focus) ? `<p style="margin:4px 0 0;font-size:12px;color:var(--accent,#00ffaa);font-weight:500;">🎯 기본 초점: ${esc(t.default_focus)}</p>` : ''}
-        <div id="theme-edit-form-${t.id}" style="display:none;margin-top:10px;padding-top:8px;border-top:1px dashed var(--border);flex-direction:column;gap:8px;">
+        
+        <!-- 테마 설정 옵션 상세 뷰 (협업자 및 소유자 확인용) -->
+        <div id="theme-options-view-${t.id}" style="display:${isCollab ? 'flex' : 'none'};margin-top:10px;padding:8px 10px;border-top:1px dashed var(--border);background:var(--panel-bg);border-radius:4px;font-size:12px;flex-direction:column;gap:6px;">
+          <div style="font-weight:600;color:var(--accent2);margin-bottom:2px;">⚙️ 테마 설정 옵션</div>
+          <div>• <b>레이블(이름)</b>: ${esc(t.label)}</div>
+          <div>• <b>아이콘</b>: ${esc(t.icon || '📁')}</div>
+          <div>• <b>설명</b>: ${esc(t.description || '(설명 없음)')}</div>
+          ${t.id > 0 ? `<div>• <b>기본 초점</b>: ${esc(t.default_focus || '(미지정 - 기본 분석 적용)')}</div>` : ''}
+          <div>• <b>공개 여부</b>: ${isPub ? '익명 사용자 공개' : '비공개 🔒'}</div>
+          ${t.id > 0 ? `<div>• <b>협업자 공개 여부</b>: ${isCollabAcc ? '협업자 공개 (접근 및 적재 허용)' : '협업자 차단'}</div>` : ''}
+          <div>• <b>협업자 적재 권한</b>: ${canIngestHere ? '<span style="color:var(--accent,#00ffaa);font-weight:600;">허용됨 (자료 적재 가능 ✍️)</span>' : (t.id === 0 ? '<span style="color:var(--muted);font-weight:600;">제한됨 (소유자 기본 지식베이스)</span>' : '<span style="color:var(--warn);font-weight:600;">제한됨 (소유자 미허용)</span>')}</div>
+          ${t.stats ? `<div>• <b>지식 현황</b>: 문서 ${t.stats.documents || 0}건 · 엔티티 ${t.stats.entities || 0}개 · 관계 ${t.stats.relations || 0}개</div>` : ''}
+        </div>
+
+        ${isOwner ? `<div id="theme-edit-form-${t.id}" style="display:none;margin-top:10px;padding-top:8px;border-top:1px dashed var(--border);flex-direction:column;gap:8px;">
           <div><label style="font-size:11px;opacity:0.8">레이블(이름)</label><input id="editthemep-label-${t.id}" style="width:100%;box-sizing:border-box" value="${esc(t.label)}"/></div>
           <div><label style="font-size:11px;opacity:0.8">설명</label><input id="editthemep-desc-${t.id}" style="width:100%;box-sizing:border-box" value="${esc(t.description || '')}"/></div>
           ${t.id > 0 ? `<div><label style="font-size:11px;opacity:0.8">기본 초점 (적재 시 기본 적용할 방향/지침)</label><input id="editthemep-focus-${t.id}" style="width:100%;box-sizing:border-box" placeholder="예: 시스템 아키텍처 및 핵심 API 사양 중심" value="${esc(t.default_focus || '')}"/></div>` : ''}
           <div style="display:flex;gap:8px;flex-wrap:wrap;">
             <div style="flex:1;min-width:80px;"><label style="font-size:11px;opacity:0.8">아이콘</label><input id="editthemep-icon-${t.id}" style="width:100%;box-sizing:border-box" value="${esc(t.icon || '📁')}"/></div>
             <div style="flex:1;display:flex;align-items:center;padding-top:14px;"><label style="font-size:12px;cursor:pointer;"><input id="editthemep-pub-${t.id}" type="checkbox" ${isPub ? 'checked' : ''} style="width:auto;margin-right:4px;vertical-align:middle;"/>익명 사용자에게 공개</label></div>
-            ${t.id > 0 ? `<div style="flex:1;display:flex;align-items:center;padding-top:14px;"><label style="font-size:12px;cursor:pointer;"><input id="editthemep-collab-${t.id}" type="checkbox" ${isCollab ? 'checked' : ''} style="width:auto;margin-right:4px;vertical-align:middle;"/>협업자에게 공개</label></div>` : ''}
+            ${t.id > 0 ? `<div style="flex:1;display:flex;align-items:center;padding-top:14px;"><label style="font-size:12px;cursor:pointer;"><input id="editthemep-collab-${t.id}" type="checkbox" ${isCollabAcc ? 'checked' : ''} style="width:auto;margin-right:4px;vertical-align:middle;"/>협업자에게 공개</label></div>` : ''}
           </div>
           <div style="display:flex;gap:6px;margin-top:4px;align-items:center;">
             <button type="button" style="padding:4px 12px;" onclick="updateThemeFromUI(${t.id})">저장</button>
             <button type="button" class="sec" style="padding:4px 12px;" onclick="hideThemeEditForm(${t.id})">취소</button>
             ${t.id > 0 ? `<button type="button" class="sec danger-btn" style="margin-left:auto;padding:4px 10px;font-size:11px;color:var(--err,#cf222e);border-color:rgba(207,34,46,0.3);" onclick="deleteThemeFromUI(${t.id}, '${esc(t.label)}')">🗑️ 테마 완전 삭제</button>` : ''}
           </div>
-        </div>
+        </div>` : ''}
       </div>`;
     }
     h += '</div>';
 
-    // 신규 테마 정의 폼
-    h += '<details style="border:1px solid var(--border);border-radius:6px;padding:8px 10px;background:var(--sec-bg);"><summary style="cursor:pointer;font-weight:600;font-size:13px;">➕ 새 테마 추가</summary>';
-    h += '<div style="display:flex;flex-direction:column;gap:8px;margin-top:8px;">';
-    h += '<div><label style="font-size:11px;opacity:0.8">레이블(이름)</label><input id="newthemep-label" style="width:100%;box-sizing:border-box" placeholder="예: 경제 및 금융"/></div>';
-    h += '<div><label style="font-size:11px;opacity:0.8">설명</label><input id="newthemep-desc" style="width:100%;box-sizing:border-box" placeholder="예: 거시경제 및 시장 분석"/></div>';
-    h += '<div><label style="font-size:11px;opacity:0.8">기본 초점 (적재 시 기본 적용할 방향/지침)</label><input id="newthemep-focus" style="width:100%;box-sizing:border-box" placeholder="예: 거시경제 지표 및 시장 영향 중심"/></div>';
-    h += '<div style="display:flex;gap:8px;flex-wrap:wrap;"><div style="flex:1;min-width:80px;"><label style="font-size:11px;opacity:0.8">아이콘</label><input id="newthemep-icon" style="width:100%;box-sizing:border-box" value="📁"/></div>';
-    h += '<div style="flex:1;display:flex;align-items:center;padding-top:14px;"><label style="font-size:12px;cursor:pointer;"><input id="newthemep-pub" type="checkbox" checked style="width:auto;margin-right:4px;vertical-align:middle;"/>익명 사용자에게 공개</label></div>';
-    h += '<div style="flex:1;display:flex;align-items:center;padding-top:14px;"><label style="font-size:12px;cursor:pointer;"><input id="newthemep-collab" type="checkbox" checked style="width:auto;margin-right:4px;vertical-align:middle;"/>협업자에게 공개</label></div></div>';
-    h += '<button type="button" style="align-self:flex-start;padding:4px 12px;margin-top:4px;" onclick="createThemeFromUI()">테마 생성</button>';
-    h += '</div></details>';
+    // 신규 테마 정의 폼 (owner 전용)
+    if(isOwner){
+      h += '<details style="border:1px solid var(--border);border-radius:6px;padding:8px 10px;background:var(--sec-bg);"><summary style="cursor:pointer;font-weight:600;font-size:13px;">➕ 새 테마 추가</summary>';
+      h += '<div style="display:flex;flex-direction:column;gap:8px;margin-top:8px;">';
+      h += '<div><label style="font-size:11px;opacity:0.8">레이블(이름)</label><input id="newthemep-label" style="width:100%;box-sizing:border-box" placeholder="예: 경제 및 금융"/></div>';
+      h += '<div><label style="font-size:11px;opacity:0.8">설명</label><input id="newthemep-desc" style="width:100%;box-sizing:border-box" placeholder="예: 거시경제 및 시장 분석"/></div>';
+      h += '<div><label style="font-size:11px;opacity:0.8">기본 초점 (적재 시 기본 적용할 방향/지침)</label><input id="newthemep-focus" style="width:100%;box-sizing:border-box" placeholder="예: 거시경제 지표 및 시장 영향 중심"/></div>';
+      h += '<div style="display:flex;gap:8px;flex-wrap:wrap;"><div style="flex:1;min-width:80px;"><label style="font-size:11px;opacity:0.8">아이콘</label><input id="newthemep-icon" style="width:100%;box-sizing:border-box" value="📁"/></div>';
+      h += '<div style="flex:1;display:flex;align-items:center;padding-top:14px;"><label style="font-size:12px;cursor:pointer;"><input id="newthemep-pub" type="checkbox" checked style="width:auto;margin-right:4px;vertical-align:middle;"/>익명 사용자에게 공개</label></div>';
+      h += '<div style="flex:1;display:flex;align-items:center;padding-top:14px;"><label style="font-size:12px;cursor:pointer;"><input id="newthemep-collab" type="checkbox" checked style="width:auto;margin-right:4px;vertical-align:middle;"/>협업자에게 공개</label></div></div>';
+      h += '<button type="button" style="align-self:flex-start;padding:4px 12px;margin-top:4px;" onclick="createThemeFromUI()">테마 생성</button>';
+      h += '</div></details>';
+    } else {
+      h += '<p class="hint" style="margin-top:14px;font-size:12px;">💡 새로운 지식 테마 생성 또는 설정 변경이 필요한 경우 지식 관리자(owner)에게 요청하세요.</p>';
+    }
 
     panel.innerHTML = h;
   }catch(e){
     panel.innerHTML = '<p class="hint">테마 목록 조회 실패: ' + esc(String(e)) + '</p>';
+  }
+}
+
+function toggleThemeOptionsView(themeId){
+  const el = document.getElementById('theme-options-view-' + themeId);
+  if(el){
+    el.style.display = (el.style.display === 'none') ? 'flex' : 'none';
   }
 }
 
