@@ -1370,7 +1370,12 @@ def create_app(
             raise HTTPException(status_code=400, detail=str(exc))
 
         def _generate() -> dict[str, Any]:
-            info = create_support_bundle(s, days=days, target=target)
+            info = create_support_bundle(
+                s,
+                days=days,
+                target=target,
+                request_context={"channel": "api"},
+            )
             return info.to_dict()
 
         try:

@@ -896,7 +896,11 @@ def test_install_orders_build_legacy_stop_migrate_up_and_health(tmp_path):
             return _completed(argv, stdout=found)
         return _completed(argv)
 
-    with patch.object(cb.subprocess, "run", side_effect=fake) as run:
+    revision = "a" * 40
+    with (
+        patch.object(cb, "_source_revision", return_value=revision),
+        patch.object(cb.subprocess, "run", side_effect=fake) as run,
+    ):
         assert cb.main(["install"], root=tmp_path) == 0
 
     commands = _commands(run)
@@ -921,6 +925,10 @@ def test_install_orders_build_legacy_stop_migrate_up_and_health(tmp_path):
         "liveness",
     ])
     assert build_index < legacy_index < migrate_index < up_index < health_index
+    assert (
+        run.call_args_list[build_index].kwargs["env"]["CLAIRE_BUILD_COMMIT"]
+        == revision
+    )
     up = commands[up_index]
     assert up[up.index("--wait-timeout") + 1] == "45"
 
@@ -1529,4 +1537,3 @@ def test_clean_legacy_only_skips_compose_and_images(tmp_path):
     # Should not prune images or run compose rm
     assert ["docker", "image", "prune", "-f"] not in commands
     assert ["docker", "builder", "prune", "-f"] not in commands
-

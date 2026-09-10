@@ -71,6 +71,8 @@ graph TD
 | `CB_PROJECT_NAME` | `claire-bible` / `claire-bible-dev` | 영소문자, 숫자, `-`, `_` | Docker Compose 프로젝트 이름 (컨테이너/네트워크 접두어로 사용). |
 | `CB_IMAGE` | `claire-bible` | 문자열 | Docker 이미지 레포지토리 이름. |
 | `CB_IMAGE_TAG` | `local` / `dev` | 문자열 (Git SHA 등) | Docker 이미지 태그. 프로덕션 배포 시 불변 Git SHA를 지정하여 동일 이미지 재현성을 확보합니다. |
+| `CLAIRE_BUILD_COMMIT` | `cb-manuscript`가 자동 계산 | 40자리 Git SHA 또는 `unknown` | Compose build argument와 컨테이너 환경에 동일하게 주입되는 소스 리비전. Support Bundle의 `manifest.json` 및 `diagnostics/build.json`, OCI revision label에 기록됩니다. 직접 `docker compose`를 실행해 값을 주입하지 않으면 `unknown`일 수 있습니다.[^support-build-env] |
+| `CLAIRE_IMAGE_TAG` | `CB_IMAGE_TAG`에서 자동 파생 | 문자열 | 실행 이미지 태그의 컨테이너 내부 진단용 사본. 사용자가 별도로 설정하지 않습니다.[^support-build-env] |
 | `CB_ENV_FILE` | `.env` | 파일 경로 | 프로덕션 환경변수 파일 경로. |
 | `CB_DEV_ENV_FILE` | `.env.dev` | 파일 경로 | 개발 환경 오버레이 파일 경로. |
 | `CB_DATA_DIR` | `./data` / `./.dev/data` | 호스트 디렉터리 경로 | SQLite DB, raw 아티팩트, 이미지 등이 저장되는 호스트 데이터 마운트 경로 (`/app/data`). |
@@ -384,3 +386,4 @@ CLAIRE_PUBLIC_URL=http://127.0.0.1:8766
 
 [^video-caption-settings]: Claire Bible 구현 근거: [`src/claire/ingest/fetchers/captions.py`](../../../src/claire/ingest/fetchers/captions.py), [`src/claire/ingest/fetchers/video.py`](../../../src/claire/ingest/fetchers/video.py), [`tests/test_video_captions.py`](../../../tests/test_video_captions.py) (2026-09-04 확인).
 [^video-presentation-settings]: Claire Bible 구현 근거: [`src/claire/config.py`](../../../src/claire/config.py), [`src/claire/ingest/fetchers/presentation_vmware_explore.py`](../../../src/claire/ingest/fetchers/presentation_vmware_explore.py), [`src/claire/ingest/pipeline.py`](../../../src/claire/ingest/pipeline.py), [`src/claire/store/raw.py`](../../../src/claire/store/raw.py), [`tests/test_video_presentation.py`](../../../tests/test_video_presentation.py) (2026-09-04 확인). 설계 근거: [VIDEO_PRESENTATION_BUNDLE_INGESTION_DESIGN.md](../design/VIDEO_PRESENTATION_BUNDLE_INGESTION_DESIGN.md).
+[^support-build-env]: Claire Bible 구현 근거: [`Dockerfile`](../../../Dockerfile), [`docker-compose.yml`](../../../docker-compose.yml), [`ops/cb_manuscript.py`](../../../ops/cb_manuscript.py), [`src/claire/support_bundle.py`](../../../src/claire/support_bundle.py) (2026-09-11 확인).

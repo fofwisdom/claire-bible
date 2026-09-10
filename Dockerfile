@@ -2,8 +2,14 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
+ARG CLAIRE_BUILD_COMMIT="unknown"
+ARG CLAIRE_IMAGE_TAG="local"
+LABEL org.opencontainers.image.revision="$CLAIRE_BUILD_COMMIT"
+
 # stdout/stderr 라인 버퍼링 해제 → print 로그가 docker logs 로 즉시 흘러나오게.
-ENV PYTHONUNBUFFERED=1
+ENV PYTHONUNBUFFERED=1 \
+    CLAIRE_BUILD_COMMIT="$CLAIRE_BUILD_COMMIT" \
+    CLAIRE_IMAGE_TAG="$CLAIRE_IMAGE_TAG"
 
 RUN pip install --no-cache-dir uv
 

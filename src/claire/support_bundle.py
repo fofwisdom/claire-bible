@@ -8,6 +8,7 @@ zstd로 압축한 번들을 생성하고, 6시간 후 자동 파기한다.
 from __future__ import annotations
 
 import io
+import importlib.metadata
 import json
 import logging
 import os
@@ -26,7 +27,7 @@ from typing import Any
 
 import zstandard as zstd
 
-from .config import Settings, diagnose_agy_environment, get_settings
+from .config import ROOT, Settings, diagnose_agy_environment, get_settings
 from .store import db as dbm
 from .store.telemetry import (
     DEFAULT_TELEMETRY_RETENTION_DAYS,
@@ -50,6 +51,12 @@ _SENSITIVE_KEY_RE = re.compile(
     r"(token|secret|password|key|cookie|auth|credential|cert)", re.IGNORECASE
 )
 _BEARER_TOKEN_RE = re.compile(r"Bearer\s+[A-Za-z0-9_\-\.]+", re.IGNORECASE)
+_URL_SECRET_RE = re.compile(
+    r"([?&](?:s|token|access_token|refresh_token|api_key|key|auth|code|state|"
+    r"signature|sig|session|password|share)=)[^&#\s]+",
+    re.IGNORECASE,
+)
+BUNDLE_FORMAT_VERSION = 2
 
 
 @dataclass(frozen=True)
@@ -66,6 +73,7 @@ class SupportBundleInfo:
     target_doc_id: str | None = None
     target_matched_by: str | None = None
     target_theme_id: int | None = None
+    target_resolution_status: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -81,6 +89,7 @@ class SupportBundleInfo:
             "target_doc_id": self.target_doc_id,
             "target_matched_by": self.target_matched_by,
             "target_theme_id": self.target_theme_id,
+            "target_resolution_status": self.target_resolution_status,
         }
 
 
@@ -123,15 +132,35 @@ def sanitize_sensitive_data(obj: Any) -> Any:
     if isinstance(obj, tuple):
         return tuple(sanitize_sensitive_data(item) for item in obj)
     if isinstance(obj, str):
-        return _BEARER_TOKEN_RE.sub("Bearer ***REDACTED***", obj)
+        text = _BEARER_TOKEN_RE.sub("Bearer ***REDACTED***", obj)
+        return _URL_SECRET_RE.sub(r"\1***REDACTED***", text)
     return obj
 
 
+def _sanitize_share_index(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """공유 토큰 원문을 노출하지 않으면서 동일 토큰 여부는 해시로 대조 가능하게 한다."""
+    safe_rows: list[dict[str, Any]] = []
+    for row in rows:
+        item = dict(row)
+        raw_token = str(item.get("token") or "")
+        if raw_token:
+            import hashlib
+
+            item["token_sha256"] = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+            item["token"] = "***REDACTED***"
+        safe_rows.append(item)
+    return safe_rows
+
+
 def _get_git_commit() -> str | None:
-    """현재 레포지토리의 Git commit 해시 조회."""
+    """빌드 주입값을 우선하고 개발 checkout에서는 Git을 보조 수단으로 사용한다."""
+    build_commit = os.environ.get("CLAIRE_BUILD_COMMIT", "").strip()
+    if build_commit and build_commit.lower() not in {"unknown", "null", "none"}:
+        return build_commit
     try:
         res = subprocess.run(
             ["git", "rev-parse", "HEAD"],
+            cwd=ROOT,
             capture_output=True,
             text=True,
             timeout=2.0,
@@ -142,6 +171,148 @@ def _get_git_commit() -> str | None:
     except Exception:  # noqa: BLE001
         pass
     return None
+
+
+def _get_build_identity() -> dict[str, Any]:
+    commit = _get_git_commit()
+    try:
+        package_version = importlib.metadata.version("claire")
+    except importlib.metadata.PackageNotFoundError:
+        package_version = "unknown"
+    return {
+        "git_commit": commit,
+        "revision_source": (
+            "build_arg"
+            if os.environ.get("CLAIRE_BUILD_COMMIT", "").strip().lower()
+            not in {"", "unknown", "null", "none"}
+            else ("git" if commit else "unknown")
+        ),
+        "package_version": package_version,
+        "schema_version": dbm.SCHEMA_VERSION,
+        "image_tag": os.environ.get("CLAIRE_IMAGE_TAG", "").strip() or None,
+    }
+
+
+def _theme_databases(settings: Settings) -> list[tuple[int, str, Path]]:
+    from .store.theme import get_theme_manager
+
+    tm = get_theme_manager(settings)
+    themes = (
+        tm.list_themes(include_private=True)
+        if getattr(settings, "multi_theme", False)
+        else [tm.get_theme(0)]
+    )
+    return [
+        (theme.id, theme.label, Path(tm.get_settings_for_theme(theme.id).db_file))
+        for theme in themes
+    ]
+
+
+def _find_exact_inbox_matches(settings: Settings, target: str) -> list[dict[str, Any]]:
+    """문서 생성 전 실패한 URL도 찾을 수 있도록 raw_inbox를 정확 일치로 역추적한다."""
+    from .ingest.normalize import canonicalize_url
+
+    raw_target = target.strip()
+    is_url = raw_target.startswith(("http://", "https://"))
+    target_canonical = canonicalize_url(raw_target) if is_url else None
+    matches: list[dict[str, Any]] = []
+    for theme_id, theme_label, db_file in _theme_databases(settings):
+        if not db_file.is_file():
+            continue
+        try:
+            conn = dbm.connect_existing(db_file, readonly=True)
+            try:
+                rows = conn.execute(
+                    "SELECT * FROM raw_inbox WHERE payload=? OR file_ref=? ORDER BY id",
+                    (raw_target, raw_target),
+                ).fetchall()
+                if is_url:
+                    candidates = conn.execute(
+                        "SELECT * FROM raw_inbox WHERE kind='url' AND payload IS NOT NULL ORDER BY id"
+                    ).fetchall()
+                    seen = {int(row["id"]) for row in rows}
+                    for row in candidates:
+                        payload = str(row["payload"] or "").strip()
+                        if (
+                            int(row["id"]) not in seen
+                            and payload.startswith(("http://", "https://"))
+                            and canonicalize_url(payload) == target_canonical
+                        ):
+                            rows.append(row)
+                for row in rows:
+                    item = dict(row)
+                    item["theme_id"] = theme_id
+                    item["theme_label"] = theme_label
+                    item["_db_file"] = str(db_file)
+                    matches.append(item)
+            finally:
+                conn.close()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Failed to search target inbox in %s: %s", db_file, exc)
+    return matches
+
+
+def _resolve_support_target(
+    settings: Settings, target: str
+) -> tuple[dict[str, Any], dict[str, Any] | None, list[dict[str, Any]]]:
+    """진단용 strict resolver: 모호하거나 미적재인 대상을 임의 문서로 치환하지 않는다."""
+    from .store.theme import get_theme_manager
+
+    tm = get_theme_manager(settings)
+    candidates = tm.resolve_document_targets(target=target)
+    exact_candidates = [
+        candidate
+        for candidate in candidates
+        if candidate.get("matched_by") != "pattern"
+    ]
+    inbox_matches = _find_exact_inbox_matches(settings, target)
+    selected = exact_candidates[0] if len(exact_candidates) == 1 else None
+    if selected is not None:
+        status = "resolved_document"
+    elif len(exact_candidates) > 1:
+        status = "ambiguous"
+    elif inbox_matches:
+        status = (
+            "failed_inbox"
+            if any(item.get("status") in {"error", "failed", "stalled"} for item in inbox_matches)
+            else "inbox_only"
+        )
+    elif candidates:
+        status = "ambiguous_pattern"
+    else:
+        status = "not_observed"
+
+    public_candidates = []
+    for candidate in candidates:
+        public_candidates.append(
+            {key: value for key, value in candidate.items() if key != "db_file"}
+        )
+    resolution: dict[str, Any] = {
+        "input_target": target,
+        "requested_target": target,
+        "resolution_status": status,
+        "candidate_count": len(candidates),
+        "candidate_documents": public_candidates,
+        "matching_inbox_ids": [
+            {"theme_id": item["theme_id"], "inbox_id": item["id"]}
+            for item in inbox_matches
+        ],
+    }
+    if selected is not None:
+        resolution.update(
+            {
+                "matched_by": selected.get("matched_by", "unknown"),
+                "theme_id": selected.get("theme_id", 0),
+                "theme_label": selected.get("theme_label", "기본 지식베이스"),
+                "document_id": selected["id"],
+                "url": selected.get("url"),
+                "canonical_url": selected.get("canonical_url"),
+                "title": selected.get("title"),
+                "content_hash": selected.get("content_hash"),
+                "is_from_share_token": selected.get("is_from_share_token", False),
+            }
+        )
+    return resolution, selected, inbox_matches
 
 
 def format_download_url(settings: Settings, token: str) -> str:
@@ -203,6 +374,7 @@ def create_support_bundle(
     *,
     days: int = DEFAULT_SUPPORT_BUNDLE_DAYS,
     target: str | None = None,
+    request_context: dict[str, Any] | None = None,
     now_epoch: float | None = None,
 ) -> SupportBundleInfo:
     """지정된 기간(기본 1일) 및 특정 대상(공유 링크/문서 ID)에 대한 Support Bundle 생성.
@@ -229,6 +401,7 @@ def create_support_bundle(
 
     expires_at = now + SUPPORT_BUNDLE_TTL_SECONDS
     root_arcname = f"support_bundle_{bundle_id[-8:]}"
+    collector_warnings: list[dict[str, Any]] = []
 
     # 대상 특정 및 추적 (공유 링크 또는 doc_id)
     target_info: dict[str, Any] | None = None
@@ -236,31 +409,21 @@ def create_support_bundle(
     target_matched_by: str | None = None
     target_theme_id: int | None = None
     target_db_file: Path = Path(s.db_file)
+    target_inbox_matches: list[dict[str, Any]] = []
+    target_resolution_status: str | None = None
 
     if target:
-        from .store.theme import get_theme_manager
-
-        tm = get_theme_manager(s)
-        matches = tm.resolve_document_targets(target=target)
-        if not matches:
-            raise ValueError(f"Target document not found for {target!r}")
-        primary = matches[0]
-        target_doc_id = primary["id"]
-        target_matched_by = primary.get("matched_by", "unknown")
-        target_theme_id = primary.get("theme_id", 0)
-        target_db_file = Path(primary.get("db_file", s.db_file))
-        target_info = {
-            "input_target": target,
-            "matched_by": target_matched_by,
-            "theme_id": target_theme_id,
-            "theme_label": primary.get("theme_label", "기본 지식베이스"),
-            "document_id": target_doc_id,
-            "url": primary.get("url"),
-            "canonical_url": primary.get("canonical_url"),
-            "title": primary.get("title"),
-            "content_hash": primary.get("content_hash"),
-            "is_from_share_token": primary.get("is_from_share_token", False),
-        }
+        target_info, primary, target_inbox_matches = _resolve_support_target(s, target)
+        target_resolution_status = target_info["resolution_status"]
+        if primary is not None:
+            target_doc_id = primary["id"]
+            target_matched_by = primary.get("matched_by", "unknown")
+            target_theme_id = primary.get("theme_id", 0)
+            target_db_file = Path(primary.get("db_file", s.db_file))
+        elif target_inbox_matches:
+            target_theme_id = target_inbox_matches[0].get("theme_id", 0)
+            target_db_file = Path(target_inbox_matches[0].get("_db_file", s.db_file))
+            target_matched_by = "raw_inbox"
 
     # Zstandard 압축 스트림으로 tarfile 생성
     cctx = zstd.ZstdCompressor(level=3)
@@ -436,7 +599,7 @@ def create_support_bundle(
                 _add_tar_bytes(
                     tar,
                     f"{root_arcname}/pipeline/shares_index.json",
-                    json.dumps(shares_index, ensure_ascii=False, indent=2).encode("utf-8"),
+                    json.dumps(_sanitize_share_index(shares_index), ensure_ascii=False, indent=2).encode("utf-8"),
                 )
                 _add_tar_bytes(
                     tar,
@@ -479,35 +642,119 @@ def create_support_bundle(
                         if extra_log.name not in collected_logs:
                             _add_log_file(extra_log, extra_log.name)
 
-                # 7. 특정 대상(공유 링크/문서 ID) 추적 패키징
-                if target_doc_id:
-                    conn = dbm.connect_existing(target_db_file, readonly=True)
-                    try:
-                        doc_row = conn.execute(
-                            "SELECT * FROM documents WHERE id = ?", (target_doc_id,)
-                        ).fetchone()
-                        inbox_row = conn.execute(
-                            "SELECT * FROM raw_inbox WHERE document_id = ?", (target_doc_id,)
-                        ).fetchone()
-                        doc_shares = conn.execute(
-                            "SELECT * FROM doc_shares WHERE document_id = ?", (target_doc_id,)
-                        ).fetchall()
-                        extractions = conn.execute(
-                            "SELECT * FROM extractions WHERE document_id = ? ORDER BY id DESC",
-                            (target_doc_id,),
-                        ).fetchall()
-                        latest_summary = dbm.latest_extraction_summary(conn, target_doc_id)
-                        doc_entities = dbm.document_entities(conn, target_doc_id)
-                        doc_relations = dbm.document_relations(conn, target_doc_id)
-                        doc_proposals = dbm.document_proposals(conn, target_doc_id)
-                    finally:
-                        conn.close()
+                # 7. 특정 요청/문서 추적 패키징. 문서화 전 실패 URL도 raw_inbox 기준으로 포함한다.
+                if target_info is not None:
+                    doc_row = None
+                    doc_shares: list[Any] = []
+                    extractions: list[Any] = []
+                    latest_summary = None
+                    doc_entities: list[Any] = []
+                    doc_relations: list[Any] = []
+                    doc_proposals: list[dict[str, Any]] = []
+                    inbox_map: dict[tuple[str, int], dict[str, Any]] = {}
 
-                    # 해당 문서에 특화된 텔레메트리 내역
-                    doc_telemetry = query_telemetry(data_dir, document_id=target_doc_id, limit=200)
+                    for matched in target_inbox_matches:
+                        db_file = str(matched["_db_file"])
+                        public = {key: value for key, value in matched.items() if key != "_db_file"}
+                        inbox_map[(db_file, int(public["id"]))] = public
 
-                    if target_info is not None:
-                        target_info["latest_summary"] = latest_summary
+                    if target_doc_id:
+                        conn = dbm.connect_existing(target_db_file, readonly=True)
+                        try:
+                            doc_row = conn.execute(
+                                "SELECT * FROM documents WHERE id = ?", (target_doc_id,)
+                            ).fetchone()
+                            document_inbox_rows = conn.execute(
+                                "SELECT * FROM raw_inbox WHERE document_id = ? ORDER BY id",
+                                (target_doc_id,),
+                            ).fetchall()
+                            for row in document_inbox_rows:
+                                item = dict(row)
+                                item["theme_id"] = target_theme_id or 0
+                                item["theme_label"] = target_info.get("theme_label")
+                                inbox_map[(str(target_db_file), int(item["id"]))] = item
+                            doc_shares = conn.execute(
+                                "SELECT * FROM doc_shares WHERE document_id = ?", (target_doc_id,)
+                            ).fetchall()
+                            extractions = conn.execute(
+                                "SELECT * FROM extractions WHERE document_id = ? ORDER BY id DESC",
+                                (target_doc_id,),
+                            ).fetchall()
+                            latest_summary = dbm.latest_extraction_summary(conn, target_doc_id)
+                            doc_entities = dbm.document_entities(conn, target_doc_id)
+                            doc_relations = dbm.document_relations(conn, target_doc_id)
+                            doc_proposals = dbm.document_proposals(conn, target_doc_id)
+                        finally:
+                            conn.close()
+
+                    inbox_records = list(inbox_map.values())
+                    inbox_records.sort(key=lambda item: (float(item.get("received_at") or 0), int(item["id"])))
+                    ingest_attempts_data: list[dict[str, Any]] = []
+                    fetch_attempts_data: list[dict[str, Any]] = []
+                    grouped_ids: dict[str, list[int]] = {}
+                    for db_file, inbox_id in inbox_map:
+                        grouped_ids.setdefault(db_file, []).append(inbox_id)
+                    for db_file, inbox_ids in grouped_ids.items():
+                        conn = dbm.connect_existing(Path(db_file), readonly=True)
+                        try:
+                            for row in dbm.ingest_attempts_for_inbox(conn, inbox_ids):
+                                item = dict(row)
+                                item["_db_file"] = db_file
+                                ingest_attempts_data.append(item)
+                            for row in dbm.fetch_attempts_for_inbox(conn, inbox_ids):
+                                item = dict(row)
+                                try:
+                                    item["metadata"] = json.loads(item.get("metadata") or "{}")
+                                except (TypeError, json.JSONDecodeError):
+                                    pass
+                                item["_db_file"] = db_file
+                                fetch_attempts_data.append(item)
+                        finally:
+                            conn.close()
+
+                    for item in fetch_attempts_data:
+                        snapshot_path = item.get("snapshot_path")
+                        if not snapshot_path:
+                            continue
+                        source_path = Path(item["_db_file"]).parent / str(snapshot_path)
+                        if not source_path.is_file():
+                            collector_warnings.append(
+                                {
+                                    "code": "FETCH_SNAPSHOT_MISSING",
+                                    "trace_id": item.get("trace_id"),
+                                    "snapshot_path": str(snapshot_path),
+                                }
+                            )
+                            continue
+                        archive_name = (
+                            f"{root_arcname}/tracked_document/fetch_snapshots/"
+                            f"{item.get('trace_id')}_{Path(str(snapshot_path)).name}"
+                        )
+                        try:
+                            _add_tar_bytes(tar, archive_name, source_path.read_bytes())
+                            item["bundle_snapshot_path"] = archive_name.removeprefix(f"{root_arcname}/")
+                        except Exception as exc:  # noqa: BLE001
+                            collector_warnings.append(
+                                {
+                                    "code": "FETCH_SNAPSHOT_READ_ERROR",
+                                    "snapshot_path": str(snapshot_path),
+                                    "message": str(exc),
+                                }
+                            )
+
+                    doc_telemetry = (
+                        query_telemetry(data_dir, document_id=target_doc_id, limit=200)
+                        if target_doc_id
+                        else []
+                    )
+                    target_info["latest_summary"] = latest_summary
+                    if target_info.get("resolution_status") not in {"resolved_document", "inbox_only"}:
+                        collector_warnings.append(
+                            {
+                                "code": "TARGET_" + str(target_info["resolution_status"]).upper(),
+                                "message": "The requested target was not uniquely resolved to a stored document",
+                            }
+                        )
 
                     extractions_data = [dict(e) for e in extractions]
                     graph_fragment = {
@@ -581,7 +828,41 @@ def create_support_bundle(
                     _add_tar_bytes(
                         tar,
                         f"{root_arcname}/tracked_document/inbox_record.json",
-                        json.dumps(sanitize_sensitive_data(dict(inbox_row)) if inbox_row else {}, ensure_ascii=False, indent=2).encode("utf-8"),
+                        json.dumps(sanitize_sensitive_data(inbox_records[-1]) if inbox_records else {}, ensure_ascii=False, indent=2).encode("utf-8"),
+                    )
+                    _add_tar_bytes(
+                        tar,
+                        f"{root_arcname}/tracked_document/inbox_records.jsonl",
+                        ("\n".join(json.dumps(sanitize_sensitive_data(row), ensure_ascii=False) for row in inbox_records)
+                         + ("\n" if inbox_records else "")).encode("utf-8"),
+                    )
+                    _add_tar_bytes(
+                        tar,
+                        f"{root_arcname}/tracked_document/ingest_attempts.jsonl",
+                        ("\n".join(
+                            json.dumps(
+                                sanitize_sensitive_data(
+                                    {key: value for key, value in row.items() if key != "_db_file"}
+                                ),
+                                ensure_ascii=False,
+                            )
+                            for row in ingest_attempts_data
+                        )
+                         + ("\n" if ingest_attempts_data else "")).encode("utf-8"),
+                    )
+                    _add_tar_bytes(
+                        tar,
+                        f"{root_arcname}/tracked_document/fetch_trace.jsonl",
+                        ("\n".join(
+                            json.dumps(
+                                sanitize_sensitive_data(
+                                    {key: value for key, value in row.items() if key != "_db_file"}
+                                ),
+                                ensure_ascii=False,
+                            )
+                            for row in fetch_attempts_data
+                        )
+                         + ("\n" if fetch_attempts_data else "")).encode("utf-8"),
                     )
                     doc_tel_lines = [
                         json.dumps(sanitize_sensitive_data(r), ensure_ascii=False) for r in doc_telemetry
@@ -593,17 +874,37 @@ def create_support_bundle(
                     )
 
                 # 8. Manifest 파일
+                build_identity = _get_build_identity()
+                if build_identity["git_commit"] is None:
+                    collector_warnings.append(
+                        {
+                            "code": "BUILD_REVISION_UNKNOWN",
+                            "message": "CLAIRE_BUILD_COMMIT was not embedded and Git metadata was unavailable",
+                        }
+                    )
+                _add_tar_bytes(
+                    tar,
+                    f"{root_arcname}/diagnostics/collector_warnings.json",
+                    json.dumps(collector_warnings, ensure_ascii=False, indent=2).encode("utf-8"),
+                )
+                _add_tar_bytes(
+                    tar,
+                    f"{root_arcname}/diagnostics/build.json",
+                    json.dumps(build_identity, ensure_ascii=False, indent=2).encode("utf-8"),
+                )
                 manifest = {
+                    "bundle_format_version": BUNDLE_FORMAT_VERSION,
                     "bundle_id": bundle_id,
-                    "token": token,
                     "filename": filename,
                     "created_at": datetime.fromtimestamp(now, timezone.utc).isoformat(),
                     "expires_at": datetime.fromtimestamp(expires_at, timezone.utc).isoformat(),
                     "ttl_hours": SUPPORT_BUNDLE_TTL_SECONDS / 3600.0,
                     "days_covered": validated_days,
                     "cutoff_timestamp": cutoff_iso,
-                    "git_commit": _get_git_commit(),
-                    "target": target_info,
+                    "git_commit": build_identity["git_commit"],
+                    "build": build_identity,
+                    "target": sanitize_sensitive_data(target_info) if target_info else None,
+                    "request_context": sanitize_sensitive_data(request_context or {}),
                 }
                 _add_tar_bytes(
                     tar,
@@ -641,6 +942,7 @@ def create_support_bundle(
         target_doc_id=target_doc_id,
         target_matched_by=target_matched_by,
         target_theme_id=target_theme_id,
+        target_resolution_status=target_resolution_status,
     )
 
 

@@ -389,7 +389,7 @@ async def test_settle_status_reader_button(tmp_path: Path, monkeypatch):
     dbm.insert_document(conn, doc)
     conn.close()
 
-    monkeypatch.setenv("CLAIRE_DB_FILE", str(db_file))
+    monkeypatch.setenv("CLAIRE_DB_PATH", str(db_file))
     monkeypatch.setenv("CLAIRE_PUBLIC_URL", "https://cb.example.com")
     get_settings.cache_clear()
 
@@ -593,9 +593,10 @@ async def test_on_support_bundle_default(tmp_path, monkeypatch):
     )
 
     created_kwargs = {}
-    def fake_create(s, days=1, target=None):
+    def fake_create(s, days=1, target=None, request_context=None):
         created_kwargs["days"] = days
         created_kwargs["target"] = target
+        created_kwargs["request_context"] = request_context
         return fake_info
 
     monkeypatch.setattr("claire.support_bundle.create_support_bundle", fake_create)
@@ -659,9 +660,10 @@ async def test_on_support_bundle_with_days_and_target(tmp_path, monkeypatch):
     )
 
     created_kwargs = {}
-    def fake_create(s, days=1, target=None):
+    def fake_create(s, days=1, target=None, request_context=None):
         created_kwargs["days"] = days
         created_kwargs["target"] = target
+        created_kwargs["request_context"] = request_context
         return fake_info
 
     monkeypatch.setattr("claire.support_bundle.create_support_bundle", fake_create)
@@ -798,7 +800,7 @@ async def test_on_callback_support_bundle_button(tmp_path, monkeypatch):
     )
 
     created_target = None
-    def fake_create(s, days=1, target=None):
+    def fake_create(s, days=1, target=None, request_context=None):
         nonlocal created_target
         created_target = target
         return fake_info
@@ -957,8 +959,6 @@ async def test_on_theme_single_mode_reply(tmp_path: Path):
     reply = msg.reply_text.call_args[0][0]
     assert "현재 싱글 테마 모드로 동작 중입니다" in reply
     assert "CLAIRE_MULTI_THEME=1" in reply
-
-
 
 
 
