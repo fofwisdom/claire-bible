@@ -104,9 +104,25 @@ def cmd_preflight(_args) -> int:
     return 0
 
 
+def get_effective_settings(args: Any) -> tuple[Any, Any | None]:
+    s = get_settings()
+    theme_ref = getattr(args, "theme", None)
+    if theme_ref is not None:
+        from .store.theme import get_theme_manager
+        tm = get_theme_manager(s)
+        try:
+            theme = tm.get_theme(theme_ref)
+            return tm.get_settings_for_theme(theme.id, s), theme
+        except Exception as exc:
+            print(f"[경고] 테마 '{theme_ref}'를 찾을 수 없습니다: {exc}. 기본 테마로 진행합니다.", file=sys.stderr)
+    return s, None
+
+
 def cmd_doctor(args) -> int:
     """지식그래프 및 DB 무결성 진단 및 자동 수복."""
-    s = get_settings()
+    s, theme = get_effective_settings(args)
+    if theme:
+        print(f"[{theme.icon} 점검 대상 테마: #{theme.id} - {theme.label}]")
     conn = dbm.connect(s.db_file)
     dbm.init_db(conn)
     try:
@@ -428,8 +444,134 @@ def cmd_artifact_migrate(args) -> int:
     return 0
 
 
-def cmd_stats(_args) -> int:
-    s = get_settings()
+def cmd_theme(args) -> int:
+    """테마(다중 DB 격리) 조회, 정의, 수정, 삭제."""
+    import json
+    from .store.queries import theme_summary
+    from .store.theme import get_theme_manager
+
+    tm = get_theme_manager()
+    action = getattr(args, "theme_action", None) or "list"
+
+    if action == "list":
+        tm.reload()
+        themes = tm.list_themes()
+        as_json = getattr(args, "json", False)
+        out = []
+        for t in themes:
+            t_settings = tm.get_settings_for_theme(t.id)
+            stats = {"documents": 0, "entities": 0, "relations": 0}
+            if t_settings.db_file.is_file():
+                try:
+                    conn = dbm.connect_existing(t_settings.db_file, readonly=True)
+                    try:
+                        stats = theme_summary(conn, include_hidden=True)
+                    finally:
+                        conn.close()
+                except Exception:
+                    pass
+            d = t.to_dict()
+            d["stats"] = stats
+            out.append(d)
+
+        if as_json:
+            print(json.dumps({"themes": out}, ensure_ascii=False, indent=2))
+            return 0
+
+        print(f"Claire 지식베이스 테마 목록 (총 {len(out)}개)")
+        print("=" * 68)
+        print(f"{'ID':<4} {'아이콘':<4} {'레이블':<22} {'문서/엔티티/관계':<18} {'기본여부'}")
+        print("-" * 68)
+        for d in out:
+            st = f"{d['stats']['documents']} / {d['stats']['entities']} / {d['stats']['relations']}"
+            is_def = "★ 기본" if d["is_default"] else ""
+            print(f"{d['id']:<4} {d['icon']:<4} {d['label']:<22} {st:<18} {is_def}")
+            if d.get("description"):
+                print(f"     ㄴ 설명: {d['description']}")
+            print(f"     ㄴ DB  : {d['db_path']}")
+        print("=" * 68)
+        return 0
+
+    elif action == "define":
+        label = str(getattr(args, "label", "") or "").strip()
+        if not label:
+            print("[오류] --label 옵션으로 테마 이름을 지정해야 합니다.", file=sys.stderr)
+            return 1
+        desc = str(getattr(args, "desc", "") or getattr(args, "description", "") or "").strip()
+        icon = str(getattr(args, "icon", "") or "📁").strip()
+        try:
+            theme = tm.define_theme(label, description=desc, icon=icon)
+            if getattr(args, "json", False):
+                print(json.dumps({"ok": True, "theme": theme.to_dict()}, ensure_ascii=False, indent=2))
+            else:
+                print(f"[성공] 새 테마 #{theme.id} 정의 완료!")
+                print(f"  • ID         : {theme.id}")
+                print(f"  • 레이블      : {theme.icon} {theme.label}")
+                print(f"  • 설명        : {theme.description or '(없음)'}")
+                print(f"  • SQLite 경로 : {theme.db_path}")
+                print(f"  • Vault 경로  : {theme.vault_path}")
+            return 0
+        except Exception as exc:
+            print(f"[오류] 테마 정의 실패: {exc}", file=sys.stderr)
+            return 1
+
+    elif action == "update":
+        theme_id = getattr(args, "id", None)
+        if theme_id is None:
+            print("[오류] 수정할 테마의 ID를 지정해야 합니다.", file=sys.stderr)
+            return 1
+        label = getattr(args, "label", None)
+        desc = getattr(args, "desc", None) or getattr(args, "description", None)
+        icon = getattr(args, "icon", None)
+        try:
+            theme = tm.update_theme(theme_id, label=label, description=desc, icon=icon)
+            if getattr(args, "json", False):
+                print(json.dumps({"ok": True, "theme": theme.to_dict()}, ensure_ascii=False, indent=2))
+            else:
+                print(f"[성공] 테마 #{theme.id} 메타데이터 수정 완료!")
+                print(f"  • 레이블: {theme.icon} {theme.label}")
+                print(f"  • 설명  : {theme.description or '(없음)'}")
+                print(f"  (물리 디렉터리 경로는 변경되지 않고 유지됩니다: {theme.db_path})")
+            return 0
+        except Exception as exc:
+            print(f"[오류] 테마 수정 실패: {exc}", file=sys.stderr)
+            return 1
+
+    elif action == "delete":
+        theme_id = getattr(args, "id", None)
+        if theme_id is None:
+            print("[오류] 삭제할 테마의 ID를 지정해야 합니다.", file=sys.stderr)
+            return 1
+        purge = getattr(args, "purge", False)
+        yes = getattr(args, "yes", False)
+        if purge and not yes:
+            try:
+                confirm = input(f"[경고] 테마 #{theme_id}의 물리 DB 및 Vault 파일을 완전히 영구 삭제하시겠습니까? (y/N): ")
+                if confirm.strip().lower() not in ("y", "yes"):
+                    print("작업이 취소되었습니다.")
+                    return 0
+            except EOFError:
+                pass
+        try:
+            theme = tm.delete_theme(theme_id, purge=purge)
+            if getattr(args, "json", False):
+                print(json.dumps({"ok": True, "deleted": theme.to_dict()}, ensure_ascii=False, indent=2))
+            else:
+                print(f"[성공] 테마 #{theme.id} [{theme.label}] 삭제 완료! (물리 파일 소각: {'예' if purge else '아니오'})")
+            return 0
+        except Exception as exc:
+            print(f"[오류] 테마 삭제 실패: {exc}", file=sys.stderr)
+            return 1
+
+    else:
+        print(f"[오류] 알 수 없는 동작: {action}", file=sys.stderr)
+        return 1
+
+
+def cmd_stats(args) -> int:
+    s, theme = get_effective_settings(args)
+    if theme:
+        print(f"[{theme.icon} 테마: #{theme.id} - {theme.label}]")
     conn = dbm.connect(s.db_file)
     dbm.init_db(conn)
     c = dbm.counts(conn)
@@ -753,7 +895,9 @@ def cmd_ingest(args) -> int:
     from .ingest.pipeline import ingest
     from .store.vectors import make_vector_store
 
-    s = get_settings()
+    s, theme = get_effective_settings(args)
+    if theme:
+        print(f"[{theme.icon} 적재 대상 테마: #{theme.id} - {theme.label}]")
     conn = dbm.connect(s.db_file)
     dbm.init_db(conn)
     provider = get_provider(s)
@@ -1812,7 +1956,9 @@ def cmd_search(args) -> int:
     from .retrieval.query import search
     from .store.vectors import make_vector_store
 
-    s = get_settings()
+    s, theme = get_effective_settings(args)
+    if theme:
+        print(f"[{theme.icon} 검색 대상 테마: #{theme.id} - {theme.label}]")
     conn = dbm.connect(s.db_file)
     dbm.init_db(conn)
     provider = get_provider(s)
@@ -2062,6 +2208,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Output diagnosis report in JSON format",
     )
+    doc_p.add_argument("-t", "--theme", default=None, help="target theme ID or label")
     ptel = sub.add_parser(
         "telemetry",
         help="inspect LLM/CLI provider execution telemetry and Google block diagnostics",
@@ -2097,7 +2244,42 @@ def build_parser() -> argparse.ArgumentParser:
     ).set_defaults(func=cmd_migrate)
     sub.add_parser("status", help="full status: ops / db / progress / connections").set_defaults(func=cmd_status)
     sub.add_parser("repo", help="print source repository information and URL").set_defaults(func=cmd_repo)
-    sub.add_parser("stats", help="graph counts only").set_defaults(func=cmd_stats)
+
+    p_stats = sub.add_parser("stats", help="graph counts only")
+    p_stats.add_argument("-t", "--theme", default=None, help="target theme ID or label")
+    p_stats.set_defaults(func=cmd_stats)
+
+    # Theme management subcommand
+    ptheme = sub.add_parser("theme", help="manage themes (multi-database isolation by sequence)")
+    ptheme_sub = ptheme.add_subparsers(dest="theme_action")
+
+    ptl = ptheme_sub.add_parser("list", help="list registered themes and stats")
+    ptl.add_argument("--json", action="store_true", help="output in json format")
+    ptl.set_defaults(func=cmd_theme)
+
+    ptd = ptheme_sub.add_parser("define", help="define a new theme with next sequence directory")
+    ptd.add_argument("--label", "-l", required=True, help="theme label (name)")
+    ptd.add_argument("--desc", "--description", default="", help="theme description")
+    ptd.add_argument("--icon", default="📁", help="theme emoji icon")
+    ptd.add_argument("--json", action="store_true", help="output in json format")
+    ptd.set_defaults(func=cmd_theme)
+
+    ptu = ptheme_sub.add_parser("update", help="update theme label, description, or icon")
+    ptu.add_argument("id", help="theme ID or sequence number")
+    ptu.add_argument("--label", "-l", default=None, help="new theme label")
+    ptu.add_argument("--desc", "--description", default=None, help="new theme description")
+    ptu.add_argument("--icon", default=None, help="new theme icon")
+    ptu.add_argument("--json", action="store_true", help="output in json format")
+    ptu.set_defaults(func=cmd_theme)
+
+    ptdel = ptheme_sub.add_parser("delete", help="delete theme from registry")
+    ptdel.add_argument("id", help="theme ID to delete")
+    ptdel.add_argument("--purge", action="store_true", help="permanently delete physical DB and vault files")
+    ptdel.add_argument("--yes", "-y", action="store_true", help="skip confirmation prompt")
+    ptdel.add_argument("--json", action="store_true", help="output in json format")
+    ptdel.set_defaults(func=cmd_theme)
+
+    ptheme.set_defaults(func=cmd_theme, theme_action="list")
     sub.add_parser("bot", help="run telegram bot (long-polling)").set_defaults(func=cmd_bot)
     sub.add_parser(
         "serve-api",
@@ -2161,12 +2343,14 @@ def build_parser() -> argparse.ArgumentParser:
                     help="detail render format (md or adoc, default: config CLAIRE_RENDER_FORMAT)")
     pi.add_argument("--focus", "--orientation", "--directive", default=None,
                     help="가독 상세 작성을 위한 집중 초점 (content focus for detail rendering, e.g. '시스템 아키텍처 중심')")
+    pi.add_argument("-t", "--theme", default=None, help="target theme ID or label (default: default knowledge base)")
     pi.set_defaults(func=cmd_ingest)
 
     ps = sub.add_parser("search", help="hybrid search (FTS+vector) + LLM summary")
     ps.add_argument("query", help="keyword(s) / question")
     ps.add_argument("--limit", type=int, default=8)
     ps.add_argument("--no-summary", action="store_true", help="skip LLM summary")
+    ps.add_argument("-t", "--theme", default=None, help="target theme ID or label (default: default knowledge base)")
     ps.set_defaults(func=cmd_search)
 
     pre = sub.add_parser("reextract",

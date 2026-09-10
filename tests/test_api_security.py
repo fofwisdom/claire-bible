@@ -255,7 +255,7 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         "/image",
         "/support/bundle",
     }
-    read_get = {"/", "/whoami", "/stats", "/graph", "/node", "/documents", "/document", "/mcp"}
+    read_get = {"/", "/whoami", "/stats", "/graph", "/node", "/documents", "/document", "/mcp", "/themes"}
     read_post = {"/search", "/mcp"}
     owner_post = {
         "/ingest",
@@ -270,6 +270,11 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         "/dedup/merge",
         "/share",
         "/support/bundle",
+        "/themes",
+    }
+    owner_methods = {
+        ("PATCH", "/themes"),
+        ("DELETE", "/themes"),
     }
     expected = {
         **{
@@ -284,6 +289,7 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         },
         **{("POST", path): "read" for path in read_post},
         **{("POST", path): "owner" for path in owner_post},
+        **{key: "owner" for key in owner_methods},
     }
 
     assert {

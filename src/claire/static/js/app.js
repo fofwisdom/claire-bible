@@ -76,6 +76,226 @@ function recordSelectedDoc(id){
   try{ localStorage.setItem('claireLastDoc', id); }catch(_){}
 }
 
+function esc(s){return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+
+// --- 지식 테마 (Multi-Database Themes) 상태 및 전역 fetch 인터셉터 ---
+let availableThemes = [];
+let activeThemeId = (function(){
+  try{
+    const sp = new URLSearchParams(window.location.search);
+    const q = sp.get('theme');
+    if(q !== null && q !== ''){
+      const val = parseInt(q, 10);
+      return isNaN(val) ? 0 : val;
+    }
+    const saved = localStorage.getItem('claireKnowledgeTheme');
+    if(saved !== null && saved !== ''){
+      const val = parseInt(saved, 10);
+      return isNaN(val) ? 0 : val;
+    }
+  }catch(_){}
+  return 0;
+})();
+
+(function(){
+  const _origFetch = window.fetch;
+  window.fetch = function(resource, init){
+    init = init || {};
+    let url = typeof resource === 'string' ? resource : (resource && resource.url ? resource.url : '');
+    const isRelative = typeof url === 'string' && !url.startsWith('http://') && !url.startsWith('https://') && !url.startsWith('//');
+    if(isRelative || (url && url.startsWith(window.location.origin))){
+      let headers = init.headers;
+      if(headers instanceof Headers){
+        if(!headers.has('X-Claire-Theme') && activeThemeId !== null && activeThemeId !== undefined){
+          headers.set('X-Claire-Theme', String(activeThemeId));
+        }
+      } else if(Array.isArray(headers)){
+        const hasTheme = headers.some(([k]) => k.toLowerCase() === 'x-claire-theme');
+        if(!hasTheme && activeThemeId !== null && activeThemeId !== undefined){
+          headers.push(['X-Claire-Theme', String(activeThemeId)]);
+        }
+      } else {
+        headers = Object.assign({}, headers);
+        const hasTheme = Object.keys(headers).some(k => k.toLowerCase() === 'x-claire-theme');
+        if(!hasTheme && activeThemeId !== null && activeThemeId !== undefined){
+          headers['X-Claire-Theme'] = String(activeThemeId);
+        }
+        init.headers = headers;
+      }
+    }
+    return _origFetch.call(this, resource, init);
+  };
+})();
+
+async function fetchThemes(){
+  try{
+    const r = await fetch('themes');
+    if(!r.ok) return;
+    const data = await r.json();
+    availableThemes = data.themes || [];
+    renderThemeSelector();
+  }catch(e){
+    console.warn('Failed to fetch themes:', e);
+  }
+}
+
+function renderThemeSelector(){
+  const sel = document.getElementById('theme-select');
+  const iconEl = document.getElementById('theme-curr-icon');
+  if(!sel) return;
+
+  if(!availableThemes || !availableThemes.length){
+    availableThemes = [{id: 0, seq: 0, label: '기본 테마', description: '기본 지식베이스', icon: '📚'}];
+  }
+
+  const current = availableThemes.find(t => t.id === activeThemeId) || availableThemes[0];
+  if(current){
+    activeThemeId = current.id;
+  }
+
+  sel.innerHTML = availableThemes.map(t => {
+    const icon = t.icon || '📚';
+    const label = esc(t.label);
+    const idStr = t.id === 0 ? '기본' : ('#' + t.id);
+    return `<option value="${t.id}" ${t.id === activeThemeId ? 'selected' : ''}>${icon} ${label} (${idStr})</option>`;
+  }).join('');
+
+  if(iconEl && current){
+    iconEl.textContent = current.icon || '📚';
+  }
+}
+
+function syncThemeSelectorUI(){
+  const sel = document.getElementById('theme-select');
+  const iconEl = document.getElementById('theme-curr-icon');
+  if(sel){
+    sel.value = String(activeThemeId);
+  }
+  const current = availableThemes.find(t => t.id === activeThemeId);
+  if(iconEl && current){
+    iconEl.textContent = current.icon || '📚';
+  }
+}
+
+function renderThemeOptions(selectedId){
+  const themes = (availableThemes && availableThemes.length)
+    ? availableThemes
+    : [{id: 0, seq: 0, label: '기본 테마', description: '기본 지식베이스', icon: '📚'}];
+  const activeId = selectedId !== undefined ? selectedId : activeThemeId;
+  return themes.map(t => {
+    const icon = t.icon || '📚';
+    const label = esc(t.label);
+    const idStr = t.id === 0 ? '기본' : ('#' + t.id);
+    return `<option value="${t.id}" ${t.id === activeId ? 'selected' : ''}>${icon} ${label} (${idStr})</option>`;
+  }).join('');
+}
+
+async function loadThemeDocuments(){
+  try{
+    const r = await fetch('documents');
+    if(!r.ok) throw new Error('documents fetch failed: HTTP ' + r.status);
+    const d = await r.json();
+    allDocs = (d && d.documents) || [];
+    renderDocs(document.getElementById('docq') ? document.getElementById('docq').value : '');
+    if(d && d.format_status){
+      const fs = d.format_status;
+      if(fs.needs_migration){
+        if((fs.mismatched || fs.mismatched_docs || 0) > 0){
+          if(typeof ClaireStatusBanner !== 'undefined') ClaireStatusBanner.show('format_mismatch', fs);
+        } else if((fs.missing_detail_docs || 0) > 0){
+          if(typeof ClaireStatusBanner !== 'undefined') ClaireStatusBanner.show('format_missing', fs);
+        }
+      } else {
+        if(typeof ClaireStatusBanner !== 'undefined') ClaireStatusBanner.hide();
+      }
+    }
+  }catch(e){
+    allDocs = [];
+    const dl = document.getElementById('doclist');
+    if(dl) dl.innerHTML = (typeof doclistToolbarHtml==='function'?doclistToolbarHtml():'') + '<p class="hint" style="padding:10px">문서 로드 실패</p>';
+  }
+}
+
+async function reloadThemeData(resetCamera = true){
+  try{
+    const r = await fetch('graph');
+    if(!r.ok) throw new Error('graph fetch failed: HTTP ' + r.status);
+    const d = await r.json();
+    if(net && allNodes && allEdges){
+      const rawNodes = ((d && d.nodes) || []).map(n => ({
+        ...n,
+        size: nodeRadius(n.degree),
+        font: { size: nodeFontSize(n.degree) }
+      }));
+      const rawEdges = (d && d.edges) || [];
+      const totalCount = rawNodes.length;
+      let initialDeg = 0;
+      if(totalCount >= 200){
+        initialDeg = 2;
+      } else if(totalCount >= 80){
+        initialDeg = 1;
+      } else {
+        initialDeg = 0;
+      }
+      curMinDeg = initialDeg;
+      const sl = document.getElementById('fslider');
+      if(sl){ sl.max = (d && d.stats && d.stats.max_degree) || 0; sl.value = initialDeg; }
+      const fmin = document.getElementById('fmin');
+      if(fmin) fmin.textContent = initialDeg;
+      updateDegPresets();
+      allTypes = [...new Set(rawNodes.map(n => n.group))].sort();
+      allRelTypes = [...new Set(rawEdges.map(e => e.label).filter(Boolean))].sort();
+      renderLegend();
+
+      allNodes.clear();
+      allEdges.clear();
+      if(rawNodes.length) allNodes.add(rawNodes);
+      if(rawEdges.length) allEdges.add(rawEdges);
+      graphStabilized = !rawNodes.length;
+      applyView();
+      if(resetCamera){
+        setTimeout(()=>{ try{ net.fit({animation: false}); }catch(_){} }, 100);
+      }
+    }
+  }catch(e){
+    console.warn('reloadThemeData failed:', e);
+  }
+}
+
+async function switchKnowledgeTheme(themeId){
+  const tid = parseInt(themeId, 10);
+  if(isNaN(tid)) return;
+  if(tid === activeThemeId) return;
+
+  activeThemeId = tid;
+  try{ localStorage.setItem('claireKnowledgeTheme', String(tid)); }catch(_){}
+
+  const url = new URL(window.location);
+  if(tid === 0){
+    url.searchParams.delete('theme');
+  } else {
+    url.searchParams.set('theme', String(tid));
+  }
+  window.history.replaceState(window.history.state, '', url.pathname + (url.search ? url.search : '') + url.hash);
+
+  syncThemeSelectorUI();
+  resetHome();
+
+  await Promise.all([
+    reloadThemeData(true),
+    loadThemeDocuments()
+  ]);
+
+  lastStatsSig = null;
+  try{
+    const r = await fetch('stats');
+    if(r.ok){
+      const d = await r.json();
+      lastStatsSig = [d.documents, d.entities, d.relations].join(':');
+    }
+  }catch(_){}
+}
+
 // --- 웹 표준 History API 기반 모바일 뒤로가기/내비게이션 관리 ---
 let isPoppingHistory = false;
 let lastPushedHistory = null;
@@ -236,7 +456,6 @@ function defaultHint(){
     '• 상단 <b>⋯ 도구</b>의 <b>🌙/🌞</b>로 라이트·다크를 전환합니다.</p>';
 }
 if(panel) panel.innerHTML = defaultHint();
-function esc(s){return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 
 // --- 노드 hover 및 모바일 탭 요약 팝업(마우스/탭 위치) — fetch 없이 클라 데이터(allNodes)만 쓴다 ---
 // vis hoverNode 이벤트는 진입 위치를 안 주므로 #net 위 mousemove 로 커서 좌표를 추적해 둔다.
@@ -1108,6 +1327,12 @@ function openIngest(){
     '<p class=al>URL 또는 메모 텍스트를 입력하고 적재 방식을 선택하세요.</p>'+
     '<div class="ingest-form">'+
       '<div class="ingest-field">'+
+        '<label class="ingest-label" for="ingtheme">적재 대상 테마 <span class="ingest-help">지식 관리자가 정의한 테마</span></label>'+
+        '<select id="ingtheme" class="ingest-theme-select">'+
+          renderThemeOptions(activeThemeId)+
+        '</select>'+
+      '</div>'+
+      '<div class="ingest-field">'+
         '<label class="ingest-label" for="ingin">자료 <span class="ingest-help">URL 또는 텍스트</span></label>'+
         '<textarea id="ingin" rows="5" placeholder="https://example.com/article"></textarea>'+
       '</div>'+
@@ -1144,6 +1369,8 @@ async function runIngest(){
   const ta=document.getElementById('ingin');
   const payload=((ta||{}).value||'').trim();
   if(!payload){ alert('적재할 URL 또는 텍스트를 입력하세요.'); return; }
+  const ingthemeEl = document.getElementById('ingtheme');
+  const targetThemeId = ingthemeEl ? parseInt(ingthemeEl.value, 10) : activeThemeId;
   const focus=((document.getElementById('ingfocus')||{}).value||'').trim();
   const amountChoice=document.querySelector('input[name="ingest-amount"]:checked');
   const effortChoice=document.querySelector('input[name="ingest-effort"]:checked');
@@ -1151,6 +1378,10 @@ async function runIngest(){
   const effort=effortChoice ? effortChoice.value : '';
   let labelText = '시작…';
   const optionLabels=[];
+  const targetThemeObj = availableThemes.find(t => t.id === targetThemeId);
+  if(targetThemeObj){
+    optionLabels.push('테마: ' + (targetThemeObj.icon ? targetThemeObj.icon + ' ' : '') + targetThemeObj.label);
+  }
   if(fullContent) optionLabels.push('전문 적재');
   if(effort) optionLabels.push('사고: '+effort);
   if(focus) optionLabels.push('초점: '+(focus.length > 20 ? focus.slice(0,20)+'…' : focus));
@@ -1165,6 +1396,7 @@ async function runIngest(){
   let result=null;
   try{
     const bodyObj = {payload:payload, full_content:fullContent};
+    if(targetThemeId !== undefined && targetThemeId !== null) bodyObj.theme = targetThemeId;
     if(effort) bodyObj.effort=effort;
     if(focus) bodyObj.focus=focus;
     const r=await fetch('ingest-stream',{method:'POST',headers:{'Content-Type':'application/json'},
@@ -1202,15 +1434,22 @@ function renderIngestResult(d){
   h+='<p class=al><b>'+esc(d.title||d.document_id||'(제목 없음)')+'</b>'+(d.partial?' <small>⚠️ 부분 처리</small>':'')+'</p>';
   if(d.directive) h+='<p class=al><b>초점:</b> '+esc(d.directive)+'</p>';
   const appliedOptions=[];
+  if(d.theme_id !== undefined){
+    appliedOptions.push('테마: ' + esc(d.theme_label || ('#' + d.theme_id)));
+  }
   if(d.full_content) appliedOptions.push('전문 적재');
   if(d.effort) appliedOptions.push('사고 수준 '+esc(d.effort));
   if(appliedOptions.length) h+='<p class=al><b>적용 설정:</b> '+appliedOptions.join(' · ')+'</p>';
   if(!d.duplicate) h+='<p class=al>노드 신규 '+(d.entities_created||0)+' · 기존연결 '+
     (d.entities_linked||0)+' · 관계 '+(d.relations_added||0)+'</p>';
   if(d.summary) h+='<div class=synth>'+esc(d.summary)+'</div>';
-  if(d.document_id) h+='<p><a href="#" onclick="selectDoc(\''+d.document_id+'\');return false">문서 보기 →</a></p>';
+  if(d.theme_id !== undefined && d.theme_id !== activeThemeId){
+    h+='<p style="margin-top:12px"><button type="button" class="sec" onclick="switchKnowledgeTheme('+d.theme_id+')">👉 '+esc(d.theme_label||('테마 #'+d.theme_id))+' 테마로 전환</button></p>';
+  } else {
+    if(d.document_id) h+='<p><a href="#" onclick="selectDoc(\''+d.document_id+'\');return false">문서 보기 →</a></p>';
+    refreshGraph();   // 현재 활성 테마에 적재된 경우 즉시 그래프/문서 반영
+  }
   panel.innerHTML=h;
-  refreshGraph();   // 신규 노드/엣지·문서목록 즉시 반영(새로고침 없이)
 }
 
 // --- 중복 문서 정리: 근사중복 클러스터를 찾아(/dedup/scan) 유지문서를 골라 병합(/dedup/merge) ---
@@ -2306,24 +2545,8 @@ const ClaireStatusBanner = (function(){
 
 // documents와 /whoami를 병렬로 읽되, scope가 확정되기 전 렌더는 항상 read-only다.
 syncThemeBtn();   // 저장된 테마에 맞춰 🌙/🌞 라벨 동기화(테마 자체는 head 인라인에서 선적용)
-fetch('documents').then(r=>{ if(!r.ok) throw new Error('documents fetch failed: HTTP '+r.status); return r.json(); }).then(d=>{
-  allDocs=(d && d.documents)||[];
-  renderDocs();
-  if(d && d.format_status){
-    const fs=d.format_status;
-    if(fs.needs_migration){
-      if((fs.mismatched || fs.mismatched_docs || 0) > 0){
-        ClaireStatusBanner.show('format_mismatch', fs);
-      } else if((fs.missing_detail_docs || 0) > 0){
-        ClaireStatusBanner.show('format_missing', fs);
-      }
-    }
-  }
-}).catch(e=>{
-  allDocs=[];
-  const dl=document.getElementById('doclist');
-  if(dl) dl.innerHTML=doclistToolbarHtml()+'<p class="hint" style="padding:10px">문서 로드 실패</p>';
-});
+fetchThemes();    // 지식 관리자가 정의한 테마 목록을 조회하여 셀렉터 구성
+loadThemeDocuments();
 fetch('whoami').then(r=>{ if(!r.ok) throw new Error('whoami failed'); return r.json(); }).then(d=>{
   setAccessScope(d.scope);
 }).catch(()=>{ setAccessScope('unknown','failed'); });
@@ -2419,4 +2642,7 @@ window.claireDebug = {
   get sorcerer(){ return '__SORCERER__'; },
   get owner(){ return '__SORCERER__'; },
   get knowledgeManager(){ return '__SORCERER__'; },
+  get activeThemeId(){ return activeThemeId; },
+  get availableThemes(){ return availableThemes; },
+  switchKnowledgeTheme: switchKnowledgeTheme,
 };

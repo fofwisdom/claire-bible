@@ -33,6 +33,17 @@
   #bar .brand{font-weight:700;letter-spacing:-.01em;cursor:pointer;user-select:none;transition:opacity .15s ease}
   #bar .brand:hover{opacity:.85}
   #bar b{color:var(--accent2)}
+  .bar-brand-group{display:flex;align-items:center;gap:10px;min-width:0}
+  .theme-picker-wrap{display:inline-flex;align-items:center;position:relative}
+  .theme-select-control{display:inline-flex;align-items:center;gap:5px;background:var(--sec-bg);border:1px solid var(--border);border-radius:6px;padding:2px 6px 2px 8px;height:28px;box-sizing:border-box;font-size:12.5px;color:var(--fg);cursor:pointer;transition:border-color .15s ease, background-color .15s ease}
+  .theme-select-control:hover{border-color:var(--accent);background:var(--hover)}
+  .theme-select-control:focus-within{outline:2px solid var(--accent);outline-offset:1px}
+  .theme-icon{font-size:13px;line-height:1;display:inline-flex;align-items:center}
+  .theme-select{appearance:none;-webkit-appearance:none;background:transparent;border:none;color:inherit;font-family:inherit;font-size:12px;font-weight:500;padding-right:14px;cursor:pointer;outline:none;max-width:140px;text-overflow:ellipsis;white-space:nowrap}
+  .theme-select option{background:var(--panel-bg);color:var(--fg)}
+  .theme-caret{font-size:10px;opacity:.7;pointer-events:none;margin-left:-12px}
+  .ingest-theme-select{width:100%;height:32px;padding:4px 8px;border:1px solid var(--border);border-radius:4px;background:var(--sec-bg);color:var(--fg);font-family:inherit;font-size:13px;outline:none}
+  .ingest-theme-select:focus{border-color:var(--accent);outline:2px solid var(--accent);outline-offset:1px}
   #netsearch{padding:8px 18px;border-bottom:1px solid var(--border);background:var(--panel-bg);flex-shrink:0;min-height:48px;box-sizing:border-box;display:flex;align-items:center}
   #barsearch{display:flex;align-items:center;gap:6px;width:100%}
   #barsearch input{flex:1;min-width:0}
@@ -332,6 +343,9 @@
   @media (max-width:720px){
     #bar{min-height:50px;padding:max(6px,env(safe-area-inset-top)) 12px 6px;justify-content:space-between}
     #bar .brand{font-size:14px}
+    .bar-brand-group{gap:6px}
+    .theme-select{max-width:85px}
+    .theme-select-control{height:34px;padding:2px 4px 2px 6px}
     #morebtn{display:none!important}
     #viewoptions select{font-size:13px;padding:4px 6px}
     #viewoptions #authstate{min-height:38px;height:38px;padding:0 8px;font-size:12px}

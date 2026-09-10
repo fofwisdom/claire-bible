@@ -36,8 +36,10 @@ PUBLIC_PATHS: tuple[str, ...] = ("/static/",)
 
 from ..config import Settings, get_settings
 from ..ingest.report_json import report_to_dict
-from ..ingest.service import IngestService
+from ..ingest.service import IngestService, IngestServicePool
 from ..store import db as dbm
+from ..store.queries import theme_summary
+from ..store.theme import ThemeInfo, ThemeManager, get_theme_manager
 from .mcp_tools import build_mcp_app
 from .security import (
     ErrorBoundaryMiddleware,
@@ -172,8 +174,32 @@ def create_app(
     finally:
         conn.close()
     svc = service or IngestService(s)
+    theme_mgr = ThemeManager(s)
+    service_pool = IngestServicePool(s, svc, theme_manager=theme_mgr)
     active_expensive_jobs = 0
     active_anonymous_search_jobs = 0
+
+    def _extract_theme_ref(
+        request: Request, body: dict[str, Any] | None = None
+    ) -> int | str | None:
+        raw = request.query_params.get("theme")
+        if raw is not None and str(raw).strip():
+            return str(raw).strip()
+        if body and body.get("theme") is not None:
+            return str(body["theme"]).strip()
+        hdr = request.headers.get("x-claire-theme")
+        if hdr is not None and hdr.strip():
+            return hdr.strip()
+        return None
+
+    def _get_theme_ctx(
+        request: Request, body: dict[str, Any] | None = None
+    ) -> tuple[ThemeInfo, Settings, IngestService]:
+        ref = _extract_theme_ref(request, body)
+        theme = theme_mgr.get_theme(ref)
+        theme_settings = theme_mgr.get_settings_for_theme(theme.id, s)
+        theme_svc = service_pool.get_service(theme.id)
+        return theme, theme_settings, theme_svc
 
     def _reserve_expensive_job() -> None:
         nonlocal active_expensive_jobs
@@ -245,21 +271,145 @@ def create_app(
 
     async def stats(request: Request) -> JSONResponse:
         include_hidden = request_auth_scope(request) != "anonymous"
+        theme, theme_settings, _ = _get_theme_ctx(request)
 
-        def _counts() -> dict[str, int]:
-            conn = dbm.connect_existing(s.db_file, readonly=True)
+        def _counts() -> dict[str, Any]:
+            conn = dbm.connect_existing(theme_settings.db_file, readonly=True)
             try:
                 try:
-                    return dbm.counts(conn, include_hidden=include_hidden)
+                    c = dict(dbm.counts(conn, include_hidden=include_hidden))
                 except TypeError:
-                    return dbm.counts(conn)
+                    c = dict(dbm.counts(conn))
+                c["theme_id"] = theme.id
+                c["theme_label"] = theme.label
+                return c
             finally:
                 conn.close()
 
         return JSONResponse(await asyncio.to_thread(_counts))
 
+    async def themes_list_route(request: Request) -> JSONResponse:
+        include_hidden = request_auth_scope(request) != "anonymous"
+
+        def _get_themes_with_stats() -> dict[str, Any]:
+            all_themes = theme_mgr.list_themes()
+            result = []
+            for t in all_themes:
+                abs_db = theme_mgr.get_settings_for_theme(t.id, s).db_file
+                t_stats = {"documents": 0, "entities": 0, "relations": 0}
+                if abs_db.is_file():
+                    try:
+                        conn = dbm.connect_existing(abs_db, readonly=True)
+                        try:
+                            t_stats = theme_summary(conn, include_hidden=include_hidden)
+                        finally:
+                            conn.close()
+                    except Exception:
+                        pass
+                result.append({
+                    "id": t.id,
+                    "seq": t.seq,
+                    "label": t.label,
+                    "description": t.description,
+                    "icon": t.icon,
+                    "is_default": t.is_default,
+                    "stats": t_stats,
+                })
+            return {"themes": result, "default_theme_id": 0}
+
+        return JSONResponse(await asyncio.to_thread(_get_themes_with_stats))
+
+    async def theme_define_route(request: Request) -> JSONResponse:
+        scope = request_auth_scope(request)
+        if scope != "owner":
+            raise HTTPException(
+                status_code=403,
+                detail="지식 관리자(owner) 권한이 필요합니다.",
+            )
+        body = await _json_object(request)
+        label = str(body.get("label") or "").strip()
+        if not label:
+            raise HTTPException(status_code=400, detail="label is required")
+        desc = str(body.get("description") or "").strip()
+        icon = str(body.get("icon") or "📁").strip()
+        try:
+            theme = theme_mgr.define_theme(label, description=desc, icon=icon)
+            return JSONResponse({"ok": True, "theme": theme.to_dict()}, status_code=201)
+        except ValueError as val_err:
+            raise HTTPException(status_code=400, detail=str(val_err)) from val_err
+        except Exception as exc:
+            _log_operation_failure(request, "theme define", exc)
+            raise HTTPException(status_code=500, detail="failed to define theme") from exc
+
+    async def theme_update_route(request: Request) -> JSONResponse:
+        scope = request_auth_scope(request)
+        if scope != "owner":
+            raise HTTPException(
+                status_code=403,
+                detail="지식 관리자(owner) 권한이 필요합니다.",
+            )
+        body = await _json_object(request)
+        theme_id = (
+            request.query_params.get("id")
+            or (str(body.get("id")) if body.get("id") is not None else None)
+            or request.path_params.get("theme_id", "")
+        )
+        if not theme_id:
+            raise HTTPException(status_code=400, detail="id is required")
+        label = body.get("label")
+        desc = body.get("description")
+        icon = body.get("icon")
+        try:
+            theme = theme_mgr.update_theme(
+                theme_id, label=label, description=desc, icon=icon
+            )
+            return JSONResponse({"ok": True, "theme": theme.to_dict()})
+        except KeyError as k_err:
+            raise HTTPException(status_code=404, detail=str(k_err)) from k_err
+        except ValueError as v_err:
+            raise HTTPException(status_code=400, detail=str(v_err)) from v_err
+        except Exception as exc:
+            _log_operation_failure(request, "theme update", exc)
+            raise HTTPException(status_code=500, detail="failed to update theme") from exc
+
+    async def theme_delete_route(request: Request) -> JSONResponse:
+        scope = request_auth_scope(request)
+        if scope != "owner":
+            raise HTTPException(
+                status_code=403,
+                detail="지식 관리자(owner) 권한이 필요합니다.",
+            )
+        theme_id = (
+            request.query_params.get("id")
+            or request.path_params.get("theme_id", "")
+        )
+        if not theme_id and request.headers.get("content-type") == "application/json":
+            try:
+                body = await _json_object(request)
+                if body and body.get("id") is not None:
+                    theme_id = str(body["id"])
+            except Exception:
+                pass
+        if not theme_id:
+            raise HTTPException(status_code=400, detail="id is required")
+        purge = (
+            request.query_params.get("purge", "0").strip().lower()
+            in ("1", "true", "yes")
+        )
+        try:
+            deleted = theme_mgr.delete_theme(theme_id, purge=purge)
+            return JSONResponse({"ok": True, "deleted": deleted.to_dict()})
+        except KeyError as k_err:
+            raise HTTPException(status_code=404, detail=str(k_err)) from k_err
+        except ValueError as v_err:
+            raise HTTPException(status_code=400, detail=str(v_err)) from v_err
+        except Exception as exc:
+            _log_operation_failure(request, "theme delete", exc)
+            raise HTTPException(status_code=500, detail="failed to delete theme") from exc
+
     async def do_ingest(request: Request) -> JSONResponse:
         body = await _json_object(request)
+        theme, _, theme_svc = _get_theme_ctx(request, body)
         payload = str(body.get("payload") or "").strip()
         if not payload:
             raise HTTPException(status_code=400, detail="payload required")
@@ -292,7 +442,7 @@ def create_app(
             ingest_kwargs["directive"] = directive
         try:
             report = await _run_expensive(
-                svc.ingest,
+                theme_svc.ingest,
                 payload,
                 **ingest_kwargs,
             )
@@ -305,10 +455,14 @@ def create_app(
                 {"error": "ingest failed", "ok": False},
                 status_code=500,
             )
-        return JSONResponse(report_to_dict(report))
+        rep_dict = report_to_dict(report)
+        rep_dict["theme_id"] = theme.id
+        rep_dict["theme_label"] = theme.label
+        return JSONResponse(rep_dict)
 
     async def do_search(request: Request) -> JSONResponse:
         body = await _json_object(request)
+        theme, _, theme_svc = _get_theme_ctx(request, body)
         query = str(body.get("query") or "").strip()
         if not query:
             raise HTTPException(status_code=400, detail="query required")
@@ -352,14 +506,14 @@ def create_app(
         }
         try:
             result = await runner(
-                svc.search,
+                theme_svc.search,
                 query,
                 include_hidden=include_hidden,
                 **search_kwargs,
             )
         except TypeError:
             result = await runner(
-                svc.search,
+                theme_svc.search,
                 query,
                 **search_kwargs,
             )
@@ -368,6 +522,8 @@ def create_app(
                 "query": result.query,
                 "mode": mode,
                 "answer": result.answer,
+                "theme_id": theme.id,
+                "theme_label": theme.label,
                 "hits": [
                     {
                         "id": hit.entity.id,
@@ -386,14 +542,18 @@ def create_app(
 
         _graph_json = _resolve_query_func("graph_json", graph_json)
         include_hidden = request_auth_scope(request) != "anonymous"
+        theme, theme_settings, _ = _get_theme_ctx(request)
 
         def _graph() -> dict[str, Any]:
-            conn = dbm.connect_existing(s.db_file, readonly=True)
+            conn = dbm.connect_existing(theme_settings.db_file, readonly=True)
             try:
                 try:
-                    return _graph_json(conn, include_hidden=include_hidden)
+                    g = _graph_json(conn, include_hidden=include_hidden)
                 except TypeError:
-                    return _graph_json(conn)
+                    g = _graph_json(conn)
+                g["theme_id"] = theme.id
+                g["theme_label"] = theme.label
+                return g
             finally:
                 conn.close()
 
@@ -494,11 +654,12 @@ def create_app(
 
         _documents_list = _resolve_query_func("documents_list", documents_list)
         include_hidden = request_auth_scope(request) != "anonymous"
+        theme, theme_settings, _ = _get_theme_ctx(request)
 
         def _documents() -> dict[str, Any]:
-            conn = dbm.connect_existing(s.db_file, readonly=True)
+            conn = dbm.connect_existing(theme_settings.db_file, readonly=True)
             try:
-                format_status = dbm.check_format_mismatch(conn, getattr(s, "render_format", "md"))
+                format_status = dbm.check_format_mismatch(conn, getattr(theme_settings, "render_format", "md"))
                 try:
                     docs = _documents_list(conn, limit=300, include_hidden=include_hidden)
                 except TypeError:
@@ -506,6 +667,8 @@ def create_app(
                 return {
                     "documents": docs,
                     "format_status": format_status,
+                    "theme_id": theme.id,
+                    "theme_label": theme.label,
                 }
             finally:
                 conn.close()
@@ -521,14 +684,19 @@ def create_app(
             raise HTTPException(status_code=400, detail="id required")
 
         include_hidden = request_auth_scope(request) != "anonymous"
+        theme, theme_settings, _ = _get_theme_ctx(request)
 
         def _load() -> dict[str, Any] | None:
-            conn = dbm.connect_existing(s.db_file, readonly=True)
+            conn = dbm.connect_existing(theme_settings.db_file, readonly=True)
             try:
                 try:
-                    return _detail(conn, node_id, include_hidden=include_hidden)
+                    rep = _detail(conn, node_id, include_hidden=include_hidden)
                 except TypeError:
-                    return _detail(conn, node_id)
+                    rep = _detail(conn, node_id)
+                if rep is not None:
+                    rep["theme_id"] = theme.id
+                    rep["theme_label"] = theme.label
+                return rep
             finally:
                 conn.close()
 
@@ -546,15 +714,20 @@ def create_app(
             raise HTTPException(status_code=400, detail="id required")
 
         include_hidden = request_auth_scope(request) != "anonymous"
+        theme, theme_settings, _ = _get_theme_ctx(request)
 
         def _load() -> dict[str, Any] | None:
-            conn = dbm.connect_existing(s.db_file, readonly=True)
+            conn = dbm.connect_existing(theme_settings.db_file, readonly=True)
             try:
                 # GET은 readonly 사용자에게도 열리므로 열람 상태를 변경하지 않는다.
                 try:
-                    return _document_detail(conn, document_id, include_hidden=include_hidden)
+                    rep = _document_detail(conn, document_id, include_hidden=include_hidden)
                 except TypeError:
-                    return _document_detail(conn, document_id)
+                    rep = _document_detail(conn, document_id)
+                if rep is not None:
+                    rep["theme_id"] = theme.id
+                    rep["theme_label"] = theme.label
+                return rep
             finally:
                 conn.close()
 
@@ -565,12 +738,13 @@ def create_app(
 
     async def document_seen_route(request: Request) -> JSONResponse:
         body = await _json_object(request)
+        theme, theme_settings, _ = _get_theme_ctx(request, body)
         document_id = str(body.get("id") or "").strip()
         if not document_id:
             raise HTTPException(status_code=400, detail="id required")
 
         def _mark() -> bool:
-            conn = dbm.connect_existing(s.db_file)
+            conn = dbm.connect_existing(theme_settings.db_file)
             try:
                 if dbm.get_document_row(conn, document_id) is None:
                     return False
@@ -581,17 +755,21 @@ def create_app(
 
         if not await asyncio.to_thread(_mark):
             raise HTTPException(status_code=404, detail="not found")
-        return JSONResponse({"id": document_id, "seen": True})
+        resp = {"id": document_id, "seen": True}
+        if theme.id != 0:
+            resp["theme_id"] = theme.id
+        return JSONResponse(resp)
 
     async def document_pin_route(request: Request) -> JSONResponse:
         body = await _json_object(request)
+        theme, theme_settings, _ = _get_theme_ctx(request, body)
         document_id = str(body.get("id") or "").strip()
         if not document_id:
             raise HTTPException(status_code=400, detail="id required")
         pinned = bool(body.get("pinned", True))
 
         def _pin() -> bool:
-            conn = dbm.connect_existing(s.db_file)
+            conn = dbm.connect_existing(theme_settings.db_file)
             try:
                 return dbm.set_document_pinned(conn, document_id, pinned)
             finally:
@@ -599,17 +777,21 @@ def create_app(
 
         if not await asyncio.to_thread(_pin):
             raise HTTPException(status_code=404, detail="not found")
-        return JSONResponse({"id": document_id, "pinned": pinned})
+        resp = {"id": document_id, "pinned": pinned}
+        if theme.id != 0:
+            resp["theme_id"] = theme.id
+        return JSONResponse(resp)
 
     async def document_hide_route(request: Request) -> JSONResponse:
         body = await _json_object(request)
+        theme, theme_settings, _ = _get_theme_ctx(request, body)
         document_id = str(body.get("id") or "").strip()
         if not document_id:
             raise HTTPException(status_code=400, detail="id required")
         hidden = bool(body.get("hidden", True))
 
         def _hide() -> bool:
-            conn = dbm.connect_existing(s.db_file)
+            conn = dbm.connect_existing(theme_settings.db_file)
             try:
                 return dbm.set_document_hidden(conn, document_id, hidden)
             finally:
@@ -617,10 +799,14 @@ def create_app(
 
         if not await asyncio.to_thread(_hide):
             raise HTTPException(status_code=404, detail="not found")
-        return JSONResponse({"id": document_id, "hidden": hidden})
+        resp = {"id": document_id, "hidden": hidden}
+        if theme.id != 0:
+            resp["theme_id"] = theme.id
+        return JSONResponse(resp)
 
     async def document_title_route(request: Request) -> JSONResponse:
         body = await _json_object(request)
+        theme, theme_settings, _ = _get_theme_ctx(request, body)
         document_id = str(body.get("id") or "").strip()
         if not document_id:
             raise HTTPException(status_code=400, detail="id required")
@@ -628,7 +814,7 @@ def create_app(
         title = str(raw_title).strip() if raw_title is not None else None
 
         def _update_title() -> bool:
-            conn = dbm.connect_existing(s.db_file)
+            conn = dbm.connect_existing(theme_settings.db_file)
             try:
                 return dbm.set_document_title(conn, document_id, title)
             finally:
@@ -636,22 +822,29 @@ def create_app(
 
         if not await asyncio.to_thread(_update_title):
             raise HTTPException(status_code=404, detail="not found")
-        return JSONResponse({"id": document_id, "title": title})
+        resp = {"id": document_id, "title": title}
+        if theme.id != 0:
+            resp["theme_id"] = theme.id
+        return JSONResponse(resp)
 
     async def synthesize_route(request: Request) -> JSONResponse:
         from ..store.queries import synthesize
 
         _synthesize = _resolve_query_func("synthesize", synthesize)
         body = await _json_object(request)
+        theme, theme_settings, theme_svc = _get_theme_ctx(request, body)
         entity_ids = body.get("node_ids") or []
         if not isinstance(entity_ids, list) or not entity_ids:
             raise HTTPException(status_code=400, detail="node_ids required")
         query = body.get("query")
 
         def _synthesize_job() -> dict[str, Any]:
-            conn = dbm.connect_existing(s.db_file, readonly=True)
+            conn = dbm.connect_existing(theme_settings.db_file, readonly=True)
             try:
-                return _synthesize(conn, svc.provider, entity_ids, query)
+                res = _synthesize(conn, theme_svc.provider, entity_ids, query)
+                res["theme_id"] = theme.id
+                res["theme_label"] = theme.label
+                return res
             finally:
                 conn.close()
 
@@ -738,6 +931,7 @@ def create_app(
         from ..extract.provider import set_progress_callback
 
         body = await _json_object(request)
+        theme, _, theme_svc = _get_theme_ctx(request, body)
         payload = str(body.get("payload") or "").strip()
         if not payload:
             raise HTTPException(status_code=400, detail="payload required")
@@ -790,7 +984,7 @@ def create_app(
                     ingest_kwargs["format"] = format_arg
                 if directive is not None:
                     ingest_kwargs["directive"] = directive
-                return svc.ingest(
+                return theme_svc.ingest(
                     payload,
                     **ingest_kwargs,
                 )
@@ -819,6 +1013,9 @@ def create_app(
                     yield (json.dumps(event, ensure_ascii=False) + "\n").encode()
                 try:
                     result = report_to_dict(task.result())
+                    if theme.id != 0:
+                        result["theme_id"] = theme.id
+                        result["theme_label"] = theme.label
                 except Exception as exc:  # noqa: BLE001
                     _log_operation_failure(request, "ingest stream", exc)
                     result = {"error": "ingest failed", "ok": False}
@@ -835,16 +1032,21 @@ def create_app(
 
         return StreamingResponse(stream(), media_type="application/x-ndjson")
 
-    async def dedup_scan_route(_request: Request) -> JSONResponse:
+    async def dedup_scan_route(request: Request) -> JSONResponse:
         from ..store.queries import dedup_clusters
 
         _dedup_clusters = _resolve_query_func("dedup_clusters", dedup_clusters)
+        theme, theme_settings, theme_svc = _get_theme_ctx(request)
 
         def _scan() -> dict[str, Any]:
-            scan = svc.dedup_scan()
-            conn = dbm.connect_existing(s.db_file, readonly=True)
+            scan = theme_svc.dedup_scan()
+            conn = dbm.connect_existing(theme_settings.db_file, readonly=True)
             try:
-                return _dedup_clusters(conn, scan)
+                res = _dedup_clusters(conn, scan)
+                if theme.id != 0:
+                    res["theme_id"] = theme.id
+                    res["theme_label"] = theme.label
+                return res
             finally:
                 conn.close()
 
@@ -852,13 +1054,14 @@ def create_app(
 
     async def dedup_merge_route(request: Request) -> JSONResponse:
         body = await _json_object(request)
+        theme, _, theme_svc = _get_theme_ctx(request, body)
         keeper = str(body.get("keeper") or "").strip()
         losers = [str(item) for item in (body.get("losers") or []) if item]
         if not keeper or not losers:
             raise HTTPException(status_code=400, detail="keeper and losers required")
         try:
             result = await _run_expensive(
-                svc.merge_one_cluster,
+                theme_svc.merge_one_cluster,
                 keeper,
                 losers,
             )
@@ -874,12 +1077,13 @@ def create_app(
 
     async def create_share_route(request: Request) -> JSONResponse:
         body = await _json_object(request)
+        theme, theme_settings, _ = _get_theme_ctx(request, body)
         document_id = str(body.get("doc_id") or "").strip()
         if not document_id:
             raise HTTPException(status_code=400, detail="doc_id required")
 
         def _share() -> str | None:
-            conn = dbm.connect_existing(s.db_file)
+            conn = dbm.connect_existing(theme_settings.db_file)
             try:
                 if dbm.get_document_row(conn, document_id) is None:
                     return None
@@ -890,7 +1094,7 @@ def create_app(
         token = await asyncio.to_thread(_share)
         if not token:
             raise HTTPException(status_code=404, detail="document not found")
-        return JSONResponse({"token": token, "path": "/p?s=" + token})
+        return JSONResponse({"token": token, "path": "/p?s=" + token, "theme_id": theme.id})
 
     async def shared_doc_page(request: Request) -> Response:
         from ..graphview import shared_html
@@ -902,6 +1106,11 @@ def create_app(
             return PlainTextResponse("Not Found", status_code=404)
 
         def _load() -> dict[str, Any] | None:
+            # 1. 모든 테마 DB에서 공유 토큰 자동 검색
+            resolved = theme_mgr.resolve_share_token(token)
+            if resolved is not None:
+                return resolved[2]
+            # 2. 기본 DB 폴백
             conn = dbm.connect_existing(s.db_file, readonly=True)
             try:
                 document_id = dbm.resolve_doc_share(conn, token)
@@ -1054,6 +1263,10 @@ def create_app(
         ),
         Route("/whoami", whoami, methods=["GET"]),
         Route("/stats", stats, methods=["GET"]),
+        Route("/themes", themes_list_route, methods=["GET", "HEAD"]),
+        Route("/themes", theme_define_route, methods=["POST"]),
+        Route("/themes", theme_update_route, methods=["PATCH"]),
+        Route("/themes", theme_delete_route, methods=["DELETE"]),
         Route("/ingest", do_ingest, methods=["POST"]),
         Route("/ingest-stream", ingest_stream_route, methods=["POST"]),
         Route("/search", do_search, methods=["POST"]),
