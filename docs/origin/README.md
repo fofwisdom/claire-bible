@@ -22,6 +22,7 @@ docs/origin/
 │   ├── INGESTION_INTEGRITY_AND_POLLUTION_CONTROL_RESEARCH.md # 원문 보존·서비스 보호·오염 통제 거버넌스 연구
 │   ├── MCP_SUPPORT.md                    # MCP 지원 아키텍처 및 표준 인증 명세 (오리진 개정본)
 │   ├── MULTI_PROVIDER_DESIGN.md          # 멀티 LLM 프로바이더 및 캘리브레이션 설계
+│   ├── MULTI_THEME_ARCHITECTURE_DESIGN.md # 시퀀스 기반 지식 테마 다중 DB 격리 및 RBAC 아키텍처 설계
 │   ├── OPERATIONAL_MIGRATION.md          # 운영 지원 업데이트 및 환경변수/DB 마이그레이션 설계
 │   ├── PDF_INGESTION_AND_ADAPTIVE_EFFORT_DESIGN.md # PDF 추출 예산 및 적응형 추론(Effort) 설계
 │   ├── PREFERRED_LANGUAGES_DESIGN.md     # 프로젝트 광역 선호 언어(Preferred Languages) 설계
@@ -61,6 +62,7 @@ docs/origin/
   - `DUAL_FORMAT_ADOC_DESIGN.md`: AsciiDoc/Markdown 듀얼 포맷 렌더링 파이프라인
   - `GRAPHVIEW_MODULARIZATION_AND_STATIC_ASSET_DESIGN.md`: graphview.py 모듈화, 정적 자산 분리 및 Phase 1~4 로드맵
   - `MULTI_PROVIDER_DESIGN.md`: 멀티 LLM 프로바이더 및 캘리브레이션 설계
+  - `MULTI_THEME_ARCHITECTURE_DESIGN.md`: 시퀀스 기반 지식 테마 다중 DB 격리, 4단계 RBAC 및 적재 초점(default_focus) 아키텍처 설계
   - `QUALITY_GUARDRAILS_AND_SUMMARY_INTEGRITY_DESIGN.md`: 품질 검증 가드레일 런타임 컴포넌트화, 요약 무결성 및 관측성 개선 설계
   - `TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md`: 프로바이더 텔레메트리 격리 및 Support Bundle 아키텍처 설계 (zstd 압축, 공유 링크 추적, 6시간 자동 파기)
   - `MCP_SUPPORT.md`: RFC 6750 표준 인증 기반 MCP 지원 설계
