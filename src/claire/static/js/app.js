@@ -142,10 +142,16 @@ async function fetchThemes(){
 function renderThemeSelector(){
   const sel = document.getElementById('theme-select');
   const iconEl = document.getElementById('theme-curr-icon');
+  const wrap = document.getElementById('theme-picker-wrap');
   if(!sel) return;
 
   if(!availableThemes || !availableThemes.length){
     availableThemes = [{id: 0, seq: 0, label: '기본 테마', description: '기본 지식베이스', icon: '📚'}];
+  }
+
+  // 등록된 테마가 1개뿐인 초기 상태(싱글 테마 모드)에서는 헤더 선택기를 숨김
+  if(wrap){
+    wrap.style.display = availableThemes.length > 1 ? 'inline-flex' : 'none';
   }
 
   const current = availableThemes.find(t => t.id === activeThemeId) || availableThemes[0];
@@ -1323,15 +1329,18 @@ function renderResearchResult(d, backId){
 // 텔레그램 DM 과 같은 통로(svc.ingest, source='web') — 관련 링크 1홉 자동확장도 동일하게 동작.
 function openIngest(){
   if(!canWrite()) return;
-  panel.innerHTML='<h2>➕ 자료 적재</h2>'+
-    '<p class=al>URL 또는 메모 텍스트를 입력하고 적재 방식을 선택하세요.</p>'+
-    '<div class="ingest-form">'+
-      '<div class="ingest-field">'+
+  const themeFieldHtml = (availableThemes && availableThemes.length > 1)
+    ? ('<div class="ingest-field">'+
         '<label class="ingest-label" for="ingtheme">적재 대상 테마 <span class="ingest-help">지식 관리자가 정의한 테마</span></label>'+
         '<select id="ingtheme" class="ingest-theme-select">'+
           renderThemeOptions(activeThemeId)+
         '</select>'+
-      '</div>'+
+      '</div>')
+    : '';
+  panel.innerHTML='<h2>➕ 자료 적재</h2>'+
+    '<p class=al>URL 또는 메모 텍스트를 입력하고 적재 방식을 선택하세요.</p>'+
+    '<div class="ingest-form">'+
+      themeFieldHtml +
       '<div class="ingest-field">'+
         '<label class="ingest-label" for="ingin">자료 <span class="ingest-help">URL 또는 텍스트</span></label>'+
         '<textarea id="ingin" rows="5" placeholder="https://example.com/article"></textarea>'+
