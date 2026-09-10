@@ -546,6 +546,8 @@ def cmd_theme(args) -> int:
             print(f"{d['id']:<4} {d['icon']:<4} {d['label']:<20} {st:<18} {pub_st:<8} {collab_st:<10} {is_def}")
             if d.get("description"):
                 print(f"     ㄴ 설명: {d['description']}")
+            if d.get("default_focus"):
+                print(f"     ㄴ 기본 초점: {d['default_focus']}")
             print(f"     ㄴ DB  : {d['db_path']}")
         print("=" * 78)
         return 0
@@ -563,6 +565,7 @@ def cmd_theme(args) -> int:
         is_collab = getattr(args, "is_collaborator_accessible", True)
         if is_collab is None:
             is_collab = True
+        default_focus = str(getattr(args, "default_focus", "") or "").strip()
         try:
             theme = tm.define_theme(
                 label,
@@ -570,6 +573,7 @@ def cmd_theme(args) -> int:
                 icon=icon,
                 is_public=is_public,
                 is_collaborator_accessible=is_collab,
+                default_focus=default_focus,
             )
             if getattr(args, "json", False):
                 print(json.dumps({"ok": True, "theme": theme.to_dict()}, ensure_ascii=False, indent=2))
@@ -579,6 +583,7 @@ def cmd_theme(args) -> int:
                 print(f"  • 레이블      : {theme.icon} {theme.label}")
                 print(f"  • 공개 여부   : {'공개 (Public)' if theme.is_public else '비공개 (Private 🔒)'}")
                 print(f"  • 협력자 공개 : {'공개 (Collaborator Allowed)' if theme.is_collaborator_accessible else '차단 (Collaborator Blocked)'}")
+                print(f"  • 기본 초점   : {theme.default_focus or '(없음)'}")
                 print(f"  • 설명        : {theme.description or '(없음)'}")
                 print(f"  • SQLite 경로 : {theme.db_path}")
                 print(f"  • Vault 경로  : {theme.vault_path}")
@@ -597,6 +602,7 @@ def cmd_theme(args) -> int:
         icon = getattr(args, "icon", None)
         is_public = getattr(args, "is_public", None)
         is_collab = getattr(args, "is_collaborator_accessible", None)
+        default_focus = getattr(args, "default_focus", None)
         try:
             theme = tm.update_theme(
                 theme_id,
@@ -605,15 +611,17 @@ def cmd_theme(args) -> int:
                 icon=icon,
                 is_public=is_public,
                 is_collaborator_accessible=is_collab,
+                default_focus=default_focus,
             )
             if getattr(args, "json", False):
                 print(json.dumps({"ok": True, "theme": theme.to_dict()}, ensure_ascii=False, indent=2))
             else:
                 print(f"[성공] 테마 #{theme.id} 메타데이터 수정 완료!")
-                print(f"  • 레이블   : {theme.icon} {theme.label}")
-                print(f"  • 공개 여부: {'공개 (Public)' if theme.is_public else '비공개 (Private 🔒)'}")
+                print(f"  • 레이블     : {theme.icon} {theme.label}")
+                print(f"  • 공개 여부  : {'공개 (Public)' if theme.is_public else '비공개 (Private 🔒)'}")
                 print(f"  • 협력자 공개: {'공개 (Collaborator Allowed)' if theme.is_collaborator_accessible else '차단 (Collaborator Blocked)'}")
-                print(f"  • 설명     : {theme.description or '(없음)'}")
+                print(f"  • 기본 초점  : {theme.default_focus or '(없음)'}")
+                print(f"  • 설명       : {theme.description or '(없음)'}")
                 print(f"  (물리 디렉터리 경로는 변경되지 않고 유지됩니다: {theme.db_path})")
             return 0
         except Exception as exc:
@@ -987,6 +995,10 @@ def cmd_ingest(args) -> int:
     vstore = make_vector_store(conn, s.vector_backend)
     print(f"(provider={provider.name})")
     directive = getattr(args, "focus", None) or getattr(args, "orientation", None) or getattr(args, "directive", None)
+    if not directive and theme and not theme.is_default and theme.id > 0 and getattr(theme, "default_focus", None):
+        directive = theme.default_focus.strip() or None
+        if directive:
+            print(f"  [기본 초점 적용: {directive}]")
     effort = getattr(args, "effort", None)
     full_content = getattr(args, "full_content", False)
     report = ingest(
@@ -2350,6 +2362,7 @@ def build_parser() -> argparse.ArgumentParser:
     ptd_collab = ptd.add_mutually_exclusive_group()
     ptd_collab.add_argument("--collaborator", dest="is_collaborator_accessible", action="store_true", default=True, help="협력자(Collaborator) 공개 설정 (기본값)")
     ptd_collab.add_argument("--no-collaborator", dest="is_collaborator_accessible", action="store_false", help="협력자(Collaborator) 접근/적재 차단")
+    ptd.add_argument("--focus", "--default-focus", dest="default_focus", default="", help="테마 적재 시 기본 적용할 초점 (Directive/Focus)")
     ptd.add_argument("--json", action="store_true", help="output in json format")
     ptd.set_defaults(func=cmd_theme)
 
@@ -2364,6 +2377,7 @@ def build_parser() -> argparse.ArgumentParser:
     ptu_collab = ptu.add_mutually_exclusive_group()
     ptu_collab.add_argument("--collaborator", dest="is_collaborator_accessible", action="store_true", default=None, help="협력자(Collaborator) 공개로 변경")
     ptu_collab.add_argument("--no-collaborator", dest="is_collaborator_accessible", action="store_false", default=None, help="협력자(Collaborator) 차단으로 변경")
+    ptu.add_argument("--focus", "--default-focus", dest="default_focus", default=None, help="테마 적재 시 기본 적용할 초점 변경 (빈 문자열 '' 전달 시 삭제)")
     ptu.add_argument("--json", action="store_true", help="output in json format")
     ptu.set_defaults(func=cmd_theme)
 

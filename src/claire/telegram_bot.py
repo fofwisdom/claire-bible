@@ -823,6 +823,8 @@ def build_app(settings: Settings | None = None) -> Any:
             return
 
         # 일반 외부 웹페이지/텍스트 신규 적재
+        if not directive and not active_theme.is_default and active_theme.id > 0 and getattr(active_theme, "default_focus", None):
+            directive = active_theme.default_focus.strip() or None
         payload_to_ingest = payload_clean or payload
         label = f"처리 중… ({classify_input(payload_to_ingest)})"
         if active_theme.id != 0:
@@ -913,6 +915,12 @@ def build_app(settings: Settings | None = None) -> Any:
             active_tid = 0
             active_theme = theme_mgr.get_theme(0)
             active_svc = svc
+
+        directive = parse_caption_directive(clean_cap)
+        caption_clean, _, has_refetch_full, has_effort = parse_regenerate_flags(directive or "")
+        clean_dir = caption_clean or None
+        if not clean_dir and not active_theme.is_default and active_theme.id > 0 and getattr(active_theme, "default_focus", None):
+            clean_dir = active_theme.default_focus.strip() or None
 
         label = f"파일 처리 중… ({name})"
         if active_theme.id != 0:
@@ -1020,6 +1028,8 @@ def build_app(settings: Settings | None = None) -> Any:
         active_svc = service_pool.get_service(active_tid)
 
         payload, directive = parse_message_directive(raw_clean_theme)
+        if not directive and not active_theme.is_default and active_theme.id > 0 and getattr(active_theme, "default_focus", None):
+            directive = active_theme.default_focus.strip() or None
         payload_clean, _, has_refetch_full, has_effort = parse_regenerate_flags(payload)
         payload_to_ingest = payload_clean or payload
         msg = update.message

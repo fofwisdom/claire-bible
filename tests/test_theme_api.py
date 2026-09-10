@@ -310,3 +310,85 @@ def test_delete_theme_api(theme_app_client):
     remaining_ids = [t["id"] for t in themes_after]
     assert remaining_ids == [0]
 
+
+def test_theme_default_focus_api(theme_app_client, monkeypatch):
+    """추가 테마의 기본 초점(default_focus) API 설정/변경 및 적재 시 자동 적용 검증."""
+    client, _ = theme_app_client
+
+    # 1. default_focus를 지정하여 새 테마 생성
+    resp = client.post(
+        "/themes",
+        json={"label": "보안 연구", "default_focus": "취약점 분석 및 보안 위협 완화 방안 중심"},
+        headers=OWNER_HEADERS,
+    )
+    assert resp.status_code == 201
+    created_theme = resp.json()["theme"]
+    assert created_theme["id"] == 1
+    assert created_theme["default_focus"] == "취약점 분석 및 보안 위협 완화 방안 중심"
+
+    # 2. GET /themes 에서 default_focus 필드 노출 확인
+    get_resp = client.get("/themes", headers=OWNER_HEADERS)
+    t1 = next(t for t in get_resp.json()["themes"] if t["id"] == 1)
+    assert t1["default_focus"] == "취약점 분석 및 보안 위협 완화 방안 중심"
+
+    # 기본 테마(0)는 default_focus가 항상 빈 문자열이어야 함
+    t0 = next(t for t in get_resp.json()["themes"] if t["id"] == 0)
+    assert t0.get("default_focus", "") == ""
+
+    # 3. PATCH /themes 로 default_focus 변경
+    patch_resp = client.patch(
+        "/themes",
+        json={"id": 1, "default_focus": "침해 사고 분석 및 포렌식 절차 중심"},
+        headers=OWNER_HEADERS,
+    )
+    assert patch_resp.status_code == 200
+    assert patch_resp.json()["theme"]["default_focus"] == "침해 사고 분석 및 포렌식 절차 중심"
+
+    # 4. IngestService.ingest에 directive 전달 여부를 모니터링하여 테스트
+    from unittest.mock import MagicMock
+    from claire.ingest.pipeline import IngestReport
+
+    captured_directives = []
+
+    def mock_ingest(self, payload, **kwargs):
+        captured_directives.append(kwargs.get("directive"))
+        return IngestReport(
+            document_id="doc_test_123",
+            title="테스트 문서",
+            summary="테스트 요약",
+            source_type="text",
+        )
+
+    monkeypatch.setattr("claire.ingest.service.IngestService.ingest", mock_ingest)
+
+    # 4-1. 초점 없이 테마 1에 적재 -> 테마 1의 default_focus가 directive로 자동 적용
+    ingest_resp1 = client.post(
+        "/ingest",
+        json={"payload": "보안 취약점 보고서", "theme": 1},
+        headers=OWNER_HEADERS,
+    )
+    assert ingest_resp1.status_code == 200
+    assert len(captured_directives) == 1
+    assert captured_directives[-1] == "침해 사고 분석 및 포렌식 절차 중심"
+
+    # 4-2. 명시적 초점(focus)을 주고 테마 1에 적재 -> 명시적 초점이 테마 기본 초점을 덮어씀 (override)
+    ingest_resp2 = client.post(
+        "/ingest",
+        json={"payload": "보안 취약점 보고서 2", "theme": 1, "focus": "긴급 패치 적용 방안"},
+        headers=OWNER_HEADERS,
+    )
+    assert ingest_resp2.status_code == 200
+    assert len(captured_directives) == 2
+    assert captured_directives[-1] == "긴급 패치 적용 방안"
+
+    # 4-3. 기본 테마(0)에 초점 없이 적재 -> directive가 None이어야 함
+    ingest_resp0 = client.post(
+        "/ingest",
+        json={"payload": "일반 상식 문서", "theme": 0},
+        headers=OWNER_HEADERS,
+    )
+    assert ingest_resp0.status_code == 200
+    assert len(captured_directives) == 3
+    assert captured_directives[-1] is None
+
+

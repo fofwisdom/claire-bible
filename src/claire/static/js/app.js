@@ -1421,6 +1421,23 @@ function openIngest(){
     '</div>';
   openDetailPane();
   const ta=document.getElementById('ingin'); if(ta) ta.focus();
+
+  const ingthemeEl = document.getElementById('ingtheme');
+  const ingfocusEl = document.getElementById('ingfocus');
+  function updateFocusPlaceholder(){
+    if(!ingfocusEl) return;
+    const tid = ingthemeEl ? parseInt(ingthemeEl.value, 10) : (isMulti ? activeThemeId : 0);
+    const themeObj = availableThemes.find(t => t.id === tid);
+    if(themeObj && themeObj.id > 0 && themeObj.default_focus){
+      ingfocusEl.placeholder = `기본 초점: ${themeObj.default_focus} (비워둘 시 자동 적용)`;
+    } else {
+      ingfocusEl.placeholder = '예: 시스템 아키텍처와 내부 동작 중심';
+    }
+  }
+  if(ingthemeEl){
+    ingthemeEl.addEventListener('change', updateFocusPlaceholder);
+  }
+  updateFocusPlaceholder();
 }
 async function runIngest(){
   if(!canIngest()) return;
@@ -1449,7 +1466,12 @@ async function runIngest(){
   }
   if(fullContent) optionLabels.push('전문 적재');
   if(effort) optionLabels.push('사고: '+effort);
-  if(focus) optionLabels.push('초점: '+(focus.length > 20 ? focus.slice(0,20)+'…' : focus));
+  if(focus){
+    optionLabels.push('초점: '+(focus.length > 20 ? focus.slice(0,20)+'…' : focus));
+  } else if(targetThemeObj && targetThemeObj.id > 0 && targetThemeObj.default_focus){
+    const df = targetThemeObj.default_focus;
+    optionLabels.push('초점(기본): '+(df.length > 20 ? df.slice(0,20)+'…' : df));
+  }
   if(optionLabels.length){
     labelText += ' ('+optionLabels.join(' · ')+')';
   }
@@ -2445,9 +2467,11 @@ async function openThemeManager(){
           </div>
         </div>
         ${t.description ? `<p style="margin:4px 0 0;font-size:12px;opacity:0.8">${esc(t.description)}</p>` : ''}
+        ${(t.id > 0 && t.default_focus) ? `<p style="margin:4px 0 0;font-size:12px;color:var(--accent,#00ffaa);font-weight:500;">🎯 기본 초점: ${esc(t.default_focus)}</p>` : ''}
         <div id="theme-edit-form-${t.id}" style="display:none;margin-top:10px;padding-top:8px;border-top:1px dashed var(--border);flex-direction:column;gap:8px;">
           <div><label style="font-size:11px;opacity:0.8">레이블(이름)</label><input id="editthemep-label-${t.id}" style="width:100%;box-sizing:border-box" value="${esc(t.label)}"/></div>
           <div><label style="font-size:11px;opacity:0.8">설명</label><input id="editthemep-desc-${t.id}" style="width:100%;box-sizing:border-box" value="${esc(t.description || '')}"/></div>
+          ${t.id > 0 ? `<div><label style="font-size:11px;opacity:0.8">기본 초점 (적재 시 기본 적용할 방향/지침)</label><input id="editthemep-focus-${t.id}" style="width:100%;box-sizing:border-box" placeholder="예: 시스템 아키텍처 및 핵심 API 사양 중심" value="${esc(t.default_focus || '')}"/></div>` : ''}
           <div style="display:flex;gap:8px;flex-wrap:wrap;">
             <div style="flex:1;min-width:80px;"><label style="font-size:11px;opacity:0.8">아이콘</label><input id="editthemep-icon-${t.id}" style="width:100%;box-sizing:border-box" value="${esc(t.icon || '📁')}"/></div>
             <div style="flex:1;display:flex;align-items:center;padding-top:14px;"><label style="font-size:12px;cursor:pointer;"><input id="editthemep-pub-${t.id}" type="checkbox" ${isPub ? 'checked' : ''} style="width:auto;margin-right:4px;vertical-align:middle;"/>익명 사용자에게 공개</label></div>
@@ -2468,6 +2492,7 @@ async function openThemeManager(){
     h += '<div style="display:flex;flex-direction:column;gap:8px;margin-top:8px;">';
     h += '<div><label style="font-size:11px;opacity:0.8">레이블(이름)</label><input id="newthemep-label" style="width:100%;box-sizing:border-box" placeholder="예: 경제 및 금융"/></div>';
     h += '<div><label style="font-size:11px;opacity:0.8">설명</label><input id="newthemep-desc" style="width:100%;box-sizing:border-box" placeholder="예: 거시경제 및 시장 분석"/></div>';
+    h += '<div><label style="font-size:11px;opacity:0.8">기본 초점 (적재 시 기본 적용할 방향/지침)</label><input id="newthemep-focus" style="width:100%;box-sizing:border-box" placeholder="예: 거시경제 지표 및 시장 영향 중심"/></div>';
     h += '<div style="display:flex;gap:8px;flex-wrap:wrap;"><div style="flex:1;min-width:80px;"><label style="font-size:11px;opacity:0.8">아이콘</label><input id="newthemep-icon" style="width:100%;box-sizing:border-box" value="📁"/></div>';
     h += '<div style="flex:1;display:flex;align-items:center;padding-top:14px;"><label style="font-size:12px;cursor:pointer;"><input id="newthemep-pub" type="checkbox" checked style="width:auto;margin-right:4px;vertical-align:middle;"/>익명 사용자에게 공개</label></div>';
     h += '<div style="flex:1;display:flex;align-items:center;padding-top:14px;"><label style="font-size:12px;cursor:pointer;"><input id="newthemep-collab" type="checkbox" checked style="width:auto;margin-right:4px;vertical-align:middle;"/>협업자에게 공개</label></div></div>';
@@ -2498,6 +2523,7 @@ async function updateThemeFromUI(themeId){
   if(!canWrite()) return;
   const labelEl = document.getElementById('editthemep-label-' + themeId);
   const descEl = document.getElementById('editthemep-desc-' + themeId);
+  const focusEl = document.getElementById('editthemep-focus-' + themeId);
   const iconEl = document.getElementById('editthemep-icon-' + themeId);
   const pubEl = document.getElementById('editthemep-pub-' + themeId);
   const collabEl = document.getElementById('editthemep-collab-' + themeId);
@@ -2511,6 +2537,9 @@ async function updateThemeFromUI(themeId){
   const payload = {id: themeId, label, description, icon, is_public};
   if(collabEl){
     payload.is_collaborator_accessible = collabEl.checked;
+  }
+  if(focusEl){
+    payload.default_focus = focusEl.value.trim();
   }
 
   try{
@@ -2575,12 +2604,14 @@ async function createThemeFromUI(){
   if(!canWrite()) return;
   const labelEl = document.getElementById('newthemep-label');
   const descEl = document.getElementById('newthemep-desc');
+  const focusEl = document.getElementById('newthemep-focus');
   const iconEl = document.getElementById('newthemep-icon');
   const pubEl = document.getElementById('newthemep-pub');
   const collabEl = document.getElementById('newthemep-collab');
   const label = ((labelEl||{}).value||'').trim();
   if(!label){ alert('테마 이름을 입력하세요.'); return; }
   const description = ((descEl||{}).value||'').trim();
+  const default_focus = ((focusEl||{}).value||'').trim();
   const icon = ((iconEl||{}).value||'📁').trim() || '📁';
   const is_public = pubEl ? pubEl.checked : true;
   const is_collaborator_accessible = collabEl ? collabEl.checked : true;
@@ -2588,7 +2619,7 @@ async function createThemeFromUI(){
     const r = await fetch('themes', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({label, description, icon, is_public, is_collaborator_accessible})
+      body: JSON.stringify({label, description, default_focus, icon, is_public, is_collaborator_accessible})
     });
     if(!r.ok){
       const err = await r.json().catch(()=>({}));
