@@ -122,6 +122,7 @@ def test_graph_html_self_contained_markers():
     assert "let AUTH_SCOPE='unknown';" in GRAPH_HTML
     assert "let READONLY=true;" in GRAPH_HTML
     assert "function canWrite(){ return AUTH_SCOPE==='owner'; }" in GRAPH_HTML
+    assert "function canIngest(){ return AUTH_SCOPE==='owner' || AUTH_SCOPE==='collaborator'; }" in GRAPH_HTML
     assert "setAccessScope(d.scope)" in GRAPH_HTML
     assert "semchk.disabled = unknown || isAnon" in GRAPH_HTML
     assert "👁️ 익명 읽기전용" in GRAPH_HTML
@@ -143,8 +144,8 @@ def test_graph_html_self_contained_markers():
         "async function markDocumentSeen(docId){\n  if(!canWrite()) return;",
         "async function shareDoc(){\n  if(!canWrite() || !curReaderDoc) return;",
         "async function doResearch(){\n  if(!canWrite()) return;",
-        "function openIngest(){\n  if(!canWrite()) return;",
-        "async function runIngest(){\n  if(!canWrite()) return;",
+        "function openIngest(){\n  if(!canIngest()) return;",
+        "async function runIngest(){\n  if(!canIngest()) return;",
         "async function openDedup(){\n  if(!canWrite()) return;",
         "function renderDedup(d){\n  if(!canWrite()) return;",
         "async function runDedupMerge(ci){\n  if(!canWrite()) return;",

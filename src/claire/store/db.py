@@ -1169,7 +1169,7 @@ def validate_session_scope(
     token: str,
     *,
     ttl: float = SESSION_TTL,
-    scopes: tuple[str, ...] = ("owner", "readonly"),
+    scopes: tuple[str, ...] = ("owner", "collaborator", "readonly"),
 ) -> str | None:
     """유효한 전체 세션 토큰의 scope를 반환한다.
 

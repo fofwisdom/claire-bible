@@ -145,9 +145,9 @@
     text-align:center;border-top:1px solid var(--border);background:var(--sec-bg)}
   #showhidden:hover{background:var(--hover)}
 
+  body:not([data-auth-scope="owner"]):not([data-auth-scope="collaborator"]) #addbtn,
   body:not([data-auth-scope="owner"]) #synthbtn,
   body:not([data-auth-scope="owner"]) #synthchips,
-  body:not([data-auth-scope="owner"]) #addbtn,
   body:not([data-auth-scope="owner"]) #dedupbtn,
   body:not([data-auth-scope="owner"]) .redit,
   body:not([data-auth-scope="owner"]) .rshare{display:none!important}

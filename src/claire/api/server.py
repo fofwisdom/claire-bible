@@ -213,6 +213,8 @@ def create_app(
         scope = request_auth_scope(request)
         if scope == "anonymous" and not theme.is_public:
             raise HTTPException(status_code=404, detail="theme not found")
+        elif scope == "collaborator" and not (theme.is_public or theme.is_collaborator_accessible):
+            raise HTTPException(status_code=404, detail="theme not found")
         theme_settings = theme_mgr.get_settings_for_theme(theme.id, s)
         theme_svc = service_pool.get_service(theme.id)
         return theme, theme_settings, theme_svc
@@ -281,7 +283,7 @@ def create_app(
 
     async def whoami(request: Request) -> JSONResponse:
         scope = request_auth_scope(request)
-        if scope not in {"owner", "readonly", "anonymous"}:
+        if scope not in {"owner", "collaborator", "readonly", "anonymous"}:
             raise HTTPException(status_code=401, detail="authentication required")
         return JSONResponse({"scope": scope})
 
@@ -307,7 +309,6 @@ def create_app(
     async def themes_list_route(request: Request) -> JSONResponse:
         scope = request_auth_scope(request)
         include_hidden = scope != "anonymous"
-        include_private = scope != "anonymous"
         multi_enabled = bool(getattr(s, "multi_theme", False))
 
         def _get_themes_with_stats() -> dict[str, Any]:
@@ -330,6 +331,7 @@ def create_app(
                     "icon": "📚",
                     "is_default": True,
                     "is_public": True,
+                    "is_collaborator_accessible": False,
                     "stats": t_stats,
                 }
                 return {
@@ -338,7 +340,13 @@ def create_app(
                     "multi_theme": False,
                 }
 
-            all_themes = theme_mgr.list_themes(include_private=include_private)
+            if scope in {"owner", "readonly"}:
+                all_themes = theme_mgr.list_themes(include_private=True)
+            elif scope == "collaborator":
+                all_themes = theme_mgr.list_themes(include_private=False, collaborator=True)
+            else:
+                all_themes = theme_mgr.list_themes(include_private=False, collaborator=False)
+
             result = []
             for t in all_themes:
                 abs_db = theme_mgr.get_settings_for_theme(t.id, s).db_file
@@ -360,6 +368,7 @@ def create_app(
                     "icon": t.icon,
                     "is_default": t.is_default,
                     "is_public": t.is_public,
+                    "is_collaborator_accessible": t.is_collaborator_accessible,
                     "stats": t_stats,
                 })
             return {"themes": result, "default_theme_id": 0, "multi_theme": True}
@@ -385,9 +394,19 @@ def create_app(
         desc = str(body.get("description") or "").strip()
         icon = str(body.get("icon") or "📁").strip()
         is_pub = bool(body.get("is_public", body.get("public", True)))
+        is_collab = bool(
+            body.get(
+                "is_collaborator_accessible",
+                body.get("collaborator_accessible", body.get("collaborator", True)),
+            )
+        )
         try:
             theme = theme_mgr.define_theme(
-                label, description=desc, icon=icon, is_public=is_pub
+                label,
+                description=desc,
+                icon=icon,
+                is_public=is_pub,
+                is_collaborator_accessible=is_collab,
             )
             return JSONResponse({"ok": True, "theme": theme.to_dict()}, status_code=201)
         except ValueError as val_err:
@@ -426,9 +445,25 @@ def create_app(
         )
         if is_pub is not None:
             is_pub = bool(is_pub)
+        is_collab = (
+            body.get("is_collaborator_accessible")
+            if "is_collaborator_accessible" in body
+            else (
+                body.get("collaborator_accessible")
+                if "collaborator_accessible" in body
+                else (body.get("collaborator") if "collaborator" in body else None)
+            )
+        )
+        if is_collab is not None:
+            is_collab = bool(is_collab)
         try:
             theme = theme_mgr.update_theme(
-                theme_id, label=label, description=desc, icon=icon, is_public=is_pub
+                theme_id,
+                label=label,
+                description=desc,
+                icon=icon,
+                is_public=is_pub,
+                is_collaborator_accessible=is_collab,
             )
             return JSONResponse({"ok": True, "theme": theme.to_dict()})
         except KeyError as k_err:
@@ -482,6 +517,18 @@ def create_app(
     async def do_ingest(request: Request) -> JSONResponse:
         body = await _json_object(request)
         theme, _, theme_svc = _get_theme_ctx(request, body)
+        scope = request_auth_scope(request)
+        if scope == "collaborator":
+            if theme.is_default or theme.id == 0:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Collaborator는 기본 지식베이스에 적재할 수 없습니다. 추가 지식 테마를 선택하세요.",
+                )
+            if not theme.is_collaborator_accessible:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Collaborator에게 공개되지 않은 테마입니다.",
+                )
         payload = str(body.get("payload") or "").strip()
         if not payload:
             raise HTTPException(status_code=400, detail="payload required")
@@ -634,8 +681,14 @@ def create_app(
     async def graph_ui(request: Request) -> HTMLResponse:
         from ..graphview import render_graph_html
 
-        include_private = request_auth_scope(request) != "anonymous"
-        return HTMLResponse(render_graph_html(s, include_private=include_private))
+        scope = request_auth_scope(request)
+        include_private = scope in {"owner", "readonly"}
+        is_collaborator = scope == "collaborator"
+        return HTMLResponse(
+            render_graph_html(
+                s, include_private=include_private, collaborator=is_collaborator
+            )
+        )
 
     async def favicon_ico_route(_request: Request) -> Response:
         path = _STATIC_ICONS_DIR / "favicon.ico"
@@ -1005,6 +1058,18 @@ def create_app(
 
         body = await _json_object(request)
         theme, _, theme_svc = _get_theme_ctx(request, body)
+        scope = request_auth_scope(request)
+        if scope == "collaborator":
+            if theme.is_default or theme.id == 0:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Collaborator는 기본 지식베이스에 적재할 수 없습니다. 추가 지식 테마를 선택하세요.",
+                )
+            if not theme.is_collaborator_accessible:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Collaborator에게 공개되지 않은 테마입니다.",
+                )
         payload = str(body.get("payload") or "").strip()
         if not payload:
             raise HTTPException(status_code=400, detail="payload required")
