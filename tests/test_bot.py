@@ -863,6 +863,22 @@ async def test_on_support_unallowed_user(tmp_path):
     msg.reply_text.assert_awaited_with("허용되지 않은 사용자입니다.")
 
 
+def test_setup_telegram_logging(tmp_path: Path):
+    """setup_telegram_logging 이 data/logs/telegram.log 를 생성하고 로깅을 파일에 기록하는지 검증."""
+    from claire.telegram_bot import log, setup_telegram_logging
+
+    log_file = setup_telegram_logging(tmp_path)
+    assert log_file is not None
+    assert log_file.is_file()
+    assert log_file.name == "telegram.log"
+
+    log.info("Test telegram logging message from unit test 12345")
+    for h in log.handlers:
+        h.flush()
+
+    content = log_file.read_text(encoding="utf-8")
+    assert "Test telegram logging message from unit test 12345" in content
+
 
 
 

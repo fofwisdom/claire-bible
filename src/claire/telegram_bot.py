@@ -9,10 +9,48 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
 
 from .config import get_settings
 
 log = logging.getLogger("claire.telegram")
+
+
+def setup_telegram_logging(data_dir: Path | str | None = None) -> Path | None:
+    """텔레그램 봇 전용 회전 파일 로거 설정 (data/logs/telegram.log).
+
+    최대 5MB 크기의 회전 로그 3개를 유지하며 claire.telegram 로거에 부착한다.
+    """
+    try:
+        if data_dir is None:
+            from .config import get_settings
+            data_dir = get_settings().data_dir
+        log_dir = Path(data_dir) / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_file = log_dir / "telegram.log"
+
+        # 동일 파일 핸들러 중복 부착 방지
+        for h in log.handlers:
+            if isinstance(h, RotatingFileHandler) and getattr(h, "baseFilename", None):
+                if Path(h.baseFilename).resolve() == log_file.resolve():
+                    return log_file
+
+        handler = RotatingFileHandler(
+            log_file,
+            maxBytes=5 * 1024 * 1024,
+            backupCount=3,
+            encoding="utf-8",
+        )
+        fmt = logging.Formatter("%(asctime)s [%(levelname)s] [%(name)s] %(message)s")
+        handler.setFormatter(fmt)
+        handler.setLevel(logging.INFO)
+        log.addHandler(handler)
+        log.setLevel(logging.INFO)
+        return log_file
+    except Exception as e:  # noqa: BLE001
+        log.warning("Failed to setup telegram file logger: %s", e)
+        return None
 
 
 def _status_emoji(error, duplicate: bool = False, *, stt_error: str | None = None) -> str:
@@ -100,6 +138,11 @@ async def _settle_status(
     - 기타 에러 발생 시 진행 메시지를 삭제하지 않고 오류 안내 보존
     - 정상 완료이면서 1홉 후보가 없을 때도 진행 메시지를 삭제하지 않고 완료 요약 및 열람 링크로 편집하여 보존
     """
+    log.info(
+        "Settle status: doc_id=%s, has_error=%s, is_stt_failed=%s, is_duplicate=%s, cands=%d",
+        retry_doc_id, has_error, is_stt_failed, is_duplicate, len(cands),
+    )
+
     async def _safe_send_or_edit(text: str, reply_markup: Any = None) -> None:
         for attempt in range(2):
             try:
@@ -107,10 +150,21 @@ async def _settle_status(
                     await status.edit_text(text, reply_markup=reply_markup)
                 else:
                     await status.edit_text(text)
+                log.info(
+                    "Status message edited: status_id=%s, has_markup=%s",
+                    getattr(status, "message_id", None),
+                    reply_markup is not None,
+                )
                 return
-            except Exception:  # noqa: BLE001
+            except Exception as edit_err:  # noqa: BLE001
                 if attempt == 0:
                     await asyncio.sleep(0.5)
+                else:
+                    log.warning(
+                        "Failed to edit status message (id=%s): %s",
+                        getattr(status, "message_id", None),
+                        edit_err,
+                    )
         # Fallback: 원래 메시지에 답장 전송 (네트워크 오류 시 태스크 크래시 방지)
         for attempt in range(2):
             try:
@@ -118,10 +172,21 @@ async def _settle_status(
                     await msg.reply_text(text, reply_markup=reply_markup)
                 else:
                     await msg.reply_text(text)
+                log.info(
+                    "Fallback reply sent to msg_id=%s, has_markup=%s",
+                    getattr(msg, "message_id", None),
+                    reply_markup is not None,
+                )
                 return
-            except Exception:  # noqa: BLE001
+            except Exception as reply_err:  # noqa: BLE001
                 if attempt == 0:
                     await asyncio.sleep(0.5)
+                else:
+                    log.error(
+                        "Failed to send fallback reply to msg_id=%s: %s",
+                        getattr(msg, "message_id", None),
+                        reply_err,
+                    )
 
     if cands and cands_markup:
         await _safe_send_or_edit(summary, reply_markup=cands_markup)
@@ -356,6 +421,7 @@ def build_app(settings: Settings | None = None) -> Any:
     s = settings or get_settings()
     if not s.telegram_bot_token:
         raise ValueError("TELEGRAM_BOT_TOKEN 이 없습니다. .env 에 설정하세요.")
+    setup_telegram_logging(s.data_dir)
 
     def _is_allowed(user_id: int | None) -> bool:
         if not s.allowed_user_ids:
@@ -655,6 +721,10 @@ def build_app(settings: Settings | None = None) -> Any:
         status = await msg.reply_text(f"⏳ {label}")
         uid = user.id if user else None
         cid = update.effective_chat.id if update.effective_chat else None
+        log.info(
+            "User message received: user_id=%s, chat_id=%s, text_length=%d, snippet=%r",
+            uid, cid, len(payload_to_ingest), payload_to_ingest[:60],
+        )
         has_error = False
         is_stt_failed = False
         is_duplicate = False
@@ -681,7 +751,12 @@ def build_app(settings: Settings | None = None) -> Any:
             is_duplicate = bool(report.duplicate)
             emoji = _status_emoji(report.error, report.duplicate, stt_error=report.stt_error)
             did = report.document_id
+            log.info(
+                "Ingest completed: doc_id=%s, title=%r, error=%s, duplicate=%s, cands=%d",
+                report.document_id, report.title, report.error, report.duplicate, len(report.candidates),
+            )
         except Exception as e:  # noqa: BLE001
+            log.exception("Unhandled error in handle_message: %s", e)
             summary, cands, emoji, is_stt_failed, has_error, is_duplicate, did = f"❌ 처리 오류: {e}", [], "👎", False, True, False, None
         await _react(msg, emoji)
         await _settle(
@@ -720,6 +795,10 @@ def build_app(settings: Settings | None = None) -> Any:
         status = await msg.reply_text(f"⏳ {label}")
         uid = user.id if user else None
         cid = update.effective_chat.id if update.effective_chat else None
+        log.info(
+            "Document file received: user_id=%s, chat_id=%s, file_name=%r, mime_type=%s",
+            uid, cid, name, getattr(doc, "mime_type", None),
+        )
 
         async def _download() -> str:
             tg_file = await doc.get_file()
@@ -764,7 +843,12 @@ def build_app(settings: Settings | None = None) -> Any:
             is_duplicate = bool(report.duplicate)
             emoji = _status_emoji(report.error, report.duplicate, stt_error=report.stt_error)
             did = report.document_id
+            log.info(
+                "Document ingest completed: doc_id=%s, title=%r, error=%s, duplicate=%s",
+                report.document_id, report.title, report.error, report.duplicate,
+            )
         except Exception as e:  # noqa: BLE001
+            log.exception("Unhandled error in on_document: %s", e)
             summary, cands, emoji, is_stt_failed, has_error, is_duplicate, did = f"❌ 처리 오류: {e}", [], "👎", False, True, False, None
         await _react(msg, emoji)
         await _settle(
@@ -853,6 +937,11 @@ def build_app(settings: Settings | None = None) -> Any:
         query = update.callback_query
         await query.answer()
         data = query.data or ""
+        log.info(
+            "Callback query received: data=%r, user_id=%s",
+            data,
+            query.from_user.id if query.from_user else None,
+        )
         if data.startswith(("rg:det:", "rg:ref:", "rg:full:")):
             user = update.effective_user
             if not _is_allowed(user.id if user else None):
@@ -1297,6 +1386,7 @@ def run_bot() -> int:
     if not s.telegram_bot_token:
         print("TELEGRAM_BOT_TOKEN 이 없습니다. .env 에 설정하세요.")
         return 2
+    setup_telegram_logging(s.data_dir)
 
     try:
         app = build_app(s)

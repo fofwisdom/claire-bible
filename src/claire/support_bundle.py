@@ -401,20 +401,40 @@ def create_support_bundle(
                     json.dumps(db_integrity, ensure_ascii=False, indent=2).encode("utf-8"),
                 )
 
-                # 6. 프로바이더 로그 (agy.log)
-                log_file = Path(data_dir) / "logs" / "agy.log"
-                if log_file.is_file():
-                    try:
-                        log_text = log_file.read_text(encoding="utf-8", errors="replace")
-                        lines = log_text.splitlines()[-5000:]
-                        sanitized_log = sanitize_sensitive_data("\n".join(lines))
-                        _add_tar_bytes(
-                            tar,
-                            f"{root_arcname}/logs/agy.log",
-                            sanitized_log.encode("utf-8"),
-                        )
-                    except Exception as e:  # noqa: BLE001
-                        logger.warning("Failed to read agy.log: %s", e)
+                # 6. 로그 수집 (agy.log, telegram.log 및 data/logs/*.log)
+                logs_dir = Path(data_dir) / "logs"
+                collected_logs: set[str] = set()
+
+                def _add_log_file(src_path: Path, arc_name: str, max_lines: int = 5000) -> None:
+                    if src_path.is_file() and arc_name not in collected_logs:
+                        try:
+                            log_text = src_path.read_text(encoding="utf-8", errors="replace")
+                            lines = log_text.splitlines()[-max_lines:]
+                            sanitized_log = sanitize_sensitive_data("\n".join(lines))
+                            _add_tar_bytes(
+                                tar,
+                                f"{root_arcname}/logs/{arc_name}",
+                                sanitized_log.encode("utf-8"),
+                            )
+                            collected_logs.add(arc_name)
+                        except Exception as e:  # noqa: BLE001
+                            logger.warning("Failed to read log %s: %s", src_path, e)
+
+                # agy.log
+                _add_log_file(logs_dir / "agy.log", "agy.log")
+                if "agy.log" not in collected_logs:
+                    _add_log_file(Path(data_dir) / "agy.log", "agy.log")
+
+                # telegram.log
+                _add_log_file(logs_dir / "telegram.log", "telegram.log")
+                if "telegram.log" not in collected_logs:
+                    _add_log_file(Path(data_dir) / "telegram.log", "telegram.log")
+
+                # Any other *.log in data/logs
+                if logs_dir.is_dir():
+                    for extra_log in logs_dir.glob("*.log"):
+                        if extra_log.name not in collected_logs:
+                            _add_log_file(extra_log, extra_log.name)
 
                 # 7. 특정 대상(공유 링크/문서 ID) 추적 패키징
                 if target_doc_id:
@@ -434,6 +454,9 @@ def create_support_bundle(
                             (target_doc_id,),
                         ).fetchall()
                         latest_summary = dbm.latest_extraction_summary(conn, target_doc_id)
+                        doc_entities = dbm.document_entities(conn, target_doc_id)
+                        doc_relations = dbm.document_relations(conn, target_doc_id)
+                        doc_proposals = dbm.document_proposals(conn, target_doc_id)
                     finally:
                         conn.close()
 
@@ -444,12 +467,53 @@ def create_support_bundle(
                         target_info["latest_summary"] = latest_summary
 
                     extractions_data = [dict(e) for e in extractions]
+                    graph_fragment = {
+                        "document_id": target_doc_id,
+                        "entities_count": len(doc_entities),
+                        "relations_count": len(doc_relations),
+                        "proposals_count": len(doc_proposals),
+                        "entities": [
+                            {
+                                "id": ent.id,
+                                "type": ent.type,
+                                "name": ent.name,
+                                "aliases": ent.aliases or [],
+                                "props": ent.props or {},
+                                "observations": ent.observations or [],
+                                "sources": ent.sources or [],
+                                "provisional": ent.provisional,
+                                "created_at": ent.created_at,
+                                "updated_at": ent.updated_at,
+                            }
+                            for ent in doc_entities
+                        ],
+                        "relations": [
+                            {
+                                "id": rel.id,
+                                "type": rel.type,
+                                "source_id": rel.source_id,
+                                "target_id": rel.target_id,
+                                "confidence": rel.confidence,
+                                "props": rel.props or {},
+                                "sources": rel.sources or [],
+                                "provisional": rel.provisional,
+                                "created_at": rel.created_at,
+                            }
+                            for rel in doc_relations
+                        ],
+                        "proposals": doc_proposals,
+                    }
                     tracked_doc_detail = {
                         "resolution": target_info,
                         "document": dict(doc_row) if doc_row else None,
                         "shares": [dict(s) for s in doc_shares],
                         "extractions": extractions_data,
                         "latest_summary": latest_summary,
+                        "graph_stats": {
+                            "entities_count": len(doc_entities),
+                            "relations_count": len(doc_relations),
+                            "proposals_count": len(doc_proposals),
+                        },
                     }
                     _add_tar_bytes(
                         tar,
@@ -465,6 +529,11 @@ def create_support_bundle(
                         tar,
                         f"{root_arcname}/tracked_document/extractions.json",
                         json.dumps(sanitize_sensitive_data(extractions_data), ensure_ascii=False, indent=2).encode("utf-8"),
+                    )
+                    _add_tar_bytes(
+                        tar,
+                        f"{root_arcname}/tracked_document/graph_fragment.json",
+                        json.dumps(sanitize_sensitive_data(graph_fragment), ensure_ascii=False, indent=2).encode("utf-8"),
                     )
                     _add_tar_bytes(
                         tar,

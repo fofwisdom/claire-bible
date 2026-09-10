@@ -821,6 +821,20 @@ def all_relations(conn: sqlite3.Connection) -> list[Relation]:
     return [_row_to_relation(r) for r in conn.execute("SELECT * FROM relations").fetchall()]
 
 
+def document_relations(conn: sqlite3.Connection, document_id: str) -> list[Relation]:
+    """한 문서에서 유래된(sources 에 document_id 가 포함된) 관계 목록."""
+    rows = conn.execute(
+        "SELECT * FROM relations WHERE sources LIKE ?",
+        (f"%{document_id}%",),
+    ).fetchall()
+    out = []
+    for r in rows:
+        rel = _row_to_relation(r)
+        if document_id in (rel.sources or []):
+            out.append(rel)
+    return out
+
+
 # --- proposals ---
 
 def log_proposal(
@@ -833,6 +847,15 @@ def log_proposal(
         (kind, proposed, context, document_id, time.time()),
     )
     conn.commit()
+
+
+def document_proposals(conn: sqlite3.Connection, document_id: str) -> list[dict[str, Any]]:
+    """한 문서에서 제안된 신규 엔티티/관계 타입 목록."""
+    rows = conn.execute(
+        "SELECT * FROM proposals WHERE document_id = ? ORDER BY id ASC",
+        (document_id,),
+    ).fetchall()
+    return [dict(r) for r in rows]
 
 
 # --- raw preservation (재적재용) ---

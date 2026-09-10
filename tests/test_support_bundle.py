@@ -17,7 +17,7 @@ from starlette.testclient import TestClient
 
 from claire.api import server
 from claire.cli import build_parser
-from claire.ontology.base import Document
+from claire.ontology.base import Document, Entity, Relation
 from claire.store import db as dbm
 from claire.store.telemetry import (
     DEFAULT_TELEMETRY_RETENTION_DAYS,
@@ -84,6 +84,40 @@ def _seed_db(db_path: Path) -> None:
         content_hash="hash_ai_123",
     )
     dbm.insert_document(conn, doc)
+
+    # Seed Knowledge Graph entities and relation linked to doc_test_123
+    e1 = Entity(
+        id="ent_ai_bench",
+        type="Concept",
+        name="AI Benchmark",
+        sources=["doc_test_123"],
+    )
+    e2 = Entity(
+        id="ent_eval_method",
+        type="Concept",
+        name="Evaluation Methodology",
+        sources=["doc_test_123"],
+    )
+    dbm.upsert_entity(conn, e1)
+    dbm.upsert_entity(conn, e2)
+
+    rel = Relation(
+        id="rel_bench_eval",
+        type="relates_to",
+        source_id="ent_ai_bench",
+        target_id="ent_eval_method",
+        sources=["doc_test_123"],
+    )
+    dbm.upsert_relation(conn, rel)
+
+    dbm.log_proposal(
+        conn,
+        kind="entity_type",
+        proposed="BenchmarkSuite",
+        context="AI Evaluation Suite context",
+        document_id="doc_test_123",
+    )
+
     now = time.time()
     conn.execute(
         """
@@ -173,6 +207,11 @@ def test_support_bundle_creation_and_zstd_archive(tmp_path: Path):
     _seed_db(s.db_file)
     _seed_telemetry(s.data_dir)
 
+    logs_dir = tmp_path / "logs"
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    (logs_dir / "telegram.log").write_text("2026-09-10 12:00:00 [INFO] (claire.telegram): Telegram bot started\n")
+    (logs_dir / "agy.log").write_text("2026-09-10 12:00:00 [INFO] agy run ok\n")
+
     # 기본 1일 번들 생성
     info = create_support_bundle(s, days=1)
     assert info.days_covered == 1
@@ -198,6 +237,8 @@ def test_support_bundle_creation_and_zstd_archive(tmp_path: Path):
     assert any(n.endswith("pipeline/failed_items.json") for n in names)
     assert any(n.endswith("pipeline/shares_index.json") for n in names)
     assert any(n.endswith("pipeline/db_integrity.json") for n in names)
+    assert any(n.endswith("logs/telegram.log") for n in names)
+    assert any(n.endswith("logs/agy.log") for n in names)
 
     # Manifest 내용 파싱
     manifest_name = [n for n in names if n.endswith("manifest.json")][0]
@@ -244,6 +285,7 @@ def test_support_bundle_share_link_tracking(tmp_path: Path):
     assert any(n.endswith("tracked_document/target_resolution.json") for n in names)
     assert any(n.endswith("tracked_document/document_detail.json") for n in names)
     assert any(n.endswith("tracked_document/extractions.json") for n in names)
+    assert any(n.endswith("tracked_document/graph_fragment.json") for n in names)
     assert any(n.endswith("tracked_document/inbox_record.json") for n in names)
     assert any(n.endswith("tracked_document/telemetry_history.jsonl") for n in names)
 
@@ -258,6 +300,20 @@ def test_support_bundle_share_link_tracking(tmp_path: Path):
     doc_detail_data = json.loads(tar.extractfile(doc_detail_name).read().decode("utf-8"))
     assert "extractions" in doc_detail_data
     assert "latest_summary" in doc_detail_data
+    assert "graph_stats" in doc_detail_data
+    assert doc_detail_data["graph_stats"]["entities_count"] == 2
+    assert doc_detail_data["graph_stats"]["relations_count"] == 1
+    assert doc_detail_data["graph_stats"]["proposals_count"] == 1
+
+    graph_name = [n for n in names if n.endswith("tracked_document/graph_fragment.json")][0]
+    graph_data = json.loads(tar.extractfile(graph_name).read().decode("utf-8"))
+    assert graph_data["document_id"] == "doc_test_123"
+    assert graph_data["entities_count"] == 2
+    assert graph_data["relations_count"] == 1
+    assert graph_data["proposals_count"] == 1
+    assert any(e["id"] == "ent_ai_bench" for e in graph_data["entities"])
+    assert any(r["id"] == "rel_bench_eval" for r in graph_data["relations"])
+    assert any(p["proposed"] == "BenchmarkSuite" for p in graph_data["proposals"])
 
     # 2. shares_index.json에 생성된 공유 링크가 인덱싱되어 있는지 확인
     shares_name = [n for n in names if n.endswith("pipeline/shares_index.json")][0]
