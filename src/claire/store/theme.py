@@ -516,6 +516,95 @@ class ThemeManager:
                 continue
         return None
 
+    def resolve_document_targets(
+        self,
+        target: str | None = None,
+        *,
+        doc_id: str | None = None,
+        url: str | None = None,
+        canonical_url: str | None = None,
+        token: str | None = None,
+        pattern: str | None = None,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        """등록된 테마 DB들을 검색하여 입력값(target, doc_id, url, token 등)과 일치하는 문서 목록을 반환.
+
+        각 결과 딕셔너리에는 theme_id, theme_label, db_file 정보가 함께 포함된다.
+        정확 일치(id, doc_id, token, share_token) 항목이 존재할 경우 해당 항목들을 우선 반환한다.
+        """
+        if not getattr(self.settings, "multi_theme", False):
+            abs_db = getattr(self.settings, "db_file", None) or Path("data/claire.db")
+            if not Path(abs_db).is_file():
+                return []
+            try:
+                conn = dbm.connect_existing(Path(abs_db), readonly=True)
+                try:
+                    res = dbm.resolve_document_targets(
+                        conn,
+                        target=target,
+                        doc_id=doc_id,
+                        url=url,
+                        canonical_url=canonical_url,
+                        token=token,
+                        pattern=pattern,
+                        limit=limit,
+                    )
+                    default_t = self._themes.get(0, self._build_default_theme())
+                    for r in res:
+                        r["theme_id"] = 0
+                        r["theme_label"] = default_t.label
+                        r["db_file"] = str(abs_db)
+                    return res
+                finally:
+                    conn.close()
+            except Exception:
+                return []
+
+        self.reload()
+        exact_matches: list[dict[str, Any]] = []
+        url_matches: list[dict[str, Any]] = []
+        pattern_matches: list[dict[str, Any]] = []
+
+        for t in sorted(self._themes.values(), key=lambda x: x.id):
+            abs_db = self.get_settings_for_theme(t.id).db_file
+            if not Path(abs_db).is_file():
+                continue
+            try:
+                conn = dbm.connect_existing(Path(abs_db), readonly=True)
+                try:
+                    matched = dbm.resolve_document_targets(
+                        conn,
+                        target=target,
+                        doc_id=doc_id,
+                        url=url,
+                        canonical_url=canonical_url,
+                        token=token,
+                        pattern=pattern,
+                        limit=limit,
+                    )
+                    for m in matched:
+                        m["theme_id"] = t.id
+                        m["theme_label"] = t.label
+                        m["db_file"] = str(abs_db)
+                        mb = m.get("matched_by", "")
+                        if mb in ("id", "doc_id", "token", "share_token"):
+                            exact_matches.append(m)
+                        elif mb in ("url", "canonical_url"):
+                            url_matches.append(m)
+                        else:
+                            pattern_matches.append(m)
+                finally:
+                    conn.close()
+            except Exception:
+                continue
+
+        if exact_matches:
+            return exact_matches
+        if url_matches:
+            return url_matches
+        return pattern_matches[:limit]
+
+
 
 _default_manager: ThemeManager | None = None
 

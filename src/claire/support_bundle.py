@@ -65,6 +65,7 @@ class SupportBundleInfo:
     download_url: str
     target_doc_id: str | None = None
     target_matched_by: str | None = None
+    target_theme_id: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -79,6 +80,7 @@ class SupportBundleInfo:
             "download_url": self.download_url,
             "target_doc_id": self.target_doc_id,
             "target_matched_by": self.target_matched_by,
+            "target_theme_id": self.target_theme_id,
         }
 
 
@@ -232,28 +234,33 @@ def create_support_bundle(
     target_info: dict[str, Any] | None = None
     target_doc_id: str | None = None
     target_matched_by: str | None = None
+    target_theme_id: int | None = None
+    target_db_file: Path = Path(s.db_file)
 
     if target:
-        conn = dbm.connect_existing(s.db_file, readonly=True)
-        try:
-            matches = dbm.resolve_document_targets(conn, target=target)
-            if not matches:
-                raise ValueError(f"Target document not found for {target!r}")
-            primary = matches[0]
-            target_doc_id = primary["id"]
-            target_matched_by = primary.get("matched_by", "unknown")
-            target_info = {
-                "input_target": target,
-                "matched_by": target_matched_by,
-                "document_id": target_doc_id,
-                "url": primary.get("url"),
-                "canonical_url": primary.get("canonical_url"),
-                "title": primary.get("title"),
-                "content_hash": primary.get("content_hash"),
-                "is_from_share_token": primary.get("is_from_share_token", False),
-            }
-        finally:
-            conn.close()
+        from .store.theme import get_theme_manager
+
+        tm = get_theme_manager(s)
+        matches = tm.resolve_document_targets(target=target)
+        if not matches:
+            raise ValueError(f"Target document not found for {target!r}")
+        primary = matches[0]
+        target_doc_id = primary["id"]
+        target_matched_by = primary.get("matched_by", "unknown")
+        target_theme_id = primary.get("theme_id", 0)
+        target_db_file = Path(primary.get("db_file", s.db_file))
+        target_info = {
+            "input_target": target,
+            "matched_by": target_matched_by,
+            "theme_id": target_theme_id,
+            "theme_label": primary.get("theme_label", "기본 지식베이스"),
+            "document_id": target_doc_id,
+            "url": primary.get("url"),
+            "canonical_url": primary.get("canonical_url"),
+            "title": primary.get("title"),
+            "content_hash": primary.get("content_hash"),
+            "is_from_share_token": primary.get("is_from_share_token", False),
+        }
 
     # Zstandard 압축 스트림으로 tarfile 생성
     cctx = zstd.ZstdCompressor(level=3)
@@ -323,49 +330,85 @@ def create_support_bundle(
                 shares_index: list[dict[str, Any]] = []
                 db_integrity: dict[str, Any] = {}
 
-                if Path(s.db_file).is_file():
-                    conn = dbm.connect_existing(s.db_file, readonly=True)
+                from .store.theme import get_theme_manager
+
+                tm = get_theme_manager(s)
+                themes_to_check = (
+                    tm.list_themes(include_private=True)
+                    if getattr(s, "multi_theme", False)
+                    else [tm.get_theme(0)]
+                )
+
+                for t in themes_to_check:
+                    theme_db = Path(tm.get_settings_for_theme(t.id).db_file)
+                    if not theme_db.is_file():
+                        continue
                     try:
-                        # 상태별 카운트
-                        rows = conn.execute(
-                            "SELECT status, count(*) as cnt FROM raw_inbox WHERE received_at >= ? GROUP BY status",
-                            (cutoff_epoch,),
-                        ).fetchall()
-                        inbox_summary = {r["status"]: r["cnt"] for r in rows}
+                        conn = dbm.connect_existing(theme_db, readonly=True)
+                        try:
+                            # 상태별 카운트 합산
+                            rows = conn.execute(
+                                "SELECT status, count(*) as cnt FROM raw_inbox WHERE received_at >= ? GROUP BY status",
+                                (cutoff_epoch,),
+                            ).fetchall()
+                            for r in rows:
+                                st = r["status"]
+                                inbox_summary[st] = inbox_summary.get(st, 0) + r["cnt"]
 
-                        # 실패/에러 항목
-                        err_rows = conn.execute(
-                            """
-                            SELECT id, document_id, payload, status, attempts, error, received_at, last_attempt
-                            FROM raw_inbox
-                            WHERE status IN ('error', 'failed', 'stalled')
-                              AND (received_at >= ? OR last_attempt >= ?)
-                            ORDER BY received_at DESC LIMIT 100
-                            """,
-                            (cutoff_epoch, cutoff_epoch),
-                        ).fetchall()
-                        failed_items = [dict(r) for r in err_rows]
+                            # 실패/에러 항목 수집
+                            err_rows = conn.execute(
+                                """
+                                SELECT id, document_id, payload, status, attempts, error, received_at, last_attempt
+                                FROM raw_inbox
+                                WHERE status IN ('error', 'failed', 'stalled')
+                                  AND (received_at >= ? OR last_attempt >= ?)
+                                ORDER BY received_at DESC LIMIT 100
+                                """,
+                                (cutoff_epoch, cutoff_epoch),
+                            ).fetchall()
+                            for er in err_rows:
+                                item = dict(er)
+                                if getattr(s, "multi_theme", False):
+                                    item["theme_id"] = t.id
+                                    item["theme_label"] = t.label
+                                failed_items.append(item)
 
-                        # 공유 링크 인덱스 (기간 내 생성되었거나 유효한 공유 링크 전체)
-                        share_rows = conn.execute(
-                            """
-                            SELECT token, document_id, created_at, expires_at
-                            FROM doc_shares
-                            WHERE created_at >= ? OR expires_at IS NULL OR expires_at >= ?
-                            ORDER BY created_at DESC
-                            """,
-                            (cutoff_epoch, now),
-                        ).fetchall()
-                        shares_index = [dict(r) for r in share_rows]
+                            # 공유 링크 인덱스 (기간 내 생성되었거나 유효한 공유 링크 전체)
+                            share_rows = conn.execute(
+                                """
+                                SELECT token, document_id, created_at, expires_at
+                                FROM doc_shares
+                                WHERE created_at >= ? OR expires_at IS NULL OR expires_at >= ?
+                                ORDER BY created_at DESC
+                                """,
+                                (cutoff_epoch, now),
+                            ).fetchall()
+                            for sr in share_rows:
+                                s_dict = dict(sr)
+                                if getattr(s, "multi_theme", False):
+                                    s_dict["theme_id"] = t.id
+                                    s_dict["theme_label"] = t.label
+                                shares_index.append(s_dict)
 
-                        # DB 정합성 빠른 검사
-                        check_row = conn.execute("PRAGMA quick_check;").fetchone()
-                        db_integrity["claire_db_quick_check"] = check_row[0] if check_row else "unknown"
-                        db_integrity["counts"] = dbm.counts(conn)
+                            # DB 정합성 빠른 검사
+                            check_row = conn.execute("PRAGMA quick_check;").fetchone()
+                            chk_res = check_row[0] if check_row else "unknown"
+                            cnts = dbm.counts(conn)
+                            if t.id == 0:
+                                db_integrity["claire_db_quick_check"] = chk_res
+                                db_integrity["counts"] = cnts
+                            if getattr(s, "multi_theme", False):
+                                if "themes" not in db_integrity:
+                                    db_integrity["themes"] = {}
+                                db_integrity["themes"][str(t.id)] = {
+                                    "label": t.label,
+                                    "quick_check": chk_res,
+                                    "counts": cnts,
+                                }
+                        finally:
+                            conn.close()
                     except Exception as e:  # noqa: BLE001
-                        db_integrity["error"] = str(e)
-                    finally:
-                        conn.close()
+                        db_integrity[f"error_theme_{t.id}"] = str(e)
 
                 # telemetry.db 정합성 검사
                 tel_path = get_telemetry_db_path(data_dir)
@@ -438,7 +481,7 @@ def create_support_bundle(
 
                 # 7. 특정 대상(공유 링크/문서 ID) 추적 패키징
                 if target_doc_id:
-                    conn = dbm.connect_existing(s.db_file, readonly=True)
+                    conn = dbm.connect_existing(target_db_file, readonly=True)
                     try:
                         doc_row = conn.execute(
                             "SELECT * FROM documents WHERE id = ?", (target_doc_id,)
@@ -597,6 +640,7 @@ def create_support_bundle(
         download_url=download_url,
         target_doc_id=target_doc_id,
         target_matched_by=target_matched_by,
+        target_theme_id=target_theme_id,
     )
 
 
