@@ -205,10 +205,14 @@ def create_app(
                 db_path=str(getattr(s, "db_path", "data/claire.db")),
                 vault_path=str(getattr(s, "vault_path", "vault")),
                 is_default=True,
+                is_public=True,
             )
             return default_theme, s, svc
         ref = _extract_theme_ref(request, body)
         theme = theme_mgr.get_theme(ref)
+        scope = request_auth_scope(request)
+        if scope == "anonymous" and not theme.is_public:
+            raise HTTPException(status_code=404, detail="theme not found")
         theme_settings = theme_mgr.get_settings_for_theme(theme.id, s)
         theme_svc = service_pool.get_service(theme.id)
         return theme, theme_settings, theme_svc
@@ -301,7 +305,9 @@ def create_app(
         return JSONResponse(await asyncio.to_thread(_counts))
 
     async def themes_list_route(request: Request) -> JSONResponse:
-        include_hidden = request_auth_scope(request) != "anonymous"
+        scope = request_auth_scope(request)
+        include_hidden = scope != "anonymous"
+        include_private = scope != "anonymous"
         multi_enabled = bool(getattr(s, "multi_theme", False))
 
         def _get_themes_with_stats() -> dict[str, Any]:
@@ -323,6 +329,7 @@ def create_app(
                     "description": "일반 수집 자료 및 기본 지식",
                     "icon": "📚",
                     "is_default": True,
+                    "is_public": True,
                     "stats": t_stats,
                 }
                 return {
@@ -331,7 +338,7 @@ def create_app(
                     "multi_theme": False,
                 }
 
-            all_themes = theme_mgr.list_themes()
+            all_themes = theme_mgr.list_themes(include_private=include_private)
             result = []
             for t in all_themes:
                 abs_db = theme_mgr.get_settings_for_theme(t.id, s).db_file
@@ -352,6 +359,7 @@ def create_app(
                     "description": t.description,
                     "icon": t.icon,
                     "is_default": t.is_default,
+                    "is_public": t.is_public,
                     "stats": t_stats,
                 })
             return {"themes": result, "default_theme_id": 0, "multi_theme": True}
@@ -376,8 +384,11 @@ def create_app(
             raise HTTPException(status_code=400, detail="label is required")
         desc = str(body.get("description") or "").strip()
         icon = str(body.get("icon") or "📁").strip()
+        is_pub = bool(body.get("is_public", body.get("public", True)))
         try:
-            theme = theme_mgr.define_theme(label, description=desc, icon=icon)
+            theme = theme_mgr.define_theme(
+                label, description=desc, icon=icon, is_public=is_pub
+            )
             return JSONResponse({"ok": True, "theme": theme.to_dict()}, status_code=201)
         except ValueError as val_err:
             raise HTTPException(status_code=400, detail=str(val_err)) from val_err
@@ -408,9 +419,16 @@ def create_app(
         label = body.get("label")
         desc = body.get("description")
         icon = body.get("icon")
+        is_pub = (
+            body.get("is_public")
+            if "is_public" in body
+            else (body.get("public") if "public" in body else None)
+        )
+        if is_pub is not None:
+            is_pub = bool(is_pub)
         try:
             theme = theme_mgr.update_theme(
-                theme_id, label=label, description=desc, icon=icon
+                theme_id, label=label, description=desc, icon=icon, is_public=is_pub
             )
             return JSONResponse({"ok": True, "theme": theme.to_dict()})
         except KeyError as k_err:
@@ -613,10 +631,11 @@ def create_app(
 
         return JSONResponse(await asyncio.to_thread(_graph))
 
-    async def graph_ui(_request: Request) -> HTMLResponse:
+    async def graph_ui(request: Request) -> HTMLResponse:
         from ..graphview import render_graph_html
 
-        return HTMLResponse(render_graph_html(s))
+        include_private = request_auth_scope(request) != "anonymous"
+        return HTMLResponse(render_graph_html(s, include_private=include_private))
 
     async def favicon_ico_route(_request: Request) -> Response:
         path = _STATIC_ICONS_DIR / "favicon.ico"

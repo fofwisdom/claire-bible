@@ -34,6 +34,7 @@ class ThemeInfo:
     db_path: str = ""
     vault_path: str = ""
     is_default: bool = False
+    is_public: bool = True
     created_at: float = 0.0
     updated_at: float = 0.0
 
@@ -51,6 +52,7 @@ class ThemeInfo:
             db_path=str(data.get("db_path", "")),
             vault_path=str(data.get("vault_path", "")),
             is_default=bool(data.get("is_default", False)),
+            is_public=bool(data.get("is_public", data.get("public", True))),
             created_at=float(data.get("created_at", 0.0)),
             updated_at=float(data.get("updated_at", 0.0)),
         )
@@ -132,6 +134,7 @@ class ThemeManager:
             db_path=str(db_path),
             vault_path=str(vault_path),
             is_default=True,
+            is_public=True,
             created_at=now,
             updated_at=now,
         )
@@ -160,45 +163,81 @@ class ThemeManager:
             tmp_name = tf.name
         os.replace(tmp_name, self.registry_path)
 
-    def list_themes(self) -> list[ThemeInfo]:
-        """등록된 테마 목록을 일련번호 순서로 반환."""
-        self.reload()
-        return sorted(self._themes.values(), key=lambda t: t.id)
+    def list_themes(self, *, include_private: bool = True) -> list[ThemeInfo]:
+        """등록된 테마 목록을 일련번호 순서로 반환.
 
-    def get_theme(self, theme_ref: int | str | None, *, strict: bool = False) -> ThemeInfo:
+        include_private=False 인 경우 공개(is_public=True) 테마만 필터링하여 반환.
+        """
+        self.reload()
+        themes = sorted(self._themes.values(), key=lambda t: t.id)
+        if not include_private:
+            return [t for t in themes if t.is_public]
+        return themes
+
+    def get_theme(
+        self,
+        theme_ref: int | str | None,
+        *,
+        strict: bool = False,
+        include_private: bool = True,
+    ) -> ThemeInfo:
         """일련번호(int/str) 또는 레이블로 테마를 검색.
 
         - theme_ref 가 None 이거나 빈 문자열이면 기본 테마(0) 반환.
         - 일련번호(숫자) 일치 우선.
         - 레이블(대소문자 무시 정확 일치) 차선.
+        - include_private=False 이고 매칭된 테마가 비공개인 경우, strict=True 면 KeyError, strict=False 면 기본 공개 테마 반환.
         - 찾지 못한 경우 strict=False 이면 기본 테마(0) 반환, strict=True 이면 KeyError.
         """
         self.reload()
+        found: ThemeInfo | None = None
         if theme_ref is None or str(theme_ref).strip() == "":
-            return self._themes.get(0, self._build_default_theme())
+            found = self._themes.get(0, self._build_default_theme())
+        else:
+            ref_str = str(theme_ref).strip()
+            # 1. 정수 일련번호 매칭
+            if ref_str.isdigit():
+                tid = int(ref_str)
+                if tid in self._themes:
+                    found = self._themes[tid]
 
-        ref_str = str(theme_ref).strip()
+            # 2. 레이블 정확 일치 (대소문자 무시)
+            if found is None:
+                ref_lower = ref_str.lower()
+                for t in self._themes.values():
+                    if t.label.lower() == ref_lower:
+                        found = t
+                        break
 
-        # 1. 정수 일련번호 매칭
-        if ref_str.isdigit():
-            tid = int(ref_str)
-            if tid in self._themes:
-                return self._themes[tid]
+            # 3. 레이블 부분/슬러그 매칭
+            if found is None:
+                ref_lower = ref_str.lower()
+                for t in self._themes.values():
+                    if ref_lower in t.label.lower():
+                        found = t
+                        break
 
-        # 2. 레이블 정확 일치 (대소문자 무시)
-        ref_lower = ref_str.lower()
-        for t in self._themes.values():
-            if t.label.lower() == ref_lower:
-                return t
-
-        # 3. 레이블 부분/슬러그 매칭
-        for t in self._themes.values():
-            if ref_lower in t.label.lower():
-                return t
+        if found is not None:
+            if not include_private and not found.is_public:
+                if strict:
+                    raise KeyError(f"비공개 테마입니다: {theme_ref}")
+                default_t = self._themes.get(0, self._build_default_theme())
+                if default_t.is_public:
+                    return default_t
+                for t in sorted(self._themes.values(), key=lambda x: x.id):
+                    if t.is_public:
+                        return t
+                return found
+            return found
 
         if strict:
             raise KeyError(f"테마를 찾을 수 없습니다: {theme_ref}")
-        return self._themes.get(0, self._build_default_theme())
+        default_t = self._themes.get(0, self._build_default_theme())
+        if not include_private and not default_t.is_public:
+            for t in sorted(self._themes.values(), key=lambda x: x.id):
+                if t.is_public:
+                    return t
+        return default_t
 
     def define_theme(
         self,
@@ -206,6 +245,7 @@ class ThemeManager:
         *,
         description: str = "",
         icon: str = "📁",
+        is_public: bool = True,
     ) -> ThemeInfo:
         """지식 관리자: 순차 일련번호를 발급하여 새 테마 디렉터리 생성 및 DB 스키마 초기화."""
         if not getattr(self.settings, "multi_theme", False):
@@ -260,13 +300,14 @@ class ThemeManager:
             db_path=rel_db_path,
             vault_path=rel_vault_path,
             is_default=False,
+            is_public=bool(is_public),
             created_at=now,
             updated_at=now,
         )
 
         self._themes[seq] = theme
         self._save_registry()
-        log.info("새 테마 #%d [%s] 정의 및 생성 완료 (경로: %s)", seq, cleaned_label, rel_db_path)
+        log.info("새 테마 #%d [%s] (공개: %s) 정의 및 생성 완료 (경로: %s)", seq, cleaned_label, theme.is_public, rel_db_path)
         return theme
 
     def update_theme(
@@ -276,8 +317,9 @@ class ThemeManager:
         label: str | None = None,
         description: str | None = None,
         icon: str | None = None,
+        is_public: bool | None = None,
     ) -> ThemeInfo:
-        """지식 관리자: 테마 레이블, 설명, 아이콘 수정 (물리 폴더 경로는 절대 변경되지 않음)."""
+        """지식 관리자: 테마 레이블, 설명, 아이콘, 공개 여부 수정 (물리 폴더 경로는 절대 변경되지 않음)."""
         if not getattr(self.settings, "multi_theme", False):
             raise RuntimeError("멀티 테마 모드가 비활성화되어 있습니다 (CLAIRE_MULTI_THEME=1 필요)")
 
@@ -307,6 +349,9 @@ class ThemeManager:
 
         if icon is not None:
             theme.icon = str(icon).strip() or "📁"
+
+        if is_public is not None:
+            theme.is_public = bool(is_public)
 
         theme.updated_at = time.time()
         self._save_registry()

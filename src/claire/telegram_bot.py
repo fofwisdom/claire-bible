@@ -629,7 +629,8 @@ def build_app(settings: Settings | None = None) -> Any:
         kb = []
         for t in themes:
             mark = "✓ " if t.id == current_tid else ""
-            kb.append([InlineKeyboardButton(f"{mark}{t.icon} {t.label} (#{t.id})", callback_data=f"set_theme:{t.id}")])
+            pub_mark = "" if getattr(t, "is_public", True) else " 🔒"
+            kb.append([InlineKeyboardButton(f"{mark}{t.icon} {t.label} (#{t.id}){pub_mark}", callback_data=f"set_theme:{t.id}")])
         await update.message.reply_text(
             "\n".join(lines),
             reply_markup=InlineKeyboardMarkup(kb),

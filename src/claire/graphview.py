@@ -363,7 +363,7 @@ def shared_html(
     )
 
 
-def render_graph_html(settings: Any = None) -> str:
+def render_graph_html(settings: Any = None, *, include_private: bool = True) -> str:
     """Settings 의 저장소 변수, 관리자 변수 및 GA 설정을 반영하여 완성된 그래프 HTML 을 반환한다."""
     if settings is None:
         from .config import get_settings
@@ -410,7 +410,7 @@ def render_graph_html(settings: Any = None) -> str:
         from .store.theme import get_theme_manager
 
         tm = get_theme_manager(s)
-        themes_list = [t.to_dict() for t in tm.list_themes()]
+        themes_list = [t.to_dict() for t in tm.list_themes(include_private=include_private)]
     else:
         themes_list = [
             {
@@ -420,6 +420,7 @@ def render_graph_html(settings: Any = None) -> str:
                 "description": "일반 수집 자료 및 기본 지식",
                 "icon": "📚",
                 "is_default": True,
+                "is_public": True,
             }
         ]
     themes_json = _json.dumps(themes_list, ensure_ascii=False)

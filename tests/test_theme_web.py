@@ -85,3 +85,27 @@ def test_theme_web_multi_mode_inlining(tmp_path: Path):
     assert 'id="theme-picker-wrap" title="지식 테마 선택 (데이터베이스 전환)" style="display:inline-flex"' in html
     assert 'AI 및 로보틱스' in html
     assert '🤖' in html
+
+
+def test_render_graph_html_visibility_isolation(tmp_path: Path):
+    """비공개 테마는 익명 사용자용 render_graph_html(include_private=False)에서 배제됨을 검증."""
+    from claire.store.theme import ThemeManager
+
+    s = Settings(
+        db_path=str(tmp_path / "claire.db"),
+        vault_path=str(tmp_path / "vault"),
+        CLAIRE_MULTI_THEME=True,
+    )
+    tm = ThemeManager(s)
+    tm.define_theme("비밀 연구", description="내부 전용", icon="🔒", is_public=False)
+
+    # 1. 익명 사용자 (include_private=False) -> 비공개 테마 제외되어 공개 테마가 기본 테마 1개뿐이므로 피커 숨김
+    anon_html = render_graph_html(s, include_private=False)
+    assert '비밀 연구' not in anon_html
+    assert 'style="display:none"' in anon_html
+
+    # 2. 인증된 사용자 (include_private=True) -> 비공개 테마 포함 및 피커 표시
+    owner_html = render_graph_html(s, include_private=True)
+    assert '비밀 연구' in owner_html
+    assert 'style="display:inline-flex"' in owner_html
+    assert 'id="thememanagebtn"' in owner_html

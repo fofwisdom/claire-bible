@@ -533,17 +533,18 @@ def cmd_theme(args) -> int:
             return 0
 
         print(f"Claire 지식베이스 테마 목록 (총 {len(out)}개)")
-        print("=" * 68)
-        print(f"{'ID':<4} {'아이콘':<4} {'레이블':<22} {'문서/엔티티/관계':<18} {'기본여부'}")
-        print("-" * 68)
+        print("=" * 78)
+        print(f"{'ID':<4} {'아이콘':<4} {'레이블':<20} {'문서/엔티티/관계':<18} {'공개여부':<10} {'기본여부'}")
+        print("-" * 78)
         for d in out:
             st = f"{d['stats']['documents']} / {d['stats']['entities']} / {d['stats']['relations']}"
             is_def = "★ 기본" if d["is_default"] else ""
-            print(f"{d['id']:<4} {d['icon']:<4} {d['label']:<22} {st:<18} {is_def}")
+            pub_st = "공개" if d.get("is_public", True) else "비공개 🔒"
+            print(f"{d['id']:<4} {d['icon']:<4} {d['label']:<20} {st:<18} {pub_st:<10} {is_def}")
             if d.get("description"):
                 print(f"     ㄴ 설명: {d['description']}")
             print(f"     ㄴ DB  : {d['db_path']}")
-        print("=" * 68)
+        print("=" * 78)
         return 0
 
     elif action == "define":
@@ -553,14 +554,18 @@ def cmd_theme(args) -> int:
             return 1
         desc = str(getattr(args, "desc", "") or getattr(args, "description", "") or "").strip()
         icon = str(getattr(args, "icon", "") or "📁").strip()
+        is_public = getattr(args, "is_public", True)
+        if is_public is None:
+            is_public = True
         try:
-            theme = tm.define_theme(label, description=desc, icon=icon)
+            theme = tm.define_theme(label, description=desc, icon=icon, is_public=is_public)
             if getattr(args, "json", False):
                 print(json.dumps({"ok": True, "theme": theme.to_dict()}, ensure_ascii=False, indent=2))
             else:
                 print(f"[성공] 새 테마 #{theme.id} 정의 완료!")
                 print(f"  • ID         : {theme.id}")
                 print(f"  • 레이블      : {theme.icon} {theme.label}")
+                print(f"  • 공개 여부   : {'공개 (Public)' if theme.is_public else '비공개 (Private 🔒)'}")
                 print(f"  • 설명        : {theme.description or '(없음)'}")
                 print(f"  • SQLite 경로 : {theme.db_path}")
                 print(f"  • Vault 경로  : {theme.vault_path}")
@@ -577,14 +582,16 @@ def cmd_theme(args) -> int:
         label = getattr(args, "label", None)
         desc = getattr(args, "desc", None) or getattr(args, "description", None)
         icon = getattr(args, "icon", None)
+        is_public = getattr(args, "is_public", None)
         try:
-            theme = tm.update_theme(theme_id, label=label, description=desc, icon=icon)
+            theme = tm.update_theme(theme_id, label=label, description=desc, icon=icon, is_public=is_public)
             if getattr(args, "json", False):
                 print(json.dumps({"ok": True, "theme": theme.to_dict()}, ensure_ascii=False, indent=2))
             else:
                 print(f"[성공] 테마 #{theme.id} 메타데이터 수정 완료!")
-                print(f"  • 레이블: {theme.icon} {theme.label}")
-                print(f"  • 설명  : {theme.description or '(없음)'}")
+                print(f"  • 레이블   : {theme.icon} {theme.label}")
+                print(f"  • 공개 여부: {'공개 (Public)' if theme.is_public else '비공개 (Private 🔒)'}")
+                print(f"  • 설명     : {theme.description or '(없음)'}")
                 print(f"  (물리 디렉터리 경로는 변경되지 않고 유지됩니다: {theme.db_path})")
             return 0
         except Exception as exc:
@@ -2315,6 +2322,9 @@ def build_parser() -> argparse.ArgumentParser:
     ptd.add_argument("--label", "-l", required=True, help="theme label (name)")
     ptd.add_argument("--desc", "--description", default="", help="theme description")
     ptd.add_argument("--icon", default="📁", help="theme emoji icon")
+    ptd_vis = ptd.add_mutually_exclusive_group()
+    ptd_vis.add_argument("--public", dest="is_public", action="store_true", default=True, help="공개 테마로 설정 (기본값)")
+    ptd_vis.add_argument("--private", dest="is_public", action="store_false", help="비공개 테마로 설정 (익명 사용자 열람 차단)")
     ptd.add_argument("--json", action="store_true", help="output in json format")
     ptd.set_defaults(func=cmd_theme)
 
@@ -2323,6 +2333,9 @@ def build_parser() -> argparse.ArgumentParser:
     ptu.add_argument("--label", "-l", default=None, help="new theme label")
     ptu.add_argument("--desc", "--description", default=None, help="new theme description")
     ptu.add_argument("--icon", default=None, help="new theme icon")
+    ptu_vis = ptu.add_mutually_exclusive_group()
+    ptu_vis.add_argument("--public", dest="is_public", action="store_true", default=None, help="공개 테마로 변경")
+    ptu_vis.add_argument("--private", dest="is_public", action="store_false", default=None, help="비공개 테마로 변경 (익명 열람 차단)")
     ptu.add_argument("--json", action="store_true", help="output in json format")
     ptu.set_defaults(func=cmd_theme)
 

@@ -126,3 +126,45 @@ def test_delete_and_purge_custom_theme(temp_theme_env):
     assert len(manager.list_themes()) == 1
     # 삭제된 ID 조회 시 기본 테마 0 반환 (strict=False)
     assert manager.get_theme(t1.id).id == 0
+
+
+def test_theme_visibility_define_and_update(temp_theme_env):
+    """지식 관리자의 테마별 공개/비공개 설정 및 조회 격리 검증."""
+    manager, _, _ = temp_theme_env
+
+    # 1. 비공개 테마 생성 (is_public=False)
+    t1 = manager.define_theme("비공개 전략", is_public=False)
+    assert t1.id == 1
+    assert t1.is_public is False
+
+    # 2. 공개 테마 생성 (is_public=True)
+    t2 = manager.define_theme("공개 브리핑", is_public=True)
+    assert t2.id == 2
+    assert t2.is_public is True
+
+    # 3. include_private=True 시 전체 조회
+    all_themes = manager.list_themes(include_private=True)
+    assert len(all_themes) == 3
+    assert any(t.id == 1 and not t.is_public for t in all_themes)
+    assert any(t.id == 2 and t.is_public for t in all_themes)
+
+    # 4. include_private=False 시 비공개 테마(t1) 배제
+    public_themes = manager.list_themes(include_private=False)
+    assert len(public_themes) == 2
+    assert not any(t.id == 1 for t in public_themes)
+    assert any(t.id == 2 for t in public_themes)
+
+    # 5. get_theme 에서 include_private=False 동작
+    with pytest.raises(KeyError, match="비공개 테마"):
+        manager.get_theme(1, strict=True, include_private=False)
+
+    # strict=False 시 기본 공개 테마로 fallback
+    fallback = manager.get_theme(1, strict=False, include_private=False)
+    assert fallback.id == 0
+
+    # 6. 테마 공개 여부 업데이트 (비공개 -> 공개)
+    updated = manager.update_theme(1, is_public=True)
+    assert updated.is_public is True
+    public_themes_after = manager.list_themes(include_private=False)
+    assert len(public_themes_after) == 3
+    assert any(t.id == 1 for t in public_themes_after)
