@@ -409,6 +409,39 @@ def parse_caption_directive(caption: str | None) -> str | None:
     return c
 
 
+_THEME_TAG_RE = re.compile(
+    r"(?:^|\s)#(?:테마[::\-_]?)?([0-9]+|[a-zA-Z가-힣_]+)(?=\s|$)",
+    re.IGNORECASE,
+)
+
+
+def parse_message_theme(text: str, theme_mgr: Any | None = None) -> tuple[str, int | None]:
+    """메시지 본문에서 `#1`, `#테마1`, `#기술` 등 테마 태그를 감지하여 분리.
+
+    반환: (태그가 제거된 본문, 테마 일련번호 ID | None)
+    """
+    t = (text or "").strip()
+    if not t:
+        return "", None
+    from .store.theme import get_theme_manager
+    tm = theme_mgr or get_theme_manager()
+
+    matches = list(_THEME_TAG_RE.finditer(t))
+    for m in matches:
+        cand = m.group(1).strip()
+        if cand.lower() in ("초점", "focus", "방향성", "방향", "관점", "지침", "directive", "orientation", "perspective"):
+            continue
+        try:
+            found = tm.get_theme(cand, strict=True)
+            clean = (t[:m.start()] + " " + t[m.end():]).strip()
+            clean = re.sub(r"\s+", " ", clean).strip()
+            return clean, found.id
+        except (KeyError, Exception):
+            continue
+
+    return t, None
+
+
 def _is_allowed(user_id: int | None, settings: Settings | None = None) -> bool:
     s = settings or get_settings()
     allow = s.allowed_user_ids
@@ -445,21 +478,26 @@ def build_app(settings: Settings | None = None) -> Any:
     import tempfile
     from pathlib import Path
 
-    from .ingest.service import IngestService
+    from .ingest.service import IngestService, IngestServicePool
+    from .store.theme import get_theme_manager
 
     logging.basicConfig(level=logging.INFO)
     svc = IngestService(s)
-    pending: dict[str, list[str]] = {}  # 확장 후보 임시 보관(콜백 토큰 -> urls)
+    theme_mgr = get_theme_manager(s)
+    service_pool = IngestServicePool(s, svc, theme_manager=theme_mgr)
+    user_active_themes: dict[int, int] = {}
+    pending: dict[str, tuple[list[str], int]] = {}  # 확장 후보 임시 보관(콜백 토큰 -> (urls, theme_id))
 
-    def _markup(update_id: int, candidates: list[str], doc_id: str | None = None):
+    def _markup(update_id: int, candidates: list[str], doc_id: str | None = None, theme_id: int = 0):
         token = f"{update_id}"
-        pending[token] = candidates
+        pending[token] = (candidates, theme_id)
         kb = []
         if doc_id:
             try:
                 base_url = (getattr(s, "public_url", "") or "").rstrip("/")
-                if base_url and s.db_file and Path(s.db_file).exists():
-                    conn = dbm.connect_existing(s.db_file, readonly=False)
+                theme_db = service_pool.get_service(theme_id).s.db_file
+                if base_url and theme_db and Path(theme_db).exists():
+                    conn = dbm.connect_existing(theme_db, readonly=False)
                     try:
                         share_tok = dbm.create_doc_share(conn, doc_id)
                     finally:
@@ -488,8 +526,9 @@ def build_app(settings: Settings | None = None) -> Any:
         is_stt_failed: bool = False,
         is_duplicate: bool = False,
         retry_doc_id: str | None = None,
+        theme_id: int = 0,
     ) -> None:
-        cands_markup = _markup(update_id, cands, retry_doc_id) if cands else None
+        cands_markup = _markup(update_id, cands, retry_doc_id, theme_id=theme_id) if cands else None
         await _settle_status(
             status,
             msg,
@@ -528,6 +567,7 @@ def build_app(settings: Settings | None = None) -> Any:
         "  • 파일/PDF 전송 시 캡션에 원하는 초점 및 옵션(--full, --effort high)을 적어서 전송\n"
         "\n"
         "명령어:\n"
+        "  /theme [번호|이름] — 활성 테마(지식베이스) 선택 및 목록 확인\n"
         "  /search <키워드> — 하이브리드 검색 + 요약(인용)\n"
         "  /ingest <URL|텍스트> [| <초점>] — 초점 지정 적재\n"
         "  /support bundle [일수] [대상] — 진단 Support Bundle 생성 (기본 1일, 6시간 자동 파기)\n"
@@ -547,17 +587,64 @@ def build_app(settings: Settings | None = None) -> Any:
     async def on_help(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(HELP)
 
+    async def on_theme(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        user = update.effective_user
+        if not _is_allowed(user.id if user else None):
+            return
+        uid = user.id if user else 0
+        theme_mgr.reload()
+        themes = theme_mgr.list_themes()
+        current_tid = user_active_themes.get(uid, 0)
+        current_theme = theme_mgr.get_theme(current_tid)
+
+        if ctx.args:
+            arg = " ".join(ctx.args).strip()
+            try:
+                target = theme_mgr.get_theme(arg, strict=True)
+                user_active_themes[uid] = target.id
+                await update.message.reply_text(
+                    f"✅ 활성 테마가 {target.icon} *{target.label}* (#{target.id})로 설정되었습니다.\n\n"
+                    f"이후 전송하는 자료는 이 테마로 적재됩니다.",
+                    parse_mode="Markdown",
+                )
+                return
+            except KeyError:
+                await update.message.reply_text(f"❌ 테마를 찾을 수 없습니다: '{arg}'")
+                return
+
+        lines = [
+            f"🎯 *현재 선택된 테마*: {current_theme.icon} *{current_theme.label}* (#{current_theme.id})",
+            "",
+            "지식 관리자가 등록한 테마 목록 중 원하는 테마를 선택하세요:",
+        ]
+        kb = []
+        for t in themes:
+            mark = "✓ " if t.id == current_tid else ""
+            kb.append([InlineKeyboardButton(f"{mark}{t.icon} {t.label} (#{t.id})", callback_data=f"set_theme:{t.id}")])
+        await update.message.reply_text(
+            "\n".join(lines),
+            reply_markup=InlineKeyboardMarkup(kb),
+            parse_mode="Markdown",
+        )
+
     async def on_message(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
         user = update.effective_user
         if not _is_allowed(user.id if user else None):
             await update.message.reply_text("허용되지 않은 사용자입니다.")
             return
-        text = (update.message.text or "").strip()
-        if not text:
+        raw_text = (update.message.text or "").strip()
+        if not raw_text:
             return
 
         from .config import extract_own_share_token
         from .store import db as dbm
+
+        theme_mgr.reload()
+        text, explicit_theme_id = parse_message_theme(raw_text, theme_mgr)
+        user_id = user.id if user else 0
+        active_theme_id = explicit_theme_id if explicit_theme_id is not None else user_active_themes.get(user_id, 0)
+        active_theme = theme_mgr.get_theme(active_theme_id)
+        active_svc = service_pool.get_service(active_theme_id)
 
         payload, directive = parse_message_directive(text)
         payload_clean, has_refetch, has_refetch_full, has_effort = parse_regenerate_flags(payload)
@@ -566,18 +653,26 @@ def build_app(settings: Settings | None = None) -> Any:
         target_doc_id = None
         share_tok = extract_own_share_token(payload_clean, s)
         if share_tok:
-            conn = dbm.connect(svc.s.db_file)
-            try:
-                dbm.init_db(conn)
-                target_doc_id = dbm.resolve_doc_share(conn, share_tok)
-                if not target_doc_id:
-                    row = conn.execute("SELECT document_id FROM doc_shares WHERE token=?", (share_tok,)).fetchone()
-                    if row:
-                        target_doc_id = row["document_id"]
-            finally:
-                conn.close()
+            resolved = theme_mgr.resolve_share_token(share_tok)
+            if resolved:
+                res_tid, res_doc_id, _ = resolved
+                active_theme_id = res_tid
+                active_theme = theme_mgr.get_theme(res_tid)
+                active_svc = service_pool.get_service(res_tid)
+                target_doc_id = res_doc_id
+            else:
+                conn = dbm.connect(active_svc.s.db_file)
+                try:
+                    dbm.init_db(conn)
+                    target_doc_id = dbm.resolve_doc_share(conn, share_tok)
+                    if not target_doc_id:
+                        row = conn.execute("SELECT document_id FROM doc_shares WHERE token=?", (share_tok,)).fetchone()
+                        if row:
+                            target_doc_id = row["document_id"]
+                finally:
+                    conn.close()
         elif payload_clean.startswith("doc_") and len(payload_clean.split()) == 1:
-            conn = dbm.connect(svc.s.db_file)
+            conn = dbm.connect(active_svc.s.db_file)
             try:
                 dbm.init_db(conn)
                 row = conn.execute("SELECT id FROM documents WHERE id=?", (payload_clean,)).fetchone()
@@ -604,7 +699,7 @@ def build_app(settings: Settings | None = None) -> Any:
                 try:
                     res = await _run_with_ticker(
                         status, label,
-                        lambda: svc.regenerate_components(
+                        lambda: active_svc.regenerate_components(
                             doc_id=target_doc_id,
                             detail=True,
                             refetch=has_refetch,
@@ -650,7 +745,7 @@ def build_app(settings: Settings | None = None) -> Any:
                 return
 
             # 2. 순수 공유 링크/doc_id만 보낸 경우 -> 원터치 스마트 인라인 액션 버튼 제공
-            conn = dbm.connect(svc.s.db_file)
+            conn = dbm.connect(active_svc.s.db_file)
             doc = None
             try:
                 doc = dbm.get_document(conn, target_doc_id)
@@ -712,6 +807,8 @@ def build_app(settings: Settings | None = None) -> Any:
         # 일반 외부 웹페이지/텍스트 신규 적재
         payload_to_ingest = payload_clean or payload
         label = f"처리 중… ({classify_input(payload_to_ingest)})"
+        if active_theme.id != 0:
+            label = f"[{active_theme.icon} {active_theme.label}] " + label
         if has_refetch_full:
             label += " [원문 전체]"
         if has_effort:
@@ -732,7 +829,7 @@ def build_app(settings: Settings | None = None) -> Any:
         try:
             report = await _run_with_ticker(
                 status, label,
-                lambda: svc.ingest(
+                lambda: active_svc.ingest(
                     payload_to_ingest,
                     source="telegram",
                     user_id=uid,
@@ -743,6 +840,8 @@ def build_app(settings: Settings | None = None) -> Any:
                 ),
             )
             summary, cands = report.telegram_summary(), report.candidates
+            if active_theme.id != 0:
+                summary = f"🎯 *[{active_theme.icon} {active_theme.label}]*\n" + summary
             is_stt_failed = bool(
                 report.stt_error
                 or (report.source_type == "video" and report.has_transcript is False and report.stt_error)
@@ -769,6 +868,7 @@ def build_app(settings: Settings | None = None) -> Any:
             is_stt_failed=is_stt_failed,
             is_duplicate=is_duplicate,
             retry_doc_id=did,
+            theme_id=active_theme.id,
         )
 
     async def on_document(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -782,10 +882,20 @@ def build_app(settings: Settings | None = None) -> Any:
         name = doc.file_name or "document"
         msg = update.message
         caption = update.message.caption
-        directive = parse_caption_directive(caption)
+        theme_mgr.reload()
+        clean_cap, explicit_tid = parse_message_theme(caption or "", theme_mgr)
+        directive = parse_caption_directive(clean_cap)
         caption_clean, _, has_refetch_full, has_effort = parse_regenerate_flags(directive or "")
         clean_dir = caption_clean or None
+
+        uid = user.id if user else None
+        active_tid = explicit_tid if explicit_tid is not None else user_active_themes.get(uid or 0, 0)
+        active_theme = theme_mgr.get_theme(active_tid)
+        active_svc = service_pool.get_service(active_tid)
+
         label = f"파일 처리 중… ({name})"
+        if active_theme.id != 0:
+            label = f"[{active_theme.icon} {active_theme.label}] " + label
         if has_refetch_full:
             label += " [원문 전체]"
         if has_effort:
@@ -793,11 +903,10 @@ def build_app(settings: Settings | None = None) -> Any:
         if clean_dir:
             label += f" [방향: {clean_dir[:20]}]"
         status = await msg.reply_text(f"⏳ {label}")
-        uid = user.id if user else None
         cid = update.effective_chat.id if update.effective_chat else None
         log.info(
-            "Document file received: user_id=%s, chat_id=%s, file_name=%r, mime_type=%s",
-            uid, cid, name, getattr(doc, "mime_type", None),
+            "Document file received: user_id=%s, chat_id=%s, file_name=%r, mime_type=%s, theme_id=%d",
+            uid, cid, name, getattr(doc, "mime_type", None), active_theme.id,
         )
 
         async def _download() -> str:
@@ -814,8 +923,8 @@ def build_app(settings: Settings | None = None) -> Any:
             return
 
         def _work():
-            kept = svc.save_inbound_file(int(update.update_id), Path(tmp_path), name)
-            return svc.ingest(
+            kept = active_svc.save_inbound_file(int(update.update_id), Path(tmp_path), name)
+            return active_svc.ingest(
                 kept,
                 source="telegram",
                 user_id=uid,
@@ -835,6 +944,8 @@ def build_app(settings: Settings | None = None) -> Any:
         try:
             report = await _run_with_ticker(status, label, _work)
             summary, cands = report.telegram_summary(), report.candidates
+            if active_theme.id != 0:
+                summary = f"🎯 *[{active_theme.icon} {active_theme.label}]*\n" + summary
             is_stt_failed = bool(
                 report.stt_error
                 or (report.source_type == "video" and report.has_transcript is False and report.stt_error)
@@ -861,6 +972,7 @@ def build_app(settings: Settings | None = None) -> Any:
             is_stt_failed=is_stt_failed,
             is_duplicate=is_duplicate,
             retry_doc_id=did,
+            theme_id=active_theme.id,
         )
 
     async def on_ingest(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -875,14 +987,24 @@ def build_app(settings: Settings | None = None) -> Any:
                 "  /ingest <URL 또는 텍스트>\n"
                 "  /ingest <URL 또는 텍스트> | <초점>\n"
                 "  /ingest <URL 또는 텍스트> --full --effort high | <초점>\n"
+                "  /ingest <URL 또는 텍스트> #테마 [| <초점>]\n"
                 "  예: /ingest https://example.com/doc --full --effort high | 시스템 아키텍처 중심"
             )
             return
-        payload, directive = parse_message_directive(raw)
+        theme_mgr.reload()
+        raw_clean_theme, explicit_tid = parse_message_theme(raw, theme_mgr)
+        uid = user.id if user else None
+        active_tid = explicit_tid if explicit_tid is not None else user_active_themes.get(uid or 0, 0)
+        active_theme = theme_mgr.get_theme(active_tid)
+        active_svc = service_pool.get_service(active_tid)
+
+        payload, directive = parse_message_directive(raw_clean_theme)
         payload_clean, _, has_refetch_full, has_effort = parse_regenerate_flags(payload)
         payload_to_ingest = payload_clean or payload
         msg = update.message
         label = f"적재 처리 중… ({classify_input(payload_to_ingest)})"
+        if active_theme.id != 0:
+            label = f"[{active_theme.icon} {active_theme.label}] " + label
         if has_refetch_full:
             label += " [원문 전체]"
         if has_effort:
@@ -890,7 +1012,6 @@ def build_app(settings: Settings | None = None) -> Any:
         if directive:
             label += f" [초점: {directive[:20]}]"
         status = await msg.reply_text(f"⏳ {label}")
-        uid = user.id if user else None
         cid = update.effective_chat.id if update.effective_chat else None
         has_error = False
         is_stt_failed = False
@@ -899,7 +1020,7 @@ def build_app(settings: Settings | None = None) -> Any:
         try:
             report = await _run_with_ticker(
                 status, label,
-                lambda: svc.ingest(
+                lambda: active_svc.ingest(
                     payload_to_ingest,
                     source="telegram",
                     user_id=uid,
@@ -910,6 +1031,8 @@ def build_app(settings: Settings | None = None) -> Any:
                 ),
             )
             summary, cands = report.telegram_summary(), report.candidates
+            if active_theme.id != 0:
+                summary = f"🎯 *[{active_theme.icon} {active_theme.label}]*\n" + summary
             is_stt_failed = bool(
                 report.stt_error
                 or (report.source_type == "video" and report.has_transcript is False and report.stt_error)
@@ -931,6 +1054,7 @@ def build_app(settings: Settings | None = None) -> Any:
             is_stt_failed=is_stt_failed,
             is_duplicate=is_duplicate,
             retry_doc_id=did,
+            theme_id=active_theme.id,
         )
 
     async def on_callback(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1027,6 +1151,26 @@ def build_app(settings: Settings | None = None) -> Any:
             except Exception as exc:
                 await status_msg.edit_text(f"❌ Support Bundle 생성 오류: {exc}")
             return
+        if data.startswith("set_theme:"):
+            user = update.effective_user
+            if not _is_allowed(user.id if user else None):
+                return
+            target_tid_str = data[10:]
+            try:
+                target_tid = int(target_tid_str)
+                theme = theme_mgr.get_theme(target_tid, strict=True)
+                uid = user.id if user else 0
+                user_active_themes[uid] = theme.id
+                await query.answer(f"테마: {theme.icon} {theme.label}")
+                await query.edit_message_text(
+                    f"✅ 현재 활성 테마가 {theme.icon} *{theme.label}* (#{theme.id})로 설정되었습니다.\n\n"
+                    f"이후 전송하는 자료는 이 테마로 적재되며, /search 도 이 테마를 기본 검색합니다.\n"
+                    f"(1회성 변경은 메시지에 `#1` 또는 `#{theme.label}` 태그를 추가하세요)",
+                    parse_mode="Markdown",
+                )
+            except Exception as e:
+                await query.answer(f"테마 변경 실패: {e}")
+            return
         if data.startswith("auth:"):
             # 웹 UI 접속 승인 — 소유자만. DB 에 세션 토큰 발급(웹이 poll 로 수령).
             user = update.effective_user
@@ -1055,10 +1199,15 @@ def build_app(settings: Settings | None = None) -> Any:
                 await query.edit_message_reply_markup(reply_markup=None)
             return
         if data.startswith("exp:"):
-            urls = pending.pop(data[4:], [])
+            res = pending.pop(data[4:], ([], 0))
+            if isinstance(res, tuple):
+                urls, exp_tid = res
+            else:
+                urls, exp_tid = res, 0
             if not urls:
                 await query.edit_message_reply_markup(reply_markup=None)
                 return
+            exp_svc = service_pool.get_service(exp_tid)
             # 같은 메시지를 in-place 편집해 진행→결과로 갱신(새 메시지 2개 더 안 만든다).
             async def _edit(text: str) -> None:
                 try:
@@ -1070,7 +1219,7 @@ def build_app(settings: Settings | None = None) -> Any:
             for url in urls:
                 try:
                     sub = await asyncio.to_thread(
-                        svc.ingest, url, source="telegram-expand", expand_max=0)
+                        exp_svc.ingest, url, source="telegram-expand", expand_max=0)
                     lines.append(f"• {sub.telegram_summary().splitlines()[0]}")
                 except Exception as e:  # noqa: BLE001
                     lines.append(f"• ❌ {url}: {e}")
@@ -1083,10 +1232,19 @@ def build_app(settings: Settings | None = None) -> Any:
         if not q:
             await update.message.reply_text("사용법: /search <키워드>")
             return
-        await update.message.reply_text("🔎 검색 중…")
+        theme_mgr.reload()
+        clean_q, explicit_tid = parse_message_theme(q, theme_mgr)
+        user_id = update.effective_user.id if update.effective_user else 0
+        active_tid = explicit_tid if explicit_tid is not None else user_active_themes.get(user_id, 0)
+        active_theme = theme_mgr.get_theme(active_tid)
+        active_svc = service_pool.get_service(active_tid)
+
+        await update.message.reply_text(f"🔎 [{active_theme.icon} {active_theme.label}] 검색 중…")
         try:
-            result = await asyncio.to_thread(svc.search, q)
+            result = await asyncio.to_thread(active_svc.search, clean_q)
             text = result.telegram_text()
+            if active_theme.id != 0:
+                text = f"🎯 *[{active_theme.icon} {active_theme.label}]*\n\n" + text
         except Exception as e:  # noqa: BLE001
             text = f"❌ 검색 오류: {e}"
         await update.message.reply_text(text)
@@ -1349,6 +1507,7 @@ def build_app(settings: Settings | None = None) -> Any:
     app.add_handler(CommandHandler("status", on_status))
     app.add_handler(CommandHandler("support", on_support))
     app.add_handler(CommandHandler("repo", on_repo))
+    app.add_handler(CommandHandler("theme", on_theme))
     app.add_handler(CommandHandler("search", on_search))
     app.add_handler(CommandHandler("ingest", on_ingest))
     app.add_handler(CommandHandler("web", on_web))
@@ -1364,6 +1523,7 @@ def build_app(settings: Settings | None = None) -> Any:
         from telegram import BotCommand
 
         await application.bot.set_my_commands([
+            BotCommand("theme", "테마(지식베이스) 선택 및 확인"),
             BotCommand("help", "사용법"),
             BotCommand("status", "현황(그래프/수렴/최근)"),
             BotCommand("support", "Support Bundle 관리 (/support bundle)"),

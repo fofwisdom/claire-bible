@@ -23,6 +23,7 @@ from .store.queries import (
     node_detail,
     synthesis_context,
     synthesize,
+    theme_summary,
 )
 
 _PACKAGE_DIR = Path(__file__).resolve().parent
@@ -427,4 +428,5 @@ __all__ = [
     "shared_html",
     "synthesis_context",
     "synthesize",
+    "theme_summary",
 ]

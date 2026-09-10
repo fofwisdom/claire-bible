@@ -15,6 +15,7 @@ from ..config import Settings
 from ..extract.provider import get_provider
 from ..retrieval.query import SearchMode
 from ..store import db as dbm
+from ..store.theme import get_theme_manager
 from ..store.vectors import make_vector_store
 from .pipeline import (
     IngestReport,
@@ -50,9 +51,15 @@ def _item_context(
 
 
 class IngestService:
-    def __init__(self, settings: Settings):
+    def __init__(
+        self,
+        settings: Settings,
+        provider: Any | None = None,
+        theme_id: int | None = None,
+    ):
         self.s = settings
-        self.provider = get_provider(settings)
+        self.provider = provider if provider is not None else get_provider(settings)
+        self.theme_id = theme_id if theme_id is not None else 0
 
     def ingest(
         self,
@@ -1458,3 +1465,37 @@ class IngestService:
             )
         finally:
             conn.close()
+
+
+class IngestServicePool:
+    """테마별 IngestService 인스턴스를 캐싱/풀링하여 다중 테마 적재를 라우팅."""
+
+    def __init__(
+        self,
+        base_settings: Settings,
+        base_service: IngestService | None = None,
+        theme_manager: Any | None = None,
+    ):
+        self.base_settings = base_settings
+        self.theme_manager = theme_manager or get_theme_manager()
+        self.shared_provider = (
+            base_service.provider if base_service else get_provider(base_settings)
+        )
+        self._services: dict[int, IngestService] = {}
+        if base_service is not None:
+            self._services[0] = base_service
+
+    def get_service(self, theme_ref: int | str | None = None) -> IngestService:
+        theme = self.theme_manager.get_theme(theme_ref)
+        if theme.id in self._services:
+            return self._services[theme.id]
+        theme_settings = self.theme_manager.get_settings_for_theme(
+            theme.id, self.base_settings
+        )
+        svc = IngestService(
+            theme_settings,
+            provider=self.shared_provider,
+            theme_id=theme.id,
+        )
+        self._services[theme.id] = svc
+        return svc

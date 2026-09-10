@@ -410,3 +410,21 @@ def synthesize(
     q = query or f"선택한 항목들({', '.join(names)})을 아우르는 핵심 지식을 정리해줘."
     answer = provider.summarize_search(q, context)
     return {"answer": answer, "entities": names, "query": q}
+
+
+def theme_summary(conn: sqlite3.Connection, include_hidden: bool = True) -> dict[str, int]:
+    """테마 DB의 기본 지표 요약(문서 수, 엔티티 수, 관계 수)."""
+    hidden_doc_ids = set() if include_hidden else dbm.hidden_document_ids(conn)
+    if not include_hidden and hidden_doc_ids:
+        doc_count = conn.execute(
+            "SELECT count(*) FROM documents WHERE id NOT IN (SELECT document_id FROM doc_flags WHERE flag='hidden')"
+        ).fetchone()[0]
+    else:
+        doc_count = conn.execute("SELECT count(*) FROM documents").fetchone()[0]
+    ent_count = conn.execute("SELECT count(*) FROM entities").fetchone()[0]
+    rel_count = conn.execute("SELECT count(*) FROM relations").fetchone()[0]
+    return {
+        "documents": int(doc_count),
+        "entities": int(ent_count),
+        "relations": int(rel_count),
+    }
