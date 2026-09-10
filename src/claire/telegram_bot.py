@@ -1469,7 +1469,8 @@ def build_app(settings: Settings | None = None) -> Any:
 
         try:
             info = await asyncio.to_thread(create_support_bundle, s, days=days, target=target)
-            tgt_line = f"• 추적 대상: `{info.target_doc_id}` ({info.target_matched_by})\n" if info.target_doc_id else ""
+            theme_str = f", 테마 #{info.target_theme_id}" if info.target_theme_id else ""
+            tgt_line = f"• 추적 대상: `{info.target_doc_id}` ({info.target_matched_by}{theme_str})\n" if info.target_doc_id else ""
             reply_text = (
                 "📦 Support Bundle 생성 완료\n\n"
                 f"• 번들 ID: `{info.bundle_id}`\n"
