@@ -425,6 +425,8 @@ def parse_message_theme(text: str, theme_mgr: Any | None = None) -> tuple[str, i
         return "", None
     from .store.theme import get_theme_manager
     tm = theme_mgr or get_theme_manager()
+    if hasattr(tm, "settings") and not getattr(tm.settings, "multi_theme", False):
+        return t, None
 
     matches = list(_THEME_TAG_RE.finditer(t))
     for m in matches:
@@ -591,6 +593,13 @@ def build_app(settings: Settings | None = None) -> Any:
         user = update.effective_user
         if not _is_allowed(user.id if user else None):
             return
+        if not getattr(s, "multi_theme", False):
+            await update.message.reply_text(
+                "ℹ️ *현재 싱글 테마 모드로 동작 중입니다 (기본 테마).*\n\n"
+                "다중 데이터베이스 테마 기능을 활성화하려면 서버 환경변수에 `CLAIRE_MULTI_THEME=1`을 설정해야 합니다.",
+                parse_mode="Markdown",
+            )
+            return
         uid = user.id if user else 0
         theme_mgr.reload()
         themes = theme_mgr.list_themes()
@@ -639,12 +648,19 @@ def build_app(settings: Settings | None = None) -> Any:
         from .config import extract_own_share_token
         from .store import db as dbm
 
-        theme_mgr.reload()
-        text, explicit_theme_id = parse_message_theme(raw_text, theme_mgr)
-        user_id = user.id if user else 0
-        active_theme_id = explicit_theme_id if explicit_theme_id is not None else user_active_themes.get(user_id, 0)
-        active_theme = theme_mgr.get_theme(active_theme_id)
-        active_svc = service_pool.get_service(active_theme_id)
+        is_multi = bool(getattr(s, "multi_theme", False))
+        if is_multi:
+            theme_mgr.reload()
+            text, explicit_theme_id = parse_message_theme(raw_text, theme_mgr)
+            user_id = user.id if user else 0
+            active_theme_id = explicit_theme_id if explicit_theme_id is not None else user_active_themes.get(user_id, 0)
+            active_theme = theme_mgr.get_theme(active_theme_id)
+            active_svc = service_pool.get_service(active_theme_id)
+        else:
+            text = raw_text
+            active_theme_id = 0
+            active_theme = theme_mgr.get_theme(0)
+            active_svc = svc
 
         payload, directive = parse_message_directive(text)
         payload_clean, has_refetch, has_refetch_full, has_effort = parse_regenerate_flags(payload)
@@ -882,16 +898,19 @@ def build_app(settings: Settings | None = None) -> Any:
         name = doc.file_name or "document"
         msg = update.message
         caption = update.message.caption
-        theme_mgr.reload()
-        clean_cap, explicit_tid = parse_message_theme(caption or "", theme_mgr)
-        directive = parse_caption_directive(clean_cap)
-        caption_clean, _, has_refetch_full, has_effort = parse_regenerate_flags(directive or "")
-        clean_dir = caption_clean or None
-
-        uid = user.id if user else None
-        active_tid = explicit_tid if explicit_tid is not None else user_active_themes.get(uid or 0, 0)
-        active_theme = theme_mgr.get_theme(active_tid)
-        active_svc = service_pool.get_service(active_tid)
+        is_multi = bool(getattr(s, "multi_theme", False))
+        if is_multi:
+            theme_mgr.reload()
+            clean_cap, explicit_tid = parse_message_theme(caption or "", theme_mgr)
+            uid = user.id if user else None
+            active_tid = explicit_tid if explicit_tid is not None else user_active_themes.get(uid or 0, 0)
+            active_theme = theme_mgr.get_theme(active_tid)
+            active_svc = service_pool.get_service(active_tid)
+        else:
+            clean_cap = caption or ""
+            active_tid = 0
+            active_theme = theme_mgr.get_theme(0)
+            active_svc = svc
 
         label = f"파일 처리 중… ({name})"
         if active_theme.id != 0:

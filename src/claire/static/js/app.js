@@ -79,8 +79,21 @@ function recordSelectedDoc(id){
 function esc(s){return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 
 // --- 지식 테마 (Multi-Database Themes) 상태 및 전역 fetch 인터셉터 ---
-let availableThemes = [];
+function isMultiThemeEnabled(){
+  return Boolean(window.__CLAIRE_CONFIG && window.__CLAIRE_CONFIG.themeMode === 'multi');
+}
+
+let availableThemes = (function(){
+  if(window.__CLAIRE_CONFIG && Array.isArray(window.__CLAIRE_CONFIG.themes) && window.__CLAIRE_CONFIG.themes.length){
+    return window.__CLAIRE_CONFIG.themes;
+  }
+  return [{id: 0, seq: 0, label: '기본 지식베이스', description: '일반 수집 자료 및 기본 지식', icon: '📚', is_default: true}];
+})();
+
 let activeThemeId = (function(){
+  if(!isMultiThemeEnabled()){
+    return 0;
+  }
   try{
     const sp = new URLSearchParams(window.location.search);
     const q = sp.get('theme');
@@ -104,23 +117,25 @@ let activeThemeId = (function(){
     let url = typeof resource === 'string' ? resource : (resource && resource.url ? resource.url : '');
     const isRelative = typeof url === 'string' && !url.startsWith('http://') && !url.startsWith('https://') && !url.startsWith('//');
     if(isRelative || (url && url.startsWith(window.location.origin))){
-      let headers = init.headers;
-      if(headers instanceof Headers){
-        if(!headers.has('X-Claire-Theme') && activeThemeId !== null && activeThemeId !== undefined){
-          headers.set('X-Claire-Theme', String(activeThemeId));
+      if(isMultiThemeEnabled() && activeThemeId !== null && activeThemeId !== undefined){
+        let headers = init.headers;
+        if(headers instanceof Headers){
+          if(!headers.has('X-Claire-Theme')){
+            headers.set('X-Claire-Theme', String(activeThemeId));
+          }
+        } else if(Array.isArray(headers)){
+          const hasTheme = headers.some(([k]) => k.toLowerCase() === 'x-claire-theme');
+          if(!hasTheme){
+            headers.push(['X-Claire-Theme', String(activeThemeId)]);
+          }
+        } else {
+          headers = Object.assign({}, headers);
+          const hasTheme = Object.keys(headers).some(k => k.toLowerCase() === 'x-claire-theme');
+          if(!hasTheme){
+            headers['X-Claire-Theme'] = String(activeThemeId);
+          }
+          init.headers = headers;
         }
-      } else if(Array.isArray(headers)){
-        const hasTheme = headers.some(([k]) => k.toLowerCase() === 'x-claire-theme');
-        if(!hasTheme && activeThemeId !== null && activeThemeId !== undefined){
-          headers.push(['X-Claire-Theme', String(activeThemeId)]);
-        }
-      } else {
-        headers = Object.assign({}, headers);
-        const hasTheme = Object.keys(headers).some(k => k.toLowerCase() === 'x-claire-theme');
-        if(!hasTheme && activeThemeId !== null && activeThemeId !== undefined){
-          headers['X-Claire-Theme'] = String(activeThemeId);
-        }
-        init.headers = headers;
       }
     }
     return _origFetch.call(this, resource, init);
@@ -128,12 +143,23 @@ let activeThemeId = (function(){
 })();
 
 async function fetchThemes(){
+  if(!isMultiThemeEnabled()){
+    // 싱글 테마 모드: 추가 네트워크 왕복(RTT) 완전 배제 (0 RTT & 0 CLS)
+    renderThemeSelector();
+    return;
+  }
+  // 멀티 모드: 서버에서 인라인된 테마가 있으면 우선 즉시 렌더링
+  if(availableThemes && availableThemes.length){
+    renderThemeSelector();
+  }
   try{
     const r = await fetch('themes');
     if(!r.ok) return;
     const data = await r.json();
-    availableThemes = data.themes || [];
-    renderThemeSelector();
+    if(data.themes && data.themes.length){
+      availableThemes = data.themes;
+      renderThemeSelector();
+    }
   }catch(e){
     console.warn('Failed to fetch themes:', e);
   }
@@ -146,12 +172,12 @@ function renderThemeSelector(){
   if(!sel) return;
 
   if(!availableThemes || !availableThemes.length){
-    availableThemes = [{id: 0, seq: 0, label: '기본 테마', description: '기본 지식베이스', icon: '📚'}];
+    availableThemes = [{id: 0, seq: 0, label: '기본 지식베이스', description: '일반 수집 자료 및 기본 지식', icon: '📚', is_default: true}];
   }
 
-  // 등록된 테마가 1개뿐인 초기 상태(싱글 테마 모드)에서는 헤더 선택기를 숨김
+  // 싱글 테마 모드이거나 등록된 테마가 1개뿐인 경우 헤더 선택기 완전 숨김
   if(wrap){
-    wrap.style.display = availableThemes.length > 1 ? 'inline-flex' : 'none';
+    wrap.style.display = (isMultiThemeEnabled() && availableThemes.length > 1) ? 'inline-flex' : 'none';
   }
 
   const current = availableThemes.find(t => t.id === activeThemeId) || availableThemes[0];
@@ -186,7 +212,7 @@ function syncThemeSelectorUI(){
 function renderThemeOptions(selectedId){
   const themes = (availableThemes && availableThemes.length)
     ? availableThemes
-    : [{id: 0, seq: 0, label: '기본 테마', description: '기본 지식베이스', icon: '📚'}];
+    : [{id: 0, seq: 0, label: '기본 지식베이스', description: '일반 수집 자료 및 기본 지식', icon: '📚'}];
   const activeId = selectedId !== undefined ? selectedId : activeThemeId;
   return themes.map(t => {
     const icon = t.icon || '📚';
@@ -269,6 +295,7 @@ async function reloadThemeData(resetCamera = true){
 }
 
 async function switchKnowledgeTheme(themeId){
+  if(!isMultiThemeEnabled()) return;
   const tid = parseInt(themeId, 10);
   if(isNaN(tid)) return;
   if(tid === activeThemeId) return;
@@ -1329,7 +1356,8 @@ function renderResearchResult(d, backId){
 // 텔레그램 DM 과 같은 통로(svc.ingest, source='web') — 관련 링크 1홉 자동확장도 동일하게 동작.
 function openIngest(){
   if(!canWrite()) return;
-  const themeFieldHtml = (availableThemes && availableThemes.length > 1)
+  const isMulti = isMultiThemeEnabled();
+  const themeFieldHtml = (isMulti && availableThemes && availableThemes.length > 1)
     ? ('<div class="ingest-field">'+
         '<label class="ingest-label" for="ingtheme">적재 대상 테마 <span class="ingest-help">지식 관리자가 정의한 테마</span></label>'+
         '<select id="ingtheme" class="ingest-theme-select">'+
@@ -1375,11 +1403,12 @@ function openIngest(){
 }
 async function runIngest(){
   if(!canWrite()) return;
+  const isMulti = isMultiThemeEnabled();
   const ta=document.getElementById('ingin');
   const payload=((ta||{}).value||'').trim();
   if(!payload){ alert('적재할 URL 또는 텍스트를 입력하세요.'); return; }
   const ingthemeEl = document.getElementById('ingtheme');
-  const targetThemeId = ingthemeEl ? parseInt(ingthemeEl.value, 10) : activeThemeId;
+  const targetThemeId = (isMulti && ingthemeEl) ? parseInt(ingthemeEl.value, 10) : (isMulti ? activeThemeId : 0);
   const focus=((document.getElementById('ingfocus')||{}).value||'').trim();
   const amountChoice=document.querySelector('input[name="ingest-amount"]:checked');
   const effortChoice=document.querySelector('input[name="ingest-effort"]:checked');
@@ -1387,8 +1416,8 @@ async function runIngest(){
   const effort=effortChoice ? effortChoice.value : '';
   let labelText = '시작…';
   const optionLabels=[];
-  const targetThemeObj = availableThemes.find(t => t.id === targetThemeId);
-  if(targetThemeObj){
+  const targetThemeObj = isMulti ? availableThemes.find(t => t.id === targetThemeId) : null;
+  if(targetThemeObj && targetThemeObj.id !== 0){
     optionLabels.push('테마: ' + (targetThemeObj.icon ? targetThemeObj.icon + ' ' : '') + targetThemeObj.label);
   }
   if(fullContent) optionLabels.push('전문 적재');
@@ -1405,7 +1434,7 @@ async function runIngest(){
   let result=null;
   try{
     const bodyObj = {payload:payload, full_content:fullContent};
-    if(targetThemeId !== undefined && targetThemeId !== null) bodyObj.theme = targetThemeId;
+    if(isMulti && targetThemeId !== undefined && targetThemeId !== null && targetThemeId !== 0) bodyObj.theme = targetThemeId;
     if(effort) bodyObj.effort=effort;
     if(focus) bodyObj.focus=focus;
     const r=await fetch('ingest-stream',{method:'POST',headers:{'Content-Type':'application/json'},
@@ -2653,5 +2682,6 @@ window.claireDebug = {
   get knowledgeManager(){ return '__SORCERER__'; },
   get activeThemeId(){ return activeThemeId; },
   get availableThemes(){ return availableThemes; },
+  get themeMode(){ return (window.__CLAIRE_CONFIG && window.__CLAIRE_CONFIG.themeMode) || '__THEME_MODE__'; },
   switchKnowledgeTheme: switchKnowledgeTheme,
 };

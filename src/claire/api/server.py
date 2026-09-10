@@ -195,6 +195,18 @@ def create_app(
     def _get_theme_ctx(
         request: Request, body: dict[str, Any] | None = None
     ) -> tuple[ThemeInfo, Settings, IngestService]:
+        if not getattr(s, "multi_theme", False):
+            default_theme = ThemeInfo(
+                id=0,
+                seq=0,
+                label="기본 지식베이스",
+                description="일반 수집 자료 및 기본 지식",
+                icon="📚",
+                db_path=str(getattr(s, "db_path", "data/claire.db")),
+                vault_path=str(getattr(s, "vault_path", "vault")),
+                is_default=True,
+            )
+            return default_theme, s, svc
         ref = _extract_theme_ref(request, body)
         theme = theme_mgr.get_theme(ref)
         theme_settings = theme_mgr.get_settings_for_theme(theme.id, s)
@@ -290,8 +302,35 @@ def create_app(
 
     async def themes_list_route(request: Request) -> JSONResponse:
         include_hidden = request_auth_scope(request) != "anonymous"
+        multi_enabled = bool(getattr(s, "multi_theme", False))
 
         def _get_themes_with_stats() -> dict[str, Any]:
+            if not multi_enabled:
+                t_stats = {"documents": 0, "entities": 0, "relations": 0}
+                if s.db_file.is_file():
+                    try:
+                        conn = dbm.connect_existing(s.db_file, readonly=True)
+                        try:
+                            t_stats = theme_summary(conn, include_hidden=include_hidden)
+                        finally:
+                            conn.close()
+                    except Exception:
+                        pass
+                default_theme_data = {
+                    "id": 0,
+                    "seq": 0,
+                    "label": "기본 지식베이스",
+                    "description": "일반 수집 자료 및 기본 지식",
+                    "icon": "📚",
+                    "is_default": True,
+                    "stats": t_stats,
+                }
+                return {
+                    "themes": [default_theme_data],
+                    "default_theme_id": 0,
+                    "multi_theme": False,
+                }
+
             all_themes = theme_mgr.list_themes()
             result = []
             for t in all_themes:
@@ -315,7 +354,7 @@ def create_app(
                     "is_default": t.is_default,
                     "stats": t_stats,
                 })
-            return {"themes": result, "default_theme_id": 0}
+            return {"themes": result, "default_theme_id": 0, "multi_theme": True}
 
         return JSONResponse(await asyncio.to_thread(_get_themes_with_stats))
 
@@ -325,6 +364,11 @@ def create_app(
             raise HTTPException(
                 status_code=403,
                 detail="지식 관리자(owner) 권한이 필요합니다.",
+            )
+        if not getattr(s, "multi_theme", False):
+            raise HTTPException(
+                status_code=403,
+                detail="멀티 테마 모드가 비활성화되어 있습니다 (CLAIRE_MULTI_THEME=1 필요)",
             )
         body = await _json_object(request)
         label = str(body.get("label") or "").strip()
@@ -347,6 +391,11 @@ def create_app(
             raise HTTPException(
                 status_code=403,
                 detail="지식 관리자(owner) 권한이 필요합니다.",
+            )
+        if not getattr(s, "multi_theme", False):
+            raise HTTPException(
+                status_code=403,
+                detail="멀티 테마 모드가 비활성화되어 있습니다 (CLAIRE_MULTI_THEME=1 필요)",
             )
         body = await _json_object(request)
         theme_id = (
@@ -378,6 +427,11 @@ def create_app(
             raise HTTPException(
                 status_code=403,
                 detail="지식 관리자(owner) 권한이 필요합니다.",
+            )
+        if not getattr(s, "multi_theme", False):
+            raise HTTPException(
+                status_code=403,
+                detail="멀티 테마 모드가 비활성화되어 있습니다 (CLAIRE_MULTI_THEME=1 필요)",
             )
         theme_id = (
             request.query_params.get("id")

@@ -21,9 +21,43 @@ def temp_theme_env(tmp_path):
         CLAIRE_DB_PATH=db_path,
         CLAIRE_VAULT_PATH=vault_path,
         CLAIRE_PROVIDER="mock",
+        CLAIRE_MULTI_THEME=True,
     )
     manager = ThemeManager(base_settings=settings)
     yield manager, data_dir, vault_dir
+
+
+def test_theme_manager_single_mode(tmp_path):
+    """CLAIRE_MULTI_THEME=False 모드에서 themes.json 미생성 및 변경 연산 차단 검증."""
+    data_dir = tmp_path / "single_data"
+    vault_dir = tmp_path / "single_vault"
+    data_dir.mkdir(parents=True)
+    vault_dir.mkdir(parents=True)
+
+    settings = Settings(
+        CLAIRE_DB_PATH=str(data_dir / "claire.db"),
+        CLAIRE_VAULT_PATH=str(vault_dir),
+        CLAIRE_PROVIDER="mock",
+        CLAIRE_MULTI_THEME=False,
+    )
+    manager = ThemeManager(base_settings=settings)
+    themes = manager.list_themes()
+    assert len(themes) == 1
+    assert themes[0].id == 0
+    assert themes[0].label == "기본 지식베이스"
+
+    # 싱글 모드에서는 디스크에 themes.json을 생성하지 않음 (0-Disk I/O)
+    registry_file = data_dir / "themes.json"
+    assert not registry_file.exists()
+
+    with pytest.raises(RuntimeError, match="멀티 테마 모드가 비활성화되어 있습니다"):
+        manager.define_theme("새 테마")
+
+    with pytest.raises(RuntimeError, match="멀티 테마 모드가 비활성화되어 있습니다"):
+        manager.update_theme(0, label="수정")
+
+    with pytest.raises(RuntimeError, match="멀티 테마 모드가 비활성화되어 있습니다"):
+        manager.delete_theme(0)
 
 
 def test_default_theme_initialization(temp_theme_env):
