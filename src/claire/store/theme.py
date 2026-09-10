@@ -36,6 +36,7 @@ class ThemeInfo:
     is_default: bool = False
     is_public: bool = True
     is_collaborator_accessible: bool = True
+    default_focus: str = ""
     created_at: float = 0.0
     updated_at: float = 0.0
 
@@ -62,6 +63,19 @@ class ThemeInfo:
                     "is_collaborator_accessible",
                     data.get("collaborator_accessible", data.get("collaborator", default_collab)),
                 )
+            ),
+            default_focus=(
+                ""
+                if (is_def or tid == 0)
+                else str(
+                    data.get("default_focus")
+                    or data.get("focus")
+                    or data.get("default_orientation")
+                    or data.get("orientation")
+                    or data.get("default_directive")
+                    or data.get("directive")
+                    or ""
+                ).strip()
             ),
             created_at=float(data.get("created_at", 0.0)),
             updated_at=float(data.get("updated_at", 0.0)),
@@ -273,6 +287,7 @@ class ThemeManager:
         icon: str = "📁",
         is_public: bool = True,
         is_collaborator_accessible: bool = True,
+        default_focus: str = "",
     ) -> ThemeInfo:
         """지식 관리자: 순차 일련번호를 발급하여 새 테마 디렉터리 생성 및 DB 스키마 초기화."""
         if not getattr(self.settings, "multi_theme", False):
@@ -329,6 +344,7 @@ class ThemeManager:
             is_default=False,
             is_public=bool(is_public),
             is_collaborator_accessible=bool(is_collaborator_accessible),
+            default_focus=str(default_focus or "").strip(),
             created_at=now,
             updated_at=now,
         )
@@ -336,11 +352,12 @@ class ThemeManager:
         self._themes[seq] = theme
         self._save_registry()
         log.info(
-            "새 테마 #%d [%s] (공개: %s, 협력자: %s) 정의 및 생성 완료 (경로: %s)",
+            "새 테마 #%d [%s] (공개: %s, 협력자: %s, 기본 초점: %s) 정의 및 생성 완료 (경로: %s)",
             seq,
             cleaned_label,
             theme.is_public,
             theme.is_collaborator_accessible,
+            theme.default_focus,
             rel_db_path,
         )
         return theme
@@ -354,8 +371,9 @@ class ThemeManager:
         icon: str | None = None,
         is_public: bool | None = None,
         is_collaborator_accessible: bool | None = None,
+        default_focus: str | None = None,
     ) -> ThemeInfo:
-        """지식 관리자: 테마 레이블, 설명, 아이콘, 공개 여부, 협력자 공개 여부 수정 (물리 폴더 경로는 절대 변경되지 않음)."""
+        """지식 관리자: 테마 레이블, 설명, 아이콘, 공개 여부, 협력자 공개 여부, 기본 적용 초점 수정 (물리 폴더 경로는 절대 변경되지 않음)."""
         if not getattr(self.settings, "multi_theme", False):
             raise RuntimeError("멀티 테마 모드가 비활성화되어 있습니다 (CLAIRE_MULTI_THEME=1 필요)")
 
@@ -395,6 +413,12 @@ class ThemeManager:
                 theme.is_collaborator_accessible = False
             else:
                 theme.is_collaborator_accessible = bool(is_collaborator_accessible)
+
+        if default_focus is not None:
+            if tid == 0:
+                theme.default_focus = ""
+            else:
+                theme.default_focus = str(default_focus or "").strip()
 
         theme.updated_at = time.time()
         self._save_registry()

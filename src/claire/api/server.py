@@ -329,6 +329,7 @@ def create_app(
                     "label": "기본 지식베이스",
                     "description": "일반 수집 자료 및 기본 지식",
                     "icon": "📚",
+                    "default_focus": "",
                     "is_default": True,
                     "is_public": True,
                     "is_collaborator_accessible": False,
@@ -360,17 +361,9 @@ def create_app(
                             conn.close()
                     except Exception:
                         pass
-                result.append({
-                    "id": t.id,
-                    "seq": t.seq,
-                    "label": t.label,
-                    "description": t.description,
-                    "icon": t.icon,
-                    "is_default": t.is_default,
-                    "is_public": t.is_public,
-                    "is_collaborator_accessible": t.is_collaborator_accessible,
-                    "stats": t_stats,
-                })
+                theme_dict = t.to_dict()
+                theme_dict["stats"] = t_stats
+                result.append(theme_dict)
             return {"themes": result, "default_theme_id": 0, "multi_theme": True}
 
         return JSONResponse(await asyncio.to_thread(_get_themes_with_stats))
@@ -400,6 +393,15 @@ def create_app(
                 body.get("collaborator_accessible", body.get("collaborator", True)),
             )
         )
+        def_focus = str(
+            body.get("default_focus")
+            or body.get("focus")
+            or body.get("default_orientation")
+            or body.get("orientation")
+            or body.get("default_directive")
+            or body.get("directive")
+            or ""
+        ).strip()
         try:
             theme = theme_mgr.define_theme(
                 label,
@@ -407,6 +409,7 @@ def create_app(
                 icon=icon,
                 is_public=is_pub,
                 is_collaborator_accessible=is_collab,
+                default_focus=def_focus,
             )
             return JSONResponse({"ok": True, "theme": theme.to_dict()}, status_code=201)
         except ValueError as val_err:
@@ -456,6 +459,27 @@ def create_app(
         )
         if is_collab is not None:
             is_collab = bool(is_collab)
+        def_focus = (
+            body.get("default_focus")
+            if "default_focus" in body
+            else (
+                body.get("focus")
+                if "focus" in body
+                else (
+                    body.get("default_orientation")
+                    if "default_orientation" in body
+                    else (
+                        body.get("orientation")
+                        if "orientation" in body
+                        else (
+                            body.get("default_directive")
+                            if "default_directive" in body
+                            else (body.get("directive") if "directive" in body else None)
+                        )
+                    )
+                )
+            )
+        )
         try:
             theme = theme_mgr.update_theme(
                 theme_id,
@@ -464,6 +488,7 @@ def create_app(
                 icon=icon,
                 is_public=is_pub,
                 is_collaborator_accessible=is_collab,
+                default_focus=def_focus,
             )
             return JSONResponse({"ok": True, "theme": theme.to_dict()})
         except KeyError as k_err:
@@ -552,6 +577,8 @@ def create_app(
             payload, parsed_dir = parse_message_directive(payload)
             if parsed_dir:
                 directive = parsed_dir
+            elif not theme.is_default and theme.id > 0 and getattr(theme, "default_focus", None):
+                directive = theme.default_focus.strip() or None
 
         full_content = bool(body.get("full_content") or body.get("no_truncate") or False)
         effort = str(body.get("effort") or "").strip() or None
@@ -1093,6 +1120,8 @@ def create_app(
             payload, parsed_dir = parse_message_directive(payload)
             if parsed_dir:
                 directive = parsed_dir
+            elif not theme.is_default and theme.id > 0 and getattr(theme, "default_focus", None):
+                directive = theme.default_focus.strip() or None
 
         full_content = bool(body.get("full_content") or body.get("no_truncate") or False)
         effort = str(body.get("effort") or "").strip() or None

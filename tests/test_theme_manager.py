@@ -220,3 +220,37 @@ def test_theme_update_all_options_and_by_label(temp_theme_env):
     assert t0_updated.description == "수정된 기본 설명"
     assert t0_updated.icon == "📖"
 
+
+def test_theme_default_focus(temp_theme_env):
+    """추가 테마의 기본 초점(default_focus) 설정/변경 및 기본 테마(0)의 빈 문자열 불변성 검증."""
+    manager, _, _ = temp_theme_env
+
+    # 1. 기본 테마(0)는 생성 시 default_focus가 항상 빈 문자열
+    t0 = manager.get_theme(0)
+    assert t0.default_focus == ""
+
+    # 2. 기본 테마(0)에 default_focus 수정을 시도해도 항상 빈 문자열로 유지/무시
+    t0_up = manager.update_theme(0, default_focus="기본 테마에 초점 강제 시도")
+    assert t0_up.default_focus == ""
+
+    # 3. 추가 테마 정의 시 default_focus 설정
+    t1 = manager.define_theme("AI 아키텍처", default_focus="시스템 아키텍처 및 API 사양 중심")
+    assert t1.id == 1
+    assert t1.default_focus == "시스템 아키텍처 및 API 사양 중심"
+
+    # 4. to_dict 및 reload 이후에도 default_focus 보존 확인
+    d = t1.to_dict()
+    assert d["default_focus"] == "시스템 아키텍처 및 API 사양 중심"
+    manager.reload()
+    reloaded_t1 = manager.get_theme(1)
+    assert reloaded_t1.default_focus == "시스템 아키텍처 및 API 사양 중심"
+
+    # 5. update_theme으로 default_focus 변경
+    updated = manager.update_theme(1, default_focus="보안 및 취약점 분석 중심")
+    assert updated.default_focus == "보안 및 취약점 분석 중심"
+
+    # 6. default_focus를 빈 문자열로 리셋
+    cleared = manager.update_theme(1, default_focus="")
+    assert cleared.default_focus == ""
+
+
