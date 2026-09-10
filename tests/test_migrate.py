@@ -106,6 +106,115 @@ def test_migrate_rejects_newer_schema_without_rewriting_version(
         conn.close()
 
 
+def test_migrate_restores_local_support_v12_to_v11(
+    monkeypatch, tmp_path, capsys
+):
+    s = _settings(monkeypatch, tmp_path)
+    conn = dbm.connect(s.db_file)
+    dbm.init_db(conn)
+    conn.executescript(
+        """
+        CREATE TABLE ingest_attempts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            inbox_id INTEGER NOT NULL,
+            attempt_number INTEGER NOT NULL,
+            status TEXT NOT NULL,
+            document_id TEXT,
+            error TEXT,
+            recorded_at REAL NOT NULL
+        );
+        CREATE INDEX idx_ingest_attempts_inbox ON ingest_attempts(inbox_id, id);
+        CREATE TABLE fetch_attempts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            trace_id TEXT NOT NULL,
+            inbox_id INTEGER NOT NULL,
+            document_id TEXT,
+            stage_order INTEGER NOT NULL,
+            stage TEXT NOT NULL,
+            started_at REAL,
+            duration_ms INTEGER,
+            status TEXT,
+            http_status INTEGER,
+            input_url TEXT,
+            effective_url TEXT,
+            content_type TEXT,
+            response_bytes INTEGER,
+            usable INTEGER,
+            guard_error TEXT,
+            error_type TEXT,
+            error_message TEXT,
+            metadata TEXT,
+            snapshot_path TEXT,
+            snapshot_sha256 TEXT,
+            snapshot_original_bytes INTEGER,
+            snapshot_stored_bytes INTEGER,
+            snapshot_truncated INTEGER DEFAULT 0
+        );
+        CREATE INDEX idx_fetch_attempts_inbox ON fetch_attempts(inbox_id, id);
+        CREATE INDEX idx_fetch_attempts_document ON fetch_attempts(document_id, id);
+        """
+    )
+    conn.execute(
+        "INSERT INTO ingest_attempts(inbox_id,attempt_number,status,error,recorded_at) "
+        "VALUES (?,?,?,?,?)",
+        (3287, 1, "error", "blocked by challenge", 1.0),
+    )
+    conn.execute(
+        "INSERT INTO fetch_attempts(trace_id,inbox_id,stage_order,stage,status,metadata) "
+        "VALUES (?,?,?,?,?,?)",
+        ("ft_test", 3287, 1, "cdp", "exception", "{}"),
+    )
+    conn.execute(
+        "UPDATE meta SET value='12' WHERE key='schema_version'"
+    )
+    conn.commit()
+    conn.close()
+    monkeypatch.setattr(cli, "get_settings", lambda: s)
+
+    assert cli.main(["migrate"]) == 0
+    assert "schema_version=11 expected=11" in capsys.readouterr().out
+
+    conn = dbm.connect(s.db_file)
+    try:
+        assert dbm.stored_schema_version(conn) == 11
+        tables = {
+            row["name"]
+            for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )
+        }
+        assert "ingest_attempts" not in tables
+        assert "fetch_attempts" not in tables
+    finally:
+        conn.close()
+
+    exports = list(
+        (tmp_path / "raw" / "migrations").glob(
+            "support-diagnostics-v12-to-v11-*"
+        )
+    )
+    assert len(exports) == 1
+    assert "blocked by challenge" in (
+        exports[0] / "ingest_attempts.jsonl"
+    ).read_text(encoding="utf-8")
+    assert '"stage": "cdp"' in (
+        exports[0] / "fetch_attempts.jsonl"
+    ).read_text(encoding="utf-8")
+    assert (exports[0].stat().st_mode & 0o777) == 0o700
+    assert (
+        (exports[0] / "manifest.json").stat().st_mode & 0o777
+    ) == 0o600
+
+    assert cli.main(["migrate"]) == 0
+    assert len(
+        list(
+            (tmp_path / "raw" / "migrations").glob(
+                "support-diagnostics-v12-to-v11-*"
+            )
+        )
+    ) == 1
+
+
 def test_liveness_missing_database_is_read_only(
     monkeypatch, tmp_path, capsys
 ):

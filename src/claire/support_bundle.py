@@ -689,58 +689,6 @@ def create_support_bundle(
 
                     inbox_records = list(inbox_map.values())
                     inbox_records.sort(key=lambda item: (float(item.get("received_at") or 0), int(item["id"])))
-                    ingest_attempts_data: list[dict[str, Any]] = []
-                    fetch_attempts_data: list[dict[str, Any]] = []
-                    grouped_ids: dict[str, list[int]] = {}
-                    for db_file, inbox_id in inbox_map:
-                        grouped_ids.setdefault(db_file, []).append(inbox_id)
-                    for db_file, inbox_ids in grouped_ids.items():
-                        conn = dbm.connect_existing(Path(db_file), readonly=True)
-                        try:
-                            for row in dbm.ingest_attempts_for_inbox(conn, inbox_ids):
-                                item = dict(row)
-                                item["_db_file"] = db_file
-                                ingest_attempts_data.append(item)
-                            for row in dbm.fetch_attempts_for_inbox(conn, inbox_ids):
-                                item = dict(row)
-                                try:
-                                    item["metadata"] = json.loads(item.get("metadata") or "{}")
-                                except (TypeError, json.JSONDecodeError):
-                                    pass
-                                item["_db_file"] = db_file
-                                fetch_attempts_data.append(item)
-                        finally:
-                            conn.close()
-
-                    for item in fetch_attempts_data:
-                        snapshot_path = item.get("snapshot_path")
-                        if not snapshot_path:
-                            continue
-                        source_path = Path(item["_db_file"]).parent / str(snapshot_path)
-                        if not source_path.is_file():
-                            collector_warnings.append(
-                                {
-                                    "code": "FETCH_SNAPSHOT_MISSING",
-                                    "trace_id": item.get("trace_id"),
-                                    "snapshot_path": str(snapshot_path),
-                                }
-                            )
-                            continue
-                        archive_name = (
-                            f"{root_arcname}/tracked_document/fetch_snapshots/"
-                            f"{item.get('trace_id')}_{Path(str(snapshot_path)).name}"
-                        )
-                        try:
-                            _add_tar_bytes(tar, archive_name, source_path.read_bytes())
-                            item["bundle_snapshot_path"] = archive_name.removeprefix(f"{root_arcname}/")
-                        except Exception as exc:  # noqa: BLE001
-                            collector_warnings.append(
-                                {
-                                    "code": "FETCH_SNAPSHOT_READ_ERROR",
-                                    "snapshot_path": str(snapshot_path),
-                                    "message": str(exc),
-                                }
-                            )
 
                     doc_telemetry = (
                         query_telemetry(data_dir, document_id=target_doc_id, limit=200)
@@ -835,34 +783,6 @@ def create_support_bundle(
                         f"{root_arcname}/tracked_document/inbox_records.jsonl",
                         ("\n".join(json.dumps(sanitize_sensitive_data(row), ensure_ascii=False) for row in inbox_records)
                          + ("\n" if inbox_records else "")).encode("utf-8"),
-                    )
-                    _add_tar_bytes(
-                        tar,
-                        f"{root_arcname}/tracked_document/ingest_attempts.jsonl",
-                        ("\n".join(
-                            json.dumps(
-                                sanitize_sensitive_data(
-                                    {key: value for key, value in row.items() if key != "_db_file"}
-                                ),
-                                ensure_ascii=False,
-                            )
-                            for row in ingest_attempts_data
-                        )
-                         + ("\n" if ingest_attempts_data else "")).encode("utf-8"),
-                    )
-                    _add_tar_bytes(
-                        tar,
-                        f"{root_arcname}/tracked_document/fetch_trace.jsonl",
-                        ("\n".join(
-                            json.dumps(
-                                sanitize_sensitive_data(
-                                    {key: value for key, value in row.items() if key != "_db_file"}
-                                ),
-                                ensure_ascii=False,
-                            )
-                            for row in fetch_attempts_data
-                        )
-                         + ("\n" if fetch_attempts_data else "")).encode("utf-8"),
                     )
                     doc_tel_lines = [
                         json.dumps(sanitize_sensitive_data(r), ensure_ascii=False) for r in doc_telemetry

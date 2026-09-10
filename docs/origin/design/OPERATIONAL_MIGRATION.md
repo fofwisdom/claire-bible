@@ -68,5 +68,25 @@ flowchart TD
 3. **자동 백필 검증**: `tests/test_cb_manuscript.py`에 `test_update_backfills_...`와 같은 회귀 테스트를 실행하여 백필 및 멱등성을 검증합니다.
 
 ### [2] 데이터베이스 스키마 변경 시
-1. **멱등적 DDL 작성**: `src/claire/dbm.py`의 `migrate_schema()`에 `CREATE TABLE IF NOT EXISTS` 또는 컬럼 존재 여부 체크 후 `ALTER TABLE ... ADD COLUMN`을 작성합니다.
+1. **멱등적 DDL 작성**: `src/claire/store/db.py`의 `_migrate()`에 `CREATE TABLE IF NOT EXISTS` 또는 컬럼 존재 여부 체크 후 `ALTER TABLE ... ADD COLUMN`을 작성합니다.
 2. **테스트 추가**: `tests/test_migrate.py`에 재실행 시 에러가 발생하지 않는지 테스트를 추가합니다.
+
+### [3] Support Bundle 로컬 v12 복구
+
+2026-09-11 Support Bundle 진단 확장에서 정본 DB에 추가했던 `ingest_attempts`와
+`fetch_attempts`는 관측성 스토리지 물리 분리 원칙을 위반하므로 철회한다. 다음
+`./cb-manuscript update`의 선행 `claire migrate`는 두 테이블의 컬럼 서명이 해당 확장과
+정확히 일치하는 v12 DB를 발견하면 다음 순서로 자동 복구한다.[^support-v12-rollback]
+
+1. 두 테이블의 모든 행을 `data/raw/migrations/support-diagnostics-v12-to-v11-*`에
+   권한 `0600` JSONL로 먼저 보존한다.
+2. SQLite `BEGIN IMMEDIATE` 트랜잭션 안에서 전용 인덱스와 두 테이블만 제거한다.
+3. `meta.schema_version`을 11로 복원한 뒤 기존 v11 멱등 마이그레이션을 계속한다.
+4. 컬럼 서명이 다르면 DB를 변경하지 않고 마이그레이션을 실패시킨다.
+
+이 호환 경로는 정본 DB에 새로운 관측성 테이블을 만들지 않으며, 이후 수집에서도 해당
+테이블과 상시 HTML/DOM 스냅샷을 다시 생성하지 않는다.
+
+## 5. 참고문헌
+
+[^support-v12-rollback]: Claire Bible 구현 근거: [`src/claire/store/db.py`](../../../src/claire/store/db.py), [`src/claire/cli.py`](../../../src/claire/cli.py), [`ops/cb_manuscript.py`](../../../ops/cb_manuscript.py), [`tests/test_migrate.py`](../../../tests/test_migrate.py) (2026-09-11 확인).

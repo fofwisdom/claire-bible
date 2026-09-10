@@ -17,7 +17,6 @@ from starlette.testclient import TestClient
 
 from claire.api import server
 from claire.cli import build_parser
-from claire.ingest.fetch_diagnostics import FetchTraceSession
 from claire.ontology.base import Document, Entity, Relation
 from claire.store import db as dbm
 from claire.store.telemetry import (
@@ -333,19 +332,6 @@ def test_support_bundle_tracks_failed_url_without_document(tmp_path: Path):
     dbm.init_db(conn)
     failed_url = "https://example.com/entry/3287?token=private"
     inbox_id = dbm.log_inbox(conn, source="test", payload=failed_url, kind="url")
-    trace = FetchTraceSession(s.data_dir, inbox_id)
-    trace.record(
-        "cdp",
-        status="error",
-        input_url=failed_url,
-        http_status=403,
-        metadata={"cookie_count": 1, "cookie_domains": ["example.com"]},
-    )
-    trace.capture_html(
-        "cdp",
-        '<html><body><input value="private-form-value"><script>private-script</script></body></html>',
-    )
-    trace.persist(conn, status="error", error="blocked by challenge")
     dbm.update_inbox(conn, inbox_id, status="error", error="blocked by challenge")
     conn.close()
 
@@ -366,19 +352,6 @@ def test_support_bundle_tracks_failed_url_without_document(tmp_path: Path):
     inbox_rows = [json.loads(line) for line in files[inbox_name].decode().splitlines()]
     assert [row["id"] for row in inbox_rows] == [inbox_id]
     assert inbox_rows[0]["error"] == "blocked by challenge"
-    attempts_name = next(name for name in files if name.endswith("ingest_attempts.jsonl"))
-    attempts = [json.loads(line) for line in files[attempts_name].decode().splitlines()]
-    assert [row["status"] for row in attempts] == ["received", "error"]
-    fetch_trace_name = next(name for name in files if name.endswith("fetch_trace.jsonl"))
-    fetch_rows = [json.loads(line) for line in files[fetch_trace_name].decode().splitlines()]
-    assert fetch_rows[0]["stage"] == "cdp"
-    assert fetch_rows[0]["http_status"] == 403
-    assert fetch_rows[0]["input_url"].endswith("token=***REDACTED***")
-    assert "db_file" not in fetch_rows[0]
-    snapshot_name = next(name for name in files if "/fetch_snapshots/" in name)
-    snapshot = dctx.decompress(files[snapshot_name]).decode()
-    assert "private-form-value" not in snapshot
-    assert "private-script" not in snapshot
     manifest_name = next(name for name in files if name.endswith("manifest.json"))
     manifest = json.loads(files[manifest_name])
     assert manifest["target"]["requested_target"].endswith("token=***REDACTED***")

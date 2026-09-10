@@ -84,7 +84,7 @@ CLI 반환 코드, stderr, stdout을 분석하여 차단 원인을 8개 카테�
    - `resolve_document_targets`를 활용하여 공유 링크(`/p?s=token`), 공유 토큰, URL, 문서 ID를 스마트 인식.
    - 복수 후보를 첫 문서로 임의 선택하지 않고 `ambiguous`로 기록하며 후보 목록을 함께 보존.
    - 문서 생성 전에 실패한 URL도 `raw_inbox.payload` 정확 일치로 찾아 `failed_inbox` 상태의 타깃 번들을 생성.
-   - 대상 지정 시 `tracked_document/`에 문서 상세, 전체 인박스 행, append-only 시도 이력, fetch 단계 및 해당 문서 텔레메트리를 집중 패키징.
+   - 대상 지정 시 `tracked_document/`에 문서 상세, URL·문서에 연결된 전체 인박스 행 및 해당 문서 텔레메트리를 집중 패키징.
    - 모든 번들의 `pipeline/shares_index.json`은 공유 토큰 원문 대신 SHA-256을 수록하여 노출 없이 대조 가능.
 3. **기본 기간 1일 및 보관 기한 상한 검증**:
    - 기본 lookback 기간은 **1일(`days = 1`)**.
@@ -117,18 +117,12 @@ support_bundle_<id>/
     ├── document_detail.json       # 정본 문서 메타데이터 및 온톨로지 정보
     ├── inbox_record.json          # 하위 호환용 최신 인입 상태
     ├── inbox_records.jsonl        # URL·문서에 연결된 전체 인입 행
-    ├── ingest_attempts.jsonl      # 최초 처리와 재시도별 append-only 상태 전이
-    ├── fetch_trace.jsonl          # static/law/discourse/scrapling/CDP 단계별 상태·시간·가드·브라우저 메타데이터
-    ├── fetch_snapshots/*.html.zst # 스크립트·폼 값·토큰을 제거한 정제 응답 HTML/최종 DOM
     └── telemetry_history.jsonl    # 해당 문서에 특화된 텔레메트리 호출 이력
 ```
 
 `manifest.json`에는 다운로드 토큰을 넣지 않는다. 컨테이너의 Git 식별자는 런타임
 `git rev-parse`에 의존하지 않고 `cb-manuscript`가 `CLAIRE_BUILD_COMMIT` build argument로
 주입하며 OCI `org.opencontainers.image.revision` label에도 같은 값을 기록한다.[^support-build]
-
-HTML 스냅샷은 원본 바이트의 SHA-256·길이를 기록하되 디스크와 번들에는 최대 2 MiB의
-정제 DOM만 보존한다. 쿠키는 값 없이 개수·도메인·Secure·HttpOnly 집계만 기록한다.
 
 ---
 
@@ -183,6 +177,6 @@ HTML 스냅샷은 원본 바이트의 SHA-256·길이를 기록하되 디스크�
 - 웹 API 및 보안 경계: [`src/claire/api/server.py`](../../../src/claire/api/server.py), [`src/claire/api/security.py`](../../../src/claire/api/security.py)
 - CLI 인터페이스: [`src/claire/cli.py`](../../../src/claire/cli.py)
 - 호스트 운영 래퍼: [`ops/cb_manuscript.py`](../../../ops/cb_manuscript.py)
-- 자동화 테스트: [`tests/test_fetch_diagnostics.py`](../../../tests/test_fetch_diagnostics.py), [`tests/test_telemetry.py`](../../../tests/test_telemetry.py), [`tests/test_support_bundle.py`](../../../tests/test_support_bundle.py), [`tests/test_bot.py`](../../../tests/test_bot.py)
+- 자동화 테스트: [`tests/test_telemetry.py`](../../../tests/test_telemetry.py), [`tests/test_support_bundle.py`](../../../tests/test_support_bundle.py), [`tests/test_migrate.py`](../../../tests/test_migrate.py), [`tests/test_bot.py`](../../../tests/test_bot.py)
 
 [^support-build]: Claire Bible 구현 근거: [`Dockerfile`](../../../Dockerfile), [`docker-compose.yml`](../../../docker-compose.yml), [`ops/cb_manuscript.py`](../../../ops/cb_manuscript.py), [`src/claire/support_bundle.py`](../../../src/claire/support_bundle.py) (2026-09-11 확인).

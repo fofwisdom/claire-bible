@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import re
 import shutil
-import time
 from pathlib import Path
 
 from ...config import get_settings
@@ -30,11 +29,6 @@ from ...extract.table_budget import (
 )
 from ...ontology.base import Document
 from ..normalize import canonicalize_url, content_hash
-from ..fetch_diagnostics import (
-    annotate_fetch_stage,
-    capture_fetch_html,
-    record_fetch_stage,
-)
 from .base import FetchError
 from .guard import validate_web_content
 from .http_policy import BROWSER_USER_AGENT
@@ -92,22 +86,12 @@ def fetch_web(url: str, *, full_content: bool = False) -> Document:
     biblio: dict[str, Any] = getattr(res, "biblio", None) or (res[8] if len(res) > 8 and isinstance(res[8], dict) else {})
     parser_info: dict[str, Any] = getattr(res, "parser_info", {}) or {}
     usable, guard_err = _is_usable(title, text)
-    annotate_fetch_stage("static", usable=usable, guard_error=guard_err)
 
     # 2) law.go.kr 에스컬레이션 — 국가법령정보센터 iframe / ajax 구조 해소
     if not usable:
         from .law import try_law_kr
 
-        started = time.time()
-        perf_started = time.perf_counter()
         l = try_law_kr(url)
-        record_fetch_stage(
-            "law",
-            started_at=started,
-            duration_ms=int((time.perf_counter() - perf_started) * 1000),
-            input_url=url,
-            status="response" if l is not None else "not_applicable",
-        )
         if l is not None:
             l_title, l_text, l_links, l_anchors, l_images = l
             l_usable, l_guard_err = _is_usable(l_title or title, l_text)
@@ -123,22 +107,12 @@ def fetch_web(url: str, *, full_content: bool = False) -> Document:
                     l_images or images, "law"
                 )
                 usable, guard_err, is_pdf = l_usable, l_guard_err, False
-            annotate_fetch_stage("law", usable=l_usable, guard_error=l_guard_err)
 
     # 3) Discourse JSON 에스컬레이션
     if not usable:
         from .discourse import try_discourse
 
-        started = time.time()
-        perf_started = time.perf_counter()
         d = try_discourse(url)
-        record_fetch_stage(
-            "discourse",
-            started_at=started,
-            duration_ms=int((time.perf_counter() - perf_started) * 1000),
-            input_url=url,
-            status="response" if d is not None else "not_applicable",
-        )
         if d is not None:
             d_title, d_text, d_links = d
             d_usable, d_guard_err = _is_usable(d_title or title, d_text)
@@ -148,7 +122,6 @@ def fetch_web(url: str, *, full_content: bool = False) -> Document:
             elif len(d_text) > len(text or ""):
                 title, text, links, via = d_title or title, d_text, d_links or links, "discourse"
                 usable, guard_err, is_pdf = d_usable, d_guard_err, False
-            annotate_fetch_stage("discourse", usable=d_usable, guard_error=d_guard_err)
 
     # 4) Scrapling Fetcher 에스컬레이션 — curl-cffi + browserforge 헤더 위장.
     #    브라우저 불필요. 정적 UA 를 막는 봇차단(예: openai.com 403)을 우회.
@@ -159,7 +132,6 @@ def fetch_web(url: str, *, full_content: bool = False) -> Document:
         c_biblio = getattr(c_res, "biblio", None) or (c_res[6] if len(c_res) > 6 and isinstance(c_res[6], dict) else {})
         c_parser_info = getattr(c_res, "parser_info", None) or (c_res[7] if len(c_res) > 7 and isinstance(c_res[7], dict) else {})
         c_usable, c_guard_err = _is_usable(c_title or title, c_text)
-        annotate_fetch_stage("scrapling", usable=c_usable, guard_error=c_guard_err)
         if c_usable:
             title, text, links, anchors, images, via = (
                 c_title or title, c_text, c_links or links, c_anchors or anchors,
@@ -179,7 +151,6 @@ def fetch_web(url: str, *, full_content: bool = False) -> Document:
     if not usable:
         d_title, d_text, d_links, d_anchors, d_images = _fetch_cdp(url)
         d_usable, d_guard_err = _is_usable(d_title or title, d_text)
-        annotate_fetch_stage("cdp", usable=d_usable, guard_error=d_guard_err)
         if d_usable:
             title, text, links, anchors, images, via = (
                 d_title or title, d_text, d_links or links, d_anchors or anchors,
@@ -273,35 +244,11 @@ def _fetch_static(
     """
     import httpx
 
-    started = time.time()
-    perf_started = time.perf_counter()
     try:
         with httpx.Client(follow_redirects=True, timeout=30,
                           headers={"User-Agent": _UA}) as client:
             resp = client.get(url)
-        response_history = list(getattr(resp, "history", []) or [])
-        common_trace = {
-            "started_at": started,
-            "duration_ms": int((time.perf_counter() - perf_started) * 1000),
-            "input_url": url,
-            "effective_url": str(resp.url),
-            "http_status": resp.status_code,
-            "content_type": resp.headers.get("content-type", ""),
-            "response_bytes": len(resp.content),
-            "status": "http_error" if resp.status_code >= 400 else "response",
-            "metadata": {
-                "redirect_count": len(response_history),
-                "redirect_chain": [str(item.url) for item in response_history],
-                "user_agent": _UA,
-            },
-        }
-        record_fetch_stage("static", **common_trace)
         if resp.status_code >= 400:
-            annotate_fetch_stage(
-                "static",
-                error_type="HTTPStatusError",
-                error_message=f"http {resp.status_code} for {url}",
-            )
             return FetchStaticResult(None, "", [], {}, f"http {resp.status_code} for {url}", None, [], False, {})
 
         ctype = resp.headers.get("content-type", "").lower()
@@ -335,21 +282,8 @@ def _fetch_static(
 
         title, text, links, anchors, perr, images = _extract_html(
             resp.text, base_url=str(resp.url))
-        capture_fetch_html("static", resp.text)
-        if perr:
-            annotate_fetch_stage("static", error_type="HTMLParseError", error_message=perr)
         return FetchStaticResult(title, text, links, anchors, perr, str(resp.url), images, False, {})
     except Exception as e:  # noqa: BLE001
-        record_fetch_stage(
-            "static",
-            started_at=started,
-            duration_ms=int((time.perf_counter() - perf_started) * 1000),
-            input_url=url,
-            status="exception",
-            error_type=type(e).__name__,
-            error_message=str(e),
-            metadata={"user_agent": _UA},
-        )
         return FetchStaticResult(None, "", [], {}, f"fetch failed: {e}", None, [], False, {})
 
 
@@ -559,42 +493,21 @@ def _fetch_scrapling(
     가까운 헤더/TLS 로 우회. raw HTML 은 _extract_html 로 동일하게 파싱 →
     title/본문/링크(1홉 후보)/앵커/이미지 추출 일관성 유지. 미설치/실패 시 빈 결과.
     """
-    started = time.time()
-    perf_started = time.perf_counter()
     try:
         from scrapling.fetchers import Fetcher
 
         page = Fetcher.get(url, stealthy_headers=True, timeout=30)
         status = getattr(page, "status", 200)
-        headers = getattr(page, "headers", {}) or {}
-        body = getattr(page, "body", None)
-        raw_size = len(body) if isinstance(body, bytes) else len(str(body or "").encode("utf-8"))
-        record_fetch_stage(
-            "scrapling",
-            started_at=started,
-            duration_ms=int((time.perf_counter() - perf_started) * 1000),
-            input_url=url,
-            effective_url=str(getattr(page, "url", None) or url),
-            http_status=status,
-            content_type=str(getattr(page, "content_type", "") or headers.get("content-type", "")),
-            response_bytes=raw_size,
-            status="http_error" if status and status >= 400 else "response",
-            metadata={"stealthy_headers": True},
-        )
         if status and status >= 400:
-            annotate_fetch_stage(
-                "scrapling",
-                error_type="HTTPStatusError",
-                error_message=f"http {status} for {url}",
-            )
             return None, "", [], {}, [], False
 
+        body = getattr(page, "body", None)
         ctype = str(
             getattr(page, "content_type", "")
-            or headers.get("content-type", "")
+            or (getattr(page, "headers", {}) or {}).get("content-type", "")
         ).lower()
         cdisp = str(
-            headers.get("content-disposition", "")
+            (getattr(page, "headers", {}) or {}).get("content-disposition", "")
         ).lower()
         if (
             "application/pdf" in ctype
@@ -624,20 +537,9 @@ def _fetch_scrapling(
             return FetchScraplingResult(title, text, links, anchors, images, True, biblio, parser_info=parser_info)
 
         html = getattr(page, "html_content", "") or ""
-        capture_fetch_html("scrapling", str(html))
         title, text, links, anchors, _, images = _extract_html(str(html), base_url=url)
         return FetchScraplingResult(title, text, links, anchors, images, False, {})
-    except Exception as exc:  # noqa: BLE001
-        record_fetch_stage(
-            "scrapling",
-            started_at=started,
-            duration_ms=int((time.perf_counter() - perf_started) * 1000),
-            input_url=url,
-            status="exception",
-            error_type=type(exc).__name__,
-            error_message=str(exc),
-            metadata={"stealthy_headers": True},
-        )
+    except Exception:  # noqa: BLE001
         return FetchScraplingResult(None, "", [], {}, [], False, {})
 
 
@@ -656,28 +558,6 @@ def render_html_cdp(
     일치하는 탭을 선택한 뒤 최종 DOM을 반환한다. 브라우저 미설치·렌더링 실패는 빈
     문자열로 반환하며, 호출자가 성공/실패 정책을 결정한다.
     """
-    started = time.time()
-    perf_started = time.perf_counter()
-    browser_metadata: dict[str, Any] = {
-        "headless": True,
-        "user_agent": BROWSER_USER_AGENT,
-        "wait_seconds": wait_seconds,
-        "launch_flags": [
-            "--no-sandbox",
-            "--disable-gpu",
-            "--disable-dev-shm-usage",
-            "--ignore-certificate-errors",
-            "--ignore-ssl-errors",
-            "--allow-insecure-localhost",
-        ],
-        "interaction": {
-            "type": "role_tab_click" if click_tab_label else "none",
-            "label": click_tab_label,
-            "attempted": False,
-            "found": None,
-            "succeeded": None,
-        },
-    }
     try:
         from scrapling.fetchers import DynamicFetcher
 
@@ -687,48 +567,13 @@ def render_html_cdp(
             nonlocal interaction_failed
             if wait_seconds > 0:
                 page.wait_for_timeout(int(wait_seconds * 1000))
-            try:
-                runtime = page.evaluate(
-                    """() => ({
-                      language: navigator.language,
-                      languages: navigator.languages,
-                      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-                      viewport: {width: window.innerWidth, height: window.innerHeight}
-                    })"""
-                )
-                if isinstance(runtime, dict):
-                    browser_metadata["runtime"] = runtime
-            except Exception as exc:  # noqa: BLE001
-                browser_metadata["runtime_error"] = f"{type(exc).__name__}: {exc}"
-            try:
-                cookies = page.context.cookies()
-                browser_metadata["cookies"] = {
-                    "count": len(cookies),
-                    "domains": sorted({str(item.get("domain", "")) for item in cookies}),
-                    "secure_count": sum(bool(item.get("secure")) for item in cookies),
-                    "http_only_count": sum(bool(item.get("httpOnly")) for item in cookies),
-                    "values_recorded": False,
-                }
-            except Exception as exc:  # noqa: BLE001
-                browser_metadata["cookies"] = {
-                    "values_recorded": False,
-                    "error": f"{type(exc).__name__}: {exc}",
-                }
             if click_tab_label:
-                interaction = browser_metadata["interaction"]
-                interaction["attempted"] = True
                 try:
                     target = page.get_by_role("tab", name=click_tab_label, exact=True)
                     if target.count() == 0:
-                        interaction["found"] = False
-                        interaction["succeeded"] = False
                         return
-                    interaction["found"] = True
                     target.click(timeout=int(interaction_timeout_seconds * 1000))
-                    interaction["succeeded"] = True
-                except Exception as exc:
-                    interaction["succeeded"] = False
-                    interaction["error"] = f"{type(exc).__name__}: {exc}"
+                except Exception:
                     interaction_failed = True
                     raise
                 if post_click_wait_seconds > 0:
@@ -747,52 +592,23 @@ def render_html_cdp(
             "page_action": _page_action,
             "retries": 1,
             "google_search": False,
-            "extra_flags": browser_metadata["launch_flags"],
+            "extra_flags": [
+                "--no-sandbox",
+                "--disable-gpu",
+                "--disable-dev-shm-usage",
+                "--ignore-certificate-errors",
+                "--ignore-ssl-errors",
+                "--allow-insecure-localhost",
+            ],
         }
         executable = _system_chromium_executable()
         if executable:
             kwargs["executable_path"] = executable
-        browser_metadata["executable_path"] = executable
         response = DynamicFetcher.fetch(url, **kwargs)
         if interaction_failed:
-            record_fetch_stage(
-                "cdp",
-                started_at=started,
-                duration_ms=int((time.perf_counter() - perf_started) * 1000),
-                input_url=url,
-                status="interaction_error",
-                error_type="InteractionError",
-                error_message=str(browser_metadata["interaction"].get("error") or "interaction failed"),
-                metadata=browser_metadata,
-            )
             return ""
-        body = response.body.decode("utf-8", errors="replace")
-        headers = getattr(response, "headers", {}) or {}
-        record_fetch_stage(
-            "cdp",
-            started_at=started,
-            duration_ms=int((time.perf_counter() - perf_started) * 1000),
-            input_url=url,
-            effective_url=str(getattr(response, "url", None) or url),
-            http_status=getattr(response, "status", None),
-            content_type=str(headers.get("content-type", "")),
-            response_bytes=len(response.body),
-            status="response",
-            metadata=browser_metadata,
-        )
-        capture_fetch_html("cdp", body)
-        return body
-    except Exception as exc:  # noqa: BLE001
-        record_fetch_stage(
-            "cdp",
-            started_at=started,
-            duration_ms=int((time.perf_counter() - perf_started) * 1000),
-            input_url=url,
-            status="exception",
-            error_type=type(exc).__name__,
-            error_message=str(exc),
-            metadata=browser_metadata,
-        )
+        return response.body.decode("utf-8", errors="replace")
+    except Exception:  # noqa: BLE001
         return ""
 
 
