@@ -96,6 +96,8 @@ TASK:
 class _PaperClassification(BaseModel):
     is_paper: bool
     reason: str
+    author: str | None = None
+    title: str | None = None
 
 
 class _SameEntityDecision(BaseModel):
@@ -440,8 +442,13 @@ class CodexProvider:
 
     def classify_paper(
         self, doc: Document, *, effort: str | None = None
-    ) -> tuple[bool, str]:
-        prompt = classify_paper_prompt(doc.title or "", doc.raw_text or "")
+    ):
+        from .classifier import PaperClassificationResult
+
+        author_hint = doc.author if doc.author else None
+        prompt = classify_paper_prompt(
+            doc.title or "", doc.raw_text or "", author_hint=author_hint
+        )
         selected_effort = effort or getattr(
             self.settings, "pdf_classifier_effort", "low"
         )
@@ -452,9 +459,14 @@ class CodexProvider:
                 effort=selected_effort,
             )
             result = _PaperClassification.model_validate(data)
-            return result.is_paper, result.reason
+            return PaperClassificationResult(
+                result.is_paper,
+                result.reason,
+                author=result.author,
+                title=result.title,
+            )
         except Exception as exc:  # noqa: BLE001
-            return False, f"classify_paper failed: {exc}"
+            return PaperClassificationResult(False, f"classify_paper failed: {exc}")
 
     def classify_watch(self, doc: Document) -> dict:
         prompt = classify_watch_prompt(doc_to_prompt(doc)[:4000])

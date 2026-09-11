@@ -193,6 +193,14 @@ def test_support_bundle_sensitive_data_sanitization():
             "normal_field": "public_data",
         },
         "items": ["safe_string", "Bearer secret_jwt_token_here"],
+        "author": "이보미 선임연구위원",
+        "authors": ["이보미", "홍길동"],
+        "authority": "KIF",
+        "key_claims": ["세그먼트 개편 필요성", "일본 금융시장 시사점"],
+        "tokens": 4200,
+        "prompt_tokens": 3000,
+        "completion_tokens": 1200,
+        "title": "코스닥시장 세그먼트 개편",
     }
     sanitized = sanitize_sensitive_data(raw)
     assert sanitized["inject_token"] == "***REDACTED***"
@@ -202,6 +210,15 @@ def test_support_bundle_sensitive_data_sanitization():
     assert sanitized["nested"]["normal_field"] == "public_data"
     assert sanitized["items"][0] == "safe_string"
     assert sanitized["items"][1] == "Bearer ***REDACTED***"
+    # Document and telemetry safe keys must NOT be redacted
+    assert sanitized["author"] == "이보미 선임연구위원"
+    assert sanitized["authors"] == ["이보미", "홍길동"]
+    assert sanitized["authority"] == "KIF"
+    assert sanitized["key_claims"] == ["세그먼트 개편 필요성", "일본 금융시장 시사점"]
+    assert sanitized["tokens"] == 4200
+    assert sanitized["prompt_tokens"] == 3000
+    assert sanitized["completion_tokens"] == 1200
+    assert sanitized["title"] == "코스닥시장 세그먼트 개편"
 
 
 def test_support_bundle_creation_and_zstd_archive(tmp_path: Path):

@@ -17,7 +17,7 @@ x-claire-service: &claire-service
   build:
     context: .
     args:
-      CLAIRE_PDF_PARSER: "${CLAIRE_PDF_PARSER:-pypdfium2}"
+      CLAIRE_PDF_PARSER: "${CLAIRE_PDF_PARSER:-default}"
       CLAIRE_BUILD_COMMIT: "${CLAIRE_BUILD_COMMIT:-unknown}"
       CLAIRE_IMAGE_TAG: "${CB_IMAGE_TAG:-local}"
   restart: unless-stopped

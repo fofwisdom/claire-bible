@@ -156,7 +156,7 @@ PDF 문서는 2단(Two-Column) 레이아웃, 복잡한 데이터 표, 수식 등
 
 | 환경변수명 | 기본값 | 설명 |
 | :--- | :--- | :--- |
-| `CLAIRE_PDF_PARSER` | `pypdfium2` | PDF 추출 엔진 (`pypdfium2`: 기본 고속 C++ PDFium 파서, `pypdf`: 초경량 안전망 파서, `docling`: 고급 다단/OCR 파서, `auto`: 지능형 자동 에스컬레이션) |
+| `CLAIRE_PDF_PARSER` | `default` | PDF 추출 엔진 (`default`: 기본 고속 Chromium C++ PDFium 파서, `docling`: 고급 AI 다단/OCR 파서) |
 | `CLAIRE_PDF_DETECT_ENCODING_FLAWS` | `true` | PDF 텍스트 인코딩 결함(CID 누락, PUA 글꼴, 대체문자, 제어문자 노이즈 등) 및 스캔본 감지 여부 |
 | `CLAIRE_PDF_FLAW_ESCALATE_DOCLING` | `true` | PDF 인코딩 결함 감지 시 Docling OCR/레이아웃 복구 자동 에스컬레이션 시도 여부 |
 | `CLAIRE_PDF_EXCLUDE_APPENDIX` | `true` | PDF 논문 적재 시 부록(Appendix/Supplementary) 자동 제외 여부 |

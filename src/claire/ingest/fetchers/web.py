@@ -227,11 +227,15 @@ def fetch_web(url: str, *, full_content: bool = False) -> Document:
     }
     if parser_info:
         meta.update(parser_info)
+    author = None
+    if doc_type == "pdf" and parser_info.get("pdf_metadata"):
+        pdf_meta = parser_info["pdf_metadata"]
+        author = pdf_meta.get("Author") or pdf_meta.get("author")
     return Document(
         url=url,
         canonical_url=canonicalize_url(effective),
         title=title,
-        author=None,
+        author=author,
         published_at=None,
         raw_text=raw_text,
         source_type=doc_type if doc_type in ("pdf", "odt") else "web",
@@ -315,6 +319,8 @@ def _fetch_static(
             }
             if getattr(pdf_res, "parser_fallback_reason", None):
                 parser_info["pdf_parser_fallback_reason"] = getattr(pdf_res, "parser_fallback_reason")
+            if getattr(pdf_res, "pdf_metadata", None):
+                parser_info["pdf_metadata"] = getattr(pdf_res, "pdf_metadata")
             return FetchStaticResult(title, text, links, anchors, perr, str(resp.url), images, True, {}, parser_info=parser_info, doc_type="pdf")
 
         title, text, links, anchors, perr, images = _extract_html(
@@ -596,6 +602,8 @@ def _fetch_scrapling(
             }
             if getattr(pdf_res, "parser_fallback_reason", None):
                 parser_info["pdf_parser_fallback_reason"] = getattr(pdf_res, "parser_fallback_reason")
+            if getattr(pdf_res, "pdf_metadata", None):
+                parser_info["pdf_metadata"] = getattr(pdf_res, "pdf_metadata")
             return FetchScraplingResult(title, text, links, anchors, images, True, {}, parser_info=parser_info, doc_type="pdf")
 
         html = getattr(page, "html_content", "") or ""

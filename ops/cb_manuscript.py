@@ -400,7 +400,7 @@ class Runtime:
         env["CB_BIN_DIR"] = env.get("CB_BIN_DIR", "").strip() or host_bin_dir
         env["CB_GEMINI_DIR"] = env.get("CB_GEMINI_DIR", "").strip() or host_gemini_dir
 
-        pdf_parser = self.values.get("CLAIRE_PDF_PARSER", "").strip() or env.get("CLAIRE_PDF_PARSER", "").strip() or "pypdfium2"
+        pdf_parser = self.values.get("CLAIRE_PDF_PARSER", "").strip() or env.get("CLAIRE_PDF_PARSER", "").strip() or "default"
         env["CLAIRE_PDF_PARSER"] = pdf_parser
         return env
 
@@ -887,8 +887,18 @@ def _reject_native_only_provider(runtime: Runtime) -> None:
         )
 
 
+def _check_pdf_parser(runtime: Runtime) -> None:
+    raw_parser = runtime.values.get("CLAIRE_PDF_PARSER", "").strip().lower()
+    if raw_parser == "pypdf":
+        raise ManuscriptError(
+            "CLAIRE_PDF_PARSER=pypdf 설정은 한글 CMap 미지원 및 텍스트 인코딩 결함 위험으로 인해 지원되지 않습니다.\n"
+            ".env 파일의 CLAIRE_PDF_PARSER를 'default' 또는 'docling'으로 변경하십시오."
+        )
+
+
 def config_preflight(runtime: Runtime) -> None:
     _reject_native_only_provider(runtime)
+    _check_pdf_parser(runtime)
     for path in (*runtime.env_files, *runtime.compose_files):
         if not path.is_file():
             raise ManuscriptError(f"Required file not found: {path}")
@@ -3145,6 +3155,8 @@ def command_preflight(runtime: Runtime) -> int:
     print(f"anonymous readonly: {anonymous_status}")
     raw_provider = runtime.values.get("CLAIRE_PROVIDER", "").strip().lower()
     print(f"provider: {raw_provider or 'mock'}")
+    raw_pdf_parser = runtime.values.get("CLAIRE_PDF_PARSER", "").strip() or "default"
+    print(f"pdf parser: {raw_pdf_parser}")
     if raw_provider in ("antigravity", "agy"):
         host_bin_dir, host_gemini_dir = detect_host_antigravity_paths(runtime.values)
         agy_bin = Path(host_bin_dir) / (runtime.values.get("CLAIRE_AGY_BIN", "").strip() or "agy")

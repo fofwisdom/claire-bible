@@ -49,8 +49,41 @@ logger = logging.getLogger(__name__)
 SUPPORT_BUNDLE_TTL_SECONDS = 6 * 3600  # 6시간
 DEFAULT_SUPPORT_BUNDLE_DAYS = 1
 
+_DOCUMENT_SAFE_KEYS = frozenset({
+    "author",
+    "authors",
+    "authority",
+    "key_claims",
+    "claims",
+    "tokens",
+    "token_count",
+    "prompt_tokens",
+    "completion_tokens",
+    "total_tokens",
+    "title",
+    "raw_text",
+    "summary",
+    "detail",
+    "text",
+    "content",
+    "abstract",
+    "keywords",
+    "key_points",
+    "key_takeaways",
+    "entities",
+    "relations",
+    "target_doc_id",
+    "doc_id",
+    "source_url",
+    "url",
+    "canonical_url",
+    "name",
+    "label",
+    "description",
+})
+
 _SENSITIVE_KEY_RE = re.compile(
-    r"(token|secret|password|key|cookie|auth|credential|cert)", re.IGNORECASE
+    r"(?i)(?:^|[_\-])(pass(?:word)?|secret|token|api_?key|cookie|bearer|credential|cert|private_?key|auth|authorization|key)(?:$|[_\-])"
 )
 _BEARER_TOKEN_RE = re.compile(r"Bearer\s+[A-Za-z0-9_\-\.]+", re.IGNORECASE)
 _URL_SECRET_RE = re.compile(
@@ -284,11 +317,15 @@ def validate_bundle_days(days: int, max_retention_days: int | None = None) -> in
 
 
 def sanitize_sensitive_data(obj: Any) -> Any:
-    """비밀번호, 토큰, API 키 등 민감 정보를 ***REDACTED*** 처리."""
+    """비밀번호, 토큰, API 키 등 민감 정보를 ***REDACTED*** 처리.
+    공개 원문, 서지 정보, 분석 텍스트 필드(author, key_claims 등)는 보존한다.
+    """
     if isinstance(obj, dict):
         sanitized = {}
         for k, v in obj.items():
-            if isinstance(k, str) and _SENSITIVE_KEY_RE.search(k) and not isinstance(v, bool):
+            if isinstance(k, str) and k.lower() in _DOCUMENT_SAFE_KEYS:
+                sanitized[k] = sanitize_sensitive_data(v)
+            elif isinstance(k, str) and _SENSITIVE_KEY_RE.search(k) and not isinstance(v, bool):
                 sanitized[k] = "***REDACTED***"
             else:
                 sanitized[k] = sanitize_sensitive_data(v)

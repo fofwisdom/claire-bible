@@ -343,11 +343,13 @@ class GeminiProvider:
 
     def classify_paper(
         self, doc: Document, *, effort: str | None = None
-    ) -> tuple[bool, str]:
+    ):
         """학술 논문(Research/Working Paper 등) 여부 판정 (경량 호출)."""
+        from .classifier import PaperClassificationResult
         from .prompts import classify_paper_prompt
 
-        prompt = classify_paper_prompt(doc.title or "", doc.raw_text or "")
+        author_hint = doc.author if doc.author else None
+        prompt = classify_paper_prompt(doc.title or "", doc.raw_text or "", author_hint=author_hint)
         eff = effort or getattr(self.settings, "pdf_classifier_effort", "low")
         try:
             interaction = self._call(lambda: self.client.interactions.create(
@@ -362,9 +364,14 @@ class GeminiProvider:
             ))
             raw_text = _extract_output_text(interaction)
             parsed = json.loads(raw_text)
-            return bool(parsed.get("is_paper", False)), str(parsed.get("reason", ""))
+            return PaperClassificationResult(
+                bool(parsed.get("is_paper", False)),
+                str(parsed.get("reason", "")),
+                author=parsed.get("author"),
+                title=parsed.get("title"),
+            )
         except Exception as e:  # noqa: BLE001
-            return False, f"classify_paper failed: {e}"
+            return PaperClassificationResult(False, f"classify_paper failed: {e}")
 
     def classify_watch(self, doc: Document) -> dict:
         """[주기 크롤링] 문서가 '주기적으로 내용이 바뀌는 콘텐츠'인지 판단(별도 경량 호출).
