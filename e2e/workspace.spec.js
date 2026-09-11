@@ -643,37 +643,32 @@ test('anonymous users can generate and open share link in public mode', async ({
   });
   expect(whoami.scope).toBe('anonymous');
 
-  // 2. Select document from left panel
+  // 2. Select document from left panel to open reader
   const firstDocItem = page.locator('#doclist .docitem').first();
   await expect(firstDocItem).toBeVisible();
   await firstDocItem.click();
 
-  // 3. Verify share button in right detail panel (#panel .panel-share-btn)
-  const panelShareBtn = page.locator('#panel .panel-share-btn');
-  await expect(panelShareBtn).toBeVisible();
-  await expect(panelShareBtn).toContainText('공유 링크');
+  // 3. Verify original reader share button (#reader .head .rshare) is visible
+  const readerShareBtn = page.locator('#reader .head .rshare');
+  await expect(readerShareBtn).toBeVisible();
+  await expect(readerShareBtn).toHaveAttribute('title', '공유 링크 만들기');
 
-  // 4. Click share button in panel and verify share link generation
+  // 4. Click original share button in reader header and verify share link generation
   const [shareResponse] = await Promise.all([
     page.waitForResponse(res => res.url().includes('/share') && res.request().method() === 'POST'),
-    panelShareBtn.click(),
+    readerShareBtn.click(),
   ]);
   expect(shareResponse.status()).toBe(200);
   const shareData = await shareResponse.json();
   expect(shareData.path).toMatch(/^\/p\?s=/);
 
-  // 5. Verify panel sharebox displays the generated URL
-  const panelShareBox = page.locator('#panelsharebox');
-  await expect(panelShareBox).toBeVisible();
-  const panelShareInput = panelShareBox.locator('input');
-  await expect(panelShareInput).toHaveValue(new RegExp(shareData.path.replace('?', '\\?')));
+  // 5. Verify reader sharebox displays the generated URL
+  const shareBox = page.locator('#reader #sharebox');
+  await expect(shareBox).toBeVisible();
+  const shareInput = shareBox.locator('#shareurl');
+  await expect(shareInput).toHaveValue(new RegExp(shareData.path.replace('?', '\\?')));
 
-  // 6. Verify reader header share button (#rsharebtn)
-  const readerShareBtn = page.locator('#rsharebtn');
-  await expect(readerShareBtn).toBeVisible();
-  await expect(readerShareBtn).toContainText('공유 링크');
-
-  // 7. Open the generated share link in a new page and verify content loads
+  // 6. Open the generated share link in a new page and verify content loads
   const sharedPage = await context.newPage();
   const sharedResponse = await sharedPage.goto(shareData.path);
   expect(sharedResponse.status()).toBe(200);

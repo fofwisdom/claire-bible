@@ -336,9 +336,6 @@ function docMetaHtml(dc){
       h+='<span></span>';
     }
   }
-  if(dc.id){
-    h+=' <button type="button" class="panel-share-btn rshare" onclick="shareDoc(\''+esc(dc.id)+'\')" title="공유 링크 만들기" aria-label="공유 링크 만들기"><span class="btn-icon">🔗</span> <span class="btn-label">공유 링크</span></button>';
-  }
   let tags=[];
   if(author || pubAt){
     let bibTxt = '';
@@ -979,67 +976,50 @@ async function editDocTitle(){
     alert('제목 변경 실패: ' + String(e));
   }
 }
-async function shareDoc(docId){
-  const targetId = docId || curReaderDoc || (typeof activeDoc !== 'undefined' ? activeDoc : null);
-  if(!targetId) return;
-  curReaderDoc = targetId;
-  const boxes = [document.getElementById('sharebox'), document.getElementById('panelsharebox')].filter(Boolean);
-  boxes.forEach(sb => {
-    sb.className = 'sharebox on';
-    sb.innerHTML = '<span class=pt>공유 링크 생성 중…</span>';
-  });
+async function shareDoc(){
+  if(!curReaderDoc) return;
+  const sb=document.getElementById('sharebox');
+  if(!sb) return;
+  sb.className='sharebox on'; sb.innerHTML='<span class=pt>공유 링크 생성 중…</span>';
   try{
-    const r = await fetch('share', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({doc_id: targetId})
-    });
+    const r=await fetch('share',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({doc_id:curReaderDoc})});
     if(r.status===401||r.status===404){
       if(typeof canWrite === 'function' && canWrite()){
         if(typeof expireWriteAccess === 'function') expireWriteAccess();
-        boxes.forEach(sb => { sb.innerHTML = '<span class=pt>세션 만료 — 텔레그램 /web 으로 다시 접속하세요</span>'; });
+        sb.innerHTML='<span class=pt>세션 만료 — 텔레그램 /web 으로 다시 접속하세요</span>';
       } else {
-        boxes.forEach(sb => { sb.innerHTML = '<span class=pt>공유 링크를 생성할 수 없습니다</span>'; });
+        sb.innerHTML='<span class=pt>공유 링크를 생성할 수 없습니다</span>';
       }
       return;
     }
-    const d = await r.json();
-    if(d.error || !d.path){
-      boxes.forEach(sb => { sb.innerHTML = '<span class=pt>공유 실패: ' + esc(d.error || '알 수 없음') + '</span>'; });
-      return;
-    }
-    const url = location.origin + d.path;
-    let copied = false;
-    try {
+    const d=await r.json();
+    if(d.error||!d.path){ sb.innerHTML='<span class=pt>공유 실패: '+esc(d.error||'알 수 없음')+'</span>'; return; }
+    const url=location.origin+d.path;
+    let copied=false;
+    try{
       if(navigator.clipboard && navigator.clipboard.writeText){
         await navigator.clipboard.writeText(url);
-        copied = true;
+        copied=true;
       }
-    } catch(_){}
-    if(typeof window.gtag === 'function' && targetId){
-      try { window.gtag('event', 'share', { method: 'link', content_type: 'document', item_id: targetId }); } catch(_){}
+    }catch(_){}
+    if(typeof window.gtag === 'function' && curReaderDoc){
+      try{ window.gtag('event', 'share', { method: 'link', content_type: 'document', item_id: curReaderDoc }); }catch(_){}
     }
-    const html = '<input class="shareurl-input" id="shareurl" readonly value="' + esc(url) + '" onclick="this.select()"/>' +
-      '<button class="sharecopy-btn" onclick="copyShare(this)">' + (copied ? '✓ 복사됨' : '복사') + '</button>';
-    boxes.forEach(sb => { sb.innerHTML = html; });
-  } catch(e) {
-    boxes.forEach(sb => { sb.innerHTML = '<span class=pt>공유 실패: ' + esc(String(e)) + '</span>'; });
-  }
+    sb.innerHTML='<input id="shareurl" readonly value="'+esc(url)+'" onclick="this.select()"/>'+
+      '<button onclick="copyShare()">'+(copied?'✓ 복사됨':'복사')+'</button>';
+  }catch(e){ sb.innerHTML='<span class=pt>공유 실패: '+esc(String(e))+'</span>'; }
 }
-function copyShare(btn){
-  const box = (btn && btn.closest && btn.closest('.sharebox')) || document.getElementById('sharebox') || document.getElementById('panelsharebox');
-  const input = (box && box.querySelector('input')) || document.getElementById('shareurl');
-  if(!input) return;
-  input.select();
-  const markCopied = () => {
-    document.querySelectorAll('.sharebox button, .sharecopy-btn').forEach(b => { b.textContent = '✓ 복사됨'; });
-  };
+function copyShare(){
+  const i=document.getElementById('shareurl'); if(!i) return;
+  i.select();
+  const markCopied = () => { const b=document.querySelector('#sharebox button'); if(b) b.textContent='✓ 복사됨'; };
   if(navigator.clipboard && navigator.clipboard.writeText){
-    navigator.clipboard.writeText(input.value).then(markCopied).catch(() => {
-      try { document.execCommand('copy'); markCopied(); } catch(_){}
+    navigator.clipboard.writeText(i.value).then(markCopied).catch(()=>{
+      try{ document.execCommand('copy'); markCopied(); }catch(_){}
     });
   } else {
-    try { document.execCommand('copy'); markCopied(); } catch(_){}
+    try{ document.execCommand('copy'); markCopied(); }catch(_){}
   }
 }
 
