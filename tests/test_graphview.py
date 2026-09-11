@@ -715,6 +715,24 @@ def test_origin_graph_physics_tuning():
     assert "showNodePop(id, px, py);" in GRAPH_HTML
 
 
+def test_realtime_local_physics_and_interaction_optimizations():
+    """실시간 국소(1-Hop) 탄성 물리 및 드래그/줌 렌더링 최적화 검증."""
+    from claire.graphview import GRAPH_HTML
+
+    # 1. 엣지 드로잉 생략 최적화
+    assert "hideEdgesOnZoom:true,hideEdgesOnDrag:true" in GRAPH_HTML
+
+    # 2. 1-Hop 국소 탄성 물리 및 리셋 핸들러
+    assert "activeLocalPhysicsNodes" in GRAPH_HTML
+    assert "function resetLocalPhysicsNodes(){" in GRAPH_HTML
+    assert "net.getConnectedNodes(draggedId)" in GRAPH_HTML
+    assert "updates.push({id: n.id, physics: false});" in GRAPH_HTML
+    assert "350);" in GRAPH_HTML
+
+    # 3. 디바이스 인지형 분기 (모바일은 Physics OFF, 데스크톱은 1-Hop 국소 물리)
+    assert "const isMobile = (compactMQ && compactMQ.matches) || (mobileMQ && mobileMQ.matches);" in GRAPH_HTML
+
+
 def test_mobile_node_tap_popup_markers():
     """모바일 환경에서 노드 탭 시 롤오버 요약 팝업(nodepop) 지원 마커 검증."""
     # 1. CSS: @media (hover:none) 미차단, 반응형 최대폭 및 닫기/액션 버튼 스타일

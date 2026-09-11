@@ -60,6 +60,22 @@ let activePane='graph', detailOpen=false, centerView='graph', drawerOpen=false;
 let detailReturnFocus=null, docSearchActive=false;
 let graphCamera = null, preservingGraphCamera = false, netBusy = false;
 let isDraggingNode = false, settleTimer = null;
+let activeLocalPhysicsNodes = null;
+
+function resetLocalPhysicsNodes(){
+  if(activeLocalPhysicsNodes && allNodes && typeof allNodes.forEach === 'function'){
+    try{
+      const resets = [];
+      allNodes.forEach(n => {
+        if(!activeLocalPhysicsNodes.has(n.id)){
+          resets.push({id: n.id, physics: true});
+        }
+      });
+      if(resets.length) allNodes.update(resets);
+    }catch(_){}
+    activeLocalPhysicsNodes = null;
+  }
+}
 let lastNetSize = {w:0, h:0};
 let allTypes = [], allRelTypes = [], allDocs = [];
 let net = null, allNodes = null, allEdges = null;
@@ -1032,7 +1048,7 @@ fetch('graph').then(r=>{ if(!r.ok) throw new Error('graph fetch HTTP '+r.status)
         font:{color:th.nodeFont,size:0,strokeWidth:3,strokeColor:netBg},smooth:false},
       groups:buildGroups(),
       physics:getPhysicsOpts(totalCount),
-      interaction:{hover:true,tooltipDelay:120,multiselect:true,zoomView:false}
+      interaction:{hover:true,tooltipDelay:120,multiselect:true,zoomView:false,hideEdgesOnZoom:true,hideEdgesOnDrag:true}
     };
     const netEl = document.getElementById('net');
     if(netEl) net = new vis.Network(netEl, {nodes:allNodes, edges:allEdges}, opts);
@@ -1069,7 +1085,30 @@ fetch('graph').then(r=>{ if(!r.ok) throw new Error('graph fetch HTTP '+r.status)
       if(p && p.nodes && p.nodes.length){
         isDraggingNode = true;
         clearTimeout(settleTimer);
-        net.setOptions({physics:true});
+        resetLocalPhysicsNodes();
+        const isMobile = (compactMQ && compactMQ.matches) || (mobileMQ && mobileMQ.matches);
+        if(isMobile){
+          // 모바일: 터치 제스처 반응성 및 프레임 유지를 위해 물리 없이 직접 이동(Physics OFF)
+          if(net) net.setOptions({physics:false});
+        } else {
+          // 데스크톱: 1-Hop 국소 탄성 물리 활성화 (드래그 대상 및 직결 이웃 노드만 물리 연산)
+          try{
+            const draggedId = p.nodes[0];
+            const neighbors = (net && typeof net.getConnectedNodes === 'function') ? net.getConnectedNodes(draggedId) : [];
+            const localIds = new Set([draggedId, ...(Array.isArray(neighbors) ? neighbors : [])]);
+            activeLocalPhysicsNodes = localIds;
+            if(allNodes && typeof allNodes.forEach === 'function'){
+              const updates = [];
+              allNodes.forEach(n => {
+                if(!localIds.has(n.id)){
+                  updates.push({id: n.id, physics: false});
+                }
+              });
+              if(updates.length) allNodes.update(updates);
+            }
+          }catch(_){}
+          net.setOptions({physics:true});
+        }
       }
     });
     net.on('dragEnd', () => {
@@ -1077,9 +1116,13 @@ fetch('graph').then(r=>{ if(!r.ok) throw new Error('graph fetch HTTP '+r.status)
       rememberGraphCamera();
       if(isDraggingNode){
         isDraggingNode = false;
-        setTimeout(()=>{
-          if(net && !isDraggingNode) net.setOptions({physics:false});
-        }, 800);
+        clearTimeout(settleTimer);
+        settleTimer = setTimeout(()=>{
+          if(net && !isDraggingNode){
+            net.setOptions({physics:false});
+            resetLocalPhysicsNodes();
+          }
+        }, 350);
       }
     });
     net.on('animationFinished', () => {
@@ -1703,22 +1746,22 @@ function nodeFontSize(deg){
 
 function getPhysicsOpts(nodeCount){
   const count = nodeCount || 0;
-  let grav = -12000, cg = 0.12, spring = 150, overlap = 0.8;
+  let grav = -12000, cg = 0.12, spring = 150, overlap = 0.1;
   if(count >= 500){
     grav = -35000;
     cg = 0.04;
     spring = 220;
-    overlap = 1.0;
+    overlap = 0.2;
   } else if(count >= 200){
     grav = -25000;
     cg = 0.06;
     spring = 190;
-    overlap = 0.9;
+    overlap = 0.2;
   } else if(count >= 80){
     grav = -18000;
     cg = 0.09;
     spring = 170;
-    overlap = 0.8;
+    overlap = 0.15;
   }
   return {
     solver: 'barnesHut',
@@ -1726,8 +1769,8 @@ function getPhysicsOpts(nodeCount){
       gravitationalConstant: grav,
       centralGravity: cg,
       springLength: spring,
-      springConstant: 0.03,
-      damping: 0.4,
+      springConstant: 0.04,
+      damping: 0.65,
       avoidOverlap: overlap
     },
     minVelocity: 0.75,
@@ -2192,6 +2235,7 @@ function focusNode(id, pushHist=true){
   if(net && !isDraggingNode){
     clearTimeout(settleTimer);
     net.setOptions({physics:false});
+    resetLocalPhysicsNodes();
   }
   requestAnimationFrame(()=>{
     if(net){
