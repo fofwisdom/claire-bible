@@ -43,13 +43,11 @@ def fetch_file(path: str, *, full_content: bool = False) -> Document:
 
     suffix = p.suffix.lower()
     raw_bytes = p.read_bytes()
-    biblio: dict[str, Any] = {}
     if suffix == ".odt":
         from .odt import extract_odt_bytes, is_odt_bytes
 
         odt_res = extract_odt_bytes(raw_bytes, fallback_title=p.stem)
         title, text, _, _, oerr, _ = odt_res[:6]
-        biblio = getattr(odt_res, "biblio", {}) or {}
         if oerr or not text:
             from .base import FetchError
 
@@ -60,7 +58,6 @@ def fetch_file(path: str, *, full_content: bool = False) -> Document:
 
         pdf_res = extract_pdf_bytes(raw_bytes, fallback_title=p.stem)
         title, text, _, _, perr, _ = pdf_res[:6]
-        biblio = getattr(pdf_res, "biblio", None) or (pdf_res[6] if len(pdf_res) > 6 and isinstance(pdf_res[6], dict) else {})
         if perr or not text:
             from .base import FetchError
 
@@ -78,7 +75,6 @@ def fetch_file(path: str, *, full_content: bool = False) -> Document:
 
             odt_res = extract_odt_bytes(raw_bytes, fallback_title=p.stem)
             title, text, _, _, oerr, _ = odt_res[:6]
-            biblio = getattr(odt_res, "biblio", {}) or {}
             if oerr or not text:
                 from .base import FetchError
 
@@ -127,13 +123,11 @@ def fetch_file(path: str, *, full_content: bool = False) -> Document:
         meta["pdf_parser_fallback"] = bool(getattr(pdf_res, "parser_fallback", False))
         if getattr(pdf_res, "parser_fallback_reason", None):
             meta["pdf_parser_fallback_reason"] = getattr(pdf_res, "parser_fallback_reason")
-    if biblio:
-        meta["biblio"] = biblio
     return Document(
         url=f"file://{p.resolve()}",
         title=title or p.stem,
-        author=biblio.get("author") if biblio else None,
-        published_at=biblio.get("published_at") if biblio else None,
+        author=None,
+        published_at=None,
         raw_text=raw_text,
         source_type=source_type,
         content_hash=content_hash(title or "", text),

@@ -12,7 +12,6 @@ from claire.config import get_settings
 from claire.extract.prompts import doc_to_prompt
 from claire.ingest.fetchers.pdf import (
     PdfExtractResult,
-    extract_bibliographic_metadata,
     extract_pdf_bytes,
     extract_pdf_stream,
     find_references_split,
@@ -144,76 +143,45 @@ def test_slice_pdf_text_exclude_references_disabled():
     assert sliced == full_text
 
 
-def test_extract_bibliographic_metadata():
-    """PDF 메타데이터 및 본문에서 저자, 일자, DOI, arXiv ID 추출 검증."""
-    # 1. 메타데이터 딕셔너리 기반 추출
-    pdf_meta = {
-        "/Author": "Ashish Vaswani, Noam Shazeer",
-        "/CreationDate": "D:20170612180000Z",
-    }
-    sample_text = (
-        "Attention Is All You Need\n"
-        "arXiv:1706.03762v5 [cs.CL]\n"
-        "https://doi.org/10.48550/arXiv.1706.03762\n"
-        "Abstract: The dominant sequence transduction models..."
-    )
-    biblio = extract_bibliographic_metadata(sample_text, pdf_meta)
-    assert biblio["author"] == "Ashish Vaswani, Noam Shazeer"
-    assert biblio["published_at"] == "2017-06-12"
-    assert biblio["doi"] == "10.48550/arXiv.1706.03762"
-    assert biblio["arxiv_id"] == "1706.03762v5"
-
-    # 2. 메타데이터가 없고 텍스트 단서만 있는 경우
-    text_only = "A Survey on LLMs. doi: 10.1145/3318464.3389700. In arXiv:2303.18223."
-    biblio2 = extract_bibliographic_metadata(text_only, None)
-    assert biblio2.get("author") is None
-    assert biblio2["doi"] == "10.1145/3318464.3389700"
-    assert biblio2["arxiv_id"] == "2303.18223"
-    assert biblio2["published_at"] == "2023-03"  # arXiv ID에서 추정된 발행년월
+def test_pdf_extract_has_no_biblio_pollution():
+    """PDF 추출 시 임의 서지 메타데이터가 생성되지 않음을 검증."""
+    res = PdfExtractResult("Test Paper", "Content text", [], {}, None, [])
+    assert res.title == "Test Paper"
+    assert res.text == "Content text"
+    assert getattr(res, "biblio", {}) == {}
 
 
-def test_doc_to_prompt_biblio_budget_exemption(monkeypatch: pytest.MonkeyPatch):
-    """doc_to_prompt에서 서지 메타데이터가 본문 글자 수 상한(limit)에 깎이지 않고 온전히 프롬프트 헤더에 주입되는지 검증."""
+def test_doc_to_prompt_no_biblio_header_injection(monkeypatch: pytest.MonkeyPatch):
+    """doc_to_prompt에서 서지 메타데이터가 프롬프트 헤더에 주입되지 않음을 검증."""
     monkeypatch.setenv("CLAIRE_PDF_MAX_EXTRACT_CHARS", "20000")
     monkeypatch.setenv("CLAIRE_EXTRACT_CHAR_BUDGET", "10000")
     get_settings.cache_clear()
 
-    # 25,000자 본문과 서지 정보를 가진 Document
     doc = Document(
         id="doc_paper_1",
         title="Attention Is All You Need",
         url="https://arxiv.org/abs/1706.03762",
-        author="Ashish Vaswani et al.",
-        published_at="2017-06-12",
-        raw_text="Content " * 3000,  # ~24,000자
+        author=None,
+        published_at=None,
+        raw_text="Content " * 3000,
         source_type="pdf",
-        meta={
-            "biblio": {
-                "author": "Ashish Vaswani et al.",
-                "published_at": "2017-06-12",
-                "doi": "10.48550/arXiv.1706.03762",
-                "arxiv_id": "1706.03762",
-            }
-        },
+        meta={},
     )
 
     prompt = doc_to_prompt(doc)
-    # 1. 헤더에 서지 메타데이터가 빠짐없이 주입되었는지 확인
     assert "TITLE: Attention Is All You Need" in prompt
-    assert "AUTHORS: Ashish Vaswani et al." in prompt
-    assert "PUBLISHED_AT: 2017-06-12" in prompt
-    assert "DOI: 10.48550/arXiv.1706.03762" in prompt
-    assert "ARXIV_ID: 1706.03762" in prompt
+    assert "AUTHORS:" not in prompt
+    assert "PUBLISHED_AT:" not in prompt
+    assert "DOI:" not in prompt
     assert "SOURCE_TYPE: pdf" in prompt
 
-    # 2. 본문은 pdf_max_extract_chars(20000) 한도로 슬라이싱되되 헤더는 전혀 손상되지 않음
     assert "CONTENT:\n" in prompt
     body_part = prompt.split("CONTENT:\n", 1)[1]
     assert len(body_part) <= 20000
 
 
-def test_fetch_file_with_references_and_biblio(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """fetch_file()로 PDF 수집 시 참고문헌 제외 및 서지 정보가 Document와 메타데이터에 기록되는지 검증."""
+def test_fetch_file_with_references_and_no_biblio(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """fetch_file()로 PDF 수집 시 참고문헌 제외가 동작하고 doc.meta에 biblio가 소각되었음을 검증."""
     pdf_path = tmp_path / "paper_with_refs.pdf"
     pdf_path.write_bytes(b"%PDF-1.4 dummy")
 
@@ -228,11 +196,6 @@ def test_fetch_file_with_references_and_biblio(tmp_path: Path, monkeypatch: pyte
         {},
         None,
         [],
-        biblio={
-            "author": "John Doe",
-            "published_at": "2024-01-15",
-            "doi": "10.1234/test",
-        },
     )
 
     monkeypatch.setattr(
@@ -243,11 +206,11 @@ def test_fetch_file_with_references_and_biblio(tmp_path: Path, monkeypatch: pyte
     doc = fetch_file(str(pdf_path))
     assert doc.source_type == "pdf"
     assert doc.raw_text == main_text
-    assert doc.author == "John Doe"
-    assert doc.published_at == "2024-01-15"
+    assert doc.author is None
+    assert doc.published_at is None
     assert doc.meta["references_truncated"] is True
     assert doc.meta["appendix_truncated"] is False
-    assert doc.meta["biblio"]["doi"] == "10.1234/test"
+    assert "biblio" not in doc.meta
 
 
 def test_pdf_parser_selection_docling_fallback(monkeypatch: pytest.MonkeyPatch):
@@ -294,7 +257,6 @@ def test_pdf_parser_docling_mock(monkeypatch: pytest.MonkeyPatch):
         res = extract_pdf_stream_docling(stream, fallback_title="Docling Test")
         assert res.title == "Docling Multi-Column Title"
         assert "| Col1 | Col2 |" in res.text
-        assert res.biblio.get("doi") == "10.1234/docling"
 
 
 def test_classify_docling_failure_reasons():

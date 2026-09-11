@@ -35,31 +35,22 @@
 │   (좌측: 원문 관련 단추)               (우측: 적재 문서 메타데이터 'docmeta')  │
 │   ↗ 원문 열기                          🎯 초점   ✂️ 절단율   ⚠️ 파서 폴백      │
 ├─────────────────────────────────────────────────────────────────────────────┤
-│ [서지 정보 행] (상세 첫 줄 스타일의 담백한 텍스트 한 줄)                      │
-│   저자: Vaswani et al. | 발행일: 2017-06-12 | 출처: NeurIPS 2017            │
-├─────────────────────────────────────────────────────────────────────────────┤
 │ [요약 섹션] (Summary)                                                       │
 │   ... 문서 핵심 요약 본문 ...                                               │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │ [상세 섹션] (Detail)                                                        │
-│   ... 순수 본문 내용 (최상단 중복 서지 행 없음) ...                         │
+│   ... 순수 지식 본문 내용 (서지 정보 행 일체 없음) ...                      │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 2.1 원문 정보 (Original Source Work Information)
-- **정의**: 시스템이 가공하기 전, 원 저작물(Original Work) 자체가 지닌 고유 속성 및 원본 리소스.
-- **구성 및 배치**:
-  1. **원문 관련 단추 (Original Source Actions)**:
-     - **위치**: 첫 번째 행 **좌측**
-     - **항목**: `↗ 원문 열기` (`url`), `↗ Presentation PDF` (`presentation_pdf.public_url`), `↗ 전사 열기` (STT 전사 텍스트 뷰어)
-     - **주의**: 이는 원본 저작물로 연결되는 액션 단추이며, 시스템 가공 메타데이터인 `docmeta`가 아님.
-  2. **서지 정보 텍스트 행 (Bibliographic Line)**:
-     - **위치**: **`요약(Summary)` 섹션 바로 위**
-     - **항목**: `저자: ... | 발행일: ... | 출처: ... | DOI: ...`
-     - **스타일**: 화려한 뱃지나 불필요한 아이콘(`🏛️`, `📅`, `✍️` 등) 없이, 상세 본문 첫 줄처럼 **담백하고 차분한 단일 텍스트 행(`.docbiblio`)**으로 처리.
+### 2.1 원문 액션 단추 (Original Source Actions)
+- **정의**: 원본 저작물(Original Work)로 연결되는 사용자 액션 단추.
+- **위치**: 첫 번째 행 **좌측**
+- **항목**: `↗ 원문 열기` (`url`), `↗ Presentation PDF` (`presentation_pdf.public_url`), `↗ 전사 열기` (STT 전사 텍스트 뷰어)
+- **주의**: 이는 원본 리소스로 연결되는 링크이며, 시스템 가공 메타데이터인 `docmeta`가 아님.
 
 ### 2.2 적재 문서 메타데이터 (`docmeta`)
-- **정의**: Claire 시스템이 원문을 수집·가공·적재(Ingestion & Processing)할 때 발생한 시스템 파이프라인의 이력 및 상태 메타데이터(Provenance).
+- **정의**: Claire 시스템이 원문을 수집·가공·적재(Ingestion & Processing)할 때 발생한 **시스템 파이프라인의 이력 및 상태 메타데이터(Provenance)**.
 - **위치**: 첫 번째 행 **우측** (`.docmeta .docmeta-tags`)
 - **표현**: 고유한 시스템 뱃지 꾸밈(Badge Chips)을 유지.
 - **항목**:
@@ -68,10 +59,18 @@
   - `⚠️ Docling 폴백 (PyPDF)`: 파서 실행 및 폴백 이력 (`parser-fallback-tag`)
   - `🎙️ STT`: 음성 인식 전사 기반 적재 여부 (`stt-tag`)
   - `CC×PDF` / `STT×PDF`: 비디오 자막 및 원본 슬라이드 PDF 동시 번들 적재 상태
-- **절대 원칙**: 원 저작물 속성인 서지 정보(`저자`, `발행일` 등)는 `docmeta` 뱃지 영역에 혼입하지 않는다.
+- **절대 원칙**: 
+  - **`docmeta`는 `sourcemeta`가 아니다.** 적재한 문서 자체의 파이프라인 메타데이터일 뿐이다.
+  - 원 저작물 속성인 서지 정보(`저자`, `발행일`, `출처` 등)는 `docmeta` 뱃지 영역에 절대 혼입하지 않는다.
+  - `doc.meta["biblio"]` 딕셔너리는 시스템에서 완전히 소각되었다.
 
-### 2.3 본문 계층 (요약 및 상세)
-- **단일 출처(SSOT) 준수**: 서지 정보가 `요약` 바로 위에 담백한 텍스트 행으로 단일 정규화되므로, `상세(detail)` 본문 최상단에 중복 기재되던 서지 행은 노출되지 않도록 하여 본연의 지식 콘텐츠로 시작한다.
+### 2.3 서지 정보의 지식 그래프 환원 (Knowledge Graph SSOT)
+- **절대 원칙**: **서지 정보는 지식 그래프의 전유물이다.**
+  - 저자(Person: `이보미`), 소속/발행기관(Org: `한국금융연구원`), 간행물(Work: `금융브리프`) 등의 서지 정보는 오직 **온톨로지 지식 그래프(엔티티와 관계)**로만 모델링되고 탐색된다.
+  - 문서(Document) 레벨에는 서지 정보를 일체 남기지 않는다.
+    - 본문(`detail`) 최상단에 서지 정보를 비정형 텍스트로 적지 않는다 (프롬프트 규칙 13/7 폐지).
+    - 문서 리더 UI에 서지 정보 행(`.docbiblio`)을 두지 않는다.
+    - `doc.meta["biblio"]` 같은 임의의 서지 딕셔너리를 생성하지 않는다.
 
 ---
 
@@ -79,7 +78,7 @@
 
 ### 3.1 JavaScript 렌더링 명세
 
-#### 1) 첫 번째 행: `docMetaHtml(dc)`
+#### 첫 번째 행: `docMetaHtml(dc)`
 ```javascript
 function docMetaHtml(dc){
   if(!dc) return '';
@@ -107,7 +106,6 @@ function docMetaHtml(dc){
   // 우측: 적재 문서 메타데이터 (docmeta 뱃지)
   let tags = [];
   if(isParserFallback) tags.push('<span class="trunc-tag parser-fallback-tag">⚠️ Docling 폴백 (PyPDF)</span>');
-  if(hasPresentation) tags.push('<span class="directive-tag">'+...+'</span>');
   if(directive) tags.push('<span class="directive-tag">🎯 '+esc(directive)+'</span>');
   if(isStt && !hasPresentation) tags.push('<span class="directive-tag stt-tag">🎙️ STT</span>');
   if(isTrunc) tags.push('<span class="trunc-tag">✂️ ...</span>');
@@ -117,45 +115,13 @@ function docMetaHtml(dc){
 }
 ```
 
-#### 2) 요약 상단 서지 행: `docBiblioHtml(dc)`
-```javascript
-function docBiblioHtml(dc){
-  if(!dc) return '';
-  const author = (dc.author || (dc.meta && dc.meta.author) || (dc.biblio && dc.biblio.author) || (dc.meta && dc.meta.biblio && dc.meta.biblio.author) || '').trim();
-  const pubAt = (dc.published_at || (dc.meta && dc.meta.published_at) || (dc.biblio && dc.biblio.published_at) || (dc.meta && dc.meta.biblio && dc.meta.biblio.published_at) || '').trim();
-  const biblio = (dc.biblio || (dc.meta && dc.meta.biblio)) || {};
-  const venue = (biblio.venue || '').trim();
-  const doi = (biblio.doi || '').trim();
-
-  const parts = [];
-  if(author) parts.push('저자: ' + esc(author));
-  if(pubAt) parts.push('발행일: ' + esc(pubAt));
-  if(venue) parts.push('출처: ' + esc(venue));
-  if(doi) parts.push('DOI: ' + esc(doi));
-  if(!parts.length) return '';
-  return '<p class="docbiblio">' + parts.join(' | ') + '</p>';
-}
-```
-
-### 3.2 스타일 명세 (`reader.css`, `workspace.css`)
-```css
-/* --- Bibliographic Row (.docbiblio) --- */
-.docbiblio {
-  color: var(--muted);
-  font-size: 12.5px;
-  margin: .6em 0 .8em;
-  line-height: 1.5;
-}
-```
-- 배경색, 테두리, 과도한 패딩을 부여하지 않고 본문 서두 텍스트로서의 가독성과 담백함을 보장합니다.
-
 ---
 
 ## 4. 재발 방지를 위한 엔지니어링 가이드라인
 
 > [!CAUTION]
 > **금지 사항 (Forbidden Actions)**:
-> 1. **임의의 단추 추가 금지**: 기능이나 권한이 확장될 때 화면 빈자리에 임의의 버튼이나 패널을 증식시키지 마십시오. 모든 사용자 액션은 사전에 합의된 단일 캐노니컬 위치에만 둡니다.
-> 2. **첫 행의 파괴적 축소/삭제 금지**: 첫 행은 좌측 원문 단추와 우측 `docmeta` 뱃지의 균형을 위한 필수 컨테이너입니다. 특정 하위 항목을 이동할 때 첫 행의 구조적 무결성을 훼손해서는 안 됩니다.
-> 3. **메타데이터와 원문 정보의 혼용 금지**: '원문 관련 단추'나 '서지 정보'를 적재 가공 이력인 `docmeta`에 뒤섞거나, `docmeta` 뱃지를 원문 정보 영역에 복제하지 마십시오.
-> 4. **텍스트 정보의 과도한 뱃지화 지양**: 서지 정보는 본문의 맥락을 형성하는 읽기 정보이므로, 뱃지나 아이콘 남발 대신 상세 첫 줄처럼 담백한 텍스트로 처리합니다.
+> 1. **`docmeta`와 `sourcemeta` 혼동 금지**: `docmeta`는 파이프라인 적재 이력(초점, 절단율, 파서 상태 등)이다. 원문 서지 정보를 `docmeta`로 둔갑시키거나 `doc.meta["biblio"]`를 부활시키지 마십시오.
+> 2. **문서 레벨 서지 정보 강제 금지**: 문서 본문(`detail`)이나 UI 뷰어에 저자·발행일·출처 문자열을 강제로 인라인 삽입하지 마십시오.
+> 3. **서지 정보는 지식 그래프의 전유물**: 저자, 출처, 소속 기관은 온톨로지 지식 노드(Person, Org, Work 등)로만 표현되며, 그래프 탐색 및 지식 노드 목록을 통해 접근합니다.
+> 4. **첫 행의 파괴적 축소/삭제 금지**: 첫 행은 좌측 원문 단추와 우측 `docmeta` 뱃지의 균형을 위한 필수 컨테이너입니다. 구조적 무결성을 훼손하지 마십시오.

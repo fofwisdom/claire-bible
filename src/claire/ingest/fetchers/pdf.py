@@ -166,63 +166,6 @@ def slice_pdf_text(
     return sliced_text, is_truncated, False, False, orig_chars, len(sliced_text)
 
 
-def extract_bibliographic_metadata(
-    text: str,
-    metadata: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    """PDF 메타데이터 및 본문 텍스트로부터 서지 메타데이터(저자, 발행일, DOI, arXiv) 추출."""
-    biblio: dict[str, Any] = {}
-    author: str | None = None
-    published_at: str | None = None
-
-    if metadata:
-        # 1. Author
-        raw_author = metadata.get("/Author") or getattr(metadata, "author", None)
-        if raw_author and isinstance(raw_author, str) and raw_author.strip():
-            clean_author = raw_author.strip().replace("\x00", "")
-            if clean_author:
-                author = clean_author[:200]
-
-        # 2. Date
-        raw_date = metadata.get("/CreationDate") or metadata.get("/ModDate")
-        if raw_date and isinstance(raw_date, str):
-            m = re.search(r"(\d{4})[-/.]?(\d{2})[-/.]?(\d{2})", raw_date)
-            if m:
-                published_at = f"{m.group(1)}-{m.group(2)}-{m.group(3)}"
-
-    # 3. DOI pattern (head sample)
-    head_sample = (text or "")[:10000]
-    doi_match = re.search(
-        r"(?:doi(?:\.org)?[:/\s]*|https?://(?:dx\.)?doi\.org/)(10\.\d{4,9}/[-._;()/:A-Za-z0-9]+)",
-        head_sample,
-        re.IGNORECASE,
-    )
-    if doi_match:
-        doi = doi_match.group(1).rstrip(".,;)")
-        biblio["doi"] = doi
-
-    # 4. arXiv ID pattern
-    arxiv_match = re.search(
-        r"(?:arXiv[:\s]*|https?://arxiv\.org/abs/)(\d{4}\.\d{4,5}(?:v\d+)?)",
-        head_sample,
-        re.IGNORECASE,
-    )
-    if arxiv_match:
-        arxiv_id = arxiv_match.group(1)
-        biblio["arxiv_id"] = arxiv_id
-        if not published_at:
-            yy = arxiv_id[:2]
-            mm = arxiv_id[2:4]
-            published_at = f"20{yy}-{mm}"
-
-    if author:
-        biblio["author"] = author
-    if published_at:
-        biblio["published_at"] = published_at
-
-    return biblio
-
-
 class PdfExtractResult(tuple):
     """6개 튜플(title, text, links, anchors, error, images)과 완벽 호환되면서 .biblio 및 파서 실행 이력 속성을 제공."""
 
@@ -384,8 +327,7 @@ def extract_pdf_stream_pypdf(
                 if len(links) >= 50:
                     break
 
-        biblio = extract_bibliographic_metadata(full_text, raw_meta)
-        return PdfExtractResult(title, full_text, links[:50], anchors, None, [], biblio)
+        return PdfExtractResult(title, full_text, links[:50], anchors, None, [])
     except Exception as e:  # noqa: BLE001
         return PdfExtractResult(None, "", [], {}, f"PDF extraction failed: {e}", [], {})
 
@@ -429,8 +371,7 @@ def extract_pdf_stream_docling(
             if len(links) >= 50:
                 break
 
-    biblio = extract_bibliographic_metadata(full_text)
-    return PdfExtractResult(title, full_text, links[:50], {}, None, [], biblio)
+    return PdfExtractResult(title, full_text, links[:50], {}, None, [])
 
 
 def extract_pdf_stream(

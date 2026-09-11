@@ -155,11 +155,12 @@ def test_fetch_file_odt(tmp_path: Path):
     doc = fetch_file(str(odt_path))
     assert doc.source_type == "odt"
     assert doc.title == "Sample ODT Report"
-    assert doc.author == "Alice"
-    assert doc.published_at == "2026-09-11"
+    assert doc.author is None
+    assert doc.published_at is None
     assert "| Header A | Header B |" in doc.raw_text
     assert doc.meta["odt_parser_used"] == "odt"
     assert doc.meta["raw_truncated"] is False
+    assert "biblio" not in doc.meta
 
 
 def test_fetch_file_pdf_prioritizes_odt(tmp_path: Path):
@@ -180,7 +181,7 @@ def test_fetch_file_pdf_prioritizes_odt(tmp_path: Path):
     doc = fetch_file(str(pdf_path))
     assert doc.source_type == "odt"
     assert doc.title == "Annual Report ODT"
-    assert doc.author == "Finance Team"
+    assert doc.author is None
     assert doc.meta["format_preference"] == "odt_over_pdf"
     assert doc.meta["original_requested_file"] == str(pdf_path.resolve())
     assert doc.url == f"file://{odt_path.resolve()}"
@@ -258,8 +259,9 @@ def test_fetch_web_odt_url(monkeypatch):
     doc = fetch_web("https://example.org/docs/whitepaper.odt")
     assert doc.source_type == "odt"
     assert doc.title == "Remote ODT Document"
-    assert doc.author == "Remote Author"
+    assert doc.author is None
     assert doc.meta["fetch_via"] == "static"
+    assert "biblio" not in doc.meta
 
 
 def test_router_classify_odt(tmp_path: Path):

@@ -809,38 +809,23 @@ def test_reader_keyboard_navigation_markup_and_styles():
 
 
 def test_bibliographic_text_row_above_summary_and_docmeta_separation():
-    """서지 정보(저자, 발행일 등)가 docmeta(적재 메타데이터)와 분리되어 요약 위에 담백한 텍스트 행으로 렌더링되는지 검증."""
+    """서지 정보는 지식 그래프의 전유물이며, 리더 및 패널, 공유 페이지에 문서 레벨 서지 행(.docbiblio)이 렌더링되지 않음을 검증."""
     from claire.graphview import GRAPH_HTML, _SHARED_HTML
 
-    # 1. docBiblioHtml 함수 정의 및 내보내기 검증
-    assert "function docBiblioHtml(dc){" in GRAPH_HTML
-    assert "window.docBiblioHtml = docBiblioHtml;" in GRAPH_HTML
-    assert "docBiblioHtml," in GRAPH_HTML
-
-    # 2. 첫 행의 docmeta 에는 적재 메타데이터(초점, 파서, 절단 등)만 남고 서지 정보(✍️)는 분리됨
+    # 1. 첫 행의 docmeta 에는 적재 메타데이터(초점, 파서, 절단 등)만 남고 서지 정보는 없음
+    assert "function docMetaHtml(dc){" in GRAPH_HTML
     start = GRAPH_HTML.index("function docMetaHtml(dc){")
     end = GRAPH_HTML.index("function docBiblioHtml(dc){")
     doc_meta_fn = GRAPH_HTML[start:end]
     assert "서지 메타데이터" not in doc_meta_fn
     assert "author || pubAt" not in doc_meta_fn
 
-    # 3. renderReader 및 renderDocPanel 에서 docBiblioHtml 이 요약 바로 위에 위치함
-    reader_biblio_idx = GRAPH_HTML.index("h+=docBiblioHtml(dc);")
-    reader_summary_idx = GRAPH_HTML.index("<div class=rsection>요약</div>")
-    assert reader_biblio_idx < reader_summary_idx
+    # 2. 리더, 패널, 공유 페이지에서 .docbiblio 행이 렌더링 파이프라인에 삽입되지 않음
+    assert "h+=docBiblioHtml(dc);" not in GRAPH_HTML
+    assert "h+=docBiblioHtml(dc);" not in _SHARED_HTML
 
-    panel_biblio_idx = GRAPH_HTML.index("h+=docBiblioHtml(dc);", reader_summary_idx)
-    panel_summary_idx = GRAPH_HTML.index("<h3>요약</h3>", panel_biblio_idx)
-    assert panel_biblio_idx < panel_summary_idx
-
-    # 4. 공유 페이지(_SHARED_HTML)에서도 동일하게 docBiblioHtml 이 요약 위에 배치됨
-    assert "function docBiblioHtml(dc){" in _SHARED_HTML
-    share_biblio_idx = _SHARED_HTML.index("h+=docBiblioHtml(dc);")
-    share_summary_idx = _SHARED_HTML.index("<div class=sec>요약</div>")
-    assert share_biblio_idx < share_summary_idx
-
-    # 5. 서지 정보는 상세 첫 줄처럼 담백한 텍스트 행(.docbiblio)으로 처리됨
-    assert ".docbiblio{" in GRAPH_HTML
-    assert ".docbiblio{" in _SHARED_HTML
+    # 3. .docbiblio 스타일 클래스 미포함 검증
+    assert ".docbiblio" not in GRAPH_HTML
+    assert ".docbiblio" not in _SHARED_HTML
 
 

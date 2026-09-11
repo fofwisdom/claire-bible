@@ -430,20 +430,7 @@ function docMetaHtml(dc){
   return h;
 }
 function docBiblioHtml(dc){
-  if(!dc) return '';
-  const author = (dc.author || (dc.meta && dc.meta.author) || (dc.biblio && dc.biblio.author) || (dc.meta && dc.meta.biblio && dc.meta.biblio.author) || '').trim();
-  const pubAt = (dc.published_at || (dc.meta && dc.meta.published_at) || (dc.biblio && dc.biblio.published_at) || (dc.meta && dc.meta.biblio && dc.meta.biblio.published_at) || '').trim();
-  const biblio = (dc.biblio || (dc.meta && dc.meta.biblio)) || {};
-  const venue = (biblio.venue || '').trim();
-  const doi = (biblio.doi || '').trim();
-
-  const parts = [];
-  if(author) parts.push('저자: ' + esc(author));
-  if(pubAt) parts.push('발행일: ' + esc(pubAt));
-  if(venue) parts.push('출처: ' + esc(venue));
-  if(doi) parts.push('DOI: ' + esc(doi));
-  if(!parts.length) return '';
-  return '<p class="docbiblio">' + parts.join(' | ') + '</p>';
+  return '';
 }
 function renderReader(dc){
   curReaderDocData=dc;
@@ -466,7 +453,6 @@ function renderReader(dc){
   if(directive){
     h+='<div class="rsection">초점</div><div class="doc-content" style="margin-bottom:.8em">🎯 <strong>'+esc(directive)+'</strong></div>';
   }
-  h+=docBiblioHtml(dc);
   if(dc.summary) h+='<div class=rsection>요약</div><div class="doc-content">'+renderContent(dc.summary, dc.detail_format)+'</div>';
   if(dc.detail_html){
     const purifier=window.DOMPurify;
