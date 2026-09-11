@@ -1,7 +1,6 @@
 # Claire Bible — 공개 아키텍처 계획
 
-관련 문서: [GOALS.md](GOALS.md), [sample.md](../../sample.md),
-[외부 접속 설계](../origin/implementation/EXTERNAL_ACCESS.md)
+관련 문서: [GOALS.md](GOALS.md), [sample.md](../../sample.md), [외부 접속 설계](../origin/implementation/EXTERNAL_ACCESS.md)
 
 ## 1. 처리 흐름
 
@@ -72,10 +71,7 @@ Fetcher는 URL, canonical URL, 제목, 작성자, 시각, 원문, 소스 종류�
 6. 데이터 수명주기는 `.env`(`CLAIRE_DATA_LIFECYCLE`, `CLAIRE_ALLOW_PURGE`)에서 append-only(기본값)와 purgeable을 선택할 수 있다. 폐기된 레거시/오염 문서는 툼스톤(`purged_tombstones`) 등록 및 DB·디스크·그래프 연쇄 소각(`claire purge`)으로 완전히 배제할 수 있다.
 7. 원문을 절단하여 적재 및 상세(detail) 작성 시, 절단되어 내용이 유실된 섹션은 상세를 작성하지 않는다(불완전한 섹션 배제 및 환각 방지).
 
-세부 설계는 [ONEHOP_MERGE_DESIGN.md](ONEHOP_MERGE_DESIGN.md),
-[EXPAND_FILTERING_DESIGN.md](../origin/design/EXPAND_FILTERING_DESIGN.md),
-[DATA_LIFECYCLE_AND_PURGE_DESIGN.md](../origin/design/DATA_LIFECYCLE_AND_PURGE_DESIGN.md),
-[INGESTION_INTEGRITY_AND_POLLUTION_CONTROL_RESEARCH.md](../origin/design/INGESTION_INTEGRITY_AND_POLLUTION_CONTROL_RESEARCH.md)를 참고한다.
+세부 설계는 [ONEHOP_MERGE_DESIGN.md](ONEHOP_MERGE_DESIGN.md), [EXPAND_FILTERING_DESIGN.md](../origin/design/EXPAND_FILTERING_DESIGN.md), [DATA_LIFECYCLE_AND_PURGE_DESIGN.md](../origin/design/DATA_LIFECYCLE_AND_PURGE_DESIGN.md), [INGESTION_INTEGRITY_AND_POLLUTION_CONTROL_RESEARCH.md](../origin/design/INGESTION_INTEGRITY_AND_POLLUTION_CONTROL_RESEARCH.md)를 참고한다.
 
 ## 4. 인증과 외부 접속
 
