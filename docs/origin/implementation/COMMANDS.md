@@ -428,10 +428,11 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
     * `--json`: 기계 판독용 JSON 포맷 출력.
 
 * `claire support-bundle [--days N] [--target <target>] [--list] [--purge] [--json]`:
-  * **RCA 전용 zstd 압축 아카이브**: 시스템 진단, 마스킹된 설정, 텔레메트리, 인박스 실패 내역, 활성 공유 링크 인덱스, 프로바이더 로그를 `.tar.zst`로 패키징.[^telemetry-implementation]
+  * **RCA 전용 zstd 압축 아카이브**: 시스템 진단, 마스킹된 설정, 저장소 경로·mount·파일 identity, 테마별 read-only health, 텔레메트리, 인박스 실패 내역, 활성 공유 링크 인덱스, 프로바이더 로그를 format v3 `.tar.zst`로 패키징.[^telemetry-implementation]
   * **요청 기반 strict 타깃 역추적**: `target`으로 공유 링크(`/p?s=token`), 공유 토큰, URL, 문서 ID를 입력받는다. 복수 후보는 첫 문서로 임의 선택하지 않고 `ambiguous`, 미관측 대상은 `not_observed`, 문서 생성 전 실패 URL은 `failed_inbox`로 기록한다.
   * **인박스 이력**: `tracked_document/`에 URL·문서에 연결된 전체 `raw_inbox` 행을 포함한다. 관측성 데이터는 정본 `claire.db`에 신규 테이블을 추가하지 않는다.[^telemetry-implementation]
   * **빌드 식별**: `manifest.json`과 `diagnostics/build.json`에 이미지 빌드 시 주입된 Git commit, 패키지 버전, DB 스키마 버전·계보 및 이미지 태그를 기록한다.
+  * **다운로드 내구성**: `telemetry.db`의 레코드와 원문 토큰을 포함하지 않는 권한 `0600` SHA-256 sidecar를 함께 기록한다. DB 레코드가 유실되거나 읽기 실패해도 사용자가 가진 토큰과 sidecar가 일치하면 유효기간 안의 파일을 제공한다.
   * **6시간 자동 파기**: 번들 생성 시 6시간 유효한 보안 다운로드 토큰(`GET /support/bundle?token=...`)을 발급하며, 생성 6시간 경과 시 디스크 및 DB에서 자동 파기 (`410 Gone`).
   * **옵션**:
     * `--days N`: 수집 대상 기간 (기본값: 1일). 텔레메트리 보관 기한(기본 30일)을 초과할 수 없음.

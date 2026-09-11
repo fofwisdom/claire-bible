@@ -226,6 +226,47 @@ def test_support_bundle_target_not_observed_is_explicit(tmp_path):
     assert info.target_resolution_status == "not_observed"
 
 
+def test_support_bundle_survives_corrupt_theme_registry(tmp_path):
+    """레지스트리가 손상돼도 기본 DB와 오류 증거를 포함한 번들은 생성한다."""
+    data_dir = tmp_path / "data"
+    vault_dir = tmp_path / "vault"
+    data_dir.mkdir(parents=True)
+    vault_dir.mkdir(parents=True)
+    db_path = data_dir / "claire.db"
+    settings = Settings(
+        CLAIRE_DB_PATH=str(db_path),
+        CLAIRE_VAULT_PATH=str(vault_dir),
+        CLAIRE_PROVIDER="mock",
+        CLAIRE_MULTI_THEME=True,
+    )
+    conn = dbm.connect(db_path)
+    dbm.init_db(conn)
+    conn.close()
+    registry_path = data_dir / "themes.json"
+    registry_path.write_text("{not-json", encoding="utf-8")
+
+    info = create_support_bundle(settings, target="doc_missing")
+
+    assert info.filepath.is_file()
+    assert info.target_resolution_status == "collector_error"
+    assert registry_path.read_text(encoding="utf-8") == "{not-json"
+    files = _read_tar_zst(info.filepath)
+    root_prefix = f"support_bundle_{info.bundle_id[-8:]}"
+    warnings = json.loads(
+        files[f"{root_prefix}/diagnostics/collector_warnings.json"].decode("utf-8")
+    )
+    warning_codes = {item["code"] for item in warnings}
+    assert "THEME_REGISTRY_UNAVAILABLE" in warning_codes
+    assert "TARGET_RESOLUTION_FAILED" in warning_codes
+    health = json.loads(files[f"{root_prefix}/pipeline/health.json"].decode("utf-8"))
+    assert health["liveness"]["ok"] is False
+    assert health["health"]["ok"] is False
+    integrity = json.loads(
+        files[f"{root_prefix}/pipeline/db_integrity.json"].decode("utf-8")
+    )
+    assert integrity["claire_db_quick_check"] == "ok"
+
+
 def test_support_bundle_single_theme_mode(tmp_path):
     """CLAIRE_MULTI_THEME=False 인 단일 테마 모드에서의 하위 호환성 검증."""
     data_dir = tmp_path / "data"
