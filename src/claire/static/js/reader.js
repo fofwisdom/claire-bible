@@ -313,13 +313,11 @@ function docMetaHtml(dc){
   const isParserFallback = !!(dc.pdf_parser_fallback || (dc.meta && dc.meta.pdf_parser_fallback));
   const fallbackReason = (dc.pdf_parser_fallback_reason || (dc.meta && dc.meta.pdf_parser_fallback_reason) || 'Docling 런타임 오류');
   const directive = (dc.directive || (dc.meta && dc.meta.directive) || '').trim();
-  const author = (dc.author || (dc.meta && dc.meta.author) || (dc.biblio && dc.biblio.author) || (dc.meta && dc.meta.biblio && dc.meta.biblio.author) || '').trim();
-  const pubAt = (dc.published_at || (dc.meta && dc.meta.published_at) || (dc.biblio && dc.biblio.published_at) || (dc.meta && dc.meta.biblio && dc.meta.biblio.published_at) || '').trim();
   const isStt = !!(dc.is_stt || (dc.meta && (dc.meta.is_stt || dc.meta.stt_applied || dc.meta.stt)));
   const isSttTrunc = isStt && !!(dc.stt_truncated || (dc.meta && dc.meta.stt_truncated) || isTrunc);
   const presentation = dc.presentation_pdf || (dc.meta && dc.meta.presentation_pdf) || {};
   const hasPresentation = presentation.status === 'available' && !!presentation.public_url;
-  if(!hasUrl && !isTrunc && !directive && !isStt && !author && !pubAt && !isParserFallback && !hasPresentation) return '';
+  if(!hasUrl && !isTrunc && !directive && !isStt && !isParserFallback && !hasPresentation) return '';
   let h='<p class=docmeta>';
   if(hasUrl){
     h+='<a href="'+esc(dc.url)+'" target=_blank rel=noopener>↗ 원문 열기</a>';
@@ -337,13 +335,6 @@ function docMetaHtml(dc){
     }
   }
   let tags=[];
-  if(author || pubAt){
-    let bibTxt = '';
-    if(author && pubAt) bibTxt = author + ' (' + pubAt + ')';
-    else if(author) bibTxt = author;
-    else if(pubAt) bibTxt = pubAt;
-    tags.push('<span class="directive-tag" style="background:rgba(255,255,255,0.06);border-color:rgba(255,255,255,0.15);color:var(--muted)" title="서지 메타데이터: '+esc(bibTxt)+'">✍️ '+esc(bibTxt)+'</span>');
-  }
   if(isParserFallback){
     tags.push('<span class="trunc-tag parser-fallback-tag" title="Docling 실패 사유: '+esc(fallbackReason)+'">⚠️ Docling 폴백 (PyPDF)</span>');
   }
@@ -438,6 +429,22 @@ function docMetaHtml(dc){
   h+='</p>';
   return h;
 }
+function docBiblioHtml(dc){
+  if(!dc) return '';
+  const author = (dc.author || (dc.meta && dc.meta.author) || (dc.biblio && dc.biblio.author) || (dc.meta && dc.meta.biblio && dc.meta.biblio.author) || '').trim();
+  const pubAt = (dc.published_at || (dc.meta && dc.meta.published_at) || (dc.biblio && dc.biblio.published_at) || (dc.meta && dc.meta.biblio && dc.meta.biblio.published_at) || '').trim();
+  const biblio = (dc.biblio || (dc.meta && dc.meta.biblio)) || {};
+  const venue = (biblio.venue || '').trim();
+  const doi = (biblio.doi || '').trim();
+
+  const parts = [];
+  if(author) parts.push('저자: ' + esc(author));
+  if(pubAt) parts.push('발행일: ' + esc(pubAt));
+  if(venue) parts.push('출처: ' + esc(venue));
+  if(doi) parts.push('DOI: ' + esc(doi));
+  if(!parts.length) return '';
+  return '<p class="docbiblio">' + parts.join(' | ') + '</p>';
+}
 function renderReader(dc){
   curReaderDocData=dc;
   if(dc && dc.title){
@@ -459,6 +466,7 @@ function renderReader(dc){
   if(directive){
     h+='<div class="rsection">초점</div><div class="doc-content" style="margin-bottom:.8em">🎯 <strong>'+esc(directive)+'</strong></div>';
   }
+  h+=docBiblioHtml(dc);
   if(dc.summary) h+='<div class=rsection>요약</div><div class="doc-content">'+renderContent(dc.summary, dc.detail_format)+'</div>';
   if(dc.detail_html){
     const purifier=window.DOMPurify;
@@ -1040,6 +1048,7 @@ const ClaireReader = {
   shareDoc,
   copyShare,
   docMetaHtml,
+  docBiblioHtml,
   renderReader,
   setCenterView,
   openDocGraph,
@@ -1067,6 +1076,7 @@ if (typeof window !== 'undefined') {
   window.shareDoc = shareDoc;
   window.copyShare = copyShare;
   window.docMetaHtml = docMetaHtml;
+  window.docBiblioHtml = docBiblioHtml;
   window.renderReader = renderReader;
   window.setCenterView = setCenterView;
   window.openDocGraph = openDocGraph;
