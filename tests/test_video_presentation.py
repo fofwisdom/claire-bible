@@ -80,7 +80,6 @@ def _extract(data: bytes = PDF_BYTES, text: str = "Presentation body") -> Presen
         text=text,
         extracted_title="Speaker Names",
         links=[],
-        biblio={},
         parser_requested="pypdf",
         parser_used="pypdf",
         parser_fallback=False,
@@ -460,7 +459,7 @@ def test_compose_keeps_one_video_identity_and_both_source_boundaries():
     ]
     wrapper_chars = len(doc.raw_text) - original_chars - len(extracted.text)
     assert doc.meta["orig_chars"] == original_chars + extracted.orig_chars + wrapper_chars
-    assert doc.meta["presentation_pdf"]["biblio"] == {}
+    assert "biblio" not in doc.meta["presentation_pdf"]
     dumped = doc.model_dump()
     assert "attachments" not in dumped
     assert PDF_BYTES not in str(dumped).encode()

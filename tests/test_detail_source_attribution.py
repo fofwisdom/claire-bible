@@ -14,7 +14,7 @@ from claire.store import db as dbm
 
 
 @pytest.mark.parametrize("format", ["md", "adoc"])
-def test_render_detail_prompt_preserves_biblio_but_forbids_original_link(format: str):
+def test_render_detail_prompt_forbids_forcing_biblio_in_body(format: str):
     prompt = render_detail_prompt(
         "URL: https://example.com/article\n\nCONTENT:\n본문",
         [],
@@ -22,10 +22,8 @@ def test_render_detail_prompt_preserves_biblio_but_forbids_original_link(format:
         format=format,
     )
 
-    assert "서지 정보 표기" in prompt
-    assert "저자·발행일·출처명·문서/세션 ID·DOI 등의 서지 정보는 보존" in prompt
-    assert "'원문 열기' 기능이 별도로 있으므로" in prompt
-    assert "입력 헤더의 `URL:` 값" in prompt
+    assert "서지 정보 표기" not in prompt
+    assert "저자(AUTHORS)" not in prompt
 
 
 @pytest.mark.parametrize(

@@ -190,54 +190,20 @@ def _extract_list(
 
 
 def extract_odt_metadata(meta_xml_bytes: bytes) -> tuple[str | None, dict[str, Any]]:
-    """meta.xml 에서 제목, 저자, 날짜, 서지 정보 추출."""
-    biblio: dict[str, Any] = {}
+    """meta.xml 에서 제목 추출 (서지 정보 추출은 소각됨)."""
     title: str | None = None
-
     if not meta_xml_bytes:
-        return None, biblio
+        return None, {}
 
     try:
         root = ET.fromstring(meta_xml_bytes)
-        # 1. title
         t_elem = root.find(f".//{{{NS['dc']}}}title")
         if t_elem is not None and t_elem.text and t_elem.text.strip():
             title = t_elem.text.strip()[:200]
-
-        # 2. author
-        creator_elem = root.find(f".//{{{NS['dc']}}}creator")
-        if creator_elem is not None and creator_elem.text and creator_elem.text.strip():
-            biblio["author"] = creator_elem.text.strip()[:200]
-
-        # 3. date
-        date_elem = root.find(f".//{{{NS['dc']}}}date")
-        if date_elem is None:
-            date_elem = root.find(f".//{{{NS['meta']}}}creation-date")
-        if date_elem is not None and date_elem.text and date_elem.text.strip():
-            m = re.search(r"(\d{4}[-/.]\d{2}[-/.]\d{2})", date_elem.text.strip())
-            if m:
-                biblio["published_at"] = m.group(1).replace("/", "-").replace(".", "-")
-            else:
-                biblio["published_at"] = date_elem.text.strip()[:10]
-
-        # 4. description / subject
-        desc_elem = root.find(f".//{{{NS['dc']}}}description")
-        if desc_elem is not None and desc_elem.text and desc_elem.text.strip():
-            biblio["description"] = desc_elem.text.strip()
-
-        # 5. keywords
-        keywords = [
-            kw.text.strip()
-            for kw in root.findall(f".//{{{NS['meta']}}}keyword")
-            if kw.text and kw.text.strip()
-        ]
-        if keywords:
-            biblio["keywords"] = keywords
-
     except Exception as e:
         logger.debug("Failed to parse meta.xml: %s", e)
 
-    return title, biblio
+    return title, {}
 
 
 def extract_odt_stream(

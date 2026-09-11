@@ -235,25 +235,8 @@ def document_detail(
         "pdf_parser_fallback_reason": meta_dict.get("pdf_parser_fallback_reason"),
         "presentation_pdf": meta_dict.get("presentation_pdf") or {},
         "presentation_pdfs": meta_dict.get("presentation_pdfs") or [],
-        "author": (
-            row["author"]
-            or meta_dict.get("author")
-            or (
-                (meta_dict.get("biblio") or {}).get("author")
-                if isinstance(meta_dict.get("biblio"), dict)
-                else None
-            )
-        ),
-        "published_at": (
-            row["published_at"]
-            or meta_dict.get("published_at")
-            or (
-                (meta_dict.get("biblio") or {}).get("published_at")
-                if isinstance(meta_dict.get("biblio"), dict)
-                else None
-            )
-        ),
-        "biblio": meta_dict.get("biblio") or {},
+        "author": row["author"] or meta_dict.get("author"),
+        "published_at": row["published_at"] or meta_dict.get("published_at"),
         "orig_chars": meta_dict.get("orig_chars"),
         "raw_chars": meta_dict.get("raw_chars"),
         "directive": meta_dict.get("directive"),

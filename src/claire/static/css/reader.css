@@ -226,9 +226,6 @@ h1 .rmeta{color:var(--muted);font-size:13px;margin-left:8px;font-weight:normal}
 .sttdoctitle{margin:4px 0 0;font-size:13px;font-weight:600;line-height:1.4;color:var(--fg);overflow-wrap:anywhere;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
 body.stt-modal-open{overflow:hidden}
 
-/* --- Bibliographic Row (.docbiblio) --- */
-.docbiblio{color:var(--muted);font-size:12.5px;margin:.6em 0 .8em;line-height:1.5}
-
 /* --- Document Metadata & Status Badges (.docmeta) --- */
 #panel .docmeta, #reader .docmeta, #rbody .docmeta, .docmeta{color:var(--muted);font-size:12px;margin:.1em 0 .6em;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px}
 .docmeta .docmeta-tags{display:inline-flex;align-items:center;gap:6px;margin-left:auto;flex-wrap:wrap}

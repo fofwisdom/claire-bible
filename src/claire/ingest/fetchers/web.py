@@ -86,7 +86,6 @@ def fetch_web(url: str, *, full_content: bool = False) -> Document:
     title, text, links, anchors, err, effective_url, images = res[:7]
     is_pdf = bool(res[7]) if len(res) > 7 else False
     doc_type = getattr(res, "doc_type", None) or ("pdf" if is_pdf else "web")
-    biblio: dict[str, Any] = getattr(res, "biblio", None) or (res[8] if len(res) > 8 and isinstance(res[8], dict) else {})
     parser_info: dict[str, Any] = getattr(res, "parser_info", {}) or {}
     usable, guard_err = _is_usable(title, text)
 
@@ -133,21 +132,20 @@ def fetch_web(url: str, *, full_content: bool = False) -> Document:
         c_title, c_text, c_links, c_anchors, c_images = c_res[:5]
         c_is_pdf = bool(c_res[5]) if len(c_res) > 5 else False
         c_doc_type = getattr(c_res, "doc_type", None) or ("pdf" if c_is_pdf else "web")
-        c_biblio = getattr(c_res, "biblio", None) or (c_res[6] if len(c_res) > 6 and isinstance(c_res[6], dict) else {})
         c_parser_info = getattr(c_res, "parser_info", None) or (c_res[7] if len(c_res) > 7 and isinstance(c_res[7], dict) else {})
         c_usable, c_guard_err = _is_usable(c_title or title, c_text)
         if c_usable:
             title, text, links, anchors, images, via = (
                 c_title or title, c_text, c_links or links, c_anchors or anchors,
                 c_images or images, "scrapling")
-            usable, guard_err, is_pdf, biblio, doc_type = True, None, c_is_pdf, c_biblio, c_doc_type
+            usable, guard_err, is_pdf, doc_type = True, None, c_is_pdf, c_doc_type
             if c_parser_info:
                 parser_info = c_parser_info
         elif c_text and len(c_text) > len(text or ""):
             title, text, links, anchors, images, via = (
                 c_title or title, c_text, c_links or links, c_anchors or anchors,
                 c_images or images, "scrapling")
-            usable, guard_err, is_pdf, biblio, doc_type = c_usable, c_guard_err, c_is_pdf, c_biblio, c_doc_type
+            usable, guard_err, is_pdf, doc_type = c_usable, c_guard_err, c_is_pdf, c_doc_type
             if c_parser_info:
                 parser_info = c_parser_info
 
@@ -229,14 +227,12 @@ def fetch_web(url: str, *, full_content: bool = False) -> Document:
     }
     if parser_info:
         meta.update(parser_info)
-    if biblio:
-        meta["biblio"] = biblio
     return Document(
         url=url,
         canonical_url=canonicalize_url(effective),
         title=title,
-        author=biblio.get("author") if biblio else None,
-        published_at=biblio.get("published_at") if biblio else None,
+        author=None,
+        published_at=None,
         raw_text=raw_text,
         source_type=doc_type if doc_type in ("pdf", "odt") else "web",
         content_hash=content_hash(title or "", text),
@@ -287,10 +283,9 @@ def _fetch_static(
                 resp.content, url=str(resp.url), fallback_title=fallback
             )
             title, text, links, anchors, oerr, images = odt_res[:6]
-            biblio = getattr(odt_res, "biblio", None) or (odt_res[6] if len(odt_res) > 6 and isinstance(odt_res[6], dict) else {})
             parser_info = {"odt_parser_used": "odt"}
             return FetchStaticResult(
-                title, text, links, anchors, oerr, str(resp.url), images, False, biblio, parser_info=parser_info, doc_type="odt"
+                title, text, links, anchors, oerr, str(resp.url), images, False, {}, parser_info=parser_info, doc_type="odt"
             )
 
         if (
@@ -310,7 +305,6 @@ def _fetch_static(
                 resp.content, url=str(resp.url), fallback_title=fallback
             )
             title, text, links, anchors, perr, images = pdf_res[:6]
-            biblio = getattr(pdf_res, "biblio", None) or (pdf_res[6] if len(pdf_res) > 6 and isinstance(pdf_res[6], dict) else {})
             parser_info = {
                 "pdf_parser_requested": getattr(pdf_res, "parser_requested", "pypdf"),
                 "pdf_parser_used": getattr(pdf_res, "parser_used", "pypdf"),
@@ -318,7 +312,7 @@ def _fetch_static(
             }
             if getattr(pdf_res, "parser_fallback_reason", None):
                 parser_info["pdf_parser_fallback_reason"] = getattr(pdf_res, "parser_fallback_reason")
-            return FetchStaticResult(title, text, links, anchors, perr, str(resp.url), images, True, biblio, parser_info=parser_info, doc_type="pdf")
+            return FetchStaticResult(title, text, links, anchors, perr, str(resp.url), images, True, {}, parser_info=parser_info, doc_type="pdf")
 
         title, text, links, anchors, perr, images = _extract_html(
             resp.text, base_url=str(resp.url))
@@ -569,9 +563,8 @@ def _fetch_scrapling(
                 raw_bytes, url=url, fallback_title=url.split("/")[-1].split("?")[0]
             )
             title, text, links, anchors, _, images = odt_res[:6]
-            biblio = getattr(odt_res, "biblio", None) or (odt_res[6] if len(odt_res) > 6 and isinstance(odt_res[6], dict) else {})
             parser_info = {"odt_parser_used": "odt"}
-            return FetchScraplingResult(title, text, links, anchors, images, False, biblio, parser_info=parser_info, doc_type="odt")
+            return FetchScraplingResult(title, text, links, anchors, images, False, {}, parser_info=parser_info, doc_type="odt")
 
         if (
             "application/pdf" in ctype
@@ -590,7 +583,6 @@ def _fetch_scrapling(
                 raw_bytes, url=url, fallback_title=url.split("/")[-1].split("?")[0]
             )
             title, text, links, anchors, _, images = pdf_res[:6]
-            biblio = getattr(pdf_res, "biblio", None) or (pdf_res[6] if len(pdf_res) > 6 and isinstance(pdf_res[6], dict) else {})
             parser_info = {
                 "pdf_parser_requested": getattr(pdf_res, "parser_requested", "pypdf"),
                 "pdf_parser_used": getattr(pdf_res, "parser_used", "pypdf"),
@@ -598,7 +590,7 @@ def _fetch_scrapling(
             }
             if getattr(pdf_res, "parser_fallback_reason", None):
                 parser_info["pdf_parser_fallback_reason"] = getattr(pdf_res, "parser_fallback_reason")
-            return FetchScraplingResult(title, text, links, anchors, images, True, biblio, parser_info=parser_info, doc_type="pdf")
+            return FetchScraplingResult(title, text, links, anchors, images, True, {}, parser_info=parser_info, doc_type="pdf")
 
         html = getattr(page, "html_content", "") or ""
         title, text, links, anchors, _, images = _extract_html(str(html), base_url=url)

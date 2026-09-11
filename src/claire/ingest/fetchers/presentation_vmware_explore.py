@@ -67,7 +67,6 @@ class PresentationExtract:
     text: str
     extracted_title: str | None
     links: list[str]
-    biblio: dict
     parser_requested: str
     parser_used: str
     parser_fallback: bool
@@ -374,7 +373,6 @@ def extract_presentation(
         text=sliced,
         extracted_title=extracted_title,
         links=links,
-        biblio=getattr(result, "biblio", {}) or {},
         parser_requested=getattr(result, "parser_requested", "pypdf"),
         parser_used=getattr(result, "parser_used", "pypdf"),
         parser_fallback=bool(getattr(result, "parser_fallback", False)),
@@ -477,7 +475,6 @@ def compose_video_presentations(
             "parser_fallback": item.parser_fallback,
             "parser_fallback_reason": item.parser_fallback_reason,
             "links": item.links,
-            "biblio": item.biblio,
             "artifact_path": None,
         }
         presentation_meta.append(item_meta)
