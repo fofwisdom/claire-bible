@@ -85,6 +85,7 @@ def _build_content_security_policy(ga_measurement_id: str = "") -> str:
         "img-src 'self' data: https:; "
         f"connect-src {connect_src}; "
         "font-src 'self' data: https://fonts.gstatic.com https://unpkg.com; "
+        "worker-src 'self' blob:; "
         "object-src 'none'; "
         "base-uri 'none'; "
         "form-action 'self'; "
@@ -184,6 +185,10 @@ ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     ("POST", "/support/bundle"): _rule("owner"),
     ("GET", "/support/bundle"): _rule("public"),
     ("HEAD", "/support/bundle"): _rule("public"),
+    ("GET", "/docs"): _rule("public"),
+    ("HEAD", "/docs"): _rule("public"),
+    ("GET", "/openapi.yaml"): _rule("public"),
+    ("HEAD", "/openapi.yaml"): _rule("public"),
 }
 
 

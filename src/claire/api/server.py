@@ -1429,6 +1429,28 @@ def create_app(
 
     static_dir = Path(__file__).resolve().parent.parent / "static"
     static_dir.mkdir(parents=True, exist_ok=True)
+    static_docs_dir = static_dir / "docs"
+    docs_template_file = Path(__file__).resolve().parent.parent / "templates" / "docs.html"
+    contracts_spec_file = (
+        Path(__file__).resolve().parent.parent.parent.parent / "docs" / "contracts" / "openapi.yaml"
+    )
+
+    async def docs_ui_route(_request: Request) -> Response:
+        if not docs_template_file.is_file():
+            return PlainTextResponse("Documentation UI template not found", status_code=500)
+        return HTMLResponse(docs_template_file.read_text(encoding="utf-8"))
+
+    async def openapi_yaml_route(_request: Request) -> Response:
+        spec_path = static_docs_dir / "openapi.yaml"
+        if not spec_path.is_file():
+            spec_path = contracts_spec_file
+        if not spec_path.is_file():
+            return PlainTextResponse("OpenAPI specification not found", status_code=404)
+        return Response(
+            spec_path.read_bytes(),
+            media_type="application/yaml",
+            headers={"Content-Type": "application/yaml; charset=utf-8"},
+        )
 
     routes = [
         Route("/health", health, methods=["GET"]),
@@ -1472,6 +1494,8 @@ def create_app(
         Route("/p", shared_doc_page, methods=["GET"]),
         Route("/support/bundle", create_support_bundle_route, methods=["POST"]),
         Route("/support/bundle", download_support_bundle_route, methods=["GET"]),
+        Route("/docs", docs_ui_route, methods=["GET"]),
+        Route("/openapi.yaml", openapi_yaml_route, methods=["GET"]),
         Route("/mcp", mcp_route, methods=["GET", "POST"]),
         Mount("/static", StaticFiles(directory=str(static_dir), check_dir=False), name="static"),
     ]
