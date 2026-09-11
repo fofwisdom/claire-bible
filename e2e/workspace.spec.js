@@ -175,18 +175,23 @@ test('mobile primary tabs keep document navigation on the graph', async ({ page 
     position: window.claireDebug.viewpos,
   }));
   const point = await page.evaluate(() => {
-    const box = document.getElementById('net').getBoundingClientRect();
-    return window.claireDebug.visibleNodePoints().find(
-      item => item.x > 20 && item.y > 20 && item.x < box.width - 70 && item.y < box.height - 20,
-    ) || null;
+    const net = document.getElementById('net');
+    const box = net.getBoundingClientRect();
+    return window.claireDebug.visibleNodePoints().find(item => {
+      const clientX = box.left + item.x;
+      const clientY = box.top + item.y;
+      const el = document.elementFromPoint(clientX, clientY);
+      const isNetTarget = el === net || el?.tagName === 'CANVAS' || (net.contains(el) && !el.closest('#degctl, #zoomctl, #graphdocnav'));
+      return isNetTarget && item.x > 20 && item.y > 20 && item.x < box.width - 70 && item.y < box.height - 20;
+    }) || window.claireDebug.visibleNodePoints()[0] || null;
   });
   expect(point).not.toBeNull();
-  await page.locator('#net').click({ position: { x: Math.round(point.x), y: Math.round(point.y) } });
+  await page.locator('#net').click({ position: { x: Math.round(point.x), y: Math.round(point.y) }, force: true });
   const nodePopMore = page.locator('#nodepop button', { hasText: '자세히 보기' });
   if (await nodePopMore.isVisible({ timeout: 1000 }).catch(() => false)) {
     await nodePopMore.click();
   } else if (await page.locator('#detailpane').isHidden()) {
-    await page.locator('#net').click({ position: { x: Math.round(point.x), y: Math.round(point.y) } });
+    await page.locator('#net').click({ position: { x: Math.round(point.x), y: Math.round(point.y) }, force: true });
   }
   await expect(page.locator('#detailpane')).toBeVisible();
   await expect(page.locator('#panel h2')).toBeVisible();
@@ -682,3 +687,55 @@ test('anonymous users can generate and open share link in public mode', async ({
 
   expect(pageErrors).toEqual([]);
 });
+
+test('pdf parser fallback, encoding flaw, and scanned tags render in reader and public share', async ({ page, context }) => {
+  const pageErrors = [];
+  page.on('pageerror', error => pageErrors.push(error.message));
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await waitForClaire(page);
+  await expectNoHorizontalOverflow(page);
+
+  // 1. Find and click doc-3 in the document list
+  const doc3Item = page.locator('#doclist .docitem').filter({ hasText: 'PDF 결함/폴백 테스트' });
+  await expect(doc3Item).toBeVisible();
+  await doc3Item.click();
+
+  // 2. Verify reader opens and contains parser fallback, encoding flaw, and scanned tags
+  const reader = page.locator('#reader');
+  await expect(reader).toBeVisible();
+
+  const fallbackTag = reader.locator('.parser-fallback-tag');
+  await expect(fallbackTag).toBeVisible();
+  await expect(fallbackTag).toContainText('PyPDFium2 폴백 (PyPDF)');
+  await expect(fallbackTag).toHaveAttribute('title', /Encoding flaws detected: unmapped_cid_fonts/);
+
+  const flawTag = reader.locator('.encoding-flaw-tag');
+  await expect(flawTag).toBeVisible();
+  await expect(flawTag).toContainText('⚠️ PDF 인코딩 결함');
+  await expect(flawTag).toHaveAttribute('title', /unmapped_cid_fonts/);
+
+  const scannedTag = reader.locator('.scanned-tag');
+  await expect(scannedTag).toBeVisible();
+  await expect(scannedTag).toContainText('📷 스캔본 PDF');
+
+  // 3. Verify public share page (/p?s=34567892abcdefgh) also renders these tags
+  const sharedPage = await context.newPage();
+  const sharedResponse = await sharedPage.goto('/p?s=34567892abcdefgh');
+  expect(sharedResponse.status()).toBe(200);
+
+  const shareFallbackTag = sharedPage.locator('.parser-fallback-tag');
+  await expect(shareFallbackTag).toBeVisible();
+  await expect(shareFallbackTag).toContainText('PyPDFium2 폴백 (PyPDF)');
+
+  const shareFlawTag = sharedPage.locator('.encoding-flaw-tag');
+  await expect(shareFlawTag).toBeVisible();
+  await expect(shareFlawTag).toContainText('⚠️ PDF 인코딩 결함');
+
+  const shareScannedTag = sharedPage.locator('.scanned-tag');
+  await expect(shareScannedTag).toBeVisible();
+  await expect(shareScannedTag).toContainText('📷 스캔본 PDF');
+
+  await sharedPage.close();
+  expect(pageErrors).toEqual([]);
+});
+
