@@ -157,7 +157,7 @@ def test_graph_html_self_contained_markers():
         "async function synth(){\n  if(!canWrite()) return;",
     ):
         assert guarded_write in GRAPH_HTML
-    assert "async function shareDoc(docId){\n  const targetId = docId || curReaderDoc" in GRAPH_HTML
+    assert "async function shareDoc(){\n  if(!curReaderDoc) return;" in GRAPH_HTML
     assert (
         "if(!canWrite()){\n"
         "    synthSet.clear();\n"

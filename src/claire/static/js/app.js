@@ -2196,7 +2196,6 @@ function renderDocPanel(dc){
   let h='<h2>'+esc(dc.title)+' <small>'+esc(dc.source_type||'')+'</small></h2>';
   h+=docMetaHtml(dc);
   h+=extraSourcesHtml(dc);
-  h+='<div class="sharebox" id="panelsharebox"></div>';
   const directive = (dc.directive || (dc.meta && dc.meta.directive) || '').trim();
   if(directive){
     h+='<div style="margin:.4em 0 .6em;padding:6px 8px;background:var(--card-bg);border:1px solid var(--border);border-radius:5px;font-size:12px"><b style="color:var(--accent2)">🎯 초점:</b> '+esc(directive)+'</div>';
