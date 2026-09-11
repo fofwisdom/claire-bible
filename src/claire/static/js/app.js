@@ -2208,6 +2208,9 @@ function renderDocPanel(dc){
       '<span id="panelhidelabel">'+(dc.hidden===1?'🙈 숨김 처리됨':'목록에서 숨기기')+'</span>'+
       '</label></div>';
   }
+  if(typeof docBiblioHtml === 'function'){
+    h+=docBiblioHtml(dc);
+  }
   if(dc.summary) h+='<h3>요약</h3><div class=synth>'+esc(dc.summary)+'</div>';
   // 이 문서의 노드 버튼 — 요약 바로 아래(피드백). 누르면 그래프에서 그 노드로 이동(nav).
   const ns=docNodes(dc.id, dc);
