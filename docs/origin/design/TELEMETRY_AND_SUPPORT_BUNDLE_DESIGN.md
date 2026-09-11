@@ -96,6 +96,7 @@ CLI 반환 코드, stderr, stdout을 분석하여 차단 원인을 8개 카테�
    - `telemetry.db` 레코드가 유실되거나 일시적으로 읽히지 않아도 sidecar와 사용자가 가진 토큰을 대조해 유효기간 안의 아카이브를 다운로드할 수 있다. 두 레지스트리는 동일한 6시간 파기 경계를 따른다.
    - 생성기는 등록 직후 다운로드 엔드포인트와 같은 조회·경로 검증 함수를 실행한다. 검증에 실패하면 아카이브와 등록을 정리하고 URL을 발급하지 않는다. 새 계약의 opaque token은 `sb3_` prefix로 배포 여부를 식별하되 나머지 난수 entropy를 유지한다.
    - Compose에서는 Telegram이 owner 인증 내부 API에 생성을 위임한다. 이로써 공개 다운로드를 담당하는 API가 아카이브와 레지스트리를 같은 `/app/data`에서 생성하며, bot과 API 사이의 생성 책임 분리를 제거한다.
+   - 설치된 wheel의 모듈 위치는 `/app/.venv/.../site-packages`이므로 데이터 기준 경로로 사용하지 않는다. Dockerfile과 Compose가 `CLAIRE_APP_ROOT=/app`을 고정하고 상대 DB·vault 경로를 bind mount 아래로 해석한다. `data_dir`이 overlay filesystem에 있거나 `/app/.venv` 아래로 해석되면 잘못된 빈 DB를 연 것으로 판정한다.
    - 컨테이너가 기존 데이터 대신 새 빈 경로를 열어도 단순 `health=ok`로 오판하지 않도록 실제 DB/data/vault 절대경로, mount identity, 파일 inode·크기·수정시각, 제한된 SQLite 후보 탐색과 테마별 해석 경로를 번들에 기록한다. 파일 본문이나 시크릿은 이 진단에 포함하지 않는다.
 
 ### 3.2 Support Bundle 아카이브 구조

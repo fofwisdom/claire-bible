@@ -14,9 +14,41 @@ from typing import Any
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, DotEnvSettingsSource, SettingsConfigDict
 
-# 프로젝트 루트 (이 파일 기준 src/claire/config.py -> 루트는 parents[2])
-ROOT = Path(__file__).resolve().parents[2]
 _ANONYMOUS_READONLY_ENV = "CLAIRE_ANONYMOUS_READONLY"
+
+
+def resolve_app_root(
+    module_file: Path | str | None = None,
+    *,
+    configured_root: str | None = None,
+    working_directory: Path | str | None = None,
+) -> Path:
+    """소스 checkout과 설치된 wheel 모두에서 애플리케이션 루트를 해석한다."""
+    raw = (
+        os.environ.get("CLAIRE_APP_ROOT", "")
+        if configured_root is None
+        else configured_root
+    )
+    if raw:
+        if raw != raw.strip() or "\x00" in raw:
+            raise ValueError("CLAIRE_APP_ROOT must not contain outer whitespace or NUL")
+        explicit = Path(raw).expanduser()
+        if not explicit.is_absolute():
+            raise ValueError("CLAIRE_APP_ROOT must be an absolute path")
+        return explicit.resolve(strict=False)
+
+    module_path = Path(module_file or __file__).resolve(strict=False)
+    source_root = module_path.parents[2]
+    if (source_root / "pyproject.toml").is_file():
+        return source_root
+
+    # Installed distributions do not contain the checkout above the package.
+    # Native commands therefore resolve relative runtime paths from their cwd;
+    # the container always supplies CLAIRE_APP_ROOT=/app explicitly.
+    return Path(working_directory or Path.cwd()).resolve(strict=False)
+
+
+ROOT = resolve_app_root()
 
 
 def _validate_anonymous_readonly_dotenv(path: Path, *, encoding: str) -> None:

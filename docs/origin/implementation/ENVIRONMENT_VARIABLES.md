@@ -180,8 +180,9 @@ VMware Explore 숫자형 영상 상세 페이지가 Presentation PDF를 명시�
 
 | 환경변수명 | 기본값 | 허용 값 / 타입 | 설명 |
 | :--- | :--- | :--- | :--- |
-| `CLAIRE_DB_PATH` | `data/claire.db` | 상대/절대 파일 경로 | SQLite 데이터베이스 파일 경로 (컨테이너 내부 기준). |
-| `CLAIRE_VAULT_PATH` | `vault` | 상대/절대 디렉터리 경로 | 볼트(문서 본문) 저장소 경로 (컨테이너 내부 기준). |
+| `CLAIRE_APP_ROOT` | 컨테이너: `/app`; 네이티브: 소스 루트 또는 현재 작업 디렉터리 | 절대 디렉터리 경로 | `CLAIRE_DB_PATH`·`CLAIRE_VAULT_PATH` 같은 상대 런타임 경로의 기준점. Dockerfile과 Compose가 `/app`으로 고정하며 사용자가 `.env`에 설정하지 않습니다. 설치된 wheel의 `site-packages` 경로를 데이터 루트로 오인하지 않게 하는 운영 불변식입니다. |
+| `CLAIRE_DB_PATH` | `data/claire.db` | 상대/절대 파일 경로 | SQLite 데이터베이스 파일 경로 (컨테이너 내부 기준). 상대경로는 `CLAIRE_APP_ROOT` 아래에서 해석됩니다. |
+| `CLAIRE_VAULT_PATH` | `vault` | 상대/절대 디렉터리 경로 | 볼트(문서 본문) 저장소 경로 (컨테이너 내부 기준). 상대경로는 `CLAIRE_APP_ROOT` 아래에서 해석됩니다. |
 | `CLAIRE_VECTOR_BACKEND` | `auto` | `auto`, `vec`, `brute` | 벡터 검색 백엔드 (`auto`: `sqlite-vec` 확장 우선, 미지원 시 `brute` 무차별 대입 폴백). |
 | `CLAIRE_RENDER_FORMAT` | `adoc` | `adoc` (`asciidoc`), `md` (`markdown`) | 문서 읽기 및 저장 기본 렌더링 포맷. ([DUAL_FORMAT_ADOC_DESIGN.md](../design/DUAL_FORMAT_ADOC_DESIGN.md) 참조) |
 | `CLAIRE_DATA_LIFECYCLE` | `append-only` | `append-only`, `purgeable` | **데이터 수명주기 정책**. `append-only`(기본값, 무손실 보존 모드)에서는 파괴적 소각(`claire purge`) 명령이 정책상 차단됩니다. |

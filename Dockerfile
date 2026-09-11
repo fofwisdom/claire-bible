@@ -40,7 +40,8 @@ ENV CLAIRE_BUILD_COMMIT="$CLAIRE_BUILD_COMMIT" \
 # Runtime processes use the environment built above directly.  uv remains a
 # build/development tool rather than an extra process wrapper for every service.
 # /host-bin allows optional host CLI tools (like Antigravity agy) to be invoked seamlessly.
-ENV PATH="/app/.venv/bin:/host-bin:$PATH" \
+ENV CLAIRE_APP_ROOT=/app \
+    PATH="/app/.venv/bin:/host-bin:$PATH" \
     SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
     SSL_CERT_DIR=/etc/ssl/certs \
     REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt \
