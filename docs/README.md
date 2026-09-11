@@ -1,6 +1,6 @@
 # Documentation Root Guide (`docs/`)
 
-Claire Bible 프로젝트의 문서는 원작 저장소의 원본 문서를 보관하는 **업스트림(`docs/upstream/`)**과 본 저장소의 자체 작업 및 병합 내역을 보관하는 **오리진(`docs/origin/`)**으로 명확히 분리하여 관리합니다.
+Claire Bible 프로젝트의 문서는 테제 계보(`blackan/claire_bible`)의 원천 테제 문서를 보관하는 **업스트림(`docs/upstream/`)**, 증강 계보(`fofwisdom/claire-bible`)의 실세계 증강 연구 및 운영 내역을 보관하는 **오리진(`docs/origin/`)**, 그리고 두 계보의 상호 호환성을 규정하는 **공동 계약(`docs/contracts/`)**으로 명확히 분리하여 관리합니다.
 
 ---
 
@@ -10,10 +10,11 @@ Claire Bible 프로젝트의 문서는 원작 저장소의 원본 문서를 보�
 docs/
 ├── README.md               # 문서 전체 구조 안내 (본 문서)
 │
-├── contracts/              # [공동 계약] 업스트림·오리진 상호 호환성 규약
+├── contracts/              # [공동 계약] 테제·증강 계보 상호 호환성 계약
 │   ├── README.md           # 공동 계약의 범위, 상태와 변경 절차
+│   ├── GLOSSARY.md         # 계보, 계약/규약, 지식 모델(원문/문서/요약/상세 등) 표준 용어집
 │   ├── SCHEMA_VERSIONING.md # 공통 DB version/lineage 및 v13 계약
-│   ├── API_HTTP_CONTRACT.md # HTTP REST/ASGI 와이어 프로토콜 및 인증 보안 규약
+│   ├── API_HTTP_CONTRACT.md # HTTP REST/ASGI 와이어 프로토콜 및 인증 보안 계약
 │   ├── TOKEN_EXCHANGE.md   # RFC 8693 OAuth 2.0 Token Exchange 토큰 교환 계약
 │   └── openapi.yaml        # 기계 판독용 OpenAPI 3.1.0 공통 API 사양서 정본
 │
@@ -62,7 +63,7 @@ docs/
 
 1. **[`docs/contracts/`](contracts/README.md)**
    - 테제 계보(`blackan/claire_bible`)와 증강 계보(`fofwisdom/claire-bible`)가 함께 채택하고 갱신하는 version, lineage, API 와이어 프로토콜 및 토큰 교환 호환성 계약입니다.
-   - 공통 지식 DB 계약은 [`SCHEMA_VERSIONING.md`](contracts/SCHEMA_VERSIONING.md), HTTP 와이어/보안 계약은 [`API_HTTP_CONTRACT.md`](contracts/API_HTTP_CONTRACT.md), OAuth 2.0 토큰 교환 표준 계약은 [`TOKEN_EXCHANGE.md`](contracts/TOKEN_EXCHANGE.md)이며, 기계 판독용 정본은 [`openapi.yaml`](contracts/openapi.yaml)입니다.
+   - 계보 간 공통 표준 용어 정의는 [`GLOSSARY.md`](contracts/GLOSSARY.md), 공통 지식 DB 계약은 [`SCHEMA_VERSIONING.md`](contracts/SCHEMA_VERSIONING.md), HTTP 와이어/보안 계약은 [`API_HTTP_CONTRACT.md`](contracts/API_HTTP_CONTRACT.md), OAuth 2.0 토큰 교환 표준 계약은 [`TOKEN_EXCHANGE.md`](contracts/TOKEN_EXCHANGE.md)이며, 기계 판독용 정본은 [`openapi.yaml`](contracts/openapi.yaml)입니다.
    - 각 계보별 기능 계획을 배제하고 최소 공통 계약만 유지합니다.
 
 2. **[`docs/upstream/`](upstream/README.md)**
