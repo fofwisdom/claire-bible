@@ -1,10 +1,10 @@
 # Common HTTP API & Wire Security Contract
 
-이 문서는 Claire Bible 업스트림과 공개 오리진이 공유하는 HTTP REST/ASGI 와이어 프로토콜, 인증 채널 및 보안 경계의 최소 공통 계약을 정의한다.
+이 문서는 테제 연구소(`blackan/claire_bible`)와 증강 연구소(`fofwisdom/claire-bible`)가 공유하는 HTTP REST/ASGI 와이어 프로토콜, 인증 채널 및 보안 경계의 최소 공통 계약을 정의한다.
 외부 클라이언트(Web UI, CLI, Telegram 봇, MCP 에이전트)가 구현 계보에 무관하게 안전하고 일관되게 통신하기 위한 프로토콜 규약이다.
 
-계약 상태는 공개 오리진에서 `adopted-by-origin`, 업스트림에서 `candidate`다.
-업스트림 병합 후에만 `accepted-upstream`으로 갱신한다.
+계약 상태는 증강 연구소(`fofwisdom`)에서 `adopted`, 테제 연구소(`blackan`)에서 `candidate`다.
+테제 연구소 병합 후에만 `accepted`로 갱신한다.
 
 ## 1. 네트워크 및 와이어 보안 불변식
 
@@ -61,7 +61,7 @@ $$\text{owner} \succ \text{readonly} \succ \text{anonymous} \succ \text{unauthen
 
 ## 5. 최소 공통 엔드포인트 목록
 
-양 저장소 구현이 상호 호환성을 위해 제공하는 최소 공통 엔드포인트 집합은 다음과 같다.
+양 연구소 구현이 상호 호환성을 위해 제공하는 최소 공통 엔드포인트 집합은 다음과 같다.
 
 | Method | Path | 최소 접근 수준 | 설명 |
 |---|---|---|---|
@@ -79,4 +79,4 @@ $$\text{owner} \succ \text{readonly} \succ \text{anonymous} \succ \text{unauthen
 | `GET` | `/support/bundle` | `public` | 유효 토큰 기반 진단 번들 zstd 아카이브 다운로드 |
 | `POST` | `/mcp` | `read` | Model Context Protocol JSON-RPC 통신 |
 
-구현별 UI 페이지(`/`, `/docs`, `/p`) 및 부가 기능은 각 저장소의 확장 라우트로 관리하되 위 최소 공통 엔드포인트의 와이어 형식을 훼손하지 않는다.
+구현별 UI 페이지(`/`, `/docs`, `/p`) 및 부가 기능은 각 연구소의 확장 라우트로 관리하되 위 최소 공통 엔드포인트의 와이어 형식을 훼손하지 않는다.

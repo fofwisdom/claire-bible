@@ -61,16 +61,16 @@ docs/
 ## 분류 및 참조 가이드
 
 1. **[`docs/contracts/`](contracts/README.md)**
-   - 업스트림과 오리진이 함께 채택하고 갱신하는 version, lineage, API 와이어 프로토콜 및 토큰 교환 호환성 계약입니다.
+   - 테제 연구소(`blackan/claire_bible`)와 증강 연구소(`fofwisdom/claire-bible`)가 함께 채택하고 갱신하는 version, lineage, API 와이어 프로토콜 및 토큰 교환 호환성 계약입니다.
    - 공통 지식 DB 계약은 [`SCHEMA_VERSIONING.md`](contracts/SCHEMA_VERSIONING.md), HTTP 와이어/보안 계약은 [`API_HTTP_CONTRACT.md`](contracts/API_HTTP_CONTRACT.md), OAuth 2.0 토큰 교환 표준 계약은 [`TOKEN_EXCHANGE.md`](contracts/TOKEN_EXCHANGE.md)이며, 기계 판독용 정본은 [`openapi.yaml`](contracts/openapi.yaml)입니다.
-   - 구현별 운영 절차나 기능 계획을 넣지 않고 최소 공통 계약만 유지합니다.
+   - 각 연구소별 기능 계획을 배제하고 최소 공통 계약만 유지합니다.
 
 2. **[`docs/upstream/`](upstream/README.md)**
-   - 원작 저장소([`blackan/claire_bible`](https://github.com/blackan/claire_bible))의 오리지널 기획, 설계 초안 및 리서치 자료입니다.
-   - 프로젝트의 업스트림 비전과 공개 아키텍처 원본은 각각 [`GOALS.md`](upstream/GOALS.md)와 [`PLAN.md`](upstream/PLAN.md)입니다.
-   - 업스트림 기능을 구현했더라도 문서를 별도로 개정하지 않은 경우 이곳의 원본 문서를 단일 정본으로 참조합니다.
+   - 테제 연구소([`blackan/claire_bible`](https://github.com/blackan/claire_bible))의 오리지널 기획, 설계 초안 및 연구 원본 자료입니다.
+   - 프로젝트의 테제 비전과 공개 아키텍처 원본은 각각 [`GOALS.md`](upstream/GOALS.md)와 [`PLAN.md`](upstream/PLAN.md)입니다.
+   - 증강 연구소에서 기능을 고도화했더라도 별도 개정하지 않은 원천 테제는 이곳의 원본 문서를 단일 정본으로 참조합니다.
 
 3. **[`docs/origin/`](origin/README.md)**
-   - 본 저장소([`fofwisdom/claire-bible`](https://github.com/fofwisdom/claire-bible))에서 직접 신규 작성하였거나, 업스트림 설계를 기반으로 대폭 발전/개정/구현한 문서입니다.
-   - 현재 실행 중인 시스템의 실제 구현 상태와 최신 설계는 `docs/origin/`을 기준으로 합니다.
-   - 공동 version 계약은 [`docs/contracts/`](contracts/README.md), 오리진 전용 확장·복구는 [`ORIGIN_SCHEMA_EXTENSIONS.md`](origin/design/ORIGIN_SCHEMA_EXTENSIONS.md)를 따릅니다. telemetry와 Support Bundle 계약은 [`TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md`](origin/design/TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md), 전체 DB inventory 계획은 [`OPERATIONAL_MIGRATION.md`](origin/design/OPERATIONAL_MIGRATION.md)에 있습니다.
+   - 증강 연구소([`fofwisdom/claire-bible`](https://github.com/fofwisdom/claire-bible))에서 직접 신규 연구·개발하였거나 실세계 상호작용을 위해 대폭 확장/개정한 문서입니다.
+   - 증강 연구소 시스템의 실제 구현 상태와 확장 설계는 `docs/origin/`을 기준으로 합니다.
+   - 상호 운용 계약은 [`docs/contracts/`](contracts/README.md), 증강 연구소 전용 확장·복구는 [`ORIGIN_SCHEMA_EXTENSIONS.md`](origin/design/ORIGIN_SCHEMA_EXTENSIONS.md)를 따릅니다. telemetry와 Support Bundle 계약은 [`TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md`](origin/design/TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md), 전체 DB inventory 계획은 [`OPERATIONAL_MIGRATION.md`](origin/design/OPERATIONAL_MIGRATION.md)에 있습니다.

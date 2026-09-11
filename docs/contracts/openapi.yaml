@@ -3,7 +3,8 @@ info:
   title: Claire Knowledge Base API
   version: 1.0.0
   description: >-
-    Authoritative OpenAPI 3.1 specification and shared wire contract for Claire Bible,
+    Authoritative OpenAPI 3.1.0 specification and shared wire contract between the
+    Thesis Lab (blackan/claire_bible) and the Augmentation Lab (fofwisdom/claire-bible),
     including RFC 8693 OAuth 2.0 Token Exchange, hybrid graph search, and MCP integration.
   license:
     name: MIT

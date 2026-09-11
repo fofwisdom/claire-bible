@@ -1,10 +1,10 @@
 # RFC 8693 OAuth 2.0 Token Exchange Contract
 
-이 문서는 Claire Bible 구현들이 토큰 교환, 인가 위임과 세션 전환을 상호 호환 가능하게 처리하기 위한 RFC 8693 (OAuth 2.0 Token Exchange) 최소 공통 계약을 정의한다.
+이 문서는 테제 연구소(`blackan/claire_bible`)와 증강 연구소(`fofwisdom/claire-bible`)가 토큰 교환, 인가 위임과 세션 전환을 상호 호환 가능하게 처리하기 위한 RFC 8693 (OAuth 2.0 Token Exchange) 최소 공통 계약을 정의한다.
 인증 채널이 다른 클라이언트(웹 UI, Telegram 봇, MCP 에이전트, CI 파이프라인)가 동일한 프로토콜로 Bearer 접근 토큰을 발급받거나 다운스케이프하기 위한 유일한 와이어 규약이다.
 
-계약 상태는 공개 오리진에서 `adopted-by-origin`, 업스트림에서 `candidate`다.
-업스트림 병합 후에만 `accepted-upstream`으로 갱신한다.
+계약 상태는 증강 연구소(`fofwisdom`)에서 `adopted`, 테제 연구소(`blackan`)에서 `candidate`다.
+테제 연구소 병합 후에만 `accepted`로 갱신한다.
 
 ## 1. 프로토콜 기본 사양
 
@@ -30,7 +30,7 @@
 
 ## 3. URN 식별자 레지스트리 (RFC 8693 §3)
 
-양 저장소 구현은 다음 표준 및 도메인 URN 식별자를 상호 호환 계약으로 채택한다.
+양 연구소 구현은 다음 표준 및 도메인 URN 식별자를 상호 호환 계약으로 채택한다.
 
 ### 3.1 표준 URN (`urn:ietf:params:oauth:token-type:`)
 - `urn:ietf:params:oauth:token-type:access_token`: OAuth 2.0 Bearer 접근 토큰
