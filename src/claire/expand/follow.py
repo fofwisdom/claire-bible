@@ -45,6 +45,9 @@ def build_candidates(conn: sqlite3.Connection, doc: Document, *, limit: int = PR
     anchors = {a.get("url"): a.get("anchor", "")
                for a in (doc.meta.get("link_anchors") or []) if a.get("url")}
     raw_links = list(doc.meta.get("links", [])) if doc.meta else []
+    from ..ingest.fetchers.odt import prioritize_odt_links
+
+    raw_links = prioritize_odt_links(raw_links)
 
     out: list[dict] = []
     for raw in raw_links:

@@ -73,6 +73,9 @@ def find_candidates(
     # href 로 추출된 링크(web fetcher)가 있으면 우선, 없으면 본문 텍스트 스캔.
     raw_links = list(doc.meta.get("links", [])) if doc.meta else []
     raw_links += _URL_RE.findall(doc.raw_text or "")
+    from ..ingest.fetchers.odt import prioritize_odt_links
+
+    raw_links = prioritize_odt_links(raw_links)
 
     out: list[str] = []
     for raw in raw_links:

@@ -66,7 +66,7 @@ def classify(payload: str) -> str:
     if shared:
         return classify(shared)
     # 로컬 파일 경로?
-    if os.path.sep in t and os.path.exists(t):
+    if (os.path.sep in t or t.lower().endswith((".pdf", ".odt", ".md", ".txt", ".markdown", ".rst"))) and os.path.exists(t):
         return "file"
     if t.startswith("file://"):
         return "file"

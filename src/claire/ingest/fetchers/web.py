@@ -61,20 +61,22 @@ _IMG_MIN_DIM = 150      # width/height 속성이 명시돼 있고 이보다 작�
 class FetchStaticResult(tuple):
     """8개 튜플(title, text, links, anchors, error, effective_url, images, is_pdf) 호환 객체."""
 
-    def __new__(cls, title, text, links, anchors, error, effective_url, images, is_pdf, biblio=None, parser_info=None):
+    def __new__(cls, title, text, links, anchors, error, effective_url, images, is_pdf, biblio=None, parser_info=None, doc_type=None):
         inst = super().__new__(cls, (title, text, links, anchors, error, effective_url, images, is_pdf))
         inst.biblio = biblio or {}
         inst.parser_info = parser_info or {}
+        inst.doc_type = doc_type or ("pdf" if is_pdf else "web")
         return inst
 
 
 class FetchScraplingResult(tuple):
     """6개 튜플(title, text, links, anchors, images, is_pdf) 호환 객체."""
 
-    def __new__(cls, title, text, links, anchors, images, is_pdf, biblio=None, parser_info=None):
+    def __new__(cls, title, text, links, anchors, images, is_pdf, biblio=None, parser_info=None, doc_type=None):
         inst = super().__new__(cls, (title, text, links, anchors, images, is_pdf))
         inst.biblio = biblio or {}
         inst.parser_info = parser_info or {}
+        inst.doc_type = doc_type or ("pdf" if is_pdf else "web")
         return inst
 
 
@@ -83,6 +85,7 @@ def fetch_web(url: str, *, full_content: bool = False) -> Document:
     res = _fetch_static(url)
     title, text, links, anchors, err, effective_url, images = res[:7]
     is_pdf = bool(res[7]) if len(res) > 7 else False
+    doc_type = getattr(res, "doc_type", None) or ("pdf" if is_pdf else "web")
     biblio: dict[str, Any] = getattr(res, "biblio", None) or (res[8] if len(res) > 8 and isinstance(res[8], dict) else {})
     parser_info: dict[str, Any] = getattr(res, "parser_info", {}) or {}
     usable, guard_err = _is_usable(title, text)
@@ -129,6 +132,7 @@ def fetch_web(url: str, *, full_content: bool = False) -> Document:
         c_res = _fetch_scrapling(url)
         c_title, c_text, c_links, c_anchors, c_images = c_res[:5]
         c_is_pdf = bool(c_res[5]) if len(c_res) > 5 else False
+        c_doc_type = getattr(c_res, "doc_type", None) or ("pdf" if c_is_pdf else "web")
         c_biblio = getattr(c_res, "biblio", None) or (c_res[6] if len(c_res) > 6 and isinstance(c_res[6], dict) else {})
         c_parser_info = getattr(c_res, "parser_info", None) or (c_res[7] if len(c_res) > 7 and isinstance(c_res[7], dict) else {})
         c_usable, c_guard_err = _is_usable(c_title or title, c_text)
@@ -136,14 +140,14 @@ def fetch_web(url: str, *, full_content: bool = False) -> Document:
             title, text, links, anchors, images, via = (
                 c_title or title, c_text, c_links or links, c_anchors or anchors,
                 c_images or images, "scrapling")
-            usable, guard_err, is_pdf, biblio = True, None, c_is_pdf, c_biblio
+            usable, guard_err, is_pdf, biblio, doc_type = True, None, c_is_pdf, c_biblio, c_doc_type
             if c_parser_info:
                 parser_info = c_parser_info
         elif c_text and len(c_text) > len(text or ""):
             title, text, links, anchors, images, via = (
                 c_title or title, c_text, c_links or links, c_anchors or anchors,
                 c_images or images, "scrapling")
-            usable, guard_err, is_pdf, biblio = c_usable, c_guard_err, c_is_pdf, c_biblio
+            usable, guard_err, is_pdf, biblio, doc_type = c_usable, c_guard_err, c_is_pdf, c_biblio, c_doc_type
             if c_parser_info:
                 parser_info = c_parser_info
 
@@ -155,12 +159,12 @@ def fetch_web(url: str, *, full_content: bool = False) -> Document:
             title, text, links, anchors, images, via = (
                 d_title or title, d_text, d_links or links, d_anchors or anchors,
                 d_images or images, "cdp")
-            usable, guard_err, is_pdf = True, None, False
+            usable, guard_err, is_pdf, doc_type = True, None, False, "web"
         elif d_text and len(d_text) > len(text or ""):
             title, text, links, anchors, images, via = (
                 d_title or title, d_text, d_links or links, d_anchors or anchors,
                 d_images or images, "cdp")
-            usable, guard_err, is_pdf = d_usable, d_guard_err, False
+            usable, guard_err, is_pdf, doc_type = d_usable, d_guard_err, False, "web"
 
     # thin-guard & content-guard: 체인 끝까지 미달/차단이면 실패 처리(raw_inbox error → replay-failed 대상)
     if not usable:
@@ -176,17 +180,26 @@ def fetch_web(url: str, *, full_content: bool = False) -> Document:
 
     # link_anchors: 1홉 자동확장 LLM 선별용 신호(url→앵커 텍스트). links 와 같은 상한.
     anchor_pairs = [{"url": u, "anchor": anchors.get(u, "")} for u in links[:50]]
-    is_pdf = bool(
+    if doc_type == "odt" or url.lower().split("?", 1)[0].endswith(".odt") or (effective_url and effective_url.lower().split("?", 1)[0].endswith(".odt")):
+        doc_type = "odt"
+        is_pdf = False
+    elif (
         is_pdf
         or url.lower().split("?", 1)[0].endswith(".pdf")
         or (effective_url and effective_url.lower().split("?", 1)[0].endswith(".pdf"))
         or via == "pdf"
-    )
+    ):
+        doc_type = "pdf"
+        is_pdf = True
+    else:
+        doc_type = "web"
+        is_pdf = False
+
     settings = get_settings()
-    budget = 0 if full_content else (settings.pdf_max_extract_chars if is_pdf else settings.raw_char_budget)
+    budget = 0 if full_content else (settings.pdf_max_extract_chars if doc_type in ("pdf", "odt") else settings.raw_char_budget)
     appendix_truncated = False
     references_truncated = False
-    if is_pdf:
+    if doc_type == "pdf":
         from .pdf import slice_pdf_text
 
         exclude_app = False if full_content else settings.pdf_exclude_appendix
@@ -214,7 +227,7 @@ def fetch_web(url: str, *, full_content: bool = False) -> Document:
         "orig_chars": orig_chars,
         "raw_chars": raw_chars,
     }
-    if is_pdf and parser_info:
+    if parser_info:
         meta.update(parser_info)
     if biblio:
         meta["biblio"] = biblio
@@ -225,7 +238,7 @@ def fetch_web(url: str, *, full_content: bool = False) -> Document:
         author=biblio.get("author") if biblio else None,
         published_at=biblio.get("published_at") if biblio else None,
         raw_text=raw_text,
-        source_type="pdf" if is_pdf else "web",
+        source_type=doc_type if doc_type in ("pdf", "odt") else "web",
         content_hash=content_hash(title or "", text),
         # images: 본문 콘텐츠 이미지 후보(다이어그램·차트·스크린샷). render_detail 의 LLM
         # 큐레이션이 이해에 도움 되는 것만 골라 마크다운에 삽입한다(이미지/도식 보존).
@@ -245,14 +258,41 @@ def _fetch_static(
     import httpx
 
     try:
-        with httpx.Client(follow_redirects=True, timeout=30,
-                          headers={"User-Agent": _UA}) as client:
+        headers = {
+            "User-Agent": _UA,
+            "Accept": "application/vnd.oasis.opendocument.text, application/pdf;q=0.9, text/html;q=0.8, application/xhtml+xml, */*;q=0.1",
+        }
+        with httpx.Client(follow_redirects=True, timeout=30, headers=headers) as client:
             resp = client.get(url)
         if resp.status_code >= 400:
             return FetchStaticResult(None, "", [], {}, f"http {resp.status_code} for {url}", None, [], False, {})
 
         ctype = resp.headers.get("content-type", "").lower()
         cdisp = resp.headers.get("content-disposition", "").lower()
+
+        # ODT 체크 (Content Negotiation 및 ODT 우선 정책)
+        from .odt import is_odt_bytes
+
+        if (
+            "application/vnd.oasis.opendocument.text" in ctype
+            or "application/x-vnd.oasis.opendocument.text" in ctype
+            or ".odt" in cdisp
+            or str(resp.url).lower().split("?", 1)[0].endswith(".odt")
+            or is_odt_bytes(resp.content)
+        ):
+            from .odt import extract_odt_bytes
+
+            fallback = str(resp.url).split("/")[-1].split("?")[0]
+            odt_res = extract_odt_bytes(
+                resp.content, url=str(resp.url), fallback_title=fallback
+            )
+            title, text, links, anchors, oerr, images = odt_res[:6]
+            biblio = getattr(odt_res, "biblio", None) or (odt_res[6] if len(odt_res) > 6 and isinstance(odt_res[6], dict) else {})
+            parser_info = {"odt_parser_used": "odt"}
+            return FetchStaticResult(
+                title, text, links, anchors, oerr, str(resp.url), images, False, biblio, parser_info=parser_info, doc_type="odt"
+            )
+
         if (
             "application/pdf" in ctype
             or "application/x-pdf" in ctype
@@ -278,11 +318,11 @@ def _fetch_static(
             }
             if getattr(pdf_res, "parser_fallback_reason", None):
                 parser_info["pdf_parser_fallback_reason"] = getattr(pdf_res, "parser_fallback_reason")
-            return FetchStaticResult(title, text, links, anchors, perr, str(resp.url), images, True, biblio, parser_info=parser_info)
+            return FetchStaticResult(title, text, links, anchors, perr, str(resp.url), images, True, biblio, parser_info=parser_info, doc_type="pdf")
 
         title, text, links, anchors, perr, images = _extract_html(
             resp.text, base_url=str(resp.url))
-        return FetchStaticResult(title, text, links, anchors, perr, str(resp.url), images, False, {})
+        return FetchStaticResult(title, text, links, anchors, perr, str(resp.url), images, False, {}, doc_type="web")
     except Exception as e:  # noqa: BLE001
         return FetchStaticResult(None, "", [], {}, f"fetch failed: {e}", None, [], False, {})
 
@@ -318,6 +358,10 @@ def _extract_html(
                 txt = " ".join(a.text_content().split())[:160]
                 if txt:
                     anchors[h] = txt
+
+    from .odt import prioritize_odt_links
+
+    links = prioritize_odt_links(links)
 
     # title: og:title > <title> > <h1>
     title = None
@@ -509,6 +553,26 @@ def _fetch_scrapling(
         cdisp = str(
             (getattr(page, "headers", {}) or {}).get("content-disposition", "")
         ).lower()
+        from .odt import is_odt_bytes
+
+        if (
+            "application/vnd.oasis.opendocument.text" in ctype
+            or "application/x-vnd.oasis.opendocument.text" in ctype
+            or ".odt" in cdisp
+            or (body and isinstance(body, bytes) and is_odt_bytes(body))
+            or url.lower().split("?", 1)[0].endswith(".odt")
+        ):
+            from .odt import extract_odt_bytes
+
+            raw_bytes = body if isinstance(body, bytes) else str(body).encode("latin1", errors="ignore")
+            odt_res = extract_odt_bytes(
+                raw_bytes, url=url, fallback_title=url.split("/")[-1].split("?")[0]
+            )
+            title, text, links, anchors, _, images = odt_res[:6]
+            biblio = getattr(odt_res, "biblio", None) or (odt_res[6] if len(odt_res) > 6 and isinstance(odt_res[6], dict) else {})
+            parser_info = {"odt_parser_used": "odt"}
+            return FetchScraplingResult(title, text, links, anchors, images, False, biblio, parser_info=parser_info, doc_type="odt")
+
         if (
             "application/pdf" in ctype
             or "application/x-pdf" in ctype
@@ -534,11 +598,11 @@ def _fetch_scrapling(
             }
             if getattr(pdf_res, "parser_fallback_reason", None):
                 parser_info["pdf_parser_fallback_reason"] = getattr(pdf_res, "parser_fallback_reason")
-            return FetchScraplingResult(title, text, links, anchors, images, True, biblio, parser_info=parser_info)
+            return FetchScraplingResult(title, text, links, anchors, images, True, biblio, parser_info=parser_info, doc_type="pdf")
 
         html = getattr(page, "html_content", "") or ""
         title, text, links, anchors, _, images = _extract_html(str(html), base_url=url)
-        return FetchScraplingResult(title, text, links, anchors, images, False, {})
+        return FetchScraplingResult(title, text, links, anchors, images, False, {}, doc_type="web")
     except Exception:  # noqa: BLE001
         return FetchScraplingResult(None, "", [], {}, [], False, {})
 

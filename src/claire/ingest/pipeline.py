@@ -559,7 +559,7 @@ def extract_resolve_store(
     settings = get_settings()
     eff = effort
     if eff is None:
-        if doc.source_type == "pdf":
+        if doc.source_type in ("pdf", "odt"):
             # 무료 어댑터 우선 최저 effort('low')로 논문 여부 1차 판정
             is_paper, reason = classify_paper(doc, settings)
             if doc.meta is None:
@@ -867,7 +867,7 @@ def ensure_document_detail(
 
     eff = effort
     if eff is None:
-        if doc.source_type == "pdf":
+        if doc.source_type in ("pdf", "odt"):
             from ..config import get_settings
             from ..extract.classifier import classify_paper
 
