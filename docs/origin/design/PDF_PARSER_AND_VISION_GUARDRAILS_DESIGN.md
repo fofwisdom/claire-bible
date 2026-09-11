@@ -19,11 +19,11 @@
 
 ```mermaid
 flowchart TD
-    Inbound[PDF 문서 인입] --> Tier1[Tier 1: pypdf 초고속 서지/텍스트 스캔]
+    Inbound[PDF 문서 인입] --> Tier1[Tier 1: default (pypdfium2) 초고속 서지/텍스트 스캔]
     
     Tier1 --> CheckComplexity{복잡도 판별\n2컬럼 / 대형 표 / 다이어그램}
     
-    CheckComplexity -->|단순 단일 컬럼| Tier1Pass[Tier 1 완료: pypdf 직접 스트림\n초경량 · CPU 0 · 0.1초]
+    CheckComplexity -->|단순 단일 컬럼| Tier1Pass[Tier 1 완료: default 직접 스트림\n초고속 · CMap 매핑 · 0.05초]
     
     CheckComplexity -->|복잡 2컬럼 / 표 밀집| PolicyCheck{인프라 컴플라이언스 & 모드}
     
@@ -35,12 +35,14 @@ flowchart TD
     Tier2 --> IngestGraph
 ```
 
-### 2.1 Tier 1: Lightweight Stream (`pypdf`)
+### 2.1 Tier 1: Fast Engine (`default` - `pypdfium2`)
 * **역할**: 디지털 텍스트 레이어가 깨끗한 일반 단일 컬럼 문서, 도서, 안내문 처리.
 * **특징**:
-  * 파싱 시간: 0.1~0.5초.
-  * 자원 소모: RAM < 50MB, CPU 점유율 미미, 컨테이너 크기 기여 0MB.
-* **한계**: 2컬럼 논문에서 좌우 컬럼의 동일 행 텍스트가 줄단위로 교차 결합되는 라인 인터리빙(Line Interleaving) 발생.
+  * Chromium C++ PDFium 기반 고속 바인딩.
+  * 파싱 시간: 0.05~0.2초 (기존 pure-python 대비 5~15배 빠름).
+  * 향상된 ToUnicode/CMap 매핑 및 인코딩 결함 감지(`detect_pdf_encoding_flaws`) 연동.
+  * 자원 소모: RAM < 50MB, CPU 점유율 극소.
+* **한계**: 2컬럼 논문에서 좌우 컬럼의 동일 행 텍스트가 줄단위로 교차 결합되는 라인 인터리빙(Line Interleaving) 발생 시 Docling으로 에스컬레이션 필요.
 
 ### 2.2 Tier 2: Structural Knowledge Firewall (`docling-worker`)
 * **역할**: 온프레미스 폐쇄망 환경 및 "시각 오염 제로"를 요구하는 전문 학술/특허 문서의 결정론적 구조화.
@@ -115,14 +117,14 @@ class PdfExtractResult:
     error: str | None
     images: list[Any]
     biblio: dict[str, Any]
-    parser_used: str  # "pypdf" | "docling" | "gemini_vision"
+    parser_used: str  # "default" | "docling" | "gemini_vision"
     parser_fallback: bool = False
 
 class PdfParser(Protocol):
     def extract(self, stream: BinaryIO, url: str | None = None) -> PdfExtractResult: ...
 
-class LocalPypdfParser:
-    """Tier 1: 초경량 로컬 pypdf 파서."""
+class LocalPdfiumParser:
+    """Tier 1: 기본 고속 로컬 pypdfium2 파서."""
     def extract(self, stream: BinaryIO, url: str | None = None) -> PdfExtractResult: ...
 
 class RemoteDoclingParser:

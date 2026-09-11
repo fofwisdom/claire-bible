@@ -177,7 +177,25 @@ support_bundle_<id>/
 `manifest.json`에는 다운로드 토큰을 넣지 않는다.
 컨테이너의 Git 식별자는 런타임 `git rev-parse`에 의존하지 않고 `cb-manuscript`가 `CLAIRE_BUILD_COMMIT` build argument로 주입하며 OCI `org.opencontainers.image.revision` label에도 같은 값을 기록한다.[^support-build]
 
-### 3.3 독립 version 계약과 v4 전환 (**일부 Implemented / v4 Planned**)
+### 3.3 민감정보 마스킹 및 공개 원문 보존 원칙 (Sanitization & Knowledge Preservation)
+
+Support Bundle 생성 시([`support_bundle.py`](file:///home/fow/Projects/claire-bible/src/claire/support_bundle.py)) 시스템의 비밀 자격증명을 안전하게 보호하는 동시에, RCA(근본 원인 분석)에 필요한 공개 원문 데이터와 추출 지식의 가시성을 온전히 보존합니다.
+
+1. **공개 원문 및 지식 데이터 보존 화이트리스트 (`_DOCUMENT_SAFE_KEYS`)**:
+   - 웹, PDF, 유튜브 등 인터넷에 공개된 원문에 접근하여 발췌·적재한 문서와 추출 결과는 시스템 비밀이 아닌 공개 정보입니다.
+   - 키 이름에 부분 문자열(예: `auth`, `token`)이 포함되더라도 마스킹에서 무조건 제외하는 화이트리스트를 운영합니다:
+     - `author`, `authors`, `authority`: 학술 논문 및 보고서 저자명 (과거 `auth` 부분일치로 인해 `***REDACTED***`로 오마스킹되던 문제 원천 방지)
+     - `title`, `raw_text`, `summary`, `text`, `content`: 공개 원문 본문 및 생성 요약
+     - `key_claims`, `claims`: 추출된 핵심 논지 및 온톨로지 정보
+     - `tokens`, `token_count`, `prompt_tokens`, `completion_tokens`, `total_tokens`: LLM 추론 비용 및 토큰 소모 통계
+2. **엄격한 단어 경계 기반 자격증명 탐지 (`_SENSITIVE_KEY_RE`)**:
+   - 단순 부분 문자열 매칭(`r"(auth|token|key|...)"`) 대신, 단어 경계 및 구분자(`_`, `-`)를 강제하는 정규식을 적용하여 실제 시크릿 키만을 정확하게 마스킹합니다:
+     - `(?i)(?:^|[_\-])(pass(?:word)?|secret|token|api_?key|cookie|bearer|credential|cert|private_?key|auth|authorization|key)(?:$|[_\-])`
+   - 환경변수 설정(`diagnostics/config_sanitized.json`) 및 로그 내의 실제 Gemini/Antigravity API 키, 텔레그램 봇 토큰, DB 패스워드, 인증 쿠키, 베어러 토큰 등 실제 기밀 자격증명은 `***REDACTED***`로 철저히 마스킹됩니다.
+3. **분석 혼란 방지 (RCA Observability)**:
+   - 지원 번들을 분석하는 엔지니어 또는 LLM 분석 에이전트가 "실제 저자 수집 실패"인지 "단순 번들 마스킹에 의한 은폐"인지 오판하지 않도록, 공개 메타데이터의 투명한 가시성을 보장합니다.
+
+### 3.4 독립 version 계약과 v4 전환 (**일부 Implemented / v4 Planned**)
 
 세 계약을 하나의 `schema_version`으로 묶지 않는다.
 

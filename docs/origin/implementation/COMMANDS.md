@@ -73,6 +73,7 @@ Git 저장소 최신 커밋을 가져와 무중단 롤링 업데이트를 수행
 * **사용법**: `./cb-manuscript preflight`
 * **검증 항목**:
   * `.env` / `.env.dev` 문법 및 `CLAIRE_ENVIRONMENT` 일치 여부
+  * `CLAIRE_PDF_PARSER` 유효성 검증 (`default` 또는 `docling`만 허용, `pypdf` 설정 시 즉시 차단)
   * `CB_API_BIND` IPv4 유효성 및 `CB_API_PORT` 충돌 여부
   * `data/` 및 `vault/` 디렉터리 권한 (`0700`)
   * 익명 읽기(`CLAIRE_ANONYMOUS_READONLY`) 노출 상태 경고
