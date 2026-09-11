@@ -594,17 +594,21 @@ class AntigravityProvider:
 
     def classify_paper(
         self, doc: Document, *, effort: str | None = None
-    ) -> tuple[bool, str]:
+    ):
         """학술 논문(Research/Working Paper 등) 여부 판정 (경량 호출)."""
+        from .classifier import PaperClassificationResult
         from .prompts import classify_paper_prompt
 
-        prompt = classify_paper_prompt(doc.title or "", doc.raw_text or "")
+        author_hint = doc.author if doc.author else None
+        prompt = classify_paper_prompt(doc.title or "", doc.raw_text or "", author_hint=author_hint)
         eff = effort or getattr(self.settings, "pdf_classifier_effort", "low")
         schema = {
             "type": "object",
             "properties": {
                 "is_paper": {"type": "boolean"},
                 "reason": {"type": "string"},
+                "author": {"type": ["string", "null"]},
+                "title": {"type": ["string", "null"]},
             },
             "required": ["is_paper", "reason"],
         }
@@ -617,12 +621,15 @@ class AntigravityProvider:
                 call_type="classify_paper",
                 document_id=getattr(doc, "id", None),
             )
-            if isinstance(data, dict):
-                return bool(data.get("is_paper", False)), str(data.get("reason", ""))
-            parsed = json.loads(str(data))
-            return bool(parsed.get("is_paper", False)), str(parsed.get("reason", ""))
+            parsed = data if isinstance(data, dict) else json.loads(str(data))
+            return PaperClassificationResult(
+                bool(parsed.get("is_paper", False)),
+                str(parsed.get("reason", "")),
+                author=parsed.get("author"),
+                title=parsed.get("title"),
+            )
         except Exception as e:  # noqa: BLE001
-            return False, f"classify_paper failed: {e}"
+            return PaperClassificationResult(False, f"classify_paper failed: {e}")
 
     def classify_watch(self, doc: Document) -> dict:
         """[주기 크롤링] 문서가 '주기적으로 내용이 바뀌는 콘텐츠'인지 판단."""

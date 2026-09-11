@@ -342,12 +342,26 @@ class MockProvider:
                 out.append(i)
         return out
 
-    def classify_paper(self, doc: Document, *, effort: str | None = None) -> tuple[bool, str]:
+    def classify_paper(self, doc: Document, *, effort: str | None = None):
         """결정론 stub — 논문 여부 판정 배선 검증 (테스트)."""
+        from .classifier import (
+            PaperClassificationResult,
+            extract_author_heuristic,
+            extract_title_heuristic,
+            is_dtp_title,
+        )
+
         blob = ((doc.title or "") + " " + (doc.url or "") + " " + (doc.raw_text or "")[:1000]).lower()
-        paper_kws = ("arxiv", "paper", "working paper", "nber", "abstract", "논문", "journal", "conference", "ieee")
+        paper_kws = ("arxiv", "paper", "working paper", "nber", "abstract", "논문", "논단", "journal", "conference", "ieee")
         is_paper = any(k in blob for k in paper_kws)
-        return is_paper, "keyword match (mock)" if is_paper else "not paper (mock)"
+        author = extract_author_heuristic(doc.raw_text or "")
+        title = extract_title_heuristic(doc.raw_text or "") if is_dtp_title(doc.title) else None
+        return PaperClassificationResult(
+            is_paper,
+            "keyword match (mock)" if is_paper else "not paper (mock)",
+            author=author,
+            title=title,
+        )
 
 
 

@@ -126,10 +126,15 @@ def fetch_file(path: str, *, full_content: bool = False) -> Document:
         meta["pdf_encoding_flaw_detected"] = bool(getattr(pdf_res, "encoding_flaw_detected", False))
         meta["pdf_encoding_flaws"] = list(getattr(pdf_res, "encoding_flaws", []))
         meta["pdf_is_scanned"] = bool(getattr(pdf_res, "is_scanned", False))
+        if getattr(pdf_res, "pdf_metadata", None):
+            meta["pdf_metadata"] = getattr(pdf_res, "pdf_metadata")
+    author = None
+    if source_type == "pdf" and "pdf_res" in locals() and getattr(pdf_res, "pdf_metadata", None):
+        author = pdf_res.pdf_metadata.get("Author") or pdf_res.pdf_metadata.get("author")
     return Document(
         url=f"file://{p.resolve()}",
         title=title or p.stem,
-        author=None,
+        author=author,
         published_at=None,
         raw_text=raw_text,
         source_type=source_type,

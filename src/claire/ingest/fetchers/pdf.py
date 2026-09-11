@@ -193,6 +193,7 @@ class PdfExtractResult(tuple):
         encoding_flaws: list[str] | None = None,
         is_scanned: bool = False,
         encoding_flaw_details: dict[str, Any] | None = None,
+        pdf_metadata: dict[str, Any] | None = None,
     ):
         instance = super().__new__(cls, (title, text, links, anchors, error, images))
         instance.biblio = biblio or {}
@@ -204,6 +205,7 @@ class PdfExtractResult(tuple):
         instance.encoding_flaws = list(encoding_flaws or [])
         instance.is_scanned = is_scanned
         instance.encoding_flaw_details = dict(encoding_flaw_details or {})
+        instance.pdf_metadata = dict(pdf_metadata or {})
         return instance
 
     @property
@@ -375,9 +377,11 @@ def extract_pdf_stream_pypdfium2(
 
         with doc:
             title: str | None = None
+            pdf_meta: dict[str, Any] = {}
             try:
                 meta = doc.get_metadata_dict()
                 if meta:
+                    pdf_meta = {str(k): str(v) for k, v in meta.items() if v}
                     t = meta.get("Title")
                     if t and isinstance(t, str) and t.strip():
                         clean_t = t.strip().replace("\x00", "")
@@ -497,6 +501,7 @@ def extract_pdf_stream_pypdfium2(
                 encoding_flaws=flaw_info["reasons"],
                 is_scanned=flaw_info["is_scanned"],
                 encoding_flaw_details=flaw_info["details"],
+                pdf_metadata=pdf_meta,
             )
     except Exception as e:  # noqa: BLE001
         return PdfExtractResult(None, "", [], {}, f"PDF extraction failed: {e}", [], {})
@@ -517,8 +522,9 @@ def extract_pdf_stream_pypdf(
                 return PdfExtractResult(None, "", [], {}, "encrypted PDF", [], {})
 
         title: str | None = None
-        raw_meta = dict(reader.metadata) if reader.metadata else {}
+        pdf_meta: dict[str, Any] = {}
         if reader.metadata:
+            pdf_meta = {str(k).lstrip("/"): str(v) for k, v in dict(reader.metadata).items() if v}
             t = reader.metadata.get("/Title") or getattr(reader.metadata, "title", None)
             if t and isinstance(t, str) and t.strip():
                 clean_t = t.strip().replace("\x00", "")
@@ -601,6 +607,7 @@ def extract_pdf_stream_pypdf(
             encoding_flaws=flaw_info["reasons"],
             is_scanned=flaw_info["is_scanned"],
             encoding_flaw_details=flaw_info["details"],
+            pdf_metadata=pdf_meta,
         )
     except Exception as e:  # noqa: BLE001
         return PdfExtractResult(None, "", [], {}, f"PDF extraction failed: {e}", [], {})
@@ -674,16 +681,17 @@ def extract_pdf_stream(
 ) -> PdfExtractResult:
     """(title, text, links, anchors, error, images) 6개 튜플 호환 객체(biblio 속성 및 인코딩 결함 정보 포함).
 
-    선택된 엔진(pypdfium2, docling, pypdf, auto)으로 PDF를 추출한다.
+    선택된 엔진(default/pypdfium2, docling)으로 PDF를 추출한다.
     기본 엔진 pypdfium2의 고속 추출을 우선 적용하며,
     1) 파서 런타임 실패 시 pypdf로 안전 자동 폴백.
     2) 인코딩 결함(CID 누락, PUA 코드 등)이나 스캔본 감지 시 Docling OCR로 자동 복구 에스컬레이션을 시도한다.
     """
     settings = get_settings()
-    selected_engine = (engine or getattr(settings, "pdf_parser", "pypdfium2") or "pypdfium2").lower().strip()
+    raw_engine = (engine or getattr(settings, "pdf_parser", "default") or "default").lower().strip()
+    selected_engine = "pypdfium2" if raw_engine in ("default", "pypdfium2") else raw_engine
     from ...extract.provider import emit_progress
 
-    emit_progress(f"PDF 텍스트 추출 중 ({selected_engine})…")
+    emit_progress(f"PDF 텍스트 추출 중 ({raw_engine})…")
 
     try:
         data = stream.read() if hasattr(stream, "read") else bytes(stream)
@@ -724,31 +732,22 @@ def extract_pdf_stream(
             pypdf_res.parser_fallback_reason = reason
             return pypdf_res
 
-    # 2. pypdf 명시 요청 모드
+    # 2. pypdf 명시 요청 모드 (폴백 없이 pypdf 결과 반환)
     if selected_engine == "pypdf":
         res = extract_pdf_stream_pypdf(io.BytesIO(data), url=url, fallback_title=fallback_title)
-        if res.error and not res.error.startswith("encrypted"):
-            # pypdf 실패 시 pypdfium2 폴백
-            fallback_res = extract_pdf_stream_pypdfium2(io.BytesIO(data), url=url, fallback_title=fallback_title)
-            if not fallback_res.error and fallback_res.text.strip():
-                fallback_res.parser_requested = "pypdf"
-                fallback_res.parser_used = "pypdfium2"
-                fallback_res.parser_fallback = True
-                fallback_res.parser_fallback_reason = f"pypdf 오류: {res.error}"
-                return fallback_res
         res.parser_requested = "pypdf"
         res.parser_used = "pypdf"
         res.parser_fallback = False
         return res
 
-    # 3. pypdfium2 (기본 및 auto 모드)
+    # 3. pypdfium2 (기본 'default' 모드)
     res = extract_pdf_stream_pypdfium2(io.BytesIO(data), url=url, fallback_title=fallback_title)
 
     # 3-1. 런타임 오류 시 pypdf 폴백
     if res.error and not res.error.startswith("encrypted"):
         logger.warning("pypdfium2 extraction failed: %s. Falling back to pypdf.", res.error)
         pypdf_res = extract_pdf_stream_pypdf(io.BytesIO(data), url=url, fallback_title=fallback_title)
-        pypdf_res.parser_requested = selected_engine
+        pypdf_res.parser_requested = raw_engine
         pypdf_res.parser_used = "pypdf"
         pypdf_res.parser_fallback = True
         pypdf_res.parser_fallback_reason = f"pypdfium2 런타임 오류: {res.error}"
@@ -762,7 +761,7 @@ def extract_pdf_stream(
             if not docling_res.error and docling_res.text.strip():
                 doc_flaw = detect_pdf_encoding_flaws(docling_res.text)
                 if not doc_flaw["has_flaw"] or len(doc_flaw["reasons"]) < len(res.encoding_flaws):
-                    docling_res.parser_requested = selected_engine
+                    docling_res.parser_requested = raw_engine
                     docling_res.parser_used = "docling"
                     docling_res.parser_fallback = True
                     flaw_summary = ", ".join(res.encoding_flaws)
@@ -774,7 +773,7 @@ def extract_pdf_stream(
         except Exception:
             pass
 
-    res.parser_requested = selected_engine
+    res.parser_requested = raw_engine
     res.parser_used = "pypdfium2"
     return res
 

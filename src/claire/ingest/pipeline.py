@@ -230,6 +230,12 @@ def ingest(
             doc.meta = {}
         doc.meta["applied_effort"] = effort
 
+    if doc.source_type in ("pdf", "odt"):
+        from ..config import get_settings
+        from ..extract.classifier import reconcile_pdf_metadata
+
+        reconcile_pdf_metadata(doc, get_settings(), provider=provider)
+
     report.source_type = doc.source_type
     report.partial = doc.partial
     report.title = doc.title
@@ -602,21 +608,20 @@ def extract_resolve_store(
     추출 실패 시 (False, error). 성공 시 (True, None).
     """
     from ..config import get_settings
-    from ..extract.classifier import classify_paper
 
     settings = get_settings()
     eff = effort
     if eff is None:
         if doc.source_type in ("pdf", "odt"):
-            # 무료 어댑터 우선 최저 effort('low')로 논문 여부 1차 판정
-            is_paper, reason = classify_paper(doc, settings)
-            if doc.meta is None:
-                doc.meta = {}
-            doc.meta["paper_classification"] = {
-                "is_paper": is_paper,
-                "reason": reason,
-                "raw_chars": len(doc.raw_text or ""),
-            }
+            classification = (doc.meta or {}).get("paper_classification")
+            if classification and isinstance(classification, dict):
+                is_paper = classification.get("is_paper", False)
+                reason = classification.get("reason", "")
+            else:
+                from ..extract.classifier import reconcile_pdf_metadata
+
+                res = reconcile_pdf_metadata(doc, settings, provider=provider)
+                is_paper, reason = res[:2]
             if is_paper and len(doc.raw_text or "") >= settings.pdf_paper_threshold_chars:
                 eff = settings.pdf_paper_effort or "high"
             else:
@@ -927,21 +932,15 @@ def ensure_document_detail(
     if eff is None:
         if doc.source_type in ("pdf", "odt"):
             from ..config import get_settings
-            from ..extract.classifier import classify_paper
+            from ..extract.classifier import reconcile_pdf_metadata
 
             settings = get_settings()
             classification = (doc.meta or {}).get("paper_classification")
             if classification and isinstance(classification, dict):
                 is_paper = classification.get("is_paper", False)
             else:
-                is_paper, reason = classify_paper(doc, settings)
-                if doc.meta is None:
-                    doc.meta = {}
-                doc.meta["paper_classification"] = {
-                    "is_paper": is_paper,
-                    "reason": reason,
-                    "raw_chars": len(doc.raw_text or ""),
-                }
+                res = reconcile_pdf_metadata(doc, settings, provider=provider)
+                is_paper = res.is_paper
             if is_paper and len(doc.raw_text or "") >= settings.pdf_paper_threshold_chars:
                 eff = settings.pdf_paper_effort or "high"
             else:

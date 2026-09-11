@@ -297,11 +297,11 @@ def test_compose_environment_canonicalizes_effective_storage_mounts(
 
 
 def test_compose_environment_includes_claire_pdf_parser(tmp_path):
-    # 1. 기본값(미설정 시) pypdfium2
+    # 1. 기본값(미설정 시) default
     _write_layout(tmp_path, dev=False)
     runtime = cb.load_runtime(cb.Layout(tmp_path))
     env = runtime.compose_environment()
-    assert env.get("CLAIRE_PDF_PARSER") == "pypdfium2"
+    assert env.get("CLAIRE_PDF_PARSER") == "default"
 
     # 2. .env에 docling 명시 시 docling 전달
     env_content = (tmp_path / ".env").read_text(encoding="utf-8")
@@ -309,6 +309,18 @@ def test_compose_environment_includes_claire_pdf_parser(tmp_path):
     runtime = cb.load_runtime(cb.Layout(tmp_path))
     env = runtime.compose_environment()
     assert env.get("CLAIRE_PDF_PARSER") == "docling"
+
+
+def test_config_preflight_rejects_pypdf_parser(tmp_path):
+    _write_layout(tmp_path, dev=False)
+    env_content = (tmp_path / ".env").read_text(encoding="utf-8")
+    (tmp_path / ".env").write_text(env_content + "\nCLAIRE_PDF_PARSER=pypdf\n", encoding="utf-8")
+    runtime = cb.load_runtime(cb.Layout(tmp_path))
+
+    with patch.object(cb.subprocess, "run") as run:
+        with pytest.raises(cb.ManuscriptError, match="CLAIRE_PDF_PARSER=pypdf 설정은 한글 CMap 미지원"):
+            cb.config_preflight(runtime)
+    run.assert_not_called()
 
 
 def test_dockerfile_keeps_dynamic_identity_after_dependency_layers():

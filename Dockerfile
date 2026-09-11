@@ -14,14 +14,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
 COPY pyproject.toml uv.lock README.md ./
 # stealth extra = scrapling[fetchers], audio extra = yt-dlp[curl-cffi]
 # CLAIRE_PDF_PARSER=docling 인 경우에만 docling 및 대용량 의존성을 빌드에 포함하고,
-# pypdfium2(기본값)일 때는 docling을 빌드하지 않아 초경량/초고속 빌드를 유지합니다.
+# default(기본값)일 때는 docling을 빌드하지 않아 경량/고속 빌드를 유지합니다.
 # 최신 비디오 플랫폼 시그니처 대응을 위해 yt-dlp는 빌드 시 항상 최신 릴리스로 업그레이드
-ARG CLAIRE_PDF_PARSER="pypdfium2"
+ARG CLAIRE_PDF_PARSER="default"
 RUN if [ "$CLAIRE_PDF_PARSER" = "docling" ]; then \
         echo "Building with docling layout parser..." \
         && uv sync --locked --no-dev --no-install-project --extra stealth --extra audio --extra docling; \
     else \
-        echo "Building lightweight image (pypdfium2 default, docling excluded)..." \
+        echo "Building standard image (default PDFium parser, docling excluded)..." \
         && uv sync --locked --no-dev --no-install-project --extra stealth --extra audio; \
     fi \
     && uv pip install --no-cache -U "yt-dlp[curl-cffi]"

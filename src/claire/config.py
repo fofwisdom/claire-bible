@@ -345,8 +345,8 @@ class Settings(BaseSettings):
     pdf_exclude_appendix: bool = Field(default=True, alias="CLAIRE_PDF_EXCLUDE_APPENDIX")
     # PDF 논문 적재 시 참고문헌(References) 제외 정책
     pdf_exclude_references: bool = Field(default=True, alias="CLAIRE_PDF_EXCLUDE_REFERENCES")
-    # PDF 추출 파서 엔진 선택 ("pypdfium2", "pypdf", "docling", "auto")
-    pdf_parser: str = Field(default="pypdfium2", alias="CLAIRE_PDF_PARSER")
+    # PDF 추출 파서 엔진 선택 (default: 기본 고속 Chromium C++ PDFium 파서, docling: 선택형 AI 레이아웃/OCR 파서)
+    pdf_parser: str = Field(default="default", alias="CLAIRE_PDF_PARSER")
     # PDF 텍스트 인코딩 결함(CID 누락, PUA 글꼴, 대체문자 등) 및 스캔본 감지
     pdf_detect_encoding_flaws: bool = Field(default=True, alias="CLAIRE_PDF_DETECT_ENCODING_FLAWS")
     # PDF 인코딩 결함 감지 시 Docling OCR/레이아웃 복구 에스컬레이션 시도 여부

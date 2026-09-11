@@ -417,6 +417,8 @@ def doc_to_prompt(doc: Document, *, full_content: bool = False) -> str:
     head = []
     if doc.title:
         head.append(f"TITLE: {doc.title}")
+    if doc.author:
+        head.append(f"AUTHOR: {doc.author}")
     if doc.url:
         head.append(f"URL: {doc.url}")
     head.append(f"SOURCE_TYPE: {doc.source_type}")
@@ -767,16 +769,25 @@ def judge_same_entity_prompt(mc: MergeCandidate) -> str:
     )
 
 
-def classify_paper_prompt(title: str, text_head: str) -> str:
-    """학술 논문/연구 보고서 여부 판별용 경량 프롬프트."""
+def classify_paper_prompt(title: str, text_head: str, author_hint: str | None = None) -> str:
+    """학술 논문/연구 보고서 여부 판별 및 저자/제목 검증용 경량 프롬프트."""
+    author_section = f"[메타데이터 저자 힌트]\n{author_hint}\n\n" if author_hint else ""
     return (
-        "당신은 문서 분류기다. 주어진 문서의 제목과 도입부(초록/서론 등)를 분석하여 "
-        "이 문서가 학술 논문(Research Paper / Working Paper / Conference Paper / Journal Article / Preprint / Technical Report)인지 판별하라.\n\n"
+        "당신은 문서 분류 및 서지 정보 분석기다. 주어진 문서의 제목과 도입부(초록/서론/첫 페이지)를 분석하여 "
+        "1) 이 문서가 학술 논문/연구 보고서(Research Paper / Working Paper / Conference Paper / Journal Article / Preprint / Technical Report)인지 판별하라.\n"
+        "2) 본문 첫 페이지/헤더에 명시된 실제 저자명(연구자/작성자)과 실제 논문 제목을 추출하라. "
+        "주의: PDF 메타데이터의 DTP 조판/디자이너 계정(예: 영문 계정명, 사번 등)이나 단순 파일명/호수 번호는 저자/제목이 아니므로 제외하고, 본문에 인쇄된 실제 연구자 성명과 제목을 추출하라.\n\n"
         "판별 기준:\n"
         "- 논문(true): 학술 연구 논문, NBER/arXiv/SSRN 워킹 페이퍼, 컨퍼런스/저널 논문, 학술적 연구 보고서 등.\n"
         "- 비논문(false): 일반 웹 기사, 블로그 포스트, 제품 매뉴얼, API 문서, 마케팅 자료, 공지사항, 일반 텍스트 등.\n\n"
         "반드시 아래 JSON 형식으로만 응답하라:\n"
-        '{"is_paper": true, "reason": "간결한 판정 근거 (1문장)"}\n\n'
+        "{\n"
+        '  "is_paper": true,\n'
+        '  "reason": "간결한 판정 근거 (1문장)",\n'
+        '  "author": "추출된 실제 저자명(예: 이보미 선임연구위원) 또는 null",\n'
+        '  "title": "추출된 실제 논문/보고서 제목 또는 null"\n'
+        "}\n\n"
         f"[제목]\n{title or '(제목 없음)'}\n\n"
+        f"{author_section}"
         f"[도입부 텍스트]\n{text_head[:3000]}"
     )
