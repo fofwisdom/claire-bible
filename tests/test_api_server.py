@@ -733,11 +733,10 @@ def test_reference_serves_kepler_themed_scalar_html(client: TestClient) -> None:
     assert "/static/docs/scalar.standalone.js" in text
 
 
-def test_docs_redirects_to_reference(client: TestClient) -> None:
-    """Verify legacy /docs endpoint redirects to canonical /reference."""
-    response = client.get("/docs", follow_redirects=False)
-    assert response.status_code == 302
-    assert response.headers["location"] == "/reference"
+def test_docs_path_does_not_exist(client: TestClient) -> None:
+    """Verify /docs does not exist and returns 404."""
+    response = client.get("/docs")
+    assert response.status_code == 404
 
 
 def test_openapi_yaml_serves_valid_openapi_3_1_spec(client: TestClient) -> None:
