@@ -7,7 +7,51 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from claire.config import Settings, find_codex_executable
+from claire.config import Settings, find_codex_executable, resolve_app_root
+
+
+def test_app_root_uses_source_checkout_when_pyproject_exists(tmp_path):
+    module = tmp_path / "src/claire/config.py"
+    (tmp_path / "pyproject.toml").write_text("[project]\nname='test'\n")
+
+    assert resolve_app_root(
+        module,
+        configured_root="",
+        working_directory="/unexpected",
+    ) == tmp_path.resolve()
+
+
+def test_app_root_uses_explicit_container_path_for_installed_wheel(tmp_path):
+    installed_module = (
+        tmp_path
+        / ".venv/lib/python3.11/site-packages/claire/config.py"
+    )
+
+    assert resolve_app_root(
+        installed_module,
+        configured_root="/app",
+        working_directory="/unexpected",
+    ) == Path("/app")
+
+
+def test_app_root_does_not_treat_site_packages_parent_as_project_root(tmp_path):
+    installed_module = (
+        tmp_path
+        / ".venv/lib/python3.11/site-packages/claire/config.py"
+    )
+    runtime_cwd = tmp_path / "runtime"
+
+    assert resolve_app_root(
+        installed_module,
+        configured_root="",
+        working_directory=runtime_cwd,
+    ) == runtime_cwd.resolve()
+
+
+@pytest.mark.parametrize("configured", ("app", " /app", "/app ", "/app\x00bad"))
+def test_app_root_rejects_ambiguous_explicit_paths(configured):
+    with pytest.raises(ValueError, match="CLAIRE_APP_ROOT"):
+        resolve_app_root(configured_root=configured)
 
 
 def test_anonymous_readonly_defaults_enabled(monkeypatch):

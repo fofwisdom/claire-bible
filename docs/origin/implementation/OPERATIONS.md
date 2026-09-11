@@ -38,6 +38,13 @@
 따라서 bot, API, worker와 one-off 컨테이너가 상대경로를 각자 다시 해석하거나 서로
 다른 Support Bundle 저장소를 마운트할 수 없다.
 
+컨테이너 내부의 상대 `CLAIRE_DB_PATH=data/claire.db`와
+`CLAIRE_VAULT_PATH=vault`는 반드시 `CLAIRE_APP_ROOT=/app` 아래에서 해석한다.
+애플리케이션은 wheel로 `/app/.venv/.../site-packages`에 설치되므로 모듈의 `__file__`
+상위 디렉터리를 런타임 루트로 사용할 수 없다. Dockerfile과 Compose가 이 값을 함께
+고정하며, 결과 DB는 bind mount인 `/app/data/claire.db`여야 한다. Support Bundle의
+`diagnostics/storage.json`에서 `data_dir`의 enclosing mount가 `/app/data`인지 확인한다.
+
 `CLAIRE_ENVIRONMENT`는 exact `development` 또는 `production` 값이 필수다. bare
 명령의 선택은 프로세스 값을 먼저 보지만 파일의 역할을 재해석하지는 않는다. `.env`는
 `production`, `.env.dev`는 `development`를 선언해야 한다. development가 선택되면

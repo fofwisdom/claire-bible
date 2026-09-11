@@ -323,6 +323,12 @@ def test_dockerfile_keeps_dynamic_identity_after_dependency_layers():
     assert dependency_layer < source_layer < identity_layer
     assert "--no-install-project" in dockerfile
     assert dockerfile.count("ARG CLAIRE_BUILD_COMMIT") == 1
+    assert "CLAIRE_APP_ROOT=/app" in dockerfile
+
+    compose = (
+        Path(__file__).resolve().parents[1] / "docker-compose.yml"
+    ).read_text(encoding="utf-8")
+    assert 'CLAIRE_APP_ROOT: "/app"' in compose
 
 
 def test_load_runtime_validates_readonly_token_rules(tmp_path):
