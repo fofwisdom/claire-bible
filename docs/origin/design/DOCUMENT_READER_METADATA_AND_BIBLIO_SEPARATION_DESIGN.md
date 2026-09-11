@@ -58,6 +58,7 @@
   - `✂️ 부록·참고문헌 제외` / `✂️ 원문 일부 절단`: 예산 상한에 따른 절단율 (`trunc-tag`)
   - `⚠️ Docling 폴백 (PyPDF)`: 파서 실행 및 폴백 이력 (`parser-fallback-tag`)
   - `🎙️ STT`: 음성 인식 전사 기반 적재 여부 (`stt-tag`)
+  - `🔤 CC`: 영상 자막(CC) 기반 적재 여부 (`cc-tag`)
   - `CC×PDF` / `STT×PDF`: 비디오 자막 및 원본 슬라이드 PDF 동시 번들 적재 상태
 - **절대 원칙**: 
   - **`docmeta`는 `rawmeta`가 아니다.** 적재한 문서 자체의 파이프라인 메타데이터일 뿐이다.
@@ -108,6 +109,7 @@ function docMetaHtml(dc){
   if(isParserFallback) tags.push('<span class="trunc-tag parser-fallback-tag">⚠️ Docling 폴백 (PyPDF)</span>');
   if(directive) tags.push('<span class="directive-tag">🎯 '+esc(directive)+'</span>');
   if(isStt && !hasPresentation) tags.push('<span class="directive-tag stt-tag">🎙️ STT</span>');
+  if(isCc && !hasPresentation) tags.push('<span class="directive-tag cc-tag">🔤 CC</span>');
   if(isTrunc) tags.push('<span class="trunc-tag">✂️ ...</span>');
   if(tags.length) h += '<span class="docmeta-tags">' + tags.join(' ') + '</span>';
   h += '</p>';

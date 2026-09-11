@@ -259,6 +259,22 @@ def test_ingest_report_telegram_summary_with_directive():
     assert "초점: 시스템 아키텍처 및 내부 구조 중심" in summary
 
 
+def test_ingest_report_telegram_summary_video_cc():
+    from claire.ingest.pipeline import IngestReport
+
+    report = IngestReport(
+        document_id="doc_naver_cc",
+        title="AI 에이전트를 위한 Playwright E2E 테스트 하네스 구축하기",
+        source_type="video",
+        has_transcript=True,
+        is_stt=False,
+        summary="네이버 엔지니어링 데이 세션 요약",
+    )
+    summary = report.telegram_summary()
+    assert "✅ 적재 완료" in summary
+    assert "🔤 영상 자막(CC)" in summary
+
+
 def test_ingest_report_telegram_summary_stt_failure():
     from claire.ingest.pipeline import IngestReport
 

@@ -391,8 +391,8 @@ def fetch_youtube(
     stt_error_msg: str | None = None
     cached_used = False
     cached_saved = False
-    caption_status: str | None = None
-    caption_language: str | None = None
+    caption_status: str | None = "available" if transcript else None
+    caption_language: str | None = target_langs[0] if (transcript and target_langs) else None
     transcript_source: str | None = "youtube_transcript_api" if transcript else None
 
     # 2. Tier 2: 1차 자막 부재 시 또는 제목 부재 시 yt-dlp 에스컬레이션 시도

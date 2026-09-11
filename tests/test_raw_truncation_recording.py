@@ -128,11 +128,14 @@ def test_graph_html_contains_truncation_ui_and_css():
     assert ".trunc-tag" in html
     assert ".directive-tag" in html
     assert ".stt-tag" in html
+    assert ".cc-tag" in html
     assert "docMetaHtml" in html
     assert "✂️ 원문 일부 절단" in html
     assert "🎯" in html
     assert "🎙️ STT" in html
+    assert "🔤 CC" in html
     assert "음성 인식(STT)을 적용하여 작성한 문서" in html
+    assert "영상 자막(CC)을 적용하여 작성한 문서" in html
     assert "적재 시 지정한 초점: " in html
     assert "원문의 부록(Appendix) 부분을 절단한 문서" in html
     assert "글자 수 상한으로 원문 일부를 절단한 문서" in html
@@ -163,6 +166,7 @@ def test_shared_html_contains_docmeta_ui_and_css():
     assert ".trunc-tag.trunc-appendix" in html
     assert ".directive-tag" in html
     assert ".stt-tag" in html
+    assert ".cc-tag" in html
     assert "docMetaHtml" in html
     assert "✂️ 원문 일부 절단" in html
     assert "🎯" in html
@@ -227,4 +231,82 @@ def test_document_detail_and_ui_with_stt():
     assert detail is not None
     assert detail["is_stt"] is True
     assert detail["meta"]["is_stt"] is True
+
+
+def test_shared_html_contains_cc_docmeta_badge():
+    import json
+    import subprocess
+    from claire.graphview import GRAPH_HTML
+
+    doc = {
+        "id": "doc_video_cc",
+        "title": "AI 에이전트를 위한 Playwright E2E 테스트 하네스 구축하기",
+        "url": "https://tv.naver.com/v/101263731",
+        "source_type": "video",
+        "has_transcript": True,
+        "is_stt": False,
+        "caption_language": "ko_KR",
+        "meta": {
+            "has_transcript": True,
+            "is_stt": False,
+            "transcript_source": "manual_caption",
+            "caption_status": "available",
+            "caption_language": "ko_KR",
+        },
+        "summary": "네이버 D2 발표 요약",
+    }
+    html = shared_html(doc)
+    assert ".cc-tag" in html
+    assert "🔤 CC" in html
+    assert "영상 자막(CC)을 적용하여 작성한 문서" in html
+    assert "영상 자막(CC: " in html
+
+    # Node.js 런타임 평가 검증
+    start = GRAPH_HTML.index("function docMetaHtml(dc){")
+    end = GRAPH_HTML.index("function renderReader(dc){")
+    fn = GRAPH_HTML[start:end]
+    js = f"""
+    function esc(s){{ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }}
+    {fn}
+    const d = {json.dumps(doc)};
+    console.log(docMetaHtml(d));
+    """
+    res = subprocess.run(["node", "-e", js], capture_output=True, text=True, check=True)
+    out = res.stdout
+    assert "🔤 CC" in out
+    assert "cc-tag" in out
+    assert "영상 자막(CC: ko_KR)을 적용하여 작성한 문서" in out
+    assert "🎙️ STT" not in out
+
+
+def test_document_detail_and_ui_with_cc():
+    import sqlite3
+
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    dbm.init_db(conn)
+    doc = Document(
+        id="doc_cc_test",
+        title="CC Video Test",
+        url="https://tv.naver.com/v/101263731",
+        raw_text="Manual caption video content",
+        source_type="video",
+        meta={
+            "is_stt": False,
+            "has_transcript": True,
+            "transcript_source": "manual_caption",
+            "caption_status": "available",
+            "caption_language": "ko_KR",
+            "raw_truncated": False,
+        },
+    )
+    dbm.insert_document(conn, doc)
+
+    detail = document_detail(conn, "doc_cc_test")
+    assert detail is not None
+    assert detail["has_transcript"] is True
+    assert detail["is_stt"] is False
+    assert detail["caption_status"] == "available"
+    assert detail["caption_language"] == "ko_KR"
+    assert detail["transcript_source"] == "manual_caption"
 

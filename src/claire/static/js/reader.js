@@ -320,9 +320,11 @@ function docMetaHtml(dc){
   const directive = (dc.directive || (dc.meta && dc.meta.directive) || '').trim();
   const isStt = !!(dc.is_stt || (dc.meta && (dc.meta.is_stt || dc.meta.stt_applied || dc.meta.stt)));
   const isSttTrunc = isStt && !!(dc.stt_truncated || (dc.meta && dc.meta.stt_truncated) || isTrunc);
+  const hasTranscript = !!(dc.has_transcript || (dc.meta && dc.meta.has_transcript));
+  const isCc = !isStt && (hasTranscript || !!(dc.meta && (dc.meta.caption_status === 'available' || (dc.meta.transcript_source && dc.meta.transcript_source !== 'stt'))));
   const presentation = dc.presentation_pdf || (dc.meta && dc.meta.presentation_pdf) || {};
   const hasPresentation = presentation.status === 'available' && !!presentation.public_url;
-  if(!hasUrl && !isTrunc && !directive && !isStt && !isParserFallback && !hasPresentation && !isEncodingFlaw && !isScanned) return '';
+  if(!hasUrl && !isTrunc && !directive && !isStt && !isCc && !isParserFallback && !hasPresentation && !isEncodingFlaw && !isScanned) return '';
   let h='<p class=docmeta>';
   if(hasUrl){
     h+='<a href="'+esc(dc.url)+'" target=_blank rel=noopener>↗ 원문 열기</a>';
@@ -376,6 +378,11 @@ function docMetaHtml(dc){
   }
   if(isStt && !hasPresentation){
     tags.push('<span class="directive-tag stt-tag" title="음성 인식(STT)을 적용하여 작성한 문서">🎙️ STT</span>');
+  }
+  if(isCc && !hasPresentation){
+    const capLang = (dc.caption_language || (dc.meta && dc.meta.caption_language) || '').trim();
+    const tip = capLang ? '영상 자막(CC: '+capLang+')을 적용하여 작성한 문서' : '영상 자막(CC)을 적용하여 작성한 문서';
+    tags.push('<span class="directive-tag cc-tag" title="'+esc(tip)+'">🔤 CC</span>');
   }
   if(isAppTrunc && isRefTrunc){
     const orig=(dc.orig_chars || (dc.meta && dc.meta.orig_chars)) || 0;
