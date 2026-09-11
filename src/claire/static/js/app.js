@@ -631,6 +631,8 @@ window.addEventListener('orientationchange', ()=>setTimeout(()=>relayout(), 300)
 function graphAnimation(value=true){ return reducedMotionMQ.matches ? false : value; }
 function rememberGraphCamera(){
   if(!net || preservingGraphCamera || netBusy) return;
+  const el=document.getElementById('net');
+  if(!el || el.clientWidth<=0 || el.clientHeight<=0) return;
   graphCamera={position:net.getViewPosition(),scale:net.getScale()};
 }
 function relayoutPreservingCamera(){
@@ -723,7 +725,7 @@ function revealWorkspace(name, focusTab=false){
   if(r && r.classList.contains('open') && typeof closeReader==='function') closeReader();
   if(name==='graph'){
     setCenterView('graph');
-    if(!activeDoc){
+    if(!graphCamera && !activeDoc){
       fitGraphContext();
     }
   }
@@ -927,7 +929,9 @@ document.addEventListener('pointerdown',e=>{
 });
 document.addEventListener('keydown',e=>{
   if(e.key==='Escape' && (drawerOpen||detailOpen)){
-    e.preventDefault(); closeDrawer(true, true);
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    closeDrawer(true, true);
   }
 });
 function responsiveChanged(){ closeToolsMenu(); syncWorkspaceLayout(); }
@@ -2192,6 +2196,7 @@ function renderDocPanel(dc){
   let h='<h2>'+esc(dc.title)+' <small>'+esc(dc.source_type||'')+'</small></h2>';
   h+=docMetaHtml(dc);
   h+=extraSourcesHtml(dc);
+  h+='<div class="sharebox" id="panelsharebox"></div>';
   const directive = (dc.directive || (dc.meta && dc.meta.directive) || '').trim();
   if(directive){
     h+='<div style="margin:.4em 0 .6em;padding:6px 8px;background:var(--card-bg);border:1px solid var(--border);border-radius:5px;font-size:12px"><b style="color:var(--accent2)">🎯 초점:</b> '+esc(directive)+'</div>';

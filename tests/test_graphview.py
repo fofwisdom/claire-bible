@@ -142,7 +142,6 @@ def test_graph_html_self_contained_markers():
     assert "줄바꿈 두 번" not in GRAPH_HTML
     for guarded_write in (
         "async function markDocumentSeen(docId){\n  if(!canWrite()) return;",
-        "async function shareDoc(){\n  if(!canWrite() || !curReaderDoc) return;",
         "async function doResearch(){\n  if(!canWrite()) return;",
         "function openIngest(){\n  if(!canIngest()) return;",
         "async function runIngest(){\n  if(!canIngest()) return;",
@@ -158,6 +157,7 @@ def test_graph_html_self_contained_markers():
         "async function synth(){\n  if(!canWrite()) return;",
     ):
         assert guarded_write in GRAPH_HTML
+    assert "async function shareDoc(docId){\n  const targetId = docId || curReaderDoc" in GRAPH_HTML
     assert (
         "if(!canWrite()){\n"
         "    synthSet.clear();\n"
@@ -659,7 +659,7 @@ def test_mobile_bottom_bar_graph_navigation_and_node_selection():
 
     # 3. revealWorkspace 전환 시 열려 있는 reader 닫기 및 전체 그래프 맞춤
     assert "const r=document.getElementById('reader');\n  if(r && r.classList.contains('open') && typeof closeReader==='function') closeReader();" in GRAPH_HTML
-    assert "if(name==='graph'){\n    setCenterView('graph');\n    if(!activeDoc){\n      fitGraphContext();\n    }\n  }" in GRAPH_HTML
+    assert "if(name==='graph'){\n    setCenterView('graph');\n    if(!graphCamera && !activeDoc){\n      fitGraphContext();\n    }\n  }" in GRAPH_HTML
     assert "function docWithMostNodes()" in GRAPH_HTML
     assert "function getRecentDocId()" in GRAPH_HTML
     assert "function recordSelectedDoc(id)" in GRAPH_HTML

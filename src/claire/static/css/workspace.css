@@ -149,8 +149,7 @@
   body:not([data-auth-scope="owner"]) #synthbtn,
   body:not([data-auth-scope="owner"]) #synthchips,
   body:not([data-auth-scope="owner"]) #dedupbtn,
-  body:not([data-auth-scope="owner"]) .redit,
-  body:not([data-auth-scope="owner"]) .rshare{display:none!important}
+  body:not([data-auth-scope="owner"]) .redit{display:none!important}
 
   /* 우측 사이드 패널 (#detailpane): 데스크톱은 3열 고정, 태블릿/모바일은 오른쪽 슬라이드 드로어 */
   #detailpane{width:var(--detail-width,360px);display:flex;flex-direction:column;background:var(--panel-bg);
@@ -313,6 +312,13 @@
   body.drawer-open #nodepop,
   body.reader-open #nodepop{display:none!important}
   #panel input[type=radio]{width:auto;vertical-align:middle}
+  .panel-share-btn{background:var(--sec-bg);color:var(--sec-fg);border:1px solid var(--border);border-radius:4px;font-size:12px;line-height:1;padding:3px 8px;cursor:pointer;display:inline-flex;align-items:center;gap:4px;height:24px;box-sizing:border-box;vertical-align:middle;margin-left:6px;transition:background .15s ease,border-color .15s ease}
+  .panel-share-btn:hover{background:var(--hover);border-color:var(--accent)}
+  #panel .sharebox{display:none;margin:8px 0 10px;padding:8px 12px;background:var(--active);border:1px solid var(--accent);border-radius:6px;font-size:12px;gap:8px;align-items:center}
+  #panel .sharebox.on{display:flex}
+  #panel .sharebox input{flex:1;min-width:0;padding:4px 6px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--fg);font-size:12px}
+  #panel .sharebox button{background:var(--accent);color:#fff;border:0;border-radius:4px;padding:4px 10px;font-size:12px;cursor:pointer;white-space:nowrap}
+
 
 /* --- Responsive Media Queries for Workspace --- */
 @media (max-width:1100px){

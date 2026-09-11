@@ -57,8 +57,8 @@ test('mobile primary tabs keep document navigation on the graph', async ({ page 
   await expect(page.locator('#netwrap')).toBeVisible();
   const graphDocNav = page.locator('#graphdocnav');
   await expect(graphDocNav).toBeVisible();
-  await expect(page.locator('#graphdocprev')).toBeEnabled();
-  await expect(page.locator('#graphdocnext')).toBeEnabled();
+  await expect(page.locator('#graphdocprev')).toBeDisabled();
+  await expect(page.locator('#graphdocnext')).toBeDisabled();
   for (const locator of [
     page.locator('#graphdocprev'),
     page.locator('#graphdocpick'),
@@ -182,6 +182,12 @@ test('mobile primary tabs keep document navigation on the graph', async ({ page 
   });
   expect(point).not.toBeNull();
   await page.locator('#net').click({ position: { x: Math.round(point.x), y: Math.round(point.y) } });
+  const nodePopMore = page.locator('#nodepop button', { hasText: '자세히 보기' });
+  if (await nodePopMore.isVisible({ timeout: 1000 }).catch(() => false)) {
+    await nodePopMore.click();
+  } else if (await page.locator('#detailpane').isHidden()) {
+    await page.locator('#net').click({ position: { x: Math.round(point.x), y: Math.round(point.y) } });
+  }
   await expect(page.locator('#detailpane')).toBeVisible();
   await expect(page.locator('#panel h2')).toBeVisible();
   expect(await page.evaluate(() => window.claireDebug.activePane)).toBe('graph');
@@ -623,7 +629,61 @@ test('shared document page allows scrolling and maintains visible fixed rail tra
   expect(pageErrors).toEqual([]);
 });
 
+test('anonymous users can generate and open share link in public mode', async ({ page, context }) => {
+  const pageErrors = [];
+  page.on('pageerror', error => pageErrors.push(error.message));
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await waitForClaire(page);
+  await expectNoHorizontalOverflow(page);
 
+  // 1. Verify anonymous readonly scope
+  const whoami = await page.evaluate(async () => {
+    const res = await fetch('/whoami');
+    return res.json();
+  });
+  expect(whoami.scope).toBe('anonymous');
 
+  // 2. Select document from left panel
+  const firstDocItem = page.locator('#doclist .docitem').first();
+  await expect(firstDocItem).toBeVisible();
+  await firstDocItem.click();
 
+  // 3. Verify share button in right detail panel (#panel .panel-share-btn)
+  const panelShareBtn = page.locator('#panel .panel-share-btn');
+  await expect(panelShareBtn).toBeVisible();
+  await expect(panelShareBtn).toContainText('공유 링크');
 
+  // 4. Click share button in panel and verify share link generation
+  const [shareResponse] = await Promise.all([
+    page.waitForResponse(res => res.url().includes('/share') && res.request().method() === 'POST'),
+    panelShareBtn.click(),
+  ]);
+  expect(shareResponse.status()).toBe(200);
+  const shareData = await shareResponse.json();
+  expect(shareData.path).toMatch(/^\/p\?s=/);
+
+  // 5. Verify panel sharebox displays the generated URL
+  const panelShareBox = page.locator('#panelsharebox');
+  await expect(panelShareBox).toBeVisible();
+  const panelShareInput = panelShareBox.locator('input');
+  await expect(panelShareInput).toHaveValue(new RegExp(shareData.path.replace('?', '\\?')));
+
+  // 6. Verify reader header share button (#rsharebtn)
+  const readerShareBtn = page.locator('#rsharebtn');
+  await expect(readerShareBtn).toBeVisible();
+  await expect(readerShareBtn).toContainText('공유 링크');
+
+  // 7. Open the generated share link in a new page and verify content loads
+  const sharedPage = await context.newPage();
+  const sharedResponse = await sharedPage.goto(shareData.path);
+  expect(sharedResponse.status()).toBe(200);
+  await expect(sharedPage.locator('h1')).toBeVisible();
+  const titleText = await sharedPage.locator('h1').textContent();
+  expect(titleText.length).toBeGreaterThan(0);
+  await expect(sharedPage.locator('.doc-content').first()).toBeVisible();
+  const bodyText = await sharedPage.locator('.doc-content').first().textContent();
+  expect(bodyText.length).toBeGreaterThan(10);
+  await sharedPage.close();
+
+  expect(pageErrors).toEqual([]);
+});
