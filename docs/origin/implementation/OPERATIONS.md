@@ -33,6 +33,11 @@
 업데이트 잠금과 migration 순서를 일관되게 적용한다. 배포 인스턴스를 직접
 `docker compose`나 호스트의 `uv run claire`로 관리하지 않는다.
 
+`cb-manuscript`는 문서화된 프로세스 환경 우선순위를 적용해 `CB_DATA_DIR`와
+`CB_VAULT_DIR`을 한 번 해석한 뒤, 검증된 절대경로를 모든 Compose 호출에 전달한다.
+따라서 bot, API, worker와 one-off 컨테이너가 상대경로를 각자 다시 해석하거나 서로
+다른 Support Bundle 저장소를 마운트할 수 없다.
+
 `CLAIRE_ENVIRONMENT`는 exact `development` 또는 `production` 값이 필수다. bare
 명령의 선택은 프로세스 값을 먼저 보지만 파일의 역할을 재해석하지는 않는다. `.env`는
 `production`, `.env.dev`는 `development`를 선언해야 한다. development가 선택되면
@@ -171,6 +176,12 @@ Compose 수명주기에 맡긴다. 설치·업데이트·migration처럼 서비�
 
 따라서 배포 직후와 감시용 생존 확인에는 전자를, 누적 실패와 사람의 조치가 필요한
 상태 진단에는 후자를 사용한다.
+
+Telegram의 Support Bundle 생성은 Compose 내부 owner 인증 API로 위임한다. 공개
+다운로드를 제공하는 API 프로세스가 아카이브 생성과 다운로드 레지스트리 검증을 함께
+소유하며, 생성 직후 동일 조회 경로로 파일을 확인하지 못하면 URL을 반환하지 않는다.
+Docker 밖에서 내부 API URL이 없는 로컬 개발·CLI 실행만 같은 프로세스에서 직접
+생성한다.
 
 멀티 테마 모드의 설치·업데이트에서 실행되는 `claire migrate`는 등록된 DB를 테마 ID 순서로 모두 처리한다.
 개별 실패는 모아서 출력하고 나머지 DB를 계속 처리하지만, 최종적으로 하나라도 실패하면 서비스 기동 전 단계가 종료 코드 `1`로 중단된다.

@@ -432,7 +432,7 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
   * **요청 기반 strict 타깃 역추적**: `target`으로 공유 링크(`/p?s=token`), 공유 토큰, URL, 문서 ID를 입력받는다. 복수 후보는 첫 문서로 임의 선택하지 않고 `ambiguous`, 미관측 대상은 `not_observed`, 문서 생성 전 실패 URL은 `failed_inbox`로 기록한다.
   * **인박스 이력**: `tracked_document/`에 URL·문서에 연결된 전체 `raw_inbox` 행을 포함한다. 관측성 데이터는 정본 `claire.db`에 신규 테이블을 추가하지 않는다.[^telemetry-implementation]
   * **빌드 식별**: `manifest.json`과 `diagnostics/build.json`에 이미지 빌드 시 주입된 Git commit, 패키지 버전, DB 스키마 버전·계보 및 이미지 태그를 기록한다.
-  * **다운로드 내구성**: `telemetry.db`의 레코드와 원문 토큰을 포함하지 않는 권한 `0600` SHA-256 sidecar를 함께 기록한다. DB 레코드가 유실되거나 읽기 실패해도 사용자가 가진 토큰과 sidecar가 일치하면 유효기간 안의 파일을 제공한다.
+  * **다운로드 내구성**: `telemetry.db`의 레코드와 원문 토큰을 포함하지 않는 권한 `0600` SHA-256 sidecar를 함께 기록한다. DB 레코드가 유실되거나 읽기 실패해도 사용자가 가진 토큰과 sidecar가 일치하면 유효기간 안의 파일을 제공한다. 생성 직후 같은 조회·경로 검증에 실패하면 URL을 반환하지 않는다.
   * **6시간 자동 파기**: 번들 생성 시 6시간 유효한 보안 다운로드 토큰(`GET /support/bundle?token=...`)을 발급하며, 생성 6시간 경과 시 디스크 및 DB에서 자동 파기 (`410 Gone`).
   * **옵션**:
     * `--days N`: 수집 대상 기간 (기본값: 1일). 텔레메트리 보관 기한(기본 30일)을 초과할 수 없음.
@@ -442,7 +442,7 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
     * `--json`: 번들 메타데이터를 JSON 포맷으로 출력.
 
 * `Telegram 봇: /support bundle [<일수>] [<대상>]`, `/support bundle list`, `/support bundle purge`:
-  * **원격 진단 번들 발급**: 텔레그램 채팅창에서 `/support bundle` 명령으로 즉시 최근 1일(또는 지정 일수, 대상 문서)의 zstd 진단 번들을 생성하고 6시간 다운로드 링크를 회신받음.[^telemetry-implementation]
+  * **원격 진단 번들 발급**: 텔레그램 채팅창에서 `/support bundle` 명령으로 즉시 최근 1일(또는 지정 일수, 대상 문서)의 zstd 진단 번들을 생성하고 6시간 다운로드 링크를 회신받음. 생성은 Compose 내부 owner 인증 API에 위임되어 다운로드 담당 API가 같은 저장소에서 생성·등록·검증한다.[^telemetry-implementation]
   * **인라인 원터치 액션 (`sb:{doc_id}`)**: 보관 문서의 공유 링크(`/p?s=token`) 또는 문서 ID를 봇에 전송하면 나타나는 스마트 액션 메뉴에 `[📦 Support Bundle 생성]` 버튼이 제공되어 원클릭으로 특정 문서 추적 번들 생성 가능.
   * **문서 첨부 전송**: 봇은 6시간 다운로드 URL 회신과 함께 생성된 `.tar.zst` 파일을 텔레그램 문서로 채팅방에 직접 첨부 전송(best-effort).
 

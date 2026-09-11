@@ -28,6 +28,7 @@ from claire.store.telemetry import (
 from claire.support_bundle import (
     DEFAULT_SUPPORT_BUNDLE_DAYS,
     SUPPORT_BUNDLE_TTL_SECONDS,
+    SupportBundleInfo,
     create_support_bundle,
     get_support_bundle,
     list_active_support_bundles,
@@ -221,6 +222,13 @@ def test_support_bundle_creation_and_zstd_archive(tmp_path: Path):
     assert info.size_bytes > 0
     assert info.expires_at - info.created_at == SUPPORT_BUNDLE_TTL_SECONDS
     assert f"token={info.token}" in info.download_url
+    assert info.token.startswith("sb3_")
+    api_info = SupportBundleInfo.from_dict(info.to_dict())
+    assert api_info.bundle_id == info.bundle_id
+    assert api_info.token == info.token
+    assert api_info.filepath == info.filepath
+    assert api_info.created_at == pytest.approx(info.created_at, abs=1e-6)
+    assert api_info.expires_at == pytest.approx(info.expires_at, abs=1e-6)
 
     # zstd 압축 해제 및 tar 파일 내용 검증
     dctx = zstd.ZstdDecompressor()
@@ -370,6 +378,19 @@ def test_support_bundle_remains_downloadable_when_db_registration_fails(
     assert record is not None
     assert record["bundle_id"] == info.bundle_id
     assert Path(record["filepath"]).is_file()
+
+
+def test_support_bundle_does_not_return_unverified_download(
+    tmp_path: Path, monkeypatch
+):
+    s = StubSettings(db_file=tmp_path / "claire.db", data_dir=tmp_path)
+    _seed_db(s.db_file)
+    monkeypatch.setattr("claire.support_bundle.get_support_bundle", lambda *_a, **_k: None)
+
+    with pytest.raises(RuntimeError, match="failed verification"):
+        create_support_bundle(s)
+
+    assert not list((tmp_path / "support_bundles").glob("*.tar.zst"))
 
 
 def test_support_bundle_tracks_failed_url_without_document(tmp_path: Path):
