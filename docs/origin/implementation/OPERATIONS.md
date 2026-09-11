@@ -23,7 +23,7 @@
 ./cb-manuscript down
 ./cb-manuscript restart
 ./cb-manuscript backup
-./cb-manuscript restore backups/cb-YYYYMMDD --yes
+./cb-manuscript restore backups/cb-YYYYMMDD-HHMMSS --yes
 ./cb-manuscript status
 ./cb-manuscript logs -f api
 ./cb-manuscript health
@@ -234,12 +234,14 @@ anonymous readonly가 켜지지 않는다. 원격 파일을 직접 수정하거�
 ./cb-manuscript backup --component data
 
 # 파일 또는 폴더 자동 판별
-./cb-manuscript restore backups/cb-20260725 --yes
-./cb-manuscript restore backups/cb-20260725.tar.gz --component data --yes
+./cb-manuscript restore backups/cb-20260725-143012 --yes
+./cb-manuscript restore backups/cb-20260725-143012.tar.gz --component data --yes
 ```
 
-산출물 이름은 현지 날짜 기준 `backups/cb-YYYYMMDD/` 또는
-`backups/cb-YYYYMMDD.tar.gz`다. 같은 날의 파일과 폴더는 하나의 slot으로 간주한다.
+새 산출물 이름은 현지 시각 기준 `backups/cb-YYYYMMDD-HHMMSS/` 또는
+`backups/cb-YYYYMMDD-HHMMSS.tar.gz`다. 초 단위 ID마다 파일과 폴더를 하나의 slot으로
+간주한다. 예전 `cb-YYYYMMDD` 날짜-only ID는 기존 backup의 restore compatibility에만
+허용하며 새 backup 생성에는 사용하지 않는다.
 기존 backup이 있으면 중단하며, 명시적인 `--replace`만 검증된 새 산출물로 교체한다.
 자동 prune이나 보존 개수 정책은 두지 않는다.
 

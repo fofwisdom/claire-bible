@@ -14,6 +14,8 @@
 
 | 파일명 | 원본 작성일/상태 | 설명 |
 |---|---|---|
+| [`GOALS.md`](GOALS.md) | 원본 | 프로젝트 목표와 로드맵 |
+| [`PLAN.md`](PLAN.md) | 원본 | 공개 아키텍처 계획 |
 | [`EXTERNAL_ACCESS.md`](EXTERNAL_ACCESS.md) | 2026-06-11 (설계안) | 원작의 초기 외부 접속 설계안 (오리진에서는 `docs/origin/implementation/EXTERNAL_ACCESS.md`로 대폭 개정/구현) |
 | [`MCP_SUPPORT.md`](MCP_SUPPORT.md) | 2026-08-15 (M1 배포) | 원작의 MCP 툴 지원 설계 명세 (오리진 개정본: `docs/origin/design/MCP_SUPPORT.md`) |
 | [`ONEHOP_MERGE_DESIGN.md`](ONEHOP_MERGE_DESIGN.md) | 2026-07-13 (설계 초안) | 1홉 확장 중복 완화 설계 초안 |

@@ -1,6 +1,6 @@
 # 원문 보존·서비스 보호·오염 통제의 상충과 지식 무결성 거버넌스 연구
 
-작성일: 2026-08-28 · 상태: **연구 및 아키텍처 제언** · 기준: [GOALS.md](../../../GOALS.md) 트랙1(안정성) / 트랙2(추출·연결 품질) / 관련: [DATA_LIFECYCLE_AND_PURGE_DESIGN.md](DATA_LIFECYCLE_AND_PURGE_DESIGN.md), [TABLE_INGESTION_DESIGN.md](TABLE_INGESTION_DESIGN.md)
+작성일: 2026-08-28 · 상태: **연구 및 아키텍처 제언** · 기준: [GOALS.md](../../upstream/GOALS.md) 트랙1(안정성) / 트랙2(추출·연결 품질) / 관련: [DATA_LIFECYCLE_AND_PURGE_DESIGN.md](DATA_LIFECYCLE_AND_PURGE_DESIGN.md), [TABLE_INGESTION_DESIGN.md](TABLE_INGESTION_DESIGN.md)
 
 ---
 

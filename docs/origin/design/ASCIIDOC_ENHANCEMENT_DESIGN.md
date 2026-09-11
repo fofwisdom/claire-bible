@@ -1,6 +1,6 @@
 # AsciiDoc 기능 고도화 및 확장 설계 명세서 (AsciiDoc Capability Expansion Design)
 
-작성일: 2026-09-01 · 상태: **Phase 1 구현 및 검증 완료 (In Progress / Phase 1 Complete)** · 기준: [GOALS.md](../../../GOALS.md) 트랙2(추출·연결 품질) 및 트랙3(가독성·소비 품질) / 관련: [DUAL_FORMAT_ADOC_DESIGN.md](DUAL_FORMAT_ADOC_DESIGN.md), [TABLE_INGESTION_DESIGN.md](TABLE_INGESTION_DESIGN.md)
+작성일: 2026-09-01 · 상태: **Phase 1 구현 및 검증 완료 (In Progress / Phase 1 Complete)** · 기준: [GOALS.md](../../upstream/GOALS.md) 트랙2(추출·연결 품질) 및 트랙3(가독성·소비 품질) / 관련: [DUAL_FORMAT_ADOC_DESIGN.md](DUAL_FORMAT_ADOC_DESIGN.md), [TABLE_INGESTION_DESIGN.md](TABLE_INGESTION_DESIGN.md)
 
 ---
 
