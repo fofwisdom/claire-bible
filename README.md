@@ -4,6 +4,7 @@
 새 자료를 **기존에 쌓인 그래프와 연결**하며, 나중에 키워드로 **검색 → LLM 정리**해 보여주는 **개인용 지식베이스**.
 
 - 업스트림 설계 원본: [PLAN.md](docs/upstream/PLAN.md) · 비전·로드맵: [GOALS.md](docs/upstream/GOALS.md)
+- 공동 호환성 계약: [docs/contracts/](docs/contracts/README.md)
 
 ## 상태
 
