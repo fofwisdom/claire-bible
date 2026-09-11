@@ -28,9 +28,26 @@ def seed(db_path: Path) -> None:
             title="테스트 문서 2 (응용 도구)",
             fetched_at=1700001000,
         )
+        doc3 = Document(
+            id="doc-3",
+            url="https://example.com/test-paper.pdf",
+            title="테스트 문서 3 (PDF 결함/폴백 테스트)",
+            fetched_at=1699999000,
+            source_type="file",
+            meta={
+                "pdf_parser_requested": "pypdfium2",
+                "pdf_parser_used": "pypdf",
+                "pdf_parser_fallback": True,
+                "pdf_parser_fallback_reason": "Encoding flaws detected: unmapped_cid_fonts",
+                "pdf_encoding_flaw_detected": True,
+                "pdf_encoding_flaws": ["unmapped_cid_fonts", "pua_characters"],
+                "pdf_is_scanned": True,
+            },
+        )
 
         dbm.insert_document(conn, doc1)
         dbm.insert_document(conn, doc2)
+        dbm.insert_document(conn, doc3)
 
         long_detail = "\n\n".join([
             f"## 섹션 {i}\n" + "첫 번째 테스트 문서의 스크롤 및 레일 내비게이션 검증을 위한 상세 본문 내용입니다. " * 15
@@ -48,9 +65,19 @@ def seed(db_path: Path) -> None:
             detail="두 번째 테스트 문서의 자세한 본문 내용입니다.",
             format="md",
         )
+        dbm.set_document_detail(
+            conn,
+            "doc-3",
+            detail="이 문서는 PDF 인코딩 결함 및 스캔본 감지 태그 테스트를 위한 문서입니다.",
+            format="md",
+        )
         conn.execute(
             "INSERT OR REPLACE INTO doc_shares(token, document_id, created_at, expires_at) VALUES (?,?,?,?)",
             ("23456789abcdefgh", "doc-1", 1700000000, None),
+        )
+        conn.execute(
+            "INSERT OR REPLACE INTO doc_shares(token, document_id, created_at, expires_at) VALUES (?,?,?,?)",
+            ("34567892abcdefgh", "doc-3", 1699999000, None),
         )
 
         e1 = Entity(
