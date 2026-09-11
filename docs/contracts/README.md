@@ -21,6 +21,9 @@
 | 문서 | 범위 | 현재 상태 |
 |---|---|---|
 | [`SCHEMA_VERSIONING.md`](SCHEMA_VERSIONING.md) | SQLite 공통 schema version과 lineage, v13 수렴 및 이후 변경 규칙 | 오리진 채택, 업스트림 제안 |
+| [`API_HTTP_CONTRACT.md`](API_HTTP_CONTRACT.md) | HTTP REST/ASGI 와이어 프로토콜, 인증 채널 및 보안 경계 최소 공통 규약 | 오리진 채택, 업스트림 제안 |
+| [`TOKEN_EXCHANGE.md`](TOKEN_EXCHANGE.md) | RFC 8693 OAuth 2.0 Token Exchange 프로토콜, URN 레지스트리 및 토큰 로테이션 계약 | 오리진 채택, 업스트림 제안 |
+| [`openapi.yaml`](openapi.yaml) | 기계 판독용 OpenAPI 3.1.0 공통 API 사양서 정본 | 오리진 채택, 업스트림 제안 |
 
 ## 변경 절차
 

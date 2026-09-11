@@ -12,7 +12,10 @@ docs/
 │
 ├── contracts/              # [공동 계약] 업스트림·오리진 상호 호환성 규약
 │   ├── README.md           # 공동 계약의 범위, 상태와 변경 절차
-│   └── SCHEMA_VERSIONING.md # 공통 DB version/lineage 및 v13 계약
+│   ├── SCHEMA_VERSIONING.md # 공통 DB version/lineage 및 v13 계약
+│   ├── API_HTTP_CONTRACT.md # HTTP REST/ASGI 와이어 프로토콜 및 인증 보안 규약
+│   ├── TOKEN_EXCHANGE.md   # RFC 8693 OAuth 2.0 Token Exchange 토큰 교환 계약
+│   └── openapi.yaml        # 기계 판독용 OpenAPI 3.1.0 공통 API 사양서 정본
 │
 ├── upstream/               # [업스트림 원본] blackan/claire_bible 원작 저장소 문서
 │   ├── README.md           # 업스트림 문서 목록 및 출처 안내
@@ -58,8 +61,8 @@ docs/
 ## 분류 및 참조 가이드
 
 1. **[`docs/contracts/`](contracts/README.md)**
-   - 업스트림과 오리진이 함께 채택하고 갱신하는 version, lineage와 호환성 계약입니다.
-   - 현재 공통 지식 DB 계약은 [`SCHEMA_VERSIONING.md`](contracts/SCHEMA_VERSIONING.md)입니다.
+   - 업스트림과 오리진이 함께 채택하고 갱신하는 version, lineage, API 와이어 프로토콜 및 토큰 교환 호환성 계약입니다.
+   - 공통 지식 DB 계약은 [`SCHEMA_VERSIONING.md`](contracts/SCHEMA_VERSIONING.md), HTTP 와이어/보안 계약은 [`API_HTTP_CONTRACT.md`](contracts/API_HTTP_CONTRACT.md), OAuth 2.0 토큰 교환 표준 계약은 [`TOKEN_EXCHANGE.md`](contracts/TOKEN_EXCHANGE.md)이며, 기계 판독용 정본은 [`openapi.yaml`](contracts/openapi.yaml)입니다.
    - 구현별 운영 절차나 기능 계획을 넣지 않고 최소 공통 계약만 유지합니다.
 
 2. **[`docs/upstream/`](upstream/README.md)**
