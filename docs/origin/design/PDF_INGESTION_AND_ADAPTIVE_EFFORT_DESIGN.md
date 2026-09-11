@@ -55,10 +55,14 @@ flowchart TD
 
 ---
 
-### 3.2 선택형 PDF 파서 아키텍처 (`pypdf` / `docling`) 및 런타임 실패 보고 체계
-PDF 문서는 2단(Two-Column) 레이아웃, 복잡한 데이터 표, 수식 등 다양한 형태를 가집니다. 이를 위해 플러그형 선택 파서 구조를 제공합니다:
-- **`pypdf` (기본값)**: 순수 파이썬 기반으로 초경량, 초고속 텍스트 및 메타데이터 추출. 리소스 제약이 있는 서버 환경에서 디스크/메모리 부하 없이 즉시 안정적으로 작동.
-- **`docling` (고급 레이아웃 분석)**: 딥러닝 기반 레이아웃 파서를 통해 2단 칼럼의 텍스트 뒤섞임(interleaving)을 방지하고 올바른 읽기 순서로 복원하며, 데이터 표를 마크다운 테이블로 구조화.
+### 3.2 표준 PDF 파서 아키텍처 (`default` / `docling`) 및 런타임 실패 보고 체계
+PDF 문서는 2단(Two-Column) 레이아웃, 복잡한 데이터 표, 수식 등 다양한 형태를 가집니다. 이를 위해 검증된 2가지 표준 파서 구조를 제공합니다:
+- **`default` (기본값, Chromium C++ PDFium 기반)**: `pypdfium2`를 기본 엔진으로 채택하여 기존 pure-python 대비 5~15배 빠른 파싱과 완전한 CMap/ToUnicode 매핑을 제공합니다. 리소스 제약이 있는 서버 환경에서도 디스크/메모리 부하 없이 즉시 안정적으로 작동합니다.
+- **`docling` (선택형 고급 레이아웃 분석)**: 딥러닝 기반 레이아웃 파서를 통해 2단 칼럼의 텍스트 뒤섞임(interleaving)을 방지하고 올바른 읽기 순서로 복원하며, 데이터 표를 마크다운 테이블로 구조화합니다.
+- **비표준 파서 모드 차단 및 무분별한 폴백 배제**:
+  - `pypdf`, `lightweight`, `auto` 등 임의의 파서 호출 옵션은 완전히 제거되었습니다.
+  - 배포 환경변수에 `CLAIRE_PDF_PARSER=pypdf`가 설정되어 있을 경우, `cb-manuscript preflight` 검사 단계에서 실행이 즉시 차단되며 `default` 또는 `docling`으로 변경하도록 안내합니다.
+  - 또한 침묵형 사고를 방지하기 위해 `pypdf` 직접 주입 시의 `pypdfium2` 자동 폴백은 지양 원칙에 따라 배제되었습니다.
 - **컨테이너 운영 시 리소스 고려사항**:
   - `docling` 의존성은 기본적으로 PyTorch 및 대용량 신경망/CUDA 라이브러리(~3.5GB~4.5GB 비압축 용량)를 포함합니다.
   - `docker compose build`를 통해 여러 서비스(`api`, `bot`, `expand`, `refresh`, `recover`)를 병렬 빌드할 경우, Docker BuildKit이 각 서비스 타겟별로 스냅샷 레이어를 동시에 언패킹하면서 순간적인 피크 디스크 사용량(약 20GB+)이 발생할 수 있습니다.
@@ -67,14 +71,13 @@ PDF 문서는 2단(Two-Column) 레이아웃, 복잡한 데이터 표, 수식 등
     2. 또는 CPU 전용 휠 선설치(`--index-url https://download.pytorch.org/whl/cpu torch torchvision`)를 통해 이미지 레이어 크기를 95% 이상 절감.
     3. 모델 캐시 영구화: `HF_HOME=/app/data/cache/huggingface`를 설정하여 컨테이너 재빌드 시 모델 가중치 재다운로드 방지.
 - **Graceful Fallback & 전방위 경과 보고 체계**:
-  - `CLAIRE_PDF_PARSER`의 기본 엔진으로 Chromium C++ 기반의 `pypdfium2`를 채택하여 기존 pure-python 대비 5~15배 빠른 파싱과 향상된 ToUnicode/CMap 매핑을 제공합니다.
-  - `CLAIRE_PDF_PARSER=docling` 설정 상태에서 모델 다운로드 실패, 컨테이너 메모리 부족(OOM), CPU 타임아웃, 런타임 변환 오류 등으로 docling이 실패할 경우, 경고 로깅 후 `pypdfium2` 및 `pypdf`로 자동 폴백하여 무중단 수집을 보장합니다.
-  - 또한 `pypdfium2`로 텍스트를 추출할 때 **인코딩 결함 감지 엔진**(`detect_pdf_encoding_flaws`)이 동작하여 CID 누락(`(cid:xxx)`), PUA 사설 영역 글꼴, 유니코드 대체문자(`\ufffd`), 스캔본 저밀도 등을 실시간 진단하며, 결함 발견 시 Docling OCR로 자동 복구 에스컬레이션을 시도합니다.
+  - `CLAIRE_PDF_PARSER=docling` 설정 상태에서 모델 다운로드 실패, 컨테이너 메모리 부족(OOM), CPU 타임아웃, 런타임 변환 오류 등으로 docling이 실패할 경우, 경고 로깅 후 `default`(`pypdfium2`)로 안전하게 폴백하여 무중단 수집을 보장합니다.
+  - 또한 `default`로 텍스트를 추출할 때 **인코딩 결함 감지 엔진**(`detect_pdf_encoding_flaws`)이 동작하여 CID 누락(`(cid:xxx)`), PUA 사설 영역 글꼴, 유니코드 대체문자(`\ufffd`), 제어문자 과다 밀도, 스캔본 저밀도 등을 실시간 진단하며, 결함 발견 시 Docling OCR로 자동 복구 에스컬레이션을 시도합니다.
   - 이때 실패 및 폴백, 결함 원인을 정밀 분류하여 **전방위 보고 채널**로 경과를 통지합니다:
     1. **문서 메타데이터 (`doc.meta`)**: `pdf_parser_requested`, `pdf_parser_used`, `pdf_parser_fallback`, `pdf_parser_fallback_reason`, `pdf_encoding_flaw_detected`, `pdf_encoding_flaws`, `pdf_is_scanned` 명시 저장.
     2. **GraphView 웹 UI**: 문서 상세 메타 영역에 대체 배지 `⚠️ 파서 폴백`, 결함 배지 `⚠️ PDF 인코딩 결함`, `📷 스캔본 PDF` 노출 및 툴팁으로 실제 사유 안내.
     3. **CLI 적재 리포트 및 텔레그램 완료 알림**: `IngestReport.telegram_summary`에 파서 대체 및 인코딩 결함/스캔본 경고 명시.
-    4. **안정성 우선 정책**: 프로덕션 기본 파서는 `CLAIRE_PDF_PARSER=pypdfium2`로 신속하고 신뢰성 높은 적재를 보장하며, 다단 분석 및 OCR이 필수적인 경우에 한해 Docling을 활성화/에스컬레이션.
+    4. **안정성 우선 정책**: 프로덕션 기본 파서는 `CLAIRE_PDF_PARSER=default`로 신속하고 신뢰성 높은 적재를 보장하며, 다단 분석 및 OCR이 필수적인 경우에 한해 Docling을 활성화/에스컬레이션.
 
 ---
 
@@ -89,12 +92,20 @@ PDF 문서는 2단(Two-Column) 레이아웃, 복잡한 데이터 표, 수식 등
 
 ---
 
-### 3.4 서지 메타데이터 추출 및 글자 수 한도 완전 제외 (Budget Exemption)
-- **추출 항목**: 저자(Author), 발행일자(Published At), DOI, arXiv ID.
-- **추출 경로**: PDF `/Author`, `/CreationDate` 메타데이터 및 본문 서두 정규식 탐지.
+### 3.4 서지 메타데이터 정제, DTP 조판 아티팩트 방어 및 지식 그래프 오염 차단
+- **DTP 조판 아티팩트(QuarkXPress/InDesign) 문제**:
+  - 금융연구원, 학회지, 정부 연구보고서 등 전문 간행물 PDF는 조판 소프트웨어(QuarkXPress, Adobe InDesign)로 생성되는 경우가 많습니다.
+  - 이들 PDF는 헤더 메타데이터 `/Author`에 실제 연구자가 아닌 **DTP 조판 편집자/디자이너의 PC 계정명(예: `park-sy`)**이, `/Title`에는 **판호 작업 파일명(예: `35 17 `)**이 무단 삽입되어 있습니다.
+  - 이를 그대로 신뢰하여 인입할 경우, LLM이 조판 디자이너를 기관의 저자 엔티티로 허위 추출(Hallucination)하여 지식 그래프를 심각하게 오염시키는 참사가 발생합니다.
+- **DTP 아티팩트 자동 식별 및 메타데이터 조정 (`reconcile_pdf_metadata`)**:
+  - `is_dtp_typesetter_artifact(author, pdf_meta)`: PDF Producer/Creator의 조판 툴 시그니처 및 디자이너 계정 패턴을 정규식으로 감지.
+  - `is_dtp_title(title)`: 단순 판호 번호나 권호 조합(예: `35 17`, `vol_35`)과 같은 조판 파일명 패턴을 감지.
+  - `extract_author_heuristic(text)` & `extract_title_heuristic(text)`: 문서 1페이지 상단에서 연구자 직함(`선임연구위원`, `연구위원`, `연구원`, `교수`, `박사` 등)을 수반한 실제 저자명 및 실제 논단 제목을 헤더 텍스트로부터 신속 추출.
+  - **1차 논문 판정(`classify_paper`)과의 연계**: LLM 논문 분류기 응답 스키마에 `author`와 `title`을 함께 질의하여, 휴리스틱과 LLM의 교차 검증을 통해 본문 서두의 정본 저자/제목을 확보.
+  - **DB 저장 전 메타데이터 교정**: 적재 파이프라인(`ingest_item`) 단계에서 DB 저장 전에 `reconcile_pdf_metadata`를 실행하여, 조판 아티팩트 계정은 제거하고 확인된 실제 저자(`doc.author`)와 제목(`doc.title`)으로 교정·적재.
 - **예산 면제 (Budget Exemption)**:
-  - 추출된 서지 정보는 `Document.author`, `Document.published_at` 및 `doc.meta["biblio"]`에 정형 데이터로 저장됩니다.
-  - LLM 프롬프트 투입 시(`doc_to_prompt`), 본문 50,000자 슬라이싱 한도(`limit`)에 합산되지 않고 **상단 헤더(`head`)에 직접 주입**되어 본문 글자 수를 전혀 잠식하지 않고 100% 무손실로 LLM에 전달됩니다.
+  - 추출·교정된 서지 정보는 `Document.author`, `Document.title`, `Document.published_at`에 정형 데이터로 저장됩니다.
+  - LLM 프롬프트 투입 시(`doc_to_prompt`), 본문 50,000자 슬라이싱 한도(`limit`)에 합산되지 않고 **상단 헤더(`AUTHOR: ...`)에 직접 주입**되어 본문 글자 수를 전혀 잠식하지 않고 100% 무손실로 LLM에 전달됩니다.
 
 ---
 
@@ -136,17 +147,18 @@ PDF 문서는 2단(Two-Column) 레이아웃, 복잡한 데이터 표, 수식 등
 #### 2. 주요 오픈소스 파서 기술 비교
 | 파서 엔진 | 레이아웃 복원 원리 | 강점 | 한계 및 비용 | 적합한 사용 시나리오 |
 | :--- | :--- | :--- | :--- | :--- |
-| **`pypdf`** | 문자 스트림 순차 추출 | 무설치 수준의 초경량, CPU 메모리 극소화, 초고속 | 다단 칼럼 줄 뒤섞임 및 복잡한 표 구조 파괴 위험 | 단일 칼럼 문서, 단순 보고서, 빠른 인덱싱 |
-| **`docling`** (IBM) | LayoutLMv3 + TableFormer 딥러닝 분석 | 다단 레이아웃을 정확한 읽기 순서로 복원, 마크다운 표/수식 완벽 변환, 풍부한 메타데이터 | 의존성 용량(~1.5GB+ 모델 다운로드), CPU 추론 시 수 초 소요 | 정밀한 학술 논문, 다단 보고서, 데이터 표가 많은 문서 (현재 optional 지원) |
+| **`default (pypdfium2)`** | Chromium PDFium 기반 고속 텍스트/CMap 추출 | 초고속(0.05~0.2초), 완벽한 CMap 매핑, CPU 메모리 극소화 | 다단 칼럼 줄 뒤섞임 및 복잡한 표 구조 파괴 위험 | 단일 칼럼 문서, 일반 보고서, 표준 인덱싱 (기본 권장) |
+| **`docling`** (IBM) | LayoutLMv3 + TableFormer 딥러닝 분석 | 다단 레이아웃을 정확한 읽기 순서로 복원, 마크다운 표/수식 완벽 변환, 풍부한 메타데이터 | 의존성 용량(~1.5GB+ 모델 다운로드), CPU 추론 시 수 초 소요 | 정밀한 학술 논문, 다단 보고서, 데이터 표가 많은 문서 (선택 지원) |
 | **`Marker`** (VikParuchuri) | Nougat + Surya OCR/Layout 파이프라인 | 최고 수준의 마크다운 렌더링 품질, 수식 LaTeX 변환 탁월 | PyTorch/CUDA 의존성, 고사양 리소스 필요 | GPU 서버 환경에서의 대규모 학술 논문 변환 파이프라인 |
 | **`PyMuPDF (fitz)`** | 텍스트 Bounding Box 좌표 휴리스틱 클러스터링 | C 라이브러리 기반 초고속, 블록 좌표 기반 칼럼 분리 지원, 가벼운 의존성 | 비정형 다단이나 복잡한 표 셀 병합 복원에는 한계 | 딥러닝 없이 가볍게 80% 이상의 표준 2단 칼럼 순서를 교정할 때 |
 
 #### 3. 3단계 채택 로드맵
 1. **1단계 (현재 구현 완료)**:
-   - `CLAIRE_PDF_PARSER` 환경변수를 통해 `pypdf`(기본)와 `docling`(선택형) 플러그인 아키텍처 구축.
-   - `pip install 'claire[docling]'`을 통해 필요한 환경에서만 선택 설치 가능하며, 미설치 시 안전한 `pypdf` graceful fallback 제공.
+   - `CLAIRE_PDF_PARSER` 환경변수를 통해 `default`(`pypdfium2` 기반 초고속 파서)와 `docling`(선택형 AI 파서) 플러그인 아키텍처 구축.
+   - `pip install 'claire[docling]'`을 통해 필요한 환경에서만 선택 설치 가능하며, 미설치 또는 런타임 실패 시 안전한 `default` graceful fallback 제공.
+   - 레거시 `pypdf` 호출은 `cb-manuscript preflight`에서 차단.
 2. **2단계 (중기 개선안 - 경량 좌표 휴리스틱 도입)**:
-   - 무거운 딥러닝 모델 다운로드 없이도, `PyMuPDF` 또는 `pypdf`의 Bounding Box 좌표(x0, y0, x1, y1)를 분석하여 페이지 중앙 여백(gutter)을 기준으로 좌/우 칼럼 블록을 먼저 정렬한 후 읽는 경량 Bounding-Box 휴리스틱 도입.
+   - 무거운 딥러닝 모델 다운로드 없이도, Bounding Box 좌표(x0, y0, x1, y1)를 분석하여 페이지 중앙 여백(gutter)을 기준으로 좌/우 칼럼 블록을 먼저 정렬한 후 읽는 경량 Bounding-Box 휴리스틱 도입.
 3. **3단계 (장기 개선안 - VLM 기반 멀티모달 파이프라인)**:
    - 복잡한 수식과 다이어그램이 핵심인 최첨단 논문의 경우, 온디바이스 VLM(ColPali, Nougat) 또는 Gemini Multimodal PDF 직접 인라인 분석 파이프라인과의 연계 지원.
 

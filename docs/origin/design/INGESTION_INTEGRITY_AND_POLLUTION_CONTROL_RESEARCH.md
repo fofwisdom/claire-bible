@@ -134,3 +134,5 @@ Claire Bible 시스템은 웹, 파일, API, 메신저 등 다양한 채널을 �
    도메인, 스키마, 사용자 지시어(`directive`)의 맥락을 고려하는 적응형 파이프라인을 구축한다.
 4. **절단 섹션 상세 작성 배제 (Exclusion of Truncated Sections in Detail Rendering)**:
    원문을 절단하여 적재 및 상세 작성 시, 절단되어 내용이 유실된 섹션(미완성 문단, 잘린 소제목·조항 등)은 상세를 작성하지 않는다. 불완전한 텍스트 파편에 기반한 환각(Hallucination)과 불완전한 지식 생성(Partial Corruption)을 원천 차단하고 온전히 보존된 섹션까지만 상세 본문으로 구성한다.
+5. **메타데이터 원천 검증 및 조판 아티팩트 오염 차단 (Metadata Source Verification & DTP Artifact Rejection)**:
+   인입된 바이너리 문서(PDF 등)의 헤더 메타데이터(`/Author`, `/Title`)에 전자출판 조판 소프트웨어(QuarkXPress, Adobe InDesign 등)가 자동 주입한 디자이너 OS 계정(예: `park-sy`)이나 판호 파일명(예: `35 17 `)과 같은 DTP 아티팩트를 식별·배제한다. 문서 1페이지 서두의 직함(`선임연구위원` 등) 기반 실제 저자명 및 실제 논단명을 추출·교정([`reconcile_pdf_metadata`](file:///home/fow/Projects/claire-bible/src/claire/extract/classifier.py))하여 DB 및 지식 그래프에 허위 인물/작품 엔티티가 영구 고착되는 온톨로지 독화를 원천 차단한다.

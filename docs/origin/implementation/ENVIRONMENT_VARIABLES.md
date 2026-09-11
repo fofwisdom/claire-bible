@@ -207,7 +207,7 @@ VMware Explore 숫자형 영상 상세 페이지가 Presentation PDF를 명시�
 | 환경변수명 | 기본값 | 허용 값 / 타입 | 설명 |
 | :--- | :--- | :--- | :--- |
 | `CLAIRE_RAW_CHAR_BUDGET` | `20000` | 정수 (글자 수) | 원문 텍스트 수집 기본 보관 상한 (웹, 텍스트 파일, X, 유튜브 등). |
-| `CLAIRE_PDF_PARSER` | `default` | `default`, `docling` | PDF 텍스트 추출 엔진 (`default`: 기본 고속 Chromium C++ PDFium 파서, `docling`: 선택형 AI 다단 칼럼/표 분석 및 OCR 파서). ([PDF_INGESTION_AND_ADAPTIVE_EFFORT_DESIGN.md](../design/PDF_INGESTION_AND_ADAPTIVE_EFFORT_DESIGN.md) 참조) |
+| `CLAIRE_PDF_PARSER` | `default` | `default`, `docling` | PDF 텍스트 추출 엔진 (`default`: 기본 고속 Chromium C++ PDFium 파서, `docling`: 선택형 AI 다단 칼럼/표 분석 및 OCR 파서. `pypdf` 설정 시 `cb-manuscript preflight`에서 차단됨). ([PDF_INGESTION_AND_ADAPTIVE_EFFORT_DESIGN.md](../design/PDF_INGESTION_AND_ADAPTIVE_EFFORT_DESIGN.md) 참조) |
 | `CLAIRE_PDF_DETECT_ENCODING_FLAWS` | `true` | `true`, `false`, `1`, `0` | PDF 텍스트 인코딩 결함(CID 누락, PUA 글꼴, 대체문자, 제어문자 노이즈 등) 및 스캔본 감지 여부. |
 | `CLAIRE_PDF_FLAW_ESCALATE_DOCLING` | `true` | `true`, `false`, `1`, `0` | PDF 인코딩 결함 감지 시 Docling OCR/레이아웃 복구 자동 에스컬레이션 시도 여부. |
 | `CLAIRE_PDF_MAX_EXTRACT_CHARS` | `50000` | 정수 (글자 수) | PDF 파싱 시 스트림에서 추출할 최대 텍스트 분량. ([PDF_INGESTION_AND_ADAPTIVE_EFFORT_DESIGN.md](../design/PDF_INGESTION_AND_ADAPTIVE_EFFORT_DESIGN.md) 참조) |

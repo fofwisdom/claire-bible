@@ -183,11 +183,11 @@ class Document(BaseModel):
 
 ### 5.3. PDF 추출
 
-- `CLAIRE_PDF_PARSER`의 `pypdf`/`docling` 선택과 파서 폴백 메타데이터를 그대로 재사용한다.
+- `CLAIRE_PDF_PARSER`의 `default`(`pypdfium2`)/`docling` 선택과 파서 폴백 메타데이터를 그대로 재사용한다.
 - 발표자료는 학술 논문이 아니므로 `pdf_exclude_appendix`와 `pdf_exclude_references`를 적용하지 않는다.
 - 일반 적재는 `CLAIRE_PDF_MAX_EXTRACT_CHARS`를 상한으로 사용하고, `--full`은 기존 full-content 안전 상한을 따른다.
 - 암호화, 빈 본문, 파서 전체 실패는 `extract_failed`로 처리한다.
-- `pypdf`에서 얻은 제목·작성자·페이지 수는 보조 메타데이터로 보존하지만 영상 세션 제목과 발표자 정보를 우선 표시한다.
+- PDF 추출 엔진에서 얻은 제목·작성자·페이지 수는 보조 메타데이터로 보존하지만 영상 세션 제목과 발표자 정보를 우선 표시한다.
 
 ### 5.4. 결합 본문
 
@@ -231,8 +231,8 @@ class Document(BaseModel):
     "content_sha256": "...",
     "text_sha256": "...",
     "raw_chars": 9247,
-    "parser_requested": "pypdf",
-    "parser_used": "pypdf",
+    "parser_requested": "default",
+    "parser_used": "default",
     "parser_fallback": false,
     "artifact_path": "raw/attachments/<doc_id>/presentation/<sha256>.pdf"
   },
@@ -266,7 +266,7 @@ class Document(BaseModel):
 | PDF 성공, CC 성공 | CC + PDF 결합 적재, STT 미호출 |
 | PDF 성공, CC 없음, STT 성공 | STT + PDF 결합 적재 |
 | PDF 성공, 미디어 텍스트 없음 | `FetchError(bundle_incomplete_media)`, PDF만 적재하지 않음 |
-| `docling` 실패, `pypdf` 성공 | 결합 적재, 기존 파서 폴백 메타데이터 표시 |
+| `docling` 실패, `default`(`pypdfium2`) 성공 | 결합 적재, 기존 파서 폴백 메타데이터 표시 |
 | PDF 바이너리 저장 실패 | DB insert/update 전에 중단 |
 | LLM 추출 실패 | 기존 inbox/error 및 복구 계약 적용; 원문 획득 실패로 위장하지 않음 |
 
@@ -322,7 +322,7 @@ class Document(BaseModel):
 - HTTP, 사용자 정보 URL, 비허용 호스트, private IP 리다이렉트 차단
 - Content-Length 누락 상태의 스트리밍 크기 초과 차단
 - MIME 위장과 `%PDF-` 매직 불일치 차단
-- `pypdf` 성공과 `docling -> pypdf` 폴백
+- `default`(`pypdfium2`) 성공과 `docling -> default` 폴백
 - CC + PDF에서 STT·오디오 미호출
 - STT + PDF 결합
 - 광고된 PDF 실패 시 `FetchError`와 DB 무변경
@@ -336,7 +336,7 @@ class Document(BaseModel):
 - `transcript_source=manual_caption`, `caption_language=en-US`
 - `presentation_pdf.status=available`
 - 응답 MIME·매직·크기·SHA-256 기록
-- `pypdf` 추출 텍스트가 결합 `raw_text`의 Presentation 구획에 존재
+- PDF 추출 텍스트가 결합 `raw_text`의 Presentation 구획에 존재
 - 원본 PDF가 문서별 아티팩트에 존재
 - STT와 오디오 다운로드가 호출되지 않음
 - LLM 입력에서 자막과 PDF 구획이 모두 최소 예산을 확보
