@@ -439,7 +439,7 @@ def doc_to_prompt(doc: Document, *, full_content: bool = False) -> str:
         limit = max(100000, settings.pdf_max_extract_chars * 2)
     elif (doc.meta or {}).get("extra_sources"):
         limit = settings.effective_merged_extract_char_budget
-    elif doc.source_type == "pdf":
+    elif doc.source_type in ("pdf", "odt"):
         limit = settings.pdf_max_extract_chars
     else:
         limit = settings.extract_char_budget

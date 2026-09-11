@@ -24,16 +24,38 @@ def fetch_text(payload: str, *, full_content: bool = False) -> Document:
 
 
 def fetch_file(path: str, *, full_content: bool = False) -> Document:
-    """로컬 파일 (.md/.txt/.pdf 등)."""
+    """로컬 파일 (.md/.txt/.pdf/.odt 등)."""
     p = Path(path)
     if not p.exists():
         from .base import FetchError
 
         raise FetchError(f"file not found: {path}")
+
+    # PDF/ODT 선택 가능 시 ODT 우선: .pdf 경로 요청 시 동명의 .odt 파일이 존재하면 ODT 채택
+    format_preference = None
+    orig_requested_path = None
+    if p.suffix.lower() == ".pdf":
+        odt_sibling = p.with_suffix(".odt")
+        if odt_sibling.is_file():
+            orig_requested_path = str(p.resolve())
+            p = odt_sibling
+            format_preference = "odt_over_pdf"
+
     suffix = p.suffix.lower()
     raw_bytes = p.read_bytes()
     biblio: dict[str, Any] = {}
-    if suffix == ".pdf" or raw_bytes.startswith(b"%PDF-"):
+    if suffix == ".odt":
+        from .odt import extract_odt_bytes, is_odt_bytes
+
+        odt_res = extract_odt_bytes(raw_bytes, fallback_title=p.stem)
+        title, text, _, _, oerr, _ = odt_res[:6]
+        biblio = getattr(odt_res, "biblio", {}) or {}
+        if oerr or not text:
+            from .base import FetchError
+
+            raise FetchError(oerr or f"empty ODT file: {path}")
+        source_type = "odt"
+    elif suffix == ".pdf" or raw_bytes.startswith(b"%PDF-"):
         from .pdf import extract_pdf_bytes
 
         pdf_res = extract_pdf_bytes(raw_bytes, fallback_title=p.stem)
@@ -49,11 +71,25 @@ def fetch_file(path: str, *, full_content: bool = False) -> Document:
         title = p.stem
         source_type = "file"
     else:
-        from .base import FetchError
+        from .odt import is_odt_bytes
 
-        raise FetchError(f"unsupported file type (M1): {suffix}")
+        if is_odt_bytes(raw_bytes):
+            from .odt import extract_odt_bytes
+
+            odt_res = extract_odt_bytes(raw_bytes, fallback_title=p.stem)
+            title, text, _, _, oerr, _ = odt_res[:6]
+            biblio = getattr(odt_res, "biblio", {}) or {}
+            if oerr or not text:
+                from .base import FetchError
+
+                raise FetchError(oerr or f"empty ODT file: {path}")
+            source_type = "odt"
+        else:
+            from .base import FetchError
+
+            raise FetchError(f"unsupported file type (M1): {suffix}")
     settings = get_settings()
-    budget = 0 if full_content else (settings.pdf_max_extract_chars if source_type == "pdf" else settings.raw_char_budget)
+    budget = 0 if full_content else (settings.pdf_max_extract_chars if source_type in ("pdf", "odt") else settings.raw_char_budget)
     appendix_truncated = False
     references_truncated = False
     if source_type == "pdf":
@@ -79,6 +115,12 @@ def fetch_file(path: str, *, full_content: bool = False) -> Document:
         "orig_chars": orig_chars,
         "raw_chars": raw_chars,
     }
+    if format_preference:
+        meta["format_preference"] = format_preference
+        if orig_requested_path:
+            meta["original_requested_file"] = orig_requested_path
+    if source_type == "odt" and "odt_res" in locals():
+        meta["odt_parser_used"] = getattr(odt_res, "parser_used", "odt")
     if source_type == "pdf" and "pdf_res" in locals():
         meta["pdf_parser_requested"] = getattr(pdf_res, "parser_requested", "pypdf")
         meta["pdf_parser_used"] = getattr(pdf_res, "parser_used", "pypdf")
