@@ -2,6 +2,8 @@
 
 Claire Bible 오리진 저장소([`fofwisdom/claire-bible`](https://github.com/fofwisdom/claire-bible))의 문서는 **설계 내역(`design/`)**과 **구현/운영 내역(`implementation/`)**으로 엄격히 구분하여 보관합니다.
 
+업스트림과 오리진이 함께 유지하는 version·lineage 및 호환성 규약은 오리진 전용 문서가 아니므로 [`docs/contracts/`](../contracts/README.md)에 둡니다.
+
 > [!NOTE]
 > 업스트림([`blackan/claire_bible`](https://github.com/blackan/claire_bible))의 기능을 오리진에 구현/적용했더라도 업스트림 원본 문서를 직접 수정·개정하지 않은 문서(예: `ONEHOP_MERGE_DESIGN.md`, `SYNTHESIS_REDESIGN.md`, 각종 리서치 아티클)는 [`docs/upstream/`](../upstream/README.md)에 단일 보관하며 오리진에 중복 보관하지 않습니다.
 
@@ -28,7 +30,7 @@ docs/origin/
 │   ├── PREFERRED_LANGUAGES_DESIGN.md     # 프로젝트 광역 선호 언어(Preferred Languages) 설계
 │   ├── QUALITY_GUARDRAILS_AND_SUMMARY_INTEGRITY_DESIGN.md # 품질 검증 가드레일 런타임 컴포넌트화, 요약 무결성 및 관측성 개선 설계
 │   ├── RIGHT_MENU_COMPACT_DESIGN.md      # 우측 메뉴 컴팩트화 및 반응형 UI 설계
-│   ├── SCHEMA_VERSIONING.md               # 공통 스키마 버전, 계보, 폐기 버전 수렴 정책
+│   ├── ORIGIN_SCHEMA_EXTENSIONS.md        # 오리진 스키마 확장과 retired version 복구 정책
 │   ├── TABLE_INGESTION_DESIGN.md         # 원문 테이블 적재 및 본문 글자 수 제한 제외 설계
 │   ├── TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md # 프로바이더 텔레메트리 격리 및 Support Bundle 아키텍처 설계
 │   ├── VIDEO_AUDIO_TRANSCRIPTION_AND_INGESTION_DESIGN.md # 비디오 음성 자막(전사) 생성 및 지식 적재 파이프라인 설계
@@ -65,7 +67,7 @@ docs/origin/
   - `MULTI_PROVIDER_DESIGN.md`: 멀티 LLM 프로바이더 및 캘리브레이션 설계
   - `MULTI_THEME_ARCHITECTURE_DESIGN.md`: 시퀀스 기반 지식 테마 다중 DB 격리, 4단계 RBAC 및 적재 초점(default_focus) 아키텍처 설계
   - `QUALITY_GUARDRAILS_AND_SUMMARY_INTEGRITY_DESIGN.md`: 품질 검증 가드레일 런타임 컴포넌트화, 요약 무결성 및 관측성 개선 설계
-  - `SCHEMA_VERSIONING.md`: 업스트림·오리진 공통 버전, 계보 표식, v12 철회와 v13 수렴 정책
+  - `ORIGIN_SCHEMA_EXTENSIONS.md`: 공동 v13을 기준으로 한 오리진 확장, retired v12 복구와 보조 저장소 version 계획
   - `OPERATIONAL_MIGRATION.md`: 환경변수 migration과 전체 DB inventory 기반 update/backup 계획
   - `TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md`: 프로바이더 텔레메트리 격리, 독립 schema/lineage 및 Support Bundle version 계약
   - `MCP_SUPPORT.md`: RFC 6750 표준 인증 기반 MCP 지원 설계
@@ -86,6 +88,7 @@ docs/origin/
 ---
 
 ## 상대 경로 및 링크 규칙
+- 공동 계약은 `docs/origin/design/`에서 `../../contracts/<FILE>`로 참조합니다.
 - 업스트림에서 이동된 `GOALS.md`와 `PLAN.md`는 `docs/origin/design/`에서 `../../upstream/<FILE>`로 참조합니다. 프로젝트 루트 `README.md`는 `../../../README.md`로 참조합니다.
 - 동일 분류 폴더 내 문서는 파일명으로 직접 링크합니다 (예: `[DATA_LIFECYCLE_AND_PURGE_DESIGN.md](DATA_LIFECYCLE_AND_PURGE_DESIGN.md)`).
 - 다른 분류의 문서를 참조할 때는 `../<폴더>/<FILE>` 경로를 사용합니다 (예: `[EXTERNAL_ACCESS.md](../implementation/EXTERNAL_ACCESS.md)`).

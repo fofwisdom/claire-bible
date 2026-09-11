@@ -10,6 +10,10 @@ Claire Bible 프로젝트의 문서는 원작 저장소의 원본 문서를 보�
 docs/
 ├── README.md               # 문서 전체 구조 안내 (본 문서)
 │
+├── contracts/              # [공동 계약] 업스트림·오리진 상호 호환성 규약
+│   ├── README.md           # 공동 계약의 범위, 상태와 변경 절차
+│   └── SCHEMA_VERSIONING.md # 공통 DB version/lineage 및 v13 계약
+│
 ├── upstream/               # [업스트림 원본] blackan/claire_bible 원작 저장소 문서
 │   ├── README.md           # 업스트림 문서 목록 및 출처 안내
 │   ├── GOALS.md            # 업스트림 목표와 로드맵 원본
@@ -36,7 +40,7 @@ docs/
     │   ├── PDF_INGESTION_AND_ADAPTIVE_EFFORT_DESIGN.md # PDF 추출 예산 및 적응형 추론(Effort) 설계
     │   ├── PREFERRED_LANGUAGES_DESIGN.md     # 프로젝트 광역 선호 언어(Preferred Languages) 설계
     │   ├── RIGHT_MENU_COMPACT_DESIGN.md      # 우측 메뉴 컴팩트화 및 반응형 UI 설계
-    │   ├── SCHEMA_VERSIONING.md               # 업스트림·오리진 공통 스키마 버전 및 계보 정책
+    │   ├── ORIGIN_SCHEMA_EXTENSIONS.md        # 오리진 스키마 확장·retired version 복구 정책
     │   ├── TABLE_INGESTION_DESIGN.md         # 원문 테이블 적재 및 본문 글자 수 제한 제외 설계
     │   ├── TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md # 프로바이더 텔레메트리 격리 및 Support Bundle 아키텍처 설계
     │   ├── VIDEO_AUDIO_TRANSCRIPTION_AND_INGESTION_DESIGN.md # 비디오 음성 자막(전사) 생성 및 지식 적재 파이프라인 설계
@@ -53,12 +57,17 @@ docs/
 
 ## 분류 및 참조 가이드
 
-1. **[`docs/upstream/`](upstream/README.md)**
+1. **[`docs/contracts/`](contracts/README.md)**
+   - 업스트림과 오리진이 함께 채택하고 갱신하는 version, lineage와 호환성 계약입니다.
+   - 현재 공통 지식 DB 계약은 [`SCHEMA_VERSIONING.md`](contracts/SCHEMA_VERSIONING.md)입니다.
+   - 구현별 운영 절차나 기능 계획을 넣지 않고 최소 공통 계약만 유지합니다.
+
+2. **[`docs/upstream/`](upstream/README.md)**
    - 원작 저장소([`blackan/claire_bible`](https://github.com/blackan/claire_bible))의 오리지널 기획, 설계 초안 및 리서치 자료입니다.
    - 프로젝트의 업스트림 비전과 공개 아키텍처 원본은 각각 [`GOALS.md`](upstream/GOALS.md)와 [`PLAN.md`](upstream/PLAN.md)입니다.
    - 업스트림 기능을 구현했더라도 문서를 별도로 개정하지 않은 경우 이곳의 원본 문서를 단일 정본으로 참조합니다.
 
-2. **[`docs/origin/`](origin/README.md)**
+3. **[`docs/origin/`](origin/README.md)**
    - 본 저장소([`fofwisdom/claire-bible`](https://github.com/fofwisdom/claire-bible))에서 직접 신규 작성하였거나, 업스트림 설계를 기반으로 대폭 발전/개정/구현한 문서입니다.
    - 현재 실행 중인 시스템의 실제 구현 상태와 최신 설계는 `docs/origin/`을 기준으로 합니다.
-   - 저장소 계열별 버전 계약은 [`SCHEMA_VERSIONING.md`](origin/design/SCHEMA_VERSIONING.md), telemetry와 Support Bundle 계약은 [`TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md`](origin/design/TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md), 전체 DB inventory 계획은 [`OPERATIONAL_MIGRATION.md`](origin/design/OPERATIONAL_MIGRATION.md)를 따릅니다.
+   - 공동 version 계약은 [`docs/contracts/`](contracts/README.md), 오리진 전용 확장·복구는 [`ORIGIN_SCHEMA_EXTENSIONS.md`](origin/design/ORIGIN_SCHEMA_EXTENSIONS.md)를 따릅니다. telemetry와 Support Bundle 계약은 [`TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md`](origin/design/TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md), 전체 DB inventory 계획은 [`OPERATIONAL_MIGRATION.md`](origin/design/OPERATIONAL_MIGRATION.md)에 있습니다.
