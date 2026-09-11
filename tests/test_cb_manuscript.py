@@ -297,11 +297,11 @@ def test_compose_environment_canonicalizes_effective_storage_mounts(
 
 
 def test_compose_environment_includes_claire_pdf_parser(tmp_path):
-    # 1. 기본값(미설정 시) pypdf
+    # 1. 기본값(미설정 시) pypdfium2
     _write_layout(tmp_path, dev=False)
     runtime = cb.load_runtime(cb.Layout(tmp_path))
     env = runtime.compose_environment()
-    assert env.get("CLAIRE_PDF_PARSER") == "pypdf"
+    assert env.get("CLAIRE_PDF_PARSER") == "pypdfium2"
 
     # 2. .env에 docling 명시 시 docling 전달
     env_content = (tmp_path / ".env").read_text(encoding="utf-8")

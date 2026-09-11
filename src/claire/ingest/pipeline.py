@@ -55,8 +55,13 @@ class IngestReport:
     has_transcript: bool | None = None
     is_stt: bool = False
     stt_error: str | None = None
+    pdf_parser_requested: str | None = None
+    pdf_parser_used: str | None = None
     pdf_parser_fallback: bool = False
     pdf_parser_fallback_reason: str | None = None
+    pdf_encoding_flaw_detected: bool = False
+    pdf_encoding_flaws: list[str] = field(default_factory=list)
+    pdf_is_scanned: bool = False
     presentation_pdfs: int = 0
     presentation_pdf_chars: int = 0
     presentation_pdf_parsers: list[str] = field(default_factory=list)
@@ -74,7 +79,17 @@ class IngestReport:
         if is_stt_failed:
             head = "⚠️ 부분 적재 (STT 전사 실패)"
         elif self.pdf_parser_fallback:
-            head = "⚠️ PDF 파서 대체 적재 (Docling 실패 → PyPDF)"
+            req = (self.pdf_parser_requested or "Docling").capitalize()
+            if req == "Pypdfium2":
+                req = "PyPDFium2"
+            elif req == "Pypdf":
+                req = "PyPDF"
+            used = (self.pdf_parser_used or "PyPDF").capitalize()
+            if used == "Pypdfium2":
+                used = "PyPDFium2"
+            elif used == "Pypdf":
+                used = "PyPDF"
+            head = f"⚠️ PDF 파서 대체 적재 ({req} 실패 → {used})"
         elif self.updated:
             head = "🔄 자료 업데이트(내용 변경 반영)"
         else:
@@ -82,8 +97,26 @@ class IngestReport:
 
         parts = [f"{head}: {self.title or self.document_id}"]
         if self.pdf_parser_fallback:
-            reason = self.pdf_parser_fallback_reason or "Docling 런타임 오류"
-            parts.append(f"📄 Docling 레이아웃 파서 실패로 PyPDF가 대체 사용되었습니다. (사유: {reason})")
+            req = (self.pdf_parser_requested or "Docling").capitalize()
+            if req == "Pypdfium2":
+                req = "PyPDFium2"
+            elif req == "Pypdf":
+                req = "PyPDF"
+            used = (self.pdf_parser_used or "PyPDF").capitalize()
+            if used == "Pypdfium2":
+                used = "PyPDFium2"
+            elif used == "Pypdf":
+                used = "PyPDF"
+            reason = self.pdf_parser_fallback_reason or f"{req} 런타임 오류"
+            if req == "Docling" and used == "PyPDF":
+                parts.append(f"📄 Docling 레이아웃 파서 실패로 PyPDF가 대체 사용되었습니다. (사유: {reason})")
+            else:
+                parts.append(f"📄 {req} 파서 실패로 {used}가 대체 사용되었습니다. (사유: {reason})")
+        if self.pdf_encoding_flaw_detected:
+            flaws_str = ", ".join(self.pdf_encoding_flaws) if self.pdf_encoding_flaws else "텍스트 레이어 결함"
+            parts.append(f"⚠️ PDF 텍스트 인코딩 결함 감지 (사유: {flaws_str}) — LLM 추출 품질에 영향을 줄 수 있습니다.")
+        if self.pdf_is_scanned:
+            parts.append("📷 스캔본(이미지 위주) PDF 감지 — 텍스트 레이어가 희소하여 OCR 변환이 권장됩니다.")
         if is_stt_failed:
             err_detail = f" (오류: {self.stt_error})" if self.stt_error else ""
             parts.append(f"🎙️ 오디오 STT 전사 실패: 음성 자막이 추출되지 못했습니다.{err_detail}")
@@ -207,10 +240,20 @@ def ingest(
             )
         if "stt_error" in doc.meta:
             report.stt_error = doc.meta.get("stt_error")
+        if "pdf_parser_requested" in doc.meta:
+            report.pdf_parser_requested = doc.meta.get("pdf_parser_requested")
+        if "pdf_parser_used" in doc.meta:
+            report.pdf_parser_used = doc.meta.get("pdf_parser_used")
         if "pdf_parser_fallback" in doc.meta:
             report.pdf_parser_fallback = bool(doc.meta.get("pdf_parser_fallback"))
         if "pdf_parser_fallback_reason" in doc.meta:
             report.pdf_parser_fallback_reason = doc.meta.get("pdf_parser_fallback_reason")
+        if "pdf_encoding_flaw_detected" in doc.meta:
+            report.pdf_encoding_flaw_detected = bool(doc.meta.get("pdf_encoding_flaw_detected"))
+        if "pdf_encoding_flaws" in doc.meta:
+            report.pdf_encoding_flaws = list(doc.meta.get("pdf_encoding_flaws") or [])
+        if "pdf_is_scanned" in doc.meta:
+            report.pdf_is_scanned = bool(doc.meta.get("pdf_is_scanned"))
         presentation_items = doc.meta.get("presentation_pdfs") or []
         if isinstance(presentation_items, list):
             report.presentation_pdfs = len(presentation_items)
@@ -585,10 +628,20 @@ def extract_resolve_store(
     if full_content:
         report.full_content = True
     if doc.meta:
+        if "pdf_parser_requested" in doc.meta:
+            report.pdf_parser_requested = doc.meta.get("pdf_parser_requested")
+        if "pdf_parser_used" in doc.meta:
+            report.pdf_parser_used = doc.meta.get("pdf_parser_used")
         if "pdf_parser_fallback" in doc.meta:
             report.pdf_parser_fallback = bool(doc.meta.get("pdf_parser_fallback"))
         if "pdf_parser_fallback_reason" in doc.meta:
             report.pdf_parser_fallback_reason = doc.meta.get("pdf_parser_fallback_reason")
+        if "pdf_encoding_flaw_detected" in doc.meta:
+            report.pdf_encoding_flaw_detected = bool(doc.meta.get("pdf_encoding_flaw_detected"))
+        if "pdf_encoding_flaws" in doc.meta:
+            report.pdf_encoding_flaws = list(doc.meta.get("pdf_encoding_flaws") or [])
+        if "pdf_is_scanned" in doc.meta:
+            report.pdf_is_scanned = bool(doc.meta.get("pdf_is_scanned"))
 
     if getattr(doc, "id", None):
         try:

@@ -235,6 +235,8 @@
   .docmeta .trunc-tag.trunc-appendix, .docmeta .trunc-tag-appendix{color:#3fb950;background:rgba(63,185,80,0.12);border:1px solid rgba(63,185,80,0.3)}
   .docmeta .trunc-tag.trunc-references{color:#bc8cff;background:rgba(188,140,255,0.12);border:1px solid rgba(188,140,255,0.3)}
   .docmeta .trunc-tag.parser-fallback-tag{color:#f0883e;background:rgba(240,136,62,0.12);border:1px solid rgba(240,136,62,0.35)}
+  .docmeta .trunc-tag.encoding-flaw-tag{color:#f85149;background:rgba(248,81,73,0.12);border:1px solid rgba(248,81,73,0.35)}
+  .docmeta .trunc-tag.scanned-tag{color:#58a6ff;background:rgba(88,166,255,0.12);border:1px solid rgba(88,166,255,0.35)}
   .docmeta .directive-tag{display:inline-flex;align-items:center;gap:4px;color:var(--accent2,#58a6ff);background:rgba(88,166,255,0.12);border:1px solid rgba(88,166,255,0.3);border-radius:10px;padding:1px 7px;font-size:11px;cursor:help;white-space:nowrap;line-height:1.4}
   .docmeta .stt-tag{display:inline-flex;align-items:center;gap:4px;color:#a371f7;background:rgba(163,113,247,0.12);border:1px solid rgba(163,113,247,0.3);border-radius:10px;padding:1px 7px;font-size:11px;cursor:help;white-space:nowrap;line-height:1.4}
   .docmeta .trunc-tag.trunc-stt{color:#f0883e;background:rgba(240,136,62,0.12);border:1px solid rgba(240,136,62,0.35)}

@@ -982,8 +982,27 @@ def build_app(settings: Settings | None = None) -> Any:
                     trunc_info = f"\n⚠️ 환경변수 상한으로 원문 일부 절단함 ({raw_len:,}자 / 원본 {orig:,}자)"
 
             if doc and (doc.meta or {}).get("pdf_parser_fallback"):
-                reason = (doc.meta or {}).get("pdf_parser_fallback_reason") or "Docling 런타임 오류"
-                trunc_info += f"\n⚠️ PDF 파서 대체: Docling 실패로 PyPDF 적용 ({reason})"
+                meta_p = doc.meta or {}
+                req = (meta_p.get("pdf_parser_requested") or "Docling").capitalize()
+                used = (meta_p.get("pdf_parser_used") or "PyPDF").capitalize()
+                if req == "Pypdfium2":
+                    req = "PyPDFium2"
+                elif req == "Pypdf":
+                    req = "PyPDF"
+                if used == "Pypdfium2":
+                    used = "PyPDFium2"
+                elif used == "Pypdf":
+                    used = "PyPDF"
+                reason = meta_p.get("pdf_parser_fallback_reason") or f"{req} 런타임 오류"
+                trunc_info += f"\n⚠️ PDF 파서 대체: {req} 실패로 {used} 적용 ({reason})"
+
+            if doc and (doc.meta or {}).get("pdf_encoding_flaw_detected"):
+                flaws = (doc.meta or {}).get("pdf_encoding_flaws") or []
+                flaw_txt = ", ".join(flaws) if flaws else "텍스트 레이어 결함"
+                trunc_info += f"\n⚠️ PDF 인코딩 결함 감지: {flaw_txt}"
+
+            if doc and (doc.meta or {}).get("pdf_is_scanned"):
+                trunc_info += "\n📷 스캔본(이미지 위주) PDF: 텍스트 레이어가 부족하여 OCR 변환이 권장됩니다."
 
             is_video = bool(doc and doc.source_type == "video")
             has_ts = bool((doc.meta or {}).get("has_transcript")) if doc else False
