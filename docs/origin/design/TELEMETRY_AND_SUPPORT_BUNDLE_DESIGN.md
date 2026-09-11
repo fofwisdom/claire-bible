@@ -78,7 +78,7 @@ CLI 반환 코드, stderr, stdout을 분석하여 차단 원인을 8개 카테�
 
 근본 원인 분석(RCA) 및 원격 디버깅을 위해 최근 데이터와 시스템 상태를 단일 아카이브로 패키징하고, 6시간 후 안전하게 자동 파기합니다.
 
-### 3.1 4대 핵심 요구사항
+### 3.1 5대 핵심 요구사항
 1. **zstd 압축**: Python 내장 `zstandard` 모듈(`level=3`)과 `tarfile` 스트리밍을 결합하여 고효율 압축 `.tar.zst` 생성.
 2. **요청 기반 strict 타깃 특정 및 역추적**:
    - `resolve_document_targets`를 활용하여 공유 링크(`/p?s=token`), 공유 토큰, URL, 문서 ID를 스마트 인식.
@@ -91,15 +91,20 @@ CLI 반환 코드, stderr, stdout을 분석하여 차단 원인을 8개 카테�
    - 텔레메트리 보관 기한(기본 30일)을 초과하는 요청은 API 400 Bad Request, CLI 종료 코드 2로 엄격 차단.
 4. **6시간 유효기간 및 자동 파기 (`SUPPORT_BUNDLE_TTL_SECONDS = 21600`)**:
    - 번들 생성 시, 다운로드 시, 서버 기동 시(`app_lifespan`), CLI 수동 파기 시 6시간이 지난 아카이브 파일 언링크 및 DB 레코드 삭제.
+5. **다운로드 레지스트리 이중화 및 저장소 경로 진단**:
+   - 다운로드 토큰 원문은 기존 `telemetry.db` 레코드에만 두고, 번들 디렉터리에는 토큰의 SHA-256으로 이름을 정한 권한 `0600` sidecar를 원자적으로 함께 기록한다. sidecar 내용에도 원문 토큰을 넣지 않는다.
+   - `telemetry.db` 레코드가 유실되거나 일시적으로 읽히지 않아도 sidecar와 사용자가 가진 토큰을 대조해 유효기간 안의 아카이브를 다운로드할 수 있다. 두 레지스트리는 동일한 6시간 파기 경계를 따른다.
+   - 컨테이너가 기존 데이터 대신 새 빈 경로를 열어도 단순 `health=ok`로 오판하지 않도록 실제 DB/data/vault 절대경로, mount identity, 파일 inode·크기·수정시각, 제한된 SQLite 후보 탐색과 테마별 해석 경로를 번들에 기록한다. 파일 본문이나 시크릿은 이 진단에 포함하지 않는다.
 
 ### 3.2 Support Bundle 아카이브 구조
 
 ```text
 support_bundle_<id>/
-├── manifest.json                  # format v2, 생성/만료 시각, 빌드 식별자, 요청·타깃 해석 상태
+├── manifest.json                  # format v3, 생성/만료 시각, 빌드 식별자, 요청·타깃 해석 상태
 ├── diagnostics/
 │   ├── system.json                # OS, Python, CPU, 디스크 용량, SQLite/zstd 버전, agy 환경 진단
 │   ├── config_sanitized.json      # 마스킹된 애플리케이션 설정 (시크릿/토큰 ***REDACTED***)
+│   ├── storage.json               # 실제 경로·mount·inode·mtime, 테마별 DB 해석, 제한된 DB 후보 메타데이터
 │   ├── build.json                 # 이미지에 내장된 Git SHA, 패키지·DB 스키마 버전·계보·이미지 버전
 │   └── collector_warnings.json    # 타깃 모호성, 아티팩트 누락, 빌드 식별 실패
 ├── telemetry/
@@ -108,10 +113,11 @@ support_bundle_<id>/
 ├── logs/
 │   └── agy.log                    # 최근 프로바이더 입출력/에러 로그 (민감정보 마스킹)
 ├── pipeline/
+│   ├── health.json                # 모든 활성 테마의 read-only liveness 및 전체 health 보고
 │   ├── inbox_summary.json         # raw_inbox 상태별 건수
 │   ├── failed_items.json          # 에러/실패 인박스 항목 상세 (RCA 핵심)
 │   ├── shares_index.json          # 토큰 SHA-256과 문서 ID 매핑(토큰 원문은 마스킹)
-│   └── db_integrity.json          # claire.db 및 telemetry.db quick_check 결과
+│   └── db_integrity.json          # 테마별 경로·스키마·행 수와 claire.db/telemetry.db quick_check 결과
 └── tracked_document/              # (특정 대상 지정 시에만 생성)
     ├── target_resolution.json     # 타깃 해석 결과 (matched_by, share_token 여부)
     ├── document_detail.json       # 정본 문서 메타데이터 및 온톨로지 정보

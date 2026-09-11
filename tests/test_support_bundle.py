@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import sqlite3
@@ -231,8 +232,10 @@ def test_support_bundle_creation_and_zstd_archive(tmp_path: Path):
     assert any(n.endswith("manifest.json") for n in names)
     assert any(n.endswith("diagnostics/system.json") for n in names)
     assert any(n.endswith("diagnostics/config_sanitized.json") for n in names)
+    assert any(n.endswith("diagnostics/storage.json") for n in names)
     assert any(n.endswith("telemetry/telemetry_records.jsonl") for n in names)
     assert any(n.endswith("telemetry/telemetry_stats.json") for n in names)
+    assert any(n.endswith("pipeline/health.json") for n in names)
     assert any(n.endswith("pipeline/inbox_summary.json") for n in names)
     assert any(n.endswith("pipeline/failed_items.json") for n in names)
     assert any(n.endswith("pipeline/shares_index.json") for n in names)
@@ -244,7 +247,7 @@ def test_support_bundle_creation_and_zstd_archive(tmp_path: Path):
     manifest_name = [n for n in names if n.endswith("manifest.json")][0]
     manifest_data = json.loads(tar.extractfile(manifest_name).read().decode("utf-8"))
     assert manifest_data["bundle_id"] == info.bundle_id
-    assert manifest_data["bundle_format_version"] == 2
+    assert manifest_data["bundle_format_version"] == 3
     assert manifest_data["ttl_hours"] == 6.0
     assert manifest_data["days_covered"] == 1
     assert "token" not in manifest_data
@@ -257,6 +260,27 @@ def test_support_bundle_creation_and_zstd_archive(tmp_path: Path):
     config_data = json.loads(tar.extractfile(config_name).read().decode("utf-8"))
     assert config_data["inject_token"] == "***REDACTED***"
     assert config_data["secret_api_key"] == "***REDACTED***"
+
+    # Storage 진단은 실제 해석 경로, 파일 identity, DB 후보를 내용 없이 기록한다.
+    storage_name = [n for n in names if n.endswith("diagnostics/storage.json")][0]
+    storage_data = json.loads(tar.extractfile(storage_name).read().decode("utf-8"))
+    configured_db = storage_data["paths"]["configured_db"]
+    assert configured_db["exists"] is True
+    assert configured_db["resolved_path"] == str(s.db_file.resolve())
+    assert configured_db["device"] is not None
+    assert configured_db["inode"] is not None
+    assert any(
+        candidate.get("resolved_path") == str(s.db_file.resolve())
+        and candidate.get("sqlite", {}).get("counts", {}).get("documents") == 1
+        for candidate in storage_data["storage_candidates"]
+    )
+
+    # 다운로드 sidecar에는 원문 토큰이 없고 소유자만 읽을 수 있다.
+    token_hash = hashlib.sha256(info.token.encode("utf-8")).hexdigest()
+    sidecar = s.data_dir / "support_bundles" / ".registry" / f"{token_hash}.json"
+    assert sidecar.is_file()
+    assert info.token not in sidecar.read_text(encoding="utf-8")
+    assert sidecar.stat().st_mode & 0o777 == 0o600
 
     # Telemetry records 검증
     records_name = [n for n in names if n.endswith("telemetry_records.jsonl")][0]
@@ -326,6 +350,26 @@ def test_support_bundle_share_link_tracking(tmp_path: Path):
     tracked_share = next(item for item in shares_data if item["document_id"] == "doc_test_123")
     assert tracked_share["token"] == "***REDACTED***"
     assert len(tracked_share["token_sha256"]) == 64
+
+
+def test_support_bundle_remains_downloadable_when_db_registration_fails(
+    tmp_path: Path, monkeypatch
+):
+    s = StubSettings(db_file=tmp_path / "claire.db", data_dir=tmp_path)
+    _seed_db(s.db_file)
+
+    def fail_registration(*_args, **_kwargs):
+        raise sqlite3.OperationalError("telemetry registry unavailable")
+
+    monkeypatch.setattr(
+        "claire.support_bundle.register_support_bundle", fail_registration
+    )
+    info = create_support_bundle(s)
+
+    record = get_support_bundle(s.data_dir, info.token)
+    assert record is not None
+    assert record["bundle_id"] == info.bundle_id
+    assert Path(record["filepath"]).is_file()
 
 
 def test_support_bundle_tracks_failed_url_without_document(tmp_path: Path):
@@ -406,6 +450,13 @@ def test_support_bundle_auto_purge_after_6_hours(tmp_path: Path):
     now = time.time()
     info = create_support_bundle(s, days=1, now_epoch=now)
     assert info.filepath.is_file()
+    sidecar = (
+        s.data_dir
+        / "support_bundles"
+        / ".registry"
+        / f"{hashlib.sha256(info.token.encode('utf-8')).hexdigest()}.json"
+    )
+    assert sidecar.is_file()
 
     # 현재 시점에서는 활성 상태로 조회됨
     active = list_active_support_bundles(s.data_dir, now_epoch=now)
@@ -426,6 +477,7 @@ def test_support_bundle_auto_purge_after_6_hours(tmp_path: Path):
     purged_bundle = get_support_bundle(s.data_dir, info.token, now_epoch=expired_time)
     assert purged_bundle is None
     assert not info.filepath.is_file()
+    assert not sidecar.exists()
 
     # active 목록에서도 제거됨
     active_after = list_active_support_bundles(s.data_dir, now_epoch=expired_time)
@@ -459,6 +511,14 @@ def test_support_bundle_api_endpoints(tmp_path: Path):
         assert "token" in data
         assert "download_url" in data
         token = data["token"]
+
+        # telemetry.db의 단일 레코드가 유실되어도 SHA-256 sidecar로 다운로드한다.
+        telemetry_conn = connect_telemetry(s.data_dir / "telemetry.db")
+        telemetry_conn.execute(
+            "DELETE FROM support_bundles WHERE bundle_id = ?", (data["bundle_id"],)
+        )
+        telemetry_conn.commit()
+        telemetry_conn.close()
 
         # 3. 보관 기한 초과 days 요청 -> 400 Bad Request
         res = client.post("/support/bundle", headers=OWNER_HEADERS, json={"days": 40})

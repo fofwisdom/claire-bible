@@ -7,6 +7,7 @@ zstd로 압축한 번들을 생성하고, 6시간 후 자동 파기한다.
 
 from __future__ import annotations
 
+import hashlib
 import io
 import importlib.metadata
 import json
@@ -19,6 +20,7 @@ import shutil
 import sqlite3
 import subprocess
 import tarfile
+import tempfile
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -36,7 +38,7 @@ from .store.telemetry import (
     delete_support_bundle,
     get_telemetry_db_path,
     list_active_support_bundles,
-    lookup_support_bundle_by_token,
+    lookup_support_bundle_by_token as _lookup_support_bundle_by_token,
     query_telemetry,
     register_support_bundle,
     telemetry_summary_stats,
@@ -56,7 +58,14 @@ _URL_SECRET_RE = re.compile(
     r"signature|sig|session|password|share)=)[^&#\s]+",
     re.IGNORECASE,
 )
-BUNDLE_FORMAT_VERSION = 2
+BUNDLE_FORMAT_VERSION = 3
+_BUNDLE_REGISTRY_DIRNAME = ".registry"
+_BUNDLE_REGISTRY_FORMAT_VERSION = 1
+_MAX_STORAGE_SCAN_ENTRIES = 2_000
+_MAX_STORAGE_DATABASES = 100
+_STORAGE_SCAN_SKIP_DIRS = frozenset(
+    {"backups", "cache", "logs", "offsite-backups", "raw", "support_bundles"}
+)
 
 
 @dataclass(frozen=True)
@@ -93,12 +102,143 @@ class SupportBundleInfo:
         }
 
 
+def _support_bundles_path(data_dir: Path | str | None) -> Path:
+    root = Path(data_dir) if data_dir else Path("data")
+    return root / "support_bundles"
+
+
 def get_support_bundles_dir(data_dir: Path | str | None) -> Path:
     """번들 저장소 디렉터리 경로 반환."""
-    root = Path(data_dir) if data_dir else Path("data")
-    bundles_dir = root / "support_bundles"
+    bundles_dir = _support_bundles_path(data_dir)
     bundles_dir.mkdir(parents=True, exist_ok=True)
     return bundles_dir
+
+
+def _bundle_registry_path(data_dir: Path | str | None) -> Path:
+    return _support_bundles_path(data_dir) / _BUNDLE_REGISTRY_DIRNAME
+
+
+def _bundle_token_digest(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def _bundle_sidecar_path(data_dir: Path | str | None, token: str) -> Path:
+    return _bundle_registry_path(data_dir) / f"{_bundle_token_digest(token)}.json"
+
+
+def _validated_archive_path(
+    data_dir: Path | str | None,
+    record: dict[str, Any],
+) -> Path | None:
+    """레지스트리의 파일 경로가 번들 디렉터리 바로 아래인지 검증한다."""
+    filename = str(record.get("filename") or "")
+    filepath = str(record.get("filepath") or "")
+    if not filename or not filepath or Path(filename).name != filename:
+        return None
+    bundles_dir = _support_bundles_path(data_dir).resolve(strict=False)
+    candidate = Path(filepath).resolve(strict=False)
+    if candidate.parent != bundles_dir or candidate.name != filename:
+        return None
+    return candidate
+
+
+def _write_bundle_sidecar(
+    data_dir: Path | str | None,
+    *,
+    token: str,
+    record: dict[str, Any],
+) -> Path:
+    """원문 토큰 없이 다운로드 매핑을 별도 원자 파일로 내구성 있게 기록한다."""
+    registry_dir = _bundle_registry_path(data_dir)
+    registry_dir.mkdir(parents=True, mode=0o700, exist_ok=True)
+    registry_dir.chmod(0o700)
+    sidecar_path = _bundle_sidecar_path(data_dir, token)
+    payload = {
+        "registry_format_version": _BUNDLE_REGISTRY_FORMAT_VERSION,
+        "token_sha256": _bundle_token_digest(token),
+        **{key: value for key, value in record.items() if key != "token"},
+    }
+    descriptor, tmp_name = tempfile.mkstemp(prefix=".bundle-", dir=registry_dir)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            json.dump(payload, stream, ensure_ascii=False, separators=(",", ":"))
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.chmod(tmp_name, 0o600)
+        os.replace(tmp_name, sidecar_path)
+        sidecar_path.chmod(0o600)
+        directory_fd = os.open(registry_dir, os.O_RDONLY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+    except Exception:
+        Path(tmp_name).unlink(missing_ok=True)
+        raise
+    return sidecar_path
+
+
+def _read_bundle_sidecar(
+    data_dir: Path | str | None,
+    token: str,
+) -> dict[str, Any] | None:
+    sidecar_path = _bundle_sidecar_path(data_dir, token)
+    if not sidecar_path.is_file():
+        return None
+    try:
+        raw = json.loads(sidecar_path.read_text(encoding="utf-8"))
+        if not isinstance(raw, dict):
+            return None
+        if raw.get("registry_format_version") != _BUNDLE_REGISTRY_FORMAT_VERSION:
+            return None
+        if not secrets.compare_digest(
+            str(raw.get("token_sha256") or ""), _bundle_token_digest(token)
+        ):
+            return None
+        record = {
+            key: raw.get(key)
+            for key in (
+                "bundle_id",
+                "filename",
+                "filepath",
+                "days_covered",
+                "target_doc_id",
+                "size_bytes",
+                "created_at",
+                "expires_at",
+            )
+        }
+        if (
+            not isinstance(record["bundle_id"], str)
+            or not isinstance(record["created_at"], (int, float))
+            or not isinstance(record["expires_at"], (int, float))
+            or _validated_archive_path(data_dir, record) is None
+        ):
+            return None
+        return record
+    except (OSError, ValueError, TypeError):
+        return None
+
+
+def lookup_support_bundle_by_token(
+    data_dir: Path | str | None,
+    token: str,
+) -> dict[str, Any] | None:
+    """텔레메트리 DB를 우선 조회하고 SHA-256 sidecar로 안전하게 폴백한다."""
+    try:
+        record = _lookup_support_bundle_by_token(data_dir, token)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Support Bundle DB registry lookup failed: %s", type(exc).__name__)
+        record = None
+    return record or _read_bundle_sidecar(data_dir, token)
+
+
+def _delete_bundle_sidecar(data_dir: Path | str | None, token: str) -> None:
+    try:
+        _bundle_sidecar_path(data_dir, token).unlink(missing_ok=True)
+    except OSError as exc:
+        logger.warning("Failed to delete Support Bundle sidecar: %s", type(exc).__name__)
 
 
 def validate_bundle_days(days: int, max_retention_days: int | None = None) -> int:
@@ -135,6 +275,396 @@ def sanitize_sensitive_data(obj: Any) -> Any:
         text = _BEARER_TOKEN_RE.sub("Bearer ***REDACTED***", obj)
         return _URL_SECRET_RE.sub(r"\1***REDACTED***", text)
     return obj
+
+
+def _iso_utc(timestamp: float | int | None) -> str | None:
+    if timestamp is None:
+        return None
+    try:
+        return datetime.fromtimestamp(float(timestamp), timezone.utc).isoformat()
+    except (OverflowError, OSError, TypeError, ValueError):
+        return None
+
+
+def _path_metadata(path: Path | str) -> dict[str, Any]:
+    source = Path(path)
+    resolved = source.resolve(strict=False)
+    out: dict[str, Any] = {
+        "configured_path": str(source),
+        "resolved_path": str(resolved),
+        "exists": source.exists(),
+        "is_symlink": source.is_symlink(),
+    }
+    try:
+        stat_result = source.stat()
+    except OSError as exc:
+        out["stat_error"] = f"{type(exc).__name__}: {exc}"
+        return out
+    out.update(
+        {
+            "is_file": source.is_file(),
+            "is_dir": source.is_dir(),
+            "size_bytes": stat_result.st_size,
+            "mode": oct(stat_result.st_mode & 0o7777),
+            "uid": stat_result.st_uid,
+            "gid": stat_result.st_gid,
+            "device": stat_result.st_dev,
+            "inode": stat_result.st_ino,
+            "modified_at": _iso_utc(stat_result.st_mtime),
+            "metadata_changed_at": _iso_utc(stat_result.st_ctime),
+        }
+    )
+    return out
+
+
+def _unescape_mountinfo(value: str) -> str:
+    return re.sub(
+        r"\\([0-7]{3})",
+        lambda match: chr(int(match.group(1), 8)),
+        value,
+    )
+
+
+def _mount_option_names(value: str) -> list[str]:
+    return [
+        f"{item.partition('=')[0]}=<set>" if "=" in item else item
+        for item in value.split(",")
+        if item
+    ]
+
+
+def _read_mountinfo() -> list[dict[str, Any]]:
+    path = Path("/proc/self/mountinfo")
+    if not path.is_file():
+        return []
+    mounts: list[dict[str, Any]] = []
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return []
+    for line in lines:
+        pre, separator, post = line.partition(" - ")
+        if not separator:
+            continue
+        left = pre.split()
+        right = post.split()
+        if len(left) < 6 or len(right) < 3:
+            continue
+        mounts.append(
+            {
+                "mount_id": left[0],
+                "parent_id": left[1],
+                "major_minor": left[2],
+                "mount_root": _unescape_mountinfo(left[3]),
+                "mount_point": _unescape_mountinfo(left[4]),
+                "mount_options": _mount_option_names(left[5]),
+                "optional_fields": [item.partition(":")[0] for item in left[6:]],
+                "filesystem_type": right[0],
+                "source": _unescape_mountinfo(right[1]),
+                "super_options": _mount_option_names(right[2]),
+            }
+        )
+    return mounts
+
+
+def _enclosing_mount(path: Path | str, mounts: list[dict[str, Any]]) -> dict[str, Any] | None:
+    resolved = Path(path).resolve(strict=False)
+    matches: list[tuple[int, dict[str, Any]]] = []
+    for mount in mounts:
+        mount_point = Path(str(mount["mount_point"]))
+        try:
+            resolved.relative_to(mount_point)
+        except ValueError:
+            continue
+        matches.append((len(mount_point.parts), mount))
+    if not matches:
+        return None
+    return max(matches, key=lambda item: item[0])[1]
+
+
+def _scan_storage_candidates(data_dir: Path) -> tuple[list[Path], dict[str, Any]]:
+    """내용을 읽지 않고 제한된 깊이에서 SQLite 및 themes.json 경로만 찾는다."""
+    candidates: list[Path] = []
+    scanned_entries = 0
+    truncated = False
+    errors: list[str] = []
+    stack: list[tuple[Path, int]] = [(data_dir, 0)]
+    while stack and not truncated:
+        directory, depth = stack.pop()
+        try:
+            entries = os.scandir(directory)
+        except OSError as exc:
+            errors.append(f"{directory}: {type(exc).__name__}: {exc}")
+            continue
+        with entries:
+            for entry in entries:
+                scanned_entries += 1
+                if scanned_entries > _MAX_STORAGE_SCAN_ENTRIES:
+                    truncated = True
+                    break
+                entry_path = Path(entry.path)
+                try:
+                    is_dir = entry.is_dir(follow_symlinks=False)
+                    is_file = entry.is_file(follow_symlinks=False)
+                except OSError as exc:
+                    errors.append(f"{entry_path}: {type(exc).__name__}: {exc}")
+                    continue
+                if is_file and (
+                    entry.name == "themes.json"
+                    or entry_path.suffix.lower() in {".db", ".sqlite", ".sqlite3"}
+                ):
+                    candidates.append(entry_path)
+                    if len(candidates) >= _MAX_STORAGE_DATABASES:
+                        truncated = True
+                        break
+                if (
+                    is_dir
+                    and depth < 4
+                    and entry.name not in _STORAGE_SCAN_SKIP_DIRS
+                    and not entry.is_symlink()
+                ):
+                    stack.append((entry_path, depth + 1))
+    return sorted(candidates, key=lambda item: str(item)), {
+        "scanned_entries": scanned_entries,
+        "truncated": truncated,
+        "errors": errors[:50],
+    }
+
+
+def _inspect_database_candidate(path: Path) -> dict[str, Any]:
+    report = _path_metadata(path)
+    if not report.get("is_file"):
+        return report
+    try:
+        conn = dbm.connect_existing(path, readonly=True)
+        try:
+            report["sqlite"] = {
+                "schema_version": dbm.stored_schema_version(conn),
+                "schema_lineage": dbm.stored_schema_lineage(conn),
+                "user_version": conn.execute("PRAGMA user_version").fetchone()[0],
+                "application_id": conn.execute("PRAGMA application_id").fetchone()[0],
+                "page_count": conn.execute("PRAGMA page_count").fetchone()[0],
+                "page_size": conn.execute("PRAGMA page_size").fetchone()[0],
+                "freelist_count": conn.execute("PRAGMA freelist_count").fetchone()[0],
+                "counts": dbm.counts(conn),
+            }
+        finally:
+            conn.close()
+    except Exception as exc:  # noqa: BLE001
+        report["sqlite_error"] = f"{type(exc).__name__}: {exc}"
+    return report
+
+
+def _collect_storage_diagnostics(
+    settings: Settings | Any,
+    theme_manager: Any,
+    themes: list[Any],
+) -> tuple[dict[str, Any], list[dict[str, str]]]:
+    data_dir = Path(settings.data_dir)
+    configured_db = Path(settings.db_file)
+    vault_dir = Path(getattr(settings, "vault_dir", getattr(settings, "vault_path", "vault")))
+    registry_path = Path(theme_manager.registry_path)
+    telemetry_path = get_telemetry_db_path(data_dir)
+    mounts = _read_mountinfo()
+    named_paths = {
+        "app_root": Path(ROOT),
+        "process_cwd": Path.cwd(),
+        "data_dir": data_dir,
+        "configured_db": configured_db,
+        "vault_dir": vault_dir,
+        "themes_registry": registry_path,
+        "telemetry_db": telemetry_path,
+    }
+    path_reports = {name: _path_metadata(path) for name, path in named_paths.items()}
+    enclosing_mounts = {
+        name: _enclosing_mount(path, mounts) for name, path in named_paths.items()
+    }
+
+    resolved_themes: list[dict[str, Any]] = []
+    for theme in themes:
+        try:
+            theme_settings = theme_manager.get_settings_for_theme(theme.id, settings)
+            db_file = Path(theme_settings.db_file)
+            theme_vault = Path(
+                getattr(
+                    theme_settings,
+                    "vault_dir",
+                    getattr(theme_settings, "vault_path", theme.vault_path),
+                )
+            )
+            resolved_themes.append(
+                {
+                    "id": theme.id,
+                    "seq": theme.seq,
+                    "label": theme.label,
+                    "is_default": theme.is_default,
+                    "declared_db_path": theme.db_path,
+                    "declared_vault_path": theme.vault_path,
+                    "database": _inspect_database_candidate(db_file),
+                    "vault": _path_metadata(theme_vault),
+                    "database_mount": _enclosing_mount(db_file, mounts),
+                    "vault_mount": _enclosing_mount(theme_vault, mounts),
+                }
+            )
+        except Exception as exc:  # noqa: BLE001
+            resolved_themes.append(
+                {
+                    "id": getattr(theme, "id", None),
+                    "label": getattr(theme, "label", None),
+                    "resolution_error": f"{type(exc).__name__}: {exc}",
+                }
+            )
+
+    candidate_paths, scan = _scan_storage_candidates(data_dir)
+    candidates: list[dict[str, Any]] = []
+    for path in candidate_paths:
+        if path.name == "themes.json":
+            candidates.append({"kind": "theme_registry", **_path_metadata(path)})
+        else:
+            candidates.append({"kind": "sqlite", **_inspect_database_candidate(path)})
+
+    warnings: list[dict[str, str]] = []
+    configured_report = _inspect_database_candidate(configured_db)
+    if not configured_report.get("is_file"):
+        warnings.append(
+            {
+                "code": "CONFIGURED_DATABASE_MISSING",
+                "message": "The configured knowledge database file does not exist",
+            }
+        )
+    configured_counts = configured_report.get("sqlite", {}).get("counts", {})
+    if configured_counts and all(
+        int(configured_counts.get(key, 0)) == 0
+        for key in ("documents", "entities", "raw_inbox")
+    ):
+        warnings.append(
+            {
+                "code": "CONFIGURED_DATABASE_EMPTY",
+                "message": (
+                    "The configured knowledge database has no documents, "
+                    "entities, or inbox rows"
+                ),
+            }
+        )
+    configured_identity = (
+        configured_report.get("device"),
+        configured_report.get("inode"),
+    )
+    for candidate in candidates:
+        counts = candidate.get("sqlite", {}).get("counts", {})
+        identity = (candidate.get("device"), candidate.get("inode"))
+        if (
+            candidate.get("kind") == "sqlite"
+            and identity != configured_identity
+            and any(int(counts.get(key, 0)) > 0 for key in ("documents", "entities", "raw_inbox"))
+        ):
+            warnings.append(
+                {
+                    "code": "ALTERNATE_NONEMPTY_DATABASE_FOUND",
+                    "message": (
+                        "A non-empty SQLite database exists outside the configured DB path: "
+                        f"{candidate.get('resolved_path')}"
+                    ),
+                }
+            )
+
+    return (
+        {
+            "process": {
+                "pid": os.getpid(),
+                "uid": os.getuid() if hasattr(os, "getuid") else None,
+                "gid": os.getgid() if hasattr(os, "getgid") else None,
+                "hostname": platform.node(),
+            },
+            "settings": {
+                "environment": getattr(settings, "environment", None),
+                "multi_theme": bool(getattr(settings, "multi_theme", False)),
+                "db_path": str(getattr(settings, "db_path", configured_db)),
+                "vault_path": str(getattr(settings, "vault_path", vault_dir)),
+            },
+            "paths": path_reports,
+            "enclosing_mounts": enclosing_mounts,
+            "theme_registry": {
+                "path": str(registry_path),
+                "metadata": _path_metadata(registry_path),
+                "default_theme_id": getattr(theme_manager, "_default_theme_id", None),
+                "next_seq": getattr(theme_manager, "_next_seq", None),
+            },
+            "resolved_themes": resolved_themes,
+            "storage_candidates": candidates,
+            "scan": scan,
+        },
+        warnings,
+    )
+
+
+def _collect_health_diagnostics(settings: Settings | Any) -> dict[str, Any]:
+    from .health import health_report, liveness_report
+
+    report: dict[str, Any] = {}
+    try:
+        report["liveness"] = liveness_report(settings)
+    except Exception as exc:  # noqa: BLE001
+        report["liveness_error"] = f"{type(exc).__name__}: {exc}"
+    try:
+        provider = str(
+            getattr(settings, "effective_provider", None)
+            or getattr(settings, "provider", "unknown")
+        )
+        report["health"] = health_report(settings, provider)
+    except Exception as exc:  # noqa: BLE001
+        report["health_error"] = f"{type(exc).__name__}: {exc}"
+    return report
+
+
+class _FallbackThemeManager:
+    """손상·누락 레지스트리에서도 기본 DB 진단을 계속하기 위한 read-only 어댑터."""
+
+    def __init__(self, settings: Settings | Any) -> None:
+        self.settings = settings
+        self.registry_path = Path(settings.data_dir) / "themes.json"
+        self._default_theme_id = 0
+        self._next_seq = None
+
+    def get_settings_for_theme(
+        self,
+        _theme_ref: int | str | None = None,
+        base_settings: Settings | Any | None = None,
+    ) -> Settings | Any:
+        return base_settings or self.settings
+
+
+def _support_theme_inventory(
+    settings: Settings | Any,
+) -> tuple[Any, list[Any], list[dict[str, str]]]:
+    from .store.theme import ThemeInfo, ThemeManager
+
+    try:
+        manager = ThemeManager(settings, create_registry=False)
+        themes = (
+            manager.list_themes(include_private=True)
+            if getattr(settings, "multi_theme", False)
+            else [manager.get_theme(0)]
+        )
+        return manager, themes, []
+    except Exception as exc:  # noqa: BLE001
+        fallback = _FallbackThemeManager(settings)
+        theme = ThemeInfo(
+            id=0,
+            seq=0,
+            label="기본 지식베이스 (registry fallback)",
+            db_path=str(getattr(settings, "db_path", settings.db_file)),
+            vault_path=str(
+                getattr(settings, "vault_path", getattr(settings, "vault_dir", "vault"))
+            ),
+            is_default=True,
+            is_public=False,
+        )
+        warning = {
+            "code": "THEME_REGISTRY_UNAVAILABLE",
+            "message": f"{type(exc).__name__}: {exc}",
+        }
+        return fallback, [theme], [warning]
 
 
 def _sanitize_share_index(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -195,9 +725,9 @@ def _get_build_identity() -> dict[str, Any]:
 
 
 def _theme_databases(settings: Settings) -> list[tuple[int, str, Path]]:
-    from .store.theme import get_theme_manager
+    from .store.theme import ThemeManager
 
-    tm = get_theme_manager(settings)
+    tm = ThemeManager(settings)
     themes = (
         tm.list_themes(include_private=True)
         if getattr(settings, "multi_theme", False)
@@ -257,9 +787,9 @@ def _resolve_support_target(
     settings: Settings, target: str
 ) -> tuple[dict[str, Any], dict[str, Any] | None, list[dict[str, Any]]]:
     """진단용 strict resolver: 모호하거나 미적재인 대상을 임의 문서로 치환하지 않는다."""
-    from .store.theme import get_theme_manager
+    from .store.theme import ThemeManager
 
-    tm = get_theme_manager(settings)
+    tm = ThemeManager(settings)
     candidates = tm.resolve_document_targets(target=target)
     exact_candidates = [
         candidate
@@ -335,7 +865,11 @@ def purge_expired_bundles(
     purged_count = 0
 
     # 1. DB 레코드에서 만료된 항목 삭제 및 파일 언링크
-    expired_paths = clean_expired_support_bundles(data_dir, now_epoch=now)
+    try:
+        expired_paths = clean_expired_support_bundles(data_dir, now_epoch=now)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Support Bundle DB expiry cleanup failed: %s", type(exc).__name__)
+        expired_paths = []
     for path_str in expired_paths:
         try:
             p = Path(path_str)
@@ -345,10 +879,36 @@ def purge_expired_bundles(
         except Exception as e:  # noqa: BLE001
             logger.warning("Failed to unlink expired bundle %s: %s", path_str, e)
 
-    # 2. 파일시스템 기준 6시간 초과 고아 파일 정리
+    # 2. SHA-256 sidecar를 기준으로 만료 파일과 매핑을 함께 정리
+    registry_dir = _bundle_registry_path(data_dir)
+    cutoff = now - SUPPORT_BUNDLE_TTL_SECONDS
+    if registry_dir.is_dir():
+        for sidecar in registry_dir.glob("*.json"):
+            archive_path: Path | None = None
+            expired = False
+            try:
+                raw = json.loads(sidecar.read_text(encoding="utf-8"))
+                if isinstance(raw, dict):
+                    archive_path = _validated_archive_path(data_dir, raw)
+                    expires_at = raw.get("expires_at")
+                    expired = isinstance(expires_at, (int, float)) and expires_at <= now
+                if not expired:
+                    expired = sidecar.stat().st_mtime <= cutoff
+                if expired:
+                    if archive_path is not None and archive_path.is_file():
+                        archive_path.unlink(missing_ok=True)
+                        purged_count += 1
+                    sidecar.unlink(missing_ok=True)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "Failed to clean Support Bundle sidecar %s: %s",
+                    sidecar,
+                    type(exc).__name__,
+                )
+
+    # 3. 파일시스템 기준 6시간 초과 고아 파일 정리
     bundles_dir = get_support_bundles_dir(data_dir)
     if bundles_dir.is_dir():
-        cutoff = now - SUPPORT_BUNDLE_TTL_SECONDS
         for item in bundles_dir.glob("support_bundle_*.tar.zst"):
             try:
                 st = item.stat()
@@ -414,17 +974,35 @@ def create_support_bundle(
     target_resolution_status: str | None = None
 
     if target:
-        target_info, primary, target_inbox_matches = _resolve_support_target(s, target)
-        target_resolution_status = target_info["resolution_status"]
-        if primary is not None:
-            target_doc_id = primary["id"]
-            target_matched_by = primary.get("matched_by", "unknown")
-            target_theme_id = primary.get("theme_id", 0)
-            target_db_file = Path(primary.get("db_file", s.db_file))
-        elif target_inbox_matches:
-            target_theme_id = target_inbox_matches[0].get("theme_id", 0)
-            target_db_file = Path(target_inbox_matches[0].get("_db_file", s.db_file))
-            target_matched_by = "raw_inbox"
+        try:
+            target_info, primary, target_inbox_matches = _resolve_support_target(s, target)
+            target_resolution_status = target_info["resolution_status"]
+            if primary is not None:
+                target_doc_id = primary["id"]
+                target_matched_by = primary.get("matched_by", "unknown")
+                target_theme_id = primary.get("theme_id", 0)
+                target_db_file = Path(primary.get("db_file", s.db_file))
+            elif target_inbox_matches:
+                target_theme_id = target_inbox_matches[0].get("theme_id", 0)
+                target_db_file = Path(
+                    target_inbox_matches[0].get("_db_file", s.db_file)
+                )
+                target_matched_by = "raw_inbox"
+        except Exception as exc:  # noqa: BLE001
+            target_resolution_status = "collector_error"
+            target_info = {
+                "input_target": target,
+                "requested_target": target,
+                "resolution_status": target_resolution_status,
+                "error_type": type(exc).__name__,
+                "error": str(exc),
+            }
+            collector_warnings.append(
+                {
+                    "code": "TARGET_RESOLUTION_FAILED",
+                    "message": f"{type(exc).__name__}: {exc}",
+                }
+            )
 
     # Zstandard 압축 스트림으로 tarfile 생성
     cctx = zstd.ZstdCompressor(level=3)
@@ -494,18 +1072,45 @@ def create_support_bundle(
                 shares_index: list[dict[str, Any]] = []
                 db_integrity: dict[str, Any] = {}
 
-                from .store.theme import get_theme_manager
+                tm, themes_to_check, registry_warnings = _support_theme_inventory(s)
+                collector_warnings.extend(registry_warnings)
 
-                tm = get_theme_manager(s)
-                themes_to_check = (
-                    tm.list_themes(include_private=True)
-                    if getattr(s, "multi_theme", False)
-                    else [tm.get_theme(0)]
+                storage_diagnostics, storage_warnings = _collect_storage_diagnostics(
+                    s, tm, themes_to_check
+                )
+                collector_warnings.extend(storage_warnings)
+                _add_tar_bytes(
+                    tar,
+                    f"{root_arcname}/diagnostics/storage.json",
+                    json.dumps(
+                        sanitize_sensitive_data(storage_diagnostics),
+                        ensure_ascii=False,
+                        indent=2,
+                    ).encode("utf-8"),
+                )
+                _add_tar_bytes(
+                    tar,
+                    f"{root_arcname}/pipeline/health.json",
+                    json.dumps(
+                        sanitize_sensitive_data(_collect_health_diagnostics(s)),
+                        ensure_ascii=False,
+                        indent=2,
+                    ).encode("utf-8"),
                 )
 
                 for t in themes_to_check:
                     theme_db = Path(tm.get_settings_for_theme(t.id).db_file)
+                    theme_entry: dict[str, Any] = {
+                        "label": t.label,
+                        "path": str(theme_db),
+                        "path_metadata": _path_metadata(theme_db),
+                    }
+                    if getattr(s, "multi_theme", False):
+                        db_integrity.setdefault("themes", {})[str(t.id)] = theme_entry
                     if not theme_db.is_file():
+                        theme_entry["error"] = "database file is missing"
+                        if t.id == 0:
+                            db_integrity["claire_db_error"] = "database file is missing"
                         continue
                     try:
                         conn = dbm.connect_existing(theme_db, readonly=True)
@@ -558,21 +1163,27 @@ def create_support_bundle(
                             check_row = conn.execute("PRAGMA quick_check;").fetchone()
                             chk_res = check_row[0] if check_row else "unknown"
                             cnts = dbm.counts(conn)
+                            schema_version = dbm.stored_schema_version(conn)
+                            schema_lineage = dbm.stored_schema_lineage(conn)
                             if t.id == 0:
                                 db_integrity["claire_db_quick_check"] = chk_res
                                 db_integrity["counts"] = cnts
+                                db_integrity["schema_version"] = schema_version
+                                db_integrity["schema_lineage"] = schema_lineage
                             if getattr(s, "multi_theme", False):
-                                if "themes" not in db_integrity:
-                                    db_integrity["themes"] = {}
-                                db_integrity["themes"][str(t.id)] = {
-                                    "label": t.label,
-                                    "quick_check": chk_res,
-                                    "counts": cnts,
-                                }
+                                theme_entry.update(
+                                    {
+                                        "quick_check": chk_res,
+                                        "counts": cnts,
+                                        "schema_version": schema_version,
+                                        "schema_lineage": schema_lineage,
+                                    }
+                                )
                         finally:
                             conn.close()
                     except Exception as e:  # noqa: BLE001
                         db_integrity[f"error_theme_{t.id}"] = str(e)
+                        theme_entry["error"] = f"{type(e).__name__}: {e}"
 
                 # telemetry.db 정합성 검사
                 tel_path = get_telemetry_db_path(data_dir)
@@ -836,19 +1447,32 @@ def create_support_bundle(
     size_bytes = archive_path.stat().st_size
     download_url = format_download_url(s, token)
 
-    # DB에 번들 메타데이터 등록
-    register_support_bundle(
-        data_dir,
-        bundle_id=bundle_id,
-        token=token,
-        filename=filename,
-        filepath=str(archive_path),
-        days_covered=validated_days,
-        size_bytes=size_bytes,
-        created_at=now,
-        expires_at=expires_at,
-        target_doc_id=target_doc_id,
-    )
+    registry_record = {
+        "bundle_id": bundle_id,
+        "token": token,
+        "filename": filename,
+        "filepath": str(archive_path),
+        "days_covered": validated_days,
+        "target_doc_id": target_doc_id,
+        "size_bytes": size_bytes,
+        "created_at": now,
+        "expires_at": expires_at,
+    }
+    sidecar_registered = False
+    database_registered = False
+    try:
+        _write_bundle_sidecar(data_dir, token=token, record=registry_record)
+        sidecar_registered = True
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Support Bundle sidecar registration failed: %s", type(exc).__name__)
+    try:
+        register_support_bundle(data_dir, **registry_record)
+        database_registered = True
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Support Bundle DB registration failed: %s", type(exc).__name__)
+    if not sidecar_registered and not database_registered:
+        archive_path.unlink(missing_ok=True)
+        raise RuntimeError("Support Bundle could not create a durable download registration")
 
     return SupportBundleInfo(
         bundle_id=bundle_id,
@@ -880,16 +1504,27 @@ def get_support_bundle(
 
     if record["expires_at"] <= now:
         # 이미 6시간 경과 만료됨 -> 파기
+        filepath = _validated_archive_path(data_dir, record)
         try:
-            Path(record["filepath"]).unlink(missing_ok=True)
+            if filepath is not None:
+                filepath.unlink(missing_ok=True)
         except Exception:  # noqa: BLE001
             pass
-        delete_support_bundle(data_dir, record["bundle_id"])
+        try:
+            delete_support_bundle(data_dir, record["bundle_id"])
+        except Exception:  # noqa: BLE001
+            pass
+        _delete_bundle_sidecar(data_dir, token)
         return None
 
-    filepath = Path(record["filepath"])
-    if not filepath.is_file():
-        delete_support_bundle(data_dir, record["bundle_id"])
+    filepath = _validated_archive_path(data_dir, record)
+    if filepath is None or not filepath.is_file():
+        try:
+            delete_support_bundle(data_dir, record["bundle_id"])
+        except Exception:  # noqa: BLE001
+            pass
+        _delete_bundle_sidecar(data_dir, token)
         return None
 
+    record["filepath"] = str(filepath)
     return record
