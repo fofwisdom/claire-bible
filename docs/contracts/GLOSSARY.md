@@ -81,12 +81,17 @@
 - **적재 정책**:
   - 기본 적재 시에는 시스템 보호를 위해 사전 설정된 글자 수 예산(`budget`)에 따라 안전 절단될 수 있다.
   - 무절단 모드(`full_content=True`) 적용 시에는 글자 수 상한 없이 원문 100%를 보존하며,
-    절단 여부는 문서 메타데이터에 투명하게 기록된다.
+- **원문 메타데이터 (Raw Metadata / `rawmeta`)**:
+  - **정의**: 웹 응답 헤더, PDF 스트림 속성, 로컬 파일 시스템 메타데이터 등 외부 원천에서 미가공 상태로 인입되는 비검증 부가 속성 (예: HTTP Content-Type, PDF Producer, DTP 작성자 계정, 파일 크기 등).
+  - **취급 원칙**: 시스템이나 온톨로지 추출 엔진이 교차 검증하지 않은 미가공 원천 정보이므로, 정본 지식으로 취급하거나 문서 본문에 임의로 주입하지 않는다.
 
 ### 3.2. 문서 (Document / `doc_id`, `documents`)
-- **정의**: 고유 식별자(`doc_id`), 원본 출처(URL), 발행일, 작성자 메타데이터, 원문, 요약, 상세, 온톨로지 추출 결과를 총괄하는 최상위 지식 자산 단위.
+- **정의**: 고유 식별자(`doc_id`), 원본 출처(URL), 시스템 적재 메타데이터(`docmeta`), 원문, 요약, 상세, 온톨로지 추출 결과를 총괄하는 최상위 지식 자산 단위.
 - **저장소**: SQLite `documents` 테이블 및 파일시스템 볼트(`vault/<doc_id>.adoc` 또는 `.md`).
 - **식별 체계**: `doc_<hash>` 또는 `doc_<uuid>` 형태의 유일한 식별자.
+- **적재 메타데이터 (Document Ingestion Metadata / `docmeta` / `Document.meta`)**:
+  - **정의**: 파이프라인이 원문을 수집·가공·적재(Ingestion & Processing)할 때 기록한 시스템 처리 및 실행 이력(Provenance: `directive`, `pdf_parser_used`, `pdf_parser_fallback`, `raw_truncated`, `stt` 등).
+  - **경계 원칙**: `docmeta`는 외부 미가공 메타데이터(`rawmeta`)가 아니며, 원 저작물의 서지 정보(저자, 발행기관 등)는 `docmeta`에 혼입하지 않고 오직 온톨로지 지식 그래프의 전유물로 환원하여 관리한다.
 
 ### 3.3. 요약 (Summary / `documents.summary`, `ExtractionResult.summary`)
 - **정의**: LLM이 원문의 핵심 명제, 주장, 결론을 간결하게 압축하여 추출한 에그제큐티브 서머리(Executive Summary).
@@ -111,7 +116,7 @@
    - **정의**: 클라이언트의 실시간 파싱 부하를 없애고 일관된 뷰를 즉각 렌더링하기 위해,
      `documents.detail` 텍스트를 AOT(Ahead-of-Time) 방식으로 사전 컴파일한 안전한 HTML 코드.
 3. **상세 조회 뷰 (Detail View / `GET /document`, UI 우측 `#panel`)**:
-   - **정의**: 웹 API 및 UI 화면 관점에서, 특정 문서의 서지 메타데이터(제목, 출처, 저자), 요약(`summary`), 가독 본문(`detail`), 그리고 연결된 지식 노드(`nodes`)를 종합하여 제공하는 응답 및 뷰 패널.
+   - **정의**: 웹 API 및 UI 화면 관점에서, 특정 문서의 원본 출처 및 적재 메타데이터(`docmeta`), 요약(`summary`), 가독 본문(`detail`), 그리고 연결된 지식 노드(`nodes`)를 종합하여 제공하는 응답 및 뷰 패널. (서지 정보는 온톨로지 지식 노드를 통해 탐색됨)
 
 ### 3.5. 엔티티 (Entity) 및 노드 (Node)
 - **엔티티 (Entity / `entities` 테이블)**:
@@ -164,7 +169,9 @@ HTTP API 및 시스템 접근 제어에 적용되는 역할과 자격 증명 용
 | 상호 합의 | **계약** | Contract | `docs/contracts/*.md` | `SCHEMA_VERSION = 13` |
 | 세부 규칙 | **규약** | Protocol / Rule | `GateMiddleware`, wire rules | 와이어 프로토콜 / 스텔스 규약 |
 | 미가공 원문 | **원문** | Raw Content | `Document.raw_text`, `raw_text` | `documents.raw_text`, `*.txt.zst` |
+| 원본 부가속성 | **원문 메타데이터** | Raw Metadata (`rawmeta`) | 외부 원본 메타데이터 (비영속/미검증) | PDF/HTTP 헤더 미가공 메타 |
 | 지식 단위 | **문서** | Document | `Document`, `doc_id` | `documents` 테이블, `vault/*.adoc` |
+| 적재 이력 | **적재 메타데이터** | Document Metadata (`docmeta`) | `Document.meta`, `doc.meta` | `documents.meta` (JSON) |
 | 핵심 압축 | **요약** | Summary | `ExtractionResult.summary` | `documents.summary` (plain text) |
 | 가독 본문 | **상세 (가독 본문)** | Rendered Detail | `render_detail`, `doc.detail` | `documents.detail` (md/adoc) |
 | 컴파일 본문 | **사전 컴파일 상세** | Compiled HTML | `detail_html` | `documents.detail_html` |
