@@ -67,6 +67,8 @@ def _inner_app() -> Starlette:
             Route("/health", _endpoint, methods=["GET"]),
             Route("/p", _endpoint, methods=["GET"]),
             Route("/image", _endpoint, methods=["GET"]),
+            Route("/docs", _endpoint, methods=["GET"]),
+            Route("/openapi.yaml", _endpoint, methods=["GET"]),
             Route("/graph", _endpoint, methods=["GET"]),
             Route("/whoami", _endpoint, methods=["GET"]),
             Route("/search", _endpoint, methods=["POST"]),
@@ -254,6 +256,8 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         "/p",
         "/image",
         "/support/bundle",
+        "/docs",
+        "/openapi.yaml",
     }
     read_get = {"/", "/whoami", "/stats", "/graph", "/node", "/documents", "/document", "/mcp", "/themes"}
     read_post = {"/search", "/mcp"}
@@ -1162,3 +1166,31 @@ async def test_access_log_and_security_headers_never_include_secrets(
     assert response.header("x-request-id")
     assert response.header("referrer-policy") == "no-referrer"
     assert response.header("x-content-type-options") == "nosniff"
+
+
+@pytest.mark.asyncio
+async def test_docs_and_openapi_are_publicly_accessible_without_credentials(tmp_path):
+    """Verify Option A: /docs and /openapi.yaml are accessible without tokens."""
+    app = security.wrap_web_app(_inner_app(), _settings(tmp_path, anonymous_readonly=False))
+
+    docs_res = await _call(app, "/docs")
+    assert docs_res.status == 200
+    assert docs_res.json()["scope"] == "public"
+
+    yaml_res = await _call(app, "/openapi.yaml")
+    assert yaml_res.status == 200
+    assert yaml_res.json()["scope"] == "public"
+
+
+@pytest.mark.asyncio
+async def test_docs_security_headers_and_csp(tmp_path):
+    """Verify CSP header contains worker-src for Scalar and frame-ancestors is DENY."""
+    app = security.wrap_web_app(_inner_app(), _settings(tmp_path))
+    res = await _call(app, "/docs")
+
+    csp = res.header("content-security-policy")
+    assert csp is not None
+    assert "worker-src 'self' blob:" in csp
+    assert "frame-ancestors 'none'" in csp
+    assert res.header("x-frame-options") == "DENY"
+    assert res.header("x-content-type-options") == "nosniff"

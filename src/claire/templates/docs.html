@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="ko" data-theme="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Claire API Reference</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="alternate icon" href="/favicon.ico" />
+  <style>
+    :root, [data-theme="dark"] {
+      --scalar-font: 'Noto Sans KR', 'Noto Sans Korean', system-ui, -apple-system, sans-serif;
+      --scalar-font-code: 'D2Coding', ui-monospace, SFMono-Regular, monospace;
+      --scalar-background-1: #0e1116;
+      --scalar-background-2: #161b22;
+      --scalar-background-3: #1f2937;
+      --scalar-border-color: #2a2f37;
+      --scalar-color-1: #d7dbe0;
+      --scalar-color-2: #8b949e;
+      --scalar-color-3: #656d76;
+      --scalar-color-accent: #238636;
+      --scalar-color-accent-hover: #2ea043;
+      --scalar-button-1: #238636;
+      --scalar-button-1-color: #ffffff;
+      --scalar-button-1-hover: #2ea043;
+    }
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      background-color: var(--scalar-background-1);
+      color: var(--scalar-color-1);
+      font-family: var(--scalar-font);
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+    #api-reference {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+  </style>
+</head>
+<body>
+  <script
+    id="api-reference"
+    type="application/json"
+    data-url="/openapi.yaml"
+    data-configuration='{
+      "theme": "kepler",
+      "darkMode": true,
+      "withDefaultFonts": false,
+      "proxyUrl": "",
+      "searchHotKey": "k",
+      "showSidebar": true,
+      "layout": "modern",
+      "metaData": {
+        "title": "Claire API Reference",
+        "description": "Claire Knowledge Graph & Analysis Engine HTTP API"
+      },
+      "defaultHttpClient": {
+        "targetKey": "python",
+        "clientKey": "httpx"
+      },
+      "authentication": {
+        "preferredSecurityScheme": "BearerAuth"
+      },
+      "servers": [
+        {
+          "url": "/",
+          "description": "Current Claire Instance"
+        }
+      ]
+    }'></script>
+  <script src="/static/docs/scalar.standalone.js"></script>
+</body>
+</html>

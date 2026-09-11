@@ -1,0 +1,730 @@
+openapi: 3.1.0
+info:
+  title: Claire Knowledge Base API
+  version: 1.0.0
+  description: >-
+    Authoritative OpenAPI 3.1.0 specification and shared wire contract between the
+    Thesis Lineage (blackan/claire_bible) and the Augmentation Lineage (fofwisdom/claire-bible),
+    including RFC 8693 OAuth 2.0 Token Exchange, hybrid graph search, and MCP integration.
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: /
+    description: Current host root
+
+paths:
+  /health:
+    get:
+      summary: Service liveness and database connection status
+      operationId: checkHealth
+      x-claire-access: public
+      security: []
+      responses:
+        '200':
+          description: Service is healthy and database is connected.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok]
+                properties:
+                  ok:
+                    type: boolean
+                    example: true
+        '503':
+          description: Service degraded or database unavailable.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok]
+                properties:
+                  ok:
+                    type: boolean
+                    example: false
+
+  /whoami:
+    get:
+      summary: Check current authenticated scope
+      operationId: checkWhoami
+      x-claire-access: read
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      responses:
+        '200':
+          description: Current authenticated scope.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [scope]
+                properties:
+                  scope:
+                    type: string
+                    enum: [owner, readonly, anonymous]
+                    example: owner
+        '401':
+          description: Authentication required.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardError'
+
+  /stats:
+    get:
+      summary: Knowledge graph counts and theme statistics
+      operationId: getStats
+      x-claire-access: read
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      responses:
+        '200':
+          description: Statistics of documents, entities, relations, and theme metadata.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [theme_id, theme_label]
+                properties:
+                  documents:
+                    type: integer
+                    example: 142
+                  entities:
+                    type: integer
+                    example: 853
+                  relations:
+                    type: integer
+                    example: 2194
+                  theme_id:
+                    type: integer
+                    example: 0
+                  theme_label:
+                    type: string
+                    example: 기본 테마
+
+  /oauth/token:
+    post:
+      summary: OAuth 2.0 Token Exchange (RFC 8693)
+      description: >-
+        Exchanges a subject token (such as a Telegram bootstrap ticket, static inject token,
+        or existing session token) for a scoped Bearer access token.
+      operationId: exchangeToken
+      x-claire-access: public
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TokenExchangeRequest'
+      responses:
+        '200':
+          description: Successful token exchange.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                example: no-store
+            Pragma:
+              schema:
+                type: string
+                example: no-cache
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenExchangeResponse'
+        '400':
+          description: Invalid token exchange request or invalid grant.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthErrorResponse'
+        '401':
+          description: Unauthorized client or unauthenticated request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthErrorResponse'
+
+  /search:
+    post:
+      summary: Hybrid semantic and full-text keyword search
+      operationId: searchKnowledge
+      x-claire-access: read
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [query]
+              properties:
+                query:
+                  type: string
+                  maxLength: 2000
+                  example: "아키텍처 설계"
+                limit:
+                  type: integer
+                  minimum: 1
+                  maximum: 50
+                  default: 8
+                mode:
+                  type: string
+                  enum: [hybrid, fts, semantic]
+                  default: hybrid
+                summarize:
+                  type: boolean
+                  default: true
+                theme:
+                  type: string
+                  description: Optional theme reference ID or name.
+      responses:
+        '200':
+          description: Search results with entity hits and optional synthesized answer.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchResponse'
+        '400':
+          description: Invalid search parameters or query too long.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardError'
+
+  /documents:
+    get:
+      summary: List archived documents
+      operationId: listDocuments
+      x-claire-access: read
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      parameters:
+        - name: theme
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Document archive list with format status.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [documents, theme_id, theme_label]
+                properties:
+                  documents:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, title, created_at]
+                      properties:
+                        id:
+                          type: string
+                        title:
+                          type: string
+                        created_at:
+                          type: string
+                        format:
+                          type: string
+                  format_status:
+                    type: string
+                  theme_id:
+                    type: integer
+                  theme_label:
+                    type: string
+
+  /document:
+    get:
+      summary: Retrieve document detail and raw content
+      operationId: getDocumentDetail
+      x-claire-access: read
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      parameters:
+        - name: id
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Document ID.
+      responses:
+        '200':
+          description: Document detail including markdown/asciidoc text and ontology links.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, title, content]
+                properties:
+                  id:
+                    type: string
+                  title:
+                    type: string
+                  content:
+                    type: string
+                  format:
+                    type: string
+                  nodes:
+                    type: array
+                    items:
+                      type: object
+        '404':
+          description: Document not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardError'
+
+  /graph:
+    get:
+      summary: Retrieve full ontology knowledge graph
+      operationId: getGraphData
+      x-claire-access: read
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      responses:
+        '200':
+          description: Graph nodes and edges.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [nodes, links]
+                properties:
+                  nodes:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, name, type]
+                      properties:
+                        id:
+                          type: string
+                        name:
+                          type: string
+                        type:
+                          type: string
+                  links:
+                    type: array
+                    items:
+                      type: object
+                      required: [source, target, label]
+                      properties:
+                        source:
+                          type: string
+                        target:
+                          type: string
+                        label:
+                          type: string
+
+  /node:
+    get:
+      summary: Retrieve entity node detail and neighbor links
+      operationId: getNodeDetail
+      x-claire-access: read
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      parameters:
+        - name: id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Entity details and adjacent edges.
+        '404':
+          description: Entity not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardError'
+
+  /ingest:
+    post:
+      summary: Ingest URL or text payload and extract ontology
+      operationId: ingestContent
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [payload]
+              properties:
+                payload:
+                  type: string
+                  description: Target URL or raw text content.
+                  example: "https://example.com/article"
+                directive:
+                  type: string
+                  description: Optional extraction directive or focus.
+                format:
+                  type: string
+                  enum: [adoc, md]
+                effort:
+                  type: string
+                  enum: [low, medium, high]
+                full_content:
+                  type: boolean
+                  default: false
+      responses:
+        '200':
+          description: Successful ingestion and extraction report.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IngestResponse'
+        '400':
+          description: Missing payload or invalid parameters.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardError'
+        '403':
+          description: Owner permission required.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardError'
+
+  /support/bundle:
+    post:
+      summary: Generate diagnostic support bundle archive
+      operationId: createSupportBundle
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                days:
+                  type: integer
+                  default: 7
+                  minimum: 1
+                  maximum: 30
+                target:
+                  type: string
+                  description: Optional document ID or share target for isolation.
+      responses:
+        '200':
+          description: Support bundle created with single-use download token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SupportBundleResponse'
+        '403':
+          description: Owner permission required.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardError'
+    get:
+      summary: Download zstd diagnostic support bundle archive
+      operationId: downloadSupportBundle
+      x-claire-access: public
+      security: []
+      parameters:
+        - name: token
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 16
+          description: Ephemeral support bundle download token.
+      responses:
+        '200':
+          description: Compressed zstandard tar archive file stream.
+          headers:
+            Content-Disposition:
+              schema:
+                type: string
+                example: attachment; filename="claire-support-20260911.tar.zst"
+            Cache-Control:
+              schema:
+                type: string
+                example: no-store, private
+          content:
+            application/zstd:
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: Token not found or invalid.
+        '410':
+          description: Support bundle expired and was purged.
+
+  /mcp:
+    post:
+      summary: Model Context Protocol JSON-RPC streamable communication
+      operationId: mcpJsonRpc
+      x-claire-access: read
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [jsonrpc, method]
+              properties:
+                jsonrpc:
+                  type: string
+                  example: "2.0"
+                id:
+                  oneOf:
+                    - type: string
+                    - type: integer
+                  example: 1
+                method:
+                  type: string
+                  example: "tools/call"
+                params:
+                  type: object
+      responses:
+        '200':
+          description: MCP JSON-RPC response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '401':
+          description: Authentication required per RFC 6750.
+          headers:
+            WWW-Authenticate:
+              schema:
+                type: string
+                example: 'Bearer error="invalid_token", error_description="Authentication required"'
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: token
+      description: >-
+        Standard Bearer authorization header. Value must be an access token
+        obtained via /oauth/token or configured inject/session tokens.
+    SessionHeader:
+      type: apiKey
+      in: header
+      name: X-Session
+      description: Single-use or persistent session token header.
+    SessionCookie:
+      type: apiKey
+      in: cookie
+      name: claire_session
+      description: Same-Origin HttpOnly session cookie.
+
+  schemas:
+    TokenExchangeRequest:
+      type: object
+      required:
+        - grant_type
+        - subject_token
+        - subject_token_type
+      properties:
+        grant_type:
+          type: string
+          const: urn:ietf:params:oauth:grant-type:token-exchange
+          description: Standard RFC 8693 grant type identifier.
+        subject_token:
+          type: string
+          minLength: 32
+          maxLength: 128
+          description: Security token representing the identity context.
+          example: "yG8hO2wX0123456789abcdefABCDEF01"
+        subject_token_type:
+          type: string
+          enum:
+            - urn:ietf:params:oauth:token-type:access_token
+            - urn:ietf:params:oauth:token-type:jwt
+            - urn:claire:params:oauth:token-type:telegram-bootstrap
+            - urn:claire:params:oauth:token-type:session-token
+          description: URI identifying the format and type of subject_token.
+          example: urn:ietf:params:oauth:token-type:access_token
+        requested_token_type:
+          type: string
+          enum:
+            - urn:ietf:params:oauth:token-type:access_token
+            - urn:ietf:params:oauth:token-type:refresh_token
+          default: urn:ietf:params:oauth:token-type:access_token
+          description: Desired token type. Defaults to access_token.
+        resource:
+          type: string
+          format: uri
+          description: Target resource URI (e.g., https://claire.example.com/mcp).
+        audience:
+          type: string
+          description: Target audience identifier (e.g., claire-mcp or claire-web).
+        scope:
+          type: string
+          enum: [owner, readonly]
+          description: Requested scope.
+          example: owner
+        actor_token:
+          type: string
+          description: Token representing the acting party (delegation scenarios).
+        actor_token_type:
+          type: string
+          enum:
+            - urn:ietf:params:oauth:token-type:access_token
+          description: URI identifying actor_token format. Required if actor_token is present.
+
+    TokenExchangeResponse:
+      type: object
+      required:
+        - access_token
+        - issued_token_type
+        - token_type
+        - expires_in
+      properties:
+        access_token:
+          type: string
+          description: The newly issued or rotated access token.
+          example: "s8dfA_77bN0Q81zKxabcdef0123456789"
+        issued_token_type:
+          type: string
+          const: urn:ietf:params:oauth:token-type:access_token
+        token_type:
+          type: string
+          const: Bearer
+        expires_in:
+          type: integer
+          description: Token lifetime in seconds (e.g., 604800 for 7 days).
+          example: 604800
+        scope:
+          type: string
+          enum: [owner, readonly]
+          description: Effective scope granted.
+          example: owner
+        refresh_token:
+          type: string
+          description: Optional refresh token if token rotation is chained.
+
+    OAuthErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          enum:
+            - invalid_request
+            - invalid_client
+            - invalid_grant
+            - unauthorized_client
+            - unsupported_grant_type
+            - invalid_scope
+            - invalid_target
+            - unsupported_token_type
+          example: invalid_grant
+        error_description:
+          type: string
+          example: "The subject_token is expired or has already been consumed."
+        error_uri:
+          type: string
+          format: uri
+
+    StandardError:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          example: "authentication required"
+
+    SearchResponse:
+      type: object
+      required: [query, mode, hits, theme_id, theme_label]
+      properties:
+        query:
+          type: string
+        mode:
+          type: string
+        answer:
+          type: string
+        theme_id:
+          type: integer
+        theme_label:
+          type: string
+        hits:
+          type: array
+          items:
+            type: object
+            required: [id, type, name, score]
+            properties:
+              id:
+                type: string
+              type:
+                type: string
+              name:
+                type: string
+              via:
+                type: string
+              score:
+                type: number
+
+    IngestResponse:
+      type: object
+      required: [ok, document_id, title]
+      properties:
+        ok:
+          type: boolean
+          example: true
+        document_id:
+          type: string
+        title:
+          type: string
+        entities_extracted:
+          type: integer
+        relations_extracted:
+          type: integer
+        theme_id:
+          type: integer
+        theme_label:
+          type: string
+
+    SupportBundleResponse:
+      type: object
+      required: [bundle_id, token, expires_at, download_url]
+      properties:
+        bundle_id:
+          type: string
+        token:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+        download_url:
+          type: string
+          format: uri
