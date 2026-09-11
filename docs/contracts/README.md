@@ -1,7 +1,7 @@
 # Shared Compatibility Contracts (`docs/contracts/`)
 
 이 디렉터리는 테제 계보(`blackan/claire_bible`)와 증강 계보(`fofwisdom/claire-bible`)가 함께 채택하고 갱신하는 호환성 계약을 보관한다.
-여기의 규약은 서로 다른 Git 계보의 두 구현이 같은 데이터와 직렬화 형식을 안전하게 해석하기 위한 공동 경계다.
+여기의 계약은 서로 다른 Git 계보의 두 구현이 같은 데이터와 직렬화 형식을 안전하게 해석하기 위한 공동 경계다.
 각 저장소의 역사적 기획과 전용 문서는 해당 저장소의 기존 문서 구조에 남긴다.
 테제 계보는 `docs/`에 아키텍처 원본을 두고, 증강 계보는 `docs/upstream/`(테제 계보 동기화본)과 `docs/origin/`(증강 설계·운영)으로 분리 관리한다.
 
@@ -20,8 +20,9 @@
 
 | 문서 | 범위 | 현재 상태 |
 |---|---|---|
+| [`GLOSSARY.md`](GLOSSARY.md) | 테제·증강 계보, 계약/규약 체계, 지식 코어 데이터 모델(원문/문서/요약/상세/엔티티/노드/테마/볼트) 및 보안 공통 용어집 | 증강 계보 채택, 테제 계보 제안 |
 | [`SCHEMA_VERSIONING.md`](SCHEMA_VERSIONING.md) | SQLite 공통 schema version과 lineage, v13 수렴 및 이후 변경 규칙 | 증강 계보 채택, 테제 계보 제안 |
-| [`API_HTTP_CONTRACT.md`](API_HTTP_CONTRACT.md) | HTTP REST/ASGI 와이어 프로토콜, 인증 채널 및 보안 경계 최소 공통 규약 | 증강 계보 채택, 테제 계보 제안 |
+| [`API_HTTP_CONTRACT.md`](API_HTTP_CONTRACT.md) | HTTP REST/ASGI 와이어 프로토콜, 인증 채널 및 보안 경계 최소 공통 계약 | 증강 계보 채택, 테제 계보 제안 |
 | [`TOKEN_EXCHANGE.md`](TOKEN_EXCHANGE.md) | RFC 8693 OAuth 2.0 Token Exchange 프로토콜, URN 레지스트리 및 토큰 로테이션 계약 | 증강 계보 채택, 테제 계보 제안 |
 | [`openapi.yaml`](openapi.yaml) | 기계 판독용 OpenAPI 3.1.0 공통 API 사양서 정본 | 증강 계보 채택, 테제 계보 제안 |
 
@@ -43,6 +44,6 @@
 
 ## 문서와 기계 계약의 경계
 
-이 디렉터리는 사람이 검토하는 정본 규약을 보관한다.
+이 디렉터리는 사람이 검토하는 정본 계약을 보관한다.
 향후 `schema/common/v13.json`, 구현별 extension manifest와 append-only migration ledger를 도입할 때는 프로젝트 루트의 `schema/`에 두고 코드와 CI가 직접 검증한다.
 기존 v13 DB에 manifest digest나 ledger를 필수 meta로 소급 추가하지 않는다.
