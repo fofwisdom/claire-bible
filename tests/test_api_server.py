@@ -758,3 +758,95 @@ def test_docs_static_asset_accessible(client: TestClient) -> None:
     response = client.get("/static/docs/scalar.standalone.js")
     assert response.status_code == 200
     assert len(response.content) > 1_000_000
+
+
+def test_anonymous_can_create_share_link_in_public_mode(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """공개 모드(anonymous_readonly=True)에서 익명 사용자가 공개 문서의 공유 링크를 생성할 수 있다."""
+    settings = StubSettings(
+        db_file=tmp_path / "claire.db",
+        data_dir=tmp_path,
+        anonymous_readonly=True,
+    )
+    service = StubService()
+    app = server.create_app(settings, service)
+
+    monkeypatch.setattr(
+        dbm,
+        "get_document_row",
+        lambda _conn, doc_id: {"id": doc_id, "hidden": 0},
+    )
+    monkeypatch.setattr(
+        dbm,
+        "create_doc_share",
+        lambda _conn, doc_id: f"tok-{doc_id}",
+    )
+
+    with TestClient(app, base_url=settings.public_url) as client:
+        response = client.post("/share", json={"doc_id": "doc-public"})
+        assert response.status_code == 200
+        data = response.json()
+        assert data["token"] == "tok-doc-public"
+        assert data["path"] == "/p?s=tok-doc-public"
+
+
+def test_anonymous_cannot_share_hidden_document(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """익명 사용자는 숨김 문서(hidden=1)의 공유 링크를 생성할 수 없다 (404 Not Found)."""
+    settings = StubSettings(
+        db_file=tmp_path / "claire.db",
+        data_dir=tmp_path,
+        anonymous_readonly=True,
+    )
+    service = StubService()
+    app = server.create_app(settings, service)
+
+    monkeypatch.setattr(
+        dbm,
+        "get_document_row",
+        lambda _conn, doc_id: {"id": doc_id, "hidden": 1},
+    )
+
+    with TestClient(app, base_url=settings.public_url) as client:
+        response = client.post("/share", json={"doc_id": "doc-hidden"})
+        assert response.status_code == 404
+
+
+def test_readonly_can_create_share_link(
+    monkeypatch: pytest.MonkeyPatch,
+    client: TestClient,
+) -> None:
+    """읽기전용(readonly) 권한으로도 공유 링크 생성이 가능하다."""
+    monkeypatch.setattr(
+        dbm,
+        "get_document_row",
+        lambda _conn, doc_id: {"id": doc_id, "hidden": 0},
+    )
+    monkeypatch.setattr(
+        dbm,
+        "create_doc_share",
+        lambda _conn, doc_id: f"tok-ro-{doc_id}",
+    )
+
+    response = client.post(
+        "/share",
+        json={"doc_id": "doc-ro"},
+        headers=READONLY_HEADERS,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["token"] == "tok-ro-doc-ro"
+    assert data["path"] == "/p?s=tok-ro-doc-ro"
+
+
+def test_stealth_mode_rejects_unauthenticated_share(
+    client: TestClient,
+) -> None:
+    """비공개 스텔스 모드(anonymous_readonly=False)에서는 인증 없는 /share 요청이 404로 거부된다."""
+    response = client.post("/share", json={"doc_id": "doc-1"})
+    assert response.status_code == 404
+

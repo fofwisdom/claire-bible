@@ -1258,10 +1258,15 @@ def create_app(
         if not document_id:
             raise HTTPException(status_code=400, detail="doc_id required")
 
+        include_hidden = request_auth_scope(request) != "anonymous"
+
         def _share() -> str | None:
             conn = dbm.connect_existing(theme_settings.db_file)
             try:
-                if dbm.get_document_row(conn, document_id) is None:
+                row = dbm.get_document_row(conn, document_id)
+                if row is None:
+                    return None
+                if not include_hidden and bool(row["hidden"]):
                     return None
                 return dbm.create_doc_share(conn, document_id)
             finally:

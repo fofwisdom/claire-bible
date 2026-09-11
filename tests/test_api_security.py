@@ -75,6 +75,7 @@ def _inner_app() -> Starlette:
             Route("/ingest", _endpoint, methods=["POST"]),
             Route("/document/seen", _endpoint, methods=["POST"]),
             Route("/dedup/scan", _endpoint, methods=["POST"]),
+            Route("/share", _endpoint, methods=["POST"]),
         ]
     )
 
@@ -260,7 +261,7 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         "/openapi.yaml",
     }
     read_get = {"/", "/whoami", "/stats", "/graph", "/node", "/documents", "/document", "/mcp", "/themes"}
-    read_post = {"/search", "/mcp"}
+    read_post = {"/search", "/mcp", "/share"}
     collaborator_post = {
         "/ingest",
         "/ingest-stream",
@@ -274,7 +275,6 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         "/research",
         "/dedup/scan",
         "/dedup/merge",
-        "/share",
         "/support/bundle",
         "/themes",
     }
@@ -1194,3 +1194,55 @@ async def test_docs_security_headers_and_csp(tmp_path):
     assert "frame-ancestors 'none'" in csp
     assert res.header("x-frame-options") == "DENY"
     assert res.header("x-content-type-options") == "nosniff"
+
+
+@pytest.mark.asyncio
+async def test_share_endpoint_allows_anonymous_and_readonly_in_public_mode(tmp_path):
+    """공개 모드(anonymous_readonly=True)에서 누구나 POST /share 호출 가능."""
+    app = security.wrap_web_app(
+        _inner_app(),
+        _settings(tmp_path, anonymous_readonly=True),
+    )
+
+    anon_res = await _call(
+        app,
+        "/share",
+        method="POST",
+        headers=[("Content-Type", "application/json")],
+        body=b'{"doc_id":"test-doc"}',
+    )
+    assert anon_res.status == 200
+    assert anon_res.json()["scope"] == "anonymous"
+
+    ro_headers = [
+        ("Authorization", f"Bearer {READONLY_TOKEN}"),
+        ("Content-Type", "application/json"),
+    ]
+    ro_res = await _call(
+        app,
+        "/share",
+        method="POST",
+        headers=ro_headers,
+        body=b'{"doc_id":"test-doc"}',
+    )
+    assert ro_res.status == 200
+    assert ro_res.json()["scope"] == "readonly"
+
+
+@pytest.mark.asyncio
+async def test_share_endpoint_rejects_unauthenticated_in_stealth_mode(tmp_path):
+    """비공개 스텔스 모드(anonymous_readonly=False)에서는 미인증 POST /share 요청이 404 차단."""
+    app = security.wrap_web_app(
+        _inner_app(),
+        _settings(tmp_path, anonymous_readonly=False),
+    )
+
+    anon_res = await _call(
+        app,
+        "/share",
+        method="POST",
+        headers=[("Content-Type", "application/json")],
+        body=b'{"doc_id":"test-doc"}',
+    )
+    assert anon_res.status == 404
+

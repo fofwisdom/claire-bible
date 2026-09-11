@@ -75,7 +75,9 @@
   #reader .sharebox{display:none;margin:10px 24px 0;padding:8px 12px;background:var(--active);border:1px solid var(--accent);border-radius:6px;font-size:12px;gap:8px;align-items:center}
   #reader .sharebox.on{display:flex} #reader .sharebox input{flex:1;min-width:0}
   #reader .sharebox button{background:var(--accent);color:#fff;border:0;border-radius:4px;padding:3px 9px;font-size:12px;cursor:pointer}
-  #reader .head .redit,#reader .head .rshare{background:var(--sec-bg);color:var(--sec-fg);border:1px solid var(--border);border-radius:4px;font-size:13px;line-height:1;padding:4px 8px;cursor:pointer;display:inline-flex;align-items:center;gap:4px;height:28px;box-sizing:border-box}
+  #reader .head .redit{background:var(--sec-bg);color:var(--sec-fg);border:1px solid var(--border);border-radius:4px;font-size:13px;line-height:1;padding:4px 8px;cursor:pointer;display:inline-flex;align-items:center;gap:4px;height:28px;box-sizing:border-box}
+  #reader .head .rshare{background:var(--sec-bg);color:var(--sec-fg);border:1px solid var(--border);border-radius:4px;font-size:12.5px;line-height:1;padding:0 8px;cursor:pointer;display:inline-flex;align-items:center;gap:4px;height:28px;box-sizing:border-box;white-space:nowrap;user-select:none;transition:background .15s ease,border-color .15s ease}
+  #reader .head .rshare:hover{background:var(--hover);border-color:var(--accent)}
   #barsearch #openreaderbtn,
   #reader .head #opengraphbtn{
     width:104px;min-width:104px;height:28px;box-sizing:border-box;
