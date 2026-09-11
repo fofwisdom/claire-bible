@@ -79,4 +79,4 @@ $$\text{owner} \succ \text{readonly} \succ \text{anonymous} \succ \text{unauthen
 | `GET` | `/support/bundle` | `public` | 유효 토큰 기반 진단 번들 zstd 아카이브 다운로드 |
 | `POST` | `/mcp` | `read` | Model Context Protocol JSON-RPC 통신 |
 
-구현별 UI 페이지(`/`, `/docs`, `/p`) 및 부가 기능은 각 계보의 확장 라우트로 관리하되 위 최소 공통 엔드포인트의 와이어 형식을 훼손하지 않는다.
+구현별 UI 페이지(`/`, `/reference`, `/docs`, `/p`) 및 부가 기능은 각 계보의 확장 라우트로 관리하되 위 최소 공통 엔드포인트의 와이어 형식을 훼손하지 않는다.

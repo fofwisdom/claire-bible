@@ -722,15 +722,22 @@ def test_endpoint_exception_is_generic_500_without_secret_logs(
     assert "error_type=RuntimeError" in caplog.text
 
 
-def test_docs_serves_kepler_themed_scalar_html(client: TestClient) -> None:
-    """Verify /docs serves offline HTML with Kepler theme and offline Scalar bundle."""
-    response = client.get("/docs")
+def test_reference_serves_kepler_themed_scalar_html(client: TestClient) -> None:
+    """Verify /reference serves offline HTML with Kepler theme and offline Scalar bundle."""
+    response = client.get("/reference")
     assert response.status_code == 200
     assert "text/html" in response.headers["content-type"]
     text = response.text
     assert 'id="api-reference"' in text
     assert '"theme": "kepler"' in text
     assert "/static/docs/scalar.standalone.js" in text
+
+
+def test_docs_redirects_to_reference(client: TestClient) -> None:
+    """Verify legacy /docs endpoint redirects to canonical /reference."""
+    response = client.get("/docs", follow_redirects=False)
+    assert response.status_code == 302
+    assert response.headers["location"] == "/reference"
 
 
 def test_openapi_yaml_serves_valid_openapi_3_1_spec(client: TestClient) -> None:
