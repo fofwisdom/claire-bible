@@ -18,6 +18,7 @@ docs/origin/
 ├── design/                     # [설계 내역] 오리진 자체 신규/개정 아키텍처 및 시스템 설계
 │   ├── ASCIIDOC_ENHANCEMENT_DESIGN.md    # AsciiDoc 기능 고도화 및 확장 설계 명세서 (Phase 1 수식·상호참조 구현 완료)
 │   ├── DATA_LIFECYCLE_AND_PURGE_DESIGN.md # 데이터 수명주기 및 정리(Purge) 설계
+│   ├── DOCUMENT_READER_METADATA_AND_BIBLIO_SEPARATION_DESIGN.md # 문서 리더 UI 위계 및 원문 정보 / 적재 메타데이터(docmeta) 분리 설계
 │   ├── DUAL_FORMAT_ADOC_DESIGN.md        # AsciiDoc 및 듀얼 포맷 본문 파이프라인 설계
 │   ├── EXPAND_FILTERING_DESIGN.md        # 1홉 확장의 깊이 및 연관성 필터링 설계
 │   ├── GRAPHVIEW_MODULARIZATION_AND_STATIC_ASSET_DESIGN.md # graphview.py 모듈화 및 정적 자산 분리 설계
