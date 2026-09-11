@@ -1362,6 +1362,9 @@ def create_app(
         target = body.get("target") or body.get("share") or body.get("doc_id")
         if target is not None:
             target = str(target).strip() or None
+        source_channel = str(body.get("source_channel") or "api")
+        if source_channel not in {"api", "telegram_command", "telegram_callback"}:
+            source_channel = "api"
 
         max_ret = getattr(s, "telemetry_retention_days", 30)
         try:
@@ -1374,7 +1377,7 @@ def create_app(
                 s,
                 days=days,
                 target=target,
-                request_context={"channel": "api"},
+                request_context={"channel": source_channel},
             )
             return info.to_dict()
 

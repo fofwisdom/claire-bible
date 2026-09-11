@@ -11,6 +11,7 @@ import asyncio
 import logging
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from .config import get_settings
 
@@ -450,6 +451,67 @@ def _is_allowed(user_id: int | None, settings: Settings | None = None) -> bool:
     if not allow:
         return True
     return user_id in allow
+
+
+async def _create_support_bundle_for_delivery(
+    settings,
+    *,
+    days: int,
+    target: str | None,
+    channel: str,
+    transport=None,
+):
+    """Create through the API service that also serves the public download."""
+    from .support_bundle import SupportBundleInfo, create_support_bundle
+
+    api_url = str(getattr(settings, "support_bundle_api_url", "") or "").rstrip("/")
+    if not api_url:
+        return await asyncio.to_thread(
+            create_support_bundle,
+            settings,
+            days=days,
+            target=target,
+            request_context={"channel": channel},
+        )
+
+    parsed = urlsplit(api_url)
+    if (
+        parsed.scheme != "http"
+        or parsed.hostname != "api"
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.path not in {"", "/"}
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise RuntimeError(
+            "CLAIRE_SUPPORT_BUNDLE_API_URL must be the Compose-internal http://api:<port> URL"
+        )
+    public_authority = urlsplit(str(settings.public_url)).netloc
+    if not public_authority:
+        raise RuntimeError("CLAIRE_PUBLIC_URL is required for the internal Support Bundle API")
+
+    import httpx
+
+    async with httpx.AsyncClient(timeout=300.0, transport=transport) as client:
+        response = await client.post(
+            f"{api_url}/support/bundle",
+            headers={
+                "Authorization": f"Bearer {settings.inject_token}",
+                # The TCP destination is the Compose service, while the hardened
+                # API correctly continues to enforce its canonical public Host.
+                "Host": public_authority,
+            },
+            json={"days": days, "target": target, "source_channel": channel},
+        )
+    if response.status_code != 200:
+        raise RuntimeError(
+            f"Support Bundle API creation failed with HTTP {response.status_code}"
+        )
+    try:
+        return SupportBundleInfo.from_dict(response.json())
+    except (KeyError, TypeError, ValueError) as exc:
+        raise RuntimeError("Support Bundle API returned an invalid response") from exc
 
 
 def build_app(settings: Settings | None = None) -> Any:
@@ -1156,14 +1218,11 @@ def build_app(settings: Settings | None = None) -> Any:
                 pass
             status_msg = await query.message.reply_text(f"⏳ 문서 `{did}` 대상 Support Bundle 생성 중…")
             try:
-                from .support_bundle import create_support_bundle
-
-                info = await asyncio.to_thread(
-                    create_support_bundle,
+                info = await _create_support_bundle_for_delivery(
                     s,
                     days=1,
                     target=did,
-                    request_context={"channel": "telegram_callback"},
+                    channel="telegram_callback",
                 )
                 reply_text = (
                     f"📦 문서 `{did}` Support Bundle 생성 완료\n\n"
@@ -1424,7 +1483,6 @@ def build_app(settings: Settings | None = None) -> Any:
         sub_args = args[1:]
         from .support_bundle import (
             DEFAULT_SUPPORT_BUNDLE_DAYS,
-            create_support_bundle,
             list_active_support_bundles,
             purge_expired_bundles,
             validate_bundle_days,
@@ -1484,12 +1542,11 @@ def build_app(settings: Settings | None = None) -> Any:
         status_msg = await msg.reply_text(f"⏳ Support Bundle 생성 중… (최근 {days}일){target_info}")
 
         try:
-            info = await asyncio.to_thread(
-                create_support_bundle,
+            info = await _create_support_bundle_for_delivery(
                 s,
                 days=days,
                 target=target,
-                request_context={"channel": "telegram_command"},
+                channel="telegram_command",
             )
             theme_str = f", 테마 #{info.target_theme_id}" if info.target_theme_id else ""
             if info.target_doc_id:

@@ -381,6 +381,15 @@ class Runtime:
         else:
             env.pop("CB_DEV_ENV_FILE", None)
 
+        # Resolve persistence mounts once, using the same documented process-env
+        # precedence as preflight/backup/restore, and pass the canonical paths to
+        # every Compose invocation.  This prevents Compose from independently
+        # re-resolving relative paths or inheriting a different value between the
+        # bundle-producing bot and the bundle-serving API.
+        storage = resolve_storage(self)
+        env["CB_DATA_DIR"] = str(storage.data)
+        env["CB_VAULT_DIR"] = str(storage.vault)
+
         tz_value = self.values.get("TZ", "").strip() or env.get("TZ", "").strip()
         if not tz_value:
             tz_value = _detect_system_timezone()
@@ -1408,8 +1417,10 @@ def _database_relative_path(runtime: Runtime) -> Path:
 
 
 def resolve_storage(runtime: Runtime) -> StorageLayout:
-    data = _configured_host_path(runtime, "CB_DATA_DIR", "./data")
-    vault = _configured_host_path(runtime, "CB_VAULT_DIR", "./vault")
+    data_default = "./.dev/data" if runtime.dev else "./data"
+    vault_default = "./.dev/vault" if runtime.dev else "./vault"
+    data = _configured_host_path(runtime, "CB_DATA_DIR", data_default)
+    vault = _configured_host_path(runtime, "CB_VAULT_DIR", vault_default)
     backup_root = runtime.layout.backups.resolve()
     repository = runtime.layout.root.resolve()
     home = Path.home().resolve()

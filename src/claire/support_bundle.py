@@ -61,6 +61,7 @@ _URL_SECRET_RE = re.compile(
 BUNDLE_FORMAT_VERSION = 3
 _BUNDLE_REGISTRY_DIRNAME = ".registry"
 _BUNDLE_REGISTRY_FORMAT_VERSION = 1
+_BUNDLE_TOKEN_PREFIX = "sb3_"
 _MAX_STORAGE_SCAN_ENTRIES = 2_000
 _MAX_STORAGE_DATABASES = 100
 _STORAGE_SCAN_SKIP_DIRS = frozenset(
@@ -100,6 +101,31 @@ class SupportBundleInfo:
             "target_theme_id": self.target_theme_id,
             "target_resolution_status": self.target_resolution_status,
         }
+
+    @classmethod
+    def from_dict(cls, value: dict[str, Any]) -> "SupportBundleInfo":
+        """API 응답을 Telegram 전달용 정보 객체로 복원한다."""
+
+        def _epoch(raw: Any) -> float:
+            if isinstance(raw, (int, float)):
+                return float(raw)
+            return datetime.fromisoformat(str(raw).replace("Z", "+00:00")).timestamp()
+
+        return cls(
+            bundle_id=str(value["bundle_id"]),
+            token=str(value["token"]),
+            filename=str(value["filename"]),
+            filepath=Path(str(value["filepath"])),
+            days_covered=int(value["days_covered"]),
+            size_bytes=int(value["size_bytes"]),
+            created_at=_epoch(value["created_at"]),
+            expires_at=_epoch(value["expires_at"]),
+            download_url=str(value["download_url"]),
+            target_doc_id=value.get("target_doc_id"),
+            target_matched_by=value.get("target_matched_by"),
+            target_theme_id=value.get("target_theme_id"),
+            target_resolution_status=value.get("target_resolution_status"),
+        )
 
 
 def _support_bundles_path(data_dir: Path | str | None) -> Path:
@@ -955,7 +981,9 @@ def create_support_bundle(
     purge_expired_bundles(data_dir, now_epoch=now)
 
     bundle_id = f"sb_{datetime.fromtimestamp(now, timezone.utc).strftime('%Y%m%d_%H%M%S')}_{secrets.token_hex(4)}"
-    token = secrets.token_urlsafe(32)
+    # The format prefix lets an operator identify which producer contract issued
+    # a URL without disclosing any secret or weakening token entropy.
+    token = _BUNDLE_TOKEN_PREFIX + secrets.token_urlsafe(32)
     filename = f"support_bundle_{datetime.fromtimestamp(now, timezone.utc).strftime('%Y%m%d_%H%M%S')}_{bundle_id[-8:]}.tar.zst"
     bundles_dir = get_support_bundles_dir(data_dir)
     archive_path = bundles_dir / filename
@@ -1473,6 +1501,17 @@ def create_support_bundle(
     if not sidecar_registered and not database_registered:
         archive_path.unlink(missing_ok=True)
         raise RuntimeError("Support Bundle could not create a durable download registration")
+
+    # Do not announce a URL that the producer itself cannot resolve through the
+    # exact lookup and archive validation path used by the download endpoint.
+    if get_support_bundle(data_dir, token, now_epoch=now) is None:
+        try:
+            delete_support_bundle(data_dir, bundle_id)
+        except Exception:  # noqa: BLE001
+            pass
+        _delete_bundle_sidecar(data_dir, token)
+        archive_path.unlink(missing_ok=True)
+        raise RuntimeError("Support Bundle download registration failed verification")
 
     return SupportBundleInfo(
         bundle_id=bundle_id,

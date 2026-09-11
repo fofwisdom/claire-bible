@@ -16,6 +16,8 @@ from ops import cb_manuscript as cb
 @pytest.fixture(autouse=True)
 def _clear_environment_selector(monkeypatch):
     monkeypatch.delenv("CLAIRE_ENVIRONMENT", raising=False)
+    monkeypatch.delenv("CB_DATA_DIR", raising=False)
+    monkeypatch.delenv("CB_VAULT_DIR", raising=False)
 
 
 def _write_layout(
@@ -275,6 +277,25 @@ def test_compose_environment_includes_tz(tmp_path, monkeypatch):
     assert env.get("TZ") == "Asia/Seoul"
 
 
+def test_compose_environment_canonicalizes_effective_storage_mounts(
+    tmp_path, monkeypatch
+):
+    _write_layout(tmp_path, dev=False)
+    process_data = tmp_path / "process-data"
+    process_vault = tmp_path / "process-vault"
+    monkeypatch.setenv("CB_DATA_DIR", str(process_data))
+    monkeypatch.setenv("CB_VAULT_DIR", str(process_vault))
+
+    runtime = cb.load_runtime(cb.Layout(tmp_path))
+    env = runtime.compose_environment()
+
+    assert env["CB_DATA_DIR"] == str(process_data.resolve())
+    assert env["CB_VAULT_DIR"] == str(process_vault.resolve())
+    storage = cb.resolve_storage(runtime)
+    assert Path(env["CB_DATA_DIR"]) == storage.data
+    assert Path(env["CB_VAULT_DIR"]) == storage.vault
+
+
 def test_compose_environment_includes_claire_pdf_parser(tmp_path):
     # 1. 기본값(미설정 시) pypdf
     _write_layout(tmp_path, dev=False)
@@ -380,6 +401,8 @@ def test_dev_prefix_uses_overlay_stable_project_and_compose_environment(
     assert env["CLAIRE_ENVIRONMENT"] == "development"
     assert env["CB_ENV_FILE"] == str((tmp_path / ".env").resolve())
     assert env["CB_DEV_ENV_FILE"] == str((tmp_path / ".env.dev").resolve())
+    assert env["CB_DATA_DIR"] == str((tmp_path / ".dev/data").resolve())
+    assert env["CB_VAULT_DIR"] == str((tmp_path / ".dev/vault").resolve())
 
 
 def test_process_environment_selects_development_without_legacy_prefix(

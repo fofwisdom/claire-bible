@@ -5,6 +5,60 @@ from __future__ import annotations
 from claire.telegram_bot import _run_with_ticker, _settle_status, _status_emoji
 
 
+async def test_support_bundle_delivery_is_created_by_api_service(tmp_path):
+    import json
+
+    import httpx
+    from claire.config import Settings
+    from claire.telegram_bot import _create_support_bundle_for_delivery
+
+    archive = tmp_path / "support_bundle_api.tar.zst"
+    archive.write_bytes(b"bundle")
+
+    async def handle(request: httpx.Request) -> httpx.Response:
+        assert request.url == "http://api:8765/support/bundle"
+        assert request.headers["Authorization"] == "Bearer " + ("o" * 32)
+        assert request.headers["Host"] == "cb.example"
+        assert json.loads(request.content) == {
+            "days": 2,
+            "target": "doc_1",
+            "source_channel": "telegram_command",
+        }
+        return httpx.Response(
+            200,
+            json={
+                "bundle_id": "sb_api",
+                "token": "sb3_api_token",
+                "filename": archive.name,
+                "filepath": str(archive),
+                "days_covered": 2,
+                "size_bytes": archive.stat().st_size,
+                "created_at": "2026-09-11T00:00:00+00:00",
+                "expires_at": "2026-09-11T06:00:00+00:00",
+                "download_url": "https://cb.example/support/bundle?token=sb3_api_token",
+                "target_doc_id": "doc_1",
+            },
+        )
+
+    settings = Settings(
+        telegram_bot_token="12345:fake_token_for_test",
+        inject_token="o" * 32,
+        support_bundle_api_url="http://api:8765",
+        public_url="https://cb.example/",
+        data_dir=tmp_path,
+    )
+    info = await _create_support_bundle_for_delivery(
+        settings,
+        days=2,
+        target="doc_1",
+        channel="telegram_command",
+        transport=httpx.MockTransport(handle),
+    )
+
+    assert info.bundle_id == "sb_api"
+    assert info.filepath == archive
+
+
 def test_status_emoji_maps_result():
     assert _status_emoji(None, False) == "👍"   # 신규/갱신 완료
     assert _status_emoji(None, True) == "👌"    # 중복
@@ -959,6 +1013,3 @@ async def test_on_theme_single_mode_reply(tmp_path: Path):
     reply = msg.reply_text.call_args[0][0]
     assert "현재 싱글 테마 모드로 동작 중입니다" in reply
     assert "CLAIRE_MULTI_THEME=1" in reply
-
-
-

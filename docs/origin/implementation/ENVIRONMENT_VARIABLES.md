@@ -240,6 +240,7 @@ VMware Explore 숫자형 영상 상세 페이지가 Presentation PDF를 명시�
 | :--- | :--- | :--- | :--- |
 | `CLAIRE_INJECT_HOST` | `127.0.0.1` | IPv4 주소 | API 서버 바인딩 호스트 (컨테이너 내부는 `0.0.0.0`으로 고정). |
 | `CLAIRE_INJECT_PORT` | `8765` / `8766` | 정수 (`1~65535`) | API 서버 내부 포트 번호. |
+| `CLAIRE_SUPPORT_BUNDLE_API_URL` | Compose가 `http://api:<CB_API_PORT>`로 주입 | Compose 내부 URL | Telegram이 다운로드 담당 API에 Support Bundle 생성을 위임하는 내부 전용 주소. 사용자가 `.env`에 설정하지 않습니다. |
 | `CLAIRE_INJECT_TOKEN` | `""` | 32~128자 URL-safe 문자열 | **Owner 쓰기 토큰**. 문서 적재(Ingest), 중복 병합, 소유자 전용 API 호출에 필수적입니다. `./cb-manuscript init` 실행 시 비어있으면 32자 무작위 토큰으로 자동 생성됩니다. |
 | `CLAIRE_COLLABORATOR_TOKEN` | `""` | 32~128자 URL-safe 문자열 | **Collaborator 협업 토큰**. 협업자에게 허용된 추가 테마에 대한 읽기 및 적재 권한을 부여하며, 기본 지식베이스(ID 0) 및 소유자 전용 설정 변경은 차단됩니다. (텔레그램 `/webco`로 세션 링크 발급 가능) |
 | `CLAIRE_READONLY_TOKEN` | `""` | 32~128자 URL-safe 문자열 | **Readonly 조회 토큰**. 에이전트/외부 시스템이 검색, 그래프 조회, 노드 상세 조회만 수행할 수 있도록 허용하는 읽기 전용 토큰입니다 (쓰기 차단). |

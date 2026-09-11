@@ -38,6 +38,9 @@ services:
     <<: *claire-service
     profiles:
       - bot
+    environment:
+      <<: *claire-environment
+      CLAIRE_SUPPORT_BUNDLE_API_URL: "http://api:${CB_API_PORT:?CB_API_PORT is required}"
     command: ["claire", "bot"]
 
   api:

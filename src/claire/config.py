@@ -347,6 +347,12 @@ class Settings(BaseSettings):
     inject_host: str = Field(default="127.0.0.1", alias="CLAIRE_INJECT_HOST")
     inject_port: int = Field(default=8765, alias="CLAIRE_INJECT_PORT")
     inject_token: str = Field(default="", alias="CLAIRE_INJECT_TOKEN")
+    # Compose-managed service URL.  Telegram uses the API as the sole Support
+    # Bundle producer so the process returning the public download also owns the
+    # archive and registry transaction.
+    support_bundle_api_url: str = Field(
+        default="", alias="CLAIRE_SUPPORT_BUNDLE_API_URL"
+    )
     # 읽기 전용 공개 토큰 — owner bearer(inject_token)와 별개. GET(검색/그래프/노드상세/
     # 문서목록)만 통과시키고 쓰기(ingest/dedup-merge/공유링크발급 등)는 차단(에이전트 조회용).
     readonly_token: str = Field(default="", alias="CLAIRE_READONLY_TOKEN")
