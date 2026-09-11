@@ -4,7 +4,7 @@ info:
   version: 1.0.0
   description: >-
     Authoritative OpenAPI 3.1.0 specification and shared wire contract between the
-    Thesis Lab (blackan/claire_bible) and the Augmentation Lab (fofwisdom/claire-bible),
+    Thesis Lineage (blackan/claire_bible) and the Augmentation Lineage (fofwisdom/claire-bible),
     including RFC 8693 OAuth 2.0 Token Exchange, hybrid graph search, and MCP integration.
   license:
     name: MIT
