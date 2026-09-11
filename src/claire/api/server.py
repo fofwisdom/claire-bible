@@ -25,6 +25,7 @@ from starlette.responses import (
     HTMLResponse,
     JSONResponse,
     PlainTextResponse,
+    RedirectResponse,
     Response,
     StreamingResponse,
 )
@@ -1440,6 +1441,9 @@ def create_app(
             return PlainTextResponse("Documentation UI template not found", status_code=500)
         return HTMLResponse(docs_template_file.read_text(encoding="utf-8"))
 
+    async def docs_redirect_route(_request: Request) -> Response:
+        return RedirectResponse(url="/reference", status_code=302)
+
     async def openapi_yaml_route(_request: Request) -> Response:
         spec_path = static_docs_dir / "openapi.yaml"
         if not spec_path.is_file():
@@ -1494,7 +1498,8 @@ def create_app(
         Route("/p", shared_doc_page, methods=["GET"]),
         Route("/support/bundle", create_support_bundle_route, methods=["POST"]),
         Route("/support/bundle", download_support_bundle_route, methods=["GET"]),
-        Route("/docs", docs_ui_route, methods=["GET"]),
+        Route("/reference", docs_ui_route, methods=["GET"]),
+        Route("/docs", docs_redirect_route, methods=["GET"]),
         Route("/openapi.yaml", openapi_yaml_route, methods=["GET"]),
         Route("/mcp", mcp_route, methods=["GET", "POST"]),
         Mount("/static", StaticFiles(directory=str(static_dir), check_dir=False), name="static"),

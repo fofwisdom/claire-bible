@@ -185,6 +185,8 @@ ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     ("POST", "/support/bundle"): _rule("owner"),
     ("GET", "/support/bundle"): _rule("public"),
     ("HEAD", "/support/bundle"): _rule("public"),
+    ("GET", "/reference"): _rule("public"),
+    ("HEAD", "/reference"): _rule("public"),
     ("GET", "/docs"): _rule("public"),
     ("HEAD", "/docs"): _rule("public"),
     ("GET", "/openapi.yaml"): _rule("public"),
