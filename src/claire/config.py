@@ -345,8 +345,12 @@ class Settings(BaseSettings):
     pdf_exclude_appendix: bool = Field(default=True, alias="CLAIRE_PDF_EXCLUDE_APPENDIX")
     # PDF 논문 적재 시 참고문헌(References) 제외 정책
     pdf_exclude_references: bool = Field(default=True, alias="CLAIRE_PDF_EXCLUDE_REFERENCES")
-    # PDF 추출 파서 엔진 선택 ("pypdf", "docling")
-    pdf_parser: str = Field(default="pypdf", alias="CLAIRE_PDF_PARSER")
+    # PDF 추출 파서 엔진 선택 ("pypdfium2", "pypdf", "docling", "auto")
+    pdf_parser: str = Field(default="pypdfium2", alias="CLAIRE_PDF_PARSER")
+    # PDF 텍스트 인코딩 결함(CID 누락, PUA 글꼴, 대체문자 등) 및 스캔본 감지
+    pdf_detect_encoding_flaws: bool = Field(default=True, alias="CLAIRE_PDF_DETECT_ENCODING_FLAWS")
+    # PDF 인코딩 결함 감지 시 Docling OCR/레이아웃 복구 에스컬레이션 시도 여부
+    pdf_flaw_escalate_docling: bool = Field(default=True, alias="CLAIRE_PDF_FLAW_ESCALATE_DOCLING")
     # 15,000자 이상 논문 PDF 적재 시 사고/추론 레벨
     pdf_paper_effort: str = Field(default="high", alias="CLAIRE_PDF_PAPER_EFFORT")
     # 15,000자 미만 또는 비논문 PDF 적재 시 기본 레벨 (빈 문자열이면 프로바이더 기본 env 사용)

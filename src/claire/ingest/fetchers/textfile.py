@@ -118,11 +118,14 @@ def fetch_file(path: str, *, full_content: bool = False) -> Document:
     if source_type == "odt" and "odt_res" in locals():
         meta["odt_parser_used"] = getattr(odt_res, "parser_used", "odt")
     if source_type == "pdf" and "pdf_res" in locals():
-        meta["pdf_parser_requested"] = getattr(pdf_res, "parser_requested", "pypdf")
-        meta["pdf_parser_used"] = getattr(pdf_res, "parser_used", "pypdf")
+        meta["pdf_parser_requested"] = getattr(pdf_res, "parser_requested", "pypdfium2")
+        meta["pdf_parser_used"] = getattr(pdf_res, "parser_used", "pypdfium2")
         meta["pdf_parser_fallback"] = bool(getattr(pdf_res, "parser_fallback", False))
         if getattr(pdf_res, "parser_fallback_reason", None):
             meta["pdf_parser_fallback_reason"] = getattr(pdf_res, "parser_fallback_reason")
+        meta["pdf_encoding_flaw_detected"] = bool(getattr(pdf_res, "encoding_flaw_detected", False))
+        meta["pdf_encoding_flaws"] = list(getattr(pdf_res, "encoding_flaws", []))
+        meta["pdf_is_scanned"] = bool(getattr(pdf_res, "is_scanned", False))
     return Document(
         url=f"file://{p.resolve()}",
         title=title or p.stem,

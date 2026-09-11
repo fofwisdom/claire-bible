@@ -67,12 +67,14 @@ PDF 문서는 2단(Two-Column) 레이아웃, 복잡한 데이터 표, 수식 등
     2. 또는 CPU 전용 휠 선설치(`--index-url https://download.pytorch.org/whl/cpu torch torchvision`)를 통해 이미지 레이어 크기를 95% 이상 절감.
     3. 모델 캐시 영구화: `HF_HOME=/app/data/cache/huggingface`를 설정하여 컨테이너 재빌드 시 모델 가중치 재다운로드 방지.
 - **Graceful Fallback & 전방위 경과 보고 체계**:
-  - `CLAIRE_PDF_PARSER=docling` 설정 상태에서 모델 다운로드 실패, 컨테이너 메모리 부족(OOM), CPU 타임아웃, 런타임 변환 오류 등으로 docling이 실패할 경우, 경고 로깅 후 `pypdf`로 자동 폴백하여 무중단 수집을 보장합니다.
-  - 이때 단순 무음 폴백에 그치지 않고 실패 원인을 정밀 분류하여 **전방위 보고 채널**로 경과를 통지합니다:
-    1. **문서 메타데이터 (`doc.meta`)**: `pdf_parser_requested`, `pdf_parser_used`, `pdf_parser_fallback`, `pdf_parser_fallback_reason` 명시 저장.
-    2. **GraphView 웹 UI**: 문서 상세 메타 영역에 주황색 배지 `⚠️ Docling 폴백 (PyPDF)` 노출 및 툴팁으로 실제 실패 사유 안내.
-    3. **CLI 적재 리포트 및 텔레그램 완료 알림**: `IngestReport.telegram_summary`에 `⚠️ PDF 파서 대체 적재 (Docling 실패 → PyPDF)` 및 구체적 원인 명시.
-    4. **안정성 우선 정책**: 프로덕션 기본 파서는 `CLAIRE_PDF_PARSER=pypdf`로 유지하여 예측 가능하고 신속한 적재를 보장하며, 다단 분석이 필수적인 경우에 한해 선택적으로 활성화.
+  - `CLAIRE_PDF_PARSER`의 기본 엔진으로 Chromium C++ 기반의 `pypdfium2`를 채택하여 기존 pure-python 대비 5~15배 빠른 파싱과 향상된 ToUnicode/CMap 매핑을 제공합니다.
+  - `CLAIRE_PDF_PARSER=docling` 설정 상태에서 모델 다운로드 실패, 컨테이너 메모리 부족(OOM), CPU 타임아웃, 런타임 변환 오류 등으로 docling이 실패할 경우, 경고 로깅 후 `pypdfium2` 및 `pypdf`로 자동 폴백하여 무중단 수집을 보장합니다.
+  - 또한 `pypdfium2`로 텍스트를 추출할 때 **인코딩 결함 감지 엔진**(`detect_pdf_encoding_flaws`)이 동작하여 CID 누락(`(cid:xxx)`), PUA 사설 영역 글꼴, 유니코드 대체문자(`\ufffd`), 스캔본 저밀도 등을 실시간 진단하며, 결함 발견 시 Docling OCR로 자동 복구 에스컬레이션을 시도합니다.
+  - 이때 실패 및 폴백, 결함 원인을 정밀 분류하여 **전방위 보고 채널**로 경과를 통지합니다:
+    1. **문서 메타데이터 (`doc.meta`)**: `pdf_parser_requested`, `pdf_parser_used`, `pdf_parser_fallback`, `pdf_parser_fallback_reason`, `pdf_encoding_flaw_detected`, `pdf_encoding_flaws`, `pdf_is_scanned` 명시 저장.
+    2. **GraphView 웹 UI**: 문서 상세 메타 영역에 대체 배지 `⚠️ 파서 폴백`, 결함 배지 `⚠️ PDF 인코딩 결함`, `📷 스캔본 PDF` 노출 및 툴팁으로 실제 사유 안내.
+    3. **CLI 적재 리포트 및 텔레그램 완료 알림**: `IngestReport.telegram_summary`에 파서 대체 및 인코딩 결함/스캔본 경고 명시.
+    4. **안정성 우선 정책**: 프로덕션 기본 파서는 `CLAIRE_PDF_PARSER=pypdfium2`로 신속하고 신뢰성 높은 적재를 보장하며, 다단 분석 및 OCR이 필수적인 경우에 한해 Docling을 활성화/에스컬레이션.
 
 ---
 
@@ -154,7 +156,9 @@ PDF 문서는 2단(Two-Column) 레이아웃, 복잡한 데이터 표, 수식 등
 
 | 환경변수명 | 기본값 | 설명 |
 | :--- | :--- | :--- |
-| `CLAIRE_PDF_PARSER` | `pypdf` | PDF 추출 엔진 (`pypdf`: 기본 경량 파서, `docling`: 고급 다단/표 분석 파서) |
+| `CLAIRE_PDF_PARSER` | `pypdfium2` | PDF 추출 엔진 (`pypdfium2`: 기본 고속 C++ PDFium 파서, `pypdf`: 초경량 안전망 파서, `docling`: 고급 다단/OCR 파서, `auto`: 지능형 자동 에스컬레이션) |
+| `CLAIRE_PDF_DETECT_ENCODING_FLAWS` | `true` | PDF 텍스트 인코딩 결함(CID 누락, PUA 글꼴, 대체문자, 제어문자 노이즈 등) 및 스캔본 감지 여부 |
+| `CLAIRE_PDF_FLAW_ESCALATE_DOCLING` | `true` | PDF 인코딩 결함 감지 시 Docling OCR/레이아웃 복구 자동 에스컬레이션 시도 여부 |
 | `CLAIRE_PDF_EXCLUDE_APPENDIX` | `true` | PDF 논문 적재 시 부록(Appendix/Supplementary) 자동 제외 여부 |
 | `CLAIRE_PDF_EXCLUDE_REFERENCES` | `true` | PDF 논문 적재 시 참고문헌(References/Bibliography) 자동 제외 여부 |
 | `CLAIRE_PDF_MAX_EXTRACT_CHARS` | `50000` | PDF 스트림 텍스트 추출, DB/아티팩트 보존, LLM 프롬프트 투입 최대 글자 수 |

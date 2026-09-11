@@ -1,19 +1,26 @@
-"""PDF 문서 추출기 — 선택형 파서(pypdf / docling), 부록 및 참고문헌 제외, 서지 메타데이터 추출."""
+"""PDF 문서 추출기 — 선택형 파서(pypdfium2 / docling / pypdf), 인코딩 결함 감지, 부록 및 참고문헌 제외, 서지 메타데이터 추출."""
 
 from __future__ import annotations
 
+import ctypes
 import io
 import logging
 import re
 from typing import Any, BinaryIO
 
 import pypdf
+import pypdfium2 as pdfium
+import pypdfium2.raw as pdfium_c
 
 from ...config import get_settings
 
 logger = logging.getLogger("claire.ingest.pdf")
 
 _URL_RE = re.compile(r"https?://[^\s)\]\}<>\"']+")
+_MOJIBAKE_RE = re.compile(r"[\xc2-\xc3][\x80-\xbf]{2,}|Ã[^\x00-\x7f]|â[^\x00-\x7f]")
+_CID_RE = re.compile(r"\(cid:\d+\)")
+_HANGUL_JAMO_RE = re.compile(r"[ㄱ-ㅎㅏ-ㅣ]")
+_HANGUL_SYLLABLE_RE = re.compile(r"[가-힣]")
 
 APPENDIX_PATTERNS = [
     # 1. Appendix / Appendices / APPENDIX / APPENDICES with optional numbering/title
@@ -167,7 +174,7 @@ def slice_pdf_text(
 
 
 class PdfExtractResult(tuple):
-    """6개 튜플(title, text, links, anchors, error, images)과 완벽 호환되면서 .biblio 및 파서 실행 이력 속성을 제공."""
+    """6개 튜플(title, text, links, anchors, error, images)과 완벽 호환되면서 .biblio 및 파서 실행 이력, 인코딩 결함 속성을 제공."""
 
     def __new__(
         cls,
@@ -178,10 +185,14 @@ class PdfExtractResult(tuple):
         error: str | None,
         images: list[dict],
         biblio: dict[str, Any] | None = None,
-        parser_requested: str = "pypdf",
-        parser_used: str = "pypdf",
+        parser_requested: str = "pypdfium2",
+        parser_used: str = "pypdfium2",
         parser_fallback: bool = False,
         parser_fallback_reason: str | None = None,
+        encoding_flaw_detected: bool = False,
+        encoding_flaws: list[str] | None = None,
+        is_scanned: bool = False,
+        encoding_flaw_details: dict[str, Any] | None = None,
     ):
         instance = super().__new__(cls, (title, text, links, anchors, error, images))
         instance.biblio = biblio or {}
@@ -189,6 +200,10 @@ class PdfExtractResult(tuple):
         instance.parser_used = parser_used
         instance.parser_fallback = parser_fallback
         instance.parser_fallback_reason = parser_fallback_reason
+        instance.encoding_flaw_detected = encoding_flaw_detected
+        instance.encoding_flaws = list(encoding_flaws or [])
+        instance.is_scanned = is_scanned
+        instance.encoding_flaw_details = dict(encoding_flaw_details or {})
         return instance
 
     @property
@@ -244,6 +259,247 @@ def classify_docling_failure(exc: Exception) -> str:
     # 5. 기타 런타임 변환 오류
     clean_msg = err_str.strip().replace("\n", " ")[:150]
     return f"문서 변환 중 런타임 오류 ({err_type}: {clean_msg})"
+
+
+def detect_pdf_encoding_flaws(
+    text: str,
+    page_count: int = 1,
+    image_count: int = 0,
+) -> dict[str, Any]:
+    """추출된 PDF 텍스트의 유효성, 인코딩 결함 및 스캔본 저밀도 여부를 정밀 판정한다.
+
+    검사항목:
+    1. 텍스트 레이어 부재 및 스캔본(scanned_low_density / scanned_image_only)
+    2. CIDFont /ToUnicode CMap 누락으로 인한 (cid:xxx) 토큰 방출
+    3. PUA (Private Use Area: U+E000~U+F8FF, U+F0000~U+10FFFD) 비표준 글꼴 매핑
+    4. 유니코드 대체 문자(\\ufffd) 다량 발생
+    5. 비출력 제어 문자(\\x00~\\x1f, 공백 제외) 노이즈
+    6. UTF-8이 Latin-1 등으로 오해석된 모지바케 패턴
+    7. 한글 자모 분리 현상 (낱자 결함)
+    """
+    stripped = (text or "").strip()
+    total_chars = len(text or "")
+    reasons: list[str] = []
+    is_scanned = False
+
+    if not stripped:
+        scanned = page_count >= 1 and image_count >= 1
+        return {
+            "has_flaw": True,
+            "is_empty": True,
+            "is_scanned": scanned,
+            "reasons": ["scanned_image_only"] if scanned else ["empty_text_layer"],
+            "summary": "스캔본 이미지 위주 PDF (텍스트 레이어 없음)" if scanned else "텍스트 레이어 없음",
+            "details": {"total_chars": 0, "page_count": page_count, "image_count": image_count},
+        }
+
+    # 1. 스캔본 저밀도 (페이지 수 대비 텍스트가 극단적으로 적고 이미지가 존재)
+    if page_count > 1 and (len(stripped) / page_count) < 25 and image_count >= page_count:
+        reasons.append(f"scanned_low_density ({len(stripped) / page_count:.1f} chars/page)")
+        is_scanned = True
+
+    # 2. \\ufffd 대체 문자
+    rep_count = text.count("\ufffd")
+    if rep_count >= 5 and (rep_count / max(total_chars, 1)) > 0.01:
+        reasons.append(f"replacement_chars ({rep_count} chars, {rep_count / total_chars:.1%})")
+
+    # 3. PUA (사설 사용자 영역) 코드포인트
+    pua_count = sum(1 for c in text if (0xE000 <= ord(c) <= 0xF8FF) or (0xF0000 <= ord(c) <= 0x10FFFD))
+    if pua_count >= 5 and (pua_count / max(total_chars, 1)) > 0.01:
+        reasons.append(f"pua_characters ({pua_count} chars, {pua_count / total_chars:.1%})")
+
+    # 4. CID 글꼴 매핑 누락 (cid:xxx)
+    cid_matches = _CID_RE.findall(text)
+    cid_count = len(cid_matches)
+    if cid_count >= 5 and (cid_count * 7) / max(total_chars, 1) > 0.02:
+        reasons.append(f"unmapped_cid_fonts ({cid_count} tokens)")
+
+    # 5. 비출력 제어 문자 (\\n, \\r, \\t 제외)
+    ctrl_count = sum(1 for c in text if ord(c) < 32 and c not in "\n\r\t")
+    if ctrl_count >= 10 and (ctrl_count / max(total_chars, 1)) > 0.02:
+        reasons.append(f"control_char_noise ({ctrl_count} chars, {ctrl_count / total_chars:.1%})")
+
+    # 6. 모지바케 (UTF-8 Latin-1 오해석)
+    mojibake_matches = len(_MOJIBAKE_RE.findall(text))
+    if mojibake_matches >= 3:
+        reasons.append(f"mojibake_encoding ({mojibake_matches} occurrences)")
+
+    # 7. 한글 낱자 분리
+    jamo_count = len(_HANGUL_JAMO_RE.findall(text))
+    syllable_count = len(_HANGUL_SYLLABLE_RE.findall(text))
+    if jamo_count >= 15 and jamo_count > (syllable_count * 0.3):
+        reasons.append(f"decomposed_hangul_jamo ({jamo_count} jamo vs {syllable_count} syllables)")
+
+    return {
+        "has_flaw": len(reasons) > 0,
+        "is_empty": False,
+        "is_scanned": is_scanned,
+        "reasons": reasons,
+        "summary": ", ".join(reasons) if reasons else "clean",
+        "details": {
+            "total_chars": total_chars,
+            "page_count": page_count,
+            "image_count": image_count,
+            "rep_count": rep_count,
+            "pua_count": pua_count,
+            "cid_count": cid_count,
+            "ctrl_count": ctrl_count,
+            "mojibake_matches": mojibake_matches,
+            "jamo_count": jamo_count,
+        },
+    }
+
+
+def extract_pdf_stream_pypdfium2(
+    stream: BinaryIO,
+    url: str | None = None,
+    fallback_title: str | None = None,
+) -> PdfExtractResult:
+    """pypdfium2 (Chromium PDFium C++) 기반 고속·고정밀 PDF 텍스트 및 메타데이터 추출."""
+    try:
+        try:
+            data = stream.read() if hasattr(stream, "read") else bytes(stream)
+        except Exception:
+            data = b""
+
+        if not data:
+            return PdfExtractResult(None, "", [], {}, "empty PDF stream", [], {})
+
+        try:
+            doc = pdfium.PdfDocument(data)
+        except pdfium.PdfiumError as pe:
+            err_msg = str(pe).lower()
+            if "password" in err_msg:
+                return PdfExtractResult(None, "", [], {}, "encrypted PDF", [], {})
+            return PdfExtractResult(None, "", [], {}, f"PDF extraction failed: {pe}", [], {})
+
+        with doc:
+            title: str | None = None
+            try:
+                meta = doc.get_metadata_dict()
+                if meta:
+                    t = meta.get("Title")
+                    if t and isinstance(t, str) and t.strip():
+                        clean_t = t.strip().replace("\x00", "")
+                        if clean_t:
+                            title = clean_t[:200]
+            except Exception:
+                pass
+
+            pages_text: list[str] = []
+            links: list[str] = []
+            anchors: dict[str, str] = {}
+            seen_links: set[str] = set()
+
+            total_len = 0
+            image_count = 0
+            total_pages = len(doc)
+
+            for i in range(total_pages):
+                page = doc[i]
+                try:
+                    imgs = list(page.get_objects(filter=[pdfium_c.FPDF_PAGEOBJ_IMAGE]))
+                    image_count += len(imgs)
+                except Exception:
+                    pass
+
+                textpage = page.get_textpage()
+                try:
+                    pt = textpage.get_text_range() or ""
+                except Exception:
+                    pt = ""
+
+                pt = pt.strip()
+                if pt:
+                    pages_text.append(pt)
+                    total_len += len(pt)
+
+                # PDFium 내장 웹 링크 추출
+                try:
+                    weblinks = pdfium_c.FPDFLink_LoadWebLinks(textpage)
+                    if weblinks:
+                        try:
+                            count = pdfium_c.FPDFLink_CountWebLinks(weblinks)
+                            for link_idx in range(count):
+                                buflen = pdfium_c.FPDFLink_GetURL(weblinks, link_idx, None, 0)
+                                if buflen > 0:
+                                    buf = (ctypes.c_ushort * buflen)()
+                                    pdfium_c.FPDFLink_GetURL(weblinks, link_idx, buf, buflen)
+                                    u = bytes(buf).decode("utf-16le", errors="ignore").rstrip("\x00").strip()
+                                    if u.startswith(("http://", "https://")) and u not in seen_links:
+                                        seen_links.add(u)
+                                        links.append(u)
+                                        if len(links) >= 50:
+                                            break
+                        finally:
+                            pdfium_c.FPDFLink_CloseWebLinks(weblinks)
+                except Exception:
+                    pass
+
+                # 대용량 DoS 방어 안전 상한 (1,000페이지 또는 1,000만 자)
+                if len(pages_text) >= 1000 or total_len >= 10_000_000:
+                    break
+
+            full_text = "\n\n".join(pages_text).replace("\x00", "")
+            if not full_text.strip():
+                is_scanned = total_pages >= 1 and image_count >= 1
+                return PdfExtractResult(
+                    None,
+                    "",
+                    [],
+                    {},
+                    "empty PDF content",
+                    [],
+                    {},
+                    parser_requested="pypdfium2",
+                    parser_used="pypdfium2",
+                    is_scanned=is_scanned,
+                )
+
+            if not title:
+                lines = [line.strip() for line in full_text.splitlines() if line.strip()]
+                if lines:
+                    title = " ".join(lines[:2])[:200]
+                elif fallback_title:
+                    title = fallback_title[:200]
+                else:
+                    title = "PDF Document"
+
+            # 본문 텍스트 내 URL 정규식 보강 추출
+            for m in _URL_RE.finditer(full_text):
+                link = m.group(0).rstrip(".,;)")
+                if link not in seen_links:
+                    seen_links.add(link)
+                    links.append(link)
+                    if len(links) >= 50:
+                        break
+
+            # 인코딩 결함 감지
+            flaw_info = detect_pdf_encoding_flaws(
+                full_text,
+                page_count=total_pages,
+                image_count=image_count,
+            )
+
+            return PdfExtractResult(
+                title,
+                full_text,
+                links[:50],
+                anchors,
+                None,
+                [],
+                biblio={},
+                parser_requested="pypdfium2",
+                parser_used="pypdfium2",
+                parser_fallback=False,
+                parser_fallback_reason=None,
+                encoding_flaw_detected=flaw_info["has_flaw"],
+                encoding_flaws=flaw_info["reasons"],
+                is_scanned=flaw_info["is_scanned"],
+                encoding_flaw_details=flaw_info["details"],
+            )
+    except Exception as e:  # noqa: BLE001
+        return PdfExtractResult(None, "", [], {}, f"PDF extraction failed: {e}", [], {})
 
 
 def extract_pdf_stream_pypdf(
@@ -327,7 +583,25 @@ def extract_pdf_stream_pypdf(
                 if len(links) >= 50:
                     break
 
-        return PdfExtractResult(title, full_text, links[:50], anchors, None, [])
+        flaw_info = detect_pdf_encoding_flaws(full_text, page_count=len(pages_text), image_count=0)
+
+        return PdfExtractResult(
+            title,
+            full_text,
+            links[:50],
+            anchors,
+            None,
+            [],
+            biblio={},
+            parser_requested="pypdf",
+            parser_used="pypdf",
+            parser_fallback=False,
+            parser_fallback_reason=None,
+            encoding_flaw_detected=flaw_info["has_flaw"],
+            encoding_flaws=flaw_info["reasons"],
+            is_scanned=flaw_info["is_scanned"],
+            encoding_flaw_details=flaw_info["details"],
+        )
     except Exception as e:  # noqa: BLE001
         return PdfExtractResult(None, "", [], {}, f"PDF extraction failed: {e}", [], {})
 
@@ -371,7 +645,25 @@ def extract_pdf_stream_docling(
             if len(links) >= 50:
                 break
 
-    return PdfExtractResult(title, full_text, links[:50], {}, None, [])
+    flaw_info = detect_pdf_encoding_flaws(full_text)
+
+    return PdfExtractResult(
+        title,
+        full_text,
+        links[:50],
+        {},
+        None,
+        [],
+        biblio={},
+        parser_requested="docling",
+        parser_used="docling",
+        parser_fallback=False,
+        parser_fallback_reason=None,
+        encoding_flaw_detected=flaw_info["has_flaw"],
+        encoding_flaws=flaw_info["reasons"],
+        is_scanned=flaw_info["is_scanned"],
+        encoding_flaw_details=flaw_info["details"],
+    )
 
 
 def extract_pdf_stream(
@@ -380,20 +672,28 @@ def extract_pdf_stream(
     fallback_title: str | None = None,
     engine: str | None = None,
 ) -> PdfExtractResult:
-    """(title, text, links, anchors, error, images) 6개 튜플 호환 객체(biblio 속성 포함).
+    """(title, text, links, anchors, error, images) 6개 튜플 호환 객체(biblio 속성 및 인코딩 결함 정보 포함).
 
-    선택된 엔진(pypdf 또는 docling)으로 PDF를 추출한다.
-    docling 실패 또는 미설치 시 정밀한 원인을 진단/기록하고 pypdf로 안전하게 자동 폴백한다.
+    선택된 엔진(pypdfium2, docling, pypdf, auto)으로 PDF를 추출한다.
+    기본 엔진 pypdfium2의 고속 추출을 우선 적용하며,
+    1) 파서 런타임 실패 시 pypdf로 안전 자동 폴백.
+    2) 인코딩 결함(CID 누락, PUA 코드 등)이나 스캔본 감지 시 Docling OCR로 자동 복구 에스컬레이션을 시도한다.
     """
     settings = get_settings()
-    selected_engine = (engine or getattr(settings, "pdf_parser", "pypdf") or "pypdf").lower().strip()
+    selected_engine = (engine or getattr(settings, "pdf_parser", "pypdfium2") or "pypdfium2").lower().strip()
     from ...extract.provider import emit_progress
 
     emit_progress(f"PDF 텍스트 추출 중 ({selected_engine})…")
 
+    try:
+        data = stream.read() if hasattr(stream, "read") else bytes(stream)
+    except Exception:
+        data = b""
+
+    # 1. Docling 우선 요청 모드
     if selected_engine == "docling":
         try:
-            res = extract_pdf_stream_docling(stream, url=url, fallback_title=fallback_title)
+            res = extract_pdf_stream_docling(io.BytesIO(data), url=url, fallback_title=fallback_title)
             res.parser_requested = "docling"
             res.parser_used = "docling"
             res.parser_fallback = False
@@ -401,24 +701,81 @@ def extract_pdf_stream(
         except Exception as e:
             reason = classify_docling_failure(e)
             logger.warning(
-                "Docling PDF extraction failed: %s (%s). Falling back to pypdf.",
+                "Docling PDF extraction failed: %s (%s). Falling back to pypdfium2 / pypdf.",
                 reason, e,
             )
+            # 1차 폴백: pypdfium2
             try:
-                stream.seek(0)
+                pypdfium_res = extract_pdf_stream_pypdfium2(io.BytesIO(data), url=url, fallback_title=fallback_title)
+                if not pypdfium_res.error and pypdfium_res.text.strip():
+                    pypdfium_res.parser_requested = "docling"
+                    pypdfium_res.parser_used = "pypdfium2"
+                    pypdfium_res.parser_fallback = True
+                    pypdfium_res.parser_fallback_reason = reason
+                    return pypdfium_res
             except Exception:
                 pass
-            pypdf_res = extract_pdf_stream_pypdf(stream, url=url, fallback_title=fallback_title)
+
+            # 2차 폴백: pypdf
+            pypdf_res = extract_pdf_stream_pypdf(io.BytesIO(data), url=url, fallback_title=fallback_title)
             pypdf_res.parser_requested = "docling"
             pypdf_res.parser_used = "pypdf"
             pypdf_res.parser_fallback = True
             pypdf_res.parser_fallback_reason = reason
             return pypdf_res
 
-    res = extract_pdf_stream_pypdf(stream, url=url, fallback_title=fallback_title)
-    res.parser_requested = "pypdf"
-    res.parser_used = "pypdf"
-    res.parser_fallback = False
+    # 2. pypdf 명시 요청 모드
+    if selected_engine == "pypdf":
+        res = extract_pdf_stream_pypdf(io.BytesIO(data), url=url, fallback_title=fallback_title)
+        if res.error and not res.error.startswith("encrypted"):
+            # pypdf 실패 시 pypdfium2 폴백
+            fallback_res = extract_pdf_stream_pypdfium2(io.BytesIO(data), url=url, fallback_title=fallback_title)
+            if not fallback_res.error and fallback_res.text.strip():
+                fallback_res.parser_requested = "pypdf"
+                fallback_res.parser_used = "pypdfium2"
+                fallback_res.parser_fallback = True
+                fallback_res.parser_fallback_reason = f"pypdf 오류: {res.error}"
+                return fallback_res
+        res.parser_requested = "pypdf"
+        res.parser_used = "pypdf"
+        res.parser_fallback = False
+        return res
+
+    # 3. pypdfium2 (기본 및 auto 모드)
+    res = extract_pdf_stream_pypdfium2(io.BytesIO(data), url=url, fallback_title=fallback_title)
+
+    # 3-1. 런타임 오류 시 pypdf 폴백
+    if res.error and not res.error.startswith("encrypted"):
+        logger.warning("pypdfium2 extraction failed: %s. Falling back to pypdf.", res.error)
+        pypdf_res = extract_pdf_stream_pypdf(io.BytesIO(data), url=url, fallback_title=fallback_title)
+        pypdf_res.parser_requested = selected_engine
+        pypdf_res.parser_used = "pypdf"
+        pypdf_res.parser_fallback = True
+        pypdf_res.parser_fallback_reason = f"pypdfium2 런타임 오류: {res.error}"
+        return pypdf_res
+
+    # 3-2. 인코딩 결함 감지 시 Docling OCR/레이아웃 복구 에스컬레이션 시도
+    escalate_docling = getattr(settings, "pdf_flaw_escalate_docling", True)
+    if res.encoding_flaw_detected and escalate_docling and not res.error:
+        try:
+            docling_res = extract_pdf_stream_docling(io.BytesIO(data), url=url, fallback_title=fallback_title)
+            if not docling_res.error and docling_res.text.strip():
+                doc_flaw = detect_pdf_encoding_flaws(docling_res.text)
+                if not doc_flaw["has_flaw"] or len(doc_flaw["reasons"]) < len(res.encoding_flaws):
+                    docling_res.parser_requested = selected_engine
+                    docling_res.parser_used = "docling"
+                    docling_res.parser_fallback = True
+                    flaw_summary = ", ".join(res.encoding_flaws)
+                    docling_res.parser_fallback_reason = f"pypdfium2 인코딩 결함 감지({flaw_summary}) → Docling 복구"
+                    docling_res.encoding_flaw_detected = doc_flaw["has_flaw"]
+                    docling_res.encoding_flaws = doc_flaw["reasons"]
+                    docling_res.is_scanned = doc_flaw["is_scanned"]
+                    return docling_res
+        except Exception:
+            pass
+
+    res.parser_requested = selected_engine
+    res.parser_used = "pypdfium2"
     return res
 
 
@@ -429,4 +786,5 @@ def extract_pdf_bytes(
     engine: str | None = None,
 ) -> PdfExtractResult:
     return extract_pdf_stream(io.BytesIO(data), url=url, fallback_title=fallback_title, engine=engine)
+
 

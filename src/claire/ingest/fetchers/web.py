@@ -306,9 +306,12 @@ def _fetch_static(
             )
             title, text, links, anchors, perr, images = pdf_res[:6]
             parser_info = {
-                "pdf_parser_requested": getattr(pdf_res, "parser_requested", "pypdf"),
-                "pdf_parser_used": getattr(pdf_res, "parser_used", "pypdf"),
+                "pdf_parser_requested": getattr(pdf_res, "parser_requested", "pypdfium2"),
+                "pdf_parser_used": getattr(pdf_res, "parser_used", "pypdfium2"),
                 "pdf_parser_fallback": bool(getattr(pdf_res, "parser_fallback", False)),
+                "pdf_encoding_flaw_detected": bool(getattr(pdf_res, "encoding_flaw_detected", False)),
+                "pdf_encoding_flaws": list(getattr(pdf_res, "encoding_flaws", [])),
+                "pdf_is_scanned": bool(getattr(pdf_res, "is_scanned", False)),
             }
             if getattr(pdf_res, "parser_fallback_reason", None):
                 parser_info["pdf_parser_fallback_reason"] = getattr(pdf_res, "parser_fallback_reason")
@@ -584,9 +587,12 @@ def _fetch_scrapling(
             )
             title, text, links, anchors, _, images = pdf_res[:6]
             parser_info = {
-                "pdf_parser_requested": getattr(pdf_res, "parser_requested", "pypdf"),
-                "pdf_parser_used": getattr(pdf_res, "parser_used", "pypdf"),
+                "pdf_parser_requested": getattr(pdf_res, "parser_requested", "pypdfium2"),
+                "pdf_parser_used": getattr(pdf_res, "parser_used", "pypdfium2"),
                 "pdf_parser_fallback": bool(getattr(pdf_res, "parser_fallback", False)),
+                "pdf_encoding_flaw_detected": bool(getattr(pdf_res, "encoding_flaw_detected", False)),
+                "pdf_encoding_flaws": list(getattr(pdf_res, "encoding_flaws", [])),
+                "pdf_is_scanned": bool(getattr(pdf_res, "is_scanned", False)),
             }
             if getattr(pdf_res, "parser_fallback_reason", None):
                 parser_info["pdf_parser_fallback_reason"] = getattr(pdf_res, "parser_fallback_reason")
