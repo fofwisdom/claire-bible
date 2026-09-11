@@ -265,6 +265,8 @@ def classify_input(text: str) -> str:
             return "youtube"
         if "vmware.com/explore/video" in low or "brightcove.net" in low or "vimeo.com" in low:
             return "video"
+        if "tv.naver.com" in low or "now.naver.com" in low or ("naver.com" in low and "/v/" in low):
+            return "video"
         if any(low.split("?")[0].endswith(ext) for ext in (".mp4", ".m3u8", ".mpd", ".webm", ".m4a", ".mp3")):
             return "video"
         if "x.com" in low or "twitter.com" in low:

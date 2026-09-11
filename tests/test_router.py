@@ -76,3 +76,18 @@ def test_youtube_shared_text_with_hyphen_title(monkeypatch):
     assert classify(payload) == "youtube"
     assert extract_shared_url(payload) == "https://www.youtube.com/watch?v=ti9FHqP1i-w"
 
+
+def test_naver_tv_url_recognition():
+    urls = [
+        "https://tv.naver.com/v/101263731",
+        "https://m.tv.naver.com/v/101263731",
+        "https://now.naver.com/v/12345678",
+    ]
+    for u in urls:
+        assert classify(u) == "video"
+        assert classify_input(u) == "video"
+
+    shared = "NAVER ENGINEERING DAY 2026 세션 https://tv.naver.com/v/101263731"
+    assert classify(shared) == "video"
+    assert classify_input(shared) == "video"
+

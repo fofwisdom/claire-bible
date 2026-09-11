@@ -135,6 +135,11 @@ class IngestReport:
             )
 
         meta_badges = []
+        if not self.presentation_pdfs and self.source_type in ("video", "youtube"):
+            if self.has_transcript and not self.is_stt:
+                meta_badges.append("🔤 영상 자막(CC)")
+            elif self.is_stt and not is_stt_failed:
+                meta_badges.append("🎙️ 음성 전사(STT)")
         if self.full_content:
             meta_badges.append("🌐 원문 무절단 수집")
         if self.effort:
