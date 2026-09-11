@@ -1,6 +1,6 @@
 # VMware Explore 비디오·Presentation PDF 동시 적재 설계
 
-작성일: 2026-09-04 · 상태: **구현·결정론적 테스트·실영상 획득 검증 완료** · 기준: [GOALS.md](../../../GOALS.md) 품질 원칙 · 관련: [VIDEO_AUDIO_TRANSCRIPTION_AND_INGESTION_DESIGN.md](VIDEO_AUDIO_TRANSCRIPTION_AND_INGESTION_DESIGN.md), [PDF_INGESTION_AND_ADAPTIVE_EFFORT_DESIGN.md](PDF_INGESTION_AND_ADAPTIVE_EFFORT_DESIGN.md)
+작성일: 2026-09-04 · 상태: **구현·결정론적 테스트·실영상 획득 검증 완료** · 기준: [GOALS.md](../../upstream/GOALS.md) 품질 원칙 · 관련: [VIDEO_AUDIO_TRANSCRIPTION_AND_INGESTION_DESIGN.md](VIDEO_AUDIO_TRANSCRIPTION_AND_INGESTION_DESIGN.md), [PDF_INGESTION_AND_ADAPTIVE_EFFORT_DESIGN.md](PDF_INGESTION_AND_ADAPTIVE_EFFORT_DESIGN.md)
 
 ---
 
@@ -359,7 +359,7 @@ class Document(BaseModel):
 
 ## 11. 참고문헌
 
-[^project-boundaries]: Claire Bible 프로젝트 근거: [GOALS.md](../../../GOALS.md), [PLAN.md](../../../PLAN.md) (2026-09-04 확인).
+[^project-boundaries]: Claire Bible 프로젝트 근거: [GOALS.md](../../upstream/GOALS.md), [PLAN.md](../../upstream/PLAN.md) (2026-09-04 확인).
 [^vmware-presentation-page]: VMware Explore, [APPB1222LV — 10 Minutes from Code to Cluster](https://www.vmware.com/explore/video/6403820644112), 렌더링된 `Presentation PDF` 영역 및 Download 링크 확인, 2026-09-04.
 [^vmware-rendered-observation]: 동일 페이지의 정적 HTTP 응답, 기본 `Details` 탭, `Presentation` 탭 선택 후 브라우저 DOM 비교. 정적 응답과 기본 탭에는 PDF URL이 없고, `Presentation` 탭 선택 후 `.presentation-details`에 PDF 링크가 생성됨, 2026-09-04.
 [^presentation-pdf-probe]: VMware Explore가 연결한 [APPB1222LV Presentation PDF](https://static.rainfocus.com/vmware/explore2026lv/sess/1776178807172001ImQ1/presrevpdf/APPB1222LV_1788483694561001qjWk.pdf); Claire `discover_presentations()` → `download_presentation()` → `extract_presentation()` 실측, 2026-09-04.

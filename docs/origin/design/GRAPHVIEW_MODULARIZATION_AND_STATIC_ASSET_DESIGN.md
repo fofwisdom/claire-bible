@@ -1,6 +1,6 @@
 # graphview.py 모듈화 및 정적 자산 분리 설계 명세서
 
-작성일: 2026-09-04 · 상태: **설계 확정 및 로드맵 수립 (Planned)** · 기준: [GOALS.md](../../../GOALS.md) 트랙 3(검색·UX·웹 UI)  
+작성일: 2026-09-04 · 상태: **설계 확정 및 로드맵 수립 (Planned)** · 기준: [GOALS.md](../../upstream/GOALS.md) 트랙 3(검색·UX·웹 UI)
 관련 문서: [`DUAL_FORMAT_ADOC_DESIGN.md`](DUAL_FORMAT_ADOC_DESIGN.md), [`MCP_SUPPORT.md`](MCP_SUPPORT.md), [`RIGHT_MENU_COMPACT_DESIGN.md`](RIGHT_MENU_COMPACT_DESIGN.md)
 
 ---

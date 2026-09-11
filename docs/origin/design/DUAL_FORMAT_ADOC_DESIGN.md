@@ -1,6 +1,6 @@
 # AsciiDoc(ADOC) 지원 및 듀얼 포맷 본문 읽기 파이프라인 설계 및 구현 명세서
 
-작성일: 2026-08-20 · 상태: **구현 및 검증 완료** · 기준: [GOALS.md](../../../GOALS.md) 트랙2(추출·연결 품질) 및 트랙3(가독성·소비 품질) / 관련: [ONEHOP_MERGE_DESIGN.md](../../upstream/ONEHOP_MERGE_DESIGN.md)
+작성일: 2026-08-20 · 상태: **구현 및 검증 완료** · 기준: [GOALS.md](../../upstream/GOALS.md) 트랙2(추출·연결 품질) 및 트랙3(가독성·소비 품질) / 관련: [ONEHOP_MERGE_DESIGN.md](../../upstream/ONEHOP_MERGE_DESIGN.md)
 
 ---
 
@@ -232,5 +232,4 @@ claire backfill-detail --format adoc
 10. `test_graphview_detail_format_and_html`: Graphview API 응답의 `detail_html` 포함 및 HTML 템플릿의 Asciidoctor CDN 미포함(Zero-eval) 검증.
 11. `test_aot_render_adoc_math`: 인라인 `stem:[...]`/`latexmath:[...]` 및 블록 `[latexmath]++++` 시맨틱 HTML 컴파일 검증.
 12. `test_aot_render_adoc_cross_reference_and_anchors`: 크로스레퍼런스(`<<id, label>>`, `xref:id[]`) 링크 및 앵커(`[#id]`, `[[id]]`) ID 주입 검증.
-
 

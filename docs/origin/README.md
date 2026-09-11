@@ -66,7 +66,8 @@ docs/origin/
   - `MULTI_THEME_ARCHITECTURE_DESIGN.md`: 시퀀스 기반 지식 테마 다중 DB 격리, 4단계 RBAC 및 적재 초점(default_focus) 아키텍처 설계
   - `QUALITY_GUARDRAILS_AND_SUMMARY_INTEGRITY_DESIGN.md`: 품질 검증 가드레일 런타임 컴포넌트화, 요약 무결성 및 관측성 개선 설계
   - `SCHEMA_VERSIONING.md`: 업스트림·오리진 공통 버전, 계보 표식, v12 철회와 v13 수렴 정책
-  - `TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md`: 프로바이더 텔레메트리 격리 및 Support Bundle 아키텍처 설계 (zstd 압축, 공유 링크 추적, 6시간 자동 파기)
+  - `OPERATIONAL_MIGRATION.md`: 환경변수 migration과 전체 DB inventory 기반 update/backup 계획
+  - `TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md`: 프로바이더 텔레메트리 격리, 독립 schema/lineage 및 Support Bundle version 계약
   - `MCP_SUPPORT.md`: RFC 6750 표준 인증 기반 MCP 지원 설계
   - `VIDEO_AUDIO_TRANSCRIPTION_AND_INGESTION_DESIGN.md`: 비디오 음성 자막(STT) 생성 및 지식 적재 파이프라인 설계 (Gemini 3.5 Transcribe 고도화, 10k TPM 페이싱, 3일 미디어 캐시, CLI/텔레그램 재전사 완비)
   - `VIDEO_PRESENTATION_BUNDLE_INGESTION_DESIGN.md`: VMware Explore 영상에서 CC/STT와 Presentation PDF를 단일 세션 문서로 원자적 적재하는 설계 및 구현 명세
@@ -85,7 +86,7 @@ docs/origin/
 ---
 
 ## 상대 경로 및 링크 규칙
-- `docs/origin/design/` 또는 `docs/origin/implementation/` 내 문서에서 프로젝트 루트 파일(`GOALS.md`, `PLAN.md`, `README.md` 등)을 참조할 때는 `../../../<FILE>` 상대 경로를 사용합니다.
+- 업스트림에서 이동된 `GOALS.md`와 `PLAN.md`는 `docs/origin/design/`에서 `../../upstream/<FILE>`로 참조합니다. 프로젝트 루트 `README.md`는 `../../../README.md`로 참조합니다.
 - 동일 분류 폴더 내 문서는 파일명으로 직접 링크합니다 (예: `[DATA_LIFECYCLE_AND_PURGE_DESIGN.md](DATA_LIFECYCLE_AND_PURGE_DESIGN.md)`).
 - 다른 분류의 문서를 참조할 때는 `../<폴더>/<FILE>` 경로를 사용합니다 (예: `[EXTERNAL_ACCESS.md](../implementation/EXTERNAL_ACCESS.md)`).
 - 업스트림 원본 문서를 참조할 때는 `../../upstream/<FILE>` 경로를 사용합니다 (예: `[ONEHOP_MERGE_DESIGN.md](../../upstream/ONEHOP_MERGE_DESIGN.md)`).

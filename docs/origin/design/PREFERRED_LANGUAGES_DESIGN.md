@@ -1,6 +1,6 @@
 # 프로젝트 광역 선호 언어(Global Preferred Languages) 설계 명세서
 
-작성일: 2026-09-02 · 상태: **설계 및 구현 완료** · 기준: [GOALS.md](../../../GOALS.md) 트랙1(수집·인제스트 무결성) / 관련: [INGESTION_INTEGRITY_AND_POLLUTION_CONTROL_RESEARCH.md](INGESTION_INTEGRITY_AND_POLLUTION_CONTROL_RESEARCH.md)
+작성일: 2026-09-02 · 상태: **설계 및 구현 완료** · 기준: [GOALS.md](../../upstream/GOALS.md) 트랙1(수집·인제스트 무결성) / 관련: [INGESTION_INTEGRITY_AND_POLLUTION_CONTROL_RESEARCH.md](INGESTION_INTEGRITY_AND_POLLUTION_CONTROL_RESEARCH.md)
 
 ---
 
