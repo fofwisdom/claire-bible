@@ -1,27 +1,27 @@
 # Common Schema Version Contract
 
-이 문서는 Git 커밋 계보가 분리된 테제 연구소(`blackan/claire_bible`)와 증강 연구소(`fofwisdom/claire-bible`)가 SQLite 정본을 안전하게 공유하기 위한 최소 version 계약을 정의한다.
+이 문서는 Git 커밋 계보가 분리된 테제 계보(`blackan/claire_bible`)와 증강 계보(`fofwisdom/claire-bible`)가 SQLite 정본을 안전하게 공유하기 위한 최소 version 계약을 정의한다.
 Git 조상 관계나 저장소 이름은 DB에 남지 않으므로 `meta.schema_version`과 `meta.schema_lineage`를 함께 호환성 판단에 사용한다.
 
-계약 상태는 증강 연구소(`fofwisdom`)에서 `adopted`, 테제 연구소(`blackan`)에서 `candidate`다.
-테제 연구소 병합 후에만 `accepted`로 갱신한다.
+계약 상태는 증강 계보(`fofwisdom`)에서 `adopted`, 테제 계보(`blackan`)에서 `candidate`다.
+테제 계보 병합 후에만 `accepted`로 갱신한다.
 
 ## v13 수렴 기준
 
 공통 version v13은 새로운 사용자 기능을 추가하는 version이 아니다.
-테제 연구소 v9의 테이블, 컬럼과 인덱스를 공통 최소 schema로 다시 선언하고 `schema_lineage=claire-bible/common`을 추가하는 수렴 지점이다.
+테제 계보 v9의 테이블, 컬럼과 인덱스를 공통 최소 schema로 다시 선언하고 `schema_lineage=claire-bible/common`을 추가하는 수렴 지점이다.
 구현별 부가 컬럼과 테이블은 공통 최소 schema와 이름 또는 의미가 충돌하지 않는 한 보존한다.
 
 | version | 상태 | v13 처리 |
 |---|---|---|
-| 1–9 | 테제 연구소 공통 이력 | 멱등 마이그레이션 후 v13으로 전환 |
-| 10–11 | 증강 연구소의 분리 계보 이력 | 부가 schema를 보존하며 v13으로 전환 가능 |
-| 12 | 증강 연구소의 철회된 Support Bundle schema | 자동 전환 금지; 정확한 복구 절차로 먼저 v11 복원 |
+| 1–9 | 테제 계보 공통 이력 | 멱등 마이그레이션 후 v13으로 전환 |
+| 10–11 | 증강 계보의 분리 계보 이력 | 부가 schema를 보존하며 v13으로 전환 가능 |
+| 12 | 증강 계보의 철회된 Support Bundle schema | 자동 전환 금지; 정확한 복구 절차로 먼저 v11 복원 |
 | 13 | 현재 공통 version | `schema_lineage=claire-bible/common`이 있어야 유효 |
 | 14 이상 | 미래 version | 현재 코드가 변경하지 않고 거부 |
 
 v12는 정본 DB에 진단 테이블을 추가해 관측성 저장소 분리 원칙을 위반했던 version이므로 영구 폐기한다.
-v12 DB는 증강 연구소의 보존 복구 절차로 진단 행을 내구성 있게 내보낸 뒤 v11로 복원해야 한다.
+v12 DB는 증강 계보의 보존 복구 절차로 진단 행을 내구성 있게 내보낸 뒤 v11로 복원해야 한다.
 공통 v13 마이그레이션은 이 복구를 추측하거나 대신하지 않는다.
 복구되지 않은 v12를 발견하면 DB를 변경하지 않고 실패한다.
 
@@ -52,7 +52,7 @@ health, liveness와 진단 조회는 읽기 전용 연결을 사용하며 DB, re
 
 ## 이후 공동 변경 규칙
 
-1. 공통 번호는 테제 연구소 PR에서 먼저 예약하고 문서, 멱등 마이그레이션, 이전 version 데이터 보존 테스트를 함께 제출한다.
+1. 공통 번호는 테제 계보 PR에서 먼저 예약하고 문서, 멱등 마이그레이션, 이전 version 데이터 보존 테스트를 함께 제출한다.
 2. 구현 전용 실험은 공통 번호를 선점하지 않는다.
    공통화가 필요하면 다음 미사용 번호로 별도 PR을 작성한다.
 3. 같은 version의 의미를 바꾸지 않는다.
