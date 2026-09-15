@@ -252,29 +252,8 @@ def classify_input(text: str) -> str:
     t = (text or "").strip()
     if not t:
         return "empty"
-    # '제목 + 트레일링 링크' 공유 텍스트면 그 링크 기준으로 라벨링(router 와 동일 규칙).
-    if not t.lower().startswith(("http://", "https://")):
-        from .ingest.router import extract_shared_url
-
-        shared = extract_shared_url(t)
-        if shared:
-            t = shared
-    low = t.lower()
-    if low.startswith("http://") or low.startswith("https://"):
-        if "youtube.com" in low or "youtu.be" in low:
-            return "youtube"
-        if "vmware.com/explore/video" in low or "brightcove.net" in low or "vimeo.com" in low:
-            return "video"
-        if "tv.naver.com" in low or "now.naver.com" in low or ("naver.com" in low and "/v/" in low):
-            return "video"
-        if any(low.split("?")[0].endswith(ext) for ext in (".mp4", ".m3u8", ".mpd", ".webm", ".m4a", ".mp3")):
-            return "video"
-        if "x.com" in low or "twitter.com" in low:
-            return "xcom"
-        if "share.google" in low or "share.g" in low:
-            return "redirect"
-        return "web"
-    return "text"
+    from .ingest.registry import registry
+    return registry.classify(t)
 
 
 import re

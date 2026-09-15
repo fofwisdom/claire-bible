@@ -427,3 +427,35 @@ def fetch_video(
             return compose_video_presentations(doc, presentations)
         doc.meta["presentation_pdf"] = {"status": "absent"}
     return doc
+
+from .base import BaseFetcher
+from ..registry import register_fetcher
+
+@register_fetcher("video", priority=80)
+class VideoFetcher(BaseFetcher):
+    @classmethod
+    def can_handle(cls, url: str) -> bool:
+        from urllib.parse import urlsplit
+        try:
+            parsed = urlsplit(url.lower())
+            host = parsed.netloc
+            path = parsed.path
+            if ("vmware.com" in host and "/explore/video/" in path) or "brightcove.net" in host:
+                return True
+            if "vimeo.com" in host:
+                return True
+            if "tv.naver.com" in host or "now.naver.com" in host or ("naver.com" in host and "/v/" in path):
+                return True
+            if path.endswith((".mp4", ".m3u8", ".mpd", ".webm", ".m4a", ".mp3")):
+                return True
+            return False
+        except Exception:
+            return False
+
+    @classmethod
+    def name(cls) -> str:
+        return "video"
+
+    @classmethod
+    def fetch(cls, url: str, **kwargs) -> Document:
+        return fetch_video(url, **kwargs)

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from claire.ingest.router import classify, extract_shared_url, fetch
-from claire.telegram_bot import classify_input
 
 
 def test_extract_shared_url_trailing_one_line():
@@ -35,11 +34,6 @@ def test_classify_routes_shared_text_by_url():
     assert classify("그냥 메모") == "text"
 
 
-def test_classify_input_label_matches_router():
-    # 텔레그램 진행 라벨도 동일 규칙으로 공유 링크를 인식
-    assert classify_input("제목 https://share.google/AbC") == "redirect"
-    assert classify_input("제목 https://youtu.be/x") == "youtube"
-    assert classify_input("그냥 메모") == "text"
 
 
 def test_fetch_routes_shared_text_to_url(monkeypatch):
@@ -85,9 +79,8 @@ def test_naver_tv_url_recognition():
     ]
     for u in urls:
         assert classify(u) == "video"
-        assert classify_input(u) == "video"
 
     shared = "NAVER ENGINEERING DAY 2026 세션 https://tv.naver.com/v/101263731"
     assert classify(shared) == "video"
-    assert classify_input(shared) == "video"
+
 

@@ -202,6 +202,15 @@ VMware Explore 숫자형 영상 상세 페이지가 Presentation PDF를 명시�
 
 ---
 
+### 2.10.1 웹 수집기(Fetcher) 및 온프레미스 사설망 보안 정책
+
+| 환경변수명 | 기본값 | 허용 값 / 타입 | 설명 |
+| :--- | :--- | :--- | :--- |
+| `CLAIRE_ALLOW_PRIVATE_NETWORKS` | `0` (`false`) | `0`, `1`, `true`, `false` | **온프레미스 사설망 스크래핑 허용 플래그**. `1`(`true`)로 설정하면 수집기(`SafeHttpClient`)가 사내 인트라넷 RFC 1918 사설망(`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`) 및 Loopback 주소에 접근할 수 있습니다. **클라우드 메타데이터(IMDS `169.254.169.254`, `169.254.0.0/16`) 및 링크로컬/멀티캐스트는 어떤 환경에서도 절대 차단(Strictly Denied)됩니다.** ([FETCHER_CONTRIBUTION_AND_ONPREMISE_NETWORK_DESIGN.md](../design/FETCHER_CONTRIBUTION_AND_ONPREMISE_NETWORK_DESIGN.md) 참조) |
+| `CLAIRE_PRIVATE_NETWORK_ALLOWLIST` | `""` | 쉼표 구분 CIDR / 도메인 | **사설망 접근 세부 화이트리스트**. 사설망 전체를 허용하지 않고 특정 대역이나 도메인만 선별적으로 수집하도록 허용합니다 (예: `10.0.0.0/8,192.168.1.0/24,*.corp.internal,wiki.local`). |
+
+---
+
 ### 2.11 텍스트 슬라이싱 및 글자 수 예산 (Budgets & Slicing)
 
 | 환경변수명 | 기본값 | 허용 값 / 타입 | 설명 |

@@ -428,6 +428,17 @@ class Settings(BaseSettings):
         alias="CLAIRE_SORCERER",
     )
 
+    # --- private network & SSRF policy ---
+    # 온프레미스/사내망 수집 지원: 사설 IP 대역(10.x, 172.16-31.x, 192.168.x, 127.x) 접근 허용
+    allow_private_networks: bool = Field(
+        default=False, alias="CLAIRE_ALLOW_PRIVATE_NETWORKS"
+    )
+    # 특정 사설망 CIDR 또는 호스트명 화이트리스트 (예: "10.0.0.0/8, 192.168.1.0/24, .corp.local")
+    private_network_allowlist: str = Field(
+        default="", alias="CLAIRE_PRIVATE_NETWORK_ALLOWLIST"
+    )
+
+
     @field_validator("render_format", mode="before")
     @classmethod
     def _parse_render_format(cls, value: object) -> str:
@@ -459,6 +470,19 @@ class Settings(BaseSettings):
         if s in ("0", "false", "no", "off", ""):
             return False
         raise ValueError("CLAIRE_ALLOW_PURGE must be a boolean or 0/1")
+
+    @field_validator("allow_private_networks", mode="before")
+    @classmethod
+    def _parse_allow_private_networks(cls, value: object) -> bool:
+        if isinstance(value, bool):
+            return value
+        s = str(value or "").strip().lower()
+        if s in ("1", "true", "yes", "on"):
+            return True
+        if s in ("0", "false", "no", "off", ""):
+            return False
+        raise ValueError("CLAIRE_ALLOW_PRIVATE_NETWORKS must be a boolean or 0/1")
+
 
     @field_validator("multi_theme", mode="before")
     @classmethod

@@ -21,6 +21,7 @@ docs/origin/
 │   ├── DOCUMENT_READER_METADATA_AND_BIBLIO_SEPARATION_DESIGN.md # 문서 리더 UI 위계 및 원문 정보 / 적재 메타데이터(docmeta) 분리 설계
 │   ├── DUAL_FORMAT_ADOC_DESIGN.md        # AsciiDoc 및 듀얼 포맷 본문 파이프라인 설계
 │   ├── EXPAND_FILTERING_DESIGN.md        # 1홉 확장의 깊이 및 연관성 필터링 설계
+│   ├── FETCHER_CONTRIBUTION_AND_ONPREMISE_NETWORK_DESIGN.md # 수집기 기여 아키텍처 및 온프레미스 사설망 보안 설계
 │   ├── GRAPHVIEW_MODULARIZATION_AND_STATIC_ASSET_DESIGN.md # graphview.py 모듈화 및 정적 자산 분리 설계
 │   ├── INGESTION_INTEGRITY_AND_POLLUTION_CONTROL_RESEARCH.md # 원문 보존·서비스 보호·오염 통제 거버넌스 연구
 │   ├── MCP_SUPPORT.md                    # MCP 지원 아키텍처 및 표준 인증 명세 (오리진 개정본)
@@ -65,6 +66,7 @@ docs/origin/
   - `DATA_LIFECYCLE_AND_PURGE_DESIGN.md`: 데이터 수명주기 및 연쇄 소각 설계
   - `INGESTION_INTEGRITY_AND_POLLUTION_CONTROL_RESEARCH.md`: 원문 보존·서비스 보호·오염 통제 상충 및 지식 무결성 거버넌스 연구
   - `DUAL_FORMAT_ADOC_DESIGN.md`: AsciiDoc/Markdown 듀얼 포맷 렌더링 파이프라인
+  - `FETCHER_CONTRIBUTION_AND_ONPREMISE_NETWORK_DESIGN.md`: 수집기 2계층 인터페이스 규약, 3계층 디스커버리, `plugins/fetchers/` Git 무충돌 격리 및 온프레미스 사설망 SSRF 보안 설계
   - `GRAPHVIEW_MODULARIZATION_AND_STATIC_ASSET_DESIGN.md`: graphview.py 모듈화, 정적 자산 분리 및 Phase 1~4 로드맵
   - `MULTI_PROVIDER_DESIGN.md`: 멀티 LLM 프로바이더 및 캘리브레이션 설계
   - `MULTI_THEME_ARCHITECTURE_DESIGN.md`: 시퀀스 기반 지식 테마 다중 DB 격리, 4단계 RBAC 및 적재 초점(default_focus) 아키텍처 설계

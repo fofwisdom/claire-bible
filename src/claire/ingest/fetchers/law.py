@@ -16,22 +16,22 @@ import re
 import urllib.parse
 from lxml import html as lh
 
+from ..registry import register_web_adapter
+from .base import BaseWebAdapter, WebAdapterResult
+
 _LAW_HOSTS = ("law.go.kr", "www.law.go.kr")
 _UA = (
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
 )
 
-
 def _is_law_kr_url(url: str) -> bool:
-    """URL 호스트가 law.go.kr 인지 판별."""
     try:
         parts = urllib.parse.urlsplit(url.strip())
         host = (parts.hostname or parts.netloc).lower()
         return host in _LAW_HOSTS or host.endswith(".law.go.kr")
-    except Exception:  # noqa: BLE001
+    except Exception:
         return False
-
 
 def try_law_kr(
     url: str,
@@ -46,18 +46,15 @@ def try_law_kr(
     import httpx
 
     parts = urllib.parse.urlsplit(url.strip())
-    # HTTP 는 JS redirect 로 날아갈 수 있으므로 HTTPS 로 승격
     target_url = urllib.parse.urlunsplit(("https", parts.netloc, parts.path, parts.query, ""))
 
     try:
         with httpx.Client(follow_redirects=True, timeout=25, headers={"User-Agent": _UA}) as client:
-            # 1) 이미 *InfoR.do 리더 URL 인 경우 바로 본문 추출
             if "InfoR.do" in target_url:
                 resp = client.get(target_url)
                 if resp.status_code < 400:
                     return _extract_from_reader(resp.text, str(resp.url))
 
-            # 2) *InfoP.do 팝업 URL 인 경우 *InfoR.do 로 변환하여 요청
             if "InfoP.do" in target_url:
                 r_url = re.sub(r"([a-zA-Z]+)InfoP\.do", r"\1InfoR.do", target_url)
                 resp = client.get(r_url)
@@ -66,12 +63,10 @@ def try_law_kr(
                     if res:
                         return res
 
-            # 3) 외곽 페이지(예: /법령/<법령명>, /행정규칙/<규칙명> 등) 조회
             resp = client.get(target_url)
             if resp.status_code >= 400:
                 return None
 
-            # JS 리다이렉트 (location.href = "...") 처리
             js_loc = re.search(r"location\.href\s*=\s*['\"]([^'\"]+)['\"]", resp.text)
             if js_loc:
                 next_url = urllib.parse.urljoin(str(resp.url), js_loc.group(1))
@@ -80,7 +75,7 @@ def try_law_kr(
 
             try:
                 tree = lh.fromstring(resp.text)
-            except Exception:  # noqa: BLE001
+            except Exception:
                 return None
 
             outer_title = None
@@ -91,17 +86,40 @@ def try_law_kr(
             iframes = tree.xpath("//iframe/@src")
             for ifr in iframes:
                 ifr_abs = urllib.parse.urljoin(str(resp.url), ifr)
-                # *InfoP.do -> *InfoR.do 변환으로 본문 리더 직접 접근
                 ifr_r = re.sub(r"([a-zA-Z]+)InfoP\.do", r"\1InfoR.do", ifr_abs)
                 r_ifr = client.get(ifr_r)
                 if r_ifr.status_code < 400:
                     res = _extract_from_reader(r_ifr.text, ifr_abs, fallback_title=outer_title)
-                    if res and len(res[1]) >= 100:
+                    if res and res[1] and len(res[1]) >= 100:
                         return res
 
             return None
-    except Exception:  # noqa: BLE001
+    except Exception:
         return None
+
+
+@register_web_adapter(name="law", domains=("law.go.kr", "*.law.go.kr"), priority=20)
+class LawKrAdapter(BaseWebAdapter):
+    @classmethod
+    def name(cls) -> str:
+        return "law"
+
+    @classmethod
+    def try_fetch(cls, url: str, **kwargs) -> WebAdapterResult | None:
+        import sys
+        mod = sys.modules[__name__]
+        fn = getattr(mod, "try_law_kr", try_law_kr)
+        res = fn(url)
+        if res is None:
+            return None
+        title, text, links, anchors, images = res
+        return WebAdapterResult(
+            title=title,
+            text=text,
+            links=links,
+            anchors=anchors,
+            images=images,
+        )
 
 
 def _extract_from_reader(
@@ -112,10 +130,9 @@ def _extract_from_reader(
 
     try:
         tree = lh.fromstring(html_text)
-    except Exception:  # noqa: BLE001
+    except Exception:
         return None
 
-    # 상단 버튼 툴바(판례/연혁/규제/한눈보기 등) 및 팝업 레이어 제거
     for bad in tree.xpath(
         "//ul[contains(@class, 'cont_icon')] | "
         "//div[contains(@class, 'byl_pop')] | "
@@ -124,7 +141,6 @@ def _extract_from_reader(
         if bad.getparent() is not None:
             bad.getparent().remove(bad)
 
-    # 법령명 / 규칙명 hidden 필드 우선 탐색
     title = None
     hidden_names = tree.xpath(
         "//input[@id='lsNm' or @id='admRulNm' or @id='ordinNm' or "
@@ -140,3 +156,4 @@ def _extract_from_reader(
     if not text or len(text) < 50:
         return None
     return final_title, text, links, anchors, images
+

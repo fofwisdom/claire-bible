@@ -55,6 +55,10 @@ Claire Bible은 적재된 지식베이스를 시각적으로 탐색하고 분석
 
 `CLAIRE_MULTI_THEME=1` 활성화 시 단일 인스턴스 내에서 시퀀스 기반의 물리적 DB/Vault 격리(`data/themes/{seq}/`, `vault/themes/{seq}/`)를 제공합니다. 웹 UI 우측 상단의 테마 선택기(Theme Selector)를 통해 관심 분야별 지식베이스를 즉시 전환할 수 있으며, 테마별 기본 적재 초점(`default_focus`) 및 협력자 권한 제어를 지원합니다. (상세: [MULTI_THEME_ARCHITECTURE_DESIGN.md](docs/origin/design/MULTI_THEME_ARCHITECTURE_DESIGN.md))
 
+### 확장형 수집기 및 온프레미스 사설망 수집 (Extensible Fetchers & On-Premises)
+
+Claire Bible은 3계층 디스커버리 체계(내장, 로컬 드롭인 `plugins/fetchers/`, 외부 패키지 `entry_points`)를 통해 프로젝트 클론/포크 이용자가 Git 충돌 없이 사설 도메인 수집기를 자유롭게 추가할 수 있습니다. 또한 사내 인트라넷(Confluence, GitLab 등) 환경을 위해 온프레미스 사설망(RFC 1918) 수집을 지원하면서도 클라우드 메타데이터(IMDS) SSRF를 절대 차단하는 `SafeHttpClient` 보안 하네스를 탑재하고 있습니다. (상세: [FETCHER_CONTRIBUTION_AND_ONPREMISE_NETWORK_DESIGN.md](docs/origin/design/FETCHER_CONTRIBUTION_AND_ONPREMISE_NETWORK_DESIGN.md))
+
 ## 로컬 개발 빠른 시작 (Quick Start)
 
 ```bash
@@ -525,15 +529,17 @@ daemon 접근, 배포 경로 권한과 build 네트워크를 확인한다.
 ## 구조
 
 ```
+plugins/           로컬 사설 드롭인 플러그인 (Git 무충돌 격리)
+  fetchers/        사용자 정의 도메인 수집기/어댑터 (custom_*.py)
 src/claire/
   config.py        설정(.env)
   cli.py           CLI 진입점
-  telegram_bot.py  텔레그램 진입점
+  telegram_bot.py  텔레그램 진입점 (단일 라우팅 통합)
   api/             ASGI API와 웹 UI
   health.py        건강 상태 산출(/health · CLI 공유)
   notify.py        텔레그램 소유자 경보
   support_bundle.py Support Bundle 생성, zstd 스트리밍 압축, 수명주기 관리
-  ingest/          fetcher 라우터 + normalize + dedup + IngestService(공유 통로) + 자동복구
+  ingest/          수집기 레지스트리(3계층 디스커버리) + SafeHttpClient(온프레미스/SSRF) + 라우터 + normalize + IngestService
   ontology/        타입 온톨로지(코드 인터페이스) + registry(domain/range)
   extract/         structured 추출 + provider 어댑터(mock/gemini/antigravity/codex) + resolver(약어 동의어 수렴) + circuit breaker
   store/           SQLite(graph+FTS+vec) + 격리 텔레메트리 + 마이그레이션 + vault(.md) export

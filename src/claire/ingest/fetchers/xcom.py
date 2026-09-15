@@ -316,3 +316,26 @@ def _published_at(tweet: dict) -> str | None:
         except Exception:  # noqa: BLE001
             pass
     return tweet.get("created_at") or None
+
+from .base import BaseFetcher
+from ..registry import register_fetcher
+
+@register_fetcher("xcom", priority=90)
+class XComFetcher(BaseFetcher):
+    @classmethod
+    def can_handle(cls, url: str) -> bool:
+        from urllib.parse import urlsplit
+        try:
+            parsed = urlsplit(url.lower())
+            host = parsed.netloc
+            return "x.com" in host or "twitter.com" in host
+        except Exception:
+            return False
+
+    @classmethod
+    def name(cls) -> str:
+        return "xcom"
+
+    @classmethod
+    def fetch(cls, url: str, **kwargs) -> Document:
+        return fetch_xcom(url, **kwargs)

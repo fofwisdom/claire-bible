@@ -773,7 +773,7 @@ def extract_pdf_stream(
         except Exception:
             pass
 
-    res.parser_requested = raw_engine
+    res.parser_requested = selected_engine
     res.parser_used = "pypdfium2"
     return res
 

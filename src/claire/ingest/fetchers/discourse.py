@@ -10,6 +10,9 @@ from __future__ import annotations
 import re
 from urllib.parse import urlsplit, urlunsplit
 
+from ..registry import register_web_adapter
+from .base import BaseWebAdapter, WebAdapterResult
+
 # Discourse 토픽 경로: /t/<slug>/<id> (뒤에 /<post_number> 가 붙을 수 있음)
 _TOPIC_RE = re.compile(r"^(/t/[^/]+/\d+)")
 
@@ -69,6 +72,31 @@ def try_discourse(url: str) -> tuple[str | None, str, list[str]] | None:
     if not full:
         return None
     return (title.strip() if title else None), full, links[:50]
+
+
+@register_web_adapter(name="discourse", priority=30)
+class DiscourseAdapter(BaseWebAdapter):
+    @classmethod
+    def name(cls) -> str:
+        return "discourse"
+
+    @classmethod
+    def try_fetch(cls, url: str, **kwargs) -> WebAdapterResult | None:
+        import sys
+        mod = sys.modules[__name__]
+        fn = getattr(mod, "try_discourse", try_discourse)
+        res = fn(url)
+        if res is None:
+            return None
+        title, text, links = res
+        return WebAdapterResult(
+            title=title.strip() if isinstance(title, str) and title else (str(title).strip() if title else None),
+            text=text,
+            links=links,
+            anchors={},
+            images=[]
+        )
+
 
 
 # Discourse 이미지 lightbox 가 남기는 메타(예: "1536×1024 229 KB") 잔재.

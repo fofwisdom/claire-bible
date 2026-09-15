@@ -520,3 +520,26 @@ def fetch_youtube(
             "caption_language": caption_language,
         },
     )
+
+from .base import BaseFetcher
+from ..registry import register_fetcher
+
+@register_fetcher("youtube", priority=90)
+class YouTubeFetcher(BaseFetcher):
+    @classmethod
+    def can_handle(cls, url: str) -> bool:
+        from urllib.parse import urlsplit
+        try:
+            parsed = urlsplit(url.lower())
+            host = parsed.netloc
+            return "youtube.com" in host or "youtu.be" in host
+        except Exception:
+            return False
+
+    @classmethod
+    def name(cls) -> str:
+        return "youtube"
+
+    @classmethod
+    def fetch(cls, url: str, **kwargs) -> Document:
+        return fetch_youtube(url, **kwargs)
