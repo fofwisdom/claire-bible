@@ -47,6 +47,7 @@ docs/
     │   ├── ORIGIN_SCHEMA_EXTENSIONS.md        # 오리진 스키마 확장·retired version 복구 정책
     │   ├── TABLE_INGESTION_DESIGN.md         # 원문 테이블 적재 및 본문 글자 수 제한 제외 설계
     │   ├── TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md # 프로바이더 텔레메트리 격리 및 Support Bundle 아키텍처 설계
+    │   ├── TELEGRAM_VIDEO_PDF_BUNDLE_INGESTION_DESIGN.md # 텔레그램 MP4 STT·PDF 복합 적재 설계 (구현 전)
     │   ├── VIDEO_AUDIO_TRANSCRIPTION_AND_INGESTION_DESIGN.md # 비디오 음성 자막(전사) 생성 및 지식 적재 파이프라인 설계
     │   └── VIDEO_PRESENTATION_BUNDLE_INGESTION_DESIGN.md # VMware Explore 비디오·Presentation PDF 동시 적재 설계 (구현 완료)
     ├── implementation/     # [구현/운영 내역] 운영 가이드, 네트워크/인증 명세, 배포 설정

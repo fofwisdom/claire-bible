@@ -34,6 +34,7 @@ docs/origin/
 │   ├── ORIGIN_SCHEMA_EXTENSIONS.md        # 오리진 스키마 확장과 retired version 복구 정책
 │   ├── TABLE_INGESTION_DESIGN.md         # 원문 테이블 적재 및 본문 글자 수 제한 제외 설계
 │   ├── TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md # 프로바이더 텔레메트리 격리 및 Support Bundle 아키텍처 설계
+│   ├── TELEGRAM_VIDEO_PDF_BUNDLE_INGESTION_DESIGN.md # 텔레그램 MP4 STT·PDF 복합 적재 설계 (구현 전)
 │   ├── VIDEO_AUDIO_TRANSCRIPTION_AND_INGESTION_DESIGN.md # 비디오 음성 자막(전사) 생성 및 지식 적재 파이프라인 설계
 │   └── VIDEO_PRESENTATION_BUNDLE_INGESTION_DESIGN.md # VMware Explore 비디오·Presentation PDF 동시 적재 설계 (구현 완료)
 ├── implementation/             # [구현/운영 내역] 운영 가이드, 네트워크/인증 명세, 배포 설정
@@ -71,6 +72,7 @@ docs/origin/
   - `ORIGIN_SCHEMA_EXTENSIONS.md`: 공동 v13을 기준으로 한 오리진 확장, retired v12 복구와 보조 저장소 version 계획
   - `OPERATIONAL_MIGRATION.md`: 환경변수 migration과 전체 DB inventory 기반 update/backup 계획
   - `TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md`: 프로바이더 텔레메트리 격리, 독립 schema/lineage 및 Support Bundle version 계약
+  - `TELEGRAM_VIDEO_PDF_BUNDLE_INGESTION_DESIGN.md`: 텔레그램 앨범 또는 명시적 세션에서 MP4 STT와 PDF를 원자적 단일 문서로 묶는 설계 (구현 전)
   - `MCP_SUPPORT.md`: RFC 6750 표준 인증 기반 MCP 지원 설계
   - `VIDEO_AUDIO_TRANSCRIPTION_AND_INGESTION_DESIGN.md`: 비디오 음성 자막(STT) 생성 및 지식 적재 파이프라인 설계 (Gemini 3.5 Transcribe 고도화, 10k TPM 페이싱, 3일 미디어 캐시, CLI/텔레그램 재전사 완비)
   - `VIDEO_PRESENTATION_BUNDLE_INGESTION_DESIGN.md`: VMware Explore 영상에서 CC/STT와 Presentation PDF를 단일 세션 문서로 원자적 적재하는 설계 및 구현 명세
