@@ -7,6 +7,14 @@ import sqlite3
 import sys
 from pathlib import Path
 
+# Auto-reexec with virtual environment python if running under system python
+if sys.prefix == sys.base_prefix:
+    root_dir = Path(__file__).resolve().parent.parent
+    for candidate in (root_dir / ".venv" / "bin" / "python3", root_dir / ".venv" / "bin" / "python", Path("/app/.venv/bin/python3")):
+        if candidate.exists() and candidate.resolve() != Path(sys.executable).resolve():
+            import os
+            os.execv(str(candidate), [str(candidate)] + sys.argv)
+
 # Add project root to sys.path
 root_dir = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(root_dir / "src"))
@@ -16,6 +24,7 @@ from claire.render import render_to_html
 
 
 def remediate_database(db_path: Path, *, target_doc_ids: list[str] | None = None, dry_run: bool = False) -> int:
+    db_path = Path(db_path).expanduser().resolve()
     if not db_path.exists():
         print(f"[ERROR] Database file not found: {db_path}", file=sys.stderr)
         return 1
