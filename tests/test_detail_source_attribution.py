@@ -141,3 +141,64 @@ def test_recompile_all_detail_html_cleans_existing_documents(tmp_path):
     assert stored["detail"] == expected_detail
     assert stored["detail_html"] == html
     conn.close()
+
+
+def test_render_detail_prompt_explicitly_forbids_author_lines():
+    """상세 프롬프트가 제목 직후 저자/부제 행 작성 및 플랫폼 인용을 명시적으로 금지하는지 검증."""
+    prompt_adoc = render_detail_prompt(
+        "CONTENT:\n본문", [], merged=False, format="adoc"
+    )
+    assert "문서 레벨 서지 정보 및 저자 라인 표기 절대 금지" in prompt_adoc
+    assert "단순 비디오 채널/호스팅 플랫폼/업로더 계정명은 출처로 인용하지 않는다" in prompt_adoc
+
+    prompt_md = render_detail_prompt(
+        "CONTENT:\n본문", [], merged=False, format="md"
+    )
+    assert "문서 레벨 서지 정보 및 부제 행 표기 절대 금지" in prompt_md
+
+
+def test_sanitize_rendered_detail_strips_adoc_bare_author_and_quotes():
+    """AsciiDoc 제목 아래의 비인가 저자/부제 행 및 플랫폼 인용 블록 소각 검증."""
+    from claire.extract.prompts import sanitize_rendered_detail
+
+    # 1. 단일 채널/부제 행 제거 및 인용 소각
+    dirty_detail_1 = (
+        "= VMware Cloud Foundation 9.1\n"
+        "Orbrium 파트너 테크 데이 기술 브리핑 지식 문서\n"
+        ":toc: macro\n\n"
+        "[quote, Orbrium 기술 세미나]\n"
+        "인프라의 핵심이다."
+    )
+    cleaned_1 = sanitize_rendered_detail(dirty_detail_1, format="adoc")
+    assert cleaned_1 == (
+        "= VMware Cloud Foundation 9.1\n"
+        ":toc: macro\n\n"
+        "[quote]\n"
+        "인프라의 핵심이다."
+    )
+
+    # 2. 복합 저자/소속 텍스트 행 제거
+    dirty_detail_2 = (
+        "= VCF 9.1 ANS 기술 가이드\n"
+        "Orbrium; 허재홍 (Broadcom ANS BU)\n"
+        ":toc:\n\n"
+        "== 개요\n본문"
+    )
+    cleaned_2 = sanitize_rendered_detail(dirty_detail_2, format="adoc")
+    assert cleaned_2 == "= VCF 9.1 ANS 기술 가이드\n:toc:\n\n== 개요\n본문"
+
+
+def test_doc_to_prompt_does_not_inject_author_header():
+    """Document 객체에 author가 설정되어 있더라도 doc_to_prompt 헤더로 누출되지 않는지 검증."""
+    from claire.extract.prompts import doc_to_prompt
+
+    doc = Document(
+        title="테스트 문서",
+        author="Orbrium",
+        url="https://youtube.com/watch?v=123",
+        raw_text="본문 내용",
+    )
+    prompt_body = doc_to_prompt(doc)
+    assert "AUTHOR: Orbrium" not in prompt_body
+    assert "TITLE: 테스트 문서" in prompt_body
+

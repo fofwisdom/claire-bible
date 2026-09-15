@@ -57,7 +57,8 @@ def test_fetch_youtube_fallback_when_transcript_fails(monkeypatch: pytest.Monkey
 
     doc = fetch_youtube("https://www.youtube.com/watch?v=ti9FHqP1i-w")
     assert doc.title == "Fallback Video Title"
-    assert doc.author == "Tech Channel"
+    assert doc.author is None
+    assert doc.meta.get("video_channel") == "Tech Channel"
     assert doc.source_type == "youtube"
     assert doc.canonical_url == "https://youtube.com/watch?v=ti9FHqP1i-w"
     assert "[영상 설명]" in doc.raw_text
@@ -196,7 +197,8 @@ def test_fetch_youtube_ytdlp_recovers_captions_and_chapters(monkeypatch: pytest.
 
     doc = fetch_youtube("https://www.youtube.com/watch?v=ti9FHqP1i-w")
     assert doc.title == "yt-dlp Discovered Title"
-    assert doc.author == "Advanced Channel"
+    assert doc.author is None
+    assert doc.meta.get("video_channel") == "Advanced Channel"
     assert doc.source_type == "youtube"
     assert doc.canonical_url == "https://youtube.com/watch?v=ti9FHqP1i-w"
     assert "[영상 챕터]" in doc.raw_text

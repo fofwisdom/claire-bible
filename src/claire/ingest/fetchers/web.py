@@ -227,15 +227,11 @@ def fetch_web(url: str, *, full_content: bool = False) -> Document:
     }
     if parser_info:
         meta.update(parser_info)
-    author = None
-    if doc_type == "pdf" and parser_info.get("pdf_metadata"):
-        pdf_meta = parser_info["pdf_metadata"]
-        author = pdf_meta.get("Author") or pdf_meta.get("author")
     return Document(
         url=url,
         canonical_url=canonicalize_url(effective),
         title=title,
-        author=author,
+        author=None,
         published_at=None,
         raw_text=raw_text,
         source_type=doc_type if doc_type in ("pdf", "odt") else "web",

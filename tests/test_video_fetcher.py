@@ -119,6 +119,42 @@ def test_fetch_video_with_mock_stt(monkeypatch):
     assert isinstance(doc, Document)
     assert doc.source_type == "video"
     assert doc.title != ""
+    assert doc.author is None
+    assert "발표자/채널" not in doc.raw_text
     assert doc.meta["duration_sec"] > 0
     assert doc.meta.get("is_stt") is True
     assert doc.meta.get("transcript_source") == "stt"
+
+
+def test_fetch_video_uploader_channel_isolation(monkeypatch: pytest.MonkeyPatch):
+    """비디오 uploader가 Document.author로 승격되지 않고 raw_text에 주입되지 않음을 검증."""
+    import sys
+    from types import SimpleNamespace
+
+    class MockYDL:
+        def __init__(self, options):
+            self.options = options
+        def __enter__(self):
+            return self
+        def __exit__(self, *_args):
+            return None
+        def extract_info(self, _url, download=False):
+            return {
+                "title": "Orbrium Webinar Session",
+                "uploader": "Orbrium",
+                "channel": "Orbrium",
+                "duration": 60.0,
+                "description": "Video description",
+            }
+
+    monkeypatch.setitem(sys.modules, "yt_dlp", SimpleNamespace(YoutubeDL=MockYDL))
+    monkeypatch.setenv("CLAIRE_ENABLE_VIDEO_TRANSCRIPTION", "0")
+    from claire.config import get_settings
+    get_settings.cache_clear()
+
+    doc = fetch_video("https://www.youtube.com/watch?v=mock12345")
+    assert doc.title == "Orbrium Webinar Session"
+    assert doc.author is None
+    assert doc.meta.get("video_channel") == "Orbrium"
+    assert "발표자/채널: Orbrium" not in doc.raw_text
+

@@ -451,8 +451,6 @@ def fetch_youtube(
 
     # 본문 텍스트 구성 (자막 + 설명문 결합, 또는 자막/설명문 단독)
     text_sections: list[str] = []
-    if author:
-        text_sections.append(f"채널: {author}")
     if duration_sec > 0:
         mins = int(duration_sec // 60)
         secs = int(duration_sec % 60)
@@ -487,12 +485,13 @@ def fetch_youtube(
         url=url,
         canonical_url=canonical_url,
         title=title,
-        author=author or None,
+        author=None,
         raw_text=raw_text,
         source_type="youtube",
         content_hash=content_hash(text),
         partial=bool(not transcript or is_truncated),
         meta={
+            "video_channel": author or None,
             "video_id": vid,
             "raw_truncated": is_truncated,
             "orig_chars": orig_chars,

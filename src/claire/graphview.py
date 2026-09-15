@@ -266,6 +266,9 @@ def render_open_graph_tags(
     image_url, card_type = resolve_preview_image(doc, base_url=base)
 
     author = str((doc or {}).get("author") or "").strip()
+    src_type = str((doc or {}).get("source_type") or "").strip().lower()
+    if src_type in ("video", "youtube") or author.lower() in ("orbrium", "youtube", "채널", "channel"):
+        author = ""
     published_at = str((doc or {}).get("published_at") or "").strip()
 
     if share_token:
