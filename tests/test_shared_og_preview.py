@@ -255,3 +255,37 @@ def test_shared_doc_page_endpoint_crawler_and_security(tmp_path: Path):
     # 6. 유효하지 않은 공유 토큰 404 차단
     resp_invalid = client.get("/p?s=nonexistent_token_123")
     assert resp_invalid.status_code == 404
+
+
+def test_render_open_graph_tags_suppresses_media_platform_authors():
+    """비디오 소스 또는 단순 채널/호스팅 계정명이 OpenGraph author 태그로 노출되지 않도록 차단."""
+    # 1. 비디오 소스 타입의 경우 author가 있어도 차단
+    doc_video = {
+        "title": "비디오 세션",
+        "author": "Orbrium",
+        "source_type": "video",
+    }
+    tags_video = render_open_graph_tags(doc_video)
+    assert 'article:author' not in tags_video
+    assert 'name="author"' not in tags_video
+
+    # 2. 채널/플랫폼명 차단 (youtube 소스)
+    doc_yt = {
+        "title": "유튜브 세션",
+        "author": "Tech Channel",
+        "source_type": "youtube",
+    }
+    tags_yt = render_open_graph_tags(doc_yt)
+    assert 'article:author' not in tags_yt
+    assert 'name="author"' not in tags_yt
+
+    # 3. Orbrium 키워드 차단
+    doc_orbrium = {
+        "title": "일반 문서",
+        "author": "Orbrium",
+        "source_type": "web",
+    }
+    tags_orbrium = render_open_graph_tags(doc_orbrium)
+    assert 'article:author' not in tags_orbrium
+    assert 'name="author"' not in tags_orbrium
+

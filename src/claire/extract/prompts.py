@@ -107,7 +107,7 @@ def remove_leading_original_link(text: str | None) -> str:
             candidate += 1
 
     if candidate >= len(lines):
-        return text.strip()
+        return sanitize_rendered_detail(text.strip())
 
     candidate_text = lines[candidate].strip()
     candidate_core = candidate_text.lstrip(">_*` ([")
@@ -115,7 +115,7 @@ def remove_leading_original_link(text: str | None) -> str:
         not _LEADING_BIBLIO_LABEL_RE.match(candidate_core)
         or not re.search(r"https?://", candidate_text, re.IGNORECASE)
     ):
-        return text.strip()
+        return sanitize_rendered_detail(text.strip())
 
     prefix = ""
     suffix = ""
@@ -148,7 +148,7 @@ def remove_leading_original_link(text: str | None) -> str:
     replacement = " | ".join(cleaned_parts)
     if replacement:
         lines[candidate] = f"{prefix}{replacement}{suffix}"
-        return "\n".join(lines).strip()
+        return sanitize_rendered_detail("\n".join(lines).strip())
 
     end = candidate + 1
     while end < len(lines) and not lines[end].strip():
@@ -166,8 +166,43 @@ def remove_leading_original_link(text: str | None) -> str:
         kept_suffix.pop(0)
 
     if kept_prefix and kept_suffix:
-        return "\n".join(kept_prefix + [""] + kept_suffix).strip()
-    return "\n".join(kept_prefix + kept_suffix).strip()
+        cleaned = "\n".join(kept_prefix + [""] + kept_suffix).strip()
+    else:
+        cleaned = "\n".join(kept_prefix + kept_suffix).strip()
+
+    return sanitize_rendered_detail(cleaned)
+
+
+_ADOC_NON_AUTHOR_LINE_RE = re.compile(
+    r"^(?::[a-zA-Z0-9_-]+:|={1,6}\s+|#{1,6}\s+|\[|'''|---|//|\.|\*|-|_|\|)"
+)
+
+
+def sanitize_rendered_detail(text: str | None, format: str = "md") -> str:
+    """상세 본문에서 중복 원문 링크, AsciiDoc 저자 라인 및 미디어 플랫폼 인용 오염을 정제한다."""
+    if not text:
+        return ""
+
+    lines = text.splitlines()
+    first = next((i for i, line in enumerate(lines) if line.strip()), None)
+    if first is not None and lines[first].strip().startswith("= "):
+        # AsciiDoc 표준: 저자 라인은 = 문서제목 바로 다음 행(first + 1)에 빈 줄 없이 위치함
+        if first + 1 < len(lines):
+            line = lines[first + 1].strip()
+            if line and not _ADOC_NON_AUTHOR_LINE_RE.match(line):
+                lines.pop(first + 1)
+                while first + 1 < len(lines) and not lines[first + 1].strip():
+                    lines.pop(first + 1)
+                text = "\n".join(lines).strip()
+
+    # 단순 비디오 채널/호스팅 플랫폼 quote 인용 소각 ([quote, Orbrium...] -> [quote])
+    cleaned = re.sub(
+        r"\[quote,\s*(?:Orbrium|유튜브|YouTube|채널|업로더)[^\]]*\]",
+        "[quote]",
+        text,
+        flags=re.IGNORECASE,
+    )
+    return cleaned
 
 _ADOC_CORRUPTED_PATTERNS = (
     r"(?:^|\n)={1,5}\s+",
@@ -417,8 +452,6 @@ def doc_to_prompt(doc: Document, *, full_content: bool = False) -> str:
     head = []
     if doc.title:
         head.append(f"TITLE: {doc.title}")
-    if doc.author:
-        head.append(f"AUTHOR: {doc.author}")
     if doc.url:
         head.append(f"URL: {doc.url}")
     head.append(f"SOURCE_TYPE: {doc.source_type}")
@@ -577,6 +610,10 @@ def render_detail_prompt_md(
         '(음차/번역 금지: 예 "arXiv", "LLM agent").\n'
         "6. 원문에 없는 사실은 절대 지어내지 말 것.\n"
         "7. 절단 섹션 상세 작성 배제(적재 정책): 원문을 절단하여 적재 및 상세 작성 시, 절단되어 내용이 유실된 섹션은 상세를 작성하지 않는다. 본문 중간이나 말미에서 텍스트가 끊겨 온전히 이어지지 않는 불완전한 섹션(잘린 문단, 미완성 소제목·조항 등)은 억지로 추론하거나 불완전하게 작성하지 말고 완전히 제외(생략)하며, 온전하게 보존된 섹션까지만 상세를 작성하라.\n"
+        "8. [★ 중요: 문서 레벨 서지 정보 및 부제 행 표기 절대 금지]\n"
+        "   - 문서 제목(`# 제목`) 바로 아래 행에 저자, 발표자, 소속 기관, 발행처, 유튜브 채널명 등의 부제/저자 행을 일체 작성하지 마라.\n"
+        "   - `# 제목` 직후에는 곧바로 본문 서술이나 섹션(`## 개요`)으로 시작하라.\n"
+        "   - 저자·소속 정보는 온톨로지 지식 그래프의 영역이며 문서 본문에 기재하지 않는다.\n"
         + images_block(images)
         + f"\n원문:\n{body}\n\n한국어 마크다운:"
     )
@@ -626,7 +663,7 @@ def render_detail_prompt_adoc(
         "대화형 경어체('~합니다', '~해요')나 구어체는 사용하지 않는다.\n"
         "3. 내용 구조화: `== `, `=== ` 섹션 제목과 문단으로 구성하고, 나열은 `* ` 불릿을 써라. "
         "단락은 빈 줄로 구분.\n"
-        "4. 인용과 선언: 원문의 핵심 선언이나 공식 정의는 `[quote, 저자/출처]` 블록으로 분리하라.\n"
+        "4. 인용과 선언: 원문의 핵심 선언이나 공식 정의는 `[quote, 발언자 또는 핵심 개념]` 블록으로 분리하되, 단순 비디오 채널/호스팅 플랫폼/업로더 계정명은 출처로 인용하지 않는다.\n"
         "5. 코드 및 설정 해설: 코드/설정/명령어가 등장하면 `[source,언어]` 블록과 "
         "필요시 콜아웃 주석(`// <1>`, `<1> 설명`)을 결합하여 직관적으로 해설하라.\n"
         "6. 절제된 주석: 배경 전제나 필수 제약조건이 꼭 필요한 경우에만 `[NOTE]` 또는 `[IMPORTANT]` "
@@ -642,6 +679,10 @@ def render_detail_prompt_adoc(
         "11. 상호 참조 및 앵커: 긴 문서의 주요 섹션에는 `[#섹션ID]` 앵커를 부여하고, 필요시 `<<섹션ID, 제목>>` 상호 참조를 활용하라.\n"
         "12. 원문에 없는 사실은 절대 지어내지 말 것.\n"
         "13. 절단 섹션 상세 작성 배제(적재 정책): 원문을 절단하여 적재 및 상세 작성 시, 절단되어 내용이 유실된 섹션은 상세를 작성하지 않는다. 본문 중간이나 말미에서 텍스트가 끊겨 온전히 이어지지 않는 불완전한 섹션(잘린 문단, 미완성 소제목·조항 등)은 억지로 추론하거나 불완전하게 작성하지 말고 완전히 제외(생략)하며, 온전하게 보존된 섹션까지만 상세를 작성하라.\n"
+        "14. [★ 중요: 문서 레벨 서지 정보 및 저자 라인 표기 절대 금지]\n"
+        "   - 문서 제목(`= 제목`) 바로 아래 행에 저자, 발표자, 소속 기관, 발행처, 유튜브 채널명 등의 부제/저자 라인을 일체 작성하지 마라.\n"
+        "   - `= 제목` 직후에는 곧바로 목차/문서 속성(`:toc:`) 또는 본문 섹션(`== 개요`)으로 시작하라.\n"
+        "   - 저자·소속 정보는 온톨로지 지식 그래프의 영역이며 문서 본문에 기재하지 않는다.\n"
         + images_block_adoc(images)
         + f"\n원문:\n{body}\n\n한국어 AsciiDoc:"
     )

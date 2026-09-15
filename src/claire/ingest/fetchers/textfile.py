@@ -128,13 +128,10 @@ def fetch_file(path: str, *, full_content: bool = False) -> Document:
         meta["pdf_is_scanned"] = bool(getattr(pdf_res, "is_scanned", False))
         if getattr(pdf_res, "pdf_metadata", None):
             meta["pdf_metadata"] = getattr(pdf_res, "pdf_metadata")
-    author = None
-    if source_type == "pdf" and "pdf_res" in locals() and getattr(pdf_res, "pdf_metadata", None):
-        author = pdf_res.pdf_metadata.get("Author") or pdf_res.pdf_metadata.get("author")
     return Document(
         url=f"file://{p.resolve()}",
         title=title or p.stem,
-        author=author,
+        author=None,
         published_at=None,
         raw_text=raw_text,
         source_type=source_type,

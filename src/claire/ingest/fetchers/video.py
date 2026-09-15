@@ -330,8 +330,6 @@ def fetch_video(
 
     # 3. 텍스트 본문 결합 구성
     sections: list[str] = []
-    if uploader:
-        sections.append(f"발표자/채널: {uploader}")
     if duration_sec > 0:
         mins = int(duration_sec // 60)
         secs = int(duration_sec % 60)
@@ -381,12 +379,13 @@ def fetch_video(
         url=url,
         canonical_url=canonical,
         title=title,
-        author=uploader or None,
+        author=None,
         raw_text=raw_text,
         source_type="video",
         content_hash=content_hash(full_text_blob),
         partial=bool(not transcript_text or is_truncated),
         meta={
+            "video_channel": uploader or None,
             "duration_sec": duration_sec,
             "chapters": [
                 {
