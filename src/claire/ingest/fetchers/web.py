@@ -89,41 +89,35 @@ def fetch_web(url: str, *, full_content: bool = False) -> Document:
     parser_info: dict[str, Any] = getattr(res, "parser_info", {}) or {}
     usable, guard_err = _is_usable(title, text)
 
-    # 2) law.go.kr 에스컬레이션 — 국가법령정보센터 iframe / ajax 구조 해소
+    # 2) Registry 기반 Web Adapter 에스컬레이션
     if not usable:
-        from .law import try_law_kr
-
-        l = try_law_kr(url)
-        if l is not None:
-            l_title, l_text, l_links, l_anchors, l_images = l
-            l_usable, l_guard_err = _is_usable(l_title or title, l_text)
-            if l_usable:
-                title, text, links, anchors, images, via = (
-                    l_title or title, l_text, l_links or links, l_anchors or anchors,
-                    l_images or images, "law"
-                )
-                usable, guard_err, is_pdf = True, None, False
-            elif len(l_text) > len(text or ""):
-                title, text, links, anchors, images, via = (
-                    l_title or title, l_text, l_links or links, l_anchors or anchors,
-                    l_images or images, "law"
-                )
-                usable, guard_err, is_pdf = l_usable, l_guard_err, False
-
-    # 3) Discourse JSON 에스컬레이션
-    if not usable:
-        from .discourse import try_discourse
-
-        d = try_discourse(url)
-        if d is not None:
-            d_title, d_text, d_links = d
-            d_usable, d_guard_err = _is_usable(d_title or title, d_text)
-            if d_usable:
-                title, text, links, via = d_title or title, d_text, d_links or links, "discourse"
-                usable, guard_err, is_pdf = True, None, False
-            elif len(d_text) > len(text or ""):
-                title, text, links, via = d_title or title, d_text, d_links or links, "discourse"
-                usable, guard_err, is_pdf = d_usable, d_guard_err, False
+        from ..registry import registry
+        
+        for adapter_class in registry.get_matching_web_adapters(url):
+            try:
+                res = adapter_class.try_fetch(url)
+                if res is not None:
+                    r_title, r_text, r_links, r_anchors, r_images = res.title, res.text, res.links, res.anchors, res.images
+                    r_usable, r_guard_err = _is_usable(r_title or title, r_text)
+                    if r_usable:
+                        title, text, links, anchors, images, via = (
+                            r_title or title, r_text, r_links or links, r_anchors or anchors,
+                            r_images or images, adapter_class.name()
+                        )
+                        usable, guard_err, is_pdf = True, None, getattr(res, "is_pdf", False)
+                        if getattr(res, "parser_info", None):
+                            parser_info = res.parser_info
+                        break
+                    elif r_text and len(r_text) > len(text or ""):
+                        title, text, links, anchors, images, via = (
+                            r_title or title, r_text, r_links or links, r_anchors or anchors,
+                            r_images or images, adapter_class.name()
+                        )
+                        usable, guard_err, is_pdf = r_usable, r_guard_err, getattr(res, "is_pdf", False)
+                        if getattr(res, "parser_info", None):
+                            parser_info = res.parser_info
+            except Exception:
+                pass
 
     # 4) Scrapling Fetcher 에스컬레이션 — curl-cffi + browserforge 헤더 위장.
     #    브라우저 불필요. 정적 UA 를 막는 봇차단(예: openai.com 403)을 우회.
@@ -251,15 +245,15 @@ def _fetch_static(
     canonical 기준. 실패하면 None. 실패해도 예외 대신 빈 결과를 돌려준다. images 는
     본문 이미지 후보(상대경로는 effective_url 기준으로 절대경로화).
     """
-    import httpx
+    from .http import SafeHttpClient
+    from .base import FetchError
 
     try:
-        headers = {
-            "User-Agent": _UA,
-            "Accept": "application/vnd.oasis.opendocument.text, application/pdf;q=0.9, text/html;q=0.8, application/xhtml+xml, */*;q=0.1",
-        }
-        with httpx.Client(follow_redirects=True, timeout=30, headers=headers) as client:
+        client = SafeHttpClient(timeout=30)
+        try:
             resp = client.get(url)
+        except FetchError as e:
+            return FetchStaticResult(None, "", [], {}, str(e), None, [], False, {})
         if resp.status_code >= 400:
             return FetchStaticResult(None, "", [], {}, f"http {resp.status_code} for {url}", None, [], False, {})
 

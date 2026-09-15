@@ -38,3 +38,6 @@ claire-graph*.png
 .DS_Store
 .AppleDouble
 .LSOverride
+
+# Local drop-in plugins
+plugins/

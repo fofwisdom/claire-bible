@@ -40,39 +40,8 @@ def classify(payload: str) -> str:
 
     종류: youtube | video | xcom | redirect | web | file | text
     """
-    t = (payload or "").strip()
-    if not t:
-        return "text"
-    low = t.lower()
-    if low.startswith("http://") or low.startswith("https://"):
-        parsed = urlsplit(low)
-        host = parsed.netloc
-        path = parsed.path
-        if "youtube.com" in host or "youtu.be" in host:
-            return "youtube"
-        if ("vmware.com" in host and "/explore/video/" in path) or "brightcove.net" in host:
-            return "video"
-        if "vimeo.com" in host:
-            return "video"
-        if "tv.naver.com" in host or "now.naver.com" in host or ("naver.com" in host and "/v/" in path):
-            return "video"
-        if path.endswith((".mp4", ".m3u8", ".mpd", ".webm", ".m4a", ".mp3")):
-            return "video"
-        if "x.com" in host or "twitter.com" in host:
-            return "xcom"
-        if "share.google" in host or host.startswith("share."):
-            return "redirect"
-        return "web"
-    # '제목 + 트레일링 링크' 공유 텍스트 → 그 URL 의 종류로 라우팅.
-    shared = extract_shared_url(t)
-    if shared:
-        return classify(shared)
-    # 로컬 파일 경로?
-    if (os.path.sep in t or t.lower().endswith((".pdf", ".odt", ".md", ".txt", ".markdown", ".rst"))) and os.path.exists(t):
-        return "file"
-    if t.startswith("file://"):
-        return "file"
-    return "text"
+    from .registry import registry
+    return registry.classify(payload)
 
 
 def _clean_url(url_candidate: str) -> str:
@@ -107,6 +76,11 @@ def fetch(payload: str, *, full_content: bool = False, _depth: int = 0) -> Docum
             return fn(*args, full_content=full_content, **kwargs)
         except TypeError:
             return fn(*args, **kwargs)
+
+    from .registry import registry
+    fetcher_cls = registry.get_fetcher(t)
+    if fetcher_cls is not None:
+        return _call_fetcher(fetcher_cls.fetch, t)
 
     if kind == "video":
         from .fetchers.video import fetch_video
