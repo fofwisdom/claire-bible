@@ -7,6 +7,12 @@ class FetcherRegistry:
     def __init__(self):
         self.fetchers: list[Any] = []
         self.web_adapters: list[Any] = []
+        self._builtins_loaded: bool = False
+
+    def _ensure_builtins(self) -> None:
+        if not self._builtins_loaded:
+            self._builtins_loaded = True
+            load_builtin_fetchers()
 
     def register_fetcher(self, name: str, priority: int = 100) -> Callable:
         def decorator(cls: Any) -> Any:
@@ -23,6 +29,7 @@ class FetcherRegistry:
         return decorator
 
     def classify(self, payload: str) -> str:
+        self._ensure_builtins()
         t = (payload or "").strip()
         if not t:
             return "text"
@@ -65,6 +72,8 @@ class FetcherRegistry:
                 return "xcom"
             if "share.google" in host or host.startswith("share."):
                 return "redirect"
+            if "wiki.hoyolab.com" in host or "hoyolab.com" in host:
+                return "hoyowiki"
             return "web"
             
         if (os.path.sep in t or t.lower().endswith((".pdf", ".odt", ".md", ".txt", ".markdown", ".rst"))) and os.path.exists(t):
@@ -74,12 +83,14 @@ class FetcherRegistry:
         return "text"
 
     def get_fetcher(self, payload: str) -> Any | None:
+        self._ensure_builtins()
         for _, _, cls in self.fetchers:
             if hasattr(cls, "can_handle") and cls.can_handle(payload):
                 return cls
         return None
 
     def get_matching_web_adapters(self, url: str) -> list[Any]:
+        self._ensure_builtins()
         matches = []
         import urllib.parse
         parsed = urllib.parse.urlsplit(url)
@@ -108,7 +119,7 @@ def register_web_adapter(name: str, domains: tuple[str, ...] = (), priority: int
 
 
 def load_builtin_fetchers() -> None:
-    from .fetchers import law, discourse, video, youtube, xcom
+    from .fetchers import law, discourse, video, youtube, xcom, hoyowiki
     # add other builtins if needed
 
 def load_plugins_from_dir(plugin_dir: Path) -> None:

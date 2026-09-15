@@ -2535,7 +2535,180 @@ def cmd_migrate(_args) -> int:
         f"migrate: themes={len(targets)} succeeded={len(successes)} "
         f"failed={len(failures)}"
     )
-    return 1 if failures else 0
+def cmd_hoyowiki(args) -> int:
+    from pathlib import Path
+    from .ingest.fetchers.hoyowiki import (
+        HoYoWikiClient,
+        crawl_hoyowiki,
+        fetch_hoyowiki,
+        _GAME_NAMES,
+    )
+
+    game = getattr(args, "game", "genshin") or "genshin"
+    lang = getattr(args, "lang", "ko-kr") or "ko-kr"
+    client = HoYoWikiClient(default_lang=lang)
+
+    # 1. 메뉴 목록 조회
+    if getattr(args, "list_menus", False):
+        games = ["genshin", "hsr", "zzz", "honkai3rd"] if game == "all" else [game]
+        for g in games:
+            print(f"\n[{_GAME_NAMES.get(g, g)} 메뉴 목록]")
+            try:
+                menus = client.get_menus(g, lang=lang)
+            except Exception as e:
+                print(f"  메뉴 조회 실패: {e}", file=sys.stderr)
+                continue
+
+            def _print_menu(m_list, indent="  "):
+                for m in m_list:
+                    m_id = m.get("id")
+                    m_name = m.get("name")
+                    has_page = m.get("has_page")
+                    page_flag = " (페이지 있음)" if has_page else ""
+                    print(f"{indent}- [{m_id}] {m_name}{page_flag}")
+                    sub = m.get("sub_menus")
+                    if sub:
+                        _print_menu(sub, indent + "    ")
+
+            _print_menu(menus)
+        return 0
+
+    # 2. 키워드 검색
+    if getattr(args, "search", None):
+        kw = args.search.strip()
+        print(f"[{_GAME_NAMES.get(game, game)}] '{kw}' 검색 결과:")
+        try:
+            results = client.search(kw, game=game, lang=lang)
+        except Exception as e:
+            print(f"검색 실패: {e}", file=sys.stderr)
+            return 1
+
+        if not results:
+            print("  검색 결과가 없습니다.")
+            return 0
+
+        for it in results:
+            ep_id = it.get("entry_page_id")
+            name = it.get("name")
+            desc = (it.get("desc") or "").replace("\n", " ")[:60]
+            print(f"  - [{ep_id}] {name} (https://wiki.hoyolab.com/pc/{game}/entry/{ep_id})")
+            if desc:
+                print(f"      {desc}…")
+        return 0
+
+    # 3. 단건 URL 또는 단건 entry_id 수집
+    target_url = None
+    if getattr(args, "url", None):
+        target_url = args.url.strip()
+    elif getattr(args, "entry_id", None):
+        target_url = f"https://wiki.hoyolab.com/pc/{game}/entry/{args.entry_id.strip()}"
+
+    if target_url:
+        print(f"HoYoWiki 단건 수집: {target_url}")
+        try:
+            doc = fetch_hoyowiki(target_url, full_content=True, lang=lang)
+        except Exception as e:
+            print(f"수집 실패: {e}", file=sys.stderr)
+            return 1
+
+        if getattr(args, "output_dir", None):
+            out_dir = Path(args.output_dir)
+            out_dir.mkdir(parents=True, exist_ok=True)
+            ep_id = doc.meta.get("entry_page_id") or "entry"
+            clean_title = re.sub(r'[\\/*?:"<>|]', "_", doc.title or "entry")
+            out_file = out_dir / f"{ep_id}_{clean_title}.md"
+            out_file.write_text(doc.raw_text, encoding="utf-8")
+            print(f"저장 완료: {out_file}")
+
+        if getattr(args, "ingest", False):
+            from .extract.provider import get_provider
+            from .ingest.pipeline import ingest
+            from .store.vectors import make_vector_store
+
+            s, theme = get_effective_settings(args)
+            conn = dbm.connect(s.db_file)
+            dbm.init_db(conn)
+            provider = get_provider(s)
+            vstore = make_vector_store(conn, s.vector_backend)
+            report = ingest(
+                target_url, conn=conn, provider=provider, vstore=vstore,
+                vault_dir=s.vault_dir, data_dir=s.data_dir, source="cli-hoyowiki",
+                full_content=True,
+            )
+            print(report.telegram_summary())
+            conn.close()
+            return 0 if report.error is None else 1
+
+        if getattr(args, "json", False):
+            import json as json_mod
+            print(json_mod.dumps(doc.model_dump(), ensure_ascii=False, indent=2))
+        else:
+            print(f"\n제목: {doc.title}")
+            print(f"URL: {doc.canonical_url}")
+            print(f"본문 길이: {len(doc.raw_text)} chars")
+            print("-" * 40)
+            print(doc.raw_text[:1000] + ("\n…" if len(doc.raw_text) > 1000 else ""))
+        return 0
+
+    # 4. 카테고리 / 배치 크롤링
+    menu_filter = getattr(args, "menu", None)
+    limit = getattr(args, "limit", None)
+    delay = getattr(args, "delay", 0.5)
+    print(f"HoYoWiki 배치 크롤링 시작 (game={game}, menu={menu_filter or '전체'}, limit={limit or '무제한'}, delay={delay}s)")
+
+    out_dir = Path(args.output_dir) if getattr(args, "output_dir", None) else None
+    if out_dir:
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+    do_ingest = getattr(args, "ingest", False)
+    conn = None
+    provider = None
+    vstore = None
+    s = None
+    if do_ingest:
+        from .extract.provider import get_provider
+        from .store.vectors import make_vector_store
+        s, theme = get_effective_settings(args)
+        conn = dbm.connect(s.db_file)
+        dbm.init_db(conn)
+        provider = get_provider(s)
+        vstore = make_vector_store(conn, s.vector_backend)
+
+    from .ingest.pipeline import ingest
+
+    count = 0
+    errors = 0
+    try:
+        for doc in crawl_hoyowiki(game=game, menu_filter=menu_filter, limit=limit, delay=delay, lang=lang):
+            count += 1
+            print(f"[{count}] {doc.title} ({doc.canonical_url}) - {len(doc.raw_text)}자")
+            if out_dir:
+                safe_name = re.sub(r'[\\/*?:"<>|]', "_", doc.title or "entry")
+                ep_id = doc.meta.get("entry_page_id") or count
+                out_path = out_dir / f"{ep_id}_{safe_name}.md"
+                out_path.write_text(doc.raw_text, encoding="utf-8")
+
+            if do_ingest and conn:
+                try:
+                    rep = ingest(
+                        doc.canonical_url, conn=conn, provider=provider, vstore=vstore,
+                        vault_dir=s.vault_dir, data_dir=s.data_dir, source="cli-hoyowiki",
+                        full_content=True,
+                    )
+                    if rep.error:
+                        print(f"    -> 적재 실패: {rep.error}")
+                        errors += 1
+                    else:
+                        print(f"    -> {rep.telegram_summary().splitlines()[0]}")
+                except Exception as ex:
+                    print(f"    -> 적재 예외: {ex}", file=sys.stderr)
+                    errors += 1
+    finally:
+        if conn:
+            conn.close()
+
+    print(f"\n크롤링 완료: 총 {count}건 수집 (적재 실패: {errors}건)")
+    return 0 if errors == 0 else 1
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -2985,6 +3158,24 @@ def build_parser() -> argparse.ArgumentParser:
     pvr.add_argument("--format", choices=["md", "adoc"], default=None, help="detail format")
     pvr.add_argument("--json", action="store_true", help="output result in JSON format")
     pvr.set_defaults(func=cmd_video_reprocess)
+
+    phoyo = sub.add_parser(
+        "hoyowiki",
+        help="crawl and collect entries from wiki.hoyolab.com (Genshin, HSR, ZZZ, Honkai3rd)",
+    )
+    phoyo.add_argument("-g", "--game", default="genshin", choices=["genshin", "hsr", "zzz", "honkai3rd", "tot", "all"], help="game code (default: genshin)")
+    phoyo.add_argument("-m", "--menu", default=None, help="menu category name or ID (e.g. 캐릭터, 2, 장비 도감)")
+    phoyo.add_argument("-s", "--search", default=None, help="search entries by keyword")
+    phoyo.add_argument("-e", "--entry-id", default=None, help="specific entry page ID")
+    phoyo.add_argument("-u", "--url", default=None, help="specific HoYoWiki URL to fetch")
+    phoyo.add_argument("-l", "--limit", type=int, default=None, help="maximum entries to collect")
+    phoyo.add_argument("-d", "--delay", type=float, default=0.5, help="delay in seconds between requests (default: 0.5)")
+    phoyo.add_argument("--lang", default="ko-kr", help="language code (default: ko-kr, options: en-us, ja-jp, zh-cn)")
+    phoyo.add_argument("--list-menus", action="store_true", help="list available menus and categories for the game")
+    phoyo.add_argument("--ingest", action="store_true", help="directly ingest crawled entries into Claire database and vault")
+    phoyo.add_argument("-o", "--output-dir", default=None, help="directory to save markdown documents")
+    phoyo.add_argument("--json", action="store_true", help="output result in JSON format")
+    phoyo.set_defaults(func=cmd_hoyowiki)
 
     return p
 

@@ -68,7 +68,7 @@ def fetch(payload: str, *, full_content: bool = False, _depth: int = 0) -> Docum
             t = shared
     kind = classify(t)
 
-    if kind in ("web", "youtube", "video", "xcom", "redirect"):
+    if kind in ("web", "youtube", "video", "xcom", "redirect", "hoyowiki"):
         t = _clean_url(t)
 
     def _call_fetcher(fn, *args, **kwargs):
