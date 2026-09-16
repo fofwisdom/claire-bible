@@ -106,7 +106,7 @@ def cmd_preflight(_args) -> int:
     return 0
 
 
-def get_effective_settings(args: Any) -> tuple[Any, Any | None]:
+def get_effective_settings(args: Any, doc_target: str | None = None) -> tuple[Any, Any | None]:
     s = get_settings()
     theme_ref = getattr(args, "theme", None)
     if theme_ref is not None:
@@ -124,6 +124,24 @@ def get_effective_settings(args: Any) -> tuple[Any, Any | None]:
             return tm.get_settings_for_theme(theme.id, s), theme
         except Exception as exc:
             print(f"[경고] 테마 '{theme_ref}'를 찾을 수 없습니다: {exc}. 기본 테마로 진행합니다.", file=sys.stderr)
+            return s, None
+
+    if getattr(s, "multi_theme", False):
+        raw_target = doc_target or getattr(args, "target", None) or getattr(args, "doc_id", None) or getattr(args, "token", None)
+        if raw_target and isinstance(raw_target, str) and raw_target.strip():
+            from .store.theme import get_theme_manager
+
+            tm = get_theme_manager(s)
+            try:
+                matches = tm.resolve_document_targets(target=raw_target.strip())
+                if matches:
+                    matched_tid = matches[0].get("theme_id")
+                    if matched_tid is not None:
+                        theme = tm.get_theme(matched_tid)
+                        return tm.get_settings_for_theme(theme.id, s), theme
+            except Exception:
+                pass
+
     return s, None
 
 
@@ -229,7 +247,7 @@ def cmd_doctor(args) -> int:
 
 def cmd_purge(args) -> int:
     """오염된 레거시 문서를 툼스톤 등록과 함께 원자적으로 연쇄 소각."""
-    s = get_settings()
+    s, theme = get_effective_settings(args)
     if not s.is_purge_allowed:
         print("claire purge: [오류] 데이터 소각이 정책에 의해 차단되었습니다.", file=sys.stderr)
         print("현재 환경의 데이터 수명주기(CLAIRE_DATA_LIFECYCLE)가 'append-only' 모드로 설정되어 있습니다.", file=sys.stderr)
@@ -238,6 +256,8 @@ def cmd_purge(args) -> int:
         print("  (또는 CLAIRE_ALLOW_PURGE=1)", file=sys.stderr)
         return 1
 
+    if theme and not getattr(args, "json", False):
+        print(f"[{theme.icon} 소각 대상 테마: #{theme.id} - {theme.label}]")
     conn = dbm.connect(s.db_file)
     dbm.init_db(conn)
     try:
@@ -1369,8 +1389,10 @@ def cmd_regenerate(args) -> int:
     from .ingest.service import IngestService
     from .progress import track_batch_progress
 
-    s = get_settings()
+    s, theme = get_effective_settings(args)
     svc = IngestService(s)
+    if theme and not getattr(args, "json", False):
+        print(f"[{theme.icon} 재생성 대상 테마: #{theme.id} - {theme.label}]")
 
     target = getattr(args, "target", None)
     token = getattr(args, "token", None)
@@ -1518,7 +1540,12 @@ def cmd_regenerate(args) -> int:
             print(f"    새 요약: {t['new_summary']}")
     print("=" * 60)
     return 0
-    return 0
+
+
+def cmd_summary_regenerate(args) -> int:
+    """문서 요약 전용 재생성."""
+    setattr(args, "summary", True)
+    return cmd_regenerate(args)
 
 
 def cmd_format_status(args) -> int:
@@ -2155,7 +2182,9 @@ def cmd_watch(args) -> int:
 
 def cmd_doc_title(args) -> int:
     """문서 제목 갱신 및 MinHash 서명 재계산."""
-    s = get_settings()
+    s, theme = get_effective_settings(args)
+    if theme:
+        print(f"[{theme.icon} 대상 테마: #{theme.id} - {theme.label}]")
     conn = dbm.connect_existing(s.db_file)
     try:
         raw_target = getattr(args, "document_id", None) or getattr(args, "target", None)
@@ -2210,7 +2239,9 @@ def cmd_recanonicalize(args) -> int:
     """
     from .ingest.service import IngestService
 
-    s = get_settings()
+    s, theme = get_effective_settings(args)
+    if theme:
+        print(f"[{theme.icon} 대상 테마: #{theme.id} - {theme.label}]")
     svc = IngestService(s)
     apply = getattr(args, "apply", False) and not getattr(args, "dry_run", False)
     out = svc.recanonicalize_documents(apply=apply)
@@ -2228,7 +2259,9 @@ def cmd_dedup_merge(args) -> int:
     """
     from .ingest.service import IngestService
 
-    s = get_settings()
+    s, theme = get_effective_settings(args)
+    if theme:
+        print(f"[{theme.icon} 대상 테마: #{theme.id} - {theme.label}]")
     svc = IngestService(s)
     apply = getattr(args, "apply", False)
     confirmed = getattr(args, "yes", False)
@@ -2535,6 +2568,9 @@ def cmd_migrate(_args) -> int:
         f"migrate: themes={len(targets)} succeeded={len(successes)} "
         f"failed={len(failures)}"
     )
+    return 0 if not failures else 1
+
+
 def cmd_hoyowiki(args) -> int:
     from pathlib import Path
     from .ingest.fetchers.hoyowiki import (
@@ -2956,12 +2992,14 @@ def build_parser() -> argparse.ArgumentParser:
     preg.add_argument("--format", choices=["md", "adoc"], default=None, help="detail format (md or adoc)")
     preg.add_argument("--focus", "--orientation", "--directive", default=None, help="가독 상세 작성을 위한 집중 초점 (content focus for detail rendering)")
     preg.add_argument("--json", action="store_true", help="output result in JSON format")
+    preg.add_argument("-t", "--theme", default=None, help="target theme ID or label")
     preg.set_defaults(func=cmd_regenerate)
 
     # Alias: summary-regenerate
     psum = sub.add_parser("summary-regenerate",
                           help="alias for 'regenerate --summary'")
     psum.add_argument("target", nargs="?", default=None, help="document ID, share token, or share URL")
+    psum.add_argument("-t", "--theme", default=None, help="target theme ID or label")
     psum.add_argument("--token", default=None, help="specific share token")
     psum.add_argument("--doc-id", default=None, help="specific document ID")
     psum.add_argument("--corrupted", action="store_true", help="scan all docs with corrupted ADOC syntax")
@@ -2977,7 +3015,7 @@ def build_parser() -> argparse.ArgumentParser:
     psum.add_argument("--dry-run", action="store_true", help="dry-run inspection without changes (default)")
     psum.add_argument("--effort", default=None, help="reasoning effort level (low, medium, high)")
     psum.add_argument("--json", action="store_true", help="output in JSON format")
-    psum.set_defaults(func=lambda args: setattr(args, "summary", True) or cmd_regenerate(args))
+    psum.set_defaults(func=cmd_summary_regenerate)
 
     pfs = sub.add_parser("format-status",
                          help="check document render format distribution and migration status")
@@ -3020,6 +3058,7 @@ def build_parser() -> argparse.ArgumentParser:
     pdt = sub.add_parser("doc-title", help="update document title and recompute minhash signature")
     pdt.add_argument("target", help="target document ID, URL, or share URL")
     pdt.add_argument("title", help="새 제목")
+    pdt.add_argument("-t", "--theme", default=None, help="target theme ID or label")
     pdt.set_defaults(func=cmd_doc_title)
 
     pds = sub.add_parser("dedup-scan",
@@ -3034,6 +3073,7 @@ def build_parser() -> argparse.ArgumentParser:
                           help="recompute canonical_url with current rules (default: dry-run, requires --apply)")
     prc2.add_argument("--apply", action="store_true", help="apply canonical_url recalculation (default: dry-run only)")
     prc2.add_argument("--dry-run", action="store_true", help="dry-run inspection without changes (default)")
+    prc2.add_argument("-t", "--theme", default=None, help="target theme ID or label")
     prc2.set_defaults(func=cmd_recanonicalize)
 
     pdm = sub.add_parser("dedup-merge",
@@ -3043,6 +3083,7 @@ def build_parser() -> argparse.ArgumentParser:
     pdm.add_argument("--apply", action="store_true", help="apply actual merge and deletion (destructive, default: dry-run)")
     pdm.add_argument("--dry-run", action="store_true", help="dry-run inspection without changes (default)")
     pdm.add_argument("--yes", "-y", action="store_true", help="confirm without interactive prompt")
+    pdm.add_argument("-t", "--theme", default=None, help="target theme ID or label")
     pdm.set_defaults(func=cmd_dedup_merge)
 
     ppg = sub.add_parser(
@@ -3050,6 +3091,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="atomically purge legacy/corrupted documents with tombstones, disk unlink, graph heal & vacuum (default: dry-run, requires --apply)",
     )
     ppg.add_argument("target", nargs="?", default=None, help="target document ID, URL, share URL (/p?s=...), or search keyword to purge")
+    ppg.add_argument("-t", "--theme", default=None, help="target theme ID or label")
     ppg.add_argument("--doc-id", default=None, help="specific document ID to purge")
     ppg.add_argument("--token", default=None, help="specific share token to identify document")
     ppg.add_argument("--url", default=None, help="specific URL to purge")

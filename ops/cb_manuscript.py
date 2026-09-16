@@ -123,6 +123,7 @@ APP_ONE_OFF_COMMANDS = {
     "truncation-scan",
     "truncation-backfill",
     "backfill-truncation",
+    "hoyowiki",
     "stt-scan",
     "scan-stt",
     "stt-backfill",

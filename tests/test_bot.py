@@ -1298,3 +1298,294 @@ async def test_on_message_prompts_theme_selection_in_multi_theme_mode(tmp_path: 
     assert markup is not None
     assert len(markup.inline_keyboard) == 3
 
+
+async def test_settle_status_theme_resolution(tmp_path: Path):
+    """_settle_status 가 theme_id 및 cross-theme fallback 에 따라 올바른 테마 DB에 공유 토큰을 생성하는지 검증."""
+    from claire.config import Settings
+    from claire.ontology.base import Document
+    from claire.store import db as dbm
+    from claire.store.theme import ThemeManager
+
+    data_dir = tmp_path / "data"
+    vault_dir = tmp_path / "vault"
+    data_dir.mkdir(parents=True)
+    vault_dir.mkdir(parents=True)
+
+    settings = Settings(
+        CLAIRE_DB_PATH=str(data_dir / "claire.db"),
+        CLAIRE_VAULT_PATH=str(vault_dir),
+        CLAIRE_PROVIDER="mock",
+        CLAIRE_MULTI_THEME=True,
+        CLAIRE_PUBLIC_URL="https://cb.example.com",
+    )
+    tm = ThemeManager(settings)
+    t1 = tm.define_theme("AI엔지니어링")
+    t1_settings = tm.get_settings_for_theme(1)
+
+    # 테마 1에 문서 적재
+    conn1 = dbm.connect(t1_settings.db_file)
+    dbm.init_db(conn1)
+    doc1 = Document(
+        id="doc_settle_t1",
+        url="https://example.com/t1",
+        canonical_url="https://example.com/t1",
+        title="Theme 1 Doc",
+        raw_text="Content",
+        summary="Summary",
+        source_type="web",
+        content_hash="h_t1_settle",
+    )
+    dbm.insert_document(conn1, doc1)
+    conn1.close()
+
+    # 테마 0 DB 초기화
+    conn0 = dbm.connect(settings.db_file)
+    dbm.init_db(conn0)
+    conn0.close()
+
+    class FakeStatus:
+        def __init__(self):
+            self.edited_text = None
+            self.markup = None
+        async def edit_text(self, text, reply_markup=None):
+            self.edited_text = text
+            self.markup = reply_markup
+
+    class FakeMsg:
+        async def reply_text(self, text, reply_markup=None):
+            pass
+
+    # 1. theme_id=1 명시적 전달 시 테마 1 DB에 토큰 생성
+    st = FakeStatus()
+    await _settle_status(
+        st, FakeMsg(), "완료", [],
+        retry_doc_id="doc_settle_t1",
+        theme_id=1,
+        theme_mgr=tm,
+    )
+    assert st.markup is not None
+    url = st.markup.inline_keyboard[0][0].url
+    token = url.split("?s=")[1]
+    # 테마 1 DB에서 검증
+    c1 = dbm.connect(t1_settings.db_file)
+    assert dbm.resolve_doc_share(c1, token) == "doc_settle_t1"
+    c1.close()
+    # 테마 0 DB에는 없어야 함
+    c0 = dbm.connect(settings.db_file)
+    assert dbm.resolve_doc_share(c0, token) is None
+    c0.close()
+
+    # 2. theme_id=0이지만 테마 0에는 없고 테마 1에 문서가 있는 경우 cross-theme fallback 검증
+    st2 = FakeStatus()
+    await _settle_status(
+        st2, FakeMsg(), "완료", [],
+        retry_doc_id="doc_settle_t1",
+        theme_id=0,
+        theme_mgr=tm,
+    )
+    assert st2.markup is not None
+    url2 = st2.markup.inline_keyboard[0][0].url
+    token2 = url2.split("?s=")[1]
+    c1 = dbm.connect(t1_settings.db_file)
+    assert dbm.resolve_doc_share(c1, token2) == "doc_settle_t1"
+    c1.close()
+
+
+async def test_on_message_doc_cross_theme_switch(tmp_path: Path):
+    """on_message 에서 doc_... 수신 시 활성 테마에 없으면 다른 테마 DB를 자동 검색하여 전환하는지 검증."""
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, MagicMock
+    from claire.config import Settings
+    from claire.ontology.base import Document
+    from claire.store import db as dbm
+    from claire.store.theme import ThemeManager
+    from claire.telegram_bot import build_app
+
+    data_dir = tmp_path / "data"
+    vault_dir = tmp_path / "vault"
+    data_dir.mkdir(parents=True)
+    vault_dir.mkdir(parents=True)
+
+    settings = Settings(
+        CLAIRE_DB_PATH=str(data_dir / "claire.db"),
+        CLAIRE_VAULT_PATH=str(vault_dir),
+        CLAIRE_PROVIDER="mock",
+        CLAIRE_MULTI_THEME=True,
+        telegram_bot_token="12345:fake_token",
+        allowed_user_ids=[],
+    )
+    tm = ThemeManager(settings)
+    tm.define_theme("AI연구", icon="🤖")
+    t1_settings = tm.get_settings_for_theme(1)
+
+    # 테마 1에 문서 삽입
+    conn1 = dbm.connect(t1_settings.db_file)
+    dbm.init_db(conn1)
+    doc = Document(
+        id="doc_target_cross_123",
+        url="https://example.com/cross-doc",
+        canonical_url="https://example.com/cross-doc",
+        title="Cross Theme Message Doc",
+        raw_text="Some document text",
+        summary="Some summary",
+        source_type="web",
+        content_hash="h_cross_doc_1",
+    )
+    dbm.insert_document(conn1, doc)
+    conn1.close()
+
+    app = build_app(settings)
+    on_message = next(h.callback for h in app.handlers[0] if getattr(h.callback, "__name__", "") == "on_message")
+
+    msg = AsyncMock()
+    msg.text = "doc_target_cross_123"
+    msg.reply_text = AsyncMock()
+
+    update = MagicMock()
+    update.effective_user = SimpleNamespace(id=100)
+    update.effective_chat = SimpleNamespace(id=200)
+    update.message = msg
+    update.update_id = 9999
+
+    await on_message(update, None)
+
+    msg.reply_text.assert_awaited_once()
+    reply_call = msg.reply_text.call_args
+    assert "Cross Theme Message Doc" in reply_call[0][0]
+    markup = reply_call[1].get("reply_markup")
+    assert markup is not None
+
+
+async def test_on_callback_rg_cross_theme(tmp_path: Path):
+    """on_callback rg: 시 다른 테마에 존재하는 문서를 감지하여 해당 테마 서비스로 재생성을 디스패치하는지 검증."""
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, MagicMock
+    from claire.config import Settings
+    from claire.ontology.base import Document
+    from claire.store import db as dbm
+    from claire.store.theme import ThemeManager
+    from claire.telegram_bot import build_app
+
+    data_dir = tmp_path / "data"
+    vault_dir = tmp_path / "vault"
+    data_dir.mkdir(parents=True)
+    vault_dir.mkdir(parents=True)
+
+    settings = Settings(
+        CLAIRE_DB_PATH=str(data_dir / "claire.db"),
+        CLAIRE_VAULT_PATH=str(vault_dir),
+        CLAIRE_PROVIDER="mock",
+        CLAIRE_MULTI_THEME=True,
+        telegram_bot_token="12345:fake_token",
+        allowed_user_ids=[],
+    )
+    tm = ThemeManager(settings)
+    tm.define_theme("보조테마", icon="📁")
+    t1_settings = tm.get_settings_for_theme(1)
+
+    # 테마 1에 문서 삽입
+    conn1 = dbm.connect(t1_settings.db_file)
+    dbm.init_db(conn1)
+    doc = Document(
+        id="doc_rg_test",
+        url="https://example.com/rg",
+        canonical_url="https://example.com/rg",
+        title="RG Doc",
+        raw_text="RG content",
+        summary="RG summary",
+        source_type="web",
+        content_hash="h_rg_1",
+    )
+    dbm.insert_document(conn1, doc)
+    conn1.close()
+
+    app = build_app(settings)
+    on_callback = next(h.callback for h in app.handlers[0] if getattr(h.callback, "__name__", "") == "on_callback")
+
+    query = AsyncMock()
+    query.data = "rg:det:doc_rg_test"
+    query.edit_message_reply_markup = AsyncMock()
+    status_msg = AsyncMock()
+    status_msg.edit_text = AsyncMock()
+    msg = AsyncMock()
+    msg.reply_text = AsyncMock(return_value=status_msg)
+    query.message = msg
+
+    update = MagicMock()
+    update.effective_user = SimpleNamespace(id=100)
+    update.callback_query = query
+
+    await on_callback(update, None)
+
+    msg.reply_text.assert_awaited_once()
+    status_msg.edit_text.assert_awaited()
+    edit_call = status_msg.edit_text.call_args[0][0]
+    assert "완료" in edit_call or "성공" in edit_call or "RG Doc" in edit_call
+
+
+async def test_on_failed_and_on_retry_theme_aware(tmp_path: Path):
+    """on_failed 및 on_retry 가 테마별 실패 항목 및 재시도를 정상 지원하는지 검증."""
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, MagicMock
+    from claire.config import Settings
+    from claire.store import db as dbm
+    from claire.store.theme import ThemeManager
+    from claire.telegram_bot import build_app
+
+    data_dir = tmp_path / "data"
+    vault_dir = tmp_path / "vault"
+    data_dir.mkdir(parents=True)
+    vault_dir.mkdir(parents=True)
+
+    settings = Settings(
+        CLAIRE_DB_PATH=str(data_dir / "claire.db"),
+        CLAIRE_VAULT_PATH=str(vault_dir),
+        CLAIRE_PROVIDER="mock",
+        CLAIRE_MULTI_THEME=True,
+        telegram_bot_token="12345:fake_token",
+        allowed_user_ids=[],
+    )
+    tm = ThemeManager(settings)
+    tm.define_theme("특화테마", icon="🔬")
+    t1_settings = tm.get_settings_for_theme(1)
+
+    # 테마 1 DB에 inbox 실패 레코드 삽입
+    conn1 = dbm.connect(t1_settings.db_file)
+    dbm.init_db(conn1)
+    inbox_id = dbm.log_inbox(conn1, source="web", kind="url", payload="https://example.com/failed")
+    dbm.update_inbox(conn1, inbox_id, status="failed", error="Extraction timed out")
+    conn1.close()
+
+    app = build_app(settings)
+    on_failed = next(h.callback for h in app.handlers[0] if getattr(h.callback, "__name__", "") == "on_failed")
+    on_retry = next(h.callback for h in app.handlers[0] if getattr(h.callback, "__name__", "") == "on_retry")
+
+    # 1. on_failed 실행
+    msg = AsyncMock()
+    msg.reply_text = AsyncMock()
+    update = MagicMock()
+    update.effective_user = SimpleNamespace(id=100)
+    update.effective_message = msg
+
+    await on_failed(update, None)
+    msg.reply_text.assert_awaited_once()
+    failed_text = msg.reply_text.call_args[0][0]
+    assert f"#{inbox_id}" in failed_text
+    assert "Extraction timed out" in failed_text
+
+    # 2. on_retry 실행
+    status_msg = AsyncMock()
+    status_msg.edit_text = AsyncMock()
+    retry_msg = AsyncMock()
+    retry_msg.reply_text = AsyncMock(return_value=status_msg)
+    update_retry = MagicMock()
+    update_retry.effective_user = SimpleNamespace(id=100)
+    update_retry.effective_message = retry_msg
+    ctx = MagicMock()
+    ctx.args = [str(inbox_id)]
+
+    await on_retry(update_retry, ctx)
+    retry_msg.reply_text.assert_awaited_once()
+    status_msg.edit_text.assert_awaited()
+
+

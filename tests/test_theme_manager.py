@@ -300,3 +300,71 @@ def test_theme_default_focus(temp_theme_env):
     cleared = manager.update_theme(1, default_focus="")
     assert cleared.default_focus == ""
 
+
+def test_resolve_share_token_cross_theme_fallback(temp_theme_env):
+    """공유 토큰이 테마 0에 오배정되었으나 실제 문서는 테마 1에 존재하는 레거시 상황에서 자동 수복(self-heal) 검증."""
+    from claire.ontology.base import Document
+    from claire.store import db as dbm
+
+    manager, data_dir, vault_dir = temp_theme_env
+    t1 = manager.define_theme("보조 지식베이스")
+    assert t1.id == 1
+
+    t0_settings = manager.get_settings_for_theme(0)
+    t1_settings = manager.get_settings_for_theme(1)
+
+    # 1. 테마 0 DB 초기화 및 오배정된 토큰만 발급 (문서는 미삽입)
+    conn0 = dbm.connect(t0_settings.db_file)
+    dbm.init_db(conn0)
+    tok = dbm.create_doc_share(conn0, "doc_cross_test")
+    conn0.close()
+
+    # 2. 테마 1 DB 초기화 및 실제 문서 삽입
+    conn1 = dbm.connect(t1_settings.db_file)
+    dbm.init_db(conn1)
+    doc = Document(
+        id="doc_cross_test",
+        url="https://example.com/cross",
+        canonical_url="https://example.com/cross",
+        title="Cross Theme Document",
+        raw_text="Cross theme content text",
+        summary="Cross theme summary",
+        source_type="web",
+        content_hash="hash_cross_1",
+    )
+    dbm.insert_document(conn1, doc)
+    conn1.close()
+
+    # 3. resolve_share_token 호출 시 테마 1로 자동 해소 및 세부 정보 반환 검증
+    res = manager.resolve_share_token(tok)
+    assert res is not None
+    theme_id, doc_id, doc_dict = res
+    assert theme_id == 1
+    assert doc_id == "doc_cross_test"
+    assert doc_dict["title"] == "Cross Theme Document"
+
+
+def test_resolve_share_token_single_mode_fallback(tmp_path):
+    """싱글 테마 모드에서 토큰은 있으나 document_detail이 없는 경우 fallback 동작 검증."""
+    from claire.store import db as dbm
+
+    data_dir = tmp_path / "single_data"
+    data_dir.mkdir()
+    settings = Settings(
+        CLAIRE_DB_PATH=str(data_dir / "claire.db"),
+        CLAIRE_VAULT_PATH=str(tmp_path / "vault"),
+        CLAIRE_PROVIDER="mock",
+        CLAIRE_MULTI_THEME=False,
+    )
+    manager = ThemeManager(base_settings=settings)
+
+    conn0 = dbm.connect(settings.db_file)
+    dbm.init_db(conn0)
+    conn0.execute("INSERT INTO doc_shares (token, document_id) VALUES (?, ?)", ("single_tok", "doc_missing"))
+    conn0.commit()
+    conn0.close()
+
+    # 대상 문서가 없으면 None
+    assert manager.resolve_share_token("single_tok") is None
+
+

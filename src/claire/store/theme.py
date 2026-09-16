@@ -556,6 +556,26 @@ class ThemeManager:
         """등록된 테마 DB를 검색하여 공유 토큰의 (theme_id, document_id, doc_dict)를 자동 해소."""
         from .queries import document_detail
 
+        def _fallback_across_themes(doc_id: str) -> tuple[int, str, dict[str, Any]] | None:
+            targets = self.resolve_document_targets(doc_id=doc_id)
+            for target in targets:
+                tid = target.get("theme_id", 0)
+                db_path = target.get("db_file")
+                target_db = Path(db_path) if db_path else self.get_settings_for_theme(tid).db_file
+                if not target_db.is_file():
+                    continue
+                try:
+                    tconn = dbm.connect_existing(target_db, readonly=True)
+                    try:
+                        tdoc = document_detail(tconn, doc_id, include_hidden=True)
+                        if tdoc:
+                            return (tid, doc_id, tdoc)
+                    finally:
+                        tconn.close()
+                except Exception:
+                    continue
+            return None
+
         if not getattr(self.settings, "multi_theme", False):
             abs_db = getattr(self.settings, "db_file", None) or Path("data/claire.db")
             if not abs_db.is_file():
@@ -568,6 +588,9 @@ class ThemeManager:
                         doc = document_detail(conn, doc_id, include_hidden=True)
                         if doc:
                             return (0, doc_id, doc)
+                        fb = _fallback_across_themes(doc_id)
+                        if fb:
+                            return fb
                 finally:
                     conn.close()
             except Exception:
@@ -587,6 +610,9 @@ class ThemeManager:
                         doc = document_detail(conn, doc_id, include_hidden=True)
                         if doc:
                             return (t.id, doc_id, doc)
+                        fb = _fallback_across_themes(doc_id)
+                        if fb:
+                            return fb
                 finally:
                     conn.close()
             except Exception:
