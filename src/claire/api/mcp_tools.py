@@ -305,11 +305,27 @@ def documents_impl(
     }
 
 
-def build_mcp_app(s: Any):
+def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None):
     """`/mcp` 엔드포인트에 물릴 Starlette ASGI 앱을 생성한다."""
+    tm = theme_mgr if theme_mgr is not None else theme_manager
+    if tm is None and getattr(s, "multi_theme", False):
+        try:
+            from ..store.theme import ThemeManager
 
-    def _conn() -> sqlite3.Connection:
-        db_file = getattr(s, "db_file", getattr(s, "db_path", "data/claire.db"))
+            tm = ThemeManager(s)
+        except Exception:
+            tm = None
+    theme_mgr = tm
+
+    def _conn(theme: str | int | None = None) -> sqlite3.Connection:
+        if theme is not None and theme_mgr is not None:
+            try:
+                themed_settings = theme_mgr.get_settings_for_theme(theme, s)
+                db_file = themed_settings.db_file
+            except Exception:
+                db_file = getattr(s, "db_file", getattr(s, "db_path", "data/claire.db"))
+        else:
+            db_file = getattr(s, "db_file", getattr(s, "db_path", "data/claire.db"))
         conn = dbm.connect(db_file)
         dbm.init_db(conn)
         return conn
@@ -317,10 +333,10 @@ def build_mcp_app(s: Any):
     mcp = MCPServer("claire", version="0.1.0")
 
     @mcp.tool()
-    async def resolve_entity(name: str) -> dict:
+    async def resolve_entity(name: str, theme: str | int | None = None) -> dict:
         """이름(또는 별칭) 문자열로 엔티티를 찾는다 — 탐색 루프의 진입점.
         ID를 이미 알고 있다면 이 툴 대신 node/neighbors를 바로 쓸 것."""
-        conn = _conn()
+        conn = _conn(theme)
         try:
             return resolve_entity_impl(conn, name)
         finally:
@@ -332,6 +348,7 @@ def build_mcp_app(s: Any):
         entity_type: str | None = None,
         near_ids: list[str] | None = None,
         limit: int = 8,
+        theme: str | int | None = None,
     ) -> dict:
         """전문(FTS) 검색. LLM 호출 없음(raw hits만, 요약은 호출한 에이전트가
         직접 함). entity_type으로 타입 필터, near_ids를 주면 그 노드들의
@@ -339,7 +356,7 @@ def build_mcp_app(s: Any):
         때 사용 — resolve_entity/neighbors로 얻은 id를 그대로 넘기면 됨).
         결과가 limit을 넘으면 truncated=true(0건이라고 '매치 없음'으로
         오인하지 말 것 — omitted 확인)."""
-        conn = _conn()
+        conn = _conn(theme)
         try:
             return search_impl(conn, query, entity_type, near_ids, limit)
         finally:
@@ -350,6 +367,7 @@ def build_mcp_app(s: Any):
         entity_ids: str | list[str],
         exclude_ids: list[str] | None = None,
         limit: int = 50,
+        theme: str | int | None = None,
     ) -> dict:
         """주어진 엔티티(들)의 1홉 이웃을 합집합으로 반환 — 탐색 루프의 핵심
         단계. 여러 id를 한 번에 넘기면 그 전체 프론티어를 한 번에 넓힌다.
@@ -357,50 +375,63 @@ def build_mcp_app(s: Any):
         이미 본 노드가 계속 돌아올 수 있음). 결과는 degree(전역 연결 수)
         내림차순 — 상위일수록 더 파볼 가치가 있는 허브. limit을 넘으면
         truncated=true, omitted에 잘린 개수가 실림(0으로 오인하지 말 것)."""
-        conn = _conn()
+        conn = _conn(theme)
         try:
             return neighbors_impl(conn, entity_ids, exclude_ids, limit)
         finally:
             conn.close()
 
     @mcp.tool()
-    async def path(from_id: str, to_id: str, max_hops: int = 4) -> dict:
+    async def path(
+        from_id: str,
+        to_id: str,
+        max_hops: int = 4,
+        theme: str | int | None = None,
+    ) -> dict:
         """두 엔티티 사이의 최단 경로(무방향 BFS). 'A와 B가 왜 연결돼있나'에
         직접 답한다 — neighbors를 반복 호출해 스스로 경로를 찾을 필요 없음."""
-        conn = _conn()
+        conn = _conn(theme)
         try:
             return path_impl(conn, from_id, to_id, max_hops)
         finally:
             conn.close()
 
     @mcp.tool()
-    async def context(entity_ids: list[str], compact: bool = True) -> dict:
+    async def context(
+        entity_ids: list[str],
+        compact: bool = True,
+        theme: str | int | None = None,
+    ) -> dict:
         """선택한 엔티티(들)에 대해 알려진 것 전부(관찰+연결+출처요약)를
         결정론적으로(LLM 미사용) 조립해 반환 — 탐색 루프의 마지막 단계에서만
         부를 것(먼저 resolve_entity/neighbors/search로 관심 노드를 충분히
         좁힌 다음). 최대 10개까지만 처리하며 넘으면 잘라내고 truncated=true.
         compact=True(기본)면 관찰을 앞 3개로 줄이고 출처요약을 생략해
         가볍게, 정말 전체가 필요하면 compact=False."""
-        conn = _conn()
+        conn = _conn(theme)
         try:
             return context_impl(conn, entity_ids, compact)
         finally:
             conn.close()
 
     @mcp.tool()
-    async def overview() -> dict:
+    async def overview(theme: str | int | None = None) -> dict:
         """지식베이스 전체의 자기서술적 요약 — 엔티티 타입 분포, 핵심 허브
         (연결 많은 순), 여러 출처에서 수렴된(신뢰도 높은) 엔티티, 문서
         소스타입 분포. 검색어를 뭘로 시작할지 모를 때 이 툴을 가장 먼저
         부를 것."""
-        conn = _conn()
+        conn = _conn(theme)
         try:
             return overview_impl(conn)
         finally:
             conn.close()
 
     @mcp.tool()
-    async def node(entity_id: str, full: bool = False) -> dict:
+    async def node(
+        entity_id: str,
+        full: bool = False,
+        theme: str | int | None = None,
+    ) -> dict:
         """엔티티 하나의 상세(모든 observations + 소스 문서 요약 + 타입 있는
         1홉 이웃). id를 이미 알고 있을 때 씀 — 이름만 있으면 resolve_entity
         먼저. 소스 문서는 최신 10개까지만(초과 시 documents_truncated=true,
@@ -410,7 +441,7 @@ def build_mcp_app(s: Any):
         따로 호출할 것. full=True면 이 10개 문서에 한해 상세도 포함(주의:
         허브 엔티티에서 쓰면 응답이 매우 커질 수 있음). fetched_at은
         ISO8601(UTC, 타임존 명시)."""
-        conn = _conn()
+        conn = _conn(theme)
         try:
             return node_impl(conn, entity_id, full=full)
         finally:
@@ -421,33 +452,57 @@ def build_mcp_app(s: Any):
         limit: int = DEFAULT_DOCUMENTS_LIMIT,
         since: str | None = None,
         query: str | None = None,
+        theme: str | int | None = None,
     ) -> dict:
         """최신순 문서 목록(제목·요약·출처타입·안읽음/즐겨찾기 상태,
         fetched_at은 ISO8601 UTC). limit 최대 100(그 이상 요청해도 잘림).
         since(예: '2026-08-01' 또는 전체 ISO8601)로 그 시각 이후만, query로
         제목/URL 부분일치 검색 — 전체를 다 훑지 말고 좁혀서 찾을 것. limit을
         넘으면 truncated=true, omitted에 잘린 개수(0으로 오인 금지)."""
-        conn = _conn()
+        conn = _conn(theme)
         try:
             return documents_impl(conn, limit=limit, since=since, query=query)
         finally:
             conn.close()
 
     @mcp.tool()
-    async def document(document_id: str) -> dict:
+    async def document(document_id: str, theme: str | int | None = None) -> dict:
         """문서 하나의 상세(제목·요약·상세·원문 URL·fetched_at은
         ISO8601 UTC). 사람용 웹 핸들러와 달리 안읽음(seen) 상태를 바꾸지
         않는다(읽기전용 원칙)."""
-        conn = _conn()
+        if theme is None:
+            conn = _conn(None)
+            try:
+                rep = document_impl(conn, document_id)
+                if "error" not in rep:
+                    return rep
+            finally:
+                conn.close()
+
+            if theme_mgr is not None:
+                targets = theme_mgr.resolve_document_targets(doc_id=document_id)
+                for target in targets:
+                    tid = target.get("theme_id")
+                    if tid is not None:
+                        t_conn = _conn(tid)
+                        try:
+                            rep = document_impl(t_conn, document_id)
+                            if "error" not in rep:
+                                return rep
+                        finally:
+                            t_conn.close()
+            return {"error": "not found"}
+
+        conn = _conn(theme)
         try:
             return document_impl(conn, document_id)
         finally:
             conn.close()
 
     @mcp.tool()
-    async def stats() -> dict:
+    async def stats(theme: str | int | None = None) -> dict:
         """지식베이스 규모(문서/엔티티/관계/임베딩 개수 등)."""
-        conn = _conn()
+        conn = _conn(theme)
         try:
             return dbm.counts(conn)
         finally:

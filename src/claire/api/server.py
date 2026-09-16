@@ -876,10 +876,11 @@ def create_app(
             raise HTTPException(status_code=400, detail="id required")
 
         include_hidden = request_auth_scope(request) != "anonymous"
+        theme_ref = _extract_theme_ref(request)
         theme, theme_settings, _ = _get_theme_ctx(request)
 
-        def _load() -> dict[str, Any] | None:
-            conn = dbm.connect_existing(theme_settings.db_file, readonly=True)
+        def _load(settings: Settings, t_info: ThemeInfo) -> dict[str, Any] | None:
+            conn = dbm.connect_existing(settings.db_file, readonly=True)
             try:
                 # GET은 readonly 사용자에게도 열리므로 열람 상태를 변경하지 않는다.
                 try:
@@ -887,13 +888,39 @@ def create_app(
                 except TypeError:
                     rep = _document_detail(conn, document_id)
                 if rep is not None:
-                    rep["theme_id"] = theme.id
-                    rep["theme_label"] = theme.label
+                    rep["theme_id"] = t_info.id
+                    rep["theme_label"] = t_info.label
                 return rep
             finally:
                 conn.close()
 
-        report = await asyncio.to_thread(_load)
+        report = await asyncio.to_thread(_load, theme_settings, theme)
+
+        if report is None and theme_ref is None and getattr(s, "multi_theme", False):
+            scope = request_auth_scope(request)
+            targets = await asyncio.to_thread(
+                theme_mgr.resolve_document_targets, doc_id=document_id
+            )
+            for target in targets:
+                tid = target.get("theme_id")
+                if tid is None or tid == theme.id:
+                    continue
+                try:
+                    cand_theme = theme_mgr.get_theme(tid)
+                except Exception:
+                    continue
+                if scope == "anonymous" and not cand_theme.is_public:
+                    continue
+                if scope == "collaborator" and not (
+                    cand_theme.is_public or cand_theme.is_collaborator_accessible
+                ):
+                    continue
+                cand_settings = theme_mgr.get_settings_for_theme(cand_theme.id, s)
+                cand_report = await asyncio.to_thread(_load, cand_settings, cand_theme)
+                if cand_report is not None:
+                    report = cand_report
+                    break
+
         if report is None:
             raise HTTPException(status_code=404, detail="not found")
         return JSONResponse(report)
@@ -1260,8 +1287,8 @@ def create_app(
 
         include_hidden = request_auth_scope(request) != "anonymous"
 
-        def _share() -> str | None:
-            conn = dbm.connect_existing(theme_settings.db_file)
+        def _share(settings: Settings) -> str | None:
+            conn = dbm.connect_existing(settings.db_file)
             try:
                 row = dbm.get_document_row(conn, document_id)
                 if row is None:
@@ -1272,10 +1299,39 @@ def create_app(
             finally:
                 conn.close()
 
-        token = await asyncio.to_thread(_share)
+        token = await asyncio.to_thread(_share, theme_settings)
+        target_theme_id = theme.id
+
+        if not token and getattr(s, "multi_theme", False):
+            scope = request_auth_scope(request)
+            targets = await asyncio.to_thread(
+                theme_mgr.resolve_document_targets, doc_id=document_id
+            )
+            for target in targets:
+                tid = target.get("theme_id")
+                if tid is None or tid == theme.id:
+                    continue
+                try:
+                    candidate_theme = theme_mgr.get_theme(tid)
+                except Exception:
+                    continue
+                if scope == "anonymous" and not candidate_theme.is_public:
+                    continue
+                if scope == "collaborator" and not (
+                    candidate_theme.is_public
+                    or candidate_theme.is_collaborator_accessible
+                ):
+                    continue
+                cand_settings = theme_mgr.get_settings_for_theme(candidate_theme.id, s)
+                cand_token = await asyncio.to_thread(_share, cand_settings)
+                if cand_token:
+                    token = cand_token
+                    target_theme_id = candidate_theme.id
+                    break
+
         if not token:
             raise HTTPException(status_code=404, detail="document not found")
-        return JSONResponse({"token": token, "path": "/p?s=" + token, "theme_id": theme.id})
+        return JSONResponse({"token": token, "path": "/p?s=" + token, "theme_id": target_theme_id})
 
     async def shared_doc_page(request: Request) -> Response:
         from ..graphview import shared_html
@@ -1293,13 +1349,37 @@ def create_app(
                 return resolved[2]
             # 2. 기본 DB 폴백
             conn = dbm.connect_existing(s.db_file, readonly=True)
+            document_id = None
             try:
                 document_id = dbm.resolve_doc_share(conn, token)
                 if not document_id:
                     return None
-                return _document_detail(conn, document_id)
+                doc = _document_detail(conn, document_id)
+                if doc is not None:
+                    return doc
             finally:
                 conn.close()
+
+            # When resolving token via default DB fallback: if document_id was found
+            # in doc_shares of Theme 0, but _document_detail is None in Theme 0,
+            # search other themes via theme_mgr.resolve_document_targets(doc_id=document_id).
+            if document_id and getattr(s, "multi_theme", False):
+                targets = theme_mgr.resolve_document_targets(doc_id=document_id)
+                for target in targets:
+                    target_db = target.get("db_file")
+                    if not target_db or str(target_db) == str(s.db_file):
+                        continue
+                    try:
+                        t_conn = dbm.connect_existing(Path(target_db), readonly=True)
+                        try:
+                            doc = _document_detail(t_conn, document_id)
+                            if doc is not None:
+                                return doc
+                        finally:
+                            t_conn.close()
+                    except Exception:
+                        continue
+            return None
 
         document = await asyncio.to_thread(_load)
         if document is None:
@@ -1320,7 +1400,7 @@ def create_app(
             shared_html(document, s, base_url=base_url, share_token=token)
         )
 
-    mcp_app = build_mcp_app(s)
+    mcp_app = build_mcp_app(s, theme_mgr=theme_mgr)
 
     async def mcp_route(request: Request) -> Response:
         response_meta: dict = {}

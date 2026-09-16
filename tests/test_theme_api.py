@@ -392,3 +392,110 @@ def test_theme_default_focus_api(theme_app_client, monkeypatch):
     assert captured_directives[-1] is None
 
 
+def test_cross_theme_create_share_route(theme_app_client):
+    """POST /share 호출 시 테마 미지정 또는 초기 테마 미발견 시 타 테마 자동 검색 및 해당 테마 DB 토큰 발급 검증."""
+    client, _ = theme_app_client
+
+    # 1. 새 테마(id: 1) 정의 및 테마 1에 문서 적재
+    client.post("/themes", json={"label": "AI 연구", "icon": "🤖"}, headers=OWNER_HEADERS)
+    ingest_resp = client.post(
+        "/ingest",
+        json={"payload": "테마 1 전용 공유 대상 문서", "theme": 1},
+        headers=OWNER_HEADERS,
+    )
+    assert ingest_resp.status_code == 200
+    doc_id = client.get("/documents?theme=1").json()["documents"][0]["id"]
+
+    # 2. 클라이언트가 테마를 지정하지 않고 /share 요청 -> 타 테마(1)에서 문서 자동 검색 후 토큰 발급 및 theme_id: 1 반환
+    share_resp = client.post(
+        "/share",
+        json={"doc_id": doc_id},
+        headers=OWNER_HEADERS,
+    )
+    assert share_resp.status_code == 200
+    data = share_resp.json()
+    assert "token" in data
+    assert data["theme_id"] == 1
+    assert data["path"] == "/p?s=" + data["token"]
+
+    # 3. 클라이언트가 초기 테마를 0(문서 없음)으로 지정하여 요청 -> 테마 1로 자동 확장 검색되어 정상 발급
+    share_resp_initial_mismatch = client.post(
+        "/share",
+        json={"doc_id": doc_id, "theme": 0},
+        headers=OWNER_HEADERS,
+    )
+    assert share_resp_initial_mismatch.status_code == 200
+    data2 = share_resp_initial_mismatch.json()
+    assert data2["theme_id"] == 1
+    assert "token" in data2
+
+    # 4. 존재하지 않는 문서 ID로 요청 시 404
+    resp_404 = client.post("/share", json={"doc_id": "nonexistent_doc_id"}, headers=OWNER_HEADERS)
+    assert resp_404.status_code == 404
+
+
+def test_cross_theme_document_detail_route(theme_app_client):
+    """GET /document 호출 시 테마 미지정 시 기본 테마에 없으면 타 테마 자동 검색하여 theme_id/label 포함 반환 검증."""
+    client, _ = theme_app_client
+
+    # 1. 새 테마(id: 1) 생성 및 문서 적재
+    client.post("/themes", json={"label": "보안 연구", "icon": "🛡️"}, headers=OWNER_HEADERS)
+    client.post(
+        "/ingest",
+        json={"payload": "보안 분석 상세 문서 본문", "theme": 1},
+        headers=OWNER_HEADERS,
+    )
+    doc_id = client.get("/documents?theme=1").json()["documents"][0]["id"]
+
+    # 2. 테마를 파라미터로 넘기지 않고 GET /document?id=... 호출 -> 테마 1 자동 해석 및 theme_id, theme_label 반환
+    resp_auto = client.get(f"/document?id={doc_id}")
+    assert resp_auto.status_code == 200
+    doc_data = resp_auto.json()
+    assert doc_data["id"] == doc_id
+    assert doc_data["theme_id"] == 1
+    assert doc_data["theme_label"] == "보안 연구"
+
+    # 3. 명시적으로 theme=1 을 넘겨 호출 -> 정상 반환
+    resp_explicit = client.get(f"/document?id={doc_id}&theme=1")
+    assert resp_explicit.status_code == 200
+    assert resp_explicit.json()["theme_id"] == 1
+
+    # 4. 명시적으로 존재하지 않는 theme=0 을 넘겨 호출 -> 교차 테마 검색을 수행하지 않고 404
+    resp_explicit_wrong = client.get(f"/document?id={doc_id}&theme=0")
+    assert resp_explicit_wrong.status_code == 404
+
+
+def test_cross_theme_shared_doc_page_fallback(theme_app_client):
+    """GET /p?s=token 호출 시 기본 DB doc_shares에 토큰은 있으나 본문이 기본 DB에 없을 때 타 테마 DB에서 문서를 찾아 렌더링."""
+    client, settings = theme_app_client
+    from pathlib import Path
+    from claire.store import db as dbm
+
+    # 1. 새 테마(id: 1) 생성 및 문서 적재
+    client.post("/themes", json={"label": "클라우드 아키텍처"}, headers=OWNER_HEADERS)
+    client.post(
+        "/ingest",
+        json={"payload": "클라우드 설계 원칙 공유 본문", "theme": 1},
+        headers=OWNER_HEADERS,
+    )
+    doc_id = client.get("/documents?theme=1").json()["documents"][0]["id"]
+
+    # 2. 기본 DB(테마 0)의 doc_shares에만 강제로 토큰 생성 (Theme 0 documents 테이블에는 이 문서가 없음)
+    conn0 = dbm.connect_existing(settings.db_file)
+    try:
+        orphan_token = dbm.create_doc_share(conn0, doc_id)
+    finally:
+        conn0.close()
+
+    # 3. GET /p?s={orphan_token} 호출 -> 테마 0 doc_shares에서 doc_id 발견 -> 테마 0 _document_detail은 None
+    #    -> theme_mgr.resolve_document_targets(doc_id=doc_id)로 테마 1에서 본문 획득 후 200 HTML 정상 렌더링
+    page_resp = client.get(f"/p?s={orphan_token}")
+    assert page_resp.status_code == 200
+    assert "text/html" in page_resp.headers.get("content-type", "")
+    assert "클라우드 설계 원칙 공유 본문" in page_resp.text or "클라우드" in page_resp.text
+
+    # 4. 존재하지 않는 무효 토큰 -> 404
+    assert client.get("/p?s=" + ("x" * 24)).status_code == 404
+
+
+
