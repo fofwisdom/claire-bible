@@ -275,6 +275,7 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         "/research",
         "/dedup/scan",
         "/dedup/merge",
+        "/entity/primary-label",
         "/support/bundle",
         "/themes",
     }

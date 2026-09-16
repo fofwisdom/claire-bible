@@ -1338,7 +1338,18 @@ function renderPanel(d){
   h+='<h2>'+esc(d.name)+' <small>'+esc(d.type)+(d.provisional?' ⚠️provisional':'')+'</small></h2>';
   // readonly(/webro) 세션은 종합(/synthesize)이 서버에서 막혀있어 버튼 자체를 안 그림.
   if(canWrite()) h+='<button class="sec" onclick="addToSynth(\''+d.id+'\')">'+(inSet?'✓ 종합 목록에 있음':'➕ 종합에 추가')+'</button>';
-  if(d.aliases.length) h+='<p class=al>별칭: '+d.aliases.map(esc).join(', ')+'</p>';
+  if(d.aliases && d.aliases.length){
+    h+='<div class="node-aliases-section"><span class="al-label">별칭 ('+d.aliases.length+')</span><div class="node-alias-chips">';
+    const isWritable = canWrite();
+    d.aliases.forEach(al=>{
+      h+='<span class="node-alias-chip"><span class="alias-text">'+esc(al)+'</span>';
+      if(isWritable){
+        h+='<button type="button" class="alias-promote-btn" title="이 별칭을 대표 레이블로 전환" onclick="promoteEntityAlias(\''+esc(d.id)+'\',\''+esc(al).replace(/'/g,"\\'")+'\')">★ 대표로 지정</button>';
+      }
+      h+='</span>';
+    });
+    h+='</div></div>';
+  }
   if(d.observations.length){ h+='<h3>관찰 · 주장</h3><ul>'+
     d.observations.map(o=>'<li>'+esc(o)+'</li>').join('')+'</ul>'; }
   if(d.documents.length){ h+='<h3>출처 문서 ('+d.documents.length+')</h3>';
@@ -1369,6 +1380,35 @@ function renderPanel(d){
         item_id: d.id
       });
     }catch(_){}
+  }
+}
+
+async function promoteEntityAlias(entityId, chosenAlias){
+  if(!canWrite() || !entityId || !chosenAlias) return;
+  if(!confirm("'" + chosenAlias + "'을(를) 이 노드의 대표 레이블로 변경하시겠습니까?\n\n(기존 대표 명칭은 별칭 목록으로 보존되어 연결 무결성이 유지됩니다)")) return;
+  try{
+    const r = await fetch('entity/primary-label', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({id: entityId, name: chosenAlias})
+    });
+    if(r.status === 401 || r.status === 403){
+      expireWriteAccess();
+      alert('세션 만료 또는 권한 부족 — 텔레그램 /web 으로 다시 접속하세요');
+      return;
+    }
+    if(!r.ok){
+      const err = await r.json().catch(() => ({}));
+      alert('대표 레이블 전환 실패: ' + (err.detail || err.error || ('HTTP ' + r.status)));
+      return;
+    }
+    const updated = await r.json();
+    if(typeof allNodes !== 'undefined' && allNodes && allNodes.update){
+      allNodes.update({id: entityId, label: updated.name});
+    }
+    renderPanel(updated);
+  }catch(e){
+    alert('요청 중 오류 발생: ' + e);
   }
 }
 

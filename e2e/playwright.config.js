@@ -32,6 +32,7 @@ module.exports = defineConfig({
       CLAIRE_PUBLIC_URL: 'http://127.0.0.1:8766/',
       CLAIRE_ALLOW_INSECURE_HTTP: 'true',
       CLAIRE_ENVIRONMENT: 'development',
+      CLAIRE_INJECT_TOKEN: 'e2e-owner-token-0123456789abcdef',
     },
   },
 });

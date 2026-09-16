@@ -79,11 +79,16 @@ def seed(db_path: Path) -> None:
             "INSERT OR REPLACE INTO doc_shares(token, document_id, created_at, expires_at) VALUES (?,?,?,?)",
             ("34567892abcdefgh", "doc-3", 1699999000, None),
         )
+        conn.execute(
+            "INSERT OR REPLACE INTO auth_sessions(nonce, session_token, approved, created_at, expires_at, scope) VALUES (?,?,1,?,?,?)",
+            ("e2e-nonce", "e2e-owner-token-0123456789abcdef", 1700000000, 2500000000.0, "owner"),
+        )
 
         e1 = Entity(
             id="ent-1",
             name="엔티티 A",
             type="Concept",
+            aliases=["별칭 A1", "별칭 A2"],
             degree=2,
             sources=["doc-1"],
             provisional=False,

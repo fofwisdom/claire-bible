@@ -739,3 +739,65 @@ test('pdf parser fallback, encoding flaw, and scanned tags render in reader and 
   expect(pageErrors).toEqual([]);
 });
 
+test('node aliases render and can be promoted to primary representative label in owner session', async ({ page }) => {
+  const pageErrors = [];
+  page.on('pageerror', error => pageErrors.push(error.message));
+  await page.setViewportSize({ width: 1400, height: 900 });
+
+  // 1. Authenticate as owner
+  await page.goto('/?t=e2e-owner-token-0123456789abcdef', { waitUntil: 'domcontentloaded' });
+  await expect.poll(
+    () => page.evaluate(() => window.claireDebug?.authScope),
+  ).toBe('owner');
+  await expect.poll(
+    () => page.evaluate(() => window.claireDebug?.stabilized),
+  ).toBe(true);
+
+  // 2. Select document 1 and switch to graph
+  await page.locator('.docitem').first().evaluate(element => element.click());
+  await page.evaluate(() => revealWorkspace('graph'));
+  await expect.poll(
+    () => page.evaluate(() => window.claireDebug?.activePane),
+  ).toBe('graph');
+
+  // 3. Inspect ent-1
+  await page.evaluate(() => loadNode('ent-1'));
+
+  // 4. Verify panel renders ent-1 with aliases section
+  const panel = page.locator('#panel');
+  await expect(panel.locator('h2')).toContainText('엔티티 A');
+  const aliasesSection = panel.locator('.node-aliases-section');
+  await expect(aliasesSection).toBeVisible();
+  await expect(aliasesSection.locator('.al-label')).toContainText('별칭 (2)');
+
+  const chips = aliasesSection.locator('.node-alias-chip');
+  await expect(chips).toHaveCount(2);
+  await expect(chips.first()).toContainText('별칭 A1');
+
+  // 5. Check promote button exists
+  const promoteBtn = chips.first().locator('.alias-promote-btn');
+  await expect(promoteBtn).toBeVisible();
+  await expect(promoteBtn).toContainText('대표로 지정');
+
+  // 6. Handle confirm dialog and click promote
+  page.once('dialog', dialog => dialog.accept());
+  await promoteBtn.click();
+
+  // 7. Verify representative label changed to '별칭 A1'
+  await expect(panel.locator('h2')).toContainText('별칭 A1');
+
+  // 8. Verify old name '엔티티 A' is now in alias chips, and '별칭 A1' is not
+  await expect(aliasesSection.locator('.node-alias-chip')).toHaveCount(2);
+  await expect(aliasesSection).toContainText('엔티티 A');
+  await expect(aliasesSection).not.toContainText('별칭 A1');
+
+  // 9. Verify graph dataset label updated for ent-1
+  const graphLabel = await page.evaluate(() => {
+    const node = allNodes.get('ent-1');
+    return node ? node.label : null;
+  });
+  expect(graphLabel).toBe('별칭 A1');
+
+  expect(pageErrors).toEqual([]);
+});
+

@@ -11,8 +11,10 @@ M0 에서는 doctor / bot(echo) / stats 가 동작한다.
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Callable
 
 from .config import get_settings
@@ -2984,6 +2986,138 @@ def cmd_link_relations(args) -> int:
     return 0
 
 
+def cmd_entity_select_label(args) -> int:
+    """엔티티의 기존 별칭 중 하나를 선택하여 대표 레이블로 전환."""
+    s, theme = get_effective_settings(args)
+    if theme:
+        print(f"[{theme.icon} 대상 테마: #{theme.id} - {theme.label}]")
+    conn = dbm.connect(s.db_file)
+    dbm.init_db(conn)
+
+    target = getattr(args, "target", "") or ""
+    to_alias = getattr(args, "to", "") or getattr(args, "label", "") or ""
+    apply = getattr(args, "apply", False)
+    as_json = getattr(args, "json", False)
+
+    if not target or not to_alias:
+        print("대상 엔티티와 선택할 별칭(--to)을 모두 지정해야 합니다.", file=sys.stderr)
+        conn.close()
+        return 2
+
+    try:
+        ent = dbm.get_entity(conn, target)
+        if ent is None:
+            cands = dbm.find_entities_by_name_or_alias(conn, target)
+            if len(cands) == 1:
+                ent = cands[0]
+            elif len(cands) > 1:
+                print(f"오류: '{target}' 식별자가 여러 엔티티에 일치합니다 ({len(cands)}개).", file=sys.stderr)
+                conn.close()
+                return 1
+            else:
+                print(f"오류: 엔티티를 찾을 수 없습니다: '{target}'", file=sys.stderr)
+                conn.close()
+                return 1
+
+        from .ontology.base import normalize_name
+
+        norm_to = normalize_name(to_alias)
+        matched_alias = next((a for a in ent.aliases if normalize_name(a) == norm_to), None)
+        if matched_alias is None:
+            print(f"오류: '{to_alias}'은(는) 엔티티 '{ent.name}'의 기존 별칭 목록에 존재하지 않습니다.", file=sys.stderr)
+            print(f"  현재 별칭 목록: {ent.aliases}", file=sys.stderr)
+            conn.close()
+            return 1
+
+        old_name = ent.name
+        new_aliases = [
+            a for a in ent.aliases
+            if normalize_name(a) != norm_to and normalize_name(a) != normalize_name(old_name)
+        ]
+        new_aliases.append(old_name)
+        new_aliases = sorted(set(new_aliases))
+
+        result_info = {
+            "id": ent.id,
+            "old_name": old_name,
+            "new_name": matched_alias,
+            "aliases_before": ent.aliases,
+            "aliases_after": new_aliases,
+            "applied": apply,
+        }
+
+        if apply:
+            updated = dbm.select_entity_primary_label(conn, ent.id, matched_alias)
+            result_info["applied"] = True
+            result_info["aliases_after"] = updated.aliases
+
+        if as_json:
+            print(json.dumps(result_info, ensure_ascii=False, indent=2))
+        else:
+            mode = "[적용 완료]" if apply else "[미리보기 (dry-run, --apply로 적용)]"
+            print(f"{mode} 엔티티 대표 레이블 전환:")
+            print(f"  ID: {ent.id}")
+            print(f"  대표 레이블: '{old_name}' -> '{matched_alias}'")
+            print(f"  별칭 목록: {ent.aliases} -> {result_info['aliases_after']}")
+        return 0
+    except Exception as exc:
+        print(f"오류 발생: {exc}", file=sys.stderr)
+        return 1
+    finally:
+        conn.close()
+
+
+def cmd_entity_batch_labels(args) -> int:
+    """대량 매핑 규칙 파일(JSON/YAML)을 기반으로 대표 레이블 일괄 전환."""
+    rules_file = Path(getattr(args, "rules", "") or "")
+    if not rules_file.exists() or not rules_file.is_file():
+        print(f"오류: 매핑 규칙 파일을 찾을 수 없습니다: {rules_file}", file=sys.stderr)
+        return 2
+
+    content = rules_file.read_text(encoding="utf-8").strip()
+    mappings: dict[str, str] = {}
+    try:
+        data = json.loads(content)
+        if isinstance(data, dict):
+            raw = data.get("mappings") or data.get("labels") or data.get("renames") or data
+            if not isinstance(raw, dict):
+                raise ValueError("mappings must be a dictionary of target -> new_primary_alias")
+            mappings = {str(k): str(v) for k, v in raw.items()}
+        elif isinstance(data, list):
+            for item in data:
+                t = item.get("target") or item.get("id") or item.get("name")
+                a = item.get("alias") or item.get("label") or item.get("to")
+                if t and a:
+                    mappings[str(t)] = str(a)
+    except Exception as exc:
+        print(f"오류: 규칙 파일 파싱 실패: {exc}", file=sys.stderr)
+        return 2
+
+    s, theme = get_effective_settings(args)
+    if theme:
+        print(f"[{theme.icon} 대상 테마: #{theme.id} - {theme.label}]")
+    conn = dbm.connect(s.db_file)
+    dbm.init_db(conn)
+
+    apply = getattr(args, "apply", False)
+    as_json = getattr(args, "json", False)
+
+    try:
+        res = dbm.batch_select_primary_labels(conn, mappings, dry_run=not apply)
+        if as_json:
+            print(json.dumps(res, ensure_ascii=False, indent=2))
+        else:
+            mode = "[적용 완료]" if apply else "[미리보기 (dry-run, --apply로 적용)]"
+            print(f"{mode} 대량 대표 레이블 전환: 총 {res['total']}개 중 계획/적용 {res['planned']}개, 실패 {res['failed']}개")
+            for item in res["results"]:
+                print(f"  ✓ [{item['id']}] '{item['old_name']}' -> '{item['new_name']}'")
+            for err in res["errors"]:
+                print(f"  ✗ [{err['target']}] -> '{err['chosen']}': {err['error']}", file=sys.stderr)
+        return 0 if res["failed"] == 0 else 1
+    finally:
+        conn.close()
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="claire", description="Claire Bible knowledge base")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -3478,6 +3612,37 @@ def build_parser() -> argparse.ArgumentParser:
     plink.add_argument("--min-score", type=float, default=None, help="minimum cosine similarity threshold (default: sim_tier_relational 0.70)")
     plink.add_argument("--dry-run", action="store_true", help="simulate relation judging without writing to db")
     plink.set_defaults(func=cmd_link_relations)
+
+    pent = sub.add_parser(
+        "entity",
+        help="manage knowledge nodes (entities): select primary label from existing aliases or batch apply",
+    )
+    pent_sub = pent.add_subparsers(dest="entity_cmd", required=True)
+
+    pes = pent_sub.add_parser(
+        "select-label",
+        aliases=["promote"],
+        help="select one of the entity's existing aliases as its primary representative label",
+    )
+    pes.add_argument("target", help="target entity ID, exact name, or alias")
+    pes.add_argument("--to", "--label", "-l", required=True, dest="to", help="existing alias to promote to primary representative label")
+    pes.add_argument("--apply", action="store_true", help="apply label swap (default: dry-run)")
+    pes.add_argument("--dry-run", action="store_true", help="simulate without writing to db (default)")
+    pes.add_argument("-t", "--theme", default=None, help="target theme ID or label")
+    pes.add_argument("--json", action="store_true", help="output result in JSON format")
+    pes.set_defaults(func=cmd_entity_select_label)
+
+    peb = pent_sub.add_parser(
+        "batch-labels",
+        aliases=["batch"],
+        help="batch select primary representative labels from existing aliases using a rules file",
+    )
+    peb.add_argument("--rules", "-r", required=True, help="path to JSON rules file with {target: chosen_alias} mappings")
+    peb.add_argument("--apply", action="store_true", help="apply batch label swaps (default: dry-run)")
+    peb.add_argument("--dry-run", action="store_true", help="simulate without writing to db (default)")
+    peb.add_argument("-t", "--theme", default=None, help="target theme ID or label")
+    peb.add_argument("--json", action="store_true", help="output result in JSON format")
+    peb.set_defaults(func=cmd_entity_batch_labels)
 
     return p
 

@@ -109,6 +109,7 @@ APP_ONE_OFF_COMMANDS = {
     "recanonicalize",
     "doc-title",
     "link-relations",
+    "entity",
     "theme",
     "repo",
     "format-status",
