@@ -17,14 +17,15 @@ Docker port publish의 host 측 `CB_API_BIND`다. `cb-manuscript`는 `CB_API_BIN
 단일 IPv4로 검사하고 `0.0.0.0`, multicast, hostname과 IPv6를 거부한다. 따라서
 컨테이너 listen 주소를 host 공개 범위로 해석하면 안 된다.
 
-`CLAIRE_PUBLIC_URL`은 링크 생성뿐 아니라 요청 Host 정책의 기준이다.
+`CLAIRE_FQDN`은 링크 생성 및 요청 Host 보안 정책의 기준이다. (기존 `CLAIRE_PUBLIC_URL`은 하위 호환성을 위해 자동 변환된다.)
+클레어바이블의 프로덕션은 HTTPS 서비스가 당연하며 상단에 이를 처리하는 보호장치(Sophos Firewall Web Server Protection, Cloudflare 등)가 존재함을 기본으로 하여 동작한다.
 
-| 환경 | 필수 형태 |
-|---|---|
-| development | `http://<CB_API_BIND>:<CB_API_PORT>/` |
-| production | `https://<DNS-hostname>/` |
+| 환경 | 필수 형태 (`CLAIRE_FQDN`) | 자동 도출 Public URL |
+|---|---|---|
+| development | `<CB_API_BIND>:<CB_API_PORT>` | `http://<CB_API_BIND>:<CB_API_PORT>/` |
+| production | `<DNS-hostname>` (예: `claire.example.com`) | `https://<DNS-hostname>/` |
 
-두 환경 모두 path는 root만 허용한다. `CLAIRE_CORS_ALLOWED_ORIGINS`는 path와 wildcard가
+두 환경 모두 canonical authority는 호스트명(또는 개발 authority)으로 관리된다. `CLAIRE_CORS_ALLOWED_ORIGINS`는 path와 wildcard가
 없는 정확한 origin의 쉼표 목록이다. 빈 값이면 same-origin만 허용하고, production
 목록은 `https` origin만 사용할 수 있다.
 
@@ -35,17 +36,14 @@ exact `CLAIRE_ANONYMOUS_READONLY=1`(기본값)은 canonical same-origin 또는 O
 설정한다. cross-origin anonymous는 허용하지 않으며, CORS allowlist에 origin을 넣어도 Bearer
 요구는 유지된다.
 
-기존 `.env`/`.env.dev`를 재사용하는 설치는 첫 기동 전에 `./cb-manuscript init`을 다시
-실행해 누락된 environment selector와 profile별
-`CLAIRE_ANONYMOUS_READONLY=1`을 보충한다. 이 명령은 production hostname을 추측하지
-않는다. 따라서 `.env`의 `CLAIRE_PUBLIC_URL`은 아래 production 형식으로 직접 설정한 뒤
-`./cb-manuscript preflight`를 통과시켜야 한다.
+기존 `.env`/`.env.dev`를 재사용하는 설치는 `./cb-manuscript init` 또는 `./cb-manuscript update` 실행 시
+레거시 `CLAIRE_PUBLIC_URL`이 존재할 경우 `CLAIRE_FQDN`으로 자동 변환된다.
+따라서 `.env`의 `CLAIRE_FQDN`을 도메인 형식으로 직접 설정한 뒤 `./cb-manuscript preflight`를 통과시켜야 한다.
 
 애플리케이션은 `Forwarded`와 `X-Forwarded-*`를 신뢰해 scheme, client IP 또는 Host를
-바꾸지 않는다. production의 외부 HTTPS 여부는 `CLAIRE_PUBLIC_URL`과 정확한 Host로
-결정하며 upstream 연결 자체는 HTTP다.
-따라서 애플리케이션 내부에는 forwarded client IP 기반 제한을 두지 않는다. 아래
-per-IP `/search` 제한은 실제 client address를 보는 reverse proxy에서 적용한다.
+바꾸지 않는다. production의 외부 HTTPS 여부는 상단 보호장치의 TLS 오프로딩과 `CLAIRE_FQDN`을 기준으로
+결정하며 백엔드 upstream 연결 자체는 내부 HTTP다.
+또한 공인 대역 직접 접근 차단을 위해 `CLAIRE_CLOUDFLARE_IPS_ONLY=1` 옵션을 제공한다(상세 내용은 아래 참조).
 
 ## Development: IPv4 직접 HTTP
 
@@ -299,14 +297,24 @@ Claire Bible은 시스템 소유자(Owner), 협력자(Collaborator), 읽기 전�
 ### 주요 동작 및 설정
 1. **WebUI 설정**:
    - 지식 관리자(Owner)는 WebUI 우측 상단 '📁 테마 관리'에서 각 테마 카드의 ✏️ 수정을 통해 **전용 도메인 (FQDN)** 및 **GA4 측정 ID**를 직접 등록할 수 있습니다 (컨테이너 재시작 불필요).
-   - 카드 내의 '📋 프록시 설정' 버튼을 누르면 해당 테마의 FQDN이 반영된 Nginx 및 Caddyfile 설정 스니펫이 즉시 제공됩니다.
+   - 등록 완료 시 상단에 `🌐 <FQDN>` 뱃지와 새 창에서 바로 확인할 수 있는 `↗ 열기` 링크가 제공됩니다. (일반 리버스 프록시 설정 가이드는 관리 통일성을 위해 WebUI에서 제거되었으며, 상단 보호장치에서 FQDN 규칙을 구성합니다.)
 2. **동적 HostAuthority 및 보안**:
    - `HostAuthorityMiddleware`는 WebUI에서 등록된 FQDN을 런타임에 즉시 수용하며, 미등록된 임의의 호스트 요청은 `421 Misdirected Request`로 차단합니다.
    - 전용 도메인으로 인입된 요청은 해당 테마의 격리된 SQLite DB/Vault로 자동 바인딩되며, 다른 테마로의 임의 변경(`?theme=...`)이 방지되는 도메인 고정(Domain Pinning)이 적용됩니다.
 3. **비공개 테마 은닉 (Fail-Closed Stealth Invariant)**:
    - 비공개 테마(`is_public: false`)에 연결된 FQDN으로 익명 사용자가 접근하는 경우, 존재 자체를 숨기기 위해 `403`이 아닌 `404 Not Found`를 반환합니다.
-4. **리버스 프록시 필수 요건**:
-   - 외부 리버스 프록시(Nginx, Caddy, Cloudflare Tunnel)는 반드시 클라이언트가 요청한 `Host` 헤더를 변경 없이 Claire 백엔드로 전달해야 합니다 (`proxy_set_header Host $host;` 또는 `header_up Host {host}`).
+4. **리버스 프록시 및 보호장치 요건**:
+   - 상단 보호장치(Sophos Firewall WSP, Cloudflare, Nginx 등)는 클라이언트가 요청한 `Host` 헤더를 변경 없이 백엔드로 전달해야 합니다.
+
+## Cloudflare 공인 IP 대역 제한 (`CLAIRE_CLOUDFLARE_IPS_ONLY`)
+
+외부 공격자가 도메인을 거치지 않고 서버의 공인 IP로 직접 접속하는 행위를 방지하기 위해, Cloudflare 프록시를 사용하는 환경에서 공인 대역 유입 트래픽을 Cloudflare 공식 IP로만 제한할 수 있습니다.
+
+- **설정**: `CLAIRE_CLOUDFLARE_IPS_ONLY=1` (기본값: 0)
+- **동작 방식**:
+  - [Cloudflare 공식 IP 대역 목록](https://www.cloudflare.com/ko-kr/ips/) (IPv4 15개 CIDR, IPv6 7개 CIDR)을 메모리에 탑재.
+  - 들어오는 요청의 피어 IP가 공인 대역(`is_global == True`)인 경우, Cloudflare 대역에 속하지 않으면 즉시 **`403 Forbidden`** ("Direct public IP access is not allowed")으로 차단.
+  - **사설 대역 예외**: 사설망(10.x, 172.16-31.x, 192.168.x), 로컬 루프백(127.0.0.1, ::1), 도커 브릿지 네트워크 등 비공인 대역 IP는 필터링 대상이 아니므로 정상 통과.
 
 자세한 아키텍처 및 설정 가이드는 [THEME_FQDN_REVERSE_PROXY_DESIGN.md](../design/THEME_FQDN_REVERSE_PROXY_DESIGN.md)를 참고한다.
 
@@ -322,4 +330,5 @@ development에서는 설정한 IPv4 URL로 직접 접속하고 다른 interface�
 5. 긴 NDJSON 응답이 proxy buffering 없이 순차 전달된다.
 6. Claire와 proxy access log에 query string과 인증 정보가 남지 않는다.
 7. 등록된 테마 FQDN으로 접근 시 해당 테마 지식베이스로 자동 라우팅되며, 비공개 테마 FQDN은 익명 접속 시 404로 은닉된다.
+8. `CLAIRE_CLOUDFLARE_IPS_ONLY=1` 설정 시 비-Cloudflare 공인 IP 직접 접근이 403으로 차단되고 LAN/사설 접근은 유지된다.
  

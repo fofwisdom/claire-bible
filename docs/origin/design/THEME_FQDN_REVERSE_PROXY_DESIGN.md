@@ -68,7 +68,7 @@ graph TD
 
 ### 2.1 Zero-Downtime 동적 인프라 보안 (Dynamic Security Invariants)
 1. **동적 HostAuthority 검증**:
-   - `HostAuthorityMiddleware`는 기동 시 설정된 고정 도메인(`CLAIRE_PUBLIC_URL`, `CLAIRE_FQDN`)뿐만 아니라, `ThemeManager`에 실시간 등록된 모든 테마 FQDN을 인메모리 색인(`has_registered_fqdn`)을 통해 즉시 유효한 호스트로 수용합니다.
+   - `HostAuthorityMiddleware`는 기동 시 설정된 고정 도메인(`CLAIRE_FQDN`, 레거시 `CLAIRE_PUBLIC_URL` 자동 변환)뿐만 아니라, `ThemeManager`에 실시간 등록된 모든 테마 FQDN을 인메모리 색인(`has_registered_fqdn`)을 통해 즉시 유효한 호스트로 수용합니다.
    - 임의의 미등록 호스트로 유입되는 요청은 즉시 **HTTP 421 Misdirected Request**로 차단됩니다.
 2. **동적 Content-Security-Policy (CSP) 주입**:
    - `SafeAccessLogMiddleware`는 시스템 전역 GA 설정뿐만 아니라, 등록된 테마 중 하나라도 GA4 측정 ID를 활성화(`has_any_ga_enabled()`)하면 CSP `script-src` 및 `connect-src`에 Google Analytics 도메인(`https://*.googletagmanager.com`, `https://*.google-analytics.com`)을 즉시 반영합니다.
@@ -87,6 +87,12 @@ graph TD
   - 비인가/익명 방문자가 해당 FQDN으로 루트(`/`) 또는 API에 접근하면, HTTP 403이나 리다이렉트가 아닌 **HTTP 404 Not Found**를 반환합니다.
   - HTML 응답 내에 테마의 이름, 레이블, 설명, GA 태그 등 어떠한 정보도 누출되지 않습니다.
   - 인증된 지식 관리자(Owner) 또는 권한이 부여된 협업자(Collaborator) 세션/토큰이 확인될 때만 지식베이스가 정상 렌더링됩니다.
+
+### 2.4 Cloudflare 공식 공인 IP 대역 제한 (`CLAIRE_CLOUDFLARE_IPS_ONLY`)
+- 프로덕션 상단 보호장치로 Cloudflare를 사용하는 환경에서, 외부 공격자가 FQDN을 거치지 않고 오리진 서버의 공인 IP로 직접 접속하는 행위를 방지합니다.
+- `CLAIRE_CLOUDFLARE_IPS_ONLY=1` 설정 시:
+  - Cloudflare의 공식 IPv4/IPv6 대역 목록에 속하지 않는 모든 공인 IP(`is_global == True`)의 요청을 **HTTP 403 Forbidden**으로 원천 차단합니다.
+  - 사설 IP(LAN, 루프백, 도커 브릿지 네트워크 등)는 필터링 대상이 아니므로 안전하게 허용됩니다.
 
 ---
 
@@ -216,15 +222,15 @@ ingress:
 ---
 
 ## 6. WebUI '테마 관리' 인터페이스
-
+ 
 WebUI 우측 메뉴의 '📁 테마 관리'에서 지식 관리자는 다음 기능을 직관적으로 이용할 수 있습니다:
 1. **테마 카드 상단 배지 및 단축 링크**:
    - `🌐 ai.example.com`: 전용 도메인 등록 배지
    - `↗ 열기`: 새 창에서 전용 도메인으로 즉시 접속하는 링크
    - `📊 G-AI12345678`: 설정된 GA4 측정 ID 배지
-   - `📋 프록시 설정`: 클릭 시 Nginx / Caddyfile 설정 스니펫 즉시 표시
-2. **리버스 프록시 연동 가이드 블록**:
-   - 해당 테마의 FQDN이 미리 채워진 Nginx `server {}` 블록 및 Caddyfile 설정을 클릭 한 번으로 복사하여 외부 웹 서버에 적용 가능
+2. **단순화된 FQDN 관리 및 상단 보호장치 연동**:
+   - 불필요한 인앱 웹서버 가이드 팝업을 제거하고, FQDN 등록 및 즉시 확인에 집중
+   - 프로덕션 환경의 Sophos Firewall Web Server Protection 또는 Cloudflare 등의 상단 보호장치와 FQDN 기반으로 유기적 연동
 3. **수정 및 신규 생성 폼**:
    - 레이블, 설명, 아이콘, 공개 여부 외에 **전용 도메인 (FQDN)** 및 **GA4 측정 ID** 입력 필드 제공
    - 프론트엔드 실시간 클라이언트 URL 감지: 사용자가 브라우저 주소창에 `ai.example.com`을 입력하여 진입하면, WebUI는 테마 목록 중 해당 FQDN을 가진 테마를 자동 감지하여 활성 테마(`activeThemeId`)로 즉시 선택하고 테마 선택기에 `🌐 (전용 도메인)` 엠블럼을 표시합니다.

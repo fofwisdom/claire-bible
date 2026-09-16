@@ -34,12 +34,17 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from ..store import db as dbm
 
 __all__ = [
+    "CLOUDFLARE_IPV4_CIDRS",
+    "CLOUDFLARE_IPV6_CIDRS",
+    "CLOUDFLARE_NETWORKS",
+    "CloudflareIPFilterMiddleware",
     "MAX_REQUEST_BODY",
     "ROUTE_POLICY",
     "ErrorBoundaryMiddleware",
     "InvalidJSONBody",
     "RequestBodyTooLarge",
     "WebRuntimeConfig",
+    "is_cloudflare_ip",
     "read_json_body",
     "request_auth_scope",
     "request_id",
@@ -94,6 +99,46 @@ def _build_content_security_policy(ga_measurement_id: str = "") -> str:
 
 
 _CONTENT_SECURITY_POLICY = _build_content_security_policy()
+
+# Cloudflare 공식 공인 IP 대역 (https://www.cloudflare.com/ko-kr/ips/)
+CLOUDFLARE_IPV4_CIDRS: tuple[str, ...] = (
+    "173.245.48.0/20",
+    "103.21.244.0/22",
+    "103.22.200.0/22",
+    "103.31.4.0/22",
+    "141.101.64.0/18",
+    "108.162.192.0/18",
+    "190.93.240.0/20",
+    "188.114.96.0/20",
+    "197.234.240.0/22",
+    "198.41.128.0/17",
+    "162.158.0.0/15",
+    "104.16.0.0/13",
+    "104.24.0.0/14",
+    "172.64.0.0/13",
+    "131.0.72.0/22",
+)
+
+CLOUDFLARE_IPV6_CIDRS: tuple[str, ...] = (
+    "2400:cb00::/32",
+    "2606:4700::/32",
+    "2803:f800::/32",
+    "2405:b500::/32",
+    "2405:8100::/32",
+    "2a06:98c0::/29",
+    "2c0f:f248::/32",
+)
+
+CLOUDFLARE_NETWORKS: tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...] = tuple(
+    ipaddress.ip_network(cidr)
+    for cidr in CLOUDFLARE_IPV4_CIDRS + CLOUDFLARE_IPV6_CIDRS
+)
+
+
+def is_cloudflare_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    """주어진 IP가 Cloudflare 공식 IP 대역에 속하는지 여부를 판별한다."""
+    return any(ip in net for net in CLOUDFLARE_NETWORKS)
+
 
 AccessLevel = Literal["public", "read", "collaborator", "owner"]
 AuthScope = Literal["public", "anonymous", "readonly", "collaborator", "owner"]
@@ -301,6 +346,7 @@ class WebRuntimeConfig:
     collaborator_token: str = field(repr=False)
     db_file: Any = field(repr=False)
     ga_measurement_id: str = ""
+    cloudflare_ips_only: bool = False
 
     @classmethod
     def from_settings(cls, settings: Any) -> WebRuntimeConfig:
@@ -310,8 +356,18 @@ class WebRuntimeConfig:
             raise ValueError("CLAIRE_ENVIRONMENT must use its canonical lowercase value")
         if environment not in {"development", "production"}:
             raise ValueError("CLAIRE_ENVIRONMENT must be development or production")
+
+        raw_pub = getattr(settings, "public_url", None)
+        if not raw_pub:
+            fqdn_val = getattr(settings, "fqdn", "") or getattr(settings, "effective_fqdn", "")
+            if fqdn_val:
+                scheme = "https" if environment == "production" else "http"
+                raw_pub = f"{scheme}://{str(fqdn_val).strip()}/"
+        if not raw_pub:
+            raw_pub = _setting(settings, "public_url")
+
         _, authority, public_origin = _parse_url(
-            str(_setting(settings, "public_url")), environment=environment
+            str(raw_pub), environment=environment
         )
 
         owner_token = str(_setting(settings, "inject_token"))
@@ -371,6 +427,8 @@ class WebRuntimeConfig:
             or ""
         ).strip()
 
+        cf_ips_only = bool(getattr(settings, "cloudflare_ips_only", False))
+
         return cls(
             environment=environment,
             public_origin=public_origin,
@@ -383,6 +441,7 @@ class WebRuntimeConfig:
             collaborator_token=collaborator_token,
             db_file=_setting(settings, "db_file"),
             ga_measurement_id=ga_id,
+            cloudflare_ips_only=cf_ips_only,
         )
 
 
@@ -585,6 +644,45 @@ async def _bootstrap_session(
 
 async def _send_response(response: Response, scope: Scope, receive: Receive, send: Send) -> None:
     await response(scope, receive, send)
+
+
+class CloudflareIPFilterMiddleware:
+    """공인 대역 IP 중 Cloudflare 공식 IP 대역의 요청만 허용하는 미들웨어.
+
+    사설 망/루프백/링크로컬 IP 등 비공인 대역은 내부 통신, 헬스체크 및
+    로컬 프록시 연동을 위해 필터링하지 않고 통과시킨다.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        client = scope.get("client")
+        if client and client[0]:
+            raw_host = client[0].strip()
+            try:
+                ip = ipaddress.ip_address(raw_host)
+            except ValueError:
+                ip = None
+
+            if ip is not None and ip.is_global:
+                if not is_cloudflare_ip(ip):
+                    await _send_response(
+                        PlainTextResponse(
+                            "Forbidden: Direct public IP access is not allowed",
+                            status_code=403,
+                        ),
+                        scope,
+                        receive,
+                        send,
+                    )
+                    return
+
+        await self.app(scope, receive, send)
 
 
 class HostAuthorityMiddleware:
@@ -1392,4 +1490,6 @@ def wrap_web_app(
     secured = BodyLimitMiddleware(secured)
     secured = CORSPolicyMiddleware(secured, config, theme_manager=theme_manager)
     secured = HostAuthorityMiddleware(secured, config, theme_manager=theme_manager)
+    if config.cloudflare_ips_only:
+        secured = CloudflareIPFilterMiddleware(secured)
     return SafeAccessLogMiddleware(secured, config, theme_manager=theme_manager)

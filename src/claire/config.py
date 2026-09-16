@@ -11,7 +11,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, DotEnvSettingsSource, SettingsConfigDict
 
 _ANONYMOUS_READONLY_ENV = "CLAIRE_ANONYMOUS_READONLY"
@@ -82,6 +82,24 @@ def _validate_anonymous_readonly_dotenv(path: Path, *, encoding: str) -> None:
 class _ExactDotEnvSettingsSource(DotEnvSettingsSource):
     """보안 selector의 dotenv 원문 계약을 보존하는 settings source."""
 
+    def __init__(
+        self,
+        settings_cls: type[BaseSettings],
+        env_file: Any = None,
+        env_file_encoding: str | None = None,
+        case_sensitive: bool | None = None,
+        env_prefix: str | None = None,
+        init_kwargs: Mapping[str, Any] | None = None,
+    ) -> None:
+        self.init_kwargs = dict(init_kwargs or {})
+        super().__init__(
+            settings_cls,
+            env_file=env_file,
+            env_file_encoding=env_file_encoding,
+            case_sensitive=case_sensitive,
+            env_prefix=env_prefix,
+        )
+
     def _read_env_files(self) -> dict[str, str | None]:
         env_files: Any = self.env_file
         if env_files is None:
@@ -95,7 +113,32 @@ class _ExactDotEnvSettingsSource(DotEnvSettingsSource):
                     path,
                     encoding=self.env_file_encoding or "utf-8",
                 )
-        return dict(super()._read_env_files())
+        data = dict(super()._read_env_files())
+        has_pub_kwarg = any(
+            k in self.init_kwargs
+            for k in ("public_url", "CLAIRE_PUBLIC_URL", "legacy_public_url")
+        )
+        has_fqdn_kwarg = any(
+            k in self.init_kwargs for k in ("fqdn", "CLAIRE_FQDN")
+        )
+        if has_pub_kwarg and not has_fqdn_kwarg:
+            data.pop("CLAIRE_FQDN", None)
+            data.pop("fqdn", None)
+        return data
+
+    def __call__(self) -> dict[str, Any]:
+        data = dict(super().__call__())
+        has_pub_kwarg = any(
+            k in self.init_kwargs
+            for k in ("public_url", "CLAIRE_PUBLIC_URL", "legacy_public_url")
+        )
+        has_fqdn_kwarg = any(
+            k in self.init_kwargs for k in ("fqdn", "CLAIRE_FQDN")
+        )
+        if has_pub_kwarg and not has_fqdn_kwarg:
+            data.pop("CLAIRE_FQDN", None)
+            data.pop("fqdn", None)
+        return data
 
 
 def find_agy_executable(agy_bin: str = "agy") -> str | None:
@@ -240,6 +283,7 @@ class Settings(BaseSettings):
             settings_cls,
             env_file=dotenv_settings.env_file,
             env_file_encoding=dotenv_settings.env_file_encoding,
+            init_kwargs=getattr(init_settings, "init_kwargs", None),
         )
         return (
             init_settings,
@@ -428,10 +472,14 @@ class Settings(BaseSettings):
         default=True,
         alias="CLAIRE_ANONYMOUS_READONLY",
     )
-    # 브라우저 기준 canonical URL. Host 검증, same-origin 판정, /web 링크 생성에 함께 쓴다.
-    public_url: str = Field(default="", alias="CLAIRE_PUBLIC_URL")
-    # FQDN 또는 공개 도메인 호스트명 (예: claire.example.com). 미설정 시 public_url 호스트명 사용.
+    # 공개 도메인 호스트명 (FQDN, 예: claire.example.com). 프로덕션 환경 기준 필수 authority.
     fqdn: str = Field(default="", alias="CLAIRE_FQDN")
+    # 레거시 CLAIRE_PUBLIC_URL 환경변수 및 키워드 인자 호환용 (미설정 시 fqdn 자동 추출)
+    legacy_public_url: str = Field(default="", alias="CLAIRE_PUBLIC_URL")
+    # Cloudflare 공식 공인 IP 대역(https://www.cloudflare.com/ko-kr/ips/)만 접속 허용 (사설 IP는 영향 없음)
+    cloudflare_ips_only: bool = Field(
+        default=False, alias="CLAIRE_CLOUDFLARE_IPS_ONLY"
+    )
     # 브라우저 cross-origin 호출을 허용할 exact origin 목록. 인증은 Bearer만 허용한다.
     cors_allowed_origins: str = Field(
         default="", alias="CLAIRE_CORS_ALLOWED_ORIGINS"
@@ -498,6 +546,76 @@ class Settings(BaseSettings):
         if s in ("0", "false", "no", "off", ""):
             return False
         raise ValueError("CLAIRE_ALLOW_PURGE must be a boolean or 0/1")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_legacy_public_url(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            cf_val = data.get("CLAIRE_CLOUDFLARE_IPS_ONLY")
+            if cf_val is None:
+                cf_alias = (
+                    data.get("CLAIRE_CLOUDFLARE_ONLY")
+                    or data.get("cloudflare_ips_only")
+                    or data.get("cloudflare_only")
+                )
+                if cf_alias is not None:
+                    data["CLAIRE_CLOUDFLARE_IPS_ONLY"] = cf_alias
+
+            # Priority 1: explicitly passed kwarg 'fqdn'
+            explicit_fqdn = data.get("fqdn")
+            # Priority 2: explicitly passed kwarg 'public_url'
+            explicit_pub_url = data.get("public_url")
+
+            if explicit_fqdn:
+                raw_fqdn = str(explicit_fqdn).strip()
+                if "://" in raw_fqdn:
+                    from urllib.parse import urlsplit
+
+                    parsed = urlsplit(raw_fqdn)
+                    raw_fqdn = parsed.netloc or parsed.path
+                data["CLAIRE_FQDN"] = raw_fqdn.rstrip("/")
+                data["fqdn"] = data["CLAIRE_FQDN"]
+            elif explicit_pub_url:
+                raw_pub = str(explicit_pub_url).strip()
+                if "://" in raw_pub:
+                    from urllib.parse import urlsplit
+
+                    parsed = urlsplit(raw_pub)
+                    extracted = parsed.netloc or parsed.path
+                    data["CLAIRE_FQDN"] = extracted.strip().rstrip("/")
+                else:
+                    data["CLAIRE_FQDN"] = raw_pub.rstrip("/")
+                data["fqdn"] = data["CLAIRE_FQDN"]
+                data["legacy_public_url"] = raw_pub
+                data["CLAIRE_PUBLIC_URL"] = raw_pub
+            else:
+                env_fqdn = data.get("CLAIRE_FQDN")
+                env_pub = data.get("CLAIRE_PUBLIC_URL") or data.get("legacy_public_url")
+                if not env_fqdn and env_pub:
+                    raw_pub = str(env_pub).strip()
+                    if "://" in raw_pub:
+                        from urllib.parse import urlsplit
+
+                        parsed = urlsplit(raw_pub)
+                        extracted = parsed.netloc or parsed.path
+                        data["CLAIRE_FQDN"] = extracted.strip().rstrip("/")
+                    else:
+                        data["CLAIRE_FQDN"] = raw_pub.rstrip("/")
+                    data["fqdn"] = data["CLAIRE_FQDN"]
+                    data["legacy_public_url"] = raw_pub
+        return data
+
+    @field_validator("cloudflare_ips_only", mode="before")
+    @classmethod
+    def _parse_cloudflare_ips_only(cls, value: object) -> bool:
+        if isinstance(value, bool):
+            return value
+        s = str(value or "").strip().lower()
+        if s in ("1", "true", "yes", "on"):
+            return True
+        if s in ("0", "false", "no", "off", ""):
+            return False
+        raise ValueError("CLAIRE_CLOUDFLARE_IPS_ONLY must be a boolean or 0/1")
 
     @field_validator("allow_private_networks", mode="before")
     @classmethod
@@ -747,15 +865,50 @@ class Settings(BaseSettings):
 
     @property
     def effective_fqdn(self) -> str:
-        """FQDN 호스트명. CLAIRE_FQDN 우선, 없으면 CLAIRE_PUBLIC_URL 에서 추출."""
+        """FQDN 호스트명. CLAIRE_FQDN 우선, 없으면 레거시 legacy_public_url 에서 추출."""
         if self.fqdn:
-            return self.fqdn.strip().lower()
-        if self.public_url:
+            raw = self.fqdn.strip()
+            if "://" in raw:
+                from urllib.parse import urlsplit
+
+                raw = urlsplit(raw).netloc or urlsplit(raw).path
+            return raw.rstrip("/").lower()
+        if self.legacy_public_url:
             from urllib.parse import urlsplit
-            host = urlsplit(self.public_url).hostname
+
+            raw = self.legacy_public_url.strip()
+            if "://" not in raw:
+                raw = f"http://{raw}"
+            host = urlsplit(raw).hostname
             if host:
                 return host.strip().lower()
         return ""
+
+    @property
+    def public_url(self) -> str:
+        """호환성을 위한 public_url 속성.
+
+        CLAIRE_FQDN 기반으로 프로덕션 환경(production)은 https://,
+        개발 환경(development/local 등)은 http:// 스킴으로 자동 구성된다.
+        """
+        if self.legacy_public_url and "://" in self.legacy_public_url:
+            raw = self.legacy_public_url.strip()
+            if not raw.endswith("/"):
+                raw += "/"
+            return raw
+
+        eff = self.effective_fqdn
+        if not eff:
+            raw = (self.legacy_public_url or "").strip()
+            if raw:
+                if not raw.endswith("/"):
+                    raw += "/"
+                return raw
+            return ""
+
+        is_prod = (self.environment or "").strip().lower() == "production"
+        scheme = "https" if is_prod else "http"
+        return f"{scheme}://{eff}/"
 
 
 def extract_own_share_token(url_candidate: str, settings: Settings | None = None) -> str | None:
