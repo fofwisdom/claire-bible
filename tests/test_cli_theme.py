@@ -262,4 +262,135 @@ def test_cli_theme_default_focus(cli_theme_env, capsys):
     assert t1["default_focus"] == "클라우드 비용 최적화 및 FinOps 관점"
 
 
+def test_get_effective_settings_doc_target_auto_resolve(cli_theme_env):
+    """--theme 미지정 시 doc_target(또는 args.target)으로 대상을 검색하여 테마를 자동 해소하는지 검증."""
+    import argparse
+    from claire.ontology.base import Document
+    from claire.store import db as dbm
+
+    settings, tm = cli_theme_env
+    t1 = tm.define_theme("클라우드 엔지니어링")
+    assert t1.id == 1
+
+    t1_settings = tm.get_settings_for_theme(1)
+    conn1 = dbm.connect(t1_settings.db_file)
+    dbm.init_db(conn1)
+    doc = Document(
+        id="doc_t1_auto",
+        url="https://example.com/auto",
+        canonical_url="https://example.com/auto",
+        title="Auto Resolved Doc",
+        raw_text="Auto content",
+        summary="Auto summary",
+        source_type="web",
+        content_hash="h_auto_1",
+    )
+    dbm.insert_document(conn1, doc)
+    conn1.close()
+
+    # 1. args.target에 doc_id 전달 시 자동 해소
+    args1 = argparse.Namespace(theme=None, target="doc_t1_auto")
+    eff_s, eff_theme = cli.get_effective_settings(args1)
+    assert eff_theme is not None
+    assert eff_theme.id == 1
+    assert str(eff_s.db_file) == str(t1_settings.db_file)
+
+    # 2. doc_target 인자로 전달 시 자동 해소
+    args2 = argparse.Namespace(theme=None, target=None)
+    eff_s2, eff_theme2 = cli.get_effective_settings(args2, doc_target="doc_t1_auto")
+    assert eff_theme2 is not None
+    assert eff_theme2.id == 1
+
+    # 3. 존재하지 않는 대상인 경우 기본 테마(None) 반환
+    args3 = argparse.Namespace(theme=None, target="non_existent_doc")
+    eff_s3, eff_theme3 = cli.get_effective_settings(args3)
+    assert eff_theme3 is None
+
+
+def test_cli_subparsers_accept_theme_flag(cli_theme_env):
+    """subparsers(regenerate, summary-regenerate, doc-title, dedup-merge, recanonicalize, purge)가 -t/--theme을 지원하는지 검증."""
+    parser = cli.build_parser()
+
+    # 1. regenerate
+    args = parser.parse_args(["regenerate", "-t", "1", "doc_123"])
+    assert args.theme == "1"
+    assert args.target == "doc_123"
+
+    # 2. summary-regenerate
+    args = parser.parse_args(["summary-regenerate", "--theme", "인프라", "doc_123"])
+    assert args.theme == "인프라"
+
+    # 3. doc-title
+    args = parser.parse_args(["doc-title", "-t", "1", "doc_123", "새 제목"])
+    assert args.theme == "1"
+    assert args.title == "새 제목"
+
+    # 4. dedup-merge
+    args = parser.parse_args(["dedup-merge", "-t", "1"])
+    assert args.theme == "1"
+
+    # 5. recanonicalize
+    args = parser.parse_args(["recanonicalize", "-t", "1"])
+    assert args.theme == "1"
+
+    # 6. purge
+    args = parser.parse_args(["purge", "-t", "1", "doc_123"])
+    assert args.theme == "1"
+
+
+def test_cli_theme_dispatch_commands(cli_theme_env, capsys, monkeypatch):
+    """각 명령이 테마 옵션에 따라 해당 테마 DB를 대상으로 정상 동작하는지 검증."""
+    from claire.ontology.base import Document
+    from claire.store import db as dbm
+
+    monkeypatch.setenv("CLAIRE_ALLOW_PURGE", "1")
+    settings, tm = cli_theme_env
+    settings.allow_purge = True
+    t1 = tm.define_theme("데이터베이스 테마")
+    t1_settings = tm.get_settings_for_theme(1)
+
+    conn1 = dbm.connect(t1_settings.db_file)
+    dbm.init_db(conn1)
+    doc = Document(
+        id="doc_theme_test",
+        url="https://example.com/test",
+        canonical_url="https://example.com/test",
+        title="Original Title",
+        raw_text="Document text content for test",
+        summary="Document summary",
+        source_type="web",
+        content_hash="h_theme_test_1",
+    )
+    dbm.insert_document(conn1, doc)
+    conn1.close()
+
+    # 1. doc-title with -t 1
+    ret = cli.main(["doc-title", "-t", "1", "doc_theme_test", "Updated Theme Title"])
+    assert ret == 0
+    out = capsys.readouterr().out
+    assert "제목 갱신 완료" in out
+    conn1 = dbm.connect(t1_settings.db_file)
+    updated_doc = dbm.get_document(conn1, "doc_theme_test")
+    conn1.close()
+    assert updated_doc.title == "Updated Theme Title"
+
+    # 2. purge with -t 1 (dry-run)
+    ret = cli.main(["purge", "-t", "1", "doc_theme_test"])
+    assert ret == 0
+    out = capsys.readouterr().out
+    assert "소각 대상 분석 보고서" in out
+    assert "Updated Theme Title" in out
+
+    # 3. recanonicalize with -t 1 (dry-run)
+    ret = cli.main(["recanonicalize", "-t", "1"])
+    assert ret == 0
+    out = capsys.readouterr().out
+    assert "dry-run" in out or "문서" in out
+
+    # 4. dedup-merge with -t 1 (dry-run)
+    ret = cli.main(["dedup-merge", "-t", "1"])
+    assert ret == 0
+
+
+
 

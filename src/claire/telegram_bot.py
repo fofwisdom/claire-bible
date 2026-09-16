@@ -121,16 +121,22 @@ async def _react(msg, emoji: str) -> None:
 
 
 async def _settle_status(
-    status,
-    msg,
-    summary: str,
-    cands: list,
-    *,
+    status: Any,
+    msg: Any = None,
+    summary: str = "",
+    cands: list | None = None,
+    *extra_args: Any,
     has_error: bool = False,
     is_stt_failed: bool = False,
     is_duplicate: bool = False,
     retry_doc_id: str | None = None,
     cands_markup: Any = None,
+    theme_id: int | None = 0,
+    db_file: str | Path | None = None,
+    inbox_id: int | None = None,
+    service_pool: Any = None,
+    theme_mgr: Any = None,
+    **kwargs: Any,
 ) -> None:
     """완료 처리:
     - 1홉 후보가 있으면 진행 메시지를 결과+후보 선택 버튼으로 편집(버튼 보존)
@@ -139,9 +145,18 @@ async def _settle_status(
     - 기타 에러 발생 시 진행 메시지를 삭제하지 않고 오류 안내 보존
     - 정상 완료이면서 1홉 후보가 없을 때도 진행 메시지를 삭제하지 않고 완료 요약 및 열람 링크로 편집하여 보존
     """
+    if isinstance(status, int):
+        inbox_id = status
+        status = msg
+        msg = summary
+        summary = cands if isinstance(cands, str) else ""
+        cands = extra_args[0] if extra_args else []
+    if cands is None:
+        cands = []
+
     log.info(
-        "Settle status: doc_id=%s, has_error=%s, is_stt_failed=%s, is_duplicate=%s, cands=%d",
-        retry_doc_id, has_error, is_stt_failed, is_duplicate, len(cands),
+        "Settle status: doc_id=%s, has_error=%s, is_stt_failed=%s, is_duplicate=%s, cands=%d, theme_id=%s",
+        retry_doc_id, has_error, is_stt_failed, is_duplicate, len(cands), theme_id,
     )
 
     async def _safe_send_or_edit(text: str, reply_markup: Any = None) -> None:
@@ -231,8 +246,81 @@ async def _settle_status(
 
                 cfg = get_settings()
                 base_url = (getattr(cfg, "public_url", "") or "").rstrip("/")
-                if base_url and cfg.db_file and Path(cfg.db_file).exists():
-                    conn = dbm.connect_existing(cfg.db_file, readonly=False)
+
+                if theme_mgr is None:
+                    try:
+                        from .store.theme import get_theme_manager
+
+                        theme_mgr = get_theme_manager(cfg)
+                    except Exception:
+                        theme_mgr = None
+
+                target_db: Path | None = None
+                if db_file:
+                    target_db = Path(db_file)
+                elif theme_id is not None and (theme_mgr is not None or service_pool is not None):
+                    if theme_id != 0:
+                        if theme_mgr is not None:
+                            try:
+                                target_db = Path(theme_mgr.get_settings_for_theme(theme_id).db_file)
+                            except Exception:
+                                pass
+                        if target_db is None and service_pool is not None:
+                            try:
+                                target_db = Path(service_pool.get_service(theme_id).s.db_file)
+                            except Exception:
+                                pass
+                    else:
+                        theme0_db = Path(cfg.db_file) if cfg.db_file else None
+                        is_in_theme0 = False
+                        if theme0_db and theme0_db.is_file():
+                            try:
+                                t0_conn = dbm.connect_existing(theme0_db, readonly=True)
+                                try:
+                                    if dbm.get_document_row(t0_conn, retry_doc_id):
+                                        is_in_theme0 = True
+                                        target_db = theme0_db
+                                finally:
+                                    t0_conn.close()
+                            except Exception:
+                                pass
+                        if not is_in_theme0 and theme_mgr is not None:
+                            try:
+                                matches = theme_mgr.resolve_document_targets(doc_id=retry_doc_id)
+                                if matches and matches[0].get("db_file"):
+                                    target_db = Path(matches[0]["db_file"])
+                            except Exception:
+                                pass
+                        if target_db is None:
+                            target_db = theme0_db
+                elif theme_mgr is not None:
+                    theme0_db = Path(cfg.db_file) if cfg.db_file else None
+                    is_in_theme0 = False
+                    if theme0_db and theme0_db.is_file():
+                        try:
+                            t0_conn = dbm.connect_existing(theme0_db, readonly=True)
+                            try:
+                                if dbm.get_document_row(t0_conn, retry_doc_id):
+                                    is_in_theme0 = True
+                                    target_db = theme0_db
+                            finally:
+                                t0_conn.close()
+                        except Exception:
+                            pass
+                    if not is_in_theme0:
+                        try:
+                            matches = theme_mgr.resolve_document_targets(doc_id=retry_doc_id)
+                            if matches and matches[0].get("db_file"):
+                                target_db = Path(matches[0]["db_file"])
+                        except Exception:
+                            pass
+                    if target_db is None:
+                        target_db = theme0_db
+                else:
+                    target_db = Path(cfg.db_file) if cfg.db_file else None
+
+                if base_url and target_db and target_db.exists():
+                    conn = dbm.connect_existing(target_db, readonly=False)
                     try:
                         share_tok = dbm.create_doc_share(conn, retry_doc_id)
                     finally:
@@ -585,6 +673,9 @@ def build_app(settings: Settings | None = None) -> Any:
             is_duplicate=is_duplicate,
             retry_doc_id=retry_doc_id,
             cands_markup=cands_markup,
+            theme_id=theme_id,
+            service_pool=service_pool,
+            theme_mgr=theme_mgr,
         )
 
     def _theme_selection_markup(token: str, themes: list[Any]):
@@ -874,6 +965,20 @@ def build_app(settings: Settings | None = None) -> Any:
                     target_doc_id = row["id"]
             finally:
                 conn.close()
+            if not target_doc_id and theme_mgr:
+                try:
+                    matches = theme_mgr.resolve_document_targets(doc_id=payload_clean)
+                    if matches:
+                        matched_tid = matches[0].get("theme_id")
+                        if matched_tid is not None:
+                            active_theme_id = matched_tid
+                            active_theme = theme_mgr.get_theme(matched_tid)
+                            active_svc = service_pool.get_service(matched_tid)
+                            target_doc_id = payload_clean
+                            if is_multi and user:
+                                user_active_themes[user.id] = matched_tid
+                except Exception:
+                    pass
 
         msg = update.message
 
@@ -1322,11 +1427,15 @@ def build_app(settings: Settings | None = None) -> Any:
                 pass
             return
 
-        if data.startswith(("rg:det:", "rg:ref:", "rg:full:")):
+        if data.startswith("rg:"):
             user = update.effective_user
             if not _is_allowed(user.id if user else None):
                 return
-            mode, did = data.split(":", 2)[1], data.split(":", 2)[2]
+            parts = data.split(":")
+            if len(parts) >= 3 and parts[1] in ("det", "ref", "full"):
+                mode, did = parts[1], ":".join(parts[2:])
+            else:
+                mode, did = "det", data[3:]
             do_refetch = (mode == "ref")
             do_refetch_full = (mode == "full")
             mode_name = "전체 재수집 및 재생성" if do_refetch_full else ("재수집 및 재생성" if do_refetch else "본문 재생성")
@@ -1335,10 +1444,38 @@ def build_app(settings: Settings | None = None) -> Any:
             except Exception:
                 pass
             status_msg = await query.message.reply_text(f"⏳ {mode_name} 처리 중… ({did})")
+
+            # Determine the document's theme: check active theme first, then theme_mgr.resolve_document_targets
+            user_id = user.id if user else 0
+            is_multi = bool(getattr(s, "multi_theme", False))
+            active_tid = user_active_themes.get(user_id, 0) if is_multi else 0
+            target_svc = service_pool.get_service(active_tid) if is_multi else svc
+            doc_in_active = False
+            try:
+                chk_conn = dbm.connect_existing(target_svc.s.db_file, readonly=True)
+                try:
+                    if dbm.get_document_row(chk_conn, did):
+                        doc_in_active = True
+                finally:
+                    chk_conn.close()
+            except Exception:
+                pass
+
+            if not doc_in_active and theme_mgr:
+                try:
+                    matches = theme_mgr.resolve_document_targets(doc_id=did)
+                    if matches:
+                        resolved_tid = matches[0].get("theme_id", 0)
+                        target_svc = service_pool.get_service(resolved_tid)
+                        if is_multi and user:
+                            user_active_themes[user.id] = resolved_tid
+                except Exception:
+                    pass
+
             try:
                 res = await _run_with_ticker(
                     status_msg, mode_name,
-                    lambda: svc.regenerate_components(
+                    lambda: target_svc.regenerate_components(
                         doc_id=did,
                         detail=True,
                         refetch=do_refetch,
@@ -1761,8 +1898,27 @@ def build_app(settings: Settings | None = None) -> Any:
         msg = update.effective_message
         if not msg:
             return
+
+        is_multi = bool(getattr(s, "multi_theme", False))
+        user = update.effective_user
+        user_id = user.id if user else 0
+        active_theme_id = user_active_themes.get(user_id, 0) if is_multi else 0
+        active_svc = service_pool.get_service(active_theme_id) if is_multi else svc
+
         try:
-            items = await asyncio.to_thread(svc.list_failures, limit=10)
+            items = await asyncio.to_thread(active_svc.list_failures, limit=10)
+            if not items and is_multi:
+                all_items = []
+                for t in theme_mgr.list_themes(include_private=True):
+                    if t.id == active_theme_id:
+                        continue
+                    tsvc = service_pool.get_service(t.id)
+                    t_items = await asyncio.to_thread(tsvc.list_failures, limit=10)
+                    for it in t_items:
+                        it["theme_label"] = t.label
+                    all_items.extend(t_items)
+                if all_items:
+                    items = all_items[:10]
         except Exception as e:  # noqa: BLE001
             await msg.reply_text(f"❌ 조회 오류: {e}")
             return
@@ -1772,8 +1928,9 @@ def build_app(settings: Settings | None = None) -> Any:
         lines = ["⚠️ 최근 실패 항목 (최대 10건):"]
         for it in items:
             mark = "⛔영구" if it["status"] == "failed" else "🔁재시도대기"
+            tlabel = f"[{it['theme_label']}] " if it.get("theme_label") else ""
             lines.append(
-                f"#{it['id']} {mark} (시도 {it['attempts']}) "
+                f"#{it['id']} {tlabel}{mark} (시도 {it['attempts']}) "
                 f"{it['payload']}\n   └ {it['error']}")
         lines.append("\n특정 건 재시도: /retry <번호>  (예: /retry " + str(items[0]["id"]) + ")")
         await msg.reply_text("\n".join(lines))
@@ -1789,11 +1946,50 @@ def build_app(settings: Settings | None = None) -> Any:
             await msg.reply_text("사용법: /retry <inbox 번호>  (/failed 로 번호 확인)")
             return
         inbox_id = int(arg)
+
+        is_multi = bool(getattr(s, "multi_theme", False))
+        user = update.effective_user
+        user_id = user.id if user else 0
+        active_theme_id = user_active_themes.get(user_id, 0) if is_multi else 0
+        target_svc = service_pool.get_service(active_theme_id) if is_multi else svc
+
+        if is_multi:
+            found = False
+            try:
+                conn = dbm.connect_existing(target_svc.s.db_file, readonly=True)
+                try:
+                    if dbm.get_inbox(conn, inbox_id) is not None:
+                        found = True
+                finally:
+                    conn.close()
+            except Exception:
+                pass
+
+            if not found:
+                for t in theme_mgr.list_themes(include_private=True):
+                    if t.id == active_theme_id:
+                        continue
+                    tsvc = service_pool.get_service(t.id)
+                    if not Path(tsvc.s.db_file).is_file():
+                        continue
+                    try:
+                        conn = dbm.connect_existing(tsvc.s.db_file, readonly=True)
+                        try:
+                            if dbm.get_inbox(conn, inbox_id) is not None:
+                                target_svc = tsvc
+                                user_active_themes[user_id] = t.id
+                                found = True
+                                break
+                        finally:
+                            conn.close()
+                    except Exception:
+                        continue
+
         status = await msg.reply_text(f"⏳ inbox#{inbox_id} 재시도 중…")
         try:
             report = await _run_with_ticker(
                 status, f"inbox#{inbox_id} 재시도",
-                lambda: svc.retry_inbox(inbox_id))
+                lambda: target_svc.retry_inbox(inbox_id))
             await status.edit_text(report.telegram_summary())
         except Exception as e:  # noqa: BLE001
             await status.edit_text(f"❌ 재시도 오류: {e}")
