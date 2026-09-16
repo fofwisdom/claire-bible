@@ -437,7 +437,9 @@ def render_graph_html(
         themes_list = [
             t.to_dict()
             for t in tm.list_themes(
-                include_private=include_private, collaborator=collaborator
+                include_private=include_private,
+                collaborator=collaborator,
+                host=host,
             )
         ]
     else:
