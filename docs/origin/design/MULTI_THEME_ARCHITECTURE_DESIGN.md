@@ -197,7 +197,7 @@ flowchart TD
 
 ---
 
-## 5. 테마 수명주기 관리 (삭제 및 소각)
+## 5. 테마 수명주기 관리 (삭제, 소각 및 리셋)
 
 ### 5.1 기본 지식베이스 삭제 방어 (Zero Exception)
 기본 지식베이스(ID 0)에 대한 삭제 요청은 API, CLI, 웹 UI, 저장소 계층 모두에서 원천 차단되며 `ValueError: 기본 지식베이스(기본 테마)는 삭제할 수 없습니다.`를 발생시킵니다.
@@ -211,6 +211,21 @@ flowchart TD
    - `themes.json` 메타데이터 제거.
    - `data/themes/{seq}/` 및 `vault/themes/{seq}/` 디렉터리 내 물리 파일 영구 삭제 (`shutil.rmtree`).
    - `IngestServicePool` 및 DB 커넥션 캐시 원자적 해제.
+
+### 5.3 테마 고유 식별자/URI 보존형 데이터 클린 리셋 (`reset_theme`)
+사용자가 특정 테마에 적재를 진행했으나 추출 방향성 착오, 저품질 데이터 오염 등으로 인해 "처음부터 깨끗하게 재시작"해야 하는 상황이 발생할 수 있습니다.
+기존의 `claire theme delete <id> --purge` 후 신규 정의 방식은 다음과 같은 치명적 문제를 유발합니다:
+1. 테마 레지스트리 일련번호(`next_seq`)가 영구 증가하여 새로운 테마는 새 ID를 발급받음.
+2. 기존 테마를 북마크하거나 링크해 둔 고유 호출 URI(`?theme=1`, Telegram 해시태그 `#1`)가 영구 파괴됨.
+3. 테마 레이블, 아이콘, 기본 초점(`default_focus`), 권한 설정(`is_public`, `is_collaborator_accessible`)을 일일이 수동으로 재구성해야 함.
+
+이를 해결하기 위해 **테마 고유 식별자/URI 보존형 원자적 리셋 (`claire theme reset <id>`)**을 도입했습니다:
+- **식별 메타데이터 영구 보존**: 테마 ID(`id`), 순번(`seq`), 명칭(`label`), 아이콘(`icon`), 설명(`description`), 기본 초점(`default_focus`), 권한 설정(`is_public`, `is_collaborator_accessible`), 생성일(`created_at`), 호출 URI(`?theme=<id>`)는 변경 없이 영구 보존됩니다 (`updated_at` 타임스탬프만 최신화).
+- **원자적 데이터 클린 소각 (100% Wipe)**:
+  - `reset_graph(conn)`를 통해 지식 노드(`entities`), 관계(`relations`), 벡터 임베딩(`embeddings`), FTS 가상 테이블(`entities_fts`) 전량 삭제.
+  - 테마 DB 적재 행 전량 삭제: `documents`, `raw_inbox`, `extractions`, `document_snapshots`, `proposals`, `jobs`, `refresh_queue`, `expand_queue`, `doc_shares`, `purged_tombstones`.
+  - 로컬 볼트(Vault) 디렉터리의 생성 마크다운 파일(`vault/themes/{seq}/*.md` 또는 기본 테마의 경우 `vault/*.md` 중 타 테마 제외) 일괄 언링크.
+  - `PRAGMA wal_checkpoint(TRUNCATE)` 및 `VACUUM`으로 DB 파일 크기 최소화 및 디스크 용량 즉시 회수.
 
 ---
 
@@ -236,14 +251,17 @@ claire theme define --label "경제 및 금융" --icon "📈" --focus "거시경
 # 3. 테마 메타데이터 및 기본 초점 수정 (ID 또는 레이블로 대상 지정 가능)
 claire theme update 1 --label "금융 및 가상자산" --focus "블록체인 토큰 이코노미 및 온체인 데이터 중심"
 
-# 4. 추가 테마 삭제
+# 4. 테마 ID/URI 보존형 데이터 클린 리셋 (식별 메타데이터 보존, 내부 문서/그래프/볼트만 완전 초기화)
+claire theme reset 1 --yes
+
+# 5. 추가 테마 완전 삭제 (레지스트리 및 디스크 영구 소각)
 claire theme delete 1 --purge --yes
 
-# 5. 특정 테마에 자료 적재 (미지정 시 테마 기본 초점 자동 적용)
+# 6. 특정 테마에 자료 적재 (미지정 시 테마 기본 초점 자동 적용)
 claire ingest "https://example.com/article" -t 1
 claire ingest "https://example.com/article" -t "금융 및 가상자산"
 
-# 6. 특정 테마 통계 및 진단
+# 7. 특정 테마 통계 및 진단
 claire stats -t 1
 ```
 

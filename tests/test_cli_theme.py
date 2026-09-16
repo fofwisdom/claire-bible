@@ -392,5 +392,105 @@ def test_cli_theme_dispatch_commands(cli_theme_env, capsys, monkeypatch):
     assert ret == 0
 
 
+def test_cli_theme_reset(cli_theme_env, capsys, monkeypatch):
+    """claire theme reset CLI 명령의 비대화형 방어, 대화형 취소/승인, --yes, --json 및 DB/볼트 초기화 검증."""
+    from claire.ontology.base import Document, Entity, Relation
+    from claire.store import db as dbm
+    import sys
+    from pathlib import Path
+
+    settings, tm = cli_theme_env
+    t1 = tm.define_theme("리셋 대상 테마", description="리셋 테스트용")
+    t1_settings = tm.get_settings_for_theme(1)
+
+    # 테마 DB 및 볼트에 데이터 적재
+    conn = dbm.connect(t1_settings.db_file)
+    dbm.init_db(conn)
+    doc = Document(
+        id="doc_reset_cli",
+        url="https://example.com/reset",
+        canonical_url="https://example.com/reset",
+        title="Reset Test Document",
+        raw_text="Some text",
+        summary="Summary",
+        source_type="web",
+        content_hash="h_reset_cli",
+    )
+    dbm.insert_document(conn, doc)
+    e = Entity(id="ent_reset_cli", name="Target Node", type="Concept", sources=["doc_reset_cli"])
+    dbm.upsert_entity(conn, e)
+    r = Relation(
+        id="rel_reset_cli",
+        source_id="ent_reset_cli",
+        target_id="ent_reset_cli",
+        type="RELATED_TO",
+        sources=["doc_reset_cli"],
+    )
+    dbm.upsert_relation(conn, r)
+    conn.commit()
+    conn.close()
+
+    v_dir = Path(t1_settings.vault_path)
+    v_dir.mkdir(parents=True, exist_ok=True)
+    v_file = v_dir / "target_node.md"
+    v_file.write_text("# Target Node\nContent", encoding="utf-8")
+
+    # 1. 존재하지 않는 테마 리셋 시도 -> 오류 (exit code 1)
+    ret = cli.main(["theme", "reset", "999", "--yes"])
+    assert ret == 1
+    assert "대상 테마를 찾을 수 없습니다" in capsys.readouterr().err
+
+    # 2. 비대화형 환경에서 --yes 미지정 시 -> 방어 (exit code 2)
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: False)
+    ret = cli.main(["theme", "reset", "1"])
+    assert ret == 2
+    err = capsys.readouterr().err
+    assert "--yes (-y) 옵션을 명시" in err
+
+    # 3. 대화형 환경에서 취소 (n 입력) -> 취소 메시지 및 exit code 0
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr("builtins.input", lambda _: "n")
+    ret = cli.main(["theme", "reset", "1"])
+    assert ret == 0
+    assert "리셋 작업이 취소되었습니다" in capsys.readouterr().out
+
+    # 4. --yes로 리셋 실행 -> 성공 출력 및 테마 ID/URI 보존 확인
+    ret = cli.main(["theme", "reset", "1", "--yes"])
+    assert ret == 0
+    out = capsys.readouterr().out
+    assert "데이터 완전 초기화 완료" in out
+    assert "?theme=1" in out
+    assert "소각된 문서 수   : 1 건" in out
+    assert "소각된 엔티티 수 : 1 건" in out
+    assert "소각된 관계 수   : 1 건" in out
+    assert "삭제된 볼트 파일 : 1 개" in out
+
+    # 데이터가 비워졌는지 DB 및 볼트 검증
+    conn = dbm.connect(t1_settings.db_file)
+    assert dbm.get_document(conn, "doc_reset_cli") is None
+    assert dbm.get_entity(conn, "ent_reset_cli") is None
+    c = dbm.counts(conn)
+    assert c.get("documents", 0) == 0
+    assert c.get("entities", 0) == 0
+    assert c.get("relations", 0) == 0
+    conn.close()
+    assert not v_file.exists()
+
+    # 테마 메타데이터 및 ID 영구 보존 검증
+    t1_after = tm.get_theme(1)
+    assert t1_after is not None
+    assert t1_after.id == 1
+    assert t1_after.label == "리셋 대상 테마"
+
+    # 5. --json 옵션 동작 검증
+    ret = cli.main(["theme", "reset", "1", "-y", "--json"])
+    assert ret == 0
+    json_out = json.loads(capsys.readouterr().out)
+    assert json_out["ok"] is True
+    assert json_out["reset"]["theme_id"] == 1
+    assert json_out["reset"]["deleted_documents"] == 0
+
+
+
 
 

@@ -623,6 +623,112 @@ class ThemeManager:
         log.info("테마 #%d [%s] 삭제 완료 (purge=%s)", tid, theme.label, purge)
         return theme
 
+    def reset_theme(self, theme_id: int | str) -> dict[str, Any]:
+        """지식 관리자: 테마 고유 식별자(?theme=id) 및 메타데이터는 보존하고 내부 수집/그래프/볼트 데이터를 완전 초기화."""
+        import sqlite3
+
+        self.reload()
+        try:
+            tid = int(theme_id)
+            if tid not in self._themes:
+                raise KeyError(f"존재하지 않는 테마 ID: {tid}")
+        except (ValueError, TypeError):
+            target = self.get_theme(theme_id, strict=True)
+            tid = target.id
+
+        theme = self._themes[tid]
+        t_settings = self.get_settings_for_theme(tid)
+
+        stats: dict[str, Any] = {
+            "theme_id": tid,
+            "theme_label": theme.label,
+            "theme_icon": theme.icon,
+            "db_cleared": False,
+            "deleted_documents": 0,
+            "deleted_entities": 0,
+            "deleted_relations": 0,
+            "vault_files_unlinked": 0,
+        }
+
+        # 1. DB 완전 초기화
+        db_p = t_settings.db_file
+        if db_p.is_file():
+            conn = dbm.connect(db_p)
+            try:
+                try:
+                    stats["deleted_documents"] = conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
+                    stats["deleted_entities"] = conn.execute("SELECT COUNT(*) FROM entities").fetchone()[0]
+                    stats["deleted_relations"] = conn.execute("SELECT COUNT(*) FROM relations").fetchone()[0]
+                except Exception:
+                    pass
+
+                dbm.reset_graph(conn)
+
+                for tbl in (
+                    "documents",
+                    "document_snapshots",
+                    "raw_inbox",
+                    "extractions",
+                    "proposals",
+                    "jobs",
+                    "refresh_queue",
+                    "expand_queue",
+                    "doc_shares",
+                    "purged_tombstones",
+                ):
+                    try:
+                        conn.execute(f"DELETE FROM {tbl}")
+                    except sqlite3.OperationalError:
+                        pass
+
+                conn.commit()
+                try:
+                    conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+                    conn.execute("VACUUM")
+                except Exception:
+                    pass
+                stats["db_cleared"] = True
+            finally:
+                conn.close()
+        else:
+            conn = dbm.connect(db_p)
+            try:
+                dbm.init_db(conn)
+                stats["db_cleared"] = True
+            finally:
+                conn.close()
+
+        # 2. 볼트(Vault) 디스크 파일 정리
+        vault_p = t_settings.vault_dir
+        if vault_p.is_dir():
+            unlinked = 0
+            for f in vault_p.rglob("*.md"):
+                if tid == 0 and "themes" in f.parts:
+                    continue
+                if f.is_file():
+                    try:
+                        f.unlink()
+                        unlinked += 1
+                    except Exception:
+                        pass
+            stats["vault_files_unlinked"] = unlinked
+
+        # 3. 메타데이터 updated_at 갱신 (ID, 라벨, 초점 등은 불변 유지)
+        theme.updated_at = time.time()
+        self._save_registry()
+
+        log.info(
+            "테마 #%d [%s] 데이터 완전 초기화 완료 (URI: ?theme=%d, 문서: %d건, 엔티티: %d건, 관계: %d건, 볼트파일: %d개 삭제)",
+            tid,
+            theme.label,
+            tid,
+            stats["deleted_documents"],
+            stats["deleted_entities"],
+            stats["deleted_relations"],
+            stats["vault_files_unlinked"],
+        )
+        return stats
+
     def get_settings_for_theme(
         self,
         theme_ref: int | str | None = None,
