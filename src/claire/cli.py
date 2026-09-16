@@ -2847,6 +2847,140 @@ def cmd_reembed(args) -> int:
     return 0 if failed == 0 else 1
 
 
+def cmd_link_relations(args) -> int:
+    """기존 지식 그래프 내의 엔티티 간 벡터 유사도 기반 관계(Edge) 자동 발굴 및 수립 (Phase 2)."""
+    from .extract.provider import RelationCandidate
+    from .ingest.service import IngestService
+    from .ontology.registry import classify_relation_type
+    from .store.graph import GraphStore
+    from .store.vectors import make_vector_store
+
+    s, theme = get_effective_settings(args)
+    conn = dbm.connect(s.db_file)
+    dbm.init_db(conn)
+    vstore = make_vector_store(conn, s.vector_backend)
+    gstore = GraphStore(conn)
+    svc = IngestService(s)
+    provider = svc.provider
+
+    ents = dbm.all_entities(conn)
+    if not ents:
+        print("분석할 엔티티가 없습니다.")
+        conn.close()
+        return 0
+
+    limit = getattr(args, "limit", 50) or 50
+    min_score = getattr(args, "min_score", None)
+    if min_score is None:
+        min_score = getattr(s, "sim_tier_relational", 0.70)
+    max_score = getattr(s, "sim_tier_auto_merge", 0.93)
+    dry_run = getattr(args, "dry_run", False)
+    provider_name = getattr(provider, "name", "?")
+
+    print(
+        f"지식 그래프 관계 자동 수립 분석 시작 (총 {len(ents)}개 노드, provider={provider_name}, "
+        f"score=[{min_score:.2f}, {max_score:.2f}), limit={limit}, dry_run={dry_run})"
+    )
+
+    candidates: list[tuple[Entity, Entity, float]] = []
+    seen_pairs = set()
+
+    for ent in ents:
+        vec = vstore.get(ent.id)
+        if not vec:
+            continue
+        hits = vstore.search(
+            vec, limit=16, adaptive_center=s.vector_adaptive_centering
+        )
+        for cand_id, score in hits:
+            if cand_id == ent.id or score < min_score or score >= max_score:
+                continue
+            pair_key = (min(ent.id, cand_id), max(ent.id, cand_id))
+            if pair_key in seen_pairs:
+                continue
+            seen_pairs.add(pair_key)
+            if gstore.has_edge(ent.id, cand_id, bidirectional=True):
+                continue
+            cand_ent = dbm.get_entity(conn, cand_id)
+            if cand_ent:
+                candidates.append((ent, cand_ent, score))
+
+    if not candidates:
+        print("연결 후보가 될 만한 미연결 엔티티 쌍이 발견되지 않았습니다.")
+        conn.close()
+        return 0
+
+    candidates.sort(key=lambda x: x[2], reverse=True)
+    if limit > 0:
+        candidates = candidates[:limit]
+
+    print(f"\n총 {len(candidates)}개 후보 쌍을 관계 판정기로 평가합니다...")
+
+    created_count = 0
+    rejected_count = 0
+
+    for i, (ent_a, ent_b, score) in enumerate(candidates, 1):
+        rc = RelationCandidate(
+            entity_a_name=ent_a.name,
+            entity_a_type=ent_a.type,
+            entity_a_observations=ent_a.observations[:5],
+            entity_a_aliases=ent_a.aliases[:5],
+            entity_b_name=ent_b.name,
+            entity_b_type=ent_b.type,
+            entity_b_observations=ent_b.observations[:5],
+            entity_b_aliases=ent_b.aliases[:5],
+            similarity_score=score,
+            context="Batch Knowledge Graph Linking (Phase 2)",
+        )
+
+        try:
+            judgement = provider.judge_relationship(rc)
+        except Exception as e:
+            print(f"  [{i}/{len(candidates)}] {ent_a.name} ↔ {ent_b.name} 판정 오류: {e}")
+            continue
+
+        if judgement and judgement.has_relation and judgement.relation_type:
+            rtype, _ = classify_relation_type(judgement.relation_type)
+            if judgement.direction == "backward":
+                s_id, t_id = ent_b.id, ent_a.id
+                s_name, t_name = ent_b.name, ent_a.name
+            else:
+                s_id, t_id = ent_a.id, ent_b.id
+                s_name, t_name = ent_a.name, ent_b.name
+
+            if not dry_run:
+                gstore.add_edge(
+                    s_id,
+                    t_id,
+                    rtype,
+                    confidence=judgement.confidence,
+                    sources=["cli:link-relations"],
+                )
+                if judgement.direction == "bidirectional":
+                    gstore.add_edge(
+                        t_id,
+                        s_id,
+                        rtype,
+                        confidence=judgement.confidence,
+                        sources=["cli:link-relations"],
+                    )
+            created_count += 1
+            action_badge = "[DRY-RUN] " if dry_run else ""
+            print(
+                f"  [{i}/{len(candidates)}] {action_badge}✅ 관계 수립: {s_name} -> {t_name} "
+                f"({rtype}, conf={judgement.confidence:.2f}) — 사유: {judgement.reason}"
+            )
+        else:
+            rejected_count += 1
+            reason_text = judgement.reason if judgement else "관계 없음"
+            print(f"  [{i}/{len(candidates)}] ❌ 관계 기각: {ent_a.name} ↔ {ent_b.name} — 사유: {reason_text}")
+
+    conn.close()
+    dry_prefix = "(드라이런) " if dry_run else ""
+    print(f"\n{dry_prefix}관계 수립 완료: 총 {len(candidates)}쌍 중 성립 {created_count}개, 기각 {rejected_count}개")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="claire", description="Claire Bible knowledge base")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -3332,6 +3466,15 @@ def build_parser() -> argparse.ArgumentParser:
     preembed.add_argument("--limit", type=int, default=0, help="limit number of entities to re-embed")
     preembed.add_argument("--dry-run", action="store_true", help="simulate re-embedding without writing to db")
     preembed.set_defaults(func=cmd_reembed)
+
+    plink = sub.add_parser(
+        "link-relations",
+        help="discover and link cross-document relationships across existing knowledge base",
+    )
+    plink.add_argument("--limit", type=int, default=50, help="limit number of candidate pairs to judge (default: 50)")
+    plink.add_argument("--min-score", type=float, default=None, help="minimum cosine similarity threshold (default: sim_tier_relational 0.70)")
+    plink.add_argument("--dry-run", action="store_true", help="simulate relation judging without writing to db")
+    plink.set_defaults(func=cmd_link_relations)
 
     return p
 

@@ -221,6 +221,9 @@ VMware Explore 숫자형 영상 상세 페이지가 Presentation PDF를 명시�
 | `CLAIRE_SIM_TIER_RELATIONAL` | `0.70` | 부동소수점 (`0.0~1.0`) | **Tier 3 직접 관계 형성 후보 하한**. 동일체가 아닌 독립 엔티티로 생성하되 문서 간 직접 엣지 링킹(`relational_candidates`) 후보군으로 보존합니다. |
 | `CLAIRE_SIM_TIER_MULTIHOP` | `0.55` | 부동소수점 (`0.0~1.0`) | **Tier 4 다단계/미싱링크 후보 하한**. 잠재적 매개 개념(Bridge Node) 및 삼각 폐쇄 발굴을 위한 간접 관계 후보군(`multihop_candidates`)으로 보존합니다. |
 | `CLAIRE_VECTOR_ADAPTIVE_CENTERING` | `1` (`true`) | `0`, `1`, `true`, `false` | **적응형 중심화(Adaptive Centering) 활성화 여부**. 전체 벡터의 중심점(Centroid)을 감산하여 공통 도메인 어휘로 인한 허브니스(Hubness) 편향을 억제하고 코사인 분별력을 극대화합니다. |
+| `CLAIRE_ENABLE_RELATION_LINKING` | `1` (`true`) | `0`, `1`, `true`, `false` | **Phase 2 전역 횡단 관계 자동 수립 활성화 여부**. 인제스트 파이프라인에서 추출된 엔티티의 `relational_candidates`를 기반으로 문서 경계를 넘는 횡단형 관계(Edge)를 자동 형성합니다. |
+| `CLAIRE_MAX_RELATION_JUDGES_PER_ENTITY` | `3` | 정수 | **엔티티당 최대 관계 판정 질의 상한**. 과도한 LLM 비용/지연을 억제하기 위해 단일 엔티티에서 평가할 최대 후보 쌍 수를 제한합니다. |
+| `CLAIRE_MAX_RELATION_JUDGES_PER_DOC` | `10` | 정수 | **문서당 최대 관계 판정 질의 상한**. 단일 문서 인제스트 시 평가할 전체 횡단 후보 쌍의 총합 상한입니다. |
 
 ---
 

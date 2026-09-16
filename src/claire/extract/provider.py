@@ -82,6 +82,31 @@ class MergeCandidate(BaseModel):
     cand_observations: list[str] = Field(default_factory=list)
 
 
+class RelationCandidate(BaseModel):
+    """지식 그래프 후보 간 관계 판정 입력 정보 (Phase 2)."""
+
+    entity_a_name: str
+    entity_a_type: str
+    entity_a_observations: list[str] = Field(default_factory=list)
+    entity_a_aliases: list[str] = Field(default_factory=list)
+    entity_b_name: str
+    entity_b_type: str
+    entity_b_observations: list[str] = Field(default_factory=list)
+    entity_b_aliases: list[str] = Field(default_factory=list)
+    similarity_score: float = 0.0
+    context: str | None = None
+
+
+class RelationJudgement(BaseModel):
+    """두 엔티티 간의 관계 성립 여부 및 방향/타입 판정 결과 (Phase 2)."""
+
+    has_relation: bool = False
+    relation_type: str | None = None
+    direction: str = "forward"  # "forward" (A -> B), "backward" (B -> A), or "bidirectional"
+    reason: str = ""
+    confidence: float = 1.0
+
+
 # --- LLM 호출 진행 이벤트(스레드-로컬) ---
 # 긴 작업(맥락 조사 등)이 rate limit 대기/재시도 같은 내부 상황을 실시간으로 UI 에
 # 흘릴 수 있게 한다. provider 인스턴스는 봇/API 가 공유하므로 인스턴스 속성 대신
@@ -159,6 +184,10 @@ class Provider(Protocol):
     ) -> list[float]: ...
 
     def judge_same_entity(self, mc: MergeCandidate) -> bool: ...
+
+    def judge_relationship(
+        self, rc: RelationCandidate
+    ) -> RelationJudgement: ...
 
     def summarize_search(self, query: str, context: str) -> str: ...
 
@@ -263,6 +292,63 @@ class MockProvider:
             return False
         names = {mc.cand_name.casefold(), *(a.casefold() for a in mc.cand_aliases)}
         return mc.new_name.casefold() in names
+
+    def judge_relationship(self, rc: RelationCandidate) -> RelationJudgement:
+        """결정론적 휴리스틱 / 테스트 훅 지원 (Phase 2)."""
+        if hasattr(self, "_judge_rel_hook") and callable(self._judge_rel_hook):
+            return self._judge_rel_hook(rc)
+
+        a_obs = " ".join(rc.entity_a_observations).lower()
+        b_obs = " ".join(rc.entity_b_observations).lower()
+        a_name = rc.entity_a_name.lower()
+        b_name = rc.entity_b_name.lower()
+
+        # 개선 관계 (improves)
+        if (
+            "improves" in a_obs
+            or "improves upon" in a_obs
+            or "optimized" in a_obs
+            or "faster than" in a_obs
+        ):
+            return RelationJudgement(
+                has_relation=True,
+                relation_type="improves",
+                direction="forward",
+                reason=f"{rc.entity_a_name} improves {rc.entity_b_name}",
+                confidence=0.85,
+            )
+
+        # 파생/기반 관계 (derived_from)
+        if "derived from" in a_obs or "based on" in a_obs or "built on" in a_obs:
+            return RelationJudgement(
+                has_relation=True,
+                relation_type="derived_from",
+                direction="forward",
+                reason=f"{rc.entity_a_name} is derived from {rc.entity_b_name}",
+                confidence=0.9,
+            )
+
+        # A가 B를 사용/참조
+        if b_name in a_obs:
+            return RelationJudgement(
+                has_relation=True,
+                relation_type="uses",
+                direction="forward",
+                reason=f"{rc.entity_a_name} references {rc.entity_b_name}",
+                confidence=0.9,
+            )
+
+        # B가 A를 사용/참조
+        if a_name in b_obs:
+            return RelationJudgement(
+                has_relation=True,
+                relation_type="uses",
+                direction="backward",
+                reason=f"{rc.entity_b_name} references {rc.entity_a_name}",
+                confidence=0.9,
+            )
+
+        return RelationJudgement(has_relation=False, reason="No direct relationship found")
 
     def summarize_search(self, query: str, context: str) -> str:
         """결정론적 stub — 종합/검색 경로를 mock 으로 테스트 가능하게(실제 정리는 Gemini).

@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from ..ontology.base import Document
-    from .provider import MergeCandidate
+    from .provider import MergeCandidate, RelationCandidate
 
 # 추출 프롬프트 버전. _SYS 또는 핵심 추출 지침을 바꾸면 올린다.
 # v4: summary/observations/key_claims 및 주요 서술 출력에 문어체(서술체: ~한다/~이다/~함) 적용.
@@ -807,6 +807,60 @@ def judge_same_entity_prompt(mc: MergeCandidate) -> str:
         f"B: name={mc.cand_name!r} type={mc.cand_type!r} aliases={mc.cand_aliases}\n"
         f"   notes={' | '.join(mc.cand_observations)[:400]}\n\n"
         "Answer with exactly one word: SAME or DIFFERENT."
+    )
+
+
+def judge_relationship_prompt(rc: RelationCandidate) -> str:
+    """두 지식 그래프 엔티티 간의 유의미한 온톨로지 관계 판정 프롬프트 (Phase 2)."""
+    ctx_block = f"[Context / Document]\n{rc.context.strip()}\n\n" if rc.context else ""
+    obs_a = "\n".join(f"- {o}" for o in rc.entity_a_observations) or "- (none)"
+    obs_b = "\n".join(f"- {o}" for o in rc.entity_b_observations) or "- (none)"
+    aliases_a = ", ".join(rc.entity_a_aliases) or "(none)"
+    aliases_b = ", ".join(rc.entity_b_aliases) or "(none)"
+
+    return (
+        "You are an expert knowledge graph ontology validator analyzing two closely related "
+        "entities in AI and software engineering.\n\n"
+        "Your task: Decide if there is a DIRECT, FACTUAL, and MEANINGFUL relationship between "
+        "Entity A and Entity B based on established real-world facts or the provided context.\n\n"
+        "[Rules & Guidelines]\n"
+        "1. HIGH PRECISION: Do NOT invent or guess relationships. If there is no clear direct connection "
+        "between them, set `has_relation: false`. Mere co-occurrence or broad domain similarity does NOT "
+        "constitute a relation (e.g. two unrelated neural network libraries should NOT be linked unless "
+        "one explicitly competes with, is an alternative to, or uses the other).\n"
+        "2. Do NOT use `related_to` as a dumping ground for vague semantic similarity. Only choose an explicit, "
+        "well-defined relation type:\n"
+        "   - uses: source uses, depends on, or calls target.\n"
+        "   - improves: source improves upon, accelerates, or optimizes target.\n"
+        "   - derived_from: source is based on, fine-tuned from, or derived from target.\n"
+        "   - competes_with: source competes directly with target in the same specific space/niche.\n"
+        "   - alternative_to: source is a drop-in replacement or alternative to target.\n"
+        "   - implements: source implements/realizes target concept or specification.\n"
+        "   - part_of: source is a component, submodule, or part of target.\n"
+        "   - integrates_with: source integrates or interoperates with target.\n"
+        "   - authored_by: source was created by target person or organization.\n"
+        "   - cites: source explicitly cites or references target paper/work.\n"
+        "3. DIRECTION: Explicitly define whether the relationship flows:\n"
+        "   - 'forward': Entity A -> Entity B (e.g. Entity A uses Entity B, or Entity A improves Entity B)\n"
+        "   - 'backward': Entity B -> Entity A (e.g. Entity B uses Entity A, or Entity B improves Entity A)\n"
+        "   - 'bidirectional': Symmetrical relation (e.g. competes_with, alternative_to, integrates_with)\n"
+        "4. Output must be strictly valid JSON matching this schema:\n"
+        "{\n"
+        '  "has_relation": true,\n'
+        '  "relation_type": "uses",\n'
+        '  "direction": "forward",\n'
+        '  "reason": "Clear 1-sentence factual justification in Korean written style (~한다/~이다)",\n'
+        '  "confidence": 0.95\n'
+        "}\n\n"
+        f"{ctx_block}"
+        f"[Entity A]\n"
+        f"Name: {rc.entity_a_name} (Type: {rc.entity_a_type})\n"
+        f"Aliases: {aliases_a}\n"
+        f"Observations:\n{obs_a}\n\n"
+        f"[Entity B]\n"
+        f"Name: {rc.entity_b_name} (Type: {rc.entity_b_type})\n"
+        f"Aliases: {aliases_b}\n"
+        f"Observations:\n{obs_b}\n"
     )
 
 

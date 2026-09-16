@@ -949,19 +949,20 @@ def find_entities_by_name_or_alias(
     """
     from ..ontology.base import normalize_name
 
+    target = normalize_name(norm_name)
     out: dict[str, Entity] = {}
-    for r in conn.execute("SELECT * FROM entities WHERE norm_name=?", (norm_name,)):
+    for r in conn.execute("SELECT * FROM entities WHERE norm_name=?", (target,)):
         e = _row_to_entity(r)
         out[e.id] = e
     # alias 매칭: aliases JSON 문자열에 후보 토큰이 들어간 행만 1차 필터
-    like = f'%{norm_name}%'
+    like = f'%{target}%'
     for r in conn.execute(
         "SELECT * FROM entities WHERE aliases LIKE ? COLLATE NOCASE", (like,)
     ):
         e = _row_to_entity(r)
         if e.id in out:
             continue
-        if norm_name in {normalize_name(a) for a in e.aliases}:
+        if target in {normalize_name(a) for a in e.aliases}:
             out[e.id] = e
     return list(out.values())
 
@@ -1048,6 +1049,42 @@ def document_relations(conn: sqlite3.Connection, document_id: str) -> list[Relat
         if document_id in (rel.sources or []):
             out.append(rel)
     return out
+
+
+def has_relation_between(conn: sqlite3.Connection, id1: str, id2: str) -> bool:
+    """id1과 id2 사이에 어떤 방향이든 관계가 존재하는지 확인."""
+    row = conn.execute(
+        """SELECT 1 FROM relations
+        WHERE (source_id=? AND target_id=?) OR (source_id=? AND target_id=?)
+        LIMIT 1""",
+        (id1, id2, id2, id1),
+    ).fetchone()
+    return row is not None
+
+
+def add_edge(
+    conn: sqlite3.Connection,
+    source_id: str,
+    target_id: str,
+    rel_type: str,
+    *,
+    confidence: float = 1.0,
+    props: dict | None = None,
+    sources: list[str] | None = None,
+    provisional: bool = False,
+) -> Relation | None:
+    """GraphStore를 통한 엣지 추가/갱신 편의 함수."""
+    from .graph import GraphStore
+
+    return GraphStore(conn).add_edge(
+        source_id=source_id,
+        target_id=target_id,
+        rel_type=rel_type,
+        confidence=confidence,
+        props=props,
+        sources=sources,
+        provisional=provisional,
+    )
 
 
 # --- proposals ---
