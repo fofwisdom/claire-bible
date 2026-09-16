@@ -2345,11 +2345,6 @@ def diagnose_graph(conn: sqlite3.Connection) -> dict[str, Any]:
     ghost_entities = []
     entities_rows = conn.execute("SELECT id, name, sources FROM entities").fetchall()
 
-    rel_entity_ids = set()
-    for row in conn.execute("SELECT source_id, target_id FROM relations").fetchall():
-        rel_entity_ids.add(row[0])
-        rel_entity_ids.add(row[1])
-
     for r in entities_rows:
         try:
             srcs = _json.loads(r["sources"] or "[]")
@@ -2360,7 +2355,8 @@ def diagnose_graph(conn: sqlite3.Connection) -> dict[str, Any]:
             stale_entity_sources.append(
                 {"id": r["id"], "name": r["name"], "invalid_sources": [s for s in srcs if s not in doc_ids]}
             )
-        if len(valid_srcs) == 0 and r["id"] not in rel_entity_ids:
+        # 출처 문서가 없는 엔티티는 관계 유무와 관계없이 고아(Ghost)로 판정
+        if len(valid_srcs) == 0:
             ghost_entities.append({"id": r["id"], "name": r["name"]})
 
     stale_relation_sources = []
@@ -2485,22 +2481,19 @@ def heal_graph(conn: sqlite3.Connection) -> dict[str, int]:
 
     doc_ids = {row[0] for row in conn.execute("SELECT id FROM documents").fetchall()}
 
-    # 1. 고아 관계 삭제
-    del_rels = conn.execute(
-        """
-        DELETE FROM relations
-        WHERE source_id NOT IN (SELECT id FROM entities)
-           OR target_id NOT IN (SELECT id FROM entities)
-        """
-    )
-    healed["dangling_relations_removed"] = del_rels.rowcount if del_rels.rowcount > 0 else 0
+    # 0. 문서가 0건인 경우: 온톨로지 성립 근거가 전무하므로 지식 그래프 전량 소각
+    if not doc_ids:
+        ent_count = conn.execute("SELECT COUNT(*) FROM entities").fetchone()[0]
+        rel_count = conn.execute("SELECT COUNT(*) FROM relations").fetchone()[0]
+        emb_count = conn.execute("SELECT COUNT(*) FROM embeddings").fetchone()[0]
+        reset_graph(conn)
+        healed["ghost_entities_pruned"] = ent_count
+        healed["dangling_relations_removed"] = rel_count
+        healed["orphan_embeddings_removed"] = emb_count
+        healed["fts_reindexed"] = 0
+        return healed
 
-    # 2. 엔티티 stale sources 정제 및 고아 엔티티 선별
-    rel_entity_ids = set()
-    for row in conn.execute("SELECT source_id, target_id FROM relations").fetchall():
-        rel_entity_ids.add(row[0])
-        rel_entity_ids.add(row[1])
-
+    # 1. 엔티티 stale sources 정제 및 고아 엔티티 선별
     entities_rows = conn.execute("SELECT id, name, sources FROM entities").fetchall()
     ghost_ids = []
     for r in entities_rows:
@@ -2515,10 +2508,11 @@ def heal_graph(conn: sqlite3.Connection) -> dict[str, int]:
                 (_json.dumps(valid_srcs, ensure_ascii=False), r["id"]),
             )
             healed["stale_entity_sources_cleaned"] += 1
-        if len(valid_srcs) == 0 and r["id"] not in rel_entity_ids:
+        # 출처 문서가 완전히 소멸한 엔티티는 관계 유무에 관계없이 고아로 판정
+        if len(valid_srcs) == 0:
             ghost_ids.append(r["id"])
 
-    # 3. 고아 엔티티 삭제
+    # 2. 고아 엔티티 삭제
     if ghost_ids:
         for gid in ghost_ids:
             conn.execute("DELETE FROM entities WHERE id=?", (gid,))
@@ -2526,7 +2520,7 @@ def heal_graph(conn: sqlite3.Connection) -> dict[str, int]:
             conn.execute("DELETE FROM embeddings WHERE owner_id=?", (gid,))
         healed["ghost_entities_pruned"] = len(ghost_ids)
 
-    # 4. 관계 stale sources 정제
+    # 3. 관계 stale sources 정제
     for r in conn.execute("SELECT id, sources FROM relations").fetchall():
         try:
             srcs = _json.loads(r["sources"] or "[]")
@@ -2539,6 +2533,18 @@ def heal_graph(conn: sqlite3.Connection) -> dict[str, int]:
                 (_json.dumps(valid_srcs, ensure_ascii=False), r["id"]),
             )
             healed["stale_relation_sources_cleaned"] += 1
+
+    # 4. 고아/출처 소멸 관계 연쇄 삭제 (dangling relations & ungrounded relations)
+    del_rels = conn.execute(
+        """
+        DELETE FROM relations
+        WHERE source_id NOT IN (SELECT id FROM entities)
+           OR target_id NOT IN (SELECT id FROM entities)
+           OR sources = '[]'
+           OR sources IS NULL
+        """
+    )
+    healed["dangling_relations_removed"] = del_rels.rowcount if del_rels.rowcount > 0 else 0
 
     # 5. 고아 임베딩 삭제
     del_emb = conn.execute(

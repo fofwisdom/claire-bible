@@ -186,8 +186,8 @@ VMware Explore 숫자형 영상 상세 페이지가 Presentation PDF를 명시�
 | `CLAIRE_VAULT_PATH` | `vault` | 상대/절대 디렉터리 경로 | 볼트(문서 본문) 저장소 경로 (컨테이너 내부 기준). 상대경로는 `CLAIRE_APP_ROOT` 아래에서 해석됩니다. |
 | `CLAIRE_VECTOR_BACKEND` | `auto` | `auto`, `vec`, `brute` | 벡터 검색 백엔드 (`auto`: `sqlite-vec` 확장 우선, 미지원 시 `brute` 무차별 대입 폴백). |
 | `CLAIRE_RENDER_FORMAT` | `adoc` | `adoc` (`asciidoc`), `md` (`markdown`) | 문서 읽기 및 저장 기본 렌더링 포맷. ([DUAL_FORMAT_ADOC_DESIGN.md](../design/DUAL_FORMAT_ADOC_DESIGN.md) 참조) |
-| `CLAIRE_DATA_LIFECYCLE` | `append-only` | `append-only`, `purgeable` | **데이터 수명주기 정책**. `append-only`(기본값, 무손실 보존 모드)에서는 파괴적 소각(`claire purge`) 명령이 정책상 차단됩니다. |
-| `CLAIRE_ALLOW_PURGE` | `0` (`false`) | `0`, `1`, `true`, `false` | 명시적 데이터 소각 허용 플래그. `1`로 설정하거나 `CLAIRE_DATA_LIFECYCLE=purgeable`이어야 소각 명령이 통과됩니다. ([DATA_LIFECYCLE_AND_PURGE_DESIGN.md](../design/DATA_LIFECYCLE_AND_PURGE_DESIGN.md) 참조) |
+| `CLAIRE_DATA_LIFECYCLE` | `purgeable` | `append-only`, `purgeable` | **데이터 수명주기 정책**. 기본값 `purgeable`에서는 오염 데이터 소각(`claire purge`)이 허용됩니다. `append-only`(무손실 보존 모드)로 설정하면 파괴적 소각 명령이 정책상 차단됩니다. |
+| `CLAIRE_ALLOW_PURGE` | `1` (`true`) | `0`, `1`, `true`, `false` | 명시적 데이터 소각 허용 플래그. 기본값 `1`(허용). `0`으로 설정하고 `CLAIRE_DATA_LIFECYCLE=append-only`로 두면 소각 명령이 차단됩니다. ([DATA_LIFECYCLE_AND_PURGE_DESIGN.md](../design/DATA_LIFECYCLE_AND_PURGE_DESIGN.md) 참조) |
 | `CLAIRE_MULTI_THEME` | `0` (`false`) | `0`, `1`, `true`, `false` | **멀티 테마(다중 DB 격리) 활성화 플래그**. 기본값 `0`(싱글 테마 모드)에서는 `themes.json` 스캔과 UI 테마 선택기가 비활성화되며, `1`로 설정 시 일련번호 기반 다중 테마 정의·스위칭·적재 및 권한 제어가 활성화됩니다. ([MULTI_THEME_ARCHITECTURE_DESIGN.md](../design/MULTI_THEME_ARCHITECTURE_DESIGN.md) 참조) |
 | `CLAIRE_TELEMETRY_RETENTION_DAYS` | `30` | 양의 정수 (일) | **텔레메트리 보관 기한**. 격리된 `data/telemetry.db`의 호출 계측 데이터 최대 보존 일수이자 Support Bundle 생성 시 지정 가능한 최대 기간(`days`) 상한. ([TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md](../design/TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md) 참조) |
 
@@ -327,7 +327,7 @@ chmod 0600 .env .env.dev .env.deploy
 - **`CLAIRE_PUBLIC_URL` 일치**: Nginx, Caddy, Cloudflare Tunnel 등의 Reverse Proxy 뒤에 배포할 때는 사용자가 브라우저 주소창에 입력하는 실제 FQDN URL(`https://claire.example.com`)을 반드시 `CLAIRE_PUBLIC_URL`에 설정해야 정상적인 Host 헤더 검증과 공유 링크 동작이 가능합니다.
 
 ### 3.4 데이터 수명주기 보호
-데이터 소각(`claire purge`) 명령을 방지하려면 기본값인 `CLAIRE_DATA_LIFECYCLE=append-only`와 `CLAIRE_ALLOW_PURGE=0`을 유지하십시오. 테스트 또는 정리 목적으로 소각이 필요할 때만 명시적으로 `CLAIRE_DATA_LIFECYCLE=purgeable`로 변경하십시오.
+데이터 소각(`claire purge`) 명령을 방지하고 엄격한 무손실 보존 모드를 적용하려면 `CLAIRE_DATA_LIFECYCLE=append-only`와 `CLAIRE_ALLOW_PURGE=0`을 명시하십시오. 기본값은 `CLAIRE_DATA_LIFECYCLE=purgeable` 및 `CLAIRE_ALLOW_PURGE=1`로 설정되어 있어 기본 상태에서 소각 명령이 허용됩니다.
 
 ---
 
@@ -369,8 +369,8 @@ CLAIRE_PUBLIC_URL=https://claire.example.com
 
 # --- 저장소 및 수명주기 ---
 CLAIRE_RENDER_FORMAT=adoc
-CLAIRE_DATA_LIFECYCLE=append-only
-CLAIRE_ALLOW_PURGE=0
+CLAIRE_DATA_LIFECYCLE=purgeable
+CLAIRE_ALLOW_PURGE=1
 CLAIRE_PREFERRED_LANGUAGES=ko
 ```
 

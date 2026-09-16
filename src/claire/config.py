@@ -337,10 +337,10 @@ class Settings(BaseSettings):
     vector_backend: str = Field(default="auto", alias="CLAIRE_VECTOR_BACKEND")
     # 읽기/가독 렌더링 포맷 (md: Markdown, adoc: AsciiDoc). 기본값 adoc.
     render_format: str = Field(default="adoc", alias="CLAIRE_RENDER_FORMAT")
-    # 데이터 수명주기 정책: append-only (기본값) | purgeable (또는 mutable).
-    data_lifecycle: str = Field(default="append-only", alias="CLAIRE_DATA_LIFECYCLE")
-    # 명시적 소각 허용 플래그 (0|1 또는 boolean). 기본값 False(불허).
-    allow_purge: bool = Field(default=False, alias="CLAIRE_ALLOW_PURGE")
+    # 데이터 수명주기 정책: purgeable (기본값) | append-only.
+    data_lifecycle: str = Field(default="purgeable", alias="CLAIRE_DATA_LIFECYCLE")
+    # 명시적 소각 허용 플래그 (0|1 또는 boolean). 기본값 True(허용).
+    allow_purge: bool = Field(default=True, alias="CLAIRE_ALLOW_PURGE")
     # 멀티 테마(다중 데이터베이스) 모드 활성화 여부. 0(기본값)이면 단일 DB(data/claire.db) 고정, 1이면 멀티 테마 활성화
     multi_theme: bool = Field(default=False, alias="CLAIRE_MULTI_THEME")
 
