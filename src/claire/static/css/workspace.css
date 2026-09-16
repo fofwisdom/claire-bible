@@ -429,13 +429,25 @@
     #wrap,#detailpane,#detailtogglebtn{transition:none!important}
   }
 
+  /* --- Entity Actions Bar & Node Management Dropdown --- */
+  .node-actions-bar { display: flex; align-items: center; gap: 8px; margin: 8px 0 12px 0; flex-wrap: wrap; }
+  .node-manage-dropdown { position: relative; display: inline-block; }
+  .node-manage-btn { font-size: 12px; padding: 4px 10px; cursor: pointer; }
+  .node-manage-menu { position: absolute; top: calc(100% + 4px); left: 0; min-width: 130px; background: var(--card-bg); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 4px 16px var(--shadow); padding: 4px; z-index: 50; display: flex; flex-direction: column; gap: 2px; }
+  .node-manage-item { display: flex; align-items: center; gap: 6px; width: 100%; text-align: left; background: transparent; color: var(--fg); border: 0; border-radius: 4px; padding: 6px 10px; font-size: 12px; cursor: pointer; transition: background .15s ease, color .15s ease; }
+  .node-manage-item:hover, .node-manage-item:focus-visible { background: var(--hover); color: var(--accent); outline: none; }
+
   /* --- Entity Alias Chips & Primary Label Selection --- */
-  .node-aliases-section { margin: 10px 0; }
-  .node-aliases-section .al-label { font-size: 12px; font-weight: 600; color: var(--muted); display: block; margin-bottom: 6px; }
+  .node-aliases-section { margin: 12px 0; }
+  .node-aliases-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; gap: 8px; }
+  .node-aliases-section .al-label { font-size: 12px; font-weight: 600; color: var(--muted); display: inline-block; }
+  .alias-cancel-btn { background: transparent; color: var(--muted); border: 1px solid var(--border); border-radius: 4px; padding: 1px 7px; font-size: 11px; cursor: pointer; transition: all .15s ease; }
+  .alias-cancel-btn:hover { color: var(--fg); background: var(--hover); border-color: var(--fg); }
   .node-alias-chips { display: flex; flex-wrap: wrap; gap: 6px; }
-  .node-alias-chip { display: inline-flex; align-items: center; gap: 6px; background: var(--chip-bg); border: 1px solid var(--border); border-radius: 12px; padding: 2px 9px; font-size: 11.5px; color: var(--fg); line-height: 1.35; transition: border-color .15s ease; }
-  .node-alias-chip:hover { border-color: var(--accent); }
+  .node-alias-chip { display: inline-flex; align-items: center; gap: 5px; background: var(--chip-bg); border: 1px solid var(--border); border-radius: 12px; padding: 2.5px 10px; font-size: 12px; color: var(--fg); line-height: 1.35; transition: all .15s ease; }
   .node-alias-chip .alias-text { font-weight: 500; }
-  .alias-promote-btn { background: transparent; border: 1px solid transparent; color: var(--accent); cursor: pointer; padding: 1px 5px; font-size: 10.5px; line-height: 1.2; border-radius: 4px; font-weight: 600; opacity: .85; transition: all .15s ease; }
-  .alias-promote-btn:hover { opacity: 1; color: var(--accent); background: var(--hover); border-color: var(--border); }
+  button.node-alias-chip.selectable { cursor: pointer; font-family: inherit; }
+  button.node-alias-chip.selectable:hover { border-color: var(--accent); background: var(--hover); color: var(--accent); transform: translateY(-1px); box-shadow: 0 2px 6px rgba(0, 255, 170, 0.15); }
+  button.node-alias-chip.selectable:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .node-alias-chip .alias-star { color: var(--accent); font-size: 11px; opacity: .85; }
 

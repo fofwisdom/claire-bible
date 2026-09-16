@@ -1318,11 +1318,102 @@ function clearSelections(){
 document.addEventListener('keydown', e=>{
   if(handleReaderKey(e)) return;
   if(e.key!=='Escape') return;
+  const nodeMenu = document.getElementById('node-manage-menu');
+  if(nodeMenu && nodeMenu.style.display !== 'none'){
+    closeNodeManageMenu();
+    return;
+  }
+  const aliasCancelBtn = document.getElementById('alias-cancel-btn');
+  if(aliasCancelBtn && aliasCancelBtn.style.display !== 'none'){
+    cancelAliasSelectMode();
+    return;
+  }
   const bar=document.getElementById('bar');
   if(!document.getElementById('graphdocmenu').hidden){ closeGraphDocPicker(true, true); return; }
   if(bar.classList.contains('tools-open')){ closeToolsMenu(true, true); return; }
   if(document.body.classList.contains('detail-open')){ closeDetailPane(true); return; }
   clearSelections(); });
+
+let currentNodeData = null;
+
+function toggleNodeManageMenu(e){
+  if(e) e.stopPropagation();
+  const menu = document.getElementById('node-manage-menu');
+  const btn = document.getElementById('node-manage-btn');
+  if(!menu || !btn) return;
+  const isHidden = menu.style.display === 'none';
+  if(isHidden){
+    menu.style.display = 'block';
+    btn.setAttribute('aria-expanded', 'true');
+  } else {
+    menu.style.display = 'none';
+    btn.setAttribute('aria-expanded', 'false');
+  }
+}
+
+function closeNodeManageMenu(){
+  const menu = document.getElementById('node-manage-menu');
+  const btn = document.getElementById('node-manage-btn');
+  if(menu){
+    menu.style.display = 'none';
+  }
+  if(btn){
+    btn.setAttribute('aria-expanded', 'false');
+  }
+}
+
+function startAliasSelectMode(){
+  closeNodeManageMenu();
+  if(!currentNodeData || !currentNodeData.aliases || !currentNodeData.aliases.length) return;
+  const labelEl = document.getElementById('node-aliases-label');
+  const cancelBtn = document.getElementById('alias-cancel-btn');
+  const chipsEl = document.getElementById('node-alias-chips');
+  if(labelEl){
+    labelEl.innerHTML = '<span style="color:var(--accent);font-weight:600">대표로 지정할 별칭 선택</span>';
+  }
+  if(cancelBtn){
+    cancelBtn.style.display = 'inline-flex';
+  }
+  if(chipsEl){
+    chipsEl.classList.add('selecting');
+    chipsEl.innerHTML = currentNodeData.aliases.map(al =>
+      '<button type="button" class="node-alias-chip selectable" title="\'' + esc(al) + '\'을(를) 대표 레이블로 지정" onclick="promoteEntityAlias(\'' + esc(currentNodeData.id) + '\',\'' + esc(al).replace(/'/g, "\\'") + '\')">' +
+      '<span class="alias-star" aria-hidden="true">★</span> <span class="alias-text">' + esc(al) + '</span>' +
+      '</button>'
+    ).join('');
+    const firstSelectable = chipsEl.querySelector('button.selectable');
+    if(firstSelectable) firstSelectable.focus();
+  }
+}
+
+function cancelAliasSelectMode(){
+  if(!currentNodeData || !currentNodeData.aliases) return;
+  const labelEl = document.getElementById('node-aliases-label');
+  const cancelBtn = document.getElementById('alias-cancel-btn');
+  const chipsEl = document.getElementById('node-alias-chips');
+  if(labelEl){
+    labelEl.textContent = '별칭 (' + currentNodeData.aliases.length + ')';
+  }
+  if(cancelBtn){
+    cancelBtn.style.display = 'none';
+  }
+  if(chipsEl){
+    chipsEl.classList.remove('selecting');
+    chipsEl.innerHTML = currentNodeData.aliases.map(al =>
+      '<span class="node-alias-chip"><span class="alias-text">' + esc(al) + '</span></span>'
+    ).join('');
+  }
+}
+
+window.addEventListener('click', function(e){
+  const menu = document.getElementById('node-manage-menu');
+  const btn = document.getElementById('node-manage-btn');
+  if(menu && menu.style.display !== 'none'){
+    if(!menu.contains(e.target) && !btn.contains(e.target)){
+      closeNodeManageMenu();
+    }
+  }
+});
 
 function loadNode(id, hidePop=true){
   if(hidePop) hideNodePop();
@@ -1332,21 +1423,34 @@ function loadNode(id, hidePop=true){
 }
 function renderPanel(d){
   if(!d || d.error){ panel.innerHTML='<p class=hint>노드를 찾을 수 없습니다.</p>'; return; }
+  currentNodeData = d;
   const inSet = synthSet.has(d.id);
   // 문서를 고른 상태에서 노드로 들어왔으면 문서 패널로 한 번에 돌아갈 링크.
   let h = activeDoc ? '<span class=backlink onclick="loadDocPanel(activeDoc)">← 문서로 돌아가기</span>' : '';
   h+='<h2>'+esc(d.name)+' <small>'+esc(d.type)+(d.provisional?' ⚠️provisional':'')+'</small></h2>';
   // readonly(/webro) 세션은 종합(/synthesize)이 서버에서 막혀있어 버튼 자체를 안 그림.
-  if(canWrite()) h+='<button class="sec" onclick="addToSynth(\''+d.id+'\')">'+(inSet?'✓ 종합 목록에 있음':'➕ 종합에 추가')+'</button>';
+  if(canWrite()){
+    h+='<div class="node-actions-bar">';
+    h+='<button class="sec" onclick="addToSynth(\''+d.id+'\')">'+(inSet?'✓ 종합 목록에 있음':'➕ 종합에 추가')+'</button>';
+    if(d.aliases && d.aliases.length){
+      h+='<div class="node-manage-dropdown">';
+      h+='<button type="button" class="sec node-manage-btn" id="node-manage-btn" aria-haspopup="true" aria-expanded="false" onclick="toggleNodeManageMenu(event)">⚙️ 노드 관리 ▾</button>';
+      h+='<div class="node-manage-menu" id="node-manage-menu" style="display:none">';
+      h+='<button type="button" class="node-manage-item" id="node-manage-alias-btn" onclick="startAliasSelectMode()">🏷️ 대표 별칭</button>';
+      h+='</div>';
+      h+='</div>';
+    }
+    h+='</div>';
+  }
   if(d.aliases && d.aliases.length){
-    h+='<div class="node-aliases-section"><span class="al-label">별칭 ('+d.aliases.length+')</span><div class="node-alias-chips">';
-    const isWritable = canWrite();
+    h+='<div class="node-aliases-section" id="node-aliases-section">';
+    h+='<div class="node-aliases-header">';
+    h+='<span class="al-label" id="node-aliases-label">별칭 ('+d.aliases.length+')</span>';
+    h+='<button type="button" class="alias-cancel-btn" id="alias-cancel-btn" style="display:none" onclick="cancelAliasSelectMode()">취소</button>';
+    h+='</div>';
+    h+='<div class="node-alias-chips" id="node-alias-chips">';
     d.aliases.forEach(al=>{
-      h+='<span class="node-alias-chip"><span class="alias-text">'+esc(al)+'</span>';
-      if(isWritable){
-        h+='<button type="button" class="alias-promote-btn" title="이 별칭을 대표 레이블로 전환" onclick="promoteEntityAlias(\''+esc(d.id)+'\',\''+esc(al).replace(/'/g,"\\'")+'\')">★ 대표로 지정</button>';
-      }
-      h+='</span>';
+      h+='<span class="node-alias-chip"><span class="alias-text">'+esc(al)+'</span></span>';
     });
     h+='</div></div>';
   }

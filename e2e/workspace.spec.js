@@ -774,16 +774,29 @@ test('node aliases render and can be promoted to primary representative label in
   await expect(chips).toHaveCount(2);
   await expect(chips.first()).toContainText('별칭 A1');
 
-  // 5. Check promote button exists
-  const promoteBtn = chips.first().locator('.alias-promote-btn');
-  await expect(promoteBtn).toBeVisible();
-  await expect(promoteBtn).toContainText('대표로 지정');
+  // 5. Check '노드 관리' button exists next to '종합에 추가' and open dropdown
+  const manageBtn = panel.locator('#node-manage-btn');
+  await expect(manageBtn).toBeVisible();
+  await expect(manageBtn).toContainText('노드 관리');
+  await manageBtn.click();
 
-  // 6. Handle confirm dialog and click promote
+  // 6. Click '대표 별칭' from dropdown menu to enter selection mode
+  const aliasMenuBtn = panel.locator('#node-manage-alias-btn');
+  await expect(aliasMenuBtn).toBeVisible();
+  await expect(aliasMenuBtn).toContainText('대표 별칭');
+  await aliasMenuBtn.click();
+
+  // 7. Verify chips become selectable, and click the first selectable chip
+  const selectableChips = aliasesSection.locator('button.node-alias-chip.selectable');
+  await expect(selectableChips).toHaveCount(2);
+  const targetChip = selectableChips.first();
+  await expect(targetChip).toContainText('별칭 A1');
+
+  // 8. Handle confirm dialog and click promote
   page.once('dialog', dialog => dialog.accept());
-  await promoteBtn.click();
+  await targetChip.click();
 
-  // 7. Verify representative label changed to '별칭 A1'
+  // 9. Verify representative label changed to '별칭 A1'
   await expect(panel.locator('h2')).toContainText('별칭 A1');
 
   // 8. Verify old name '엔티티 A' is now in alias chips, and '별칭 A1' is not
