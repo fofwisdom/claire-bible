@@ -292,15 +292,34 @@ Claire Bible은 시스템 소유자(Owner), 협력자(Collaborator), 읽기 전�
   - **응답 헤더**: `Content-Type: application/zstd`, `Content-Disposition: attachment; filename="..."`
   - **수명주기**: 생성 후 6시간이 지나면 파일 및 레코드가 자동 파기되며 `410 Gone`을 반환합니다. 자세한 내용은 [TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md](../design/TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md)를 참고한다.
 
+## 테마 지식베이스 전용 FQDN 및 리버스 프록시 연동
+
+멀티 테마(`CLAIRE_MULTI_THEME=1`) 환경에서는 개별 테마 지식베이스를 독립된 FQDN(예: `ai.example.com`, `bible.example.com`)으로 분리하여 외부에 서비스할 수 있습니다.
+
+### 주요 동작 및 설정
+1. **WebUI 설정**:
+   - 지식 관리자(Owner)는 WebUI 우측 상단 '📁 테마 관리'에서 각 테마 카드의 ✏️ 수정을 통해 **전용 도메인 (FQDN)** 및 **GA4 측정 ID**를 직접 등록할 수 있습니다 (컨테이너 재시작 불필요).
+   - 카드 내의 '📋 프록시 설정' 버튼을 누르면 해당 테마의 FQDN이 반영된 Nginx 및 Caddyfile 설정 스니펫이 즉시 제공됩니다.
+2. **동적 HostAuthority 및 보안**:
+   - `HostAuthorityMiddleware`는 WebUI에서 등록된 FQDN을 런타임에 즉시 수용하며, 미등록된 임의의 호스트 요청은 `421 Misdirected Request`로 차단합니다.
+   - 전용 도메인으로 인입된 요청은 해당 테마의 격리된 SQLite DB/Vault로 자동 바인딩되며, 다른 테마로의 임의 변경(`?theme=...`)이 방지되는 도메인 고정(Domain Pinning)이 적용됩니다.
+3. **비공개 테마 은닉 (Fail-Closed Stealth Invariant)**:
+   - 비공개 테마(`is_public: false`)에 연결된 FQDN으로 익명 사용자가 접근하는 경우, 존재 자체를 숨기기 위해 `403`이 아닌 `404 Not Found`를 반환합니다.
+4. **리버스 프록시 필수 요건**:
+   - 외부 리버스 프록시(Nginx, Caddy, Cloudflare Tunnel)는 반드시 클라이언트가 요청한 `Host` 헤더를 변경 없이 Claire 백엔드로 전달해야 합니다 (`proxy_set_header Host $host;` 또는 `header_up Host {host}`).
+
+자세한 아키텍처 및 설정 가이드는 [THEME_FQDN_REVERSE_PROXY_DESIGN.md](../design/THEME_FQDN_REVERSE_PROXY_DESIGN.md)를 참고한다.
+
 ## 적용 확인
- 
- development에서는 설정한 IPv4 URL로 직접 접속하고 다른 interface에 port가 게시되지
- 않았는지 확인한다. production에서는 다음을 각각 확인한다.
- 
- 1. 올바른 hostname을 통한 HTTPS 요청은 성공한다.
- 2. 잘못된 Host는 proxy 또는 Claire에서 거부된다.
- 3. proxy host에서는 Claire HTTP upstream에 접속할 수 있다.
- 4. proxy 이외의 LAN host에서는 firewall 때문에 같은 upstream port에 접속할 수 없다.
- 5. 긴 NDJSON 응답이 proxy buffering 없이 순차 전달된다.
- 6. Claire와 proxy access log에 query string과 인증 정보가 남지 않는다.
+
+development에서는 설정한 IPv4 URL로 직접 접속하고 다른 interface에 port가 게시되지
+않았는지 확인한다. production에서는 다음을 각각 확인한다.
+
+1. 올바른 hostname을 통한 HTTPS 요청은 성공한다.
+2. 잘못된 Host는 proxy 또는 Claire에서 거부된다.
+3. proxy host에서는 Claire HTTP upstream에 접속할 수 있다.
+4. proxy 이외의 LAN host에서는 firewall 때문에 같은 upstream port에 접속할 수 없다.
+5. 긴 NDJSON 응답이 proxy buffering 없이 순차 전달된다.
+6. Claire와 proxy access log에 query string과 인증 정보가 남지 않는다.
+7. 등록된 테마 FQDN으로 접근 시 해당 테마 지식베이스로 자동 라우팅되며, 비공개 테마 FQDN은 익명 접속 시 404로 은닉된다.
  

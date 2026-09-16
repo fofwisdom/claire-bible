@@ -88,7 +88,12 @@ GRAPH_HTML: str = _build_standalone_graph_html()
 _SHARED_HTML: str = _build_standalone_shared_html()
 
 
-def render_ga_tag(measurement_id: str, doc_id: str = "") -> str:
+def render_ga_tag(
+    measurement_id: str,
+    doc_id: str = "",
+    theme_id: int | None = None,
+    theme_label: str = "",
+) -> str:
     """Google Analytics 4 (GA4 / gtag.js) 태그 스니펫을 생성한다.
 
     측정 ID가 없거나 유효하지 않으면 빈 문자열을 반환한다.
@@ -103,6 +108,12 @@ def render_ga_tag(measurement_id: str, doc_id: str = "") -> str:
         loc_expr = f"window.location.origin + '/p/{clean_doc_id}'"
     else:
         loc_expr = "window.location.origin + window.location.pathname"
+
+    extra_params = ""
+    if theme_id is not None:
+        safe_label = _html.escape(theme_label, quote=True)
+        extra_params = f',\n    theme_id: {theme_id},\n    theme_label: "{safe_label}"'
+
     return (
         "<!-- Google Analytics (GA4) -->\n"
         f'<script async src="https://www.googletagmanager.com/gtag/js?id={cleaned_id}"></script>\n'
@@ -113,7 +124,7 @@ def render_ga_tag(measurement_id: str, doc_id: str = "") -> str:
         f'  gtag("config", "{cleaned_id}", {{\n'
         f'    page_location: {loc_expr},\n'
         f'    cookie_domain: window.location.hostname,\n'
-        f'    cookie_flags: "SameSite=Lax;Secure"\n'
+        f'    cookie_flags: "SameSite=Lax;Secure"{extra_params}\n'
         f'  }});\n'
         "</script>"
     )
@@ -371,6 +382,7 @@ def render_graph_html(
     *,
     include_private: bool = True,
     collaborator: bool = False,
+    theme: Any | None = None,
 ) -> str:
     """Settings 의 저장소 변수, 관리자 변수 및 GA 설정을 반영하여 완성된 그래프 HTML 을 반환한다."""
     if settings is None:
@@ -391,12 +403,15 @@ def render_graph_html(
     )
     if not base_url:
         base_url = f"https://github.com/{repo}"
-    ga_id = getattr(
+    theme_ga_id = str(getattr(theme, "ga_measurement_id", "") or "").strip() if theme else ""
+    ga_id = theme_ga_id or getattr(
         s,
         "effective_ga_measurement_id",
         getattr(s, "ga_measurement_id", ""),
     )
-    ga_tag = render_ga_tag(ga_id)
+    theme_id = getattr(theme, "id", None) if theme else None
+    theme_label = getattr(theme, "label", "") if theme else ""
+    ga_tag = render_ga_tag(ga_id, theme_id=theme_id, theme_label=theme_label)
     sorcerer = getattr(
         s,
         "effective_sorcerer",

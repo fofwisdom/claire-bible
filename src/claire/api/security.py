@@ -588,9 +588,15 @@ async def _send_response(response: Response, scope: Scope, receive: Receive, sen
 
 
 class HostAuthorityMiddleware:
-    def __init__(self, app: ASGIApp, config: WebRuntimeConfig) -> None:
+    def __init__(
+        self,
+        app: ASGIApp,
+        config: WebRuntimeConfig,
+        theme_manager: Any | None = None,
+    ) -> None:
         self.app = app
         self.config = config
+        self.theme_manager = theme_manager
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
@@ -613,13 +619,19 @@ class HostAuthorityMiddleware:
             )
             return
         if authority != self.config.expected_authority:
-            await _send_response(
-                PlainTextResponse("Misdirected Request", status_code=421),
-                scope,
-                receive,
-                send,
-            )
-            return
+            # 테마 매니저에 등록된 FQDN인지 검사
+            host_only = authority.split(":")[0].lower()
+            is_theme_host = False
+            if self.theme_manager is not None:
+                is_theme_host = self.theme_manager.has_registered_fqdn(host_only)
+            if not is_theme_host:
+                await _send_response(
+                    PlainTextResponse("Misdirected Request", status_code=421),
+                    scope,
+                    receive,
+                    send,
+                )
+                return
         await self.app(scope, receive, send)
 
 
@@ -627,9 +639,25 @@ class CORSPolicyMiddleware:
     _ALLOWED_METHODS = frozenset({"GET", "HEAD", "POST"})
     _ALLOWED_HEADERS = frozenset({"authorization", "content-type"})
 
-    def __init__(self, app: ASGIApp, config: WebRuntimeConfig) -> None:
+    def __init__(
+        self,
+        app: ASGIApp,
+        config: WebRuntimeConfig,
+        theme_manager: Any | None = None,
+    ) -> None:
         self.app = app
         self.config = config
+        self.theme_manager = theme_manager
+
+    def _is_theme_origin(self, origin: str | None) -> bool:
+        if not origin or self.theme_manager is None:
+            return False
+        try:
+            parsed = urlsplit(origin)
+            host = (parsed.hostname or "").lower()
+            return self.theme_manager.has_registered_fqdn(host)
+        except Exception:
+            return False
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
@@ -648,6 +676,8 @@ class CORSPolicyMiddleware:
         if origin is None:
             state[_ORIGIN_KIND_KEY] = "none"
         elif origin == self.config.public_origin:
+            state[_ORIGIN_KIND_KEY] = "same"
+        elif self._is_theme_origin(origin):
             state[_ORIGIN_KIND_KEY] = "same"
         elif origin in self.config.cors_allowed_origins:
             state[_ORIGIN_KIND_KEY] = "cross"
@@ -1265,12 +1295,24 @@ def _safe_log_path(path: str) -> str:
 
 class SafeAccessLogMiddleware:
     def __init__(
-        self, app: ASGIApp, config: WebRuntimeConfig | None = None
+        self,
+        app: ASGIApp,
+        config: WebRuntimeConfig | None = None,
+        theme_manager: Any | None = None,
     ) -> None:
         self.app = app
         self.config = config
+        self.theme_manager = theme_manager
         ga_id = config.ga_measurement_id if config else ""
-        self.csp_header_value = _build_content_security_policy(ga_id).encode("ascii")
+        self._default_csp_header_value = _build_content_security_policy(ga_id).encode("ascii")
+        self._ga_csp_header_value = _build_content_security_policy("G-ACTIVE").encode("ascii")
+
+    @property
+    def csp_header_value(self) -> bytes:
+        has_ga = bool(self.config and self.config.ga_measurement_id) or (
+            self.theme_manager is not None and self.theme_manager.has_any_ga_enabled()
+        )
+        return self._ga_csp_header_value if has_ga else self._default_csp_header_value
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
@@ -1331,13 +1373,23 @@ class SafeAccessLogMiddleware:
             )
 
 
-def wrap_web_app(app: ASGIApp, settings: Any) -> ASGIApp:
+def wrap_web_app(
+    app: ASGIApp, settings: Any, *, theme_manager: Any | None = None
+) -> ASGIApp:
     """Starlette 앱 바깥에 보안 경계를 조립한다."""
+
+    if theme_manager is None and getattr(settings, "multi_theme", False):
+        try:
+            from ..store.theme import get_theme_manager
+
+            theme_manager = get_theme_manager(settings)
+        except Exception:
+            pass
 
     config = WebRuntimeConfig.from_settings(settings)
     secured: ASGIApp = AuthenticationMiddleware(app, config)
     secured = ErrorBoundaryMiddleware(secured)
     secured = BodyLimitMiddleware(secured)
-    secured = CORSPolicyMiddleware(secured, config)
-    secured = HostAuthorityMiddleware(secured, config)
-    return SafeAccessLogMiddleware(secured, config)
+    secured = CORSPolicyMiddleware(secured, config, theme_manager=theme_manager)
+    secured = HostAuthorityMiddleware(secured, config, theme_manager=theme_manager)
+    return SafeAccessLogMiddleware(secured, config, theme_manager=theme_manager)
