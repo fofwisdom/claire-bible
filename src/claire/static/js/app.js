@@ -197,44 +197,68 @@ function renderThemeSelector(){
   const sel = document.getElementById('theme-select');
   const iconEl = document.getElementById('theme-curr-icon');
   const wrap = document.getElementById('theme-picker-wrap');
+  const ctrl = document.getElementById('theme-select-control');
+  const plainDisplay = document.getElementById('theme-plain-display');
+  const plainIcon = document.getElementById('theme-plain-icon');
+  const plainLabel = document.getElementById('theme-plain-label');
   if(!sel) return;
 
   if(!availableThemes || !availableThemes.length){
     availableThemes = [{id: 0, seq: 0, label: '기본 지식베이스', description: '일반 수집 자료 및 기본 지식', icon: '📚', is_default: true}];
   }
 
-  // 싱글 테마 모드이거나 등록된 테마가 1개뿐인 경우 헤더 선택기 완전 숨김
-  if(wrap){
-    wrap.style.display = (isMultiThemeEnabled() && availableThemes.length > 1) ? 'inline-flex' : 'none';
-  }
-
+  const currHost = window.location.hostname.toLowerCase();
   const current = availableThemes.find(t => t.id === activeThemeId) || availableThemes[0];
   if(current){
     activeThemeId = current.id;
   }
 
-  const currHost = window.location.hostname.toLowerCase();
+  // FQDN 전용 도메인 접속 여부 판별 (해당 테마 FQDN 일치)
+  const isFqdnAccess = Boolean(current && current.fqdn && current.fqdn.toLowerCase() === currHost);
+
+  if(isFqdnAccess){
+    // FQDN 접속 시: 드롭다운 상자 숨기고 브랜드 우측 순수 텍스트만 표시
+    if(wrap){
+      wrap.style.display = 'inline-flex';
+      wrap.title = '지식 테마: ' + (current.label || '');
+    }
+    if(ctrl) ctrl.style.display = 'none';
+    if(plainDisplay) plainDisplay.style.display = 'inline-flex';
+    if(plainIcon) plainIcon.textContent = current.icon || '📚';
+    if(plainLabel) plainLabel.textContent = current.label || '기본 지식베이스';
+  } else {
+    // 일반 접속 시: 싱글 테마 모드이거나 테마가 1개뿐인 경우 숨김, 멀티 테마일 때 드롭다운 박스 표시
+    if(wrap){
+      wrap.style.display = (isMultiThemeEnabled() && availableThemes.length > 1) ? 'inline-flex' : 'none';
+      wrap.title = '지식 테마 선택 (데이터베이스 전환)';
+    }
+    if(ctrl) ctrl.style.display = 'inline-flex';
+    if(plainDisplay) plainDisplay.style.display = 'none';
+    if(iconEl && current){
+      iconEl.textContent = current.icon || '📚';
+    }
+  }
+
   sel.innerHTML = availableThemes.map(t => {
     const label = esc(t.label);
     const lockStr = t.is_public === false ? ' 🔒 (비공개)' : '';
-    const fqdnStr = (t.fqdn && t.fqdn.toLowerCase() === currHost) ? ' 🌐 (전용 도메인)' : '';
-    return `<option value="${t.id}" ${t.id === activeThemeId ? 'selected' : ''}>${label}${lockStr}${fqdnStr}</option>`;
+    return `<option value="${t.id}" ${t.id === activeThemeId ? 'selected' : ''}>${label}${lockStr}</option>`;
   }).join('');
-
-  if(iconEl && current){
-    iconEl.textContent = current.icon || '📚';
-  }
 }
 
 function syncThemeSelectorUI(){
   const sel = document.getElementById('theme-select');
   const iconEl = document.getElementById('theme-curr-icon');
+  const plainIcon = document.getElementById('theme-plain-icon');
+  const plainLabel = document.getElementById('theme-plain-label');
   if(sel){
     sel.value = String(activeThemeId);
   }
   const current = availableThemes.find(t => t.id === activeThemeId);
-  if(iconEl && current){
-    iconEl.textContent = current.icon || '📚';
+  if(current){
+    if(iconEl) iconEl.textContent = current.icon || '📚';
+    if(plainIcon) plainIcon.textContent = current.icon || '📚';
+    if(plainLabel) plainLabel.textContent = current.label || '기본 지식베이스';
   }
 }
 

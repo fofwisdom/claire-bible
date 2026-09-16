@@ -383,6 +383,7 @@ def render_graph_html(
     include_private: bool = True,
     collaborator: bool = False,
     theme: Any | None = None,
+    host: str | None = None,
 ) -> str:
     """Settings 의 저장소 변수, 관리자 변수 및 GA 설정을 반영하여 완성된 그래프 HTML 을 반환한다."""
     if settings is None:
@@ -459,10 +460,29 @@ def render_graph_html(
         .replace("&", "\\u0026")
     )
 
-    if is_multi and len(themes_list) > 1:
+    is_fqdn = False
+    if theme and getattr(theme, "fqdn", None) and host:
+        hostname = host.split(":", 1)[0].strip().lower()
+        if theme.fqdn.strip().lower() == hostname:
+            is_fqdn = True
+
+    if is_fqdn:
         picker_style_attr = 'style="display:inline-flex"'
+        picker_title_attr = f'title="지식 테마: {_html.escape(getattr(theme, "label", "") or "", quote=True)}"'
+        select_style_attr = 'style="display:none"'
+        plain_style_attr = 'style="display:inline-flex"'
+        plain_icon = _html.escape(getattr(theme, "icon", None) or "📚")
+        plain_label = _html.escape(getattr(theme, "label", None) or "")
     else:
-        picker_style_attr = 'style="display:none"'
+        if is_multi and len(themes_list) > 1:
+            picker_style_attr = 'style="display:inline-flex"'
+        else:
+            picker_style_attr = 'style="display:none"'
+        picker_title_attr = 'title="지식 테마 선택 (데이터베이스 전환)"'
+        select_style_attr = ""
+        plain_style_attr = 'style="display:none"'
+        plain_icon = "📚"
+        plain_label = ""
 
     return (
         GRAPH_HTML.replace("__SOURCE_BASE_URL__", base_url)
@@ -474,6 +494,11 @@ def render_graph_html(
         .replace("__THEME_MODE__", theme_mode)
         .replace("__THEMES_JSON__", themes_json_safe)
         .replace("__THEME_PICKER_STYLE_ATTR__", picker_style_attr)
+        .replace("__THEME_PICKER_TITLE_ATTR__", picker_title_attr)
+        .replace("__THEME_SELECT_STYLE_ATTR__", select_style_attr)
+        .replace("__THEME_PLAIN_STYLE_ATTR__", plain_style_attr)
+        .replace("__THEME_PLAIN_ICON__", plain_icon)
+        .replace("__THEME_PLAIN_LABEL__", plain_label)
     )
 
 
