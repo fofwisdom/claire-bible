@@ -312,13 +312,19 @@ class ThemeManager:
         self._rebuild_fqdn_index()
 
     def list_themes(
-        self, *, include_private: bool = True, collaborator: bool = False
+        self,
+        *,
+        include_private: bool = True,
+        collaborator: bool = False,
+        host: str | None = None,
     ) -> list[ThemeInfo]:
         """등록된 테마 목록을 일련번호 순서로 반환.
 
         include_private=True 인 경우 모든 테마 반환.
         collaborator=True 인 경우 공개(is_public=True) 또는 Collaborator 공개(is_collaborator_accessible=True) 테마 반환.
-        include_private=False 및 collaborator=False 인 경우 공개(is_public=True) 테마만 필터링하여 반환.
+        include_private=False 및 collaborator=False 인 경우 (익명 사용자):
+          - host가 특정 테마의 전용 FQDN인 경우: 해당 FQDN 테마만 반환 (is_public=True).
+          - host가 기본 도메인(또는 미지정)인 경우: FQDN이 설정되지 않은 공개 테마만 반환 (기본 지식베이스 및 일반 공개 테마).
         """
         self.reload()
         themes = sorted(self._themes.values(), key=lambda t: t.id)
@@ -326,7 +332,19 @@ class ThemeManager:
             return themes
         if collaborator:
             return [t for t in themes if t.is_public or t.is_collaborator_accessible]
-        return [t for t in themes if t.is_public]
+
+        cleaned_host = ""
+        if host:
+            cleaned_host = str(host).strip().lower()
+            if ":" in cleaned_host:
+                cleaned_host = cleaned_host.split(":", 1)[0].strip()
+
+        if cleaned_host and cleaned_host in self._fqdn_to_theme_id:
+            dedicated_tid = self._fqdn_to_theme_id[cleaned_host]
+            if dedicated_tid > 0:
+                return [t for t in themes if t.id == dedicated_tid and t.is_public]
+
+        return [t for t in themes if t.is_public and (not t.fqdn or t.is_default)]
 
     def get_theme(
         self,

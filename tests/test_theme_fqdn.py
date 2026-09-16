@@ -306,9 +306,20 @@ def test_theme_routing_and_domain_pinning(multi_theme_server_env):
     resp_ai_pinned = client.get(f"/documents?theme={t2_id}", headers={"Host": "ai.example.com"})
     assert resp_ai_pinned.status_code == 200
 
-    # 5. On the primary domain, ?theme= query parameter is fully respected
-    resp_primary_t2 = client.get(f"/documents?theme={t2_id}", headers={"Host": "127.0.0.1:8765"})
-    assert resp_primary_t2.status_code == 200
+    # 5. On the primary domain, FQDN theme is hidden from anonymous users (404 Fail-closed)
+    resp_primary_t2_anon = client.get(f"/documents?theme={t2_id}", headers={"Host": "127.0.0.1:8765"})
+    assert resp_primary_t2_anon.status_code == 404
+
+    # 6. On the primary domain, authenticated owner can access FQDN theme via ?theme= parameter
+    resp_primary_t2_owner = client.get(
+        f"/documents?theme={t2_id}",
+        headers={"Host": "127.0.0.1:8765", **OWNER_HEADERS},
+    )
+    assert resp_primary_t2_owner.status_code == 200
+
+    # 7. On its dedicated FQDN (Host: finance.example.com), anonymous access works normally
+    resp_finance = client.get("/documents", headers={"Host": "finance.example.com"})
+    assert resp_finance.status_code == 200
 
 
 def test_private_theme_fqdn_fail_closed_stealth(multi_theme_server_env):
@@ -495,3 +506,76 @@ def test_graph_ui_fqdn_renders_plain_text_without_dropdown(multi_theme_server_en
     assert 'id="theme-select-control"' in html_main
     # 일반 접속 시에도 드롭다운 옵션에 '(전용 도메인)' 문구 미노출
     assert "(전용 도메인)" not in html_main
+
+
+def test_fqdn_theme_anonymous_isolation_on_primary_domain(multi_theme_server_env):
+    """FQDN이 설정된 테마가 기본 도메인 접속 시 익명 사용자에게 완전히 은닉(Stealth 404)되는지 종합 검증."""
+    client, settings, _ = multi_theme_server_env
+
+    # 1. FQDN이 설정된 공개 테마 생성
+    r_ai = client.post(
+        "/themes",
+        json={"label": "AI 연구", "fqdn": "ai.example.com", "is_public": True},
+        headers=OWNER_HEADERS,
+    )
+    assert r_ai.status_code == 201
+    ai_theme_id = r_ai.json()["theme"]["id"]
+
+    # 2. FQDN이 없는 일반 공개 테마 생성
+    r_gen = client.post(
+        "/themes",
+        json={"label": "일반 테마", "fqdn": "", "is_public": True},
+        headers=OWNER_HEADERS,
+    )
+    assert r_gen.status_code == 201
+    gen_theme_id = r_gen.json()["theme"]["id"]
+
+    # 3. 기본 도메인(127.0.0.1:8765)에서 익명 사용자가 GET /themes 호출
+    resp_themes_anon = client.get("/themes", headers={"Host": "127.0.0.1:8765"})
+    assert resp_themes_anon.status_code == 200
+    themes_data_anon = resp_themes_anon.json()["themes"]
+    theme_ids_anon = [t["id"] for t in themes_data_anon]
+
+    # 기본 테마(0)와 FQDN이 없는 일반 테마는 노출되어야 함
+    assert 0 in theme_ids_anon
+    assert gen_theme_id in theme_ids_anon
+    # FQDN이 설정된 테마는 기본 도메인 익명 사용자 목록에서 배제되어야 함!
+    assert ai_theme_id not in theme_ids_anon
+
+    # 4. 기본 도메인에서 Owner 권한으로 GET /themes 호출 시 모든 테마 조회 가능
+    resp_themes_owner = client.get("/themes", headers={"Host": "127.0.0.1:8765", **OWNER_HEADERS})
+    assert resp_themes_owner.status_code == 200
+    theme_ids_owner = [t["id"] for t in resp_themes_owner.json()["themes"]]
+    assert ai_theme_id in theme_ids_owner
+    assert gen_theme_id in theme_ids_owner
+
+    # 5. 전용 FQDN(ai.example.com)에서 익명 사용자가 GET /themes 호출 시
+    # 오직 해당 FQDN 테마만 반환되고 default_theme_id도 해당 테마로 설정
+    resp_themes_fqdn = client.get("/themes", headers={"Host": "ai.example.com"})
+    assert resp_themes_fqdn.status_code == 200
+    fqdn_json = resp_themes_fqdn.json()
+    assert fqdn_json["default_theme_id"] == ai_theme_id
+    fqdn_theme_ids = [t["id"] for t in fqdn_json["themes"]]
+    assert fqdn_theme_ids == [ai_theme_id]
+
+    # 6. 기본 도메인에서 익명 사용자가 FQDN 테마에 직접 접근 시 404 차단 검증
+    # 6-1. /documents
+    assert client.get(f"/documents?theme={ai_theme_id}", headers={"Host": "127.0.0.1:8765"}).status_code == 404
+    # 6-2. /stats
+    assert client.get(f"/stats?theme={ai_theme_id}", headers={"Host": "127.0.0.1:8765"}).status_code == 404
+    # 6-3. /graph
+    assert client.get(f"/graph?theme={ai_theme_id}", headers={"Host": "127.0.0.1:8765"}).status_code == 404
+    # 6-4. /search
+    assert client.post("/search", json={"q": "테스트", "theme": ai_theme_id}, headers={"Host": "127.0.0.1:8765"}).status_code == 404
+    # 6-5. / (graph_ui) with ?theme={ai_theme_id}
+    assert client.get(f"/?theme={ai_theme_id}", headers={"Host": "127.0.0.1:8765"}).status_code == 404
+
+    # 7. FQDN이 없는 일반 테마는 기본 도메인에서 익명 사용자 접근 정상 허용 (200)
+    assert client.get(f"/documents?theme={gen_theme_id}", headers={"Host": "127.0.0.1:8765"}).status_code == 200
+    assert client.get(f"/stats?theme={gen_theme_id}", headers={"Host": "127.0.0.1:8765"}).status_code == 200
+
+    # 8. 전용 FQDN(ai.example.com)에서는 익명 사용자 접근 정상 허용 (200)
+    assert client.get("/documents", headers={"Host": "ai.example.com"}).status_code == 200
+    assert client.get("/stats", headers={"Host": "ai.example.com"}).status_code == 200
+    assert client.get("/graph", headers={"Host": "ai.example.com"}).status_code == 200
+

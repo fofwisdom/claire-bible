@@ -232,8 +232,19 @@ def create_app(
         ref = _extract_theme_ref(request, body)
         theme = theme_mgr.get_theme(ref)
         scope = request_auth_scope(request)
-        if scope == "anonymous" and not theme.is_public:
-            raise HTTPException(status_code=404, detail="theme not found")
+        if scope == "anonymous":
+            if not theme.is_public:
+                raise HTTPException(status_code=404, detail="theme not found")
+            # FQDN이 설정된 테마는 전용 FQDN 접속이 아니면 기본 도메인을 통한 익명 접근 차단
+            if theme.id > 0 and theme.fqdn:
+                host_header = request.headers.get("host")
+                req_host = (
+                    host_header.split(":", 1)[0].strip().lower()
+                    if host_header
+                    else ""
+                )
+                if req_host != theme.fqdn.strip().lower():
+                    raise HTTPException(status_code=404, detail="theme not found")
         elif scope == "collaborator" and not (theme.is_public or theme.is_collaborator_accessible):
             raise HTTPException(status_code=404, detail="theme not found")
         theme_settings = theme_mgr.get_settings_for_theme(theme.id, s)
@@ -332,6 +343,8 @@ def create_app(
         include_hidden = scope != "anonymous"
         multi_enabled = bool(getattr(s, "multi_theme", False))
 
+        host_header = request.headers.get("host")
+
         def _get_themes_with_stats() -> dict[str, Any]:
             if not multi_enabled:
                 t_stats = {"documents": 0, "entities": 0, "relations": 0}
@@ -363,11 +376,11 @@ def create_app(
                 }
 
             if scope in {"owner", "readonly"}:
-                all_themes = theme_mgr.list_themes(include_private=True)
+                all_themes = theme_mgr.list_themes(include_private=True, host=host_header)
             elif scope == "collaborator":
-                all_themes = theme_mgr.list_themes(include_private=False, collaborator=True)
+                all_themes = theme_mgr.list_themes(include_private=False, collaborator=True, host=host_header)
             else:
-                all_themes = theme_mgr.list_themes(include_private=False, collaborator=False)
+                all_themes = theme_mgr.list_themes(include_private=False, collaborator=False, host=host_header)
 
             result = []
             for t in all_themes:
@@ -385,7 +398,15 @@ def create_app(
                 theme_dict = t.to_dict()
                 theme_dict["stats"] = t_stats
                 result.append(theme_dict)
-            return {"themes": result, "default_theme_id": 0, "multi_theme": True}
+
+            def_tid = 0
+            if host_header:
+                req_h = host_header.split(":", 1)[0].strip().lower()
+                theme_by_fqdn = theme_mgr.get_theme_by_fqdn(req_h)
+                if theme_by_fqdn is not None and theme_by_fqdn.id > 0:
+                    def_tid = theme_by_fqdn.id
+
+            return {"themes": result, "default_theme_id": def_tid, "multi_theme": True}
 
         return JSONResponse(await asyncio.to_thread(_get_themes_with_stats))
 
