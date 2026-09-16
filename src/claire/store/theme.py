@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import tempfile
 import time
 from dataclasses import asdict, dataclass
@@ -22,6 +23,49 @@ from . import db as dbm
 log = logging.getLogger("claire.theme")
 
 THEMES_REGISTRY_FILENAME = "themes.json"
+
+_DNS_NAME_RE = re.compile(
+    r"(?=.{1,253}\Z)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*"
+    r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\Z",
+    re.IGNORECASE,
+)
+_GA_ID_RE = re.compile(r"^(?:G|GTM)-[A-Z0-9]{4,20}$")
+
+
+def validate_fqdn(candidate: str | None) -> str:
+    """FQDN 문자열 정규화 및 RFC 1123 DNS 호스트명 검증.
+
+    - 앞뒤 공백 제거 및 소문자 변환
+    - http://, https:// 등의 스킴이나 경로(/...), 포트(:...)는 허용하지 않음
+    - 유효하지 않은 경우 ValueError 발생
+    - 빈 문자열 또는 None은 FQDN 미지정을 의미하며 빈 문자열("") 반환
+    """
+    if candidate is None:
+        return ""
+    cleaned = str(candidate).strip().lower()
+    if not cleaned:
+        return ""
+    if "/" in cleaned or "\\" in cleaned or ":" in cleaned or " " in cleaned or "@" in cleaned:
+        raise ValueError(f"유효하지 않은 FQDN 형식입니다: {candidate!r} (스킴, 포트, 경로는 포함할 수 없습니다)")
+    if cleaned.endswith("."):
+        raise ValueError("FQDN 끝에 마침표(.)를 포함할 수 없습니다.")
+    if "." not in cleaned:
+        raise ValueError(f"FQDN은 도메인과 TLD를 구분하는 마침표(.)를 포함해야 합니다: {candidate!r}")
+    if not _DNS_NAME_RE.fullmatch(cleaned):
+        raise ValueError(f"유효하지 않은 DNS 호스트명(FQDN)입니다: {candidate!r}")
+    return cleaned
+
+
+def validate_ga_measurement_id(candidate: str | None) -> str:
+    """Google Analytics 4 측정 ID (예: G-XXXXXXXXXX, GTM-XXXXXXX) 정규화 및 검증."""
+    if candidate is None:
+        return ""
+    cleaned = str(candidate).strip()
+    if not cleaned:
+        return ""
+    if not _GA_ID_RE.fullmatch(cleaned):
+        raise ValueError(f"유효하지 않은 Google Analytics 측정 ID 형식입니다: {candidate!r}")
+    return cleaned
 
 
 @dataclass
@@ -37,6 +81,8 @@ class ThemeInfo:
     is_public: bool = True
     is_collaborator_accessible: bool = True
     default_focus: str = ""
+    fqdn: str = ""
+    ga_measurement_id: str = ""
     created_at: float = 0.0
     updated_at: float = 0.0
 
@@ -77,6 +123,10 @@ class ThemeInfo:
                     or ""
                 ).strip()
             ),
+            fqdn=validate_fqdn(data.get("fqdn")),
+            ga_measurement_id=validate_ga_measurement_id(
+                data.get("ga_measurement_id", data.get("ga_id"))
+            ),
             created_at=float(data.get("created_at", 0.0)),
             updated_at=float(data.get("updated_at", 0.0)),
         )
@@ -95,9 +145,50 @@ class ThemeManager:
         self.create_registry = create_registry
         self.registry_path = self.settings.data_dir / THEMES_REGISTRY_FILENAME
         self._themes: dict[int, ThemeInfo] = {}
+        self._fqdn_to_theme_id: dict[str, int] = {}
         self._next_seq: int = 1
         self._default_theme_id: int = 0
         self.reload()
+
+    def _rebuild_fqdn_index(self) -> None:
+        idx: dict[str, int] = {}
+        for t in self._themes.values():
+            if t.fqdn:
+                idx[t.fqdn.lower()] = t.id
+        self._fqdn_to_theme_id = idx
+
+    def get_theme_by_fqdn(self, fqdn: str | None) -> ThemeInfo | None:
+        """FQDN 호스트명으로 등록된 테마를 검색. 미등록 시 None."""
+        if not fqdn:
+            return None
+        self.reload()
+        cleaned = str(fqdn).strip().lower()
+        if ":" in cleaned:
+            cleaned = cleaned.split(":", 1)[0]
+        tid = self._fqdn_to_theme_id.get(cleaned)
+        if tid is not None and tid in self._themes:
+            return self._themes[tid]
+        return None
+
+    def get_registered_fqdns(self) -> set[str]:
+        """현재 등록된 모든 테마의 FQDN 호스트명 집합 반환."""
+        self.reload()
+        return set(self._fqdn_to_theme_id.keys())
+
+    def has_registered_fqdn(self, fqdn: str | None) -> bool:
+        """해당 FQDN이 특정 테마의 서비스 도메인으로 등록되어 있는지 여부."""
+        if not fqdn:
+            return False
+        self.reload()
+        cleaned = str(fqdn).strip().lower()
+        if ":" in cleaned:
+            cleaned = cleaned.split(":", 1)[0]
+        return cleaned in self._fqdn_to_theme_id
+
+    def has_any_ga_enabled(self) -> bool:
+        """등록된 테마 중 하나라도 GA4 측정 ID를 사용하는지 확인."""
+        self.reload()
+        return any(bool(t.ga_measurement_id) for t in self._themes.values())
 
     def reload(self) -> None:
         """themes.json 레지스트리를 읽고 메모리에 적재한다.
@@ -110,6 +201,7 @@ class ThemeManager:
             # 싱글 테마 모드: 파일 I/O 및 락을 원천 차단하고 메모리 상의 기본 테마 1개만 고정 유지
             if not self._themes or 0 not in self._themes:
                 self._themes = {0: self._build_default_theme()}
+            self._rebuild_fqdn_index()
             return
 
         if not self.registry_path.is_file():
@@ -157,6 +249,7 @@ class ThemeManager:
             max_seq = max((t.seq for t in self._themes.values()), default=0)
             if self._next_seq <= max_seq:
                 self._next_seq = max_seq + 1
+            self._rebuild_fqdn_index()
 
         except Exception as exc:
             raise RuntimeError(
@@ -216,6 +309,7 @@ class ThemeManager:
             tf.write(raw_json)
             tmp_name = tf.name
         os.replace(tmp_name, self.registry_path)
+        self._rebuild_fqdn_index()
 
     def list_themes(
         self, *, include_private: bool = True, collaborator: bool = False
@@ -317,6 +411,8 @@ class ThemeManager:
         is_public: bool = True,
         is_collaborator_accessible: bool = True,
         default_focus: str = "",
+        fqdn: str = "",
+        ga_measurement_id: str = "",
     ) -> ThemeInfo:
         """지식 관리자: 순차 일련번호를 발급하여 새 테마 디렉터리 생성 및 DB 스키마 초기화."""
         if not getattr(self.settings, "multi_theme", False):
@@ -326,12 +422,23 @@ class ThemeManager:
         if not cleaned_label:
             raise ValueError("테마 레이블(이름)을 입력해야 합니다.")
 
+        norm_fqdn = validate_fqdn(fqdn)
+        norm_ga = validate_ga_measurement_id(ga_measurement_id)
+
         self.reload()
 
         # 동일 레이블 중복 방지
         for t in self._themes.values():
             if t.label.strip().lower() == cleaned_label.lower():
                 raise ValueError(f"이미 동일한 레이블의 테마가 존재합니다: '{cleaned_label}'")
+
+        if norm_fqdn:
+            eff_fqdn = getattr(self.settings, "effective_fqdn", "")
+            if eff_fqdn and norm_fqdn == eff_fqdn:
+                raise ValueError(f"기본 서비스 도메인('{norm_fqdn}')은 추가 테마의 FQDN으로 지정할 수 없습니다.")
+            for t in self._themes.values():
+                if t.fqdn and t.fqdn == norm_fqdn:
+                    raise ValueError(f"이미 다른 테마(#{t.id} '{t.label}')에 등록된 FQDN입니다: '{norm_fqdn}'")
 
         seq = self._next_seq
         self._next_seq += 1
@@ -374,6 +481,8 @@ class ThemeManager:
             is_public=bool(is_public),
             is_collaborator_accessible=bool(is_collaborator_accessible),
             default_focus=str(default_focus or "").strip(),
+            fqdn=norm_fqdn,
+            ga_measurement_id=norm_ga,
             created_at=now,
             updated_at=now,
         )
@@ -381,12 +490,13 @@ class ThemeManager:
         self._themes[seq] = theme
         self._save_registry()
         log.info(
-            "새 테마 #%d [%s] (공개: %s, 협력자: %s, 기본 초점: %s) 정의 및 생성 완료 (경로: %s)",
+            "새 테마 #%d [%s] (공개: %s, 협력자: %s, 기본 초점: %s, FQDN: %s) 정의 및 생성 완료 (경로: %s)",
             seq,
             cleaned_label,
             theme.is_public,
             theme.is_collaborator_accessible,
             theme.default_focus,
+            norm_fqdn or "(없음)",
             rel_db_path,
         )
         return theme
@@ -401,8 +511,10 @@ class ThemeManager:
         is_public: bool | None = None,
         is_collaborator_accessible: bool | None = None,
         default_focus: str | None = None,
+        fqdn: str | None = None,
+        ga_measurement_id: str | None = None,
     ) -> ThemeInfo:
-        """지식 관리자: 테마 레이블, 설명, 아이콘, 공개 여부, 협력자 공개 여부, 기본 적용 초점 수정 (물리 폴더 경로는 절대 변경되지 않음)."""
+        """지식 관리자: 테마 레이블, 설명, 아이콘, 공개 여부, 협력자 공개 여부, 기본 적용 초점, FQDN, GA ID 수정 (물리 폴더 경로는 절대 변경되지 않음)."""
         if not getattr(self.settings, "multi_theme", False):
             raise RuntimeError("멀티 테마 모드가 비활성화되어 있습니다 (CLAIRE_MULTI_THEME=1 필요)")
 
@@ -449,9 +561,23 @@ class ThemeManager:
             else:
                 theme.default_focus = str(default_focus or "").strip()
 
+        if fqdn is not None:
+            norm_fqdn = validate_fqdn(fqdn)
+            if norm_fqdn:
+                eff_fqdn = getattr(self.settings, "effective_fqdn", "")
+                if eff_fqdn and norm_fqdn == eff_fqdn and tid != 0:
+                    raise ValueError(f"기본 서비스 도메인('{norm_fqdn}')은 추가 테마의 FQDN으로 지정할 수 없습니다.")
+                for other in self._themes.values():
+                    if other.id != tid and other.fqdn and other.fqdn == norm_fqdn:
+                        raise ValueError(f"이미 다른 테마(#{other.id} '{other.label}')에 등록된 FQDN입니다: '{norm_fqdn}'")
+            theme.fqdn = norm_fqdn
+
+        if ga_measurement_id is not None:
+            theme.ga_measurement_id = validate_ga_measurement_id(ga_measurement_id)
+
         theme.updated_at = time.time()
         self._save_registry()
-        log.info("테마 #%d 메타데이터 수정 완료 (레이블: %s)", tid, theme.label)
+        log.info("테마 #%d 메타데이터 수정 완료 (레이블: %s, FQDN: %s)", tid, theme.label, theme.fqdn or "(없음)")
         return theme
 
     def delete_theme(self, theme_id: int | str, *, purge: bool = False) -> ThemeInfo:

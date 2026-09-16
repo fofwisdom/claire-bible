@@ -111,6 +111,13 @@ let activeThemeId = (function(){
     return 0;
   }
   try{
+    const currHost = window.location.hostname.toLowerCase();
+    if(availableThemes && availableThemes.length){
+      const matched = availableThemes.find(t => t.fqdn && t.fqdn.toLowerCase() === currHost);
+      if(matched){
+        return matched.id;
+      }
+    }
     const sp = new URLSearchParams(window.location.search);
     const q = sp.get('theme');
     if(q !== null && q !== ''){
@@ -174,6 +181,11 @@ async function fetchThemes(){
     const data = await r.json();
     if(data.themes && data.themes.length){
       availableThemes = data.themes;
+      const currHost = window.location.hostname.toLowerCase();
+      const matched = availableThemes.find(t => t.fqdn && t.fqdn.toLowerCase() === currHost);
+      if(matched){
+        activeThemeId = matched.id;
+      }
       renderThemeSelector();
     }
   }catch(e){
@@ -201,10 +213,12 @@ function renderThemeSelector(){
     activeThemeId = current.id;
   }
 
+  const currHost = window.location.hostname.toLowerCase();
   sel.innerHTML = availableThemes.map(t => {
     const label = esc(t.label);
     const lockStr = t.is_public === false ? ' 🔒 (비공개)' : '';
-    return `<option value="${t.id}" ${t.id === activeThemeId ? 'selected' : ''}>${label}${lockStr}</option>`;
+    const fqdnStr = (t.fqdn && t.fqdn.toLowerCase() === currHost) ? ' 🌐 (전용 도메인)' : '';
+    return `<option value="${t.id}" ${t.id === activeThemeId ? 'selected' : ''}>${label}${lockStr}${fqdnStr}</option>`;
   }).join('');
 
   if(iconEl && current){
@@ -2514,10 +2528,14 @@ async function openThemeManager(){
         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">
           <strong style="font-size:13px;">${t.icon || '📁'} ${esc(t.label)} <small style="opacity:0.7">(${idLabel})</small></strong>
           <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+            ${t.fqdn ? `<span style="color:#a78bfa;font-weight:600;font-size:12px;background:rgba(167,139,250,0.15);padding:2px 6px;border-radius:4px" title="전용 도메인">🌐 ${esc(t.fqdn)}</span>` : ''}
+            ${t.fqdn ? `<a href="//${esc(t.fqdn)}" target="_blank" rel="noopener noreferrer" style="font-size:11px;color:var(--accent2,#00aaff);text-decoration:none;padding:2px 4px;" title="전용 도메인으로 새 창 열기">↗ 열기</a>` : ''}
+            ${t.ga_measurement_id ? `<span style="color:#fbbf24;font-weight:600;font-size:12px;background:rgba(251,191,36,0.15);padding:2px 6px;border-radius:4px" title="Google Analytics 4">📊 ${esc(t.ga_measurement_id)}</span>` : ''}
             ${pubBadge}
             ${isOwner ? toggleBtn : ''}
             ${t.id > 0 ? collabBadge : ''}
             ${(isOwner && t.id > 0) ? toggleCollabBtn : ''}
+            <button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="toggleThemeProxyGuide(${t.id})">📋 프록시 설정</button>
             ${isOwner ? `<button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="showThemeEditForm(${t.id})">✏️ 수정</button>` : ''}
             <button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="toggleThemeOptionsView(${t.id})">⚙️ 옵션 보기</button>
             ${(isOwner && t.id > 0) ? `<button type="button" class="sec danger-btn" style="font-size:11px;padding:3px 8px;color:var(--err,#cf222e);border-color:rgba(207,34,46,0.3);" onclick="deleteThemeFromUI(${t.id}, '${esc(t.label)}')">🗑️ 삭제</button>` : ''}
@@ -2525,6 +2543,41 @@ async function openThemeManager(){
         </div>
         ${t.description ? `<p style="margin:4px 0 0;font-size:12px;opacity:0.8">${esc(t.description)}</p>` : ''}
         ${(t.id > 0 && t.default_focus) ? `<p style="margin:4px 0 0;font-size:12px;color:var(--accent,#00ffaa);font-weight:500;">🎯 기본 초점: ${esc(t.default_focus)}</p>` : ''}
+
+        <!-- 리버스 프록시 가이드 블록 -->
+        <div id="theme-proxy-guide-${t.id}" style="display:none;margin-top:10px;padding:10px;border-radius:6px;background:rgba(0,0,0,0.25);border:1px solid var(--border);font-size:12px;flex-direction:column;gap:8px;">
+          <div style="font-weight:600;display:flex;align-items:center;justify-content:space-between;">
+            <span>🌐 리버스 프록시 연동 가이드 ${t.fqdn ? `(<code>${esc(t.fqdn)}</code>)` : '<small style="opacity:0.7">(FQDN 미설정 - ✏️ 수정에서 도메인을 등록하세요)</small>'}</span>
+            <button type="button" class="sec" style="font-size:10px;padding:2px 6px;" onclick="toggleThemeProxyGuide(${t.id})">닫기 ✕</button>
+          </div>
+          <p style="margin:0;font-size:11px;opacity:0.8;">외부 웹 서버(Nginx, Caddy, Cloudflare 등)에서 <code>Host</code> 헤더를 전달하도록 프록시를 설정하면, 해당 도메인으로 접속하는 모든 요청이 이 테마의 독립 지식베이스로 자동 바인딩됩니다.</p>
+          <div>
+            <div style="font-weight:600;font-size:11px;margin-bottom:4px;color:var(--accent2);">Nginx 설정 예시:</div>
+            <pre style="margin:0;padding:8px;background:var(--bg,#18181b);border-radius:4px;overflow-x:auto;font-family:monospace;font-size:11px;line-height:1.4;user-select:all;">server {
+    server_name ${esc(t.fqdn || 'theme.yourdomain.com')};
+    listen 443 ssl;
+    # ssl_certificate /path/to/fullchain.pem;
+    # ssl_certificate_key /path/to/privkey.pem;
+
+    location / {
+        proxy_pass http://127.0.0.1:8765;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}</pre>
+          </div>
+          <div>
+            <div style="font-weight:600;font-size:11px;margin-bottom:4px;color:var(--accent2);">Caddyfile 설정 예시:</div>
+            <pre style="margin:0;padding:8px;background:var(--bg,#18181b);border-radius:4px;overflow-x:auto;font-family:monospace;font-size:11px;line-height:1.4;user-select:all;">${esc(t.fqdn || 'theme.yourdomain.com')} {
+    reverse_proxy 127.0.0.1:8765 {
+        header_up Host {host}
+        header_up X-Real-IP {remote_host}
+    }
+}</pre>
+          </div>
+        </div>
         
         <!-- 테마 설정 옵션 상세 뷰 (협업자 및 소유자 확인용) -->
         <div id="theme-options-view-${t.id}" style="display:${isCollab ? 'flex' : 'none'};margin-top:10px;padding:8px 10px;border-top:1px dashed var(--border);background:var(--panel-bg);border-radius:4px;font-size:12px;flex-direction:column;gap:6px;">
@@ -2532,6 +2585,8 @@ async function openThemeManager(){
           <div>• <b>레이블(이름)</b>: ${esc(t.label)}</div>
           <div>• <b>아이콘</b>: ${esc(t.icon || '📁')}</div>
           <div>• <b>설명</b>: ${esc(t.description || '(설명 없음)')}</div>
+          <div>• <b>전용 FQDN (도메인)</b>: ${esc(t.fqdn || '(미지정 - 기본 도메인 공유)')}</div>
+          <div>• <b>GA4 측정 ID</b>: ${esc(t.ga_measurement_id || '(미지정 - 기본 추적 또는 비활성)')}</div>
           ${t.id > 0 ? `<div>• <b>기본 초점</b>: ${esc(t.default_focus || '(미지정 - 기본 분석 적용)')}</div>` : ''}
           <div>• <b>공개 여부</b>: ${isPub ? '익명 사용자 공개' : '비공개 🔒'}</div>
           ${t.id > 0 ? `<div>• <b>협업자 공개 여부</b>: ${isCollabAcc ? '협업자 공개 (접근 및 적재 허용)' : '협업자 차단'}</div>` : ''}
@@ -2542,6 +2597,8 @@ async function openThemeManager(){
         ${isOwner ? `<div id="theme-edit-form-${t.id}" style="display:none;margin-top:10px;padding-top:8px;border-top:1px dashed var(--border);flex-direction:column;gap:8px;">
           <div><label style="font-size:11px;opacity:0.8">레이블(이름)</label><input id="editthemep-label-${t.id}" style="width:100%;box-sizing:border-box" value="${esc(t.label)}"/></div>
           <div><label style="font-size:11px;opacity:0.8">설명</label><input id="editthemep-desc-${t.id}" style="width:100%;box-sizing:border-box" value="${esc(t.description || '')}"/></div>
+          <div><label style="font-size:11px;opacity:0.8">전용 도메인 (FQDN, 예: ai.example.com)</label><input id="editthemep-fqdn-${t.id}" style="width:100%;box-sizing:border-box" placeholder="예: ai.example.com" value="${esc(t.fqdn || '')}"/></div>
+          <div><label style="font-size:11px;opacity:0.8">Google Analytics 4 측정 ID (예: G-XXXXXXXXXX)</label><input id="editthemep-ga-${t.id}" style="width:100%;box-sizing:border-box" placeholder="예: G-XXXXXXXXXX" value="${esc(t.ga_measurement_id || '')}"/></div>
           ${t.id > 0 ? `<div><label style="font-size:11px;opacity:0.8">기본 초점 (적재 시 기본 적용할 방향/지침)</label><input id="editthemep-focus-${t.id}" style="width:100%;box-sizing:border-box" placeholder="예: 시스템 아키텍처 및 핵심 API 사양 중심" value="${esc(t.default_focus || '')}"/></div>` : ''}
           <div style="display:flex;gap:8px;flex-wrap:wrap;">
             <div style="flex:1;min-width:80px;"><label style="font-size:11px;opacity:0.8">아이콘</label><input id="editthemep-icon-${t.id}" style="width:100%;box-sizing:border-box" value="${esc(t.icon || '📁')}"/></div>
@@ -2564,6 +2621,8 @@ async function openThemeManager(){
       h += '<div style="display:flex;flex-direction:column;gap:8px;margin-top:8px;">';
       h += '<div><label style="font-size:11px;opacity:0.8">레이블(이름)</label><input id="newthemep-label" style="width:100%;box-sizing:border-box" placeholder="예: 경제 및 금융"/></div>';
       h += '<div><label style="font-size:11px;opacity:0.8">설명</label><input id="newthemep-desc" style="width:100%;box-sizing:border-box" placeholder="예: 거시경제 및 시장 분석"/></div>';
+      h += '<div><label style="font-size:11px;opacity:0.8">전용 도메인 (FQDN, 예: ai.example.com)</label><input id="newthemep-fqdn" style="width:100%;box-sizing:border-box" placeholder="예: ai.example.com"/></div>';
+      h += '<div><label style="font-size:11px;opacity:0.8">Google Analytics 4 측정 ID (예: G-XXXXXXXXXX)</label><input id="newthemep-ga" style="width:100%;box-sizing:border-box" placeholder="예: G-XXXXXXXXXX"/></div>';
       h += '<div><label style="font-size:11px;opacity:0.8">기본 초점 (적재 시 기본 적용할 방향/지침)</label><input id="newthemep-focus" style="width:100%;box-sizing:border-box" placeholder="예: 거시경제 지표 및 시장 영향 중심"/></div>';
       h += '<div style="display:flex;gap:8px;flex-wrap:wrap;"><div style="flex:1;min-width:80px;"><label style="font-size:11px;opacity:0.8">아이콘</label><input id="newthemep-icon" style="width:100%;box-sizing:border-box" value="📁"/></div>';
       h += '<div style="flex:1;display:flex;align-items:center;padding-top:14px;"><label style="font-size:12px;cursor:pointer;"><input id="newthemep-pub" type="checkbox" checked style="width:auto;margin-right:4px;vertical-align:middle;"/>익명 사용자에게 공개</label></div>';
@@ -2582,6 +2641,13 @@ async function openThemeManager(){
 
 function toggleThemeOptionsView(themeId){
   const el = document.getElementById('theme-options-view-' + themeId);
+  if(el){
+    el.style.display = (el.style.display === 'none') ? 'flex' : 'none';
+  }
+}
+
+function toggleThemeProxyGuide(themeId){
+  const el = document.getElementById('theme-proxy-guide-' + themeId);
   if(el){
     el.style.display = (el.style.display === 'none') ? 'flex' : 'none';
   }
@@ -2609,6 +2675,8 @@ async function updateThemeFromUI(themeId){
   const iconEl = document.getElementById('editthemep-icon-' + themeId);
   const pubEl = document.getElementById('editthemep-pub-' + themeId);
   const collabEl = document.getElementById('editthemep-collab-' + themeId);
+  const fqdnEl = document.getElementById('editthemep-fqdn-' + themeId);
+  const gaEl = document.getElementById('editthemep-ga-' + themeId);
 
   const label = ((labelEl||{}).value||'').trim();
   if(!label){ alert('테마 이름을 입력하세요.'); return; }
@@ -2622,6 +2690,12 @@ async function updateThemeFromUI(themeId){
   }
   if(focusEl){
     payload.default_focus = focusEl.value.trim();
+  }
+  if(fqdnEl){
+    payload.fqdn = fqdnEl.value.trim() || null;
+  }
+  if(gaEl){
+    payload.ga_measurement_id = gaEl.value.trim() || null;
   }
 
   try{
@@ -2690,6 +2764,9 @@ async function createThemeFromUI(){
   const iconEl = document.getElementById('newthemep-icon');
   const pubEl = document.getElementById('newthemep-pub');
   const collabEl = document.getElementById('newthemep-collab');
+  const fqdnEl = document.getElementById('newthemep-fqdn');
+  const gaEl = document.getElementById('newthemep-ga');
+
   const label = ((labelEl||{}).value||'').trim();
   if(!label){ alert('테마 이름을 입력하세요.'); return; }
   const description = ((descEl||{}).value||'').trim();
@@ -2697,11 +2774,18 @@ async function createThemeFromUI(){
   const icon = ((iconEl||{}).value||'📁').trim() || '📁';
   const is_public = pubEl ? pubEl.checked : true;
   const is_collaborator_accessible = collabEl ? collabEl.checked : true;
+  const fqdn = ((fqdnEl||{}).value||'').trim() || null;
+  const ga_measurement_id = ((gaEl||{}).value||'').trim() || null;
+
+  const payload = {label, description, default_focus, icon, is_public, is_collaborator_accessible};
+  if(fqdn) payload.fqdn = fqdn;
+  if(ga_measurement_id) payload.ga_measurement_id = ga_measurement_id;
+
   try{
     const r = await fetch('themes', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({label, description, default_focus, icon, is_public, is_collaborator_accessible})
+      body: JSON.stringify(payload)
     });
     if(!r.ok){
       const err = await r.json().catch(()=>({}));

@@ -778,6 +778,15 @@ def extract_own_share_token(url_candidate: str, settings: Settings | None = None
             is_match = True
         elif not eff_fqdn and not pub_host and host in ("localhost", "127.0.0.1"):
             is_match = True
+        elif getattr(s, "multi_theme", False):
+            try:
+                from .store.theme import get_theme_manager
+
+                tm = get_theme_manager(s)
+                if tm.has_registered_fqdn(host):
+                    is_match = True
+            except Exception:
+                pass
 
         if is_match and parsed.path.rstrip("/") == "/p":
             qs = parse_qs(parsed.query)

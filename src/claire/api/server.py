@@ -183,11 +183,32 @@ def create_app(
         request: Request, body: dict[str, Any] | None = None
     ) -> int | str | None:
         raw = request.query_params.get("theme")
+        body_theme = body.get("theme") if body else None
+        hdr = request.headers.get("x-claire-theme")
+
+        # 1. Host 헤더에 등록된 테마 FQDN이 있는지 확인
+        host_header = request.headers.get("host")
+        if host_header:
+            hostname = host_header.split(":", 1)[0].strip().lower()
+            theme_by_fqdn = theme_mgr.get_theme_by_fqdn(hostname)
+            if theme_by_fqdn is not None:
+                # 추가 테마 전용 FQDN(ID > 0) 접속 시 해당 테마로 고정 바인딩
+                if theme_by_fqdn.id > 0:
+                    return theme_by_fqdn.id
+                # Theme 0 전용 FQDN 접속 시 명시적 theme 파라미터가 있으면 허용
+                if raw is not None and str(raw).strip():
+                    return str(raw).strip()
+                if body_theme is not None and str(body_theme).strip():
+                    return str(body_theme).strip()
+                if hdr is not None and hdr.strip():
+                    return hdr.strip()
+                return theme_by_fqdn.id
+
+        # 2. 쿼리 파라미터 / 요청 본문 / X-Claire-Theme 헤더 확인
         if raw is not None and str(raw).strip():
             return str(raw).strip()
-        if body and body.get("theme") is not None:
-            return str(body["theme"]).strip()
-        hdr = request.headers.get("x-claire-theme")
+        if body_theme is not None and str(body_theme).strip():
+            return str(body_theme).strip()
         if hdr is not None and hdr.strip():
             return hdr.strip()
         return None
@@ -402,6 +423,8 @@ def create_app(
             or body.get("directive")
             or ""
         ).strip()
+        fqdn = str(body.get("fqdn") or "").strip()
+        ga_id = str(body.get("ga_measurement_id", body.get("ga_id", "")) or "").strip()
         try:
             theme = theme_mgr.define_theme(
                 label,
@@ -410,6 +433,8 @@ def create_app(
                 is_public=is_pub,
                 is_collaborator_accessible=is_collab,
                 default_focus=def_focus,
+                fqdn=fqdn,
+                ga_measurement_id=ga_id,
             )
             return JSONResponse({"ok": True, "theme": theme.to_dict()}, status_code=201)
         except ValueError as val_err:
@@ -480,6 +505,12 @@ def create_app(
                 )
             )
         )
+        fqdn = body.get("fqdn") if "fqdn" in body else None
+        ga_id = (
+            body.get("ga_measurement_id")
+            if "ga_measurement_id" in body
+            else (body.get("ga_id") if "ga_id" in body else None)
+        )
         try:
             theme = theme_mgr.update_theme(
                 theme_id,
@@ -489,6 +520,8 @@ def create_app(
                 is_public=is_pub,
                 is_collaborator_accessible=is_collab,
                 default_focus=def_focus,
+                fqdn=fqdn,
+                ga_measurement_id=ga_id,
             )
             return JSONResponse({"ok": True, "theme": theme.to_dict()})
         except KeyError as k_err:
@@ -720,9 +753,20 @@ def create_app(
         scope = request_auth_scope(request)
         include_private = scope in {"owner", "readonly"}
         is_collaborator = scope == "collaborator"
+        theme = None
+        if getattr(s, "multi_theme", False):
+            try:
+                theme, _, _ = _get_theme_ctx(request)
+            except HTTPException:
+                raise
+            except Exception:
+                pass
         return HTMLResponse(
             render_graph_html(
-                s, include_private=include_private, collaborator=is_collaborator
+                s,
+                include_private=include_private,
+                collaborator=is_collaborator,
+                theme=theme,
             )
         )
 
@@ -1606,7 +1650,7 @@ def create_app(
     app.router.add_static = _add_static  # type: ignore[attr-defined]
     app.router.add_static("/static/", path=str(static_dir), name="static")
 
-    secured = wrap_web_app(app, s)
+    secured = wrap_web_app(app, s, theme_manager=theme_mgr)
     return GateMiddleware(app, secured, PUBLIC_PATHS)
 
 
