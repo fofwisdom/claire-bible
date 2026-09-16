@@ -921,7 +921,10 @@ def _theme_services_for_cycle(
         if cached is None or cached[0] != fingerprint:
             if cached is not None:
                 _close_theme_service(cached[1])
-            service = service_factory(theme_settings)
+            try:
+                service = service_factory(theme_settings, theme_id=theme.id)
+            except TypeError:
+                service = service_factory(theme_settings)
             state.services[theme.id] = (fingerprint, service)
         else:
             service = cached[1]

@@ -748,6 +748,8 @@ class ThemeManager:
             override = {
                 "db_path": theme.db_path,
                 "vault_path": theme.vault_path,
+                "theme_id": theme.id,
+                "default_focus": theme.default_focus,
             }
             return base.model_copy(update=override)
 
@@ -761,6 +763,8 @@ class ThemeManager:
             st.vault_path = theme.vault_path
         if hasattr(st, "vault_dir"):
             st.vault_dir = Path(theme.vault_path)
+        st.theme_id = theme.id
+        st.default_focus = theme.default_focus
         return st
 
     def active_theme_settings(

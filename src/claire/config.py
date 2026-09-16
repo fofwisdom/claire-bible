@@ -397,6 +397,8 @@ class Settings(BaseSettings):
     allow_purge: bool = Field(default=True, alias="CLAIRE_ALLOW_PURGE")
     # 멀티 테마(다중 데이터베이스) 모드 활성화 여부. 0(기본값)이면 단일 DB(data/claire.db) 고정, 1이면 멀티 테마 활성화
     multi_theme: bool = Field(default=False, alias="CLAIRE_MULTI_THEME")
+    theme_id: int = Field(default=0, alias="CLAIRE_THEME_ID")
+    default_focus: str = Field(default="", alias="CLAIRE_THEME_DEFAULT_FOCUS")
 
     # --- expansion ---
     expand_max: int = Field(default=5, alias="CLAIRE_EXPAND_MAX")

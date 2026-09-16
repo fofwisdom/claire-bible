@@ -59,7 +59,25 @@ class IngestService:
     ):
         self.s = settings
         self.provider = provider if provider is not None else get_provider(settings)
-        self.theme_id = theme_id if theme_id is not None else 0
+        self.theme_id = theme_id if theme_id is not None else getattr(settings, "theme_id", 0)
+        self.default_focus = (getattr(settings, "default_focus", "") or "").strip()
+
+    def get_effective_default_focus(self) -> str | None:
+        if self.theme_id <= 0:
+            return None
+        if self.default_focus:
+            return self.default_focus
+        try:
+            tm = get_theme_manager(self.s)
+            theme = tm.get_theme(self.theme_id)
+            if theme and theme.id == self.theme_id and getattr(theme, "default_focus", None):
+                focus = str(theme.default_focus).strip()
+                if focus:
+                    self.default_focus = focus
+                    return focus
+        except Exception:
+            pass
+        return None
 
     def ingest(
         self,
@@ -84,6 +102,8 @@ class IngestService:
         inbox_id 가 주어지면 새 raw_inbox 행을 만들지 않고 기존 행을 재사용(자동복구용).
         prefetched 가 주어지면 fetch 를 건너뛰고 그 Document 로 적재(1홉 확장의 중복 fetch 방지).
         """
+        if not directive and self.theme_id > 0:
+            directive = self.get_effective_default_focus()
         conn = dbm.connect(self.s.db_file)
         dbm.init_db(conn)
         vstore = make_vector_store(conn, self.s.vector_backend)
@@ -175,7 +195,8 @@ class IngestService:
                     m = merge_source_into_document(
                         conn2, self.provider, vstore, parent_full, child,
                         vault_dir=self.s.vault_dir, data_dir=self.s.data_dir,
-                        format=self.s.render_format)
+                        format=self.s.render_format,
+                        directive=self.get_effective_default_focus())
                     if m.get("merged"):
                         dbm.update_inbox(conn2, inbox_id, status="done",
                                          document_id=document_id)

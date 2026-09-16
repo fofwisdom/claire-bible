@@ -915,6 +915,7 @@ def merge_source_into_document(
     vault_dir: Path | None = None,
     data_dir: Path | None = None,
     format: str | None = None,
+    directive: str | None = None,
 ) -> dict:
     """[1홉 병합, ONEHOP_MERGE_DESIGN.md] 같은 주제의 부가 출처(child)를 parent 문서에
     흡수 — 새 Document/expand_queue 항목을 만드는 대신 parent.raw_text 뒤에 별도 출처
@@ -981,7 +982,7 @@ def merge_source_into_document(
                 pass
         report = IngestReport(document_id=parent.id, title=parent.title, updated=True)
         ok, err = extract_resolve_store(
-            conn, provider, vstore, parent, report, vault_dir=vault_dir, format=format)
+            conn, provider, vstore, parent, report, vault_dir=vault_dir, format=format, directive=directive)
         if not ok:
             raise RuntimeError(err)
         return {"merged": True, "document_id": parent.id, "report": report}
