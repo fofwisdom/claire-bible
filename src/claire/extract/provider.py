@@ -154,7 +154,9 @@ class Provider(Protocol):
 
     def extract(self, doc: Document, ontology_block: str) -> ExtractionResult: ...
 
-    def embed(self, text: str) -> list[float]: ...
+    def embed(
+        self, text: str, *, task_type: str | None = None, title: str | None = None
+    ) -> list[float]: ...
 
     def judge_same_entity(self, mc: MergeCandidate) -> bool: ...
 
@@ -243,7 +245,9 @@ class MockProvider:
         )
         return result
 
-    def embed(self, text: str) -> list[float]:
+    def embed(
+        self, text: str, *, task_type: str | None = None, title: str | None = None
+    ) -> list[float]:
         """해시 기반 결정론적 의사 임베딩(차원 EMBED_DIM)."""
         h = hashlib.sha256(text.encode("utf-8", "ignore")).digest()
         # 바이트를 차원만큼 순환시켜 [-1,1] 범위로

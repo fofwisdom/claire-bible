@@ -366,7 +366,9 @@ class CodexProvider:
         result.raw_response = json.dumps(data, ensure_ascii=False)
         return result
 
-    def embed(self, text: str) -> list[float]:
+    def embed(
+        self, text: str, *, task_type: str | None = None, title: str | None = None
+    ) -> list[float]:
         """Codex에는 임베딩이 없으므로 명시된 Gemini 키가 있을 때만 위임한다."""
         if not getattr(self.settings, "gemini_api_key", ""):
             raise RuntimeError(
@@ -378,7 +380,12 @@ class CodexProvider:
 
             self._embedding_provider = GeminiProvider(self.settings)
         limit = int(getattr(self.settings, "embed_char_budget", 8000))
-        return self._embedding_provider.embed(text[:limit] or " ")
+        kwargs: dict[str, Any] = {}
+        if task_type is not None:
+            kwargs["task_type"] = task_type
+        if title is not None:
+            kwargs["title"] = title
+        return self._embedding_provider.embed(text[:limit] or " ", **kwargs)
 
     def summarize_search(self, query: str, context: str) -> str:
         return str(self._run_cli(summarize_search_prompt(query, context))).strip()

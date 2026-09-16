@@ -130,6 +130,7 @@ APP_ONE_OFF_COMMANDS = {
     "backfill-stt",
     "video-reprocess",
     "reprocess-video",
+    "re-embed",
     "telemetry",
     "support-bundle",
 }

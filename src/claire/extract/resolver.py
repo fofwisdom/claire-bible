@@ -51,6 +51,45 @@ EmbedFn = Callable[[], list[float]]
 JudgeFn = Callable[[str, str, list[str], Entity], bool]
 
 
+class ResolutionResult(tuple):
+    """(Entity, created) 튜플과 100% 하위 호환되며, 4-티어 대역별 후보 정보를 함께 제공."""
+
+    entity: Entity
+    created: bool
+    relational_candidates: list[tuple[str, float]]
+    multihop_candidates: list[tuple[str, float]]
+
+    def __new__(
+        cls,
+        entity: Entity,
+        created: bool,
+        relational_candidates: list[tuple[str, float]] | None = None,
+        multihop_candidates: list[tuple[str, float]] | None = None,
+    ):
+        instance = super().__new__(cls, (entity, created))
+        instance.entity = entity
+        instance.created = created
+        instance.relational_candidates = relational_candidates or []
+        instance.multihop_candidates = multihop_candidates or []
+        return instance
+
+
+def _get_tier_thresholds() -> tuple[float, float, float, float, bool]:
+    try:
+        from ..config import get_settings
+
+        s = get_settings()
+        return (
+            getattr(s, "sim_tier_auto_merge", AUTO_MERGE),
+            getattr(s, "sim_tier_borderline", CANDIDATE_FLOOR),
+            getattr(s, "sim_tier_relational", 0.70),
+            getattr(s, "sim_tier_multihop", 0.55),
+            getattr(s, "vector_adaptive_centering", False),
+        )
+    except Exception:
+        return (AUTO_MERGE, CANDIDATE_FLOOR, 0.70, 0.55, False)
+
+
 def resolve_or_create(
     conn: sqlite3.Connection,
     vstore: VectorStore,
@@ -64,20 +103,23 @@ def resolve_or_create(
     judge_fn: JudgeFn | None = None,
     provisional: bool = False,
     on_judge: Callable[[str, str], None] | None = None,
-) -> tuple[Entity, bool]:
-    """기존 엔티티에 머지하거나 신규 생성. (entity, created?) 반환."""
+) -> ResolutionResult:
+    """기존 엔티티에 머지하거나 신규 생성. (entity, created?) 반환 (ResolutionResult)."""
     norm = normalize_name(name)
+    tier_auto, tier_borderline, tier_relational, tier_multihop, adaptive_center = (
+        _get_tier_thresholds()
+    )
 
     # 1) 새 이름이 기존 name 또는 기존 alias 와 일치 (임베딩 불필요)
     for cand in dbm.find_entities_by_name_or_alias(conn, norm):
-        return _merge(conn, cand, aliases, observations, document_id), False
+        return ResolutionResult(_merge(conn, cand, aliases, observations, document_id), False)
 
     # 2) 새 별칭이 기존 name 또는 기존 alias 와 일치 (임베딩 불필요)
     for alias in aliases:
         if not alias:
             continue
         for cand in dbm.find_entities_by_name_or_alias(conn, normalize_name(alias)):
-            return _merge(conn, cand, aliases + [name], observations, document_id), False
+            return ResolutionResult(_merge(conn, cand, aliases + [name], observations, document_id), False)
 
     # 2.5) 약어 ↔ 풀네임 결정론적 수렴 (임베딩 불필요, quota 0)
     #   같은 타입 + 이니셜 정확 일치 + 약어 길이>=3 일 때만(다른 타입/2글자는 거짓병합 위험).
@@ -97,30 +139,42 @@ def resolve_or_create(
                 or (new_is_acr and any(_acronym_of(n) == target_acr for n in cand_names))
             )
             if hit:
-                return _merge(conn, cand, aliases + [name], observations, document_id), False
+                return ResolutionResult(_merge(conn, cand, aliases + [name], observations, document_id), False)
 
     # 3) miss → 이제서야 임베딩 1회 생성
     embedding = embed_fn() if embed_fn else None
 
     # 후보 수집: vector(점수 있음) + FTS(점수 없음, 토큰 겹침)
     scored: dict[str, float] = {}
+    relational_candidates: list[tuple[str, float]] = []
+    multihop_candidates: list[tuple[str, float]] = []
+
     if embedding:
-        for owner_id, score in vstore.search(embedding, limit=8):
-            if score >= CANDIDATE_FLOOR:
+        for owner_id, score in vstore.search(
+            embedding, limit=16, adaptive_center=adaptive_center
+        ):
+            if score >= tier_borderline:
                 scored[owner_id] = score
+            elif score >= tier_relational:
+                relational_candidates.append((owner_id, score))
+            elif score >= tier_multihop:
+                multihop_candidates.append((owner_id, score))
+
     for eid in dbm.fts_search(conn, name, limit=8):
         scored.setdefault(eid, 0.0)  # FTS-only 후보는 점수 0 → judge 대상
 
-    # 점수 높은 순. AUTO_MERGE 이상은 즉시 머지.
+    # 점수 높은 순. tier_auto 이상은 즉시 머지.
     ordered = sorted(scored.items(), key=lambda kv: kv[1], reverse=True)
     judged = 0
     for owner_id, score in ordered:
         cand = dbm.get_entity(conn, owner_id)
         if cand is None:
             continue
-        if score >= AUTO_MERGE:
+        if score >= tier_auto:
             merged = _merge(conn, cand, aliases + [name], observations, document_id)
-            return merged, False
+            return ResolutionResult(
+                merged, False, relational_candidates, multihop_candidates
+            )
         # borderline → LLM judge (게이팅)
         if judge_fn is not None and judged < MAX_JUDGE:
             judged += 1
@@ -131,7 +185,14 @@ def resolve_or_create(
                     pass
             if judge_fn(name, etype, observations, cand):
                 merged = _merge(conn, cand, aliases + [name], observations, document_id)
-                return merged, False
+                return ResolutionResult(
+                    merged, False, relational_candidates, multihop_candidates
+                )
+            else:
+                # DIFFERENT 판정된 후보: 버리지 않고 Tier 3 직접 관계 후보로 보존
+                relational_candidates.append((owner_id, score))
+        elif score >= tier_relational:
+            relational_candidates.append((owner_id, score))
 
     # 4) 신규
     ent = Entity(
@@ -145,7 +206,7 @@ def resolve_or_create(
     dbm.upsert_entity(conn, ent)
     if embedding:
         vstore.put(ent.id, embedding, model="claire")
-    return ent, True
+    return ResolutionResult(ent, True, relational_candidates, multihop_candidates)
 
 
 def _merge(

@@ -261,7 +261,25 @@ class Settings(BaseSettings):
     gemini_model: str = Field(default="gemini-3.1-flash-lite", alias="CLAIRE_GEMINI_MODEL")
     gemini_effort: str = Field(default="medium", alias="CLAIRE_GEMINI_EFFORT")
     gemini_embed_model: str = Field(
-        default="gemini-embedding-001", alias="CLAIRE_GEMINI_EMBED_MODEL"
+        default="text-embedding-004", alias="CLAIRE_GEMINI_EMBED_MODEL"
+    )
+    embed_task_type: str = Field(
+        default="SEMANTIC_SIMILARITY", alias="CLAIRE_EMBED_TASK_TYPE"
+    )
+    sim_tier_auto_merge: float = Field(
+        default=0.93, alias="CLAIRE_SIM_TIER_AUTO_MERGE"
+    )
+    sim_tier_borderline: float = Field(
+        default=0.72, alias="CLAIRE_SIM_TIER_BORDERLINE"
+    )
+    sim_tier_relational: float = Field(
+        default=0.70, alias="CLAIRE_SIM_TIER_RELATIONAL"
+    )
+    sim_tier_multihop: float = Field(
+        default=0.55, alias="CLAIRE_SIM_TIER_MULTIHOP"
+    )
+    vector_adaptive_centering: bool = Field(
+        default=True, alias="CLAIRE_VECTOR_ADAPTIVE_CENTERING"
     )
     # rate limit 보호: 호출 간 최소 간격(초) + 429/5xx 재시도 횟수.
     gemini_min_interval: float = Field(default=4.0, alias="CLAIRE_GEMINI_MIN_INTERVAL")

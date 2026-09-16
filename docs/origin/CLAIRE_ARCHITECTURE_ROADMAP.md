@@ -93,6 +93,9 @@ flowchart TD
      * 개인 개발자의 로컬 연구 환경 확대를 지원하기 위해 Docker 구성을 우선 제공.
   3. **온프레미스 K8s 연구 트랙 패키징**:
      * CLI 도구 대신 엔터프라이즈 엔드포인트를 사용하는 K8s Helm 패키징 및 독립 `docling-serve` 워커 분리 배포.
+  4. **지식 그래프 링킹 캘리브레이션 및 미싱링크 발굴 (Phase 1 완료)**:
+     * 4-Tier 유사도 브래킷, `text-embedding-004` 온톨로지 프레임 임베딩, 적응형 중심화(Adaptive Centering) 및 `claire re-embed` CLI 구축 완료 ([design/KNOWLEDGE_GRAPH_LINKING_AND_CALIBRATION_DESIGN.md](design/KNOWLEDGE_GRAPH_LINKING_AND_CALIBRATION_DESIGN.md) 참조).
+     * 후속 단계로 전역 관계 자동 수립(Phase 2) 및 2-Hop 삼각 폐쇄/잠재 브릿지 노드 실증(Phase 3) 연계 추진.
 
 ### 2.5 [과제 5 / Phase 5] 온프레미스 백본 거버넌스 및 온보딩 템플릿
 * **배경**: 다중 Pod 환경에서의 지식베이스 거버넌스 연구 및 신규 유입 개발자를 위한 온보딩 지원.
@@ -117,7 +120,7 @@ flowchart LR
 | **Phase 1** | **컨테이너 경량화 및 의존성 분리** | - `scrapling/playwright` 분리로 메인 이미지 **디스크 ~180MB, 압축 ~70MB** 달성<br/>- 기존 추출 프롬프트 파이프라인을 온전히 유지하여 산출물 정합성 확보 | **즉시 추진 (저위험/고효율)** |
 | **Phase 2** | **OS 상호운영성 및 프로세스 안정화** | - **[tini 탑재]** Docker PID 1 init 프로세스로 고아/좀비 프로세스 방지<br/>- **[ACT-1]** 사설 CA 자동 합성 및 컨테이너 내부 Mozilla 번들 정립<br/>- **[ACT-2 & 3]** 비루트(`claire:10001`) 전환, 마이그레이션 훅, Rootless Podman 호환<br/>- **[ACT-5]** SELinux `:z` 옵션 적용, `/etc/localtime` 마운트 대신 `TZ` 일원화 | **기반 인프라** |
 | **Phase 3** | **무비용 인증 검사 및 인터페이스 추상화** | - 토큰 캐시 `exp` 로컬 JSON 파싱(비용 0) 및 리액티브 서킷 브레이커<br/>- `StorageBackend` Protocol (SQLite vs DSM PostgreSQL)<br/>- `PdfParser` Protocol (`design/PDF_PARSER_AND_VISION_GUARDRAILS_DESIGN.md` 준수) | **안정화** |
-| **Phase 4** | **추출 최적화 신중 검증 및 확장** | - **[프롬프트 퓨전 신중 검증]** 기존 산출물과의 A/B 비교 벤치마크 및 정합성 확인 후 점진적 적용<br/>- **[로컬 SLM (Docker 우선)]** 경량 로컬 모델(Ollama/vLLM) 하이브리드 오프로딩<br/>- **[K8s 연구 트랙]** CLI 배제 및 엔터프라이즈 엔드포인트 연동, 독립 `docling-serve` 분리 | **기능 검증 및 확장** |
+| **Phase 4** | **추출 최적화 신중 검증 및 확장** | - **[프롬프트 퓨전 신중 검증]** 기존 산출물과의 A/B 비교 벤치마크 및 정합성 확인 후 점진적 적용<br/>- **[지식 링킹 캘리브레이션]** 4-Tier 유사도 브래킷, text-embedding-004 온톨로지 프레임 임베딩, 적응형 중심화 및 re-embed CLI (Phase 1 완료)<br/>- **[로컬 SLM (Docker 우선)]** 경량 로컬 모델(Ollama/vLLM) 하이브리드 오프로딩<br/>- **[K8s 연구 트랙]** CLI 배제 및 엔터프라이즈 엔드포인트 연동, 독립 `docling-serve` 분리 | **기능 검증 및 확장** |
 | **Phase 5** | **온프레미스 백본 및 온보딩 템플릿** | - VMware DSM PgVector 연동을 통한 조직 관점의 지식베이스 거버넌스 연구<br/>- Google AI Studio 무료 티어(일일 1,500회) 지원 온보딩 템플릿 제공 | **엔터프라이즈 연구 및 지원** |
 
 ---
@@ -125,7 +128,7 @@ flowchart LR
 ## 4. 결론
 
 1. **기능 구현과 인프라 설계의 분리**:
-   - 컨테이너 경량화 및 의존성 분리는 [design/CONTAINER_SLIMMING_AND_DEPENDENCY_DECOUPLING_DESIGN.md](design/CONTAINER_SLIMMING_AND_DEPENDENCY_DECOUPLING_DESIGN.md)에서, PDF 파서 및 시각 오염 가드레일은 [design/PDF_PARSER_AND_VISION_GUARDRAILS_DESIGN.md](design/PDF_PARSER_AND_VISION_GUARDRAILS_DESIGN.md)에서, 품질 검증 가드레일 런타임 컴포넌트화 및 요약 무결성 설계는 [design/QUALITY_GUARDRAILS_AND_SUMMARY_INTEGRITY_DESIGN.md](design/QUALITY_GUARDRAILS_AND_SUMMARY_INTEGRITY_DESIGN.md)에서 독립적으로 관리됩니다.
+   - 컨테이너 경량화 및 의존성 분리는 [design/CONTAINER_SLIMMING_AND_DEPENDENCY_DECOUPLING_DESIGN.md](design/CONTAINER_SLIMMING_AND_DEPENDENCY_DECOUPLING_DESIGN.md)에서, PDF 파서 및 시각 오염 가드레일은 [design/PDF_PARSER_AND_VISION_GUARDRAILS_DESIGN.md](design/PDF_PARSER_AND_VISION_GUARDRAILS_DESIGN.md)에서, 품질 검증 가드레일 런타임 컴포넌트화 및 요약 무결성 설계는 [design/QUALITY_GUARDRAILS_AND_SUMMARY_INTEGRITY_DESIGN.md](design/QUALITY_GUARDRAILS_AND_SUMMARY_INTEGRITY_DESIGN.md)에서, 지식 그래프 링킹 캘리브레이션 및 잠재 연결(미싱링크) 발굴 설계는 [design/KNOWLEDGE_GRAPH_LINKING_AND_CALIBRATION_DESIGN.md](design/KNOWLEDGE_GRAPH_LINKING_AND_CALIBRATION_DESIGN.md)에서 독립적으로 관리됩니다.
 2. **산출물 안정성을 고려한 점진적 최적화**:
    - 컨테이너 경량화(Phase 1) 단계에서는 기존 프롬프트 구조를 유지하여 결과물 일관성을 지키고, 프롬프트 퓨전은 Phase 4에서 충분한 비교 벤치마크를 거쳐 신중하게 도입합니다.
 3. **OS 상호운영성 및 연구 환경 지원**:

@@ -33,6 +33,52 @@ def _cosine(a: list[float], b: list[float]) -> float:
     return dot / (na * nb)
 
 
+def compute_mean_vector(vectors: list[list[float]]) -> list[float] | None:
+    """임베딩 집합의 평균 벡터 mu 산출 (Adaptive Centering 용)."""
+    if not vectors or not vectors[0]:
+        return None
+    dim = len(vectors[0])
+    mean = [0.0] * dim
+    valid_count = 0
+    for v in vectors:
+        if len(v) == dim:
+            for i in range(dim):
+                mean[i] += v[i]
+            valid_count += 1
+    if valid_count == 0:
+        return None
+    return [x / valid_count for x in mean]
+
+
+def center_and_normalize(vec: list[float], mean: list[float]) -> list[float]:
+    """평균 벡터를 차감하고 단위 벡터로 재정규화."""
+    if not vec or not mean or len(vec) != len(mean):
+        return vec
+    centered = [x - m for x, m in zip(vec, mean)]
+    norm = sum(x * x for x in centered) ** 0.5
+    if norm == 0:
+        return centered
+    return [x / norm for x in centered]
+
+
+def reciprocal_rank_fusion(
+    ranked_lists: list[list[tuple[str, float]]],
+    weights: list[float] | None = None,
+    k: int = 60,
+) -> list[tuple[str, float]]:
+    """RRF (Reciprocal Rank Fusion) 하이브리드 순위 결합 (Vector + FTS)."""
+    scores: dict[str, float] = {}
+    if weights is None:
+        weights = [1.0] * len(ranked_lists)
+
+    for r_list, weight in zip(ranked_lists, weights):
+        for rank, (item_id, _) in enumerate(r_list):
+            scores[item_id] = scores.get(item_id, 0.0) + weight * (1.0 / (k + rank + 1))
+
+    sorted_items = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+    return sorted_items
+
+
 def probe_sqlite_vec() -> tuple[bool, str]:
     """sqlite-vec 로드 가능 여부 10초 스파이크. (ok, detail)."""
     try:
@@ -75,15 +121,50 @@ class VectorStore:
         ).fetchone()
         return unpack_vector(row["vector"]) if row else None
 
-    def search(self, query_vec: list[float], limit: int = 10) -> list[tuple[str, float]]:
-        """(owner_id, score) 리스트, score 내림차순."""
+    def count(self) -> int:
+        """저장된 임베딩 총 개수."""
+        row = self.conn.execute("SELECT count(*) FROM embeddings").fetchone()
+        return row[0] if row else 0
+
+    def search(
+        self,
+        query_vec: list[float],
+        limit: int = 10,
+        adaptive_center: bool = False,
+    ) -> list[tuple[str, float]]:
+        """(owner_id, score) 리스트, score 내림차순.
+        
+        adaptive_center=True 면 임베딩들의 평균 벡터(공통 배경 노이즈)를 감산하여
+        변별력을 극대화한다 (수백 개 이상 고차원 임베딩의 Hubness 왜곡 완화).
+        """
         rows = self.conn.execute(
             "SELECT owner_id, vector FROM embeddings"
         ).fetchall()
-        scored = [
-            (r["owner_id"], _cosine(query_vec, unpack_vector(r["vector"])))
-            for r in rows
-        ]
+        if not rows:
+            return []
+
+        unpacked = [(r["owner_id"], unpack_vector(r["vector"])) for r in rows]
+
+        if adaptive_center and len(unpacked) >= 2:
+            vectors_only = [v for _, v in unpacked]
+            mean_v = compute_mean_vector(vectors_only)
+            if mean_v and len(query_vec) == len(mean_v):
+                q_centered = center_and_normalize(query_vec, mean_v)
+                scored = [
+                    (owner_id, _cosine(q_centered, center_and_normalize(v, mean_v)))
+                    for owner_id, v in unpacked
+                ]
+            else:
+                scored = [
+                    (owner_id, _cosine(query_vec, v))
+                    for owner_id, v in unpacked
+                ]
+        else:
+            scored = [
+                (owner_id, _cosine(query_vec, v))
+                for owner_id, v in unpacked
+            ]
+
         scored.sort(key=lambda x: x[1], reverse=True)
         return scored[:limit]
 
