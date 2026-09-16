@@ -31,6 +31,7 @@ from .prompts import (
     classify_watch_prompt,
     clean_plain_summary,
     extract_system_prompt,
+    judge_relationship_prompt,
     judge_research_prompt,
     judge_same_entity_prompt,
     render_detail_prompt,
@@ -45,6 +46,8 @@ from .provider import (
     ExtractionResult,
     FollowSelection,
     MergeCandidate,
+    RelationCandidate,
+    RelationJudgement,
     ResearchJudgement,
     WatchClassification,
     emit_progress,
@@ -742,3 +745,16 @@ class AntigravityProvider:
         except Exception as e:
             logger.warning("judge_same_entity call failed: %s", e)
             return False
+
+    def judge_relationship(self, rc: RelationCandidate) -> RelationJudgement:
+        """두 엔티티 간의 유의미한 온톨로지 관계 성립 여부 및 방향/타입을 LLM으로 판정 (Phase 2)."""
+        prompt = judge_relationship_prompt(rc)
+        schema = RelationJudgement.model_json_schema()
+        try:
+            data = self._run_cli(prompt, json_schema=schema, output_format="json")
+            if isinstance(data, dict):
+                return RelationJudgement.model_validate(data)
+            return RelationJudgement.model_validate_json(str(data))
+        except Exception as e:
+            logger.warning("judge_relationship parsing failed: %s", e)
+            return RelationJudgement(has_relation=False, reason=f"판정 실패: {e}")

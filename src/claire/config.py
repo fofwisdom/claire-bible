@@ -281,6 +281,16 @@ class Settings(BaseSettings):
     vector_adaptive_centering: bool = Field(
         default=True, alias="CLAIRE_VECTOR_ADAPTIVE_CENTERING"
     )
+    # Phase 2: 지식 그래프 전역 관계(Edge) 자동 수립 파이프라인
+    enable_relation_linking: bool = Field(
+        default=True, alias="CLAIRE_ENABLE_RELATION_LINKING"
+    )
+    max_relation_judges_per_entity: int = Field(
+        default=3, alias="CLAIRE_MAX_RELATION_JUDGES_PER_ENTITY"
+    )
+    max_relation_judges_per_doc: int = Field(
+        default=10, alias="CLAIRE_MAX_RELATION_JUDGES_PER_DOC"
+    )
     # rate limit 보호: 호출 간 최소 간격(초) + 429/5xx 재시도 횟수.
     gemini_min_interval: float = Field(default=4.0, alias="CLAIRE_GEMINI_MIN_INTERVAL")
     gemini_max_retries: int = Field(default=5, alias="CLAIRE_GEMINI_MAX_RETRIES")

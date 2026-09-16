@@ -23,6 +23,7 @@ from .prompts import (
     extract_fallback_prompt,
     extract_system_prompt,
     judge_research_prompt,
+    judge_relationship_prompt,
     judge_same_entity_prompt,
     render_detail_prompt,
     research_prompt,
@@ -39,6 +40,8 @@ from .provider import (
     ExtractionResult,
     FollowSelection,
     MergeCandidate,
+    RelationCandidate,
+    RelationJudgement,
     ResearchJudgement,
     WatchClassification,
     emit_progress,
@@ -530,6 +533,38 @@ class GeminiProvider:
             return text.strip().upper().startswith("SAME")
         except Exception:  # noqa: BLE001
             return False  # 판정 실패 시 보수적으로 분리(거짓 병합 방지)
+
+    def judge_relationship(self, rc: RelationCandidate) -> RelationJudgement:
+        """두 엔티티 간의 유의미한 온톨로지 관계 성립 여부 및 방향/타입을 LLM으로 판정 (Phase 2)."""
+        prompt = judge_relationship_prompt(rc)
+        response_format = {
+            "type": "text",
+            "mime_type": "application/json",
+            "schema": RelationJudgement.model_json_schema(),
+        }
+        interaction = None
+        try:
+            interaction = self._call(lambda: self.client.interactions.create(
+                model=self.model,
+                input=prompt,
+                response_format=response_format,
+                generation_config={"temperature": 0.0},
+                store=False,
+            ))
+            raw_text = _extract_output_text(interaction)
+            return RelationJudgement.model_validate_json(raw_text)
+        except Exception as e:
+            if _is_retryable(e):
+                raise
+            try:
+                import json
+
+                if interaction is not None:
+                    raw_text = _extract_output_text(interaction)
+                    return RelationJudgement(**json.loads(raw_text))
+            except Exception:  # noqa: BLE001
+                pass
+            return RelationJudgement(has_relation=False, reason="Evaluation failed or unavailable")
 
 
 def _images_block(images: list[dict]) -> str:

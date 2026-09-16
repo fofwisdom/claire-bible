@@ -1,6 +1,6 @@
 # 지식 그래프 링킹 캘리브레이션 및 잠재 연결(미싱링크) 발굴 아키텍처 설계
 
-작성일: 2026-09-16 · 상태: **Phase 1 Implemented / Phase 2-3 Roadmap** · 기준: [GOALS.md](../../upstream/GOALS.md) 트랙2(추출·연결 품질) / 지식그래프 고도화 · 관련 문서: [CLAIRE_ARCHITECTURE_ROADMAP.md](../CLAIRE_ARCHITECTURE_ROADMAP.md), [ENVIRONMENT_VARIABLES.md](../implementation/ENVIRONMENT_VARIABLES.md), [COMMANDS.md](../implementation/COMMANDS.md)
+작성일: 2026-09-16 · 상태: **Phase 1-2 Implemented / Phase 3 Roadmap** · 기준: [GOALS.md](../../upstream/GOALS.md) 트랙2(추출·연결 품질) / 지식그래프 고도화 · 관련 문서: [CLAIRE_ARCHITECTURE_ROADMAP.md](../CLAIRE_ARCHITECTURE_ROADMAP.md), [ENVIRONMENT_VARIABLES.md](../implementation/ENVIRONMENT_VARIABLES.md), [COMMANDS.md](../implementation/COMMANDS.md)
 
 ---
 
@@ -40,10 +40,10 @@ flowchart TD
         P1_CLI["claire re-embed 재임베딩 CLI"]
     end
 
-    subgraph Phase2 ["Phase 2: 관계 생성 파이프라인 & 다목적 릴레이션 판정 (로드맵)"]
+    subgraph Phase2 ["Phase 2: 관계 생성 파이프라인 & 다목적 릴레이션 판정 (완료)"]
         P2_Pipeline["ResolutionResult 기반 관계 형성 파이프라인 결합"]
         P2_LLM["릴레이션 판정기 (Relation Judge Prompt)"]
-        P2_Edge["GraphStore 전역 엣지 신규 생성"]
+        P2_Edge["GraphStore 전역 엣지 신규 생성 및 CLI 연계"]
     end
 
     subgraph Phase3 ["Phase 3: 2-Hop 삼각 폐쇄 & 잠재 브릿지 노드 실증 (로드맵)"]
@@ -127,16 +127,45 @@ Key observations:
 
 ---
 
-## 4. Phase 2 & Phase 3 확장 계획 (Roadmap)
+## 4. Phase 2 구현 상세 규격 & Phase 3 확장 계획
 
-### 4.1 Phase 2: 지식 그래프 관계(Edge) 자동 형성 파이프라인
-Phase 1에서 확보된 `ResolutionResult.relational_candidates`를 소비하여 실제 그래프 상에 관계를 수립하는 단계입니다.
-- **동작 방식**:
-  1. 단일 문서 추출기(`pipeline.py`)가 미처 파악하지 못한 전역 지식베이스 내의 노드 중, 유사도 `[0.70, 0.93)` 구간에 존재하는 이종(Different) 엔티티들을 추출합니다.
-  2. 경량 관계 판정 프롬프트(`judge_relationship`)를 통해 두 노드 간의 유의미한 관계(예: `uses`, `improves`, `derived_from`, `competes_with`)가 성립하는지 평가합니다.
-  3. 유효한 관계가 성립할 경우 `GraphStore.add_edge(...)`를 호출하여 문서 경계를 초월한 횡단형 엣지를 영구 저장합니다.
+### 4.1 Phase 2: 지식 그래프 관계(Edge) 자동 형성 파이프라인 (구현 완료)
+Phase 1에서 확보된 `ResolutionResult.relational_candidates`를 소비하여 실제 그래프 상에 관계를 수립하고 문서 경계를 초월한 전역 지식망을 형성합니다.
 
-### 4.2 Phase 3: 미싱링크(2-Hop Missing Link) 발굴 및 실증 방법론
+#### 1) 다목적 릴레이션 판정기 (`judge_relationship`)
+- **입력 스키마 (`RelationCandidate`)**: 두 엔티티의 명칭, 타입, 별칭, 핵심 관찰 사실(Observations), 코사인 유사도, 그리고 문서 맥락 요약을 포함합니다.
+- **판정 결과 (`RelationJudgement`)**:
+  - `has_relation: bool`: 유의미한 온톨로지 관계 성립 여부 (보수적 고정밀 판정, 근거 없는 추측 차단).
+  - `relation_type: str | None`: 온톨로지 표준 관계 (`uses`, `improves`, `derived_from`, `competes_with`, `alternative_to`, `implements`, `part_of`, `integrates_with`, `authored_by`, `cites` 등).
+  - `direction: str`: 관계 방향성 (`forward`: A -> B, `backward`: B -> A, `bidirectional`: 대칭 관계).
+  - `reason: str`: 한국어 문어체(~한다/~이다) 근거 서술.
+  - `confidence: float`: 판정 확신도.
+
+#### 2) 영속 그래프 저장소 추상화 (`GraphStore`)
+- `src/claire/store/graph.py`에 전역 지식 그래프 엣지 관리자 `GraphStore` 구축:
+  - `add_edge(source_id, target_id, rel_type, ...)`: 자기 자신 루프 거부, 온톨로지 도메인/레인지 검증, 기존 엣지 출처(sources) 및 confidence 멱등적 병합 지원.
+  - `has_edge(...)`: 양방향/단방향 엣지 존재 여부 고속 조회.
+  - `dbm.add_edge` 및 `dbm.has_relation_between` 편의 인터페이스 연동.
+
+#### 3) 인제스트 파이프라인 및 Vault 동기화 결합
+- `pipeline.py`의 `extract_resolve_store` 단계에서 `ResolutionResult`들의 `relational_candidates`를 집계.
+- **비용 최적화 가드레일**:
+  - 엔티티당 최대 3쌍(`CLAIRE_MAX_RELATION_JUDGES_PER_ENTITY`), 문서당 최대 10쌍(`CLAIRE_MAX_RELATION_JUDGES_PER_DOC`) 상한 적용.
+  - 이미 그래프 상에 존재하는 엣지는 사전 검사(`has_edge`)로 LLM 호출 비용을 0으로 억제.
+- 성립된 횡단 엣지의 상대 엔티티도 `touched_entities`에 편입시켜 Obsidian Vault 마크다운 위키링크가 즉시 갱신되도록 보장.
+- `IngestReport` 및 텔레그램 알림에 `cross_relations_added` 및 연결 명세를 실시간 리포팅.
+
+#### 4) 전역 횡단 링킹 CLI (`claire link-relations`)
+기존에 축적된 지식베이스 전체를 대상으로 유사도 기반 횡단 관계를 일괄 발굴·수립하는 명령을 제공합니다.
+```bash
+./cb-manuscript app link-relations --dry-run             # 횡단 관계 발굴 시뮬레이션
+./cb-manuscript app link-relations                       # 실제 지식 그래프 엣지 일괄 수립
+./cb-manuscript app link-relations --limit 20 --min-score 0.75
+```
+
+---
+
+### 4.2 Phase 3: 미싱링크(2-Hop Missing Link) 발굴 및 실증 방법론 (로드맵)
 서로 직접적인 코사인 유사도가 낮은(예: `< 0.60`) 두 노드 $A$와 $B$ 사이에 존재하는 숨겨진 연결 고리를 탐색하고 실증합니다.
 
 ```mermaid
@@ -175,3 +204,6 @@ flowchart LR
 | `CLAIRE_SIM_TIER_RELATIONAL` | `0.70` | 부동소수점 | Tier 3: 직접 관계(Direct Relational) 후보군 수집 하한선. |
 | `CLAIRE_SIM_TIER_MULTIHOP` | `0.55` | 부동소수점 | Tier 4: 다단계 미싱링크(Multi-hop) 후보군 수집 하한선. |
 | `CLAIRE_VECTOR_ADAPTIVE_CENTERING`| `true` | 불리언 | 평균 벡터 감산을 통한 허브니스 억제 활성화 여부. |
+| `CLAIRE_ENABLE_RELATION_LINKING` | `true` | 불리언 | Phase 2: 인제스트 파이프라인 내 전역 횡단 관계 자동 수립 활성화 여부. |
+| `CLAIRE_MAX_RELATION_JUDGES_PER_ENTITY` | `3` | 정수 | 엔티티당 평가할 최대 관계 후보군 상한. |
+| `CLAIRE_MAX_RELATION_JUDGES_PER_DOC` | `10` | 정수 | 문서 1건당 평가할 최대 관계 판정 호출 수 상한. |

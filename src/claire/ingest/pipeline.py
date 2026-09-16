@@ -16,7 +16,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from ..extract.provider import Provider, emit_progress
+from ..extract.provider import Provider, RelationCandidate, emit_progress
 from ..extract.resolver import resolve_or_create
 from ..ontology.base import Document, Relation
 from ..ontology.registry import (
@@ -25,6 +25,7 @@ from ..ontology.registry import (
     validate_relation,
 )
 from ..store import db as dbm
+from ..store.graph import GraphStore
 from ..store.vault import export_entities
 from ..store.vectors import VectorStore
 from .router import fetch as default_fetch
@@ -43,6 +44,8 @@ class IngestReport:
     entities_linked: int = 0   # 기존 노드에 머지된 수 (= "연결" 성공)
     relations_added: int = 0
     relations_rejected: int = 0
+    cross_relations_added: int = 0  # Phase 2: 전역 지식 그래프 횡단 엣지 연결 수
+    cross_linked_relations: list[str] = field(default_factory=list)  # e.g. ["vLLM -> PagedAttention (uses)"]
     proposals: int = 0
     error: str | None = None
     inbox_id: int | None = None
@@ -151,12 +154,15 @@ class IngestReport:
         if self.partial and not is_stt_failed:
             parts.append("⚠️ 부분 처리(partial)")
         parts.append(f"요약: {self.summary[:300]}")
+        cross_note = f" (횡단 {self.cross_relations_added})" if self.cross_relations_added else ""
         parts.append(
             f"노드 신규 {self.entities_created} · 기존연결 {self.entities_linked} · "
-            f"관계 {self.relations_added}"
+            f"관계 {self.relations_added}{cross_note}"
         )
         if self.linked_entity_names:
             parts.append("연결됨: " + ", ".join(self.linked_entity_names[:8]))
+        if self.cross_linked_relations:
+            parts.append("🌐 지식망 연결: " + ", ".join(self.cross_linked_relations[:5]))
         if self.proposals:
             parts.append(f"새 타입 제안 {self.proposals}건 기록")
         if self.candidates:
@@ -707,6 +713,7 @@ def extract_resolve_store(
 
     name_to_id: dict[str, str] = {}
     touched_entities = []
+    resolution_results = []
     total_entities = len(result.entities)
 
     if on_progress:
@@ -737,13 +744,15 @@ def extract_resolve_store(
             if on_progress:
                 on_progress("엔티티 LLM 동일체 판정", f"[{idx_e}/{total_entities}] '{name1}' ↔ '{name2}'")
 
-        ent, created = resolve_or_create(
+        res = resolve_or_create(
             conn, vstore,
             name=ee.name, etype=etype, aliases=ee.aliases,
             observations=ee.observations, document_id=doc.id,
             embed_fn=_embed, judge_fn=_judge_fn, provisional=prov,
             on_judge=_on_judge_candidate,
         )
+        ent, created = res.entity, res.created
+        resolution_results.append(res)
         name_to_id[ee.name] = ent.id
         touched_entities.append(ent)
         if created:
@@ -780,6 +789,101 @@ def extract_resolve_store(
         dbm.upsert_relation(conn, rel)
         if dbm.counts(conn)["relations"] > before:
             report.relations_added += 1
+
+    # Phase 2: 지식 그래프 전역 관계(Edge) 자동 형성 파이프라인
+    # ResolutionResult.relational_candidates를 소비하여 횡단형 엣지 수립
+    enable_linking = getattr(settings, "enable_relation_linking", True)
+    judge_rel_method = getattr(provider, "judge_relationship", None)
+    if enable_linking and judge_rel_method is not None and resolution_results:
+        gstore = GraphStore(conn)
+        max_per_ent = getattr(settings, "max_relation_judges_per_entity", 3)
+        max_per_doc = getattr(settings, "max_relation_judges_per_doc", 10)
+
+        cross_candidates: list[tuple[Entity, str, float]] = []
+        for r_res in resolution_results:
+            e_node = r_res.entity
+            for cand_id, score in r_res.relational_candidates[:max_per_ent]:
+                if cand_id and cand_id != e_node.id:
+                    cross_candidates.append((e_node, cand_id, score))
+
+        seen_pairs = set()
+        unique_candidates: list[tuple[Entity, str, float]] = []
+        for e_node, cand_id, score in cross_candidates:
+            pair_key = (min(e_node.id, cand_id), max(e_node.id, cand_id))
+            if pair_key in seen_pairs:
+                continue
+            seen_pairs.add(pair_key)
+            if gstore.has_edge(e_node.id, cand_id, bidirectional=True):
+                continue
+            unique_candidates.append((e_node, cand_id, score))
+
+        unique_candidates.sort(key=lambda x: x[2], reverse=True)
+        eval_candidates = unique_candidates[:max_per_doc]
+
+        if eval_candidates:
+            if on_progress:
+                on_progress("전역 지식 관계(Cross-link) 판정", f"후보 {len(eval_candidates)}쌍 평가")
+            emit_progress(f"전역 지식 관계(Cross-link) 판정 ({len(eval_candidates)}쌍)")
+
+        for e_node, cand_id, score in eval_candidates:
+            cand = dbm.get_entity(conn, cand_id)
+            if cand is None:
+                continue
+
+            if on_progress:
+                on_progress(
+                    "관계 판정기 질의",
+                    f"'{e_node.name}' ↔ '{cand.name}' (유사도 {score:.2f})",
+                )
+
+            rc = RelationCandidate(
+                entity_a_name=e_node.name,
+                entity_a_type=e_node.type,
+                entity_a_observations=e_node.observations[:5],
+                entity_a_aliases=e_node.aliases[:5],
+                entity_b_name=cand.name,
+                entity_b_type=cand.type,
+                entity_b_observations=cand.observations[:5],
+                entity_b_aliases=cand.aliases[:5],
+                similarity_score=score,
+                context=f"문서: {doc.title or doc.id}\n요약: {report.summary[:300]}",
+            )
+
+            try:
+                judgement = judge_rel_method(rc)
+            except Exception:  # noqa: BLE001
+                judgement = None
+
+            if judgement and judgement.has_relation and judgement.relation_type:
+                rtype, _ = classify_relation_type(judgement.relation_type)
+                if judgement.direction == "backward":
+                    s_id, t_id = cand.id, e_node.id
+                    s_name, t_name = cand.name, e_node.name
+                else:
+                    s_id, t_id = e_node.id, cand.id
+                    s_name, t_name = e_node.name, cand.name
+
+                added_rel = gstore.add_edge(
+                    s_id,
+                    t_id,
+                    rtype,
+                    confidence=judgement.confidence,
+                    sources=[doc.id],
+                )
+                if added_rel is not None:
+                    report.relations_added += 1
+                    report.cross_relations_added += 1
+                    report.cross_linked_relations.append(f"{s_name} -> {t_name} ({rtype})")
+                    if cand not in touched_entities:
+                        touched_entities.append(cand)
+                    if judgement.direction == "bidirectional":
+                        gstore.add_edge(
+                            t_id,
+                            s_id,
+                            rtype,
+                            confidence=judgement.confidence,
+                            sources=[doc.id],
+                        )
 
     if vault_dir is not None and touched_entities:
         if on_progress:

@@ -35,6 +35,8 @@ class RelationType(str, Enum):
     PART_OF = "part_of"
     USES = "uses"
     INTEGRATES_WITH = "integrates_with"
+    IMPROVES = "improves"
+    DERIVED_FROM = "derived_from"
     RELATED_TO = "related_to"
 
 
@@ -64,6 +66,8 @@ RELATION_DOMAIN_RANGE: dict[RelationType, tuple[set[EntityType] | None, set[Enti
     RelationType.PART_OF: (None, None),
     RelationType.USES: (None, None),
     RelationType.INTEGRATES_WITH: (None, None),
+    RelationType.IMPROVES: (None, None),
+    RelationType.DERIVED_FROM: (None, None),
     RelationType.RELATED_TO: (None, None),
 }
 
@@ -76,5 +80,7 @@ RELATION_DESCRIPTIONS: dict[RelationType, str] = {
     RelationType.PART_OF: "source is a component/part of target.",
     RelationType.USES: "source uses/depends on target.",
     RelationType.INTEGRATES_WITH: "source integrates/interoperates with target.",
+    RelationType.IMPROVES: "source improves upon or optimizes target.",
+    RelationType.DERIVED_FROM: "source is derived from, based on, or built upon target.",
     RelationType.RELATED_TO: "generic association (use only when nothing fits).",
 }

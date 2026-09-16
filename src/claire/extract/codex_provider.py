@@ -28,6 +28,7 @@ from .prompts import (
     clean_plain_summary,
     doc_to_prompt,
     extract_system_prompt,
+    judge_relationship_prompt,
     judge_research_prompt,
     judge_same_entity_prompt,
     render_detail_prompt,
@@ -39,6 +40,8 @@ from .provider import (
     ExtractionResult,
     FollowSelection,
     MergeCandidate,
+    RelationCandidate,
+    RelationJudgement,
     ResearchJudgement,
     WatchClassification,
     emit_progress,
@@ -562,3 +565,15 @@ class CodexProvider:
         except Exception as exc:  # noqa: BLE001
             logger.warning("Codex same-entity judgement failed: %s", exc)
             return False
+
+    def judge_relationship(self, rc: RelationCandidate) -> RelationJudgement:
+        """두 엔티티 간의 유의미한 온톨로지 관계 성립 여부 및 방향/타입을 LLM으로 판정 (Phase 2)."""
+        prompt = judge_relationship_prompt(rc)
+        try:
+            data = self._run_cli(
+                prompt, schema=RelationJudgement.model_json_schema()
+            )
+            return RelationJudgement.model_validate(data)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Codex relationship judgement failed: %s", exc)
+            return RelationJudgement(has_relation=False, reason=f"판정 실패: {exc}")
