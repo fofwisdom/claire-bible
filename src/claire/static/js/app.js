@@ -1415,8 +1415,50 @@ function renderResearchResult(d, backId){
 
 // --- 웹 적재: URL/텍스트를 그래프에 적재(서버 /ingest-stream, /research 와 동일 NDJSON 스트리밍) ---
 // 텔레그램 DM 과 같은 통로(svc.ingest, source='web') — 관련 링크 1홉 자동확장도 동일하게 동작.
+let activeIngest = null;
+
+function updateIngestElapsed(){
+  if(!activeIngest) return;
+  const el = document.getElementById('ielapsed');
+  if(el){
+    const elapsedSec = Math.max(0, Math.round((Date.now() - activeIngest.t0) / 1000));
+    const opts = activeIngest.optionLabels || [];
+    el.textContent = '⏱ 경과 ' + elapsedSec + 's' + (opts.length ? ' (' + opts.join(' · ') + ')' : '');
+  }
+}
+
+function renderIngestStatus(){
+  if(!activeIngest) return;
+  openDetailPane();
+  const existing = document.getElementById('ingest-status-view');
+  if(existing){
+    updateIngestElapsed();
+    return;
+  }
+  const elapsedSec = Math.max(0, Math.round((Date.now() - activeIngest.t0) / 1000));
+  const elapsedText = elapsedSec > 0
+    ? '⏱ 경과 ' + elapsedSec + 's' + (activeIngest.optionLabels && activeIngest.optionLabels.length ? ' (' + activeIngest.optionLabels.join(' · ') + ')' : '')
+    : activeIngest.labelText;
+  let h = '<div id="ingest-status-view">';
+  h += '<h2>➕ 적재 상태 <small>적재 중</small></h2>';
+  h += '<p class="al" id="ielapsed">' + esc(elapsedText) + '</p>';
+  h += '<ul id="iprog">';
+  if(activeIngest.messages){
+    for(const msg of activeIngest.messages){
+      h += '<li class="al">' + esc(msg) + '</li>';
+    }
+  }
+  h += '</ul>';
+  h += '</div>';
+  panel.innerHTML = h;
+}
+
 function openIngest(){
   if(!canIngest()) return;
+  if(activeIngest && activeIngest.running){
+    renderIngestStatus();
+    return;
+  }
   const isMulti = isMultiThemeEnabled();
   let themeFieldHtml = '';
   if(isMulti && availableThemes && availableThemes.length > 0){
@@ -1502,6 +1544,11 @@ function openIngest(){
 }
 async function runIngest(){
   if(!canIngest()) return;
+  if(activeIngest && activeIngest.running){
+    alert('이미 적재가 진행 중입니다.');
+    renderIngestStatus();
+    return;
+  }
   const isMulti = isMultiThemeEnabled();
   const ta=document.getElementById('ingin');
   const payload=((ta||{}).value||'').trim();
@@ -1536,11 +1583,25 @@ async function runIngest(){
   if(optionLabels.length){
     labelText += ' ('+optionLabels.join(' · ')+')';
   }
-  panel.innerHTML='<h2>➕ 적재 중</h2><p class="al" id="ielapsed">' + esc(labelText) + '</p><ul id="iprog"></ul>';
-  openDetailPane();
-  const t0=Date.now();
-  const timer=setInterval(()=>{ const el=document.getElementById('ielapsed');
-    if(el) el.textContent='⏱ 경과 '+Math.round((Date.now()-t0)/1000)+'s'+(optionLabels.length?' ('+optionLabels.join(' · ')+')':''); else clearInterval(timer); },1000);
+  activeIngest = {
+    running: true,
+    t0: Date.now(),
+    labelText: labelText,
+    optionLabels: optionLabels,
+    messages: [],
+    timer: null,
+  };
+  renderIngestStatus();
+  activeIngest.timer = setInterval(() => {
+    if(!activeIngest || !activeIngest.running){
+      if(activeIngest && activeIngest.timer){
+        clearInterval(activeIngest.timer);
+        activeIngest.timer = null;
+      }
+      return;
+    }
+    updateIngestElapsed();
+  }, 1000);
   let result=null;
   try{
     const bodyObj = {payload:payload, full_content:fullContent};
@@ -1549,11 +1610,25 @@ async function runIngest(){
     if(focus) bodyObj.focus=focus;
     const r=await fetch('ingest-stream',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify(bodyObj)});
-    if(r.status===401||r.status===404){ clearInterval(timer); expireWriteAccess();
-      panel.innerHTML='<p class=hint>세션 만료 — 텔레그램 /web 으로 다시 접속하세요</p>'; return; }
-    if(!r.ok){ clearInterval(timer); let d={};
+    if(r.status===401||r.status===404){
+      if(activeIngest){
+        if(activeIngest.timer) clearInterval(activeIngest.timer);
+        activeIngest.timer = null;
+        activeIngest.running = false;
+      }
+      expireWriteAccess();
+      panel.innerHTML='<p class=hint>세션 만료 — 텔레그램 /web 으로 다시 접속하세요</p>'; return;
+    }
+    if(!r.ok){
+      if(activeIngest){
+        if(activeIngest.timer) clearInterval(activeIngest.timer);
+        activeIngest.timer = null;
+        activeIngest.running = false;
+      }
+      let d={};
       try{ d=await r.json(); }catch(_){}
-      panel.innerHTML='<p class=hint>적재 요청 실패: '+esc(d.error||('HTTP '+r.status))+'</p>'; return; }
+      panel.innerHTML='<p class=hint>적재 요청 실패: '+esc(d.error||('HTTP '+r.status))+'</p>'; return;
+    }
     if(!r.body) throw new Error('스트림 본문이 없습니다');
     const reader=r.body.getReader(), dec=new TextDecoder(); let buf='';
     while(true){
@@ -1564,14 +1639,32 @@ async function runIngest(){
         if(!line) continue;
         let ev; try{ ev=JSON.parse(line); }catch(_){ continue; }
         if(ev.done){ result=ev.result; continue; }
-        const ul=document.getElementById('iprog');
-        if(ul){ const li=document.createElement('li'); li.className='al';
-          li.textContent=(ev.msg||'').replace(/^[•*-]\\s*/, ''); ul.appendChild(li); }
+        const cleanMsg = (ev.msg||'').replace(/^[•*-]\s*/, '');
+        if(cleanMsg){
+          if(activeIngest) activeIngest.messages.push(cleanMsg);
+          const ul=document.getElementById('iprog');
+          if(ul){
+            const li=document.createElement('li');
+            li.className='al';
+            li.textContent=cleanMsg;
+            ul.appendChild(li);
+          }
+        }
       }
     }
-  }catch(e){ clearInterval(timer);
-    panel.innerHTML='<p class=hint>요청 실패: '+esc(String(e))+'</p>'; return; }
-  clearInterval(timer);
+  }catch(e){
+    if(activeIngest){
+      if(activeIngest.timer) clearInterval(activeIngest.timer);
+      activeIngest.timer = null;
+      activeIngest.running = false;
+    }
+    panel.innerHTML='<p class=hint>요청 실패: '+esc(String(e))+'</p>'; return;
+  }
+  if(activeIngest){
+    if(activeIngest.timer) clearInterval(activeIngest.timer);
+    activeIngest.timer = null;
+    activeIngest.running = false;
+  }
   if(!result){ panel.innerHTML='<p class=hint>응답이 끊겼습니다 — 잠시 후 다시 시도하세요.</p>'; return; }
   renderIngestResult(result);
 }
