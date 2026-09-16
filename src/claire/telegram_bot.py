@@ -244,7 +244,12 @@ async def _settle_status(
                 from .config import get_settings
                 from .store import db as dbm
 
-                cfg = get_settings()
+                cfg = (
+                    kwargs.get("settings")
+                    or getattr(service_pool, "base_settings", None)
+                    or getattr(service_pool, "s", None)
+                    or (theme_mgr.settings if theme_mgr else get_settings())
+                )
                 base_url = (getattr(cfg, "public_url", "") or "").rstrip("/")
 
                 if theme_mgr is None:
