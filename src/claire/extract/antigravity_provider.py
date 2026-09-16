@@ -518,16 +518,32 @@ class AntigravityProvider:
         )
         return result
 
-    def embed(self, text: str) -> list[float]:
+    def embed(
+        self, text: str, *, task_type: str | None = None, title: str | None = None
+    ) -> list[float]:
         """임베딩 생성 (Gemini API 키 존재 시 Gemini embed, 아니면 결정론적 해시 벡터)."""
         if getattr(self.settings, "gemini_api_key", None):
             try:
                 from google import genai
+                from google.genai import types
 
                 client = genai.Client(api_key=self.settings.gemini_api_key)
-                embed_model = getattr(self.settings, "gemini_embed_model", "gemini-embedding-001")
+                embed_model = getattr(
+                    self.settings, "gemini_embed_model", "text-embedding-004"
+                )
                 limit = getattr(self.settings, "embed_char_budget", 8000)
-                resp = client.models.embed_content(model=embed_model, contents=text[:limit] or " ")
+                tt = task_type or getattr(
+                    self.settings, "embed_task_type", "SEMANTIC_SIMILARITY"
+                )
+                try:
+                    config = types.EmbedContentConfig(task_type=tt, title=title)
+                    resp = client.models.embed_content(
+                        model=embed_model, contents=text[:limit] or " ", config=config
+                    )
+                except Exception:
+                    resp = client.models.embed_content(
+                        model=embed_model, contents=text[:limit] or " "
+                    )
                 return list(resp.embeddings[0].values)
             except Exception as e:
                 logger.warning("Gemini embedding fallback to deterministic hash: %s", e)

@@ -722,7 +722,14 @@ def extract_resolve_store(
 
         def _embed(ee=ee):
             try:
-                return provider.embed(ee.name + " — " + " ".join(ee.observations)[:500])
+                from ..extract.frame import format_entity_frame
+
+                frame_text = format_entity_frame(ee)
+                return provider.embed(
+                    frame_text,
+                    task_type="RETRIEVAL_DOCUMENT",
+                    title=ee.name,
+                )
             except Exception:  # noqa: BLE001
                 return None
 

@@ -266,13 +266,35 @@ class GeminiProvider:
         result.prompt_version = PROMPT_VERSION
         return result
 
-    def embed(self, text: str) -> list[float]:
+    def embed(
+        self, text: str, *, task_type: str | None = None, title: str | None = None
+    ) -> list[float]:
         from ..config import get_settings
 
-        limit = get_settings().embed_char_budget
-        resp = self._call(lambda: self.client.models.embed_content(
-            model=self.embed_model, contents=text[:limit] or " "))
-        return list(resp.embeddings[0].values)
+        settings = get_settings()
+        limit = settings.embed_char_budget
+        tt = task_type or getattr(settings, "embed_task_type", "SEMANTIC_SIMILARITY")
+
+        try:
+            from google.genai import types
+
+            config = types.EmbedContentConfig(task_type=tt, title=title)
+            resp = self._call(
+                lambda: self.client.models.embed_content(
+                    model=self.embed_model,
+                    contents=text[:limit] or " ",
+                    config=config,
+                )
+            )
+            return list(resp.embeddings[0].values)
+        except Exception:
+            # Fallback for SDK/API environments where EmbedContentConfig is omitted
+            resp = self._call(
+                lambda: self.client.models.embed_content(
+                    model=self.embed_model, contents=text[:limit] or " "
+                )
+            )
+            return list(resp.embeddings[0].values)
 
     def summarize_search(self, query: str, context: str) -> str:
         """검색된 컨텍스트만 사용해 질의에 답한다(인용 포함, 환각 억제, 문어체)."""

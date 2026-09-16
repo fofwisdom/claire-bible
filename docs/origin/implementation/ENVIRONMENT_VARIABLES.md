@@ -118,7 +118,8 @@ graph TD
 | `CLAIRE_PROVIDER` | `mock` | `mock`, `gemini`, `antigravity`, `codex`, `codex-cli` | 지식 그래프 추출, 요약, 판정에 사용할 메인 LLM 프로바이더. 키/환경이 없으면 `mock`으로 안전 폴백됩니다. ([MULTI_PROVIDER_DESIGN.md](../design/MULTI_PROVIDER_DESIGN.md) 참조) |
 | `CLAIRE_GEMINI_MODEL` | `gemini-3.1-flash-lite` | 문자열 | Gemini 프로바이더 사용 시 적용할 모델명. |
 | `CLAIRE_GEMINI_EFFORT` | `medium` | `low`, `medium`, `high` | Gemini 모델 추론 사고 레벨 (Reasoning Effort). |
-| `CLAIRE_GEMINI_EMBED_MODEL` | `gemini-embedding-001` | 문자열 | 임베딩 벡터 생성에 사용할 Gemini 모델명. |
+| `CLAIRE_GEMINI_EMBED_MODEL` | `text-embedding-004` | 문자열 | 임베딩 벡터 생성에 사용할 Gemini 모델명. (기존 `gemini-embedding-001`에서 상향) |
+| `CLAIRE_EMBED_TASK_TYPE` | `RETRIEVAL_DOCUMENT` | 문자열 | 벡터 임베딩 생성 시 기본 task_type (`RETRIEVAL_DOCUMENT`, `RETRIEVAL_QUERY`, `SEMANTIC_SIMILARITY` 등). |
 | `CLAIRE_GEMINI_MIN_INTERVAL` | `4.0` | 부동소수점 (초) | Gemini API 호출 간 최소 대기 간격 (무료 티어 Rate Limit 보호용). |
 | `CLAIRE_GEMINI_MAX_RETRIES` | `5` | 정수 | Gemini API 429/5xx 에러 발생 시 최대 재시도 횟수. |
 
@@ -208,6 +209,18 @@ VMware Explore 숫자형 영상 상세 페이지가 Presentation PDF를 명시�
 | :--- | :--- | :--- | :--- |
 | `CLAIRE_ALLOW_PRIVATE_NETWORKS` | `0` (`false`) | `0`, `1`, `true`, `false` | **온프레미스 사설망 스크래핑 허용 플래그**. `1`(`true`)로 설정하면 수집기(`SafeHttpClient`)가 사내 인트라넷 RFC 1918 사설망(`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`) 및 Loopback 주소에 접근할 수 있습니다. **클라우드 메타데이터(IMDS `169.254.169.254`, `169.254.0.0/16`) 및 링크로컬/멀티캐스트는 어떤 환경에서도 절대 차단(Strictly Denied)됩니다.** ([FETCHER_CONTRIBUTION_AND_ONPREMISE_NETWORK_DESIGN.md](../design/FETCHER_CONTRIBUTION_AND_ONPREMISE_NETWORK_DESIGN.md) 참조) |
 | `CLAIRE_PRIVATE_NETWORK_ALLOWLIST` | `""` | 쉼표 구분 CIDR / 도메인 | **사설망 접근 세부 화이트리스트**. 사설망 전체를 허용하지 않고 특정 대역이나 도메인만 선별적으로 수집하도록 허용합니다 (예: `10.0.0.0/8,192.168.1.0/24,*.corp.internal,wiki.local`). |
+
+---
+
+### 2.10.2 벡터 임베딩 및 지식 링킹 캘리브레이션 (Vector Calibration & Graph Linking)
+
+| 환경변수명 | 기본값 | 허용 값 / 타입 | 설명 |
+| :--- | :--- | :--- | :--- |
+| `CLAIRE_SIM_TIER_AUTO_MERGE` | `0.93` | 부동소수점 (`0.0~1.0`) | **Tier 1 자동 병합 임계값**. 이 점수 이상의 코사인 유사도를 가진 기존 엔티티는 LLM 질의 없이 즉시 동일체로 병합됩니다. ([KNOWLEDGE_GRAPH_LINKING_AND_CALIBRATION_DESIGN.md](../design/KNOWLEDGE_GRAPH_LINKING_AND_CALIBRATION_DESIGN.md) 참조) |
+| `CLAIRE_SIM_TIER_BORDERLINE` | `0.72` | 부동소수점 (`0.0~1.0`) | **Tier 2 동일체 경계선 판정 하한**. `CLAIRE_SIM_TIER_AUTO_MERGE` 미만부터 이 점수까지의 후보는 LLM 동일체 판정기(`judge_same_entity`)를 통해 병합 여부를 결정합니다. |
+| `CLAIRE_SIM_TIER_RELATIONAL` | `0.70` | 부동소수점 (`0.0~1.0`) | **Tier 3 직접 관계 형성 후보 하한**. 동일체가 아닌 독립 엔티티로 생성하되 문서 간 직접 엣지 링킹(`relational_candidates`) 후보군으로 보존합니다. |
+| `CLAIRE_SIM_TIER_MULTIHOP` | `0.55` | 부동소수점 (`0.0~1.0`) | **Tier 4 다단계/미싱링크 후보 하한**. 잠재적 매개 개념(Bridge Node) 및 삼각 폐쇄 발굴을 위한 간접 관계 후보군(`multihop_candidates`)으로 보존합니다. |
+| `CLAIRE_VECTOR_ADAPTIVE_CENTERING` | `1` (`true`) | `0`, `1`, `true`, `false` | **적응형 중심화(Adaptive Centering) 활성화 여부**. 전체 벡터의 중심점(Centroid)을 감산하여 공통 도메인 어휘로 인한 허브니스(Hubness) 편향을 억제하고 코사인 분별력을 극대화합니다. |
 
 ---
 

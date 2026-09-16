@@ -2747,6 +2747,58 @@ def cmd_hoyowiki(args) -> int:
     return 0 if errors == 0 else 1
 
 
+def cmd_reembed(args) -> int:
+    """모든 엔티티를 온톨로지 프레임 및 최신 임베딩 모델로 일괄 재임베딩."""
+    from .extract.frame import format_entity_frame
+    from .ingest.service import IngestService
+    from .store.vectors import make_vector_store
+
+    s, theme = get_effective_settings(args)
+    conn = dbm.connect(s.db_file)
+    dbm.init_db(conn)
+    vstore = make_vector_store(conn, s.vector_backend)
+    svc = IngestService(s)
+    provider = svc.provider
+
+    ents = dbm.all_entities(conn)
+    if not ents:
+        print("재임베딩할 엔티티가 없습니다.")
+        conn.close()
+        return 0
+
+    limit = getattr(args, "limit", 0) or 0
+    if limit > 0:
+        ents = ents[:limit]
+
+    dry_run = getattr(args, "dry_run", False)
+    provider_name = getattr(provider, "name", "?")
+    model_name = getattr(provider, "embed_model", getattr(s, "gemini_embed_model", "claire"))
+
+    print(f"총 {len(ents)}개 엔티티 재임베딩 시작 (provider={provider_name}, model={model_name}, dry_run={dry_run})")
+
+    success = 0
+    failed = 0
+
+    for i, ent in enumerate(ents, 1):
+        frame_text = format_entity_frame(ent)
+        try:
+            if not dry_run:
+                vec = provider.embed(
+                    frame_text, task_type="RETRIEVAL_DOCUMENT", title=ent.name
+                )
+                vstore.put(ent.id, vec, model=model_name)
+            success += 1
+            if i % 10 == 0 or i == len(ents):
+                print(f"  [{i}/{len(ents)}] {ent.name} ({ent.type}) 완료")
+        except Exception as e:
+            failed += 1
+            print(f"  [{i}/{len(ents)}] {ent.name} 실패: {e}")
+
+    conn.close()
+    print(f"\n재임베딩 완료: 총 {len(ents)}개 중 성공 {success}개, 실패 {failed}개")
+    return 0 if failed == 0 else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="claire", description="Claire Bible knowledge base")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -3218,6 +3270,14 @@ def build_parser() -> argparse.ArgumentParser:
     phoyo.add_argument("-o", "--output-dir", default=None, help="directory to save markdown documents")
     phoyo.add_argument("--json", action="store_true", help="output result in JSON format")
     phoyo.set_defaults(func=cmd_hoyowiki)
+
+    preembed = sub.add_parser(
+        "re-embed",
+        help="re-compute embeddings for all entities using current model and ontology frame",
+    )
+    preembed.add_argument("--limit", type=int, default=0, help="limit number of entities to re-embed")
+    preembed.add_argument("--dry-run", action="store_true", help="simulate re-embedding without writing to db")
+    preembed.set_defaults(func=cmd_reembed)
 
     return p
 

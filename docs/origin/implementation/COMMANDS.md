@@ -229,6 +229,7 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 | `backfill-images` | `claire backfill-images [--limit N]` | 문서 내 참조된 이미지 에셋 추출 및 다운로드 백필 |
 | `recompile-html` | `claire recompile-html` | 저장된 상세(detail)로부터 `detail_html` AOT 사전 컴파일 갱신 |
 | `reextract` | `claire reextract [--tables] [--no-rebuild] [--limit N]` | 저장된 `raw_text`로부터 지식그래프 전체(또는 표 포함 문서)를 재추출 |
+| `re-embed` | `claire re-embed [--limit N] [--apply] [--dry-run]` | 기존 엔티티 노드들의 벡터 임베딩을 최신 모델(`text-embedding-004`) 및 온톨로지 프레임으로 일괄 재계산·갱신 (기본: dry-run, 실행: `--apply`) |
 | `replay-failed` | `claire replay-failed [--limit N]` | `raw_inbox`에서 `status=error`인 실패 건 전량 수동 재적재 |
 | `recover-run` | `claire recover-run [--limit N]` | 에러 큐 단건/배치 복구 실행 (게이팅/지수 백오프 적용) |
 | `recover-loop` | `claire recover-loop [--interval N] [--batch N]` | 모든 활성 테마의 에러 복구 큐를 전역 batch 한도 안에서 순환 처리하는 자동 데몬 |
@@ -339,6 +340,20 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 * **옵션**:
   * `--tables`, `--has-tables`: 표가 포함된 문서만 선별하여 재추출.
   * `--no-rebuild`: 그래프 초기화(reset_graph) 없이 기존 그래프에 누적 추출.
+
+#### `re-embed`
+기존에 저장된 지식그래프 엔티티 노드들의 벡터 임베딩을 최신 모델(`text-embedding-004`) 및 온톨로지 구조화 프레임(`format_entity_frame`)으로 일괄 재계산하여 벡터 저장소(`vector_store`)를 갱신합니다. ([KNOWLEDGE_GRAPH_LINKING_AND_CALIBRATION_DESIGN.md](../design/KNOWLEDGE_GRAPH_LINKING_AND_CALIBRATION_DESIGN.md) 참조)
+* **사용법**:
+  ```bash
+  ./cb-manuscript app re-embed                    # 재임베딩 대상 노드 수 진단 (기본: Dry-run)
+  ./cb-manuscript app re-embed --apply            # 실제 임베딩 API 호출 및 DB 갱신
+  ./cb-manuscript app re-embed --apply --limit 50 # 상위 50개 노드만 부분 갱신
+  ```
+* **옵션**:
+  * `--apply`: 실제 임베딩 계산 및 벡터 스토어 저장을 수행 (미지정 시 기본 dry-run).
+  * `--dry-run`: 대상 노드 수와 계획만 출력하고 DB 변경 없음 (기본값).
+  * `--limit <N>`: 재계산할 최대 엔티티 수 제한.
+
 #### `video-reprocess` (단축: `reprocess-video`)
 기존에 자막 없이 적재되었거나 전사가 누락된 비디오 문서를 다시 수집합니다. 발행자가 선호 언어 CC를 제공하면 해당 자막을 내려받아 보존하고, 유효한 CC가 없을 때만 오디오와 STT 경로를 실행합니다. VMware Explore 상세 페이지가 Presentation PDF를 제공하면 검증된 원본 PDF와 추출 텍스트를 같은 영상 문서에 함께 갱신합니다. STT 처리 실패 시 사흘(3일)간 로컬 캐시(`data/cache/video/`)에 보존된 미디어를 재다운로드 없이 재사용합니다.[^video-caption-implementation][^video-presentation-implementation]
 * **사용법**:
