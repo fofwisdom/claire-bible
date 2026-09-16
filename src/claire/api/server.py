@@ -1344,6 +1344,45 @@ def create_app(
             )
         return JSONResponse(result)
 
+    async def entity_primary_label_route(request: Request) -> JSONResponse:
+        body = await _json_object(request)
+        theme, theme_settings, _ = _get_theme_ctx(request, body)
+        entity_id = str(body.get("id") or "").strip()
+        new_name = str(body.get("name") or "").strip()
+        if not entity_id:
+            raise HTTPException(status_code=400, detail="id required")
+        if not new_name:
+            raise HTTPException(status_code=400, detail="name required")
+
+        def _select() -> dict[str, Any]:
+            conn = dbm.connect_existing(theme_settings.db_file)
+            try:
+                try:
+                    updated = dbm.select_entity_primary_label(conn, entity_id, new_name)
+                except KeyError as e:
+                    raise HTTPException(status_code=404, detail=str(e))
+                except ValueError as e:
+                    raise HTTPException(status_code=400, detail=str(e))
+
+                from ..store.queries import node_detail as _detail
+
+                _detail_fn = _resolve_query_func("node_detail", _detail)
+                rep = _detail_fn(conn, updated.id)
+                if rep is not None and theme.id != 0:
+                    rep["theme_id"] = theme.id
+                    rep["theme_label"] = theme.label
+                return rep or {
+                    "id": updated.id,
+                    "name": updated.name,
+                    "type": updated.type,
+                    "aliases": updated.aliases,
+                }
+            finally:
+                conn.close()
+
+        result = await asyncio.to_thread(_select)
+        return JSONResponse(result)
+
     async def create_share_route(request: Request) -> JSONResponse:
         body = await _json_object(request)
         theme, theme_settings, _ = _get_theme_ctx(request, body)
@@ -1641,6 +1680,7 @@ def create_app(
         Route("/research", research_route, methods=["POST"]),
         Route("/dedup/scan", dedup_scan_route, methods=["POST"]),
         Route("/dedup/merge", dedup_merge_route, methods=["POST"]),
+        Route("/entity/primary-label", entity_primary_label_route, methods=["POST"]),
         Route("/share", create_share_route, methods=["POST"]),
         Route("/p", shared_doc_page, methods=["GET"]),
         Route("/support/bundle", create_support_bundle_route, methods=["POST"]),

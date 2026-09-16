@@ -999,6 +999,150 @@ def _row_to_entity(row: sqlite3.Row) -> Entity:
     )
 
 
+def select_entity_primary_label(
+    conn: sqlite3.Connection,
+    entity_id: str,
+    new_name: str,
+) -> Entity:
+    """기존 별칭(aliases) 중 하나를 선택하여 대표 레이블(name)로 승격/전환.
+
+    - new_name 은 반드시 대상 엔티티의 aliases 에 존재해야 한다 (임의 생성 차단).
+    - 기존 name 은 aliases 목록으로 이동하여 보존된다 (해소 및 참조 오염 방지).
+    - entities 및 entities_fts 가 원자적으로 동기화된다.
+    """
+    from ..ontology.base import normalize_name
+
+    ent = get_entity(conn, entity_id)
+    if ent is None:
+        cands = find_entities_by_name_or_alias(conn, entity_id)
+        if len(cands) == 1:
+            ent = cands[0]
+        elif len(cands) > 1:
+            raise ValueError(f"Ambiguous entity identifier '{entity_id}', matches multiple entities")
+        else:
+            raise KeyError(f"Entity not found: {entity_id}")
+
+    cleaned_new = new_name.strip()
+    if not cleaned_new:
+        raise ValueError("New primary label cannot be empty")
+
+    norm_target = normalize_name(cleaned_new)
+    if norm_target == normalize_name(ent.name):
+        return ent
+
+    matched_alias: str | None = None
+    for a in ent.aliases:
+        if normalize_name(a) == norm_target:
+            matched_alias = a
+            break
+
+    if matched_alias is None:
+        raise ValueError(
+            f"'{new_name}'은(는) 엔티티 '{ent.name}'의 기존 별칭 목록에 존재하지 않습니다: {ent.aliases}"
+        )
+
+    old_name = ent.name
+    new_aliases = [
+        a for a in ent.aliases
+        if normalize_name(a) != norm_target and normalize_name(a) != normalize_name(old_name)
+    ]
+    new_aliases.append(old_name)
+
+    ent.name = matched_alias
+    ent.aliases = sorted(set(new_aliases))
+    upsert_entity(conn, ent)
+    return ent
+
+
+def batch_select_primary_labels(
+    conn: sqlite3.Connection,
+    mappings: dict[str, str],
+    *,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """대량 매핑(dict: target_id_or_name -> chosen_alias)으로 대표 레이블 일괄 전환.
+
+    dry_run=True 시 실제 DB 수정 없이 시뮬레이션 결과(성공/실패/변경전후)를 반환.
+    dry_run=False 시 트랜잭션 내에서 일괄 적용.
+    """
+    from ..ontology.base import normalize_name
+
+    plan: list[dict[str, Any]] = []
+    errors: list[dict[str, str]] = []
+
+    for target, chosen in mappings.items():
+        chosen_clean = str(chosen or "").strip()
+        if not chosen_clean:
+            errors.append({"target": target, "chosen": chosen, "error": "빈 문자열은 대표 레이블이 될 수 없습니다."})
+            continue
+
+        ent = get_entity(conn, target)
+        if ent is None:
+            cands = find_entities_by_name_or_alias(conn, target)
+            if len(cands) == 1:
+                ent = cands[0]
+            elif len(cands) > 1:
+                errors.append({"target": target, "chosen": chosen, "error": f"'{target}' 식별자가 여러 엔티티에 일치합니다."})
+                continue
+            else:
+                errors.append({"target": target, "chosen": chosen, "error": f"엔티티를 찾을 수 없습니다: '{target}'"})
+                continue
+
+        norm_chosen = normalize_name(chosen_clean)
+        if norm_chosen == normalize_name(ent.name):
+            continue
+
+        matched_alias = None
+        for a in ent.aliases:
+            if normalize_name(a) == norm_chosen:
+                matched_alias = a
+                break
+
+        if matched_alias is None:
+            errors.append({
+                "target": target,
+                "entity_id": ent.id,
+                "current_name": ent.name,
+                "chosen": chosen,
+                "error": f"선택한 '{chosen}'이(가) 기존 별칭 {ent.aliases}에 존재하지 않습니다."
+            })
+            continue
+
+        old_name = ent.name
+        new_aliases = [
+            a for a in ent.aliases
+            if normalize_name(a) != norm_chosen and normalize_name(a) != normalize_name(old_name)
+        ]
+        new_aliases.append(old_name)
+        new_aliases = sorted(set(new_aliases))
+
+        plan.append({
+            "id": ent.id,
+            "old_name": old_name,
+            "new_name": matched_alias,
+            "aliases_before": list(ent.aliases),
+            "aliases_after": new_aliases,
+        })
+
+    if not dry_run and plan:
+        with conn:
+            for item in plan:
+                e = get_entity(conn, item["id"])
+                if e:
+                    e.name = item["new_name"]
+                    e.aliases = item["aliases_after"]
+                    upsert_entity(conn, e)
+
+    return {
+        "dry_run": dry_run,
+        "total": len(mappings),
+        "planned": len(plan),
+        "failed": len(errors),
+        "results": plan,
+        "errors": errors,
+    }
+
+
 # --- relations ---
 
 def upsert_relation(conn: sqlite3.Connection, rel: Relation) -> None:
