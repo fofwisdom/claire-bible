@@ -93,9 +93,10 @@ flowchart TD
      * 개인 개발자의 로컬 연구 환경 확대를 지원하기 위해 Docker 구성을 우선 제공.
   3. **온프레미스 K8s 연구 트랙 패키징**:
      * CLI 도구 대신 엔터프라이즈 엔드포인트를 사용하는 K8s Helm 패키징 및 독립 `docling-serve` 워커 분리 배포.
-  4. **지식 그래프 링킹 캘리브레이션 및 미싱링크 발굴 (Phase 1 완료)**:
-     * 4-Tier 유사도 브래킷, `text-embedding-004` 온톨로지 프레임 임베딩, 적응형 중심화(Adaptive Centering) 및 `claire re-embed` CLI 구축 완료 ([design/KNOWLEDGE_GRAPH_LINKING_AND_CALIBRATION_DESIGN.md](design/KNOWLEDGE_GRAPH_LINKING_AND_CALIBRATION_DESIGN.md) 참조).
-     * 후속 단계로 전역 관계 자동 수립(Phase 2) 및 2-Hop 삼각 폐쇄/잠재 브릿지 노드 실증(Phase 3) 연계 추진.
+  4. **지식 그래프 링킹 캘리브레이션 및 미싱링크 발굴 (Phase 1~2 완료 / Phase 3 로드맵)**:
+     * Phase 1 완료: 4-Tier 유사도 브래킷, `text-embedding-004` 온톨로지 프레임 임베딩, 적응형 중심화(Adaptive Centering), RRF 결합 및 `claire re-embed` CLI 구축 완료 ([design/KNOWLEDGE_GRAPH_LINKING_AND_CALIBRATION_DESIGN.md](design/KNOWLEDGE_GRAPH_LINKING_AND_CALIBRATION_DESIGN.md) 참조).
+     * Phase 2 완료: `GraphStore` 영속 엣지 추상화, 다목적 릴레이션 판정기(`judge_relationship`), 인제스트 파이프라인 전역 횡단 엣지 수립 및 `claire link-relations` CLI 구축 완료.
+     * Phase 3 잔여: 2-Hop 삼각 폐쇄(Triadic Closure), 잠재 브릿지 노드 역생성, 전이성 규칙 엔진 및 50쌍 골든 벤치마크 실증.
 
 ### 2.5 [과제 5 / Phase 5] 온프레미스 백본 거버넌스 및 온보딩 템플릿
 * **배경**: 다중 Pod 환경에서의 지식베이스 거버넌스 연구 및 신규 유입 개발자를 위한 온보딩 지원.
