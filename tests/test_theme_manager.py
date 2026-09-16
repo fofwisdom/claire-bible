@@ -368,3 +368,72 @@ def test_resolve_share_token_single_mode_fallback(tmp_path):
     assert manager.resolve_share_token("single_tok") is None
 
 
+def test_theme_reset_preserves_id_and_cleans_data(temp_theme_env):
+    """테마 고유 ID/URI/메타데이터를 영구 보존하면서 내부 데이터만 100% 클린 리셋하는지 검증."""
+    from claire.ontology.base import Document, Entity, Relation
+    from claire.store import db as dbm
+
+    manager, data_dir, vault_dir = temp_theme_env
+
+    # 1. 새 테마 생성
+    theme = manager.define_theme("Honkai", icon="🌑", default_focus="세계관/이야기", description="붕괴 시리즈")
+    tid = theme.id
+    assert tid == 1
+    t_settings = manager.get_settings_for_theme(tid)
+
+    # 2. 테마 1 DB 및 Vault에 데이터 삽입
+    conn = dbm.connect(t_settings.db_file)
+    dbm.init_db(conn)
+
+    doc = Document(id="doc_robin", title="Robin Character", raw_text="Robin content", source_type="text")
+    dbm.insert_document(conn, doc)
+    ent = Entity(id="ent_robin", type="Person", name="Robin", sources=["doc_robin"])
+    dbm.upsert_entity(conn, ent)
+    rel = Relation(id="rel_1", type="related_to", source_id="ent_robin", target_id="ent_robin", sources=["doc_robin"])
+    dbm.upsert_relation(conn, rel)
+    conn.commit()
+    conn.close()
+
+    # 볼트 파일 생성
+    vault_file = t_settings.vault_dir / "doc_robin.md"
+    vault_file.parent.mkdir(parents=True, exist_ok=True)
+    vault_file.write_text("# Robin", encoding="utf-8")
+    assert vault_file.is_file()
+
+    # 3. reset_theme 실행
+    stats = manager.reset_theme(tid)
+    assert stats["theme_id"] == 1
+    assert stats["theme_label"] == "Honkai"
+    assert stats["deleted_documents"] == 1
+    assert stats["deleted_entities"] == 1
+    assert stats["deleted_relations"] == 1
+    assert stats["vault_files_unlinked"] == 1
+    assert stats["db_cleared"] is True
+
+    # 4. 검증: 메타데이터 및 고유 ID/URI 보존 확인
+    manager.reload()
+    reloaded_theme = manager.get_theme(tid)
+    assert reloaded_theme.id == 1
+    assert reloaded_theme.seq == 1
+    assert reloaded_theme.label == "Honkai"
+    assert reloaded_theme.icon == "🌑"
+    assert reloaded_theme.default_focus == "세계관/이야기"
+    assert reloaded_theme.description == "붕괴 시리즈"
+
+    # 5. 검증: DB 및 볼트 데이터 100% 클린 리셋 확인
+    conn2 = dbm.connect(t_settings.db_file)
+    assert conn2.execute("SELECT COUNT(*) FROM documents").fetchone()[0] == 0
+    assert conn2.execute("SELECT COUNT(*) FROM entities").fetchone()[0] == 0
+    assert conn2.execute("SELECT COUNT(*) FROM relations").fetchone()[0] == 0
+    assert conn2.execute("SELECT COUNT(*) FROM embeddings").fetchone()[0] == 0
+    assert conn2.execute("SELECT COUNT(*) FROM raw_inbox").fetchone()[0] == 0
+    conn2.close()
+
+    assert not vault_file.exists()
+
+    # 6. 다음 테마 생성 시 ID 시퀀스가 건너뛰지 않고 정상 발급되는지 검증
+    next_theme = manager.define_theme("Zenless", icon="⚡")
+    assert next_theme.id == 2
+
+
+

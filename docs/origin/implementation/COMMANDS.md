@@ -473,6 +473,7 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 | `theme list` | `claire theme list [--json]` | 등록된 테마 목록, 활성화 상태, 공개 여부 및 통계(문서/엔티티/관계) 조회 |
 | `theme define` | `claire theme define --label <L> [--desc <D>] [--icon <I>] [--focus <F>] [--public\|--private] [--collaborator\|--no-collaborator] [--json]` | 다음 시퀀스 번호의 신규 테마 디렉토리 및 DB/볼륨을 자동 프로비저닝하여 등록 |
 | `theme update` | `claire theme update <id_or_label> [--label <L>] [--desc <D>] [--icon <I>] [--focus <F>] [--public\|--private] [--collaborator\|--no-collaborator] [--json]` | 기존 테마의 레이블, 설명, 아이콘, 기본 초점, 공개/협력자 접근 권한 수정 |
+| `theme reset` | `claire theme reset <id> [-y\|--yes] [--json]` | 테마 ID 및 호출 URI(`?theme=<id>`)를 영구 보존하면서 내부 데이터(문서, 지식 노드, 관계, 볼트 파일)만 원자적으로 100% 클린 리셋 |
 | `theme delete` | `claire theme delete <id> [--purge] [--yes] [--json]` | 테마 레지스트리에서 비활성화/삭제. `--purge` 지정 시 물리적 DB 및 vault 영구 소각 (기본 테마 `0`은 삭제 불가 보호) |
 
 #### `claire theme list`
@@ -502,6 +503,18 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
   * `--focus ""`: 빈 문자열을 전달하여 기존에 설정된 기본 초점을 해제(초기화) 가능.
   * `--private`, `--no-collaborator`: 기존 공개/협력자 허용 테마의 접근 권한을 동적으로 즉시 회수 가능.
   * 기본 테마 `0`(Default Theme)의 경우 레이블, 설명, 아이콘, 공개 여부는 변경 가능하지만 기본 초점은 `""`로 고정됩니다.
+
+#### `claire theme reset`
+* **사용법**: `claire theme reset <id> [-y|--yes] [--json]`
+* **주요 특징 및 동작**:
+  * **식별 메타데이터 및 고유 URI 영구 보존**: 테마 ID(`id`), 순번(`seq`), 명칭(`label`), 아이콘(`icon`), 설명(`description`), 기본 초점(`default_focus`), 권한 설정(`is_public`, `is_collaborator_accessible`), 생성일(`created_at`), 호출 URI(`?theme=<id>`) 등 모든 식별 메타데이터는 불변으로 유지됩니다 (`updated_at`만 갱신). 북마크나 외부 공유 URL이 깨지지 않습니다.
+  * **내부 적재 데이터 완전 소각 (100% Clean Slate)**:
+    1. **지식 그래프 원자적 비우기**: `reset_graph(conn)`를 통해 `entities`, `relations`, `embeddings`, `entities_fts`를 일괄 삭제.
+    2. **테마 DB 적재 데이터 초기화**: `documents`, `raw_inbox`, `extractions`, `document_snapshots`, `proposals`, `jobs`, `refresh_queue`, `expand_queue`, `doc_shares`, `purged_tombstones` 전체 행 삭제.
+    3. **로컬 볼트(Vault) 산출물 파일 영구 제거**: `vault/themes/{seq}/*.md` (기본 테마 `0`인 경우 `vault/*.md`에서 `vault/themes/` 디렉터리 보호 제외) 일괄 언링크.
+    4. **스토리지 최적화**: `PRAGMA wal_checkpoint(TRUNCATE)` 및 `VACUUM`을 수행하여 잔여 WAL 및 프리리스트를 즉시 OS에 반환.
+  * **대화형 안전 확인**: 대화형 터미널에서는 테마 명칭과 ID를 안내하며 `[y/N]` 확인을 요구하고, 비대화형 파이프라인 환경에서는 `--yes` (`-y`) 플래그가 없으면 작업이 차단(종료 코드 2)됩니다.
+  * **`--json`**: 소각된 문서 수, 엔티티 수, 관계 수, 삭제된 볼트 파일 수 등 리셋 요약 통계를 JSON으로 출력.
 
 #### `claire theme delete`
 * **사용법**: `claire theme delete <id> [--purge] [--yes] [--json]`

@@ -676,6 +676,54 @@ def cmd_theme(args) -> int:
             print(f"[오류] 테마 삭제 실패: {exc}", file=sys.stderr)
             return 1
 
+    elif action == "reset":
+        theme_id = getattr(args, "id", None)
+        if theme_id is None:
+            print("[오류] 리셋할 테마의 ID를 지정해야 합니다.", file=sys.stderr)
+            return 1
+        try:
+            target_theme = tm.get_theme(theme_id, strict=True)
+        except Exception as exc:
+            print(f"[오류] 대상 테마를 찾을 수 없습니다: {exc}", file=sys.stderr)
+            return 1
+
+        yes = getattr(args, "yes", False)
+        if not yes:
+            if not sys.stdin.isatty():
+                print(
+                    f"\n[오류] 비대화형 환경에서는 --yes (-y) 옵션을 명시하여 실행하십시오:\n  claire theme reset {theme_id} --yes",
+                    file=sys.stderr,
+                )
+                return 2
+            try:
+                confirm = input(
+                    f"[경고] 테마 #{target_theme.id} [{target_theme.label}]의 모든 문서, 지식 노드, 관계, 볼트 데이터를 완전히 초기화하시겠습니까?\n"
+                    f"      테마 ID 및 고유 호출 URI(?theme={target_theme.id})는 영구 보존됩니다. (y/N): "
+                )
+                if confirm.strip().lower() not in ("y", "yes"):
+                    print("리셋 작업이 취소되었습니다.")
+                    return 0
+            except (EOFError, KeyboardInterrupt):
+                print("\n리셋 작업이 취소되었습니다.")
+                return 0
+
+        try:
+            stats = tm.reset_theme(theme_id)
+            if getattr(args, "json", False):
+                print(json.dumps({"ok": True, "reset": stats}, ensure_ascii=False, indent=2))
+            else:
+                print(f"[성공] 테마 #{stats['theme_id']} [{stats['theme_label']}] 데이터 완전 초기화 완료!")
+                print(f"  • 테마 ID / URI   : #{stats['theme_id']} (?theme={stats['theme_id']}) (보존됨)")
+                print(f"  • 소각된 문서 수   : {stats['deleted_documents']} 건")
+                print(f"  • 소각된 엔티티 수 : {stats['deleted_entities']} 건")
+                print(f"  • 소각된 관계 수   : {stats['deleted_relations']} 건")
+                print(f"  • 삭제된 볼트 파일 : {stats['vault_files_unlinked']} 개")
+                print("  (모든 지식 그래프 및 문서가 100% 클린 리셋되었습니다. 새로운 적재를 시작할 수 있습니다.)")
+            return 0
+        except Exception as exc:
+            print(f"[오류] 테마 리셋 실패: {exc}", file=sys.stderr)
+            return 1
+
     else:
         print(f"[오류] 알 수 없는 동작: {action}", file=sys.stderr)
         return 1
@@ -2915,6 +2963,12 @@ def build_parser() -> argparse.ArgumentParser:
     ptdel.add_argument("--yes", "-y", action="store_true", help="skip confirmation prompt")
     ptdel.add_argument("--json", action="store_true", help="output in json format")
     ptdel.set_defaults(func=cmd_theme)
+
+    ptres = ptheme_sub.add_parser("reset", help="reset all data in a theme while preserving theme ID, URL, and metadata")
+    ptres.add_argument("id", help="theme ID, sequence number, or label")
+    ptres.add_argument("--yes", "-y", action="store_true", help="skip confirmation prompt")
+    ptres.add_argument("--json", action="store_true", help="output in json format")
+    ptres.set_defaults(func=cmd_theme)
 
     ptheme.set_defaults(func=cmd_theme, theme_action="list")
     sub.add_parser("bot", help="run telegram bot (long-polling)").set_defaults(func=cmd_bot)
