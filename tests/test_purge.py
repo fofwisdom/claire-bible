@@ -27,21 +27,23 @@ def _fetch_doc(doc: Document):
 
 def test_config_data_lifecycle_settings(monkeypatch):
     """설정 파싱 및 is_purge_allowed 동작 검증."""
-    # 1. 기본값: append-only, allow_purge=False -> 불허
+    # 1. 기본값: purgeable, allow_purge=True -> 허용
     monkeypatch.delenv("CLAIRE_DATA_LIFECYCLE", raising=False)
     monkeypatch.delenv("CLAIRE_ALLOW_PURGE", raising=False)
     s = Settings()
-    assert s.data_lifecycle == "append-only"
-    assert s.allow_purge is False
-    assert s.is_purge_allowed is False
+    assert s.data_lifecycle == "purgeable"
+    assert s.allow_purge is True
+    assert s.is_purge_allowed is True
 
-    # 2. CLAIRE_DATA_LIFECYCLE=purgeable -> 허용
-    monkeypatch.setenv("CLAIRE_DATA_LIFECYCLE", "purgeable")
+    # 2. CLAIRE_DATA_LIFECYCLE=append-only 및 CLAIRE_ALLOW_PURGE=0 -> 불허
+    monkeypatch.setenv("CLAIRE_DATA_LIFECYCLE", "append-only")
+    monkeypatch.setenv("CLAIRE_ALLOW_PURGE", "0")
     s2 = Settings()
-    assert s2.data_lifecycle == "purgeable"
-    assert s2.is_purge_allowed is True
+    assert s2.data_lifecycle == "append-only"
+    assert s2.allow_purge is False
+    assert s2.is_purge_allowed is False
 
-    # 3. CLAIRE_ALLOW_PURGE=1 -> 허용
+    # 3. CLAIRE_DATA_LIFECYCLE=append-only 및 CLAIRE_ALLOW_PURGE=1 -> 허용
     monkeypatch.setenv("CLAIRE_DATA_LIFECYCLE", "append-only")
     monkeypatch.setenv("CLAIRE_ALLOW_PURGE", "1")
     s3 = Settings()
@@ -54,10 +56,14 @@ def test_config_data_lifecycle_settings(monkeypatch):
 
 def test_purge_blocked_in_append_only_mode(tmp_path, monkeypatch, capsys):
     """append-only 모드에서는 purge 명령어가 정책에 의해 차단되는지 검증."""
+    from claire.config import get_settings
+    get_settings.cache_clear()
+
     db_file = tmp_path / "claire.db"
     monkeypatch.setenv("CLAIRE_DB_PATH", str(db_file))
     monkeypatch.setenv("CLAIRE_DATA_LIFECYCLE", "append-only")
     monkeypatch.setenv("CLAIRE_ALLOW_PURGE", "0")
+    get_settings.cache_clear()
 
     parser = build_parser()
     args = parser.parse_args(["purge", "doc_test_123"])
@@ -453,4 +459,54 @@ def test_cli_purge_no_tombstone(tmp_path, monkeypatch, capsys):
     assert dbm.get_document(conn2, doc_id) is None
     assert dbm.is_tombstoned(conn2, url=url) is False
     conn2.close()
+
+
+def test_purge_cascades_connected_entities_and_relations(tmp_path, monkeypatch):
+    """연결된 복수 엔티티 및 관계를 생성한 문서를 purge했을 때, 지식그래프에 고아 잔재가 남지 않는지 검증."""
+    from claire.ontology.base import Entity, Relation
+
+    db_file = tmp_path / "claire.db"
+    data_dir = tmp_path / "data"
+    vault_dir = tmp_path / "vault"
+    monkeypatch.setenv("CLAIRE_DB_PATH", str(db_file))
+
+    conn = dbm.connect(db_file)
+    dbm.init_db(conn)
+
+    # 1. 문서 등록
+    doc = Document(id="doc_cluster", title="Cluster Document", raw_text="Robin and Sunday content", source_type="text")
+    dbm.insert_document(conn, doc)
+
+    # 2. 이 문서에만 속한 2개의 엔티티와 관계 등록 (서로 연결됨)
+    ent_a = Entity(id="ent_robin", type="Person", name="Robin", sources=["doc_cluster"])
+    ent_b = Entity(id="ent_sunday", type="Person", name="Sunday", sources=["doc_cluster"])
+    dbm.upsert_entity(conn, ent_a)
+    dbm.upsert_entity(conn, ent_b)
+
+    rel = Relation(id="rel_siblings", type="related_to", source_id="ent_robin", target_id="ent_sunday", sources=["doc_cluster"])
+    dbm.upsert_relation(conn, rel)
+
+    # 소각 전 검증: 문서 1건, 엔티티 2건, 관계 1건
+    assert conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0] == 1
+    assert conn.execute("SELECT COUNT(*) FROM entities").fetchone()[0] == 2
+    assert conn.execute("SELECT COUNT(*) FROM relations").fetchone()[0] == 1
+
+    # 3. 문서 소각 실행
+    purge_report = dbm.purge_document_cascade(
+        conn, data_dir=data_dir, vault_dir=vault_dir, target_ids=["doc_cluster"], dry_run=False
+    )
+    assert purge_report["deleted_documents"] == 1
+
+    # 4. 소각 후 검증: 고아 엔티티 및 관계가 0건으로 완전 소각되었는지 확인
+    assert conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0] == 0
+    assert conn.execute("SELECT COUNT(*) FROM entities").fetchone()[0] == 0
+    assert conn.execute("SELECT COUNT(*) FROM relations").fetchone()[0] == 0
+
+    # 5. 진단도 100% 정상
+    diag = dbm.diagnose_graph(conn)
+    assert diag["is_healthy"] is True
+    assert diag["total_entities"] == 0
+    assert diag["total_relations"] == 0
+
+    conn.close()
 

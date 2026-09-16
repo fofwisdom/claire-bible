@@ -61,15 +61,15 @@
 ### A. 환경 설정 (`.env`)
 
 ```bash
-# 데이터 수명주기 정책: append-only (기본값) 또는 purgeable
-CLAIRE_DATA_LIFECYCLE=append-only
+# 데이터 수명주기 정책: purgeable (기본값) 또는 append-only
+CLAIRE_DATA_LIFECYCLE=purgeable
 
-# 명시적 소각 허용 플래그 (0: 불허, 1: 허용)
-CLAIRE_ALLOW_PURGE=0
+# 명시적 소각 허용 플래그 (0: 불허, 1: 허용, 기본값: 1)
+CLAIRE_ALLOW_PURGE=1
 ```
 
-- `CLAIRE_DATA_LIFECYCLE=append-only` (또는 `CLAIRE_ALLOW_PURGE=0`): `claire purge` 호출 시 즉시 차단되고 정책 안내 출력.
-- `CLAIRE_DATA_LIFECYCLE=purgeable` (또는 `CLAIRE_ALLOW_PURGE=1`): `claire purge` 명령어 실행 가능.
+- `CLAIRE_DATA_LIFECYCLE=purgeable` (또는 `CLAIRE_ALLOW_PURGE=1`): 기본 상태로 `claire purge` 명령어 실행 허용.
+- `CLAIRE_DATA_LIFECYCLE=append-only` 및 `CLAIRE_ALLOW_PURGE=0`: 엄격한 무손실 보존 모드로, `claire purge` 호출 시 즉시 차단되고 정책 안내 출력.
 
 ---
 
@@ -121,7 +121,8 @@ sequenceDiagram
    - `vault/` 내 해당 문서 투영 마크다운 삭제
 5. **지식 그래프 수복 (`heal_graph`)**:
    - 엔티티/관계의 `sources` 배열에서 소각된 `doc_id` 정제.
-   - 출처가 사라진 고아(Ghost) 엔티티 및 관계, 고아 임베딩 삭제, FTS5 색인 재구축.
+   - 문서가 0건인 테마/DB의 경우: 온톨로지 성립 근거가 전무하므로 지식 그래프(엔티티, 관계, 임베딩, FTS) 전량 완전 소각.
+   - 문서가 존재하는 경우: 출처 문서가 소멸한 고아(Ghost) 엔티티 및 그와 연결된 출처 소멸 관계(Ungrounded Relations / Closed Orphan Subgraphs), 고아 임베딩을 연쇄 소각(Cascade Prune)하고 FTS5 색인 재구축.
 6. **물리 공간 회수 (Compaction)**:
    - WAL 체크포인트 후 `VACUUM`을 실행하여 OS에 디스크 공간 즉각 반환.
 

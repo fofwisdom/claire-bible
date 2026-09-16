@@ -133,3 +133,82 @@ def test_cli_doctor_command_json_and_heal(temp_db: Path, capsys: pytest.CaptureF
     assert rc_heal == 0
     out_heal = capsys.readouterr().out
     assert "수복 완료" in out_heal
+
+
+def test_diagnose_and_heal_connected_ghost_cluster(temp_db: Path):
+    """서로 연결되어 있지만 출처 문서가 없는 유령 노드 클러스터의 연쇄 소각 검증."""
+    conn = dbm.connect(temp_db)
+
+    # 1. 유효 문서 1건 적재
+    doc = Document(id="doc_alive", title="Alive Doc", raw_text="alive", source_type="text")
+    dbm.insert_document(conn, doc)
+    alive_ent = Entity(id="ent_alive", type="Concept", name="Alive", sources=["doc_alive"])
+    dbm.upsert_entity(conn, alive_ent)
+
+    # 2. 소각된 문서에만 속한 2개의 엔티티 (서로 연결됨)
+    ghost_a = Entity(id="ghost_a", type="Person", name="Robin", sources=["doc_deleted"])
+    ghost_b = Entity(id="ghost_b", type="Person", name="Sunday", sources=["doc_deleted"])
+    dbm.upsert_entity(conn, ghost_a)
+    dbm.upsert_entity(conn, ghost_b)
+
+    # 3. ghost_a와 ghost_b 사이의 관계
+    rel_ghost = Relation(id="rel_ab", type="related_to", source_id="ghost_a", target_id="ghost_b", sources=["doc_deleted"])
+    dbm.upsert_relation(conn, rel_ghost)
+
+    # 4. 진단: 고아 엔티티 2건으로 감지되고 is_healthy=False여야 함
+    diag = dbm.diagnose_graph(conn)
+    assert diag["is_healthy"] is False
+    assert diag["ghost_entities_count"] == 2
+    assert {g["id"] for g in diag["ghost_entities"]} == {"ghost_a", "ghost_b"}
+
+    # 5. 수복: 고아 엔티티 2건 및 관계 1건이 연쇄 소각되어야 함
+    healed = dbm.heal_graph(conn)
+    assert healed["ghost_entities_pruned"] == 2
+    assert healed["dangling_relations_removed"] >= 1
+
+    # 6. 수복 후 진단: 100% Healthy, 살아있는 엔티티만 보존
+    diag_after = dbm.diagnose_graph(conn)
+    assert diag_after["is_healthy"] is True
+    assert diag_after["ghost_entities_count"] == 0
+    assert diag_after["total_entities"] == 1
+    assert conn.execute("SELECT id FROM entities").fetchone()[0] == "ent_alive"
+    assert conn.execute("SELECT COUNT(*) FROM relations").fetchone()[0] == 0
+
+    conn.close()
+
+
+def test_heal_graph_zero_documents_prunes_everything(temp_db: Path):
+    """문서가 0건인 DB에 잔재하는 지식그래프(14개 노드, 13개 관계 등)가 완전 소각되는지 검증."""
+    conn = dbm.connect(temp_db)
+
+    # 문서 0건 상태에서 14개 노드와 13개 관계 생성 (실제 support bundle 상황 재현)
+    for i in range(14):
+        ent = Entity(id=f"ent_{i}", type="Concept", name=f"Node_{i}", sources=[])
+        dbm.upsert_entity(conn, ent)
+    for i in range(13):
+        rel = Relation(id=f"rel_{i}", type="related_to", source_id=f"ent_{i}", target_id=f"ent_{i+1}", sources=[])
+        dbm.upsert_relation(conn, rel)
+
+    # 진단: 문서 0건인데 엔티티 14개가 있으므로 비정상
+    diag = dbm.diagnose_graph(conn)
+    assert diag["is_healthy"] is False
+    assert diag["total_documents"] == 0
+    assert diag["total_entities"] == 14
+    assert diag["ghost_entities_count"] == 14
+
+    # 수복: 지식 그래프 전량 소각
+    healed = dbm.heal_graph(conn)
+    assert healed["ghost_entities_pruned"] == 14
+    assert healed["dangling_relations_removed"] == 13
+
+    # 수복 후: 완전 클린
+    diag_after = dbm.diagnose_graph(conn)
+    assert diag_after["is_healthy"] is True
+    assert diag_after["total_documents"] == 0
+    assert diag_after["total_entities"] == 0
+    assert diag_after["total_relations"] == 0
+    assert conn.execute("SELECT COUNT(*) FROM entities").fetchone()[0] == 0
+    assert conn.execute("SELECT COUNT(*) FROM relations").fetchone()[0] == 0
+    assert conn.execute("SELECT COUNT(*) FROM embeddings").fetchone()[0] == 0
+
+    conn.close()
