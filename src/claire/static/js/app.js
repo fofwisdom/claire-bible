@@ -2628,7 +2628,6 @@ async function openThemeManager(){
             ${isOwner ? toggleBtn : ''}
             ${t.id > 0 ? collabBadge : ''}
             ${(isOwner && t.id > 0) ? toggleCollabBtn : ''}
-            <button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="toggleThemeProxyGuide(${t.id})">📋 프록시 설정</button>
             ${isOwner ? `<button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="showThemeEditForm(${t.id})">✏️ 수정</button>` : ''}
             <button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="toggleThemeOptionsView(${t.id})">⚙️ 옵션 보기</button>
             ${(isOwner && t.id > 0) ? `<button type="button" class="sec danger-btn" style="font-size:11px;padding:3px 8px;color:var(--err,#cf222e);border-color:rgba(207,34,46,0.3);" onclick="deleteThemeFromUI(${t.id}, '${esc(t.label)}')">🗑️ 삭제</button>` : ''}
@@ -2636,41 +2635,6 @@ async function openThemeManager(){
         </div>
         ${t.description ? `<p style="margin:4px 0 0;font-size:12px;opacity:0.8">${esc(t.description)}</p>` : ''}
         ${(t.id > 0 && t.default_focus) ? `<p style="margin:4px 0 0;font-size:12px;color:var(--accent,#00ffaa);font-weight:500;">🎯 기본 초점: ${esc(t.default_focus)}</p>` : ''}
-
-        <!-- 리버스 프록시 가이드 블록 -->
-        <div id="theme-proxy-guide-${t.id}" style="display:none;margin-top:10px;padding:10px;border-radius:6px;background:rgba(0,0,0,0.25);border:1px solid var(--border);font-size:12px;flex-direction:column;gap:8px;">
-          <div style="font-weight:600;display:flex;align-items:center;justify-content:space-between;">
-            <span>🌐 리버스 프록시 연동 가이드 ${t.fqdn ? `(<code>${esc(t.fqdn)}</code>)` : '<small style="opacity:0.7">(FQDN 미설정 - ✏️ 수정에서 도메인을 등록하세요)</small>'}</span>
-            <button type="button" class="sec" style="font-size:10px;padding:2px 6px;" onclick="toggleThemeProxyGuide(${t.id})">닫기 ✕</button>
-          </div>
-          <p style="margin:0;font-size:11px;opacity:0.8;">외부 웹 서버(Nginx, Caddy, Cloudflare 등)에서 <code>Host</code> 헤더를 전달하도록 프록시를 설정하면, 해당 도메인으로 접속하는 모든 요청이 이 테마의 독립 지식베이스로 자동 바인딩됩니다.</p>
-          <div>
-            <div style="font-weight:600;font-size:11px;margin-bottom:4px;color:var(--accent2);">Nginx 설정 예시:</div>
-            <pre style="margin:0;padding:8px;background:var(--bg,#18181b);border-radius:4px;overflow-x:auto;font-family:monospace;font-size:11px;line-height:1.4;user-select:all;">server {
-    server_name ${esc(t.fqdn || 'theme.yourdomain.com')};
-    listen 443 ssl;
-    # ssl_certificate /path/to/fullchain.pem;
-    # ssl_certificate_key /path/to/privkey.pem;
-
-    location / {
-        proxy_pass http://127.0.0.1:8765;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-}</pre>
-          </div>
-          <div>
-            <div style="font-weight:600;font-size:11px;margin-bottom:4px;color:var(--accent2);">Caddyfile 설정 예시:</div>
-            <pre style="margin:0;padding:8px;background:var(--bg,#18181b);border-radius:4px;overflow-x:auto;font-family:monospace;font-size:11px;line-height:1.4;user-select:all;">${esc(t.fqdn || 'theme.yourdomain.com')} {
-    reverse_proxy 127.0.0.1:8765 {
-        header_up Host {host}
-        header_up X-Real-IP {remote_host}
-    }
-}</pre>
-          </div>
-        </div>
         
         <!-- 테마 설정 옵션 상세 뷰 (협업자 및 소유자 확인용) -->
         <div id="theme-options-view-${t.id}" style="display:${isCollab ? 'flex' : 'none'};margin-top:10px;padding:8px 10px;border-top:1px dashed var(--border);background:var(--panel-bg);border-radius:4px;font-size:12px;flex-direction:column;gap:6px;">
@@ -2734,13 +2698,6 @@ async function openThemeManager(){
 
 function toggleThemeOptionsView(themeId){
   const el = document.getElementById('theme-options-view-' + themeId);
-  if(el){
-    el.style.display = (el.style.display === 'none') ? 'flex' : 'none';
-  }
-}
-
-function toggleThemeProxyGuide(themeId){
-  const el = document.getElementById('theme-proxy-guide-' + themeId);
   if(el){
     el.style.display = (el.style.display === 'none') ? 'flex' : 'none';
   }

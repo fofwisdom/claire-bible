@@ -563,7 +563,7 @@ async def _create_support_bundle_for_delivery(
         )
     public_authority = urlsplit(str(settings.public_url)).netloc
     if not public_authority:
-        raise RuntimeError("CLAIRE_PUBLIC_URL is required for the internal Support Bundle API")
+        raise RuntimeError("CLAIRE_FQDN is required for the internal Support Bundle API")
 
     import httpx
 
@@ -1658,7 +1658,7 @@ def build_app(settings: Settings | None = None) -> Any:
 
         if not s.public_url:
             await update.message.reply_text(
-                "CLAIRE_PUBLIC_URL 이 설정되지 않았습니다(.env). 외부 URL 을 먼저 지정하세요.")
+                "CLAIRE_FQDN 이 설정되지 않았습니다(.env). 외부 도메인(FQDN)을 먼저 지정하세요.")
             return
 
         def _mint() -> str:
@@ -1690,7 +1690,7 @@ def build_app(settings: Settings | None = None) -> Any:
 
         if not s.public_url:
             await update.message.reply_text(
-                "CLAIRE_PUBLIC_URL 이 설정되지 않았습니다(.env). 외부 URL 을 먼저 지정하세요.")
+                "CLAIRE_FQDN 이 설정되지 않았습니다(.env). 외부 도메인(FQDN)을 먼저 지정하세요.")
             return
 
         def _mint() -> str:
@@ -1719,7 +1719,7 @@ def build_app(settings: Settings | None = None) -> Any:
 
         if not s.public_url:
             await update.message.reply_text(
-                "CLAIRE_PUBLIC_URL 이 설정되지 않았습니다(.env). 외부 URL 을 먼저 지정하세요.")
+                "CLAIRE_FQDN 이 설정되지 않았습니다(.env). 외부 도메인(FQDN)을 먼저 지정하세요.")
             return
 
         def _mint() -> str:

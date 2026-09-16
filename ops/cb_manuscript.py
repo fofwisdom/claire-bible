@@ -108,6 +108,7 @@ APP_ONE_OFF_COMMANDS = {
     "dedup-merge",
     "recanonicalize",
     "doc-title",
+    "link-relations",
     "theme",
     "repo",
     "format-status",
@@ -371,9 +372,11 @@ class Runtime:
 
     def compose_environment(self) -> dict[str, str]:
         env = os.environ.copy()
-        # The three security boundary values are passed into the actual container by service env_file.
+        # The security boundary values are passed into the actual container by service env_file.
         # Prevent host process values of the same name from interfering with Compose interpolation.
         env.pop("CLAIRE_PUBLIC_URL", None)
+        env.pop("CLAIRE_FQDN", None)
+        env.pop("CLAIRE_CLOUDFLARE_IPS_ONLY", None)
         env.pop("CLAIRE_CORS_ALLOWED_ORIGINS", None)
         env.pop(ANONYMOUS_READONLY_KEY, None)
         env[ENVIRONMENT_KEY] = self.environment
@@ -713,7 +716,29 @@ def _validate_public_url(
 ) -> None:
     # This value enters the container via Compose service env_file. Process env is not
     # passed to container, so validate the effective file value directly here as well.
-    raw = values.get("CLAIRE_PUBLIC_URL", "")
+    raw_fqdn = values.get("CLAIRE_FQDN", "")
+    raw_pub = values.get("CLAIRE_PUBLIC_URL", "")
+
+    if raw_fqdn:
+        if raw_fqdn != raw_fqdn.strip():
+            raise ManuscriptError("CLAIRE_FQDN cannot have leading or trailing whitespace.")
+        raw = raw_fqdn.strip()
+        if "://" in raw:
+            raw = raw.split("://", 1)[1]
+        raw = raw.rstrip("/")
+        if environment == DEVELOPMENT:
+            expected_authority = f"{bind}:{port}"
+            if raw != expected_authority and raw != bind:
+                raise ManuscriptError(
+                    f"CLAIRE_FQDN in development must be {expected_authority}"
+                )
+            return
+        _validate_dns_hostname(raw.split(":")[0], field="CLAIRE_FQDN")
+        return
+
+    raw = raw_pub
+    if not raw:
+        raise ManuscriptError("CLAIRE_FQDN or CLAIRE_PUBLIC_URL is required.")
     if raw != raw.strip():
         raise ManuscriptError("CLAIRE_PUBLIC_URL cannot have leading or trailing whitespace.")
     parsed = _split_url(raw, field="CLAIRE_PUBLIC_URL")
@@ -1169,6 +1194,53 @@ def _ensure_timezone(path: Path) -> bool:
     return changed
 
 
+def _ensure_fqdn(path: Path, environment: str) -> bool:
+    """Migrate legacy CLAIRE_PUBLIC_URL to CLAIRE_FQDN if needed."""
+    if not path.is_file():
+        return False
+    text = path.read_text(encoding="utf-8")
+    lines = text.splitlines(keepends=True)
+    has_fqdn = False
+    pub_url_index = None
+    pub_url_val = ""
+
+    for index, original in enumerate(lines):
+        candidate = original.strip()
+        if not candidate or candidate.startswith("#"):
+            continue
+        if candidate.startswith("export "):
+            candidate = candidate[7:].lstrip()
+        if "=" not in candidate:
+            continue
+        key, raw = candidate.split("=", 1)
+        k = key.strip()
+        if k == "CLAIRE_FQDN":
+            v = _dotenv_value(raw, path, index + 1)
+            if v:
+                has_fqdn = True
+        elif k == "CLAIRE_PUBLIC_URL":
+            pub_url_index = index
+            pub_url_val = _dotenv_value(raw, path, index + 1)
+
+    if has_fqdn or pub_url_index is None or not pub_url_val:
+        return False
+
+    raw = pub_url_val.strip()
+    if "://" in raw:
+        from urllib.parse import urlsplit
+
+        parsed = urlsplit(raw)
+        extracted = parsed.netloc or parsed.path
+        fqdn = extracted.strip().rstrip("/")
+    else:
+        fqdn = raw.rstrip("/")
+
+    newline = "\n" if lines[pub_url_index].endswith("\n") else ""
+    lines[pub_url_index] = f"CLAIRE_FQDN={fqdn}{newline}"
+    _atomic_write(path, "".join(lines), mode=0o600)
+    return True
+
+
 def _sync_missing_env_keys(target_path: Path, template_path: Path) -> list[str]:
     """Safely backfill missing environment variables from template into target env file."""
 
@@ -1190,30 +1262,36 @@ def _sync_missing_env_keys(target_path: Path, template_path: Path) -> list[str]:
             continue
         if candidate.startswith("export "):
             candidate = candidate[7:].lstrip()
-        if "=" in candidate:
-            key = candidate.split("=", 1)[0].strip()
-            if KEY_RE.fullmatch(key):
-                blocks.append((list(current_comments), key, line))
+        if "=" not in candidate:
+            current_comments = []
+            continue
+        key, _raw = candidate.split("=", 1)
+        k = key.strip()
+        if k == "CLAIRE_PUBLIC_URL" and ("CLAIRE_FQDN" in target_values or "CLAIRE_PUBLIC_URL" in target_values):
+            current_comments = []
+            continue
+        if k == "CLAIRE_FQDN" and ("CLAIRE_FQDN" in target_values or "CLAIRE_PUBLIC_URL" in target_values):
+            current_comments = []
+            continue
+        if k and k not in target_values:
+            blocks.append((current_comments, k, line))
         current_comments = []
 
+    if not blocks:
+        return []
+
+    target_text = target_path.read_text(encoding="utf-8")
+    lines = target_text.splitlines(keepends=True)
+    if lines and not lines[-1].endswith("\n"):
+        lines[-1] += "\n"
+
     missing_keys: list[str] = []
-    append_lines: list[str] = []
-
     for comments, key, line in blocks:
-        if key not in target_values:
-            missing_keys.append(key)
-            append_lines.extend(comments)
-            append_lines.append(line if line.endswith("\n") else line + "\n")
+        missing_keys.append(key)
+        lines.extend(comments)
+        lines.append(line)
 
-    if append_lines:
-        target_content = target_path.read_text(encoding="utf-8")
-        if target_content and not target_content.endswith("\n"):
-            target_content += "\n"
-        target_content += "".join(append_lines)
-        _atomic_write(target_path, target_content, mode=0o600)
-    else:
-        os.chmod(target_path, 0o600)
-
+    _atomic_write(target_path, "".join(lines), mode=0o600)
     return missing_keys
 
 
@@ -1232,6 +1310,9 @@ def sync_environment_files(layout: Layout) -> dict[str, list[str]]:
         if _ensure_timezone(layout.env):
             if "TZ" not in changes["env"]:
                 changes["env"].append("TZ")
+        if _ensure_fqdn(layout.env, PRODUCTION):
+            if "CLAIRE_FQDN" not in changes["env"]:
+                changes["env"].append("CLAIRE_FQDN")
         if _ensure_anonymous_readonly(layout.env):
             if ANONYMOUS_READONLY_KEY not in changes["env"]:
                 changes["env"].append(ANONYMOUS_READONLY_KEY)
@@ -1254,6 +1335,9 @@ def sync_environment_files(layout: Layout) -> dict[str, list[str]]:
         if _ensure_timezone(layout.dev_env):
             if "TZ" not in changes["dev_env"]:
                 changes["dev_env"].append("TZ")
+        if _ensure_fqdn(layout.dev_env, DEVELOPMENT):
+            if "CLAIRE_FQDN" not in changes["dev_env"]:
+                changes["dev_env"].append("CLAIRE_FQDN")
         if _ensure_anonymous_readonly(layout.dev_env):
             if ANONYMOUS_READONLY_KEY not in changes["dev_env"]:
                 changes["dev_env"].append(ANONYMOUS_READONLY_KEY)
