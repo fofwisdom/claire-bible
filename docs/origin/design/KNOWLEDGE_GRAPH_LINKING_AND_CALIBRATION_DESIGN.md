@@ -7,22 +7,22 @@
 ## 1. 배경 및 문제 정의
 
 ### 1.1 배경
-Claire Bible은 유입되는 다양한 기술 문서, 학술 논문, 비디오 미디어 등으로부터 엔티티와 관계를 추출하여 지식 그래프(Knowledge Graph)를 구축합니다. 지식 그래프의 핵심 가치는 **단편적인 문서들의 요약에 머무르지 않고, 기존 지식과 신규 지식이 유기적으로 결합되어 새로운 통찰(Insight)을 도출하는 연결망**을 형성하는 데 있습니다.
+Claire Bible은 유입되는 다양한 기술 문서, 학술 논문, 비디오 미디어 등으로부터 엔티티와 관계를 추출하여 지식 그래프(Knowledge Graph)를 구축합니다. 지식 그래프의 핵심 목적은 단일 문서의 요약에 그치지 않고, 복수 문서 간 지식 노드를 연결하여 구조화된 관계망을 형성하는 데 있습니다.
 
 ### 1.2 기존 엔티티 해소(Entity Resolution) 구조의 한계점
-1. **극단적으로 좁고 경직된 2분법 임계값**:
-   - 기존 `resolver.py`는 `AUTO_MERGE_SIMILARITY = 0.93`, `CANDIDATE_FLOOR = 0.72`라는 단 두 개의 임계값만을 사용했습니다.
-   - 유사도 `0.93` 이상은 무조건 동일체로 병합하고, `0.72 ~ 0.93` 구간의 소수 후보만 LLM에게 동일체 여부를 질문했습니다.
-   - 코사인 유사도 `0.72` 미만의 모든 노드는 **즉시 버려져(Discarded)**, 두 개념이 깊은 의미적 연관성을 가지거나 한두 다리 건너 연결되는 관계임에도 불구하고 그래프 상에서 영구히 단절되는 문제가 발생했습니다.
-2. **단편적 키워드 임베딩으로 인한 의미 손실**:
+1. **단일 임계값 기반의 2분법 구조**:
+   - 기존 `resolver.py`는 `AUTO_MERGE_SIMILARITY = 0.93`, `CANDIDATE_FLOOR = 0.72`라는 두 개의 임계값만을 사용했습니다.
+   - 유사도 `0.93` 이상은 동일체로 병합하고, `0.72 ~ 0.93` 구간의 후보만 LLM에게 동일체 여부를 확인했습니다.
+   - 코사인 유사도 `0.72` 미만의 노드는 엔티티 해소 단계에서 제외되어, 두 개념 간에 의미적 연관성이 있더라도 그래프 상에서 직접 연결되지 않는 한계가 있었습니다.
+2. **단편적 명칭 임베딩으로 인한 정보 누락**:
    - 엔티티를 벡터화할 때 `f"{ee.canonical_name} ({ee.entity_type})"` 형태의 단순 명칭과 타입만을 벡터화했습니다.
-   - 엔티티가 지닌 상세 관찰 사실(Observations), 역할, 도메인 슬롯 정보가 벡터 공간에 전혀 반영되지 않아, 표면적인 단어 일치가 없으면 유사도가 급격히 하락했습니다.
+   - 엔티티가 지닌 상세 관찰 사실(Observations), 역할, 도메인 슬롯 정보가 벡터에 반영되지 않아, 명칭 일치가 없으면 유사도가 낮게 측정되었습니다.
 3. **구형 임베딩 모델 및 허브니스(Hubness) 편향**:
-   - 레거시 모델(`gemini-embedding-001`)은 표현 차원과 미세 의미 분별력이 부족하여, 특정 일반 명사가 벡터 공간의 중심에 위치하며 불필요하게 모든 노드와 높은 유사도를 기록하는 허브니스 현상이 발생했습니다.
-   - 또한 질의(Retrieval Query), 문서 색인(Retrieval Document), 의미 유사도(Semantic Similarity) 간의 태스크 목적 분리가 지원되지 않았습니다.
-4. **프롬프트 중심 접근의 구조적 맹점**:
-   - 그래프 연결을 개선하기 위해 LLM 프롬프트만을 수정하려는 시도는, 프롬프트에 주입되는 후보군 데이터 자체가 이미 좁은 임계값(`0.72`)에 의해 잘려나간 상태에서는 무용지물이었습니다 (Garbage In, Empty Out).
-   - 따라서 **기반 벡터 공간의 표현력 향상, 다계층 유사도 라우팅, 결합도 보정이 선행**되어야만 실질적인 지식 연결을 복원할 수 있습니다.
+   - 레거시 모델(`gemini-embedding-001`)은 미세 의미 분별력이 부족하여, 특정 일반 명사가 벡터 공간 중심부에 위치하여 다수 노드와 높은 유사도를 보이는 허브니스 현상이 관측되었습니다.
+   - 또한 질의(Retrieval Query), 문서 색인(Retrieval Document), 의미 유사도(Semantic Similarity) 간의 태스크 목적 분리가 적용되지 않았습니다.
+4. **후보군 제한으로 인한 관계 발굴 한계**:
+   - 그래프 연결을 개선하기 위해 관계 추출 프롬프트를 고도화하더라도, 프롬프트에 주입되는 후보군 자체가 좁은 임계값(`0.72`)에 의해 한정되어 있는 상태에서는 관계 확장에 한계가 있었습니다.
+   - 따라서 벡터 공간 표현력 개선, 다계층 유사도 라우팅, 통계적 결합도 보정을 통해 유효 후보군을 체계적으로 확보하는 구조가 요구되었습니다.
 
 ---
 
@@ -113,7 +113,7 @@ Key observations:
 1. **Adaptive Centering (평균 벡터 감산)**:
    - 전체 노드 임베딩의 중심 벡터(Centroid $\vec{\mu}$)를 계산하고, 모든 벡터에서 이를 감산한 뒤 $L_2$ 재정규화를 수행합니다.
    $$\vec{v}_{\text{calibrated}} = \frac{\vec{v} - \vec{\mu}}{\|\vec{v} - \vec{\mu}\|_2}$$
-   - 이를 통해 공통 도메인 단어로 인해 발생하는 인공적인 높은 유사도(Hubness)를 제거하고 고유한 의미적 차이를 극대화합니다.
+   - 이를 통해 공통 도메인 어휘로 인해 발생하는 배경 유사도 편향(Hubness)을 완화하고 상대적 의미 변별력을 개선합니다.
 2. **상호 순위 융합 (Reciprocal Rank Fusion; RRF)**:
    - 밀집 벡터(Dense Cosine) 검색과 어휘/키워드(Sparse Lexical) 검색의 순위를 파라미터 튜닝 없이 안정적으로 합성할 수 있는 RRF 헬퍼(`reciprocal_rank_fusion`)를 내장했습니다 ($k=60$).
 
@@ -135,7 +135,7 @@ Phase 1에서 확보된 `ResolutionResult.relational_candidates`를 소비하여
 #### 1) 다목적 릴레이션 판정기 (`judge_relationship`)
 - **입력 스키마 (`RelationCandidate`)**: 두 엔티티의 명칭, 타입, 별칭, 핵심 관찰 사실(Observations), 코사인 유사도, 그리고 문서 맥락 요약을 포함합니다.
 - **판정 결과 (`RelationJudgement`)**:
-  - `has_relation: bool`: 유의미한 온톨로지 관계 성립 여부 (보수적 고정밀 판정, 근거 없는 추측 차단).
+  - `has_relation: bool`: 유의미한 온톨로지 관계 성립 여부 (온톨로지 제약 기반 보수적 판정).
   - `relation_type: str | None`: 온톨로지 표준 관계 (`uses`, `improves`, `derived_from`, `competes_with`, `alternative_to`, `implements`, `part_of`, `integrates_with`, `authored_by`, `cites` 등).
   - `direction: str`: 관계 방향성 (`forward`: A -> B, `backward`: B -> A, `bidirectional`: 대칭 관계).
   - `reason: str`: 한국어 문어체(~한다/~이다) 근거 서술.
@@ -151,7 +151,7 @@ Phase 1에서 확보된 `ResolutionResult.relational_candidates`를 소비하여
 - `pipeline.py`의 `extract_resolve_store` 단계에서 `ResolutionResult`들의 `relational_candidates`를 집계.
 - **비용 최적화 가드레일**:
   - 엔티티당 최대 3쌍(`CLAIRE_MAX_RELATION_JUDGES_PER_ENTITY`), 문서당 최대 10쌍(`CLAIRE_MAX_RELATION_JUDGES_PER_DOC`) 상한 적용.
-  - 이미 그래프 상에 존재하는 엣지는 사전 검사(`has_edge`)로 LLM 호출 비용을 0으로 억제.
+  - 이미 그래프 상에 존재하는 엣지는 사전 검사(`has_edge`)를 통해 중복 LLM 호출을 방지.
 - 성립된 횡단 엣지의 상대 엔티티도 `touched_entities`에 편입시켜 Obsidian Vault 마크다운 위키링크가 즉시 갱신되도록 보장.
 - `IngestReport` 및 텔레그램 알림에 `cross_relations_added` 및 연결 명세를 실시간 리포팅.
 
@@ -197,7 +197,7 @@ flowchart LR
 
 | 환경 변수명 | 기본값 | 허용 타입 | 설명 |
 | :--- | :--- | :--- | :--- |
-| `CLAIRE_GEMINI_EMBED_MODEL` | `text-embedding-004` | 문자열 | 고성능 지식 그래프 벡터 임베딩 모델. |
+| `CLAIRE_GEMINI_EMBED_MODEL` | `text-embedding-004` | 문자열 | 지식 그래프 노드 벡터 임베딩 기본 모델. |
 | `CLAIRE_EMBED_TASK_TYPE` | `RETRIEVAL_DOCUMENT` | 문자열 | 기본 벡터 생성 태스크 타입 (`RETRIEVAL_DOCUMENT`, `SEMANTIC_SIMILARITY` 등). |
 | `CLAIRE_SIM_TIER_AUTO_MERGE` | `0.93` | 부동소수점 | Tier 1: 동일체 무조건 자동 병합 임계값. |
 | `CLAIRE_SIM_TIER_BORDERLINE` | `0.72` | 부동소수점 | Tier 2: 동일체 판정기 질의 하한선. |
@@ -207,3 +207,49 @@ flowchart LR
 | `CLAIRE_ENABLE_RELATION_LINKING` | `true` | 불리언 | Phase 2: 인제스트 파이프라인 내 전역 횡단 관계 자동 수립 활성화 여부. |
 | `CLAIRE_MAX_RELATION_JUDGES_PER_ENTITY` | `3` | 정수 | 엔티티당 평가할 최대 관계 후보군 상한. |
 | `CLAIRE_MAX_RELATION_JUDGES_PER_DOC` | `10` | 정수 | 문서 1건당 평가할 최대 관계 판정 호출 수 상한. |
+
+---
+
+## 6. 원안 설계(v1.0-PROPOSAL) 대비 구현 정합성 및 차이·충돌 분석
+
+원안 설계서(*Knowledge Graph Linking, Embedding Optimization & Multi-Hop Bridge Synthesis Architecture v1.0-PROPOSAL*)와 현재 코드베이스 간의 구현 정합성 및 차이점(Discrepancies)을 사실에 근거하여 기술합니다.
+
+### 6.1 영역별 구현 정합성 및 달성률
+
+| 영역 (Section) | 원안 요구사항 | 현재 구현 상태 | 정합률 | 사실 기반 기술 및 잔여 과제 |
+| :--- | :--- | :--- | :---: | :--- |
+| **§2. 유사도 범위 및 캘리브레이션** | 4-Tier 브래킷, Adaptive Centering, CSLS, RRF | 4-Tier 브래킷 완비, Adaptive Centering 완비, RRF 완비, CSLS 미구현 | 85% | CSLS 미구현 (Adaptive Centering으로 대체). Tier 2 경계값 조정 (0.72 유지). |
+| **§3. 관계 지향형 임베딩 모델** | `text-embedding-004`, `task_type` 분리, 온톨로지 프레임, 다국어 전환 | 모델 교체, 3종 `task_type` 라우팅, `format_entity_frame`, CLI 완료 | 95% | `CLAIRE_GEMINI_EMBED_MODEL` 정적 지정 지원. 텍스트 언어 감지 기반 자동 스위칭 미구현. |
+| **§4. 미싱링크 및 다중 홉 연결** | 전역 엣지 수립, 삼각 폐쇄, 잠재 브릿지 역생성, 2-Hop 규칙 전이, 벤치마크 | Phase 2 전역 엣지 파이프라인 및 CLI 완비, Tier 4 큐 분리 완비 | 40% | 삼각 폐쇄($S_{TC}$), 중간 벡터 역생성($\mathbf{q}_{bridge}$), 2-Hop 규칙 엔진, 50쌍 벤치마크 하네스 미구현 (Phase 3). |
+| **§5. 단계별 통합 로드맵** | Phase 1 (1~2주), Phase 2 (3~4주), Phase 3 (5~6주) | Phase 1 커밋 `9614fd8`, Phase 2 커밋 `86ed328` 완료 | 67% | Phase 1, 2 완료 (전체 3개 단계 중 2개 단계 통합 완료). |
+
+### 6.2 주요 설계 차이 및 충돌 사항 (Conflicts & Design Deviations)
+
+#### 1) Tier 2 임계값 하한선 차이 (설계서 0.82 vs 실제 구현 0.72)
+* **설계서 원안**: Tier 2 (Identity Borderline) 구간을 `[0.82, 0.93)`으로 정의하고, `0.82` 미만은 동일체 판정 없이 관계성 대역(Tier 3)으로 직행하도록 설계함.
+* **실제 구현**: `CLAIRE_SIM_TIER_BORDERLINE` 기본값을 기존과 동일한 `0.72`로 유지함 (`[0.72, 0.93)`).
+* **사유 및 충돌 해소**:
+  * 기존 `resolver.py`는 `0.72` 이상의 후보에 대해 LLM 게이팅을 거쳐 중복 엔티티를 병합해 왔음.
+  * 하한선을 `0.82`로 즉시 상향할 경우, 표기 변형이나 설명 차이로 유사도가 `0.72 ~ 0.82` 대역에 위치한 동일 개체들이 LLM 검증 기회 없이 조기에 신규 엔티티로 생성되어 엔티티 과다 분할(False Negative)이 발생함.
+  * 따라서 동일체 판정 하한은 `0.72`를 유지하되, LLM이 `DIFFERENT`로 확정한 항목 및 `[0.70, 0.72)` 대역을 Tier 3 관계 형성 후보(`relational_candidates`)로 라우팅하는 방식을 채택함.
+
+#### 2) 허브니스 완화 기법 차이 (CSLS 미구현 및 Adaptive Centering 우선 적용)
+* **설계서 원안**: 중심 벡터 감산(Adaptive Centering)과 함께 $K$-최근접 이웃 평균 유사도를 차감하는 CSLS($2\cos(\mathbf{v}_u, \mathbf{v}_v) - r_K(u) - r_K(v)$)를 병행 제안함.
+* **실제 구현**: `src/claire/store/vectors.py`에 `compute_mean_vector`, `center_and_normalize` 기반 Adaptive Centering만 구현됨. CSLS는 미구현.
+* **사유**:
+  * CSLS는 매 검색 또는 갱신마다 노드 $u, v$의 $K$-최근접 이웃 평균 $r_K$를 계산해야 하므로, $O(|V| \cdot K)$의 추가 계산 비용이 발생함.
+  * SQLite 기반 로컬 단일 파일 구조에서 중심 벡터 감산($\mathbf{\mu}$)만으로도 고차원 원뿔 편향(Hubness)의 상당 부분이 완화되므로, 런타임 지연을 억제하기 위해 CSLS는 적용하지 않음.
+
+#### 3) 다국어 모델 런타임 라우팅 범위
+* **설계서 원안**: 한-영 혼합 기술 문서 환경에 대응하기 위해 `text-multilingual-embedding-002` 모델 전환을 제시함.
+* **실제 구현**: `CLAIRE_GEMINI_EMBED_MODEL` 환경 변수로 대상 모델명을 변경하는 정적 설정 방식만 제공함.
+* **한계 및 사실**: 입력 텍스트의 언어를 실시간 판별하여 영문 문서는 `text-embedding-004`, 한글/혼합 문서는 `text-multilingual-embedding-002`로 동적 분기하는 런타임 라우터는 구현되어 있지 않음.
+
+#### 4) Phase 3 미싱링크 및 벤치마크 잔여 현황
+* **구현 완료된 인입구**: `resolver.py`에서 `[0.55, 0.70)` 대역 후보를 `ResolutionResult.multihop_candidates`로 수집하여 파이프라인으로 전달하는 데이터 구조까지는 구현 완료됨.
+* **미구현 상태 (Phase 3 로드맵)**:
+  * `src/claire/graph/multihop.py` 모듈 미생성.
+  * Adamic-Adar 기반 위상적 삼각 폐쇄 점수 산출기($S_{TC}$).
+  * 중간 벡터 프로브($\mathbf{q}_{bridge} = \frac{\mathbf{e}_u + \mathbf{e}_v}{\|\mathbf{e}_u + \mathbf{e}_v\|_2}$) 및 LLM 브릿지 개념 역추론 모듈.
+  * 온톨로지 2-Hop 규칙 전이(Rule-based Transitivity) 엔진.
+  * 50쌍 골든 데이터셋 및 Leave-bridge-out 벤치마크 측정 도구.
