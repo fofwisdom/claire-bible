@@ -829,3 +829,21 @@ def test_bibliographic_text_row_above_summary_and_docmeta_separation():
     assert ".docbiblio" not in _SHARED_HTML
 
 
+def test_open_ingest_shows_status_when_running():
+    """적재가 실행 중일 때 적재 단추(openIngest)를 누르면 자료 적재 입력 폼 대신 적재 상태 화면을 표시하는지 검증."""
+    from claire.graphview import GRAPH_HTML
+
+    # 1. openIngest() 내에 activeIngest 실행 중 상태 확인 및 renderIngestStatus() 호출 분기
+    assert "if(activeIngest && activeIngest.running){\n    renderIngestStatus();\n    return;\n  }" in GRAPH_HTML
+
+    # 2. renderIngestStatus() 함수 및 상태 뷰 식별자 검증
+    assert "function renderIngestStatus(){" in GRAPH_HTML
+    assert 'id="ingest-status-view"' in GRAPH_HTML
+    assert "적재 상태" in GRAPH_HTML
+    assert '<ul id="iprog">' in GRAPH_HTML
+
+    # 3. runIngest() 내 activeIngest 상태 초기화 및 실행 중 중복 호출 방지
+    assert "if(activeIngest && activeIngest.running){\n    alert('이미 적재가 진행 중입니다.');\n    renderIngestStatus();\n    return;\n  }" in GRAPH_HTML
+    assert "activeIngest = {\n    running: true," in GRAPH_HTML
+
+
