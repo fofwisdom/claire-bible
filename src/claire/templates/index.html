@@ -74,14 +74,18 @@
 <header id="bar">
   <div class="bar-brand-group">
     <span class="brand" role="button" tabindex="0" onclick="resetHome()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();resetHome();}" title="전체 지식 그래프 보기" aria-label="전체 지식 그래프 보기" style="display:inline-flex;align-items:center;gap:6px"><img src="/favicon.svg" width="20" height="20" alt="" aria-hidden="true" style="display:inline-block;vertical-align:middle;filter:drop-shadow(0 0 4px rgba(0,255,170,0.5))"/>Claire Bible</span>
-    <div class="theme-picker-wrap" id="theme-picker-wrap" title="지식 테마 선택 (데이터베이스 전환)" __THEME_PICKER_STYLE_ATTR__>
+    <div class="theme-picker-wrap" id="theme-picker-wrap" __THEME_PICKER_TITLE_ATTR__ __THEME_PICKER_STYLE_ATTR__>
       <label for="theme-select" class="sr-only">지식 테마 선택</label>
-      <div class="theme-select-control">
+      <div class="theme-select-control" id="theme-select-control" __THEME_SELECT_STYLE_ATTR__>
         <span class="theme-icon" id="theme-curr-icon" aria-hidden="true">📚</span>
         <select id="theme-select" class="theme-select" onchange="switchKnowledgeTheme(this.value)" title="지식 테마 선택 (데이터베이스 전환)" aria-label="지식 테마 선택">
           <option value="0">기본 지식베이스</option>
         </select>
         <span class="theme-caret" aria-hidden="true">▾</span>
+      </div>
+      <div class="theme-plain-display" id="theme-plain-display" __THEME_PLAIN_STYLE_ATTR__>
+        <span class="theme-icon" id="theme-plain-icon" aria-hidden="true">__THEME_PLAIN_ICON__</span>
+        <span class="theme-plain-label" id="theme-plain-label">__THEME_PLAIN_LABEL__</span>
       </div>
     </div>
   </div>

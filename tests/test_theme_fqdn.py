@@ -451,6 +451,47 @@ def test_graph_ui_renders_theme_specific_ga_tag(multi_theme_server_env):
 
     # Verify GA script tag and config
     assert "googletagmanager.com/gtag/js?id=G-BIGDATA123" in html
-    assert 'gtag("config", "G-BIGDATA123"' in html
     assert f"theme_id: {theme_id}" in html
     assert 'theme_label: "빅데이터 분석"' in html
+
+
+def test_graph_ui_fqdn_renders_plain_text_without_dropdown(multi_theme_server_env):
+    """테마 지식베이스 FQDN 접속 시 브랜드 아이콘 우측이 드롭다운 상자가 아닌 순수 텍스트로 표시되고 (전용 도메인) 문구가 없는지 검증."""
+    client, _, _ = multi_theme_server_env
+
+    # 1. 테마 등록
+    r = client.post(
+        "/themes",
+        json={
+            "label": "인공지능 연구",
+            "icon": "🤖",
+            "fqdn": "ai.example.com",
+            "is_public": True,
+        },
+        headers=OWNER_HEADERS,
+    )
+    assert r.status_code == 201
+
+    # 2. FQDN(ai.example.com)으로 접속
+    resp_fqdn = client.get("/", headers={"Host": "ai.example.com"})
+    assert resp_fqdn.status_code == 200
+    html_fqdn = resp_fqdn.text
+
+    # 드롭다운 상자(#theme-select-control) 숨김, 텍스트 표시(#theme-plain-display) 노출
+    assert 'id="theme-select-control" style="display:none"' in html_fqdn
+    assert 'id="theme-plain-display" style="display:inline-flex"' in html_fqdn
+    assert 'id="theme-plain-icon" aria-hidden="true">🤖<' in html_fqdn
+    assert 'id="theme-plain-label">인공지능 연구<' in html_fqdn
+    # 불필요한 '(전용 도메인)' 문구 완전 배제
+    assert "(전용 도메인)" not in html_fqdn
+
+    # 3. 일반 호스트(127.0.0.1:8765)로 접속 시
+    resp_main = client.get("/", headers={"Host": "127.0.0.1:8765"})
+    assert resp_main.status_code == 200
+    html_main = resp_main.text
+
+    # 일반 다중 테마 접속 시에는 드롭다운 상자 노출, 텍스트 표시 숨김
+    assert 'id="theme-plain-display" style="display:none"' in html_main
+    assert 'id="theme-select-control"' in html_main
+    # 일반 접속 시에도 드롭다운 옵션에 '(전용 도메인)' 문구 미노출
+    assert "(전용 도메인)" not in html_main

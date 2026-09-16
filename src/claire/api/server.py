@@ -767,6 +767,7 @@ def create_app(
                 include_private=include_private,
                 collaborator=is_collaborator,
                 theme=theme,
+                host=request.headers.get("host"),
             )
         )
 

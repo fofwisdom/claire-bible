@@ -19,6 +19,9 @@ def test_theme_web_ui_elements_in_template_and_graph_html(tmp_path: Path):
     assert 'id="theme-picker-wrap"' in html
     assert 'id="theme-select"' in html
     assert 'id="theme-curr-icon"' in html
+    assert 'id="theme-plain-display"' in html
+    assert 'id="theme-plain-icon"' in html
+    assert 'id="theme-plain-label"' in html
     assert 'onchange="switchKnowledgeTheme(this.value)"' in html
 
     # 2. Ingest form theme selector
@@ -37,6 +40,7 @@ def test_theme_web_ui_elements_in_template_and_graph_html(tmp_path: Path):
     # 4. CSS styling
     assert ".theme-picker-wrap" in html
     assert ".theme-select-control" in html
+    assert ".theme-plain-display" in html
     assert ".theme-select" in html
     assert ".ingest-theme-select" in html
 
