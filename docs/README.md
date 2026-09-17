@@ -38,6 +38,7 @@ docs/
     │   ├── DUAL_FORMAT_ADOC_DESIGN.md        # AsciiDoc 및 듀얼 포맷 본문 파이프라인 설계
     │   ├── EXPAND_FILTERING_DESIGN.md        # 1홉 확장의 깊이 및 연관성 필터링 설계
     │   ├── FETCHER_CONTRIBUTION_AND_ONPREMISE_NETWORK_DESIGN.md # 수집기 기여 아키텍처 및 온프레미스 사설망 보안 설계
+    │   ├── INTERNATIONALIZATION_AND_LOCALIZATION_DESIGN.md # 프로젝트 국제화(i18n) 및 형태소 분석 기반 다국어 지원 설계 명세서 (초안)
     │   ├── MCP_SUPPORT.md                    # MCP 지원 아키텍처 및 표준 인증 명세 (오리진 개정본)
     │   ├── MULTI_PROVIDER_DESIGN.md          # 멀티 LLM 프로바이더 및 캘리브레이션 설계
     │   ├── MULTI_THEME_ARCHITECTURE_DESIGN.md # 시퀀스 기반 지식 테마 다중 DB 격리 및 RBAC 아키텍처 설계
