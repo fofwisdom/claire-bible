@@ -61,14 +61,144 @@ def fetch_xcom(url: str, *, full_content: bool = False) -> Document:
 
         return fetch_web(url, full_content=full_content)
 
-    tweet, via = _fetch_api(screen, sid)
-    if tweet is None:
+    tweets, via = _fetch_thread(screen, sid)
+    if not tweets:
         # API 미러가 모두 실패 → 일반 web fetcher(scrapling 포함) 최후 시도.
         from .web import fetch_web
 
         return fetch_web(url, full_content=full_content)
 
-    return _build_document(url, tweet, via=via, full_content=full_content)
+    if len(tweets) == 1:
+        return _build_document(url, tweets[0], via=via, full_content=full_content)
+    return _build_thread_document(url, tweets, via=via, full_content=full_content)
+
+
+def _fetch_thread(screen: str | None, sid: str) -> tuple[list[dict] | None, str | None]:
+    """FixTweet v2 스레드/대화 API를 우선 활용하여 동일 작성자의 글타래 전체를 수집한다.
+
+    1차: /2/thread/{sid} 로 루트 트윗 식별
+    2차: /2/conversation/{root_id} 로 루트 및 하위 타래 전체 수집
+    3차: 동일 작성자 필터링 및 시간순 정렬
+    실패 시: 기존 v1 API 및 replying_to_status 상향 역추적 체인으로 폴백.
+    """
+    v2_tweets = _try_fetch_v2_thread(sid)
+    if v2_tweets:
+        return v2_tweets, "fxtwitter-v2"
+
+    # v2 실패 시 v1 기반 폴백 + 상향 역추적
+    single_tweet, via = _fetch_api(screen, sid)
+    if not single_tweet:
+        return None, None
+
+    # 만약 동일 작성자에게 보내는 답글이면 부모 트윗을 상향 역추적 시도 (최대 10회)
+    chain = _trace_upward_chain(single_tweet, screen)
+    return chain, via
+
+
+def _try_fetch_v2_thread(sid: str) -> list[dict] | None:
+    """FixTweet v2 API를 호출하여 동일 작성자의 전체 글타래 목록을 가져온다."""
+    import httpx
+
+    headers = {"User-Agent": "ClaireBible/1.0", "Accept": "application/json"}
+    primary_host = _API_HOSTS[0]
+
+    # 1. 대상 트윗의 조상 체인 확인 (/2/thread/{sid})
+    thread_data: dict | None = None
+    try:
+        with httpx.Client(follow_redirects=True, timeout=12, headers=headers) as c:
+            resp = c.get(f"https://{primary_host}/2/thread/{sid}")
+        if resp.status_code == 200 and "json" in (resp.headers.get("content-type") or "").lower():
+            thread_data = resp.json()
+    except Exception:  # noqa: BLE001
+        thread_data = None
+
+    if not thread_data or not isinstance(thread_data, dict):
+        return None
+
+    status = thread_data.get("status") or {}
+    thread_chain = thread_data.get("thread") or []
+    target_author = ((status.get("author") or {}).get("screen_name") or "").strip()
+
+    # 루트 트윗 식별 (thread_chain 의 첫 번째 또는 현재 status)
+    root_tweet = thread_chain[0] if thread_chain else status
+    root_id = str(root_tweet.get("id") or sid)
+    root_author = ((root_tweet.get("author") or {}).get("screen_name") or target_author).strip()
+
+    tweets_by_id: dict[str, dict] = {}
+
+    # status 및 thread_chain 적재
+    if status.get("id"):
+        tweets_by_id[str(status["id"])] = status
+    for tw in thread_chain:
+        if tw.get("id"):
+            tweets_by_id[str(tw["id"])] = tw
+
+    # 2. 루트 트윗 기준 conversation 호출로 하위 타래(답글)까지 포괄 수집
+    try:
+        with httpx.Client(follow_redirects=True, timeout=12, headers=headers) as c:
+            conv_resp = c.get(f"https://{primary_host}/2/conversation/{root_id}")
+        if conv_resp.status_code == 200 and "json" in (conv_resp.headers.get("content-type") or "").lower():
+            conv_data = conv_resp.json()
+            if isinstance(conv_data, dict):
+                c_status = conv_data.get("status")
+                if isinstance(c_status, dict) and c_status.get("id"):
+                    tweets_by_id[str(c_status["id"])] = c_status
+                for tw in conv_data.get("thread") or []:
+                    if isinstance(tw, dict) and tw.get("id"):
+                        tweets_by_id[str(tw["id"])] = tw
+                for tw in conv_data.get("replies") or []:
+                    if isinstance(tw, dict) and tw.get("id"):
+                        tweets_by_id[str(tw["id"])] = tw
+    except Exception:  # noqa: BLE001
+        pass
+
+    # 3. 동일 작성자 필터링
+    matched: list[dict] = []
+    author_lower = root_author.lower() if root_author else target_author.lower()
+    for tw in tweets_by_id.values():
+        tw_author = ((tw.get("author") or {}).get("screen_name") or "").strip().lower()
+        if tw_author == author_lower:
+            matched.append(tw)
+
+    if not matched:
+        return [status] if status else None
+
+    # 4. 시간순 정렬 (timestamp 기준, 없으면 id 기준)
+    def _sort_key(t: dict) -> tuple[int, int]:
+        ts = t.get("created_timestamp") or 0
+        try:
+            tid = int(t.get("id") or 0)
+        except (ValueError, TypeError):
+            tid = 0
+        return (int(ts), tid)
+
+    matched.sort(key=_sort_key)
+    return matched
+
+
+def _trace_upward_chain(initial_tweet: dict, screen: str | None, max_depth: int = 10) -> list[dict]:
+    """v1 API 환경에서 replying_to_status 를 역추적하여 부모 트윗 체인을 복원한다."""
+    chain = [initial_tweet]
+    author = ((initial_tweet.get("author") or {}).get("screen_name") or screen or "").strip().lower()
+    curr = initial_tweet
+
+    for _ in range(max_depth):
+        rep_user = (curr.get("replying_to") or "").strip().lower()
+        parent_id = curr.get("replying_to_status")
+        if not parent_id or (rep_user and rep_user != author):
+            break
+        parent_tweet, _ = _fetch_api(author, str(parent_id))
+        if not parent_tweet:
+            break
+        p_author = ((parent_tweet.get("author") or {}).get("screen_name") or "").strip().lower()
+        if p_author != author:
+            break
+        chain.append(parent_tweet)
+        curr = parent_tweet
+
+    # 체인을 루트부터 시작하도록 역순 정렬
+    chain.reverse()
+    return chain
 
 
 def _fetch_api(screen: str | None, sid: str) -> tuple[dict | None, str | None]:
@@ -160,26 +290,16 @@ def _normalize_vx(data: dict) -> dict:
     return out
 
 
-def _build_document(url: str, tweet: dict, *, via: str | None = None, full_content: bool = False) -> Document:
-    author = tweet.get("author") or {}
-    name = (author.get("name") or "").strip()
-    screen = (author.get("screen_name") or "").strip()
-    who = name or (f"@{screen}" if screen else "")
-    if name and screen:
-        who = f"{name} (@{screen})"
-
+def _format_tweet_text(tweet: dict, *, include_reply_prefix: bool = True) -> str:
+    """트윗 dict 에서 본문, 아티클, 이미지 alt, 인용을 조합하여 텍스트를 구성."""
     body = (tweet.get("text") or "").strip()
 
-    # X 롱폼 아티클(x.com/i/article/...) — 트윗 text 는 비어있거나 article URL 뿐이고
-    #   실제 내용은 article 필드에 있다. 이걸 무시하면 본문이 URL 하나로 빈약해진다
-    #   (실관측). title + content(blocks) 전문을 본문에 싣는다.
     article = tweet.get("article")
     article_title = ""
     art_body = ""
     if isinstance(article, dict):
         article_title = (article.get("title") or "").strip()
         art_body = _article_text(article)
-        # 트윗 text 가 그 아티클 URL 만 담고 있으면 중복이므로 본문에서 뺀다.
         if body and re.fullmatch(r"https?://\S*/i/article/\d+\S*", body):
             body = ""
 
@@ -191,16 +311,14 @@ def _build_document(url: str, tweet: dict, *, via: str | None = None, full_conte
     if art_body:
         parts.append(art_body)
 
-    # 이미지 alt 텍스트(있으면) — 시각 컨텍스트를 본문에 보강.
     for ph in _media_alts(tweet):
         parts.append(f"[이미지: {ph}]")
 
-    # 답글 대상(replying_to) 표시 — 맥락.
-    reply_to = tweet.get("replying_to")
-    if reply_to:
-        parts.insert(0, f"(@{reply_to} 에게 보내는 답글)")
+    if include_reply_prefix:
+        reply_to = tweet.get("replying_to")
+        if reply_to:
+            parts.insert(0, f"(@{reply_to} 에게 보내는 답글)")
 
-    # 인용(quote) 트윗 본문 합치기.
     quote = tweet.get("quote")
     if isinstance(quote, dict):
         q_auth = (quote.get("author") or {}).get("screen_name") or ""
@@ -209,11 +327,25 @@ def _build_document(url: str, tweet: dict, *, via: str | None = None, full_conte
             head = f"@{q_auth}" if q_auth else "원문"
             parts.append(f"\n— 인용({head}): {q_text}")
 
-    text = "\n".join(parts).strip()
+    return "\n".join(parts).strip()
+
+
+def _build_document(url: str, tweet: dict, *, via: str | None = None, full_content: bool = False) -> Document:
+    author = tweet.get("author") or {}
+    name = (author.get("name") or "").strip()
+    screen = (author.get("screen_name") or "").strip()
+    who = name or (f"@{screen}" if screen else "")
+    if name and screen:
+        who = f"{name} (@{screen})"
+
+    text = _format_tweet_text(tweet, include_reply_prefix=True)
     if not text:
         raise FetchError(f"x.com 트윗 본문이 비어있음: {url}")
 
-    # 제목: 아티클이면 그 제목을 우선(트윗 text 가 비어있으므로), 아니면 본문 첫 줄.
+    article = tweet.get("article")
+    article_title = (article.get("title") or "").strip() if isinstance(article, dict) else ""
+    body = (tweet.get("text") or "").strip()
+
     title = _make_title(who, article_title or body, tweet)
     published = _published_at(tweet)
     lang = tweet.get("lang")
@@ -243,6 +375,99 @@ def _build_document(url: str, tweet: dict, *, via: str | None = None, full_conte
                 "views": tweet.get("views"),
             },
             "fetch_via": via or "fxtwitter",
+            "is_article": bool(article_title),
+            "raw_truncated": is_truncated,
+            "orig_chars": orig_chars,
+            "raw_chars": raw_chars,
+        },
+    )
+
+
+def _build_thread_document(
+    url: str,
+    tweets: list[dict],
+    *,
+    via: str | None = None,
+    full_content: bool = False,
+) -> Document:
+    """동일 작성자의 연속된 글타래 트윗 목록을 하나의 완성된 Document 로 병합."""
+    if not tweets:
+        raise FetchError(f"x.com 글타래 목록이 비어있음: {url}")
+    if len(tweets) == 1:
+        return _build_document(url, tweets[0], via=via, full_content=full_content)
+
+    root = tweets[0]
+    author = root.get("author") or {}
+    name = (author.get("name") or "").strip()
+    screen = (author.get("screen_name") or "").strip()
+    who = name or (f"@{screen}" if screen else "")
+    if name and screen:
+        who = f"{name} (@{screen})"
+
+    total = len(tweets)
+    sections: list[str] = []
+
+    for idx, tw in enumerate(tweets, 1):
+        tw_text = _format_tweet_text(tw, include_reply_prefix=False)
+        if not tw_text:
+            continue
+        pub = _published_at(tw)
+        time_str = f" ({pub[:16].replace('T', ' ')})" if pub and len(pub) >= 16 else ""
+        header = f"[{idx}/{total}]{time_str}"
+        sections.append(f"{header}\n{tw_text}")
+
+    text = "\n\n---\n\n".join(sections).strip()
+    if not text:
+        raise FetchError(f"x.com 글타래 본문이 비어있음: {url}")
+
+    root_body = _format_tweet_text(root, include_reply_prefix=False)
+    article_title = ""
+    article = root.get("article")
+    if isinstance(article, dict):
+        article_title = (article.get("title") or "").strip()
+
+    base_title = _make_title(who, article_title or root_body, root)
+    title = f"{base_title} [글타래 {total}건]"
+
+    published = _published_at(root)
+    lang = root.get("lang")
+
+    root_id = root.get("id")
+    canonical_src = root.get("url") or (f"https://x.com/{screen}/status/{root_id}" if screen and root_id else url)
+
+    settings = get_settings()
+    budget = 0 if full_content else settings.raw_char_budget
+    raw_text, is_truncated, orig_chars, raw_chars = slice_document_text(
+        text or "", budget, strategy=settings.slicing_strategy
+    )
+
+    tot_likes = sum(t.get("likes") or 0 for t in tweets if isinstance(t.get("likes"), (int, float)))
+    tot_retweets = sum(t.get("retweets") or 0 for t in tweets if isinstance(t.get("retweets"), (int, float)))
+    tot_replies = sum(t.get("replies") or 0 for t in tweets if isinstance(t.get("replies"), (int, float)))
+
+    return Document(
+        url=url,
+        canonical_url=canonicalize_url(canonical_src),
+        title=title,
+        author=who or None,
+        published_at=published,
+        raw_text=raw_text,
+        source_type="xcom",
+        content_hash=content_hash(title or "", text),
+        lang=lang,
+        meta={
+            "screen_name": screen or None,
+            "is_thread": True,
+            "thread_length": total,
+            "thread_root_id": str(root_id) if root_id else None,
+            "tweet_ids": [str(t.get("id")) for t in tweets if t.get("id")],
+            "stats": {
+                "likes": tot_likes,
+                "retweets": tot_retweets,
+                "replies": tot_replies,
+                "root_likes": root.get("likes"),
+            },
+            "fetch_via": via or "fxtwitter-v2",
             "is_article": bool(article_title),
             "raw_truncated": is_truncated,
             "orig_chars": orig_chars,

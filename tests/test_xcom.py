@@ -110,3 +110,72 @@ def test_build_document_empty_body_raises():
     tw = _tweet(text="", media={})
     with pytest.raises(FetchError):
         _build_document("https://x.com/gildong/status/99", tw)
+
+
+# --- Thread 빌드 ---
+
+from claire.ingest.fetchers.xcom import (
+    _build_thread_document,
+    _trace_upward_chain,
+)
+
+
+def test_build_thread_document_basic():
+    tw1 = _tweet(id="101", text="첫 번째 타래입니다.", likes=10, retweets=2)
+    tw2 = _tweet(id="102", text="두 번째 타래입니다.", likes=20, retweets=3)
+    tw3 = _tweet(id="103", text="세 번째 타래입니다.", likes=30, retweets=5)
+
+    tweets = [tw1, tw2, tw3]
+    d = _build_thread_document("https://x.com/gildong/status/103", tweets)
+
+    assert d.source_type == "xcom"
+    assert d.meta["is_thread"] is True
+    assert d.meta["thread_length"] == 3
+    assert d.meta["thread_root_id"] == "101"
+    assert d.meta["tweet_ids"] == ["101", "102", "103"]
+
+    # Canonical URL 은 첫 번째(루트) 트윗 기준
+    assert "status/99" in d.canonical_url or "status/101" in d.canonical_url
+
+    # 제목에 타래 건수 표시
+    assert "[글타래 3건]" in d.title
+    assert "홍길동 (@gildong): 첫 번째 타래입니다." in d.title
+
+    # 본문에 순번 및 내용 확인
+    assert "[1/3]" in d.raw_text
+    assert "첫 번째 타래입니다." in d.raw_text
+    assert "[2/3]" in d.raw_text
+    assert "두 번째 타래입니다." in d.raw_text
+    assert "[3/3]" in d.raw_text
+    assert "세 번째 타래입니다." in d.raw_text
+
+    # 통계 합산
+    assert d.meta["stats"]["likes"] == 60
+    assert d.meta["stats"]["retweets"] == 10
+
+
+def test_build_thread_document_single_fallback():
+    tw = _tweet(id="101", text="단일 트윗 내용")
+    d = _build_thread_document("https://x.com/gildong/status/101", [tw])
+    assert d.meta.get("is_thread") is None
+    assert "[글타래" not in d.title
+    assert d.raw_text == "단일 트윗 내용"
+
+
+def test_trace_upward_chain(monkeypatch):
+    root = _tweet(id="1", text="루트 트윗", replying_to=None, replying_to_status=None)
+    mid = _tweet(id="2", text="중간 트윗", replying_to="gildong", replying_to_status="1")
+    leaf = _tweet(id="3", text="마지막 트윗", replying_to="gildong", replying_to_status="2")
+
+    store = {"1": root, "2": mid, "3": leaf}
+
+    def fake_fetch_api(screen, sid):
+        return store.get(str(sid)), "mock"
+
+    import claire.ingest.fetchers.xcom as xmod
+    monkeypatch.setattr(xmod, "_fetch_api", fake_fetch_api)
+
+    chain = _trace_upward_chain(leaf, "gildong", max_depth=5)
+    assert len(chain) == 3
+    assert [t["id"] for t in chain] == ["1", "2", "3"]
+
