@@ -24,6 +24,7 @@ docs/origin/
 │   ├── FETCHER_CONTRIBUTION_AND_ONPREMISE_NETWORK_DESIGN.md # 수집기 기여 아키텍처 및 온프레미스 사설망 보안 설계
 │   ├── GRAPHVIEW_MODULARIZATION_AND_STATIC_ASSET_DESIGN.md # graphview.py 모듈화 및 정적 자산 분리 설계
 │   ├── INGESTION_INTEGRITY_AND_POLLUTION_CONTROL_RESEARCH.md # 원문 보존·서비스 보호·오염 통제 거버넌스 연구
+│   ├── INTERNATIONALIZATION_AND_LOCALIZATION_DESIGN.md # 프로젝트 국제화(i18n) 및 형태소 분석 기반 다국어 지원 설계 명세서 (초안)
 │   ├── MCP_SUPPORT.md                    # MCP 지원 아키텍처 및 표준 인증 명세 (오리진 개정본)
 │   ├── MULTI_PROVIDER_DESIGN.md          # 멀티 LLM 프로바이더 및 캘리브레이션 설계
 │   ├── MULTI_THEME_ARCHITECTURE_DESIGN.md # 시퀀스 기반 지식 테마 다중 DB 격리 및 RBAC 아키텍처 설계
