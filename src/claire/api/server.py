@@ -438,10 +438,6 @@ def create_app(
         def_focus = str(
             body.get("default_focus")
             or body.get("focus")
-            or body.get("default_orientation")
-            or body.get("orientation")
-            or body.get("default_directive")
-            or body.get("directive")
             or ""
         ).strip()
         fqdn = str(body.get("fqdn") or "").strip()
@@ -508,23 +504,7 @@ def create_app(
         def_focus = (
             body.get("default_focus")
             if "default_focus" in body
-            else (
-                body.get("focus")
-                if "focus" in body
-                else (
-                    body.get("default_orientation")
-                    if "default_orientation" in body
-                    else (
-                        body.get("orientation")
-                        if "orientation" in body
-                        else (
-                            body.get("default_directive")
-                            if "default_directive" in body
-                            else (body.get("directive") if "directive" in body else None)
-                        )
-                    )
-                )
-            )
+            else (body.get("focus") if "focus" in body else None)
         )
         fqdn = body.get("fqdn") if "fqdn" in body else None
         ga_id = (
@@ -622,17 +602,15 @@ def create_app(
             raise HTTPException(status_code=400, detail="payload required")
         expand_max = body.get("expand_max")
         format_arg = str(body.get("format") or "").strip() or None
-        directive = (
-            str(body.get("focus") or body.get("orientation") or body.get("directive") or "").strip() or None
-        )
-        if not directive:
-            from ..telegram_bot import parse_message_directive
+        focus = str(body.get("focus") or "").strip() or None
+        if not focus:
+            from ..telegram_bot import parse_message_focus
 
-            payload, parsed_dir = parse_message_directive(payload)
-            if parsed_dir:
-                directive = parsed_dir
+            payload, parsed_focus = parse_message_focus(payload)
+            if parsed_focus:
+                focus = parsed_focus
             elif not theme.is_default and theme.id > 0 and getattr(theme, "default_focus", None):
-                directive = theme.default_focus.strip() or None
+                focus = theme.default_focus.strip() or None
 
         full_content = bool(body.get("full_content") or body.get("no_truncate") or False)
         effort = str(body.get("effort") or "").strip() or None
@@ -647,8 +625,8 @@ def create_app(
             ingest_kwargs["effort"] = effort
         if format_arg is not None:
             ingest_kwargs["format"] = format_arg
-        if directive is not None:
-            ingest_kwargs["directive"] = directive
+        if focus is not None:
+            ingest_kwargs["focus"] = focus
         try:
             report = await _run_expensive(
                 theme_svc.ingest,
@@ -1204,17 +1182,15 @@ def create_app(
             raise HTTPException(status_code=400, detail="payload required")
         expand_max = body.get("expand_max")
         format_arg = str(body.get("format") or "").strip() or None
-        directive = (
-            str(body.get("focus") or body.get("orientation") or body.get("directive") or "").strip() or None
-        )
-        if not directive:
-            from ..telegram_bot import parse_message_directive
+        focus = str(body.get("focus") or "").strip() or None
+        if not focus:
+            from ..telegram_bot import parse_message_focus
 
-            payload, parsed_dir = parse_message_directive(payload)
-            if parsed_dir:
-                directive = parsed_dir
+            payload, parsed_focus = parse_message_focus(payload)
+            if parsed_focus:
+                focus = parsed_focus
             elif not theme.is_default and theme.id > 0 and getattr(theme, "default_focus", None):
-                directive = theme.default_focus.strip() or None
+                focus = theme.default_focus.strip() or None
 
         full_content = bool(body.get("full_content") or body.get("no_truncate") or False)
         effort = str(body.get("effort") or "").strip() or None
@@ -1251,8 +1227,8 @@ def create_app(
                     ingest_kwargs["effort"] = effort
                 if format_arg is not None:
                     ingest_kwargs["format"] = format_arg
-                if directive is not None:
-                    ingest_kwargs["directive"] = directive
+                if focus is not None:
+                    ingest_kwargs["focus"] = focus
                 return theme_svc.ingest(
                     payload,
                     **ingest_kwargs,

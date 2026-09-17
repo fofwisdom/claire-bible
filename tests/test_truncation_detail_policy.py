@@ -40,21 +40,21 @@ def test_render_detail_prompt_adoc_truncation_policy():
 
 
 def test_render_detail_prompt_router_preserves_policy():
-    """render_detail_prompt 라우터가 format(md/adoc), merged, directive 설정과 무관하게 정책 규칙을 유지하는지 검증."""
+    """render_detail_prompt 라우터가 format(md/adoc), merged, focus 설정과 무관하게 정책 규칙을 유지하는지 검증."""
     body = "긴 원문 데이터..."
     images = [{"url": "https://example.com/diag.png", "alt": "도식", "caption": "설명"}]
-    directive = "아키텍처 및 핵심 API 중심"
+    focus = "아키텍처 및 핵심 API 중심"
 
     # MD 포맷 검증
     prompt_md = render_detail_prompt(
-        body, images, merged=True, scale=2, format="md", directive=directive
+        body, images, merged=True, scale=2, format="md", focus=focus
     )
     assert "원문을 절단하여 적재 및 상세 작성 시, 절단되어 내용이 유실된 섹션은 상세를 작성하지 않는다" in prompt_md
     assert "아키텍처 및 핵심 API 중심" in prompt_md
 
     # AsciiDoc 포맷 검증
     prompt_adoc = render_detail_prompt(
-        body, images, merged=True, scale=2, format="adoc", directive=directive
+        body, images, merged=True, scale=2, format="adoc", focus=focus
     )
     assert "원문을 절단하여 적재 및 상세 작성 시, 절단되어 내용이 유실된 섹션은 상세를 작성하지 않는다" in prompt_adoc
     assert "아키텍처 및 핵심 API 중심" in prompt_adoc

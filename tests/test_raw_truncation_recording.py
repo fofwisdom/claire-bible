@@ -126,7 +126,7 @@ def test_document_detail_returns_truncation_meta():
 def test_graph_html_contains_truncation_ui_and_css():
     html = render_graph_html()
     assert ".trunc-tag" in html
-    assert ".directive-tag" in html
+    assert ".focus-tag" in html
     assert ".stt-tag" in html
     assert ".cc-tag" in html
     assert "docMetaHtml" in html
@@ -155,7 +155,7 @@ def test_shared_html_contains_docmeta_ui_and_css():
         "appendix_truncated": True,
         "orig_chars": 50000,
         "raw_chars": 20000,
-        "directive": "핵심 알고리즘 분석",
+        "focus": "핵심 알고리즘 분석",
         "is_stt": True,
         "summary": "테스트 요약",
     }
@@ -164,7 +164,7 @@ def test_shared_html_contains_docmeta_ui_and_css():
     assert ".docmeta-tags" in html
     assert ".trunc-tag" in html
     assert ".trunc-tag.trunc-appendix" in html
-    assert ".directive-tag" in html
+    assert ".focus-tag" in html
     assert ".stt-tag" in html
     assert ".cc-tag" in html
     assert "docMetaHtml" in html
@@ -182,7 +182,7 @@ def test_shared_html_contains_docmeta_ui_and_css():
 
 
 
-def test_document_detail_and_ui_with_directive():
+def test_document_detail_and_ui_with_focus():
     import sqlite3
 
     conn = sqlite3.connect(":memory:")
@@ -190,12 +190,12 @@ def test_document_detail_and_ui_with_directive():
     dbm.init_db(conn)
     doc = Document(
         id="doc_dir_test",
-        title="Directive Doc Test",
+        title="Focus Doc Test",
         url="https://example.com/test-dir",
         raw_text="A" * 1000,
         source_type="web",
         meta={
-            "directive": "시스템 아키텍처 및 내부 구조 중심",
+            "focus": "시스템 아키텍처 및 내부 구조 중심",
             "raw_truncated": False,
         },
     )
@@ -203,8 +203,8 @@ def test_document_detail_and_ui_with_directive():
 
     detail = document_detail(conn, "doc_dir_test")
     assert detail is not None
-    assert detail["directive"] == "시스템 아키텍처 및 내부 구조 중심"
-    assert detail["meta"]["directive"] == "시스템 아키텍처 및 내부 구조 중심"
+    assert detail["focus"] == "시스템 아키텍처 및 내부 구조 중심"
+    assert detail["meta"]["focus"] == "시스템 아키텍처 및 내부 구조 중심"
 
 
 def test_document_detail_and_ui_with_stt():

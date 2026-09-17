@@ -156,7 +156,7 @@ def test_extract_html_table_to_markdown():
     assert "Conclusion of the test." in text
 
 
-def test_prompt_rules_contain_table_preservation_directives():
+def test_prompt_rules_contain_table_preservation_rules():
     # 1. 추출 프롬프트 검증
     sys_prompt = extract_system_prompt("{ontology}")
     assert "PROMPT_VERSION" in globals() or PROMPT_VERSION == "extract-v7"

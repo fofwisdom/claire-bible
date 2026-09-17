@@ -54,7 +54,7 @@
 - **위치**: 첫 번째 행 **우측** (`.docmeta .docmeta-tags`)
 - **표현**: 고유한 시스템 뱃지 꾸밈(Badge Chips)을 유지.
 - **항목**:
-  - `🎯 초점`: 적재 시 지정한 프롬프트 지침/초점 (`directive`)
+  - `🎯 초점`: 적재 시 지정한 프롬프트 초점 (`focus`)
   - `✂️ 부록·참고문헌 제외` / `✂️ 원문 일부 절단`: 예산 상한에 따른 절단율 (`trunc-tag`)
   - `⚠️ Docling 폴백 (PyPDF)`: 파서 실행 및 폴백 이력 (`parser-fallback-tag`)
   - `🎙️ STT`: 음성 인식 전사 기반 적재 여부 (`stt-tag`)
@@ -85,14 +85,14 @@ function docMetaHtml(dc){
   if(!dc) return '';
   const hasUrl = !!dc.url;
   const isTrunc = !!(dc.raw_truncated || (dc.meta && dc.meta.raw_truncated));
-  const directive = (dc.directive || (dc.meta && dc.meta.directive) || '').trim();
+  const focus = (dc.focus || (dc.meta && dc.meta.focus) || '').trim();
   const isParserFallback = !!(dc.pdf_parser_fallback || (dc.meta && dc.meta.pdf_parser_fallback));
   const presentation = dc.presentation_pdf || (dc.meta && dc.meta.presentation_pdf) || {};
   const hasPresentation = presentation.status === 'available' && !!presentation.public_url;
   const isStt = !!(dc.is_stt || (dc.meta && (dc.meta.is_stt || dc.meta.stt_applied || dc.meta.stt)));
 
   // 원문 단추나 docmeta 뱃지가 하나라도 존재하면 컨테이너 유지
-  if(!hasUrl && !isTrunc && !directive && !isStt && !isParserFallback && !hasPresentation) return '';
+  if(!hasUrl && !isTrunc && !focus && !isStt && !isParserFallback && !hasPresentation) return '';
 
   let h = '<p class=docmeta>';
   // 좌측: 원문 관련 단추
@@ -107,9 +107,9 @@ function docMetaHtml(dc){
   // 우측: 적재 문서 메타데이터 (docmeta 뱃지)
   let tags = [];
   if(isParserFallback) tags.push('<span class="trunc-tag parser-fallback-tag">⚠️ Docling 폴백 (PyPDF)</span>');
-  if(directive) tags.push('<span class="directive-tag">🎯 '+esc(directive)+'</span>');
-  if(isStt && !hasPresentation) tags.push('<span class="directive-tag stt-tag">🎙️ STT</span>');
-  if(isCc && !hasPresentation) tags.push('<span class="directive-tag cc-tag">🔤 CC</span>');
+  if(focus) tags.push('<span class="focus-tag">🎯 '+esc(focus)+'</span>');
+  if(isStt && !hasPresentation) tags.push('<span class="focus-tag stt-tag">🎙️ STT</span>');
+  if(isCc && !hasPresentation) tags.push('<span class="focus-tag cc-tag">🔤 CC</span>');
   if(isTrunc) tags.push('<span class="trunc-tag">✂️ ...</span>');
   if(tags.length) h += '<span class="docmeta-tags">' + tags.join(' ') + '</span>';
   h += '</p>';

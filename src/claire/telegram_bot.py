@@ -352,69 +352,69 @@ def classify_input(text: str) -> str:
 import re
 
 # 플래그: ASCII 하이픈(-, --), en-dash(–, ––), em-dash(—, ——), horizontal bar(―) 지원
-# 예: --focus, —focus, –focus, -focus, --orientation, --directive, --perspective, -o
-_DIRECTIVE_FLAG_RE = re.compile(
-    r"(?:\s+|^)(?:[-–—―]{1,2}(?:focus|orientation|directive|perspective)|[-–—―]o)\s+([^\n]+)",
+# 예: --focus, —focus, -f 등
+_FOCUS_FLAG_RE = re.compile(
+    r"(?:\s+|^)(?:[-–—―]{1,2}focus|[-–—―]f)\s+([^\n]+)",
     re.IGNORECASE,
 )
-_DIRECTIVE_PREFIX_RE = re.compile(
-    r"^(?:\[(?:초점|focus|방향성|방향|관점|지침|directive|orientation|perspective)\]|#(?:초점|focus|방향성|방향|관점|지침|directive|orientation|perspective)|(?:초점|focus|방향성|방향|관점|지침|directive|orientation|perspective)\s*[:：])\s*(.+)$",
+_FOCUS_PREFIX_RE = re.compile(
+    r"^(?:\[(?:초점|focus)\]|#(?:초점|focus)|(?:초점|focus)\s*[:：])\s*(.+)$",
     re.IGNORECASE,
 )
 # 파이프(|, ｜, ¦) 또는 대시(--, —, –) 구분자 지원 (파이프 중심 통일)
 # 주의: 단일 하이픈('-')은 영상/문서 제목('Title - Subtitle')에 흔히 쓰이므로 구분자로 취급하지 않고 '--' 또는 '—', '–'만 허용.
-_DIRECTIVE_SEP_RE = re.compile(
+_FOCUS_SEP_RE = re.compile(
     r"(?:\s*([|｜¦])\s*|\s+([—–]{1,2}|--)\s+)",
 )
 
 
-def parse_message_directive(text: str) -> tuple[str, str | None]:
-    """메시지 본문에서 페이로드(URL/텍스트)와 본문 작성 초점(focus/directive)을 분리 추출.
+def parse_message_focus(text: str) -> tuple[str, str | None]:
+    """메시지 본문에서 페이로드(URL/텍스트)와 본문 작성 초점(focus)을 분리 추출.
 
     지원 패턴:
     1. 파이프 구분: `URL | <초점>` 또는 `URL ｜ <초점>` (주 문법)
     2. 줄바꿈 구분: 첫 줄이 단일 URL이고 다음 줄에 텍스트나 [초점] 태그가 오는 경우
-    3. 구분자/플래그: `URL --focus <초점>`, `URL -- <초점>`, `URL --orientation <초점>` 등 (호환)
+    3. 구분자/플래그: `URL --focus <초점>`, `URL -f <초점>` 등
     """
     t = (text or "").strip()
     if not t:
         return "", None
 
-    # 1. 플래그 호환 (--orientation, —orientation, -o 등)
-    m = _DIRECTIVE_FLAG_RE.search(t)
+    # 1. 플래그 (--focus, -f 등)
+    m = _FOCUS_FLAG_RE.search(t)
     if m:
-        dir_val = m.group(1).strip()
+        focus_val = m.group(1).strip()
         payload = (t[:m.start()] + " " + t[m.end():]).strip()
         if payload:
-            return payload, dir_val or None
+            return payload, focus_val or None
 
     lines = [line.strip() for line in t.splitlines() if line.strip()]
     if not lines:
         return t, None
 
-    # 2. 줄 단위 명시적 프리픽스 ([방향성], 방향:, #방향 등) 검사
-    dir_lines = []
+    # 2. 줄 단위 명시적 프리픽스 ([초점], 초점:, #초점 등) 검사
+    focus_lines = []
     payload_lines = []
     for line in lines:
-        pm = _DIRECTIVE_PREFIX_RE.match(line)
+        pm = _FOCUS_PREFIX_RE.match(line)
         if pm:
-            dir_lines.append(pm.group(1).strip())
+            focus_lines.append(pm.group(1).strip())
         else:
             payload_lines.append(line)
 
-    if dir_lines and payload_lines:
-        return "\n".join(payload_lines), " ".join(dir_lines)
+    if focus_lines and payload_lines:
+        return "\n".join(payload_lines), " ".join(focus_lines)
 
     # 3. 첫 줄에 파이프/대시 구분자가 있는 경우 (단일행 또는 다중행 모두 지원)
     first_line = lines[0]
-    m_sep = _DIRECTIVE_SEP_RE.search(first_line)
+    m_sep = _FOCUS_SEP_RE.search(first_line)
     if m_sep:
         part_a = first_line[:m_sep.start()].strip()
         part_b = first_line[m_sep.end():].strip()
         if part_a:
             extra_lines = lines[1:]
-            full_dir = "\n".join([part_b] + extra_lines).strip() if (part_b or extra_lines) else None
-            return part_a, full_dir
+            full_focus = "\n".join([part_b] + extra_lines).strip() if (part_b or extra_lines) else None
+            return part_a, full_focus
 
     # 4. URL 뒤에 두 번 이상의 줄바꿈(빈 줄)을 사이에 두고 평문 텍스트가 오는 경우
     # (줄바꿈 1번은 단순 오타/오입력 사고일 수 있으므로 빈 줄이 있는 2번째 줄바꿈에서만 분리)
@@ -424,7 +424,7 @@ def parse_message_directive(text: str) -> tuple[str, str | None]:
         first_block = blocks[0]
         if _URL_RE.fullmatch(first_block) or (first_block.lower().startswith(("http://", "https://")) and len(first_block.split()) == 1):
             rest = "\n\n".join(blocks[1:]).strip()
-            pm = _DIRECTIVE_PREFIX_RE.match(rest)
+            pm = _FOCUS_PREFIX_RE.match(rest)
             if pm:
                 rest = pm.group(1).strip()
             return first_block, rest or None
@@ -473,12 +473,12 @@ def parse_regenerate_flags(text: str) -> tuple[str, bool, bool, str | None]:
     return t, refetch, refetch_full, effort
 
 
-def parse_caption_directive(caption: str | None) -> str | None:
+def parse_caption_focus(caption: str | None) -> str | None:
     """파일/문서 첨부 캡션에서 초점 추출."""
     c = (caption or "").strip()
     if not c:
         return None
-    pm = _DIRECTIVE_PREFIX_RE.match(c)
+    pm = _FOCUS_PREFIX_RE.match(c)
     if pm:
         return pm.group(1).strip() or None
     return c
@@ -506,7 +506,7 @@ def parse_message_theme(text: str, theme_mgr: Any | None = None) -> tuple[str, i
     matches = list(_THEME_TAG_RE.finditer(t))
     for m in matches:
         cand = m.group(1).strip()
-        if cand.lower() in ("초점", "focus", "방향성", "방향", "관점", "지침", "directive", "orientation", "perspective"):
+        if cand.lower() in ("초점", "focus"):
             continue
         try:
             found = tm.get_theme(cand, strict=True)
@@ -698,7 +698,7 @@ def build_app(settings: Settings | None = None) -> Any:
         target_desc: str,
         *,
         kind_label: str = "",
-        directive: str | None = None,
+        focus: str | None = None,
     ):
         safe_desc = target_desc.replace("`", "'")
         prompt_text = (
@@ -708,9 +708,9 @@ def build_app(settings: Settings | None = None) -> Any:
         if kind_label:
             prompt_text += f" ({kind_label})"
         prompt_text += "\n"
-        if directive:
-            safe_dir = directive.replace("`", "'")
-            prompt_text += f"• 초점: {safe_dir}\n"
+        if focus:
+            safe_focus = focus.replace("`", "'")
+            prompt_text += f"• 초점: {safe_focus}\n"
         prompt_text += "\n원하는 테마 버튼을 누르면 즉시 적재가 시작됩니다."
         markup = _theme_selection_markup(token, themes)
         return await msg.reply_text(prompt_text, reply_markup=markup, parse_mode="Markdown")
@@ -723,15 +723,15 @@ def build_app(settings: Settings | None = None) -> Any:
         *,
         payload: str | None = None,
         doc_work=None,
-        directive: str | None = None,
+        focus: str | None = None,
         has_effort: str | None = None,
         has_refetch_full: bool = False,
         kind_label: str = "",
         uid: int | None = None,
         cid: int | None = None,
     ) -> None:
-        if not directive and not target_theme.is_default and target_theme.id > 0 and getattr(target_theme, "default_focus", None):
-            directive = target_theme.default_focus.strip() or None
+        if not focus and not target_theme.is_default and target_theme.id > 0 and getattr(target_theme, "default_focus", None):
+            focus = target_theme.default_focus.strip() or None
         label = f"처리 중… ({kind_label})" if kind_label else "처리 중…"
         if target_theme.id != 0:
             label = f"[{target_theme.icon} {target_theme.label}] " + label
@@ -739,8 +739,8 @@ def build_app(settings: Settings | None = None) -> Any:
             label += " [원문 전체]"
         if has_effort:
             label += f" [추론: {has_effort}]"
-        if directive:
-            label += f" [방향: {directive[:20]}]"
+        if focus:
+            label += f" [초점: {focus[:20]}]"
 
         try:
             await status_msg.edit_text(f"⏳ {label}")
@@ -761,7 +761,7 @@ def build_app(settings: Settings | None = None) -> Any:
                 source="telegram",
                 user_id=uid,
                 chat_id=cid,
-                directive=directive,
+                focus=focus,
                 effort=has_effort,
                 full_content=has_refetch_full,
             )
@@ -936,7 +936,7 @@ def build_app(settings: Settings | None = None) -> Any:
             active_theme = theme_mgr.get_theme(0)
             active_svc = svc
 
-        payload, directive = parse_message_directive(text)
+        payload, focus = parse_message_focus(text)
         payload_clean, has_refetch, has_refetch_full, has_effort = parse_regenerate_flags(payload)
 
         # 자체 FQDN의 공유 링크 또는 document_id 검사 (타 사이트 /p?s= 오인 방지)
@@ -988,15 +988,15 @@ def build_app(settings: Settings | None = None) -> Any:
         msg = update.message
 
         if target_doc_id:
-            # 1. 지침, 초점, 또는 재수집 플래그가 함께 전달된 경우 -> 즉시 실행
-            if has_refetch or has_refetch_full or has_effort or directive:
+            # 1. 초점 또는 재수집 플래그가 함께 전달된 경우 -> 즉시 실행
+            if has_refetch or has_refetch_full or has_effort or focus:
                 label = f"본문 재생성 중… ({target_doc_id})"
                 if has_refetch_full:
                     label += " [원문 전체 재수집]"
                 elif has_refetch:
                     label += " [원문 재수집]"
-                if directive:
-                    label += f" [초점: {directive[:20]}]"
+                if focus:
+                    label += f" [초점: {focus[:20]}]"
                 if has_effort:
                     label += f" [추론: {has_effort}]"
                 status = await msg.reply_text(f"⏳ {label}")
@@ -1009,7 +1009,7 @@ def build_app(settings: Settings | None = None) -> Any:
                             refetch=has_refetch,
                             refetch_full=has_refetch_full,
                             effort=has_effort,
-                            directive=directive,
+                            focus=focus,
                             force=True,
                         ),
                     )
@@ -1018,7 +1018,7 @@ def build_app(settings: Settings | None = None) -> Any:
                         emoji = "👎"
                     elif res.get("count", 0) > 0:
                         tinfo = res["targets"][0]
-                        dir_msg = f"\n초점: {directive}" if directive else ""
+                        focus_msg = f"\n초점: {focus}" if focus else ""
                         if tinfo.get("refetch_error"):
                             ans = f"⚠️ 원문 재수집 오류: {tinfo['refetch_error']}"
                             emoji = "👎"
@@ -1036,7 +1036,7 @@ def build_app(settings: Settings | None = None) -> Any:
                                 ref_msg = f" (원문 전체 재수집 {tinfo.get('new_len', 0):,}자)"
                             elif tinfo.get("refetched"):
                                 ref_msg = f" (원문 재수집 {tinfo.get('new_len', 0):,}자)"
-                            ans = f"✅ 본문 재생성 완료: {tinfo.get('title', target_doc_id)}{ref_msg}{dir_msg}"
+                            ans = f"✅ 본문 재생성 완료: {tinfo.get('title', target_doc_id)}{ref_msg}{focus_msg}"
                             emoji = "👍"
                     else:
                         ans = f"⚠️ 대상 문서를 찾을 수 없습니다: {target_doc_id}"
@@ -1147,14 +1147,14 @@ def build_app(settings: Settings | None = None) -> Any:
                 themes,
                 target_snippet,
                 kind_label=kind,
-                directive=directive,
+                focus=focus,
             )
             pending_ingest[token] = {
                 "orig_msg": msg,
                 "status_msg": prompt_msg,
                 "update_id": update.update_id,
                 "payload": payload_to_ingest,
-                "directive": directive,
+                "focus": focus,
                 "has_effort": has_effort,
                 "has_refetch_full": has_refetch_full,
                 "kind_label": kind,
@@ -1172,7 +1172,7 @@ def build_app(settings: Settings | None = None) -> Any:
             active_theme,
             update.update_id,
             payload=payload_to_ingest,
-            directive=directive,
+            focus=focus,
             has_effort=has_effort,
             has_refetch_full=has_refetch_full,
             kind_label=kind,
@@ -1201,9 +1201,9 @@ def build_app(settings: Settings | None = None) -> Any:
         uid = user.id if user else None
         cid = update.effective_chat.id if update.effective_chat else None
 
-        directive = parse_caption_directive(clean_cap)
-        caption_clean, _, has_refetch_full, has_effort = parse_regenerate_flags(directive or "")
-        clean_dir = caption_clean or None
+        focus = parse_caption_focus(clean_cap)
+        caption_clean, _, has_refetch_full, has_effort = parse_regenerate_flags(focus or "")
+        clean_focus = caption_clean or None
 
         async def _download() -> str:
             tg_file = await doc.get_file()
@@ -1227,7 +1227,7 @@ def build_app(settings: Settings | None = None) -> Any:
                 themes,
                 name,
                 kind_label="file",
-                directive=clean_dir,
+                focus=clean_focus,
             )
             def _doc_work_for_theme(target_svc):
                 kept = target_svc.save_inbound_file(int(update.update_id), Path(tmp_path), name)
@@ -1239,7 +1239,7 @@ def build_app(settings: Settings | None = None) -> Any:
                     inbox_kind="document",
                     file_ref=kept,
                     file_name=name,
-                    directive=clean_dir,
+                    focus=clean_focus,
                     effort=has_effort,
                     full_content=has_refetch_full,
                 )
@@ -1248,7 +1248,7 @@ def build_app(settings: Settings | None = None) -> Any:
                 "status_msg": prompt_msg,
                 "update_id": update.update_id,
                 "doc_work": _doc_work_for_theme,
-                "directive": clean_dir,
+                "focus": clean_focus,
                 "has_effort": has_effort,
                 "has_refetch_full": has_refetch_full,
                 "kind_label": f"file: {name}",
@@ -1271,7 +1271,7 @@ def build_app(settings: Settings | None = None) -> Any:
                 inbox_kind="document",
                 file_ref=kept,
                 file_name=name,
-                directive=clean_dir,
+                focus=clean_focus,
                 effort=has_effort,
                 full_content=has_refetch_full,
             )
@@ -1281,7 +1281,7 @@ def build_app(settings: Settings | None = None) -> Any:
             active_theme,
             update.update_id,
             doc_work=_work,
-            directive=clean_dir,
+            focus=clean_focus,
             has_effort=has_effort,
             has_refetch_full=has_refetch_full,
             kind_label=f"file: {name}",
@@ -1314,7 +1314,7 @@ def build_app(settings: Settings | None = None) -> Any:
         else:
             raw_clean_theme = raw
 
-        payload, directive = parse_message_directive(raw_clean_theme)
+        payload, focus = parse_message_focus(raw_clean_theme)
         payload_clean, _, has_refetch_full, has_effort = parse_regenerate_flags(payload)
         payload_to_ingest = payload_clean or payload
         msg = update.message
@@ -1332,14 +1332,14 @@ def build_app(settings: Settings | None = None) -> Any:
                 themes,
                 target_snippet,
                 kind_label=kind,
-                directive=directive,
+                focus=focus,
             )
             pending_ingest[token] = {
                 "orig_msg": msg,
                 "status_msg": prompt_msg,
                 "update_id": update.update_id,
                 "payload": payload_to_ingest,
-                "directive": directive,
+                "focus": focus,
                 "has_effort": has_effort,
                 "has_refetch_full": has_refetch_full,
                 "kind_label": kind,
@@ -1357,7 +1357,7 @@ def build_app(settings: Settings | None = None) -> Any:
             active_theme,
             update.update_id,
             payload=payload_to_ingest,
-            directive=directive,
+            focus=focus,
             has_effort=has_effort,
             has_refetch_full=has_refetch_full,
             kind_label=kind,
@@ -1407,7 +1407,7 @@ def build_app(settings: Settings | None = None) -> Any:
                 item["update_id"],
                 payload=item.get("payload"),
                 doc_work=item.get("doc_work"),
-                directive=item.get("directive"),
+                focus=item.get("focus"),
                 has_effort=item.get("has_effort"),
                 has_refetch_full=item.get("has_refetch_full", False),
                 kind_label=item.get("kind_label", ""),

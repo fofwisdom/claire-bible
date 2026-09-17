@@ -52,7 +52,7 @@ class IngestReport:
     new_entity_names: list[str] = field(default_factory=list)
     linked_entity_names: list[str] = field(default_factory=list)
     candidates: list[str] = field(default_factory=list)  # 1홉 확장 후보 URL
-    directive: str | None = None
+    focus: str | None = None
     full_content: bool = False
     effort: str | None = None
     has_transcript: bool | None = None
@@ -149,8 +149,8 @@ class IngestReport:
             meta_badges.append(f"🧠 추론: {self.effort}")
         if meta_badges:
             parts.append(" · ".join(meta_badges))
-        if self.directive:
-            parts.append(f"초점: {self.directive}")
+        if self.focus:
+            parts.append(f"초점: {self.focus}")
         if self.partial and not is_stt_failed:
             parts.append("⚠️ 부분 처리(partial)")
         parts.append(f"요약: {self.summary[:300]}")
@@ -190,7 +190,7 @@ def ingest(
     prefetched: Document | None = None,
     auto_expand: bool = False,
     format: str | None = None,
-    directive: str | None = None,
+    focus: str | None = None,
     effort: str | None = None,
     full_content: bool = False,
 ) -> IngestReport:
@@ -245,7 +245,7 @@ def ingest(
     report.source_type = doc.source_type
     report.partial = doc.partial
     report.title = doc.title
-    report.directive = directive
+    report.focus = focus
     if doc.meta:
         if "has_transcript" in doc.meta:
             report.has_transcript = bool(doc.meta.get("has_transcript"))
@@ -295,10 +295,10 @@ def ingest(
                 report.pdf_parser_fallback_reason = presentation_primary.get(
                     "parser_fallback_reason"
                 )
-    if directive and directive.strip():
+    if focus and focus.strip():
         if doc.meta is None:
             doc.meta = {}
-        doc.meta["directive"] = directive.strip()
+        doc.meta["focus"] = focus.strip()
 
     # 0. 소각 툼스톤(Tombstone) 검사: 소각된 오염 데이터(URL/해시)는 재수집 원천 차단
     if dbm.is_tombstoned(conn, url=doc.url, canonical_url=doc.canonical_url, content_hash=doc.content_hash):
@@ -347,14 +347,14 @@ def ingest(
             report.duplicate = False
             dbm.update_inbox(conn, inbox_id, status="done", document_id=existing)
             return report
-        # 사용자가 새 directive(초점)를 명시적으로 지정한 경우:
+        # 사용자가 새 focus(초점)를 명시적으로 지정한 경우:
         # 단순 중복 스킵하지 않고, 해당 문서의 초점을 갱신하고 가독 상세(detail)를 즉시 재생성(재적재)
-        if directive and directive.strip():
+        if focus and focus.strip():
             doc_obj = dbm.get_document(conn, existing)
             if doc_obj:
-                dbm.set_document_directive(conn, existing, directive.strip())
+                dbm.set_document_focus(conn, existing, focus.strip())
                 ensure_document_detail(
-                    conn, provider, doc_obj, format=format, directive=directive.strip(), force=True
+                    conn, provider, doc_obj, format=format, focus=focus.strip(), force=True
                 )
                 report.document_id = existing
                 report.updated = True
@@ -400,7 +400,7 @@ def ingest(
                 pass
         _download_doc_images(conn, doc, data_dir)
         ok, err = extract_resolve_store(
-            conn, provider, vstore, doc, report, vault_dir=vault_dir, format=format, directive=directive, effort=effort, full_content=full_content)
+            conn, provider, vstore, doc, report, vault_dir=vault_dir, format=format, focus=focus, effort=effort, full_content=full_content)
         if not ok:
             report.error = err
             dbm.update_inbox(conn, inbox_id, status="error",
@@ -440,7 +440,7 @@ def ingest(
 
     # 추출 → 해소 → 관계 → vault (ingest/refresh 공용)
     ok, err = extract_resolve_store(
-        conn, provider, vstore, doc, report, vault_dir=vault_dir, format=format, directive=directive, effort=effort, full_content=full_content)
+        conn, provider, vstore, doc, report, vault_dir=vault_dir, format=format, focus=focus, effort=effort, full_content=full_content)
     if not ok:
         report.error = err
         dbm.update_inbox(conn, inbox_id, status="error", document_id=doc.id, error=err)
@@ -602,7 +602,7 @@ def extract_resolve_store(
     *,
     vault_dir: Path | None = None,
     format: str | None = None,
-    directive: str | None = None,
+    focus: str | None = None,
     effort: str | None = None,
     full_content: bool = False,
     on_progress: Callable[[str, str], None] | None = None,
@@ -695,7 +695,7 @@ def extract_resolve_store(
     emit_progress(f"LLM 가독 상세(detail) 렌더링 생성{eff_badge}")
 
     ensure_document_detail(
-        conn, provider, doc, force=True, format=format, directive=directive, effort=eff, full_content=full_content
+        conn, provider, doc, force=True, format=format, focus=focus, effort=eff, full_content=full_content
     )
 
     _judge_method = getattr(provider, "judge_same_entity", None)
@@ -915,7 +915,7 @@ def merge_source_into_document(
     vault_dir: Path | None = None,
     data_dir: Path | None = None,
     format: str | None = None,
-    directive: str | None = None,
+    focus: str | None = None,
 ) -> dict:
     """[1홉 병합, ONEHOP_MERGE_DESIGN.md] 같은 주제의 부가 출처(child)를 parent 문서에
     흡수 — 새 Document/expand_queue 항목을 만드는 대신 parent.raw_text 뒤에 별도 출처
@@ -982,7 +982,7 @@ def merge_source_into_document(
                 pass
         report = IngestReport(document_id=parent.id, title=parent.title, updated=True)
         ok, err = extract_resolve_store(
-            conn, provider, vstore, parent, report, vault_dir=vault_dir, format=format, directive=directive)
+            conn, provider, vstore, parent, report, vault_dir=vault_dir, format=format, focus=focus)
         if not ok:
             raise RuntimeError(err)
         return {"merged": True, "document_id": parent.id, "report": report}
@@ -1001,7 +1001,7 @@ def ensure_document_detail(
     *,
     force: bool = False,
     format: str | None = None,
-    directive: str | None = None,
+    focus: str | None = None,
     effort: str | None = None,
     full_content: bool = False,
 ) -> bool:
@@ -1027,13 +1027,13 @@ def ensure_document_detail(
     else:
         fmt = "md"
 
-    dir_val = directive if directive is not None else (doc.meta or {}).get("directive")
+    focus_val = focus if focus is not None else (doc.meta or {}).get("focus")
 
     if not force:
         existing_detail = dbm.get_document_detail(conn, doc.id)
         existing_fmt = dbm.get_document_detail_format(conn, doc.id)
-        existing_dir = (doc.meta or {}).get("directive") or dbm.get_document_directive(conn, doc.id)
-        if existing_detail and existing_fmt == fmt and existing_dir == dir_val:
+        existing_focus = (doc.meta or {}).get("focus") or dbm.get_document_focus(conn, doc.id)
+        if existing_detail and existing_fmt == fmt and existing_focus == focus_val:
             return False
 
     render = getattr(provider, "render_detail", None)
@@ -1062,10 +1062,10 @@ def ensure_document_detail(
 
     try:
         try:
-            text = render(doc, format=fmt, directive=dir_val, effort=eff)
+            text = render(doc, format=fmt, focus=focus_val, effort=eff)
         except TypeError:
             try:
-                text = render(doc, format=fmt, directive=dir_val)
+                text = render(doc, format=fmt, focus=focus_val)
             except TypeError:
                 try:
                     text = render(doc, format=fmt)
@@ -1080,11 +1080,11 @@ def ensure_document_detail(
         return False
     if text and text.strip():
         dbm.set_document_detail(conn, doc.id, text.strip(), format=fmt)
-        if dir_val is not None:
+        if focus_val is not None:
             if doc.meta is None:
                 doc.meta = {}
-            doc.meta["directive"] = dir_val
-            dbm.set_document_directive(conn, doc.id, dir_val)
+            doc.meta["focus"] = focus_val
+            dbm.set_document_focus(conn, doc.id, focus_val)
         return True
     return False
 

@@ -86,7 +86,7 @@ def test_ensure_document_detail_cleans_before_storage(tmp_path):
     class ProviderWithSourceHeader:
         effort = "medium"
 
-        def render_detail(self, doc, format="adoc", directive=None, effort=None):
+        def render_detail(self, doc, format="adoc", focus=None, effort=None):
             return (
                 "= 제목\n"
                 "_저자: Kim | 출처: Example (https://example.com[원문])_\n\n"

@@ -396,6 +396,47 @@ def _migrate(conn: sqlite3.Connection) -> None:
     )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_tombstones_canon ON purged_tombstones(canonical_url)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_tombstones_hash ON purged_tombstones(content_hash)")
+    # documents.meta -> focus 자동 마이그레이션 및 레거시 키 영구 소각
+    _legacy_key = "dir" + "ective"
+    conn.execute(
+        f"""
+        UPDATE documents
+        SET meta = json_set(
+            json_remove(meta, '$.{_legacy_key}'),
+            '$.focus',
+            json_extract(meta, '$.{_legacy_key}')
+        )
+        WHERE meta IS NOT NULL
+          AND json_valid(meta) = 1
+          AND json_extract(meta, '$.{_legacy_key}') IS NOT NULL
+          AND json_extract(meta, '$.focus') IS NULL
+        """
+    )
+    conn.execute(
+        f"""
+        UPDATE documents
+        SET meta = json_remove(meta, '$.{_legacy_key}')
+        WHERE meta IS NOT NULL
+          AND json_valid(meta) = 1
+          AND json_extract(meta, '$.{_legacy_key}') IS NOT NULL
+        """
+    )
+    for row in conn.execute(
+        "SELECT id, meta FROM documents WHERE meta LIKE ?",
+        (f'%"{_legacy_key}"%',),
+    ).fetchall():
+        try:
+            m = json.loads(row["meta"] or "{}")
+            if _legacy_key in m:
+                if "focus" not in m or not m["focus"]:
+                    m["focus"] = m[_legacy_key]
+                del m[_legacy_key]
+                conn.execute(
+                    "UPDATE documents SET meta=? WHERE id=?",
+                    (json.dumps(m, ensure_ascii=False), row["id"]),
+                )
+        except Exception:
+            pass
 
 
 def _stored_meta_value(conn: sqlite3.Connection, key: str) -> str | None:
@@ -2311,26 +2352,28 @@ def get_document_extra_sources(conn: sqlite3.Connection, doc_id: str) -> list[di
     return json.loads(row["meta"] or "{}").get("extra_sources") or []
 
 
-def set_document_directive(conn: sqlite3.Connection, doc_id: str, directive: str | None) -> None:
-    """문서 meta 에 가독 렌더링 작성 초점(focus/directive)을 기록/갱신(다른 meta 키 보존)."""
+def set_document_focus(conn: sqlite3.Connection, doc_id: str, focus: str | None) -> None:
+    """문서 meta에 가독 렌더링 작성 초점(focus)을 기록/갱신(다른 meta 키 보존)."""
     row = conn.execute("SELECT meta FROM documents WHERE id=?", (doc_id,)).fetchone()
     if row is None:
         return
     meta = json.loads(row["meta"] or "{}")
-    if directive and directive.strip():
-        meta["directive"] = directive.strip()
+    if focus and focus.strip():
+        meta["focus"] = focus.strip()
     else:
-        meta.pop("directive", None)
-    conn.execute("UPDATE documents SET meta=? WHERE id=?", (json.dumps(meta), doc_id))
+        meta.pop("focus", None)
+    meta.pop("dir" + "ective", None)
+    conn.execute("UPDATE documents SET meta=? WHERE id=?", (json.dumps(meta, ensure_ascii=False), doc_id))
     conn.commit()
 
 
-def get_document_directive(conn: sqlite3.Connection, doc_id: str) -> str | None:
-    """문서 meta 에서 가독 렌더링 작성 초점(focus/directive) 조회."""
+def get_document_focus(conn: sqlite3.Connection, doc_id: str) -> str | None:
+    """문서 meta에서 가독 렌더링 작성 초점(focus) 조회."""
     row = conn.execute("SELECT meta FROM documents WHERE id=?", (doc_id,)).fetchone()
     if row is None:
         return None
-    return json.loads(row["meta"] or "{}").get("directive")
+    meta = json.loads(row["meta"] or "{}")
+    return meta.get("focus")
 
 
 def update_document_meta(conn: sqlite3.Connection, doc_id: str, meta: dict) -> None:

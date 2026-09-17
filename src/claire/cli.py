@@ -1287,11 +1287,11 @@ def cmd_ingest(args) -> int:
     provider = get_provider(s)
     vstore = make_vector_store(conn, s.vector_backend)
     print(f"(provider={provider.name})")
-    directive = getattr(args, "focus", None) or getattr(args, "orientation", None) or getattr(args, "directive", None)
-    if not directive and theme and not theme.is_default and theme.id > 0 and getattr(theme, "default_focus", None):
-        directive = theme.default_focus.strip() or None
-        if directive:
-            print(f"  [기본 초점 적용: {directive}]")
+    focus = getattr(args, "focus", None)
+    if not focus and theme and not theme.is_default and theme.id > 0 and getattr(theme, "default_focus", None):
+        focus = theme.default_focus.strip() or None
+        if focus:
+            print(f"  [기본 초점 적용: {focus}]")
     effort = getattr(args, "effort", None)
     full_content = getattr(args, "full_content", False)
     report = ingest(
@@ -1299,7 +1299,7 @@ def cmd_ingest(args) -> int:
         vault_dir=s.vault_dir, data_dir=s.data_dir, source="cli",
         expand_max=(0 if args.no_expand else s.expand_max),
         format=getattr(args, "format", None),
-        directive=directive,
+        focus=focus,
         effort=effort,
         full_content=full_content,
     )
@@ -1312,7 +1312,7 @@ def cmd_ingest(args) -> int:
             sub = ingest(url, conn=conn, provider=provider, vstore=vstore,
                          vault_dir=s.vault_dir, data_dir=s.data_dir, source="cli-expand",
                          expand_max=0, format=getattr(args, "format", None),
-                         directive=directive, effort=effort, full_content=full_content)  # 2홉 방지
+                         focus=focus, effort=effort, full_content=full_content)  # 2홉 방지
             print(f"  - {url}\n    {sub.telegram_summary().splitlines()[0]}")
     elif report.candidates:
         print("\n[expand] 후보 URL (적재하려면 --expand):")
@@ -1389,14 +1389,14 @@ def cmd_backfill_detail(args) -> int:
         print("detail 백필 대상 문서 없음.")
         return 0
 
-    directive = getattr(args, "focus", None) or getattr(args, "orientation", None) or getattr(args, "directive", None)
+    focus = getattr(args, "focus", None)
     try:
         with track_batch_progress(f"detail 백필 ({svc.provider.name})", total_docs) as reporter:
             out = svc.backfill_details(
                 limit=args.limit,
                 force=args.force,
                 format=fmt,
-                directive=directive,
+                focus=focus,
                 tables_only=tables_only,
                 reporter=reporter,
             )
@@ -1462,7 +1462,7 @@ def cmd_regenerate(args) -> int:
     force = getattr(args, "force", False)
     effort = getattr(args, "effort", None)
     fmt = getattr(args, "format", None)
-    directive = getattr(args, "focus", None) or getattr(args, "orientation", None) or getattr(args, "directive", None)
+    focus = getattr(args, "focus", None)
 
     if not apply:
         # Dry-run 진단
@@ -1481,7 +1481,7 @@ def cmd_regenerate(args) -> int:
             force=False,
             effort=effort,
             format=fmt,
-            directive=directive,
+            focus=focus,
         )
 
         if getattr(args, "json", False):
@@ -1532,7 +1532,7 @@ def cmd_regenerate(args) -> int:
         force=False,
         effort=effort,
         format=fmt,
-        directive=directive,
+        focus=focus,
     )
     if diag.get("error"):
         print(f"[!] {diag['error']}")
@@ -1556,7 +1556,7 @@ def cmd_regenerate(args) -> int:
                 force=True,
                 effort=effort,
                 format=fmt,
-                directive=directive,
+                focus=focus,
                 reporter=reporter,
             )
             reporter.print_summary()
@@ -3209,7 +3209,7 @@ def build_parser() -> argparse.ArgumentParser:
     ptd_collab = ptd.add_mutually_exclusive_group()
     ptd_collab.add_argument("--collaborator", dest="is_collaborator_accessible", action="store_true", default=True, help="협력자(Collaborator) 공개 설정 (기본값)")
     ptd_collab.add_argument("--no-collaborator", dest="is_collaborator_accessible", action="store_false", help="협력자(Collaborator) 접근/적재 차단")
-    ptd.add_argument("--focus", "--default-focus", dest="default_focus", default="", help="테마 적재 시 기본 적용할 초점 (Directive/Focus)")
+    ptd.add_argument("--focus", "--default-focus", dest="default_focus", default="", help="테마 적재 시 기본 적용할 초점 (Focus)")
     ptd.add_argument("--json", action="store_true", help="output in json format")
     ptd.set_defaults(func=cmd_theme)
 
@@ -3303,7 +3303,7 @@ def build_parser() -> argparse.ArgumentParser:
                     help="do not even detect expansion candidates")
     pi.add_argument("--format", choices=["md", "adoc"], default=None,
                     help="detail render format (md or adoc, default: config CLAIRE_RENDER_FORMAT)")
-    pi.add_argument("--focus", "--orientation", "--directive", default=None,
+    pi.add_argument("-f", "--focus", dest="focus", default=None,
                     help="가독 상세 작성을 위한 집중 초점 (content focus for detail rendering, e.g. '시스템 아키텍처 중심')")
     pi.add_argument("-t", "--theme", default=None, help="target theme ID or label (default: default knowledge base)")
     pi.set_defaults(func=cmd_ingest)
@@ -3334,7 +3334,7 @@ def build_parser() -> argparse.ArgumentParser:
                      help="only backfill/regenerate documents that contain tables")
     pbd.add_argument("--format", choices=["md", "adoc"], default=None,
                      help="detail render format (md or adoc)")
-    pbd.add_argument("--focus", "--orientation", "--directive", default=None,
+    pbd.add_argument("--focus", dest="focus", default=None,
                      help="가독 상세 작성을 위한 집중 초점 (content focus for detail rendering)")
     pbd.set_defaults(func=cmd_backfill_detail)
 
@@ -3367,7 +3367,7 @@ def build_parser() -> argparse.ArgumentParser:
     preg.add_argument("--dry-run", action="store_true", help="dry-run inspection without changes (default)")
     preg.add_argument("--effort", default=None, help="reasoning effort level (e.g. low, medium, high)")
     preg.add_argument("--format", choices=["md", "adoc"], default=None, help="detail format (md or adoc)")
-    preg.add_argument("--focus", "--orientation", "--directive", default=None, help="가독 상세 작성을 위한 집중 초점 (content focus for detail rendering)")
+    preg.add_argument("--focus", dest="focus", default=None, help="가독 상세 작성을 위한 집중 초점 (content focus for detail rendering)")
     preg.add_argument("--json", action="store_true", help="output result in JSON format")
     preg.add_argument("-t", "--theme", default=None, help="target theme ID or label")
     preg.set_defaults(func=cmd_regenerate)

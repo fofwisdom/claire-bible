@@ -208,7 +208,7 @@ data/raw/bundles/<bundle_id>/
     "theme_id": 0,
     "full_content": false,
     "effort": null,
-    "directive": null
+    "focus": null
   },
   "parts": [
     {

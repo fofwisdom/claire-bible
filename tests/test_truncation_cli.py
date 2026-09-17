@@ -36,7 +36,7 @@ def test_env(tmp_path: Path, monkeypatch):
         raw_text="Short content",
         source_type="web",
         content_hash=content_hash("Intact Doc", "Short content"),
-        meta={"directive": "정상 방향성"},
+        meta={"focus": "정상 초점"},
     )
     dbm.insert_document(conn, doc_intact)
 
