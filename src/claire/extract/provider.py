@@ -204,7 +204,7 @@ class Provider(Protocol):
     def select_followups(self, context: str, candidates: list[dict]) -> list[int]: ...
 
     def render_detail(
-        self, doc: Document, format: str = "md", directive: str | None = None
+        self, doc: Document, format: str = "md", focus: str | None = None
     ) -> str: ...
 
 
@@ -358,7 +358,7 @@ class MockProvider:
         return f"[mock] {query} :: {context[:120]}"
 
     def render_detail(
-        self, doc: Document, format: str = "md", directive: str | None = None
+        self, doc: Document, format: str = "md", focus: str | None = None
     ) -> str:
         """결정론적 stub — 문서 가독 렌더링(detail, MD 또는 ADOC) 파이프라인 연결만 보장.
 
@@ -367,18 +367,18 @@ class MockProvider:
         title = (doc.title or doc.url or "untitled").strip()
         text = (doc.raw_text or "").strip()
         images = (doc.meta or {}).get("images") or []
-        dir_val = directive or (doc.meta or {}).get("directive")
-        dir_tag = f" [directive: {dir_val}]" if dir_val else ""
+        focus_val = focus or (doc.meta or {}).get("focus")
+        focus_tag = f" [focus: {focus_val}]" if focus_val else ""
         is_adoc = (format or "md").strip().lower() in ("asciidoc", "adoc")
         if is_adoc:
-            parts = [f"[mock-detail-adoc]{dir_tag} *{title}*", "", text[:600]]
+            parts = [f"[mock-detail-adoc]{focus_tag} *{title}*", "", text[:600]]
             if images:
                 im = images[0]
                 cap = im.get("caption") or im.get("alt") or "그림"
                 src = ("/image?p=" + im["local"]) if im.get("local") else im.get("url", "")
                 parts += ["", f'image::{src}[{im.get("alt", "")}, title="{cap}"]']
         else:
-            parts = [f"[mock-detail]{dir_tag} **{title}**", "", text[:600]]
+            parts = [f"[mock-detail]{focus_tag} **{title}**", "", text[:600]]
             if images:  # 수집된 첫 이미지를 마크다운 + 캡션(이탤릭) 으로 끼워 보존/캡션 배선을 드러냄
                 im = images[0]
                 cap = im.get("caption") or im.get("alt") or "그림"

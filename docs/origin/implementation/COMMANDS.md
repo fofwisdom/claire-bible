@@ -195,7 +195,7 @@ URL, 일반 텍스트, 또는 로컬 파일로부터 문서를 수집하고 지�
 * **사용법**: `claire ingest "https://example.com/article" [-t <theme>] [--expand] [--title "제목"] [--format {md,adoc}] [--focus "초점 지침"]`
 * **주요 옵션**:
   * `-t <theme>`, `--theme <theme>`: 적재 대상 테마 지정 (테마 ID, 일련번호, 또는 레이블 이름 지원). 미지정 시 기본 지식베이스(ID 0)에 적재. 대상 추가 테마에 `default_focus`가 설정되어 있고 명시적 `--focus`가 없으면 해당 기본 초점이 자동 적용됩니다.
-  * `--focus <focus>`: 가독 상세(detail) 작성을 위한 집중 초점/지침 지정 (호환 별칭: `--orientation`, `--directive`). 지정 시 테마의 기본 초점보다 우선하여 덮어씁니다.
+  * `--focus <focus>`, `-f <focus>`: 가독 상세(detail) 작성을 위한 집중 초점 지정. 지정 시 테마의 기본 초점(`default_focus`)보다 우선하여 덮어씁니다.
   * `--expand`: 본문에서 추출된 외부 링크 URL들을 1홉 확장 큐(`expand_queue`)에 등록.
   * `--title <title>`: 자동 추출 제목 대신 수동 제목 지정.
   * `--format {md,adoc}`: 상세 detail 렌더링 포맷 지정.
@@ -267,7 +267,7 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
   * `--dry-run`: 대상 문서 정보 및 계획만 출력하고 DB 변경 없음 (기본값).
   * `--effort <level>`: Gemini 사고/추론 레벨 오버라이드 (`low`, `medium`, `high`, `minimal`, `none`, 또는 정수 토큰 budget).
   * `--format {md,adoc}`: 상세 detail 렌더링 포맷 지정.
-  * `--focus <focus>`: 가독 상세(detail) 작성을 위한 집중 초점/지침 지정 (호환 별칭: `--orientation`, `--directive`).
+  * `--focus <focus>`: 가독 상세(detail) 작성을 위한 집중 초점 지정.
 
 #### `summary-regenerate`
 `regenerate --summary`의 단축 Alias입니다.
@@ -496,7 +496,7 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 * **출력 항목**:
   * Sequence ID, 레이블(Label), 아이콘(Icon), 설명(Description)
   * 공개 여부 (Public / Private), 협력자 접근 허용 여부 (Collab O/X)
-  * 기본 초점 (Default Focus: 지식 적재 시 자동 적용될 Directive)
+  * 기본 초점 (Default Focus: 지식 적재 시 자동 적용될 Focus)
   * 문서/엔티티/관계 통계 및 물리적 DB 경로 (`data/themes/{seq}/claire.db`)
 * **`--json`**: 기계 가독형 JSON 배열로 출력.
 
@@ -506,7 +506,7 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
   * `--label`, `-l` *(필수)*: 테마 명칭 (예: `기계학습`, `재정/회계`). 기존 테마 레이블과 중복 불가.
   * `--desc`, `--description`: 테마 설명 (웹 UI 테마 선택 팝오버 및 텔레그램 안내에 노출).
   * `--icon`: 테마 식별 이모지 (기본값: `📁`).
-  * `--focus`, `--default-focus`: 해당 테마에 문서 적재 시 기본 적용될 초점(지시문/Directive). 사용자가 적재 시 별도 `--focus`를 주지 않으면 이 값이 자동으로 적용됩니다.
+  * `--focus`, `--default-focus`: 해당 테마에 문서 적재 시 기본 적용될 초점(Focus). 사용자가 적재 시 별도 `--focus`를 주지 않으면 이 값이 자동으로 적용됩니다.
   * `--public` / `--private`: 테마 공개 여부 (기본값: `--public`). `--private` 시 비인증(Anonymous) 사용자의 웹/API 열람이 차단되며(404 Not Found), 세션 토큰 소유자만 접근 가능합니다.
   * `--collaborator` / `--no-collaborator`: 협력자 세션(`CLAIRE_COLLABORATOR_TOKEN`) 접근 허용 여부 (기본값: `--collaborator`). `--no-collaborator` 지정 시 시스템 관리자(Owner)만 열람/적재 가능합니다.
 * **디렉토리 프로비저닝**: 테마 생성 즉시 `data/themes/{seq}/` 및 `vault/themes/{seq}/` 디렉토리가 생성되고 독립된 SQLite DB 초기화(`init_db`)가 수행됩니다.

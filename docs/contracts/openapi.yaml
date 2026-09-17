@@ -380,9 +380,9 @@ paths:
                   type: string
                   description: Target URL or raw text content.
                   example: "https://example.com/article"
-                directive:
+                focus:
                   type: string
-                  description: Optional extraction directive or focus.
+                  description: Optional extraction focus.
                 format:
                   type: string
                   enum: [adoc, md]

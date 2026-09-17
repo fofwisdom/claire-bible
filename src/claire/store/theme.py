@@ -113,15 +113,7 @@ class ThemeInfo:
             default_focus=(
                 ""
                 if (is_def or tid == 0)
-                else str(
-                    data.get("default_focus")
-                    or data.get("focus")
-                    or data.get("default_orientation")
-                    or data.get("orientation")
-                    or data.get("default_directive")
-                    or data.get("directive")
-                    or ""
-                ).strip()
+                else str(data.get("default_focus") or "").strip()
             ),
             fqdn=validate_fqdn(data.get("fqdn")),
             ga_measurement_id=validate_ga_measurement_id(

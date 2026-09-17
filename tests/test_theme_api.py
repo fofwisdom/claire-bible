@@ -344,14 +344,14 @@ def test_theme_default_focus_api(theme_app_client, monkeypatch):
     assert patch_resp.status_code == 200
     assert patch_resp.json()["theme"]["default_focus"] == "침해 사고 분석 및 포렌식 절차 중심"
 
-    # 4. IngestService.ingest에 directive 전달 여부를 모니터링하여 테스트
+    # 4. IngestService.ingest에 focus 전달 여부를 모니터링하여 테스트
     from unittest.mock import MagicMock
     from claire.ingest.pipeline import IngestReport
 
-    captured_directives = []
+    captured_focus = []
 
     def mock_ingest(self, payload, **kwargs):
-        captured_directives.append(kwargs.get("directive"))
+        captured_focus.append(kwargs.get("focus"))
         return IngestReport(
             document_id="doc_test_123",
             title="테스트 문서",
@@ -361,15 +361,15 @@ def test_theme_default_focus_api(theme_app_client, monkeypatch):
 
     monkeypatch.setattr("claire.ingest.service.IngestService.ingest", mock_ingest)
 
-    # 4-1. 초점 없이 테마 1에 적재 -> 테마 1의 default_focus가 directive로 자동 적용
+    # 4-1. 초점 없이 테마 1에 적재 -> 테마 1의 default_focus가 focus로 자동 적용
     ingest_resp1 = client.post(
         "/ingest",
         json={"payload": "보안 취약점 보고서", "theme": 1},
         headers=OWNER_HEADERS,
     )
     assert ingest_resp1.status_code == 200
-    assert len(captured_directives) == 1
-    assert captured_directives[-1] == "침해 사고 분석 및 포렌식 절차 중심"
+    assert len(captured_focus) == 1
+    assert captured_focus[-1] == "침해 사고 분석 및 포렌식 절차 중심"
 
     # 4-2. 명시적 초점(focus)을 주고 테마 1에 적재 -> 명시적 초점이 테마 기본 초점을 덮어씀 (override)
     ingest_resp2 = client.post(
@@ -378,18 +378,18 @@ def test_theme_default_focus_api(theme_app_client, monkeypatch):
         headers=OWNER_HEADERS,
     )
     assert ingest_resp2.status_code == 200
-    assert len(captured_directives) == 2
-    assert captured_directives[-1] == "긴급 패치 적용 방안"
+    assert len(captured_focus) == 2
+    assert captured_focus[-1] == "긴급 패치 적용 방안"
 
-    # 4-3. 기본 테마(0)에 초점 없이 적재 -> directive가 None이어야 함
+    # 4-3. 기본 테마(0)에 초점 없이 적재 -> focus가 None이어야 함
     ingest_resp0 = client.post(
         "/ingest",
         json={"payload": "일반 상식 문서", "theme": 0},
         headers=OWNER_HEADERS,
     )
     assert ingest_resp0.status_code == 200
-    assert len(captured_directives) == 3
-    assert captured_directives[-1] is None
+    assert len(captured_focus) == 3
+    assert captured_focus[-1] is None
 
 
 def test_cross_theme_create_share_route(theme_app_client):

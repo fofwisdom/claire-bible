@@ -313,7 +313,7 @@ class GeminiProvider:
         self,
         doc: Document,
         format: str = "md",
-        directive: str | None = None,
+        focus: str | None = None,
         *,
         effort: str | None = None,
     ) -> str:
@@ -331,16 +331,16 @@ class GeminiProvider:
         body = _doc_to_prompt(doc)
         images = (doc.meta or {}).get("images") or []
         merged = bool((doc.meta or {}).get("extra_sources"))
-        dir_val = directive or (doc.meta or {}).get("directive")
+        focus_val = focus or (doc.meta or {}).get("focus")
         text = self._render_detail_call(
-            body, images, merged=merged, scale=1, format=format, directive=dir_val, effort=effort
+            body, images, merged=merged, scale=1, format=format, focus=focus_val, effort=effort
         )
         if merged:
             for scale in (2, 4):
                 if len(text) >= _MERGED_DETAIL_MIN_CHARS:
                     break
                 text = self._render_detail_call(
-                    body, images, merged=merged, scale=scale, format=format, directive=dir_val, effort=effort
+                    body, images, merged=merged, scale=scale, format=format, focus=focus_val, effort=effort
                 )
         return text
 
@@ -352,11 +352,11 @@ class GeminiProvider:
         merged: bool,
         scale: int,
         format: str = "md",
-        directive: str | None = None,
+        focus: str | None = None,
         effort: str | None = None,
     ) -> str:
         prompt = render_detail_prompt(
-            body, images, merged=merged, scale=scale, format=format, directive=directive
+            body, images, merged=merged, scale=scale, format=format, focus=focus
         )
         interaction = self._call(lambda: self.client.interactions.create(
             model=self.model,

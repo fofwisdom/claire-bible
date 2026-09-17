@@ -93,7 +93,7 @@ class IngestService:
         inbox_id: int | None = None,
         prefetched: Document | None = None,
         format: str | None = None,
-        directive: str | None = None,
+        focus: str | None = None,
         effort: str | None = None,
         full_content: bool = False,
     ) -> IngestReport:
@@ -102,8 +102,8 @@ class IngestService:
         inbox_id 가 주어지면 새 raw_inbox 행을 만들지 않고 기존 행을 재사용(자동복구용).
         prefetched 가 주어지면 fetch 를 건너뛰고 그 Document 로 적재(1홉 확장의 중복 fetch 방지).
         """
-        if not directive and self.theme_id > 0:
-            directive = self.get_effective_default_focus()
+        if not focus and self.theme_id > 0:
+            focus = self.get_effective_default_focus()
         conn = dbm.connect(self.s.db_file)
         dbm.init_db(conn)
         vstore = make_vector_store(conn, self.s.vector_backend)
@@ -119,7 +119,7 @@ class IngestService:
                 expand_max=em, source=source, user_id=user_id, chat_id=chat_id,
                 inbox_kind=inbox_kind, file_ref=file_ref, file_name=file_name,
                 inbox_id=inbox_id, prefetched=prefetched, auto_expand=auto,
-                format=fmt, directive=directive, effort=effort, full_content=full_content,
+                format=fmt, focus=focus, effort=effort, full_content=full_content,
             )
         finally:
             conn.close()
@@ -196,7 +196,7 @@ class IngestService:
                         conn2, self.provider, vstore, parent_full, child,
                         vault_dir=self.s.vault_dir, data_dir=self.s.data_dir,
                         format=self.s.render_format,
-                        directive=self.get_effective_default_focus())
+                        focus=self.get_effective_default_focus())
                     if m.get("merged"):
                         dbm.update_inbox(conn2, inbox_id, status="done",
                                          document_id=document_id)
@@ -545,7 +545,7 @@ class IngestService:
         limit: int = 0,
         force: bool = False,
         format: str | None = None,
-        directive: str | None = None,
+        focus: str | None = None,
         tables_only: bool = False,
         reporter: Any | None = None,
         on_progress: Callable[[str, str], None] | None = None,
@@ -580,7 +580,7 @@ class IngestService:
                 with _item_context(reporter, on_progress, idx, did, title=doc.title or "", url=doc.canonical_url or doc.url or "") as step_cb:
                     step_cb("가독 상세(detail) 렌더링 생성 중", f"format={fmt}")
                     if ensure_document_detail(
-                        conn, self.provider, doc, force=force or tables_only, format=fmt, directive=directive
+                        conn, self.provider, doc, force=force or tables_only, format=fmt, focus=focus
                     ):
                         out["ok"] += 1
                     else:
@@ -695,7 +695,7 @@ class IngestService:
         force: bool = False,
         effort: str | None = None,
         format: str | None = None,
-        directive: str | None = None,
+        focus: str | None = None,
         reporter: Any | None = None,
         on_progress: Callable[[str, str], None] | None = None,
     ) -> dict:
@@ -711,7 +711,7 @@ class IngestService:
         - refetch_full: True 면 환경변수 제한 없이 원문 전체 길이를 수집하여 본문 갱신 후 재생성.
         - force: False(기본) 면 dry-run 진단만 수행하고 DB 변경 없음. True 면 실제 DB 덮어쓰기.
         - effort: LLM 사고/추론 레벨 (low, medium, high 등) 즉석 재정의.
-        - directive: 가독 렌더 상세 작성 초점(focus) 지침.
+        - focus: 가독 렌더 상세 작성 초점(focus).
         """
         import json as _json
         import re as _re
@@ -1008,12 +1008,12 @@ class IngestService:
                                     doc,
                                     force=True,
                                     format=target_fmt,
-                                    directive=directive,
+                                    focus=focus,
                                     effort=effort,
                                 )
                                 info["detail_format"] = target_fmt
-                                if directive:
-                                    info["directive"] = directive
+                                if focus:
+                                    info["focus"] = focus
 
                     info["updated"] = True
                     targets_info.append(info)

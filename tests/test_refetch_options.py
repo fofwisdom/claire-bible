@@ -375,7 +375,7 @@ async def test_telegram_bot_handlers(clean_db, monkeypatch: pytest.MonkeyPatch):
         assert regen_kwargs["refetch_full"] is True
         assert regen_kwargs["force"] is True
 
-    # 3. Test sending share URL directly with flags & directive (e.g. --refetch-full --effort high | 보안 관점)
+    # 3. Test sending share URL directly with flags & focus (e.g. --refetch-full --effort high | 보안 관점)
     fake_msg_flags = MagicMock()
     fake_msg_flags.text = f"https://claire.example.org/p?s={share_token} --refetch-full --effort high | 보안 관점"
     fake_msg_flags.reply_text = AsyncMock(return_value=status_msg)
@@ -394,4 +394,4 @@ async def test_telegram_bot_handlers(clean_db, monkeypatch: pytest.MonkeyPatch):
             assert regen_kwargs["refetch_full"] is True
             assert regen_kwargs["refetch"] is False
             assert regen_kwargs["effort"] == "high"
-            assert regen_kwargs["directive"] == "보안 관점"
+            assert regen_kwargs["focus"] == "보안 관점"

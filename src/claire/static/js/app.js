@@ -1841,7 +1841,7 @@ function renderIngestResult(d){
     '<p class=al>원본은 보관되어 자동복구(recover) 대상이 됩니다.</p>'; return; }
   let h='<h2>'+(d.duplicate?'♻️ 이미 있는 자료':(d.updated?'🔄 내용 갱신':'✅ 적재 완료'))+'</h2>';
   h+='<p class=al><b>'+esc(d.title||d.document_id||'(제목 없음)')+'</b>'+(d.partial?' <small>⚠️ 부분 처리</small>':'')+'</p>';
-  if(d.directive) h+='<p class=al><b>초점:</b> '+esc(d.directive)+'</p>';
+  if(d.focus) h+='<p class=al><b>초점:</b> '+esc(d.focus)+'</p>';
   const appliedOptions=[];
   if(d.theme_id !== undefined){
     appliedOptions.push('테마: ' + esc(d.theme_label || ('#' + d.theme_id)));
@@ -2471,9 +2471,9 @@ function renderDocPanel(dc){
   let h='<h2>'+esc(dc.title)+' <small>'+esc(dc.source_type||'')+'</small></h2>';
   h+=docMetaHtml(dc);
   h+=extraSourcesHtml(dc);
-  const directive = (dc.directive || (dc.meta && dc.meta.directive) || '').trim();
-  if(directive){
-    h+='<div style="margin:.4em 0 .6em;padding:6px 8px;background:var(--card-bg);border:1px solid var(--border);border-radius:5px;font-size:12px"><b style="color:var(--accent2)">🎯 초점:</b> '+esc(directive)+'</div>';
+  const focus = (dc.focus || (dc.meta && dc.meta.focus) || '').trim();
+  if(focus){
+    h+='<div style="margin:.4em 0 .6em;padding:6px 8px;background:var(--card-bg);border:1px solid var(--border);border-radius:5px;font-size:12px"><b style="color:var(--accent2)">🎯 초점:</b> '+esc(focus)+'</div>';
   }
   // 숨기기 — 상세 패널의 FTS 스타일 체크박스로(사용자 요구).
   if(canWrite()){

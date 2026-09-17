@@ -122,7 +122,7 @@ def cmd_ingest(args) -> int:
     ...
     full_content = getattr(args, "full_content", False)
     effort = getattr(args, "effort", None)
-    directive = getattr(args, "focus", None) or getattr(args, "orientation", None) or getattr(args, "directive", None)
+    focus = getattr(args, "focus", None)
     
     report = ingest(
         args.payload,
@@ -134,7 +134,7 @@ def cmd_ingest(args) -> int:
         source="cli",
         expand_max=(0 if args.no_expand else s.expand_max),
         format=getattr(args, "format", None),
-        directive=directive,
+        focus=focus,
         effort=effort,
         full_content=full_content,
     )
@@ -160,7 +160,7 @@ _EFFORT_FLAG_RE = re.compile(
 #### B. 신규 메시지 적재(`on_message`) 및 `/ingest` 핸들러(`on_ingest`) 연동
 1. 사용자가 `https://example.com/article --full --effort high | 아키텍처 중심` 과 같이 입력했을 때:
    - `payload_clean`: `https://example.com/article`
-   - `directive`: `아키텍처 중심`
+   - `focus`: `아키텍처 중심`
    - `full_content`: `True`
    - `effort`: `"high"`
 2. 이를 분리 추출한 후 `svc.ingest()`로 정확히 바인딩합니다:
@@ -173,7 +173,7 @@ _EFFORT_FLAG_RE = re.compile(
            source="telegram",
            user_id=uid,
            chat_id=cid,
-           directive=directive,
+           focus=focus,
            effort=effort,
            full_content=full_content,
        ),
@@ -192,7 +192,7 @@ _EFFORT_FLAG_RE = re.compile(
   "full_content": true,
   "effort": "high",
   "format": "adoc",
-  "directive": "핵심 조문 및 벌칙 규정 중심"
+  "focus": "핵심 조문 및 벌칙 규정 중심"
 }
 ```
 
@@ -226,7 +226,7 @@ def ingest(
     inbox_id: int | None = None,
     prefetched: Document | None = None,
     format: str | None = None,
-    directive: str | None = None,
+    focus: str | None = None,
     effort: str | None = None,
     full_content: bool = False,
 ) -> IngestReport:
@@ -264,7 +264,7 @@ def ingest(
     ok, err = extract_resolve_store(
         conn, provider, vstore, doc, report,
         vault_dir=vault_dir, format=format,
-        directive=directive, effort=effort,
+        focus=focus, effort=effort,
         full_content=full_content,
     )
 ```
@@ -360,7 +360,7 @@ curl -X POST http://127.0.0.1:8765/ingest \
     "payload": "https://example.com/long-doc",
     "full_content": true,
     "effort": "high",
-    "directive": "데이터 파이프라인 아키텍처 중심"
+    "focus": "데이터 파이프라인 아키텍처 중심"
   }'
 ```
 
@@ -370,7 +370,7 @@ curl -X POST http://127.0.0.1:8765/ingest \
 
 ### 6.1 단위 테스트 (Unit Tests)
 - `tests/test_cli_ingest_flags.py`: `claire ingest --full --effort high` CLI 파싱 및 `ingest()` 호출 매개변수 정합성 검증.
-- `tests/test_telegram_directive_flags.py`: `parse_regenerate_flags` 및 `parse_message_directive`가 신규 적재 URL 뒤의 `--full`, `--effort high`를 올바르게 페이로드와 분리해 추출하는지 검증.
+- `tests/test_telegram_focus_flags.py`: `parse_regenerate_flags` 및 `parse_message_focus`가 신규 적재 URL 뒤의 `--full`, `--effort high`를 올바르게 페이로드와 분리해 추출하는지 검증.
 - `tests/test_prompts_full_content.py`: `doc_to_prompt`에 `full_content=True` 전달 시 20,000자 초과 본문이 슬라이싱되지 않고 그대로 유지되는지 검증.
 
 ### 6.2 통합 파이프라인 테스트 (Integration Tests)

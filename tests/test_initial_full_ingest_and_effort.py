@@ -18,7 +18,7 @@ from claire.ingest.service import IngestService
 from claire.ontology.base import Document
 from claire.store import db as dbm
 from claire.store.vectors import make_vector_store
-from claire.telegram_bot import parse_message_directive, parse_regenerate_flags
+from claire.telegram_bot import parse_message_focus, parse_regenerate_flags
 
 
 def test_cli_ingest_argument_parser():
@@ -34,7 +34,7 @@ def test_cli_ingest_argument_parser():
     pi.add_argument("--expand", action="store_true")
     pi.add_argument("--no-expand", action="store_true")
     pi.add_argument("--format", choices=["md", "adoc"], default=None)
-    pi.add_argument("--focus", "--orientation", "--directive", default=None)
+    pi.add_argument("-f", "--focus", default=None)
     pi.set_defaults(func=cmd_ingest)
 
     # 1. --full 및 --effort high
@@ -54,11 +54,11 @@ def test_cli_ingest_argument_parser():
     assert args3.effort is None
 
 
-def test_telegram_flags_and_directive_parsing():
-    """텔레그램 메시지에서 --full, --effort 플래그와 파이프 초점(| directive)이 정확히 분리 파싱되는지 검증."""
+def test_telegram_flags_and_focus_parsing():
+    """텔레그램 메시지에서 --full, --effort 플래그와 파이프 초점(| focus)이 정확히 분리 파싱되는지 검증."""
     raw_msg = "https://example.com/article --full --effort high | 시스템 아키텍처 중심"
-    payload, directive = parse_message_directive(raw_msg)
-    assert directive == "시스템 아키텍처 중심"
+    payload, focus = parse_message_focus(raw_msg)
+    assert focus == "시스템 아키텍처 중심"
 
     cleaned_payload, has_refetch, has_refetch_full, has_effort = parse_regenerate_flags(payload)
     assert cleaned_payload == "https://example.com/article"
@@ -69,7 +69,7 @@ def test_telegram_flags_and_directive_parsing():
 def test_telegram_flags_no_truncate_alias():
     """텔레그램 메시지에서 --no-truncate 및 -e 플래그가 지원되는지 검증."""
     raw_msg = "https://example.com/paper --no-truncate -e medium"
-    payload, directive = parse_message_directive(raw_msg)
+    payload, focus = parse_message_focus(raw_msg)
     cleaned_payload, _, has_refetch_full, has_effort = parse_regenerate_flags(payload)
     assert cleaned_payload == "https://example.com/paper"
     assert has_refetch_full is True
@@ -147,7 +147,7 @@ def test_pipeline_ingest_with_full_content_and_effort(tmp_path: Path):
         fetch_fn=mock_fetch,
         full_content=True,
         effort="high",
-        directive="벌칙 규정 중심",
+        focus="벌칙 규정 중심",
     )
 
     assert report.error is None

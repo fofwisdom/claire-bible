@@ -397,21 +397,21 @@ class CodexProvider:
         self,
         doc: Document,
         format: str = "md",
-        directive: str | None = None,
+        focus: str | None = None,
         *,
         effort: str | None = None,
     ) -> str:
         body = doc_to_prompt(doc)
         images = (doc.meta or {}).get("images") or []
         merged = bool((doc.meta or {}).get("extra_sources"))
-        selected_directive = directive or (doc.meta or {}).get("directive")
+        selected_focus = focus or (doc.meta or {}).get("focus")
         text = self._render_detail_call(
             body,
             images,
             merged=merged,
             scale=1,
             format=format,
-            directive=selected_directive,
+            focus=selected_focus,
             effort=effort,
         )
         if merged:
@@ -424,7 +424,7 @@ class CodexProvider:
                     merged=merged,
                     scale=scale,
                     format=format,
-                    directive=selected_directive,
+                    focus=selected_focus,
                     effort=effort,
                 )
         return text
@@ -437,7 +437,7 @@ class CodexProvider:
         merged: bool,
         scale: int,
         format: str,
-        directive: str | None,
+        focus: str | None,
         effort: str | None,
     ) -> str:
         prompt = render_detail_prompt(
@@ -446,7 +446,7 @@ class CodexProvider:
             merged=merged,
             scale=scale,
             format=format,
-            directive=directive,
+            focus=focus,
         )
         return str(self._run_cli(prompt, effort=effort)).strip()
 

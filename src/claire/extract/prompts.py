@@ -567,7 +567,7 @@ def render_detail_prompt_md(
     *,
     merged: bool,
     scale: int = 1,
-    directive: str | None = None,
+    focus: str | None = None,
 ) -> str:
     """원문을 한국어 마크다운으로 재구성하는 프롬프트(요약 아님, 여러 단락, 문어체)."""
     if merged:
@@ -580,11 +580,11 @@ def render_detail_prompt_md(
         length_hint = "대략 A4 1~2장 분량"
         merge_hint = ""
 
-    dir_hint = (
+    focus_hint = (
         f"\n[★ 최우선 중점 작성 초점(Focus)]\n"
-        f"- 사용자가 요청한 다음 핵심 초점(Focus) 및 구성 요소를 최우선으로 하여 본문 전체를 재구성하라: **{directive.strip()}**\n"
+        f"- 사용자가 요청한 다음 핵심 초점(Focus) 및 구성 요소를 최우선으로 하여 본문 전체를 재구성하라: **{focus.strip()}**\n"
         f"- 원문에서 위 초점과 관련된 핵심 개념, 구성 요소, 정의, 작동 원리, 사례, 수치를 빠짐없이 상세히 독립된 섹션/문단으로 다루어라.\n\n"
-        if directive and directive.strip()
+        if focus and focus.strip()
         else ""
     )
 
@@ -594,7 +594,7 @@ def render_detail_prompt_md(
         f"맥락·중요한 세부까지 충분히 파악할 수 있도록 여러 단락({length_hint})으로 "
         "풀어 써라.\n\n"
         + merge_hint
-        + dir_hint
+        + focus_hint
         + "작성 규칙(마크다운):\n"
         "1. 문체 및 어조: 일관된 문어체(서술체: '~한다', '~이다', '~됨')로 서술하라. "
         "대화형 경어체('~합니다', '~해요')나 구어체는 사용하지 않는다.\n"
@@ -625,7 +625,7 @@ def render_detail_prompt_adoc(
     *,
     merged: bool,
     scale: int = 1,
-    directive: str | None = None,
+    focus: str | None = None,
 ) -> str:
     """원문을 한국어 AsciiDoc(ADOC)으로 실용적·복합적으로 재구성하는 프롬프트."""
     if merged:
@@ -637,11 +637,11 @@ def render_detail_prompt_adoc(
         length_hint = "대략 A4 1~2장 분량"
         merge_hint = ""
 
-    dir_hint = (
+    focus_hint = (
         f"\n[★ 최우선 중점 작성 초점(Focus)]\n"
-        f"- 사용자가 요청한 다음 핵심 초점(Focus) 및 구성 요소를 최우선으로 하여 본문 전체를 재구성하라: **{directive.strip()}**\n"
+        f"- 사용자가 요청한 다음 핵심 초점(Focus) 및 구성 요소를 최우선으로 하여 본문 전체를 재구성하라: **{focus.strip()}**\n"
         f"- 원문에서 위 초점과 관련된 핵심 개념, 구성 요소, 정의, 작동 원리, 사례, 수치를 빠짐없이 상세히 독립된 섹션/문단으로 다루어라.\n\n"
-        if directive and directive.strip()
+        if focus and focus.strip()
         else ""
     )
 
@@ -651,7 +651,7 @@ def render_detail_prompt_adoc(
         f"맥락·중요한 세부까지 충분히 파악할 수 있도록 여러 단락({length_hint})으로 "
         "풀어 써라.\n\n"
         + merge_hint
-        + dir_hint
+        + focus_hint
         + "작성 규칙(AsciiDoc 실용 가이드라인 및 단일 포맷 순수성 준수):\n"
         "1. [★ 중요: Markdown 혼용 절대 금지 / 순수 AsciiDoc 표준 준수]\n"
         "   - 본 문서는 100% 순수 AsciiDoc 표준 문법으로만 작성해야 한다. Markdown 문법을 절대 섞어 쓰지 마라.\n"
@@ -695,15 +695,15 @@ def render_detail_prompt(
     merged: bool,
     scale: int = 1,
     format: str = "md",
-    directive: str | None = None,
+    focus: str | None = None,
 ) -> str:
     """포맷(md 또는 adoc)에 맞춰 가독 렌더링 프롬프트를 라우팅."""
     if (format or "md").strip().lower() in ("asciidoc", "adoc"):
         return render_detail_prompt_adoc(
-            body, images, merged=merged, scale=scale, directive=directive
+            body, images, merged=merged, scale=scale, focus=focus
         )
     return render_detail_prompt_md(
-        body, images, merged=merged, scale=scale, directive=directive
+        body, images, merged=merged, scale=scale, focus=focus
     )
 
 

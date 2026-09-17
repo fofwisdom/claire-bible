@@ -90,7 +90,7 @@
 - **저장소**: SQLite `documents` 테이블 및 파일시스템 볼트(`vault/<doc_id>.adoc` 또는 `.md`).
 - **식별 체계**: `doc_<hash>` 또는 `doc_<uuid>` 형태의 유일한 식별자.
 - **적재 메타데이터 (Document Ingestion Metadata / `docmeta` / `Document.meta`)**:
-  - **정의**: 파이프라인이 원문을 수집·가공·적재(Ingestion & Processing)할 때 기록한 시스템 처리 및 실행 이력(Provenance: `directive`, `pdf_parser_used`, `pdf_parser_fallback`, `raw_truncated`, `stt` 등).
+  - **정의**: 파이프라인이 원문을 수집·가공·적재(Ingestion & Processing)할 때 기록한 시스템 처리 및 실행 이력(Provenance: `focus`, `pdf_parser_used`, `pdf_parser_fallback`, `raw_truncated`, `stt` 등).
   - **경계 원칙**: `docmeta`는 외부 미가공 메타데이터(`rawmeta`)가 아니며, 원 저작물의 서지 정보(저자, 발행기관 등)는 `docmeta`에 혼입하지 않고 오직 온톨로지 지식 그래프의 전유물로 환원하여 관리한다.
 
 ### 3.3. 요약 (Summary / `documents.summary`, `ExtractionResult.summary`)
@@ -182,3 +182,4 @@ HTTP API 및 시스템 접근 제어에 적용되는 역할과 자격 증명 용
 | 그래프 간선 | **링크 / 엣지** | Link / Edge | `edge`, `edges` (dict) | GraphView edge element |
 | 도메인 격리 | **테마** | Theme | `Theme`, `ThemeSettings` | `claire_<theme>.db`, `vault/themes/<seq>` |
 | 파일 투영 | **볼트** | Vault | `vault_dir`, `export_entity` | `vault/` 디렉터리 |
+| 추출 지향성 | **초점** | Extraction Focus | `focus`, `default_focus` | `documents.meta["focus"]` |

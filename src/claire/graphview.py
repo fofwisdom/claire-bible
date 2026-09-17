@@ -267,7 +267,7 @@ def render_open_graph_tags(
     raw_desc = (
         (doc or {}).get("summary")
         or (doc or {}).get("detail")
-        or (doc or {}).get("directive")
+        or (doc or {}).get("focus")
         or ""
     )
     desc = sanitize_preview_text(raw_desc, max_chars=220)

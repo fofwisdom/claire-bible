@@ -242,7 +242,7 @@ def document_detail(
         "published_at": row["published_at"] or meta_dict.get("published_at"),
         "orig_chars": meta_dict.get("orig_chars"),
         "raw_chars": meta_dict.get("raw_chars"),
-        "directive": meta_dict.get("directive"),
+        "focus": meta_dict.get("focus"),
         "has_transcript": bool(meta_dict.get("has_transcript", False)),
         "transcript_source": meta_dict.get("transcript_source"),
         "caption_status": meta_dict.get("caption_status"),

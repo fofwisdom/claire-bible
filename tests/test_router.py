@@ -62,11 +62,11 @@ def test_youtube_live_url_recognition():
 
 
 def test_youtube_shared_text_with_hyphen_title(monkeypatch):
-    from claire.telegram_bot import parse_message_directive
+    from claire.telegram_bot import parse_message_focus
 
     msg = "AI Assistant for VMware vDefend - Firewall\nhttps://www.youtube.com/watch?v=ti9FHqP1i-w"
-    payload, directive = parse_message_directive(msg)
-    assert directive is None
+    payload, focus = parse_message_focus(msg)
+    assert focus is None
     assert classify(payload) == "youtube"
     assert extract_shared_url(payload) == "https://www.youtube.com/watch?v=ti9FHqP1i-w"
 
