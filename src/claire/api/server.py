@@ -396,6 +396,10 @@ def create_app(
                     except Exception:
                         pass
                 theme_dict = t.to_dict()
+                eff_sorcerer = (t.sorcerer or "").strip() or getattr(s, "effective_sorcerer", getattr(s, "sorcerer", "owner"))
+                theme_dict["sorcerer"] = (t.sorcerer or "").strip()
+                theme_dict["effective_sorcerer"] = eff_sorcerer
+                theme_dict["knowledge_manager"] = eff_sorcerer
                 theme_dict["stats"] = t_stats
                 result.append(theme_dict)
 
@@ -442,6 +446,7 @@ def create_app(
         ).strip()
         fqdn = str(body.get("fqdn") or "").strip()
         ga_id = str(body.get("ga_measurement_id", body.get("ga_id", "")) or "").strip()
+        sorcerer = str(body.get("sorcerer", body.get("knowledge_manager", "")) or "").strip()
         try:
             theme = theme_mgr.define_theme(
                 label,
@@ -452,6 +457,7 @@ def create_app(
                 default_focus=def_focus,
                 fqdn=fqdn,
                 ga_measurement_id=ga_id,
+                sorcerer=sorcerer,
             )
             return JSONResponse({"ok": True, "theme": theme.to_dict()}, status_code=201)
         except ValueError as val_err:
@@ -512,6 +518,11 @@ def create_app(
             if "ga_measurement_id" in body
             else (body.get("ga_id") if "ga_id" in body else None)
         )
+        sorcerer = (
+            body.get("sorcerer")
+            if "sorcerer" in body
+            else (body.get("knowledge_manager") if "knowledge_manager" in body else None)
+        )
         try:
             theme = theme_mgr.update_theme(
                 theme_id,
@@ -523,6 +534,7 @@ def create_app(
                 default_focus=def_focus,
                 fqdn=fqdn,
                 ga_measurement_id=ga_id,
+                sorcerer=sorcerer,
             )
             return JSONResponse({"ok": True, "theme": theme.to_dict()})
         except KeyError as k_err:

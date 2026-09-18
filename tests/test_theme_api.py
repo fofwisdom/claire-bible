@@ -498,4 +498,50 @@ def test_cross_theme_shared_doc_page_fallback(theme_app_client):
     assert client.get("/p?s=" + ("x" * 24)).status_code == 404
 
 
+def test_theme_knowledge_manager_api(theme_app_client):
+    """테마 지식 관리자(sorcerer/knowledge_manager) 정의, 수정, 조회 API 검증."""
+    client, settings = theme_app_client
+
+    # 1. 테마 생성 시 sorcerer 지정
+    resp = client.post(
+        "/themes",
+        json={"label": "보안 연구", "sorcerer": "sec_officer"},
+        headers=OWNER_HEADERS,
+    )
+    assert resp.status_code == 201
+    created = resp.json()["theme"]
+    assert created["sorcerer"] == "sec_officer"
+    assert created["knowledge_manager"] == "sec_officer"
+    tid = created["id"]
+
+    # 2. GET /themes 조회 시 테마별 지식 관리자 및 기본 지식 관리자 반환 검증
+    list_resp = client.get("/themes")
+    assert list_resp.status_code == 200
+    themes = list_resp.json()["themes"]
+    theme0 = next(t for t in themes if t["id"] == 0)
+    theme_sec = next(t for t in themes if t["id"] == tid)
+    assert theme0["knowledge_manager"] == settings.effective_sorcerer
+    assert theme_sec["sorcerer"] == "sec_officer"
+    assert theme_sec["knowledge_manager"] == "sec_officer"
+
+    # 3. PATCH /themes 로 지식 관리자 변경
+    patch_resp = client.patch(
+        "/themes",
+        json={"id": tid, "sorcerer": "lead_auditor"},
+        headers=OWNER_HEADERS,
+    )
+    assert patch_resp.status_code == 200
+    assert patch_resp.json()["theme"]["sorcerer"] == "lead_auditor"
+    assert patch_resp.json()["theme"]["knowledge_manager"] == "lead_auditor"
+
+    # 4. PATCH /themes 에서 knowledge_manager 키로도 변경 가능
+    patch_resp2 = client.patch(
+        "/themes",
+        json={"id": tid, "knowledge_manager": "chief_trust"},
+        headers=OWNER_HEADERS,
+    )
+    assert patch_resp2.status_code == 200
+    assert patch_resp2.json()["theme"]["sorcerer"] == "chief_trust"
+
+
 

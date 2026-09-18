@@ -244,6 +244,17 @@ function renderThemeSelector(){
     const lockStr = t.is_public === false ? ' 🔒 (비공개)' : '';
     return `<option value="${t.id}" ${t.id === activeThemeId ? 'selected' : ''}>${label}${lockStr}</option>`;
   }).join('');
+  updateDrawerManager(current);
+}
+
+function updateDrawerManager(currentTheme){
+  const el = document.getElementById('drawermanager');
+  if(!el) return;
+  const defaultMgr = (window.__CLAIRE_CONFIG && window.__CLAIRE_CONFIG.sorcerer) || 'owner';
+  const rawMgr = currentTheme ? (currentTheme.sorcerer || currentTheme.knowledge_manager || '').trim() : '';
+  const mgr = rawMgr || (currentTheme && currentTheme.effective_sorcerer) || defaultMgr;
+  el.textContent = '지식 관리자: ' + mgr;
+  el.title = '지식 관리자: ' + mgr;
 }
 
 function syncThemeSelectorUI(){
@@ -259,6 +270,7 @@ function syncThemeSelectorUI(){
     if(iconEl) iconEl.textContent = current.icon || '📚';
     if(plainIcon) plainIcon.textContent = current.icon || '📚';
     if(plainLabel) plainLabel.textContent = current.label || '기본 지식베이스';
+    updateDrawerManager(current);
   }
 }
 
@@ -2785,6 +2797,9 @@ async function openThemeManager(){
         : `<button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="toggleThemeCollaborator(${t.id}, true)">협업자 공개</button>`;
       const canIngestHere = t.id > 0 && isCollabAcc;
       const idLabel = t.id === 0 ? '기본 (ID 0)' : `테마 #${t.id}`;
+      const defaultMgr = (window.__CLAIRE_CONFIG && window.__CLAIRE_CONFIG.sorcerer) || 'owner';
+      const rawMgr = (t.sorcerer || t.knowledge_manager || '').trim();
+      const effMgr = rawMgr || (t.effective_sorcerer || defaultMgr);
       h += `<div style="border:1px solid var(--border);border-radius:6px;padding:8px 10px;background:var(--sec-bg);">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">
           <strong style="font-size:13px;">${t.icon || '📁'} ${esc(t.label)} <small style="opacity:0.7">(${idLabel})</small></strong>
@@ -2802,12 +2817,14 @@ async function openThemeManager(){
           </div>
         </div>
         ${t.description ? `<p style="margin:4px 0 0;font-size:12px;opacity:0.8">${esc(t.description)}</p>` : ''}
+        <p style="margin:4px 0 0;font-size:12px;opacity:0.8">지식 관리자: ${esc(effMgr)}</p>
         ${(t.id > 0 && t.default_focus) ? `<p style="margin:4px 0 0;font-size:12px;color:var(--accent,#00ffaa);font-weight:500;">🎯 기본 초점: ${esc(t.default_focus)}</p>` : ''}
         
         <!-- 테마 설정 옵션 상세 뷰 (협업자 및 소유자 확인용) -->
         <div id="theme-options-view-${t.id}" style="display:${isCollab ? 'flex' : 'none'};margin-top:10px;padding:8px 10px;border-top:1px dashed var(--border);background:var(--panel-bg);border-radius:4px;font-size:12px;flex-direction:column;gap:6px;">
           <div style="font-weight:600;color:var(--accent2);margin-bottom:2px;">⚙️ 테마 설정 옵션</div>
           <div>• <b>레이블(이름)</b>: ${esc(t.label)}</div>
+          <div>• <b>지식 관리자</b>: ${esc(effMgr)}</div>
           <div>• <b>아이콘</b>: ${esc(t.icon || '📁')}</div>
           <div>• <b>설명</b>: ${esc(t.description || '(설명 없음)')}</div>
           <div>• <b>전용 FQDN (도메인)</b>: ${esc(t.fqdn || '(미지정 - 기본 도메인 공유)')}</div>
@@ -2821,6 +2838,7 @@ async function openThemeManager(){
 
         ${isOwner ? `<div id="theme-edit-form-${t.id}" style="display:none;margin-top:10px;padding-top:8px;border-top:1px dashed var(--border);flex-direction:column;gap:8px;">
           <div><label style="font-size:11px;opacity:0.8">레이블(이름)</label><input id="editthemep-label-${t.id}" style="width:100%;box-sizing:border-box" value="${esc(t.label)}"/></div>
+          <div><label style="font-size:11px;opacity:0.8">지식 관리자</label><input id="editthemep-sorcerer-${t.id}" style="width:100%;box-sizing:border-box" placeholder="지식 관리자" value="${esc(rawMgr)}"/></div>
           <div><label style="font-size:11px;opacity:0.8">설명</label><input id="editthemep-desc-${t.id}" style="width:100%;box-sizing:border-box" value="${esc(t.description || '')}"/></div>
           <div><label style="font-size:11px;opacity:0.8">전용 도메인 (FQDN, 예: ai.example.com)</label><input id="editthemep-fqdn-${t.id}" style="width:100%;box-sizing:border-box" placeholder="예: ai.example.com" value="${esc(t.fqdn || '')}"/></div>
           <div><label style="font-size:11px;opacity:0.8">Google Analytics 4 측정 ID (예: G-XXXXXXXXXX)</label><input id="editthemep-ga-${t.id}" style="width:100%;box-sizing:border-box" placeholder="예: G-XXXXXXXXXX" value="${esc(t.ga_measurement_id || '')}"/></div>
@@ -2845,6 +2863,7 @@ async function openThemeManager(){
       h += '<details style="border:1px solid var(--border);border-radius:6px;padding:8px 10px;background:var(--sec-bg);"><summary style="cursor:pointer;font-weight:600;font-size:13px;">➕ 새 테마 추가</summary>';
       h += '<div style="display:flex;flex-direction:column;gap:8px;margin-top:8px;">';
       h += '<div><label style="font-size:11px;opacity:0.8">레이블(이름)</label><input id="newthemep-label" style="width:100%;box-sizing:border-box" placeholder="예: 경제 및 금융"/></div>';
+      h += '<div><label style="font-size:11px;opacity:0.8">지식 관리자</label><input id="newthemep-sorcerer" style="width:100%;box-sizing:border-box" placeholder="지식 관리자"/></div>';
       h += '<div><label style="font-size:11px;opacity:0.8">설명</label><input id="newthemep-desc" style="width:100%;box-sizing:border-box" placeholder="예: 거시경제 및 시장 분석"/></div>';
       h += '<div><label style="font-size:11px;opacity:0.8">전용 도메인 (FQDN, 예: ai.example.com)</label><input id="newthemep-fqdn" style="width:100%;box-sizing:border-box" placeholder="예: ai.example.com"/></div>';
       h += '<div><label style="font-size:11px;opacity:0.8">Google Analytics 4 측정 ID (예: G-XXXXXXXXXX)</label><input id="newthemep-ga" style="width:100%;box-sizing:border-box" placeholder="예: G-XXXXXXXXXX"/></div>';
@@ -2895,6 +2914,7 @@ async function updateThemeFromUI(themeId){
   const collabEl = document.getElementById('editthemep-collab-' + themeId);
   const fqdnEl = document.getElementById('editthemep-fqdn-' + themeId);
   const gaEl = document.getElementById('editthemep-ga-' + themeId);
+  const sorcererEl = document.getElementById('editthemep-sorcerer-' + themeId);
 
   const label = ((labelEl||{}).value||'').trim();
   if(!label){ alert('테마 이름을 입력하세요.'); return; }
@@ -2903,6 +2923,9 @@ async function updateThemeFromUI(themeId){
   const is_public = pubEl ? pubEl.checked : true;
 
   const payload = {id: themeId, label, description, icon, is_public};
+  if(sorcererEl !== null && sorcererEl !== undefined){
+    payload.sorcerer = sorcererEl.value.trim();
+  }
   if(collabEl){
     payload.is_collaborator_accessible = collabEl.checked;
   }
@@ -2984,6 +3007,7 @@ async function createThemeFromUI(){
   const collabEl = document.getElementById('newthemep-collab');
   const fqdnEl = document.getElementById('newthemep-fqdn');
   const gaEl = document.getElementById('newthemep-ga');
+  const sorcererEl = document.getElementById('newthemep-sorcerer');
 
   const label = ((labelEl||{}).value||'').trim();
   if(!label){ alert('테마 이름을 입력하세요.'); return; }
@@ -2994,8 +3018,10 @@ async function createThemeFromUI(){
   const is_collaborator_accessible = collabEl ? collabEl.checked : true;
   const fqdn = ((fqdnEl||{}).value||'').trim() || null;
   const ga_measurement_id = ((gaEl||{}).value||'').trim() || null;
+  const sorcerer = ((sorcererEl||{}).value||'').trim();
 
   const payload = {label, description, default_focus, icon, is_public, is_collaborator_accessible};
+  if(sorcerer) payload.sorcerer = sorcerer;
   if(fqdn) payload.fqdn = fqdn;
   if(ga_measurement_id) payload.ga_measurement_id = ga_measurement_id;
 

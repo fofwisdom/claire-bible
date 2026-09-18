@@ -453,6 +453,8 @@ def render_graph_html(
                 "is_default": True,
                 "is_public": True,
                 "is_collaborator_accessible": False,
+                "sorcerer": safe_sorcerer,
+                "knowledge_manager": safe_sorcerer,
             }
         ]
     themes_json = _json.dumps(themes_list, ensure_ascii=False)
