@@ -169,4 +169,35 @@ def test_theme_web_default_focus(tmp_path: Path):
     assert "기본 초점:" in html
 
 
+def test_theme_web_knowledge_manager_display(tmp_path: Path):
+    """테마 관리에서 테마 지식베이스의 '지식 관리자' 표시 및 UI 요소 검증."""
+    from claire.store.theme import ThemeManager
+
+    s = Settings(
+        db_path=str(tmp_path / "claire.db"),
+        vault_path=str(tmp_path / "vault"),
+        CLAIRE_MULTI_THEME=True,
+        CLAIRE_SORCERER="default_owner",
+    )
+    tm = ThemeManager(s)
+    tm.define_theme("일반 테마")  # 기본 관리자 상속
+    tm.define_theme("특화 테마", sorcerer="specialist_lee")  # 개별 관리자 지정
+
+    html = render_graph_html(s, include_private=True)
+
+    # 1. 테마 관리 UI 렌더링 내 지식 관리자 표시 로직 탑재 확인
+    assert "지식 관리자:" in html
+
+    # 2. 테마 설정 옵션 상세 뷰(theme-options-view)에 지식 관리자 항목 확인
+    assert "<div>• <b>지식 관리자</b>:" in html
+
+    # 3. 테마 수정 폼 및 새 테마 추가 폼에 지식 관리자 입력 필드 확인
+    assert "editthemep-sorcerer-" in html
+    assert 'id="newthemep-sorcerer"' in html
+
+    # 4. updateDrawerManager 함수를 통해 테마 선택/전환 시 drawerfooter의 지식 관리자 실시간 업데이트 로직 탑재 확인
+    assert "function updateDrawerManager(currentTheme)" in html
+    assert "updateDrawerManager(current)" in html
+
+
 

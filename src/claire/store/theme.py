@@ -83,11 +83,18 @@ class ThemeInfo:
     default_focus: str = ""
     fqdn: str = ""
     ga_measurement_id: str = ""
+    sorcerer: str = ""
     created_at: float = 0.0
     updated_at: float = 0.0
 
+    @property
+    def knowledge_manager(self) -> str:
+        return self.sorcerer
+
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        d = asdict(self)
+        d["knowledge_manager"] = self.sorcerer
+        return d
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ThemeInfo:
@@ -119,6 +126,7 @@ class ThemeInfo:
             ga_measurement_id=validate_ga_measurement_id(
                 data.get("ga_measurement_id", data.get("ga_id"))
             ),
+            sorcerer=str(data.get("sorcerer", data.get("knowledge_manager", "")) or "").strip(),
             created_at=float(data.get("created_at", 0.0)),
             updated_at=float(data.get("updated_at", 0.0)),
         )
@@ -263,6 +271,11 @@ class ThemeManager:
                 data_dir = getattr(self.settings, "data_dir", None)
                 vault_path = str(data_dir / "vault") if data_dir is not None else "vault"
 
+        default_sorcerer = getattr(
+            self.settings,
+            "effective_sorcerer",
+            getattr(self.settings, "sorcerer", "owner"),
+        )
         return ThemeInfo(
             id=0,
             seq=0,
@@ -274,6 +287,7 @@ class ThemeManager:
             is_default=True,
             is_public=True,
             is_collaborator_accessible=False,
+            sorcerer=str(default_sorcerer).strip() or "owner",
             created_at=now,
             updated_at=now,
         )
@@ -423,6 +437,8 @@ class ThemeManager:
         default_focus: str = "",
         fqdn: str = "",
         ga_measurement_id: str = "",
+        sorcerer: str = "",
+        knowledge_manager: str = "",
     ) -> ThemeInfo:
         """지식 관리자: 순차 일련번호를 발급하여 새 테마 디렉터리 생성 및 DB 스키마 초기화."""
         if not getattr(self.settings, "multi_theme", False):
@@ -440,7 +456,7 @@ class ThemeManager:
         # 동일 레이블 중복 방지
         for t in self._themes.values():
             if t.label.strip().lower() == cleaned_label.lower():
-                raise ValueError(f"이미 동일한 레이블의 테마가 존재합니다: '{cleaned_label}'")
+                raise ValueError(f"이미 존재하는 테마 레이블입니다: '{cleaned_label}'")
 
         if norm_fqdn:
             eff_fqdn = getattr(self.settings, "effective_fqdn", "")
@@ -479,6 +495,7 @@ class ThemeManager:
             rel_vault_path = str(abs_vault_dir)
 
         now = time.time()
+        mgr = str(sorcerer or knowledge_manager or "").strip()
         theme = ThemeInfo(
             id=seq,
             seq=seq,
@@ -493,6 +510,7 @@ class ThemeManager:
             default_focus=str(default_focus or "").strip(),
             fqdn=norm_fqdn,
             ga_measurement_id=norm_ga,
+            sorcerer=mgr,
             created_at=now,
             updated_at=now,
         )
@@ -523,8 +541,10 @@ class ThemeManager:
         default_focus: str | None = None,
         fqdn: str | None = None,
         ga_measurement_id: str | None = None,
+        sorcerer: str | None = None,
+        knowledge_manager: str | None = None,
     ) -> ThemeInfo:
-        """지식 관리자: 테마 레이블, 설명, 아이콘, 공개 여부, 협력자 공개 여부, 기본 적용 초점, FQDN, GA ID 수정 (물리 폴더 경로는 절대 변경되지 않음)."""
+        """지식 관리자: 테마 레이블, 설명, 아이콘, 공개 여부, 협력자 공개 여부, 기본 적용 초점, FQDN, GA ID, 지식 관리자 수정 (물리 폴더 경로는 절대 변경되지 않음)."""
         if not getattr(self.settings, "multi_theme", False):
             raise RuntimeError("멀티 테마 모드가 비활성화되어 있습니다 (CLAIRE_MULTI_THEME=1 필요)")
 
@@ -584,6 +604,11 @@ class ThemeManager:
 
         if ga_measurement_id is not None:
             theme.ga_measurement_id = validate_ga_measurement_id(ga_measurement_id)
+
+        if knowledge_manager is not None and sorcerer is None:
+            sorcerer = knowledge_manager
+        if sorcerer is not None:
+            theme.sorcerer = str(sorcerer).strip()
 
         theme.updated_at = time.time()
         self._save_registry()
@@ -761,6 +786,8 @@ class ThemeManager:
                 "theme_id": theme.id,
                 "default_focus": theme.default_focus,
             }
+            if theme.sorcerer:
+                override["sorcerer"] = theme.sorcerer
             return base.model_copy(update=override)
 
         import copy
@@ -773,6 +800,8 @@ class ThemeManager:
             st.vault_path = theme.vault_path
         if hasattr(st, "vault_dir"):
             st.vault_dir = Path(theme.vault_path)
+        if theme.sorcerer and hasattr(st, "sorcerer"):
+            st.sorcerer = theme.sorcerer
         st.theme_id = theme.id
         st.default_focus = theme.default_focus
         return st

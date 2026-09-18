@@ -436,4 +436,38 @@ def test_theme_reset_preserves_id_and_cleans_data(temp_theme_env):
     assert next_theme.id == 2
 
 
+def test_theme_knowledge_manager_metadata_and_settings_override(temp_theme_env):
+    """테마별 지식 관리자(sorcerer/knowledge_manager) 메타데이터 저장 및 설정 오버라이드 검증."""
+    manager, _, _ = temp_theme_env
+
+    # 1. 지식 관리자 지정하여 테마 생성
+    t1 = manager.define_theme("AI 아키텍처", sorcerer="alice_architect")
+    assert t1.sorcerer == "alice_architect"
+    assert t1.knowledge_manager == "alice_architect"
+    assert t1.to_dict()["sorcerer"] == "alice_architect"
+    assert t1.to_dict()["knowledge_manager"] == "alice_architect"
+
+    # 2. active_theme_settings에서 테마별 sorcerer 설정 오버라이드 확인
+    active = manager.active_theme_settings(manager.settings)
+    themed_settings = {t.id: s for t, s in active}
+    assert themed_settings[0].effective_sorcerer == manager.settings.effective_sorcerer
+    assert themed_settings[t1.id].effective_sorcerer == "alice_architect"
+    assert themed_settings[t1.id].effective_knowledge_manager == "alice_architect"
+
+    # 3. 테마 수정으로 지식 관리자 변경
+    t1_updated = manager.update_theme(t1.id, sorcerer="bob_curator")
+    assert t1_updated.sorcerer == "bob_curator"
+    assert t1_updated.knowledge_manager == "bob_curator"
+
+    # 4. knowledge_manager 별칭으로 수정 가능 확인
+    t1_updated2 = manager.update_theme(t1.id, knowledge_manager="carol_lead")
+    assert t1_updated2.sorcerer == "carol_lead"
+
+    # 5. 레지스트리 재로딩 후에도 영속성 유지 검증
+    manager.reload()
+    reloaded = manager.get_theme(t1.id)
+    assert reloaded.sorcerer == "carol_lead"
+    assert reloaded.knowledge_manager == "carol_lead"
+
+
 
