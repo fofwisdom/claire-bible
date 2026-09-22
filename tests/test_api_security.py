@@ -259,6 +259,16 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         "/support/bundle",
         "/reference",
         "/openapi.yaml",
+        "/.well-known/oauth-protected-resource",
+        "/.well-known/oauth-authorization-server",
+        "/oauth/authorize",
+        "/oauth/authorize/poll",
+    }
+    public_post = {
+        "/oauth/register",
+        "/oauth/authorize",
+        "/oauth/authorize/telegram-push",
+        "/oauth/token",
     }
     read_get = {"/", "/whoami", "/stats", "/graph", "/node", "/documents", "/document", "/mcp", "/themes"}
     read_post = {"/search", "/mcp", "/share"}
@@ -289,6 +299,7 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
             for path in public_get
             for method in ("GET", "HEAD")
         },
+        **{("POST", path): "public" for path in public_post},
         **{
             (method, path): "read"
             for path in read_get

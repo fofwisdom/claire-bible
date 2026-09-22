@@ -208,6 +208,49 @@ CREATE TABLE IF NOT EXISTS doc_shares (
 );
 CREATE INDEX IF NOT EXISTS idx_doc_shares_doc ON doc_shares(document_id);
 
+-- [OAuth 2.1 인가 서버] MCP 클라이언트(Gemini 등)와의 연동을 위한 독립 OAuth 상태 테이블.
+CREATE TABLE IF NOT EXISTS oauth_clients (
+    client_id TEXT PRIMARY KEY,
+    client_secret TEXT,
+    client_name TEXT,
+    redirect_uris TEXT NOT NULL,
+    created_at REAL NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS oauth_codes (
+    code TEXT PRIMARY KEY,
+    client_id TEXT NOT NULL,
+    redirect_uri TEXT NOT NULL,
+    code_challenge TEXT NOT NULL,
+    code_challenge_method TEXT DEFAULT 'S256',
+    scope TEXT DEFAULT 'readonly',
+    expires_at REAL NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS oauth_tokens (
+    token TEXT PRIMARY KEY,
+    refresh_token TEXT UNIQUE,
+    client_id TEXT NOT NULL,
+    scope TEXT DEFAULT 'readonly',
+    created_at REAL NOT NULL,
+    expires_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_oauth_tokens_refresh ON oauth_tokens(refresh_token);
+
+CREATE TABLE IF NOT EXISTS oauth_auth_requests (
+    nonce TEXT PRIMARY KEY,
+    client_id TEXT NOT NULL,
+    redirect_uri TEXT NOT NULL,
+    code_challenge TEXT NOT NULL,
+    code_challenge_method TEXT DEFAULT 'S256',
+    scope TEXT DEFAULT 'readonly',
+    state TEXT,
+    approved INTEGER DEFAULT 0,
+    code TEXT,
+    created_at REAL NOT NULL,
+    expires_at REAL NOT NULL
+);
+
 -- [1홉 자동확장] 적재한 문서에서 따라갈 링크를 LLM 이 선별→판정→적재하는 백그라운드
 -- 대기열. refresh_queue 와 같은 패턴(전용 expand-loop 컨테이너가 주기 처리).
 CREATE TABLE IF NOT EXISTS expand_queue (
@@ -1644,6 +1687,238 @@ def validate_session(
     return validate_session_scope(
         conn, token, ttl=ttl, scopes=scopes
     ) is not None
+
+
+# --- OAuth 2.1 Storage & Validation ---
+
+OAUTH_ACCESS_TOKEN_TTL: float = 30 * 86400.0  # 30일
+OAUTH_REFRESH_TOKEN_TTL: float = 365 * 86400.0  # 1년
+
+
+def register_oauth_client(
+    conn: sqlite3.Connection,
+    client_id: str,
+    client_secret: str | None,
+    client_name: str | None,
+    redirect_uris: list[str],
+) -> None:
+    """OAuth 클라이언트 등록(RFC 7591 Dynamic Client Registration)."""
+    now = time.time()
+    conn.execute(
+        """INSERT OR REPLACE INTO oauth_clients
+        (client_id, client_secret, client_name, redirect_uris, created_at)
+        VALUES (?, ?, ?, ?, ?)""",
+        (client_id, client_secret, client_name, json.dumps(redirect_uris), now),
+    )
+    conn.commit()
+
+
+def get_oauth_client(conn: sqlite3.Connection, client_id: str) -> dict[str, Any] | None:
+    """OAuth 클라이언트 조회."""
+    row = conn.execute(
+        "SELECT client_id, client_secret, client_name, redirect_uris, created_at FROM oauth_clients WHERE client_id=?",
+        (client_id,),
+    ).fetchone()
+    if row is None:
+        return None
+    return {
+        "client_id": row["client_id"],
+        "client_secret": row["client_secret"],
+        "client_name": row["client_name"],
+        "redirect_uris": json.loads(row["redirect_uris"] or "[]"),
+        "created_at": row["created_at"],
+    }
+
+
+def create_oauth_code(
+    conn: sqlite3.Connection,
+    client_id: str,
+    redirect_uri: str,
+    code_challenge: str,
+    code_challenge_method: str = "S256",
+    scope: str = "readonly",
+    *,
+    ttl: float = 300.0,
+) -> str:
+    """일회용 인가 코드(Authorization Code) 생성 (수명 5분)."""
+    code = secrets.token_urlsafe(32)
+    now = time.time()
+    conn.execute(
+        """INSERT INTO oauth_codes
+        (code, client_id, redirect_uri, code_challenge, code_challenge_method, scope, expires_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)""",
+        (code, client_id, redirect_uri, code_challenge, code_challenge_method, scope, now + ttl),
+    )
+    conn.commit()
+    return code
+
+
+def consume_oauth_code(
+    conn: sqlite3.Connection,
+    code: str,
+    client_id: str,
+    redirect_uri: str,
+) -> dict[str, Any] | None:
+    """인가 코드 단일 소비(Atomic Consumption). 유효하면 정보 반환 후 즉시 삭제."""
+    now = time.time()
+    row = conn.execute(
+        """SELECT client_id, redirect_uri, code_challenge, code_challenge_method, scope, expires_at
+        FROM oauth_codes WHERE code=? AND client_id=? AND redirect_uri=? AND expires_at>=?""",
+        (code, client_id, redirect_uri, now),
+    ).fetchone()
+    if row is None:
+        return None
+    data = dict(row)
+    conn.execute("DELETE FROM oauth_codes WHERE code=?", (code,))
+    conn.commit()
+    return data
+
+
+def create_oauth_token(
+    conn: sqlite3.Connection,
+    client_id: str,
+    scope: str = "readonly",
+    *,
+    access_ttl: float = OAUTH_ACCESS_TOKEN_TTL,
+    refresh_ttl: float = OAUTH_REFRESH_TOKEN_TTL,
+) -> tuple[str, str]:
+    """OAuth Access Token 및 Refresh Token 발급 및 영구 격리 저장."""
+    access_token = secrets.token_urlsafe(32)
+    refresh_token = secrets.token_urlsafe(32)
+    now = time.time()
+    conn.execute(
+        """INSERT INTO oauth_tokens
+        (token, refresh_token, client_id, scope, created_at, expires_at)
+        VALUES (?, ?, ?, ?, ?, ?)""",
+        (access_token, refresh_token, client_id, scope, now, now + access_ttl),
+    )
+    conn.commit()
+    return access_token, refresh_token
+
+
+def refresh_oauth_token(
+    conn: sqlite3.Connection,
+    refresh_token: str,
+    client_id: str | None = None,
+    *,
+    access_ttl: float = OAUTH_ACCESS_TOKEN_TTL,
+) -> tuple[str, str, str] | None:
+    """Refresh Token 회전(Rotation) 및 신규 Access/Refresh Token 발급."""
+    now = time.time()
+    query = "SELECT token, refresh_token, client_id, scope, expires_at FROM oauth_tokens WHERE refresh_token=?"
+    params: list[Any] = [refresh_token]
+    if client_id:
+        query += " AND client_id=?"
+        params.append(client_id)
+    row = conn.execute(query, params).fetchone()
+    if row is None:
+        return None
+
+    new_access = secrets.token_urlsafe(32)
+    new_refresh = secrets.token_urlsafe(32)
+    cur = conn.execute(
+        """UPDATE oauth_tokens
+        SET token=?, refresh_token=?, expires_at=?
+        WHERE refresh_token=?""",
+        (new_access, new_refresh, now + access_ttl, refresh_token),
+    )
+    conn.commit()
+    if cur.rowcount != 1:
+        return None
+    return new_access, new_refresh, str(row["scope"])
+
+
+def validate_oauth_token(
+    conn: sqlite3.Connection,
+    token: str,
+) -> str | None:
+    """OAuth Access Token 검증. 유효한 경우 scope 문자열(예: 'readonly') 반환."""
+    if not token or len(token) < 20:
+        return None
+    now = time.time()
+    row = conn.execute(
+        "SELECT scope, expires_at FROM oauth_tokens WHERE token=? AND expires_at>=?",
+        (token, now),
+    ).fetchone()
+    if row is None:
+        return None
+    return str(row["scope"])
+
+
+def create_oauth_auth_request(
+    conn: sqlite3.Connection,
+    client_id: str,
+    redirect_uri: str,
+    code_challenge: str,
+    code_challenge_method: str = "S256",
+    scope: str = "readonly",
+    state: str | None = None,
+    *,
+    ttl: float = 600.0,
+) -> str:
+    """텔레그램 푸시 승인을 위한 인증 요청(nonce) 발급 (10분 유효)."""
+    nonce = secrets.token_urlsafe(24)
+    now = time.time()
+    conn.execute(
+        """INSERT INTO oauth_auth_requests
+        (nonce, client_id, redirect_uri, code_challenge, code_challenge_method, scope, state, approved, created_at, expires_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)""",
+        (nonce, client_id, redirect_uri, code_challenge, code_challenge_method, scope, state, now, now + ttl),
+    )
+    conn.commit()
+    return nonce
+
+
+def get_oauth_auth_request(
+    conn: sqlite3.Connection,
+    nonce: str,
+) -> dict[str, Any] | None:
+    """인증 요청 상태 조회."""
+    now = time.time()
+    row = conn.execute(
+        "SELECT nonce, client_id, redirect_uri, code_challenge, code_challenge_method, scope, state, approved, code, expires_at "
+        "FROM oauth_auth_requests WHERE nonce=? AND expires_at>=?",
+        (nonce, now),
+    ).fetchone()
+    if row is None:
+        return None
+    return dict(row)
+
+
+def approve_oauth_auth_request(
+    conn: sqlite3.Connection,
+    nonce: str,
+) -> str | None:
+    """텔레그램 봇 또는 웹 승인 버튼에 의한 인가 요청 승인 -> 인가 코드(code) 발급 및 저장."""
+    req = get_oauth_auth_request(conn, nonce)
+    if not req or req["approved"]:
+        return None
+    code = create_oauth_code(
+        conn,
+        client_id=req["client_id"],
+        redirect_uri=req["redirect_uri"],
+        code_challenge=req["code_challenge"],
+        code_challenge_method=req["code_challenge_method"],
+        scope=req["scope"],
+    )
+    conn.execute(
+        "UPDATE oauth_auth_requests SET approved=1, code=? WHERE nonce=?",
+        (code, nonce),
+    )
+    conn.commit()
+    return code
+
+
+def deny_oauth_auth_request(
+    conn: sqlite3.Connection,
+    nonce: str,
+) -> bool:
+    """인가 요청 거부 -> 요청 삭제."""
+    cur = conn.execute("DELETE FROM oauth_auth_requests WHERE nonce=?", (nonce,))
+    conn.commit()
+    return cur.rowcount > 0
+
+
 
 
 # 공유 토큰은 16자(약 79bit)이며 비인증 문서 1개에만 제한된다. 프리픽스 입력 편의가

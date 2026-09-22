@@ -41,6 +41,15 @@ from ..store import db as dbm
 from ..store.queries import theme_summary
 from ..store.theme import ThemeInfo, ThemeManager, get_theme_manager
 from .mcp_tools import build_mcp_app
+from .oauth import (
+    handle_authorization_server_metadata,
+    handle_authorize,
+    handle_authorize_poll,
+    handle_protected_resource_metadata,
+    handle_register,
+    handle_telegram_push,
+    handle_token,
+)
 from .security import (
     ErrorBoundaryMiddleware,
     WebRuntimeConfig,
@@ -1675,6 +1684,13 @@ def create_app(
         Route("/support/bundle", download_support_bundle_route, methods=["GET"]),
         Route("/reference", docs_ui_route, methods=["GET"]),
         Route("/openapi.yaml", openapi_yaml_route, methods=["GET"]),
+        Route("/.well-known/oauth-protected-resource", handle_protected_resource_metadata, methods=["GET", "HEAD"]),
+        Route("/.well-known/oauth-authorization-server", handle_authorization_server_metadata, methods=["GET", "HEAD"]),
+        Route("/oauth/register", handle_register, methods=["POST"]),
+        Route("/oauth/authorize", handle_authorize, methods=["GET", "POST"]),
+        Route("/oauth/authorize/telegram-push", handle_telegram_push, methods=["POST"]),
+        Route("/oauth/authorize/poll", handle_authorize_poll, methods=["GET"]),
+        Route("/oauth/token", handle_token, methods=["POST"]),
         Route("/mcp", mcp_route, methods=["GET", "POST"]),
         Mount("/static", StaticFiles(directory=str(static_dir), check_dir=False), name="static"),
     ]
@@ -1687,6 +1703,7 @@ def create_app(
         exception_handlers={HTTPException: _http_error},
         lifespan=app_lifespan,
     )
+    app.state.runtime_config = WebRuntimeConfig.from_settings(s)
 
     def _add_static(prefix: str, path: str | Path, name: str = "static") -> None:
         p = Path(path)
