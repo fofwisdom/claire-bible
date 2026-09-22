@@ -1,0 +1,624 @@
+{
+  "process": {
+    "pid": 1,
+    "uid": 0,
+    "gid": 0,
+    "hostname": "889b094b393e"
+  },
+  "settings": {
+    "environment": "production",
+    "multi_theme": true,
+    "db_path": "data/claire.db",
+    "vault_path": "vault"
+  },
+  "paths": {
+    "app_root": {
+      "configured_path": "/app",
+      "resolved_path": "/app",
+      "exists": true,
+      "is_symlink": false,
+      "is_file": false,
+      "is_dir": true,
+      "size_bytes": 4096,
+      "mode": "0o755",
+      "uid": 0,
+      "gid": 0,
+      "device": 54,
+      "inode": 2369290,
+      "modified_at": "2026-09-18T11:38:07.325071+00:00",
+      "metadata_changed_at": "2026-09-18T11:38:07.421619+00:00"
+    },
+    "process_cwd": {
+      "configured_path": "/app",
+      "resolved_path": "/app",
+      "exists": true,
+      "is_symlink": false,
+      "is_file": false,
+      "is_dir": true,
+      "size_bytes": 4096,
+      "mode": "0o755",
+      "uid": 0,
+      "gid": 0,
+      "device": 54,
+      "inode": 2369290,
+      "modified_at": "2026-09-18T11:38:07.325071+00:00",
+      "metadata_changed_at": "2026-09-18T11:38:07.421619+00:00"
+    },
+    "data_dir": {
+      "configured_path": "/app/data",
+      "resolved_path": "/app/data",
+      "exists": true,
+      "is_symlink": false,
+      "is_file": false,
+      "is_dir": true,
+      "size_bytes": 4096,
+      "mode": "0o755",
+      "uid": 0,
+      "gid": 0,
+      "device": 64512,
+      "inode": 811297,
+      "modified_at": "2026-09-18T11:38:18.877533+00:00",
+      "metadata_changed_at": "2026-09-18T11:38:18.877533+00:00"
+    },
+    "configured_db": {
+      "configured_path": "/app/data/claire.db",
+      "resolved_path": "/app/data/claire.db",
+      "exists": true,
+      "is_symlink": false,
+      "is_file": true,
+      "is_dir": false,
+      "size_bytes": 44277760,
+      "mode": "0o644",
+      "uid": 0,
+      "gid": 0,
+      "device": 64512,
+      "inode": 811298,
+      "modified_at": "2026-09-18T11:00:59.718488+00:00",
+      "metadata_changed_at": "2026-09-18T11:00:59.718488+00:00"
+    },
+    "vault_dir": {
+      "configured_path": "/app/vault",
+      "resolved_path": "/app/vault",
+      "exists": true,
+      "is_symlink": false,
+      "is_file": false,
+      "is_dir": true,
+      "size_bytes": 102400,
+      "mode": "0o755",
+      "uid": 0,
+      "gid": 0,
+      "device": 64512,
+      "inode": 811299,
+      "modified_at": "2026-09-18T10:56:30.136556+00:00",
+      "metadata_changed_at": "2026-09-18T10:56:30.136556+00:00"
+    },
+    "themes_registry": {
+      "configured_path": "/app/data/themes.json",
+      "resolved_path": "/app/data/themes.json",
+      "exists": true,
+      "is_symlink": false,
+      "is_file": true,
+      "is_dir": false,
+      "size_bytes": 1048,
+      "mode": "0o600",
+      "uid": 0,
+      "gid": 0,
+      "device": 64512,
+      "inode": 787172,
+      "modified_at": "2026-09-16T15:32:44.366406+00:00",
+      "metadata_changed_at": "2026-09-16T15:32:44.366406+00:00"
+    },
+    "telemetry_db": {
+      "configured_path": "/app/data/telemetry.db",
+      "resolved_path": "/app/data/telemetry.db",
+      "exists": true,
+      "is_symlink": false,
+      "is_file": true,
+      "is_dir": false,
+      "size_bytes": 983040,
+      "mode": "0o644",
+      "uid": 0,
+      "gid": 0,
+      "device": 64512,
+      "inode": 794655,
+      "modified_at": "2026-09-18T11:38:09.899882+00:00",
+      "metadata_changed_at": "2026-09-18T11:38:09.899882+00:00"
+    }
+  },
+  "enclosing_mounts": {
+    "app_root": {
+      "mount_id": "308",
+      "parent_id": "217",
+      "major_minor": "0:54",
+      "mount_root": "/",
+      "mount_point": "/",
+      "mount_options": [
+        "rw",
+        "relatime"
+      ],
+      "optional_fields": [],
+      "filesystem_type": "overlay",
+      "source": "overlay",
+      "super_options": [
+        "rw",
+        "lowerdir=<set>",
+        "upperdir=<set>",
+        "workdir=<set>",
+        "nouserxattr"
+      ]
+    },
+    "process_cwd": {
+      "mount_id": "308",
+      "parent_id": "217",
+      "major_minor": "0:54",
+      "mount_root": "/",
+      "mount_point": "/",
+      "mount_options": [
+        "rw",
+        "relatime"
+      ],
+      "optional_fields": [],
+      "filesystem_type": "overlay",
+      "source": "overlay",
+      "super_options": [
+        "rw",
+        "lowerdir=<set>",
+        "upperdir=<set>",
+        "workdir=<set>",
+        "nouserxattr"
+      ]
+    },
+    "data_dir": {
+      "mount_id": "318",
+      "parent_id": "308",
+      "major_minor": "252:0",
+      "mount_root": "/root/claire-bible/data",
+      "mount_point": "/app/data",
+      "mount_options": [
+        "rw",
+        "relatime"
+      ],
+      "optional_fields": [],
+      "filesystem_type": "ext4",
+      "source": "/dev/mapper/ubuntu--vg-ubuntu--lv",
+      "super_options": [
+        "rw"
+      ]
+    },
+    "configured_db": {
+      "mount_id": "318",
+      "parent_id": "308",
+      "major_minor": "252:0",
+      "mount_root": "/root/claire-bible/data",
+      "mount_point": "/app/data",
+      "mount_options": [
+        "rw",
+        "relatime"
+      ],
+      "optional_fields": [],
+      "filesystem_type": "ext4",
+      "source": "/dev/mapper/ubuntu--vg-ubuntu--lv",
+      "super_options": [
+        "rw"
+      ]
+    },
+    "vault_dir": {
+      "mount_id": "341",
+      "parent_id": "308",
+      "major_minor": "252:0",
+      "mount_root": "/root/claire-bible/vault",
+      "mount_point": "/app/vault",
+      "mount_options": [
+        "rw",
+        "relatime"
+      ],
+      "optional_fields": [],
+      "filesystem_type": "ext4",
+      "source": "/dev/mapper/ubuntu--vg-ubuntu--lv",
+      "super_options": [
+        "rw"
+      ]
+    },
+    "themes_registry": {
+      "mount_id": "318",
+      "parent_id": "308",
+      "major_minor": "252:0",
+      "mount_root": "/root/claire-bible/data",
+      "mount_point": "/app/data",
+      "mount_options": [
+        "rw",
+        "relatime"
+      ],
+      "optional_fields": [],
+      "filesystem_type": "ext4",
+      "source": "/dev/mapper/ubuntu--vg-ubuntu--lv",
+      "super_options": [
+        "rw"
+      ]
+    },
+    "telemetry_db": {
+      "mount_id": "318",
+      "parent_id": "308",
+      "major_minor": "252:0",
+      "mount_root": "/root/claire-bible/data",
+      "mount_point": "/app/data",
+      "mount_options": [
+        "rw",
+        "relatime"
+      ],
+      "optional_fields": [],
+      "filesystem_type": "ext4",
+      "source": "/dev/mapper/ubuntu--vg-ubuntu--lv",
+      "super_options": [
+        "rw"
+      ]
+    }
+  },
+  "theme_registry": {
+    "path": "/app/data/themes.json",
+    "metadata": {
+      "configured_path": "/app/data/themes.json",
+      "resolved_path": "/app/data/themes.json",
+      "exists": true,
+      "is_symlink": false,
+      "is_file": true,
+      "is_dir": false,
+      "size_bytes": 1048,
+      "mode": "0o600",
+      "uid": 0,
+      "gid": 0,
+      "device": 64512,
+      "inode": 787172,
+      "modified_at": "2026-09-16T15:32:44.366406+00:00",
+      "metadata_changed_at": "2026-09-16T15:32:44.366406+00:00"
+    },
+    "default_theme_id": 0,
+    "next_seq": 2
+  },
+  "resolved_themes": [
+    {
+      "id": 0,
+      "seq": 0,
+      "label": "기본 지식베이스",
+      "is_default": true,
+      "declared_db_path": "data/claire.db",
+      "declared_vault_path": "vault",
+      "database": {
+        "configured_path": "/app/data/claire.db",
+        "resolved_path": "/app/data/claire.db",
+        "exists": true,
+        "is_symlink": false,
+        "is_file": true,
+        "is_dir": false,
+        "size_bytes": 44277760,
+        "mode": "0o644",
+        "uid": 0,
+        "gid": 0,
+        "device": 64512,
+        "inode": 811298,
+        "modified_at": "2026-09-18T11:00:59.718488+00:00",
+        "metadata_changed_at": "2026-09-18T11:00:59.718488+00:00",
+        "sqlite": {
+          "schema_version": 13,
+          "schema_lineage": "claire-bible/common",
+          "user_version": 0,
+          "application_id": 0,
+          "page_count": 10810,
+          "page_size": 4096,
+          "freelist_count": 13,
+          "counts": {
+            "documents": 293,
+            "entities": 1615,
+            "relations": 2576,
+            "embeddings": 1615,
+            "proposals": 70,
+            "jobs": 0,
+            "raw_inbox": 363,
+            "extractions": 392,
+            "refresh_queue": 0,
+            "purged_tombstones": 13
+          }
+        }
+      },
+      "vault": {
+        "configured_path": "/app/vault",
+        "resolved_path": "/app/vault",
+        "exists": true,
+        "is_symlink": false,
+        "is_file": false,
+        "is_dir": true,
+        "size_bytes": 102400,
+        "mode": "0o755",
+        "uid": 0,
+        "gid": 0,
+        "device": 64512,
+        "inode": 811299,
+        "modified_at": "2026-09-18T10:56:30.136556+00:00",
+        "metadata_changed_at": "2026-09-18T10:56:30.136556+00:00"
+      },
+      "database_mount": {
+        "mount_id": "318",
+        "parent_id": "308",
+        "major_minor": "252:0",
+        "mount_root": "/root/claire-bible/data",
+        "mount_point": "/app/data",
+        "mount_options": [
+          "rw",
+          "relatime"
+        ],
+        "optional_fields": [],
+        "filesystem_type": "ext4",
+        "source": "/dev/mapper/ubuntu--vg-ubuntu--lv",
+        "super_options": [
+          "rw"
+        ]
+      },
+      "vault_mount": {
+        "mount_id": "341",
+        "parent_id": "308",
+        "major_minor": "252:0",
+        "mount_root": "/root/claire-bible/vault",
+        "mount_point": "/app/vault",
+        "mount_options": [
+          "rw",
+          "relatime"
+        ],
+        "optional_fields": [],
+        "filesystem_type": "ext4",
+        "source": "/dev/mapper/ubuntu--vg-ubuntu--lv",
+        "super_options": [
+          "rw"
+        ]
+      }
+    },
+    {
+      "id": 1,
+      "seq": 1,
+      "label": "Honkai",
+      "is_default": false,
+      "declared_db_path": "data/themes/1/claire.db",
+      "declared_vault_path": "vault/themes/1",
+      "database": {
+        "configured_path": "/app/data/themes/1/claire.db",
+        "resolved_path": "/app/data/themes/1/claire.db",
+        "exists": true,
+        "is_symlink": false,
+        "is_file": true,
+        "is_dir": false,
+        "size_bytes": 9306112,
+        "mode": "0o644",
+        "uid": 0,
+        "gid": 0,
+        "device": 64512,
+        "inode": 795545,
+        "modified_at": "2026-09-17T17:06:33.053194+00:00",
+        "metadata_changed_at": "2026-09-17T17:06:33.053194+00:00",
+        "sqlite": {
+          "schema_version": 13,
+          "schema_lineage": "claire-bible/common",
+          "user_version": 0,
+          "application_id": 0,
+          "page_count": 2272,
+          "page_size": 4096,
+          "freelist_count": 0,
+          "counts": {
+            "documents": 59,
+            "entities": 367,
+            "relations": 635,
+            "embeddings": 367,
+            "proposals": 310,
+            "jobs": 0,
+            "raw_inbox": 68,
+            "extractions": 63,
+            "refresh_queue": 0,
+            "purged_tombstones": 0
+          }
+        }
+      },
+      "vault": {
+        "configured_path": "/app/vault/themes/1",
+        "resolved_path": "/app/vault/themes/1",
+        "exists": true,
+        "is_symlink": false,
+        "is_file": false,
+        "is_dir": true,
+        "size_bytes": 20480,
+        "mode": "0o755",
+        "uid": 0,
+        "gid": 0,
+        "device": 64512,
+        "inode": 787454,
+        "modified_at": "2026-09-17T17:06:33.024068+00:00",
+        "metadata_changed_at": "2026-09-17T17:06:33.024068+00:00"
+      },
+      "database_mount": {
+        "mount_id": "318",
+        "parent_id": "308",
+        "major_minor": "252:0",
+        "mount_root": "/root/claire-bible/data",
+        "mount_point": "/app/data",
+        "mount_options": [
+          "rw",
+          "relatime"
+        ],
+        "optional_fields": [],
+        "filesystem_type": "ext4",
+        "source": "/dev/mapper/ubuntu--vg-ubuntu--lv",
+        "super_options": [
+          "rw"
+        ]
+      },
+      "vault_mount": {
+        "mount_id": "341",
+        "parent_id": "308",
+        "major_minor": "252:0",
+        "mount_root": "/root/claire-bible/vault",
+        "mount_point": "/app/vault",
+        "mount_options": [
+          "rw",
+          "relatime"
+        ],
+        "optional_fields": [],
+        "filesystem_type": "ext4",
+        "source": "/dev/mapper/ubuntu--vg-ubuntu--lv",
+        "super_options": [
+          "rw"
+        ]
+      }
+    }
+  ],
+  "storage_candidates": [
+    {
+      "kind": "sqlite",
+      "configured_path": "/app/data/claire.db",
+      "resolved_path": "/app/data/claire.db",
+      "exists": true,
+      "is_symlink": false,
+      "is_file": true,
+      "is_dir": false,
+      "size_bytes": 44277760,
+      "mode": "0o644",
+      "uid": 0,
+      "gid": 0,
+      "device": 64512,
+      "inode": 811298,
+      "modified_at": "2026-09-18T11:00:59.718488+00:00",
+      "metadata_changed_at": "2026-09-18T11:00:59.718488+00:00",
+      "sqlite": {
+        "schema_version": 13,
+        "schema_lineage": "claire-bible/common",
+        "user_version": 0,
+        "application_id": 0,
+        "page_count": 10810,
+        "page_size": 4096,
+        "freelist_count": 13,
+        "counts": {
+          "documents": 293,
+          "entities": 1615,
+          "relations": 2576,
+          "embeddings": 1615,
+          "proposals": 70,
+          "jobs": 0,
+          "raw_inbox": 363,
+          "extractions": 392,
+          "refresh_queue": 0,
+          "purged_tombstones": 13
+        }
+      }
+    },
+    {
+      "kind": "sqlite",
+      "configured_path": "/app/data/telemetry.db",
+      "resolved_path": "/app/data/telemetry.db",
+      "exists": true,
+      "is_symlink": false,
+      "is_file": true,
+      "is_dir": false,
+      "size_bytes": 983040,
+      "mode": "0o644",
+      "uid": 0,
+      "gid": 0,
+      "device": 64512,
+      "inode": 794655,
+      "modified_at": "2026-09-18T11:38:09.899882+00:00",
+      "metadata_changed_at": "2026-09-18T11:38:09.899882+00:00",
+      "sqlite": {
+        "schema_version": null,
+        "schema_lineage": null,
+        "user_version": 0,
+        "application_id": 0,
+        "page_count": 240,
+        "page_size": 4096,
+        "freelist_count": 0,
+        "counts": {}
+      }
+    },
+    {
+      "kind": "theme_registry",
+      "configured_path": "/app/data/themes.json",
+      "resolved_path": "/app/data/themes.json",
+      "exists": true,
+      "is_symlink": false,
+      "is_file": true,
+      "is_dir": false,
+      "size_bytes": 1048,
+      "mode": "0o600",
+      "uid": 0,
+      "gid": 0,
+      "device": 64512,
+      "inode": 787172,
+      "modified_at": "2026-09-16T15:32:44.366406+00:00",
+      "metadata_changed_at": "2026-09-16T15:32:44.366406+00:00"
+    },
+    {
+      "kind": "sqlite",
+      "configured_path": "/app/data/themes/1/claire.db",
+      "resolved_path": "/app/data/themes/1/claire.db",
+      "exists": true,
+      "is_symlink": false,
+      "is_file": true,
+      "is_dir": false,
+      "size_bytes": 9306112,
+      "mode": "0o644",
+      "uid": 0,
+      "gid": 0,
+      "device": 64512,
+      "inode": 795545,
+      "modified_at": "2026-09-17T17:06:33.053194+00:00",
+      "metadata_changed_at": "2026-09-17T17:06:33.053194+00:00",
+      "sqlite": {
+        "schema_version": 13,
+        "schema_lineage": "claire-bible/common",
+        "user_version": 0,
+        "application_id": 0,
+        "page_count": 2272,
+        "page_size": 4096,
+        "freelist_count": 0,
+        "counts": {
+          "documents": 59,
+          "entities": 367,
+          "relations": 635,
+          "embeddings": 367,
+          "proposals": 310,
+          "jobs": 0,
+          "raw_inbox": 68,
+          "extractions": 63,
+          "refresh_queue": 0,
+          "purged_tombstones": 0
+        }
+      }
+    },
+    {
+      "kind": "sqlite",
+      "configured_path": "/app/data/themes/1/telemetry.db",
+      "resolved_path": "/app/data/themes/1/telemetry.db",
+      "exists": true,
+      "is_symlink": false,
+      "is_file": true,
+      "is_dir": false,
+      "size_bytes": 131072,
+      "mode": "0o644",
+      "uid": 0,
+      "gid": 0,
+      "device": 64512,
+      "inode": 788678,
+      "modified_at": "2026-09-17T17:06:33.015194+00:00",
+      "metadata_changed_at": "2026-09-17T17:06:33.015194+00:00",
+      "sqlite": {
+        "schema_version": null,
+        "schema_lineage": null,
+        "user_version": 0,
+        "application_id": 0,
+        "page_count": 32,
+        "page_size": 4096,
+        "freelist_count": 0,
+        "counts": {}
+      }
+    }
+  ],
+  "scan": {
+    "scanned_entries": 834,
+    "truncated": false,
+    "errors": []
+  }
+}

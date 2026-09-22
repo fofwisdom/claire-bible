@@ -1,0 +1,19 @@
+{
+  "id": 382,
+  "received_at": 1789727437.7021239,
+  "source": "telegram",
+  "user_id": 61968346,
+  "chat_id": 61968346,
+  "kind": "url",
+  "payload": "https://arxiv.org/pdf/2609.09090",
+  "file_name": null,
+  "file_ref": null,
+  "document_id": "doc_28418a825761",
+  "status": "done",
+  "error": null,
+  "attempts": 0,
+  "last_attempt": null,
+  "next_retry_at": null,
+  "theme_id": 0,
+  "theme_label": "기본 지식베이스"
+}

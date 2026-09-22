@@ -217,3 +217,28 @@ def test_fetch_web_carries_images_into_meta(monkeypatch):
     _patch_chain(monkeypatch, static=("T", body, [], {}, None, None, imgs))
     doc = web.fetch_web("https://example.com/post")
     assert doc.meta["images"] == imgs
+
+
+def test_fetch_web_delegates_to_fetch_video_on_media_response(monkeypatch):
+    from unittest.mock import MagicMock
+    from claire.ingest.fetchers.web import FetchStaticResult
+    from claire.ontology.base import Document
+    import claire.ingest.fetchers.video as videomod
+
+    mock_doc = Document(
+        url="https://example.com/api/get-recording?id=123",
+        title="Recorded Video",
+        raw_text="[영상 자막]\n녹화본 전사 내용",
+        source_type="video",
+    )
+    mock_fetch_video = MagicMock(return_value=mock_doc)
+    monkeypatch.setattr(videomod, "fetch_video", mock_fetch_video)
+
+    static_res = FetchStaticResult(None, "", [], {}, None, "https://example.com/api/get-recording?id=123", [], False, {}, doc_type="video")
+    monkeypatch.setattr(web, "_fetch_static", lambda _u: static_res)
+
+    doc = web.fetch_web("https://example.com/api/get-recording?id=123")
+    assert doc.source_type == "video"
+    assert doc.title == "Recorded Video"
+    mock_fetch_video.assert_called_once_with("https://example.com/api/get-recording?id=123", full_content=False)
+

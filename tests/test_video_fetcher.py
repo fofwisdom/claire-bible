@@ -158,3 +158,36 @@ def test_fetch_video_uploader_channel_isolation(monkeypatch: pytest.MonkeyPatch)
     assert doc.meta.get("video_channel") == "Orbrium"
     assert "발표자/채널: Orbrium" not in doc.raw_text
 
+
+def test_resolve_media_title():
+    from claire.ingest.fetchers.video import resolve_media_title
+
+    # 1. Generic title "download" with prefix param -> should resolve to filename stem
+    url1 = "https://orb.etevers.tech/minio/api/v1/buckets/asset/objects/download?prefix=files/snsPost/c258/a938aae0-943a-4f50-bdb8-ffbf6688aee3.mp4"
+    assert resolve_media_title(url1, "download") == "a938aae0-943a-4f50-bdb8-ffbf6688aee3"
+
+    # 2. Key param in S3 presigned URL
+    url2 = "https://s3.amazonaws.com/bucket/download?key=media/tech_conference_keynote.mp4"
+    assert resolve_media_title(url2, "video") == "tech_conference_keynote"
+
+    # 3. Meaningful title preserved
+    assert resolve_media_title(url1, "Official Session Keynote") == "Official Session Keynote"
+
+    # 4. Standard path stem
+    url3 = "https://example.com/videos/product_demo.mp4"
+    assert resolve_media_title(url3, "") == "product_demo"
+
+
+def test_video_fetcher_can_handle_direct_links():
+    from claire.ingest.fetchers.video import VideoFetcher
+
+    minio_url = "https://orb.etevers.tech/minio/api/v1/buckets/asset/objects/download?prefix=files/snsPost/c258/a938aae0.mp4"
+    assert VideoFetcher.can_handle(minio_url) is True
+
+    s3_url = "https://s3.amazonaws.com/bucket/item?filename=lecture.mkv"
+    assert VideoFetcher.can_handle(s3_url) is True
+
+    non_video_url = "https://example.com/articles/index.html"
+    assert VideoFetcher.can_handle(non_video_url) is False
+
+

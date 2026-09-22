@@ -1,0 +1,39 @@
+{
+  "platform": "Linux-7.0.0-31-generic-x86_64-with-glibc2.41",
+  "python_version": "3.11.16",
+  "system": "Linux",
+  "machine": "x86_64",
+  "cpu_count": 2,
+  "sqlite_version": "3.46.1",
+  "zstd_version": [
+    1,
+    5,
+    7
+  ],
+  "disk_usage": {
+    "total_bytes": 38727483392,
+    "used_bytes": 10156408832,
+    "free_bytes": 26570813440
+  },
+  "provider_env": {
+    "raw_bin": "agy",
+    "found_path": "/host-bin/agy",
+    "is_executable": true,
+    "checked_paths": [
+      {
+        "path": "agy",
+        "exists": false,
+        "executable": false
+      },
+      {
+        "path": "/host-bin/agy",
+        "via": "which",
+        "exists": true,
+        "executable": true
+      }
+    ],
+    "uid": 0,
+    "path_env": "/app/.venv/bin:/host-bin:/usr/local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+    "error": null
+  }
+}

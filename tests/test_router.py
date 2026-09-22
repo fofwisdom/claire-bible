@@ -84,3 +84,30 @@ def test_naver_tv_url_recognition():
     assert classify(shared) == "video"
 
 
+def test_direct_media_url_with_query_params():
+    # MinIO 객체 다운로드 URL
+    minio_url = (
+        "https://orb.etevers.tech/minio/api/v1/buckets/asset/objects/download"
+        "?prefix=files/snsPost/c25871c7-6c0a-4930-a5a9-f8eff59b5008/a938aae0-943a-4f50-bdb8-ffbf6688aee3.mp4"
+    )
+    assert classify(minio_url) == "video"
+
+    # S3 / CDN 사전서명 URL 형태
+    s3_url = "https://s3.amazonaws.com/mybucket/download?key=media%2Fsession_recording.mov&token=xyz"
+    assert classify(s3_url) == "video"
+
+    cdn_audio = "https://cdn.example.org/api/v2/stream?filename=episode_12.mp3&auth=1"
+    assert classify(cdn_audio) == "video"
+
+    # 공유 텍스트 형태
+    shared = f"세미나 녹화본입니다 {minio_url}"
+    assert classify(shared) == "video"
+
+
+def test_expanded_media_extensions_recognition():
+    for ext in [".mov", ".mkv", ".wav", ".aac", ".flac", ".ogg", ".opus", ".ts"]:
+        url = f"https://example.com/assets/presentation{ext}"
+        assert classify(url) == "video", f"Failed for {ext}"
+
+
+

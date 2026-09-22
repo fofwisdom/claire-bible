@@ -182,7 +182,7 @@ def fetch_video(
             f"({caption.error or 'unknown caption download error'})"
         )
 
-    title = str(info.get("title") or "").strip()
+    title = resolve_media_title(url, str(info.get("title") or ""))
     uploader = str(info.get("uploader") or info.get("channel") or "").strip()
     description = str(info.get("description") or "").strip()
     duration_val = info.get("duration")
@@ -190,10 +190,6 @@ def fetch_video(
     tags = info.get("tags") or info.get("categories") or []
     chapters = info.get("chapters") or []
     formatted_chapters = format_chapters(chapters)
-
-    if not title:
-        # URL 기반 기본 제목
-        title = Path(urlsplit(url).path).stem or "Video"
 
     transcript_text = caption.text
     segments_data: list[dict] = []
@@ -428,29 +424,88 @@ def fetch_video(
         doc.meta["presentation_pdf"] = {"status": "absent"}
     return doc
 
+MEDIA_EXTENSIONS = (
+    # Video
+    ".mp4", ".m3u8", ".mpd", ".webm", ".mov", ".mkv", ".avi", ".ts", ".m4v", ".flv",
+    # Audio
+    ".mp3", ".m4a", ".wav", ".aac", ".flac", ".ogg", ".opus", ".wma",
+)
+
+
+def is_video_or_audio_url(url: str) -> bool:
+    """비디오 또는 오디오 미디어 URL인지 판별 (경로 및 쿼리 파라미터 파일명 포함)."""
+    if not url:
+        return False
+    from urllib.parse import parse_qsl, unquote, urlsplit
+    try:
+        parsed = urlsplit(url)
+        host = (parsed.netloc or "").lower()
+        path = (parsed.path or "").lower()
+        if ("vmware.com" in host and "/explore/video/" in path) or "brightcove.net" in host:
+            return True
+        if "vimeo.com" in host:
+            return True
+        if "tv.naver.com" in host or "now.naver.com" in host or ("naver.com" in host and "/v/" in path):
+            return True
+        # 1. 경로 확장자 검사
+        if any(path.endswith(ext) for ext in MEDIA_EXTENSIONS):
+            return True
+        # 2. 쿼리 파라미터 검사 (MinIO, S3, CDN download 링크 등)
+        if parsed.query:
+            for _, val in parse_qsl(parsed.query, keep_blank_values=True):
+                v_clean = unquote(val).lower().split("?")[0].split("#")[0].strip()
+                if any(v_clean.endswith(ext) for ext in MEDIA_EXTENSIONS):
+                    return True
+        return False
+    except Exception:
+        return False
+
+
+def resolve_media_title(url: str, raw_title: str | None = None) -> str:
+    """영상/오디오 제목이 'download'나 빈 값 등 무의미한 generic 단어일 경우 파일명 기반으로 보정."""
+    title = (raw_title or "").strip()
+    generic_titles = {"download", "video", "media", "audio", "untitled", "default", "stream", "index"}
+    if title and title.lower() not in generic_titles:
+        return title
+
+    from urllib.parse import parse_qsl, unquote, urlsplit
+    try:
+        parsed = urlsplit(url)
+        # 1. 쿼리 파라미터 탐색 (prefix, filename, file, key 등)
+        if parsed.query:
+            q_dict = dict(parse_qsl(parsed.query, keep_blank_values=True))
+            for candidate_key in ("filename", "file", "prefix", "key", "name", "object", "path"):
+                if candidate_key in q_dict:
+                    val = unquote(q_dict[candidate_key]).strip().split("?")[0].split("#")[0]
+                    cand_stem = Path(val).stem
+                    if cand_stem and cand_stem.lower() not in generic_titles:
+                        return cand_stem
+            for _, val in parse_qsl(parsed.query, keep_blank_values=True):
+                val_unquoted = unquote(val).strip().split("?")[0].split("#")[0]
+                cand_stem = Path(val_unquoted).stem
+                if cand_stem and cand_stem.lower() not in generic_titles:
+                    if any(val_unquoted.lower().endswith(ext) for ext in MEDIA_EXTENSIONS):
+                        return cand_stem
+
+        # 2. 경로 stem 탐색
+        path_stem = Path(parsed.path).stem
+        if path_stem and path_stem.lower() not in generic_titles:
+            return path_stem
+    except Exception:
+        pass
+
+    return title or "Video"
+
+
 from .base import BaseFetcher
 from ..registry import register_fetcher
+
 
 @register_fetcher("video", priority=80)
 class VideoFetcher(BaseFetcher):
     @classmethod
     def can_handle(cls, url: str) -> bool:
-        from urllib.parse import urlsplit
-        try:
-            parsed = urlsplit(url.lower())
-            host = parsed.netloc
-            path = parsed.path
-            if ("vmware.com" in host and "/explore/video/" in path) or "brightcove.net" in host:
-                return True
-            if "vimeo.com" in host:
-                return True
-            if "tv.naver.com" in host or "now.naver.com" in host or ("naver.com" in host and "/v/" in path):
-                return True
-            if path.endswith((".mp4", ".m3u8", ".mpd", ".webm", ".m4a", ".mp3")):
-                return True
-            return False
-        except Exception:
-            return False
+        return is_video_or_audio_url(url)
 
     @classmethod
     def name(cls) -> str:

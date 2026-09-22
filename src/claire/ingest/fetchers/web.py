@@ -86,6 +86,10 @@ def fetch_web(url: str, *, full_content: bool = False) -> Document:
     title, text, links, anchors, err, effective_url, images = res[:7]
     is_pdf = bool(res[7]) if len(res) > 7 else False
     doc_type = getattr(res, "doc_type", None) or ("pdf" if is_pdf else "web")
+    if doc_type == "video":
+        from .video import fetch_video
+        return fetch_video(effective_url or url, full_content=full_content)
+
     parser_info: dict[str, Any] = getattr(res, "parser_info", {}) or {}
     usable, guard_err = _is_usable(title, text)
 
@@ -245,13 +249,15 @@ def _fetch_static(
     canonical 기준. 실패하면 None. 실패해도 예외 대신 빈 결과를 돌려준다. images 는
     본문 이미지 후보(상대경로는 effective_url 기준으로 절대경로화).
     """
-    from .http import SafeHttpClient
+    from .http import SafeHttpClient, MediaResponseDetected, is_media_content_type, has_media_disposition
     from .base import FetchError
 
     try:
         client = SafeHttpClient(timeout=30)
         try:
             resp = client.get(url)
+        except MediaResponseDetected as e:
+            return FetchStaticResult(None, "", [], {}, None, e.url, [], False, {}, doc_type="video")
         except FetchError as e:
             return FetchStaticResult(None, "", [], {}, str(e), None, [], False, {})
         if resp.status_code >= 400:
@@ -259,6 +265,10 @@ def _fetch_static(
 
         ctype = resp.headers.get("content-type", "").lower()
         cdisp = resp.headers.get("content-disposition", "").lower()
+
+        # 미디어 응답 체크 (video/audio 감지 시 fetch_video로 위임하도록 doc_type 설정)
+        if is_media_content_type(ctype) or has_media_disposition(cdisp):
+            return FetchStaticResult(None, "", [], {}, None, str(resp.url), [], False, {}, doc_type="video")
 
         # ODT 체크 (Content Negotiation 및 ODT 우선 정책)
         from .odt import is_odt_bytes

@@ -1,0 +1,24 @@
+{
+  "total_calls": 424,
+  "success_calls": 419,
+  "failed_calls": 5,
+  "success_rate": 0.9882,
+  "by_provider": {
+    "antigravity": 424
+  },
+  "by_status": {
+    "CLI_ERROR": 3,
+    "SUCCESS": 419,
+    "TIMEOUT": 2
+  },
+  "by_block_reason": {
+    "CLI_ERROR": 1,
+    "INVALID_SCHEMA": 2,
+    "NONE": 419,
+    "TIMEOUT": 2
+  },
+  "by_verdict": {
+    "N/A": 405,
+    "REAL_LLM": 19
+  }
+}
