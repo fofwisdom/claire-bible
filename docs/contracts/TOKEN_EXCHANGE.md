@@ -3,6 +3,9 @@
 이 문서는 테제 계보(`blackan/claire_bible`)와 증강 계보(`fofwisdom/claire-bible`)가 토큰 교환, 인가 위임과 세션 전환을 상호 호환 가능하게 처리하기 위한 RFC 8693 (OAuth 2.0 Token Exchange) 최소 공통 계약을 정의한다.
 인증 채널이 다른 클라이언트(웹 UI, Telegram 봇, MCP 에이전트, CI 파이프라인)가 동일한 프로토콜로 Bearer 접근 토큰을 발급받거나 다운스케이프하기 위한 유일한 와이어 규약이다.
 
+> [!NOTE]
+> `POST /oauth/token` 엔드포인트는 본 RFC 8693 외에도, Google Gemini 등 MCP 클라이언트의 표준 OAuth 2.1 인가를 위한 `grant_type=authorization_code` (PKCE S256) 및 `grant_type=refresh_token`을 단일 엔드포인트에서 통합 처리한다. 상세 사양은 [`docs/origin/design/MCP_SUPPORT.md`](../origin/design/MCP_SUPPORT.md)를 참고한다.
+
 계약 상태는 증강 계보(`fofwisdom`)에서 `adopted`, 테제 계보(`blackan`)에서 `candidate`다.
 테제 계보 병합 후에만 `accepted`로 갱신한다.
 
