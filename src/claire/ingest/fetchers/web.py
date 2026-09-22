@@ -640,6 +640,14 @@ def render_html_cdp(
             if click_tab_label:
                 try:
                     target = page.get_by_role("tab", name=click_tab_label, exact=True)
+                    if target.count() == 0 and hasattr(target, "wait_for"):
+                        try:
+                            target.wait_for(
+                                state="attached",
+                                timeout=int(min(interaction_timeout_seconds, 4.0) * 1000),
+                            )
+                        except Exception:
+                            pass
                     if target.count() == 0:
                         return
                     target.click(timeout=int(interaction_timeout_seconds * 1000))
