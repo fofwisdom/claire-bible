@@ -618,3 +618,144 @@ def test_support_bundle_cli(tmp_path: Path, monkeypatch, capsys):
     assert ret == 0
     out_purge = capsys.readouterr().out
     assert "파기 완료" in out_purge
+
+
+def test_support_bundle_mcp_artifacts(tmp_path: Path):
+    """Support Bundle에 MCP 팩트 엔지니어링 아티팩트(mcp.json, oauth_summary.json, mcp_records, mcp_stats)가 정상 수집되는지 검증."""
+    from claire.store.telemetry import record_mcp_telemetry
+
+    db_file = tmp_path / "claire.db"
+    _seed_db(db_file)
+    _seed_telemetry(tmp_path)
+
+    # 1. OAuth 클라이언트 및 토큰 데이터 시딩
+    conn = dbm.connect_existing(db_file)
+    try:
+        conn.execute(
+            """
+            INSERT INTO oauth_clients (client_id, client_secret, client_name, redirect_uris, created_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            ("claire_mcp_client_1", "super_secret_client_key", "Gemini Test Client", '["https://gemini.google.com/callback"]', time.time()),
+        )
+        conn.execute(
+            """
+            INSERT INTO oauth_tokens (token, refresh_token, client_id, scope, created_at, expires_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            ("secret_bearer_token_xyz_999", "secret_refresh_token_abc_111", "claire_mcp_client_1", "readonly", time.time(), time.time() + 3600),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    # 2. MCP 텔레메트리 시딩
+    record_mcp_telemetry(
+        tmp_path,
+        client_id="claire_mcp_client_1",
+        call_type="tool_call",
+        tool_name="search",
+        duration_ms=15,
+        status="SUCCESS",
+        response_bytes=1024,
+    )
+    record_mcp_telemetry(
+        tmp_path,
+        client_id="claire_mcp_client_1",
+        call_type="tool_call",
+        tool_name="neighbors",
+        duration_ms=35,
+        status="SUCCESS",
+        response_bytes=2048,
+    )
+    record_mcp_telemetry(
+        tmp_path,
+        client_id="unknown",
+        call_type="http_mcp",
+        tool_name=None,
+        duration_ms=2,
+        status="UNAUTHORIZED",
+        error_code=401,
+        error_message="HTTP 401",
+        response_bytes=45,
+    )
+
+    # 3. 더미 api.log 파일 생성
+    logs_dir = tmp_path / "logs"
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    api_log = logs_dir / "api.log"
+    api_log.write_text("2026-09-22 23:00:00 [INFO] [claire.api] POST /mcp 200\n", encoding="utf-8")
+
+    settings = StubSettings(db_file=db_file, data_dir=tmp_path)
+    bundle_info = create_support_bundle(settings, days=1)
+
+    # 4. 생성된 아카이브 검증
+    archive_path = Path(bundle_info.filepath)
+    assert archive_path.is_file()
+
+    dctx = zstd.ZstdDecompressor()
+    decompressed_data = dctx.decompress(archive_path.read_bytes(), max_output_size=50_000_000)
+    tar = tarfile.open(fileobj=io.BytesIO(decompressed_data), mode="r:")
+    names = tar.getnames()
+    root = f"support_bundle_{bundle_info.bundle_id[-8:]}"
+
+    assert f"{root}/diagnostics/mcp.json" in names
+    assert f"{root}/pipeline/oauth_summary.json" in names
+    assert f"{root}/logs/api.log" in names
+    assert f"{root}/telemetry/mcp_records.jsonl" in names
+    assert f"{root}/telemetry/mcp_stats.json" in names
+
+    def _read_json(name: str) -> dict:
+        f = tar.extractfile(name)
+        assert f is not None
+        return json.loads(f.read().decode("utf-8"))
+
+    # 5. diagnostics/mcp.json 내용 검증
+    mcp_diag = _read_json(f"{root}/diagnostics/mcp.json")
+    assert mcp_diag["mcp_runtime"]["transport"] == "streamable_http"
+    assert mcp_diag["mcp_runtime"]["endpoint_path"] == "/mcp"
+    assert len(mcp_diag["tools_registered"]) == 10
+    tool_names = {t["name"] for t in mcp_diag["tools_registered"]}
+    assert "resolve_entity" in tool_names
+    assert "search" in tool_names
+    assert "neighbors" in tool_names
+    assert "stats" in tool_names
+
+    # 6. pipeline/oauth_summary.json 내용 검증 (토큰 원문 절대 미포함, SHA-256 앞 8자리 확인)
+    oauth_sum = _read_json(f"{root}/pipeline/oauth_summary.json")
+    assert oauth_sum["summary"]["total_registered_clients"] == 1
+    assert oauth_sum["summary"]["active_tokens_count"] == 1
+    assert oauth_sum["summary"]["expired_tokens_count"] == 0
+    assert oauth_sum["clients"][0]["client_name"] == "Gemini Test Client"
+
+    expected_sha_prefix = hashlib.sha256("secret_bearer_token_xyz_999".encode("utf-8")).hexdigest()[:8]
+    assert oauth_sum["token_inventory"][0]["token_sha256_prefix"] == expected_sha_prefix
+    # 원문 비밀 자격증명이 노출되지 않았는지 확인
+    dumped_oauth_json = json.dumps(oauth_sum)
+    assert "secret_bearer_token_xyz_999" not in dumped_oauth_json
+    assert "super_secret_client_key" not in dumped_oauth_json
+    assert "secret_refresh_token_abc_111" not in dumped_oauth_json
+
+    # 7. pipeline/db_integrity.json의 counts에 OAuth 테이블 포함 확인
+    db_integ = _read_json(f"{root}/pipeline/db_integrity.json")
+    counts = db_integ["counts"]
+    assert "oauth_clients" in counts
+    assert "oauth_tokens" in counts
+    assert counts["oauth_clients"] >= 1
+    assert counts["oauth_tokens"] >= 1
+
+    # 8. telemetry/mcp_stats.json 내용 검증
+    mcp_stats = _read_json(f"{root}/telemetry/mcp_stats.json")
+    assert mcp_stats["total_calls"] == 3
+    assert mcp_stats["success_calls"] == 2
+    assert mcp_stats["failed_calls"] == 1
+    assert mcp_stats["calls_by_tool"]["search"] == 1
+    assert mcp_stats["calls_by_tool"]["neighbors"] == 1
+    assert mcp_stats["errors_by_type"]["UNAUTHORIZED"] == 1
+
+    # 9. telemetry/mcp_records.jsonl 내용 검증
+    f_rec = tar.extractfile(f"{root}/telemetry/mcp_records.jsonl")
+    assert f_rec is not None
+    found_lines = f_rec.read().decode("utf-8").splitlines()
+    assert len(found_lines) == 3
+

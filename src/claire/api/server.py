@@ -1516,15 +1516,30 @@ def create_app(
                 chunks.append(message.get("body", b""))
 
         await mcp_app(request.scope, request.receive, send)
+        status_code = response_meta.get("status", 500)
         resp = Response(
             content=b"".join(chunks),
-            status_code=response_meta.get("status", 500),
+            status_code=status_code,
         )
         for k, v in response_meta.get("headers", []):
             name = k.decode("latin-1")
             if name.lower() == "content-length":
                 continue
             resp.headers[name] = v.decode("latin-1")
+
+        if status_code != 200:
+            from ..store.telemetry import record_mcp_telemetry
+
+            record_mcp_telemetry(
+                s.data_dir,
+                call_type="http_mcp",
+                tool_name=None,
+                status="UNAUTHORIZED" if status_code == 401 else "ERROR",
+                error_code=status_code,
+                error_message=f"HTTP {status_code}",
+                response_bytes=len(resp.body) if hasattr(resp, "body") else len(b"".join(chunks)),
+            )
+
         return resp
 
     async def create_support_bundle_route(request: Request) -> JSONResponse:
@@ -1737,6 +1752,23 @@ def run_api() -> int:
         return 2
 
     logging.basicConfig(level=logging.INFO)
+    try:
+        from logging.handlers import RotatingFileHandler
+        logs_dir = Path(getattr(s, "data_dir", "data")) / "logs"
+        logs_dir.mkdir(parents=True, exist_ok=True)
+        api_log_file = logs_dir / "api.log"
+        root_logger = logging.getLogger()
+        has_file = any(
+            isinstance(h, RotatingFileHandler) and getattr(h, "baseFilename", "") == str(api_log_file)
+            for h in root_logger.handlers
+        )
+        if not has_file:
+            fh = RotatingFileHandler(str(api_log_file), maxBytes=10 * 1024 * 1024, backupCount=3, encoding="utf-8")
+            fh.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] [%(name)s] %(message)s"))
+            root_logger.addHandler(fh)
+    except Exception:
+        pass
+
     print(
         "Claire ASGI 웹 서비스 시작: "
         f"{runtime.public_origin} "

@@ -361,6 +361,7 @@ class WebRuntimeConfig:
     db_file: Any = field(repr=False)
     ga_measurement_id: str = ""
     cloudflare_ips_only: bool = False
+    data_dir: Path | None = None
 
     @classmethod
     def from_settings(cls, settings: Any) -> WebRuntimeConfig:
@@ -443,6 +444,13 @@ class WebRuntimeConfig:
 
         cf_ips_only = bool(getattr(settings, "cloudflare_ips_only", False))
 
+        raw_data_dir = getattr(settings, "data_dir", None)
+        if raw_data_dir is not None:
+            data_dir = Path(raw_data_dir)
+        else:
+            db_val = getattr(settings, "db_file", None)
+            data_dir = Path(db_val).parent if db_val else None
+
         return cls(
             environment=environment,
             public_origin=public_origin,
@@ -456,6 +464,7 @@ class WebRuntimeConfig:
             db_file=_setting(settings, "db_file"),
             ga_measurement_id=ga_id,
             cloudflare_ips_only=cf_ips_only,
+            data_dir=data_dir,
         )
 
 
@@ -1045,6 +1054,48 @@ class AuthenticationMiddleware:
         self.app = app
         self.config = config
 
+    def _record_mcp_auth_failure(
+        self,
+        status_code: int = 401,
+        error: str = "invalid_token",
+        description: str = "Authentication required",
+    ) -> None:
+        if not self.config.data_dir:
+            return
+        try:
+            from ..store.telemetry import record_mcp_telemetry
+
+            record_mcp_telemetry(
+                self.config.data_dir,
+                call_type="http_mcp",
+                tool_name=None,
+                status="UNAUTHORIZED" if status_code == 401 else "FORBIDDEN" if status_code == 403 else "ERROR",
+                error_code=status_code,
+                error_message=f"{error}: {description}" if description else error,
+            )
+        except Exception:
+            pass
+
+    async def _send_mcp_error(
+        self,
+        scope: Scope,
+        receive: Receive,
+        send: Send,
+        status_code: int = 401,
+        error: str = "invalid_token",
+        description: str = "Authentication required",
+        resource_metadata: str | None = None,
+    ) -> None:
+        self._record_mcp_auth_failure(status_code, error, description)
+        await _send_response(
+            _mcp_auth_error_response(
+                status_code, error, description, resource_metadata=resource_metadata
+            ),
+            scope,
+            receive,
+            send,
+        )
+
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
@@ -1145,13 +1196,13 @@ class AuthenticationMiddleware:
         origin_kind = state.get(_ORIGIN_KIND_KEY, "none")
         if _raw_headers(scope, b"x-token"):
             if path == "/mcp":
-                await _send_response(
-                    _mcp_auth_error_response(
-                        401, "invalid_token", "X-Token header not supported"
-                    ),
+                await self._send_mcp_error(
                     scope,
                     receive,
                     send,
+                    401,
+                    "invalid_token",
+                    "X-Token header not supported",
                 )
                 return
             status = 403 if origin_kind == "cross" else 404
@@ -1169,13 +1220,13 @@ class AuthenticationMiddleware:
         x_session_headers = _raw_headers(scope, b"x-session")
         if len(x_session_headers) > 1:
             if path == "/mcp":
-                await _send_response(
-                    _mcp_auth_error_response(
-                        401, "invalid_token", "Multiple X-Session headers provided"
-                    ),
+                await self._send_mcp_error(
                     scope,
                     receive,
                     send,
+                    401,
+                    "invalid_token",
+                    "Multiple X-Session headers provided",
                 )
                 return
             status = 403 if origin_kind == "cross" else 404
@@ -1206,15 +1257,13 @@ class AuthenticationMiddleware:
         )
         if credentials_count > 1:
             if path == "/mcp":
-                await _send_response(
-                    _mcp_auth_error_response(
-                        401,
-                        "invalid_token",
-                        "Multiple authentication credentials provided",
-                    ),
+                await self._send_mcp_error(
                     scope,
                     receive,
                     send,
+                    401,
+                    "invalid_token",
+                    "Multiple authentication credentials provided",
                 )
                 return
             status = 403 if origin_kind == "cross" else 404
@@ -1230,13 +1279,13 @@ class AuthenticationMiddleware:
 
         if origin_kind == "cross" and _raw_headers(scope, b"cookie"):
             if path == "/mcp":
-                await _send_response(
-                    _mcp_auth_error_response(
-                        403, "insufficient_scope", "Forbidden"
-                    ),
+                await self._send_mcp_error(
                     scope,
                     receive,
                     send,
+                    403,
+                    "insufficient_scope",
+                    "Forbidden",
                 )
                 return
             await _send_response(
@@ -1246,13 +1295,13 @@ class AuthenticationMiddleware:
 
         if authorization_present and bearer is None:
             if path == "/mcp":
-                await _send_response(
-                    _mcp_auth_error_response(
-                        401, "invalid_token", "Invalid authorization header"
-                    ),
+                await self._send_mcp_error(
                     scope,
                     receive,
                     send,
+                    401,
+                    "invalid_token",
+                    "Invalid authorization header",
                 )
                 return
             status = 403 if origin_kind == "cross" else 404
@@ -1291,16 +1340,14 @@ class AuthenticationMiddleware:
         if origin_kind == "cross" and auth_channel != "bearer":
             if path == "/mcp":
                 res_meta = f"{self.config.public_origin}/.well-known/oauth-protected-resource"
-                await _send_response(
-                    _mcp_auth_error_response(
-                        403,
-                        "insufficient_scope",
-                        "Cross-origin requests require Bearer token",
-                        resource_metadata=res_meta,
-                    ),
+                await self._send_mcp_error(
                     scope,
                     receive,
                     send,
+                    403,
+                    "insufficient_scope",
+                    "Cross-origin requests require Bearer token",
+                    resource_metadata=res_meta,
                 )
                 return
             await _send_response(
@@ -1329,13 +1376,14 @@ class AuthenticationMiddleware:
         ):
             if path == "/mcp":
                 res_meta = f"{self.config.public_origin}/.well-known/oauth-protected-resource"
-                await _send_response(
-                    _mcp_auth_error_response(
-                        403, "insufficient_scope", "Forbidden", resource_metadata=res_meta
-                    ),
+                await self._send_mcp_error(
                     scope,
                     receive,
                     send,
+                    403,
+                    "insufficient_scope",
+                    "Forbidden",
+                    resource_metadata=res_meta,
                 )
                 return
             await _send_response(
@@ -1384,11 +1432,14 @@ class AuthenticationMiddleware:
                     else "Authentication required"
                 )
                 res_meta = f"{self.config.public_origin}/.well-known/oauth-protected-resource"
-                await _send_response(
-                    _mcp_auth_error_response(401, "invalid_token", desc, resource_metadata=res_meta),
+                await self._send_mcp_error(
                     scope,
                     receive,
                     send,
+                    401,
+                    "invalid_token",
+                    desc,
+                    resource_metadata=res_meta,
                 )
                 return
             response = PlainTextResponse("Not Found", status_code=404)

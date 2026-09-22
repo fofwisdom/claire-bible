@@ -1,25 +1,28 @@
-# 프로바이더 텔레메트리 격리 및 Support Bundle 아키텍처 설계
+# 프로바이더 및 MCP 텔레메트리 격리·Support Bundle 통합 아키텍처 설계
 
-이 문서는 Antigravity(`agy`) 및 멀티 LLM 프로바이더 실행 시 발생하는 이상 현상(mock 요약, Google 정책 차단, 응답 결손)의 실증 데이터를 수집하기 위한 **물리적으로 격리된 텔레메트리 서브시스템**과 근본 원인 분석(RCA)을 위한 **Support Bundle(zstd 압축, 공유 링크 추적, 6시간 자동 파기)** 아키텍처 설계를 기술합니다.
+이 문서는 Antigravity(`agy`) 및 멀티 LLM 프로바이더 실행 시 발생하는 이상 현상과 외부 AI 에이전트(Google Gemini Spark, Claude Desktop 등)의 Model Context Protocol(MCP) 및 OAuth 2.1 연동 이상 현상의 실증 데이터를 수집하기 위한 **물리적으로 격리된 텔레메트리 서브시스템**과 근본 원인 분석(RCA)을 위한 **Support Bundle(zstd 압축, 공유 링크/OAuth 추적, 6시간 자동 파기)** 통합 아키텍처 설계를 기술합니다.
 
 > [!IMPORTANT]
 > 이 문서에서 별도 표기가 없는 기존 텔레메트리 수집과 Support Bundle format v3 동작은 **Implemented**입니다.
-> 아래의 telemetry schema v1/lineage, read-only 진단 전용 연결, Support Bundle format v4와 이중 registry 불일치 차단은 **Planned / 미구현**입니다.
+> 아래의 telemetry schema v1/lineage, read-only 진단 전용 연결, Support Bundle format v4와 이중 registry 불일치 차단, 그리고 MCP 관측성 확장(`diagnostics/mcp.json`, `pipeline/oauth_summary.json`, `telemetry/mcp_records.jsonl`)은 **Planned / 단계별 구현**입니다.
 
 ---
 
 ## 1. 설계 배경 및 변경 사유
 
-### 1.1 문제 정의: 간헐적 Mock 및 방어 슬라이스 요약 재발
-인제스트 파이프라인 운영 중, Antigravity(`agy`) 프로바이더를 사용할 때 요약 결과가 간헐적으로 `[mock]` 또는 본문 첫 200자 슬라이스(`raw_text[:200]`)로 대체되는 현상이 보고되었습니다.
-- **원인 분석의 한계**: CLI 표준 에러(stderr)가 `/tmp/agy.log` 등 휘발성 경로에 기록되어 프로세스 종료 후 증거가 소실되었고, Google 정책 차단인지, RPM 429인지, 바이너리 실행 권한 문제인지 추론에 의존해야 했습니다.
-- **방어 슬라이싱의 착시**: `AntigravityProvider.extract` 내에서 CLI 실패 시 `raw_text[:200]`을 요약으로 반환하는 방어 로직이 존재하여, 파이프라인은 오류가 아닌 정상 완료(`status='done'`)로 처리해 결손이 은폐되었습니다.
+### 1.1 문제 정의: LLM 이상 현상 및 외부 MCP 에이전트 관측성 사각지대
+1. **인제스트 및 LLM 프로바이더 결손 은폐**:
+   - Antigravity(`agy`) 프로바이더 사용 시 요약 결과가 간헐적으로 `[mock]` 또는 본문 첫 200자 슬라이스(`raw_text[:200]`)로 대체되는 현상이 보고되었습니다.
+   - CLI 표준 에러(stderr)가 휘발되어 Google 정책 차단, RPM 429, 바이너리 권한 문제 추적이 불가능했고, 방어 슬라이싱이 정상 완료(`status='done'`)로 오판되는 문제가 있었습니다.
+2. **외부 MCP 에이전트 연동의 관측성 부재 (100% Blind Spot)**:
+   - Claire는 RFC 6749/6750/7591/7636/8414/9728 표준 OAuth 2.1 인가 서버와 Streamable HTTP MCP 엔드포인트(`/mcp`)를 구축하여 외부 에이전트와 통신합니다.
+   - 그러나 프로덕션 운영 Support Bundle(`sb_20260922_140548_f84b2c22`)을 실측 분석한 결과, MCP 도구 호출 텔레메트리, OAuth 인가/토큰 상태, API 서버 접근 로그가 완전히 누락되어 있어 외부 클라이언트 통신 장애 시 원격 근본 원인 분석(RCA)이 불가능한 한계가 입증되었습니다.
 
 ### 1.2 핵심 제약 조건: 정본 지식 DB(`claire.db`) 무부하·무경합 원칙
-관측성 데이터를 수집하되, **정본 지식 데이터베이스(`data/claire.db`)의 안전성과 성능을 100% 보존**해야 했습니다:
-1. **단일 작성자 락 경합(Single-Writer Lock Contention) 배제**: SQLite는 트랜잭션 쓰기 시 파일 전체 락을 점유합니다. 대량 문서 인제스트 도중 텔레메트리 레코드를 동일 DB에 기록하면 `busy_timeout` 초과 및 `database is locked` 에러가 발생할 위험이 있습니다.
-2. **지식 DB 비대화(Bloat) 차단**: CLI 호출마다 누적되는 입출력 스니펫, 에러 로그, 통계 데이터가 본체 지식 그래프 용량을 오염시키지 않아야 합니다.
-3. **Fire-and-Forget 안전성**: 텔레메트리 기록 실패가 본선 문서 인제스트 트랜잭션을 롤백시키거나 중단시켜서는 안 됩니다.
+관측성 데이터를 수집하되, **정본 지식 데이터베이스(`data/claire.db`)의 안전성과 성능을 100% 보존**해야 합니다:
+1. **단일 작성자 락 경합(Single-Writer Lock Contention) 배제**: SQLite는 트랜잭션 쓰기 시 파일 전체 락을 점유합니다. 대량 문서 인제스트 및 실시간 MCP 도구 호출 도중 텔레메트리 레코드를 동일 DB에 기록하면 `busy_timeout` 초과 및 `database is locked` 에러가 발생할 위험이 있습니다.
+2. **지식 DB 비대화(Bloat) 차단**: CLI 호출 및 MCP JSON-RPC 트래픽마다 누적되는 입출력 스니펫, 에러 로그, 통계 데이터가 본체 지식 그래프 용량을 오염시키지 않아야 합니다.
+3. **Fire-and-Forget 안전성**: 텔레메트리 기록 실패가 본선 문서 인제스트 트랜잭션이나 MCP 응답 반환을 중단시켜서는 안 됩니다.
 
 ---
 
@@ -27,20 +30,24 @@
 
 ```mermaid
 graph TD
-    subgraph Ingestion_Pipeline [지식 인제스트 파이프라인]
+    subgraph Core_Services [본선 서비스 계층]
         Worker["IngestService / AntigravityProvider"] -->|정본 지식 저장| ClaireDB[("data/claire.db (정본 지식 DB)")]
+        MCPServer["MCP / OAuth 2.1 서버 (/mcp, /oauth/*)"] -->|Read-Only 질의| ClaireDB
         Worker -.->|비동기/안전 기록 (Fire-and-Forget)| TelemetryStore["claire.store.telemetry"]
+        MCPServer -.->|비동기/안전 계측 (Fire-and-Forget)| TelemetryStore
     end
 
     subgraph Isolated_Observability [격리된 관측성 스토리지]
         TelemetryStore -->|독립 WAL / 1s 타임아웃| TelemetryDB[("data/telemetry.db (독립 텔레메트리 DB)")]
         Worker -->|영구 로깅| PersistentLog["data/logs/agy.log"]
+        MCPServer -->|회전 로깅| APILog["data/logs/api.log"]
     end
 
     subgraph RCA_Subsystem [근본 원인 분석 (Support Bundle)]
         BundleManager["claire.support_bundle"] -->|조회| TelemetryDB
         BundleManager -->|읽기 전용 조회| ClaireDB
         BundleManager -->|로그 수집| PersistentLog
+        BundleManager -->|로그 수집| APILog
         BundleManager -->|zstd 압축 (Level 3)| BundleArchive["data/support_bundles/*.tar.zst"]
     end
 
@@ -53,6 +60,7 @@ graph TD
 - `src/claire/store/telemetry.py`에 완전 독립된 SQLite 연결 풀 구성.
 - 전용 WAL 모드(`PRAGMA journal_mode=WAL;`) 및 단기 타임아웃(`PRAGMA busy_timeout=1000;`) 적용.
 - 본선 트랜잭션과 쓰기 락이 완벽히 분리되어 상호 간섭 0%.
+- 프로바이더 호출(`provider_telemetry`)과 MCP 요청(`mcp_telemetry`)을 별도 테이블로 격리 수용.
 
 ### 2.2 telemetry schema v1과 독립 lineage (**Planned / 미구현**)
 
@@ -148,24 +156,30 @@ CLI 반환 코드, stderr, stdout을 분석하여 차단 원인을 8개 카테�
 
 ```text
 support_bundle_<id>/
-├── manifest.json                  # format v3, 생성/만료 시각, 빌드 식별자, 요청·타깃 해석 상태
+├── manifest.json                  # format v3/v4, 생성/만료 시각, 빌드 식별자, 요청·타깃 해석 상태
 ├── diagnostics/
 │   ├── system.json                # OS, Python, CPU, 디스크 용량, SQLite/zstd 버전, agy 환경 진단
 │   ├── config_sanitized.json      # 마스킹된 애플리케이션 설정 (시크릿/토큰 ***REDACTED***)
 │   ├── storage.json               # 실제 경로·mount·inode·mtime, 테마별 DB 해석, 제한된 DB 후보 메타데이터
 │   ├── build.json                 # 이미지에 내장된 Git SHA, 패키지·DB 스키마 버전·계보·이미지 버전
+│   ├── mcp.json                   # [신규] MCP 런타임 환경, 프로토콜 규격, 등록된 10종 도구 표면 메타데이터
 │   └── collector_warnings.json    # 타깃 모호성, 아티팩트 누락, 빌드 식별 실패
 ├── telemetry/
 │   ├── telemetry_records.jsonl    # 지정 기간 내 프로바이더 호출/차단 텔레메트리 전량
-│   └── telemetry_stats.json       # 성공률, 지연시간 백분위(p50/p95), 차단 사유별 집계 통계
+│   ├── telemetry_stats.json       # 성공률, 지연시간 백분위(p50/p95), 차단 사유별 집계 통계
+│   ├── mcp_records.jsonl          # [신규] 지정 기간 내 외부 에이전트 MCP 도구/프로토콜 호출 텔레메트리
+│   └── mcp_stats.json             # [신규] MCP 성공률, 도구별 호출 분포, 레이턴시 백분위, 에러 통계
 ├── logs/
-│   └── agy.log                    # 최근 프로바이더 입출력/에러 로그 (민감정보 마스킹)
+│   ├── agy.log                    # 최근 프로바이더 입출력/에러 로그 (민감정보 마스킹)
+│   ├── telegram.log               # 텔레그램 봇 인입/버튼 및 푸시 인가 상호작용 로그
+│   └── api.log                    # [신규] Starlette/Uvicorn API 서버 (/mcp, /oauth/*) 접근 및 에러 로그
 ├── pipeline/
-│   ├── health.json                # 모든 활성 테마의 read-only liveness 및 전체 health 보고
+│   ├── health.json                # 모든 활성 테마의 read-only liveness, MCP 응답성 및 전체 health 보고
 │   ├── inbox_summary.json         # raw_inbox 상태별 건수
 │   ├── failed_items.json          # 에러/실패 인박스 항목 상세 (RCA 핵심)
-│   ├── shares_index.json          # 토큰 SHA-256과 문서 ID 매핑(토큰 원문은 마스킹)
-│   └── db_integrity.json          # 테마별 경로·스키마·행 수와 claire.db/telemetry.db quick_check 결과
+│   ├── shares_index.json          # 문서 공유 토큰 SHA-256과 문서 ID 매핑(토큰 원문은 마스킹)
+│   ├── oauth_summary.json         # [신규] 등록된 OAuth 2.1 클라이언트 및 활성 토큰 현황 (SHA-256 인덱스)
+│   └── db_integrity.json          # 테마별 경로·스키마·행 수(지식그래프 + OAuth 4종 테이블)와 quick_check 결과
 └── tracked_document/              # (특정 대상 지정 시에만 생성)
     ├── target_resolution.json     # 타깃 해석 결과 (matched_by, share_token 여부)
     ├── document_detail.json       # 정본 문서 메타데이터 및 온톨로지 정보
@@ -192,10 +206,37 @@ Support Bundle 생성 시([`support_bundle.py`](file:///home/fow/Projects/claire
    - 단순 부분 문자열 매칭(`r"(auth|token|key|...)"`) 대신, 단어 경계 및 구분자(`_`, `-`)를 강제하는 정규식을 적용하여 실제 시크릿 키만을 정확하게 마스킹합니다:
      - `(?i)(?:^|[_\-])(pass(?:word)?|secret|token|api_?key|cookie|bearer|credential|cert|private_?key|auth|authorization|key)(?:$|[_\-])`
    - 환경변수 설정(`diagnostics/config_sanitized.json`) 및 로그 내의 실제 Gemini/Antigravity API 키, 텔레그램 봇 토큰, DB 패스워드, 인증 쿠키, 베어러 토큰 등 실제 기밀 자격증명은 `***REDACTED***`로 철저히 마스킹됩니다.
-3. **분석 혼란 방지 (RCA Observability)**:
-   - 지원 번들을 분석하는 엔지니어 또는 LLM 분석 에이전트가 "실제 저자 수집 실패"인지 "단순 번들 마스킹에 의한 은폐"인지 오판하지 않도록, 공개 메타데이터의 투명한 가시성을 보장합니다.
+3. **OAuth 및 MCP 자격증명 익명화 원칙**:
+   - `oauth_summary.json` 및 `logs/api.log` 수집 시 클라이언트 시크릿(`client_secret`), 인증 코드(`code`), 베어러 토큰(`token`, `access_token`, `refresh_token`) 원문은 절대 수록하지 않습니다.
+   - 클라이언트 식별 및 세션 대조는 토큰의 SHA-256 해시 접두어(앞 8자리)만을 수록하여 완벽한 보안 격리 하에 진단성을 확보합니다.
 
-### 3.4 독립 version 계약과 v4 전환 (**일부 Implemented / v4 Planned**)
+### 3.4 운영 Support Bundle 실측 팩트 엔지니어링 및 MCP 관측성 확장
+
+#### 3.4.1 실측 하드 팩트 분석 (`sb_20260922_140548_f84b2c22`)
+프로덕션 환경에서 발행된 실제 Support Bundle(`https://cb.netspheres.org/support/bundle?token=sb3_qbPX_BGDtYNhZ48ojdpKf2xSWD2wocdZozARBNnRjG0`)의 아티팩트를 전수 해체한 결과, **외부 AI 에이전트(Google Gemini, Claude Desktop 등)의 MCP 및 OAuth 2.1 연동 장애를 진단할 수 있는 정보가 100% 누락**되어 있음이 입증되었습니다.
+
+- **시스템 진단(`diagnostics/system.json`)**: Python `mcp` SDK 버전 및 ASGI 서버 런타임 정보 부재.
+- **파이프라인 헬스(`pipeline/health.json`)**: `/mcp` 엔드포인트 응답성 및 10종 툴 표면 헬스체크 부재.
+- **DB 무결성(`pipeline/db_integrity.json`)**: 지식 DB 내 `oauth_clients`, `oauth_tokens`, `oauth_codes`, `oauth_auth_requests` 테이블이 존재함에도 `counts` 집계 대상에서 누락.
+- **로그(`logs/`)**: LLM CLI(`agy.log`)와 봇(`telegram.log`)만 수집되고, `/mcp` 및 `/oauth/*` 엔드포인트를 서빙하는 API 서버 로그(`api.log`) 완전 누락.
+- **텔레메트리(`telemetry/`)**: LLM 프로바이더 호출(`provider_telemetry`)만 수집되고, 외부 에이전트의 MCP JSON-RPC 및 도구 호출 텔레메트리 전무.
+
+#### 3.4.2 MCP 관측성 확장 아티팩트 규격
+1. **`diagnostics/mcp.json`**:
+   - SDK 버전, 프로토콜 규격 버전(e.g., `2024-11-05`), 전송 방식(`streamable_http`), 엔드포인트 URL.
+   - OAuth 2.1 인가 서버 메타데이터 (발행자, 지원 스코프, 그랜트 타입, PKCE 방식).
+   - 등록된 10종 Read-Only 도구(`resolve_entity`, `search`, `neighbors`, `path`, `context`, `overview`, `node`, `documents`, `document`, `stats`)의 활성화 및 파라미터 규격.
+2. **`pipeline/oauth_summary.json`**:
+   - 동적 등록된 OAuth 클라이언트 목록(이름, redirect_uris, 생성 시각).
+   - 활성 토큰 수, 만료 토큰 수 및 토큰 SHA-256 접두어 인벤토리.
+3. **`pipeline/db_integrity.json` 확장**:
+   - `counts`에 `oauth_clients`, `oauth_tokens`, `oauth_codes`, `oauth_auth_requests` 카운트 포함.
+4. **`logs/api.log`**:
+   - Starlette/Uvicorn API 서버의 HTTP 상태 코드(200, 401, 500), OAuth 승인/토큰 교환, MCP 호출 로그 수집 (Bearer 토큰 및 시크릿 자동 마스킹).
+5. **`telemetry/mcp_records.jsonl` 및 `telemetry/mcp_stats.json`**:
+   - `data/telemetry.db` 내 독립 `mcp_telemetry` 테이블의 레코드 및 집계 통계(성공률, p50/p95 지연시간, 도구별 호출 분포, 에러 통계).
+
+### 3.5 독립 version 계약과 v4 전환 (**일부 Implemented / v4 Planned**)
 
 세 계약을 하나의 `schema_version`으로 묶지 않는다.
 

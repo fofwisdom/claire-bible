@@ -199,3 +199,34 @@ def test_mcp_session_regeneration_invalidates_previous_token(tmp_path: Path) -> 
         assert resp2.status_code == 401
         assert "WWW-Authenticate" in resp2.headers
 
+
+def test_mcp_telemetry_recording(tmp_path: Path) -> None:
+    from claire.store.telemetry import query_mcp_telemetry
+
+    s = _settings(tmp_path)
+    app = _app(s)
+    with TestClient(app, base_url=s.public_url) as client:
+        # 1. 미인증 호출 (HTTP 401) -> http_mcp UNAUTHORIZED 계측
+        resp1 = client.post("/mcp", json=_rpc("tools/list"))
+        assert resp1.status_code == 401
+
+        # 2. tools/call 호출 (stats) -> tool_call SUCCESS 계측
+        resp2 = client.post(
+            "/mcp",
+            json=_rpc("tools/call", {"name": "stats", "arguments": {}}),
+            headers={"Authorization": f"Bearer {OWNER_TOKEN}"},
+        )
+        assert resp2.status_code == 200
+
+    # 3. telemetry.db 검증
+    records = query_mcp_telemetry(s.data_dir)
+    assert len(records) >= 2
+    types = [r["call_type"] for r in records]
+    assert "http_mcp" in types
+    assert "tool_call" in types
+    tool_rec = next(r for r in records if r["call_type"] == "tool_call")
+    assert tool_rec["tool_name"] == "stats"
+    assert tool_rec["status"] == "SUCCESS"
+    assert tool_rec["duration_ms"] is not None
+
+

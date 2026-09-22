@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import sqlite3
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -55,6 +56,23 @@ CREATE TABLE IF NOT EXISTS support_bundles (
 );
 CREATE INDEX IF NOT EXISTS idx_support_bundles_token ON support_bundles(token);
 CREATE INDEX IF NOT EXISTS idx_support_bundles_expires ON support_bundles(expires_at);
+
+CREATE TABLE IF NOT EXISTS mcp_telemetry (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp REAL NOT NULL,
+    client_id TEXT,
+    call_type TEXT NOT NULL,
+    tool_name TEXT,
+    duration_ms INTEGER,
+    status TEXT NOT NULL,
+    error_code INTEGER,
+    error_message TEXT,
+    response_bytes INTEGER DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_mcp_time ON mcp_telemetry(timestamp);
+CREATE INDEX IF NOT EXISTS idx_mcp_client ON mcp_telemetry(client_id);
+CREATE INDEX IF NOT EXISTS idx_mcp_tool ON mcp_telemetry(tool_name);
+CREATE INDEX IF NOT EXISTS idx_mcp_status ON mcp_telemetry(status);
 """
 
 
@@ -332,6 +350,215 @@ def telemetry_summary_stats(
         }
 
 
+def record_mcp_telemetry(
+    data_dir: Path | str | None,
+    *,
+    client_id: str | None = None,
+    call_type: str = "tool_call",
+    tool_name: str | None = None,
+    duration_ms: int | None = None,
+    status: str = "SUCCESS",
+    error_code: int | None = None,
+    error_message: str | None = None,
+    response_bytes: int = 0,
+    now_epoch: float | None = None,
+) -> None:
+    """MCP 호출 텔레메트리 안전 기록 (Fire-and-Forget)."""
+    try:
+        db_path = get_telemetry_db_path(data_dir)
+        ts = now_epoch if now_epoch is not None else time.time()
+        conn = connect_telemetry(db_path)
+        try:
+            conn.execute(
+                """
+                INSERT INTO mcp_telemetry (
+                    timestamp, client_id, call_type, tool_name,
+                    duration_ms, status, error_code, error_message, response_bytes
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    ts,
+                    client_id,
+                    call_type,
+                    tool_name,
+                    duration_ms,
+                    status,
+                    error_code,
+                    error_message,
+                    response_bytes,
+                ),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Failed to record MCP telemetry: %s", e)
+
+
+def query_mcp_telemetry(
+    data_dir: Path | str | None,
+    *,
+    since: str | float | None = None,
+    client_id: str | None = None,
+    tool_name: str | None = None,
+    status: str | None = None,
+    limit: int = 1000,
+) -> list[dict[str, Any]]:
+    """지정된 조건의 MCP 텔레메트리 레코드 목록 조회."""
+    db_path = get_telemetry_db_path(data_dir)
+    if not db_path.is_file():
+        return []
+
+    conditions = []
+    params: list[Any] = []
+
+    if since is not None:
+        if isinstance(since, (int, float)):
+            conditions.append("timestamp >= ?")
+            params.append(float(since))
+        else:
+            try:
+                dt = datetime.fromisoformat(str(since).replace("Z", "+00:00"))
+                conditions.append("timestamp >= ?")
+                params.append(dt.timestamp())
+            except Exception:
+                pass
+
+    if client_id:
+        conditions.append("client_id = ?")
+        params.append(client_id)
+
+    if tool_name:
+        conditions.append("tool_name = ?")
+        params.append(tool_name)
+
+    if status:
+        conditions.append("status = ?")
+        params.append(status)
+
+    where_clause = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+    query = f"""
+    SELECT id, timestamp, client_id, call_type, tool_name, duration_ms,
+           status, error_code, error_message, response_bytes
+    FROM mcp_telemetry
+    {where_clause}
+    ORDER BY timestamp DESC
+    LIMIT ?
+    """
+    params.append(limit)
+
+    try:
+        conn = connect_telemetry(db_path)
+        try:
+            rows = conn.execute(query, params).fetchall()
+            return [dict(r) for r in rows]
+        finally:
+            conn.close()
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Failed to query MCP telemetry: %s", e)
+        return []
+
+
+def mcp_summary_stats(
+    data_dir: Path | str | None,
+    *,
+    since: str | float | None = None,
+) -> dict[str, Any]:
+    """지정된 기간 동안의 MCP 텔레메트리 통계 요약 (성공률, p50/p95, 도구별 분포)."""
+    db_path = get_telemetry_db_path(data_dir)
+    if not db_path.is_file():
+        return {
+            "total_calls": 0,
+            "success_calls": 0,
+            "failed_calls": 0,
+            "success_rate": 0.0,
+            "latencies_ms": {"p50": 0.0, "p95": 0.0},
+            "calls_by_tool": {},
+            "calls_by_client": {},
+            "errors_by_type": {},
+        }
+
+    conditions = []
+    params: list[Any] = []
+    if since is not None:
+        if isinstance(since, (int, float)):
+            conditions.append("timestamp >= ?")
+            params.append(float(since))
+        else:
+            try:
+                dt = datetime.fromisoformat(str(since).replace("Z", "+00:00"))
+                conditions.append("timestamp >= ?")
+                params.append(dt.timestamp())
+            except Exception:
+                pass
+
+    where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+
+    try:
+        conn = connect_telemetry(db_path)
+        try:
+            total = conn.execute(f"SELECT COUNT(*) as cnt FROM mcp_telemetry {where}", params).fetchone()["cnt"]
+            if total == 0:
+                return {
+                    "total_calls": 0,
+                    "success_calls": 0,
+                    "failed_calls": 0,
+                    "success_rate": 0.0,
+                    "latencies_ms": {"p50": 0.0, "p95": 0.0},
+                    "calls_by_tool": {},
+                    "calls_by_client": {},
+                    "errors_by_type": {},
+                }
+
+            succ_where = f"{where} AND status='SUCCESS'" if where else "WHERE status='SUCCESS'"
+            succ = conn.execute(f"SELECT COUNT(*) as cnt FROM mcp_telemetry {succ_where}", params).fetchone()["cnt"]
+
+            durations_rows = conn.execute(
+                f"SELECT duration_ms FROM mcp_telemetry {where} AND duration_ms IS NOT NULL ORDER BY duration_ms ASC"
+                if where else
+                "SELECT duration_ms FROM mcp_telemetry WHERE duration_ms IS NOT NULL ORDER BY duration_ms ASC",
+                params,
+            ).fetchall()
+            durations = [r["duration_ms"] for r in durations_rows if r["duration_ms"] is not None]
+            p50 = 0.0
+            p95 = 0.0
+            if durations:
+                n = len(durations)
+                p50 = float(durations[int(n * 0.50)])
+                p95 = float(durations[min(int(n * 0.95), n - 1)])
+
+            def _group_counts(col: str) -> dict[str, int]:
+                q = f"SELECT {col}, COUNT(*) as cnt FROM mcp_telemetry {where} GROUP BY {col}"
+                rows = conn.execute(q, params).fetchall()
+                return {str(r[col] or "unknown"): r["cnt"] for r in rows}
+
+            err_where = f"{where} AND status != 'SUCCESS'" if where else "WHERE status != 'SUCCESS'"
+            err_rows = conn.execute(
+                f"SELECT status, COUNT(*) as cnt FROM mcp_telemetry {err_where} GROUP BY status",
+                params,
+            ).fetchall()
+            errors_by_type = {str(r["status"]): r["cnt"] for r in err_rows}
+
+            return {
+                "total_calls": total,
+                "success_calls": succ,
+                "failed_calls": total - succ,
+                "success_rate": round(succ / total, 4) if total > 0 else 0.0,
+                "latencies_ms": {"p50": p50, "p95": p95},
+                "calls_by_tool": _group_counts("tool_name"),
+                "calls_by_client": _group_counts("client_id"),
+                "errors_by_type": errors_by_type,
+            }
+        finally:
+            conn.close()
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Failed to get MCP telemetry stats: %s", e)
+        return {
+            "total_calls": 0,
+            "error": str(e),
+        }
+
+
 def prune_old_telemetry(data_dir: Path | str | None, retention_days: int = 14) -> int:
     """보존 기한(기본 14일)이 지난 구 텔레메트리 레코드 자동 삭제."""
     db_path = get_telemetry_db_path(data_dir)
@@ -342,8 +569,9 @@ def prune_old_telemetry(data_dir: Path | str | None, retention_days: int = 14) -
     try:
         conn = connect_telemetry(db_path)
         try:
-            cur = conn.execute("DELETE FROM provider_telemetry WHERE timestamp < ?", (cutoff,))
-            deleted = cur.rowcount
+            cur1 = conn.execute("DELETE FROM provider_telemetry WHERE timestamp < ?", (cutoff,))
+            cur2 = conn.execute("DELETE FROM mcp_telemetry WHERE timestamp < ?", (cutoff,))
+            deleted = cur1.rowcount + cur2.rowcount
             conn.commit()
             return deleted
         finally:

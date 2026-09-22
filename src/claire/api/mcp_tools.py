@@ -18,8 +18,10 @@ DB로 바로 부를 수 있다(test_mcp_tools.py, test_graphview.py와 동일 �
 from __future__ import annotations
 
 import sqlite3
+import time
 from collections import deque
 from datetime import datetime, timezone
+from typing import Any
 from urllib.parse import urlparse
 
 from mcp.server.mcpserver import MCPServer
@@ -33,6 +35,7 @@ from ..store.queries import (
     node_detail,
     synthesis_context,
 )
+from ..store.telemetry import record_mcp_telemetry
 
 MAX_CONTEXT_ENTITIES = 10
 MAX_PATH_HOPS = 6
@@ -305,6 +308,72 @@ def documents_impl(
     }
 
 
+def get_mcp_tools_metadata() -> list[dict[str, Any]]:
+    """MCP 서버에 등록된 10종 도구의 표준 메타데이터 목록 반환."""
+    return [
+        {
+            "name": "resolve_entity",
+            "description": "이름(또는 별칭) 문자열로 엔티티를 찾는다 — 탐색 루프의 진입점",
+            "read_only": True,
+            "parameters": ["name", "theme"],
+        },
+        {
+            "name": "search",
+            "description": "전문(FTS5) 검색 (LLM 호출 0)",
+            "read_only": True,
+            "parameters": ["query", "entity_type", "near_ids", "limit", "theme"],
+        },
+        {
+            "name": "neighbors",
+            "description": "다중 노드의 1홉 이웃 합집합 및 degree 조회",
+            "read_only": True,
+            "parameters": ["entity_ids", "exclude_ids", "limit", "theme"],
+        },
+        {
+            "name": "path",
+            "description": "두 노드 사이의 최단 연결 경로(BFS) 탐색",
+            "read_only": True,
+            "parameters": ["from_id", "to_id", "max_hops", "theme"],
+        },
+        {
+            "name": "context",
+            "description": "노드들의 observations, 연결 관계, 출처 요약 종합 반환",
+            "read_only": True,
+            "parameters": ["entity_ids", "compact", "theme"],
+        },
+        {
+            "name": "overview",
+            "description": "지식베이스 전체의 자기서술적 요약 — 엔티티 타입 분포 및 핵심 허브 개요",
+            "read_only": True,
+            "parameters": ["theme"],
+        },
+        {
+            "name": "node",
+            "description": "단일 노드 상세 정보 및 연결 문서(최대 10건) 조회",
+            "read_only": True,
+            "parameters": ["entity_id", "full", "theme"],
+        },
+        {
+            "name": "documents",
+            "description": "최신순 문서 목록 조회 (최대 100건)",
+            "read_only": True,
+            "parameters": ["limit", "since", "query", "theme"],
+        },
+        {
+            "name": "document",
+            "description": "단일 문서 본문 및 메타데이터 열람 (mark_seen 부작용 없음)",
+            "read_only": True,
+            "parameters": ["document_id", "theme"],
+        },
+        {
+            "name": "stats",
+            "description": "지식베이스 규모(문서/엔티티/관계/OAuth 테이블 등) 요약",
+            "read_only": True,
+            "parameters": ["theme"],
+        },
+    ]
+
+
 def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None):
     """`/mcp` 엔드포인트에 물릴 Starlette ASGI 앱을 생성한다."""
     tm = theme_mgr if theme_mgr is not None else theme_manager
@@ -330,6 +399,32 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None):
         dbm.init_db(conn)
         return conn
 
+    def _timed_call(tool_name: str, fn, *args, **kwargs):
+        t0 = time.time()
+        status = "SUCCESS"
+        err_msg = None
+        res = None
+        try:
+            res = fn(*args, **kwargs)
+            return res
+        except Exception as exc:
+            status = "ERROR"
+            err_msg = str(exc)
+            raise
+        finally:
+            dur = int((time.time() - t0) * 1000)
+            resp_bytes = len(str(res).encode("utf-8", errors="replace")) if res is not None else 0
+            data_dir = getattr(s, "data_dir", "data")
+            record_mcp_telemetry(
+                data_dir,
+                call_type="tool_call",
+                tool_name=tool_name,
+                duration_ms=dur,
+                status=status,
+                error_message=err_msg,
+                response_bytes=resp_bytes,
+            )
+
     mcp = MCPServer("claire", version="0.1.0")
 
     @mcp.tool()
@@ -338,7 +433,7 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None):
         ID를 이미 알고 있다면 이 툴 대신 node/neighbors를 바로 쓸 것."""
         conn = _conn(theme)
         try:
-            return resolve_entity_impl(conn, name)
+            return _timed_call("resolve_entity", resolve_entity_impl, conn, name)
         finally:
             conn.close()
 
@@ -358,7 +453,7 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None):
         오인하지 말 것 — omitted 확인)."""
         conn = _conn(theme)
         try:
-            return search_impl(conn, query, entity_type, near_ids, limit)
+            return _timed_call("search", search_impl, conn, query, entity_type, near_ids, limit)
         finally:
             conn.close()
 
@@ -377,7 +472,7 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None):
         truncated=true, omitted에 잘린 개수가 실림(0으로 오인하지 말 것)."""
         conn = _conn(theme)
         try:
-            return neighbors_impl(conn, entity_ids, exclude_ids, limit)
+            return _timed_call("neighbors", neighbors_impl, conn, entity_ids, exclude_ids, limit)
         finally:
             conn.close()
 
@@ -392,7 +487,7 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None):
         직접 답한다 — neighbors를 반복 호출해 스스로 경로를 찾을 필요 없음."""
         conn = _conn(theme)
         try:
-            return path_impl(conn, from_id, to_id, max_hops)
+            return _timed_call("path", path_impl, conn, from_id, to_id, max_hops)
         finally:
             conn.close()
 
@@ -410,7 +505,7 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None):
         가볍게, 정말 전체가 필요하면 compact=False."""
         conn = _conn(theme)
         try:
-            return context_impl(conn, entity_ids, compact)
+            return _timed_call("context", context_impl, conn, entity_ids, compact)
         finally:
             conn.close()
 
@@ -422,7 +517,7 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None):
         부를 것."""
         conn = _conn(theme)
         try:
-            return overview_impl(conn)
+            return _timed_call("overview", overview_impl, conn)
         finally:
             conn.close()
 
@@ -443,7 +538,7 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None):
         ISO8601(UTC, 타임존 명시)."""
         conn = _conn(theme)
         try:
-            return node_impl(conn, entity_id, full=full)
+            return _timed_call("node", node_impl, conn, entity_id, full=full)
         finally:
             conn.close()
 
@@ -461,7 +556,7 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None):
         넘으면 truncated=true, omitted에 잘린 개수(0으로 오인 금지)."""
         conn = _conn(theme)
         try:
-            return documents_impl(conn, limit=limit, since=since, query=query)
+            return _timed_call("documents", documents_impl, conn, limit=limit, since=since, query=query)
         finally:
             conn.close()
 
@@ -470,32 +565,29 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None):
         """문서 하나의 상세(제목·요약·상세·원문 URL·fetched_at은
         ISO8601 UTC). 사람용 웹 핸들러와 달리 안읽음(seen) 상태를 바꾸지
         않는다(읽기전용 원칙)."""
-        if theme is None:
-            conn = _conn(None)
-            try:
-                rep = document_impl(conn, document_id)
-                if "error" not in rep:
-                    return rep
-            finally:
-                conn.close()
-
-            if theme_mgr is not None:
-                targets = theme_mgr.resolve_document_targets(doc_id=document_id)
-                for target in targets:
-                    tid = target.get("theme_id")
-                    if tid is not None:
-                        t_conn = _conn(tid)
-                        try:
-                            rep = document_impl(t_conn, document_id)
-                            if "error" not in rep:
-                                return rep
-                        finally:
-                            t_conn.close()
-            return {"error": "not found"}
-
         conn = _conn(theme)
         try:
-            return document_impl(conn, document_id)
+            def _fetch_doc():
+                if theme is None:
+                    rep = document_impl(conn, document_id)
+                    if "error" not in rep:
+                        return rep
+                    if theme_mgr is not None:
+                        targets = theme_mgr.resolve_document_targets(doc_id=document_id)
+                        for target in targets:
+                            tid = target.get("theme_id")
+                            if tid is not None:
+                                t_conn = _conn(tid)
+                                try:
+                                    rep = document_impl(t_conn, document_id)
+                                    if "error" not in rep:
+                                        return rep
+                                finally:
+                                    t_conn.close()
+                    return {"error": "not found"}
+                return document_impl(conn, document_id)
+
+            return _timed_call("document", _fetch_doc)
         finally:
             conn.close()
 
@@ -504,7 +596,7 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None):
         """지식베이스 규모(문서/엔티티/관계/임베딩 개수 등)."""
         conn = _conn(theme)
         try:
-            return dbm.counts(conn)
+            return _timed_call("stats", dbm.counts, conn)
         finally:
             conn.close()
 
