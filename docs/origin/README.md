@@ -78,6 +78,7 @@ docs/origin/
   - `TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md`: 프로바이더 텔레메트리 격리, 독립 schema/lineage 및 Support Bundle version 계약
   - `TELEGRAM_VIDEO_PDF_BUNDLE_INGESTION_DESIGN.md`: 텔레그램 앨범 또는 명시적 세션에서 MP4 STT와 PDF를 원자적 단일 문서로 묶는 설계 (구현 전)
   - `MCP_SUPPORT.md`: RFC 6750 표준 인증 기반 MCP 지원 설계
+  - `SUPPORT_BUNDLE_MCP_FACT_ENGINEERING_DESIGN.md`: Support Bundle 기반 MCP(Model Context Protocol) 팩트 엔지니어링 및 관측성 아키텍처 설계
   - `VIDEO_AUDIO_TRANSCRIPTION_AND_INGESTION_DESIGN.md`: 비디오 음성 자막(STT) 생성 및 지식 적재 파이프라인 설계 (Gemini 3.5 Transcribe 고도화, 10k TPM 페이싱, 3일 미디어 캐시, CLI/텔레그램 재전사 완비)
   - `VIDEO_PRESENTATION_BUNDLE_INGESTION_DESIGN.md`: VMware Explore 영상에서 CC/STT와 Presentation PDF를 단일 세션 문서로 원자적 적재하는 설계 및 구현 명세
 
