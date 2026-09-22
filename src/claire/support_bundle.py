@@ -39,6 +39,8 @@ from .store.telemetry import (
     get_telemetry_db_path,
     list_active_support_bundles,
     lookup_support_bundle_by_token as _lookup_support_bundle_by_token,
+    mcp_summary_stats,
+    query_mcp_telemetry,
     query_telemetry,
     register_support_bundle,
     telemetry_summary_stats,
@@ -80,6 +82,14 @@ _DOCUMENT_SAFE_KEYS = frozenset({
     "name",
     "label",
     "description",
+    "token_inventory",
+    "token_sha256_prefix",
+    "active_tokens",
+    "active_tokens_count",
+    "expired_tokens_count",
+    "pending_auth_requests_count",
+    "total_registered_clients",
+    "tools_registered",
 })
 
 _SENSITIVE_KEY_RE = re.compile(
@@ -509,7 +519,7 @@ def _inspect_database_candidate(path: Path) -> dict[str, Any]:
                 "page_count": conn.execute("PRAGMA page_count").fetchone()[0],
                 "page_size": conn.execute("PRAGMA page_size").fetchone()[0],
                 "freelist_count": conn.execute("PRAGMA freelist_count").fetchone()[0],
-                "counts": dbm.counts(conn),
+                "counts": dbm.counts(conn, include_oauth=True),
             }
         finally:
             conn.close()
@@ -678,6 +688,155 @@ def _collect_health_diagnostics(settings: Settings | Any) -> dict[str, Any]:
     except Exception as exc:  # noqa: BLE001
         report["health_error"] = f"{type(exc).__name__}: {exc}"
     return report
+
+
+def _collect_mcp_diagnostics(settings: Settings | Any) -> dict[str, Any]:
+    """MCP 서버 런타임 환경, 지원 프로토콜 규격 및 10종 등록 도구 메타데이터 진단."""
+    sdk_version = "unknown"
+    try:
+        import mcp
+
+        sdk_version = getattr(mcp, "__version__", None)
+        if not sdk_version:
+            sdk_version = importlib.metadata.version("mcp")
+    except Exception:
+        pass
+
+    origin = getattr(settings, "public_url", "").rstrip("/")
+    if not origin:
+        host = getattr(settings, "inject_host", "localhost")
+        port = getattr(settings, "inject_port", 8765)
+        origin = f"http://{host}:{port}"
+    if getattr(settings, "fqdn", ""):
+        origin = f"https://{settings.fqdn}".rstrip("/")
+
+    tools_meta = []
+    try:
+        from .api.mcp_tools import get_mcp_tools_metadata
+
+        tools_meta = get_mcp_tools_metadata()
+    except Exception:
+        pass
+
+    return {
+        "mcp_runtime": {
+            "sdk_version": sdk_version,
+            "protocol_version": "2024-11-05",
+            "transport": "streamable_http",
+            "endpoint_path": "/mcp",
+            "public_endpoint_url": f"{origin}/mcp",
+        },
+        "oauth_config": {
+            "issuer": origin,
+            "authorization_endpoint": f"{origin}/oauth/authorize",
+            "token_endpoint": f"{origin}/oauth/token",
+            "registration_endpoint": f"{origin}/oauth/register",
+            "protected_resource_metadata": f"{origin}/.well-known/oauth-protected-resource",
+            "authorization_server_metadata": f"{origin}/.well-known/oauth-authorization-server",
+            "scopes_supported": ["readonly"],
+            "grant_types_supported": [
+                "authorization_code",
+                "refresh_token",
+                "urn:ietf:params:oauth:grant-type:token-exchange",
+            ],
+            "code_challenge_methods_supported": ["S256"],
+            "token_endpoint_auth_methods_supported": [
+                "none",
+                "client_secret_post",
+                "client_secret_basic",
+            ],
+        },
+        "tools_registered": tools_meta,
+    }
+
+
+def _collect_oauth_summary(conn: sqlite3.Connection, now: float) -> dict[str, Any]:
+    """등록된 OAuth 2.1 클라이언트 및 토큰 인벤토리 수집 (토큰 원문은 절대 미포함, SHA-256 앞 8자리만 수록)."""
+    has_clients = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='oauth_clients'").fetchone()
+    has_tokens = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='oauth_tokens'").fetchone()
+    has_reqs = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='oauth_auth_requests'").fetchone()
+
+    if not (has_clients or has_tokens):
+        return {
+            "summary": {
+                "total_registered_clients": 0,
+                "active_tokens_count": 0,
+                "expired_tokens_count": 0,
+                "pending_auth_requests_count": 0,
+            },
+            "clients": [],
+            "token_inventory": [],
+        }
+
+    clients = []
+    if has_clients:
+        c_rows = conn.execute(
+            "SELECT client_id, client_name, redirect_uris, created_at FROM oauth_clients ORDER BY created_at DESC"
+        ).fetchall()
+        for r in c_rows:
+            cid = r["client_id"]
+            active_cnt = 0
+            if has_tokens:
+                active_cnt = conn.execute(
+                    "SELECT COUNT(*) c FROM oauth_tokens WHERE client_id = ? AND expires_at >= ?",
+                    (cid, now),
+                ).fetchone()["c"]
+            redirect_uris = []
+            if r["redirect_uris"]:
+                try:
+                    redirect_uris = json.loads(r["redirect_uris"])
+                except Exception:
+                    redirect_uris = [r["redirect_uris"]]
+            clients.append({
+                "client_id": cid,
+                "client_name": r["client_name"],
+                "redirect_uris": redirect_uris,
+                "created_at": r["created_at"],
+                "active_tokens": active_cnt,
+            })
+
+    tokens = []
+    active_tokens_count = 0
+    expired_tokens_count = 0
+    if has_tokens:
+        t_rows = conn.execute(
+            "SELECT token, client_id, scope, expires_at, refresh_token FROM oauth_tokens ORDER BY expires_at DESC"
+        ).fetchall()
+        for r in t_rows:
+            raw_token = r["token"] or ""
+            sha_prefix = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()[:8]
+            exp = float(r["expires_at"] or 0)
+            is_expired = exp < now
+            if is_expired:
+                expired_tokens_count += 1
+            else:
+                active_tokens_count += 1
+            tokens.append({
+                "client_id": r["client_id"],
+                "token_sha256_prefix": sha_prefix,
+                "scope": r["scope"] or "readonly",
+                "expires_at": exp,
+                "is_expired": is_expired,
+                "has_refresh_token": bool(r["refresh_token"]),
+            })
+
+    pending_reqs = 0
+    if has_reqs:
+        pending_reqs = conn.execute(
+            "SELECT COUNT(*) c FROM oauth_auth_requests WHERE approved = 0 AND expires_at >= ?",
+            (now,),
+        ).fetchone()["c"]
+
+    return {
+        "summary": {
+            "total_registered_clients": len(clients),
+            "active_tokens_count": active_tokens_count,
+            "expired_tokens_count": expired_tokens_count,
+            "pending_auth_requests_count": pending_reqs,
+        },
+        "clients": clients,
+        "token_inventory": tokens,
+    }
 
 
 class _FallbackThemeManager:
@@ -1111,6 +1270,15 @@ def create_support_bundle(
                     f"{root_arcname}/diagnostics/config_sanitized.json",
                     json.dumps(config_dict, ensure_ascii=False, indent=2).encode("utf-8"),
                 )
+                _add_tar_bytes(
+                    tar,
+                    f"{root_arcname}/diagnostics/mcp.json",
+                    json.dumps(
+                        sanitize_sensitive_data(_collect_mcp_diagnostics(s)),
+                        ensure_ascii=False,
+                        indent=2,
+                    ).encode("utf-8"),
+                )
 
                 # 3. 텔레메트리 레코드 (기간 내)
                 records = query_telemetry(data_dir, since=cutoff_iso, limit=5000)
@@ -1129,6 +1297,23 @@ def create_support_bundle(
                     tar,
                     f"{root_arcname}/telemetry/telemetry_stats.json",
                     json.dumps(stats, ensure_ascii=False, indent=2).encode("utf-8"),
+                )
+
+                # 4-1. MCP 텔레메트리 레코드 및 통계 요약
+                mcp_records = query_mcp_telemetry(data_dir, since=cutoff_iso, limit=5000)
+                mcp_records_lines = [
+                    json.dumps(sanitize_sensitive_data(r), ensure_ascii=False) for r in mcp_records
+                ]
+                _add_tar_bytes(
+                    tar,
+                    f"{root_arcname}/telemetry/mcp_records.jsonl",
+                    ("\n".join(mcp_records_lines) + ("\n" if mcp_records_lines else "")).encode("utf-8"),
+                )
+                mcp_stats = mcp_summary_stats(data_dir, since=cutoff_iso)
+                _add_tar_bytes(
+                    tar,
+                    f"{root_arcname}/telemetry/mcp_stats.json",
+                    json.dumps(mcp_stats, ensure_ascii=False, indent=2).encode("utf-8"),
                 )
 
                 # 5. 파이프라인 인박스 요약 및 에러/모의 항목, 공유 링크 인덱스
@@ -1227,7 +1412,7 @@ def create_support_bundle(
                             # DB 정합성 빠른 검사
                             check_row = conn.execute("PRAGMA quick_check;").fetchone()
                             chk_res = check_row[0] if check_row else "unknown"
-                            cnts = dbm.counts(conn)
+                            cnts = dbm.counts(conn, include_oauth=True)
                             schema_version = dbm.stored_schema_version(conn)
                             schema_lineage = dbm.stored_schema_lineage(conn)
                             if t.id == 0:
@@ -1284,7 +1469,25 @@ def create_support_bundle(
                     json.dumps(db_integrity, ensure_ascii=False, indent=2).encode("utf-8"),
                 )
 
-                # 6. 로그 수집 (agy.log, telegram.log 및 data/logs/*.log)
+                # 5-1. OAuth 2.1 등록 현황 및 세션 요약 (기본 지식베이스)
+                oauth_summary: dict[str, Any] = {}
+                try:
+                    default_db = Path(s.db_file)
+                    if default_db.is_file():
+                        o_conn = dbm.connect_existing(default_db, readonly=True)
+                        try:
+                            oauth_summary = _collect_oauth_summary(o_conn, now)
+                        finally:
+                            o_conn.close()
+                except Exception as exc:  # noqa: BLE001
+                    oauth_summary = {"error": f"{type(exc).__name__}: {exc}"}
+                _add_tar_bytes(
+                    tar,
+                    f"{root_arcname}/pipeline/oauth_summary.json",
+                    json.dumps(sanitize_sensitive_data(oauth_summary), ensure_ascii=False, indent=2).encode("utf-8"),
+                )
+
+                # 6. 로그 수집 (agy.log, telegram.log, api.log 및 data/logs/*.log)
                 logs_dir = Path(data_dir) / "logs"
                 collected_logs: set[str] = set()
 
@@ -1312,6 +1515,11 @@ def create_support_bundle(
                 _add_log_file(logs_dir / "telegram.log", "telegram.log")
                 if "telegram.log" not in collected_logs:
                     _add_log_file(Path(data_dir) / "telegram.log", "telegram.log")
+
+                # api.log
+                _add_log_file(logs_dir / "api.log", "api.log")
+                if "api.log" not in collected_logs:
+                    _add_log_file(Path(data_dir) / "api.log", "api.log")
 
                 # Any other *.log in data/logs
                 if logs_dir.is_dir():

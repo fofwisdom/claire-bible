@@ -2808,10 +2808,32 @@ def fts_search(conn: sqlite3.Connection, query: str, limit: int = 20) -> list[st
     return [r["entity_id"] for r in rows]
 
 
-def counts(conn: sqlite3.Connection, include_hidden: bool = True) -> dict[str, int]:
+def counts(
+    conn: sqlite3.Connection,
+    include_hidden: bool = True,
+    include_oauth: bool = False,
+) -> dict[str, int]:
+    tables = [
+        "documents",
+        "entities",
+        "relations",
+        "embeddings",
+        "proposals",
+        "jobs",
+        "raw_inbox",
+        "extractions",
+        "refresh_queue",
+        "purged_tombstones",
+    ]
+    if include_oauth:
+        tables.extend([
+            "oauth_clients",
+            "oauth_tokens",
+            "oauth_codes",
+            "oauth_auth_requests",
+        ])
     out = {}
-    for tbl in ("documents", "entities", "relations", "embeddings", "proposals",
-                "jobs", "raw_inbox", "extractions", "refresh_queue", "purged_tombstones"):
+    for tbl in tables:
         has_t = conn.execute(f"SELECT 1 FROM sqlite_master WHERE type='table' AND name='{tbl}'").fetchone()
         if not has_t:
             continue
