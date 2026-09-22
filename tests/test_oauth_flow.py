@@ -145,7 +145,7 @@ def test_authorization_code_flow_with_pkce_and_mcp_access(tmp_path: Path) -> Non
         )
         get_auth = client.get(auth_url)
         assert get_auth.status_code == 200
-        assert "Claire 지식베이스 연결" in get_auth.text
+        assert "Claire Bible 연결" in get_auth.text
 
         # 4. Mint a temporary session token to approve
         conn = dbm.connect(s.db_file)

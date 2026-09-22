@@ -212,7 +212,7 @@ def _render_authorize_page(
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Claire 지식베이스 연결 승인</title>
+    <title>Claire Bible 연결 승인</title>
     <style>
         body {{
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -241,7 +241,7 @@ def _render_authorize_page(
     <div class="card">
         <div style="text-align:center;margin-bottom:24px;">
             <div style="font-size:36px;margin-bottom:8px;">💎</div>
-            <h2 style="margin:0 0 8px;font-size:20px;font-weight:700;">Claire 지식베이스 연결</h2>
+            <h2 style="margin:0 0 8px;font-size:20px;font-weight:700;">Claire Bible 연결</h2>
             <p style="margin:0;color:#64748b;font-size:14px;">외부 애플리케이션이 접근 권한을 요청합니다.</p>
         </div>
 

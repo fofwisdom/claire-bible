@@ -522,7 +522,7 @@ def cmd_theme(args) -> int:
                 print(json.dumps({"themes": out, "multi_theme": False}, ensure_ascii=False, indent=2))
                 return 0
 
-            print("Claire 지식베이스 테마 목록 (싱글 테마 모드 / CLAIRE_MULTI_THEME=0)")
+            print("Claire Bible 테마 목록 (싱글 테마 모드 / CLAIRE_MULTI_THEME=0)")
             print("=" * 68)
             print(f"{'ID':<4} {'아이콘':<4} {'레이블':<22} {'문서/엔티티/관계':<18} {'기본여부'}")
             print("-" * 68)
@@ -556,7 +556,7 @@ def cmd_theme(args) -> int:
             print(json.dumps({"themes": out}, ensure_ascii=False, indent=2))
             return 0
 
-        print(f"Claire 지식베이스 테마 목록 (총 {len(out)}개)")
+        print(f"Claire Bible 테마 목록 (총 {len(out)}개)")
         print("=" * 78)
         print(f"{'ID':<4} {'아이콘':<4} {'레이블':<20} {'문서/엔티티/관계':<18} {'공개여부':<8} {'협력자':<10} {'기본여부'}")
         print("-" * 78)

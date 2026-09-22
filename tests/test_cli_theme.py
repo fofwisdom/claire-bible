@@ -83,7 +83,7 @@ def test_cli_theme_list(cli_theme_env, capsys):
     ret = cli.main(["theme", "list"])
     assert ret == 0
     captured = capsys.readouterr().out
-    assert "Claire 지식베이스 테마 목록" in captured
+    assert "Claire Bible 테마 목록" in captured
     assert "기본 지식베이스" in captured
 
 
