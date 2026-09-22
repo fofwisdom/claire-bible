@@ -1686,6 +1686,7 @@ def create_app(
         Route("/openapi.yaml", openapi_yaml_route, methods=["GET"]),
         Route("/.well-known/oauth-protected-resource", handle_protected_resource_metadata, methods=["GET", "HEAD"]),
         Route("/.well-known/oauth-authorization-server", handle_authorization_server_metadata, methods=["GET", "HEAD"]),
+        Route("/.well-known/openid-configuration", handle_authorization_server_metadata, methods=["GET", "HEAD"]),
         Route("/oauth/register", handle_register, methods=["POST"]),
         Route("/oauth/authorize", handle_authorize, methods=["GET", "POST"]),
         Route("/oauth/authorize/telegram-push", handle_telegram_push, methods=["POST"]),
