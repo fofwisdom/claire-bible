@@ -490,6 +490,10 @@ class Settings(BaseSettings):
     ga_measurement_id: str = Field(
         default="", alias="CLAIRE_GA_MEASUREMENT_ID"
     )
+    # 사이트/지식베이스 표시 이름 (기본값: "Claire Bible"). OAuth 메타데이터 및 외부 연동에 사용.
+    site_name: str = Field(
+        default="Claire Bible", alias="CLAIRE_SITE_NAME"
+    )
 
     # --- source repository ---
     github_repository: str = Field(

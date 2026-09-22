@@ -12,6 +12,7 @@ import hmac
 import ipaddress
 import json
 import logging
+import os
 import re
 import secrets
 import time
@@ -240,6 +241,8 @@ ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     ("HEAD", "/.well-known/oauth-protected-resource"): _rule("public"),
     ("GET", "/.well-known/oauth-authorization-server"): _rule("public"),
     ("HEAD", "/.well-known/oauth-authorization-server"): _rule("public"),
+    ("GET", "/.well-known/openid-configuration"): _rule("public"),
+    ("HEAD", "/.well-known/openid-configuration"): _rule("public"),
     ("POST", "/oauth/register"): _rule("public"),
     ("GET", "/oauth/authorize"): _rule("public"),
     ("HEAD", "/oauth/authorize"): _rule("public"),
@@ -361,6 +364,7 @@ class WebRuntimeConfig:
     db_file: Any = field(repr=False)
     ga_measurement_id: str = ""
     cloudflare_ips_only: bool = False
+    site_name: str = "Claire Bible"
 
     @classmethod
     def from_settings(cls, settings: Any) -> WebRuntimeConfig:
@@ -443,6 +447,12 @@ class WebRuntimeConfig:
 
         cf_ips_only = bool(getattr(settings, "cloudflare_ips_only", False))
 
+        site_name = str(
+            getattr(settings, "site_name", "")
+            or os.environ.get("CLAIRE_SITE_NAME", "")
+            or "Claire Bible"
+        ).strip()
+
         return cls(
             environment=environment,
             public_origin=public_origin,
@@ -456,6 +466,7 @@ class WebRuntimeConfig:
             db_file=_setting(settings, "db_file"),
             ga_measurement_id=ga_id,
             cloudflare_ips_only=cf_ips_only,
+            site_name=site_name,
         )
 
 

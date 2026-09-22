@@ -31,6 +31,7 @@ class StubSettings:
     effective_provider: str = "mock"
     telegram_bot_token: str = ""
     allowed_user_ids: set[int] = None  # type: ignore
+    site_name: str = "Claire Bible"
 
     def __post_init__(self) -> None:
         if self.allowed_user_ids is None:
@@ -42,7 +43,7 @@ class StubService:
         self.provider = SimpleNamespace(name="stub")
 
 
-def _settings(tmp_path: Path) -> StubSettings:
+def _settings(tmp_path: Path, site_name: str = "Claire Bible") -> StubSettings:
     db_file = tmp_path / "test.db"
     conn = dbm.connect(db_file)
     dbm.init_db(conn)
@@ -50,6 +51,7 @@ def _settings(tmp_path: Path) -> StubSettings:
     return StubSettings(
         db_file=db_file,
         data_dir=tmp_path / "data",
+        site_name=site_name,
     )
 
 
@@ -65,6 +67,8 @@ def test_oauth_protected_resource_metadata(tmp_path: Path) -> None:
         assert resp.status_code == 200
         data = resp.json()
         assert data["resource"] == "http://127.0.0.1:8765/mcp"
+        assert data["resource_name"] == "Claire Bible"
+        assert data["resource_description"] == "Claire Bible Personal Knowledge Base"
         assert "http://127.0.0.1:8765" in data["authorization_servers"]
         assert data["scopes_supported"] == ["readonly"]
         assert "header" in data["bearer_methods_supported"]
@@ -78,6 +82,8 @@ def test_oauth_authorization_server_metadata(tmp_path: Path) -> None:
         assert resp.status_code == 200
         data = resp.json()
         assert data["issuer"] == "http://127.0.0.1:8765"
+        assert data["service_name"] == "Claire Bible"
+        assert data["client_name"] == "Claire Bible"
         assert data["authorization_endpoint"] == "http://127.0.0.1:8765/oauth/authorize"
         assert data["token_endpoint"] == "http://127.0.0.1:8765/oauth/token"
         assert data["registration_endpoint"] == "http://127.0.0.1:8765/oauth/register"
@@ -85,6 +91,21 @@ def test_oauth_authorization_server_metadata(tmp_path: Path) -> None:
         assert "authorization_code" in data["grant_types_supported"]
         assert "refresh_token" in data["grant_types_supported"]
         assert "S256" in data["code_challenge_methods_supported"]
+
+
+def test_custom_site_name_metadata(tmp_path: Path) -> None:
+    s = _settings(tmp_path, site_name="CustomKnowledgeBase")
+    app = _app(s)
+    with TestClient(app, base_url=s.public_url) as client:
+        res_resp = client.get("/.well-known/oauth-protected-resource")
+        assert res_resp.status_code == 200
+        assert res_resp.json()["resource_name"] == "CustomKnowledgeBase"
+        assert res_resp.json()["resource_description"] == "CustomKnowledgeBase Personal Knowledge Base"
+
+        as_resp = client.get("/.well-known/oauth-authorization-server")
+        assert as_resp.status_code == 200
+        assert as_resp.json()["service_name"] == "CustomKnowledgeBase"
+        assert as_resp.json()["client_name"] == "CustomKnowledgeBase"
 
 
 def test_mcp_unauthenticated_includes_resource_metadata(tmp_path: Path) -> None:
@@ -145,7 +166,7 @@ def test_authorization_code_flow_with_pkce_and_mcp_access(tmp_path: Path) -> Non
         )
         get_auth = client.get(auth_url)
         assert get_auth.status_code == 200
-        assert "Claire 지식베이스 연결" in get_auth.text
+        assert "Claire Bible 지식베이스 연결" in get_auth.text
 
         # 4. Mint a temporary session token to approve
         conn = dbm.connect(s.db_file)
