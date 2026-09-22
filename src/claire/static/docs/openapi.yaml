@@ -108,9 +108,173 @@ paths:
                     type: string
                     example: 기본 테마
 
+  /.well-known/oauth-protected-resource:
+    get:
+      summary: OAuth 2.0 Protected Resource Metadata (RFC 9728)
+      description: Returns metadata describing the MCP protected resource and authorization servers.
+      operationId: getProtectedResourceMetadata
+      x-claire-access: public
+      security: []
+      responses:
+        '200':
+          description: Protected Resource Metadata document.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [resource, authorization_servers, scopes_supported, bearer_methods_supported]
+                properties:
+                  resource:
+                    type: string
+                    example: https://cb.netspheres.org/mcp
+                  authorization_servers:
+                    type: array
+                    items:
+                      type: string
+                    example: ["https://cb.netspheres.org"]
+                  scopes_supported:
+                    type: array
+                    items:
+                      type: string
+                    example: ["readonly"]
+                  bearer_methods_supported:
+                    type: array
+                    items:
+                      type: string
+                    example: ["header"]
+
+  /.well-known/oauth-authorization-server:
+    get:
+      summary: OAuth 2.0 Authorization Server Metadata (RFC 8414)
+      description: Returns metadata describing the authorization server endpoints and capabilities.
+      operationId: getAuthorizationServerMetadata
+      x-claire-access: public
+      security: []
+      responses:
+        '200':
+          description: Authorization Server Metadata document.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [issuer, authorization_endpoint, token_endpoint, registration_endpoint, scopes_supported, response_types_supported, grant_types_supported]
+                properties:
+                  issuer:
+                    type: string
+                  authorization_endpoint:
+                    type: string
+                  token_endpoint:
+                    type: string
+                  registration_endpoint:
+                    type: string
+                  scopes_supported:
+                    type: array
+                    items:
+                      type: string
+                  response_types_supported:
+                    type: array
+                    items:
+                      type: string
+                  grant_types_supported:
+                    type: array
+                    items:
+                      type: string
+
+  /oauth/register:
+    post:
+      summary: Dynamic Client Registration (RFC 7591)
+      description: Dynamically registers an OAuth client (e.g., Google Gemini Spark).
+      operationId: registerClient
+      x-claire-access: public
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                client_name:
+                  type: string
+                  example: Google Gemini Spark
+                redirect_uris:
+                  type: array
+                  items:
+                    type: string
+                  example: ["https://gemini.google.com/oauth/callback"]
+      responses:
+        '201':
+          description: Successfully registered client credentials.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [client_id, client_secret]
+                properties:
+                  client_id:
+                    type: string
+                  client_secret:
+                    type: string
+                  client_name:
+                    type: string
+                  redirect_uris:
+                    type: array
+                    items:
+                      type: string
+
+  /oauth/authorize:
+    get:
+      summary: OAuth 2.0 Authorization Endpoint (RFC 6749 & RFC 7636 PKCE)
+      description: Presents consent screen or supports 1-click / telegram push approval.
+      operationId: authorizeGet
+      x-claire-access: public
+      security: []
+      parameters:
+        - name: response_type
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [code]
+        - name: client_id
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: redirect_uri
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: code_challenge
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: code_challenge_method
+          in: query
+          required: false
+          schema:
+            type: string
+            default: S256
+        - name: state
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: HTML consent and authorization page.
+          content:
+            text/html:
+              schema:
+                type: string
+        '302':
+          description: Redirect back to client redirect_uri with authorization code.
+
   /oauth/token:
     post:
-      summary: OAuth 2.0 Token Exchange (RFC 8693)
+      summary: OAuth 2.0 Token Endpoint (RFC 6749, RFC 7636, RFC 8693)
       description: >-
         Exchanges a subject token (such as a Telegram bootstrap ticket, static inject token,
         or existing session token) for a scoped Bearer access token.
