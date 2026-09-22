@@ -261,7 +261,6 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         "/openapi.yaml",
         "/.well-known/oauth-protected-resource",
         "/.well-known/oauth-authorization-server",
-        "/.well-known/openid-configuration",
         "/oauth/authorize",
         "/oauth/authorize/poll",
     }

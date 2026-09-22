@@ -44,12 +44,8 @@ async def handle_protected_resource_metadata(request: Request) -> Response:
     """GET /.well-known/oauth-protected-resource (RFC 9728)."""
     config: WebRuntimeConfig = request.app.state.runtime_config
     origin = config.public_origin.rstrip("/")
-    site_name = getattr(config, "site_name", "Claire Bible") or "Claire Bible"
     payload = {
         "resource": f"{origin}/mcp",
-        "resource_name": site_name,
-        "resource_description": f"{site_name} Personal Knowledge Base",
-        "resource_documentation": f"{origin}/reference",
         "authorization_servers": [origin],
         "scopes_supported": ["readonly"],
         "bearer_methods_supported": ["header"],
@@ -61,16 +57,11 @@ async def handle_protected_resource_metadata(request: Request) -> Response:
 
 
 async def handle_authorization_server_metadata(request: Request) -> Response:
-    """GET /.well-known/oauth-authorization-server (RFC 8414) & /.well-known/openid-configuration."""
+    """GET /.well-known/oauth-authorization-server (RFC 8414)."""
     config: WebRuntimeConfig = request.app.state.runtime_config
     origin = config.public_origin.rstrip("/")
-    site_name = getattr(config, "site_name", "Claire Bible") or "Claire Bible"
     payload = {
         "issuer": origin,
-        "service_name": site_name,
-        "client_name": site_name,
-        "organization_name": site_name,
-        "service_documentation": f"{origin}/reference",
         "authorization_endpoint": f"{origin}/oauth/authorize",
         "token_endpoint": f"{origin}/oauth/token",
         "registration_endpoint": f"{origin}/oauth/register",
@@ -149,7 +140,6 @@ def _render_authorize_page(
     scope: str,
     has_valid_cookie: bool,
     error_msg: str | None = None,
-    site_name: str = "Claire Bible",
 ) -> str:
     """Render a clean, modern HTML authorization page."""
     error_html = (
@@ -191,7 +181,7 @@ def _render_authorize_page(
             </button>
             <div id="push-status" style="display:none;margin-top:14px;padding:12px;background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;font-size:14px;color:#0369a1;text-align:center;">
                 <div style="font-weight:600;margin-bottom:4px;">텔레그램 알림 확인 중...</div>
-                <div style="font-size:12px;color:#0284c7;">스마트폰의 {site_name} 텔레그램 봇에서 <b>[승인]</b> 버튼을 눌러주세요.</div>
+                <div style="font-size:12px;color:#0284c7;">스마트폰의 Claire 텔레그램 봇에서 <b>[승인]</b> 버튼을 눌러주세요.</div>
             </div>
         </div>
 
@@ -222,7 +212,7 @@ def _render_authorize_page(
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{site_name} 지식베이스 연결 승인</title>
+    <title>Claire 지식베이스 연결 승인</title>
     <style>
         body {{
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -251,7 +241,7 @@ def _render_authorize_page(
     <div class="card">
         <div style="text-align:center;margin-bottom:24px;">
             <div style="font-size:36px;margin-bottom:8px;">💎</div>
-            <h2 style="margin:0 0 8px;font-size:20px;font-weight:700;">{site_name} 지식베이스 연결</h2>
+            <h2 style="margin:0 0 8px;font-size:20px;font-weight:700;">Claire 지식베이스 연결</h2>
             <p style="margin:0;color:#64748b;font-size:14px;">외부 애플리케이션이 접근 권한을 요청합니다.</p>
         </div>
 
@@ -374,7 +364,6 @@ async def handle_authorize(request: Request) -> Response:
         finally:
             conn.close()
 
-        site_name = getattr(config, "site_name", "Claire Bible") or "Claire Bible"
         html = _render_authorize_page(
             client_name=client_name,
             client_id=client_id,
@@ -384,7 +373,6 @@ async def handle_authorize(request: Request) -> Response:
             code_challenge_method=code_challenge_method,
             scope="readonly",
             has_valid_cookie=has_valid_cookie,
-            site_name=site_name,
         )
         return HTMLResponse(html)
 
@@ -418,7 +406,6 @@ async def handle_authorize(request: Request) -> Response:
         if not authed:
             client = dbm.get_oauth_client(conn, client_id)
             client_name = client["client_name"] if client else "External Client"
-            site_name = getattr(config, "site_name", "Claire Bible") or "Claire Bible"
             html = _render_authorize_page(
                 client_name=client_name,
                 client_id=client_id,
@@ -429,7 +416,6 @@ async def handle_authorize(request: Request) -> Response:
                 scope="readonly",
                 has_valid_cookie=False,
                 error_msg="유효하지 않거나 만료된 세션 토큰입니다.",
-                site_name=site_name,
             )
             return HTMLResponse(html, status_code=401)
 
@@ -484,14 +470,13 @@ async def handle_telegram_push(request: Request) -> Response:
         conn.close()
 
     # Send telegram push message via Telegram Bot API
-    site_name = getattr(config, "site_name", "Claire Bible") or "Claire Bible"
     settings = get_settings()
     token = settings.telegram_bot_token
     allowed_ids = settings.allowed_user_ids
 
     if token and allowed_ids:
         msg_text = (
-            f"🤖 <b>{site_name} MCP 연결 승인 요청</b>\n\n"
+            "🤖 <b>Claire MCP 연결 승인 요청</b>\n\n"
             f"• 클라이언트: <b>{client_name}</b>\n"
             "• 권한: <b>readonly</b> (지식 검색 및 조회)\n\n"
             "외부 에이전트의 연결을 승인하시겠습니까?"
