@@ -1,0 +1,90 @@
+{
+  "themes": {
+    "0": {
+      "label": "기본 지식베이스",
+      "path": "/app/data/claire.db",
+      "path_metadata": {
+        "configured_path": "/app/data/claire.db",
+        "resolved_path": "/app/data/claire.db",
+        "exists": true,
+        "is_symlink": false,
+        "is_file": true,
+        "is_dir": false,
+        "size_bytes": 44277760,
+        "mode": "0o644",
+        "uid": 0,
+        "gid": 0,
+        "device": 64512,
+        "inode": 811298,
+        "modified_at": "2026-09-18T11:00:59.718488+00:00",
+        "metadata_changed_at": "2026-09-18T11:00:59.718488+00:00"
+      },
+      "quick_check": "ok",
+      "counts": {
+        "documents": 293,
+        "entities": 1615,
+        "relations": 2576,
+        "embeddings": 1615,
+        "proposals": 70,
+        "jobs": 0,
+        "raw_inbox": 363,
+        "extractions": 392,
+        "refresh_queue": 0,
+        "purged_tombstones": 13
+      },
+      "schema_version": 13,
+      "schema_lineage": "claire-bible/common"
+    },
+    "1": {
+      "label": "Honkai",
+      "path": "/app/data/themes/1/claire.db",
+      "path_metadata": {
+        "configured_path": "/app/data/themes/1/claire.db",
+        "resolved_path": "/app/data/themes/1/claire.db",
+        "exists": true,
+        "is_symlink": false,
+        "is_file": true,
+        "is_dir": false,
+        "size_bytes": 9306112,
+        "mode": "0o644",
+        "uid": 0,
+        "gid": 0,
+        "device": 64512,
+        "inode": 795545,
+        "modified_at": "2026-09-17T17:06:33.053194+00:00",
+        "metadata_changed_at": "2026-09-17T17:06:33.053194+00:00"
+      },
+      "quick_check": "ok",
+      "counts": {
+        "documents": 59,
+        "entities": 367,
+        "relations": 635,
+        "embeddings": 367,
+        "proposals": 310,
+        "jobs": 0,
+        "raw_inbox": 68,
+        "extractions": 63,
+        "refresh_queue": 0,
+        "purged_tombstones": 0
+      },
+      "schema_version": 13,
+      "schema_lineage": "claire-bible/common"
+    }
+  },
+  "claire_db_quick_check": "ok",
+  "counts": {
+    "documents": 293,
+    "entities": 1615,
+    "relations": 2576,
+    "embeddings": 1615,
+    "proposals": 70,
+    "jobs": 0,
+    "raw_inbox": 363,
+    "extractions": 392,
+    "refresh_queue": 0,
+    "purged_tombstones": 13
+  },
+  "schema_version": 13,
+  "schema_lineage": "claire-bible/common",
+  "telemetry_db_quick_check": "ok"
+}

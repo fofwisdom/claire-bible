@@ -60,13 +60,8 @@ class FetcherRegistry:
             path = parsed.path
             if "youtube.com" in host or "youtu.be" in host:
                 return "youtube"
-            if ("vmware.com" in host and "/explore/video/" in path) or "brightcove.net" in host:
-                return "video"
-            if "vimeo.com" in host:
-                return "video"
-            if "tv.naver.com" in host or "now.naver.com" in host or ("naver.com" in host and "/v/" in path):
-                return "video"
-            if path.endswith((".mp4", ".m3u8", ".mpd", ".webm", ".m4a", ".mp3")):
+            from .fetchers.video import is_video_or_audio_url
+            if is_video_or_audio_url(t):
                 return "video"
             if "x.com" in host or "twitter.com" in host:
                 return "xcom"

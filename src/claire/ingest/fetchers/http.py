@@ -104,6 +104,42 @@ def is_safe_ip(ip_str: str) -> bool:
     return is_safe
 
 
+class MediaResponseDetected(FetchError):
+    """미디어 컨텐츠(video/audio) 응답이 감지되었을 때 발생하는 예외."""
+
+    def __init__(self, message: str, url: str, content_type: str = ""):
+        super().__init__(message)
+        self.url = url
+        self.content_type = content_type
+
+
+MEDIA_CONTENT_TYPES = (
+    "video/",
+    "audio/",
+    "application/vnd.apple.mpegurl",
+    "application/x-mpegurl",
+    "application/dash+xml",
+    "application/ogg",
+)
+
+MEDIA_FILE_EXTENSIONS = (
+    ".mp4", ".m3u8", ".mpd", ".webm", ".mov", ".mkv", ".avi", ".ts", ".m4v", ".flv",
+    ".mp3", ".m4a", ".wav", ".aac", ".flac", ".ogg", ".opus", ".wma",
+)
+
+
+def is_media_content_type(ctype: str) -> bool:
+    c = (ctype or "").lower().strip()
+    return any(c.startswith(m) or m in c for m in MEDIA_CONTENT_TYPES)
+
+
+def has_media_disposition(cdisp: str) -> bool:
+    c = (cdisp or "").lower()
+    if not c:
+        return False
+    return any(ext in c for ext in MEDIA_FILE_EXTENSIONS)
+
+
 class SafeHttpClient:
     """온프레미스 사설망 정책 제어, SSRF 방지, 크기 제한, 타임아웃이 내장된 보안 HTTP 클라이언트."""
 
@@ -174,10 +210,24 @@ class SafeHttpClient:
         try:
             with httpx.Client(**client_kwargs) as client:
                 resp = client.get(url)
+                ctype = resp.headers.get("content-type", "").lower()
+                cdisp = resp.headers.get("content-disposition", "").lower()
+
+                # 미디어 컨텐츠 감지 시 즉시 전용 예외 송출 (웹페이지 크기 초과 에러 방지)
+                if is_media_content_type(ctype) or has_media_disposition(cdisp):
+                    raise MediaResponseDetected(
+                        f"Media response detected ({ctype or cdisp})",
+                        url=str(resp.url),
+                        content_type=ctype,
+                    )
+
                 content_length = resp.headers.get("Content-Length")
                 if content_length and int(content_length) > self.max_size:
                     raise FetchError(f"Response too large: {content_length} bytes > {self.max_size}")
                 return resp
+        except MediaResponseDetected:
+            raise
         except httpx.RequestError as e:
             raise FetchError(f"HTTP request failed: {e}")
+
 
