@@ -1374,6 +1374,35 @@ def build_app(settings: Settings | None = None) -> Any:
             data,
             query.from_user.id if query.from_user else None,
         )
+        if data.startswith("oauth_appr:"):
+            user = update.effective_user
+            if not _is_allowed(user.id if user else None):
+                return
+            nonce = data.split(":", 1)[1]
+            conn = dbm.connect_existing(s.db_file)
+            try:
+                code = dbm.approve_oauth_auth_request(conn, nonce)
+                if code:
+                    await query.edit_message_text("✅ Gemini MCP 연결 요청이 승인되었습니다.\n브라우저로 돌아가 연동을 완료하세요.")
+                else:
+                    await query.edit_message_text("⚠️ 이미 처리되었거나 만료된 요청입니다.")
+            finally:
+                conn.close()
+            return
+
+        if data.startswith("oauth_deny:"):
+            user = update.effective_user
+            if not _is_allowed(user.id if user else None):
+                return
+            nonce = data.split(":", 1)[1]
+            conn = dbm.connect_existing(s.db_file)
+            try:
+                dbm.deny_oauth_auth_request(conn, nonce)
+                await query.edit_message_text("❌ Gemini MCP 연결 요청이 거부되었습니다.")
+            finally:
+                conn.close()
+            return
+
         if data.startswith("igt:"):
             user = update.effective_user
             if not _is_allowed(user.id if user else None):

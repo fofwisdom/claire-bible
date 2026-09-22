@@ -18,6 +18,7 @@ import time
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from http.cookies import SimpleCookie
+from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import parse_qs, urlsplit
 
@@ -235,6 +236,18 @@ ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     ("HEAD", "/reference"): _rule("public"),
     ("GET", "/openapi.yaml"): _rule("public"),
     ("HEAD", "/openapi.yaml"): _rule("public"),
+    ("GET", "/.well-known/oauth-protected-resource"): _rule("public"),
+    ("HEAD", "/.well-known/oauth-protected-resource"): _rule("public"),
+    ("GET", "/.well-known/oauth-authorization-server"): _rule("public"),
+    ("HEAD", "/.well-known/oauth-authorization-server"): _rule("public"),
+    ("POST", "/oauth/register"): _rule("public"),
+    ("GET", "/oauth/authorize"): _rule("public"),
+    ("HEAD", "/oauth/authorize"): _rule("public"),
+    ("POST", "/oauth/authorize"): _rule("public"),
+    ("POST", "/oauth/authorize/telegram-push"): _rule("public"),
+    ("GET", "/oauth/authorize/poll"): _rule("public"),
+    ("HEAD", "/oauth/authorize/poll"): _rule("public"),
+    ("POST", "/oauth/token"): _rule("public"),
 }
 
 
@@ -611,6 +624,25 @@ async def _validate_session(config: WebRuntimeConfig, token: str) -> str | None:
             return dbm.validate_session_scope(conn, token)
         finally:
             conn.close()
+
+    return await asyncio.to_thread(_validate)
+
+
+async def _validate_oauth_token(config: WebRuntimeConfig, token: str) -> str | None:
+    if not token or len(token) < 20:
+        return None
+    if not Path(config.db_file).is_file():
+        return None
+
+    def _validate() -> str | None:
+        try:
+            conn = dbm.connect_existing(config.db_file)
+            try:
+                return dbm.validate_oauth_token(conn, token)
+            finally:
+                conn.close()
+        except Exception:
+            return None
 
     return await asyncio.to_thread(_validate)
 
@@ -992,9 +1024,11 @@ def _mcp_auth_error_response(
     status_code: int = 401,
     error: str = "invalid_token",
     description: str = "Authentication required",
+    resource_metadata: str | None = None,
 ) -> Response:
     body = json.dumps({"error": error, "error_description": description}).encode("utf-8")
-    www_auth = f'Bearer error="{error}", error_description="{description}"'
+    meta_param = f', resource_metadata="{resource_metadata}"' if resource_metadata else ""
+    www_auth = f'Bearer error="{error}", error_description="{description}"{meta_param}'
     return Response(
         content=body,
         status_code=status_code,
@@ -1246,17 +1280,23 @@ class AuthenticationMiddleware:
                 auth_scope, auth_channel = "collaborator", "bearer"
             elif self.config.readonly_token and _constant_equal(bearer, self.config.readonly_token):
                 auth_scope, auth_channel = "readonly", "bearer"
-            elif origin_kind != "cross":
-                auth_scope = await _validate_session(self.config, bearer)
-                auth_channel = "bearer" if auth_scope is not None else None
+            else:
+                oauth_scope = await _validate_oauth_token(self.config, bearer)
+                if oauth_scope is not None:
+                    auth_scope, auth_channel = oauth_scope, "bearer"
+                elif origin_kind != "cross":
+                    auth_scope = await _validate_session(self.config, bearer)
+                    auth_channel = "bearer" if auth_scope is not None else None
 
         if origin_kind == "cross" and auth_channel != "bearer":
             if path == "/mcp":
+                res_meta = f"{self.config.public_origin}/.well-known/oauth-protected-resource"
                 await _send_response(
                     _mcp_auth_error_response(
                         403,
                         "insufficient_scope",
                         "Cross-origin requests require Bearer token",
+                        resource_metadata=res_meta,
                     ),
                     scope,
                     receive,
@@ -1288,9 +1328,10 @@ class AuthenticationMiddleware:
             and origin_kind != "same"
         ):
             if path == "/mcp":
+                res_meta = f"{self.config.public_origin}/.well-known/oauth-protected-resource"
                 await _send_response(
                     _mcp_auth_error_response(
-                        403, "insufficient_scope", "Forbidden"
+                        403, "insufficient_scope", "Forbidden", resource_metadata=res_meta
                     ),
                     scope,
                     receive,
@@ -1342,8 +1383,9 @@ class AuthenticationMiddleware:
                     if credential_present
                     else "Authentication required"
                 )
+                res_meta = f"{self.config.public_origin}/.well-known/oauth-protected-resource"
                 await _send_response(
-                    _mcp_auth_error_response(401, "invalid_token", desc),
+                    _mcp_auth_error_response(401, "invalid_token", desc, resource_metadata=res_meta),
                     scope,
                     receive,
                     send,
