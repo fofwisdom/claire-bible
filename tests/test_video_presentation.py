@@ -256,6 +256,87 @@ def test_shared_renderer_keeps_ready_dom_when_tab_is_absent(monkeypatch):
     assert rendered_session_is_ready(rendered, "6403820644112") is True
 
 
+def test_shared_renderer_waits_for_delayed_tab_mount(monkeypatch):
+    clicked = []
+    waited = []
+
+    class DelayedLocator:
+        def __init__(self):
+            self._mounted = False
+
+        def count(self):
+            return 1 if self._mounted else 0
+
+        def wait_for(self, *, state, timeout):
+            assert state == "attached"
+            assert timeout == 4000
+            waited.append(timeout)
+            self._mounted = True
+
+        def click(self, *, timeout):
+            assert timeout == 12000
+            clicked.append("Presentation")
+
+    class FakePage:
+        def wait_for_timeout(self, _milliseconds):
+            return None
+
+        def get_by_role(self, role, *, name, exact):
+            assert (role, name, exact) == ("tab", "Presentation", True)
+            return DelayedLocator()
+
+    class FakeDynamicFetcher:
+        @classmethod
+        def fetch(cls, _url, **kwargs):
+            kwargs["page_action"](FakePage())
+            return SimpleNamespace(
+                body=_rendered_html(with_presentation=True).encode("utf-8")
+            )
+
+    monkeypatch.setattr("scrapling.fetchers.DynamicFetcher", FakeDynamicFetcher)
+    rendered = render_html_cdp(VIDEO_URL, click_tab_label="Presentation")
+    assert waited == [4000]
+    assert clicked == ["Presentation"]
+    assert "presentation-details" in rendered
+
+
+def test_shared_renderer_handles_timeout_when_tab_never_mounts(monkeypatch):
+    waited = []
+
+    class NeverMountingLocator:
+        def count(self):
+            return 0
+
+        def wait_for(self, *, state, timeout):
+            assert state == "attached"
+            waited.append(timeout)
+            raise TimeoutError("tab did not mount in time")
+
+        def click(self, **_kwargs):
+            pytest.fail("unmounted tab must not be clicked")
+
+    class FakePage:
+        def wait_for_timeout(self, _milliseconds):
+            return None
+
+        def get_by_role(self, role, *, name, exact):
+            assert (role, name, exact) == ("tab", "Presentation", True)
+            return NeverMountingLocator()
+
+    class FakeDynamicFetcher:
+        @classmethod
+        def fetch(cls, _url, **kwargs):
+            kwargs["page_action"](FakePage())
+            return SimpleNamespace(
+                body=_rendered_html(with_presentation=False).encode("utf-8")
+            )
+
+    monkeypatch.setattr("scrapling.fetchers.DynamicFetcher", FakeDynamicFetcher)
+    rendered = render_html_cdp(VIDEO_URL, click_tab_label="Presentation")
+    assert waited == [4000]
+    assert rendered_session_is_ready(rendered, "6403820644112") is True
+
+
 def test_shared_renderer_rejects_failed_visible_tab_interaction(monkeypatch):
     class BrokenLocator:
         def count(self):
