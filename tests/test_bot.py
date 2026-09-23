@@ -906,7 +906,7 @@ async def test_on_support_unallowed_user(tmp_path):
 
     settings = Settings(
         telegram_bot_token="12345:fake_token_for_test",
-        allowed_users="9999",
+        telegram_allowed_users="9999",
         data_dir=tmp_path,
     )
     app = build_app(settings)
@@ -999,7 +999,7 @@ async def test_on_theme_single_mode_reply(tmp_path: Path):
         CLAIRE_VAULT_PATH=str(tmp_path / "vault"),
         CLAIRE_PROVIDER="mock",
         telegram_bot_token="12345:fake_token",
-        allowed_users="100",
+        telegram_allowed_users="100",
         CLAIRE_MULTI_THEME=False,
     )
     app = build_app(s)

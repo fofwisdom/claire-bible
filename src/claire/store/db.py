@@ -1854,10 +1854,11 @@ def create_oauth_auth_request(
     scope: str = "readonly",
     state: str | None = None,
     *,
+    nonce: str | None = None,
     ttl: float = 600.0,
 ) -> str:
     """텔레그램 푸시 승인을 위한 인증 요청(nonce) 발급 (10분 유효)."""
-    nonce = secrets.token_urlsafe(24)
+    nonce = nonce or secrets.token_urlsafe(24)
     now = time.time()
     conn.execute(
         """INSERT INTO oauth_auth_requests

@@ -1719,6 +1719,7 @@ def create_app(
         lifespan=app_lifespan,
     )
     app.state.runtime_config = WebRuntimeConfig.from_settings(s)
+    app.state.settings = s
 
     def _add_static(prefix: str, path: str | Path, name: str = "static") -> None:
         p = Path(path)

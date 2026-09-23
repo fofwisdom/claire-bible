@@ -315,7 +315,7 @@ Codex CLI 프로바이더는 이 컨테이너 profile에서 지원하지 않는�
 [Codex CLI 프로바이더(네이티브 전용)](#codex-cli-프로바이더네이티브-전용)의 호스트
 명령을 사용한다.
 
-Telegram bot을 활성화할 때 `TELEGRAM_BOT_TOKEN`과 `CLAIRE_ALLOWED_USERS`의 허용할
+Telegram bot을 활성화할 때 `TELEGRAM_BOT_TOKEN`과 `TELEGRAM_ALLOWED_USERS`의 허용할
 숫자 user ID를 설정한다.
 
 `CLAIRE_ANONYMOUS_READONLY=1`(기본값)은 숨김 문서를 제외한 공개 지식베이스의 읽기 API를

@@ -94,7 +94,7 @@ def _build_content_security_policy(ga_measurement_id: str = "") -> str:
         "worker-src 'self' blob:; "
         "object-src 'none'; "
         "base-uri 'none'; "
-        "form-action 'self'; "
+        "form-action 'self' https:; "
         "frame-ancestors 'none'"
     )
 
