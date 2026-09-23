@@ -49,6 +49,18 @@ def setup_telegram_logging(data_dir: Path | str | None = None) -> Path | None:
         handler.setLevel(logging.INFO)
         log.addHandler(handler)
         log.setLevel(logging.INFO)
+
+        # telegram 패키지 로거(PTB 내부 및 미처리 예외)에도 핸들러 부착
+        tg_log = logging.getLogger("telegram")
+        if not any(
+            isinstance(h, RotatingFileHandler)
+            and getattr(h, "baseFilename", None)
+            and Path(h.baseFilename).resolve() == log_file.resolve()
+            for h in tg_log.handlers
+        ):
+            tg_log.addHandler(handler)
+            tg_log.setLevel(logging.INFO)
+
         return log_file
     except Exception as e:  # noqa: BLE001
         log.warning("Failed to setup telegram file logger: %s", e)
@@ -2040,6 +2052,17 @@ def build_app(settings: Settings | None = None) -> Any:
     app.add_handler(CallbackQueryHandler(on_callback))
     app.add_handler(MessageHandler(filters.Document.ALL, on_document))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_message))
+
+    async def _error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+        log.error("Unhandled exception while handling update: %s", context.error, exc_info=context.error)
+        cb_query = getattr(update, "callback_query", None)
+        if cb_query:
+            try:
+                await cb_query.answer("⚠️ 요청 처리 중 오류가 발생했습니다.")
+            except Exception:
+                pass
+
+    app.add_error_handler(_error_handler)
 
     async def _post_init(application) -> None:
         # 텔레그램 클라이언트 입력창의 '/' 명령 메뉴에 노출.

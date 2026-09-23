@@ -88,6 +88,8 @@ _DOCUMENT_SAFE_KEYS = frozenset({
     "active_tokens_count",
     "expired_tokens_count",
     "pending_auth_requests_count",
+    "auth_requests",
+    "nonce_sha256_prefix",
     "total_registered_clients",
     "tools_registered",
 })
@@ -756,7 +758,7 @@ def _collect_oauth_summary(conn: sqlite3.Connection, now: float) -> dict[str, An
     has_tokens = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='oauth_tokens'").fetchone()
     has_reqs = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='oauth_auth_requests'").fetchone()
 
-    if not (has_clients or has_tokens):
+    if not (has_clients or has_tokens or has_reqs):
         return {
             "summary": {
                 "total_registered_clients": 0,
@@ -766,6 +768,7 @@ def _collect_oauth_summary(conn: sqlite3.Connection, now: float) -> dict[str, An
             },
             "clients": [],
             "token_inventory": [],
+            "auth_requests": [],
         }
 
     clients = []
@@ -821,11 +824,31 @@ def _collect_oauth_summary(conn: sqlite3.Connection, now: float) -> dict[str, An
             })
 
     pending_reqs = 0
+    auth_requests = []
     if has_reqs:
         pending_reqs = conn.execute(
             "SELECT COUNT(*) c FROM oauth_auth_requests WHERE approved = 0 AND expires_at >= ?",
             (now,),
         ).fetchone()["c"]
+        r_rows = conn.execute(
+            "SELECT nonce, client_id, redirect_uri, scope, approved, code, created_at, expires_at "
+            "FROM oauth_auth_requests ORDER BY created_at DESC LIMIT 50"
+        ).fetchall()
+        for r in r_rows:
+            raw_nonce = r["nonce"] or ""
+            sha_prefix = hashlib.sha256(raw_nonce.encode("utf-8")).hexdigest()[:8]
+            exp = float(r["expires_at"] or 0)
+            auth_requests.append({
+                "nonce_sha256_prefix": sha_prefix,
+                "client_id": r["client_id"],
+                "redirect_uri": r["redirect_uri"],
+                "scope": r["scope"] or "readonly",
+                "approved": bool(r["approved"]),
+                "has_code": bool(r["code"]),
+                "created_at": float(r["created_at"] or 0),
+                "expires_at": exp,
+                "is_expired": exp < now,
+            })
 
     return {
         "summary": {
@@ -836,6 +859,7 @@ def _collect_oauth_summary(conn: sqlite3.Connection, now: float) -> dict[str, An
         },
         "clients": clients,
         "token_inventory": tokens,
+        "auth_requests": auth_requests,
     }
 
 

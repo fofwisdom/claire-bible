@@ -645,6 +645,13 @@ def test_support_bundle_mcp_artifacts(tmp_path: Path):
             """,
             ("secret_bearer_token_xyz_999", "secret_refresh_token_abc_111", "claire_mcp_client_1", "readonly", time.time(), time.time() + 3600),
         )
+        conn.execute(
+            """
+            INSERT INTO oauth_auth_requests (nonce, client_id, redirect_uri, code_challenge, code_challenge_method, scope, approved, code, created_at, expires_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            ("secret_nonce_xyz_777", "claire_mcp_client_1", "https://gemini.google.com/callback", "chall", "S256", "readonly", 0, None, time.time(), time.time() + 600),
+        )
         conn.commit()
     finally:
         conn.close()
@@ -730,11 +737,20 @@ def test_support_bundle_mcp_artifacts(tmp_path: Path):
 
     expected_sha_prefix = hashlib.sha256("secret_bearer_token_xyz_999".encode("utf-8")).hexdigest()[:8]
     assert oauth_sum["token_inventory"][0]["token_sha256_prefix"] == expected_sha_prefix
+
+    assert "auth_requests" in oauth_sum
+    assert len(oauth_sum["auth_requests"]) == 1
+    assert oauth_sum["auth_requests"][0]["client_id"] == "claire_mcp_client_1"
+    assert oauth_sum["auth_requests"][0]["approved"] is False
+    expected_nonce_sha = hashlib.sha256("secret_nonce_xyz_777".encode("utf-8")).hexdigest()[:8]
+    assert oauth_sum["auth_requests"][0]["nonce_sha256_prefix"] == expected_nonce_sha
+
     # 원문 비밀 자격증명이 노출되지 않았는지 확인
     dumped_oauth_json = json.dumps(oauth_sum)
     assert "secret_bearer_token_xyz_999" not in dumped_oauth_json
     assert "super_secret_client_key" not in dumped_oauth_json
     assert "secret_refresh_token_abc_111" not in dumped_oauth_json
+    assert "secret_nonce_xyz_777" not in dumped_oauth_json
 
     # 7. pipeline/db_integrity.json의 counts에 OAuth 테이블 포함 확인
     db_integ = _read_json(f"{root}/pipeline/db_integrity.json")
