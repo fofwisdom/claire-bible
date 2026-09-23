@@ -14,6 +14,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from .config import get_settings
+from .store import db as dbm
 
 log = logging.getLogger("claire.telegram")
 
@@ -242,7 +243,6 @@ async def _settle_status(
                 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
                 from .config import get_settings
-                from .store import db as dbm
 
                 cfg = (
                     kwargs.get("settings")
@@ -919,7 +919,6 @@ def build_app(settings: Settings | None = None) -> Any:
             return
 
         from .config import extract_own_share_token
-        from .store import db as dbm
 
         is_multi = bool(getattr(s, "multi_theme", False))
         explicit_theme_id = None
@@ -1605,7 +1604,6 @@ def build_app(settings: Settings | None = None) -> Any:
             user = update.effective_user
             if not _is_allowed(user.id if user else None):
                 return
-            from .store import db as dbm
 
             conn = dbm.connect(svc.s.db_file)
             try:
@@ -1683,7 +1681,6 @@ def build_app(settings: Settings | None = None) -> Any:
         # 링크는 첫 접속에서 cookie 세션으로 회전하고 URL 자체는 즉시 무효화된다.
         if not _is_allowed(update.effective_user.id if update.effective_user else None):
             return
-        from .store import db as dbm
 
         if not s.public_url:
             await update.message.reply_text(
@@ -1715,7 +1712,6 @@ def build_app(settings: Settings | None = None) -> Any:
         # 내 소유자 세션은 그대로 살아있다. 소유자만 발급 가능.
         if not _is_allowed(update.effective_user.id if update.effective_user else None):
             return
-        from .store import db as dbm
 
         if not s.public_url:
             await update.message.reply_text(
@@ -1744,7 +1740,6 @@ def build_app(settings: Settings | None = None) -> Any:
         # 공개된 추가 지식 테마에 접근하고 자료를 적재할 수 있으며, 기본 지식베이스 및 관리 기능은 제한된다.
         if not _is_allowed(update.effective_user.id if update.effective_user else None):
             return
-        from .store import db as dbm
 
         if not s.public_url:
             await update.message.reply_text(
