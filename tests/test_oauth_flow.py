@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from starlette.testclient import TestClient
@@ -30,6 +31,7 @@ class StubSettings:
     anonymous_readonly: bool = False
     effective_provider: str = "mock"
     telegram_bot_token: str = ""
+    telegram_owner_chat_id: int = 0
     allowed_user_ids: set[int] = None  # type: ignore
 
     def __post_init__(self) -> None:
@@ -253,38 +255,119 @@ def test_authorization_code_flow_with_pkce_and_mcp_access(tmp_path: Path) -> Non
 
 def test_telegram_push_authorization_poll(tmp_path: Path) -> None:
     s = _settings(tmp_path)
+    s.telegram_bot_token = "fake_bot_token"
+    s.allowed_user_ids = {12345}
+
+    conn = dbm.connect(s.db_file)
+    dbm.register_oauth_client(
+        conn,
+        client_id="test_client",
+        client_secret="secret",
+        client_name="Test Client",
+        redirect_uris=["https://example.com/cb"],
+    )
+    conn.close()
+
+    app = _app(s)
+
+    mock_resp = SimpleNamespace(status_code=200)
+    with patch("httpx.AsyncClient.post", new_callable=AsyncMock, return_value=mock_resp):
+        with TestClient(app, base_url=s.public_url) as client:
+            # Request telegram push
+            push_resp = client.post(
+                "/oauth/authorize/telegram-push",
+                json={
+                    "client_id": "test_client",
+                    "redirect_uri": "https://example.com/cb",
+                    "code_challenge": "abc",
+                    "code_challenge_method": "S256",
+                    "state": "s123",
+                },
+            )
+            assert push_resp.status_code == 200
+            nonce = push_resp.json()["nonce"]
+
+            # Poll status -> pending
+            poll_resp = client.get(f"/oauth/authorize/poll?nonce={nonce}")
+            assert poll_resp.status_code == 200
+            assert poll_resp.json()["status"] == "pending"
+
+            # Simulate owner clicking approve in Telegram bot
+            conn = dbm.connect(s.db_file)
+            code = dbm.approve_oauth_auth_request(conn, nonce)
+            conn.close()
+            assert code is not None
+
+            # Poll status again -> approved
+            poll_resp2 = client.get(f"/oauth/authorize/poll?nonce={nonce}")
+            assert poll_resp2.status_code == 200
+            data = poll_resp2.json()
+            assert data["status"] == "approved"
+            assert f"code={code}" in data["redirect_url"]
+            assert "state=s123" in data["redirect_url"]
+
+
+def test_telegram_push_security_error_masking(tmp_path: Path) -> None:
+    s = _settings(tmp_path)
     app = _app(s)
 
     with TestClient(app, base_url=s.public_url) as client:
-        # Request telegram push
-        push_resp = client.post(
+        # 1. Unregistered client_id -> 400 invalid_request (no internal info exposed)
+        resp1 = client.post(
             "/oauth/authorize/telegram-push",
             json={
-                "client_id": "test_client",
+                "client_id": "unregistered_client",
                 "redirect_uri": "https://example.com/cb",
-                "code_challenge": "abc",
-                "code_challenge_method": "S256",
-                "state": "s123",
             },
         )
-        assert push_resp.status_code == 200
-        nonce = push_resp.json()["nonce"]
+        assert resp1.status_code == 400
+        assert resp1.json() == {"ok": False, "error": "invalid_request"}
 
-        # Poll status -> pending
-        poll_resp = client.get(f"/oauth/authorize/poll?nonce={nonce}")
-        assert poll_resp.status_code == 200
-        assert poll_resp.json()["status"] == "pending"
-
-        # Simulate owner clicking approve in Telegram bot
+        # Register a valid client for subsequent tests
         conn = dbm.connect(s.db_file)
-        code = dbm.approve_oauth_auth_request(conn, nonce)
+        dbm.register_oauth_client(
+            conn,
+            client_id="valid_client",
+            client_secret="secret",
+            client_name="Valid Client",
+            redirect_uris=["https://example.com/cb"],
+        )
         conn.close()
-        assert code is not None
 
-        # Poll status again -> approved
-        poll_resp2 = client.get(f"/oauth/authorize/poll?nonce={nonce}")
-        assert poll_resp2.status_code == 200
-        data = poll_resp2.json()
-        assert data["status"] == "approved"
-        assert f"code={code}" in data["redirect_url"]
-        assert "state=s123" in data["redirect_url"]
+        # 2. Unconfigured telegram bot token or recipients -> 503 temporarily_unavailable
+        resp2 = client.post(
+            "/oauth/authorize/telegram-push",
+            json={
+                "client_id": "valid_client",
+                "redirect_uri": "https://example.com/cb",
+            },
+        )
+        assert resp2.status_code == 503
+        assert resp2.json() == {"ok": False, "error": "temporarily_unavailable"}
+
+        # Verify no orphan auth request record was created in DB
+        conn = dbm.connect(s.db_file)
+        count = conn.execute("SELECT COUNT(*) FROM oauth_auth_requests").fetchone()[0]
+        conn.close()
+        assert count == 0
+
+        # 3. Telegram API delivery failure -> 503 temporarily_unavailable
+        s.telegram_bot_token = "fake_bot_token"
+        s.allowed_user_ids = {12345}
+        mock_fail_resp = SimpleNamespace(status_code=400)
+        with patch("httpx.AsyncClient.post", new_callable=AsyncMock, return_value=mock_fail_resp):
+            resp3 = client.post(
+                "/oauth/authorize/telegram-push",
+                json={
+                    "client_id": "valid_client",
+                    "redirect_uri": "https://example.com/cb",
+                },
+            )
+            assert resp3.status_code == 503
+            assert resp3.json() == {"ok": False, "error": "temporarily_unavailable"}
+
+            # Verify no orphan auth request record was created on delivery failure
+            conn = dbm.connect(s.db_file)
+            count = conn.execute("SELECT COUNT(*) FROM oauth_auth_requests").fetchone()[0]
+            conn.close()
+            assert count == 0

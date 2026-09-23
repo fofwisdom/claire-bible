@@ -39,9 +39,9 @@ def test_notify_swallows_exceptions(monkeypatch):
 
 
 def test_notify_chat_id_fallback(monkeypatch):
-    monkeypatch.setenv("CLAIRE_ALLOWED_USERS", "999,1000")
-    monkeypatch.delenv("CLAIRE_OWNER_CHAT_ID", raising=False)
+    monkeypatch.setenv("TELEGRAM_ALLOWED_USERS", "999,1000")
+    monkeypatch.delenv("TELEGRAM_OWNER_CHAT_ID", raising=False)
     assert Settings().notify_chat_id == 999  # owner 미설정 → allowed 최솟값 폴백
 
-    monkeypatch.setenv("CLAIRE_OWNER_CHAT_ID", "42")
+    monkeypatch.setenv("TELEGRAM_OWNER_CHAT_ID", "42")
     assert Settings().notify_chat_id == 42   # owner 설정 시 우선

@@ -113,9 +113,15 @@ Claire의 지식 그래프와 문서를 **Telegram 봇/웹 UI 외에 Claude Code
 
 ### 2.3 하이브리드 원터치 인가 화면 (`/oauth/authorize`)
 Gemini 및 브라우저 사용자가 토큰 복사/붙여넣기 없이 최고 수준의 편의성으로 승인할 수 있도록 설계:
+- **표준 인가 서버 CSP (`form-action 'self' https:`)**:
+  - OAuth 2.1 인가 서버 규약에 따라 폼 전송 액션을 서브밋 자체와 임의의 안전한 외부 리다이렉트(`https:`) 대상으로 허용하여, Google Gemini의 콜백 엔드포인트(`oauth-redirect.googleusercontent.com` 등)로의 폼 서브밋 차단(Refused to send form data)을 원천 방지.
 - **자동 쿠키 감지**: 이미 Claire 웹 UI에 로그인되어 있는 경우 **[✅ 바로 승인하기]** 버튼 1클릭으로 즉시 승인.
 - **텔레그램 푸시 연동**: 비로그인 브라우저나 모바일 기기인 경우 **[📱 텔레그램으로 승인 요청 보내기]** 버튼 클릭 시, 소유자의 스마트폰 텔레그램으로 `[✅ 승인] [❌ 거절]` 인라인 버튼 메시지가 전송되어 폰에서 원클릭 승인 완료 (`/oauth/authorize/telegram-push` 및 `/oauth/authorize/poll`).
+  - **보안 마스킹 및 공격 벡터 차단**: 미등록 클라이언트나 내부 설정 미비 시 세부 에러나 봇 토큰 존재 여부를 외부 공격자에게 노출하지 않고 표준 RFC 6749 에러 코드(`invalid_request` 400, `temporarily_unavailable` 503)로 통일 마스킹.
+  - **원자적 인가 요청 생성**: 텔레그램 메시지 전송 성공 시에만 데이터베이스에 인가 요청 레코드를 원자적으로 영속화하여 미전송 고아 요청 방지.
 - **세션 토큰 입력 지원**: 텔레그램 `/web` 또는 `/webro` 발급 토큰을 붙여넣는 수동 폼도 함께 제공.
+- **환경 변수 일원화**:
+  - 알림 및 승인 대상 관리를 위해 `TELEGRAM_ALLOWED_USERS`와 `TELEGRAM_OWNER_CHAT_ID`로 통일 (기존 `CLAIRE_*` 레거시 변수는 혼선을 방지하기 위해 단절 및 완전 제거).
 
 ### 2.4 세션 격리 및 Refresh Token 자동 갱신
 - **영구 독립 격리 (`oauth_tokens` 테이블)**:

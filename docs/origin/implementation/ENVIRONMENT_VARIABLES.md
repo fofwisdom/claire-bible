@@ -106,8 +106,8 @@ graph TD
 | :--- | :--- | :--- | :--- |
 | `GEMINI_API_KEY` | `""` | 문자열 (AI Studio 키) | Google Gemini API 키. 누락 시 Gemini 프로바이더는 자동으로 `mock`으로 폴백됩니다. |
 | `TELEGRAM_BOT_TOKEN` | `""` | 문자열 (`123456:ABC-DEF...`) | Telegram `@BotFather`에서 발급받은 봇 토큰. 비워두면 봇 프로필이 비활성화됩니다. |
-| `CLAIRE_ALLOWED_USERS` | `""` | 쉼표 구분 정수 ID 목록 | 텔레그램 봇 사용이 허용된 Telegram User ID 목록 (예: `12345678,87654321`). 비워두면 모든 사용자가 접근 가능하므로 주의가 필요합니다. |
-| `CLAIRE_OWNER_CHAT_ID` | `0` | 정수 (Telegram Chat ID) | 서비스 오류 및 운영 경보(Alert)를 수신할 소유자 Chat ID. `0`이면 `CLAIRE_ALLOWED_USERS`의 첫 번째 ID로 자동 폴백됩니다. |
+| `TELEGRAM_ALLOWED_USERS` | `""` | 쉼표 구분 정수 ID 목록 | 텔레그램 봇 사용이 허용된 Telegram User ID 목록 (예: `12345678,87654321`). 비워두면 모든 사용자가 접근 가능하므로 주의가 필요합니다. |
+| `TELEGRAM_OWNER_CHAT_ID` | `0` | 정수 (Telegram Chat ID) | 서비스 오류 및 운영 경보(Alert)를 수신할 소유자 Chat ID. `0`이면 `TELEGRAM_ALLOWED_USERS`의 첫 번째 ID로 자동 폴백됩니다. |
 
 ---
 
@@ -356,8 +356,8 @@ CB_WAIT_TIMEOUT=120
 # --- 시크릿 및 접근 제어 ---
 GEMINI_API_KEY=AIzaSy...
 TELEGRAM_BOT_TOKEN=123456789:ABCdefGhIJKlmNoPQRstuVWXyz
-CLAIRE_ALLOWED_USERS=12345678
-CLAIRE_OWNER_CHAT_ID=12345678
+TELEGRAM_ALLOWED_USERS=12345678
+TELEGRAM_OWNER_CHAT_ID=12345678
 
 # --- LLM 프로바이더 ---
 CLAIRE_PROVIDER=gemini

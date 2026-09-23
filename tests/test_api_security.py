@@ -1203,6 +1203,7 @@ async def test_docs_security_headers_and_csp(tmp_path):
     csp = res.header("content-security-policy")
     assert csp is not None
     assert "worker-src 'self' blob:" in csp
+    assert "form-action 'self' https:" in csp
     assert "frame-ancestors 'none'" in csp
     assert res.header("x-frame-options") == "DENY"
     assert res.header("x-content-type-options") == "nosniff"

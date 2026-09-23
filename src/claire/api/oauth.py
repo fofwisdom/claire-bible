@@ -292,13 +292,13 @@ def _render_authorize_page(
             if (data.ok && data.nonce) {{
                 pollStatus(data.nonce);
             }} else {{
-                alert('텔레그램 알림 전송 실패: ' + (data.error || '알 수 없는 오류'));
+                alert('승인 요청을 전송할 수 없습니다. 잠시 후 다시 시도하거나 관리자에게 문의하세요.');
                 btn.disabled = false;
                 btn.style.opacity = '1';
                 status.style.display = 'none';
             }}
         }} catch (err) {{
-            alert('요청 중 오류가 발생했습니다: ' + err);
+            alert('승인 요청을 전송할 수 없습니다. 잠시 후 다시 시도하거나 관리자에게 문의하세요.');
             btn.disabled = false;
             btn.style.opacity = '1';
             status.style.display = 'none';
@@ -450,31 +450,27 @@ async def handle_telegram_push(request: Request) -> Response:
     state = data.get("state", "")
 
     if not client_id or not redirect_uri:
-        return JSONResponse({"ok": False, "error": "missing parameters"}, status_code=400)
+        return JSONResponse({"ok": False, "error": "invalid_request"}, status_code=400)
 
     conn = dbm.connect_existing(config.db_file)
     try:
         client = dbm.get_oauth_client(conn, client_id)
-        client_name = client["client_name"] if client else "Google Gemini / MCP Client"
+        if not client:
+            return JSONResponse({"ok": False, "error": "invalid_request"}, status_code=400)
+        client_name = client["client_name"] or "Google Gemini / MCP Client"
 
-        nonce = dbm.create_oauth_auth_request(
-            conn,
-            client_id=client_id,
-            redirect_uri=redirect_uri,
-            code_challenge=code_challenge,
-            code_challenge_method=code_challenge_method,
-            scope="readonly",
-            state=state,
+        settings = getattr(request.app.state, "settings", None) or get_settings()
+        token = getattr(settings, "telegram_bot_token", "")
+        owner_chat_id = getattr(settings, "telegram_owner_chat_id", 0)
+        targets = getattr(settings, "allowed_user_ids", None) or (
+            {owner_chat_id} if owner_chat_id else set()
         )
-    finally:
-        conn.close()
 
-    # Send telegram push message via Telegram Bot API
-    settings = get_settings()
-    token = settings.telegram_bot_token
-    allowed_ids = settings.allowed_user_ids
+        if not token or not targets:
+            log.warning("OAuth push aborted: telegram bot token or recipients not configured")
+            return JSONResponse({"ok": False, "error": "temporarily_unavailable"}, status_code=503)
 
-    if token and allowed_ids:
+        nonce = secrets.token_urlsafe(24)
         msg_text = (
             "🤖 <b>Claire MCP 연결 승인 요청</b>\n\n"
             f"• 클라이언트: <b>{client_name}</b>\n"
@@ -489,10 +485,11 @@ async def handle_telegram_push(request: Request) -> Response:
                 ]
             ]
         }
+        sent_count = 0
         async with httpx.AsyncClient(timeout=10.0) as client_http:
-            for chat_id in allowed_ids:
+            for chat_id in targets:
                 try:
-                    await client_http.post(
+                    resp = await client_http.post(
                         f"https://api.telegram.org/bot{token}/sendMessage",
                         json={
                             "chat_id": chat_id,
@@ -501,8 +498,27 @@ async def handle_telegram_push(request: Request) -> Response:
                             "reply_markup": keyboard,
                         },
                     )
+                    if resp.status_code == 200:
+                        sent_count += 1
                 except Exception as exc:
                     log.warning("Failed to send telegram oauth push to %s: %s", chat_id, exc)
+
+        if sent_count == 0:
+            log.warning("OAuth push aborted: failed to deliver telegram notification to any recipient")
+            return JSONResponse({"ok": False, "error": "temporarily_unavailable"}, status_code=503)
+
+        dbm.create_oauth_auth_request(
+            conn,
+            client_id=client_id,
+            redirect_uri=redirect_uri,
+            code_challenge=code_challenge,
+            code_challenge_method=code_challenge_method,
+            scope="readonly",
+            state=state,
+            nonce=nonce,
+        )
+    finally:
+        conn.close()
 
     return JSONResponse({"ok": True, "nonce": nonce})
 
