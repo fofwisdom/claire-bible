@@ -1580,3 +1580,88 @@ async def test_on_failed_and_on_retry_theme_aware(tmp_path: Path):
     status_msg.edit_text.assert_awaited()
 
 
+async def test_on_callback_oauth_approve_and_deny(tmp_path: Path):
+    """on_callback oauth_appr: 및 oauth_deny: 수신 시 UnboundLocalError 없이 정상 처리되는지 검증."""
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, MagicMock
+
+    from claire.config import Settings
+    from claire.store import db as dbm
+    from claire.telegram_bot import build_app
+
+    db_path = tmp_path / "claire.db"
+    settings = Settings(
+        telegram_bot_token="12345:fake_token_for_test",
+        data_dir=str(tmp_path),
+        db_path=str(db_path),
+        allowed_user_ids=[100],
+    )
+
+    conn = dbm.connect(settings.db_file)
+    dbm.init_db(conn)
+    dbm.register_oauth_client(
+        conn,
+        client_id="client_test",
+        client_secret="secret_test",
+        client_name="Test Client",
+        redirect_uris=["https://example.com/cb"],
+    )
+
+    nonce_appr = dbm.create_oauth_auth_request(
+        conn,
+        client_id="client_test",
+        redirect_uri="https://example.com/cb",
+        code_challenge="chall",
+        code_challenge_method="S256",
+        scope="readonly",
+    )
+    nonce_deny = dbm.create_oauth_auth_request(
+        conn,
+        client_id="client_test",
+        redirect_uri="https://example.com/cb",
+        code_challenge="chall",
+        code_challenge_method="S256",
+        scope="readonly",
+    )
+    conn.close()
+
+    app = build_app(settings)
+    on_callback = next(h.callback for h in app.handlers[0] if getattr(h.callback, "__name__", "") == "on_callback")
+
+    # 1. Test approve
+    query_appr = AsyncMock()
+    query_appr.data = f"oauth_appr:{nonce_appr}"
+    query_appr.edit_message_text = AsyncMock()
+    update_appr = MagicMock()
+    update_appr.effective_user = SimpleNamespace(id=100)
+    update_appr.callback_query = query_appr
+
+    await on_callback(update_appr, None)
+    query_appr.edit_message_text.assert_awaited_once()
+    appr_text = query_appr.edit_message_text.call_args[0][0]
+    assert "승인되었습니다" in appr_text
+
+    conn_check = dbm.connect_existing(settings.db_file)
+    req_appr = dbm.get_oauth_auth_request(conn_check, nonce_appr)
+    assert req_appr is not None
+    assert req_appr["approved"] == 1
+    assert req_appr["code"] is not None
+
+    # 2. Test deny
+    query_deny = AsyncMock()
+    query_deny.data = f"oauth_deny:{nonce_deny}"
+    query_deny.edit_message_text = AsyncMock()
+    update_deny = MagicMock()
+    update_deny.effective_user = SimpleNamespace(id=100)
+    update_deny.callback_query = query_deny
+
+    await on_callback(update_deny, None)
+    query_deny.edit_message_text.assert_awaited_once()
+    deny_text = query_deny.edit_message_text.call_args[0][0]
+    assert "거부되었습니다" in deny_text
+
+    req_deny = dbm.get_oauth_auth_request(conn_check, nonce_deny)
+    assert req_deny is None  # Denied request is removed
+    conn_check.close()
+
+
