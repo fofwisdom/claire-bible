@@ -928,6 +928,7 @@ async def test_on_support_unallowed_user(tmp_path):
 
 def test_setup_telegram_logging(tmp_path: Path):
     """setup_telegram_logging 이 data/logs/telegram.log 를 생성하고 로깅을 파일에 기록하는지 검증."""
+    import logging
     from claire.telegram_bot import log, setup_telegram_logging
 
     log_file = setup_telegram_logging(tmp_path)
@@ -939,8 +940,53 @@ def test_setup_telegram_logging(tmp_path: Path):
     for h in log.handlers:
         h.flush()
 
+    tg_log = logging.getLogger("telegram")
+    tg_log.info("Test telegram package log message 67890")
+    for h in tg_log.handlers:
+        h.flush()
+
     content = log_file.read_text(encoding="utf-8")
     assert "Test telegram logging message from unit test 12345" in content
+    assert "Test telegram package log message 67890" in content
+
+
+async def test_telegram_app_error_handler(tmp_path: Path):
+    """build_app에 등록된 _error_handler가 예외를 포착하여 telegram.log에 기록하는지 검증."""
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, MagicMock
+    from claire.config import Settings
+    from claire.telegram_bot import build_app, log, setup_telegram_logging
+
+    log_file = setup_telegram_logging(tmp_path)
+    assert log_file is not None
+
+    settings = Settings(
+        telegram_bot_token="12345:fake_token_for_test",
+        data_dir=str(tmp_path),
+        allowed_user_ids=[100],
+    )
+    app = build_app(settings)
+    assert len(app.error_handlers) > 0
+
+    error_handler = list(app.error_handlers.keys())[0]
+
+    update = MagicMock()
+    cb_query = AsyncMock()
+    cb_query.answer = AsyncMock()
+    update.callback_query = cb_query
+
+    ctx = MagicMock()
+    test_err = RuntimeError("Simulated unhandled telegram error 99999")
+    ctx.error = test_err
+
+    await error_handler(update, ctx)
+    cb_query.answer.assert_awaited_once_with("⚠️ 요청 처리 중 오류가 발생했습니다.")
+
+    for h in log.handlers:
+        h.flush()
+    content = log_file.read_text(encoding="utf-8")
+    assert "Unhandled exception while handling update" in content
+    assert "Simulated unhandled telegram error 99999" in content
 
 
 def test_parse_message_theme_multi_vs_single(tmp_path: Path):
