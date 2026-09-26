@@ -1,0 +1,100 @@
+{
+  "liveness": {
+    "ok": true,
+    "expected_schema_version": 13,
+    "expected_schema_lineage": "claire-bible/common",
+    "databases": [
+      {
+        "theme_id": 0,
+        "theme_label": "기본 지식베이스",
+        "db_path": "/app/data/claire.db",
+        "ok": true,
+        "schema_version": 13,
+        "schema_lineage": "claire-bible/common",
+        "db": "ok"
+      },
+      {
+        "theme_id": 1,
+        "theme_label": "Honkai",
+        "db_path": "/app/data/themes/1/claire.db",
+        "ok": true,
+        "schema_version": 13,
+        "schema_lineage": "claire-bible/common",
+        "db": "ok"
+      }
+    ],
+    "db": "ok"
+  },
+  "health": {
+    "ok": true,
+    "provider": "antigravity",
+    "expected_schema_version": 13,
+    "expected_schema_lineage": "claire-bible/common",
+    "databases": [
+      {
+        "theme_id": 0,
+        "theme_label": "기본 지식베이스",
+        "db_path": "/app/data/claire.db",
+        "ok": true,
+        "schema_version": 13,
+        "schema_lineage": "claire-bible/common",
+        "db": "ok",
+        "inbox": {
+          "done": 348,
+          "duplicate": 19,
+          "failed": 3,
+          "received": 4
+        },
+        "refresh_pending": 0,
+        "recover_due": 0,
+        "expand_pending": 0,
+        "graph": {
+          "documents": 303,
+          "entities": 1744,
+          "relations": 2787
+        }
+      },
+      {
+        "theme_id": 1,
+        "theme_label": "Honkai",
+        "db_path": "/app/data/themes/1/claire.db",
+        "ok": true,
+        "schema_version": 13,
+        "schema_lineage": "claire-bible/common",
+        "db": "ok",
+        "inbox": {
+          "done": 67,
+          "failed": 1
+        },
+        "refresh_pending": 0,
+        "recover_due": 0,
+        "expand_pending": 0,
+        "graph": {
+          "documents": 59,
+          "entities": 367,
+          "relations": 635
+        }
+      }
+    ],
+    "db": "ok",
+    "inbox": {
+      "done": 415,
+      "duplicate": 19,
+      "failed": 4,
+      "received": 4
+    },
+    "refresh_pending": 0,
+    "recover_due": 0,
+    "expand_pending": 0,
+    "graph": {
+      "documents": 362,
+      "entities": 2111,
+      "relations": 3422
+    },
+    "degraded": true,
+    "attention": {
+      "error": 0,
+      "failed": 4
+    }
+  }
+}

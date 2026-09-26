@@ -1,0 +1,19 @@
+{
+  "id": 395,
+  "received_at": 1790214818.6598122,
+  "source": "telegram",
+  "user_id": 61968346,
+  "chat_id": 61968346,
+  "kind": "url",
+  "payload": "https://www.nabo.go.kr/board/file/down.do?fid=33319528",
+  "file_name": null,
+  "file_ref": null,
+  "document_id": "doc_75a9fbc16321",
+  "status": "done",
+  "error": null,
+  "attempts": 0,
+  "last_attempt": null,
+  "next_retry_at": null,
+  "theme_id": 0,
+  "theme_label": "기본 지식베이스"
+}
