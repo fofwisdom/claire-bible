@@ -148,6 +148,35 @@ flowchart TD
 5. **Version Splitting (버전 분기 - FPR 검증)**: vSphere 7.0 vs vSphere 8.0, ESXi vs ESXi 8.0 Update 2.
 6. **Polysemy & Homonyms (동음이의어 분리 - FPR 검증)**: Python (프로그래밍 언어) vs Python (비단뱀), Apple (기업) vs Apple (과일).
 
+### 6.4 실측(Empirical Measurement)과 모의 평가(Synthetic Simulation)의 엄격한 경계
+- **실측 불가능 (선행조건 미충족)**: TypeSafe AI Jev의 실제 API 엔드포인트 호출 키(`CLAIRE_JEV_API_KEY`) 또는 로컬 모델 가중치 바이너리가 제공되기 전까지는, Jev 모델의 실제 로짓 점수, 실제 클라우드 API 왕복 지연시간, 실제 가중치 공간에서의 오병합률을 물리적으로 실측하는 것이 불가능합니다.
+- **현재 하니스의 본질**: `tests/eval_resolution_benchmark.py`에서 산출된 지표(FPR 33.33% 등)는 실제 Jev의 성능치가 아니라, **"측정 프로토콜 및 계측기(Test Rig)의 정상 동작을 입증하고, 문맥 결핍 비-자기회귀 분류기의 최악 실패 양상(Worst-case Failure Mode)을 재현한 모의 시뮬레이션(Synthetic Simulation)"**입니다.
+- **즉시 실측 가능한 영역 (Baseline)**: 보유 중인 `GEMINI_API_KEY`를 바탕으로 한 현행 Gemini 3.1 Flash (System 2)와 `text-embedding-004` 벡터 코사인 매트릭스의 성능 지표는 지금 당장 100% 실제 실측이 가능하며, 이를 향후 비교 평가의 기준선(Baseline)으로 삼습니다.
+
+### 6.5 Jev API 확보 시 즉시 실측 전환 프로토콜 (Turnkey Verification Protocol)
+향후 TypeSafe AI Jev 계정 및 API 키가 발급되는 즉시, 사전 구축된 `run_resolution_benchmark`의 `judge_fn`을 실제 API 호출부로 교체하여 단 수 초 만에 진짜 실측 검증을 수행합니다:
+
+```python
+import httpx
+
+def real_jev_judge(case: ResolutionBenchmarkCase) -> bool:
+    """실제 TypeSafe AI Jev API를 호출하는 정본 실측기"""
+    resp = httpx.post(
+        f"{settings.jev_base_url}/classify",
+        headers={"Authorization": f"Bearer {settings.jev_api_key}"},
+        json={"source": case.new_name, "target": case.candidate_name},
+        timeout=settings.jev_timeout,
+    )
+    data = resp.json()
+    return data["probability"] >= settings.sim_tier_auto_merge
+```
+
+#### 프로덕션 실전 투입 통과 기준 (Go / No-Go Gate):
+1. **FPR (거짓 병합률) = 0.00% (오병합 0건 필수)**: 단 1건이라도 다른 개념(경쟁 도구, 버전 차이, 동음이의어)을 병합할 경우 단독 판정 권한 부여가 즉각 기각됩니다.
+2. **Precision ≥ 98.0%**: 높은 동일체 신뢰도 확보.
+3. **P95 Latency < 50ms**: 전수 매트릭스 생성 지연시간 제어.
+- 위 기준을 통과하지 못할 경우, Jev는 단독 머지 판정기가 아닌 **"Heatmap Matrix 시각화 공급자"** 및 **"1차 후보 여과 필터(Pruning Gate)"**로만 역할을 엄격히 제한합니다.
+
 ---
 
 ## 7. 가역적 의사결정 스트림 및 롤백 페이로드 (Rollback & DB Integrity)

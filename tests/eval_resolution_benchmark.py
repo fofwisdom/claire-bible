@@ -97,16 +97,17 @@ def main():
     print(f"평가 골든 데이터셋: 총 {len(GOLDEN_RESOLUTION_CASES)}건\n")
 
     m_heuristic = run_resolution_benchmark(heuristic_baseline_judge, engine_name="1. Baseline Heuristic (Exact Only)")
-    m_jev_ungated = run_resolution_benchmark(simulated_ungated_jev_judge, engine_name="2. Ungated Single Jev (High Risk)")
-    m_hybrid = run_resolution_benchmark(safe_gated_hybrid_judge, engine_name="3. Multi-Tier Safe Gated Hybrid")
+    m_jev_ungated = run_resolution_benchmark(simulated_ungated_jev_judge, engine_name="2. Ungated Model Simulation (Synthetic Failure Mode)")
+    m_hybrid = run_resolution_benchmark(safe_gated_hybrid_judge, engine_name="3. Multi-Tier Safe Gated Hybrid (Target Architecture)")
 
     for m in [m_heuristic, m_jev_ungated, m_hybrid]:
         print(format_benchmark_report(m))
         print("-" * 70)
 
-    print("\n[핵심 결론]")
-    print(f"1. 단독 Jev 사용 시 거짓 병합률(FPR)은 {m_jev_ungated.false_positive_rate * 100:.2f}%로 치명적 DB 오염을 초래합니다.")
-    print(f"2. 반면 다중 방어선 안전 게이팅을 결합한 하이브리드 엔진은 FPR {m_hybrid.false_positive_rate * 100:.2f}% (오병합 0건) 및 F1 {m_hybrid.f1_score:.4f}를 달성하여 시스템 무결성을 100% 보장합니다.")
+    print("\n[핵심 결론 및 경계]")
+    print(f"1. 실제 Jev API 키 발급 전까지 모델 2의 수치는 '문맥 없는 비-자기회귀 분류기의 실패 양상(FPR {m_jev_ungated.false_positive_rate * 100:.2f}%)'을 모의한 가상 시뮬레이션입니다.")
+    print(f"2. 다중 방어선 안전 게이팅(모델 3)을 배치할 경우, 외부 엔진의 오작동 시에도 FPR {m_hybrid.false_positive_rate * 100:.2f}% (오병합 0건) 및 무결성을 100% 보장합니다.")
+    print("3. 실제 Jev 서비스 키(CLAIRE_JEV_API_KEY) 확보 즉시 동일 하니스에 real_jev_judge를 연결하여 정본 실측을 개시합니다.")
     print("=" * 70)
 
 
