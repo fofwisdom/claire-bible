@@ -227,6 +227,19 @@ VMware Explore 숫자형 영상 상세 페이지가 Presentation PDF를 명시�
 
 ---
 
+### 2.10.3 TypeSafe AI Jev 지식 노드 의사결정 엔진 (선택형 System 1 Engine)
+
+TypeSafe AI Jev는 엔티티 해소(Entity Resolution) 및 관계 판정 시 비-자기회귀(Non-autoregressive) 방식으로 초고속 의사결정을 수행하는 선택형 보조 엔진입니다. 본 옵션이 비활성화(`0`)되어 있거나 API 키가 미지정된 경우, 시스템은 서비스 중단 없이 기본 코사인 유사도 및 규칙 기반 매트릭스(`fallback_vector`)로 투명하게 동작합니다. ([DECISION_STREAM_AND_HEATMAP_MATRIX_DESIGN.md](../design/DECISION_STREAM_AND_HEATMAP_MATRIX_DESIGN.md) 참조)
+
+| 환경변수명 | 기본값 | 허용 값 / 타입 | 설명 |
+| :--- | :--- | :--- | :--- |
+| `CLAIRE_ENABLE_JEV` | `0` (`false`) | `0`, `1`, `true`, `false` | TypeSafe AI Jev (System 1) 의사결정 엔진 활성화 플래그. |
+| `CLAIRE_JEV_API_KEY` | `""` | 문자열 | TypeSafe AI 플랫폼 API 키 (`null` 또는 빈 문자열 시 Fallback 동작). |
+| `CLAIRE_JEV_BASE_URL` | `https://api.typesafe.ai/v1` | 유효한 URL | TypeSafe AI Jev API 엔드포인트 기본 URL. |
+| `CLAIRE_JEV_TIMEOUT` | `15.0` | 부동소수점 (초) | Jev 판정 질의 타임아웃 제한 시간. 초과 시 Fallback 매트릭스로 즉각 전환. |
+
+---
+
 ### 2.11 텍스트 슬라이싱 및 글자 수 예산 (Budgets & Slicing)
 
 | 환경변수명 | 기본값 | 허용 값 / 타입 | 설명 |
