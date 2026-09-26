@@ -2,13 +2,13 @@
 
 텔레그램으로 던진 링크/문서/키워드를 **스크랩 → 선택한 LLM 프로바이더로 구조화 → 팔란티어식 타입 온톨로지 그래프**로 적재하고, 새 자료를 **기존에 쌓인 그래프와 연결**하며, 나중에 키워드로 **검색 → LLM 정리**해 보여주는 **개인용 지식베이스**.
 
-- 업스트림 설계 원본: [PLAN.md](docs/upstream/PLAN.md) · 비전·로드맵: [GOALS.md](docs/upstream/GOALS.md)
-- 공동 호환성 계약: [docs/contracts/](docs/contracts/README.md)
+- 오리진 목표·로드맵: [docs/origin/GOALS.md](docs/origin/GOALS.md) · 공동 호환성 계약: [docs/contracts/](docs/contracts/README.md)
+- 업스트림 원본 테제: [docs/upstream/GOALS.md](docs/upstream/GOALS.md) · 아키텍처: [docs/upstream/PLAN.md](docs/upstream/PLAN.md)
 
 ## 상태
 
 v1 파이프라인 완성 + 개인용 컨테이너 운영 구조.
-단일 사용자 전용이며 멀티테넌시는 범위 밖이다([GOALS.md](docs/upstream/GOALS.md) 참조).
+단일 사용자 기본 운영 및 관심사 격리를 위한 일련번호 기반 멀티 테마(`themes/{seq}/`)를 지원하며, 범용 B2C 멀티테넌시는 범위 밖이다([docs/origin/GOALS.md](docs/origin/GOALS.md) 참조).
 자동복구·헬스·circuit breaker·능동 알림을 제공한다.
 
 ## 웹 UI

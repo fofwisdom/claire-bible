@@ -14,6 +14,7 @@ Claire Bible 오리진 저장소([`fofwisdom/claire-bible`](https://github.com/f
 ```text
 docs/origin/
 ├── README.md                   # 오리진 문서 보관 규칙 및 구조 안내 (본 문서)
+├── GOALS.md                    # 오리진 목표와 로드맵 (증강 계보 최상위 정본)
 ├── FAVICON.md                  # 파비콘 3D 기하학 그래픽 디자인 및 생성 명세
 ├── design/                     # [설계 내역] 오리진 자체 신규/개정 아키텍처 및 시스템 설계
 │   ├── ASCIIDOC_ENHANCEMENT_DESIGN.md    # AsciiDoc 기능 고도화 설계 명세서 (수식·상호참조 구현 및 적합성 평가 완료)
@@ -95,8 +96,9 @@ docs/origin/
 ---
 
 ## 상대 경로 및 링크 규칙
+- 오리진 최상위 목표와 로드맵은 `docs/origin/design/`에서 `../GOALS.md`로 참조합니다.
 - 공동 계약은 `docs/origin/design/`에서 `../../contracts/<FILE>`로 참조합니다.
-- 업스트림에서 이동된 `GOALS.md`와 `PLAN.md`는 `docs/origin/design/`에서 `../../upstream/<FILE>`로 참조합니다. 프로젝트 루트 `README.md`는 `../../../README.md`로 참조합니다.
+- 업스트림 원본 문서(`PLAN.md`, `GOALS.md` 등)는 `docs/origin/design/`에서 `../../upstream/<FILE>`로 참조합니다. 프로젝트 루트 `README.md`는 `../../../README.md`로 참조합니다.
 - 동일 분류 폴더 내 문서는 파일명으로 직접 링크합니다 (예: `[DATA_LIFECYCLE_AND_PURGE_DESIGN.md](DATA_LIFECYCLE_AND_PURGE_DESIGN.md)`).
 - 다른 분류의 문서를 참조할 때는 `../<폴더>/<FILE>` 경로를 사용합니다 (예: `[EXTERNAL_ACCESS.md](../implementation/EXTERNAL_ACCESS.md)`).
 - 업스트림 원본 문서를 참조할 때는 `../../upstream/<FILE>` 경로를 사용합니다 (예: `[ONEHOP_MERGE_DESIGN.md](../../upstream/ONEHOP_MERGE_DESIGN.md)`).
