@@ -1,0 +1,203 @@
+{
+  "summary": {
+    "total_registered_clients": 9,
+    "active_tokens_count": 1,
+    "expired_tokens_count": 0,
+    "pending_auth_requests_count": 0
+  },
+  "clients": [
+    {
+      "client_id": "claire_mcp_ou_sPAQvvSD_n9Un",
+      "client_name": "Google",
+      "redirect_uris": [
+        "https://oauth-redirect-sandbox.googleusercontent.com/r/user_bound_custom-mcp-102427474717591003152-cb_netspheres_org",
+        "https://oauth-redirect-test.googleusercontent.com/r/user_bound_custom-mcp-102427474717591003152-cb_netspheres_org",
+        "https://oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-102427474717591003152-cb_netspheres_org",
+        "https://oauth-redirect-sandbox.googleusercontent.com/a/user_bound_custom-mcp-102427474717591003152-cb_netspheres_org",
+        "https://oauth-redirect-test.googleusercontent.com/a/user_bound_custom-mcp-102427474717591003152-cb_netspheres_org",
+        "https://oauth-redirect.googleusercontent.com/a/user_bound_custom-mcp-102427474717591003152-cb_netspheres_org"
+      ],
+      "created_at": 1790157966.1099188,
+      "active_tokens": 1
+    },
+    {
+      "client_id": "claire_mcp_XYue-zGie-4TL-fF",
+      "client_name": "Google",
+      "redirect_uris": [
+        "https://oauth-redirect-sandbox.googleusercontent.com/r/user_bound_custom-mcp-102427474717591003152-cb_netspheres_org",
+        "https://oauth-redirect-test.googleusercontent.com/r/user_bound_custom-mcp-102427474717591003152-cb_netspheres_org",
+        "https://oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-102427474717591003152-cb_netspheres_org",
+        "https://oauth-redirect-sandbox.googleusercontent.com/a/user_bound_custom-mcp-102427474717591003152-cb_netspheres_org",
+        "https://oauth-redirect-test.googleusercontent.com/a/user_bound_custom-mcp-102427474717591003152-cb_netspheres_org",
+        "https://oauth-redirect.googleusercontent.com/a/user_bound_custom-mcp-102427474717591003152-cb_netspheres_org"
+      ],
+      "created_at": 1790147636.8193805,
+      "active_tokens": 0
+    },
+    {
+      "client_id": "claire_mcp_Y5UAfC7D0-MVwbxb",
+      "client_name": "Google",
+      "redirect_uris": [
+        "https://oauth-redirect-sandbox.googleusercontent.com/r/user_bound_custom-mcp-102427474717591003152-cb_netspheres_org",
+        "https://oauth-redirect-test.googleusercontent.com/r/user_bound_custom-mcp-102427474717591003152-cb_netspheres_org",
+        "https://oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-102427474717591003152-cb_netspheres_org",
+        "https://oauth-redirect-sandbox.googleusercontent.com/a/user_bound_custom-mcp-102427474717591003152-cb_netspheres_org",
+        "https://oauth-redirect-test.googleusercontent.com/a/user_bound_custom-mcp-102427474717591003152-cb_netspheres_org",
+        "https://oauth-redirect.googleusercontent.com/a/user_bound_custom-mcp-102427474717591003152-cb_netspheres_org"
+      ],
+      "created_at": 1790146781.7850137,
+      "active_tokens": 0
+    },
+    {
+      "client_id": "claire_mcp_pU5kWk4AXPBNGDuE",
+      "client_name": "Google",
+      "redirect_uris": [
+        "https://oauth-redirect-sandbox.googleusercontent.com/r/user_bound_custom-mcp-102427474717591003152-cb_netspheres_org",
+        "https://oauth-redirect-test.googleusercontent.com/r/user_bound_custom-mcp-102427474717591003152-cb_netspheres_org",
+        "https://oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-102427474717591003152-cb_netspheres_org",
+        "https://oauth-redirect-sandbox.googleusercontent.com/a/user_bound_custom-mcp-102427474717591003152-cb_netspheres_org",
+        "https://oauth-redirect-test.googleusercontent.com/a/user_bound_custom-mcp-102427474717591003152-cb_netspheres_org",
+        "https://oauth-redirect.googleusercontent.com/a/user_bound_custom-mcp-102427474717591003152-cb_netspheres_org"
+      ],
+      "created_at": 1790085736.6718674,
+      "active_tokens": 0
+    },
+    {
+      "client_id": "claire_mcp_iuphniaq3RokhrfH",
+      "client_name": "Google",
+      "redirect_uris": [
+        "https://oauth-redirect-sandbox.googleusercontent.com/r/user_bound_custom-mcp-102427474717591003152-cb_netspheres_org",
+        "https://oauth-redirect-test.googleusercontent.com/r/user_bound_custom-mcp-102427474717591003152-cb_netspheres_org",
+        "https://oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-102427474717591003152-cb_netspheres_org",
+        "https://oauth-redirect-sandbox.googleusercontent.com/a/user_bound_custom-mcp-102427474717591003152-cb_netspheres_org",
+        "https://oauth-redirect-test.googleusercontent.com/a/user_bound_custom-mcp-102427474717591003152-cb_netspheres_org",
+        "https://oauth-redirect.googleusercontent.com/a/user_bound_custom-mcp-102427474717591003152-cb_netspheres_org"
+      ],
+      "created_at": 1790085475.7162814,
+      "active_tokens": 0
+    },
+    {
+      "client_id": "claire_mcp_J-Jb6vYn4dd4DY1J",
+      "client_name": "Google",
+      "redirect_uris": [
+        "https://oauth-redirect-sandbox.googleusercontent.com/r/user_bound_custom-mcp-102427474717591003152-cb_netspheres_org",
+        "https://oauth-redirect-test.googleusercontent.com/r/user_bound_custom-mcp-102427474717591003152-cb_netspheres_org",
+        "https://oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-102427474717591003152-cb_netspheres_org",
+        "https://oauth-redirect-sandbox.googleusercontent.com/a/user_bound_custom-mcp-102427474717591003152-cb_netspheres_org",
+        "https://oauth-redirect-test.googleusercontent.com/a/user_bound_custom-mcp-102427474717591003152-cb_netspheres_org",
+        "https://oauth-redirect.googleusercontent.com/a/user_bound_custom-mcp-102427474717591003152-cb_netspheres_org"
+      ],
+      "created_at": 1790084223.1850164,
+      "active_tokens": 0
+    },
+    {
+      "client_id": "claire_mcp_DyHqNw7ek1FOfYFZ",
+      "client_name": "Google",
+      "redirect_uris": [
+        "https://oauth-redirect-sandbox.googleusercontent.com/r/user_bound_custom-mcp-102427474717591003152-cb_netspheres_org",
+        "https://oauth-redirect-test.googleusercontent.com/r/user_bound_custom-mcp-102427474717591003152-cb_netspheres_org",
+        "https://oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-102427474717591003152-cb_netspheres_org",
+        "https://oauth-redirect-sandbox.googleusercontent.com/a/user_bound_custom-mcp-102427474717591003152-cb_netspheres_org",
+        "https://oauth-redirect-test.googleusercontent.com/a/user_bound_custom-mcp-102427474717591003152-cb_netspheres_org",
+        "https://oauth-redirect.googleusercontent.com/a/user_bound_custom-mcp-102427474717591003152-cb_netspheres_org"
+      ],
+      "created_at": 1790083860.5938478,
+      "active_tokens": 0
+    },
+    {
+      "client_id": "claire_mcp_YFMs9OYOEidTpwST",
+      "client_name": "Google",
+      "redirect_uris": [
+        "https://oauth-redirect-sandbox.googleusercontent.com/r/user_bound_custom-mcp-102427474717591003152-cb_netspheres_org",
+        "https://oauth-redirect-test.googleusercontent.com/r/user_bound_custom-mcp-102427474717591003152-cb_netspheres_org",
+        "https://oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-102427474717591003152-cb_netspheres_org",
+        "https://oauth-redirect-sandbox.googleusercontent.com/a/user_bound_custom-mcp-102427474717591003152-cb_netspheres_org",
+        "https://oauth-redirect-test.googleusercontent.com/a/user_bound_custom-mcp-102427474717591003152-cb_netspheres_org",
+        "https://oauth-redirect.googleusercontent.com/a/user_bound_custom-mcp-102427474717591003152-cb_netspheres_org"
+      ],
+      "created_at": 1790082198.5359886,
+      "active_tokens": 0
+    },
+    {
+      "client_id": "claire_mcp_DFIFH6Vp1o2BQzhK",
+      "client_name": "Google",
+      "redirect_uris": [
+        "https://oauth-redirect-sandbox.googleusercontent.com/r/user_bound_custom-mcp-102427474717591003152-cb_netspheres_org",
+        "https://oauth-redirect-test.googleusercontent.com/r/user_bound_custom-mcp-102427474717591003152-cb_netspheres_org",
+        "https://oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-102427474717591003152-cb_netspheres_org",
+        "https://oauth-redirect-sandbox.googleusercontent.com/a/user_bound_custom-mcp-102427474717591003152-cb_netspheres_org",
+        "https://oauth-redirect-test.googleusercontent.com/a/user_bound_custom-mcp-102427474717591003152-cb_netspheres_org",
+        "https://oauth-redirect.googleusercontent.com/a/user_bound_custom-mcp-102427474717591003152-cb_netspheres_org"
+      ],
+      "created_at": 1790082123.9709005,
+      "active_tokens": 0
+    }
+  ],
+  "token_inventory": [
+    {
+      "client_id": "claire_mcp_ou_sPAQvvSD_n9Un",
+      "token_sha256_prefix": "e3e9ba0b",
+      "scope": "readonly",
+      "expires_at": 1792749982.29373,
+      "is_expired": false,
+      "has_refresh_token": true
+    }
+  ],
+  "auth_requests": [
+    {
+      "nonce_sha256_prefix": "c50e9329",
+      "client_id": "claire_mcp_ou_sPAQvvSD_n9Un",
+      "redirect_uri": "https://oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-102427474717591003152-cb_netspheres_org",
+      "scope": "readonly",
+      "approved": true,
+      "has_code": true,
+      "created_at": 1790157972.8464172,
+      "expires_at": 1790158572.8464172,
+      "is_expired": true
+    },
+    {
+      "nonce_sha256_prefix": "f73e261e",
+      "client_id": "claire_mcp_XYue-zGie-4TL-fF",
+      "redirect_uri": "https://oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-102427474717591003152-cb_netspheres_org",
+      "scope": "readonly",
+      "approved": false,
+      "has_code": false,
+      "created_at": 1790147643.259006,
+      "expires_at": 1790148243.259006,
+      "is_expired": true
+    },
+    {
+      "nonce_sha256_prefix": "6c7abd02",
+      "client_id": "claire_mcp_Y5UAfC7D0-MVwbxb",
+      "redirect_uri": "https://oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-102427474717591003152-cb_netspheres_org",
+      "scope": "readonly",
+      "approved": false,
+      "has_code": false,
+      "created_at": 1790147577.2611246,
+      "expires_at": 1790148177.2611246,
+      "is_expired": true
+    },
+    {
+      "nonce_sha256_prefix": "0187fe76",
+      "client_id": "claire_mcp_pU5kWk4AXPBNGDuE",
+      "redirect_uri": "https://oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-102427474717591003152-cb_netspheres_org",
+      "scope": "readonly",
+      "approved": false,
+      "has_code": false,
+      "created_at": 1790085909.7373805,
+      "expires_at": 1790086509.7373805,
+      "is_expired": true
+    },
+    {
+      "nonce_sha256_prefix": "57549f54",
+      "client_id": "claire_mcp_pU5kWk4AXPBNGDuE",
+      "redirect_uri": "https://oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-102427474717591003152-cb_netspheres_org",
+      "scope": "readonly",
+      "approved": false,
+      "has_code": false,
+      "created_at": 1790085772.7500074,
+      "expires_at": 1790086372.7500074,
+      "is_expired": true
+    }
+  ]
+}

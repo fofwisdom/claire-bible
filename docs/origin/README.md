@@ -16,6 +16,7 @@ docs/origin/
 ├── GOALS.md                    # 오리진 목표와 로드맵 (증강 계보 최상위 정본)
 ├── FAVICON.md                  # 파비콘 3D 기하학 그래픽 디자인 및 생성 명세
 ├── design/                     # [설계 내역] 오리진 자체 신규/개정 아키텍처 및 시스템 설계
+│   ├── ANTIGRAVITY_EXECUTION_AND_LATENCY_OPTIMIZATION_DESIGN.md # Antigravity CLI 적재 지연 해소 및 실행 격리·최적화 아키텍처 설계
 │   ├── ASCIIDOC_ENHANCEMENT_DESIGN.md    # AsciiDoc 기능 고도화 설계 명세서 (수식·상호참조 구현 및 적합성 평가 완료)
 │   ├── DATA_LIFECYCLE_AND_PURGE_DESIGN.md # 데이터 수명주기 및 정리(Purge) 설계
 │   ├── DOCUMENT_READER_METADATA_AND_BIBLIO_SEPARATION_DESIGN.md # 문서 리더 UI 위계 및 원문 정보 / 적재 메타데이터(docmeta) 분리 설계
@@ -64,6 +65,7 @@ docs/origin/
 ### 1. `docs/origin/design/` (설계 내역)
 - **대상**: 오리진 자체 아키텍처 설계, 신규 기능 기획, 알고리즘 및 파이프라인 설계, 업스트림 설계를 기반으로 대폭 개정/확장한 명세.
 - **예시**:
+  - `ANTIGRAVITY_EXECUTION_AND_LATENCY_OPTIMIZATION_DESIGN.md`: Antigravity CLI 적재 지연 해소, 에이전트 도구 오염 방지(`allow_tools=False`), 작업 디렉터리 격리 및 관계 판정 병렬화 설계 명세서
   - `ASCIIDOC_ENHANCEMENT_DESIGN.md`: AsciiDoc 기능 고도화 설계 명세서 (수식·상호참조 구현 및 적합성 평가 완료)
   - `DATA_LIFECYCLE_AND_PURGE_DESIGN.md`: 데이터 수명주기 및 연쇄 소각 설계
   - `INGESTION_INTEGRITY_AND_POLLUTION_CONTROL_RESEARCH.md`: 원문 보존·서비스 보호·오염 통제 상충 및 지식 무결성 거버넌스 연구

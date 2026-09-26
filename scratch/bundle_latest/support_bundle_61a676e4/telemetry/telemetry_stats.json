@@ -1,0 +1,21 @@
+{
+  "total_calls": 126,
+  "success_calls": 125,
+  "failed_calls": 1,
+  "success_rate": 0.9921,
+  "by_provider": {
+    "antigravity": 126
+  },
+  "by_status": {
+    "SUCCESS": 125,
+    "TIMEOUT": 1
+  },
+  "by_block_reason": {
+    "NONE": 125,
+    "TIMEOUT": 1
+  },
+  "by_verdict": {
+    "N/A": 122,
+    "REAL_LLM": 4
+  }
+}

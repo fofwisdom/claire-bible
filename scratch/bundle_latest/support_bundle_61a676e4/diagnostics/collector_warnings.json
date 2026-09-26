@@ -1,0 +1,10 @@
+[
+  {
+    "code": "ALTERNATE_NONEMPTY_DATABASE_FOUND",
+    "message": "A non-empty SQLite database exists outside the configured DB path: /app/data/themes/1/claire.db"
+  },
+  {
+    "code": "BUILD_REVISION_UNKNOWN",
+    "message": "CLAIRE_BUILD_COMMIT was not embedded and Git metadata was unavailable"
+  }
+]
