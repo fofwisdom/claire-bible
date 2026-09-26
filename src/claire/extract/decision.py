@@ -17,7 +17,7 @@ from ..ontology.base import Document, Entity
 
 @dataclass
 class ResolutionDecision:
-    """단일 엔티티 또는 관계의 상태 전이 의사결정 레코드."""
+    """단일 엔티티 또는 관계의 상태 전이 의사결정 레코드 (가역적 롤백 지원)."""
 
     entity: str
     stage: str  # 'exact_match' | 'acronym_match' | 'borderline_llm_judge' | 'cross_link'
@@ -25,6 +25,9 @@ class ResolutionDecision:
     candidate: str | None = None
     score: float | None = None
     reason: str = ""
+    target_entity_id: str | None = None  # 병합 대상 기존 엔티티 ID
+    source_entity_id: str | None = None  # 흡수된 신규/패자 엔티티 ID
+    rollback_payload: dict[str, Any] | None = None  # 복원에 필요한 원자적 상태 스냅샷
     timestamp: float = field(default_factory=time.time)
 
     def to_dict(self) -> dict[str, Any]:
@@ -39,6 +42,9 @@ class ResolutionDecision:
             candidate=data.get("candidate"),
             score=float(data["score"]) if data.get("score") is not None else None,
             reason=str(data.get("reason") or ""),
+            target_entity_id=data.get("target_entity_id"),
+            source_entity_id=data.get("source_entity_id"),
+            rollback_payload=data.get("rollback_payload"),
             timestamp=float(data.get("timestamp") or time.time()),
         )
 

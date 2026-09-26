@@ -117,3 +117,92 @@ flowchart TD
    - **[확인]** 단추 클릭 시 `sessionStorage.removeItem` 실행 및 DOM 영구 제거.
 4. **사후 감사 (Audit State)**:
    - 우측 사이드바 `detailpane` 상단 '메뉴 & 상세'의 **`[📜 판단 기록]`** 단추를 클릭하여 해당 문서의 `documents.meta["resolution_log"]` 데이터를 BookStack 카드 형태로 열람.
+
+---
+
+## 6. 실측 벤치마크 및 오차 한계 규격 (Empirical Benchmark Specification)
+
+### 6.1 지식 베이스 해소의 비대칭적 위험성 (Asymmetric Risk)
+엔티티 해소(Entity Resolution) 및 문서 병합(Document Merge)에서 발생하는 오차는 시스템에 완전히 비대칭적인 충격을 줍니다:
+- **거짓 음성 (False Negative, 미병합)**: 동일 개념을 합치지 못하고 독립 노드로 분기. 그래프에 노드가 2개 존재하게 되나 횡단 관계(Edge) 수립 또는 사후 관리자 교정으로 복구 가능 (위험도: **낮음**).
+- **거짓 양성 (False Positive, 오병합 - 치명적)**: 다른 개념(예: "Claude Code CLI"와 "Claude 3.5 Sonnet", 또는 "FastAPI"와 "Starlette", "Python(언어)"과 "Python(생물)")을 동일체로 오판하여 영구 병합. 외래키와 엣지가 뒤섞이고 고유 식별성이 상실되어 그래프 전체가 오염된 거대 허브(God Entity)로 붕괴됨 (위험도: **치명적/파괴적**).
+
+### 6.2 판정 엔진 간 정량 비교 및 목표 지표
+
+| 평가 지표 | System 2: 현행 LLM (Gemini 3.1 Flash) | System 1: TypeSafe AI Jev (Dense Matrix) | 프로덕션 허용 한계선 (Target Threshold) |
+| :--- | :--- | :--- | :--- |
+| **FPR (거짓 병합률)** | 0.0% ~ 0.5% (문맥 추론 기반 엄격 판정) | 측정 필요 (문맥 결핍 시 과병합 위험) | **0.00% (Zero-Tolerance: 오병합 절대 불허)** |
+| **Precision (정밀도)** | 99.0%+ | 95.0%+ (예상치) | **≥ 98.0%** |
+| **Recall (재현율)** | 92.0%+ | 90.0%+ | **≥ 88.0%** |
+| **P95 Latency** | 1,200ms ~ 2,500ms (단일 쌍 순차) | 5ms ~ 20ms (N×M 전수 배치) | **전수 매트릭스 < 50ms** |
+| **Token / Resource** | 엔티티 쌍당 프롬프트 토큰 소모 | 0 토큰 (임베딩/로짓 연산 전용) | **비용 90% 이상 절감** |
+
+### 6.3 골든 데이터셋(Golden Dataset) 실측 프로토콜
+프로덕션 배포 전 반드시 `src/claire/extract/benchmark.py` 및 `tests/eval_resolution_benchmark.py`를 통해 다음 범주의 골든 데이터셋(100건 이상)에 대한 대조 실측을 통과해야 합니다:
+1. **Exact & Alias Matches (결정론적 일치)**: Claude Code/claude code, Letta/MemGPT 등.
+2. **Deterministic Acronyms (약어 수렴 및 충돌)**: MCP ↔ Model Context Protocol (타입 일치 시 머지, 타입 불일치 시 분리, 2글자 AI 분리).
+3. **True Synonyms (동의어 머지)**: Agent Memory Server ↔ Letta, K8s ↔ Kubernetes, Postgres ↔ PostgreSQL.
+4. **Rival & Adjacent Tools (경쟁 도구 분리 - FPR 검증)**: Letta vs LlamaIndex, Docker vs Podman, FastAPI vs Starlette, Neo4j vs Memgraph.
+5. **Version Splitting (버전 분기 - FPR 검증)**: vSphere 7.0 vs vSphere 8.0, ESXi vs ESXi 8.0 Update 2.
+6. **Polysemy & Homonyms (동음이의어 분리 - FPR 검증)**: Python (프로그래밍 언어) vs Python (비단뱀), Apple (기업) vs Apple (과일).
+
+---
+
+## 7. 가역적 의사결정 스트림 및 롤백 페이로드 (Rollback & DB Integrity)
+
+### 7.1 현행 텍스트 로그의 한계
+단순 사유(`reason`) 텍스트만 기록하는 수동적 로깅은 DB 훼손 발생 시 아무런 복구 능력을 제공하지 못합니다. 또한 `merge_documents()`는 패자 문서(`losers`)를 물리적 `DELETE`하므로 해당 문서의 메타데이터마저 함께 소각되는 결함이 있습니다.
+
+### 7.2 `ResolutionDecision` 롤백 페이로드 스키마
+`ResolutionDecision` 데이터 구조를 가역적(Reversible) 스키마로 확장하여, 병합 시점의 이전 상태를 원자적으로 보관합니다.
+
+```python
+@dataclass
+class ResolutionDecision:
+    entity: str
+    stage: str                          # 'exact_match' | 'acronym_match' | 'borderline_llm_judge' | 'cross_link'
+    decision: str                       # 'MERGE' | 'CREATE_NEW' | 'CROSS_LINK' | 'REJECT'
+    candidate: str | None = None
+    score: float | None = None
+    reason: str = ""
+    target_entity_id: str | None = None # 병합 대상 기존 엔티티 ID
+    source_entity_id: str | None = None # 흡수된 신규/패자 엔티티 ID
+    rollback_payload: dict[str, Any] | None = None  # 복원에 필요한 원자적 상태 스냅샷
+    timestamp: float = field(default_factory=time.time)
+```
+
+#### `rollback_payload` 구성 요소:
+- `added_aliases`: 이번 병합으로 타깃 엔티티에 새로 추가된 별칭 목록 (롤백 시 제거).
+- `added_observations`: 이번 병합으로 누적된 신규 관측문 (롤백 시 제거).
+- `repointed_relations`: 출처가 재배치된 관계 레코드 ID 목록 (롤백 시 원래 source_id로 재연결).
+- `source_entity_snapshot`: 흡수되어 삭제/비활성화된 원본 엔티티의 전체 복원 덤프.
+
+### 7.3 문서 병합의 안전성 보장 (Soft-Merge & Tombstone)
+- `merge_documents()`의 물리적 즉시 `DELETE`를 지양하고, 패자 문서에 `documents.meta["merged_into"] = keeper_id` 및 `status = "merged"` 툼스톤을 적용.
+- 관리자가 오병합 확인 시 Decision Stream UI에서 **`[↩ 병합 되돌리기 (Rollback)]`** 버튼 1회 클릭으로 관계와 문서를 100% 무손실 복구할 수 있는 기반을 제공합니다.
+
+---
+
+## 8. 다중 방어선 안전 게이팅 (Multi-Tier Safe Gating Architecture)
+
+Jev가 System 1으로서 밀리초 단위 초고속 연산을 수행하더라도, **Jev 단독으로 경계선 머지를 확정하지 못하도록** 다중 안전 게이트를 배치합니다.
+
+```mermaid
+flowchart TD
+    Pair["후보 대조 쌍 (New vs Candidate)"] --> Gate1{"Gate 1: 결정론적 규칙<br/>(정규화 이름/별칭 일치/약어 수렴)"}
+    Gate1 -- "일치" --> AutoMerge["자동 병합 (Auto-Merge) + 롤백 스냅샷"]
+    Gate1 -- "불일치" --> JevEval["Gate 2: Jev / 벡터 매트릭스 평가"]
+    
+    JevEval --> ScoreCheck{"유사도 점수 대역"}
+    ScoreCheck -- "≥ 0.98 (초고신뢰도) && 타입 완전 일치" --> AutoMerge
+    ScoreCheck -- "0.72 ~ 0.98 (경계선 대역)" --> Escalate["Gate 3: System 2 (Gemini LLM Judge) 필수 에스컬레이션"]
+    ScoreCheck -- "< 0.72 (저유사도)" --> Separate["독립 노드 생성 (신규)"]
+    
+    Escalate -- "SAME 판정 (문맥적 일치 증명)" --> AutoMerge
+    Escalate -- "DIFFERENT 판정 (경쟁 도구/버전)" --> SeparateWithLink["독립 노드 생성 + 횡단 엣지(Edge) 연결"]
+```
+
+1. **Jev의 역할 규정**:
+   - 대규모 노드 후보군에서 비-유사 노드를 즉각 탈락시키는 **"초고속 후보 압축 필터(Pruning Gate)"** 및 **"Heatmap Matrix 렌더링 공급자"**.
+2. **에스컬레이션 원칙**:
+   - 0.72 ~ 0.98 경계선 영역은 Jev 단독 판단을 금지하고, 반드시 본문 문맥을 투입한 Gemini System 2 심층 판정을 거침으로써 오병합(False Positive) 가능성을 0%로 통제합니다.
