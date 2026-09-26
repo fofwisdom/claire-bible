@@ -1,8 +1,6 @@
 """HTTP 본문 수준의 저품질/차단 페이지 사전 필터 (Pre-LLM Content Guard).
 
-웹 페이지 크롤링 시 HTTP 200 등으로 반환되지만 실제로는 봇 차단(Cloudflare, CAPTCHA),
-권한 없음(Soft 403), 존재하지 않는 페이지(Soft 404), 로그인/페이월 게이트, 극단적 저밀도
-잡음인 경우를 LLM 투입 전 휴리스틱으로 감지해 차단·에스컬레이션한다.
+웹 페이지 크롤링 시 HTTP 200 등으로 반환되지만 실제로는 봇 차단(Cloudflare, CAPTCHA), 권한 없음(Soft 403), 존재하지 않는 페이지(Soft 404), 로그인/페이월 게이트, 극단적 저밀도 잡음인 경우를 LLM 투입 전 휴리스틱으로 감지해 차단·에스컬레이션한다.
 """
 
 from __future__ import annotations

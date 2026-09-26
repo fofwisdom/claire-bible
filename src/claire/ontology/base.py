@@ -1,7 +1,6 @@
 """온톨로지의 코어 데이터 모델 (Pydantic v2).
 
-advisor 조언: per-type 클래스 대신 단일 Entity/Relation + 검증되는 type 필드.
-LLM 이 enum 밖 타입을 내면 provisional=True 로 보관(정보 손실 없음), 나중에 코드로 승격.
+advisor 조언: per-type 클래스 대신 단일 Entity/Relation + 검증되는 type 필드. LLM 이 enum 밖 타입을 내면 provisional=True 로 보관(정보 손실 없음), 나중에 코드로 승격.
 """
 
 from __future__ import annotations
@@ -28,8 +27,7 @@ def new_id(prefix: str) -> str:
 def normalize_name(name: str) -> str:
     """엔티티 해소용 정규화 키. 대소문자/공백 차이 + 양끝 구두점 노이즈를 흡수.
 
-    추출 시 흔히 끼는 양끝 괄호/따옴표/마침표(예: "Scrapling]" → "scrapling")를
-    벗겨 같은 대상이 갈라지지 않게 한다. 내부 구두점(GPT-4 의 '-')은 보존.
+    추출 시 흔히 끼는 양끝 괄호/따옴표/마침표(예: "Scrapling]" → "scrapling")를 벗겨 같은 대상이 갈라지지 않게 한다. 내부 구두점(GPT-4 의 '-')은 보존.
     """
     s = re.sub(r"\s+", " ", name.strip().casefold())
     return s.strip("\"'`[](){}<>.,;:!?·…")

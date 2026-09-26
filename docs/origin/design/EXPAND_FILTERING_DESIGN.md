@@ -2,10 +2,7 @@
 
 작성일: 2026-08-19 · 상태: **설계 검토 기반 시험 적용 (Trial / Continuous Evaluation)** · 기준: [GOALS.md](../../upstream/GOALS.md) 트랙2(추출·연결 품질) / 관련: [ONEHOP_MERGE_DESIGN.md](../../upstream/ONEHOP_MERGE_DESIGN.md)(1홉 확장 중복 완화 및 동일 주제 병합)
 
-> [!NOTE]
-> **검토 기반 시험 적용 안내 (2026-08-19)**:
-> 본 문서는 현재 리포 및 업스트림의 EXPAND 관련 설정(`CLAIRE_EXPAND_MAX`, `CLAIRE_AUTO_EXPAND`, `CLAIRE_WATCH_INTERVAL_DAYS`)과 깊이·연관성 제어 흐름을 종합 조사·검토한 결과를 토대로 작성되었습니다.
-> 특히 이번에 도출되어 구현된 **'HTTP 본문 수준의 저품질/차단 페이지 사전 필터 (Pre-LLM Content Guard)'**는 검토를 토대로 한 **시험 적용(Trial)** 단계이며, 실데이터 수집 및 크롤링 품질 관측을 거쳐 운영 안정성을 지속 검증합니다.
+> [!NOTE] **검토 기반 시험 적용 안내 (2026-08-19)**: 본 문서는 현재 리포 및 업스트림의 EXPAND 관련 설정(`CLAIRE_EXPAND_MAX`, `CLAIRE_AUTO_EXPAND`, `CLAIRE_WATCH_INTERVAL_DAYS`)과 깊이·연관성 제어 흐름을 종합 조사·검토한 결과를 토대로 작성되었습니다. 특히 이번에 도출되어 구현된 **'HTTP 본문 수준의 저품질/차단 페이지 사전 필터 (Pre-LLM Content Guard)'**는 검토를 토대로 한 **시험 적용(Trial)** 단계이며, 실데이터 수집 및 크롤링 품질 관측을 거쳐 운영 안정성을 지속 검증합니다.
 
 ---
 

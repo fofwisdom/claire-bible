@@ -1,17 +1,13 @@
 # 테마 지식베이스 FQDN 리버스 프록시 및 전용 GA4 추적 설계 명세서 (`THEME_FQDN_REVERSE_PROXY_DESIGN.md`)
 
-**문서 번호:** DESIGN-THEME-FQDN-20260916-01  
-**작성 주체:** Claire Bible Architecture Team  
-**상태:** **승인 및 구현 완료 (Approved & Implemented)**  
-**관련 문서:** [`docs/origin/design/MULTI_THEME_ARCHITECTURE_DESIGN.md`](MULTI_THEME_ARCHITECTURE_DESIGN.md), [`docs/origin/implementation/EXTERNAL_ACCESS.md`](../implementation/EXTERNAL_ACCESS.md), [`docs/contracts/API_HTTP_CONTRACT.md`](../../contracts/API_HTTP_CONTRACT.md)
+**문서 번호:** DESIGN-THEME-FQDN-20260916-01 **작성 주체:** Claire Bible Architecture Team **상태:** **승인 및 구현 완료 (Approved & Implemented)** **관련 문서:** [`docs/origin/design/MULTI_THEME_ARCHITECTURE_DESIGN.md`](MULTI_THEME_ARCHITECTURE_DESIGN.md), [`docs/origin/implementation/EXTERNAL_ACCESS.md`](../implementation/EXTERNAL_ACCESS.md), [`docs/contracts/API_HTTP_CONTRACT.md`](../../contracts/API_HTTP_CONTRACT.md)
 
 ---
 
 ## 1. 설계 배경 및 개요
 
 ### 1.1 배경 및 목적
-Claire Bible은 단일 시스템 인스턴스 위에서 여러 독립된 지식베이스를 물리적으로 격리하여 관리할 수 있는 멀티 테마(`CLAIRE_MULTI_THEME=1`) 아키텍처를 제공합니다.  
-기존에는 모든 테마가 기본 접속 주소(예: `claire.example.com/?theme=1`)를 통해서만 접근 가능했으나, 지식베이스의 성격에 따라 독립된 브랜딩과 서비스 도메인이 요구됩니다:
+Claire Bible은 단일 시스템 인스턴스 위에서 여러 독립된 지식베이스를 물리적으로 격리하여 관리할 수 있는 멀티 테마(`CLAIRE_MULTI_THEME=1`) 아키텍처를 제공합니다. 기존에는 모든 테마가 기본 접속 주소(예: `claire.example.com/?theme=1`)를 통해서만 접근 가능했으나, 지식베이스의 성격에 따라 독립된 브랜딩과 서비스 도메인이 요구됩니다:
 - **메인 지식 포털**: `claire.example.com` (기본 테마 및 통합 탐색)
 - **AI/시스템 아키텍처 연구소**: `ai.example.com` (테마 #1 전용 도메인)
 - **성경 및 신학 연구 지식베이스**: `bible.example.com` (테마 #2 전용 도메인)

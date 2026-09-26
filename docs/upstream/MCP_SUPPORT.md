@@ -80,8 +80,7 @@ Claire의 지식 그래프와 문서를 **Telegram 봇/웹 UI 외에 Claude Code
      "token_endpoint_auth_methods_supported": ["none", "client_secret_post", "client_secret_basic"]
    }
    ```
-3. **`WWW-Authenticate` 헤더 (RFC 6750 & RFC 9728)**
-   미인증 상태로 `/mcp` 호출 시 반환:
+3. **`WWW-Authenticate` 헤더 (RFC 6750 & RFC 9728)** 미인증 상태로 `/mcp` 호출 시 반환:
    ```http
    HTTP/1.1 401 Unauthorized
    WWW-Authenticate: Bearer error="invalid_token", error_description="Authentication required", resource_metadata="https://cb.netspheres.org/.well-known/oauth-protected-resource"

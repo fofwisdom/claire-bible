@@ -3,11 +3,7 @@
 실행 방법:
     uv run python tests/eval_resolution_benchmark.py
 
-이 스크립트는 골든 데이터셋(GOLDEN_RESOLUTION_CASES)을 대상으로
-1) 순수 휴리스틱/규칙 기반 판정기
-2) 시뮬레이션된 단독 Jev 엔진 (문맥 결핍 위험 모델)
-3) 다중 방어선 안전 게이팅(Multi-Tier Safe Gating) 하이브리드 엔진
-세 가지 모델의 정량 지표(Precision, Recall, FPR, Latency)를 대조 실측하고 비교 분석을 출력합니다.
+이 스크립트는 골든 데이터셋(GOLDEN_RESOLUTION_CASES)을 대상으로 1) 순수 휴리스틱/규칙 기반 판정기 2) 시뮬레이션된 단독 Jev 엔진 (문맥 결핍 위험 모델) 3) 다중 방어선 안전 게이팅(Multi-Tier Safe Gating) 하이브리드 엔진 세 가지 모델의 정량 지표(Precision, Recall, FPR, Latency)를 대조 실측하고 비교 분석을 출력합니다.
 """
 
 from __future__ import annotations

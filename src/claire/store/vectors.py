@@ -1,8 +1,6 @@
 """벡터 저장/검색.
 
-advisor 조언: sqlite-vec 패키징(WSL2)이 불안할 수 있으니 auto 모드로 시도하고,
-실패하면 임베딩을 BLOB 로 저장 + Python brute-force cosine 으로 폴백한다.
-수백~수천 노드 규모에선 brute-force 로 충분하다.
+advisor 조언: sqlite-vec 패키징(WSL2)이 불안할 수 있으니 auto 모드로 시도하고, 실패하면 임베딩을 BLOB 로 저장 + Python brute-force cosine 으로 폴백한다. 수백~수천 노드 규모에선 brute-force 로 충분하다.
 """
 
 from __future__ import annotations
@@ -99,8 +97,7 @@ def probe_sqlite_vec() -> tuple[bool, str]:
 class VectorStore:
     """현재(M0)는 brute-force 백엔드만 구현. embeddings 테이블에 BLOB 저장.
 
-    sqlite-vec 백엔드는 probe 가 성공하면 이후 마일스톤에서 활성화 예정.
-    인터페이스는 동일하게 유지한다.
+    sqlite-vec 백엔드는 probe 가 성공하면 이후 마일스톤에서 활성화 예정. 인터페이스는 동일하게 유지한다.
     """
 
     def __init__(self, conn: sqlite3.Connection, backend: str = "brute"):
@@ -134,8 +131,7 @@ class VectorStore:
     ) -> list[tuple[str, float]]:
         """(owner_id, score) 리스트, score 내림차순.
         
-        adaptive_center=True 면 임베딩들의 평균 벡터(공통 배경 노이즈)를 감산하여
-        변별력을 극대화한다 (수백 개 이상 고차원 임베딩의 Hubness 왜곡 완화).
+        adaptive_center=True 면 임베딩들의 평균 벡터(공통 배경 노이즈)를 감산하여 변별력을 극대화한다 (수백 개 이상 고차원 임베딩의 Hubness 왜곡 완화).
         """
         rows = self.conn.execute(
             "SELECT owner_id, vector FROM embeddings"
@@ -170,8 +166,7 @@ class VectorStore:
 
 
 def make_vector_store(conn: sqlite3.Connection, backend_pref: str = "auto") -> VectorStore:
-    """설정에 따라 백엔드 선택. 현재는 brute 만 구현하므로 항상 brute 반환하되,
-    auto/vec 요청 시 probe 결과를 로깅용으로 남긴다(추후 vec 백엔드 연결)."""
+    """설정에 따라 백엔드 선택. 현재는 brute 만 구현하므로 항상 brute 반환하되, auto/vec 요청 시 probe 결과를 로깅용으로 남긴다(추후 vec 백엔드 연결)."""
     if backend_pref in ("auto", "vec"):
         ok, _detail = probe_sqlite_vec()
         # vec 백엔드 구현 전까지는 brute 사용. ok 여부는 doctor 에서 보고.

@@ -4,8 +4,7 @@ Claire Bible 오리진 저장소([`fofwisdom/claire-bible`](https://github.com/f
 
 업스트림과 오리진이 함께 유지하는 version·lineage 및 호환성 규약은 오리진 전용 문서가 아니므로 [`docs/contracts/`](../contracts/README.md)에 둡니다.
 
-> [!NOTE]
-> 업스트림([`blackan/claire_bible`](https://github.com/blackan/claire_bible))의 기능을 오리진에 구현/적용했더라도 업스트림 원본 문서를 직접 수정·개정하지 않은 문서(예: `ONEHOP_MERGE_DESIGN.md`, `SYNTHESIS_REDESIGN.md`, 각종 리서치 아티클)는 [`docs/upstream/`](../upstream/README.md)에 단일 보관하며 오리진에 중복 보관하지 않습니다.
+> [!NOTE] 업스트림([`blackan/claire_bible`](https://github.com/blackan/claire_bible))의 기능을 오리진에 구현/적용했더라도 업스트림 원본 문서를 직접 수정·개정하지 않은 문서(예: `ONEHOP_MERGE_DESIGN.md`, `SYNTHESIS_REDESIGN.md`, 각종 리서치 아티클)는 [`docs/upstream/`](../upstream/README.md)에 단일 보관하며 오리진에 중복 보관하지 않습니다.
 
 ---
 

@@ -1,9 +1,6 @@
 """읽기전용 그래프 시각화 및 문서 뷰어 — 정적 자산 로더 + 템플릿 렌더러.
 
-데이터 질의 로직은 `claire.store.queries`로 분리되었으며,
-UI 정적 자산(CSS/JS) 및 템플릿은 `src/claire/static/`, `src/claire/templates/`에 위치합니다.
-이 모듈은 하위 호환성을 위해 쿼리 함수들을 re-export하고,
-단일 페이지 오프라인 번들(GRAPH_HTML, _SHARED_HTML) 및 서빙용 렌더러를 제공합니다.
+데이터 질의 로직은 `claire.store.queries`로 분리되었으며, UI 정적 자산(CSS/JS) 및 템플릿은 `src/claire/static/`, `src/claire/templates/`에 위치합니다. 이 모듈은 하위 호환성을 위해 쿼리 함수들을 re-export하고, 단일 페이지 오프라인 번들(GRAPH_HTML, _SHARED_HTML) 및 서빙용 렌더러를 제공합니다.
 """
 
 from __future__ import annotations
@@ -96,9 +93,7 @@ def render_ga_tag(
 ) -> str:
     """Google Analytics 4 (GA4 / gtag.js) 태그 스니펫을 생성한다.
 
-    측정 ID가 없거나 유효하지 않으면 빈 문자열을 반환한다.
-    URL 쿼리 파라미터(?t=..., ?s=...) 유출을 방지하기 위해 page_location을
-    origin + pathname (또는 /p/<doc_id>)으로 정제하여 전송한다.
+    측정 ID가 없거나 유효하지 않으면 빈 문자열을 반환한다. URL 쿼리 파라미터(?t=..., ?s=...) 유출을 방지하기 위해 page_location을 origin + pathname (또는 /p/<doc_id>)으로 정제하여 전송한다.
     """
     cleaned_id = str(measurement_id or "").strip()
     if not cleaned_id or not re.fullmatch(r"^[A-Za-z0-9_-]+$", cleaned_id):
@@ -341,9 +336,7 @@ def shared_html(
 ) -> str:
     """공유 문서 1개를 임베드한 경량 읽기 페이지 HTML. doc = document_detail() 결과.
 
-    문서 데이터를 JSON 으로 <script> 에 임베드한다 — `</script>`·`<` 등이 스크립트를
-    조기 종료/주입하지 못하게 HTML 특수문자를 \\uXXXX 로 이스케이프(스크랩 본문 유래).
-    Open Graph 및 Twitter Card 메타태그를 주입하여 텔레그램/마스토돈 등의 미리보기를 지원한다.
+    문서 데이터를 JSON 으로 <script> 에 임베드한다 — `</script>`·`<` 등이 스크립트를 조기 종료/주입하지 못하게 HTML 특수문자를 \\uXXXX 로 이스케이프(스크랩 본문 유래). Open Graph 및 Twitter Card 메타태그를 주입하여 텔레그램/마스토돈 등의 미리보기를 지원한다.
     """
     if isinstance(settings, str):
         ga_id = settings

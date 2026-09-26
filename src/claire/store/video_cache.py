@@ -1,8 +1,6 @@
 """[비디오 미디어 캐시] 처리/적재 실패 시 비디오/오디오 미디어 사흘(3일) 보관 및 재사용.
 
-다운로드된 대용량 비디오/오디오 스트림의 처리(STT/적재)가 실패할 경우,
-data/cache/video/ 에 최대 사흘(259,200초)간 로컬 캐시로 저장한다.
-이후 재적재(video-reprocess/ingest) 시 원격 재다운로드 없이 캐시된 미디어를 즉시 재사용한다.
+다운로드된 대용량 비디오/오디오 스트림의 처리(STT/적재)가 실패할 경우, data/cache/video/ 에 최대 사흘(259,200초)간 로컬 캐시로 저장한다. 이후 재적재(video-reprocess/ingest) 시 원격 재다운로드 없이 캐시된 미디어를 즉시 재사용한다.
 """
 
 from __future__ import annotations
@@ -87,8 +85,7 @@ def get_cached_video_file(
 ) -> Path | None:
     """해당 URL에 대해 사흘 이내에 캐시된 유효한 비디오/오디오 미디어 파일 탐색.
 
-    만료되었거나 최소 크기(min_size_bytes) 미만인 손상 파일은 자동 삭제하고 None 반환.
-    유효 파일 발견 시 Path 반환.
+    만료되었거나 최소 크기(min_size_bytes) 미만인 손상 파일은 자동 삭제하고 None 반환. 유효 파일 발견 시 Path 반환.
     """
     cache_dir = get_video_cache_dir(data_dir)
     keys = compute_video_cache_keys(url, canonical_url)

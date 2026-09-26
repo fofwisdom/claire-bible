@@ -205,8 +205,7 @@ files:
 ## 5. 형태소 분석기(NLP) 플러그인 아키텍처 및 한국어(Kiwipiepy) 연동
 
 ### 5.1 문제 분석: 단순 정규식 토크나이징의 정합성 한계
-현재 SQLite FTS5 키워드 색인 대상인 `entities_fts`는 다음 정규식으로 토큰을 분리합니다:
-$$\text{Token} \in \text{Matches}(\text{pattern} = \texttt{[0-9A-Za-z가-힣]+})$$
+현재 SQLite FTS5 키워드 색인 대상인 `entities_fts`는 다음 정규식으로 토큰을 분리합니다: $$\text{Token} \in \text{Matches}(\text{pattern} = \texttt{[0-9A-Za-z가-힣]+})$$
 
 * **조사 결합 오류**: `엔티티_A는` $\neq$ `엔티티_A`. 사용자가 '엔티티_A'로 질의 시 완전 일치 실패.
 * **어미 변화 누락**: `분석하다`, `분석하는`, `분석된` $\rightarrow$ 어근 `분석`으로 수렴되지 않음.

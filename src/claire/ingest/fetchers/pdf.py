@@ -681,10 +681,7 @@ def extract_pdf_stream(
 ) -> PdfExtractResult:
     """(title, text, links, anchors, error, images) 6개 튜플 호환 객체(biblio 속성 및 인코딩 결함 정보 포함).
 
-    선택된 엔진(default/pypdfium2, docling)으로 PDF를 추출한다.
-    기본 엔진 pypdfium2의 고속 추출을 우선 적용하며,
-    1) 파서 런타임 실패 시 pypdf로 안전 자동 폴백.
-    2) 인코딩 결함(CID 누락, PUA 코드 등)이나 스캔본 감지 시 Docling OCR로 자동 복구 에스컬레이션을 시도한다.
+    선택된 엔진(default/pypdfium2, docling)으로 PDF를 추출한다. 기본 엔진 pypdfium2의 고속 추출을 우선 적용하며, 1) 파서 런타임 실패 시 pypdf로 안전 자동 폴백. 2) 인코딩 결함(CID 누락, PUA 코드 등)이나 스캔본 감지 시 Docling OCR로 자동 복구 에스컬레이션을 시도한다.
     """
     settings = get_settings()
     raw_engine = (engine or getattr(settings, "pdf_parser", "default") or "default").lower().strip()

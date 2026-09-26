@@ -111,8 +111,7 @@ Key observations:
 `src/claire/store/vectors.py`에 코사인 유사도 왜곡을 방지하기 위한 통계적 캘리브레이션 알고리즘을 구현했습니다.
 
 1. **Adaptive Centering (평균 벡터 감산)**:
-   - 전체 노드 임베딩의 중심 벡터(Centroid $\vec{\mu}$)를 계산하고, 모든 벡터에서 이를 감산한 뒤 $L_2$ 재정규화를 수행합니다.
-   $$\vec{v}_{\text{calibrated}} = \frac{\vec{v} - \vec{\mu}}{\|\vec{v} - \vec{\mu}\|_2}$$
+   - 전체 노드 임베딩의 중심 벡터(Centroid $\vec{\mu}$)를 계산하고, 모든 벡터에서 이를 감산한 뒤 $L_2$ 재정규화를 수행합니다. $$\vec{v}_{\text{calibrated}} = \frac{\vec{v} - \vec{\mu}}{\|\vec{v} - \vec{\mu}\|_2}$$
    - 이를 통해 공통 도메인 어휘로 인해 발생하는 배경 유사도 편향(Hubness)을 완화하고 상대적 의미 변별력을 개선합니다.
 2. **상호 순위 융합 (Reciprocal Rank Fusion; RRF)**:
    - 밀집 벡터(Dense Cosine) 검색과 어휘/키워드(Sparse Lexical) 검색의 순위를 파라미터 튜닝 없이 안정적으로 합성할 수 있는 RRF 헬퍼(`reciprocal_rank_fusion`)를 내장했습니다 ($k=60$).

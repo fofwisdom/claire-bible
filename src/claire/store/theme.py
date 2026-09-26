@@ -1,8 +1,6 @@
 """일련번호 기반 물리 디렉터리 격리 및 레이블 인식 테마 매니저.
 
-지식 관리자가 테마의 레이블이나 설명을 언제든지 자유롭게 수정하더라도
-물리적 SQLite 파일이나 디렉터리가 영향받지 않도록, 디렉터리 경로는 순수 일련번호(0, 1, 2...)로
-영구 고정 관리하고 이용자 및 시스템에는 레이블(Label)로 인식되도록 합니다.
+지식 관리자가 테마의 레이블이나 설명을 언제든지 자유롭게 수정하더라도 물리적 SQLite 파일이나 디렉터리가 영향받지 않도록, 디렉터리 경로는 순수 일련번호(0, 1, 2...)로 영구 고정 관리하고 이용자 및 시스템에는 레이블(Label)로 인식되도록 합니다.
 """
 
 from __future__ import annotations
@@ -193,9 +191,7 @@ class ThemeManager:
     def reload(self) -> None:
         """themes.json 레지스트리를 읽고 메모리에 적재한다.
 
-        싱글 테마 모드에서는 레지스트리를 전혀 읽지 않는다. 멀티 테마 모드에서
-        레지스트리가 없으면 기본 레지스트리를 만들지만, 이미 존재하는 레지스트리가
-        손상됐으면 기본값으로 덮어쓰거나 숨기지 않고 오류를 전파한다.
+        싱글 테마 모드에서는 레지스트리를 전혀 읽지 않는다. 멀티 테마 모드에서 레지스트리가 없으면 기본 레지스트리를 만들지만, 이미 존재하는 레지스트리가 손상됐으면 기본값으로 덮어쓰거나 숨기지 않고 오류를 전파한다.
         """
         if not getattr(self.settings, "multi_theme", False):
             # 싱글 테마 모드: 파일 I/O 및 락을 원천 차단하고 메모리 상의 기본 테마 1개만 고정 유지
@@ -326,9 +322,7 @@ class ThemeManager:
     ) -> list[ThemeInfo]:
         """등록된 테마 목록을 일련번호 순서로 반환.
 
-        include_private=True 인 경우 모든 테마 반환.
-        collaborator=True 인 경우 공개(is_public=True) 또는 Collaborator 공개(is_collaborator_accessible=True) 테마 반환.
-        include_private=False 및 collaborator=False 인 경우 (익명 사용자):
+        include_private=True 인 경우 모든 테마 반환. collaborator=True 인 경우 공개(is_public=True) 또는 Collaborator 공개(is_collaborator_accessible=True) 테마 반환. include_private=False 및 collaborator=False 인 경우 (익명 사용자):
           - host가 특정 테마의 전용 FQDN인 경우: 해당 FQDN 테마만 반환 (is_public=True).
           - host가 기본 도메인(또는 미지정)인 경우: FQDN이 설정되지 않은 공개 테마만 반환 (기본 지식베이스 및 일반 공개 테마).
         """
@@ -812,9 +806,7 @@ class ThemeManager:
     ) -> list[tuple[ThemeInfo, Any]]:
         """활성 테마와 경로가 적용된 설정을 테마 ID 순서로 반환한다.
 
-        멀티 테마가 꺼져 있으면 레지스트리 I/O 없이 기본 설정 한 개만 반환한다.
-        멀티 테마가 켜져 있으면 레지스트리를 매번 다시 읽어 신규/삭제 테마를
-        반영하며, 손상된 레지스트리 오류는 호출자에게 그대로 전파한다.
+        멀티 테마가 꺼져 있으면 레지스트리 I/O 없이 기본 설정 한 개만 반환한다. 멀티 테마가 켜져 있으면 레지스트리를 매번 다시 읽어 신규/삭제 테마를 반영하며, 손상된 레지스트리 오류는 호출자에게 그대로 전파한다.
         """
         base = base_settings or self.settings
         if not getattr(base, "multi_theme", False):
@@ -907,8 +899,7 @@ class ThemeManager:
     ) -> list[dict[str, Any]]:
         """등록된 테마 DB들을 검색하여 입력값(target, doc_id, url, token 등)과 일치하는 문서 목록을 반환.
 
-        각 결과 딕셔너리에는 theme_id, theme_label, db_file 정보가 함께 포함된다.
-        정확 일치(id, doc_id, token, share_token) 항목이 존재할 경우 해당 항목들을 우선 반환한다.
+        각 결과 딕셔너리에는 theme_id, theme_label, db_file 정보가 함께 포함된다. 정확 일치(id, doc_id, token, share_token) 항목이 존재할 경우 해당 항목들을 우선 반환한다.
         """
         if not getattr(self.settings, "multi_theme", False):
             abs_db = getattr(self.settings, "db_file", None) or Path("data/claire.db")

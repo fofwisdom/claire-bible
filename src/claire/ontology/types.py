@@ -1,10 +1,8 @@
 """시드 온톨로지 타입.
 
-advisor 조언에 따라 per-type 클래스를 만들지 않고, 검증되는 문자열 enum + 레지스트리로
-관리한다(closed enum + escape hatch). LLM 이 enum 밖 타입을 제안하면 provisional 로 보관한다.
+advisor 조언에 따라 per-type 클래스를 만들지 않고, 검증되는 문자열 enum + 레지스트리로 관리한다(closed enum + escape hatch). LLM 이 enum 밖 타입을 제안하면 provisional 로 보관한다.
 
-새 타입을 "코드로 승격"하려면 아래 리스트에 한 줄 추가하면 된다 = 사용자가 말한
-"관계를 코드 인터페이스로 관리".
+새 타입을 "코드로 승격"하려면 아래 리스트에 한 줄 추가하면 된다 = 사용자가 말한 "관계를 코드 인터페이스로 관리".
 """
 
 from __future__ import annotations

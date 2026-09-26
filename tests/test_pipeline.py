@@ -1,7 +1,6 @@
 """M1/M2 파이프라인 테스트 — 네트워크/토큰 없이 mock provider + 주입 fetch 로 검증.
 
-핵심 검증: dedup, 엔티티 적재, **기존 그래프와의 연결(머지)**, 관계 검증/적재,
-provisional/proposal, vault export.
+핵심 검증: dedup, 엔티티 적재, **기존 그래프와의 연결(머지)**, 관계 검증/적재, provisional/proposal, vault export.
 """
 
 from __future__ import annotations

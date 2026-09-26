@@ -1,9 +1,6 @@
 # Container Slimming & Dependency Decoupling Design
 
-> **문서 번호:** SPEC-CONTAINER-20260908-01 (Phase 1)  
-> **문서 상태:** 설계 및 구현 규격 (Specification)  
-> **상위 문서:** [CLAIRE_ARCHITECTURE_ROADMAP.md](../CLAIRE_ARCHITECTURE_ROADMAP.md) (과제 1 / Phase 1)  
-> **관련 문서:** [PDF_PARSER_AND_VISION_GUARDRAILS_DESIGN.md](./PDF_PARSER_AND_VISION_GUARDRAILS_DESIGN.md), [OPERATIONS.md](../implementation/OPERATIONS.md)
+> **문서 번호:** SPEC-CONTAINER-20260908-01 (Phase 1) **문서 상태:** 설계 및 구현 규격 (Specification) **상위 문서:** [CLAIRE_ARCHITECTURE_ROADMAP.md](../CLAIRE_ARCHITECTURE_ROADMAP.md) (과제 1 / Phase 1) **관련 문서:** [PDF_PARSER_AND_VISION_GUARDRAILS_DESIGN.md](./PDF_PARSER_AND_VISION_GUARDRAILS_DESIGN.md), [OPERATIONS.md](../implementation/OPERATIONS.md)
 
 ---
 
@@ -243,8 +240,7 @@ services:
 
 ## 6. 산출물 정합성 및 파이프라인 불변 원칙
 
-> [!IMPORTANT]
-> **추출 파이프라인 불변(Zero Change) 원칙**:
+> [!IMPORTANT] **추출 파이프라인 불변(Zero Change) 원칙**:
 > - 본 Phase 1(컨테이너 경량화) 단계에서는 지식 그래프 추출, 온톨로지 매핑, 요약 및 렌더링과 관련된 **LLM 프롬프트 및 파이프라인 로직을 일체 수정하지 않습니다**.
 > - 프롬프트 퓨전(Prompt Fusion) 등 LLM 호출 최적화는 Phase 4 마일스톤에서 기존 산출물과의 A/B 비교 벤치마크를 거쳐 신중하게 추진됩니다.
 

@@ -127,8 +127,7 @@ graph TD
 
 ### 2.6 Antigravity CLI 프로바이더 (`CLAIRE_AGY_*`)
 
-> [!WARNING]
-> Antigravity CLI 프로바이더는 호스트 네이티브 실행 환경 전용입니다. 
+> [!WARNING] Antigravity CLI 프로바이더는 호스트 네이티브 실행 환경 전용입니다.
 
 `CLAIRE_PROVIDER=antigravity` 사용할 때 적용됩니다.
 
@@ -144,8 +143,7 @@ graph TD
 
 ### 2.7 Codex CLI 프로바이더 (`CLAIRE_CODEX_*` - Native Host 전용)
 
-> [!WARNING]
-> Codex CLI 프로바이더는 호스트 네이티브 실행 환경 전용입니다. 
+> [!WARNING] Codex CLI 프로바이더는 호스트 네이티브 실행 환경 전용입니다.
 
 | 환경변수명 | 기본값 | 허용 값 / 타입 | 설명 |
 | :--- | :--- | :--- | :--- |
@@ -274,8 +272,7 @@ TypeSafe AI Jev는 엔티티 해소(Entity Resolution) 및 관계 판정 시 비
 
 ### 2.13 웹 서비스, 인증 및 보안 경계 (Web API, Auth, Security)
 
-> [!IMPORTANT]
-> 웹 서비스의 보안 경계와 인증 토큰은 [EXTERNAL_ACCESS.md](EXTERNAL_ACCESS.md) 설계 명세를 엄격히 준수합니다.
+> [!IMPORTANT] 웹 서비스의 보안 경계와 인증 토큰은 [EXTERNAL_ACCESS.md](EXTERNAL_ACCESS.md) 설계 명세를 엄격히 준수합니다.
 
 | 환경변수명 | 기본값 (prod / dev) | 허용 값 / 타입 | 설명 |
 | :--- | :--- | :--- | :--- |

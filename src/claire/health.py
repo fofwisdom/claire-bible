@@ -1,8 +1,6 @@
 """시스템 건강 상태와 경량 liveness를 구조화 dict로 산출한다.
 
-`ok`  = 서비스가 DB 에 접근 가능한 살아있는 상태인가(헬스체크 liveness).
-`degraded` = 살아는 있으나 사람이 봐야 할 신호(error/failed inbox 누적)가 있는가.
-조회만 하고 아무것도 변경하지 않는다.
+`ok`  = 서비스가 DB 에 접근 가능한 살아있는 상태인가(헬스체크 liveness). `degraded` = 살아는 있으나 사람이 봐야 할 신호(error/failed inbox 누적)가 있는가. 조회만 하고 아무것도 변경하지 않는다.
 """
 
 from __future__ import annotations
@@ -20,8 +18,7 @@ RECOVER_MAX_ATTEMPTS = 5  # recover-loop 기본값과 동일(due 계산용)
 def _connect_readonly(db_path: str | Path) -> sqlite3.Connection:
     """헬스체크용 읽기 전용 연결.
 
-    dbm.connect()는 부모 디렉터리/DB를 만들고 WAL pragma를 설정하므로 상태 조회에는
-    사용하지 않는다. DB가 없거나 열 수 없으면 그대로 실패해 liveness가 이를 보고한다.
+    dbm.connect()는 부모 디렉터리/DB를 만들고 WAL pragma를 설정하므로 상태 조회에는 사용하지 않는다. DB가 없거나 열 수 없으면 그대로 실패해 liveness가 이를 보고한다.
     """
     uri = Path(db_path).resolve().as_uri() + "?mode=ro"
     conn = sqlite3.connect(uri, uri=True, timeout=5.0)

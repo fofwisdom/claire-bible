@@ -1,7 +1,6 @@
 """중앙 프롬프트 엔진 — 지식그래프 추출, 상세 렌더링, 요약, 리서치, 판정 템플릿.
 
-모든 LLM Provider(Gemini, Antigravity agy 등)가 공유하는 표준 프롬프트 템플릿과
-문어체/서술체 어조 규칙을 단일 모듈에서 중앙 관리한다.
+모든 LLM Provider(Gemini, Antigravity agy 등)가 공유하는 표준 프롬프트 템플릿과 문어체/서술체 어조 규칙을 단일 모듈에서 중앙 관리한다.
 """
 
 from __future__ import annotations
@@ -33,16 +32,9 @@ personal knowledge base about AI/software tools and research.
 
 Rules:
 - LANGUAGE & STYLE: write `summary`, every `observations` item, and `key_claims` in Korean
-  (한국어) using formal/declarative written style (문어체 / 서술체: e.g. '~한다', '~이다',
-  '~함' without conversational honorifics like '~합니다', '~해요'), REGARDLESS of the source
-  document's language. Keep proper nouns, product/tool/model names, org names, and technical
-  terms in their original form — do NOT transliterate (e.g. "OpenSkill", "arXiv", "LLM agent"
-  stay as-is). Entity `name` and `aliases` stay in their canonical original form (usually the
-  original language).
+  (한국어) using formal/declarative written style (문어체 / 서술체: e.g. '~한다', '~이다', '~함' without conversational honorifics like '~합니다', '~해요'), REGARDLESS of the source document's language. Keep proper nouns, product/tool/model names, org names, and technical terms in their original form — do NOT transliterate (e.g. "OpenSkill", "arXiv", "LLM agent" stay as-is). Entity `name` and `aliases` stay in their canonical original form (usually the original language).
 - summary: 1-3 factual sentences in Korean written style (문어체: ~한다/~이다). Write in pure
-  plain text ONLY (평문). Do NOT use any AsciiDoc or Markdown markup syntax (e.g. NEVER use
-  headers like '= Title' or '== Section', block markers like '[NOTE]', tables '|===', links
-  'link:...', lists, bold/italic, or quote formatting).
+  plain text ONLY (평문). Do NOT use any AsciiDoc or Markdown markup syntax (e.g. NEVER use headers like '= Title' or '== Section', block markers like '[NOTE]', tables '|===', links 'link:...', lists, bold/italic, or quote formatting).
 - entities: the key things this document is ABOUT (tools, repos, models, people, orgs, concepts...).
 - TABLES & DATA MATRICES: When the document contains tables, benchmarks, or comparison matrices,
   you MUST NOT omit or ignore the data inside tables. Extract entities (tools, models, benchmarks,
@@ -88,9 +80,7 @@ _RAW_URL_RE = re.compile(r"https?://\S+", re.IGNORECASE)
 def remove_leading_original_link(text: str | None) -> str:
     """상세 본문 선두 서지 행에서 중복 원문 링크만 제거한다.
 
-    문서 제목 직후(또는 제목이 없으면 첫 행)의 서지 메타데이터만 대상으로 한다.
-    저자·발행일·출처명·세션 ID·DOI 등은 보존하고, UI의 ``원문 열기``와 중복되는
-    URL/하이퍼링크만 제거한다. 본문 안의 링크와 인용은 변경하지 않는다.
+    문서 제목 직후(또는 제목이 없으면 첫 행)의 서지 메타데이터만 대상으로 한다. 저자·발행일·출처명·세션 ID·DOI 등은 보존하고, UI의 ``원문 열기``와 중복되는 URL/하이퍼링크만 제거한다. 본문 안의 링크와 인용은 변경하지 않는다.
     """
     if not text:
         return ""
@@ -443,10 +433,7 @@ def extract_system_prompt(ontology_block: str) -> str:
 def doc_to_prompt(doc: Document, *, full_content: bool = False) -> str:
     """Document -> LLM 프롬프트 본문.
 
-    단일 출처 및 병합 문서의 텍스트 투입 한도를 get_settings()에서 동적으로 결정.
-    full_content=True 또는 doc.meta['full_content']=True 인 경우 글자 수 상한 슬라이싱을 건너뛰고
-    Safety Cap(기본 100,000자) 한도 내에서 전문을 온전히 보존.
-    테이블(Markdown/AsciiDoc/HTML 표) 내 문자는 슬라이싱 전략(기본 table-exemption)에 따라 보존.
+    단일 출처 및 병합 문서의 텍스트 투입 한도를 get_settings()에서 동적으로 결정. full_content=True 또는 doc.meta['full_content']=True 인 경우 글자 수 상한 슬라이싱을 건너뛰고 Safety Cap(기본 100,000자) 한도 내에서 전문을 온전히 보존. 테이블(Markdown/AsciiDoc/HTML 표) 내 문자는 슬라이싱 전략(기본 table-exemption)에 따라 보존.
     """
     head = []
     if doc.title:

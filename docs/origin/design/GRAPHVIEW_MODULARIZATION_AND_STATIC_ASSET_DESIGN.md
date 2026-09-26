@@ -7,8 +7,7 @@
 ## 1. 배경 및 문제 정의
 
 ### 1.1 현황 및 배경
-Claire Bible의 웹 인터페이스는 지식 베이스의 두 가지 핵심 축인 **"스크랩 문서(Document)"**와 **"온톨로지 그래프(Entity/Relation)"** 간의 **양방향 탐색(Bilateral Exploration)**을 지원합니다.
-초기 업스트림([`blackan/claire_bible`](https://github.com/blackan/claire_bible))은 80줄의 가벼운 그래프 뷰어(`src/claire/graphview.py`)로 출발하였으나, 사용자 피드백에 따라 문서 목록 필터, 전문 리더, STT 전사 뷰어, 다중 노드 종합(Synthesis), 공유 뷰어(`_SHARED_HTML`) 등이 차례로 추가되었습니다.
+Claire Bible의 웹 인터페이스는 지식 베이스의 두 가지 핵심 축인 **"스크랩 문서(Document)"**와 **"온톨로지 그래프(Entity/Relation)"** 간의 **양방향 탐색(Bilateral Exploration)**을 지원합니다. 초기 업스트림([`blackan/claire_bible`](https://github.com/blackan/claire_bible))은 80줄의 가벼운 그래프 뷰어(`src/claire/graphview.py`)로 출발하였으나, 사용자 피드백에 따라 문서 목록 필터, 전문 리더, STT 전사 뷰어, 다중 노드 종합(Synthesis), 공유 뷰어(`_SHARED_HTML`) 등이 차례로 추가되었습니다.
 
 특히 오리진 저장소([`fofwisdom/claire-bible`](https://github.com/fofwisdom/claire-bible))에서 AsciiDoc 듀얼 포맷, 수식(KaTeX), 헤딩 레일, GA4 연동, 워크스페이스 탭 전환 등의 고도화 기능이 결합되면서, 현재 `graphview.py`는 **단일 파이썬 파일 7,097줄(약 330KB)**에 달하는 거대 모노리스가 되었습니다.
 
@@ -39,17 +38,11 @@ Claire Bible의 웹 인터페이스는 지식 베이스의 두 가지 핵심 축
 
 ## 2. 핵심 설계 원칙 (Non-Negotiable Principles)
 
-> [!IMPORTANT]
-> **원칙 1: Zero-Build / No-Bundler 철학 유지**  
-> Node.js, npm, Vite, Webpack 등 프론트엔드 번들러 환경을 일체 도입하지 않습니다. 순수 Python + 브라우저 네이티브 웹 표준(Vanilla JS / CSS)만으로 가볍고 독립적인 컨테이너 배포성을 유지합니다.
+> [!IMPORTANT] **원칙 1: Zero-Build / No-Bundler 철학 유지** Node.js, npm, Vite, Webpack 등 프론트엔드 번들러 환경을 일체 도입하지 않습니다. 순수 Python + 브라우저 네이티브 웹 표준(Vanilla JS / CSS)만으로 가볍고 독립적인 컨테이너 배포성을 유지합니다.
 
-> [!IMPORTANT]
-> **원칙 2: 단일 SPA 내 "문서 $\leftrightarrow$ 그래프" 양방향 탐색 UX 100% 보존**  
-> 그래프와 리더를 별도 URL이나 페이지로 쪼개지 않습니다. 문서 선택 시 노드가 하이라이트되고, 노드 클릭 시 문서 전문으로 즉시 전환되는 단일 인터페이스의 연속성을 보존합니다.
+> [!IMPORTANT] **원칙 2: 단일 SPA 내 "문서 $\leftrightarrow$ 그래프" 양방향 탐색 UX 100% 보존** 그래프와 리더를 별도 URL이나 페이지로 쪼개지 않습니다. 문서 선택 시 노드가 하이라이트되고, 노드 클릭 시 문서 전문으로 즉시 전환되는 단일 인터페이스의 연속성을 보존합니다.
 
-> [!IMPORTANT]
-> **원칙 3: 배포 및 보안 모델의 완전한 하위 호환성**  
-> `deploy.sh`의 rsync 배포, Docker 컨테이너 환경, aiohttp 기반 `gate` 미들웨어(무토큰 404 존재 은폐, 쿠키/`X-Session` 토큰 인가)와 100% 호환되어야 합니다.
+> [!IMPORTANT] **원칙 3: 배포 및 보안 모델의 완전한 하위 호환성** `deploy.sh`의 rsync 배포, Docker 컨테이너 환경, aiohttp 기반 `gate` 미들웨어(무토큰 404 존재 은폐, 쿠키/`X-Session` 토큰 인가)와 100% 호환되어야 합니다.
 
 ---
 

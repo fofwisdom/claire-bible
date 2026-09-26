@@ -1,7 +1,6 @@
 """입력 라우팅 — payload 를 적절한 fetcher 로 보내 Document 를 만든다.
 
-redirect(google share 등)는 최종 URL 로 해석 후 재라우팅한다.
-fetch 함수들은 lazy 하게 호출되므로 무거운 의존성(scrapling 등)은 필요할 때만 로드된다.
+redirect(google share 등)는 최종 URL 로 해석 후 재라우팅한다. fetch 함수들은 lazy 하게 호출되므로 무거운 의존성(scrapling 등)은 필요할 때만 로드된다.
 """
 
 from __future__ import annotations
@@ -19,10 +18,7 @@ _URL_RE = re.compile(r"https?://[^\s)\]\}<>\"']+")
 def extract_shared_url(payload: str) -> str | None:
     """'제목 + 링크' 형태(모바일/데스크톱 공유)로 들어온 텍스트에서 URL 을 뽑는다.
 
-    모바일 브라우저·앱의 '공유'는 보통 「기사 제목 … <URL>」처럼 본문 끝에 URL 을 붙여
-    보낸다. 이때 텍스트가 http 로 시작하지 않아 그동안 순수 메모(text)로 적재돼 링크가
-    fetch 되지 않았다(실관측: url=None 90자 thin 노드). **마지막 토큰이 URL** 일 때만
-    그 자료를 가리키는 공유로 보고 추출한다(본문 중간 링크가 섞인 일반 메모는 text 유지).
+    모바일 브라우저·앱의 '공유'는 보통 「기사 제목 … <URL>」처럼 본문 끝에 URL 을 붙여 보낸다. 이때 텍스트가 http 로 시작하지 않아 그동안 순수 메모(text)로 적재돼 링크가 fetch 되지 않았다(실관측: url=None 90자 thin 노드). **마지막 토큰이 URL** 일 때만 그 자료를 가리키는 공유로 보고 추출한다(본문 중간 링크가 섞인 일반 메모는 text 유지).
     """
     t = (payload or "").strip()
     if not t or t.lower().startswith(("http://", "https://")):

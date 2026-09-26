@@ -16,9 +16,7 @@ from . import db as dbm
 def graph_json(conn: sqlite3.Connection, include_hidden: bool = True) -> dict:
     """엔티티/관계를 vis.js network 형식(nodes/edges)으로. dangling edge 는 제외.
 
-    각 노드에 degree(연결 수)를 실어 UI 가 degree-centrality 임계로 핵심 서브그래프만
-    표시할 수 있게 한다(전체 N개 렌더 → 큰 그래프의 가시성/스케일 문제 해소).
-    include_hidden=False 면 숨김 문서 전용 엔티티 및 엣지를 제외한다.
+    각 노드에 degree(연결 수)를 실어 UI 가 degree-centrality 임계로 핵심 서브그래프만 표시할 수 있게 한다(전체 N개 렌더 → 큰 그래프의 가시성/스케일 문제 해소). include_hidden=False 면 숨김 문서 전용 엔티티 및 엣지를 제외한다.
     """
     ents = dbm.all_entities(conn)
     rels = dbm.all_relations(conn)
@@ -89,8 +87,7 @@ def node_detail(
     entity_id: str,
     include_hidden: bool = True,
 ) -> dict | None:
-    """한 노드의 '쓸 수 있는 지식': 전체 observations + 소스 문서(제목·요약·URL) +
-    타입 있는 이웃. 패널에 그대로 펼친다. 없으면 None.
+    """한 노드의 '쓸 수 있는 지식': 전체 observations + 소스 문서(제목·요약·URL) + 타입 있는 이웃. 패널에 그대로 펼친다. 없으면 None.
     """
     ent = dbm.get_entity(conn, entity_id)
     if ent is None:
@@ -157,9 +154,7 @@ def document_detail(
 ) -> dict | None:
     """한 문서(article)의 우측 패널용 상세 — 제목·출처·요약·상세(detail). 없으면 None.
 
-    좌측 문서를 고르면 그래프 강조에 더해 우측에 이 요약/상세를 펼친다(노드 클릭 없이
-    문서 자체를 읽게). 노드 목록은 클라이언트가 graph 의 node.sources 로 계산하므로
-    여기선 싣지 않는다(중복 전송 방지).
+    좌측 문서를 고르면 그래프 강조에 더해 우측에 이 요약/상세를 펼친다(노드 클릭 없이 문서 자체를 읽게). 노드 목록은 클라이언트가 graph 의 node.sources 로 계산하므로 여기선 싣지 않는다(중복 전송 방지).
     """
     row = dbm.get_document_row(conn, document_id)
     if row is None:
@@ -260,9 +255,7 @@ def document_detail(
 def dedup_clusters(conn: sqlite3.Connection, scan: dict) -> dict:
     """dedup_scan 결과를 웹 UI 용으로 보강 — 각 문서의 제목·URL·본문길이·적재시각 + keeper 추천.
 
-    scan(=svc.dedup_scan)은 ids/urls/titles/score 만 준다. UI 가 '무엇을 유지할지' 고르게
-    각 문서 메타를 채우고, 기본 keeper(=최장 본문, 동률이면 최초 적재)를 표시한다 —
-    service.dedup_merge 의 keeper 선정과 동일 규칙(웹/CLI 일관).
+    scan(=svc.dedup_scan)은 ids/urls/titles/score 만 준다. UI 가 '무엇을 유지할지' 고르게 각 문서 메타를 채우고, 기본 keeper(=최장 본문, 동률이면 최초 적재)를 표시한다 — service.dedup_merge 의 keeper 선정과 동일 규칙(웹/CLI 일관).
     """
     out_clusters = []
     for c in scan.get("clusters", []):
@@ -338,9 +331,7 @@ def synthesis_context(
 ) -> tuple[str, list[str]]:
     """선택 노드들의 지식(관찰·연결·출처요약)을 LLM 종합용 컨텍스트 텍스트로 조립.
 
-    결정론적(LLM 없음) — 이 텍스트가 summarize_search 의 근거가 된다. (context, names).
-    compact=True (MCP 용): 관찰은 앞 3개로 자르고 출처요약은 생략해 에이전트의
-    컨텍스트 윈도우를 아낀다(docs/origin/design/MCP_SUPPORT.md 참고).
+    결정론적(LLM 없음) — 이 텍스트가 summarize_search 의 근거가 된다. (context, names). compact=True (MCP 용): 관찰은 앞 3개로 자르고 출처요약은 생략해 에이전트의 컨텍스트 윈도우를 아낀다(docs/origin/design/MCP_SUPPORT.md 참고).
     """
     blocks: list[str] = []
     names: list[str] = []
@@ -389,8 +380,7 @@ def synthesize(
 ) -> dict:
     """선택 노드들을 아우르는 종합 지식 문서(인용 포함, 한국어)를 생성.
 
-    summarize_search 재사용(검색 정리와 동일 경로) — 컨텍스트는 그래프(관찰·연결·출처요약).
-    비용(LLM 호출)이 있으므로 호출측(API)에서 토큰 인증 + 명시적 액션으로만 부른다.
+    summarize_search 재사용(검색 정리와 동일 경로) — 컨텍스트는 그래프(관찰·연결·출처요약). 비용(LLM 호출)이 있으므로 호출측(API)에서 토큰 인증 + 명시적 액션으로만 부른다.
     """
     context, names = synthesis_context(conn, entity_ids)
     if not context:

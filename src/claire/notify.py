@@ -1,8 +1,6 @@
 """소유자에게 텔레그램 DM 으로 운영 경보를 보내는 가벼운 헬퍼.
 
-python-telegram-bot(async/봇 런타임) 없이 httpx 로 sendMessage 만 호출한다 →
-recover/refresh 같은 데몬 어디서나 임포트해 쓸 수 있다(봇 프로세스가 아니어도).
-token 또는 chat_id 가 없으면 조용히 no-op = 개발/테스트/미설정 환경 안전.
+python-telegram-bot(async/봇 런타임) 없이 httpx 로 sendMessage 만 호출한다 → recover/refresh 같은 데몬 어디서나 임포트해 쓸 수 있다(봇 프로세스가 아니어도). token 또는 chat_id 가 없으면 조용히 no-op = 개발/테스트/미설정 환경 안전.
 """
 
 from __future__ import annotations

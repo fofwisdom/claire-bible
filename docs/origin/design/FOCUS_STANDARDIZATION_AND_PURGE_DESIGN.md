@@ -397,5 +397,4 @@ git grep -in "directive" -- \
 
 ## 6. 결론 및 향후 보증
 
-본 아키텍처 설계를 통해 Claire Bible 시스템은 임시방편적인 유연성(Pliable Aliases)을 철폐하고, 엄격한 도메인 정본성(Domain Canonicity)을 회복합니다.
-어떠한 하위 호환성 타협이나 모호한 레거시 키도 허용되지 않으며, `focus(초점)`는 시스템의 영구적인 1급 시민(First-Class Citizen) 엔지니어링 규격으로 안착됩니다.
+본 아키텍처 설계를 통해 Claire Bible 시스템은 임시방편적인 유연성(Pliable Aliases)을 철폐하고, 엄격한 도메인 정본성(Domain Canonicity)을 회복합니다. 어떠한 하위 호환성 타협이나 모호한 레거시 키도 허용되지 않으며, `focus(초점)`는 시스템의 영구적인 1급 시민(First-Class Citizen) 엔지니어링 규격으로 안착됩니다.

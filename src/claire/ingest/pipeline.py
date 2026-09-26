@@ -1,8 +1,6 @@
 """인제스트 파이프라인 — payload 를 받아 그래프에 적재하는 전체 흐름.
 
-  payload → fetch(router) → dedup → insert document
-          → provider.extract → 엔티티 해소/머지(+임베딩) → 관계 검증/적재
-          → vault export → IngestReport
+  payload → fetch(router) → dedup → insert document → provider.extract → 엔티티 해소/머지(+임베딩) → 관계 검증/적재 → vault export → IngestReport
 
 fetch_fn 을 주입 가능하게 하여 네트워크 없이 테스트한다.
 """
@@ -468,11 +466,7 @@ def ingest(
 
 
 def _download_doc_images(conn: sqlite3.Connection, doc: Document, data_dir: Path | None) -> None:
-    """본문 이미지 후보를 로컬로 내려받아 보존(사용자 요구 — 외부 사이트/링크가 나중에
-    사라지면 문서에 남는 게 깨진 이미지 링크뿐이라 저장해 둬야 함). ingest 신규/in-place
-    갱신·refresh 가 공유. doc.meta['images'] 를 local 경로 포함 형태로 갱신 + DB 반영.
-    이미지 후보 없거나 data_dir 없으면 조용히 스킵(개별 다운로드 실패는 raw.download_images
-    가 원본 url 로 이미 폴백)."""
+    """본문 이미지 후보를 로컬로 내려받아 보존(사용자 요구 — 외부 사이트/링크가 나중에 사라지면 문서에 남는 게 깨진 이미지 링크뿐이라 저장해 둬야 함). ingest 신규/in-place 갱신·refresh 가 공유. doc.meta['images'] 를 local 경로 포함 형태로 갱신 + DB 반영. 이미지 후보 없거나 data_dir 없으면 조용히 스킵(개별 다운로드 실패는 raw.download_images 가 원본 url 로 이미 폴백)."""
     images = (doc.meta or {}).get("images")
     if not images or data_dir is None:
         return
@@ -609,9 +603,7 @@ def extract_resolve_store(
 ) -> tuple[bool, str | None]:
     """문서 1건의 추출→엔티티 해소/머지→관계 검증/적재→vault export.
 
-    ingest(신규 적재)와 refresh(복원 재적재)가 공유한다. doc.id 기준으로 동작하므로
-    refresh 시 같은 id 로 호출하면 기존 엔티티 sources 에 누적된다(연결 보존).
-    추출 실패 시 (False, error). 성공 시 (True, None).
+    ingest(신규 적재)와 refresh(복원 재적재)가 공유한다. doc.id 기준으로 동작하므로 refresh 시 같은 id 로 호출하면 기존 엔티티 sources 에 누적된다(연결 보존). 추출 실패 시 (False, error). 성공 시 (True, None).
     """
     from ..config import get_settings
 
@@ -917,20 +909,11 @@ def merge_source_into_document(
     format: str | None = None,
     focus: str | None = None,
 ) -> dict:
-    """[1홉 병합, ONEHOP_MERGE_DESIGN.md] 같은 주제의 부가 출처(child)를 parent 문서에
-    흡수 — 새 Document/expand_queue 항목을 만드는 대신 parent.raw_text 뒤에 별도 출처
-    섹션으로 append 하고 **같은 doc.id** 로 재추출한다(엔티티는 resolve_or_create 가 병합된
-    본문 기준으로 기존 노드에 관찰을 누적, render_detail 도 합쳐진 상세로 재생성돼 실제로
-    더 풍부한 글이 된다).
+    """[1홉 병합, ONEHOP_MERGE_DESIGN.md] 같은 주제의 부가 출처(child)를 parent 문서에 흡수 — 새 Document/expand_queue 항목을 만드는 대신 parent.raw_text 뒤에 별도 출처 섹션으로 append 하고 **같은 doc.id** 로 재추출한다(엔티티는 resolve_or_create 가 병합된 본문 기준으로 기존 노드에 관찰을 누적, render_detail 도 합쳐진 상세로 재생성돼 실제로 더 풍부한 글이 된다).
 
-    저장은 원문 보존 협약대로 자르지 않는다 — LLM 프롬프트 투입량 상한(2배)은
-    `_doc_to_prompt`(gemini_provider.py) 쪽에서 doc.meta.extra_sources 유무로 자동 분기.
+    저장은 원문 보존 협약대로 자르지 않는다 — LLM 프롬프트 투입량 상한(2배)은 `_doc_to_prompt`(gemini_provider.py) 쪽에서 doc.meta.extra_sources 유무로 자동 분기.
 
-    실패(주로 provider.extract 의 rate-limit/quota)는 **스냅샷→복원**으로 병합 시도 이전
-    상태로 되돌린다(§3.3a — db.py 각 함수가 즉시 commit 하는 구조라 진짜 SQL 트랜잭션은
-    이번 범위에서 무리, 가벼운 대안으로 결정). 엔티티/관계 루프 도중 실패해 일부가 이미
-    커밋된 경우까지는 못 되돌린다 — 이건 ingest()/refresh_document() 도 이미 안고 있는
-    기존 리스크와 동급이라 이번 범위에서 별도로 고치지 않는다.
+    실패(주로 provider.extract 의 rate-limit/quota)는 **스냅샷→복원**으로 병합 시도 이전 상태로 되돌린다(§3.3a — db.py 각 함수가 즉시 commit 하는 구조라 진짜 SQL 트랜잭션은 이번 범위에서 무리, 가벼운 대안으로 결정). 엔티티/관계 루프 도중 실패해 일부가 이미 커밋된 경우까지는 못 되돌린다 — 이건 ingest()/refresh_document() 도 이미 안고 있는 기존 리스크와 동급이라 이번 범위에서 별도로 고치지 않는다.
 
     반환: {"merged": bool, "document_id"?, "report"?: IngestReport, "error"?: str}
     """
@@ -1007,9 +990,7 @@ def ensure_document_detail(
 ) -> bool:
     """문서의 가독 렌더(detail)를 생성·저장. **그래프와 독립**(별도 LLM 호출).
 
-    신규 적재(extract_resolve_store)와 기존 문서 백필이 공유하는 단일 경로. detail 컬럼만
-    채우므로 엔티티/관계를 건드리지 않는다 → reset_graph/rebuild 없이 백필 가능(advisor).
-    이미 있으면(force=False) 건너뛰고, 생성 실패는 조용히 False(적재 실패로 번지지 않음).
+    신규 적재(extract_resolve_store)와 기존 문서 백필이 공유하는 단일 경로. detail 컬럼만 채우므로 엔티티/관계를 건드리지 않는다 → reset_graph/rebuild 없이 백필 가능(advisor). 이미 있으면(force=False) 건너뛰고, 생성 실패는 조용히 False(적재 실패로 번지지 않음).
     """
     if full_content:
         if doc.meta is None:
@@ -1094,8 +1075,7 @@ def ensure_watch_classification(
 ) -> bool:
     """[주기 크롤링] 변하는 콘텐츠(벤치/순위 등)인지 LLM 판단 → watch 설정. 비필수(별도 호출).
 
-    신규 1차 적재에만 호출(비용 통제 — 호출측 source 게이트). rate limit 등 실패는 조용히
-    False(적재 막지 않음 — watch 미판단으로 남고 나중에 수동/재판단 가능)."""
+    신규 1차 적재에만 호출(비용 통제 — 호출측 source 게이트). rate limit 등 실패는 조용히 False(적재 막지 않음 — watch 미판단으로 남고 나중에 수동/재판단 가능)."""
     fn = getattr(provider, "classify_watch", None)
     if fn is None:
         return False

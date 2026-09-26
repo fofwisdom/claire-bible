@@ -1,9 +1,7 @@
 """검색 + LLM 정리 (M5).
 
 흐름(search.md 축소판):
-  query → 하이브리드 후보(FTS BM25 + 벡터 cosine, RRF 융합)
-        → 그래프 이웃 1홉 확장(연결 맥락 보강)
-        → Gemini 정리(검색된 컨텍스트만 사용, 인용 포함)
+  query → 하이브리드 후보(FTS BM25 + 벡터 cosine, RRF 융합) → 그래프 이웃 1홉 확장(연결 맥락 보강) → Gemini 정리(검색된 컨텍스트만 사용, 인용 포함)
 
 provider 가 embed/generate 를 못 하면(mock) LLM 정리는 생략하고 후보 리스트만 반환.
 """

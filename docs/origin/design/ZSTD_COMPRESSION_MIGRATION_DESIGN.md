@@ -1,17 +1,12 @@
 # Zstandard (zstd) Compression Migration Design
 
-> **문서 번호:** SPEC-ZSTD-20260909-01  
-> **문서 상태:** 설계 및 구현 규격 (Specification)  
-> **작성 일자:** 2026-09-09  
-> **상위 문서:** [CLAIRE_ARCHITECTURE_ROADMAP.md](../CLAIRE_ARCHITECTURE_ROADMAP.md)  
-> **관련 문서:** [DATA_LIFECYCLE_AND_PURGE_DESIGN.md](./DATA_LIFECYCLE_AND_PURGE_DESIGN.md), [CONTAINER_SLIMMING_AND_DEPENDENCY_DECOUPLING_DESIGN.md](./CONTAINER_SLIMMING_AND_DEPENDENCY_DECOUPLING_DESIGN.md)
+> **문서 번호:** SPEC-ZSTD-20260909-01 **문서 상태:** 설계 및 구현 규격 (Specification) **작성 일자:** 2026-09-09 **상위 문서:** [CLAIRE_ARCHITECTURE_ROADMAP.md](../CLAIRE_ARCHITECTURE_ROADMAP.md) **관련 문서:** [DATA_LIFECYCLE_AND_PURGE_DESIGN.md](./DATA_LIFECYCLE_AND_PURGE_DESIGN.md), [CONTAINER_SLIMMING_AND_DEPENDENCY_DECOUPLING_DESIGN.md](./CONTAINER_SLIMMING_AND_DEPENDENCY_DECOUPLING_DESIGN.md)
 
 ---
 
 ## 1. 개요 및 도입 배경
 
-클레어바이블(Claire-Bible)은 웹 스크래핑, 학술 논문(PDF), 유튜브 전사(STT), 법령 및 성경 역본 텍스트를 인입하여 온톨로지 지식 그래프와 하이브리드 RAG 검색 엔진을 구축하는 시스템입니다.
-업스트림 및 v0.1 초기 아키텍처는 재생산성 보장(Layer 2 Storage)을 위해 인입된 원문 텍스트를 gzip 알고리즘(`*.txt.gz`)으로 압축하여 디스크에 보관해 왔습니다.
+클레어바이블(Claire-Bible)은 웹 스크래핑, 학술 논문(PDF), 유튜브 전사(STT), 법령 및 성경 역본 텍스트를 인입하여 온톨로지 지식 그래프와 하이브리드 RAG 검색 엔진을 구축하는 시스템입니다. 업스트림 및 v0.1 초기 아키텍처는 재생산성 보장(Layer 2 Storage)을 위해 인입된 원문 텍스트를 gzip 알고리즘(`*.txt.gz`)으로 압축하여 디스크에 보관해 왔습니다.
 
 그러나 데이터셋이 수천 편의 연구 논문과 전문 법령, 성경 역본으로 확장됨에 따라 다음과 같은 엔지니어링 병목 및 요구사항이 대두되었습니다:
 
@@ -50,8 +45,7 @@ flowchart LR
 
 ### 2.1 실제 코퍼스 기반 마이크로 벤치마크 실측 데이터
 
-클레어바이블의 핵심 워크로드인 **단문 웹 스크래핑 HTML (~5KB)**, **장문 마크다운 아티클 (~100KB)**, **법령 및 성경 역본 텍스트 (~1MB)**의 3대 실제 코퍼스를 대상으로 Gzip(기본 level 6)과 Zstandard(level 1, 3, 5, 9)의 성능을 실측 비교 분석하였습니다.
-*(테스트 환경: Linux x86_64, Python 3.14, zstandard 0.23.0 C-FFI 백엔드, Intel/AMD 고속 NVMe 스토리지)*
+클레어바이블의 핵심 워크로드인 **단문 웹 스크래핑 HTML (~5KB)**, **장문 마크다운 아티클 (~100KB)**, **법령 및 성경 역본 텍스트 (~1MB)**의 3대 실제 코퍼스를 대상으로 Gzip(기본 level 6)과 Zstandard(level 1, 3, 5, 9)의 성능을 실측 비교 분석하였습니다. *(테스트 환경: Linux x86_64, Python 3.14, zstandard 0.23.0 C-FFI 백엔드, Intel/AMD 고속 NVMe 스토리지)*
 
 #### 1) 단문 웹 스크래핑 HTML (원문 크기: 5,239 bytes, 5,000회 측정)
 
@@ -106,9 +100,7 @@ flowchart LR
   - 단문 HTML 처리 시 재사용 적용만으로 압축 처리량 **+17.6%**, 압축 해제 처리량 **+30.9%** 향상.
 
 #### 2) 동시성 크래시(SIGSEGV) 발견 및 `threading.local` 아키텍처 적용
-> [!CAUTION]
-> **멀티스레드 환경 단일 글로벌 인스턴스 공유 시 C 계층 메모리 오염 (Fatal Bug)**  
-> 파이썬의 단일 `ZstdCompressor` / `ZstdDecompressor` 객체를 복수의 작업자 스레드에서 동시에 공유 호출할 경우, 하부 C 컨텍스트(`ZSTD_CCtx*`)가 논-리엔트런트(non-reentrant)하여 **세그멘테이션 폴트 (Exit Code 139: SIGSEGV)**가 발생합니다.
+> [!CAUTION] **멀티스레드 환경 단일 글로벌 인스턴스 공유 시 C 계층 메모리 오염 (Fatal Bug)** 파이썬의 단일 `ZstdCompressor` / `ZstdDecompressor` 객체를 복수의 작업자 스레드에서 동시에 공유 호출할 경우, 하부 C 컨텍스트(`ZSTD_CCtx*`)가 논-리엔트런트(non-reentrant)하여 **세그멘테이션 폴트 (Exit Code 139: SIGSEGV)**가 발생합니다.
 
 따라서 단순 전역 싱글톤 대신 **스레드 로컬 캐싱(`threading.local`)**을 채택하여 다음 3대 요건을 완벽히 달성했습니다:
 1. **스레드 격리 (Thread Safety)**: 각 스레드마다 독립된 C-API 컨텍스트를 소유하여 100% 동시성 크래시 방지.

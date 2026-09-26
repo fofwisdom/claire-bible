@@ -118,10 +118,7 @@ def capture_all():
             revealWorkspace('graph');
             openIngest();
             const ta = document.getElementById('ingin');
-            if (ta) {
-                ta.value = "https://github.com/anthropics/anthropic-cookbook\\nAnthropic Cookbook - Claude API 및 도구 활용 예제 모음";
-            }
-        }""")
+            if (ta) { ta.value = "https://github.com/anthropics/anthropic-cookbook\\nAnthropic Cookbook - Claude API 및 도구 활용 예제 모음"; } }""")
         page.wait_for_timeout(1500)
         page.screenshot(path=os.path.join(OUTPUT_DIR, "content-ingestion-form.png"))
         print(" -> Saved content-ingestion-form.png")
@@ -143,21 +140,7 @@ def capture_all():
             // Render rich synthesis preview card in drawer
             const panel = document.getElementById('panel');
             if (panel) {
-                panel.innerHTML = `
-<h2>🧩 종합 지식 <small>3개 노드 분석</small></h2>
-<div class="synth" style="margin:10px 0;padding:12px;background:var(--sec-bg);border:1px solid var(--border);border-radius:6px;line-height:1.6;font-size:13px;">
-<p><b>VMware Cloud Foundation (VCF)</b> 생태계 내에서 <b>VKS (vSphere Kubernetes Service)</b>와 <b>VMware Private AI Foundation with NVIDIA</b>는 인프라 가상화 기반 위에 컨테이너 오케스트레이션 및 엔터프라이즈 생성형 AI 워크로드를 통합 배포·운영하기 위한 핵심 구성요소로 상호 연동됩니다.</p>
-<ul style="margin:8px 0 0 16px;padding:0;">
-<li><b>VCF 기반 통합</b>: vSphere Supervisor 클러스터를 통해 VKS 쿠버네티스 제어 평면과 GPU 가속 파티션을 중앙 관리</li>
-<li><b>Private AI 파이프라인</b>: NVIDIA NIM 마이크로서비스 및 프라이빗 AI 모델 서비스를 VKS 컨테이너 클러스터에 배포하여 데이터 주권 보장</li>
-</ul>
-</div>
-<p class="al" style="font-size:12px;color:var(--sec-fg)">대상 노드: VMware Cloud Foundation, VKS, VMware Private AI Foundation with NVIDIA</p>
-<p class="al"><a href="#" onclick="clearSynth();return false">종합 목록 초기화</a></p>
-                `;
-            }
-            openDetailPane();
-        }""")
+                panel.innerHTML = ` <h2>🧩 종합 지식 <small>3개 노드 분석</small></h2> <div class="synth" style="margin:10px 0;padding:12px;background:var(--sec-bg);border:1px solid var(--border);border-radius:6px;line-height:1.6;font-size:13px;"> <p><b>VMware Cloud Foundation (VCF)</b> 생태계 내에서 <b>VKS (vSphere Kubernetes Service)</b>와 <b>VMware Private AI Foundation with NVIDIA</b>는 인프라 가상화 기반 위에 컨테이너 오케스트레이션 및 엔터프라이즈 생성형 AI 워크로드를 통합 배포·운영하기 위한 핵심 구성요소로 상호 연동됩니다.</p> <ul style="margin:8px 0 0 16px;padding:0;"> <li><b>VCF 기반 통합</b>: vSphere Supervisor 클러스터를 통해 VKS 쿠버네티스 제어 평면과 GPU 가속 파티션을 중앙 관리</li> <li><b>Private AI 파이프라인</b>: NVIDIA NIM 마이크로서비스 및 프라이빗 AI 모델 서비스를 VKS 컨테이너 클러스터에 배포하여 데이터 주권 보장</li> </ul> </div> <p class="al" style="font-size:12px;color:var(--sec-fg)">대상 노드: VMware Cloud Foundation, VKS, VMware Private AI Foundation with NVIDIA</p> <p class="al"><a href="#" onclick="clearSynth();return false">종합 목록 초기화</a></p> `; } openDetailPane(); }""")
         page.wait_for_timeout(2000)
         page.screenshot(path=os.path.join(OUTPUT_DIR, "multi-node-synthesis.png"))
         print(" -> Saved multi-node-synthesis.png")

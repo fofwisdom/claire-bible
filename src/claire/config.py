@@ -906,8 +906,7 @@ class Settings(BaseSettings):
     def public_url(self) -> str:
         """호환성을 위한 public_url 속성.
 
-        CLAIRE_FQDN 기반으로 프로덕션 환경(production)은 https://,
-        개발 환경(development/local 등)은 http:// 스킴으로 자동 구성된다.
+        CLAIRE_FQDN 기반으로 프로덕션 환경(production)은 https://, 개발 환경(development/local 등)은 http:// 스킴으로 자동 구성된다.
         """
         if self.legacy_public_url and "://" in self.legacy_public_url:
             raw = self.legacy_public_url.strip()

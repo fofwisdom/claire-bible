@@ -31,9 +31,7 @@ _ARXIV_VER_RE = re.compile(r"v\d+$")
 def _canonicalize_arxiv_path(path: str) -> str:
     """arxiv 경로를 정본 형태로: /pdf/→/abs/, 끝 .pdf 제거, 버전 접미사(vN) 제거.
 
-    예) /abs/2606.17551v1 · /pdf/2606.17551v2.pdf · /abs/hep-th/9901001v3
-        → /abs/2606.17551 · /abs/2606.17551 · /abs/hep-th/9901001
-    같은 논문의 버전/형식 변형을 하나의 canonical 로 수렴(중복 적재 방지).
+    예) /abs/2606.17551v1 · /pdf/2606.17551v2.pdf · /abs/hep-th/9901001v3 → /abs/2606.17551 · /abs/2606.17551 · /abs/hep-th/9901001 같은 논문의 버전/형식 변형을 하나의 canonical 로 수렴(중복 적재 방지).
     """
     m = _ARXIV_PATH_RE.match(path)
     if not m:
@@ -46,11 +44,9 @@ def _canonicalize_arxiv_path(path: str) -> str:
 
 
 def canonicalize_url(url: str) -> str:
-    """호스트 소문자화·모바일prefix/기본포트 제거, fragment 제거, 추적 파라미터 제거,
-    인덱스 파일·끝 슬래시 정리.
+    """호스트 소문자화·모바일prefix/기본포트 제거, fragment 제거, 추적 파라미터 제거, 인덱스 파일·끝 슬래시 정리.
 
-    같은 자료에 도달하는 여러 URL 형태(www/m/amp, http/https, :80/:443, 추적파라미터,
-    index.html, 끝 슬래시)를 하나의 키로 수렴시켜 중복 적재를 막는다.
+    같은 자료에 도달하는 여러 URL 형태(www/m/amp, http/https, :80/:443, 추적파라미터, index.html, 끝 슬래시)를 하나의 키로 수렴시켜 중복 적재를 막는다.
     """
     if not url:
         return url
@@ -119,8 +115,7 @@ def _shingles(text: str, k: int = SHINGLE_K) -> set[str]:
 def minhash_signature(text: str) -> list[int] | None:
     """단어 shingle MinHash 서명(길이 MINHASH_PERM). 토큰이 없으면 None.
 
-    각 shingle 을 sha1→64bit 정수로 만들고, salt XOR 후 순열별 최소값을 취한다.
-    두 서명의 위치별 일치 비율이 Jaccard 유사도의 불편추정량.
+    각 shingle 을 sha1→64bit 정수로 만들고, salt XOR 후 순열별 최소값을 취한다. 두 서명의 위치별 일치 비율이 Jaccard 유사도의 불편추정량.
     """
     sh = _shingles(text)
     if not sh:

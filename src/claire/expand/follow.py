@@ -1,16 +1,9 @@
 """1홉 자동확장 — 부모 문서의 링크를 LLM 이 선별→fetch→판정→통과 시 적재.
 
-사용자 요구: 링크를 받으면 그 콘텐츠에서 찾은 추가 링크를 **1 depth 만** 더 파고들어
-자동으로 함께 지식에 쌓되, **파고들지 여부와 쌓을지 여부를 모두 LLM 이 결정**한다.
+사용자 요구: 링크를 받으면 그 콘텐츠에서 찾은 추가 링크를 **1 depth 만** 더 파고들어 자동으로 함께 지식에 쌓되, **파고들지 여부와 쌓을지 여부를 모두 LLM 이 결정**한다.
 
 흐름:
-  부모 문서 → 후보 링크(앵커 포함) 수집 + 휴리스틱 사전필터(잡음/기존적재 제외, 토큰 절약)
-  → provider.select_followups(맥락, 후보)            [파고들지 = LLM]
-  → 선택 링크 fetch → provider.judge_research(부모 맥락 대비 relevance·quality)
-     [쌓을지 = LLM, 맥락조사 게이트(research) 재사용]
-  → relevance≥RELEVANCE_MIN ∧ quality≥QUALITY_MIN 통과 시에만 일반 ingest 로 적재
-     (source='onehop:<부모>', expand_max=0 → 재귀 없이 깊이 1 고정).
-미달이면 폐기 — 잡음/다의어가 그래프를 오염시키지 않게(보수적).
+  부모 문서 → 후보 링크(앵커 포함) 수집 + 휴리스틱 사전필터(잡음/기존적재 제외, 토큰 절약) → provider.select_followups(맥락, 후보)            [파고들지 = LLM] → 선택 링크 fetch → provider.judge_research(부모 맥락 대비 relevance·quality) [쌓을지 = LLM, 맥락조사 게이트(research) 재사용] → relevance≥RELEVANCE_MIN ∧ quality≥QUALITY_MIN 통과 시에만 일반 ingest 로 적재 (source='onehop:<부모>', expand_max=0 → 재귀 없이 깊이 1 고정). 미달이면 폐기 — 잡음/다의어가 그래프를 오염시키지 않게(보수적).
 
 판정 게이트는 expand/research.py 의 임계를 재사용한다(동일 정책: 오염>빈약).
 """
@@ -33,8 +26,7 @@ def build_candidates(conn: sqlite3.Connection, doc: Document, *, limit: int = PR
                      ) -> list[dict]:
     """부모 문서 meta 에서 (url, anchor) 후보 — 휴리스틱 사전필터 + dedup + 상한.
 
-    LLM 선별 전 단계: 명백한 잡음 호스트/경로(_is_blocked)와 이미 적재된 URL 을 미리
-    쳐내 토큰을 아낀다. 앵커 텍스트는 link_anchors(신규 fetch) 에서, 없으면 빈 문자열.
+    LLM 선별 전 단계: 명백한 잡음 호스트/경로(_is_blocked)와 이미 적재된 URL 을 미리 쳐내 토큰을 아낀다. 앵커 텍스트는 link_anchors(신규 fetch) 에서, 없으면 빈 문자열.
     """
     seen: set[str] = set()
     if doc.canonical_url:

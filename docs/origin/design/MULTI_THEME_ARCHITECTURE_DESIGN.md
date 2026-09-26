@@ -1,17 +1,13 @@
 # 일련번호 기반 멀티 테마(다중 DB 격리) 아키텍처 설계 명세서 (`MULTI_THEME_ARCHITECTURE_DESIGN.md`)
 
-**문서 번호:** DESIGN-THEME-20260910-01  
-**작성 주체:** Claire Bible Architecture Team  
-**상태:** **핵심 라우팅 및 P0 운영 data-plane 구현, 잔여 표면 추적 중**
-**관련 문서:** [`docs/origin/CLAIRE_ARCHITECTURE_ROADMAP.md`](../CLAIRE_ARCHITECTURE_ROADMAP.md), [`docs/origin/implementation/ENVIRONMENT_VARIABLES.md`](../implementation/ENVIRONMENT_VARIABLES.md), [`docs/origin/implementation/COMMANDS.md`](../implementation/COMMANDS.md), [`docs/origin/implementation/EXTERNAL_ACCESS.md`](../implementation/EXTERNAL_ACCESS.md)
+**문서 번호:** DESIGN-THEME-20260910-01 **작성 주체:** Claire Bible Architecture Team **상태:** **핵심 라우팅 및 P0 운영 data-plane 구현, 잔여 표면 추적 중** **관련 문서:** [`docs/origin/CLAIRE_ARCHITECTURE_ROADMAP.md`](../CLAIRE_ARCHITECTURE_ROADMAP.md), [`docs/origin/implementation/ENVIRONMENT_VARIABLES.md`](../implementation/ENVIRONMENT_VARIABLES.md), [`docs/origin/implementation/COMMANDS.md`](../implementation/COMMANDS.md), [`docs/origin/implementation/EXTERNAL_ACCESS.md`](../implementation/EXTERNAL_ACCESS.md)
 
 ---
 
 ## 1. 설계 배경 및 변경 사유
 
 ### 1.1 문제 정의: 관심사 분리 및 지식베이스 오염 방지
-기존 Claire Bible은 모든 수집 자료(일반 스크랩, 학술 논문, 업무 문서, 개인 메모 등)를 단일 SQLite 데이터베이스(`claire.db`)와 단일 Obsidian Vault에 적재하는 **단일 정본(Single Knowledge Base)** 구조였습니다.
-그러나 지식의 범주와 목적이 상이한 자료들이 단일 공간에 혼재되면서 다음과 같은 구조적 한계가 발생했습니다:
+기존 Claire Bible은 모든 수집 자료(일반 스크랩, 학술 논문, 업무 문서, 개인 메모 등)를 단일 SQLite 데이터베이스(`claire.db`)와 단일 Obsidian Vault에 적재하는 **단일 정본(Single Knowledge Base)** 구조였습니다. 그러나 지식의 범주와 목적이 상이한 자료들이 단일 공간에 혼재되면서 다음과 같은 구조적 한계가 발생했습니다:
 1. **온톨로지 그래프 간섭 및 혼탁**: 서로 무관한 도메인(예: 기독교 성경 연구 vs 클라우드 분산 시스템 아키텍처)의 엔티티들이 동일한 이름(예: `Service`, `Grace`, `Node`)으로 인해 의도치 않게 그래프 상에서 결합되거나 잘못 연결되는 현상.
 2. **검색 및 임베딩 품질 저하**: 하이브리드 검색 시 이종 도메인의 문서들이 랭킹 상위에 노출되어 RAG 요약의 정밀도 저하.
 3. **접근 권한 및 공개 범위 제어의 불가**: 특정 주제는 외부에 공개(Public)하고, 특정 연구나 업무 지식은 비공개(Private) 또는 협력자(Collaborator)에게만 제한적으로 공유해야 하는 요구사항을 충족할 수 없음.
@@ -132,19 +128,9 @@ graph TD
 
 ### 2.3 운영 data-plane의 활성 테마 열거
 
-공통 활성 테마 열거는 싱글 모드에서 `themes.json`을 읽지 않고 기본 DB 설정 한 개만
-반환한다. 멀티 테마 모드에서는 등록 테마를 ID 순서로 다시 읽고, 글로벌 provider·보안·
-네트워크 설정을 유지한 채 `db_path`와 `vault_path`만 테마 값으로 교체한다. 존재하는
-레지스트리의 JSON 또는 구조가 손상됐으면 기본 레지스트리로 덮어쓰거나 기본 테마만
-반환하지 않고 호출자에게 오류를 전파한다.[^p0-data-plane]
+공통 활성 테마 열거는 싱글 모드에서 `themes.json`을 읽지 않고 기본 DB 설정 한 개만 반환한다. 멀티 테마 모드에서는 등록 테마를 ID 순서로 다시 읽고, 글로벌 provider·보안· 네트워크 설정을 유지한 채 `db_path`와 `vault_path`만 테마 값으로 교체한다. 존재하는 레지스트리의 JSON 또는 구조가 손상됐으면 기본 레지스트리로 덮어쓰거나 기본 테마만 반환하지 않고 호출자에게 오류를 전파한다.[^p0-data-plane]
 
-배포 migration은 이 열거 결과의 DB를 모두 `init_db`와 현재 스키마 검증에 통과시킨다.
-CLI health와 liveness도 같은 대상을 읽기 전용으로 열어 스키마 메타데이터를
-검사한다. 공개 HTTP `/health` 응답은 기존 계약인 `{"ok": boolean}`만 유지한다.
-Compose의 singleton `recover-loop`, `refresh-loop`, `expand-loop`는 매 cycle 레지스트리를
-재조회하고, 전역 batch 상한 안에서 테마별 한 건씩 처리하며 시작 테마를 회전시킨다.
-테마 하나의 오류는 해당 cycle의 다른 테마와 격리된다.[^p0-data-plane]
-자동 확장 결과 알림은 처리 결과와 링크를 `theme#{id}`별로 묶어 DB 출처를 보존한다.[^p0-data-plane]
+배포 migration은 이 열거 결과의 DB를 모두 `init_db`와 현재 스키마 검증에 통과시킨다. CLI health와 liveness도 같은 대상을 읽기 전용으로 열어 스키마 메타데이터를 검사한다. 공개 HTTP `/health` 응답은 기존 계약인 `{"ok": boolean}`만 유지한다. Compose의 singleton `recover-loop`, `refresh-loop`, `expand-loop`는 매 cycle 레지스트리를 재조회하고, 전역 batch 상한 안에서 테마별 한 건씩 처리하며 시작 테마를 회전시킨다. 테마 하나의 오류는 해당 cycle의 다른 테마와 격리된다.[^p0-data-plane] 자동 확장 결과 알림은 처리 결과와 링크를 `theme#{id}`별로 묶어 DB 출처를 보존한다.[^p0-data-plane]
 
 ---
 
@@ -172,8 +158,7 @@ Claire Bible은 4단계의 엄격한 역할 기반 접근 통제를 제공합니
 ## 4. 적재 시 기본 초점(Default Focus) 자동 적용
 
 ### 4.1 개념 및 필요성
-추가 테마를 생성하는 주된 목적은 특정 도메인(예: "보안 취약점", "거시경제", "API 레퍼런스")에 특화된 지식을 집중 축적하는 것입니다.
-매번 적재할 때마다 긴 프롬프트 지침(초점)을 타이핑하는 번거로움을 해소하기 위해 **테마별 기본 초점(`default_focus`)** 메커니즘을 도입했습니다.
+추가 테마를 생성하는 주된 목적은 특정 도메인(예: "보안 취약점", "거시경제", "API 레퍼런스")에 특화된 지식을 집중 축적하는 것입니다. 매번 적재할 때마다 긴 프롬프트 지침(초점)을 타이핑하는 번거로움을 해소하기 위해 **테마별 기본 초점(`default_focus`)** 메커니즘을 도입했습니다.
 
 ### 4.2 계층별 우선순위 및 폴백 규칙
 적재 파이프라인(API `POST /ingest`, CLI `claire ingest`, 텔레그램 봇, 웹 UI)에서 초점(`focus`) 결정 규칙:
@@ -213,8 +198,7 @@ flowchart TD
    - `IngestServicePool` 및 DB 커넥션 캐시 원자적 해제.
 
 ### 5.3 테마 고유 식별자/URI 보존형 데이터 클린 리셋 (`reset_theme`)
-사용자가 특정 테마에 적재를 진행했으나 추출 초점 착오, 저품질 데이터 오염 등으로 인해 "처음부터 깨끗하게 재시작"해야 하는 상황이 발생할 수 있습니다.
-기존의 `claire theme delete <id> --purge` 후 신규 정의 방식은 다음과 같은 치명적 문제를 유발합니다:
+사용자가 특정 테마에 적재를 진행했으나 추출 초점 착오, 저품질 데이터 오염 등으로 인해 "처음부터 깨끗하게 재시작"해야 하는 상황이 발생할 수 있습니다. 기존의 `claire theme delete <id> --purge` 후 신규 정의 방식은 다음과 같은 치명적 문제를 유발합니다:
 1. 테마 레지스트리 일련번호(`next_seq`)가 영구 증가하여 새로운 테마는 새 ID를 발급받음.
 2. 기존 테마를 북마크하거나 링크해 둔 고유 호출 URI(`?theme=1`, Telegram 해시태그 `#1`)가 영구 파괴됨.
 3. 테마 레이블, 아이콘, 기본 초점(`default_focus`), 권한 설정(`is_public`, `is_collaborator_accessible`)을 일일이 수동으로 재구성해야 함.
@@ -265,10 +249,7 @@ claire ingest "https://example.com/article" -t "금융 및 가상자산"
 claire stats -t 1
 ```
 
-`-t/--theme`은 모든 CLI의 전역 옵션이 아니다. 현재 `doctor`, `stats`, `ingest`,
-`search`에서만 선택할 수 있다. `migrate`와 세 상주 큐 루프는 개별 `--theme` 대신 활성
-테마 전체를 운영 대상으로 삼는다. 재생성·정리·소각 계열 CLI의 테마 선택 확장은 이번
-P0 운영 data-plane 구현 범위에 포함되지 않는다.[^p0-data-plane]
+`-t/--theme`은 모든 CLI의 전역 옵션이 아니다. 현재 `doctor`, `stats`, `ingest`, `search`에서만 선택할 수 있다. `migrate`와 세 상주 큐 루프는 개별 `--theme` 대신 활성 테마 전체를 운영 대상으로 삼는다. 재생성·정리·소각 계열 CLI의 테마 선택 확장은 이번 P0 운영 data-plane 구현 범위에 포함되지 않는다.[^p0-data-plane]
 
 ### 6.3 텔레그램 봇
 - **인라인 해시태그 라우팅**:
@@ -279,8 +260,7 @@ P0 운영 data-plane 구현 범위에 포함되지 않는다.[^p0-data-plane]
   - 협력자 권한의 웹 UI 세션 링크 원클릭 생성.
 
 ### 6.4 Support Bundle(RCA) 연동
-다중 테마 환경에서도 `claire support-bundle` 생성 시 모든 활성 테마의 DB 무결성, 인박스 실패 내역, 공유 링크 인덱스를 누락 없이 전수 진단 및 패키징합니다.
-특정 문서 추적(`target`) 시에도 등록된 전체 테마 데이터베이스를 스캔하여 정확한 테마 DB로부터 라이프사이클 데이터를 추출합니다.
+다중 테마 환경에서도 `claire support-bundle` 생성 시 모든 활성 테마의 DB 무결성, 인박스 실패 내역, 공유 링크 인덱스를 누락 없이 전수 진단 및 패키징합니다. 특정 문서 추적(`target`) 시에도 등록된 전체 테마 데이터베이스를 스캔하여 정확한 테마 DB로부터 라이프사이클 데이터를 추출합니다.
 
 ---
 
@@ -297,16 +277,11 @@ P0 운영 data-plane 구현 범위에 포함되지 않는다.[^p0-data-plane]
 | `tests/test_bot.py` | 텔레그램 `/theme` 전환, `#테마` 해시태그 파싱, `/webco` 협력자 링크 발급 | **통과 (23/23)** |
 | `tests/test_theme_manager.py`, `tests/test_health.py`, `tests/test_migrate.py`, `tests/test_multi_theme_workers.py` | 활성 테마 열거, 레지스트리 fail-closed, 전수 migration/health, 전역 batch·공정 순회·오류 격리·캐시 갱신·테마별 알림 | **집중 시험 통과 (37/37, 2026-09-11)** |
 
-위 표의 기존 클라이언트별 통과 수는 각 기능 도입 시점의 기록이다.
-2026-09-11 P0 변경에서는 명시된 37개 집중 시험을 WSL 격리 클론에서 실행했으며 전체
-회귀 시험을 새로 완료한 것으로 해석하지 않는다.[^p0-data-plane]
+위 표의 기존 클라이언트별 통과 수는 각 기능 도입 시점의 기록이다. 2026-09-11 P0 변경에서는 명시된 37개 집중 시험을 WSL 격리 클론에서 실행했으며 전체 회귀 시험을 새로 완료한 것으로 해석하지 않는다.[^p0-data-plane]
 
 ### 7.1 현재 범위 경계
 
-이번 P0 배치는 migration, health/liveness, resident queue worker만 운영 data-plane의
-전체 테마 대상으로 전환했다. REST의 research/image, MCP 도구, Telegram 후속 callback,
-파괴적·재생성 CLI의 테마 선택 여부는 별도 후속 감사·구현 대상이며, 이 문서의 클라이언트
-연동 설명은 그 표면 전체가 검증됐다는 뜻이 아니다.[^p0-data-plane]
+이번 P0 배치는 migration, health/liveness, resident queue worker만 운영 data-plane의 전체 테마 대상으로 전환했다. REST의 research/image, MCP 도구, Telegram 후속 callback, 파괴적·재생성 CLI의 테마 선택 여부는 별도 후속 감사·구현 대상이며, 이 문서의 클라이언트 연동 설명은 그 표면 전체가 검증됐다는 뜻이 아니다.[^p0-data-plane]
 
 ## 8. 참고문헌
 

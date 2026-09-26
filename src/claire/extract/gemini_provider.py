@@ -1,10 +1,8 @@
 """Gemini provider — structured 추출 + 임베딩 (Interactions API 기반).
 
-provider.py 의 ExtractionResult 계약(= mock 이 내는 구조)을 그대로 채운다.
-google-genai 의 interactions API (response_format) 로 구조화 출력을 강제한다.
+provider.py 의 ExtractionResult 계약(= mock 이 내는 구조)을 그대로 채운다. google-genai 의 interactions API (response_format) 로 구조화 출력을 강제한다.
 
-rate limit(429)/서버오류(5xx) 보호: 모든 호출은 _call() 을 거쳐 프로세스 전역
-throttle(min_interval) + 지수 백오프 재시도를 받는다.
+rate limit(429)/서버오류(5xx) 보호: 모든 호출은 _call() 을 거쳐 프로세스 전역 throttle(min_interval) + 지수 백오프 재시도를 받는다.
 """
 
 from __future__ import annotations
@@ -80,8 +78,7 @@ _DAILY_RETRY_THRESHOLD = 120.0  # retryDelay 가 이 이상이면 분당 rate �
 def _is_daily_quota(err) -> bool:
     """장기 소진(일일 quota/결제 크레딧)이라 지금 재시도가 무의미한지. 분당 rate 와 구분.
 
-    보수적: 마커 또는 비정상적으로 큰 retryDelay 일 때만 True. 못 잡으면 기존대로 재시도
-    (false-open 최소화 — 오판해 fail-fast 해도 recover-loop 가 긴 호라이즌에 회복).
+    보수적: 마커 또는 비정상적으로 큰 retryDelay 일 때만 True. 못 잡으면 기존대로 재시도 (false-open 최소화 — 오판해 fail-fast 해도 recover-loop 가 긴 호라이즌에 회복).
     """
     msg = str(err).lower()
     if any(m in msg for m in _DAILY_MARKERS):
@@ -319,15 +316,9 @@ class GeminiProvider:
     ) -> str:
         """원문을 가독 렌더(MD 또는 ADOC)로 '편하게 읽을 수 있는 글'로 재구성(요약 아님).
 
-        짧은 summary 와 별개 — 원문을 직접 안 읽어도 핵심·맥락·세부를 파악할 수 있게
-        여러 단락(대략 A4 1~2장)으로 푼다. 구조화 추출과 독립된 별도 호출이라 그래프에
-        영향 없음.
+        짧은 summary 와 별개 — 원문을 직접 안 읽어도 핵심·맥락·세부를 파악할 수 있게 여러 단락(대략 A4 1~2장)으로 푼다. 구조화 추출과 독립된 별도 호출이라 그래프에 영향 없음.
 
-        [1홉 병합 전용, ONEHOP_MERGE_DESIGN.md §3.3b] doc.meta.extra_sources 가 있으면
-        (여러 출처가 합쳐진 문서) 목표 분량을 "A4 2~4장"으로 올리고 각 출처를 빠짐없이
-        통합 서술하라고 지시한다. 결과가 너무 짧으면(두 출처를 담기엔 부족) 목표를 2배씩
-        최대 2회 재시도(1x→2x→4x) — 정합성 문제가 아니라 품질 보정이라 fail-open(마지막
-        결과를 그대로 채택)."""
+        [1홉 병합 전용, ONEHOP_MERGE_DESIGN.md §3.3b] doc.meta.extra_sources 가 있으면 (여러 출처가 합쳐진 문서) 목표 분량을 "A4 2~4장"으로 올리고 각 출처를 빠짐없이 통합 서술하라고 지시한다. 결과가 너무 짧으면(두 출처를 담기엔 부족) 목표를 2배씩 최대 2회 재시도(1x→2x→4x) — 정합성 문제가 아니라 품질 보정이라 fail-open(마지막 결과를 그대로 채택)."""
         body = _doc_to_prompt(doc)
         images = (doc.meta or {}).get("images") or []
         merged = bool((doc.meta or {}).get("extra_sources"))
@@ -401,9 +392,7 @@ class GeminiProvider:
     def classify_watch(self, doc: Document) -> dict:
         """[주기 크롤링] 문서가 '주기적으로 내용이 바뀌는 콘텐츠'인지 판단(별도 경량 호출).
 
-        리더보드/벤치마크 순위표/실시간 통계/가격/랭킹 = watch(주기 재크롤 가치).
-        뉴스/블로그/논문/일회성 설명 = 1회성. rate limit 등 실패는 위로 raise(호출측이
-        비필수로 조용히 무시 — watch 미판단으로 남고 적재는 정상)."""
+        리더보드/벤치마크 순위표/실시간 통계/가격/랭킹 = watch(주기 재크롤 가치). 뉴스/블로그/논문/일회성 설명 = 1회성. rate limit 등 실패는 위로 raise(호출측이 비필수로 조용히 무시 — watch 미판단으로 남고 적재는 정상)."""
         body = _doc_to_prompt(doc)[:4000]
         prompt = classify_watch_prompt(body)
         response_format = {
@@ -432,9 +421,7 @@ class GeminiProvider:
     def research(self, query: str, context: str) -> dict:
         """맥락 고정 웹 조사(google_search grounding) → 한국어 보고서 + 출처.
 
-        다의어 위험(사용자 요구): 키워드를 일반 의미가 아니라 **주어진 맥락 안에서의
-        의미로만** 해석하도록 강제하고, 맥락과 맞는 자료를 못 찾으면 지어내는 대신
-        INSUFFICIENT 를 선언하게 한다. 판정(judge_research)은 별도 호출로 이중 방어."""
+        다의어 위험(사용자 요구): 키워드를 일반 의미가 아니라 **주어진 맥락 안에서의 의미로만** 해석하도록 강제하고, 맥락과 맞는 자료를 못 찾으면 지어내는 대신 INSUFFICIENT 를 선언하게 한다. 판정(judge_research)은 별도 호출로 이중 방어."""
         prompt = research_prompt(query, context)
         interaction = self._call(lambda: self.client.interactions.create(
             model=self.model,
@@ -450,8 +437,7 @@ class GeminiProvider:
     def judge_research(self, query: str, context: str, report: str) -> dict:
         """조사 보고서가 '맥락 내 의미'와 일치하고 품질이 충분한지 별도 판정.
 
-        research 호출과 분리된 fresh 호출(자기 채점 편향 완화). 판정 실패 시 0점
-        (fail-closed) — 불확실하면 그래프에 추가하지 않는다."""
+        research 호출과 분리된 fresh 호출(자기 채점 편향 완화). 판정 실패 시 0점 (fail-closed) — 불확실하면 그래프에 추가하지 않는다."""
         prompt = judge_research_prompt(query, context, report)
         response_format = {
             "type": "text",
@@ -570,9 +556,7 @@ class GeminiProvider:
 def _images_block(images: list[dict]) -> str:
     """render_detail 프롬프트에 끼울 '후보 이미지' 블록 — LLM 큐레이션 지시.
 
-    fetcher 가 휴리스틱으로 1차 거른 본문 이미지 후보를 번호·alt·캡션과 함께 제시하고,
-    이해에 실제로 도움 되는 것만(다이어그램·차트·스크린샷·도식) 적절한 위치에 마크다운
-    이미지로 넣게 한다. 장식/로고/아이콘/중복은 빼라고 명시(최종 선별=LLM)."""
+    fetcher 가 휴리스틱으로 1차 거른 본문 이미지 후보를 번호·alt·캡션과 함께 제시하고, 이해에 실제로 도움 되는 것만(다이어그램·차트·스크린샷·도식) 적절한 위치에 마크다운 이미지로 넣게 한다. 장식/로고/아이콘/중복은 빼라고 명시(최종 선별=LLM)."""
     if not images:
         return ""
     listing = "\n".join(
