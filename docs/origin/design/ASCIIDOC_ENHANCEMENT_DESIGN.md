@@ -23,10 +23,10 @@ Claire Bible은 수집된 기술 문서, 아티클, 논문 등을 LLM을 통해 
 | **Math (수식)** | 표준 미지원 (외부 JS/플러그인 필요) | `stem:[...]`, `latexmath:[...]` 네이티브 지원 | **최우선 (⭐⭐⭐)**<br>arXiv 논문/수학 공식 손실 없는 렌더링 |
 | **Cross-references (상호 참조)** | raw HTML 앵커에 의존, 깨지기 쉬움 | `<<anchor, Label>>`, `[#anchor]` 네이티브 | **최우선 (⭐⭐⭐)**<br>긴 본문 내 목차-문단 이동 및 용어 참조 |
 | **Includes / Transclusion** | 기본 스펙 미지원 | `include::file.adoc[]`, 라인/태그 지정 | **높음 (⭐⭐⭐)**<br>다중 노드 지식 합성 및 1-홉 병합 모듈화 |
-| **Attributes / Variables** | 기본 스펙 미지원 | `:attr: value`, `{attr}` 인라인 변수 치환 | **높음 (⭐⭐)**<br>본문 상단 메타데이터 바 및 태그 뱃지 자동화 |
 | **Tables (표 고도화)** | GFM 기본 표 (병합/캡션 불가) | CSV/TSV 임베드, `a\|` AsciiDoc 셀 스타일 | **높음 (⭐⭐)**<br>LLM 토큰 효율화(CSV) 및 표 내 복합 블록 |
 | **Output formats (다중 포맷)** | HTML 중심 | HTML, PDF, EPUB 등 네이티브 툴체인 | **중장기 (⭐)**<br>개인 지식 서적(e-Book/PDF) 일괄 내보내기 |
 | **Callouts & Notes** | 도구별 파편화 (MkDocs, Docusaurus 등) | `NOTE:`, `TIP:`, `WARNING:` 등 표준 이식성 | **기구현 (✅)**<br>이미 AOT 파이프라인으로 완비됨 |
+| **Attributes / Variables** | 기본 스펙 미지원 | `:attr: value`, `{attr}` 인라인 변수 치환 | **배제 (❌)**<br>지식 노드가 태그/메타데이터를 단일 관리하므로 본문 내 이중 기재 방지 |
 | **Conditionals** | 미지원 | `ifdef::`, `ifeval::` 조건부 렌더링 | **선택적 (💡)**<br>요약 모드 / 상세 모드 뷰 스위칭 검토 |
 
 ---
@@ -42,7 +42,6 @@ flowchart TD
 
     subgraph Phase2["Phase 2: 지식베이스 구조화 & 지식 합성 고도화"]
         I["🧩 Includes / Transclusion<br>(include::doc_id[tag=...])"]
-        A["🏷️ Attributes / Variables<br>(:source:, :author:, {var})"]
         T["📊 Table CSV 포맷 & a| 셀<br>([%header,format=csv]|===)"]
     end
 
@@ -127,20 +126,7 @@ flowchart TD
   1. 가상 URI 해석기(`VirtualIncludeResolver`): `doc_<id>` 또는 `canonical_url` 식별자를 DB 조회하여 지정된 태그/라인 슬라이스를 추출 및 인라인 치환.
   2. 원본 수정 시 종합 문서가 항상 최신 맥락을 동기화하여 유지.
 
-#### D. 문서 속성 및 메타데이터 바 (`:attr:`, `{attr}`)
-- **도입 목적**: 문서 출처, 저자, 발표일, 핵심 키워드 등의 메타데이터를 본문과 구조적으로 결합.
-- **문법 표준**:
-  ```asciidoc
-  :author: Geoffrey Hinton
-  :published-at: 2026-03-15
-  :source-url: https://arxiv.org/abs/...
-  :difficulty: Advanced
-  ```
-- **파이프라인 구현 방안**:
-  - `aot.py`가 문서 헤더의 속성(`:key: value`)을 딕셔너리로 수집.
-  - 본문 최상단에 메타데이터 카드(`<div class="doc-metadata-bar">`)를 자동으로 생성하여 가독성 증대.
-
-#### E. 표(Table) CSV 포맷 및 `a|` AsciiDoc 셀 지원
+#### D. 표(Table) CSV 포맷 및 `a|` AsciiDoc 셀 지원
 - **도입 목적**:
   - `[%header,format=csv]|===`: 복잡한 정렬 파이프 대신 CSV 문자열을 사용하여 **LLM 생성 토큰 30~50% 절감**.
   - `a|`: 표 내부 셀에 인라인 코드 블록이나 리스트를 포함하는 복합 데이터 시각화 지원.
@@ -149,7 +135,7 @@ flowchart TD
 
 ### 3) Phase 3: 배포 및 멀티 포맷 익스포트
 
-#### F. 개인 지식 서적(e-Book) 및 PDF/EPUB 내보내기
+#### E. 개인 지식 서적(e-Book) 및 PDF/EPUB 내보내기
 - **도입 목적**: 축적된 지식베이스나 다중 노드 종합 연구 문서를 오프라인 열람 가능한 단일 전자책(PDF/EPUB)으로 변환.
 - **구현 방안**:
   - Asciidoctor CLI 툴체인 컨테이너 연동 (`Asciidoctor-pdf`, `Asciidoctor-epub3`).
@@ -162,7 +148,7 @@ flowchart TD
 | 계층 / 컴포넌트 | 변경 범위 및 영향 | 안전성 및 호환성 대책 |
 | :--- | :--- | :--- |
 | **LLM 프롬프트 (`prompts.py`)** | • 수식(`stem:`), 앵커(`[#id]`, `<<id>>`), CSV 표 가이드라인 추가. | • 기존 포맷(MD) 및 ADOC 기본 작성 지침과 완전한 하위 호환. |
-| **AOT 렌더러 (`aot.py`)** | • 수식, 앵커, 메타데이터 바, CSV 표 정규식 파서 추가. | • Zero-eval CSP 원칙(`script-src 'self'`) 엄격 준수.<br>• 모든 텍스트 출력 `DOMPurify.sanitize()` 유지. |
+| **AOT 렌더러 (`aot.py`)** | • 수식, 앵커, CSV 표 정규식 파서 추가. | • Zero-eval CSP 원칙(`script-src 'self'`) 엄격 준수.<br>• 모든 텍스트 출력 `DOMPurify.sanitize()` 유지. |
 | **DB & 인덱싱 (`store/db.py`)** | • `documents.raw_text` 및 FTS5는 영향 없음. | • 본문 가독 렌더링(`detail`, `detail_html`) 계층에만 격리 적용. |
 | **소비 계층 (RAG / MCP)** | • 구조화된 `stem:`, `<<xref>>` 태그가 LLM의 수식/맥락 이해도 증진. | • RAG 파이프라인에서 불필요한 마크업 파싱 에러 발생 차단. |
 
@@ -175,5 +161,5 @@ flowchart TD
    - AsciiDoc 모드(`CLAIRE_RENDER_FORMAT=adoc`)에서는 순수 AsciiDoc 표준 문법만을 엄격히 준수하며, Markdown 문법(`---`, `###`, `[text](url)` 등)의 혼용을 원천 차단.
    - 구분선(Thematic Break)은 오직 AsciiDoc 표준 `'''`만을 `<hr>`로 렌더링.
    - 향후 비표준 혼용 렌더링 허용 요청(Ad-hoc patch)은 설계 원칙에 따라 단호히 거부(Refuse)하고 프롬프트/문서 표준을 교정함([DUAL_FORMAT_ADOC_DESIGN.md Section 6](DUAL_FORMAT_ADOC_DESIGN.md#6-단일-포맷-순수성-및-비표준-혼용-거부-정책-strict-format-purity--refusal-policy) 참조).
-3. **2단계 (Phase 2, 차기 예정)**: 다중 노드 종합(Synthesis) 고도화 시점에 `include::doc_id` 트랜스클루전 및 문서 속성(`:key: val`) 메타 바 구축, CSV 테이블(`[%header,format=csv]|===`) 지원.
+3. **2단계 (Phase 2, 차기 예정)**: 다중 노드 종합(Synthesis) 고도화 시점에 `include::doc_id` 트랜스클루전 및 CSV 테이블(`[%header,format=csv]|===`) 지원.
 4. **3단계 (Phase 3, 장기 예정)**: Asciidoctor PDF/EPUB 툴체인을 결합한 지식 아카이브 전자책 내보내기 기능 구현.

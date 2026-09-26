@@ -1,0 +1,31 @@
+{
+  "input_target": "https://cb.netspheres.org/p?s=***REDACTED***",
+  "requested_target": "https://cb.netspheres.org/p?s=***REDACTED***",
+  "resolution_status": "resolved_document",
+  "candidate_count": 1,
+  "candidate_documents": [
+    {
+      "id": "doc_75a9fbc16321",
+      "url": "https://www.nabo.go.kr/board/file/down.do?fid=33319528",
+      "canonical_url": "https://nabo.go.kr/board/file/down.do?fid=33319528",
+      "title": "생성형 AI의 노동시장 영향 2026. 9. 국회예산정책처Ⅰ경제현안분석Ⅰ제110호",
+      "content_hash": "2f08e94f3cb5a1b335a731ef5518bf23f158f8f6c1733067533933d63cab5f25",
+      "fetched_at": 1790214821.813676,
+      "matched_by": "share_token",
+      "is_from_share_token": true,
+      "theme_id": 0,
+      "theme_label": "기본 지식베이스"
+    }
+  ],
+  "matching_inbox_ids": [],
+  "matched_by": "share_token",
+  "theme_id": 0,
+  "theme_label": "기본 지식베이스",
+  "document_id": "doc_75a9fbc16321",
+  "url": "https://www.nabo.go.kr/board/file/down.do?fid=33319528",
+  "canonical_url": "https://nabo.go.kr/board/file/down.do?fid=33319528",
+  "title": "생성형 AI의 노동시장 영향 2026. 9. 국회예산정책처Ⅰ경제현안분석Ⅰ제110호",
+  "content_hash": "2f08e94f3cb5a1b335a731ef5518bf23f158f8f6c1733067533933d63cab5f25",
+  "is_from_share_token": true,
+  "latest_summary": "국회예산정책처는 국내 화이트칼라 재직자 설문조사를 바탕으로 직업별 생성형 AI 노출도를 산출하고 2018년부터 2026년까지의 행정데이터 및 마이크로데이터를 통해 노동시장 영향을 실증 분석하였다. 분석 결과 생성형 AI가 핵심연령대 및 20대 청년층의 고용, 채용, 월평균 임금에 통계적으로 유의미한 부정적 영향을 미쳤다는 일관된 증거는 발견되지 않았다. 최근 관측된 IT 및 전문직 청년 고용 둔화는 생성형 AI의 직접적 대체 효과라기보다 팬데믹 이후의 산업경기 둔화, 통화 긴축, 원격근무 확산 등 경기순환적 및 외부 요인이 복합 작용한 결과로 해석된다."
+}

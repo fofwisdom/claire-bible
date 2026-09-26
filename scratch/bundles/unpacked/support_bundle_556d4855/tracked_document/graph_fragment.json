@@ -1,0 +1,1330 @@
+{
+  "document_id": "doc_75a9fbc16321",
+  "entities_count": 39,
+  "relations_count": 44,
+  "proposals_count": 0,
+  "entities": [
+    {
+      "id": "ent_de18a6e1c25d",
+      "type": "Paper",
+      "name": "생성형 AI의 노동시장 영향 (2026. 9.)",
+      "aliases": [
+        "The Labor Market Impact of Generative AI",
+        "경제현안분석 제110호"
+      ],
+      "props": {},
+      "observations": [
+        "국회예산정책처 경제분석국에서 2026년 9월 발간한 경제현안분석 제110호 연구보고서이다.",
+        "재직자 설문조사를 통해 소분류 직업별 생성형 AI 노출도를 산출하고, 2018년부터 2026년까지의 고용행정통계 및 지역별고용조사 마이크로데이터를 이벤트 스터디와 합성 이중차분법(SDID)으로 실증 분석하였다.",
+        "생성형 AI의 확산이 핵심연령대 및 20대 청년층의 고용, 채용, 월평균 임금에 일관된 부정적 영향을 미쳤다는 유의미한 통계적 증거를 발견하지 못했다고 결론지었다."
+      ],
+      "sources": [
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1790215080.2393026,
+      "updated_at": 1790215080.2393062
+    },
+    {
+      "id": "ent_474dd5960e54",
+      "type": "Org",
+      "name": "국회예산정책처",
+      "aliases": [
+        "NABO",
+        "National Assembly Budget Office"
+      ],
+      "props": {},
+      "observations": [
+        "대한민국 국회의 의정활동 및 예산·법안 심사를 객관적 분석정보로 지원하는 국회 소속 분석기관이다.",
+        "국내 화이트칼라 재직자 1,512명 대상 설문조사와 고용·임금 행정데이터 분석을 총괄 기획하여 '생성형 AI의 노동시장 영향' 보고서를 발간하였다."
+      ],
+      "sources": [
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1790215092.4266386,
+      "updated_at": 1790215092.4266477
+    },
+    {
+      "id": "ent_bce2a16f15df",
+      "type": "Person",
+      "name": "천경록",
+      "aliases": [],
+      "props": {},
+      "observations": [
+        "국회예산정책처 경제분석국 경제분석관으로 본 보고서의 제1 작성자이다.",
+        "2026년 ILO의 생성형 AI 노출도 지수를 한국 직업분류에 적용해 고노출 직업군 취업자 및 인력수요 변화를 분석한 단독 연구를 발표한 바 있다."
+      ],
+      "sources": [
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1790215094.1601605,
+      "updated_at": 1790215094.1601682
+    },
+    {
+      "id": "ent_33183178a189",
+      "type": "Org",
+      "name": "메트릭스R&C",
+      "aliases": [],
+      "props": {},
+      "observations": [
+        "국회예산정책처의 의뢰로 2026년 5월 6일부터 5월 19일까지 화이트칼라 재직자 1,512명을 대상으로 직업별 생성형 AI 업무 활용 실태 온라인 설문조사를 수행한 리서치 전문 회사이다."
+      ],
+      "sources": [
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1790215123.5241892,
+      "updated_at": 1790215123.5241947
+    },
+    {
+      "id": "ent_0c2fe3b33a03",
+      "type": "Concept",
+      "name": "생성형 AI 노출도",
+      "aliases": [
+        "NABO 생성형 AI 노출도"
+      ],
+      "props": {},
+      "observations": [
+        "생성형 AI 사용으로 인한 소분류 직업별 평균 노동생산성(주간 업무 처리량) 향상 정도(%)로 정의된 지표이다.",
+        "조사 대상 48개 직업 층위에서 최저 4.0%에서 최고 64.7%에 분포하며, 4분위 구분에 따라 고노출(평균 30.2%), 중고노출(15.4%), 중저노출(10.0%), 저노출(7.0%), 비노출로 분류되었다.",
+        "네트워크 시스템 개발자 및 정보보안·데이터 전문가(64.7%), 문화·예술 기획자(60.7%), 소프트웨어 개발자(42.9%), 자연과학 연구원(25.9%) 등이 최상위 4/4분위 고노출 직업군에 속한다."
+      ],
+      "sources": [
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1790215155.5664651,
+      "updated_at": 1790215155.56647
+    },
+    {
+      "id": "ent_613a525933dd",
+      "type": "Concept",
+      "name": "합성 이중차분법",
+      "aliases": [
+        "SDID",
+        "Synthetic Difference-in-Differences"
+      ],
+      "props": {},
+      "observations": [
+        "전통적 이중차분법(DID)과 합성통제법(SCM)의 장점을 결합하여 개체 가중치와 시점 가중치를 부여함으로써 평행추세 가정 위반 문제를 해결하는 계량경제학적 인과추론 방법론이다.",
+        "Arkhangelsky et al.(2021)에 의해 제안되었으며, 본 보고서에서 산업경기의 영향을 통제한 후 생성형 AI 고노출 직업의 고용, 채용, 임금 효과를 추정하는 핵심 방법론으로 사용되었다."
+      ],
+      "sources": [
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1790215193.3094337,
+      "updated_at": 1790215193.3094397
+    },
+    {
+      "id": "ent_56c6e642fba2",
+      "type": "Concept",
+      "name": "고용행정통계",
+      "aliases": [
+        "고용보험 피보험자 및 취득자 통계"
+      ],
+      "props": {},
+      "observations": [
+        "고용노동부 한국고용정보원에서 제공하는 고용보험 가입 임금근로자 기반 월별 행정통계 데이터이다.",
+        "상용 및 임시 근로자의 80% 이상을 포괄하는 전수자료에 가까워 표본오차 없이 소분류 직업별·연령별 고용(피보험자 수) 및 신규 채용(취득자 수)의 동태적 추이를 파악하는 데 활용되었다."
+      ],
+      "sources": [
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1790215210.6569085,
+      "updated_at": 1790215210.6569173
+    },
+    {
+      "id": "ent_2281057e5930",
+      "type": "Concept",
+      "name": "지역별고용조사",
+      "aliases": [],
+      "props": {},
+      "observations": [
+        "국가데이터처에서 반기별로 실시하는 가계 설문조사 마이크로데이터이다.",
+        "소분류 직업 수준까지 월평균 임금, 연령, 교육수준 등의 정보를 제공하여 생성형 AI 노출도와 연계한 임금 효과 분석에 활용되었다."
+      ],
+      "sources": [
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1790215230.9236069,
+      "updated_at": 1790215230.9236176
+    },
+    {
+      "id": "ent_d19f12608a51",
+      "type": "Paper",
+      "name": "The 2026 AI Index Report",
+      "aliases": [],
+      "props": {},
+      "observations": [
+        "Stanford University Human-Centered Artificial Intelligence(HAI)에서 2026년 4월 발간한 글로벌 인공지능 지표 보고서이다.",
+        "인간 대비 AI 성능 지표(GPQA Diamond, AIME, SWE-bench Verified 등)의 급격한 향상 추이를 제시하였다."
+      ],
+      "sources": [
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1790215263.8657534,
+      "updated_at": 1790215263.8657563
+    },
+    {
+      "id": "ent_88ed32954911",
+      "type": "Org",
+      "name": "Stanford University Human-Centered Artificial Intelligence",
+      "aliases": [
+        "Stanford HAI"
+      ],
+      "props": {},
+      "observations": [
+        "스탠퍼드 대학교 산하의 인간 중심 인공지능 연구소로, 매년 AI Index Report를 발간하고 있다."
+      ],
+      "sources": [
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1790215299.7629728,
+      "updated_at": 1790215299.7629752
+    },
+    {
+      "id": "ent_5134dc618092",
+      "type": "Concept",
+      "name": "SWE-bench Verified",
+      "aliases": [],
+      "props": {},
+      "observations": [
+        "소프트웨어 엔지니어링 문제 해결 능력을 평가하는 벤치마크 지표이다.",
+        "인간 능력 대비 인공지능 성능이 2024년 60% 수준에서 2025년 100%에 근접하게 상승하였다."
+      ],
+      "sources": [
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1790215332.8351836,
+      "updated_at": 1790215332.835187
+    },
+    {
+      "id": "ent_2e2b83cc1613",
+      "type": "Concept",
+      "name": "GPQA Diamond",
+      "aliases": [],
+      "props": {},
+      "observations": [
+        "박사급 과학 문제 풀이 능력을 측정하는 고난도 벤치마크 지표이다.",
+        "2024년에 인공지능 모델이 인간 전문가의 성능을 추월한 것으로 보고되었다."
+      ],
+      "sources": [
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1790215358.0259855,
+      "updated_at": 1790215358.0259926
+    },
+    {
+      "id": "ent_21db09ee785f",
+      "type": "Concept",
+      "name": "AIME",
+      "aliases": [
+        "American Invitational Mathematics Examination"
+      ],
+      "props": {},
+      "observations": [
+        "고난도 수학적 추론 능력을 측정하는 미국 초청 수학 경시대회 기반 벤치마크 지표이다.",
+        "2024년에 인공지능 모델이 인간 수준을 추월하였다."
+      ],
+      "sources": [
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1790215382.4177308,
+      "updated_at": 1790215382.4177396
+    },
+    {
+      "id": "ent_b84fe31da5f2",
+      "type": "Tool",
+      "name": "ChatGPT",
+      "aliases": [
+        "OpenAI ChatGPT"
+      ],
+      "props": {},
+      "observations": [
+        "MCP를 지원하는 AI 어시스턴트이다.",
+        "OpenAI의 대화형 AI 서비스로 설문조사 응답자들이 금융 자문 목적으로 가장 널리 사용하는 LLM 도구로 조사되었다.",
+        "OpenAI가 개발한 대화형 생성형 AI 도구이다.",
+        "챗 로그 기반 업무 분석 연구(Chatterji et al., 2025)에서 직업 정보 부재로 인해 15% 이상의 챗이 '문서 편집'이라는 포괄적 활동으로 과대 분류되는 왜곡 현상이 관찰되었다.",
+        "OpenAI가 개발한 대규모 언어 모델 기반 생성형 AI 챗봇이다.",
+        "RPS 설문에서 생성형 AI의 대표 사례로 제시되었으며, 선행 챗로그 분석 연구(Chatterji et al., 2025)의 데이터 소스로 활용되었다.",
+        "OpenAI가 개발한 생성형 AI 대화형 서비스 및 모델이다.",
+        "Chatterji et al.(2025) 등의 챗로그 기반 업무 분류 분석 대상이자 RPS 설문의 대표 생성형 AI 예시로 언급되었다.",
+        "OpenAI가 개발한 대화형 생성형 AI 서비스로 설문 예시 및 챗로그 비교 분석 대상이다.",
+        "질문 응답 기능은 우수하지만 학습자의 맥락을 고려해 호기심과 영감을 불어넣는 상호작용에는 한계가 있는 AI 챗봇의 예시로 언급되었다.",
+        "OpenAI가 Transformer 기반 LLM으로 개발한 생성형 AI 대화형 서비스로, 2022년 11월 출시되어 생성형 AI 대중화와 업무 현장 확산의 기점이 되었다.",
+        "본 보고서에서 노동시장 충격 식별을 위한 주요 처치 기준 시점(2022년 11월)으로 설정되었다."
+      ],
+      "sources": [
+        "doc_1e1d673e2a3d",
+        "doc_1baa0366adfb",
+        "doc_caec90be9e8e",
+        "doc_ac6f8f8a7ebb",
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1787163047.2172503,
+      "updated_at": 1790215382.423961
+    },
+    {
+      "id": "ent_8096fd544454",
+      "type": "Tool",
+      "name": "Claude",
+      "aliases": [
+        "Claude Desktop",
+        "클로드",
+        "Claude.ai",
+        "Claude AI",
+        "Anthropic Claude"
+      ],
+      "props": {},
+      "observations": [
+        "MCP를 지원하여 외부 데이터 및 도구와 연동할 수 있는 AI 애플리케이션 및 어시스턴트이다.",
+        "MCP 클라이언트를 내장하여 외부 MCP 서버와 연동할 수 있는 대표적인 Host LLM 애플리케이션이다.",
+        "Anthropic이 개발한 AI 어시스턴트 플랫폼 및 웹/데스크톱/모바일 애플리케이션이다.",
+        "Team 플랜 및 Enterprise 플랜을 통해 조직 단위의 멤버 관리, 역할 기반 권한 제어, 시트 할당 기능을 지원한다.",
+        "JIT 프로비저닝은 Team 및 Enterprise 플랜에서 지원되며, SCIM 디렉터리 동기화는 Enterprise 플랜에서 지원된다.",
+        "플랜별로 Owner, Admin, User, Custom 등의 역할을 설정할 수 있으며 Premium, Standard, Chat, Chat + Claude Code, Enterprise 시트 티어를 제공한다.",
+        "Anthropic에서 개발한 AI 어시스턴트 플랫폼이다.",
+        "Team 플랜 및 Enterprise 플랜 조직 환경을 지원하며 조직 관리 및 SSO/프로비저닝 기능을 제공한다.",
+        "Team 플랜에서는 Owner, Admin, User 역할과 Premium, Standard 좌석 유형을 지원한다.",
+        "Seat-based Enterprise 플랜에서는 Owner, Admin, User, Custom 역할과 Premium, Standard 좌석을 제공한다.",
+        "Usage-based Enterprise 플랜에서는 Chat, Chat + Claude Code 좌석 또는 단일 Enterprise 좌석 유형을 지원한다.",
+        "Anthropic이 개발한 대규모 언어 모델 제품군으로, Handa et al. (2025)의 챗 로그 기반 직무 분석 연구 대상으로 언급되었다.",
+        "Anthropic이 개발한 생성형 AI 챗봇 모델이다.",
+        "Handa et al. (2025) 연구에서 챗로그 기반 과업 분류 및 활용도 분석 대상이 되었다.",
+        "Anthropic이 개발한 생성형 AI 모델이다.",
+        "Handa et al.(2025) 등의 연구에서 챗로그를 통한 업무 분류 분석에 활용되었다.",
+        "Anthropic이 개발한 대화형 생성형 AI 서비스로 챗로그 기반 과업 분류 연구에 활용되었다.",
+        "논문에서 비교 평가를 위해 언급된 대형 언어 모델이다.",
+        "본 연구의 초기 테스트에서 ChatGPT-4o 대비 성능이 다소 떨어지는 것으로 관찰되었다.",
+        "학습자가 스스로 사고하는 노력을 생략하고 전적으로 사고를 외주화해서는 안 되는 대상 AI 모델의 예시로 언급되었다.",
+        "Anthropic이 개발한 대규모 언어모델 기반 인공지능 도구이다.",
+        "Handa et al.(2025) 연구에서 사용자 대화 로그 기반 직업별 과업 AI 실사용 데이터 분석에 활용되었다."
+      ],
+      "sources": [
+        "doc_1e1d673e2a3d",
+        "doc_f65a7b8d1e8f",
+        "doc_d66a8cdc364e",
+        "doc_caec90be9e8e",
+        "doc_ac6f8f8a7ebb",
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1787163029.5024211,
+      "updated_at": 1790215382.428428
+    },
+    {
+      "id": "ent_d43a3f67c18c",
+      "type": "Model",
+      "name": "Gemini",
+      "aliases": [
+        "Google Gemini",
+        "제미나이",
+        "구글 제미나이"
+      ],
+      "props": {},
+      "observations": [
+        "Google의 대규모 언어 모델(LLM)이다.",
+        "OKF 번들을 작성하고 관리하는 공식 레퍼런스 툴의 구동 엔진으로 사용된다.",
+        "Google이 개발한 생성형 AI 도구이자 멀티모달 모델이다.",
+        "RPS 설문에서 생성형 AI 기술의 대표 제품 예시로 명시되었다.",
+        "VMware Intelligent Assist에서 기본 지원하는 Google의 대형 언어 모델 제품군이다",
+        "Google이 개발한 대규모 언어 모델(LLM)이다.",
+        "Security Services Platform의 AI Assist 기능에서 침해 사고 메커니즘 분석, 인시던트 시각화 및 대응 룰 자동 생성을 위한 외부 추론 엔진으로 활용된다.",
+        "Google의 대규모 멀티모달 언어 모델이다.",
+        "NaverMadCat의 컨설팅 부서가 문제 해결이 교착 상태에 빠졌을 때 MCP 프로토콜을 통해 외부 자문을 구하는 용도로 활용된다.",
+        "Google이 개발한 멀티모달 생성형 AI 모델이다.",
+        "재직자 대상 설문조사에서 ChatGPT, Claude와 함께 주요 업무용 생성형 AI 도구로 조사되었다."
+      ],
+      "sources": [
+        "doc_8305019d4417",
+        "doc_caec90be9e8e",
+        "doc_f4d7e24a0dae",
+        "doc_87b36c59ae7b",
+        "doc_f54a2c420d8f",
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1787656751.5722027,
+      "updated_at": 1790215382.4330518
+    },
+    {
+      "id": "ent_9f7069f0e93d",
+      "type": "Model",
+      "name": "GPT-4",
+      "aliases": [],
+      "props": {},
+      "observations": [
+        "OpenAI의 대규모 멀티모달 언어모델이다.",
+        "Eloundou et al.(2024) 연구에서 직업별 과업 수행시간 50% 단축 가능성을 평가하는 자동화 평가자로 활용되었다."
+      ],
+      "sources": [
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1790215416.763206,
+      "updated_at": 1790215416.763208
+    },
+    {
+      "id": "ent_3fa92739a3fb",
+      "type": "Model",
+      "name": "GPT-3",
+      "aliases": [],
+      "props": {},
+      "observations": [
+        "OpenAI가 2020년 출시한 거대언어모델로, 자연스러운 텍스트 생성을 입증하며 생성형 AI의 기반을 마련하였다."
+      ],
+      "sources": [
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1790215461.9375236,
+      "updated_at": 1790215461.9375272
+    },
+    {
+      "id": "ent_e2994070b443",
+      "type": "Model",
+      "name": "DALL-E 2",
+      "aliases": [],
+      "props": {},
+      "observations": [
+        "OpenAI가 개발한 텍스트-이미지 생성 인공지능 모델이다.",
+        "Hui et al.(2024) 연구에서 온라인 프리랜서 시장에 미친 생성 AI 충격으로 분석되었다."
+      ],
+      "sources": [
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1790215500.0200067,
+      "updated_at": 1790215500.0200088
+    },
+    {
+      "id": "ent_50694b193ab9",
+      "type": "Tool",
+      "name": "Midjourney",
+      "aliases": [],
+      "props": {},
+      "observations": [
+        "텍스트 프롬프트를 통해 고품질 이미지를 생성하는 AI 도구이다.",
+        "Hui et al.(2024) 연구에서 온라인 프리랜서 고용 충격의 분석 대상 기술로 포함되었다."
+      ],
+      "sources": [
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1790215501.8037739,
+      "updated_at": 1790215501.803783
+    },
+    {
+      "id": "ent_389db51701c6",
+      "type": "Paper",
+      "name": "Hui et al. (2024)",
+      "aliases": [],
+      "props": {},
+      "observations": [
+        "온라인 프리랜서 약 8만 명의 데이터를 이중차분법으로 분석하여 ChatGPT 및 이미지 생성 AI 도입 후 일감(약 2%)과 소득(5.2%)이 감소했음을 실증한 연구이다.",
+        "고품질·고숙련 프리랜서일수록 타격이 더 컸음을 제시하였다."
+      ],
+      "sources": [
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1790215538.1972497,
+      "updated_at": 1790215538.1972523
+    },
+    {
+      "id": "ent_8da6ae9d9fc7",
+      "type": "Paper",
+      "name": "Brynjolfsson et al. (2025b)",
+      "aliases": [],
+      "props": {},
+      "observations": [
+        "미국 대규모 급여행정자료를 분석하여 고노출 직업의 22~25세 청년 고용이 동일 기업 내 타 직군 대비 약 16% 감소한 반면 경력자 고용과 임금에는 뚜렷한 변화가 없었음을 밝힌 연구이다."
+      ],
+      "sources": [
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1790215569.0121493,
+      "updated_at": 1790215569.0121515
+    },
+    {
+      "id": "ent_aac318cbf22f",
+      "type": "Paper",
+      "name": "Hosseini & Lichtinger (2025)",
+      "aliases": [],
+      "props": {},
+      "observations": [
+        "미국 이력서 및 구인공고 자료를 분석하여 생성형 AI 도입 기업에서 주니어 고용이 시니어 대비 약 9% 감소하였으며, 이는 기존 인력 해고보다 신규 채용 축소에서 비롯되었음을 실증한 연구이다."
+      ],
+      "sources": [
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1790215607.4293542,
+      "updated_at": 1790215607.429356
+    },
+    {
+      "id": "ent_3f61baeb46a8",
+      "type": "Paper",
+      "name": "한진수·오삼일 (2025)",
+      "aliases": [],
+      "props": {},
+      "observations": [
+        "국민연금 가입자 자료를 통해 국내 청년층(15~29세) 일자리가 AI 고노출 업종에서 20.8만 개 감소한 반면 50대 일자리는 14.6만 개 증가하는 연공편향적 기술변화가 나타났음을 보고한 연구이다."
+      ],
+      "sources": [
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1790215644.09607,
+      "updated_at": 1790215644.0960722
+    },
+    {
+      "id": "ent_997861ec11ef",
+      "type": "Paper",
+      "name": "오삼일·오영식 (2026)",
+      "aliases": [],
+      "props": {},
+      "observations": [
+        "국민연금 가입자 자료와 경제활동인구조사를 분석하여 AI를 자동화 방식으로 활용하는 업종에서만 청년 고용 감소가 뚜렷했고 증강 방식 업종에서는 청년 고용 감소가 나타나지 않았음을 규명한 연구이다."
+      ],
+      "sources": [
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1790215688.956256,
+      "updated_at": 1790215688.9562576
+    },
+    {
+      "id": "ent_df7d5a81f96c",
+      "type": "Paper",
+      "name": "장지연 (2026)",
+      "aliases": [],
+      "props": {},
+      "observations": [
+        "한국숙련사전과 고용보험 자료를 연계하여 AI 고노출 직종 및 도입 기업에서 청년 취업자의 증가세가 둔화·정체된 반면 중년·고령층 고용은 변화가 없었음을 밝힌 연구이다."
+      ],
+      "sources": [
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1790215726.9144373,
+      "updated_at": 1790215726.914444
+    },
+    {
+      "id": "ent_29bd474967bd",
+      "type": "Paper",
+      "name": "Eckhardt & Goldschlag (2026)",
+      "aliases": [],
+      "props": {},
+      "observations": [
+        "Economic Innovation Group 연구로, 5개 AI 노출도 지표를 미국 노동시장 지표에 교차 적용한 결과 고노출 근로자의 실업률 상승폭이 저노출보다 작았고 기업의 95%가 AI로 인한 순고용 영향이 없다고 응답하여 고용 위축 증거가 없음을 보고하였다."
+      ],
+      "sources": [
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1790215760.534857,
+      "updated_at": 1790215760.5348587
+    },
+    {
+      "id": "ent_201e232d5370",
+      "type": "Paper",
+      "name": "노세리 외 (2025)",
+      "aliases": [],
+      "props": {},
+      "observations": [
+        "2019~2024년 고용보험 전수자료를 분석하여 직업 수준에서 고노출 직업의 고용 감소가 없었고 개인 수준에서도 근무기간과 임금의 감소가 미미함을 보인 연구이다."
+      ],
+      "sources": [
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1790215800.6838326,
+      "updated_at": 1790215800.6838343
+    },
+    {
+      "id": "ent_0352a278a55d",
+      "type": "Paper",
+      "name": "천경록 (2026)",
+      "aliases": [],
+      "props": {},
+      "observations": [
+        "ILO 생성형 AI 노출도 지수를 한국 직업분류체계에 적용하여 ChatGPT 출시 이후 고노출 직업 취업자 수가 전 연령대에서 증가하였으며 구인 및 채용 규모에서도 유의한 감소가 없었음을 밝힌 연구이다."
+      ],
+      "sources": [
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1790215833.3213189,
+      "updated_at": 1790215833.3213212
+    },
+    {
+      "id": "ent_b58823aa78d4",
+      "type": "Paper",
+      "name": "Lambert & Schindler (2026)",
+      "aliases": [],
+      "props": {},
+      "observations": [
+        "AI 고노출 직업이 원격근무 가능 직업과 중첩되어 나타난 착시 현상임을 규명하고, 원격근무를 통제하면 AI 노출에 따른 청년 채용 감소 효과가 통계적 유의성을 상실함을 밝힌 연구이다."
+      ],
+      "sources": [
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1790215864.8892086,
+      "updated_at": 1790215864.8892107
+    },
+    {
+      "id": "ent_4465b2d9d501",
+      "type": "Paper",
+      "name": "Audoly et al. (2026)",
+      "aliases": [],
+      "props": {},
+      "observations": [
+        "뉴욕 연방준비은행 연구로, Lightcast 구인공고 분석 결과 고노출 직종 구인공고 하락 시점이 ChatGPT 출시 이전부터 이미 진행되었으며 주니어와 시니어 공고가 함께 감소하여 AI가 채용 둔화의 주된 동인이 아니라고 해석하였다."
+      ],
+      "sources": [
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1790215904.4673698,
+      "updated_at": 1790215904.4673722
+    },
+    {
+      "id": "ent_e3d132fda930",
+      "type": "Paper",
+      "name": "Iscenko & Millet (2026)",
+      "aliases": [],
+      "props": {},
+      "observations": [
+        "AI 고노출 직종의 구인공고 하락 시점(2022년 3~4월)이 연방준비제도의 금리 인상 개시 시점과 일치함을 보이며, 청년 채용 위축은 AI 대체가 아닌 통화 긴축과 경기순환에 따른 직업 사다리 붕괴 착시일 가능성을 제시한 연구이다."
+      ],
+      "sources": [
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1790215935.9558895,
+      "updated_at": 1790215935.9558914
+    },
+    {
+      "id": "ent_efdde7608a0d",
+      "type": "Paper",
+      "name": "Felten et al. (2021)",
+      "aliases": [
+        "Felten (2021)"
+      ],
+      "props": {},
+      "observations": [
+        "AI 시스템 능력과 직업별 능력 요구도를 연결하여 직업별 AI 노출도를 측정한 선행 연구이다.",
+        "본 연구의 실제 직업별 생성형 AI 도입률과 상관계수 ρ=0.727, R²=0.529를 기록하여 비교된 노출 지표 중 가장 높은 예측력을 기록하였다.",
+        "AI 기술 역량과 직업별 능력 요구사항을 매핑하여 AI 직업 노출도(AIOE)를 측정한 선행 연구이다.",
+        "실제 직업별 생성형 AI 도입률과 상관계수 ρ=0.727, R^2=0.529를 기록하여 비교 대상 노출도 지수 중 가장 높은 상관성을 보였다.",
+        "AI 시스템의 실증 역량을 직업별 필요 능력에 연결하여 직종별 AI 노출도를 산출한 연구이다.",
+        "RPS 직종별 생성형 AI 도입률에 대해 R2=0.529의 설명력을 나타냈다.",
+        "10개 AI 응용 분야 성능지표와 O*NET 52개 직업능력 간 관련성을 바탕으로 직업별 AI 노출지수를 산출한 선행연구이다."
+      ],
+      "sources": [
+        "doc_caec90be9e8e",
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1788261076.470129,
+      "updated_at": 1790215935.9594464
+    },
+    {
+      "id": "ent_897c49378c5f",
+      "type": "Paper",
+      "name": "Eloundou et al. (2024)",
+      "aliases": [],
+      "props": {},
+      "observations": [
+        "GPT-4 기반 역량을 전제로 직무 및 업무 수준의 LLM 노출도 지표(α, β, ζ)를 제시한 선행 연구이다.",
+        "본 연구에서 ζ 노출 지표 기준 직업 수준 R²=0.496, 업무 수준 R²=0.439로 실측 도입률과 중간 정도의 양의 상관관계를 보였으나, 규제 및 보안 장벽에 따른 사무직 과대 예측 편향이 드러났다.",
+        "GPT-4 역량을 기준으로 직무 및 과업별 AI 노출도를 α, β, ζ 수준으로 추정한 선행 연구이다.",
+        "해당 연구의 ζ 노출도 지수는 실제 직업 도입률 변량의 49.6%(R^2=0.496), 과업 도입률 변량의 43.9%(R^2=0.439)를 설명하는 데 그쳤다.",
+        "접수원, 의료 비서, 은행 텔러 등 행정·사무직 과업을 과대 예측하고, 건설장비 운전원, 수리원, 특수교사, 경영자 등 자율성이 높은 직무를 과소 예측하는 한계를 보였다.",
+        "GPT-4 역량을 기준으로 과업 생산성을 최소 2배 향상시킬 수 있는지를 평가하여 과업 및 직종별 AI 노출도를 측정한 연구이다.",
+        "zeta 노출도 지표 기준 직종 수준 도입 분산의 49.6%(R2=0.496), 과업 수준 도입 분산의 43.9%(R2=0.439)를 설명하였다.",
+        "전문가와 GPT-4 평가를 결합하여 LLM을 통해 업무 수행 시간을 50% 이상 단축할 수 있는 과업 비중을 기준으로 직업별 LLM 노출도를 산출한 연구이다."
+      ],
+      "sources": [
+        "doc_caec90be9e8e",
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1788261054.9609013,
+      "updated_at": 1790215935.962084
+    },
+    {
+      "id": "ent_d6a25bd4a2c7",
+      "type": "Paper",
+      "name": "Handa et al. (2025)",
+      "aliases": [],
+      "props": {},
+      "observations": [
+        "Anthropic Claude의 대화 로그를 분석하여 AI 과업 사용을 분류한 연구이다.",
+        "Anthropic의 Claude 이용자 대화 데이터를 O*NET 과업과 연결하여 실제 사용 패턴을 분석하고, 이용의 57%가 보완적 활용이며 43%가 자동화적 활용임을 밝힌 연구이다."
+      ],
+      "sources": [
+        "doc_caec90be9e8e",
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1788270401.5749297,
+      "updated_at": 1790215935.964754
+    },
+    {
+      "id": "ent_6d3c765a5ad7",
+      "type": "Paper",
+      "name": "Brynjolfsson et al. (2025a)",
+      "aliases": [],
+      "props": {},
+      "observations": [
+        "Fortune 500 기업 고객 지원 상담원을 대상으로 생성형 AI 도구 단계적 도입의 준실험을 분석하여, 문제해결 건수가 평균 15% 증가했고 신입 및 저숙련일수록 생산성 개선 효과가 두드러졌음을 입증한 연구이다."
+      ],
+      "sources": [
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1790215969.8636343,
+      "updated_at": 1790215969.8636377
+    },
+    {
+      "id": "ent_5130bab96fe9",
+      "type": "Paper",
+      "name": "Hartley et al. (2026)",
+      "aliases": [],
+      "props": {},
+      "observations": [
+        "미국과 캐나다 근로자 대상 반복 설문조사를 통해 직장 내 생성형 AI 사용률과 과업당 약 1시간의 시간 절감 효과를 분석한 연구이다."
+      ],
+      "sources": [
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1790216018.0964766,
+      "updated_at": 1790216018.0964787
+    },
+    {
+      "id": "ent_ca6326eb1800",
+      "type": "Paper",
+      "name": "서동현 외 (2025)",
+      "aliases": [
+        "서동현·오삼일·김민정 (2025)"
+      ],
+      "props": {},
+      "observations": [
+        "국내 가계조사를 통해 업무 목적 생성형 AI 활용률이 51.8%에 달하나 업무시간 감소 효과는 3.8%, 잠재적 생산성 향상 효과는 1.0% 수준이며 저숙련자의 역량을 평준화하는 효과가 있음을 보고한 연구이다."
+      ],
+      "sources": [
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1790216052.1830027,
+      "updated_at": 1790216052.183005
+    },
+    {
+      "id": "ent_f3e09580a2a9",
+      "type": "Paper",
+      "name": "Arkhangelsky et al. (2021)",
+      "aliases": [],
+      "props": {},
+      "observations": [
+        "합성 이중차분법(Synthetic Difference-in-Differences)을 제안하여 패널자료에서 평행추세 가정이 위반되었을 때 단위 가중치와 시점 가중치를 결합해 정책효과를 추정하는 방법론을 확립한 논문이다."
+      ],
+      "sources": [
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1790216085.6498857,
+      "updated_at": 1790216085.6498878
+    }
+  ],
+  "relations": [
+    {
+      "id": "rel_8aed7792ec08",
+      "type": "authored_by",
+      "source_id": "ent_de18a6e1c25d",
+      "target_id": "ent_474dd5960e54",
+      "confidence": 1.0,
+      "props": {},
+      "sources": [
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1790216085.6526666
+    },
+    {
+      "id": "rel_66237f844529",
+      "type": "authored_by",
+      "source_id": "ent_de18a6e1c25d",
+      "target_id": "ent_bce2a16f15df",
+      "confidence": 1.0,
+      "props": {},
+      "sources": [
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1790216085.6541288
+    },
+    {
+      "id": "rel_b388481dc8dc",
+      "type": "uses",
+      "source_id": "ent_de18a6e1c25d",
+      "target_id": "ent_0c2fe3b33a03",
+      "confidence": 1.0,
+      "props": {},
+      "sources": [
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1790216085.6552203
+    },
+    {
+      "id": "rel_3c8114773f9a",
+      "type": "uses",
+      "source_id": "ent_de18a6e1c25d",
+      "target_id": "ent_613a525933dd",
+      "confidence": 1.0,
+      "props": {},
+      "sources": [
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1790216085.6561446
+    },
+    {
+      "id": "rel_2635a0be5696",
+      "type": "uses",
+      "source_id": "ent_de18a6e1c25d",
+      "target_id": "ent_56c6e642fba2",
+      "confidence": 1.0,
+      "props": {},
+      "sources": [
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1790216085.6571255
+    },
+    {
+      "id": "rel_8bfdbea355b8",
+      "type": "uses",
+      "source_id": "ent_de18a6e1c25d",
+      "target_id": "ent_2281057e5930",
+      "confidence": 1.0,
+      "props": {},
+      "sources": [
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1790216085.6580687
+    },
+    {
+      "id": "rel_7e54a7adf501",
+      "type": "cites",
+      "source_id": "ent_de18a6e1c25d",
+      "target_id": "ent_d19f12608a51",
+      "confidence": 1.0,
+      "props": {},
+      "sources": [
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1790216085.6590526
+    },
+    {
+      "id": "rel_28d86935dbdf",
+      "type": "cites",
+      "source_id": "ent_de18a6e1c25d",
+      "target_id": "ent_389db51701c6",
+      "confidence": 1.0,
+      "props": {},
+      "sources": [
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1790216085.6599727
+    },
+    {
+      "id": "rel_9389c2c172a2",
+      "type": "cites",
+      "source_id": "ent_de18a6e1c25d",
+      "target_id": "ent_8da6ae9d9fc7",
+      "confidence": 1.0,
+      "props": {},
+      "sources": [
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1790216085.66105
+    },
+    {
+      "id": "rel_0ebe0bf523a3",
+      "type": "cites",
+      "source_id": "ent_de18a6e1c25d",
+      "target_id": "ent_aac318cbf22f",
+      "confidence": 1.0,
+      "props": {},
+      "sources": [
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1790216085.661989
+    },
+    {
+      "id": "rel_6fe8c38c3bac",
+      "type": "cites",
+      "source_id": "ent_de18a6e1c25d",
+      "target_id": "ent_3f61baeb46a8",
+      "confidence": 1.0,
+      "props": {},
+      "sources": [
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1790216085.6629937
+    },
+    {
+      "id": "rel_660c16e85980",
+      "type": "cites",
+      "source_id": "ent_de18a6e1c25d",
+      "target_id": "ent_997861ec11ef",
+      "confidence": 1.0,
+      "props": {},
+      "sources": [
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1790216085.6639316
+    },
+    {
+      "id": "rel_34c707029387",
+      "type": "cites",
+      "source_id": "ent_de18a6e1c25d",
+      "target_id": "ent_df7d5a81f96c",
+      "confidence": 1.0,
+      "props": {},
+      "sources": [
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1790216085.665244
+    },
+    {
+      "id": "rel_c46bc38c0ff5",
+      "type": "cites",
+      "source_id": "ent_de18a6e1c25d",
+      "target_id": "ent_29bd474967bd",
+      "confidence": 1.0,
+      "props": {},
+      "sources": [
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1790216085.6661987
+    },
+    {
+      "id": "rel_c6a110041796",
+      "type": "cites",
+      "source_id": "ent_de18a6e1c25d",
+      "target_id": "ent_201e232d5370",
+      "confidence": 1.0,
+      "props": {},
+      "sources": [
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1790216085.6671069
+    },
+    {
+      "id": "rel_8253da4d0d8e",
+      "type": "cites",
+      "source_id": "ent_de18a6e1c25d",
+      "target_id": "ent_0352a278a55d",
+      "confidence": 1.0,
+      "props": {},
+      "sources": [
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1790216085.6680944
+    },
+    {
+      "id": "rel_5e549cf7acca",
+      "type": "cites",
+      "source_id": "ent_de18a6e1c25d",
+      "target_id": "ent_b58823aa78d4",
+      "confidence": 1.0,
+      "props": {},
+      "sources": [
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1790216085.669148
+    },
+    {
+      "id": "rel_66f1225d8e11",
+      "type": "cites",
+      "source_id": "ent_de18a6e1c25d",
+      "target_id": "ent_4465b2d9d501",
+      "confidence": 1.0,
+      "props": {},
+      "sources": [
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1790216085.6706111
+    },
+    {
+      "id": "rel_5ca55a0fad5f",
+      "type": "cites",
+      "source_id": "ent_de18a6e1c25d",
+      "target_id": "ent_e3d132fda930",
+      "confidence": 1.0,
+      "props": {},
+      "sources": [
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1790216085.6718073
+    },
+    {
+      "id": "rel_1625edc0b6eb",
+      "type": "cites",
+      "source_id": "ent_de18a6e1c25d",
+      "target_id": "ent_efdde7608a0d",
+      "confidence": 1.0,
+      "props": {},
+      "sources": [
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1790216085.672971
+    },
+    {
+      "id": "rel_403296e449e4",
+      "type": "cites",
+      "source_id": "ent_de18a6e1c25d",
+      "target_id": "ent_897c49378c5f",
+      "confidence": 1.0,
+      "props": {},
+      "sources": [
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1790216085.6739779
+    },
+    {
+      "id": "rel_51ae12a2a65b",
+      "type": "cites",
+      "source_id": "ent_de18a6e1c25d",
+      "target_id": "ent_d6a25bd4a2c7",
+      "confidence": 1.0,
+      "props": {},
+      "sources": [
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1790216085.6748896
+    },
+    {
+      "id": "rel_6ea4f8997374",
+      "type": "cites",
+      "source_id": "ent_de18a6e1c25d",
+      "target_id": "ent_6d3c765a5ad7",
+      "confidence": 1.0,
+      "props": {},
+      "sources": [
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1790216085.6757874
+    },
+    {
+      "id": "rel_d5550991f598",
+      "type": "cites",
+      "source_id": "ent_de18a6e1c25d",
+      "target_id": "ent_5130bab96fe9",
+      "confidence": 1.0,
+      "props": {},
+      "sources": [
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1790216085.676796
+    },
+    {
+      "id": "rel_5c4846e34006",
+      "type": "cites",
+      "source_id": "ent_de18a6e1c25d",
+      "target_id": "ent_ca6326eb1800",
+      "confidence": 1.0,
+      "props": {},
+      "sources": [
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1790216085.6778464
+    },
+    {
+      "id": "rel_12ef1dcedd30",
+      "type": "cites",
+      "source_id": "ent_de18a6e1c25d",
+      "target_id": "ent_f3e09580a2a9",
+      "confidence": 1.0,
+      "props": {},
+      "sources": [
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1790216085.678821
+    },
+    {
+      "id": "rel_8d22931ef424",
+      "type": "part_of",
+      "source_id": "ent_bce2a16f15df",
+      "target_id": "ent_474dd5960e54",
+      "confidence": 1.0,
+      "props": {},
+      "sources": [
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1790216085.6799026
+    },
+    {
+      "id": "rel_d5541fbc6f11",
+      "type": "derived_from",
+      "source_id": "ent_0c2fe3b33a03",
+      "target_id": "ent_33183178a189",
+      "confidence": 1.0,
+      "props": {},
+      "sources": [
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1790216085.6809828
+    },
+    {
+      "id": "rel_676bbea39732",
+      "type": "derived_from",
+      "source_id": "ent_613a525933dd",
+      "target_id": "ent_f3e09580a2a9",
+      "confidence": 1.0,
+      "props": {},
+      "sources": [
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1790216085.682009
+    },
+    {
+      "id": "rel_08cadcaa39d7",
+      "type": "authored_by",
+      "source_id": "ent_d19f12608a51",
+      "target_id": "ent_88ed32954911",
+      "confidence": 1.0,
+      "props": {},
+      "sources": [
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1790216085.6830468
+    },
+    {
+      "id": "rel_c509a6427da1",
+      "type": "cites",
+      "source_id": "ent_d19f12608a51",
+      "target_id": "ent_5134dc618092",
+      "confidence": 1.0,
+      "props": {},
+      "sources": [
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1790216085.6840944
+    },
+    {
+      "id": "rel_1d8e0f148f1a",
+      "type": "cites",
+      "source_id": "ent_d19f12608a51",
+      "target_id": "ent_2e2b83cc1613",
+      "confidence": 1.0,
+      "props": {},
+      "sources": [
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1790216085.6849797
+    },
+    {
+      "id": "rel_39722e1e6d3f",
+      "type": "cites",
+      "source_id": "ent_d19f12608a51",
+      "target_id": "ent_21db09ee785f",
+      "confidence": 1.0,
+      "props": {},
+      "sources": [
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1790216085.685921
+    },
+    {
+      "id": "rel_6b63879f006b",
+      "type": "competes_with",
+      "source_id": "ent_8096fd544454",
+      "target_id": "ent_b84fe31da5f2",
+      "confidence": 1.0,
+      "props": {},
+      "sources": [
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1790216085.6868515
+    },
+    {
+      "id": "rel_97844193e463",
+      "type": "competes_with",
+      "source_id": "ent_d43a3f67c18c",
+      "target_id": "ent_b84fe31da5f2",
+      "confidence": 1.0,
+      "props": {},
+      "sources": [
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1790216085.687876
+    },
+    {
+      "id": "rel_b51be1a3ffd9",
+      "type": "derived_from",
+      "source_id": "ent_b84fe31da5f2",
+      "target_id": "ent_3fa92739a3fb",
+      "confidence": 1.0,
+      "props": {},
+      "sources": [
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1790216085.6888995
+    },
+    {
+      "id": "rel_ed6c2ba5af55",
+      "type": "improves",
+      "source_id": "ent_9f7069f0e93d",
+      "target_id": "ent_3fa92739a3fb",
+      "confidence": 1.0,
+      "props": {},
+      "sources": [
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1790216085.6897843
+    },
+    {
+      "id": "rel_2a9001871f4c",
+      "type": "competes_with",
+      "source_id": "ent_50694b193ab9",
+      "target_id": "ent_e2994070b443",
+      "confidence": 1.0,
+      "props": {},
+      "sources": [
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1790216085.6908638
+    },
+    {
+      "id": "rel_0d0baefa0f53",
+      "type": "uses",
+      "source_id": "ent_897c49378c5f",
+      "target_id": "ent_9f7069f0e93d",
+      "confidence": 1.0,
+      "props": {},
+      "sources": [
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1790216085.6920028
+    },
+    {
+      "id": "rel_b8d2dd751ab2",
+      "type": "cites",
+      "source_id": "ent_389db51701c6",
+      "target_id": "ent_b84fe31da5f2",
+      "confidence": 1.0,
+      "props": {},
+      "sources": [
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1790216085.6934173
+    },
+    {
+      "id": "rel_b8b08c62b045",
+      "type": "cites",
+      "source_id": "ent_389db51701c6",
+      "target_id": "ent_e2994070b443",
+      "confidence": 1.0,
+      "props": {},
+      "sources": [
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1790216085.6942718
+    },
+    {
+      "id": "rel_f008dc136f6c",
+      "type": "cites",
+      "source_id": "ent_389db51701c6",
+      "target_id": "ent_50694b193ab9",
+      "confidence": 1.0,
+      "props": {},
+      "sources": [
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1790216085.6952107
+    },
+    {
+      "id": "rel_710250805e88",
+      "type": "authored_by",
+      "source_id": "ent_0352a278a55d",
+      "target_id": "ent_bce2a16f15df",
+      "confidence": 0.98,
+      "props": {},
+      "sources": [
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1790216165.8565726
+    },
+    {
+      "id": "rel_1fe2a6a7d425",
+      "type": "cites",
+      "source_id": "ent_de18a6e1c25d",
+      "target_id": "ent_139fe084b970",
+      "confidence": 0.95,
+      "props": {},
+      "sources": [
+        "doc_75a9fbc16321"
+      ],
+      "provisional": false,
+      "created_at": 1790216348.8822348
+    }
+  ],
+  "proposals": []
+}

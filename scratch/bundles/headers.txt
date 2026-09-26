@@ -1,0 +1,18 @@
+HTTP/1.1 200 OK
+Date: Sat, 26 Sep 2026 10:42:01 GMT
+Server: Apache
+cache-control: no-store, private
+content-disposition: attachment; filename="support_bundle_20260926_104102_556d4855.tar.zst"
+content-type: application/zstd
+accept-ranges: bytes
+content-length: 184007
+last-modified: Sat, 26 Sep 2026 10:41:02 GMT
+etag: "c3070caf058b49ccb0c2928e4660b637"
+x-request-id: 58f7de45cf462d3d
+referrer-policy: no-referrer
+x-content-type-options: nosniff
+x-frame-options: DENY
+content-security-policy: default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://unpkg.com https://www.googletagmanager.com https://*.googletagmanager.com https://www.google-analytics.com https://*.google-analytics.com https://google-analytics.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://unpkg.com; img-src 'self' data: https:; connect-src 'self' https://*.google-analytics.com https://google-analytics.com https://*.analytics.google.com https://analytics.google.com https://*.googletagmanager.com https://googletagmanager.com https://stats.g.doubleclick.net https://*.doubleclick.net https://*.g.doubleclick.net; font-src 'self' data: https://fonts.gstatic.com https://unpkg.com; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'self' https:; frame-ancestors 'none'
+permissions-policy: camera=(), microphone=(), geolocation=()
+Vary: Accept-Encoding
+

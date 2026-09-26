@@ -1,0 +1,13 @@
+HTTP/1.1 200 OK
+Date: Sat, 26 Sep 2026 10:42:53 GMT
+Server: Apache
+content-length: 121047
+content-type: text/html; charset=utf-8
+x-request-id: 39e1a0252c9341a3
+referrer-policy: no-referrer
+x-content-type-options: nosniff
+x-frame-options: DENY
+content-security-policy: default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://unpkg.com https://www.googletagmanager.com https://*.googletagmanager.com https://www.google-analytics.com https://*.google-analytics.com https://google-analytics.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://unpkg.com; img-src 'self' data: https:; connect-src 'self' https://*.google-analytics.com https://google-analytics.com https://*.analytics.google.com https://analytics.google.com https://*.googletagmanager.com https://googletagmanager.com https://stats.g.doubleclick.net https://*.doubleclick.net https://*.g.doubleclick.net; font-src 'self' data: https://fonts.gstatic.com https://unpkg.com; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'self' https:; frame-ancestors 'none'
+permissions-policy: camera=(), microphone=(), geolocation=()
+Vary: Accept-Encoding
+

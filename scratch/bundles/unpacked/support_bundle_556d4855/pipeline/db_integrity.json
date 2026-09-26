@@ -1,0 +1,102 @@
+{
+  "themes": {
+    "0": {
+      "label": "기본 지식베이스",
+      "path": "/app/data/claire.db",
+      "path_metadata": {
+        "configured_path": "/app/data/claire.db",
+        "resolved_path": "/app/data/claire.db",
+        "exists": true,
+        "is_symlink": false,
+        "is_file": true,
+        "is_dir": false,
+        "size_bytes": 47923200,
+        "mode": "0o644",
+        "uid": 0,
+        "gid": 0,
+        "device": 64512,
+        "inode": 811298,
+        "modified_at": "2026-09-24T02:36:00.301048+00:00",
+        "metadata_changed_at": "2026-09-24T02:36:00.301048+00:00"
+      },
+      "quick_check": "ok",
+      "counts": {
+        "documents": 303,
+        "entities": 1744,
+        "relations": 2787,
+        "embeddings": 1744,
+        "proposals": 75,
+        "jobs": 0,
+        "raw_inbox": 374,
+        "extractions": 403,
+        "refresh_queue": 0,
+        "purged_tombstones": 14,
+        "oauth_clients": 9,
+        "oauth_tokens": 1,
+        "oauth_codes": 0,
+        "oauth_auth_requests": 5
+      },
+      "schema_version": 13,
+      "schema_lineage": "claire-bible/common"
+    },
+    "1": {
+      "label": "Honkai",
+      "path": "/app/data/themes/1/claire.db",
+      "path_metadata": {
+        "configured_path": "/app/data/themes/1/claire.db",
+        "resolved_path": "/app/data/themes/1/claire.db",
+        "exists": true,
+        "is_symlink": false,
+        "is_file": true,
+        "is_dir": false,
+        "size_bytes": 9347072,
+        "mode": "0o644",
+        "uid": 0,
+        "gid": 0,
+        "device": 64512,
+        "inode": 795545,
+        "modified_at": "2026-09-22T12:58:29.961603+00:00",
+        "metadata_changed_at": "2026-09-22T12:58:29.961603+00:00"
+      },
+      "quick_check": "ok",
+      "counts": {
+        "documents": 59,
+        "entities": 367,
+        "relations": 635,
+        "embeddings": 367,
+        "proposals": 310,
+        "jobs": 0,
+        "raw_inbox": 68,
+        "extractions": 63,
+        "refresh_queue": 0,
+        "purged_tombstones": 0,
+        "oauth_clients": 0,
+        "oauth_tokens": 0,
+        "oauth_codes": 0,
+        "oauth_auth_requests": 0
+      },
+      "schema_version": 13,
+      "schema_lineage": "claire-bible/common"
+    }
+  },
+  "claire_db_quick_check": "ok",
+  "counts": {
+    "documents": 303,
+    "entities": 1744,
+    "relations": 2787,
+    "embeddings": 1744,
+    "proposals": 75,
+    "jobs": 0,
+    "raw_inbox": 374,
+    "extractions": 403,
+    "refresh_queue": 0,
+    "purged_tombstones": 14,
+    "oauth_clients": 9,
+    "oauth_tokens": 1,
+    "oauth_codes": 0,
+    "oauth_auth_requests": 5
+  },
+  "schema_version": 13,
+  "schema_lineage": "claire-bible/common",
+  "telemetry_db_quick_check": "ok"
+}

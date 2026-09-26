@@ -1,0 +1,13 @@
+{
+  "total_calls": 0,
+  "success_calls": 0,
+  "failed_calls": 0,
+  "success_rate": 0.0,
+  "latencies_ms": {
+    "p50": 0.0,
+    "p95": 0.0
+  },
+  "calls_by_tool": {},
+  "calls_by_client": {},
+  "errors_by_type": {}
+}
