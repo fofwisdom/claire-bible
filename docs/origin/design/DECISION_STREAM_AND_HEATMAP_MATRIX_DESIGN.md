@@ -216,24 +216,139 @@ class ResolutionDecision:
 
 ## 8. 다중 방어선 안전 게이팅 (Multi-Tier Safe Gating Architecture)
 
-Jev가 System 1으로서 밀리초 단위 초고속 연산을 수행하더라도, **Jev 단독으로 경계선 머지를 확정하지 못하도록** 다중 안전 게이트를 배치합니다.
+백엔드의 연산 효율(초고속 스크리닝)을 극대화하면서도, 단 한 건의 오병합(False Positive)으로 지식 DB가 영구 오염되는 것을 원천 차단하기 위해 **5단계 직렬 게이트 파이프라인(5-Stage Serial Gating Pipeline)**을 구축합니다.
+
+### 8.1 전체 파이프라인 아키텍처 다이어그램
 
 ```mermaid
 flowchart TD
-    Pair["후보 대조 쌍 (New vs Candidate)"] --> Gate1{"Gate 1: 결정론적 규칙<br/>(정규화 이름/별칭 일치/약어 수렴)"}
-    Gate1 -- "일치" --> AutoMerge["자동 병합 (Auto-Merge) + 롤백 스냅샷"]
-    Gate1 -- "불일치" --> JevEval["Gate 2: Jev / 벡터 매트릭스 평가"]
+    Start["신규 추출 엔티티 (New Entity)"] --> G1{"Gate 1: 결정론적 규칙 검증<br/>(정규화 이름 / 등록 별칭 / 타입 일치 약어)"}
     
-    JevEval --> ScoreCheck{"유사도 점수 대역"}
-    ScoreCheck -- "≥ 0.98 (초고신뢰도) && 타입 완전 일치" --> AutoMerge
-    ScoreCheck -- "0.72 ~ 0.98 (경계선 대역)" --> Escalate["Gate 3: System 2 (Gemini LLM Judge) 필수 에스컬레이션"]
-    ScoreCheck -- "< 0.72 (저유사도)" --> Separate["독립 노드 생성 (신규)"]
+    G1 -- "일치 (Confidence = 1.0)" --> G5_Merge["Gate 5: 가역적 병합 (Rollback Snapshot 생성)"]
+    G1 -- "불일치 (Miss)" --> G2{"Gate 2: 온톨로지 불변식 검사 (Hard Invariants)<br/>• 온톨로지 타입 호환 여부<br/>• 메이저 버전 토큰 충돌 여부"}
     
-    Escalate -- "SAME 판정 (문맥적 일치 증명)" --> AutoMerge
-    Escalate -- "DIFFERENT 판정 (경쟁 도구/버전)" --> SeparateWithLink["독립 노드 생성 + 횡단 엣지(Edge) 연결"]
+    G2 -- "불변식 위반 (타입 상이 / 버전 불일치)" --> RejectCandidate["후보군에서 영구 배제 ➔ 독립 노드"]
+    G2 -- "불변식 통과" --> G3["Gate 3: System 1 고속 스크리닝 (Jev / Vector Matrix)<br/>• N x M 전수 유사도 확률 계산 (10~20ms)"]
+    
+    G3 --> ScoreBand{"Jev 확률 점수 (S) 대역 판정"}
+    ScoreBand -- "S < 0.72 (저유사도)" --> G5_New["신규 독립 노드 생성"]
+    ScoreBand -- "0.72 ≤ S < 0.98 (경계선 대역)" --> G4["Gate 4: System 2 심층 문맥 판정 (Gemini LLM Judge)<br/>• 본문 관측문(observations) 및 정의 투입"]
+    ScoreBand -- "S ≥ 0.98 (초고신뢰도) && Gate 2 통과" --> G5_Merge
+    
+    G4 --> JudgeVerdict{"Gemini 추론 판정 결과"}
+    JudgeVerdict -- "SAME (동일 개념 입증)" --> G5_Merge
+    JudgeVerdict -- "DIFFERENT (경쟁 도구 / 파생 개념)" --> G5_Link["독립 노드 생성 + 횡단 관계(Edge) 링킹"]
 ```
 
-1. **Jev의 역할 규정**:
-   - 대규모 노드 후보군에서 비-유사 노드를 즉각 탈락시키는 **"초고속 후보 압축 필터(Pruning Gate)"** 및 **"Heatmap Matrix 렌더링 공급자"**.
-2. **에스컬레이션 원칙**:
-   - 0.72 ~ 0.98 경계선 영역은 Jev 단독 판단을 금지하고, 반드시 본문 문맥을 투입한 Gemini System 2 심층 판정을 거침으로써 오병합(False Positive) 가능성을 0%로 통제합니다.
+### 8.2 5단계 게이트별 상세 구현 규칙
+
+#### Gate 1: 결정론적 규칙 게이트 (Deterministic Rule Gate, 0ms, 0 Token)
+- **역할**: 외부 API나 임베딩 호출 없이 100% 확실한 수학적·어휘적 동일체를 즉시 처리.
+- **통과 기준**:
+  1. `normalize_name(new) == normalize_name(cand.name)` (대소문자/구두점 정규화 일치)
+  2. `normalize_name(new)`가 기존 엔티티의 `cand.aliases` 목록에 정확히 포함된 경우.
+  3. `cand.type == new.type`을 만족하면서 길이 3 이상의 영문 대문자 약어(Acronym)와 풀네임이 정확히 수렴하는 경우 (예: "MCP" ↔ "Model Context Protocol").
+- **조치**: 즉시 `MERGE` 승인 및 Gate 5로 전송.
+
+#### Gate 2: 온톨로지 불변식 검증 게이트 (Hard Invariants & Negative Filter, 0ms)
+- **역할**: **아무리 높은 벡터 유사도나 분류기 점수가 나오더라도 절대 합쳐서는 안 되는 대상을 원천 차단**하는 안전 밸브.
+- **차단 규칙 (Hard Reject Rules)**:
+  1. **타입 불일치 차단**: `new.type != cand.type` (예: `Model` vs `Tool`, `Language` vs `Animal`). 단, 임시 타입(`provisional=True`)인 경우는 예외.
+  2. **버전/릴리즈 충돌 차단**: 이름에 포함된 숫자/버전 토큰이 상이한 경우 (예: "vSphere 8.0" vs "vSphere 7.0", "ESXi" vs "ESXi 8.0 U2").
+  3. **2글자 약어 차단**: "AI", "ML", "OS" 등 2글자 모호 약어의 자동 병합 절대 금지.
+- **조치**: 해당 후보는 즉시 탈락(Candidate Pool에서 제외)되어 오병합 가능성 0% 달성.
+
+#### Gate 3: System 1 고속 스크리닝 및 행렬 게이트 (TypeSafe AI Jev / Vector Matrix, 10~20ms)
+- **역할**: 대규모 지식 베이스의 모든 후보군에 대해 밀리초 단위로 전수 유사도를 계산하고, **단독 병합을 엄격히 통제**.
+- **대역별 라우팅**:
+  - **$S < 0.72$ (기각)**: 무관한 노드로 간주하여 즉시 탈락 (LLM 토큰 낭비 0건).
+  - **$0.72 \le S < 0.98$ (경계선 에스컬레이션)**: **Jev 단독 병합 절대 금지**. 반드시 Gate 4(System 2)로 에스컬레이션.
+  - **$S \ge 0.98$ (초고신뢰도 자동 병합)**: Gate 2를 통과하고 점수가 0.98 이상인 경우에 한하여 자동 병합 승인.
+
+#### Gate 4: System 2 심층 문맥 판정 게이트 (Gemini 3.1 Flash LLM Judge, 1~2s)
+- **역할**: 경계선 대역($0.72 \le S < 0.98$)에 놓인 후보 쌍에 대해 본문 문맥을 기반으로 다의어와 경쟁 도구를 완벽히 분별.
+- **프롬프트 입력 컨텍스트**:
+  - 대상 엔티티 이름 및 온톨로지 타입.
+  - 신규 관측문(`new.observations`) 및 기존 관측문(`cand.observations`).
+  - 수집 문서의 해당 단락 텍스트.
+- **판정 분기**:
+  - `SAME`: 문맥적 동일체 입증 ➔ Gate 5 병합 승인.
+  - `DIFFERENT`: 경쟁 제품(예: Letta vs LlamaIndex) 또는 연관 기술 ➔ 독립 노드로 분리하되, **Tier 3 횡단 관계(Edge) 후보로 등록**하여 지식 그래프 연결성 보존.
+
+#### Gate 5: 원자적 가역 병합 및 롤백 페이로드 기록 게이트 (Atomic Reversible Write)
+- **역할**: 병합이 일어날 때 원상 복구가 가능한 스냅샷(`rollback_payload`)을 DB 트랜잭션 내에 의무적으로 생성.
+
+---
+
+### 8.3 실제 코드 수준 구현 설계 (`src/claire/extract/resolver.py` 연동)
+
+```python
+def safe_gated_resolve(
+    conn: sqlite3.Connection,
+    vstore: VectorStore,
+    settings: Settings,
+    name: str,
+    etype: str,
+    observations: list[str],
+    document_id: str,
+    judge_fn: Callable[..., bool],
+) -> tuple[Entity, ResolutionDecision]:
+    norm_name = normalize_name(name)
+
+    # --- [Gate 1: 결정론적 규칙 검증] ---
+    exact_cand = dbm.find_entities_by_name_or_alias(conn, norm_name)
+    if exact_cand:
+        target = exact_cand[0]
+        decision = _execute_reversible_merge(
+            conn, target, name, observations, document_id, stage="exact_match", score=1.0
+        )
+        return target, decision
+
+    # --- [Gate 3: System 1 고속 대조 (Jev / Vector Matrix)] ---
+    candidates = _gather_candidates(conn, vstore, name, etype)
+    
+    for cand, score in candidates:
+        # --- [Gate 2: 온톨로지 불변식 검사 (Hard Invariants)] ---
+        if not _passes_hard_invariants(name, etype, cand.name, cand.type):
+            continue  # 타입 불일치 또는 버전 충돌 시 즉시 건너뜀
+
+        # --- [Gate 3 & 4: 신뢰도 대역 분기 및 System 2 에스컬레이션] ---
+        if score >= 0.98:
+            # 초고신뢰도 자동 병합
+            decision = _execute_reversible_merge(
+                conn, cand, name, observations, document_id, stage="high_confidence_jev", score=score
+            )
+            return cand, decision
+
+        elif score >= 0.72:
+            # 경계선 대역: Gate 4 (Gemini LLM Judge) 필수 심층 판정
+            is_same = judge_fn(name, etype, observations, cand)
+            if is_same:
+                decision = _execute_reversible_merge(
+                    conn, cand, name, observations, document_id, stage="borderline_llm_judge", score=score
+                )
+                return cand, decision
+            else:
+                # DIFFERENT: 횡단 관계(Edge) 후보 등록
+                _register_cross_link_candidate(conn, name, cand)
+
+    # --- [어떤 후보와도 미병합 시 신규 생성] ---
+    new_ent = dbm.create_new_entity(conn, name, etype, observations, document_id)
+    decision = ResolutionDecision(
+        entity=name,
+        stage="no_match",
+        decision="CREATE_NEW",
+        reason="No candidate satisfied safe gating criteria.",
+    )
+    return new_ent, decision
+```
+
+---
+
+### 8.4 가역적 롤백 동작 절차 (Rollback Workflow)
+
+1. **병합 시점 페이로드 영속화**:
+   - `ResolutionDecision`의 `rollback_payload`에 `added_aliases`, `added_observations`, `repointed_relation_ids`를 원자적으로 기록.
+2. **관리자 롤백 트리거 (`[↩ 롤백]` 클릭 시)**:
+   - 타깃 엔티티에서 유입된 별칭 및 관측문 즉시 제거.
+   - 재배치되었던 외래키를 신규 독립 엔티티로 원복하고, 그래프 상에 상호 연결 관계(`COMPETES_WITH` 또는 `RELATED_TO`)를 재설정하여 데이터 영구 파괴 없이 100% 무손실 복구.
