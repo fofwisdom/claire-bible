@@ -50,8 +50,7 @@ VMware Explore 비디오 상세 페이지에서 `Presentation PDF`를 탐색하�
 ## 3. 근본 원인 분석 (Root Cause Analysis)
 
 ### 3.1. 문제 메커니즘
-1. **정적 HTML의 한계**:
-   VMware Explore 영상 상세 페이지는 정적 HTML 상에 세션 본문 및 PDF 링크를 포함하지 않고 클라이언트 사이드 JavaScript(Angular/React)로 동적 하이드레이션한다.
+1. **정적 HTML의 한계**: VMware Explore 영상 상세 페이지는 정적 HTML 상에 세션 본문 및 PDF 링크를 포함하지 않고 클라이언트 사이드 JavaScript(Angular/React)로 동적 하이드레이션한다.
 2. **`render_html_cdp`의 고정 대기 및 즉시 탈출 결함**:
    ```python
    # src/claire/ingest/fetchers/web.py
@@ -65,16 +64,14 @@ VMware Explore 비디오 상세 페이지에서 `Presentation PDF`를 탐색하�
            target.click(timeout=int(interaction_timeout_seconds * 1000))
    ```
    Playwright의 `target.count()`는 요소를 능동적으로 기다리지 않고 **호출 순간의 카운트만 즉시 동기 반환**한다.
-3. **2 vCPU 컨테이너 상의 하이드레이션 지연**:
-   OneTrust 쿠키 모달, Brightcove 플레이어, Google Tag Manager 등이 동시 로드되는 2 vCPU 서버 환경에서 세션 탭 컴포넌트(`Details`, `Presentation`) 마운트는 콜드 상태 기준 2.5초를 초과한다.
+3. **2 vCPU 컨테이너 상의 하이드레이션 지연**: OneTrust 쿠키 모달, Brightcove 플레이어, Google Tag Manager 등이 동시 로드되는 2 vCPU 서버 환경에서 세션 탭 컴포넌트(`Details`, `Presentation`) 마운트는 콜드 상태 기준 2.5초를 초과한다.
 4. **미완성 DOM 스냅샷과 `session_not_ready` 판정**:
    * 2.5초 시점에 `Presentation` 탭이 미처 마운트되지 않아 `target.count() == 0`으로 즉시 탈출.
    * Scrapling은 하이드레이션이 끝나지 않은 빈 껍데기 HTML을 반환.
    * `rendered_session_is_ready()`가 본문 내 `Details`, `Speakers`, `Share` 텍스트 레이블 개수를 세었으나 0개로 측정되어 `False` 반환.
    * `discover_presentations()`가 `error="session_not_ready"` 반환.
    * `video.py`의 Fail-Closed 정책에 따라 전체 비디오 적재가 즉시 취소됨.
-5. **2분 뒤(19:49:37) 재적재가 성공한 이유**:
-   직전 19:47:09 실행으로 시스템 Chromium 프로세스 바이너리, DNS 캐시, VMware 정적 번들이 OS 페이지 캐시와 브라우저 캐시에 웜업되어 재시도 시점에는 2.5초 이내에 하이드레이션이 완료되었기 때문이다.
+5. **2분 뒤(19:49:37) 재적재가 성공한 이유**: 직전 19:47:09 실행으로 시스템 Chromium 프로세스 바이너리, DNS 캐시, VMware 정적 번들이 OS 페이지 캐시와 브라우저 캐시에 웜업되어 재시도 시점에는 2.5초 이내에 하이드레이션이 완료되었기 때문이다.
 
 ---
 
@@ -99,8 +96,7 @@ VMware Explore 비디오 상세 페이지에서 `Presentation PDF`를 탐색하�
 | `page.goto()` 완료 | 3.09초 | ❌ 미마운트 | ❌ 미마운트 | 준비 미달 |
 | `Details` 탭 마운트 | 4.43초 (+1.34s) | ✅ 마운트됨 | ❌ 없음 (정상 부재) | **세션 준비 완료 (`absent`)** |
 
-> **실측 결론**:
-> OneTrust 쿠키 모달은 초기 정적 HTML 시점부터 `role="tab"` 요소를 갖고 있으므로 단순한 `role=tab` 개수 확인은 조기 오판을 유발한다. 반면 실제 세션 본문 탭(`Details`, `Presentation`)이 붙는 시점은 2 vCPU 서버 기준 3~5초 범위로 분포하므로, **대상 탭에 대한 명시적 `wait_for` 능동 대기**가 필수적이다.
+> **실측 결론**: OneTrust 쿠키 모달은 초기 정적 HTML 시점부터 `role="tab"` 요소를 갖고 있으므로 단순한 `role=tab` 개수 확인은 조기 오판을 유발한다. 반면 실제 세션 본문 탭(`Details`, `Presentation`)이 붙는 시점은 2 vCPU 서버 기준 3~5초 범위로 분포하므로, **대상 탭에 대한 명시적 `wait_for` 능동 대기**가 필수적이다.
 
 ---
 

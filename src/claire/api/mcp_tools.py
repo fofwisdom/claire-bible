@@ -1,18 +1,10 @@
 """MCP(Model Context Protocol) 지원 — 에이전트용 read-only 그래프 탐색 툴.
 
-설계 근거: docs/origin/design/MCP_SUPPORT.md. 인증은 이 모듈이 아니라 server.py / security.py의
-게이트 미들웨어가 담당(무토큰/미인증 요청은 /mcp 자체가 존재하지 않는 것처럼 404) — 여기
-등록된 툴은 전부 read-only이고 owner/readonly 세션 둘 다 동일하게 접근 가능
-(v1, docs/origin/design/MCP_SUPPORT.md — 쓰기 툴이 생기는 다음 마일스톤에서 스코프 구분 도입 필요).
+설계 근거: docs/origin/design/MCP_SUPPORT.md. 인증은 이 모듈이 아니라 server.py / security.py의 게이트 미들웨어가 담당(무토큰/미인증 요청은 /mcp 자체가 존재하지 않는 것처럼 404) — 여기 등록된 툴은 전부 read-only이고 owner/readonly 세션 둘 다 동일하게 접근 가능 (v1, docs/origin/design/MCP_SUPPORT.md — 쓰기 툴이 생기는 다음 마일스톤에서 스코프 구분 도입 필요).
 
-**중요**: `IngestService.search`(`retrieval.query.search`)는 `summarize=False`
-여도 벡터 검색을 위해 `provider.embed(query)`를 무조건 호출한다(Gemini 호출).
-MCP `search` 툴은 그래서 그 함수를 재사용하지 않고 `db.fts_search`만 직접
-써서 Gemini 호출 0을 보장한다(docs/origin/design/MCP_SUPPORT.md 원칙).
+**중요**: `IngestService.search`(`retrieval.query.search`)는 `summarize=False` 여도 벡터 검색을 위해 `provider.embed(query)`를 무조건 호출한다(Gemini 호출). MCP `search` 툴은 그래서 그 함수를 재사용하지 않고 `db.fts_search`만 직접 써서 Gemini 호출 0을 보장한다(docs/origin/design/MCP_SUPPORT.md 원칙).
 
-각 툴은 `_xxx_impl(conn, ...)` 순수 함수 + `@mcp.tool()` 얇은 커넥션 래퍼로
-나뉜다 — impl 함수는 `sqlite3.Connection`을 직접 받아 테스트에서 in-memory
-DB로 바로 부를 수 있다(test_mcp_tools.py, test_graphview.py와 동일 패턴).
+각 툴은 `_xxx_impl(conn, ...)` 순수 함수 + `@mcp.tool()` 얇은 커넥션 래퍼로 나뉜다 — impl 함수는 `sqlite3.Connection`을 직접 받아 테스트에서 in-memory DB로 바로 부를 수 있다(test_mcp_tools.py, test_graphview.py와 동일 패턴).
 """
 
 from __future__ import annotations
@@ -50,17 +42,14 @@ def _entity_brief(ent) -> dict:
 
 
 def _iso_utc(ts: float | None) -> str | None:
-    """epoch(초) -> ISO8601 문자열, 타임존 명시(UTC, +00:00) — 에이전트가 어느
-    시간대에서 왔는지 모르니 서버가 임의 지역(KST 등)을 가정하지 않고 항상
-    명확한 오프셋을 준다. 변환은 호출한 쪽에서."""
+    """epoch(초) -> ISO8601 문자열, 타임존 명시(UTC, +00:00) — 에이전트가 어느 시간대에서 왔는지 모르니 서버가 임의 지역(KST 등)을 가정하지 않고 항상 명확한 오프셋을 준다. 변환은 호출한 쪽에서."""
     if ts is None:
         return None
     return datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
 
 
 def _parse_since(s: str | None) -> float | None:
-    """'YYYY-MM-DD' 또는 전체 ISO8601(오프셋 포함/'Z' 포함)을 epoch(초)로.
-    타임존 없는 문자열은 UTC로 간주(서버 저장값과 동일 기준)."""
+    """'YYYY-MM-DD' 또는 전체 ISO8601(오프셋 포함/'Z' 포함)을 epoch(초)로. 타임존 없는 문자열은 UTC로 간주(서버 저장값과 동일 기준)."""
     if not s:
         return None
     text = s.strip()
@@ -429,8 +418,7 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None):
 
     @mcp.tool()
     async def resolve_entity(name: str, theme: str | int | None = None) -> dict:
-        """이름(또는 별칭) 문자열로 엔티티를 찾는다 — 탐색 루프의 진입점.
-        ID를 이미 알고 있다면 이 툴 대신 node/neighbors를 바로 쓸 것."""
+        """이름(또는 별칭) 문자열로 엔티티를 찾는다 — 탐색 루프의 진입점. ID를 이미 알고 있다면 이 툴 대신 node/neighbors를 바로 쓸 것."""
         conn = _conn(theme)
         try:
             return _timed_call("resolve_entity", resolve_entity_impl, conn, name)
@@ -445,12 +433,7 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None):
         limit: int = 8,
         theme: str | int | None = None,
     ) -> dict:
-        """전문(FTS) 검색. LLM 호출 없음(raw hits만, 요약은 호출한 에이전트가
-        직접 함). entity_type으로 타입 필터, near_ids를 주면 그 노드들의
-        1홉 이웃 범위 안에서만 찾는다(지금 탐색 중인 프론티어를 좁혀 검색할
-        때 사용 — resolve_entity/neighbors로 얻은 id를 그대로 넘기면 됨).
-        결과가 limit을 넘으면 truncated=true(0건이라고 '매치 없음'으로
-        오인하지 말 것 — omitted 확인)."""
+        """전문(FTS) 검색. LLM 호출 없음(raw hits만, 요약은 호출한 에이전트가 직접 함). entity_type으로 타입 필터, near_ids를 주면 그 노드들의 1홉 이웃 범위 안에서만 찾는다(지금 탐색 중인 프론티어를 좁혀 검색할 때 사용 — resolve_entity/neighbors로 얻은 id를 그대로 넘기면 됨). 결과가 limit을 넘으면 truncated=true(0건이라고 '매치 없음'으로 오인하지 말 것 — omitted 확인)."""
         conn = _conn(theme)
         try:
             return _timed_call("search", search_impl, conn, query, entity_type, near_ids, limit)
@@ -464,12 +447,7 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None):
         limit: int = 50,
         theme: str | int | None = None,
     ) -> dict:
-        """주어진 엔티티(들)의 1홉 이웃을 합집합으로 반환 — 탐색 루프의 핵심
-        단계. 여러 id를 한 번에 넘기면 그 전체 프론티어를 한 번에 넓힌다.
-        exclude_ids에 지금까지 방문한 id를 넣어 순환을 피할 것(안 넣으면
-        이미 본 노드가 계속 돌아올 수 있음). 결과는 degree(전역 연결 수)
-        내림차순 — 상위일수록 더 파볼 가치가 있는 허브. limit을 넘으면
-        truncated=true, omitted에 잘린 개수가 실림(0으로 오인하지 말 것)."""
+        """주어진 엔티티(들)의 1홉 이웃을 합집합으로 반환 — 탐색 루프의 핵심 단계. 여러 id를 한 번에 넘기면 그 전체 프론티어를 한 번에 넓힌다. exclude_ids에 지금까지 방문한 id를 넣어 순환을 피할 것(안 넣으면 이미 본 노드가 계속 돌아올 수 있음). 결과는 degree(전역 연결 수) 내림차순 — 상위일수록 더 파볼 가치가 있는 허브. limit을 넘으면 truncated=true, omitted에 잘린 개수가 실림(0으로 오인하지 말 것)."""
         conn = _conn(theme)
         try:
             return _timed_call("neighbors", neighbors_impl, conn, entity_ids, exclude_ids, limit)
@@ -483,8 +461,7 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None):
         max_hops: int = 4,
         theme: str | int | None = None,
     ) -> dict:
-        """두 엔티티 사이의 최단 경로(무방향 BFS). 'A와 B가 왜 연결돼있나'에
-        직접 답한다 — neighbors를 반복 호출해 스스로 경로를 찾을 필요 없음."""
+        """두 엔티티 사이의 최단 경로(무방향 BFS). 'A와 B가 왜 연결돼있나'에 직접 답한다 — neighbors를 반복 호출해 스스로 경로를 찾을 필요 없음."""
         conn = _conn(theme)
         try:
             return _timed_call("path", path_impl, conn, from_id, to_id, max_hops)
@@ -497,12 +474,7 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None):
         compact: bool = True,
         theme: str | int | None = None,
     ) -> dict:
-        """선택한 엔티티(들)에 대해 알려진 것 전부(관찰+연결+출처요약)를
-        결정론적으로(LLM 미사용) 조립해 반환 — 탐색 루프의 마지막 단계에서만
-        부를 것(먼저 resolve_entity/neighbors/search로 관심 노드를 충분히
-        좁힌 다음). 최대 10개까지만 처리하며 넘으면 잘라내고 truncated=true.
-        compact=True(기본)면 관찰을 앞 3개로 줄이고 출처요약을 생략해
-        가볍게, 정말 전체가 필요하면 compact=False."""
+        """선택한 엔티티(들)에 대해 알려진 것 전부(관찰+연결+출처요약)를 결정론적으로(LLM 미사용) 조립해 반환 — 탐색 루프의 마지막 단계에서만 부를 것(먼저 resolve_entity/neighbors/search로 관심 노드를 충분히 좁힌 다음). 최대 10개까지만 처리하며 넘으면 잘라내고 truncated=true. compact=True(기본)면 관찰을 앞 3개로 줄이고 출처요약을 생략해 가볍게, 정말 전체가 필요하면 compact=False."""
         conn = _conn(theme)
         try:
             return _timed_call("context", context_impl, conn, entity_ids, compact)
@@ -511,10 +483,7 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None):
 
     @mcp.tool()
     async def overview(theme: str | int | None = None) -> dict:
-        """지식베이스 전체의 자기서술적 요약 — 엔티티 타입 분포, 핵심 허브
-        (연결 많은 순), 여러 출처에서 수렴된(신뢰도 높은) 엔티티, 문서
-        소스타입 분포. 검색어를 뭘로 시작할지 모를 때 이 툴을 가장 먼저
-        부를 것."""
+        """지식베이스 전체의 자기서술적 요약 — 엔티티 타입 분포, 핵심 허브 (연결 많은 순), 여러 출처에서 수렴된(신뢰도 높은) 엔티티, 문서 소스타입 분포. 검색어를 뭘로 시작할지 모를 때 이 툴을 가장 먼저 부를 것."""
         conn = _conn(theme)
         try:
             return _timed_call("overview", overview_impl, conn)
@@ -527,15 +496,8 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None):
         full: bool = False,
         theme: str | int | None = None,
     ) -> dict:
-        """엔티티 하나의 상세(모든 observations + 소스 문서 요약 + 타입 있는
-        1홉 이웃). id를 이미 알고 있을 때 씀 — 이름만 있으면 resolve_entity
-        먼저. 소스 문서는 최신 10개까지만(초과 시 documents_truncated=true,
-        documents_omitted에 잘린 개수) — 문서 본문 전체가 아니라 요약만
-        포함(허브 엔티티는 소스가 수십 개라 본문 전체를 다 넣으면 응답이
-        터진다). 특정 문서의 상세가 필요하면 document(document_id)를
-        따로 호출할 것. full=True면 이 10개 문서에 한해 상세도 포함(주의:
-        허브 엔티티에서 쓰면 응답이 매우 커질 수 있음). fetched_at은
-        ISO8601(UTC, 타임존 명시)."""
+        """엔티티 하나의 상세(모든 observations + 소스 문서 요약 + 타입 있는 1홉 이웃). id를 이미 알고 있을 때 씀 — 이름만 있으면 resolve_entity 먼저. 소스 문서는 최신 10개까지만(초과 시 documents_truncated=true, documents_omitted에 잘린 개수) — 문서 본문 전체가 아니라 요약만 포함(허브 엔티티는 소스가 수십 개라 본문 전체를 다 넣으면 응답이 터진다). 특정 문서의 상세가 필요하면 document(document_id)를 따로 호출할 것. full=True면 이 10개 문서에 한해 상세도 포함(주의:
+        허브 엔티티에서 쓰면 응답이 매우 커질 수 있음). fetched_at은 ISO8601(UTC, 타임존 명시)."""
         conn = _conn(theme)
         try:
             return _timed_call("node", node_impl, conn, entity_id, full=full)
@@ -549,11 +511,7 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None):
         query: str | None = None,
         theme: str | int | None = None,
     ) -> dict:
-        """최신순 문서 목록(제목·요약·출처타입·안읽음/즐겨찾기 상태,
-        fetched_at은 ISO8601 UTC). limit 최대 100(그 이상 요청해도 잘림).
-        since(예: '2026-08-01' 또는 전체 ISO8601)로 그 시각 이후만, query로
-        제목/URL 부분일치 검색 — 전체를 다 훑지 말고 좁혀서 찾을 것. limit을
-        넘으면 truncated=true, omitted에 잘린 개수(0으로 오인 금지)."""
+        """최신순 문서 목록(제목·요약·출처타입·안읽음/즐겨찾기 상태, fetched_at은 ISO8601 UTC). limit 최대 100(그 이상 요청해도 잘림). since(예: '2026-08-01' 또는 전체 ISO8601)로 그 시각 이후만, query로 제목/URL 부분일치 검색 — 전체를 다 훑지 말고 좁혀서 찾을 것. limit을 넘으면 truncated=true, omitted에 잘린 개수(0으로 오인 금지)."""
         conn = _conn(theme)
         try:
             return _timed_call("documents", documents_impl, conn, limit=limit, since=since, query=query)
@@ -562,9 +520,7 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None):
 
     @mcp.tool()
     async def document(document_id: str, theme: str | int | None = None) -> dict:
-        """문서 하나의 상세(제목·요약·상세·원문 URL·fetched_at은
-        ISO8601 UTC). 사람용 웹 핸들러와 달리 안읽음(seen) 상태를 바꾸지
-        않는다(읽기전용 원칙)."""
+        """문서 하나의 상세(제목·요약·상세·원문 URL·fetched_at은 ISO8601 UTC). 사람용 웹 핸들러와 달리 안읽음(seen) 상태를 바꾸지 않는다(읽기전용 원칙)."""
         conn = _conn(theme)
         try:
             def _fetch_doc():

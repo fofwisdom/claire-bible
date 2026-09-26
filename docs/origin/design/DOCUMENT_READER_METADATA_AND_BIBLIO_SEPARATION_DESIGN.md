@@ -1,10 +1,6 @@
 # 문서 리더 UI 위계 및 원문 정보 / 적재 메타데이터(docmeta) 분리 설계 명세서
 
-**문서 번호:** DESIGN-UI-20260911-01  
-**작성일:** 2026-09-11  
-**상태:** **설계 및 구현 확정 (Implemented)**  
-**관련 모듈:** `src/claire/static/js/reader.js`, `src/claire/static/js/app.js`, `src/claire/templates/share.html`, `src/claire/static/css/reader.css`  
-**상위 문서:** [`docs/origin/README.md`](../README.md), [`GRAPHVIEW_MODULARIZATION_AND_STATIC_ASSET_DESIGN.md`](GRAPHVIEW_MODULARIZATION_AND_STATIC_ASSET_DESIGN.md)
+**문서 번호:** DESIGN-UI-20260911-01 **작성일:** 2026-09-11 **상태:** **설계 및 구현 확정 (Implemented)** **관련 모듈:** `src/claire/static/js/reader.js`, `src/claire/static/js/app.js`, `src/claire/templates/share.html`, `src/claire/static/css/reader.css` **상위 문서:** [`docs/origin/README.md`](../README.md), [`GRAPHVIEW_MODULARIZATION_AND_STATIC_ASSET_DESIGN.md`](GRAPHVIEW_MODULARIZATION_AND_STATIC_ASSET_DESIGN.md)
 
 ---
 
@@ -121,8 +117,7 @@ function docMetaHtml(dc){
 
 ## 4. 재발 방지를 위한 엔지니어링 가이드라인
 
-> [!CAUTION]
-> **금지 사항 (Forbidden Actions)**:
+> [!CAUTION] **금지 사항 (Forbidden Actions)**:
 > 1. **`docmeta`와 `rawmeta` 혼동 금지**: `docmeta`는 파이프라인 적재 이력(초점, 절단율, 파서 상태 등)이다. 외부 원천의 미가공 메타데이터(`rawmeta`)나 서지 정보를 `docmeta`로 둔갑시키거나 `doc.meta["biblio"]`를 부활시키지 마십시오.
 > 2. **문서 레벨 서지 정보 강제 금지**: 문서 본문(`detail`)이나 UI 뷰어에 저자·발행일·출처 문자열을 강제로 인라인 삽입하지 마십시오.
 > 3. **서지 정보는 지식 그래프의 전유물**: 저자, 출처, 소속 기관은 온톨로지 지식 노드(Person, Org, Work 등)로만 표현되며, 그래프 탐색 및 지식 노드 목록을 통해 접근합니다.

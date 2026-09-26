@@ -3,47 +3,28 @@
 Claire 웹 서비스는 환경에 따라 두 가지 접속 형태만 지원한다.
 
 - `development`: Docker host의 정확한 IPv4와 port로 직접 HTTP 접속
-- `production`: 별도 LAN reverse proxy가 public hostname과 클라이언트 TLS를 담당하고,
-  Claire에는 HTTP로 전달
+- `production`: 별도 LAN reverse proxy가 public hostname과 클라이언트 TLS를 담당하고, Claire에는 HTTP로 전달
 
-Claire 컨테이너에 HTTPS를 구성하거나 인증서를 저장하지 않는다. Claire host에서
-Let's Encrypt를 실행하는 절차도 이 문서와 현재 구현의 범위가 아니다. 서비스는
-hostname의 root(`/`)에 배치하며 subpath 배포는 지원하지 않는다.
+Claire 컨테이너에 HTTPS를 구성하거나 인증서를 저장하지 않는다. Claire host에서 Let's Encrypt를 실행하는 절차도 이 문서와 현재 구현의 범위가 아니다. 서비스는 hostname의 root(`/`)에 배치하며 subpath 배포는 지원하지 않는다.
 
 ## 공통 네트워크 경계
 
-컨테이너 안의 웹 서버는 `0.0.0.0:CB_API_PORT`에서 듣는다. 외부에 공개되는 주소는
-Docker port publish의 host 측 `CB_API_BIND`다. `cb-manuscript`는 `CB_API_BIND`를
-단일 IPv4로 검사하고 `0.0.0.0`, multicast, hostname과 IPv6를 거부한다. 따라서
-컨테이너 listen 주소를 host 공개 범위로 해석하면 안 된다.
+컨테이너 안의 웹 서버는 `0.0.0.0:CB_API_PORT`에서 듣는다. 외부에 공개되는 주소는 Docker port publish의 host 측 `CB_API_BIND`다. `cb-manuscript`는 `CB_API_BIND`를 단일 IPv4로 검사하고 `0.0.0.0`, multicast, hostname과 IPv6를 거부한다. 따라서 컨테이너 listen 주소를 host 공개 범위로 해석하면 안 된다.
 
-`CLAIRE_FQDN`은 링크 생성 및 요청 Host 보안 정책의 기준이다. (기존 `CLAIRE_PUBLIC_URL`은 하위 호환성을 위해 자동 변환된다.)
-클레어바이블의 프로덕션은 HTTPS 서비스가 당연하며 상단에 이를 처리하는 보호장치(Sophos Firewall Web Server Protection, Cloudflare 등)가 존재함을 기본으로 하여 동작한다.
+`CLAIRE_FQDN`은 링크 생성 및 요청 Host 보안 정책의 기준이다. (기존 `CLAIRE_PUBLIC_URL`은 하위 호환성을 위해 자동 변환된다.) 클레어바이블의 프로덕션은 HTTPS 서비스가 당연하며 상단에 이를 처리하는 보호장치(Sophos Firewall Web Server Protection, Cloudflare 등)가 존재함을 기본으로 하여 동작한다.
 
 | 환경 | 필수 형태 (`CLAIRE_FQDN`) | 자동 도출 Public URL |
 |---|---|---|
 | development | `<CB_API_BIND>:<CB_API_PORT>` | `http://<CB_API_BIND>:<CB_API_PORT>/` |
 | production | `<DNS-hostname>` (예: `claire.example.com`) | `https://<DNS-hostname>/` |
 
-두 환경 모두 canonical authority는 호스트명(또는 개발 authority)으로 관리된다. `CLAIRE_CORS_ALLOWED_ORIGINS`는 path와 wildcard가
-없는 정확한 origin의 쉼표 목록이다. 빈 값이면 same-origin만 허용하고, production
-목록은 `https` origin만 사용할 수 있다.
+두 환경 모두 canonical authority는 호스트명(또는 개발 authority)으로 관리된다. `CLAIRE_CORS_ALLOWED_ORIGINS`는 path와 wildcard가 없는 정확한 origin의 쉼표 목록이다. 빈 값이면 same-origin만 허용하고, production 목록은 `https` origin만 사용할 수 있다.
 
-exact `CLAIRE_ANONYMOUS_READONLY=1`(기본값)은 canonical same-origin 또는 Origin 헤더가
-없는 요청에서 자격증명 없는 읽기 전용 접근을 허용한다. 이 값은 owner 인증과 쓰기 경로를
-없애지 않으며, 숨김 문서(`hidden=1`) 및 그와 연관된 엔티티는 익명 읽기 계층에서 철저히
-제외되어 안전하게 공개된다. 완전히 인증 전용으로 운영하려면 `CLAIRE_ANONYMOUS_READONLY=0`으로
-설정한다. cross-origin anonymous는 허용하지 않으며, CORS allowlist에 origin을 넣어도 Bearer
-요구는 유지된다.
+exact `CLAIRE_ANONYMOUS_READONLY=1`(기본값)은 canonical same-origin 또는 Origin 헤더가 없는 요청에서 자격증명 없는 읽기 전용 접근을 허용한다. 이 값은 owner 인증과 쓰기 경로를 없애지 않으며, 숨김 문서(`hidden=1`) 및 그와 연관된 엔티티는 익명 읽기 계층에서 철저히 제외되어 안전하게 공개된다. 완전히 인증 전용으로 운영하려면 `CLAIRE_ANONYMOUS_READONLY=0`으로 설정한다. cross-origin anonymous는 허용하지 않으며, CORS allowlist에 origin을 넣어도 Bearer 요구는 유지된다.
 
-기존 `.env`/`.env.dev`를 재사용하는 설치는 `./cb-manuscript init` 또는 `./cb-manuscript update` 실행 시
-레거시 `CLAIRE_PUBLIC_URL`이 존재할 경우 `CLAIRE_FQDN`으로 자동 변환된다.
-따라서 `.env`의 `CLAIRE_FQDN`을 도메인 형식으로 직접 설정한 뒤 `./cb-manuscript preflight`를 통과시켜야 한다.
+기존 `.env`/`.env.dev`를 재사용하는 설치는 `./cb-manuscript init` 또는 `./cb-manuscript update` 실행 시 레거시 `CLAIRE_PUBLIC_URL`이 존재할 경우 `CLAIRE_FQDN`으로 자동 변환된다. 따라서 `.env`의 `CLAIRE_FQDN`을 도메인 형식으로 직접 설정한 뒤 `./cb-manuscript preflight`를 통과시켜야 한다.
 
-애플리케이션은 `Forwarded`와 `X-Forwarded-*`를 신뢰해 scheme, client IP 또는 Host를
-바꾸지 않는다. production의 외부 HTTPS 여부는 상단 보호장치의 TLS 오프로딩과 `CLAIRE_FQDN`을 기준으로
-결정하며 백엔드 upstream 연결 자체는 내부 HTTP다.
-또한 공인 대역 직접 접근 차단을 위해 `CLAIRE_CLOUDFLARE_IPS_ONLY=1` 옵션을 제공한다(상세 내용은 아래 참조).
+애플리케이션은 `Forwarded`와 `X-Forwarded-*`를 신뢰해 scheme, client IP 또는 Host를 바꾸지 않는다. production의 외부 HTTPS 여부는 상단 보호장치의 TLS 오프로딩과 `CLAIRE_FQDN`을 기준으로 결정하며 백엔드 upstream 연결 자체는 내부 HTTP다. 또한 공인 대역 직접 접근 차단을 위해 `CLAIRE_CLOUDFLARE_IPS_ONLY=1` 옵션을 제공한다(상세 내용은 아래 참조).
 
 ## Development: IPv4 직접 HTTP
 
@@ -62,9 +43,7 @@ CLAIRE_ENVIRONMENT=development ./cb-manuscript preflight
 CLAIRE_ENVIRONMENT=development ./cb-manuscript up
 ```
 
-브라우저에서는 `http://192.168.10.25:8766/`로 접속한다. 예시 파일의 loopback은 같은
-host에서만 접근하는 안전한 초기값이다. 다른 개발 장치에서 접속할 때만 실제 고정 LAN
-IPv4로 바꾸고 host firewall의 허용 대역도 필요한 개발 LAN으로 제한한다.
+브라우저에서는 `http://192.168.10.25:8766/`로 접속한다. 예시 파일의 loopback은 같은 host에서만 접근하는 안전한 초기값이다. 다른 개발 장치에서 접속할 때만 실제 고정 LAN IPv4로 바꾸고 host firewall의 허용 대역도 필요한 개발 LAN으로 제한한다.
 
 ## Production: 별도 LAN reverse proxy
 
@@ -75,8 +54,7 @@ client -- HTTPS / production hostname --> external reverse proxy
        -- HTTP / fixed LAN addresses --> Claire host:CB_API_PORT
 ```
 
-Claire host의 `.env`에는 proxy가 도달할 수 있는 고정 LAN IPv4와 사용자가 접속할
-hostname을 설정한다.
+Claire host의 `.env`에는 proxy가 도달할 수 있는 고정 LAN IPv4와 사용자가 접속할 hostname을 설정한다.
 
 ```dotenv
 CLAIRE_ENVIRONMENT=production
@@ -90,20 +68,14 @@ CLAIRE_CORS_ALLOWED_ORIGINS=https://portal.example.com
 
 - reverse proxy의 upstream은 `http://192.168.10.25:8765`처럼 고정한다.
 - Claire로 보내는 `Host`는 `CLAIRE_PUBLIC_URL`의 authority와 정확히 같아야 한다.
-- 알 수 없는 hostname을 Claire upstream으로 보내지 않고 proxy의 기본 virtual host에서
-  거부한다.
-- NDJSON 응답을 즉시 전달하도록 response buffering을 끄고 upstream read timeout을
-  장시간 작업보다 길게 둔다.
-- proxy access log에는 query string, `Referer`, `Authorization`과 cookie를 기록하지
-  않는다. 기존 인증 진입 query가 proxy 로그로 유출되지 않아야 한다.
-- Claire host firewall은 API port의 source를 reverse proxy의 고정 LAN IP로만 허용한다.
-  Host 검사만으로 backend 직접 접근을 막을 수는 없다.
+- 알 수 없는 hostname을 Claire upstream으로 보내지 않고 proxy의 기본 virtual host에서 거부한다.
+- NDJSON 응답을 즉시 전달하도록 response buffering을 끄고 upstream read timeout을 장시간 작업보다 길게 둔다.
+- proxy access log에는 query string, `Referer`, `Authorization`과 cookie를 기록하지 않는다. 기존 인증 진입 query가 proxy 로그로 유출되지 않아야 한다.
+- Claire host firewall은 API port의 source를 reverse proxy의 고정 LAN IP로만 허용한다. Host 검사만으로 backend 직접 접근을 막을 수는 없다.
 
 ## Nginx 예시
 
-다음 server block은 외부 reverse proxy에 병합하는 예시다. proxy의 기존 TLS 인증서
-설정과 기본 virtual host 정책은 그대로 사용하며 여기서는 인증서 발급·갱신을 다루지
-않는다.
+다음 server block은 외부 reverse proxy에 병합하는 예시다. proxy의 기존 TLS 인증서 설정과 기본 virtual host 정책은 그대로 사용하며 여기서는 인증서 발급·갱신을 다루지 않는다.
 
 ```nginx
 log_format claire_safe
@@ -172,8 +144,7 @@ server {
 }
 ```
 
-같은 proxy의 unmatched/default server는 연결을 거부해야 한다. `$request_uri`는 query를
-포함하므로 위 안전 로그에서는 사용하지 않는다.
+같은 proxy의 unmatched/default server는 연결을 거부해야 한다. `$request_uri`는 query를 포함하므로 위 안전 로그에서는 사용하지 않는다.
 
 ---
 
@@ -320,8 +291,7 @@ Claire Bible은 시스템 소유자(Owner), 협력자(Collaborator), 읽기 전�
 
 ## 적용 확인
 
-development에서는 설정한 IPv4 URL로 직접 접속하고 다른 interface에 port가 게시되지
-않았는지 확인한다. production에서는 다음을 각각 확인한다.
+development에서는 설정한 IPv4 URL로 직접 접속하고 다른 interface에 port가 게시되지 않았는지 확인한다. production에서는 다음을 각각 확인한다.
 
 1. 올바른 hostname을 통한 HTTPS 요청은 성공한다.
 2. 잘못된 Host는 proxy 또는 Claire에서 거부된다.

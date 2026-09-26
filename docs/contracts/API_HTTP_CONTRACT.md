@@ -1,10 +1,8 @@
 # Common HTTP API & Wire Security Contract
 
-이 문서는 테제 계보(`blackan/claire_bible`)와 증강 계보(`fofwisdom/claire-bible`)가 공유하는 HTTP REST/ASGI 와이어 프로토콜, 인증 채널 및 보안 경계의 최소 공통 계약을 정의한다.
-외부 클라이언트(Web UI, CLI, Telegram 봇, MCP 에이전트)가 구현 계보에 무관하게 안전하고 일관되게 통신하기 위한 프로토콜 규약이다.
+이 문서는 테제 계보(`blackan/claire_bible`)와 증강 계보(`fofwisdom/claire-bible`)가 공유하는 HTTP REST/ASGI 와이어 프로토콜, 인증 채널 및 보안 경계의 최소 공통 계약을 정의한다. 외부 클라이언트(Web UI, CLI, Telegram 봇, MCP 에이전트)가 구현 계보에 무관하게 안전하고 일관되게 통신하기 위한 프로토콜 규약이다.
 
-계약 상태는 증강 계보(`fofwisdom`)에서 `adopted`, 테제 계보(`blackan`)에서 `candidate`다.
-테제 계보 병합 후에만 `accepted`로 갱신한다.
+계약 상태는 증강 계보(`fofwisdom`)에서 `adopted`, 테제 계보(`blackan`)에서 `candidate`다. 테제 계보 병합 후에만 `accepted`로 갱신한다.
 
 ## 1. 네트워크 및 와이어 보안 불변식
 
@@ -50,8 +48,7 @@ $$\text{owner} \succ \text{readonly} \succ \text{anonymous} \succ \text{unauthen
 | `anonymous` | 공개 지식 조회 및 기본 FTS 검색 (숨김 문서 제외) | 자격증명이 없으나 `CLAIRE_ANONYMOUS_READONLY=1`인 경우 |
 
 ### 3.4 스텔스 모드 불변식
-`CLAIRE_ANONYMOUS_READONLY=0`(프라이빗/스텔스 모드)로 구동되는 인스턴스는 자격증명이 없는 읽기 요청에 대해 `401 Unauthorized` 대신 HTTP `404 Not Found`를 반환해야 한다.
-이는 외부 정찰에 대해 엔드포인트의 존재 여부와 파라미터 구조를 일절 노출하지 않기 위함이다.
+`CLAIRE_ANONYMOUS_READONLY=0`(프라이빗/스텔스 모드)로 구동되는 인스턴스는 자격증명이 없는 읽기 요청에 대해 `401 Unauthorized` 대신 HTTP `404 Not Found`를 반환해야 한다. 이는 외부 정찰에 대해 엔드포인트의 존재 여부와 파라미터 구조를 일절 노출하지 않기 위함이다.
 
 ## 4. 공통 에러 페이로드 규약
 

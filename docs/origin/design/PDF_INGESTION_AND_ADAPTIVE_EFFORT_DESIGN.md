@@ -1,14 +1,12 @@
 # PDF Extraction Budget & Adaptive Reasoning Effort Design
 
-> **문서 상태**: 구현 및 검증 완료 (Implemented)  
-> **관련 문서**: [MULTI_PROVIDER_DESIGN.md](MULTI_PROVIDER_DESIGN.md), [TABLE_INGESTION_DESIGN.md](TABLE_INGESTION_DESIGN.md)
+> **문서 상태**: 구현 및 검증 완료 (Implemented) **관련 문서**: [MULTI_PROVIDER_DESIGN.md](MULTI_PROVIDER_DESIGN.md), [TABLE_INGESTION_DESIGN.md](TABLE_INGESTION_DESIGN.md)
 
 ---
 
 ## 1. 배경 및 목적
 
-학술 논문(NBER Working Paper, arXiv, IEEE/ACM 등)이나 심층 기술 보고서와 같은 PDF 문서는 방대한 텍스트와 고밀도의 개념적 관계를 포함하고 있습니다.
-기존 시스템에서는 다음과 같은 병목 및 자원 배분 문제가 존재했습니다:
+학술 논문(NBER Working Paper, arXiv, IEEE/ACM 등)이나 심층 기술 보고서와 같은 PDF 문서는 방대한 텍스트와 고밀도의 개념적 관계를 포함하고 있습니다. 기존 시스템에서는 다음과 같은 병목 및 자원 배분 문제가 존재했습니다:
 
 1. **PDF 본문 슬라이싱 병목**: PDF 파서(`extract_pdf_bytes`)가 50,000자(`CLAIRE_PDF_MAX_EXTRACT_CHARS`)를 추출하더라도, 상위 수집기 및 프롬프트 생성기에서 일반 웹 문서 기준 예산(`CLAIRE_RAW_CHAR_BUDGET: 20000`, `CLAIRE_EXTRACT_CHAR_BUDGET: 20000`)으로 절단되어 원문 유실 및 오프라인 재추출 시 손실이 발생함.
 2. **고비용 추론(Reasoning Effort)의 획일적 적용 한계**: 모든 문서에 높은 추론 레벨(`effort="high"`)을 적용하면 일반 짧은 메모나 단순 안내서에 불필요한 연산 비용과 지연이 발생하고, 반대로 일괄 `medium` 이하로 적용하면 15,000자 이상의 복잡한 학술 논문에서 지식그래프 엔티티 및 상세 렌더링 품질이 저하됨.
@@ -141,8 +139,7 @@ PDF 문서는 2단(Two-Column) 레이아웃, 복잡한 데이터 표, 수식 등
 ### 3.7 멀티 칼럼 레이아웃 분석 요소 도입 제언 (Multi-Column Layout Analysis Roadmap)
 
 #### 1. 문제 상황 및 기술적 난제
-학술 논문(IEEE, ACM, Nature, arXiv 등)은 대다수가 2단(Two-Column) 레이아웃으로 조판됩니다.
-기존의 스트림 기반 단순 텍스트 추출기(`pypdf` 등)는 문자 객체의 Y좌표 순서대로 텍스트를 읽기 때문에, **좌측 칼럼의 1번째 줄과 우측 칼럼의 1번째 줄이 번갈아 뒤섞이는 현상(Interleaving)**이 발생할 위험이 있습니다. 이는 LLM의 문맥 이해도와 엔티티 관계 추출 정확도를 급격히 떨어뜨립니다.
+학술 논문(IEEE, ACM, Nature, arXiv 등)은 대다수가 2단(Two-Column) 레이아웃으로 조판됩니다. 기존의 스트림 기반 단순 텍스트 추출기(`pypdf` 등)는 문자 객체의 Y좌표 순서대로 텍스트를 읽기 때문에, **좌측 칼럼의 1번째 줄과 우측 칼럼의 1번째 줄이 번갈아 뒤섞이는 현상(Interleaving)**이 발생할 위험이 있습니다. 이는 LLM의 문맥 이해도와 엔티티 관계 추출 정확도를 급격히 떨어뜨립니다.
 
 #### 2. 주요 오픈소스 파서 기술 비교
 | 파서 엔진 | 레이아웃 복원 원리 | 강점 | 한계 및 비용 | 적합한 사용 시나리오 |

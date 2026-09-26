@@ -1,16 +1,10 @@
 """x.com(트위터) fetcher — fxtwitter JSON API 로 트윗 본문을 실제로 가져온다.
 
-기존 라우터는 x.com 을 'v1 부분 처리'로 두어 본문 스크랩 없이 URL 자체를 partial
-Note(title='x.com post', raw_text=URL)로 적재했다 → 제목·내용이 모두 빈약했다.
+기존 라우터는 x.com 을 'v1 부분 처리'로 두어 본문 스크랩 없이 URL 자체를 partial Note(title='x.com post', raw_text=URL)로 적재했다 → 제목·내용이 모두 빈약했다.
 
-x.com 은 로그인·JS 가드로 정적 스크랩이 거의 불가능하다. 그래서 공개 미러 API 인
-fxtwitter(api.fxtwitter.com)를 1차로 쓴다. 트윗 JSON(text/author/created_at/quote
-/media)을 받아 제대로 된 Document 를 만든다. 실패 시 vxtwitter 로 폴백하고, 둘 다
-죽으면 일반 web fetcher(scrapling 포함)로 최후 시도한다.
+x.com 은 로그인·JS 가드로 정적 스크랩이 거의 불가능하다. 그래서 공개 미러 API 인 fxtwitter(api.fxtwitter.com)를 1차로 쓴다. 트윗 JSON(text/author/created_at/quote /media)을 받아 제대로 된 Document 를 만든다. 실패 시 vxtwitter 로 폴백하고, 둘 다 죽으면 일반 web fetcher(scrapling 포함)로 최후 시도한다.
 
-제목: 트윗엔 제목이 없으므로 「작성자 — 본문 첫 줄 요약」으로 합성한다(빈약한
-'x.com post' 대체). 인용(quote)·답글(replying_to)·이미지 alt 텍스트까지 본문에 합쳐
-온톨로지 추출이 풍부해지도록 한다.
+제목: 트윗엔 제목이 없으므로 「작성자 — 본문 첫 줄 요약」으로 합성한다(빈약한 'x.com post' 대체). 인용(quote)·답글(replying_to)·이미지 alt 텍스트까지 본문에 합쳐 온톨로지 추출이 풍부해지도록 한다.
 """
 
 from __future__ import annotations
@@ -76,10 +70,7 @@ def fetch_xcom(url: str, *, full_content: bool = False) -> Document:
 def _fetch_thread(screen: str | None, sid: str) -> tuple[list[dict] | None, str | None]:
     """FixTweet v2 스레드/대화 API를 우선 활용하여 동일 작성자의 글타래 전체를 수집한다.
 
-    1차: /2/thread/{sid} 로 루트 트윗 식별
-    2차: /2/conversation/{root_id} 로 루트 및 하위 타래 전체 수집
-    3차: 동일 작성자 필터링 및 시간순 정렬
-    실패 시: 기존 v1 API 및 replying_to_status 상향 역추적 체인으로 폴백.
+    1차: /2/thread/{sid} 로 루트 트윗 식별 2차: /2/conversation/{root_id} 로 루트 및 하위 타래 전체 수집 3차: 동일 작성자 필터링 및 시간순 정렬 실패 시: 기존 v1 API 및 replying_to_status 상향 역추적 체인으로 폴백.
     """
     v2_tweets = _try_fetch_v2_thread(sid)
     if v2_tweets:
@@ -204,14 +195,9 @@ def _trace_upward_chain(initial_tweet: dict, screen: str | None, max_depth: int 
 def _fetch_api(screen: str | None, sid: str) -> tuple[dict | None, str | None]:
     """fxtwitter → vxtwitter 순으로 트윗 JSON(dict)을 가져온다. (tweet, via_host).
 
-    미러는 rate limit 시 *같은 트윗에도 일시적으로 404* 를 돌려준다(실측: fxtwitter
-    5회 중 2회 404, 같은 id 가 200↔404 반복). 따라서 한 호스트 1회로 단정하지 않고
-    호스트 목록을 _ROUNDS 회 순회하며 재시도한다 — 라운드 사이 짧은 backoff.
+    미러는 rate limit 시 *같은 트윗에도 일시적으로 404* 를 돌려준다(실측: fxtwitter 5회 중 2회 404, 같은 id 가 200↔404 반복). 따라서 한 호스트 1회로 단정하지 않고 호스트 목록을 _ROUNDS 회 순회하며 재시도한다 — 라운드 사이 짧은 backoff.
 
-    fxtwitter 는 X 롱폼 아티클 *전문*(article.content)을 주지만 vxtwitter 는
-    preview 만 준다. 그래서 fxtwitter 응답을 끝까지 노리고, vxtwitter 응답은 임시
-    보관했다가 fxtwitter 가 모든 라운드에서 실패했을 때만 폴백으로 쓴다.
-    모두 실패하면 (None, None)(→ web 폴백, 진짜 삭제/비공개 트윗만 여기 도달).
+    fxtwitter 는 X 롱폼 아티클 *전문*(article.content)을 주지만 vxtwitter 는 preview 만 준다. 그래서 fxtwitter 응답을 끝까지 노리고, vxtwitter 응답은 임시 보관했다가 fxtwitter 가 모든 라운드에서 실패했을 때만 폴백으로 쓴다. 모두 실패하면 (None, None)(→ web 폴백, 진짜 삭제/비공개 트윗만 여기 도달).
     """
     import time
 

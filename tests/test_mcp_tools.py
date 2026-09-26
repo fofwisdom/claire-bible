@@ -1,5 +1,4 @@
-"""MCP 툴 구현(mcp_tools.py) — 순수 함수 단위 테스트. 프로토콜/인증 경계는
-test_api_server.py / test_api_security.py 에서 별도로 검증한다."""
+"""MCP 툴 구현(mcp_tools.py) — 순수 함수 단위 테스트. 프로토콜/인증 경계는 test_api_server.py / test_api_security.py 에서 별도로 검증한다."""
 
 from __future__ import annotations
 

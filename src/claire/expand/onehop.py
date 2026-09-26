@@ -1,8 +1,6 @@
 """1홉 자동 확장 — 적재한 문서에서 관련 외부 링크 후보를 뽑는다.
 
-설계(PLAN/사용자): 자동 fetch 가 아니라 **후보 제안**이 기본. 텔레그램에서 confirm
-하면 그때 fetch+ingest. 내부 연결(기존 그래프와의 관계)은 이미 파이프라인에서 자동.
-비용 통제: 자료당 상한(expand_max) + 이미 적재된 URL 제외 + dedup.
+설계(PLAN/사용자): 자동 fetch 가 아니라 **후보 제안**이 기본. 텔레그램에서 confirm 하면 그때 fetch+ingest. 내부 연결(기존 그래프와의 관계)은 이미 파이프라인에서 자동. 비용 통제: 자료당 상한(expand_max) + 이미 적재된 URL 제외 + dedup.
 """
 
 from __future__ import annotations

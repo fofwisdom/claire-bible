@@ -1,13 +1,8 @@
 """맥락 확장 조사 — 읽던 맥락에 맞춰 키워드/문장을 조사해 그래프를 확장한다.
 
-사용자 흐름: 그래프 UI 에서 노드/문서를 읽다가 더 알고 싶은 키워드·문장을 입력
-→ provider.research(웹 검색 grounding)가 **맥락 내 의미로 고정**해 조사
-→ provider.judge_research(별도 호출)가 맥락 일치도(relevance)·품질(quality)을 채점
-→ 두 임계 모두 통과할 때만 일반 ingest 파이프라인(추출→해소→관계→vault)으로 적재.
+사용자 흐름: 그래프 UI 에서 노드/문서를 읽다가 더 알고 싶은 키워드·문장을 입력 → provider.research(웹 검색 grounding)가 **맥락 내 의미로 고정**해 조사 → provider.judge_research(별도 호출)가 맥락 일치도(relevance)·품질(quality)을 채점 → 두 임계 모두 통과할 때만 일반 ingest 파이프라인(추출→해소→관계→vault)으로 적재.
 
-다의어 방어(사용자 요구)는 이중: ① 조사 프롬프트가 맥락 내 해석을 강제하고 맥락
-불일치 시 INSUFFICIENT 선언, ② 독립 판정자가 relevance 를 채점해 게이트. 판정
-실패는 0점(fail-closed) — 불확실하면 추가하지 않는다(보고서는 보여주되 보류).
+다의어 방어(사용자 요구)는 이중: ① 조사 프롬프트가 맥락 내 해석을 강제하고 맥락 불일치 시 INSUFFICIENT 선언, ② 독립 판정자가 relevance 를 채점해 게이트. 판정 실패는 0점(fail-closed) — 불확실하면 추가하지 않는다(보고서는 보여주되 보류).
 """
 
 from __future__ import annotations
@@ -54,13 +49,9 @@ def contextual_research(settings, provider, *, query: str,
                         progress=None) -> dict:
     """조사→판정→(통과 시)적재 전체 흐름. 블로킹 — 호출측에서 스레드 오프로드.
 
-    progress: Callable[[dict], None] | None — 단계 이벤트 {stage, msg} 를 실시간 전달
-    (API 가 NDJSON 스트림으로 UI 에 흘림). provider 내부의 rate limit 대기/재시도도
-    스레드-로컬 콜백(set_progress_callback)으로 같은 채널에 합류한다.
+    progress: Callable[[dict], None] | None — 단계 이벤트 {stage, msg} 를 실시간 전달 (API 가 NDJSON 스트림으로 UI 에 흘림). provider 내부의 rate limit 대기/재시도도 스레드-로컬 콜백(set_progress_callback)으로 같은 채널에 합류한다.
 
-    반환 dict: {query, context_focus, report, sources, relevance, quality,
-    interpretation, reason, added, verdict, ingest?} — 게이트 미달이어도 보고서는
-    반환해 사용자가 읽을 수 있게 한다(추가만 보류).
+    반환 dict: {query, context_focus, report, sources, relevance, quality, interpretation, reason, added, verdict, ingest?} — 게이트 미달이어도 보고서는 반환해 사용자가 읽을 수 있게 한다(추가만 보류).
     """
     from ..extract.provider import set_progress_callback
 

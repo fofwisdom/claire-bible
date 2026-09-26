@@ -1,8 +1,6 @@
 """텔레그램 진입점 (long-polling).
 
-링크/문서/키워드/PDF를 받으면 IngestService(공유 통로)로 적재하고, 1홉 확장 후보가
-있으면 inline 버튼으로 "가져오기"를 제안한다. /search 로 검색.
-적재 로직은 IngestService 에 있어 inject API · CLI 와 완전히 동일한 경로를 탄다.
+링크/문서/키워드/PDF를 받으면 IngestService(공유 통로)로 적재하고, 1홉 확장 후보가 있으면 inline 버튼으로 "가져오기"를 제안한다. /search 로 검색. 적재 로직은 IngestService 에 있어 inject API · CLI 와 완전히 동일한 경로를 탄다.
 """
 
 from __future__ import annotations
@@ -79,8 +77,7 @@ def _status_emoji(error, duplicate: bool = False, *, stt_error: str | None = Non
 async def _run_with_ticker(status, label: str, work, interval: float = 5.0):
     """work(블로킹)를 스레드에서 실행하며 status 메시지를 5초마다 편집(진행 표시).
 
-    emit_progress 콜백을 통해 파이프라인의 실시간 진행 단계(원문 수집, STT, LLM 추출 등)를
-    수신하고, 5초 주기로 Telegram 메시지를 갱신하여 텔레그램 부하 기준(초당 1회 이하)을 충족합니다."""
+    emit_progress 콜백을 통해 파이프라인의 실시간 진행 단계(원문 수집, STT, LLM 추출 등)를 수신하고, 5초 주기로 Telegram 메시지를 갱신하여 텔레그램 부하 기준(초당 1회 이하)을 충족합니다."""
     stop = asyncio.Event()
     current_stage: str = ""
     last_sent_text: str = ""

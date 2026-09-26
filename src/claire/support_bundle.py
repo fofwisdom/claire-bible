@@ -1,8 +1,6 @@
 """Support Bundle 생성 및 관리 모듈.
 
-근본 원인 분석(RCA) 및 트러블슈팅을 위해 지정한 날짜(기본 1일)만큼의
-텔레메트리, 프로바이더 로그, 인제스트 파이프라인 진단 및 공유 링크 추적 정보를
-zstd로 압축한 번들을 생성하고, 6시간 후 자동 파기한다.
+근본 원인 분석(RCA) 및 트러블슈팅을 위해 지정한 날짜(기본 1일)만큼의 텔레메트리, 프로바이더 로그, 인제스트 파이프라인 진단 및 공유 링크 추적 정보를 zstd로 압축한 번들을 생성하고, 6시간 후 자동 파기한다.
 """
 
 from __future__ import annotations
@@ -329,8 +327,7 @@ def validate_bundle_days(days: int, max_retention_days: int | None = None) -> in
 
 
 def sanitize_sensitive_data(obj: Any) -> Any:
-    """비밀번호, 토큰, API 키 등 민감 정보를 ***REDACTED*** 처리.
-    공개 원문, 서지 정보, 분석 텍스트 필드(author, key_claims 등)는 보존한다.
+    """비밀번호, 토큰, API 키 등 민감 정보를 ***REDACTED*** 처리. 공개 원문, 서지 정보, 분석 텍스트 필드(author, key_claims 등)는 보존한다.
     """
     if isinstance(obj, dict):
         sanitized = {}

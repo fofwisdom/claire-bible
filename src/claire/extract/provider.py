@@ -1,8 +1,6 @@
 """LLM/임베딩 provider 어댑터.
 
-advisor 조언: mock provider 는 단순 placeholder 가 아니라 "추출 JSON 계약의 실행 가능한
-스펙"이다. mock 이 내는 구조 = Gemini 가 내야 할 구조. M1 에서 sample.md 로 이 계약을
-고정하고, 키 도착 시 gemini provider 가 같은 스키마를 채운다.
+advisor 조언: mock provider 는 단순 placeholder 가 아니라 "추출 JSON 계약의 실행 가능한 스펙"이다. mock 이 내는 구조 = Gemini 가 내야 할 구조. M1 에서 sample.md 로 이 계약을 고정하고, 키 도착 시 gemini provider 가 같은 스키마를 채운다.
 
 ExtractionResult 스키마 (provider 가 채워야 할 계약):
 {
@@ -131,16 +129,7 @@ def emit_progress(msg: str) -> None:
 class ResearchJudgement(BaseModel):
     """맥락 조사 보고서 판정 — 그래프 추가 게이트(expand/research).
 
-    relevance: 보고서가 '주어진 맥락 안에서의 그 키워드 의미'를 다루는가(0~1).
-      다의어가 다른 의미로 새는 오염을 여기서 걸러낸다.
-    quality: 사실성·구체성·출처 충실도(0~1).
-    same_subject: [1홉 병합 전용, ONEHOP_MERGE_DESIGN.md §3.1] 대상(query/report)이 맥락이
-      다루는 구체적 대상 그 자체를 가리키는 원출처(예: 맥락이 소개하는 프로젝트의 공식
-      저장소 자체 — 같은 것을 가리키는 두 창)면 True. 맥락 자체가 이미 특정 회사·제품의
-      1차 콘텐츠라면, 같은 회사·제품의 다른 공식 페이지(문서/다른 사례/홈페이지)라는 이유만
-      으로는 True 로 보지 않는다 — 맥락이 다루는 구체적 서사와 실질적으로 같을 때만 True.
-      맥락과 관련은 있으나 사실상 별개의 소재(다른 프로젝트/사건/화제/제3자 논의)면 False.
-      contextual research(맥락 확장 조사) 호출부는 이 필드를 사용하지 않는다(무시해도 무해).
+    relevance: 보고서가 '주어진 맥락 안에서의 그 키워드 의미'를 다루는가(0~1). 다의어가 다른 의미로 새는 오염을 여기서 걸러낸다. quality: 사실성·구체성·출처 충실도(0~1). same_subject: [1홉 병합 전용, ONEHOP_MERGE_DESIGN.md §3.1] 대상(query/report)이 맥락이 다루는 구체적 대상 그 자체를 가리키는 원출처(예: 맥락이 소개하는 프로젝트의 공식 저장소 자체 — 같은 것을 가리키는 두 창)면 True. 맥락 자체가 이미 특정 회사·제품의 1차 콘텐츠라면, 같은 회사·제품의 다른 공식 페이지(문서/다른 사례/홈페이지)라는 이유만 으로는 True 로 보지 않는다 — 맥락이 다루는 구체적 서사와 실질적으로 같을 때만 True. 맥락과 관련은 있으나 사실상 별개의 소재(다른 프로젝트/사건/화제/제3자 논의)면 False. contextual research(맥락 확장 조사) 호출부는 이 필드를 사용하지 않는다(무시해도 무해).
     """
 
     relevance: float
@@ -153,8 +142,7 @@ class ResearchJudgement(BaseModel):
 class FollowSelection(BaseModel):
     """1홉 자동확장 — 따라갈 후보 링크의 인덱스 목록(LLM 이 선별).
 
-    follow: 입력 후보에서 '지식으로 더 팔 가치가 있다'고 판단한 항목의 0-기반 인덱스.
-      가치 없으면 빈 목록(= 파고들지 않음). 다의어/잡음/맥락 무관은 제외.
+    follow: 입력 후보에서 '지식으로 더 팔 가치가 있다'고 판단한 항목의 0-기반 인덱스. 가치 없으면 빈 목록(= 파고들지 않음). 다의어/잡음/맥락 무관은 제외.
     """
 
     follow: list[int] = Field(default_factory=list)
@@ -164,9 +152,7 @@ class FollowSelection(BaseModel):
 class WatchClassification(BaseModel):
     """[주기 크롤링] 이 문서가 '주기적으로 내용이 바뀌는 콘텐츠'인가.
 
-    watch: 리더보드/벤치마크 순위표/실시간 통계/가격/랭킹처럼 지속 갱신되면 True;
-      뉴스/블로그/논문/일회성 설명/문서면 False.
-    interval_days: watch=True 일 때 재확인 권장 주기(일). 아니면 None.
+    watch: 리더보드/벤치마크 순위표/실시간 통계/가격/랭킹처럼 지속 갱신되면 True; 뉴스/블로그/논문/일회성 설명/문서면 False. interval_days: watch=True 일 때 재확인 권장 주기(일). 아니면 None.
     """
 
     watch: bool = False
@@ -353,8 +339,7 @@ class MockProvider:
     def summarize_search(self, query: str, context: str) -> str:
         """결정론적 stub — 종합/검색 경로를 mock 으로 테스트 가능하게(실제 정리는 Gemini).
 
-        실제 종합 품질은 실 Gemini 로 검증한다. 여기선 query·context 가 흘러들어가
-        답으로 나오는지(파이프라인 연결)만 결정론적으로 보장한다."""
+        실제 종합 품질은 실 Gemini 로 검증한다. 여기선 query·context 가 흘러들어가 답으로 나오는지(파이프라인 연결)만 결정론적으로 보장한다."""
         return f"[mock] {query} :: {context[:120]}"
 
     def render_detail(
@@ -362,8 +347,7 @@ class MockProvider:
     ) -> str:
         """결정론적 stub — 문서 가독 렌더링(detail, MD 또는 ADOC) 파이프라인 연결만 보장.
 
-        실제 분량/품질(A4 1~2장 마크다운/AsciiDoc+강조+이미지 큐레이션)은 실 Gemini 로 검증한다.
-        여기선 문서 구조·강조·수집 이미지가 detail 로 흘러가는지(배선)만 보장한다."""
+        실제 분량/품질(A4 1~2장 마크다운/AsciiDoc+강조+이미지 큐레이션)은 실 Gemini 로 검증한다. 여기선 문서 구조·강조·수집 이미지가 detail 로 흘러가는지(배선)만 보장한다."""
         title = (doc.title or doc.url or "untitled").strip()
         text = (doc.raw_text or "").strip()
         images = (doc.meta or {}).get("images") or []
@@ -389,8 +373,7 @@ class MockProvider:
     def classify_watch(self, doc: Document) -> dict:
         """결정론 stub — 제목/본문에 순위·벤치 키워드 있으면 watch(주기크롤 판단 배선 검증).
 
-        실제 판단은 Gemini. 여기선 키워드로 watch=True/False 가 흘러 set_document_watch 까지
-        배선되는지만 보장(테스트). 'leaderboard/벤치/순위/실시간' 등 → watch."""
+        실제 판단은 Gemini. 여기선 키워드로 watch=True/False 가 흘러 set_document_watch 까지 배선되는지만 보장(테스트). 'leaderboard/벤치/순위/실시간' 등 → watch."""
         blob = ((doc.title or "") + " " + (doc.raw_text or "")).lower()
         kws = ("leaderboard", "benchmark", "ranking", "arena", "리더보드",
                "벤치마크", "순위", "랭킹", "실시간")
@@ -410,9 +393,7 @@ class MockProvider:
     def judge_research(self, query: str, context: str, report: str) -> dict:
         """결정론적 stub — 저품질 판정(게이트 거절) 훅: query '모호' 또는 report '무관'.
 
-        '무관' 훅은 1홉 자동확장의 store 게이트(judge_research 재사용) 거절 경로 테스트용.
-        '별개주제' 훅은 게이트는 통과하되 same_subject=False(1홉 병합 분기 테스트용,
-        ONEHOP_MERGE_DESIGN.md §3.1) — 기본은 True(합쳐도 되는 케이스가 흔함을 모사)."""
+        '무관' 훅은 1홉 자동확장의 store 게이트(judge_research 재사용) 거절 경로 테스트용. '별개주제' 훅은 게이트는 통과하되 same_subject=False(1홉 병합 분기 테스트용, ONEHOP_MERGE_DESIGN.md §3.1) — 기본은 True(합쳐도 되는 케이스가 흔함을 모사)."""
         low = ("모호" in query) or ("무관" in report) or ("무관" in context)
         same_subject = "별개주제" not in report and "별개주제" not in context
         return {"relevance": 0.2 if low else 0.92, "quality": 0.2 if low else 0.85,
@@ -423,8 +404,7 @@ class MockProvider:
     def select_followups(self, context: str, candidates: list[dict]) -> list[int]:
         """결정론적 stub — 1홉 확장에서 따라갈 후보 선별(파고들지 여부=LLM 결정 모사).
 
-        url/anchor 에 'skip' 이 들어간 후보는 제외(= 안 판다), 나머지는 따라간다.
-        실제 선별 품질은 실 Gemini 로. 여기선 선별→게이트 배선만 결정론적으로 보장한다."""
+        url/anchor 에 'skip' 이 들어간 후보는 제외(= 안 판다), 나머지는 따라간다. 실제 선별 품질은 실 Gemini 로. 여기선 선별→게이트 배선만 결정론적으로 보장한다."""
         out = []
         for i, c in enumerate(candidates):
             blob = f"{c.get('url', '')} {c.get('anchor', '')}".lower()

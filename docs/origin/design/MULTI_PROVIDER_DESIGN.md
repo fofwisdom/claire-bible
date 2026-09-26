@@ -1,7 +1,6 @@
 # Multi-Provider & Hyperscaler Calibration Architecture Design
 
-> **문서 상태**: 설계 및 현재 구현 기록 (Codex CLI 포함)
-> **관련 문서**: [SYNTHESIS_REDESIGN.md](../../upstream/SYNTHESIS_REDESIGN.md), [ONEHOP_MERGE_DESIGN.md](../../upstream/ONEHOP_MERGE_DESIGN.md)
+> **문서 상태**: 설계 및 현재 구현 기록 (Codex CLI 포함) **관련 문서**: [SYNTHESIS_REDESIGN.md](../../upstream/SYNTHESIS_REDESIGN.md), [ONEHOP_MERGE_DESIGN.md](../../upstream/ONEHOP_MERGE_DESIGN.md)
 
 ---
 
@@ -113,13 +112,7 @@ src/claire/extract/
 
 ### 3.3 Codex CLI 어댑터(현재 구현)
 
-`CodexProvider`는 공통 `prompts.py`와 Pydantic 계약을 사용하여 `extract`,
-`render_detail`, `summarize_search`, `classify_paper`, `classify_watch`, `research`,
-`judge_research`, `select_followups`, `judge_same_entity`, `embed` 인터페이스를 구현한다.
-구조화 호출은 해당 결과 모델의 JSON Schema를 `codex exec --output-schema`에 전달하고,
-최종 메시지를 임시 파일로 받은 뒤 Pydantic으로 다시 검증한다. 텍스트 호출도 최종
-메시지 파일만 읽으며 빈 출력, JSON 검증 실패, timeout, 비정상 종료는 `RuntimeError`로
-정규화한다.
+`CodexProvider`는 공통 `prompts.py`와 Pydantic 계약을 사용하여 `extract`, `render_detail`, `summarize_search`, `classify_paper`, `classify_watch`, `research`, `judge_research`, `select_followups`, `judge_same_entity`, `embed` 인터페이스를 구현한다. 구조화 호출은 해당 결과 모델의 JSON Schema를 `codex exec --output-schema`에 전달하고, 최종 메시지를 임시 파일로 받은 뒤 Pydantic으로 다시 검증한다. 텍스트 호출도 최종 메시지 파일만 읽으며 빈 출력, JSON 검증 실패, timeout, 비정상 종료는 `RuntimeError`로 정규화한다.
 
 #### 공개 설정
 
@@ -132,38 +125,23 @@ src/claire/extract/
 | `CLAIRE_CODEX_TIMEOUT` | `300` | 호출별 최대 대기 시간(초) |
 | `CLAIRE_CODEX_MAX_CONCURRENCY` | `1` | 프로세스 내 최대 동시 Codex 호출 수 |
 
-Codex 프로바이더는 호스트에 설치·인증된 CLI를 사용하는 **네이티브 전용 기능**이다.
-Docker 이미지와 Compose에는 CLI나 인증 정보를 포함하지 않으며, Docker profile에서
-`codex` 또는 `codex-cli`를 선택하면 `cb-manuscript preflight`가 중단한다. 네이티브
-환경에서는 `codex login status`로 인증 상태를 확인한 뒤 `uv run claire preflight`,
-`uv run claire status`, `uv run claire doctor`로 바이너리·버전·로그인 상태·모델·effort와
-`embedding=gemini` 또는 `search=fts-only` 상태를 확인한다.[^codex-auth]
+Codex 프로바이더는 호스트에 설치·인증된 CLI를 사용하는 **네이티브 전용 기능**이다. Docker 이미지와 Compose에는 CLI나 인증 정보를 포함하지 않으며, Docker profile에서 `codex` 또는 `codex-cli`를 선택하면 `cb-manuscript preflight`가 중단한다. 네이티브 환경에서는 `codex login status`로 인증 상태를 확인한 뒤 `uv run claire preflight`, `uv run claire status`, `uv run claire doctor`로 바이너리·버전·로그인 상태·모델·effort와 `embedding=gemini` 또는 `search=fts-only` 상태를 확인한다.[^codex-auth]
 
 #### 실행 격리
 
-각 호출은 프롬프트를 argv가 아닌 stdin으로 전달하고 호출별 빈 임시 작업 디렉터리에서
-신규 세션으로 실행한다. 기본 실행은 `--ephemeral`, `--ignore-user-config`,
-`--ignore-rules`, `--skip-git-repo-check`, `--sandbox read-only`, 승인 정책 `never`,
-색상 비활성화를 강제한다. Codex CLI 레퍼런스는 이 비대화형 실행 옵션과 stdin 입력,
-ephemeral session, 사용자 config·rules 무시, sandbox 선택을 지원한다.[^codex-cli-reference]
+각 호출은 프롬프트를 argv가 아닌 stdin으로 전달하고 호출별 빈 임시 작업 디렉터리에서 신규 세션으로 실행한다. 기본 실행은 `--ephemeral`, `--ignore-user-config`, `--ignore-rules`, `--skip-git-repo-check`, `--sandbox read-only`, 승인 정책 `never`, 색상 비활성화를 강제한다. Codex CLI 레퍼런스는 이 비대화형 실행 옵션과 stdin 입력, ephemeral session, 사용자 config·rules 무시, sandbox 선택을 지원한다.[^codex-cli-reference]
 
 Claire의 추가 방어선은 다음과 같다.
 
 * `shell_tool`, `apply_patch`, plugins, apps, memories, multi-agent, tool discovery를 비활성화한다.
 * 네이티브 웹 검색은 `research()` 호출에서만 활성화한다.
-* 자식 환경은 실행·Codex 인증·인증서·프록시에 필요한 값만 allowlist로 전달하며
-  `CLAIRE_*`, Telegram 토큰, 관계없는 API 토큰과 `GEMINI_API_KEY`를 전달하지 않는다.
+* 자식 환경은 실행·Codex 인증·인증서·프록시에 필요한 값만 allowlist로 전달하며 `CLAIRE_*`, Telegram 토큰, 관계없는 API 토큰과 `GEMINI_API_KEY`를 전달하지 않는다.
 * stderr는 길이를 제한하고 알려진 비밀을 마스킹한 뒤 오류에 포함한다.
 * schema와 최종 출력 파일은 호출별 임시 디렉터리 제거와 함께 폐기한다.
 
 #### 임베딩과 사용량
 
-`GEMINI_API_KEY`가 있으면 기존 Gemini embedding 모델과 입력 예산을 재사용한다. 키가
-없으면 해시나 임의 차원의 벡터를 만들지 않고 embedding 호출을 실패 처리한다. 기존
-ingestion/search 예외 경계가 새 벡터 저장을 생략하여 FTS 전용 후보 회수로 동작하며,
-Codex의 검색 결과 종합은 유지한다. 추출·렌더링·분류·종합·리서치 호출은 인증 계정의
-사용량과 한도에 의존하므로 운영자는 계정 사용량과 Claire의 상태·오류 큐를 함께
-관찰한다.[^codex-usage]
+`GEMINI_API_KEY`가 있으면 기존 Gemini embedding 모델과 입력 예산을 재사용한다. 키가 없으면 해시나 임의 차원의 벡터를 만들지 않고 embedding 호출을 실패 처리한다. 기존 ingestion/search 예외 경계가 새 벡터 저장을 생략하여 FTS 전용 후보 회수로 동작하며, Codex의 검색 결과 종합은 유지한다. 추출·렌더링·분류·종합·리서치 호출은 인증 계정의 사용량과 한도에 의존하므로 운영자는 계정 사용량과 Claire의 상태·오류 큐를 함께 관찰한다.[^codex-usage]
 
 ### 3.4 재적재 시험 및 튜닝 하네스 (`eval/`)
 새 하이퍼스케일러나 새 모델을 도입할 때 전체 그래프를 덮어쓰기 전, 튜닝 및 회귀 검증을 수행하는 프레임워크를 제공합니다.

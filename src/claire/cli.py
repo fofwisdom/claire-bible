@@ -1,9 +1,6 @@
 """claire CLI 진입점.
 
-  claire doctor          환경/벡터백엔드/DB 점검
-  claire bot             텔레그램 봇 실행 (long-polling)
-  claire stats           그래프 통계
-  claire ingest <text>   (M1 stub) 단건 적재
+  claire doctor          환경/벡터백엔드/DB 점검 claire bot             텔레그램 봇 실행 (long-polling) claire stats           그래프 통계 claire ingest <text>   (M1 stub) 단건 적재
 
 M0 에서는 doctor / bot(echo) / stats 가 동작한다.
 """
@@ -2164,8 +2161,7 @@ def cmd_video_reprocess(args) -> int:
 def cmd_backfill_images(args) -> int:
     """본문 이미지가 없는 기존 문서를 재fetch 대상(refresh 큐)으로 등록.
 
-    실제 재fetch·이미지 수집·detail 재생성은 refresh-loop(claire_refresh 컨테이너)가
-    **며칠에 걸쳐 천천히** 처리한다(quota 부담 분산). 본문 안 바뀐 문서는 그래프 불변.
+    실제 재fetch·이미지 수집·detail 재생성은 refresh-loop(claire_refresh 컨테이너)가 **며칠에 걸쳐 천천히** 처리한다(quota 부담 분산). 본문 안 바뀐 문서는 그래프 불변.
     """
     from .ingest.service import IngestService
 
@@ -2179,8 +2175,7 @@ def cmd_backfill_images(args) -> int:
 def cmd_watch(args) -> int:
     """[주기 크롤링] 문서 watch(주기 재크롤) 수동 on/off·주기·목록·상태.
 
-    watch 대상은 refresh-loop 가 주기적으로 재fetch → 내용 바뀌면 변경 전 원문을 스냅샷
-    보존 + 그래프 최신 갱신 + unseen. LLM 자동판단을 사람이 덮어쓸 때 사용."""
+    watch 대상은 refresh-loop 가 주기적으로 재fetch → 내용 바뀌면 변경 전 원문을 스냅샷 보존 + 그래프 최신 갱신 + unseen. LLM 자동판단을 사람이 덮어쓸 때 사용."""
     from .store import db as dbm
 
     s = get_settings()
@@ -2265,8 +2260,7 @@ def cmd_doc_title(args) -> int:
 def cmd_dedup_scan(args) -> int:
     """[진단·비파괴] 근사 중복(near-duplicate) 클러스터를 보고만 한다(병합 안 함).
 
-    minhash 백필 후 임계 이상으로 묶이는 문서쌍을 클러스터로 출력. content_hash·
-    canonical_url 을 비껴간 "같은 글 다른 입구"(arxiv 버전 접미사 등)를 찾는다.
+    minhash 백필 후 임계 이상으로 묶이는 문서쌍을 클러스터로 출력. content_hash· canonical_url 을 비껴간 "같은 글 다른 입구"(arxiv 버전 접미사 등)를 찾는다.
     """
     from .ingest.service import IngestService
 
@@ -2287,8 +2281,7 @@ def cmd_dedup_scan(args) -> int:
 def cmd_recanonicalize(args) -> int:
     """기존 문서 canonical_url 을 현재 규칙으로 재계산(기본: dry-run, --apply 로 적용).
 
-    --apply 로 실제 DB에 반영. 같은 자료의 변형이 같은 canonical 로
-    수렴 → 이후 dedup-merge 가 깨끗한 URL 을 keeper 로 남긴다.
+    --apply 로 실제 DB에 반영. 같은 자료의 변형이 같은 canonical 로 수렴 → 이후 dedup-merge 가 깨끗한 URL 을 keeper 로 남긴다.
     """
     from .ingest.service import IngestService
 

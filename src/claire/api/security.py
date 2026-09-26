@@ -1,8 +1,6 @@
 """웹 API의 ASGI 보안 경계.
 
-Starlette 라우트와 Uvicorn 실행기는 이 모듈 안쪽에 둔다. 여기서는 public URL에서
-도출한 정확한 Host, CORS/Origin, 요청 크기, 인증 scope와 query 없는 접근 로그를
-한 번에 적용한다. Reverse proxy 헤더는 의도적으로 읽지 않는다.
+Starlette 라우트와 Uvicorn 실행기는 이 모듈 안쪽에 둔다. 여기서는 public URL에서 도출한 정확한 Host, CORS/Origin, 요청 크기, 인증 scope와 query 없는 접근 로그를 한 번에 적용한다. Reverse proxy 헤더는 의도적으로 읽지 않는다.
 """
 
 from __future__ import annotations
@@ -473,8 +471,7 @@ async def read_json_body(
 ) -> dict[str, Any]:
     """JSON body를 제한 크기 안에서 읽는다.
 
-    InvalidJSONBody(400)와 RequestBodyTooLarge(413)는 Starlette의 HTTPException
-    처리기를 통과하므로 handler가 넓은 ``except Exception``으로 덮어쓰면 안 된다.
+    InvalidJSONBody(400)와 RequestBodyTooLarge(413)는 Starlette의 HTTPException 처리기를 통과하므로 handler가 넓은 ``except Exception``으로 덮어쓰면 안 된다.
     """
 
     content_type = request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
@@ -691,8 +688,7 @@ async def _send_response(response: Response, scope: Scope, receive: Receive, sen
 class CloudflareIPFilterMiddleware:
     """공인 대역 IP 중 Cloudflare 공식 IP 대역의 요청만 허용하는 미들웨어.
 
-    사설 망/루프백/링크로컬 IP 등 비공인 대역은 내부 통신, 헬스체크 및
-    로컬 프록시 연동을 위해 필터링하지 않고 통과시킨다.
+    사설 망/루프백/링크로컬 IP 등 비공인 대역은 내부 통신, 헬스체크 및 로컬 프록시 연동을 위해 필터링하지 않고 통과시킨다.
     """
 
     def __init__(self, app: ASGIApp) -> None:

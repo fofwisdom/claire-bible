@@ -138,11 +138,7 @@ Git 저장소 최신 커밋을 가져와 무중단 롤링 업데이트를 수행
 | `repo` | `claire repo` | Git 소스 저장소 정보 및 원격 URL 출력 |
 | `migrate` | `claire migrate` | 싱글 모드에서는 기본 DB, 멀티 테마 모드에서는 등록된 모든 DB를 공통 v13으로 초기화/업그레이드하고 버전·계보를 검증 |
 
-`CLAIRE_MULTI_THEME=1`일 때 `migrate`는 레지스트리를 테마 ID 순서로 읽고 각 DB의 마이그레이션 결과를 개별 출력한다.
-한 DB가 실패해도 나머지를 계속 점검하며, 하나라도 실패하면 최종 종료 코드는 `1`이다.
-`health`와 `liveness`는 DB를 생성하거나 마이그레이션하지 않고 읽기 전용 연결과 스키마 버전·계보를 검사한다.
-v12는 진단 행을 보존해 v11로 철회한 뒤 같은 실행에서 v13으로 승격한다.
-손상된 `themes.json`도 기본 레지스트리로 덮어쓰지 않고 실패로 보고한다.[^multi-theme-operations]
+`CLAIRE_MULTI_THEME=1`일 때 `migrate`는 레지스트리를 테마 ID 순서로 읽고 각 DB의 마이그레이션 결과를 개별 출력한다. 한 DB가 실패해도 나머지를 계속 점검하며, 하나라도 실패하면 최종 종료 코드는 `1`이다. `health`와 `liveness`는 DB를 생성하거나 마이그레이션하지 않고 읽기 전용 연결과 스키마 버전·계보를 검사한다. v12는 진단 행을 보존해 v11로 철회한 뒤 같은 실행에서 v13으로 승격한다. 손상된 `themes.json`도 기본 레지스트리로 덮어쓰지 않고 실패로 보고한다.[^multi-theme-operations]
 
 #### `doctor`
 지식그래프(Knowledge Graph) 및 SQLite DB의 참조 무결성을 정밀 진단하고, 결함을 원클릭으로 자동 수복(Auto-Healing)합니다.
@@ -183,8 +179,7 @@ v12는 진단 행을 보존해 v11로 철회한 뒤 같은 실행에서 v13으�
   * `list`에는 `inbox`, `refresh`, `expand` 중 하나가 필수다. 누락하면 종료 코드 `2`를 반환한다. `--name`은 위치 인수와 같은 역할을 하는 호환 별칭이다.
   * `--json`은 현재 세 큐 모두의 상태별 건수만 출력하며, `list`의 상세 행이나 큐 필터를 JSON에 반영하지 않는다.
 
-> [!CAUTION]
-> 텍스트 대시보드는 `raw_inbox` 페이로드와 `refresh_queue` URL의 앞부분을 표시한다. 터미널 로그를 외부로 전달하거나 공유 저장소에 보관하지 않는다.[^queue-implementation]
+> [!CAUTION] 텍스트 대시보드는 `raw_inbox` 페이로드와 `refresh_queue` URL의 앞부분을 표시한다. 터미널 로그를 외부로 전달하거나 공유 저장소에 보관하지 않는다.[^queue-implementation]
 
 ---
 

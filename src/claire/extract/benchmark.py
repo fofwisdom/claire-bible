@@ -1,8 +1,6 @@
 """엔티티 해소(Entity Resolution) 실측 벤치마크 하니스 모듈.
 
-System 2 (Gemini LLM Judge)와 System 1 (TypeSafe AI Jev) 간의
-정밀도(Precision), 재현율(Recall), 거짓 병합률(False Positive Rate), 지연시간(P95 Latency)을
-정량적으로 실측하고 비교하기 위한 골든 데이터셋 및 평가 엔진을 제공합니다.
+System 2 (Gemini LLM Judge)와 System 1 (TypeSafe AI Jev) 간의 정밀도(Precision), 재현율(Recall), 거짓 병합률(False Positive Rate), 지연시간(P95 Latency)을 정량적으로 실측하고 비교하기 위한 골든 데이터셋 및 평가 엔진을 제공합니다.
 """
 
 from __future__ import annotations

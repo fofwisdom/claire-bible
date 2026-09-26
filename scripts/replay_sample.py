@@ -1,12 +1,10 @@
 #!/usr/bin/env python3
 """sample.md 항목을 로컬 inject API 로 N초 간격 전송 — 적재 검증용.
 
-텔레그램 DM 과 동일한 통로(IngestService)를 API 로 호출한다.
-각 항목의 IngestReport 를 JSONL 로그로 남겨 사후 assertion 가능하게 한다.
+텔레그램 DM 과 동일한 통로(IngestService)를 API 로 호출한다. 각 항목의 IngestReport 를 JSONL 로그로 남겨 사후 assertion 가능하게 한다.
 
 사용:
-  python replay_sample.py --token <TOKEN> --interval 300 --log data/replay.jsonl
-  python replay_sample.py --token <TOKEN> --limit 3 --interval 0   # 즉시 3건
+  python replay_sample.py --token <TOKEN> --interval 300 --log data/replay.jsonl python replay_sample.py --token <TOKEN> --limit 3 --interval 0   # 즉시 3건
 """
 
 from __future__ import annotations

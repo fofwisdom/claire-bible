@@ -1,18 +1,8 @@
 """일반 웹 fetcher — 명시적 fallback 체인.
 
-  1) static   : httpx + lxml 정적 추출 (가장 싸고 빠름, 브라우저 불필요)
-  2) law      : 국가법령정보센터(law.go.kr) iframe/AJAX 2중 구조 역추적 및 조문 정적 확보
-  3) discourse : 본문 빈약 + Discourse 토픽이면 `.json` API 로 본문 확보 (싸고 결정적)
-  4) scrapling : Scrapling Fetcher (curl-cffi + browserforge 스텔스 헤더). 브라우저 불필요.
-                 정적 UA 를 403 으로 막는 봇차단(예: openai.com) 우회용.
-  5) cdp       : Scrapling DynamicFetcher로 시스템 Chromium을 제어해 실제 렌더링.
-                 JS로만 그려지는 SPA(해시 라우팅 등)는 static/scrapling 정적 경로가
-                 빈 셸만 받아오므로 진짜 브라우저 실행이 필요. Python 패키지와
-                 브라우저 바이너리를 분리하여 이미지에는 시스템 Chromium만 설치한다.
+  1) static   : httpx + lxml 정적 추출 (가장 싸고 빠름, 브라우저 불필요) 2) law      : 국가법령정보센터(law.go.kr) iframe/AJAX 2중 구조 역추적 및 조문 정적 확보 3) discourse : 본문 빈약 + Discourse 토픽이면 `.json` API 로 본문 확보 (싸고 결정적) 4) scrapling : Scrapling Fetcher (curl-cffi + browserforge 스텔스 헤더). 브라우저 불필요. 정적 UA 를 403 으로 막는 봇차단(예: openai.com) 우회용. 5) cdp       : Scrapling DynamicFetcher로 시스템 Chromium을 제어해 실제 렌더링. JS로만 그려지는 SPA(해시 라우팅 등)는 static/scrapling 정적 경로가 빈 셸만 받아오므로 진짜 브라우저 실행이 필요. Python 패키지와 브라우저 바이너리를 분리하여 이미지에는 시스템 Chromium만 설치한다.
 
-체인을 다 돌고도 본문이 MIN_CONTENT 미만이면 FetchError 로 *실패 처리* —
-제목만 적재되는 빈약 스크랩을 막고 raw_inbox 에 error 로 남겨 replay-failed 로 재적재.
-임계 300 은 측정 기준: 정상 페이지 최소 ~1300자, 실패 페이지 73~111자 → 깔끔히 분리.
+체인을 다 돌고도 본문이 MIN_CONTENT 미만이면 FetchError 로 *실패 처리* — 제목만 적재되는 빈약 스크랩을 막고 raw_inbox 에 error 로 남겨 replay-failed 로 재적재. 임계 300 은 측정 기준: 정상 페이지 최소 ~1300자, 실패 페이지 73~111자 → 깔끔히 분리.
 """
 
 from __future__ import annotations
@@ -245,9 +235,7 @@ def _fetch_static(
 ) -> tuple[str | None, str, list[str], dict[str, str], str | None, str | None, list[dict], bool]:
     """(title, text, links, anchors, error, effective_url, images, is_pdf). httpx + lxml.
 
-    effective_url 은 httpx 의 follow_redirects 가 따라간 최종 URL(resp.url) — dedup 의
-    canonical 기준. 실패하면 None. 실패해도 예외 대신 빈 결과를 돌려준다. images 는
-    본문 이미지 후보(상대경로는 effective_url 기준으로 절대경로화).
+    effective_url 은 httpx 의 follow_redirects 가 따라간 최종 URL(resp.url) — dedup 의 canonical 기준. 실패하면 None. 실패해도 예외 대신 빈 결과를 돌려준다. images 는 본문 이미지 후보(상대경로는 effective_url 기준으로 절대경로화).
     """
     from .http import SafeHttpClient, MediaResponseDetected, is_media_content_type, has_media_disposition
     from .base import FetchError
@@ -412,8 +400,7 @@ def _extract_html(
 def _format_html_tables_to_markdown(tree) -> None:
     """HTML <table> 태그들을 마크다운 테이블 텍스트로 변환하여 구조와 데이터를 온전히 보존.
 
-    테이블 내 미디어 제거 허용 정책에 따라, 표 셀 내부의 이미지·아이콘·동영상 등
-    미디어 태그는 제거하고 순수 데이터와 텍스트만 보존한다.
+    테이블 내 미디어 제거 허용 정책에 따라, 표 셀 내부의 이미지·아이콘·동영상 등 미디어 태그는 제거하고 순수 데이터와 텍스트만 보존한다.
     """
     for tbl in list(tree.xpath("//table")):
         # 테이블 내부 미디어 요소(img, svg, video, audio, iframe, canvas, picture 등) 제거 (tail 텍스트 보존)
@@ -479,10 +466,7 @@ def _format_html_tables_to_markdown(tree) -> None:
 def _collect_images(tree, og_image: str | None) -> list[dict]:
     """본문 콘텐츠 이미지 후보를 휴리스틱으로 선별 — [{url, alt, caption}].
 
-    명백한 장식/추적/UI 이미지(로고·아이콘·아바타·광고·1x1 픽셀·sprite) 및
-    테이블(표) 내부 미디어는 여기서 거르고, 최종 '이해에 도움 되는가'는
-    render_detail 의 LLM 큐레이션이 한 번 더 판단한다.
-    상대경로는 _extract_html 에서 이미 절대경로화됨. og:image 는 대표 이미지로 합류시킨다.
+    명백한 장식/추적/UI 이미지(로고·아이콘·아바타·광고·1x1 픽셀·sprite) 및 테이블(표) 내부 미디어는 여기서 거르고, 최종 '이해에 도움 되는가'는 render_detail 의 LLM 큐레이션이 한 번 더 판단한다. 상대경로는 _extract_html 에서 이미 절대경로화됨. og:image 는 대표 이미지로 합류시킨다.
     """
     out: list[dict] = []
     seen: set[str] = set()
@@ -536,9 +520,7 @@ def _fetch_scrapling(
 ) -> tuple[str | None, str, list[str], dict[str, str], list[dict], bool]:
     """Scrapling Fetcher (curl-cffi + browserforge 스텔스 헤더). 브라우저 불필요.
 
-    정적 httpx UA 를 403 으로 막는 봇차단(예: openai.com)을, 브라우저 지문에
-    가까운 헤더/TLS 로 우회. raw HTML 은 _extract_html 로 동일하게 파싱 →
-    title/본문/링크(1홉 후보)/앵커/이미지 추출 일관성 유지. 미설치/실패 시 빈 결과.
+    정적 httpx UA 를 403 으로 막는 봇차단(예: openai.com)을, 브라우저 지문에 가까운 헤더/TLS 로 우회. raw HTML 은 _extract_html 로 동일하게 파싱 → title/본문/링크(1홉 후보)/앵커/이미지 추출 일관성 유지. 미설치/실패 시 빈 결과.
     """
     try:
         from scrapling.fetchers import Fetcher
@@ -623,10 +605,7 @@ def render_html_cdp(
 ) -> str:
     """Scrapling과 시스템 Chromium으로 렌더링된 최종 HTML을 반환한다.
 
-    일반 웹 fallback과 사이트별 구조 탐색이 같은 브라우저 경계를 공유하도록 HTML 획득만
-    담당한다. ``click_tab_label``이 있으면 렌더링된 ``role=tab`` 요소 중 텍스트가 정확히
-    일치하는 탭을 선택한 뒤 최종 DOM을 반환한다. 브라우저 미설치·렌더링 실패는 빈
-    문자열로 반환하며, 호출자가 성공/실패 정책을 결정한다.
+    일반 웹 fallback과 사이트별 구조 탐색이 같은 브라우저 경계를 공유하도록 HTML 획득만 담당한다. ``click_tab_label``이 있으면 렌더링된 ``role=tab`` 요소 중 텍스트가 정확히 일치하는 탭을 선택한 뒤 최종 DOM을 반환한다. 브라우저 미설치·렌더링 실패는 빈 문자열로 반환하며, 호출자가 성공/실패 정책을 결정한다.
     """
     try:
         from scrapling.fetchers import DynamicFetcher
@@ -708,10 +687,7 @@ def _system_chromium_executable() -> str | None:
 def _fetch_cdp(url: str) -> tuple[str | None, str, list[str], dict[str, str], list[dict]]:
     """Scrapling으로 시스템 Chromium을 제어해 실제 렌더링(브라우저 필요).
 
-    JS SPA(해시 라우팅 등, 예: uniclawbench.github.io)는 static/scrapling(curl-cffi, 무JS)
-    으로는 빈 셸만 받아온다 — 진짜 브라우저 실행이 필요한 최후수단으로
-    ``scrapling[fetchers]``와 apt 설치된 chromium 바이너리를 재사용한다.
-    미설치/실패 시 빈 결과(체인의 다음 단계 없음 → thin-guard 가 최종 실패 처리).
+    JS SPA(해시 라우팅 등, 예: uniclawbench.github.io)는 static/scrapling(curl-cffi, 무JS) 으로는 빈 셸만 받아온다 — 진짜 브라우저 실행이 필요한 최후수단으로 ``scrapling[fetchers]``와 apt 설치된 chromium 바이너리를 재사용한다. 미설치/실패 시 빈 결과(체인의 다음 단계 없음 → thin-guard 가 최종 실패 처리).
     """
     try:
         html = render_html_cdp(url)

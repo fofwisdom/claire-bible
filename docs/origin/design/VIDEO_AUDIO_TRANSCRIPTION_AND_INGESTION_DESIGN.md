@@ -1,13 +1,8 @@
 # 비디오 CC 우선 수집·음성 전사 및 지식 적재 파이프라인 설계 (`VIDEO_AUDIO_TRANSCRIPTION_AND_INGESTION_DESIGN.md`)
 
-> **상태**: 구현 및 검증 완료 (Implemented & Verified)  
->
-> **대상 플랫폼 예시**: VMware Explore Video (`6403821753112`, `6403820644112`)
->
-> **적용 모듈**: `claire.ingest.fetchers.video`, `claire.ingest.fetchers.captions`, `claire.extract.transcript`, `claire.config`, `claire.ingest.router`
+> **상태**: 구현 및 검증 완료 (Implemented & Verified) **대상 플랫폼 예시**: VMware Explore Video (`6403821753112`, `6403820644112`) **적용 모듈**: `claire.ingest.fetchers.video`, `claire.ingest.fetchers.captions`, `claire.extract.transcript`, `claire.config`, `claire.ingest.router`
 
-> [!NOTE]
-> VMware Explore가 Presentation PDF도 제공하는 경우의 CC/STT·PDF 복합 적재는 별도 [VIDEO_PRESENTATION_BUNDLE_INGESTION_DESIGN.md](VIDEO_PRESENTATION_BUNDLE_INGESTION_DESIGN.md)에 설계·구현되어 있습니다.[^presentation-bundle-implementation]
+> [!NOTE] VMware Explore가 Presentation PDF도 제공하는 경우의 CC/STT·PDF 복합 적재는 별도 [VIDEO_PRESENTATION_BUNDLE_INGESTION_DESIGN.md](VIDEO_PRESENTATION_BUNDLE_INGESTION_DESIGN.md)에 설계·구현되어 있습니다.[^presentation-bundle-implementation]
 
 ---
 
@@ -124,10 +119,7 @@ class TranscriptProvider(Protocol):
 
 ### 4.2. 프로바이더 구현체 계획 및 현실화
 
-> [!IMPORTANT]
-> **Antigravity CLI의 음성 전사(STT) 구현 불가 사유**:
-> 초기 기획에서는 Antigravity CLI(`agy`)를 활용한 계정 쿼터 내 오디오 전사를 검토하였으나, `agy` CLI는 개발자/에이전트 텍스트 프롬프트 기반 도구로서 오디오 바이너리 스트리밍 및 음성 인식 전용 인터페이스를 제공하지 않아 **STT 구현이 불가능**함을 확인하였습니다.
-> 따라서 현재 프로덕션 환경에서 실질적으로 지원 및 반영 가능한 유일한 외부 STT 프로바이더는 **Google AI Studio의 Gemini (`gemini`)**뿐입니다.
+> [!IMPORTANT] **Antigravity CLI의 음성 전사(STT) 구현 불가 사유**: 초기 기획에서는 Antigravity CLI(`agy`)를 활용한 계정 쿼터 내 오디오 전사를 검토하였으나, `agy` CLI는 개발자/에이전트 텍스트 프롬프트 기반 도구로서 오디오 바이너리 스트리밍 및 음성 인식 전용 인터페이스를 제공하지 않아 **STT 구현이 불가능**함을 확인하였습니다. 따라서 현재 프로덕션 환경에서 실질적으로 지원 및 반영 가능한 유일한 외부 STT 프로바이더는 **Google AI Studio의 Gemini (`gemini`)**뿐입니다.
 
 1. **`GeminiTranscriptProvider` (현재 프로덕션 유일 외부 구현체)**:
    * Google AI Studio의 Gemini API (`gemini-3.5-transcribe` 전용 음성 인식 모델 또는 `gemini-2.5-flash` 멀티모달 오디오)를 활용합니다.

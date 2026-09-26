@@ -52,9 +52,7 @@ def get_lowest_effort_provider(settings: Settings | None = None) -> Provider:
 
     - mock/test 인 경우: MockProvider() 즉시 반환
     - 사용 가능한 후보 프로바이더 목록 수집:
-      1) 명시 선택된 Codex CLI: 바이너리 존재 시 codex_effort 기준
-      2) Antigravity CLI (agy): 바이너리 존재 시 agy_effort 기준
-      3) Gemini API: API 키 존재 시 gemini_effort 기준
+      1) 명시 선택된 Codex CLI: 바이너리 존재 시 codex_effort 기준 2) Antigravity CLI (agy): 바이너리 존재 시 agy_effort 기준 3) Gemini API: API 키 존재 시 gemini_effort 기준
     - 후보 중 effort score가 가장 낮은 프로바이더 선택.
       동점인 경우 무료/로컬 CLI 어댑터인 Antigravity를 우선.
     - 선언된 후보가 없으면 기본 get_provider(settings) 반환.

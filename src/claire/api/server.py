@@ -1,8 +1,6 @@
 """Claire HTTP API와 graph UI를 제공하는 ASGI 애플리케이션.
 
-Starlette는 라우팅/응답 계층만 담당하고 Uvicorn은 단일 worker로 실행한다. 외부
-Reverse Proxy는 TLS와 public hostname을 담당하지만, 애플리케이션은 forwarded
-header를 신뢰하지 않고 설정된 public URL의 authority를 직접 검증한다.
+Starlette는 라우팅/응답 계층만 담당하고 Uvicorn은 단일 worker로 실행한다. 외부 Reverse Proxy는 TLS와 public hostname을 담당하지만, 애플리케이션은 forwarded header를 신뢰하지 않고 설정된 public URL의 authority를 직접 검증한다.
 """
 
 from __future__ import annotations
@@ -86,9 +84,7 @@ _PROGRESS_QUEUE_SIZE = 64
 
 
 class GateMiddleware:
-    """gate 미들웨어 — PUBLIC_PATHS에 등록된 공개 정적 자산(/static/) 등은
-    인증 실패로 차단되지 않도록 Starlette 라우터로 통과시키며,
-    그 외 경로는 기존 보안 래퍼(wrap_web_app)로 전달한다.
+    """gate 미들웨어 — PUBLIC_PATHS에 등록된 공개 정적 자산(/static/) 등은 인증 실패로 차단되지 않도록 Starlette 라우터로 통과시키며, 그 외 경로는 기존 보안 래퍼(wrap_web_app)로 전달한다.
     """
 
     def __init__(

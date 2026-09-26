@@ -1,7 +1,6 @@
 """Obsidian 호환 vault export (단방향, generated).
 
-advisor 조언: SQLite 정본, vault 는 export-only. 모든 .md 에 generated 배너를 박아
-손편집이 덮어써지는 사고를 방지한다. 관계는 [[wikilink]] 로 표현 → 옵시디언 그래프뷰.
+advisor 조언: SQLite 정본, vault 는 export-only. 모든 .md 에 generated 배너를 박아 손편집이 덮어써지는 사고를 방지한다. 관계는 [[wikilink]] 로 표현 → 옵시디언 그래프뷰.
 """
 
 from __future__ import annotations

@@ -1,7 +1,6 @@
 """Antigravity CLI (agy) 기반 Provider 어댑터.
 
-Gemini API 직접 호출 대신 로컬에 인증된 `agy` CLI를 비대화형(`-p`) 모드로 호출하여
-지식그래프 구조화 추출, 요약, 상세 렌더링, 판정, 웹 리서치를 수행한다.
+Gemini API 직접 호출 대신 로컬에 인증된 `agy` CLI를 비대화형(`-p`) 모드로 호출하여 지식그래프 구조화 추출, 요약, 상세 렌더링, 판정, 웹 리서치를 수행한다.
 """
 
 from __future__ import annotations

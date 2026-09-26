@@ -1,8 +1,6 @@
 # Claire Bible — 오리진 목표와 로드맵 (증강 계보)
 
-**계보:** 증강 계보 ([`fofwisdom/claire-bible`](https://github.com/fofwisdom/claire-bible))  
-**기준 문서:** 본 문서는 증강 계보의 최상위 비전, 범위, 로드맵을 정의하는 단일 정본입니다.  
-**관련 문서:** 테제 원본 [`docs/upstream/GOALS.md`](../upstream/GOALS.md) · 공통 계약 [`docs/contracts/`](../contracts/README.md) · 아키텍처 로드맵 [`docs/origin/CLAIRE_ARCHITECTURE_ROADMAP.md`](CLAIRE_ARCHITECTURE_ROADMAP.md)
+**계보:** 증강 계보 ([`fofwisdom/claire-bible`](https://github.com/fofwisdom/claire-bible)) **기준 문서:** 본 문서는 증강 계보의 최상위 비전, 범위, 로드맵을 정의하는 단일 정본입니다. **관련 문서:** 테제 원본 [`docs/upstream/GOALS.md`](../upstream/GOALS.md) · 공통 계약 [`docs/contracts/`](../contracts/README.md) · 아키텍처 로드맵 [`docs/origin/CLAIRE_ARCHITECTURE_ROADMAP.md`](CLAIRE_ARCHITECTURE_ROADMAP.md)
 
 ---
 

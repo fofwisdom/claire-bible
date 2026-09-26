@@ -63,8 +63,7 @@ def parse_raw_transcript_lines(raw_text: str) -> list[TranscriptSegment]:
 class AntigravityTranscriptProvider(TranscriptProvider):
     """Antigravity CLI 기반 오디오 전사 프로바이더 (STT 미지원 스텁).
     
-    Antigravity CLI(agy)는 오디오 바이너리 스트리밍 및 전사 인터페이스를 제공하지 않으므로
-    STT 구현이 불가능합니다. 현재 음성 전사는 Google AI Studio의 Gemini('gemini')만 지원됩니다.
+    Antigravity CLI(agy)는 오디오 바이너리 스트리밍 및 전사 인터페이스를 제공하지 않으므로 STT 구현이 불가능합니다. 현재 음성 전사는 Google AI Studio의 Gemini('gemini')만 지원됩니다.
     """
 
     name = "antigravity"

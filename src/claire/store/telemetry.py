@@ -1,9 +1,6 @@
 """격리된 관측성 데이터베이스 (data/telemetry.db) 및 프로바이더 텔레메트리 스토어.
 
-정본 지식 DB(claire.db)의 쓰기 락 경합 및 용량 오염을 원천 차단하기 위해,
-프로바이더 호출 계측, 종료 코드, stderr, Google 정책 차단 진단 데이터는
-물리적으로 분리된 telemetry.db에만 기록된다.
-텔레메트리 기록 실패는 메인 파이프라인의 성공 여부에 절대 영향을 미치지 않는다(Fire-and-Forget).
+정본 지식 DB(claire.db)의 쓰기 락 경합 및 용량 오염을 원천 차단하기 위해, 프로바이더 호출 계측, 종료 코드, stderr, Google 정책 차단 진단 데이터는 물리적으로 분리된 telemetry.db에만 기록된다. 텔레메트리 기록 실패는 메인 파이프라인의 성공 여부에 절대 영향을 미치지 않는다(Fire-and-Forget).
 """
 
 from __future__ import annotations

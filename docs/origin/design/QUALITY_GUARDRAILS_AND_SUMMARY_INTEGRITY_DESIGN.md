@@ -1,15 +1,13 @@
 # Quality Verification Guardrails, Summary Integrity & Observability Design
 
-> **문서 상태**: 설계 및 구현 규격 (Specification)  
-> **관련 문서**: [INGESTION_INTEGRITY_AND_POLLUTION_CONTROL_RESEARCH.md](./INGESTION_INTEGRITY_AND_POLLUTION_CONTROL_RESEARCH.md), [PDF_PARSER_AND_VISION_GUARDRAILS_DESIGN.md](./PDF_PARSER_AND_VISION_GUARDRAILS_DESIGN.md), [MULTI_PROVIDER_DESIGN.md](./MULTI_PROVIDER_DESIGN.md), [CLAIRE_ARCHITECTURE_ROADMAP.md](../CLAIRE_ARCHITECTURE_ROADMAP.md)
+> **문서 상태**: 설계 및 구현 규격 (Specification) **관련 문서**: [INGESTION_INTEGRITY_AND_POLLUTION_CONTROL_RESEARCH.md](./INGESTION_INTEGRITY_AND_POLLUTION_CONTROL_RESEARCH.md), [PDF_PARSER_AND_VISION_GUARDRAILS_DESIGN.md](./PDF_PARSER_AND_VISION_GUARDRAILS_DESIGN.md), [MULTI_PROVIDER_DESIGN.md](./MULTI_PROVIDER_DESIGN.md), [CLAIRE_ARCHITECTURE_ROADMAP.md](../CLAIRE_ARCHITECTURE_ROADMAP.md)
 
 ---
 
 ## 1. 개요 및 배경 (Overview & Problem Statement)
 
 ### 1.1 문제 상황
-클레어바이블(Claire-Bible) 운영 환경에서 문서를 적재(Ingest)하는 도중, **LLM 기반 요약(Summary) 생성이 누락되고 Mock 요약으로 조용히 대체(Silent Mock Fallback)되는 현상**이 빈번하게 관측되었습니다.
-특히 프로덕션 서버 환경에서 이러한 현상이 발생했을 때, 서버 로그나 적재 리포트만으로는 그 정확한 인과(원인)를 규명하기 어려워 신속한 대응과 재발 방지가 저해되었습니다.
+클레어바이블(Claire-Bible) 운영 환경에서 문서를 적재(Ingest)하는 도중, **LLM 기반 요약(Summary) 생성이 누락되고 Mock 요약으로 조용히 대체(Silent Mock Fallback)되는 현상**이 빈번하게 관측되었습니다. 특히 프로덕션 서버 환경에서 이러한 현상이 발생했을 때, 서버 로그나 적재 리포트만으로는 그 정확한 인과(원인)를 규명하기 어려워 신속한 대응과 재발 방지가 저해되었습니다.
 
 ### 1.2 현재 프로덕션 서버 로그의 인과 추적 한계 분석 (5대 원인)
 현재 코드베이스를 분석한 결과, 인과 관계가 소실되는 원인은 다음 5가지 구조적 한계에 기인합니다.
@@ -118,8 +116,7 @@ flowchart LR
 | **6** | **요약 문법 오염 검출** | [`extract/prompts.py`](file:///home/fow/Projects/claire-bible/src/claire/extract/prompts.py)<br/>[`store/db.py`](file:///home/fow/Projects/claire-bible/src/claire/store/db.py) | 요약문에 AsciiDoc/Markdown 문법(`==`, `[NOTE]`, `|===` 등) 잔존 감지, `claire stats` 경고 노출, `claire regenerate --corrupted` 복구 연계 | 정규식 패턴 (`is_corrupted_summary`) |
 
 ### 🔍 핵심 맹점 (Gap Analysis)
-위 6대 가드레일은 **"외부 잡음 유입 방지"**, **"온톨로지 문법 무결성"**, **"문법 기호 오염 검출"**에 철저하게 집중되어 있습니다.
-그러나 **"LLM이 생성한 요약문 내용 자체의 실체성(Content Existence & Non-Mockness)"**을 검증하는 가드레일이 결손되어 있었습니다:
+위 6대 가드레일은 **"외부 잡음 유입 방지"**, **"온톨로지 문법 무결성"**, **"문법 기호 오염 검출"**에 철저하게 집중되어 있습니다. 그러나 **"LLM이 생성한 요약문 내용 자체의 실체성(Content Existence & Non-Mockness)"**을 검증하는 가드레일이 결손되어 있었습니다:
 1. **내용적 실체 검증 부재**: `ExtractionResult.summary`가 빈 문자열이거나, `[mock]...`이거나, 단순 본문 앞 200자 잘라내기여도 시스템은 이를 "정상 요약"으로 수용했습니다.
 2. **과도하게 관대한 Fallback이 초래한 침묵**: 프로바이더 내부의 방어 코드(예: `antigravity_provider.py`의 `clean_plain_summary(fallback_txt[:200] + "…")`)가 예외를 상위로 전파하지 않고 가짜 요약을 채움으로써, 오히려 오류가 정상 완료로 둔갑하는 부작용을 낳았습니다.
 

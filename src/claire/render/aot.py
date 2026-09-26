@@ -1,8 +1,6 @@
 """AOT(Ahead-of-Time) 사전 렌더러 모듈.
 
-Antora의 AOT 컴파일 철학을 계승하여, 클라이언트 브라우저가 Asciidoctor.js JIT 파서나
-'unsafe-eval' CSP 없이 순수 HTML/CSS만으로 기술 문서를 즉시 렌더링할 수 있도록
-백엔드(Ingest/DB 저장/API 서빙) 단계에서 시맨틱 HTML로 사전 변환합니다.
+Antora의 AOT 컴파일 철학을 계승하여, 클라이언트 브라우저가 Asciidoctor.js JIT 파서나 'unsafe-eval' CSP 없이 순수 HTML/CSS만으로 기술 문서를 즉시 렌더링할 수 있도록 백엔드(Ingest/DB 저장/API 서빙) 단계에서 시맨틱 HTML로 사전 변환합니다.
 """
 
 from __future__ import annotations

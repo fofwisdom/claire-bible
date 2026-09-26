@@ -1,16 +1,9 @@
 """[재적재 Layer 2] fetched artifact 원본 보관.
 
-fetcher 가 가져온 원본(HTML/transcript/PDF 추출텍스트)을 zstandard(.txt.zst)로 파일 저장한다.
-레거시 gzip(.txt.gz)과의 투명한 Dual-Read 하위 호환성을 보장한다.
-나중에 추출 알고리즘(prompt/모델)을 바꿔도 *재fetch 없이* raw_text 부터 재생할 수 있게
-한다. 용량 주의(사용자 요구) → zstd 압축, 텍스트 위주. 임의 prune 은 하지 않는다
-(데이터 삭제 금지 원칙). 용량은 doctor/stats 로 모니터만 한다.
+fetcher 가 가져온 원본(HTML/transcript/PDF 추출텍스트)을 zstandard(.txt.zst)로 파일 저장한다. 레거시 gzip(.txt.gz)과의 투명한 Dual-Read 하위 호환성을 보장한다. 나중에 추출 알고리즘(prompt/모델)을 바꿔도 *재fetch 없이* raw_text 부터 재생할 수 있게 한다. 용량 주의(사용자 요구) → zstd 압축, 텍스트 위주. 임의 prune 은 하지 않는다 (데이터 삭제 금지 원칙). 용량은 doctor/stats 로 모니터만 한다.
 
 레이아웃:
-  data/raw/artifacts/<doc_id>.txt.zst  # zstandard 압축 추출 원본 (신규 정본)
-  data/raw/artifacts/<doc_id>.txt.gz   # gzip 압축 추출 원본 (레거시 하위 호환)
-  data/raw/files/<inbox_id>_<name>     # 텔레그램으로 받은 원본 파일(pdf 등) 그대로
-  data/images/<doc_id>_<i>.<ext>       # 본문 이미지 후보 로컬 보존(원본 사이트/링크 삭제 대비)
+  data/raw/artifacts/<doc_id>.txt.zst  # zstandard 압축 추출 원본 (신규 정본) data/raw/artifacts/<doc_id>.txt.gz   # gzip 압축 추출 원본 (레거시 하위 호환) data/raw/files/<inbox_id>_<name>     # 텔레그램으로 받은 원본 파일(pdf 등) 그대로 data/images/<doc_id>_<i>.<ext>       # 본문 이미지 후보 로컬 보존(원본 사이트/링크 삭제 대비)
 """
 
 from __future__ import annotations
@@ -39,8 +32,7 @@ _tls = threading.local()
 def _get_compressor(level: int = 3, write_checksum: bool = True) -> zstandard.ZstdCompressor:
     """스레드 로컬 zstd 압축기 인스턴스를 반환한다.
 
-    C-API 컨텍스트(ZSTD_CCtx) 재사용을 통해 반복 생성에 따른 힙 할당 및 GC 오버헤드를 제거하며,
-    스레드 로컬 격리(threading.local)를 통해 libzstd C-API 다중 스레드 동시 접근 크래시(SIGSEGV)를 방어한다.
+    C-API 컨텍스트(ZSTD_CCtx) 재사용을 통해 반복 생성에 따른 힙 할당 및 GC 오버헤드를 제거하며, 스레드 로컬 격리(threading.local)를 통해 libzstd C-API 다중 스레드 동시 접근 크래시(SIGSEGV)를 방어한다.
     """
     compressors = getattr(_tls, "compressors", None)
     if compressors is None:
@@ -57,8 +49,7 @@ def _get_compressor(level: int = 3, write_checksum: bool = True) -> zstandard.Zs
 def _get_decompressor() -> zstandard.ZstdDecompressor:
     """스레드 로컬 zstd 압축 해제기 인스턴스를 반환한다.
 
-    C-API 컨텍스트(ZSTD_DCtx) 재사용을 통해 반복 생성 오버헤드를 제거하고
-    스레드 안전성(thread-safety)을 보장한다.
+    C-API 컨텍스트(ZSTD_DCtx) 재사용을 통해 반복 생성 오버헤드를 제거하고 스레드 안전성(thread-safety)을 보장한다.
     """
     d = getattr(_tls, "decompressor", None)
     if d is None:
@@ -156,10 +147,7 @@ def save_artifact(data_dir: Path, doc_id: str, text: str, level: int = 3) -> str
 def load_artifact(data_dir: Path, doc_id: str) -> str | None:
     """추출 원본 텍스트를 Dual-Read 프로토콜로 로드한다.
 
-    1순위: <doc_id>.txt.zst 확인 -> _get_decompressor().decompress(...) 성공 시 반환
-    손상/zstandard.ZstdError/EOFError/OSError/UnicodeDecodeError 발생 시 경고 로깅 후 2순위로 투명 폴백
-    2순위: <doc_id>.txt.gz 확인 -> gzip.open(..., "rt", encoding="utf-8")로 읽어 반환
-    둘 다 없으면 None 반환
+    1순위: <doc_id>.txt.zst 확인 -> _get_decompressor().decompress(...) 성공 시 반환 손상/zstandard.ZstdError/EOFError/OSError/UnicodeDecodeError 발생 시 경고 로깅 후 2순위로 투명 폴백 2순위: <doc_id>.txt.gz 확인 -> gzip.open(..., "rt", encoding="utf-8")로 읽어 반환 둘 다 없으면 None 반환
     """
     artifacts = _artifacts_dir(data_dir)
     zst_path = artifacts / f"{doc_id}.txt.zst"
@@ -207,10 +195,7 @@ def migrate_artifacts(
 ) -> dict[str, Any]:
     """data/raw/artifacts/*.txt.gz를 탐색하여 zstandard(.txt.zst)로 마이그레이션한다.
 
-    SHA-256 라운드트립 무결성 검증 기반의 안전 변환 로직을 수행한다.
-    대량 마이그레이션 시 개별 파일 fsync로 데이터 영속성을 보장하되,
-    디렉토리 메타데이터 fsync는 배치 단위(batch_fsync_interval)로 묶어 I/O 병목을 제거한다.
-    통계 반환:
+    SHA-256 라운드트립 무결성 검증 기반의 안전 변환 로직을 수행한다. 대량 마이그레이션 시 개별 파일 fsync로 데이터 영속성을 보장하되, 디렉토리 메타데이터 fsync는 배치 단위(batch_fsync_interval)로 묶어 I/O 병목을 제거한다. 통계 반환:
       {total, migrated, already_zst, errors, error_details, bytes_before, bytes_after, savings_pct, dry_run}
     """
     artifacts_dir = _artifacts_dir(data_dir)
@@ -450,13 +435,9 @@ _EXT_BY_CTYPE = {
 }
 _MAX_IMAGE_BYTES = 8 * 1024 * 1024  # 8MB — 비정상적으로 큰 파일(오탐/공격성 URL) 방어
 def download_images(data_dir: Path, doc_id: str, images: list[dict]) -> list[dict]:
-    """본문 이미지 후보를 로컬로 내려받아 보존(사용자 요구 — 원본 사이트/링크가 나중에
-    사라지면 외부링크뿐인 이미지는 다 깨진다).
+    """본문 이미지 후보를 로컬로 내려받아 보존(사용자 요구 — 원본 사이트/링크가 나중에 사라지면 외부링크뿐인 이미지는 다 깨진다).
 
-    images 는 fetcher 가 수집한 [{url, alt, caption}, ...]. 성공한 항목엔 "local"
-    (data_dir 기준 상대경로, `images/<doc_id>_<i>.<ext>`)을 추가해 반환한다. 개별 이미지
-    다운로드 실패(네트워크·403·404·비이미지 응답·용량초과)는 그 이미지만 원본 url 유지 —
-    한 장이 실패해도 나머지·적재 자체를 막지 않는다."""
+    images 는 fetcher 가 수집한 [{url, alt, caption}, ...]. 성공한 항목엔 "local" (data_dir 기준 상대경로, `images/<doc_id>_<i>.<ext>`)을 추가해 반환한다. 개별 이미지 다운로드 실패(네트워크·403·404·비이미지 응답·용량초과)는 그 이미지만 원본 url 유지 — 한 장이 실패해도 나머지·적재 자체를 막지 않는다."""
     import httpx
 
     out = []

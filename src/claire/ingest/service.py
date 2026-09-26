@@ -1,8 +1,6 @@
 """IngestService — 적재의 단일 진입점(모듈화).
 
-텔레그램 DM · 로컬 inject API · CLI 가 모두 이 클래스를 통해 적재한다 =
-사용자가 말한 "내가 DM 던지는 것과 동일한 통로". provider 는 1회 생성해 보유하고,
-DB 커넥션은 호출마다 짧게 연다(WAL + busy_timeout 로 다중 프로세스 안전).
+텔레그램 DM · 로컬 inject API · CLI 가 모두 이 클래스를 통해 적재한다 = 사용자가 말한 "내가 DM 던지는 것과 동일한 통로". provider 는 1회 생성해 보유하고, DB 커넥션은 호출마다 짧게 연다(WAL + busy_timeout 로 다중 프로세스 안전).
 """
 
 from __future__ import annotations
@@ -99,8 +97,7 @@ class IngestService:
     ) -> IngestReport:
         """단건 적재. (블로킹 — 호출측에서 스레드 오프로드).
 
-        inbox_id 가 주어지면 새 raw_inbox 행을 만들지 않고 기존 행을 재사용(자동복구용).
-        prefetched 가 주어지면 fetch 를 건너뛰고 그 Document 로 적재(1홉 확장의 중복 fetch 방지).
+        inbox_id 가 주어지면 새 raw_inbox 행을 만들지 않고 기존 행을 재사용(자동복구용). prefetched 가 주어지면 fetch 를 건너뛰고 그 Document 로 적재(1홉 확장의 중복 fetch 방지).
         """
         if not focus and self.theme_id > 0:
             focus = self.get_effective_default_focus()
@@ -127,13 +124,7 @@ class IngestService:
     def expand_document(self, document_id: str, *, limit: int | None = None) -> dict:
         """[1홉 자동확장] 부모 문서의 링크를 LLM 이 선별→fetch→판정→통과 시 적재.
 
-        파고들지(select_followups)·쌓을지(judge_research 게이트) 모두 LLM 결정.
-        게이트 통과 후 same_subject(judge_research 확장 필드, ONEHOP_MERGE_DESIGN.md §3.1)로
-        한 번 더 갈린다: True 면 새 문서를 안 만들고 부모에 흡수(병합, §3.2~3.3),
-        False 면 기존처럼 독립 문서로 적재(부모 글이 언급한 별개 소재인 경우 — 정보 보존).
-        깊이는 1 고정: 독립 적재 자식은 source='onehop:*' + expand_max=0 → 재확장 안 됨.
-        병합은 애초에 새 Document/expand_queue 항목을 안 만들어 재귀 위험이 이중으로 없음.
-        반환: {document_id, candidates, selected, stored, merged, skipped, followed[...]}
+        파고들지(select_followups)·쌓을지(judge_research 게이트) 모두 LLM 결정. 게이트 통과 후 same_subject(judge_research 확장 필드, ONEHOP_MERGE_DESIGN.md §3.1)로 한 번 더 갈린다: True 면 새 문서를 안 만들고 부모에 흡수(병합, §3.2~3.3), False 면 기존처럼 독립 문서로 적재(부모 글이 언급한 별개 소재인 경우 — 정보 보존). 깊이는 1 고정: 독립 적재 자식은 source='onehop:*' + expand_max=0 → 재확장 안 됨. 병합은 애초에 새 Document/expand_queue 항목을 안 만들어 재귀 위험이 이중으로 없음. 반환: {document_id, candidates, selected, stored, merged, skipped, followed[...]}
         """
         from ..expand.follow import build_candidates, build_parent_context, passes_gate
 
@@ -282,8 +273,7 @@ class IngestService:
 
         - 새 content_hash 가 기존과 같으면 'nochange'(내용 동일 → 재추출 생략).
         - 다르면 documents 행을 같은 id 로 갱신(엔티티 sources 연결 보존) + 새 artifact
-          보관 + 재추출/해소/관계/vault. 새로 잡힌 엔티티는 기존 그래프에 누적된다.
-        반환: {status, document_id, old_len, new_len, ...}
+          보관 + 재추출/해소/관계/vault. 새로 잡힌 엔티티는 기존 그래프에 누적된다. 반환: {status, document_id, old_len, new_len, ...}
         """
         if not document_id:
             return {"status": "error", "document_id": document_id,
@@ -415,10 +405,7 @@ class IngestService:
     def enqueue_due_watch(self, *, limit: int = 0) -> int:
         """[주기 크롤링] 재크롤할 때가 된 watch 문서를 refresh 큐에 등록(reason='watch').
 
-        watch_due = enabled=1 AND (last_watched_at NULL 또는 now-last >= interval). 등록 후
-        last_watched_at=now 로 갱신해 다음 due 를 미룬다(큐 대기 중 중복은 enqueue_refresh 의
-        document_id UNIQUE 가 막음). 처리(refresh_document)는 run_refresh_queue 가 하며,
-        watch 문서가 변했으면 거기서 스냅샷 보존 + unseen. 신규 등록 건수 반환."""
+        watch_due = enabled=1 AND (last_watched_at NULL 또는 now-last >= interval). 등록 후 last_watched_at=now 로 갱신해 다음 due 를 미룬다(큐 대기 중 중복은 enqueue_refresh 의 document_id UNIQUE 가 막음). 처리(refresh_document)는 run_refresh_queue 가 하며, watch 문서가 변했으면 거기서 스냅샷 보존 + unseen. 신규 등록 건수 반환."""
         import time
 
         conn = dbm.connect(self.s.db_file)
@@ -464,9 +451,7 @@ class IngestService:
     def mark_all_for_image_backfill(self, *, limit: int = 0) -> int:
         """본문 이미지가 없는(이미지 수집 이전 적재) 문서를 재fetch 대상으로 등록.
 
-        기존 claire_refresh 컨테이너(주기·소량 처리)가 큐를 **며칠에 걸쳐 천천히** 드레인
-        하며 각 문서를 재fetch → 이미지 수집 + detail(마크다운/강조) 재생성한다. 본문이
-        안 바뀐 문서는 그래프 불변(비파괴), 바뀐 문서만 재추출(refresh 본래 동작). 등록 수 반환.
+        기존 claire_refresh 컨테이너(주기·소량 처리)가 큐를 **며칠에 걸쳐 천천히** 드레인 하며 각 문서를 재fetch → 이미지 수집 + detail(마크다운/강조) 재생성한다. 본문이 안 바뀐 문서는 그래프 불변(비파괴), 바뀐 문서만 재추출(refresh 본래 동작). 등록 수 반환.
         """
         conn = dbm.connect(self.s.db_file)
         dbm.init_db(conn)
@@ -496,13 +481,7 @@ class IngestService:
     ) -> dict:
         """저장된 raw_text 로 전체 문서를 재추출(프롬프트 변경 반영 — 예: 한글화, 표 보존).
 
-        tables_only=True: raw_text 에 표(Table)가 포함된 문서만 선별하여 재추출.
-        rebuild=True: 먼저 그래프(엔티티/관계/임베딩/추출)를 비우고 처음부터 재구축한다.
-        _merge 는 observations 를 *추가*하므로, 비우지 않으면 기존(영문)+신규(한글)가 섞인다.
-        documents·raw_inbox·artifact 는 보존하므로 입력은 그대로. **파괴적**이므로
-        호출자가 서비스 정지와 복구 계획을 책임진다. 문서당 Gemini 1회(quota).
-        오래된 문서부터(원래 적재 순서에 가깝게) 처리해 first-seen canonical 수렴을
-        원래와 맞춘다.
+        tables_only=True: raw_text 에 표(Table)가 포함된 문서만 선별하여 재추출. rebuild=True: 먼저 그래프(엔티티/관계/임베딩/추출)를 비우고 처음부터 재구축한다. _merge 는 observations 를 *추가*하므로, 비우지 않으면 기존(영문)+신규(한글)가 섞인다. documents·raw_inbox·artifact 는 보존하므로 입력은 그대로. **파괴적**이므로 호출자가 서비스 정지와 복구 계획을 책임진다. 문서당 Gemini 1회(quota). 오래된 문서부터(원래 적재 순서에 가깝게) 처리해 first-seen canonical 수렴을 원래와 맞춘다.
         """
         conn = dbm.connect(self.s.db_file)
         dbm.init_db(conn)
@@ -552,10 +531,7 @@ class IngestService:
     ) -> dict:
         """detail(가독 렌더)이 없거나 포맷이 다른 기존 문서를 채운다 — **비파괴적**.
 
-        tables_only=True: raw_text 또는 detail 에 표(Table)가 포함된 문서만 선별 백필.
-        그래프(엔티티/관계)를 건드리지 않고 documents.detail 컬럼만 채우므로 reextract 의
-        reset_graph/rebuild 가 불필요(advisor). 문서당 Gemini 1회(quota). force=True 면
-        이미 있는 detail 도 재생성. 반환: {docs, ok, skipped}."""
+        tables_only=True: raw_text 또는 detail 에 표(Table)가 포함된 문서만 선별 백필. 그래프(엔티티/관계)를 건드리지 않고 documents.detail 컬럼만 채우므로 reextract 의 reset_graph/rebuild 가 불필요(advisor). 문서당 Gemini 1회(quota). force=True 면 이미 있는 detail 도 재생성. 반환: {docs, ok, skipped}."""
         from .pipeline import ensure_document_detail
 
         conn = dbm.connect(self.s.db_file)
@@ -1035,9 +1011,7 @@ class IngestService:
     def backfill_minhashes(self, *, limit: int = 0) -> dict:
         """minhash 가 비어있는 기존 문서에 서명을 채운다 — **비파괴**(컬럼만 채움).
 
-        근사 중복 게이트(dedup ③)가 기존 문서와도 비교하려면 모든 문서에 서명이 있어야
-        한다. 신규 적재는 자동 저장되지만 v6 이전 문서는 비어 있어 1회 백필이 필요하다.
-        그래프/추출/Gemini 호출 없음. 반환: {docs, filled}."""
+        근사 중복 게이트(dedup ③)가 기존 문서와도 비교하려면 모든 문서에 서명이 있어야 한다. 신규 적재는 자동 저장되지만 v6 이전 문서는 비어 있어 1회 백필이 필요하다. 그래프/추출/Gemini 호출 없음. 반환: {docs, filled}."""
         import json as _json
 
         from .normalize import minhash_signature
@@ -1062,9 +1036,7 @@ class IngestService:
     def dedup_scan(self, *, threshold: float = 0.90, min_len: int = 500) -> dict:
         """[진단·비파괴] 기존 문서 중 근사 중복 클러스터를 보고만 한다(병합 안 함).
 
-        먼저 minhash 를 백필한 뒤, 임계 이상으로 묶이는 문서쌍을 모아 클러스터로 반환.
-        실제 정리(엔티티 sources 재배치 + 중복 문서 삭제)는 파괴적이라 별도 결정/명령으로
-        남긴다. 반환: {documents, clusters:[{ids, urls, score}...]}."""
+        먼저 minhash 를 백필한 뒤, 임계 이상으로 묶이는 문서쌍을 모아 클러스터로 반환. 실제 정리(엔티티 sources 재배치 + 중복 문서 삭제)는 파괴적이라 별도 결정/명령으로 남긴다. 반환: {documents, clusters:[{ids, urls, score}...]}."""
         import json as _json
 
         from .normalize import minhash_estimate
@@ -1126,11 +1098,7 @@ class IngestService:
     def merge_one_cluster(self, keeper: str, losers: list[str]) -> dict:
         """[웹 UI 단일 클러스터 병합] keeper 로 losers 를 합치고 loser 의 artifact 도 정리.
 
-        dedup_merge 가 '스캔으로 찾은 모든 클러스터'를 한 번에 처리하는 데 비해, 이건 웹에서
-        사용자가 클러스터/유지문서를 골라 1건만 병합하는 통로. **파괴적**이므로 병합 직전
-        정본을 내부 checkpoint(VACUUM INTO)로 저장한다. checkpoint 생성에 실패하면 병합을
-        시작하지 않는다. 이는 cb-manuscript가 관리하는 운영 백업과 별개다.
-        반환: db.merge_documents 결과 + {checkpoint: 경로|None}."""
+        dedup_merge 가 '스캔으로 찾은 모든 클러스터'를 한 번에 처리하는 데 비해, 이건 웹에서 사용자가 클러스터/유지문서를 골라 1건만 병합하는 통로. **파괴적**이므로 병합 직전 정본을 내부 checkpoint(VACUUM INTO)로 저장한다. checkpoint 생성에 실패하면 병합을 시작하지 않는다. 이는 cb-manuscript가 관리하는 운영 백업과 별개다. 반환: db.merge_documents 결과 + {checkpoint: 경로|None}."""
         import time as _time
 
         losers = [d for d in losers if d and d != keeper]
@@ -1163,9 +1131,7 @@ class IngestService:
     def recanonicalize_documents(self, *, apply: bool = True) -> dict:
         """기존 문서의 canonical_url 을 현재 규칙으로 재계산 — **비파괴**(URL 열만 갱신).
 
-        canonicalize_url 규칙이 좋아지면(예: arxiv 버전 정규화) 이미 적재된 문서는 옛
-        canonical 을 그대로 들고 있어 같은 자료가 갈라진 채 남는다. 이 백필이 정렬한다.
-        apply=False 면 변경 예정만 보고. 반환: {docs, changed, samples[...]}.
+        canonicalize_url 규칙이 좋아지면(예: arxiv 버전 정규화) 이미 적재된 문서는 옛 canonical 을 그대로 들고 있어 같은 자료가 갈라진 채 남는다. 이 백필이 정렬한다. apply=False 면 변경 예정만 보고. 반환: {docs, changed, samples[...]}.
         """
         from .normalize import canonicalize_url
 
@@ -1196,9 +1162,7 @@ class IngestService:
                     apply: bool = False) -> dict:
         """근사중복 클러스터를 각각 1개 문서로 병합. **apply=False 면 계획만(비파괴)**.
 
-        keeper 선정 = 가장 긴 본문(가장 완전) → 동률이면 최초 적재(first-seen). 나머지는
-        loser 로 keeper 에 참조 재배치 후 삭제(db.merge_documents). apply=True 면 loser 의
-        artifact 파일도 정리한다. **파괴적이므로 호출자가 복구 계획을 책임진다.** 반환:
+        keeper 선정 = 가장 긴 본문(가장 완전) → 동률이면 최초 적재(first-seen). 나머지는 loser 로 keeper 에 참조 재배치 후 삭제(db.merge_documents). apply=True 면 loser 의 artifact 파일도 정리한다. **파괴적이므로 호출자가 복구 계획을 책임진다.** 반환:
         {clusters:[{keeper, losers, ...}], merged}."""
         scan = self.dedup_scan(threshold=threshold, min_len=min_len)
         conn = dbm.connect(self.s.db_file)
@@ -1280,9 +1244,7 @@ class IngestService:
     def replay_failed(self, *, limit: int = 0):
         """raw_inbox 의 status='error' 행을 원본 payload 로 재적재.
 
-        재적재 요구의 실현: 알고리즘/quota 문제로 실패한 항목을 보관된 원본에서 재생.
-        (payload 가 보관 파일 경로면 그 파일을, URL/text 면 그대로 다시 fetch)
-        반환: [(inbox_id, IngestReport), ...]
+        재적재 요구의 실현: 알고리즘/quota 문제로 실패한 항목을 보관된 원본에서 재생. (payload 가 보관 파일 경로면 그 파일을, URL/text 면 그대로 다시 fetch) 반환: [(inbox_id, IngestReport), ...]
         """
         conn = dbm.connect(self.s.db_file)
         dbm.init_db(conn)
@@ -1304,9 +1266,7 @@ class IngestService:
     def _retry_extract(self, document_id: str, inbox_id: int) -> IngestReport:
         """[자동복구] extract 단계에서 실패해 문서만 적재된 행을 재추출.
 
-        re-fetch 없이(원본 raw_text 가 이미 DB 에 있음) extract→해소→관계→vault 만
-        다시 돌린다. dedup/nochange 가드를 모두 우회 = 429 등으로 추출만 막혔던 케이스의
-        진짜 복구. 성공하면 inbox 를 done 으로 갱신.
+        re-fetch 없이(원본 raw_text 가 이미 DB 에 있음) extract→해소→관계→vault 만 다시 돌린다. dedup/nochange 가드를 모두 우회 = 429 등으로 추출만 막혔던 케이스의 진짜 복구. 성공하면 inbox 를 done 으로 갱신.
         """
         conn = dbm.connect(self.s.db_file)
         dbm.init_db(conn)
@@ -1349,10 +1309,7 @@ class IngestService:
     def retry_inbox(self, inbox_id: int) -> IngestReport:
         """[수동 재시도] 텔레그램 /retry 등에서 특정 inbox 건 하나를 즉시 재적재.
 
-        recover_failed 의 자동 게이팅(attempts 상한·백오프)을 무시하고 사용자가 명시적으로
-        요청한 1건만 처리한다. document_id 가 있으면(=extract 단계 실패) 재추출만, 없으면
-        fetch 부터 다시. 실패해도 영구실패로 굳히지 않고 status='error' 로 남겨 다음 자동/수동
-        재시도 기회를 유지한다(사용자가 직접 재시도했다는 사실만으로 상한을 확정짓지 않음).
+        recover_failed 의 자동 게이팅(attempts 상한·백오프)을 무시하고 사용자가 명시적으로 요청한 1건만 처리한다. document_id 가 있으면(=extract 단계 실패) 재추출만, 없으면 fetch 부터 다시. 실패해도 영구실패로 굳히지 않고 status='error' 로 남겨 다음 자동/수동 재시도 기회를 유지한다(사용자가 직접 재시도했다는 사실만으로 상한을 확정짓지 않음).
         """
         conn = dbm.connect(self.s.db_file)
         dbm.init_db(conn)
@@ -1394,13 +1351,11 @@ class IngestService:
     ) -> list[dict]:
         """[자동복구] error inbox 중 재시도 시각이 도래한 항목을 자동 재적재.
 
-        replay_failed 가 *수동 전량* 재적재라면, 이쪽은 데몬(recover-loop)이 부르는
-        *게이팅된 자동* 경로:
+        replay_failed 가 *수동 전량* 재적재라면, 이쪽은 데몬(recover-loop)이 부르는 *게이팅된 자동* 경로:
           - 대상: status='error' AND attempts<max AND now>=next_retry_at (없으면 즉시).
           - 성공/duplicate: ingest 가 같은 inbox 행을 done/duplicate 로 갱신(멱등).
           - 실패: attempts+1, next_retry_at = now + base_delay·2^attempts(지수백오프).
-            attempts 가 max 에 도달하면 status='failed'(영구실패)로 굳혀 무한재시도 차단.
-        반환: [{inbox_id, status, error?}, ...]
+            attempts 가 max 에 도달하면 status='failed'(영구실패)로 굳혀 무한재시도 차단. 반환: [{inbox_id, status, error?}, ...]
         """
         import time as _time
 

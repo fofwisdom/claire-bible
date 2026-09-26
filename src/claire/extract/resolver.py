@@ -1,16 +1,12 @@
 """엔티티 해소 (entity resolution) — 핵심 가치 "기존 그래프와의 연결".
 
 M3 설계(advisor 반영):
-  1) 정규화 이름 exact match → 머지 (임베딩 호출 없음)
-  2) 별칭(aliases) 일치 → 머지 (임베딩 호출 없음)
-  3) miss 일 때만 embed_fn() 1회 호출 → 후보 수집(vector + FTS)
+  1) 정규화 이름 exact match → 머지 (임베딩 호출 없음) 2) 별칭(aliases) 일치 → 머지 (임베딩 호출 없음) 3) miss 일 때만 embed_fn() 1회 호출 → 후보 수집(vector + FTS)
        - cosine ≥ AUTO_MERGE: 확신 → 자동 머지
        - CANDIDATE_FLOOR ≤ cosine < AUTO_MERGE 또는 FTS 후보: borderline
-         → judge_fn 으로 LLM 동일성 판정(게이팅: 후보 상한 MAX_JUDGE)
-  4) 없으면 신규 + 임베딩 저장
+         → judge_fn 으로 LLM 동일성 판정(게이팅: 후보 상한 MAX_JUDGE) 4) 없으면 신규 + 임베딩 저장
 
-코사인 임계 자체가 지렛대가 아니다(같은 분야 다른 제품이 0.8+ 로 붙음).
-판정의 최종 권한은 LLM judge 에 둔다. judge_fn 이 없으면 AUTO_MERGE 만 적용.
+코사인 임계 자체가 지렛대가 아니다(같은 분야 다른 제품이 0.8+ 로 붙음). 판정의 최종 권한은 LLM judge 에 둔다. judge_fn 이 없으면 AUTO_MERGE 만 적용.
 """
 
 from __future__ import annotations

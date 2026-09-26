@@ -1,8 +1,6 @@
 """Discourse 포럼 어댑터 — 토픽 `.json` API 로 본문을 정적으로 가져온다.
 
-Discourse 는 본문을 JS 로 렌더링해 정적 HTML 스크랩이 제목만 건진다(예: pytorch.kr).
-대신 토픽 URL 에 `.json` 을 붙이면 `post_stream.posts[].cooked`(렌더된 HTML)를 준다.
-호스트 하드코딩 없이 *범용*으로: .json 응답에 `post_stream` 키가 있으면 Discourse 로 간주.
+Discourse 는 본문을 JS 로 렌더링해 정적 HTML 스크랩이 제목만 건진다(예: pytorch.kr). 대신 토픽 URL 에 `.json` 을 붙이면 `post_stream.posts[].cooked`(렌더된 HTML)를 준다. 호스트 하드코딩 없이 *범용*으로: .json 응답에 `post_stream` 키가 있으면 Discourse 로 간주.
 """
 
 from __future__ import annotations
@@ -119,8 +117,7 @@ _BOILERPLATE_MARKERS = (
 def _trim_boilerplate(text: str) -> str:
     """본문 후반부에 등장하는 사이트 푸터/추천글 위젯을 잘라낸다.
 
-    오탐(본문 중간의 우연한 일치)을 막기 위해 *문서 후반(50% 이후)* 에 나타난
-    마커만 절단 지점으로 인정한다. 여러 마커 중 가장 앞선 위치에서 자른다.
+    오탐(본문 중간의 우연한 일치)을 막기 위해 *문서 후반(50% 이후)* 에 나타난 마커만 절단 지점으로 인정한다. 여러 마커 중 가장 앞선 위치에서 자른다.
     """
     if not text:
         return text
@@ -136,9 +133,7 @@ def _trim_boilerplate(text: str) -> str:
 def _strip_html(html: str) -> tuple[str, list[str]]:
     """cooked HTML → (plain text, 외부 링크 목록).
 
-    이미지/캡션/메타(.lightbox·.meta·.informations·img) 요소를 먼저 제거해
-    "1536×1024 229 KB" 같은 썸네일 잡음이 본문에 섞이지 않게 한다.
-    multi-root cooked 도 안전하게 파싱하려고 div 로 감싼다.
+    이미지/캡션/메타(.lightbox·.meta·.informations·img) 요소를 먼저 제거해 "1536×1024 229 KB" 같은 썸네일 잡음이 본문에 섞이지 않게 한다. multi-root cooked 도 안전하게 파싱하려고 div 로 감싼다.
     """
     from lxml import html as lh
 

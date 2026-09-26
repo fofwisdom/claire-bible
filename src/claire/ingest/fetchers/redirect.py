@@ -1,8 +1,6 @@
 """Redirect 해석 — google share 등 단축/리다이렉트 URL의 최종 목적지 반환.
 
-google share(share.google)는 HTTP 3xx 가 아니라 **JS 리다이렉트**라 httpx 의
-follow_redirects 로는 안 풀린다(share.google 페이지에 머묾). 대신 응답 HTML 본문에
-목적지 URL 이 평문으로 들어있어, 거기서 첫 외부(비-google) URL 을 타겟으로 뽑는다.
+google share(share.google)는 HTTP 3xx 가 아니라 **JS 리다이렉트**라 httpx 의 follow_redirects 로는 안 풀린다(share.google 페이지에 머묾). 대신 응답 HTML 본문에 목적지 URL 이 평문으로 들어있어, 거기서 첫 외부(비-google) URL 을 타겟으로 뽑는다.
 
 최종 URL 을 돌려주면 라우터가 다시 적절한 fetcher 로 라우팅한다.
 """

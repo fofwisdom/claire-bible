@@ -1,7 +1,6 @@
 """SQLite 정본 스토어 — 스키마 + 마이그레이션 + 기본 CRUD.
 
-정본은 이 단일 파일. vault(.md)는 export-only 투영(store/vault.py).
-벡터는 store/vectors.py(sqlite-vec auto / brute fallback), 키워드는 FTS5.
+정본은 이 단일 파일. vault(.md)는 export-only 투영(store/vault.py). 벡터는 store/vectors.py(sqlite-vec auto / brute fallback), 키워드는 FTS5.
 """
 
 from __future__ import annotations
@@ -304,9 +303,7 @@ CREATE INDEX IF NOT EXISTS idx_tombstones_hash ON purged_tombstones(content_hash
 def checkpoint_database(src: str | Path, dest: str | Path) -> Path:
     """내부 안전장치용 SQLite checkpoint를 단일 파일로 복제(VACUUM INTO).
 
-    이는 웹 병합 같은 앱 내부 파괴 작업의 근거리 checkpoint일 뿐, data/raw·vault와
-    복원 절차를 포함하는 운영 backup이 아니다. 운영 backup은 cb-manuscript가 소유한다.
-    `VACUUM INTO`는 WAL을 반영한 트랜잭션 일관 DB snapshot을 만든다.
+    이는 웹 병합 같은 앱 내부 파괴 작업의 근거리 checkpoint일 뿐, data/raw·vault와 복원 절차를 포함하는 운영 backup이 아니다. 운영 backup은 cb-manuscript가 소유한다. `VACUUM INTO`는 WAL을 반영한 트랜잭션 일관 DB snapshot을 만든다.
     """
     dest = Path(dest)
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -319,11 +316,9 @@ def checkpoint_database(src: str | Path, dest: str | Path) -> Path:
 
 
 def reset_graph(conn: sqlite3.Connection) -> None:
-    """추출 산출물(엔티티/관계/임베딩/추출/제안/FTS)을 비운다 — documents·raw_inbox·
-    artifact 는 보존. 저장된 raw_text 로부터 그래프를 깨끗이 재구축(reextract)할 때 사용.
+    """추출 산출물(엔티티/관계/임베딩/추출/제안/FTS)을 비운다 — documents·raw_inbox· artifact 는 보존. 저장된 raw_text 로부터 그래프를 깨끗이 재구축(reextract)할 때 사용.
 
-    문서/원본을 남기므로 재추출의 입력은 그대로다. 파괴적이라 호출 전 백업 권장
-    (CLI reextract 가 강제). FTS 는 트리거가 아니라 수동 관리라 함께 비운다.
+    문서/원본을 남기므로 재추출의 입력은 그대로다. 파괴적이라 호출 전 백업 권장 (CLI reextract 가 강제). FTS 는 트리거가 아니라 수동 관리라 함께 비운다.
     """
     for tbl in ("entities", "entities_fts", "relations", "embeddings",
                 "extractions", "proposals"):
@@ -348,8 +343,7 @@ def connect_existing(
 ) -> sqlite3.Connection:
     """이미 초기화된 DB를 열되 journal mode나 파일 시스템을 변경하지 않는다.
 
-    API 요청 경로에서 사용한다. ``mode=rw``/``mode=ro``로 누락된 DB를 암묵적으로
-    만들지 않으며, WAL 설정과 schema migration은 프로세스 시작 시 한 번만 수행한다.
+    API 요청 경로에서 사용한다. ``mode=rw``/``mode=ro``로 누락된 DB를 암묵적으로 만들지 않으며, WAL 설정과 schema migration은 프로세스 시작 시 한 번만 수행한다.
     """
 
     mode = "ro" if readonly else "rw"
@@ -742,10 +736,7 @@ def near_duplicate_document(
 ) -> tuple[str, float] | None:
     """근사 중복 게이트(3차): MinHash Jaccard 추정이 임계 이상인 기존 문서를 찾는다.
 
-    content_hash(완전일치)·canonical_url 를 비껴간 "같은 글 다른 입구"를 잡는다.
-    **보수적**(데이터 보존): 짧은(<min_len) 문서·partial 은 양쪽 다 제외해 false-positive
-    를 막고(특히 x.com 트윗), 임계 0.90 은 실측 마진(진짜중복 0.97+ vs 별개 ≤0.36) 안.
-    반환: (가장 유사한 문서 id, 추정 유사도) 또는 None.
+    content_hash(완전일치)·canonical_url 를 비껴간 "같은 글 다른 입구"를 잡는다. **보수적**(데이터 보존): 짧은(<min_len) 문서·partial 은 양쪽 다 제외해 false-positive 를 막고(특히 x.com 트윗), 임계 0.90 은 실측 마진(진짜중복 0.97+ vs 별개 ≤0.36) 안. 반환: (가장 유사한 문서 id, 추정 유사도) 또는 None.
     """
     from ..ingest.normalize import minhash_estimate, minhash_signature
 
@@ -841,8 +832,7 @@ def set_document_watch(
 def watch_due_documents(
     conn: sqlite3.Connection, now: float, *, default_interval: float, limit: int = 0
 ) -> list[sqlite3.Row]:
-    """재크롤할 때가 된 watch 문서: enabled=1 AND (last_watched_at NULL 또는
-    now - last_watched_at >= interval). interval 없으면 default_interval 적용."""
+    """재크롤할 때가 된 watch 문서: enabled=1 AND (last_watched_at NULL 또는 now - last_watched_at >= interval). interval 없으면 default_interval 적용."""
     q = ("SELECT id, url FROM documents WHERE watch_enabled=1 AND url IS NOT NULL AND ("
          "last_watched_at IS NULL OR ? - last_watched_at >= COALESCE(watch_interval, ?)) "
          "ORDER BY COALESCE(last_watched_at, 0)")
@@ -900,9 +890,7 @@ def documents_timeline(
 ) -> list[sqlite3.Row]:
     """문서를 최신 적재순으로(좌측 문서 패널용). summary 는 호출측에서 붙인다.
 
-    since/query 는 MCP `documents` 툴이 "전체를 다 훑지 않고 좁혀서 찾을" 수
-    있게 추가된 선택적 필터(기본 None, 기존 웹 UI 호출은 동작 그대로).
-    include_hidden=False 면 hidden=0 인 공개 문서만 조회한다."""
+    since/query 는 MCP `documents` 툴이 "전체를 다 훑지 않고 좁혀서 찾을" 수 있게 추가된 선택적 필터(기본 None, 기존 웹 UI 호출은 동작 그대로). include_hidden=False 면 hidden=0 인 공개 문서만 조회한다."""
     where_sql, params = _documents_filter(since, query, include_hidden=include_hidden)
     params.append(limit)
     return conn.execute(
@@ -1028,8 +1016,7 @@ def find_entities_by_name_or_alias(
 ) -> list[Entity]:
     """norm_name 정확 매칭(인덱스) + alias 정확 매칭(스캔).
 
-    alias 는 JSON 컬럼이라 정규화 비교가 필요해 alias 후보만 LIKE 로 좁힌 뒤
-    Python 에서 정확 비교한다. 규모가 커지면 alias 테이블로 인덱싱할 것.
+    alias 는 JSON 컬럼이라 정규화 비교가 필요해 alias 후보만 LIKE 로 좁힌 뒤 Python 에서 정확 비교한다. 규모가 커지면 alias 테이블로 인덱싱할 것.
     """
     from ..ontology.base import normalize_name
 
@@ -1146,8 +1133,7 @@ def batch_select_primary_labels(
 ) -> dict[str, Any]:
     """대량 매핑(dict: target_id_or_name -> chosen_alias)으로 대표 레이블 일괄 전환.
 
-    dry_run=True 시 실제 DB 수정 없이 시뮬레이션 결과(성공/실패/변경전후)를 반환.
-    dry_run=False 시 트랜잭션 내에서 일괄 적용.
+    dry_run=True 시 실제 DB 수정 없이 시뮬레이션 결과(성공/실패/변경전후)를 반환. dry_run=False 시 트랜잭션 내에서 일괄 적용.
     """
     from ..ontology.base import normalize_name
 
@@ -1402,8 +1388,7 @@ def due_for_recovery(
 ) -> list[sqlite3.Row]:
     """자동 재적재 대상: status='error' AND attempts<max AND 재시도시각 도래.
 
-    next_retry_at 이 NULL(아직 한 번도 시도 안 함)이거나 now 이하인 행만. attempts 가
-    상한에 도달한 행은 recover 가 'failed' 로 굳히므로 여기 다시 안 잡힌다.
+    next_retry_at 이 NULL(아직 한 번도 시도 안 함)이거나 now 이하인 행만. attempts 가 상한에 도달한 행은 recover 가 'failed' 로 굳히므로 여기 다시 안 잡힌다.
     """
     now = time.time() if now is None else now
     return conn.execute(
@@ -1589,13 +1574,9 @@ def revoke_all_sessions(conn: sqlite3.Connection) -> int:
 def create_session(
     conn: sqlite3.Connection, *, ttl: float = SESSION_TTL, scope: str = "owner"
 ) -> str:
-    """[/web, /webro] **scope 별 단일 활성 세션**: 같은 scope 의 기존 세션만 revoke 하고
-    추측 저항성이 충분한 새 토큰 1개를 발급 — owner(/web)와 readonly(/webro)는 서로 다른 scope 라 독립적으로
-    공존한다(읽기전용 링크를 공유해도 내 소유자 세션은 안 끊김, 그 반대도 마찬가지).
+    """[/web, /webro] **scope 별 단일 활성 세션**: 같은 scope 의 기존 세션만 revoke 하고 추측 저항성이 충분한 새 토큰 1개를 발급 — owner(/web)와 readonly(/webro)는 서로 다른 scope 라 독립적으로 공존한다(읽기전용 링크를 공유해도 내 소유자 세션은 안 끊김, 그 반대도 마찬가지).
 
-    토큰은 링크의 전체값만 인정한다. 발급 즉시 같은 scope 의 이전 링크/쿠키는
-    무효(다음 /web 한 번이 곧 '이전 owner 세션 전부 로그아웃', scope 가 다르면 서로
-    안 건드림). nonce=토큰(PK)."""
+    토큰은 링크의 전체값만 인정한다. 발급 즉시 같은 scope 의 이전 링크/쿠키는 무효(다음 /web 한 번이 곧 '이전 owner 세션 전부 로그아웃', scope 가 다르면 서로 안 건드림). nonce=토큰(PK)."""
     conn.execute("DELETE FROM auth_sessions WHERE scope=?", (scope,))
     token = secrets.token_urlsafe(32)
     now = time.time()
@@ -1615,8 +1596,7 @@ def exchange_session_token(
 ) -> tuple[str, str] | None:
     """owner URL bootstrap token을 한 번만 소비하고 cookie용 세션으로 회전한다.
 
-    조회 뒤 UPDATE에 이전 token과 만료 조건을 다시 넣는다. 동시 요청이 같은 URL을
-    사용해도 한 요청만 rowcount=1을 얻고 나머지는 실패한다.
+    조회 뒤 UPDATE에 이전 token과 만료 조건을 다시 넣는다. 동시 요청이 같은 URL을 사용해도 한 요청만 rowcount=1을 얻고 나머지는 실패한다.
     """
 
     if not plausible_session_token(token) or not scopes:
@@ -1681,9 +1661,7 @@ def validate_session(
 ) -> bool:
     """세션 토큰이 유효(승인됨 + 미만료 + scopes 중 하나)한가.
 
-    기본은 scope='owner' 만 인정(기존 전체-쓰기 게이트 동작 그대로 — 하위호환). 읽기전용
-    게이트는 scopes=("owner","readonly") 로 호출해 두 scope 모두 인정한다(owner 세션으로도
-    당연히 읽을 수 있어야 하므로)."""
+    기본은 scope='owner' 만 인정(기존 전체-쓰기 게이트 동작 그대로 — 하위호환). 읽기전용 게이트는 scopes=("owner","readonly") 로 호출해 두 scope 모두 인정한다(owner 세션으로도 당연히 읽을 수 있어야 하므로)."""
     return validate_session_scope(
         conn, token, ttl=ttl, scopes=scopes
     ) is not None
@@ -1941,8 +1919,7 @@ def create_doc_share(conn: sqlite3.Connection, document_id: str,
                      reuse_existing: bool = True) -> str:
     """문서 1개의 읽기 공유 토큰을 발급(세션과 분리). ttl=None 이면 무기한.
 
-    reuse_existing=True 이면 문서에 이미 유효한(미만료) 토큰이 있는 경우 이를 재사용하여
-    URL 파편화를 방지하고 분석/참조수 집계를 단일 정규 URL로 통합한다."""
+    reuse_existing=True 이면 문서에 이미 유효한(미만료) 토큰이 있는 경우 이를 재사용하여 URL 파편화를 방지하고 분석/참조수 집계를 단일 정규 URL로 통합한다."""
     now = time.time()
     if reuse_existing:
         row = conn.execute(
@@ -2167,8 +2144,7 @@ def resolve_single_document_target(
 
 
 def latest_extraction_summary(conn: sqlite3.Connection, document_id: str) -> str | None:
-    """문서의 최신 추출 결과에서 summary 를 꺼낸다(documents 엔 summary 컬럼이 없고
-    extractions.raw_response = ExtractionResult JSON 에 들어있다). 노드 상세 패널용."""
+    """문서의 최신 추출 결과에서 summary 를 꺼낸다(documents 엔 summary 컬럼이 없고 extractions.raw_response = ExtractionResult JSON 에 들어있다). 노드 상세 패널용."""
     from ..extract.prompts import clean_plain_summary
 
     row = conn.execute(
@@ -2322,9 +2298,7 @@ def documents_needing_detail_format(
 ) -> list[str]:
     """목표 포맷(target_format)으로 detail 생성이 필요한 문서 id(최신순).
 
-    1) detail 이 비어있거나 NULL인 문서
-    2) detail 은 있으나 detail_format 이 target_format 과 다른 문서
-    (이미 target_format 으로 일치하는 문서는 제외)
+    1) detail 이 비어있거나 NULL인 문서 2) detail 은 있으나 detail_format 이 target_format 과 다른 문서 (이미 target_format 으로 일치하는 문서는 제외)
     """
     fmt = (target_format or "md").strip().lower()
     fmt = "adoc" if fmt in ("asciidoc", "adoc") else "md"
@@ -2549,8 +2523,7 @@ def thin_documents(
 ) -> list[sqlite3.Row]:
     """본문이 빈약한 문서. host 지정 시 해당 호스트만.
 
-    기본은 non-partial 만. include_partial=True 면 partial 노드(예: 구버전 'x.com
-    post' — 본문 스크랩 없이 URL 만 보관)도 포함해 재fetch 대상으로 잡는다.
+    기본은 non-partial 만. include_partial=True 면 partial 노드(예: 구버전 'x.com post' — 본문 스크랩 없이 URL 만 보관)도 포함해 재fetch 대상으로 잡는다.
     """
     q = ("SELECT id, url, title, length(raw_text) L FROM documents "
          "WHERE length(raw_text) < ?")
@@ -2571,9 +2544,7 @@ def update_document_content(
 ) -> None:
     """문서 본문을 in-place 갱신(복원). id 는 유지하여 엔티티 sources 연결 보존.
 
-    source_type/partial 을 주면 함께 갱신한다(구버전 partial 'x.com post' 가 본문
-    스크랩에 성공해 정식 문서가 될 때 플래그 정합을 맞추기 위함). meta 를 주면 함께
-    갱신(재fetch 로 새로 수집된 본문 이미지 등을 보존)."""
+    source_type/partial 을 주면 함께 갱신한다(구버전 partial 'x.com post' 가 본문 스크랩에 성공해 정식 문서가 될 때 플래그 정합을 맞추기 위함). meta 를 주면 함께 갱신(재fetch 로 새로 수집된 본문 이미지 등을 보존)."""
     from ..ingest.normalize import minhash_signature
 
     sig = minhash_signature((title or "") + " " + (raw_text or ""))
@@ -2664,12 +2635,9 @@ def update_document_meta(conn: sqlite3.Connection, doc_id: str, meta: dict) -> N
 
 
 def find_document_by_extra_source(conn: sqlite3.Connection, canonical_url: str | None) -> str | None:
-    """이미 어떤 문서에 병합 출처로 흡수된 canonical_url 인지 — 1홉 후보 재제안 방지용
-    (병합 경로는 새 Document 행을 안 만들어 documents.canonical_url 색인으로는 못 잡음).
+    """이미 어떤 문서에 병합 출처로 흡수된 canonical_url 인지 — 1홉 후보 재제안 방지용 (병합 경로는 새 Document 행을 안 만들어 documents.canonical_url 색인으로는 못 잡음).
 
-    documents.meta 는 색인 없는 JSON 이라 파이썬 측 스캔 — near_duplicate_document 와
-    동일한 절충(개인용 규모라 전체 스캔으로 충분히 빠름). 대략적인 LIKE 로 후보를 먼저
-    좁혀 스캔 대상을 줄인다."""
+    documents.meta 는 색인 없는 JSON 이라 파이썬 측 스캔 — near_duplicate_document 와 동일한 절충(개인용 규모라 전체 스캔으로 충분히 빠름). 대략적인 LIKE 로 후보를 먼저 좁혀 스캔 대상을 줄인다."""
     if not canonical_url:
         return None
     rows = conn.execute(
@@ -2685,8 +2653,7 @@ def find_document_by_extra_source(conn: sqlite3.Connection, canonical_url: str |
 def documents_missing_images(conn: sqlite3.Connection, limit: int = 0) -> list[str]:
     """본문 이미지가 아직 없는(재fetch 안 한) 문서 id — 최신순. 이미지 백필 대상.
 
-    meta 에 'images' 키 자체가 없는(이미지 수집 전 적재) url 보유 문서만. 빈 목록([])은
-    '재fetch 했으나 콘텐츠 이미지가 없었음'이라 재대상에서 제외(불필요한 재호출 방지)."""
+    meta 에 'images' 키 자체가 없는(이미지 수집 전 적재) url 보유 문서만. 빈 목록([])은 '재fetch 했으나 콘텐츠 이미지가 없었음'이라 재대상에서 제외(불필요한 재호출 방지)."""
     rows = conn.execute(
         "SELECT id, url, meta FROM documents ORDER BY fetched_at DESC, rowid DESC"
     ).fetchall()
@@ -2744,10 +2711,7 @@ def merge_documents(conn: sqlite3.Connection, keeper_id: str,
                     loser_ids: list[str]) -> dict:
     """[파괴적] 근사중복 문서를 keeper 로 합치고 loser 문서 행을 삭제한다.
 
-    데이터 보존: 삭제 전에 loser 를 가리키는 **모든 참조**(엔티티/관계 sources,
-    proposals·extractions·raw_inbox 의 document_id)를 keeper 로 재배치한다. 큐
-    (refresh/expand)는 document_id UNIQUE 제약이 있어 loser 행은 삭제(전이적 작업이라
-    재생성 가능). 단일 트랜잭션으로 원자 처리. 반환: 재배치/삭제 카운트.
+    데이터 보존: 삭제 전에 loser 를 가리키는 **모든 참조**(엔티티/관계 sources, proposals·extractions·raw_inbox 의 document_id)를 keeper 로 재배치한다. 큐 (refresh/expand)는 document_id UNIQUE 제약이 있어 loser 행은 삭제(전이적 작업이라 재생성 가능). 단일 트랜잭션으로 원자 처리. 반환: 재배치/삭제 카운트.
     """
     losers = {x for x in loser_ids if x and x != keeper_id}
     if not losers:
@@ -2786,8 +2750,7 @@ _FTS_TOKEN = re.compile(r"[0-9A-Za-z가-힣]+")
 def _fts_query(query: str) -> str:
     """자유 텍스트를 안전한 FTS5 MATCH 식으로 변환.
 
-    FTS5 는 `/ . : -` 등을 연산자로 해석해 syntax error 를 낸다. 영숫자/한글
-    토큰만 추출해 각각 "큰따옴표"로 감싸고 OR 로 잇는다(부분 매칭 지향).
+    FTS5 는 `/ . : -` 등을 연산자로 해석해 syntax error 를 낸다. 영숫자/한글 토큰만 추출해 각각 "큰따옴표"로 감싸고 OR 로 잇는다(부분 매칭 지향).
     """
     toks = _FTS_TOKEN.findall(query or "")
     return " OR ".join(f'"{t}"' for t in toks)

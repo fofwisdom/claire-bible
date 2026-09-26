@@ -1,8 +1,6 @@
 """HoYoWiki (wiki.hoyolab.com) 공식 위키 수집기 및 웹 어댑터.
 
-원신(Genshin Impact), 붕괴: 스타레일(Honkai: Star Rail), 젠레스 존 제로(Zenless Zone Zero),
-붕괴3rd(Honkai Impact 3rd) 등 HoYoverse 공식 게임 위키 데이터를 sg-wiki-api.hoyolab.com
-WAPI를 통해 직접 역추적하여 온톨로지 적재에 최적화된 마크다운 Document로 변환한다.
+원신(Genshin Impact), 붕괴: 스타레일(Honkai: Star Rail), 젠레스 존 제로(Zenless Zone Zero), 붕괴3rd(Honkai Impact 3rd) 등 HoYoverse 공식 게임 위키 데이터를 sg-wiki-api.hoyolab.com WAPI를 통해 직접 역추적하여 온톨로지 적재에 최적화된 마크다운 Document로 변환한다.
 """
 
 from __future__ import annotations
