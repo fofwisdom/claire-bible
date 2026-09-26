@@ -31,6 +31,7 @@ docs/
 │
 └── origin/                 # [오리진 작업/병합] fofwisdom/claire-bible 자체 생성 및 개정 문서
     ├── README.md           # 오리진 문서 분류 규칙 및 작성 가이드
+    ├── GOALS.md            # 오리진 목표와 로드맵 (증강 계보 정본)
     ├── FAVICON.md          # 파비콘 3D 기하학 그래픽 디자인 명세
     ├── design/             # [설계 내역] 오리진 자체 신규/개정 아키텍처 및 시스템 설계
     │   ├── ASCIIDOC_ENHANCEMENT_DESIGN.md    # AsciiDoc 기능 고도화 설계 명세서 (수식·상호참조 구현 및 적합성 평가 완료)
@@ -77,5 +78,5 @@ docs/
 
 3. **[`docs/origin/`](origin/README.md)**
    - 증강 계보([`fofwisdom/claire-bible`](https://github.com/fofwisdom/claire-bible))에서 직접 신규 연구·개발하였거나 실세계 상호작용을 위해 대폭 확장/개정한 문서입니다.
-   - 증강 계보 시스템의 실제 구현 상태와 확장 설계는 `docs/origin/`을 기준으로 합니다.
+   - 증강 계보 시스템의 최상위 비전, 범위 및 로드맵은 [`GOALS.md`](origin/GOALS.md)를 기준으로 하며, 실제 구현 상태와 확장 설계는 `docs/origin/`을 기준으로 합니다.
    - 상호 운용 계약은 [`docs/contracts/`](contracts/README.md), 증강 계보 전용 확장·복구는 [`ORIGIN_SCHEMA_EXTENSIONS.md`](origin/design/ORIGIN_SCHEMA_EXTENSIONS.md)를 따릅니다. telemetry와 Support Bundle 계약은 [`TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md`](origin/design/TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md), 전체 DB inventory 계획은 [`OPERATIONAL_MIGRATION.md`](origin/design/OPERATIONAL_MIGRATION.md)에 있습니다.
