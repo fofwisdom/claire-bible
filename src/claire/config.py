@@ -339,6 +339,14 @@ class Settings(BaseSettings):
     gemini_min_interval: float = Field(default=4.0, alias="CLAIRE_GEMINI_MIN_INTERVAL")
     gemini_max_retries: int = Field(default=5, alias="CLAIRE_GEMINI_MAX_RETRIES")
 
+    # --- TypeSafe AI Jev (System 1 Decision Engine Option) ---
+    enable_jev: bool = Field(default=False, alias="CLAIRE_ENABLE_JEV")
+    jev_api_key: str | None = Field(default=None, alias="CLAIRE_JEV_API_KEY")
+    jev_base_url: str = Field(
+        default="https://api.typesafe.ai/v1", alias="CLAIRE_JEV_BASE_URL"
+    )
+    jev_timeout: float = Field(default=15.0, alias="CLAIRE_JEV_TIMEOUT")
+
     # --- Antigravity CLI (agy) ---
     agy_bin: str = Field(default="agy", alias="CLAIRE_AGY_BIN")
     agy_model: str = Field(default="gemini-3.7-flash", alias="CLAIRE_AGY_MODEL")
