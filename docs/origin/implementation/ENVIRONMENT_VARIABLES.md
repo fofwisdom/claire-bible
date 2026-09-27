@@ -48,6 +48,7 @@ graph TD
 3. **셸 Sourcing 금지 (`treated as data`)**: `cb-manuscript`와 `deploy.sh`는 `.env` 파일을 셸 스크립트로 `source`하지 않으며, 자체 파서를 통해 안전하게 키-값 데이터로만 읽어 전달합니다.
 4. **엄격한 DotEnv 파서 (`_ExactDotEnvSettingsSource`)**: 보안 selector(예: `CLAIRE_ANONYMOUS_READONLY`)는 따옴표나 외부 공백이 없는 exact `0` 또는 `1`만 허용하며, 중복 선언 시 기동 전 에러를 발생시킵니다.
 5. **자동 마이그레이션 및 백필**: `./cb-manuscript init`, `install`, `update` 실행 시 신규 추가된 환경변수가 `.env.example` 및 `.env.dev.example`로부터 기존 사용자 설정을 훼손하지 않고 파일 끝에 자동으로 백필됩니다 ([OPERATIONAL_MIGRATION.md](../design/OPERATIONAL_MIGRATION.md) 참조).
+6. **WebUI 프로바이더 관리 우선 및 자동 마이그레이션 (`data/providers.json`)**: LLM 및 하이퍼스케일러 프로바이더 설정(Gemini, Antigravity CLI, Codex CLI, Jev, STT 등)은 WebUI에서 브라우저를 통해 직관적으로 관리되며 `data/providers.json`에 안전하게 영속화됩니다. 런타임 설정 해석 시 `providers.json`의 값이 `.env` 파일보다 우선 적용되며, 기존 `.env` 및 `.env.dev`의 프로바이더 설정은 기동 시 자동으로 `providers.json`으로 이전된 후 `.env` 내에서 주석 처리(`# VAR=val`)됩니다.
 
 ---
 
@@ -112,6 +113,9 @@ graph TD
 ---
 
 ### 2.5 LLM 프로바이더 및 추론 모델 (`CLAIRE_PROVIDER`, `CLAIRE_GEMINI_*`)
+
+> [!NOTE]
+> LLM 및 하이퍼스케일러 프로바이더 설정은 이제 웹 UI(Drawer > **⚙️ 프로바이더 설정**)에서 직관적으로 관리되며 `data/providers.json`에 저장됩니다. 기동 시 `.env`의 기존 설정은 자동으로 마이그레이션된 후 `.env`에서 주석 처리됩니다.
 
 | 환경변수명 | 기본값 | 허용 값 / 타입 | 설명 |
 | :--- | :--- | :--- | :--- |

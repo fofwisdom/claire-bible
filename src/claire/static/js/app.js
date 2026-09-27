@@ -2746,6 +2746,8 @@ function setAccessScope(scope, reason){
   const tmBtn = document.getElementById('thememanagebtn');
   const canAccessThemes = (canWrite() || AUTH_SCOPE === 'collaborator') && isMultiThemeEnabled();
   if(tmBtn) tmBtn.style.display = canAccessThemes ? '' : 'none';
+  const pmBtn = document.getElementById('providermanagebtn');
+  if(pmBtn) pmBtn.style.display = canWrite() ? '' : 'none';
   if(!canWrite()){
     synthSet.clear();
     showHidden=false;
@@ -3073,6 +3075,387 @@ async function deleteThemeFromUI(themeId, label){
     alert('오류: ' + e);
   }
 }
+
+let _provConfig = null;
+
+async function openProviderManager(){
+  if(!canWrite()) return;
+  openDetailPane();
+  panel.innerHTML = '<h2>⚡ 프로바이더 관리</h2><p class="hint">설정 로딩 중…</p>';
+  try{
+    const r = await fetch('providers');
+    if(!r.ok) throw new Error('HTTP ' + r.status);
+    const data = await r.json();
+    _provConfig = data;
+    renderProviderManager();
+  }catch(e){
+    panel.innerHTML = `<h2>⚡ 프로바이더 관리</h2><p class="hint" style="color:var(--err,#cf222e)">설정을 불러올 수 없습니다: ${esc(e.message||e)}</p>`;
+  }
+}
+
+function renderProviderManager(msg, isSuccess){
+  if(!_provConfig) return;
+  const cfg = _provConfig;
+  const provs = cfg.providers || {};
+  const gemini = provs.gemini || {};
+  const agy = provs.antigravity || {};
+  const cdx = provs.codex || {};
+  const oai = provs.openai || {};
+  const jev = provs.jev || {};
+  const stt = provs.stt || {};
+  const active = cfg.active_provider || 'mock';
+
+  let alertHtml = '';
+  if(msg){
+    const color = isSuccess ? 'var(--accent2,#1a7f37)' : 'var(--err,#cf222e)';
+    const bg = isSuccess ? 'rgba(26,127,55,0.1)' : 'rgba(207,34,46,0.1)';
+    const icon = isSuccess ? '✅' : '⚠️';
+    alertHtml = `<div style="padding:8px 10px;border-radius:6px;background:${bg};color:${color};font-size:12px;margin-bottom:12px;border:1px solid ${color};">${icon} ${esc(msg)}</div>`;
+  }
+
+  let h = '<h2>⚡ LLM &amp; 프로바이더 관리</h2>';
+  h += '<p class="al">지식 추출, 요약, 임베딩, 전사에 사용할 하이퍼스케일러 및 LLM 프로바이더를 설정합니다. 변경 사항은 <code>data/providers.json</code>에 즉시 영구 저장됩니다.</p>';
+  h += alertHtml;
+
+  // 1. 메인 프로바이더 선택
+  h += '<div style="border:1px solid var(--border);border-radius:6px;padding:10px;background:var(--sec-bg);margin-bottom:14px;">';
+  h += '<label style="font-weight:600;font-size:13px;display:block;margin-bottom:6px;">메인 LLM 프로바이더</label>';
+  h += '<select id="prov-active-select" style="width:100%;padding:6px 8px;font-size:13px;border-radius:6px;border:1px solid var(--border);background:var(--card-bg);color:var(--fg);box-sizing:border-box;">';
+  const opts = [
+    {val: 'gemini', label: 'Google Gemini (권장 - 고품질 LLM 및 임베딩)'},
+    {val: 'antigravity', label: 'Google Antigravity CLI (agy 바이너리)'},
+    {val: 'codex', label: 'Codex CLI (codex - 호스트 네이티브 전용)'},
+    {val: 'openai', label: 'OpenAI / Azure / 호환 엔드포인트'},
+    {val: 'mock', label: 'Mock (가상 테스트 프로바이더 - 외부 호출 없음)'}
+  ];
+  for(const opt of opts){
+    h += `<option value="${opt.val}" ${active === opt.val ? 'selected' : ''}>${opt.label}</option>`;
+  }
+  h += '</select>';
+  h += `<div style="margin-top:6px;font-size:11px;opacity:0.8;">현재 동작 중: <b>${esc(cfg.effective_provider || active)}</b> · STT 동작: <b>${esc(cfg.effective_stt_provider || 'mock')}</b></div>`;
+  h += '</div>';
+
+  // 2. Google Gemini Card
+  h += '<div style="border:1px solid var(--border);border-radius:6px;padding:10px;background:var(--sec-bg);margin-bottom:14px;">';
+  h += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">';
+  h += '<strong style="font-size:13px;">🌐 Google Gemini</strong>';
+  h += '<button type="button" class="sec" style="font-size:11px;padding:2px 8px;" onclick="testProviderConnection(\'gemini\')">연결 테스트</button>';
+  h += '</div>';
+  h += '<div style="display:flex;flex-direction:column;gap:8px;font-size:12px;">';
+  h += '<div><label style="font-size:11px;opacity:0.8;">Gemini API Key</label>';
+  h += '<div style="display:flex;gap:4px;margin-top:2px;">';
+  h += `<input id="prov-gemini-key" type="password" style="flex:1;box-sizing:border-box;" placeholder="${gemini.has_api_key ? '설정됨 (••••••••)' : 'Gemini API Key 입력'}"/>`;
+  h += '<button type="button" class="sec" style="font-size:11px;padding:2px 6px;" onclick="togglePassVisibility(\'prov-gemini-key\')">👁️</button>';
+  if(gemini.has_api_key){
+    h += '<button type="button" class="sec danger-btn" style="font-size:11px;padding:2px 6px;color:var(--err,#cf222e);" onclick="clearApiKeyInput(\'prov-gemini-key\', \'gemini\')">삭제</button>';
+  }
+  h += '</div></div>';
+  h += '<div><label style="font-size:11px;opacity:0.8;">모델 (Model)</label>';
+  h += `<input id="prov-gemini-model" style="width:100%;box-sizing:border-box;margin-top:2px;" list="gemini-model-list" value="${esc(gemini.model||'gemini-3.1-flash-lite')}"/>`;
+  h += '<datalist id="gemini-model-list"><option value="gemini-3.1-flash-lite"/><option value="gemini-2.5-flash"/><option value="gemini-2.5-pro"/><option value="gemini-3.7-flash"/></datalist></div>';
+  h += '<div style="display:flex;gap:8px;">';
+  h += '<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">추론 수준 (Effort)</label>';
+  h += `<select id="prov-gemini-effort" style="width:100%;box-sizing:border-box;margin-top:2px;">
+    <option value="low" ${gemini.effort==='low'?'selected':''}>low</option>
+    <option value="medium" ${gemini.effort==='medium'||!gemini.effort?'selected':''}>medium</option>
+    <option value="high" ${gemini.effort==='high'?'selected':''}>high</option>
+  </select></div>`;
+  h += '<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">임베딩 모델</label>';
+  h += `<input id="prov-gemini-embed" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${esc(gemini.embed_model||'gemini-embedding-001')}"/></div>`;
+  h += '</div>';
+  h += '<div style="display:flex;gap:8px;">';
+  h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">최소 간격 (초)</label><input id="prov-gemini-interval" type="number" step="0.5" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${gemini.min_interval||4.0}"/></div>`;
+  h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">최대 재시도 (회)</label><input id="prov-gemini-retries" type="number" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${gemini.max_retries||5}"/></div>`;
+  h += '</div>';
+  h += '</div>';
+  h += '<div id="prov-test-res-gemini" style="display:none;margin-top:8px;font-size:11px;"></div>';
+  h += '</div>';
+
+  // 3. Antigravity CLI Card
+  const agyBadge = agy.installed
+    ? '<span style="color:var(--accent2,#1a7f37);font-size:11px;background:rgba(26,127,55,0.1);padding:1px 6px;border-radius:4px;">감지됨</span>'
+    : '<span style="color:var(--muted,#888);font-size:11px;background:rgba(136,136,136,0.1);padding:1px 6px;border-radius:4px;">바이너리 없음</span>';
+  h += '<div style="border:1px solid var(--border);border-radius:6px;padding:10px;background:var(--sec-bg);margin-bottom:14px;">';
+  h += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">';
+  h += `<strong style="font-size:13px;">🚀 Antigravity CLI (agy) ${agyBadge}</strong>`;
+  h += '<button type="button" class="sec" style="font-size:11px;padding:2px 8px;" onclick="testProviderConnection(\'antigravity\')">CLI 확인</button>';
+  h += '</div>';
+  h += '<div style="display:flex;flex-direction:column;gap:8px;font-size:12px;">';
+  h += '<div style="display:flex;gap:8px;">';
+  h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">바이너리 (Bin)</label><input id="prov-agy-bin" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${esc(agy.bin||'agy')}"/></div>`;
+  h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">모델 (Model)</label><input id="prov-agy-model" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${esc(agy.model||'gemini-3.7-flash')}"/></div>`;
+  h += '</div>';
+  h += '<div style="display:flex;gap:8px;">';
+  h += '<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">추론 수준 (Effort)</label>';
+  h += `<select id="prov-agy-effort" style="width:100%;box-sizing:border-box;margin-top:2px;">
+    <option value="low" ${agy.effort==='low'?'selected':''}>low</option>
+    <option value="medium" ${agy.effort==='medium'||!agy.effort?'selected':''}>medium</option>
+    <option value="high" ${agy.effort==='high'?'selected':''}>high</option>
+  </select></div>`;
+  h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">타임아웃 (초)</label><input id="prov-agy-timeout" type="number" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${agy.timeout||120.0}"/></div>`;
+  h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">동시성</label><input id="prov-agy-concurrency" type="number" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${agy.max_concurrency||2}"/></div>`;
+  h += '</div>';
+  h += '</div>';
+  h += '<div id="prov-test-res-antigravity" style="display:none;margin-top:8px;font-size:11px;"></div>';
+  h += '</div>';
+
+  // 4. Codex CLI Card
+  const cdxBadge = cdx.installed
+    ? '<span style="color:var(--accent2,#1a7f37);font-size:11px;background:rgba(26,127,55,0.1);padding:1px 6px;border-radius:4px;">감지됨</span>'
+    : '<span style="color:var(--muted,#888);font-size:11px;background:rgba(136,136,136,0.1);padding:1px 6px;border-radius:4px;">미설치</span>';
+  h += '<div style="border:1px solid var(--border);border-radius:6px;padding:10px;background:var(--sec-bg);margin-bottom:14px;">';
+  h += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">';
+  h += `<strong style="font-size:13px;">💻 Codex CLI ${cdxBadge}</strong>`;
+  h += '<button type="button" class="sec" style="font-size:11px;padding:2px 8px;" onclick="testProviderConnection(\'codex\')">CLI 확인</button>';
+  h += '</div>';
+  h += '<p style="margin:0 0 8px;font-size:11px;color:var(--muted,#888);">네이티브 호스트 전용 (Docker 환경에서는 자동 거부됩니다)</p>';
+  h += '<div style="display:flex;flex-direction:column;gap:8px;font-size:12px;">';
+  h += '<div style="display:flex;gap:8px;">';
+  h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">바이너리 (Bin)</label><input id="prov-cdx-bin" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${esc(cdx.bin||'codex')}"/></div>`;
+  h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">모델 (공란시 계정 기본)</label><input id="prov-cdx-model" style="width:100%;box-sizing:border-box;margin-top:2px;" placeholder="기본 모델" value="${esc(cdx.model||'')}"/></div>`;
+  h += '</div>';
+  h += '<div style="display:flex;gap:8px;">';
+  h += '<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">추론 수준 (Effort)</label>';
+  h += `<select id="prov-cdx-effort" style="width:100%;box-sizing:border-box;margin-top:2px;">
+    <option value="low" ${cdx.effort==='low'?'selected':''}>low</option>
+    <option value="medium" ${cdx.effort==='medium'||!cdx.effort?'selected':''}>medium</option>
+    <option value="high" ${cdx.effort==='high'?'selected':''}>high</option>
+  </select></div>`;
+  h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">타임아웃 (초)</label><input id="prov-cdx-timeout" type="number" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${cdx.timeout||300.0}"/></div>`;
+  h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">동시성</label><input id="prov-cdx-concurrency" type="number" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${cdx.max_concurrency||1}"/></div>`;
+  h += '</div>';
+  h += '</div>';
+  h += '<div id="prov-test-res-codex" style="display:none;margin-top:8px;font-size:11px;"></div>';
+  h += '</div>';
+
+  // 5. OpenAI 호환 Card
+  h += '<div style="border:1px solid var(--border);border-radius:6px;padding:10px;background:var(--sec-bg);margin-bottom:14px;">';
+  h += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">';
+  h += '<strong style="font-size:13px;">⚡ OpenAI / 하이퍼스케일러 호환</strong>';
+  h += '<button type="button" class="sec" style="font-size:11px;padding:2px 8px;" onclick="testProviderConnection(\'openai\')">설정 검증</button>';
+  h += '</div>';
+  h += '<div style="display:flex;flex-direction:column;gap:8px;font-size:12px;">';
+  h += '<div><label style="font-size:11px;opacity:0.8;">API Key</label>';
+  h += '<div style="display:flex;gap:4px;margin-top:2px;">';
+  h += `<input id="prov-oai-key" type="password" style="flex:1;box-sizing:border-box;" placeholder="${oai.has_api_key ? '설정됨 (••••••••)' : 'API Key 입력'}"/>`;
+  h += '<button type="button" class="sec" style="font-size:11px;padding:2px 6px;" onclick="togglePassVisibility(\'prov-oai-key\')">👁️</button>';
+  if(oai.has_api_key){
+    h += '<button type="button" class="sec danger-btn" style="font-size:11px;padding:2px 6px;color:var(--err,#cf222e);" onclick="clearApiKeyInput(\'prov-oai-key\', \'openai\')">삭제</button>';
+  }
+  h += '</div></div>';
+  h += '<div style="display:flex;gap:8px;">';
+  h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">Base URL</label><input id="prov-oai-url" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${esc(oai.base_url||'https://api.openai.com/v1')}"/></div>`;
+  h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">모델</label><input id="prov-oai-model" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${esc(oai.model||'gpt-4o-mini')}"/></div>`;
+  h += '</div>';
+  h += '<div><label style="font-size:11px;opacity:0.8;">임베딩 모델</label>';
+  h += `<input id="prov-oai-embed" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${esc(oai.embed_model||'text-embedding-3-small')}"/></div>`;
+  h += '</div>';
+  h += '<div id="prov-test-res-openai" style="display:none;margin-top:8px;font-size:11px;"></div>';
+  h += '</div>';
+
+  // 6. Jev & STT Group Card
+  h += '<div style="border:1px solid var(--border);border-radius:6px;padding:10px;background:var(--sec-bg);margin-bottom:14px;">';
+  h += '<strong style="font-size:13px;display:block;margin-bottom:8px;">🧩 보조 엔진 (Jev &amp; 음성 전사)</strong>';
+  h += '<div style="display:flex;flex-direction:column;gap:10px;font-size:12px;">';
+  // Jev
+  h += '<div>';
+  h += `<label style="cursor:pointer;font-weight:600;"><input id="prov-jev-enabled" type="checkbox" ${jev.enabled?'checked':''} style="width:auto;margin-right:6px;vertical-align:middle;"/>TypeSafe AI Jev (엔티티 해소 판정 엔진)</label>`;
+  h += '<div style="margin-top:6px;display:flex;gap:4px;">';
+  h += `<input id="prov-jev-key" type="password" style="flex:1;box-sizing:border-box;" placeholder="${jev.has_api_key ? 'Jev 키 설정됨 (••••••••)' : 'Jev API Key'}"/>`;
+  h += '<button type="button" class="sec" style="font-size:11px;padding:2px 6px;" onclick="togglePassVisibility(\'prov-jev-key\')">👁️</button>';
+  h += '</div>';
+  h += `<input id="prov-jev-url" style="width:100%;box-sizing:border-box;margin-top:4px;" placeholder="Base URL" value="${esc(jev.base_url||'https://api.typesafe.ai/v1')}"/>`;
+  h += '</div>';
+  // STT
+  h += '<div style="border-top:1px dashed var(--border);padding-top:8px;">';
+  h += `<label style="cursor:pointer;font-weight:600;"><input id="prov-stt-enabled" type="checkbox" ${stt.enabled!==false?'checked':''} style="width:auto;margin-right:6px;vertical-align:middle;"/>비디오 &amp; 오디오 음성 전사 (STT)</label>`;
+  h += '<div style="display:flex;gap:8px;margin-top:6px;">';
+  h += '<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">STT 프로바이더</label>';
+  h += `<select id="prov-stt-prov" style="width:100%;box-sizing:border-box;margin-top:2px;">
+    <option value="gemini" ${stt.provider==='gemini'?'selected':''}>Gemini (API)</option>
+    <option value="mock" ${stt.provider==='mock'?'selected':''}>Mock</option>
+  </select></div>`;
+  h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">언어 코드</label><input id="prov-stt-lang" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${esc(stt.language||'ko')}"/></div>`;
+  h += '</div>';
+  h += '</div>';
+  h += '</div>';
+  h += '</div>';
+
+  // 7. 하단 저장 버튼
+  h += '<div style="display:flex;gap:8px;margin-top:16px;">';
+  h += '<button type="button" class="btn" style="flex:1;background:var(--btn-bg,#1f883d);color:#fff;font-weight:600;padding:8px 12px;border:none;border-radius:6px;cursor:pointer;" onclick="saveProviderSettings()">💾 설정 저장</button>';
+  h += '<button type="button" class="sec" style="padding:8px 12px;" onclick="closeDrawer()">닫기</button>';
+  h += '</div>';
+
+  panel.innerHTML = h;
+}
+
+function togglePassVisibility(id){
+  const el = document.getElementById(id);
+  if(!el) return;
+  el.type = el.type === 'password' ? 'text' : 'password';
+}
+
+function clearApiKeyInput(inputId, provName){
+  const el = document.getElementById(inputId);
+  if(el){
+    el.value = '';
+    el.placeholder = 'API Key 입력 (비어있음)';
+    el.dataset.cleared = 'true';
+  }
+}
+
+async function testProviderConnection(provName){
+  const resEl = document.getElementById('prov-test-res-' + provName);
+  if(resEl){
+    resEl.style.display = 'block';
+    resEl.style.color = 'var(--muted,#888)';
+    resEl.textContent = '⏳ 테스트 실행 중…';
+  }
+  const payload = { provider: provName, config: {} };
+  if(provName === 'gemini'){
+    const kEl = document.getElementById('prov-gemini-key');
+    if(kEl && kEl.value) payload.config.api_key = kEl.value;
+    const mEl = document.getElementById('prov-gemini-model');
+    if(mEl && mEl.value) payload.config.model = mEl.value;
+  } else if(provName === 'antigravity'){
+    const bEl = document.getElementById('prov-agy-bin');
+    if(bEl && bEl.value) payload.config.bin = bEl.value;
+  } else if(provName === 'codex'){
+    const bEl = document.getElementById('prov-cdx-bin');
+    if(bEl && bEl.value) payload.config.bin = bEl.value;
+  } else if(provName === 'openai'){
+    const kEl = document.getElementById('prov-oai-key');
+    if(kEl && kEl.value) payload.config.api_key = kEl.value;
+  }
+  try{
+    const r = await fetch('providers/test', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload)
+    });
+    const d = await r.json();
+    if(resEl){
+      if(d.ok){
+        resEl.style.color = 'var(--accent2,#1a7f37)';
+        resEl.textContent = '✅ ' + (d.message || '연결 성공');
+      } else {
+        resEl.style.color = 'var(--err,#cf222e)';
+        resEl.textContent = '❌ ' + (d.error || '연결 실패');
+      }
+    }
+  }catch(e){
+    if(resEl){
+      resEl.style.color = 'var(--err,#cf222e)';
+      resEl.textContent = '❌ 통신 오류: ' + (e.message || e);
+    }
+  }
+}
+
+async function saveProviderSettings(){
+  if(!_provConfig) return;
+  const activeProv = document.getElementById('prov-active-select').value;
+  const gemKey = document.getElementById('prov-gemini-key');
+  const gemModel = document.getElementById('prov-gemini-model').value.trim();
+  const gemEffort = document.getElementById('prov-gemini-effort').value;
+  const gemEmbed = document.getElementById('prov-gemini-embed').value.trim();
+  const gemInterval = parseFloat(document.getElementById('prov-gemini-interval').value) || 4.0;
+  const gemRetries = parseInt(document.getElementById('prov-gemini-retries').value, 10) || 5;
+
+  const agyBin = document.getElementById('prov-agy-bin').value.trim();
+  const agyModel = document.getElementById('prov-agy-model').value.trim();
+  const agyEffort = document.getElementById('prov-agy-effort').value;
+  const agyTimeout = parseFloat(document.getElementById('prov-agy-timeout').value) || 120.0;
+  const agyConc = parseInt(document.getElementById('prov-agy-concurrency').value, 10) || 2;
+
+  const cdxBin = document.getElementById('prov-cdx-bin').value.trim();
+  const cdxModel = document.getElementById('prov-cdx-model').value.trim();
+  const cdxEffort = document.getElementById('prov-cdx-effort').value;
+  const cdxTimeout = parseFloat(document.getElementById('prov-cdx-timeout').value) || 300.0;
+  const cdxConc = parseInt(document.getElementById('prov-cdx-concurrency').value, 10) || 1;
+
+  const oaiKey = document.getElementById('prov-oai-key');
+  const oaiUrl = document.getElementById('prov-oai-url').value.trim();
+  const oaiModel = document.getElementById('prov-oai-model').value.trim();
+  const oaiEmbed = document.getElementById('prov-oai-embed').value.trim();
+
+  const jevEnabled = document.getElementById('prov-jev-enabled').checked;
+  const jevKey = document.getElementById('prov-jev-key');
+  const jevUrl = document.getElementById('prov-jev-url').value.trim();
+
+  const sttEnabled = document.getElementById('prov-stt-enabled').checked;
+  const sttProv = document.getElementById('prov-stt-prov').value;
+  const sttLang = document.getElementById('prov-stt-lang').value.trim();
+
+  const updatePayload = {
+    active_provider: activeProv,
+    providers: {
+      gemini: {
+        model: gemModel,
+        effort: gemEffort,
+        embed_model: gemEmbed,
+        min_interval: gemInterval,
+        max_retries: gemRetries
+      },
+      antigravity: {
+        bin: agyBin,
+        model: agyModel,
+        effort: agyEffort,
+        timeout: agyTimeout,
+        max_concurrency: agyConc
+      },
+      codex: {
+        bin: cdxBin,
+        model: cdxModel,
+        effort: cdxEffort,
+        timeout: cdxTimeout,
+        max_concurrency: cdxConc
+      },
+      openai: {
+        base_url: oaiUrl,
+        model: oaiModel,
+        embed_model: oaiEmbed
+      },
+      jev: {
+        enabled: jevEnabled,
+        base_url: jevUrl
+      },
+      stt: {
+        enabled: sttEnabled,
+        provider: sttProv,
+        language: sttLang
+      }
+    }
+  };
+
+  if(gemKey && gemKey.value) updatePayload.providers.gemini.api_key = gemKey.value;
+  else if(gemKey && gemKey.dataset.cleared === 'true') updatePayload.providers.gemini.clear_api_key = true;
+
+  if(oaiKey && oaiKey.value) updatePayload.providers.openai.api_key = oaiKey.value;
+  else if(oaiKey && oaiKey.dataset.cleared === 'true') updatePayload.providers.openai.clear_api_key = true;
+
+  if(jevKey && jevKey.value) updatePayload.providers.jev.api_key = jevKey.value;
+  else if(jevKey && jevKey.dataset.cleared === 'true') updatePayload.providers.jev.clear_api_key = true;
+
+  try{
+    const r = await fetch('providers', {
+      method: 'PATCH',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(updatePayload)
+    });
+    if(!r.ok){
+      const err = await r.json().catch(()=>({}));
+      renderProviderManager('저장 실패: ' + (err.detail || ('HTTP ' + r.status)), false);
+      return;
+    }
+    const resData = await r.json();
+    _provConfig = resData.config;
+    renderProviderManager('프로바이더 설정이 성공적으로 저장되었습니다 (data/providers.json 반영 완료).', true);
+  }catch(e){
+    renderProviderManager('오류 발생: ' + (e.message || e), false);
+  }
+}
+
 async function synth(){
   if(!canWrite()) return;
   const ids=[...synthSet];

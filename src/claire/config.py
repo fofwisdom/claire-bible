@@ -12,7 +12,12 @@ from pathlib import Path
 from typing import Any
 
 from pydantic import Field, field_validator, model_validator
-from pydantic_settings import BaseSettings, DotEnvSettingsSource, SettingsConfigDict
+from pydantic_settings import (
+    BaseSettings,
+    DotEnvSettingsSource,
+    PydanticBaseSettingsSource,
+    SettingsConfigDict,
+)
 
 _ANONYMOUS_READONLY_ENV = "CLAIRE_ANONYMOUS_READONLY"
 
@@ -139,6 +144,45 @@ class _ExactDotEnvSettingsSource(DotEnvSettingsSource):
             data.pop("CLAIRE_FQDN", None)
             data.pop("fqdn", None)
         return data
+
+
+class _ProvidersJsonSettingsSource(PydanticBaseSettingsSource):
+    """providers.json (WebUI 관리 파일)에서 프로바이더 설정을 로드하는 settings source."""
+
+    def __init__(
+        self,
+        settings_cls: type[BaseSettings],
+        data_dir: str | Path | None = None,
+        init_kwargs: Any = None,
+    ) -> None:
+        super().__init__(settings_cls)
+        self.init_kwargs = dict(init_kwargs or {})
+        self.explicit_data_dir = data_dir
+
+    def get_field_value(
+        self, field: Any, field_name: str
+    ) -> tuple[Any, str, bool]:
+        return None, field_name, False
+
+    def __call__(self) -> dict[str, Any]:
+        try:
+            cand = (
+                self.init_kwargs.get("data_dir")
+                or self.init_kwargs.get("CB_DATA_DIR")
+                or self.init_kwargs.get("db_path")
+                or self.init_kwargs.get("CLAIRE_DB_PATH")
+                or self.explicit_data_dir
+                or os.environ.get("CB_DATA_DIR")
+                or os.environ.get("CLAIRE_DB_PATH")
+                or "data"
+            )
+            data_dir = Path(cand).parent if str(cand).endswith(".db") else Path(cand)
+            from .provider_manager import get_provider_manager
+
+            pm = get_provider_manager(data_dir=data_dir)
+            return pm.get_settings_dict()
+        except Exception:
+            return {}
 
 
 def find_agy_executable(agy_bin: str = "agy") -> str | None:
@@ -279,14 +323,20 @@ class Settings(BaseSettings):
         dotenv_settings,
         file_secret_settings,
     ):
+        init_kwargs = getattr(init_settings, "init_kwargs", None)
         strict_dotenv = _ExactDotEnvSettingsSource(
             settings_cls,
             env_file=dotenv_settings.env_file,
             env_file_encoding=dotenv_settings.env_file_encoding,
-            init_kwargs=getattr(init_settings, "init_kwargs", None),
+            init_kwargs=init_kwargs,
+        )
+        providers_json = _ProvidersJsonSettingsSource(
+            settings_cls,
+            init_kwargs=init_kwargs,
         )
         return (
             init_settings,
+            providers_json,
             env_settings,
             strict_dotenv,
             file_secret_settings,
