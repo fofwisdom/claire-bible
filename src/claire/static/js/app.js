@@ -1066,7 +1066,16 @@ function resetGraphCamera(){
   if(ids.length) net.fit({nodes:ids,animation:graphAnimation(true)});
 }
 
-fetch('graph').then(r=>{ if(!r.ok) throw new Error('graph fetch HTTP '+r.status); return r.json(); }).then(d=>{
+let graphInitialized = false;
+let graphSuspended = false;
+
+function initGraph(onComplete){
+  if(graphInitialized){
+    if(onComplete) onComplete();
+    return;
+  }
+  fetch('graph').then(r=>{ if(!r.ok) throw new Error('graph fetch HTTP '+r.status); return r.json(); }).then(d=>{
+    graphInitialized = true;
   if(typeof vis !== 'undefined' && vis.DataSet && vis.Network){
     const rawNodes = ((d && d.nodes) || []).map(n => ({
       ...n,
@@ -1305,10 +1314,58 @@ fetch('graph').then(r=>{ if(!r.ok) throw new Error('graph fetch HTTP '+r.status)
     if(curReaderDocData && curReaderDocData.id===activeDoc) renderDocPanel(curReaderDocData);
     else loadDocPanel(activeDoc);
   }
+  if(onComplete) onComplete();
 }).catch(err => {
   console.warn('graph load error:', err);
   const st=document.getElementById('stat');
   if(st && st.textContent.indexOf('로딩')!==-1) st.textContent='그래프 준비 완료';
+  if(onComplete) onComplete();
+});
+}
+
+function suspendGraphForIngest(){
+  graphSuspended = true;
+  netBusy = true;
+  if(net){
+    try {
+      net.stopSimulation();
+      net.setOptions({ physics: false });
+    } catch(_) {}
+  }
+  const netwrap = document.getElementById('netwrap');
+  if(netwrap) netwrap.style.display = 'none';
+}
+
+function resumeGraphAfterIngest(){
+  if(!graphSuspended) return;
+  graphSuspended = false;
+  netBusy = false;
+  const netwrap = document.getElementById('netwrap');
+  if(netwrap) netwrap.style.display = '';
+  if(!graphInitialized || !net){
+    initGraph();
+  } else {
+    try {
+      const total = allNodes ? allNodes.length : 0;
+      net.setOptions({ physics: getPhysicsOpts(total) });
+      net.startSimulation();
+    } catch(_) {}
+    refreshGraph();
+  }
+}
+
+// 초기 구동 검사: 적재 진행 중이면 그래프를 표시하거나 계산하지 않고 즉시 대조 매트릭스로 진입
+fetch('stats').then(r => r.ok ? r.json() : null).then(d => {
+  if(d && (d.ingesting || (d.active_ingest && d.active_ingest.active))){
+    suspendGraphForIngest();
+    setCenterView('matrix');
+    handleActiveIngestState(d.active_ingest);
+    startFastIngestPolling();
+  } else {
+    initGraph();
+  }
+}).catch(() => {
+  initGraph();
 });
 
 // 검색 강조(highlightSet)와 inspect(selectedNodeId)를 vis 시각 선택으로 복원.
@@ -1783,6 +1840,7 @@ async function runIngest(){
     updateIngestElapsed();
   }, 1000);
   let result=null;
+  suspendGraphForIngest();
   if(typeof initIngestMatrixView === 'function'){
     try {
       initIngestMatrixView(payload, focus, targetThemeObj ? targetThemeObj.label : '');
@@ -1975,44 +2033,145 @@ async function runDedupMerge(ci){
 // 조사로 그래프가 늘어난 뒤 새로고침 없이 신규 노드/엣지·문서목록을 반영.
 // 엣지 id 는 rowid 순 enumerate(append-only)라 기존 id 는 안정 — 신규만 add.
 function refreshGraph(){
+  if(graphSuspended) return;
   fetch('graph').then(r=>r.json()).then(d=>{
-    // applyView 와 동일한 이유(그래프가 클수록 개별 update() 호출이 선형으로 느려짐)로
-    // 갱신분을 모아 한 번에 반영 — 신규 노드(add)는 기존 add 도 이미 배열을 받으므로 그대로.
+    if(graphSuspended) return;
     const changed=[], added=[];
     d.nodes.forEach(n=>{
       const r = nodeRadius(n.degree), fs = nodeFontSize(n.degree);
-      if(allNodes.get(n.id))
+      if(allNodes && allNodes.get(n.id))
         changed.push({id:n.id, degree:n.degree, size:r, font:{size:fs}, sources:n.sources, obs:n.obs});
-      else
+      else if(allNodes)
         added.push({...n, size:r, font:{size:fs}});
     });
-    if(changed.length) allNodes.update(changed);
-    if(added.length) allNodes.add(added);
-    d.edges.forEach(e=>{ if(!allEdges.get(e.id)) allEdges.add(e); });
-    document.getElementById('fslider').max = d.stats.max_degree;
+    if(allNodes && changed.length) allNodes.update(changed);
+    if(allNodes && added.length) allNodes.add(added);
+    if(allEdges) d.edges.forEach(e=>{ if(!allEdges.get(e.id)) allEdges.add(e); });
+    const fslider = document.getElementById('fslider');
+    if(fslider && d.stats) fslider.max = d.stats.max_degree;
     updateDegPresets();
     applyView();
     if(activeDoc && curReaderDocData && curReaderDocData.id === activeDoc){
       renderDocPanel(curReaderDocData);
     }
   });
-  fetch('documents').then(r=>r.json()).then(d=>{ allDocs=d.documents||[];
-    renderDocs(document.getElementById('docq').value); });
+  fetch('documents').then(r=>r.json()).then(d=>{
+    allDocs=d.documents||[];
+    const docq = document.getElementById('docq');
+    renderDocs(docq ? docq.value : '');
+  });
 }
 
-// 전체 리로드 없이 새 글/엔티티/관계 반영 — 가벼운 주기 폴링. /stats 문서/엔티티/관계 개수 확인하고
-// 바뀐 경우에만 refreshGraph()(append-only 병합) 실행 — 안 바뀌면 아무 요청도 안 함.
+// 전체 리로드 없이 새 글/엔티티/관계 반영 및 적재 상태 추적 폴링
+let pollTimer = null;
+let currentPollInterval = 25000;
+let isFastPolling = false;
+let trackingIngest = false;
+
+function scheduleNextPoll(delayMs){
+  if(pollTimer) clearTimeout(pollTimer);
+  pollTimer = setTimeout(pollForUpdates, delayMs !== undefined ? delayMs : currentPollInterval);
+}
+
+function startFastIngestPolling(){
+  isFastPolling = true;
+  trackingIngest = true;
+  currentPollInterval = 1500;
+  scheduleNextPoll(1500);
+}
+
+function stopFastIngestPolling(){
+  isFastPolling = false;
+  trackingIngest = false;
+  currentPollInterval = 25000;
+  scheduleNextPoll(25000);
+}
+
+function handleActiveIngestState(activeInfo){
+  if(!activeInfo) return;
+  if(typeof initIngestMatrixView === 'function'){
+    initIngestMatrixView(activeInfo.payload, activeInfo.focus, activeInfo.theme_label);
+  }
+  if(activeInfo.title){
+    const docMetaEl = document.getElementById('matrix-target-doc');
+    if(docMetaEl) docMetaEl.textContent = '대조 대상: ' + activeInfo.title;
+  }
+  if(activeInfo.msg){
+    updateMatrixProgress(activeInfo.msg);
+  }
+  if(activeInfo.heatmap_matrix){
+    renderHeatmapMatrix(activeInfo.heatmap_matrix, activeInfo.title);
+  }
+}
+
+function handleActiveIngestCompleted(activeInfo){
+  stopFastIngestPolling();
+  if(activeInfo && activeInfo.result){
+    const result = activeInfo.result;
+    if(result.heatmap_matrix && result.document_id){
+      try {
+        sessionStorage.setItem('doc_matrix_' + result.document_id, JSON.stringify(result.heatmap_matrix));
+      } catch(_) {}
+      window.latestHeatmapMatrix = result.heatmap_matrix;
+      window.latestHeatmapDocId = result.document_id;
+    }
+    completeIngestMatrixView(result);
+  } else if(activeInfo && activeInfo.stage === 'error'){
+    const spin = document.getElementById('matrix-progress-spinner');
+    if(spin) spin.style.display = 'none';
+    const msgEl = document.getElementById('matrix-progress-msg');
+    if(msgEl) msgEl.innerHTML = '❌ <strong>' + esc(activeInfo.msg || '적재 중 오류 발생') + '</strong>';
+  } else {
+    const spin = document.getElementById('matrix-progress-spinner');
+    if(spin) spin.style.display = 'none';
+    const msgEl = document.getElementById('matrix-progress-msg');
+    if(msgEl) msgEl.innerHTML = '✅ <strong>대조 및 적재 완료</strong>';
+  }
+  if(activeInfo && activeInfo.heatmap_matrix){
+    renderHeatmapMatrix(activeInfo.heatmap_matrix, activeInfo.title);
+  }
+}
+
 let lastStatsSig = null;
 async function pollForUpdates(){
   try{
     const r = await fetch('stats');
-    if(!r.ok) return;               // 401 등이면 조용히 다음 틱에 재시도
+    if(!r.ok){ scheduleNextPoll(); return; }
     const d = await r.json();
+    const isIngesting = !!(d.ingesting || (d.active_ingest && d.active_ingest.active));
+
+    if(isIngesting){
+      if(!trackingIngest){
+        trackingIngest = true;
+        suspendGraphForIngest();
+        setCenterView('matrix');
+        startFastIngestPolling();
+      }
+      handleActiveIngestState(d.active_ingest);
+      scheduleNextPoll(1500);
+      return;
+    }
+
+    if(trackingIngest){
+      trackingIngest = false;
+      handleActiveIngestCompleted(d.active_ingest);
+      stopFastIngestPolling();
+      lastStatsSig = [d.documents, d.entities, d.relations].join(':');
+      scheduleNextPoll();
+      return;
+    }
+
     const sig = [d.documents, d.entities, d.relations].join(':');
-    if(lastStatsSig===null){ lastStatsSig = sig; return; }  // 최초 틱=기준값만 기록
+    if(lastStatsSig === null){
+      lastStatsSig = sig;
+      scheduleNextPoll();
+      return;
+    }
     if(sig !== lastStatsSig){
       lastStatsSig = sig;
-      refreshGraph();
+      if(!graphSuspended){
+        refreshGraph();
+      }
       if(activeDoc){
         fetch('document?id='+encodeURIComponent(activeDoc)).then(x=>x.json()).then(dc=>{
           if(dc && !dc.error && activeDoc===dc.id){
@@ -2022,9 +2181,12 @@ async function pollForUpdates(){
         }).catch(()=>{});
       }
     }
-  }catch(e){ /* 네트워크 일시 오류 — 다음 틱에 재시도 */ }
+  }catch(e){
+    /* network retry */
+  }
+  scheduleNextPoll();
 }
-setInterval(pollForUpdates, 25000);
+scheduleNextPoll(25000);
 
 // 단일 가시 규칙: degree(스케일)=hidden, 강조 필터(문서 선택 + 검색)=비매치 dim.
 // 문서/라벨검색/의미검색이 모두 같은 강조 방식을 공유한다(시각 언어 통일).
@@ -3789,6 +3951,11 @@ window.claireDebug = {
   get readerOpen(){ return document.getElementById('reader').classList.contains('open'); },
   get docSearchActive(){ return docSearchActive; },
   get stabilized(){ return graphStabilized; },
+  get graphSuspended(){ return graphSuspended; },
+  get graphInitialized(){ return graphInitialized; },
+  get trackingIngest(){ return trackingIngest; },
+  get isFastPolling(){ return isFastPolling; },
+  pollForUpdates: pollForUpdates,
   get detailCompact(){ return document.body.classList.contains('detail-compact'); },
   toggleDetailCompact: toggleDetailCompact,
   docWithMostNodes: docWithMostNodes,
@@ -3960,6 +4127,7 @@ function triggerMatrixWave(){
 }
 
 function closeMatrixView(){
+  resumeGraphAfterIngest();
   if(activeDoc){
     setCenterView('reader');
   } else {
@@ -4196,6 +4364,10 @@ function confirmPurgeMatrix(docId){
 }
 
 // Global Exports
+window.suspendGraphForIngest = suspendGraphForIngest;
+window.resumeGraphAfterIngest = resumeGraphAfterIngest;
+window.handleActiveIngestState = handleActiveIngestState;
+window.handleActiveIngestCompleted = handleActiveIngestCompleted;
 window.initIngestMatrixView = initIngestMatrixView;
 window.updateMatrixProgress = updateMatrixProgress;
 window.addDecisionStreamCard = addDecisionStreamCard;

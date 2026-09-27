@@ -999,5 +999,174 @@ test('heatmap matrix replaces graph during ingestion and displays live compute w
   expect(pageErrors).toEqual([]);
 });
 
+test('accessing Claire Bible during active ingest boots directly into heatmap matrix with graph suspended', async ({ page }) => {
+  const pageErrors = [];
+  page.on('pageerror', error => pageErrors.push(error.message));
+  await page.setViewportSize({ width: 1400, height: 900 });
+
+  let ingestActive = true;
+  // Intercept /stats to simulate ongoing ingest on startup
+  await page.route('**/stats', async (route) => {
+    if (ingestActive) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          documents: 5,
+          entities: 42,
+          relations: 68,
+          theme_id: 0,
+          theme_label: '기본 지식베이스',
+          ingesting: true,
+          active_ingest: {
+            active: true,
+            payload: 'https://blog.kakaopay.com/post/tech-insight',
+            source: 'telegram',
+            theme_id: 0,
+            theme_label: '기본 지식베이스',
+            focus: '대용량 트래픽 분산',
+            title: '카카오페이 기술 블로그 (대용량 트래픽 아키텍처)',
+            stage: 'init',
+            msg: '원문 분석 및 엔티티 대조 준비 중…',
+            heatmap_matrix: null,
+          },
+        }),
+      });
+    } else {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          documents: 6,
+          entities: 48,
+          relations: 75,
+          theme_id: 0,
+          theme_label: '기본 지식베이스',
+          ingesting: false,
+          active_ingest: {
+            active: false,
+            stage: 'done',
+            title: '카카오페이 기술 블로그 (대용량 트래픽 아키텍처)',
+            msg: '적재 및 대조 완료',
+            result: {
+              document_id: 'doc_kakaopay',
+              title: '카카오페이 기술 블로그 (대용량 트래픽 아키텍처)',
+              entities_created: 6,
+              entities_linked: 3,
+              relations_added: 7,
+              heatmap_matrix: {
+                rows: ['분산 트래픽', 'Kafka'],
+                cols: ['엔진', '데이터베이스'],
+                matrix: [[0.96, 0.4], [0.3, 0.88]],
+                threshold_auto_merge: 0.93,
+                threshold_borderline: 0.72,
+              },
+            },
+          },
+        }),
+      });
+    }
+  });
+
+  await page.goto('/', { waitUntil: 'domcontentloaded' });
+
+  // Verify that graph is immediately suspended and NOT rendered
+  const matrixWrap = page.locator('#matrixwrap');
+  await expect(matrixWrap).toBeVisible();
+  await expect(page.locator('#netwrap')).toBeHidden();
+
+  // Verify graphSuspended flag
+  const isSuspended = await page.evaluate(() => window.claireDebug?.graphSuspended);
+  expect(isSuspended).toBe(true);
+
+  // Verify that matrix shows active ingestion info
+  await expect(matrixWrap.locator('#matrix-title')).toContainText('지식 대조 히트맵 매트릭스');
+  await expect(matrixWrap.locator('#matrix-target-doc')).toContainText('카카오페이 기술 블로그');
+  await expect(page.locator('#matrix-progress-spinner')).toBeVisible();
+
+  // Now simulate ingest completing on the next poll
+  ingestActive = false;
+  await page.evaluate(() => window.claireDebug?.pollForUpdates());
+
+  // Verify completed state is reflected in matrixview
+  await expect(page.locator('#matrix-progress-spinner')).toBeHidden();
+  await expect(matrixWrap.locator('#matrix-progress-msg')).toContainText('대조 및 적재 완료');
+
+  // Graph remains suspended until user chooses to switch
+  await expect(matrixWrap).toBeVisible();
+  await expect(page.locator('#netwrap')).toBeHidden();
+
+  // Click '📊 그래프 보기' to resume graph
+  await matrixWrap.locator('button:has-text("그래프 보기")').click();
+  await expect(matrixWrap).toBeHidden();
+  await expect(page.locator('#netwrap')).toBeVisible();
+
+  const isResumed = await page.evaluate(() => window.claireDebug?.graphSuspended);
+  expect(isResumed).toBe(false);
+
+  expect(pageErrors).toEqual([]);
+});
+
+test('telegram bot ingest dynamically suspends active graph and displays heatmap matrix in connected browser', async ({ page }) => {
+  const pageErrors = [];
+  page.on('pageerror', error => pageErrors.push(error.message));
+  await page.setViewportSize({ width: 1400, height: 900 });
+
+  // 1. Initial normal boot
+  await waitForClaire(page);
+  await expect(page.locator('#netwrap')).toBeVisible();
+  await expect(page.locator('#matrixwrap')).toBeHidden();
+  expect(await page.evaluate(() => window.claireDebug?.graphSuspended)).toBe(false);
+
+  // 2. Telegram bot initiates ingest: /stats returns active ingest
+  await page.route('**/stats', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        documents: 10,
+        entities: 90,
+        relations: 140,
+        ingesting: true,
+        active_ingest: {
+          active: true,
+          payload: 'https://example.com/telegram-doc',
+          source: 'telegram',
+          title: '텔레그램 봇 인제스트 문서',
+          stage: 'heatmap_matrix',
+          msg: '실시간 엔티티 대조 중…',
+          heatmap_matrix: {
+            rows: ['신규 엔티티 X'],
+            cols: ['기존 엔티티 Y'],
+            matrix: [[0.95]],
+            threshold_auto_merge: 0.93,
+            threshold_borderline: 0.72,
+          },
+        },
+      }),
+    });
+  });
+
+  // Trigger poll
+  await page.evaluate(() => window.claireDebug?.pollForUpdates());
+
+  // 3. Verify graph is suspended and hidden, matrix view is active
+  await expect(page.locator('#netwrap')).toBeHidden();
+  const matrixWrap = page.locator('#matrixwrap');
+  await expect(matrixWrap).toBeVisible();
+  expect(await page.evaluate(() => window.claireDebug?.graphSuspended)).toBe(true);
+  await expect(matrixWrap.locator('#matrix-target-doc')).toContainText('텔레그램 봇 인제스트 문서');
+  await expect(matrixWrap.locator('#matrix-progress-msg')).toHaveText('실시간 엔티티 대조 중…');
+
+  // 4. Click '📊 그래프 보기' to resume
+  await matrixWrap.locator('button:has-text("그래프 보기")').click();
+  await expect(matrixWrap).toBeHidden();
+  await expect(page.locator('#netwrap')).toBeVisible();
+  expect(await page.evaluate(() => window.claireDebug?.graphSuspended)).toBe(false);
+
+  expect(pageErrors).toEqual([]);
+});
+
+
 
 

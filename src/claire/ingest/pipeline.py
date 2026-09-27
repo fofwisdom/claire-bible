@@ -14,6 +14,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from ..extract.provider import Provider, RelationCandidate, emit_progress
 from ..extract.resolver import resolve_or_create
@@ -27,6 +28,7 @@ from ..store import db as dbm
 from ..store.graph import GraphStore
 from ..store.vault import export_entities
 from ..store.vectors import VectorStore
+from .active import clear_active_ingest, set_active_ingest, update_active_ingest
 from .router import fetch as default_fetch
 
 
@@ -213,260 +215,313 @@ def ingest(
         )
     report.inbox_id = inbox_id
 
-    try:
-        # prefetched: 1홉 확장이 판정용으로 이미 가져온 Document 재사용(중복 fetch 방지).
-        if prefetched is None:
-            emit_progress("원문 가져오는 중…")  # 콜백 미설정 시 no-op(웹 스트림 적재만 표시)
-            try:
-                doc = fetch_fn(payload, full_content=full_content)
-            except TypeError:
-                doc = fetch_fn(payload)
-        else:
-            doc = prefetched
-    except Exception as e:  # noqa: BLE001
-        report.error = str(e)
-        dbm.update_inbox(conn, inbox_id, status="error", error=str(e))
-        return report
+    # 활성 적재 상태 초기화 (크로스 프로세스 / 공유 볼륨 active_ingest.json)
+    set_active_ingest(
+        data_dir,
+        payload=payload,
+        source=source,
+        focus=focus,
+        title=prefetched.title if prefetched else None,
+    )
 
-    if full_content:
-        if doc.meta is None:
-            doc.meta = {}
-        doc.meta["full_content"] = True
-    if effort:
-        if doc.meta is None:
-            doc.meta = {}
-        doc.meta["applied_effort"] = effort
+    from ..extract.provider import _progress_local, set_progress_callback
 
-    if doc.source_type in ("pdf", "odt"):
-        from ..config import get_settings
-        from ..extract.classifier import reconcile_pdf_metadata
+    prev_cb = getattr(_progress_local, "cb", None)
 
-        reconcile_pdf_metadata(doc, get_settings(), provider=provider)
-
-    report.source_type = doc.source_type
-    report.partial = doc.partial
-    report.title = doc.title
-    report.focus = focus
-    if doc.meta:
-        if "has_transcript" in doc.meta:
-            report.has_transcript = bool(doc.meta.get("has_transcript"))
-        if "is_stt" in doc.meta or "stt_applied" in doc.meta or "stt" in doc.meta:
-            report.is_stt = bool(
-                doc.meta.get("is_stt")
-                or doc.meta.get("stt_applied")
-                or doc.meta.get("stt")
-            )
-        if "stt_error" in doc.meta:
-            report.stt_error = doc.meta.get("stt_error")
-        if "pdf_parser_requested" in doc.meta:
-            report.pdf_parser_requested = doc.meta.get("pdf_parser_requested")
-        if "pdf_parser_used" in doc.meta:
-            report.pdf_parser_used = doc.meta.get("pdf_parser_used")
-        if "pdf_parser_fallback" in doc.meta:
-            report.pdf_parser_fallback = bool(doc.meta.get("pdf_parser_fallback"))
-        if "pdf_parser_fallback_reason" in doc.meta:
-            report.pdf_parser_fallback_reason = doc.meta.get("pdf_parser_fallback_reason")
-        if "pdf_encoding_flaw_detected" in doc.meta:
-            report.pdf_encoding_flaw_detected = bool(doc.meta.get("pdf_encoding_flaw_detected"))
-        if "pdf_encoding_flaws" in doc.meta:
-            report.pdf_encoding_flaws = list(doc.meta.get("pdf_encoding_flaws") or [])
-        if "pdf_is_scanned" in doc.meta:
-            report.pdf_is_scanned = bool(doc.meta.get("pdf_is_scanned"))
-        presentation_items = doc.meta.get("presentation_pdfs") or []
-        if isinstance(presentation_items, list):
-            report.presentation_pdfs = len(presentation_items)
-            report.presentation_pdf_chars = sum(
-                int(item.get("raw_chars") or 0)
-                for item in presentation_items
-                if isinstance(item, dict)
-            )
-            report.presentation_pdf_parsers = list(
-                dict.fromkeys(
-                    str(item.get("parser_used"))
-                    for item in presentation_items
-                    if isinstance(item, dict) and item.get("parser_used")
+    def _active_progress_hook(msg: Any) -> None:
+        if isinstance(msg, dict):
+            if msg.get("stage") == "heatmap_matrix":
+                update_active_ingest(
+                    data_dir,
+                    stage="heatmap_matrix",
+                    heatmap_matrix=msg.get("matrix"),
                 )
-            )
-        presentation_primary = doc.meta.get("presentation_pdf") or {}
-        if isinstance(presentation_primary, dict):
-            if presentation_primary.get("status") == "available" and not report.presentation_pdfs:
-                report.presentation_pdfs = 1
-            if presentation_primary.get("parser_fallback"):
-                report.pdf_parser_fallback = True
-                report.pdf_parser_fallback_reason = presentation_primary.get(
-                    "parser_fallback_reason"
+            elif msg.get("msg"):
+                update_active_ingest(
+                    data_dir,
+                    msg=str(msg.get("msg")),
+                    stage=str(msg.get("stage") or "progress"),
                 )
-    if focus and focus.strip():
-        if doc.meta is None:
-            doc.meta = {}
-        doc.meta["focus"] = focus.strip()
-
-    # 0. 소각 툼스톤(Tombstone) 검사: 소각된 오염 데이터(URL/해시)는 재수집 원천 차단
-    if dbm.is_tombstoned(conn, url=doc.url, canonical_url=doc.canonical_url, content_hash=doc.content_hash):
-        report.error = "tombstoned: document was previously purged"
-        dbm.update_inbox(conn, inbox_id, status="error", error=report.error)
-        return report
-
-    # 직접 PDF URL이 이미 VMware 비디오 문서의 Presentation 출처로 포함됐으면
-    # 동일 원문을 독립 문서로 다시 만들지 않는다.
-    if doc.source_type == "pdf" and doc.canonical_url:
-        bundled_id = dbm.find_document_by_extra_source(conn, doc.canonical_url)
-        if bundled_id:
-            report.document_id = bundled_id
-            report.duplicate = True
-            dbm.update_inbox(conn, inbox_id, status="duplicate", document_id=bundled_id)
-            return report
-
-    _link_existing_presentation_documents(conn, doc)
-
-    # dedup ① 내용 완전 동일(content_hash 일치)
-    existing = dbm.find_document_by_hash(conn, doc.content_hash)
-    if existing:
-        existing_row = dbm.get_document_row(conn, existing)
-        same_canonical = bool(
-            existing_row
-            and doc.canonical_url
-            and existing_row["canonical_url"] == doc.canonical_url
-        )
-        old_meta: dict = {}
-        old_presentation_state: tuple = ()
-        if same_canonical and existing_row is not None:
+        elif msg:
+            update_active_ingest(data_dir, msg=str(msg))
+        if prev_cb:
             try:
-                old_meta = json.loads(existing_row["meta"] or "{}")
+                prev_cb(msg)
             except Exception:
-                old_meta = {}
-            old_presentation_state = _presentation_state(old_meta)
-            preserve_presentation_history(old_meta, doc)
-        if not _store_doc_attachments_or_report(
-            conn, inbox_id, doc, existing, data_dir, report
-        ):
+                pass
+
+    set_progress_callback(_active_progress_hook)
+    try:
+
+        try:
+            # prefetched: 1홉 확장이 판정용으로 이미 가져온 Document 재사용(중복 fetch 방지).
+            if prefetched is None:
+                emit_progress("원문 가져오는 중…")  # 콜백 미설정 시 no-op(웹 스트림 적재만 표시)
+                try:
+                    doc = fetch_fn(payload, full_content=full_content)
+                except TypeError:
+                    doc = fetch_fn(payload)
+            else:
+                doc = prefetched
+            if doc and doc.title:
+                update_active_ingest(data_dir, title=doc.title)
+        except Exception as e:  # noqa: BLE001
+            report.error = str(e)
+            dbm.update_inbox(conn, inbox_id, status="error", error=str(e))
             return report
-        if same_canonical and _presentation_state(doc.meta or {}) != old_presentation_state:
-            dbm.update_document_meta(conn, existing, doc.meta)
-            report.document_id = existing
-            report.updated = True
-            report.duplicate = False
-            dbm.update_inbox(conn, inbox_id, status="done", document_id=existing)
-            return report
-        # 사용자가 새 focus(초점)를 명시적으로 지정한 경우:
-        # 단순 중복 스킵하지 않고, 해당 문서의 초점을 갱신하고 가독 상세(detail)를 즉시 재생성(재적재)
-        if focus and focus.strip():
-            doc_obj = dbm.get_document(conn, existing)
-            if doc_obj:
-                dbm.set_document_focus(conn, existing, focus.strip())
-                ensure_document_detail(
-                    conn, provider, doc_obj, format=format, focus=focus.strip(), force=True
+
+        if full_content:
+            if doc.meta is None:
+                doc.meta = {}
+            doc.meta["full_content"] = True
+        if effort:
+            if doc.meta is None:
+                doc.meta = {}
+            doc.meta["applied_effort"] = effort
+
+        if doc.source_type in ("pdf", "odt"):
+            from ..config import get_settings
+            from ..extract.classifier import reconcile_pdf_metadata
+
+            reconcile_pdf_metadata(doc, get_settings(), provider=provider)
+
+        report.source_type = doc.source_type
+        report.partial = doc.partial
+        report.title = doc.title
+        report.focus = focus
+        if doc.meta:
+            if "has_transcript" in doc.meta:
+                report.has_transcript = bool(doc.meta.get("has_transcript"))
+            if "is_stt" in doc.meta or "stt_applied" in doc.meta or "stt" in doc.meta:
+                report.is_stt = bool(
+                    doc.meta.get("is_stt")
+                    or doc.meta.get("stt_applied")
+                    or doc.meta.get("stt")
                 )
+            if "stt_error" in doc.meta:
+                report.stt_error = doc.meta.get("stt_error")
+            if "pdf_parser_requested" in doc.meta:
+                report.pdf_parser_requested = doc.meta.get("pdf_parser_requested")
+            if "pdf_parser_used" in doc.meta:
+                report.pdf_parser_used = doc.meta.get("pdf_parser_used")
+            if "pdf_parser_fallback" in doc.meta:
+                report.pdf_parser_fallback = bool(doc.meta.get("pdf_parser_fallback"))
+            if "pdf_parser_fallback_reason" in doc.meta:
+                report.pdf_parser_fallback_reason = doc.meta.get("pdf_parser_fallback_reason")
+            if "pdf_encoding_flaw_detected" in doc.meta:
+                report.pdf_encoding_flaw_detected = bool(doc.meta.get("pdf_encoding_flaw_detected"))
+            if "pdf_encoding_flaws" in doc.meta:
+                report.pdf_encoding_flaws = list(doc.meta.get("pdf_encoding_flaws") or [])
+            if "pdf_is_scanned" in doc.meta:
+                report.pdf_is_scanned = bool(doc.meta.get("pdf_is_scanned"))
+            presentation_items = doc.meta.get("presentation_pdfs") or []
+            if isinstance(presentation_items, list):
+                report.presentation_pdfs = len(presentation_items)
+                report.presentation_pdf_chars = sum(
+                    int(item.get("raw_chars") or 0)
+                    for item in presentation_items
+                    if isinstance(item, dict)
+                )
+                report.presentation_pdf_parsers = list(
+                    dict.fromkeys(
+                        str(item.get("parser_used"))
+                        for item in presentation_items
+                        if isinstance(item, dict) and item.get("parser_used")
+                    )
+                )
+            presentation_primary = doc.meta.get("presentation_pdf") or {}
+            if isinstance(presentation_primary, dict):
+                if presentation_primary.get("status") == "available" and not report.presentation_pdfs:
+                    report.presentation_pdfs = 1
+                if presentation_primary.get("parser_fallback"):
+                    report.pdf_parser_fallback = True
+                    report.pdf_parser_fallback_reason = presentation_primary.get(
+                        "parser_fallback_reason"
+                    )
+        if focus and focus.strip():
+            if doc.meta is None:
+                doc.meta = {}
+            doc.meta["focus"] = focus.strip()
+
+        # 0. 소각 툼스톤(Tombstone) 검사: 소각된 오염 데이터(URL/해시)는 재수집 원천 차단
+        if dbm.is_tombstoned(conn, url=doc.url, canonical_url=doc.canonical_url, content_hash=doc.content_hash):
+            report.error = "tombstoned: document was previously purged"
+            dbm.update_inbox(conn, inbox_id, status="error", error=report.error)
+            return report
+
+        # 직접 PDF URL이 이미 VMware 비디오 문서의 Presentation 출처로 포함됐으면
+        # 동일 원문을 독립 문서로 다시 만들지 않는다.
+        if doc.source_type == "pdf" and doc.canonical_url:
+            bundled_id = dbm.find_document_by_extra_source(conn, doc.canonical_url)
+            if bundled_id:
+                report.document_id = bundled_id
+                report.duplicate = True
+                dbm.update_inbox(conn, inbox_id, status="duplicate", document_id=bundled_id)
+                return report
+
+        _link_existing_presentation_documents(conn, doc)
+
+        # dedup ① 내용 완전 동일(content_hash 일치)
+        existing = dbm.find_document_by_hash(conn, doc.content_hash)
+        if existing:
+            existing_row = dbm.get_document_row(conn, existing)
+            same_canonical = bool(
+                existing_row
+                and doc.canonical_url
+                and existing_row["canonical_url"] == doc.canonical_url
+            )
+            old_meta: dict = {}
+            old_presentation_state: tuple = ()
+            if same_canonical and existing_row is not None:
+                try:
+                    old_meta = json.loads(existing_row["meta"] or "{}")
+                except Exception:
+                    old_meta = {}
+                old_presentation_state = _presentation_state(old_meta)
+                preserve_presentation_history(old_meta, doc)
+            if not _store_doc_attachments_or_report(
+                conn, inbox_id, doc, existing, data_dir, report
+            ):
+                return report
+            if same_canonical and _presentation_state(doc.meta or {}) != old_presentation_state:
+                dbm.update_document_meta(conn, existing, doc.meta)
                 report.document_id = existing
                 report.updated = True
                 report.duplicate = False
-                report.title = doc_obj.title or doc.title
                 dbm.update_inbox(conn, inbox_id, status="done", document_id=existing)
                 return report
+            # 사용자가 새 focus(초점)를 명시적으로 지정한 경우:
+            # 단순 중복 스킵하지 않고, 해당 문서의 초점을 갱신하고 가독 상세(detail)를 즉시 재생성(재적재)
+            if focus and focus.strip():
+                doc_obj = dbm.get_document(conn, existing)
+                if doc_obj:
+                    dbm.set_document_focus(conn, existing, focus.strip())
+                    ensure_document_detail(
+                        conn, provider, doc_obj, format=format, focus=focus.strip(), force=True
+                    )
+                    report.document_id = existing
+                    report.updated = True
+                    report.duplicate = False
+                    report.title = doc_obj.title or doc.title
+                    dbm.update_inbox(conn, inbox_id, status="done", document_id=existing)
+                    return report
 
-        report.document_id = existing
-        report.duplicate = True
-        dbm.update_inbox(conn, inbox_id, status="duplicate", document_id=existing)
-        return report
+            report.document_id = existing
+            report.duplicate = True
+            dbm.update_inbox(conn, inbox_id, status="duplicate", document_id=existing)
+            return report
 
-    # dedup ② 같은 canonical_url 인데 content_hash 가 다름 → 같은 자료의 *내용 갱신*.
-    #   새 문서를 만들지(중복 노드) 않고, 건너뛰지도(갱신 유실) 않고, 기존 문서를 in-place
-    #   갱신한다(엔티티 sources 연결 보존 = refresh_document 과 같은 의미).
-    same_url = dbm.find_document_by_canonical_url(conn, doc.canonical_url)
-    if same_url:
-        doc.id = same_url
-        old_row = dbm.get_document_row(conn, same_url)
-        if old_row is not None:
-            try:
-                old_meta = json.loads(old_row["meta"] or "{}")
-            except Exception:
-                old_meta = {}
-            preserve_presentation_history(old_meta, doc)
+        # dedup ② 같은 canonical_url 인데 content_hash 가 다름 → 같은 자료의 *내용 갱신*.
+        #   새 문서를 만들지(중복 노드) 않고, 건너뛰지도(갱신 유실) 않고, 기존 문서를 in-place
+        #   갱신한다(엔티티 sources 연결 보존 = refresh_document 과 같은 의미).
+        same_url = dbm.find_document_by_canonical_url(conn, doc.canonical_url)
+        if same_url:
+            doc.id = same_url
+            old_row = dbm.get_document_row(conn, same_url)
+            if old_row is not None:
+                try:
+                    old_meta = json.loads(old_row["meta"] or "{}")
+                except Exception:
+                    old_meta = {}
+                preserve_presentation_history(old_meta, doc)
+            if not _store_doc_attachments_or_report(
+                conn, inbox_id, doc, same_url, data_dir, report
+            ):
+                return report
+            dbm.update_document_content(
+                conn, same_url, title=doc.title, raw_text=doc.raw_text,
+                content_hash=doc.content_hash, fetched_at=doc.fetched_at,
+                source_type=doc.source_type, partial=doc.partial, meta=doc.meta)
+            report.document_id = same_url
+            report.updated = True
+            if data_dir is not None:
+                try:
+                    from ..store.raw import save_artifact
+
+                    save_artifact(data_dir, same_url, doc.raw_text)
+                except Exception:  # noqa: BLE001
+                    pass
+            _download_doc_images(conn, doc, data_dir)
+            ok, err = extract_resolve_store(
+                conn, provider, vstore, doc, report, vault_dir=vault_dir, format=format, focus=focus, effort=effort, full_content=full_content)
+            if not ok:
+                report.error = err
+                dbm.update_inbox(conn, inbox_id, status="error",
+                                 document_id=same_url, error=err)
+                return report
+            dbm.update_inbox(conn, inbox_id, status="done", document_id=same_url)
+            return report
+
+        # dedup ③ 근사 중복(near-duplicate). content_hash·canonical_url 을 비껴간 "같은 글
+        #   다른 입구"(arxiv 버전 접미사, 동적요소 차이 등)를 MinHash 유사도로 잡는다.
+        #   보수적(데이터 보존): 충분히 긴 비-partial 문서만, 높은 임계 → 별개 글 오병합 방지.
+        near = dbm.near_duplicate_document(conn, doc)
+        if near:
+            near_id, score = near
+            report.document_id = near_id
+            report.duplicate = True
+            dbm.update_inbox(conn, inbox_id, status="duplicate", document_id=near_id)
+            return report
+
+        emit_progress("구조화 추출·그래프 적재 중…")
         if not _store_doc_attachments_or_report(
-            conn, inbox_id, doc, same_url, data_dir, report
+            conn, inbox_id, doc, doc.id, data_dir, report
         ):
             return report
-        dbm.update_document_content(
-            conn, same_url, title=doc.title, raw_text=doc.raw_text,
-            content_hash=doc.content_hash, fetched_at=doc.fetched_at,
-            source_type=doc.source_type, partial=doc.partial, meta=doc.meta)
-        report.document_id = same_url
-        report.updated = True
+        dbm.insert_document(conn, doc)
+        report.document_id = doc.id
+
+        # [Layer 2] fetched 원본 텍스트를 gzip artifact 로 보관(재추출용).
         if data_dir is not None:
             try:
                 from ..store.raw import save_artifact
 
-                save_artifact(data_dir, same_url, doc.raw_text)
+                save_artifact(data_dir, doc.id, doc.raw_text)
             except Exception:  # noqa: BLE001
-                pass
+                pass  # 보관 실패가 본 파이프라인을 막지 않도록
         _download_doc_images(conn, doc, data_dir)
+
+        # 추출 → 해소 → 관계 → vault (ingest/refresh 공용)
         ok, err = extract_resolve_store(
             conn, provider, vstore, doc, report, vault_dir=vault_dir, format=format, focus=focus, effort=effort, full_content=full_content)
         if not ok:
             report.error = err
-            dbm.update_inbox(conn, inbox_id, status="error",
-                             document_id=same_url, error=err)
+            dbm.update_inbox(conn, inbox_id, status="error", document_id=doc.id, error=err)
             return report
-        dbm.update_inbox(conn, inbox_id, status="done", document_id=same_url)
+
+        # 주기 크롤링 watch 판단(LLM, 비용 1콜) — 1차 신규 적재에만. onehop 자식/research 문서/
+        # 복구·갱신 재적재는 제외(부적절·낭비). 실패는 조용히(watch 미판단으로 남음).
+        if not doc.partial and not source.startswith(
+                ("onehop", "recover", "replay", "refresh", "research")):
+            emit_progress("주기 갱신 콘텐츠 여부 판단 중…")
+            ensure_watch_classification(conn, provider, doc)
+
+        # 1홉 확장. auto_expand 면 백그라운드 대기열에 등록(LLM 이 선별·판정·적재; expand-loop).
+        # 아니면 기존 동작: 후보만 제안(텔레그램 confirm 버튼). 내부 연결은 위에서 이미 자동.
+        if expand_max > 0 and not doc.partial:
+            if auto_expand:
+                dbm.enqueue_expand(conn, doc.id)
+            else:
+                from ..expand.onehop import find_candidates
+
+                report.candidates = find_candidates(conn, doc, limit=expand_max)
+
+        dbm.update_inbox(conn, inbox_id, status="done", document_id=doc.id)
         return report
 
-    # dedup ③ 근사 중복(near-duplicate). content_hash·canonical_url 을 비껴간 "같은 글
-    #   다른 입구"(arxiv 버전 접미사, 동적요소 차이 등)를 MinHash 유사도로 잡는다.
-    #   보수적(데이터 보존): 충분히 긴 비-partial 문서만, 높은 임계 → 별개 글 오병합 방지.
-    near = dbm.near_duplicate_document(conn, doc)
-    if near:
-        near_id, score = near
-        report.document_id = near_id
-        report.duplicate = True
-        dbm.update_inbox(conn, inbox_id, status="duplicate", document_id=near_id)
-        return report
-
-    emit_progress("구조화 추출·그래프 적재 중…")
-    if not _store_doc_attachments_or_report(
-        conn, inbox_id, doc, doc.id, data_dir, report
-    ):
-        return report
-    dbm.insert_document(conn, doc)
-    report.document_id = doc.id
-
-    # [Layer 2] fetched 원본 텍스트를 gzip artifact 로 보관(재추출용).
-    if data_dir is not None:
+    finally:
+        set_progress_callback(prev_cb)
         try:
-            from ..store.raw import save_artifact
+            from .report_json import report_to_dict
 
-            save_artifact(data_dir, doc.id, doc.raw_text)
-        except Exception:  # noqa: BLE001
-            pass  # 보관 실패가 본 파이프라인을 막지 않도록
-    _download_doc_images(conn, doc, data_dir)
-
-    # 추출 → 해소 → 관계 → vault (ingest/refresh 공용)
-    ok, err = extract_resolve_store(
-        conn, provider, vstore, doc, report, vault_dir=vault_dir, format=format, focus=focus, effort=effort, full_content=full_content)
-    if not ok:
-        report.error = err
-        dbm.update_inbox(conn, inbox_id, status="error", document_id=doc.id, error=err)
-        return report
-
-    # 주기 크롤링 watch 판단(LLM, 비용 1콜) — 1차 신규 적재에만. onehop 자식/research 문서/
-    # 복구·갱신 재적재는 제외(부적절·낭비). 실패는 조용히(watch 미판단으로 남음).
-    if not doc.partial and not source.startswith(
-            ("onehop", "recover", "replay", "refresh", "research")):
-        emit_progress("주기 갱신 콘텐츠 여부 판단 중…")
-        ensure_watch_classification(conn, provider, doc)
-
-    # 1홉 확장. auto_expand 면 백그라운드 대기열에 등록(LLM 이 선별·판정·적재; expand-loop).
-    # 아니면 기존 동작: 후보만 제안(텔레그램 confirm 버튼). 내부 연결은 위에서 이미 자동.
-    if expand_max > 0 and not doc.partial:
-        if auto_expand:
-            dbm.enqueue_expand(conn, doc.id)
-        else:
-            from ..expand.onehop import find_candidates
-
-            report.candidates = find_candidates(conn, doc, limit=expand_max)
-
-    dbm.update_inbox(conn, inbox_id, status="done", document_id=doc.id)
-    return report
-
+            rep_dict = report_to_dict(report) if report else None
+        except Exception:
+            rep_dict = None
+        clear_active_ingest(
+            data_dir,
+            result=rep_dict,
+            error=report.error if report else None,
+        )
 
 def _download_doc_images(conn: sqlite3.Connection, doc: Document, data_dir: Path | None) -> None:
     """본문 이미지 후보를 로컬로 내려받아 보존(사용자 요구 — 외부 사이트/링크가 나중에 사라지면 문서에 남는 게 깨진 이미지 링크뿐이라 저장해 둬야 함). ingest 신규/in-place 갱신·refresh 가 공유. doc.meta['images'] 를 local 경로 포함 형태로 갱신 + DB 반영. 이미지 후보 없거나 data_dir 없으면 조용히 스킵(개별 다운로드 실패는 raw.download_images 가 원본 url 로 이미 폴백)."""

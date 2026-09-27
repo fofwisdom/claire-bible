@@ -206,6 +206,11 @@ async function markDocumentSeen(docId){
   }catch(_){}
 }
 function setCenterView(mode){
+  if(mode === 'graph'){
+    if(typeof resumeGraphAfterIngest === 'function'){
+      resumeGraphAfterIngest();
+    }
+  }
   const nextView = (mode==='graph' ? 'graph' : (mode==='matrix' ? 'matrix' : 'reader'));
   if(mode === 'matrix' || mode === 'graph'){
     activePane = 'graph';
