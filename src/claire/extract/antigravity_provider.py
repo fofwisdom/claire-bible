@@ -11,6 +11,7 @@ import json
 import logging
 import re
 import subprocess
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -98,8 +99,27 @@ class AntigravityProvider:
         effort: str | None = None,
         call_type: str = "cli",
         document_id: str | None = None,
+        allow_tools: bool = False,
     ) -> Any:
         """agy CLI를 서브프로세스로 실행하고 결과를 반환한다."""
+        if not allow_tools:
+            suppression_header = (
+                "[SYSTEM DIRECTIVE: DIRECT INFERENCE ONLY]\n"
+                "Do NOT invoke any tools, search files, read repository paths, or run shell commands.\n"
+                "Generate the requested output immediately in a single response turn based solely on "
+                "the provided prompt context and internal knowledge.\n\n"
+            )
+            prompt = suppression_header + prompt
+
+        clean_cwd: Path | None = None
+        if not allow_tools:
+            clean_cwd = Path(tempfile.gettempdir()) / "claire_agy_clean"
+            try:
+                clean_cwd.mkdir(parents=True, exist_ok=True)
+            except Exception:
+                clean_cwd = None
+        target_cwd = str(clean_cwd) if clean_cwd else None
+
         def _build_cmd(*, use_stdin: bool) -> list[str]:
             cmd = [self.agy_bin]
             if not use_stdin:
@@ -147,6 +167,7 @@ class AntigravityProvider:
                     capture_output=True,
                     text=True,
                     timeout=self.timeout,
+                    cwd=target_cwd,
                     check=False,
                 )
                 exit_code = proc.returncode
@@ -165,6 +186,7 @@ class AntigravityProvider:
                         capture_output=True,
                         text=True,
                         timeout=self.timeout,
+                        cwd=target_cwd,
                         check=False,
                     )
                     exit_code = proc.returncode
@@ -561,7 +583,9 @@ class AntigravityProvider:
     def summarize_search(self, query: str, context: str) -> str:
         """검색된 컨텍스트만 사용해 질의에 답한다(인용 포함, 환각 억제, 문어체)."""
         prompt = summarize_search_prompt(query, context)
-        res = self._run_cli(prompt, output_format="text")
+        res = self._run_cli(
+            prompt, output_format="text", call_type="summarize_search", allow_tools=False
+        )
         return str(res).strip()
 
     def render_detail(
@@ -659,8 +683,10 @@ class AntigravityProvider:
                 prompt,
                 json_schema=schema,
                 output_format="json",
+                effort="low",
                 call_type="classify_watch",
                 document_id=getattr(doc, "id", None),
+                allow_tools=False,
             )
             if isinstance(data, dict):
                 return WatchClassification.model_validate(data).model_dump()
@@ -677,6 +703,8 @@ class AntigravityProvider:
                 prompt,
                 output_format="text",
                 dangerously_skip_permissions=True,
+                call_type="research",
+                allow_tools=True,
             )
             report = str(res).strip()
         except Exception as e:
@@ -702,7 +730,14 @@ class AntigravityProvider:
         prompt = judge_research_prompt(query, context, report)
         schema = ResearchJudgement.model_json_schema()
         try:
-            data = self._run_cli(prompt, json_schema=schema, output_format="json")
+            data = self._run_cli(
+                prompt,
+                json_schema=schema,
+                output_format="json",
+                effort="low",
+                call_type="judge_research",
+                allow_tools=False,
+            )
             if isinstance(data, dict):
                 return ResearchJudgement.model_validate(data).model_dump()
             return ResearchJudgement.model_validate_json(str(data)).model_dump()
@@ -723,7 +758,14 @@ class AntigravityProvider:
         prompt = select_followups_prompt(context, candidates)
         schema = FollowSelection.model_json_schema()
         try:
-            data = self._run_cli(prompt, json_schema=schema, output_format="json")
+            data = self._run_cli(
+                prompt,
+                json_schema=schema,
+                output_format="json",
+                effort="low",
+                call_type="select_followups",
+                allow_tools=False,
+            )
             if isinstance(data, dict):
                 sel = FollowSelection.model_validate(data)
             else:
@@ -735,22 +777,41 @@ class AntigravityProvider:
         n = len(candidates)
         return [i for i in sel.follow if isinstance(i, int) and 0 <= i < n]
 
-    def judge_same_entity(self, mc: MergeCandidate) -> bool:
+    def judge_same_entity(
+        self, mc: MergeCandidate, *, document_id: str | None = None
+    ) -> bool:
         """두 엔티티가 동일한 실세계 대상인지 LLM 판정."""
         prompt = judge_same_entity_prompt(mc)
         try:
-            res = self._run_cli(prompt, output_format="text")
+            res = self._run_cli(
+                prompt,
+                output_format="text",
+                effort="low",
+                call_type="judge_same_entity",
+                document_id=document_id,
+                allow_tools=False,
+            )
             return str(res).strip().upper().startswith("SAME")
         except Exception as e:
             logger.warning("judge_same_entity call failed: %s", e)
             return False
 
-    def judge_relationship(self, rc: RelationCandidate) -> RelationJudgement:
+    def judge_relationship(
+        self, rc: RelationCandidate, *, document_id: str | None = None
+    ) -> RelationJudgement:
         """두 엔티티 간의 유의미한 온톨로지 관계 성립 여부 및 방향/타입을 LLM으로 판정 (Phase 2)."""
         prompt = judge_relationship_prompt(rc)
         schema = RelationJudgement.model_json_schema()
         try:
-            data = self._run_cli(prompt, json_schema=schema, output_format="json")
+            data = self._run_cli(
+                prompt,
+                json_schema=schema,
+                output_format="json",
+                effort="low",
+                call_type="judge_relationship",
+                document_id=document_id,
+                allow_tools=False,
+            )
             if isinstance(data, dict):
                 return RelationJudgement.model_validate(data)
             return RelationJudgement.model_validate_json(str(data))

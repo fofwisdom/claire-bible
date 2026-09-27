@@ -520,3 +520,138 @@ def test_backfill_summaries_service(tmp_path):
     assert summ is not None
     assert "원문 텍스트" in summ
     conn.close()
+
+
+@patch("subprocess.run")
+def test_run_cli_allow_tools_false_injects_suppression_and_cwd(mock_run):
+    """allow_tools=False 시 지시문 주입 및 임시 디렉터리로 cwd 격리."""
+    mock_run.return_value = SimpleNamespace(
+        returncode=0,
+        stdout="SAME",
+        stderr="",
+    )
+    s = _make_settings()
+    prov = AntigravityProvider(s)
+    prov._run_cli("Original prompt", output_format="text", allow_tools=False)
+
+    mock_run.assert_called_once()
+    cmd = mock_run.call_args[0][0]
+    kwargs = mock_run.call_args[1]
+
+    # 프롬프트에 지시문이 포함되어 있어야 함
+    p_idx = cmd.index("-p")
+    sent_prompt = cmd[p_idx + 1]
+    assert "[SYSTEM DIRECTIVE: DIRECT INFERENCE ONLY]" in sent_prompt
+    assert "Original prompt" in sent_prompt
+
+    # cwd가 claire_agy_clean 임시 디렉터리로 격리되어야 함
+    assert kwargs.get("cwd") is not None
+    assert "claire_agy_clean" in kwargs["cwd"]
+
+
+@patch("subprocess.run")
+def test_run_cli_allow_tools_true_preserves_prompt_and_cwd(mock_run):
+    """research 등 allow_tools=True 시 지시문 미주입 및 cwd 격리 없음."""
+    mock_run.return_value = SimpleNamespace(
+        returncode=0,
+        stdout="Research report",
+        stderr="",
+    )
+    s = _make_settings()
+    prov = AntigravityProvider(s)
+    prov.research("test query", "test context")
+
+    mock_run.assert_called_once()
+    cmd = mock_run.call_args[0][0]
+    kwargs = mock_run.call_args[1]
+
+    p_idx = cmd.index("-p")
+    sent_prompt = cmd[p_idx + 1]
+    assert "[SYSTEM DIRECTIVE: DIRECT INFERENCE ONLY]" not in sent_prompt
+    assert kwargs.get("cwd") is None
+
+
+@patch("subprocess.run")
+def test_judge_same_entity_passes_low_effort_and_metadata(mock_run):
+    """judge_same_entity 호출 시 effort=low, call_type, document_id 전달."""
+    mock_run.return_value = SimpleNamespace(
+        returncode=0,
+        stdout="SAME",
+        stderr="",
+    )
+    s = _make_settings()
+    prov = AntigravityProvider(s)
+    mc = MergeCandidate(
+        new_name="Ent A",
+        new_type="Tool",
+        new_observations=["obs1"],
+        cand_name="Ent B",
+        cand_type="Tool",
+        cand_aliases=[],
+        cand_observations=["obs2"],
+    )
+
+    with patch("claire.extract.antigravity_provider.record_telemetry") as mock_telemetry:
+        verdict = prov.judge_same_entity(mc, document_id="doc_test_123")
+        assert verdict is True
+
+        mock_run.assert_called_once()
+        cmd = mock_run.call_args[0][0]
+        assert "--effort" in cmd
+        eff_idx = cmd.index("--effort")
+        assert cmd[eff_idx + 1] == "low"
+
+        mock_telemetry.assert_called_once()
+        tel_kwargs = mock_telemetry.call_args[1]
+        assert tel_kwargs.get("call_type") == "judge_same_entity"
+        assert tel_kwargs.get("document_id") == "doc_test_123"
+
+
+@patch("subprocess.run")
+def test_judge_relationship_passes_low_effort_and_metadata(mock_run):
+    """judge_relationship 호출 시 effort=low, call_type, document_id 전달."""
+    rel_payload = {
+        "has_relation": True,
+        "relation_type": "competes_with",
+        "direction": "bidirectional",
+        "reason": "경쟁 관계이다.",
+        "confidence": 0.95,
+    }
+    mock_run.return_value = SimpleNamespace(
+        returncode=0,
+        stdout=json.dumps(rel_payload),
+        stderr="",
+    )
+    s = _make_settings()
+    prov = AntigravityProvider(s)
+    from claire.extract.provider import RelationCandidate
+
+    rc = RelationCandidate(
+        entity_a_name="Format A",
+        entity_a_type="Concept",
+        entity_a_observations=[],
+        entity_a_aliases=[],
+        entity_b_name="Format B",
+        entity_b_type="Concept",
+        entity_b_observations=[],
+        entity_b_aliases=[],
+        similarity_score=0.8,
+        context="",
+    )
+
+    with patch("claire.extract.antigravity_provider.record_telemetry") as mock_telemetry:
+        judgement = prov.judge_relationship(rc, document_id="doc_rel_456")
+        assert judgement.has_relation is True
+        assert judgement.relation_type == "competes_with"
+
+        mock_run.assert_called_once()
+        cmd = mock_run.call_args[0][0]
+        assert "--effort" in cmd
+        eff_idx = cmd.index("--effort")
+        assert cmd[eff_idx + 1] == "low"
+
+        mock_telemetry.assert_called_once()
+        tel_kwargs = mock_telemetry.call_args[1]
+        assert tel_kwargs.get("call_type") == "judge_relationship"
+        assert tel_kwargs.get("document_id") == "doc_rel_456"
+

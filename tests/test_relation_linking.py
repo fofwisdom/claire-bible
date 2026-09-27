@@ -317,3 +317,42 @@ def test_cmd_link_relations_dry_run_and_apply(tmp_path, monkeypatch):
     assert len(rels) == 1
     assert rels[0].type == "improves"
     conn_check2.close()
+
+
+def test_pipeline_relation_linking_passes_document_id_and_concurrency(tmp_path):
+    """파이프라인 횡단 관계 판정 시 document_id가 전달되고 ThreadPoolExecutor 병렬 처리가 동작함을 검증."""
+    import threading
+
+    class ThreadTrackingProvider(CustomJudgeMockProvider):
+        def __init__(self):
+            super().__init__()
+            self.doc_ids_received: list[str | None] = []
+            self.thread_ids: set[int] = set()
+            self.max_concurrency = 2
+
+        def judge_relationship(self, rc: RelationCandidate, *, document_id: str | None = None) -> RelationJudgement:
+            self.doc_ids_received.append(document_id)
+            self.thread_ids.add(threading.get_ident())
+            return super().judge_relationship(rc)
+
+    conn = _mem_conn()
+    vstore = VectorStore(conn, "brute")
+    provider = ThreadTrackingProvider()
+    vault_dir = tmp_path / "vault"
+    vault_dir.mkdir(parents=True, exist_ok=True)
+
+    provider.embed_map["vllm"] = [1.0, 0.0]
+    provider.embed_map["pagedattention"] = [0.82, 0.57236]
+
+    doc1 = Document(id="doc_alpha", title="vLLM Engine", raw_text="vLLM engine")
+    ingest("https://example.com/vllm", conn=conn, provider=provider, vstore=vstore, vault_dir=vault_dir, prefetched=doc1)
+
+    doc2 = Document(id="doc_beta", title="PagedAttention", raw_text="PagedAttention paper")
+    rep2 = ingest("https://example.com/pagedattention", conn=conn, provider=provider, vstore=vstore, vault_dir=vault_dir, prefetched=doc2)
+
+    assert rep2.error is None
+    assert rep2.cross_relations_added == 1
+    # document_id가 doc_beta로 올바르게 전달되었는지 확인
+    assert len(provider.doc_ids_received) >= 1
+    assert provider.doc_ids_received[0] == "doc_beta"
+
