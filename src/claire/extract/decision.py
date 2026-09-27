@@ -157,6 +157,48 @@ def rollback_resolution(
     return False
 
 
+def get_all_resolution_decisions(
+    conn: Any,
+    limit: int = 100,
+    offset: int = 0,
+) -> list[dict[str, Any]]:
+    """모든 문서의 meta에서 엔티티 변경/해소 결정 스트림(Decision Stream)을 최신순으로 집계 조회."""
+    import json
+
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT id, title, fetched_at, meta
+        FROM documents
+        WHERE meta LIKE '%"resolution_log"%'
+        ORDER BY fetched_at DESC, id DESC
+        LIMIT 200
+        """
+    )
+    rows = cur.fetchall()
+    all_decisions: list[dict[str, Any]] = []
+    for doc_id, doc_title, fetched_at, raw_meta in rows:
+        if not raw_meta:
+            continue
+        try:
+            meta = json.loads(raw_meta) if isinstance(raw_meta, str) else raw_meta
+        except Exception:
+            continue
+        decisions = get_resolution_log_from_meta(meta)
+        for d in decisions:
+            d_dict = d.to_dict()
+            d_dict["document_id"] = doc_id
+            d_dict["document_title"] = doc_title or doc_id
+            d_dict["document_fetched_at"] = fetched_at
+            all_decisions.append(d_dict)
+
+    all_decisions.sort(
+        key=lambda x: (x.get("timestamp") or x.get("document_fetched_at") or 0),
+        reverse=True,
+    )
+    return all_decisions[offset : offset + limit]
+
+
 # --- Heatmap Matrix 생성 엔진 (Jev 및 Fallback) ---
 
 

@@ -3954,9 +3954,9 @@ function renderHeatmapMatrix(matrixData, title){
         }
 
         const tooltip = esc(rName) + ' ↔ ' + esc(cName) + '\n점수: ' + score.toFixed(4) + (score >= autoMergeThresh ? ' (자동 병합)' : (score >= borderlineThresh ? ' (경계선 판정)' : ''));
-        const label = score >= 0.65 ? score.toFixed(2) : '';
 
-        return '<td><div class="' + cellClass + '" title="' + tooltip + '" style="background:' + bg + ';color:' + fg + ';border:' + border + '" onclick="inspectMatrixCell(\'' + esc(rName) + '\',\'' + esc(cName) + '\',' + score + ')">' + label + '</div></td>';
+        // 구체적인 텍스트나 수치 사용을 배제하고 순수 색조 농도에 집중 (시각 만족감 목적)
+        return '<td><div class="' + cellClass + '" title="' + tooltip + '" style="background:' + bg + ';color:' + fg + ';border:' + border + '" onclick="inspectMatrixCell(\'' + esc(rName) + '\',\'' + esc(cName) + '\',' + score + ')"></div></td>';
       }).join('');
 
       return '<tr><td class="matrix-row-header" title="' + esc(rName) + '">' + esc(rName) + '</td>' + cells + '</tr>';
@@ -3969,7 +3969,7 @@ function completeIngestMatrixView(result){
   if(spin) spin.style.display = 'none';
   const msgEl = document.getElementById('matrix-progress-msg');
   if(msgEl){
-    msgEl.innerHTML = '✅ <strong>적재 완료</strong> (노드 신규 ' + (result.entities_created||0) + ' · 기존 연결 ' + (result.entities_linked||0) + ' · 관계 ' + (result.relations_added||0) + ')';
+    msgEl.innerHTML = '✅ <strong>대조 및 적재 완료</strong> (노드 신규 ' + (result.entities_created||0) + ' · 기존 연결 ' + (result.entities_linked||0) + ' · 관계 ' + (result.relations_added||0) + ')';
   }
   if(result && result.title){
     const docMetaEl = document.getElementById('matrix-target-doc');
@@ -3977,25 +3977,6 @@ function completeIngestMatrixView(result){
   }
   if(result && result.heatmap_matrix){
     renderHeatmapMatrix(result.heatmap_matrix, result.title);
-  }
-}
-
-function switchMatrixTab(tab){
-  const mBtn = document.getElementById('mtab-matrix');
-  const sBtn = document.getElementById('mtab-stream');
-  const mPane = document.getElementById('matrix-view-grid');
-  const sPane = document.getElementById('matrix-view-stream');
-
-  if(tab === 'matrix'){
-    if(mBtn) mBtn.classList.add('active');
-    if(sBtn) sBtn.classList.remove('active');
-    if(mPane) mPane.style.display = 'flex';
-    if(sPane) sPane.style.display = 'none';
-  } else {
-    if(sBtn) sBtn.classList.add('active');
-    if(mBtn) mBtn.classList.remove('active');
-    if(mPane) mPane.style.display = 'none';
-    if(sPane) sPane.style.display = 'flex';
   }
 }
 
@@ -4022,111 +4003,147 @@ function inspectMatrixCell(rName, cName, score){
   setGraphNotice(rName + ' ↔ ' + cName + ': ' + score.toFixed(3));
 }
 
-async function openDecisionStream(docId){
-  const targetId = docId || activeDoc || curReaderDoc || (allDocs && allDocs.length ? allDocs[0].id : null);
-  if(!targetId){
-    panel.innerHTML = '<h2>📜 의사결정 스트림</h2><p class="hint">판단 기록을 열람할 문서를 좌측 목록에서 선택하세요.</p>';
-    openDetailPane();
-    return;
-  }
+// ============================================================================
+// --- Global Decision Stream (지식 엔티티 상태 전이 및 해소 감사 로그) ---
+// ============================================================================
 
-  let dc = curReaderDocData && curReaderDocData.id === targetId ? curReaderDocData : null;
-  if(!dc){
-    try {
-      const r = await fetch('document?id=' + encodeURIComponent(targetId));
-      if(r.ok) dc = await r.json();
-    } catch(_) {}
-  }
+let currentDecisionFilter = 'ALL';
+let cachedDecisions = [];
 
-  const logs = (dc && (dc.resolution_log || (dc.meta && dc.meta.resolution_log))) || [];
-  const docTitle = dc ? dc.title : targetId;
+async function openDecisionStream(){
+  panel.innerHTML = '<h2>📜 의사결정 스트림</h2><p class="hint">지식 엔티티 판단 기록을 불러오는 중…</p>';
+  openDetailPane();
 
-  // 1. Center Workspace (#matrixwrap) 스트림 탭에 렌더링
-  const cards = document.getElementById('matrix-stream-cards');
-  if(cards){
-    cards.innerHTML = '';
-    const docMetaEl = document.getElementById('matrix-target-doc');
-    if(docMetaEl) docMetaEl.textContent = '대조 대상: ' + docTitle;
-    const msgEl = document.getElementById('matrix-progress-msg');
-    if(msgEl) msgEl.innerHTML = '📜 <strong>의사결정 스트림</strong> (총 ' + logs.length + '건의 판단 기록)';
-    const spin = document.getElementById('matrix-progress-spinner');
-    if(spin) spin.style.display = 'none';
-
-    if(!logs.length){
-      cards.innerHTML = '<p class="hint" style="padding:20px;text-align:center">이 문서에 기록된 엔티티 의사결정 로그가 없습니다.</p>';
+  try {
+    const r = await fetch('resolution/decisions?limit=150');
+    if(r.ok){
+      const data = await r.json();
+      cachedDecisions = data.decisions || [];
     } else {
-      logs.forEach(dec => {
-        const card = document.createElement('div');
-        card.className = 'decision-card';
-        let badgeClass = 'badge-new';
-        let badgeLabel = dec.decision || '판단';
-        if(dec.decision === 'MERGE'){
-          badgeClass = 'badge-merge';
-          badgeLabel = '병합 승인';
-        } else if(dec.decision === 'CREATE_NEW'){
-          badgeClass = 'badge-new';
-          badgeLabel = '신규 생성';
-        } else if(dec.decision === 'CROSS_LINK'){
-          badgeClass = 'badge-cross';
-          badgeLabel = '관계 연결';
-        } else if(dec.decision === 'ROLLED_BACK'){
-          badgeClass = 'badge-rollback';
-          badgeLabel = '롤백됨';
-        }
-
-        const scoreText = (dec.score !== undefined && dec.score !== null) ? ' · 유사도 ' + Number(dec.score).toFixed(3) : '';
-        const candText = dec.candidate ? ' ↔ 대상 [' + esc(dec.candidate) + ']' : '';
-        const canRollback = canWrite() && dec.decision === 'MERGE' && !dec.rolled_back && dec.target_entity_id;
-
-        card.innerHTML =
-          '<div class="decision-card-head">' +
-            '<span class="decision-entity-title">🏷️ ' + esc(dec.entity || '') + '</span>' +
-            '<span class="decision-badge ' + badgeClass + '">' + esc(badgeLabel) + '</span>' +
-          '</div>' +
-          '<div class="decision-card-body">' +
-            '<div>' +
-              '<span class="decision-stage-tag">' + esc(dec.stage || 'gating') + '</span>' +
-              '<span style="font-size:11.5px;color:var(--muted);margin-left:6px">' + esc(candText + scoreText) + '</span>' +
-            '</div>' +
-            (dec.reason ? '<p style="margin:6px 0 0;font-size:12px;color:var(--fg)">' + esc(dec.reason) + '</p>' : '') +
-            (canRollback ? '<div style="margin-top:8px"><button type="button" class="sec" style="font-size:11px;color:var(--warn,#d97706);padding:3px 8px;border-color:var(--border);" onclick="triggerRollback(\'' + esc(targetId) + '\',\'' + esc(dec.entity) + '\')">↩ 병합 롤백</button></div>' : '') +
-          '</div>';
-
-        cards.appendChild(card);
-      });
+      // Fallback: 캐시된 allDocs 메타에서 수합
+      cachedDecisions = [];
+      if(Array.isArray(allDocs)){
+        allDocs.forEach(d => {
+          const rlog = (d.meta && d.meta.resolution_log) || [];
+          rlog.forEach(item => {
+            cachedDecisions.push({
+              ...item,
+              document_id: d.id,
+              document_title: d.title || d.id,
+              document_fetched_at: d.fetched_at || 0
+            });
+          });
+        });
+      }
     }
-    switchMatrixTab('stream');
-    setCenterView('matrix');
+  } catch(_) {
+    cachedDecisions = [];
   }
 
-  // 2. 우측 Drawer Panel (#panel)에도 열람 가능한 형태로 렌더링
-  let ph = '<h2>📜 의사결정 스트림</h2>';
-  ph += '<p class="al"><b>' + esc(docTitle) + '</b><br><small>총 ' + logs.length + '건의 엔티티 해소 판단 기록</small></p>';
-  if(!logs.length){
-    ph += '<p class="hint">기록된 판단 내역이 없습니다.</p>';
+  currentDecisionFilter = 'ALL';
+  renderDecisionStreamPanel();
+}
+
+function filterDecisionStream(filter){
+  currentDecisionFilter = filter;
+  renderDecisionStreamPanel();
+}
+
+function renderDecisionStreamPanel(){
+  const totalCount = cachedDecisions.length;
+  const mergeCount = cachedDecisions.filter(d => d.decision === 'MERGE').length;
+  const newCount = cachedDecisions.filter(d => d.decision === 'CREATE_NEW').length;
+  const rollbackCount = cachedDecisions.filter(d => d.decision === 'ROLLED_BACK' || d.rolled_back).length;
+
+  let filtered = cachedDecisions;
+  if(currentDecisionFilter === 'MERGE') filtered = cachedDecisions.filter(d => d.decision === 'MERGE');
+  else if(currentDecisionFilter === 'CREATE_NEW') filtered = cachedDecisions.filter(d => d.decision === 'CREATE_NEW');
+  else if(currentDecisionFilter === 'ROLLED_BACK') filtered = cachedDecisions.filter(d => d.decision === 'ROLLED_BACK' || d.rolled_back);
+
+  let ph = '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">';
+  ph += '<h2>📜 의사결정 스트림</h2>';
+  ph += '<span style="font-size:11px;color:var(--muted)">총 ' + totalCount + '건의 판단 기록</span>';
+  ph += '</div>';
+  ph += '<p class="al"><small>지식 베이스 전체의 엔티티 해소(Entity Resolution), 불변식 차단 및 가역적 병합 감사 로그입니다.</small></p>';
+
+  // 필터 탭 바 (BookStack 스타일)
+  ph += '<div class="decision-filter-bar" style="display:flex;gap:4px;margin:8px 0 12px;flex-wrap:wrap">';
+  ph += '<button type="button" class="sec' + (currentDecisionFilter==='ALL'?' active':'') + '" onclick="filterDecisionStream(\'ALL\')" style="font-size:11px;padding:3px 7px;' + (currentDecisionFilter==='ALL'?'background:var(--accent,#0284c7);color:#fff;border-color:var(--accent,#0284c7);':'') + '">전체 (' + totalCount + ')</button>';
+  ph += '<button type="button" class="sec' + (currentDecisionFilter==='MERGE'?' active':'') + '" onclick="filterDecisionStream(\'MERGE\')" style="font-size:11px;padding:3px 7px;' + (currentDecisionFilter==='MERGE'?'background:var(--accent,#0284c7);color:#fff;border-color:var(--accent,#0284c7);':'') + '">병합 (' + mergeCount + ')</button>';
+  ph += '<button type="button" class="sec' + (currentDecisionFilter==='CREATE_NEW'?' active':'') + '" onclick="filterDecisionStream(\'CREATE_NEW\')" style="font-size:11px;padding:3px 7px;' + (currentDecisionFilter==='CREATE_NEW'?'background:var(--accent,#0284c7);color:#fff;border-color:var(--accent,#0284c7);':'') + '">신규 (' + newCount + ')</button>';
+  ph += '<button type="button" class="sec' + (currentDecisionFilter==='ROLLED_BACK'?' active':'') + '" onclick="filterDecisionStream(\'ROLLED_BACK\')" style="font-size:11px;padding:3px 7px;' + (currentDecisionFilter==='ROLLED_BACK'?'background:var(--accent,#0284c7);color:#fff;border-color:var(--accent,#0284c7);':'') + '">롤백됨 (' + rollbackCount + ')</button>';
+  ph += '</div>';
+
+  if(!filtered.length){
+    ph += '<p class="hint" style="padding:16px 0;text-align:center">기록된 의사결정 로그가 없습니다.</p>';
   } else {
-    ph += '<div style="display:flex;flex-direction:column;gap:8px;margin-top:10px">';
-    logs.forEach(dec => {
+    ph += '<div style="display:flex;flex-direction:column;gap:10px">';
+    filtered.forEach(dec => {
       const isMerge = dec.decision === 'MERGE';
       const isRolledBack = dec.decision === 'ROLLED_BACK' || dec.rolled_back;
-      const canRollback = canWrite() && isMerge && !isRolledBack && dec.target_entity_id;
-      ph += '<div style="padding:8px 10px;background:var(--card-bg);border:1px solid var(--border);border-radius:5px;font-size:12px">';
-      ph += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">';
-      ph += '<strong>' + esc(dec.entity) + '</strong>';
-      ph += '<span style="font-size:10px;font-weight:bold;padding:1px 5px;border-radius:3px;' + (isMerge ? 'background:#ecfdf5;color:#059669;' : (isRolledBack ? 'background:#fffbeb;color:#d97706;' : 'background:#eff6ff;color:#2563eb;')) + '">' + esc(dec.decision) + '</span>';
-      ph += '</div>';
-      ph += '<div style="color:var(--muted);font-size:11px">' + esc(dec.stage) + (dec.candidate ? ' ↔ ' + esc(dec.candidate) : '') + (dec.score!=null ? ' (' + (+dec.score).toFixed(3) + ')' : '') + '</div>';
-      if(dec.reason) ph += '<div style="margin-top:4px">' + esc(dec.reason) + '</div>';
-      if(canRollback){
-        ph += '<div style="margin-top:6px"><button type="button" class="sec" style="font-size:11px;padding:2px 6px;color:var(--warn,#d97706)" onclick="triggerRollback(\'' + esc(targetId) + '\',\'' + esc(dec.entity) + '\')">↩ 롤백</button></div>';
+      const canRollback = canWrite() && isMerge && !isRolledBack && dec.target_entity_id && dec.document_id;
+
+      let badgeBg = '#eff6ff';
+      let badgeFg = '#2563eb';
+      let badgeLabel = '신규 (CREATE)';
+      if(isMerge){
+        badgeBg = '#ecfdf5';
+        badgeFg = '#059669';
+        badgeLabel = '병합 (MERGE)';
+      } else if(isRolledBack){
+        badgeBg = '#fffbeb';
+        badgeFg = '#d97706';
+        badgeLabel = '롤백됨 (REVERT)';
+      } else if(dec.decision === 'CROSS_LINK'){
+        badgeBg = '#f5f3ff';
+        badgeFg = '#7c3aed';
+        badgeLabel = '관계 연결';
       }
+
+      const scoreText = (dec.score !== undefined && dec.score !== null) ? ' · 유사도 ' + Number(dec.score).toFixed(3) : '';
+      const candText = dec.candidate ? ' ↔ 대상 [' + esc(dec.candidate) + ']' : '';
+
+      ph += '<div class="decision-card" style="padding:10px 12px;background:var(--card-bg);border:1px solid var(--border);border-radius:6px;font-size:12px">';
+      // Head
+      ph += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">';
+      ph += '<strong>🏷️ ' + esc(dec.entity || '') + '</strong>';
+      ph += '<span style="font-size:10px;font-weight:bold;padding:2px 6px;border-radius:4px;background:' + badgeBg + ';color:' + badgeFg + ';">' + esc(badgeLabel) + '</span>';
+      ph += '</div>';
+
+      // Meta: stage & candidate & score
+      ph += '<div style="font-size:11px;color:var(--muted);display:flex;flex-wrap:wrap;align-items:center;gap:6px">';
+      ph += '<span class="decision-stage-tag" style="background:var(--bg);padding:1px 5px;border-radius:3px;font-family:monospace;color:var(--fg)">' + esc(dec.stage || 'gating') + '</span>';
+      if(candText || scoreText){
+        ph += '<span>' + esc(candText + scoreText) + '</span>';
+      }
+      ph += '</div>';
+
+      // Reason note box (BookStack Style)
+      if(dec.reason){
+        ph += '<div style="margin-top:6px;padding:6px 8px;background:var(--bg);border-left:3px solid var(--accent,#0284c7);border-radius:2px;font-size:11.5px;color:var(--fg);line-height:1.4">';
+        ph += '<span style="margin-right:4px">💡</span>' + esc(dec.reason);
+        ph += '</div>';
+      }
+
+      // Foot: Source document and rollback
+      ph += '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;padding-top:6px;border-top:1px dashed var(--border);font-size:11px;color:var(--muted)">';
+      if(dec.document_id){
+        ph += '<span>📄 출처: <a href="javascript:void(0)" onclick="selectDoc(\'' + esc(dec.document_id) + '\')" style="color:var(--accent,#0284c7);text-decoration:underline">' + esc(dec.document_title || dec.document_id) + '</a></span>';
+      } else {
+        ph += '<span></span>';
+      }
+
+      if(canRollback){
+        ph += '<button type="button" class="sec" style="font-size:11px;padding:2px 7px;color:var(--warn,#d97706);border-color:var(--border)" onclick="triggerRollback(\'' + esc(dec.document_id) + '\',\'' + esc(dec.entity) + '\')">↩ 병합 롤백</button>';
+      }
+      ph += '</div>';
+
       ph += '</div>';
     });
     ph += '</div>';
   }
-  ph += '<p style="margin-top:14px"><button type="button" class="sec" onclick="openHeatmapMatrix(\'' + esc(targetId) + '\')" style="width:100%;padding:6px 10px;font-size:12px">📊 대조 매트릭스 전체보기</button></p>';
+
   panel.innerHTML = ph;
-  openDetailPane();
 }
 
 function openHeatmapMatrix(docId){
@@ -4147,12 +4164,11 @@ function openHeatmapMatrix(docId){
   }
 
   if(!mat){
-    alert('해당 문서의 대조 매트릭스는 일회성 데이터이므로 이미 확인 및 소멸되었거나 캐시에 없습니다.\n사후 감사는 "판단 기록(Decision Stream)"을 이용하세요.');
+    alert('해당 문서의 대조 매트릭스는 일회성 데이터이므로 이미 확인 및 소멸되었거나 캐시에 없습니다.\n사후 감사는 우측 메뉴의 "판단 기록(Decision Stream)"을 이용하세요.');
     return;
   }
 
   renderHeatmapMatrix(mat, title);
-  switchMatrixTab('matrix');
   setCenterView('matrix');
 }
 
@@ -4181,7 +4197,7 @@ async function triggerRollback(docId, entity){
       alert('"' + entity + '" 엔티티 병합이 성공적으로 롤백되었습니다.');
       refreshGraph();
       if(activeDoc === docId) loadDocPanel(docId);
-      openDecisionStream(docId);
+      openDecisionStream();
     } else {
       alert('롤백 처리 오류: ' + (res.error || '알 수 없는 오류'));
     }
@@ -4247,10 +4263,10 @@ window.updateMatrixProgress = updateMatrixProgress;
 window.addDecisionStreamCard = addDecisionStreamCard;
 window.renderHeatmapMatrix = renderHeatmapMatrix;
 window.completeIngestMatrixView = completeIngestMatrixView;
-window.switchMatrixTab = switchMatrixTab;
 window.triggerMatrixWave = triggerMatrixWave;
 window.closeMatrixView = closeMatrixView;
 window.openDecisionStream = openDecisionStream;
+window.filterDecisionStream = filterDecisionStream;
 window.openHeatmapMatrix = openHeatmapMatrix;
 window.triggerRollback = triggerRollback;
 window.renderMiniMatrixBannerHtml = renderMiniMatrixBannerHtml;

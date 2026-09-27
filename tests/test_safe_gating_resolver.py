@@ -393,3 +393,97 @@ def test_ingest_stream_emits_heatmap_and_decision_events(tmp_path):
     assert done_ev["result"]["heatmap_matrix"] is not None
 
 
+def test_get_resolution_decisions_global_api_route(tmp_path):
+    from starlette.testclient import TestClient
+    from claire.api import server
+    from claire.config import Settings
+    from claire.ingest.service import IngestService
+
+    db_path = tmp_path / "claire.db"
+    readonly_token = "read-" + ("r" * 32)
+    owner_token = "owner-" + ("o" * 32)
+    settings = Settings(
+        db_path=str(db_path),
+        data_dir=tmp_path / "data",
+        inject_token=owner_token,
+        readonly_token=readonly_token,
+        environment="development",
+        public_url="http://127.0.0.1:8765",
+    )
+    svc = IngestService(settings)
+    app = server.create_app(settings, svc)
+    client = TestClient(app, base_url=settings.public_url)
+
+    # 1. 2개 문서에 각각 다른 엔티티 해소 결정 시드
+    with dbm.connect(db_path) as conn:
+        dbm.init_db(conn)
+        d1 = Document(
+            id="doc_alpha",
+            url="https://example.com/alpha",
+            title="Alpha Architecture",
+            fetched_at=1700000000,
+            meta={
+                "has_decision_stream": True,
+                "resolution_log": [
+                    {
+                        "entity": "Kubernetes",
+                        "stage": "exact_match",
+                        "decision": "MERGE",
+                        "candidate": "K8s",
+                        "score": 1.0,
+                        "reason": "정규화 일치",
+                    }
+                ],
+            },
+        )
+        d2 = Document(
+            id="doc_beta",
+            url="https://example.com/beta",
+            title="Beta Hypervisor",
+            fetched_at=1700001000,
+            meta={
+                "has_decision_stream": True,
+                "resolution_log": [
+                    {
+                        "entity": "ESXi 8",
+                        "stage": "hard_invariant",
+                        "decision": "CREATE_NEW",
+                        "candidate": "ESXi 7",
+                        "score": 0.88,
+                        "reason": "메이저 버전 충돌 불변식 차단",
+                    }
+                ],
+            },
+        )
+        dbm.insert_document(conn, d1)
+        dbm.insert_document(conn, d2)
+        conn.commit()
+
+    # 2. GET /resolution/decisions 조회 (Read 권한으로 접근 가능)
+    resp = client.get(
+        "/resolution/decisions?limit=10",
+        headers={"Authorization": f"Bearer {readonly_token}"},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["ok"] is True
+    decisions = data["decisions"]
+    assert len(decisions) == 2
+
+    # 전역 집계 검증: 각 결정에 출처 문서 정보가 온전히 포함되었는지 확인
+    entities = {d["entity"] for d in decisions}
+    assert "Kubernetes" in entities
+    assert "ESXi 8" in entities
+
+    k8s_dec = next(d for d in decisions if d["entity"] == "Kubernetes")
+    assert k8s_dec["document_id"] == "doc_alpha"
+    assert k8s_dec["document_title"] == "Alpha Architecture"
+    assert k8s_dec["decision"] == "MERGE"
+
+    esxi_dec = next(d for d in decisions if d["entity"] == "ESXi 8")
+    assert esxi_dec["document_id"] == "doc_beta"
+    assert esxi_dec["document_title"] == "Beta Hypervisor"
+    assert esxi_dec["decision"] == "CREATE_NEW"
+
+
+
