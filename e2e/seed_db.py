@@ -27,6 +27,27 @@ def seed(db_path: Path) -> None:
             url="https://example.com/doc2",
             title="테스트 문서 2 (응용 도구)",
             fetched_at=1700001000,
+            meta={
+                "has_decision_stream": True,
+                "resolution_log": [
+                    {
+                        "entity": "엔티티 B",
+                        "stage": "exact_match",
+                        "decision": "MERGE",
+                        "candidate": "엔티티 B",
+                        "score": 1.0,
+                        "reason": "정확한 명칭 일치로 기존 엔티티와 병합되었습니다.",
+                    },
+                    {
+                        "entity": "엔티티 C",
+                        "stage": "semantic_high",
+                        "decision": "CREATE_NEW",
+                        "candidate": "엔티티 A",
+                        "score": 0.42,
+                        "reason": "유사도 기준치 미달로 신규 생성되었습니다.",
+                    },
+                ],
+            },
         )
         doc3 = Document(
             id="doc-3",
