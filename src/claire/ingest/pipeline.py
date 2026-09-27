@@ -761,6 +761,17 @@ def extract_resolve_store(
             report.entities_linked += 1
             report.linked_entity_names.append(ent.name)
 
+        if getattr(res, "decision", None) is not None:
+            dec = res.decision
+            emit_progress({
+                "stage": "decision",
+                "entity": dec.entity,
+                "decision": dec.decision,
+                "candidate": dec.candidate,
+                "score": dec.score,
+                "reason": dec.reason,
+            })
+
     # Decision Stream (방안 B: documents.meta["resolution_log"]) 및 Heatmap Matrix 산출
     decisions = [
         getattr(r, "decision", None)
@@ -783,6 +794,10 @@ def extract_resolve_store(
             decisions=decisions,
         )
         report.heatmap_matrix = mat_data.to_dict()
+        emit_progress({
+            "stage": "heatmap_matrix",
+            "matrix": report.heatmap_matrix,
+        })
 
     if on_progress:
         on_progress("관계(Relation) 검증 및 적재", f"총 {len(result.relations)}개 관계")

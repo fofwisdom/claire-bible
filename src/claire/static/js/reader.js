@@ -206,12 +206,12 @@ async function markDocumentSeen(docId){
   }catch(_){}
 }
 function setCenterView(mode){
-  const nextView = (mode==='graph' ? 'graph' : 'reader');
+  const nextView = (mode==='graph' ? 'graph' : (mode==='matrix' ? 'matrix' : 'reader'));
   if(centerView === nextView) return;
   centerView = nextView;
   document.body.dataset.centerView = centerView;
   const mt = document.getElementById('menu-section-title');
-  if(mt){ mt.textContent = (centerView==='graph' ? '그래프 도구' : '문서와 그래프'); }
+  if(mt){ mt.textContent = (centerView==='graph' ? '그래프 도구' : (centerView==='matrix' ? '대조 매트릭스' : '문서와 그래프')); }
   if(centerView==='graph'){
     graphCamera = null;
     requestAnimationFrame(()=>{
@@ -464,6 +464,17 @@ function renderReader(dc){
   document.getElementById('rtitle').innerHTML = esc(dc.title||'(제목 없음)')
     + (dc.source_type?' <span class=rmeta>'+esc(dc.source_type)+'</span>':'');
   let h='';
+
+  // 1회성 Heatmap Matrix 임시 노출 배너 검사
+  const matrixKey = 'doc_matrix_' + (dc.id || '');
+  try {
+    const rawMatrix = sessionStorage.getItem(matrixKey);
+    if(rawMatrix && typeof renderMiniMatrixBannerHtml === 'function'){
+      const matData = JSON.parse(rawMatrix);
+      h += renderMiniMatrixBannerHtml(dc.id, matData);
+    }
+  } catch(_) {}
+
   h+=docMetaHtml(dc);
   const isStt = !!(dc.is_stt || (dc.meta && (dc.meta.is_stt || dc.meta.stt_applied || dc.meta.stt)));
   const isSttTrunc = isStt && !!(dc.stt_truncated || (dc.meta && dc.meta.stt_truncated) || dc.raw_truncated || (dc.meta && dc.meta.raw_truncated));

@@ -231,6 +231,7 @@ ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     ("POST", "/dedup/scan"): _rule("owner"),
     ("POST", "/dedup/merge"): _rule("owner"),
     ("POST", "/entity/primary-label"): _rule("owner"),
+    ("POST", "/resolution/rollback"): _rule("owner"),
     ("POST", "/share"): _rule("read"),
     ("POST", "/support/bundle"): _rule("owner"),
     ("GET", "/support/bundle"): _rule("public"),
