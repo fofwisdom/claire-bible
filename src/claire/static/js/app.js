@@ -1896,12 +1896,6 @@ function renderIngestResult(d){
   if(!d.duplicate) h+='<p class=al>노드 신규 '+(d.entities_created||0)+' · 기존연결 '+
     (d.entities_linked||0)+' · 관계 '+(d.relations_added||0)+'</p>';
   if(d.summary) h+='<div class=synth>'+esc(d.summary)+'</div>';
-  if(d.document_id){
-    h+='<div style="margin:12px 0;display:flex;flex-direction:column;gap:6px;">';
-    h+='<button type="button" class="sec" onclick="openHeatmapMatrix(\''+esc(d.document_id)+'\')" style="padding:6px 10px;font-size:12px;font-weight:600">📊 대조 히트맵 매트릭스 보기</button>';
-    h+='<button type="button" class="sec" onclick="openDecisionStream(\''+esc(d.document_id)+'\')" style="padding:6px 10px;font-size:12px">📜 의사결정 스트림 (판단 기록) 보기</button>';
-    h+='</div>';
-  }
   if(d.theme_id !== undefined && d.theme_id !== activeThemeId){
     h+='<p style="margin-top:12px"><button type="button" class="sec" onclick="switchKnowledgeTheme('+d.theme_id+')">👉 '+esc(d.theme_label||('테마 #'+d.theme_id))+' 테마로 전환</button></p>';
   } else {
@@ -2532,21 +2526,6 @@ function renderDocPanel(dc){
       ' onchange="panelToggleHide(\''+dc.id+'\',this.checked)">'+
       '<span id="panelhidelabel">'+(dc.hidden===1?'🙈 숨김 처리됨':'목록에서 숨기기')+'</span>'+
       '</label></div>';
-  }
-
-  const resLog = dc.resolution_log || (dc.meta && dc.meta.resolution_log) || [];
-  if(dc.has_decision_stream || resLog.length > 0){
-    h += '<div class="decision-stream-banner" style="margin:10px 0;padding:10px;background:var(--card-bg);border:1px solid var(--border);border-radius:6px;">' +
-         '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">' +
-         '  <strong style="display:inline-flex;align-items:center;gap:5px;font-size:13px;"><span>📜</span> 의사결정 스트림</strong>' +
-         '  <span style="font-size:11px;color:var(--muted);background:var(--bg);padding:2px 6px;border-radius:4px;">' + resLog.length + '건의 판단</span>' +
-         '</div>' +
-         '<p style="font-size:12px;color:var(--muted);margin:0 0 8px 0;line-height:1.4;">온톨로지 불변식 검증 및 엔티티 해소 이력입니다.</p>' +
-         '<div style="display:flex;gap:6px;">' +
-         '  <button type="button" class="sec" onclick="openDecisionStream(\'' + esc(dc.id) + '\')" style="flex:1;padding:6px 10px;font-size:12px;font-weight:600;">📜 판단 기록</button>' +
-         '  <button type="button" class="sec" onclick="openHeatmapMatrix(\'' + esc(dc.id) + '\')" style="flex:1;padding:6px 10px;font-size:12px;">📊 매트릭스</button>' +
-         '</div>' +
-         '</div>';
   }
 
   if(dc.summary) h+='<h3>요약</h3><div class=synth>'+esc(dc.summary)+'</div>';
@@ -4153,7 +4132,6 @@ function openHeatmapMatrix(docId){
   }
 
   if(!mat){
-    alert('해당 문서의 대조 매트릭스는 일회성 데이터이므로 이미 확인 및 소멸되었거나 캐시에 없습니다.\n사후 감사는 우측 메뉴의 "판단 기록(Decision Stream)"을 이용하세요.');
     return;
   }
 
