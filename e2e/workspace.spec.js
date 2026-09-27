@@ -944,4 +944,60 @@ test('decision stream and heatmap matrix are separate features with proper audit
   expect(pageErrors).toEqual([]);
 });
 
+test('heatmap matrix replaces graph during ingestion and displays live compute wave', async ({ page }) => {
+  const pageErrors = [];
+  page.on('pageerror', error => pageErrors.push(error.message));
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await waitForClaire(page);
+  await expectNoHorizontalOverflow(page);
+
+  // 1. Initial state: graph canvas is visible, matrixwrap is hidden
+  await expect(page.locator('#netwrap')).toBeVisible();
+  await expect(page.locator('#matrixwrap')).toBeHidden();
+
+  // 2. Simulate running ingest by invoking initIngestMatrixView + setCenterView('matrix')
+  await page.evaluate(() => {
+    window.initIngestMatrixView('https://example.com/test-article', '시스템 아키텍처', '기본 지식베이스');
+    window.setCenterView('matrix');
+  });
+
+  // 3. Verify graph is hidden and matrixwrap is prominently visible
+  await expect(page.locator('#netwrap')).toBeHidden();
+  const matrixWrap = page.locator('#matrixwrap');
+  await expect(matrixWrap).toBeVisible();
+  await expect(matrixWrap.locator('#matrix-title')).toContainText('지식 대조 히트맵 매트릭스');
+  await expect(matrixWrap.locator('#matrix-target-doc')).toContainText('대조 대상: https://example.com/test-article');
+  await expect(page.locator('#matrix-progress-banner')).toBeVisible();
+  await expect(page.locator('#matrix-thead-row th')).toHaveCount(9); // 1 header + 8 placeholder columns
+  await expect(page.locator('#matrix-tbody tr')).toHaveCount(6);
+
+  // 4. Simulate streaming heatmap_matrix event arriving
+  await page.evaluate(() => {
+    window.renderHeatmapMatrix({
+      rows: ['엔티티 1', '엔티티 2'],
+      cols: ['후보 A', '후보 B'],
+      matrix: [[0.95, 0.3], [0.81, 0.4]],
+      threshold_auto_merge: 0.93,
+      threshold_borderline: 0.72
+    }, '테스트 문서');
+    window.updateMatrixProgress('후보 엔티티 대조 완료');
+  });
+
+  await expect(matrixWrap.locator('#matrix-progress-msg')).toHaveText('후보 엔티티 대조 완료');
+  await expect(page.locator('#matrix-tbody tr')).toHaveCount(2);
+
+  // Verify pure color cells (no text/numbers inside cell)
+  const cellTexts = await page.locator('#matrix-tbody .matrix-cell').allTextContents();
+  expect(cellTexts.every(t => t.trim() === '')).toBe(true);
+
+  // 5. Test switching back to graph via '📊 그래프 보기' button
+  const graphBtn = matrixWrap.locator('button:has-text("그래프 보기")');
+  await graphBtn.click();
+  await expect(matrixWrap).toBeHidden();
+  await expect(page.locator('#netwrap')).toBeVisible();
+
+  expect(pageErrors).toEqual([]);
+});
+
+
 
