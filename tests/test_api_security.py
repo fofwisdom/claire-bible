@@ -288,10 +288,15 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         "/entity/primary-label",
         "/support/bundle",
         "/themes",
+        "/providers",
+        "/providers/test",
     }
     owner_methods = {
         ("PATCH", "/themes"),
         ("DELETE", "/themes"),
+        ("GET", "/providers"),
+        ("HEAD", "/providers"),
+        ("PATCH", "/providers"),
     }
     expected = {
         **{

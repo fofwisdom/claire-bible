@@ -599,6 +599,68 @@ def create_app(
             _log_operation_failure(request, "theme delete", exc)
             raise HTTPException(status_code=500, detail="failed to delete theme") from exc
 
+    async def providers_get_route(request: Request) -> JSONResponse:
+        scope = request_auth_scope(request)
+        if scope != "owner":
+            raise HTTPException(
+                status_code=403,
+                detail="지식 관리자(owner) 권한이 필요합니다.",
+            )
+        from ..provider_manager import get_provider_manager
+
+        pm = get_provider_manager(s.data_dir)
+        cfg = pm.get_sanitized_config()
+        cfg["effective_provider"] = s.effective_provider
+        cfg["effective_stt_provider"] = s.effective_stt_provider
+        return JSONResponse(cfg)
+
+    async def providers_update_route(request: Request) -> JSONResponse:
+        nonlocal s
+        scope = request_auth_scope(request)
+        if scope != "owner":
+            raise HTTPException(
+                status_code=403,
+                detail="지식 관리자(owner) 권한이 필요합니다.",
+            )
+        body = await _json_object(request)
+        from ..provider_manager import get_provider_manager
+
+        pm = get_provider_manager(s.data_dir)
+        try:
+            updated = pm.update_config(body)
+            get_settings.cache_clear()
+            s = get_settings()
+            if hasattr(request, "app") and hasattr(request.app, "state"):
+                request.app.state.settings = s
+            if hasattr(service_pool, "clear"):
+                service_pool.clear()
+            updated["effective_provider"] = s.effective_provider
+            updated["effective_stt_provider"] = s.effective_stt_provider
+            return JSONResponse({"ok": True, "config": updated})
+        except ValueError as val_err:
+            raise HTTPException(status_code=400, detail=str(val_err)) from val_err
+        except Exception as exc:
+            _log_operation_failure(request, "provider update", exc)
+            raise HTTPException(status_code=500, detail="failed to update provider configuration") from exc
+
+    async def providers_test_route(request: Request) -> JSONResponse:
+        scope = request_auth_scope(request)
+        if scope != "owner":
+            raise HTTPException(
+                status_code=403,
+                detail="지식 관리자(owner) 권한이 필요합니다.",
+            )
+        body = await _json_object(request)
+        provider_name = str(body.get("provider") or "").strip().lower()
+        if not provider_name:
+            raise HTTPException(status_code=400, detail="provider is required")
+        from ..provider_manager import get_provider_manager
+
+        pm = get_provider_manager(s.data_dir)
+        override = body.get("config") if isinstance(body.get("config"), dict) else None
+        res = pm.test_connection(provider_name, config=override)
+        return JSONResponse(res)
+
     async def do_ingest(request: Request) -> JSONResponse:
         body = await _json_object(request)
         theme, _, theme_svc = _get_theme_ctx(request, body)
@@ -1671,6 +1733,9 @@ def create_app(
         Route("/themes", theme_define_route, methods=["POST"]),
         Route("/themes", theme_update_route, methods=["PATCH"]),
         Route("/themes", theme_delete_route, methods=["DELETE"]),
+        Route("/providers", providers_get_route, methods=["GET", "HEAD"]),
+        Route("/providers", providers_update_route, methods=["PATCH", "POST"]),
+        Route("/providers/test", providers_test_route, methods=["POST"]),
         Route("/ingest", do_ingest, methods=["POST"]),
         Route("/ingest-stream", ingest_stream_route, methods=["POST"]),
         Route("/search", do_search, methods=["POST"]),

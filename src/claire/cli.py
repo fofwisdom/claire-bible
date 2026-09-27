@@ -3111,6 +3111,46 @@ def cmd_entity_batch_labels(args) -> int:
         conn.close()
 
 
+def cmd_providers(args) -> int:
+    from .provider_manager import get_provider_manager
+
+    s = get_settings()
+    pm = get_provider_manager(s.data_dir)
+    action = getattr(args, "provider_action", "list") or "list"
+
+    if action == "migrate":
+        migrated = pm.migrate_from_env_if_needed(force=True)
+        if migrated:
+            print(f"✅ 프로바이더 설정이 {pm.registry_path} 파일로 마이그레이션되었으며, env 파일의 변수가 주석처리되었습니다.")
+        else:
+            print(f"ℹ️ 이미 마이그레이션 완료되었습니다 ({pm.registry_path}).")
+        return 0
+
+    if action == "test":
+        target = getattr(args, "target_provider", None) or s.provider
+        res = pm.test_connection(target)
+        if res.get("ok"):
+            print(f"✅ [{target}] 연결/감지 성공: {res.get('message', '')}")
+            return 0
+        else:
+            print(f"❌ [{target}] 연결/감지 실패: {res.get('error', 'unknown error')}", file=sys.stderr)
+            return 1
+
+    # list
+    cfg = pm.get_sanitized_config()
+    print("⚡ Claire Bible Providers (WebUI-managed)")
+    print(f"  config file     : {pm.registry_path}")
+    print(f"  active provider : {cfg.get('active_provider')}")
+    print(f"  effective prov  : {s.effective_provider}")
+    print(f"  effective stt   : {s.effective_stt_provider}")
+    print("\n[등록된 프로바이더 설정]")
+    for name, p_data in cfg.get("providers", {}).items():
+        print(f"  • {name}:")
+        for k, v in p_data.items():
+            print(f"      {k}: {v}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="claire", description="Claire Bible knowledge base")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -3183,6 +3223,16 @@ def build_parser() -> argparse.ArgumentParser:
     p_stats = sub.add_parser("stats", help="graph counts only")
     p_stats.add_argument("-t", "--theme", default=None, help="target theme ID or label")
     p_stats.set_defaults(func=cmd_stats)
+
+    # Providers management subcommand
+    pprov = sub.add_parser("providers", help="manage LLM and hyperscaler providers (WebUI-managed providers.json)")
+    pprov_sub = pprov.add_subparsers(dest="provider_action")
+    pprov_sub.add_parser("list", help="list configured providers").set_defaults(func=cmd_providers)
+    pprov_sub.add_parser("migrate", help="migrate .env provider settings to data/providers.json and comment out .env").set_defaults(func=cmd_providers)
+    pprov_test = pprov_sub.add_parser("test", help="test provider connection or CLI presence")
+    pprov_test.add_argument("target_provider", nargs="?", default=None, help="provider name (e.g. gemini, antigravity, codex, mock)")
+    pprov_test.set_defaults(func=cmd_providers)
+    pprov.set_defaults(func=cmd_providers)
 
     # Theme management subcommand
     ptheme = sub.add_parser("theme", help="manage themes (multi-database isolation by sequence)")

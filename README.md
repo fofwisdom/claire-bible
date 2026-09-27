@@ -57,6 +57,13 @@ Claire Bible은 적재된 지식베이스를 시각적으로 탐색하고 분석
 
 Claire Bible은 3계층 디스커버리 체계(내장, 로컬 드롭인 `plugins/fetchers/`, 외부 패키지 `entry_points`)를 통해 프로젝트 클론/포크 이용자가 Git 충돌 없이 사설 도메인 수집기를 자유롭게 추가할 수 있습니다. 또한 사내 인트라넷(Confluence, GitLab 등) 환경을 위해 온프레미스 사설망(RFC 1918) 수집을 지원하면서도 클라우드 메타데이터(IMDS) SSRF를 절대 차단하는 `SafeHttpClient` 보안 하네스를 탑재하고 있습니다. (상세: [FETCHER_CONTRIBUTION_AND_ONPREMISE_NETWORK_DESIGN.md](docs/origin/design/FETCHER_CONTRIBUTION_AND_ONPREMISE_NETWORK_DESIGN.md))
 
+### 하이퍼스케일러 프로바이더 WebUI 관리 (Provider Settings)
+
+복잡한 환경변수 설정 없이 웹 UI의 더보기(Drawer) 메뉴 > **⚙️ 프로바이더 설정** 패널에서 주요 LLM 및 하이퍼스케일러 프로바이더(Google Gemini, Antigravity CLI, OpenAI 호환 엔드포인트, TypeSafe AI Jev, 음성 전사 STT)의 모델, 추론 레벨(Effort), API 키 및 접속 정보를 직관적으로 제어할 수 있습니다.
+- **웹 관리 및 영속화**: 설정은 `data/providers.json`에 안전하게 저장되며, 소유자(Owner) 권한으로만 조회 및 수정할 수 있습니다.
+- **연결 테스트(Test)**: 설정 저장 전 실시간 연결 테스트를 통해 API 키 유효성 및 바이너리 설치 상태를 사전에 즉시 검증할 수 있습니다.
+- **자동 마이그레이션**: 기존 `.env`에 설정된 프로바이더 환경변수는 애플리케이션 시작 시 `data/providers.json`으로 자동 이전되고 `.env` 내에서 안전하게 주석 처리됩니다.
+
 ## 로컬 개발 빠른 시작 (Quick Start)
 
 ```bash
@@ -64,6 +71,8 @@ uv sync                      # 의존성 설치
 cp .env.example .env         # 로컬 개발 설정 준비 (기본 provider: mock)
 uv run claire preflight      # 환경/벡터백엔드/설정 사전 점검
 uv run claire migrate        # 공통 DB 스키마 v13 전환 및 버전·계보 검증
+uv run claire providers      # 프로바이더 목록 및 현재 활성 상태 확인
+uv run claire providers test # 프로바이더 연결 상태 진단
 uv run claire doctor         # 지식그래프 및 DB 무결성 진단 (자동수복: --heal)
 uv run claire ingest "https://example.com/article"   # 문서 수집 및 적재
 uv run claire search "키워드"                          # 하이브리드 검색 + LLM 인용 정리

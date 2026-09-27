@@ -135,6 +135,7 @@ APP_ONE_OFF_COMMANDS = {
     "re-embed",
     "telemetry",
     "support-bundle",
+    "providers",
 }
 APP_GUARDED_COMMANDS = {
     "migrate": "Schema lifecycle command owned by install/update",
@@ -905,8 +906,23 @@ def load_runtime(layout: Layout, *, legacy_dev: bool = False) -> Runtime:
     )
 
 
+def _get_provider_from_providers_json(runtime: Runtime) -> str:
+    data_dir_str = runtime.values.get("CB_DATA_DIR", "./data").strip()
+    data_dir = (runtime.layout.root / data_dir_str).resolve()
+    providers_file = data_dir / "providers.json"
+    if providers_file.is_file():
+        try:
+            raw = json.loads(providers_file.read_text(encoding="utf-8"))
+            return str(raw.get("active_provider") or "").strip().lower()
+        except Exception:
+            pass
+    return ""
+
+
 def _reject_native_only_provider(runtime: Runtime) -> None:
     raw_provider = runtime.values.get("CLAIRE_PROVIDER", "").strip().lower()
+    if not raw_provider:
+        raw_provider = _get_provider_from_providers_json(runtime)
     if raw_provider in CODEX_PROVIDER_ALIASES:
         raise ManuscriptError(
             "Codex provider는 네이티브 전용(native-only)이며 cb-manuscript "
@@ -3241,12 +3257,25 @@ def command_preflight(runtime: Runtime) -> int:
         )
     print(f"anonymous readonly: {anonymous_status}")
     raw_provider = runtime.values.get("CLAIRE_PROVIDER", "").strip().lower()
+    if not raw_provider:
+        raw_provider = _get_provider_from_providers_json(runtime)
     print(f"provider: {raw_provider or 'mock'}")
     raw_pdf_parser = runtime.values.get("CLAIRE_PDF_PARSER", "").strip() or "default"
     print(f"pdf parser: {raw_pdf_parser}")
     if raw_provider in ("antigravity", "agy"):
         host_bin_dir, host_gemini_dir = detect_host_antigravity_paths(runtime.values)
-        agy_bin = Path(host_bin_dir) / (runtime.values.get("CLAIRE_AGY_BIN", "").strip() or "agy")
+        agy_bin_val = runtime.values.get("CLAIRE_AGY_BIN", "").strip()
+        if not agy_bin_val:
+            data_dir_str = runtime.values.get("CB_DATA_DIR", "./data").strip()
+            data_dir = (runtime.layout.root / data_dir_str).resolve()
+            p_file = data_dir / "providers.json"
+            if p_file.is_file():
+                try:
+                    p_raw = json.loads(p_file.read_text(encoding="utf-8"))
+                    agy_bin_val = str(p_raw.get("providers", {}).get("antigravity", {}).get("bin", "agy")).strip()
+                except Exception:
+                    pass
+        agy_bin = Path(host_bin_dir) / (agy_bin_val or "agy")
         if agy_bin.is_file():
             print(f"antigravity binary: {agy_bin}")
         else:
