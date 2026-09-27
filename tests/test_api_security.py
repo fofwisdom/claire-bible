@@ -270,7 +270,7 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         "/oauth/authorize/telegram-push",
         "/oauth/token",
     }
-    read_get = {"/", "/whoami", "/stats", "/graph", "/node", "/documents", "/document", "/resolution/decisions", "/mcp", "/themes"}
+    read_get = {"/", "/whoami", "/stats", "/graph", "/node", "/documents", "/document", "/resolution/decisions", "/ingest/active", "/mcp", "/themes"}
     read_post = {"/search", "/mcp", "/share"}
     collaborator_post = {
         "/ingest",

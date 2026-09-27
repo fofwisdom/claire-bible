@@ -341,7 +341,24 @@ def create_app(
             finally:
                 conn.close()
 
-        return JSONResponse(await asyncio.to_thread(_counts))
+        res = await asyncio.to_thread(_counts)
+        from ..ingest.active import get_active_ingest
+
+        active_info = get_active_ingest(theme_settings.data_dir)
+        if active_info:
+            res["ingesting"] = bool(active_info.get("active"))
+            res["active_ingest"] = active_info
+        else:
+            res["ingesting"] = False
+            res["active_ingest"] = None
+        return JSONResponse(res)
+
+    async def active_ingest_route(request: Request) -> JSONResponse:
+        theme, theme_settings, _ = _get_theme_ctx(request)
+        from ..ingest.active import get_active_ingest
+
+        info = get_active_ingest(theme_settings.data_dir)
+        return JSONResponse(info or {"active": False})
 
     async def themes_list_route(request: Request) -> JSONResponse:
         scope = request_auth_scope(request)
@@ -1808,6 +1825,7 @@ def create_app(
         Route("/providers/test", providers_test_route, methods=["POST"]),
         Route("/ingest", do_ingest, methods=["POST"]),
         Route("/ingest-stream", ingest_stream_route, methods=["POST"]),
+        Route("/ingest/active", active_ingest_route, methods=["GET"]),
         Route("/search", do_search, methods=["POST"]),
         Route("/", graph_ui, methods=["GET"]),
         Route("/graph", graph_data, methods=["GET"]),

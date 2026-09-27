@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import asdict
+from typing import TYPE_CHECKING
 
-from .pipeline import IngestReport
+if TYPE_CHECKING:
+    from .pipeline import IngestReport
 
 
 def report_to_dict(r: IngestReport) -> dict:

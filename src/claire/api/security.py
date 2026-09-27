@@ -208,6 +208,8 @@ ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     ("HEAD", "/document"): _rule("read"),
     ("GET", "/resolution/decisions"): _rule("read"),
     ("HEAD", "/resolution/decisions"): _rule("read"),
+    ("GET", "/ingest/active"): _rule("read"),
+    ("HEAD", "/ingest/active"): _rule("read"),
     ("POST", "/search"): _rule("read"),
     ("POST", "/mcp"): _rule("read"),
     ("GET", "/mcp"): _rule("read"),
