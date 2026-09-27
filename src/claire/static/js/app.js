@@ -2748,6 +2748,8 @@ function setAccessScope(scope, reason){
   if(tmBtn) tmBtn.style.display = canAccessThemes ? '' : 'none';
   const pmBtn = document.getElementById('providermanagebtn');
   if(pmBtn) pmBtn.style.display = canWrite() ? '' : 'none';
+  const mgSec = document.getElementById('manage-section');
+  if(mgSec) mgSec.style.display = (canAccessThemes || canWrite()) ? '' : 'none';
   if(!canWrite()){
     synthSet.clear();
     showHidden=false;
