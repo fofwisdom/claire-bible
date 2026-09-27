@@ -83,6 +83,10 @@ def seed(db_path: Path) -> None:
             "INSERT OR REPLACE INTO auth_sessions(nonce, session_token, approved, created_at, expires_at, scope) VALUES (?,?,1,?,?,?)",
             ("e2e-nonce", "e2e-owner-token-0123456789abcdef", 1700000000, 2500000000.0, "owner"),
         )
+        conn.execute(
+            "INSERT OR REPLACE INTO auth_sessions(nonce, session_token, approved, created_at, expires_at, scope) VALUES (?,?,1,?,?,?)",
+            ("e2e-provider-nonce", "e2e-provider-token-0123456789abcdef", 1700000000, 2500000000.0, "owner"),
+        )
 
         e1 = Entity(
             id="ent-1",
