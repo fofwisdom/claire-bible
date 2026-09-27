@@ -95,10 +95,9 @@ flowchart TD
      * Phase 1 완료: 4-Tier 유사도 브래킷, `text-embedding-004` 온톨로지 프레임 임베딩, 적응형 중심화(Adaptive Centering), RRF 결합 및 `claire re-embed` CLI 구축 완료 ([design/KNOWLEDGE_GRAPH_LINKING_AND_CALIBRATION_DESIGN.md](design/KNOWLEDGE_GRAPH_LINKING_AND_CALIBRATION_DESIGN.md) 참조).
      * Phase 2 완료: `GraphStore` 영속 엣지 추상화, 다목적 릴레이션 판정기(`judge_relationship`), 인제스트 파이프라인 전역 횡단 엣지 수립 및 `claire link-relations` CLI 구축 완료.
      * Phase 3 잔여: 2-Hop 삼각 폐쇄(Triadic Closure), 잠재 브릿지 노드 역생성, 전이성 규칙 엔진 및 50쌍 골든 벤치마크 실증.
-  5. **Antigravity CLI 적재 지연 해소 및 실행 격리·동시성 최적화 (구현 및 E2E 실사 완료)**:
+  5. **Antigravity CLI 적재 지연 해소 및 실행 격리·동시성 최적화 (Phase 1~2 구현 완료)**:
      * 에이전트 도구 오동작 방지(`allow_tools=False`) 및 작업 디렉터리(`/app`) 임시 격리로 file_watcher 및 불필요한 코드베이스 탐색 지연을 원천 차단.
-     * 판정류 작업 `effort=low` 동적 할당 및 Phase 2 관계 판정 루프 `ThreadPoolExecutor` 병렬화(2~3워커)를 적용하여 대형 기술 문서 적재 지연을 12분대에서 2분대로 약 80% 이상 단축.
-     * 실제 `agy` CLI v1.2.11 연동 E2E(관계 판정 13.25초로 80% 단축), Playwright E2E(12건 통과), 전체 CI(1,263건 통과) 검증 완료 ([design/ANTIGRAVITY_EXECUTION_AND_LATENCY_OPTIMIZATION_DESIGN.md](design/ANTIGRAVITY_EXECUTION_AND_LATENCY_OPTIMIZATION_DESIGN.md) 참조).
+     * 판정류 작업 `effort=low` 동적 할당 및 Phase 2 관계 판정 루프 `ThreadPoolExecutor` 병렬화(2~3워커)를 적용하여 대형 기술 문서 적재 지연을 12분대에서 2분대로 단축 ([design/ANTIGRAVITY_EXECUTION_AND_LATENCY_OPTIMIZATION_DESIGN.md](design/ANTIGRAVITY_EXECUTION_AND_LATENCY_OPTIMIZATION_DESIGN.md) 참조).
 
 ### 2.5 [과제 5 / Phase 5] 온프레미스 백본 거버넌스 및 온보딩 템플릿
 * **배경**: 다중 Pod 환경에서의 지식베이스 거버넌스 연구 및 신규 유입 개발자를 위한 온보딩 지원.

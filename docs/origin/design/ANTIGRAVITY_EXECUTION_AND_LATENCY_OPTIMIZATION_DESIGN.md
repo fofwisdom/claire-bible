@@ -1,6 +1,6 @@
 # Antigravity CLI 적재 지연 해소 및 실행 격리·최적화 아키텍처 설계
 
-작성일: 2026-09-27 · 상태: **Implemented & Verified (E2E Verified)** · 기준: [GOALS.md](../GOALS.md) 트랙1/2 추출 성능 및 신뢰성 · 관련 문서: [KNOWLEDGE_GRAPH_LINKING_AND_CALIBRATION_DESIGN.md](KNOWLEDGE_GRAPH_LINKING_AND_CALIBRATION_DESIGN.md), [MULTI_PROVIDER_DESIGN.md](MULTI_PROVIDER_DESIGN.md), [TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md](TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md), [CLAIRE_ARCHITECTURE_ROADMAP.md](../CLAIRE_ARCHITECTURE_ROADMAP.md), [ENVIRONMENT_VARIABLES.md](../implementation/ENVIRONMENT_VARIABLES.md)
+작성일: 2026-09-27 · 상태: **Phase 1-2 Implemented / Phase 3-4 Roadmap** · 기준: [GOALS.md](../GOALS.md) 트랙1/2 추출 성능 및 신뢰성 · 관련 문서: [KNOWLEDGE_GRAPH_LINKING_AND_CALIBRATION_DESIGN.md](KNOWLEDGE_GRAPH_LINKING_AND_CALIBRATION_DESIGN.md), [MULTI_PROVIDER_DESIGN.md](MULTI_PROVIDER_DESIGN.md), [TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md](TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md), [CLAIRE_ARCHITECTURE_ROADMAP.md](../CLAIRE_ARCHITECTURE_ROADMAP.md), [ENVIRONMENT_VARIABLES.md](../implementation/ENVIRONMENT_VARIABLES.md)
 
 ---
 
@@ -261,47 +261,16 @@ if eval_candidates:
 
 ---
 
-## 5. 실행 및 배포 계획
+## 5. 실행 및 배포 로드맵
 
-1. **[x] Phase 1: Provider 레벨 격리 및 도구 차단 (`src/claire/extract/antigravity_provider.py`) - 완료**
+1. **Phase 1: Provider 레벨 격리 및 도구 차단 (`src/claire/extract/antigravity_provider.py`)** (구현 완료)
    * `_run_cli`에 `allow_tools=False`, 시스템 지침 주입, `cwd` 격리, `effort="low"` 분기 적용.
    * `judge_same_entity`, `judge_relationship`에 `call_type` 및 `document_id` 전달.
-2. **[x] Phase 2: Pipeline 레벨 관계 판정 병렬화 (`src/claire/ingest/pipeline.py`) - 완료**
+2. **Phase 2: Pipeline 레벨 관계 판정 병렬화 (`src/claire/ingest/pipeline.py`)** (구현 완료)
    * Phase 2 `eval_candidates` 루프에 `ThreadPoolExecutor` 적용 및 메인 스레드 안전 DB 커밋 분리.
-3. **[ ] Phase 3: 온톨로지 양립성 사전 게이트 적용**
+3. **Phase 3: 온톨로지 양립성 사전 게이트 적용** (로드맵)
    * 무의미한 교차 관계 평가 억제로 LLM 호출 횟수 자체를 60% 이상 절감.
-4. **[ ] Phase 4: 운영 환경 배포 및 텔레메트리 회귀 검증**
+4. **Phase 4: 운영 환경 배포 및 텔레메트리 회귀 검증** (로드맵)
    * 배포 후 신규 적재 문서의 텔레메트리를 통해 평균 적재 시간이 2~3분 이내로 안정화되는지 관측.
 
----
-
-## 6. E2E 실사 및 통합 검증 결과 (E2E Verification Results)
-
-2026년 9월 27일 구현 완료 후, 세 가지 레벨(실제 CLI E2E, 브라우저 Playwright E2E, 전체 CI 회귀 테스트)에서 철저한 검증을 수행하였습니다.
-
-### 6.1 실제 `agy` CLI 연동 E2E 판정 실측치 (Version 1.2.11)
-임시 격리 환경(`/tmp/claire_agy_clean`)과 `[SYSTEM DIRECTIVE: DIRECT INFERENCE ONLY]` 주입, `effort=low`가 적용된 실제 `AntigravityProvider` 런타임 호출 실측치:
-
-1. **`judge_same_entity` (동일체 판정)**:
-   * **입력**: `JPEG XL` (Format) ↔ `JXL` (Format, alias: `JPEG-XL`)
-   * **소요 시간**: **9.48초** (기존 프로덕션 9~16초 및 thinking 지연 해소)
-   * **결과**: `True` (정상 동일체 병합 판정)
-   * **에이전트 거동**: 도구 탐색이나 파일 읽기 시도 없이 즉각 단일 턴 답변 반환.
-
-2. **`judge_relationship` (전역 교차 관계 판정)**:
-   * **입력**: `JPEG XL` (Format) ↔ `AVIF` (Format)
-   * **소요 시간**: **13.25초** (기존 프로덕션 60~102초 대비 **약 80% 단축**)
-   * **결과**: `has_relation=True`, `relation_type=competes_with`, `direction=bidirectional`
-   * **추론 사유**: *"JPEG XL과 AVIF는 차세대 고효율 웹 이미지 포맷 시장에서 직접적으로 경쟁하는 관계이다."*
-   * **에이전트 거동**: 과거 프로덕션 장애를 유발했던 코드 검색(`search path file:///app/tests`), 백그라운드 태스크 제어(`cannot kill task`), 브레인 파일 접근 시도가 **0건**으로 완벽 차단됨.
-
-### 6.2 Playwright 브라우저 E2E 검증 (`scripts/e2e.sh` / `workspace.spec.js`)
-* 웹 UI 전체 시나리오(워크스페이스 탭 전환, 그래프 뷰, 문서 리더, 태그 렌더링, 대표 라벨 승격 등):
-* **결과**: **12 passed (21.3s)** - 100% 통과.
-
-### 6.3 전체 CI 스크립트 회귀 검증 (`scripts/ci.sh`)
-* 1/4 진입점 구문 검사: 통과 (`cb-manuscript`, `deploy.sh`, `scripts/ci.sh`, `cb_manuscript.py`)
-* 2/4 Compose 운영·개발 설정 검사: 통과
-* 3/4 `uv.lock` 일관성 검사: 통과 (182 packages resolved)
-* 4/4 전체 단위/통합 테스트: **1,263 passed, 7 warnings, 6 subtests passed in 43.39s** - 무결성 입증.
 
