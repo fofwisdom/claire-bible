@@ -4133,8 +4133,8 @@ function renderDecisionStreamPanel(){
         ph += '<span></span>';
       }
 
-      if(canRollback){
-        ph += '<button type="button" class="sec" style="font-size:11px;padding:2px 7px;color:var(--warn,#d97706);border-color:var(--border)" onclick="triggerRollback(\'' + esc(dec.document_id) + '\',\'' + esc(dec.entity) + '\')">↩ 병합 롤백</button>';
+      if(isMerge && !isRolledBack){
+        ph += '<button type="button" class="sec" disabled title="원자적 롤백은 미시험 기능으로 현재 비활성화되어 있습니다" style="font-size:11px;padding:2px 7px;color:var(--muted);border-color:var(--border);opacity:0.55;cursor:not-allowed;">↩ 병합 롤백 (비활성화)</button>';
       }
       ph += '</div>';
 
@@ -4173,37 +4173,8 @@ function openHeatmapMatrix(docId){
 }
 
 async function triggerRollback(docId, entity){
-  if(!canWrite()){
-    alert('롤백 권한이 없습니다.');
-    return;
-  }
-  if(!confirm('정말로 "' + entity + '" 엔티티의 병합을 되돌리시겠습니까?\n추가된 별칭, 관측문, 출처 연결이 원자적으로 복원됩니다.')){
-    return;
-  }
-
-  try {
-    const r = await fetch('resolution/rollback', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ document_id: docId, entity: entity })
-    });
-    if(!r.ok){
-      const err = await r.json().catch(() => ({}));
-      alert('롤백 실패: ' + (err.error || ('HTTP ' + r.status)));
-      return;
-    }
-    const res = await r.json();
-    if(res.ok){
-      alert('"' + entity + '" 엔티티 병합이 성공적으로 롤백되었습니다.');
-      refreshGraph();
-      if(activeDoc === docId) loadDocPanel(docId);
-      openDecisionStream();
-    } else {
-      alert('롤백 처리 오류: ' + (res.error || '알 수 없는 오류'));
-    }
-  } catch(e) {
-    alert('요청 중 오류가 발생했습니다: ' + String(e));
-  }
+  alert('원자적 롤백 기능은 미시험 상태로 현재 안전을 위해 비활성화되어 있습니다.');
+  return;
 }
 
 function renderMiniMatrixBannerHtml(docId, mat){
