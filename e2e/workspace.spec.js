@@ -814,3 +814,59 @@ test('node aliases render and can be promoted to primary representative label in
   expect(pageErrors).toEqual([]);
 });
 
+test('provider management modal opens in owner session, displays providers, and supports connection test', async ({ page }) => {
+  const pageErrors = [];
+  page.on('pageerror', error => pageErrors.push(error.message));
+  await page.setViewportSize({ width: 1400, height: 900 });
+
+  // 1. Verify anonymous user does NOT see provider button
+  await page.goto('/', { waitUntil: 'domcontentloaded' });
+  await expect.poll(
+    () => page.evaluate(() => window.claireDebug?.authScope),
+  ).toBe('anonymous');
+  await expect(page.locator('#providermanagebtn')).toBeHidden();
+
+  // 2. Authenticate as owner
+  await page.goto('/?t=e2e-provider-token-0123456789abcdef', { waitUntil: 'domcontentloaded' });
+  await expect.poll(
+    () => page.evaluate(() => window.claireDebug?.authScope),
+  ).toBe('owner');
+  await expect.poll(
+    () => page.evaluate(() => window.claireDebug?.stabilized),
+  ).toBe(true);
+
+  // 3. Provider button should now be visible in owner session
+  const providerBtn = page.locator('#providermanagebtn');
+  await expect(providerBtn).toBeVisible();
+
+  // 4. Open provider manager modal
+  await providerBtn.click();
+  const detailPane = page.locator('#detailpane');
+  await expect(detailPane).toBeVisible();
+
+  // 5. Verify provider manager UI components render
+  await expect(detailPane.locator('h2')).toContainText('⚡ LLM & 프로바이더 관리');
+  const activeSelect = page.locator('#prov-active-select');
+  await expect(activeSelect).toBeVisible();
+  await expect(page.locator('#prov-gemini-model')).toBeVisible();
+  await expect(page.locator('#prov-agy-bin')).toBeVisible();
+  await expect(page.locator('#prov-cdx-bin')).toBeVisible();
+  await expect(page.locator('#prov-oai-url')).toBeVisible();
+
+  // 6. Test connection button for antigravity
+  const agyTestBtn = detailPane.locator('button:has-text("CLI 확인")').first();
+  await expect(agyTestBtn).toBeVisible();
+  await agyTestBtn.click();
+  const agyResult = page.locator('#prov-test-res-antigravity');
+  await expect(agyResult).toBeVisible();
+  await expect(agyResult).toContainText(/감지됨|바이너리|호스트|성공/);
+
+  // 7. Save settings and verify notification alert
+  const saveBtn = detailPane.locator('button:has-text("💾 설정 저장")');
+  await expect(saveBtn).toBeVisible();
+  await saveBtn.click();
+  await expect(page.getByText('프로바이더 설정이 성공적으로 저장되었습니다')).toBeVisible();
+
+  expect(pageErrors).toEqual([]);
+});
+
