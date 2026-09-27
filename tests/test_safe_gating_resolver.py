@@ -197,3 +197,199 @@ def test_pipeline_decision_stream_and_heatmap_integration(tmp_path):
     assert detail is not None
     assert detail["has_decision_stream"] is True
     assert len(detail["resolution_log"]) == len(decisions)
+
+
+def test_rollback_resolution_api_route(tmp_path):
+    from starlette.testclient import TestClient
+    from claire.api import server
+    from claire.config import Settings
+    from claire.ingest.service import IngestService
+
+    db_path = tmp_path / "claire.db"
+    owner_token = "owner-" + ("o" * 32)
+    settings = Settings(
+        db_path=str(db_path),
+        data_dir=tmp_path / "data",
+        inject_token=owner_token,
+        environment="development",
+        public_url="http://127.0.0.1:8765",
+    )
+    svc = IngestService(settings)
+    app = server.create_app(settings, svc)
+    client = TestClient(app, base_url=settings.public_url)
+
+    # 1. 시드 엔티티 및 문서 적재
+    conn = dbm.connect(db_path)
+    try:
+        dbm.init_db(conn)
+        ent = Entity(
+            type="Tool",
+            name="Claude Code",
+            aliases=["Claude-CLI"],
+            observations=["Base tool observation"],
+            sources=["doc_base"],
+        )
+        dbm.upsert_entity(conn, ent)
+
+        doc = Document(
+            id="doc_merge_test",
+            url="https://example.com/test",
+            title="Test Doc",
+            source_type="web",
+            raw_text="Test",
+            meta={
+                "has_decision_stream": True,
+                "resolution_log": [
+                    {
+                        "entity": "Claude Code CLI",
+                        "stage": "exact_match",
+                        "decision": "MERGE",
+                        "candidate": "Claude Code",
+                        "score": 1.0,
+                        "target_entity_id": ent.id,
+                        "rollback_payload": {
+                            "added_aliases": ["Claude Code CLI"],
+                            "added_observations": ["New observation from doc"],
+                            "added_source": "doc_merge_test",
+                        },
+                    }
+                ],
+            },
+        )
+        dbm.insert_document(conn, doc)
+        # 병합된 상태 시뮬레이션
+        ent.aliases.append("Claude Code CLI")
+        ent.observations.append("New observation from doc")
+        ent.sources.append("doc_merge_test")
+        dbm.upsert_entity(conn, ent)
+        conn.commit()
+    finally:
+        conn.close()
+
+    # 2. 롤백 API 호출 (성공 케이스)
+    resp = client.post(
+        "/resolution/rollback",
+        json={"document_id": "doc_merge_test", "entity": "Claude Code CLI"},
+        headers={"Authorization": f"Bearer {owner_token}"},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["ok"] is True
+    assert data["entity"] == "Claude Code CLI"
+
+    # 3. 롤백 후 엔티티 상태 검증: 추가된 alias 및 observation이 원자적으로 제거되었는지 확인
+    with dbm.connect(db_path) as conn:
+        restored = dbm.get_entity(conn, ent.id)
+        assert restored is not None
+        assert "Claude Code CLI" not in restored.aliases
+        assert "Claude-CLI" in restored.aliases
+        assert "New observation from doc" not in restored.observations
+        assert "Base tool observation" in restored.observations
+        assert "doc_merge_test" not in restored.sources
+
+        # doc.meta["resolution_log"]도 ROLLED_BACK으로 갱신되었는지 확인
+        doc_row = dbm.get_document(conn, "doc_merge_test")
+        assert doc_row is not None
+        log_item = doc_row.meta["resolution_log"][0]
+        assert log_item["decision"] == "ROLLED_BACK"
+        assert log_item["rolled_back"] is True
+        assert "롤백됨" in log_item["reason"]
+
+    # 4. 이미 롤백된 대상에 대해 재호출 시 적절히 거부되는지 확인
+    resp2 = client.post(
+        "/resolution/rollback",
+        json={"document_id": "doc_merge_test", "entity": "Claude Code CLI"},
+        headers={"Authorization": f"Bearer {owner_token}"},
+    )
+    assert resp2.status_code == 200
+    assert resp2.json()["ok"] is False
+
+
+def test_ingest_stream_emits_heatmap_and_decision_events(tmp_path):
+    import json
+    from types import SimpleNamespace
+    from starlette.testclient import TestClient
+    from claire.api import server
+    from claire.config import Settings
+    from claire.extract.provider import emit_progress
+
+    class StreamingTestService:
+        def __init__(self, s):
+            self.settings = s
+            self.provider = SimpleNamespace(name="mock")
+
+        def ingest(self, payload, **kwargs):
+            # 1. 진행 메시지
+            emit_progress("원문 분석 중…")
+            # 2. 실시간 의사결정 이벤트 방출
+            emit_progress({
+                "stage": "decision",
+                "entity": "vSphere 8",
+                "decision": "CREATE_NEW",
+                "candidate": "vSphere 7",
+                "score": 0.85,
+                "reason": "버전 불일치 불변식 차단",
+            })
+            # 3. 실시간 히트맵 매트릭스 방출
+            emit_progress({
+                "stage": "heatmap_matrix",
+                "matrix": {
+                    "document_id": "doc_stream_test",
+                    "rows": ["vSphere 8"],
+                    "cols": ["vSphere 7"],
+                    "matrix": [[0.85]],
+                },
+            })
+            return IngestReport(
+                document_id="doc_stream_test",
+                entities_created=1,
+                has_decision_stream=True,
+                heatmap_matrix={
+                    "document_id": "doc_stream_test",
+                    "rows": ["vSphere 8"],
+                    "cols": ["vSphere 7"],
+                    "matrix": [[0.85]],
+                },
+            )
+
+    db_path = tmp_path / "claire.db"
+    owner_token = "owner-" + ("o" * 32)
+    settings = Settings(
+        db_path=str(db_path),
+        data_dir=tmp_path / "data",
+        inject_token=owner_token,
+        environment="development",
+        public_url="http://127.0.0.1:8765",
+    )
+    svc = StreamingTestService(settings)
+    app = server.create_app(settings, svc)
+    client = TestClient(app, base_url=settings.public_url)
+
+    resp = client.post(
+        "/ingest-stream",
+        json={"payload": "https://example.com/test"},
+        headers={"Authorization": f"Bearer {owner_token}"},
+    )
+    assert resp.status_code == 200
+    events = [json.loads(line) for line in resp.text.splitlines() if line.strip()]
+
+    # 스트림 내 이벤트 타입 검증
+    stages = [ev.get("stage") for ev in events if "stage" in ev]
+    assert "work" in stages
+    assert "decision" in stages
+    assert "heatmap_matrix" in stages
+
+    decision_ev = next(ev for ev in events if ev.get("stage") == "decision")
+    assert decision_ev["entity"] == "vSphere 8"
+    assert decision_ev["decision"] == "CREATE_NEW"
+
+    matrix_ev = next(ev for ev in events if ev.get("stage") == "heatmap_matrix")
+    assert matrix_ev["matrix"]["document_id"] == "doc_stream_test"
+    assert matrix_ev["matrix"]["matrix"] == [[0.85]]
+
+    done_ev = next(ev for ev in events if ev.get("done") is True)
+    assert done_ev["result"]["document_id"] == "doc_stream_test"
+    assert done_ev["result"]["has_decision_stream"] is True
+    assert done_ev["result"]["heatmap_matrix"] is not None
+
+

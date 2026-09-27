@@ -196,6 +196,51 @@
         <button onclick="resetGraphCamera()" title="전체 그래프 맞춤" aria-label="전체 그래프 맞춤">↺</button>
       </div>
     </section>
+    <section id="matrixwrap" class="workspace-pane" role="region" aria-label="지식 대조 히트맵 매트릭스" style="display:none">
+      <div id="matrix-topbar">
+        <div class="matrix-title-group">
+          <div class="matrix-indicator"></div>
+          <div>
+            <h2 id="matrix-title">지식 대조 파이프라인 <small id="matrix-subtitle">| Decision Stream &amp; Heatmap Matrix</small></h2>
+            <p id="matrix-target-doc" class="matrix-meta-doc">대조 대상: 준비 중…</p>
+          </div>
+        </div>
+        <div class="matrix-tab-controls">
+          <div class="matrix-tabs">
+            <button id="mtab-matrix" type="button" class="mtab-btn active" onclick="switchMatrixTab('matrix')">대조 히트맵</button>
+            <button id="mtab-stream" type="button" class="mtab-btn" onclick="switchMatrixTab('stream')">판단 스트림</button>
+          </div>
+          <div class="matrix-actions">
+            <button type="button" class="sec" onclick="triggerMatrixWave()" title="연산 파동 시뮬레이션">⚡ 파동</button>
+            <button type="button" class="sec" onclick="setCenterView('graph')" title="지식 그래프로 전환">📊 그래프 보기</button>
+            <button id="matrix-close-btn" type="button" class="matrix-close-btn" onclick="closeMatrixView()" title="닫기">✕</button>
+          </div>
+        </div>
+      </div>
+      <div id="matrix-progress-banner">
+        <div class="matrix-progress-spinner" id="matrix-progress-spinner"></div>
+        <span id="matrix-progress-msg">적재 준비 중…</span>
+      </div>
+      <div id="matrix-content">
+        <div id="matrix-view-grid" class="matrix-pane-view">
+          <div class="matrix-table-wrap">
+            <table id="matrix-table" class="matrix-table">
+              <thead><tr id="matrix-thead-row"><th>추출 노드 \ 기존 지식 노드</th></tr></thead>
+              <tbody id="matrix-tbody"></tbody>
+            </table>
+          </div>
+          <div id="matrix-legend" class="matrix-legend">
+            <span class="legend-item"><span class="legend-swatch swatch-merge"></span> <b>병합 (Merge ≥ 0.93)</b></span>
+            <span class="legend-item"><span class="legend-swatch swatch-judge"></span> <b>경계선 (Judge 0.72~0.93)</b></span>
+            <span class="legend-item"><span class="legend-swatch swatch-new"></span> <b>신규 (New &lt; 0.72)</b></span>
+            <span class="legend-item"><span class="legend-swatch swatch-base"></span> <b>기저 유사도</b></span>
+          </div>
+        </div>
+        <div id="matrix-view-stream" class="matrix-pane-view" style="display:none">
+          <div id="matrix-stream-cards" class="matrix-stream-container"></div>
+        </div>
+      </div>
+    </section>
     <div id="reader" role="dialog" aria-modal="true" aria-labelledby="rtitle" aria-hidden="true"
       onclick="if(event.target===this && mobileMQ.matches)closeReader()">
       <div class="sheet" tabindex="-1">
@@ -210,6 +255,7 @@
             <button class="redit" id="reditbtn" onclick="editDocTitle()" title="제목 수정" aria-label="제목 수정">✏️</button>
             <button class="rshare" onclick="shareDoc()" title="공유 링크 만들기" aria-label="공유 링크 만들기">🔗</button>
             <button id="opengraphbtn" class="sec" onclick="openDocGraph(curReaderDoc||activeDoc)" title="현재 선택된 자료를 지식 그래프로 보기" aria-label="그래프 보기"><span class="btn-icon">📊</span> <span class="btn-label">그래프 보기</span></button>
+            <button id="openstreambtn" class="sec" onclick="openDecisionStream(curReaderDoc||activeDoc)" title="의사결정 스트림 및 판단 기록 보기" aria-label="판단 기록"><span class="btn-icon">📜</span> <span class="btn-label">판단 기록</span></button>
             <button class="rclose" onclick="closeReader()" title="닫기(ESC)" aria-label="읽기 닫기">✕</button>
           </div>
         </div>
@@ -261,6 +307,7 @@
         <div class="action-btn-row">
           <button id="addbtn" class="sec" onclick="openIngest()" title="URL·텍스트를 그래프에 적재" aria-label="적재"><span class="btn-icon">➕</span> <span class="btn-label">적재</span></button>
           <button id="dedupbtn" class="sec" onclick="openDedup()" title="근사 중복 문서를 찾아 병합" aria-label="중복정리"><span class="btn-icon">♻️</span> <span class="btn-label">중복정리</span></button>
+          <button id="streamviewbtn" class="sec" onclick="openDecisionStream(activeDoc || curReaderDoc)" title="지식 노드 판단 기록 및 의사결정 스트림" aria-label="판단기록"><span class="btn-icon">📜</span> <span class="btn-label">판단 기록</span></button>
         </div>
         <div id="graph-section" class="menu-section" aria-label="그래프 및 문서 도구">
           <div class="menu-section-head">

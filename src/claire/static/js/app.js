@@ -1783,6 +1783,12 @@ async function runIngest(){
     updateIngestElapsed();
   }, 1000);
   let result=null;
+  if(typeof initIngestMatrixView === 'function'){
+    initIngestMatrixView(payload, focus, targetThemeObj ? targetThemeObj.label : '');
+  }
+  if(typeof setCenterView === 'function'){
+    setCenterView('matrix');
+  }
   try{
     const bodyObj = {payload:payload, full_content:fullContent};
     if(isMulti && targetThemeId !== undefined && targetThemeId !== null && targetThemeId !== 0) bodyObj.theme = targetThemeId;
@@ -1819,8 +1825,17 @@ async function runIngest(){
         if(!line) continue;
         let ev; try{ ev=JSON.parse(line); }catch(_){ continue; }
         if(ev.done){ result=ev.result; continue; }
+        if(ev.stage === 'heatmap_matrix' && ev.matrix && typeof renderHeatmapMatrix === 'function'){
+          renderHeatmapMatrix(ev.matrix);
+          continue;
+        }
+        if(ev.stage === 'decision' && typeof addDecisionStreamCard === 'function'){
+          addDecisionStreamCard(ev);
+          continue;
+        }
         const cleanMsg = (ev.msg||'').replace(/^[•*-]\s*/, '');
         if(cleanMsg){
+          if(typeof updateMatrixProgress === 'function') updateMatrixProgress(cleanMsg);
           if(activeIngest) activeIngest.messages.push(cleanMsg);
           const ul=document.getElementById('iprog');
           if(ul){
@@ -1845,6 +1860,16 @@ async function runIngest(){
     activeIngest.timer = null;
     activeIngest.running = false;
   }
+  if(result && result.heatmap_matrix && result.document_id){
+    try {
+      sessionStorage.setItem('doc_matrix_' + result.document_id, JSON.stringify(result.heatmap_matrix));
+    } catch(_) {}
+    window.latestHeatmapMatrix = result.heatmap_matrix;
+    window.latestHeatmapDocId = result.document_id;
+  }
+  if(result && typeof completeIngestMatrixView === 'function'){
+    completeIngestMatrixView(result);
+  }
   if(!result){ panel.innerHTML='<p class=hint>응답이 끊겼습니다 — 잠시 후 다시 시도하세요.</p>'; return; }
   renderIngestResult(result);
 }
@@ -1864,6 +1889,12 @@ function renderIngestResult(d){
   if(!d.duplicate) h+='<p class=al>노드 신규 '+(d.entities_created||0)+' · 기존연결 '+
     (d.entities_linked||0)+' · 관계 '+(d.relations_added||0)+'</p>';
   if(d.summary) h+='<div class=synth>'+esc(d.summary)+'</div>';
+  if(d.document_id){
+    h+='<div style="margin:12px 0;display:flex;flex-direction:column;gap:6px;">';
+    h+='<button type="button" class="sec" onclick="openHeatmapMatrix(\''+esc(d.document_id)+'\')" style="padding:6px 10px;font-size:12px;font-weight:600">📊 대조 히트맵 매트릭스 보기</button>';
+    h+='<button type="button" class="sec" onclick="openDecisionStream(\''+esc(d.document_id)+'\')" style="padding:6px 10px;font-size:12px">📜 의사결정 스트림 (판단 기록) 보기</button>';
+    h+='</div>';
+  }
   if(d.theme_id !== undefined && d.theme_id !== activeThemeId){
     h+='<p style="margin-top:12px"><button type="button" class="sec" onclick="switchKnowledgeTheme('+d.theme_id+')">👉 '+esc(d.theme_label||('테마 #'+d.theme_id))+' 테마로 전환</button></p>';
   } else {
@@ -2495,6 +2526,22 @@ function renderDocPanel(dc){
       '<span id="panelhidelabel">'+(dc.hidden===1?'🙈 숨김 처리됨':'목록에서 숨기기')+'</span>'+
       '</label></div>';
   }
+
+  const resLog = dc.resolution_log || (dc.meta && dc.meta.resolution_log) || [];
+  if(dc.has_decision_stream || resLog.length > 0){
+    h += '<div class="decision-stream-banner" style="margin:10px 0;padding:10px;background:var(--card-bg);border:1px solid var(--border);border-radius:6px;">' +
+         '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">' +
+         '  <strong style="display:inline-flex;align-items:center;gap:5px;font-size:13px;"><span>📜</span> 의사결정 스트림</strong>' +
+         '  <span style="font-size:11px;color:var(--muted);background:var(--bg);padding:2px 6px;border-radius:4px;">' + resLog.length + '건의 판단</span>' +
+         '</div>' +
+         '<p style="font-size:12px;color:var(--muted);margin:0 0 8px 0;line-height:1.4;">온톨로지 불변식 검증 및 엔티티 해소 이력입니다.</p>' +
+         '<div style="display:flex;gap:6px;">' +
+         '  <button type="button" class="sec" onclick="openDecisionStream(\'' + esc(dc.id) + '\')" style="flex:1;padding:6px 10px;font-size:12px;font-weight:600;">📜 판단 기록</button>' +
+         '  <button type="button" class="sec" onclick="openHeatmapMatrix(\'' + esc(dc.id) + '\')" style="flex:1;padding:6px 10px;font-size:12px;">📊 매트릭스</button>' +
+         '</div>' +
+         '</div>';
+  }
+
   if(dc.summary) h+='<h3>요약</h3><div class=synth>'+esc(dc.summary)+'</div>';
   // 이 문서의 노드 버튼 — 요약 바로 아래(피드백). 누르면 그래프에서 그 노드로 이동(nav).
   const ns=docNodes(dc.id, dc);
@@ -3771,3 +3818,441 @@ window.claireDebug = {
   get themeMode(){ return (window.__CLAIRE_CONFIG && window.__CLAIRE_CONFIG.themeMode) || '__THEME_MODE__'; },
   switchKnowledgeTheme: switchKnowledgeTheme,
 };
+
+// ============================================================================
+// --- Heatmap Matrix & Decision Stream UI/UX Integration (Phase 1) ---
+// ============================================================================
+
+let currentMatrixData = null;
+
+function initIngestMatrixView(payload, focus, themeLabel){
+  const wrap = document.getElementById('matrixwrap');
+  if(!wrap) return;
+  const titleEl = document.getElementById('matrix-title');
+  if(titleEl) titleEl.innerHTML = '지식 대조 파이프라인 <small>| Decision Stream &amp; Heatmap Matrix</small>';
+  const docMetaEl = document.getElementById('matrix-target-doc');
+  if(docMetaEl){
+    const cleanPayload = (payload || '').replace(/\s+/g, ' ').trim();
+    const shortDesc = cleanPayload.length > 80 ? cleanPayload.slice(0, 80) + '…' : cleanPayload;
+    docMetaEl.textContent = '대조 대상: ' + shortDesc + (themeLabel ? ' (테마: ' + themeLabel + ')' : '');
+  }
+  const spin = document.getElementById('matrix-progress-spinner');
+  if(spin) spin.style.display = 'inline-block';
+  const msgEl = document.getElementById('matrix-progress-msg');
+  if(msgEl) msgEl.textContent = '원문 분석 및 엔티티 대조 준비 중…';
+
+  // Placeholder Grid (연산 스캔 대기 상태)
+  const theadRow = document.getElementById('matrix-thead-row');
+  if(theadRow){
+    theadRow.innerHTML = '<th style="min-width:140px">추출 노드 \\ 기존 지식 노드</th>' +
+      Array.from({length: 8}, (_, i) => '<th>후보 ' + (i+1) + '</th>').join('');
+  }
+  const tbody = document.getElementById('matrix-tbody');
+  if(tbody){
+    tbody.innerHTML = Array.from({length: 6}, (_, r) => {
+      return '<tr><td class="matrix-row-header">엔티티 탐색 ' + (r+1) + '</td>' +
+        Array.from({length: 8}, (_, c) => {
+          const delay = (c * 40 + r * 30) % 500;
+          return '<td><div class="matrix-cell wave-active" style="background:var(--card-bg);border:1px dashed var(--border);animation-delay:' + delay + 'ms"></div></td>';
+        }).join('') + '</tr>';
+    }).join('');
+  }
+  const cards = document.getElementById('matrix-stream-cards');
+  if(cards) cards.innerHTML = '';
+  switchMatrixTab('matrix');
+}
+
+function updateMatrixProgress(msg){
+  const msgEl = document.getElementById('matrix-progress-msg');
+  if(msgEl) msgEl.textContent = msg;
+}
+
+function addDecisionStreamCard(ev){
+  const cards = document.getElementById('matrix-stream-cards');
+  if(!cards) return;
+
+  const card = document.createElement('div');
+  card.className = 'decision-card';
+
+  let badgeClass = 'badge-new';
+  let badgeLabel = ev.decision || '판단';
+  if(ev.decision === 'MERGE'){
+    badgeClass = 'badge-merge';
+    badgeLabel = '병합 (MERGE)';
+  } else if(ev.decision === 'CREATE_NEW'){
+    badgeClass = 'badge-new';
+    badgeLabel = '신규 생성 (NEW)';
+  } else if(ev.decision === 'CROSS_LINK'){
+    badgeClass = 'badge-cross';
+    badgeLabel = '관계 연결 (LINK)';
+  }
+
+  const scoreText = (ev.score !== undefined && ev.score !== null) ? ' · 유사도 ' + Number(ev.score).toFixed(3) : '';
+  const candText = ev.candidate ? ' ↔ 후보 [' + esc(ev.candidate) + ']' : '';
+
+  card.innerHTML =
+    '<div class="decision-card-head">' +
+      '<span class="decision-entity-title">🏷️ ' + esc(ev.entity || '') + '</span>' +
+      '<span class="decision-badge ' + badgeClass + '">' + esc(badgeLabel) + '</span>' +
+    '</div>' +
+    '<div class="decision-card-body">' +
+      '<div>' +
+        '<span class="decision-stage-tag">' + esc(ev.stage || 'gating') + '</span>' +
+        '<span style="font-size:11.5px;color:var(--muted);margin-left:6px">' + esc(candText + scoreText) + '</span>' +
+      '</div>' +
+      (ev.reason ? '<p style="margin:6px 0 0;font-size:12px;color:var(--fg)">' + esc(ev.reason) + '</p>' : '') +
+    '</div>';
+
+  cards.appendChild(card);
+}
+
+function renderHeatmapMatrix(matrixData, title){
+  if(!matrixData) return;
+  currentMatrixData = matrixData;
+  window.activeHeatmapMatrix = matrixData;
+
+  if(title){
+    const docMetaEl = document.getElementById('matrix-target-doc');
+    if(docMetaEl) docMetaEl.textContent = '대조 대상: ' + title;
+  }
+
+  const rows = matrixData.rows || [];
+  const cols = matrixData.cols || [];
+  const mat = matrixData.matrix || [];
+  const autoMergeThresh = matrixData.threshold_auto_merge || 0.93;
+  const borderlineThresh = matrixData.threshold_borderline || 0.72;
+
+  const theadRow = document.getElementById('matrix-thead-row');
+  if(theadRow){
+    theadRow.innerHTML = '<th style="min-width:140px">추출 노드 \\ 기존 지식 노드 (' + cols.length + ')</th>' +
+      cols.map(c => '<th title="' + esc(c) + '">' + esc(c.length > 14 ? c.slice(0, 13) + '…' : c) + '</th>').join('');
+  }
+
+  const tbody = document.getElementById('matrix-tbody');
+  if(tbody){
+    tbody.innerHTML = rows.map((rName, rIdx) => {
+      const rowScores = mat[rIdx] || [];
+      const cells = cols.map((cName, cIdx) => {
+        const score = rowScores[cIdx] !== undefined ? Number(rowScores[cIdx]) : 0.0;
+        let bg = 'var(--card-bg)';
+        let fg = 'var(--muted)';
+        let border = '1px solid var(--border)';
+        let cellClass = 'matrix-cell';
+
+        if(score >= autoMergeThresh){
+          bg = '#059669';
+          fg = '#ffffff';
+          border = '2px solid #065f46';
+        } else if(score >= borderlineThresh){
+          bg = '#0284c7';
+          fg = '#ffffff';
+          border = '1px dashed #0369a1';
+        } else if(score >= 0.5){
+          bg = 'rgba(56, 189, 248, 0.4)';
+          fg = 'var(--fg)';
+          border = '1px solid rgba(56, 189, 248, 0.6)';
+        }
+
+        const tooltip = esc(rName) + ' ↔ ' + esc(cName) + '\n점수: ' + score.toFixed(4) + (score >= autoMergeThresh ? ' (자동 병합)' : (score >= borderlineThresh ? ' (경계선 판정)' : ''));
+        const label = score >= 0.65 ? score.toFixed(2) : '';
+
+        return '<td><div class="' + cellClass + '" title="' + tooltip + '" style="background:' + bg + ';color:' + fg + ';border:' + border + '" onclick="inspectMatrixCell(\'' + esc(rName) + '\',\'' + esc(cName) + '\',' + score + ')">' + label + '</div></td>';
+      }).join('');
+
+      return '<tr><td class="matrix-row-header" title="' + esc(rName) + '">' + esc(rName) + '</td>' + cells + '</tr>';
+    }).join('');
+  }
+}
+
+function completeIngestMatrixView(result){
+  const spin = document.getElementById('matrix-progress-spinner');
+  if(spin) spin.style.display = 'none';
+  const msgEl = document.getElementById('matrix-progress-msg');
+  if(msgEl){
+    msgEl.innerHTML = '✅ <strong>적재 완료</strong> (노드 신규 ' + (result.entities_created||0) + ' · 기존 연결 ' + (result.entities_linked||0) + ' · 관계 ' + (result.relations_added||0) + ')';
+  }
+  if(result && result.title){
+    const docMetaEl = document.getElementById('matrix-target-doc');
+    if(docMetaEl) docMetaEl.textContent = '대조 대상: ' + result.title;
+  }
+  if(result && result.heatmap_matrix){
+    renderHeatmapMatrix(result.heatmap_matrix, result.title);
+  }
+}
+
+function switchMatrixTab(tab){
+  const mBtn = document.getElementById('mtab-matrix');
+  const sBtn = document.getElementById('mtab-stream');
+  const mPane = document.getElementById('matrix-view-grid');
+  const sPane = document.getElementById('matrix-view-stream');
+
+  if(tab === 'matrix'){
+    if(mBtn) mBtn.classList.add('active');
+    if(sBtn) sBtn.classList.remove('active');
+    if(mPane) mPane.style.display = 'flex';
+    if(sPane) sPane.style.display = 'none';
+  } else {
+    if(sBtn) sBtn.classList.add('active');
+    if(mBtn) mBtn.classList.remove('active');
+    if(mPane) mPane.style.display = 'none';
+    if(sPane) sPane.style.display = 'flex';
+  }
+}
+
+function triggerMatrixWave(){
+  const cells = document.querySelectorAll('#matrixwrap .matrix-cell');
+  cells.forEach((cell, idx) => {
+    cell.classList.remove('wave-active');
+    const delay = (idx % 12) * 35;
+    setTimeout(() => {
+      cell.classList.add('wave-active');
+    }, delay);
+  });
+}
+
+function closeMatrixView(){
+  if(activeDoc){
+    setCenterView('reader');
+  } else {
+    setCenterView('graph');
+  }
+}
+
+function inspectMatrixCell(rName, cName, score){
+  setGraphNotice(rName + ' ↔ ' + cName + ': ' + score.toFixed(3));
+}
+
+async function openDecisionStream(docId){
+  const targetId = docId || activeDoc || curReaderDoc || (allDocs && allDocs.length ? allDocs[0].id : null);
+  if(!targetId){
+    panel.innerHTML = '<h2>📜 의사결정 스트림</h2><p class="hint">판단 기록을 열람할 문서를 좌측 목록에서 선택하세요.</p>';
+    openDetailPane();
+    return;
+  }
+
+  let dc = curReaderDocData && curReaderDocData.id === targetId ? curReaderDocData : null;
+  if(!dc){
+    try {
+      const r = await fetch('document?id=' + encodeURIComponent(targetId));
+      if(r.ok) dc = await r.json();
+    } catch(_) {}
+  }
+
+  const logs = (dc && (dc.resolution_log || (dc.meta && dc.meta.resolution_log))) || [];
+  const docTitle = dc ? dc.title : targetId;
+
+  // 1. Center Workspace (#matrixwrap) 스트림 탭에 렌더링
+  const cards = document.getElementById('matrix-stream-cards');
+  if(cards){
+    cards.innerHTML = '';
+    const docMetaEl = document.getElementById('matrix-target-doc');
+    if(docMetaEl) docMetaEl.textContent = '대조 대상: ' + docTitle;
+    const msgEl = document.getElementById('matrix-progress-msg');
+    if(msgEl) msgEl.innerHTML = '📜 <strong>의사결정 스트림</strong> (총 ' + logs.length + '건의 판단 기록)';
+    const spin = document.getElementById('matrix-progress-spinner');
+    if(spin) spin.style.display = 'none';
+
+    if(!logs.length){
+      cards.innerHTML = '<p class="hint" style="padding:20px;text-align:center">이 문서에 기록된 엔티티 의사결정 로그가 없습니다.</p>';
+    } else {
+      logs.forEach(dec => {
+        const card = document.createElement('div');
+        card.className = 'decision-card';
+        let badgeClass = 'badge-new';
+        let badgeLabel = dec.decision || '판단';
+        if(dec.decision === 'MERGE'){
+          badgeClass = 'badge-merge';
+          badgeLabel = '병합 승인';
+        } else if(dec.decision === 'CREATE_NEW'){
+          badgeClass = 'badge-new';
+          badgeLabel = '신규 생성';
+        } else if(dec.decision === 'CROSS_LINK'){
+          badgeClass = 'badge-cross';
+          badgeLabel = '관계 연결';
+        } else if(dec.decision === 'ROLLED_BACK'){
+          badgeClass = 'badge-rollback';
+          badgeLabel = '롤백됨';
+        }
+
+        const scoreText = (dec.score !== undefined && dec.score !== null) ? ' · 유사도 ' + Number(dec.score).toFixed(3) : '';
+        const candText = dec.candidate ? ' ↔ 대상 [' + esc(dec.candidate) + ']' : '';
+        const canRollback = canWrite() && dec.decision === 'MERGE' && !dec.rolled_back && dec.target_entity_id;
+
+        card.innerHTML =
+          '<div class="decision-card-head">' +
+            '<span class="decision-entity-title">🏷️ ' + esc(dec.entity || '') + '</span>' +
+            '<span class="decision-badge ' + badgeClass + '">' + esc(badgeLabel) + '</span>' +
+          '</div>' +
+          '<div class="decision-card-body">' +
+            '<div>' +
+              '<span class="decision-stage-tag">' + esc(dec.stage || 'gating') + '</span>' +
+              '<span style="font-size:11.5px;color:var(--muted);margin-left:6px">' + esc(candText + scoreText) + '</span>' +
+            '</div>' +
+            (dec.reason ? '<p style="margin:6px 0 0;font-size:12px;color:var(--fg)">' + esc(dec.reason) + '</p>' : '') +
+            (canRollback ? '<div style="margin-top:8px"><button type="button" class="sec" style="font-size:11px;color:var(--warn,#d97706);padding:3px 8px;border-color:var(--border);" onclick="triggerRollback(\'' + esc(targetId) + '\',\'' + esc(dec.entity) + '\')">↩ 병합 롤백</button></div>' : '') +
+          '</div>';
+
+        cards.appendChild(card);
+      });
+    }
+    switchMatrixTab('stream');
+    setCenterView('matrix');
+  }
+
+  // 2. 우측 Drawer Panel (#panel)에도 열람 가능한 형태로 렌더링
+  let ph = '<h2>📜 의사결정 스트림</h2>';
+  ph += '<p class="al"><b>' + esc(docTitle) + '</b><br><small>총 ' + logs.length + '건의 엔티티 해소 판단 기록</small></p>';
+  if(!logs.length){
+    ph += '<p class="hint">기록된 판단 내역이 없습니다.</p>';
+  } else {
+    ph += '<div style="display:flex;flex-direction:column;gap:8px;margin-top:10px">';
+    logs.forEach(dec => {
+      const isMerge = dec.decision === 'MERGE';
+      const isRolledBack = dec.decision === 'ROLLED_BACK' || dec.rolled_back;
+      const canRollback = canWrite() && isMerge && !isRolledBack && dec.target_entity_id;
+      ph += '<div style="padding:8px 10px;background:var(--card-bg);border:1px solid var(--border);border-radius:5px;font-size:12px">';
+      ph += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">';
+      ph += '<strong>' + esc(dec.entity) + '</strong>';
+      ph += '<span style="font-size:10px;font-weight:bold;padding:1px 5px;border-radius:3px;' + (isMerge ? 'background:#ecfdf5;color:#059669;' : (isRolledBack ? 'background:#fffbeb;color:#d97706;' : 'background:#eff6ff;color:#2563eb;')) + '">' + esc(dec.decision) + '</span>';
+      ph += '</div>';
+      ph += '<div style="color:var(--muted);font-size:11px">' + esc(dec.stage) + (dec.candidate ? ' ↔ ' + esc(dec.candidate) : '') + (dec.score!=null ? ' (' + (+dec.score).toFixed(3) + ')' : '') + '</div>';
+      if(dec.reason) ph += '<div style="margin-top:4px">' + esc(dec.reason) + '</div>';
+      if(canRollback){
+        ph += '<div style="margin-top:6px"><button type="button" class="sec" style="font-size:11px;padding:2px 6px;color:var(--warn,#d97706)" onclick="triggerRollback(\'' + esc(targetId) + '\',\'' + esc(dec.entity) + '\')">↩ 롤백</button></div>';
+      }
+      ph += '</div>';
+    });
+    ph += '</div>';
+  }
+  ph += '<p style="margin-top:14px"><button type="button" class="sec" onclick="openHeatmapMatrix(\'' + esc(targetId) + '\')" style="width:100%;padding:6px 10px;font-size:12px">📊 대조 매트릭스 전체보기</button></p>';
+  panel.innerHTML = ph;
+  openDetailPane();
+}
+
+function openHeatmapMatrix(docId){
+  const targetId = docId || activeDoc || curReaderDoc;
+  let mat = null;
+  let title = '';
+
+  if(targetId){
+    try {
+      const raw = sessionStorage.getItem('doc_matrix_' + targetId);
+      if(raw) mat = JSON.parse(raw);
+    } catch(_) {}
+    if(curReaderDocData && curReaderDocData.id === targetId) title = curReaderDocData.title;
+  }
+  if(!mat && window.latestHeatmapMatrix){
+    mat = window.latestHeatmapMatrix;
+    title = '최근 적재 자료';
+  }
+
+  if(!mat){
+    alert('해당 문서의 대조 매트릭스는 일회성 데이터이므로 이미 확인 및 소멸되었거나 캐시에 없습니다.\n사후 감사는 "판단 기록(Decision Stream)"을 이용하세요.');
+    return;
+  }
+
+  renderHeatmapMatrix(mat, title);
+  switchMatrixTab('matrix');
+  setCenterView('matrix');
+}
+
+async function triggerRollback(docId, entity){
+  if(!canWrite()){
+    alert('롤백 권한이 없습니다.');
+    return;
+  }
+  if(!confirm('정말로 "' + entity + '" 엔티티의 병합을 되돌리시겠습니까?\n추가된 별칭, 관측문, 출처 연결이 원자적으로 복원됩니다.')){
+    return;
+  }
+
+  try {
+    const r = await fetch('resolution/rollback', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ document_id: docId, entity: entity })
+    });
+    if(!r.ok){
+      const err = await r.json().catch(() => ({}));
+      alert('롤백 실패: ' + (err.error || ('HTTP ' + r.status)));
+      return;
+    }
+    const res = await r.json();
+    if(res.ok){
+      alert('"' + entity + '" 엔티티 병합이 성공적으로 롤백되었습니다.');
+      refreshGraph();
+      if(activeDoc === docId) loadDocPanel(docId);
+      openDecisionStream(docId);
+    } else {
+      alert('롤백 처리 오류: ' + (res.error || '알 수 없는 오류'));
+    }
+  } catch(e) {
+    alert('요청 중 오류가 발생했습니다: ' + String(e));
+  }
+}
+
+function renderMiniMatrixBannerHtml(docId, mat){
+  if(!mat) return '';
+  const rows = mat.rows || [];
+  const cols = mat.cols || [];
+  const matrix = mat.matrix || [];
+  const autoMergeThresh = mat.threshold_auto_merge || 0.93;
+  const borderlineThresh = mat.threshold_borderline || 0.72;
+
+  let miniGrid = '';
+  if(rows.length && cols.length){
+    miniGrid = '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:8px">';
+    rows.slice(0, 6).forEach((r, rIdx) => {
+      cols.slice(0, 8).forEach((c, cIdx) => {
+        const score = (matrix[rIdx] && matrix[rIdx][cIdx] !== undefined) ? Number(matrix[rIdx][cIdx]) : 0;
+        let bg = '#f1f5f9';
+        if(score >= autoMergeThresh) bg = '#059669';
+        else if(score >= borderlineThresh) bg = '#0284c7';
+        else if(score >= 0.5) bg = '#7dd3fc';
+        miniGrid += '<div style="width:14px;height:14px;border-radius:2px;background:' + bg + '" title="' + esc(r) + ' ↔ ' + esc(c) + ': ' + score.toFixed(2) + '"></div>';
+      });
+    });
+    miniGrid += '</div>';
+  }
+
+  return '<div id="doc-matrix-banner-' + esc(docId) + '" class="matrix-preview-banner" style="margin-bottom:16px;padding:12px 14px;background:var(--card-bg);border:2px solid var(--accent,#0284c7);border-radius:8px;">' +
+    '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">' +
+      '<div>' +
+        '<strong style="color:var(--accent,#0284c7);font-size:13px;display:inline-flex;align-items:center;gap:5px"><span>⚡</span> 지식 대조 히트맵 매트릭스 (1회 노출)</strong>' +
+        '<p style="font-size:11.5px;color:var(--muted);margin:2px 0 0">적재 시점의 전수 대조 확률 매트릭스입니다. 확인 시 캐시에서 영구 소멸합니다.</p>' +
+      '</div>' +
+      '<div style="display:flex;align-items:center;gap:6px;">' +
+        '<button type="button" class="sec" onclick="openHeatmapMatrix(\'' + esc(docId) + '\')" style="padding:4px 8px;font-size:11px;">🔍 전체화면 매트릭스</button>' +
+        '<button type="button" onclick="confirmPurgeMatrix(\'' + esc(docId) + '\')" style="padding:4px 10px;font-size:11px;font-weight:bold;background:var(--accent,#0284c7);color:#fff;border:none;border-radius:4px;cursor:pointer;">✓ 확인 (소멸)</button>' +
+      '</div>' +
+    '</div>' +
+    miniGrid +
+  '</div>';
+}
+
+function confirmPurgeMatrix(docId){
+  try {
+    sessionStorage.removeItem('doc_matrix_' + docId);
+  } catch(_) {}
+  const el = document.getElementById('doc-matrix-banner-' + docId);
+  if(el){
+    el.style.opacity = '0';
+    el.style.transform = 'scaleY(0)';
+    setTimeout(() => { if(el.parentNode) el.parentNode.removeChild(el); }, 200);
+  }
+}
+
+// Global Exports
+window.initIngestMatrixView = initIngestMatrixView;
+window.updateMatrixProgress = updateMatrixProgress;
+window.addDecisionStreamCard = addDecisionStreamCard;
+window.renderHeatmapMatrix = renderHeatmapMatrix;
+window.completeIngestMatrixView = completeIngestMatrixView;
+window.switchMatrixTab = switchMatrixTab;
+window.triggerMatrixWave = triggerMatrixWave;
+window.closeMatrixView = closeMatrixView;
+window.openDecisionStream = openDecisionStream;
+window.openHeatmapMatrix = openHeatmapMatrix;
+window.triggerRollback = triggerRollback;
+window.renderMiniMatrixBannerHtml = renderMiniMatrixBannerHtml;
+window.confirmPurgeMatrix = confirmPurgeMatrix;
+

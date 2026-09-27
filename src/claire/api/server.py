@@ -1276,20 +1276,23 @@ def create_app(
 
         _reserve_expensive_job()
         loop = asyncio.get_running_loop()
-        events: asyncio.Queue[dict[str, str]] = asyncio.Queue(
+        events: asyncio.Queue[dict[str, Any]] = asyncio.Queue(
             maxsize=_PROGRESS_QUEUE_SIZE
         )
 
-        def _enqueue_progress(event: dict[str, str]) -> None:
+        def _enqueue_progress(event: dict[str, Any]) -> None:
             if not events.full():
                 events.put_nowait(event)
 
-        def on_progress(message: str) -> None:
+        def on_progress(message: Any) -> None:
             try:
-                loop.call_soon_threadsafe(
-                    _enqueue_progress,
-                    {"stage": "work", "msg": message},
-                )
+                if isinstance(message, dict):
+                    loop.call_soon_threadsafe(_enqueue_progress, message)
+                else:
+                    loop.call_soon_threadsafe(
+                        _enqueue_progress,
+                        {"stage": "work", "msg": str(message)},
+                    )
             except RuntimeError:
                 pass
 
@@ -1437,6 +1440,50 @@ def create_app(
 
         result = await asyncio.to_thread(_select)
         return JSONResponse(result)
+
+    async def rollback_resolution_route(request: Request) -> JSONResponse:
+        body = await _json_object(request)
+        theme, theme_settings, theme_svc = _get_theme_ctx(request, body)
+        doc_id = str(body.get("document_id") or "").strip()
+        entity_name = str(body.get("entity") or "").strip()
+        if not doc_id:
+            raise HTTPException(status_code=400, detail="document_id required")
+        if not entity_name:
+            raise HTTPException(status_code=400, detail="entity required")
+
+        from ..extract.decision import get_resolution_log_from_meta, rollback_resolution
+
+        def _do_rollback() -> dict[str, Any]:
+            conn = dbm.connect_existing(theme_settings.db_file)
+            try:
+                doc = dbm.get_document(conn, doc_id)
+                if not doc:
+                    raise HTTPException(status_code=404, detail="document not found")
+                decisions = get_resolution_log_from_meta(doc.meta)
+                target_dec = None
+                for d in decisions:
+                    if d.entity == entity_name and d.decision == "MERGE" and not getattr(d, "rolled_back", False):
+                        target_dec = d
+                        break
+                if not target_dec:
+                    return {"ok": False, "error": "no eligible merge decision found to rollback"}
+
+                success = rollback_resolution(conn, target_dec)
+                if success:
+                    raw_log = (doc.meta or {}).get("resolution_log") or []
+                    for item in raw_log:
+                        if isinstance(item, dict) and item.get("entity") == entity_name and item.get("decision") == "MERGE":
+                            item["rolled_back"] = True
+                            item["decision"] = "ROLLED_BACK"
+                            item["reason"] = (item.get("reason", "") + " (롤백됨)").strip()
+                    dbm.update_document_meta(conn, doc_id, doc.meta)
+                    return {"ok": True, "entity": entity_name}
+                return {"ok": False, "error": "rollback execution failed"}
+            finally:
+                conn.close()
+
+        res = await asyncio.to_thread(_do_rollback)
+        return JSONResponse(res)
 
     async def create_share_route(request: Request) -> JSONResponse:
         body = await _json_object(request)
@@ -1754,6 +1801,7 @@ def create_app(
         Route("/dedup/scan", dedup_scan_route, methods=["POST"]),
         Route("/dedup/merge", dedup_merge_route, methods=["POST"]),
         Route("/entity/primary-label", entity_primary_label_route, methods=["POST"]),
+        Route("/resolution/rollback", rollback_resolution_route, methods=["POST"]),
         Route("/share", create_share_route, methods=["POST"]),
         Route("/p", shared_doc_page, methods=["GET"]),
         Route("/support/bundle", create_support_bundle_route, methods=["POST"]),
