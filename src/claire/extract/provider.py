@@ -169,10 +169,12 @@ class Provider(Protocol):
         self, text: str, *, task_type: str | None = None, title: str | None = None
     ) -> list[float]: ...
 
-    def judge_same_entity(self, mc: MergeCandidate) -> bool: ...
+    def judge_same_entity(
+        self, mc: MergeCandidate, *, document_id: str | None = None
+    ) -> bool: ...
 
     def judge_relationship(
-        self, rc: RelationCandidate
+        self, rc: RelationCandidate, *, document_id: str | None = None
     ) -> RelationJudgement: ...
 
     def summarize_search(self, query: str, context: str) -> str: ...
@@ -272,14 +274,18 @@ class MockProvider:
             vals.append((b / 127.5) - 1.0)
         return vals
 
-    def judge_same_entity(self, mc: MergeCandidate) -> bool:
+    def judge_same_entity(
+        self, mc: MergeCandidate, *, document_id: str | None = None
+    ) -> bool:
         """결정론적 휴리스틱(테스트용): 같은 타입 + 이름/별칭 토큰 포함관계면 동일체."""
         if mc.new_type and mc.cand_type and mc.new_type != mc.cand_type:
             return False
         names = {mc.cand_name.casefold(), *(a.casefold() for a in mc.cand_aliases)}
         return mc.new_name.casefold() in names
 
-    def judge_relationship(self, rc: RelationCandidate) -> RelationJudgement:
+    def judge_relationship(
+        self, rc: RelationCandidate, *, document_id: str | None = None
+    ) -> RelationJudgement:
         """결정론적 휴리스틱 / 테스트 훅 지원 (Phase 2)."""
         if hasattr(self, "_judge_rel_hook") and callable(self._judge_rel_hook):
             return self._judge_rel_hook(rc)

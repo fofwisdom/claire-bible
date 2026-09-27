@@ -7,6 +7,7 @@ fetch_fn 을 주입 가능하게 하여 네트워크 없이 테스트한다.
 
 from __future__ import annotations
 
+import concurrent.futures
 import json
 import sqlite3
 import time
@@ -697,11 +698,15 @@ def extract_resolve_store(
             return False
         from ..extract.provider import MergeCandidate
 
-        return _judge_method(MergeCandidate(
+        mc = MergeCandidate(
             new_name=nm, new_type=et, new_observations=obs,
             cand_name=cand.name, cand_type=cand.type,
             cand_aliases=cand.aliases, cand_observations=cand.observations,
-        ))
+        )
+        try:
+            return _judge_method(mc, document_id=doc.id)
+        except TypeError:
+            return _judge_method(mc)
 
     name_to_id: dict[str, str] = {}
     touched_entities = []
@@ -817,65 +822,78 @@ def extract_resolve_store(
                 on_progress("전역 지식 관계(Cross-link) 판정", f"후보 {len(eval_candidates)}쌍 평가")
             emit_progress(f"전역 지식 관계(Cross-link) 판정 ({len(eval_candidates)}쌍)")
 
-        for e_node, cand_id, score in eval_candidates:
-            cand = dbm.get_entity(conn, cand_id)
-            if cand is None:
-                continue
+            eval_items: list[tuple[Entity, Any, float]] = []
+            for e_node, cand_id, score in eval_candidates:
+                cand = dbm.get_entity(conn, cand_id)
+                if cand is not None:
+                    eval_items.append((e_node, cand, score))
 
-            if on_progress:
-                on_progress(
-                    "관계 판정기 질의",
-                    f"'{e_node.name}' ↔ '{cand.name}' (유사도 {score:.2f})",
+            def _evaluate_candidate(item: tuple[Entity, Any, float]):
+                e_node, cand, score = item
+                if on_progress:
+                    on_progress(
+                        "관계 판정기 질의",
+                        f"'{e_node.name}' ↔ '{cand.name}' (유사도 {score:.2f})",
+                    )
+                rc = RelationCandidate(
+                    entity_a_name=e_node.name,
+                    entity_a_type=e_node.type,
+                    entity_a_observations=e_node.observations[:5],
+                    entity_a_aliases=e_node.aliases[:5],
+                    entity_b_name=cand.name,
+                    entity_b_type=cand.type,
+                    entity_b_observations=cand.observations[:5],
+                    entity_b_aliases=cand.aliases[:5],
+                    similarity_score=score,
+                    context=f"문서: {doc.title or doc.id}\n요약: {report.summary[:300]}",
                 )
+                try:
+                    try:
+                        judgement = judge_rel_method(rc, document_id=doc.id)
+                    except TypeError:
+                        judgement = judge_rel_method(rc)
+                except Exception:  # noqa: BLE001
+                    judgement = None
+                return (e_node, cand, judgement)
 
-            rc = RelationCandidate(
-                entity_a_name=e_node.name,
-                entity_a_type=e_node.type,
-                entity_a_observations=e_node.observations[:5],
-                entity_a_aliases=e_node.aliases[:5],
-                entity_b_name=cand.name,
-                entity_b_type=cand.type,
-                entity_b_observations=cand.observations[:5],
-                entity_b_aliases=cand.aliases[:5],
-                similarity_score=score,
-                context=f"문서: {doc.title or doc.id}\n요약: {report.summary[:300]}",
-            )
+            max_workers = min(len(eval_items), max(1, getattr(provider, "max_concurrency", 2)))
+            if max_workers > 1 and len(eval_items) > 1:
+                with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+                    judged_results = list(executor.map(_evaluate_candidate, eval_items))
+            else:
+                judged_results = [_evaluate_candidate(item) for item in eval_items]
 
-            try:
-                judgement = judge_rel_method(rc)
-            except Exception:  # noqa: BLE001
-                judgement = None
+            for e_node, cand, judgement in judged_results:
+                if judgement and judgement.has_relation and judgement.relation_type:
+                    rtype, _ = classify_relation_type(judgement.relation_type)
+                    if judgement.direction == "backward":
+                        s_id, t_id = cand.id, e_node.id
+                        s_name, t_name = cand.name, e_node.name
+                    else:
+                        s_id, t_id = e_node.id, cand.id
+                        s_name, t_name = e_node.name, cand.name
 
-            if judgement and judgement.has_relation and judgement.relation_type:
-                rtype, _ = classify_relation_type(judgement.relation_type)
-                if judgement.direction == "backward":
-                    s_id, t_id = cand.id, e_node.id
-                    s_name, t_name = cand.name, e_node.name
-                else:
-                    s_id, t_id = e_node.id, cand.id
-                    s_name, t_name = e_node.name, cand.name
-
-                added_rel = gstore.add_edge(
-                    s_id,
-                    t_id,
-                    rtype,
-                    confidence=judgement.confidence,
-                    sources=[doc.id],
-                )
-                if added_rel is not None:
-                    report.relations_added += 1
-                    report.cross_relations_added += 1
-                    report.cross_linked_relations.append(f"{s_name} -> {t_name} ({rtype})")
-                    if cand not in touched_entities:
-                        touched_entities.append(cand)
-                    if judgement.direction == "bidirectional":
-                        gstore.add_edge(
-                            t_id,
-                            s_id,
-                            rtype,
-                            confidence=judgement.confidence,
-                            sources=[doc.id],
-                        )
+                    added_rel = gstore.add_edge(
+                        s_id,
+                        t_id,
+                        rtype,
+                        confidence=judgement.confidence,
+                        sources=[doc.id],
+                    )
+                    if added_rel is not None:
+                        report.relations_added += 1
+                        report.cross_relations_added += 1
+                        report.cross_linked_relations.append(f"{s_name} -> {t_name} ({rtype})")
+                        if cand not in touched_entities:
+                            touched_entities.append(cand)
+                        if judgement.direction == "bidirectional":
+                            gstore.add_edge(
+                                t_id,
+                                s_id,
+                                rtype,
+                                confidence=judgement.confidence,
+                                sources=[doc.id],
+                            )
 
     if vault_dir is not None and touched_entities:
         if on_progress:
