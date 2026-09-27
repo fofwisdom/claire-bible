@@ -67,6 +67,8 @@ class IngestReport:
     presentation_pdfs: int = 0
     presentation_pdf_chars: int = 0
     presentation_pdf_parsers: list[str] = field(default_factory=list)
+    heatmap_matrix: dict | None = None
+    has_decision_stream: bool = False
 
     def telegram_summary(self) -> str:
         if self.error:
@@ -758,6 +760,29 @@ def extract_resolve_store(
         else:
             report.entities_linked += 1
             report.linked_entity_names.append(ent.name)
+
+    # Decision Stream (방안 B: documents.meta["resolution_log"]) 및 Heatmap Matrix 산출
+    decisions = [
+        getattr(r, "decision", None)
+        for r in resolution_results
+        if getattr(r, "decision", None) is not None
+    ]
+    if decisions:
+        from ..extract.decision import attach_resolution_meta, evaluate_decision_matrix
+
+        attach_resolution_meta(doc, decisions)
+        dbm.update_document_meta(conn, doc.id, doc.meta)
+        report.has_decision_stream = True
+
+        all_cands = dbm.all_entities(conn)
+        mat_data = evaluate_decision_matrix(
+            settings=settings,
+            document_id=doc.id,
+            extracted_entities=list(name_to_id.keys()),
+            candidate_entities=all_cands[:30],
+            decisions=decisions,
+        )
+        report.heatmap_matrix = mat_data.to_dict()
 
     if on_progress:
         on_progress("관계(Relation) 검증 및 적재", f"총 {len(result.relations)}개 관계")

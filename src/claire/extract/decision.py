@@ -112,6 +112,51 @@ def get_resolution_log_from_meta(meta: dict[str, Any] | None) -> list[Resolution
     return results
 
 
+def rollback_resolution(
+    conn: Any,
+    decision: ResolutionDecision,
+) -> bool:
+    """단일 ResolutionDecision에 기록된 rollback_payload를 기반으로 엔티티 상태를 안전하게 원복."""
+    if decision.decision != "MERGE" or not decision.target_entity_id:
+        return False
+    payload = decision.rollback_payload
+    if not isinstance(payload, dict):
+        return False
+
+    from ..store import db as dbm
+
+    target_id = decision.target_entity_id
+    cand = dbm.get_entity(conn, target_id)
+    if not cand:
+        return False
+
+    added_aliases = set(payload.get("added_aliases") or [])
+    added_observations = set(payload.get("added_observations") or [])
+    added_source = payload.get("added_source")
+
+    changed = False
+    if added_aliases:
+        new_aliases = [a for a in cand.aliases if a not in added_aliases]
+        if new_aliases != cand.aliases:
+            cand.aliases = new_aliases
+            changed = True
+
+    if added_observations:
+        new_obs = [o for o in cand.observations if o not in added_observations]
+        if new_obs != cand.observations:
+            cand.observations = new_obs
+            changed = True
+
+    if added_source and added_source in cand.sources:
+        cand.sources = [s for s in cand.sources if s != added_source]
+        changed = True
+
+    if changed:
+        dbm.upsert_entity(conn, cand)
+        return True
+    return False
+
+
 # --- Heatmap Matrix 생성 엔진 (Jev 및 Fallback) ---
 
 

@@ -179,7 +179,7 @@ class CustomJudgeMockProvider(MockProvider):
                 entities=[ExtractedEntity(name="vLLM", type="Tool", observations=["High performance LLM serving engine using pagedattention"])],
                 relations=[],
             )
-        elif "doc2" in (doc.id or ""):
+        elif "doc2" in (doc.id or "") or "doc3" in (doc.id or ""):
             return ExtractionResult(
                 summary="PagedAttention 관련 문서",
                 entities=[ExtractedEntity(name="PagedAttention", type="Concept", observations=["Memory manager for attention keys and values"])],

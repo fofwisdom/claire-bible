@@ -248,6 +248,8 @@ def document_detail(
         "stt_truncated": stt_truncated,
         "stt_orig_chars": meta_dict.get("stt_orig_chars") or meta_dict.get("orig_chars"),
         "stt_raw_chars": meta_dict.get("stt_raw_chars") or meta_dict.get("raw_chars"),
+        "has_decision_stream": bool(meta_dict.get("has_decision_stream", False)),
+        "resolution_log": meta_dict.get("resolution_log") or [],
         "meta": meta_dict,
     }
 
