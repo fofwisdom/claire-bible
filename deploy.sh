@@ -200,6 +200,13 @@ fi
   "mkdir -p -- '$DEST/data' '$DEST/vault' '$DEST/backups' && chmod 700 '$DEST/backups' && printf '%s\n' claire-bible > '$DEST/.claire-deploy-root'"
 
 echo "[2/5] 소스 동기화 (data/vault/research 등 제외; --delete 는 코드 트리에만)"
+LOCAL_BUILD_COMMIT="$(git rev-parse HEAD 2>/dev/null || true)"
+CLEANUP_LOCAL_COMMIT=0
+if [ -n "$LOCAL_BUILD_COMMIT" ] && [ ! -f src/claire/BUILD_COMMIT ]; then
+  printf '%s\n' "$LOCAL_BUILD_COMMIT" > src/claire/BUILD_COMMIT
+  CLEANUP_LOCAL_COMMIT=1
+fi
+
 rsync -az --delete -e "${RSH}" \
   --exclude '.venv' \
   --exclude '.cb-manuscript' \
@@ -221,6 +228,10 @@ rsync -az --delete -e "${RSH}" \
   --exclude '.env.*' \
   --exclude '.claire-deploy-root' \
   ./ "${REMOTE}:${DEST}/"
+
+if [ "$CLEANUP_LOCAL_COMMIT" -eq 1 ]; then
+  rm -f src/claire/BUILD_COMMIT
+fi
 
 sync_env() {
   [ -f "$APP_ENV_SOURCE" ] || fail \

@@ -36,6 +36,9 @@ ARG CLAIRE_IMAGE_TAG="local"
 LABEL org.opencontainers.image.revision="$CLAIRE_BUILD_COMMIT"
 ENV CLAIRE_BUILD_COMMIT="$CLAIRE_BUILD_COMMIT" \
     CLAIRE_IMAGE_TAG="$CLAIRE_IMAGE_TAG"
+RUN if [ "$CLAIRE_BUILD_COMMIT" != "unknown" ] && [ -n "$CLAIRE_BUILD_COMMIT" ]; then \
+        echo "$CLAIRE_BUILD_COMMIT" > /app/src/claire/BUILD_COMMIT; \
+    fi
 
 # Runtime processes use the environment built above directly.  uv remains a
 # build/development tool rather than an extra process wrapper for every service.
