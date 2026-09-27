@@ -870,23 +870,24 @@ test('provider management modal opens in owner session, displays providers, and 
   expect(pageErrors).toEqual([]);
 });
 
-test('decision stream and heatmap matrix view open, switch tabs, and 1-time matrix preview purges properly', async ({ page }) => {
+test('decision stream and heatmap matrix are separate features with proper audit stream and 1-time matrix purge', async ({ page }) => {
   const pageErrors = [];
   page.on('pageerror', error => pageErrors.push(error.message));
   await page.setViewportSize({ width: 1400, height: 900 });
   await waitForClaire(page);
 
-  // 1. Verify right action button for Decision Stream is present
+  // 1. Verify right action button for Decision Stream is present in '메뉴 & 상세'
   const streamViewBtn = page.locator('#streamviewbtn');
   await expect(streamViewBtn).toBeVisible();
 
-  // 2. Click the Decision Stream button
+  // 2. Click the Decision Stream button to open global audit stream
   await streamViewBtn.click();
 
-  // 3. Verify detail pane opens with Decision Stream header
+  // 3. Verify detail pane opens with global Decision Stream header, filter bar, and BookStack cards
   const detailPane = page.locator('#detailpane');
   await expect(detailPane).toBeVisible();
   await expect(detailPane.locator('h2')).toContainText('의사결정 스트림');
+  await expect(detailPane.locator('.decision-filter-bar')).toBeVisible();
 
   // 4. Open doc-2 in reader by clicking its item in document list
   const doc2Item = page.locator('#doclist .docitem').filter({ hasText: '테스트 문서 2' });
@@ -904,12 +905,12 @@ test('decision stream and heatmap matrix view open, switch tabs, and 1-time matr
     }));
   });
 
-  // Re-open reader for doc-2 to trigger banner rendering
+  // Re-open reader for doc-2 to trigger 1-time banner rendering
   await doc2Item.click();
   const reader = page.locator('#reader');
   await expect(reader).toBeVisible();
 
-  // 6. Verify 1-time matrix preview banner is visible
+  // 6. Verify 1-time matrix preview banner is visible in reader
   const matrixBanner = page.locator('#doc-matrix-banner-doc-2');
   await expect(matrixBanner).toBeVisible();
   await expect(matrixBanner).toContainText('지식 대조 히트맵 매트릭스 (1회 노출)');
@@ -918,33 +919,24 @@ test('decision stream and heatmap matrix view open, switch tabs, and 1-time matr
   const fullMatrixBtn = matrixBanner.locator('button:has-text("전체화면 매트릭스")');
   await fullMatrixBtn.click();
 
-  // 8. Verify #matrixwrap is displayed as center view
+  // 8. Verify #matrixwrap is displayed as center view with pure visual grid
   const matrixWrap = page.locator('#matrixwrap');
   await expect(matrixWrap).toBeVisible();
-  await expect(matrixWrap.locator('#matrix-title')).toContainText('지식 대조 파이프라인');
-
-  // 9. Switch tabs to '판단 스트림'
-  const streamTabBtn = page.locator('#mtab-stream');
-  await streamTabBtn.click();
-  await expect(page.locator('#matrix-view-stream')).toBeVisible();
-
-  // Switch back to '대조 히트맵'
-  const matrixTabBtn = page.locator('#mtab-matrix');
-  await matrixTabBtn.click();
+  await expect(matrixWrap.locator('#matrix-title')).toContainText('지식 대조 히트맵 매트릭스');
   await expect(page.locator('#matrix-view-grid')).toBeVisible();
 
-  // 10. Close matrix view
+  // 9. Close matrix view
   const closeMatrixBtn = page.locator('#matrix-close-btn');
   await closeMatrixBtn.click();
   await expect(matrixWrap).toBeHidden();
 
-  // 11. Re-open reader and click '확인 (소멸)' button to purge matrix
+  // 10. Re-open reader and click '확인 (소멸)' button to purge matrix
   await doc2Item.click();
   const purgeBtn = page.locator('#doc-matrix-banner-doc-2 button:has-text("확인 (소멸)")');
   await expect(purgeBtn).toBeVisible();
   await purgeBtn.click();
 
-  // Verify banner is removed and sessionStorage is purged
+  // Verify banner is removed and sessionStorage is purged permanently
   await expect(page.locator('#doc-matrix-banner-doc-2')).toBeHidden();
   const isPurged = await page.evaluate(() => sessionStorage.getItem('doc_matrix_doc-2') === null);
   expect(isPurged).toBe(true);

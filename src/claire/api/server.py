@@ -1485,6 +1485,29 @@ def create_app(
         res = await asyncio.to_thread(_do_rollback)
         return JSONResponse(res)
 
+    async def resolution_decisions_route(request: Request) -> JSONResponse:
+        theme, theme_settings, _ = _get_theme_ctx(request)
+        try:
+            limit = min(500, max(1, int(request.query_params.get("limit", 100))))
+        except (ValueError, TypeError):
+            limit = 100
+        try:
+            offset = max(0, int(request.query_params.get("offset", 0)))
+        except (ValueError, TypeError):
+            offset = 0
+
+        from ..extract.decision import get_all_resolution_decisions
+
+        def _fetch() -> list[dict[str, Any]]:
+            conn = dbm.connect_existing(theme_settings.db_file)
+            try:
+                return get_all_resolution_decisions(conn, limit=limit, offset=offset)
+            finally:
+                conn.close()
+
+        decisions = await asyncio.to_thread(_fetch)
+        return JSONResponse({"ok": True, "decisions": decisions, "limit": limit, "offset": offset})
+
     async def create_share_route(request: Request) -> JSONResponse:
         body = await _json_object(request)
         theme, theme_settings, _ = _get_theme_ctx(request, body)
@@ -1802,6 +1825,7 @@ def create_app(
         Route("/dedup/merge", dedup_merge_route, methods=["POST"]),
         Route("/entity/primary-label", entity_primary_label_route, methods=["POST"]),
         Route("/resolution/rollback", rollback_resolution_route, methods=["POST"]),
+        Route("/resolution/decisions", resolution_decisions_route, methods=["GET"]),
         Route("/share", create_share_route, methods=["POST"]),
         Route("/p", shared_doc_page, methods=["GET"]),
         Route("/support/bundle", create_support_bundle_route, methods=["POST"]),
