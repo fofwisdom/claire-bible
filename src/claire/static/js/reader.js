@@ -207,6 +207,10 @@ async function markDocumentSeen(docId){
 }
 function setCenterView(mode){
   const nextView = (mode==='graph' ? 'graph' : (mode==='matrix' ? 'matrix' : 'reader'));
+  if(mode === 'matrix' || mode === 'graph'){
+    activePane = 'graph';
+    document.body.dataset.activePane = 'graph';
+  }
   if(centerView === nextView) return;
   centerView = nextView;
   document.body.dataset.centerView = centerView;

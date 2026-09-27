@@ -1784,10 +1784,17 @@ async function runIngest(){
   }, 1000);
   let result=null;
   if(typeof initIngestMatrixView === 'function'){
-    initIngestMatrixView(payload, focus, targetThemeObj ? targetThemeObj.label : '');
+    try {
+      initIngestMatrixView(payload, focus, targetThemeObj ? targetThemeObj.label : '');
+    } catch(e) {
+      console.warn('initIngestMatrixView error:', e);
+    }
   }
   if(typeof setCenterView === 'function'){
     setCenterView('matrix');
+  }
+  if(mobileMQ.matches && typeof closeDrawer === 'function'){
+    closeDrawer(false, false);
   }
   try{
     const bodyObj = {payload:payload, full_content:fullContent};
@@ -3829,7 +3836,7 @@ function initIngestMatrixView(payload, focus, themeLabel){
   const wrap = document.getElementById('matrixwrap');
   if(!wrap) return;
   const titleEl = document.getElementById('matrix-title');
-  if(titleEl) titleEl.innerHTML = '지식 대조 파이프라인 <small>| Decision Stream &amp; Heatmap Matrix</small>';
+  if(titleEl) titleEl.innerHTML = '지식 대조 히트맵 매트릭스 <small id="matrix-subtitle">| Heatmap Matrix (수집 대상 대조 밀도)</small>';
   const docMetaEl = document.getElementById('matrix-target-doc');
   if(docMetaEl){
     const cleanPayload = (payload || '').replace(/\s+/g, ' ').trim();
@@ -3857,9 +3864,6 @@ function initIngestMatrixView(payload, focus, themeLabel){
         }).join('') + '</tr>';
     }).join('');
   }
-  const cards = document.getElementById('matrix-stream-cards');
-  if(cards) cards.innerHTML = '';
-  switchMatrixTab('matrix');
 }
 
 function updateMatrixProgress(msg){
@@ -3868,42 +3872,21 @@ function updateMatrixProgress(msg){
 }
 
 function addDecisionStreamCard(ev){
-  const cards = document.getElementById('matrix-stream-cards');
-  if(!cards) return;
-
-  const card = document.createElement('div');
-  card.className = 'decision-card';
-
-  let badgeClass = 'badge-new';
-  let badgeLabel = ev.decision || '판단';
-  if(ev.decision === 'MERGE'){
-    badgeClass = 'badge-merge';
-    badgeLabel = '병합 (MERGE)';
-  } else if(ev.decision === 'CREATE_NEW'){
-    badgeClass = 'badge-new';
-    badgeLabel = '신규 생성 (NEW)';
-  } else if(ev.decision === 'CROSS_LINK'){
-    badgeClass = 'badge-cross';
-    badgeLabel = '관계 연결 (LINK)';
+  if(!ev) return;
+  if(!Array.isArray(cachedDecisions)) cachedDecisions = [];
+  cachedDecisions.unshift({
+    stage: ev.stage || 'gating',
+    entity: ev.entity || '',
+    candidate: ev.candidate || null,
+    score: ev.score,
+    decision: ev.decision || 'MERGE',
+    reason: ev.reason || '',
+    document_id: ev.document_id || (activeIngest ? 'live' : null),
+    document_title: ev.document_title || '실시간 적재'
+  });
+  if(document.querySelector('.decision-filter-bar')){
+    renderDecisionStreamPanel();
   }
-
-  const scoreText = (ev.score !== undefined && ev.score !== null) ? ' · 유사도 ' + Number(ev.score).toFixed(3) : '';
-  const candText = ev.candidate ? ' ↔ 후보 [' + esc(ev.candidate) + ']' : '';
-
-  card.innerHTML =
-    '<div class="decision-card-head">' +
-      '<span class="decision-entity-title">🏷️ ' + esc(ev.entity || '') + '</span>' +
-      '<span class="decision-badge ' + badgeClass + '">' + esc(badgeLabel) + '</span>' +
-    '</div>' +
-    '<div class="decision-card-body">' +
-      '<div>' +
-        '<span class="decision-stage-tag">' + esc(ev.stage || 'gating') + '</span>' +
-        '<span style="font-size:11.5px;color:var(--muted);margin-left:6px">' + esc(candText + scoreText) + '</span>' +
-      '</div>' +
-      (ev.reason ? '<p style="margin:6px 0 0;font-size:12px;color:var(--fg)">' + esc(ev.reason) + '</p>' : '') +
-    '</div>';
-
-  cards.appendChild(card);
 }
 
 function renderHeatmapMatrix(matrixData, title){
@@ -3930,6 +3913,10 @@ function renderHeatmapMatrix(matrixData, title){
 
   const tbody = document.getElementById('matrix-tbody');
   if(tbody){
+    if(!rows.length || !cols.length){
+      tbody.innerHTML = '<tr><td colspan="' + Math.max(1, cols.length + 1) + '" style="text-align:center;padding:32px 16px;color:var(--muted)">비교 대상 후보 엔티티가 없거나 지식베이스 초기 상태입니다.</td></tr>';
+      return;
+    }
     tbody.innerHTML = rows.map((rName, rIdx) => {
       const rowScores = mat[rIdx] || [];
       const cells = cols.map((cName, cIdx) => {
@@ -3961,6 +3948,8 @@ function renderHeatmapMatrix(matrixData, title){
 
       return '<tr><td class="matrix-row-header" title="' + esc(rName) + '">' + esc(rName) + '</td>' + cells + '</tr>';
     }).join('');
+
+    triggerMatrixWave();
   }
 }
 
