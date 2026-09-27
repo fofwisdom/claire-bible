@@ -925,11 +925,27 @@ def _sanitize_share_index(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return safe_rows
 
 
-def _get_git_commit() -> str | None:
-    """빌드 주입값을 우선하고 개발 checkout에서는 Git을 보조 수단으로 사용한다."""
+def _get_git_commit_and_source() -> tuple[str | None, str]:
+    """빌드 주입값을 우선하고 임베디드 파일 및 개발 checkout Git을 보조 수단으로 사용한다."""
     build_commit = os.environ.get("CLAIRE_BUILD_COMMIT", "").strip()
     if build_commit and build_commit.lower() not in {"unknown", "null", "none"}:
-        return build_commit
+        return build_commit, "build_arg"
+
+    candidate_files = (
+        ROOT / ".git_commit",
+        ROOT / "BUILD_COMMIT",
+        ROOT / "src" / "claire" / "BUILD_COMMIT",
+        Path(__file__).parent / "BUILD_COMMIT",
+    )
+    for candidate in candidate_files:
+        try:
+            if candidate.is_file():
+                val = candidate.read_text(encoding="utf-8").strip()
+                if val and val.lower() not in {"unknown", "null", "none"}:
+                    return val, "embedded"
+        except Exception:  # noqa: BLE001
+            pass
+
     try:
         res = subprocess.run(
             ["git", "rev-parse", "HEAD"],
@@ -940,30 +956,60 @@ def _get_git_commit() -> str | None:
             check=False,
         )
         if res.returncode == 0:
-            return res.stdout.strip()
+            commit = res.stdout.strip()
+            if commit:
+                return commit, "git"
     except Exception:  # noqa: BLE001
         pass
-    return None
+    return None, "unknown"
+
+
+def _get_git_commit() -> str | None:
+    commit, _ = _get_git_commit_and_source()
+    return commit
 
 
 def _get_build_identity() -> dict[str, Any]:
-    commit = _get_git_commit()
+    commit, revision_source = _get_git_commit_and_source()
     try:
         package_version = importlib.metadata.version("claire")
     except importlib.metadata.PackageNotFoundError:
         package_version = "unknown"
     return {
         "git_commit": commit,
-        "revision_source": (
-            "build_arg"
-            if os.environ.get("CLAIRE_BUILD_COMMIT", "").strip().lower()
-            not in {"", "unknown", "null", "none"}
-            else ("git" if commit else "unknown")
-        ),
+        "revision_source": revision_source,
         "package_version": package_version,
         "schema_version": dbm.SCHEMA_VERSION,
         "schema_lineage": dbm.SCHEMA_LINEAGE,
         "image_tag": os.environ.get("CLAIRE_IMAGE_TAG", "").strip() or None,
+    }
+
+
+def _collect_active_ingest_snapshot(data_dir: Path | str | None) -> dict[str, Any]:
+    """현재 활성 적재(Active Ingest) 작업 및 Heatmap Matrix의 스냅샷 수집."""
+    base = Path(data_dir) if data_dir else Path("data")
+    state_file = base / "active_ingest.json"
+    if state_file.is_file():
+        try:
+            text = state_file.read_text(encoding="utf-8").strip()
+            if text:
+                raw_data = json.loads(text)
+                if isinstance(raw_data, dict):
+                    sanitized = sanitize_sensitive_data(raw_data)
+                    sanitized["file_present"] = True
+                    return sanitized
+        except Exception as exc:  # noqa: BLE001
+            return {
+                "active": False,
+                "file_present": True,
+                "error": f"Failed to parse active_ingest.json: {type(exc).__name__}: {exc}",
+            }
+    return {
+        "active": False,
+        "stage": "idle",
+        "msg": "No active ingestion in progress",
+        "file_present": False,
+        "heatmap_matrix": None,
     }
 
 
@@ -1508,6 +1554,14 @@ def create_support_bundle(
                     json.dumps(sanitize_sensitive_data(oauth_summary), ensure_ascii=False, indent=2).encode("utf-8"),
                 )
 
+                # 5-2. 활성 적재 작업(Active Ingest) 및 Heatmap Matrix 스냅샷
+                active_ingest_snapshot = _collect_active_ingest_snapshot(data_dir)
+                _add_tar_bytes(
+                    tar,
+                    f"{root_arcname}/pipeline/active_ingest.json",
+                    json.dumps(active_ingest_snapshot, ensure_ascii=False, indent=2).encode("utf-8"),
+                )
+
                 # 6. 로그 수집 (agy.log, telegram.log, api.log 및 data/logs/*.log)
                 logs_dir = Path(data_dir) / "logs"
                 collected_logs: set[str] = set()
@@ -1729,6 +1783,12 @@ def create_support_bundle(
                     "cutoff_timestamp": cutoff_iso,
                     "git_commit": build_identity["git_commit"],
                     "build": build_identity,
+                    "active_ingest": {
+                        "active": bool(active_ingest_snapshot.get("active", False)),
+                        "stage": active_ingest_snapshot.get("stage"),
+                        "msg": active_ingest_snapshot.get("msg"),
+                        "file_present": bool(active_ingest_snapshot.get("file_present", False)),
+                    },
                     "target": sanitize_sensitive_data(target_info) if target_info else None,
                     "request_context": sanitize_sensitive_data(request_context or {}),
                 }

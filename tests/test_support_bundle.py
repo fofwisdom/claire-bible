@@ -265,6 +265,7 @@ def test_support_bundle_creation_and_zstd_archive(tmp_path: Path):
     assert any(n.endswith("pipeline/failed_items.json") for n in names)
     assert any(n.endswith("pipeline/shares_index.json") for n in names)
     assert any(n.endswith("pipeline/db_integrity.json") for n in names)
+    assert any(n.endswith("pipeline/active_ingest.json") for n in names)
     assert any(n.endswith("logs/telegram.log") for n in names)
     assert any(n.endswith("logs/agy.log") for n in names)
 
@@ -277,6 +278,8 @@ def test_support_bundle_creation_and_zstd_archive(tmp_path: Path):
     assert manifest_data["days_covered"] == 1
     assert "token" not in manifest_data
     assert "build" in manifest_data
+    assert "active_ingest" in manifest_data
+    assert manifest_data["active_ingest"]["active"] is False
     assert manifest_data["build"]["schema_version"] == dbm.SCHEMA_VERSION
     assert manifest_data["build"]["schema_lineage"] == dbm.SCHEMA_LINEAGE
 
@@ -774,4 +777,80 @@ def test_support_bundle_mcp_artifacts(tmp_path: Path):
     assert f_rec is not None
     found_lines = f_rec.read().decode("utf-8").splitlines()
     assert len(found_lines) == 3
+
+
+def test_support_bundle_includes_active_ingest_snapshot(tmp_path: Path):
+    from claire.ingest.active import set_active_ingest, update_active_ingest
+
+    s = StubSettings(db_file=tmp_path / "claire.db", data_dir=tmp_path)
+    _seed_db(s.db_file)
+
+    set_active_ingest(
+        s.data_dir,
+        payload="https://example.com/test-article",
+        title="Active Running Ingestion",
+    )
+    update_active_ingest(
+        s.data_dir,
+        stage="extract_ontology",
+        msg="Extracting entities and relations...",
+        heatmap_matrix={"resolved_entities": 7, "pending": 2},
+    )
+
+    info = create_support_bundle(s)
+    dctx = zstd.ZstdDecompressor()
+    decompressed = dctx.decompress(info.filepath.read_bytes(), max_output_size=50_000_000)
+    tar = tarfile.open(fileobj=io.BytesIO(decompressed), mode="r:")
+    names = tar.getnames()
+
+    active_name = next(n for n in names if n.endswith("pipeline/active_ingest.json"))
+    active_data = json.loads(tar.extractfile(active_name).read().decode("utf-8"))
+    assert active_data["active"] is True
+    assert active_data["stage"] == "extract_ontology"
+    assert active_data["title"] == "Active Running Ingestion"
+    assert active_data["msg"] == "Extracting entities and relations..."
+    assert active_data["heatmap_matrix"] == {"resolved_entities": 7, "pending": 2}
+    assert active_data["file_present"] is True
+
+    manifest_name = next(n for n in names if n.endswith("manifest.json"))
+    manifest = json.loads(tar.extractfile(manifest_name).read().decode("utf-8"))
+    assert manifest["active_ingest"]["active"] is True
+    assert manifest["active_ingest"]["stage"] == "extract_ontology"
+    assert manifest["active_ingest"]["file_present"] is True
+
+
+def test_support_bundle_uses_embedded_build_commit_file(tmp_path: Path, monkeypatch):
+    import subprocess as sp
+
+    s = StubSettings(db_file=tmp_path / "claire.db", data_dir=tmp_path)
+    _seed_db(s.db_file)
+
+    monkeypatch.delenv("CLAIRE_BUILD_COMMIT", raising=False)
+
+    def mock_run(cmd, *args, **kwargs):
+        return sp.CompletedProcess(cmd, returncode=127, stdout="", stderr="git: command not found")
+
+    monkeypatch.setattr(sp, "run", mock_run)
+
+    # ROOT에 .git_commit 파일 임베딩
+    commit_hash = "c0ffee1234567890abcdef1234567890abcdef12"
+    (tmp_path / ".git_commit").write_text(commit_hash + "\n", encoding="utf-8")
+    monkeypatch.setattr("claire.support_bundle.ROOT", tmp_path)
+
+    info = create_support_bundle(s)
+    dctx = zstd.ZstdDecompressor()
+    decompressed = dctx.decompress(info.filepath.read_bytes(), max_output_size=50_000_000)
+    tar = tarfile.open(fileobj=io.BytesIO(decompressed), mode="r:")
+    names = tar.getnames()
+
+    manifest_name = next(n for n in names if n.endswith("manifest.json"))
+    manifest = json.loads(tar.extractfile(manifest_name).read().decode("utf-8"))
+    assert manifest["git_commit"] == commit_hash
+    assert manifest["build"]["revision_source"] == "embedded"
+
+    build_name = next(n for n in names if n.endswith("diagnostics/build.json"))
+    build_data = json.loads(tar.extractfile(build_name).read().decode("utf-8"))
+    assert build_data["git_commit"] == commit_hash
+    assert build_data["revision_source"] == "embedded"
+
 

@@ -1592,3 +1592,21 @@ def test_clean_legacy_only_skips_compose_and_images(tmp_path):
     # Should not prune images or run compose rm
     assert ["docker", "image", "prune", "-f"] not in commands
     assert ["docker", "builder", "prune", "-f"] not in commands
+
+
+def test_source_revision_detects_embedded_file_and_env(tmp_path, monkeypatch):
+    _write_layout(tmp_path, dev=False)
+    layout = cb.Layout(tmp_path)
+
+    # 1. 파일에 임베딩된 커밋 감지
+    commit_file = tmp_path / "src" / "claire" / "BUILD_COMMIT"
+    commit_file.parent.mkdir(parents=True, exist_ok=True)
+    commit_file.write_text("11223344556677889900aabbccddeeff11223344\n", encoding="utf-8")
+
+    assert cb._source_revision(layout) == "11223344556677889900aabbccddeeff11223344"
+    assert cb._cached_or_embedded_revision(layout) == "11223344556677889900aabbccddeeff11223344"
+
+    # 2. 프로세스 환경변수가 파일보다 우선
+    monkeypatch.setenv("CLAIRE_BUILD_COMMIT", "aabbccddeeff00112233445566778899aabbccdd")
+    assert cb._source_revision(layout) == "aabbccddeeff00112233445566778899aabbccdd"
+    assert cb._cached_or_embedded_revision(layout) == "aabbccddeeff00112233445566778899aabbccdd"

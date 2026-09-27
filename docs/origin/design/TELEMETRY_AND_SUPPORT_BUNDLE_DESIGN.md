@@ -168,7 +168,8 @@ support_bundle_<id>/
 │   ├── failed_items.json          # 에러/실패 인박스 항목 상세 (RCA 핵심)
 │   ├── shares_index.json          # 문서 공유 토큰 SHA-256과 문서 ID 매핑(토큰 원문은 마스킹)
 │   ├── oauth_summary.json         # [신규] 등록된 OAuth 2.1 클라이언트 및 활성 토큰 현황 (SHA-256 인덱스)
-│   └── db_integrity.json          # 테마별 경로·스키마·행 수(지식그래프 + OAuth 4종 테이블)와 quick_check 결과
+│   ├── db_integrity.json          # 테마별 경로·스키마·행 수(지식그래프 + OAuth 4종 테이블)와 quick_check 결과
+│   └── active_ingest.json         # [신규] 활성 적재 작업 진행 상태, 단계 및 Heatmap Matrix 스냅샷
 └── tracked_document/              # (특정 대상 지정 시에만 생성)
     ├── target_resolution.json     # 타깃 해석 결과 (matched_by, share_token 여부)
     ├── document_detail.json       # 정본 문서 메타데이터 및 온톨로지 정보

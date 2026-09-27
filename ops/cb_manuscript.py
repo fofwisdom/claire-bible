@@ -409,6 +409,10 @@ class Runtime:
 
         pdf_parser = self.values.get("CLAIRE_PDF_PARSER", "").strip() or env.get("CLAIRE_PDF_PARSER", "").strip() or "default"
         env["CLAIRE_PDF_PARSER"] = pdf_parser
+
+        cached_rev = _cached_or_embedded_revision(self.layout)
+        if cached_rev and not env.get("CLAIRE_BUILD_COMMIT", "").strip():
+            env["CLAIRE_BUILD_COMMIT"] = cached_rev
         return env
 
 
@@ -1562,22 +1566,6 @@ def _captured_stdout(result: subprocess.CompletedProcess[str]) -> str:
     return result.stdout or ""
 
 
-def _source_revision(layout: Layout) -> str | None:
-    try:
-        revision = run_command(
-            ("git", "rev-parse", "HEAD"),
-            cwd=layout.root,
-            capture=True,
-            check=False,
-        )
-    except ManuscriptError as exc:
-        if exc.exit_code == 127:
-            return None
-        raise
-    value = _captured_stdout(revision).strip()
-    return value if revision.returncode == 0 and value else None
-
-
 def _read_state(path: Path) -> dict[str, object] | None:
     if not path.is_file():
         return None
@@ -1588,6 +1576,72 @@ def _read_state(path: Path) -> dict[str, object] | None:
     if not isinstance(value, dict):
         raise ManuscriptError(f"Invalid state file format: {path}")
     return value
+
+
+def _write_embedded_build_commit(layout: Layout, revision: str) -> None:
+    """빌드 리비전을 src/claire/BUILD_COMMIT 파일로 기록하여 컨테이너 이미지로 전달한다."""
+    try:
+        commit_file = layout.root / "src" / "claire" / "BUILD_COMMIT"
+        if commit_file.parent.is_dir():
+            commit_file.write_text(revision.strip() + "\n", encoding="utf-8")
+    except Exception:
+        pass
+
+
+def _cached_or_embedded_revision(layout: Layout) -> str | None:
+    # 1. 프로세스 환경변수 우선
+    env_commit = os.environ.get("CLAIRE_BUILD_COMMIT", "").strip()
+    if env_commit and env_commit.lower() not in {"unknown", "null", "none"}:
+        return env_commit
+
+    # 2. 소스 트리에 임베딩된 빌드 커밋 파일 확인
+    candidate_files = (
+        layout.root / ".git_commit",
+        layout.root / "BUILD_COMMIT",
+        layout.root / "src" / "claire" / "BUILD_COMMIT",
+    )
+    for candidate in candidate_files:
+        try:
+            if candidate.is_file():
+                val = candidate.read_text(encoding="utf-8").strip()
+                if val and val.lower() not in {"unknown", "null", "none"}:
+                    return val
+        except Exception:
+            pass
+
+    # 3. 이전 배포 상태 기록 확인
+    for dev in (False, True):
+        try:
+            state = _read_state(layout.state_for(dev=dev))
+            if state and isinstance(state.get("source_revision"), str):
+                prev = str(state["source_revision"]).strip()
+                if prev and prev.lower() not in {"unknown", "null", "none"}:
+                    return prev
+        except Exception:
+            pass
+    return None
+
+
+def _source_revision(layout: Layout) -> str | None:
+    cached = _cached_or_embedded_revision(layout)
+    if cached:
+        return cached
+
+    # 개발 checkout의 Git CLI 확인
+    try:
+        revision = run_command(
+            ("git", "rev-parse", "HEAD"),
+            cwd=layout.root,
+            capture=True,
+            check=False,
+        )
+        value = _captured_stdout(revision).strip()
+        if revision.returncode == 0 and value:
+            return value
+    except ManuscriptError as exc:
+        if exc.exit_code != 127:
+            raise
+    return None
 
 
 def _profile_state(runtime: Runtime) -> dict[str, object] | None:
@@ -3186,10 +3240,13 @@ def command_install(runtime: Runtime) -> int:
         previous_revision = previous_state.get("source_revision")
         if not isinstance(previous_revision, str):
             previous_revision = None
+        build_rev = _source_revision(runtime.layout)
+        if build_rev:
+            _write_embedded_build_commit(runtime.layout, build_rev)
         run_compose(
             runtime,
             ("build",),
-            build_revision=_source_revision(runtime.layout),
+            build_revision=build_rev,
         )
         _transition(runtime)
         _record_success(
@@ -3222,10 +3279,13 @@ def command_update(runtime: Runtime, *, no_fetch: bool) -> int:
         config_preflight(runtime)
 
         # Existing containers continue serving throughout fetch and build.
+        build_rev = _source_revision(runtime.layout)
+        if build_rev:
+            _write_embedded_build_commit(runtime.layout, build_rev)
         run_compose(
             runtime,
             ("build",),
-            build_revision=_source_revision(runtime.layout),
+            build_revision=build_rev,
         )
         _transition(runtime)
         _record_success(
