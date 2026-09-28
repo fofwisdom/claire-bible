@@ -220,7 +220,22 @@ function setCenterView(mode){
   centerView = nextView;
   document.body.dataset.centerView = centerView;
   const mt = document.getElementById('menu-section-title');
-  if(mt){ mt.textContent = (centerView==='graph' ? '그래프 도구' : (centerView==='matrix' ? '대조 매트릭스' : (centerView==='stream' ? 'Decision Stream' : '문서와 그래프'))); }
+  if(mt){ mt.textContent = (centerView==='graph' ? '그래프 도구' : (centerView==='matrix' ? '대조 매트릭스' : (centerView==='stream' ? '의사결정 스트림' : '문서와 그래프'))); }
+  const tabGraph = document.getElementById('centertab-graph');
+  const tabReader = document.getElementById('centertab-reader');
+  const tabStream = document.getElementById('centertab-stream');
+  if(tabGraph){
+    tabGraph.classList.toggle('active', centerView === 'graph');
+    tabGraph.setAttribute('aria-selected', centerView === 'graph');
+  }
+  if(tabReader){
+    tabReader.classList.toggle('active', centerView === 'reader');
+    tabReader.setAttribute('aria-selected', centerView === 'reader');
+  }
+  if(tabStream){
+    tabStream.classList.toggle('active', centerView === 'stream');
+    tabStream.setAttribute('aria-selected', centerView === 'stream');
+  }
   if(centerView==='stream'){
     if(typeof renderDecisionStreamCenter === 'function'){
       renderDecisionStreamCenter();
