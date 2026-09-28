@@ -54,6 +54,7 @@ docs/
     │   ├── TELEGRAM_VIDEO_PDF_BUNDLE_INGESTION_DESIGN.md # 텔레그램 MP4 STT·PDF 복합 적재 설계 (구현 전)
     │   ├── VIDEO_AUDIO_TRANSCRIPTION_AND_INGESTION_DESIGN.md # 비디오 음성 자막(전사) 생성 및 지식 적재 파이프라인 설계
     │   ├── VIDEO_PRESENTATION_BUNDLE_INGESTION_DESIGN.md # VMware Explore 비디오·Presentation PDF 동시 적재 설계 (구현 완료)
+    │   ├── VIEW_CONTEXTUAL_UNIFIED_SEARCH_DESIGN.md # 뷰 종속형 통합 검색 및 지능형 자동 검색 엔진 아키텍처 설계 (구현 완료)
     │   └── VMWARE_EXPLORE_ACTIVE_WAITING_RESILIENCE_DESIGN.md # VMware Explore 프레젠테이션 탐색 능동 대기(Active Waiting) 및 복원력 설계 (구현 완료)
     ├── implementation/     # [구현/운영 내역] 운영 가이드, 네트워크/인증 명세, 배포 설정
     │   ├── COMMANDS.md     # 전체 CLI 명령어 및 미구현/제약사항 상세 레퍼런스
