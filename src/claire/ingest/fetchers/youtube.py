@@ -6,6 +6,7 @@ import json
 import logging
 import re
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -107,8 +108,17 @@ def fetch_video_details(vid: str) -> dict[str, str | list[str]]:
     return info
 
 
-def fetch_transcript(vid: str, *, preferred_languages: list[str] | None = None) -> str:
-    """youtube-transcript-api 기반 자막 추출 (수동/자동 자막, 선호 언어 우선, 전체 언어 탐색)."""
+@dataclass(frozen=True)
+class TranscriptResult:
+    text: str = ""
+    language: str | None = None
+    is_generated: bool = False
+
+
+def fetch_transcript_info(
+    vid: str, *, preferred_languages: list[str] | None = None
+) -> TranscriptResult:
+    """youtube-transcript-api 기반 자막 추출 (제작자 제공 수동 자막 우선)."""
     if preferred_languages is None:
         settings = get_settings()
         target_langs = settings.effective_preferred_languages
@@ -127,18 +137,35 @@ def fetch_transcript(vid: str, *, preferred_languages: list[str] | None = None) 
             try:
                 tl = api.list(vid)
                 transcript_obj = None
-                # 선호 언어 + en 우선 검색
-                try:
-                    transcript_obj = tl.find_transcript(target_langs)
-                except Exception:  # noqa: BLE001
-                    pass
 
-                # 수동 자막 전체 중 첫 번째
+                # 1순위: 선호 언어 수동 자막 (제작자 제공 자막)
+                if hasattr(tl, "find_manually_created_transcript"):
+                    try:
+                        transcript_obj = tl.find_manually_created_transcript(target_langs)
+                    except Exception:  # noqa: BLE001
+                        pass
+
+                # 2순위: 선호 언어 외 기타 수동 자막 (제작자 제공 자막 전체 중 첫 번째)
                 if not transcript_obj and getattr(tl, "_manually_created_transcripts", None):
                     transcript_obj = next(iter(tl._manually_created_transcripts.values()), None)
-                # 자동 생성 자막 전체 중 첫 번째
+
+                # 3순위: 선호 언어 자동 생성 자막
+                if not transcript_obj and hasattr(tl, "find_generated_transcript"):
+                    try:
+                        transcript_obj = tl.find_generated_transcript(target_langs)
+                    except Exception:  # noqa: BLE001
+                        pass
+
+                # 4순위: 선호 언어 외 기타 자동 생성 자막 전체 중 첫 번째
                 if not transcript_obj and getattr(tl, "_generated_transcripts", None):
                     transcript_obj = next(iter(tl._generated_transcripts.values()), None)
+
+                # 5순위: 구버전 또는 Mock 객체 호환 (find_manually_created_transcript 등이 없는 경우)
+                if not transcript_obj and hasattr(tl, "find_transcript"):
+                    try:
+                        transcript_obj = tl.find_transcript(target_langs)
+                    except Exception:  # noqa: BLE001
+                        pass
 
                 if transcript_obj:
                     snippets = transcript_obj.fetch()
@@ -150,7 +177,13 @@ def fetch_transcript(vid: str, *, preferred_languages: list[str] | None = None) 
                         if txt:
                             parts.append(txt)
                     if parts:
-                        return " ".join(parts).strip()
+                        text = " ".join(parts).strip()
+                        lang = (
+                            getattr(transcript_obj, "language_code", None)
+                            or getattr(transcript_obj, "language", None)
+                        )
+                        is_gen = bool(getattr(transcript_obj, "is_generated", False))
+                        return TranscriptResult(text=text, language=lang, is_generated=is_gen)
             except Exception:  # noqa: BLE001
                 pass
 
@@ -168,14 +201,26 @@ def fetch_transcript(vid: str, *, preferred_languages: list[str] | None = None) 
                 if txt:
                     parts.append(txt)
             if parts:
-                return " ".join(parts).strip()
+                return TranscriptResult(
+                    text=" ".join(parts).strip(),
+                    language=target_langs[0] if target_langs else None,
+                    is_generated=False,
+                )
         except Exception:  # noqa: BLE001
             pass
 
     except Exception:  # noqa: BLE001
         pass
 
-    return ""
+    return TranscriptResult()
+
+
+def fetch_transcript(vid: str, *, preferred_languages: list[str] | None = None) -> str:
+    """youtube-transcript-api 기반 자막 추출 (수동/자동 자막, 선호 언어 우선, 전체 언어 탐색)."""
+    return fetch_transcript_info(vid, preferred_languages=preferred_languages).text
+
+
+_default_fetch_transcript = fetch_transcript
 
 
 def extract_youtube_ytdlp(
@@ -377,7 +422,12 @@ def fetch_youtube(
 
     # 1. Tier 1: Fast-Path 시도 (youtube-transcript-api + 경량 메타데이터)
     details = fetch_video_details(vid)
-    transcript = fetch_transcript(vid, preferred_languages=preferred_languages)
+    transcript_info: TranscriptResult | None = None
+    if fetch_transcript is _default_fetch_transcript:
+        transcript_info = fetch_transcript_info(vid, preferred_languages=preferred_languages)
+        transcript = transcript_info.text
+    else:
+        transcript = fetch_transcript(vid, preferred_languages=preferred_languages)
 
     title = str(details.get("title") or "").strip()
     author = str(details.get("author") or "").strip()
@@ -392,8 +442,18 @@ def fetch_youtube(
     cached_used = False
     cached_saved = False
     caption_status: str | None = "available" if transcript else None
-    caption_language: str | None = target_langs[0] if (transcript and target_langs) else None
-    transcript_source: str | None = "youtube_transcript_api" if transcript else None
+    if transcript:
+        if transcript_info and transcript_info.language:
+            caption_language: str | None = transcript_info.language
+            transcript_source: str | None = (
+                "automatic_caption" if transcript_info.is_generated else "manual_caption"
+            )
+        else:
+            caption_language = target_langs[0] if target_langs else None
+            transcript_source = "manual_caption"
+    else:
+        caption_language = None
+        transcript_source = None
 
     # 2. Tier 2: 1차 자막 부재 시 또는 제목 부재 시 yt-dlp 에스컬레이션 시도
     # (1차에서 자막과 제목이 확보된 경우 yt-dlp 호출을 생략하여 0.3초 초고속 Fast-path 유지)

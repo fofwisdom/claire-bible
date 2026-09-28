@@ -106,7 +106,7 @@ def _track_rank(track: dict[str, Any]) -> tuple[int, int, str]:
 def select_caption_candidates(
     info: dict[str, Any], target_languages: list[str]
 ) -> list[CaptionCandidate]:
-    """언어 우선순위·정확도·수동/자동·전송 형식 순으로 CC 후보를 정렬한다."""
+    """제작자 제공 자막(수동) 우선 > 언어 선호도 > 언어 정확도 > 전송 형식 순으로 CC 후보를 정렬한다."""
     ranked: list[tuple[tuple[Any, ...], CaptionCandidate]] = []
     collections = (
         ("manual_caption", info.get("subtitles") or {}, 0),
@@ -140,9 +140,9 @@ def select_caption_candidates(
                 ranked.append(
                     (
                         (
+                            source_rank,
                             preference_index,
                             match_rank,
-                            source_rank,
                             *_track_rank(track),
                         ),
                         candidate,
