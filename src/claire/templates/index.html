@@ -165,14 +165,16 @@
           <span class="btn-icon">📜</span> <span class="btn-label">의사결정 스트림</span>
         </button>
       </div>
-    </header>
-    <section id="netwrap" class="workspace-pane" role="tabpanel" aria-labelledby="tab-graph" tabindex="0">
       <div id="netsearch">
         <div id="barsearch">
-          <label class="sr-only" for="q">그래프 검색</label>
-          <input id="q" placeholder="그래프 노드 검색 (엔티티 이름)" oninput="onSearchInput(this.value)"/>
+          <label class="sr-only" for="q" id="qlbl">그래프 검색</label>
+          <span class="center-search-icon" id="qicon" aria-hidden="true">📊</span>
+          <input id="q" placeholder="그래프 노드 검색 (엔티티 이름)" oninput="onCenterSearchInput(this.value)"/>
+          <button id="qclear" type="button" class="center-search-clear-btn" onclick="clearCenterSearch()" title="검색어 초기화" aria-label="검색어 초기화" style="display:none">✕</button>
         </div>
       </div>
+    </header>
+    <section id="netwrap" class="workspace-pane" role="tabpanel" aria-labelledby="tab-graph" tabindex="0">
       <div id="legendbar" aria-label="그래프 범례와 관계 필터"></div>
       <div id="graphdocnav" aria-label="그래프 자료 전환">
         <button id="graphdocprev" onclick="stepGraphDoc(-1)" title="이전 자료" aria-label="이전 자료">‹</button>

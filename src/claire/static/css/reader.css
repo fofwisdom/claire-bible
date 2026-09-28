@@ -97,14 +97,15 @@
   #reader .sharebox button{background:var(--accent);color:#fff;border:0;border-radius:4px;padding:3px 9px;font-size:12px;cursor:pointer}
   /* --- 중앙 영역 공통 상단 헤더 탭 (그래프 / 본문 / 의사결정 스트림) --- */
   .center-head-bar{
-    display:flex;align-items:center;padding:6px 14px;
+    display:flex;align-items:center;justify-content:space-between;gap:12px;
+    padding:6px 14px;
     background:var(--bar-bg);border-bottom:1px solid var(--border);
     min-height:42px;box-sizing:border-box;flex-shrink:0;z-index:15;
   }
   .center-tabs{
     display:inline-flex;align-items:center;gap:3px;
     background:var(--sec-bg);padding:3px;border-radius:6px;
-    border:1px solid var(--border);
+    border:1px solid var(--border);flex-shrink:0;
   }
   .center-tab-btn{
     height:28px;box-sizing:border-box;
@@ -116,6 +117,39 @@
   }
   .center-tab-btn:hover{background:var(--hover);color:var(--fg)}
   .center-tab-btn:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+
+  /* 공통 헤더 검색창 */
+  #centerhead #netsearch{
+    display:flex;align-items:center;padding:0;border:none;background:transparent;
+    min-height:auto;flex:1;max-width:440px;margin-left:auto;
+  }
+  #centerhead #barsearch{
+    display:flex;align-items:center;position:relative;width:100%;
+    background:var(--panel-bg);border:1px solid var(--border);
+    border-radius:6px;padding:0 4px 0 8px;gap:6px;
+    transition:border-color .15s ease,box-shadow .15s ease,background .15s ease;
+  }
+  #centerhead #barsearch:focus-within{
+    border-color:var(--accent,#0284c7);
+    box-shadow:0 0 0 2px rgba(2,132,199,0.18);
+    background:var(--card-bg,var(--panel-bg));
+  }
+  .center-search-icon{
+    font-size:13px;line-height:1;user-select:none;flex-shrink:0;opacity:0.85;
+  }
+  #centerhead #barsearch input#q{
+    flex:1;min-width:0;height:28px;line-height:28px;padding:0;
+    border:none;background:transparent;color:var(--fg);font-size:12.5px;outline:none;
+  }
+  .center-search-clear-btn{
+    background:transparent;border:none;color:var(--muted);cursor:pointer;
+    font-size:11px;padding:2px 6px;height:24px;line-height:20px;
+    border-radius:4px;display:flex;align-items:center;justify-content:center;
+    flex-shrink:0;user-select:none;
+  }
+  .center-search-clear-btn:hover{
+    background:var(--hover);color:var(--fg);
+  }
 
   /* 중앙 뷰 전환에 따른 탭 활성화 (CSS data 속성 기반 즉각 연동) */
   body[data-center-view="graph"] #centertab-graph,
@@ -309,9 +343,10 @@ body.stt-modal-open{overflow:hidden}
 
 
 @media (max-width:720px){
-    .center-head-bar{padding:4px 8px;min-height:44px}
+    .center-head-bar{padding:6px 8px;min-height:auto;flex-wrap:wrap;gap:6px}
     .center-tabs{width:100%;display:flex}
     .center-tab-btn{flex:1;min-height:36px;font-size:12px;padding:0 4px}
+    #centerhead #netsearch{max-width:100%;width:100%;margin-left:0}
 
   /* 모바일 크게 읽기 모달 */
     #reader{position:fixed!important;top:0!important;left:0!important;right:0!important;bottom:calc(54px + env(safe-area-inset-bottom))!important;height:calc(100% - 54px - env(safe-area-inset-bottom))!important;max-height:calc(100% - 54px - env(safe-area-inset-bottom))!important;width:100%!important;max-width:100%!important;min-width:0!important;min-height:0!important;box-sizing:border-box!important;overflow:hidden!important;background:var(--shadow)!important;display:none!important;visibility:hidden!important;pointer-events:none!important;z-index:45!important;padding:0!important}

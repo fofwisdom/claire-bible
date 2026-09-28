@@ -2774,6 +2774,12 @@ function onDocqInput(v){
   if(serverSearchResults && serverSearchResults.query !== (v||'').trim().toLowerCase()){
     serverSearchResults = null;
   }
+  const qEl = document.getElementById('q');
+  if(qEl && typeof centerView !== 'undefined' && centerView === 'reader' && qEl.value !== v){
+    qEl.value = v;
+    const qclear = document.getElementById('qclear');
+    if(qclear) qclear.style.display = v ? 'flex' : 'none';
+  }
   renderDocs(v);
 }
 
@@ -2782,6 +2788,12 @@ function clearServerSearch(){
   cancelServerSearch();
   const dq = document.getElementById('docq');
   if(dq){ dq.value = ''; }
+  const qEl = document.getElementById('q');
+  if(qEl && typeof centerView !== 'undefined' && centerView === 'reader'){
+    qEl.value = '';
+    const qclear = document.getElementById('qclear');
+    if(qclear) qclear.style.display = 'none';
+  }
   docSearchActive = false;
   renderDocs('');
 }
@@ -3072,6 +3084,9 @@ function resetHome(){
   if(q && q.value){
     q.value = '';
   }
+  const qclear = document.getElementById('qclear');
+  if(qclear) qclear.style.display = 'none';
+  streamSearchQuery = '';
   const sem = document.getElementById('sem');
   if(sem && sem.checked){
     sem.checked = false;
@@ -3313,6 +3328,39 @@ function peekNode(ev, id){
   hoverTimer=setTimeout(()=>showNodePop(id, x, y), 1500);
 }
 function leaveNode(){ clearTimeout(hoverTimer); hideNodePop(); }
+// 공통 헤더 검색창 입력 핸들러 (본문/그래프/의사결정 스트림 상태에 따라 분기)
+function onCenterSearchInput(v){
+  const qclear = document.getElementById('qclear');
+  if(qclear){
+    qclear.style.display = v ? 'flex' : 'none';
+  }
+  const view = (typeof centerView !== 'undefined' ? centerView : 'graph');
+  if(view === 'reader'){
+    const docq = document.getElementById('docq');
+    if(docq && docq.value !== v){
+      docq.value = v;
+    }
+    onDocqInput(v);
+  } else if(view === 'stream'){
+    if(typeof filterDecisionStreamByQuery === 'function'){
+      filterDecisionStreamByQuery(v);
+    }
+  } else {
+    onSearchInput(v);
+  }
+}
+window.onCenterSearchInput = onCenterSearchInput;
+
+function clearCenterSearch(){
+  const q = document.getElementById('q');
+  if(q){
+    q.value = '';
+    onCenterSearchInput('');
+    q.focus();
+  }
+}
+window.clearCenterSearch = clearCenterSearch;
+
 // 타이핑마다 즉시 검색하면 매 키 입력에 강조+물리 클러스터링이 돌아 무겁고 출렁인다.
 // 디바운스: 입력이 멈춘 뒤(350ms) 한 번만 실행. 단 검색창을 비우면 즉시 해제(반응성).
 function onSearchInput(v){
@@ -3381,9 +3429,44 @@ if(docqEl){
 const qEl=document.getElementById('q');
 if(qEl){
   qEl.addEventListener('keydown',e=>{
+    if(e.key === 'Escape'){
+      e.preventDefault();
+      clearCenterSearch();
+      return;
+    }
     if(e.key!=='Enter') return;
-    cancelServerSearch(); currentSearchSeq++; clearTimeout(searchDebounce); hl(e.target.value);
-    if(net){ const m=net.getSelectedNodes(); if(m.length) loadNode(m[0]); }
+    e.preventDefault();
+    const val = (e.target.value || '').trim();
+    const view = (typeof centerView !== 'undefined' ? centerView : 'graph');
+    if(view === 'reader'){
+      cancelServerSearch();
+      currentSearchSeq++;
+      clearTimeout(searchDebounce);
+      doDocServerSearch(val);
+    } else if(view === 'stream'){
+      if(typeof filterDecisionStreamByQuery === 'function'){
+        filterDecisionStreamByQuery(val);
+      }
+    } else {
+      cancelServerSearch();
+      currentSearchSeq++;
+      clearTimeout(searchDebounce);
+      hl(val);
+      if(net && allNodes){
+        const matches = [];
+        if(val){
+          const qVal = val.toLowerCase();
+          allNodes.forEach(n => {
+            if(n.label.toLowerCase().includes(qVal)) matches.push(n.id);
+          });
+        }
+        if(matches.length){
+          net.selectNodes(matches);
+          cameraToNodes(matches);
+          if(matches.length === 1) loadNode(matches[0]);
+        }
+      }
+    }
   });
   qEl.addEventListener('focus', e=> e.target.select());
 }
@@ -4742,14 +4825,38 @@ let currentDecisionFilter = 'ALL';
 let cachedDecisions = [];
 let displayedStreamLimit = 30;
 let isFetchingDecisions = false;
+let streamSearchQuery = '';
 
 function getFilteredDecisions(){
   if(!Array.isArray(cachedDecisions)) return [];
-  if(currentDecisionFilter === 'MERGE') return cachedDecisions.filter(d => d.decision === 'MERGE');
-  if(currentDecisionFilter === 'CREATE_NEW') return cachedDecisions.filter(d => d.decision === 'CREATE_NEW');
-  if(currentDecisionFilter === 'ROLLED_BACK') return cachedDecisions.filter(d => d.decision === 'ROLLED_BACK' || d.rolled_back);
-  return cachedDecisions;
+  let list = cachedDecisions;
+  if(currentDecisionFilter === 'MERGE') list = list.filter(d => d.decision === 'MERGE');
+  else if(currentDecisionFilter === 'CREATE_NEW') list = list.filter(d => d.decision === 'CREATE_NEW');
+  else if(currentDecisionFilter === 'ROLLED_BACK') list = list.filter(d => d.decision === 'ROLLED_BACK' || d.rolled_back);
+
+  if(streamSearchQuery){
+    const sq = streamSearchQuery;
+    list = list.filter(d => {
+      const entityMatch = (d.entity_name || d.name || '').toLowerCase().includes(sq);
+      const reasonMatch = (d.reason || '').toLowerCase().includes(sq);
+      const typeMatch = (d.entity_type || d.type || '').toLowerCase().includes(sq);
+      const docMatch = (d.document_id || '').toLowerCase().includes(sq);
+      return entityMatch || reasonMatch || typeMatch || docMatch;
+    });
+  }
+  return list;
 }
+
+function filterDecisionStreamByQuery(q){
+  streamSearchQuery = (q || '').trim().toLowerCase();
+  displayedStreamLimit = 30;
+  const container = document.getElementById('stream-scroll-container');
+  if(container) container.scrollTop = 0;
+  if(typeof renderDecisionStreamCenter === 'function'){
+    renderDecisionStreamCenter(false);
+  }
+}
+window.filterDecisionStreamByQuery = filterDecisionStreamByQuery;
 
 async function openDecisionStream(){
   setCenterView('stream');
