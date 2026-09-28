@@ -436,6 +436,8 @@
   .node-manage-menu { position: absolute; top: calc(100% + 4px); left: 0; min-width: 130px; background: var(--card-bg); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 4px 16px var(--shadow); padding: 4px; z-index: 50; display: flex; flex-direction: column; gap: 2px; }
   .node-manage-item { display: flex; align-items: center; gap: 6px; width: 100%; text-align: left; background: transparent; color: var(--fg); border: 0; border-radius: 4px; padding: 6px 10px; font-size: 12px; cursor: pointer; transition: background .15s ease, color .15s ease; }
   .node-manage-item:hover, .node-manage-item:focus-visible { background: var(--hover); color: var(--accent); outline: none; }
+  .node-isolate-btn { font-size: 12px; padding: 4px 10px; cursor: pointer; transition: all .15s ease; }
+  .node-isolate-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
 
   /* --- Entity Alias Chips & Primary Label Selection --- */
   .node-aliases-section { margin: 12px 0; }
