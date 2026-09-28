@@ -310,3 +310,43 @@ def test_document_detail_and_ui_with_cc():
     assert detail["caption_language"] == "ko_KR"
     assert detail["transcript_source"] == "manual_caption"
 
+
+def test_docmeta_rollover_shows_total_character_count():
+    import json
+    import subprocess
+    from claire.graphview import GRAPH_HTML
+
+    # Case 1: non-truncated document with raw_chars
+    doc1 = {
+        "id": "doc_test_chars_1",
+        "title": "Title 1",
+        "url": "https://example.com/1",
+        "orig_chars": 15420,
+        "raw_chars": 15420,
+    }
+    # Case 2: truncated document with orig_chars and raw_chars
+    doc2 = {
+        "id": "doc_test_chars_2",
+        "title": "Title 2",
+        "url": "https://example.com/2",
+        "orig_chars": 50000,
+        "raw_chars": 20000,
+        "raw_truncated": True,
+    }
+
+    start = GRAPH_HTML.index("function docMetaHtml(dc){")
+    end = GRAPH_HTML.index("function renderReader(dc){")
+    fn = GRAPH_HTML[start:end]
+    js = f"""
+    function esc(s){{ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }}
+    {fn}
+    const d1 = {json.dumps(doc1)};
+    const d2 = {json.dumps(doc2)};
+    console.log("OUT1:" + docMetaHtml(d1));
+    console.log("OUT2:" + docMetaHtml(d2));
+    """
+    res = subprocess.run(["node", "-e", js], capture_output=True, text=True, check=True)
+    out = res.stdout
+    assert 'title="전체 문자 수: 15,420자"' in out
+    assert 'title="전체 문자 수: 50,000자 (적재: 20,000자)"' in out
+
