@@ -80,6 +80,7 @@ let lastNetSize = {w:0, h:0};
 let allTypes = [], allRelTypes = [], allDocs = [];
 let net = null, allNodes = null, allEdges = null;
 let curMinDeg = 0, activeDoc = null, highlightSet = null, selectedNodeId = null, hoverTimer = null;
+let isolatedNodeId = null, activeHoverEdges = null, activeHoverNodes = null;
 let lastSelectedDocId = null;
 try{
   const savedLastDoc = localStorage.getItem('claireLastDoc');
@@ -637,6 +638,72 @@ function hideNodePop(){
   clearTimeout(hoverTimer); hoverTimer=null;
   popReqId=null; clearTimeout(popExpandTimer); popExpandTimer=null;
   if(nodepop) nodepop.style.display='none';
+}
+
+function applyHoverHighlight(id){
+  if(!net || !allEdges || !allNodes || selectedNodeId || isolatedNodeId || pathMode) return;
+  try{
+    const rawEdges = net.getConnectedEdges(id);
+    const rawNodes = net.getConnectedNodes(id);
+    if(!rawEdges || !rawEdges.length) return;
+    const th = T();
+
+    activeHoverEdges = rawEdges;
+    activeHoverNodes = [id, ...(Array.isArray(rawNodes) ? rawNodes : [])];
+
+    const edgeUpdates = rawEdges.map(eid => ({
+      id: eid,
+      width: 2.2,
+      color: { color: th.lit, highlight: th.lit, opacity: 1.0 }
+    }));
+    allEdges.update(edgeUpdates);
+
+    if(activeHoverNodes && activeHoverNodes.length){
+      const nodeUpdates = activeHoverNodes.map(nid => {
+        const n = allNodes.get(nid);
+        const fs = n ? nodeFontSize(n.degree) : 12;
+        return {
+          id: nid,
+          opacity: 1.0,
+          font: { size: Math.max(fs, 13), color: th.nodeFont }
+        };
+      });
+      allNodes.update(nodeUpdates);
+    }
+  }catch(_){}
+}
+
+function clearHoverHighlight(){
+  if(!net || !allEdges || !activeHoverEdges) return;
+  try{
+    const currentScale = net ? net.getScale() : 0.1;
+    let baseOpacity = 0.18, baseWidth = 0.8;
+    if(currentScale >= 1.0){ baseOpacity = 0.6; baseWidth = 1.2; }
+    else if(currentScale >= 0.4){ baseOpacity = 0.35; baseWidth = 1.0; }
+    const th = T();
+
+    const edgeResets = activeHoverEdges.map(eid => ({
+      id: eid,
+      width: baseWidth,
+      color: { color: th.edge, highlight: th.edgeHi, opacity: baseOpacity }
+    }));
+    allEdges.update(edgeResets);
+
+    if(activeHoverNodes && activeHoverNodes.length){
+      const nodeResets = activeHoverNodes.map(nid => {
+        const n = allNodes.get(nid);
+        const fs = n ? nodeFontSize(n.degree) : 12;
+        return {
+          id: nid,
+          opacity: 1.0,
+          font: { size: fs, color: th.nodeFont }
+        };
+      });
+      allNodes.update(nodeResets);
+    }
+  }catch(_){}
+  activeHoverEdges = null;
+  activeHoverNodes = null;
 }
 
 // 타입별 노드 그룹 색(테마별 테두리). 테마 전환 시 다시 만들어 setOptions 로 적용.
@@ -1229,6 +1296,10 @@ function initGraph(onComplete){
         // vis 가 내부적으로 선택을 비우므로 그 뒤에 검색 선택을 다시 적용한다.
         hideNodePop();
         selectedNodeId=null;
+        if(isolatedNodeId){
+          isolatedNodeId = null;
+          if(currentNodeData) renderPanel(currentNodeData);
+        }
         applyView();
         if(highlightSet && highlightSet.size) setTimeout(restoreSelection, 0);
         return;
@@ -1288,19 +1359,29 @@ function initGraph(onComplete){
     net.on('hoverNode', p => {
       const isMobile = (compactMQ && compactMQ.matches) || (mobileMQ && mobileMQ.matches);
       if(isMobile) return;
+      applyHoverHighlight(p.node);
       clearTimeout(hoverTimer);
       if(!canShowNodePop(p.node)) return;
       hoverTimer=setTimeout(()=>showNodePop(p.node), 1500);
     });
     net.on('blurNode', () => {
       const isMobile = (compactMQ && compactMQ.matches) || (mobileMQ && mobileMQ.matches);
-      if(!isMobile) hideNodePop();
+      if(!isMobile){
+        clearHoverHighlight();
+        hideNodePop();
+      }
     });
     net.on('hold', () => {
       const isMobile = (compactMQ && compactMQ.matches) || (mobileMQ && mobileMQ.matches);
-      if(!isMobile) hideNodePop();
+      if(!isMobile){
+        clearHoverHighlight();
+        hideNodePop();
+      }
     });
-    net.on('dragStart', hideNodePop);   // 드래그/줌 중엔 팝업 숨김(커서를 따라다니지 않게)
+    net.on('dragStart', () => {
+      clearHoverHighlight();
+      hideNodePop();
+    });   // 드래그/줌 중엔 팝업 숨김(커서를 따라다니지 않게)
     net.on('selectEdge', p=>{ selectedEdgeIds=new Set(p.edges||[]); applyView(); });
     net.on('deselectEdge', ()=>{ selectedEdgeIds.clear(); applyView(); });
     let zoomDebounceTimer = null;
@@ -1404,6 +1485,10 @@ function restoreSelection(){
 // 검색·inspect 모두 해제(ESC / 검색창 비우기). synthSet(종합 수집)은 보존.
 function clearSelections(){
   highlightSet=null; selectedNodeId=null;
+  if(isolatedNodeId){
+    isolatedNodeId = null;
+    if(currentNodeData) renderPanel(currentNodeData);
+  }
   const q=document.getElementById('q'); if(q) q.value='';
   if(net) net.unselectAll();
   unclusterEdges();   // 검색으로 뭉치게 한 임시 spring 엣지 제거 → 물리가 원래대로
@@ -1523,6 +1608,37 @@ function focusOnNode(id){
   });
 }
 
+function toggleNodeIsolation(id){
+  if(isolatedNodeId === id){
+    isolatedNodeId = null;
+  } else {
+    isolatedNodeId = id;
+    selectedNodeId = id;
+  }
+  applyView();
+  if(isolatedNodeId){
+    focusOnNode(isolatedNodeId);
+    triggerGentleRelaxation();
+  } else {
+    resetGraphCamera();
+  }
+  if(currentNodeData && currentNodeData.id === id){
+    renderPanel(currentNodeData);
+  }
+}
+
+function clearNodeIsolation(){
+  if(!isolatedNodeId) return;
+  isolatedNodeId = null;
+  applyView();
+  resetGraphCamera();
+  if(currentNodeData){
+    renderPanel(currentNodeData);
+  }
+}
+window.toggleNodeIsolation = toggleNodeIsolation;
+window.clearNodeIsolation = clearNodeIsolation;
+
 function loadNode(id, hidePop=true){
   const focusCamera = arguments.length > 2 ? arguments[2] : true;
   if(hidePop) hideNodePop();
@@ -1538,9 +1654,11 @@ function renderPanel(d){
   // 문서를 고른 상태에서 노드로 들어왔으면 문서 패널로 한 번에 돌아갈 링크.
   let h = activeDoc ? '<span class=backlink onclick="loadDocPanel(activeDoc)">← 문서로 돌아가기</span>' : '';
   h+='<h2>'+esc(d.name)+' <small>'+esc(d.type)+(d.provisional?' ⚠️provisional':'')+'</small></h2>';
-  // readonly(/webro) 세션은 종합(/synthesize)이 서버에서 막혀있어 버튼 자체를 안 그림.
+  const isIsolated = (isolatedNodeId === d.id);
+  const isoBtn = '<button type="button" class="sec node-isolate-btn '+(isIsolated?'active':'')+'" onclick="toggleNodeIsolation(\''+d.id+'\')" title="이 노드와 직접 연결된 이웃만 화면에 남깁니다">'+(isIsolated?'✕ 격리 해제':'🔍 주변만 보기')+'</button>';
+  h+='<div class="node-actions-bar">';
+  h+=isoBtn;
   if(canWrite()){
-    h+='<div class="node-actions-bar">';
     h+='<button class="sec" onclick="addToSynth(\''+d.id+'\')">'+(inSet?'✓ 종합 목록에 있음':'➕ 종합에 추가')+'</button>';
     if(d.aliases && d.aliases.length){
       h+='<div class="node-manage-dropdown">';
@@ -1550,8 +1668,8 @@ function renderPanel(d){
       h+='</div>';
       h+='</div>';
     }
-    h+='</div>';
   }
+  h+='</div>';
   if(d.aliases && d.aliases.length){
     h+='<div class="node-aliases-section" id="node-aliases-section">';
     h+='<div class="node-aliases-header">';
@@ -2299,6 +2417,7 @@ function nodeFontSize(deg){
   const d = deg || 0;
   if(d <= 1) return 11;
   if(d === 2) return 12;
+  if(d >= 8) return Math.min(18, Math.round(12 + Math.log2(d + 1) * 1.3));
   return Math.min(15, Math.round(11 + Math.log2(d + 1)));
 }
 
@@ -2394,6 +2513,17 @@ function applyView(){
   const pathActive = !!(pathNodes && pathNodes.size);
   const hasFilter = activeDoc || highlightSet || pathActive;
 
+  let isolatedSet = null;
+  if(isolatedNodeId && net && typeof net.getConnectedNodes === 'function'){
+    try{
+      const rawConn = net.getConnectedNodes(isolatedNodeId);
+      isolatedSet = new Set(Array.isArray(rawConn) ? rawConn : []);
+      isolatedSet.add(isolatedNodeId);
+    }catch(_){
+      isolatedSet = new Set([isolatedNodeId]);
+    }
+  }
+
   let selectedNeighbors = null;
   if(selectedNodeId && net && typeof net.getConnectedNodes === 'function'){
     try{
@@ -2408,7 +2538,8 @@ function applyView(){
   const nodeUpdates=[], matchedNodes=new Set();
   allNodes.forEach(n=>{
     if(typeof n.id==='string' && n.id.indexOf('cl_')===0) return;  // 검색 중앙 앵커는 안 건드림(숨김 유지)
-    if(n.degree < curMinDeg){ nodeUpdates.push({id:n.id, hidden:true}); return; }
+    if(isolatedSet && !isolatedSet.has(n.id)){ nodeUpdates.push({id:n.id, hidden:true}); return; }
+    if(n.degree < curMinDeg && (!isolatedSet || !isolatedSet.has(n.id))){ nodeUpdates.push({id:n.id, hidden:true}); return; }
     let match = true;
     if(pathActive){ match = pathNodes.has(n.id); }   // 경로 모드: 경로 노드만 강조(다른 필터보다 우선)
     else {
@@ -2419,6 +2550,7 @@ function applyView(){
     // 노드별 color 가 group 색을 덮으므로 background/highlight 를 같이 명시해 유지한다.
     const lit = (hasFilter && match) || (selectedNodeId && n.id === selectedNodeId);
     const isNeighbor = selectedNeighbors && selectedNeighbors.has(n.id);
+    const isLandmark = (n.degree >= 8);
     const c = TYPE_COLORS[n.group]||'#8b949e';
     if(match) matchedNodes.add(n.id);
     const r = nodeRadius(n.degree);
@@ -2439,7 +2571,7 @@ function applyView(){
         nodeOpacity = 0.95;
         nodeBorderWidth = 2;
         nodeBorderColor = th.lit;
-        nodeFs = fs;
+        nodeFs = Math.max(fs, 12);
       } else {
         nodeOpacity = 0.12;
         nodeBorderWidth = 1;
@@ -2455,7 +2587,7 @@ function applyView(){
       nodeOpacity = 1;
       nodeBorderWidth = 1;
       nodeBorderColor = th.nodeBorder;
-      nodeFs = fs;
+      nodeFs = isLandmark ? Math.max(fs, 14) : fs;
     }
 
     nodeUpdates.push({id:n.id, hidden:false, size:r,
@@ -2539,9 +2671,10 @@ function applyView(){
   if(edgeUpdates.length) allEdges.update(edgeUpdates);  // 1회 배치
   document.getElementById('stat').innerHTML =
     '표시 <b>'+shown+'</b>/'+allNodes.length
-    + (curMinDeg>0?' · 연결≥'+curMinDeg:'')
+    + (isolatedSet ? ' · 🔍 격리 뷰 ('+isolatedSet.size+'개)' : '')
+    + (curMinDeg>0 && !isolatedSet ? ' · 연결≥'+curMinDeg:'')
     + (relFilter?' · 관계 '+relFilter.size+'/'+allRelTypes.length:'')
-    + (pathActive?' · 🔗경로 '+pathNodes.size+'노드':(hasFilter?' · 강조 '+emph+'개':''));
+    + (pathActive?' · 🔗경로 '+pathNodes.size+'노드':(hasFilter && !isolatedSet ?' · 강조 '+emph+'개':''));
 }
 
 // --- 2노드 경로 하이라이트(전용 모드): 🔗 경로 → 시작/끝 노드 클릭 → 최단경로(BFS) 강조 ---
@@ -2771,6 +2904,7 @@ function resetHome(){
   updateSearchModeUI();
   clearTimeout(searchDebounce);
   highlightSet = null;
+  isolatedNodeId = null;
   unclusterEdges();
   if(pathMode) clearPath();
   if(net){
