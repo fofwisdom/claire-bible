@@ -213,6 +213,9 @@ def _render_authorize_page(
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Claire Bible 연결 승인</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <link rel="alternate icon" href="/favicon.ico">
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
     <style>
         body {{
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -235,12 +238,31 @@ def _render_authorize_page(
             padding: 32px;
             box-sizing: border-box;
         }}
+        .logo-wrap {{
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 64px;
+            height: 64px;
+            border-radius: 16px;
+            background: #0e1116;
+            box-shadow: 0 4px 12px rgba(0, 255, 170, 0.18), 0 2px 4px rgba(0, 0, 0, 0.06);
+            margin-bottom: 12px;
+        }}
+        .logo-wrap img {{
+            display: block;
+            width: 44px;
+            height: 44px;
+            filter: drop-shadow(0 0 6px rgba(0, 255, 170, 0.5));
+        }}
     </style>
 </head>
 <body>
     <div class="card">
         <div style="text-align:center;margin-bottom:24px;">
-            <div style="font-size:36px;margin-bottom:8px;">💎</div>
+            <div class="logo-wrap">
+                <img src="/favicon.svg" alt="Claire Bible 로고">
+            </div>
             <h2 style="margin:0 0 8px;font-size:20px;font-weight:700;">Claire Bible 연결</h2>
             <p style="margin:0;color:#64748b;font-size:14px;">외부 애플리케이션이 접근 권한을 요청합니다.</p>
         </div>
