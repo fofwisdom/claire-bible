@@ -266,17 +266,17 @@ test('mobile bottom bar returns to doc list when switching from search tab to do
 
   // 2. Click search tab (검색 단추)
   await page.locator('#tab-search').click();
-  await expect(page.locator('#docq')).toBeFocused();
+  await expect(page.locator('#q')).toBeFocused();
   await expect(page.locator('#doclist')).toContainText('검색어를 입력하세요');
   await expect(page.locator('#doclist .docitem')).toHaveCount(0);
 
   // 3. User types a query
-  await page.locator('#docq').fill('테스트');
+  await page.locator('#q').fill('테스트');
 
   // 4. Click docs tab (자료 단추) to return
   await page.locator('#tab-docs').click();
   await expect(page.locator('#tab-docs')).toHaveAttribute('aria-selected', 'true');
-  await expect(page.locator('#docq')).toHaveValue('');
+  await expect(page.locator('#q')).toHaveValue('');
   await expect(page.locator('#doclist .docitem')).toHaveCount(initialDocCount);
   await expect(page.locator('#doclist .docitem').first()).toBeVisible();
 

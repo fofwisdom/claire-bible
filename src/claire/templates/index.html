@@ -113,27 +113,6 @@
 <div id="wrap">
   <aside id="docs" class="workspace-pane" role="tabpanel" aria-labelledby="tab-docs" tabindex="0">
     <div class="dhead">
-      <div class="docq-search-row">
-        <label class="sr-only" for="docq">자료 검색</label>
-        <input id="docq" placeholder="문서 검색 (Enter: 본문 전체 검색)" oninput="docSearchActive=true;onDocqInput(this.value)"/>
-        <button id="advsearchbtn" type="button" class="sec" onclick="toggleAdvSearch()" title="고급 검색" aria-label="고급 검색" aria-expanded="false" aria-controls="advsearchpane">
-          <span class="btn-icon">⚙️</span>
-        </button>
-      </div>
-      <div id="advsearchpane" class="adv-search-pane" hidden aria-hidden="true">
-        <div class="adv-search-body">
-          <label class="adv-search-option" id="fts-opt-wrap" title="SQLite FTS5 기반 BM25">
-            <input type="checkbox" id="sem" style="width:auto" disabled/>
-            <span id="searchkind">Full-Text Search</span>
-          </label>
-          <label class="adv-search-option" id="semantic-opt-wrap" title="FTS + AI RRF 기반 벡터 하이브리드">
-            <input type="checkbox" id="semchk" style="width:auto" disabled/>
-            <span id="semkind">Semantic Search</span>
-            <span id="sembadge" class="auth-required-badge">🔒 인증 필요</span>
-          </label>
-        </div>
-        <p id="advsearchhint" class="adv-search-hint">체크 시 DB 전체 지식베이스를 검색합니다 (검색어 입력 후 Enter).</p>
-      </div>
       <div class="docsearch-stat-row">
         <span id="stat" role="status" aria-live="polite">로딩…</span>
       </div>
@@ -154,6 +133,32 @@
   </aside>
   <div id="centerwrap">
     <header id="centerhead" class="center-head-bar" role="navigation" aria-label="중앙 화면 전환">
+      <div id="netsearch">
+        <div id="barsearch">
+          <label class="sr-only" for="q" id="qlbl">통합 검색</label>
+          <span class="center-search-icon" id="qicon" aria-hidden="true">📊</span>
+          <input id="q" placeholder="그래프 노드 검색 (엔티티 이름)" oninput="onCenterSearchInput(this.value)"/>
+          <input type="hidden" id="docq"/>
+          <button id="qclear" type="button" class="center-search-clear-btn" onclick="clearCenterSearch()" title="검색어 초기화" aria-label="검색어 초기화" style="display:none">✕</button>
+          <button id="advsearchbtn" type="button" class="sec adv-search-toggle-btn" onclick="toggleAdvSearch()" title="고급 검색 설정" aria-label="고급 검색" aria-expanded="false" aria-controls="advsearchpane">
+            <span class="btn-icon">⚙️</span>
+          </button>
+        </div>
+        <div id="advsearchpane" class="adv-search-pane" hidden aria-hidden="true">
+          <div class="adv-search-body">
+            <label class="adv-search-option" id="fts-opt-wrap" title="SQLite FTS5 기반 BM25">
+              <input type="checkbox" id="sem" style="width:auto" disabled/>
+              <span id="searchkind">Full-Text Search</span>
+            </label>
+            <label class="adv-search-option" id="semantic-opt-wrap" title="FTS + AI RRF 기반 벡터 하이브리드">
+              <input type="checkbox" id="semchk" style="width:auto" disabled/>
+              <span id="semkind">Semantic Search</span>
+              <span id="sembadge" class="auth-required-badge">🔒 인증 필요</span>
+            </label>
+          </div>
+          <p id="advsearchhint" class="adv-search-hint">체크 시 DB 전체 지식베이스를 검색합니다 (검색어 입력 후 Enter).</p>
+        </div>
+      </div>
       <div id="centertabs" class="center-tabs" role="tablist" aria-label="중앙 작업 영역 뷰">
         <button id="centertab-graph" type="button" class="center-tab-btn active" role="tab" aria-selected="true" onclick="setCenterView('graph')" title="지식 그래프" aria-label="그래프">
           <span class="btn-icon">📊</span> <span class="btn-label">그래프</span>
@@ -164,14 +169,6 @@
         <button id="centertab-stream" type="button" class="center-tab-btn" role="tab" aria-selected="false" onclick="setCenterView('stream')" title="엔티티 해소 의사결정 스트림" aria-label="의사결정 스트림">
           <span class="btn-icon">📜</span> <span class="btn-label">의사결정 스트림</span>
         </button>
-      </div>
-      <div id="netsearch">
-        <div id="barsearch">
-          <label class="sr-only" for="q" id="qlbl">그래프 검색</label>
-          <span class="center-search-icon" id="qicon" aria-hidden="true">📊</span>
-          <input id="q" placeholder="그래프 노드 검색 (엔티티 이름)" oninput="onCenterSearchInput(this.value)"/>
-          <button id="qclear" type="button" class="center-search-clear-btn" onclick="clearCenterSearch()" title="검색어 초기화" aria-label="검색어 초기화" style="display:none">✕</button>
-        </div>
       </div>
     </header>
     <section id="netwrap" class="workspace-pane" role="tabpanel" aria-labelledby="tab-graph" tabindex="0">
@@ -254,18 +251,6 @@
       </div>
     </section>
     <section id="streamwrap" class="workspace-pane" role="region" aria-label="의사결정 스트림">
-      <div id="stream-topbar" class="stream-topbar">
-        <div class="stream-title-group">
-          <div class="stream-indicator"></div>
-          <div>
-            <h2 id="stream-title">의사결정 스트림 <small id="stream-subtitle">| 엔티티 해소 감사 로그</small></h2>
-            <p id="stream-meta" class="stream-meta">지식베이스 전역의 엔티티 해소 및 온톨로지 불변식 판정 기록</p>
-          </div>
-        </div>
-        <div class="stream-actions">
-          <button id="stream-close-btn" type="button" class="matrix-close-btn" onclick="closeStreamView()" title="닫기">✕</button>
-        </div>
-      </div>
       <div class="stream-toolbar">
         <div class="stream-filter-bar" id="stream-filter-bar">
           <button type="button" class="sec active" data-filter="ALL" onclick="filterDecisionStreamCenter('ALL')">전체</button>
