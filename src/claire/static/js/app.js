@@ -1356,6 +1356,17 @@ function resumeGraphAfterIngest(){
 
 // 초기 구동 검사: 적재 진행 중이면 그래프를 표시하거나 계산하지 않고 즉시 대조 매트릭스로 진입
 fetch('stats').then(r => r.ok ? r.json() : null).then(d => {
+  if(d && d.active_ingest && d.active_ingest.heatmap_matrix){
+    const docId = (d.active_ingest.result && d.active_ingest.result.document_id) || d.active_ingest.heatmap_matrix.document_id || null;
+    if(docId){
+      try {
+        sessionStorage.setItem('doc_matrix_' + docId, JSON.stringify(d.active_ingest.heatmap_matrix));
+      } catch(_) {}
+    }
+    window.latestHeatmapMatrix = d.active_ingest.heatmap_matrix;
+    window.latestHeatmapDocId = docId;
+    window.latestHeatmapDocTitle = d.active_ingest.title || '';
+  }
   if(d && (d.ingesting || (d.active_ingest && d.active_ingest.active))){
     suspendGraphForIngest();
     setCenterView('matrix');
@@ -2087,11 +2098,16 @@ function stopFastIngestPolling(){
   scheduleNextPoll(25000);
 }
 
+let activeMatrixInitialized = false;
+
 function handleActiveIngestState(activeInfo){
   if(!activeInfo) return;
-  if(typeof initIngestMatrixView === 'function'){
+  if(!activeMatrixInitialized && typeof initIngestMatrixView === 'function'){
     initIngestMatrixView(activeInfo.payload, activeInfo.focus, activeInfo.theme_label);
+    activeMatrixInitialized = true;
   }
+  const spin = document.getElementById('matrix-progress-spinner');
+  if(spin && activeInfo.active) spin.style.display = 'inline-block';
   if(activeInfo.title){
     const docMetaEl = document.getElementById('matrix-target-doc');
     if(docMetaEl) docMetaEl.textContent = '대조 대상: ' + activeInfo.title;
@@ -2105,7 +2121,12 @@ function handleActiveIngestState(activeInfo){
 }
 
 function handleActiveIngestCompleted(activeInfo){
+  activeMatrixInitialized = false;
   stopFastIngestPolling();
+  const spin = document.getElementById('matrix-progress-spinner');
+  if(spin) spin.style.display = 'none';
+  const msgEl = document.getElementById('matrix-progress-msg');
+
   if(activeInfo && activeInfo.result){
     const result = activeInfo.result;
     if(result.heatmap_matrix && result.document_id){
@@ -2114,17 +2135,12 @@ function handleActiveIngestCompleted(activeInfo){
       } catch(_) {}
       window.latestHeatmapMatrix = result.heatmap_matrix;
       window.latestHeatmapDocId = result.document_id;
+      window.latestHeatmapDocTitle = result.title || activeInfo.title || '';
     }
     completeIngestMatrixView(result);
   } else if(activeInfo && activeInfo.stage === 'error'){
-    const spin = document.getElementById('matrix-progress-spinner');
-    if(spin) spin.style.display = 'none';
-    const msgEl = document.getElementById('matrix-progress-msg');
     if(msgEl) msgEl.innerHTML = '❌ <strong>' + esc(activeInfo.msg || '적재 중 오류 발생') + '</strong>';
   } else {
-    const spin = document.getElementById('matrix-progress-spinner');
-    if(spin) spin.style.display = 'none';
-    const msgEl = document.getElementById('matrix-progress-msg');
     if(msgEl) msgEl.innerHTML = '✅ <strong>대조 및 적재 완료</strong>';
   }
   if(activeInfo && activeInfo.heatmap_matrix){
@@ -2140,11 +2156,28 @@ async function pollForUpdates(){
     const d = await r.json();
     const isIngesting = !!(d.ingesting || (d.active_ingest && d.active_ingest.active));
 
+    // 최신 active_ingest 정보가 있으면 매트릭스 캐시 동기화
+    if(d.active_ingest && d.active_ingest.heatmap_matrix){
+      const docId = (d.active_ingest.result && d.active_ingest.result.document_id) || d.active_ingest.heatmap_matrix.document_id || null;
+      if(docId){
+        try {
+          sessionStorage.setItem('doc_matrix_' + docId, JSON.stringify(d.active_ingest.heatmap_matrix));
+        } catch(_) {}
+      }
+      window.latestHeatmapMatrix = d.active_ingest.heatmap_matrix;
+      window.latestHeatmapDocId = docId;
+      window.latestHeatmapDocTitle = d.active_ingest.title || '';
+    }
+
     if(isIngesting){
       if(!trackingIngest){
         trackingIngest = true;
         suspendGraphForIngest();
         setCenterView('matrix');
+        if(typeof initIngestMatrixView === 'function' && d.active_ingest){
+          initIngestMatrixView(d.active_ingest.payload, d.active_ingest.focus, d.active_ingest.theme_label);
+          activeMatrixInitialized = true;
+        }
         startFastIngestPolling();
       }
       handleActiveIngestState(d.active_ingest);
@@ -2159,6 +2192,16 @@ async function pollForUpdates(){
       lastStatsSig = [d.documents, d.entities, d.relations].join(':');
       scheduleNextPoll();
       return;
+    }
+
+    // trackingIngest 상태가 아니었으나 matrix view가 열려있고 적재가 진행 중이 아닌 경우, 스피너 및 완료 상태 정리
+    if(typeof centerView !== 'undefined' && centerView === 'matrix' && !isIngesting){
+      const spin = document.getElementById('matrix-progress-spinner');
+      if(spin && spin.style.display !== 'none') spin.style.display = 'none';
+      const msgEl = document.getElementById('matrix-progress-msg');
+      if(msgEl && (!msgEl.textContent || msgEl.textContent.includes('준비 중') || msgEl.textContent.includes('진행 중'))){
+        msgEl.innerHTML = '✅ <strong>대조 완료</strong> (온톨로지 대조 밀도 계산 완료)';
+      }
     }
 
     const sig = [d.documents, d.entities, d.relations].join(':');
@@ -4141,6 +4184,20 @@ function renderHeatmapMatrix(matrixData, title, isIngesting){
     // 애니메이션은 오직 적재 중 실시간으로 확률 색상을 부여할 때만 발동
     const isActivelyIngesting = (typeof isIngesting === 'boolean') ? isIngesting : !!(window.activeIngest && window.activeIngest.running);
 
+    const spin = document.getElementById('matrix-progress-spinner');
+    const msgEl = document.getElementById('matrix-progress-msg');
+    if(!isActivelyIngesting){
+      if(spin) spin.style.display = 'none';
+      if(msgEl && (!msgEl.textContent || msgEl.textContent.includes('준비 중') || msgEl.textContent.includes('진행 중'))){
+        msgEl.innerHTML = '✅ <strong>대조 완료</strong> (온톨로지 대조 밀도 계산 완료)';
+      }
+    } else {
+      if(spin) spin.style.display = 'inline-block';
+      if(msgEl && (!msgEl.textContent || msgEl.textContent === '적재 준비 중…')){
+        msgEl.textContent = '실시간 엔티티 대조 진행 중…';
+      }
+    }
+
     tbody.innerHTML = rows.map((rName, rIdx) => {
       const rowScores = mat[rIdx] || [];
       const cells = cols.map((cName, cIdx) => {
@@ -4441,18 +4498,27 @@ function openHeatmapMatrix(docId){
       const raw = sessionStorage.getItem('doc_matrix_' + targetId);
       if(raw) mat = JSON.parse(raw);
     } catch(_) {}
+    if(!mat && curReaderDocData && curReaderDocData.id === targetId){
+      mat = curReaderDocData.heatmap_matrix || (curReaderDocData.meta && curReaderDocData.meta.heatmap_matrix) || null;
+    }
     if(curReaderDocData && curReaderDocData.id === targetId) title = curReaderDocData.title;
   }
   if(!mat && window.latestHeatmapMatrix){
     mat = window.latestHeatmapMatrix;
-    title = '최근 적재 자료';
+    title = window.latestHeatmapDocTitle || '최근 적재 자료';
   }
 
   if(!mat){
     return;
   }
 
-  renderHeatmapMatrix(mat, title);
+  renderHeatmapMatrix(mat, title, false);
+  const spin = document.getElementById('matrix-progress-spinner');
+  if(spin) spin.style.display = 'none';
+  const msgEl = document.getElementById('matrix-progress-msg');
+  if(msgEl){
+    msgEl.innerHTML = '✅ <strong>대조 완료</strong> (온톨로지 대조 밀도 계산 완료)';
+  }
   setCenterView('matrix');
 }
 
