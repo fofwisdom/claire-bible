@@ -2640,6 +2640,19 @@ def update_document_meta(conn: sqlite3.Connection, doc_id: str, meta: dict) -> N
     conn.commit()
 
 
+def purge_document_matrix(conn: sqlite3.Connection, doc_id: str) -> bool:
+    """문서 meta 에서 heatmap_matrix 키를 물리적으로 삭제(소각)."""
+    row = conn.execute("SELECT meta FROM documents WHERE id=?", (doc_id,)).fetchone()
+    if row is None:
+        return False
+    current = json.loads(row["meta"] or "{}")
+    if "heatmap_matrix" in current:
+        del current["heatmap_matrix"]
+        conn.execute("UPDATE documents SET meta=? WHERE id=?", (json.dumps(current, ensure_ascii=False), doc_id))
+        conn.commit()
+    return True
+
+
 def find_document_by_extra_source(conn: sqlite3.Connection, canonical_url: str | None) -> str | None:
     """이미 어떤 문서에 병합 출처로 흡수된 canonical_url 인지 — 1홉 후보 재제안 방지용 (병합 경로는 새 Document 행을 안 만들어 documents.canonical_url 색인으로는 못 잡음).
 

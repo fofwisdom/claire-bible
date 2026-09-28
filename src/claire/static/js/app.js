@@ -4720,15 +4720,10 @@ function triggerMatrixWave(){
   // 인위적인 파동 효과는 사용자 요구사항에 따라 배제됨
 }
 
-function confirmMatrixView(){
-  const targetId = activeDoc || curReaderDoc;
+async function confirmMatrixView(){
+  const targetId = activeDoc || curReaderDoc || window.latestHeatmapDocId;
   if(targetId){
-    try {
-      localStorage.setItem('doc_matrix_confirmed_' + targetId, '1');
-      sessionStorage.setItem('doc_matrix_confirmed_' + targetId, '1');
-    } catch(_) {}
-    const banner = document.getElementById('doc-matrix-banner-' + targetId);
-    if(banner && banner.parentNode) banner.parentNode.removeChild(banner);
+    await confirmPurgeMatrix(targetId);
   }
   closeMatrixView();
 }
@@ -5087,26 +5082,56 @@ function renderMiniMatrixBannerHtml(docId, mat){
     miniGrid += '</div>';
   }
 
+  const confirmBtnHtml = '<button type="button" class="pri matrix-purge-btn" onclick="confirmPurgeMatrix(\'' + esc(docId) + '\')" style="padding:4px 10px;font-size:11px;font-weight:bold;background:var(--accent,#0284c7);color:#fff;border:none;border-radius:4px;cursor:pointer;" title="대조 확인 및 매트릭스 소각 파기">✓ 확인</button>';
+
   return '<div id="doc-matrix-banner-' + esc(docId) + '" class="matrix-preview-banner" style="margin-bottom:16px;padding:12px 14px;background:var(--card-bg);border:2px solid var(--accent,#0284c7);border-radius:8px;">' +
     '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">' +
       '<div>' +
         '<strong style="color:var(--accent,#0284c7);font-size:13px;display:inline-flex;align-items:center;gap:5px"><span>⚡</span> 지식 대조 히트맵 매트릭스</strong>' +
-        '<p style="font-size:11.5px;color:var(--muted);margin:2px 0 0">적재 시점의 전수 대조 밀도 매트릭스입니다. 확인 시까지 유지됩니다.</p>' +
+        '<p style="font-size:11.5px;color:var(--muted);margin:2px 0 0">적재 시점의 전수 대조 밀도 매트릭스입니다. 관리자 확인 시 완전히 파기됩니다.</p>' +
       '</div>' +
       '<div style="display:flex;align-items:center;gap:6px;">' +
         '<button type="button" class="sec" onclick="openHeatmapMatrix(\'' + esc(docId) + '\')" style="padding:4px 8px;font-size:11px;">🔍 전체화면 매트릭스</button>' +
-        '<button type="button" onclick="confirmPurgeMatrix(\'' + esc(docId) + '\')" style="padding:4px 10px;font-size:11px;font-weight:bold;background:var(--accent,#0284c7);color:#fff;border:none;border-radius:4px;cursor:pointer;">✓ 확인</button>' +
+        confirmBtnHtml +
       '</div>' +
     '</div>' +
     miniGrid +
   '</div>';
 }
 
-function confirmPurgeMatrix(docId){
+async function confirmPurgeMatrix(docId){
+  if(!docId) return;
+  if(typeof canWrite === 'function' && canWrite()){
+    try {
+      const res = await fetch('document/matrix/purge', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({id: docId})
+      });
+      if(!res.ok){
+        console.warn('Matrix purge request failed with status:', res.status);
+      }
+    } catch(e) {
+      console.warn('Matrix purge fetch error:', e);
+    }
+  }
+
   try {
-    localStorage.setItem('doc_matrix_confirmed_' + docId, '1');
+    sessionStorage.removeItem('doc_matrix_' + docId);
     sessionStorage.setItem('doc_matrix_confirmed_' + docId, '1');
+    localStorage.setItem('doc_matrix_confirmed_' + docId, '1');
   } catch(_) {}
+
+  if(window.latestHeatmapDocId === docId){
+    window.latestHeatmapMatrix = null;
+    window.latestHeatmapDocId = null;
+    window.latestHeatmapDocTitle = '';
+  }
+  if(curReaderDocData && curReaderDocData.id === docId){
+    curReaderDocData.heatmap_matrix = null;
+    if(curReaderDocData.meta) delete curReaderDocData.meta.heatmap_matrix;
+  }
+
   const el = document.getElementById('doc-matrix-banner-' + docId);
   if(el){
     el.style.opacity = '0';

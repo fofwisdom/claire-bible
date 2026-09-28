@@ -1156,6 +1156,33 @@ def create_app(
             resp["theme_id"] = theme.id
         return JSONResponse(resp)
 
+    async def document_matrix_purge_route(request: Request) -> JSONResponse:
+        body = await _json_object(request)
+        theme, theme_settings, _ = _get_theme_ctx(request, body)
+        document_id = str(body.get("id") or "").strip()
+        if not document_id:
+            raise HTTPException(status_code=400, detail="id required")
+
+        def _purge() -> bool:
+            conn = dbm.connect_existing(theme_settings.db_file)
+            try:
+                if dbm.get_document_row(conn, document_id) is None:
+                    return False
+                return dbm.purge_document_matrix(conn, document_id)
+            finally:
+                conn.close()
+
+        if not await asyncio.to_thread(_purge):
+            raise HTTPException(status_code=404, detail="not found")
+
+        from ..ingest.active import purge_active_matrix
+        await asyncio.to_thread(purge_active_matrix, theme_settings.data_dir, document_id)
+
+        resp = {"id": document_id, "purged": True}
+        if theme.id != 0:
+            resp["theme_id"] = theme.id
+        return JSONResponse(resp)
+
     async def synthesize_route(request: Request) -> JSONResponse:
         from ..store.queries import synthesize
 
@@ -1837,6 +1864,7 @@ def create_app(
         Route("/document/pin", document_pin_route, methods=["POST"]),
         Route("/document/hide", document_hide_route, methods=["POST"]),
         Route("/document/title", document_title_route, methods=["POST"]),
+        Route("/document/matrix/purge", document_matrix_purge_route, methods=["POST"]),
         Route("/synthesize", synthesize_route, methods=["POST"]),
         Route("/research", research_route, methods=["POST"]),
         Route("/dedup/scan", dedup_scan_route, methods=["POST"]),
