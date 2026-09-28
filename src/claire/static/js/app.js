@@ -4832,6 +4832,41 @@ function closeStreamView(){
   }
 }
 
+function formatDecisionTimestamp(ts){
+  if(!ts) return '';
+  let d;
+  const num = Number(ts);
+  if(!isNaN(num) && num > 0){
+    const ms = num > 1e11 ? num : num * 1000;
+    d = new Date(ms);
+  } else {
+    d = new Date(ts);
+  }
+  if(!d || isNaN(d.getTime())) return '';
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  const h = String(d.getHours()).padStart(2, '0');
+  const min = String(d.getMinutes()).padStart(2, '0');
+  const s = String(d.getSeconds()).padStart(2, '0');
+  return `${y}-${m}-${day} ${h}:${min}:${s}`;
+}
+window.formatDecisionTimestamp = formatDecisionTimestamp;
+
+function getBrowserTimezoneInfo(){
+  try {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const offsetMin = -new Date().getTimezoneOffset();
+    const sign = offsetMin >= 0 ? '+' : '-';
+    const offH = String(Math.floor(Math.abs(offsetMin) / 60)).padStart(2, '0');
+    const offM = String(Math.abs(offsetMin) % 60).padStart(2, '0');
+    return `브라우저 타임존: ${tz || 'Local'} (UTC${sign}${offH}:${offM})`;
+  } catch(_) {
+    return '브라우저 로컬 타임존';
+  }
+}
+window.getBrowserTimezoneInfo = getBrowserTimezoneInfo;
+
 function renderDecisionCardHtml(dec){
   const isMerge = dec.decision === 'MERGE';
   const isRolledBack = dec.decision === 'ROLLED_BACK' || dec.rolled_back;
@@ -4859,8 +4894,11 @@ function renderDecisionCardHtml(dec){
   html += '<span class="decision-badge ' + badgeClass + '">' + esc(badgeLabel) + '</span>';
   html += '</div>';
   if(dec.timestamp){
-    const dStr = new Date(dec.timestamp * 1000).toLocaleString('ko-KR', {month:'numeric', day:'numeric', hour:'2-digit', minute:'2-digit'});
-    html += '<span style="font-size:11px;color:var(--muted)">' + esc(dStr) + '</span>';
+    const dStr = formatDecisionTimestamp(dec.timestamp);
+    if(dStr){
+      const tzTitle = getBrowserTimezoneInfo();
+      html += '<span style="font-size:11px;color:var(--muted);font-family:var(--font-mono, monospace)" title="' + esc(tzTitle) + '">' + esc(dStr) + '</span>';
+    }
   }
   html += '</div>';
 

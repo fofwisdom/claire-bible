@@ -641,6 +641,18 @@ def test_doclist_desclines_toolbar():
     assert '.doclist-toolbar{position:sticky;top:0' in GRAPH_HTML
 
 
+def test_decision_stream_timestamp_log_format_no_ampm():
+    """의사결정 스트림 타임스탬프가 브라우저 타임존 기준 24시간제 로그 포맷(YYYY-MM-DD HH:mm:ss)으로 렌더링되는지 검증."""
+    from claire.graphview import GRAPH_HTML
+
+    assert "formatDecisionTimestamp" in GRAPH_HTML
+    assert "getBrowserTimezoneInfo" in GRAPH_HTML
+    assert "new Date(dec.timestamp * 1000).toLocaleString('ko-KR'" not in GRAPH_HTML
+    assert "getHours()" in GRAPH_HTML
+    assert "getMinutes()" in GRAPH_HTML
+    assert "getSeconds()" in GRAPH_HTML
+
+
 def test_mobile_bottom_bar_graph_navigation_and_node_selection():
     """모바일 하단 바 그래프 탭 활성화 및 선택된 문서 노드 전체 선택 기능 검증."""
     from claire.graphview import GRAPH_HTML
