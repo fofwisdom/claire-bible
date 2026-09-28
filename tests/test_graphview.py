@@ -243,17 +243,17 @@ def test_right_menu_compact_icon_mode_markers():
 
 
 def test_right_menu_graph_section_markers():
-    """우측 메뉴 내 그래프/문서 도구 전용 섹션 분리 및 head 내 전환 단추 검증."""
+    """우측 메뉴 내 그래프/문서 도구 전용 섹션 분리 및 공통 탭 바 내 전환 단추 검증."""
     assert 'id="graph-section"' in GRAPH_HTML
     assert 'class="menu-section-title" id="menu-section-title">문서와 그래프<' in GRAPH_HTML
     assert "#moremenu .menu-section" in GRAPH_HTML
     assert "border-top:1px solid var(--border)" in GRAPH_HTML
     assert "#moremenu .menu-section-title" in GRAPH_HTML
     assert "#moremenu .menu-section-head" in GRAPH_HTML
-    assert 'id="opengraphbtn"' in GRAPH_HTML
-    assert 'id="openreaderbtn"' in GRAPH_HTML
-    assert "openDocGraph(curReaderDoc||activeDoc)" in GRAPH_HTML
-    assert "openDocGraph(docId)" in GRAPH_HTML
+    assert 'id="centertab-graph"' in GRAPH_HTML
+    assert 'id="centertab-reader"' in GRAPH_HTML
+    assert 'id="centertab-stream"' in GRAPH_HTML
+    assert "openDocGraph" in GRAPH_HTML
 
 
 def test_shared_stt_modal_has_mobile_layout():
@@ -278,19 +278,20 @@ def test_stat_location_and_center_view_right_menu_modes():
     detail_pos = GRAPH_HTML.index('id="detailpane"')
     assert docs_pos < stat_pos < pinned_pos < detail_pos
 
-    # 2. 중앙 화면 모드에 따른 경로 버튼 표시 CSS 분기 및 전환 버튼 폭/위치 통일성 검증
+    # 2. 중앙 화면 모드에 따른 경로 버튼 표시 CSS 분기 및 공통 탭 바 검증
     assert 'body[data-center-view="graph"] #pathbtn{display:inline-flex!important}' in GRAPH_HTML
     assert 'body:not([data-center-view="graph"]) #pathbtn{display:none!important}' in GRAPH_HTML
-    assert '#barsearch #openreaderbtn' in GRAPH_HTML
-    assert '#reader .head #opengraphbtn' in GRAPH_HTML
-    assert 'width:104px;min-width:104px;height:28px' in GRAPH_HTML
+    assert '.center-head-bar' in GRAPH_HTML
+    assert '.center-tabs' in GRAPH_HTML
+    assert '#centertab-graph' in GRAPH_HTML
+    assert '#centertab-reader' in GRAPH_HTML
+    assert '#centertab-stream' in GRAPH_HTML
     assert '#netsearch{padding:8px 18px;border-bottom:1px solid var(--border)' in GRAPH_HTML
-    # reader head 내 도구 순서: rzoom < redit < rshare < opengraphbtn < rclose (그래프 전환 버튼이 오른쪽 끝에 위치)
+    # reader head 내 도구 순서: rzoom < redit < rshare < rclose
     redit_pos = GRAPH_HTML.index('class="redit"')
     rshare_pos = GRAPH_HTML.index('class="rshare"')
-    opengraph_pos = GRAPH_HTML.index('id="opengraphbtn"')
     rclose_pos = GRAPH_HTML.index('class="rclose"')
-    assert redit_pos < rshare_pos < opengraph_pos < rclose_pos
+    assert redit_pos < rshare_pos < rclose_pos
 
 
 def test_fslider_vertical_left_of_zoomctl():

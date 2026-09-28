@@ -876,12 +876,13 @@ test('decision stream and heatmap matrix are separate features with proper audit
   await page.setViewportSize({ width: 1400, height: 900 });
   await waitForClaire(page);
 
-  // 1. Verify right action button for Decision Stream is present in '메뉴 & 상세'
-  const streamViewBtn = page.locator('#streamviewbtn');
-  await expect(streamViewBtn).toBeVisible();
+  // 1. Verify center tab button for Decision Stream is present in common header
+  const streamTabBtn = page.locator('#centertab-stream');
+  await expect(streamTabBtn).toBeVisible();
+  await expect(streamTabBtn).toContainText('의사결정 스트림');
 
-  // 2. Click the Decision Stream button to open global audit stream in center view
-  await streamViewBtn.click();
+  // 2. Click the Decision Stream tab button to open global audit stream in center view
+  await streamTabBtn.click();
 
   // 3. Verify streamwrap opens as center view with Decision Stream header, filter bar, and cards
   const streamWrap = page.locator('#streamwrap');
@@ -1207,7 +1208,7 @@ test('telegram bot ingest dynamically suspends active graph and displays heatmap
   expect(pageErrors).toEqual([]);
 });
 
-test('decision stream button placed next to graph/content buttons and displays in center view with 30-item pagination', async ({ page }) => {
+test('decision stream button placed in common header tabs and displays in center view with 30-item pagination', async ({ page }) => {
   const pageErrors = [];
   page.on('pageerror', error => pageErrors.push(error.message));
   await page.setViewportSize({ width: 1400, height: 900 });
@@ -1235,15 +1236,14 @@ test('decision stream button placed next to graph/content buttons and displays i
 
   await waitForClaire(page);
 
-  // 1. Verify navigation buttons in barsearch: 그래프, 본문, Decision Stream placed in order
-  const barSearch = page.locator('#barsearch');
-  const navBtns = barSearch.locator('.view-nav-btn');
-  await expect(navBtns.nth(0)).toContainText('그래프');
-  await expect(navBtns.nth(1)).toContainText('본문');
-  await expect(navBtns.nth(2)).toContainText('Decision Stream');
+  // 1. Verify navigation buttons in common header tabs: 그래프, 본문, 의사결정 스트림 placed in order
+  const centerTabs = page.locator('#centertabs .center-tab-btn');
+  await expect(centerTabs.nth(0)).toContainText('그래프');
+  await expect(centerTabs.nth(1)).toContainText('본문');
+  await expect(centerTabs.nth(2)).toContainText('의사결정 스트림');
 
-  // 2. Click 'Decision Stream' button
-  await navBtns.nth(2).click();
+  // 2. Click '의사결정 스트림' button
+  await centerTabs.nth(2).click();
 
   // 3. Verify center view switched to stream
   const streamWrap = page.locator('#streamwrap');
@@ -1265,7 +1265,7 @@ test('decision stream button placed next to graph/content buttons and displays i
   await expect(cardList).toHaveCount(40);
 
   // 6. Test returning to graph via center view nav
-  await streamWrap.locator('.stream-actions button:has-text("그래프")').first().click();
+  await page.locator('#centertab-graph').click();
   await expect(streamWrap).toBeHidden();
   await expect(page.locator('#netwrap')).toBeVisible();
 
