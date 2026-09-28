@@ -40,6 +40,7 @@ docs/origin/
 │   ├── TELEGRAM_VIDEO_PDF_BUNDLE_INGESTION_DESIGN.md # 텔레그램 MP4 STT·PDF 복합 적재 설계 (구현 전)
 │   ├── VIDEO_AUDIO_TRANSCRIPTION_AND_INGESTION_DESIGN.md # 비디오 음성 자막(전사) 생성 및 지식 적재 파이프라인 설계
 │   ├── VIDEO_PRESENTATION_BUNDLE_INGESTION_DESIGN.md # VMware Explore 비디오·Presentation PDF 동시 적재 설계 (구현 완료)
+│   ├── VIEW_CONTEXTUAL_UNIFIED_SEARCH_DESIGN.md # 뷰 종속형 통합 검색 및 지능형 자동 검색 엔진 아키텍처 설계 (구현 완료)
 │   └── VMWARE_EXPLORE_ACTIVE_WAITING_RESILIENCE_DESIGN.md # VMware Explore 프레젠테이션 탐색 능동 대기(Active Waiting) 및 복원력 설계 (구현 완료)
 ├── implementation/             # [구현/운영 내역] 운영 가이드, 네트워크/인증 명세, 배포 설정
 │   ├── COMMANDS.md             # 전체 CLI 명령어 및 미구현/제약사항 상세 레퍼런스
@@ -82,6 +83,7 @@ docs/origin/
   - `MCP_SUPPORT.md`: RFC 6750 표준 인증 기반 MCP 지원 설계
   - `VIDEO_AUDIO_TRANSCRIPTION_AND_INGESTION_DESIGN.md`: 비디오 음성 자막(STT) 생성 및 지식 적재 파이프라인 설계 (Gemini 3.5 Transcribe 고도화, 10k TPM 페이싱, 3일 미디어 캐시, CLI/텔레그램 재전사 완비)
   - `VIDEO_PRESENTATION_BUNDLE_INGESTION_DESIGN.md`: VMware Explore 영상에서 CC/STT와 Presentation PDF를 단일 세션 문서로 원자적 적재하는 설계 및 구현 명세
+  - `VIEW_CONTEXTUAL_UNIFIED_SEARCH_DESIGN.md`: 뷰 종속형 통합 검색(그래프/본문/의사결정 스트림 연동) 및 무설정 백엔드 지능형 검색 엔진 아키텍처 설계 명세서 (수동 토글 배제, FTS5/AI 하이브리드 자동 전환)
 
 ### 2. `docs/origin/implementation/` (구현 및 운영 내역)
 - **대상**: 현재 시스템에 실제 구현 및 배포된 기능의 운영 가이드, 호스트 명령 명세, 네트워크 및 프록시 설정, 환경변수 및 보안 경계 가이드.
