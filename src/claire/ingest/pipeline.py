@@ -834,21 +834,26 @@ def extract_resolve_store(
         if getattr(r, "decision", None) is not None
     ]
     if decisions:
-        from ..extract.decision import attach_resolution_meta, evaluate_decision_matrix
+        from ..extract.decision import attach_resolution_meta
 
         attach_resolution_meta(doc, decisions)
         dbm.update_document_meta(conn, doc.id, doc.meta)
         report.has_decision_stream = True
+
+    if name_to_id:
+        from ..extract.decision import evaluate_decision_matrix
 
         all_cands = dbm.all_entities(conn)
         mat_data = evaluate_decision_matrix(
             settings=settings,
             document_id=doc.id,
             extracted_entities=list(name_to_id.keys()),
-            candidate_entities=all_cands[:30],
-            decisions=decisions,
+            candidate_entities=all_cands[:30] if all_cands else list(name_to_id.keys()),
+            decisions=decisions or [],
         )
         report.heatmap_matrix = mat_data.to_dict()
+        doc.meta["heatmap_matrix"] = report.heatmap_matrix
+        dbm.update_document_meta(conn, doc.id, doc.meta)
         emit_progress({
             "stage": "heatmap_matrix",
             "matrix": report.heatmap_matrix,

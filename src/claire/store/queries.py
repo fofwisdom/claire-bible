@@ -250,6 +250,7 @@ def document_detail(
         "stt_raw_chars": meta_dict.get("stt_raw_chars") or meta_dict.get("raw_chars"),
         "has_decision_stream": bool(meta_dict.get("has_decision_stream", False)),
         "resolution_log": meta_dict.get("resolution_log") or [],
+        "heatmap_matrix": meta_dict.get("heatmap_matrix"),
         "meta": meta_dict,
     }
 

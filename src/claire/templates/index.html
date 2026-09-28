@@ -158,7 +158,11 @@
         <div id="barsearch">
           <label class="sr-only" for="q">그래프 검색</label>
           <input id="q" placeholder="그래프 노드 검색" oninput="onSearchInput(this.value)"/>
-          <button id="openreaderbtn" class="sec" onclick="setCenterView('reader')" title="문서 본문 읽기로 전환" aria-label="본문 읽기"><span class="btn-icon">📖</span> <span class="btn-label">본문 읽기</span></button>
+          <div class="view-btn-group" role="toolbar" aria-label="화면 전환">
+            <button id="graphnavbtn" class="sec view-nav-btn active" onclick="setCenterView('graph')" title="지식 그래프" aria-label="그래프"><span class="btn-icon">📊</span> <span class="btn-label">그래프</span></button>
+            <button id="openreaderbtn" class="sec view-nav-btn" onclick="setCenterView('reader')" title="문서 본문 읽기로 전환" aria-label="본문"><span class="btn-icon">📖</span> <span class="btn-label">본문</span></button>
+            <button id="openstreambtn" class="sec view-nav-btn" onclick="setCenterView('stream')" title="의사결정 스트림 (Decision Stream)" aria-label="Decision Stream"><span class="btn-icon">📜</span> <span class="btn-label">Decision Stream</span></button>
+          </div>
         </div>
       </div>
       <div id="legendbar" aria-label="그래프 범례와 관계 필터"></div>
@@ -206,8 +210,12 @@
           </div>
         </div>
         <div class="matrix-actions">
-          <button type="button" class="sec" onclick="triggerMatrixWave()" title="연산 파동 시뮬레이션">⚡ 연산 파동</button>
-          <button type="button" class="sec" onclick="setCenterView('graph')" title="지식 그래프로 전환">📊 그래프 보기</button>
+          <div class="view-btn-group" role="toolbar" aria-label="화면 전환">
+            <button type="button" class="sec view-nav-btn" onclick="setCenterView('graph')" title="지식 그래프" aria-label="그래프"><span class="btn-icon">📊</span> <span class="btn-label">그래프</span></button>
+            <button type="button" class="sec view-nav-btn" onclick="setCenterView('reader')" title="문서 본문" aria-label="본문"><span class="btn-icon">📖</span> <span class="btn-label">본문</span></button>
+            <button type="button" class="sec view-nav-btn" onclick="setCenterView('stream')" title="의사결정 스트림 (Decision Stream)" aria-label="Decision Stream"><span class="btn-icon">📜</span> <span class="btn-label">Decision Stream</span></button>
+          </div>
+          <button id="matrix-confirm-btn" type="button" class="pri matrix-confirm-btn" onclick="confirmMatrixView()" title="대조 확인 및 닫기">✓ 확인</button>
           <button id="matrix-close-btn" type="button" class="matrix-close-btn" onclick="closeMatrixView()" title="닫기">✕</button>
         </div>
       </div>
@@ -232,6 +240,38 @@
         </div>
       </div>
     </section>
+    <section id="streamwrap" class="workspace-pane" role="region" aria-label="의사결정 스트림 (Decision Stream)">
+      <div id="stream-topbar" class="stream-topbar">
+        <div class="stream-title-group">
+          <div class="stream-indicator"></div>
+          <div>
+            <h2 id="stream-title">의사결정 스트림 <small id="stream-subtitle">| Decision Stream (엔티티 해소 감사 로그)</small></h2>
+            <p id="stream-meta" class="stream-meta">지식베이스 전역의 엔티티 해소 및 온톨로지 불변식 판정 기록</p>
+          </div>
+        </div>
+        <div class="stream-actions">
+          <div class="view-btn-group" role="toolbar" aria-label="화면 전환">
+            <button type="button" class="sec view-nav-btn" onclick="setCenterView('graph')" title="지식 그래프" aria-label="그래프"><span class="btn-icon">📊</span> <span class="btn-label">그래프</span></button>
+            <button type="button" class="sec view-nav-btn" onclick="setCenterView('reader')" title="문서 본문" aria-label="본문"><span class="btn-icon">📖</span> <span class="btn-label">본문</span></button>
+            <button type="button" class="sec view-nav-btn active" onclick="setCenterView('stream')" title="의사결정 스트림 (Decision Stream)" aria-label="Decision Stream"><span class="btn-icon">📜</span> <span class="btn-label">Decision Stream</span></button>
+          </div>
+          <button id="stream-close-btn" type="button" class="matrix-close-btn" onclick="closeStreamView()" title="닫기">✕</button>
+        </div>
+      </div>
+      <div class="stream-toolbar">
+        <div class="stream-filter-bar" id="stream-filter-bar">
+          <button type="button" class="sec active" data-filter="ALL" onclick="filterDecisionStreamCenter('ALL')">전체</button>
+          <button type="button" class="sec" data-filter="MERGE" onclick="filterDecisionStreamCenter('MERGE')">병합</button>
+          <button type="button" class="sec" data-filter="CREATE_NEW" onclick="filterDecisionStreamCenter('CREATE_NEW')">신규</button>
+          <button type="button" class="sec" data-filter="ROLLED_BACK" onclick="filterDecisionStreamCenter('ROLLED_BACK')">롤백됨</button>
+        </div>
+        <div class="stream-count-stat" id="stream-count-stat">기록 로딩 중…</div>
+      </div>
+      <div id="stream-scroll-container" class="stream-scroll-container" onscroll="handleStreamScroll(this)">
+        <div id="stream-card-list" class="stream-card-list"></div>
+        <div id="stream-scroll-sentinel" class="stream-scroll-sentinel" style="padding:16px;text-align:center;color:var(--muted);font-size:12px"></div>
+      </div>
+    </section>
     <div id="reader" role="dialog" aria-modal="true" aria-labelledby="rtitle" aria-hidden="true"
       onclick="if(event.target===this && mobileMQ.matches)closeReader()">
       <div class="sheet" tabindex="-1">
@@ -245,7 +285,11 @@
             </div>
             <button class="redit" id="reditbtn" onclick="editDocTitle()" title="제목 수정" aria-label="제목 수정">✏️</button>
             <button class="rshare" onclick="shareDoc()" title="공유 링크 만들기" aria-label="공유 링크 만들기">🔗</button>
-            <button id="opengraphbtn" class="sec" onclick="openDocGraph(curReaderDoc||activeDoc)" title="현재 선택된 자료를 지식 그래프로 보기" aria-label="그래프 보기"><span class="btn-icon">📊</span> <span class="btn-label">그래프 보기</span></button>
+            <div class="view-btn-group" role="toolbar" aria-label="화면 전환">
+              <button id="opengraphbtn" class="sec view-nav-btn" onclick="openDocGraph(curReaderDoc||activeDoc)" title="지식 그래프" aria-label="그래프"><span class="btn-icon">📊</span> <span class="btn-label">그래프</span></button>
+              <button id="readerreadbtn" class="sec view-nav-btn active" onclick="setCenterView('reader')" title="문서 본문" aria-label="본문"><span class="btn-icon">📖</span> <span class="btn-label">본문</span></button>
+              <button id="readerstreambtn" class="sec view-nav-btn" onclick="setCenterView('stream')" title="의사결정 스트림 (Decision Stream)" aria-label="Decision Stream"><span class="btn-icon">📜</span> <span class="btn-label">Decision Stream</span></button>
+            </div>
             <button class="rclose" onclick="closeReader()" title="닫기(ESC)" aria-label="읽기 닫기">✕</button>
           </div>
         </div>
@@ -297,7 +341,7 @@
         <div class="action-btn-row">
           <button id="addbtn" class="sec" onclick="openIngest()" title="URL·텍스트를 그래프에 적재" aria-label="적재"><span class="btn-icon">➕</span> <span class="btn-label">적재</span></button>
           <button id="dedupbtn" class="sec" onclick="openDedup()" title="근사 중복 문서를 찾아 병합" aria-label="중복정리"><span class="btn-icon">♻️</span> <span class="btn-label">중복정리</span></button>
-          <button id="streamviewbtn" class="sec" onclick="openDecisionStream()" title="지식 엔티티 변경 및 해소 판단 기록 (Decision Stream)" aria-label="판단기록"><span class="btn-icon">📜</span> <span class="btn-label">판단 기록</span></button>
+          <button id="streamviewbtn" class="sec" onclick="setCenterView('stream');closeDrawer();" title="지식 엔티티 변경 및 해소 판단 기록 (Decision Stream)" aria-label="Decision Stream"><span class="btn-icon">📜</span> <span class="btn-label">Decision Stream</span></button>
         </div>
         <div id="graph-section" class="menu-section" aria-label="그래프 및 문서 도구">
           <div class="menu-section-head">

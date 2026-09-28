@@ -211,8 +211,8 @@ function setCenterView(mode){
       resumeGraphAfterIngest();
     }
   }
-  const nextView = (mode==='graph' ? 'graph' : (mode==='matrix' ? 'matrix' : 'reader'));
-  if(mode === 'matrix' || mode === 'graph'){
+  const nextView = (mode==='graph' ? 'graph' : (mode==='matrix' ? 'matrix' : (mode==='stream' ? 'stream' : 'reader')));
+  if(mode === 'matrix' || mode === 'graph' || mode === 'stream'){
     activePane = 'graph';
     document.body.dataset.activePane = 'graph';
   }
@@ -220,7 +220,12 @@ function setCenterView(mode){
   centerView = nextView;
   document.body.dataset.centerView = centerView;
   const mt = document.getElementById('menu-section-title');
-  if(mt){ mt.textContent = (centerView==='graph' ? '그래프 도구' : (centerView==='matrix' ? '대조 매트릭스' : '문서와 그래프')); }
+  if(mt){ mt.textContent = (centerView==='graph' ? '그래프 도구' : (centerView==='matrix' ? '대조 매트릭스' : (centerView==='stream' ? 'Decision Stream' : '문서와 그래프'))); }
+  if(centerView==='stream'){
+    if(typeof renderDecisionStreamCenter === 'function'){
+      renderDecisionStreamCenter();
+    }
+  }
   if(centerView==='graph'){
     graphCamera = null;
     requestAnimationFrame(()=>{
@@ -474,12 +479,21 @@ function renderReader(dc){
     + (dc.source_type?' <span class=rmeta>'+esc(dc.source_type)+'</span>':'');
   let h='';
 
-  // 1회성 Heatmap Matrix 임시 노출 배너 검사
+  // Heatmap Matrix 대조 배너 검사 (확인할 때까지 표시)
   const matrixKey = 'doc_matrix_' + (dc.id || '');
+  const confirmedKey = 'doc_matrix_confirmed_' + (dc.id || '');
   try {
+    const isConfirmed = localStorage.getItem(confirmedKey) === '1' || sessionStorage.getItem(confirmedKey) === '1';
+    let matData = null;
     const rawMatrix = sessionStorage.getItem(matrixKey);
-    if(rawMatrix && typeof renderMiniMatrixBannerHtml === 'function'){
-      const matData = JSON.parse(rawMatrix);
+    if(rawMatrix) {
+      matData = JSON.parse(rawMatrix);
+    } else if(dc.heatmap_matrix) {
+      matData = dc.heatmap_matrix;
+    } else if(dc.meta && dc.meta.heatmap_matrix) {
+      matData = dc.meta.heatmap_matrix;
+    }
+    if(matData && !isConfirmed && typeof renderMiniMatrixBannerHtml === 'function'){
       h += renderMiniMatrixBannerHtml(dc.id, matData);
     }
   } catch(_) {}
