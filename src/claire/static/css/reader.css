@@ -97,31 +97,16 @@
   #reader .sharebox button{background:var(--accent);color:#fff;border:0;border-radius:4px;padding:3px 9px;font-size:12px;cursor:pointer}
   /* --- 중앙 영역 공통 상단 헤더 탭 (그래프 / 본문 / 의사결정 스트림) --- */
   .center-head-bar{
-    display:flex;align-items:center;justify-content:space-between;gap:12px;
+    display:flex;align-items:center;justify-content:flex-start;gap:12px;
     padding:6px 14px;
     background:var(--bar-bg);border-bottom:1px solid var(--border);
     min-height:42px;box-sizing:border-box;flex-shrink:0;z-index:15;
   }
-  .center-tabs{
-    display:inline-flex;align-items:center;gap:3px;
-    background:var(--sec-bg);padding:3px;border-radius:6px;
-    border:1px solid var(--border);flex-shrink:0;
-  }
-  .center-tab-btn{
-    height:28px;box-sizing:border-box;
-    display:inline-flex;align-items:center;justify-content:center;gap:5px;
-    padding:0 12px;border:1px solid transparent;border-radius:4px;
-    background:transparent;color:var(--muted);font-size:12.5px;
-    line-height:1;cursor:pointer;flex-shrink:0;white-space:nowrap;user-select:none;
-    transition:background .15s ease,border-color .15s ease,color .15s ease,box-shadow .15s ease;
-  }
-  .center-tab-btn:hover{background:var(--hover);color:var(--fg)}
-  .center-tab-btn:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
-
-  /* 공통 헤더 검색창 */
+  /* 공통 헤더 검색창: 가장 왼쪽에 배치 */
   #centerhead #netsearch{
-    display:flex;align-items:center;padding:0;border:none;background:transparent;
-    min-height:auto;flex:1;max-width:440px;margin-left:auto;
+    display:flex;align-items:center;position:relative;
+    padding:0;border:none;background:transparent;
+    min-height:auto;flex:1;max-width:380px;margin-left:0;
   }
   #centerhead #barsearch{
     display:flex;align-items:center;position:relative;width:100%;
@@ -150,6 +135,41 @@
   .center-search-clear-btn:hover{
     background:var(--hover);color:var(--fg);
   }
+  #centerhead .adv-search-toggle-btn{
+    display:inline-flex;align-items:center;justify-content:center;
+    width:24px;height:24px;min-width:24px;padding:0;border-radius:4px;
+    background:transparent;border:1px solid transparent;color:var(--muted);
+    font-size:12px;cursor:pointer;flex-shrink:0;
+  }
+  #centerhead .adv-search-toggle-btn:hover{
+    background:var(--hover);color:var(--fg);
+  }
+  #centerhead .adv-search-toggle-btn.active{
+    background:var(--hover);border-color:var(--accent);color:var(--accent);
+  }
+  #centerhead .adv-search-pane{
+    position:absolute;top:calc(100% + 4px);left:0;width:340px;max-width:90vw;
+    background:var(--panel-bg);border:1px solid var(--border);border-radius:6px;
+    box-shadow:0 6px 18px rgba(0,0,0,0.16);padding:10px 12px;z-index:50;
+    display:flex;flex-direction:column;gap:8px;
+  }
+  #centerhead .adv-search-pane[hidden]{display:none!important}
+
+  .center-tabs{
+    display:inline-flex;align-items:center;gap:3px;
+    background:var(--sec-bg);padding:3px;border-radius:6px;
+    border:1px solid var(--border);flex-shrink:0;margin-left:4px;
+  }
+  .center-tab-btn{
+    height:28px;box-sizing:border-box;
+    display:inline-flex;align-items:center;justify-content:center;gap:5px;
+    padding:0 12px;border:1px solid transparent;border-radius:4px;
+    background:transparent;color:var(--muted);font-size:12.5px;
+    line-height:1;cursor:pointer;flex-shrink:0;white-space:nowrap;user-select:none;
+    transition:background .15s ease,border-color .15s ease,color .15s ease,box-shadow .15s ease;
+  }
+  .center-tab-btn:hover{background:var(--hover);color:var(--fg)}
+  .center-tab-btn:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 
   /* 중앙 뷰 전환에 따른 탭 활성화 (CSS data 속성 기반 즉각 연동) */
   body[data-center-view="graph"] #centertab-graph,
@@ -657,67 +677,17 @@ body.stt-modal-open{overflow:hidden}
 
 /* --- 의사결정 스트림 (Decision Stream) 중앙 화면 CSS --- */
 #streamwrap {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  position: relative;
+  width: 100%;
+  height: 100%;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
   display: none;
   flex-direction: column;
   background: var(--bg);
   color: var(--fg);
-  z-index: 20;
   overflow: hidden;
-}
-
-.stream-topbar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 10px 18px;
-  background: var(--bar-bg);
-  border-bottom: 1px solid var(--border);
-  gap: 12px;
-  flex-shrink: 0;
-}
-
-.stream-title-group {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.stream-indicator {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  background: var(--accent, #0284c7);
-  box-shadow: 0 0 8px var(--accent, #0284c7);
-}
-
-.stream-topbar h2 {
-  margin: 0;
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--fg);
-}
-
-.stream-topbar h2 small {
-  font-size: 11.5px;
-  color: var(--muted);
-  font-weight: normal;
-}
-
-.stream-meta {
-  margin: 2px 0 0;
-  font-size: 11.5px;
-  color: var(--muted);
-}
-
-.stream-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
 }
 
 .stream-toolbar {

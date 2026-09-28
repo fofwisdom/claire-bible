@@ -918,10 +918,9 @@ function openGraphFromDrawer(){
   openDocGraph(activeDoc || curReaderDoc || (mobileMQ.matches ? (getRecentDocId() || docWithMostNodes()) : null));
 }
 function focusMobileSearch(){
-  revealWorkspace('docs');
   docSearchActive=true;
-  const q=document.getElementById('docq');
-  if(q){ q.value=''; renderDocs(''); q.focus(); }
+  const q=document.getElementById('q') || document.getElementById('docq');
+  if(q){ q.value=''; onCenterSearchInput(''); q.focus(); }
 }
 function closeToolsMenu(focus=false){ closeDrawer(focus); }
 function toggleToolsMenu(){ toggleDrawer(); }
@@ -3334,12 +3333,12 @@ function onCenterSearchInput(v){
   if(qclear){
     qclear.style.display = v ? 'flex' : 'none';
   }
+  const dq = document.getElementById('docq');
+  if(dq && dq.value !== v){
+    dq.value = v;
+  }
   const view = (typeof centerView !== 'undefined' ? centerView : 'graph');
   if(view === 'reader'){
-    const docq = document.getElementById('docq');
-    if(docq && docq.value !== v){
-      docq.value = v;
-    }
     onDocqInput(v);
   } else if(view === 'stream'){
     if(typeof filterDecisionStreamByQuery === 'function'){
@@ -3437,8 +3436,11 @@ if(qEl){
     if(e.key!=='Enter') return;
     e.preventDefault();
     const val = (e.target.value || '').trim();
+    const sem = document.getElementById('sem');
+    const semchk = document.getElementById('semchk');
+    const isAdvMode = (sem && sem.checked) || (semchk && semchk.checked);
     const view = (typeof centerView !== 'undefined' ? centerView : 'graph');
-    if(view === 'reader'){
+    if(view === 'reader' || isAdvMode){
       cancelServerSearch();
       currentSearchSeq++;
       clearTimeout(searchDebounce);
