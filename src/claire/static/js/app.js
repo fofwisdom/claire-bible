@@ -513,7 +513,7 @@ let synthSet = new Set();
 let AUTH_SCOPE='unknown'; let READONLY=true;
 let relFilter = null;
 let pathMode = false, pathPicks = [], pathNodes = null, pathEdges = null;
-let edgeLabelsByZoom = false, selectedEdgeIds = new Set();
+let edgeLabelsByZoom = false, selectedEdgeIds = new Set(), lastZoomTier = 0;
 let graphStabilized = false;
 let detailCompact = false;
 try{
@@ -1087,7 +1087,9 @@ function initGraph(onComplete){
     if(!d || !d.nodes || !d.nodes.length){ graphStabilized=true; }
     const totalCount = rawNodes.length;
     let initialDeg = 0;
-    if(totalCount >= 200){
+    if(totalCount >= 800){
+      initialDeg = 5;
+    } else if(totalCount >= 200){
       initialDeg = 2;
     } else if(totalCount >= 80){
       initialDeg = 1;
@@ -1191,8 +1193,14 @@ function initGraph(onComplete){
     net.on('animationFinished', () => {
       netBusy = false;
       clearTimeout(busyTimer);
-      const show=net.getScale()>=1.45;
-      if(show!==edgeLabelsByZoom){ edgeLabelsByZoom=show; applyView(); }
+      const scale = net.getScale();
+      const show = scale >= 1.2;
+      const tier = scale >= 1.0 ? 2 : (scale >= 0.4 ? 1 : 0);
+      if(show !== edgeLabelsByZoom || tier !== lastZoomTier){
+        edgeLabelsByZoom = show;
+        lastZoomTier = tier;
+        applyView();
+      }
       rememberGraphCamera();
     });
     net.on('stabilized', ()=>{
@@ -1303,8 +1311,14 @@ function initGraph(onComplete){
         clearTimeout(zoomDebounceTimer);
         zoomDebounceTimer = setTimeout(()=>{
           if(!net) return;
-          const show=net.getScale()>=1.45;
-          if(show!==edgeLabelsByZoom){ edgeLabelsByZoom=show; applyView(); }
+          const scale = net.getScale();
+          const show = scale >= 1.2;
+          const tier = scale >= 1.0 ? 2 : (scale >= 0.4 ? 1 : 0);
+          if(show !== edgeLabelsByZoom || tier !== lastZoomTier){
+            edgeLabelsByZoom = show;
+            lastZoomTier = tier;
+            applyView();
+          }
         }, 120);
       }
     });
@@ -1495,10 +1509,26 @@ window.addEventListener('click', function(e){
   }
 });
 
+function focusOnNode(id){
+  if(!net || !allNodes) return;
+  requestAnimationFrame(()=>{
+    try{
+      const neighbors = (typeof net.getConnectedNodes === 'function') ? net.getConnectedNodes(id) : [];
+      const focusIds = [id, ...(Array.isArray(neighbors) ? neighbors : [])].filter(nid => {
+        const node = allNodes.get(nid);
+        return node && !node.hidden;
+      });
+      cameraToNodes(focusIds);
+    }catch(_){}
+  });
+}
+
 function loadNode(id, hidePop=true){
+  const focusCamera = arguments.length > 2 ? arguments[2] : true;
   if(hidePop) hideNodePop();
   if(net) net.selectNodes([id]);   // 클릭 inspect — hover 는 더 이상 패널을 안 쓴다(팝업으로 분리)
   applyView();                     // 선택 노드 주변 엣지만 강조하고 관계 라벨을 펼친다
+  if(focusCamera) focusOnNode(id);
   fetch('node?id='+encodeURIComponent(id)).then(r=>r.json()).then(renderPanel);
 }
 function renderPanel(d){
@@ -2274,37 +2304,47 @@ function nodeFontSize(deg){
 
 function getPhysicsOpts(nodeCount){
   const count = nodeCount || 0;
-  let grav = -12000, cg = 0.12, spring = 150, overlap = 0.1;
-  if(count >= 500){
-    grav = -35000;
-    cg = 0.04;
-    spring = 220;
-    overlap = 0.2;
+  let grav = -120, cg = 0.008, spring = 160, overlap = 0.85;
+  if(count >= 1000){
+    grav = -140;
+    cg = 0.005;
+    spring = 180;
+    overlap = 0.9;
+  } else if(count >= 500){
+    grav = -110;
+    cg = 0.007;
+    spring = 160;
+    overlap = 0.85;
   } else if(count >= 200){
-    grav = -25000;
-    cg = 0.06;
-    spring = 190;
-    overlap = 0.2;
+    grav = -80;
+    cg = 0.009;
+    spring = 140;
+    overlap = 0.8;
   } else if(count >= 80){
-    grav = -18000;
-    cg = 0.09;
-    spring = 170;
-    overlap = 0.15;
+    grav = -50;
+    cg = 0.012;
+    spring = 120;
+    overlap = 0.75;
+  } else {
+    grav = -30;
+    cg = 0.015;
+    spring = 100;
+    overlap = 0.7;
   }
   return {
-    solver: 'barnesHut',
-    barnesHut: {
+    solver: 'forceAtlas2Based',
+    forceAtlas2Based: {
       gravitationalConstant: grav,
       centralGravity: cg,
       springLength: spring,
       springConstant: 0.04,
-      damping: 0.65,
+      damping: 0.5,
       avoidOverlap: overlap
     },
     minVelocity: 0.75,
     maxVelocity: 50,
-    timestep: 0.5,
-    stabilization: { iterations: 150 }
+    timestep: 0.4,
+    stabilization: { iterations: 120 }
   };
 }
 
@@ -2316,6 +2356,20 @@ function updateDegPresets(){
   });
 }
 
+function triggerGentleRelaxation(){
+  if(!net) return;
+  try{
+    clearTimeout(settleTimer);
+    net.setOptions({physics:true});
+    settleTimer = setTimeout(()=>{
+      if(net && !isDraggingNode){
+        net.setOptions({physics:false});
+        resetLocalPhysicsNodes();
+      }
+    }, 1400);
+  }catch(_){}
+}
+
 function setDeg(v){
   curMinDeg = +v;
   const sl = document.getElementById('fslider');
@@ -2324,6 +2378,7 @@ function setDeg(v){
   if(fm) fm.textContent = v;
   updateDegPresets();
   applyView();
+  triggerGentleRelaxation();
 }
 // 노드/엣지 개수가 늘수록 클릭마다 체감 지연이 커지던 원인: 아래 두 루프가 예전엔
 // DataSet.update() 를 노드/엣지마다 하나씩(수백~천 회) 개별 호출했다 — vis DataSet 은
@@ -2338,6 +2393,18 @@ function applyView(){
   const netBg=(typeof getComputedStyle==='function'?getComputedStyle(document.documentElement).getPropertyValue('--net-bg').trim():'')||'#ffffff';
   const pathActive = !!(pathNodes && pathNodes.size);
   const hasFilter = activeDoc || highlightSet || pathActive;
+
+  let selectedNeighbors = null;
+  if(selectedNodeId && net && typeof net.getConnectedNodes === 'function'){
+    try{
+      const rawN = net.getConnectedNodes(selectedNodeId);
+      selectedNeighbors = new Set(Array.isArray(rawN) ? rawN : []);
+      selectedNeighbors.add(selectedNodeId);
+    }catch(_){
+      selectedNeighbors = new Set([selectedNodeId]);
+    }
+  }
+
   const nodeUpdates=[], matchedNodes=new Set();
   allNodes.forEach(n=>{
     if(typeof n.id==='string' && n.id.indexOf('cl_')===0) return;  // 검색 중앙 앵커는 안 건드림(숨김 유지)
@@ -2350,20 +2417,70 @@ function applyView(){
     }
     // 강조(문서 선택·검색·경로) 매치 노드는 흰 굵은 테두리 — dim 만으론 안 띄어서(피드백).
     // 노드별 color 가 group 색을 덮으므로 background/highlight 를 같이 명시해 유지한다.
-    const lit = hasFilter && match, c = TYPE_COLORS[n.group]||'#8b949e';
+    const lit = (hasFilter && match) || (selectedNodeId && n.id === selectedNodeId);
+    const isNeighbor = selectedNeighbors && selectedNeighbors.has(n.id);
+    const c = TYPE_COLORS[n.group]||'#8b949e';
     if(match) matchedNodes.add(n.id);
     const r = nodeRadius(n.degree);
     const fs = nodeFontSize(n.degree);
+
+    let nodeOpacity = 1;
+    let nodeBorderWidth = 1;
+    let nodeBorderColor = th.nodeBorder;
+    let nodeFs = fs;
+
+    if(selectedNodeId && selectedNeighbors){
+      if(n.id === selectedNodeId){
+        nodeOpacity = 1;
+        nodeBorderWidth = 3;
+        nodeBorderColor = th.lit;
+        nodeFs = Math.max(fs, 14);
+      } else if(isNeighbor){
+        nodeOpacity = 0.95;
+        nodeBorderWidth = 2;
+        nodeBorderColor = th.lit;
+        nodeFs = fs;
+      } else {
+        nodeOpacity = 0.12;
+        nodeBorderWidth = 1;
+        nodeBorderColor = th.nodeBorder;
+        nodeFs = 0;
+      }
+    } else if(hasFilter){
+      nodeOpacity = match ? 1 : DIM;
+      nodeBorderWidth = lit ? 3 : 1;
+      nodeBorderColor = lit ? th.lit : th.nodeBorder;
+      nodeFs = match ? fs : 0;
+    } else {
+      nodeOpacity = 1;
+      nodeBorderWidth = 1;
+      nodeBorderColor = th.nodeBorder;
+      nodeFs = fs;
+    }
+
     nodeUpdates.push({id:n.id, hidden:false, size:r,
-      font:{size:fs, color:th.nodeFont},
-      opacity: match?1:DIM, borderWidth: lit?3:1,
-      color:{background:c, border: lit?th.lit:th.nodeBorder,
+      font:{size:nodeFs, color:th.nodeFont},
+      opacity: nodeOpacity, borderWidth: lit?3:1,
+      color:{background:c, border: nodeBorderColor,
              highlight:{background:c, border:th.lit},
              hover:{background:c, border: lit?th.lit:th.nodeBorder}}});
     shown++; if(match) emph++;
   });
   if(nodeUpdates.length) allNodes.update(nodeUpdates);  // 1회 배치(개별 호출 대신)
+
   // 엣지 가시성은 방금 갱신된 노드 hidden 상태를 봐야 하므로 노드 배치 반영 뒤에 계산.
+  // 줌 레벨 기반 엣지 Level of Detail (LOD)
+  const currentScale = net ? net.getScale() : 0.1;
+  let defaultEdgeOpacity = 0.18;
+  let defaultEdgeWidth = 0.8;
+  if(currentScale >= 1.0){
+    defaultEdgeOpacity = 0.6;
+    defaultEdgeWidth = 1.2;
+  } else if(currentScale >= 0.4){
+    defaultEdgeOpacity = 0.35;
+    defaultEdgeWidth = 1.0;
+  }
+
   const edgeUpdates=[];
   allEdges.forEach(e=>{
     if(typeof e.id==='string' && e.id.indexOf('cl_')===0) return;  // 임시 클러스터 spring 엣지는 안 건드림(물리 유지)
@@ -2374,11 +2491,48 @@ function applyView(){
     const incident = !!(selectedNodeId && (e.from===selectedNodeId || e.to===selectedNodeId));
     const selected = selectedEdgeIds.has(e.id);
     const contextEdge = !hasFilter || (matchedNodes.has(e.from) && matchedNodes.has(e.to));
-    const muted = (selectedNodeId && !incident) || (hasFilter && !contextEdge);
+
+    let edgeOpacity = defaultEdgeOpacity;
+    let edgeWidth = defaultEdgeWidth;
+    let edgeColor = th.edge;
+    let edgeHighlight = th.edgeHi;
+
+    if(onPath){
+      edgeOpacity = 1;
+      edgeWidth = 4;
+      edgeColor = th.lit;
+      edgeHighlight = th.lit;
+    } else if(selectedNodeId){
+      if(incident || selected){
+        edgeOpacity = 1;
+        edgeWidth = 2.5;
+        edgeColor = th.lit;
+        edgeHighlight = th.edgeHi;
+      } else {
+        edgeOpacity = 0.04;
+        edgeWidth = 0.5;
+        edgeColor = th.edge;
+      }
+    } else if(hasFilter){
+      if(contextEdge){
+        edgeOpacity = 0.45;
+        edgeWidth = 1.2;
+        edgeColor = th.edge;
+      } else {
+        edgeOpacity = 0.05;
+        edgeWidth = 0.5;
+        edgeColor = th.edge;
+      }
+    } else {
+      edgeOpacity = defaultEdgeOpacity;
+      edgeWidth = defaultEdgeWidth;
+      edgeColor = th.edge;
+      edgeHighlight = th.edgeHi;
+    }
+
     const labelOn = onPath || incident || selected || edgeLabelsByZoom;
-    edgeUpdates.push({id:e.id, hidden: !visible, width:onPath?4:(incident||selected?2:1),
-      color:onPath ? {color:th.lit,highlight:th.lit,opacity:1}
-        : {color:th.edge,highlight:th.edgeHi,opacity:muted ? 0.08 : 1},
+    edgeUpdates.push({id:e.id, hidden: !visible, width:edgeWidth,
+      color: {color:edgeColor, highlight:edgeHighlight, opacity:edgeOpacity},
       font:{size:labelOn?10:0,color:th.nodeFont,strokeWidth:3,
         strokeColor:netBg}});
   });
