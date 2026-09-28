@@ -926,18 +926,13 @@ test('decision stream and heatmap matrix are separate features with proper audit
   await expect(matrixWrap.locator('#matrix-title')).toContainText('지식 대조 히트맵 매트릭스');
   await expect(page.locator('#matrix-view-grid')).toBeVisible();
 
-  // 9. Close matrix view
-  const closeMatrixBtn = page.locator('#matrix-close-btn');
-  await closeMatrixBtn.click();
+  // 9. Confirm and close matrix view
+  const confirmMatrixBtn = page.locator('#matrix-confirm-btn');
+  await confirmMatrixBtn.click();
   await expect(matrixWrap).toBeHidden();
 
-  // 10. Re-open reader and click '✓ 확인' button to confirm matrix
+  // 10. Re-open reader and verify banner is removed and confirmation is recorded permanently
   await doc2Item.click();
-  const confirmBtn = page.locator('#doc-matrix-banner-doc-2 button:has-text("확인")');
-  await expect(confirmBtn).toBeVisible();
-  await confirmBtn.click();
-
-  // Verify banner is removed and confirmation is recorded permanently
   await expect(page.locator('#doc-matrix-banner-doc-2')).toBeHidden();
   const isConfirmed = await page.evaluate(() => localStorage.getItem('doc_matrix_confirmed_doc-2') === '1');
   expect(isConfirmed).toBe(true);

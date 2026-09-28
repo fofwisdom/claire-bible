@@ -877,4 +877,18 @@ def test_common_header_height_and_component_synchronization():
     assert "#detailtogglebtn{height:34px;width:34px;min-height:34px;min-width:34px;box-sizing:border-box;" in GRAPH_HTML
 
 
+def test_matrix_confirm_button_and_redundant_close_removal():
+    """지식 대조 히트맵 매트릭스 뷰에서 불필요한 닫기(✕) 단추 제거 및 확인 단추 크기 규격화(34px, 6px radius) 검증."""
+    from claire.graphview import GRAPH_HTML
+
+    # 1. 닫기 단추(matrix-close-btn) 제거 및 확인 단추(matrix-confirm-btn) 단일 배치 검증
+    assert 'id="matrix-confirm-btn"' in GRAPH_HTML
+    assert 'id="matrix-close-btn"' not in GRAPH_HTML
+    assert '.matrix-close-btn' not in GRAPH_HTML
+
+    # 2. 확인 단추의 34px 높이, 6px 반경, 13px 글꼴 크기 규격화 검증
+    assert ".matrix-confirm-btn {\n  background: var(--accent, #0284c7) !important;\n  color: #ffffff !important;\n  font-weight: 600 !important;\n  border: 1px solid transparent !important;\n  padding: 0 14px !important;\n  height: 34px !important;\n  border-radius: 6px !important;" in GRAPH_HTML
+
+
+
 

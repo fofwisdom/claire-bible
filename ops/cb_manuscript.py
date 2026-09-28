@@ -89,6 +89,7 @@ APP_ADVANCED_OPTION = "--advanced"
 APP_ONE_OFF_COMMANDS = {
     "preflight",
     "doctor",
+    "heal",
     "health",
     "liveness",
     "status",
