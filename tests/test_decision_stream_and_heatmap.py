@@ -231,3 +231,135 @@ def test_settings_jev_configuration(monkeypatch):
     assert settings.jev_api_key == "jev_sec_12345"
     assert settings.jev_base_url == "https://custom-jev.example.com/v1"
     assert settings.jev_timeout == 20.5
+
+
+def test_purge_document_matrix_and_active(tmp_path: Path):
+    from claire.ingest.active import clear_active_ingest, get_active_ingest, purge_active_matrix, set_active_ingest
+    from claire.ontology.base import Document
+    from claire.store import db as dbm
+
+    db_file = tmp_path / "claire.db"
+    conn = dbm.connect(db_file)
+    dbm.init_db(conn)
+
+    doc_id = "doc_purge_test"
+    doc = Document(
+        id=doc_id,
+        title="Test Matrix Purge",
+        summary="Summary",
+        meta={"heatmap_matrix": {"rows": ["Alpha"], "cols": ["Beta"], "matrix": [[0.85]]}},
+    )
+    dbm.insert_document(conn, doc)
+
+    # 1. 초기 상태 확인: doc.meta에 heatmap_matrix 존재
+    doc_loaded = dbm.get_document(conn, doc_id)
+    assert doc_loaded is not None
+    assert "heatmap_matrix" in doc_loaded.meta
+    assert doc_loaded.meta["heatmap_matrix"]["rows"] == ["Alpha"]
+
+    # 2. active_ingest 상태 생성
+    data_dir = tmp_path / "data"
+    set_active_ingest(data_dir, payload="https://example.com/purge-test")
+    clear_active_ingest(
+        data_dir,
+        result={"document_id": doc_id, "title": "Test Matrix Purge", "heatmap_matrix": {"rows": ["Alpha"]}},
+    )
+    act = get_active_ingest(data_dir)
+    assert act is not None
+    assert act.get("heatmap_matrix") is not None
+
+    # 3. purge_document_matrix 실행
+    purged = dbm.purge_document_matrix(conn, doc_id)
+    assert purged is True
+
+    doc_after = dbm.get_document(conn, doc_id)
+    assert doc_after is not None
+    assert "heatmap_matrix" not in doc_after.meta
+
+    # 4. purge_active_matrix 실행
+    purge_active_matrix(data_dir, doc_id)
+    act_after = get_active_ingest(data_dir)
+    assert act_after is not None
+    assert act_after.get("heatmap_matrix") is None
+    assert act_after.get("result", {}).get("heatmap_matrix") is None
+
+
+def test_api_document_matrix_purge_auth_and_persistence(tmp_path: Path):
+    import secrets
+    from unittest.mock import MagicMock
+    from starlette.testclient import TestClient
+    from claire.api import server
+    from claire.config import Settings
+    from claire.ingest.active import clear_active_ingest, set_active_ingest
+    from claire.ontology.base import Document
+    from claire.store import db as dbm
+
+    data_dir = tmp_path / "data"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    db_file = data_dir / "claire.db"
+    conn = dbm.connect(db_file)
+    dbm.init_db(conn)
+
+    doc_id = "doc_purge_api_1"
+    doc = Document(
+        id=doc_id,
+        title="Sample Doc with Matrix",
+        summary="Summary",
+        meta={"heatmap_matrix": {"rows": ["Ent1"], "cols": ["Ent2"], "matrix": [[0.9]]}},
+    )
+    dbm.insert_document(conn, doc)
+    conn.close()
+
+    # active_ingest 생성
+    set_active_ingest(data_dir, payload="https://example.com/api-test")
+    clear_active_ingest(
+        data_dir,
+        result={"document_id": doc_id, "title": "Sample Doc with Matrix", "heatmap_matrix": {"rows": ["Ent1"]}},
+    )
+
+    owner_tok = secrets.token_urlsafe(32)
+    read_tok = secrets.token_urlsafe(32)
+    s = Settings(
+        db_path=str(db_file),
+        environment="development",
+        public_url="http://127.0.0.1:8765",
+        inject_token=owner_tok,
+        readonly_token=read_tok,
+    )
+    svc = MagicMock()
+    app = server.create_app(s, svc)
+    client = TestClient(app, base_url="http://127.0.0.1:8765")
+
+    # 1. 읽기 전용 사용자(권한 없음)는 파기 불가 (보안 미들웨어 정책에 의해 404 Not Found 로 마스킹 거부)
+    r_ro = client.post(
+        "/document/matrix/purge",
+        json={"id": doc_id},
+        headers={"Authorization": f"Bearer {read_tok}"},
+    )
+    assert r_ro.status_code == 404
+
+    # 2. 관리자(owner) 호출 시 성공 (200 OK)
+    r_owner = client.post(
+        "/document/matrix/purge",
+        json={"id": doc_id},
+        headers={"Authorization": f"Bearer {owner_tok}"},
+    )
+    assert r_owner.status_code == 200
+    assert r_owner.json() == {"id": doc_id, "purged": True}
+
+    # 3. 파기 후 DB 확인
+    conn2 = dbm.connect(db_file)
+    doc_after = dbm.get_document(conn2, doc_id)
+    conn2.close()
+    assert doc_after is not None
+    assert "heatmap_matrix" not in doc_after.meta
+
+    # 4. /documents API 조회 시 heatmap_matrix 가 null 임을 검증 (신규 접속자 비노출 보장)
+    r_docs = client.get("/documents", headers={"Authorization": f"Bearer {read_tok}"})
+    assert r_docs.status_code == 200
+    docs_list = r_docs.json().get("documents") or []
+    target_in_list = next((d for d in docs_list if d["id"] == doc_id), None)
+    assert target_in_list is not None
+    assert target_in_list.get("heatmap_matrix") is None
+
+

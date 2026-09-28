@@ -140,7 +140,7 @@ test('mobile primary tabs keep document navigation on the graph', async ({ page 
   await expect.poll(
     () => page.evaluate(() => window.claireDebug.activeDoc),
   ).not.toBe(firstActiveDoc);
-  await expect(page.getByRole('tab', { name: '그래프' })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator('#tab-graph')).toHaveAttribute('aria-selected', 'true');
   await expect(page.locator('#detailpane')).toBeHidden();
   await expect(page.getByRole('dialog', { name: '그래프에서 볼 자료 선택' })).toBeHidden();
   await expect(page.locator('#reader')).toBeHidden();
@@ -887,7 +887,7 @@ test('decision stream and heatmap matrix are separate features with proper audit
   // 3. Verify streamwrap opens as center view with Decision Stream header, filter bar, and cards
   const streamWrap = page.locator('#streamwrap');
   await expect(streamWrap).toBeVisible();
-  await expect(streamWrap.locator('#stream-title')).toContainText('의사결정 스트림');
+  await expect(streamWrap).toHaveAttribute('aria-label', '의사결정 스트림');
   await expect(streamWrap.locator('#stream-filter-bar')).toBeVisible();
 
   // 4. Open doc-2 in reader by clicking its item in document list

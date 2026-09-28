@@ -144,6 +144,27 @@ def clear_active_ingest(
     _atomic_write(f, current)
 
 
+def purge_active_matrix(data_dir: Path | str | None, doc_id: str | None = None) -> None:
+    """활성 또는 최근 적재 상태에서 heatmap_matrix 를 물리적으로 소각."""
+    f = _get_state_file(data_dir)
+    current = get_active_ingest(data_dir)
+    if not current:
+        return
+    matched = True
+    if doc_id:
+        res_doc_id = (current.get("result") or {}).get("document_id")
+        mat_doc_id = (current.get("heatmap_matrix") or {}).get("document_id")
+        if res_doc_id and res_doc_id != doc_id and mat_doc_id and mat_doc_id != doc_id:
+            matched = False
+    if matched:
+        if "heatmap_matrix" in current:
+            current["heatmap_matrix"] = None
+        if current.get("result") and isinstance(current["result"], dict) and "heatmap_matrix" in current["result"]:
+            current["result"]["heatmap_matrix"] = None
+        current["updated_at"] = time.time()
+        _atomic_write(f, current)
+
+
 def _atomic_write(file_path: Path, data: dict[str, Any]) -> None:
     tmp = file_path.with_suffix(".tmp")
     try:
