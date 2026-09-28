@@ -115,7 +115,7 @@
     <div class="dhead">
       <div class="docq-search-row">
         <label class="sr-only" for="docq">자료 검색</label>
-        <input id="docq" placeholder="문서 검색(제목·요약)" oninput="docSearchActive=true;renderDocs(this.value)"/>
+        <input id="docq" placeholder="문서 검색 (Enter: 본문 전체 검색)" oninput="docSearchActive=true;onDocqInput(this.value)"/>
         <button id="advsearchbtn" type="button" class="sec" onclick="toggleAdvSearch()" title="고급 검색" aria-label="고급 검색" aria-expanded="false" aria-controls="advsearchpane">
           <span class="btn-icon">⚙️</span>
         </button>
@@ -170,7 +170,7 @@
       <div id="netsearch">
         <div id="barsearch">
           <label class="sr-only" for="q">그래프 검색</label>
-          <input id="q" placeholder="그래프 노드 검색" oninput="onSearchInput(this.value)"/>
+          <input id="q" placeholder="그래프 노드 검색 (엔티티 이름)" oninput="onSearchInput(this.value)"/>
         </div>
       </div>
       <div id="legendbar" aria-label="그래프 범례와 관계 필터"></div>
