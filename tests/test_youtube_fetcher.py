@@ -278,3 +278,66 @@ def test_fetch_youtube_stt_disabled_fallback(monkeypatch: pytest.MonkeyPatch):
     assert doc.meta["is_stt"] is False
     assert "[영상 설명]" in doc.raw_text
     assert "Only description" in doc.raw_text
+
+
+def test_youtube_prioritizes_creator_manual_caption_over_auto_caption(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("CLAIRE_PREFERRED_LANGUAGES", "ko")
+    get_settings.cache_clear()
+
+    class DummyManualTranscript:
+        language = "English"
+        language_code = "en"
+        is_generated = False
+
+        def fetch(self):
+            return [{"text": "High quality creator provided English transcript."}]
+
+    class DummyAutoTranscript:
+        language = "Korean (auto-generated)"
+        language_code = "ko"
+        is_generated = True
+
+        def fetch(self):
+            return [{"text": "품질 낮은 한국어 자동 생성 자막입니다."}]
+
+    class DummyTranscriptList:
+        def __init__(self):
+            self._manually_created_transcripts = {"en": DummyManualTranscript()}
+            self._generated_transcripts = {"ko": DummyAutoTranscript()}
+
+        def find_manually_created_transcript(self, langs):
+            for l in langs:
+                if l in self._manually_created_transcripts:
+                    return self._manually_created_transcripts[l]
+            raise Exception("No manual transcript found")
+
+        def find_generated_transcript(self, langs):
+            for l in langs:
+                if l in self._generated_transcripts:
+                    return self._generated_transcripts[l]
+            raise Exception("No generated transcript found")
+
+        def find_transcript(self, langs):
+            # Old behavior: would return 'ko' first because 'ko' is first in langs
+            if "ko" in langs and "ko" in self._generated_transcripts:
+                return self._generated_transcripts["ko"]
+            return self._manually_created_transcripts.get("en")
+
+    class DummyApi:
+        def list(self, vid):
+            return DummyTranscriptList()
+
+    import youtube_transcript_api
+    monkeypatch.setattr(youtube_transcript_api, "YouTubeTranscriptApi", DummyApi)
+    monkeypatch.setattr(
+        "claire.ingest.fetchers.youtube.fetch_video_details",
+        lambda vid: {"title": "Keynote Presentation", "author": "Speaker", "description": "Desc", "keywords": []},
+    )
+
+    doc = fetch_youtube("https://www.youtube.com/watch?v=vDjW_dRyKXY")
+    assert doc.title == "Keynote Presentation"
+    assert "High quality creator provided English transcript." in doc.raw_text
+    assert "품질 낮은 한국어 자동 생성 자막" not in doc.raw_text
+    assert doc.meta["caption_status"] == "available"
+    assert doc.meta["caption_language"] == "en"
+    assert doc.meta["transcript_source"] == "manual_caption"

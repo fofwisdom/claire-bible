@@ -70,7 +70,7 @@ def test_language_normalization_and_direct_https_manual_caption_selection():
     assert sum("text.vtt" in str(c.track.get("url")) for c in candidates) == 1
 
 
-def test_preferred_language_precedes_caption_generation_kind():
+def test_creator_manual_caption_precedes_automatic_caption():
     info = {
         "subtitles": {"en-US": [{"data": VALID_VTT, "ext": "vtt"}]},
         "automatic_captions": {
@@ -80,8 +80,10 @@ def test_preferred_language_precedes_caption_generation_kind():
 
     candidates = select_caption_candidates(info, ["ko", "en"])
 
-    assert candidates[0].language == "ko-KR"
-    assert candidates[0].source == "automatic_caption"
+    assert candidates[0].language == "en-US"
+    assert candidates[0].source == "manual_caption"
+    assert candidates[1].language == "ko-KR"
+    assert candidates[1].source == "automatic_caption"
 
 
 def test_inline_caption_is_used_without_downloader():
