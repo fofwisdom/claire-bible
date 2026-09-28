@@ -860,3 +860,21 @@ def test_open_ingest_shows_status_when_running():
     assert "activeIngest = {\n    running: true," in GRAPH_HTML
 
 
+def test_common_header_height_and_component_synchronization():
+    """3개 열 헤더(#docs .dhead, #centerhead, #detailhead)의 48px 높이 일치 및 검색창·탭 컴포넌트 34px 높이 동기화 검증."""
+    from claire.graphview import GRAPH_HTML
+
+    # 1. 3개 열 헤더 높이가 모두 48px 및 border-bottom으로 통일되어 하단 경계선이 수평 일치함
+    assert "#docs .dhead{height:48px;min-height:48px;box-sizing:border-box;" in GRAPH_HTML
+    assert ".center-head-bar{\n    display:flex;align-items:center;justify-content:flex-start;gap:10px;\n    height:48px;min-height:48px;box-sizing:border-box;" in GRAPH_HTML
+    assert "#detailhead{display:flex;align-items:center;justify-content:space-between;height:48px;min-height:48px;" in GRAPH_HTML
+
+    # 2. 중앙 헤더 내 검색창(#barsearch)과 탭 컨트롤(.center-tabs)이 34px 높이와 6px 반경으로 상호 동기화됨
+    assert "#centerhead #barsearch{\n    display:flex;align-items:center;position:relative;width:100%;\n    height:34px;box-sizing:border-box;\n    background:var(--panel-bg);border:1px solid var(--border);\n    border-radius:6px;" in GRAPH_HTML
+    assert ".center-tabs{\n    display:inline-flex;align-items:center;gap:2px;\n    height:34px;box-sizing:border-box;\n    background:var(--sec-bg);padding:2px;border-radius:6px;" in GRAPH_HTML
+
+    # 3. 우측 상세 토글 버튼(#detailtogglebtn)도 34px 정사각 및 6px 반경으로 일치함
+    assert "#detailtogglebtn{height:34px;width:34px;min-height:34px;min-width:34px;box-sizing:border-box;" in GRAPH_HTML
+
+
+

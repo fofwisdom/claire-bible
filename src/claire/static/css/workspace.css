@@ -100,10 +100,10 @@
     border-radius:18px;background:var(--card-bg);box-shadow:0 4px 16px var(--shadow);font-size:12px}
   #graphnotice.on{display:block}
   #docs{width:280px;display:flex;flex-direction:column;background:var(--docs-bg);border-right:1px solid var(--border);font-size:13px}
-  #docs .dhead{padding:8px 10px;border-bottom:1px solid var(--border);flex-shrink:0}
+  #docs .dhead{height:48px;min-height:48px;box-sizing:border-box;padding:0 12px;display:flex;align-items:center;border-bottom:1px solid var(--border);background:var(--bar-bg);flex-shrink:0}
   .docq-search-row{display:flex;align-items:center;gap:6px;width:100%}
   .docq-search-row input#docq{flex:1;min-width:0}
-  .docsearch-stat-row{display:flex;align-items:center;justify-content:space-between;padding:4px 2px 0;font-size:11.5px;color:var(--muted);min-height:18px;line-height:1.4}
+  .docsearch-stat-row{display:flex;align-items:center;justify-content:space-between;width:100%;font-size:12px;color:var(--muted);line-height:1.4}
   /* 검색 AI 요약 카드 & 그래프 연계 바 */
   .search-ai-card{
     margin:8px 8px 10px;padding:10px 12px;
@@ -175,10 +175,10 @@
   /* 우측 사이드 패널 (#detailpane): 데스크톱은 3열 고정, 태블릿/모바일은 오른쪽 슬라이드 드로어 */
   #detailpane{width:var(--detail-width,360px);display:flex;flex-direction:column;background:var(--panel-bg);
     border-left:1px solid var(--border);min-height:0;overflow:hidden;transition:width .2s ease}
-  #detailhead{display:flex;align-items:center;justify-content:space-between;min-height:48px;
-    padding:4px 12px;border-bottom:1px solid var(--border);background:var(--bar-bg);flex:none}
+  #detailhead{display:flex;align-items:center;justify-content:space-between;height:48px;min-height:48px;
+    box-sizing:border-box;padding:0 12px;border-bottom:1px solid var(--border);background:var(--bar-bg);flex:none}
   #detailhead .detailhead-tools{display:flex;align-items:center;gap:4px}
-  #detailtogglebtn{min-height:34px;min-width:34px;background:var(--sec-bg);color:var(--sec-fg);border:1px solid var(--border);
+  #detailtogglebtn{height:34px;width:34px;min-height:34px;min-width:34px;box-sizing:border-box;background:var(--sec-bg);color:var(--sec-fg);border:1px solid var(--border);
     border-radius:6px;cursor:pointer;font-size:14px;display:inline-flex;align-items:center;justify-content:center;transition:transform .2s ease}
   #detailtogglebtn:hover{background:var(--hover);border-color:var(--accent)}
   #detailclose{min-height:36px;min-width:36px;background:var(--sec-bg);color:var(--sec-fg);border:1px solid var(--border);border-radius:6px;cursor:pointer;font-size:15px;display:none}
@@ -210,7 +210,7 @@
   body.detail-compact #detailpane,
   #detailpane.compact-rail{width:var(--detail-compact-width,56px)}
   body.detail-compact #detailpane #detailhead,
-  #detailpane.compact-rail #detailhead{padding:4px 6px;justify-content:center}
+  #detailpane.compact-rail #detailhead{padding:0 6px;justify-content:center}
   body.detail-compact #detailpane #detailhead strong,
   #detailpane.compact-rail #detailhead strong{display:none}
   body.detail-compact #detailpane #detailtogglebtn,
