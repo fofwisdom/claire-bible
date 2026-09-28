@@ -57,7 +57,7 @@ const toolbarMQ = window.matchMedia('(max-width:1500px)');
 const reducedMotionMQ = window.matchMedia('(prefers-reduced-motion:reduce)');
 const paneNames=['docs','graph'];
 let activePane='graph', detailOpen=false, centerView='graph', drawerOpen=false;
-let detailReturnFocus=null, docSearchActive=false;
+let detailReturnFocus=null, docSearchActive=false, serverSearchResults=null;
 let graphCamera = null, preservingGraphCamera = false, netBusy = false;
 let isDraggingNode = false, settleTimer = null;
 let activeLocalPhysicsNodes = null;
@@ -2768,8 +2768,187 @@ function docItemHtml(dc){
 }
 let showHidden = false;
 function toggleShowHidden(){ if(!canWrite()) return; showHidden=!showHidden; renderDocs(); }
+
+function onDocqInput(v){
+  docSearchActive = true;
+  if(serverSearchResults && serverSearchResults.query !== (v||'').trim().toLowerCase()){
+    serverSearchResults = null;
+  }
+  renderDocs(v);
+}
+
+function clearServerSearch(){
+  serverSearchResults = null;
+  cancelServerSearch();
+  const dq = document.getElementById('docq');
+  if(dq){ dq.value = ''; }
+  docSearchActive = false;
+  renderDocs('');
+}
+
+function highlightSearchInGraph(){
+  if(!serverSearchResults || !serverSearchResults.hits) return;
+  const ids = serverSearchResults.hits.map(h => h.id).filter(Boolean);
+  if(!ids.length) return;
+  setCenterView('graph');
+  revealWorkspace('graph');
+  highlightSet = new Set(ids);
+  applyView();
+  clusterMatches(ids, () => fitToMatches(ids));
+}
+
+function renderServerDocs(){
+  if(!serverSearchResults) return;
+  const res = serverSearchResults;
+  const ph = document.getElementById('pinnedhead'); if(ph) ph.style.display = 'none';
+  const pl = document.getElementById('pinnedlist'); if(pl) pl.innerHTML = '';
+  const sh = document.getElementById('showhidden'); if(sh) sh.style.display = 'none';
+  const hl = document.getElementById('hiddenlist'); if(hl) hl.innerHTML = '';
+
+  const dl = document.getElementById('doclist');
+  if(dl){
+    let html = doclistToolbarHtml();
+
+    if(res.answer){
+      html += '<div class="search-ai-card">' +
+        '<div class="search-ai-head"><span>💡</span> <b>AI 지식 요약</b></div>' +
+        '<div class="search-ai-body">' + esc(res.answer) + '</div>' +
+        '</div>';
+    }
+
+    const hitCount = (res.hits || []).length;
+    html += '<div class="search-action-bar">' +
+      (hitCount > 0
+        ? '<button type="button" class="sec search-graph-link-btn" onclick="highlightSearchInGraph()" title="지식 그래프에서 연관 개념 노드 하이라이트">' +
+          '<span class="btn-icon">📊</span> <span class="btn-label">그래프에서 맥락 보기 (' + hitCount + ')</span></button>'
+        : '') +
+      '<button type="button" class="sec search-reset-btn" onclick="clearServerSearch()" title="검색 결과 초기화">✕ 닫기</button>' +
+      '</div>';
+
+    if(res.docs && res.docs.length){
+      html += res.docs.map(docItemHtml).join('');
+    } else {
+      html += '<p class="hint" style="padding:24px 12px;text-align:center">일치하는 문서를 찾지 못했습니다.</p>';
+    }
+    dl.innerHTML = html;
+  }
+
+  const st = document.getElementById('stat');
+  if(st){
+    const modeLabel = res.mode === 'hybrid' ? '🧠 AI 의미 검색' : '📄 전문(Full-Text) 검색';
+    st.textContent = modeLabel + ': ' + (res.docs ? res.docs.length : 0) + '건 발견';
+  }
+  syncGraphDocNav();
+}
+
+async function doDocServerSearch(q){
+  q = (q || '').trim();
+  if(!q){
+    clearServerSearch();
+    return;
+  }
+  cancelServerSearch();
+  const seq = ++currentSearchSeq;
+  let abortController = null;
+  if(typeof AbortController !== 'undefined'){
+    abortController = new AbortController();
+    currentSearchAbort = abortController;
+  }
+  const semchk = document.getElementById('semchk');
+  const isSemantic = semchk && semchk.checked && AUTH_SCOPE !== 'anonymous';
+  const searchMode = isSemantic ? 'hybrid' : 'fts';
+  const shouldSummarize = isSemantic && canWrite();
+
+  const statEl = document.getElementById('stat');
+  if(statEl){
+    statEl.textContent = isSemantic ? '🧠 AI 의미 검색 및 요약 생성 중…' : '🔎 전체 본문(FTS5) 검색 중…';
+  }
+
+  let r;
+  try {
+    const reqOpts = {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        query: q,
+        summarize: shouldSummarize,
+        limit: 20,
+        mode: searchMode
+      })
+    };
+    if(abortController) reqOpts.signal = abortController.signal;
+    r = await fetch('search', reqOpts);
+  } catch(e){
+    if(abortController && abortController.signal.aborted) return;
+    if(seq !== currentSearchSeq) return;
+    if(statEl) statEl.textContent = '검색 실패';
+    return;
+  }
+  if(seq !== currentSearchSeq) return;
+  if(r.status === 401 || r.status === 404){
+    expireWriteAccess();
+    if(statEl) statEl.textContent = '세션 만료';
+    return;
+  }
+  if(r.status === 429){
+    if(statEl) statEl.textContent = '검색 요청이 많습니다 — 잠시 후 재시도';
+    return;
+  }
+  let d = {};
+  try { d = await r.json(); } catch(_) {}
+  if(seq !== currentSearchSeq) return;
+  if(!r.ok){
+    if(statEl) statEl.textContent = '검색 오류 (HTTP ' + r.status + ')';
+    return;
+  }
+
+  const docScoreMap = new Map();
+  const hits = d.hits || [];
+  hits.forEach(h => {
+    const score = Number(h.score) || 1.0;
+    (h.sources || []).forEach(docId => {
+      const cur = docScoreMap.get(docId) || 0;
+      docScoreMap.set(docId, cur + score);
+    });
+  });
+
+  const matchedDocs = [];
+  const queryLower = q.toLowerCase();
+  if(allDocs && allDocs.length){
+    allDocs.forEach(dc => {
+      if(dc.hidden === 1 && !canWrite()) return;
+      const score = docScoreMap.get(dc.id);
+      const titleMatch = (dc.title || '').toLowerCase().includes(queryLower);
+      const summaryMatch = (dc.summary || '').toLowerCase().includes(queryLower);
+      if(score !== undefined || titleMatch || summaryMatch){
+        matchedDocs.push({
+          doc: dc,
+          rankScore: (score || 0) + (titleMatch ? 2.0 : 0) + (summaryMatch ? 1.0 : 0)
+        });
+      }
+    });
+    matchedDocs.sort((a, b) => b.rankScore - a.rankScore);
+  }
+
+  const resultDocs = matchedDocs.map(item => item.doc);
+
+  serverSearchResults = {
+    mode: d.mode || searchMode,
+    query: queryLower,
+    answer: d.answer || null,
+    docs: resultDocs,
+    hits: hits
+  };
+
+  renderServerDocs();
+}
+
 function renderDocs(filter){
   const q = (filter !== undefined ? filter : (document.getElementById('docq') ? document.getElementById('docq').value : '')).trim().toLowerCase();
+  if(serverSearchResults && serverSearchResults.query === q){
+    renderServerDocs();
+    return;
+  }
   if(docSearchActive && q){
     cancelServerSearch();
     currentSearchSeq++;
@@ -3195,30 +3374,28 @@ const docqEl=document.getElementById('docq');
 if(docqEl){
   docqEl.addEventListener('keydown',e=>{
     if(e.key!=='Enter') return;
-    const sem=document.getElementById('sem');
-    const semchk=document.getElementById('semchk');
-    if((sem && sem.checked) || (semchk && semchk.checked)){ doSemantic(); }
+    e.preventDefault();
+    doDocServerSearch(e.target.value);
   });
 }
 const qEl=document.getElementById('q');
 if(qEl){
   qEl.addEventListener('keydown',e=>{
     if(e.key!=='Enter') return;
-    const sem=document.getElementById('sem');
-    const semchk=document.getElementById('semchk');
-    if((sem && sem.checked) || (semchk && semchk.checked)){ doSemantic(); }
-    else { cancelServerSearch(); currentSearchSeq++; clearTimeout(searchDebounce); hl(e.target.value);
-           revealWorkspace('graph');
-           if(net){ const m=net.getSelectedNodes(); if(m.length) loadNode(m[0]); } }
+    cancelServerSearch(); currentSearchSeq++; clearTimeout(searchDebounce); hl(e.target.value);
+    if(net){ const m=net.getSelectedNodes(); if(m.length) loadNode(m[0]); }
   });
   qEl.addEventListener('focus', e=> e.target.select());
 }
 function doSemantic(){
-  revealWorkspace('graph');
   const docqVal = (document.getElementById('docq') ? document.getElementById('docq').value : '').trim();
   const qVal = (document.getElementById('q') ? document.getElementById('q').value : '').trim();
   const qv = docqVal || qVal;
-  semanticSearch(qv);
+  if(docqVal){
+    doDocServerSearch(docqVal);
+  } else {
+    semanticSearch(qv);
+  }
 }
 
 // --- 인증 상태 표시 ---
