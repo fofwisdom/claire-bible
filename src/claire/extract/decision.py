@@ -233,16 +233,24 @@ def build_fallback_matrix(
 
     for r_idx, r_name in enumerate(row_names):
         r_lower = r_name.lower().strip()
+        r_tokens = set(r_lower.split())
         for c_idx, c_name in enumerate(col_names):
             c_lower = c_name.lower().strip()
+            c_tokens = set(c_lower.split())
             if (r_name, c_name) in dec_map:
                 matrix[r_idx][c_idx] = dec_map[(r_name, c_name)]
             elif r_lower == c_lower:
                 matrix[r_idx][c_idx] = 1.0
+            elif (r_lower in c_lower or c_lower in r_lower) and min(len(r_lower), len(c_lower)) >= 3:
+                sub_ratio = min(len(r_lower), len(c_lower)) / max(len(r_lower), len(c_lower))
+                matrix[r_idx][c_idx] = round(0.55 + 0.35 * sub_ratio, 4)
+            elif r_tokens and c_tokens and (r_tokens & c_tokens):
+                jaccard = len(r_tokens & c_tokens) / len(r_tokens | c_tokens)
+                matrix[r_idx][c_idx] = round(0.40 + 0.45 * jaccard, 4)
             else:
                 sim = difflib.SequenceMatcher(None, r_lower, c_lower).ratio()
-                if sim >= 0.6:
-                    matrix[r_idx][c_idx] = round(sim * 0.75, 4)
+                if sim >= 0.5:
+                    matrix[r_idx][c_idx] = round(sim * 0.85, 4)
                 else:
                     matrix[r_idx][c_idx] = default_base_score
 

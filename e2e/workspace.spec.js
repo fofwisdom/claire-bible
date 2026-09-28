@@ -970,7 +970,7 @@ test('heatmap matrix replaces graph during ingestion with clean progress and liv
   await expect(page.locator('#matrix-progress-banner')).toBeVisible();
   await expect(matrixWrap.locator('#matrix-progress-msg')).toHaveText('원문 분석 및 엔티티 대조 준비 중…');
 
-  // 4. Simulate streaming heatmap_matrix event arriving
+  // 4. Simulate streaming heatmap_matrix event arriving during active ingest
   await page.evaluate(() => {
     window.renderHeatmapMatrix({
       rows: ['엔티티 1', '엔티티 2'],
@@ -978,7 +978,7 @@ test('heatmap matrix replaces graph during ingestion with clean progress and liv
       matrix: [[0.95, 0.3], [0.81, 0.4]],
       threshold_auto_merge: 0.93,
       threshold_borderline: 0.72
-    }, '테스트 문서');
+    }, '테스트 문서', true);
     window.updateMatrixProgress('후보 엔티티 대조 완료');
   });
 
@@ -988,6 +988,29 @@ test('heatmap matrix replaces graph during ingestion with clean progress and liv
   // Verify pure color cells (no text/numbers inside cell)
   const cellTexts = await page.locator('#matrix-tbody .matrix-cell').allTextContents();
   expect(cellTexts.every(t => t.trim() === '')).toBe(true);
+
+  // Verify multi-tier color assignment and ingest animation class
+  const mergeCell = page.locator('#matrix-tbody .matrix-cell[data-tier="merge"]');
+  await expect(mergeCell).toBeVisible();
+  await expect(mergeCell).toHaveClass(/cell-ingest-anim/);
+
+  const borderlineCell = page.locator('#matrix-tbody .matrix-cell[data-tier="borderline"]');
+  await expect(borderlineCell).toBeVisible();
+
+  const midCell = page.locator('#matrix-tbody .matrix-cell[data-tier="mid"]');
+  await expect(midCell).toBeVisible();
+
+  // Verify static view (outside ingest) has no ingest animation class
+  await page.evaluate(() => {
+    window.renderHeatmapMatrix({
+      rows: ['엔티티 1', '엔티티 2'],
+      cols: ['후보 A', '후보 B'],
+      matrix: [[0.95, 0.3], [0.81, 0.4]],
+      threshold_auto_merge: 0.93,
+      threshold_borderline: 0.72
+    }, '완료 문서', false);
+  });
+  await expect(page.locator('#matrix-tbody .matrix-cell').first()).not.toHaveClass(/cell-ingest-anim/);
 
   // 5. Test switching back to graph via '📊 그래프' button
   const graphBtn = matrixWrap.locator('button:has-text("그래프")').first();
