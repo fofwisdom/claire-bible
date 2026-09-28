@@ -85,12 +85,21 @@ function docMetaHtml(dc){
   const isParserFallback = !!(dc.pdf_parser_fallback || (dc.meta && dc.meta.pdf_parser_fallback));
   const presentation = dc.presentation_pdf || (dc.meta && dc.meta.presentation_pdf) || {};
   const hasPresentation = presentation.status === 'available' && !!presentation.public_url;
-  const isStt = !!(dc.is_stt || (dc.meta && (dc.meta.is_stt || dc.meta.stt_applied || dc.meta.stt)));
+  const origChars = (dc.orig_chars || (dc.meta && dc.meta.orig_chars) || dc.stt_orig_chars || (dc.meta && dc.meta.stt_orig_chars)) || 0;
+  const rawChars = (dc.raw_chars || (dc.meta && dc.meta.raw_chars) || dc.stt_raw_chars || (dc.meta && dc.meta.stt_raw_chars)) || 0;
+  const fallbackChars = (dc.raw_text ? dc.raw_text.length : 0) || (dc.detail ? dc.detail.length : 0);
+  const totalChars = origChars || rawChars || fallbackChars;
+  let charTip = '';
+  if(origChars > 0 && rawChars > 0 && origChars !== rawChars){
+    charTip = '전체 문자 수: ' + origChars.toLocaleString() + '자 (적재: ' + rawChars.toLocaleString() + '자)';
+  } else if(totalChars > 0){
+    charTip = '전체 문자 수: ' + totalChars.toLocaleString() + '자';
+  }
 
-  // 원문 단추나 docmeta 뱃지가 하나라도 존재하면 컨테이너 유지
-  if(!hasUrl && !isTrunc && !focus && !isStt && !isParserFallback && !hasPresentation) return '';
+  // 원문 단추, 전체 문자 수, docmeta 뱃지가 하나라도 존재하면 컨테이너 유지
+  if(!hasUrl && !isTrunc && !focus && !isStt && !isParserFallback && !hasPresentation && !totalChars) return '';
 
-  let h = '<p class=docmeta>';
+  let h = '<p class=docmeta' + (charTip ? ' title="'+esc(charTip)+'"' : '') + '>';
   // 좌측: 원문 관련 단추
   if(hasUrl){
     h += '<a href="'+esc(dc.url)+'" target=_blank rel=noopener>↗ 원문 열기</a>';
