@@ -232,10 +232,18 @@
             </table>
           </div>
           <div id="matrix-legend" class="matrix-legend">
-            <span class="legend-item"><span class="legend-swatch swatch-merge"></span> <b>임계 충족 (Merge ≥ 0.93)</b></span>
-            <span class="legend-item"><span class="legend-swatch swatch-judge"></span> <b>경계 탐색 (0.72~0.93)</b></span>
-            <span class="legend-item"><span class="legend-swatch swatch-new"></span> <b>신규 분기 (&lt; 0.72)</b></span>
-            <span class="legend-item"><span class="legend-swatch swatch-base"></span> <b>기저 배경</b></span>
+            <div class="legend-density-scale">
+              <span class="legend-density-title">유사도 계조(Density):</span>
+              <span class="legend-scale-label">저 (0.0)</span>
+              <div class="matrix-density-gradient-bar" title="0.0 ~ 1.0 유사도 농도 계조"></div>
+              <span class="legend-scale-label">고 (1.0)</span>
+            </div>
+            <div class="legend-swatches-group">
+              <span class="legend-item"><span class="legend-swatch swatch-merge"></span> <b>임계 충족 (적재 확정 ≥ 0.93)</b></span>
+              <span class="legend-item"><span class="legend-swatch swatch-judge"></span> <b>경계선 탐색 구간 (0.72~0.93)</b></span>
+              <span class="legend-item"><span class="legend-swatch swatch-new"></span> <b>신규 분기 (&lt; 0.72)</b></span>
+              <span class="legend-item"><span class="legend-swatch swatch-base"></span> <b>기저 밀도 (&lt; 0.10)</b></span>
+            </div>
           </div>
         </div>
       </div>

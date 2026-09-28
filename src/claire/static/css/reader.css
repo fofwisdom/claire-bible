@@ -532,6 +532,58 @@ body.stt-modal-open{overflow:hidden}
   box-shadow: 0 0 8px rgba(2, 132, 199, 0.6);
 }
 
+/* 적재 중 확률에 따른 색상 부여 애니메이션 (오직 적재 시점에만 발동) */
+@keyframes cellColorAssign {
+  0% {
+    background-color: var(--card-bg, #ffffff);
+    opacity: 0.35;
+    transform: scale(0.85);
+  }
+  50% {
+    transform: scale(1.06);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.matrix-cell.cell-ingest-anim {
+  animation: cellColorAssign 0.38s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+/* 다크 테마 셀 계조 보정 */
+[data-theme="dark"] .matrix-cell[data-tier="high"],
+:root:not([data-theme="light"]) .matrix-cell[data-tier="high"] {
+  background: rgba(59, 130, 246, 0.85) !important;
+  border-color: #3b82f6 !important;
+}
+[data-theme="dark"] .matrix-cell[data-tier="mid-high"],
+:root:not([data-theme="light"]) .matrix-cell[data-tier="mid-high"] {
+  background: rgba(59, 130, 246, 0.6) !important;
+  border-color: #2563eb !important;
+}
+[data-theme="dark"] .matrix-cell[data-tier="mid"],
+:root:not([data-theme="light"]) .matrix-cell[data-tier="mid"] {
+  background: rgba(30, 58, 138, 0.65) !important;
+  border-color: rgba(59, 130, 246, 0.5) !important;
+}
+[data-theme="dark"] .matrix-cell[data-tier="mid-low"],
+:root:not([data-theme="light"]) .matrix-cell[data-tier="mid-low"] {
+  background: rgba(30, 58, 138, 0.45) !important;
+  border-color: rgba(59, 130, 246, 0.35) !important;
+}
+[data-theme="dark"] .matrix-cell[data-tier="low"],
+:root:not([data-theme="light"]) .matrix-cell[data-tier="low"] {
+  background: rgba(30, 41, 59, 0.75) !important;
+  border-color: rgba(51, 65, 85, 0.6) !important;
+}
+[data-theme="dark"] .matrix-cell[data-tier="base"],
+:root:not([data-theme="light"]) .matrix-cell[data-tier="base"] {
+  background: rgba(15, 23, 42, 0.75) !important;
+  border-color: rgba(30, 41, 59, 0.9) !important;
+}
+
 .matrix-confirm-btn {
   background: var(--accent, #0284c7) !important;
   color: #ffffff !important;
@@ -697,10 +749,47 @@ body.stt-modal-open{overflow:hidden}
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 14px;
+  gap: 16px;
   padding: 8px 4px 0;
   font-size: 11px;
   color: var(--muted);
+}
+
+.legend-density-scale {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+}
+
+.legend-density-title {
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.legend-scale-label {
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.matrix-density-gradient-bar {
+  width: 90px;
+  height: 10px;
+  border-radius: 2px;
+  background: linear-gradient(to right, #eff6ff, #bfdbfe, #60a5fa, #3b82f6, #0284c7, #059669);
+  border: 1px solid var(--border);
+}
+
+[data-theme="dark"] .matrix-density-gradient-bar,
+:root:not([data-theme="light"]) .matrix-density-gradient-bar {
+  background: linear-gradient(to right, rgba(15,23,42,0.8), rgba(30,58,138,0.5), rgba(59,130,246,0.6), #0284c7, #059669);
+}
+
+.legend-swatches-group {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 14px;
 }
 
 .legend-item {
@@ -717,9 +806,15 @@ body.stt-modal-open{overflow:hidden}
 }
 
 .swatch-merge { background: #059669; border: 1px solid #047857; }
-.swatch-judge { background: #0284c7; border: 1px solid #0369a1; }
-.swatch-new { background: #64748b; border: 1px solid #475569; }
-.swatch-base { background: #f1f5f9; border: 1px solid #cbd5e1; }
+.swatch-judge { background: #0284c7; border: 1.5px dashed #0369a1; }
+.swatch-new { background: #60a5fa; border: 1px solid #3b82f6; }
+.swatch-base { background: #eff6ff; border: 1px solid #e0e7ff; }
+
+[data-theme="dark"] .swatch-base,
+:root:not([data-theme="light"]) .swatch-base {
+  background: rgba(15, 23, 42, 0.75);
+  border-color: rgba(30, 41, 59, 0.9);
+}
 
 /* Decision Stream Cards */
 .matrix-stream-container {

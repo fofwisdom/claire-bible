@@ -1891,7 +1891,7 @@ async function runIngest(){
         let ev; try{ ev=JSON.parse(line); }catch(_){ continue; }
         if(ev.done){ result=ev.result; continue; }
         if(ev.stage === 'heatmap_matrix' && ev.matrix && typeof renderHeatmapMatrix === 'function'){
-          renderHeatmapMatrix(ev.matrix);
+          renderHeatmapMatrix(ev.matrix, null, true);
           continue;
         }
         if(ev.stage === 'decision' && typeof addDecisionStreamCard === 'function'){
@@ -2100,7 +2100,7 @@ function handleActiveIngestState(activeInfo){
     updateMatrixProgress(activeInfo.msg);
   }
   if(activeInfo.heatmap_matrix){
-    renderHeatmapMatrix(activeInfo.heatmap_matrix, activeInfo.title);
+    renderHeatmapMatrix(activeInfo.heatmap_matrix, activeInfo.title, true);
   }
 }
 
@@ -2128,7 +2128,7 @@ function handleActiveIngestCompleted(activeInfo){
     if(msgEl) msgEl.innerHTML = '✅ <strong>대조 및 적재 완료</strong>';
   }
   if(activeInfo && activeInfo.heatmap_matrix){
-    renderHeatmapMatrix(activeInfo.heatmap_matrix, activeInfo.title);
+    renderHeatmapMatrix(activeInfo.heatmap_matrix, activeInfo.title, false);
   }
 }
 
@@ -4032,7 +4032,84 @@ function addDecisionStreamCard(ev){
   }
 }
 
-function renderHeatmapMatrix(matrixData, title){
+function getMatrixCellVisual(score, autoMergeThresh, borderlineThresh){
+  autoMergeThresh = (autoMergeThresh !== undefined && autoMergeThresh !== null) ? Number(autoMergeThresh) : 0.93;
+  borderlineThresh = (borderlineThresh !== undefined && borderlineThresh !== null) ? Number(borderlineThresh) : 0.72;
+  const numScore = Number(score) || 0.0;
+
+  if(numScore >= autoMergeThresh){
+    return {
+      tier: 'merge',
+      bg: '#059669',
+      border: '2px solid #047857',
+      fg: '#ffffff',
+      label: '자동 병합'
+    };
+  }
+  if(numScore >= borderlineThresh){
+    return {
+      tier: 'borderline',
+      bg: '#0284c7',
+      border: '1.5px dashed #0369a1',
+      fg: '#ffffff',
+      label: '경계선 탐색'
+    };
+  }
+  if(numScore >= 0.55){
+    return {
+      tier: 'high',
+      bg: '#3b82f6',
+      border: '1px solid #2563eb',
+      fg: '#ffffff',
+      label: '높은 유사도'
+    };
+  }
+  if(numScore >= 0.40){
+    return {
+      tier: 'mid-high',
+      bg: '#60a5fa',
+      border: '1px solid #3b82f6',
+      fg: '#ffffff',
+      label: '중상 유사도'
+    };
+  }
+  if(numScore >= 0.25){
+    return {
+      tier: 'mid',
+      bg: '#93c5fd',
+      border: '1px solid #60a5fa',
+      fg: '#1e3a8a',
+      label: '중간 유사도'
+    };
+  }
+  if(numScore >= 0.15){
+    return {
+      tier: 'mid-low',
+      bg: '#bfdbfe',
+      border: '1px solid #93c5fd',
+      fg: '#1e3a8a',
+      label: '중저 유사도'
+    };
+  }
+  if(numScore >= 0.07){
+    return {
+      tier: 'low',
+      bg: '#dbeafe',
+      border: '1px solid #bfdbfe',
+      fg: '#1e3a8a',
+      label: '낮은 유사도'
+    };
+  }
+  return {
+    tier: 'base',
+    bg: '#eff6ff',
+    border: '1px solid #e0e7ff',
+    fg: '#64748b',
+    label: '기저 밀도'
+  };
+}
+
+function renderHeatmapMatrix(matrixData, title, isIngesting){
   if(!matrixData) return;
   currentMatrixData = matrixData;
   window.activeHeatmapMatrix = matrixData;
@@ -4060,33 +4137,28 @@ function renderHeatmapMatrix(matrixData, title){
       tbody.innerHTML = '<tr><td colspan="' + Math.max(1, cols.length + 1) + '" style="text-align:center;padding:32px 16px;color:var(--muted)">비교 대상 후보 엔티티가 없거나 지식베이스 초기 상태입니다.</td></tr>';
       return;
     }
+
+    // 애니메이션은 오직 적재 중 실시간으로 확률 색상을 부여할 때만 발동
+    const isActivelyIngesting = (typeof isIngesting === 'boolean') ? isIngesting : !!(window.activeIngest && window.activeIngest.running);
+
     tbody.innerHTML = rows.map((rName, rIdx) => {
       const rowScores = mat[rIdx] || [];
       const cells = cols.map((cName, cIdx) => {
         const score = rowScores[cIdx] !== undefined ? Number(rowScores[cIdx]) : 0.0;
-        let bg = 'var(--card-bg)';
-        let fg = 'var(--muted)';
-        let border = '1px solid var(--border)';
-        let cellClass = 'matrix-cell';
+        const vis = getMatrixCellVisual(score, autoMergeThresh, borderlineThresh);
 
-        if(score >= autoMergeThresh){
-          bg = '#059669';
-          fg = '#ffffff';
-          border = '2px solid #065f46';
-        } else if(score >= borderlineThresh){
-          bg = '#0284c7';
-          fg = '#ffffff';
-          border = '1px dashed #0369a1';
-        } else if(score >= 0.5){
-          bg = 'rgba(56, 189, 248, 0.4)';
-          fg = 'var(--fg)';
-          border = '1px solid rgba(56, 189, 248, 0.6)';
+        let cellClass = 'matrix-cell';
+        let animStyle = '';
+        if(isActivelyIngesting){
+          cellClass += ' cell-ingest-anim';
+          const delay = Math.min(600, (rIdx * cols.length + cIdx) * 8);
+          animStyle = 'animation-delay:' + delay + 'ms;';
         }
 
-        const tooltip = esc(rName) + ' ↔ ' + esc(cName) + '\n점수: ' + score.toFixed(4) + (score >= autoMergeThresh ? ' (자동 병합)' : (score >= borderlineThresh ? ' (경계선 판정)' : ''));
+        const tooltip = esc(rName) + ' ↔ ' + esc(cName) + '\n유사도: ' + score.toFixed(4) + ' (' + vis.label + ')';
 
         // 구체적인 텍스트나 수치 사용을 배제하고 순수 색조 농도에 집중 (시각 만족감 목적)
-        return '<td><div class="' + cellClass + '" title="' + tooltip + '" style="background:' + bg + ';color:' + fg + ';border:' + border + '" onclick="inspectMatrixCell(\'' + esc(rName) + '\',\'' + esc(cName) + '\',' + score + ')"></div></td>';
+        return '<td><div class="' + cellClass + '" data-tier="' + vis.tier + '" title="' + tooltip + '" style="background:' + vis.bg + ';color:' + vis.fg + ';border:' + vis.border + ';' + animStyle + '" onclick="inspectMatrixCell(\'' + esc(rName) + '\',\'' + esc(cName) + '\',' + score + ')"></div></td>';
       }).join('');
 
       return '<tr><td class="matrix-row-header" title="' + esc(rName) + '">' + esc(rName) + '</td>' + cells + '</tr>';
@@ -4106,7 +4178,7 @@ function completeIngestMatrixView(result){
     if(docMetaEl) docMetaEl.textContent = '대조 대상: ' + result.title;
   }
   if(result && result.heatmap_matrix){
-    renderHeatmapMatrix(result.heatmap_matrix, result.title);
+    renderHeatmapMatrix(result.heatmap_matrix, result.title, false);
   }
 }
 
@@ -4403,11 +4475,8 @@ function renderMiniMatrixBannerHtml(docId, mat){
     rows.slice(0, 6).forEach((r, rIdx) => {
       cols.slice(0, 8).forEach((c, cIdx) => {
         const score = (matrix[rIdx] && matrix[rIdx][cIdx] !== undefined) ? Number(matrix[rIdx][cIdx]) : 0;
-        let bg = '#f1f5f9';
-        if(score >= autoMergeThresh) bg = '#059669';
-        else if(score >= borderlineThresh) bg = '#0284c7';
-        else if(score >= 0.5) bg = '#7dd3fc';
-        miniGrid += '<div style="width:14px;height:14px;border-radius:2px;background:' + bg + '" title="' + esc(r) + ' ↔ ' + esc(c) + ': ' + score.toFixed(2) + '"></div>';
+        const vis = getMatrixCellVisual(score, autoMergeThresh, borderlineThresh);
+        miniGrid += '<div class="matrix-cell" data-tier="' + vis.tier + '" style="width:14px;height:14px;border-radius:2px;background:' + vis.bg + ';border:' + vis.border + '" title="' + esc(r) + ' ↔ ' + esc(c) + ' (' + vis.label + '): ' + score.toFixed(3) + '"></div>';
       });
     });
     miniGrid += '</div>';
@@ -4449,6 +4518,7 @@ window.handleActiveIngestCompleted = handleActiveIngestCompleted;
 window.initIngestMatrixView = initIngestMatrixView;
 window.updateMatrixProgress = updateMatrixProgress;
 window.addDecisionStreamCard = addDecisionStreamCard;
+window.getMatrixCellVisual = getMatrixCellVisual;
 window.renderHeatmapMatrix = renderHeatmapMatrix;
 window.completeIngestMatrixView = completeIngestMatrixView;
 window.triggerMatrixWave = triggerMatrixWave;
