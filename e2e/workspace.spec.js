@@ -870,7 +870,7 @@ test('provider management modal opens in owner session, displays providers, and 
   expect(pageErrors).toEqual([]);
 });
 
-test('decision stream and heatmap matrix are separate features with proper audit stream and 1-time matrix purge', async ({ page }) => {
+test('decision stream and heatmap matrix are separate features with proper audit stream and matrix confirm', async ({ page }) => {
   const pageErrors = [];
   page.on('pageerror', error => pageErrors.push(error.message));
   await page.setViewportSize({ width: 1400, height: 900 });
@@ -880,20 +880,20 @@ test('decision stream and heatmap matrix are separate features with proper audit
   const streamViewBtn = page.locator('#streamviewbtn');
   await expect(streamViewBtn).toBeVisible();
 
-  // 2. Click the Decision Stream button to open global audit stream
+  // 2. Click the Decision Stream button to open global audit stream in center view
   await streamViewBtn.click();
 
-  // 3. Verify detail pane opens with global Decision Stream header, filter bar, and BookStack cards
-  const detailPane = page.locator('#detailpane');
-  await expect(detailPane).toBeVisible();
-  await expect(detailPane.locator('h2')).toContainText('의사결정 스트림');
-  await expect(detailPane.locator('.decision-filter-bar')).toBeVisible();
+  // 3. Verify streamwrap opens as center view with Decision Stream header, filter bar, and cards
+  const streamWrap = page.locator('#streamwrap');
+  await expect(streamWrap).toBeVisible();
+  await expect(streamWrap.locator('#stream-title')).toContainText('의사결정 스트림');
+  await expect(streamWrap.locator('#stream-filter-bar')).toBeVisible();
 
   // 4. Open doc-2 in reader by clicking its item in document list
   const doc2Item = page.locator('#doclist .docitem').filter({ hasText: '테스트 문서 2' });
   await expect(doc2Item).toBeVisible();
 
-  // 5. Simulate 1-time heatmap matrix in sessionStorage
+  // 5. Simulate heatmap matrix in sessionStorage
   await page.evaluate(() => {
     sessionStorage.setItem('doc_matrix_doc-2', JSON.stringify({
       document_id: 'doc-2',
@@ -905,15 +905,15 @@ test('decision stream and heatmap matrix are separate features with proper audit
     }));
   });
 
-  // Re-open reader for doc-2 to trigger 1-time banner rendering
+  // Re-open reader for doc-2 to trigger matrix banner rendering
   await doc2Item.click();
   const reader = page.locator('#reader');
   await expect(reader).toBeVisible();
 
-  // 6. Verify 1-time matrix preview banner is visible in reader
+  // 6. Verify matrix preview banner is visible in reader until confirmed
   const matrixBanner = page.locator('#doc-matrix-banner-doc-2');
   await expect(matrixBanner).toBeVisible();
-  await expect(matrixBanner).toContainText('지식 대조 히트맵 매트릭스 (1회 노출)');
+  await expect(matrixBanner).toContainText('지식 대조 히트맵 매트릭스');
 
   // 7. Click '전체화면 매트릭스' button
   const fullMatrixBtn = matrixBanner.locator('button:has-text("전체화면 매트릭스")');
@@ -930,21 +930,21 @@ test('decision stream and heatmap matrix are separate features with proper audit
   await closeMatrixBtn.click();
   await expect(matrixWrap).toBeHidden();
 
-  // 10. Re-open reader and click '확인 (소멸)' button to purge matrix
+  // 10. Re-open reader and click '✓ 확인' button to confirm matrix
   await doc2Item.click();
-  const purgeBtn = page.locator('#doc-matrix-banner-doc-2 button:has-text("확인 (소멸)")');
-  await expect(purgeBtn).toBeVisible();
-  await purgeBtn.click();
+  const confirmBtn = page.locator('#doc-matrix-banner-doc-2 button:has-text("확인")');
+  await expect(confirmBtn).toBeVisible();
+  await confirmBtn.click();
 
-  // Verify banner is removed and sessionStorage is purged permanently
+  // Verify banner is removed and confirmation is recorded permanently
   await expect(page.locator('#doc-matrix-banner-doc-2')).toBeHidden();
-  const isPurged = await page.evaluate(() => sessionStorage.getItem('doc_matrix_doc-2') === null);
-  expect(isPurged).toBe(true);
+  const isConfirmed = await page.evaluate(() => localStorage.getItem('doc_matrix_confirmed_doc-2') === '1');
+  expect(isConfirmed).toBe(true);
 
   expect(pageErrors).toEqual([]);
 });
 
-test('heatmap matrix replaces graph during ingestion and displays live compute wave', async ({ page }) => {
+test('heatmap matrix replaces graph during ingestion with clean progress and live similarity matrix', async ({ page }) => {
   const pageErrors = [];
   page.on('pageerror', error => pageErrors.push(error.message));
   await page.setViewportSize({ width: 1400, height: 900 });
@@ -961,15 +961,14 @@ test('heatmap matrix replaces graph during ingestion and displays live compute w
     window.setCenterView('matrix');
   });
 
-  // 3. Verify graph is hidden and matrixwrap is prominently visible
+  // 3. Verify graph is hidden and matrixwrap is prominently visible without artificial placeholder clutter
   await expect(page.locator('#netwrap')).toBeHidden();
   const matrixWrap = page.locator('#matrixwrap');
   await expect(matrixWrap).toBeVisible();
   await expect(matrixWrap.locator('#matrix-title')).toContainText('지식 대조 히트맵 매트릭스');
   await expect(matrixWrap.locator('#matrix-target-doc')).toContainText('대조 대상: https://example.com/test-article');
   await expect(page.locator('#matrix-progress-banner')).toBeVisible();
-  await expect(page.locator('#matrix-thead-row th')).toHaveCount(9); // 1 header + 8 placeholder columns
-  await expect(page.locator('#matrix-tbody tr')).toHaveCount(6);
+  await expect(matrixWrap.locator('#matrix-progress-msg')).toHaveText('원문 분석 및 엔티티 대조 준비 중…');
 
   // 4. Simulate streaming heatmap_matrix event arriving
   await page.evaluate(() => {
@@ -990,8 +989,8 @@ test('heatmap matrix replaces graph during ingestion and displays live compute w
   const cellTexts = await page.locator('#matrix-tbody .matrix-cell').allTextContents();
   expect(cellTexts.every(t => t.trim() === '')).toBe(true);
 
-  // 5. Test switching back to graph via '📊 그래프 보기' button
-  const graphBtn = matrixWrap.locator('button:has-text("그래프 보기")');
+  // 5. Test switching back to graph via '📊 그래프' button
+  const graphBtn = matrixWrap.locator('button:has-text("그래프")').first();
   await graphBtn.click();
   await expect(matrixWrap).toBeHidden();
   await expect(page.locator('#netwrap')).toBeVisible();
@@ -1096,8 +1095,8 @@ test('accessing Claire Bible during active ingest boots directly into heatmap ma
   await expect(matrixWrap).toBeVisible();
   await expect(page.locator('#netwrap')).toBeHidden();
 
-  // Click '📊 그래프 보기' to resume graph
-  await matrixWrap.locator('button:has-text("그래프 보기")').click();
+  // Click '📊 그래프' to resume graph
+  await matrixWrap.locator('button:has-text("그래프")').first().click();
   await expect(matrixWrap).toBeHidden();
   await expect(page.locator('#netwrap')).toBeVisible();
 
@@ -1158,8 +1157,8 @@ test('telegram bot ingest dynamically suspends active graph and displays heatmap
   await expect(matrixWrap.locator('#matrix-target-doc')).toContainText('텔레그램 봇 인제스트 문서');
   await expect(matrixWrap.locator('#matrix-progress-msg')).toHaveText('실시간 엔티티 대조 중…');
 
-  // 4. Click '📊 그래프 보기' to resume
-  await matrixWrap.locator('button:has-text("그래프 보기")').click();
+  // 4. Click '📊 그래프' to resume
+  await matrixWrap.locator('button:has-text("그래프")').first().click();
   await expect(matrixWrap).toBeHidden();
   await expect(page.locator('#netwrap')).toBeVisible();
   expect(await page.evaluate(() => window.claireDebug?.graphSuspended)).toBe(false);
@@ -1167,6 +1166,67 @@ test('telegram bot ingest dynamically suspends active graph and displays heatmap
   expect(pageErrors).toEqual([]);
 });
 
+test('decision stream button placed next to graph/content buttons and displays in center view with 30-item pagination', async ({ page }) => {
+  const pageErrors = [];
+  page.on('pageerror', error => pageErrors.push(error.message));
+  await page.setViewportSize({ width: 1400, height: 900 });
 
+  // Mock 60 decisions to test 30-item initial display + infinite scroll (+10)
+  const mockDecisions = Array.from({ length: 60 }, (_, i) => ({
+    entity: `Entity_${i + 1}`,
+    decision: i % 2 === 0 ? 'MERGE' : 'CREATE_NEW',
+    candidate: i % 2 === 0 ? `Target_${i + 1}` : null,
+    score: i % 2 === 0 ? 0.95 : null,
+    stage: 'exact_match',
+    reason: `Automated test resolution decision #${i + 1}`,
+    document_id: 'doc_1',
+    document_title: '테스트 문서',
+    timestamp: 1700000000 - i * 60,
+  }));
 
+  await page.route('**/resolution/decisions*', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ decisions: mockDecisions, count: mockDecisions.length }),
+    });
+  });
 
+  await waitForClaire(page);
+
+  // 1. Verify navigation buttons in barsearch: 그래프, 본문, Decision Stream placed in order
+  const barSearch = page.locator('#barsearch');
+  const navBtns = barSearch.locator('.view-nav-btn');
+  await expect(navBtns.nth(0)).toContainText('그래프');
+  await expect(navBtns.nth(1)).toContainText('본문');
+  await expect(navBtns.nth(2)).toContainText('Decision Stream');
+
+  // 2. Click 'Decision Stream' button
+  await navBtns.nth(2).click();
+
+  // 3. Verify center view switched to stream
+  const streamWrap = page.locator('#streamwrap');
+  await expect(streamWrap).toBeVisible();
+  await expect(page.locator('#netwrap')).toBeHidden();
+  await expect(page.locator('#reader')).toBeHidden();
+
+  // 4. Verify initial load is limited to 30 items
+  const cardList = streamWrap.locator('#stream-card-list .decision-card');
+  await expect(cardList).toHaveCount(30);
+
+  // 5. Scroll to bottom of container to load 10 more items
+  await streamWrap.locator('#stream-scroll-container').evaluate((el) => {
+    el.scrollTop = el.scrollHeight;
+    el.dispatchEvent(new Event('scroll'));
+  });
+
+  // Verify now 40 items displayed
+  await expect(cardList).toHaveCount(40);
+
+  // 6. Test returning to graph via center view nav
+  await streamWrap.locator('.stream-actions button:has-text("그래프")').first().click();
+  await expect(streamWrap).toBeHidden();
+  await expect(page.locator('#netwrap')).toBeVisible();
+
+  expect(pageErrors).toEqual([]);
+});

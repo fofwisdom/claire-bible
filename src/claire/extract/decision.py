@@ -221,20 +221,30 @@ def build_fallback_matrix(
         [default_base_score for _ in range(len(col_names))] for _ in range(len(row_names))
     ]
 
-    # 결정 기록 반영
+    import difflib
+
+    # 결정 기록 맵 구성
+    dec_map: dict[tuple[str, str], float] = {}
     if decisions:
-        dec_map: dict[tuple[str, str], float] = {}
         for d in decisions:
             if d.candidate:
                 score = d.score if d.score is not None else (1.0 if d.decision == "MERGE" else 0.85)
-                dec_map[(d.entity, d.candidate)] = score
+                dec_map[(d.entity, d.candidate)] = float(score)
 
-        for r_idx, r_name in enumerate(row_names):
-            for c_idx, c_name in enumerate(col_names):
-                if (r_name, c_name) in dec_map:
-                    matrix[r_idx][c_idx] = dec_map[(r_name, c_name)]
-                elif r_name == c_name:
-                    matrix[r_idx][c_idx] = 1.0
+    for r_idx, r_name in enumerate(row_names):
+        r_lower = r_name.lower().strip()
+        for c_idx, c_name in enumerate(col_names):
+            c_lower = c_name.lower().strip()
+            if (r_name, c_name) in dec_map:
+                matrix[r_idx][c_idx] = dec_map[(r_name, c_name)]
+            elif r_lower == c_lower:
+                matrix[r_idx][c_idx] = 1.0
+            else:
+                sim = difflib.SequenceMatcher(None, r_lower, c_lower).ratio()
+                if sim >= 0.6:
+                    matrix[r_idx][c_idx] = round(sim * 0.75, 4)
+                else:
+                    matrix[r_idx][c_idx] = default_base_score
 
     return HeatmapMatrixData(
         document_id=document_id,
