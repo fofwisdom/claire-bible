@@ -1000,7 +1000,7 @@ test('heatmap matrix replaces graph during ingestion with clean progress and liv
   const midCell = page.locator('#matrix-tbody .matrix-cell[data-tier="mid"]');
   await expect(midCell).toBeVisible();
 
-  // Verify static view (outside ingest) has no ingest animation class
+  // Verify static view (outside ingest) has no ingest animation class and hides spinner with completed message
   await page.evaluate(() => {
     window.renderHeatmapMatrix({
       rows: ['엔티티 1', '엔티티 2'],
@@ -1011,6 +1011,24 @@ test('heatmap matrix replaces graph during ingestion with clean progress and liv
     }, '완료 문서', false);
   });
   await expect(page.locator('#matrix-tbody .matrix-cell').first()).not.toHaveClass(/cell-ingest-anim/);
+  await expect(page.locator('#matrix-progress-spinner')).toBeHidden();
+  await expect(matrixWrap.locator('#matrix-progress-msg')).toContainText('대조 완료');
+  await expect(matrixWrap.locator('#matrix-progress-msg')).not.toContainText('준비 중');
+
+  // Verify openHeatmapMatrix on completed document shows completed message and hides spinner
+  await page.evaluate(() => {
+    window.latestHeatmapMatrix = {
+      rows: ['완료 엔티티'],
+      cols: ['완료 후보'],
+      matrix: [[0.95]],
+    };
+    window.latestHeatmapDocTitle = '완료된 문서';
+    window.openHeatmapMatrix();
+  });
+  await expect(matrixWrap).toBeVisible();
+  await expect(page.locator('#matrix-progress-spinner')).toBeHidden();
+  await expect(matrixWrap.locator('#matrix-progress-msg')).toContainText('대조 완료');
+  await expect(matrixWrap.locator('#matrix-progress-msg')).not.toContainText('준비 중');
 
   // 5. Test switching back to graph via '📊 그래프' button
   const graphBtn = matrixWrap.locator('button:has-text("그래프")').first();
