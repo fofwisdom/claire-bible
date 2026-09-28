@@ -22,6 +22,12 @@ build/
 /sample.private.md
 *.log
 
+# build and deployment metadata
+.git_commit
+BUILD_COMMIT
+src/claire/BUILD_COMMIT
+.claire-deploy-root
+
 # private 디렉터리 및 개인 설정 산출물
 private/*
 !private/.gitkeep
