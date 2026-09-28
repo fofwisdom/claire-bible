@@ -2865,14 +2865,13 @@ async function doDocServerSearch(q){
     abortController = new AbortController();
     currentSearchAbort = abortController;
   }
-  const semchk = document.getElementById('semchk');
-  const isSemantic = semchk && semchk.checked && AUTH_SCOPE !== 'anonymous';
+  const isSemantic = AUTH_SCOPE !== 'anonymous' && AUTH_SCOPE !== 'unknown';
   const searchMode = isSemantic ? 'hybrid' : 'fts';
   const shouldSummarize = isSemantic && canWrite();
 
   const statEl = document.getElementById('stat');
   if(statEl){
-    statEl.textContent = isSemantic ? '🧠 AI 의미 검색 및 요약 생성 중…' : '🔎 전체 본문(FTS5) 검색 중…';
+    statEl.textContent = isSemantic ? '🧠 AI 지식 검색 및 요약 생성 중…' : '🔎 전체 본문(FTS5) 검색 중…';
   }
 
   let r;
@@ -3072,7 +3071,6 @@ function resetHome(){
   currentSearchSeq++;
   hideNodePop();
   closeDrawer();
-  toggleAdvSearch(false);
   docSearchActive = false;
   const dq = document.getElementById('docq');
   if(dq && dq.value){
@@ -3086,14 +3084,6 @@ function resetHome(){
   const qclear = document.getElementById('qclear');
   if(qclear) qclear.style.display = 'none';
   streamSearchQuery = '';
-  const sem = document.getElementById('sem');
-  if(sem && sem.checked){
-    sem.checked = false;
-  }
-  const semchk = document.getElementById('semchk');
-  if(semchk && semchk.checked){
-    semchk.checked = false;
-  }
   updateSearchModeUI();
   clearTimeout(searchDebounce);
   highlightSet = null;
@@ -3363,9 +3353,6 @@ window.clearCenterSearch = clearCenterSearch;
 // 타이핑마다 즉시 검색하면 매 키 입력에 강조+물리 클러스터링이 돌아 무겁고 출렁인다.
 // 디바운스: 입력이 멈춘 뒤(350ms) 한 번만 실행. 단 검색창을 비우면 즉시 해제(반응성).
 function onSearchInput(v){
-  const sem=document.getElementById('sem');
-  const semchk=document.getElementById('semchk');
-  if((sem && sem.checked) || (semchk && semchk.checked)) return;   // 고급검색(FTS/Semantic)은 엔터로만
   cancelServerSearch();
   currentSearchSeq++;
   clearTimeout(searchDebounce);
@@ -3389,34 +3376,6 @@ function hl(q){
   applyView();
   clusterMatches(matches, ()=>fitToMatches(matches));   // 결과를 점차 뭉치게 한 뒤 한눈에 fit
 }
-function toggleAdvSearch(force){
-  const pane = document.getElementById('advsearchpane');
-  const btn = document.getElementById('advsearchbtn');
-  if(!pane || !btn) return;
-  const isHidden = force !== undefined ? !force : !pane.hidden;
-  pane.hidden = isHidden;
-  pane.setAttribute('aria-hidden', String(isHidden));
-  btn.setAttribute('aria-expanded', String(!isHidden));
-  btn.classList.toggle('active', !isHidden);
-}
-const semEl=document.getElementById('sem');
-const semchkEl=document.getElementById('semchk');
-if(semEl){
-  semEl.addEventListener('change',e=>{
-    if(e.target.checked && semchkEl) semchkEl.checked = false;
-    cancelServerSearch();
-    currentSearchSeq++;
-    if(e.target.checked) hl('');
-  });
-}
-if(semchkEl){
-  semchkEl.addEventListener('change',e=>{
-    if(e.target.checked && semEl) semEl.checked = false;
-    cancelServerSearch();
-    currentSearchSeq++;
-    if(e.target.checked) hl('');
-  });
-}
 const docqEl=document.getElementById('docq');
 if(docqEl){
   docqEl.addEventListener('keydown',e=>{
@@ -3436,11 +3395,8 @@ if(qEl){
     if(e.key!=='Enter') return;
     e.preventDefault();
     const val = (e.target.value || '').trim();
-    const sem = document.getElementById('sem');
-    const semchk = document.getElementById('semchk');
-    const isAdvMode = (sem && sem.checked) || (semchk && semchk.checked);
     const view = (typeof centerView !== 'undefined' ? centerView : 'graph');
-    if(view === 'reader' || isAdvMode){
+    if(view === 'reader'){
       cancelServerSearch();
       currentSearchSeq++;
       clearTimeout(searchDebounce);
@@ -3487,36 +3443,8 @@ function doSemantic(){
 // 첫 페인트는 unknown/read-only이며, /whoami가 exact owner를 확인한 경우에만 쓰기 UI를
 // 승격한다. 버튼 숨김과 별개로 모든 쓰기 함수도 canWrite()를 확인한다.
 function updateSearchModeUI(){
-  const sem=document.getElementById('sem');
-  const kind=document.getElementById('searchkind');
-  const semchk=document.getElementById('semchk');
-  const sembadge=document.getElementById('sembadge');
-  const semwrap=document.getElementById('semantic-opt-wrap');
-  const unknown=AUTH_SCOPE==='unknown';
-  const isAnon=AUTH_SCOPE==='anonymous';
-
-  if(sem){
-    sem.disabled=unknown;
-    if(unknown) sem.checked=false;
-  }
-  if(kind) kind.textContent = 'Full-Text Search';
-
-  if(semchk){
-    semchk.disabled = unknown || isAnon;
-    if(unknown || isAnon) semchk.checked = false;
-  }
-  if(sembadge){
-    sembadge.style.display = isAnon ? '' : 'none';
-  }
-  const ftswrap=document.getElementById('fts-opt-wrap');
-  if(ftswrap){
-    ftswrap.title = 'SQLite FTS5 기반 BM25';
-  }
-  if(semwrap){
-    semwrap.style.opacity = isAnon ? '0.65' : '1';
-    semwrap.title = isAnon
-      ? 'FTS + AI RRF 기반 벡터 하이브리드 (인증 필요)'
-      : 'FTS + AI RRF 기반 벡터 하이브리드';
+  if(typeof updateCenterSearchMode === 'function' && typeof centerView !== 'undefined'){
+    updateCenterSearchMode(centerView);
   }
 }
 function setAccessScope(scope, reason){
@@ -4274,13 +4202,12 @@ async function semanticSearch(q){
     abortController = new AbortController();
     currentSearchAbort = abortController;
   }
-  const semchk=document.getElementById('semchk');
-  const isSemantic = semchk && semchk.checked && AUTH_SCOPE !== 'anonymous';
+  const isSemantic = AUTH_SCOPE !== 'anonymous' && AUTH_SCOPE !== 'unknown';
   const searchMode = isSemantic ? 'hybrid' : 'fts';
   if(typeof window.gtag === 'function'){
     try{ window.gtag('event', 'search', { search_term: q, search_mode: searchMode }); }catch(_){}
   }
-  const requestedMode = isSemantic ? 'Semantic Search' : 'Full-Text Search';
+  const requestedMode = isSemantic ? 'AI 지식 검색' : '전문(FTS5) 검색';
   const statEl = document.getElementById('stat');
   if(statEl) statEl.textContent='🔎 '+requestedMode+' 중…';
   let r;
@@ -4309,7 +4236,7 @@ async function semanticSearch(q){
   highlightSet = new Set(ids);   // 라벨 검색과 동일하게 강조+dim 방식 사용
   applyView();
   clusterMatches(ids, ()=>fitToMatches(ids));   // 의미검색 결과도 점차 뭉치게 + 한눈에 fit
-  const actualMode=(d.mode==='fts'||searchMode==='fts')?'Full-Text Search':'Semantic Search';
+  const actualMode=(d.mode==='fts'||searchMode==='fts')?'전문(FTS5) 검색':'AI 지식 검색';
   if(statEl){
     statEl.textContent=ids.length
       ? '🔎 '+actualMode+': '+ids.length+'개'

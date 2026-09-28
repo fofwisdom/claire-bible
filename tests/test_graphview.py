@@ -112,10 +112,10 @@ def test_graph_html_self_contained_markers():
     # 첫 페인트는 fail-closed이고 /whoami가 owner를 확인한 뒤에만 쓰기 UI를 승격한다.
     assert "synthesize" in GRAPH_HTML                                   # 종합 POST 경로
     assert "세션 만료" in GRAPH_HTML                                    # 만료 시 /web 재접속 안내
-    assert "semanticSearch" in GRAPH_HTML and "id=\"sem\"" in GRAPH_HTML  # 의미검색 토글
+    assert "semanticSearch" in GRAPH_HTML and 'id="q"' in GRAPH_HTML    # 검색 입력창 및 비동기 검색
     assert "cancelServerSearch" in GRAPH_HTML and "currentSearchSeq" in GRAPH_HTML  # 비동기 검색 경쟁 방지
     assert "mode:searchMode" in GRAPH_HTML  # FTS / Hybrid 명시적 모드 전달
-    assert "id=\"advsearchbtn\"" in GRAPH_HTML                          # 고급검색 버튼
+    assert 'id="netsearch"' in GRAPH_HTML and 'id="barsearch"' in GRAPH_HTML  # 헤더 통합 검색창
     assert "synthSet" in GRAPH_HTML and "addToSynth" in GRAPH_HTML      # 종합 수집(inspect와 분리)
     assert "id=\"authstate\"" in GRAPH_HTML and "setAccessScope" in GRAPH_HTML
     assert '<body class="ro" data-auth-scope="unknown" data-active-pane="graph" data-center-view="graph">' in GRAPH_HTML
@@ -124,7 +124,7 @@ def test_graph_html_self_contained_markers():
     assert "function canWrite(){ return AUTH_SCOPE==='owner'; }" in GRAPH_HTML
     assert "function canIngest(){ return AUTH_SCOPE==='owner' || AUTH_SCOPE==='collaborator'; }" in GRAPH_HTML
     assert "setAccessScope(d.scope)" in GRAPH_HTML
-    assert "semchk.disabled = unknown || isAnon" in GRAPH_HTML
+    assert "updateCenterSearchMode" in GRAPH_HTML
     assert "👁️ 익명 읽기전용" in GRAPH_HTML
     assert "let READONLY=false" not in GRAPH_HTML
     assert "setAuth('authed')" not in GRAPH_HTML
@@ -607,30 +607,30 @@ def test_rendered_document_uses_format_neutral_class_and_justifies_top_level_par
         assert ".md{" not in html
 
 
-def test_advanced_search_ui_components():
-    """고급 검색 아이콘 버튼, 확장 패널, 모드 라벨 및 툴팁 UI 요소 검증."""
+def test_unified_search_ui_components():
+    """헤더 통합 검색창 요소 검증 및 수동 체크박스/고급 검색 패널 제거 검증."""
     from claire.graphview import GRAPH_HTML
 
-    assert 'id="advsearchbtn"' in GRAPH_HTML
-    assert 'id="advsearchpane"' in GRAPH_HTML
-    assert 'id="semchk"' in GRAPH_HTML
-    assert 'id="sembadge"' in GRAPH_HTML
-    assert '인증 필요' in GRAPH_HTML
-    assert 'SQLite FTS5 기반 BM25' in GRAPH_HTML
-    assert 'FTS + AI RRF 기반 벡터 하이브리드' in GRAPH_HTML
-    assert 'function toggleAdvSearch' in GRAPH_HTML
-    assert 'Full-Text Search' in GRAPH_HTML
-    assert 'Semantic Search' in GRAPH_HTML
+    # 수동 체크박스 및 불필요한 설정 토글 제거 검증
+    assert 'id="advsearchbtn"' not in GRAPH_HTML
+    assert 'id="advsearchpane"' not in GRAPH_HTML
+    assert 'id="semchk"' not in GRAPH_HTML
+    assert 'id="sem"' not in GRAPH_HTML
+    assert 'toggleAdvSearch' not in GRAPH_HTML
+
+    # 헤더 통합 검색창 핵심 컴포넌트 검증
+    assert 'id="netsearch"' in GRAPH_HTML
+    assert 'id="barsearch"' in GRAPH_HTML
+    assert 'id="q"' in GRAPH_HTML
+    assert 'id="qicon"' in GRAPH_HTML
+    assert 'id="qclear"' in GRAPH_HTML
+    assert 'onCenterSearchInput' in GRAPH_HTML
+    assert 'updateCenterSearchMode' in GRAPH_HTML
 
 
 def test_doclist_desclines_toolbar():
     """'제목만 표시' 및 '요약 표시' 선택기가 doclist 최상단 툴바에 배치되었는지 검증."""
     from claire.graphview import GRAPH_HTML
-
-    # advsearchpane 안에 desclines가 없어야 함
-    adv_pane_match = re.search(r'<div id="advsearchpane"[^>]*>(.*?)</div>\s*</div>', GRAPH_HTML, re.DOTALL)
-    assert adv_pane_match is not None
-    assert 'id="desclines"' not in adv_pane_match.group(1)
 
     # doclist 안의 최상단에 .doclist-toolbar 와 id="desclines" 가 위치해야 함
     doclist_match = re.search(r'<div id="doclist">\s*<div class="doclist-toolbar">\s*<select id="desclines"', GRAPH_HTML)

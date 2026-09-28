@@ -214,11 +214,15 @@ function updateCenterSearchMode(view){
   const v = qEl.value || '';
   if(qclear) qclear.style.display = v ? 'flex' : 'none';
 
+  const isAuthed = (typeof AUTH_SCOPE !== 'undefined' && AUTH_SCOPE !== 'anonymous' && AUTH_SCOPE !== 'unknown');
+
   if(view === 'reader'){
     if(qicon) qicon.textContent = '📖';
     if(qlbl) qlbl.textContent = '문서 검색';
-    qEl.placeholder = '문서 검색 (Enter: 본문 전체·AI 의미 검색)';
-    qEl.title = '문서 검색: 실시간 제목 필터링, Enter로 본문 FTS/AI 검색';
+    qEl.placeholder = '문서 검색 (제목 필터링, Enter: 본문 심층 검색)';
+    qEl.title = isAuthed
+      ? '문서 검색: 실시간 제목·요약 필터링, Enter로 AI 지식 검색 및 요약'
+      : '문서 검색: 실시간 제목·요약 필터링, Enter로 전체 본문(FTS5) 전문 검색';
     if(v && typeof onDocqInput === 'function'){
       onDocqInput(v);
     }
@@ -235,7 +239,7 @@ function updateCenterSearchMode(view){
     if(qicon) qicon.textContent = '📊';
     if(qlbl) qlbl.textContent = '그래프 검색';
     qEl.placeholder = '그래프 노드 검색 (엔티티 이름)';
-    qEl.title = '그래프 노드 검색: 실시간 노드 하이라이트, Enter로 포커스';
+    qEl.title = '그래프 노드 검색: 실시간 노드 하이라이트, Enter로 카메라 포커스';
     if(v && typeof hl === 'function'){
       hl(v);
     }
