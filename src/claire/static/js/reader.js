@@ -205,6 +205,44 @@ async function markDocumentSeen(docId){
     if(dc && dc.seen!==1){ dc.seen=1; renderDocs(document.getElementById('docq').value); }
   }catch(_){}
 }
+function updateCenterSearchMode(view){
+  const qEl = document.getElementById('q');
+  const qicon = document.getElementById('qicon');
+  const qlbl = document.getElementById('qlbl');
+  const qclear = document.getElementById('qclear');
+  if(!qEl) return;
+  const v = qEl.value || '';
+  if(qclear) qclear.style.display = v ? 'flex' : 'none';
+
+  if(view === 'reader'){
+    if(qicon) qicon.textContent = '📖';
+    if(qlbl) qlbl.textContent = '문서 검색';
+    qEl.placeholder = '문서 검색 (Enter: 본문 전체·AI 의미 검색)';
+    qEl.title = '문서 검색: 실시간 제목 필터링, Enter로 본문 FTS/AI 검색';
+    if(v && typeof onDocqInput === 'function'){
+      onDocqInput(v);
+    }
+  } else if(view === 'stream'){
+    if(qicon) qicon.textContent = '📜';
+    if(qlbl) qlbl.textContent = '의사결정 스트림 검색';
+    qEl.placeholder = '의사결정 스트림 검색 (엔티티·속성·사유)';
+    qEl.title = '의사결정 스트림 검색: 엔티티 이름, 속성, 판단 사유 필터링';
+    if(typeof filterDecisionStreamByQuery === 'function'){
+      filterDecisionStreamByQuery(v);
+    }
+  } else {
+    // graph
+    if(qicon) qicon.textContent = '📊';
+    if(qlbl) qlbl.textContent = '그래프 검색';
+    qEl.placeholder = '그래프 노드 검색 (엔티티 이름)';
+    qEl.title = '그래프 노드 검색: 실시간 노드 하이라이트, Enter로 포커스';
+    if(v && typeof hl === 'function'){
+      hl(v);
+    }
+  }
+}
+window.updateCenterSearchMode = updateCenterSearchMode;
+
 function setCenterView(mode){
   if(mode === 'graph'){
     if(typeof resumeGraphAfterIngest === 'function'){
@@ -219,6 +257,7 @@ function setCenterView(mode){
   if(centerView === nextView) return;
   centerView = nextView;
   document.body.dataset.centerView = centerView;
+  updateCenterSearchMode(centerView);
   const mt = document.getElementById('menu-section-title');
   if(mt){ mt.textContent = (centerView==='graph' ? '그래프 도구' : (centerView==='matrix' ? '대조 매트릭스' : (centerView==='stream' ? '의사결정 스트림' : '문서와 그래프'))); }
   const tabGraph = document.getElementById('centertab-graph');
