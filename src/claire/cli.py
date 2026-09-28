@@ -3186,19 +3186,6 @@ def build_parser() -> argparse.ArgumentParser:
     doc_p.add_argument("-t", "--theme", default=None, help="target theme ID or label")
     doc_p.set_defaults(func=cmd_doctor)
 
-    def _cmd_heal_wrapper(args):
-        args.heal = True
-        return cmd_doctor(args)
-
-    heal_p = sub.add_parser(
-        "heal",
-        help="one-click auto-repair knowledge graph integrity & reindex FTS (alias for doctor --heal)",
-        description="Auto-repair detected graph integrity issues and reindex FTS with morphological tokens.",
-    )
-    heal_p.add_argument("-t", "--theme", default=None, help="target theme ID or label")
-    heal_p.add_argument("--json", action="store_true", help="Output result in JSON format")
-    heal_p.set_defaults(func=_cmd_heal_wrapper)
-
     ptel = sub.add_parser(
         "telemetry",
         help="inspect LLM/CLI provider execution telemetry and Google block diagnostics",
