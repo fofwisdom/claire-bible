@@ -989,8 +989,14 @@ def upsert_entity(conn: sqlite3.Connection, ent: Entity) -> None:
             int(ent.provisional), ent.created_at, ent.updated_at,
         ),
     )
-    # FTS 갱신
-    body = " \n".join(ent.observations) + " " + " ".join(ent.aliases)
+    # FTS 갱신 (형태소 및 표면어 토큰 색인)
+    from ..retrieval.tokenizer import get_search_tokenizer
+
+    tokenizer = get_search_tokenizer()
+    tokenizer.add_user_words([ent.name, *ent.aliases])
+    raw_body = " \n".join(ent.observations) + " " + " ".join(ent.aliases)
+    morph_tokens = tokenizer.extract_search_tokens(f"{ent.name} {raw_body}")
+    body = f"{raw_body}\n{' '.join(morph_tokens)}" if morph_tokens else raw_body
     conn.execute("DELETE FROM entities_fts WHERE entity_id=?", (ent.id,))
     conn.execute(
         "INSERT INTO entities_fts(entity_id,name,body) VALUES (?,?,?)",
@@ -2744,15 +2750,19 @@ def merge_documents(conn: sqlite3.Connection, keeper_id: str,
 
 # --- search ---
 
-_FTS_TOKEN = re.compile(r"[0-9A-Za-z가-힣]+")
-
-
 def _fts_query(query: str) -> str:
     """자유 텍스트를 안전한 FTS5 MATCH 식으로 변환.
 
-    FTS5 는 `/ . : -` 등을 연산자로 해석해 syntax error 를 낸다. 영숫자/한글 토큰만 추출해 각각 "큰따옴표"로 감싸고 OR 로 잇는다(부분 매칭 지향).
+    다국어/한국어 형태소 분석(kiwipiepy)을 적용하여 실질 형태소 및 표면어를 추출하고
+    각 토큰을 큰따옴표로 감싸 OR 로 잇는다(부분 매칭 지향).
     """
-    toks = _FTS_TOKEN.findall(query or "")
+    if not query:
+        return ""
+    from ..retrieval.tokenizer import get_search_tokenizer
+
+    toks = get_search_tokenizer().extract_search_tokens(query)
+    if not toks:
+        return ""
     return " OR ".join(f'"{t}"' for t in toks)
 
 
@@ -2770,6 +2780,26 @@ def fts_search(conn: sqlite3.Connection, query: str, limit: int = 20) -> list[st
     except sqlite3.OperationalError:
         return []
     return [r["entity_id"] for r in rows]
+
+
+def sync_user_dictionary(conn: sqlite3.Connection) -> int:
+    """DB 내의 기존 엔티티 이름과 별칭을 형태소 분석기 사용자 사전에 일괄 등록."""
+    try:
+        rows = conn.execute("SELECT name, aliases FROM entities").fetchall()
+    except sqlite3.OperationalError:
+        return 0
+    from ..retrieval.tokenizer import get_search_tokenizer
+
+    tokenizer = get_search_tokenizer()
+    words: list[str] = []
+    for r in rows:
+        words.append(r["name"])
+        try:
+            aliases = _json.loads(r["aliases"] or "[]")
+            words.extend(aliases)
+        except Exception:
+            pass
+    return tokenizer.add_user_words(words)
 
 
 def counts(
@@ -3042,6 +3072,9 @@ def heal_graph(conn: sqlite3.Connection) -> dict[str, int]:
     if has_fts:
         conn.execute("DELETE FROM entities_fts")
         curr_entities = conn.execute("SELECT id, name, aliases, observations FROM entities").fetchall()
+        from ..retrieval.tokenizer import get_search_tokenizer
+
+        tokenizer = get_search_tokenizer()
         for r in curr_entities:
             try:
                 aliases = _json.loads(r["aliases"] or "[]")
@@ -3051,7 +3084,10 @@ def heal_graph(conn: sqlite3.Connection) -> dict[str, int]:
                 obs = _json.loads(r["observations"] or "[]")
             except Exception:
                 obs = []
-            body = " \n".join(obs) + " " + " ".join(aliases)
+            tokenizer.add_user_words([r["name"], *aliases])
+            raw_body = " \n".join(obs) + " " + " ".join(aliases)
+            morph_tokens = tokenizer.extract_search_tokens(f"{r['name']} {raw_body}")
+            body = f"{raw_body}\n{' '.join(morph_tokens)}" if morph_tokens else raw_body
             conn.execute(
                 "INSERT INTO entities_fts(entity_id,name,body) VALUES (?,?,?)",
                 (r["id"], r["name"], body),

@@ -19,10 +19,10 @@ COPY pyproject.toml uv.lock README.md ./
 ARG CLAIRE_PDF_PARSER="default"
 RUN if [ "$CLAIRE_PDF_PARSER" = "docling" ]; then \
         echo "Building with docling layout parser..." \
-        && uv sync --locked --no-dev --no-install-project --extra stealth --extra audio --extra docling; \
+        && uv sync --locked --no-dev --no-install-project --extra stealth --extra audio --extra docling --extra ko; \
     else \
         echo "Building standard image (default PDFium parser, docling excluded)..." \
-        && uv sync --locked --no-dev --no-install-project --extra stealth --extra audio; \
+        && uv sync --locked --no-dev --no-install-project --extra stealth --extra audio --extra ko; \
     fi \
     && uv pip install --no-cache -U "yt-dlp[curl-cffi]"
 
