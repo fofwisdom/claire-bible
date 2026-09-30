@@ -1,0 +1,20 @@
+{
+  "total_calls": 120,
+  "success_calls": 120,
+  "failed_calls": 0,
+  "success_rate": 1.0,
+  "by_provider": {
+    "antigravity": 120
+  },
+  "by_status": {
+    "SUCCESS": 120
+  },
+  "by_block_reason": {
+    "NONE": 119,
+    "SAFETY": 1
+  },
+  "by_verdict": {
+    "N/A": 115,
+    "REAL_LLM": 5
+  }
+}
