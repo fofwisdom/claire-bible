@@ -17,10 +17,10 @@ if [ -d "/extra-certs" ]; then
 fi
 
 # 2. Privileged drop to target host UID / GID
-TARGET_UID="${CB_UID:-1000}"
-TARGET_GID="${CB_GID:-1000}"
+TARGET_UID="${CB_UID:-0}"
+TARGET_GID="${CB_GID:-0}"
 
-# If running explicitly as root, bypass privilege drop
+# If running as root (UID 0), bypass privilege drop
 if [ "$TARGET_UID" = "0" ] || [ "$TARGET_UID" = "root" ]; then
   exec "$@"
 fi
@@ -37,10 +37,16 @@ fi
 
 USER_HOME=$(getent passwd "$TARGET_UID" | cut -d: -f6 2>/dev/null || echo "/home/claire")
 mkdir -p "$USER_HOME" /app/data /app/vault
+chown -R "$TARGET_UID:$TARGET_GID" "$USER_HOME" 2>/dev/null || true
 
-# Automatically align ownership of user home and application data/vault
-# so existing volumes from previous root deployments are seamlessly migrated without manual host action
-chown -R "$TARGET_UID:$TARGET_GID" "$USER_HOME" /app/data /app/vault 2>/dev/null || true
+# If dropping privileges to a non-root user, ensure /app/data and /app/vault are owned
+# by the target user so existing root-created files (mode 0600) do not cause Errno 13 Permission Denied
+if [ -d "/app/data" ]; then
+  chown -R "$TARGET_UID:$TARGET_GID" /app/data 2>/dev/null || true
+fi
+if [ -d "/app/vault" ]; then
+  chown -R "$TARGET_UID:$TARGET_GID" /app/vault 2>/dev/null || true
+fi
 
 # Allow traversing /root if config volumes were mounted at /root/.gemini or /root/.codex
 chmod 755 /root 2>/dev/null || true

@@ -416,12 +416,10 @@ class Runtime:
         env["CB_GEMINI_DIR"] = env.get("CB_GEMINI_DIR", "").strip() or host_gemini_dir
         env["CB_CODEX_DIR"] = env.get("CB_CODEX_DIR", "").strip() or str(Path.home() / ".codex")
 
-        host_uid = str(os.getuid()) if hasattr(os, "getuid") else "1000"
-        host_gid = str(os.getgid()) if hasattr(os, "getgid") else "1000"
-        target_uid = host_uid if host_uid != "0" else "1000"
-        target_gid = host_gid if host_gid != "0" else "1000"
-        env["CB_UID"] = _effective(self.values, "CB_UID").strip() or target_uid
-        env["CB_GID"] = _effective(self.values, "CB_GID").strip() or target_gid
+        host_uid = str(os.getuid()) if hasattr(os, "getuid") else "0"
+        host_gid = str(os.getgid()) if hasattr(os, "getgid") else "0"
+        env["CB_UID"] = _effective(self.values, "CB_UID").strip() or host_uid
+        env["CB_GID"] = _effective(self.values, "CB_GID").strip() or host_gid
 
         pdf_parser = self.values.get("CLAIRE_PDF_PARSER", "").strip() or env.get("CLAIRE_PDF_PARSER", "").strip() or "default"
         env["CLAIRE_PDF_PARSER"] = pdf_parser
