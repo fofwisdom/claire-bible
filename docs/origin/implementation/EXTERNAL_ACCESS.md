@@ -150,7 +150,7 @@ server {
 
 ## 인증 계층 및 접근 권한 제어 (Authentication & RBAC)
 
-Claire Bible은 시스템 소유자(Owner), 협력자(Collaborator), 읽기 전용(Readonly), 익명 사용자(Anonymous)로 구성된 4단계 역할 기반 접근 제어(RBAC)를 제공합니다.
+Claire Bible은 시스템 소유자(Owner), 협력자(Collaborator), 읽기 전용(Readonly), 익명 사용자(Anonymous)로 구성된 4단계 역할 기반 접근 제어(RBAC)를 제공한다.
 
 | 역할 (Scope) | 자격 증명 (토큰 / 헤더) | 기본 테마 (`seq=0`) | 추가 테마 (공개) | 추가 테마 (비공개) | 테마 관리 (생성/수정/삭제) |
 | :--- | :--- | :---: | :---: | :---: | :---: |
@@ -160,15 +160,15 @@ Claire Bible은 시스템 소유자(Owner), 협력자(Collaborator), 읽기 전�
 | **익명 사용자 (`anonymous`)** | 자격증명 없음 (`CLAIRE_ANONYMOUS_READONLY=1`) | 공개 읽기<br>(숨김 문서 제외) | 공개 읽기<br>(숨김 문서 제외) | **404 Not Found**<br>(존재 은닉) | 불가 |
 
 ### 협력자 세션 (`collaborator`) 및 안전 정책
-- **발급 및 진입**: 텔레그램 봇의 `/webco` 명령을 통해 24시간 유효한 일회성/재사용 가능 협력자 세션 링크(`/webco?token=...`)를 발급받습니다.
-- **기본 지식베이스 보호**: 협력자는 시스템의 핵심 기반인 기본 테마(`seq=0`)에 데이터를 적재하거나 수정할 수 없습니다(`403 Forbidden`). 오직 `is_collaborator_accessible=true`로 설정된 추가 테마에만 수집 및 적재가 허용됩니다.
-- **세션 헤더**: API 호출 시 `X-Session: <token>` 또는 `Authorization: Bearer <token>` 헤더를 전달합니다.
+- **발급 및 진입**: 텔레그램 봇의 `/webco` 명령을 통해 24시간 유효한 일회성/재사용 가능 협력자 세션 링크(`/webco?token=...`)를 발급받는다.
+- **기본 지식베이스 보호**: 협력자는 시스템의 핵심 기반인 기본 테마(`seq=0`)에 데이터를 적재하거나 수정할 수 없습니다(`403 Forbidden`). 오직 `is_collaborator_accessible=true`로 설정된 추가 테마에만 수집 및 적재가 허용된다.
+- **세션 헤더**: API 호출 시 `X-Session: <token>` 또는 `Authorization: Bearer <token>` 헤더를 전달한다.
 
 ---
 
 ## 멀티 테마 웹/API 접근 정책 (Multi-Theme Access Policy)
 
-멀티 테마 모드(`CLAIRE_MULTI_THEME=1`)에서는 요청별로 대상 테마를 명시적으로 지정하여 격리된 SQLite DB와 Vault를 조회 및 적재할 수 있습니다.
+멀티 테마 모드(`CLAIRE_MULTI_THEME=1`)에서는 요청별로 대상 테마를 명시적으로 지정하여 격리된 SQLite DB와 Vault를 조회 및 적재할 수 있다.
 
 ### HTTP 요청 시 테마 지정 방식
 1. **HTTP 헤더**: `X-Claire-Theme: <theme_id_or_label>`
@@ -177,15 +177,15 @@ Claire Bible은 시스템 소유자(Owner), 협력자(Collaborator), 읽기 전�
 2. **URL 쿼리 파라미터**: `?theme=<theme_id_or_label>`
    - 브라우저 주소창 직접 접근 및 공유 링크 방식.
    - 예: `https://claire.example.com/graph?theme=1`, `https://claire.example.com/doc/42?theme=research`
-3. **폴백 (Fallback)**: 테마 헤더 및 쿼리 파라미터가 모두 생략된 경우, 기본 지식베이스인 Theme `0`으로 자동 라우팅됩니다.
+3. **폴백 (Fallback)**: 테마 헤더 및 쿼리 파라미터가 모두 생략된 경우, 기본 지식베이스인 Theme `0`으로 자동 라우팅된다.
 
 ### 비공개(Private) 테마의 Fail-Closed 보안
-- 테마의 가시성이 `is_public: false`로 설정된 경우, 인증되지 않은 익명 사용자가 해당 테마로 접근하면 보안상 테마의 존재 자체를 은닉하기 위해 `403 Forbidden` 대신 **`404 Not Found`**를 반환합니다.
-- `owner`, `collaborator`(허용된 경우), `readonly` 세션을 지닌 사용자에게만 테마 메타데이터와 지식그래프가 노출됩니다.
+- 테마의 가시성이 `is_public: false`로 설정된 경우, 인증되지 않은 익명 사용자가 해당 테마로 접근하면 보안상 테마의 존재 자체를 은닉하기 위해 `403 Forbidden` 대신 **`404 Not Found`**를 반환한다.
+- `owner`, `collaborator`(허용된 경우), `readonly` 세션을 지닌 사용자에게만 테마 메타데이터와 지식그래프가 노출된다.
 
 ### Web UI 상태 동기화
-- 웹 인터페이스 우상단 테마 선택기(Theme Selector)에서 사용자가 선택한 테마는 브라우저 `localStorage`(`claire_selected_theme`)에 저장됩니다.
-- 페이지 전환 시 브라우저 히스토리(`history.pushState`) 및 URL `?theme=` 파라미터와 양방향 동기화되어 새로고침 후에도 선택 테마가 유지됩니다.
+- 웹 인터페이스 우상단 테마 선택기(Theme Selector)에서 사용자가 선택한 테마는 브라우저 `localStorage`(`claire_selected_theme`)에 저장된다.
+- 페이지 전환 시 브라우저 히스토리(`history.pushState`) 및 URL `?theme=` 파라미터와 양방향 동기화되어 새로고침 후에도 선택 테마가 유지된다.
 
 ---
 
@@ -250,7 +250,7 @@ Claire Bible은 시스템 소유자(Owner), 협력자(Collaborator), 읽기 전�
  
 ## Support Bundle (RCA 및 진단 번들)
 
-시스템 상태, 프로바이더 텔레메트리, 인박스 실패 내역 및 특정 문서 추적 정보를 zstd 압축 아카이브(`.tar.zst`)로 안전하게 제공하는 엔드포인트입니다.
+시스템 상태, 프로바이더 텔레메트리, 인박스 실패 내역 및 특정 문서 추적 정보를 zstd 압축 아카이브(`.tar.zst`)로 안전하게 제공하는 엔드포인트이다.
 
 - **생성 엔드포인트**: `POST /support/bundle`
   - **인증**: `Authorization: Bearer <CLAIRE_INJECT_TOKEN>` (owner 전용)
@@ -259,27 +259,27 @@ Claire Bible은 시스템 소유자(Owner), 협력자(Collaborator), 읽기 전�
 - **다운로드 엔드포인트**: `GET /support/bundle?token=<token>`
   - **인증**: `public` (추측 불가능한 6시간 보안 토큰 쿼리 파라미터 기반)
   - **응답 헤더**: `Content-Type: application/zstd`, `Content-Disposition: attachment; filename="..."`
-  - **수명주기**: 생성 후 6시간이 지나면 파일 및 레코드가 자동 파기되며 `410 Gone`을 반환합니다. 자세한 내용은 [TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md](../design/TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md)를 참고한다.
+  - **수명주기**: 생성 후 6시간이 지나면 파일 및 레코드가 자동 파기되며 `410 Gone`을 반환한다. 자세한 내용은 [TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md](../design/TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md)를 참고한다.
 
 ## 테마 지식베이스 전용 FQDN 및 리버스 프록시 연동
 
-멀티 테마(`CLAIRE_MULTI_THEME=1`) 환경에서는 개별 테마 지식베이스를 독립된 FQDN(예: `ai.example.com`, `bible.example.com`)으로 분리하여 외부에 서비스할 수 있습니다.
+멀티 테마(`CLAIRE_MULTI_THEME=1`) 환경에서는 개별 테마 지식베이스를 독립된 FQDN(예: `ai.example.com`, `bible.example.com`)으로 분리하여 외부에 서비스할 수 있다.
 
 ### 주요 동작 및 설정
 1. **WebUI 설정**:
-   - 지식 관리자(Owner)는 WebUI 우측 상단 '📁 테마 관리'에서 각 테마 카드의 ✏️ 수정을 통해 **전용 도메인 (FQDN)** 및 **GA4 측정 ID**를 직접 등록할 수 있습니다 (컨테이너 재시작 불필요).
-   - 등록 완료 시 상단에 `🌐 <FQDN>` 뱃지와 새 창에서 바로 확인할 수 있는 `↗ 열기` 링크가 제공됩니다. (일반 리버스 프록시 설정 가이드는 관리 통일성을 위해 WebUI에서 제거되었으며, 상단 보호장치에서 FQDN 규칙을 구성합니다.)
+   - 지식 관리자(Owner)는 WebUI 우측 상단 '📁 테마 관리'에서 각 테마 카드의 ✏️ 수정을 통해 **전용 도메인 (FQDN)** 및 **GA4 측정 ID**를 직접 등록할 수 있다 (컨테이너 재시작 불필요).
+   - 등록 완료 시 상단에 `🌐 <FQDN>` 뱃지와 새 창에서 바로 확인할 수 있는 `↗ 열기` 링크가 제공된다. (일반 리버스 프록시 설정 가이드는 관리 통일성을 위해 WebUI에서 제거되었으며, 상단 보호장치에서 FQDN 규칙을 구성한다.)
 2. **동적 HostAuthority 및 보안**:
-   - `HostAuthorityMiddleware`는 WebUI에서 등록된 FQDN을 런타임에 즉시 수용하며, 미등록된 임의의 호스트 요청은 `421 Misdirected Request`로 차단합니다.
-   - 전용 도메인으로 인입된 요청은 해당 테마의 격리된 SQLite DB/Vault로 자동 바인딩되며, 다른 테마로의 임의 변경(`?theme=...`)이 방지되는 도메인 고정(Domain Pinning)이 적용됩니다.
+   - `HostAuthorityMiddleware`는 WebUI에서 등록된 FQDN을 런타임에 즉시 수용하며, 미등록된 임의의 호스트 요청은 `421 Misdirected Request`로 차단한다.
+   - 전용 도메인으로 인입된 요청은 해당 테마의 격리된 SQLite DB/Vault로 자동 바인딩되며, 다른 테마로의 임의 변경(`?theme=...`)이 방지되는 도메인 고정(Domain Pinning)이 적용된다.
 3. **비공개 테마 은닉 (Fail-Closed Stealth Invariant)**:
-   - 비공개 테마(`is_public: false`)에 연결된 FQDN으로 익명 사용자가 접근하는 경우, 존재 자체를 숨기기 위해 `403`이 아닌 `404 Not Found`를 반환합니다.
+   - 비공개 테마(`is_public: false`)에 연결된 FQDN으로 익명 사용자가 접근하는 경우, 존재 자체를 숨기기 위해 `403`이 아닌 `404 Not Found`를 반환한다.
 4. **리버스 프록시 및 보호장치 요건**:
-   - 상단 보호장치(Sophos Firewall WSP, Cloudflare, Nginx 등)는 클라이언트가 요청한 `Host` 헤더를 변경 없이 백엔드로 전달해야 합니다.
+   - 상단 보호장치(Sophos Firewall WSP, Cloudflare, Nginx 등)는 클라이언트가 요청한 `Host` 헤더를 변경 없이 백엔드로 전달해야 한다.
 
 ## Cloudflare 공인 IP 대역 제한 (`CLAIRE_CLOUDFLARE_IPS_ONLY`)
 
-외부 공격자가 도메인을 거치지 않고 서버의 공인 IP로 직접 접속하는 행위를 방지하기 위해, Cloudflare 프록시를 사용하는 환경에서 공인 대역 유입 트래픽을 Cloudflare 공식 IP로만 제한할 수 있습니다.
+외부 공격자가 도메인을 거치지 않고 서버의 공인 IP로 직접 접속하는 행위를 방지하기 위해, Cloudflare 프록시를 사용하는 환경에서 공인 대역 유입 트래픽을 Cloudflare 공식 IP로만 제한할 수 있다.
 
 - **설정**: `CLAIRE_CLOUDFLARE_IPS_ONLY=1` (기본값: 0)
 - **동작 방식**:

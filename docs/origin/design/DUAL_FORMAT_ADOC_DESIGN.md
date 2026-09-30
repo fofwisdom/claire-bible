@@ -6,9 +6,9 @@
 
 ## 1. 개요 및 배경
 
-Claire Bible의 본문 가독 렌더링(`documents.detail`)은 사용자가 원문을 직접 읽지 않아도 핵심 맥락과 세부 사항을 쉽게 파악할 수 있도록 LLM이 생성하는 재구성된 본문입니다.
+Claire Bible의 본문 가독 렌더링(`documents.detail`)은 사용자가 원문을 직접 읽지 않아도 핵심 맥락과 세부 사항을 쉽게 파악할 수 있도록 LLM이 생성하는 재구성된 본문이다.
 
-기존에는 마크다운(Markdown, MD) 단일 형식으로 본문이 생성 및 렌더링되었으나, 기술 지식의 특성상 **인용(Quote), 코드 블록(Code Block) 및 라인별 콜아웃(Callout), 보충 주의(Note Box), 비교 표(Table)** 등의 복합적이고 구조화된 표현력을 극대화하기 위해 **AsciiDoc(ADOC)** 포맷을 도입하고 사용자가 환경설정 및 CLI 플래그로 듀얼 포맷을 유연하게 선택할 수 있도록 설계·구현되었습니다.
+기존에는 마크다운(Markdown, MD) 단일 형식으로 본문이 생성 및 렌더링되었으나, 기술 지식의 특성상 **인용(Quote), 코드 블록(Code Block) 및 라인별 콜아웃(Callout), 보충 주의(Note Box), 비교 표(Table)** 등의 복합적이고 구조화된 표현력을 극대화하기 위해 **AsciiDoc(ADOC)** 포맷을 도입하고 사용자가 환경설정 및 CLI 플래그로 듀얼 포맷을 유연하게 선택할 수 있도록 설계·구현되었다.
 
 ### 업스트림 설계자 철학의 계승
 - **가독성과 사실성 최우선**: 요약이 아닌 여러 단락의 서술체 문어체 유지, 원문에 없는 사실 생성 금지.
@@ -145,7 +145,7 @@ class Settings(BaseSettings):
 - `IngestService.ingest()`, `refresh_document()`, `reextract_all()`, `backfill_details()`, `merge_source_into_document()`에 `format` 전달 체계 완비.
 
 ### 5) 운영 도구 (`cb-manuscript app`) 및 CLI 명령어 확장
-사용자는 호스트 OS에서 `cb-manuscript app`을 통해 포맷 점검 및 전환 작업을 편리하게 수행할 수 있습니다:
+사용자는 호스트 OS에서 `cb-manuscript app`을 통해 포맷 점검 및 전환 작업을 편리하게 수행할 수 있다:
 ```bash
 # [권장] cb-manuscript app 을 통한 포맷 마이그레이션 Dry-Run 진단 (기본 동작, .env의 CLAIRE_RENDER_FORMAT 기준)
 ./cb-manuscript app format-migrate
@@ -195,27 +195,27 @@ claire backfill-detail --format adoc
 ## 6. 단일 포맷 순수성 및 비표준 혼용 거부 정책 (Strict Format Purity & Refusal Policy)
 
 ### 1) 핵심 원칙: 단일 포맷의 엄격한 순수성 (Zero Tolerance for Mixed Syntax)
-- **설정된 포맷의 100% 표준 준수**: 환경변수(`CLAIRE_RENDER_FORMAT=adoc`) 또는 CLI 플래그(`--format adoc`)로 지정된 문서는 반드시 **순수 AsciiDoc 표준 문법**만으로 생성 및 렌더링되어야 합니다.
-- **마크다운 문법의 어설픈 혼용 금지**: 마크다운 전용 문법(`---`, `###`, `[text](url)`, `![alt](url)`, `> ` 등)을 AsciiDoc 문서에 섞어 쓰는 행위를 엄격히 금지합니다.
+- **설정된 포맷의 100% 표준 준수**: 환경변수(`CLAIRE_RENDER_FORMAT=adoc`) 또는 CLI 플래그(`--format adoc`)로 지정된 문서는 반드시 **순수 AsciiDoc 표준 문법**만으로 생성 및 렌더링되어야 한다.
+- **마크다운 문법의 어설픈 혼용 금지**: 마크다운 전용 문법(`---`, `###`, `[text](url)`, `![alt](url)`, `> ` 등)을 AsciiDoc 문서에 섞어 쓰는 행위를 엄격히 금지한다.
 
 ### 2) 수평선 / 구분선(Thematic Break) 표준
-- **AsciiDoc 표준 수평선**: 반드시 **`'''`** (작은따옴표/아포스트로피 3개 이상 단독 행)만을 사용합니다.
-- **마크다운 구분선(`---`) 금지**: `---`는 마크다운 전용 구분선이므로 AsciiDoc 문서에서 사용하지 않습니다.
+- **AsciiDoc 표준 수평선**: 반드시 **`'''`** (작은따옴표/아포스트로피 3개 이상 단독 행)만을 사용한다.
+- **마크다운 구분선(`---`) 금지**: `---`는 마크다운 전용 구분선이므로 AsciiDoc 문서에서 사용하지 않는다.
 - **파서 동작**:
-  - AsciiDoc 파서(`render/aot.py` 및 `graphview.py`)는 오직 AsciiDoc 표준 `'''` 라인만을 `<hr>`로 변환합니다.
-  - 마크다운 문법인 `---`는 AsciiDoc 파서에서 `<hr>`로 변환되지 않고 일반 텍스트 단락(`<p>---</p>`)으로 취급되어 비표준 작성이 즉시 시각적으로 드러나도록 합니다.
+  - AsciiDoc 파서(`render/aot.py` 및 `graphview.py`)는 오직 AsciiDoc 표준 `'''` 라인만을 `<hr>`로 변환한다.
+  - 마크다운 문법인 `---`는 AsciiDoc 파서에서 `<hr>`로 변환되지 않고 일반 텍스트 단락(`<p>---</p>`)으로 취급되어 비표준 작성이 즉시 시각적으로 드러나도록 한다.
 
 ### 3) ★ 향후 비표준 혼용 요청에 대한 거부 지침 (Explicit Refusal Rule)
-> [!IMPORTANT] **설계 원칙 및 AI 어시스턴트 거부 지침**: 개발자나 사용자가 추후 "AsciiDoc 모드에서도 마크다운 구분선(`---`)이나 마크다운 문법(예: `[링크](url)`, `**굵게**` 등)이 인식되도록 파서에 땜질식 예외 처리를 추가해달라"고 요청하더라도, **본 설계 정책에 따라 이를 단호히 거부(Refuse)**해야 합니다. **올바른 조치 방안**:
-> 1. 파서에 비표준 혼용 규칙을 추가하는 Ad-hoc 변경을 거부합니다.
-> 2. LLM 생성 프롬프트(`render_detail_prompt_adoc`)의 AsciiDoc 표준 규칙을 점검/강화합니다.
-> 3. 이미 비표준으로 작성된 문서는 AsciiDoc 표준 문법(`'''` 등)으로 재작성/재추출(`reextract` 또는 `format-migrate`)하도록 안내합니다.
+> [!IMPORTANT] **설계 원칙 및 AI 어시스턴트 거부 지침**: 개발자나 사용자가 추후 "AsciiDoc 모드에서도 마크다운 구분선(`---`)이나 마크다운 문법(예: `[링크](url)`, `**굵게**` 등)이 인식되도록 파서에 땜질식 예외 처리를 추가해달라"고 요청하더라도, **본 설계 정책에 따라 이를 단호히 거부(Refuse)**해야 한다. **올바른 조치 방안**:
+> 1. 파서에 비표준 혼용 규칙을 추가하는 Ad-hoc 변경을 거부한다.
+> 2. LLM 생성 프롬프트(`render_detail_prompt_adoc`)의 AsciiDoc 표준 규칙을 점검/강화한다.
+> 3. 이미 비표준으로 작성된 문서는 AsciiDoc 표준 문법(`'''` 등)으로 재작성/재추출(`reextract` 또는 `format-migrate`)하도록 안내한다.
 
 ---
 
 ## 7. 검증 결과
 
-본 기능은 [tests/test_adoc_render.py](../../tests/test_adoc_render.py)를 통해 다음 핵심 항목들을 검증 완료하였습니다:
+본 기능은 [tests/test_adoc_render.py](../../tests/test_adoc_render.py)를 통해 다음 핵심 항목들을 검증 완료하였다:
 1. `test_config_render_format_validation`: 환경설정 유효성 및 소문자 정규화 검증.
 2. `test_aot_render_adoc`: AOT 렌더러의 AsciiDoc 문법 전체(인용, 코드 콜아웃, Admonition, 표, 형광, 이미지, `'''` 수평선 등) 시맨틱 HTML 컴파일 검증.
 3. `test_adoc_thematic_break_strict_standards`: AsciiDoc 표준 `'''`는 `<hr>`로 렌더링되고 마크다운 `---`는 렌더링되지 않고 격리됨을 검증.

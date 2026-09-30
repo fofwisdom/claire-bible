@@ -6,7 +6,7 @@
 
 ## 1. 듀얼 트랙 방향성 및 이용약관(ToS) 준수 기준
 
-클레어바이블은 모델 프로바이더(OpenAI, Google 등)의 **이용약관(ToS)과 레이트 리밋(RPM/TPM)을 준수**하고, 불필요한 자동화 호출 오남용을 방지하는 구조를 지향합니다. 시스템의 목적과 운영 범위를 명확히 구분하기 위해 **듀얼 트랙(Dual-Track)** 체계로 정리합니다.
+클레어바이블은 모델 프로바이더(OpenAI, Google 등)의 **이용약관(ToS)과 레이트 리밋(RPM/TPM)을 준수**하고, 불필요한 자동화 호출 오남용을 방지하는 구조를 지향한다. 시스템의 목적과 운영 범위를 명확히 구분하기 위해 **듀얼 트랙(Dual-Track)** 체계로 정리한다.
 
 ```
 [클레어바이블 듀얼 트랙 체계]
@@ -24,16 +24,16 @@ Track 2: 조직 관점의 지식베이스 연구 트랙 (On-Premises K8s Track)
 ```
 
 ### 1.1 Track 1: 개인 연구 및 개발 주도 트랙 (Docker / Compose)
-* **정체성**: 개인 개발자가 지식 정의와 온톨로지 수집 파이프라인을 스스로 연구하고 주도하기 위한 **"시험적 일부 자동화(Experimental Partial Automation)"** 환경입니다.
+* **정체성**: 개인 개발자가 지식 정의와 온톨로지 수집 파이프라인을 스스로 연구하고 주도하기 위한 **"시험적 일부 자동화(Experimental Partial Automation)"** 환경이다.
 * **ToS 준수 원칙**:
-  * 개발자 CLI 도구(`agy`, `codex`)를 24/7 무인 배치 스크래퍼로 상시 방치하는 것을 지양합니다.
-  * 단건 온디맨드 수집 위주로 동작하며, Phase 4에서 기존 추출 품질과의 정합성을 검증한 후 프롬프트 퓨전 등 호출 최적화를 신중히 적용합니다.
+  * 개발자 CLI 도구(`agy`, `codex`)를 24/7 무인 배치 스크래퍼로 상시 방치하는 것을 지양한다.
+  * 단건 온디맨드 수집 위주로 동작하며, Phase 4에서 기존 추출 품질과의 정합성을 검증한 후 프롬프트 퓨전 등 호출 최적화를 신중히 적용한다.
 
 ### 1.2 Track 2: 조직 관점의 지식베이스 연구 트랙 (On-Premises Kubernetes)
-* **정체성**: 다중 사용자 및 조직 관점에서 지식베이스의 영속성, ACID 동시성, 고가용성 거버넌스 아키텍처를 심층 연구하기 위한 환경입니다.
+* **정체성**: 다중 사용자 및 조직 관점에서 지식베이스의 영속성, ACID 동시성, 고가용성 거버넌스 아키텍처를 심층 연구하기 위한 환경이다.
 * **CLI 배제 및 대체 연결 정책 (CLI Rejection & Alternative Binding)**:
-  * 온프레미스 K8s 환경에서는 개발자 개인 CLI 도구(`agy`, `codex`)를 파이프라인에 직접 결합하지 않습니다.
-  * **대체 수단 제공**: 사내 엔터프라이즈 게이트웨이, Google GenAI API, OpenAI API 호환 규격, 또는 K8s 클러스터 내부의 vLLM/Ollama 서비스로 직접 연결할 수 있는 **엔터프라이즈 대체 연결 구성(Enterprise Alternative Configuration)**을 기본 제공합니다.
+  * 온프레미스 K8s 환경에서는 개발자 개인 CLI 도구(`agy`, `codex`)를 파이프라인에 직접 결합하지 않는다.
+  * **대체 수단 제공**: 사내 엔터프라이즈 게이트웨이, Google GenAI API, OpenAI API 호환 규격, 또는 K8s 클러스터 내부의 vLLM/Ollama 서비스로 직접 연결할 수 있는 **엔터프라이즈 대체 연결 구성(Enterprise Alternative Configuration)**을 기본 제공한다.
 
 ---
 
@@ -130,8 +130,8 @@ flowchart LR
 ## 4. 결론
 
 1. **기능 구현과 인프라 설계의 분리**:
-   - 컨테이너 경량화 및 의존성 분리는 [design/CONTAINER_SLIMMING_AND_DEPENDENCY_DECOUPLING_DESIGN.md](design/CONTAINER_SLIMMING_AND_DEPENDENCY_DECOUPLING_DESIGN.md)에서, PDF 파서 및 시각 오염 가드레일은 [design/PDF_PARSER_AND_VISION_GUARDRAILS_DESIGN.md](design/PDF_PARSER_AND_VISION_GUARDRAILS_DESIGN.md)에서, 품질 검증 가드레일 런타임 컴포넌트화 및 요약 무결성 설계는 [design/QUALITY_GUARDRAILS_AND_SUMMARY_INTEGRITY_DESIGN.md](design/QUALITY_GUARDRAILS_AND_SUMMARY_INTEGRITY_DESIGN.md)에서, 지식 그래프 링킹 캘리브레이션 및 잠재 연결(미싱링크) 발굴 설계는 [design/KNOWLEDGE_GRAPH_LINKING_AND_CALIBRATION_DESIGN.md](design/KNOWLEDGE_GRAPH_LINKING_AND_CALIBRATION_DESIGN.md)에서 독립적으로 관리됩니다.
+   - 컨테이너 경량화 및 의존성 분리는 [design/CONTAINER_SLIMMING_AND_DEPENDENCY_DECOUPLING_DESIGN.md](design/CONTAINER_SLIMMING_AND_DEPENDENCY_DECOUPLING_DESIGN.md)에서, PDF 파서 및 시각 오염 가드레일은 [design/PDF_PARSER_AND_VISION_GUARDRAILS_DESIGN.md](design/PDF_PARSER_AND_VISION_GUARDRAILS_DESIGN.md)에서, 품질 검증 가드레일 런타임 컴포넌트화 및 요약 무결성 설계는 [design/QUALITY_GUARDRAILS_AND_SUMMARY_INTEGRITY_DESIGN.md](design/QUALITY_GUARDRAILS_AND_SUMMARY_INTEGRITY_DESIGN.md)에서, 지식 그래프 링킹 캘리브레이션 및 잠재 연결(미싱링크) 발굴 설계는 [design/KNOWLEDGE_GRAPH_LINKING_AND_CALIBRATION_DESIGN.md](design/KNOWLEDGE_GRAPH_LINKING_AND_CALIBRATION_DESIGN.md)에서 독립적으로 관리된다.
 2. **산출물 안정성을 고려한 점진적 최적화**:
-   - 컨테이너 경량화(Phase 1) 단계에서는 기존 프롬프트 구조를 유지하여 결과물 일관성을 지키고, 프롬프트 퓨전은 Phase 4에서 충분한 비교 벤치마크를 거쳐 신중하게 도입합니다.
+   - 컨테이너 경량화(Phase 1) 단계에서는 기존 프롬프트 구조를 유지하여 결과물 일관성을 지키고, 프롬프트 퓨전은 Phase 4에서 충분한 비교 벤치마크를 거쳐 신중하게 도입한다.
 3. **OS 상호운영성 및 연구 환경 지원**:
-   - Phase 2의 배포판 비종속화 및 `tini` init 프로세스를 통해 컨테이너 이식성을 확립하고, 로컬 SLM 및 무료 티어를 활용하여 개발자의 연구 환경을 안정적으로 지원합니다.
+   - Phase 2의 배포판 비종속화 및 `tini` init 프로세스를 통해 컨테이너 이식성을 확립하고, 로컬 SLM 및 무료 티어를 활용하여 개발자의 연구 환경을 안정적으로 지원한다.

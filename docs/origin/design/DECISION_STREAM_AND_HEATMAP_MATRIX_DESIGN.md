@@ -8,11 +8,11 @@
 
 ### 1.1 배경
 
-Claire Bible의 인제스트 파이프라인은 유입된 문서로부터 엔티티와 관계를 추출하고, 기존 지식 베이스의 지식 노드들과 비교·해소(Entity Resolution)하여 그래프에 적재합니다.
+Claire Bible의 인제스트 파이프라인은 유입된 문서로부터 엔티티와 관계를 추출하고, 기존 지식 베이스의 지식 노드들과 비교·해소(Entity Resolution)하여 그래프에 적재한다.
 
 이 과정에서 사용자는:
 1. 백엔드에서 일어나는 대규모 지식 대조 연산의 밀도와 규모를 실시간으로 체감하고자 하며,
-2. 사후에 특정 엔티티가 왜 병합되었거나 신규로 분기되었는지 인과관계를 검토·감사할 수 있는 기능을 요구합니다.
+2. 사후에 특정 엔티티가 왜 병합되었거나 신규로 분기되었는지 인과관계를 검토·감사할 수 있는 기능을 요구한다.
 
 ### 1.2 두 시각화의 명확한 목적 및 라이프사이클 분리
 
@@ -37,12 +37,12 @@ flowchart LR
 ## 2. 데이터베이스 저장 전략: [방안 B (경량 메타데이터 보관)]
 
 ### 2.1 지식 DB(`claire.db`)와 텔레메트리 DB(`telemetry.db`)의 엄격한 격리
-- 과거 스키마 v12 퇴역 사례에서 확인되었듯, 관측성 데이터와 도메인 지식 데이터의 혼합은 쓰기 락 경합과 DB 용량 오염을 유발합니다.
-- `telemetry.db`는 30일 보존 후 자동 롤오프되는 Fire-and-Forget 스토어이므로, 영구 보존되어야 할 Decision Stream을 담기에 부적합합니다.
-- 또한 두 DB 간의 물리 조인(`ATTACH DATABASE`)은 2단계 커밋(2PC) 데드락 및 `busy_timeout` 충돌을 유발하므로 절대 배제합니다.
+- 과거 스키마 v12 퇴역 사례에서 확인되었듯, 관측성 데이터와 도메인 지식 데이터의 혼합은 쓰기 락 경합과 DB 용량 오염을 유발한다.
+- `telemetry.db`는 30일 보존 후 자동 롤오프되는 Fire-and-Forget 스토어이므로, 영구 보존되어야 할 Decision Stream을 담기에 부적합하다.
+- 또한 두 DB 간의 물리 조인(`ATTACH DATABASE`)은 2단계 커밋(2PC) 데드락 및 `busy_timeout` 충돌을 유발하므로 절대 배제한다.
 
 ### 2.2 방안 B (Metadata-Only) 채택 근거
-별도의 전용 테이블(`decision_stream`)을 신설(스키마 v14)하는 대신, 기존 `documents.meta` 컬럼에 경량 구조화 JSON으로 보관하는 **방안 B**를 채택합니다.
+별도의 전용 테이블(`decision_stream`)을 신설(스키마 v14)하는 대신, 기존 `documents.meta` 컬럼에 경량 구조화 JSON으로 보관하는 **방안 B**를 채택한다.
 - **스키마 무변경**: 정본 DB 스키마 마이그레이션 없이 즉시 적용 가능.
 - **테마 격리 자동 보장**: `claire.db`의 `documents` 테이블에 속하므로 멀티 테마 분리 및 데이터 소각(`purge`) 연쇄와 자동으로 수명주기가 일치함.
 - **Heatmap Matrix DB 무저장 (Zero DB Storage)**: 1회성 소멸 데이터인 Heatmap Matrix는 디스크에 기록하지 않고 네트워크 스트림(NDJSON) 및 브라우저 세션 메모리(`sessionStorage`)에만 유지하여 디스크 I/O와 페이지 단편화를 원천 차단함.
@@ -73,7 +73,7 @@ flowchart LR
 - **System 1 (TypeSafe AI Jev)**: 엔티티 동일체 판정(`judge_same_entity`), 전역 관계 판정(`judge_relationship`), 다대다 확률 텐서(0.0~1.0) 초고속 산출.
 
 ### 3.2 옵션(Optional) 가동 및 투명한 Fallback 메커니즘
-Jev 엔진은 선택 사항(Optional)으로 작동하며, 활성화 여부와 관계없이 동일한 규격의 `HeatmapMatrixData`와 `DecisionStreamLog`를 산출합니다.
+Jev 엔진은 선택 사항(Optional)으로 작동하며, 활성화 여부와 관계없이 동일한 규격의 `HeatmapMatrixData`와 `DecisionStreamLog`를 산출한다.
 
 ```mermaid
 flowchart TD
@@ -125,7 +125,7 @@ flowchart TD
 ## 6. 실측 벤치마크 및 오차 한계 규격 (Empirical Benchmark Specification)
 
 ### 6.1 지식 베이스 해소의 비대칭적 위험성 (Asymmetric Risk)
-엔티티 해소(Entity Resolution) 및 문서 병합(Document Merge)에서 발생하는 오차는 시스템에 완전히 비대칭적인 충격을 줍니다:
+엔티티 해소(Entity Resolution) 및 문서 병합(Document Merge)에서 발생하는 오차는 시스템에 완전히 비대칭적인 충격을 준다:
 - **거짓 음성 (False Negative, 미병합)**: 동일 개념을 합치지 못하고 독립 노드로 분기. 그래프에 노드가 2개 존재하게 되나 횡단 관계(Edge) 수립 또는 사후 관리자 교정으로 복구 가능 (위험도: **낮음**).
 - **거짓 양성 (False Positive, 오병합 - 치명적)**: 다른 개념(예: "Claude Code CLI"와 "Claude 3.5 Sonnet", 또는 "FastAPI"와 "Starlette", "Python(언어)"과 "Python(생물)")을 동일체로 오판하여 영구 병합. 외래키와 엣지가 뒤섞이고 고유 식별성이 상실되어 그래프 전체가 오염된 거대 허브(God Entity)로 붕괴됨 (위험도: **치명적/파괴적**).
 
@@ -140,7 +140,7 @@ flowchart TD
 | **Token / Resource** | 엔티티 쌍당 프롬프트 토큰 소모 | 0 토큰 (임베딩/로짓 연산 전용) | **비용 90% 이상 절감** |
 
 ### 6.3 골든 데이터셋(Golden Dataset) 실측 프로토콜
-프로덕션 배포 전 반드시 `src/claire/extract/benchmark.py` 및 `tests/eval_resolution_benchmark.py`를 통해 다음 범주의 골든 데이터셋(100건 이상)에 대한 대조 실측을 통과해야 합니다:
+프로덕션 배포 전 반드시 `src/claire/extract/benchmark.py` 및 `tests/eval_resolution_benchmark.py`를 통해 다음 범주의 골든 데이터셋(100건 이상)에 대한 대조 실측을 통과해야 한다:
 1. **Exact & Alias Matches (결정론적 일치)**: Claude Code/claude code, Letta/MemGPT 등.
 2. **Deterministic Acronyms (약어 수렴 및 충돌)**: MCP ↔ Model Context Protocol (타입 일치 시 머지, 타입 불일치 시 분리, 2글자 AI 분리).
 3. **True Synonyms (동의어 머지)**: Agent Memory Server ↔ Letta, K8s ↔ Kubernetes, Postgres ↔ PostgreSQL.
@@ -149,12 +149,12 @@ flowchart TD
 6. **Polysemy & Homonyms (동음이의어 분리 - FPR 검증)**: Python (프로그래밍 언어) vs Python (비단뱀), Apple (기업) vs Apple (과일).
 
 ### 6.4 실측(Empirical Measurement)과 모의 평가(Synthetic Simulation)의 엄격한 경계
-- **실측 불가능 (선행조건 미충족)**: TypeSafe AI Jev의 실제 API 엔드포인트 호출 키(`CLAIRE_JEV_API_KEY`) 또는 로컬 모델 가중치 바이너리가 제공되기 전까지는, Jev 모델의 실제 로짓 점수, 실제 클라우드 API 왕복 지연시간, 실제 가중치 공간에서의 오병합률을 물리적으로 실측하는 것이 불가능합니다.
-- **현재 하니스의 본질**: `tests/eval_resolution_benchmark.py`에서 산출된 지표(FPR 33.33% 등)는 실제 Jev의 성능치가 아니라, **"측정 프로토콜 및 계측기(Test Rig)의 정상 동작을 입증하고, 문맥 결핍 비-자기회귀 분류기의 최악 실패 양상(Worst-case Failure Mode)을 재현한 모의 시뮬레이션(Synthetic Simulation)"**입니다.
-- **즉시 실측 가능한 영역 (Baseline)**: 보유 중인 `GEMINI_API_KEY`를 바탕으로 한 현행 Gemini 3.1 Flash (System 2)와 `text-embedding-004` 벡터 코사인 매트릭스의 성능 지표는 지금 당장 100% 실제 실측이 가능하며, 이를 향후 비교 평가의 기준선(Baseline)으로 삼습니다.
+- **실측 불가능 (선행조건 미충족)**: TypeSafe AI Jev의 실제 API 엔드포인트 호출 키(`CLAIRE_JEV_API_KEY`) 또는 로컬 모델 가중치 바이너리가 제공되기 전까지는, Jev 모델의 실제 로짓 점수, 실제 클라우드 API 왕복 지연시간, 실제 가중치 공간에서의 오병합률을 물리적으로 실측하는 것이 불가능하다.
+- **현재 하니스의 본질**: `tests/eval_resolution_benchmark.py`에서 산출된 지표(FPR 33.33% 등)는 실제 Jev의 성능치가 아니라, **"측정 프로토콜 및 계측기(Test Rig)의 정상 동작을 입증하고, 문맥 결핍 비-자기회귀 분류기의 최악 실패 양상(Worst-case Failure Mode)을 재현한 모의 시뮬레이션(Synthetic Simulation)"**이다.
+- **즉시 실측 가능한 영역 (Baseline)**: 보유 중인 `GEMINI_API_KEY`를 바탕으로 한 현행 Gemini 3.1 Flash (System 2)와 `text-embedding-004` 벡터 코사인 매트릭스의 성능 지표는 지금 당장 100% 실제 실측이 가능하며, 이를 향후 비교 평가의 기준선(Baseline)으로 삼는다.
 
 ### 6.5 Jev API 확보 시 즉시 실측 전환 프로토콜 (Turnkey Verification Protocol)
-향후 TypeSafe AI Jev 계정 및 API 키가 발급되는 즉시, 사전 구축된 `run_resolution_benchmark`의 `judge_fn`을 실제 API 호출부로 교체하여 단 수 초 만에 진짜 실측 검증을 수행합니다:
+향후 TypeSafe AI Jev 계정 및 API 키가 발급되는 즉시, 사전 구축된 `run_resolution_benchmark`의 `judge_fn`을 실제 API 호출부로 교체하여 단 수 초 만에 진짜 실측 검증을 수행한다:
 
 ```python
 import httpx
@@ -172,20 +172,20 @@ def real_jev_judge(case: ResolutionBenchmarkCase) -> bool:
 ```
 
 #### 프로덕션 실전 투입 통과 기준 (Go / No-Go Gate):
-1. **FPR (거짓 병합률) = 0.00% (오병합 0건 필수)**: 단 1건이라도 다른 개념(경쟁 도구, 버전 차이, 동음이의어)을 병합할 경우 단독 판정 권한 부여가 즉각 기각됩니다.
+1. **FPR (거짓 병합률) = 0.00% (오병합 0건 필수)**: 단 1건이라도 다른 개념(경쟁 도구, 버전 차이, 동음이의어)을 병합할 경우 단독 판정 권한 부여가 즉각 기각된다.
 2. **Precision ≥ 98.0%**: 높은 동일체 신뢰도 확보.
 3. **P95 Latency < 50ms**: 전수 매트릭스 생성 지연시간 제어.
-- 위 기준을 통과하지 못할 경우, Jev는 단독 머지 판정기가 아닌 **"Heatmap Matrix 시각화 공급자"** 및 **"1차 후보 여과 필터(Pruning Gate)"**로만 역할을 엄격히 제한합니다.
+- 위 기준을 통과하지 못할 경우, Jev는 단독 머지 판정기가 아닌 **"Heatmap Matrix 시각화 공급자"** 및 **"1차 후보 여과 필터(Pruning Gate)"**로만 역할을 엄격히 제한한다.
 
 ---
 
 ## 7. 가역적 의사결정 스트림 및 롤백 페이로드 (Rollback & DB Integrity)
 
 ### 7.1 현행 텍스트 로그의 한계
-단순 사유(`reason`) 텍스트만 기록하는 수동적 로깅은 DB 훼손 발생 시 아무런 복구 능력을 제공하지 못합니다. 또한 `merge_documents()`는 패자 문서(`losers`)를 물리적 `DELETE`하므로 해당 문서의 메타데이터마저 함께 소각되는 결함이 있습니다.
+단순 사유(`reason`) 텍스트만 기록하는 수동적 로깅은 DB 훼손 발생 시 아무런 복구 능력을 제공하지 못한다. 또한 `merge_documents()`는 패자 문서(`losers`)를 물리적 `DELETE`하므로 해당 문서의 메타데이터마저 함께 소각되는 결함이 있다.
 
 ### 7.2 `ResolutionDecision` 롤백 페이로드 스키마
-`ResolutionDecision` 데이터 구조를 가역적(Reversible) 스키마로 확장하여, 병합 시점의 이전 상태를 원자적으로 보관합니다.
+`ResolutionDecision` 데이터 구조를 가역적(Reversible) 스키마로 확장하여, 병합 시점의 이전 상태를 원자적으로 보관한다.
 
 ```python
 @dataclass
@@ -210,13 +210,13 @@ class ResolutionDecision:
 
 ### 7.3 문서 병합의 안전성 보장 (Soft-Merge & Tombstone)
 - `merge_documents()`의 물리적 즉시 `DELETE`를 지양하고, 패자 문서에 `documents.meta["merged_into"] = keeper_id` 및 `status = "merged"` 툼스톤을 적용.
-- 관리자가 오병합 확인 시 Decision Stream UI에서 **`[↩ 병합 되돌리기 (Rollback)]`** 버튼 1회 클릭으로 관계와 문서를 100% 무손실 복구할 수 있는 기반을 제공합니다.
+- 관리자가 오병합 확인 시 Decision Stream UI에서 **`[↩ 병합 되돌리기 (Rollback)]`** 버튼 1회 클릭으로 관계와 문서를 100% 무손실 복구할 수 있는 기반을 제공한다.
 
 ---
 
 ## 8. 다중 방어선 안전 게이팅 (Multi-Tier Safe Gating Architecture)
 
-백엔드의 연산 효율(초고속 스크리닝)을 극대화하면서도, 단 한 건의 오병합(False Positive)으로 지식 DB가 영구 오염되는 것을 원천 차단하기 위해 **5단계 직렬 게이트 파이프라인(5-Stage Serial Gating Pipeline)**을 구축합니다.
+백엔드의 연산 효율(초고속 스크리닝)을 극대화하면서도, 단 한 건의 오병합(False Positive)으로 지식 DB가 영구 오염되는 것을 원천 차단하기 위해 **5단계 직렬 게이트 파이프라인(5-Stage Serial Gating Pipeline)**을 구축한다.
 
 ### 8.1 전체 파이프라인 아키텍처 다이어그램
 

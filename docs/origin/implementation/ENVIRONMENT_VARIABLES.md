@@ -1,12 +1,12 @@
 # Claire Bible 환경변수 매뉴얼 (`ENVIRONMENT_VARIABLES.md`)
 
-이 문서는 Claire Bible의 모든 환경변수 설정, `.env` 파일 계층 구조, 우선순위 규칙, Pydantic 기반 유효성 검증 체계, 보안 경계 및 운영 모범 사례를 종합적으로 설명하는 공식 매뉴얼입니다.
+이 문서는 Claire Bible의 모든 환경변수 설정, `.env` 파일 계층 구조, 우선순위 규칙, Pydantic 기반 유효성 검증 체계, 보안 경계 및 운영 모범 사례를 종합적으로 설명하는 공식 매뉴얼이다.
 
 ---
 
 ## 1. 환경 설정 아키텍처 개요
 
-Claire Bible은 **3개 계층의 격리된 설정 파일 체계**와 **엄격한 Pydantic Settings 유효성 검증**을 통해 운영 안정성과 보안성을 보장합니다.
+Claire Bible은 **3개 계층의 격리된 설정 파일 체계**와 **엄격한 Pydantic Settings 유효성 검증**을 통해 운영 안정성과 보안성을 보장한다.
 
 ```mermaid
 graph TD
@@ -43,12 +43,12 @@ graph TD
 
 ### 1.2 설정 로딩 및 우선순위 규칙
 
-1. **프로세스 환경변수 우선**: 프로세스에 이미 export되어 주입된 환경변수는 `.env` 파일의 값보다 항상 우선합니다.
-2. **개발 환경 파일 오버레이**: `CLAIRE_ENVIRONMENT=development` 선택 시 `.env`를 먼저 읽고, `.env.dev`의 설정이 뒤이어 로드되어 덮어씁니다.
-3. **셸 Sourcing 금지 (`treated as data`)**: `cb-manuscript`와 `deploy.sh`는 `.env` 파일을 셸 스크립트로 `source`하지 않으며, 자체 파서를 통해 안전하게 키-값 데이터로만 읽어 전달합니다.
-4. **엄격한 DotEnv 파서 (`_ExactDotEnvSettingsSource`)**: 보안 selector(예: `CLAIRE_ANONYMOUS_READONLY`)는 따옴표나 외부 공백이 없는 exact `0` 또는 `1`만 허용하며, 중복 선언 시 기동 전 에러를 발생시킵니다.
-5. **자동 마이그레이션 및 백필**: `./cb-manuscript init`, `install`, `update` 실행 시 신규 추가된 환경변수가 `.env.example` 및 `.env.dev.example`로부터 기존 사용자 설정을 훼손하지 않고 파일 끝에 자동으로 백필됩니다 ([OPERATIONAL_MIGRATION.md](../design/OPERATIONAL_MIGRATION.md) 참조).
-6. **WebUI 프로바이더 관리 우선 및 자동 마이그레이션 (`data/providers.json`)**: LLM 및 하이퍼스케일러 프로바이더 설정(Gemini, Antigravity CLI, Codex CLI, Jev, STT 등)은 WebUI에서 브라우저를 통해 직관적으로 관리되며 `data/providers.json`에 안전하게 영속화됩니다. 런타임 설정 해석 시 `providers.json`의 값이 `.env` 파일보다 우선 적용되며, 기존 `.env` 및 `.env.dev`의 프로바이더 설정은 기동 시 자동으로 `providers.json`으로 이전된 후 `.env` 내에서 주석 처리(`# VAR=val`)됩니다.
+1. **프로세스 환경변수 우선**: 프로세스에 이미 export되어 주입된 환경변수는 `.env` 파일의 값보다 항상 우선한다.
+2. **개발 환경 파일 오버레이**: `CLAIRE_ENVIRONMENT=development` 선택 시 `.env`를 먼저 읽고, `.env.dev`의 설정이 뒤이어 로드되어 덮어쓴다.
+3. **셸 Sourcing 금지 (`treated as data`)**: `cb-manuscript`와 `deploy.sh`는 `.env` 파일을 셸 스크립트로 `source`하지 않으며, 자체 파서를 통해 안전하게 키-값 데이터로만 읽어 전달한다.
+4. **엄격한 DotEnv 파서 (`_ExactDotEnvSettingsSource`)**: 보안 selector(예: `CLAIRE_ANONYMOUS_READONLY`)는 따옴표나 외부 공백이 없는 exact `0` 또는 `1`만 허용하며, 중복 선언 시 기동 전 에러를 발생시킨다.
+5. **자동 마이그레이션 및 백필**: `./cb-manuscript init`, `install`, `update` 실행 시 신규 추가된 환경변수가 `.env.example` 및 `.env.dev.example`로부터 기존 사용자 설정을 훼손하지 않고 파일 끝에 자동으로 백필된다 ([OPERATIONAL_MIGRATION.md](../design/OPERATIONAL_MIGRATION.md) 참조).
+6. **WebUI 프로바이더 관리 우선 및 자동 마이그레이션 (`data/providers.json`)**: LLM 및 하이퍼스케일러 프로바이더 설정(Gemini, Antigravity CLI, Codex CLI, Jev, STT 등)은 WebUI에서 브라우저를 통해 직관적으로 관리되며 `data/providers.json`에 안전하게 영속화된다. 런타임 설정 해석 시 `providers.json`의 값이 `.env` 파일보다 우선 적용되며, 기존 `.env` 및 `.env.dev`의 프로바이더 설정은 기동 시 자동으로 `providers.json`으로 이전된 후 `.env` 내에서 주석 처리(`# VAR=val`)된다.
 
 ---
 
@@ -58,29 +58,29 @@ graph TD
 
 | 환경변수명 | 기본값 | 허용 값 / 타입 | 설명 |
 | :--- | :--- | :--- | :--- |
-| `CLAIRE_ENVIRONMENT` | `production` (dev: `development`) | `production`, `development` | **[필수]** 실행 환경 selector. `.env`는 반드시 `production`, `.env.dev`는 반드시 `development`여야 합니다. 불일치 시 기동이 차단됩니다. |
-| `TZ` | *(자동 감지)* | 문자열 (예: `Asia/Seoul`, `UTC`) | 컨테이너 내부 타임존. 빈 값일 경우 `cb-manuscript`가 호스트의 `timedatectl` 또는 시스템 타임존을 자동 감지하여 채웁니다. |
+| `CLAIRE_ENVIRONMENT` | `production` (dev: `development`) | `production`, `development` | **[필수]** 실행 환경 selector. `.env`는 반드시 `production`, `.env.dev`는 반드시 `development`여야 한다. 불일치 시 기동이 차단된다. |
+| `TZ` | *(자동 감지)* | 문자열 (예: `Asia/Seoul`, `UTC`) | 컨테이너 내부 타임존. 빈 값일 경우 `cb-manuscript`가 호스트의 `timedatectl` 또는 시스템 타임존을 자동 감지하여 채운다. |
 
 ---
 
 ### 2.2 호스트 및 Docker Compose 오케스트레이션 (`CB_*`)
 
-이 변수들은 `docker-compose.yml`, `docker-compose.dev.yml` 및 `cb-manuscript`가 호스트 레벨에서 컨테이너를 빌드하고 실행할 때 사용됩니다.
+이 변수들은 `docker-compose.yml`, `docker-compose.dev.yml` 및 `cb-manuscript`가 호스트 레벨에서 컨테이너를 빌드하고 실행할 때 사용된다.
 
 | 환경변수명 | 기본값 (prod / dev) | 허용 값 / 타입 | 설명 |
 | :--- | :--- | :--- | :--- |
 | `CB_PROJECT_NAME` | `claire-bible` / `claire-bible-dev` | 영소문자, 숫자, `-`, `_` | Docker Compose 프로젝트 이름 (컨테이너/네트워크 접두어로 사용). |
 | `CB_IMAGE` | `claire-bible` | 문자열 | Docker 이미지 레포지토리 이름. |
-| `CB_IMAGE_TAG` | `local` / `dev` | 문자열 (Git SHA 등) | Docker 이미지 태그. 프로덕션 배포 시 불변 Git SHA를 지정하여 동일 이미지 재현성을 확보합니다. |
-| `CLAIRE_BUILD_COMMIT` | `cb-manuscript`가 자동 계산 | 40자리 Git SHA 또는 `unknown` | Compose build argument와 컨테이너 환경에 동일하게 주입되는 소스 리비전. Support Bundle의 `manifest.json` 및 `diagnostics/build.json`, OCI revision label에 기록됩니다. 직접 `docker compose`를 실행해 값을 주입하지 않으면 `unknown`일 수 있습니다.[^support-build-env] |
-| `CLAIRE_IMAGE_TAG` | `CB_IMAGE_TAG`에서 자동 파생 | 문자열 | 실행 이미지 태그의 컨테이너 내부 진단용 사본. 사용자가 별도로 설정하지 않습니다.[^support-build-env] |
+| `CB_IMAGE_TAG` | `local` / `dev` | 문자열 (Git SHA 등) | Docker 이미지 태그. 프로덕션 배포 시 불변 Git SHA를 지정하여 동일 이미지 재현성을 확보한다. |
+| `CLAIRE_BUILD_COMMIT` | `cb-manuscript`가 자동 계산 | 40자리 Git SHA 또는 `unknown` | Compose build argument와 컨테이너 환경에 동일하게 주입되는 소스 리비전. Support Bundle의 `manifest.json` 및 `diagnostics/build.json`, OCI revision label에 기록된다. 직접 `docker compose`를 실행해 값을 주입하지 않으면 `unknown`일 수 있다.[^support-build-env] |
+| `CLAIRE_IMAGE_TAG` | `CB_IMAGE_TAG`에서 자동 파생 | 문자열 | 실행 이미지 태그의 컨테이너 내부 진단용 사본. 사용자가 별도로 설정하지 않는다.[^support-build-env] |
 | `CB_ENV_FILE` | `.env` | 파일 경로 | 프로덕션 환경변수 파일 경로. |
 | `CB_DEV_ENV_FILE` | `.env.dev` | 파일 경로 | 개발 환경 오버레이 파일 경로. |
 | `CB_DATA_DIR` | `./data` / `./.dev/data` | 호스트 디렉터리 경로 | SQLite DB, raw 아티팩트, 이미지 등이 저장되는 호스트 데이터 마운트 경로 (`/app/data`). |
 | `CB_VAULT_DIR` | `./vault` / `./.dev/vault` | 호스트 디렉터리 경로 | Obsidian/AsciiDoc 볼트 파일이 동기화되는 호스트 마운트 경로 (`/app/vault`). |
 | `CB_BIN_DIR` | `~/.local/bin` | 호스트 디렉터리 경로 | 호스트의 CLI 바이너리(예: `agy`)를 컨테이너 내부 `/host-bin`에 읽기 전용으로 마운트하기 위한 경로. |
 | `CB_GEMINI_DIR` | `~/.gemini` | 호스트 디렉터리 경로 | 호스트의 Gemini CLI 인증 토큰 디렉터리를 컨테이너 내부 `/root/.gemini`로 마운트하기 위한 경로. |
-| `CB_API_BIND` | `127.0.0.1` | 단일 IPv4 주소 | Docker가 호스트에 퍼블리시할 바인딩 IP. **`0.0.0.0` 또는 호스트명은 허용되지 않습니다.** 로컬 또는 고정 LAN IPv4를 지정합니다. |
+| `CB_API_BIND` | `127.0.0.1` | 단일 IPv4 주소 | Docker가 호스트에 퍼블리시할 바인딩 IP. **`0.0.0.0` 또는 호스트명은 허용되지 않는다.** 로컬 또는 고정 LAN IPv4를 지정한다. |
 | `CB_API_PORT` | `8765` / `8766` | 정수 (`1~65535`) | 호스트에 노출할 API 서비스 포트 번호. |
 | `CB_WAIT_TIMEOUT` | `120` | 정수 (초 단위, `1~86400`) | 컨테이너 수명주기 명령(기동/재시작) 시 서비스 헬스체크 통과 대기 최대 시간. |
 
@@ -105,21 +105,21 @@ graph TD
 
 | 환경변수명 | 기본값 | 허용 값 / 타입 | 설명 |
 | :--- | :--- | :--- | :--- |
-| `GEMINI_API_KEY` | `""` | 문자열 (AI Studio 키) | Google Gemini API 키 (선택). WebUI(Drawer > ⚙️ 프로바이더 설정) 및 `data/providers.json` 관리 권장. 누락 시 Gemini 프로바이더는 자동으로 `mock`으로 폴백됩니다. |
-| `TELEGRAM_BOT_TOKEN` | `""` | 문자열 (`123456:ABC-DEF...`) | Telegram `@BotFather`에서 발급받은 봇 토큰 (**텔레그램 봇 구동 시에만 필수**). 비워두면 봇 프로필이 비활성화되며 Web API 및 CLI는 정상 구동됩니다. |
-| `TELEGRAM_ALLOWED_USERS` | `""` | 쉼표 구분 정수 ID 목록 | 텔레그램 봇 사용이 허용된 Telegram User ID 목록 (선택, 예: `12345678,87654321`). 비워두면 모든 사용자가 접근 가능하므로 주의가 필요합니다. |
-| `TELEGRAM_OWNER_CHAT_ID` | `0` | 정수 (Telegram Chat ID) | 서비스 오류 및 운영 경보(Alert)를 수신할 소유자 Chat ID. `0`이면 `TELEGRAM_ALLOWED_USERS`의 첫 번째 ID로 자동 폴백됩니다. |
+| `GEMINI_API_KEY` | `""` | 문자열 (AI Studio 키) | Google Gemini API 키 (선택). WebUI(Drawer > ⚙️ 프로바이더 설정) 및 `data/providers.json` 관리 권장. 누락 시 Gemini 프로바이더는 자동으로 `mock`으로 폴백된다. |
+| `TELEGRAM_BOT_TOKEN` | `""` | 문자열 (`123456:ABC-DEF...`) | Telegram `@BotFather`에서 발급받은 봇 토큰 (**텔레그램 봇 구동 시에만 필수**). 비워두면 봇 프로필이 비활성화되며 Web API 및 CLI는 정상 구동된다. |
+| `TELEGRAM_ALLOWED_USERS` | `""` | 쉼표 구분 정수 ID 목록 | 텔레그램 봇 사용이 허용된 Telegram User ID 목록 (선택, 예: `12345678,87654321`). 비워두면 모든 사용자가 접근 가능하므로 주의가 필요하다. |
+| `TELEGRAM_OWNER_CHAT_ID` | `0` | 정수 (Telegram Chat ID) | 서비스 오류 및 운영 경보(Alert)를 수신할 소유자 Chat ID. `0`이면 `TELEGRAM_ALLOWED_USERS`의 첫 번째 ID로 자동 폴백된다. |
 
 ---
 
 ### 2.5 LLM 프로바이더 및 추론 모델 (`CLAIRE_PROVIDER`, `CLAIRE_GEMINI_*`)
 
 > [!NOTE]
-> LLM 및 하이퍼스케일러 프로바이더 설정은 이제 웹 UI(Drawer > **⚙️ 프로바이더 설정**)에서 직관적으로 관리되며 `data/providers.json`에 저장됩니다. 기동 시 `.env`의 기존 설정은 자동으로 마이그레이션된 후 `.env`에서 주석 처리됩니다.
+> LLM 및 하이퍼스케일러 프로바이더 설정은 이제 웹 UI(Drawer > **⚙️ 프로바이더 설정**)에서 직관적으로 관리되며 `data/providers.json`에 저장된다. 기동 시 `.env`의 기존 설정은 자동으로 마이그레이션된 후 `.env`에서 주석 처리된다.
 
 | 환경변수명 | 기본값 | 허용 값 / 타입 | 설명 |
 | :--- | :--- | :--- | :--- |
-| `CLAIRE_PROVIDER` | `mock` | `mock`, `gemini`, `antigravity`, `codex`, `codex-cli` | 지식 그래프 추출, 요약, 판정에 사용할 메인 LLM 프로바이더. 키/환경이 없으면 `mock`으로 안전 폴백됩니다. ([MULTI_PROVIDER_DESIGN.md](../design/MULTI_PROVIDER_DESIGN.md) 참조) |
+| `CLAIRE_PROVIDER` | `mock` | `mock`, `gemini`, `antigravity`, `codex`, `codex-cli` | 지식 그래프 추출, 요약, 판정에 사용할 메인 LLM 프로바이더. 키/환경이 없으면 `mock`으로 안전 폴백된다. ([MULTI_PROVIDER_DESIGN.md](../design/MULTI_PROVIDER_DESIGN.md) 참조) |
 | `CLAIRE_GEMINI_MODEL` | `gemini-3.1-flash-lite` | 문자열 | Gemini 프로바이더 사용 시 적용할 모델명. |
 | `CLAIRE_GEMINI_EFFORT` | `medium` | `low`, `medium`, `high` | Gemini 모델 추론 사고 레벨 (Reasoning Effort). |
 | `CLAIRE_GEMINI_EMBED_MODEL` | `text-embedding-004` | 문자열 | 임베딩 벡터 생성에 사용할 Gemini 모델명. (기존 `gemini-embedding-001`에서 상향) |
@@ -131,9 +131,9 @@ graph TD
 
 ### 2.6 Antigravity CLI 프로바이더 (`CLAIRE_AGY_*`)
 
-> [!WARNING] Antigravity CLI 프로바이더는 호스트 네이티브 실행 환경 전용입니다.
+> [!WARNING] Antigravity CLI 프로바이더는 호스트 네이티브 실행 환경 전용이다.
 
-`CLAIRE_PROVIDER=antigravity` 사용할 때 적용됩니다.
+`CLAIRE_PROVIDER=antigravity` 사용할 때 적용된다.
 
 | 환경변수명 | 기본값 | 허용 값 / 타입 | 설명 |
 | :--- | :--- | :--- | :--- |
@@ -147,12 +147,12 @@ graph TD
 
 ### 2.7 Codex CLI 프로바이더 (`CLAIRE_CODEX_*` - Native Host 전용)
 
-> [!WARNING] Codex CLI 프로바이더는 호스트 네이티브 실행 환경 전용입니다.
+> [!WARNING] Codex CLI 프로바이더는 호스트 네이티브 실행 환경 전용이다.
 
 | 환경변수명 | 기본값 | 허용 값 / 타입 | 설명 |
 | :--- | :--- | :--- | :--- |
 | `CLAIRE_CODEX_BIN` | `codex` | 실행 파일명 또는 경로 | Codex CLI 실행 파일 경로. |
-| `CLAIRE_CODEX_MODEL` | `""` | 문자열 | 사용할 Codex 모델명. 빈 문자열이면 인증된 계정의 기본 모델이 사용됩니다. |
+| `CLAIRE_CODEX_MODEL` | `""` | 문자열 | 사용할 Codex 모델명. 빈 문자열이면 인증된 계정의 기본 모델이 사용된다. |
 | `CLAIRE_CODEX_EFFORT` | `medium` | `low`, `medium`, `high` | Codex CLI 추론 레벨. |
 | `CLAIRE_CODEX_TIMEOUT` | `300.0` | 부동소수점 (초) | Codex CLI 실행 제한 시간. |
 | `CLAIRE_CODEX_MAX_CONCURRENCY` | `1` | 정수 | Codex CLI 최대 동시 실행 수. |
@@ -161,9 +161,9 @@ graph TD
 
 ### 2.8 비디오 및 오디오 음성 전사 (STT Pipeline)
 
-비디오 적재는 이 설정과 무관하게 선호 언어의 발행자 CC를 먼저 탐색·다운로드합니다. 아래 변수는 유효한 CC가 없을 때의 오디오 STT 폴백을 제어합니다.[^video-caption-settings]
+비디오 적재는 이 설정과 무관하게 선호 언어의 발행자 CC를 먼저 탐색·다운로드한다. 아래 변수는 유효한 CC가 없을 때의 오디오 STT 폴백을 제어한다.[^video-caption-settings]
 
-VMware Explore 숫자형 영상 상세 페이지가 Presentation PDF를 명시적으로 제공하면 PDF 원본과 추출 텍스트를 같은 영상 문서에 함께 보존합니다. 광고된 PDF의 획득·검증·저장에 실패하면 자막만 부분 적재하지 않습니다.[^video-presentation-settings]
+VMware Explore 숫자형 영상 상세 페이지가 Presentation PDF를 명시적으로 제공하면 PDF 원본과 추출 텍스트를 같은 영상 문서에 함께 보존한다. 광고된 PDF의 획득·검증·저장에 실패하면 자막만 부분 적재하지 않는다.[^video-presentation-settings]
 
 | 환경변수명 | 기본값 | 허용 값 / 타입 | 설명 |
 | :--- | :--- | :--- | :--- |
@@ -173,7 +173,7 @@ VMware Explore 숫자형 영상 상세 페이지가 Presentation PDF를 명시�
 | `CLAIRE_STT_LANGUAGE` | `ko` | ISO 언어 코드 (예: `ko`, `en`, `ja`) | STT 기본 인식 대상 언어 (비어있을 경우 자동 감지). |
 | `CLAIRE_VIDEO_CHUNK_DURATION_SEC` | `240` | 정수 (초) | 단일 오디오 분할 청크 길이. `gemini-3.5-transcribe`의 10K TPM 한도 보호를 위해 기본 240초(4분, 약 6,000 토큰)로 제한. |
 | `CLAIRE_VIDEO_CACHE_TTL_SEC` | `259200` | 정수 (초) | 비디오 오디오 스트림 처리/적재 실패 시 로컬 보존 기간 (기본 3일 = 259,200초). 재적재 시 원격 다운로드를 건너뛰고 캐시 재사용. |
-| `CLAIRE_PRESENTATION_PDF_MAX_BYTES` | `67108864` | 양의 정수 (bytes) | 지원되는 영상 상세 페이지에서 내려받는 Presentation PDF 원본 1개의 최대 크기. 기본값은 64 MiB이며 `Content-Length`와 실제 스트림 누적 크기를 모두 검사합니다.[^video-presentation-settings] |
+| `CLAIRE_PRESENTATION_PDF_MAX_BYTES` | `67108864` | 양의 정수 (bytes) | 지원되는 영상 상세 페이지에서 내려받는 Presentation PDF 원본 1개의 최대 크기. 기본값은 64 MiB이며 `Content-Length`와 실제 스트림 누적 크기를 모두 검사한다.[^video-presentation-settings] |
 | `CLAIRE_FFMPEG_BIN` | `ffmpeg` | 실행 파일명 또는 경로 | 오디오 추출 및 다운샘플링에 사용할 `ffmpeg` 바이너리 경로. |
 | `CLAIRE_YTDLP_EXTRACTOR_ARGS` | `generic:impersonate` | 문자열 | yt-dlp 브라우저 핑거프린트 위장 인자. |
 
@@ -183,14 +183,14 @@ VMware Explore 숫자형 영상 상세 페이지가 Presentation PDF를 명시�
 
 | 환경변수명 | 기본값 | 허용 값 / 타입 | 설명 |
 | :--- | :--- | :--- | :--- |
-| `CLAIRE_APP_ROOT` | 컨테이너: `/app`; 네이티브: 소스 루트 또는 현재 작업 디렉터리 | 절대 디렉터리 경로 | `CLAIRE_DB_PATH`·`CLAIRE_VAULT_PATH` 같은 상대 런타임 경로의 기준점. Dockerfile과 Compose가 `/app`으로 고정하며 사용자가 `.env`에 설정하지 않습니다. 설치된 wheel의 `site-packages` 경로를 데이터 루트로 오인하지 않게 하는 운영 불변식입니다. |
-| `CLAIRE_DB_PATH` | `data/claire.db` | 상대/절대 파일 경로 | SQLite 데이터베이스 파일 경로 (컨테이너 내부 기준). 상대경로는 `CLAIRE_APP_ROOT` 아래에서 해석됩니다. |
-| `CLAIRE_VAULT_PATH` | `vault` | 상대/절대 디렉터리 경로 | 볼트(문서 본문) 저장소 경로 (컨테이너 내부 기준). 상대경로는 `CLAIRE_APP_ROOT` 아래에서 해석됩니다. |
+| `CLAIRE_APP_ROOT` | 컨테이너: `/app`; 네이티브: 소스 루트 또는 현재 작업 디렉터리 | 절대 디렉터리 경로 | `CLAIRE_DB_PATH`·`CLAIRE_VAULT_PATH` 같은 상대 런타임 경로의 기준점. Dockerfile과 Compose가 `/app`으로 고정하며 사용자가 `.env`에 설정하지 않는다. 설치된 wheel의 `site-packages` 경로를 데이터 루트로 오인하지 않게 하는 운영 불변식이다. |
+| `CLAIRE_DB_PATH` | `data/claire.db` | 상대/절대 파일 경로 | SQLite 데이터베이스 파일 경로 (컨테이너 내부 기준). 상대경로는 `CLAIRE_APP_ROOT` 아래에서 해석된다. |
+| `CLAIRE_VAULT_PATH` | `vault` | 상대/절대 디렉터리 경로 | 볼트(문서 본문) 저장소 경로 (컨테이너 내부 기준). 상대경로는 `CLAIRE_APP_ROOT` 아래에서 해석된다. |
 | `CLAIRE_VECTOR_BACKEND` | `auto` | `auto`, `vec`, `brute` | 벡터 검색 백엔드 (`auto`: `sqlite-vec` 확장 우선, 미지원 시 `brute` 무차별 대입 폴백). |
 | `CLAIRE_RENDER_FORMAT` | `adoc` | `adoc` (`asciidoc`), `md` (`markdown`) | 문서 읽기 및 저장 기본 렌더링 포맷. ([DUAL_FORMAT_ADOC_DESIGN.md](../design/DUAL_FORMAT_ADOC_DESIGN.md) 참조) |
-| `CLAIRE_DATA_LIFECYCLE` | `purgeable` | `append-only`, `purgeable` | **데이터 수명주기 정책**. 기본값 `purgeable`에서는 오염 데이터 소각(`claire purge`)이 허용됩니다. `append-only`(무손실 보존 모드)로 설정하면 파괴적 소각 명령이 정책상 차단됩니다. |
-| `CLAIRE_ALLOW_PURGE` | `1` (`true`) | `0`, `1`, `true`, `false` | 명시적 데이터 소각 허용 플래그. 기본값 `1`(허용). `0`으로 설정하고 `CLAIRE_DATA_LIFECYCLE=append-only`로 두면 소각 명령이 차단됩니다. ([DATA_LIFECYCLE_AND_PURGE_DESIGN.md](../design/DATA_LIFECYCLE_AND_PURGE_DESIGN.md) 참조) |
-| `CLAIRE_MULTI_THEME` | `0` (`false`) | `0`, `1`, `true`, `false` | **멀티 테마(다중 DB 격리) 활성화 플래그**. 기본값 `0`(싱글 테마 모드)에서는 `themes.json` 스캔과 UI 테마 선택기가 비활성화되며, `1`로 설정 시 일련번호 기반 다중 테마 정의·스위칭·적재 및 권한 제어가 활성화됩니다. ([MULTI_THEME_ARCHITECTURE_DESIGN.md](../design/MULTI_THEME_ARCHITECTURE_DESIGN.md) 참조) |
+| `CLAIRE_DATA_LIFECYCLE` | `purgeable` | `append-only`, `purgeable` | **데이터 수명주기 정책**. 기본값 `purgeable`에서는 오염 데이터 소각(`claire purge`)이 허용된다. `append-only`(무손실 보존 모드)로 설정하면 파괴적 소각 명령이 정책상 차단된다. |
+| `CLAIRE_ALLOW_PURGE` | `1` (`true`) | `0`, `1`, `true`, `false` | 명시적 데이터 소각 허용 플래그. 기본값 `1`(허용). `0`으로 설정하고 `CLAIRE_DATA_LIFECYCLE=append-only`로 두면 소각 명령이 차단된다. ([DATA_LIFECYCLE_AND_PURGE_DESIGN.md](../design/DATA_LIFECYCLE_AND_PURGE_DESIGN.md) 참조) |
+| `CLAIRE_MULTI_THEME` | `0` (`false`) | `0`, `1`, `true`, `false` | **멀티 테마(다중 DB 격리) 활성화 플래그**. 기본값 `0`(싱글 테마 모드)에서는 `themes.json` 스캔과 UI 테마 선택기가 비활성화되며, `1`로 설정 시 일련번호 기반 다중 테마 정의·스위칭·적재 및 권한 제어가 활성화된다. ([MULTI_THEME_ARCHITECTURE_DESIGN.md](../design/MULTI_THEME_ARCHITECTURE_DESIGN.md) 참조) |
 | `CLAIRE_TELEMETRY_RETENTION_DAYS` | `30` | 양의 정수 (일) | **텔레메트리 보관 기한**. 격리된 `data/telemetry.db`의 호출 계측 데이터 최대 보존 일수이자 Support Bundle 생성 시 지정 가능한 최대 기간(`days`) 상한. ([TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md](../design/TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md) 참조) |
 
 ---
@@ -200,8 +200,8 @@ VMware Explore 숫자형 영상 상세 페이지가 Presentation PDF를 명시�
 | 환경변수명 | 기본값 | 허용 값 / 타입 | 설명 |
 | :--- | :--- | :--- | :--- |
 | `CLAIRE_EXPAND_MAX` | `5` | 정수 | 1개 문서 적재 시 1홉 확장으로 탐색/적재할 최대 링크 수. |
-| `CLAIRE_AUTO_EXPAND` | `1` (`true`) | `0`, `1`, `true`, `false` | 1홉 자동 확장 기능 활성화 여부. `0`으로 설정하면 백그라운드 확장 루프 및 텔레그램 confirm 버튼 경로가 비활성화됩니다. ([EXPAND_FILTERING_DESIGN.md](../design/EXPAND_FILTERING_DESIGN.md) 참조) |
-| `CLAIRE_WATCH_INTERVAL_DAYS` | `1.0` | 부동소수점 (일 단위) | watch(주기 갱신) 등록 문서의 기본 재확인 주기. 개별 문서에 `watch_interval`이 지정된 경우 개별 설정이 우선합니다. |
+| `CLAIRE_AUTO_EXPAND` | `1` (`true`) | `0`, `1`, `true`, `false` | 1홉 자동 확장 기능 활성화 여부. `0`으로 설정하면 백그라운드 확장 루프 및 텔레그램 confirm 버튼 경로가 비활성화된다. ([EXPAND_FILTERING_DESIGN.md](../design/EXPAND_FILTERING_DESIGN.md) 참조) |
+| `CLAIRE_WATCH_INTERVAL_DAYS` | `1.0` | 부동소수점 (일 단위) | watch(주기 갱신) 등록 문서의 기본 재확인 주기. 개별 문서에 `watch_interval`이 지정된 경우 개별 설정이 우선한다. |
 
 ---
 
@@ -209,8 +209,8 @@ VMware Explore 숫자형 영상 상세 페이지가 Presentation PDF를 명시�
 
 | 환경변수명 | 기본값 | 허용 값 / 타입 | 설명 |
 | :--- | :--- | :--- | :--- |
-| `CLAIRE_ALLOW_PRIVATE_NETWORKS` | `0` (`false`) | `0`, `1`, `true`, `false` | **온프레미스 사설망 스크래핑 허용 플래그**. `1`(`true`)로 설정하면 수집기(`SafeHttpClient`)가 사내 인트라넷 RFC 1918 사설망(`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`) 및 Loopback 주소에 접근할 수 있습니다. **클라우드 메타데이터(IMDS `169.254.169.254`, `169.254.0.0/16`) 및 링크로컬/멀티캐스트는 어떤 환경에서도 절대 차단(Strictly Denied)됩니다.** ([FETCHER_CONTRIBUTION_AND_ONPREMISE_NETWORK_DESIGN.md](../design/FETCHER_CONTRIBUTION_AND_ONPREMISE_NETWORK_DESIGN.md) 참조) |
-| `CLAIRE_PRIVATE_NETWORK_ALLOWLIST` | `""` | 쉼표 구분 CIDR / 도메인 | **사설망 접근 세부 화이트리스트**. 사설망 전체를 허용하지 않고 특정 대역이나 도메인만 선별적으로 수집하도록 허용합니다 (예: `10.0.0.0/8,192.168.1.0/24,*.corp.internal,wiki.local`). |
+| `CLAIRE_ALLOW_PRIVATE_NETWORKS` | `0` (`false`) | `0`, `1`, `true`, `false` | **온프레미스 사설망 스크래핑 허용 플래그**. `1`(`true`)로 설정하면 수집기(`SafeHttpClient`)가 사내 인트라넷 RFC 1918 사설망(`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`) 및 Loopback 주소에 접근할 수 있다. **클라우드 메타데이터(IMDS `169.254.169.254`, `169.254.0.0/16`) 및 링크로컬/멀티캐스트는 어떤 환경에서도 절대 차단(Strictly Denied)된다.** ([FETCHER_CONTRIBUTION_AND_ONPREMISE_NETWORK_DESIGN.md](../design/FETCHER_CONTRIBUTION_AND_ONPREMISE_NETWORK_DESIGN.md) 참조) |
+| `CLAIRE_PRIVATE_NETWORK_ALLOWLIST` | `""` | 쉼표 구분 CIDR / 도메인 | **사설망 접근 세부 화이트리스트**. 사설망 전체를 허용하지 않고 특정 대역이나 도메인만 선별적으로 수집하도록 허용한다 (예: `10.0.0.0/8,192.168.1.0/24,*.corp.internal,wiki.local`). |
 
 ---
 
@@ -218,20 +218,20 @@ VMware Explore 숫자형 영상 상세 페이지가 Presentation PDF를 명시�
 
 | 환경변수명 | 기본값 | 허용 값 / 타입 | 설명 |
 | :--- | :--- | :--- | :--- |
-| `CLAIRE_SIM_TIER_AUTO_MERGE` | `0.93` | 부동소수점 (`0.0~1.0`) | **Tier 1 자동 병합 임계값**. 이 점수 이상의 코사인 유사도를 가진 기존 엔티티는 LLM 질의 없이 즉시 동일체로 병합됩니다. ([KNOWLEDGE_GRAPH_LINKING_AND_CALIBRATION_DESIGN.md](../design/KNOWLEDGE_GRAPH_LINKING_AND_CALIBRATION_DESIGN.md) 참조) |
-| `CLAIRE_SIM_TIER_BORDERLINE` | `0.72` | 부동소수점 (`0.0~1.0`) | **Tier 2 동일체 경계선 판정 하한**. `CLAIRE_SIM_TIER_AUTO_MERGE` 미만부터 이 점수까지의 후보는 LLM 동일체 판정기(`judge_same_entity`)를 통해 병합 여부를 결정합니다. |
-| `CLAIRE_SIM_TIER_RELATIONAL` | `0.70` | 부동소수점 (`0.0~1.0`) | **Tier 3 직접 관계 형성 후보 하한**. 동일체가 아닌 독립 엔티티로 생성하되 문서 간 직접 엣지 링킹(`relational_candidates`) 후보군으로 보존합니다. |
-| `CLAIRE_SIM_TIER_MULTIHOP` | `0.55` | 부동소수점 (`0.0~1.0`) | **Tier 4 다단계/미싱링크 후보 하한**. 잠재적 매개 개념(Bridge Node) 및 삼각 폐쇄 발굴을 위한 간접 관계 후보군(`multihop_candidates`)으로 보존합니다. |
-| `CLAIRE_VECTOR_ADAPTIVE_CENTERING` | `1` (`true`) | `0`, `1`, `true`, `false` | **적응형 중심화(Adaptive Centering) 활성화 여부**. 전체 벡터의 중심점(Centroid)을 감산하여 공통 도메인 어휘로 인한 허브니스(Hubness) 편향을 억제하고 코사인 분별력을 극대화합니다. |
-| `CLAIRE_ENABLE_RELATION_LINKING` | `1` (`true`) | `0`, `1`, `true`, `false` | **Phase 2 전역 횡단 관계 자동 수립 활성화 여부**. 인제스트 파이프라인에서 추출된 엔티티의 `relational_candidates`를 기반으로 문서 경계를 넘는 횡단형 관계(Edge)를 자동 형성합니다. |
-| `CLAIRE_MAX_RELATION_JUDGES_PER_ENTITY` | `3` | 정수 | **엔티티당 최대 관계 판정 질의 상한**. 과도한 LLM 비용/지연을 억제하기 위해 단일 엔티티에서 평가할 최대 후보 쌍 수를 제한합니다. |
-| `CLAIRE_MAX_RELATION_JUDGES_PER_DOC` | `10` | 정수 | **문서당 최대 관계 판정 질의 상한**. 단일 문서 인제스트 시 평가할 전체 횡단 후보 쌍의 총합 상한입니다. |
+| `CLAIRE_SIM_TIER_AUTO_MERGE` | `0.93` | 부동소수점 (`0.0~1.0`) | **Tier 1 자동 병합 임계값**. 이 점수 이상의 코사인 유사도를 가진 기존 엔티티는 LLM 질의 없이 즉시 동일체로 병합된다. ([KNOWLEDGE_GRAPH_LINKING_AND_CALIBRATION_DESIGN.md](../design/KNOWLEDGE_GRAPH_LINKING_AND_CALIBRATION_DESIGN.md) 참조) |
+| `CLAIRE_SIM_TIER_BORDERLINE` | `0.72` | 부동소수점 (`0.0~1.0`) | **Tier 2 동일체 경계선 판정 하한**. `CLAIRE_SIM_TIER_AUTO_MERGE` 미만부터 이 점수까지의 후보는 LLM 동일체 판정기(`judge_same_entity`)를 통해 병합 여부를 결정한다. |
+| `CLAIRE_SIM_TIER_RELATIONAL` | `0.70` | 부동소수점 (`0.0~1.0`) | **Tier 3 직접 관계 형성 후보 하한**. 동일체가 아닌 독립 엔티티로 생성하되 문서 간 직접 엣지 링킹(`relational_candidates`) 후보군으로 보존한다. |
+| `CLAIRE_SIM_TIER_MULTIHOP` | `0.55` | 부동소수점 (`0.0~1.0`) | **Tier 4 다단계/미싱링크 후보 하한**. 잠재적 매개 개념(Bridge Node) 및 삼각 폐쇄 발굴을 위한 간접 관계 후보군(`multihop_candidates`)으로 보존한다. |
+| `CLAIRE_VECTOR_ADAPTIVE_CENTERING` | `1` (`true`) | `0`, `1`, `true`, `false` | **적응형 중심화(Adaptive Centering) 활성화 여부**. 전체 벡터의 중심점(Centroid)을 감산하여 공통 도메인 어휘로 인한 허브니스(Hubness) 편향을 억제하고 코사인 분별력을 극대화한다. |
+| `CLAIRE_ENABLE_RELATION_LINKING` | `1` (`true`) | `0`, `1`, `true`, `false` | **Phase 2 전역 횡단 관계 자동 수립 활성화 여부**. 인제스트 파이프라인에서 추출된 엔티티의 `relational_candidates`를 기반으로 문서 경계를 넘는 횡단형 관계(Edge)를 자동 형성한다. |
+| `CLAIRE_MAX_RELATION_JUDGES_PER_ENTITY` | `3` | 정수 | **엔티티당 최대 관계 판정 질의 상한**. 과도한 LLM 비용/지연을 억제하기 위해 단일 엔티티에서 평가할 최대 후보 쌍 수를 제한한다. |
+| `CLAIRE_MAX_RELATION_JUDGES_PER_DOC` | `10` | 정수 | **문서당 최대 관계 판정 질의 상한**. 단일 문서 인제스트 시 평가할 전체 횡단 후보 쌍의 총합 상한이다. |
 
 ---
 
 ### 2.10.3 TypeSafe AI Jev 지식 노드 의사결정 엔진 (선택형 System 1 Engine)
 
-TypeSafe AI Jev는 엔티티 해소(Entity Resolution) 및 관계 판정 시 비-자기회귀(Non-autoregressive) 방식으로 초고속 의사결정을 수행하는 선택형 보조 엔진입니다. 본 옵션이 비활성화(`0`)되어 있거나 API 키가 미지정된 경우, 시스템은 서비스 중단 없이 기본 코사인 유사도 및 규칙 기반 매트릭스(`fallback_vector`)로 투명하게 동작합니다. ([DECISION_STREAM_AND_HEATMAP_MATRIX_DESIGN.md](../design/DECISION_STREAM_AND_HEATMAP_MATRIX_DESIGN.md) 참조)
+TypeSafe AI Jev는 엔티티 해소(Entity Resolution) 및 관계 판정 시 비-자기회귀(Non-autoregressive) 방식으로 초고속 의사결정을 수행하는 선택형 보조 엔진이다. 본 옵션이 비활성화(`0`)되어 있거나 API 키가 미지정된 경우, 시스템은 서비스 중단 없이 기본 코사인 유사도 및 규칙 기반 매트릭스(`fallback_vector`)로 투명하게 동작한다. ([DECISION_STREAM_AND_HEATMAP_MATRIX_DESIGN.md](../design/DECISION_STREAM_AND_HEATMAP_MATRIX_DESIGN.md) 참조)
 
 | 환경변수명 | 기본값 | 허용 값 / 타입 | 설명 |
 | :--- | :--- | :--- | :--- |
@@ -258,7 +258,7 @@ TypeSafe AI Jev는 엔티티 해소(Entity Resolution) 및 관계 판정 시 비
 | `CLAIRE_PDF_DEFAULT_EFFORT` | `""` | `low`, `medium`, `high`, `""` | 15,000자 미만 또는 일반 PDF 적재 시 기본 추론 레벨 (비어있으면 프로바이더 기본값 사용). |
 | `CLAIRE_PDF_CLASSIFIER_EFFORT` | `low` | `low`, `medium`, `high` | 무료/저비용 어댑터 기반 1차 논문 분류 시 사용할 추론 레벨. |
 | `CLAIRE_EXTRACT_CHAR_BUDGET` | `20000` | 정수 (글자 수) | 단일 문서 KG 추출 LLM 프롬프트에 투입할 본문 최대 글자 수. |
-| `CLAIRE_MERGED_EXTRACT_CHAR_BUDGET` | `0` | 정수 (글자 수) | 병합 문서 KG 추출 투입 본문 상한. `0` 지정 시 `CLAIRE_EXTRACT_CHAR_BUDGET * 2`로 자동 계산됩니다. |
+| `CLAIRE_MERGED_EXTRACT_CHAR_BUDGET` | `0` | 정수 (글자 수) | 병합 문서 KG 추출 투입 본문 상한. `0` 지정 시 `CLAIRE_EXTRACT_CHAR_BUDGET * 2`로 자동 계산된다. |
 | `CLAIRE_SLICING_STRATEGY` | `table-exemption` | `table-exemption`, `strict` | 본문 슬라이싱 전략 (`table-exemption`: 본문 절단 시 테이블 구조 온전 보존, `strict`: 단순 길이 절단). ([TABLE_INGESTION_DESIGN.md](../design/TABLE_INGESTION_DESIGN.md) 참조) |
 | `CLAIRE_EMBED_CHAR_BUDGET` | `8000` | 정수 (글자 수) | 임베딩 벡터 생성 시 투입할 본문 슬라이싱 상한. |
 | `CLAIRE_EXPAND_CHAR_BUDGET` | `2000` | 정수 (글자 수) | 1홉 자동확장 후보 선별 시 LLM에 전달할 컨텍스트 상한. |
@@ -270,27 +270,27 @@ TypeSafe AI Jev는 엔티티 해소(Entity Resolution) 및 관계 판정 시 비
 
 | 환경변수명 | 기본값 | 허용 값 / 타입 | 설명 |
 | :--- | :--- | :--- | :--- |
-| `CLAIRE_PREFERRED_LANGUAGES` | `ko` | 쉼표 구분 언어 코드 (예: `ko,ja`) | **프로젝트 광역 선호 언어 목록**. 다국어 문서 수집, 번역, 요약 시 우선순위로 사용됩니다. 영어(`en`)는 명시하지 않아도 항상 공통 기본 폴백으로 포함됩니다. ([PREFERRED_LANGUAGES_DESIGN.md](../design/PREFERRED_LANGUAGES_DESIGN.md) 참조) |
+| `CLAIRE_PREFERRED_LANGUAGES` | `ko` | 쉼표 구분 언어 코드 (예: `ko,ja`) | **프로젝트 광역 선호 언어 목록**. 다국어 문서 수집, 번역, 요약 시 우선순위로 사용된다. 영어(`en`)는 명시하지 않아도 항상 공통 기본 폴백으로 포함된다. ([PREFERRED_LANGUAGES_DESIGN.md](../design/PREFERRED_LANGUAGES_DESIGN.md) 참조) |
 
 ---
 
 ### 2.13 웹 서비스, 인증 및 보안 경계 (Web API, Auth, Security)
 
-> [!IMPORTANT] 웹 서비스의 보안 경계와 인증 토큰은 [EXTERNAL_ACCESS.md](EXTERNAL_ACCESS.md) 설계 명세를 엄격히 준수합니다.
+> [!IMPORTANT] 웹 서비스의 보안 경계와 인증 토큰은 [EXTERNAL_ACCESS.md](EXTERNAL_ACCESS.md) 설계 명세를 엄격히 준수한다.
 
 | 환경변수명 | 기본값 (prod / dev) | 허용 값 / 타입 | 설명 |
 | :--- | :--- | :--- | :--- |
 | `CLAIRE_INJECT_HOST` | `127.0.0.1` | IPv4 주소 | API 서버 바인딩 호스트 (컨테이너 내부는 `0.0.0.0`으로 고정). |
 | `CLAIRE_INJECT_PORT` | `8765` / `8766` | 정수 (`1~65535`) | API 서버 내부 포트 번호. |
-| `CLAIRE_SUPPORT_BUNDLE_API_URL` | Compose가 `http://api:<CB_API_PORT>`로 주입 | Compose 내부 URL | Telegram이 다운로드 담당 API에 Support Bundle 생성을 위임하는 내부 전용 주소. 사용자가 `.env`에 설정하지 않습니다. |
-| `CLAIRE_INJECT_TOKEN` | `""` | 32~128자 URL-safe 문자열 | **[필수] Owner 쓰기 토큰**. Web API 기동 및 문서 적재(Ingest), 중복 병합, 소유자 전용 API 호출에 필수적입니다. 미설정 시 API 기동이 차단되며, `./cb-manuscript init` 실행 시 비어있으면 32자 무작위 토큰으로 자동 생성됩니다. |
-| `CLAIRE_COLLABORATOR_TOKEN` | `""` | 32~128자 URL-safe 문자열 | **Collaborator 협업 토큰**. 협업자에게 허용된 추가 테마에 대한 읽기 및 적재 권한을 부여하며, 기본 지식베이스(ID 0) 및 소유자 전용 설정 변경은 차단됩니다. (텔레그램 `/webco`로 세션 링크 발급 가능) |
-| `CLAIRE_READONLY_TOKEN` | `""` | 32~128자 URL-safe 문자열 | **Readonly 조회 토큰**. 에이전트/외부 시스템이 검색, 그래프 조회, 노드 상세 조회만 수행할 수 있도록 허용하는 읽기 전용 토큰입니다 (쓰기 차단). |
-| `CLAIRE_ANONYMOUS_READONLY` | `1` | **exact `0` 또는 `1`** | **[필수] 익명 Same-Origin 읽기 허용 플래그**. exact `0` 또는 `1`이어야 합니다. `1`이면 자격증명 없이 브라우저에서 읽기 전용 웹 UI 및 검색이 가능합니다 (숨김 문서는 제외). 쓰기 경로는 여전히 Owner 인증을 요구합니다. |
-| `CLAIRE_PUBLIC_URL` | `""` / `http://127.0.0.1:8766` | URL (예: `https://claire.example.com`) | **[필수]** 브라우저 기준 canonical 공개 URL (`CLAIRE_FQDN` 미지정 시 필수). Host 헤더 검증, Same-Origin 판정, 공유 링크(`/p?s=...`) 생성에 사용됩니다. |
-| `CLAIRE_FQDN` | `""` | 도메인 호스트명 (예: `claire.example.com`) | **[필수]** 공개 FQDN 호스트명 (`CLAIRE_PUBLIC_URL` 미지정 시 필수). 미설정 시 `CLAIRE_PUBLIC_URL`의 호스트명을 자동으로 추출하여 사용합니다. |
-| `CLAIRE_CORS_ALLOWED_ORIGINS` | `""` | 쉼표 구분 Origin URL 목록 | Cross-Origin 브라우저 API 호출을 허용할 exact Origin 목록 (예: `https://app.example.com`). 비어있으면 Same-Origin 요청만 허용됩니다. |
-| `CLAIRE_GA_MEASUREMENT_ID` | `""` | 문자열 (예: `G-XXXXXXXXXX`) | Google Analytics 4 측정 ID. 비워두면 GA 스크립트가 로드되지 않으며 외부 통신을 차단하는 엄격한 CSP 정책이 유지됩니다. |
+| `CLAIRE_SUPPORT_BUNDLE_API_URL` | Compose가 `http://api:<CB_API_PORT>`로 주입 | Compose 내부 URL | Telegram이 다운로드 담당 API에 Support Bundle 생성을 위임하는 내부 전용 주소. 사용자가 `.env`에 설정하지 않는다. |
+| `CLAIRE_INJECT_TOKEN` | `""` | 32~128자 URL-safe 문자열 | **[필수] Owner 쓰기 토큰**. Web API 기동 및 문서 적재(Ingest), 중복 병합, 소유자 전용 API 호출에 필수적이다. 미설정 시 API 기동이 차단되며, `./cb-manuscript init` 실행 시 비어있으면 32자 무작위 토큰으로 자동 생성된다. |
+| `CLAIRE_COLLABORATOR_TOKEN` | `""` | 32~128자 URL-safe 문자열 | **Collaborator 협업 토큰**. 협업자에게 허용된 추가 테마에 대한 읽기 및 적재 권한을 부여하며, 기본 지식베이스(ID 0) 및 소유자 전용 설정 변경은 차단된다. (텔레그램 `/webco`로 세션 링크 발급 가능) |
+| `CLAIRE_READONLY_TOKEN` | `""` | 32~128자 URL-safe 문자열 | **Readonly 조회 토큰**. 에이전트/외부 시스템이 검색, 그래프 조회, 노드 상세 조회만 수행할 수 있도록 허용하는 읽기 전용 토큰이다 (쓰기 차단). |
+| `CLAIRE_ANONYMOUS_READONLY` | `1` | **exact `0` 또는 `1`** | **[필수] 익명 Same-Origin 읽기 허용 플래그**. exact `0` 또는 `1`이어야 한다. `1`이면 자격증명 없이 브라우저에서 읽기 전용 웹 UI 및 검색이 가능하다 (숨김 문서는 제외). 쓰기 경로는 여전히 Owner 인증을 요구한다. |
+| `CLAIRE_PUBLIC_URL` | `""` / `http://127.0.0.1:8766` | URL (예: `https://claire.example.com`) | **[필수]** 브라우저 기준 canonical 공개 URL (`CLAIRE_FQDN` 미지정 시 필수). Host 헤더 검증, Same-Origin 판정, 공유 링크(`/p?s=...`) 생성에 사용된다. |
+| `CLAIRE_FQDN` | `""` | 도메인 호스트명 (예: `claire.example.com`) | **[필수]** 공개 FQDN 호스트명 (`CLAIRE_PUBLIC_URL` 미지정 시 필수). 미설정 시 `CLAIRE_PUBLIC_URL`의 호스트명을 자동으로 추출하여 사용한다. |
+| `CLAIRE_CORS_ALLOWED_ORIGINS` | `""` | 쉼표 구분 Origin URL 목록 | Cross-Origin 브라우저 API 호출을 허용할 exact Origin 목록 (예: `https://app.example.com`). 비어있으면 Same-Origin 요청만 허용된다. |
+| `CLAIRE_GA_MEASUREMENT_ID` | `""` | 문자열 (예: `G-XXXXXXXXXX`) | Google Analytics 4 측정 ID. 비워두면 GA 스크립트가 로드되지 않으며 외부 통신을 차단하는 엄격한 CSP 정책이 유지된다. |
 
 ---
 
@@ -299,14 +299,14 @@ TypeSafe AI Jev는 엔티티 해소(Entity Resolution) 및 관계 판정 시 비
 | 환경변수명 | 기본값 | 허용 값 / 타입 | 설명 |
 | :--- | :--- | :--- | :--- |
 | `GITHUB_REPOSITORY` | `fofwisdom/claire-bible` | `소유자/저장소` | 애플리케이션 원본 소스 코드 저장소 식별자. |
-| `SOURCE_BASE_URL` | `""` | URL 문자열 | 소스 코드 링크 베이스 URL. 비어있으면 `https://github.com/$GITHUB_REPOSITORY`로 자동 해석됩니다. |
+| `SOURCE_BASE_URL` | `""` | URL 문자열 | 소스 코드 링크 베이스 URL. 비어있으면 `https://github.com/$GITHUB_REPOSITORY`로 자동 해석된다. |
 | `CLAIRE_SORCERER` | `owner` | 문자열 | 드로어 하단(drawerfooter)에 `지식 관리자: <환경변수>` 형태로 표기될 지식 관리자 명칭 (기본값: `owner`). |
 
 ---
 
 ### 2.15 원격 배포 제어 (`.env.deploy`)
 
-이 변수들은 `deploy.sh` 및 `cb-manuscript deploy`가 로컬 개발 머신에서 원격 서버로 배포할 때 사용하며, 원격 컨테이너 내부로는 절대 주입되지 않습니다.
+이 변수들은 `deploy.sh` 및 `cb-manuscript deploy`가 로컬 개발 머신에서 원격 서버로 배포할 때 사용하며, 원격 컨테이너 내부로는 절대 주입되지 않는다.
 
 | 환경변수명 | 기본값 | 허용 값 / 타입 | 설명 |
 | :--- | :--- | :--- | :--- |
@@ -322,14 +322,14 @@ TypeSafe AI Jev는 엔티티 해소(Entity Resolution) 및 관계 판정 시 비
 ## 3. 보안 및 운영 모범 사례
 
 ### 3.1 파일 권한 설정
-환경변수 파일에는 API 키와 Bearer 토큰 등 민감한 시크릿이 포함되어 있으므로 타 사용자 접근을 차단해야 합니다.
+환경변수 파일에는 API 키와 Bearer 토큰 등 민감한 시크릿이 포함되어 있으므로 타 사용자 접근을 차단해야 한다.
 
 ```bash
 chmod 0600 .env .env.dev .env.deploy
 ```
 
 ### 3.2 안전한 토큰 생성 (`cb-manuscript init`)
-새로운 환경을 구성할 때 직접 토큰을 입력하지 않고 초기화 명령을 사용하면 안전한 32자리 무작위 토큰이 자동 생성됩니다.
+새로운 환경을 구성할 때 직접 토큰을 입력하지 않고 초기화 명령을 사용하면 안전한 32자리 무작위 토큰이 자동 생성된다.
 
 ```bash
 # 프로덕션 .env 초기화 (토큰 자동 생성)
@@ -340,11 +340,11 @@ chmod 0600 .env .env.dev .env.deploy
 ```
 
 ### 3.3 Reverse Proxy 및 네트워크 바인딩
-- **`CB_API_BIND` 보안**: Docker 데몬이 모든 인터페이스(`0.0.0.0`)에 포트를 노출하지 않도록 기본값인 `127.0.0.1` 또는 신뢰할 수 있는 LAN 내부 고정 IP를 지정하십시오.
-- **`CLAIRE_PUBLIC_URL` 일치**: Nginx, Caddy, Cloudflare Tunnel 등의 Reverse Proxy 뒤에 배포할 때는 사용자가 브라우저 주소창에 입력하는 실제 FQDN URL(`https://claire.example.com`)을 반드시 `CLAIRE_PUBLIC_URL`에 설정해야 정상적인 Host 헤더 검증과 공유 링크 동작이 가능합니다.
+- **`CB_API_BIND` 보안**: Docker 데몬이 모든 인터페이스(`0.0.0.0`)에 포트를 노출하지 않도록 기본값인 `127.0.0.1` 또는 신뢰할 수 있는 LAN 내부 고정 IP를 지정해야 한다.
+- **`CLAIRE_PUBLIC_URL` 일치**: Nginx, Caddy, Cloudflare Tunnel 등의 Reverse Proxy 뒤에 배포할 때는 사용자가 브라우저 주소창에 입력하는 실제 FQDN URL(`https://claire.example.com`)을 반드시 `CLAIRE_PUBLIC_URL`에 설정해야 정상적인 Host 헤더 검증과 공유 링크 동작이 가능하다.
 
 ### 3.4 데이터 수명주기 보호
-데이터 소각(`claire purge`) 명령을 방지하고 엄격한 무손실 보존 모드를 적용하려면 `CLAIRE_DATA_LIFECYCLE=append-only`와 `CLAIRE_ALLOW_PURGE=0`을 명시하십시오. 기본값은 `CLAIRE_DATA_LIFECYCLE=purgeable` 및 `CLAIRE_ALLOW_PURGE=1`로 설정되어 있어 기본 상태에서 소각 명령이 허용됩니다.
+데이터 소각(`claire purge`) 명령을 방지하고 엄격한 무손실 보존 모드를 적용하려면 `CLAIRE_DATA_LIFECYCLE=append-only`와 `CLAIRE_ALLOW_PURGE=0`을 명시해야 한다. 기본값은 `CLAIRE_DATA_LIFECYCLE=purgeable` 및 `CLAIRE_ALLOW_PURGE=1`로 설정되어 있어 기본 상태에서 소각 명령이 허용된다.
 
 ---
 

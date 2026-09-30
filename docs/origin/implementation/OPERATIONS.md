@@ -45,9 +45,9 @@ CLAIRE_ENVIRONMENT=production ./cb-manuscript up
 
 ### 기존 env 파일 마이그레이션 및 자동 백필
 
-이 구조를 적용하기 전부터 `.env` 또는 `.env.dev`가 있더라도, `./cb-manuscript update` 또는 `./cb-manuscript install`, `./cb-manuscript init` 실행 시 누락된 신규 환경변수(예: `TZ` 등)가 `.env.example` / `.env.dev.example`로부터 자동으로 안전하게 백필됩니다 (자세한 설계 규약은 [../design/OPERATIONAL_MIGRATION.md](../design/OPERATIONAL_MIGRATION.md) 참조).
+이 구조를 적용하기 전부터 `.env` 또는 `.env.dev`가 있더라도, `./cb-manuscript update` 또는 `./cb-manuscript install`, `./cb-manuscript init` 실행 시 누락된 신규 환경변수(예: `TZ` 등)가 `.env.example` / `.env.dev.example`로부터 자동으로 안전하게 백필된다 (자세한 설계 규약은 [../design/OPERATIONAL_MIGRATION.md](../design/OPERATIONAL_MIGRATION.md) 참조).
 
-이 과정은 기존 secret과 사용자가 설정한 값을 절대 덮어쓰지 않으며, 누락된 selector를 `.env=production`, `.env.dev=development`로 보충하고, `TZ`는 호스트 `timedatectl` 타임존으로 자동 채우며, `CLAIRE_ANONYMOUS_READONLY=1`도 각각 보충합니다. production에서 `1`인데 development 파일에 값이 없으면 공개 설정의 암묵적 상속을 막기 위해 기동 전 실패합니다. production `.env`의 빈 `CLAIRE_PUBLIC_URL`은 추측해서 채우지 않으므로 실제 외부 hostname의 `https://.../` 값으로 직접 설정해야 합니다. CORS가 필요 없으면 `CLAIRE_CORS_ALLOWED_ORIGINS`는 생략하거나 빈 값으로 둡니다.
+이 과정은 기존 secret과 사용자가 설정한 값을 절대 덮어쓰지 않으며, 누락된 selector를 `.env=production`, `.env.dev=development`로 보충하고, `TZ`는 호스트 `timedatectl` 타임존으로 자동 채우며, `CLAIRE_ANONYMOUS_READONLY=1`도 각각 보충한다. production에서 `1`인데 development 파일에 값이 없으면 공개 설정의 암묵적 상속을 막기 위해 기동 전 실패한다. production `.env`의 빈 `CLAIRE_PUBLIC_URL`은 추측해서 채우지 않으므로 실제 외부 hostname의 `https://.../` 값으로 직접 설정해야 한다. CORS가 필요 없으면 `CLAIRE_CORS_ALLOWED_ORIGINS`는 생략하거나 빈 값으로 둔다.
 
 `CB_API_BIND`는 Docker host가 게시할 정확한 IPv4 주소다. `0.0.0.0`, multicast, hostname과 IPv6는 사전 검사에서 거부한다. loopback은 안전한 초기값으로 허용하지만 다른 LAN 호스트에서 접근하려면 실제 고정 LAN IPv4로 변경해야 한다.
 
@@ -66,14 +66,14 @@ CLAIRE_ENVIRONMENT=production ./cb-manuscript up
 
 ### 비디오 음성 전사 (STT) 운영 및 환경변수
 
-웹 비디오(VMware Explore/Brightcove, YouTube 등)의 음성 전사(STT) 기능은 컨테이너에 내장된 `ffmpeg`와 `yt-dlp` 및 STT 프로바이더(프로덕션 권장: `gemini` - `gemini-3.5-transcribe`)를 통해 동작합니다.
+웹 비디오(VMware Explore/Brightcove, YouTube 등)의 음성 전사(STT) 기능은 컨테이너에 내장된 `ffmpeg`와 `yt-dlp` 및 STT 프로바이더(프로덕션 권장: `gemini` - `gemini-3.5-transcribe`)를 통해 동작한다.
 
 * **`CLAIRE_ENABLE_VIDEO_TRANSCRIPTION=1` (기본값: 활성)**:
-  * 비디오 URL 적재 시 내장 자막이 없으면 오디오 스트림을 추출하여 STT로 타임스탬프 자막을 생성합니다.
-  * `0`으로 설정 시 무거운 오디오 다운로드/STT를 건너뛰고 비디오 페이지의 메타데이터만 수집하여 경량 문서로 적재합니다.
+  * 비디오 URL 적재 시 내장 자막이 없으면 오디오 스트림을 추출하여 STT로 타임스탬프 자막을 생성한다.
+  * `0`으로 설정 시 무거운 오디오 다운로드/STT를 건너뛰고 비디오 페이지의 메타데이터만 수집하여 경량 문서로 적재한다.
 * **`CLAIRE_STT_PROVIDER=gemini` (또는 `STT_PROVIDER=gemini`)**:
-  * `gemini`: Google GenAI SDK 기반 고성능 STT (기본 모델: `gemini-3.5-transcribe` 또는 `gemini-2.5-flash`). 현재 프로덕션에 반영 가능한 유일한 외부 STT 프로바이더입니다 (`GEMINI_API_KEY` 필요).
-  * *참고: Antigravity CLI(`agy`)는 오디오 바이너리 스트리밍/전사 인터페이스 부재로 STT 구현이 불가능하여 지원되지 않으며, 설정 시 안전하게 `mock`으로 폴백됩니다.*
+  * `gemini`: Google GenAI SDK 기반 고성능 STT (기본 모델: `gemini-3.5-transcribe` 또는 `gemini-2.5-flash`). 현재 프로덕션에 반영 가능한 유일한 외부 STT 프로바이더이다 (`GEMINI_API_KEY` 필요).
+  * *참고: Antigravity CLI(`agy`)는 오디오 바이너리 스트리밍/전사 인터페이스 부재로 STT 구현이 불가능하여 지원되지 않으며, 설정 시 안전하게 `mock`으로 폴백된다.*
 * **`CLAIRE_STT_MODEL=gemini-3.5-transcribe` (또는 `STT_MODEL=gemini-3.5-transcribe`)**:
   * 최신 전문 음성 전사 전용 모델 사용.
 * **`CLAIRE_VIDEO_CHUNK_DURATION_SEC=240`**:
@@ -89,7 +89,7 @@ CLAIRE_ENVIRONMENT=production ./cb-manuscript up
      ```bash
      ./cb-manuscript app video-reprocess --doc-id <doc_id> --apply
      ```
-     터미널에서 단계별 진행 상황(`[원문 전체 재수집]`, `[오디오 변환]`, `[STT 청크 N/M 전사]`, `[LLM 요약 및 본문 렌더링]`)이 실시간 스트리밍 출력됩니다.
+     터미널에서 단계별 진행 상황(`[원문 전체 재수집]`, `[오디오 변환]`, `[STT 청크 N/M 전사]`, `[LLM 요약 및 본문 렌더링]`)이 실시간 스트리밍 출력된다.
   2. **텔레그램 봇 실행**:
      - 텔레그램 봇 채팅방에 문서 공유 링크(`https://.../p?s=...`) 또는 `doc_id` 전송 후 **`[ 🌐 전체 원문 재수집 (전체 길이) ]`** 버튼 클릭.
      - 또는 `doc_id --refetch-full` 한 줄 메시지 전송으로 즉시 원스톱 백그라운드 재전사 실행.

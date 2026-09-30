@@ -1,6 +1,6 @@
 # Claire Bible 전체 CLI 명령어 레퍼런스 (`COMMANDS.md`)
 
-이 문서는 Claire Bible의 호스트 운영 도구인 **`cb-manuscript`**와 애플리케이션 핵심 CLI인 **`claire`**의 전체 명령어, 옵션, 동작 방식, 그리고 현재 구현 상태 및 제약사항을 상세히 기술합니다.
+이 문서는 Claire Bible의 호스트 운영 도구인 **`cb-manuscript`**와 애플리케이션 핵심 CLI인 **`claire`**의 전체 명령어, 옵션, 동작 방식, 그리고 현재 구현 상태 및 제약사항을 상세히 기술한다.
 
 ---
 
@@ -45,23 +45,23 @@
 ### 2.1 수명주기 및 환경 관리
 
 #### `init`
-환경 설정 파일(`.env`, `.env.dev`)을 템플릿(`.env.example`, `.env.dev.example`)으로부터 안전하게 생성하고 초기화합니다.
+환경 설정 파일(`.env`, `.env.dev`)을 템플릿(`.env.example`, `.env.dev.example`)으로부터 안전하게 생성하고 초기화한다.
 * **사용법**: `./cb-manuscript init` 또는 `./cb-manuscript dev init`
-* **동작**: 기존 파일이 있을 경우 기존 값을 보존하면서 누락된 신규 변수(예: `TZ`, `CLAIRE_GEMINI_EFFORT` 등)만 백필합니다.
+* **동작**: 기존 파일이 있을 경우 기존 값을 보존하면서 누락된 신규 변수(예: `TZ`, `CLAIRE_GEMINI_EFFORT` 등)만 백필한다.
 
 #### `install`
-최초 배포 파이프라인을 실행합니다.
+최초 배포 파이프라인을 실행한다.
 * **사용법**: `./cb-manuscript install`
 * **실행 순서**: `preflight` 검사 → Docker 이미지 빌드 (`docker compose build`) → DB 마이그레이션 (`claire migrate`) → 서비스 기동 (`up -d --wait`) → 헬스체크 (`health`).
 
 #### `update`
-Git 저장소 최신 커밋을 가져와 무중단 롤링 업데이트를 수행합니다.
+Git 저장소 최신 커밋을 가져와 무중단 롤링 업데이트를 수행한다.
 * **사용법**: `./cb-manuscript update [--no-fetch]`
 * **옵션**:
   * `--no-fetch`: 원격 git fetch 생략(로컬 변경사항만으로 빌드 및 재기동).
 
 #### `version`
-래퍼 스크립트 및 패키징된 Claire Bible 소스코드의 버전을 출력합니다.
+래퍼 스크립트 및 패키징된 Claire Bible 소스코드의 버전을 출력한다.
 * **사용법**: `./cb-manuscript version`
 
 ---
@@ -69,7 +69,7 @@ Git 저장소 최신 커밋을 가져와 무중단 롤링 업데이트를 수행
 ### 2.2 인프라 사전 점검 (`preflight`)
 
 #### `preflight`
-*(구 `doctor`에서 변경)* 배포 환경, Docker 데몬, Compose 문법, 네트워크 바인딩, 디렉터리 권한, 보안 토큰을 사전 검증합니다.
+*(구 `doctor`에서 변경)* 배포 환경, Docker 데몬, Compose 문법, 네트워크 바인딩, 디렉터리 권한, 보안 토큰을 사전 검증한다.
 * **사용법**: `./cb-manuscript preflight`
 * **검증 항목**:
   * `.env` / `.env.dev` 문법 및 `CLAIRE_ENVIRONMENT` 일치 여부
@@ -83,7 +83,7 @@ Git 저장소 최신 커밋을 가져와 무중단 롤링 업데이트를 수행
 ### 2.3 백업, 복원 및 원격 관리
 
 #### `backup`
-데이터베이스, Vault 마크다운, 환경 설정을 아카이브로 내보냅니다.
+데이터베이스, Vault 마크다운, 환경 설정을 아카이브로 내보낸다.
 * **사용법**: `./cb-manuscript backup [--format {tgz,zip,dir}] [--component {all,db,vault,env}] [--replace | --force | -f]`
 * **옵션**:
   * `--format`: 압축 포맷 지정 (`tgz` 기본값, `zip`, `dir`).
@@ -91,7 +91,7 @@ Git 저장소 최신 커밋을 가져와 무중단 롤링 업데이트를 수행
   * `--replace`, `--force`, `-f`: 동일 일자/경로의 기존 백업 덮어쓰기.
 
 #### `restore`
-백업 아카이브로부터 데이터와 설정을 복원합니다.
+백업 아카이브로부터 데이터와 설정을 복원한다.
 * **사용법**: `./cb-manuscript restore <source> [--component {all,db,vault,env}] [--yes | -y]`
 * **옵션**:
   * `source`: 백업 디렉터리 또는 아카이브 파일 경로.
@@ -99,7 +99,7 @@ Git 저장소 최신 커밋을 가져와 무중단 롤링 업데이트를 수행
   * `--yes`, `-y`: 덮어쓰기 경고 확인 프롬프트 생략.
 
 #### `remote`
-원격 호스트에 SSH로 접속하여 배포 수명주기 명령을 실행합니다.
+원격 호스트에 SSH로 접속하여 배포 수명주기 명령을 실행한다.
 * **사용법**: `./cb-manuscript remote install <host>` 또는 `./cb-manuscript remote update <host>`
 
 ---
@@ -122,7 +122,7 @@ Git 저장소 최신 커밋을 가져와 무중단 롤링 업데이트를 수행
 
 ## 3. 애플리케이션 CLI 명령어 (`claire` / `app`)
 
-`claire`는 Python 패키지 내부 엔트리포인트이며, 로컬에서는 `uv run claire <cmd>`, 배포 환경에서는 `./cb-manuscript app <cmd>`로 실행합니다.
+`claire`는 Python 패키지 내부 엔트리포인트이며, 로컬에서는 `uv run claire <cmd>`, 배포 환경에서는 `./cb-manuscript app <cmd>`로 실행한다.
 
 ### 3.1 시스템 상태 및 지식그래프 진단/수복
 
@@ -142,7 +142,7 @@ Git 저장소 최신 커밋을 가져와 무중단 롤링 업데이트를 수행
 `CLAIRE_MULTI_THEME=1`일 때 `migrate`는 레지스트리를 테마 ID 순서로 읽고 각 DB의 마이그레이션 결과를 개별 출력한다. 한 DB가 실패해도 나머지를 계속 점검하며, 하나라도 실패하면 최종 종료 코드는 `1`이다. `health`와 `liveness`는 DB를 생성하거나 마이그레이션하지 않고 읽기 전용 연결과 스키마 버전·계보를 검사한다. v12는 진단 행을 보존해 v11로 철회한 뒤 같은 실행에서 v13으로 승격한다. 손상된 `themes.json`도 기본 레지스트리로 덮어쓰지 않고 실패로 보고한다.[^multi-theme-operations]
 
 #### `doctor`
-지식그래프(Knowledge Graph) 및 SQLite DB의 참조 무결성을 정밀 진단하고, 결함을 원클릭으로 자동 수복(Auto-Healing)합니다.
+지식그래프(Knowledge Graph) 및 SQLite DB의 참조 무결성을 정밀 진단하고, 결함을 원클릭으로 자동 수복(Auto-Healing)한다.
 * **사용법**:
   ```bash
   ./cb-manuscript app doctor          # 기본: Dry-run 진단 보고서 출력
@@ -187,11 +187,11 @@ Git 저장소 최신 커밋을 가져와 무중단 롤링 업데이트를 수행
 ### 3.2 수집 및 적재 (Ingest)
 
 #### `ingest <payload>`
-URL, 일반 텍스트, 또는 로컬 파일로부터 문서를 수집하고 지식그래프를 구축합니다.
+URL, 일반 텍스트, 또는 로컬 파일로부터 문서를 수집하고 지식그래프를 구축한다.
 * **사용법**: `claire ingest "https://example.com/article" [-t <theme>] [--expand] [--title "제목"] [--format {md,adoc}] [--focus "초점 지침"]`
 * **주요 옵션**:
-  * `-t <theme>`, `--theme <theme>`: 적재 대상 테마 지정 (테마 ID, 일련번호, 또는 레이블 이름 지원). 미지정 시 기본 지식베이스(ID 0)에 적재. 대상 추가 테마에 `default_focus`가 설정되어 있고 명시적 `--focus`가 없으면 해당 기본 초점이 자동 적용됩니다.
-  * `--focus <focus>`, `-f <focus>`: 가독 상세(detail) 작성을 위한 집중 초점 지정. 지정 시 테마의 기본 초점(`default_focus`)보다 우선하여 덮어씁니다.
+  * `-t <theme>`, `--theme <theme>`: 적재 대상 테마 지정 (테마 ID, 일련번호, 또는 레이블 이름 지원). 미지정 시 기본 지식베이스(ID 0)에 적재. 대상 추가 테마에 `default_focus`가 설정되어 있고 명시적 `--focus`가 없으면 해당 기본 초점이 자동 적용된다.
+  * `--focus <focus>`, `-f <focus>`: 가독 상세(detail) 작성을 위한 집중 초점 지정. 지정 시 테마의 기본 초점(`default_focus`)보다 우선하여 덮어쓴다.
   * `--expand`: 본문에서 추출된 외부 링크 URL들을 1홉 확장 큐(`expand_queue`)에 등록.
   * `--title <title>`: 자동 추출 제목 대신 수동 제목 지정.
   * `--format {md,adoc}`: 상세 detail 렌더링 포맷 지정.
@@ -202,7 +202,7 @@ URL, 일반 텍스트, 또는 로컬 파일로부터 문서를 수집하고 지�
 ### 3.3 검색 및 질의 (Search)
 
 #### `search <query>`
-FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이브리드 검색을 수행하고, LLM을 통해 인용 출처가 포함된 종합 답변을 생성합니다.
+FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이브리드 검색을 수행하고, LLM을 통해 인용 출처가 포함된 종합 답변을 생성한다.
 * **사용법**: `claire search "검색 질의어" [--no-summary] [--limit 10]`
 * **주요 옵션**:
   * `--no-summary`: LLM 종합 요약을 건너뛰고 랭킹된 원본 매칭 엔티티/문서 스니펫만 빠르게 반환.
@@ -235,7 +235,7 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 | `refresh-loop` | `claire refresh-loop [--interval N] [--batch N]` | 모든 활성 테마의 watch·갱신 큐를 순환 처리하는 상주 데몬 |
 
 #### `regenerate`
-특정 문서의 컴포넌트(요약, 상세 detail, 그래프 노드/엣지)를 LLM을 통해 선택적으로 재생성하고 DB를 갱신합니다.
+특정 문서의 컴포넌트(요약, 상세 detail, 그래프 노드/엣지)를 LLM을 통해 선택적으로 재생성하고 DB를 갱신한다.
 * **사용법**:
   ```bash
   ./cb-manuscript app regenerate <target> --summary              # Dry-run 진단 (기본)
@@ -266,11 +266,11 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
   * `--focus <focus>`: 가독 상세(detail) 작성을 위한 집중 초점 지정.
 
 #### `summary-regenerate`
-`regenerate --summary`의 단축 Alias입니다.
+`regenerate --summary`의 단축 Alias이다.
 * **사용법**: `./cb-manuscript app summary-regenerate <target> [--refetch | --refetch-full] [--apply] [--effort <level>]`
 
 #### `format-migrate`
-전체 문서의 detail 상세 렌더링 포맷(Markdown ↔ AsciiDoc) 현황을 점검하고 일괄 변환합니다.
+전체 문서의 detail 상세 렌더링 포맷(Markdown ↔ AsciiDoc) 현황을 점검하고 일괄 변환한다.
 * **사용법**:
   ```bash
   ./cb-manuscript app format-migrate          # 변환 현황 진단 (Dry-run)
@@ -285,7 +285,7 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
   * `--json`: 진단 통계를 JSON 포맷으로 출력.
 
 #### `truncation-status` (단축: `truncation-scan`)
-데이터베이스 내 문서들의 원문 20,000자 슬라이싱 여부 및 `raw_truncated` 메타데이터 누락 상태를 스캔하고 상세 리포트를 출력합니다.
+데이터베이스 내 문서들의 원문 20,000자 슬라이싱 여부 및 `raw_truncated` 메타데이터 누락 상태를 스캔하고 상세 리포트를 출력한다.
 * **사용법**:
   ```bash
   ./cb-manuscript app truncation-status                   # 전체 문서 절단 진단 리포트
@@ -297,7 +297,7 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
   * 20,000자 상한 도달: 표(Table)를 제외한 산문(Prose) 글자 수가 정확히 20,000자에 도달.
 
 #### `truncation-backfill` (단축: `backfill-truncation`)
-과거에 슬라이싱되었으나 메타데이터가 누락된 문서의 `documents.meta`에 `raw_truncated: true`, `raw_chars: <len>`를 소급 기록합니다.
+과거에 슬라이싱되었으나 메타데이터가 누락된 문서의 `documents.meta`에 `raw_truncated: true`, `raw_chars: <len>`를 소급 기록한다.
 * **사용법**:
   ```bash
   ./cb-manuscript app truncation-backfill                 # Dry-run 진단 (기본)
@@ -313,7 +313,7 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
   * `--json`: 결과를 JSON 포맷으로 출력.
 
 #### `backfill-detail`
-가독 상세(`detail`)가 누락된 문서 또는 표(`--tables`)가 포함된 문서를 선별하여 상세를 일괄 생성/재생성합니다 (지식그래프 불변, 비파괴).
+가독 상세(`detail`)가 누락된 문서 또는 표(`--tables`)가 포함된 문서를 선별하여 상세를 일괄 생성/재생성한다 (지식그래프 불변, 비파괴).
 * **사용법**:
   ```bash
   ./cb-manuscript app backfill-detail                     # detail 누락 문서만 생성
@@ -327,7 +327,7 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
   * `--limit <N>`: 처리할 최대 문서 개수.
 
 #### `reextract`
-저장된 `raw_text`로부터 전체(또는 표 포함) 문서의 지식그래프(엔티티, 관계, 요약, 상세)를 백지 상태에서 재추출·재구축합니다.
+저장된 `raw_text`로부터 전체(또는 표 포함) 문서의 지식그래프(엔티티, 관계, 요약, 상세)를 백지 상태에서 재추출·재구축한다.
 * **사용법**:
   ```bash
   ./cb-manuscript app --advanced reextract                # 전체 그래프 초기화 및 재추출
@@ -339,7 +339,7 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
   * `--no-rebuild`: 그래프 초기화(reset_graph) 없이 기존 그래프에 누적 추출.
 
 #### `re-embed`
-기존에 저장된 지식그래프 엔티티 노드들의 벡터 임베딩을 최신 모델(`text-embedding-004`) 및 온톨로지 구조화 프레임(`format_entity_frame`)으로 일괄 재계산하여 벡터 저장소(`vector_store`)를 갱신합니다. ([KNOWLEDGE_GRAPH_LINKING_AND_CALIBRATION_DESIGN.md](../design/KNOWLEDGE_GRAPH_LINKING_AND_CALIBRATION_DESIGN.md) 참조)
+기존에 저장된 지식그래프 엔티티 노드들의 벡터 임베딩을 최신 모델(`text-embedding-004`) 및 온톨로지 구조화 프레임(`format_entity_frame`)으로 일괄 재계산하여 벡터 저장소(`vector_store`)를 갱신한다. ([KNOWLEDGE_GRAPH_LINKING_AND_CALIBRATION_DESIGN.md](../design/KNOWLEDGE_GRAPH_LINKING_AND_CALIBRATION_DESIGN.md) 참조)
 * **사용법**:
   ```bash
   ./cb-manuscript app re-embed                    # 재임베딩 대상 노드 수 진단 (기본: Dry-run)
@@ -352,7 +352,7 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
   * `--limit <N>`: 재계산할 최대 엔티티 수 제한.
 
 #### `link-relations`
-기존에 축적된 지식베이스 전체 엔티티의 벡터 임베딩을 분석하여, 아직 연결되지 않은 엔티티 쌍 중 유사도 `[min_score, 0.93)` 대역에 위치한 후보군을 발굴하고 LLM 관계 판정기(`judge_relationship`)를 통해 전역 횡단 엣지(Edge)를 일괄 수립합니다. ([KNOWLEDGE_GRAPH_LINKING_AND_CALIBRATION_DESIGN.md](../design/KNOWLEDGE_GRAPH_LINKING_AND_CALIBRATION_DESIGN.md) 참조)
+기존에 축적된 지식베이스 전체 엔티티의 벡터 임베딩을 분석하여, 아직 연결되지 않은 엔티티 쌍 중 유사도 `[min_score, 0.93)` 대역에 위치한 후보군을 발굴하고 LLM 관계 판정기(`judge_relationship`)를 통해 전역 횡단 엣지(Edge)를 일괄 수립한다. ([KNOWLEDGE_GRAPH_LINKING_AND_CALIBRATION_DESIGN.md](../design/KNOWLEDGE_GRAPH_LINKING_AND_CALIBRATION_DESIGN.md) 참조)
 * **사용법**:
   ```bash
   ./cb-manuscript app link-relations --dry-run             # 횡단 관계 판정 시뮬레이션 (DB 변경 없음)
@@ -366,7 +366,7 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
   * `--theme <name>`: 특정 테마의 격리된 데이터베이스를 대상으로 실행.
 
 #### `video-reprocess` (단축: `reprocess-video`)
-기존에 자막 없이 적재되었거나 전사가 누락된 비디오 문서를 다시 수집합니다. 발행자가 선호 언어 CC를 제공하면 해당 자막을 내려받아 보존하고, 유효한 CC가 없을 때만 오디오와 STT 경로를 실행합니다. VMware Explore 상세 페이지가 Presentation PDF를 제공하면 검증된 원본 PDF와 추출 텍스트를 같은 영상 문서에 함께 갱신합니다. STT 처리 실패 시 사흘(3일)간 로컬 캐시(`data/cache/video/`)에 보존된 미디어를 재다운로드 없이 재사용합니다.[^video-caption-implementation][^video-presentation-implementation]
+기존에 자막 없이 적재되었거나 전사가 누락된 비디오 문서를 다시 수집한다. 발행자가 선호 언어 CC를 제공하면 해당 자막을 내려받아 보존하고, 유효한 CC가 없을 때만 오디오와 STT 경로를 실행한다. VMware Explore 상세 페이지가 Presentation PDF를 제공하면 검증된 원본 PDF와 추출 텍스트를 같은 영상 문서에 함께 갱신한다. STT 처리 실패 시 사흘(3일)간 로컬 캐시(`data/cache/video/`)에 보존된 미디어를 재다운로드 없이 재사용한다.[^video-caption-implementation][^video-presentation-implementation]
 * **사용법**:
   ```bash
   ./cb-manuscript app video-reprocess --doc-id <doc_id>          # Dry-run 진단 (기본)
@@ -383,13 +383,13 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
   * `--format {md,adoc}`: 가독 상세(detail) 렌더링 포맷.
   * `--json`: 결과를 JSON 포맷으로 출력.
 * **동작 특징**:
-  * **CC 우선**: 선호 언어, 언어 태그 정확도, 수동/자동 구분, 전송 형식을 기준으로 후보를 정렬합니다. 유효한 WebVTT를 확보하면 오디오 다운로드와 STT를 생략합니다.[^video-caption-implementation]
-  * **실패의 복구 가능성**: 광고된 선호 언어 CC의 다운로드가 모두 실패하면 STT로 숨기지 않고 오류로 반환합니다. 자막 URL의 서명·쿼리 토큰은 문서 메타데이터와 오류 문자열에 저장하지 않습니다.[^video-caption-implementation]
-  * **Presentation 번들 원자성**: VMware Explore가 명시한 Presentation PDF는 허용 호스트·공개 IP·리다이렉트·크기·MIME·PDF 매직을 검증하고 기존 PDF 파서로 추출합니다. 광고된 PDF의 다운로드·추출·원본 저장이 실패하면 CC/STT만 성공한 것으로 적재하지 않습니다.[^video-presentation-implementation]
-  * **원본 및 버전 보존**: PDF 원본은 `data/raw/attachments/<document_id>/presentation/<sha256>.pdf`에 저장하며, 새 버전은 기존 파일을 삭제하지 않고 `presentation_history`와 함께 추가합니다.[^video-presentation-implementation]
-  * **3일 미디어 캐시 재사용**: 유효한 CC가 없고 이전 STT 수집이 실패했을 때 `data/cache/video/`에 저장된 오디오 미디어가 있으면 외부 미디어 다운로드를 생략하고 STT를 진행합니다.
-  * **실시간 단계별 진행률 스트리밍**: `[원문 전체 재수집]`, 필요한 경우의 `[오디오 다운로드/변환]`, `[STT 청크 전사]`, `[LLM 요약 및 지식 그래프 추출]` 단계가 터미널에 출력됩니다.
-  * **전사 무결성 검증**: CC 획득 또는 STT가 실패하거나 `has_transcript`가 `False`인 경우 오류 원인을 `stderr`에 출력하고 종료 코드 `1`을 반환합니다.
+  * **CC 우선**: 선호 언어, 언어 태그 정확도, 수동/자동 구분, 전송 형식을 기준으로 후보를 정렬한다. 유효한 WebVTT를 확보하면 오디오 다운로드와 STT를 생략한다.[^video-caption-implementation]
+  * **실패의 복구 가능성**: 광고된 선호 언어 CC의 다운로드가 모두 실패하면 STT로 숨기지 않고 오류로 반환한다. 자막 URL의 서명·쿼리 토큰은 문서 메타데이터와 오류 문자열에 저장하지 않는다.[^video-caption-implementation]
+  * **Presentation 번들 원자성**: VMware Explore가 명시한 Presentation PDF는 허용 호스트·공개 IP·리다이렉트·크기·MIME·PDF 매직을 검증하고 기존 PDF 파서로 추출한다. 광고된 PDF의 다운로드·추출·원본 저장이 실패하면 CC/STT만 성공한 것으로 적재하지 않는다.[^video-presentation-implementation]
+  * **원본 및 버전 보존**: PDF 원본은 `data/raw/attachments/<document_id>/presentation/<sha256>.pdf`에 저장하며, 새 버전은 기존 파일을 삭제하지 않고 `presentation_history`와 함께 추가한다.[^video-presentation-implementation]
+  * **3일 미디어 캐시 재사용**: 유효한 CC가 없고 이전 STT 수집이 실패했을 때 `data/cache/video/`에 저장된 오디오 미디어가 있으면 외부 미디어 다운로드를 생략하고 STT를 진행한다.
+  * **실시간 단계별 진행률 스트리밍**: `[원문 전체 재수집]`, 필요한 경우의 `[오디오 다운로드/변환]`, `[STT 청크 전사]`, `[LLM 요약 및 지식 그래프 추출]` 단계가 터미널에 출력된다.
+  * **전사 무결성 검증**: CC 획득 또는 STT가 실패하거나 `has_transcript`가 `False`인 경우 오류 원인을 `stderr`에 출력하고 종료 코드 `1`을 반환한다.
 
 #### 작업 진행률 및 중단 보고
 다음의 **1회 실행 배치 명령**은 진행률 추적기를 사용한다: `regenerate --apply`, `reextract`, `backfill-detail`, `backfill-summary`, `format-migrate --apply`, `recover-run`, `refresh-run`, `expand-run`.[^progress-implementation]
@@ -434,7 +434,7 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
   * **스마트 타깃 자동 판별**: `target` 하나로 문서 ID(SHA256/UUID), 공유 링크(`/p?s=token`), 일반 원본 URL, 정규화된 canonical URL, 프로토콜 누락 도메인(`domain.com/...`), 제목 키워드를 4단계 우선순위로 자동 판별.
   * **수명주기 게이트**: 기본 상태(`CLAIRE_DATA_LIFECYCLE=purgeable`, `CLAIRE_ALLOW_PURGE=1`)에서 실행 허용 (`CLAIRE_DATA_LIFECYCLE=append-only` 및 `CLAIRE_ALLOW_PURGE=0` 시 안전 차단).
   * **원자적 소각**: 툼스톤(`purged_tombstones`) 등록 ➔ DB 8개 테이블 연쇄 Hard Delete ➔ 로컬 파일시스템 아티팩트(`raw/artifacts`, `raw/attachments`, `images`, `vault`) Unlink ➔ `heal_graph` 수복(출처 소멸 고아 엔티티·관계 연쇄 소각) ➔ `VACUUM` 압축을 일괄 수행.[^video-presentation-implementation]
-  * **툼스톤 등록 제어 (`--no-tombstone`)**: 기본값은 소각 시 `purged_tombstones`에 지문을 등록하여 동일 URL/해시의 영구 재유입을 차단합니다. 테스트 목적 또는 포맷/옵션을 변경하여 즉시 재수집(re-ingest)하려는 경우 `--no-tombstone` 옵션을 지정하면 툼스톤 등록을 건너뛰어 향후 재수집이 가능합니다.
+  * **툼스톤 등록 제어 (`--no-tombstone`)**: 기본값은 소각 시 `purged_tombstones`에 지문을 등록하여 동일 URL/해시의 영구 재유입을 차단한다. 테스트 목적 또는 포맷/옵션을 변경하여 즉시 재수집(re-ingest)하려는 경우 `--no-tombstone` 옵션을 지정하면 툼스톤 등록을 건너뛰어 향후 재수집이 가능하다.
   * **공유 링크 소각 경고**: 공유 링크로 식별된 경우 단순 링크 무효화가 아닌 원본 문서 전체 파괴임을 Dry-Run에 명시적 경고.
   * 기본 실행은 Dry-Run으로 영향 범위를 사전 출력하며, `--apply` 지정 시 실제 소각 실행 (대화형 `[y/N]` 확인 또는 `--yes`/`-y`로 무인 실행).
 * `claire audit [<target>] [--pattern <str>] [--json]`:
@@ -480,7 +480,7 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 
 ### 3.10 지식 테마 관리 및 다중 DB 격리 (Theme Management)
 
-`claire theme` 명령군은 지식 테마 레지스트리(`themes.json`) 및 시퀀스 기반의 물리적 저장소(`data/themes/{seq}/claire.db`, `vault/themes/{seq}/`)를 생성, 변경, 조회, 삭제/소각(`--purge`)하는 관리자 CLI 도구입니다.[^theme-implementation]
+`claire theme` 명령군은 지식 테마 레지스트리(`themes.json`) 및 시퀀스 기반의 물리적 저장소(`data/themes/{seq}/claire.db`, `vault/themes/{seq}/`)를 생성, 변경, 조회, 삭제/소각(`--purge`)하는 관리자 CLI 도구이다.[^theme-implementation]
 
 | 명령 | 사용법 | 설명 |
 | :--- | :--- | :--- |
@@ -505,10 +505,10 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
   * `--label`, `-l` *(필수)*: 테마 명칭 (예: `기계학습`, `재정/회계`). 기존 테마 레이블과 중복 불가.
   * `--desc`, `--description`: 테마 설명 (웹 UI 테마 선택 팝오버 및 텔레그램 안내에 노출).
   * `--icon`: 테마 식별 이모지 (기본값: `📁`).
-  * `--focus`, `--default-focus`: 해당 테마에 문서 적재 시 기본 적용될 초점(Focus). 사용자가 적재 시 별도 `--focus`를 주지 않으면 이 값이 자동으로 적용됩니다.
-  * `--public` / `--private`: 테마 공개 여부 (기본값: `--public`). `--private` 시 비인증(Anonymous) 사용자의 웹/API 열람이 차단되며(404 Not Found), 세션 토큰 소유자만 접근 가능합니다.
-  * `--collaborator` / `--no-collaborator`: 협력자 세션(`CLAIRE_COLLABORATOR_TOKEN`) 접근 허용 여부 (기본값: `--collaborator`). `--no-collaborator` 지정 시 시스템 관리자(Owner)만 열람/적재 가능합니다.
-* **디렉토리 프로비저닝**: 테마 생성 즉시 `data/themes/{seq}/` 및 `vault/themes/{seq}/` 디렉토리가 생성되고 독립된 SQLite DB 초기화(`init_db`)가 수행됩니다.
+  * `--focus`, `--default-focus`: 해당 테마에 문서 적재 시 기본 적용될 초점(Focus). 사용자가 적재 시 별도 `--focus`를 주지 않으면 이 값이 자동으로 적용된다.
+  * `--public` / `--private`: 테마 공개 여부 (기본값: `--public`). `--private` 시 비인증(Anonymous) 사용자의 웹/API 열람이 차단되며(404 Not Found), 세션 토큰 소유자만 접근 가능하다.
+  * `--collaborator` / `--no-collaborator`: 협력자 세션(`CLAIRE_COLLABORATOR_TOKEN`) 접근 허용 여부 (기본값: `--collaborator`). `--no-collaborator` 지정 시 시스템 관리자(Owner)만 열람/적재 가능하다.
+* **디렉토리 프로비저닝**: 테마 생성 즉시 `data/themes/{seq}/` 및 `vault/themes/{seq}/` 디렉토리가 생성되고 독립된 SQLite DB 초기화(`init_db`)가 수행된다.
 
 #### `claire theme update`
 * **사용법**: `claire theme update <id_or_label> [--label <L>] [--desc <D>] [--icon <I>] [--focus <F>] [--public|--private] [--collaborator|--no-collaborator] [--json]`
@@ -516,18 +516,18 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
   * `id`: 대상 테마의 ID, 시퀀스 번호, 또는 레이블.
   * `--focus ""`: 빈 문자열을 전달하여 기존에 설정된 기본 초점을 해제(초기화) 가능.
   * `--private`, `--no-collaborator`: 기존 공개/협력자 허용 테마의 접근 권한을 동적으로 즉시 회수 가능.
-  * 기본 테마 `0`(Default Theme)의 경우 레이블, 설명, 아이콘, 공개 여부는 변경 가능하지만 기본 초점은 `""`로 고정됩니다.
+  * 기본 테마 `0`(Default Theme)의 경우 레이블, 설명, 아이콘, 공개 여부는 변경 가능하지만 기본 초점은 `""`로 고정된다.
 
 #### `claire theme reset`
 * **사용법**: `claire theme reset <id> [-y|--yes] [--json]`
 * **주요 특징 및 동작**:
-  * **식별 메타데이터 및 고유 URI 영구 보존**: 테마 ID(`id`), 순번(`seq`), 명칭(`label`), 아이콘(`icon`), 설명(`description`), 기본 초점(`default_focus`), 권한 설정(`is_public`, `is_collaborator_accessible`), 생성일(`created_at`), 호출 URI(`?theme=<id>`) 등 모든 식별 메타데이터는 불변으로 유지됩니다 (`updated_at`만 갱신). 북마크나 외부 공유 URL이 깨지지 않습니다.
+  * **식별 메타데이터 및 고유 URI 영구 보존**: 테마 ID(`id`), 순번(`seq`), 명칭(`label`), 아이콘(`icon`), 설명(`description`), 기본 초점(`default_focus`), 권한 설정(`is_public`, `is_collaborator_accessible`), 생성일(`created_at`), 호출 URI(`?theme=<id>`) 등 모든 식별 메타데이터는 불변으로 유지된다 (`updated_at`만 갱신). 북마크나 외부 공유 URL이 깨지지 않는다.
   * **내부 적재 데이터 완전 소각 (100% Clean Slate)**:
     1. **지식 그래프 원자적 비우기**: `reset_graph(conn)`를 통해 `entities`, `relations`, `embeddings`, `entities_fts`를 일괄 삭제.
     2. **테마 DB 적재 데이터 초기화**: `documents`, `raw_inbox`, `extractions`, `document_snapshots`, `proposals`, `jobs`, `refresh_queue`, `expand_queue`, `doc_shares`, `purged_tombstones` 전체 행 삭제.
     3. **로컬 볼트(Vault) 산출물 파일 영구 제거**: `vault/themes/{seq}/*.md` (기본 테마 `0`인 경우 `vault/*.md`에서 `vault/themes/` 디렉터리 보호 제외) 일괄 언링크.
     4. **스토리지 최적화**: `PRAGMA wal_checkpoint(TRUNCATE)` 및 `VACUUM`을 수행하여 잔여 WAL 및 프리리스트를 즉시 OS에 반환.
-  * **대화형 안전 확인**: 대화형 터미널에서는 테마 명칭과 ID를 안내하며 `[y/N]` 확인을 요구하고, 비대화형 파이프라인 환경에서는 `--yes` (`-y`) 플래그가 없으면 작업이 차단(종료 코드 2)됩니다.
+  * **대화형 안전 확인**: 대화형 터미널에서는 테마 명칭과 ID를 안내하며 `[y/N]` 확인을 요구하고, 비대화형 파이프라인 환경에서는 `--yes` (`-y`) 플래그가 없으면 작업이 차단(종료 코드 2)된다.
   * **`--json`**: 소각된 문서 수, 엔티티 수, 관계 수, 삭제된 볼트 파일 수 등 리셋 요약 통계를 JSON으로 출력.
 
 #### `claire theme delete`
@@ -537,37 +537,37 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
   * `--purge`: 테마 레지스트리 제거뿐만 아니라 디스크 상의 `data/themes/{seq}/claire.db` 파일 및 `vault/themes/{seq}/` 보관소 디렉토리까지 영구 소각(shredding/rmtree).
   * `--yes`, `-y`: 삭제 확인 대화형 프롬프트 건너뛰기.
 * **안전 보호 장치 (Safety Guard)**:
-  * **기본 테마 `0` 삭제 불가**: 테마 `0`은 시스템의 루트 지식베이스이므로 삭제 시도 시 즉시 거부되고 오류 코드 1을 반환합니다.
-  * 비정상 접근 및 오염 방지를 위해 `--purge` 누락 시에는 레지스트리에서만 비활성화/제거되고 물리적 파일은 디스크에 보존됩니다.
+  * **기본 테마 `0` 삭제 불가**: 테마 `0`은 시스템의 루트 지식베이스이므로 삭제 시도 시 즉시 거부되고 오류 코드 1을 반환한다.
+  * 비정상 접근 및 오염 방지를 위해 `--purge` 누락 시에는 레지스트리에서만 비활성화/제거되고 물리적 파일은 디스크에 보존된다.
 
 ---
 
 ## 4. 미구현(Unimplemented) / 부분 구현 옵션 및 상태 명세
 
-시스템 운영 및 개발 시 혼선을 방지하기 위해 현재 코드베이스의 **부분 구현, 예약된 옵션, 또는 기능적 제약사항**을 명시합니다.
+시스템 운영 및 개발 시 혼선을 방지하기 위해 현재 코드베이스의 **부분 구현, 예약된 옵션, 또는 기능적 제약사항**을 명시한다.
 
 ### 4.1 `claire search`
-* **`--no-summary` (완전 구현)**: LLM 추론 비용과 응답 지연을 방지하기 위해 사용되며, FTS 및 벡터 검색 결과의 원시 텍스트 청크만 즉시 출력합니다.
-* **다국어 교차 검색 (부분 지원)**: 영어/한국어 혼용 질의는 엔티티 `norm_name` 및 Gemini 임베딩 모델(`gemini-embedding-001`)의 다국어 투영 공간을 통해 처리되나, 한자/일본어 등 CJK 확장 언어에 대한 형태소 분절은 FTS5 단순 토크나이저에 의존합니다.
+* **`--no-summary` (완전 구현)**: LLM 추론 비용과 응답 지연을 방지하기 위해 사용되며, FTS 및 벡터 검색 결과의 원시 텍스트 청크만 즉시 출력한다.
+* **다국어 교차 검색 (부분 지원)**: 영어/한국어 혼용 질의는 엔티티 `norm_name` 및 Gemini 임베딩 모델(`gemini-embedding-001`)의 다국어 투영 공간을 통해 처리되나, 한자/일본어 등 CJK 확장 언어에 대한 형태소 분절은 FTS5 단순 토크나이저에 의존한다.
 
 ### 4.2 `claire regenerate` 및 `CLAIRE_GEMINI_EFFORT`
 * **`--effort` 지원 범위 (조건부 적용)**:
-  * Gemini 2.0 Flash Thinking, Gemini 3.0/3.1 계열 등 **Thinking 기능이 지원되는 모델**에서는 `thinking_config`(`low`, `medium`, `high` 또는 토큰 수치)가 정상 작동합니다.
-  * Thinking을 지원하지 않는 구형 모델이나 Mock Provider에서는 `--effort` 인자가 주어져도 API 에러를 내지 않고 조용히 무시(Graceful fallback)됩니다.
+  * Gemini 2.0 Flash Thinking, Gemini 3.0/3.1 계열 등 **Thinking 기능이 지원되는 모델**에서는 `thinking_config`(`low`, `medium`, `high` 또는 토큰 수치)가 정상 작동한다.
+  * Thinking을 지원하지 않는 구형 모델이나 Mock Provider에서는 `--effort` 인자가 주어져도 API 에러를 내지 않고 조용히 무시(Graceful fallback)된다.
 * **`--detail` 재생성 후 그래프 동기화 (순차 수복 필요)**:
-  * `regenerate --summary`는 `extractions.raw_response`의 요약만 교체하므로 그래프 무결성에 영향이 없습니다.
-  * `regenerate --detail`은 상세 렌더링 텍스트를 새로 작성하지만, 본문 변경에 따른 새로운 엔티티/관계의 자동 재추출은 수행하지 않습니다. 본문 내용 변경에 따른 전체 그래프 갱신이 필요할 경우 `reextract`를 실행해야 합니다.
+  * `regenerate --summary`는 `extractions.raw_response`의 요약만 교체하므로 그래프 무결성에 영향이 없다.
+  * `regenerate --detail`은 상세 렌더링 텍스트를 새로 작성하지만, 본문 변경에 따른 새로운 엔티티/관계의 자동 재추출은 수행하지 않는다. 본문 내용 변경에 따른 전체 그래프 갱신이 필요할 경우 `reextract`를 실행해야 한다.
 
 ### 4.3 `claire doctor` (무결성 수복) vs `claire dedup-merge`
-* **결정론적 무결성 수복 (`doctor --heal`)**: 고아 관계 제거, 출처 배열 정제, 고아 엔티티 삭제, FTS 재구축 등 SQL/규칙 기반 수복은 100% 완전 자동 지원됩니다.
-* **의미론적 개체 통합 (LLM Semantic Merge)**: 표기가 약간 다른 동일 인물/개체(예: `Antigravity`와 `Google Antigravity`)의 의미론적 병합은 `doctor --heal`의 범위가 아니며, `dedup-merge` 또는 재추출(`reextract`) 파이프라인에서 수행됩니다.
+* **결정론적 무결성 수복 (`doctor --heal`)**: 고아 관계 제거, 출처 배열 정제, 고아 엔티티 삭제, FTS 재구축 등 SQL/규칙 기반 수복은 100% 완전 자동 지원된다.
+* **의미론적 개체 통합 (LLM Semantic Merge)**: 표기가 약간 다른 동일 인물/개체(예: `Antigravity`와 `Google Antigravity`)의 의미론적 병합은 `doctor --heal`의 범위가 아니며, `dedup-merge` 또는 재추출(`reextract`) 파이프라인에서 수행된다.
 
 ### 4.4 `sqlite-vec` 벡터 확장 모듈
-* `sqlite-vec` 바이너리 확장이 호스트 환경에서 로드 가능한 경우(`probe_sqlite_vec` OK) 네이티브 벡터 인덱스를 사용합니다.
-* 확장을 로드할 수 없는 아키텍처나 배포판에서는 순수 파이썬 Brute-force 코사인 유사도 연산으로 자동 폴백(Fallback)되며, 기능은 100% 동일하게 동작하나 엔티티 수만 건 이상 시 속도 저하가 발생할 수 있습니다.
+* `sqlite-vec` 바이너리 확장이 호스트 환경에서 로드 가능한 경우(`probe_sqlite_vec` OK) 네이티브 벡터 인덱스를 사용한다.
+* 확장을 로드할 수 없는 아키텍처나 배포판에서는 순수 파이썬 Brute-force 코사인 유사도 연산으로 자동 폴백(Fallback)되며, 기능은 100% 동일하게 동작하나 엔티티 수만 건 이상 시 속도 저하가 발생할 수 있다.
 
 ### 4.5 `claire backfill-images`
-* 문서 내 포함된 이미지 URL을 파싱하여 로컬 볼륨으로 다운로드합니다. 외부 이미지 호스트가 접근 차단(Hotlinking 방지) 또는 404인 경우 다운로드가 스킵되며, 원본 URL 링크 형태로 유지됩니다.
+* 문서 내 포함된 이미지 URL을 파싱하여 로컬 볼륨으로 다운로드한다. 외부 이미지 호스트가 접근 차단(Hotlinking 방지) 또는 404인 경우 다운로드가 스킵되며, 원본 URL 링크 형태로 유지된다.
 
 ---
 

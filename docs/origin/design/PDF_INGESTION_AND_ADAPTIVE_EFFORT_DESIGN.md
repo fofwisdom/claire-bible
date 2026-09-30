@@ -6,12 +6,12 @@
 
 ## 1. 배경 및 목적
 
-학술 논문(NBER Working Paper, arXiv, IEEE/ACM 등)이나 심층 기술 보고서와 같은 PDF 문서는 방대한 텍스트와 고밀도의 개념적 관계를 포함하고 있습니다. 기존 시스템에서는 다음과 같은 병목 및 자원 배분 문제가 존재했습니다:
+학술 논문(NBER Working Paper, arXiv, IEEE/ACM 등)이나 심층 기술 보고서와 같은 PDF 문서는 방대한 텍스트와 고밀도의 개념적 관계를 포함하고 있다. 기존 시스템에서는 다음과 같은 병목 및 자원 배분 문제가 존재했다:
 
 1. **PDF 본문 슬라이싱 병목**: PDF 파서(`extract_pdf_bytes`)가 50,000자(`CLAIRE_PDF_MAX_EXTRACT_CHARS`)를 추출하더라도, 상위 수집기 및 프롬프트 생성기에서 일반 웹 문서 기준 예산(`CLAIRE_RAW_CHAR_BUDGET: 20000`, `CLAIRE_EXTRACT_CHAR_BUDGET: 20000`)으로 절단되어 원문 유실 및 오프라인 재추출 시 손실이 발생함.
 2. **고비용 추론(Reasoning Effort)의 획일적 적용 한계**: 모든 문서에 높은 추론 레벨(`effort="high"`)을 적용하면 일반 짧은 메모나 단순 안내서에 불필요한 연산 비용과 지연이 발생하고, 반대로 일괄 `medium` 이하로 적용하면 15,000자 이상의 복잡한 학술 논문에서 지식그래프 엔티티 및 상세 렌더링 품질이 저하됨.
 
-이를 해결하기 위해 **PDF 50,000자 온전 보존**과 **최저 Effort 프로바이더 기반 1차 논문 판별 및 동적 Effort 적재** 메커니즘을 설계·구현하였습니다.
+이를 해결하기 위해 **PDF 50,000자 온전 보존**과 **최저 Effort 프로바이더 기반 1차 논문 판별 및 동적 Effort 적재** 메커니즘을 설계·구현하였다.
 
 ---
 
@@ -54,24 +54,24 @@ flowchart TD
 ---
 
 ### 3.2 표준 PDF 파서 아키텍처 (`default` / `docling`) 및 런타임 실패 보고 체계
-PDF 문서는 2단(Two-Column) 레이아웃, 복잡한 데이터 표, 수식 등 다양한 형태를 가집니다. 이를 위해 검증된 2가지 표준 파서 구조를 제공합니다:
-- **`default` (기본값, Chromium C++ PDFium 기반)**: `pypdfium2`를 기본 엔진으로 채택하여 기존 pure-python 대비 5~15배 빠른 파싱과 완전한 CMap/ToUnicode 매핑을 제공합니다. 리소스 제약이 있는 서버 환경에서도 디스크/메모리 부하 없이 즉시 안정적으로 작동합니다.
-- **`docling` (선택형 고급 레이아웃 분석)**: 딥러닝 기반 레이아웃 파서를 통해 2단 칼럼의 텍스트 뒤섞임(interleaving)을 방지하고 올바른 읽기 순서로 복원하며, 데이터 표를 마크다운 테이블로 구조화합니다.
+PDF 문서는 2단(Two-Column) 레이아웃, 복잡한 데이터 표, 수식 등 다양한 형태를 가진다. 이를 위해 검증된 2가지 표준 파서 구조를 제공한다:
+- **`default` (기본값, Chromium C++ PDFium 기반)**: `pypdfium2`를 기본 엔진으로 채택하여 기존 pure-python 대비 5~15배 빠른 파싱과 완전한 CMap/ToUnicode 매핑을 제공한다. 리소스 제약이 있는 서버 환경에서도 디스크/메모리 부하 없이 즉시 안정적으로 작동한다.
+- **`docling` (선택형 고급 레이아웃 분석)**: 딥러닝 기반 레이아웃 파서를 통해 2단 칼럼의 텍스트 뒤섞임(interleaving)을 방지하고 올바른 읽기 순서로 복원하며, 데이터 표를 마크다운 테이블로 구조화한다.
 - **비표준 파서 모드 차단 및 무분별한 폴백 배제**:
-  - `pypdf`, `lightweight`, `auto` 등 임의의 파서 호출 옵션은 완전히 제거되었습니다.
-  - 배포 환경변수에 `CLAIRE_PDF_PARSER=pypdf`가 설정되어 있을 경우, `cb-manuscript preflight` 검사 단계에서 실행이 즉시 차단되며 `default` 또는 `docling`으로 변경하도록 안내합니다.
-  - 또한 침묵형 사고를 방지하기 위해 `pypdf` 직접 주입 시의 `pypdfium2` 자동 폴백은 지양 원칙에 따라 배제되었습니다.
+  - `pypdf`, `lightweight`, `auto` 등 임의의 파서 호출 옵션은 완전히 제거되었다.
+  - 배포 환경변수에 `CLAIRE_PDF_PARSER=pypdf`가 설정되어 있을 경우, `cb-manuscript preflight` 검사 단계에서 실행이 즉시 차단되며 `default` 또는 `docling`으로 변경하도록 안내한다.
+  - 또한 침묵형 사고를 방지하기 위해 `pypdf` 직접 주입 시의 `pypdfium2` 자동 폴백은 지양 원칙에 따라 배제되었다.
 - **컨테이너 운영 시 리소스 고려사항**:
-  - `docling` 의존성은 기본적으로 PyTorch 및 대용량 신경망/CUDA 라이브러리(~3.5GB~4.5GB 비압축 용량)를 포함합니다.
-  - `docker compose build`를 통해 여러 서비스(`api`, `bot`, `expand`, `refresh`, `recover`)를 병렬 빌드할 경우, Docker BuildKit이 각 서비스 타겟별로 스냅샷 레이어를 동시에 언패킹하면서 순간적인 피크 디스크 사용량(약 20GB+)이 발생할 수 있습니다.
+  - `docling` 의존성은 기본적으로 PyTorch 및 대용량 신경망/CUDA 라이브러리(~3.5GB~4.5GB 비압축 용량)를 포함한다.
+  - `docker compose build`를 통해 여러 서비스(`api`, `bot`, `expand`, `refresh`, `recover`)를 병렬 빌드할 경우, Docker BuildKit이 각 서비스 타겟별로 스냅샷 레이어를 동시에 언패킹하면서 순간적인 피크 디스크 사용량(약 20GB+)이 발생할 수 있다.
   - **운영 서버 권장 빌드 방식**:
     1. 단일 기본 이미지를 1회 선행 빌드: `docker build -t claire-bible:local .` 실행 후 `cb-manuscript update` 수행 (디스크 피크를 4.5GB로 최소화).
     2. 또는 CPU 전용 휠 선설치(`--index-url https://download.pytorch.org/whl/cpu torch torchvision`)를 통해 이미지 레이어 크기를 95% 이상 절감.
     3. 모델 캐시 영구화: `HF_HOME=/app/data/cache/huggingface`를 설정하여 컨테이너 재빌드 시 모델 가중치 재다운로드 방지.
 - **Graceful Fallback & 전방위 경과 보고 체계**:
-  - `CLAIRE_PDF_PARSER=docling` 설정 상태에서 모델 다운로드 실패, 컨테이너 메모리 부족(OOM), CPU 타임아웃, 런타임 변환 오류 등으로 docling이 실패할 경우, 경고 로깅 후 `default`(`pypdfium2`)로 안전하게 폴백하여 무중단 수집을 보장합니다.
-  - 또한 `default`로 텍스트를 추출할 때 **인코딩 결함 감지 엔진**(`detect_pdf_encoding_flaws`)이 동작하여 CID 누락(`(cid:xxx)`), PUA 사설 영역 글꼴, 유니코드 대체문자(`\ufffd`), 제어문자 과다 밀도, 스캔본 저밀도 등을 실시간 진단하며, 결함 발견 시 Docling OCR로 자동 복구 에스컬레이션을 시도합니다.
-  - 이때 실패 및 폴백, 결함 원인을 정밀 분류하여 **전방위 보고 채널**로 경과를 통지합니다:
+  - `CLAIRE_PDF_PARSER=docling` 설정 상태에서 모델 다운로드 실패, 컨테이너 메모리 부족(OOM), CPU 타임아웃, 런타임 변환 오류 등으로 docling이 실패할 경우, 경고 로깅 후 `default`(`pypdfium2`)로 안전하게 폴백하여 무중단 수집을 보장한다.
+  - 또한 `default`로 텍스트를 추출할 때 **인코딩 결함 감지 엔진**(`detect_pdf_encoding_flaws`)이 동작하여 CID 누락(`(cid:xxx)`), PUA 사설 영역 글꼴, 유니코드 대체문자(`\ufffd`), 제어문자 과다 밀도, 스캔본 저밀도 등을 실시간 진단하며, 결함 발견 시 Docling OCR로 자동 복구 에스컬레이션을 시도한다.
+  - 이때 실패 및 폴백, 결함 원인을 정밀 분류하여 **전방위 보고 채널**로 경과를 통지한다:
     1. **문서 메타데이터 (`doc.meta`)**: `pdf_parser_requested`, `pdf_parser_used`, `pdf_parser_fallback`, `pdf_parser_fallback_reason`, `pdf_encoding_flaw_detected`, `pdf_encoding_flaws`, `pdf_is_scanned` 명시 저장.
     2. **GraphView 웹 UI**: 문서 상세 메타 영역에 대체 배지 `⚠️ 파서 폴백`, 결함 배지 `⚠️ PDF 인코딩 결함`, `📷 스캔본 PDF` 노출 및 툴팁으로 실제 사유 안내.
     3. **CLI 적재 리포트 및 텔레그램 완료 알림**: `IngestReport.telegram_summary`에 파서 대체 및 인코딩 결함/스캔본 경고 명시.
@@ -80,7 +80,7 @@ PDF 문서는 2단(Two-Column) 레이아웃, 복잡한 데이터 표, 수식 등
 ---
 
 ### 3.3 부록(Appendix) 및 참고문헌(References) 제외 정책
-학술 논문은 본문 후반부에 대량의 참고문헌(References/Bibliography)과 부록(Appendix/Supplementary Material)을 포함하여 핵심 본문 예산을 잠식합니다.
+학술 논문은 본문 후반부에 대량의 참고문헌(References/Bibliography)과 부록(Appendix/Supplementary Material)을 포함하여 핵심 본문 예산을 잠식한다.
 - **제외 옵션**: `CLAIRE_PDF_EXCLUDE_APPENDIX=true`, `CLAIRE_PDF_EXCLUDE_REFERENCES=true`
 - **분리 기준**: 본문 뒤에서 가장 먼저 등장하는 헤더 위치(min split index)를 기준으로 본문만 추출하여 보존.
 - **메타데이터 추적**:
@@ -92,9 +92,9 @@ PDF 문서는 2단(Two-Column) 레이아웃, 복잡한 데이터 표, 수식 등
 
 ### 3.4 서지 메타데이터 정제, DTP 조판 아티팩트 방어 및 지식 그래프 오염 차단
 - **DTP 조판 아티팩트(QuarkXPress/InDesign) 문제**:
-  - 금융연구원, 학회지, 정부 연구보고서 등 전문 간행물 PDF는 조판 소프트웨어(QuarkXPress, Adobe InDesign)로 생성되는 경우가 많습니다.
-  - 이들 PDF는 헤더 메타데이터 `/Author`에 실제 연구자가 아닌 **DTP 조판 편집자/디자이너의 PC 계정명(예: `park-sy`)**이, `/Title`에는 **판호 작업 파일명(예: `35 17 `)**이 무단 삽입되어 있습니다.
-  - 이를 그대로 신뢰하여 인입할 경우, LLM이 조판 디자이너를 기관의 저자 엔티티로 허위 추출(Hallucination)하여 지식 그래프를 심각하게 오염시키는 참사가 발생합니다.
+  - 금융연구원, 학회지, 정부 연구보고서 등 전문 간행물 PDF는 조판 소프트웨어(QuarkXPress, Adobe InDesign)로 생성되는 경우가 많다.
+  - 이들 PDF는 헤더 메타데이터 `/Author`에 실제 연구자가 아닌 **DTP 조판 편집자/디자이너의 PC 계정명(예: `park-sy`)**이, `/Title`에는 **판호 작업 파일명(예: `35 17 `)**이 무단 삽입되어 있다.
+  - 이를 그대로 신뢰하여 인입할 경우, LLM이 조판 디자이너를 기관의 저자 엔티티로 허위 추출(Hallucination)하여 지식 그래프를 심각하게 오염시키는 참사가 발생한다.
 - **DTP 아티팩트 자동 식별 및 메타데이터 조정 (`reconcile_pdf_metadata`)**:
   - `is_dtp_typesetter_artifact(author, pdf_meta)`: PDF Producer/Creator의 조판 툴 시그니처 및 디자이너 계정 패턴을 정규식으로 감지.
   - `is_dtp_title(title)`: 단순 판호 번호나 권호 조합(예: `35 17`, `vol_35`)과 같은 조판 파일명 패턴을 감지.
@@ -102,14 +102,14 @@ PDF 문서는 2단(Two-Column) 레이아웃, 복잡한 데이터 표, 수식 등
   - **1차 논문 판정(`classify_paper`)과의 연계**: LLM 논문 분류기 응답 스키마에 `author`와 `title`을 함께 질의하여, 휴리스틱과 LLM의 교차 검증을 통해 본문 서두의 정본 저자/제목을 확보.
   - **DB 저장 전 메타데이터 교정**: 적재 파이프라인(`ingest_item`) 단계에서 DB 저장 전에 `reconcile_pdf_metadata`를 실행하여, 조판 아티팩트 계정은 제거하고 확인된 실제 저자(`doc.author`)와 제목(`doc.title`)으로 교정·적재.
 - **예산 면제 (Budget Exemption)**:
-  - 추출·교정된 서지 정보는 `Document.author`, `Document.title`, `Document.published_at`에 정형 데이터로 저장됩니다.
-  - LLM 프롬프트 투입 시(`doc_to_prompt`), 본문 50,000자 슬라이싱 한도(`limit`)에 합산되지 않고 **상단 헤더(`AUTHOR: ...`)에 직접 주입**되어 본문 글자 수를 전혀 잠식하지 않고 100% 무손실로 LLM에 전달됩니다.
+  - 추출·교정된 서지 정보는 `Document.author`, `Document.title`, `Document.published_at`에 정형 데이터로 저장된다.
+  - LLM 프롬프트 투입 시(`doc_to_prompt`), 본문 50,000자 슬라이싱 한도(`limit`)에 합산되지 않고 **상단 헤더(`AUTHOR: ...`)에 직접 주입**되어 본문 글자 수를 전혀 잠식하지 않고 100% 무손실로 LLM에 전달된다.
 
 ---
 
 ### 3.5 최저 Effort 프로바이더 기반 1차 논문 판별 ([`classifier.py`](file:///home/fow/Projects/claire-bible/src/claire/extract/classifier.py))
 
-`.env`에 여러 프로바이더가 동시에 선언되어 있는 경우(예: 로컬 `Antigravity CLI`와 원격 `Gemini API`), 비용 및 지연을 최소화하기 위해 **선언된 프로바이더 중 환경변수 effort 레벨이 가장 낮은 프로바이더**를 1차 분류기로 자동 선택합니다.
+`.env`에 여러 프로바이더가 동시에 선언되어 있는 경우(예: 로컬 `Antigravity CLI`와 원격 `Gemini API`), 비용 및 지연을 최소화하기 위해 **선언된 프로바이더 중 환경변수 effort 레벨이 가장 낮은 프로바이더**를 1차 분류기로 자동 선택한다.
 
 1. **Effort 정량 스코어링 (`parse_effort_score`)**:
    - `none`/`off`/`0` = `0.0`
@@ -130,7 +130,7 @@ PDF 문서는 2단(Two-Column) 레이아웃, 복잡한 데이터 표, 수식 등
 
 ### 3.6 동적 Effort 적용 규칙 ([`pipeline.py`](file:///home/fow/Projects/claire-bible/src/claire/ingest/pipeline.py))
 
-문서 적재(`extract_resolve_store`) 및 가독 본문 생성(`ensure_document_detail`) 시 다음과 같이 조건부 effort를 적용합니다:
+문서 적재(`extract_resolve_store`) 및 가독 본문 생성(`ensure_document_detail`) 시 다음과 같이 조건부 effort를 적용한다:
 
 | 문서 유형 | 본문 길이 (chars) | 적용 Effort | 설명 |
 | :--- | :--- | :--- | :--- |
@@ -139,7 +139,7 @@ PDF 문서는 2단(Two-Column) 레이아웃, 복잡한 데이터 표, 수식 등
 ### 3.7 멀티 칼럼 레이아웃 분석 요소 도입 제언 (Multi-Column Layout Analysis Roadmap)
 
 #### 1. 문제 상황 및 기술적 난제
-학술 논문(IEEE, ACM, Nature, arXiv 등)은 대다수가 2단(Two-Column) 레이아웃으로 조판됩니다. 기존의 스트림 기반 단순 텍스트 추출기(`pypdf` 등)는 문자 객체의 Y좌표 순서대로 텍스트를 읽기 때문에, **좌측 칼럼의 1번째 줄과 우측 칼럼의 1번째 줄이 번갈아 뒤섞이는 현상(Interleaving)**이 발생할 위험이 있습니다. 이는 LLM의 문맥 이해도와 엔티티 관계 추출 정확도를 급격히 떨어뜨립니다.
+학술 논문(IEEE, ACM, Nature, arXiv 등)은 대다수가 2단(Two-Column) 레이아웃으로 조판된다. 기존의 스트림 기반 단순 텍스트 추출기(`pypdf` 등)는 문자 객체의 Y좌표 순서대로 텍스트를 읽기 때문에, **좌측 칼럼의 1번째 줄과 우측 칼럼의 1번째 줄이 번갈아 뒤섞이는 현상(Interleaving)**이 발생할 위험이 있다. 이는 LLM의 문맥 이해도와 엔티티 관계 추출 정확도를 급격히 떨어뜨린다.
 
 #### 2. 주요 오픈소스 파서 기술 비교
 | 파서 엔진 | 레이아웃 복원 원리 | 강점 | 한계 및 비용 | 적합한 사용 시나리오 |

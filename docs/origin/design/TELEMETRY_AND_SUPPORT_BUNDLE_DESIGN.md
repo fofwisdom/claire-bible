@@ -1,8 +1,8 @@
 # 프로바이더 및 MCP 텔레메트리 격리·Support Bundle 통합 아키텍처 설계
 
-이 문서는 Antigravity(`agy`) 및 멀티 LLM 프로바이더 실행 시 발생하는 이상 현상과 외부 AI 에이전트(Google Gemini Spark, Claude Desktop 등)의 Model Context Protocol(MCP) 및 OAuth 2.1 연동 이상 현상의 실증 데이터를 수집하기 위한 **물리적으로 격리된 텔레메트리 서브시스템**과 근본 원인 분석(RCA)을 위한 **Support Bundle(zstd 압축, 공유 링크/OAuth 추적, 6시간 자동 파기)** 통합 아키텍처 설계를 기술합니다.
+이 문서는 Antigravity(`agy`) 및 멀티 LLM 프로바이더 실행 시 발생하는 이상 현상과 외부 AI 에이전트(Google Gemini Spark, Claude Desktop 등)의 Model Context Protocol(MCP) 및 OAuth 2.1 연동 이상 현상의 실증 데이터를 수집하기 위한 **물리적으로 격리된 텔레메트리 서브시스템**과 근본 원인 분석(RCA)을 위한 **Support Bundle(zstd 압축, 공유 링크/OAuth 추적, 6시간 자동 파기)** 통합 아키텍처 설계를 기술한다.
 
-> [!IMPORTANT] 이 문서에서 별도 표기가 없는 기존 텔레메트리 수집과 Support Bundle format v3 동작은 **Implemented**입니다. 아래의 telemetry schema v1/lineage, read-only 진단 전용 연결, Support Bundle format v4와 이중 registry 불일치 차단, 그리고 MCP 관측성 확장(`diagnostics/mcp.json`, `pipeline/oauth_summary.json`, `telemetry/mcp_records.jsonl`)은 **Planned / 단계별 구현**입니다.
+> [!IMPORTANT] 이 문서에서 별도 표기가 없는 기존 텔레메트리 수집과 Support Bundle format v3 동작은 **Implemented**이다. 아래의 telemetry schema v1/lineage, read-only 진단 전용 연결, Support Bundle format v4와 이중 registry 불일치 차단, 그리고 MCP 관측성 확장(`diagnostics/mcp.json`, `pipeline/oauth_summary.json`, `telemetry/mcp_records.jsonl`)은 **Planned / 단계별 구현**이다.
 
 ---
 
@@ -10,17 +10,17 @@
 
 ### 1.1 문제 정의: LLM 이상 현상 및 외부 MCP 에이전트 관측성 사각지대
 1. **인제스트 및 LLM 프로바이더 결손 은폐**:
-   - Antigravity(`agy`) 프로바이더 사용 시 요약 결과가 간헐적으로 `[mock]` 또는 본문 첫 200자 슬라이스(`raw_text[:200]`)로 대체되는 현상이 보고되었습니다.
-   - CLI 표준 에러(stderr)가 휘발되어 Google 정책 차단, RPM 429, 바이너리 권한 문제 추적이 불가능했고, 방어 슬라이싱이 정상 완료(`status='done'`)로 오판되는 문제가 있었습니다.
+   - Antigravity(`agy`) 프로바이더 사용 시 요약 결과가 간헐적으로 `[mock]` 또는 본문 첫 200자 슬라이스(`raw_text[:200]`)로 대체되는 현상이 보고되었다.
+   - CLI 표준 에러(stderr)가 휘발되어 Google 정책 차단, RPM 429, 바이너리 권한 문제 추적이 불가능했고, 방어 슬라이싱이 정상 완료(`status='done'`)로 오판되는 문제가 있었다.
 2. **외부 MCP 에이전트 연동의 관측성 부재 (100% Blind Spot)**:
-   - Claire는 RFC 6749/6750/7591/7636/8414/9728 표준 OAuth 2.1 인가 서버와 Streamable HTTP MCP 엔드포인트(`/mcp`)를 구축하여 외부 에이전트와 통신합니다.
-   - 그러나 프로덕션 운영 Support Bundle(`sb_20260922_140548_f84b2c22`)을 실측 분석한 결과, MCP 도구 호출 텔레메트리, OAuth 인가/토큰 상태, API 서버 접근 로그가 완전히 누락되어 있어 외부 클라이언트 통신 장애 시 원격 근본 원인 분석(RCA)이 불가능한 한계가 입증되었습니다.
+   - Claire는 RFC 6749/6750/7591/7636/8414/9728 표준 OAuth 2.1 인가 서버와 Streamable HTTP MCP 엔드포인트(`/mcp`)를 구축하여 외부 에이전트와 통신한다.
+   - 그러나 프로덕션 운영 Support Bundle(`sb_20260922_140548_f84b2c22`)을 실측 분석한 결과, MCP 도구 호출 텔레메트리, OAuth 인가/토큰 상태, API 서버 접근 로그가 완전히 누락되어 있어 외부 클라이언트 통신 장애 시 원격 근본 원인 분석(RCA)이 불가능한 한계가 입증되었다.
 
 ### 1.2 핵심 제약 조건: 정본 지식 DB(`claire.db`) 무부하·무경합 원칙
-관측성 데이터를 수집하되, **정본 지식 데이터베이스(`data/claire.db`)의 안전성과 성능을 100% 보존**해야 합니다:
-1. **단일 작성자 락 경합(Single-Writer Lock Contention) 배제**: SQLite는 트랜잭션 쓰기 시 파일 전체 락을 점유합니다. 대량 문서 인제스트 및 실시간 MCP 도구 호출 도중 텔레메트리 레코드를 동일 DB에 기록하면 `busy_timeout` 초과 및 `database is locked` 에러가 발생할 위험이 있습니다.
-2. **지식 DB 비대화(Bloat) 차단**: CLI 호출 및 MCP JSON-RPC 트래픽마다 누적되는 입출력 스니펫, 에러 로그, 통계 데이터가 본체 지식 그래프 용량을 오염시키지 않아야 합니다.
-3. **Fire-and-Forget 안전성**: 텔레메트리 기록 실패가 본선 문서 인제스트 트랜잭션이나 MCP 응답 반환을 중단시켜서는 안 됩니다.
+관측성 데이터를 수집하되, **정본 지식 데이터베이스(`data/claire.db`)의 안전성과 성능을 100% 보존**해야 한다:
+1. **단일 작성자 락 경합(Single-Writer Lock Contention) 배제**: SQLite는 트랜잭션 쓰기 시 파일 전체 락을 점유한다. 대량 문서 인제스트 및 실시간 MCP 도구 호출 도중 텔레메트리 레코드를 동일 DB에 기록하면 `busy_timeout` 초과 및 `database is locked` 에러가 발생할 위험이 있다.
+2. **지식 DB 비대화(Bloat) 차단**: CLI 호출 및 MCP JSON-RPC 트래픽마다 누적되는 입출력 스니펫, 에러 로그, 통계 데이터가 본체 지식 그래프 용량을 오염시키지 않아야 한다.
+3. **Fire-and-Forget 안전성**: 텔레메트리 기록 실패가 본선 문서 인제스트 트랜잭션이나 MCP 응답 반환을 중단시켜서는 안 된다.
 
 ---
 
@@ -93,7 +93,7 @@ graph TD
 진단 경로는 파일이 없으면 `absent`를 보고하고 생성하지 않는다. unknown/future telemetry schema는 오류 상태로 보고하되 자동 migration은 명시적인 batch 경로에서만 수행한다.
 
 ### 2.3 Google 가이드라인 및 API 정책 차단 정밀 진단 (`diagnose_google_block`)
-CLI 반환 코드, stderr, stdout을 분석하여 차단 원인을 8개 카테고리로 자동 분류합니다:
+CLI 반환 코드, stderr, stdout을 분석하여 차단 원인을 8개 카테고리로 자동 분류한다:
 
 | 진단 코드 | 분류 기준 및 원인 |
 | :--- | :--- |
@@ -118,7 +118,7 @@ CLI 반환 코드, stderr, stdout을 분석하여 차단 원인을 8개 카테�
 
 ## 3. Support Bundle 서브시스템 설계
 
-근본 원인 분석(RCA) 및 원격 디버깅을 위해 최근 데이터와 시스템 상태를 단일 아카이브로 패키징하고, 6시간 후 안전하게 자동 파기합니다.
+근본 원인 분석(RCA) 및 원격 디버깅을 위해 최근 데이터와 시스템 상태를 단일 아카이브로 패키징하고, 6시간 후 안전하게 자동 파기한다.
 
 ### 3.1 5대 핵심 요구사항
 1. **zstd 압축**: Python 내장 `zstandard` 모듈(`level=3`)과 `tarfile` 스트리밍을 결합하여 고효율 압축 `.tar.zst` 생성.
@@ -182,27 +182,27 @@ support_bundle_<id>/
 
 ### 3.3 민감정보 마스킹 및 공개 원문 보존 원칙 (Sanitization & Knowledge Preservation)
 
-Support Bundle 생성 시([`support_bundle.py`](file:///home/fow/Projects/claire-bible/src/claire/support_bundle.py)) 시스템의 비밀 자격증명을 안전하게 보호하는 동시에, RCA(근본 원인 분석)에 필요한 공개 원문 데이터와 추출 지식의 가시성을 온전히 보존합니다.
+Support Bundle 생성 시([`support_bundle.py`](file:///home/fow/Projects/claire-bible/src/claire/support_bundle.py)) 시스템의 비밀 자격증명을 안전하게 보호하는 동시에, RCA(근본 원인 분석)에 필요한 공개 원문 데이터와 추출 지식의 가시성을 온전히 보존한다.
 
 1. **공개 원문 및 지식 데이터 보존 화이트리스트 (`_DOCUMENT_SAFE_KEYS`)**:
-   - 웹, PDF, 유튜브 등 인터넷에 공개된 원문에 접근하여 발췌·적재한 문서와 추출 결과는 시스템 비밀이 아닌 공개 정보입니다.
-   - 키 이름에 부분 문자열(예: `auth`, `token`)이 포함되더라도 마스킹에서 무조건 제외하는 화이트리스트를 운영합니다:
+   - 웹, PDF, 유튜브 등 인터넷에 공개된 원문에 접근하여 발췌·적재한 문서와 추출 결과는 시스템 비밀이 아닌 공개 정보이다.
+   - 키 이름에 부분 문자열(예: `auth`, `token`)이 포함되더라도 마스킹에서 무조건 제외하는 화이트리스트를 운영한다:
      - `author`, `authors`, `authority`: 학술 논문 및 보고서 저자명 (과거 `auth` 부분일치로 인해 `***REDACTED***`로 오마스킹되던 문제 원천 방지)
      - `title`, `raw_text`, `summary`, `text`, `content`: 공개 원문 본문 및 생성 요약
      - `key_claims`, `claims`: 추출된 핵심 논지 및 온톨로지 정보
      - `tokens`, `token_count`, `prompt_tokens`, `completion_tokens`, `total_tokens`: LLM 추론 비용 및 토큰 소모 통계
 2. **엄격한 단어 경계 기반 자격증명 탐지 (`_SENSITIVE_KEY_RE`)**:
-   - 단순 부분 문자열 매칭(`r"(auth|token|key|...)"`) 대신, 단어 경계 및 구분자(`_`, `-`)를 강제하는 정규식을 적용하여 실제 시크릿 키만을 정확하게 마스킹합니다:
+   - 단순 부분 문자열 매칭(`r"(auth|token|key|...)"`) 대신, 단어 경계 및 구분자(`_`, `-`)를 강제하는 정규식을 적용하여 실제 시크릿 키만을 정확하게 마스킹한다:
      - `(?i)(?:^|[_\-])(pass(?:word)?|secret|token|api_?key|cookie|bearer|credential|cert|private_?key|auth|authorization|key)(?:$|[_\-])`
-   - 환경변수 설정(`diagnostics/config_sanitized.json`) 및 로그 내의 실제 Gemini/Antigravity API 키, 텔레그램 봇 토큰, DB 패스워드, 인증 쿠키, 베어러 토큰 등 실제 기밀 자격증명은 `***REDACTED***`로 철저히 마스킹됩니다.
+   - 환경변수 설정(`diagnostics/config_sanitized.json`) 및 로그 내의 실제 Gemini/Antigravity API 키, 텔레그램 봇 토큰, DB 패스워드, 인증 쿠키, 베어러 토큰 등 실제 기밀 자격증명은 `***REDACTED***`로 철저히 마스킹된다.
 3. **OAuth 및 MCP 자격증명 익명화 원칙**:
-   - `oauth_summary.json` 및 `logs/api.log` 수집 시 클라이언트 시크릿(`client_secret`), 인증 코드(`code`), 베어러 토큰(`token`, `access_token`, `refresh_token`) 원문은 절대 수록하지 않습니다.
-   - 클라이언트 식별 및 세션 대조는 토큰의 SHA-256 해시 접두어(앞 8자리)만을 수록하여 완벽한 보안 격리 하에 진단성을 확보합니다.
+   - `oauth_summary.json` 및 `logs/api.log` 수집 시 클라이언트 시크릿(`client_secret`), 인증 코드(`code`), 베어러 토큰(`token`, `access_token`, `refresh_token`) 원문은 절대 수록하지 않는다.
+   - 클라이언트 식별 및 세션 대조는 토큰의 SHA-256 해시 접두어(앞 8자리)만을 수록하여 완벽한 보안 격리 하에 진단성을 확보한다.
 
 ### 3.4 운영 Support Bundle 실측 팩트 엔지니어링 및 MCP 관측성 확장
 
 #### 3.4.1 실측 하드 팩트 분석 (`sb_20260922_140548_f84b2c22`)
-프로덕션 환경에서 발행된 실제 Support Bundle(`https://cb.netspheres.org/support/bundle?token=sb3_qbPX_BGDtYNhZ48ojdpKf2xSWD2wocdZozARBNnRjG0`)의 아티팩트를 전수 해체한 결과, **외부 AI 에이전트(Google Gemini, Claude Desktop 등)의 MCP 및 OAuth 2.1 연동 장애를 진단할 수 있는 정보가 100% 누락**되어 있음이 입증되었습니다.
+프로덕션 환경에서 발행된 실제 Support Bundle(`https://cb.netspheres.org/support/bundle?token=sb3_qbPX_BGDtYNhZ48ojdpKf2xSWD2wocdZozARBNnRjG0`)의 아티팩트를 전수 해체한 결과, **외부 AI 에이전트(Google Gemini, Claude Desktop 등)의 MCP 및 OAuth 2.1 연동 장애를 진단할 수 있는 정보가 100% 누락**되어 있음이 입증되었다.
 
 - **시스템 진단(`diagnostics/system.json`)**: Python `mcp` SDK 버전 및 ASGI 서버 런타임 정보 부재.
 - **파이프라인 헬스(`pipeline/health.json`)**: `/mcp` 엔드포인트 응답성 및 10종 툴 표면 헬스체크 부재.
@@ -280,7 +280,7 @@ v4 manifest는 archive 내부 artifact마다 독립 schema version을 매핑한�
 
 ### 4.3 텔레그램 봇 인터페이스 (`/support bundle`)
 
-모바일이나 원격 환경에서 서버 직접 접속(SSH) 없이 즉시 장애 원인을 진단하고 서포트 번들을 수령할 수 있도록 텔레그램 봇 명령 및 스마트 인라인 액션을 제공합니다.
+모바일이나 원격 환경에서 서버 직접 접속(SSH) 없이 즉시 장애 원인을 진단하고 서포트 번들을 수령할 수 있도록 텔레그램 봇 명령 및 스마트 인라인 액션을 제공한다.
 
 1. **명령어 구문**:
    - `/support bundle`: 기본 1일치 zstd 압축 진단 번들 생성, 6시간 다운로드 링크 회신 및 파일 직접 첨부 전송(best-effort).
@@ -291,8 +291,8 @@ v4 manifest는 archive 내부 artifact마다 독립 schema version을 매핑한�
    - `/support bundle purge`: 6시간을 경과한 만료 번들 즉시 파기.
 
 2. **공유 링크 원터치 인라인 액션 (`sb:{doc_id}`)**:
-   - 사용자가 텔레그램 채팅창에 보관 문서의 공유 링크(`/p?s=token`)나 문서 ID를 전송하면, 재생성/재수집 버튼과 함께 `[📦 Support Bundle 생성]` 인라인 버튼이 자동 제공됩니다.
-   - 버튼 클릭 시 해당 문서를 대상으로 즉시 Support Bundle을 생성하고 다운로드 링크와 첨부 파일을 제공합니다.
+   - 사용자가 텔레그램 채팅창에 보관 문서의 공유 링크(`/p?s=token`)나 문서 ID를 전송하면, 재생성/재수집 버튼과 함께 `[📦 Support Bundle 생성]` 인라인 버튼이 자동 제공된다.
+   - 버튼 클릭 시 해당 문서를 대상으로 즉시 Support Bundle을 생성하고 다운로드 링크와 첨부 파일을 제공한다.
 
 ---
 

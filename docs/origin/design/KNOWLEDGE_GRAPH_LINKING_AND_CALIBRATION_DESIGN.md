@@ -7,28 +7,28 @@
 ## 1. 배경 및 문제 정의
 
 ### 1.1 배경
-Claire Bible은 유입되는 다양한 기술 문서, 학술 논문, 비디오 미디어 등으로부터 엔티티와 관계를 추출하여 지식 그래프(Knowledge Graph)를 구축합니다. 지식 그래프의 핵심 목적은 단일 문서의 요약에 그치지 않고, 복수 문서 간 지식 노드를 연결하여 구조화된 관계망을 형성하는 데 있습니다.
+Claire Bible은 유입되는 다양한 기술 문서, 학술 논문, 비디오 미디어 등으로부터 엔티티와 관계를 추출하여 지식 그래프(Knowledge Graph)를 구축한다. 지식 그래프의 핵심 목적은 단일 문서의 요약에 그치지 않고, 복수 문서 간 지식 노드를 연결하여 구조화된 관계망을 형성하는 데 있다.
 
 ### 1.2 기존 엔티티 해소(Entity Resolution) 구조의 한계점
 1. **단일 임계값 기반의 2분법 구조**:
-   - 기존 `resolver.py`는 `AUTO_MERGE_SIMILARITY = 0.93`, `CANDIDATE_FLOOR = 0.72`라는 두 개의 임계값만을 사용했습니다.
-   - 유사도 `0.93` 이상은 동일체로 병합하고, `0.72 ~ 0.93` 구간의 후보만 LLM에게 동일체 여부를 확인했습니다.
-   - 코사인 유사도 `0.72` 미만의 노드는 엔티티 해소 단계에서 제외되어, 두 개념 간에 의미적 연관성이 있더라도 그래프 상에서 직접 연결되지 않는 한계가 있었습니다.
+   - 기존 `resolver.py`는 `AUTO_MERGE_SIMILARITY = 0.93`, `CANDIDATE_FLOOR = 0.72`라는 두 개의 임계값만을 사용했다.
+   - 유사도 `0.93` 이상은 동일체로 병합하고, `0.72 ~ 0.93` 구간의 후보만 LLM에게 동일체 여부를 확인했다.
+   - 코사인 유사도 `0.72` 미만의 노드는 엔티티 해소 단계에서 제외되어, 두 개념 간에 의미적 연관성이 있더라도 그래프 상에서 직접 연결되지 않는 한계가 있었다.
 2. **단편적 명칭 임베딩으로 인한 정보 누락**:
-   - 엔티티를 벡터화할 때 `f"{ee.canonical_name} ({ee.entity_type})"` 형태의 단순 명칭과 타입만을 벡터화했습니다.
-   - 엔티티가 지닌 상세 관찰 사실(Observations), 역할, 도메인 슬롯 정보가 벡터에 반영되지 않아, 명칭 일치가 없으면 유사도가 낮게 측정되었습니다.
+   - 엔티티를 벡터화할 때 `f"{ee.canonical_name} ({ee.entity_type})"` 형태의 단순 명칭과 타입만을 벡터화했다.
+   - 엔티티가 지닌 상세 관찰 사실(Observations), 역할, 도메인 슬롯 정보가 벡터에 반영되지 않아, 명칭 일치가 없으면 유사도가 낮게 측정되었다.
 3. **구형 임베딩 모델 및 허브니스(Hubness) 편향**:
-   - 레거시 모델(`gemini-embedding-001`)은 미세 의미 분별력이 부족하여, 특정 일반 명사가 벡터 공간 중심부에 위치하여 다수 노드와 높은 유사도를 보이는 허브니스 현상이 관측되었습니다.
-   - 또한 질의(Retrieval Query), 문서 색인(Retrieval Document), 의미 유사도(Semantic Similarity) 간의 태스크 목적 분리가 적용되지 않았습니다.
+   - 레거시 모델(`gemini-embedding-001`)은 미세 의미 분별력이 부족하여, 특정 일반 명사가 벡터 공간 중심부에 위치하여 다수 노드와 높은 유사도를 보이는 허브니스 현상이 관측되었다.
+   - 또한 질의(Retrieval Query), 문서 색인(Retrieval Document), 의미 유사도(Semantic Similarity) 간의 태스크 목적 분리가 적용되지 않았다.
 4. **후보군 제한으로 인한 관계 발굴 한계**:
-   - 그래프 연결을 개선하기 위해 관계 추출 프롬프트를 고도화하더라도, 프롬프트에 주입되는 후보군 자체가 좁은 임계값(`0.72`)에 의해 한정되어 있는 상태에서는 관계 확장에 한계가 있었습니다.
-   - 따라서 벡터 공간 표현력 개선, 다계층 유사도 라우팅, 통계적 결합도 보정을 통해 유효 후보군을 체계적으로 확보하는 구조가 요구되었습니다.
+   - 그래프 연결을 개선하기 위해 관계 추출 프롬프트를 고도화하더라도, 프롬프트에 주입되는 후보군 자체가 좁은 임계값(`0.72`)에 의해 한정되어 있는 상태에서는 관계 확장에 한계가 있었다.
+   - 따라서 벡터 공간 표현력 개선, 다계층 유사도 라우팅, 통계적 결합도 보정을 통해 유효 후보군을 체계적으로 확보하는 구조가 요구되었다.
 
 ---
 
 ## 2. 아키텍처 개요 및 3단계 로드맵
 
-Claire Bible의 지식 링킹 고도화는 다음의 3단계 실행 로드맵으로 전개됩니다.
+Claire Bible의 지식 링킹 고도화는 다음의 3단계 실행 로드맵으로 전개된다.
 
 ```mermaid
 flowchart TD
@@ -60,7 +60,7 @@ flowchart TD
 ## 3. Phase 1 구현 상세 규격
 
 ### 3.1 4계층 유사도 브래킷 (4-Tier Similarity Brackets)
-엔티티 해소기(`resolver.py`)는 단일 결정을 내리는 대신 유사도 점수 대역에 따라 지식 후보군을 정밀하게 분류하는 4계층 라우팅 체계를 적용합니다.
+엔티티 해소기(`resolver.py`)는 단일 결정을 내리는 대신 유사도 점수 대역에 따라 지식 후보군을 정밀하게 분류하는 4계층 라우팅 체계를 적용한다.
 
 | 티어 (Tier) | 기본 유사도 구간 | 판정 성격 | 시스템 동작 | 반환 대상 |
 | :--- | :--- | :--- | :--- | :--- |
@@ -70,7 +70,7 @@ flowchart TD
 | **Tier 4 (Multi-Hop Candidate)** | `[0.55, 0.70)` | 간접/잠재적 관계 (Missing Link) | 잠재적 브릿지 개념 및 다단계 추론 후보군으로 보존 | `res.multihop_candidates` |
 
 #### `ResolutionResult` 하위 호환성 보장
-기존 코드베이스는 `ent, created = resolve_or_create(...)` 형태의 언패킹 튜플을 기대합니다. 이를 100% 무중단 하위 호환하면서 신규 메타데이터를 제공하기 위해 `tuple[Entity, bool]`을 상속하는 `ResolutionResult` 데이터 구조를 정의했습니다.
+기존 코드베이스는 `ent, created = resolve_or_create(...)` 형태의 언패킹 튜플을 기대한다. 이를 100% 무중단 하위 호환하면서 신규 메타데이터를 제공하기 위해 `tuple[Entity, bool]`을 상속하는 `ResolutionResult` 데이터 구조를 정의했다.
 
 ```python
 class ResolutionResult(tuple):
@@ -82,7 +82,7 @@ class ResolutionResult(tuple):
 ```
 
 ### 3.2 고도화된 벡터화 모델 및 Task Type 분리
-Google Gemini 최신 임베딩 모델인 `text-embedding-004`를 기본값으로 채택하고, 사용 목적에 따라 `EmbedContentConfig`의 `task_type`을 명시적으로 분리합니다.
+Google Gemini 최신 임베딩 모델인 `text-embedding-004`를 기본값으로 채택하고, 사용 목적에 따라 `EmbedContentConfig`의 `task_type`을 명시적으로 분리한다.
 
 ```
 [Task Type 분리 체계]
@@ -91,10 +91,10 @@ Google Gemini 최신 임베딩 모델인 `text-embedding-004`를 기본값으로
 - SEMANTIC_SIMILARITY: 엔티티 간 1:1 유사도 비교 및 클러스터링 판정 시 적용
 ```
 
-- 프로바이더 계층(`GeminiProvider`, `AntigravityProvider`, `CodexProvider`, `MockProvider`) 전반에 `task_type`과 `title` 파라미터를 지원하는 공통 인터페이스를 확립했습니다.
+- 프로바이더 계층(`GeminiProvider`, `AntigravityProvider`, `CodexProvider`, `MockProvider`) 전반에 `task_type`과 `title` 파라미터를 지원하는 공통 인터페이스를 확립했다.
 
 ### 3.3 관계 지향형 온톨로지 프레임 임베딩 (`format_entity_frame`)
-단순 명칭 임베딩의 표현력 한계를 극복하기 위해 `src/claire/extract/frame.py`에 온톨로지 구조화 프레임을 도입했습니다.
+단순 명칭 임베딩의 표현력 한계를 극복하기 위해 `src/claire/extract/frame.py`에 온톨로지 구조화 프레임을 도입했다.
 
 ```
 [생성되는 프레임 형식 예시]
@@ -105,19 +105,19 @@ Key observations:
 - Optimizes GPU SRAM and HBM memory transactions
 - Scales sequence length linearly with negligible overhead
 ```
-- 엔티티 타입, 주요 별칭, 그리고 최대 5건의 핵심 관찰 사실(Observations)을 결합하여 임베딩함으로써, 모델이 해당 기술/개념의 구조적 의미와 응용 도메인을 함께 인지하도록 보정합니다.
+- 엔티티 타입, 주요 별칭, 그리고 최대 5건의 핵심 관찰 사실(Observations)을 결합하여 임베딩함으로써, 모델이 해당 기술/개념의 구조적 의미와 응용 도메인을 함께 인지하도록 보정한다.
 
 ### 3.4 벡터 공간 캘리브레이션 (Calibration & Fusion)
-`src/claire/store/vectors.py`에 코사인 유사도 왜곡을 방지하기 위한 통계적 캘리브레이션 알고리즘을 구현했습니다.
+`src/claire/store/vectors.py`에 코사인 유사도 왜곡을 방지하기 위한 통계적 캘리브레이션 알고리즘을 구현했다.
 
 1. **Adaptive Centering (평균 벡터 감산)**:
-   - 전체 노드 임베딩의 중심 벡터(Centroid $\vec{\mu}$)를 계산하고, 모든 벡터에서 이를 감산한 뒤 $L_2$ 재정규화를 수행합니다. $$\vec{v}_{\text{calibrated}} = \frac{\vec{v} - \vec{\mu}}{\|\vec{v} - \vec{\mu}\|_2}$$
-   - 이를 통해 공통 도메인 어휘로 인해 발생하는 배경 유사도 편향(Hubness)을 완화하고 상대적 의미 변별력을 개선합니다.
+   - 전체 노드 임베딩의 중심 벡터(Centroid $\vec{\mu}$)를 계산하고, 모든 벡터에서 이를 감산한 뒤 $L_2$ 재정규화를 수행한다. $$\vec{v}_{\text{calibrated}} = \frac{\vec{v} - \vec{\mu}}{\|\vec{v} - \vec{\mu}\|_2}$$
+   - 이를 통해 공통 도메인 어휘로 인해 발생하는 배경 유사도 편향(Hubness)을 완화하고 상대적 의미 변별력을 개선한다.
 2. **상호 순위 융합 (Reciprocal Rank Fusion; RRF)**:
-   - 밀집 벡터(Dense Cosine) 검색과 어휘/키워드(Sparse Lexical) 검색의 순위를 파라미터 튜닝 없이 안정적으로 합성할 수 있는 RRF 헬퍼(`reciprocal_rank_fusion`)를 내장했습니다 ($k=60$).
+   - 밀집 벡터(Dense Cosine) 검색과 어휘/키워드(Sparse Lexical) 검색의 순위를 파라미터 튜닝 없이 안정적으로 합성할 수 있는 RRF 헬퍼(`reciprocal_rank_fusion`)를 내장했다 ($k=60$).
 
 ### 3.5 재임베딩 CLI (`claire re-embed`)
-기존에 `gemini-embedding-001` 및 단순 키워드로 임베딩되어 저장된 모든 노드 벡터를 신규 프레임 형식과 모델로 일괄 소급 갱신할 수 있는 운영 명령을 제공합니다.
+기존에 `gemini-embedding-001` 및 단순 키워드로 임베딩되어 저장된 모든 노드 벡터를 신규 프레임 형식과 모델로 일괄 소급 갱신할 수 있는 운영 명령을 제공한다.
 ```bash
 ./cb-manuscript app re-embed                    # 드라이런 (재임베딩 대상 진단)
 ./cb-manuscript app re-embed --apply            # 실제 DB 벡터 일괄 갱신
@@ -129,10 +129,10 @@ Key observations:
 ## 4. Phase 2 구현 상세 규격 & Phase 3 확장 계획
 
 ### 4.1 Phase 2: 지식 그래프 관계(Edge) 자동 형성 파이프라인 (구현 완료)
-Phase 1에서 확보된 `ResolutionResult.relational_candidates`를 소비하여 실제 그래프 상에 관계를 수립하고 문서 경계를 초월한 전역 지식망을 형성합니다.
+Phase 1에서 확보된 `ResolutionResult.relational_candidates`를 소비하여 실제 그래프 상에 관계를 수립하고 문서 경계를 초월한 전역 지식망을 형성한다.
 
 #### 1) 다목적 릴레이션 판정기 (`judge_relationship`)
-- **입력 스키마 (`RelationCandidate`)**: 두 엔티티의 명칭, 타입, 별칭, 핵심 관찰 사실(Observations), 코사인 유사도, 그리고 문서 맥락 요약을 포함합니다.
+- **입력 스키마 (`RelationCandidate`)**: 두 엔티티의 명칭, 타입, 별칭, 핵심 관찰 사실(Observations), 코사인 유사도, 그리고 문서 맥락 요약을 포함한다.
 - **판정 결과 (`RelationJudgement`)**:
   - `has_relation: bool`: 유의미한 온톨로지 관계 성립 여부 (온톨로지 제약 기반 보수적 판정).
   - `relation_type: str | None`: 온톨로지 표준 관계 (`uses`, `improves`, `derived_from`, `competes_with`, `alternative_to`, `implements`, `part_of`, `integrates_with`, `authored_by`, `cites` 등).
@@ -155,7 +155,7 @@ Phase 1에서 확보된 `ResolutionResult.relational_candidates`를 소비하여
 - `IngestReport` 및 텔레그램 알림에 `cross_relations_added` 및 연결 명세를 실시간 리포팅.
 
 #### 4) 전역 횡단 링킹 CLI (`claire link-relations`)
-기존에 축적된 지식베이스 전체를 대상으로 유사도 기반 횡단 관계를 일괄 발굴·수립하는 명령을 제공합니다.
+기존에 축적된 지식베이스 전체를 대상으로 유사도 기반 횡단 관계를 일괄 발굴·수립하는 명령을 제공한다.
 ```bash
 ./cb-manuscript app link-relations --dry-run             # 횡단 관계 발굴 시뮬레이션
 ./cb-manuscript app link-relations                       # 실제 지식 그래프 엣지 일괄 수립
@@ -165,7 +165,7 @@ Phase 1에서 확보된 `ResolutionResult.relational_candidates`를 소비하여
 ---
 
 ### 4.2 Phase 3: 미싱링크(2-Hop Missing Link) 발굴 및 실증 방법론 (로드맵)
-서로 직접적인 코사인 유사도가 낮은(예: `< 0.60`) 두 노드 $A$와 $B$ 사이에 존재하는 숨겨진 연결 고리를 탐색하고 실증합니다.
+서로 직접적인 코사인 유사도가 낮은(예: `< 0.60`) 두 노드 $A$와 $B$ 사이에 존재하는 숨겨진 연결 고리를 탐색하고 실증한다.
 
 ```mermaid
 flowchart LR
@@ -192,7 +192,7 @@ flowchart LR
 
 ## 5. 환경 설정 및 운영 참조
 
-신규 추가된 환경 변수 및 기본값 목록입니다 ([ENVIRONMENT_VARIABLES.md](../implementation/ENVIRONMENT_VARIABLES.md) 동기화).
+신규 추가된 환경 변수 및 기본값 목록이다 ([ENVIRONMENT_VARIABLES.md](../implementation/ENVIRONMENT_VARIABLES.md) 동기화).
 
 | 환경 변수명 | 기본값 | 허용 타입 | 설명 |
 | :--- | :--- | :--- | :--- |
@@ -211,7 +211,7 @@ flowchart LR
 
 ## 6. 원안 설계(v1.0-PROPOSAL) 대비 구현 정합성 및 차이·충돌 분석
 
-원안 설계서(*Knowledge Graph Linking, Embedding Optimization & Multi-Hop Bridge Synthesis Architecture v1.0-PROPOSAL*)와 현재 코드베이스 간의 구현 정합성 및 차이점(Discrepancies)을 사실에 근거하여 기술합니다.
+원안 설계서(*Knowledge Graph Linking, Embedding Optimization & Multi-Hop Bridge Synthesis Architecture v1.0-PROPOSAL*)와 현재 코드베이스 간의 구현 정합성 및 차이점(Discrepancies)을 사실에 근거하여 기술한다.
 
 ### 6.1 영역별 구현 정합성 및 달성률
 

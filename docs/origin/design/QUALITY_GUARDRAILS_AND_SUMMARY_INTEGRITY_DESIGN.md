@@ -7,10 +7,10 @@
 ## 1. 개요 및 배경 (Overview & Problem Statement)
 
 ### 1.1 문제 상황
-클레어바이블(Claire-Bible) 운영 환경에서 문서를 적재(Ingest)하는 도중, **LLM 기반 요약(Summary) 생성이 누락되고 Mock 요약으로 조용히 대체(Silent Mock Fallback)되는 현상**이 빈번하게 관측되었습니다. 특히 프로덕션 서버 환경에서 이러한 현상이 발생했을 때, 서버 로그나 적재 리포트만으로는 그 정확한 인과(원인)를 규명하기 어려워 신속한 대응과 재발 방지가 저해되었습니다.
+클레어바이블(Claire-Bible) 운영 환경에서 문서를 적재(Ingest)하는 도중, **LLM 기반 요약(Summary) 생성이 누락되고 Mock 요약으로 조용히 대체(Silent Mock Fallback)되는 현상**이 빈번하게 관측되었다. 특히 프로덕션 서버 환경에서 이러한 현상이 발생했을 때, 서버 로그나 적재 리포트만으로는 그 정확한 인과(원인)를 규명하기 어려워 신속한 대응과 재발 방지가 저해되었다.
 
 ### 1.2 현재 프로덕션 서버 로그의 인과 추적 한계 분석 (5대 원인)
-현재 코드베이스를 분석한 결과, 인과 관계가 소실되는 원인은 다음 5가지 구조적 한계에 기인합니다.
+현재 코드베이스를 분석한 결과, 인과 관계가 소실되는 원인은 다음 5가지 구조적 한계에 기인한다.
 
 ```mermaid
 flowchart TD
@@ -30,22 +30,22 @@ flowchart TD
 ```
 
 1. **`config.py`의 사일런트 폴백 (Silent Fallback)**:
-   - [`effective_provider`](file:///home/fow/Projects/claire-bible/src/claire/config.py#L504-L518)는 `agy` 바이너리 누락, `codex` 바이너리 부재, `GEMINI_API_KEY` 미설정 시 어떠한 경고 로그(`logger.warning`)나 에러 발생 없이 **조용히 `"mock"` 문자열을 반환**합니다.
+   - [`effective_provider`](file:///home/fow/Projects/claire-bible/src/claire/config.py#L504-L518)는 `agy` 바이너리 누락, `codex` 바이너리 부재, `GEMINI_API_KEY` 미설정 시 어떠한 경고 로그(`logger.warning`)나 에러 발생 없이 **조용히 `"mock"` 문자열을 반환**한다.
 2. **파이프라인 및 봇 계층의 로깅 부재 (Logging Silence)**:
-   - [`pipeline.py`](file:///home/fow/Projects/claire-bible/src/claire/ingest/pipeline.py) (955줄) 전반에 걸쳐 LLM 호출 전후의 진입/완료/소요시간을 기록하는 `logger.info`가 전무합니다.
-   - [`telegram_bot.py`](file:///home/fow/Projects/claire-bible/src/claire/telegram_bot.py)는 `log = logging.getLogger("claire.telegram")` 선언만 있고 실제 로그 호출이 0건이며, 처리 예외 시 서버 로그에 스택트레이스를 남기지 않습니다.
-   - [`cli.py`](file:///home/fow/Projects/claire-bible/src/claire/cli.py)에는 `logging.basicConfig()`가 없어 데몬 루프(`refresh-loop`, `recover-loop`)의 로그 레벨이 비표준으로 동작합니다.
+   - [`pipeline.py`](file:///home/fow/Projects/claire-bible/src/claire/ingest/pipeline.py) (955줄) 전반에 걸쳐 LLM 호출 전후의 진입/완료/소요시간을 기록하는 `logger.info`가 전무하다.
+   - [`telegram_bot.py`](file:///home/fow/Projects/claire-bible/src/claire/telegram_bot.py)는 `log = logging.getLogger("claire.telegram")` 선언만 있고 실제 로그 호출이 0건이며, 처리 예외 시 서버 로그에 스택트레이스를 남기지 않는다.
+   - [`cli.py`](file:///home/fow/Projects/claire-bible/src/claire/cli.py)에는 `logging.basicConfig()`가 없어 데몬 루프(`refresh-loop`, `recover-loop`)의 로그 레벨이 비표준으로 동작한다.
 3. **외부 CLI(`agy`/`codex`) 로그의 휘발성 및 격리**:
-   - `AntigravityProvider._run_cli`는 `--log-file /tmp/agy.log`를 사용하므로 컨테이너 재시작 시 로그가 소멸합니다.
-   - CLI 실패 시 fallback 프롬프트로 재시도하고, 이마저 실패하면 `_coerce`를 통해 본문 앞 200자나 엔티티 나열로 요약을 대체하여 원본 예외가 상위로 전파되지 않고 은폐됩니다.
+   - `AntigravityProvider._run_cli`는 `--log-file /tmp/agy.log`를 사용하므로 컨테이너 재시작 시 로그가 소멸한다.
+   - CLI 실패 시 fallback 프롬프트로 재시도하고, 이마저 실패하면 `_coerce`를 통해 본문 앞 200자나 엔티티 나열로 요약을 대체하여 원본 예외가 상위로 전파되지 않고 은폐된다.
 4. **DB 저장 정보의 한계 (`raw_inbox`와 `extractions`)**:
-   - `extractions` 테이블에는 `provider='mock', model='mock'`이라는 결과만 남을 뿐, "왜 mock이 동작했는가"의 이유가 남지 않습니다.
-   - `raw_inbox`는 MockProvider가 예외 없이 동작하므로 `status='done', error=NULL`로 기록되어 `recover-loop`의 자동 복구 대상에서 누락됩니다.
+   - `extractions` 테이블에는 `provider='mock', model='mock'`이라는 결과만 남을 뿐, "왜 mock이 동작했는가"의 이유가 남지 않는다.
+   - `raw_inbox`는 MockProvider가 예외 없이 동작하므로 `status='done', error=NULL`로 기록되어 `recover-loop`의 자동 복구 대상에서 누락된다.
 5. **적재 리포트(`IngestReport`)의 Mock 미식별**:
-   - 리포트에 요약 진위 여부를 나타내는 플래그가 없어, 사용자/관리자에게는 "✅ 적재 완료"로 정상 표시됩니다.
+   - 리포트에 요약 진위 여부를 나타내는 플래그가 없어, 사용자/관리자에게는 "✅ 적재 완료"로 정상 표시된다.
 
 ### 1.3 프로덕션 서버 긴급 단서 확인 요령 (현재 수준의 임시 진단)
-현재 서버 접속 시 아래 4단계 명령을 통해 mock 강등 여부와 범위를 역추적할 수 있습니다:
+현재 서버 접속 시 아래 4단계 명령을 통해 mock 강등 여부와 범위를 역추적할 수 있다:
 
 ```bash
 # 1. DB 최신 추출 기록 확인 (결과 진단)
@@ -104,7 +104,7 @@ flowchart LR
 
 ## 3. 기존 6대 품질 검증 가드레일 구현 현황 및 갭 분석 (Audit & Gap Analysis)
 
-현재 Claire Bible에는 데이터 오염 및 무결성을 방어하는 6대 가드레일이 이미 구현되어 작동 중입니다.
+현재 Claire Bible에는 데이터 오염 및 무결성을 방어하는 6대 가드레일이 이미 구현되어 작동 중이다.
 
 | 번호 | 가드레일 명칭 | 주요 구현 위치 | 방어 대상 및 역할 | 판정 기제 |
 |:---:|:---|:---|:---|:---|
@@ -116,15 +116,15 @@ flowchart LR
 | **6** | **요약 문법 오염 검출** | [`extract/prompts.py`](file:///home/fow/Projects/claire-bible/src/claire/extract/prompts.py)<br/>[`store/db.py`](file:///home/fow/Projects/claire-bible/src/claire/store/db.py) | 요약문에 AsciiDoc/Markdown 문법(`==`, `[NOTE]`, `|===` 등) 잔존 감지, `claire stats` 경고 노출, `claire regenerate --corrupted` 복구 연계 | 정규식 패턴 (`is_corrupted_summary`) |
 
 ### 🔍 핵심 맹점 (Gap Analysis)
-위 6대 가드레일은 **"외부 잡음 유입 방지"**, **"온톨로지 문법 무결성"**, **"문법 기호 오염 검출"**에 철저하게 집중되어 있습니다. 그러나 **"LLM이 생성한 요약문 내용 자체의 실체성(Content Existence & Non-Mockness)"**을 검증하는 가드레일이 결손되어 있었습니다:
-1. **내용적 실체 검증 부재**: `ExtractionResult.summary`가 빈 문자열이거나, `[mock]...`이거나, 단순 본문 앞 200자 잘라내기여도 시스템은 이를 "정상 요약"으로 수용했습니다.
-2. **과도하게 관대한 Fallback이 초래한 침묵**: 프로바이더 내부의 방어 코드(예: `antigravity_provider.py`의 `clean_plain_summary(fallback_txt[:200] + "…")`)가 예외를 상위로 전파하지 않고 가짜 요약을 채움으로써, 오히려 오류가 정상 완료로 둔갑하는 부작용을 낳았습니다.
+위 6대 가드레일은 **"외부 잡음 유입 방지"**, **"온톨로지 문법 무결성"**, **"문법 기호 오염 검출"**에 철저하게 집중되어 있다. 그러나 **"LLM이 생성한 요약문 내용 자체의 실체성(Content Existence & Non-Mockness)"**을 검증하는 가드레일이 결손되어 있었다:
+1. **내용적 실체 검증 부재**: `ExtractionResult.summary`가 빈 문자열이거나, `[mock]...`이거나, 단순 본문 앞 200자 잘라내기여도 시스템은 이를 "정상 요약"으로 수용했다.
+2. **과도하게 관대한 Fallback이 초래한 침묵**: 프로바이더 내부의 방어 코드(예: `antigravity_provider.py`의 `clean_plain_summary(fallback_txt[:200] + "…")`)가 예외를 상위로 전파하지 않고 가짜 요약을 채움으로써, 오히려 오류가 정상 완료로 둔갑하는 부작용을 낳았다.
 
 ---
 
 ## 4. 품질 검증 가드레일 런타임 컴포넌트화 설계 (New Architecture Design)
 
-흩어져 있는 가드 로직들을 서비스 런타임이 통제하는 **단일 일급 컴포넌트 패키지(`src/claire/guards/`)**로 구조화합니다.
+흩어져 있는 가드 로직들을 서비스 런타임이 통제하는 **단일 일급 컴포넌트 패키지(`src/claire/guards/`)**로 구조화한다.
 
 ```text
 src/claire/guards/
@@ -161,7 +161,7 @@ class GuardVerdict:
 ```
 
 ### 4.2 신규 핵심 컴포넌트: `SummaryQualityGuard`
-요약 생성 누락 및 Mock 동작을 정밀 탐지하는 검증기입니다.
+요약 생성 누락 및 Mock 동작을 정밀 탐지하는 검증기이다.
 
 ```python
 class SummaryQualityGuard:
@@ -244,7 +244,7 @@ class SummaryQualityGuard:
 ```
 
 ### 4.3 서비스 런타임 연계: `GuardManager`
-[`IngestService`](file:///home/fow/Projects/claire-bible/src/claire/ingest/service.py)가 생성 시점에 주입받아 보유하는 런타임 컴포넌트입니다.
+[`IngestService`](file:///home/fow/Projects/claire-bible/src/claire/ingest/service.py)가 생성 시점에 주입받아 보유하는 런타임 컴포넌트이다.
 
 ```mermaid
 sequenceDiagram
@@ -274,7 +274,7 @@ sequenceDiagram
 ```
 
 ### 4.4 시스템 헬스체크 및 관측성 연동 (`health.py`)
-`claire health` 및 `claire doctor` 실행 시 가드레일의 동작 상태와 최근 차단 통계가 출력됩니다.
+`claire health` 및 `claire doctor` 실행 시 가드레일의 동작 상태와 최근 차단 통계가 출력된다.
 
 ```json
 {
