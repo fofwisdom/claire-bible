@@ -416,10 +416,10 @@ class Runtime:
         env["CB_GEMINI_DIR"] = env.get("CB_GEMINI_DIR", "").strip() or host_gemini_dir
         env["CB_CODEX_DIR"] = env.get("CB_CODEX_DIR", "").strip() or str(Path.home() / ".codex")
 
-        host_uid = str(os.getuid()) if hasattr(os, "getuid") else "1000"
-        host_gid = str(os.getgid()) if hasattr(os, "getgid") else "1000"
-        env["CB_UID"] = env.get("CB_UID", "").strip() or host_uid
-        env["CB_GID"] = env.get("CB_GID", "").strip() or host_gid
+        host_uid = str(os.getuid()) if hasattr(os, "getuid") else "0"
+        host_gid = str(os.getgid()) if hasattr(os, "getgid") else "0"
+        env["CB_UID"] = _effective(self.values, "CB_UID").strip() or host_uid
+        env["CB_GID"] = _effective(self.values, "CB_GID").strip() or host_gid
 
         pdf_parser = self.values.get("CLAIRE_PDF_PARSER", "").strip() or env.get("CLAIRE_PDF_PARSER", "").strip() or "default"
         env["CLAIRE_PDF_PARSER"] = pdf_parser
@@ -3274,13 +3274,33 @@ def command_install(runtime: Runtime) -> int:
 
 
 def command_update(runtime: Runtime, *, no_fetch: bool) -> int:
-    with InstanceLock(runtime):
+    with InstanceLock(runtime) as lock:
         config_preflight(runtime)
         previous_state = _profile_state(runtime) or {}
         _require_stable_project(runtime, previous_state)
         previous_revision = _source_revision(runtime.layout)
         if not no_fetch:
             update_source(runtime.layout)
+            new_rev = _source_revision(runtime.layout)
+            if (
+                new_rev
+                and new_rev != previous_revision
+                and not os.environ.get("PYTEST_CURRENT_TEST")
+            ):
+                print(
+                    f"cb-manuscript: Source updated ({previous_revision[:7] if previous_revision else 'unknown'} -> {new_rev[:7]}). "
+                    "Re-executing update with updated manuscript..."
+                )
+                cb_script = str(runtime.layout.root / "cb-manuscript")
+                argv = [sys.executable, cb_script]
+                if runtime.dev:
+                    argv.append("dev")
+                argv.extend(["update", "--no-fetch"])
+                if lock is not None:
+                    lock.__exit__(None, None, None)
+                sys.stdout.flush()
+                sys.stderr.flush()
+                os.execv(sys.executable, argv)
 
         env_changes = sync_environment_files(runtime.layout)
         if env_changes.get("env"):
