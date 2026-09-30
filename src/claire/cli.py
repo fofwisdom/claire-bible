@@ -387,41 +387,114 @@ def cmd_purge(args) -> int:
 
 
 def cmd_audit(args) -> int:
-    """오염 잔재 0건 여부 및 시스템 무결성 전수 감사."""
-    s = get_settings()
+    """통합 시스템 감사(Audit): 지식그래프 무결성, 오염 잔재, 원문 절단, STT 상태 전수 점검 및 자동 수복."""
+    import json
+    s, theme = get_effective_settings(args)
     conn = dbm.connect(s.db_file)
     dbm.init_db(conn)
+
+    check = getattr(args, "check", None) or "all"
+    pattern = getattr(args, "target", None) or getattr(args, "pattern", None)
+    do_heal = getattr(args, "heal", False) or getattr(args, "apply", False)
+
     try:
-        pattern = getattr(args, "target", None) or getattr(args, "pattern", None)
-        report = dbm.audit_residuals(conn, data_dir=s.data_dir, pattern_or_id=pattern)
-        if getattr(args, "json", False):
-            import json
+        # 1. 지식그래프 무결성 검사 및 자동 수복
+        if check in ("graph", "integrity"):
+            if do_heal:
+                print("claire audit: [Auto-Heal] 지식그래프 무결성 수복 시작...")
+                healed = dbm.heal_graph(conn)
+                if getattr(args, "json", False):
+                    print(json.dumps({"status": "healed", "details": healed}, ensure_ascii=False, indent=2))
+                    return 0
+                print("=" * 50)
+                print(f"• 고아 관계 삭제             : {healed['dangling_relations_removed']} 건")
+                print(f"• 엔티티 출처 참조 정제       : {healed['stale_entity_sources_cleaned']} 건")
+                print(f"• 관계 출처 참조 정제         : {healed['stale_relation_sources_cleaned']} 건")
+                print(f"• 고아/유령 엔티티 정리       : {healed['ghost_entities_pruned']} 건")
+                print(f"• 고아 임베딩 삭제           : {healed['orphan_embeddings_removed']} 건")
+                print(f"• FTS 전문 색인 재구축        : {healed['fts_reindexed']} 건")
+                print("=" * 50)
+                print("audit: 수복 완료 (Graph is fully healed!)")
+                return 0
 
-            print(json.dumps(report, ensure_ascii=False, indent=2))
-            return 0 if report["clean"] else 1
+            report = dbm.diagnose_graph(conn)
+            if getattr(args, "json", False):
+                print(json.dumps(report, ensure_ascii=False, indent=2))
+                return 0 if report["is_healthy"] else 1
 
-        print("claire audit: 시스템 무결성 및 잔재 전수 감사 보고서")
-        print("=" * 60)
-        if pattern:
-            print(f"• 검사 패턴/키워드          : '{pattern}'")
-            print(f"• 잔존 문서 수              : {report['matching_documents_count']} 건" + (" [!]" if report["matching_documents_count"] else " [✓] 0건"))
-            print(f"• 잔존 L1 인박스            : {report['matching_inbox_count']} 건" + (" [!]" if report["matching_inbox_count"] else " [✓] 0건"))
-            print(f"• 잔존 L2 디스크 아티팩트   : {report['matching_disk_artifacts_count']} 개" + (" [!]" if report["matching_disk_artifacts_count"] else " [✓] 0개"))
-            print(f"• 잔존 이미지 파일          : {report['matching_disk_images_count']} 개" + (" [!]" if report["matching_disk_images_count"] else " [✓] 0개"))
-            print(f"• 엔티티 sources 잔존 참조  : {report['matching_entity_sources_count']} 건" + (" [!]" if report["matching_entity_sources_count"] else " [✓] 0건"))
-            print(f"• 관계 sources 잔존 참조    : {report['matching_relation_sources_count']} 건" + (" [!]" if report["matching_relation_sources_count"] else " [✓] 0건"))
-            print("-" * 60)
-        print(f"• 등록된 툼스톤 수          : {report['purged_tombstones_count']} 건")
-        print(f"• 툼스톤 위반 (부활된 문서) : {report['tombstone_violations_count']} 건" + (" [!]" if report["tombstone_violations_count"] else " [✓] 0건"))
-        reclaim_kb = report["reclaimable_bytes"] / 1024
-        print(f"• DB Freelist (미회수 공간) : {report['freelist_pages']} pages ({reclaim_kb:.1f} KB)")
-        print("=" * 60)
-        if report["clean"]:
-            print("[✓] 클린: 오염 데이터의 잔재가 발견되지 않았습니다.")
-            return 0
+            print("claire audit: 지식그래프 무결성 진단 보고서")
+            print("=" * 50)
+            print(f"• 전체 문서 수               : {report['total_documents']} 건")
+            print(f"• 전체 엔티티 수             : {report['total_entities']} 건")
+            print(f"• 전체 관계 수               : {report['total_relations']} 건")
+            print("-" * 50)
+            print(f"• 고아 관계 (Dangling)       : {report['dangling_relations_count']} 건")
+            print(f"• 고아 엔티티 (Orphan)       : {report['orphan_entities_count']} 건")
+            print(f"• 임베딩 누락 엔티티         : {report['missing_embeddings_count']} 건")
+            print(f"• FTS 색인 불일치 여부       : {'[!] 불일치' if report['fts_desync'] else '[✓] 동기화됨'}")
+            print("=" * 50)
+            if report["is_healthy"]:
+                print("audit: OK (지식그래프 무결성이 완벽합니다)")
+                return 0
+            else:
+                print("[!] 그래프 무결성 문제가 발견되었습니다. --heal 옵션으로 수복할 수 있습니다.")
+                return 1
+
+        # 2. 오염 잔재 및 툼스톤 감사
+        elif check in ("residuals", "tombstone"):
+            report = dbm.audit_residuals(conn, data_dir=s.data_dir, pattern_or_id=pattern)
+            if getattr(args, "json", False):
+                print(json.dumps(report, ensure_ascii=False, indent=2))
+                return 0 if report["clean"] else 1
+
+            print("claire audit: 오염 잔재 및 툼스톤 전수 감사 보고서")
+            print("=" * 60)
+            if pattern:
+                print(f"• 검사 패턴/키워드          : '{pattern}'")
+                print(f"• 잔존 문서 수              : {report['matching_documents_count']} 건" + (" [!]" if report["matching_documents_count"] else " [✓] 0건"))
+                print(f"• 잔존 L1 인박스            : {report['matching_inbox_count']} 건" + (" [!]" if report["matching_inbox_count"] else " [✓] 0건"))
+                print(f"• 잔존 L2 디스크 아티팩트   : {report['matching_disk_artifacts_count']} 개" + (" [!]" if report["matching_disk_artifacts_count"] else " [✓] 0개"))
+                print(f"• 엔티티 sources 잔존 참조  : {report['matching_entity_sources_count']} 건" + (" [!]" if report["matching_entity_sources_count"] else " [✓] 0건"))
+                print(f"• 관계 sources 잔존 참조    : {report['matching_relation_sources_count']} 건" + (" [!]" if report["matching_relation_sources_count"] else " [✓] 0건"))
+                print("-" * 60)
+            print(f"• 등록된 툼스톤 수          : {report['purged_tombstones_count']} 건")
+            print(f"• 툼스톤 위반 (부활된 문서) : {report['tombstone_violations_count']} 건" + (" [!]" if report["tombstone_violations_count"] else " [✓] 0건"))
+            reclaim_kb = report["reclaimable_bytes"] / 1024
+            print(f"• DB Freelist (미회수 공간) : {report['freelist_pages']} pages ({reclaim_kb:.1f} KB)")
+            print("=" * 60)
+            if report["clean"]:
+                print("[✓] 클린: 오염 데이터의 잔재가 발견되지 않았습니다.")
+                return 0
+            else:
+                print("[!] 경고: 오염 잔재 또는 툼스톤 위반 항목이 검출되었습니다.")
+                return 1
+
+        # 3. 종합 전체 감사 (ALL)
         else:
-            print("[!] 경고: 오염 잔재 또는 툼스톤 위반 항목이 검출되었습니다.")
-            return 1
+            graph_rep = dbm.diagnose_graph(conn)
+            resid_rep = dbm.audit_residuals(conn, data_dir=s.data_dir, pattern_or_id=pattern)
+            is_clean = bool(graph_rep["is_healthy"] and resid_rep["clean"])
+
+            combined = {
+                "clean": is_clean,
+                "graph_healthy": graph_rep["is_healthy"],
+                "residuals_clean": resid_rep["clean"],
+                "graph": graph_rep,
+                "residuals": resid_rep,
+            }
+            if getattr(args, "json", False):
+                print(json.dumps(combined, ensure_ascii=False, indent=2))
+                return 0 if is_clean else 1
+
+            print("claire audit: [전체] 지식그래프 및 시스템 무결성 종합 감사")
+            print("=" * 60)
+            print(f"• 지식그래프 무결성  : {'[✓] 정상' if graph_rep['is_healthy'] else '[!] 결함 감지 (--check graph --heal 로 수복 가능)'}")
+            print(f"• 오염 잔재 및 툼스톤: {'[✓] 클린' if resid_rep['clean'] else '[!] 오염 잔재 발견'}")
+            print(f"• 등록된 툼스톤 수   : {resid_rep['purged_tombstones_count']} 건")
+            print(f"• 총 문서/엔티티 수  : {graph_rep['total_documents']}건 / {graph_rep['total_entities']}건")
+            print("=" * 60)
+            return 0 if is_clean else 1
+
     finally:
         conn.close()
 
@@ -1592,6 +1665,33 @@ def cmd_regenerate(args) -> int:
     return 0
 
 
+def cmd_reprocess(args) -> int:
+    """통합 문서 재처리(Reprocess): 요약, 상세, 그래프, 포맷 등 파생 데이터 일괄 갱신."""
+    component = getattr(args, "component", "all") or "all"
+    scope = getattr(args, "scope", "all") or "all"
+
+    if component == "summary":
+        setattr(args, "summary", True)
+    elif component == "detail":
+        setattr(args, "detail", True)
+    elif component == "graph":
+        setattr(args, "graph", True)
+    elif component == "format":
+        setattr(args, "detail", True)
+    else:  # all
+        setattr(args, "all", True)
+
+    if scope == "corrupted":
+        setattr(args, "corrupted", True)
+    elif scope == "tables":
+        setattr(args, "tables", True)
+    elif scope == "missing":
+        if not hasattr(args, "force") or not getattr(args, "force", False):
+            setattr(args, "force", False)
+
+    return cmd_regenerate(args)
+
+
 def cmd_summary_regenerate(args) -> int:
     """문서 요약 전용 재생성."""
     setattr(args, "summary", True)
@@ -2252,6 +2352,167 @@ def cmd_doc_title(args) -> int:
             print(f"제목 갱신 실패: {document_id}")
             return 1
         print(f"제목 갱신 완료: {document_id} → '{args.title}'")
+        return 0
+    finally:
+        conn.close()
+
+
+def cmd_doc(args) -> int:
+    """문서 속성 및 상태 플래그(pin, hide, seen 등) 관리."""
+    import json
+    s, theme = get_effective_settings(args)
+    conn = dbm.connect_existing(s.db_file)
+
+    target = getattr(args, "target", None)
+    if not target:
+        if getattr(args, "json", False):
+            print(json.dumps({"error": "Target document ID or URL is required"}, ensure_ascii=False))
+        else:
+            print("[!] 대상 문서(ID 또는 URL)를 지정해야 합니다.", file=sys.stderr)
+        return 2
+
+    try:
+        doc_info = dbm.resolve_single_document_target(conn, target)
+        if not doc_info:
+            if getattr(args, "json", False):
+                print(json.dumps({"error": f"Document not found: {target}"}, ensure_ascii=False))
+            else:
+                print(f"[!] 대상을 찾을 수 없습니다: {target}", file=sys.stderr)
+            return 3
+
+        doc_id = doc_info["id"]
+        updates = {}
+
+        if getattr(args, "pin", False):
+            dbm.set_document_pinned(conn, doc_id, True)
+            updates["pinned"] = True
+        elif getattr(args, "unpin", False):
+            dbm.set_document_pinned(conn, doc_id, False)
+            updates["pinned"] = False
+
+        if getattr(args, "hide", False):
+            dbm.set_document_hidden(conn, doc_id, True)
+            updates["hidden"] = True
+        elif getattr(args, "unhide", False):
+            dbm.set_document_hidden(conn, doc_id, False)
+            updates["hidden"] = False
+
+        if getattr(args, "seen", False):
+            dbm.set_document_seen(conn, doc_id, True)
+            updates["seen"] = True
+        elif getattr(args, "unseen", False):
+            dbm.set_document_seen(conn, doc_id, False)
+            updates["seen"] = False
+
+        updated_row = dbm.get_document_row(conn, doc_id)
+        data = {
+            "document_id": doc_id,
+            "title": updated_row["title"] if updated_row else doc_info.get("title", ""),
+            "pinned": bool(updated_row["pinned"]) if updated_row and "pinned" in updated_row.keys() else False,
+            "hidden": bool(updated_row["hidden"]) if updated_row and "hidden" in updated_row.keys() else False,
+            "seen": bool(updated_row["seen"]) if updated_row and "seen" in updated_row.keys() else False,
+            "applied_updates": updates,
+        }
+
+        if getattr(args, "json", False):
+            print(json.dumps(data, ensure_ascii=False, indent=2))
+            return 0
+
+        print(f"claire doc: 문서 상태 갱신 완료 ({doc_id})")
+        print("=" * 60)
+        print(f"• 제목  : {data['title']}")
+        print(f"• 고정 (Pinned) : {'[✓] 고정됨' if data['pinned'] else '해제됨'}")
+        print(f"• 숨김 (Hidden) : {'[!] 숨김 처리됨' if data['hidden'] else '공개됨'}")
+        print(f"• 읽음 (Seen)   : {'[✓] 확인완료' if data['seen'] else '미확인'}")
+        print("=" * 60)
+        return 0
+    finally:
+        conn.close()
+
+
+def cmd_share(args) -> int:
+    """문서의 외부 공개용 익명 공유 링크 및 토큰 발급."""
+    import json
+    s, theme = get_effective_settings(args)
+    conn = dbm.connect_existing(s.db_file)
+
+    target = getattr(args, "target", None)
+    if not target:
+        if getattr(args, "json", False):
+            print(json.dumps({"error": "Target document ID or URL is required"}, ensure_ascii=False))
+        else:
+            print("[!] 공유할 대상 문서(ID 또는 URL)를 지정해야 합니다.", file=sys.stderr)
+        return 2
+
+    try:
+        doc_info = dbm.resolve_single_document_target(conn, target)
+        if not doc_info:
+            if getattr(args, "json", False):
+                print(json.dumps({"error": f"Document not found: {target}"}, ensure_ascii=False))
+            else:
+                print(f"[!] 대상을 찾을 수 없습니다: {target}", file=sys.stderr)
+            return 3
+
+        doc_id = doc_info["id"]
+        token = dbm.create_doc_share(conn, doc_id)
+        base_url = s.public_url.rstrip("/") if s.public_url else "http://localhost:8000"
+        share_url = f"{base_url}/p?s={token}"
+
+        data = {
+            "document_id": doc_id,
+            "title": doc_info.get("title", ""),
+            "share_token": token,
+            "share_url": share_url,
+        }
+        if getattr(args, "json", False):
+            print(json.dumps(data, ensure_ascii=False, indent=2))
+            return 0
+
+        print("claire share: 문서 외부 공유 링크 발급 완료")
+        print("=" * 60)
+        print(f"• 문서 제목 : {data['title']}")
+        print(f"• 문서 ID   : {doc_id}")
+        print(f"• 공유 토큰 : {token}")
+        print(f"• 공유 URL  : {share_url}")
+        print("=" * 60)
+        return 0
+    finally:
+        conn.close()
+
+
+def cmd_auth(args) -> int:
+    """웹 UI 접속을 위한 1회용 인증 매직 링크 및 세션 토큰 발급."""
+    import json
+    s, theme = get_effective_settings(args)
+    scope = getattr(args, "scope", "owner") or "owner"
+    if scope == "collab":
+        scope = "collaborator"
+
+    conn = dbm.connect(s.db_file)
+    dbm.init_db(conn)
+    try:
+        tok = dbm.create_session(conn, scope=scope)
+        base_url = s.public_url.rstrip("/") if s.public_url else "http://localhost:8000"
+        magic_url = f"{base_url}/?t={tok}"
+
+        data = {
+            "token": tok,
+            "scope": scope,
+            "url": magic_url,
+            "theme_id": theme.id if theme else 0,
+        }
+        if getattr(args, "json", False):
+            print(json.dumps(data, ensure_ascii=False, indent=2))
+            return 0
+
+        print("claire auth: 웹 UI 인증 매직 링크 발급")
+        print("=" * 60)
+        print(f"• 발급 권한 (Scope) : {scope}")
+        if theme:
+            print(f"• 접속 대상 테마    : #{theme.id} - {theme.label}")
+        print(f"• 1회용 로그인 URL  : {magic_url}")
+        print("-" * 60)
+        print("※ 첫 접속 후 세션 쿠키가 연장되며 링크는 즉시 만료됩니다.")
         return 0
     finally:
         conn.close()
@@ -3388,6 +3649,31 @@ def build_parser() -> argparse.ArgumentParser:
     pbs.add_argument("--limit", type=int, default=0, help="cap number of docs (0=all)")
     pbs.set_defaults(func=cmd_backfill_summary)
 
+    prep = sub.add_parser("reprocess",
+                          help="unified reprocess engine: regenerate summary, detail, graph, format, and metadata (default: dry-run, requires --apply)")
+    prep.add_argument("target", nargs="?", default=None,
+                      help="document ID, share token, or share URL (/p?s=token)")
+    prep.add_argument("-c", "--component", choices=["all", "summary", "detail", "graph", "format"], default="all",
+                      help="component to reprocess (default: all)")
+    prep.add_argument("-s", "--scope", choices=["all", "missing", "corrupted", "tables"], default="all",
+                      help="scope of documents to target: all, missing only, corrupted syntax, or with tables")
+    prep.add_argument("--token", default=None, help="specific share token")
+    prep.add_argument("--doc-id", default=None, help="specific document ID")
+    prep_refetch = prep.add_mutually_exclusive_group()
+    prep_refetch.add_argument("--refetch", action="store_true",
+                              help="re-fetch document content from URL before reprocessing")
+    prep_refetch.add_argument("--refetch-full", action="store_true",
+                              help="re-fetch full document content without length limit")
+    prep.add_argument("--apply", action="store_true", help="execute LLM reprocessing and overwrite DB (default: dry-run)")
+    prep.add_argument("--force", "-f", action="store_true", help="force overwrite even if target components are already up-to-date")
+    prep.add_argument("--dry-run", action="store_true", help="dry-run inspection without changes (default)")
+    prep.add_argument("--effort", default=None, help="reasoning effort level (e.g. low, medium, high)")
+    prep.add_argument("--format", choices=["md", "adoc"], default=None, help="detail format (md or adoc)")
+    prep.add_argument("--focus", dest="focus", default=None, help="focus guidance for detail rendering")
+    prep.add_argument("--json", action="store_true", help="output result in JSON format")
+    prep.add_argument("-t", "--theme", default=None, help="target theme ID or label")
+    prep.set_defaults(func=cmd_reprocess)
+
     preg = sub.add_parser("regenerate",
                           help="selectively regenerate document summary/detail (default: dry-run, requires --apply)")
     preg.add_argument("target", nargs="?", default=None,
@@ -3483,6 +3769,34 @@ def build_parser() -> argparse.ArgumentParser:
     pdt.add_argument("-t", "--theme", default=None, help="target theme ID or label")
     pdt.set_defaults(func=cmd_doc_title)
 
+    pdoc = sub.add_parser("doc", help="manage document flags: pin, hide, seen")
+    pdoc.add_argument("target", help="target document ID, URL, or share URL")
+    pdoc_pin = pdoc.add_mutually_exclusive_group()
+    pdoc_pin.add_argument("--pin", action="store_true", help="pin document to top")
+    pdoc_pin.add_argument("--unpin", action="store_true", help="unpin document")
+    pdoc_hide = pdoc.add_mutually_exclusive_group()
+    pdoc_hide.add_argument("--hide", action="store_true", help="hide document from public/listing")
+    pdoc_hide.add_argument("--unhide", action="store_true", help="unhide document")
+    pdoc_seen = pdoc.add_mutually_exclusive_group()
+    pdoc_seen.add_argument("--seen", action="store_true", help="mark document as seen/read")
+    pdoc_seen.add_argument("--unseen", action="store_true", help="mark document as unseen/unread")
+    pdoc.add_argument("-t", "--theme", default=None, help="target theme ID or label")
+    pdoc.add_argument("--json", action="store_true", help="output result in JSON format")
+    pdoc.set_defaults(func=cmd_doc)
+
+    pshare = sub.add_parser("share", help="create and print external share link/token for a document")
+    pshare.add_argument("target", help="target document ID, URL, or share URL")
+    pshare.add_argument("-t", "--theme", default=None, help="target theme ID or label")
+    pshare.add_argument("--json", action="store_true", help="output result in JSON format")
+    pshare.set_defaults(func=cmd_share)
+
+    pauth = sub.add_parser("auth", help="mint one-time Web UI magic login link and session token")
+    pauth.add_argument("--scope", choices=["owner", "collab", "readonly"], default="owner",
+                       help="session scope: owner (default), collab (collaborator), readonly")
+    pauth.add_argument("-t", "--theme", default=None, help="target theme ID or label")
+    pauth.add_argument("--json", action="store_true", help="output result in JSON format")
+    pauth.set_defaults(func=cmd_auth)
+
     pds = sub.add_parser("dedup-scan",
                          help="report near-duplicate document clusters (MinHash, non-destructive)")
     pds.add_argument("--threshold", type=float, default=0.90,
@@ -3533,10 +3847,18 @@ def build_parser() -> argparse.ArgumentParser:
 
     pau = sub.add_parser(
         "audit",
-        help="verify zero residuals and inspect storage/tombstones across DB and disk",
+        help="comprehensive system audit: inspect knowledge graph integrity, residuals, and tombstones (auto-heal with --heal)",
     )
     pau.add_argument("target", nargs="?", default=None, help="search keyword, URL, or ID to audit")
     pau.add_argument("--pattern", default=None, help="search pattern across DB and disk files")
+    pau.add_argument(
+        "--check",
+        choices=["all", "graph", "residuals", "integrity", "tombstone"],
+        default="all",
+        help="scope of audit: all (full system), graph (knowledge graph integrity), residuals (tombstones and disk storage)",
+    )
+    pau.add_argument("--heal", "--apply", action="store_true", dest="heal", help="auto-heal detected issues (e.g. orphan relations, ghost entities)")
+    pau.add_argument("-t", "--theme", default=None, help="target theme ID or label")
     pau.add_argument("--json", action="store_true", help="output result in JSON format")
     pau.set_defaults(func=cmd_audit)
 
@@ -3693,10 +4015,24 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from .api.agent import with_agent_contract
+
     parser = build_parser()
-    args = parser.parse_args(argv)
+    args, unknown = parser.parse_known_args(argv)
+    
+    # 만약 전역으로 --json 플래그가 넘어왔다면(어느 서브커맨드든), args.json을 강제로 세팅
+    if "--json" in (argv or sys.argv):
+        setattr(args, "json", True)
+
+    if not hasattr(args, "func"):
+        parser.print_help()
+        return 2
+
+    # Agent Contract 래퍼 적용
+    wrapped_func = with_agent_contract(args.func)
+
     try:
-        return args.func(args)
+        return wrapped_func(args)
     except KeyboardInterrupt:
         print("\n[!] 사용자에 의해 작업이 중단되었습니다.", file=sys.stderr)
         return 130

@@ -128,7 +128,8 @@ Git 저장소 최신 커밋을 가져와 무중단 롤링 업데이트를 수행
 
 | 명령 | 사용법 | 설명 |
 | :--- | :--- | :--- |
-| `doctor` | `claire doctor [--heal \| --apply] [--yes] [--json]` | 지식그래프 무결성(고아 노드/엣지, FTS 불일치) 진단 및 원클릭 자동 수복 |
+| `audit` | `claire audit [<target>] [--check {all,graph,residuals}] [--heal] [--json]` | **[통합 감사]** 지식그래프 무결성, 오염 잔재, 툼스톤 위반 전수 점검 및 원클릭 자동 수복 |
+| `doctor` | `claire doctor [--heal \| --apply] [--yes] [--json]` | 지식그래프 무결성(고아 노드/엣지, FTS 불일치) 진단 및 원클릭 자동 수복 (`audit --check graph`의 별칭) |
 | `preflight` | `claire preflight` | 파이썬 환경, 설정값, Gemini API Key, sqlite-vec 모듈, DB 연결 사전 점검 |
 | `health` | `claire health` | DB, 큐(Queue), Inbox 상태를 담은 건강 진단 JSON 출력. 멀티 테마 모드에서는 등록 DB별 진단과 전체 합계를 출력 |
 | `liveness` | `claire liveness` | 모든 활성 DB의 읽기 전용 접근·현재 스키마 확인 (Degraded 시 비정상 종료 안 함) |
@@ -212,15 +213,15 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 ### 3.4 재생성, 백필, 포맷 마이그레이션 및 복구
 
 | 명령 | 사용법 | 설명 |
-| :--- | :--- | :--- |
+| `reprocess` | `claire reprocess [<target>] [-c {all,summary,detail,graph,format}] [-s {all,missing,corrupted,tables}] [--apply] [--json]` | **[통합 재처리]** 요약, 상세, 그래프, 포맷 등 파생 데이터 일괄 갱신 엔진 |
 | `regenerate` | `claire regenerate [<target>] [--tables] [--summary] [--detail] [--all] [--apply] [--force] [--effort <level>] [--focus <focus>]` | 특정 문서 또는 표(Table) 포함 문서 컴포넌트(요약/상세/그래프) 선택적 LLM 재생성 (기본: dry-run, 실행: `--apply`) |
-| `summary-regenerate`| `claire summary-regenerate [<target>] [--tables] [--apply] [--force] [--effort <level>]` | `regenerate --summary`의 단축 Alias |
+| `summary-regenerate`| `claire summary-regenerate [<target>] [--tables] [--apply] [--force] [--effort <level>]` | `reprocess -c summary`의 단축 Alias |
 | `format-migrate` | `claire format-migrate [--format {md,adoc}] [--apply] [--yes] [--json]` | 문서 렌더링 포맷 진단 및 일괄 변환 (기본: dry-run, 실행: `--apply`) |
 | `format-status` | `claire format-status` | 문서 detail의 포맷별(md, adoc, 누락) 통계 출력 |
 | `truncation-status` | `claire truncation-status [<target>] [--json]` | 원문 절단(20k 슬라이싱) 및 메타데이터 누락 문서 진단 리포트 (단축: `truncation-scan`) |
 | `truncation-backfill` | `claire truncation-backfill [<target>] [--apply] [--mark-refresh] [--force] [--yes] [--json]` | 메타데이터 누락 절단 문서에 `raw_truncated` 소급 기록 (기본: dry-run, 실행: `--apply`, 단축: `backfill-truncation`) |
-| `backfill-detail` | `claire backfill-detail [--tables] [--format {md,adoc}] [--limit N] [--force] [--focus <focus>]` | 상세(detail) 렌더링이 누락되었거나 표가 포함된 문서 일괄 생성 (그래프 불변) |
-| `backfill-summary` | `claire backfill-summary [--limit N]` | 요약이 누락된 기존 문서의 요약 일괄 생성 |
+| `backfill-detail` | `claire backfill-detail [--tables] [--format {md,adoc}] [--limit N] [--force] [--focus <focus>]` | 상세(detail) 렌더링이 누락되었거나 표가 포함된 문서 일괄 생성 (`reprocess -c detail -s missing`의 별칭) |
+| `backfill-summary` | `claire backfill-summary [--limit N]` | 요약이 누락된 기존 문서의 요약 일괄 생성 (`reprocess -c summary -s missing`의 별칭) |
 | `backfill-images` | `claire backfill-images [--limit N]` | 문서 내 참조된 이미지 에셋 추출 및 다운로드 백필 |
 | `recompile-html` | `claire recompile-html` | 저장된 상세(detail)로부터 `detail_html` AOT 사전 컴파일 갱신 |
 | `reextract` | `claire reextract [--tables] [--no-rebuild] [--limit N]` | 저장된 `raw_text`로부터 지식그래프 전체(또는 표 포함 문서)를 재추출 |
@@ -418,7 +419,10 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 ### 3.7 감시 및 문서 관리 (Watch & Doc)
 
 * `claire watch [--list | <target> --on/--off --interval-days N]`: 주기적 재수집 대상 문서 목록 조회 및 주기 설정. `target`으로 문서 ID, 일반 URL, 공유 URL(`/p?s=token`)을 스마트 인식.
+* `claire doc <target> [--pin | --unpin] [--hide | --unhide] [--seen | --unseen] [--json]`: 문서의 주요 상태 플래그(상단 고정, 공개 목록 숨김, 읽음 처리)를 수동 토글/갱신.
 * `claire doc-title <target> "<new_title>"`: 특정 문서의 제목을 수동 수정하고 MinHash 서명 재계산. `target`으로 문서 ID, 일반 URL, 공유 URL 지원.
+* `claire share <target> [--json]`: 특정 문서의 외부 공개용 익명 공유 링크(`/p?s=token`)와 토큰을 발급하여 출력.
+* `claire auth [--scope {owner,collab,readonly}] [--json]`: Telegram 봇을 통하지 않고 CLI/터미널에서 직접 Web UI에 접근할 수 있는 1회용 매직 로그인 링크 및 세션 토큰 즉시 발급.
 * `claire serve-api`: Starlette + Uvicorn 기반 웹 인터페이스 및 REST API 서비스 실행.
 * `claire bot`: Telegram Long-polling 봇 서비스 실행.
 
