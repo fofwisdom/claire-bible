@@ -1,0 +1,130 @@
+{
+  "mcp_runtime": {
+    "sdk_version": "2.0.0",
+    "protocol_version": "2024-11-05",
+    "transport": "streamable_http",
+    "endpoint_path": "/mcp",
+    "public_endpoint_url": "https://cb.netspheres.org/mcp"
+  },
+  "oauth_config": {
+    "issuer": "https://cb.netspheres.org",
+    "authorization_endpoint": "***REDACTED***",
+    "token_endpoint": "***REDACTED***",
+    "registration_endpoint": "https://cb.netspheres.org/oauth/register",
+    "protected_resource_metadata": "https://cb.netspheres.org/.well-known/oauth-protected-resource",
+    "authorization_server_metadata": "***REDACTED***",
+    "scopes_supported": [
+      "readonly"
+    ],
+    "grant_types_supported": [
+      "authorization_code",
+      "refresh_token",
+      "urn:ietf:params:oauth:grant-type:token-exchange"
+    ],
+    "code_challenge_methods_supported": [
+      "S256"
+    ],
+    "token_endpoint_auth_methods_supported": "***REDACTED***"
+  },
+  "tools_registered": [
+    {
+      "name": "resolve_entity",
+      "description": "이름(또는 별칭) 문자열로 엔티티를 찾는다 — 탐색 루프의 진입점",
+      "read_only": true,
+      "parameters": [
+        "name",
+        "theme"
+      ]
+    },
+    {
+      "name": "search",
+      "description": "전문(FTS5) 검색 (LLM 호출 0)",
+      "read_only": true,
+      "parameters": [
+        "query",
+        "entity_type",
+        "near_ids",
+        "limit",
+        "theme"
+      ]
+    },
+    {
+      "name": "neighbors",
+      "description": "다중 노드의 1홉 이웃 합집합 및 degree 조회",
+      "read_only": true,
+      "parameters": [
+        "entity_ids",
+        "exclude_ids",
+        "limit",
+        "theme"
+      ]
+    },
+    {
+      "name": "path",
+      "description": "두 노드 사이의 최단 연결 경로(BFS) 탐색",
+      "read_only": true,
+      "parameters": [
+        "from_id",
+        "to_id",
+        "max_hops",
+        "theme"
+      ]
+    },
+    {
+      "name": "context",
+      "description": "노드들의 observations, 연결 관계, 출처 요약 종합 반환",
+      "read_only": true,
+      "parameters": [
+        "entity_ids",
+        "compact",
+        "theme"
+      ]
+    },
+    {
+      "name": "overview",
+      "description": "지식베이스 전체의 자기서술적 요약 — 엔티티 타입 분포 및 핵심 허브 개요",
+      "read_only": true,
+      "parameters": [
+        "theme"
+      ]
+    },
+    {
+      "name": "node",
+      "description": "단일 노드 상세 정보 및 연결 문서(최대 10건) 조회",
+      "read_only": true,
+      "parameters": [
+        "entity_id",
+        "full",
+        "theme"
+      ]
+    },
+    {
+      "name": "documents",
+      "description": "최신순 문서 목록 조회 (최대 100건)",
+      "read_only": true,
+      "parameters": [
+        "limit",
+        "since",
+        "query",
+        "theme"
+      ]
+    },
+    {
+      "name": "document",
+      "description": "단일 문서 본문 및 메타데이터 열람 (mark_seen 부작용 없음)",
+      "read_only": true,
+      "parameters": [
+        "document_id",
+        "theme"
+      ]
+    },
+    {
+      "name": "stats",
+      "description": "지식베이스 규모(문서/엔티티/관계/OAuth 테이블 등) 요약",
+      "read_only": true,
+      "parameters": [
+        "theme"
+      ]
+    }
+  ]
+}
