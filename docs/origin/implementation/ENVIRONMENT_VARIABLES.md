@@ -105,9 +105,9 @@ graph TD
 
 | 환경변수명 | 기본값 | 허용 값 / 타입 | 설명 |
 | :--- | :--- | :--- | :--- |
-| `GEMINI_API_KEY` | `""` | 문자열 (AI Studio 키) | Google Gemini API 키. 누락 시 Gemini 프로바이더는 자동으로 `mock`으로 폴백됩니다. |
-| `TELEGRAM_BOT_TOKEN` | `""` | 문자열 (`123456:ABC-DEF...`) | Telegram `@BotFather`에서 발급받은 봇 토큰. 비워두면 봇 프로필이 비활성화됩니다. |
-| `TELEGRAM_ALLOWED_USERS` | `""` | 쉼표 구분 정수 ID 목록 | 텔레그램 봇 사용이 허용된 Telegram User ID 목록 (예: `12345678,87654321`). 비워두면 모든 사용자가 접근 가능하므로 주의가 필요합니다. |
+| `GEMINI_API_KEY` | `""` | 문자열 (AI Studio 키) | Google Gemini API 키 (선택). WebUI(Drawer > ⚙️ 프로바이더 설정) 및 `data/providers.json` 관리 권장. 누락 시 Gemini 프로바이더는 자동으로 `mock`으로 폴백됩니다. |
+| `TELEGRAM_BOT_TOKEN` | `""` | 문자열 (`123456:ABC-DEF...`) | Telegram `@BotFather`에서 발급받은 봇 토큰 (**텔레그램 봇 구동 시에만 필수**). 비워두면 봇 프로필이 비활성화되며 Web API 및 CLI는 정상 구동됩니다. |
+| `TELEGRAM_ALLOWED_USERS` | `""` | 쉼표 구분 정수 ID 목록 | 텔레그램 봇 사용이 허용된 Telegram User ID 목록 (선택, 예: `12345678,87654321`). 비워두면 모든 사용자가 접근 가능하므로 주의가 필요합니다. |
 | `TELEGRAM_OWNER_CHAT_ID` | `0` | 정수 (Telegram Chat ID) | 서비스 오류 및 운영 경보(Alert)를 수신할 소유자 Chat ID. `0`이면 `TELEGRAM_ALLOWED_USERS`의 첫 번째 ID로 자동 폴백됩니다. |
 
 ---
@@ -283,12 +283,12 @@ TypeSafe AI Jev는 엔티티 해소(Entity Resolution) 및 관계 판정 시 비
 | `CLAIRE_INJECT_HOST` | `127.0.0.1` | IPv4 주소 | API 서버 바인딩 호스트 (컨테이너 내부는 `0.0.0.0`으로 고정). |
 | `CLAIRE_INJECT_PORT` | `8765` / `8766` | 정수 (`1~65535`) | API 서버 내부 포트 번호. |
 | `CLAIRE_SUPPORT_BUNDLE_API_URL` | Compose가 `http://api:<CB_API_PORT>`로 주입 | Compose 내부 URL | Telegram이 다운로드 담당 API에 Support Bundle 생성을 위임하는 내부 전용 주소. 사용자가 `.env`에 설정하지 않습니다. |
-| `CLAIRE_INJECT_TOKEN` | `""` | 32~128자 URL-safe 문자열 | **Owner 쓰기 토큰**. 문서 적재(Ingest), 중복 병합, 소유자 전용 API 호출에 필수적입니다. `./cb-manuscript init` 실행 시 비어있으면 32자 무작위 토큰으로 자동 생성됩니다. |
+| `CLAIRE_INJECT_TOKEN` | `""` | 32~128자 URL-safe 문자열 | **[필수] Owner 쓰기 토큰**. Web API 기동 및 문서 적재(Ingest), 중복 병합, 소유자 전용 API 호출에 필수적입니다. 미설정 시 API 기동이 차단되며, `./cb-manuscript init` 실행 시 비어있으면 32자 무작위 토큰으로 자동 생성됩니다. |
 | `CLAIRE_COLLABORATOR_TOKEN` | `""` | 32~128자 URL-safe 문자열 | **Collaborator 협업 토큰**. 협업자에게 허용된 추가 테마에 대한 읽기 및 적재 권한을 부여하며, 기본 지식베이스(ID 0) 및 소유자 전용 설정 변경은 차단됩니다. (텔레그램 `/webco`로 세션 링크 발급 가능) |
 | `CLAIRE_READONLY_TOKEN` | `""` | 32~128자 URL-safe 문자열 | **Readonly 조회 토큰**. 에이전트/외부 시스템이 검색, 그래프 조회, 노드 상세 조회만 수행할 수 있도록 허용하는 읽기 전용 토큰입니다 (쓰기 차단). |
-| `CLAIRE_ANONYMOUS_READONLY` | `1` | **exact `0` 또는 `1`** | **익명 Same-Origin 읽기 허용 플래그**. `1`이면 자격증명 없이 브라우저에서 읽기 전용 웹 UI 및 검색이 가능합니다 (숨김 문서는 제외). 쓰기 경로는 여전히 Owner 인증을 요구합니다. |
-| `CLAIRE_PUBLIC_URL` | `""` / `http://127.0.0.1:8766` | URL (예: `https://claire.example.com`) | **[필수]** 브라우저 기준 canonical 공개 URL. Host 헤더 검증, Same-Origin 판정, 공유 링크(`/p?s=...`) 생성에 사용됩니다. |
-| `CLAIRE_FQDN` | `""` | 도메인 호스트명 (예: `claire.example.com`) | 공개 FQDN 호스트명. 미설정 시 `CLAIRE_PUBLIC_URL`의 호스트명을 자동으로 추출하여 사용합니다. |
+| `CLAIRE_ANONYMOUS_READONLY` | `1` | **exact `0` 또는 `1`** | **[필수] 익명 Same-Origin 읽기 허용 플래그**. exact `0` 또는 `1`이어야 합니다. `1`이면 자격증명 없이 브라우저에서 읽기 전용 웹 UI 및 검색이 가능합니다 (숨김 문서는 제외). 쓰기 경로는 여전히 Owner 인증을 요구합니다. |
+| `CLAIRE_PUBLIC_URL` | `""` / `http://127.0.0.1:8766` | URL (예: `https://claire.example.com`) | **[필수]** 브라우저 기준 canonical 공개 URL (`CLAIRE_FQDN` 미지정 시 필수). Host 헤더 검증, Same-Origin 판정, 공유 링크(`/p?s=...`) 생성에 사용됩니다. |
+| `CLAIRE_FQDN` | `""` | 도메인 호스트명 (예: `claire.example.com`) | **[필수]** 공개 FQDN 호스트명 (`CLAIRE_PUBLIC_URL` 미지정 시 필수). 미설정 시 `CLAIRE_PUBLIC_URL`의 호스트명을 자동으로 추출하여 사용합니다. |
 | `CLAIRE_CORS_ALLOWED_ORIGINS` | `""` | 쉼표 구분 Origin URL 목록 | Cross-Origin 브라우저 API 호출을 허용할 exact Origin 목록 (예: `https://app.example.com`). 비어있으면 Same-Origin 요청만 허용됩니다. |
 | `CLAIRE_GA_MEASUREMENT_ID` | `""` | 문자열 (예: `G-XXXXXXXXXX`) | Google Analytics 4 측정 ID. 비워두면 GA 스크립트가 로드되지 않으며 외부 통신을 차단하는 엄격한 CSP 정책이 유지됩니다. |
 
