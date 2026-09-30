@@ -50,5 +50,9 @@ ENV CLAIRE_APP_ROOT=/app \
     CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt \
     HF_HOME=/app/data/cache/huggingface
 
+COPY scripts/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
 # 데이터/볼트는 볼륨 마운트(이미지 미포함). 기본 명령은 compose 에서 override.
+ENTRYPOINT ["docker-entrypoint.sh"]
 CMD ["claire", "bot"]

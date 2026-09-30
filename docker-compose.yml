@@ -29,6 +29,7 @@ x-claire-service: &claire-service
     - "${CB_DATA_DIR:-./data}:/app/data"
     - "${CB_VAULT_DIR:-./vault}:/app/vault"
     - "${CB_GEMINI_DIR:-~/.gemini}:/root/.gemini"
+    - "${CB_CERTS_DIR:-./certs}:/extra-certs:ro"
 
 services:
   bot:

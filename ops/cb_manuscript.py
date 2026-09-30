@@ -231,6 +231,10 @@ class Layout:
         return self.root / "backups"
 
     @property
+    def certs(self) -> Path:
+        return self.root / "certs"
+
+    @property
     def state_dir(self) -> Path:
         return self.root / ".cb-manuscript"
 
@@ -1380,8 +1384,8 @@ def command_init(layout: Layout) -> int:
     changes = sync_environment_files(layout)
     layout.data.mkdir(parents=True, exist_ok=True)
     layout.vault.mkdir(parents=True, exist_ok=True)
+    layout.certs.mkdir(parents=True, exist_ok=True)
     (Path.home() / ".gemini").mkdir(parents=True, exist_ok=True)
-    (Path.home() / ".local" / "bin").mkdir(parents=True, exist_ok=True)
 
     detected_tz = _detect_system_timezone()
     print(f".env: {'created' if created_env else 'kept'}")
@@ -1402,7 +1406,7 @@ def command_init(layout: Layout) -> int:
         f"CLAIRE_INJECT_TOKEN: "
         f"{'created' if 'CLAIRE_INJECT_TOKEN' in changes['env'] or 'CLAIRE_INJECT_TOKEN' in changes['dev_env'] else 'kept'}"
     )
-    print("data/, vault/: ready")
+    print("data/, vault/, certs/: ready")
     return 0
 
 

@@ -47,3 +47,8 @@ claire-graph*.png
 
 # Local drop-in plugins
 plugins/
+
+# Extra custom CA certificates
+certs/*.crt
+certs/*.pem
+!certs/README.md
