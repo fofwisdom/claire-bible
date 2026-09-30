@@ -52,14 +52,26 @@ cd claire-bible
 # uv를 사용한 의존성 설치
 uv sync
 
-# 환경 변수 파일 복사 및 설정
-cp .env.example .env
+# 환경 설정 초기화 (권장: 토큰 자동 생성 및 0600 권한 부여)
+./cb-manuscript init
+
+# 또는 수동 설정 시 .env.example 복사
+# cp .env.example .env
 ```
 
-`.env` 파일에서 최소 필수 설정을 입력합니다:
-- `TELEGRAM_BOT_TOKEN`: 텔레그램 봇 토큰 (BotFather 발급)
-- `TELEGRAM_ALLOWED_USERS`: 봇 사용을 허용할 Telegram User ID
-- `GEMINI_API_KEY`: Google Gemini API 키
+#### 환경 변수 최소 필수 설정 안내
+Claire Bible의 환경 변수는 시스템 안정성과 보안을 위해 다음과 같이 구분됩니다:
+
+1. **시스템 최소 필수 (Core Mandatory)**:
+   - `CLAIRE_ENVIRONMENT`: 실행 환경 식별자 (`production` 또는 `development`, 기본값: `production`).
+   - `CLAIRE_INJECT_TOKEN`: Web API 및 대시보드 관리를 위한 32~128자 URL-safe 소유자(Owner) 인증 토큰. `./cb-manuscript init` 실행 시 자동으로 생성되며, 수동 설정 시에는 직접 난수(`openssl rand -hex 32`)를 지정해야 합니다 (미설정 시 Web API 기동 불가).
+   - `CLAIRE_FQDN`: 서비스 공개 FQDN 도메인 또는 호스트명 (예: `claire.example.com`, 로컬 개발 시 `127.0.0.1:8765`). Host 헤더 및 Same-Origin 검증에 사용됩니다.
+   - `CLAIRE_ANONYMOUS_READONLY`: 비인증 익명 읽기 전용 UI/검색 공개 여부 (`1`: 공개 허용, `0`: 비공개/차단, 기본값: `1`).
+
+2. **기능별 필수 및 선택 설정**:
+   - `TELEGRAM_BOT_TOKEN`: Telegram 봇(`claire bot`) 구동 시에만 **필수** (@BotFather 발급). Web API 및 CLI 단독 구동 시에는 비워두어도 정상 동작합니다.
+   - `TELEGRAM_ALLOWED_USERS`: 봇 사용을 특정 사용자 ID로 제한할 경우 지정 (선택).
+   - `GEMINI_API_KEY` (LLM 프로바이더): 실제 지식 그래프 추출 및 벡터 임베딩에 사용됩니다. WebUI(Drawer > ⚙️ 프로바이더 설정) 및 `data/providers.json`에서 안전하게 등록/관리되며, 미설정 시에도 시스템 중단 없이 `mock` 프로바이더로 안전하게 구동됩니다.
 
 ### 3. 데이터베이스 초기화 및 진단
 
