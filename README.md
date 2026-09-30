@@ -36,83 +36,70 @@ flowchart LR
 
 ---
 
-## 🛠️ 빠른 시작 (Quick Start)
+## 🚀 시작하기 (Getting Started)
 
-### 1. 요구 사항
-- Python `>= 3.10`
-- [uv](https://github.com/astral-sh/uv) (권장) 또는 Python 가상환경
-
-### 2. 설치 및 환경 설정
+### 1. 개발 빠른 시작 (Local Development)
+로컬 가상환경에서 빠르게 의존성을 설정하고 개발 서버를 기동합니다.
 
 ```bash
-# 저장소 클론 및 이동
-git clone https://github.com/fofwisdom/claire-bible.git
-cd claire-bible
-
-# uv를 사용한 의존성 설치
+# 1. 의존성 동기화 및 환경 설정 초기화
 uv sync
+./cb-manuscript dev init
 
-# 환경 설정 초기화 (권장: 토큰 자동 생성 및 0600 권한 부여)
-./cb-manuscript init
-
-# 또는 수동 설정 시 .env.example 복사
-# cp .env.example .env
-```
-
-#### 환경 변수 최소 필수 설정 안내
-Claire Bible의 환경 변수는 시스템 안정성과 보안을 위해 다음과 같이 구분됩니다:
-
-1. **시스템 최소 필수 (Core Mandatory)**:
-   - `CLAIRE_ENVIRONMENT`: 실행 환경 식별자 (`production` 또는 `development`, 기본값: `production`).
-   - `CLAIRE_INJECT_TOKEN`: Web API 및 대시보드 관리를 위한 32~128자 URL-safe 소유자(Owner) 인증 토큰. `./cb-manuscript init` 실행 시 자동으로 생성되며, 수동 설정 시에는 직접 난수(`openssl rand -hex 32`)를 지정해야 합니다 (미설정 시 Web API 기동 불가).
-   - `CLAIRE_FQDN`: 서비스 공개 FQDN 도메인 또는 호스트명 (예: `claire.example.com`, 로컬 개발 시 `127.0.0.1:8765`). Host 헤더 및 Same-Origin 검증에 사용됩니다.
-   - `CLAIRE_ANONYMOUS_READONLY`: 비인증 익명 읽기 전용 UI/검색 공개 여부 (`1`: 공개 허용, `0`: 비공개/차단, 기본값: `1`).
-
-2. **기능별 필수 및 선택 설정**:
-   - `TELEGRAM_BOT_TOKEN`: Telegram 봇(`claire bot`) 구동 시에만 **필수** (@BotFather 발급). Web API 및 CLI 단독 구동 시에는 비워두어도 정상 동작합니다.
-   - `TELEGRAM_ALLOWED_USERS`: 봇 사용을 특정 사용자 ID로 제한할 경우 지정 (선택).
-   - `GEMINI_API_KEY` (LLM 프로바이더): 실제 지식 그래프 추출 및 벡터 임베딩에 사용됩니다. WebUI(Drawer > ⚙️ 프로바이더 설정) 및 `data/providers.json`에서 안전하게 등록/관리되며, 미설정 시에도 시스템 중단 없이 `mock` 프로바이더로 안전하게 구동됩니다.
-
-### 3. 데이터베이스 초기화 및 진단
-
-```bash
-# DB 스키마 생성 및 마이그레이션
+# 2. DB 스키마 생성 및 무결성 진단
 uv run claire migrate
+uv run claire audit --json
 
-# 설정 및 환경 진단
-uv run claire preflight
-uv run claire doctor
+# 3. 개발 서버 또는 봇 실행
+uv run claire serve-api        # Web API & UI (기본 포트: 8765)
+# uv run claire bot            # Telegram 봇 (선택)
 ```
 
 ---
 
-## 💻 실행 방법
+### 2. 프로덕션 시작 - 에이전트 명령 (Production Launch - Agent)
+AI 코딩 에이전트(Antigravity, Claude Code, Cursor, CI/CD 러너)가 대화형 프롬프트 없이 무인으로 프로덕션을 빌드·배포·검증하고 관리자 링크를 발급하는 표준 파이프라인입니다.
 
-### Telegram 봇 실행
-텔레그램 봇을 실행하여 링크나 텍스트를 메시지로 전달받습니다.
 ```bash
-uv run claire bot
+# Step 1. 인프라 및 환경 사전 점검 (종료 코드 0 확인)
+./cb-manuscript preflight
+
+# Step 2. 무중단 빌드, DB 마이그레이션 및 서비스 기동
+./cb-manuscript install
+
+# Step 3. 시스템 및 지식그래프 무결성 전수 감사 (clean: true 확인)
+./cb-manuscript app audit --check all --json
+
+# Step 4. 최종 서비스 헬스체크 (status: success 확인)
+./cb-manuscript app health --json
+
+# Step 5. 소유자(Owner) Web UI 1회용 매직 로그인 링크 획득
+./cb-manuscript app auth --scope owner --json
 ```
 
-### Web API & UI 서빙
-웹 대시보드 및 REST API를 구동합니다 (기본 포트: 8765).
-```bash
-uv run claire serve-api
-```
+---
 
-### CLI 직접 수집 및 검색
-```bash
-# 단일 URL 수집 및 처리
-uv run claire ingest "https://example.com/article"
+### 3. 프로덕션 시작 - 직접 (Production Launch - Manual)
+시스템 운영자가 호스트 셸에서 직접 프로덕션 서비스를 배포하고 관리하는 절차입니다.
 
-# 지식 베이스 검색 (하이브리드 검색 + LLM 요약)
-uv run claire search "검색할 질문이나 키워드"
-```
-
-### Docker Compose 환경
-백그라운드 서비스(Bot, API, 백그라운드 워커)를 컨테이너로 통합 구동할 수 있습니다.
 ```bash
-docker compose up -d
+# 1. 환경 설정 초기화 (소유자 토큰 자동 생성 및 파일 권한 0600 부여)
+./cb-manuscript init
+
+# 2. 도커 및 설정 사전 점검
+./cb-manuscript preflight
+
+# 3. 배포 파이프라인 실행 (빌드 → DB 마이그레이션 → 컨테이너 기동 → 헬스체크)
+./cb-manuscript install
+
+# 4. 웹 UI 1회용 로그인 링크 발급
+./cb-manuscript app auth --scope owner
+
+# [운영 및 유지보수]
+./cb-manuscript status             # 컨테이너 구동 현황 확인
+./cb-manuscript logs -f api        # 실시간 서비스 로그 모니터링
+./cb-manuscript app audit --heal   # 지식그래프 결함 점검 및 자동 수복
+./cb-manuscript update             # 최신 소스코드 무중단 롤링 업데이트
 ```
 
 ---
@@ -123,15 +110,16 @@ docker compose up -d
 
 | 명령어 | 설명 |
 | :--- | :--- |
-| `claire status` | 시스템 현황, 큐 상태, DB 레코드 요약 출력 |
-| `claire health` | DB, 인박스, 큐 상태를 JSON 형태로 진단 |
-| `claire doctor` | 지식 그래프 및 DB 무결성 검사 및 자동 복구 |
-| `claire queue` | 인박스, 리프레시, 확장 큐 모니터링 |
-| `claire dedup-scan` | MinHash 기반 유사/중복 문서 탐색 |
-| `claire re-embed` | 전체 엔티티/문서 벡터 임베딩 재연산 |
-| `claire link-relations` | 기존 축적 문서 간 교차 관계 재분석 및 연결 |
+| `claire audit` | **[통합 감사]** 지식그래프 무결성, 오염 잔재, 툼스톤 위반 전수 점검 및 자동 수복 (`--heal`) |
+| `claire reprocess` | **[통합 재처리]** 요약, 상세, 그래프, 포맷 등 파생 데이터 일괄 갱신 엔진 |
+| `claire auth` | Web UI 1회용 로그인 매직 링크 및 세션 토큰 즉시 발급 (`--scope owner/readonly`) |
+| `claire doc` | 문서 상태 플래그(상단 고정 `--pin`, 숨김 `--hide`, 읽음 `--seen`) 수동 제어 |
+| `claire share` | 특정 문서의 외부 공개용 익명 공유 링크(`/p?s=token`) 발급 |
+| `claire health` | DB, 인박스, 큐 상태를 에이전트 친화적 JSON 형태로 진단 |
+| `claire ingest` | 단일 웹 페이지, 영상(자막/STT), PDF 또는 텍스트 즉시 수집 및 구조화 |
+| `claire search` | 하이브리드 검색 (BM25 전문 색인 + 벡터 시맨틱 유사도 + LLM 요약) |
 
-전체 옵션은 `uv run claire --help`를 통해 확인할 수 있습니다.
+전체 옵션 및 파라미터는 `uv run claire --help` 및 [docs/origin/implementation/COMMANDS.md](file:///home/fow/Projects/claire-bible/docs/origin/implementation/COMMANDS.md)를 참조하십시오.
 
 ---
 
