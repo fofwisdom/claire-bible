@@ -197,7 +197,7 @@ if [ "$DEPLOY_ENV_SYNC" = "never" ] && [ "$REMOTE_ENV_EXISTS" -eq 0 ]; then
 fi
 
 "${SSH_CMD[@]}" "$REMOTE" \
-  "mkdir -p -- '$DEST/data' '$DEST/vault' '$DEST/backups' && chmod 700 '$DEST/backups' && printf '%s\n' claire-bible > '$DEST/.claire-deploy-root'"
+  "mkdir -p -- '$DEST/data' '$DEST/vault' '$DEST/backups' '$DEST/certs' && chmod 700 '$DEST/backups' && printf '%s\n' claire-bible > '$DEST/.claire-deploy-root'"
 
 echo "[2/5] 소스 동기화 (data/vault/research 등 제외; --delete 는 코드 트리에만)"
 LOCAL_BUILD_COMMIT="$(git rev-parse HEAD 2>/dev/null || true)"
