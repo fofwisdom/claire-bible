@@ -670,12 +670,14 @@ def render_html_cdp(
 
 
 def _system_chromium_executable() -> str | None:
-    """Linux/macOS의 시스템 Chromium 계열 브라우저를 찾는다."""
+    """컨테이너 및 호스트 시스템의 Chromium 계열 브라우저를 찾는다."""
     for command in ("chromium", "chromium-browser", "google-chrome", "google-chrome-stable"):
         executable = shutil.which(command)
         if executable:
             return executable
     for candidate in (
+        Path("/usr/bin/chromium"),
+        Path("/usr/bin/chromium-browser"),
         Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
         Path("/Applications/Chromium.app/Contents/MacOS/Chromium"),
     ):
@@ -687,7 +689,7 @@ def _system_chromium_executable() -> str | None:
 def _fetch_cdp(url: str) -> tuple[str | None, str, list[str], dict[str, str], list[dict]]:
     """Scrapling으로 시스템 Chromium을 제어해 실제 렌더링(브라우저 필요).
 
-    JS SPA(해시 라우팅 등, 예: uniclawbench.github.io)는 static/scrapling(curl-cffi, 무JS) 으로는 빈 셸만 받아온다 — 진짜 브라우저 실행이 필요한 최후수단으로 ``scrapling[fetchers]``와 apt 설치된 chromium 바이너리를 재사용한다. 미설치/실패 시 빈 결과(체인의 다음 단계 없음 → thin-guard 가 최종 실패 처리).
+    JS SPA(해시 라우팅 등, 예: uniclawbench.github.io)는 static/scrapling(curl-cffi, 무JS) 으로는 빈 셸만 받아온다 — 진짜 브라우저 실행이 필요한 최후수단으로 ``scrapling[fetchers]``와 컨테이너/시스템 chromium 바이너리를 재사용한다. 미설치/실패 시 빈 결과(체인의 다음 단계 없음 → thin-guard 가 최종 실패 처리).
     """
     try:
         html = render_html_cdp(url)

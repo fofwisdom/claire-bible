@@ -20,6 +20,7 @@ x-claire-service: &claire-service
       CLAIRE_PDF_PARSER: "${CLAIRE_PDF_PARSER:-default}"
       CLAIRE_BUILD_COMMIT: "${CLAIRE_BUILD_COMMIT:-unknown}"
       CLAIRE_IMAGE_TAG: "${CB_IMAGE_TAG:-local}"
+  shm_size: "1gb"
   restart: unless-stopped
   environment: *claire-environment
   env_file:
@@ -28,11 +29,6 @@ x-claire-service: &claire-service
     - "${CB_DATA_DIR:-./data}:/app/data"
     - "${CB_VAULT_DIR:-./vault}:/app/vault"
     - "${CB_GEMINI_DIR:-~/.gemini}:/root/.gemini"
-    - "${CB_BIN_DIR:-~/.local/bin}:/host-bin:ro"
-    - /etc/localtime:/etc/localtime:ro
-    - /etc/ssl/certs:/etc/ssl/certs:ro
-    - /etc/ca-certificates:/etc/ca-certificates:ro
-    - /usr/local/share/ca-certificates:/usr/local/share/ca-certificates:ro
 
 services:
   bot:
