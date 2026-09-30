@@ -407,7 +407,7 @@ wheels = [
 ]
 
 [[package]]
-name = "claire"
+name = "claire-bible"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [

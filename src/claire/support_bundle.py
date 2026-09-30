@@ -972,9 +972,12 @@ def _get_git_commit() -> str | None:
 def _get_build_identity() -> dict[str, Any]:
     commit, revision_source = _get_git_commit_and_source()
     try:
-        package_version = importlib.metadata.version("claire")
+        package_version = importlib.metadata.version("claire-bible")
     except importlib.metadata.PackageNotFoundError:
-        package_version = "unknown"
+        try:
+            package_version = importlib.metadata.version("claire")
+        except importlib.metadata.PackageNotFoundError:
+            package_version = "unknown"
     return {
         "git_commit": commit,
         "revision_source": revision_source,

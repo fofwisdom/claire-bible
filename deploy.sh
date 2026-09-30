@@ -169,7 +169,7 @@ if [ -f '$DEST/docker-compose.yml' ] &&
       '$DEST/docker-compose.yml' ||
     grep -Eq '^[[:space:]]{2}api:[[:space:]]*$' '$DEST/docker-compose.yml') &&
    [ -f '$DEST/pyproject.toml' ] &&
-   grep -Eq '^[[:space:]]*name[[:space:]]*=[[:space:]]*\"claire\"[[:space:]]*$' \
+   grep -Eq '^[[:space:]]*name[[:space:]]*=[[:space:]]*\"(claire|claire-bible)\"[[:space:]]*$' \
      '$DEST/pyproject.toml' &&
    [ -d '$DEST/src/claire' ]; then
   exit 0

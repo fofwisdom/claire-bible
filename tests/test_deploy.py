@@ -376,6 +376,26 @@ class DeployScriptTest(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_guard_adopts_claire_bible_checkout_using_multiple_fingerprints(self):
+        remote = self.tmp_path / "remote_cb"
+        (remote / "src" / "claire").mkdir(parents=True)
+        (remote / "docker-compose.yml").write_text(
+            "services:\n  claire:\n    container_name: claire_bot\n", encoding="utf-8"
+        )
+        (remote / "pyproject.toml").write_text('name = "claire-bible"\n', encoding="utf-8")
+
+        result, _, _ = _run_deploy(
+            self.tmp_path / "client_cb",
+            """
+            DEPLOY_REMOTE=alice@host
+            DEPLOY_ENV_SYNC=never
+            """ + f"DEPLOY_PATH={remote}\n",
+            ssh_exec_guard=True,
+            ssh_test_status=0,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_never_requires_remote_dotenv_before_rsync(self):
         result, calls, _ = _run_deploy(
             self.tmp_path,

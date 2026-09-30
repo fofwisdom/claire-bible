@@ -3636,7 +3636,7 @@ def build_parser() -> argparse.ArgumentParser:
     phoyo.add_argument("-d", "--delay", type=float, default=0.5, help="delay in seconds between requests (default: 0.5)")
     phoyo.add_argument("--lang", default="ko-kr", help="language code (default: ko-kr, options: en-us, ja-jp, zh-cn)")
     phoyo.add_argument("--list-menus", action="store_true", help="list available menus and categories for the game")
-    phoyo.add_argument("--ingest", action="store_true", help="directly ingest crawled entries into Claire database and vault")
+    phoyo.add_argument("--ingest", action="store_true", help="directly ingest crawled entries into Claire Bible database and vault")
     phoyo.add_argument("-o", "--output-dir", default=None, help="directory to save markdown documents")
     phoyo.add_argument("--json", action="store_true", help="output result in JSON format")
     phoyo.set_defaults(func=cmd_hoyowiki)

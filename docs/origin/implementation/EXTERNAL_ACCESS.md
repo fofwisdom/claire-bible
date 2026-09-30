@@ -294,11 +294,11 @@ Claire Bible은 시스템 소유자(Owner), 협력자(Collaborator), 읽기 전�
 development에서는 설정한 IPv4 URL로 직접 접속하고 다른 interface에 port가 게시되지 않았는지 확인한다. production에서는 다음을 각각 확인한다.
 
 1. 올바른 hostname을 통한 HTTPS 요청은 성공한다.
-2. 잘못된 Host는 proxy 또는 Claire에서 거부된다.
-3. proxy host에서는 Claire HTTP upstream에 접속할 수 있다.
+2. 잘못된 Host는 proxy 또는 Claire Bible에서 거부된다.
+3. proxy host에서는 Claire Bible HTTP upstream에 접속할 수 있다.
 4. proxy 이외의 LAN host에서는 firewall 때문에 같은 upstream port에 접속할 수 없다.
 5. 긴 NDJSON 응답이 proxy buffering 없이 순차 전달된다.
-6. Claire와 proxy access log에 query string과 인증 정보가 남지 않는다.
+6. Claire Bible과 proxy access log에 query string과 인증 정보가 남지 않는다.
 7. 등록된 테마 FQDN으로 접근 시 해당 테마 지식베이스로 자동 라우팅되며, 비공개 테마 FQDN은 익명 접속 시 404로 은닉된다.
 8. `CLAIRE_CLOUDFLARE_IPS_ONLY=1` 설정 시 비-Cloudflare 공인 IP 직접 접근이 403으로 차단되고 LAN/사설 접근은 유지된다.
  

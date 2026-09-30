@@ -61,7 +61,7 @@ Git 저장소 최신 커밋을 가져와 무중단 롤링 업데이트를 수행
   * `--no-fetch`: 원격 git fetch 생략(로컬 변경사항만으로 빌드 및 재기동).
 
 #### `version`
-래퍼 스크립트 및 패키징된 Claire 소스코드의 버전을 출력합니다.
+래퍼 스크립트 및 패키징된 Claire Bible 소스코드의 버전을 출력합니다.
 * **사용법**: `./cb-manuscript version`
 
 ---

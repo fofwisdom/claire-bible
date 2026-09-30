@@ -1,6 +1,6 @@
 # 운영 명령 경계
 
-배포된 Claire 인스턴스는 `cb-manuscript`를 호스트 운영 진입점으로 사용한다. 애플리케이션 CLI인 `claire`는 유지하되 실행 환경에 따라 다음 표면을 구분한다.
+배포된 Claire Bible 인스턴스는 `cb-manuscript`를 호스트 운영 진입점으로 사용한다. 애플리케이션 CLI인 `claire`는 유지하되 실행 환경에 따라 다음 표면을 구분한다.
 
 | 명령 표면 | 용도 | 실행 환경 |
 |---|---|---|
@@ -52,7 +52,7 @@ CLAIRE_ENVIRONMENT=production ./cb-manuscript up
 `CB_API_BIND`는 Docker host가 게시할 정확한 IPv4 주소다. `0.0.0.0`, multicast, hostname과 IPv6는 사전 검사에서 거부한다. loopback은 안전한 초기값으로 허용하지만 다른 LAN 호스트에서 접근하려면 실제 고정 LAN IPv4로 변경해야 한다.
 
 - development의 `CLAIRE_PUBLIC_URL`은 `http://<CB_API_BIND>:<CB_API_PORT>/`와 authority가 정확히 같아야 한다.
-- production은 root 경로의 `https://<DNS-hostname>/`이어야 한다. TLS는 Claire가 아닌 외부 reverse proxy가 종료한다.
+- production은 root 경로의 `https://<DNS-hostname>/`이어야 한다. TLS는 Claire Bible이 아닌 외부 reverse proxy가 종료한다.
 - `CLAIRE_CORS_ALLOWED_ORIGINS`는 path와 wildcard가 없는 origin의 쉼표 목록이다. production에서는 `https` origin만 허용하며 빈 값은 same-origin 전용이다.
 - exact `CLAIRE_ANONYMOUS_READONLY=1`(기본값)은 canonical same-origin 또는 Origin 헤더가 없는 무자격증명 요청의 읽기 전용 접근을 허용한다. owner 쓰기는 계속 유효하며, 숨김 문서(`hidden=1`) 및 그와 연관된 엔티티는 익명 읽기 계층에서 철저히 제외되어 안전하게 공개된다. `0`은 인증 전용 동작이다.
 

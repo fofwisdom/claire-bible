@@ -1,7 +1,7 @@
 [project]
-name = "claire"
+name = "claire-bible"
 version = "0.1.0"
-description = "Telegram-fed personal knowledge base: scrape -> Gemini structure -> Palantir-style ontology graph (hybrid SQLite + Obsidian vault)"
+description = "Claire Bible: Telegram-fed personal knowledge base: scrape -> Gemini structure -> Palantir-style ontology graph (hybrid SQLite + Obsidian vault)"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
