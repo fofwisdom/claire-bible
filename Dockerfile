@@ -40,11 +40,10 @@ RUN if [ "$CLAIRE_BUILD_COMMIT" != "unknown" ] && [ -n "$CLAIRE_BUILD_COMMIT" ];
         echo "$CLAIRE_BUILD_COMMIT" > /app/src/claire/BUILD_COMMIT; \
     fi
 
-# Runtime processes use the environment built above directly.  uv remains a
+# Runtime processes use the environment built above directly. uv remains a
 # build/development tool rather than an extra process wrapper for every service.
-# /host-bin allows optional host CLI tools (like Antigravity agy) to be invoked seamlessly.
 ENV CLAIRE_APP_ROOT=/app \
-    PATH="/app/.venv/bin:/host-bin:$PATH" \
+    PATH="/app/.venv/bin:$PATH" \
     SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
     SSL_CERT_DIR=/etc/ssl/certs \
     REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt \

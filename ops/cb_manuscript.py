@@ -1126,20 +1126,23 @@ def _ensure_anonymous_readonly(path: Path) -> bool:
 
 
 def _detect_system_timezone() -> str:
-    """Detect host system timezone adhering to timedatectl / system config."""
+    """Detect system timezone adhering to cross-platform standard / system config."""
 
     # 1. Process environment
     env_tz = os.environ.get("TZ", "").strip()
     if env_tz:
         return env_tz
 
-    # 2. /etc/timezone (traditional Debian/Ubuntu)
+    # 2. Python standard timezone detection (cross-platform: macOS, Linux, Windows, container)
     try:
-        tz_path = Path("/etc/timezone")
-        if tz_path.is_file():
-            val = tz_path.read_text(encoding="utf-8").strip()
-            if val:
-                return val
+        dt = datetime.now().astimezone()
+        if dt.tzinfo is not None:
+            key = getattr(dt.tzinfo, "key", None)
+            if key and isinstance(key, str):
+                return key
+            name = dt.tzname()
+            if name:
+                return name
     except Exception:
         pass
 
@@ -1156,16 +1159,13 @@ def _detect_system_timezone() -> str:
     except Exception:
         pass
 
-    # 4. Python timezone detection
+    # 4. /etc/timezone (traditional Debian/Ubuntu fallback)
     try:
-        dt = datetime.now().astimezone()
-        if dt.tzinfo is not None:
-            key = getattr(dt.tzinfo, "key", None)
-            if key and isinstance(key, str):
-                return key
-            name = dt.tzname()
-            if name:
-                return name
+        tz_path = Path("/etc/timezone")
+        if tz_path.is_file():
+            val = tz_path.read_text(encoding="utf-8").strip()
+            if val:
+                return val
     except Exception:
         pass
 
