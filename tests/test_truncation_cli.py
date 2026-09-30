@@ -15,6 +15,13 @@ from claire.ontology.base import Document
 from claire.store import db as dbm
 
 
+def _unwrap_json(raw: str) -> dict:
+    parsed = json.loads(raw)
+    if isinstance(parsed, dict) and "data" in parsed and isinstance(parsed["data"], dict):
+        return parsed["data"]
+    return parsed
+
+
 @pytest.fixture
 def test_env(tmp_path: Path, monkeypatch):
     db_file = tmp_path / "test.db"
@@ -165,20 +172,20 @@ def test_cli_truncation_status(test_env, capsys):
     # 2. JSON format
     ret_json = cli.main(["truncation-status", "--json"])
     assert ret_json == 0
-    json_out = json.loads(capsys.readouterr().out)
+    json_out = _unwrap_json(capsys.readouterr().out)
     assert json_out["total_documents"] == 4
     assert json_out["unmarked_truncated_count"] == 2
 
     # 3. Alias truncation-scan
     ret_alias = cli.main(["truncation-scan", "--json"])
     assert ret_alias == 0
-    json_alias = json.loads(capsys.readouterr().out)
+    json_alias = _unwrap_json(capsys.readouterr().out)
     assert json_alias["unmarked_truncated_count"] == 2
 
     # 4. Single target by ID
     ret_single = cli.main(["truncation-status", "doc_unmarked_hash", "--json"])
     assert ret_single == 0
-    json_single = json.loads(capsys.readouterr().out)
+    json_single = _unwrap_json(capsys.readouterr().out)
     assert json_single["total_documents"] == 1
     assert json_single["unmarked_items"][0]["id"] == "doc_unmarked_hash"
 
@@ -201,12 +208,12 @@ def test_cli_truncation_backfill(test_env, capsys):
     # 3. Verify status after backfill
     ret_check = cli.main(["truncation-status", "--json"])
     assert ret_check == 0
-    json_check = json.loads(capsys.readouterr().out)
+    json_check = _unwrap_json(capsys.readouterr().out)
     assert json_check["unmarked_truncated_count"] == 0
     assert json_check["recorded_truncated_count"] == 3
 
     # 4. Alias backfill-truncation with JSON output
     ret_alias = cli.main(["backfill-truncation", "--apply", "--yes", "--json", "--force"])
     assert ret_alias == 0
-    json_alias = json.loads(capsys.readouterr().out)
+    json_alias = _unwrap_json(capsys.readouterr().out)
     assert json_alias["updated_count"] == 4

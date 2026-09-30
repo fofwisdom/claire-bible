@@ -168,4 +168,6 @@ def test_cli_stt_backfill_dry_run_and_apply(tmp_path, monkeypatch, capsys):
     assert ret == 0
     out = capsys.readouterr().out
     parsed = json.loads(out)
+    if isinstance(parsed, dict) and "data" in parsed and isinstance(parsed["data"], dict):
+        parsed = parsed["data"]
     assert parsed["scanned_total"] == 1

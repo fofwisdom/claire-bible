@@ -7,8 +7,8 @@ ENV PYTHONUNBUFFERED=1
 
 RUN pip install --no-cache-dir uv
 
-# Scrapling DynamicFetcher가 JS SPA 렌더링에 쓸 시스템 Chromium + 오디오 스트림 추출용 ffmpeg.
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates chromium ffmpeg tzdata \
+# Scrapling DynamicFetcher가 JS SPA 렌더링에 쓸 시스템 Chromium + 오디오 스트림 추출용 ffmpeg + 권한 전환용 gosu.
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates chromium ffmpeg gosu tzdata \
     && rm -rf /var/lib/apt/lists/*
 
 COPY pyproject.toml uv.lock README.md ./
@@ -28,7 +28,10 @@ RUN if [ "$CLAIRE_PDF_PARSER" = "docling" ]; then \
 
 # 애플리케이션 소스 변경은 위의 대형 의존성 레이어를 무효화하지 않는다.
 COPY src/ ./src/
-RUN uv pip install --no-cache --no-deps .
+RUN uv pip install --no-cache --no-deps . \
+    && groupadd -g 1000 claire 2>/dev/null || true \
+    && useradd -u 1000 -g 1000 -m -s /bin/bash -d /home/claire claire 2>/dev/null || true \
+    && chown -R 1000:1000 /app /home/claire
 
 # 빌드마다 바뀌는 식별값은 모든 대형 설치가 끝난 뒤에만 이미지 메타데이터로 주입한다.
 ARG CLAIRE_BUILD_COMMIT="unknown"
@@ -42,8 +45,10 @@ RUN if [ "$CLAIRE_BUILD_COMMIT" != "unknown" ] && [ -n "$CLAIRE_BUILD_COMMIT" ];
 
 # Runtime processes use the environment built above directly. uv remains a
 # build/development tool rather than an extra process wrapper for every service.
+# /host-bin allows optional host CLI tools (like Antigravity agy, Codex CLI) to be invoked seamlessly.
 ENV CLAIRE_APP_ROOT=/app \
-    PATH="/app/.venv/bin:$PATH" \
+    HOME=/home/claire \
+    PATH="/app/.venv/bin:/host-bin:$PATH" \
     SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
     SSL_CERT_DIR=/etc/ssl/certs \
     REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt \
