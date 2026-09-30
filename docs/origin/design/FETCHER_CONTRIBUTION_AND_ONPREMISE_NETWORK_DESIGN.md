@@ -7,7 +7,7 @@
 ## 1. 배경 및 문제 정의
 
 ### 1.1 배경
-Claire Bible은 웹 문서, 학술 논문, YouTube 영상, X(구 Twitter), 법령 정보 등 다양한 소스로부터 원문을 수집하여 지식 그래프를 구축합니다. 프로젝트를 클론하거나 포크하여 사용하는 다양한 조직과 개인 연구자들은 다음과 같은 요구사항을 가지고 있습니다:
+Claire Bible은 웹 문서, 학술 논문, YouTube 영상, X(구 Twitter), 법령 정보 등 다양한 소스로부터 원문을 수집하여 지식 그래프를 구축한다. 프로젝트를 클론하거나 포크하여 사용하는 다양한 조직과 개인 연구자들은 다음과 같은 요구사항을 가지고 있다:
 1. **사내망/폐쇄망 지식 수집**: 사내 위키(Confluence), 사내 코드 저장소(GitLab), 내부 티켓 시스템 등 온프레미스 사설 IP 대역(10.x, 192.168.x 등) 서비스로부터 지식 수집.
 2. **도메인 특화 수집기 확장**: 특정 사내 포털이나 전문 커뮤니티를 위한 맞춤형 수집기를 개발하여 시스템에 플러그인 형태로 연결.
 3. **업스트림 동기화 무충돌 (Zero Git Merge Conflict)**: 포크 이용자가 사설 수집기를 작성하더라도 원작(업스트림)의 변경 사항을 `git pull` / `git rebase`할 때 코드 충돌이 전혀 발생하지 않는 구조적 격리 보장.
@@ -26,7 +26,7 @@ Claire Bible은 웹 문서, 학술 논문, YouTube 영상, X(구 Twitter), 법�
 
 ## 2. 아키텍처 개요
 
-Claire Bible의 수집기 기여 아키텍처는 **2계층 규약 인터페이스**, **3계층 디스커버리 체계**, **SSOT(단일 진실 공급원) 라우팅**, **온프레미스 SSRF 보안 하네스**로 구성됩니다.
+Claire Bible의 수집기 기여 아키텍처는 **2계층 규약 인터페이스**, **3계층 디스커버리 체계**, **SSOT(단일 진실 공급원) 라우팅**, **온프레미스 SSRF 보안 하네스**로 구성된다.
 
 ```mermaid
 flowchart TD
@@ -75,10 +75,10 @@ flowchart TD
 
 ### 3.1 2계층 인터페이스 규약 (`src/claire/ingest/fetchers/base.py`)
 
-수집기는 처리 대상과 파이프라인 개입 단계에 따라 두 계층으로 명확히 구분됩니다.
+수집기는 처리 대상과 파이프라인 개입 단계에 따라 두 계층으로 명확히 구분된다.
 
 #### A. 독립 수집기 (`BaseFetcher`)
-특정 URL 패턴, 프로토콜, 또는 독립 파이프라인을 완전히 담당하는 최상위 수집기입니다.
+특정 URL 패턴, 프로토콜, 또는 독립 파이프라인을 완전히 담당하는 최상위 수집기이다.
 - **메서드 계약**:
   - `can_handle(url: str) -> bool`: 해당 URL을 이 수집기가 처리할 수 있는지 판별.
   - `fetch(url: str, **kwargs) -> FetchResult`: 문서를 수집하여 표준 `FetchResult` 반환.
@@ -86,7 +86,7 @@ flowchart TD
   - `priority: int`: 라우팅 우선순위 (기본값: `100`, 높을수록 먼저 매칭).
 
 #### B. 웹 폴백 도메인 어댑터 (`BaseWebAdapter`)
-일반 웹 스크래핑(`fetch_web`)의 파이프라인 내부에서 특정 도메인의 HTML 구조나 API를 전담 처리하는 어댑터입니다.
+일반 웹 스크래핑(`fetch_web`)의 파이프라인 내부에서 특정 도메인의 HTML 구조나 API를 전담 처리하는 어댑터이다.
 - **메서드 계약**:
   - `can_handle(url: str) -> bool`: 도메인 및 경로 매칭 여부.
   - `try_fetch(url: str, **kwargs) -> WebAdapterResult | None`: 해당 도메인 전용 추출 로직 수행. 실패 시 `None`을 반환하여 상위 fallback으로 제어 이양.
@@ -94,7 +94,7 @@ flowchart TD
   - `priority: int`: 어댑터 간 평가 우선순위.
 
 #### C. 표준 어댑터 결과 데이터클래스 (`WebAdapterResult`)
-과거의 불투명한 튜플 반환을 대체하며, 하위 호환성을 위해 튜플 언패킹(`__iter__`, `__getitem__`)을 완벽히 지원합니다.
+과거의 불투명한 튜플 반환을 대체하며, 하위 호환성을 위해 튜플 언패킹(`__iter__`, `__getitem__`)을 완벽히 지원한다.
 ```python
 @dataclass
 class WebAdapterResult:
@@ -111,7 +111,7 @@ class WebAdapterResult:
 
 ### 3.2 3계층 디스커버리 및 레지스트리 (`src/claire/ingest/registry.py`)
 
-중앙 싱글톤 `FetcherRegistry`가 모든 수집기와 어댑터의 생명주기와 라우팅 순위를 총괄합니다.
+중앙 싱글톤 `FetcherRegistry`가 모든 수집기와 어댑터의 생명주기와 라우팅 순위를 총괄한다.
 
 1. **1계층 (내장 수집기)**:
    - 시스템 기동 시 `law`, `discourse`, `video`, `youtube`, `xcom` 모듈을 기본 등록.
@@ -143,17 +143,17 @@ class MyWikiAdapter(BaseWebAdapter):
 
 ### 3.3 라우팅 단일 진실 공급원(SSOT) 통합
 
-- 과거 `router.py`와 `telegram_bot.py`에 중복 존재하던 URL 정규식 검사 로직을 제거하고 `FetcherRegistry.classify(url)`로 일원화하였습니다.
-- 텔레그램 봇의 진행 메시지 라벨링과 실제 인제스트 파이프라인의 수집 라우터가 완벽히 동일한 분류기를 공유하므로 불일치 위험이 근본적으로 해소되었습니다.
+- 과거 `router.py`와 `telegram_bot.py`에 중복 존재하던 URL 정규식 검사 로직을 제거하고 `FetcherRegistry.classify(url)`로 일원화하였다.
+- 텔레그램 봇의 진행 메시지 라벨링과 실제 인제스트 파이프라인의 수집 라우터가 완벽히 동일한 분류기를 공유하므로 불일치 위험이 근본적으로 해소되었다.
 
 ---
 
 ### 3.4 온프레미스 사설망(Private Network) 보안 정책 및 SSRF 방어
 
-온프레미스 환경에서 사내 인트라넷을 수집할 수 있도록 지원하면서도, 악의적이거나 잘못된 URL로 인한 보안 사고를 방어하기 위한 다층 보안 체계를 구현하였습니다.
+온프레미스 환경에서 사내 인트라넷을 수집할 수 있도록 지원하면서도, 악의적이거나 잘못된 URL로 인한 보안 사고를 방어하기 위한 다층 보안 체계를 구현하였다.
 
 #### A. 위험 대역 절대 차단 (Strictly Prohibited Networks)
-`CLAIRE_ALLOW_PRIVATE_NETWORKS=true` 설정 여부와 **무관하게**, 아래 대역은 어떠한 경우에도 접근이 즉시 차단됩니다:
+`CLAIRE_ALLOW_PRIVATE_NETWORKS=true` 설정 여부와 **무관하게**, 아래 대역은 어떠한 경우에도 접근이 즉시 차단된다:
 - **클라우드 인스턴스 메타데이터 서비스(IMDS)**: `169.254.169.254`, `169.254.0.0/16` (AWS, GCP, Azure, OpenStack의 IAM 크레덴셜 탈취 시도 방어)
 - **멀티캐스트 및 브로드캐스트**: `224.0.0.0/4`, `255.255.255.255/32`, `ff00::/8`
 - **IPv6 링크 로컬 및 미지정 주소**: `fe80::/10`, `::/128`
@@ -167,7 +167,7 @@ class MyWikiAdapter(BaseWebAdapter):
 - CIDR 표기법(예: `10.20.0.0/16`, `192.168.1.50`) 및 와일드카드 도메인 패턴(예: `*.corp.internal`, `wiki.local`)을 쉼표로 구분하여 지정.
 
 #### D. DNS Rebinding 방어
-- URL의 호스트명에 대해 `socket.getaddrinfo()`를 수행하여 반환된 **모든 IP 주소에 대해 SSRF 안전성을 전수 검증**한 후 요청을 진행합니다.
+- URL의 호스트명에 대해 `socket.getaddrinfo()`를 수행하여 반환된 **모든 IP 주소에 대해 SSRF 안전성을 전수 검증**한 후 요청을 진행한다.
 
 #### E. 자원 고갈 방어
 - 50MB 응답 크기 상한(`max_size`) 및 30초 타임아웃 기본 적용으로 리소스 고갈 공격 차단.

@@ -10,25 +10,25 @@
 ## 1. 설계 배경 및 엔지니어링 철학
 
 ### A. 문제 진단: 용어 파편화와 하위 호환성 타협의 폐해
-Claire Bible 지식 적재 파이프라인에서 원시 문서를 지식 그래프로 변환하고 가독 상세 본문(Detail Markdown)을 렌더링할 때, 사용자가 모델에 부여하는 맥락적 관심사(Contextual Orientation)를 지칭하는 용어가 다음과 같이 파편화되어 시스템 전반에 심각한 엔지니어링 부채를 누적시켰습니다:
+Claire Bible 지식 적재 파이프라인에서 원시 문서를 지식 그래프로 변환하고 가독 상세 본문(Detail Markdown)을 렌더링할 때, 사용자가 모델에 부여하는 맥락적 관심사(Contextual Orientation)를 지칭하는 용어가 다음과 같이 파편화되어 시스템 전반에 심각한 엔지니어링 부채를 누적시켰다:
 1. `directive` (초기 레거시 지시문 명칭)
 2. `orientation` (과도기적 지향성 명칭)
 3. `focus` (최종 표준 초점 명칭)
 
-이 세 가지 용어가 CLI 옵션(`--focus`, `--orientation`, `--directive`), API 요청 본문(`focus`, `directive`, `default_directive`, `default_focus`), DB 메타데이터(`meta["directive"]`), 파이프라인 매개변수(`directive`), 프론트엔드 클래스(`directive-tag`), 테스트 슈트에 난립해 있었습니다.
+이 세 가지 용어가 CLI 옵션(`--focus`, `--orientation`, `--directive`), API 요청 본문(`focus`, `directive`, `default_directive`, `default_focus`), DB 메타데이터(`meta["directive"]`), 파이프라인 매개변수(`directive`), 프론트엔드 클래스(`directive-tag`), 테스트 슈트에 난립해 있었다.
 
 과거 어시스턴트 및 개발 과정에서 "하위 호환성(Backward Compatibility)"을 핑계로 레거시 키를 남겨둔 채 `body.get("focus") or body.get("orientation") or body.get("directive")`와 같은 묵인적 fallback 코드를 양산한 결과:
-- 시스템의 단일 진실 공급원(Single Source of Truth, SSOT) 원칙이 훼손되었습니다.
-- 개발자와 AI 에이전트 간의 소통에서 모호함이 증폭되었습니다.
-- OpenAPI 스펙과 실제 구현 간의 불일치가 지속되었습니다.
+- 시스템의 단일 진실 공급원(Single Source of Truth, SSOT) 원칙이 훼손되었다.
+- 개발자와 AI 에이전트 간의 소통에서 모호함이 증폭되었다.
+- OpenAPI 스펙과 실제 구현 간의 불일치가 지속되었다.
 
 ### B. 엔지니어링 철학: 단일 정본화(Canonicity)와 완전 소각(Purge)
-본 설계는 하위 호환성을 명분으로 타협하지 않습니다.
-1. **역사적 정본화(Historical Canonicity)**: "이 시스템에는 창시 이래 오직 `focus(초점)`만 존재했다"는 원칙을 정립합니다.
-2. **완전 소각(Total Purge)**: `directive`라는 단어 및 파생 개념을 DB, 소스 코드, 프롬프트, 인터페이스(CLI/API/Bot/UI), 테스트, 문서에서 100% 제거합니다.
-3. **단일 표준 채택(Strict Single Standard)**: 별칭(Alias)이나 유예 기간(Deprecation Period) 없이 원자적으로 전환합니다.
+본 설계는 하위 호환성을 명분으로 타협하지 않는다.
+1. **역사적 정본화(Historical Canonicity)**: "이 시스템에는 창시 이래 오직 `focus(초점)`만 존재했다"는 원칙을 정립한다.
+2. **완전 소각(Total Purge)**: `directive`라는 단어 및 파생 개념을 DB, 소스 코드, 프롬프트, 인터페이스(CLI/API/Bot/UI), 테스트, 문서에서 100% 제거한다.
+3. **단일 표준 채택(Strict Single Standard)**: 별칭(Alias)이나 유예 기간(Deprecation Period) 없이 원자적으로 전환한다.
 
-*(단, Nginx 설정의 `ssl_* directives`와 같은 시스템 인프라 및 서드파티 고유 명사는 도메인과 무관하므로 본 소각 대상에서 제외합니다.)*
+*(단, Nginx 설정의 `ssl_* directives`와 같은 시스템 인프라 및 서드파티 고유 명사는 도메인과 무관하므로 본 소각 대상에서 제외한다.)*
 
 ---
 
@@ -88,11 +88,11 @@ flowchart TD
 ### A. DB 스키마 및 영속 계층 (`src/claire/store/db.py`)
 
 #### 1. `documents.meta` JSON 구조 변경
-- 기존 `documents.meta` 내부의 `"directive"` 키를 `"focus"` 키로 마이그레이션합니다.
-- 향후 신규 적재 시 오직 `{"focus": "..."}` 형태로만 직렬화됩니다.
+- 기존 `documents.meta` 내부의 `"directive"` 키를 `"focus"` 키로 마이그레이션한다.
+- 향후 신규 적재 시 오직 `{"focus": "..."}` 형태로만 직렬화된다.
 
 #### 2. 원자적 SQLite 마이그레이션 쿼리
-시스템 부팅 시(`init_db` 또는 마이그레이션 루틴) 기존 데이터베이스에 존재하는 모든 레거시 `directive` 메타 키를 `focus`로 자동 변환합니다.
+시스템 부팅 시(`init_db` 또는 마이그레이션 루틴) 기존 데이터베이스에 존재하는 모든 레거시 `directive` 메타 키를 `focus`로 자동 변환한다.
 
 ```sql
 -- SQLite JSON 마이그레이션: directive 키를 focus 키로 복사 후 directive 키 제거
@@ -112,7 +112,7 @@ WHERE json_extract(meta, '$.directive') IS NOT NULL;
 ```
 
 #### 3. DB 함수 리팩토링
-`src/claire/store/db.py` 내의 CRUD 인터페이스를 단일 표준으로 교체합니다:
+`src/claire/store/db.py` 내의 CRUD 인터페이스를 단일 표준으로 교체한다:
 
 ```python
 def set_document_focus(conn: sqlite3.Connection, doc_id: str, focus: str | None) -> None:
@@ -188,14 +188,14 @@ class IngestReport:
   ```
 
 #### 3. 인제스트 서비스 (`src/claire/ingest/service.py`)
-- `IngestService.get_effective_default_focus()`가 반환한 값을 항상 `focus` 키워드 인자로만 파이프라인에 주입합니다.
+- `IngestService.get_effective_default_focus()`가 반환한 값을 항상 `focus` 키워드 인자로만 파이프라인에 주입한다.
 
 ---
 
 ### C. 프롬프트 및 추출 프로바이더 (`src/claire/extract/`)
 
 #### 1. 프롬프트 생성 엔진 (`prompts.py`)
-함수 인자명과 내부 시스템 프롬프트 본문에서 `directive` 단어를 완전히 소각합니다.
+함수 인자명과 내부 시스템 프롬프트 본문에서 `directive` 단어를 완전히 소각한다.
 
 ```python
 def generate_detail_system_prompt(
@@ -231,16 +231,16 @@ class ExtractionProvider(ABC):
 ```
 
 #### 3. 프로바이더 구현체 (`antigravity_provider.py`, `codex_provider.py`, `gemini_provider.py`)
-- 모든 프로바이더 구현체의 매개변수를 `focus`로 리팩토링합니다.
-- `(doc.meta or {}).get("focus")`를 표준 메타데이터 조회 방식으로 통일합니다.
+- 모든 프로바이더 구현체의 매개변수를 `focus`로 리팩토링한다.
+- `(doc.meta or {}).get("focus")`를 표준 메타데이터 조회 방식으로 통일한다.
 
 ---
 
 ### D. 사용자 인터페이스 및 외부 계약 계층
 
 #### 1. CLI (`src/claire/cli.py`)
-- 레거시 플래그 `--directive`, `--orientation`을 파서(`argparse`)에서 완전 삭제합니다.
-- 오직 단일 정본 플래그 `--focus` (약칭 `-f` 지원 가능)만 제공합니다.
+- 레거시 플래그 `--directive`, `--orientation`을 파서(`argparse`)에서 완전 삭제한다.
+- 오직 단일 정본 플래그 `--focus` (약칭 `-f` 지원 가능)만 제공한다.
 - 도움말 문자열 수정:
   ```python
   pi.add_argument(
@@ -250,8 +250,8 @@ class ExtractionProvider(ABC):
       help="가독 상세 작성을 위한 집중 초점 (content focus for detail rendering)"
   )
   ```
-- `claire regenerate`, `claire ingest-bundle`, `claire ingest` 명령에서 `args.focus`로 직접 접근합니다.
-- 테마 명령(`claire theme-add`, `claire theme-update`)에서도 `--focus`, `--default-focus`로 일관성을 유지합니다.
+- `claire regenerate`, `claire ingest-bundle`, `claire ingest` 명령에서 `args.focus`로 직접 접근한다.
+- 테마 명령(`claire theme-add`, `claire theme-update`)에서도 `--focus`, `--default-focus`로 일관성을 유지한다.
 
 #### 2. REST API 서버 (`src/claire/api/server.py`)
 - `POST /ingest`, `POST /extract/detail` 엔드포인트:
@@ -268,11 +268,11 @@ class ExtractionProvider(ABC):
   if focus is not None:
       ingest_kwargs["focus"] = focus
   ```
-- 테마 생성/수정 API: `default_directive` 수신 코드를 영구 제거하고 오직 `default_focus`만 처리합니다.
-- `GET /documents/{id}` 및 검색 응답 모델: `doc.meta`의 `focus` 필드를 클라이언트에 정규 반환합니다.
+- 테마 생성/수정 API: `default_directive` 수신 코드를 영구 제거하고 오직 `default_focus`만 처리한다.
+- `GET /documents/{id}` 및 검색 응답 모델: `doc.meta`의 `focus` 필드를 클라이언트에 정규 반환한다.
 
 #### 3. OpenAPI 계약 (`docs/contracts/openapi.yaml`, `src/claire/static/docs/openapi.yaml`)
-- `directive`, `default_directive` 속성을 스키마에서 영구 삭제합니다.
+- `directive`, `default_directive` 속성을 스키마에서 영구 삭제한다.
 - `focus`:
   ```yaml
   focus:
@@ -294,7 +294,7 @@ class ExtractionProvider(ABC):
   - `parse_message_directive` -> `parse_message_focus`
   - `parse_caption_directive` -> `parse_caption_focus`
 - 접두사 및 플래그 정규식 정제:
-  - 군더더기 키워드(`directive`, `orientation`, `지침`, `방향성`)를 패턴에서 소각하고, 명료한 정본 키워드로 수렴합니다:
+  - 군더더기 키워드(`directive`, `orientation`, `지침`, `방향성`)를 패턴에서 소각하고, 명료한 정본 키워드로 수렴한다:
   ```python
   RE_FOCUS_FLAG = re.compile(
       r"(?:\s+|^)(?:[-–—―]{1,2}focus|[-–—―]f)\s+([^\n]+)",
@@ -370,7 +370,7 @@ class ExtractionProvider(ABC):
 
 ## 5. 잔재 검증 프로토콜 (Zero-Residual Audit Specification)
 
-마이그레이션 완료 후, 시스템 감사관은 다음 두 가지 수학적/물리적 검증을 통과해야만 배포를 승인합니다.
+마이그레이션 완료 후, 시스템 감사관은 다음 두 가지 수학적/물리적 검증을 통과해야만 배포를 승인한다.
 
 ### A. SQLite 데이터베이스 메타데이터 전수 검사
 ```bash
@@ -397,4 +397,4 @@ git grep -in "directive" -- \
 
 ## 6. 결론 및 향후 보증
 
-본 아키텍처 설계를 통해 Claire Bible 시스템은 임시방편적인 유연성(Pliable Aliases)을 철폐하고, 엄격한 도메인 정본성(Domain Canonicity)을 회복합니다. 어떠한 하위 호환성 타협이나 모호한 레거시 키도 허용되지 않으며, `focus(초점)`는 시스템의 영구적인 1급 시민(First-Class Citizen) 엔지니어링 규격으로 안착됩니다.
+본 아키텍처 설계를 통해 Claire Bible 시스템은 임시방편적인 유연성(Pliable Aliases)을 철폐하고, 엄격한 도메인 정본성(Domain Canonicity)을 회복한다. 어떠한 하위 호환성 타협이나 모호한 레거시 키도 허용되지 않으며, `focus(초점)`는 시스템의 영구적인 1급 시민(First-Class Citizen) 엔지니어링 규격으로 안착된다.

@@ -7,7 +7,7 @@
 ## 1. 배경 및 문제 정의
 
 ### 1.1 배경
-Claire Bible은 웹 문서, 학술 논문 PDF, 미디어 자막, 소셜 피드 등 다국어 지식 자산을 수집하고 구조화된 온톨로지 그래프(SQLite + Obsidian Vault)로 적재하는 지식베이스 플랫폼입니다. 기존 [PREFERRED_LANGUAGES_DESIGN.md](PREFERRED_LANGUAGES_DESIGN.md)를 통해 수집 파이프라인(Fetcher 다국어 자막/언어 선별) 및 LLM 온톨로지 추출 프롬프트에 광역 선호 언어(`CLAIRE_PREFERRED_LANGUAGES`)를 공급하는 체계가 수립되었습니다.
+Claire Bible은 웹 문서, 학술 논문 PDF, 미디어 자막, 소셜 피드 등 다국어 지식 자산을 수집하고 구조화된 온톨로지 그래프(SQLite + Obsidian Vault)로 적재하는 지식베이스 플랫폼이다. 기존 [PREFERRED_LANGUAGES_DESIGN.md](PREFERRED_LANGUAGES_DESIGN.md)를 통해 수집 파이프라인(Fetcher 다국어 자막/언어 선별) 및 LLM 온톨로지 추출 프롬프트에 광역 선호 언어(`CLAIRE_PREFERRED_LANGUAGES`)를 공급하는 체계가 수립되었다.
 
 ### 1.2 기존 구조의 기술적 한계 및 결함 분석
 1. **인터페이스 텍스트의 정적 하드코딩 (I18n Decoupling 결여)**:
@@ -39,7 +39,7 @@ Claire Bible은 웹 문서, 학술 논문 PDF, 미디어 자막, 소셜 피드 �
 
 ## 3. 인터페이스별 선호 언어 해석 체계 (Language Preference Resolution)
 
-시스템은 인터페이스 유형에 따라 컨텍스트에 가장 적합한 로케일을 결정론적으로 해석합니다.
+시스템은 인터페이스 유형에 따라 컨텍스트에 가장 적합한 로케일을 결정론적으로 해석한다.
 
 ```mermaid
 flowchart TD
@@ -81,7 +81,7 @@ flowchart TD
 ```
 
 ### 3.1 비동기 동시성 격리 및 컨텍스트 계약
-웹 및 봇의 비동기 요청 처리 중 로케일 오염(Cross-request race condition)을 방지하기 위해 Python `contextvars`를 사용합니다.
+웹 및 봇의 비동기 요청 처리 중 로케일 오염(Cross-request race condition)을 방지하기 위해 Python `contextvars`를 사용한다.
 
 ```python
 # src/claire/i18n/context.py
@@ -105,7 +105,7 @@ def set_current_locale(locale: str) -> None:
 ```
 
 ### 3.2 WebUI 미들웨어 통합 사양
-ASGI/Starlette 파이프라인에서 요청 수신 즉시 로케일을 결정하고 응답 헤더(`Content-Language`)에 바인딩합니다.
+ASGI/Starlette 파이프라인에서 요청 수신 즉시 로케일을 결정하고 응답 헤더(`Content-Language`)에 바인딩한다.
 
 ```python
 # src/claire/api/middleware/i18n.py
@@ -205,7 +205,7 @@ files:
 ## 5. 형태소 분석기(NLP) 플러그인 아키텍처 및 한국어(Kiwipiepy) 연동
 
 ### 5.1 문제 분석: 단순 정규식 토크나이징의 정합성 한계
-현재 SQLite FTS5 키워드 색인 대상인 `entities_fts`는 다음 정규식으로 토큰을 분리합니다: $$\text{Token} \in \text{Matches}(\text{pattern} = \texttt{[0-9A-Za-z가-힣]+})$$
+현재 SQLite FTS5 키워드 색인 대상인 `entities_fts`는 다음 정규식으로 토큰을 분리한다: $$\text{Token} \in \text{Matches}(\text{pattern} = \texttt{[0-9A-Za-z가-힣]+})$$
 
 * **조사 결합 오류**: `엔티티_A는` $\neq$ `엔티티_A`. 사용자가 '엔티티_A'로 질의 시 완전 일치 실패.
 * **어미 변화 누락**: `분석하다`, `분석하는`, `분석된` $\rightarrow$ 어근 `분석`으로 수렴되지 않음.
@@ -217,7 +217,7 @@ files:
 * **토큰 정밀도**: 결합형태소 분리 및 실질형태소(체언/용언 어근) 필터링 제공.
 
 ### 5.3 형태소 분석기 인터페이스 규약 (Protocol)
-모든 언어별 형태소 분석기는 다음 인터페이스 계약을 엄격히 구현해야 합니다.
+모든 언어별 형태소 분석기는 다음 인터페이스 계약을 엄격히 구현해야 한다.
 
 ```python
 # src/claire/nlp/base.py
@@ -344,7 +344,7 @@ class MorphAnalyzerFactory:
 ## 6. FTS5 색인 및 검색 파이프라인 결합 계약
 
 ### 6.1 색인 시점 (Indexing Phase)
-`src/claire/store/db.py`의 엔티티 저장(`save_entity`) 및 일괄 저장 시점에 FTS5 테이블을 채우는 명세입니다.
+`src/claire/store/db.py`의 엔티티 저장(`save_entity`) 및 일괄 저장 시점에 FTS5 테이블을 채우는 명세이다.
 
 ```python
 def save_entity(conn: sqlite3.Connection, ent: Entity, *, analyzer: MorphAnalyzer) -> None:
@@ -364,7 +364,7 @@ def save_entity(conn: sqlite3.Connection, ent: Entity, *, analyzer: MorphAnalyze
 ```
 
 ### 6.2 질의 시점 (Query Phase)
-`_fts_query`는 자유 텍스트를 파싱하여 FTS5 연산자 충돌을 방지하고 구문 매칭 쿼리를 생성합니다.
+`_fts_query`는 자유 텍스트를 파싱하여 FTS5 연산자 충돌을 방지하고 구문 매칭 쿼리를 생성한다.
 
 ```python
 def _fts_query(query: str, analyzer: MorphAnalyzer) -> str:
@@ -378,7 +378,7 @@ def _fts_query(query: str, analyzer: MorphAnalyzer) -> str:
 ```
 
 ### 6.3 인덱스 재구축 도구 계약 (`claire heal --reindex-fts`)
-형태소 분석기가 변경되거나 활성화 언어가 교체될 경우 기존 색인과의 불일치를 해결하기 위한 결정론적 수리 커맨드를 제공합니다:
+형태소 분석기가 변경되거나 활성화 언어가 교체될 경우 기존 색인과의 불일치를 해결하기 위한 결정론적 수리 커맨드를 제공한다:
 
 ```bash
 claire heal --reindex-fts
@@ -433,7 +433,7 @@ CLAIRE_PREFERRED_LANGUAGES=ko,en
 
 # FTS 키워드 검색 형태소 분석기 언어 (ko, en 등).
 # 미지정 시 CLAIRE_LANG 또는 CLAIRE_PREFERRED_LANGUAGES 1순위 언어를 상속.
-# ko 설정 시 kiwipiepy 설치 여부에 따라 고성능 Kiwi 분석기가 활성화됩니다.
+# ko 설정 시 kiwipiepy 설치 여부에 따라 고성능 Kiwi 분석기가 활성화된다.
 CLAIRE_MORPH_ANALYZER_LANG=ko
 ```
 
@@ -441,7 +441,7 @@ CLAIRE_MORPH_ANALYZER_LANG=ko
 
 ## 8. 의존성 격리 및 패키지 사양 (`pyproject.toml`)
 
-코어 패키지의 경량성을 유지하고 C 컴파일러가 없는 최소 환경에서도 설치가 가능하도록 선택적 의존성으로 선언합니다.
+코어 패키지의 경량성을 유지하고 C 컴파일러가 없는 최소 환경에서도 설치가 가능하도록 선택적 의존성으로 선언한다.
 
 ```toml
 [project.optional-dependencies]

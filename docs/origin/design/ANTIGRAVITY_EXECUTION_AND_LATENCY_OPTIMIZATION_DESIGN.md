@@ -1,7 +1,7 @@
 # Antigravity CLI 적재 지연 해소 및 실행 격리·최적화 아키텍처 설계
 
 > [!NOTE]
-> 전체 프로바이더 통합 스펙 및 설정 레퍼런스는 [MULTI_PROVIDER_DESIGN.md](MULTI_PROVIDER_DESIGN.md)에 집약되어 있습니다. 본 문서는 Antigravity CLI의 실측 프로덕션 지연 분석 및 실행 격리 심층 연구 자료입니다.
+> 전체 프로바이더 통합 스펙 및 설정 레퍼런스는 [MULTI_PROVIDER_DESIGN.md](MULTI_PROVIDER_DESIGN.md)에 집약되어 있다. 본 문서는 Antigravity CLI의 실측 프로덕션 지연 분석 및 실행 격리 심층 연구 자료이다.
 
 작성일: 2026-09-27 · 상태: **Phase 1-2 Implemented / Phase 3-4 Roadmap** · 기준: [GOALS.md](../GOALS.md) 트랙1/2 추출 성능 및 신뢰성 · 관련 문서: [KNOWLEDGE_GRAPH_LINKING_AND_CALIBRATION_DESIGN.md](KNOWLEDGE_GRAPH_LINKING_AND_CALIBRATION_DESIGN.md), [MULTI_PROVIDER_DESIGN.md](MULTI_PROVIDER_DESIGN.md), [TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md](TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md), [CLAIRE_ARCHITECTURE_ROADMAP.md](../CLAIRE_ARCHITECTURE_ROADMAP.md), [ENVIRONMENT_VARIABLES.md](../implementation/ENVIRONMENT_VARIABLES.md)
 
@@ -10,7 +10,7 @@
 ## 1. 배경 및 프로덕션 실사 데이터 분석
 
 ### 1.1 프로덕션 실사 배경
-2026년 9월 27일, 프로덕션 환경(`cb.netspheres.org`)에서 수집된 최신 Support Bundle(`support_bundle_61a676e4`) 실사 중 단일 웹 문서 적재에 **12분 46초(766초)**가 소요되는 심각한 지연 현상이 확인되었습니다. 직전 적재된 HWP 및 PDF 보고서에서도 각각 9분 26초, 12분 44초가 소요되어 파이프라인 전반에 공통적인 병목이 고착화되어 있음이 입증되었습니다.
+2026년 9월 27일, 프로덕션 환경(`cb.netspheres.org`)에서 수집된 최신 Support Bundle(`support_bundle_61a676e4`) 실사 중 단일 웹 문서 적재에 **12분 46초(766초)**가 소요되는 심각한 지연 현상이 확인되었다. 직전 적재된 HWP 및 PDF 보고서에서도 각각 9분 26초, 12분 44초가 소요되어 파이프라인 전반에 공통적인 병목이 고착화되어 있음이 입증되었다.
 
 ### 1.2 최신 적재 문서 실측 타임라인 (`doc_ddd82c7b40d5`)
 * **대상 문서**: *What is JPEG XL: do we really need another image format? | DebugBear* (`https://www.debugbear.com/blog/jpeg-xl-image-format`)
@@ -27,35 +27,35 @@
 [01:52:08] 적재 완료 (네트워크 I/O, Vault 마크다운 동기화, SQLite 커밋 등은 2초 미만)
 ```
 
-전체 766초 중 **약 740초(96.6%)**가 순수 LLM/CLI 대기 시간이었으며, 이 중 **지식 그래프 엔티티 동일체 판정(185초)과 전역 관계 판정(463초)이 648초(전체의 84.5%)를 차지**했습니다.
+전체 766초 중 **약 740초(96.6%)**가 순수 LLM/CLI 대기 시간이었으며, 이 중 **지식 그래프 엔티티 동일체 판정(185초)과 전역 관계 판정(463초)이 648초(전체의 84.5%)를 차지**했다.
 
 ---
 
 ## 2. 5대 병목 근본 원인 분석 (Root Cause Analysis)
 
 ### 2.1 에이전트 도구 오동작 (Agent Tool Pollution)
-`antigravity_provider.py`는 `agy` CLI를 비대화형(`-p`)으로 호출합니다. 그러나 `agy`는 기본적으로 파일 읽기, 코드베이스 검색, 셸 명령 실행, 백그라운드 태스크 관리 도구가 탑재된 자율 코딩 에이전트입니다.
-* `judge_relationship` 프롬프트에 명시된 *"Decide if there is a DIRECT, FACTUAL, and MEANINGFUL relationship between Entity A and Entity B"* 지시문을 수신한 `agy`는 스스로 사실 관계를 연구하려 시도했습니다.
+`antigravity_provider.py`는 `agy` CLI를 비대화형(`-p`)으로 호출한다. 그러나 `agy`는 기본적으로 파일 읽기, 코드베이스 검색, 셸 명령 실행, 백그라운드 태스크 관리 도구가 탑재된 자율 코딩 에이전트이다.
+* `judge_relationship` 프롬프트에 명시된 *"Decide if there is a DIRECT, FACTUAL, and MEANINGFUL relationship between Entity A and Entity B"* 지시문을 수신한 `agy`는 스스로 사실 관계를 연구하려 시도했다.
 * 텔레메트리 에러 상세 분석 결과:
   * `PIK ↔ FUIF` (102.0초): `"error":"search path file:///app/tests does not exist"` (코드 검색 시도 후 실패)
   * `PNG ↔ AVIF` (93.5초): `"error":"cannot kill task ... task is not running"` (백그라운드 태스크 제어 시도)
   * `PNG ↔ PlantUML` (63.3초): `"error":"permission check failed for read_file \"/root/.gemini/antigravity-cli/brain\""` (브레인 파일 열람 시도)
-* 이로 인해 단순 텍스트/JSON 분류 작업이 다중 턴 에이전트 도구 루프로 변질되어 단일 호출당 60~102초가 소모되었습니다.
+* 이로 인해 단순 텍스트/JSON 분류 작업이 다중 턴 에이전트 도구 루프로 변질되어 단일 호출당 60~102초가 소모되었다.
 
 ### 2.2 작업 디렉터리(`cwd`) 컨텍스트 오염
-`subprocess.run(cmd, ...)` 호출 시 `cwd`가 지정되지 않아 컨테이너 애플리케이션 루트(`/app`)가 그대로 워크스페이스로 주입되었습니다.
-* `agy` 기동 시 내부 파일 와처(`file_watcher.go`)가 `/app` 내 수천 개 파일과 `.git` 트리를 순회하며 인덱싱하는 오버헤드가 매 CLI 기동마다 누적되었습니다.
+`subprocess.run(cmd, ...)` 호출 시 `cwd`가 지정되지 않아 컨테이너 애플리케이션 루트(`/app`)가 그대로 워크스페이스로 주입되었다.
+* `agy` 기동 시 내부 파일 와처(`file_watcher.go`)가 `/app` 내 수천 개 파일과 `.git` 트리를 순회하며 인덱싱하는 오버헤드가 매 CLI 기동마다 누적되었다.
 
 ### 2.3 추론 강도(Effort) 미분화에 따른 Thinking 턴 지연
-전역 설정(`CLAIRE_AGY_EFFORT=medium`)이 모든 하위 작업에 일괄 적용되었습니다.
-* `judge_same_entity`는 "SAME" 또는 "DIFFERENT" 한 단어만 출력하면 되는 단순 결정 작업임에도 `medium` 추론 사고가 강제되어 턴당 9~16초가 소요되었습니다.
-* 판정 작업에 `effort=low`를 적용할 경우 품질 저하 없이 4~6초 수준으로 단축 가능함이 실증되었습니다.
+전역 설정(`CLAIRE_AGY_EFFORT=medium`)이 모든 하위 작업에 일괄 적용되었다.
+* `judge_same_entity`는 "SAME" 또는 "DIFFERENT" 한 단어만 출력하면 되는 단순 결정 작업임에도 `medium` 추론 사고가 강제되어 턴당 9~16초가 소요되었다.
+* 판정 작업에 `effort=low`를 적용할 경우 품질 저하 없이 4~6초 수준으로 단축 가능함이 실증되었다.
 
 ### 2.4 파이프라인의 완전 동기 직렬(Serial) 실행
-`AntigravityProvider`는 `self.max_concurrency = int(getattr(settings, "agy_max_concurrency", 2))` 세마포어를 내장하고 있으나, 호출부인 `pipeline.py`의 엔티티 해소 루프와 관계 판정 루프(`for e_node, cand_id, score in eval_candidates:`)가 완전히 단일 스레드로 직렬 동기 호출되고 있었습니다. 이로 인해 28건(동일체 18건 + 관계 10건)의 CLI 호출이 1건씩 순차 실행되며 지연이 그대로 누적되었습니다.
+`AntigravityProvider`는 `self.max_concurrency = int(getattr(settings, "agy_max_concurrency", 2))` 세마포어를 내장하고 있으나, 호출부인 `pipeline.py`의 엔티티 해소 루프와 관계 판정 루프(`for e_node, cand_id, score in eval_candidates:`)가 완전히 단일 스레드로 직렬 동기 호출되고 있었다. 이로 인해 28건(동일체 18건 + 관계 10건)의 CLI 호출이 1건씩 순차 실행되며 지연이 그대로 누적되었다.
 
 ### 2.5 텔레메트리 식별자 결손
-`judge_same_entity`와 `judge_relationship` 내부에서 `_run_cli`를 호출할 때 `call_type`과 `document_id`를 전달하지 않아 텔레메트리에 `document_id=None`, `call_type="cli"`로 기록되었습니다. 이로 인해 어떤 문서의 인제스트 과정에서 몇 건의 판정이 유발되었는지 즉시 집계되지 않는 관측성 결손이 발생했습니다.
+`judge_same_entity`와 `judge_relationship` 내부에서 `_run_cli`를 호출할 때 `call_type`과 `document_id`를 전달하지 않아 텔레메트리에 `document_id=None`, `call_type="cli"`로 기록되었다. 이로 인해 어떤 문서의 인제스트 과정에서 몇 건의 판정이 유발되었는지 즉시 집계되지 않는 관측성 결손이 발생했다.
 
 ---
 
@@ -81,7 +81,7 @@
 ### 3.1 `AntigravityProvider`: 순수 추론 모드 및 격리 환경 구축
 
 #### (1) `allow_tools` 매개변수 및 시스템 지시문 주입
-`research()`를 제외한 모든 호출(`extract`, `render_detail`, `judge_*`, `classify_*`)은 도구 호출이 필요 없는 순수 생성/분류 작업입니다.
+`research()`를 제외한 모든 호출(`extract`, `render_detail`, `judge_*`, `classify_*`)은 도구 호출이 필요 없는 순수 생성/분류 작업이다.
 
 ```python
 # src/claire/extract/antigravity_provider.py
@@ -110,7 +110,7 @@ def _run_cli(
 ```
 
 #### (2) 작업 디렉터리(`cwd`) 임시 격리
-컨테이너 내부 소스코드 탐색 및 파일 와처 오버헤드를 원천 차단하기 위해 독립된 빈 임시 디렉터리를 `cwd`로 지정합니다.
+컨테이너 내부 소스코드 탐색 및 파일 와처 오버헤드를 원천 차단하기 위해 독립된 빈 임시 디렉터리를 `cwd`로 지정한다.
 
 ```python
     clean_cwd = Path(tempfile.gettempdir()) / "claire_agy_clean"
@@ -128,7 +128,7 @@ def _run_cli(
 ```
 
 #### (3) 작업 유형별 `effort` 동적 분기 및 텔레메트리 식별자 전달
-단순 분류/판정 작업은 `effort="low"`를 적용하여 Thinking 지연을 최소화합니다.
+단순 분류/판정 작업은 `effort="low"`를 적용하여 Thinking 지연을 최소화한다.
 
 ```python
     def judge_same_entity(
@@ -176,7 +176,7 @@ def _run_cli(
 
 ### 3.2 `pipeline.py`: 판정 루프 동시성 병렬화
 
-`pipeline.py`의 전역 관계 판정(Phase 2) 루프를 `ThreadPoolExecutor` 기반 동시성 실행으로 전환합니다. 이미 `AntigravityProvider` 내부에 세마포어(`self._sem`)가 존재하므로, `max_workers = getattr(provider, "max_concurrency", 2)`로 안전하게 병렬 처리됩니다.
+`pipeline.py`의 전역 관계 판정(Phase 2) 루프를 `ThreadPoolExecutor` 기반 동시성 실행으로 전환한다. 이미 `AntigravityProvider` 내부에 세마포어(`self._sem`)가 존재하므로, `max_workers = getattr(provider, "max_concurrency", 2)`로 안전하게 병렬 처리된다.
 
 ```python
 # src/claire/ingest/pipeline.py Phase 2 관계 판정부
@@ -242,17 +242,17 @@ if eval_candidates:
 
 ### 3.3 온톨로지 양립성 사전 게이트 (Heuristic Filter)
 
-벡터 유사도가 임계값(`0.70`)을 넘더라도 현실적으로 온톨로지 관계를 맺을 수 없는 명백한 이종 도메인 조합은 LLM 호출 전에 선별 탈락시킵니다.
+벡터 유사도가 임계값(`0.70`)을 넘더라도 현실적으로 온톨로지 관계를 맺을 수 없는 명백한 이종 도메인 조합은 LLM 호출 전에 선별 탈락시킨다.
 * **배제 조합 예시**:
   * `Concept(이미지 압축 포맷)` ↔ `Tool(다이어그램 소프트웨어)` (예: PNG ↔ PlantUML)
   * `Org(표준화 기구)` ↔ `Org(일반 전자상거래 기업)` 간 직접 관계 (예: JPEG Group ↔ Alibaba)
-* 엔티티 타입 조합 유효성(`is_plausible_relation_pair(type_a, type_b)`) 검사를 선행하여 10개 후보를 2~4개의 유의미한 후보로 사전 축소합니다.
+* 엔티티 타입 조합 유효성(`is_plausible_relation_pair(type_a, type_b)`) 검사를 선행하여 10개 후보를 2~4개의 유의미한 후보로 사전 축소한다.
 
 ---
 
 ## 4. 성능 개선 전후 비교 및 정량적 벤치마크 기대치
 
-최신 적재 문서(`doc_ddd82c7b40d5`, 기준 12분 46초)에 본 설계를 적용했을 때의 정량적 기대치입니다.
+최신 적재 문서(`doc_ddd82c7b40d5`, 기준 12분 46초)에 본 설계를 적용했을 때의 정량적 기대치이다.
 
 | 실행 단계 | 기존 실측치 | 개선 후 기대치 | 개선 요인 |
 | :--- | :--- | :--- | :--- |

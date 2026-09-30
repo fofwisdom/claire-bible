@@ -172,7 +172,7 @@ Gemini 및 브라우저 사용자가 토큰 복사/붙여넣기 없이 최고 �
 ### 5.1 Google Gemini (Spark / 맞춤형 연결 앱)
 1. `gemini.google.com/spark/apps` 접속 -> **[MCP 서버에 연결]** 클릭.
 2. **MCP 서버 URL**: `https://cb.netspheres.org/mcp` 입력 후 [다음] 클릭.
-3. Gemini가 DCR 및 메타데이터를 자동 감지하여 Claire 승인 페이지를 엽니다.
+3. Gemini가 DCR 및 메타데이터를 자동 감지하여 Claire 승인 페이지를 연다.
 4. 브라우저에서 **[✅ 바로 승인하기]** (또는 스마트폰 텔레그램 알림에서 **[승인]**) 클릭 ➡️ 즉시 연동 완료!
 
 ### 5.2 Claude Desktop / Claude Code (`settings.json`)

@@ -1,6 +1,6 @@
 # Claire Bible — 오리진 목표와 로드맵 (증강 계보)
 
-**계보:** 증강 계보 ([`fofwisdom/claire-bible`](https://github.com/fofwisdom/claire-bible)) **기준 문서:** 본 문서는 증강 계보의 최상위 비전, 범위, 로드맵을 정의하는 단일 정본입니다. **관련 문서:** 테제 원본 [`docs/upstream/GOALS.md`](../upstream/GOALS.md) · 공통 계약 [`docs/contracts/`](../contracts/README.md) · 아키텍처 로드맵 [`docs/origin/CLAIRE_ARCHITECTURE_ROADMAP.md`](CLAIRE_ARCHITECTURE_ROADMAP.md)
+**계보:** 증강 계보 ([`fofwisdom/claire-bible`](https://github.com/fofwisdom/claire-bible)) **기준 문서:** 본 문서는 증강 계보의 최상위 비전, 범위, 로드맵을 정의하는 단일 정본이다. **관련 문서:** 테제 원본 [`docs/upstream/GOALS.md`](../upstream/GOALS.md) · 공통 계약 [`docs/contracts/`](../contracts/README.md) · 아키텍처 로드맵 [`docs/origin/CLAIRE_ARCHITECTURE_ROADMAP.md`](CLAIRE_ARCHITECTURE_ROADMAP.md)
 
 ---
 
@@ -8,7 +8,7 @@
 
 **"원천 지식의 무결성을 보존하고, 실세계 상호작용과 협업을 지원하는 프로덕션급 지식베이스."**
 
-증강 계보는 업스트림(테제 계보)의 핵심 가치인 '원문 보존', '결정론적 검증', '자동 복구' 철학을 온전히 계승하면서, 실세계 운영 환경에서 요구되는 멀티 테마 분리, 엔터프라이즈 표준 인증, 듀얼 포맷 문서 파이프라인, 멀티모달 적재 및 진단 관측성을 체계적으로 확장합니다.
+증강 계보는 업스트림(테제 계보)의 핵심 가치인 '원문 보존', '결정론적 검증', '자동 복구' 철학을 온전히 계승하면서, 실세계 운영 환경에서 요구되는 멀티 테마 분리, 엔터프라이즈 표준 인증, 듀얼 포맷 문서 파이프라인, 멀티모달 적재 및 진단 관측성을 체계적으로 확장한다.
 
 ### 범위 정의 (Scope Boundary)
 
@@ -27,7 +27,7 @@
 
 ## 2. 현재 제공 기능 (Baseline Capabilities)
 
-1. **통합 적재 파이프라인**: 텔레그램 봇, CLI, 로컬 REST API, Web UI, MCP(Model Context Protocol) 도구가 단일 정규화 파이프라인(`svc.ingest`)을 공유합니다.
+1. **통합 적재 파이프라인**: 텔레그램 봇, CLI, 로컬 REST API, Web UI, MCP(Model Context Protocol) 도구가 단일 정규화 파이프라인(`svc.ingest`)을 공유한다.
 2. **다양한 소스 수집 및 정규화**:
    - 일반 웹 문서, 리다이렉트 체인, X(트위터) 스레드, YouTube 자막 및 메타데이터 변환.
    - **Pre-LLM Content Guard**: 차단·저품질 HTTP 페이지 사전 감지 및 필터링.
@@ -60,17 +60,17 @@
 ## 3. 품질 및 거버넌스 원칙
 
 1. **원문과 출처 절대 보존 (Source Preservation)**:
-   - LLM이 생성하거나 요약한 결과물이 결코 원문(raw text)과 출처 메타데이터를 대체하거나 파괴할 수 없습니다.
+   - LLM이 생성하거나 요약한 결과물이 결코 원문(raw text)과 출처 메타데이터를 대체하거나 파괴할 수 없다.
 2. **비결정성과 결정론의 엄격한 격리 (Deterministic vs Stochastic Separation)**:
-   - 라우팅, 중복 판별, 와이어 프로토콜, 인증, 토큰 교환 등 시스템 코어 로직은 순수 결정론적 단위 테스트로 100% 검증합니다.
-   - 모델 추론 결과(추출, 요약 등)는 전용 평가 표본 및 E2E 테스트셋으로 분리하여 관리합니다.
+   - 라우팅, 중복 판별, 와이어 프로토콜, 인증, 토큰 교환 등 시스템 코어 로직은 순수 결정론적 단위 테스트로 100% 검증한다.
+   - 모델 추론 결과(추출, 요약 등)는 전용 평가 표본 및 E2E 테스트셋으로 분리하여 관리한다.
 3. **비파괴적 확장 및 스키마 진화 (Non-Destructive Evolution)**:
-   - 스키마 확장은 멱등 마이그레이션 체계를 따르며, 업스트림 테제와의 상호 운용성 계약([`docs/contracts/`](../contracts/README.md))을 항상 준수합니다.
+   - 스키마 확장은 멱등 마이그레이션 체계를 따르며, 업스트림 테제와의 상호 운용성 계약([`docs/contracts/`](../contracts/README.md))을 항상 준수한다.
 4. **최소 권한 및 보안 경계 (Defense in Depth)**:
-   - 읽기와 쓰기 권한을 엄격히 분리하고, 네트워크 경계(CORS, Reverse Proxy)와 애플리케이션 인증을 다층으로 보호합니다.
-   - 사설망 및 온프레미스 대상 요청은 SSRF 방지 보안 규칙을 엄격히 적용합니다.
+   - 읽기와 쓰기 권한을 엄격히 분리하고, 네트워크 경계(CORS, Reverse Proxy)와 애플리케이션 인증을 다층으로 보호한다.
+   - 사설망 및 온프레미스 대상 요청은 SSRF 방지 보안 규칙을 엄격히 적용한다.
 5. **비밀값 및 데이터 격리 (Zero Credential Leakage)**:
-   - 모든 설정과 자격증명은 환경변수로만 주입하며, 저장소에는 실제 운영 데이터나 개인 식별 정보를 일체 포함하지 않습니다.
+   - 모든 설정과 자격증명은 환경변수로만 주입하며, 저장소에는 실제 운영 데이터나 개인 식별 정보를 일체 포함하지 않는다.
 
 ---
 
@@ -110,7 +110,7 @@
 
 ## 5. 공개 저장소 데이터 및 보안 정책
 
-- `sample.adoc` 및 `sample.md`에는 공개 문서와 합성 메모만 사용합니다.
-- 실제 운영 데이터베이스, Obsidian Vault, 백업 아카이브, 세션 토큰은 버전 관리에서 영구 제외합니다.
-- 모든 문서의 IP, 도메인, 포트, 토큰은 예시값 또는 환경변수 플레이스홀더로만 표기합니다.
-- 이슈, 문서, 테스트 fixture에 실제 사용자의 프라이빗 데이터나 운영 DB 식별자를 커밋하지 않습니다.
+- `sample.adoc` 및 `sample.md`에는 공개 문서와 합성 메모만 사용한다.
+- 실제 운영 데이터베이스, Obsidian Vault, 백업 아카이브, 세션 토큰은 버전 관리에서 영구 제외한다.
+- 모든 문서의 IP, 도메인, 포트, 토큰은 예시값 또는 환경변수 플레이스홀더로만 표기한다.
+- 이슈, 문서, 테스트 fixture에 실제 사용자의 프라이빗 데이터나 운영 DB 식별자를 커밋하지 않는다.

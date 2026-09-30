@@ -2,8 +2,8 @@
 
 > **Telegram & Web Ingestion 기반 개인 지식 베이스 및 온톨로지 지식 그래프 엔진**
 
-Claire Bible은 웹 페이지, YouTube 영상(자막/STT), PDF, 일반 텍스트 등 일상의 다양한 정보 소스를 수집하여 구조화된 지식으로 정제해 주는 개인 지식 관리 시스템(PKM)입니다.  
-Gemini LLM을 통해 핵심 내용과 엔티티 및 관계(Palantir 스타일 온톨로지)를 자동으로 추출하며, SQLite(FTS5 + 벡터)와 로컬 Obsidian 마크다운 볼트(Vault)로 이중 영속화하여 강력한 검색과 시각적 탐색을 제공합니다.
+Claire Bible은 웹 페이지, YouTube 영상(자막/STT), PDF, 일반 텍스트 등 일상의 다양한 정보 소스를 수집하여 구조화된 지식으로 정제하는 개인 지식 관리 시스템(PKM)이다.  
+Gemini LLM을 통해 핵심 내용과 엔티티 및 관계(Palantir 스타일 온톨로지)를 자동으로 추출하며, SQLite(FTS5 + 벡터)와 로컬 Obsidian 마크다운 볼트(Vault)로 이중 영속화하여 강력한 검색과 시각적 탐색을 제공한다.
 
 ---
 
@@ -19,10 +19,10 @@ flowchart LR
     E --> F
 ```
 
-1. **Ingest (수집)**: 텔레그램 메시지, 브라우저 확장/API, CLI를 통해 URL이나 텍스트를 인박스(Inbox)로 전달합니다.
-2. **Extract (구조화 추출)**: Gemini 모델을 호출하여 상세 요약, 메타데이터, 온톨로지 엔티티 및 상호 관계를 정형화합니다.
-3. **Store & Render (저장 및 렌더링)**: SQLite 데이터베이스에 FTS5 텍스트 색인과 벡터 임베딩을 저장하고, 로컬 Obsidian 볼트에 사람이 읽기 쉬운 마크다운 문서로 기록합니다.
-4. **Retrieve & Interface (활용)**: 하이브리드 검색(키워드 + 시맨틱)을 지원하며, 텔레그램 봇 대화 및 자체 웹 인터페이스를 통해 조회·탐색할 수 있습니다.
+1. **Ingest (수집)**: 텔레그램 메시지, 브라우저 확장/API, CLI를 통해 URL이나 텍스트를 인박스(Inbox)로 전달한다.
+2. **Extract (구조화 추출)**: Gemini 모델을 호출하여 상세 요약, 메타데이터, 온톨로지 엔티티 및 상호 관계를 정형화한다.
+3. **Store & Render (저장 및 렌더링)**: SQLite 데이터베이스에 FTS5 텍스트 색인과 벡터 임베딩을 저장하고, 로컬 Obsidian 볼트에 사람이 읽기 쉬운 마크다운 문서로 기록한다.
+4. **Retrieve & Interface (활용)**: 하이브리드 검색(키워드 + 시맨틱)을 지원하며, 텔레그램 봇 대화 및 자체 웹 인터페이스를 통해 조회·탐색할 수 있다.
 
 ---
 
@@ -39,7 +39,7 @@ flowchart LR
 ## 🚀 시작하기 (Getting Started)
 
 ### 1. 개발 빠른 시작 (Local Development)
-로컬 가상환경에서 빠르게 의존성을 설정하고 개발 서버를 기동합니다.
+로컬 가상환경에서 의존성을 설정하고 개발 서버를 기동한다.
 
 ```bash
 # 1. 의존성 동기화 및 환경 설정 초기화
@@ -58,7 +58,7 @@ uv run claire serve-api        # Web API & UI (기본 포트: 8765)
 ---
 
 ### 2. 프로덕션 시작 - 에이전트 명령 (Production Launch - Agent)
-AI 코딩 에이전트(Antigravity, Claude Code, Cursor, CI/CD 러너)가 대화형 프롬프트 없이 무인으로 프로덕션을 빌드·배포·검증하고 관리자 링크를 발급하는 표준 파이프라인입니다.
+AI 코딩 에이전트(Antigravity, Claude Code, Cursor, CI/CD 러너)가 대화형 프롬프트 없이 무인으로 프로덕션을 빌드·배포·검증하고 관리자 링크를 발급하는 표준 파이프라인이다.
 
 ```bash
 # Step 1. 인프라 및 환경 사전 점검 (종료 코드 0 확인)
@@ -80,7 +80,7 @@ AI 코딩 에이전트(Antigravity, Claude Code, Cursor, CI/CD 러너)가 대화
 ---
 
 ### 3. 프로덕션 시작 - 직접 (Production Launch - Manual)
-시스템 운영자가 호스트 셸에서 직접 프로덕션 서비스를 배포하고 관리하는 절차입니다.
+시스템 운영자가 호스트 셸에서 직접 프로덕션 서비스를 배포하고 관리하는 절차이다.
 
 ```bash
 # 1. 환경 설정 초기화 (소유자 토큰 자동 생성 및 파일 권한 0600 부여)
@@ -104,9 +104,9 @@ AI 코딩 에이전트(Antigravity, Claude Code, Cursor, CI/CD 러너)가 대화
 
 ---
 
-## 📋 주요 CLI 명령어 안내
+## 📋 주요 CLI 명령어
 
-`claire` CLI는 지식 베이스의 운영과 유지보수를 위한 다양한 서브커맨드를 제공합니다:
+`claire` CLI는 지식 베이스의 운영과 유지보수를 위한 다양한 서브커맨드를 제공한다.
 
 | 명령어 | 설명 |
 | :--- | :--- |
@@ -119,7 +119,7 @@ AI 코딩 에이전트(Antigravity, Claude Code, Cursor, CI/CD 러너)가 대화
 | `claire ingest` | 단일 웹 페이지, 영상(자막/STT), PDF 또는 텍스트 즉시 수집 및 구조화 |
 | `claire search` | 하이브리드 검색 (BM25 전문 색인 + 벡터 시맨틱 유사도 + LLM 요약) |
 
-전체 옵션 및 파라미터는 `uv run claire --help` 및 [docs/origin/implementation/COMMANDS.md](file:///home/fow/Projects/claire-bible/docs/origin/implementation/COMMANDS.md)를 참조하십시오.
+전체 옵션 및 파라미터는 `uv run claire --help` 및 [docs/origin/implementation/COMMANDS.md](file:///home/fow/Projects/claire-bible/docs/origin/implementation/COMMANDS.md)를 참조한다.
 
 ---
 
@@ -147,4 +147,4 @@ claire-bible/
 
 ## 📄 라이선스
 
-이 프로젝트는 [LICENSE.md](file:///home/fow/Projects/claire-bible/LICENSE.md)에 명시된 라이선스 조건을 따릅니다.
+이 프로젝트는 [LICENSE.md](file:///home/fow/Projects/claire-bible/LICENSE.md)에 명시된 라이선스 조건을 따른다.

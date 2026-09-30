@@ -7,9 +7,9 @@
 
 ## 1. 아키텍처 개요 및 통합 관리 체계 (Unified Management)
 
-Claire Bible은 지식 그래프 온톨로지 추출, 가독 상세 렌더링, FTS/시맨틱 하이브리드 검색 인용 종합, 실시간 맥락 리서치, 엔티티 동일체 및 전역 관계 판정에 다양한 LLM 및 하이퍼스케일러 프로바이더를 유연하게 활용합니다.
+Claire Bible은 지식 그래프 온톨로지 추출, 가독 상세 렌더링, FTS/시맨틱 하이브리드 검색 인용 종합, 실시간 맥락 리서치, 엔티티 동일체 및 전역 관계 판정에 다양한 LLM 및 하이퍼스케일러 프로바이더를 유연하게 활용한다.
 
-지원하는 모든 프로바이더는 **WebUI 통합 관리 패널**, **영속화 파일(`data/providers.json`)**, **기존 `.env` 자동 마이그레이션 체계**, 그리고 **CLI 명령(`claire providers`)**을 통해 중앙 집중 제어됩니다.
+지원하는 모든 프로바이더는 **WebUI 통합 관리 패널**, **영속화 파일(`data/providers.json`)**, **기존 `.env` 자동 마이그레이션 체계**, 그리고 **CLI 명령(`claire providers`)**을 통해 중앙 집중 제어된다.
 
 ```mermaid
 graph TD
@@ -43,19 +43,19 @@ graph TD
 
 ### 1.1 WebUI 기반 통합 관리 (`data/providers.json`)
 * **관리 위치**: 우측 더보기(Drawer) 메뉴 > **⚙️ 프로바이더 설정** (소유자 `owner` 권한 인증 시에만 노출).
-* **영속 저장소**: `data/providers.json`에 원자적(Atomic write)으로 저장되며, 소유자 토큰으로만 조회(`GET /providers`) 및 수정(`PATCH /providers`)이 가능합니다.
+* **영속 저장소**: `data/providers.json`에 원자적(Atomic write)으로 저장되며, 소유자 토큰으로만 조회(`GET /providers`) 및 수정(`PATCH /providers`)이 가능하다.
 * **보안 및 시크릿 보호**:
-  - API 키는 조회 시 `••••••••`로 마스킹되며, 모델명이나 옵션만 변경하고 저장할 때 기존 키가 소실되지 않도록 서버 측에서 보존 처리합니다.
-  - 소유자가 명시적으로 삭제 체크박스를 누르거나 빈 값으로 초기화할 때만 안전하게 삭제됩니다.
+  - API 키는 조회 시 `••••••••`로 마스킹되며, 모델명이나 옵션만 변경하고 저장할 때 기존 키가 소실되지 않도록 서버 측에서 보존 처리한다.
+  - 소유자가 명시적으로 삭제 체크박스를 누르거나 빈 값으로 초기화할 때만 안전하게 삭제된다.
 * **실시간 사전 진단**:
-  - WebUI 내 각 프로바이더 카드마다 **연결 테스트(Test)** 버튼(`POST /providers/test`)을 제공하여 API 키 유효성, 네트워크 도달성, CLI 바이너리 설치 상태를 저장 전에 즉시 검증합니다.
+  - WebUI 내 각 프로바이더 카드마다 **연결 테스트(Test)** 버튼(`POST /providers/test`)을 제공하여 API 키 유효성, 네트워크 도달성, CLI 바이너리 설치 상태를 저장 전에 즉시 검증한다.
 
 ### 1.2 환경변수 자동 마이그레이션 (`.env` 안전 주석화)
-* 하이퍼스케일러 지원량이 증가함에 따라 수십 개의 환경변수를 `.env`에서 관리하는 복잡성을 해소하기 위해, 애플리케이션 시작 시 기존 `.env` 및 `.env.dev`의 프로바이더 설정(`MIGRATED_ENV_VARS`)을 자동으로 `data/providers.json`으로 이전합니다.
-* 마이그레이션이 완료된 변수 라인은 파일 원본의 주석과 서식을 온전히 보존한 채 `# VAR=val` 형태로 주석 처리되어 충돌을 방지합니다.
+* 하이퍼스케일러 지원량이 증가함에 따라 수십 개의 환경변수를 `.env`에서 관리하는 복잡성을 해소하기 위해, 애플리케이션 시작 시 기존 `.env` 및 `.env.dev`의 프로바이더 설정(`MIGRATED_ENV_VARS`)을 자동으로 `data/providers.json`으로 이전한다.
+* 마이그레이션이 완료된 변수 라인은 파일 원본의 주석과 서식을 온전히 보존한 채 `# VAR=val` 형태로 주석 처리되어 충돌을 방지한다.
 
 ### 1.3 설정 우선순위 계층
-Pydantic Settings 소스 체인은 다음과 같은 우선순위를 엄격히 적용합니다:
+Pydantic Settings 소스 체인은 다음과 같은 우선순위를 엄격히 적용한다:
 1. `init_settings` (단위 테스트 명시적 인수 주입 — 최우선)
 2. `providers_json` (`data/providers.json` 설정 — 프로덕션/런타임 기본)
 3. `env_settings` (운영체제 프로세스 환경변수)
@@ -66,7 +66,7 @@ Pydantic Settings 소스 체인은 다음과 같은 우선순위를 엄격히 �
 
 ## 2. Google Gemini (`gemini`)
 
-Google AI Studio 및 Gemini SDK 기반의 주력 프로바이더로, 고품질 지식 추출, 초장문 맥락 처리, 의미론적 벡터 임베딩, 오디오 음성 전사를 일체형으로 제공합니다.
+Google AI Studio 및 Gemini SDK 기반의 주력 프로바이더로, 고품질 지식 추출, 초장문 맥락 처리, 의미론적 벡터 임베딩, 오디오 음성 전사를 일체형으로 제공한다.
 
 ### 2.1 주요 기능 및 특성
 * **기본 모델**: `gemini-3.1-flash-lite`, `gemini-2.5-flash`, `gemini-2.5-pro`, `gemini-3.7-flash`
@@ -88,14 +88,14 @@ Google AI Studio 및 Gemini SDK 기반의 주력 프로바이더로, 고품질 �
 
 ## 3. Google Antigravity CLI (`antigravity`)
 
-호스트에 설치된 공식 Antigravity CLI(`agy`) 바이너리를 비대화형 서브프로세스로 구동하여 Gemini 3.7 등 최상위 추론 모델을 활용하는 프로바이더입니다.
+호스트에 설치된 공식 Antigravity CLI(`agy`) 바이너리를 비대화형 서브프로세스로 구동하여 Gemini 3.7 등 최상위 추론 모델을 활용하는 프로바이더이다.
 
 ### 3.1 실행 격리 아키텍처 (Execution Isolation)
-`agy`는 파일 읽기/수정, 셸 실행, 백그라운드 태스크 관리 도구가 탑재된 자율 코딩 에이전트이므로, 순수 지식 추출 및 판정 작업 시 에이전트 루프로 오동작(도구 오염)하지 않도록 다음과 같은 4중 격리 하네스를 강제합니다:
-1. **순수 추론 모드 (`allow_tools=False`)**: `research()`를 제외한 모든 호출(`extract`, `render_detail`, `judge_*`, `classify_*`)에서 외부 도구 호출을 정책상 차단하고 단일 턴 생성 지침을 강제합니다.
-2. **청정 작업 디렉터리 (`/tmp/claire_agy_clean`)**: 호스트 애플리케이션 루트(`/app`)의 수천 개 파일과 `.git` 트리를 인덱싱하는 오버헤드를 방지하기 위해 격리된 빈 디렉터리에서 프로세스를 기동합니다.
-3. **적응형 추론 강도 분화**: 단순 판정(`judge_same_entity`, `judge_relationship`)은 `effort=low`로 자동 하향하여 대기 시간을 대폭 단축하고, 본문 추출은 `effort=medium`을 적용합니다.
-4. **프로세스 세마포어 동시성 제어**: `max_concurrency`(기본 2) 제한을 통해 호스트 자원 고갈을 방지합니다.
+`agy`는 파일 읽기/수정, 셸 실행, 백그라운드 태스크 관리 도구가 탑재된 자율 코딩 에이전트이므로, 순수 지식 추출 및 판정 작업 시 에이전트 루프로 오동작(도구 오염)하지 않도록 다음과 같은 4중 격리 하네스를 강제한다:
+1. **순수 추론 모드 (`allow_tools=False`)**: `research()`를 제외한 모든 호출(`extract`, `render_detail`, `judge_*`, `classify_*`)에서 외부 도구 호출을 정책상 차단하고 단일 턴 생성 지침을 강제한다.
+2. **청정 작업 디렉터리 (`/tmp/claire_agy_clean`)**: 호스트 애플리케이션 루트(`/app`)의 수천 개 파일과 `.git` 트리를 인덱싱하는 오버헤드를 방지하기 위해 격리된 빈 디렉터리에서 프로세스를 기동한다.
+3. **적응형 추론 강도 분화**: 단순 판정(`judge_same_entity`, `judge_relationship`)은 `effort=low`로 자동 하향하여 대기 시간을 대폭 단축하고, 본문 추출은 `effort=medium`을 적용한다.
+4. **프로세스 세마포어 동시성 제어**: `max_concurrency`(기본 2) 제한을 통해 호스트 자원 고갈을 방지한다.
 
 ### 3.2 설정 파라미터 레퍼런스
 | 항목 | 필드명 (providers.json) | 환경변수 (레거시) | 기본값 | 설명 |
@@ -110,19 +110,19 @@ Google AI Studio 및 Gemini SDK 기반의 주력 프로바이더로, 고품질 �
 
 ## 4. Codex CLI (`codex` / `codex-cli`)
 
-호스트에 설치·인증된 OpenAI Codex CLI(`codex exec`)를 비대화형으로 호출하는 **네이티브 호스트 전용** 프로바이더입니다.
+호스트에 설치·인증된 OpenAI Codex CLI(`codex exec`)를 비대화형으로 호출하는 **네이티브 호스트 전용** 프로바이더이다.
 
 ### 4.1 네이티브 호스트 전용 제약 (Docker 거부 정책)
-* Codex CLI 및 세션 인증 토큰은 컨테이너 이미지나 볼륨에 포함되지 않습니다.
-* `CLAIRE_PROVIDER=codex` 또는 `codex-cli`가 설정된 상태로 Docker/Compose 환경을 기동하려 할 경우, `cb-manuscript preflight` 검사에서 즉시 기동이 거부됩니다.
-* 호스트 환경에서 `codex login status`로 인증을 완료한 후 네이티브 앱(`uv run claire`)으로 실행해야 합니다.
+* Codex CLI 및 세션 인증 토큰은 컨테이너 이미지나 볼륨에 포함되지 않는다.
+* `CLAIRE_PROVIDER=codex` 또는 `codex-cli`가 설정된 상태로 Docker/Compose 환경을 기동하려 할 경우, `cb-manuscript preflight` 검사에서 즉시 기동이 거부된다.
+* 호스트 환경에서 `codex login status`로 인증을 완료한 후 네이티브 앱(`uv run claire`)으로 실행해야 한다.
 
 ### 4.2 실행 격리 및 샌드박스
-* **비대화형 강제**: 프롬프트는 argv가 아닌 `stdin`으로 주입하며, 호출별 빈 임시 디렉터리에서 `--ephemeral` 모드로 신규 세션을 실행합니다.
-* **플랫폼 정책 강제**: `--sandbox read-only`, `--skip-git-repo-check`, `--ignore-user-config`, `--ignore-rules`, 승인 정책 `never`를 강제 적용합니다.
-* **도구 제어**: `shell_tool`, `apply_patch`, 플러그인, 멀티에이전트를 비활성화하며, 네이티브 웹 검색은 `research()` 호출에서만 선별적으로 허용합니다.
-* **출력 계약**: `--output-schema <schema.json>` 및 `--output-last-message <output.json>`을 통해 JSON Schema 기반으로 최종 메시지를 엄격 검증합니다.
-* **임베딩 및 회수 축소**: `GEMINI_API_KEY`가 있으면 Gemini 임베딩 모델을 활용하고, 키가 없으면 임의 벡터를 생성하지 않고 FTS 전용 검색 후보 회수로 축소 동작합니다.
+* **비대화형 강제**: 프롬프트는 argv가 아닌 `stdin`으로 주입하며, 호출별 빈 임시 디렉터리에서 `--ephemeral` 모드로 신규 세션을 실행한다.
+* **플랫폼 정책 강제**: `--sandbox read-only`, `--skip-git-repo-check`, `--ignore-user-config`, `--ignore-rules`, 승인 정책 `never`를 강제 적용한다.
+* **도구 제어**: `shell_tool`, `apply_patch`, 플러그인, 멀티에이전트를 비활성화하며, 네이티브 웹 검색은 `research()` 호출에서만 선별적으로 허용한다.
+* **출력 계약**: `--output-schema <schema.json>` 및 `--output-last-message <output.json>`을 통해 JSON Schema 기반으로 최종 메시지를 엄격 검증한다.
+* **임베딩 및 회수 축소**: `GEMINI_API_KEY`가 있으면 Gemini 임베딩 모델을 활용하고, 키가 없으면 임의 벡터를 생성하지 않고 FTS 전용 검색 후보 회수로 축소 동작한다.
 
 ### 4.3 설정 파라미터 레퍼런스
 | 항목 | 필드명 (providers.json) | 환경변수 (레거시) | 기본값 | 설명 |
@@ -137,7 +137,7 @@ Google AI Studio 및 Gemini SDK 기반의 주력 프로바이더로, 고품질 �
 
 ## 5. OpenAI / 하이퍼스케일러 호환 엔드포인트 (`openai`)
 
-공식 OpenAI API뿐만 아니라 Azure OpenAI, Ollama, Local vLLM, AWS Bedrock, Cloudflare Workers AI 등 OpenAI 표준 REST 규격을 준수하는 엔드포인트를 포괄 연동할 수 있는 확장 어댑터입니다.
+공식 OpenAI API뿐만 아니라 Azure OpenAI, Ollama, Local vLLM, AWS Bedrock, Cloudflare Workers AI 등 OpenAI 표준 REST 규격을 준수하는 엔드포인트를 포괄 연동할 수 있는 확장 어댑터이다.
 
 ### 5.1 주요 기능 및 특성
 * **호환 엔드포인트 지정**: `base_url`을 설정하여 사내 자체 구축 LLM 서버(예: `http://vllm.corp.internal:8000/v1`) 또는 상용 API 프록시로 라우팅.
@@ -156,11 +156,11 @@ Google AI Studio 및 Gemini SDK 기반의 주력 프로바이더로, 고품질 �
 
 ## 6. TypeSafe AI Jev (`jev`)
 
-지식 노드 간 엔티티 해소(Entity Resolution) 및 관계 판정 시 비-자기회귀(Non-autoregressive) 방식으로 밀리초 단위 초고속 의사결정을 수행하는 선택형 **System 1 엔진**입니다.
+지식 노드 간 엔티티 해소(Entity Resolution) 및 관계 판정 시 비-자기회귀(Non-autoregressive) 방식으로 밀리초 단위 초고속 의사결정을 수행하는 선택형 **System 1 엔진**이다.
 
 ### 6.1 동작 구조 및 안전 폴백
-* **초고속 결정 매트릭스**: 복잡한 자기회귀 LLM 질의 루프를 타지 않고 고정된 판정 스트림으로 동일체/관계 여부를 즉각 분류합니다.
-* **투명 폴백 (Zero-breakage Fallback)**: 본 기능이 비활성화(`enabled=false`)되어 있거나 API 키가 유효하지 않은 경우, 파이프라인 중단 없이 Claire Bible 내장 코사인 유사도 티어링 및 규칙 기반 매트릭스(`fallback_vector`)로 투명하게 전환됩니다.
+* **초고속 결정 매트릭스**: 복잡한 자기회귀 LLM 질의 루프를 타지 않고 고정된 판정 스트림으로 동일체/관계 여부를 즉각 분류한다.
+* **투명 폴백 (Zero-breakage Fallback)**: 본 기능이 비활성화(`enabled=false`)되어 있거나 API 키가 유효하지 않은 경우, 파이프라인 중단 없이 Claire Bible 내장 코사인 유사도 티어링 및 규칙 기반 매트릭스(`fallback_vector`)로 투명하게 전환된다.
 
 ### 6.2 설정 파라미터 레퍼런스
 | 항목 | 필드명 (providers.json) | 환경변수 (레거시) | 기본값 | 설명 |
@@ -174,12 +174,12 @@ Google AI Studio 및 Gemini SDK 기반의 주력 프로바이더로, 고품질 �
 
 ## 7. 음성 전사 STT 파이프라인 (`stt`)
 
-자막(Closed Caption)이 제공되지 않는 비디오 및 오디오 웹 문서 적재 시 `ffmpeg`/`yt-dlp` 스트림 분할 및 AI 음성 텍스트 변환(STT)을 수행하는 파이프라인입니다.
+자막(Closed Caption)이 제공되지 않는 비디오 및 오디오 웹 문서 적재 시 `ffmpeg`/`yt-dlp` 스트림 분할 및 AI 음성 텍스트 변환(STT)을 수행하는 파이프라인이다.
 
 ### 7.1 주요 특성 및 보호 하네스
-* **발행자 CC 최우선**: 비디오 상세 페이지 적재 시 항상 선호 언어의 공식 발행자 자막을 먼저 탐색하며, 유효한 자막이 전무할 때만 STT 파이프라인으로 폴백합니다.
-* **오디오 분할 및 TPM 한도 보호**: 긴 영상의 경우 `gemini-3.5-transcribe`의 10K TPM 한도를 초과하지 않도록 오디오를 240초(약 4분, 6,000 토큰) 단위 청크로 분할하여 전사합니다.
-* **로컬 오디오 캐싱**: 스트림 처리 실패 시 로컬 캐시(`data/video_cache/`)에 오디오를 3일(259,200초)간 보존하여 중복 원격 다운로드를 방지합니다.
+* **발행자 CC 최우선**: 비디오 상세 페이지 적재 시 항상 선호 언어의 공식 발행자 자막을 먼저 탐색하며, 유효한 자막이 전무할 때만 STT 파이프라인으로 폴백한다.
+* **오디오 분할 및 TPM 한도 보호**: 긴 영상의 경우 `gemini-3.5-transcribe`의 10K TPM 한도를 초과하지 않도록 오디오를 240초(약 4분, 6,000 토큰) 단위 청크로 분할하여 전사한다.
+* **로컬 오디오 캐싱**: 스트림 처리 실패 시 로컬 캐시(`data/video_cache/`)에 오디오를 3일(259,200초)간 보존하여 중복 원격 다운로드를 방지한다.
 
 ### 7.2 설정 파라미터 레퍼런스
 | 항목 | 필드명 (providers.json) | 환경변수 (레거시) | 기본값 | 설명 |
@@ -192,23 +192,23 @@ Google AI Studio 및 Gemini SDK 기반의 주력 프로바이더로, 고품질 �
 
 ## 8. Mock 프로바이더 (`mock`)
 
-외부 API 호출, 네트워크 통신 및 과금 지출이 일체 발생하지 않는 개발 및 테스트 전용 가상 프로바이더입니다.
+외부 API 호출, 네트워크 통신 및 과금 지출이 일체 발생하지 않는 개발 및 테스트 전용 가상 프로바이더이다.
 
 ### 8.1 주요 특성
-* **결정론적 가상 지식 생성**: 본문 키워드를 기반으로 재현 가능한 모의 엔티티, 관계, 가독 상세 문서, 요약문을 즉각 반환합니다.
-* **0-비용 오프라인 개발**: 인터넷 연결이 없거나 API 토큰이 발급되지 않은 로컬 개발 환경, CI 파이프라인 및 단위 테스트(`pytest`)에서 기본 프로바이더로 동작합니다.
+* **결정론적 가상 지식 생성**: 본문 키워드를 기반으로 재현 가능한 모의 엔티티, 관계, 가독 상세 문서, 요약문을 즉각 반환한다.
+* **0-비용 오프라인 개발**: 인터넷 연결이 없거나 API 토큰이 발급되지 않은 로컬 개발 환경, CI 파이프라인 및 단위 테스트(`pytest`)에서 기본 프로바이더로 동작한다.
 
 ---
 
 ## 9. 프롬프트 엔진 및 하이퍼스케일러 캘리브레이션 (Engine & Calibration)
 
 ### 9.1 중앙 집중식 프롬프트 엔진 (`src/claire/extract/prompts/`)
-모든 프로바이더는 중앙 프롬프트 엔진에서 정의된 템플릿과 스타일 가이드라인을 공유합니다:
+모든 프로바이더는 중앙 프롬프트 엔진에서 정의된 템플릿과 스타일 가이드라인을 공유한다:
 * **`PROMPT_VERSION` 관리**: 프롬프트 변경 이력을 단일 상수로 통제하여 추출 계보(Lineage) 추적.
 * **한국어 문어체(`~한다`, `~이다`) 절대 준수**: 모든 파이프라인에서 구어체(`~해요`, `~습니다`) 종결을 배제하고 백과사전식 학술 문어체 출력 강제.
 
 ### 9.2 재적재 시험 및 튜닝 하네스 (`eval/`)
-신규 하이퍼스케일러 도입 시 기존 지식 그래프를 훼손하지 않고 추출 품질을 사전 비교(A-B 테스팅)할 수 있는 회귀 평가 하네스를 지원합니다:
+신규 하이퍼스케일러 도입 시 기존 지식 그래프를 훼손하지 않고 추출 품질을 사전 비교(A-B 테스팅)할 수 있는 회귀 평가 하네스를 지원한다:
 1. **표본 추출 (Sample Selection)**: 기존 DB에서 도메인별 대표 문서(URL, PDF, 미디어 등) 선별.
 2. **Shadow Execution**: 타겟 프로바이더로 비파괴적 추출 수행.
 3. **지표 비교 (Diff Reporting)**:

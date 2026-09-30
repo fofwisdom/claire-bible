@@ -7,9 +7,9 @@
 ## 1. 검토 결과 요약 (Review Summary)
 
 ### 1.1 결론: **현재 상태로는 첫 적재 시 지시 불가 (Currently NOT Supported)**
-현재 Claire Bible 시스템을 전수 검토한 결과, **첫 적재(Initial Ingestion) 시점에 원문을 절단하지 않고(`full-content`) LLM 추론 레벨(`effort`)을 높여 적재하도록 사용자가 지시하는 것은 불가능**합니다.
+현재 Claire Bible 시스템을 전수 검토한 결과, **첫 적재(Initial Ingestion) 시점에 원문을 절단하지 않고(`full-content`) LLM 추론 레벨(`effort`)을 높여 적재하도록 사용자가 지시하는 것은 불가능**한다.
 
-현재 시스템은 이미 적재된 기존 문서를 사후에 재생성할 때(`regenerate --refetch-full --effort high` 또는 텔레그램 인라인 버튼 액션)에 한해서만 원문 전체 재수집 및 effort 재정의를 지원하고 있습니다.
+현재 시스템은 이미 적재된 기존 문서를 사후에 재생성할 때(`regenerate --refetch-full --effort high` 또는 텔레그램 인라인 버튼 액션)에 한해서만 원문 전체 재수집 및 effort 재정의를 지원하고 있다.
 
 ### 1.2 불가능 원인 분석 (Root Causes)
 
@@ -30,30 +30,30 @@
 ```
 
 1. **인터페이스 계층의 옵션 미제공 및 단절**:
-   - **CLI (`claire ingest <payload>`)**: `--full` (또는 `--no-truncate`) 및 `--effort` 플래그가 존재하지 않으며, `cmd_ingest`는 내부 `ingest()` 호출 시 두 값을 전달하지 않습니다.
-   - **텔레그램 봇 (`telegram_bot.py`)**: `parse_regenerate_flags`가 `--refetch-full`, `--effort`를 파싱하지만, 이는 이미 DB에 존재하는 문서의 공유 링크(`/p?s=...`)나 `doc_...` ID를 보낼 때의 **재생성(`regenerate_components`)에만 배타적으로 연결**되어 있습니다. 새로운 외부 URL이나 텍스트를 전송하거나 `/ingest` 명령어로 처음 적재할 때는 이 플래그들이 `svc.ingest()`로 전달되지 않고 무시됩니다.
-   - **HTTP API (`POST /ingest`, `POST /ingest-stream`)**: 요청 JSON 바디에서 `full_content`와 `effort` 필드를 수신하여 서비스 계층으로 넘겨주는 로직이 구현되어 있지 않습니다.
+   - **CLI (`claire ingest <payload>`)**: `--full` (또는 `--no-truncate`) 및 `--effort` 플래그가 존재하지 않으며, `cmd_ingest`는 내부 `ingest()` 호출 시 두 값을 전달하지 않는다.
+   - **텔레그램 봇 (`telegram_bot.py`)**: `parse_regenerate_flags`가 `--refetch-full`, `--effort`를 파싱하지만, 이는 이미 DB에 존재하는 문서의 공유 링크(`/p?s=...`)나 `doc_...` ID를 보낼 때의 **재생성(`regenerate_components`)에만 배타적으로 연결**되어 있다. 새로운 외부 URL이나 텍스트를 전송하거나 `/ingest` 명령어로 처음 적재할 때는 이 플래그들이 `svc.ingest()`로 전달되지 않고 무시된다.
+   - **HTTP API (`POST /ingest`, `POST /ingest-stream`)**: 요청 JSON 바디에서 `full_content`와 `effort` 필드를 수신하여 서비스 계층으로 넘겨주는 로직이 구현되어 있지 않는다.
 2. **서비스 및 파이프라인 계층의 매개변수 단절**:
-   - `fetch_web`, `fetch_file`, `router.fetch` 등 개별 수집기는 이미 `full_content: bool = False` 매개변수를 갖추고 있어 `budget = 0`으로 무절단 수집이 가능하도록 구현되어 있습니다.
-   - 그러나 상위 오케스트레이터인 `IngestService.ingest()` 및 `pipeline.ingest()` 함수 시그니처에 `full_content` 매개변수가 누락되어 있어, 첫 적재 시 `fetch_fn(payload)`로 `full_content=True`를 주입할 방법이 없습니다.
+   - `fetch_web`, `fetch_file`, `router.fetch` 등 개별 수집기는 이미 `full_content: bool = False` 매개변수를 갖추고 있어 `budget = 0`으로 무절단 수집이 가능하도록 구현되어 있다.
+   - 그러나 상위 오케스트레이터인 `IngestService.ingest()` 및 `pipeline.ingest()` 함수 시그니처에 `full_content` 매개변수가 누락되어 있어, 첫 적재 시 `fetch_fn(payload)`로 `full_content=True`를 주입할 방법이 없다.
 3. **프롬프트 엔진의 정적 2차 절단 (LLM Context Truncation)**:
-   - `prompts.doc_to_prompt(doc)` 함수는 PDF 문서를 제외한 모든 일반 웹/텍스트 문서에 대해 `settings.extract_char_budget`(기본 20,000자)으로 `slice_text()`를 수행합니다.
-   - 설령 수집기에서 35,000자의 법령이나 기술 문서를 무절단 수집하여 `raw_text`로 온전히 저장했더라도, 구조화 추출 및 가독 본문 생성을 위한 LLM 프롬프트 생성 시점에서 다시 20,000자로 강제 슬라이싱됩니다.
+   - `prompts.doc_to_prompt(doc)` 함수는 PDF 문서를 제외한 모든 일반 웹/텍스트 문서에 대해 `settings.extract_char_budget`(기본 20,000자)으로 `slice_text()`를 수행한다.
+   - 설령 수집기에서 35,000자의 법령이나 기술 문서를 무절단 수집하여 `raw_text`로 온전히 저장했더라도, 구조화 추출 및 가독 본문 생성을 위한 LLM 프롬프트 생성 시점에서 다시 20,000자로 강제 슬라이싱된다.
 
 ---
 
 ## 2. 해결 목표 및 설계 원칙
 
 1. **첫 적재 시 단일 호출로 무손실 수집 + 고추론 적재 보장 (Single-Shot Lossless & High-Effort Ingestion)**:
-   - 사후 재생성을 거치지 않고, 첫 인입 시점부터 원문 전체(`full_content`) 수집과 지정된 추론 강도(`effort="high"`)를 즉각 적용합니다.
+   - 사후 재생성을 거치지 않고, 첫 인입 시점부터 원문 전체(`full_content`) 수집과 지정된 추론 강도(`effort="high"`)를 즉각 적용한다.
 2. **모든 인그레스 채널의 직교적 옵션 표준화 (Orthogonal Interface Standardization)**:
-   - CLI, Telegram 봇, HTTP API 전반에 걸쳐 일관된 플래그 및 파라미터 표준(`--full`, `--effort`)을 제공합니다.
+   - CLI, Telegram 봇, HTTP API 전반에 걸쳐 일관된 플래그 및 파라미터 표준(`--full`, `--effort`)을 제공한다.
 3. **원천 저장(Layer 1/2)과 프롬프트 뷰(LLM Tier)의 무절단 동기화**:
-   - `doc.raw_text` 및 gzip 아티팩트(`data/raw/artifacts/*.txt.gz`) 무절단 저장뿐 아니라, LLM 프롬프트 투입 시에도 절단 없이 전문 컨텍스트를 투입합니다 (모델 컨텍스트 윈도우 보호를 위한 가드 레일 포함).
+   - `doc.raw_text` 및 gzip 아티팩트(`data/raw/artifacts/*.txt.gz`) 무절단 저장뿐 아니라, LLM 프롬프트 투입 시에도 절단 없이 전문 컨텍스트를 투입한다 (모델 컨텍스트 윈도우 보호를 위한 가드 레일 포함).
 4. **명시적 관측성 및 메타데이터 기록 (Observable Metadata)**:
-   - `doc.meta`에 무절단 여부(`full_content: true`), 원문 길이, 적용된 추론 레벨(`applied_effort`)을 기록하고 Web UI 및 텔레그램 완료 메시지에 투명하게 노출합니다.
+   - `doc.meta`에 무절단 여부(`full_content: true`), 원문 길이, 적용된 추론 레벨(`applied_effort`)을 기록하고 Web UI 및 텔레그램 완료 메시지에 투명하게 노출한다.
 5. **절단 적재 시 내용 유실 섹션 상세 작성 배제 (Exclusion of Truncated Sections in Detail)**:
-   - 무절단 모드가 아닌 일반 절단 수집(`full_content=False`) 상태에서 가독 상세(`render_detail`)를 작성할 경우, 절단으로 인해 내용이 유실된 섹션은 상세를 작성하지 않고 온전히 보존된 섹션까지만 상세를 작성합니다.
+   - 무절단 모드가 아닌 일반 절단 수집(`full_content=False`) 상태에서 가독 상세(`render_detail`)를 작성할 경우, 절단으로 인해 내용이 유실된 섹션은 상세를 작성하지 않고 온전히 보존된 섹션까지만 상세를 작성한다.
 
 ---
 
@@ -145,7 +145,7 @@ def cmd_ingest(args) -> int:
 ### 4.2 텔레그램 봇 계층 (`src/claire/telegram_bot.py`)
 
 #### A. 플래그 파싱 및 정제 확장
-신규 인입 메시지, `/ingest` 커맨드, 첨부 문서 캡션에서 `--full`, `-R`, `--effort <level>`, `-e <level>`을 공통으로 인식하도록 확장합니다.
+신규 인입 메시지, `/ingest` 커맨드, 첨부 문서 캡션에서 `--full`, `-R`, `--effort <level>`, `-e <level>`을 공통으로 인식하도록 확장한다.
 
 ```python
 _FULL_FLAG_RE = re.compile(
@@ -162,7 +162,7 @@ _EFFORT_FLAG_RE = re.compile(
    - `focus`: `아키텍처 중심`
    - `full_content`: `True`
    - `effort`: `"high"`
-2. 이를 분리 추출한 후 `svc.ingest()`로 정확히 바인딩합니다:
+2. 이를 분리 추출한 후 `svc.ingest()`로 정확히 바인딩한다:
    ```python
    report = await _run_with_ticker(
        status,
@@ -178,7 +178,7 @@ _EFFORT_FLAG_RE = re.compile(
        ),
    )
    ```
-3. 파일 첨부(`on_document`) 시에도 캡션에서 `--full` 및 `--effort`를 동일하게 파싱하여 적용합니다.
+3. 파일 첨부(`on_document`) 시에도 캡션에서 `--full` 및 `--effort`를 동일하게 파싱하여 적용한다.
 
 ---
 
