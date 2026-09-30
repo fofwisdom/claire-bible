@@ -16,12 +16,22 @@ echo "[ci] 1/4 진입점 구문 검사"
 bash -n cb-manuscript deploy.sh scripts/ci.sh
 python3 -m py_compile ops/cb_manuscript.py
 
-echo "[ci] 2/4 Compose 운영·개발 설정 검사"
+echo "[ci] 2/4 Compose 운영·개발 설정 및 볼륨 무결성 검사"
 CB_ENV_FILE=.env.example \
   docker compose --env-file .env.example -f docker-compose.yml config --quiet
 CB_ENV_FILE=.env.example CB_DEV_ENV_FILE=.env.dev.example \
   docker compose --env-file .env.example --env-file .env.dev.example \
     -f docker-compose.yml -f docker-compose.dev.yml config --quiet
+
+# Volume specification assertions: /host-bin and /extra-certs must be present; Ubuntu system paths must not regress
+grep -q '/host-bin:ro' docker-compose.yml || { echo "CI Error: /host-bin:ro volume missing in docker-compose.yml"; exit 1; }
+grep -q '/host-bin:ro' docker-compose.dev.yml || { echo "CI Error: /host-bin:ro volume missing in docker-compose.dev.yml"; exit 1; }
+grep -q '/extra-certs:ro' docker-compose.yml || { echo "CI Error: /extra-certs:ro volume missing in docker-compose.yml"; exit 1; }
+grep -q '/extra-certs:ro' docker-compose.dev.yml || { echo "CI Error: /extra-certs:ro volume missing in docker-compose.dev.yml"; exit 1; }
+if grep -Eq '^[[:space:]]*-[[:space:]]*/etc/(ssl/certs|ca-certificates|localtime)' docker-compose.yml docker-compose.dev.yml; then
+  echo "CI Error: Host Ubuntu system paths must not be mounted in docker-compose files"
+  exit 1
+fi
 
 echo "[ci] 3/4 uv.lock 일관성 검사 (pyproject 와 동기인지)"
 uv lock --check

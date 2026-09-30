@@ -8,6 +8,9 @@ x-claire-dev-service: &claire-dev-service
     - "${CB_DATA_DIR:-./.dev/data}:/app/data"
     - "${CB_VAULT_DIR:-./.dev/vault}:/app/vault"
     - ./src:/app/src
+    - "${CB_GEMINI_DIR:-~/.gemini}:/root/.gemini"
+    - "${CB_CODEX_DIR:-~/.codex}:/root/.codex"
+    - "${CB_BIN_DIR:-~/.local/bin}:/host-bin:ro"
     - "${CB_CERTS_DIR:-./certs}:/extra-certs:ro"
 
 services:

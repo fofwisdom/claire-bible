@@ -7,6 +7,13 @@ from claire.config import Settings
 from claire.store.theme import ThemeManager
 
 
+def _unwrap_json(raw: str) -> dict:
+    parsed = json.loads(raw)
+    if isinstance(parsed, dict) and "data" in parsed and isinstance(parsed["data"], dict):
+        return parsed["data"]
+    return parsed
+
+
 @pytest.fixture
 def cli_theme_env(tmp_path, monkeypatch):
     data_dir = tmp_path / "data"
@@ -101,7 +108,7 @@ def test_cli_theme_define_update_delete(cli_theme_env, capsys):
     ret = cli.main(["theme", "list", "--json"])
     assert ret == 0
     raw_json = capsys.readouterr().out
-    data = json.loads(raw_json)
+    data = _unwrap_json(raw_json)
     themes = data["themes"]
     assert len(themes) == 2
     t1 = next(t for t in themes if t["id"] == 1)
@@ -149,7 +156,7 @@ def test_cli_theme_visibility_flags(cli_theme_env, capsys):
 
     ret = cli.main(["theme", "list", "--json"])
     assert ret == 0
-    data = json.loads(capsys.readouterr().out)
+    data = _unwrap_json(capsys.readouterr().out)
     t1 = next(t for t in data["themes"] if t["id"] == 1)
     assert t1["is_public"] is False
 
@@ -161,7 +168,7 @@ def test_cli_theme_visibility_flags(cli_theme_env, capsys):
 
     ret = cli.main(["theme", "list", "--json"])
     assert ret == 0
-    data_after = json.loads(capsys.readouterr().out)
+    data_after = _unwrap_json(capsys.readouterr().out)
     t1_after = next(t for t in data_after["themes"] if t["id"] == 1)
     assert t1_after["is_public"] is True
 
@@ -257,7 +264,7 @@ def test_cli_theme_default_focus(cli_theme_env, capsys):
     # 4. theme list --json 출력 확인
     ret = cli.main(["theme", "list", "--json"])
     assert ret == 0
-    data = json.loads(capsys.readouterr().out)
+    data = _unwrap_json(capsys.readouterr().out)
     t1 = next(t for t in data["themes"] if t["id"] == 1)
     assert t1["default_focus"] == "클라우드 비용 최적화 및 FinOps 관점"
 
@@ -485,7 +492,7 @@ def test_cli_theme_reset(cli_theme_env, capsys, monkeypatch):
     # 5. --json 옵션 동작 검증
     ret = cli.main(["theme", "reset", "1", "-y", "--json"])
     assert ret == 0
-    json_out = json.loads(capsys.readouterr().out)
+    json_out = _unwrap_json(capsys.readouterr().out)
     assert json_out["ok"] is True
     assert json_out["reset"]["theme_id"] == 1
     assert json_out["reset"]["deleted_documents"] == 0

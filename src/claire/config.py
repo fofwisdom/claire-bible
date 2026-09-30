@@ -263,13 +263,26 @@ def diagnose_agy_environment(agy_bin: str = "agy") -> dict:
 
 
 def find_codex_executable(codex_bin: str = "codex") -> str | None:
-    """명시 경로 또는 현재 PATH에서만 Codex CLI를 찾는다."""
+    """명시 경로, 현재 PATH 또는 표준 컨테이너/호스트 마운트 위치(/host-bin 등)에서 Codex CLI를 찾는다."""
     raw = str(codex_bin or "codex").strip() or "codex"
     explicit = Path(raw).expanduser()
     if explicit.is_file() and os.access(explicit, os.X_OK):
         return str(explicit.resolve())
     found = shutil.which(raw)
-    return str(Path(found).resolve()) if found else None
+    if found:
+        return str(Path(found).resolve())
+    extra_dirs = [
+        "/host-bin",
+        "/usr/local/bin",
+        "/usr/bin",
+        str(Path.home() / ".local" / "bin"),
+        "/root/.local/bin",
+    ]
+    for d in extra_dirs:
+        cand = Path(d) / raw
+        if cand.is_file() and os.access(cand, os.X_OK):
+            return str(cand.resolve())
+    return None
 
 
 def find_ffmpeg_executable(ffmpeg_bin: str = "ffmpeg") -> str | None:

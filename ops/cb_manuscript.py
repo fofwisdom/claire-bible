@@ -136,6 +136,10 @@ APP_ONE_OFF_COMMANDS = {
     "telemetry",
     "support-bundle",
     "providers",
+    "auth",
+    "doc",
+    "share",
+    "reprocess",
 }
 APP_GUARDED_COMMANDS = {
     "migrate": "Schema lifecycle command owned by install/update",
@@ -256,7 +260,7 @@ def detect_host_antigravity_paths(
     """Detect host agy binary location and .gemini credentials directory."""
     agy_name = "agy"
     if values:
-        agy_name = values.get("CLAIRE_AGY_BIN", "").strip() or "agy"
+        agy_name = _effective(values, "CLAIRE_AGY_BIN").strip() or "agy"
 
     # 1. agy binary directory
     host_bin_dir = str(Path.home() / ".local" / "bin")
@@ -410,6 +414,12 @@ class Runtime:
         host_bin_dir, host_gemini_dir = detect_host_antigravity_paths(self.values)
         env["CB_BIN_DIR"] = env.get("CB_BIN_DIR", "").strip() or host_bin_dir
         env["CB_GEMINI_DIR"] = env.get("CB_GEMINI_DIR", "").strip() or host_gemini_dir
+        env["CB_CODEX_DIR"] = env.get("CB_CODEX_DIR", "").strip() or str(Path.home() / ".codex")
+
+        host_uid = str(os.getuid()) if hasattr(os, "getuid") else "1000"
+        host_gid = str(os.getgid()) if hasattr(os, "getgid") else "1000"
+        env["CB_UID"] = env.get("CB_UID", "").strip() or host_uid
+        env["CB_GID"] = env.get("CB_GID", "").strip() or host_gid
 
         pdf_parser = self.values.get("CLAIRE_PDF_PARSER", "").strip() or env.get("CLAIRE_PDF_PARSER", "").strip() or "default"
         env["CLAIRE_PDF_PARSER"] = pdf_parser
@@ -1386,6 +1396,8 @@ def command_init(layout: Layout) -> int:
     layout.vault.mkdir(parents=True, exist_ok=True)
     layout.certs.mkdir(parents=True, exist_ok=True)
     (Path.home() / ".gemini").mkdir(parents=True, exist_ok=True)
+    (Path.home() / ".codex").mkdir(parents=True, exist_ok=True)
+    (Path.home() / ".local" / "bin").mkdir(parents=True, exist_ok=True)
 
     detected_tz = _detect_system_timezone()
     print(f".env: {'created' if created_env else 'kept'}")
@@ -3320,17 +3332,25 @@ def command_preflight(runtime: Runtime) -> int:
             "ENABLED - public read access (hidden documents excluded)"
         )
     print(f"anonymous readonly: {anonymous_status}")
-    raw_provider = runtime.values.get("CLAIRE_PROVIDER", "").strip().lower()
+    raw_provider = _effective(runtime.values, "CLAIRE_PROVIDER").strip().lower()
     if not raw_provider:
         raw_provider = _get_provider_from_providers_json(runtime)
     print(f"provider: {raw_provider or 'mock'}")
-    raw_pdf_parser = runtime.values.get("CLAIRE_PDF_PARSER", "").strip() or "default"
+    raw_pdf_parser = _effective(runtime.values, "CLAIRE_PDF_PARSER").strip() or "default"
     print(f"pdf parser: {raw_pdf_parser}")
+
+    if raw_provider in ("antigravity", "agy", "codex", "codex-cli"):
+        # Verify host-bin volume mount exists in Compose configuration
+        compose_text = runtime.layout.compose.read_text(encoding="utf-8")
+        if "/host-bin" not in compose_text:
+            raise ManuscriptError("docker-compose.yml must mount /host-bin:ro for CLI providers")
+        print("host-bin mount: verified (/host-bin:ro)")
+
     if raw_provider in ("antigravity", "agy"):
         host_bin_dir, host_gemini_dir = detect_host_antigravity_paths(runtime.values)
-        agy_bin_val = runtime.values.get("CLAIRE_AGY_BIN", "").strip()
+        agy_bin_val = _effective(runtime.values, "CLAIRE_AGY_BIN").strip()
         if not agy_bin_val:
-            data_dir_str = runtime.values.get("CB_DATA_DIR", "./data").strip()
+            data_dir_str = _effective(runtime.values, "CB_DATA_DIR").strip() or "./data"
             data_dir = (runtime.layout.root / data_dir_str).resolve()
             p_file = data_dir / "providers.json"
             if p_file.is_file():
@@ -3340,11 +3360,22 @@ def command_preflight(runtime: Runtime) -> int:
                 except Exception:
                     pass
         agy_bin = Path(host_bin_dir) / (agy_bin_val or "agy")
-        if agy_bin.is_file():
-            print(f"antigravity binary: {agy_bin}")
-        else:
-            print(f"antigravity binary: NOT found (will fall back to mock in container)")
+        if not agy_bin.is_file() or not os.access(agy_bin, os.X_OK):
+            raise ManuscriptError(f"Antigravity CLI binary '{agy_bin}' not found or not executable. Install agy to ~/.local/bin or set CLAIRE_AGY_BIN.")
+        print(f"antigravity binary: {agy_bin} (executable)")
         print(f"antigravity credentials: {host_gemini_dir}")
+    elif raw_provider in ("codex", "codex-cli"):
+        codex_bin_val = _effective(runtime.values, "CLAIRE_CODEX_BIN").strip() or "codex"
+        host_bin_dir = runtime.env.get("CB_BIN_DIR", "").strip() or str(Path.home() / ".local" / "bin")
+        cdx_bin = Path(host_bin_dir) / codex_bin_val
+        if not cdx_bin.is_file() and shutil.which(codex_bin_val):
+            cdx_bin = Path(shutil.which(codex_bin_val))
+        if not cdx_bin.is_file() or not os.access(cdx_bin, os.X_OK):
+            raise ManuscriptError(f"Codex CLI binary '{codex_bin_val}' not found or not executable. Install codex to PATH or set CLAIRE_CODEX_BIN.")
+        print(f"codex binary: {cdx_bin} (executable)")
+        host_codex_dir = runtime.env.get("CB_CODEX_DIR", "").strip() or str(Path.home() / ".codex")
+        print(f"codex credentials: {host_codex_dir}")
+
     print("preflight: OK")
     return 0
 
