@@ -1,465 +1,150 @@
 # Claire Bible
 
-텔레그램으로 던진 링크/문서/키워드를 **스크랩 → 선택한 LLM 프로바이더로 구조화 → 팔란티어식 타입 온톨로지 그래프**로 적재하고, 새 자료를 **기존에 쌓인 그래프와 연결**하며, 나중에 키워드로 **검색 → LLM 정리**해 보여주는 **개인용 지식베이스**.
+> **Telegram & Web Ingestion 기반 개인 지식 베이스 및 온톨로지 지식 그래프 엔진**
 
-- 오리진 목표·로드맵: [docs/origin/GOALS.md](docs/origin/GOALS.md) · 공동 호환성 계약: [docs/contracts/](docs/contracts/README.md)
-- 업스트림 원본 테제: [docs/upstream/GOALS.md](docs/upstream/GOALS.md) · 아키텍처: [docs/upstream/PLAN.md](docs/upstream/PLAN.md)
+Claire Bible은 웹 페이지, YouTube 영상(자막/STT), PDF, 일반 텍스트 등 일상의 다양한 정보 소스를 수집하여 구조화된 지식으로 정제해 주는 개인 지식 관리 시스템(PKM)입니다.  
+Gemini LLM을 통해 핵심 내용과 엔티티 및 관계(Palantir 스타일 온톨로지)를 자동으로 추출하며, SQLite(FTS5 + 벡터)와 로컬 Obsidian 마크다운 볼트(Vault)로 이중 영속화하여 강력한 검색과 시각적 탐색을 제공합니다.
 
-## 상태
+---
 
-v1 파이프라인 완성 + 개인용 컨테이너 운영 구조. 단일 사용자 기본 운영 및 관심사 격리를 위한 일련번호 기반 멀티 테마(`themes/{seq}/`)를 지원하며, 범용 B2C 멀티테넌시는 범위 밖이다([docs/origin/GOALS.md](docs/origin/GOALS.md) 참조). 자동복구·헬스·circuit breaker·능동 알림을 제공한다.
+## 🚀 핵심 파이프라인
 
-## 웹 UI
-
-Claire Bible은 적재된 지식베이스를 시각적으로 탐색하고 분석할 수 있는 단일 페이지 반응형 웹 인터페이스를 제공합니다.
-
-### 지식 그래프 탐색
-
-좌측의 일자별 문서 목록과 중앙의 온톨로지 지식 그래프를 연계하여 전체 지식 구조와 관계망을 직관적으로 탐색합니다. 노드 타입별 컬러링, 연결 차수(Degree) 기반 물리 레이아웃, 상단 범례를 통한 관계 필터링 및 카메라 줌/포커스 컨트롤을 지원합니다.
-
-![문서 목록과 지식 그래프 전체 화면](docs/origin/screenshots/knowledge-graph-overview.png)
-
-### 뷰 종속형 통합 검색과 노드 상세
-
-중앙 화면 상단의 단일 통합 검색창을 통해 현재 활성화된 뷰(그래프 노드 하이라이트/포커스, 문서 제목·요약 필터링 및 본문 심층 하이브리드 검색, 의사결정 스트림 카드 탐색)에 맞추어 유기적으로 지식을 검색합니다. 선택된 노드의 관찰·주장(Observations), 별칭(Aliases), 출처 문서(AI 요약 및 원문 링크), 방향성이 포함된 타입 관계(Neighbors), 실시간 웹 맥락 조사(🔬 더 알아보기) 기능을 한 화면에서 확인합니다.
-
-![검색 결과와 노드 상세 화면](docs/origin/screenshots/search-and-node-details.png)
-
-### 문서 읽기와 심층 지식 검색
-
-수집된 기술 문서와 아티클을 전용 리더 뷰로 쾌적하게 열람합니다. Markdown과 AsciiDoc(.adoc) 듀얼 포맷 상세 렌더링, AI 요약 하이라이트, 글자 크기 조절(A−/A+), 제목 편집(✏️), 공유 링크(🔗)를 지원하며, 엔터 키 입력 시 FTS5 전문 검색과 AI 벡터 하이브리드 지식 검색 및 종합 요약이 권한에 맞추어 완전 자동으로 수행됩니다.
-
-![요약과 상세를 보여주는 문서 읽기 화면](docs/origin/screenshots/document-reader.png)
-
-### 연결 경로
-
-지식 베이스 내 임의의 두 엔티티 간 최단 관계 경로(BFS)를 계산하여 그래프 상에 시각적으로 강조합니다. 우측 패널에서 단계별 관계 전개 과정(`A → 관계 → B → ...`)을 요약하여 복잡한 개념 간의 연결 고리를 손쉽게 파악할 수 있습니다.
-
-![두 노드 사이의 연결 경로 화면](docs/origin/screenshots/connection-path.png)
-
-### 자료 적재
-
-웹 브라우저에서 URL, 원문 텍스트, 메모, "제목 URL" 공유 문구를 직접 입력하여 지식 그래프에 즉시 적재합니다. NDJSON 실시간 스트리밍으로 수집/추출 진행 상황을 확인하며, 수집된 문서 내의 관련 링크는 백그라운드 1홉 자동 확장을 통해 함께 구축됩니다.
-
-![URL과 메모 텍스트를 입력하는 자료 적재 화면](docs/origin/screenshots/content-ingestion-form.png)
-
-### 다중 노드 종합
-
-관심 있는 복수의 엔티티를 바구니(🧩 종합)에 담아 LLM으로 공통 맥락과 상호 작용을 종합 분석합니다. 서로 다른 문서에서 추출된 지식들이 어떻게 융합되고 연계되는지 심층 브리핑 형태로 도출합니다.
-
-![두 노드를 선택한 다중 노드 종합 화면](docs/origin/screenshots/multi-node-synthesis.png)
-
-### 멀티 테마 지식베이스 (Multi-Theme)
-
-`CLAIRE_MULTI_THEME=1` 활성화 시 단일 인스턴스 내에서 시퀀스 기반의 물리적 DB/Vault 격리(`data/themes/{seq}/`, `vault/themes/{seq}/`)를 제공합니다. 웹 UI 우측 상단의 테마 선택기(Theme Selector)를 통해 관심 분야별 지식베이스를 즉시 전환할 수 있으며, 테마별 기본 적재 초점(`default_focus`) 및 협력자 권한 제어를 지원합니다. (상세: [MULTI_THEME_ARCHITECTURE_DESIGN.md](docs/origin/design/MULTI_THEME_ARCHITECTURE_DESIGN.md))
-
-### 확장형 수집기 및 온프레미스 사설망 수집 (Extensible Fetchers & On-Premises)
-
-Claire Bible은 3계층 디스커버리 체계(내장, 로컬 드롭인 `plugins/fetchers/`, 외부 패키지 `entry_points`)를 통해 프로젝트 클론/포크 이용자가 Git 충돌 없이 사설 도메인 수집기를 자유롭게 추가할 수 있습니다. 또한 사내 인트라넷(Confluence, GitLab 등) 환경을 위해 온프레미스 사설망(RFC 1918) 수집을 지원하면서도 클라우드 메타데이터(IMDS) SSRF를 절대 차단하는 `SafeHttpClient` 보안 하네스를 탑재하고 있습니다. (상세: [FETCHER_CONTRIBUTION_AND_ONPREMISE_NETWORK_DESIGN.md](docs/origin/design/FETCHER_CONTRIBUTION_AND_ONPREMISE_NETWORK_DESIGN.md))
-
-### 하이퍼스케일러 프로바이더 WebUI 관리 (Provider Settings)
-
-복잡한 환경변수 설정 없이 웹 UI의 더보기(Drawer) 메뉴 > **⚙️ 프로바이더 설정** 패널에서 주요 LLM 및 하이퍼스케일러 프로바이더(Google Gemini, Antigravity CLI, OpenAI 호환 엔드포인트, TypeSafe AI Jev, 음성 전사 STT)의 모델, 추론 레벨(Effort), API 키 및 접속 정보를 직관적으로 제어할 수 있습니다.
-- **웹 관리 및 영속화**: 설정은 `data/providers.json`에 안전하게 저장되며, 소유자(Owner) 권한으로만 조회 및 수정할 수 있습니다.
-- **연결 테스트(Test)**: 설정 저장 전 실시간 연결 테스트를 통해 API 키 유효성 및 바이너리 설치 상태를 사전에 즉시 검증할 수 있습니다.
-- **자동 마이그레이션**: 기존 `.env`에 설정된 프로바이더 환경변수는 애플리케이션 시작 시 `data/providers.json`으로 자동 이전되고 `.env` 내에서 안전하게 주석 처리됩니다.
-
-## 로컬 개발 빠른 시작 (Quick Start)
-
-```bash
-uv sync                      # 의존성 설치
-cp .env.example .env         # 로컬 개발 설정 준비 (기본 provider: mock)
-uv run claire preflight      # 환경/벡터백엔드/설정 사전 점검
-uv run claire migrate        # 공통 DB 스키마 v13 전환 및 버전·계보 검증
-uv run claire providers      # 프로바이더 목록 및 현재 활성 상태 확인
-uv run claire providers test # 프로바이더 연결 상태 진단
-uv run claire doctor         # 지식그래프 및 DB 무결성 진단 (자동수복: --heal)
-uv run claire ingest "https://example.com/article"   # 문서 수집 및 적재
-uv run claire search "키워드"                          # 하이브리드 검색 + LLM 인용 정리
-uv run claire bot            # 텔레그램 봇 실행 (long-polling)
+```mermaid
+flowchart LR
+    A["입력 소스\n(Telegram / Web / API / CLI)"] --> B["수집 (Ingest)\n(정적·동적 스크래핑, PDF, YouTube 자막/STT)"]
+    B --> C["추출 및 구조화 (Extract)\n(Gemini 기반 온톨로지, 엔티티, 관계 분석)"]
+    C --> D["저장 및 색인 (Store)\n(SQLite FTS5 + sqlite-vec)"]
+    C --> E["문서 렌더링 (Render)\n(Obsidian 마크다운 볼트 동기화)"]
+    D --> F["검색 및 활용 (Retrieve)\n(하이브리드 검색, RAG, Web UI, Bot)"]
+    E --> F
 ```
 
-### Codex CLI 프로바이더(네이티브 전용)
+1. **Ingest (수집)**: 텔레그램 메시지, 브라우저 확장/API, CLI를 통해 URL이나 텍스트를 인박스(Inbox)로 전달합니다.
+2. **Extract (구조화 추출)**: Gemini 모델을 호출하여 상세 요약, 메타데이터, 온톨로지 엔티티 및 상호 관계를 정형화합니다.
+3. **Store & Render (저장 및 렌더링)**: SQLite 데이터베이스에 FTS5 텍스트 색인과 벡터 임베딩을 저장하고, 로컬 Obsidian 볼트에 사람이 읽기 쉬운 마크다운 문서로 기록합니다.
+4. **Retrieve & Interface (활용)**: 하이브리드 검색(키워드 + 시맨틱)을 지원하며, 텔레그램 봇 대화 및 자체 웹 인터페이스를 통해 조회·탐색할 수 있습니다.
 
-Codex CLI 프로바이더는 호스트에 설치하고 인증한 `codex`를 `uv run claire`에서 비대화형으로 호출한다. Docker 이미지와 Compose에는 Codex CLI나 인증 정보를 넣지 않으며, `CLAIRE_PROVIDER=codex` 또는 `codex-cli`를 선택한 Docker profile은 `cb-manuscript preflight`에서 거부한다.
+---
 
-먼저 호스트에서 CLI 설치와 로그인 상태를 확인한다. `codex login status`는 현재 인증 방식을 표시하고 로그인된 경우 종료 코드 0을 반환한다.[^codex-auth]
+## ✨ 주요 기능
 
-```bash
-codex --version
-codex login status
-```
+- **다채로운 소스 파싱**: 정적 웹 문서, 동적 JS 렌더링 페이지, YouTube 영상 자막(및 대체 음성 STT), PDF 파일 지원.
+- **온톨로지 지식 그래프**: 단순 문서 저장을 넘어 엔티티 간 연결 관계(Entity-Relation Graph)를 추출하여 축적.
+- **하이브리드 검색 (Hybrid Search)**: SQLite FTS5 전문 검색(BM25)과 `sqlite-vec` 기반 벡터 임베딩 유사도 검색 결합.
+- **Obsidian 호환 볼트**: 생성된 모든 문서는 프런트매터와 위키링크(`[[Entity]]`)를 포함한 로컬 마크다운 파일로 저장.
+- **멀티 인터페이스**: Telegram 롱폴링 봇, FastAPI/Starlette 기반 Web API 및 뷰어, 풍부한 관리용 CLI 제공.
 
-호스트의 `.env`에 다음 값을 설정한다. `codex-cli`는 `codex`의 별칭이다. `CLAIRE_CODEX_MODEL`을 비우면 인증 계정의 기본 모델을 사용하며 extraction 계보에는 `codex-cli-default`로 기록한다.
+---
 
-```dotenv
-CLAIRE_PROVIDER=codex
-CLAIRE_CODEX_BIN=codex
-CLAIRE_CODEX_MODEL=
-CLAIRE_CODEX_EFFORT=medium
-CLAIRE_CODEX_TIMEOUT=300
-CLAIRE_CODEX_MAX_CONCURRENCY=1
-```
+## 🛠️ 빠른 시작 (Quick Start)
 
-설정 후에는 컨테이너 명령이 아니라 호스트의 애플리케이션 CLI로 점검하고 실행한다.
+### 1. 요구 사항
+- Python `>= 3.10`
+- [uv](https://github.com/astral-sh/uv) (권장) 또는 Python 가상환경
 
-```bash
-uv run claire preflight
-uv run claire doctor
-uv run claire status
-uv run claire ingest "https://example.com/article"
-uv run claire search "키워드"
-```
-
-임베딩과 검색 후보 회수 방식은 `GEMINI_API_KEY` 유무에 따라 달라진다.
-
-- 키가 있으면 기존 Gemini embedding 모델과 입력 예산을 사용한다.
-- 키가 없으면 임의 벡터를 만들지 않고 새 임베딩 저장을 생략하며, 검색 후보는 FTS 전용으로 회수한다. Codex를 이용한 검색 결과 종합은 계속 수행한다.
-
-각 Codex 호출은 프롬프트를 stdin으로 전달하고 빈 임시 작업 디렉터리에서 신규 세션으로 실행한다. Claire는 session rollout, 사용자 config와 rules, shell·apply-patch, plugins·apps·memories·multi-agent·tool discovery를 비활성화하고 read-only sandbox와 승인 정책 `never`를 강제한다. 네이티브 웹 검색은 `research()`에서만 허용한다. Codex CLI는 비대화형 실행, stdin 프롬프트, JSON Schema 출력, 최종 메시지 파일, ephemeral 실행, config·rules 무시와 sandbox 선택 옵션을 제공한다.[^codex-cli-reference]
-
-추출·렌더링·분류·종합·리서치 호출은 로그인 계정의 Codex 사용량과 한도를 소비한다. 운영 전후에 `uv run claire status`, `uv run claire doctor`와 계정 사용량 화면을 함께 확인하고, timeout이나 quota 오류가 누적되면 모델·effort·동시성을 낮추거나 작업을 나누어 재개한다.[^codex-usage]
-
-### 테스트 및 품질 검증 (Testing)
-
-Claire Bible은 백엔드 로직과 런타임을 검증하는 단위/통합 테스트(`pytest`)와 반응형 웹 인터페이스 및 SPA 내비게이션을 검증하는 E2E 브라우저 테스트(`Playwright`)를 제공합니다.
+### 2. 설치 및 환경 설정
 
 ```bash
-# 1. Python 단위 및 통합 테스트 (2026-08-27 기준: 673개)
-uv run pytest
-
-# 2. Playwright 브라우저 E2E 테스트 (최초 1회 설치)
-npm --prefix e2e install           # Playwright 의존성 설치
-npx --prefix e2e playwright install chromium # 브라우저 바이너리 설치
-npx --prefix e2e playwright test   # 모바일/태블릿/데스크톱 E2E 테스트 스위트 실행
-```
-
-> 💡 **참고**: `node_modules/`, `test-results/`, `playwright-report/`, `.pytest_cache/` 등 테스트 산출물은 `.gitignore`에 등록되어 있어 Git 저장소를 항상 깨끗하게 유지합니다.
-
-
-## 주요 명령어 요약
-
-Claire Bible은 호스트 오케스트레이션 도구인 **`cb-manuscript`**와 애플리케이션 CLI인 **`claire`**를 제공합니다.
-
-| 도구 | 주요 명령어 예시 | 역할 및 설명 |
-| :--- | :--- | :--- |
-| **`cb-manuscript`** | `init`, `preflight`, `install`, `update` | 호스트 환경 검증, 이미지 빌드, 롤링 업데이트 |
-| | `doctor`, `doctor --heal` | 지식그래프 참조 무결성 진단 및 원클릭 자동 수복 |
-| | `regenerate --tables --all --apply` | 특정 문서 또는 표(Table) 포함 문서 컴포넌트 LLM 재생성 |
-| | `backup`, `restore`, `format-migrate` | DB/Vault 아카이브 백업·복원, 상세 포맷 일괄 변환 |
-| | `up`, `down`, `restart`, `status`, `logs` | Docker Compose 서비스 수명주기 제어 |
-| **`claire`** | `ingest [-t <theme>]`, `search` | 지식 문서 수집/적재 (테마 지정 지원), FTS+벡터 하이브리드 인용 검색 |
-| *(앱 CLI)* | `doctor`, `preflight`, `health`, `status` | 지식그래프 수복, 환경 점검, 헬스 JSON, 운영 상태 |
-| | `migrate` | 폐기된 v12를 보존 철회하고 공통 v13 버전·계보로 전환 |
-| | `stats [-t <theme>]` | 지식그래프 노드/엣지 통계 (테마 지정 지원) |
-| | `theme define/list/update/delete` | 시퀀스 기반 지식 테마 생성·조회·수정 및 영구 소각(`--purge`) |
-| | `reextract`, `backfill-detail`, `dedup-merge`| 전체/표 선별 그래프 재추출, 상세 백필, 근사 중복 문서 병합 |
-| | `queue status`, `queue list inbox` | `raw_inbox`·`refresh_queue`·`expand_queue`의 상태 분포와 대기·오류 항목 조회 |
-| | `telemetry`, `support-bundle` | 프로바이더 호출 텔레메트리 통계 조회, strict 타깃 역추적·빌드 SHA를 포함한 zstd Support Bundle 생성·조회·파기[^support-bundle] |
-| | *(텔레그램 봇)* `/support bundle` | 텔레그램 채팅창에서 원격 Support Bundle 생성·다운로드·파기 |
-
-> 💡 **전체 명령어 및 세부 옵션 안내**: 모든 명령어, 세부 옵션, 미구현 상태 및 제약사항에 대한 상세 설명은 **[전체 CLI 명령어 레퍼런스 (`docs/origin/implementation/COMMANDS.md`)](docs/origin/implementation/COMMANDS.md)**를 참고하십시오.
-
-`regenerate --apply`, `reextract`, 백필, 포맷 적용과 큐 1회 실행은 문서별 진행률·세부 단계·중단 위치를 표준 오류 출력으로 보고한다. 대상별 적용 범위와 재개 경계는 [작업 진행률 및 중단 보고](docs/origin/implementation/COMMANDS.md#작업-진행률-및-중단-보고)를 따른다.
-
-## 컨테이너 운영
-
-배포된 인스턴스의 호스트 수명주기는 루트의 `cb-manuscript`로만 조작한다. `cb-manuscript`는 `.env`, 설치·업데이트와 Compose를 담당하고, `cb-manuscript app`은 같은 배포 설정과 데이터로 `claire` one-off 명령을 실행한다. 영속 서비스의 컨테이너 내부 명령은 Compose가 직접 `claire`를 호출한다. 세부 경계와 health 종료 코드 차이는 [운영 명령 경계](docs/origin/implementation/OPERATIONS.md)를 참고한다.
-
-### 최초 설치 및 구성
-
-`cb-manuscript`는 준비된 Linux 호스트에서 설정 검증·이미지 build·DB migration·서비스 기동을 일관된 순서로 수행한다.
-
-#### 1. 호스트 준비
-
-Linux 호스트가 기준이다. Windows에서는 WSL Ubuntu의 Linux 파일시스템에 checkout을 두고 실행한다. 다음 항목이 필요하다.
-
-- Bash와 Python 3.10 이상(`fcntl`, `sqlite3` 표준 모듈 포함)
-- Git
-- 실행 중인 Docker Engine과 Docker CLI
-- `docker compose` 형태의 Docker Compose plugin
-- 현재 사용자 계정의 Docker daemon 접근 권한
-- checkout, `data/`, `vault/`, `.cb-manuscript/`를 읽고 쓸 권한
-- 최초 image build를 위한 container registry·OS package repository·Python package index의 DNS/HTTPS 접근
-
-##### Ubuntu 설치 예시
-
-```bash
-sudo apt update
-sudo apt install -y bash ca-certificates curl git python3
-```
-
-Docker Engine, Docker CLI와 Compose plugin은 [Docker 공식 Ubuntu 설치 안내](https://docs.docker.com/engine/install/ubuntu/)에 따라 준비한다. 설치 후 현재 계정에 Docker daemon 접근 권한을 적용하고 버전을 확인한다.
-
-```bash
-python3 --version          # 3.10 이상
-python3 -c 'import fcntl, sqlite3'
-git --version
-docker --version
-docker compose version
-docker info --format '{{.ServerVersion}}'
-```
-
-저장소를 clone한 뒤 루트로 이동한다. private repository는 credential manager 또는 SSH 인증을 사용한다.
-
-```bash
+# 저장소 클론 및 이동
 git clone https://github.com/fofwisdom/claire-bible.git
 cd claire-bible
+
+# uv를 사용한 의존성 설치
+uv sync
+
+# 환경 변수 파일 복사 및 설정
+cp .env.example .env
 ```
 
-컨테이너 image build가 Python 3.11, `uv`, Chromium과 애플리케이션 Python 패키지를 설치한다. 호스트 `uv`는 [로컬 소스 개발](#로컬-소스-개발)과 기본 원격 배포 CI에서 사용한다.
+`.env` 파일에서 최소 필수 설정을 입력합니다:
+- `TELEGRAM_BOT_TOKEN`: 텔레그램 봇 토큰 (BotFather 발급)
+- `TELEGRAM_ALLOWED_USERS`: 봇 사용을 허용할 Telegram User ID
+- `GEMINI_API_KEY`: Google Gemini API 키
 
-#### 2. 환경 파일과 저장 경로 준비
-
-저장소 루트에서 `init`을 먼저 실행한다.
+### 3. 데이터베이스 초기화 및 진단
 
 ```bash
-./cb-manuscript init
+# DB 스키마 생성 및 마이그레이션
+uv run claire migrate
+
+# 설정 및 환경 진단
+uv run claire preflight
+uv run claire doctor
 ```
 
-이 명령은 다음 작업을 수행한다.
+---
 
-- `.env.example`을 `.env`로, `.env.dev.example`을 `.env.dev`로 복사
-- 기존 환경 파일과 비어 있지 않은 설정 유지
-- production/development selector와 `CLAIRE_ANONYMOUS_READONLY=1` 보충
-- 비어 있는 `CLAIRE_INJECT_TOKEN`을 URL-safe owner token으로 생성
-- 환경 파일을 mode `0600`으로 설정
-- 기본 `data/`, `vault/` 디렉터리 생성
+## 💻 실행 방법
 
-설치할 profile에 따라 설정 파일과 명령을 선택한다.
-
-| 목적 | 적용 설정 | 명령 형태 |
-|---|---|---|
-| 같은 호스트에서 격리된 시험 | `.env` 다음 `.env.dev` overlay | `./cb-manuscript dev <command>` |
-| production 운영 | `.env` | `./cb-manuscript <command>` |
-
-development의 기본값은 `127.0.0.1:8766`, mock provider, Telegram bot 비활성화다. 같은 호스트에서 시험한다면 `init` 직후 사용할 수 있다. 다른 개발 장치에서 접속할 때는 `.env.dev`의 `CB_API_BIND`와 `CLAIRE_PUBLIC_URL`을 실제 고정 LAN IPv4 기준으로 함께 변경한다.
-
-production에서는 `.env`의 예시 hostname을 포함한 다음 값을 실제 환경에 맞게 변경한다.
-
-```dotenv
-CLAIRE_ENVIRONMENT=production
-CB_API_BIND=192.168.10.25
-CB_API_PORT=8765
-CLAIRE_PUBLIC_URL=https://kb.example.net/
-CLAIRE_CORS_ALLOWED_ORIGINS=
-CLAIRE_ANONYMOUS_READONLY=1
-```
-
-- `CB_API_BIND`는 Claire 호스트에 실제 할당된 단일 IPv4여야 한다.
-- `CB_API_PORT`는 사용 가능한 port여야 한다.
-- `CLAIRE_PUBLIC_URL`은 실제 DNS hostname의 root HTTPS URL이어야 한다.
-- production HTTPS와 인증서는 별도 reverse proxy가 담당한다.
-- production host의 API source 제한은 reverse proxy IP를 기준으로 [`DOCKER-USER` chain](https://docs.docker.com/engine/install/ubuntu/#firewall-limitations)에 설정한다.
-- `CB_DATA_DIR`·`CB_VAULT_DIR`을 바꾸면 해당 host 디렉터리를 미리 만들고 Docker bind mount와 쓰기 권한을 확인한다.
-
-DNS, reverse proxy, TLS, Host 전달과 방화벽 구성은 [외부 접속과 reverse proxy](docs/origin/implementation/EXTERNAL_ACCESS.md)를 따른다.
-
-#### 3. Provider와 Telegram 선택
-
-최초 기동은 기본 mock provider와 비활성 Telegram 구성으로 확인할 수 있다.
-
-```dotenv
-CLAIRE_PROVIDER=mock
-GEMINI_API_KEY=
-TELEGRAM_BOT_TOKEN=
-```
-
-호스트에 인증된 Antigravity CLI(`agy`)를 사용할 경우 `CLAIRE_PROVIDER`를 `antigravity`로 설정한다 (별도 API 키 불필요).
-
-```dotenv
-CLAIRE_PROVIDER=antigravity
-CLAIRE_AGY_BIN=agy
-CLAIRE_AGY_MODEL=gemini-3.7-flash
-CLAIRE_AGY_EFFORT=medium
-```
-
-직접 Gemini API를 사용하려면 `CLAIRE_PROVIDER`를 `gemini`로 변경하고 `GEMINI_API_KEY`를 설정한다.
-
-```dotenv
-CLAIRE_PROVIDER=gemini
-GEMINI_API_KEY=replace-with-gemini-api-key
-```
-
-Codex CLI 프로바이더는 이 컨테이너 profile에서 지원하지 않는다. `.env`에 `CLAIRE_PROVIDER=codex` 또는 `codex-cli`를 설정하면 preflight가 중단되므로, [Codex CLI 프로바이더(네이티브 전용)](#codex-cli-프로바이더네이티브-전용)의 호스트 명령을 사용한다.
-
-Telegram bot을 활성화할 때 `TELEGRAM_BOT_TOKEN`과 `TELEGRAM_ALLOWED_USERS`의 허용할 숫자 user ID를 설정한다.
-
-`CLAIRE_ANONYMOUS_READONLY=1`(기본값)은 숨김 문서를 제외한 공개 지식베이스의 읽기 API를 자격증명 없이 공개한다. 완전히 인증 전용(비공개)으로 운영하려면 `0`으로 변경한다.
-
-PDF 논문 및 심층 문서 적재 시 원문 추출 상한(`CLAIRE_PDF_MAX_EXTRACT_CHARS=50000`)과 1차 논문 분류 최저 effort(`CLAIRE_PDF_CLASSIFIER_EFFORT=low`), 15,000자 이상 논문에 대한 고수준 추론(`CLAIRE_PDF_PAPER_EFFORT=high`)이 자동으로 적용된다. (.env 내 여러 프로바이더 선언 시 최저 effort 프로바이더를 1차 분류기로 자동 선택) 상세 내용은 [PDF_INGESTION_AND_ADAPTIVE_EFFORT_DESIGN.md](docs/origin/design/PDF_INGESTION_AND_ADAPTIVE_EFFORT_DESIGN.md)를 참조한다.
-
-#### 4. 사전 검사, 설치, 설치 후 확인
-
-`preflight`와 `install`은 별도 명령이다. 선택한 profile에서 다음 순서로 실행한다.
-
+### Telegram 봇 실행
+텔레그램 봇을 실행하여 링크나 텍스트를 메시지로 전달받습니다.
 ```bash
-# production
-./cb-manuscript preflight
-./cb-manuscript install
-
-# development
-./cb-manuscript dev preflight
-./cb-manuscript dev install
+uv run claire bot
 ```
 
-`preflight`는 Docker CLI·Compose·daemon, Git, 환경 파일과 Compose 문법을 확인한다. 설치 전에 다음 운영 조건도 확인한다.
-
-- `CB_API_BIND`가 실제 host interface에 존재하는지
-- `CB_API_PORT`가 비어 있는지
-- Docker build와 데이터 증가에 필요한 디스크 공간
-- custom data/vault 경로의 mount·쓰기 권한
-- registry·APT·Python package index 접근
-- production DNS·reverse proxy·TLS·방화벽
-- 선택한 컨테이너 프로바이더와 Telegram 자격증명의 실제 유효성
-
-설치가 끝나면 같은 profile에서 상태와 health, 지식그래프 무결성을 확인한다. development는 각 명령 앞에 `dev`를 붙인다.
-
+### Web API & UI 서빙
+웹 대시보드 및 REST API를 구동합니다 (기본 포트: 8765).
 ```bash
-./cb-manuscript status
-./cb-manuscript health
-./cb-manuscript app doctor      # 지식그래프 및 DB 무결성 점검 (자동수복: --heal)
-./cb-manuscript app health
-./cb-manuscript app preflight
-./cb-manuscript logs --tail 100 api
+uv run claire serve-api
 ```
 
-`install`의 마지막 검증 범위는 API 컨테이너의 DB·schema liveness다. 설치 후 실제 환경에서 선택한 컨테이너 프로바이더 호출, Telegram 메시지, scraping, reverse proxy와 브라우저 접속을 각각 확인한다.
-
-### 주요 운영 명령
-
-| 명령 | 설명 |
-|---|---|
-| `./cb-manuscript update` | fast-forward source → build → stop → migrate → up |
-| `./cb-manuscript update --no-fetch` | 이미 동기화된 소스로 재배치 |
-| `./cb-manuscript up` | 서비스 스택 시작 |
-| `./cb-manuscript down` | 서비스 스택 중지 |
-| `./cb-manuscript restart` | 서비스 스택 재시작 |
-| `./cb-manuscript backup` | 백업 생성 (`backups/cb-YYYYMMDD-HHMMSS/`) |
-| `./cb-manuscript backup --format archive` | 압축 백업 생성 (`backups/cb-YYYYMMDD-HHMMSS.tar.gz`) |
-| `./cb-manuscript restore` | 대화형 백업 목록 조회 및 번호 선택 복원 |
-| `./cb-manuscript restore backups/cb-YYYYMMDD-HHMMSS --yes` | 특정 백업 지정 복원 |
-| `./cb-manuscript health` | 실행 중인 API 컨테이너의 DB·schema liveness 확인 |
-| `./cb-manuscript clean` | 미사용/레거시 컨테이너, 댕글링 이미지, 빌드 캐시 정리 |
-| `./cb-manuscript logs -f api` | API 컨테이너 실시간 로그 확인 |
-| `./cb-manuscript shell` | 컨테이너 셸 접속 |
-| `./cb-manuscript app --help` | 배포 이미지의 전체 앱 명령 확인 |
-| `./cb-manuscript app status` | 배포된 앱의 one-off 상태 조회 |
-| `./cb-manuscript app health` | degraded까지 평가하는 전체 health 확인 |
-| `./cb-manuscript compose -- ps` | 고급 Compose 탈출구 |
-
-`CLAIRE_ENVIRONMENT`는 `development` 또는 `production` 중 하나가 반드시 필요하다. bare 명령의 환경 선택은 프로세스 값을 먼저 본다. 다만 설정 파일의 역할까지 바꾸지는 않으므로 `.env`는 `production`, `.env.dev`는 `development`를 선언해야 한다. development가 선택되면 `.env` 다음에 `.env.dev`와 개발 Compose overlay를 적용한다. 기존 `dev` prefix는 development 별칭으로 유지하지만 프로세스 환경이 production이면 충돌로 중단한다. `CLAIRE_PUBLIC_URL`과 CORS 목록은 선택된 env 파일의 값을 검사하고 그대로 컨테이너에 전달한다.
-
-기존 설치를 처음 이 구조로 올릴 때는 lifecycle 명령 전에 `./cb-manuscript init`을 한 번 다시 실행한다. 기존 secret과 명시된 값을 유지하면서 누락된 환경 selector와 `CLAIRE_ANONYMOUS_READONLY=1`을 production/development 파일에 각각 보충한다. 그 뒤 production `.env`에는 실제 외부 hostname의 `CLAIRE_PUBLIC_URL=https://.../`을 반드시 설정하고, 필요할 때만 exact HTTPS origin을 `CLAIRE_CORS_ALLOWED_ORIGINS`에 넣는다.
-
-exact `CLAIRE_ANONYMOUS_READONLY=1`(기본값)은 canonical same-origin 또는 Origin 헤더가 없는 요청에서 자격증명 없는 읽기 전용 접근을 허용한다. 이는 owner 인증이나 쓰기 기능을 끄는 설정이 아니며, 숨김 문서(`hidden=1`) 및 그와 연관된 엔티티는 익명 읽기 계층에서 철저히 제외되어 안전하게 공개된다. 완전히 인증 전용으로 운영하려면 `CLAIRE_ANONYMOUS_READONLY=0`으로 설정한다. 공개 전에 [외부 접속과 reverse proxy](docs/origin/implementation/EXTERNAL_ACCESS.md)의 방화벽·rate limit 경계를 적용한다.
-
-`app`, `shell`, 고급 `compose` one-off는 인스턴스 잠금을 잡아 lifecycle 및 백업·복원과 동시에 실행되지 않는다. migration, Compose 관리 daemon과 파괴적 유지보수는 실수로 실행되지 않도록 기본 차단된다. `app --advanced ...`는 전문가용 raw passthrough이며 서비스 정지, migration 순서, 백업 또는 복구 가능성을 보장하지 않는다.
-
-백업은 현재 profile의 `data`와 `vault`를 writer 정지 상태에서 함께 캡처하고, SQLite snapshot·`quick_check`·foreign-key 검사·SHA-256 manifest를 검증한 뒤에만 공개한다. 백업 시마다 초 단위 타임스탬프(`cb-YYYYMMDD-HHMMSS`)로 구분되어 생성되므로 기존 백업을 덮어쓰지 않고 안전하게 보존된다. 기본은 폴더이고 `--format archive`는 `.tar.gz` 파일을 만든다. `--component data` 또는 `--component vault`로 일부만 선택할 수 있다. 동일 ID 산출물은 묵시적으로 덮어쓰지 않으며 새 상태로 교체하려면 `--replace`가 필요하다. `.env`의 secret과 호스트 topology는 v1 backup에 포함하지 않는다.
-
-복원은 인자 없이 `./cb-manuscript restore`를 실행하면 존재하는 백업 목록을 최신순으로 나열하고 번호로 선택하여 복원할 수 있다. 특정 파일 또는 폴더 경로를 지정하여 직접 복원할 수도 있다. profile·project·hash·SQLite를 서비스 정지 전에 검증하며, 대화형 확인 또는 `--yes` 플래그가 필요하다. 선택한 component를 교체한 뒤 migration과 liveness까지 성공해야 완료한다. 실패하면 직전 data/vault를 되돌리고 원래 실행 중이던 컨테이너만 재개한다.
-
-`./cb-manuscript health`는 실행 중인 API 컨테이너의 DB·schema liveness를 확인한다. 주의 항목이 누적된 `degraded` 상태도 출력하지만 liveness가 정상이면 성공한다. `./cb-manuscript app health`는 전체 애플리케이션 상태를 평가하므로 `degraded`이면 종료 코드 1을 반환한다.
-
-`update`는 dirty worktree와 non-fast-forward 갱신을 거부한다. 새 이미지 build가 성공한 뒤 현재 project와 이전 고정 이름 컨테이너를 중지하고 migration을 한 번만 실행한다. SQLite migration 중에는 짧은 쓰기 중단이 발생한다. migration 전에 실패하면 직전에 실행 중이던 컨테이너만 다시 시작한다. 새 스택 기동 이후 실패는 진단을 위해 그 상태를 유지하며 자동 rollback으로 오인하지 않는다. 이 update 실패 정책은 별도의 `cb-manuscript restore` component rollback과 구분한다.
-
-환경 파일 (전체 환경변수 상세 명세는 **[환경변수 매뉴얼 (`docs/origin/implementation/ENVIRONMENT_VARIABLES.md`)](docs/origin/implementation/ENVIRONMENT_VARIABLES.md)**을 참고하십시오):
-
-| 파일 | 역할 |
-|---|---|
-| `.env` | production 기본 runtime·Compose 설정과 secret |
-| `.env.dev` | development project·포트·데이터 경로 override |
-| `.env.deploy` | production SSH/rsync 접속 설정. 컨테이너에는 전달하지 않음 |
-
-Compose project 이름은 `CB_PROJECT_NAME`으로 고정한다. 운영은 기본 `claire-bible`, 개발은 `claire-bible-dev`이며 고정 `container_name`을 사용하지 않는다. 설치 후 이름이 바뀌면 중복 writer 방지를 위해 명령이 거부된다. 이전 이름으로 `down`을 완료한 뒤 표시된 상태 파일을 제거해야 이름을 전환할 수 있다.
-
-5개 서비스는 같은 이미지와 `data`·`vault`를 공유한다.
-
-| 서비스 | 역할 |
-|---|---|
-| `bot` | 선택적 Telegram long-polling |
-| `api` | ASGI API·웹 UI. 컨테이너는 전체 interface에서 듣고 호스트는 `CB_API_BIND`의 정확한 IPv4에만 게시 |
-| `refresh` | 갱신 큐 처리 |
-| `recover` | error inbox 자동 재적재 |
-| `expand` | 1홉 자동확장 큐 처리 |
-
-### 원격 호환 실행
-
-워크스테이션에서 원격 호스트로 전송해야 하면 접속 설정을 runtime `.env`와 분리한다. 워크스테이션에는 Bash, Python 3.10 이상, Docker Compose, SSH, rsync와 기본 CI 실행용 `uv`가 필요하다. 원격 호스트에는 Bash, Python 3.10 이상, rsync, 실행 중인 Docker Engine과 Compose, 배포 경로 쓰기·Docker daemon 접근 권한, image build용 외부 네트워크가 필요하다.
-
-Ubuntu 워크스테이션의 원격 전송 도구는 APT로 설치한다. 기본 CI용 `uv`는 [공식 standalone installer](https://docs.astral.sh/uv/getting-started/installation/)로 준비한다.
-
+### CLI 직접 수집 및 검색
 ```bash
-# 배포 워크스테이션
-sudo apt update
-sudo apt install -y openssh-client rsync
-curl -LsSf https://astral.sh/uv/install.sh | sh
+# 단일 URL 수집 및 처리
+uv run claire ingest "https://example.com/article"
+
+# 지식 베이스 검색 (하이브리드 검색 + LLM 요약)
+uv run claire search "검색할 질문이나 키워드"
 ```
 
-설치 후 새 shell session에서 `uv --version`을 확인한다.
-
-원격 Ubuntu 호스트는 위의 Docker·Python 준비에 SSH server와 `rsync`를 추가한다.
-
+### Docker Compose 환경
+백그라운드 서비스(Bot, API, 백그라운드 워커)를 컨테이너로 통합 구동할 수 있습니다.
 ```bash
-# 원격 대상 호스트
-sudo apt update
-sudo apt install -y openssh-server rsync
-sudo systemctl enable --now ssh
+docker compose up -d
 ```
 
-```bash
-./cb-manuscript init
-# production .env를 실제 bind, URL, provider 설정으로 편집
-cp .env.deploy.example .env.deploy
-# DEPLOY_REMOTE, DEPLOY_PATH (예: private/claire), DEPLOY_ENV_SYNC 입력
-./cb-manuscript remote install
-./cb-manuscript remote update
+---
+
+## 📋 주요 CLI 명령어 안내
+
+`claire` CLI는 지식 베이스의 운영과 유지보수를 위한 다양한 서브커맨드를 제공합니다:
+
+| 명령어 | 설명 |
+| :--- | :--- |
+| `claire status` | 시스템 현황, 큐 상태, DB 레코드 요약 출력 |
+| `claire health` | DB, 인박스, 큐 상태를 JSON 형태로 진단 |
+| `claire doctor` | 지식 그래프 및 DB 무결성 검사 및 자동 복구 |
+| `claire queue` | 인박스, 리프레시, 확장 큐 모니터링 |
+| `claire dedup-scan` | MinHash 기반 유사/중복 문서 탐색 |
+| `claire re-embed` | 전체 엔티티/문서 벡터 임베딩 재연산 |
+| `claire link-relations` | 기존 축적 문서 간 교차 관계 재분석 및 연결 |
+
+전체 옵션은 `uv run claire --help`를 통해 확인할 수 있습니다.
+
+---
+
+## 📂 프로젝트 구조
+
+```
+claire-bible/
+├── src/claire/
+│   ├── api/             # ASGI 웹 서비스 및 엔드포인트
+│   ├── extract/         # Gemini 기반 구조화·온톨로지 추출 로직
+│   ├── ingest/          # 스크래퍼 및 콘텐츠 페처 (웹, 영상, PDF)
+│   ├── ontology/        # 온톨로지 스키마 및 그래프 정의
+│   ├── render/          # Obsidian 마크다운 및 HTML 렌더러
+│   ├── retrieval/       # FTS5 + sqlite-vec 하이브리드 검색 엔진
+│   ├── store/           # SQLite 저장소 및 트랜잭션 관리
+│   ├── cli.py           # 통합 CLI 진입점
+│   └── telegram_bot.py  # 텔레그램 봇 인터페이스
+├── data/                # SQLite DB 및 런타임 저장소
+├── vault/               # 동기화되는 Obsidian 마크다운 볼트
+├── pyproject.toml       # 패키지 명세 및 의존성
+└── docker-compose.yml   # 프로덕션/컨테이너 구동 설정
 ```
 
-원격 전송은 `deploy.sh` 호환 계층을 사용하지만 실제 컨테이너 lifecycle은 원격의 `cb-manuscript`가 수행한다. `DEPLOY_ENV_SYNC=if-missing|always|never`로 원격 runtime `.env` 동기화 정책을 정한다. 원격 install/update는 production 전용이며 로컬과 원격 명령 모두 `CLAIRE_ENVIRONMENT=production`으로 고정된다.
+---
 
-기본 `DEPLOY_ENV_SYNC=if-missing`은 원격 `.env`가 없을 때만 로컬 production `.env`를 전송한다. 최초 설치에는 유효한 로컬 `.env` 또는 이미 준비된 원격 `.env` 중 하나가 반드시 필요하다. `remote install` 전에 원격 호스트의 Python·Docker·Compose 버전, daemon 접근, 배포 경로 권한과 build 네트워크를 확인한다.
+## 📄 라이선스
 
-웹 접속은 [외부 접속과 reverse proxy](docs/origin/implementation/EXTERNAL_ACCESS.md)를 따른다. development는 고정 IPv4로 직접 HTTP 접속하고, production은 별도 LAN reverse proxy가 hostname과 클라이언트 TLS를 담당한 뒤 Claire의 HTTP upstream으로 전달한다. production HTTPS와 인증서 발급·갱신은 LAN reverse proxy에서 관리한다.
-
-### 장애 대응
-
-- **추출 실패(프로바이더 quota/크레딧 소진)**: 원본은 `raw_inbox` error 로 보관(유실 0). `recover`가 지수백오프로 자동 재적재. 영구실패(`failed`) 누적 시 텔레그램으로 소유자 경보. 크레딧 충전 등으로 회복되면 due 항목이 자동 복구된다.
-- **기동 여부 확인**: `./cb-manuscript health`로 API 컨테이너의 liveness를 확인한다.
-- **주의 상태 진단**: `./cb-manuscript app health`의 `degraded`, `attention` 필드를 확인한다. `degraded`이면 명령도 실패로 종료한다.
-
-## 구조
-
-```
-plugins/           로컬 사설 드롭인 플러그인 (Git 무충돌 격리)
-  fetchers/        사용자 정의 도메인 수집기/어댑터 (custom_*.py)
-src/claire/
-  config.py        설정(.env)
-  cli.py           CLI 진입점
-  telegram_bot.py  텔레그램 진입점 (단일 라우팅 통합)
-  api/             ASGI API와 웹 UI
-  health.py        건강 상태 산출(/health · CLI 공유)
-  notify.py        텔레그램 소유자 경보
-  support_bundle.py Support Bundle 생성, zstd 스트리밍 압축, 수명주기 관리
-  ingest/          수집기 레지스트리(3계층 디스커버리) + SafeHttpClient(온프레미스/SSRF) + 라우터 + normalize + IngestService
-  ontology/        타입 온톨로지(코드 인터페이스) + registry(domain/range)
-  extract/         structured 추출 + provider 어댑터(mock/gemini/antigravity/codex) + resolver(약어 동의어 수렴) + circuit breaker
-  store/           SQLite(graph+FTS+vec) + 격리 텔레메트리 + 마이그레이션 + vault(.md) export
-  expand/          1홉 자동 확장
-  retrieval/       하이브리드 검색 + LLM 정리
-```
-
-## 각주
-
-[^codex-auth]: OpenAI의 Codex 인증 문서는 `codex login status`로 현재 인증 방식을 확인할 수 있다고 설명하며, CLI 레퍼런스는 인증 정보가 있으면 이 명령이 종료 코드 0을 반환한다고 명시한다.
-[^codex-cli-reference]: OpenAI Codex CLI 레퍼런스의 `codex exec` 옵션을 기준으로 한다. Claire가 추가로 비활성화하는 도구와 환경변수 allowlist는 이 프로젝트의 보안 경계이다.
-[^codex-usage]: Codex의 사용량은 인증한 계정·플랜, 선택한 모델, 입력·출력 및 도구 사용에 따라 달라질 수 있다. 정확한 잔여 사용량은 계정 사용량 화면에서 확인한다.
-[^support-bundle]: Claire Bible 구현 근거: [`src/claire/support_bundle.py`](src/claire/support_bundle.py), [`src/claire/store/db.py`](src/claire/store/db.py), [`Dockerfile`](Dockerfile), [`tests/test_support_bundle.py`](tests/test_support_bundle.py), [`tests/test_migrate.py`](tests/test_migrate.py) (2026-09-11 확인).
-
-## 참고문헌
-
-1. OpenAI, [Authentication](https://developers.openai.com/codex/auth), 2026-09-01 확인.
-2. OpenAI, [Codex CLI reference](https://developers.openai.com/codex/cli/reference), 2026-09-01 확인.
-3. OpenAI, [ChatGPT and Codex pricing](https://learn.chatgpt.com/docs/pricing), 2026-09-01 확인.
-4. Claire Bible, Support Bundle v2 구현 및 테스트, 2026-09-11 확인.
+이 프로젝트는 [LICENSE.md](file:///home/fow/Projects/claire-bible/LICENSE.md)에 명시된 라이선스 조건을 따릅니다.
