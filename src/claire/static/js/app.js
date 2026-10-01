@@ -824,8 +824,8 @@ function syncWorkspaceLayout(){
   const toggleBtn = document.getElementById('detailtogglebtn');
   if(toggleBtn){
     toggleBtn.setAttribute('aria-expanded', isCompact ? 'false' : 'true');
-    toggleBtn.title = isCompact ? '우측 메뉴 펼치기' : '우측 메뉴 축소(아이콘 모드)';
-    toggleBtn.setAttribute('aria-label', isCompact ? '우측 메뉴 펼치기' : '우측 메뉴 축소(아이콘 모드)');
+    toggleBtn.title = isCompact ? '상세 메뉴 펼치기' : '상세 메뉴 축소(아이콘 모드)';
+    toggleBtn.setAttribute('aria-label', isCompact ? '상세 메뉴 펼치기' : '상세 메뉴 축소(아이콘 모드)');
   }
 
   if(activePane==='graph'){
@@ -3205,7 +3205,7 @@ function docNodes(docId, dc){
 function renderDocPanel(dc){
   curReaderDocData=dc;
   let h='<h2>'+esc(dc.title)+' <small>'+esc(dc.source_type||'')+'</small></h2>';
-  h+=docMetaHtml(dc);
+  h+=docMetaHtml(dc, { showOrigin: false });
   h+=extraSourcesHtml(dc);
   const focus = (dc.focus || (dc.meta && dc.meta.focus) || '').trim();
   if(focus){
@@ -3220,8 +3220,8 @@ function renderDocPanel(dc){
       '</label></div>';
   }
 
-  if(dc.summary) h+='<h3>요약</h3><div class=synth>'+esc(dc.summary)+'</div>';
-  // 이 문서의 노드 버튼 — 요약 바로 아래(피드백). 누르면 그래프에서 그 노드로 이동(nav).
+  // 본문의 원문 여는 기능 및 요약 내용은 중앙 리더 본문과 중복 표시이므로 우측 상세 패널에서는 제거함.
+  // 이 문서의 노드 버튼 — 누르면 그래프에서 그 노드로 이동(nav).
   const ns=docNodes(dc.id, dc);
   h+='<h3>이 문서의 지식 노드 ('+ns.length+')</h3>';
   if(ns.length){ h+='<div class=nodebtns>'+ ns.map(n=>{
@@ -3230,7 +3230,6 @@ function renderDocPanel(dc){
         'onmouseleave="leaveNode()" onclick="focusNode(\''+n.id+'\')">'+
         '<i style="background:'+c+'"></i>'+esc(n.label)+'</button>'; }).join('')+'</div>';
   } else { h+='<p class=al>이 문서에서 추출된 노드가 없습니다.</p>'; }
-  if(!dc.summary && !dc.detail) h+='<p class=al>문서에 요약/상세 내용이 없습니다.</p>';
   panel.innerHTML=h;
 
   if(dc && Array.isArray(dc.nodes) && dc.nodes.length > 0){
