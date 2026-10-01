@@ -56,7 +56,7 @@ const compactMQ = window.matchMedia('(max-width:1100px)');
 const toolbarMQ = window.matchMedia('(max-width:1500px)');
 const reducedMotionMQ = window.matchMedia('(prefers-reduced-motion:reduce)');
 const paneNames=['docs','graph'];
-let activePane = mobileMQ.matches ? 'docs' : 'stream', detailOpen=false, centerView='stream', drawerOpen=false;
+let activePane = mobileMQ.matches ? 'docs' : 'graph', detailOpen=false, centerView='graph', drawerOpen=false;
 let detailReturnFocus=null, docSearchActive=false, serverSearchResults=null;
 let graphCamera = null, preservingGraphCamera = false, netBusy = false;
 let isDraggingNode = false, settleTimer = null;
@@ -3104,13 +3104,13 @@ function resetHome(){
   activeDoc = null;
   selectedNodeId = null;
   curReaderDoc = null;
-  setCenterView('stream');
-  revealWorkspace(mobileMQ.matches ? 'docs' : 'stream', false, true);
+  setCenterView('graph');
+  revealWorkspace(mobileMQ.matches ? 'docs' : 'graph', false, true);
   renderDocs();
   applyView();
   resetGraphCamera();
   syncGraphDocNav();
-  document.title = 'Claire Bible — 의사결정 스트림';
+  document.title = 'Claire Bible — 지식 그래프';
   if(mobileMQ.matches){
     closeReader(false, false);
   }

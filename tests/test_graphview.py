@@ -118,7 +118,7 @@ def test_graph_html_self_contained_markers():
     assert 'id="netsearch"' in GRAPH_HTML and 'id="barsearch"' in GRAPH_HTML  # 헤더 통합 검색창
     assert "synthSet" in GRAPH_HTML and "addToSynth" in GRAPH_HTML      # 종합 수집(inspect와 분리)
     assert "id=\"authstate\"" in GRAPH_HTML and "setAccessScope" in GRAPH_HTML
-    assert '<body class="ro" data-auth-scope="unknown" data-active-pane="stream" data-center-view="stream">' in GRAPH_HTML
+    assert '<body class="ro" data-auth-scope="unknown" data-active-pane="graph" data-center-view="graph">' in GRAPH_HTML
     assert "let AUTH_SCOPE='unknown';" in GRAPH_HTML
     assert "let READONLY=true;" in GRAPH_HTML
     assert "function canWrite(){ return AUTH_SCOPE==='owner'; }" in GRAPH_HTML
@@ -189,7 +189,7 @@ def test_graph_html_self_contained_markers():
     assert 'id="tab-detail"' not in GRAPH_HTML
     assert 'id="detailpane" role="region" aria-label="문맥 상세"' in GRAPH_HTML
     assert "function revealWorkspace" in GRAPH_HTML and "data-active-pane" in GRAPH_HTML
-    assert "function openDetailPane()" in GRAPH_HTML and "let activePane = mobileMQ.matches ? 'docs' : 'stream', detailOpen=false" in GRAPH_HTML
+    assert "function openDetailPane()" in GRAPH_HTML and "let activePane = mobileMQ.matches ? 'docs' : 'graph', detailOpen=false" in GRAPH_HTML
     assert "const paneNames=['docs','graph'];" in GRAPH_HTML
     assert "mobileScrollTo" not in GRAPH_HTML and "scrollIntoView" not in GRAPH_HTML
     assert "const mobileMQ = window.matchMedia('(max-width:720px)')" in GRAPH_HTML
@@ -518,8 +518,8 @@ def test_render_graph_html_default():
     assert "fofwisdom/claire-bible" in html
     assert '<span class="brand"' in html
     assert 'onclick="resetHome()"' in html
-    assert 'title="의사결정 스트림 보기"' in html
-    assert 'aria-label="의사결정 스트림 보기"' in html
+    assert 'title="전체 지식 그래프 보기"' in html
+    assert 'aria-label="전체 지식 그래프 보기"' in html
     assert 'function resetHome()' in html
     assert 'id="repolink"' in html
     assert 'id="drawermanager"' in html
@@ -916,6 +916,47 @@ def test_detailpane_title_and_duplicate_removal():
     reader_fn = GRAPH_HTML[r_start:r_end]
     assert "h+=docMetaHtml(dc);" in reader_fn
     assert "<div class=rsection>요약</div>" in reader_fn
+
+
+def test_default_graph_view_and_stream_tabs_separation():
+    """최초 접속 및 로고 클릭 시 기본 화면이 전체 그래프로 복원되고, 의사결정 스트림은 본문/프레젠테이션/그래프와 별도의 박스로 분리됨을 검증."""
+    from claire.graphview import GRAPH_HTML
+
+    # 1. 초기 body 및 기본 뷰가 graph로 설정됨
+    assert '<body class="ro" data-auth-scope="unknown" data-active-pane="graph" data-center-view="graph">' in GRAPH_HTML
+    assert "centertab-graph\" type=\"button\" class=\"center-tab-btn active\"" in GRAPH_HTML
+
+    # 2. 로고(brand) 클릭 시 전체 그래프 보기 복원
+    assert 'title="전체 지식 그래프 보기"' in GRAPH_HTML
+    assert 'aria-label="전체 지식 그래프 보기"' in GRAPH_HTML
+
+    # 3. resetHome() 호출 시 전체 그래프 뷰로 복원
+    r_home_start = GRAPH_HTML.index("function resetHome(){")
+    r_home_end = GRAPH_HTML.index("function selectDoc(id){")
+    r_home_fn = GRAPH_HTML[r_home_start:r_home_end]
+    assert "setCenterView('graph');" in r_home_fn
+    assert "document.title = 'Claire Bible — 지식 그래프';" in r_home_fn
+
+    # 4. 본문/프레젠테이션/그래프 탭 박스(#centertabs)와 의사결정 스트림 탭 박스(#streamtabs)의 구조적 분리
+    assert '<div id="centertabs" class="center-tabs"' in GRAPH_HTML
+    assert '<div id="streamtabs" class="center-tabs stream-tabs"' in GRAPH_HTML
+
+    c_start = GRAPH_HTML.index('<div id="centertabs"')
+    c_end = GRAPH_HTML.index('</div>\n      <div id="streamtabs"')
+    centertabs_content = GRAPH_HTML[c_start:c_end]
+
+    # centertabs 에는 본문, 프레젠테이션, 그래프 3개만 위치
+    assert 'id="centertab-reader"' in centertabs_content
+    assert 'id="centertab-presentation"' in centertabs_content
+    assert 'id="centertab-graph"' in centertabs_content
+    assert 'id="centertab-stream"' not in centertabs_content
+
+    # streamtabs 에 의사결정 스트림 탭이 분리 배치됨
+    s_start = GRAPH_HTML.index('<div id="streamtabs"')
+    s_end = GRAPH_HTML.index('</div>\n    </header>')
+    streamtabs_content = GRAPH_HTML[s_start:s_end]
+    assert 'id="centertab-stream"' in streamtabs_content
+
 
 
 

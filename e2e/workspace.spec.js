@@ -1029,15 +1029,16 @@ test('decision stream button placed in common header tabs and displays in center
 
   await waitForClaire(page);
 
-  // 1. Verify navigation buttons in common header tabs: 본문, 프레젠테이션, 그래프, 의사결정 스트림 placed in order
+  // 1. Verify navigation buttons in common header tabs: 본문, 프레젠테이션, 그래프 in #centertabs, and 의사결정 스트림 in separated #streamtabs
   const centerTabs = page.locator('#centertabs .center-tab-btn');
+  const streamTabBtn = page.locator('#streamtabs #centertab-stream');
   await expect(centerTabs.nth(0)).toContainText('본문');
   await expect(centerTabs.nth(1)).toContainText('프레젠테이션');
   await expect(centerTabs.nth(2)).toContainText('그래프');
-  await expect(centerTabs.nth(3)).toContainText('의사결정 스트림');
+  await expect(streamTabBtn).toContainText('의사결정 스트림');
 
   // 2. Click '의사결정 스트림' button
-  await centerTabs.nth(3).click();
+  await streamTabBtn.click();
 
   // 3. Verify center view switched to stream
   const streamWrap = page.locator('#streamwrap');
