@@ -287,11 +287,12 @@ def test_stat_location_and_center_view_right_menu_modes():
     assert '#centertab-reader' in GRAPH_HTML
     assert '#centertab-stream' in GRAPH_HTML
     assert '#netsearch{padding:8px 18px;border-bottom:1px solid var(--border)' in GRAPH_HTML
-    # reader head 내 도구 순서: rzoom < redit < rshare < rclose
+    # reader head 내 도구 순서: redit < rzoom < rshare < rclose
     redit_pos = GRAPH_HTML.index('class="redit"')
+    rzoom_pos = GRAPH_HTML.index('class="rzoom"')
     rshare_pos = GRAPH_HTML.index('class="rshare"')
     rclose_pos = GRAPH_HTML.index('class="rclose"')
-    assert redit_pos < rshare_pos < rclose_pos
+    assert redit_pos < rzoom_pos < rshare_pos < rclose_pos
 
 
 def test_fslider_vertical_left_of_zoomctl():

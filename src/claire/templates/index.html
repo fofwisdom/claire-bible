@@ -254,12 +254,11 @@
         <div class="head">
           <h1 id="rtitle">문서를 선택하세요</h1>
           <div class="rtools">
+            <button class="redit" id="reditbtn" onclick="editDocTitle()" title="제목 수정" aria-label="제목 수정">✏️</button>
             <div class="rzoom">
               <button onclick="setReadFS(-2)" title="글자 작게" aria-label="글자 작게">A−</button>
-              <span class="fsv" id="rfs">16</span>
               <button onclick="setReadFS(2)" title="글자 크게" aria-label="글자 크게">A+</button>
             </div>
-            <button class="redit" id="reditbtn" onclick="editDocTitle()" title="제목 수정" aria-label="제목 수정">✏️</button>
             <button class="rshare" onclick="shareDoc()" title="공유 링크 만들기" aria-label="공유 링크 만들기">🔗</button>
             <button class="rclose" onclick="closeReader()" title="닫기(ESC)" aria-label="읽기 닫기">✕</button>
           </div>
