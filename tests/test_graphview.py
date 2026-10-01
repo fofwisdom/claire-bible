@@ -181,16 +181,15 @@ def test_graph_html_self_contained_markers():
     assert "<mark>" in GRAPH_HTML                                       # ==형광== 강조 렌더
     assert "data-theme" in GRAPH_HTML and "toggleTheme" in GRAPH_HTML and "claireTheme" in GRAPH_HTML  # 라이트 기본+다크 토글
     assert "relayout" in GRAPH_HTML and "orientationchange" in GRAPH_HTML  # 모바일 캔버스 리사이즈
-    assert 'id="worktabs" role="tablist"' in GRAPH_HTML
-    assert 'id="tab-docs" role="tab"' in GRAPH_HTML
-    assert 'id="tab-graph" role="tab"' in GRAPH_HTML
+    assert 'id="worktabs"' not in GRAPH_HTML
+    assert 'id="morebtn"' in GRAPH_HTML
     assert '<div class="head">' in GRAPH_HTML
     assert 'class="rhead"' not in GRAPH_HTML
     assert GRAPH_HTML.count('role="tabpanel"') == 2
     assert 'id="tab-detail"' not in GRAPH_HTML
     assert 'id="detailpane" role="region" aria-label="문맥 상세"' in GRAPH_HTML
     assert "function revealWorkspace" in GRAPH_HTML and "data-active-pane" in GRAPH_HTML
-    assert "function openDetailPane()" in GRAPH_HTML and "let activePane='graph', detailOpen=false" in GRAPH_HTML
+    assert "function openDetailPane()" in GRAPH_HTML and "let activePane = mobileMQ.matches ? 'docs' : 'graph', detailOpen=false" in GRAPH_HTML
     assert "const paneNames=['docs','graph'];" in GRAPH_HTML
     assert "mobileScrollTo" not in GRAPH_HTML and "scrollIntoView" not in GRAPH_HTML
     assert "const mobileMQ = window.matchMedia('(max-width:720px)')" in GRAPH_HTML
@@ -655,15 +654,15 @@ def test_decision_stream_timestamp_log_format_no_ampm():
 
 
 def test_mobile_bottom_bar_graph_navigation_and_node_selection():
-    """모바일 하단 바 그래프 탭 활성화 및 선택된 문서 노드 전체 선택 기능 검증."""
+    """모바일 하단 바 제거, 리더 전체화면 및 선택된 문서 노드 전체 선택 기능 검증."""
     from claire.graphview import GRAPH_HTML
 
-    # 1. 모바일 리더 모달이 하단 바(#worktabs)를 가리지 않고 위에 위치 (height/max-height로 하단바 침범 방지 및 가로 스크롤 방지)
-    assert '#reader{position:fixed!important;top:0!important;left:0!important;right:0!important;bottom:calc(54px + env(safe-area-inset-bottom))!important;height:calc(100% - 54px - env(safe-area-inset-bottom))!important;max-height:calc(100% - 54px - env(safe-area-inset-bottom))!important;width:100%!important;max-width:100%!important;min-width:0!important;min-height:0!important;box-sizing:border-box!important;overflow:hidden!important;background:var(--shadow)!important;display:none!important;visibility:hidden!important;pointer-events:none!important;z-index:45!important;padding:0!important}' in GRAPH_HTML
+    # 1. 모바일 리더 모달이 전체 높이를 덮도록 위치 (bottom:0) 및 하단 바 제거 확인
+    assert '#reader{position:fixed!important;top:0!important;left:0!important;right:0!important;bottom:0!important;height:100%!important;max-height:100%!important;width:100%!important;max-width:100%!important;min-width:0!important;min-height:0!important;box-sizing:border-box!important;overflow:hidden!important;background:var(--shadow)!important;display:none!important;visibility:hidden!important;pointer-events:none!important;z-index:45!important;padding:0!important}' in GRAPH_HTML
     assert "['bar','worktabs'].forEach" not in GRAPH_HTML
     assert 'z-index:55;width:min(400px,82vw);height:auto;max-height:none;' in GRAPH_HTML
     assert '#drawerbackdrop{display:none;position:fixed;inset:0;z-index:52;' in GRAPH_HTML
-    assert '#worktabs{display:flex;position:fixed;bottom:0;left:0;right:0;z-index:60;' in GRAPH_HTML
+    assert '#worktabs{display:none!important}' in GRAPH_HTML
     assert '.doc-content table{border-collapse:collapse;margin:.6em 0;width:100%;max-width:100%;display:block;overflow-x:auto;box-sizing:border-box}' in GRAPH_HTML
     assert '.doc-content pre{background:var(--card-bg);border:1px solid var(--border);border-radius:6px;padding:.8em;overflow-x:auto;max-width:100%;box-sizing:border-box}' in GRAPH_HTML
 

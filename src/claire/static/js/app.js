@@ -56,7 +56,7 @@ const compactMQ = window.matchMedia('(max-width:1100px)');
 const toolbarMQ = window.matchMedia('(max-width:1500px)');
 const reducedMotionMQ = window.matchMedia('(prefers-reduced-motion:reduce)');
 const paneNames=['docs','graph'];
-let activePane='graph', detailOpen=false, centerView='graph', drawerOpen=false;
+let activePane = mobileMQ.matches ? 'docs' : 'graph', detailOpen=false, centerView='graph', drawerOpen=false;
 let detailReturnFocus=null, docSearchActive=false, serverSearchResults=null;
 let graphCamera = null, preservingGraphCamera = false, netBusy = false;
 let isDraggingNode = false, settleTimer = null;
@@ -881,7 +881,7 @@ function closeDetailPane(){
   drawerOpen=false;
   syncWorkspaceLayout();
   let target=detailReturnFocus && detailReturnFocus.isConnected ? detailReturnFocus : null;
-  if(!target) target=(compactMQ.matches || mobileMQ.matches) ? (document.getElementById('tab-menu') || paneTabs[activePane] || document.getElementById('tab-docs')) : paneEls[activePane];
+  if(!target) target=(compactMQ.matches || mobileMQ.matches) ? (document.getElementById('morebtn') || paneEls[activePane]) : paneEls[activePane];
   detailReturnFocus=null;
   replaceAppHistory({ modal: getActiveModalName() });
   requestAnimationFrame(()=>{ if(target) target.focus(); });
@@ -905,7 +905,7 @@ function closeDrawer(focus=false){
   detailOpen=false;
   syncWorkspaceLayout();
   let target=detailReturnFocus && detailReturnFocus.isConnected ? detailReturnFocus : null;
-  if(!target) target=(compactMQ.matches || mobileMQ.matches) ? (document.getElementById('tab-menu') || paneTabs[activePane] || document.getElementById('tab-docs')) : document.getElementById('morebtn');
+  if(!target) target=(compactMQ.matches || mobileMQ.matches) ? (document.getElementById('morebtn') || paneEls[activePane]) : document.getElementById('morebtn');
   detailReturnFocus=null;
   replaceAppHistory({ modal: getActiveModalName() });
   if(focus && target) requestAnimationFrame(()=>target.focus());
@@ -3099,7 +3099,7 @@ function resetHome(){
   selectedNodeId = null;
   curReaderDoc = null;
   setCenterView('graph');
-  revealWorkspace('graph', false, true);
+  revealWorkspace(mobileMQ.matches ? 'docs' : 'graph', false, true);
   renderDocs();
   applyView();
   resetGraphCamera();
@@ -4439,7 +4439,7 @@ window.addEventListener('popstate', e => {
 });
 
 // 초기 베이스 히스토리 엔트리 등록
-replaceAppHistory({ pane: activePane || 'graph', modal: getActiveModalName() });
+replaceAppHistory({ pane: activePane || (mobileMQ.matches ? 'docs' : 'graph'), modal: getActiveModalName() });
 
 // 읽기전용 디버그 핸들(테스트/Playwright 검증용 — closure 상태 관찰). 부작용 없음.
 window.claireDebug = {

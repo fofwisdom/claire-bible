@@ -369,7 +369,7 @@ function openReader(docId, pushHist=true){
   } else {
     if(centerView === 'presentation'){
       updatePresentationView(docId);
-    } else if(centerView !== 'stream'){
+    } else {
       setCenterView('reader');
     }
   }
@@ -1064,7 +1064,7 @@ function closeReader(focus=false){
   if(!target && readerReturnDocId){
     target=[...document.querySelectorAll('[data-read-doc]')].find(el=>el.dataset.readDoc===readerReturnDocId);
   }
-  if(!target) target=mobileMQ.matches ? paneTabs[activePane] : document.getElementById('q');
+  if(!target) target=mobileMQ.matches ? (paneTabs[activePane] || document.getElementById('docs')) : document.getElementById('q');
   readerReturnFocus=null; readerReturnDocId=null;
   replaceAppHistory({ modal: getActiveModalName() });
   if(focus && target) requestAnimationFrame(()=>target.focus());

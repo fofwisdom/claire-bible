@@ -360,9 +360,9 @@
   }
 
   /* 모바일 화면 (720px 이하 - 1단 보기):
-     - 최상단: 브랜드 로고 및 테마 토글만 남김 (햄버거 메뉴는 하단 바로 통합)
-     - 최하단: 📑 · 📊 · 🔎 · ☰ 탭 배치 (z-index: 60, 1단 보기에서 하단 바 사용)
-     - 자료 화면: 아이템 탭 시 크게 읽기 호출
+     - 최상단: 브랜드 로고, 테마 선택, 권한 상태, 라이트/다크 전환 및 상세 메뉴(햄버거 버튼) 배치
+     - 하단 바 및 단추 제거
+     - 기본 보기: 본문 목록
   */
   @media (max-width:720px){
     #bar{min-height:50px;padding:max(6px,env(safe-area-inset-top)) 12px 6px;justify-content:space-between}
@@ -370,13 +370,13 @@
     .bar-brand-group{gap:6px}
     .theme-select{max-width:85px}
     .theme-select-control{height:34px;padding:2px 4px 2px 6px}
-    #morebtn{display:none!important}
+    #morebtn{display:inline-flex!important;min-width:38px;min-height:38px;height:38px;padding:4px 8px;align-items:center;justify-content:center}
     #viewoptions select{font-size:13px;padding:4px 6px}
     #viewoptions #authstate{min-height:38px;height:38px;padding:0 8px;font-size:12px}
     #viewoptions #themebtn{min-width:38px;min-height:38px;height:38px;padding:4px 8px}
 
     #wrap{display:grid;grid-template-columns:1fr;grid-template-rows:1fr;overflow:hidden;
-      padding-bottom:calc(54px + env(safe-area-inset-bottom))}
+      padding-bottom:env(safe-area-inset-bottom)}
     .workspace-pane,#centerwrap{grid-area:1/1;visibility:hidden!important;pointer-events:none}
     body[data-active-pane="docs"] #docs{visibility:visible!important;pointer-events:auto}
     body[data-active-pane="graph"] #centerwrap, body[data-active-pane="graph"] #netwrap, body[data-active-pane="graph"] #matrixwrap, body[data-active-pane="graph"] #streamwrap, body[data-active-pane="graph"] #presentationwrap, body[data-center-view="matrix"] #centerwrap, body[data-center-view="matrix"] #matrixwrap, body[data-center-view="stream"] #centerwrap, body[data-center-view="stream"] #streamwrap, body[data-center-view="presentation"] #centerwrap, body[data-center-view="presentation"] #presentationwrap{visibility:visible!important;pointer-events:auto}
@@ -403,19 +403,10 @@
     .graphdocoption small{color:var(--muted);margin-left:6px}
     #graphdocempty{padding:12px 10px;color:var(--muted)}
 
-    /* 하단 내비게이션 바: 1단 보기(720px 이하) 모바일 최하단에 고정 (z-index: 60) */
-    #worktabs{display:flex;position:fixed;bottom:0;left:0;right:0;z-index:60;
-      height:calc(54px + env(safe-area-inset-bottom));padding-bottom:env(safe-area-inset-bottom);
-      background:var(--bar-bg);border-top:1px solid var(--border);
-      align-items:stretch;justify-content:space-around;padding-left:12px;padding-right:12px}
-    #worktabs button{flex:1;min-height:48px;background:transparent;color:var(--muted);
-      border:0;border-radius:6px;display:flex;align-items:center;justify-content:center;
-      padding:4px 0;-webkit-tap-highlight-color:transparent}
-    #worktabs button .bnav-icon{font-size:24px;line-height:1}
-    #worktabs button[aria-selected="true"]{color:var(--accent)}
-    #worktabs button:active{background:var(--hover)}
+    /* 하단 내비게이션 바 제거 */
+    #worktabs{display:none!important}
     /* 모바일 우측 드로어 */
-    #detailpane{position:fixed;top:0;right:0;bottom:calc(54px + env(safe-area-inset-bottom));
+    #detailpane{position:fixed;top:0;right:0;bottom:0;
       z-index:55;width:min(340px,86vw);height:auto;max-height:none;
       transform:translateX(105%);visibility:hidden;pointer-events:none;
       border:1px solid var(--border);border-bottom:0;border-radius:0;
