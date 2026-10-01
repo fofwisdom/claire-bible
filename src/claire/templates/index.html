@@ -71,6 +71,11 @@
 <link rel=stylesheet href=/static/css/reader.css/>
 </head>
 <body class="ro" data-auth-scope="unknown" data-active-pane="graph" data-center-view="graph">
+<script>
+  if (window.matchMedia && window.matchMedia('(max-width:720px)').matches) {
+    document.body.dataset.activePane = 'docs';
+  }
+</script>
 <header id="bar">
   <div class="bar-brand-group">
     <span class="brand" role="button" tabindex="0" onclick="resetHome()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();resetHome();}" title="전체 지식 그래프 보기" aria-label="전체 지식 그래프 보기" style="display:inline-flex;align-items:center;gap:6px"><img src="/favicon.svg" width="20" height="20" alt="" aria-hidden="true" style="display:inline-block;vertical-align:middle;filter:drop-shadow(0 0 4px rgba(0,255,170,0.5))"/>Claire Bible</span>
@@ -352,20 +357,6 @@
     </div>
   </aside>
 </div>
-<nav id="worktabs" role="tablist" aria-label="작업 영역">
-  <button id="tab-docs" role="tab" aria-selected="false" aria-controls="docs" data-pane="docs" onclick="revealWorkspace('docs')" title="자료" aria-label="자료">
-    <span class="bnav-icon">📑</span>
-  </button>
-  <button id="tab-graph" role="tab" aria-selected="true" aria-controls="netwrap" data-pane="graph" onclick="revealWorkspace('graph')" title="그래프" aria-label="그래프">
-    <span class="bnav-icon">📊</span>
-  </button>
-  <button id="tab-search" onclick="focusMobileSearch()" title="검색" aria-label="검색">
-    <span class="bnav-icon">🔎</span>
-  </button>
-  <button id="tab-menu" class="hamburg-btn" aria-expanded="false" aria-controls="detailpane" onclick="toggleDrawer()" title="메뉴" aria-label="메뉴">
-    <span class="bnav-icon">☰</span>
-  </button>
-</nav>
 <!-- 노드 hover 시 마우스 위치에 뜨는 작은 요약 팝업(우측 패널 미리보기 대체). -->
 <div id="nodepop"></div>
 <script>
