@@ -412,8 +412,8 @@ def cmd_audit(args) -> int:
         # 1. 지식그래프 무결성 검사 및 자동 수복
         if check in ("graph", "integrity"):
             if do_heal:
-                print("claire audit: [Auto-Heal] 지식그래프 무결성 수복 시작...")
-                healed = dbm.heal_graph(conn)
+                print("claire audit: [Auto-Heal] 지식그래프 무결성 수복 시작...", flush=True)
+                healed = dbm.heal_graph(conn, progress_callback=lambda msg: print(f"  {msg}", flush=True))
                 if getattr(args, "json", False):
                     print(json.dumps({"status": "healed", "details": healed}, ensure_ascii=False, indent=2))
                     return 0
