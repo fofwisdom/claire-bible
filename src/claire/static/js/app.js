@@ -56,7 +56,7 @@ const compactMQ = window.matchMedia('(max-width:1100px)');
 const toolbarMQ = window.matchMedia('(max-width:1500px)');
 const reducedMotionMQ = window.matchMedia('(prefers-reduced-motion:reduce)');
 const paneNames=['docs','graph'];
-let activePane = mobileMQ.matches ? 'docs' : 'graph', detailOpen=false, centerView='graph', drawerOpen=false;
+let activePane = mobileMQ.matches ? 'docs' : 'stream', detailOpen=false, centerView='stream', drawerOpen=false;
 let detailReturnFocus=null, docSearchActive=false, serverSearchResults=null;
 let graphCamera = null, preservingGraphCamera = false, netBusy = false;
 let isDraggingNode = false, settleTimer = null;
@@ -1468,9 +1468,15 @@ fetch('stats').then(r => r.ok ? r.json() : null).then(d => {
     startFastIngestPolling();
   } else {
     initGraph();
+    if(centerView === 'stream' && typeof renderDecisionStreamCenter === 'function'){
+      renderDecisionStreamCenter(false);
+    }
   }
 }).catch(() => {
   initGraph();
+  if(centerView === 'stream' && typeof renderDecisionStreamCenter === 'function'){
+    renderDecisionStreamCenter(false);
+  }
 });
 
 // 검색 강조(highlightSet)와 inspect(selectedNodeId)를 vis 시각 선택으로 복원.
@@ -2831,7 +2837,7 @@ function renderServerDocs(){
     html += '<div class="search-action-bar">' +
       (hitCount > 0
         ? '<button type="button" class="sec search-graph-link-btn" onclick="highlightSearchInGraph()" title="지식 그래프에서 연관 개념 노드 하이라이트">' +
-          '<span class="btn-icon">📊</span> <span class="btn-label">그래프에서 맥락 보기 (' + hitCount + ')</span></button>'
+          '<span class="btn-icon">🌐</span> <span class="btn-label">그래프에서 맥락 보기 (' + hitCount + ')</span></button>'
         : '') +
       '<button type="button" class="sec search-reset-btn" onclick="clearServerSearch()" title="검색 결과 초기화">✕ 닫기</button>' +
       '</div>';
@@ -3098,13 +3104,13 @@ function resetHome(){
   activeDoc = null;
   selectedNodeId = null;
   curReaderDoc = null;
-  setCenterView('graph');
-  revealWorkspace(mobileMQ.matches ? 'docs' : 'graph', false, true);
+  setCenterView('stream');
+  revealWorkspace(mobileMQ.matches ? 'docs' : 'stream', false, true);
   renderDocs();
   applyView();
   resetGraphCamera();
   syncGraphDocNav();
-  document.title = 'Claire Bible — 지식 그래프';
+  document.title = 'Claire Bible — 의사결정 스트림';
   if(mobileMQ.matches){
     closeReader(false, false);
   }
@@ -3153,6 +3159,9 @@ function loadDocPanel(id){
   if(curReaderDocData && curReaderDocData.id===id){
     renderDocPanel(curReaderDocData);
     markDocumentSeen(id);
+    if(typeof centerView !== 'undefined' && centerView === 'presentation'){
+      if(typeof updatePresentationView === 'function') updatePresentationView(id);
+    }
     return;
   }
   panel.innerHTML='<p class=hint>문서 불러오는 중…</p>';
@@ -3160,8 +3169,15 @@ function loadDocPanel(id){
     if(activeDoc!==id) return;                  // 그 사이 다른 문서/노드로 이동했으면 무시
     if(!dc || dc.error){ panel.innerHTML='<p class=hint>문서를 찾을 수 없습니다.</p>'; return; }
     curReaderDocData=dc;
+    const docInAll = allDocs && allDocs.find(d => d.id === id);
+    if(docInAll && dc.has_presentation !== undefined){
+      docInAll.has_presentation = dc.has_presentation;
+    }
     renderDocPanel(dc);
     markDocumentSeen(id);
+    if(typeof centerView !== 'undefined' && centerView === 'presentation'){
+      if(typeof updatePresentationView === 'function') updatePresentationView(id);
+    }
   }).catch(()=>{ panel.innerHTML='<p class=hint>문서 로드 실패.</p>'; });
 }
 // 한 문서(article)에 속한 노드 — dc.nodes(서버 실시간 DB 조회) 우선, allNodes fallback.

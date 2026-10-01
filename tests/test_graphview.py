@@ -118,7 +118,7 @@ def test_graph_html_self_contained_markers():
     assert 'id="netsearch"' in GRAPH_HTML and 'id="barsearch"' in GRAPH_HTML  # 헤더 통합 검색창
     assert "synthSet" in GRAPH_HTML and "addToSynth" in GRAPH_HTML      # 종합 수집(inspect와 분리)
     assert "id=\"authstate\"" in GRAPH_HTML and "setAccessScope" in GRAPH_HTML
-    assert '<body class="ro" data-auth-scope="unknown" data-active-pane="graph" data-center-view="graph">' in GRAPH_HTML
+    assert '<body class="ro" data-auth-scope="unknown" data-active-pane="stream" data-center-view="stream">' in GRAPH_HTML
     assert "let AUTH_SCOPE='unknown';" in GRAPH_HTML
     assert "let READONLY=true;" in GRAPH_HTML
     assert "function canWrite(){ return AUTH_SCOPE==='owner'; }" in GRAPH_HTML
@@ -189,7 +189,7 @@ def test_graph_html_self_contained_markers():
     assert 'id="tab-detail"' not in GRAPH_HTML
     assert 'id="detailpane" role="region" aria-label="문맥 상세"' in GRAPH_HTML
     assert "function revealWorkspace" in GRAPH_HTML and "data-active-pane" in GRAPH_HTML
-    assert "function openDetailPane()" in GRAPH_HTML and "let activePane = mobileMQ.matches ? 'docs' : 'graph', detailOpen=false" in GRAPH_HTML
+    assert "function openDetailPane()" in GRAPH_HTML and "let activePane = mobileMQ.matches ? 'docs' : 'stream', detailOpen=false" in GRAPH_HTML
     assert "const paneNames=['docs','graph'];" in GRAPH_HTML
     assert "mobileScrollTo" not in GRAPH_HTML and "scrollIntoView" not in GRAPH_HTML
     assert "const mobileMQ = window.matchMedia('(max-width:720px)')" in GRAPH_HTML
@@ -518,8 +518,8 @@ def test_render_graph_html_default():
     assert "fofwisdom/claire-bible" in html
     assert '<span class="brand"' in html
     assert 'onclick="resetHome()"' in html
-    assert 'title="전체 지식 그래프 보기"' in html
-    assert 'aria-label="전체 지식 그래프 보기"' in html
+    assert 'title="의사결정 스트림 보기"' in html
+    assert 'aria-label="의사결정 스트림 보기"' in html
     assert 'function resetHome()' in html
     assert 'id="repolink"' in html
     assert 'id="drawermanager"' in html

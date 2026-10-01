@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="ko"><head><meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>Claire Bible — 지식 그래프</title>
+<title>Claire Bible — 의사결정 스트림</title>
 <meta name="mobile-web-app-capable" content="yes"/>
 <meta name="apple-mobile-web-app-capable" content="yes"/>
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
@@ -70,7 +70,7 @@
 <link rel=stylesheet href=/static/css/workspace.css/>
 <link rel=stylesheet href=/static/css/reader.css/>
 </head>
-<body class="ro" data-auth-scope="unknown" data-active-pane="graph" data-center-view="graph">
+<body class="ro" data-auth-scope="unknown" data-active-pane="stream" data-center-view="stream">
 <script>
   if (window.matchMedia && window.matchMedia('(max-width:720px)').matches) {
     document.body.dataset.activePane = 'docs';
@@ -78,7 +78,7 @@
 </script>
 <header id="bar">
   <div class="bar-brand-group">
-    <span class="brand" role="button" tabindex="0" onclick="resetHome()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();resetHome();}" title="전체 지식 그래프 보기" aria-label="전체 지식 그래프 보기" style="display:inline-flex;align-items:center;gap:6px"><img src="/favicon.svg" width="20" height="20" alt="" aria-hidden="true" style="display:inline-block;vertical-align:middle;filter:drop-shadow(0 0 4px rgba(0,255,170,0.5))"/>Claire Bible</span>
+    <span class="brand" role="button" tabindex="0" onclick="resetHome()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();resetHome();}" title="의사결정 스트림 보기" aria-label="의사결정 스트림 보기" style="display:inline-flex;align-items:center;gap:6px"><img src="/favicon.svg" width="20" height="20" alt="" aria-hidden="true" style="display:inline-block;vertical-align:middle;filter:drop-shadow(0 0 4px rgba(0,255,170,0.5))"/>Claire Bible</span>
     <div class="theme-picker-wrap" id="theme-picker-wrap" __THEME_PICKER_TITLE_ATTR__ __THEME_PICKER_STYLE_ATTR__>
       <label for="theme-select" class="sr-only">지식 테마 선택</label>
       <div class="theme-select-control" id="theme-select-control" __THEME_SELECT_STYLE_ATTR__>
@@ -141,8 +141,8 @@
       <div id="netsearch">
         <div id="barsearch">
           <label class="sr-only" for="q" id="qlbl">통합 검색</label>
-          <span class="center-search-icon" id="qicon" aria-hidden="true">📊</span>
-          <input id="q" placeholder="그래프 노드 검색 (엔티티 이름)" oninput="onCenterSearchInput(this.value)"/>
+          <span class="center-search-icon" id="qicon" aria-hidden="true">📜</span>
+          <input id="q" placeholder="의사결정 스트림 검색 (엔티티·속성·사유)" oninput="onCenterSearchInput(this.value)"/>
           <input type="hidden" id="docq"/>
           <button id="qclear" type="button" class="center-search-clear-btn" onclick="clearCenterSearch()" title="검색어 초기화" aria-label="검색어 초기화" style="display:none">✕</button>
         </div>
@@ -152,12 +152,12 @@
           <span class="btn-icon">📖</span> <span class="btn-label">본문</span>
         </button>
         <button id="centertab-presentation" type="button" class="center-tab-btn" role="tab" aria-selected="false" onclick="setCenterView('presentation')" title="프레젠테이션 보기" aria-label="프레젠테이션">
-          <span class="btn-icon">📽️</span> <span class="btn-label">프레젠테이션</span>
+          <span class="btn-icon">📊</span> <span class="btn-label">프레젠테이션</span>
         </button>
-        <button id="centertab-graph" type="button" class="center-tab-btn active" role="tab" aria-selected="true" onclick="setCenterView('graph')" title="지식 그래프" aria-label="그래프">
-          <span class="btn-icon">📊</span> <span class="btn-label">그래프</span>
+        <button id="centertab-graph" type="button" class="center-tab-btn" role="tab" aria-selected="false" onclick="setCenterView('graph')" title="지식 그래프" aria-label="그래프">
+          <span class="btn-icon">🌐</span> <span class="btn-label">그래프</span>
         </button>
-        <button id="centertab-stream" type="button" class="center-tab-btn" role="tab" aria-selected="false" onclick="setCenterView('stream')" title="엔티티 해소 의사결정 스트림" aria-label="의사결정 스트림">
+        <button id="centertab-stream" type="button" class="center-tab-btn active" role="tab" aria-selected="true" onclick="setCenterView('stream')" title="엔티티 해소 의사결정 스트림" aria-label="의사결정 스트림">
           <span class="btn-icon">📜</span> <span class="btn-label">의사결정 스트림</span>
         </button>
       </div>
@@ -208,7 +208,7 @@
           </div>
         </div>
         <div class="matrix-actions">
-          <button type="button" class="sec" onclick="setCenterView('graph')" title="지식 그래프로 전환">📊 그래프</button>
+          <button type="button" class="sec" onclick="setCenterView('graph')" title="지식 그래프로 전환">🌐 그래프</button>
           <button id="matrix-confirm-btn" type="button" class="pri matrix-confirm-btn" onclick="confirmMatrixView()" title="대조 확인 및 매트릭스 소각 파기">✓ 확인</button>
         </div>
       </div>
@@ -268,10 +268,10 @@
             🗂️ <span class="ptool-label">개요</span>
           </button>
           <button type="button" class="ptool-btn" onclick="presentationPrintPdf()" title="PDF 인쇄 모드" aria-label="PDF 인쇄">
-            🖨️ <span class="ptool-label">인쇄</span>
+            🖨️
           </button>
           <button type="button" class="ptool-btn rshare" onclick="presentationShare()" title="프레젠테이션 공유 링크 만들기" aria-label="공유 링크 만들기">
-            🔗 <span class="ptool-label">공유</span>
+            🔗
           </button>
           <button type="button" class="ptool-btn" onclick="presentationFullscreen()" title="전체화면 (F)" aria-label="전체화면">
             ⛶
@@ -280,7 +280,7 @@
       </div>
       <div class="sharebox" id="presentation-sharebox"></div>
       <div id="presentation-empty" class="presentation-empty-banner" style="display:none">
-        <div class="presentation-empty-icon">📽️</div>
+        <div class="presentation-empty-icon">📊</div>
         <h3 id="presentation-empty-title">프레젠테이션이 준비되지 않았습니다</h3>
         <p id="presentation-empty-msg">문서를 선택하거나 프레젠테이션을 생성하세요.</p>
         <button id="presentation-gen-btn" type="button" class="presentation-gen-btn" onclick="generatePresentationForCurrentDoc()" style="display:none">프레젠테이션 생성</button>

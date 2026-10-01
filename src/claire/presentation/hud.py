@@ -131,7 +131,7 @@ html.is-embedded #cb-hud, body.is-embedded #cb-hud {
 
 <div id="cb-hud" class="cb-hud">
   <div class="cb-hud-left">
-    <span class="cb-hud-logo" style="font-weight:700;color:#58a6ff;margin-right:6px">📽️ Claire Bible</span>
+    <span class="cb-hud-logo" style="font-weight:700;color:#58a6ff;margin-right:6px">📊 Claire Bible</span>
     <span class="cb-hud-title" id="cb-hud-title"></span>
   </div>
   <div class="cb-hud-center">
