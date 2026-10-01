@@ -1688,7 +1688,7 @@ function renderPanel(d){
     d.documents.forEach(dc=>{ h+='<div class=doc><b>'+esc(dc.title)+'</b>'+
       (dc.summary?'<p>'+esc(dc.summary)+'</p>':'')+
       ((dc.detail||dc.summary)?'<button class=readbtn data-read-doc="'+esc(dc.id)+
-        '" onclick="openReader(\''+dc.id+'\')">📖 본문 보기</button>':'')+
+        '" onclick="openReader(\''+dc.id+'\');setCenterView(\'reader\')">📖 본문 보기</button>':'')+
       (dc.url?'<p class=src><a href="'+esc(dc.url)+'" target=_blank rel=noopener>↗ 원문 열기</a></p>':'')+
       '</div>'; }); }
   if(d.neighbors.length){ h+='<h3>연결 ('+d.neighbors.length+')</h3><ul>';
@@ -2115,7 +2115,7 @@ function renderIngestResult(d){
   if(d.theme_id !== undefined && d.theme_id !== activeThemeId){
     h+='<p style="margin-top:12px"><button type="button" class="sec" onclick="switchKnowledgeTheme('+d.theme_id+')">👉 '+esc(d.theme_label||('테마 #'+d.theme_id))+' 테마로 전환</button></p>';
   } else {
-    if(d.document_id) h+='<p><a href="#" onclick="selectDoc(\''+d.document_id+'\');return false">문서 보기 →</a></p>';
+    if(d.document_id) h+='<p><a href="#" onclick="selectDoc(\''+d.document_id+'\');setCenterView(\'reader\');return false">문서 보기 →</a></p>';
     refreshGraph();   // 현재 활성 테마에 적재된 경우 즉시 그래프/문서 반영
   }
   panel.innerHTML=h;

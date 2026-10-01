@@ -152,7 +152,7 @@
           <span class="btn-icon">📖</span> <span class="btn-label">본문</span>
         </button>
         <button id="centertab-presentation" type="button" class="center-tab-btn" role="tab" aria-selected="false" onclick="setCenterView('presentation')" title="프레젠테이션 보기" aria-label="프레젠테이션">
-          <span class="btn-icon">🖥️</span> <span class="btn-label">프레젠테이션</span>
+          <span class="btn-icon">📽️</span> <span class="btn-label">프레젠테이션</span>
         </button>
         <button id="centertab-graph" type="button" class="center-tab-btn active" role="tab" aria-selected="true" onclick="setCenterView('graph')" title="지식 그래프" aria-label="그래프">
           <span class="btn-icon">📊</span> <span class="btn-label">그래프</span>
@@ -257,8 +257,30 @@
       </div>
     </section>
     <section id="presentationwrap" class="workspace-pane" role="region" aria-label="프레젠테이션">
+      <div class="head presentation-head" id="presentationhead">
+        <h1 id="presentation-title">문서를 선택하세요</h1>
+        <div class="rtools" id="presentationtools">
+          <span class="presentation-coords" id="presentation-coords" title="현재 슬라이드 / 전체 슬라이드">01 / 01</span>
+          <button type="button" class="ptool-btn" onclick="presentationSpeaker()" title="발표자 모드 (S)" aria-label="발표자 모드">
+            🎙️ <span class="ptool-label">발표자</span>
+          </button>
+          <button type="button" class="ptool-btn" onclick="presentationOverview()" title="프레젠테이션 개요 (O / ESC)" aria-label="개요">
+            🗂️ <span class="ptool-label">개요</span>
+          </button>
+          <button type="button" class="ptool-btn" onclick="presentationPrintPdf()" title="PDF 인쇄 모드" aria-label="PDF 인쇄">
+            🖨️ <span class="ptool-label">인쇄</span>
+          </button>
+          <button type="button" class="ptool-btn rshare" onclick="presentationShare()" title="프레젠테이션 공유 링크 만들기" aria-label="공유 링크 만들기">
+            🔗 <span class="ptool-label">공유</span>
+          </button>
+          <button type="button" class="ptool-btn" onclick="presentationFullscreen()" title="전체화면 (F)" aria-label="전체화면">
+            ⛶
+          </button>
+        </div>
+      </div>
+      <div class="sharebox" id="presentation-sharebox"></div>
       <div id="presentation-empty" class="presentation-empty-banner" style="display:none">
-        <div class="presentation-empty-icon">🖥️</div>
+        <div class="presentation-empty-icon">📽️</div>
         <h3 id="presentation-empty-title">프레젠테이션이 준비되지 않았습니다</h3>
         <p id="presentation-empty-msg">문서를 선택하거나 프레젠테이션을 생성하세요.</p>
         <button id="presentation-gen-btn" type="button" class="presentation-gen-btn" onclick="generatePresentationForCurrentDoc()" style="display:none">프레젠테이션 생성</button>

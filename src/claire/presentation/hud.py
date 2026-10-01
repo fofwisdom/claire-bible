@@ -123,11 +123,15 @@ HUD_SNIPPET = """
   .cb-hud-title { display: none; }
   .cb-hud-btn span { display: none; }
 }
+/* When embedded in an iframe (e.g. Claire Bible workspace), hide in-frame floating HUD */
+html.is-embedded #cb-hud, body.is-embedded #cb-hud {
+  display: none !important;
+}
 </style>
 
 <div id="cb-hud" class="cb-hud">
   <div class="cb-hud-left">
-    <span class="cb-hud-logo" style="font-weight:700;color:#58a6ff;margin-right:6px">📖 Claire Bible</span>
+    <span class="cb-hud-logo" style="font-weight:700;color:#58a6ff;margin-right:6px">📽️ Claire Bible</span>
     <span class="cb-hud-title" id="cb-hud-title"></span>
   </div>
   <div class="cb-hud-center">
@@ -163,6 +167,12 @@ HUD_SNIPPET = """
   const titleEl = document.getElementById('cb-hud-title');
   const coordsEl = document.getElementById('cb-hud-coords');
 
+  if (window.self !== window.top || new URLSearchParams(window.location.search).get('embed') === 'true') {
+    document.documentElement.classList.add('is-embedded');
+    document.body.classList.add('is-embedded');
+    if (hud) hud.style.display = 'none';
+  }
+
   if (document.title) {
     titleEl.textContent = document.title;
   }
@@ -170,6 +180,7 @@ HUD_SNIPPET = """
   // Show HUD when mouse is near the top
   let hideTimer = null;
   function showHud() {
+    if (document.documentElement.classList.contains('is-embedded')) return;
     hud.classList.add('visible');
     clearTimeout(hideTimer);
     hideTimer = setTimeout(() => {
@@ -191,7 +202,19 @@ HUD_SNIPPET = """
     const total = Reveal.getTotalSlides ? Reveal.getTotalSlides() : '?';
     const h = String(indices.h + 1).padStart(2, '0');
     const v = indices.v > 0 ? '.' + String(indices.v + 1) : '';
-    coordsEl.textContent = h + v + ' / ' + total;
+    const text = h + v + ' / ' + total;
+    coordsEl.textContent = text;
+    try {
+      if (window.parent && window.parent !== window) {
+        window.parent.postMessage({
+          type: 'cb-slidechanged',
+          coords: text,
+          h: indices.h,
+          v: indices.v,
+          total: total
+        }, '*');
+      }
+    } catch (_) {}
   }
 
   if (window.Reveal) {
@@ -332,7 +355,13 @@ HUD_SNIPPET = """
 def inject_hud_toolbar(html_content: str) -> str:
     """Inject glassmorphic HUD toolbar before </body> tag in reveal.js presentation HTML."""
     if "<!-- Claire Bible Presentation HUD Toolbar -->" in html_content:
-        return html_content
+        import re
+        return re.sub(
+            r"<!-- Claire Bible Presentation HUD Toolbar -->.*?<!-- End Claire Bible Presentation HUD Toolbar -->",
+            HUD_SNIPPET.strip(),
+            html_content,
+            flags=re.DOTALL,
+        )
 
     if "</body>" in html_content:
         return html_content.replace("</body>", f"{HUD_SNIPPET}\n</body>", 1)

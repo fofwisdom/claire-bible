@@ -222,10 +222,12 @@ function updateCenterSearchMode(view){
 
   const isAuthed = (typeof AUTH_SCOPE !== 'undefined' && AUTH_SCOPE !== 'anonymous' && AUTH_SCOPE !== 'unknown');
 
-  if(view === 'reader'){
-    if(qicon) qicon.textContent = '📖';
-    if(qlbl) qlbl.textContent = '문서 검색';
-    qEl.placeholder = '문서 검색 (제목 필터링, Enter: 본문 심층 검색)';
+  if(view === 'reader' || view === 'presentation'){
+    if(qicon) qicon.textContent = (view === 'presentation' ? '📽️' : '📖');
+    if(qlbl) qlbl.textContent = (view === 'presentation' ? '프레젠테이션 검색' : '문서 검색');
+    qEl.placeholder = (view === 'presentation'
+      ? '프레젠테이션 문서 검색 (제목 필터링, Enter: 본문 심층 검색)'
+      : '문서 검색 (제목 필터링, Enter: 본문 심층 검색)');
     qEl.title = isAuthed
       ? '문서 검색: 실시간 제목·요약 필터링, Enter로 AI 지식 검색 및 요약'
       : '문서 검색: 실시간 제목·요약 필터링, Enter로 전체 본문(FTS5) 전문 검색';
@@ -369,6 +371,14 @@ function openReader(docId, pushHist=true){
   } else {
     if(centerView === 'presentation'){
       updatePresentationView(docId);
+    } else if(centerView === 'graph'){
+      if(typeof setActiveDoc === 'function'){
+        setActiveDoc(docId);
+      }
+    } else if(centerView === 'stream'){
+      if(typeof renderDecisionStreamCenter === 'function'){
+        renderDecisionStreamCenter();
+      }
     } else {
       setCenterView('reader');
     }
@@ -1174,9 +1184,16 @@ function updatePresentationView(docId){
   const emptyTitle = document.getElementById('presentation-empty-title');
   const emptyMsg = document.getElementById('presentation-empty-msg');
   const genBtn = document.getElementById('presentation-gen-btn');
+  const titleEl = document.getElementById('presentation-title');
+  const toolsEl = document.getElementById('presentationtools');
+  const sharebox = document.getElementById('presentation-sharebox');
   if(!wrap || !frame) return;
 
+  if(sharebox){ sharebox.className = 'sharebox'; sharebox.innerHTML = ''; }
+
   if(!targetId){
+    if(titleEl) titleEl.textContent = '문서를 선택하세요';
+    if(toolsEl) toolsEl.style.display = 'none';
     if(empty) empty.style.display = 'flex';
     if(frame) frame.style.display = 'none';
     if(emptyTitle) emptyTitle.textContent = '문서를 선택하세요';
@@ -1187,6 +1204,13 @@ function updatePresentationView(docId){
 
   const dc = (typeof allDocs !== 'undefined' && allDocs && allDocs.find(d => d.id === targetId)) ||
              (typeof curReaderDocData !== 'undefined' && curReaderDocData && curReaderDocData.id === targetId ? curReaderDocData : null);
+
+  if(titleEl){
+    titleEl.textContent = dc ? (dc.title || '무제') : '문서 로딩…';
+  }
+  if(toolsEl){
+    toolsEl.style.display = 'flex';
+  }
 
   if(dc && dc.has_presentation === false){
     if(empty) empty.style.display = 'flex';
@@ -1207,7 +1231,168 @@ function updatePresentationView(docId){
   if(frame.getAttribute('data-doc-id') !== targetId){
     frame.setAttribute('data-doc-id', targetId);
     frame.src = targetUrl;
+    frame.onload = function(){
+      syncPresentationCoords();
+      try {
+        if(frame.contentWindow && frame.contentWindow.Reveal){
+          frame.contentWindow.Reveal.on('slidechanged', syncPresentationCoords);
+          frame.contentWindow.Reveal.on('ready', syncPresentationCoords);
+        }
+      }catch(_){}
+    };
+  } else {
+    syncPresentationCoords();
   }
+}
+
+function syncPresentationCoords(){
+  const frame = document.getElementById('presentation-frame');
+  const coordsEl = document.getElementById('presentation-coords');
+  if(!frame || !frame.contentWindow || !coordsEl) return;
+  try {
+    const R = frame.contentWindow.Reveal;
+    if(R && typeof R.getIndices === 'function'){
+      const indices = R.getIndices();
+      const total = typeof R.getTotalSlides === 'function' ? R.getTotalSlides() : '?';
+      const h = String(indices.h + 1).padStart(2, '0');
+      const v = indices.v > 0 ? '.' + String(indices.v + 1) : '';
+      coordsEl.textContent = h + v + ' / ' + total;
+    }
+  }catch(_){}
+}
+
+function presentationSpeaker(){
+  const frame = document.getElementById('presentation-frame');
+  if(!frame || !frame.contentWindow) return;
+  try {
+    if(typeof frame.contentWindow.cbToggleSpeaker === 'function'){
+      frame.contentWindow.cbToggleSpeaker();
+    } else if(frame.contentWindow.Reveal){
+      const notesPlugin = frame.contentWindow.Reveal.getPlugin('notes');
+      if(notesPlugin && typeof notesPlugin.open === 'function'){
+        notesPlugin.open();
+      } else {
+        const notesUrl = '/static/vendor/reveal.js/plugin/notes/speaker-view.html';
+        window.open(notesUrl, 'reveal.js - Notes', 'width=1100,height=700');
+      }
+    }
+  }catch(_){
+    const notesUrl = '/static/vendor/reveal.js/plugin/notes/speaker-view.html';
+    window.open(notesUrl, 'reveal.js - Notes', 'width=1100,height=700');
+  }
+}
+
+function presentationOverview(){
+  const frame = document.getElementById('presentation-frame');
+  if(frame && frame.contentWindow && frame.contentWindow.Reveal){
+    try {
+      const R = frame.contentWindow.Reveal;
+      if(typeof R.toggleOverview === 'function'){
+        if(typeof R.isOverview === 'function'){
+          R.toggleOverview(!R.isOverview());
+        } else {
+          R.toggleOverview();
+        }
+      }
+    }catch(_){}
+  }
+}
+
+function presentationPrintPdf(){
+  const targetId = (typeof curReaderDoc !== 'undefined' && curReaderDoc) ||
+                   (typeof activeDoc !== 'undefined' && activeDoc);
+  if(!targetId) return;
+  const url = new URL('/p/presentation', window.location.origin);
+  url.searchParams.set('id', targetId);
+  url.searchParams.set('print-pdf', '');
+  window.open(url.toString(), '_blank');
+}
+
+async function presentationShare(){
+  const targetId = (typeof curReaderDoc !== 'undefined' && curReaderDoc) ||
+                   (typeof activeDoc !== 'undefined' && activeDoc);
+  if(!targetId) return;
+  const sb = document.getElementById('presentation-sharebox');
+  if(!sb) return;
+  sb.className = 'sharebox on';
+  sb.innerHTML = '<span class="pt">공유 링크 생성 중…</span>';
+  try{
+    const r = await fetch('share', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({doc_id: targetId})
+    });
+    if(r.status === 401 || r.status === 404){
+      if(typeof canWrite === 'function' && canWrite()){
+        if(typeof expireWriteAccess === 'function') expireWriteAccess();
+        sb.innerHTML = '<span class="pt">세션 만료 — 텔레그램 /web 으로 다시 접속하세요</span>';
+      } else {
+        sb.innerHTML = '<span class="pt">공유 링크를 생성할 수 없습니다</span>';
+      }
+      return;
+    }
+    const d = await r.json();
+    if(d.error || !d.path){
+      sb.innerHTML = '<span class="pt">공유 실패: ' + esc(d.error || '알 수 없음') + '</span>';
+      return;
+    }
+    const token = d.token || (d.path.includes('s=') ? d.path.split('s=')[1] : '');
+    const url = token
+      ? location.origin + '/p/presentation?s=' + encodeURIComponent(token)
+      : location.origin + '/p/presentation?id=' + encodeURIComponent(targetId);
+    let copied = false;
+    try {
+      if(navigator.clipboard && navigator.clipboard.writeText){
+        await navigator.clipboard.writeText(url);
+        copied = true;
+      }
+    }catch(_){}
+    if(typeof window.gtag === 'function'){
+      try{ window.gtag('event', 'share', { method: 'link', content_type: 'presentation', item_id: targetId }); }catch(_){}
+    }
+    sb.innerHTML = '<input id="pres-shareurl" readonly value="' + esc(url) + '" onclick="this.select()"/>' +
+      '<button onclick="copyPresentationShare()">' + (copied ? '✓ 복사됨' : '복사') + '</button>';
+  }catch(e){
+    sb.innerHTML = '<span class="pt">공유 실패: ' + esc(String(e)) + '</span>';
+  }
+}
+
+function copyPresentationShare(){
+  const i = document.getElementById('pres-shareurl');
+  if(!i) return;
+  i.select();
+  const markCopied = () => {
+    const b = document.querySelector('#presentation-sharebox button');
+    if(b) b.textContent = '✓ 복사됨';
+  };
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(i.value).then(markCopied).catch(()=>{
+      try { document.execCommand('copy'); markCopied(); }catch(_){}
+    });
+  } else {
+    try { document.execCommand('copy'); markCopied(); }catch(_){}
+  }
+}
+
+function presentationFullscreen(){
+  const wrap = document.getElementById('presentationwrap');
+  if(!wrap) return;
+  if(!document.fullscreenElement){
+    wrap.requestFullscreen().catch(()=>{});
+  } else {
+    document.exitFullscreen().catch(()=>{});
+  }
+}
+
+if(typeof window !== 'undefined'){
+  window.addEventListener('message', function(e) {
+    if (e.data && e.data.type === 'cb-slidechanged') {
+      const coordsEl = document.getElementById('presentation-coords');
+      if (coordsEl && e.data.coords) {
+        coordsEl.textContent = e.data.coords;
+      }
+    }
+  });
 }
 
 async function generatePresentationForCurrentDoc(){
@@ -1310,6 +1495,13 @@ if (typeof window !== 'undefined') {
   window.openDocPresentation = openDocPresentation;
   window.updatePresentationView = updatePresentationView;
   window.generatePresentationForCurrentDoc = generatePresentationForCurrentDoc;
+  window.presentationSpeaker = presentationSpeaker;
+  window.presentationOverview = presentationOverview;
+  window.presentationPrintPdf = presentationPrintPdf;
+  window.presentationShare = presentationShare;
+  window.copyPresentationShare = copyPresentationShare;
+  window.presentationFullscreen = presentationFullscreen;
+  window.syncPresentationCoords = syncPresentationCoords;
   window.docMetaHtml = docMetaHtml;
   window.docBiblioHtml = docBiblioHtml;
   window.renderReader = renderReader;
