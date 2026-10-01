@@ -367,7 +367,7 @@ body.stt-modal-open{overflow:hidden}
     #reader .sheet{height:100%!important;max-height:100%!important;width:100%!important;max-width:100%!important;min-width:0!important;min-height:0!important;border:0!important;border-radius:0!important;display:flex!important;flex-direction:column!important;overflow:hidden!important;box-sizing:border-box!important}
     #reader .head{padding:max(10px,env(safe-area-inset-top)) 12px 10px!important}
     #reader .head h1{font-size:18px!important}
-    #reader .rzoom button,#reader .redit,#reader .rslides,#reader .rshare,#reader .rclose{min-width:44px!important;min-height:44px!important}
+    #reader .rzoom button,#reader .redit,#reader .rpresentation,#reader .rslides,#reader .rshare,#reader .rclose{min-width:44px!important;min-height:44px!important}
     #reader .rclose{display:inline-flex!important}
     #reader .rbody{padding:8px 36px max(24px,env(safe-area-inset-bottom)) 16px!important;overflow-y:auto!important;overflow-x:auto!important;min-width:0!important;max-width:100%!important;box-sizing:border-box!important;flex:1!important;min-height:0!important;scrollbar-width:none!important;-ms-overflow-style:none!important}
 }

@@ -533,9 +533,6 @@ function docMetaHtml(dc){
     }
     tags.push('<span class="trunc-tag" title="'+esc(tip)+'">'+esc(label)+'</span>');
   }
-  if(dc && dc.id){
-    tags.push('<a href="#" class="focus-tag pres-tag" onclick="openDocPresentation();return false;" title="Asciidoctor reveal.js 슬라이드 열기 (단축키: P)">🖥️ 슬라이드</a>');
-  }
   if(tags.length){
     h+='<span class="docmeta-tags">'+tags.join(' ')+'</span>';
   }
@@ -1155,7 +1152,7 @@ function openDocPresentation(){
                 (typeof curReaderDocData !== 'undefined' && curReaderDocData && curReaderDocData.id);
   if(!docId) return;
 
-  const btn = document.getElementById('rslidesbtn');
+  const btn = document.getElementById('rpresentationbtn') || document.getElementById('rslidesbtn');
   if(btn){
     btn.textContent = '⏳';
     setTimeout(()=>{ if(btn) btn.textContent = '🖥️'; }, 1200);
