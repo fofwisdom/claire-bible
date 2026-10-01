@@ -330,6 +330,8 @@ body.stt-modal-open{overflow:hidden}
 .docmeta .stt-tag{display:inline-flex;align-items:center;gap:4px;color:#a371f7;background:rgba(163,113,247,0.12);border:1px solid rgba(163,113,247,0.3);border-radius:10px;padding:1px 7px;font-size:11px;cursor:help;white-space:nowrap;line-height:1.4}
 .docmeta .cc-tag{display:inline-flex;align-items:center;gap:4px;color:#58a6ff;background:rgba(88,166,255,0.12);border:1px solid rgba(88,166,255,0.3);border-radius:10px;padding:1px 7px;font-size:11px;cursor:help;white-space:nowrap;line-height:1.4}
 .docmeta .trunc-tag.trunc-stt{color:#f0883e;background:rgba(240,136,62,0.12);border:1px solid rgba(240,136,62,0.35)}
+.docmeta a.pres-tag{color:var(--accent2,#58a6ff);text-decoration:none;cursor:pointer;transition:all .15s ease}
+.docmeta a.pres-tag:hover{background:rgba(88,166,255,0.22);text-decoration:none;border-color:rgba(88,166,255,0.5)}
 .docmeta a.stt-link{color:var(--accent);text-decoration:none;margin-left:8px;font-weight:500;cursor:pointer}
 .docmeta a.stt-link:hover{text-decoration:underline}
 .stt-trunc-banner{background:rgba(240,136,62,0.12);border:1px solid rgba(240,136,62,0.35);color:var(--fg);border-radius:6px;padding:10px 14px;margin:0 0 14px;font-size:13px;line-height:1.5}
@@ -365,7 +367,7 @@ body.stt-modal-open{overflow:hidden}
     #reader .sheet{height:100%!important;max-height:100%!important;width:100%!important;max-width:100%!important;min-width:0!important;min-height:0!important;border:0!important;border-radius:0!important;display:flex!important;flex-direction:column!important;overflow:hidden!important;box-sizing:border-box!important}
     #reader .head{padding:max(10px,env(safe-area-inset-top)) 12px 10px!important}
     #reader .head h1{font-size:18px!important}
-    #reader .rzoom button,#reader .redit,#reader .rshare,#reader .rclose{min-width:44px!important;min-height:44px!important}
+    #reader .rzoom button,#reader .redit,#reader .rslides,#reader .rshare,#reader .rclose{min-width:44px!important;min-height:44px!important}
     #reader .rclose{display:inline-flex!important}
     #reader .rbody{padding:8px 36px max(24px,env(safe-area-inset-bottom)) 16px!important;overflow-y:auto!important;overflow-x:auto!important;min-width:0!important;max-width:100%!important;box-sizing:border-box!important;flex:1!important;min-height:0!important;scrollbar-width:none!important;-ms-overflow-style:none!important}
 }
