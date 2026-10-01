@@ -322,6 +322,13 @@ def documents_list(
     since_filter = None if (since is None or since == 0) else since
     query_filter = query if query else None
 
+    ready_presentations = set()
+    try:
+        cur = conn.execute("SELECT document_id FROM document_presentations WHERE status = 'ready'")
+        ready_presentations = {r[0] for r in cur.fetchall()}
+    except Exception:
+        pass
+
     out = []
     for r in dbm.documents_timeline(
         conn,
@@ -330,8 +337,10 @@ def documents_list(
         query=query_filter,
         include_hidden=include_hidden,
     ):
+        doc_id = r["id"]
+        has_pres = (doc_id in ready_presentations) or (Path("data/presentations") / f"{doc_id}.html").is_file()
         out.append({
-            "id": r["id"],
+            "id": doc_id,
             "title": r["title"] or "(제목 없음)",
             "url": r["url"],
             "source_type": r["source_type"],
@@ -340,7 +349,8 @@ def documents_list(
             "watch": r["watch_enabled"],        # 1=주기 크롤링 대상 → UI 아이콘
             "pinned": r["pinned"],              # 1=즐겨찾기 → 목록 상단 고정 섹션
             "hidden": r["hidden"],               # 1=숨김 → 기본 목록에서 제외
-            "summary": dbm.latest_extraction_summary(conn, r["id"]) or "",
+            "summary": dbm.latest_extraction_summary(conn, doc_id) or "",
+            "has_presentation": bool(has_pres),
         })
     return out
 

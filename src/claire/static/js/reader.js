@@ -223,7 +223,7 @@ function updateCenterSearchMode(view){
   const isAuthed = (typeof AUTH_SCOPE !== 'undefined' && AUTH_SCOPE !== 'anonymous' && AUTH_SCOPE !== 'unknown');
 
   if(view === 'reader' || view === 'presentation'){
-    if(qicon) qicon.textContent = (view === 'presentation' ? '📽️' : '📖');
+    if(qicon) qicon.textContent = (view === 'presentation' ? '📊' : '📖');
     if(qlbl) qlbl.textContent = (view === 'presentation' ? '프레젠테이션 검색' : '문서 검색');
     qEl.placeholder = (view === 'presentation'
       ? '프레젠테이션 문서 검색 (제목 필터링, Enter: 본문 심층 검색)'
@@ -244,7 +244,7 @@ function updateCenterSearchMode(view){
     }
   } else {
     // graph
-    if(qicon) qicon.textContent = '📊';
+    if(qicon) qicon.textContent = '🌐';
     if(qlbl) qlbl.textContent = '그래프 검색';
     qEl.placeholder = '그래프 노드 검색 (엔티티 이름)';
     qEl.title = '그래프 노드 검색: 실시간 노드 하이라이트, Enter로 카메라 포커스';
@@ -1194,6 +1194,10 @@ function updatePresentationView(docId){
   if(!targetId){
     if(titleEl) titleEl.textContent = '문서를 선택하세요';
     if(toolsEl) toolsEl.style.display = 'none';
+    const coordsEl = document.getElementById('presentation-coords');
+    if(coordsEl) coordsEl.textContent = '';
+    frame.removeAttribute('data-doc-id');
+    frame.src = 'about:blank';
     if(empty) empty.style.display = 'flex';
     if(frame) frame.style.display = 'none';
     if(emptyTitle) emptyTitle.textContent = '문서를 선택하세요';
@@ -1208,11 +1212,13 @@ function updatePresentationView(docId){
   if(titleEl){
     titleEl.textContent = dc ? (dc.title || '무제') : '문서 로딩…';
   }
-  if(toolsEl){
-    toolsEl.style.display = 'flex';
-  }
 
   if(dc && dc.has_presentation === false){
+    if(toolsEl) toolsEl.style.display = 'none';
+    const coordsEl = document.getElementById('presentation-coords');
+    if(coordsEl) coordsEl.textContent = '';
+    frame.removeAttribute('data-doc-id');
+    frame.src = 'about:blank';
     if(empty) empty.style.display = 'flex';
     if(frame) frame.style.display = 'none';
     if(emptyTitle) emptyTitle.textContent = '프레젠테이션이 아직 생성되지 않았습니다';
@@ -1225,6 +1231,9 @@ function updatePresentationView(docId){
     return;
   }
 
+  if(toolsEl){
+    toolsEl.style.display = 'flex';
+  }
   if(empty) empty.style.display = 'none';
   if(frame) frame.style.display = 'block';
   const targetUrl = '/p/presentation?id=' + encodeURIComponent(targetId) + '&embed=true';
