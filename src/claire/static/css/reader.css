@@ -95,24 +95,33 @@
   /* --- 중앙 크게 읽기 (2단 보기 및 기본 중앙 패널 / 모바일 읽기) --- */
   #reader{width:100%;height:100%;display:flex;flex-direction:column;min-width:0;min-height:0;overflow:hidden;background:var(--bg);--read-fs:16px}
   #reader .sheet{background:var(--bg);color:var(--fg);width:100%;height:100%;min-width:0;min-height:0;border-radius:0;border:0;box-shadow:none;padding:0;display:flex;flex-direction:column;overflow:hidden;position:relative}
-  #reader .head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 18px;border-bottom:1px solid var(--border);background:var(--bar-bg);position:sticky;top:0;z-index:1;min-height:48px}
-  #reader .head h1{margin:0;font-size:16px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  #reader .head .rmeta{color:var(--muted);font-size:11.5px;margin-left:6px;font-weight:normal}
-  #reader .rtools{display:flex;align-items:center;gap:6px;flex-shrink:0}
-  #reader .rtools button, #reader .rzoom button{
+  #reader .head, #presentationwrap .head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 18px;border-bottom:1px solid var(--border);background:var(--bar-bg);position:sticky;top:0;z-index:1;min-height:48px;box-sizing:border-box}
+  #reader .head h1, #presentationwrap .head h1{margin:0;font-size:16px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:700;color:var(--fg)}
+  #reader .head .rmeta, #presentationwrap .head .rmeta{color:var(--muted);font-size:11.5px;margin-left:6px;font-weight:normal}
+  #reader .rtools, #presentationwrap .rtools{display:flex;align-items:center;gap:6px;flex-shrink:0}
+  #reader .rtools button, #reader .rzoom button, #presentationwrap .rtools button{
     background:var(--sec-bg);color:var(--sec-fg);
     border:1px solid var(--border);border-radius:4px;
-    font-size:13px;line-height:1;padding:4px 8px;
+    font-size:12.5px;line-height:1;padding:4px 8px;
     height:24px;box-sizing:border-box;
     display:inline-flex;align-items:center;justify-content:center;
-    cursor:pointer;
+    gap:4px;cursor:pointer;
   }
-  #reader .rtools button:hover, #reader .rzoom button:hover{background:var(--hover)}
+  #reader .rtools button:hover, #reader .rzoom button:hover, #presentationwrap .rtools button:hover{background:var(--hover)}
+  #presentationwrap .presentation-coords{
+    font-family:'JetBrains Mono','D2Coding',monospace;
+    font-size:12px;font-weight:600;color:var(--accent,#0284c7);
+    padding:2px 6px;margin-right:2px;letter-spacing:0.02em;
+  }
   #reader .rzoom{display:flex;align-items:center;gap:2px}
   #reader .rclose{display:none}
-  #reader .sharebox{display:none;margin:10px 24px 0;padding:8px 12px;background:var(--active);border:1px solid var(--accent);border-radius:6px;font-size:12px;gap:8px;align-items:center}
-  #reader .sharebox.on{display:flex} #reader .sharebox input{flex:1;min-width:0}
-  #reader .sharebox button{background:var(--accent);color:#fff;border:0;border-radius:4px;padding:3px 9px;font-size:12px;cursor:pointer}
+  #reader .sharebox, #presentationwrap .sharebox{display:none;margin:8px 18px 0;padding:8px 12px;background:var(--active);border:1px solid var(--accent);border-radius:6px;font-size:12px;gap:8px;align-items:center}
+  #reader .sharebox.on, #presentationwrap .sharebox.on{display:flex}
+  #reader .sharebox input, #presentationwrap .sharebox input{flex:1;min-width:0}
+  #reader .sharebox button, #presentationwrap .sharebox button{background:var(--accent);color:#fff;border:0;border-radius:4px;padding:3px 9px;font-size:12px;cursor:pointer}
+  @media (max-width: 768px) {
+    #presentationwrap .ptool-label{display:none}
+  }
   /* --- 중앙 영역 공통 상단 헤더 탭 (그래프 / 본문 / 의사결정 스트림) --- */
   .center-head-bar{
     display:flex;align-items:center;justify-content:flex-start;gap:10px;
@@ -201,7 +210,7 @@
     min-height:0;
     min-width:0;
     position:relative;
-    background:#0e1116;
+    background:var(--bg);
     overflow:hidden;
   }
   #presentation-frame{
@@ -209,7 +218,7 @@
     height:100%;
     flex:1;
     border:none;
-    background:transparent;
+    background:#0e1116;
     display:block;
   }
   .presentation-empty-banner{

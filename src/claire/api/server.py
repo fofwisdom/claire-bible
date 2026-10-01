@@ -1730,6 +1730,15 @@ def create_app(
         if not file_path.exists():
             return PlainTextResponse("Presentation file not found", status_code=404)
 
+        try:
+            content_str = file_path.read_text(encoding="utf-8")
+            if "is-embedded" not in content_str or "문서로" in content_str or "cbReturnToDoc" in content_str:
+                from ..presentation.hud import inject_hud_toolbar
+                cleaned_str = inject_hud_toolbar(content_str)
+                file_path.write_text(cleaned_str, encoding="utf-8")
+        except Exception:
+            pass
+
         return FileResponse(
             file_path,
             media_type="text/html",

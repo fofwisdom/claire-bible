@@ -233,7 +233,7 @@ const presUrl = presToken ? ('/p/presentation?s=' + encodeURIComponent(presToken
 let h='<div class="share-header-bar" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">';
 h+='<div class=brand>Claire Bible · 공유 문서</div>';
 if(dc && dc.has_presentation && presUrl){
-  h+='<a class="focus-tag pres-tag" href="' + esc(presUrl) + '" target="_blank" rel="noopener" style="font-size:12px;padding:3px 10px;text-decoration:none" title="Asciidoctor reveal.js 프레젠테이션 보기">🖥️ 프레젠테이션 보기</a>';
+  h+='<a class="focus-tag pres-tag" href="' + esc(presUrl) + '" target="_blank" rel="noopener" style="font-size:12px;padding:3px 10px;text-decoration:none" title="Asciidoctor reveal.js 프레젠테이션 보기">📽️ 프레젠테이션 보기</a>';
 }
 h+='</div>';
 h+='<h1>'+esc(dc.title||'(제목 없음)')+(dc.source_type?' <span class=rmeta>'+esc(dc.source_type)+'</span>':'')+'</h1>';
