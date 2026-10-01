@@ -193,11 +193,9 @@ function handleReaderKey(e){
   }
 
   if((e.key === 'p' || e.key === 'P') && !e.ctrlKey && !e.metaKey && !e.altKey){
-    if(curReaderDocData && curReaderDocData.has_presentation){
-      e.preventDefault();
-      openDocPresentation();
-      return true;
-    }
+    e.preventDefault();
+    setCenterView('presentation');
+    return true;
   }
 
   return false;
@@ -261,19 +259,25 @@ function setCenterView(mode){
       resumeGraphAfterIngest();
     }
   }
-  const nextView = (mode==='graph' ? 'graph' : (mode==='matrix' ? 'matrix' : (mode==='stream' ? 'stream' : 'reader')));
-  if(mode === 'matrix' || mode === 'graph' || mode === 'stream'){
+  const nextView = (mode==='graph' ? 'graph' : (mode==='matrix' ? 'matrix' : (mode==='stream' ? 'stream' : (mode==='presentation' ? 'presentation' : 'reader'))));
+  if(mode === 'matrix' || mode === 'graph' || mode === 'stream' || mode === 'presentation'){
     activePane = 'graph';
     document.body.dataset.activePane = 'graph';
   }
-  if(centerView === nextView) return;
+  if(centerView === nextView){
+    if(centerView === 'presentation'){
+      updatePresentationView();
+    }
+    return;
+  }
   centerView = nextView;
   document.body.dataset.centerView = centerView;
   updateCenterSearchMode(centerView);
   const mt = document.getElementById('menu-section-title');
-  if(mt){ mt.textContent = (centerView==='graph' ? '그래프 도구' : (centerView==='matrix' ? '대조 매트릭스' : (centerView==='stream' ? '의사결정 스트림' : '문서와 그래프'))); }
+  if(mt){ mt.textContent = (centerView==='graph' ? '그래프 도구' : (centerView==='matrix' ? '대조 매트릭스' : (centerView==='stream' ? '의사결정 스트림' : (centerView==='presentation' ? '프레젠테이션' : '문서와 그래프')))); }
   const tabGraph = document.getElementById('centertab-graph');
   const tabReader = document.getElementById('centertab-reader');
+  const tabPresentation = document.getElementById('centertab-presentation');
   const tabStream = document.getElementById('centertab-stream');
   if(tabGraph){
     tabGraph.classList.toggle('active', centerView === 'graph');
@@ -283,9 +287,16 @@ function setCenterView(mode){
     tabReader.classList.toggle('active', centerView === 'reader');
     tabReader.setAttribute('aria-selected', centerView === 'reader');
   }
+  if(tabPresentation){
+    tabPresentation.classList.toggle('active', centerView === 'presentation');
+    tabPresentation.setAttribute('aria-selected', centerView === 'presentation');
+  }
   if(tabStream){
     tabStream.classList.toggle('active', centerView === 'stream');
     tabStream.setAttribute('aria-selected', centerView === 'stream');
+  }
+  if(centerView==='presentation'){
+    updatePresentationView();
   }
   if(centerView==='stream'){
     if(typeof renderDecisionStreamCenter === 'function'){
@@ -342,8 +353,6 @@ function openReader(docId, pushHist=true){
   applyReadFS();   // 저장된 글자 크기 적용
   document.getElementById('rtitle').textContent='문서 불러오는 중…';
   document.getElementById('rbody').innerHTML='';
-  const presBtn = document.getElementById('rpresentationbtn');
-  if(presBtn) presBtn.style.display = 'none';
   if(panel) panel.innerHTML='<p class=hint>문서 불러오는 중…</p>';
   const r=document.getElementById('reader');
   r.setAttribute('aria-hidden','false');
@@ -358,7 +367,11 @@ function openReader(docId, pushHist=true){
     if(pushHist) pushAppHistory({ modal: 'reader', docId: docId });
     requestAnimationFrame(()=>r.querySelector('.sheet')?.focus());
   } else {
-    setCenterView('reader');
+    if(centerView === 'presentation'){
+      updatePresentationView(docId);
+    } else if(centerView !== 'stream'){
+      setCenterView('reader');
+    }
   }
   renderDocs(document.getElementById('docq') ? document.getElementById('docq').value : '');
   applyView();
@@ -555,11 +568,6 @@ function renderReader(dc){
   }
   document.getElementById('rtitle').innerHTML = esc(dc.title||'(제목 없음)')
     + (dc.source_type?' <span class=rmeta>'+esc(dc.source_type)+'</span>':'');
-
-  const presBtn = document.getElementById('rpresentationbtn');
-  if(presBtn){
-    presBtn.style.display = (dc && dc.has_presentation) ? '' : 'none';
-  }
   let h='';
 
   // Heatmap Matrix 대조 배너 검사 (확인할 때까지 표시)
@@ -1156,28 +1164,100 @@ function copyShare(){
   }
 }
 
-function openDocPresentation(){
-  const docId = (typeof curReaderDoc !== 'undefined' && curReaderDoc) ||
-                (typeof curReaderDocData !== 'undefined' && curReaderDocData && curReaderDocData.id);
-  if(!docId) return;
-  if(typeof curReaderDocData !== 'undefined' && curReaderDocData && !curReaderDocData.has_presentation){
+function updatePresentationView(docId){
+  const targetId = docId || (typeof curReaderDoc !== 'undefined' && curReaderDoc) ||
+                   (typeof activeDoc !== 'undefined' && activeDoc) ||
+                   (typeof allDocs !== 'undefined' && allDocs && allDocs.length ? allDocs[0].id : null);
+  const wrap = document.getElementById('presentationwrap');
+  const frame = document.getElementById('presentation-frame');
+  const empty = document.getElementById('presentation-empty');
+  const emptyTitle = document.getElementById('presentation-empty-title');
+  const emptyMsg = document.getElementById('presentation-empty-msg');
+  const genBtn = document.getElementById('presentation-gen-btn');
+  if(!wrap || !frame) return;
+
+  if(!targetId){
+    if(empty) empty.style.display = 'flex';
+    if(frame) frame.style.display = 'none';
+    if(emptyTitle) emptyTitle.textContent = '문서를 선택하세요';
+    if(emptyMsg) emptyMsg.textContent = '왼쪽 목록에서 문서를 선택하면 프레젠테이션이 표시됩니다.';
+    if(genBtn) genBtn.style.display = 'none';
     return;
   }
 
-  const btn = document.getElementById('rpresentationbtn') || document.getElementById('rslidesbtn');
-  if(btn){
-    btn.textContent = '⏳';
-    setTimeout(()=>{ if(btn) btn.textContent = '🖥️'; }, 1200);
+  const dc = (typeof allDocs !== 'undefined' && allDocs && allDocs.find(d => d.id === targetId)) ||
+             (typeof curReaderDocData !== 'undefined' && curReaderDocData && curReaderDocData.id === targetId ? curReaderDocData : null);
+
+  if(dc && dc.has_presentation === false){
+    if(empty) empty.style.display = 'flex';
+    if(frame) frame.style.display = 'none';
+    if(emptyTitle) emptyTitle.textContent = '프레젠테이션이 아직 생성되지 않았습니다';
+    if(emptyMsg) emptyMsg.textContent = '이 문서의 AsciiDoc 기반 고품질 프레젠테이션을 생성할 수 있습니다.';
+    if(genBtn){
+      genBtn.style.display = (typeof canWrite === 'function' && canWrite()) ? 'inline-block' : 'none';
+      genBtn.textContent = '프레젠테이션 생성';
+      genBtn.disabled = false;
+    }
+    return;
   }
 
-  if(typeof canWrite === 'function' && canWrite()){
-    try {
-      fetch('document/presentation/generate?id=' + encodeURIComponent(docId), { method: 'POST' }).catch(()=>{});
-    } catch(_) {}
+  if(empty) empty.style.display = 'none';
+  if(frame) frame.style.display = 'block';
+  const targetUrl = '/p/presentation?id=' + encodeURIComponent(targetId) + '&embed=true';
+  if(frame.getAttribute('data-doc-id') !== targetId){
+    frame.setAttribute('data-doc-id', targetId);
+    frame.src = targetUrl;
   }
+}
 
-  const url = '/p/presentation?id=' + encodeURIComponent(docId);
-  window.open(url, '_blank', 'noopener');
+async function generatePresentationForCurrentDoc(){
+  const targetId = (typeof curReaderDoc !== 'undefined' && curReaderDoc) ||
+                   (typeof activeDoc !== 'undefined' && activeDoc);
+  if(!targetId) return;
+  const genBtn = document.getElementById('presentation-gen-btn');
+  const emptyMsg = document.getElementById('presentation-empty-msg');
+  if(genBtn){
+    genBtn.disabled = true;
+    genBtn.textContent = '프레젠테이션 생성 중… ⏳';
+  }
+  if(emptyMsg) emptyMsg.textContent = 'AsciiDoc 및 reveal.js 장표를 작성하고 변환하는 중입니다. 잠시만 기다려주세요…';
+
+  try {
+    const res = await fetch('document/presentation/generate?id=' + encodeURIComponent(targetId), { method: 'POST' });
+    if(res.ok){
+      if(typeof curReaderDocData !== 'undefined' && curReaderDocData && curReaderDocData.id === targetId){
+        curReaderDocData.has_presentation = true;
+      }
+      const dc = typeof allDocs !== 'undefined' && allDocs && allDocs.find(d => d.id === targetId);
+      if(dc) dc.has_presentation = true;
+      const frame = document.getElementById('presentation-frame');
+      if(frame) frame.removeAttribute('data-doc-id');
+      updatePresentationView(targetId);
+    } else {
+      if(emptyMsg) emptyMsg.textContent = '생성에 실패했습니다. 잠시 후 다시 시도해주세요.';
+      if(genBtn){
+        genBtn.disabled = false;
+        genBtn.textContent = '다시 시도';
+      }
+    }
+  } catch(e) {
+    if(emptyMsg) emptyMsg.textContent = '네트워크 오류가 발생했습니다: ' + e;
+    if(genBtn){
+      genBtn.disabled = false;
+      genBtn.textContent = '다시 시도';
+    }
+  }
+}
+
+function openDocPresentation(docId){
+  const targetId = docId || (typeof curReaderDoc !== 'undefined' && curReaderDoc) ||
+                (typeof curReaderDocData !== 'undefined' && curReaderDocData && curReaderDocData.id);
+  if(targetId){
+    curReaderDoc = targetId;
+    activeDoc = targetId;
+  }
+  setCenterView('presentation');
+  updatePresentationView(targetId);
 }
 
 // --- Global Export & Namespace ---
@@ -1197,6 +1277,8 @@ const ClaireReader = {
   shareDoc,
   copyShare,
   openDocPresentation,
+  updatePresentationView,
+  generatePresentationForCurrentDoc,
   docMetaHtml,
   docBiblioHtml,
   renderReader,
@@ -1226,6 +1308,8 @@ if (typeof window !== 'undefined') {
   window.shareDoc = shareDoc;
   window.copyShare = copyShare;
   window.openDocPresentation = openDocPresentation;
+  window.updatePresentationView = updatePresentationView;
+  window.generatePresentationForCurrentDoc = generatePresentationForCurrentDoc;
   window.docMetaHtml = docMetaHtml;
   window.docBiblioHtml = docBiblioHtml;
   window.renderReader = renderReader;

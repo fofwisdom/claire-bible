@@ -49,7 +49,10 @@ def preprocess_adoc_to_slides(
         ":revealjs_fragmentInURL: true",
         ":revealjs_controls: true",
         ":revealjs_progress: true",
-        ":revealjs_center: true",
+        ":revealjs_center: false",
+        ":revealjs_width: 1280",
+        ":revealjs_height: 720",
+        ":revealjs_margin: 0.04",
         ":source-highlighter: highlight.js",
         ":stem: latexmath",
         ":icons: font",
@@ -147,6 +150,10 @@ def prepare_presentation_adoc_for_compile(
     header_attrs: dict[str, str] = {
         ":revealjs_theme:": f":revealjs_theme: {theme}",
         ":revealjs_transition:": f":revealjs_transition: {transition}",
+        ":revealjs_center:": ":revealjs_center: false",
+        ":revealjs_width:": ":revealjs_width: 1280",
+        ":revealjs_height:": ":revealjs_height: 720",
+        ":revealjs_margin:": ":revealjs_margin: 0.04",
         ":source-highlighter:": ":source-highlighter: highlight.js",
         ":icons:": ":icons: font",
     }
