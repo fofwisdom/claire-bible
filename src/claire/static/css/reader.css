@@ -88,10 +88,17 @@
   #reader .head h1{margin:0;font-size:16px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   #reader .head .rmeta{color:var(--muted);font-size:11.5px;margin-left:6px;font-weight:normal}
   #reader .rtools{display:flex;align-items:center;gap:6px;flex-shrink:0}
+  #reader .rtools button, #reader .rzoom button{
+    background:var(--sec-bg);color:var(--sec-fg);
+    border:1px solid var(--border);border-radius:4px;
+    font-size:13px;line-height:1;padding:4px 8px;
+    height:24px;box-sizing:border-box;
+    display:inline-flex;align-items:center;justify-content:center;
+    cursor:pointer;
+  }
+  #reader .rtools button:hover, #reader .rzoom button:hover{background:var(--hover)}
   #reader .rzoom{display:flex;align-items:center;gap:2px}
-  #reader .rzoom button{background:var(--sec-bg);color:var(--sec-fg);border:1px solid var(--border);border-radius:4px;font-size:13px;line-height:1;padding:4px 8px;cursor:pointer}
-  #reader .rzoom .fsv{color:var(--muted);font-size:11.5px;min-width:24px;text-align:center}
-  #reader .rclose{background:var(--sec-bg);color:var(--sec-fg);border:1px solid var(--border);border-radius:4px;font-size:15px;line-height:1;padding:4px 8px;cursor:pointer;display:none}
+  #reader .rclose{display:none}
   #reader .sharebox{display:none;margin:10px 24px 0;padding:8px 12px;background:var(--active);border:1px solid var(--accent);border-radius:6px;font-size:12px;gap:8px;align-items:center}
   #reader .sharebox.on{display:flex} #reader .sharebox input{flex:1;min-width:0}
   #reader .sharebox button{background:var(--accent);color:#fff;border:0;border-radius:4px;padding:3px 9px;font-size:12px;cursor:pointer}
