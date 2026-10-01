@@ -3131,7 +3131,10 @@ def diagnose_graph(conn: sqlite3.Connection) -> dict[str, Any]:
     }
 
 
-def heal_graph(conn: sqlite3.Connection) -> dict[str, int]:
+def heal_graph(
+    conn: sqlite3.Connection,
+    progress_callback: Callable[[str], None] | None = None,
+) -> dict[str, int]:
     """지식그래프 참조 무결성 및 인덱스를 원클릭으로 자동 수복."""
     import json as _json
 
@@ -3143,6 +3146,9 @@ def heal_graph(conn: sqlite3.Connection) -> dict[str, int]:
         "orphan_embeddings_removed": 0,
         "fts_reindexed": 0,
     }
+
+    if progress_callback:
+        progress_callback("문서 및 엔티티 출처 참조 정제 중...")
 
     doc_ids = {row[0] for row in conn.execute("SELECT id FROM documents").fetchall()}
 
@@ -3220,11 +3226,15 @@ def heal_graph(conn: sqlite3.Connection) -> dict[str, int]:
     # 6. FTS 재색인
     has_fts = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='entities_fts'").fetchone()
     if has_fts:
-        conn.execute("DELETE FROM entities_fts")
         curr_entities = conn.execute("SELECT id, name, aliases, observations FROM entities").fetchall()
+        if progress_callback:
+            progress_callback(f"FTS5 전문 검색 색인 일괄 재구축 중 ({len(curr_entities)}개 엔티티)...")
+        conn.execute("DELETE FROM entities_fts")
         from ..retrieval.tokenizer import get_search_tokenizer
 
         tokenizer = get_search_tokenizer()
+        parsed_entities = []
+        all_user_words: list[str] = []
         for r in curr_entities:
             try:
                 aliases = _json.loads(r["aliases"] or "[]")
@@ -3234,15 +3244,25 @@ def heal_graph(conn: sqlite3.Connection) -> dict[str, int]:
                 obs = _json.loads(r["observations"] or "[]")
             except Exception:
                 obs = []
-            tokenizer.add_user_words([r["name"], *aliases])
+            all_user_words.append(r["name"])
+            all_user_words.extend(aliases)
+            parsed_entities.append((r["id"], r["name"], aliases, obs))
+
+        # 사용자 단어 사전 일괄 등록 (반복 호출 시 형태소 분석 모델 재빌드 오버헤드 O(N) -> O(1) 방지)
+        tokenizer.add_user_words(all_user_words)
+
+        fts_rows = []
+        for eid, name, aliases, obs in parsed_entities:
             raw_body = " \n".join(obs) + " " + " ".join(aliases)
-            morph_tokens = tokenizer.extract_search_tokens(f"{r['name']} {raw_body}")
+            morph_tokens = tokenizer.extract_search_tokens(f"{name} {raw_body}")
             body = f"{raw_body}\n{' '.join(morph_tokens)}" if morph_tokens else raw_body
-            conn.execute(
-                "INSERT INTO entities_fts(entity_id,name,body) VALUES (?,?,?)",
-                (r["id"], r["name"], body),
-            )
-        healed["fts_reindexed"] = len(curr_entities)
+            fts_rows.append((eid, name, body))
+
+        conn.executemany(
+            "INSERT INTO entities_fts(entity_id,name,body) VALUES (?,?,?)",
+            fts_rows,
+        )
+        healed["fts_reindexed"] = len(fts_rows)
 
     conn.commit()
     return healed
@@ -3289,6 +3309,7 @@ def purge_document_cascade(
     reason: str = "manual_purge",
     dry_run: bool = False,
     tombstone: bool = True,
+    progress_callback: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
     """오염 문서를 L1/L2/DB/그래프/디스크에서 원자적으로 연쇄 소각."""
     import time
@@ -3346,6 +3367,9 @@ def purge_document_cascade(
         }
 
     # 3. 실제 소각 실행 (DB 트랜잭션)
+    if progress_callback:
+        progress_callback("L1 인박스 및 DB 레코드 원자적 연쇄 삭제 중...")
+
     stats: dict[str, Any] = {
         "dry_run": False,
         "purged_count": len(matched_ids),
@@ -3399,6 +3423,9 @@ def purge_document_cascade(
         raise
 
     # 4. 물리 파일 Unlink
+    if progress_callback:
+        progress_callback(f"물리 아티팩트 및 첨부 디스크 파일 삭제 중 ({len(unlinked_candidates)}개 파일)...")
+
     unlinked_count = 0
     for p in unlinked_candidates:
         try:
@@ -3417,10 +3444,16 @@ def purge_document_cascade(
     stats["disk_files_unlinked"] = unlinked_count
 
     # 5. 지식그래프 참조 무결성 수복
-    heal_stats = heal_graph(conn)
+    if progress_callback:
+        progress_callback("지식그래프 참조 무결성 수복 및 FTS 재구축 중...")
+
+    heal_stats = heal_graph(conn, progress_callback=progress_callback)
     stats["graph_healed"] = heal_stats
 
     # 6. DB 공간 회수 (VACUUM)
+    if progress_callback:
+        progress_callback("데이터베이스 물리 압축(VACUUM) 및 용량 회수 중...")
+
     try:
         conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
         conn.execute("VACUUM")

@@ -154,8 +154,8 @@ def cmd_doctor(args) -> int:
     try:
         do_heal = getattr(args, "heal", False) or getattr(args, "apply", False)
         if do_heal:
-            print("claire doctor: [Auto-Heal] 지식그래프 무결성 수복 시작...")
-            healed = dbm.heal_graph(conn)
+            print("claire doctor: [Auto-Heal] 지식그래프 무결성 수복 시작...", flush=True)
+            healed = dbm.heal_graph(conn, progress_callback=lambda msg: print(f"  {msg}", flush=True))
             print("=" * 50)
             print(f"• 고아 관계 삭제             : {healed['dangling_relations_removed']} 건")
             print(f"• 엔티티 출처 참조 정제       : {healed['stale_entity_sources_cleaned']} 건")
@@ -358,9 +358,16 @@ def cmd_purge(args) -> int:
                 return 2
 
         # 실행
-        print("claire purge: [소각 시작] 원자적 연쇄 소각 및 지식그래프 정화 중...")
+        print("claire purge: [소각 시작] 원자적 연쇄 소각 및 지식그래프 정화 중...", flush=True)
         report = dbm.purge_document_cascade(
-            conn, data_dir=s.data_dir, vault_dir=s.vault_dir, target_ids=target_ids, reason=reason, dry_run=False, tombstone=tombstone
+            conn,
+            data_dir=s.data_dir,
+            vault_dir=s.vault_dir,
+            target_ids=target_ids,
+            reason=reason,
+            dry_run=False,
+            tombstone=tombstone,
+            progress_callback=lambda msg: print(f"  {msg}", flush=True),
         )
         if getattr(args, "json", False):
             import json

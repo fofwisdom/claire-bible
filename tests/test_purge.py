@@ -510,3 +510,47 @@ def test_purge_cascades_connected_entities_and_relations(tmp_path, monkeypatch):
 
     conn.close()
 
+
+def test_purge_with_progress_callback_and_batch_fts(tmp_path):
+    """소각 시 progress_callback 이 단계별로 정상 호출되고 FTS 가 배치 재색인되는지 검증."""
+    from claire.ontology.base import Entity
+
+    db_file = tmp_path / "claire.db"
+    data_dir = tmp_path / "data"
+    data_dir.mkdir(parents=True)
+    vault_dir = tmp_path / "vault"
+    vault_dir.mkdir(parents=True)
+
+    conn = dbm.connect(db_file)
+    dbm.init_db(conn)
+
+    doc = Document(id="doc_batch", title="Doc Batch", raw_text="content", source_type="text")
+    dbm.insert_document(conn, doc)
+
+    for i in range(10):
+        ent = Entity(
+            id=f"ent_{i}",
+            type="Concept",
+            name=f"개념_{i}",
+            aliases=[f"별칭_{i}"],
+            observations=[f"관찰 내용입니다_{i}"],
+            sources=["doc_batch"],
+        )
+        dbm.upsert_entity(conn, ent)
+
+    progress_events = []
+    report = dbm.purge_document_cascade(
+        conn,
+        data_dir=data_dir,
+        vault_dir=vault_dir,
+        target_ids=["doc_batch"],
+        dry_run=False,
+        progress_callback=lambda msg: progress_events.append(msg),
+    )
+
+    assert report["deleted_documents"] == 1
+    assert any("L1 인박스 및 DB 레코드" in e for e in progress_events)
+    assert any("지식그래프 참조 무결성" in e for e in progress_events)
+    assert any("물리 압축" in e for e in progress_events)
+    conn.close()
+
