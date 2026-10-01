@@ -108,6 +108,10 @@
     gap:4px;cursor:pointer;
   }
   #reader .rtools button:hover, #reader .rzoom button:hover, #presentationwrap .rtools button:hover{background:var(--hover)}
+  #reader .rtools button.is-disabled, #reader .rtools button:disabled,
+  #presentationwrap .rtools button.is-disabled, #presentationwrap .rtools button:disabled{
+    opacity:0.45;cursor:not-allowed;
+  }
   #presentationwrap .presentation-coords{
     font-family:'JetBrains Mono','D2Coding',monospace;
     font-size:12px;font-weight:600;color:var(--accent,#0284c7);
