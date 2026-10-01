@@ -143,11 +143,14 @@
         </div>
       </div>
       <div id="centertabs" class="center-tabs" role="tablist" aria-label="중앙 작업 영역 뷰">
-        <button id="centertab-graph" type="button" class="center-tab-btn active" role="tab" aria-selected="true" onclick="setCenterView('graph')" title="지식 그래프" aria-label="그래프">
-          <span class="btn-icon">📊</span> <span class="btn-label">그래프</span>
-        </button>
         <button id="centertab-reader" type="button" class="center-tab-btn" role="tab" aria-selected="false" onclick="setCenterView('reader')" title="문서 본문 읽기" aria-label="본문">
           <span class="btn-icon">📖</span> <span class="btn-label">본문</span>
+        </button>
+        <button id="centertab-presentation" type="button" class="center-tab-btn" role="tab" aria-selected="false" onclick="setCenterView('presentation')" title="프레젠테이션 보기" aria-label="프레젠테이션">
+          <span class="btn-icon">🖥️</span> <span class="btn-label">프레젠테이션</span>
+        </button>
+        <button id="centertab-graph" type="button" class="center-tab-btn active" role="tab" aria-selected="true" onclick="setCenterView('graph')" title="지식 그래프" aria-label="그래프">
+          <span class="btn-icon">📊</span> <span class="btn-label">그래프</span>
         </button>
         <button id="centertab-stream" type="button" class="center-tab-btn" role="tab" aria-selected="false" onclick="setCenterView('stream')" title="엔티티 해소 의사결정 스트림" aria-label="의사결정 스트림">
           <span class="btn-icon">📜</span> <span class="btn-label">의사결정 스트림</span>
@@ -248,6 +251,15 @@
         <div id="stream-scroll-sentinel" class="stream-scroll-sentinel" style="padding:16px;text-align:center;color:var(--muted);font-size:12px"></div>
       </div>
     </section>
+    <section id="presentationwrap" class="workspace-pane" role="region" aria-label="프레젠테이션">
+      <div id="presentation-empty" class="presentation-empty-banner" style="display:none">
+        <div class="presentation-empty-icon">🖥️</div>
+        <h3 id="presentation-empty-title">프레젠테이션이 준비되지 않았습니다</h3>
+        <p id="presentation-empty-msg">문서를 선택하거나 프레젠테이션을 생성하세요.</p>
+        <button id="presentation-gen-btn" type="button" class="presentation-gen-btn" onclick="generatePresentationForCurrentDoc()" style="display:none">프레젠테이션 생성</button>
+      </div>
+      <iframe id="presentation-frame" title="프레젠테이션 뷰어" allow="fullscreen" referrerpolicy="no-referrer"></iframe>
+    </section>
     <div id="reader" role="dialog" aria-modal="true" aria-labelledby="rtitle" aria-hidden="true"
       onclick="if(event.target===this && mobileMQ.matches)closeReader()">
       <div class="sheet" tabindex="-1">
@@ -259,7 +271,6 @@
               <button onclick="setReadFS(-2)" title="글자 작게" aria-label="글자 작게">A−</button>
               <button onclick="setReadFS(2)" title="글자 크게" aria-label="글자 크게">A+</button>
             </div>
-            <button class="rpresentation" id="rpresentationbtn" onclick="openDocPresentation()" title="프레젠테이션 보기 (단축키: P)" aria-label="프레젠테이션 열기" style="display:none">🖥️</button>
             <button class="rshare" onclick="shareDoc()" title="공유 링크 만들기" aria-label="공유 링크 만들기">🔗</button>
             <button class="rclose" onclick="closeReader()" title="닫기(ESC)" aria-label="읽기 닫기">✕</button>
           </div>

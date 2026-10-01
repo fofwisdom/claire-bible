@@ -5,26 +5,37 @@
   body[data-center-view="graph"] #reader{display:none!important}
   body[data-center-view="graph"] #matrixwrap{display:none!important}
   body[data-center-view="graph"] #streamwrap{display:none!important}
+  body[data-center-view="graph"] #presentationwrap{display:none!important}
 
   body[data-center-view="reader"] #netwrap{display:none!important}
   body[data-center-view="reader"] #reader{display:flex!important}
   body[data-center-view="reader"] #matrixwrap{display:none!important}
   body[data-center-view="reader"] #streamwrap{display:none!important}
+  body[data-center-view="reader"] #presentationwrap{display:none!important}
+
+  body[data-center-view="presentation"] #netwrap{display:none!important}
+  body[data-center-view="presentation"] #reader{display:none!important}
+  body[data-center-view="presentation"] #matrixwrap{display:none!important}
+  body[data-center-view="presentation"] #streamwrap{display:none!important}
+  body[data-center-view="presentation"] #presentationwrap{display:flex!important}
 
   body[data-center-view="matrix"] #netwrap{display:none!important}
   body[data-center-view="matrix"] #reader{display:none!important}
   body[data-center-view="matrix"] #matrixwrap{display:flex!important}
   body[data-center-view="matrix"] #streamwrap{display:none!important}
+  body[data-center-view="matrix"] #presentationwrap{display:none!important}
 
   body[data-center-view="stream"] #netwrap{display:none!important}
   body[data-center-view="stream"] #reader{display:none!important}
   body[data-center-view="stream"] #matrixwrap{display:none!important}
   body[data-center-view="stream"] #streamwrap{display:flex!important}
+  body[data-center-view="stream"] #presentationwrap{display:none!important}
 
-  body:not([data-center-view="graph"]):not([data-center-view="matrix"]):not([data-center-view="stream"]) #netwrap{display:none!important}
-  body:not([data-center-view="graph"]):not([data-center-view="matrix"]):not([data-center-view="stream"]) #matrixwrap{display:none!important}
-  body:not([data-center-view="graph"]):not([data-center-view="matrix"]):not([data-center-view="stream"]) #streamwrap{display:none!important}
-  body:not([data-center-view="graph"]):not([data-center-view="matrix"]):not([data-center-view="stream"]) #reader{display:flex!important}
+  body:not([data-center-view="graph"]):not([data-center-view="matrix"]):not([data-center-view="stream"]):not([data-center-view="presentation"]) #netwrap{display:none!important}
+  body:not([data-center-view="graph"]):not([data-center-view="matrix"]):not([data-center-view="stream"]):not([data-center-view="presentation"]) #matrixwrap{display:none!important}
+  body:not([data-center-view="graph"]):not([data-center-view="matrix"]):not([data-center-view="stream"]):not([data-center-view="presentation"]) #streamwrap{display:none!important}
+  body:not([data-center-view="graph"]):not([data-center-view="matrix"]):not([data-center-view="stream"]):not([data-center-view="presentation"]) #presentationwrap{display:none!important}
+  body:not([data-center-view="graph"]):not([data-center-view="matrix"]):not([data-center-view="stream"]):not([data-center-view="presentation"]) #reader{display:flex!important}
 
   /* 중앙 화면 모드에 따른 고유 표시 */
   body[data-center-view="graph"] #pathbtn{display:inline-flex!important}
@@ -165,6 +176,7 @@
   /* 중앙 뷰 전환에 따른 탭 활성화 (CSS data 속성 기반 즉각 연동) */
   body[data-center-view="graph"] #centertab-graph,
   body[data-center-view="reader"] #centertab-reader,
+  body[data-center-view="presentation"] #centertab-presentation,
   body[data-center-view="stream"] #centertab-stream{
     background:var(--accent,#0284c7)!important;
     color:#fff!important;
@@ -174,9 +186,74 @@
   }
   body[data-center-view="graph"] #centertab-graph .btn-icon,
   body[data-center-view="reader"] #centertab-reader .btn-icon,
+  body[data-center-view="presentation"] #centertab-presentation .btn-icon,
   body[data-center-view="stream"] #centertab-stream .btn-icon{
     filter:drop-shadow(0 1px 1px rgba(0,0,0,0.2));
   }
+
+  /* --- 프레젠테이션 작업 영역 (중앙 임베드 뷰) --- */
+  #presentationwrap{
+    display:none;
+    flex-direction:column;
+    flex:1;
+    width:100%;
+    height:100%;
+    min-height:0;
+    min-width:0;
+    position:relative;
+    background:#0e1116;
+    overflow:hidden;
+  }
+  #presentation-frame{
+    width:100%;
+    height:100%;
+    flex:1;
+    border:none;
+    background:transparent;
+    display:block;
+  }
+  .presentation-empty-banner{
+    flex:1;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    color:var(--fg);
+    text-align:center;
+    padding:32px 16px;
+    background:var(--bg);
+  }
+  .presentation-empty-icon{
+    font-size:48px;
+    margin-bottom:12px;
+    opacity:0.85;
+  }
+  .presentation-empty-banner h3{
+    font-size:18px;
+    margin:0 0 8px;
+    color:var(--fg);
+  }
+  .presentation-empty-banner p{
+    color:var(--muted);
+    font-size:14px;
+    margin:0 0 18px;
+    max-width:440px;
+    line-height:1.5;
+  }
+  .presentation-gen-btn{
+    padding:8px 18px;
+    font-size:14px;
+    font-weight:600;
+    background:var(--accent,#0284c7);
+    color:#fff;
+    border:none;
+    border-radius:6px;
+    cursor:pointer;
+    box-shadow:0 2px 6px rgba(0,0,0,0.2);
+    transition:opacity .15s ease;
+  }
+  .presentation-gen-btn:hover{opacity:0.9}
+  .presentation-gen-btn:disabled{opacity:0.6;cursor:wait}
   #reader .rbody-wrap{position:relative;flex:1;min-height:0;min-width:0;display:flex;flex-direction:column;overflow:hidden}
   #reader .rbody{padding:16px 42px max(28px,env(safe-area-inset-bottom)) 28px;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;flex:1;min-height:0;min-width:0;max-width:100%;box-sizing:border-box;scrollbar-width:none;-ms-overflow-style:none}
   #reader .rbody::-webkit-scrollbar{display:none}

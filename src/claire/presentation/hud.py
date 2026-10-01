@@ -15,7 +15,7 @@ HUD_SNIPPET = """
   left: 0;
   width: 100%;
   height: 48px;
-  background: rgba(14, 17, 22, 0.82);
+  background: rgba(14, 17, 22, 0.85);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   border-bottom: 1px solid rgba(255, 255, 255, 0.12);
@@ -71,11 +71,53 @@ HUD_SNIPPET = """
 .cb-hud-title {
   color: #8b949e;
   font-size: 12px;
-  max-width: 320px;
+  max-width: 380px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   margin-left: 6px;
+}
+.cb-hud-sharebox {
+  position: fixed;
+  top: 54px;
+  right: 16px;
+  display: none;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: rgba(22, 27, 34, 0.96);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid #58a6ff;
+  border-radius: 6px;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.5);
+  z-index: 100000;
+  font-size: 12px;
+}
+.cb-hud-sharebox input {
+  width: 280px;
+  background: rgba(13, 17, 23, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  color: #f0f6fc;
+  padding: 5px 8px;
+  font-size: 12px;
+  font-family: 'JetBrains Mono', 'D2Coding', monospace;
+  outline: none;
+}
+.cb-hud-sharebox input:focus {
+  border-color: #58a6ff;
+}
+.cb-hud-sharebox button {
+  background: #0284c7;
+  color: #fff;
+  border: 0;
+  border-radius: 4px;
+  padding: 5px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  font-weight: 600;
+  white-space: nowrap;
 }
 @media (max-width: 768px) {
   .cb-hud-title { display: none; }
@@ -85,9 +127,7 @@ HUD_SNIPPET = """
 
 <div id="cb-hud" class="cb-hud">
   <div class="cb-hud-left">
-    <button class="cb-hud-btn" onclick="cbReturnToDoc()" title="문서로 복귀 (ESC / 닫기)">
-      ← <span>문서로</span>
-    </button>
+    <span class="cb-hud-logo" style="font-weight:700;color:#58a6ff;margin-right:6px">📖 Claire Bible</span>
     <span class="cb-hud-title" id="cb-hud-title"></span>
   </div>
   <div class="cb-hud-center">
@@ -110,6 +150,11 @@ HUD_SNIPPET = """
       ⛶
     </button>
   </div>
+</div>
+
+<div id="cb-hud-sharebox" class="cb-hud-sharebox" style="display:none">
+  <input id="cb-hud-shareurl" readonly value="" onclick="this.select()"/>
+  <button id="cb-hud-sharecopybtn" onclick="cbCopyHudShareInput()">✓ 복사됨</button>
 </div>
 
 <script>
@@ -161,24 +206,6 @@ HUD_SNIPPET = """
     });
   }
 
-  window.cbReturnToDoc = function() {
-    if (window.opener && !window.opener.closed) {
-      window.close();
-      window.opener.focus();
-    } else {
-      const url = new URL(window.location.href);
-      const docId = url.searchParams.get('id');
-      const shareToken = url.searchParams.get('s');
-      if (shareToken) {
-        window.location.href = '/p?s=' + encodeURIComponent(shareToken);
-      } else if (docId) {
-        window.location.href = '/?doc=' + encodeURIComponent(docId);
-      } else {
-        window.location.href = '/';
-      }
-    }
-  };
-
   window.cbToggleSpeaker = function() {
     if (!window.Reveal) return;
     const notesPlugin = Reveal.getPlugin('notes');
@@ -196,15 +223,73 @@ HUD_SNIPPET = """
     window.open(url.toString(), '_blank');
   };
 
-  window.cbCopySlideLink = function() {
-    const link = window.location.href;
-    navigator.clipboard.writeText(link).then(function() {
-      alert('현재 프레젠테이션 링크가 클립보드에 복사되었습니다:\\n' + link);
-    }).catch(function() {
-      prompt('프레젠테이션 링크 복사:', link);
-    });
+  window.cbCopySlideLink = async function() {
+    let shareUrl = window.location.href;
+    const urlObj = new URL(window.location.href);
+    urlObj.searchParams.delete('embed');
+    shareUrl = urlObj.toString();
+
+    const docId = urlObj.searchParams.get('id');
+    const existingToken = urlObj.searchParams.get('s');
+    if (docId && !existingToken) {
+      try {
+        const r = await fetch('/share', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({doc_id: docId})
+        });
+        if (r.ok) {
+          const d = await r.json();
+          if (d.path) {
+            const pUrl = new URL(d.path, window.location.origin);
+            const token = pUrl.searchParams.get('s');
+            if (token) {
+              shareUrl = window.location.origin + '/p/presentation?s=' + encodeURIComponent(token);
+            }
+          }
+        }
+      } catch(_) {}
+    }
+
+    let copied = false;
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(shareUrl);
+        copied = true;
+      }
+    } catch(_) {}
+
+    const sb = document.getElementById('cb-hud-sharebox');
+    const inp = document.getElementById('cb-hud-shareurl');
+    const btn = document.getElementById('cb-hud-sharecopybtn');
+    if (sb && inp && btn) {
+      inp.value = shareUrl;
+      btn.textContent = copied ? '✓ 복사됨' : '복사';
+      sb.style.display = 'flex';
+      inp.select();
+      setTimeout(function() {
+        if (sb) sb.style.display = 'none';
+      }, 5000);
+    }
   };
   window.cbCopyPresentationLink = window.cbCopySlideLink;
+
+  window.cbCopyHudShareInput = function() {
+    const inp = document.getElementById('cb-hud-shareurl');
+    const btn = document.getElementById('cb-hud-sharecopybtn');
+    if (inp) {
+      inp.select();
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(inp.value).then(function() {
+          if (btn) btn.textContent = '✓ 복사됨';
+        }).catch(function() {
+          try { document.execCommand('copy'); if (btn) btn.textContent = '✓ 복사됨'; } catch(_) {}
+        });
+      } else {
+        try { document.execCommand('copy'); if (btn) btn.textContent = '✓ 복사됨'; } catch(_) {}
+      }
+    }
+  };
 
   window.cbToggleFullscreen = function() {
     if (!document.fullscreenElement) {
@@ -213,6 +298,31 @@ HUD_SNIPPET = """
       document.exitFullscreen().catch(() => {});
     }
   };
+
+  // Auto-fit code blocks to prevent horizontal overflow and scrollbars
+  function fitCodeBlocks() {
+    const pres = document.querySelectorAll('.reveal pre');
+    pres.forEach(function(pre) {
+      const code = pre.querySelector('code') || pre;
+      code.style.fontSize = '';
+      let fs = parseFloat(window.getComputedStyle(code).fontSize);
+      const containerWidth = pre.clientWidth - 28;
+      let safety = 30;
+      while (code.scrollWidth > containerWidth && fs > 8 && safety > 0) {
+        fs -= 0.5;
+        code.style.fontSize = fs + 'px';
+        safety--;
+      }
+    });
+  }
+
+  if (window.Reveal) {
+    Reveal.on('ready', fitCodeBlocks);
+    Reveal.on('slidechanged', fitCodeBlocks);
+  } else {
+    window.addEventListener('load', fitCodeBlocks);
+  }
+  window.addEventListener('resize', fitCodeBlocks);
 })();
 </script>
 <!-- End Claire Bible Presentation HUD Toolbar -->

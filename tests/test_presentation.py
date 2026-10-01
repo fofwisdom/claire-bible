@@ -52,6 +52,10 @@ This is a sample paragraph.
     assert ":revealjs_theme: night" in result
     assert ":revealjs_transition: slide" in result
     assert ":revealjs_slideNumber: c/t" in result
+    assert ":revealjs_center: false" in result
+    assert ":revealjs_width: 1280" in result
+    assert ":revealjs_height: 720" in result
+    assert ":revealjs_margin: 0.04" in result
 
     # Check executive summary slide insertion
     assert "== 핵심 요약 (Executive Summary)" in result
@@ -577,6 +581,47 @@ def test_document_detail_has_presentation(tmp_path):
     detail3 = queries.document_detail(conn, doc_id)
     assert detail3["has_presentation"] is True
     assert detail3["presentation_status"] == "ready"
+
+
+def test_presentation_hud_and_layout():
+    from claire.presentation.hud import inject_hud_toolbar
+    from claire.presentation.preprocessor import prepare_presentation_adoc_for_compile
+
+    # 1. Test HUD injection
+    sample_html = "<html><head><title>Test Deck</title></head><body><div class='reveal'></div></body></html>"
+    injected = inject_hud_toolbar(sample_html)
+    assert "cbReturnToDoc" not in injected
+    assert "cb-hud-sharebox" in injected
+    assert "fitCodeBlocks" in injected
+    assert "cbCopyHudShareInput" in injected
+
+    # 2. Test compiler attributes
+    raw_deck = "= Title\n\n== S1\n* Point 1\n"
+    compiled_adoc = prepare_presentation_adoc_for_compile(raw_deck)
+    assert ":revealjs_center: false" in compiled_adoc
+    assert ":revealjs_width: 1280" in compiled_adoc
+    assert ":revealjs_height: 720" in compiled_adoc
+    assert ":revealjs_margin: 0.04" in compiled_adoc
+
+    # 3. Test index.html header tabs and panes layout
+    index_path = Path("src/claire/templates/index.html")
+    assert index_path.exists()
+    index_html = index_path.read_text(encoding="utf-8")
+
+    # Header tabs order: reader -> presentation -> graph -> stream
+    idx_reader = index_html.index('id="centertab-reader"')
+    idx_presentation = index_html.index('id="centertab-presentation"')
+    idx_graph = index_html.index('id="centertab-graph"')
+    idx_stream = index_html.index('id="centertab-stream"')
+    assert idx_reader < idx_presentation < idx_graph < idx_stream
+
+    # presentationwrap container exists
+    assert 'id="presentationwrap"' in index_html
+    assert 'id="presentation-frame"' in index_html
+
+    # rpresentationbtn removed from reader tools
+    assert 'id="rpresentationbtn"' not in index_html
+
 
 
 
