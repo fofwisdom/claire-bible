@@ -192,6 +192,12 @@ function handleReaderKey(e){
     return true;
   }
 
+  if((e.key === 'p' || e.key === 'P') && !e.ctrlKey && !e.metaKey && !e.altKey){
+    e.preventDefault();
+    openDocPresentation();
+    return true;
+  }
+
   return false;
 }
 async function markDocumentSeen(docId){
@@ -526,6 +532,9 @@ function docMetaHtml(dc){
       label+=' ('+raw.toLocaleString()+'자)';
     }
     tags.push('<span class="trunc-tag" title="'+esc(tip)+'">'+esc(label)+'</span>');
+  }
+  if(dc && dc.id){
+    tags.push('<a href="#" class="focus-tag pres-tag" onclick="openDocPresentation();return false;" title="Asciidoctor reveal.js 슬라이드 열기 (단축키: P)">🖥️ 슬라이드</a>');
   }
   if(tags.length){
     h+='<span class="docmeta-tags">'+tags.join(' ')+'</span>';
@@ -1141,6 +1150,27 @@ function copyShare(){
   }
 }
 
+function openDocPresentation(){
+  const docId = (typeof curReaderDoc !== 'undefined' && curReaderDoc) ||
+                (typeof curReaderDocData !== 'undefined' && curReaderDocData && curReaderDocData.id);
+  if(!docId) return;
+
+  const btn = document.getElementById('rslidesbtn');
+  if(btn){
+    btn.textContent = '⏳';
+    setTimeout(()=>{ if(btn) btn.textContent = '🖥️'; }, 1200);
+  }
+
+  if(typeof canWrite === 'function' && canWrite()){
+    try {
+      fetch('document/presentation/generate?id=' + encodeURIComponent(docId), { method: 'POST' }).catch(()=>{});
+    } catch(_) {}
+  }
+
+  const url = '/p/presentation?id=' + encodeURIComponent(docId);
+  window.open(url, '_blank', 'noopener');
+}
+
 // --- Global Export & Namespace ---
 const ClaireReader = {
   openReader,
@@ -1157,6 +1187,7 @@ const ClaireReader = {
   editDocTitle,
   shareDoc,
   copyShare,
+  openDocPresentation,
   docMetaHtml,
   docBiblioHtml,
   renderReader,
@@ -1185,6 +1216,7 @@ if (typeof window !== 'undefined') {
   window.editDocTitle = editDocTitle;
   window.shareDoc = shareDoc;
   window.copyShare = copyShare;
+  window.openDocPresentation = openDocPresentation;
   window.docMetaHtml = docMetaHtml;
   window.docBiblioHtml = docBiblioHtml;
   window.renderReader = renderReader;

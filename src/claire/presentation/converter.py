@@ -127,6 +127,15 @@ async def _do_compile(
             err_msg = stderr.decode("utf-8", errors="replace").strip()
             raise RuntimeError(f"asciidoctor compilation failed (exit {proc.returncode}): {err_msg}")
 
+        # Inject Claire Bible HUD toolbar into generated HTML
+        from .hud import inject_hud_toolbar
+        try:
+            raw_html = temp_output.read_text(encoding="utf-8")
+            injected = inject_hud_toolbar(raw_html)
+            temp_output.write_text(injected, encoding="utf-8")
+        except Exception:
+            pass
+
         # Atomic move to final output path
         temp_output.replace(output_path)
         return duration_ms
