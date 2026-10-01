@@ -535,4 +535,48 @@ def test_api_presentation_compose_and_adoc(tmp_path: Path):
             assert "= Edited Title" in res_adoc_updated.json()["presentation_adoc"]
 
 
+def test_document_detail_has_presentation(tmp_path):
+    from claire.store import queries
+
+    conn = _memory_db()
+    doc_id = "doc_presentation_check"
+    conn.execute(
+        """
+        INSERT INTO documents (id, title, url, detail, detail_format)
+        VALUES (?, 'Check Pres Title', 'https://example.com/check', '= Doc Detail\n\n== S1\nBody', 'adoc')
+        """,
+        (doc_id,),
+    )
+    conn.commit()
+
+    # 1. No presentation yet -> has_presentation must be False
+    detail = queries.document_detail(conn, doc_id)
+    assert detail["has_presentation"] is False
+    assert detail["presentation_status"] is None
+
+    # 2. Presentation saved with non-existent file -> has_presentation must be False
+    fake_path = tmp_path / "non_existent.html"
+    dbm.save_document_presentation(
+        conn,
+        document_id=doc_id,
+        content_hash="h1",
+        cache_key="k1",
+        file_path=str(fake_path),
+        file_size=100,
+        theme="night",
+        transition="slide",
+        slide_count=3,
+        status="ready",
+    )
+    detail2 = queries.document_detail(conn, doc_id)
+    assert detail2["has_presentation"] is False
+    assert detail2["presentation_status"] == "ready"
+
+    # 3. File actually created on disk -> has_presentation must be True
+    fake_path.write_text("<html>slide</html>")
+    detail3 = queries.document_detail(conn, doc_id)
+    assert detail3["has_presentation"] is True
+    assert detail3["presentation_status"] == "ready"
+
+
 

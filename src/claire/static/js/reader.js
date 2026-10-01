@@ -193,9 +193,11 @@ function handleReaderKey(e){
   }
 
   if((e.key === 'p' || e.key === 'P') && !e.ctrlKey && !e.metaKey && !e.altKey){
-    e.preventDefault();
-    openDocPresentation();
-    return true;
+    if(curReaderDocData && curReaderDocData.has_presentation){
+      e.preventDefault();
+      openDocPresentation();
+      return true;
+    }
   }
 
   return false;
@@ -340,6 +342,8 @@ function openReader(docId, pushHist=true){
   applyReadFS();   // 저장된 글자 크기 적용
   document.getElementById('rtitle').textContent='문서 불러오는 중…';
   document.getElementById('rbody').innerHTML='';
+  const presBtn = document.getElementById('rpresentationbtn');
+  if(presBtn) presBtn.style.display = 'none';
   if(panel) panel.innerHTML='<p class=hint>문서 불러오는 중…</p>';
   const r=document.getElementById('reader');
   r.setAttribute('aria-hidden','false');
@@ -551,6 +555,11 @@ function renderReader(dc){
   }
   document.getElementById('rtitle').innerHTML = esc(dc.title||'(제목 없음)')
     + (dc.source_type?' <span class=rmeta>'+esc(dc.source_type)+'</span>':'');
+
+  const presBtn = document.getElementById('rpresentationbtn');
+  if(presBtn){
+    presBtn.style.display = (dc && dc.has_presentation) ? '' : 'none';
+  }
   let h='';
 
   // Heatmap Matrix 대조 배너 검사 (확인할 때까지 표시)
@@ -1151,6 +1160,9 @@ function openDocPresentation(){
   const docId = (typeof curReaderDoc !== 'undefined' && curReaderDoc) ||
                 (typeof curReaderDocData !== 'undefined' && curReaderDocData && curReaderDocData.id);
   if(!docId) return;
+  if(typeof curReaderDocData !== 'undefined' && curReaderDocData && !curReaderDocData.has_presentation){
+    return;
+  }
 
   const btn = document.getElementById('rpresentationbtn') || document.getElementById('rslidesbtn');
   if(btn){
