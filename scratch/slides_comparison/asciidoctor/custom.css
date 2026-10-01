@@ -1,0 +1,60 @@
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700&family=JetBrains+Mono:wght@400;700&display=swap');
+
+.reveal {
+  font-family: 'Noto Sans KR', sans-serif !important;
+  word-break: keep-all;
+}
+
+.reveal h1, .reveal h2, .reveal h3, .reveal h4, .reveal h5, .reveal h6 {
+  font-family: 'Noto Sans KR', sans-serif !important;
+  font-weight: 700;
+  text-transform: none;
+  letter-spacing: -0.02em;
+}
+
+.reveal code, .reveal pre {
+  font-family: 'JetBrains Mono', monospace !important;
+}
+
+.reveal table {
+  font-size: 0.65em !important;
+  margin: 1.2em auto !important;
+  border-collapse: collapse;
+}
+
+.reveal table th {
+  background: rgba(255, 255, 255, 0.15);
+  font-weight: bold;
+}
+
+.reveal table th, .reveal table td {
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  padding: 8px 14px;
+}
+
+.reveal blockquote {
+  font-style: normal;
+  border-left: 4px solid #58a6ff;
+  padding: 10px 20px;
+  background: rgba(88, 166, 255, 0.1);
+  text-align: left;
+  border-radius: 4px;
+  box-shadow: none;
+}
+
+.reveal .admonitionblock {
+  font-size: 0.7em;
+  margin: 1em 0;
+  text-align: left;
+}
+
+.reveal .admonitionblock td.icon {
+  font-weight: bold;
+  color: #ff9800;
+  padding-right: 15px;
+}
+
+.reveal .admonitionblock td.content {
+  border-left: 3px solid #ff9800;
+  padding-left: 15px;
+}

@@ -193,6 +193,10 @@ def cmd_doctor(args) -> int:
                 else "unavailable · search=fts-only"
             )
             print(f"Codex embedding={embedding}")
+        from .presentation import find_asciidoctor_executable
+        asc_exec = find_asciidoctor_executable()
+        asc_desc = " · ".join(asc_exec) if asc_exec else "미설치 (asciidoctor-revealjs 필요)"
+        print(f"• 프레젠테이션 컴파일러       : {asc_desc}")
         print("=" * 50)
         print(f"• 전체 문서 수               : {report['total_documents']} 건")
         print(f"• 전체 엔티티 수             : {report['total_entities']} 건")
@@ -2124,6 +2128,91 @@ def cmd_recompile_html(args) -> int:
         conn.close()
 
 
+def cmd_presentation(args) -> int:
+    """Asciidoctor reveal.js 프레젠테이션 렌더링, 상태 조회 및 일괄 재컴파일."""
+    import asyncio
+    import json
+    from .presentation import PresentationService, find_asciidoctor_executable
+
+    action = getattr(args, "action", "render")
+    s, theme = get_effective_settings(args)
+
+    if action == "doctor":
+        exe = find_asciidoctor_executable()
+        if exe:
+            print(f"✅ Asciidoctor reveal.js 컴파일러 준비 완료: {' '.join(exe)}")
+            return 0
+        else:
+            print("❌ Asciidoctor reveal.js 컴파일러 미설치 (gem install asciidoctor asciidoctor-revealjs 필요)")
+            return 1
+
+    conn = dbm.connect(s.db_file)
+    dbm.init_db(conn)
+    svc = PresentationService(data_dir=s.data_dir)
+
+    try:
+        if action == "status":
+            doc_id = getattr(args, "doc_id", "")
+            meta = svc.get_presentation_metadata(conn, doc_id)
+            if not meta:
+                print(f"[{doc_id}] 프레젠테이션 상태: 미생성 (not_created)")
+                return 0
+            if getattr(args, "json", False):
+                print(json.dumps(meta, ensure_ascii=False, indent=2))
+            else:
+                print(f"[{doc_id}] 프레젠테이션 정보:")
+                print(f"  • 상태: {meta.get('status')}")
+                print(f"  • 슬라이드 수: {meta.get('slide_count')}")
+                print(f"  • 테마/전환: {meta.get('theme')} / {meta.get('transition')}")
+                print(f"  • 파일 경로: {meta.get('file_path')} ({meta.get('file_size')} bytes)")
+                print(f"  • 컴파일 소요 시간: {meta.get('compile_duration_ms')}ms")
+            return 0
+
+        elif action == "render":
+            doc_id = getattr(args, "doc_id", "")
+            theme_val = getattr(args, "theme", "night")
+            trans_val = getattr(args, "transition", "slide")
+            force_val = getattr(args, "force", False)
+
+            print(f"프레젠테이션 렌더링 시작: {doc_id} (테마: {theme_val}, 전환: {trans_val})...")
+            try:
+                res = asyncio.run(svc.get_or_create_presentation(
+                    conn, doc_id, theme=theme_val, transition=trans_val, force_recompile=force_val
+                ))
+                print(f"✅ 렌더링 완료: 총 {res.get('slide_count')}장, 파일: {res.get('file_path')} ({res.get('compile_duration_ms')}ms)")
+                return 0
+            except Exception as e:
+                print(f"❌ 렌더링 실패: {e}")
+                return 1
+
+        elif action == "recompile":
+            limit = getattr(args, "limit", 0)
+            theme_val = getattr(args, "theme", "night")
+            q = "SELECT id, title FROM documents WHERE detail IS NOT NULL AND trim(detail) != ''"
+            if limit:
+                q += f" LIMIT {int(limit)}"
+            docs = conn.execute(q).fetchall()
+            print(f"프레젠테이션 일괄 컴파일 대상: 총 {len(docs)}건")
+            success = 0
+            failed = 0
+            for r in docs:
+                try:
+                    asyncio.run(svc.get_or_create_presentation(
+                        conn, r["id"], theme=theme_val, force_recompile=True
+                    ))
+                    success += 1
+                    print(f"  [{success}/{len(docs)}] ✅ {r['id']} ({r['title'][:30]})")
+                except Exception as e:
+                    failed += 1
+                    print(f"  [오류] ❌ {r['id']}: {e}")
+            print(f"일괄 컴파일 종료: 성공 {success}건, 실패 {failed}건")
+            return 0 if failed == 0 else 1
+
+        return 0
+    finally:
+        conn.close()
+
+
 def cmd_video_reprocess(args) -> int:
     """비디오 문서를 CC 우선 정책과 현재 비디오 예산으로 재수집·재적재한다."""
     import json
@@ -3553,6 +3642,30 @@ def build_parser() -> argparse.ArgumentParser:
         "serve-api",
         help="run ASGI web service and API (same ingest path as DM)",
     ).set_defaults(func=cmd_serve_api)
+
+    ppres = sub.add_parser("presentation", help="Asciidoctor reveal.js presentation commands")
+    ppres_sub = ppres.add_subparsers(dest="action", required=True)
+
+    ppres_render = ppres_sub.add_parser("render", help="render presentation for document")
+    ppres_render.add_argument("doc_id", help="document id")
+    ppres_render.add_argument("--theme", default="night", help="reveal.js theme (default: night)")
+    ppres_render.add_argument("--transition", default="slide", help="transition effect (default: slide)")
+    ppres_render.add_argument("--force", action="store_true", help="force recompile even if cached")
+    ppres_render.set_defaults(func=cmd_presentation)
+
+    ppres_status = ppres_sub.add_parser("status", help="check presentation status for document")
+    ppres_status.add_argument("doc_id", help="document id")
+    ppres_status.add_argument("--json", action="store_true", help="output in json format")
+    ppres_status.set_defaults(func=cmd_presentation)
+
+    ppres_recompile = ppres_sub.add_parser("recompile", help="recompile presentations in bulk")
+    ppres_recompile.add_argument("--all", action="store_true", help="recompile all documents")
+    ppres_recompile.add_argument("--theme", default="night", help="reveal.js theme (default: night)")
+    ppres_recompile.add_argument("--limit", type=int, default=0, help="limit count (0 = all)")
+    ppres_recompile.set_defaults(func=cmd_presentation)
+
+    ppres_doctor = ppres_sub.add_parser("doctor", help="check asciidoctor-revealjs toolchain")
+    ppres_doctor.set_defaults(func=cmd_presentation)
 
     pr = sub.add_parser("replay-failed", help="re-ingest raw_inbox rows with status=error")
     pr.add_argument("--limit", type=int, default=0, help="0 = all")
