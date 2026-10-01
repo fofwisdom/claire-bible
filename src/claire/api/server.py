@@ -1674,6 +1674,138 @@ def create_app(
             shared_html(document, s, base_url=base_url, share_token=token)
         )
 
+    async def presentation_page(request: Request) -> Response:
+        from starlette.responses import FileResponse
+        from ..presentation import PresentationService
+
+        token = request.query_params.get("s", "").strip()
+        doc_id = request.query_params.get("id", "").strip()
+
+        _, theme_settings, _ = _get_theme_ctx(request, None)
+        active_db = theme_settings.db_file
+        active_data_dir = theme_settings.data_dir
+
+        if token:
+            if not dbm.plausible_share_token(token):
+                return PlainTextResponse("Not Found", status_code=404)
+            resolved = theme_mgr.resolve_share_token(token)
+            if resolved is not None:
+                doc_id = resolved[2].get("id", "")
+                active_db = resolved[1].db_file
+                active_data_dir = resolved[1].data_dir
+            else:
+                conn = dbm.connect_existing(active_db, readonly=True)
+                try:
+                    doc_id = dbm.resolve_doc_share(conn, token) or ""
+                finally:
+                    conn.close()
+
+        if not doc_id:
+            return PlainTextResponse("Missing document id or share token", status_code=400)
+
+        # In multi-theme setup, ensure we target the theme DB that actually holds doc_id
+        if getattr(s, "multi_theme", False):
+            targets = theme_mgr.resolve_document_targets(doc_id=doc_id)
+            if targets and targets[0].get("db_file"):
+                active_db = Path(targets[0]["db_file"])
+                if targets[0].get("data_dir"):
+                    active_data_dir = Path(targets[0]["data_dir"])
+
+        slide_theme = request.query_params.get("slide_theme") or request.query_params.get("presentation_theme") or "night"
+        transition = request.query_params.get("transition", "slide")
+
+        svc = PresentationService(data_dir=active_data_dir)
+        conn = dbm.connect_existing(active_db)
+        try:
+            res = await svc.get_or_create_presentation(conn, doc_id, theme=slide_theme, transition=transition)
+        except KeyError:
+            return PlainTextResponse("Document not found", status_code=404)
+        except Exception as exc:
+            return PlainTextResponse(f"Presentation generation failed: {exc}", status_code=500)
+        finally:
+            conn.close()
+
+        file_path = Path(res["file_path"])
+        if not file_path.exists():
+            return PlainTextResponse("Presentation file not found", status_code=404)
+
+        return FileResponse(file_path, media_type="text/html")
+
+    async def document_presentation_get_route(request: Request) -> JSONResponse:
+        from ..presentation import PresentationService
+
+        doc_id = request.query_params.get("id", "").strip()
+        if not doc_id:
+            return JSONResponse({"error": "id parameter required"}, status_code=400)
+
+        _, theme_settings, _ = _get_theme_ctx(request, None)
+        active_db = theme_settings.db_file
+        active_data_dir = theme_settings.data_dir
+
+        if getattr(s, "multi_theme", False):
+            targets = theme_mgr.resolve_document_targets(doc_id=doc_id)
+            if targets and targets[0].get("db_file"):
+                active_db = Path(targets[0]["db_file"])
+                if targets[0].get("data_dir"):
+                    active_data_dir = Path(targets[0]["data_dir"])
+
+        svc = PresentationService(data_dir=active_data_dir)
+        conn = dbm.connect_existing(active_db, readonly=True)
+        try:
+            meta = svc.get_presentation_metadata(conn, doc_id)
+            if not meta:
+                return JSONResponse({"status": "not_created", "document_id": doc_id}, status_code=200)
+            return JSONResponse(meta, status_code=200)
+        finally:
+            conn.close()
+
+    async def document_presentation_generate_route(request: Request) -> JSONResponse:
+        from ..presentation import PresentationService
+
+        doc_id = request.query_params.get("id", "").strip()
+        slide_theme = request.query_params.get("slide_theme") or request.query_params.get("presentation_theme") or "night"
+        transition = request.query_params.get("transition", "slide")
+        force = request.query_params.get("force", "false").lower() in ("true", "1", "yes")
+
+        if not doc_id:
+            try:
+                body = await request.json()
+                if isinstance(body, dict):
+                    doc_id = body.get("id", "").strip()
+                    slide_theme = body.get("slide_theme") or body.get("presentation_theme") or body.get("theme", slide_theme)
+                    transition = body.get("transition", transition)
+                    force = bool(body.get("force", force))
+            except Exception:
+                pass
+
+        if not doc_id:
+            return JSONResponse({"error": "id parameter required"}, status_code=400)
+
+        _, theme_settings, _ = _get_theme_ctx(request, None)
+        active_db = theme_settings.db_file
+        active_data_dir = theme_settings.data_dir
+
+        if getattr(s, "multi_theme", False):
+            targets = theme_mgr.resolve_document_targets(doc_id=doc_id)
+            if targets and targets[0].get("db_file"):
+                active_db = Path(targets[0]["db_file"])
+                if targets[0].get("data_dir"):
+                    active_data_dir = Path(targets[0]["data_dir"])
+
+        svc = PresentationService(data_dir=active_data_dir)
+        conn = dbm.connect_existing(active_db)
+        try:
+            res = await svc.get_or_create_presentation(
+                conn, doc_id, theme=slide_theme, transition=transition, force_recompile=force
+            )
+            return JSONResponse(res, status_code=200)
+        except KeyError:
+            return JSONResponse({"error": "document not found"}, status_code=404)
+        except Exception as exc:
+            return JSONResponse({"error": str(exc)}, status_code=500)
+        finally:
+            conn.close()
+
     mcp_app = build_mcp_app(s, theme_mgr=theme_mgr)
 
     async def mcp_route(request: Request) -> Response:
@@ -1865,6 +1997,8 @@ def create_app(
         Route("/document/hide", document_hide_route, methods=["POST"]),
         Route("/document/title", document_title_route, methods=["POST"]),
         Route("/document/matrix/purge", document_matrix_purge_route, methods=["POST"]),
+        Route("/document/presentation", document_presentation_get_route, methods=["GET", "HEAD"]),
+        Route("/document/presentation/generate", document_presentation_generate_route, methods=["POST"]),
         Route("/synthesize", synthesize_route, methods=["POST"]),
         Route("/research", research_route, methods=["POST"]),
         Route("/dedup/scan", dedup_scan_route, methods=["POST"]),
@@ -1874,6 +2008,7 @@ def create_app(
         Route("/resolution/decisions", resolution_decisions_route, methods=["GET"]),
         Route("/share", create_share_route, methods=["POST"]),
         Route("/p", shared_doc_page, methods=["GET"]),
+        Route("/p/presentation", presentation_page, methods=["GET", "HEAD"]),
         Route("/support/bundle", create_support_bundle_route, methods=["POST"]),
         Route("/support/bundle", download_support_bundle_route, methods=["GET"]),
         Route("/reference", docs_ui_route, methods=["GET"]),

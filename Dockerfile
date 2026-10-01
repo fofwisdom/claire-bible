@@ -7,9 +7,10 @@ ENV PYTHONUNBUFFERED=1
 
 RUN pip install --no-cache-dir uv
 
-# Scrapling DynamicFetcher가 JS SPA 렌더링에 쓸 시스템 Chromium + 오디오 스트림 추출용 ffmpeg + 권한 전환용 gosu.
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates chromium ffmpeg gosu tzdata \
-    && rm -rf /var/lib/apt/lists/*
+# Scrapling DynamicFetcher가 JS SPA 렌더링에 쓸 시스템 Chromium + 오디오 스트림 추출용 ffmpeg + 권한 전환용 gosu + 프레젠테이션 컴파일용 ruby.
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates chromium ffmpeg gosu tzdata ruby \
+    && gem install --no-document asciidoctor asciidoctor-revealjs \
+    && rm -rf /var/lib/apt/lists/* /root/.gem /var/lib/gems/*/cache/*
 
 COPY pyproject.toml uv.lock README.md ./
 # stealth extra = scrapling[fetchers], audio extra = yt-dlp[curl-cffi]

@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>프레젠테이션 품질 비교: Asciidoctor reveal.js vs reveal.js</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Noto Sans KR', sans-serif;
+      background: #0d1117;
+      color: #c9d1d9;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    header {
+      background: #161b22;
+      border-bottom: 1px solid #30363d;
+      padding: 10px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+    }
+    .title-group h1 {
+      font-size: 16px;
+      font-weight: 600;
+      color: #f0f6fc;
+      margin-bottom: 3px;
+    }
+    .title-group p {
+      font-size: 12px;
+      color: #8b949e;
+    }
+    .nav-tabs {
+      display: flex;
+      gap: 8px;
+    }
+    .tab-btn {
+      background: #21262d;
+      border: 1px solid #30363d;
+      color: #c9d1d9;
+      padding: 6px 14px;
+      font-size: 13px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 500;
+      transition: all 0.2s;
+    }
+    .tab-btn:hover {
+      background: #30363d;
+      color: #fff;
+    }
+    .tab-btn.active {
+      background: #1f6feb;
+      border-color: #388bfd;
+      color: #fff;
+    }
+    .container {
+      display: flex;
+      flex: 1;
+      height: calc(100vh - 60px);
+      position: relative;
+    }
+    .pane {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      border-right: 1px solid #30363d;
+      height: 100%;
+      background: #000;
+      position: relative;
+    }
+    .pane:last-child {
+      border-right: none;
+    }
+    .pane-header {
+      background: #161b22;
+      padding: 8px 16px;
+      font-size: 13px;
+      font-weight: 600;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid #30363d;
+      color: #58a6ff;
+    }
+    .pane-header .tag {
+      font-size: 11px;
+      font-weight: normal;
+      background: #238636;
+      color: #fff;
+      padding: 2px 8px;
+      border-radius: 10px;
+    }
+    .pane-header .tag.ruby {
+      background: #da3633;
+    }
+    iframe {
+      width: 100%;
+      height: 100%;
+      border: none;
+      flex: 1;
+    }
+    /* 단독 보기 모드 */
+    .container.view-asciidoc #pane-revealjs { display: none; }
+    .container.view-asciidoc #pane-asciidoc { flex: 1; }
+    .container.view-revealjs #pane-asciidoc { display: none; }
+    .container.view-revealjs #pane-revealjs { flex: 1; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="title-group">
+      <h1>프레젠테이션 품질 비교 (동일 VCF Operations 원문 기반)</h1>
+      <p>Asciidoctor reveal.js (AsciiDoc 빌드) vs reveal.js (Markdown 직접 렌더링)</p>
+    </div>
+    <div class="nav-tabs">
+      <button class="tab-btn active" onclick="setView('split')">나란히 비교 (Side-by-Side)</button>
+      <button class="tab-btn" onclick="setView('asciidoc')">Asciidoctor reveal.js만 보기</button>
+      <button class="tab-btn" onclick="setView('revealjs')">reveal.js (Markdown)만 보기</button>
+    </div>
+  </header>
+
+  <div class="container" id="container">
+    <div class="pane" id="pane-asciidoc">
+      <div class="pane-header">
+        <span>Option A: Asciidoctor reveal.js</span>
+        <span class="tag ruby">Ruby / .adoc 컴파일</span>
+      </div>
+      <iframe src="asciidoctor/index.html" id="frame-asciidoc"></iframe>
+    </div>
+    <div class="pane" id="pane-revealjs">
+      <div class="pane-header">
+        <span>Option B: Native reveal.js</span>
+        <span class="tag">Markdown 직접 파싱</span>
+      </div>
+      <iframe src="revealjs/index.html" id="frame-revealjs"></iframe>
+    </div>
+  </div>
+
+  <script>
+    function setView(mode) {
+      const container = document.getElementById('container');
+      const buttons = document.querySelectorAll('.tab-btn');
+      buttons.forEach(btn => btn.classList.remove('active'));
+
+      if (mode === 'split') {
+        container.className = 'container';
+        buttons[0].classList.add('active');
+      } else if (mode === 'asciidoc') {
+        container.className = 'container view-asciidoc';
+        buttons[1].classList.add('active');
+      } else if (mode === 'revealjs') {
+        container.className = 'container view-revealjs';
+        buttons[2].classList.add('active');
+      }
+    }
+  </script>
+</body>
+</html>

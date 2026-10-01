@@ -433,6 +433,29 @@ def _migrate(conn: sqlite3.Connection) -> None:
     )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_tombstones_canon ON purged_tombstones(canonical_url)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_tombstones_hash ON purged_tombstones(content_hash)")
+    # v13: Asciidoctor reveal.js 프레젠테이션 AOT 메타데이터 및 캐시 추적 테이블
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS document_presentations (
+            document_id TEXT PRIMARY KEY,
+            content_hash TEXT NOT NULL,
+            cache_key TEXT NOT NULL,
+            theme TEXT DEFAULT 'night',
+            transition TEXT DEFAULT 'slide',
+            slide_count INTEGER DEFAULT 0,
+            file_path TEXT NOT NULL,
+            file_size INTEGER DEFAULT 0,
+            status TEXT DEFAULT 'ready',
+            error_message TEXT,
+            compile_duration_ms INTEGER DEFAULT 0,
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL,
+            FOREIGN KEY(document_id) REFERENCES documents(id) ON DELETE CASCADE
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_doc_pres_status ON document_presentations(status)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_doc_pres_key ON document_presentations(cache_key)")
     # documents.meta -> focus 자동 마이그레이션 및 레거시 키 영구 소각
     _legacy_key = "dir" + "ective"
     conn.execute(
@@ -2221,7 +2244,121 @@ def set_document_detail(
         "UPDATE documents SET detail=?, detail_format=?, detail_html=? WHERE id=?",
         (detail, fmt, html_content, document_id),
     )
+    # 기존 프레젠테이션 캐시 상태를 'stale'로 무효화
+    conn.execute(
+        "UPDATE document_presentations SET status='stale', updated_at=strftime('%s', 'now') WHERE document_id=?",
+        (document_id,),
+    )
     conn.commit()
+
+
+def get_document_presentation(conn: sqlite3.Connection, document_id: str) -> dict | None:
+    """문서의 프레젠테이션 메타데이터를 반환. 없으면 None."""
+    row = conn.execute(
+        """
+        SELECT document_id, content_hash, cache_key, theme, transition, slide_count,
+               file_path, file_size, status, error_message, compile_duration_ms,
+               created_at, updated_at
+        FROM document_presentations
+        WHERE document_id = ?
+        """,
+        (document_id,),
+    ).fetchone()
+    if row is None:
+        return None
+    return dict(row)
+
+
+def save_document_presentation(
+    conn: sqlite3.Connection,
+    document_id: str,
+    content_hash: str,
+    cache_key: str,
+    file_path: str,
+    file_size: int,
+    theme: str = "night",
+    transition: str = "slide",
+    slide_count: int = 0,
+    status: str = "ready",
+    error_message: str | None = None,
+    compile_duration_ms: int = 0,
+) -> None:
+    """프레젠테이션 메타데이터를 저장하거나 갱신."""
+    import time
+    now = time.time()
+    conn.execute(
+        """
+        INSERT INTO document_presentations (
+            document_id, content_hash, cache_key, theme, transition, slide_count,
+            file_path, file_size, status, error_message, compile_duration_ms,
+            created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(document_id) DO UPDATE SET
+            content_hash = excluded.content_hash,
+            cache_key = excluded.cache_key,
+            theme = excluded.theme,
+            transition = excluded.transition,
+            slide_count = excluded.slide_count,
+            file_path = excluded.file_path,
+            file_size = excluded.file_size,
+            status = excluded.status,
+            error_message = excluded.error_message,
+            compile_duration_ms = excluded.compile_duration_ms,
+            updated_at = excluded.updated_at
+        """,
+        (
+            document_id, content_hash, cache_key, theme, transition, slide_count,
+            file_path, file_size, status, error_message, compile_duration_ms,
+            now, now,
+        ),
+    )
+    conn.commit()
+
+
+def update_document_presentation_status(
+    conn: sqlite3.Connection,
+    document_id: str,
+    status: str,
+    error_message: str | None = None,
+) -> None:
+    """프레젠테이션 컴파일 상태만 갱신."""
+    import time
+    now = time.time()
+    conn.execute(
+        """
+        UPDATE document_presentations
+        SET status = ?, error_message = ?, updated_at = ?
+        WHERE document_id = ?
+        """,
+        (status, error_message, now, document_id),
+    )
+    conn.commit()
+
+
+def invalidate_document_presentation(conn: sqlite3.Connection, document_id: str) -> bool:
+    """문서의 프레젠테이션 상태를 'stale'로 변경."""
+    import time
+    now = time.time()
+    cur = conn.execute(
+        """
+        UPDATE document_presentations
+        SET status = 'stale', updated_at = ?
+        WHERE document_id = ? AND status != 'stale'
+        """,
+        (now, document_id),
+    )
+    conn.commit()
+    return cur.rowcount > 0
+
+
+def delete_document_presentation(conn: sqlite3.Connection, document_id: str) -> bool:
+    """문서의 프레젠테이션 레코드 삭제."""
+    cur = conn.execute(
+        "DELETE FROM document_presentations WHERE document_id = ?",
+        (document_id,),
+    )
+    conn.commit()
+    return cur.rowcount > 0
 
 
 def get_document_detail(conn: sqlite3.Connection, document_id: str) -> str | None:
