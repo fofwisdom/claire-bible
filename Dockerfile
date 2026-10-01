@@ -25,11 +25,13 @@ RUN if [ "$CLAIRE_PDF_PARSER" = "docling" ]; then \
         echo "Building standard image (default PDFium parser, docling excluded)..." \
         && uv sync --locked --no-dev --no-install-project --extra stealth --extra audio --extra ko; \
     fi \
-    && uv pip install --no-cache -U "yt-dlp[curl-cffi]"
+    && uv pip install --no-cache -U "yt-dlp[curl-cffi]" \
+    && uv cache clean && rm -rf /root/.cache
 
 # 애플리케이션 소스 변경은 위의 대형 의존성 레이어를 무효화하지 않는다.
 COPY src/ ./src/
 RUN uv pip install --no-cache --no-deps . \
+    && uv cache clean && rm -rf /root/.cache \
     && groupadd -g 1000 claire 2>/dev/null || true \
     && useradd -u 1000 -g 1000 -m -s /bin/bash -d /home/claire claire 2>/dev/null || true \
     && chown -R 1000:1000 /app /home/claire
