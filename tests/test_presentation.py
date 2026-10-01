@@ -602,6 +602,13 @@ def test_presentation_hud_and_layout():
     assert ":revealjs_width: 1280" in compiled_adoc
     assert ":revealjs_height: 720" in compiled_adoc
     assert ":revealjs_margin: 0.04" in compiled_adoc
+    assert ":revealjs_pdfseparatefragments: false" in compiled_adoc
+    assert ":revealjs_pdfmaxpagesperslide: 1" in compiled_adoc
+
+    # HUD PDF download & print media rules
+    assert "cbDownloadPdf" in injected
+    assert "@media print" in injected
+    assert "size: landscape" in injected
 
     # 3. Test index.html header tabs and panes layout
     index_path = Path("src/claire/templates/index.html")
@@ -618,9 +625,15 @@ def test_presentation_hud_and_layout():
     # presentationwrap container exists
     assert 'id="presentationwrap"' in index_html
     assert 'id="presentation-frame"' in index_html
+    assert 'id="presentation-download-btn"' in index_html
+    assert 'presentationDownloadPdf()' in index_html
 
     # rpresentationbtn removed from reader tools
     assert 'id="rpresentationbtn"' not in index_html
+
+    # 4. Check workspace.css hides download button for anonymous / non-owner
+    workspace_css = Path("src/claire/static/css/workspace.css").read_text(encoding="utf-8")
+    assert 'body:not([data-auth-scope="owner"]) #presentation-download-btn' in workspace_css
 
 
 

@@ -1319,7 +1319,62 @@ function presentationDownloadPdf(){
     alert('PDF 다운로드는 소유자(인증된 세션)만 이용할 수 있습니다.');
     return;
   }
-  alert('프레젠테이션 고품질 PDF 다운로드 기능은 추가 렌더링 엔진(DeckTape 등) 도입 전까지 비활성화(잠금)되어 있습니다.');
+  const targetId = (typeof curReaderDoc !== 'undefined' && curReaderDoc) ||
+                   (typeof activeDoc !== 'undefined' && activeDoc);
+  if(!targetId) return;
+
+  const btn = document.getElementById('presentation-download-btn');
+  if(btn) btn.disabled = true;
+
+  let printFrame = document.getElementById('presentation-print-frame');
+  if(!printFrame){
+    printFrame = document.createElement('iframe');
+    printFrame.id = 'presentation-print-frame';
+    printFrame.style.position = 'fixed';
+    printFrame.style.right = '0';
+    printFrame.style.bottom = '0';
+    printFrame.style.width = '0';
+    printFrame.style.height = '0';
+    printFrame.style.border = '0';
+    printFrame.style.opacity = '0.01';
+    printFrame.style.pointerEvents = 'none';
+    document.body.appendChild(printFrame);
+  }
+
+  const printUrl = '/p/presentation?id=' + encodeURIComponent(targetId) + '&print-pdf&embed=true';
+  printFrame.src = printUrl;
+
+  const doPrint = () => {
+    try {
+      printFrame.contentWindow.focus();
+      printFrame.contentWindow.print();
+    } catch(e) {
+      console.warn('iframe print fallback:', e);
+    } finally {
+      if(btn) btn.disabled = false;
+    }
+  };
+
+  printFrame.onload = () => {
+    try {
+      const cw = printFrame.contentWindow;
+      const R = cw && cw.Reveal;
+      if(R){
+        if(typeof R.isReady === 'function' && R.isReady()){
+          setTimeout(doPrint, 250);
+        } else if(typeof R.on === 'function'){
+          R.on('pdf-ready', () => setTimeout(doPrint, 150));
+          R.on('ready', () => setTimeout(doPrint, 250));
+        } else {
+          setTimeout(doPrint, 500);
+        }
+      } else {
+        setTimeout(doPrint, 600);
+      }
+    } catch(_) {
+      setTimeout(doPrint, 600);
+    }
+  };
 }
 
 async function presentationShare(){
