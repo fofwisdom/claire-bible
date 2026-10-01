@@ -576,6 +576,119 @@ function docMetaHtml(dc){
 function docBiblioHtml(dc){
   return '';
 }
+function getDocMetaMessages(dc){
+  if(!dc) return [];
+  const messages = [];
+  const isTrunc = !!(dc.raw_truncated || (dc.meta && dc.meta.raw_truncated));
+  const isAppTrunc = isTrunc && !!(dc.appendix_truncated || (dc.meta && dc.meta.appendix_truncated));
+  const isRefTrunc = isTrunc && !!(dc.references_truncated || (dc.meta && dc.meta.references_truncated));
+  const isParserFallback = !!(dc.pdf_parser_fallback || (dc.meta && dc.meta.pdf_parser_fallback));
+  const fallbackReason = (dc.pdf_parser_fallback_reason || (dc.meta && dc.meta.pdf_parser_fallback_reason) || '파서 런타임 오류');
+  const parserRequested = (dc.pdf_parser_requested || (dc.meta && dc.meta.pdf_parser_requested) || '');
+  const parserUsed = (dc.pdf_parser_used || (dc.meta && dc.meta.pdf_parser_used) || '');
+  const isEncodingFlaw = !!(dc.pdf_encoding_flaw_detected || (dc.meta && dc.meta.pdf_encoding_flaw_detected));
+  const encodingFlaws = (dc.pdf_encoding_flaws || (dc.meta && dc.meta.pdf_encoding_flaws) || []);
+  const isScanned = !!(dc.pdf_is_scanned || (dc.meta && dc.meta.pdf_is_scanned));
+  const isStt = !!(dc.is_stt || (dc.meta && (dc.meta.is_stt || dc.meta.stt_applied || dc.meta.stt)));
+  const isSttTrunc = isStt && !!(dc.stt_truncated || (dc.meta && dc.meta.stt_truncated) || isTrunc);
+  const hasTranscript = !!(dc.has_transcript || (dc.meta && dc.meta.has_transcript));
+  const isCc = !isStt && (hasTranscript || !!(dc.meta && (dc.meta.caption_status === 'available' || (dc.meta.transcript_source && dc.meta.transcript_source !== 'stt'))));
+  const presentation = dc.presentation_pdf || (dc.meta && dc.meta.presentation_pdf) || {};
+  const hasPresentation = presentation.status === 'available' && !!presentation.public_url;
+
+  if(isParserFallback){
+    const reqName = parserRequested ? (parserRequested === 'pypdfium2' ? 'PyPDFium2' : (parserRequested === 'pypdf' ? 'PyPDF' : (parserRequested === 'docling' ? 'Docling' : parserRequested))) : 'Docling';
+    const usedName = parserUsed ? (parserUsed === 'pypdfium2' ? 'PyPDFium2' : (parserUsed === 'pypdf' ? 'PyPDF' : (parserUsed === 'docling' ? 'Docling' : parserUsed))) : 'PyPDF';
+    const fallbackTitle = (reqName === 'Docling' && usedName === 'PyPDF') ? '⚠️ Docling 폴백 (PyPDF)' : ('⚠️ ' + reqName + ' 폴백 (' + usedName + ')');
+    messages.push('파서 대체 사유: ' + fallbackReason + ' (' + fallbackTitle + ')');
+  }
+  if(isEncodingFlaw){
+    const flawTxt = Array.isArray(encodingFlaws) && encodingFlaws.length ? encodingFlaws.join(', ') : '인코딩 결함';
+    messages.push('인코딩 결함 상세: ' + flawTxt);
+  }
+  if(isScanned){
+    messages.push('텍스트 레이어가 희소한 스캔본 PDF입니다. OCR 변환이 권장됩니다.');
+  }
+  if(hasPresentation){
+    const pdfChars = Number(presentation.raw_chars || 0);
+    const pdfParser = String(presentation.parser_used || '').trim();
+    const artifactState = presentation.artifact_path ? '원본 보존됨' : '원본 경로 미확인';
+    const bundleSource = isStt ? '영상 음성 전사와' : '영상 자막과';
+    const metaParts = [];
+    if(pdfChars > 0) metaParts.push(pdfChars.toLocaleString()+'자');
+    if(pdfParser) metaParts.push(pdfParser);
+    if(presentation.parser_fallback) metaParts.push('Docling 폴백');
+    const metaDetail = metaParts.length ? ' ('+metaParts.join(' · ')+')' : '';
+    messages.push(bundleSource+' 원본 PDF 함께 적재'+metaDetail+' · '+artifactState);
+  }
+  if(isStt && !hasPresentation){
+    messages.push('음성 인식(STT)을 적용하여 작성한 문서');
+  }
+  if(isCc && !hasPresentation){
+    const capLang = (dc.caption_language || (dc.meta && dc.meta.caption_language) || '').trim();
+    messages.push(capLang ? '영상 자막(CC: '+capLang+')을 적용하여 작성한 문서' : '영상 자막(CC)을 적용하여 작성한 문서');
+  }
+  if(isAppTrunc && isRefTrunc){
+    const orig=(dc.orig_chars || (dc.meta && dc.meta.orig_chars)) || 0;
+    const raw=(dc.raw_chars || (dc.meta && dc.meta.raw_chars)) || 0;
+    let tip = '원문의 부록(Appendix) 및 참고문헌(References) 부분을 제외한 문서';
+    if(orig > 0 && raw > 0){
+      tip+=' (원문: '+orig.toLocaleString()+'자 → 적재: '+raw.toLocaleString()+'자)';
+    } else if(raw > 0){
+      tip+=' ('+raw.toLocaleString()+'자)';
+    }
+    messages.push(tip);
+  } else if(isRefTrunc){
+    const orig=(dc.orig_chars || (dc.meta && dc.meta.orig_chars)) || 0;
+    const raw=(dc.raw_chars || (dc.meta && dc.meta.raw_chars)) || 0;
+    let tip = '원문의 참고문헌(References) 부분을 제외한 문서';
+    if(orig > 0 && raw > 0){
+      tip+=' (원문: '+orig.toLocaleString()+'자 → 적재: '+raw.toLocaleString()+'자)';
+    } else if(raw > 0){
+      tip+=' ('+raw.toLocaleString()+'자)';
+    }
+    messages.push(tip);
+  } else if(isAppTrunc){
+    const orig=(dc.orig_chars || (dc.meta && dc.meta.orig_chars)) || 0;
+    const raw=(dc.raw_chars || (dc.meta && dc.meta.raw_chars)) || 0;
+    let tip = '원문의 부록(Appendix) 부분을 절단한 문서';
+    if(orig > 0 && raw > 0){
+      tip+=' (원문: '+orig.toLocaleString()+'자 → 적재: '+raw.toLocaleString()+'자)';
+    } else if(raw > 0){
+      tip+=' ('+raw.toLocaleString()+'자)';
+    }
+    messages.push(tip);
+  } else if(isSttTrunc){
+    const orig=(dc.stt_orig_chars || (dc.meta && dc.meta.stt_orig_chars) || dc.orig_chars || (dc.meta && dc.meta.orig_chars)) || 0;
+    const raw=(dc.stt_raw_chars || (dc.meta && dc.meta.stt_raw_chars) || dc.raw_chars || (dc.meta && dc.meta.raw_chars)) || 0;
+    let tip = '음성 전사(STT) 전문이 일부 절단된 상태에서 본문(상세)이 작성된 문서';
+    if(orig > 0 && raw > 0){
+      tip += ' (원문: '+orig.toLocaleString()+'자 → 적재: '+raw.toLocaleString()+'자)';
+    } else if(raw > 0){
+      tip += ' ('+raw.toLocaleString()+'자)';
+    }
+    messages.push(tip);
+  } else if(isTrunc){
+    const orig=(dc.orig_chars || (dc.meta && dc.meta.orig_chars)) || 0;
+    const raw=(dc.raw_chars || (dc.meta && dc.meta.raw_chars)) || 0;
+    let tip = '글자 수 상한으로 원문 일부를 절단한 문서';
+    if(orig > 0 && raw > 0){
+      tip+=' (원문: '+orig.toLocaleString()+'자 → 적재: '+raw.toLocaleString()+'자)';
+    } else if(raw > 0){
+      tip+=' ('+raw.toLocaleString()+'자)';
+    }
+    messages.push(tip);
+  }
+  return messages;
+}
+function docMetaMessageHtml(dc){
+  if(!dc) return '';
+  const msgs = getDocMetaMessages(dc);
+  if(!msgs.length) return '';
+  return '<div class="docmeta-message-box" style="margin:.4em 0 .6em;padding:6px 10px;background:var(--card-bg);border:1px solid var(--border);border-radius:5px;font-size:12px;color:var(--muted);line-height:1.45">' +
+    msgs.map(m => '<div>' + esc(m) + '</div>').join('') +
+    '</div>';
+}
 function renderReader(dc){
   curReaderDocData=dc;
   if(dc && dc.title){
@@ -1537,6 +1650,8 @@ const ClaireReader = {
   presentationPrintPdf: presentationDownloadPdf,
   docMetaHtml,
   docBiblioHtml,
+  docMetaMessageHtml,
+  getDocMetaMessages,
   renderReader,
   setCenterView,
   openDocGraph,
@@ -1576,6 +1691,8 @@ if (typeof window !== 'undefined') {
   window.syncPresentationCoords = syncPresentationCoords;
   window.docMetaHtml = docMetaHtml;
   window.docBiblioHtml = docBiblioHtml;
+  window.docMetaMessageHtml = docMetaMessageHtml;
+  window.getDocMetaMessages = getDocMetaMessages;
   window.renderReader = renderReader;
   window.setCenterView = setCenterView;
   window.openDocGraph = openDocGraph;

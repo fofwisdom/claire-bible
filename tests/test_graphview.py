@@ -898,14 +898,16 @@ def test_detailpane_title_and_duplicate_removal():
     assert "<strong>상세 메뉴</strong>" in GRAPH_HTML
     assert "<strong>메뉴 &amp; 상세</strong>" not in GRAPH_HTML
 
-    # 2. renderDocPanel 에서 원문 열기 링크를 제거하기 위해 docMetaHtml(dc, { showOrigin: false }) 호출
-    assert "h+=docMetaHtml(dc, { showOrigin: false });" in GRAPH_HTML
-
-    # 3. renderDocPanel 에서 요약 블록 및 요약 부재 안내 제거됨
+    # 2. renderDocPanel 에서 docmeta 아이콘 뱃지 태그 및 extraSourcesHtml(병합된 출처)가 제거되고 docMetaMessageHtml 호출
     start = GRAPH_HTML.index("function renderDocPanel(dc){")
     end = GRAPH_HTML.index("function focusNode(id, pushHist=true){")
     doc_panel_fn = GRAPH_HTML[start:end]
 
+    assert "h+=docMetaMessageHtml(dc);" in doc_panel_fn
+    assert "extraSourcesHtml(dc)" not in doc_panel_fn
+    assert "docMetaHtml(dc" not in doc_panel_fn
+
+    # 3. renderDocPanel 에서 요약 블록 및 요약 부재 안내 제거됨
     assert "<h3>요약</h3>" not in doc_panel_fn
     assert "synth" not in doc_panel_fn
     assert "문서에 요약/상세 내용이 없습니다." not in doc_panel_fn
@@ -956,6 +958,36 @@ def test_default_graph_view_and_stream_tabs_separation():
     s_end = GRAPH_HTML.index('</div>\n    </header>')
     streamtabs_content = GRAPH_HTML[s_start:s_end]
     assert 'id="centertab-stream"' in streamtabs_content
+
+
+def test_docmeta_message_html_and_red_box_removal():
+    """상세 메뉴에서 빨간 테두리 상자 안 내용(병합된 출처, 아이콘 뱃지 태그)이 제거되고 docmeta 롤오버 메시지가 직접 노출됨을 검증."""
+    from claire.graphview import GRAPH_HTML
+
+    # 1. getDocMetaMessages 및 docMetaMessageHtml 함수가 번들에 포함됨
+    assert "function getDocMetaMessages(dc){" in GRAPH_HTML
+    assert "function docMetaMessageHtml(dc){" in GRAPH_HTML
+    assert "docmeta-message-box" in GRAPH_HTML
+
+    # 2. renderDocPanel 내에 docMetaMessageHtml이 삽입되고 extraSourcesHtml 및 docMetaHtml 뱃지는 배제됨
+    start = GRAPH_HTML.index("function renderDocPanel(dc){")
+    end = GRAPH_HTML.index("function focusNode(id, pushHist=true){")
+    panel_fn = GRAPH_HTML[start:end]
+
+    assert "h+=docMetaMessageHtml(dc);" in panel_fn
+    assert "extraSourcesHtml" not in panel_fn
+    assert "docMetaHtml" not in panel_fn
+
+    # 3. docMetaMessageHtml의 롤오버 메시지 생성 로직 검증: 원본 PDF 함께 적재, STT, CC, 부록/참고문헌 등
+    fn_start = GRAPH_HTML.index("function getDocMetaMessages(dc){")
+    fn_end = GRAPH_HTML.index("function renderReader(dc){")
+    msg_fn = GRAPH_HTML[fn_start:fn_end]
+
+    assert "원본 PDF 함께 적재" in msg_fn
+    assert "음성 인식(STT)을 적용하여 작성한 문서" in msg_fn
+    assert "영상 자막(CC" in msg_fn
+    assert "원문의 부록(Appendix) 및 참고문헌(References) 부분을 제외한 문서" in msg_fn
+
 
 
 

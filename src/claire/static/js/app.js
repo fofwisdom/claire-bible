@@ -3205,8 +3205,9 @@ function docNodes(docId, dc){
 function renderDocPanel(dc){
   curReaderDocData=dc;
   let h='<h2>'+esc(dc.title)+' <small>'+esc(dc.source_type||'')+'</small></h2>';
-  h+=docMetaHtml(dc, { showOrigin: false });
-  h+=extraSourcesHtml(dc);
+  if(typeof docMetaMessageHtml === 'function'){
+    h+=docMetaMessageHtml(dc);
+  }
   const focus = (dc.focus || (dc.meta && dc.meta.focus) || '').trim();
   if(focus){
     h+='<div style="margin:.4em 0 .6em;padding:6px 8px;background:var(--card-bg);border:1px solid var(--border);border-radius:5px;font-size:12px"><b style="color:var(--accent2)">🎯 초점:</b> '+esc(focus)+'</div>';
