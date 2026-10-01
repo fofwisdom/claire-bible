@@ -195,6 +195,18 @@ class Provider(Protocol):
         self, doc: Document, format: str = "md", focus: str | None = None
     ) -> str: ...
 
+    def compose_presentation(
+        self,
+        doc: Document,
+        *,
+        summary: str | None = None,
+        focus: str | None = None,
+        slide_budget: int = 10,
+        theme: str = "night",
+        transition: str = "slide",
+        effort: str | None = None,
+    ) -> str: ...
+
 
 # --- mock provider ---
 
@@ -375,6 +387,120 @@ class MockProvider:
                 src = ("/image?p=" + im["local"]) if im.get("local") else im.get("url", "")
                 parts += ["", f"![{im.get('alt', '')}]({src})", f"*{cap}*"]
         return "\n".join(parts)
+
+    def compose_presentation(
+        self,
+        doc: Document,
+        *,
+        summary: str | None = None,
+        focus: str | None = None,
+        slide_budget: int = 10,
+        theme: str = "night",
+        transition: str = "slide",
+        effort: str | None = None,
+        **kwargs: Any,
+    ) -> str:
+        """결정론적 stub — 프레젠테이션 AsciiDoc 저작 파이프라인 연결 및 구조 검증용.
+
+        reveal.js 헤더, 2D 섹션(==, ===), 표(|===), 인용([quote]), 발표자 노트([.notes])를 포함한
+        완성형 슬라이드 덱을 결정론적으로 생성한다.
+        """
+        title = (doc.title or doc.url or "Claire Bible Presentation").strip()
+        author = (doc.author or "Claire Bible Engine").strip()
+        date_str = (doc.published_at or "").strip()
+        text = (doc.raw_text or "").strip()
+        summary_val = summary or (text[:200] + "..." if len(text) > 200 else text)
+        focus_str = f" [초점: {focus}]" if focus else ""
+
+        lines = [
+            f"= {title}{focus_str}",
+            f":author: {author}",
+        ]
+        if date_str:
+            lines.append(f":revdate: {date_str}")
+        lines.extend([
+            f":revealjs_theme: {theme}",
+            f":revealjs_transition: {transition}",
+            ":revealjs_slideNumber: c/t",
+            ":revealjs_history: true",
+            ":revealjs_hash: true",
+            ":revealjs_controls: true",
+            ":revealjs_progress: true",
+            ":revealjs_center: true",
+            ":source-highlighter: highlight.js",
+            ":icons: font",
+            "",
+            "== 1. 아젠다 및 개요 (Agenda & Overview)",
+            "",
+            f"[quote, {author}]",
+            f"{summary_val}",
+            "",
+            "* *배경 및 동기*: 복잡한 시스템 아키텍처의 직관적 파악",
+            "* *핵심 과제*: 분산 지식의 정밀 추출 및 구조화",
+            "* *접근 방식*: LLM 기반 2D 프레젠테이션 저작",
+            "",
+            "[.notes]",
+            "--",
+            f"* (도입 멘트): 반갑습니다. 오늘 발표할 주제는 '{title}'입니다.",
+            f"* (핵심 요약): {summary_val}",
+            "* (다음 단계): 이제 본격적인 아키텍처 구조를 살펴보겠습니다.",
+            "--",
+            "",
+            "== 2. 시스템 아키텍처 (Architecture)",
+            "",
+            "=== 2.1 핵심 파이프라인 구조",
+            "",
+            "* *입력 레이어*: 원문 데이터 무결성 보존 (`detail`)",
+            "* *저작 레이어*: 스토리텔링과 발표자 대본을 포함한 슬라이드 집필 (`presentation_adoc`)",
+            "* *컴파일 레이어*: Asciidoctor reveal.js 초고속 렌더링 (`~150ms`)",
+            "",
+            "[.notes]",
+            "--",
+            "* (설명): 기존의 기계적 텍스트 분할을 벗어나 독립적인 저작 단계를 도입했습니다.",
+            "* (강조): 이를 통해 청중용 화면과 발표자 화면이 완벽히 분리됩니다.",
+            "--",
+            "",
+            "=== 2.2 메커니즘 심층 분석",
+            "",
+            "[NOTE]",
+            "발표 장표는 한 화면당 3~5개의 핵심 불릿으로 가독성을 극대화합니다.",
+            "",
+            "* 단문 중심의 임팩트 있는 키워드 전달",
+            "* 발표자 모드(`S` 키)를 통한 실시간 대본 브리핑",
+            "* 수평/수직 2D 내러티브 매핑",
+            "",
+            "[.notes]",
+            "--",
+            "* (설명): reveal.js의 발표자 콘솔에서 실시간 타이머와 다음 장표를 확인하며 브리핑할 수 있습니다.",
+            "--",
+            "",
+            "== 3. 비교 분석 및 지표 (Evaluation)",
+            "",
+            '[cols="1,2,2", options="header"]',
+            "|===",
+            "| 구분 | 기존 방식 | 신규 LLM 저작 방식",
+            "| 슬라이드 구성 | 본문 단순 복사 및 기계적 분할 | 청중 중심의 압축 불릿 및 2D 내러티브",
+            "| 발표자 대본 | 없음 (청중과 같은 화면) | [.notes] 전 장표 맞춤형 스크립트",
+            "| 컴파일 속도 | 런타임 분할 | AOT 캐싱 및 즉각 컴파일 (~150ms)",
+            "|===",
+            "",
+            "[.notes]",
+            "--",
+            "* (표 해설): 표에서 보시는 바와 같이, 발표 경험과 가독성 측면에서 근본적인 차이가 발생합니다.",
+            "--",
+            "",
+            "== 4. 주요 결론 및 질의응답 (Conclusion & Q&A)",
+            "",
+            "* *지식의 자산화*: 단순 텍스트 저장을 넘어 발표 가능한 프레젠테이션으로 전환",
+            "* *발표자 친화성*: 완벽한 2화면 브리핑 지원으로 실전 전달력 극대화",
+            "* *에이전트 연동*: CLI 및 API를 통한 완전 자동화된 장표 저작",
+            "",
+            "[.notes]",
+            "--",
+            "* (마무리): 경청해 주셔서 감사합니다. 질문이 있으시면 편하게 말씀해 주시기 바랍니다.",
+            "--",
+        ])
+        return "\n".join(lines)
 
     def classify_watch(self, doc: Document) -> dict:
         """결정론 stub — 제목/본문에 순위·벤치 키워드 있으면 watch(주기크롤 판단 배선 검증).

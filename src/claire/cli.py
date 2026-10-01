@@ -2162,14 +2162,193 @@ def cmd_presentation(args) -> int:
 
     conn = dbm.connect(s.db_file)
     dbm.init_db(conn)
-    svc = PresentationService(data_dir=s.data_dir)
+    conn = dbm.connect(s.db_file)
+    dbm.init_db(conn)
+    svc = PresentationService(data_dir=s.data_dir, settings=s)
 
     try:
-        if action in ("generate", "render"):
+        if action == "compose":
+            target = getattr(args, "target", "") or getattr(args, "doc_id_flag", "") or getattr(args, "doc_id", "")
+            target = (target or "").strip()
+            if not target:
+                if getattr(args, "json", False):
+                    print(json.dumps({"status": "error", "error": "Target document ID, URL, or title query is required"}, ensure_ascii=False))
+                else:
+                    print("[!] 프레젠테이션을 저작할 대상 문서(ID, URL 또는 제목)를 지정해야 합니다.", file=sys.stderr)
+                    print("사용법: claire presentation compose <target> [--focus <focus>] [--slide-budget <n>]", file=sys.stderr)
+                return 2
+
+            doc_info = dbm.resolve_single_document_target(conn, target)
+            if not doc_info:
+                if getattr(args, "json", False):
+                    print(json.dumps({"status": "error", "error": f"Target document not found: {target}"}, ensure_ascii=False))
+                else:
+                    print(f"[!] 대상을 찾을 수 없습니다: {target}", file=sys.stderr)
+                return 3
+
+            doc_id = doc_info["id"]
+            focus_val = getattr(args, "focus", None)
+            slide_budget_val = getattr(args, "slide_budget", 10)
+            theme_val = getattr(args, "theme", "night")
+            trans_val = getattr(args, "transition", "slide")
+            no_compile = getattr(args, "no_compile", False)
+
+            if not getattr(args, "json", False):
+                print(f"프레젠테이션 저작 시작: {doc_id} ('{doc_info.get('title', '')[:30]}')...")
+
+            try:
+                res = asyncio.run(svc.compose_presentation(
+                    conn,
+                    doc_id,
+                    focus=focus_val,
+                    slide_budget=slide_budget_val,
+                    theme=theme_val,
+                    transition=trans_val,
+                ))
+
+                if not no_compile:
+                    res = asyncio.run(svc.compile_presentation(
+                        conn, doc_id, theme=theme_val, transition=trans_val, force_recompile=True
+                    ))
+
+                base_url = s.public_url.rstrip("/") if s.public_url else "http://localhost:8000"
+                presentation_url = f"{base_url}/p/presentation?id={doc_id}"
+                data = {
+                    "status": res.get("status", "ready"),
+                    "document_id": doc_id,
+                    "title": doc_info.get("title", ""),
+                    "slide_count": res.get("slide_count", 0),
+                    "authoring_provider": res.get("authoring_provider"),
+                    "authoring_model": res.get("authoring_model"),
+                    "compose_duration_ms": res.get("compose_duration_ms", 0),
+                    "compile_duration_ms": res.get("compile_duration_ms", 0),
+                    "adoc_file": str(svc.get_presentation_adoc_path(doc_id)),
+                    "file_path": res.get("file_path"),
+                    "presentation_url": presentation_url,
+                }
+                if getattr(args, "json", False):
+                    print(json.dumps(data, ensure_ascii=False, indent=2))
+                    return 0
+
+                print("claire presentation: 프레젠테이션 저작 완료")
+                print("=" * 60)
+                print(f"• 문서 제목 : {data['title']}")
+                print(f"• 문서 ID   : {doc_id}")
+                print(f"• 장표 수   : {data['slide_count']}장")
+                print(f"• 저작 엔진 : {data.get('authoring_provider')} ({data.get('compose_duration_ms')}ms)")
+                print(f"• AsciiDoc  : {data['adoc_file']}")
+                if not no_compile:
+                    print(f"• 파일 경로 : {data['file_path']}")
+                    print(f"• 뷰어 URL  : {presentation_url}")
+                print("=" * 60)
+                return 0
+            except Exception as e:
+                if getattr(args, "json", False):
+                    print(json.dumps({"status": "error", "error": str(e), "document_id": doc_id}, ensure_ascii=False))
+                else:
+                    print(f"❌ 프레젠테이션 저작 실패: {e}", file=sys.stderr)
+                return 1
+
+        elif action == "compile":
+            target = getattr(args, "target", "") or getattr(args, "doc_id_flag", "") or getattr(args, "doc_id", "")
+            target = (target or "").strip()
+            if not target:
+                if getattr(args, "json", False):
+                    print(json.dumps({"status": "error", "error": "Target document ID, URL, or title query is required"}, ensure_ascii=False))
+                else:
+                    print("[!] 컴파일할 대상 문서(ID, URL 또는 제목)를 지정해야 합니다.", file=sys.stderr)
+                return 2
+
+            doc_info = dbm.resolve_single_document_target(conn, target)
+            if not doc_info:
+                if getattr(args, "json", False):
+                    print(json.dumps({"status": "error", "error": f"Target document not found: {target}"}, ensure_ascii=False))
+                else:
+                    print(f"[!] 대상을 찾을 수 없습니다: {target}", file=sys.stderr)
+                return 3
+
+            doc_id = doc_info["id"]
+            theme_val = getattr(args, "theme", "night")
+            trans_val = getattr(args, "transition", "slide")
+            force_val = getattr(args, "force", True)
+
+            try:
+                res = asyncio.run(svc.compile_presentation(
+                    conn, doc_id, theme=theme_val, transition=trans_val, force_recompile=force_val
+                ))
+                base_url = s.public_url.rstrip("/") if s.public_url else "http://localhost:8000"
+                presentation_url = f"{base_url}/p/presentation?id={doc_id}"
+                data = {
+                    "status": res.get("status", "ready"),
+                    "document_id": doc_id,
+                    "title": doc_info.get("title", ""),
+                    "slide_count": res.get("slide_count", 0),
+                    "theme": theme_val,
+                    "transition": trans_val,
+                    "file_path": res.get("file_path"),
+                    "presentation_url": presentation_url,
+                    "compile_duration_ms": res.get("compile_duration_ms", 0),
+                }
+                if getattr(args, "json", False):
+                    print(json.dumps(data, ensure_ascii=False, indent=2))
+                    return 0
+
+                print(f"[{doc_id}] 프레젠테이션 컴파일 완료 ({data['compile_duration_ms']}ms, {data['slide_count']}장)")
+                print(f"  • 파일: {data['file_path']}")
+                print(f"  • URL : {presentation_url}")
+                return 0
+            except Exception as e:
+                if getattr(args, "json", False):
+                    print(json.dumps({"status": "error", "error": str(e), "document_id": doc_id}, ensure_ascii=False))
+                else:
+                    print(f"❌ 프레젠테이션 컴파일 실패: {e}", file=sys.stderr)
+                return 1
+
+        elif action in ("show-adoc", "view-adoc"):
+            target = getattr(args, "target", "") or getattr(args, "doc_id_flag", "") or getattr(args, "doc_id", "")
+            target = (target or "").strip()
+            if not target:
+                if getattr(args, "json", False):
+                    print(json.dumps({"status": "error", "error": "Target document ID, URL, or title query is required"}, ensure_ascii=False))
+                else:
+                    print("[!] 조회할 대상 문서(ID 또는 URL)를 지정해야 합니다.", file=sys.stderr)
+                return 2
+
+            doc_info = dbm.resolve_single_document_target(conn, target)
+            if not doc_info:
+                if getattr(args, "json", False):
+                    print(json.dumps({"status": "error", "error": f"Target document not found: {target}"}, ensure_ascii=False))
+                else:
+                    print(f"[!] 대상을 찾을 수 없습니다: {target}", file=sys.stderr)
+                return 3
+
+            doc_id = doc_info["id"]
+            adoc = dbm.get_presentation_adoc(conn, doc_id)
+            if not adoc:
+                adoc_path = svc.get_presentation_adoc_path(doc_id)
+                if adoc_path.exists():
+                    adoc = adoc_path.read_text(encoding="utf-8")
+
+            if not adoc:
+                if getattr(args, "json", False):
+                    print(json.dumps({"status": "not_authored", "document_id": doc_id}, ensure_ascii=False))
+                else:
+                    print(f"[{doc_id}] 저작된 프레젠테이션 AsciiDoc이 없습니다. (claire presentation compose 로 저작 필요)")
+                return 0
+
+            if getattr(args, "json", False):
+                print(json.dumps({"status": "ok", "document_id": doc_id, "presentation_adoc": adoc}, ensure_ascii=False))
+            else:
+                print(adoc)
+            return 0
+
+        elif action in ("generate", "render"):
             is_all = getattr(args, "all", False)
             theme_val = getattr(args, "theme", "night")
             trans_val = getattr(args, "transition", "slide")
             force_val = getattr(args, "force", False)
+            focus_val = getattr(args, "focus", None)
+            slide_budget_val = getattr(args, "slide_budget", 10)
 
             if is_all:
                 limit = getattr(args, "limit", 0)
@@ -2185,7 +2364,7 @@ def cmd_presentation(args) -> int:
                 for r in docs:
                     try:
                         res = asyncio.run(svc.get_or_create_presentation(
-                            conn, r["id"], theme=theme_val, force_recompile=force_val
+                            conn, r["id"], theme=theme_val, force_recompile=force_val, focus=focus_val, slide_budget=slide_budget_val
                         ))
                         success += 1
                         results.append({
@@ -2251,7 +2430,7 @@ def cmd_presentation(args) -> int:
 
             try:
                 res = asyncio.run(svc.get_or_create_presentation(
-                    conn, doc_id, theme=theme_val, transition=trans_val, force_recompile=force_val
+                    conn, doc_id, theme=theme_val, transition=trans_val, force_recompile=force_val, focus=focus_val, slide_budget=slide_budget_val
                 ))
                 base_url = s.public_url.rstrip("/") if s.public_url else "http://localhost:8000"
                 presentation_url = f"{base_url}/p/presentation?id={doc_id}"
@@ -2265,6 +2444,8 @@ def cmd_presentation(args) -> int:
                     "file_path": res.get("file_path"),
                     "presentation_url": presentation_url,
                     "compile_duration_ms": res.get("compile_duration_ms", 0),
+                    "compose_duration_ms": res.get("compose_duration_ms", 0),
+                    "authoring_provider": res.get("authoring_provider"),
                 }
                 if getattr(args, "json", False):
                     print(json.dumps(data, ensure_ascii=False, indent=2))
@@ -2276,6 +2457,8 @@ def cmd_presentation(args) -> int:
                 print(f"• 문서 ID   : {doc_id}")
                 print(f"• 장표 수   : {data['slide_count']}장")
                 print(f"• 테마/전환 : {theme_val} / {trans_val}")
+                if data.get("authoring_provider"):
+                    print(f"• 저작 엔진 : {data['authoring_provider']} ({data.get('compose_duration_ms')}ms)")
                 print(f"• 파일 경로 : {data['file_path']}")
                 print(f"• 뷰어 URL  : {presentation_url}")
                 print("=" * 60)
@@ -2321,6 +2504,8 @@ def cmd_presentation(args) -> int:
             base_url = s.public_url.rstrip("/") if s.public_url else "http://localhost:8000"
             meta["presentation_url"] = f"{base_url}/p/presentation?id={doc_id}"
             meta["title"] = doc_info.get("title", "")
+            adoc_path = svc.get_presentation_adoc_path(doc_id)
+            meta["has_adoc"] = bool(meta.get("presentation_adoc") or adoc_path.exists())
             if getattr(args, "json", False):
                 print(json.dumps(meta, ensure_ascii=False, indent=2))
             else:
@@ -2328,6 +2513,8 @@ def cmd_presentation(args) -> int:
                 print(f"  • 상태: {meta.get('status')}")
                 print(f"  • 문서 제목: {meta.get('title')}")
                 print(f"  • 장표 수: {meta.get('slide_count')}장")
+                if meta.get("authoring_provider"):
+                    print(f"  • 저작 엔진: {meta.get('authoring_provider')} ({meta.get('compose_duration_ms')}ms)")
                 print(f"  • 테마/전환: {meta.get('theme')} / {meta.get('transition')}")
                 print(f"  • 파일 경로: {meta.get('file_path')} ({meta.get('file_size')} bytes)")
                 print(f"  • 컴파일 소요: {meta.get('compile_duration_ms')}ms")
@@ -3778,9 +3965,40 @@ def build_parser() -> argparse.ArgumentParser:
     ppres = sub.add_parser("presentation", help="Asciidoctor reveal.js 프레젠테이션 생성 및 관리")
     ppres_sub = ppres.add_subparsers(dest="action", required=True)
 
-    ppres_gen = ppres_sub.add_parser("generate", aliases=["render"], help="기존 본문의 프레젠테이션 생성")
+    ppres_compose = ppres_sub.add_parser("compose", help="LLM을 호출하여 프레젠테이션 AsciiDoc과 발표자 노트 저작")
+    ppres_compose.add_argument("target", nargs="?", default="", help="대상 문서 ID, URL 또는 검색어")
+    ppres_compose.add_argument("--doc-id", dest="doc_id_flag", default="", help="문서 ID (alias for target)")
+    ppres_compose.add_argument("--focus", default=None, help="발표 최우선 초점 주제/관점")
+    ppres_compose.add_argument("--slide-budget", type=int, default=10, help="목표 슬라이드 장수 (기본 10장)")
+    ppres_compose.add_argument("--theme", default="night", help="reveal.js 테마 (default: night)")
+    ppres_compose.add_argument("--transition", default="slide", help="전환 효과 (default: slide)")
+    ppres_compose.add_argument("--no-compile", action="store_true", help="저작만 수행하고 HTML 컴파일은 건너뜀")
+    ppres_compose.add_argument("-t", "--theme-id", default=None, dest="theme_context", help="테마 격리 ID/라벨")
+    ppres_compose.add_argument("--json", action="store_true", help="JSON 형식 출력 (에이전트용)")
+    ppres_compose.set_defaults(func=cmd_presentation)
+
+    ppres_compile = ppres_sub.add_parser("compile", help="저작된 프레젠테이션 AsciiDoc을 reveal.js HTML로 즉시 컴파일")
+    ppres_compile.add_argument("target", nargs="?", default="", help="대상 문서 ID, URL 또는 검색어")
+    ppres_compile.add_argument("--doc-id", dest="doc_id_flag", default="", help="문서 ID (alias for target)")
+    ppres_compile.add_argument("--theme", default="night", help="reveal.js 테마 (default: night)")
+    ppres_compile.add_argument("--transition", default="slide", help="전환 효과 (default: slide)")
+    ppres_compile.add_argument("-f", "--force", action="store_true", help="기존 컴파일 캐시 무시하고 강제 재컴파일")
+    ppres_compile.add_argument("-t", "--theme-id", default=None, dest="theme_context", help="테마 격리 ID/라벨")
+    ppres_compile.add_argument("--json", action="store_true", help="JSON 형식 출력 (에이전트용)")
+    ppres_compile.set_defaults(func=cmd_presentation)
+
+    ppres_show = ppres_sub.add_parser("show-adoc", aliases=["view-adoc"], help="저작된 프레젠테이션 AsciiDoc 원문 열람")
+    ppres_show.add_argument("target", nargs="?", default="", help="대상 문서 ID, URL 또는 검색어")
+    ppres_show.add_argument("--doc-id", dest="doc_id_flag", default="", help="문서 ID (alias for target)")
+    ppres_show.add_argument("-t", "--theme-id", default=None, dest="theme_context", help="테마 격리 ID/라벨")
+    ppres_show.add_argument("--json", action="store_true", help="JSON 형식 출력 (에이전트용)")
+    ppres_show.set_defaults(func=cmd_presentation)
+
+    ppres_gen = ppres_sub.add_parser("generate", aliases=["render"], help="프레젠테이션 생성 (미저작 시 저작 후 컴파일)")
     ppres_gen.add_argument("target", nargs="?", default="", help="대상 문서 ID, URL 또는 검색어 (target document ID, URL, or title)")
     ppres_gen.add_argument("--doc-id", dest="doc_id_flag", default="", help="문서 ID (alias for target)")
+    ppres_gen.add_argument("--focus", default=None, help="발표 최우선 초점 주제/관점")
+    ppres_gen.add_argument("--slide-budget", type=int, default=10, help="목표 슬라이드 장수 (기본 10장)")
     ppres_gen.add_argument("--all", action="store_true", help="본문이 있는 모든 문서의 프레젠테이션 일괄 생성")
     ppres_gen.add_argument("--theme", default="night", help="reveal.js 테마 (default: night)")
     ppres_gen.add_argument("--transition", default="slide", help="전환 효과 (default: slide)")

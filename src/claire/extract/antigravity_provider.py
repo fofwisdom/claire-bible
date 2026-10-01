@@ -634,6 +634,44 @@ class AntigravityProvider:
         )
         return str(res).strip()
 
+    def compose_presentation(
+        self,
+        doc: Document,
+        *,
+        summary: str | None = None,
+        focus: str | None = None,
+        slide_budget: int = 10,
+        theme: str = "night",
+        transition: str = "slide",
+        effort: str | None = None,
+    ) -> str:
+        """원문을 기반으로 reveal.js 전용 AsciiDoc 슬라이드 덱과 발표자 노트를 집필."""
+        from .prompts import clean_code_fence, compose_presentation_prompt_adoc
+
+        body = _doc_to_prompt(doc)
+        title = (doc.title or doc.url or "Claire Bible Presentation").strip()
+        author = doc.author
+        published_at = doc.published_at
+        focus_val = focus or (doc.meta or {}).get("focus")
+        doc_id = getattr(doc, "id", None)
+
+        prompt = compose_presentation_prompt_adoc(
+            title=title,
+            detail=body,
+            summary=summary,
+            author=author,
+            published_at=published_at,
+            focus=focus_val,
+            slide_budget=slide_budget,
+            theme=theme,
+            transition=transition,
+        )
+
+        res = self._run_cli(
+            prompt, output_format="text", effort=effort, call_type="compose_presentation", document_id=doc_id, allow_tools=False
+        )
+        return clean_code_fence(str(res).strip())
+
     def classify_paper(
         self, doc: Document, *, effort: str | None = None
     ):

@@ -6,6 +6,7 @@ Starlette는 라우팅/응답 계층만 담당하고 Uvicorn은 단일 worker로
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import re
@@ -1792,7 +1793,7 @@ def create_app(
                 if targets[0].get("data_dir"):
                     active_data_dir = Path(targets[0]["data_dir"])
 
-        svc = PresentationService(data_dir=active_data_dir)
+        svc = PresentationService(data_dir=active_data_dir, settings=theme_settings)
         conn = dbm.connect_existing(active_db)
         try:
             res = await svc.get_or_create_presentation(
@@ -1805,6 +1806,201 @@ def create_app(
             return JSONResponse({"error": str(exc)}, status_code=500)
         finally:
             conn.close()
+
+    async def document_presentation_compose_route(request: Request) -> JSONResponse:
+        from ..presentation import PresentationService
+
+        doc_id = request.query_params.get("id", "").strip()
+        focus = request.query_params.get("focus")
+        slide_budget = int(request.query_params.get("slide_budget", 10))
+        theme_val = request.query_params.get("theme", "night")
+        trans_val = request.query_params.get("transition", "slide")
+        no_compile = request.query_params.get("no_compile", "false").lower() in ("true", "1", "yes")
+
+        try:
+            body = await request.json()
+            if isinstance(body, dict):
+                doc_id = body.get("id", doc_id).strip()
+                focus = body.get("focus", focus)
+                slide_budget = int(body.get("slide_budget", slide_budget))
+                theme_val = body.get("theme", theme_val)
+                trans_val = body.get("transition", trans_val)
+                no_compile = bool(body.get("no_compile", no_compile))
+        except Exception:
+            pass
+
+        if not doc_id:
+            return JSONResponse({"error": "id parameter required"}, status_code=400)
+
+        _, theme_settings, _ = _get_theme_ctx(request, None)
+        active_db = theme_settings.db_file
+        active_data_dir = theme_settings.data_dir
+
+        if getattr(s, "multi_theme", False):
+            targets = theme_mgr.resolve_document_targets(doc_id=doc_id)
+            if targets and targets[0].get("db_file"):
+                active_db = Path(targets[0]["db_file"])
+                if targets[0].get("data_dir"):
+                    active_data_dir = Path(targets[0]["data_dir"])
+
+        svc = PresentationService(data_dir=active_data_dir, settings=theme_settings)
+        conn = dbm.connect_existing(active_db)
+        try:
+            res = await svc.compose_presentation(
+                conn,
+                doc_id,
+                focus=focus,
+                slide_budget=slide_budget,
+                theme=theme_val,
+                transition=trans_val,
+            )
+            if not no_compile:
+                res = await svc.compile_presentation(
+                    conn, doc_id, theme=theme_val, transition=trans_val, force_recompile=True
+                )
+            return JSONResponse(res, status_code=200)
+        except KeyError:
+            return JSONResponse({"error": "document not found"}, status_code=404)
+        except Exception as exc:
+            return JSONResponse({"error": str(exc)}, status_code=500)
+        finally:
+            conn.close()
+
+    async def document_presentation_compile_route(request: Request) -> JSONResponse:
+        from ..presentation import PresentationService
+
+        doc_id = request.query_params.get("id", "").strip()
+        theme_val = request.query_params.get("theme", "night")
+        trans_val = request.query_params.get("transition", "slide")
+        force = request.query_params.get("force", "true").lower() in ("true", "1", "yes")
+
+        try:
+            body = await request.json()
+            if isinstance(body, dict):
+                doc_id = body.get("id", doc_id).strip()
+                theme_val = body.get("theme", theme_val)
+                trans_val = body.get("transition", trans_val)
+                force = bool(body.get("force", force))
+        except Exception:
+            pass
+
+        if not doc_id:
+            return JSONResponse({"error": "id parameter required"}, status_code=400)
+
+        _, theme_settings, _ = _get_theme_ctx(request, None)
+        active_db = theme_settings.db_file
+        active_data_dir = theme_settings.data_dir
+
+        if getattr(s, "multi_theme", False):
+            targets = theme_mgr.resolve_document_targets(doc_id=doc_id)
+            if targets and targets[0].get("db_file"):
+                active_db = Path(targets[0]["db_file"])
+                if targets[0].get("data_dir"):
+                    active_data_dir = Path(targets[0]["data_dir"])
+
+        svc = PresentationService(data_dir=active_data_dir, settings=theme_settings)
+        conn = dbm.connect_existing(active_db)
+        try:
+            res = await svc.compile_presentation(
+                conn, doc_id, theme=theme_val, transition=trans_val, force_recompile=force
+            )
+            return JSONResponse(res, status_code=200)
+        except KeyError:
+            return JSONResponse({"error": "document not found"}, status_code=404)
+        except Exception as exc:
+            return JSONResponse({"error": str(exc)}, status_code=500)
+        finally:
+            conn.close()
+
+    async def document_presentation_adoc_route(request: Request) -> Response:
+        from ..presentation import PresentationService
+
+        doc_id = request.query_params.get("id", "").strip()
+        if not doc_id:
+            try:
+                body = await request.json()
+                if isinstance(body, dict):
+                    doc_id = body.get("id", "").strip()
+            except Exception:
+                pass
+
+        if not doc_id:
+            return JSONResponse({"error": "id parameter required"}, status_code=400)
+
+        _, theme_settings, _ = _get_theme_ctx(request, None)
+        active_db = theme_settings.db_file
+        active_data_dir = theme_settings.data_dir
+
+        if getattr(s, "multi_theme", False):
+            targets = theme_mgr.resolve_document_targets(doc_id=doc_id)
+            if targets and targets[0].get("db_file"):
+                active_db = Path(targets[0]["db_file"])
+                if targets[0].get("data_dir"):
+                    active_data_dir = Path(targets[0]["data_dir"])
+
+        svc = PresentationService(data_dir=active_data_dir, settings=theme_settings)
+
+        if request.method == "GET":
+            conn = dbm.connect_existing(active_db, readonly=True)
+            try:
+                adoc = dbm.get_presentation_adoc(conn, doc_id)
+                if not adoc:
+                    adoc_path = svc.get_presentation_adoc_path(doc_id)
+                    if adoc_path.exists():
+                        adoc = adoc_path.read_text(encoding="utf-8")
+                if not adoc:
+                    return JSONResponse({"error": "presentation adoc not found"}, status_code=404)
+                return JSONResponse({"document_id": doc_id, "presentation_adoc": adoc}, status_code=200)
+            finally:
+                conn.close()
+
+        elif request.method == "PUT":
+            body = await request.json()
+            if not isinstance(body, dict) or "presentation_adoc" not in body:
+                return JSONResponse({"error": "presentation_adoc field required"}, status_code=400)
+            adoc_content = str(body["presentation_adoc"])
+            recompile = bool(body.get("recompile", True))
+            theme_val = body.get("theme", "night")
+            trans_val = body.get("transition", "slide")
+
+            conn = dbm.connect_existing(active_db)
+            try:
+                # Save adoc file
+                adoc_path = svc.get_presentation_adoc_path(doc_id)
+                adoc_path.write_text(adoc_content, encoding="utf-8")
+
+                content_hash = hashlib.sha256(adoc_content.encode("utf-8")).hexdigest()
+                adoc_hash = content_hash
+                cache_key = hashlib.sha256(f"{adoc_hash}:{theme_val}:{trans_val}".encode("utf-8")).hexdigest()
+                slide_count = adoc_content.count("\n== ") + adoc_content.count("\n=== ") + 1
+
+                html_file = svc.get_presentation_file_path(doc_id)
+                dbm.save_presentation_adoc(
+                    conn,
+                    document_id=doc_id,
+                    presentation_adoc=adoc_content,
+                    content_hash=content_hash,
+                    adoc_hash=adoc_hash,
+                    authoring_provider="manual",
+                    authoring_model="user-edit",
+                    slide_count=slide_count,
+                    theme=theme_val,
+                    transition=trans_val,
+                    cache_key=cache_key,
+                    file_path=str(html_file),
+                    status="authored",
+                )
+
+                if recompile:
+                    res = await svc.compile_presentation(
+                        conn, doc_id, presentation_adoc=adoc_content, theme=theme_val, transition=trans_val, force_recompile=True
+                    )
+                    return JSONResponse(res, status_code=200)
+                return JSONResponse({"status": "authored", "document_id": doc_id, "slide_count": slide_count}, status_code=200)
+            finally:
+                conn.close()
+
+        return JSONResponse({"error": "method not allowed"}, status_code=405)
 
     mcp_app = build_mcp_app(s, theme_mgr=theme_mgr)
 
@@ -1999,6 +2195,9 @@ def create_app(
         Route("/document/matrix/purge", document_matrix_purge_route, methods=["POST"]),
         Route("/document/presentation", document_presentation_get_route, methods=["GET", "HEAD"]),
         Route("/document/presentation/generate", document_presentation_generate_route, methods=["POST"]),
+        Route("/document/presentation/compose", document_presentation_compose_route, methods=["POST"]),
+        Route("/document/presentation/compile", document_presentation_compile_route, methods=["POST"]),
+        Route("/document/presentation/adoc", document_presentation_adoc_route, methods=["GET", "PUT"]),
         Route("/synthesize", synthesize_route, methods=["POST"]),
         Route("/research", research_route, methods=["POST"]),
         Route("/dedup/scan", dedup_scan_route, methods=["POST"]),
