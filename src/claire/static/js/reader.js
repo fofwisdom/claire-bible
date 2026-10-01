@@ -1314,14 +1314,12 @@ function presentationOverview(){
   }
 }
 
-function presentationPrintPdf(){
-  const targetId = (typeof curReaderDoc !== 'undefined' && curReaderDoc) ||
-                   (typeof activeDoc !== 'undefined' && activeDoc);
-  if(!targetId) return;
-  const url = new URL('/p/presentation', window.location.origin);
-  url.searchParams.set('id', targetId);
-  url.searchParams.set('print-pdf', '');
-  window.open(url.toString(), '_blank');
+function presentationDownloadPdf(){
+  if(typeof canWrite === 'function' && !canWrite()){
+    alert('PDF 다운로드는 소유자(인증된 세션)만 이용할 수 있습니다.');
+    return;
+  }
+  alert('프레젠테이션 고품질 PDF 다운로드 기능은 추가 렌더링 엔진(DeckTape 등) 도입 전까지 비활성화(잠금)되어 있습니다.');
 }
 
 async function presentationShare(){
@@ -1480,6 +1478,8 @@ const ClaireReader = {
   openDocPresentation,
   updatePresentationView,
   generatePresentationForCurrentDoc,
+  presentationDownloadPdf,
+  presentationPrintPdf: presentationDownloadPdf,
   docMetaHtml,
   docBiblioHtml,
   renderReader,
@@ -1513,7 +1513,8 @@ if (typeof window !== 'undefined') {
   window.generatePresentationForCurrentDoc = generatePresentationForCurrentDoc;
   window.presentationSpeaker = presentationSpeaker;
   window.presentationOverview = presentationOverview;
-  window.presentationPrintPdf = presentationPrintPdf;
+  window.presentationDownloadPdf = presentationDownloadPdf;
+  window.presentationPrintPdf = presentationDownloadPdf;
   window.presentationShare = presentationShare;
   window.copyPresentationShare = copyPresentationShare;
   window.presentationFullscreen = presentationFullscreen;

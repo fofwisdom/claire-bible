@@ -144,8 +144,8 @@ html.is-embedded #cb-hud, body.is-embedded #cb-hud {
     <button class="cb-hud-btn" onclick="if(window.Reveal) Reveal.toggleOverview();" title="프레젠테이션 개요 (O / ESC)">
       🗂️ <span>개요</span>
     </button>
-    <button class="cb-hud-btn" onclick="cbOpenPrintPdf()" title="PDF 인쇄 모드">
-      🖨️ <span>인쇄</span>
+    <button class="cb-hud-btn" id="cb-hud-download-btn" onclick="cbDownloadPdf()" title="PDF 다운로드 (준비 중: 추가 렌더링 엔진 필요)" style="opacity:0.5;cursor:not-allowed">
+      📥 <span>PDF</span>
     </button>
     <button class="cb-hud-btn" onclick="cbCopySlideLink()" title="현재 프레젠테이션 링크 복사">
       🔗 <span>공유</span>
@@ -240,11 +240,10 @@ html.is-embedded #cb-hud, body.is-embedded #cb-hud {
     }
   };
 
-  window.cbOpenPrintPdf = function() {
-    const url = new URL(window.location.href);
-    url.searchParams.set('print-pdf', '');
-    window.open(url.toString(), '_blank');
+  window.cbDownloadPdf = function() {
+    alert('프레젠테이션 고품질 PDF 다운로드 기능은 추가 렌더링 엔진(DeckTape 등) 도입 전까지 비활성화(잠금)되어 있습니다.');
   };
+  window.cbOpenPrintPdf = window.cbDownloadPdf;
 
   window.cbCopySlideLink = async function() {
     let shareUrl = window.location.href;

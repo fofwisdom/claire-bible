@@ -170,6 +170,7 @@
   body:not([data-auth-scope="owner"]) #synthbtn,
   body:not([data-auth-scope="owner"]) #synthchips,
   body:not([data-auth-scope="owner"]) #dedupbtn,
+  body:not([data-auth-scope="owner"]) #presentation-download-btn,
   body:not([data-auth-scope="owner"]) .redit{display:none!important}
 
   /* 우측 사이드 패널 (#detailpane): 데스크톱은 3열 고정, 태블릿/모바일은 오른쪽 슬라이드 드로어 */
