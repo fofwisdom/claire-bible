@@ -53,6 +53,8 @@ def preprocess_adoc_to_slides(
         ":revealjs_width: 1280",
         ":revealjs_height: 720",
         ":revealjs_margin: 0.04",
+        ":revealjs_pdfseparatefragments: false",
+        ":revealjs_pdfmaxpagesperslide: 1",
         ":source-highlighter: highlight.js",
         ":stem: latexmath",
         ":icons: font",
@@ -154,6 +156,8 @@ def prepare_presentation_adoc_for_compile(
         ":revealjs_width:": ":revealjs_width: 1280",
         ":revealjs_height:": ":revealjs_height: 720",
         ":revealjs_margin:": ":revealjs_margin: 0.04",
+        ":revealjs_pdfseparatefragments:": ":revealjs_pdfseparatefragments: false",
+        ":revealjs_pdfmaxpagesperslide:": ":revealjs_pdfmaxpagesperslide: 1",
         ":source-highlighter:": ":source-highlighter: highlight.js",
         ":icons:": ":icons: font",
     }

@@ -123,6 +123,19 @@ HUD_SNIPPET = """
   .cb-hud-title { display: none; }
   .cb-hud-btn span { display: none; }
 }
+@media print {
+  #cb-hud, .cb-hud-sharebox { display: none !important; }
+  @page {
+    size: landscape;
+    margin: 0;
+  }
+  html, body, .reveal {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    color-adjust: exact !important;
+    background: #0e1116 !important;
+  }
+}
 /* When embedded in an iframe (e.g. Claire Bible workspace), hide in-frame floating HUD */
 html.is-embedded #cb-hud, body.is-embedded #cb-hud {
   display: none !important;
@@ -144,7 +157,7 @@ html.is-embedded #cb-hud, body.is-embedded #cb-hud {
     <button class="cb-hud-btn" onclick="if(window.Reveal) Reveal.toggleOverview();" title="프레젠테이션 개요 (O / ESC)">
       🗂️ <span>개요</span>
     </button>
-    <button class="cb-hud-btn" id="cb-hud-download-btn" onclick="cbDownloadPdf()" title="PDF 다운로드 (준비 중: 추가 렌더링 엔진 필요)" style="opacity:0.5;cursor:not-allowed">
+    <button class="cb-hud-btn" id="cb-hud-download-btn" onclick="cbDownloadPdf()" title="PDF 다운로드" aria-label="PDF 다운로드">
       📥 <span>PDF</span>
     </button>
     <button class="cb-hud-btn" onclick="cbCopySlideLink()" title="현재 프레젠테이션 링크 복사">
@@ -241,7 +254,42 @@ html.is-embedded #cb-hud, body.is-embedded #cb-hud {
   };
 
   window.cbDownloadPdf = function() {
-    alert('프레젠테이션 고품질 PDF 다운로드 기능은 추가 렌더링 엔진(DeckTape 등) 도입 전까지 비활성화(잠금)되어 있습니다.');
+    if (window.location.search.includes('print-pdf')) {
+      window.print();
+      return;
+    }
+    let printFrame = document.getElementById('cb-hud-print-frame');
+    if (!printFrame) {
+      printFrame = document.createElement('iframe');
+      printFrame.id = 'cb-hud-print-frame';
+      printFrame.style.position = 'fixed';
+      printFrame.style.right = '0';
+      printFrame.style.bottom = '0';
+      printFrame.style.width = '0';
+      printFrame.style.height = '0';
+      printFrame.style.border = '0';
+      printFrame.style.opacity = '0.01';
+      printFrame.style.pointerEvents = 'none';
+      document.body.appendChild(printFrame);
+    }
+    const url = new URL(window.location.href);
+    url.searchParams.set('print-pdf', '');
+    printFrame.src = url.toString();
+    printFrame.onload = function() {
+      const cw = printFrame.contentWindow;
+      const R = cw && cw.Reveal;
+      const doPrint = function() {
+        try { cw.focus(); cw.print(); } catch(_) { window.print(); }
+      };
+      if (R && typeof R.isReady === 'function' && R.isReady()) {
+        setTimeout(doPrint, 250);
+      } else if (R && typeof R.on === 'function') {
+        R.on('pdf-ready', function() { setTimeout(doPrint, 150); });
+        R.on('ready', function() { setTimeout(doPrint, 250); });
+      } else {
+        setTimeout(doPrint, 500);
+      }
+    };
   };
   window.cbOpenPrintPdf = window.cbDownloadPdf;
 
