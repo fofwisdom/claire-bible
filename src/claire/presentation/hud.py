@@ -97,13 +97,13 @@ HUD_SNIPPET = """
     <button class="cb-hud-btn" onclick="cbToggleSpeaker()" title="발표자 모드 (S)">
       🎙️ <span>발표자</span>
     </button>
-    <button class="cb-hud-btn" onclick="if(window.Reveal) Reveal.toggleOverview();" title="슬라이드 개요 (O / ESC)">
+    <button class="cb-hud-btn" onclick="if(window.Reveal) Reveal.toggleOverview();" title="프레젠테이션 개요 (O / ESC)">
       🗂️ <span>개요</span>
     </button>
     <button class="cb-hud-btn" onclick="cbOpenPrintPdf()" title="PDF 인쇄 모드">
       🖨️ <span>인쇄</span>
     </button>
-    <button class="cb-hud-btn" onclick="cbCopySlideLink()" title="현재 슬라이드 링크 복사">
+    <button class="cb-hud-btn" onclick="cbCopySlideLink()" title="현재 프레젠테이션 링크 복사">
       🔗 <span>공유</span>
     </button>
     <button class="cb-hud-btn" onclick="cbToggleFullscreen()" title="전체화면 (F)">
@@ -199,11 +199,12 @@ HUD_SNIPPET = """
   window.cbCopySlideLink = function() {
     const link = window.location.href;
     navigator.clipboard.writeText(link).then(function() {
-      alert('현재 슬라이드 링크가 클립보드에 복사되었습니다:\\n' + link);
+      alert('현재 프레젠테이션 링크가 클립보드에 복사되었습니다:\\n' + link);
     }).catch(function() {
-      prompt('슬라이드 링크 복사:', link);
+      prompt('프레젠테이션 링크 복사:', link);
     });
   };
+  window.cbCopyPresentationLink = window.cbCopySlideLink;
 
   window.cbToggleFullscreen = function() {
     if (!document.fullscreenElement) {

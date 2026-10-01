@@ -218,11 +218,6 @@ function docMetaHtml(dc){
     const tagClass = isAppTrunc ? 'trunc-tag trunc-appendix' : 'trunc-tag';
     tags.push('<span class="'+tagClass+'" title="'+esc(tip)+'">'+esc(label)+'</span>');
   }
-  const presToken = (typeof window !== 'undefined' && window.location) ? (new URLSearchParams(window.location.search).get('s') || '') : '';
-  if(presToken || (dc && dc.id)){
-    const presUrl = '/p/presentation?' + (presToken ? ('s=' + encodeURIComponent(presToken)) : ('id=' + encodeURIComponent(dc.id)));
-    tags.push('<a href="' + esc(presUrl) + '" target="_blank" rel="noopener" class="focus-tag pres-tag" title="Asciidoctor reveal.js 프레젠테이션 슬라이드로 보기">🖥️ 슬라이드</a>');
-  }
   if(tags.length){
     h+='<span class="docmeta-tags">'+tags.join(' ')+'</span>';
   }
@@ -238,7 +233,7 @@ const presUrl = presToken ? ('/p/presentation?s=' + encodeURIComponent(presToken
 let h='<div class="share-header-bar" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">';
 h+='<div class=brand>Claire Bible · 공유 문서</div>';
 if(presUrl){
-  h+='<a class="focus-tag pres-tag" href="' + esc(presUrl) + '" target="_blank" rel="noopener" style="font-size:12px;padding:3px 10px;text-decoration:none" title="Asciidoctor reveal.js 프레젠테이션 슬라이드로 보기">🖥️ 슬라이드 보기</a>';
+  h+='<a class="focus-tag pres-tag" href="' + esc(presUrl) + '" target="_blank" rel="noopener" style="font-size:12px;padding:3px 10px;text-decoration:none" title="Asciidoctor reveal.js 프레젠테이션 보기">🖥️ 프레젠테이션 보기</a>';
 }
 h+='</div>';
 h+='<h1>'+esc(dc.title||'(제목 없음)')+(dc.source_type?' <span class=rmeta>'+esc(dc.source_type)+'</span>':'')+'</h1>';

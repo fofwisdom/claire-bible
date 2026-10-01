@@ -240,3 +240,45 @@ A test slide for API routes.
             page_res = client.get(f"/p/presentation?id={doc_id}")
             assert page_res.status_code == 200
             assert "Slide Test" in page_res.text
+
+
+def test_presentation_cli_generate_and_status(tmp_path: Path):
+    from claire.cli import cmd_presentation
+    from argparse import Namespace
+
+    db_file = tmp_path / "test_cli.db"
+    conn = dbm.connect(db_file)
+    dbm.init_db(conn)
+    doc_id = "doc_cli_pres"
+    conn.execute(
+        "INSERT INTO documents (id, title, url, canonical_url, detail, fetched_at) VALUES (?, ?, ?, ?, ?, ?)",
+        (doc_id, "CLI Presentation Title", "https://example.com/pres", "https://example.com/pres", "= Sample Title\n== Section 1\nContent", 1700000000),
+    )
+    conn.commit()
+    conn.close()
+
+    with patch("claire.cli.get_effective_settings") as mock_settings:
+        s = Settings(db_path=str(db_file), data_dir=tmp_path, render_format="adoc")
+        mock_settings.return_value = (s, None)
+
+        with patch("claire.presentation.service.compile_presentation_html") as mock_compile:
+            target_file = tmp_path / "presentations" / f"{doc_id}.html"
+            target_file.parent.mkdir(parents=True, exist_ok=True)
+            target_file.write_text("<!DOCTYPE html><html><body><h1>Slide Test</h1></body></html>")
+            mock_compile.return_value = (target_file, 120)
+
+            # 1. Generate via doc_id
+            args_gen = Namespace(action="generate", target=doc_id, doc_id_flag="", all=False, theme="night", transition="slide", force=False, json=True)
+            ret_gen = cmd_presentation(args_gen)
+            assert ret_gen == 0
+
+            # 2. Check status via status subcommand
+            args_status = Namespace(action="status", target=doc_id, doc_id_flag="", json=True)
+            ret_status = cmd_presentation(args_status)
+            assert ret_status == 0
+
+            # 3. Generate via keyword search
+            args_kw = Namespace(action="generate", target="CLI Presentation", doc_id_flag="", all=False, theme="night", transition="slide", force=False, json=True)
+            ret_kw = cmd_presentation(args_kw)
+            assert ret_kw == 0
+
