@@ -1548,18 +1548,26 @@ class SafeAccessLogMiddleware:
                 add_header(b"x-request-id", request_id.encode("ascii"))
                 add_header(b"referrer-policy", b"no-referrer")
                 add_header(b"x-content-type-options", b"nosniff")
-                add_header(b"x-frame-options", b"DENY")
+                req_path = str(scope.get("path", ""))
+                is_presentation_route = req_path.startswith("/p/presentation")
+                if is_presentation_route:
+                    add_header(b"x-frame-options", b"SAMEORIGIN")
+                else:
+                    add_header(b"x-frame-options", b"DENY")
                 route_rule = ROUTE_POLICY.get(
                     (
                         str(scope.get("method", "")).upper(),
-                        str(scope.get("path", "")),
+                        req_path,
                     )
                 )
                 if route_rule is None or route_rule.access != "public":
                     add_header(b"cache-control", b"no-store")
+                csp_val = self.csp_header_value
+                if is_presentation_route:
+                    csp_val = csp_val.replace(b"frame-ancestors 'none'", b"frame-ancestors 'self'")
                 add_header(
                     b"content-security-policy",
-                    self.csp_header_value,
+                    csp_val,
                 )
                 add_header(
                     b"permissions-policy",
