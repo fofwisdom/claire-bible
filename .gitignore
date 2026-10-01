@@ -14,8 +14,9 @@ vault/
 research/
 .pytest_cache/
 *.egg-info/
-dist/
-build/
+/dist/
+/build/
+!src/claire/static/vendor/**
 *.orig
 /replay.jsonl
 /sample.private.adoc

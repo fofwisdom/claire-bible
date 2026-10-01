@@ -1730,7 +1730,11 @@ def create_app(
         if not file_path.exists():
             return PlainTextResponse("Presentation file not found", status_code=404)
 
-        return FileResponse(file_path, media_type="text/html")
+        return FileResponse(
+            file_path,
+            media_type="text/html",
+            headers={"Cache-Control": "no-cache"},
+        )
 
     async def document_presentation_get_route(request: Request) -> JSONResponse:
         from ..presentation import PresentationService
