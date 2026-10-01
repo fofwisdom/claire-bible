@@ -434,11 +434,13 @@ def _migrate(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_tombstones_canon ON purged_tombstones(canonical_url)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_tombstones_hash ON purged_tombstones(content_hash)")
     # v13: Asciidoctor reveal.js 프레젠테이션 AOT 메타데이터 및 캐시 추적 테이블
+    # v14: 프레젠테이션 LLM 저작(Composition) 소스코드 및 메타데이터 지원
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS document_presentations (
             document_id TEXT PRIMARY KEY,
             content_hash TEXT NOT NULL,
+            adoc_hash TEXT,
             cache_key TEXT NOT NULL,
             theme TEXT DEFAULT 'night',
             transition TEXT DEFAULT 'slide',
@@ -447,6 +449,11 @@ def _migrate(conn: sqlite3.Connection) -> None:
             file_size INTEGER DEFAULT 0,
             status TEXT DEFAULT 'ready',
             error_message TEXT,
+            presentation_adoc TEXT,
+            authoring_provider TEXT,
+            authoring_model TEXT,
+            prompt_version TEXT DEFAULT 'pres-v1',
+            compose_duration_ms INTEGER DEFAULT 0,
             compile_duration_ms INTEGER DEFAULT 0,
             created_at REAL NOT NULL,
             updated_at REAL NOT NULL,
@@ -456,6 +463,13 @@ def _migrate(conn: sqlite3.Connection) -> None:
     )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_doc_pres_status ON document_presentations(status)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_doc_pres_key ON document_presentations(cache_key)")
+    # v14 컬럼 멱등 마이그레이션
+    _ensure_column(conn, "document_presentations", "presentation_adoc", "TEXT")
+    _ensure_column(conn, "document_presentations", "adoc_hash", "TEXT")
+    _ensure_column(conn, "document_presentations", "authoring_provider", "TEXT")
+    _ensure_column(conn, "document_presentations", "authoring_model", "TEXT")
+    _ensure_column(conn, "document_presentations", "prompt_version", "TEXT DEFAULT 'pres-v1'")
+    _ensure_column(conn, "document_presentations", "compose_duration_ms", "INTEGER DEFAULT 0")
     # documents.meta -> focus 자동 마이그레이션 및 레거시 키 영구 소각
     _legacy_key = "dir" + "ective"
     conn.execute(
@@ -2256,8 +2270,10 @@ def get_document_presentation(conn: sqlite3.Connection, document_id: str) -> dic
     """문서의 프레젠테이션 메타데이터를 반환. 없으면 None."""
     row = conn.execute(
         """
-        SELECT document_id, content_hash, cache_key, theme, transition, slide_count,
-               file_path, file_size, status, error_message, compile_duration_ms,
+        SELECT document_id, content_hash, adoc_hash, cache_key, theme, transition, slide_count,
+               file_path, file_size, status, error_message, presentation_adoc,
+               authoring_provider, authoring_model, prompt_version,
+               compose_duration_ms, compile_duration_ms,
                created_at, updated_at
         FROM document_presentations
         WHERE document_id = ?
@@ -2267,6 +2283,74 @@ def get_document_presentation(conn: sqlite3.Connection, document_id: str) -> dic
     if row is None:
         return None
     return dict(row)
+
+
+def get_presentation_adoc(conn: sqlite3.Connection, document_id: str) -> str | None:
+    """문서의 프레젠테이션 AsciiDoc 소스코드 반환. 없으면 None."""
+    row = conn.execute(
+        "SELECT presentation_adoc FROM document_presentations WHERE document_id = ?",
+        (document_id,),
+    ).fetchone()
+    if row is None or not row["presentation_adoc"]:
+        return None
+    return str(row["presentation_adoc"])
+
+
+def save_presentation_adoc(
+    conn: sqlite3.Connection,
+    document_id: str,
+    presentation_adoc: str,
+    *,
+    content_hash: str,
+    adoc_hash: str,
+    authoring_provider: str | None = None,
+    authoring_model: str | None = None,
+    prompt_version: str = "pres-v1",
+    compose_duration_ms: int = 0,
+    slide_count: int = 0,
+    theme: str = "night",
+    transition: str = "slide",
+    cache_key: str = "",
+    file_path: str = "",
+    status: str = "authored",
+) -> None:
+    """LLM이 저작한 프레젠테이션 AsciiDoc 원문 및 메타데이터를 저장하거나 갱신."""
+    import time
+    now = time.time()
+    conn.execute(
+        """
+        INSERT INTO document_presentations (
+            document_id, content_hash, adoc_hash, cache_key, theme, transition, slide_count,
+            file_path, file_size, status, presentation_adoc,
+            authoring_provider, authoring_model, prompt_version,
+            compose_duration_ms, compile_duration_ms,
+            created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(document_id) DO UPDATE SET
+            content_hash = excluded.content_hash,
+            adoc_hash = excluded.adoc_hash,
+            cache_key = excluded.cache_key,
+            theme = excluded.theme,
+            transition = excluded.transition,
+            slide_count = excluded.slide_count,
+            file_path = excluded.file_path,
+            status = excluded.status,
+            presentation_adoc = excluded.presentation_adoc,
+            authoring_provider = excluded.authoring_provider,
+            authoring_model = excluded.authoring_model,
+            prompt_version = excluded.prompt_version,
+            compose_duration_ms = excluded.compose_duration_ms,
+            updated_at = excluded.updated_at
+        """,
+        (
+            document_id, content_hash, adoc_hash, cache_key, theme, transition, slide_count,
+            file_path, 0, status, presentation_adoc,
+            authoring_provider, authoring_model, prompt_version,
+            compose_duration_ms, 0,
+            now, now,
+        ),
+    )
+    conn.commit()
 
 
 def save_document_presentation(
@@ -2281,6 +2365,12 @@ def save_document_presentation(
     slide_count: int = 0,
     status: str = "ready",
     error_message: str | None = None,
+    presentation_adoc: str | None = None,
+    adoc_hash: str | None = None,
+    authoring_provider: str | None = None,
+    authoring_model: str | None = None,
+    prompt_version: str = "pres-v1",
+    compose_duration_ms: int = 0,
     compile_duration_ms: int = 0,
 ) -> None:
     """프레젠테이션 메타데이터를 저장하거나 갱신."""
@@ -2289,12 +2379,15 @@ def save_document_presentation(
     conn.execute(
         """
         INSERT INTO document_presentations (
-            document_id, content_hash, cache_key, theme, transition, slide_count,
-            file_path, file_size, status, error_message, compile_duration_ms,
+            document_id, content_hash, adoc_hash, cache_key, theme, transition, slide_count,
+            file_path, file_size, status, error_message, presentation_adoc,
+            authoring_provider, authoring_model, prompt_version,
+            compose_duration_ms, compile_duration_ms,
             created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(document_id) DO UPDATE SET
             content_hash = excluded.content_hash,
+            adoc_hash = COALESCE(excluded.adoc_hash, document_presentations.adoc_hash),
             cache_key = excluded.cache_key,
             theme = excluded.theme,
             transition = excluded.transition,
@@ -2303,12 +2396,19 @@ def save_document_presentation(
             file_size = excluded.file_size,
             status = excluded.status,
             error_message = excluded.error_message,
+            presentation_adoc = COALESCE(excluded.presentation_adoc, document_presentations.presentation_adoc),
+            authoring_provider = COALESCE(excluded.authoring_provider, document_presentations.authoring_provider),
+            authoring_model = COALESCE(excluded.authoring_model, document_presentations.authoring_model),
+            prompt_version = COALESCE(excluded.prompt_version, document_presentations.prompt_version),
+            compose_duration_ms = CASE WHEN excluded.compose_duration_ms > 0 THEN excluded.compose_duration_ms ELSE document_presentations.compose_duration_ms END,
             compile_duration_ms = excluded.compile_duration_ms,
             updated_at = excluded.updated_at
         """,
         (
-            document_id, content_hash, cache_key, theme, transition, slide_count,
-            file_path, file_size, status, error_message, compile_duration_ms,
+            document_id, content_hash, adoc_hash, cache_key, theme, transition, slide_count,
+            file_path, file_size, status, error_message, presentation_adoc,
+            authoring_provider, authoring_model, prompt_version,
+            compose_duration_ms, compile_duration_ms,
             now, now,
         ),
     )

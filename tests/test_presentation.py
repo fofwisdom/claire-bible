@@ -282,3 +282,257 @@ def test_presentation_cli_generate_and_status(tmp_path: Path):
             ret_kw = cmd_presentation(args_kw)
             assert ret_kw == 0
 
+
+def test_compose_presentation_prompt_adoc():
+    from claire.extract.prompts import PRESENTATION_PROMPT_VERSION, compose_presentation_prompt_adoc
+
+    assert PRESENTATION_PROMPT_VERSION == "pres-v1"
+    prompt = compose_presentation_prompt_adoc(
+        title="KV-Cache Architecture",
+        detail="= KV-Cache\n\n== Overview\nDetails about paged attention...",
+        summary="Paged attention manages KV cache blocks.",
+        author="Claire Architect",
+        published_at="2026-10-01",
+        focus="Memory optimization",
+        slide_budget=8,
+        theme="night",
+        transition="slide",
+    )
+
+    assert "Asciidoctor reveal.js 전용 프레젠테이션 슬라이드 덱" in prompt
+    assert "KV-Cache Architecture" in prompt
+    assert "Memory optimization" in prompt
+    assert "[.notes]" in prompt
+    assert ":revealjs_theme: night" in prompt
+    assert ":revealjs_transition: slide" in prompt
+
+
+def test_mock_provider_compose_presentation():
+    from claire.extract.provider import MockProvider
+    from claire.ontology.base import Document
+
+    provider = MockProvider()
+    doc = Document(
+        id="doc_mock_pres",
+        title="Modern Vector Databases",
+        url="https://example.com/vector-db",
+        raw_text="Vector search involves HNSW graphs, PQ quantization, and IVF indexes.",
+        author="Claire Team",
+        published_at="2026-10-01",
+    )
+
+    deck = provider.compose_presentation(
+        doc,
+        summary="A comprehensive survey on vector indexing.",
+        focus="HNSW scaling",
+        slide_budget=10,
+        theme="night",
+        transition="slide",
+    )
+
+    assert "= Modern Vector Databases [초점: HNSW scaling]" in deck
+    assert ":revealjs_theme: night" in deck
+    assert ":revealjs_transition: slide" in deck
+    assert "== 1. 아젠다 및 개요 (Agenda & Overview)" in deck
+    assert "== 2. 시스템 아키텍처 (Architecture)" in deck
+    assert "=== 2.1 핵심 파이프라인 구조" in deck
+    assert "=== 2.2 메커니즘 심층 분석" in deck
+    assert "== 3. 비교 분석 및 지표 (Evaluation)" in deck
+    assert "|===" in deck
+    assert "== 4. 주요 결론 및 질의응답 (Conclusion & Q&A)" in deck
+    assert "[.notes]" in deck
+    assert "[quote, Claire Team]" in deck
+
+
+def test_presentation_db_authoring_lifecycle():
+    conn = _memory_db()
+    doc_id = "doc_authoring_1"
+    conn.execute(
+        "INSERT INTO documents (id, title, url, detail, fetched_at) VALUES (?, ?, ?, ?, ?)",
+        (doc_id, "Authoring Test", "https://example.com/auth", "= Doc Detail\nContent", 1700000000),
+    )
+    conn.commit()
+
+    # 1. Save authored presentation adoc
+    test_adoc = "= Title\n:revealjs_theme: night\n\n== Slide 1\n* Bullet 1\n\n[.notes]\n--\n* Note 1\n--"
+    dbm.save_presentation_adoc(
+        conn,
+        document_id=doc_id,
+        presentation_adoc=test_adoc,
+        content_hash="content_hash_123",
+        adoc_hash="adoc_hash_abc",
+        authoring_provider="gemini",
+        authoring_model="gemini-2.5-flash",
+        prompt_version="pres-v1",
+        compose_duration_ms=1850,
+        slide_count=5,
+        theme="night",
+        transition="slide",
+        cache_key="key123",
+        file_path="/tmp/test_pres.html",
+        status="authored",
+    )
+
+    # 2. Verify retrieval of presentation adoc and metadata
+    adoc_retrieved = dbm.get_presentation_adoc(conn, doc_id)
+    assert adoc_retrieved == test_adoc
+
+    meta = dbm.get_document_presentation(conn, doc_id)
+    assert meta is not None
+    assert meta["presentation_adoc"] == test_adoc
+    assert meta["adoc_hash"] == "adoc_hash_abc"
+    assert meta["authoring_provider"] == "gemini"
+    assert meta["authoring_model"] == "gemini-2.5-flash"
+    assert meta["compose_duration_ms"] == 1850
+    assert meta["status"] == "authored"
+
+    # 3. Update with compiled output
+    dbm.save_document_presentation(
+        conn,
+        document_id=doc_id,
+        content_hash="content_hash_123",
+        cache_key="key123",
+        file_path="/tmp/test_pres.html",
+        file_size=2048,
+        theme="night",
+        transition="slide",
+        slide_count=5,
+        status="ready",
+        compile_duration_ms=120,
+    )
+
+    meta_compiled = dbm.get_document_presentation(conn, doc_id)
+    assert meta_compiled is not None
+    assert meta_compiled["status"] == "ready"
+    assert meta_compiled["file_size"] == 2048
+    assert meta_compiled["compile_duration_ms"] == 120
+    # Preserved adoc and authoring fields
+    assert meta_compiled["presentation_adoc"] == test_adoc
+    assert meta_compiled["authoring_provider"] == "gemini"
+    assert meta_compiled["compose_duration_ms"] == 1850
+
+
+def test_presentation_cli_compose_and_compile(tmp_path: Path):
+    from claire.cli import cmd_presentation
+    from argparse import Namespace
+
+    db_file = tmp_path / "test_cli2.db"
+    conn = dbm.connect(db_file)
+    dbm.init_db(conn)
+    doc_id = "doc_cli_compose"
+    conn.execute(
+        "INSERT INTO documents (id, title, url, canonical_url, detail, fetched_at) VALUES (?, ?, ?, ?, ?, ?)",
+        (doc_id, "CLI Compose Title", "https://example.com/comp", "https://example.com/comp", "= Doc Title\n== Chapter 1\nDetail content", 1700000000),
+    )
+    conn.commit()
+    conn.close()
+
+    with patch("claire.cli.get_effective_settings") as mock_settings:
+        s = Settings(db_path=str(db_file), data_dir=tmp_path, render_format="adoc")
+        mock_settings.return_value = (s, None)
+
+        with patch("claire.presentation.service.compile_presentation_html") as mock_compile:
+            target_file = tmp_path / "presentations" / f"{doc_id}.html"
+            target_file.parent.mkdir(parents=True, exist_ok=True)
+            target_file.write_text("<!DOCTYPE html><html><body><h1>Slide Deck</h1></body></html>")
+            mock_compile.return_value = (target_file, 110)
+
+            # 1. Compose presentation
+            args_comp = Namespace(
+                action="compose",
+                target=doc_id,
+                doc_id_flag="",
+                focus="Speed optimization",
+                slide_budget=8,
+                theme="night",
+                transition="slide",
+                no_compile=False,
+                json=True,
+            )
+            ret_comp = cmd_presentation(args_comp)
+            assert ret_comp == 0
+
+            # 2. Check adoc file exists on disk
+            adoc_file = tmp_path / "presentations" / f"{doc_id}.adoc"
+            assert adoc_file.exists()
+            assert "= CLI Compose Title" in adoc_file.read_text(encoding="utf-8")
+
+            # 3. View adoc via show-adoc command
+            args_show = Namespace(action="show-adoc", target=doc_id, doc_id_flag="", json=True)
+            ret_show = cmd_presentation(args_show)
+            assert ret_show == 0
+
+            # 4. Compile again with different theme
+            args_compile = Namespace(action="compile", target=doc_id, doc_id_flag="", theme="white", transition="fade", force=True, json=True)
+            ret_compile = cmd_presentation(args_compile)
+            assert ret_compile == 0
+
+
+def test_api_presentation_compose_and_adoc(tmp_path: Path):
+    from claire.api.server import create_app
+
+    db_file = tmp_path / "claire_api2.db"
+    conn = sqlite3.connect(str(db_file))
+    conn.row_factory = sqlite3.Row
+    dbm.init_db(conn)
+
+    doc_id = "doc_api_compose"
+    detail_adoc = "= API Compose Test\n== Section 1\nContent for API presentation."
+    conn.execute(
+        "INSERT INTO documents (id, title, url, detail, detail_format) VALUES (?, ?, ?, ?, 'adoc')",
+        (doc_id, "API Compose Test", "https://example.com/api2", detail_adoc),
+    )
+    conn.commit()
+    conn.close()
+
+    owner_token = "owner-" + ("z" * 32)
+    owner_headers = {"Authorization": f"Bearer {owner_token}"}
+
+    s = Settings(
+        db_path=str(db_file),
+        data_dir=tmp_path,
+        inject_token=owner_token,
+        render_format="adoc",
+    )
+    app = create_app(s)
+    with TestClient(app, base_url=s.public_url, raise_server_exceptions=False) as client:
+        with patch("claire.presentation.service.compile_presentation_html") as mock_compile:
+            target_file = tmp_path / "presentations" / f"{doc_id}.html"
+            target_file.parent.mkdir(parents=True, exist_ok=True)
+            target_file.write_text("<!DOCTYPE html><html><body><h1>API Slide</h1></body></html>")
+            mock_compile.return_value = (target_file, 130)
+
+            # 1. Compose via POST /document/presentation/compose
+            res = client.post(
+                "/document/presentation/compose",
+                json={"id": doc_id, "focus": "Latency", "slide_budget": 6},
+                headers=owner_headers,
+            )
+            assert res.status_code == 200
+            data = res.json()
+            assert data["status"] == "ready"
+            assert data["document_id"] == doc_id
+
+            # 2. Get adoc via GET /document/presentation/adoc
+            res_adoc = client.get(f"/document/presentation/adoc?id={doc_id}", headers=owner_headers)
+            assert res_adoc.status_code == 200
+            adoc_json = res_adoc.json()
+            assert "presentation_adoc" in adoc_json
+            assert "= API Compose Test" in adoc_json["presentation_adoc"]
+
+            # 3. Update adoc via PUT /document/presentation/adoc
+            new_adoc = "= Edited Title\n:revealjs_theme: league\n\n== New Slide\n* New Point\n\n[.notes]\n--\n* Edited note\n--"
+            res_put = client.put(
+                "/document/presentation/adoc",
+                json={"id": doc_id, "presentation_adoc": new_adoc, "recompile": True},
+                headers=owner_headers,
+            )
+            assert res_put.status_code == 200
+            assert res_put.json()["status"] == "ready"
+
+            # 4. Verify updated adoc is returned
+            res_adoc_updated = client.get(f"/document/presentation/adoc?id={doc_id}", headers=owner_headers)
+            assert "= Edited Title" in res_adoc_updated.json()["presentation_adoc"]
+
+
+

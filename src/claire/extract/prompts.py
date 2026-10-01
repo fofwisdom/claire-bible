@@ -17,6 +17,8 @@ if TYPE_CHECKING:
 # v6: 테이블 및 매트릭스 데이터 누락 방지 및 본문 글자 수 계산 제외 규칙 적용.
 # v7: 복합 문서의 자막·Presentation 구성요소별 최소 예산 보장.
 PROMPT_VERSION = "extract-v7"
+# 프레젠테이션 저작 프롬프트 버전
+PRESENTATION_PROMPT_VERSION = "pres-v1"
 
 # 단일 출처 문서의 LLM 투입 예산 (수집 상한인 20,000자에 맞춤). 병합 문서는 2배 (40,000자).
 _SINGLE_DOC_CHAR_BUDGET = 20000
@@ -692,6 +694,105 @@ def render_detail_prompt(
     return render_detail_prompt_md(
         body, images, merged=merged, scale=scale, focus=focus
     )
+
+
+def compose_presentation_prompt_adoc(
+    title: str,
+    detail: str,
+    summary: str | None = None,
+    *,
+    author: str | None = None,
+    published_at: str | None = None,
+    focus: str | None = None,
+    slide_budget: int = 10,
+    theme: str = "night",
+    transition: str = "slide",
+) -> str:
+    """원문 기술 지식을 바탕으로 전문 테크니컬 발표 슬라이드와 발표자 노트를 집필하는 프롬프트."""
+    focus_section = (
+        f"\n[★ 최우선 중점 발표 초점(Focus)]\n"
+        f"- 이번 발표에서는 다음 주제 및 관점을 가장 비중 있게 다루어라: **{focus.strip()}**\n"
+        f"- 해당 주제에 대해 원문의 기술적 세부사항과 작동 원리를 심도 있게 풀어내라.\n\n"
+        if focus and focus.strip()
+        else ""
+    )
+
+    author_line = f":author: {author.strip()}\n" if author and author.strip() else ""
+    date_line = f":revdate: {published_at.strip()}\n" if published_at and published_at.strip() else ""
+
+    min_slides = max(4, slide_budget - 2)
+    max_slides = slide_budget + 4
+
+    return (
+        "당신은 세계 최고의 기술 컨퍼런스(QCon, Strange Loop, AWS re:Invent)의 수석 테크니컬 스피커이자 프레젠테이션 디자이너다.\n"
+        "제공된 기술 문서(AsciiDoc)의 핵심 통찰을 바탕으로, 청중을 사로잡을 **Asciidoctor reveal.js 전용 프레젠테이션 슬라이드 덱**을 직접 집필하라.\n\n"
+        f"[원문 정보]\n"
+        f"- 문서 제목: {title}\n"
+        f"- 핵심 요약: {summary or '(없음)'}\n"
+        f"{focus_section}"
+        "[★ 프레젠테이션 저작 핵심 규칙]\n\n"
+        "1. [단순 본문 복사 절대 금지 / 슬라이드 전용 언어로의 재구성]\n"
+        "   - 원문의 긴 줄글 문단을 그대로 슬라이드에 옮겨 적지 마라.\n"
+        "   - 한 슬라이드당 3~5개의 핵심 불릿 포인트(`* `)로 압축하라.\n"
+        "   - 각 불릿은 1~2줄 이내로 간결하고 임팩트 있게 작성하며, 핵심 용어는 `*굵게*` 강조하라.\n"
+        "   - 한 슬라이드에 너무 많은 내용을 욱여넣지 마라.\n\n"
+        "2. [2D 그리드 내러티브 구조 설계]\n"
+        f"   - 총 슬라이드 분량은 대략 {min_slides} ~ {max_slides}장 내외로 구성하라.\n"
+        "   - 대주제/아젠다 전환은 수평 슬라이드(`== `)를 사용하라:\n"
+        "     * 슬라이드 1: 타이틀 (문서 제목 및 핵심 부제)\n"
+        "     * 슬라이드 2: 아젠다 및 발표의 핵심 문제의식(Motivation)\n"
+        "     * 중간 섹션: 핵심 기술 아키텍처 및 상세 메커니즘\n"
+        "     * 후반 섹션: 성능 지표, 비교 분석, 한계점 및 고려사항\n"
+        "     * 마지막 섹션: 핵심 테이크어웨이(Takeaways) 및 Q&A\n"
+        "   - 동일 대주제 내에서의 세부 기술 분석, 아키텍처 다이어그램, 코드 해설, 비교 표는 수직 슬라이드(`=== `)로 배치하라.\n\n"
+        "3. [★ 필수 요구사항: 모든 슬라이드에 발표자 노트([.notes]) 작성]\n"
+        "   - reveal.js의 발표자 모드(단축키 'S')에서 발표자가 직접 읽고 설명할 수 있는 **구체적인 구어체 발표 대본**을 모든 슬라이드 하단에 반드시 작성하라.\n"
+        "   - 슬라이드 본문에는 핵심 키워드와 불릿만 간결히 표기하고, 원문의 깊이 있는 맥락, 수치, 인과관계, 비유적 설명은 반드시 `[.notes]` 블록 안에 2~4문장의 생생한 발표 스크립트로 서술하라.\n"
+        "   - 발표자 노트 문법 예시:\n"
+        "     [.notes]\n"
+        "     --\n"
+        "     * (발표 도입): 이 장표에서 청중에게 전달해야 할 핵심 메시지는 ...\n"
+        "     * (기술 해설): 슬라이드에 표기된 기술 용어의 배경과 작동 원리를 상세히 설명.\n"
+        "     * (전환 멘트): 그렇다면 다음 단계에서 시스템은 어떻게 동작할까요?\n"
+        "     --\n\n"
+        "4. [시각적 요소 및 AsciiDoc 컴포넌트 적극 활용]\n"
+        "   - 인용구: 원문의 핵심 선언이나 문제 제기는 `[quote, 핵심 인물 또는 원문]` 블록으로 장표 중앙에 배치하라.\n"
+        "   - 주의/팁: 핵심 전제 조건이나 트레이드오프는 `[NOTE]` 또는 `[IMPORTANT]` 블록을 1~2곳에 배치하라.\n"
+        "   - 비교 표: 여러 옵션이나 성능 수치는 `[cols=\"...\", options=\"header\"] |===` 테이블로 정돈하라.\n"
+        "   - 코드 스니펫: 코드가 필요한 경우 `[source,언어]`와 함께 콜아웃(`// <1>`, `<1> 설명`)을 결합하여 가독성을 높여라.\n\n"
+        "5. [엄격한 AsciiDoc 표준 및 reveal.js 속성 준수]\n"
+        "   - 마크다운 문법(`---`, `**`, `#`, `>`)은 일체 사용하지 마라.\n"
+        "   - 반드시 문서 시작부에 다음 reveal.js 헤더 속성을 포함하라:\n"
+        f"     = {title}\n"
+        f"     {author_line}"
+        f"     {date_line}"
+        f"     :revealjs_theme: {theme}\n"
+        f"     :revealjs_transition: {transition}\n"
+        "     :revealjs_slideNumber: c/t\n"
+        "     :revealjs_history: true\n"
+        "     :revealjs_hash: true\n"
+        "     :revealjs_controls: true\n"
+        "     :revealjs_progress: true\n"
+        "     :revealjs_center: true\n"
+        "     :source-highlighter: highlight.js\n"
+        "     :icons: font\n\n"
+        "[원문 본문(AsciiDoc)]:\n"
+        f"{detail}\n\n"
+        "위 원문을 바탕으로 발표용 순수 AsciiDoc 슬라이드 덱을 작성하라. 다른 인사말이나 설명 없이 오직 '= 제목'으로 시작하는 AsciiDoc 코드만을 출력하라:"
+    )
+
+
+def clean_code_fence(text: str) -> str:
+    """LLM이 ```asciidoc 또는 ``` 등으로 감싸서 반환한 경우 코드 펜스를 제거한다."""
+    t = text.strip()
+    if t.startswith("```"):
+        lines = t.splitlines()
+        if lines and lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        return "\n".join(lines).strip()
+    return t
 
 
 def classify_watch_prompt(body: str) -> str:

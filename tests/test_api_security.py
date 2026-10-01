@@ -271,12 +271,17 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         "/oauth/authorize/telegram-push",
         "/oauth/token",
     }
-    read_get = {"/", "/whoami", "/stats", "/graph", "/node", "/documents", "/document", "/document/presentation", "/resolution/decisions", "/ingest/active", "/mcp", "/themes"}
+    read_get = {"/", "/whoami", "/stats", "/graph", "/node", "/documents", "/document", "/document/presentation", "/document/presentation/adoc", "/resolution/decisions", "/ingest/active", "/mcp", "/themes"}
     read_post = {"/search", "/mcp", "/share"}
     collaborator_post = {
         "/ingest",
         "/ingest-stream",
         "/document/presentation/generate",
+        "/document/presentation/compose",
+        "/document/presentation/compile",
+    }
+    collaborator_methods = {
+        ("PUT", "/document/presentation/adoc"),
     }
     owner_post = {
         "/document/seen",
@@ -316,6 +321,7 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         },
         **{("POST", path): "read" for path in read_post},
         **{("POST", path): "collaborator" for path in collaborator_post},
+        **{key: "collaborator" for key in collaborator_methods},
         **{("POST", path): "owner" for path in owner_post},
         **{key: "owner" for key in owner_methods},
     }
