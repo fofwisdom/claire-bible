@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from collections import Counter
+from pathlib import Path
 from typing import Any
 
 from . import db as dbm
@@ -205,6 +206,22 @@ def document_detail(
     stt_segments = stt_data["segments"] if stt_data else []
     stt_truncated = bool(stt_data["stt_truncated"]) if stt_data else False
 
+    pres = dbm.get_document_presentation(conn, document_id)
+    has_presentation = False
+    presentation_status = None
+    if pres:
+        presentation_status = pres.get("status")
+        if presentation_status == "ready":
+            fp = pres.get("file_path")
+            if fp and Path(fp).is_file():
+                has_presentation = True
+            elif (Path("data/presentations") / f"{document_id}.html").is_file():
+                has_presentation = True
+    else:
+        if (Path("data/presentations") / f"{document_id}.html").is_file():
+            has_presentation = True
+            presentation_status = "ready"
+
     return {
         "id": document_id,
         "title": row["title"] or "(제목 없음)",
@@ -251,6 +268,8 @@ def document_detail(
         "has_decision_stream": bool(meta_dict.get("has_decision_stream", False)),
         "resolution_log": meta_dict.get("resolution_log") or [],
         "heatmap_matrix": meta_dict.get("heatmap_matrix"),
+        "has_presentation": has_presentation,
+        "presentation_status": presentation_status,
         "meta": meta_dict,
     }
 

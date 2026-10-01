@@ -232,7 +232,7 @@ const presToken = (typeof window !== 'undefined' && window.location) ? (new URLS
 const presUrl = presToken ? ('/p/presentation?s=' + encodeURIComponent(presToken)) : ((dc && dc.id) ? ('/p/presentation?id=' + encodeURIComponent(dc.id)) : '');
 let h='<div class="share-header-bar" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">';
 h+='<div class=brand>Claire Bible · 공유 문서</div>';
-if(presUrl){
+if(dc && dc.has_presentation && presUrl){
   h+='<a class="focus-tag pres-tag" href="' + esc(presUrl) + '" target="_blank" rel="noopener" style="font-size:12px;padding:3px 10px;text-decoration:none" title="Asciidoctor reveal.js 프레젠테이션 보기">🖥️ 프레젠테이션 보기</a>';
 }
 h+='</div>';
