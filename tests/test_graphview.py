@@ -890,5 +890,34 @@ def test_matrix_confirm_button_and_redundant_close_removal():
     assert ".matrix-confirm-btn {\n  background: var(--accent, #0284c7) !important;\n  color: #ffffff !important;\n  font-weight: 600 !important;\n  border: 1px solid transparent !important;\n  padding: 0 14px !important;\n  height: 34px !important;\n  border-radius: 6px !important;" in GRAPH_HTML
 
 
+def test_detailpane_title_and_duplicate_removal():
+    """'메뉴 & 상세' 타이틀을 '상세 메뉴'로 변경하고, 우측 상세 패널(renderDocPanel)에서 본문 리더와 중복되는 원문 링크 및 요약 제거 검증."""
+    from claire.graphview import GRAPH_HTML
+
+    # 1. 헤더 타이틀이 '상세 메뉴'로 변경됨
+    assert "<strong>상세 메뉴</strong>" in GRAPH_HTML
+    assert "<strong>메뉴 &amp; 상세</strong>" not in GRAPH_HTML
+
+    # 2. renderDocPanel 에서 원문 열기 링크를 제거하기 위해 docMetaHtml(dc, { showOrigin: false }) 호출
+    assert "h+=docMetaHtml(dc, { showOrigin: false });" in GRAPH_HTML
+
+    # 3. renderDocPanel 에서 요약 블록 및 요약 부재 안내 제거됨
+    start = GRAPH_HTML.index("function renderDocPanel(dc){")
+    end = GRAPH_HTML.index("function focusNode(id, pushHist=true){")
+    doc_panel_fn = GRAPH_HTML[start:end]
+
+    assert "<h3>요약</h3>" not in doc_panel_fn
+    assert "synth" not in doc_panel_fn
+    assert "문서에 요약/상세 내용이 없습니다." not in doc_panel_fn
+
+    # 4. 중앙 리더(renderReader)에는 여전히 요약 및 원문 메타가 보존됨
+    r_start = GRAPH_HTML.index("function renderReader(dc){")
+    r_end = GRAPH_HTML.index("function updateReaderRail(){")
+    reader_fn = GRAPH_HTML[r_start:r_end]
+    assert "h+=docMetaHtml(dc);" in reader_fn
+    assert "<div class=rsection>요약</div>" in reader_fn
+
+
+
 
 

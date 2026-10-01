@@ -30,7 +30,7 @@ flowchart LR
      - 사용자가 **[확인]** 단추를 누르는 즉시 브라우저 메모리에서 영구 삭제되어 다시는 나타나지 않음 (일회성 소비).
 2. **Decision Stream (인과 의사결정 스트림)**:
    - **목적**: 엔티티 해소 파이프라인의 시간별 단계(Exact Match → Acronym → LLM Judge → Cross-link)와 판단 사유를 기록하여, 오병합/오분할을 추적하고 교정하기 위한 **감사 추적 로그(Audit Trail)**.
-   - **접근 경로**: 웹 UI 우측 사이드바 **'메뉴 & 상세'** 액션 영역 내 **`[📜 판단 기록]`** 버튼을 통해 언제든 진입 가능.
+   - **접근 경로**: 웹 UI 우측 사이드바 **'상세 메뉴'** 액션 영역 내 **`[📜 판단 기록]`** 버튼을 통해 언제든 진입 가능.
 
 ---
 
@@ -118,7 +118,7 @@ flowchart TD
    - 사용자가 좌측 목록에서 해당 문서를 처음 열 때, 본문 상단에 Heatmap Matrix 오버레이 표시.
    - **[확인]** 단추 클릭 시 `sessionStorage.removeItem` 실행 및 DOM 영구 제거.
 4. **사후 감사 (Audit State)**:
-   - 우측 사이드바 `detailpane` 상단 '메뉴 & 상세'의 **`[📜 판단 기록]`** 단추를 클릭하여 해당 문서의 `documents.meta["resolution_log"]` 데이터를 BookStack 카드 형태로 열람.
+   - 우측 사이드바 `detailpane` 상단 '상세 메뉴'의 **`[📜 판단 기록]`** 단추를 클릭하여 해당 문서의 `documents.meta["resolution_log"]` 데이터를 BookStack 카드 형태로 열람.
 
 ---
 

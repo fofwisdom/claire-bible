@@ -411,6 +411,8 @@ function openReader(docId, pushHist=true){
 }
 function docMetaHtml(dc){
   if(!dc) return '';
+  const options = arguments[1] || {};
+  const showOrigin = options.showOrigin !== false;
   const hasUrl = !!dc.url;
   const isTrunc = !!(dc.raw_truncated || (dc.meta && dc.meta.raw_truncated));
   const isAppTrunc = isTrunc && !!(dc.appendix_truncated || (dc.meta && dc.meta.appendix_truncated));
@@ -439,21 +441,24 @@ function docMetaHtml(dc){
   } else if(totalChars > 0){
     charTip = '전체 문자 수: ' + totalChars.toLocaleString() + '자';
   }
-  if(!hasUrl && !isTrunc && !focus && !isStt && !isCc && !isParserFallback && !hasPresentation && !isEncodingFlaw && !isScanned && !totalChars) return '';
+  if((showOrigin && !hasUrl) && !isTrunc && !focus && !isStt && !isCc && !isParserFallback && !hasPresentation && !isEncodingFlaw && !isScanned && !totalChars) return '';
+  if(!showOrigin && !isTrunc && !focus && !isStt && !isCc && !isParserFallback && !hasPresentation && !isEncodingFlaw && !isScanned && !totalChars) return '';
   let h='<p class=docmeta' + (charTip ? ' title="'+esc(charTip)+'"' : '') + '>';
-  if(hasUrl){
-    h+='<a href="'+esc(dc.url)+'" target=_blank rel=noopener>↗ 원문 열기</a>';
-    if(isStt){
-      h+=' <a href="#" class="stt-link" onclick="openSttReader();return false;" title="음성 인식(STT) 전사 텍스트 열기">↗ 전사 열기</a>';
-    }
-    if(hasPresentation){
-      h+=' <a href="'+esc(presentation.public_url)+'" target=_blank rel=noopener>↗ Presentation PDF</a>';
-    }
-  } else {
-    if(isStt){
-      h+='<a href="#" class="stt-link" onclick="openSttReader();return false;" title="음성 인식(STT) 전사 텍스트 열기">↗ 전사 열기</a>';
+  if(showOrigin){
+    if(hasUrl){
+      h+='<a href="'+esc(dc.url)+'" target=_blank rel=noopener>↗ 원문 열기</a>';
+      if(isStt){
+        h+=' <a href="#" class="stt-link" onclick="openSttReader();return false;" title="음성 인식(STT) 전사 텍스트 열기">↗ 전사 열기</a>';
+      }
+      if(hasPresentation){
+        h+=' <a href="'+esc(presentation.public_url)+'" target=_blank rel=noopener>↗ Presentation PDF</a>';
+      }
     } else {
-      h+='<span></span>';
+      if(isStt){
+        h+='<a href="#" class="stt-link" onclick="openSttReader();return false;" title="음성 인식(STT) 전사 텍스트 열기">↗ 전사 열기</a>';
+      } else {
+        h+='<span></span>';
+      }
     }
   }
   let tags=[];
@@ -562,6 +567,8 @@ function docMetaHtml(dc){
   }
   if(tags.length){
     h+='<span class="docmeta-tags">'+tags.join(' ')+'</span>';
+  } else if(!showOrigin){
+    return '';
   }
   h+='</p>';
   return h;
