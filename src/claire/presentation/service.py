@@ -4,11 +4,11 @@ Handles LLM-driven presentation authoring (composition), AOT caching,
 cache invalidation, and orchestration with the Asciidoctor reveal.js compiler.
 """
 
-from __future__ import annotations
-
+import asyncio
 import hashlib
 import sqlite3
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +19,12 @@ from .preprocessor import (
     prepare_presentation_adoc_for_compile,
     preprocess_adoc_to_slides,
 )
+
+# Concurrency slot = 1: Dedicated worker pool and semaphore to prevent freezing the server
+_PRES_SEMAPHORE = asyncio.Semaphore(1)
+_PRES_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="pres-worker")
+_PRES_IN_FLIGHT: dict[str, asyncio.Future[dict]] = {}
+_PRES_IN_FLIGHT_LOCK = asyncio.Lock()
 
 
 class PresentationService:
@@ -39,6 +45,11 @@ class PresentationService:
     def is_engine_available(cls) -> bool:
         """Check if asciidoctor-revealjs compiler is available on system."""
         return find_asciidoctor_executable() is not None
+
+    @classmethod
+    def is_in_flight(cls, key: str) -> bool:
+        """Check if a presentation authoring/compiling job is currently in-flight."""
+        return key in _PRES_IN_FLIGHT
 
     def get_presentation_file_path(self, doc_id: str) -> Path:
         """Get output path for compiled presentation HTML file."""
@@ -111,20 +122,50 @@ class PresentationService:
             meta=meta_dict,
         )
 
-        t_start = time.perf_counter()
-        deck_adoc = provider.compose_presentation(
-            doc_obj,
-            summary=summary,
-            focus=focus,
-            slide_budget=slide_budget,
-            theme=theme,
-            transition=transition,
-            effort=effort,
-        )
-        compose_ms = int((time.perf_counter() - t_start) * 1000)
-
         # Hash calculations
         content_hash = hashlib.sha256(detail.encode("utf-8")).hexdigest()
+        html_file = self.get_presentation_file_path(doc_id)
+
+        # Mark composing state in DB so clients know work is in progress
+        dbm.save_document_presentation(
+            conn,
+            document_id=doc_id,
+            content_hash=content_hash,
+            adoc_hash="",
+            cache_key="",
+            file_path=str(html_file),
+            file_size=0,
+            theme=theme,
+            transition=transition,
+            slide_count=0,
+            presentation_adoc="",
+            status="composing",
+        )
+
+        t_start = time.perf_counter()
+        try:
+            loop = asyncio.get_running_loop()
+            deck_adoc = await loop.run_in_executor(
+                _PRES_EXECUTOR,
+                lambda: provider.compose_presentation(
+                    doc_obj,
+                    summary=summary,
+                    focus=focus,
+                    slide_budget=slide_budget,
+                    theme=theme,
+                    transition=transition,
+                    effort=effort,
+                ),
+            )
+        except Exception as exc:
+            dbm.update_document_presentation_status(
+                conn,
+                document_id=doc_id,
+                status="failed",
+                error_message=str(exc),
+            )
+            raise
+        compose_ms = int((time.perf_counter() - t_start) * 1000)
         adoc_hash = hashlib.sha256(deck_adoc.encode("utf-8")).hexdigest()
         cache_key = hashlib.sha256(
             f"{adoc_hash}:{theme}:{transition}".encode("utf-8")
@@ -219,7 +260,9 @@ class PresentationService:
             and existing.get("transition") == transition
             and target_file.exists()
         ):
-            return existing
+            res_dict = dict(existing)
+            res_dict["is_ready"] = True
+            return res_dict
 
         # 3. Prepare compiler attributes (theme, customcss, revealjsdir)
         compiler_adoc = prepare_presentation_adoc_for_compile(
@@ -282,8 +325,10 @@ class PresentationService:
             )
             raise
 
-        record = dbm.get_document_presentation(conn, doc_id)
-        return record or {}
+        record = dbm.get_document_presentation(conn, doc_id) or {}
+        if record.get("status") == "ready":
+            record["is_ready"] = True
+        return record
 
     async def get_or_create_presentation(
         self,
@@ -298,6 +343,7 @@ class PresentationService:
         theme: str = "night",
         transition: str = "slide",
         effort: str | None = None,
+        allow_compose: bool = True,
     ) -> dict:
         """저작 및 컴파일을 오케스트레이션하여 유효한 프레젠테이션을 보장한다."""
         target_file = self.get_presentation_file_path(doc_id)
@@ -328,24 +374,55 @@ class PresentationService:
 
         has_adoc = existing and existing.get("presentation_adoc")
 
-        # If we need to author or force compose or presentation_adoc is absent
-        if force_compose or not has_adoc:
-            await self.compose_presentation(
-                conn,
-                doc_id,
-                provider=provider,
-                focus=focus,
-                slide_budget=slide_budget,
-                theme=theme,
-                transition=transition,
-                effort=effort,
-            )
+        # If composition is disallowed (e.g. from read-only GET routes) and not already authored
+        if not allow_compose and (force_compose or not has_adoc):
+            return {
+                "document_id": doc_id,
+                "status": (existing.get("status") if existing else "not_created"),
+                "file_path": str(target_file),
+                "is_ready": False,
+            }
 
-        # Compile presentation to HTML
-        return await self.compile_presentation(
-            conn,
-            doc_id,
-            theme=theme,
-            transition=transition,
-            force_recompile=force_recompile,
-        )
+        cache_key_inflight = f"{doc_id}:{theme}:{transition}"
+        async with _PRES_IN_FLIGHT_LOCK:
+            if cache_key_inflight in _PRES_IN_FLIGHT:
+                future = _PRES_IN_FLIGHT[cache_key_inflight]
+                return await future
+            loop = asyncio.get_running_loop()
+            future = loop.create_future()
+            _PRES_IN_FLIGHT[cache_key_inflight] = future
+
+        try:
+            async with _PRES_SEMAPHORE:
+                existing = dbm.get_document_presentation(conn, doc_id)
+                has_adoc = existing and existing.get("presentation_adoc")
+
+                if force_compose or not has_adoc:
+                    await self.compose_presentation(
+                        conn,
+                        doc_id,
+                        provider=provider,
+                        focus=focus,
+                        slide_budget=slide_budget,
+                        theme=theme,
+                        transition=transition,
+                        effort=effort,
+                    )
+
+                res = await self.compile_presentation(
+                    conn,
+                    doc_id,
+                    theme=theme,
+                    transition=transition,
+                    force_recompile=force_recompile,
+                )
+                if not future.done():
+                    future.set_result(res)
+                return res
+        except Exception as exc:
+            if not future.done():
+                future.set_exception(exc)
+            raise
+        finally:
+            async with _PRES_IN_FLIGHT_LOCK:
+                _PRES_IN_FLIGHT.pop(cache_key_inflight, None)

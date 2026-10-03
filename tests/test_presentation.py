@@ -644,5 +644,61 @@ def test_presentation_hud_and_layout():
     assert 'body:not([data-auth-scope="owner"]) #presentation-download-btn' in workspace_css
 
 
+def test_presentation_option_a_and_async_generation(tmp_path: Path):
+    """Test Option A (no LLM generation on GET, returns guidance HTML) and async wait=false generation."""
+    from claire.api.server import create_app
 
+    db_file = tmp_path / "claire_option_a.db"
+    conn = sqlite3.connect(str(db_file))
+    conn.row_factory = sqlite3.Row
+    dbm.init_db(conn)
 
+    doc_id = "doc_option_a_test"
+    detail_adoc = "= Option A Test\n== Section 1\nContent for slide.\n"
+    conn.execute(
+        """
+        INSERT INTO documents (id, title, url, detail, detail_format)
+        VALUES (?, 'Option A Test Doc', 'https://example.com/opt-a', ?, 'adoc')
+        """,
+        (doc_id, detail_adoc),
+    )
+    conn.commit()
+    conn.close()
+
+    owner_token = "owner-" + ("a" * 32)
+    owner_headers = {"Authorization": f"Bearer {owner_token}"}
+    s = Settings(
+        db_path=str(db_file),
+        data_dir=tmp_path,
+        inject_token=owner_token,
+        render_format="adoc",
+    )
+    app = create_app(s)
+    with TestClient(app, base_url=s.public_url, raise_server_exceptions=False) as client:
+        # 1. Option A: GET /p/presentation on ungenerated document MUST return 404 guidance HTML
+        # and MUST NOT trigger LLM authoring or file generation
+        page_res = client.get(f"/p/presentation?id={doc_id}")
+        assert page_res.status_code == 404
+        assert "프레젠테이션이 아직 생성되지 않았습니다" in page_res.text
+        assert "Option A Test Doc" in page_res.text
+        assert "문서 본문 보기" in page_res.text
+
+        # 2. Check metadata: status should be not_created
+        status_res = client.get(f"/document/presentation?id={doc_id}", headers=owner_headers)
+        assert status_res.status_code == 200
+        assert status_res.json()["status"] == "not_created"
+
+        # 3. Test async generation: POST /document/presentation/generate?wait=false
+        with patch("claire.presentation.service.compile_presentation_html") as mock_compile:
+            target_file = tmp_path / "presentations" / f"{doc_id}.html"
+            target_file.parent.mkdir(parents=True, exist_ok=True)
+            target_file.write_text("<!DOCTYPE html><html><body><h1>Async Option A</h1></body></html>")
+            mock_compile.return_value = (target_file, 120)
+
+            async_res = client.post(
+                f"/document/presentation/generate?id={doc_id}&wait=false",
+                headers=owner_headers,
+            )
+            assert async_res.status_code == 202
+            assert async_res.json()["status"] == "composing"
+            assert async_res.json()["document_id"] == doc_id

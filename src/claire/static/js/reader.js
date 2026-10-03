@@ -1577,6 +1577,19 @@ if(typeof window !== 'undefined'){
   });
 }
 
+let presPollInterval = null;
+
+function _onPresentationReady(targetId){
+  if(typeof curReaderDocData !== 'undefined' && curReaderDocData && curReaderDocData.id === targetId){
+    curReaderDocData.has_presentation = true;
+  }
+  const dc = typeof allDocs !== 'undefined' && allDocs && allDocs.find(d => d.id === targetId);
+  if(dc) dc.has_presentation = true;
+  const frame = document.getElementById('presentation-frame');
+  if(frame) frame.removeAttribute('data-doc-id');
+  updatePresentationView(targetId);
+}
+
 async function generatePresentationForCurrentDoc(){
   const targetId = (typeof curReaderDoc !== 'undefined' && curReaderDoc) ||
                    (typeof activeDoc !== 'undefined' && activeDoc);
@@ -1587,21 +1600,64 @@ async function generatePresentationForCurrentDoc(){
     genBtn.disabled = true;
     genBtn.textContent = '프레젠테이션 생성 중… ⏳';
   }
-  if(emptyMsg) emptyMsg.textContent = 'AsciiDoc 및 reveal.js 장표를 작성하고 변환하는 중입니다. 잠시만 기다려주세요…';
+  if(emptyMsg) emptyMsg.textContent = 'AsciiDoc 및 reveal.js 장표 작성을 요청하는 중입니다…';
+
+  if(presPollInterval){
+    clearInterval(presPollInterval);
+    presPollInterval = null;
+  }
+
+  const startTime = Date.now();
 
   try {
-    const res = await fetch('document/presentation/generate?id=' + encodeURIComponent(targetId), { method: 'POST' });
-    if(res.ok){
-      if(typeof curReaderDocData !== 'undefined' && curReaderDocData && curReaderDocData.id === targetId){
-        curReaderDocData.has_presentation = true;
-      }
-      const dc = typeof allDocs !== 'undefined' && allDocs && allDocs.find(d => d.id === targetId);
-      if(dc) dc.has_presentation = true;
-      const frame = document.getElementById('presentation-frame');
-      if(frame) frame.removeAttribute('data-doc-id');
-      updatePresentationView(targetId);
+    const res = await fetch('/document/presentation/generate?id=' + encodeURIComponent(targetId) + '&wait=false', { method: 'POST' });
+    const data = await res.json().catch(() => ({}));
+
+    if(res.status === 200 && data.status === 'ready'){
+      _onPresentationReady(targetId);
+      return;
+    }
+
+    if(res.status === 202 || res.status === 200){
+      if(emptyMsg) emptyMsg.textContent = 'AI가 문서 내용을 분석하여 AsciiDoc 슬라이드를 집필 중입니다 (0초 경과)…';
+      presPollInterval = setInterval(async () => {
+        const elapsed = Math.round((Date.now() - startTime) / 1000);
+        if(elapsed > 120){
+          clearInterval(presPollInterval);
+          presPollInterval = null;
+          if(emptyMsg) emptyMsg.textContent = '생성 시간이 초과되었습니다 (120초 경과). 잠시 후 다시 확인하거나 재시도해주세요.';
+          if(genBtn){
+            genBtn.disabled = false;
+            genBtn.textContent = '다시 시도';
+          }
+          return;
+        }
+
+        try {
+          const pollRes = await fetch('/document/presentation?id=' + encodeURIComponent(targetId));
+          if(!pollRes.ok) return;
+          const pollData = await pollRes.json();
+          if(pollData.status === 'ready' && pollData.is_ready){
+            clearInterval(presPollInterval);
+            presPollInterval = null;
+            _onPresentationReady(targetId);
+          } else if(pollData.status === 'failed'){
+            clearInterval(presPollInterval);
+            presPollInterval = null;
+            if(emptyMsg) emptyMsg.textContent = '생성에 실패했습니다: ' + (pollData.error_message || '원인 불명');
+            if(genBtn){
+              genBtn.disabled = false;
+              genBtn.textContent = '다시 시도';
+            }
+          } else {
+            if(emptyMsg) emptyMsg.textContent = `AI가 슬라이드 덱을 작성하고 있습니다 (${elapsed}초 경과)…`;
+          }
+        } catch(_pollErr){
+          // transient network glitch during polling
+        }
+      }, 2500);
     } else {
-      if(emptyMsg) emptyMsg.textContent = '생성에 실패했습니다. 잠시 후 다시 시도해주세요.';
+      if(emptyMsg) emptyMsg.textContent = '생성에 실패했습니다: ' + (data.error || '잠시 후 다시 시도해주세요.');
       if(genBtn){
         genBtn.disabled = false;
         genBtn.textContent = '다시 시도';
