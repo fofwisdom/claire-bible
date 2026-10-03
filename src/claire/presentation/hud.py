@@ -2,6 +2,7 @@
 
 Provides an unobtrusive floating glassmorphic toolbar with navigation return,
 2D slide coordinate tracking, speaker notes, overview, PDF print, and fullscreen toggle.
+Adopts BookStack theme aesthetics (Light/Dark) and decorates vertical subslides in headings.
 """
 
 from __future__ import annotations
@@ -15,10 +16,10 @@ HUD_SNIPPET = """
   left: 0;
   width: 100%;
   height: 48px;
-  background: rgba(14, 17, 22, 0.85);
+  background: rgba(255, 255, 255, 0.9);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.12);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -29,8 +30,13 @@ HUD_SNIPPET = """
   transform: translateY(-8px);
   transition: opacity 0.25s ease, transform 0.25s ease;
   pointer-events: none;
-  font-family: 'Noto Sans KR', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: var(--cb-font-sans, 'Noto Sans KR', sans-serif);
   font-size: 13px;
+  color: #1f2328;
+}
+[data-theme="dark"] .cb-hud, body.theme-dark .cb-hud {
+  background: rgba(14, 17, 22, 0.88);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
   color: #c9d1d9;
 }
 .cb-hud.visible, .cb-hud:hover {
@@ -45,14 +51,17 @@ HUD_SNIPPET = """
 }
 .cb-hud-center {
   font-weight: 600;
-  font-family: 'JetBrains Mono', 'D2Coding', monospace;
-  color: #58a6ff;
+  font-family: var(--cb-font-mono, 'D2Coding', 'JetBrains Mono', monospace);
+  color: var(--cb-accent-blue, #0969da);
   letter-spacing: 0.05em;
 }
+[data-theme="dark"] .cb-hud-center, body.theme-dark .cb-hud-center {
+  color: #58a6ff;
+}
 .cb-hud-btn {
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  color: #f0f6fc;
+  background: rgba(0, 0, 0, 0.05);
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  color: #1f2328;
   padding: 5px 10px;
   border-radius: 6px;
   cursor: pointer;
@@ -63,13 +72,23 @@ HUD_SNIPPET = """
   gap: 4px;
   transition: all 0.15s ease;
 }
+[data-theme="dark"] .cb-hud-btn, body.theme-dark .cb-hud-btn {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #f0f6fc;
+}
 .cb-hud-btn:hover {
+  background: rgba(9, 105, 218, 0.12);
+  border-color: #0969da;
+  color: #0969da;
+}
+[data-theme="dark"] .cb-hud-btn:hover, body.theme-dark .cb-hud-btn:hover {
   background: rgba(88, 166, 255, 0.2);
   border-color: #58a6ff;
   color: #ffffff;
 }
 .cb-hud-title {
-  color: #8b949e;
+  color: var(--cb-muted, #656d76);
   font-size: 12px;
   max-width: 380px;
   white-space: nowrap;
@@ -85,31 +104,39 @@ HUD_SNIPPET = """
   align-items: center;
   gap: 8px;
   padding: 8px 12px;
-  background: rgba(22, 27, 34, 0.96);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid #58a6ff;
+  background: #ffffff;
+  border: 1px solid #0969da;
   border-radius: 6px;
-  box-shadow: 0 6px 20px rgba(0,0,0,0.5);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
   z-index: 100000;
   font-size: 12px;
 }
+[data-theme="dark"] .cb-hud-sharebox, body.theme-dark .cb-hud-sharebox {
+  background: rgba(22, 27, 34, 0.96);
+  border-color: #58a6ff;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+}
 .cb-hud-sharebox input {
   width: 280px;
-  background: rgba(13, 17, 23, 0.9);
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: #f6f8fa;
+  border: 1px solid #d0d7de;
   border-radius: 4px;
-  color: #f0f6fc;
+  color: #1f2328;
   padding: 5px 8px;
   font-size: 12px;
-  font-family: 'JetBrains Mono', 'D2Coding', monospace;
+  font-family: var(--cb-font-mono, 'D2Coding', monospace);
   outline: none;
 }
+[data-theme="dark"] .cb-hud-sharebox input, body.theme-dark .cb-hud-sharebox input {
+  background: rgba(13, 17, 23, 0.9);
+  border-color: rgba(255, 255, 255, 0.2);
+  color: #f0f6fc;
+}
 .cb-hud-sharebox input:focus {
-  border-color: #58a6ff;
+  border-color: var(--cb-accent-blue, #0969da);
 }
 .cb-hud-sharebox button {
-  background: #0284c7;
+  background: #0969da;
   color: #fff;
   border: 0;
   border-radius: 4px;
@@ -124,7 +151,7 @@ HUD_SNIPPET = """
   .cb-hud-btn span { display: none; }
 }
 @media print {
-  #cb-hud, .cb-hud-sharebox { display: none !important; }
+  #cb-hud, .cb-hud-sharebox, .cb-down-hint { display: none !important; }
   @page {
     size: landscape;
     margin: 0;
@@ -133,7 +160,12 @@ HUD_SNIPPET = """
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
     color-adjust: exact !important;
+    background: #ffffff !important;
+    color: #1f2328 !important;
+  }
+  [data-theme="dark"] html, [data-theme="dark"] body, [data-theme="dark"] .reveal {
     background: #0e1116 !important;
+    color: #d7dbe0 !important;
   }
 }
 /* When embedded in an iframe (e.g. Claire Bible workspace), hide in-frame floating HUD */
@@ -144,7 +176,7 @@ html.is-embedded #cb-hud, body.is-embedded #cb-hud {
 
 <div id="cb-hud" class="cb-hud">
   <div class="cb-hud-left">
-    <span class="cb-hud-logo" style="font-weight:700;color:#58a6ff;margin-right:6px">📊 Claire Bible</span>
+    <span class="cb-hud-logo" style="font-weight:700;color:var(--cb-accent-blue,#0969da);margin-right:6px">📊 Claire Bible</span>
     <span class="cb-hud-title" id="cb-hud-title"></span>
   </div>
   <div class="cb-hud-center">
@@ -157,8 +189,8 @@ html.is-embedded #cb-hud, body.is-embedded #cb-hud {
     <button class="cb-hud-btn" onclick="if(window.Reveal) Reveal.toggleOverview();" title="프레젠테이션 개요 (O / ESC)">
       🗂️ <span>개요</span>
     </button>
-    <button class="cb-hud-btn" id="cb-hud-download-btn" onclick="cbDownloadPdf()" title="PDF 다운로드" aria-label="PDF 다운로드">
-      📥 <span>PDF</span>
+    <button class="cb-hud-btn" id="cb-hud-download-btn" onclick="cbDownloadPdf()" title="PDF로 저장" aria-label="PDF로 저장">
+      📥 <span>PDF로 저장</span>
     </button>
     <button class="cb-hud-btn" onclick="cbCopySlideLink()" title="현재 프레젠테이션 링크 복사">
       🔗 <span>공유</span>
@@ -167,6 +199,10 @@ html.is-embedded #cb-hud, body.is-embedded #cb-hud {
       ⛶
     </button>
   </div>
+</div>
+
+<div id="cb-down-hint" class="cb-down-hint" onclick="if(window.Reveal) Reveal.down();" title="다음 하위 슬라이드로 계속 (↓ 방향키 또는 클릭)">
+  <span>▼ 하위 슬라이드로 계속 (↓)</span>
 </div>
 
 <div id="cb-hud-sharebox" class="cb-hud-sharebox" style="display:none">
@@ -179,6 +215,42 @@ html.is-embedded #cb-hud, body.is-embedded #cb-hud {
   const hud = document.getElementById('cb-hud');
   const titleEl = document.getElementById('cb-hud-title');
   const coordsEl = document.getElementById('cb-hud-coords');
+  const downHint = document.getElementById('cb-down-hint');
+
+  // Sync theme with parent window (BookStack theme integration)
+  function syncTheme() {
+    try {
+      let theme = 'light';
+      if (window.parent && window.parent !== window && window.parent.document) {
+        const pTheme = window.parent.document.documentElement.getAttribute('data-theme');
+        if (pTheme) theme = pTheme;
+      } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        theme = 'dark';
+      }
+      document.documentElement.setAttribute('data-theme', theme);
+      if (theme === 'dark') {
+        document.documentElement.classList.add('theme-dark');
+        document.body.classList.add('theme-dark');
+      } else {
+        document.documentElement.classList.remove('theme-dark');
+        document.body.classList.remove('theme-dark');
+      }
+    } catch (_) {}
+  }
+  syncTheme();
+
+  window.addEventListener('message', function(e) {
+    if (e && e.data && e.data.type === 'cb-theme-change' && e.data.theme) {
+      document.documentElement.setAttribute('data-theme', e.data.theme);
+      if (e.data.theme === 'dark') {
+        document.documentElement.classList.add('theme-dark');
+        document.body.classList.add('theme-dark');
+      } else {
+        document.documentElement.classList.remove('theme-dark');
+        document.body.classList.remove('theme-dark');
+      }
+    }
+  });
 
   if (window.self !== window.top || new URLSearchParams(window.location.search).get('embed') === 'true') {
     document.documentElement.classList.add('is-embedded');
@@ -208,7 +280,60 @@ html.is-embedded #cb-hud, body.is-embedded #cb-hud {
   });
   document.addEventListener('touchstart', showHud, { passive: true });
 
-  // Update slide coordinates
+  // Decorate vertical subslides inside slide headings for clear visual indication
+  function decorateSubslides() {
+    if (!window.Reveal) return;
+    const horizontalSlides = document.querySelectorAll('.reveal .slides > section');
+    horizontalSlides.forEach(function(hSlide) {
+      const vSlides = hSlide.querySelectorAll(':scope > section');
+      const total = vSlides.length;
+      if (total > 1) {
+        vSlides.forEach(function(vSlide, vIndex) {
+          const heading = vSlide.querySelector('h2') || vSlide.querySelector('h1');
+          if (heading) {
+            let badge = heading.querySelector('.cb-subslide-badge');
+            if (!badge) {
+              badge = document.createElement('span');
+              badge.className = 'cb-subslide-badge';
+              heading.appendChild(badge);
+              badge.addEventListener('click', function(ev) {
+                ev.stopPropagation();
+                if (window.Reveal) Reveal.down();
+              });
+            }
+            const currentNum = vIndex + 1;
+            const hasNext = currentNum < total;
+            if (currentNum === 1) {
+              badge.className = 'cb-subslide-badge has-subslides';
+              badge.innerHTML = '<span class="cb-badge-icon">▼</span> 하위 슬라이드 <strong>' + currentNum + ' / ' + total + '</strong>';
+              badge.title = '하위 슬라이드가 ' + (total - 1) + '장 더 있습니다 (↓ 방향키 또는 클릭)';
+            } else if (hasNext) {
+              badge.className = 'cb-subslide-badge in-subslide';
+              badge.innerHTML = '<span class="cb-badge-icon">▼</span> 하위 <strong>' + currentNum + ' / ' + total + '</strong>';
+              badge.title = '하위 슬라이드 (↓ 방향키 또는 클릭)';
+            } else {
+              badge.className = 'cb-subslide-badge subslide-last';
+              badge.innerHTML = '<span class="cb-badge-icon">✓</span> 마지막 <strong>' + currentNum + ' / ' + total + '</strong>';
+              badge.title = '이 섹션의 마지막 하위 슬라이드입니다';
+            }
+          }
+        });
+      }
+    });
+  }
+
+  // Update downward navigation hint visibility
+  function updateDownHint() {
+    if (!downHint || !window.Reveal) return;
+    const routes = Reveal.availableRoutes ? Reveal.availableRoutes() : null;
+    if (routes && routes.down) {
+      downHint.classList.add('visible');
+    } else {
+      downHint.classList.remove('visible');
+    }
+  }
+
+  // Update slide coordinates and UI indicators
   function updateCoords() {
     if (!window.Reveal) return;
     const indices = Reveal.getIndices();
@@ -217,6 +342,7 @@ html.is-embedded #cb-hud, body.is-embedded #cb-hud {
     const v = indices.v > 0 ? '.' + String(indices.v + 1) : '';
     const text = h + v + ' / ' + total;
     coordsEl.textContent = text;
+    updateDownHint();
     try {
       if (window.parent && window.parent !== window) {
         window.parent.postMessage({
@@ -230,14 +356,28 @@ html.is-embedded #cb-hud, body.is-embedded #cb-hud {
     } catch (_) {}
   }
 
+  function onRevealReady() {
+    syncTheme();
+    decorateSubslides();
+    updateCoords();
+    updateDownHint();
+    fitCodeBlocks();
+  }
+
+  function onSlideChanged() {
+    updateCoords();
+    updateDownHint();
+    fitCodeBlocks();
+  }
+
   if (window.Reveal) {
-    Reveal.on('ready', updateCoords);
-    Reveal.on('slidechanged', updateCoords);
+    Reveal.on('ready', onRevealReady);
+    Reveal.on('slidechanged', onSlideChanged);
   } else {
     window.addEventListener('load', function() {
       if (window.Reveal) {
-        Reveal.on('ready', updateCoords);
-        Reveal.on('slidechanged', updateCoords);
+        Reveal.on('ready', onRevealReady);
+        Reveal.on('slidechanged', onSlideChanged);
       }
     });
   }
@@ -386,12 +526,6 @@ html.is-embedded #cb-hud, body.is-embedded #cb-hud {
     });
   }
 
-  if (window.Reveal) {
-    Reveal.on('ready', fitCodeBlocks);
-    Reveal.on('slidechanged', fitCodeBlocks);
-  } else {
-    window.addEventListener('load', fitCodeBlocks);
-  }
   window.addEventListener('resize', fitCodeBlocks);
 })();
 </script>
