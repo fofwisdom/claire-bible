@@ -1637,7 +1637,7 @@ async function generatePresentationForCurrentDoc(){
           const pollRes = await fetch('/document/presentation?id=' + encodeURIComponent(targetId));
           if(!pollRes.ok) return;
           const pollData = await pollRes.json();
-          if(pollData.status === 'ready' && pollData.is_ready){
+          if(pollData.status === 'ready'){
             clearInterval(presPollInterval);
             presPollInterval = null;
             _onPresentationReady(targetId);

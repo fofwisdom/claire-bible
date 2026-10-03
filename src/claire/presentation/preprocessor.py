@@ -29,8 +29,7 @@ def preprocess_adoc_to_slides(
     author_val = (author or "Claire Bible Knowledge Base").strip().replace("\n", " ")
     date_val = (published_at or "").strip()
 
-    # Default reveal.js assets location (CDN fallback if not specified)
-    r_dir = revealjsdir or "https://cdn.jsdelivr.net/npm/reveal.js@5.1.0"
+    r_dir = revealjsdir or "/static/vendor/reveal.js"
     css_attr = f":customcss: {customcss}\n" if customcss else ""
 
     header_lines = [
@@ -168,29 +167,36 @@ def prepare_presentation_adoc_for_compile(
 
     processed_lines: list[str] = []
     found_keys = set()
+    header_started = False
     header_ended = False
 
     for line in lines:
         stripped = line.strip()
         if not header_ended:
             if stripped.startswith("= "):
+                header_started = True
                 processed_lines.append(line)
                 continue
-            matched_attr = False
-            for k in header_attrs:
-                if stripped.startswith(k):
-                    processed_lines.append(header_attrs[k])
-                    found_keys.add(k)
-                    matched_attr = True
-                    break
-            if matched_attr:
+            if stripped.startswith(":"):
+                header_started = True
+                matched_attr = False
+                for k in header_attrs:
+                    if stripped.startswith(k):
+                        processed_lines.append(header_attrs[k])
+                        found_keys.add(k)
+                        matched_attr = True
+                        break
+                if matched_attr:
+                    continue
+                processed_lines.append(line)
                 continue
-            if stripped.startswith("== ") or stripped.startswith("=== ") or (stripped and not stripped.startswith(":")):
+            if header_started or stripped.startswith("== ") or stripped.startswith("=== "):
                 for k, v in header_attrs.items():
                     if k not in found_keys:
                         processed_lines.append(v)
                         found_keys.add(k)
-                processed_lines.append("")
+                if stripped:
+                    processed_lines.append("")
                 header_ended = True
                 processed_lines.append(line)
                 continue

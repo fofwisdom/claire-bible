@@ -702,3 +702,83 @@ def test_presentation_option_a_and_async_generation(tmp_path: Path):
             assert async_res.status_code == 202
             assert async_res.json()["status"] == "composing"
             assert async_res.json()["document_id"] == doc_id
+
+
+def test_prepare_presentation_adoc_header_attributes():
+    """Ensure reveal.js attributes are placed in the document header before blank lines."""
+    from claire.presentation.preprocessor import prepare_presentation_adoc_for_compile
+    from claire.presentation.hud import sanitize_presentation_assets
+
+    raw_adoc = """= Future Web Test
+:icons: font
+
+[.notes]
+--
+* Speaker note before slide
+--
+
+== Slide 1
+* Point A
+"""
+    prepared = prepare_presentation_adoc_for_compile(raw_adoc)
+    lines = prepared.splitlines()
+
+    # Find position of attributes and the first blank line
+    attr_idx = next(i for i, l in enumerate(lines) if l.startswith(":revealjsdir:"))
+    first_blank = next(i for i, l in enumerate(lines) if not l.strip())
+
+    # All attributes must precede the first blank line (end of header)
+    assert attr_idx < first_blank
+    assert ":revealjsdir: /static/vendor/reveal.js" in prepared
+    assert ":customcss: /static/css/reveal-claire.css" in prepared
+
+    # Test asset sanitization
+    legacy_html = '<link rel="stylesheet" href="reveal.js/dist/reset.css"><script src="reveal.js/dist/reveal.js"></script>'
+    sanitized = sanitize_presentation_assets(legacy_html)
+    assert 'href="/static/vendor/reveal.js/dist/reset.css"' in sanitized
+    assert 'src="/static/vendor/reveal.js/dist/reveal.js"' in sanitized
+
+
+def test_presentation_metadata_is_ready(tmp_path: Path):
+    """Verify get_presentation_metadata populates is_ready properly."""
+    conn = _memory_db()
+    doc_id = "doc_meta_test"
+    conn.execute(
+        "INSERT INTO documents (id, title, url, detail, detail_format) VALUES (?, 'T', 'U', 'D', 'adoc')",
+        (doc_id,),
+    )
+    conn.commit()
+
+    svc = PresentationService(data_dir=tmp_path)
+
+    # 1. not created
+    assert svc.get_presentation_metadata(conn, doc_id) is None
+
+    # 2. composing -> is_ready is False
+    dbm.save_document_presentation(
+        conn,
+        document_id=doc_id,
+        content_hash="h",
+        cache_key="k",
+        file_path="/tmp/f.html",
+        file_size=0,
+        status="composing",
+    )
+    meta = svc.get_presentation_metadata(conn, doc_id)
+    assert meta["status"] == "composing"
+    assert meta["is_ready"] is False
+
+    # 3. ready -> is_ready is True
+    dbm.save_document_presentation(
+        conn,
+        document_id=doc_id,
+        content_hash="h",
+        cache_key="k",
+        file_path="/tmp/f.html",
+        file_size=100,
+        status="ready",
+    )
+    meta = svc.get_presentation_metadata(conn, doc_id)
+    assert meta["status"] == "ready"
+    assert meta["is_ready"] is True
+

@@ -63,7 +63,10 @@ class PresentationService:
         self, conn: sqlite3.Connection, doc_id: str
     ) -> dict | None:
         """Get presentation record from database if exists."""
-        return dbm.get_document_presentation(conn, doc_id)
+        meta = dbm.get_document_presentation(conn, doc_id)
+        if meta:
+            meta["is_ready"] = bool(meta.get("status") == "ready")
+        return meta
 
     async def compose_presentation(
         self,

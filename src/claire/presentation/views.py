@@ -15,7 +15,7 @@ def render_unready_presentation_page(
     """Render a lightweight guidance HTML page when a presentation is not ready."""
     escaped_title = html.escape(title)
 
-    if status == "composing":
+    if status in ("composing", "compiling", "authored"):
         status_badge = (
             '<span style="display:inline-block;padding:4px 12px;border-radius:9999px;'
             'font-size:12px;font-weight:600;background:#1e293b;color:#38bdf8;'
