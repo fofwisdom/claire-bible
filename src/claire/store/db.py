@@ -1411,6 +1411,18 @@ def inbox_by_status(conn: sqlite3.Connection, status: str) -> list[sqlite3.Row]:
     ).fetchall()
 
 
+def inbox_by_statuses(
+    conn: sqlite3.Connection, statuses: tuple[str, ...] | list[str]
+) -> list[sqlite3.Row]:
+    if not statuses:
+        return []
+    placeholders = ",".join("?" for _ in statuses)
+    return conn.execute(
+        f"SELECT * FROM raw_inbox WHERE status IN ({placeholders}) ORDER BY id",
+        tuple(statuses),
+    ).fetchall()
+
+
 def get_inbox(conn: sqlite3.Connection, inbox_id: int) -> sqlite3.Row | None:
     return conn.execute(
         "SELECT * FROM raw_inbox WHERE id=?", (inbox_id,)

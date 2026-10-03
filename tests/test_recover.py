@@ -178,3 +178,29 @@ def test_recover_backoff_then_permanent_failure(monkeypatch, tmp_path):
     # failed 는 더 이상 자동복구 대상 아님(무한재시도 차단)
     assert dbm.due_for_recovery(conn, max_attempts=3) == []
     conn.close()
+
+
+def test_replay_failed_including_permanent(monkeypatch, tmp_path):
+    s = _mem(monkeypatch, tmp_path)
+    svc = IngestService(s)
+
+    conn = dbm.connect(s.db_file)
+    dbm.init_db(conn)
+    conn.execute("INSERT INTO raw_inbox(status, payload, kind) VALUES ('failed', 'https://example.com/item', 'url')")
+    conn.execute("INSERT INTO raw_inbox(status, payload, kind) VALUES ('error', 'https://example.com/item2', 'url')")
+    conn.commit()
+    conn.close()
+
+    # Default replay_failed only replays 'error'
+    assert len(dbm.inbox_by_status(dbm.connect(s.db_file), "failed")) == 1
+    assert len(dbm.inbox_by_status(dbm.connect(s.db_file), "error")) == 1
+
+    monkeypatch.setattr(svc, "ingest", lambda *args, **kwargs: pipemod.IngestReport(document_id="doc1"))
+
+    # without include_permanent: only 1 row (error)
+    rep1 = svc.replay_failed(include_permanent=False)
+    assert len(rep1) == 1
+
+    # with include_permanent: 2 rows (error and failed)
+    rep2 = svc.replay_failed(include_permanent=True)
+    assert len(rep2) == 2

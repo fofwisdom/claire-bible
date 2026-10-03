@@ -890,7 +890,8 @@ def cmd_replay_failed(args) -> int:
 
     s = get_settings()
     svc = IngestService(s)
-    results = svc.replay_failed(limit=args.limit)
+    include_permanent = bool(getattr(args, "include_failed", False))
+    results = svc.replay_failed(limit=args.limit, include_permanent=include_permanent)
     if not results:
         print("재적재할 실패 항목 없음.")
         return 0
@@ -4029,6 +4030,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     pr = sub.add_parser("replay-failed", help="re-ingest raw_inbox rows with status=error")
     pr.add_argument("--limit", type=int, default=0, help="0 = all")
+    pr.add_argument(
+        "--include-failed",
+        "--all",
+        dest="include_failed",
+        action="store_true",
+        help="영구실패(status=failed) 항목도 포함하여 재적재",
+    )
     pr.set_defaults(func=cmd_replay_failed)
 
     prc = sub.add_parser("recover-run", help="auto-recover due error inbox once (gated, backoff)")

@@ -618,16 +618,22 @@ def _collect_storage_diagnostics(
                 ),
             }
         )
-    configured_identity = (
-        configured_report.get("device"),
-        configured_report.get("inode"),
-    )
+    known_identities = {
+        (configured_report.get("device"), configured_report.get("inode"))
+    }
+    for item in resolved_themes:
+        db_info = item.get("database") or {}
+        dev = db_info.get("device")
+        ino = db_info.get("inode")
+        if dev is not None and ino is not None:
+            known_identities.add((dev, ino))
+
     for candidate in candidates:
         counts = candidate.get("sqlite", {}).get("counts", {})
         identity = (candidate.get("device"), candidate.get("inode"))
         if (
             candidate.get("kind") == "sqlite"
-            and identity != configured_identity
+            and identity not in known_identities
             and any(int(counts.get(key, 0)) > 0 for key in ("documents", "entities", "raw_inbox"))
         ):
             warnings.append(
