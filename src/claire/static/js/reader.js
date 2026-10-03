@@ -1342,7 +1342,7 @@ function updatePresentationView(docId){
     if(empty) empty.style.display = 'flex';
     if(frame) frame.style.display = 'none';
     if(emptyTitle) emptyTitle.textContent = '프레젠테이션이 아직 생성되지 않았습니다';
-    if(emptyMsg) emptyMsg.textContent = '이 문서의 AsciiDoc 기반 고품질 프레젠테이션을 생성할 수 있습니다.';
+    if(emptyMsg) emptyMsg.textContent = '이 문서의 내용을 바탕으로 프레젠테이션 슬라이드를 생성할 수 있습니다.';
     if(genBtn){
       genBtn.style.display = (typeof canWrite === 'function' && canWrite()) ? 'inline-block' : 'none';
       genBtn.textContent = '프레젠테이션 생성';
@@ -1429,7 +1429,7 @@ function presentationOverview(){
 
 function presentationDownloadPdf(){
   if(typeof canWrite === 'function' && !canWrite()){
-    alert('PDF 다운로드는 소유자(인증된 세션)만 이용할 수 있습니다.');
+    alert('PDF 저장은 소유자(인증된 세션)만 이용할 수 있습니다.');
     return;
   }
   const targetId = (typeof curReaderDoc !== 'undefined' && curReaderDoc) ||

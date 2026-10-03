@@ -1,23 +1,57 @@
 /**
  * Claire Bible Presentation Design System for Asciidoctor reveal.js
  *
- * Typography: Noto Sans KR, JetBrains Mono, D2Coding, Noto Serif KR
- * Components: Tables, Admonition Cards, Quotes, Source Callouts, Math
+ * Adopts BookStack documentation theme aesthetics for readable, professional slide decks.
+ * Supports BookStack Light (default) & BookStack Dark mode with full CSS token parity.
+ *
+ * Typography: Noto Sans KR, D2Coding, JetBrains Mono, Noto Serif KR
+ * Components: Vertical Subslide Badges, Admonition Cards, Tables, Quotes, Code Callouts
  */
 
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Noto+Sans+KR:wght@300;400;500;700&family=Noto+Serif+KR:wght@400;700&display=swap');
 
-/* --- Root Variables & Theme Tokens --- */
+/* --- Root Variables & BookStack Theme Tokens --- */
 :root {
-  --cb-font-sans: 'Noto Sans KR', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  --cb-font-mono: 'JetBrains Mono', 'D2Coding', Menlo, Consolas, monospace;
+  --cb-font-sans: 'Noto Sans KR', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --cb-font-mono: 'D2Coding', 'JetBrains Mono', Menlo, Consolas, monospace;
   --cb-font-serif: 'Noto Serif KR', Georgia, serif;
 
+  /* BookStack Light Theme Tokens (Default) */
+  --cb-slide-bg: #ffffff;
+  --cb-slide-fg: #1f2328;
+  --cb-heading-fg: #0f172a;
+  --cb-muted: #656d76;
+  --cb-border: #d0d7de;
+  --cb-card-bg: #f6f8fa;
+  --cb-card-shadow: 0 2px 8px rgba(31, 35, 40, 0.08);
+
+  --cb-accent-blue: #0969da;   /* BookStack Primary Blue */
+  --cb-accent-green: #1a7f37;  /* Success / Tip */
+  --cb-accent-purple: #8250df; /* Important */
+  --cb-accent-red: #cf222e;    /* Danger / Warning */
+  --cb-accent-amber: #9a6700;  /* Caution */
+
+  --cb-code-bg: #f6f8fa;
+  --cb-code-fg: #1f2328;
+  --cb-code-border: #d0d7de;
+  --cb-mark-bg: #fff8c5;
+  --cb-mark-fg: #633c01;
+
+  --cb-subslide-bg: #ddf4ff;
+  --cb-subslide-fg: #0969da;
+  --cb-subslide-border: #54aeff;
+}
+
+/* BookStack Dark Theme Tokens */
+[data-theme="dark"],
+body.theme-dark {
   --cb-slide-bg: #0e1116;
   --cb-slide-fg: #d7dbe0;
+  --cb-heading-fg: #f0f6fc;
   --cb-muted: #8b949e;
   --cb-border: #2a2f37;
-  --cb-card-bg: rgba(22, 27, 34, 0.85);
+  --cb-card-bg: rgba(22, 27, 34, 0.9);
+  --cb-card-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
 
   --cb-accent-blue: #58a6ff;
   --cb-accent-green: #7ee787;
@@ -26,12 +60,50 @@
   --cb-accent-amber: #d29922;
 
   --cb-code-bg: #161b22;
+  --cb-code-fg: #e6edf3;
+  --cb-code-border: #30363d;
+  --cb-mark-bg: #4d3800;
+  --cb-mark-fg: #ffdf5d;
+
+  --cb-subslide-bg: #1f2937;
+  --cb-subslide-fg: #58a6ff;
+  --cb-subslide-border: #388bfd;
+}
+
+/* System Dark Mode Preference Fallback */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --cb-slide-bg: #0e1116;
+    --cb-slide-fg: #d7dbe0;
+    --cb-heading-fg: #f0f6fc;
+    --cb-muted: #8b949e;
+    --cb-border: #2a2f37;
+    --cb-card-bg: rgba(22, 27, 34, 0.9);
+    --cb-card-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+
+    --cb-accent-blue: #58a6ff;
+    --cb-accent-green: #7ee787;
+    --cb-accent-purple: #a371f7;
+    --cb-accent-red: #f85149;
+    --cb-accent-amber: #d29922;
+
+    --cb-code-bg: #161b22;
+    --cb-code-fg: #e6edf3;
+    --cb-code-border: #30363d;
+    --cb-mark-bg: #4d3800;
+    --cb-mark-fg: #ffdf5d;
+
+    --cb-subslide-bg: #1f2937;
+    --cb-subslide-fg: #58a6ff;
+    --cb-subslide-border: #388bfd;
+  }
 }
 
 /* --- Reveal Container & General Typography --- */
-.reveal {
-  font-family: var(--cb-font-sans) !important;
+html, body, .reveal {
+  background-color: var(--cb-slide-bg) !important;
   color: var(--cb-slide-fg) !important;
+  font-family: var(--cb-font-sans) !important;
   word-break: keep-all;
   overflow-wrap: break-word;
 }
@@ -43,6 +115,8 @@
   text-align: left !important;
   height: 100% !important;
   top: 0 !important;
+  background-color: var(--cb-slide-bg) !important;
+  color: var(--cb-slide-fg) !important;
 }
 
 .reveal .slides > section:first-child,
@@ -58,28 +132,34 @@
   font-family: var(--cb-font-sans) !important;
   font-weight: 700 !important;
   text-transform: none !important;
-  letter-spacing: -0.025em !important;
+  letter-spacing: -0.02em !important;
   line-height: 1.25 !important;
 }
 
 .reveal h1 {
-  font-size: 1.9em !important;
-  color: #f0f6fc !important;
+  font-size: 1.85em !important;
+  color: var(--cb-heading-fg) !important;
   margin-bottom: 0.4em !important;
 }
 
+/* BookStack styled Heading 2 with flex layout for subslide badges */
 .reveal h2 {
   font-size: 1.35em !important;
-  color: #f0f6fc !important;
+  color: var(--cb-heading-fg) !important;
   margin-top: 0 !important;
   margin-bottom: 0.35em !important;
-  border-bottom: 2px solid rgba(88, 166, 255, 0.4);
-  padding-bottom: 0.15em !important;
-  line-height: 1.2 !important;
+  border-bottom: 2px solid var(--cb-accent-blue) !important;
+  padding-bottom: 0.18em !important;
+  line-height: 1.25 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  flex-wrap: wrap !important;
+  gap: 8px !important;
 }
 
 .reveal h3 {
-  font-size: 1.1em !important;
+  font-size: 1.05em !important;
   color: var(--cb-accent-blue) !important;
   margin-top: 0.35em !important;
   margin-bottom: 0.25em !important;
@@ -87,7 +167,7 @@
 
 .reveal p, .reveal li {
   font-size: 0.68em !important;
-  line-height: 1.4 !important;
+  line-height: 1.45 !important;
   color: var(--cb-slide-fg);
 }
 
@@ -104,79 +184,162 @@
 }
 
 .reveal strong {
-  color: #ffffff !important;
+  color: var(--cb-heading-fg) !important;
   font-weight: 700;
 }
 
 .reveal em {
-  color: #e6edf3;
+  color: var(--cb-muted);
   font-style: italic;
+}
+
+.reveal a {
+  color: var(--cb-accent-blue) !important;
+  text-decoration: none;
+}
+.reveal a:hover {
+  text-decoration: underline;
+}
+
+/* --- Subslide Indicator Badge in Heading --- */
+.reveal .cb-subslide-badge {
+  font-family: var(--cb-font-mono) !important;
+  font-size: 0.44em !important;
+  font-weight: 600 !important;
+  color: var(--cb-subslide-fg) !important;
+  background: var(--cb-subslide-bg) !important;
+  border: 1px solid var(--cb-subslide-border) !important;
+  padding: 3px 10px !important;
+  border-radius: 12px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 5px !important;
+  cursor: pointer !important;
+  vertical-align: middle !important;
+  letter-spacing: normal !important;
+  text-transform: none !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08) !important;
+  transition: all 0.2s ease !important;
+  user-select: none !important;
+}
+
+.reveal .cb-subslide-badge:hover {
+  filter: brightness(1.08);
+  transform: translateY(1px);
+}
+
+.reveal .cb-subslide-badge.has-subslides {
+  box-shadow: 0 0 0 2px rgba(9, 105, 218, 0.2) !important;
+  animation: cb-badge-pulse 2.2s infinite ease-in-out;
+}
+
+@keyframes cb-badge-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(9, 105, 218, 0.35); }
+  50% { box-shadow: 0 0 0 4px rgba(9, 105, 218, 0); }
+}
+
+/* --- Floating Downward Subslide Hint --- */
+.cb-down-hint {
+  position: fixed;
+  bottom: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--cb-card-bg);
+  border: 1px solid var(--cb-subslide-border);
+  color: var(--cb-subslide-fg);
+  padding: 5px 16px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: var(--cb-font-sans);
+  cursor: pointer;
+  display: none;
+  align-items: center;
+  gap: 6px;
+  box-shadow: var(--cb-card-shadow);
+  z-index: 9999;
+  animation: cb-bounce 2s infinite ease-in-out;
+  user-select: none;
+  transition: opacity 0.2s ease;
+}
+
+.cb-down-hint.visible {
+  display: inline-flex !important;
+}
+
+@keyframes cb-bounce {
+  0%, 100% { transform: translateX(-50%) translateY(0); }
+  50% { transform: translateX(-50%) translateY(-5px); }
 }
 
 /* --- AsciiDoc Highlight (#mark#) --- */
 .reveal mark, .reveal .mark {
-  background: rgba(210, 153, 34, 0.3) !important;
-  color: #ffdf5d !important;
+  background: var(--cb-mark-bg) !important;
+  color: var(--cb-mark-fg) !important;
   padding: 0.1em 0.3em;
   border-radius: 3px;
 }
 
-/* --- AsciiDoc Table Block (|===) --- */
+/* --- BookStack Styled Tables (|===) --- */
 .reveal table, .reveal table.tableblock {
-  font-size: 0.52em !important;
+  font-size: 0.54em !important;
   margin: 0.5em auto !important;
   border-collapse: collapse !important;
   border-spacing: 0 !important;
   width: 100% !important;
-  background: var(--cb-card-bg);
-  border-radius: 6px;
-  overflow: hidden;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  background: var(--cb-card-bg) !important;
+  border-radius: 6px !important;
+  overflow: hidden !important;
+  box-shadow: var(--cb-card-shadow) !important;
   border: 1px solid var(--cb-border) !important;
 }
 
 .reveal table th, .reveal table.tableblock th {
-  background: rgba(88, 166, 255, 0.15) !important;
-  color: #ffffff !important;
+  background: rgba(9, 105, 218, 0.08) !important;
+  color: var(--cb-heading-fg) !important;
   font-weight: 700 !important;
   border-bottom: 2px solid var(--cb-accent-blue) !important;
-  padding: 6px 10px !important;
+  padding: 7px 12px !important;
   text-align: left !important;
   line-height: 1.35 !important;
 }
 
 .reveal table td, .reveal table.tableblock td {
-  padding: 5px 10px !important;
+  padding: 6px 12px !important;
   border-bottom: 1px solid var(--cb-border) !important;
   border-top: none !important;
-  border-left: 1px solid rgba(255, 255, 255, 0.05) !important;
+  border-left: 1px solid var(--cb-border) !important;
   border-right: none !important;
   text-align: left !important;
   line-height: 1.35 !important;
+  color: var(--cb-slide-fg) !important;
 }
 
 .reveal table tr:nth-child(even) td {
-  background: rgba(255, 255, 255, 0.02);
+  background: rgba(0, 0, 0, 0.02) !important;
+}
+[data-theme="dark"] .reveal table tr:nth-child(even) td {
+  background: rgba(255, 255, 255, 0.02) !important;
 }
 
 .reveal table tr:hover td {
-  background: rgba(88, 166, 255, 0.08);
+  background: rgba(9, 105, 218, 0.06) !important;
 }
 
-/* --- AsciiDoc Admonition Cards ([NOTE], [IMPORTANT], [TIP], [WARNING]) --- */
+/* --- BookStack Styled Admonition Cards ([NOTE], [IMPORTANT], [TIP], [WARNING], [CAUTION]) --- */
 .reveal table.admonitionblock {
   width: 100% !important;
   margin: 0.5em auto !important;
   border-collapse: separate !important;
   border-spacing: 0 !important;
-  border-radius: 8px !important;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35) !important;
+  border-radius: 6px !important;
+  box-shadow: var(--cb-card-shadow) !important;
   background: var(--cb-card-bg) !important;
-  border: none !important;
+  border: 1px solid var(--cb-border) !important;
 }
 
 .reveal table.admonitionblock td.icon {
-  width: 60px !important;
+  width: 54px !important;
   text-align: center !important;
   vertical-align: middle !important;
   padding: 8px !important;
@@ -189,24 +352,25 @@
   padding: 8px 14px !important;
   text-align: left !important;
   font-size: 0.65em !important;
-  line-height: 1.4 !important;
+  line-height: 1.45 !important;
   border: none !important;
   vertical-align: middle !important;
+  color: var(--cb-slide-fg) !important;
 }
 
-/* NOTE (Blue) */
+/* NOTE (Blue - BookStack Info) */
 .reveal table.admonitionblock.note {
   border-left: 5px solid var(--cb-accent-blue) !important;
-  background: rgba(88, 166, 255, 0.08) !important;
+  background: rgba(9, 105, 218, 0.06) !important;
 }
 .reveal table.admonitionblock.note td.icon {
   color: var(--cb-accent-blue) !important;
 }
 
-/* TIP (Green) */
+/* TIP (Green - BookStack Success) */
 .reveal table.admonitionblock.tip {
   border-left: 5px solid var(--cb-accent-green) !important;
-  background: rgba(126, 231, 135, 0.08) !important;
+  background: rgba(26, 127, 55, 0.06) !important;
 }
 .reveal table.admonitionblock.tip td.icon {
   color: var(--cb-accent-green) !important;
@@ -215,31 +379,31 @@
 /* IMPORTANT (Purple) */
 .reveal table.admonitionblock.important {
   border-left: 5px solid var(--cb-accent-purple) !important;
-  background: rgba(163, 113, 247, 0.08) !important;
+  background: rgba(130, 80, 223, 0.06) !important;
 }
 .reveal table.admonitionblock.important td.icon {
   color: var(--cb-accent-purple) !important;
 }
 
-/* WARNING (Red) */
+/* WARNING (Amber - BookStack Warning) */
 .reveal table.admonitionblock.warning {
-  border-left: 5px solid var(--cb-accent-red) !important;
-  background: rgba(248, 81, 73, 0.08) !important;
+  border-left: 5px solid var(--cb-accent-amber) !important;
+  background: rgba(154, 103, 0, 0.06) !important;
 }
 .reveal table.admonitionblock.warning td.icon {
-  color: var(--cb-accent-red) !important;
-}
-
-/* CAUTION (Amber) */
-.reveal table.admonitionblock.caution {
-  border-left: 5px solid var(--cb-accent-amber) !important;
-  background: rgba(210, 153, 34, 0.08) !important;
-}
-.reveal table.admonitionblock.caution td.icon {
   color: var(--cb-accent-amber) !important;
 }
 
-/* --- AsciiDoc Quote Block ([quote, author, source]) --- */
+/* CAUTION (Red - BookStack Danger) */
+.reveal table.admonitionblock.caution {
+  border-left: 5px solid var(--cb-accent-red) !important;
+  background: rgba(207, 34, 46, 0.06) !important;
+}
+.reveal table.admonitionblock.caution td.icon {
+  color: var(--cb-accent-red) !important;
+}
+
+/* --- BookStack Styled Quote Block ([quote, author, source]) --- */
 .reveal .quoteblock {
   margin: 0.5em auto !important;
   width: 100% !important;
@@ -249,12 +413,12 @@
 .reveal .quoteblock blockquote {
   font-family: var(--cb-font-serif) !important;
   font-size: 0.65em !important;
-  line-height: 1.45 !important;
+  line-height: 1.48 !important;
   border-left: 4px solid var(--cb-accent-blue) !important;
   padding: 8px 16px !important;
-  background: rgba(88, 166, 255, 0.07) !important;
-  border-radius: 6px !important;
-  color: #e6edf3 !important;
+  background: rgba(9, 105, 218, 0.05) !important;
+  border-radius: 4px !important;
+  color: var(--cb-slide-fg) !important;
   box-shadow: none !important;
   margin: 0 !important;
   width: 100% !important;
@@ -274,16 +438,16 @@
   font-style: normal;
 }
 
-/* --- Source Code Blocks & Callouts --- */
+/* --- BookStack Styled Source Code Blocks & Callouts --- */
 .reveal pre, .reveal pre.highlight {
   font-family: var(--cb-font-mono) !important;
-  font-size: 0.48em !important;
+  font-size: 0.5em !important;
   background: var(--cb-code-bg) !important;
-  border: 1px solid var(--cb-border) !important;
+  border: 1px solid var(--cb-code-border) !important;
   border-radius: 6px !important;
   padding: 10px 14px !important;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5) !important;
-  line-height: 1.28 !important;
+  box-shadow: var(--cb-card-shadow) !important;
+  line-height: 1.32 !important;
   width: 100% !important;
   max-width: 100% !important;
   box-sizing: border-box !important;
@@ -295,16 +459,25 @@
 
 .reveal code {
   font-family: var(--cb-font-mono) !important;
-  color: #e6edf3 !important;
+  color: var(--cb-code-fg) !important;
+}
+
+.reveal p code, .reveal li code {
+  background: rgba(175, 184, 193, 0.2) !important;
+  padding: 0.12em 0.35em !important;
+  border-radius: 4px !important;
+  font-size: 0.9em !important;
+  color: var(--cb-heading-fg) !important;
 }
 
 .reveal pre code {
   font-family: var(--cb-font-mono) !important;
   font-size: 1em !important;
-  line-height: 1.28 !important;
+  line-height: 1.32 !important;
   display: block !important;
   overflow: visible !important;
   white-space: pre !important;
+  background: transparent !important;
 }
 
 /* Callout Number Badges (<1>, <2>) */
@@ -316,7 +489,7 @@
   text-align: center !important;
   border-radius: 50% !important;
   background: var(--cb-accent-blue) !important;
-  color: #0d1117 !important;
+  color: #ffffff !important;
   font-size: 0.75em !important;
   font-weight: 700 !important;
   margin: 0 4px !important;
@@ -333,14 +506,16 @@
 .reveal .progress {
   height: 4px !important;
   color: var(--cb-accent-blue) !important;
+  background: rgba(0, 0, 0, 0.08) !important;
 }
 
 .reveal .slide-number {
   font-family: var(--cb-font-mono) !important;
-  font-size: 14px !important;
+  font-size: 13px !important;
   color: var(--cb-muted) !important;
-  background: rgba(14, 17, 22, 0.7) !important;
+  background: var(--cb-card-bg) !important;
   border: 1px solid var(--cb-border) !important;
   border-radius: 4px !important;
-  padding: 3px 8px !important;
+  padding: 2px 8px !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05) !important;
 }

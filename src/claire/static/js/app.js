@@ -718,6 +718,10 @@ function toggleTheme(){ const next = curTheme()==='dark'?'light':'dark';
   document.documentElement.setAttribute('data-theme', next);
   try{ localStorage.setItem('claireTheme', next); }catch(e){}
   syncThemeBtn();
+  const presFrame = document.getElementById('presentation-frame');
+  if(presFrame && presFrame.contentWindow){
+    try{ presFrame.contentWindow.postMessage({type: 'cb-theme-change', theme: next}, '*'); }catch(_){}
+  }
   if(net){ const th=T();
     net.setOptions({nodes:{font:{color:th.nodeFont}},
       edges:{color:{color:th.edge,highlight:th.edgeHi},font:{color:th.nodeFont}},
