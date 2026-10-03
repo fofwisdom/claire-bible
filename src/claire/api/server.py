@@ -1751,12 +1751,18 @@ def create_app(
                 status=status,
                 back_url=back_url,
             )
-            resp_status = 200 if status == "composing" else 404
+            resp_status = 200 if status in ("composing", "compiling", "authored") else 404
             return HTMLResponse(html_content, status_code=resp_status)
 
         try:
             content_str = file_path.read_text(encoding="utf-8")
-            if "is-embedded" not in content_str or "문서로" in content_str or "cbReturnToDoc" in content_str:
+            if (
+                "is-embedded" not in content_str
+                or "문서로" in content_str
+                or "cbReturnToDoc" in content_str
+                or "reveal.js/dist/" in content_str
+                or "reveal.js/plugin/" in content_str
+            ):
                 from ..presentation.hud import inject_hud_toolbar
                 cleaned_str = inject_hud_toolbar(content_str)
                 file_path.write_text(cleaned_str, encoding="utf-8")
@@ -1792,7 +1798,7 @@ def create_app(
         try:
             meta = svc.get_presentation_metadata(conn, doc_id)
             if not meta:
-                return JSONResponse({"status": "not_created", "document_id": doc_id}, status_code=200)
+                return JSONResponse({"status": "not_created", "document_id": doc_id, "is_ready": False}, status_code=200)
             return JSONResponse(meta, status_code=200)
         finally:
             conn.close()

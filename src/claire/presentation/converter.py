@@ -93,7 +93,15 @@ async def _do_compile(
     output_path.parent.mkdir(parents=True, exist_ok=True)
     temp_output = output_path.with_suffix(".tmp")
 
-    cmd = list(cmd_base) + ["-o", str(temp_output), "-"]
+    cmd = (
+        list(cmd_base)
+        + [
+            "-a", "revealjsdir=/static/vendor/reveal.js@",
+            "-a", "customcss=/static/css/reveal-claire.css@",
+            "-o", str(temp_output),
+            "-",
+        ]
+    )
 
     async with _SEMAPHORE:
         start_time = time.monotonic()

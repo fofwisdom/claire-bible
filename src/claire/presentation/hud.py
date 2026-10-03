@@ -399,8 +399,15 @@ html.is-embedded #cb-hud, body.is-embedded #cb-hud {
 """
 
 
+def sanitize_presentation_assets(html_content: str) -> str:
+    """Ensure relative reveal.js asset paths are sanitized to /static/vendor/reveal.js/."""
+    import re
+    return re.sub(r"""(['"])reveal\.js/(dist|plugin)/""", r"""\1/static/vendor/reveal.js/\2/""", html_content)
+
+
 def inject_hud_toolbar(html_content: str) -> str:
     """Inject glassmorphic HUD toolbar before </body> tag in reveal.js presentation HTML."""
+    html_content = sanitize_presentation_assets(html_content)
     if "<!-- Claire Bible Presentation HUD Toolbar -->" in html_content:
         import re
         return re.sub(
