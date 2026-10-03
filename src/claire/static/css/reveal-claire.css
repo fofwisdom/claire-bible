@@ -195,38 +195,10 @@ html, body, .reveal {
   text-decoration: underline;
 }
 
-/* --- Floating Downward Subslide Hint --- */
+/* Explicitly suppress any subslide badges or floating hint buttons */
+.cb-subslide-badge,
 .cb-down-hint {
-  position: fixed;
-  bottom: 14px;
-  left: 50%;
-  transform: translateX(-50%);
-  background: var(--cb-card-bg);
-  border: 1px solid var(--cb-subslide-border);
-  color: var(--cb-subslide-fg);
-  padding: 5px 16px;
-  border-radius: 20px;
-  font-size: 12px;
-  font-weight: 600;
-  font-family: var(--cb-font-sans);
-  cursor: pointer;
-  display: none;
-  align-items: center;
-  gap: 6px;
-  box-shadow: var(--cb-card-shadow);
-  z-index: 9999;
-  animation: cb-bounce 2s infinite ease-in-out;
-  user-select: none;
-  transition: opacity 0.2s ease;
-}
-
-.cb-down-hint.visible {
-  display: inline-flex !important;
-}
-
-@keyframes cb-bounce {
-  0%, 100% { transform: translateX(-50%) translateY(0); }
-  50% { transform: translateX(-50%) translateY(-5px); }
+  display: none !important;
 }
 
 /* --- AsciiDoc Highlight (#mark# / [.mark]) --- */
