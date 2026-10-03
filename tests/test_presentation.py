@@ -245,6 +245,14 @@ A test slide for API routes.
             assert page_res.status_code == 200
             assert "Slide Test" in page_res.text
 
+            # 5. Access presentation page via share token
+            share_res = client.post("/share", json={"doc_id": doc_id}, headers=owner_headers)
+            assert share_res.status_code == 200
+            share_token = share_res.json()["token"]
+            token_page_res = client.get(f"/p/presentation?s={share_token}")
+            assert token_page_res.status_code == 200
+            assert "Slide Test" in token_page_res.text
+
 
 def test_presentation_cli_generate_and_status(tmp_path: Path):
     from claire.cli import cmd_presentation

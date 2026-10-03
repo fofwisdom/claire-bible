@@ -1692,8 +1692,9 @@ def create_app(
             resolved = theme_mgr.resolve_share_token(token)
             if resolved is not None:
                 doc_id = resolved[2].get("id", "")
-                active_db = resolved[1].db_file
-                active_data_dir = resolved[1].data_dir
+                theme_settings = theme_mgr.get_settings_for_theme(resolved[0])
+                active_db = theme_settings.db_file
+                active_data_dir = theme_settings.data_dir
             else:
                 conn = dbm.connect_existing(active_db, readonly=True)
                 try:
@@ -1705,7 +1706,7 @@ def create_app(
             return PlainTextResponse("Missing document id or share token", status_code=400)
 
         # In multi-theme setup, ensure we target the theme DB that actually holds doc_id
-        if getattr(s, "multi_theme", False):
+        if getattr(s, "multi_theme", False) and not token:
             targets = theme_mgr.resolve_document_targets(doc_id=doc_id)
             if targets and targets[0].get("db_file"):
                 active_db = Path(targets[0]["db_file"])
@@ -1715,7 +1716,7 @@ def create_app(
         slide_theme = request.query_params.get("slide_theme") or request.query_params.get("presentation_theme") or "night"
         transition = request.query_params.get("transition", "slide")
 
-        svc = PresentationService(data_dir=active_data_dir)
+        svc = PresentationService(data_dir=active_data_dir, settings=theme_settings)
         conn = dbm.connect_existing(active_db)
         try:
             res = await svc.get_or_create_presentation(conn, doc_id, theme=slide_theme, transition=transition)

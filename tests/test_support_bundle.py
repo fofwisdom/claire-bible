@@ -854,3 +854,33 @@ def test_support_bundle_uses_embedded_build_commit_file(tmp_path: Path, monkeypa
     assert build_data["revision_source"] == "embedded"
 
 
+def test_support_bundle_no_false_positive_for_multitheme_database(tmp_path: Path):
+    s = StubSettings(db_file=tmp_path / "claire.db", data_dir=tmp_path)
+    _seed_db(s.db_file)
+
+    theme1_dir = tmp_path / "themes" / "1"
+    theme1_dir.mkdir(parents=True, exist_ok=True)
+    theme1_db = theme1_dir / "claire.db"
+    _seed_db(theme1_db)
+
+    themes_registry = {
+        "themes": [
+            {"id": 0, "label": "Default", "db_path": str(s.db_file)},
+            {"id": 1, "label": "Theme 1", "db_path": str(theme1_db)},
+        ]
+    }
+    (tmp_path / "themes.json").write_text(json.dumps(themes_registry), encoding="utf-8")
+    s.multi_theme = True
+
+    info = create_support_bundle(s)
+    dctx = zstd.ZstdDecompressor()
+    decompressed = dctx.decompress(info.filepath.read_bytes(), max_output_size=50_000_000)
+    tar = tarfile.open(fileobj=io.BytesIO(decompressed), mode="r:")
+    names = tar.getnames()
+
+    warn_name = next(n for n in names if n.endswith("diagnostics/collector_warnings.json"))
+    warnings = json.loads(tar.extractfile(warn_name).read().decode("utf-8"))
+    warning_codes = [w["code"] for w in warnings]
+    assert "ALTERNATE_NONEMPTY_DATABASE_FOUND" not in warning_codes
+
+

@@ -1241,14 +1241,15 @@ class IngestService:
         finally:
             conn.close()
 
-    def replay_failed(self, *, limit: int = 0):
-        """raw_inbox 의 status='error' 행을 원본 payload 로 재적재.
+    def replay_failed(self, *, limit: int = 0, include_permanent: bool = False):
+        """raw_inbox 의 status='error'(또는 include_permanent 시 'failed' 포함) 행을 원본 payload 로 재적재.
 
         재적재 요구의 실현: 알고리즘/quota 문제로 실패한 항목을 보관된 원본에서 재생. (payload 가 보관 파일 경로면 그 파일을, URL/text 면 그대로 다시 fetch) 반환: [(inbox_id, IngestReport), ...]
         """
         conn = dbm.connect(self.s.db_file)
         dbm.init_db(conn)
-        rows = dbm.inbox_by_status(conn, "error")
+        statuses = ("error", "failed") if include_permanent else ("error",)
+        rows = dbm.inbox_by_statuses(conn, statuses)
         conn.close()
         if limit:
             rows = rows[:limit]
