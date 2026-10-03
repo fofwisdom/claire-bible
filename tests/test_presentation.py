@@ -661,17 +661,17 @@ def test_presentation_hud_and_layout():
     assert 'title="PDF로 저장"' in injected
     assert 'title="PDF로 저장"' in index_html
 
-    # 6. Verify removal of heading subslide badge, and presence of down-hint
+    # 6. Verify complete removal of subslide badges, hints, and '하위 슬라이드' buttons
     assert "cb-subslide-badge" not in injected
     assert "decorateSubslides" not in injected
-    assert "cb-down-hint" in injected
+    assert "cb-down-hint" not in injected
+    assert "하위 슬라이드" not in injected
 
     # 7. Verify BookStack theme styling, 16:9 aspect ratio, imageblock and mark in reveal-claire.css
     reveal_css = Path("src/claire/static/css/reveal-claire.css").read_text(encoding="utf-8")
     assert "BookStack" in reveal_css
     assert "--cb-slide-bg: #ffffff;" in reveal_css
     assert '[data-theme="dark"]' in reveal_css
-    assert ".cb-subslide-badge" not in reveal_css
     assert "16:9 Widescreen" in reveal_css
     assert ".imageblock" in reveal_css
     assert "mark" in reveal_css

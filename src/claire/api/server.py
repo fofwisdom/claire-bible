@@ -1757,7 +1757,12 @@ def create_app(
         try:
             content_str = file_path.read_text(encoding="utf-8")
             if (
-                "is-embedded" not in content_str
+                "<!-- Claire Bible Presentation HUD Toolbar -->" not in content_str
+                or "cb-subslide-badge" in content_str
+                or "cb-down-hint" in content_str
+                or "decorateSubslides" in content_str
+                or "하위 슬라이드로 계속" in content_str
+                or "is-embedded" not in content_str
                 or "문서로" in content_str
                 or "cbReturnToDoc" in content_str
                 or "reveal.js/dist/" in content_str

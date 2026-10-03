@@ -151,7 +151,7 @@ HUD_SNIPPET = """
   .cb-hud-btn span { display: none; }
 }
 @media print {
-  #cb-hud, .cb-hud-sharebox, .cb-down-hint { display: none !important; }
+  #cb-hud, .cb-hud-sharebox { display: none !important; }
   @page {
     size: landscape;
     margin: 0;
@@ -201,10 +201,6 @@ html.is-embedded #cb-hud, body.is-embedded #cb-hud {
   </div>
 </div>
 
-<div id="cb-down-hint" class="cb-down-hint" onclick="if(window.Reveal) Reveal.down();" title="다음 하위 슬라이드로 계속 (↓ 방향키 또는 클릭)">
-  <span>▼ 하위 슬라이드로 계속 (↓)</span>
-</div>
-
 <div id="cb-hud-sharebox" class="cb-hud-sharebox" style="display:none">
   <input id="cb-hud-shareurl" readonly value="" onclick="this.select()"/>
   <button id="cb-hud-sharecopybtn" onclick="cbCopyHudShareInput()">✓ 복사됨</button>
@@ -215,7 +211,6 @@ html.is-embedded #cb-hud, body.is-embedded #cb-hud {
   const hud = document.getElementById('cb-hud');
   const titleEl = document.getElementById('cb-hud-title');
   const coordsEl = document.getElementById('cb-hud-coords');
-  const downHint = document.getElementById('cb-down-hint');
 
   // Sync theme with parent window (BookStack theme integration)
   function syncTheme() {
@@ -280,17 +275,6 @@ html.is-embedded #cb-hud, body.is-embedded #cb-hud {
   });
   document.addEventListener('touchstart', showHud, { passive: true });
 
-  // Update downward navigation hint visibility
-  function updateDownHint() {
-    if (!downHint || !window.Reveal) return;
-    const routes = Reveal.availableRoutes ? Reveal.availableRoutes() : null;
-    if (routes && routes.down) {
-      downHint.classList.add('visible');
-    } else {
-      downHint.classList.remove('visible');
-    }
-  }
-
   // Update slide coordinates and UI indicators
   function updateCoords() {
     if (!window.Reveal) return;
@@ -300,7 +284,6 @@ html.is-embedded #cb-hud, body.is-embedded #cb-hud {
     const v = indices.v > 0 ? '.' + String(indices.v + 1) : '';
     const text = h + v + ' / ' + total;
     coordsEl.textContent = text;
-    updateDownHint();
     try {
       if (window.parent && window.parent !== window) {
         window.parent.postMessage({
@@ -314,16 +297,25 @@ html.is-embedded #cb-hud, body.is-embedded #cb-hud {
     } catch (_) {}
   }
 
+  function cleanSubslideBadges() {
+    try {
+      const badges = document.querySelectorAll('[class*="subslide-badge"], [id*="down-hint"]');
+      badges.forEach(function(el) {
+        el.remove();
+      });
+    } catch (_) {}
+  }
+
   function onRevealReady() {
     syncTheme();
+    cleanSubslideBadges();
     updateCoords();
-    updateDownHint();
     fitCodeBlocks();
   }
 
   function onSlideChanged() {
+    cleanSubslideBadges();
     updateCoords();
-    updateDownHint();
     fitCodeBlocks();
   }
 
@@ -498,9 +490,13 @@ def sanitize_presentation_assets(html_content: str) -> str:
 
 def inject_hud_toolbar(html_content: str) -> str:
     """Inject glassmorphic HUD toolbar before </body> tag in reveal.js presentation HTML."""
+    import re
     html_content = sanitize_presentation_assets(html_content)
+    # Strip any subslide badges or hint buttons that might have been baked into existing HTML
+    html_content = re.sub(r'<span\s+class=["\']cb-subslide-badge[^"\']*["\'].*?</span>', '', html_content, flags=re.DOTALL)
+    html_content = re.sub(r'<div\s+id=["\']cb-down-hint["\'].*?</div>', '', html_content, flags=re.DOTALL)
+
     if "<!-- Claire Bible Presentation HUD Toolbar -->" in html_content:
-        import re
         return re.sub(
             r"<!-- Claire Bible Presentation HUD Toolbar -->.*?<!-- End Claire Bible Presentation HUD Toolbar -->",
             HUD_SNIPPET.strip(),
