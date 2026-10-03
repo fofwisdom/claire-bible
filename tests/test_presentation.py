@@ -667,7 +667,12 @@ def test_presentation_hud_and_layout():
     assert "cb-down-hint" not in injected
     assert "하위 슬라이드" not in injected
 
-    # 7. Verify BookStack theme styling, 16:9 aspect ratio, imageblock and mark in reveal-claire.css
+    # Verify Alternative 1: Minimal Vertical Dots Indicator on right edge
+    assert "cb-v-dots" in injected
+    assert "cb-v-dot" in injected
+    assert "updateVerticalDots" in injected
+
+    # 7. Verify BookStack theme styling, 16:9 aspect ratio, imageblock, mark, and vertical dots in reveal-claire.css
     reveal_css = Path("src/claire/static/css/reveal-claire.css").read_text(encoding="utf-8")
     assert "BookStack" in reveal_css
     assert "--cb-slide-bg: #ffffff;" in reveal_css
@@ -675,6 +680,8 @@ def test_presentation_hud_and_layout():
     assert "16:9 Widescreen" in reveal_css
     assert ".imageblock" in reveal_css
     assert "mark" in reveal_css
+    assert ".cb-v-dots" in reveal_css
+    assert ".cb-v-dot" in reveal_css
 
     # 8. Verify reader.js text updates (removal of 고품질 and PDF save alert)
     reader_js = Path("src/claire/static/js/reader.js").read_text(encoding="utf-8")

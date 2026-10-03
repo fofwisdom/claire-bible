@@ -201,6 +201,75 @@ html, body, .reveal {
   display: none !important;
 }
 
+/* --- Minimal Vertical Dots Indicator (Alternative 1) --- */
+.cb-v-dots {
+  position: fixed;
+  right: 18px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  z-index: 9998;
+  padding: 8px 5px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.55);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.06);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease, background 0.2s ease;
+}
+[data-theme="dark"] .cb-v-dots, body.theme-dark .cb-v-dots {
+  background: rgba(22, 27, 34, 0.65);
+  border-color: rgba(255, 255, 255, 0.1);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+.cb-v-dots.visible {
+  opacity: 0.7;
+  pointer-events: auto;
+}
+.cb-v-dots.visible:hover {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.9);
+}
+[data-theme="dark"] .cb-v-dots.visible:hover {
+  background: rgba(22, 27, 34, 0.95);
+}
+.cb-v-dot {
+  width: 8px;
+  height: 8px;
+  padding: 0;
+  margin: 0;
+  border-radius: 50%;
+  background: rgba(31, 35, 40, 0.3);
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  border: 1px solid transparent;
+  outline: none;
+}
+[data-theme="dark"] .cb-v-dot {
+  background: rgba(201, 209, 217, 0.35);
+}
+.cb-v-dot:hover {
+  transform: scale(1.25);
+  background: var(--cb-accent-blue, #0969da);
+}
+.cb-v-dot.active {
+  width: 8px;
+  height: 20px;
+  border-radius: 4px;
+  background: var(--cb-accent-blue, #0969da);
+  box-shadow: 0 0 6px rgba(9, 105, 218, 0.45);
+}
+[data-theme="dark"] .cb-v-dot.active {
+  background: var(--cb-accent-blue, #58a6ff);
+  box-shadow: 0 0 8px rgba(88, 166, 255, 0.45);
+}
+
 /* --- AsciiDoc Highlight (#mark# / [.mark]) --- */
 .reveal mark, .reveal .mark {
   background: var(--cb-mark-bg) !important;
