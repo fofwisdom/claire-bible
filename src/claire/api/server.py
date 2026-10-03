@@ -1676,8 +1676,8 @@ def create_app(
         )
 
     async def presentation_page(request: Request) -> Response:
-        from starlette.responses import FileResponse
-        from ..presentation import PresentationService
+        from starlette.responses import FileResponse, HTMLResponse
+        from ..presentation import PresentationService, render_unready_presentation_page
 
         token = request.query_params.get("s", "").strip()
         doc_id = request.query_params.get("id", "").strip()
@@ -1685,6 +1685,7 @@ def create_app(
         _, theme_settings, _ = _get_theme_ctx(request, None)
         active_db = theme_settings.db_file
         active_data_dir = theme_settings.data_dir
+        doc_title = ""
 
         if token:
             if not dbm.plausible_share_token(token):
@@ -1692,6 +1693,7 @@ def create_app(
             resolved = theme_mgr.resolve_share_token(token)
             if resolved is not None:
                 doc_id = resolved[2].get("id", "")
+                doc_title = resolved[2].get("title", "")
                 theme_settings = theme_mgr.get_settings_for_theme(resolved[0])
                 active_db = theme_settings.db_file
                 active_data_dir = theme_settings.data_dir
@@ -1699,6 +1701,10 @@ def create_app(
                 conn = dbm.connect_existing(active_db, readonly=True)
                 try:
                     doc_id = dbm.resolve_doc_share(conn, token) or ""
+                    if doc_id:
+                        d_obj = dbm.get_document(conn, doc_id)
+                        if d_obj:
+                            doc_title = d_obj.title or ""
                 finally:
                     conn.close()
 
@@ -1719,7 +1725,14 @@ def create_app(
         svc = PresentationService(data_dir=active_data_dir, settings=theme_settings)
         conn = dbm.connect_existing(active_db)
         try:
-            res = await svc.get_or_create_presentation(conn, doc_id, theme=slide_theme, transition=transition)
+            if not doc_title:
+                d_obj = dbm.get_document(conn, doc_id)
+                if d_obj:
+                    doc_title = d_obj.title or ""
+            # Option A: allow_compose=False -> Never trigger heavy LLM generation on GET
+            res = await svc.get_or_create_presentation(
+                conn, doc_id, theme=slide_theme, transition=transition, allow_compose=False
+            )
         except KeyError:
             return PlainTextResponse("Document not found", status_code=404)
         except Exception as exc:
@@ -1728,8 +1741,18 @@ def create_app(
             conn.close()
 
         file_path = Path(res["file_path"])
-        if not file_path.exists():
-            return PlainTextResponse("Presentation file not found", status_code=404)
+        is_ready = bool(res.get("is_ready") or res.get("status") == "ready") and file_path.is_file()
+
+        if not is_ready:
+            back_url = f"/p?s={token}" if token else f"/?id={doc_id}"
+            status = res.get("status", "not_created")
+            html_content = render_unready_presentation_page(
+                title=doc_title or "프레젠테이션",
+                status=status,
+                back_url=back_url,
+            )
+            resp_status = 200 if status == "composing" else 404
+            return HTMLResponse(html_content, status_code=resp_status)
 
         try:
             content_str = file_path.read_text(encoding="utf-8")
@@ -1781,6 +1804,7 @@ def create_app(
         slide_theme = request.query_params.get("slide_theme") or request.query_params.get("presentation_theme") or "night"
         transition = request.query_params.get("transition", "slide")
         force = request.query_params.get("force", "false").lower() in ("true", "1", "yes")
+        wait_param = request.query_params.get("wait")
 
         if not doc_id:
             try:
@@ -1790,11 +1814,17 @@ def create_app(
                     slide_theme = body.get("slide_theme") or body.get("presentation_theme") or body.get("theme", slide_theme)
                     transition = body.get("transition", transition)
                     force = bool(body.get("force", force))
+                    if wait_param is None and "wait" in body:
+                        wait_param = str(body["wait"])
             except Exception:
                 pass
 
         if not doc_id:
             return JSONResponse({"error": "id parameter required"}, status_code=400)
+
+        wait_for_completion = True
+        if wait_param is not None and str(wait_param).lower() in ("false", "0", "no"):
+            wait_for_completion = False
 
         _, theme_settings, _ = _get_theme_ctx(request, None)
         active_db = theme_settings.db_file
@@ -1808,6 +1838,44 @@ def create_app(
                     active_data_dir = Path(targets[0]["data_dir"])
 
         svc = PresentationService(data_dir=active_data_dir, settings=theme_settings)
+
+        if not wait_for_completion:
+            conn = dbm.connect_existing(active_db, readonly=True)
+            try:
+                if dbm.get_document_row(conn, doc_id) is None:
+                    return JSONResponse({"error": "document not found"}, status_code=404)
+                meta = svc.get_presentation_metadata(conn, doc_id)
+                if not force and meta and meta.get("is_ready") and meta.get("status") == "ready":
+                    return JSONResponse(meta, status_code=200)
+            finally:
+                conn.close()
+
+            async def _bg_generate():
+                bg_conn = dbm.connect_existing(active_db)
+                try:
+                    await svc.get_or_create_presentation(
+                        bg_conn,
+                        doc_id,
+                        theme=slide_theme,
+                        transition=transition,
+                        force_recompile=force,
+                    )
+                except Exception as exc:
+                    logger.warning("Background presentation generation error for %s: %s", doc_id, exc)
+                finally:
+                    bg_conn.close()
+
+            asyncio.create_task(_bg_generate())
+            return JSONResponse(
+                {
+                    "document_id": doc_id,
+                    "status": "composing",
+                    "message": "Presentation generation started in background",
+                    "retry_after": 2.5,
+                },
+                status_code=202,
+            )
+
         conn = dbm.connect_existing(active_db)
         try:
             res = await svc.get_or_create_presentation(
