@@ -653,6 +653,7 @@ class AntigravityProvider:
         author = doc.author
         published_at = doc.published_at
         focus_val = focus or (doc.meta or {}).get("focus")
+        images_val = (doc.meta or {}).get("images")
         doc_id = getattr(doc, "id", None)
 
         prompt = compose_presentation_prompt_adoc(
@@ -665,6 +666,7 @@ class AntigravityProvider:
             slide_budget=slide_budget,
             theme=theme,
             transition=transition,
+            images=images_val,
         )
 
         res = self._run_cli(
