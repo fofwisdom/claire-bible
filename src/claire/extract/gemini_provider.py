@@ -376,6 +376,7 @@ class GeminiProvider:
         author = doc.author
         published_at = doc.published_at
         focus_val = focus or (doc.meta or {}).get("focus")
+        images_val = (doc.meta or {}).get("images")
 
         prompt = compose_presentation_prompt_adoc(
             title=title,
@@ -387,6 +388,7 @@ class GeminiProvider:
             slide_budget=slide_budget,
             theme=theme,
             transition=transition,
+            images=images_val,
         )
 
         interaction = self._call(lambda: self.client.interactions.create(

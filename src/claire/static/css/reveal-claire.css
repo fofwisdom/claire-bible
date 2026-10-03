@@ -108,13 +108,11 @@ html, body, .reveal {
   overflow-wrap: break-word;
 }
 
-/* --- Slide Sections Layout & Top-Alignment --- */
+/* --- 16:9 Widescreen Slide Layout & Typography --- */
 .reveal .slides section {
   box-sizing: border-box !important;
-  padding: 24px 44px 32px 44px !important;
+  padding: 32px 56px 40px 56px !important;
   text-align: left !important;
-  height: 100% !important;
-  top: 0 !important;
   background-color: var(--cb-slide-bg) !important;
   color: var(--cb-slide-fg) !important;
 }
@@ -142,20 +140,16 @@ html, body, .reveal {
   margin-bottom: 0.4em !important;
 }
 
-/* BookStack styled Heading 2 with flex layout for subslide badges */
+/* BookStack styled Heading 2 (Takeaway headline) */
 .reveal h2 {
   font-size: 1.35em !important;
   color: var(--cb-heading-fg) !important;
   margin-top: 0 !important;
-  margin-bottom: 0.35em !important;
+  margin-bottom: 0.4em !important;
   border-bottom: 2px solid var(--cb-accent-blue) !important;
   padding-bottom: 0.18em !important;
   line-height: 1.25 !important;
-  display: flex !important;
-  align-items: center !important;
-  justify-content: space-between !important;
-  flex-wrap: wrap !important;
-  gap: 8px !important;
+  display: block !important;
 }
 
 .reveal h3 {
@@ -201,43 +195,6 @@ html, body, .reveal {
   text-decoration: underline;
 }
 
-/* --- Subslide Indicator Badge in Heading --- */
-.reveal .cb-subslide-badge {
-  font-family: var(--cb-font-mono) !important;
-  font-size: 0.44em !important;
-  font-weight: 600 !important;
-  color: var(--cb-subslide-fg) !important;
-  background: var(--cb-subslide-bg) !important;
-  border: 1px solid var(--cb-subslide-border) !important;
-  padding: 3px 10px !important;
-  border-radius: 12px !important;
-  display: inline-flex !important;
-  align-items: center !important;
-  gap: 5px !important;
-  cursor: pointer !important;
-  vertical-align: middle !important;
-  letter-spacing: normal !important;
-  text-transform: none !important;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08) !important;
-  transition: all 0.2s ease !important;
-  user-select: none !important;
-}
-
-.reveal .cb-subslide-badge:hover {
-  filter: brightness(1.08);
-  transform: translateY(1px);
-}
-
-.reveal .cb-subslide-badge.has-subslides {
-  box-shadow: 0 0 0 2px rgba(9, 105, 218, 0.2) !important;
-  animation: cb-badge-pulse 2.2s infinite ease-in-out;
-}
-
-@keyframes cb-badge-pulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(9, 105, 218, 0.35); }
-  50% { box-shadow: 0 0 0 4px rgba(9, 105, 218, 0); }
-}
-
 /* --- Floating Downward Subslide Hint --- */
 .cb-down-hint {
   position: fixed;
@@ -272,12 +229,34 @@ html, body, .reveal {
   50% { transform: translateX(-50%) translateY(-5px); }
 }
 
-/* --- AsciiDoc Highlight (#mark#) --- */
+/* --- AsciiDoc Highlight (#mark# / [.mark]) --- */
 .reveal mark, .reveal .mark {
   background: var(--cb-mark-bg) !important;
   color: var(--cb-mark-fg) !important;
-  padding: 0.1em 0.3em;
-  border-radius: 3px;
+  padding: 0.12em 0.35em !important;
+  border-radius: 4px !important;
+  font-weight: 600 !important;
+  box-decoration-break: clone !important;
+  -webkit-box-decoration-break: clone !important;
+}
+
+/* --- Slide Images & Visual Diagrams (16:9 responsive containment) --- */
+.reveal .imageblock, .reveal .imageblock img, .reveal img {
+  max-width: 100% !important;
+  max-height: 420px !important;
+  object-fit: contain !important;
+  border-radius: 8px !important;
+  margin: 0.35em auto !important;
+  display: block !important;
+  box-shadow: var(--cb-card-shadow) !important;
+  border: 1px solid var(--cb-border) !important;
+}
+.reveal .imageblock .title {
+  font-size: 0.55em !important;
+  color: var(--cb-muted) !important;
+  text-align: center !important;
+  margin-top: 0.3em !important;
+  font-style: italic;
 }
 
 /* --- BookStack Styled Tables (|===) --- */

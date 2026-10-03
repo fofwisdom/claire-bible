@@ -317,6 +317,20 @@ def test_compose_presentation_prompt_adoc():
     assert "[.notes]" in prompt
     assert ":revealjs_theme: night" in prompt
     assert ":revealjs_transition: slide" in prompt
+    assert "Presenti.ai" in prompt
+    assert "결론형 문장" in prompt
+    assert "#형광펜 키워드#" in prompt
+    assert ":revealjs_width: 1280" in prompt
+    assert ":revealjs_height: 720" in prompt
+
+    # Test prompt with images provided
+    prompt_with_images = compose_presentation_prompt_adoc(
+        title="Architecture Guide",
+        detail="= Title\nSee image::https://example.com/arch.png[System Architecture]\n",
+        images=[{"url": "https://example.com/arch.png", "caption": "System Architecture"}],
+    )
+    assert "시각 자료(이미지) 목록" in prompt_with_images
+    assert "image::https://example.com/arch.png[System Architecture]" in prompt_with_images
 
 
 def test_mock_provider_compose_presentation():
@@ -647,17 +661,20 @@ def test_presentation_hud_and_layout():
     assert 'title="PDF로 저장"' in injected
     assert 'title="PDF로 저장"' in index_html
 
-    # 6. Verify subslide badge decoration and down-hint for vertical slide navigation
-    assert "cb-subslide-badge" in injected
-    assert "decorateSubslides" in injected
+    # 6. Verify removal of heading subslide badge, and presence of down-hint
+    assert "cb-subslide-badge" not in injected
+    assert "decorateSubslides" not in injected
     assert "cb-down-hint" in injected
 
-    # 7. Verify BookStack theme styling and tokens in reveal-claire.css
+    # 7. Verify BookStack theme styling, 16:9 aspect ratio, imageblock and mark in reveal-claire.css
     reveal_css = Path("src/claire/static/css/reveal-claire.css").read_text(encoding="utf-8")
     assert "BookStack" in reveal_css
     assert "--cb-slide-bg: #ffffff;" in reveal_css
     assert '[data-theme="dark"]' in reveal_css
-    assert ".cb-subslide-badge" in reveal_css
+    assert ".cb-subslide-badge" not in reveal_css
+    assert "16:9 Widescreen" in reveal_css
+    assert ".imageblock" in reveal_css
+    assert "mark" in reveal_css
 
     # 8. Verify reader.js text updates (removal of 고품질 and PDF save alert)
     reader_js = Path("src/claire/static/js/reader.js").read_text(encoding="utf-8")

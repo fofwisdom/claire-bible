@@ -280,48 +280,6 @@ html.is-embedded #cb-hud, body.is-embedded #cb-hud {
   });
   document.addEventListener('touchstart', showHud, { passive: true });
 
-  // Decorate vertical subslides inside slide headings for clear visual indication
-  function decorateSubslides() {
-    if (!window.Reveal) return;
-    const horizontalSlides = document.querySelectorAll('.reveal .slides > section');
-    horizontalSlides.forEach(function(hSlide) {
-      const vSlides = hSlide.querySelectorAll(':scope > section');
-      const total = vSlides.length;
-      if (total > 1) {
-        vSlides.forEach(function(vSlide, vIndex) {
-          const heading = vSlide.querySelector('h2') || vSlide.querySelector('h1');
-          if (heading) {
-            let badge = heading.querySelector('.cb-subslide-badge');
-            if (!badge) {
-              badge = document.createElement('span');
-              badge.className = 'cb-subslide-badge';
-              heading.appendChild(badge);
-              badge.addEventListener('click', function(ev) {
-                ev.stopPropagation();
-                if (window.Reveal) Reveal.down();
-              });
-            }
-            const currentNum = vIndex + 1;
-            const hasNext = currentNum < total;
-            if (currentNum === 1) {
-              badge.className = 'cb-subslide-badge has-subslides';
-              badge.innerHTML = '<span class="cb-badge-icon">▼</span> 하위 슬라이드 <strong>' + currentNum + ' / ' + total + '</strong>';
-              badge.title = '하위 슬라이드가 ' + (total - 1) + '장 더 있습니다 (↓ 방향키 또는 클릭)';
-            } else if (hasNext) {
-              badge.className = 'cb-subslide-badge in-subslide';
-              badge.innerHTML = '<span class="cb-badge-icon">▼</span> 하위 <strong>' + currentNum + ' / ' + total + '</strong>';
-              badge.title = '하위 슬라이드 (↓ 방향키 또는 클릭)';
-            } else {
-              badge.className = 'cb-subslide-badge subslide-last';
-              badge.innerHTML = '<span class="cb-badge-icon">✓</span> 마지막 <strong>' + currentNum + ' / ' + total + '</strong>';
-              badge.title = '이 섹션의 마지막 하위 슬라이드입니다';
-            }
-          }
-        });
-      }
-    });
-  }
-
   // Update downward navigation hint visibility
   function updateDownHint() {
     if (!downHint || !window.Reveal) return;
@@ -358,7 +316,6 @@ html.is-embedded #cb-hud, body.is-embedded #cb-hud {
 
   function onRevealReady() {
     syncTheme();
-    decorateSubslides();
     updateCoords();
     updateDownHint();
     fitCodeBlocks();

@@ -707,8 +707,17 @@ def compose_presentation_prompt_adoc(
     slide_budget: int = 10,
     theme: str = "night",
     transition: str = "slide",
+    images: list[dict] | None = None,
 ) -> str:
-    """원문 기술 지식을 바탕으로 전문 테크니컬 발표 슬라이드와 발표자 노트를 집필하는 프롬프트."""
+    """원문 기술 지식을 바탕으로 전문 테크니컬 발표 슬라이드와 발표자 노트를 집필하는 프롬프트.
+
+    Presenti.ai 가이드라인을 반영:
+    1. One Slide, One Message & 결론형 제목 작성 (단순 요약 불릿 열거 금지)
+    2. 헤드라인 + 시각 자료(이미지/다이어그램/표/콜아웃) + 근거 & 하이라이트 레이아웃
+    3. 3초 내 인지를 위한 AsciiDoc 하이라이트(#키워드#) 적극 적용
+    4. 본문 시각 자료(이미지) 활용
+    5. 16:9 와이드스크린 표준 비율 규격
+    """
     focus_section = (
         f"\n[★ 최우선 중점 발표 초점(Focus)]\n"
         f"- 이번 발표에서는 다음 주제 및 관점을 가장 비중 있게 다루어라: **{focus.strip()}**\n"
@@ -723,6 +732,41 @@ def compose_presentation_prompt_adoc(
     min_slides = max(4, slide_budget - 2)
     max_slides = slide_budget + 4
 
+    # Extract available images from metadata and detail text
+    extracted_images: list[dict] = []
+    seen_srcs = set()
+    if images:
+        for img in images:
+            if isinstance(img, dict):
+                src = img.get("local") or img.get("url")
+                if src and src not in seen_srcs:
+                    seen_srcs.add(src)
+                    extracted_images.append({
+                        "src": src,
+                        "alt": img.get("alt") or img.get("caption") or "본문 설명 이미지",
+                    })
+
+    for m in re.finditer(r"image::?([^\[\s]+)\[(.*?)\]", detail):
+        src = m.group(1).strip()
+        alt = m.group(2).strip() or "본문 구조도/이미지"
+        if src and src not in seen_srcs:
+            seen_srcs.add(src)
+            extracted_images.append({"src": src, "alt": alt})
+
+    if extracted_images:
+        img_lines = ["\n[★ 본문에 포함된 시각 자료(이미지) 목록 - 장표에 적극 배치 필수]"]
+        img_lines.append("원문에 아래 시각 자료들이 포함되어 있다. 설명글만 나열하지 말고, 핵심 아키텍처/비교/설명 장표에 `image::{경로}[{설명}, 600, align=\"center\"]` 문법으로 적절히 배치하라:")
+        for idx, item in enumerate(extracted_images[:6], 1):
+            img_lines.append(f"- 이미지 {idx}: `image::{item['src']}[{item['alt']}]`")
+        img_lines.append("")
+        images_section = "\n".join(img_lines)
+    else:
+        images_section = (
+            "\n[★ 시각 자료 및 이미지 활용 안내]\n"
+            "- 원문에 아키텍처 다이어그램, 도식, 캡처 등 이미지 링크(`image::...[]`)가 있다면 반드시 슬라이드에 포함하라.\n"
+            "- 이미지가 없는 경우 단순 텍스트 나열을 피하고 비교 표(`|===`), 인용구(`[quote]`), 핵심 콜아웃(`[NOTE]`, `[TIP]`, `[IMPORTANT]`)을 적극 배치하여 시각적 설득력을 극대화하라.\n\n"
+        )
+
     return (
         "당신은 세계 최고의 기술 컨퍼런스(QCon, Strange Loop, AWS re:Invent)의 수석 테크니컬 스피커이자 프레젠테이션 디자이너다.\n"
         "제공된 기술 문서(AsciiDoc)의 핵심 통찰을 바탕으로, 청중을 사로잡을 **Asciidoctor reveal.js 전용 프레젠테이션 슬라이드 덱**을 직접 집필하라.\n\n"
@@ -730,13 +774,28 @@ def compose_presentation_prompt_adoc(
         f"- 문서 제목: {title}\n"
         f"- 핵심 요약: {summary or '(없음)'}\n"
         f"{focus_section}"
-        "[★ 프레젠테이션 저작 핵심 규칙]\n\n"
-        "1. [단순 본문 복사 절대 금지 / 슬라이드 전용 언어로의 재구성]\n"
-        "   - 원문의 긴 줄글 문단을 그대로 슬라이드에 옮겨 적지 마라.\n"
-        "   - 한 슬라이드당 3~4개의 핵심 불릿 포인트(`* `)로 압축하라.\n"
-        "   - 각 불릿은 1줄 이내(최대 50자 내외)로 간결하고 임팩트 있게 작성하며, 핵심 용어는 `*굵게*` 강조하라.\n"
-        "   - 한 슬라이드 안에 불릿과 테이블/코드/인용구를 무리하게 함께 넣어 화면을 초과(overflow)시키지 마라. 컴포넌트가 둘 이상 필요한 경우 반드시 수직 슬라이드(`=== `)로 분리하라.\n\n"
-        "2. [2D 그리드 내러티브 구조 설계]\n"
+        f"{images_section}"
+        "[★ 프레젠테이션 저작 핵심 원칙 (Presenti.ai 가이드라인 반영)]\n\n"
+        "1. [한 장에 한 메시지 (One Slide, One Message) & 결론형 제목 작성]\n"
+        "   - 단순 요약 불릿들을 기계적으로 열거하는 조악한 나열식 슬라이드는 절대 금지한다.\n"
+        "   - 모든 슬라이드의 제목(`== `, `=== `)은 단순한 명사/토픽('매출 현황', '아키텍처')이 아니라 청중이 즉시 결론을 파악할 수 있는 **'완결된 결론형 문장(Key Takeaway Headline)'**으로 작성하라!\n"
+        "     * ❌ `== 마이크로서비스 아키텍처`\n"
+        "     * ⭕ `== 마이크로서비스 도입으로 배포 주기 단축과 장애 격리를 달성한다`\n"
+        "     * ❌ `== 벤치마크 결과`\n"
+        "     * ⭕ `== 동시 요청 10,000건 환경에서 p99 지연 시간이 45% 단축되었다`\n"
+        "   - 청중이 슬라이드 제목만 훑어 읽어도 문서 전체의 완결된 내러티브와 핵심 결론이 전달되어야 한다.\n\n"
+        "2. [슬라이드 레이아웃 공식: 헤드라인 + 시각 자료 + 근거 & 하이라이트]\n"
+        "   - 각 장표는 텍스트만 채우지 말고 다음 구조로 입체감 있게 설계하라:\n"
+        "     * **헤드라인**: 슬라이드 상단에 핵심 결론을 제시\n"
+        "     * **시각 자료(Focus)**: 본문 이미지(`image::...[]`), 비교 표(`|===`), 인용구(`[quote]`), 콜아웃 카드(`[NOTE]`, `[IMPORTANT]`, `[TIP]`) 중 하나를 중심으로 시선 유도\n"
+        "     * **핵심 근거**: 헤드라인과 시각 자료를 뒷받침하는 2~3개의 간결한 근거\n"
+        "   - 표(`|===`)나 데이터가 들어가는 경우, 표 하단에 반드시 **핵심 해석 한 줄**(`*핵심 해석*: [수치 → 의미 → 다음 조치]`)을 첨부하라.\n\n"
+        "3. [3초 내 인지를 위한 하이라이트(#키워드#) 및 강조 원칙]\n"
+        "   - 청중이 슬라이드를 보자마자 3초 안에 핵심을 파악할 수 있도록, 핵심 수치와 핵심 용어는 AsciiDoc 하이라이트 문법인 `#형광펜 키워드#` 및 `*굵게*`를 적극 활용하라.\n"
+        "     * 예시: \"새로운 아키텍처 도입으로 처리량이 #3.5배 증가#하고 지연시간이 대폭 감소했다.\"\n"
+        "     * 예시: \"핵심 병목 원인은 CPU 연산이 아니라 #디스크 I/O 락 경합#에 있었다.\"\n"
+        "   - 중요한 비교 대상이나 지표 수치는 반드시 `#하이라이트#`로 강조하라.\n\n"
+        "4. [2D 그리드 내러티브 구조 설계]\n"
         f"   - 총 슬라이드 분량은 대략 {min_slides} ~ {max_slides}장 내외로 구성하라.\n"
         "   - 대주제/아젠다 전환은 수평 슬라이드(`== `)를 사용하라:\n"
         "     * 슬라이드 1: 타이틀 (문서 제목 및 핵심 부제)\n"
@@ -745,9 +804,9 @@ def compose_presentation_prompt_adoc(
         "     * 후반 섹션: 성능 지표, 비교 분석, 한계점 및 고려사항\n"
         "     * 마지막 섹션: 핵심 테이크어웨이(Takeaways) 및 Q&A\n"
         "   - 동일 대주제 내에서의 세부 기술 분석, 아키텍처 다이어그램, 코드 해설, 비교 표는 수직 슬라이드(`=== `)로 배치하라.\n\n"
-        "3. [★ 필수 요구사항: 모든 슬라이드에 발표자 노트([.notes]) 작성]\n"
+        "5. [★ 필수 요구사항: 모든 슬라이드에 발표자 노트([.notes]) 작성]\n"
         "   - reveal.js의 발표자 모드(단축키 'S')에서 발표자가 직접 읽고 설명할 수 있는 **구체적인 구어체 발표 대본**을 모든 슬라이드 하단에 반드시 작성하라.\n"
-        "   - 슬라이드 본문에는 핵심 키워드와 불릿만 간결히 표기하고, 원문의 깊이 있는 맥락, 수치, 인과관계, 비유적 설명은 반드시 `[.notes]` 블록 안에 2~4문장의 생생한 발표 스크립트로 서술하라.\n"
+        "   - 슬라이드 본문에는 핵심 키워드와 시각 자료만 간결히 표기하고, 원문의 깊이 있는 맥락, 수치, 인과관계, 비유적 설명은 반드시 `[.notes]` 블록 안에 2~4문장의 생생한 발표 스크립트로 서술하라.\n"
         "   - 발표자 노트 문법 예시:\n"
         "     [.notes]\n"
         "     --\n"
@@ -755,14 +814,9 @@ def compose_presentation_prompt_adoc(
         "     * (기술 해설): 슬라이드에 표기된 기술 용어의 배경과 작동 원리를 상세히 설명.\n"
         "     * (전환 멘트): 그렇다면 다음 단계에서 시스템은 어떻게 동작할까요?\n"
         "     --\n\n"
-        "4. [시각적 요소 및 AsciiDoc 컴포넌트 적극 활용]\n"
-        "   - 인용구: 원문의 핵심 선언이나 문제 제기는 `[quote, 핵심 인물 또는 원문]` 블록으로 장표 중앙에 배치하라.\n"
-        "   - 주의/팁: 핵심 전제 조건이나 트레이드오프는 `[NOTE]` 또는 `[IMPORTANT]` 블록을 1~2곳에 배치하라.\n"
-        "   - 비교 표: 여러 옵션이나 성능 수치는 `[cols=\"...\", options=\"header\"] |===` 테이블로 정돈하라 (행은 최대 4~5개, 열은 최대 3~4개 이내로 간결히 유지).\n"
-        "   - 코드 스니펫: 코드가 필요한 경우 `[source,언어]`와 함께 콜아웃(`// <1>`, `<1> 설명`)을 결합하되, 1줄당 최대 60자, 최대 6~8줄 이내로 핵심만 압축하라. 긴 코드는 스크롤을 유발하므로 핵심만 남기고 생략하라.\n\n"
-        "5. [엄격한 AsciiDoc 표준 및 reveal.js 속성 준수]\n"
+        "6. [엄격한 AsciiDoc 표준 및 16:9 와이드스크린 reveal.js 속성 준수]\n"
         "   - 마크다운 문법(`---`, `**`, `#`, `>`)은 일체 사용하지 마라.\n"
-        "   - 반드시 문서 시작부에 다음 reveal.js 헤더 속성을 포함하라:\n"
+        "   - 반드시 문서 시작부에 다음 16:9 reveal.js 헤더 속성을 포함하라:\n"
         f"     = {title}\n"
         f"     {author_line}"
         f"     {date_line}"
@@ -777,6 +831,8 @@ def compose_presentation_prompt_adoc(
         "     :revealjs_width: 1280\n"
         "     :revealjs_height: 720\n"
         "     :revealjs_margin: 0.04\n"
+        "     :revealjs_minScale: 0.2\n"
+        "     :revealjs_maxScale: 2.0\n"
         "     :source-highlighter: highlight.js\n"
         "     :icons: font\n\n"
         "[원문 본문(AsciiDoc)]:\n"
