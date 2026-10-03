@@ -150,8 +150,76 @@ HUD_SNIPPET = """
   .cb-hud-title { display: none; }
   .cb-hud-btn span { display: none; }
 }
+/* --- Minimal Vertical Dots Indicator (Alternative 1) --- */
+.cb-v-dots {
+  position: fixed;
+  right: 18px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  z-index: 9998;
+  padding: 8px 5px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.55);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.06);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease, background 0.2s ease;
+}
+[data-theme="dark"] .cb-v-dots, body.theme-dark .cb-v-dots {
+  background: rgba(22, 27, 34, 0.65);
+  border-color: rgba(255, 255, 255, 0.1);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+.cb-v-dots.visible {
+  opacity: 0.7;
+  pointer-events: auto;
+}
+.cb-v-dots.visible:hover {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.9);
+}
+[data-theme="dark"] .cb-v-dots.visible:hover {
+  background: rgba(22, 27, 34, 0.95);
+}
+.cb-v-dot {
+  width: 8px;
+  height: 8px;
+  padding: 0;
+  margin: 0;
+  border-radius: 50%;
+  background: rgba(31, 35, 40, 0.3);
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  border: 1px solid transparent;
+  outline: none;
+}
+[data-theme="dark"] .cb-v-dot {
+  background: rgba(201, 209, 217, 0.35);
+}
+.cb-v-dot:hover {
+  transform: scale(1.25);
+  background: var(--cb-accent-blue, #0969da);
+}
+.cb-v-dot.active {
+  width: 8px;
+  height: 20px;
+  border-radius: 4px;
+  background: var(--cb-accent-blue, #0969da);
+  box-shadow: 0 0 6px rgba(9, 105, 218, 0.45);
+}
+[data-theme="dark"] .cb-v-dot.active {
+  background: var(--cb-accent-blue, #58a6ff);
+  box-shadow: 0 0 8px rgba(88, 166, 255, 0.45);
+}
 @media print {
-  #cb-hud, .cb-hud-sharebox { display: none !important; }
+  #cb-hud, .cb-hud-sharebox, .cb-v-dots { display: none !important; }
   @page {
     size: landscape;
     margin: 0;
@@ -200,6 +268,8 @@ html.is-embedded #cb-hud, body.is-embedded #cb-hud {
     </button>
   </div>
 </div>
+
+<div id="cb-v-dots" class="cb-v-dots" aria-label="Vertical navigation"></div>
 
 <div id="cb-hud-sharebox" class="cb-hud-sharebox" style="display:none">
   <input id="cb-hud-shareurl" readonly value="" onclick="this.select()"/>
@@ -297,6 +367,61 @@ html.is-embedded #cb-hud, body.is-embedded #cb-hud {
     } catch (_) {}
   }
 
+  const vDotsEl = document.getElementById('cb-v-dots');
+
+  // Update minimal vertical subslide dots on right edge
+  function updateVerticalDots() {
+    if (!vDotsEl || !window.Reveal) return;
+    const indices = Reveal.getIndices();
+    const currentH = indices.h;
+    const currentV = indices.v || 0;
+
+    const hSlides = document.querySelectorAll('.reveal .slides > section');
+    const curHSlide = hSlides[currentH];
+    if (!curHSlide) {
+      vDotsEl.classList.remove('visible');
+      vDotsEl.innerHTML = '';
+      return;
+    }
+
+    const vSlides = curHSlide.querySelectorAll(':scope > section');
+    const totalV = vSlides.length;
+
+    if (totalV <= 1) {
+      vDotsEl.classList.remove('visible');
+      vDotsEl.innerHTML = '';
+      return;
+    }
+
+    if (vDotsEl.children.length !== totalV) {
+      vDotsEl.innerHTML = '';
+      for (let i = 0; i < totalV; i++) {
+        const dot = document.createElement('button');
+        dot.className = 'cb-v-dot' + (i === currentV ? ' active' : '');
+        dot.setAttribute('aria-label', (currentH + 1) + '.' + (i + 1));
+        dot.title = (currentH + 1) + '.' + (i + 1);
+        dot.addEventListener('click', (function(idx) {
+          return function(ev) {
+            ev.stopPropagation();
+            if (window.Reveal) Reveal.slide(currentH, idx);
+          };
+        })(i));
+        vDotsEl.appendChild(dot);
+      }
+    } else {
+      for (let i = 0; i < vDotsEl.children.length; i++) {
+        const dot = vDotsEl.children[i];
+        if (i === currentV) {
+          dot.classList.add('active');
+        } else {
+          dot.classList.remove('active');
+        }
+      }
+    }
+
+    vDotsEl.classList.add('visible');
+  }
+
   function cleanSubslideBadges() {
     try {
       const badges = document.querySelectorAll('[class*="subslide-badge"], [id*="down-hint"]');
@@ -310,12 +435,14 @@ html.is-embedded #cb-hud, body.is-embedded #cb-hud {
     syncTheme();
     cleanSubslideBadges();
     updateCoords();
+    updateVerticalDots();
     fitCodeBlocks();
   }
 
   function onSlideChanged() {
     cleanSubslideBadges();
     updateCoords();
+    updateVerticalDots();
     fitCodeBlocks();
   }
 
