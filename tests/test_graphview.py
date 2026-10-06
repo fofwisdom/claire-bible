@@ -989,6 +989,34 @@ def test_docmeta_message_html_and_red_box_removal():
     assert "원문의 부록(Appendix) 및 참고문헌(References) 부분을 제외한 문서" in msg_fn
 
 
+def test_heatmap_matrix_mobile_and_visual_improvements():
+    """Heatmap Matrix 뷰의 모바일 본문 보기, 롤오버 왜곡 방지 및 수평 스크롤 완화 검증."""
+    from claire.graphview import GRAPH_HTML
+
+    # 1. 모바일 본문 보기 단추 및 직결 함수 제공 검증
+    assert 'id="matrix-doc-btn"' in GRAPH_HTML
+    assert "openMatrixTargetDoc" in GRAPH_HTML
+    assert "matrix-doc-link" in GRAPH_HTML
+    assert "id=\"matrix-cell-inspect-bar\"" in GRAPH_HTML
+    assert "id=\"matrix-inspect-text\"" in GRAPH_HTML
+
+    # 2. 최초 보고 팝업 및 미리보기 배너 내 셀 롤오버 왜곡 및 클릭 오인 방지 검증
+    assert ".matrix-preview-cell" in GRAPH_HTML
+    assert "cursor: default !important;" in GRAPH_HTML
+    assert "transform: none !important;" in GRAPH_HTML
+    assert ".matrix-cell:hover" in GRAPH_HTML
+    assert "transform: scale(1.3)" not in GRAPH_HTML
+
+    # 3. 기준 행열 제목 길이 완화 및 수평 스크롤 축소 (vertical-rl, corner/col headers)
+    assert ".matrix-corner-header" in GRAPH_HTML
+    assert ".matrix-col-header" in GRAPH_HTML
+    assert ".matrix-col-label" in GRAPH_HTML
+    assert "writing-mode: vertical-rl;" in GRAPH_HTML
+    assert ".matrix-row-header" in GRAPH_HTML
+    assert "max-width: 120px;" in GRAPH_HTML
+
+
+
 
 
 

@@ -4659,7 +4659,9 @@ function renderHeatmapMatrix(matrixData, title, isIngesting){
 
   if(title){
     const docMetaEl = document.getElementById('matrix-target-doc');
-    if(docMetaEl) docMetaEl.textContent = '대조 대상: ' + title;
+    if(docMetaEl){
+      docMetaEl.innerHTML = '대조 대상: <a href="#" class="matrix-doc-link" onclick="openMatrixTargetDoc();return false;" title="문서 본문 보기">' + esc(title) + '</a>';
+    }
   }
 
   const rows = matrixData.rows || [];
@@ -4670,8 +4672,8 @@ function renderHeatmapMatrix(matrixData, title, isIngesting){
 
   const theadRow = document.getElementById('matrix-thead-row');
   if(theadRow){
-    theadRow.innerHTML = '<th style="min-width:140px">추출 노드 \\ 기존 지식 노드 (' + cols.length + ')</th>' +
-      cols.map(c => '<th title="' + esc(c) + '">' + esc(c.length > 14 ? c.slice(0, 13) + '…' : c) + '</th>').join('');
+    theadRow.innerHTML = '<th class="matrix-corner-header" title="추출 노드 \\ 기존 지식 노드 (' + cols.length + ')"><div class="matrix-corner-label">추출 \\ 지식 (' + cols.length + ')</div></th>' +
+      cols.map(c => '<th class="matrix-col-header" title="' + esc(c) + '"><div class="matrix-col-label">' + esc(c.length > 8 ? c.slice(0, 7) + '…' : c) + '</div></th>').join('');
   }
 
   const tbody = document.getElementById('matrix-tbody');
@@ -4714,11 +4716,11 @@ function renderHeatmapMatrix(matrixData, title, isIngesting){
 
         const tooltip = esc(rName) + ' ↔ ' + esc(cName) + '\n유사도: ' + score.toFixed(4) + ' (' + vis.label + ')';
 
-        // 구체적인 텍스트나 수치 사용을 배제하고 순수 색조 농도에 집중 (시각 만족감 목적)
-        return '<td><div class="' + cellClass + '" data-tier="' + vis.tier + '" title="' + tooltip + '" style="background:' + vis.bg + ';color:' + vis.fg + ';border:' + vis.border + ';' + animStyle + '" onclick="inspectMatrixCell(\'' + esc(rName) + '\',\'' + esc(cName) + '\',' + score + ')"></div></td>';
+        return '<td><div class="' + cellClass + '" data-tier="' + vis.tier + '" title="' + tooltip + '" style="background:' + vis.bg + ';color:' + vis.fg + ';border:' + vis.border + ';' + animStyle + '" onmouseenter="inspectMatrixCell(\'' + esc(rName) + '\',\'' + esc(cName) + '\',' + score + ',\'' + esc(vis.label) + '\')" onclick="inspectMatrixCell(\'' + esc(rName) + '\',\'' + esc(cName) + '\',' + score + ',\'' + esc(vis.label) + '\')"></div></td>';
       }).join('');
 
-      return '<tr><td class="matrix-row-header" title="' + esc(rName) + '">' + esc(rName) + '</td>' + cells + '</tr>';
+      const shortRName = rName.length > 10 ? rName.slice(0, 9) + '…' : rName;
+      return '<tr><td class="matrix-row-header" title="' + esc(rName) + '"><div class="matrix-row-label">' + esc(shortRName) + '</div></td>' + cells + '</tr>';
     }).join('');
   }
 }
@@ -4732,7 +4734,9 @@ function completeIngestMatrixView(result){
   }
   if(result && result.title){
     const docMetaEl = document.getElementById('matrix-target-doc');
-    if(docMetaEl) docMetaEl.textContent = '대조 대상: ' + result.title;
+    if(docMetaEl){
+      docMetaEl.innerHTML = '대조 대상: <a href="#" class="matrix-doc-link" onclick="openMatrixTargetDoc();return false;" title="문서 본문 보기">' + esc(result.title) + '</a>';
+    }
   }
   if(result && result.heatmap_matrix){
     renderHeatmapMatrix(result.heatmap_matrix, result.title, false);
@@ -4743,25 +4747,47 @@ function triggerMatrixWave(){
   // 인위적인 파동 효과는 사용자 요구사항에 따라 배제됨
 }
 
+function openMatrixTargetDoc(){
+  const targetId = activeDoc || curReaderDoc || window.latestHeatmapDocId || (currentMatrixData && currentMatrixData.document_id);
+  if(targetId){
+    if(typeof selectDoc === 'function'){
+      selectDoc(targetId);
+    } else if(typeof openReader === 'function'){
+      openReader(targetId);
+    }
+  } else {
+    setCenterView('reader');
+  }
+}
+
 async function confirmMatrixView(){
   const targetId = activeDoc || curReaderDoc || window.latestHeatmapDocId;
   if(targetId){
     await confirmPurgeMatrix(targetId);
   }
-  closeMatrixView();
+  closeMatrixView(targetId);
 }
 
-function closeMatrixView(){
+function closeMatrixView(targetDocId){
   resumeGraphAfterIngest();
-  if(activeDoc){
-    setCenterView('reader');
+  const targetDoc = targetDocId || activeDoc || curReaderDoc || window.latestHeatmapDocId;
+  if(targetDoc){
+    if(typeof selectDoc === 'function'){
+      selectDoc(targetDoc);
+    } else if(typeof openReader === 'function'){
+      openReader(targetDoc);
+    }
   } else {
     setCenterView('graph');
   }
 }
 
-function inspectMatrixCell(rName, cName, score){
-  setGraphNotice(rName + ' ↔ ' + cName + ': ' + score.toFixed(3));
+function inspectMatrixCell(rName, cName, score, tierLabel){
+  const label = tierLabel || (typeof getMatrixCellVisual === 'function' ? getMatrixCellVisual(score).label : '');
+  const text = esc(rName) + ' ↔ ' + esc(cName) + ' · 유사도: ' + Number(score).toFixed(4) + (label ? ' (' + label + ')' : '');
+  const inspectEl = document.getElementById('matrix-inspect-text');
+  if(inspectEl) inspectEl.innerHTML = '<strong>' + text + '</strong>';
+  if(typeof setGraphNotice === 'function') setGraphNotice(rName + ' ↔ ' + cName + ': ' + Number(score).toFixed(3));
 }
 
 // ============================================================================
@@ -5051,6 +5077,7 @@ function openHeatmapMatrix(docId){
   let title = '';
 
   if(targetId){
+    window.latestHeatmapDocId = targetId;
     try {
       const raw = sessionStorage.getItem('doc_matrix_' + targetId);
       if(raw) mat = JSON.parse(raw);
@@ -5058,7 +5085,12 @@ function openHeatmapMatrix(docId){
     if(!mat && curReaderDocData && curReaderDocData.id === targetId){
       mat = curReaderDocData.heatmap_matrix || (curReaderDocData.meta && curReaderDocData.meta.heatmap_matrix) || null;
     }
-    if(curReaderDocData && curReaderDocData.id === targetId) title = curReaderDocData.title;
+    if(curReaderDocData && curReaderDocData.id === targetId){
+      title = curReaderDocData.title;
+    } else if(allDocs && allDocs.length){
+      const docItem = allDocs.find(d => d.id === targetId);
+      if(docItem) title = docItem.title;
+    }
   }
   if(!mat && window.latestHeatmapMatrix){
     mat = window.latestHeatmapMatrix;
@@ -5099,7 +5131,7 @@ function renderMiniMatrixBannerHtml(docId, mat){
       cols.slice(0, 8).forEach((c, cIdx) => {
         const score = (matrix[rIdx] && matrix[rIdx][cIdx] !== undefined) ? Number(matrix[rIdx][cIdx]) : 0;
         const vis = getMatrixCellVisual(score, autoMergeThresh, borderlineThresh);
-        miniGrid += '<div class="matrix-cell" data-tier="' + vis.tier + '" style="width:14px;height:14px;border-radius:2px;background:' + vis.bg + ';border:' + vis.border + '" title="' + esc(r) + ' ↔ ' + esc(c) + ' (' + vis.label + '): ' + score.toFixed(3) + '"></div>';
+        miniGrid += '<div class="matrix-preview-cell" data-tier="' + vis.tier + '" style="width:14px;height:14px;border-radius:2px;background:' + vis.bg + ';border:' + vis.border + '" title="' + esc(r) + ' ↔ ' + esc(c) + ' (' + vis.label + '): ' + score.toFixed(3) + '"></div>';
       });
     });
     miniGrid += '</div>';
@@ -5177,6 +5209,7 @@ window.completeIngestMatrixView = completeIngestMatrixView;
 window.triggerMatrixWave = triggerMatrixWave;
 window.closeMatrixView = closeMatrixView;
 window.confirmMatrixView = confirmMatrixView;
+window.openMatrixTargetDoc = openMatrixTargetDoc;
 window.openDecisionStream = openDecisionStream;
 window.filterDecisionStream = filterDecisionStream;
 window.filterDecisionStreamCenter = filterDecisionStreamCenter;
