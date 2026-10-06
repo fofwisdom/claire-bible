@@ -452,7 +452,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
             presentation_adoc TEXT,
             authoring_provider TEXT,
             authoring_model TEXT,
-            prompt_version TEXT DEFAULT 'pres-v1',
+            prompt_version TEXT DEFAULT 'pres-v2',
             compose_duration_ms INTEGER DEFAULT 0,
             compile_duration_ms INTEGER DEFAULT 0,
             created_at REAL NOT NULL,
@@ -463,13 +463,56 @@ def _migrate(conn: sqlite3.Connection) -> None:
     )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_doc_pres_status ON document_presentations(status)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_doc_pres_key ON document_presentations(cache_key)")
-    # v14 컬럼 멱등 마이그레이션
+    # v14/v15 컬럼 멱등 마이그레이션
     _ensure_column(conn, "document_presentations", "presentation_adoc", "TEXT")
     _ensure_column(conn, "document_presentations", "adoc_hash", "TEXT")
     _ensure_column(conn, "document_presentations", "authoring_provider", "TEXT")
     _ensure_column(conn, "document_presentations", "authoring_model", "TEXT")
-    _ensure_column(conn, "document_presentations", "prompt_version", "TEXT DEFAULT 'pres-v1'")
+    _ensure_column(conn, "document_presentations", "prompt_version", "TEXT DEFAULT 'pres-v2'")
     _ensure_column(conn, "document_presentations", "compose_duration_ms", "INTEGER DEFAULT 0")
+
+    # v15 / pres-v2: Purge all legacy pre-commit / fallback presentation records and disk files
+    _pres_purge_key = "presentation_legacy_purged_v2"
+    if _stored_meta_value(conn, _pres_purge_key) != "1":
+        table_exists = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='document_presentations'"
+        ).fetchone()
+        if table_exists is not None:
+            try:
+                rows = conn.execute(
+                    "SELECT file_path FROM document_presentations"
+                ).fetchall()
+                for r in rows:
+                    fp_str = r["file_path"] if r else None
+                    if fp_str:
+                        fp = Path(fp_str)
+                        try:
+                            if fp.is_file():
+                                fp.unlink(missing_ok=True)
+                            adoc_fp = fp.with_suffix(".adoc")
+                            if adoc_fp.is_file():
+                                adoc_fp.unlink(missing_ok=True)
+                        except OSError:
+                            pass
+                conn.execute("DELETE FROM document_presentations")
+            except Exception:
+                pass
+        try:
+            db_row = conn.execute("PRAGMA database_list").fetchone()
+            db_file_str = db_row["file"] if db_row else None
+            if db_file_str:
+                pres_dir = Path(db_file_str).parent / "presentations"
+                if pres_dir.is_dir():
+                    for f in pres_dir.glob("*.html"):
+                        f.unlink(missing_ok=True)
+                    for f in pres_dir.glob("*.adoc"):
+                        f.unlink(missing_ok=True)
+        except Exception:
+            pass
+        conn.execute(
+            "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
+            (_pres_purge_key, "1"),
+        )
     # documents.meta -> focus 자동 마이그레이션 및 레거시 키 영구 소각
     _legacy_key = "dir" + "ective"
     conn.execute(
@@ -2317,7 +2360,7 @@ def save_presentation_adoc(
     adoc_hash: str,
     authoring_provider: str | None = None,
     authoring_model: str | None = None,
-    prompt_version: str = "pres-v1",
+    prompt_version: str = "pres-v2",
     compose_duration_ms: int = 0,
     slide_count: int = 0,
     theme: str = "night",
@@ -2381,7 +2424,7 @@ def save_document_presentation(
     adoc_hash: str | None = None,
     authoring_provider: str | None = None,
     authoring_model: str | None = None,
-    prompt_version: str = "pres-v1",
+    prompt_version: str = "pres-v2",
     compose_duration_ms: int = 0,
     compile_duration_ms: int = 0,
 ) -> None:

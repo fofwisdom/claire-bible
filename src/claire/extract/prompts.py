@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 # v7: 복합 문서의 자막·Presentation 구성요소별 최소 예산 보장.
 PROMPT_VERSION = "extract-v7"
 # 프레젠테이션 저작 프롬프트 버전
-PRESENTATION_PROMPT_VERSION = "pres-v1"
+PRESENTATION_PROMPT_VERSION = "pres-v2"
 
 # 단일 출처 문서의 LLM 투입 예산 (수집 상한인 20,000자에 맞춤). 병합 문서는 2배 (40,000자).
 _SINGLE_DOC_CHAR_BUDGET = 20000
@@ -784,12 +784,14 @@ def compose_presentation_prompt_adoc(
         "     * ❌ `== 벤치마크 결과`\n"
         "     * ⭕ `== 동시 요청 10,000건 환경에서 p99 지연 시간이 45% 단축되었다`\n"
         "   - 청중이 슬라이드 제목만 훑어 읽어도 문서 전체의 완결된 내러티브와 핵심 결론이 전달되어야 한다.\n\n"
-        "2. [슬라이드 레이아웃 공식: 헤드라인 + 시각 자료 + 근거 & 하이라이트]\n"
-        "   - 각 장표는 텍스트만 채우지 말고 다음 구조로 입체감 있게 설계하라:\n"
-        "     * **헤드라인**: 슬라이드 상단에 핵심 결론을 제시\n"
-        "     * **시각 자료(Focus)**: 본문 이미지(`image::...[]`), 비교 표(`|===`), 인용구(`[quote]`), 콜아웃 카드(`[NOTE]`, `[IMPORTANT]`, `[TIP]`) 중 하나를 중심으로 시선 유도\n"
-        "     * **핵심 근거**: 헤드라인과 시각 자료를 뒷받침하는 2~3개의 간결한 근거\n"
-        "   - 표(`|===`)나 데이터가 들어가는 경우, 표 하단에 반드시 **핵심 해석 한 줄**(`*핵심 해석*: [수치 → 의미 → 다음 조치]`)을 첨부하라.\n\n"
+        "2. [❌ 단순 불릿 열거 및 퀴즈식 나열 엄격 금지 & 3단 레이아웃 공식]\n"
+        "   - 단어 몇 개나 앙상한 불릿 3~4개만 달랑 던져놓아 퀴즈 객관식 보기처럼 보이는 조악한 장표는 절대 금지한다.\n"
+        "   - 각 장표는 다음 3단 구조로 입체감과 전문성을 갖추어 설계하라:\n"
+        "     * **상단 헤드라인**: 결론형 완결 문장으로 핵심 메시지 제시\n"
+        "     * **중앙 시각/구조체 (Focus)**: 본문 이미지(`image::...[]`), 비교 표(`|===`), 인용구(`[quote]`), 콜아웃 카드(`[NOTE]`, `[IMPORTANT]`, `[TIP]`), 코드 블록(`[source,...]`) 중 하나 이상을 중심으로 배치\n"
+        "     * **하단 분석 및 근거**: 중앙 요소를 뒷받침하는 2~3개의 구체적인 분석 포인트 (`* *키워드/지표명*: 구체적인 작동 원리와 파급 효과 (#핵심어 강조#)` 형식으로 문맥과 인과를 담아 서술)\n"
+        "   - 발표 덱 전체에 걸쳐 최소 2개 이상의 비교/정리 표(`|===`)와 최소 2개 이상의 콜아웃 카드(`[NOTE]`, `[IMPORTANT]` 등)를 필수 배치하라.\n"
+        "   - 표(`|===`)나 데이터가 들어가는 경우, 표 하단에 반드시 **핵심 해석 한 줄**(`*핵심 해석*: [수치 → 아키텍처 의미 → 다음 조치]`)을 첨부하라.\n\n"
         "3. [3초 내 인지를 위한 하이라이트(#키워드#) 및 강조 원칙]\n"
         "   - 청중이 슬라이드를 보자마자 3초 안에 핵심을 파악할 수 있도록, 핵심 수치와 핵심 용어는 AsciiDoc 하이라이트 문법인 `#형광펜 키워드#` 및 `*굵게*`를 적극 활용하라.\n"
         "     * 예시: \"새로운 아키텍처 도입으로 처리량이 #3.5배 증가#하고 지연시간이 대폭 감소했다.\"\n"
@@ -803,7 +805,7 @@ def compose_presentation_prompt_adoc(
         "     * 중간 섹션: 핵심 기술 아키텍처 및 상세 메커니즘\n"
         "     * 후반 섹션: 성능 지표, 비교 분석, 한계점 및 고려사항\n"
         "     * 마지막 섹션: 핵심 테이크어웨이(Takeaways) 및 Q&A\n"
-        "   - 동일 대주제 내에서의 세부 기술 분석, 아키텍처 다이어그램, 코드 해설, 비교 표는 수직 슬라이드(`=== `)로 배치하라.\n\n"
+        "   - 동일 대주제 내에서의 세부 기술 분석, 아키텍처 다이어그램, 코드 해설, 비교 표는 수직 슬라이드(`=== `)로 배치하라. (제목 없는 임의 절단자 `<<<` 사용 금지)\n\n"
         "5. [★ 필수 요구사항: 모든 슬라이드에 발표자 노트([.notes]) 작성]\n"
         "   - reveal.js의 발표자 모드(단축키 'S')에서 발표자가 직접 읽고 설명할 수 있는 **구체적인 구어체 발표 대본**을 모든 슬라이드 하단에 반드시 작성하라.\n"
         "   - 슬라이드 본문에는 핵심 키워드와 시각 자료만 간결히 표기하고, 원문의 깊이 있는 맥락, 수치, 인과관계, 비유적 설명은 반드시 `[.notes]` 블록 안에 2~4문장의 생생한 발표 스크립트로 서술하라.\n"
@@ -842,7 +844,7 @@ def compose_presentation_prompt_adoc(
 
 
 def clean_code_fence(text: str) -> str:
-    """LLM이 ```asciidoc 또는 ``` 등으로 감싸서 반환한 경우 코드 펜스를 제거한다."""
+    """LLM이 ```asciidoc 또는 ``` 등으로 감싸거나 서두 인사를 붙여 반환한 경우 순수 AsciiDoc만 추출한다."""
     t = text.strip()
     if t.startswith("```"):
         lines = t.splitlines()
@@ -850,7 +852,25 @@ def clean_code_fence(text: str) -> str:
             lines = lines[1:]
         if lines and lines[-1].strip() == "```":
             lines = lines[:-1]
-        return "\n".join(lines).strip()
+        t = "\n".join(lines).strip()
+    elif "```" in t:
+        lines = t.splitlines()
+        filtered = []
+        in_fence = False
+        for line in lines:
+            if line.strip().startswith("```"):
+                in_fence = not in_fence
+                continue
+            filtered.append(line)
+        t = "\n".join(filtered).strip()
+
+    # Strip any introductory text before the title header '= '
+    if not t.startswith("= "):
+        idx = t.find("\n= ")
+        if idx != -1:
+            t = t[idx + 1:].strip()
+        elif t.find("= ") != -1:
+            t = t[t.find("= "):].strip()
     return t
 
 
