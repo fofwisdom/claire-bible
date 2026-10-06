@@ -1075,3 +1075,61 @@ test('decision stream button placed in common header tabs and displays in center
 
   expect(pageErrors).toEqual([]);
 });
+
+test('heatmap matrix provides direct reader transition, compact headers, and refined inspect bar without rollover distortion', async ({ page }) => {
+  const pageErrors = [];
+  page.on('pageerror', err => pageErrors.push(err.message));
+
+  await page.goto('/');
+  await page.waitForSelector('#net');
+
+  // 1. Simulate opening heatmap matrix for doc-2
+  await page.evaluate(() => {
+    localStorage.removeItem('doc_matrix_confirmed_doc-2');
+    sessionStorage.removeItem('doc_matrix_confirmed_doc-2');
+    sessionStorage.setItem('doc_matrix_doc-2', JSON.stringify({
+      document_id: 'doc-2',
+      rows: ['엔티티 B (매우 긴 명칭 테스트)', '엔티티 C'],
+      cols: ['엔티티 A (매우 긴 기준 열)', '엔티티 B'],
+      matrix: [[0.95, 0.2], [0.3, 0.88]],
+      threshold_auto_merge: 0.93,
+      threshold_borderline: 0.72
+    }));
+    window.openHeatmapMatrix('doc-2');
+  });
+
+  const matrixWrap = page.locator('#matrixwrap');
+  await expect(matrixWrap).toBeVisible();
+
+  // 2. Verify compact corner, column, and row headers
+  await expect(page.locator('#matrix-thead-row .matrix-corner-header')).toBeVisible();
+  await expect(page.locator('#matrix-thead-row .matrix-col-header')).toHaveCount(2);
+  await expect(page.locator('#matrix-thead-row .matrix-col-label').first()).toBeVisible();
+  await expect(page.locator('#matrix-tbody .matrix-row-header')).toHaveCount(2);
+  await expect(page.locator('#matrix-tbody .matrix-row-label').first()).toBeVisible();
+
+  // 3. Verify inspect bar updates on hover
+  const firstCell = page.locator('#matrix-tbody .matrix-cell').first();
+  await firstCell.hover();
+  const inspectBar = page.locator('#matrix-inspect-text');
+  await expect(inspectBar).toContainText('유사도: 0.9500');
+
+  // 4. Verify direct reader transition button from matrix topbar
+  const docBtn = page.locator('#matrix-doc-btn');
+  await expect(docBtn).toBeVisible();
+  await docBtn.click();
+
+  // 5. Verify reader is now visible and matrixwrap is hidden
+  const reader = page.locator('#reader');
+  await expect(reader).toBeVisible();
+  await expect(matrixWrap).toBeHidden();
+
+  // 6. Verify preview cells in matrix preview banner have .matrix-preview-cell class
+  const previewBanner = page.locator('#doc-matrix-banner-doc-2');
+  await expect(previewBanner).toBeVisible();
+  const previewCells = previewBanner.locator('.matrix-preview-cell');
+  expect(await previewCells.count()).toBeGreaterThan(0);
+
+  expect(pageErrors).toEqual([]);
+});
+

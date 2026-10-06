@@ -379,15 +379,14 @@ function openReader(docId, pushHist=true){
   if(mobileMQ.matches){
     r.classList.add('open');
     document.body.classList.add('reader-open');
-    setReaderBackgroundInert(true);
+    setReaderBackgroundInert(false);
     if(pushHist) pushAppHistory({ modal: 'reader', docId: docId });
     requestAnimationFrame(()=>r.querySelector('.sheet')?.focus());
+  }
+  if(centerView === 'presentation'){
+    updatePresentationView(docId);
   } else {
-    if(centerView === 'presentation'){
-      updatePresentationView(docId);
-    } else {
-      setCenterView('reader');
-    }
+    setCenterView('reader');
   }
   renderDocs(document.getElementById('docq') ? document.getElementById('docq').value : '');
   applyView();
@@ -1195,6 +1194,9 @@ function closeReader(focus=false){
   r.classList.remove('open'); r.setAttribute('aria-hidden','true'); r.setAttribute('aria-busy','false');
   document.body.classList.remove('reader-open');
   setReaderBackgroundInert(false); syncWorkspaceLayout();
+  if(typeof centerView !== 'undefined' && centerView === 'reader' && typeof setCenterView === 'function'){
+    setCenterView('graph');
+  }
   const sb=document.getElementById('sharebox'); if(sb) sb.className='sharebox';
   let target=readerReturnFocus && readerReturnFocus.isConnected ? readerReturnFocus : null;
   if(!target && readerReturnDocId){
