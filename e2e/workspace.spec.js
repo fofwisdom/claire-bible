@@ -21,16 +21,20 @@ async function expectNoHorizontalOverflow(page) {
   expect(size.scroll).toBeLessThanOrEqual(size.client);
 }
 
-test('mobile primary view defaults to doc list, bottom bar is removed, and more menu is positioned to the right of theme button', async ({ page }) => {
+test('mobile primary view displays center tabs and graph, bottom bar is removed, and more menu is positioned to the right of theme button', async ({ page }) => {
   const pageErrors = [];
   page.on('pageerror', error => pageErrors.push(error.message));
   await page.setViewportSize({ width: 390, height: 844 });
   await waitForClaire(page);
   await expectNoHorizontalOverflow(page);
 
-  // 1. 기본 보기가 본문 목록(docs)으로 표시되는지 확인
-  await expect(page.locator('#docs')).toBeVisible();
-  await expect(page.locator('#netwrap')).toBeHidden();
+  // 1. 기본 보기가 센터 탭(centertabs) 및 그래프(netwrap)로 표시되는지 확인
+  await expect(page.locator('#centertabs')).toBeVisible();
+  await expect(page.locator('#centertab-graph')).toBeVisible();
+  await expect(page.locator('#centertab-reader')).toBeVisible();
+  await expect(page.locator('#centertab-presentation')).toBeVisible();
+  await expect(page.locator('#centertab-stream')).toBeVisible();
+  await expect(page.locator('#netwrap')).toBeVisible();
 
   // 2. 바텀 바 및 단추 제거 확인
   await expect(page.locator('#worktabs')).toBeHidden();
@@ -55,22 +59,27 @@ test('mobile primary view defaults to doc list, bottom bar is removed, and more 
   await expect(detailPane).toBeVisible();
   await page.locator('#detailclose').click();
   await expect(detailPane).toBeHidden();
-  await expect(page.locator('#docs')).toBeVisible();
+  await expect(page.locator('#centertabs')).toBeVisible();
 
-  // 5. 본문 목록에서 문서 선택 시 본문 읽기(reader) 모달 호출 및 닫기
-  const docItems = page.locator('#doclist .docitem');
-  await expect(docItems.first()).toBeVisible();
-  await docItems.first().click();
+  // 5. 센터탭에서 본문 읽기(reader) 모달 호출 및 닫기
+  const tabReader = page.locator('#centertab-reader');
+  await tabReader.click();
 
   const reader = page.locator('#reader');
   await expect(reader).toBeVisible();
   await expect(reader).toHaveAttribute('aria-modal', 'true');
   expect(await page.locator('body').evaluate(body => body.classList.contains('reader-open'))).toBe(true);
 
-  // 6. 리더 닫기 버튼 클릭 시 다시 본문 목록으로 복귀
+  // 6. 리더 닫기 버튼 클릭 시 다시 센터 뷰로 복귀
   await page.locator('#reader .rclose').click();
   await expect(reader).toBeHidden();
-  await expect(page.locator('#docs')).toBeVisible();
+  await expect(page.locator('#centertabs')).toBeVisible();
+
+  // 7. 센터탭에서 프레젠테이션 및 그래프 전환
+  await page.locator('#centertab-presentation').click();
+  await expect(page.locator('#presentationwrap')).toBeVisible();
+  await page.locator('#centertab-graph').click();
+  await expect(page.locator('#netwrap')).toBeVisible();
 
   expect(pageErrors).toEqual([]);
 });
@@ -224,39 +233,39 @@ test('mobile history back navigation closes modal and returns to previous view w
   await waitForClaire(page);
   await expectNoHorizontalOverflow(page);
 
-  // 1. 기본 보기가 본문 목록(docs)이고 modal은 닫혀있음
-  await expect(page.locator('#docs')).toBeVisible();
+  // 1. 기본 보기가 센터 뷰(그래프)이고 modal은 닫혀있음
+  await expect(page.locator('#centertabs')).toBeVisible();
   const reader = page.locator('#reader');
   await expect(reader).toBeHidden();
 
-  // 2. 본문 목록에서 문서 클릭하여 리더 열기
-  await page.locator('.docitem').first().click();
+  // 2. 센터탭에서 본문 클릭하여 리더 열기
+  await page.locator('#centertab-reader').click();
   await expect(reader).toBeVisible();
   await expect(reader).toHaveAttribute('aria-modal', 'true');
   expect(await page.locator('body').evaluate(body => body.classList.contains('reader-open'))).toBe(true);
 
-  // 3. 브라우저 뒤로가기 실행 -> 리더 닫히고 본문 목록 유지
+  // 3. 브라우저 뒤로가기 실행 -> 리더 닫히고 센터 뷰 유지
   await page.goBack();
   await expect(reader).toBeHidden();
   expect(await page.locator('body').evaluate(body => body.classList.contains('reader-open'))).toBe(false);
-  await expect(page.locator('#docs')).toBeVisible();
+  await expect(page.locator('#centertabs')).toBeVisible();
 
   // 4. 상단 우측의 상세 메뉴(#morebtn) 열기
   await page.locator('#morebtn').click();
   const detailPane = page.locator('#detailpane');
   await expect(detailPane).toBeVisible();
 
-  // 5. 브라우저 뒤로가기 실행 -> 드로어 닫히고 본문 목록 유지
+  // 5. 브라우저 뒤로가기 실행 -> 드로어 닫히고 센터 뷰 유지
   await page.goBack();
   await expect(detailPane).toBeHidden();
-  await expect(page.locator('#docs')).toBeVisible();
+  await expect(page.locator('#centertabs')).toBeVisible();
 
   // 6. 리더 열고 ✕ 닫기 단추로 닫기
-  await page.locator('.docitem').first().click();
+  await page.locator('#centertab-reader').click();
   await expect(reader).toBeVisible();
   await page.locator('#reader .rclose').click();
   await expect(reader).toBeHidden();
-  await expect(page.locator('#docs')).toBeVisible();
+  await expect(page.locator('#centertabs')).toBeVisible();
 
   expect(pageErrors).toEqual([]);
 });
@@ -268,8 +277,8 @@ test('mobile reader can be opened and closed, and drawer menu opens above docume
   await waitForClaire(page);
   await expectNoHorizontalOverflow(page);
 
-  // 1. 본문 목록에서 문서 클릭하여 리더 모달 열기
-  await page.locator('.docitem').first().click();
+  // 1. 센터탭에서 본문 클릭하여 리더 모달 열기
+  await page.locator('#centertab-reader').click();
   const reader = page.locator('#reader');
   await expect(reader).toBeVisible();
   await expect(reader).toHaveAttribute('aria-modal', 'true');
@@ -277,7 +286,7 @@ test('mobile reader can be opened and closed, and drawer menu opens above docume
   // 2. 리더 닫기 버튼(✕) 클릭하여 리더 닫기
   await page.locator('#reader .rclose').click();
   await expect(reader).toBeHidden();
-  await expect(page.locator('#docs')).toBeVisible();
+  await expect(page.locator('#centertabs')).toBeVisible();
 
   // 3. 상단의 햄버거 메뉴(#morebtn) 클릭
   const moreBtn = page.locator('#morebtn');
@@ -295,8 +304,8 @@ test('mobile reader can be opened and closed, and drawer menu opens above docume
   await expect(detailPane).toBeHidden();
   await expect(backdrop).toBeHidden();
 
-  // 6. 본문 목록이 계속 활성화되어 있는지 확인
-  await expect(page.locator('#docs')).toBeVisible();
+  // 6. 센터 뷰가 계속 활성화되어 있는지 확인
+  await expect(page.locator('#centertabs')).toBeVisible();
 
   expect(pageErrors).toEqual([]);
 });
@@ -309,7 +318,7 @@ test('mobile reader extends to bottom and displays text to the end without obstr
   await expectNoHorizontalOverflow(page);
 
   // 1. 리더 모달 열기
-  await page.locator('.docitem').first().click();
+  await page.locator('#centertab-reader').click();
   const reader = page.locator('#reader');
   await expect(reader).toBeVisible();
 

@@ -71,11 +71,6 @@
 <link rel=stylesheet href=/static/css/reader.css/>
 </head>
 <body class="ro" data-auth-scope="unknown" data-active-pane="graph" data-center-view="graph">
-<script>
-  if (window.matchMedia && window.matchMedia('(max-width:720px)').matches) {
-    document.body.dataset.activePane = 'docs';
-  }
-</script>
 <header id="bar">
   <div class="bar-brand-group">
     <span class="brand" role="button" tabindex="0" onclick="resetHome()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();resetHome();}" title="전체 지식 그래프 보기" aria-label="전체 지식 그래프 보기" style="display:inline-flex;align-items:center;gap:6px"><img src="/favicon.svg" width="20" height="20" alt="" aria-hidden="true" style="display:inline-block;vertical-align:middle;filter:drop-shadow(0 0 4px rgba(0,255,170,0.5))"/>Claire Bible</span>
