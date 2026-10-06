@@ -189,7 +189,7 @@ def test_graph_html_self_contained_markers():
     assert 'id="tab-detail"' not in GRAPH_HTML
     assert 'id="detailpane" role="region" aria-label="문맥 상세"' in GRAPH_HTML
     assert "function revealWorkspace" in GRAPH_HTML and "data-active-pane" in GRAPH_HTML
-    assert "function openDetailPane()" in GRAPH_HTML and "let activePane = mobileMQ.matches ? 'docs' : 'graph', detailOpen=false" in GRAPH_HTML
+    assert "function openDetailPane()" in GRAPH_HTML and "let activePane='graph', detailOpen=false" in GRAPH_HTML
     assert "const paneNames=['docs','graph'];" in GRAPH_HTML
     assert "mobileScrollTo" not in GRAPH_HTML and "scrollIntoView" not in GRAPH_HTML
     assert "const mobileMQ = window.matchMedia('(max-width:720px)')" in GRAPH_HTML

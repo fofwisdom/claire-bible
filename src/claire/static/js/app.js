@@ -56,7 +56,7 @@ const compactMQ = window.matchMedia('(max-width:1100px)');
 const toolbarMQ = window.matchMedia('(max-width:1500px)');
 const reducedMotionMQ = window.matchMedia('(prefers-reduced-motion:reduce)');
 const paneNames=['docs','graph'];
-let activePane = mobileMQ.matches ? 'docs' : 'graph', detailOpen=false, centerView='graph', drawerOpen=false;
+let activePane='graph', detailOpen=false, centerView='graph', drawerOpen=false;
 let detailReturnFocus=null, docSearchActive=false, serverSearchResults=null;
 let graphCamera = null, preservingGraphCamera = false, netBusy = false;
 let isDraggingNode = false, settleTimer = null;
@@ -665,7 +665,7 @@ function applyHoverHighlight(id){
         return {
           id: nid,
           opacity: 1.0,
-          font: { size: Math.max(fs, 13), color: th.nodeFont }
+          font: { size: fs, color: th.nodeFont }
         };
       });
       allNodes.update(nodeUpdates);
@@ -1180,10 +1180,13 @@ function initGraph(onComplete){
     const opts = {
       nodes:{shape:'dot',size:14,font:{color:th.nodeFont,size:13},borderWidth:1,borderWidthSelected:3},
       edges:{color:{color:th.edge,highlight:th.edgeHi},
+        hoverWidth: 0,
+        selectionWidth: 0,
+        chosen: false,
         font:{color:th.nodeFont,size:0,strokeWidth:3,strokeColor:netBg},smooth:false},
       groups:buildGroups(),
       physics:getPhysicsOpts(totalCount),
-      interaction:{hover:true,tooltipDelay:120,multiselect:true,zoomView:false,hideEdgesOnZoom:true,hideEdgesOnDrag:true}
+      interaction:{hover:true,tooltipDelay:120,multiselect:true,zoomView:false,hideEdgesOnZoom:true,hideEdgesOnDrag:true,hoverConnectedEdges:false}
     };
     const netEl = document.getElementById('net');
     if(netEl) net = new vis.Network(netEl, {nodes:allNodes, edges:allEdges}, opts);
@@ -3109,7 +3112,7 @@ function resetHome(){
   selectedNodeId = null;
   curReaderDoc = null;
   setCenterView('graph');
-  revealWorkspace(mobileMQ.matches ? 'docs' : 'graph', false, true);
+  revealWorkspace('graph', false, true);
   renderDocs();
   applyView();
   resetGraphCamera();
@@ -4459,7 +4462,7 @@ window.addEventListener('popstate', e => {
 });
 
 // 초기 베이스 히스토리 엔트리 등록
-replaceAppHistory({ pane: activePane || (mobileMQ.matches ? 'docs' : 'graph'), modal: getActiveModalName() });
+replaceAppHistory({ pane: activePane || 'graph', modal: getActiveModalName() });
 
 // 읽기전용 디버그 핸들(테스트/Playwright 검증용 — closure 상태 관찰). 부작용 없음.
 window.claireDebug = {

@@ -262,13 +262,20 @@ function setCenterView(mode){
     }
   }
   const nextView = (mode==='graph' ? 'graph' : (mode==='matrix' ? 'matrix' : (mode==='stream' ? 'stream' : (mode==='presentation' ? 'presentation' : 'reader'))));
-  if(mode === 'matrix' || mode === 'graph' || mode === 'stream' || mode === 'presentation'){
+  if(mode === 'matrix' || mode === 'graph' || mode === 'stream' || mode === 'presentation' || mode === 'reader'){
     activePane = 'graph';
     document.body.dataset.activePane = 'graph';
   }
   if(centerView === nextView){
     if(centerView === 'presentation'){
       updatePresentationView();
+    }
+    if(centerView === 'reader' && mobileMQ.matches){
+      const r = document.getElementById('reader');
+      if((!r || !r.classList.contains('open')) && typeof openReader === 'function'){
+        const docId = curReaderDoc || activeDoc || (allDocs && allDocs.length ? allDocs[0].id : null);
+        if(docId) openReader(docId);
+      }
     }
     return;
   }
@@ -296,6 +303,13 @@ function setCenterView(mode){
   if(tabStream){
     tabStream.classList.toggle('active', centerView === 'stream');
     tabStream.setAttribute('aria-selected', centerView === 'stream');
+  }
+  if(centerView==='reader' && mobileMQ.matches){
+    const r = document.getElementById('reader');
+    if((!r || !r.classList.contains('open')) && typeof openReader === 'function'){
+      const docId = curReaderDoc || activeDoc || (allDocs && allDocs.length ? allDocs[0].id : null);
+      if(docId) openReader(docId);
+    }
   }
   if(centerView==='presentation'){
     updatePresentationView();
@@ -371,14 +385,6 @@ function openReader(docId, pushHist=true){
   } else {
     if(centerView === 'presentation'){
       updatePresentationView(docId);
-    } else if(centerView === 'graph'){
-      if(typeof setActiveDoc === 'function'){
-        setActiveDoc(docId);
-      }
-    } else if(centerView === 'stream'){
-      if(typeof renderDecisionStreamCenter === 'function'){
-        renderDecisionStreamCenter();
-      }
     } else {
       setCenterView('reader');
     }
