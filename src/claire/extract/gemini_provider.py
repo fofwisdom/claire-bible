@@ -371,7 +371,9 @@ class GeminiProvider:
         """원문을 기반으로 reveal.js 전용 AsciiDoc 슬라이드 덱과 발표자 노트를 집필."""
         from .prompts import clean_code_fence, compose_presentation_prompt_adoc
 
-        body = _doc_to_prompt(doc)
+        body = (doc.raw_text or "").strip()
+        if not body:
+            body = _doc_to_prompt(doc)
         title = (doc.title or doc.url or "Claire Bible Presentation").strip()
         author = doc.author
         published_at = doc.published_at

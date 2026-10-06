@@ -14,7 +14,7 @@ from claire.presentation import (
     PresentationService,
     compile_presentation_html,
     find_asciidoctor_executable,
-    preprocess_adoc_to_slides,
+    prepare_presentation_adoc_for_compile,
 )
 from claire.store import db as dbm
 
@@ -26,54 +26,86 @@ def _memory_db() -> sqlite3.Connection:
     return conn
 
 
-def test_preprocess_adoc_to_slides_basic():
-    raw_adoc = """= Sample Document
-:toc: left
-
-== Section 1
-This is a sample paragraph.
-
-=== Sub-section 1.1
-* Point 1
-* Point 2
-"""
-    result = preprocess_adoc_to_slides(
-        raw_adoc,
-        title="Sample Presentation",
-        author="Claire Tester",
-        summary="A brief executive summary of this topic.",
-        theme="night",
-        transition="slide",
+@pytest.mark.asyncio
+async def test_unauthored_presentation_compile_strictly_fails(tmp_path: Path):
+    """Fallback has been completely removed. Compiling unauthored doc strictly raises ValueError and sets failed."""
+    conn = _memory_db()
+    doc_id = "doc_unauthored_test"
+    conn.execute(
+        """
+        INSERT INTO documents (id, title, url, detail, detail_format)
+        VALUES (?, 'Unauthored Title', 'https://example.com/unauth', '= Title\n== S1\nBody', 'adoc')
+        """,
+        (doc_id,),
     )
+    conn.commit()
 
-    # Check reveal.js headers
-    assert "= Sample Presentation" in result
-    assert ":author: Claire Tester" in result
-    assert ":revealjs_theme: night" in result
-    assert ":revealjs_transition: slide" in result
-    assert ":revealjs_slideNumber: c/t" in result
-    assert ":revealjs_center: false" in result
-    assert ":revealjs_width: 1280" in result
-    assert ":revealjs_height: 720" in result
-    assert ":revealjs_margin: 0.04" in result
+    svc = PresentationService(data_dir=tmp_path)
+    with pytest.raises(ValueError, match="no authored presentation source"):
+        await svc.compile_presentation(conn, doc_id)
 
-    # Check executive summary slide insertion
-    assert "== 핵심 요약 (Executive Summary)" in result
-    assert "A brief executive summary of this topic." in result
-
-    # Check 2D hierarchy preservation
-    assert "== Section 1" in result
-    assert "=== Sub-section 1.1" in result
+    record = dbm.get_document_presentation(conn, doc_id)
+    assert record is not None
+    assert record["status"] == "failed"
+    assert "LLM 생성을 먼저 실행해야 합니다" in (record["error_message"] or "")
 
 
-def test_preprocess_adoc_to_slides_chunking():
-    # Long text in a single section to trigger <<< chunking
-    long_paragraphs = "\n\n".join([f"Paragraph {i}: " + ("content line " * 8) for i in range(12)])
-    raw_adoc = f"""== Long Section
-{long_paragraphs}
-"""
-    result = preprocess_adoc_to_slides(raw_adoc, title="Chunk Test")
-    assert "<<<" in result
+def test_legacy_presentation_purged_on_init_db(tmp_path: Path):
+    """Verify one-time migration purges all legacy/fallback presentations from DB and disk across servers."""
+    db_file = tmp_path / "legacy_test.db"
+    conn = sqlite3.connect(str(db_file))
+    conn.row_factory = sqlite3.Row
+
+    # 1. Initialize DB to establish complete baseline schema
+    dbm.init_db(conn)
+
+    # 2. Simulate pre-migration state by removing the purge flag
+    conn.execute("DELETE FROM meta WHERE key = 'presentation_legacy_purged_v2'")
+    conn.commit()
+
+    pres_dir = tmp_path / "presentations"
+    pres_dir.mkdir(parents=True, exist_ok=True)
+    legacy_html = pres_dir / "legacy_doc.html"
+    legacy_html.write_text("<html>legacy fallback slide</html>")
+    legacy_adoc = pres_dir / "legacy_doc.adoc"
+    legacy_adoc.write_text("= Legacy fallback adoc")
+
+    conn.execute(
+        """
+        INSERT INTO documents (id, title, url, detail)
+        VALUES ('legacy_doc', 'Legacy Title', 'https://example.com/legacy', 'detail')
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO document_presentations (
+            document_id, content_hash, cache_key, file_path, file_size,
+            authoring_provider, prompt_version, status, created_at, updated_at
+        ) VALUES (
+            'legacy_doc', 'hash_old', 'key_old', ?, 100,
+            NULL, 'pres-v1', 'ready', 1700000000, 1700000000
+        )
+        """,
+        (str(legacy_html),),
+    )
+    conn.commit()
+
+    assert legacy_html.exists()
+    assert legacy_adoc.exists()
+    assert conn.execute("SELECT count(*) FROM document_presentations").fetchone()[0] == 1
+
+    # Run init_db which triggers _migrate
+    dbm.init_db(conn)
+
+    # 1. document_presentations rows should be wiped
+    assert conn.execute("SELECT count(*) FROM document_presentations").fetchone()[0] == 0
+    # 2. Migration flag must be set
+    meta_val = conn.execute("SELECT value FROM meta WHERE key = 'presentation_legacy_purged_v2'").fetchone()
+    assert meta_val is not None and meta_val[0] == "1"
+    # 3. Disk files must be deleted
+    assert not legacy_html.exists()
+    assert not legacy_adoc.exists()
+    conn.close()
 
 
 def test_presentation_db_lifecycle():
@@ -298,7 +330,7 @@ def test_presentation_cli_generate_and_status(tmp_path: Path):
 def test_compose_presentation_prompt_adoc():
     from claire.extract.prompts import PRESENTATION_PROMPT_VERSION, compose_presentation_prompt_adoc
 
-    assert PRESENTATION_PROMPT_VERSION == "pres-v1"
+    assert PRESENTATION_PROMPT_VERSION == "pres-v2"
     prompt = compose_presentation_prompt_adoc(
         title="KV-Cache Architecture",
         detail="= KV-Cache\n\n== Overview\nDetails about paged attention...",
@@ -319,6 +351,9 @@ def test_compose_presentation_prompt_adoc():
     assert ":revealjs_transition: slide" in prompt
     assert "Presenti.ai" in prompt
     assert "결론형 문장" in prompt
+    assert "퀴즈식 나열 엄격 금지" in prompt
+    assert "3단 레이아웃 공식" in prompt
+    assert "상단 헤드라인" in prompt
     assert "#형광펜 키워드#" in prompt
     assert ":revealjs_width: 1280" in prompt
     assert ":revealjs_height: 720" in prompt
@@ -389,7 +424,7 @@ def test_presentation_db_authoring_lifecycle():
         adoc_hash="adoc_hash_abc",
         authoring_provider="gemini",
         authoring_model="gemini-2.5-flash",
-        prompt_version="pres-v1",
+        prompt_version="pres-v2",
         compose_duration_ms=1850,
         slide_count=5,
         theme="night",
@@ -814,7 +849,7 @@ def test_presentation_metadata_is_ready(tmp_path: Path):
     assert meta["status"] == "composing"
     assert meta["is_ready"] is False
 
-    # 3. ready -> is_ready is True
+    # 3. ready without authoring -> is_ready is False and status becomes stale
     dbm.save_document_presentation(
         conn,
         document_id=doc_id,
@@ -825,6 +860,24 @@ def test_presentation_metadata_is_ready(tmp_path: Path):
         status="ready",
     )
     meta = svc.get_presentation_metadata(conn, doc_id)
-    assert meta["status"] == "ready"
-    assert meta["is_ready"] is True
+    assert meta["status"] == "stale"
+    assert meta["is_ready"] is False
+
+    # 4. ready with valid authoring -> is_ready is True
+    dbm.save_document_presentation(
+        conn,
+        document_id=doc_id,
+        content_hash="h",
+        cache_key="k",
+        file_path="/tmp/f.html",
+        file_size=100,
+        status="ready",
+        presentation_adoc="= Title\n== S1\nBody",
+        authoring_provider="gemini",
+        authoring_model="gemini-2.5-flash",
+        prompt_version="pres-v2",
+    )
+    meta_ready = svc.get_presentation_metadata(conn, doc_id)
+    assert meta_ready["status"] == "ready"
+    assert meta_ready["is_ready"] is True
 

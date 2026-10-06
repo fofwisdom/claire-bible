@@ -12,12 +12,12 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
+from ..extract.prompts import PRESENTATION_PROMPT_VERSION
 from ..ontology.base import Document
 from ..store import db as dbm
 from .converter import compile_presentation_html, find_asciidoctor_executable
 from .preprocessor import (
     prepare_presentation_adoc_for_compile,
-    preprocess_adoc_to_slides,
 )
 
 # Concurrency slot = 1: Dedicated worker pool and semaphore to prevent freezing the server
@@ -65,7 +65,14 @@ class PresentationService:
         """Get presentation record from database if exists."""
         meta = dbm.get_document_presentation(conn, doc_id)
         if meta:
-            meta["is_ready"] = bool(meta.get("status") == "ready")
+            has_valid_authoring = bool(
+                meta.get("authoring_provider")
+                and meta.get("presentation_adoc")
+                and meta.get("prompt_version") == PRESENTATION_PROMPT_VERSION
+            )
+            meta["is_ready"] = bool(meta.get("status") == "ready" and has_valid_authoring)
+            if not has_valid_authoring and meta.get("status") == "ready":
+                meta["status"] = "stale"
         return meta
 
     async def compose_presentation(
@@ -83,7 +90,7 @@ class PresentationService:
         """원문 기술 지식을 바탕으로 LLM을 호출하여 발표 전용 AsciiDoc 덱과 발표자 노트를 집필한다."""
         row = conn.execute(
             """
-            SELECT id, title, author, published_at, detail, detail_format, meta, url, canonical_url
+            SELECT id, title, author, published_at, detail, detail_format, meta, url, canonical_url, raw_text
             FROM documents
             WHERE id = ?
             """,
@@ -93,9 +100,9 @@ class PresentationService:
         if not row:
             raise KeyError(f"Document not found: {doc_id}")
 
-        detail = (row["detail"] or "").strip()
+        detail = (row["detail"] or row["raw_text"] or "").strip()
         if not detail:
-            raise ValueError(f"Document {doc_id} has no detail content to present")
+            raise ValueError(f"Document {doc_id} has no detail or raw content to present")
 
         summary = dbm.latest_extraction_summary(conn, doc_id)
 
@@ -194,7 +201,7 @@ class PresentationService:
             adoc_hash=adoc_hash,
             authoring_provider=provider_name,
             authoring_model=provider_model,
-            prompt_version="pres-v1",
+            prompt_version=PRESENTATION_PROMPT_VERSION,
             compose_duration_ms=compose_ms,
             slide_count=slide_count,
             theme=theme,
@@ -230,33 +237,48 @@ class PresentationService:
             if adoc_path.exists():
                 adoc_content = adoc_path.read_text(encoding="utf-8")
 
-        # Fallback for legacy documents without authored presentation
+        # Strict validation: Authored presentation is required; fallback is removed.
         if not adoc_content:
-            row = conn.execute(
-                "SELECT title, author, published_at, detail FROM documents WHERE id = ?",
-                (doc_id,),
-            ).fetchone()
-            if not row or not (row["detail"] or "").strip():
-                raise ValueError(f"Document {doc_id} has no presentation content or detail to compile.")
-            summary = dbm.latest_extraction_summary(conn, doc_id)
-            adoc_content = preprocess_adoc_to_slides(
-                row["detail"],
-                title=row["title"] or "Claire Bible Document",
-                author=row["author"],
-                published_at=row["published_at"],
-                summary=summary,
-                theme=theme,
-                transition=transition,
+            err_msg = (
+                f"Document {doc_id} has no authored presentation source. "
+                "LLM composition is strictly required before compiling."
             )
+            if existing:
+                dbm.update_document_presentation_status(
+                    conn,
+                    document_id=doc_id,
+                    status="failed",
+                    error_message="저작된 프레젠테이션 소스가 없습니다. LLM 생성을 먼저 실행해야 합니다.",
+                )
+            else:
+                dbm.save_document_presentation(
+                    conn,
+                    document_id=doc_id,
+                    content_hash="",
+                    cache_key="",
+                    file_path=str(target_file),
+                    file_size=0,
+                    status="failed",
+                    error_message="저작된 프레젠테이션 소스가 없습니다. LLM 생성을 먼저 실행해야 합니다.",
+                )
+            raise ValueError(err_msg)
 
         # 2. Check cache
         content_hash = (existing or {}).get("content_hash") or hashlib.sha256(adoc_content.encode("utf-8")).hexdigest()
         adoc_hash = hashlib.sha256(adoc_content.encode("utf-8")).hexdigest()
         cache_key = hashlib.sha256(f"{adoc_hash}:{theme}:{transition}".encode("utf-8")).hexdigest()
 
+        has_valid_authoring = bool(
+            existing
+            and existing.get("authoring_provider")
+            and existing.get("presentation_adoc")
+            and existing.get("prompt_version") == PRESENTATION_PROMPT_VERSION
+        )
+
         if (
             not force_recompile
             and existing
+            and has_valid_authoring
             and existing.get("status") == "ready"
             and (existing.get("adoc_hash") == adoc_hash or existing.get("cache_key") == cache_key)
             and existing.get("theme") == theme
@@ -303,6 +325,10 @@ class PresentationService:
             )
             file_size = target_file.stat().st_size
 
+            auth_prov = (existing or {}).get("authoring_provider")
+            auth_model = (existing or {}).get("authoring_model")
+            comp_dur = (existing or {}).get("compose_duration_ms", 0)
+
             dbm.save_document_presentation(
                 conn,
                 document_id=doc_id,
@@ -315,6 +341,10 @@ class PresentationService:
                 transition=transition,
                 slide_count=slide_count,
                 presentation_adoc=adoc_content,
+                authoring_provider=auth_prov,
+                authoring_model=auth_model,
+                prompt_version=PRESENTATION_PROMPT_VERSION,
+                compose_duration_ms=comp_dur,
                 status="ready",
                 error_message=None,
                 compile_duration_ms=duration_ms,
@@ -352,21 +382,28 @@ class PresentationService:
         target_file = self.get_presentation_file_path(doc_id)
         existing = dbm.get_document_presentation(conn, doc_id)
 
-        # Check document detail
-        row = conn.execute("SELECT detail FROM documents WHERE id = ?", (doc_id,)).fetchone()
+        # Check document detail or raw_text
+        row = conn.execute("SELECT detail, raw_text FROM documents WHERE id = ?", (doc_id,)).fetchone()
         if not row:
             raise KeyError(f"Document not found: {doc_id}")
-        detail = (row["detail"] or "").strip()
-        if not detail:
-            raise ValueError(f"Document {doc_id} has no detail content to present")
+        content = (row["detail"] or row["raw_text"] or "").strip()
+        if not content:
+            raise ValueError(f"Document {doc_id} has no detail or raw content to present")
 
-        current_content_hash = hashlib.sha256(detail.encode("utf-8")).hexdigest()
+        current_content_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+        has_valid_authoring = bool(
+            existing
+            and existing.get("authoring_provider")
+            and existing.get("presentation_adoc")
+            and existing.get("prompt_version") == PRESENTATION_PROMPT_VERSION
+        )
 
         # If cache is valid and up to date, return directly
         if (
             not force_compose
             and not force_recompile
-            and existing
+            and has_valid_authoring
             and existing.get("status") == "ready"
             and existing.get("content_hash") == current_content_hash
             and existing.get("theme") == theme
@@ -375,15 +412,16 @@ class PresentationService:
         ):
             return existing
 
-        has_adoc = existing and existing.get("presentation_adoc")
+        has_adoc = bool(existing and existing.get("presentation_adoc") and has_valid_authoring)
 
         # If composition is disallowed (e.g. from read-only GET routes) and not already authored
         if not allow_compose and (force_compose or not has_adoc):
             return {
                 "document_id": doc_id,
-                "status": (existing.get("status") if existing else "not_created"),
+                "status": (existing.get("status") if existing and has_valid_authoring else "not_created"),
                 "file_path": str(target_file),
                 "is_ready": False,
+                "error_message": (existing.get("error_message") if existing else None),
             }
 
         cache_key_inflight = f"{doc_id}:{theme}:{transition}"
@@ -398,7 +436,13 @@ class PresentationService:
         try:
             async with _PRES_SEMAPHORE:
                 existing = dbm.get_document_presentation(conn, doc_id)
-                has_adoc = existing and existing.get("presentation_adoc")
+                has_valid_authoring = bool(
+                    existing
+                    and existing.get("authoring_provider")
+                    and existing.get("presentation_adoc")
+                    and existing.get("prompt_version") == PRESENTATION_PROMPT_VERSION
+                )
+                has_adoc = bool(existing and existing.get("presentation_adoc") and has_valid_authoring)
 
                 if force_compose or not has_adoc:
                     await self.compose_presentation(
