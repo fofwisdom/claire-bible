@@ -414,8 +414,22 @@ class PresentationService:
 
         has_adoc = bool(existing and existing.get("presentation_adoc") and has_valid_authoring)
 
-        # If composition is disallowed (e.g. from read-only GET routes) and not already authored
-        if not allow_compose and (force_compose or not has_adoc):
+        cache_key_inflight = f"{doc_id}:{theme}:{transition}"
+
+        # If composition is disallowed (e.g. from read-only GET routes)
+        if not allow_compose:
+            if (
+                not force_recompile
+                and existing
+                and has_valid_authoring
+                and existing.get("status") == "ready"
+                and target_file.exists()
+            ):
+                return existing
+            if cache_key_inflight in _PRES_IN_FLIGHT:
+                async with _PRES_IN_FLIGHT_LOCK:
+                    if cache_key_inflight in _PRES_IN_FLIGHT:
+                        return await _PRES_IN_FLIGHT[cache_key_inflight]
             return {
                 "document_id": doc_id,
                 "status": (existing.get("status") if existing and has_valid_authoring else "not_created"),
@@ -424,7 +438,6 @@ class PresentationService:
                 "error_message": (existing.get("error_message") if existing else None),
             }
 
-        cache_key_inflight = f"{doc_id}:{theme}:{transition}"
         async with _PRES_IN_FLIGHT_LOCK:
             if cache_key_inflight in _PRES_IN_FLIGHT:
                 future = _PRES_IN_FLIGHT[cache_key_inflight]

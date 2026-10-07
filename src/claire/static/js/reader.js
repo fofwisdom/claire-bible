@@ -1579,7 +1579,16 @@ if(typeof window !== 'undefined'){
   });
 }
 
-let presPollInterval = null;
+let presPollTimer = null;
+let presPollTargetId = null;
+
+function stopPresentationPolling(){
+  if(presPollTimer){
+    clearTimeout(presPollTimer);
+    presPollTimer = null;
+  }
+  presPollTargetId = null;
+}
 
 function _onPresentationReady(targetId){
   if(typeof curReaderDocData !== 'undefined' && curReaderDocData && curReaderDocData.id === targetId){
@@ -1588,7 +1597,10 @@ function _onPresentationReady(targetId){
   const dc = typeof allDocs !== 'undefined' && allDocs && allDocs.find(d => d.id === targetId);
   if(dc) dc.has_presentation = true;
   const frame = document.getElementById('presentation-frame');
-  if(frame) frame.removeAttribute('data-doc-id');
+  // Avoid re-triggering reload if the frame already loaded this presentation
+  if(frame && (frame.getAttribute('data-doc-id') !== targetId || !frame.src || frame.src === 'about:blank' || !frame.src.includes(encodeURIComponent(targetId)))){
+    frame.removeAttribute('data-doc-id');
+  }
   updatePresentationView(targetId);
 }
 
@@ -1604,10 +1616,7 @@ async function generatePresentationForCurrentDoc(){
   }
   if(emptyMsg) emptyMsg.textContent = 'AsciiDoc 및 reveal.js 장표 작성을 요청하는 중입니다…';
 
-  if(presPollInterval){
-    clearInterval(presPollInterval);
-    presPollInterval = null;
-  }
+  stopPresentationPolling();
 
   const startTime = Date.now();
 
@@ -1622,11 +1631,13 @@ async function generatePresentationForCurrentDoc(){
 
     if(res.status === 202 || res.status === 200){
       if(emptyMsg) emptyMsg.textContent = 'AI가 문서 내용을 분석하여 AsciiDoc 슬라이드를 집필 중입니다 (0초 경과)…';
-      presPollInterval = setInterval(async () => {
+      presPollTargetId = targetId;
+
+      const pollStep = async () => {
+        if(presPollTargetId !== targetId) return;
         const elapsed = Math.round((Date.now() - startTime) / 1000);
         if(elapsed > 120){
-          clearInterval(presPollInterval);
-          presPollInterval = null;
+          stopPresentationPolling();
           if(emptyMsg) emptyMsg.textContent = '생성 시간이 초과되었습니다 (120초 경과). 잠시 후 다시 확인하거나 재시도해주세요.';
           if(genBtn){
             genBtn.disabled = false;
@@ -1637,15 +1648,19 @@ async function generatePresentationForCurrentDoc(){
 
         try {
           const pollRes = await fetch('/document/presentation?id=' + encodeURIComponent(targetId));
-          if(!pollRes.ok) return;
+          if(presPollTargetId !== targetId) return;
+          if(!pollRes.ok){
+            presPollTimer = setTimeout(pollStep, 2500);
+            return;
+          }
           const pollData = await pollRes.json();
+          if(presPollTargetId !== targetId) return;
+
           if(pollData.status === 'ready'){
-            clearInterval(presPollInterval);
-            presPollInterval = null;
+            stopPresentationPolling();
             _onPresentationReady(targetId);
           } else if(pollData.status === 'failed'){
-            clearInterval(presPollInterval);
-            presPollInterval = null;
+            stopPresentationPolling();
             if(emptyMsg) emptyMsg.textContent = '생성에 실패했습니다: ' + (pollData.error_message || '원인 불명');
             if(genBtn){
               genBtn.disabled = false;
@@ -1653,11 +1668,16 @@ async function generatePresentationForCurrentDoc(){
             }
           } else {
             if(emptyMsg) emptyMsg.textContent = `AI가 슬라이드 덱을 작성하고 있습니다 (${elapsed}초 경과)…`;
+            presPollTimer = setTimeout(pollStep, 2500);
           }
         } catch(_pollErr){
-          // transient network glitch during polling
+          if(presPollTargetId === targetId){
+            presPollTimer = setTimeout(pollStep, 2500);
+          }
         }
-      }, 2500);
+      };
+
+      presPollTimer = setTimeout(pollStep, 2500);
     } else {
       if(emptyMsg) emptyMsg.textContent = '생성에 실패했습니다: ' + (data.error || '잠시 후 다시 시도해주세요.');
       if(genBtn){
