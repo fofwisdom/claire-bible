@@ -206,8 +206,8 @@ def test_graph_html_self_contained_markers():
     assert "if(current<0 || docs.length<2) return;" in GRAPH_HTML
     assert "font:{color:th.nodeFont,size:0" in GRAPH_HTML             # 관계 라벨은 기본 숨김
     assert "edgeLabelsByZoom" in GRAPH_HTML                           # 확대/선택/경로에서만 라벨 공개
-    # reader는 실제 modal 의미·focus trap/복원·배경 inert를 갖는다.
-    assert 'role="dialog" aria-modal="true" aria-labelledby="rtitle" aria-hidden="true"' in GRAPH_HTML
+    # reader는 팝업이 아니라 중앙 작업 영역의 본문 뷰로 표시된다.
+    assert 'id="reader" class="workspace-pane" role="region" aria-label="문서 본문 읽기"' in GRAPH_HTML
     assert "handleReaderKey" in GRAPH_HTML and "setReaderBackgroundInert" in GRAPH_HTML
     assert "readerReturnFocus" in GRAPH_HTML and "data-read-doc" in GRAPH_HTML
     assert "#ffffff" in GRAPH_HTML and "borderWidthSelected" in GRAPH_HTML  # 선택 노드 흰 테두리
@@ -657,8 +657,9 @@ def test_mobile_bottom_bar_graph_navigation_and_node_selection():
     """모바일 하단 바 제거, 리더 전체화면 및 선택된 문서 노드 전체 선택 기능 검증."""
     from claire.graphview import GRAPH_HTML
 
-    # 1. 모바일 리더 모달이 전체 높이를 덮도록 위치 (bottom:0) 및 하단 바 제거 확인
-    assert '#reader{position:fixed!important;top:0!important;left:0!important;right:0!important;bottom:0!important;height:100%!important;max-height:100%!important;width:100%!important;max-width:100%!important;min-width:0!important;min-height:0!important;box-sizing:border-box!important;overflow:hidden!important;background:var(--shadow)!important;display:none!important;visibility:hidden!important;pointer-events:none!important;z-index:45!important;padding:0!important}' in GRAPH_HTML
+    # 1. 모바일 본문 리더가 팝업이 아닌 중앙 본문 작업 영역(position:relative)에 그대로 표시 및 하단 바 제거 확인
+    assert '#reader{\n      position:relative!important;' in GRAPH_HTML
+    assert 'body[data-center-view="reader"] #reader{\n      display:flex!important;' in GRAPH_HTML
     assert "['bar','worktabs'].forEach" not in GRAPH_HTML
     assert 'z-index:55;width:min(400px,82vw);height:auto;max-height:none;' in GRAPH_HTML
     assert '#drawerbackdrop{display:none;position:fixed;inset:0;z-index:52;' in GRAPH_HTML
@@ -939,25 +940,20 @@ def test_default_graph_view_and_stream_tabs_separation():
     assert "setCenterView('graph');" in r_home_fn
     assert "document.title = 'Claire Bible — 지식 그래프';" in r_home_fn
 
-    # 4. 본문/프레젠테이션/그래프 탭 박스(#centertabs)와 의사결정 스트림 탭 박스(#streamtabs)의 구조적 분리
+    # 4. 센터 탭은 유형 무관 한 줄에 모두 통합 배치 (#centertabs)
     assert '<div id="centertabs" class="center-tabs"' in GRAPH_HTML
-    assert '<div id="streamtabs" class="center-tabs stream-tabs"' in GRAPH_HTML
+    assert '<div id="streamtabs"' not in GRAPH_HTML
 
     c_start = GRAPH_HTML.index('<div id="centertabs"')
-    c_end = GRAPH_HTML.index('</div>\n      <div id="streamtabs"')
+    c_end = GRAPH_HTML.index('</div>\n    </header>')
     centertabs_content = GRAPH_HTML[c_start:c_end]
 
-    # centertabs 에는 본문, 프레젠테이션, 그래프 3개만 위치
+    # centertabs 에 본문 목록, 본문, 프레젠테이션, 그래프, 의사결정 스트림 모두 한 줄에 위치
+    assert 'id="mobile-doclist-btn"' in centertabs_content
     assert 'id="centertab-reader"' in centertabs_content
     assert 'id="centertab-presentation"' in centertabs_content
     assert 'id="centertab-graph"' in centertabs_content
-    assert 'id="centertab-stream"' not in centertabs_content
-
-    # streamtabs 에 의사결정 스트림 탭이 분리 배치됨
-    s_start = GRAPH_HTML.index('<div id="streamtabs"')
-    s_end = GRAPH_HTML.index('</div>\n    </header>')
-    streamtabs_content = GRAPH_HTML[s_start:s_end]
-    assert 'id="centertab-stream"' in streamtabs_content
+    assert 'id="centertab-stream"' in centertabs_content
 
 
 def test_docmeta_message_html_and_red_box_removal():
@@ -1014,6 +1010,55 @@ def test_heatmap_matrix_mobile_and_visual_improvements():
     assert "writing-mode: vertical-rl;" in GRAPH_HTML
     assert ".matrix-row-header" in GRAPH_HTML
     assert "max-width: 120px;" in GRAPH_HTML
+
+
+def test_mobile_view_improvements_and_drawer_navigation():
+    """모바일 뷰 개선 설계 및 구현 5대 요구사항 검증:
+    1. 센터 탭 유형 무관 한 줄 모두 포함
+    2. 그래프 메뉴 본문 좌/우(이전/다음) 단추 제거
+    3. 모바일 뷰 센터 탭 가장 왼쪽 본문 목록 단추 제공
+    4. 본문 목록 단추 상호작용 시 왼쪽 팝업 드로어 열림
+    5. 본문 보기 시 팝업이 아닌 본문 영역에 그대로 표시
+    """
+    from claire.graphview import GRAPH_HTML
+
+    # 1. 센터 탭은 유형 무관 한 줄에 모두 담김 (mobile-doclist-btn, reader, presentation, graph, stream)
+    c_start = GRAPH_HTML.index('<div id="centertabs"')
+    c_end = GRAPH_HTML.index('</div>\n    </header>')
+    c_tabs = GRAPH_HTML[c_start:c_end]
+    assert 'id="mobile-doclist-btn"' in c_tabs
+    assert 'id="centertab-reader"' in c_tabs
+    assert 'id="centertab-presentation"' in c_tabs
+    assert 'id="centertab-graph"' in c_tabs
+    assert 'id="centertab-stream"' in c_tabs
+    # mobile-doclist-btn 은 센터 탭 중 가장 왼쪽에 위치
+    assert c_tabs.index('id="mobile-doclist-btn"') < c_tabs.index('id="centertab-reader"') < c_tabs.index('id="centertab-presentation"') < c_tabs.index('id="centertab-graph"') < c_tabs.index('id="centertab-stream"')
+    # 모바일에서 센터 탭은 한 줄 nowrap 으로 유지
+    assert "flex-wrap:nowrap;" in GRAPH_HTML
+
+    # 2. 그래프 메뉴에서 미동작하던 본문 좌/우(stepGraphDoc -1/+1) 버튼 제거 확인
+    assert 'id="graphdocprev"' not in GRAPH_HTML
+    assert 'id="graphdocnext"' not in GRAPH_HTML
+    assert 'id="graphdocpick"' in GRAPH_HTML
+
+    # 3. 모바일 전용 본문 목록 버튼 스타일 (데스크톱 숨김, 모바일 표시)
+    assert ".mobile-doclist-btn{display:none!important}" in GRAPH_HTML
+    assert ".mobile-doclist-btn{\n      display:inline-flex!important;\n    }" in GRAPH_HTML
+
+    # 4. 본문 목록 팝업 드로어 형태 (왼쪽 슬라이드, translateX) 및 닫기 버튼
+    assert "body.docdrawer-open #docs" in GRAPH_HTML
+    assert "transform:translateX(-105%)!important;" in GRAPH_HTML
+    assert "transform:translateX(0)!important;" in GRAPH_HTML
+    assert 'id="docclose"' in GRAPH_HTML
+    assert "openDocDrawer" in GRAPH_HTML
+    assert "closeDocDrawer" in GRAPH_HTML
+    assert "toggleDocDrawer" in GRAPH_HTML
+
+    # 5. 본문 보기는 팝업 모달이 아닌 중앙 작업 영역(#reader)에 그대로 표시
+    assert 'role="dialog" aria-modal="true" aria-labelledby="rtitle"' not in GRAPH_HTML
+    assert 'id="reader" class="workspace-pane" role="region" aria-label="문서 본문 읽기"' in GRAPH_HTML
+    assert 'body[data-center-view="reader"] #reader{\n      display:flex!important;' in GRAPH_HTML
+
 
 
 

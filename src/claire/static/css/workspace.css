@@ -104,6 +104,7 @@
   .docq-search-row{display:flex;align-items:center;gap:6px;width:100%}
   .docq-search-row input#docq{flex:1;min-width:0}
   .docsearch-stat-row{display:flex;align-items:center;justify-content:space-between;width:100%;font-size:12px;color:var(--muted);line-height:1.4}
+  #docs #docclose{display:none!important}
   /* 검색 AI 요약 카드 & 그래프 연계 바 */
   .search-ai-card{
     margin:8px 8px 10px;padding:10px 12px;
@@ -381,8 +382,49 @@
     .workspace-pane,#centerwrap{grid-area:1/1;visibility:hidden!important;pointer-events:none}
     body[data-active-pane="docs"] #docs{visibility:visible!important;pointer-events:auto}
     body[data-active-pane="graph"] #centerwrap, body[data-active-pane="graph"] #netwrap, body[data-active-pane="graph"] #matrixwrap, body[data-active-pane="graph"] #streamwrap, body[data-active-pane="graph"] #presentationwrap, body[data-center-view="matrix"] #centerwrap, body[data-center-view="matrix"] #matrixwrap, body[data-center-view="stream"] #centerwrap, body[data-center-view="stream"] #streamwrap, body[data-center-view="presentation"] #centerwrap, body[data-center-view="presentation"] #presentationwrap, body[data-center-view="reader"] #centerwrap, body[data-center-view="reader"] #reader, body.reader-open #centerwrap, body.reader-open #reader{visibility:visible!important;pointer-events:auto}
-    #docs{position:relative;inset:auto;width:100%;height:100%;
-      max-width:none;transform:none;box-shadow:none;border:0;display:flex}
+    #docs{
+      position:fixed!important;
+      top:0!important;left:0!important;bottom:0!important;
+      width:min(320px,85vw)!important;max-width:85vw!important;height:100%!important;
+      box-sizing:border-box!important;
+      background:var(--docs-bg)!important;
+      box-shadow:12px 0 32px var(--shadow)!important;
+      border-right:1px solid var(--border)!important;
+      border-left:0!important;border-top:0!important;border-bottom:0!important;
+      transform:translateX(-105%)!important;
+      visibility:hidden!important;
+      pointer-events:none!important;
+      transition:transform .25s ease,visibility 0s linear .25s!important;
+      display:flex!important;flex-direction:column!important;
+      z-index:54!important;
+    }
+    body.docdrawer-open #docs{
+      transform:translateX(0)!important;
+      visibility:visible!important;
+      pointer-events:auto!important;
+      transition:transform .25s ease!important;
+    }
+    body.docdrawer-open #drawerbackdrop{
+      display:block!important;
+      opacity:1!important;
+      pointer-events:auto!important;
+    }
+    #docs #docclose{
+      display:inline-flex!important;
+      align-items:center;
+      justify-content:center;
+      width:34px;
+      height:34px;
+      min-width:34px;
+      min-height:34px;
+      background:var(--sec-bg);
+      color:var(--sec-fg);
+      border:1px solid var(--border);
+      border-radius:6px;
+      cursor:pointer;
+      font-size:14px;
+      margin-left:auto;
+    }
     #legendbar{flex-wrap:nowrap;overflow-x:auto;min-height:36px;padding:7px 10px;scrollbar-width:thin}
     #graphdocnav{position:relative;display:flex;align-items:center;gap:4px;min-height:52px;
       padding:4px 8px;background:var(--panel-bg);border-bottom:1px solid var(--border);z-index:12}
