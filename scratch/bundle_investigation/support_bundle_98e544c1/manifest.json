@@ -1,0 +1,29 @@
+{
+  "bundle_format_version": 3,
+  "bundle_id": "sb_20261007_143054_98e544c1",
+  "filename": "support_bundle_20261007_143054_98e544c1.tar.zst",
+  "created_at": "2026-10-07T14:30:54.344749+00:00",
+  "expires_at": "2026-10-07T20:30:54.344749+00:00",
+  "ttl_hours": 6.0,
+  "days_covered": 1,
+  "cutoff_timestamp": "2026-10-06T14:30:54.344749+00:00",
+  "git_commit": "3f67e14fcc35b67e780434ea31a39bd6f487266f",
+  "build": {
+    "git_commit": "3f67e14fcc35b67e780434ea31a39bd6f487266f",
+    "revision_source": "build_arg",
+    "package_version": "0.1.0",
+    "schema_version": 13,
+    "schema_lineage": "claire-bible/common",
+    "image_tag": "local"
+  },
+  "active_ingest": {
+    "active": false,
+    "stage": "done",
+    "msg": "적재 및 대조 완료",
+    "file_present": true
+  },
+  "target": null,
+  "request_context": {
+    "channel": "telegram_command"
+  }
+}
