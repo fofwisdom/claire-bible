@@ -109,12 +109,13 @@
     <button class="close-btn" onclick="ClaireStatusBanner.hide()" title="닫기" aria-label="안내 닫기">✕</button>
   </div>
 </div>
-<div id="drawerbackdrop" onclick="closeDrawer()" aria-hidden="true"></div>
+<div id="drawerbackdrop" onclick="closeAllDrawers()" aria-hidden="true"></div>
 <div id="wrap">
   <aside id="docs" class="workspace-pane" role="tabpanel" aria-labelledby="tab-docs" tabindex="0">
     <div class="dhead">
       <div class="docsearch-stat-row">
         <span id="stat" role="status" aria-live="polite">로딩…</span>
+        <button id="docclose" class="doc-drawer-close" type="button" onclick="closeDocDrawer(true)" title="본문 목록 닫기" aria-label="본문 목록 닫기">✕</button>
       </div>
     </div>
     <div id="pinnedhead" style="display:none">⭐ 즐겨찾기</div>
@@ -143,6 +144,9 @@
         </div>
       </div>
       <div id="centertabs" class="center-tabs" role="tablist" aria-label="중앙 작업 영역 뷰">
+        <button id="mobile-doclist-btn" type="button" class="center-tab-btn mobile-doclist-btn" onclick="openDocDrawer()" title="본문 목록 열기" aria-label="본문 목록">
+          <span class="btn-icon">📑</span> <span class="btn-label">본문 목록</span>
+        </button>
         <button id="centertab-reader" type="button" class="center-tab-btn" role="tab" aria-selected="false" onclick="setCenterView('reader')" title="문서 본문 읽기" aria-label="본문">
           <span class="btn-icon">📖</span> <span class="btn-label">본문</span>
         </button>
@@ -152,8 +156,6 @@
         <button id="centertab-graph" type="button" class="center-tab-btn active" role="tab" aria-selected="true" onclick="setCenterView('graph')" title="지식 그래프" aria-label="그래프">
           <span class="btn-icon">🌐</span> <span class="btn-label">그래프</span>
         </button>
-      </div>
-      <div id="streamtabs" class="center-tabs stream-tabs" role="tablist" aria-label="의사결정 스트림 뷰">
         <button id="centertab-stream" type="button" class="center-tab-btn" role="tab" aria-selected="false" onclick="setCenterView('stream')" title="엔티티 해소 의사결정 스트림" aria-label="의사결정 스트림">
           <span class="btn-icon">📜</span> <span class="btn-label">의사결정 스트림</span>
         </button>
@@ -162,12 +164,10 @@
     <section id="netwrap" class="workspace-pane" role="tabpanel" aria-labelledby="tab-graph" tabindex="0">
       <div id="legendbar" aria-label="그래프 범례와 관계 필터"></div>
       <div id="graphdocnav" aria-label="그래프 자료 전환">
-        <button id="graphdocprev" onclick="stepGraphDoc(-1)" title="이전 자료" aria-label="이전 자료">‹</button>
         <button id="graphdocpick" aria-haspopup="dialog" aria-expanded="false"
           aria-controls="graphdocmenu" onclick="toggleGraphDocPicker()">
           <span id="graphdoclabel">전체 그래프</span><span aria-hidden="true">⌄</span>
         </button>
-        <button id="graphdocnext" onclick="stepGraphDoc(1)" title="다음 자료" aria-label="다음 자료">›</button>
         <div id="graphdocmenu" role="dialog" aria-label="그래프에서 볼 자료 선택"
           aria-hidden="true" inert hidden>
           <label class="sr-only" for="graphdocq">자료 검색</label>
@@ -288,8 +288,7 @@
       </div>
       <iframe id="presentation-frame" title="프레젠테이션 뷰어" allow="fullscreen" referrerpolicy="no-referrer"></iframe>
     </section>
-    <div id="reader" role="dialog" aria-modal="true" aria-labelledby="rtitle" aria-hidden="true"
-      onclick="if(event.target===this && mobileMQ.matches)closeReader()">
+    <div id="reader" class="workspace-pane" role="region" aria-label="문서 본문 읽기">
       <div class="sheet" tabindex="-1">
         <div class="head">
           <h1 id="rtitle">문서를 선택하세요</h1>

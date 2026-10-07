@@ -271,10 +271,9 @@ function setCenterView(mode){
       updatePresentationView();
     }
     if(centerView === 'reader' && mobileMQ.matches){
-      const r = document.getElementById('reader');
-      if((!r || !r.classList.contains('open')) && typeof openReader === 'function'){
-        const docId = curReaderDoc || activeDoc || (allDocs && allDocs.length ? allDocs[0].id : null);
-        if(docId) openReader(docId);
+      const docId = curReaderDoc || activeDoc || (allDocs && allDocs.length ? allDocs[0].id : null);
+      if(docId && curReaderDoc !== docId && typeof openReader === 'function'){
+        openReader(docId);
       }
     }
     return;
@@ -305,10 +304,9 @@ function setCenterView(mode){
     tabStream.setAttribute('aria-selected', centerView === 'stream');
   }
   if(centerView==='reader' && mobileMQ.matches){
-    const r = document.getElementById('reader');
-    if((!r || !r.classList.contains('open')) && typeof openReader === 'function'){
-      const docId = curReaderDoc || activeDoc || (allDocs && allDocs.length ? allDocs[0].id : null);
-      if(docId) openReader(docId);
+    const docId = curReaderDoc || activeDoc || (allDocs && allDocs.length ? allDocs[0].id : null);
+    if(docId && curReaderDoc !== docId && typeof openReader === 'function'){
+      openReader(docId);
     }
   }
   if(centerView==='presentation'){
@@ -376,12 +374,8 @@ function openReader(docId, pushHist=true){
   if(drawerOpen || detailOpen){
     if(compactMQ.matches || mobileMQ.matches) closeDrawer(false, false);
   }
-  if(mobileMQ.matches){
-    r.classList.add('open');
-    document.body.classList.add('reader-open');
-    setReaderBackgroundInert(false);
-    if(pushHist) pushAppHistory({ modal: 'reader', docId: docId });
-    requestAnimationFrame(()=>r.querySelector('.sheet')?.focus());
+  if(typeof docDrawerOpen !== 'undefined' && docDrawerOpen){
+    closeDocDrawer(false);
   }
   if(centerView === 'presentation'){
     updatePresentationView(docId);

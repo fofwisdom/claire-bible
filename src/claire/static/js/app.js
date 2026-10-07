@@ -400,6 +400,9 @@ let isPoppingHistory = false;
 let lastPushedHistory = null;
 
 function getActiveModalName(){
+  if(mobileMQ.matches && typeof docDrawerOpen !== 'undefined' && docDrawerOpen){
+    return 'docdrawer';
+  }
   const r = document.getElementById('reader');
   const gdm = document.getElementById('graphdocmenu');
   if(mobileMQ.matches && r && r.classList.contains('open')){
@@ -787,8 +790,9 @@ function syncWorkspaceLayout(){
     const el=paneEls[name];
     if(el){
       if(mobileMQ.matches){
-        el.setAttribute('aria-hidden', selected?'false':'true');
-        el.inert=!selected;
+        const isDocDrawerOpen = (name === 'docs' && typeof docDrawerOpen !== 'undefined' && docDrawerOpen);
+        el.setAttribute('aria-hidden', (selected || isDocDrawerOpen)?'false':'true');
+        el.inert=!(selected || isDocDrawerOpen);
       }else{
         el.setAttribute('aria-hidden','false');
         el.inert=false;
@@ -918,6 +922,50 @@ function toggleDrawer(){
   if(drawerOpen || detailOpen) closeDrawer(true);
   else openDrawer();
 }
+let docDrawerOpen = false;
+function openDocDrawer(pushHist=true){
+  hideNodePop();
+  docDrawerOpen = true;
+  document.body.classList.add('docdrawer-open');
+  const docsEl = document.getElementById('docs');
+  if(docsEl){
+    docsEl.setAttribute('aria-hidden', 'false');
+    docsEl.inert = false;
+  }
+  const backdrop = document.getElementById('drawerbackdrop');
+  if(backdrop) backdrop.setAttribute('aria-hidden', 'false');
+  closeGraphDocPicker();
+  if(pushHist && mobileMQ.matches) pushAppHistory({ modal: 'docdrawer' });
+}
+function closeDocDrawer(focus=false){
+  if(typeof window !== 'undefined' && window.history && window.history.state && window.history.state.modal === 'docdrawer' && !isPoppingHistory){
+    window.history.back();
+    return;
+  }
+  hideNodePop();
+  docDrawerOpen = false;
+  document.body.classList.remove('docdrawer-open');
+  const docsEl = document.getElementById('docs');
+  if(docsEl && mobileMQ.matches){
+    docsEl.setAttribute('aria-hidden', 'true');
+    if(activePane !== 'docs') docsEl.inert = true;
+  }
+  const backdrop = document.getElementById('drawerbackdrop');
+  if(backdrop && !drawerOpen && !detailOpen) backdrop.setAttribute('aria-hidden', 'true');
+  replaceAppHistory({ modal: getActiveModalName() });
+  if(focus){
+    const btn = document.getElementById('mobile-doclist-btn');
+    if(btn) requestAnimationFrame(()=>btn.focus());
+  }
+}
+function toggleDocDrawer(){
+  if(docDrawerOpen) closeDocDrawer(true);
+  else openDocDrawer();
+}
+function closeAllDrawers(){
+  if(docDrawerOpen) closeDocDrawer();
+  if(drawerOpen || detailOpen) closeDrawer();
+}
 function openGraphFromDrawer(){
   openDocGraph(activeDoc || curReaderDoc || (mobileMQ.matches ? (getRecentDocId() || docWithMostNodes()) : null));
 }
@@ -933,26 +981,29 @@ function graphSelectableDocs(){
   return visible.filter(dc=>dc.pinned===1).concat(visible.filter(dc=>dc.pinned!==1));
 }
 function syncGraphDocNav(){
-  const docs=graphSelectableDocs();
-  const dc=activeDoc ? allDocs.find(item=>item.id===activeDoc) : null;
   const pick=document.getElementById('graphdocpick');
+  if(!pick) return;
+  const dc=activeDoc ? allDocs.find(item=>item.id===activeDoc) : null;
   document.getElementById('graphdoclabel').textContent=dc ? dc.title : '전체 그래프';
   pick.setAttribute('aria-label',dc ? '자료 전환, 현재 '+dc.title : '자료 선택, 현재 전체 그래프');
-  const current=docs.findIndex(item=>item.id===activeDoc);
-  const usable=current>=0 && docs.length>1;
   const prev=document.getElementById('graphdocprev'), next=document.getElementById('graphdocnext');
-  prev.disabled=!usable; next.disabled=!usable;
-  if(usable){
-    const prevDoc=docs[(current-1+docs.length)%docs.length];
-    const nextDoc=docs[(current+1)%docs.length];
-    prev.setAttribute('aria-label','이전 자료: '+prevDoc.title);
-    next.setAttribute('aria-label','다음 자료: '+nextDoc.title);
-    prev.title='이전 자료: '+prevDoc.title;
-    next.title='다음 자료: '+nextDoc.title;
-  }else{
-    prev.setAttribute('aria-label','이전 자료');
-    next.setAttribute('aria-label','다음 자료');
-    prev.title='이전 자료'; next.title='다음 자료';
+  if(prev && next){
+    const docs=graphSelectableDocs();
+    const current=docs.findIndex(item=>item.id===activeDoc);
+    const usable=current>=0 && docs.length>1;
+    prev.disabled=!usable; next.disabled=!usable;
+    if(usable){
+      const prevDoc=docs[(current-1+docs.length)%docs.length];
+      const nextDoc=docs[(current+1)%docs.length];
+      prev.setAttribute('aria-label','이전 자료: '+prevDoc.title);
+      next.setAttribute('aria-label','다음 자료: '+nextDoc.title);
+      prev.title='이전 자료: '+prevDoc.title;
+      next.title='다음 자료: '+nextDoc.title;
+    }else{
+      prev.setAttribute('aria-label','이전 자료');
+      next.setAttribute('aria-label','다음 자료');
+      prev.title='이전 자료'; next.title='다음 자료';
+    }
   }
   const menu=document.getElementById('graphdocmenu');
   if(!menu.hidden) renderGraphDocPicker(document.getElementById('graphdocq').value);
@@ -1048,13 +1099,26 @@ document.addEventListener('pointerdown',e=>{
   if(gdm && !gdm.hidden && nav && !nav.contains(e.target)) closeGraphDocPicker(false, true);
 });
 document.addEventListener('keydown',e=>{
-  if(e.key==='Escape' && (drawerOpen||detailOpen)){
-    e.preventDefault();
-    e.stopImmediatePropagation();
-    closeDrawer(true, true);
+  if(e.key==='Escape'){
+    if(docDrawerOpen){
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      closeDocDrawer(true);
+      return;
+    }
+    if(drawerOpen||detailOpen){
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      closeDrawer(true, true);
+      return;
+    }
   }
 });
-function responsiveChanged(){ closeToolsMenu(); syncWorkspaceLayout(); }
+function responsiveChanged(){
+  closeToolsMenu();
+  if(!mobileMQ.matches && docDrawerOpen) closeDocDrawer();
+  syncWorkspaceLayout();
+}
 mobileMQ.addEventListener('change',responsiveChanged);
 compactMQ.addEventListener('change',responsiveChanged);
 toolbarMQ.addEventListener('change',responsiveChanged);
@@ -3132,6 +3196,18 @@ function resetHome(){
 }
 
 function selectDoc(id){
+  if(docDrawerOpen){
+    closeDocDrawer(false);
+    docDrawerOpen = false;
+    document.body.classList.remove('docdrawer-open');
+    const docsEl = document.getElementById('docs');
+    if(docsEl && mobileMQ.matches){
+      docsEl.setAttribute('aria-hidden', 'true');
+      if(activePane !== 'docs') docsEl.inert = true;
+    }
+    const backdrop = document.getElementById('drawerbackdrop');
+    if(backdrop && !drawerOpen && !detailOpen) backdrop.setAttribute('aria-hidden', 'true');
+  }
   recordSelectedDoc(id);
   openReader(id);
 }
@@ -4422,6 +4498,9 @@ window.addEventListener('popstate', e => {
     const gdm = document.getElementById('graphdocmenu');
 
     // 1. 모달 닫기
+    if(state.modal !== 'docdrawer' && typeof docDrawerOpen !== 'undefined' && docDrawerOpen){
+      closeDocDrawer(false);
+    }
     if(state.modal !== 'reader' && r && r.classList.contains('open')){
       closeReader(false, false);
     }
@@ -4438,7 +4517,11 @@ window.addEventListener('popstate', e => {
     }
 
     // 3. 모달 열기
-    if(state.modal === 'reader' && state.docId){
+    if(state.modal === 'docdrawer'){
+      if(typeof docDrawerOpen !== 'undefined' && !docDrawerOpen){
+        openDocDrawer(false);
+      }
+    } else if(state.modal === 'reader' && state.docId){
       if(!r || !r.classList.contains('open') || curReaderDoc !== state.docId){
         openReader(state.docId, false);
       }
@@ -5221,4 +5304,8 @@ window.openHeatmapMatrix = openHeatmapMatrix;
 window.triggerRollback = triggerRollback;
 window.renderMiniMatrixBannerHtml = renderMiniMatrixBannerHtml;
 window.confirmPurgeMatrix = confirmPurgeMatrix;
+window.openDocDrawer = openDocDrawer;
+window.closeDocDrawer = closeDocDrawer;
+window.toggleDocDrawer = toggleDocDrawer;
+window.closeAllDrawers = closeAllDrawers;
 

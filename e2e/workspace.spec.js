@@ -30,6 +30,7 @@ test('mobile primary view displays center tabs and graph, bottom bar is removed,
 
   // 1. 기본 보기가 센터 탭(centertabs) 및 그래프(netwrap)로 표시되는지 확인
   await expect(page.locator('#centertabs')).toBeVisible();
+  await expect(page.locator('#mobile-doclist-btn')).toBeVisible();
   await expect(page.locator('#centertab-graph')).toBeVisible();
   await expect(page.locator('#centertab-reader')).toBeVisible();
   await expect(page.locator('#centertab-presentation')).toBeVisible();
@@ -61,14 +62,13 @@ test('mobile primary view displays center tabs and graph, bottom bar is removed,
   await expect(detailPane).toBeHidden();
   await expect(page.locator('#centertabs')).toBeVisible();
 
-  // 5. 센터탭에서 본문 읽기(reader) 모달 호출 및 닫기
+  // 5. 센터탭에서 본문 읽기(reader) 본문 영역 표시 (팝업 모달이 아닌 중앙 작업 영역)
   const tabReader = page.locator('#centertab-reader');
   await tabReader.click();
 
   const reader = page.locator('#reader');
   await expect(reader).toBeVisible();
-  await expect(reader).toHaveAttribute('aria-modal', 'true');
-  expect(await page.locator('body').evaluate(body => body.classList.contains('reader-open'))).toBe(true);
+  await expect(page.locator('#centertabs')).toBeVisible();
 
   // 6. 리더 닫기 버튼 클릭 시 다시 센터 뷰로 복귀
   await page.locator('#reader .rclose').click();
@@ -238,16 +238,15 @@ test('mobile history back navigation closes modal and returns to previous view w
   const reader = page.locator('#reader');
   await expect(reader).toBeHidden();
 
-  // 2. 센터탭에서 본문 클릭하여 리더 열기
-  await page.locator('#centertab-reader').click();
-  await expect(reader).toBeVisible();
-  await expect(reader).toHaveAttribute('aria-modal', 'true');
-  expect(await page.locator('body').evaluate(body => body.classList.contains('reader-open'))).toBe(true);
+  // 2. 왼쪽 드로어(#mobile-doclist-btn) 열기
+  await page.locator('#mobile-doclist-btn').click();
+  const docsDrawer = page.locator('#docs');
+  await expect(docsDrawer).toBeVisible();
+  expect(await page.locator('body').evaluate(body => body.classList.contains('docdrawer-open'))).toBe(true);
 
-  // 3. 브라우저 뒤로가기 실행 -> 리더 닫히고 센터 뷰 유지
+  // 3. 브라우저 뒤로가기 실행 -> 드로어 닫히고 센터 뷰 유지
   await page.goBack();
-  await expect(reader).toBeHidden();
-  expect(await page.locator('body').evaluate(body => body.classList.contains('reader-open'))).toBe(false);
+  expect(await page.locator('body').evaluate(body => body.classList.contains('docdrawer-open'))).toBe(false);
   await expect(page.locator('#centertabs')).toBeVisible();
 
   // 4. 상단 우측의 상세 메뉴(#morebtn) 열기
@@ -277,11 +276,11 @@ test('mobile reader can be opened and closed, and drawer menu opens above docume
   await waitForClaire(page);
   await expectNoHorizontalOverflow(page);
 
-  // 1. 센터탭에서 본문 클릭하여 리더 모달 열기
+  // 1. 센터탭에서 본문 클릭하여 본문 영역 표시
   await page.locator('#centertab-reader').click();
   const reader = page.locator('#reader');
   await expect(reader).toBeVisible();
-  await expect(reader).toHaveAttribute('aria-modal', 'true');
+  await expect(page.locator('#centertabs')).toBeVisible();
 
   // 2. 리더 닫기 버튼(✕) 클릭하여 리더 닫기
   await page.locator('#reader .rclose').click();
@@ -1038,12 +1037,14 @@ test('decision stream button placed in common header tabs and displays in center
 
   await waitForClaire(page);
 
-  // 1. Verify navigation buttons in common header tabs: 본문, 프레젠테이션, 그래프 in #centertabs, and 의사결정 스트림 in separated #streamtabs
-  const centerTabs = page.locator('#centertabs .center-tab-btn');
-  const streamTabBtn = page.locator('#streamtabs #centertab-stream');
-  await expect(centerTabs.nth(0)).toContainText('본문');
-  await expect(centerTabs.nth(1)).toContainText('프레젠테이션');
-  await expect(centerTabs.nth(2)).toContainText('그래프');
+  // 1. Verify navigation buttons in common header tabs: 본문, 프레젠테이션, 그래프, 의사결정 스트림 in unified #centertabs
+  const readerTabBtn = page.locator('#centertab-reader');
+  const presTabBtn = page.locator('#centertab-presentation');
+  const graphTabBtn = page.locator('#centertab-graph');
+  const streamTabBtn = page.locator('#centertab-stream');
+  await expect(readerTabBtn).toContainText('본문');
+  await expect(presTabBtn).toContainText('프레젠테이션');
+  await expect(graphTabBtn).toContainText('그래프');
   await expect(streamTabBtn).toContainText('의사결정 스트림');
 
   // 2. Click '의사결정 스트림' button
@@ -1129,6 +1130,63 @@ test('heatmap matrix provides direct reader transition, compact headers, and ref
   await expect(previewBanner).toBeVisible();
   const previewCells = previewBanner.locator('.matrix-preview-cell');
   expect(await previewCells.count()).toBeGreaterThan(0);
+
+  expect(pageErrors).toEqual([]);
+});
+
+test('mobile view features: single-row center tabs, left doc drawer, and inline reader without popup', async ({ page }) => {
+  const pageErrors = [];
+  page.on('pageerror', error => pageErrors.push(error.message));
+  await page.setViewportSize({ width: 390, height: 844 });
+  await waitForClaire(page);
+  await expectNoHorizontalOverflow(page);
+
+  // 1. Verify center tabs are single-row nowrap
+  const centerTabs = page.locator('#centertabs');
+  await expect(centerTabs).toBeVisible();
+  const tabsFlexWrap = await centerTabs.evaluate(el => window.getComputedStyle(el).flexWrap);
+  expect(tabsFlexWrap).toBe('nowrap');
+
+  // 2. Verify leftmost button in center tabs is the mobile document list button
+  const mobileDocBtn = page.locator('#mobile-doclist-btn');
+  await expect(mobileDocBtn).toBeVisible();
+  const readerTabBtn = page.locator('#centertab-reader');
+  const mobileDocBox = await mobileDocBtn.boundingBox();
+  const readerTabBox = await readerTabBtn.boundingBox();
+  expect(mobileDocBox).not.toBeNull();
+  expect(readerTabBox).not.toBeNull();
+  expect(mobileDocBox.x).toBeLessThan(readerTabBox.x);
+
+  // 3. Verify graph menu does not have prev/next buttons
+  await expect(page.locator('#graphdocprev')).toHaveCount(0);
+  await expect(page.locator('#graphdocnext')).toHaveCount(0);
+
+  // 4. Click mobile doc list button to open left popup drawer
+  await mobileDocBtn.click();
+  const docsDrawer = page.locator('#docs');
+  await expect(docsDrawer).toBeVisible();
+  expect(await page.locator('body').evaluate(body => body.classList.contains('docdrawer-open'))).toBe(true);
+
+  // 5. Select a document from the drawer list
+  const firstDoc = page.locator('#doclist .docitem').first();
+  await expect(firstDoc).toBeVisible();
+  await firstDoc.click();
+
+  // 6. Verify doc drawer closes and reader is displayed directly inline in center pane (not popup modal)
+  expect(await page.locator('body').evaluate(body => body.classList.contains('docdrawer-open'))).toBe(false);
+  const reader = page.locator('#reader');
+  await expect(reader).toBeVisible();
+  await expect(centerTabs).toBeVisible();
+  await expect(page.locator('#centerhead')).toBeVisible();
+
+  // Verify reader positioning is relative (inline within workspace), not fixed modal
+  const readerPosition = await reader.evaluate(el => window.getComputedStyle(el).position);
+  expect(readerPosition).toBe('relative');
+
+  // 7. Switching to graph via center tab works cleanly
+  await page.locator('#centertab-graph').click();
+  await expect(reader).toBeHidden();
+  await expect(page.locator('#netwrap')).toBeVisible();
 
   expect(pageErrors).toEqual([]);
 });
