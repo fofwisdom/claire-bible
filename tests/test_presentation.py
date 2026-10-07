@@ -881,3 +881,69 @@ def test_presentation_metadata_is_ready(tmp_path: Path):
     assert meta_ready["status"] == "ready"
     assert meta_ready["is_ready"] is True
 
+
+def test_sanitize_presentation_assets_rewrites_images_and_injects_base():
+    """Verify relative image paths are rewritten to /image?p=images/... and <base href='/'> is injected."""
+    from claire.presentation.hud import sanitize_presentation_assets
+
+    sample_html = """<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="reveal.js/dist/reveal.css">
+</head>
+<body>
+<div class="reveal">
+  <div class="slides">
+    <section>
+      <img src="images/doc_f130dcf568c6_5.jpg" alt="test">
+      <div data-background-image="images/doc_bg.png"></div>
+    </section>
+  </div>
+</div>
+</body>
+</html>"""
+    sanitized = sanitize_presentation_assets(sample_html)
+    assert '<base href="/">' in sanitized
+    assert 'href="/static/vendor/reveal.js/dist/reveal.css"' in sanitized
+    assert 'src="/image?p=images/doc_f130dcf568c6_5.jpg"' in sanitized
+    assert 'data-background-image="/image?p=images/doc_bg.png"' in sanitized
+
+
+def test_presentation_image_routes_direct_and_prefixed(tmp_path: Path):
+    """Verify /images/{filename} and /p/images/{filename} correctly serve image files."""
+    from claire.api.server import create_app
+    from claire.config import Settings
+
+    img_dir = tmp_path / "images"
+    img_dir.mkdir(parents=True, exist_ok=True)
+    test_img = img_dir / "doc_test_img.png"
+    test_img.write_bytes(b"\x89PNG\r\n\x1a\nfakeimagebytes")
+
+    db_path = tmp_path / "test.db"
+    conn = dbm.connect(db_path)
+    dbm.init_db(conn)
+    conn.close()
+
+    settings = Settings(
+        db_path=str(db_path),
+        vault_dir=tmp_path / "vault",
+    )
+    app = create_app(settings)
+    client = TestClient(app)
+
+    # 1. /images/doc_test_img.png
+    resp = client.get("/images/doc_test_img.png")
+    assert resp.status_code == 200
+    assert resp.content == b"\x89PNG\r\n\x1a\nfakeimagebytes"
+
+    # 2. /p/images/doc_test_img.png
+    resp_p = client.get("/p/images/doc_test_img.png")
+    assert resp_p.status_code == 200
+    assert resp_p.content == b"\x89PNG\r\n\x1a\nfakeimagebytes"
+
+    # 3. non-existent image
+    resp_404 = client.get("/p/images/non_existent.png")
+    assert resp_404.status_code == 404
+
+

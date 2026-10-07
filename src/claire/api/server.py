@@ -31,7 +31,7 @@ from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-PUBLIC_PATHS: tuple[str, ...] = ("/static/",)
+PUBLIC_PATHS: tuple[str, ...] = ("/static/", "/images/", "/p/images/")
 
 from ..config import Settings, get_settings
 from ..ingest.report_json import report_to_dict
@@ -945,6 +945,18 @@ def create_app(
 
     async def image_route(request: Request) -> Response:
         rel = request.query_params.get("p", "")
+        if not _IMAGE_PATH_RE.fullmatch(rel):
+            return PlainTextResponse("Not Found", status_code=404)
+        path = s.data_dir / rel
+        if not path.is_file():
+            return PlainTextResponse("Not Found", status_code=404)
+        return FileResponse(path)
+
+    async def presentation_image_route(request: Request) -> Response:
+        filename = request.path_params.get("filename", "").strip().lstrip("/")
+        if filename.startswith("images/"):
+            filename = filename[len("images/"):]
+        rel = f"images/{filename}"
         if not _IMAGE_PATH_RE.fullmatch(rel):
             return PlainTextResponse("Not Found", status_code=404)
         path = s.data_dir / rel
@@ -2280,6 +2292,8 @@ def create_app(
         Route("/node", node_detail, methods=["GET"]),
         Route("/documents", documents_list_route, methods=["GET"]),
         Route("/image", image_route, methods=["GET"]),
+        Route("/images/{filename:path}", presentation_image_route, methods=["GET", "HEAD"]),
+        Route("/p/images/{filename:path}", presentation_image_route, methods=["GET", "HEAD"]),
         Route("/document", document_detail_route, methods=["GET"]),
         Route("/document/seen", document_seen_route, methods=["POST"]),
         Route("/document/pin", document_pin_route, methods=["POST"]),

@@ -872,6 +872,8 @@ class CORSPolicyMiddleware:
                 if item.strip()
             }
             route_rule = ROUTE_POLICY.get((method, scope.get("path", "")))
+            if route_rule is None and method in {"GET", "HEAD"} and (scope.get("path", "").startswith("/images/") or scope.get("path", "").startswith("/p/images/")):
+                route_rule = _rule("public")
             if (
                 method not in self._ALLOWED_METHODS
                 or route_rule is None
@@ -1120,6 +1122,8 @@ class AuthenticationMiddleware:
         method = str(scope.get("method", "")).upper()
         path = scope.get("path", "")
         rule = ROUTE_POLICY.get((method, path))
+        if rule is None and method in {"GET", "HEAD"} and (path.startswith("/images/") or path.startswith("/p/images/")):
+            rule = _rule("public")
         if rule is None:
             await _send_response(
                 PlainTextResponse("Not Found", status_code=404), scope, receive, send
@@ -1560,6 +1564,8 @@ class SafeAccessLogMiddleware:
                         req_path,
                     )
                 )
+                if route_rule is None and (req_path.startswith("/images/") or req_path.startswith("/p/images/")):
+                    route_rule = _rule("public")
                 if route_rule is None or route_rule.access != "public":
                     add_header(b"cache-control", b"no-store")
                 csp_val = self.csp_header_value

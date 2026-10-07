@@ -610,9 +610,36 @@ html.is-embedded #cb-hud, body.is-embedded #cb-hud {
 
 
 def sanitize_presentation_assets(html_content: str) -> str:
-    """Ensure relative reveal.js asset paths are sanitized to /static/vendor/reveal.js/."""
+    """Ensure relative reveal.js asset paths and slide images are sanitized properly."""
     import re
-    return re.sub(r"""(['"])reveal\.js/(dist|plugin)/""", r"""\1/static/vendor/reveal.js/\2/""", html_content)
+    # 1. Sanitize reveal.js vendor paths
+    html_content = re.sub(r"""(['"])reveal\.js/(dist|plugin)/""", r"""\1/static/vendor/reveal.js/\2/""", html_content)
+
+    # 2. Rewrite relative image paths images/foo.ext to /image?p=images/foo.ext
+    html_content = re.sub(
+        r"""(<img\s+[^>]*?src=["'])images/([A-Za-z0-9_.-]+\.(?:jpg|jpeg|png|webp|gif))(["'])""",
+        r"""\1/image?p=images/\2\3""",
+        html_content,
+    )
+    html_content = re.sub(
+        r"""(data-background-image=["'])images/([A-Za-z0-9_.-]+\.(?:jpg|jpeg|png|webp|gif))(["'])""",
+        r"""\1/image?p=images/\2\3""",
+        html_content,
+    )
+    html_content = re.sub(
+        r"""(url\(['"]?)images/([A-Za-z0-9_.-]+\.(?:jpg|jpeg|png|webp|gif))(['"]?\))""",
+        r"""\1/image?p=images/\2\3""",
+        html_content,
+    )
+
+    # 3. Inject <base href="/"> into <head> if not already present
+    if "<base " not in html_content:
+        if "<head>" in html_content:
+            html_content = html_content.replace("<head>", '<head>\n<base href="/">', 1)
+        elif "<head " in html_content:
+            html_content = re.sub(r"(<head[^>]*>)", r'\1\n<base href="/">', html_content, count=1)
+
+    return html_content
 
 
 def inject_hud_toolbar(html_content: str) -> str:
