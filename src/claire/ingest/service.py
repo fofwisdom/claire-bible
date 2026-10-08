@@ -121,6 +121,92 @@ class IngestService:
         finally:
             conn.close()
 
+    def ingest_composite(
+        self,
+        file_path: Path | str,
+        file_name: str,
+        url: str,
+        *,
+        source: str = "telegram",
+        expand_max: int | None = None,
+        user_id: int | None = None,
+        chat_id: int | None = None,
+        focus: str | None = None,
+        effort: str | None = None,
+        full_content: bool = False,
+        inbox_id: int | None = None,
+        format: str | None = None,
+    ) -> IngestReport:
+        """첨부 파일과 외부 하이퍼링크를 단일 지식 문서로 통합 복합 적재."""
+        import json
+        from .composite import compose_composite_document, fetch_composite_components
+        from ..extract.provider import emit_progress
+
+        if not focus and self.theme_id > 0:
+            focus = self.get_effective_default_focus()
+
+        conn = dbm.connect(self.s.db_file)
+        dbm.init_db(conn)
+        try:
+            if inbox_id is None:
+                payload_meta = {
+                    "url": url,
+                    "attachment_name": file_name,
+                    "focus": focus,
+                    "effort": effort,
+                    "full_content": full_content,
+                    "theme_id": self.theme_id,
+                }
+                inbox_id = dbm.log_inbox(
+                    conn,
+                    source=source,
+                    payload=json.dumps(payload_meta, ensure_ascii=False),
+                    kind="composite",
+                    user_id=user_id,
+                    chat_id=chat_id,
+                    file_name=file_name,
+                    file_ref=str(file_path),
+                )
+        finally:
+            conn.close()
+
+        try:
+            emit_progress("원문 및 첨부 파일 수집 중…")
+            file_doc, url_doc, file_bytes = fetch_composite_components(
+                Path(file_path), file_name, url, self.s, full_content=full_content
+            )
+        except Exception as e:
+            conn2 = dbm.connect(self.s.db_file)
+            try:
+                dbm.update_inbox(conn2, inbox_id, status="error", error=str(e))
+            finally:
+                conn2.close()
+            rep = IngestReport()
+            rep.error = f"복합 자료 수집 실패: {e}"
+            rep.inbox_id = inbox_id
+            return rep
+
+        composite_doc = compose_composite_document(
+            file_doc, url_doc, file_name, focus=focus, settings=self.s, file_bytes=file_bytes
+        )
+
+        return self.ingest(
+            url,
+            source=source,
+            expand_max=expand_max,
+            user_id=user_id,
+            chat_id=chat_id,
+            inbox_kind="composite",
+            file_ref=str(file_path),
+            file_name=file_name,
+            inbox_id=inbox_id,
+            prefetched=composite_doc,
+            format=format,
+            focus=focus,
+            effort=effort,
+            full_content=full_content,
+        )
+
     def expand_document(self, document_id: str, *, limit: int | None = None) -> dict:
         """[1홉 자동확장] 부모 문서의 링크를 LLM 이 선별→fetch→판정→통과 시 적재.
 
@@ -1323,6 +1409,40 @@ class IngestService:
 
         if row["document_id"]:
             rep = self._retry_extract(row["document_id"], inbox_id)
+        elif row["kind"] == "composite" and row["payload"] and row["file_ref"]:
+            try:
+                import json
+                cdata = json.loads(row["payload"])
+                curl = cdata.get("url")
+                cname = row["file_name"] or cdata.get("attachment_name") or "attachment"
+                cfocus = cdata.get("focus")
+                ceffort = cdata.get("effort")
+                cfull = bool(cdata.get("full_content"))
+                if curl and Path(row["file_ref"]).exists():
+                    rep = self.ingest_composite(
+                        Path(row["file_ref"]),
+                        cname,
+                        curl,
+                        source="manual-retry",
+                        inbox_id=inbox_id,
+                        focus=cfocus,
+                        effort=ceffort,
+                        full_content=cfull,
+                    )
+                else:
+                    payload = row["file_ref"] or row["payload"]
+                    rep = self.ingest(
+                        payload, source="manual-retry", inbox_id=inbox_id,
+                        inbox_kind=row["kind"], file_name=row["file_name"],
+                        file_ref=row["file_ref"],
+                    )
+            except Exception:
+                payload = row["file_ref"] or row["payload"]
+                rep = self.ingest(
+                    payload, source="manual-retry", inbox_id=inbox_id,
+                    inbox_kind=row["kind"], file_name=row["file_name"],
+                    file_ref=row["file_ref"],
+                )
         else:
             payload = row["file_ref"] or row["payload"]
             rep = self.ingest(
@@ -1382,6 +1502,43 @@ class IngestService:
                 if row["document_id"]:
                     step_cb("기존 적재 문서 추출 재실행 중...")
                     rep = self._retry_extract(row["document_id"], row["id"])
+                elif row["kind"] == "composite" and row["payload"] and row["file_ref"]:
+                    try:
+                        import json
+                        cdata = json.loads(row["payload"])
+                        curl = cdata.get("url")
+                        cname = row["file_name"] or cdata.get("attachment_name") or "attachment"
+                        cfocus = cdata.get("focus")
+                        ceffort = cdata.get("effort")
+                        cfull = bool(cdata.get("full_content"))
+                        if curl and Path(row["file_ref"]).exists():
+                            step_cb("복합 원문 재수집 및 파이프라인 재실행 중...")
+                            rep = self.ingest_composite(
+                                Path(row["file_ref"]),
+                                cname,
+                                curl,
+                                source="recover",
+                                inbox_id=row["id"],
+                                focus=cfocus,
+                                effort=ceffort,
+                                full_content=cfull,
+                            )
+                        else:
+                            payload = row["file_ref"] or row["payload"]
+                            step_cb("원문 재수집 및 파이프라인 재실행 중...")
+                            rep = self.ingest(
+                                payload, source="recover", inbox_id=row["id"],
+                                inbox_kind=row["kind"], file_name=row["file_name"],
+                                file_ref=row["file_ref"],
+                            )
+                    except Exception:
+                        payload = row["file_ref"] or row["payload"]
+                        step_cb("원문 재수집 및 파이프라인 재실행 중...")
+                        rep = self.ingest(
+                            payload, source="recover", inbox_id=row["id"],
+                            inbox_kind=row["kind"], file_name=row["file_name"],
+                            file_ref=row["file_ref"],
+                        )
                 else:
                     payload = row["file_ref"] or row["payload"]
                     step_cb("원문 재수집 및 파이프라인 재실행 중...")
