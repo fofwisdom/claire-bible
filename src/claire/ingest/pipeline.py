@@ -71,6 +71,7 @@ class IngestReport:
     presentation_pdf_parsers: list[str] = field(default_factory=list)
     heatmap_matrix: dict | None = None
     has_decision_stream: bool = False
+    composite_ingest: bool = False
 
     def telegram_summary(self) -> str:
         if self.error:
@@ -146,6 +147,8 @@ class IngestReport:
                 meta_badges.append("🔤 영상 자막(CC)")
             elif self.is_stt and not is_stt_failed:
                 meta_badges.append("🎙️ 음성 전사(STT)")
+        if self.composite_ingest and not self.presentation_pdfs:
+            meta_badges.append("📎⚡🌐 첨부+링크 복합 적재")
         if self.full_content:
             meta_badges.append("🌐 원문 무절단 수집")
         if self.effort:
@@ -338,6 +341,8 @@ def ingest(
                     report.pdf_parser_fallback_reason = presentation_primary.get(
                         "parser_fallback_reason"
                     )
+            if doc.meta.get("composite_ingest"):
+                report.composite_ingest = True
         if focus and focus.strip():
             if doc.meta is None:
                 doc.meta = {}

@@ -493,6 +493,45 @@ def parse_caption_focus(caption: str | None) -> str | None:
     return c
 
 
+def parse_caption_composite(
+    caption: str | None,
+    theme_mgr: Any | None = None,
+) -> tuple[str | None, str | None, int | None, bool, str | None]:
+    """파일 첨부 캡션에서 (composite_url, clean_focus, theme_id, has_refetch_full, has_effort) 추출.
+
+    캡션에 유효한 HTTP(S) URL이 포함된 경우 composite_url을 반환하여 복합 적재로 분기한다.
+    URL이 없으면 composite_url은 None이다 (기존 단건 파일 적재 경로 유지).
+    """
+    c = (caption or "").strip()
+    if not c:
+        return None, None, None, False, None
+
+    clean_text, explicit_theme_id = parse_message_theme(c, theme_mgr)
+    text_no_flags, _, has_refetch_full, has_effort = parse_regenerate_flags(clean_text)
+
+    from .ingest.router import _URL_RE
+
+    m = _URL_RE.search(text_no_flags)
+    if not m:
+        focus = parse_caption_focus(text_no_flags)
+        return None, (focus or None), explicit_theme_id, has_refetch_full, has_effort
+
+    target_url = m.group(0).rstrip(".,;)。")
+    rem_before = text_no_flags[:m.start()].strip()
+    rem_after = text_no_flags[m.end():].strip()
+    combined_rem = f"{rem_before} {rem_after}".strip()
+
+    focus = None
+    if combined_rem:
+        _, rem_focus = parse_message_focus(combined_rem)
+        focus = rem_focus or combined_rem
+        focus = re.sub(r"^[\s|｜¦—–:：]+", "", focus).strip()
+        focus = re.sub(r"[\s|｜¦—–:：]+$", "", focus).strip()
+        focus = parse_caption_focus(focus)
+
+    return target_url, (focus or None), explicit_theme_id, has_refetch_full, has_effort
+
+
 _THEME_TAG_RE = re.compile(
     r"(?:^|\s)#(?:테마[::\-_]?)?([0-9]+|[a-zA-Z가-힣_]+)(?=\s|$)",
     re.IGNORECASE,
@@ -1193,25 +1232,28 @@ def build_app(settings: Settings | None = None) -> Any:
         if not _is_allowed(user.id if user else None):
             await update.message.reply_text("허용되지 않은 사용자입니다.")
             return
-        doc = update.message.document
+        doc = update.message.document or update.message.video or update.message.audio
         if not doc:
             return
-        name = doc.file_name or "document"
+        name = getattr(doc, "file_name", None)
+        if not name:
+            if update.message.video:
+                name = f"video_{doc.file_unique_id}.mp4"
+            elif update.message.audio:
+                name = f"audio_{doc.file_unique_id}.mp3"
+            else:
+                name = "document"
         msg = update.message
         caption = update.message.caption
         is_multi = bool(getattr(s, "multi_theme", False))
-        explicit_tid = None
         if is_multi:
             theme_mgr.reload()
-            clean_cap, explicit_tid = parse_message_theme(caption or "", theme_mgr)
-        else:
-            clean_cap = caption or ""
+
+        composite_url, clean_focus, explicit_tid, has_refetch_full, has_effort = parse_caption_composite(
+            caption, theme_mgr if is_multi else None
+        )
         uid = user.id if user else None
         cid = update.effective_chat.id if update.effective_chat else None
-
-        focus = parse_caption_focus(clean_cap)
-        caption_clean, _, has_refetch_full, has_effort = parse_regenerate_flags(focus or "")
-        clean_focus = caption_clean or None
 
         async def _download() -> str:
             tg_file = await doc.get_file()
@@ -1226,6 +1268,9 @@ def build_app(settings: Settings | None = None) -> Any:
             await msg.reply_text(f"❌ 다운로드 실패: {e}")
             return
 
+        is_composite = bool(composite_url)
+        kind_label = f"복합: {name} + {composite_url[:30]}" if is_composite else f"file: {name}"
+
         themes = theme_mgr.list_themes() if is_multi else []
         if is_multi and len(themes) > 1 and explicit_tid is None:
             token = f"{update.update_id}"
@@ -1233,12 +1278,24 @@ def build_app(settings: Settings | None = None) -> Any:
                 msg,
                 token,
                 themes,
-                name,
-                kind_label="file",
+                name if not is_composite else f"{name} + {composite_url[:30]}",
+                kind_label=kind_label,
                 focus=clean_focus,
             )
             def _doc_work_for_theme(target_svc):
                 kept = target_svc.save_inbound_file(int(update.update_id), Path(tmp_path), name)
+                if is_composite:
+                    return target_svc.ingest_composite(
+                        Path(kept),
+                        name,
+                        composite_url,
+                        source="telegram",
+                        user_id=uid,
+                        chat_id=cid,
+                        focus=clean_focus,
+                        effort=has_effort,
+                        full_content=has_refetch_full,
+                    )
                 return target_svc.ingest(
                     kept,
                     source="telegram",
@@ -1259,7 +1316,7 @@ def build_app(settings: Settings | None = None) -> Any:
                 "focus": clean_focus,
                 "has_effort": has_effort,
                 "has_refetch_full": has_refetch_full,
-                "kind_label": f"file: {name}",
+                "kind_label": kind_label,
                 "uid": uid,
                 "cid": cid,
                 "tmp_path": tmp_path,
@@ -1268,9 +1325,26 @@ def build_app(settings: Settings | None = None) -> Any:
 
         active_tid = explicit_tid if explicit_tid is not None else 0
         active_theme = theme_mgr.get_theme(active_tid)
-        status = await msg.reply_text(f"⏳ 파일 처리 중… ({name})")
+        status_text = (
+            f"⏳ 복합 적재 처리 중… ({name} + 링크)"
+            if is_composite
+            else f"⏳ 파일 처리 중… ({name})"
+        )
+        status = await msg.reply_text(status_text)
         def _work(target_svc):
             kept = target_svc.save_inbound_file(int(update.update_id), Path(tmp_path), name)
+            if is_composite:
+                return target_svc.ingest_composite(
+                    Path(kept),
+                    name,
+                    composite_url,
+                    source="telegram",
+                    user_id=uid,
+                    chat_id=cid,
+                    focus=clean_focus,
+                    effort=has_effort,
+                    full_content=has_refetch_full,
+                )
             return target_svc.ingest(
                 kept,
                 source="telegram",
@@ -1292,7 +1366,7 @@ def build_app(settings: Settings | None = None) -> Any:
             focus=clean_focus,
             has_effort=has_effort,
             has_refetch_full=has_refetch_full,
-            kind_label=f"file: {name}",
+            kind_label=kind_label,
             uid=uid,
             cid=cid,
         )
@@ -2047,7 +2121,7 @@ def build_app(settings: Settings | None = None) -> Any:
     app.add_handler(CommandHandler("failed", on_failed))
     app.add_handler(CommandHandler("retry", on_retry))
     app.add_handler(CallbackQueryHandler(on_callback))
-    app.add_handler(MessageHandler(filters.Document.ALL, on_document))
+    app.add_handler(MessageHandler(filters.Document.ALL | filters.VIDEO | filters.AUDIO, on_document))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_message))
 
     async def _error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
