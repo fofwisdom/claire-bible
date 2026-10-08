@@ -772,19 +772,33 @@ def build_app(settings: Settings | None = None) -> Any:
         focus: str | None = None,
     ):
         safe_desc = target_desc.replace("`", "'")
-        prompt_text = (
-            "🎯 *적재할 테마(지식베이스)를 선택하세요*\n\n"
-            f"• 대상: `{safe_desc}`"
-        )
-        if kind_label:
-            prompt_text += f" ({kind_label})"
-        prompt_text += "\n"
+        safe_kind = kind_label.replace("`", "'")
+        prompt_lines = [
+            "🎯 *적재할 테마(지식베이스)를 선택하세요*",
+            "",
+            f"• 대상: `{safe_desc}`" + (f" (`{safe_kind}`)" if safe_kind else ""),
+        ]
         if focus:
             safe_focus = focus.replace("`", "'")
-            prompt_text += f"• 초점: {safe_focus}\n"
-        prompt_text += "\n원하는 테마 버튼을 누르면 즉시 적재가 시작됩니다."
+            prompt_lines.append(f"• 초점: `{safe_focus}`")
+        prompt_lines.append("")
+        prompt_lines.append("원하는 테마 버튼을 누르면 즉시 적재가 시작됩니다.")
+        prompt_text = "\n".join(prompt_lines)
         markup = _theme_selection_markup(token, themes)
-        return await msg.reply_text(prompt_text, reply_markup=markup, parse_mode="Markdown")
+        try:
+            return await msg.reply_text(prompt_text, reply_markup=markup, parse_mode="Markdown")
+        except Exception as e:
+            log.warning("Markdown entity parsing failed in _prompt_theme_selection, falling back to plain text: %s", e)
+            plain_lines = [
+                "🎯 적재할 테마(지식베이스)를 선택하세요",
+                "",
+                f"• 대상: {target_desc}" + (f" ({kind_label})" if kind_label else ""),
+            ]
+            if focus:
+                plain_lines.append(f"• 초점: {focus}")
+            plain_lines.append("")
+            plain_lines.append("원하는 테마 버튼을 누르면 즉시 적재가 시작됩니다.")
+            return await msg.reply_text("\n".join(plain_lines), reply_markup=markup)
 
     async def _execute_ingest(
         status_msg,
@@ -966,11 +980,14 @@ def build_app(settings: Settings | None = None) -> Any:
             try:
                 target = theme_mgr.get_theme(arg, strict=True)
                 user_active_themes[uid] = target.id
-                await update.message.reply_text(
+                msg_text = (
                     f"✅ 기본 검색 테마가 {target.icon} *{target.label}* (#{target.id})로 설정되었습니다.\n\n"
-                    f"/search 시 이 테마를 기본 검색합니다. (자료 적재 시에는 명령 시에 테마를 선택합니다)",
-                    parse_mode="Markdown",
+                    f"/search 시 이 테마를 기본 검색합니다. (자료 적재 시에는 명령 시에 테마를 선택합니다)"
                 )
+                try:
+                    await update.message.reply_text(msg_text, parse_mode="Markdown")
+                except Exception:
+                    await update.message.reply_text(msg_text.replace("*", ""))
                 return
             except KeyError:
                 await update.message.reply_text(f"❌ 테마를 찾을 수 없습니다: '{arg}'")
@@ -987,11 +1004,17 @@ def build_app(settings: Settings | None = None) -> Any:
             mark = "✓ " if t.id == current_tid else ""
             pub_mark = "" if getattr(t, "is_public", True) else " 🔒"
             kb.append([InlineKeyboardButton(f"{mark}{t.icon} {t.label} (#{t.id}){pub_mark}", callback_data=f"set_theme:{t.id}")])
-        await update.message.reply_text(
-            "\n".join(lines),
-            reply_markup=InlineKeyboardMarkup(kb),
-            parse_mode="Markdown",
-        )
+        try:
+            await update.message.reply_text(
+                "\n".join(lines),
+                reply_markup=InlineKeyboardMarkup(kb),
+                parse_mode="Markdown",
+            )
+        except Exception:
+            await update.message.reply_text(
+                "\n".join(lines).replace("*", ""),
+                reply_markup=InlineKeyboardMarkup(kb),
+            )
 
     async def on_message(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
         user = update.effective_user
@@ -1305,7 +1328,7 @@ def build_app(settings: Settings | None = None) -> Any:
             return
 
         is_composite = bool(composite_url)
-        kind_label = f"복합: {name} + {composite_url[:30]}" if is_composite else f"file: {name}"
+        kind_label = "복합" if is_composite else "파일"
 
         themes = theme_mgr.list_themes() if is_multi else []
         if is_multi and len(themes) > 1 and explicit_tid is None:
@@ -1710,11 +1733,14 @@ def build_app(settings: Settings | None = None) -> Any:
                 uid = user.id if user else 0
                 user_active_themes[uid] = theme.id
                 await query.answer(f"테마: {theme.icon} {theme.label}")
-                await query.edit_message_text(
+                msg_text = (
                     f"✅ 기본 검색 테마가 {theme.icon} *{theme.label}* (#{theme.id})로 설정되었습니다.\n\n"
-                    f"/search 시 이 테마를 기본 검색합니다. (자료 적재 시에는 명령 시에 테마를 선택합니다)",
-                    parse_mode="Markdown",
+                    f"/search 시 이 테마를 기본 검색합니다. (자료 적재 시에는 명령 시에 테마를 선택합니다)"
                 )
+                try:
+                    await query.edit_message_text(msg_text, parse_mode="Markdown")
+                except Exception:
+                    await query.edit_message_text(msg_text.replace("*", ""))
             except Exception as e:
                 await query.answer(f"테마 변경 실패: {e}")
             return
