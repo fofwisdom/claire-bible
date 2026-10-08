@@ -66,6 +66,8 @@ def test_status_emoji_maps_result():
     assert _status_emoji("boom", True) == "👎"   # error 가 duplicate 보다 우선
     assert _status_emoji(None, False, stt_error="RateLimitError: 429") == "👎"  # STT 실패 시 👎
     assert _status_emoji(None, True, stt_error="RateLimitError: 429") == "👎"   # stt_error 가 duplicate 보다 우선
+    assert _status_emoji(None, False, detail_error="TimeoutExpired") == "👎"  # 본문(detail) 실패 시 👎
+    assert _status_emoji(None, True, detail_error="TimeoutExpired") == "👎"   # detail_error 가 duplicate 보다 우선
 
 
 async def test_run_with_ticker_returns_work_result():
@@ -405,6 +407,39 @@ async def test_settle_status_behavior():
     assert st_dup2.deleted is False
     assert st_dup2.edited_text == "♻️ 이미 있는 자료입니다 (dedup): DocTitle"
     assert st_dup2.markup is None
+
+    # 9. Detail failed with retry_doc_id -> message preserved, buttons attached
+    st_det = FakeStatus()
+    await _settle_status(
+        st_det,
+        FakeMsg(),
+        "⚠️ 부분 적재 (본문 생성 실패)\n타이틀: DocTitle",
+        [],
+        is_detail_failed=True,
+        retry_doc_id="doc_123",
+    )
+    assert st_det.deleted is False
+    assert "본문 생성 실패" in st_det.edited_text
+    assert st_det.markup is not None
+    assert st_det.markup.inline_keyboard[0][0].callback_data == "rg:det:doc_123"
+    assert st_det.markup.inline_keyboard[1][0].callback_data == "rg:full:doc_123"
+
+
+def test_ingest_report_telegram_summary_detail_failure():
+    """본문(detail) 생성 실패 시 telegram_summary 에 부분 적재 경고와 안내가 포함되는지 검증."""
+    from claire.ingest.pipeline import IngestReport
+
+    report = IngestReport(
+        document_id="doc_744b",
+        title="Kimodo Report",
+        detail_rendered=False,
+        detail_error="agy CLI timed out after 300.0s",
+    )
+    summary = report.telegram_summary()
+    assert "⚠️ 부분 적재 (본문 가독 상세 생성 실패)" in summary
+    assert "본문 가독 상세(detail)가 생성되지 못했습니다" in summary
+    assert "agy CLI timed out after 300.0s" in summary
+    assert "봇에서 재생성을 요청할 수 있습니다" in summary
 
 
 async def test_settle_status_reader_button(tmp_path: Path, monkeypatch):

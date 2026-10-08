@@ -414,7 +414,10 @@ class Settings(BaseSettings):
     agy_bin: str = Field(default="agy", alias="CLAIRE_AGY_BIN")
     agy_model: str = Field(default="gemini-3.7-flash", alias="CLAIRE_AGY_MODEL")
     agy_effort: str = Field(default="medium", alias="CLAIRE_AGY_EFFORT")
-    agy_timeout: float = Field(default=120.0, alias="CLAIRE_AGY_TIMEOUT")
+    agy_timeout: float = Field(default=180.0, alias="CLAIRE_AGY_TIMEOUT")
+    agy_detail_timeout: float = Field(
+        default=300.0, alias="CLAIRE_AGY_DETAIL_TIMEOUT"
+    )
     agy_max_concurrency: int = Field(default=2, alias="CLAIRE_AGY_MAX_CONCURRENCY")
 
     # --- Codex CLI (native host only) ---
