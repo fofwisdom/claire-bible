@@ -415,3 +415,40 @@ def test_fetch_error_reported():
     rep = ingest("x", conn=conn, provider=MockProvider(), vstore=vstore, fetch_fn=boom)
     assert rep.error and "network down" in rep.error
     assert dbm.counts(conn)["documents"] == 0
+
+
+def test_ingest_detail_failure_recorded():
+    """render_detail 이 예외를 발생시켰을 때 report.detail_rendered 가 False 이고 detail_error 가 기록되는지 검증."""
+    conn = _db()
+    vstore = VectorStore(conn, "brute")
+
+    class FailingDetailProvider(MockProvider):
+        def render_detail(self, doc, format="md", focus=None, **kwargs):
+            raise RuntimeError("Detail rendering timed out (300s)")
+
+    doc = Document(
+        title="Doc with detail error",
+        raw_text="Valid body text",
+        source_type="text",
+        content_hash="c_err",
+    )
+    rep = ingest(
+        "payload_err",
+        conn=conn,
+        provider=FailingDetailProvider(),
+        vstore=vstore,
+        fetch_fn=lambda _: doc,
+    )
+
+    assert rep.error is None  # 전체 적재 자체는 성공
+    assert rep.detail_rendered is False
+    assert "Detail rendering timed out" in (rep.detail_error or "")
+    summary = rep.telegram_summary()
+    assert "⚠️ 부분 적재 (본문 가독 상세 생성 실패)" in summary
+    assert "Detail rendering timed out" in summary
+
+    # DB에 문서는 저장되었지만 detail 은 비어있어야 함
+    stored = dbm.get_document(conn, rep.document_id)
+    assert stored is not None
+    assert dbm.get_document_detail(conn, rep.document_id) is None
+

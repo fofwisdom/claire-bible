@@ -655,3 +655,64 @@ def test_judge_relationship_passes_low_effort_and_metadata(mock_run):
         assert tel_kwargs.get("call_type") == "judge_relationship"
         assert tel_kwargs.get("document_id") == "doc_rel_456"
 
+
+@patch("subprocess.run")
+def test_render_detail_fallback_on_high_effort_timeout(mock_run):
+    """high effort 타임아웃 시 medium effort 로 강등 재시도하여 성공하는지 검증."""
+    call_count = 0
+
+    def side_effect(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        assert kwargs.get("timeout") == 300.0  # detail_timeout 적용 확인
+        cmd = args[0]
+        eff_idx = cmd.index("--effort")
+        effort_val = cmd[eff_idx + 1]
+        if effort_val == "high":
+            raise subprocess.TimeoutExpired(cmd=cmd, timeout=300.0)
+        return SimpleNamespace(
+            returncode=0,
+            stdout="## 상세 내용 (Medium 추론 복구)\n\n정상 렌더링 완료.",
+            stderr="",
+        )
+
+    mock_run.side_effect = side_effect
+    s = _make_settings(agy_effort="high", agy_detail_timeout=300.0)
+    prov = AntigravityProvider(s)
+    doc = Document(id="doc_fb1", title="Large Doc", raw_text="Short content", source_type="text")
+
+    res = prov.render_detail(doc, effort="high")
+    assert "Medium 추론 복구" in res
+    assert call_count == 2
+
+
+@patch("subprocess.run")
+def test_render_detail_fallback_on_large_body_timeout(mock_run):
+    """대용량 본문(30k 초과)에서 medium 재시도까지 실패 시 condensed body 로 재시도하는지 검증."""
+    efforts_called = []
+
+    def side_effect(*args, **kwargs):
+        cmd = args[0]
+        eff_idx = cmd.index("--effort")
+        effort_val = cmd[eff_idx + 1]
+        efforts_called.append(effort_val)
+        if len(efforts_called) < 3:
+            raise subprocess.TimeoutExpired(cmd=cmd, timeout=300.0)
+        return SimpleNamespace(
+            returncode=0,
+            stdout="## 상세 내용 (Condensed 복구)\n\n압축 본문 렌더링 완료.",
+            stderr="",
+        )
+
+    mock_run.side_effect = side_effect
+    s = _make_settings(agy_effort="high", agy_detail_timeout=300.0)
+    prov = AntigravityProvider(s)
+    large_text = "A" * 35_000
+    doc = Document(id="doc_fb2", title="Huge Paper", raw_text=large_text, source_type="pdf")
+
+    res = prov.render_detail(doc, effort="high")
+    assert "Condensed 복구" in res
+    assert len(efforts_called) == 3
+    assert efforts_called == ["high", "medium", "medium"]
+
+

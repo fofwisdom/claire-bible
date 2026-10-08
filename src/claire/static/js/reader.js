@@ -736,6 +736,8 @@ function renderReader(dc){
     h+='<div class=rsection>상세</div><div class="doc-content">'+cleanHtml+'</div>';
   }else if(dc.detail){
     h+='<div class=rsection>상세</div><div class="doc-content">'+renderContent(dc.detail, dc.detail_format)+'</div>';
+  }else if(dc.summary){
+    h+='<div class=rsection>상세</div><div class="doc-content stt-trunc-banner" style="margin-top:.5em">⚠️ <strong>상세 본문 누락 안내</strong>: 본문 생성 과정에서 시간 초과 또는 오류가 발생하여 상세 본문이 생성되지 않았습니다. 텔레그램 봇의 <code>🔄 본문 재생성</code> 버튼 또는 CLI(<code>claire doc-regenerate --doc-id '+esc(dc.id||'')+' --component detail</code>)를 통해 재생성할 수 있습니다.</div>';
   }
   if(!dc.summary && !dc.detail && !dc.detail_html) h+='<p class=hint>문서에 요약/상세 내용이 없습니다.</p>';
   const body=document.getElementById('rbody'); body.innerHTML=h; body.scrollTop=0; body.scrollLeft=0;

@@ -1064,7 +1064,8 @@ class IngestService:
 
                             if do_detail:
                                 step_cb("가독 상세(detail) 렌더링 생성 중...", f"format={target_fmt}")
-                                ensure_document_detail(
+                                detail_err_box: list[str] = []
+                                detail_ok = ensure_document_detail(
                                     conn,
                                     self.provider,
                                     doc,
@@ -1072,12 +1073,20 @@ class IngestService:
                                     format=target_fmt,
                                     focus=focus,
                                     effort=effort,
+                                    out_error=detail_err_box,
                                 )
-                                info["detail_format"] = target_fmt
-                                if focus:
-                                    info["focus"] = focus
+                                if detail_ok:
+                                    info["detail_format"] = target_fmt
+                                    if focus:
+                                        info["focus"] = focus
+                                else:
+                                    err_detail = detail_err_box[0] if detail_err_box else "타임아웃 또는 모델 오류"
+                                    info["detail_error"] = f"가독 상세(detail) 생성 실패 ({err_detail})"
+                                    if not (do_summary and info.get("new_summary")):
+                                        info["error"] = info["detail_error"]
 
-                    info["updated"] = True
+                    if not info.get("error"):
+                        info["updated"] = True
                     targets_info.append(info)
 
                 return {

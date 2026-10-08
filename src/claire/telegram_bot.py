@@ -65,9 +65,15 @@ def setup_telegram_logging(data_dir: Path | str | None = None) -> Path | None:
         return None
 
 
-def _status_emoji(error, duplicate: bool = False, *, stt_error: str | None = None) -> str:
+def _status_emoji(
+    error,
+    duplicate: bool = False,
+    *,
+    stt_error: str | None = None,
+    detail_error: str | None = None,
+) -> str:
     """처리 결과 → 원본 메시지에 달 텔레그램 허용 reaction 이모지."""
-    if error or stt_error:
+    if error or stt_error or detail_error:
         return "👎"
     if duplicate:
         return "👌"
@@ -138,6 +144,7 @@ async def _settle_status(
     *extra_args: Any,
     has_error: bool = False,
     is_stt_failed: bool = False,
+    is_detail_failed: bool = False,
     is_duplicate: bool = False,
     retry_doc_id: str | None = None,
     cands_markup: Any = None,
@@ -150,6 +157,7 @@ async def _settle_status(
 ) -> None:
     """완료 처리:
     - 1홉 후보가 있으면 진행 메시지를 결과+후보 선택 버튼으로 편집(버튼 보존)
+    - 본문(detail) 생성 실패 시 진행 메시지에 재수집/재생성 원터치 버튼 제공
     - 비디오 자막 추출 실패 시 진행 메시지를 삭제하지 않고 재수집/재적재 원터치 버튼 제공
     - 이미 적재된 문서(중복/dedup)일 때 메시지를 삭제하지 않고 중복 안내 및 재생성/재수집 원터치 버튼 제공
     - 기타 에러 발생 시 진행 메시지를 삭제하지 않고 오류 안내 보존
@@ -165,8 +173,8 @@ async def _settle_status(
         cands = []
 
     log.info(
-        "Settle status: doc_id=%s, has_error=%s, is_stt_failed=%s, is_duplicate=%s, cands=%d, theme_id=%s",
-        retry_doc_id, has_error, is_stt_failed, is_duplicate, len(cands), theme_id,
+        "Settle status: doc_id=%s, has_error=%s, is_stt_failed=%s, is_detail_failed=%s, is_duplicate=%s, cands=%d, theme_id=%s",
+        retry_doc_id, has_error, is_stt_failed, is_detail_failed, is_duplicate, len(cands), theme_id,
     )
 
     async def _safe_send_or_edit(text: str, reply_markup: Any = None) -> None:
@@ -216,6 +224,19 @@ async def _settle_status(
 
     if cands and cands_markup:
         await _safe_send_or_edit(summary, reply_markup=cands_markup)
+    elif is_detail_failed and retry_doc_id:
+        markup = None
+        try:
+            from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+            kb = [
+                [InlineKeyboardButton("🔄 본문 재생성 (기존 원문 기준)", callback_data=f"rg:det:{retry_doc_id}")],
+                [InlineKeyboardButton("🌐 전체 원문 재수집 및 재생성", callback_data=f"rg:full:{retry_doc_id}")],
+            ]
+            markup = InlineKeyboardMarkup(kb)
+        except Exception:  # noqa: BLE001
+            markup = None
+        await _safe_send_or_edit(summary, reply_markup=markup)
     elif is_stt_failed and retry_doc_id:
         markup = None
         try:
@@ -242,7 +263,7 @@ async def _settle_status(
         except Exception:  # noqa: BLE001
             markup = None
         await _safe_send_or_edit(summary, reply_markup=markup)
-    elif has_error or is_stt_failed or is_duplicate:
+    elif has_error or is_stt_failed or is_detail_failed or is_duplicate:
         await _safe_send_or_edit(summary)
     else:
         markup = None
@@ -711,6 +732,7 @@ def build_app(settings: Settings | None = None) -> Any:
         *,
         has_error: bool = False,
         is_stt_failed: bool = False,
+        is_detail_failed: bool = False,
         is_duplicate: bool = False,
         retry_doc_id: str | None = None,
         theme_id: int = 0,
@@ -723,6 +745,7 @@ def build_app(settings: Settings | None = None) -> Any:
             cands,
             has_error=has_error,
             is_stt_failed=is_stt_failed,
+            is_detail_failed=is_detail_failed,
             is_duplicate=is_duplicate,
             retry_doc_id=retry_doc_id,
             cands_markup=cands_markup,
@@ -823,20 +846,32 @@ def build_app(settings: Settings | None = None) -> Any:
                 report.stt_error
                 or (report.source_type == "video" and report.has_transcript is False and report.stt_error)
             )
-            has_error = bool(report.error)
+            is_detail_failed = not getattr(report, "detail_rendered", True)
+            has_error = bool(report.error) or is_detail_failed
             is_duplicate = bool(report.duplicate)
-            emoji = _status_emoji(report.error, report.duplicate, stt_error=report.stt_error)
+            emoji = _status_emoji(
+                report.error,
+                report.duplicate,
+                stt_error=report.stt_error,
+                detail_error=report.detail_error if is_detail_failed else None,
+            )
             did = report.document_id
             log.info(
-                "Ingest completed: doc_id=%s, title=%r, error=%s, duplicate=%s, cands=%d",
-                report.document_id, report.title, report.error, report.duplicate, len(report.candidates),
+                "Ingest completed: doc_id=%s, title=%r, error=%s, detail_error=%s, duplicate=%s, cands=%d",
+                report.document_id,
+                report.title,
+                report.error,
+                getattr(report, "detail_error", None),
+                report.duplicate,
+                len(report.candidates),
             )
         except Exception as e:  # noqa: BLE001
             log.exception("Unhandled error in _execute_ingest: %s", e)
-            summary, cands, emoji, is_stt_failed, has_error, is_duplicate, did = (
+            summary, cands, emoji, is_stt_failed, is_detail_failed, has_error, is_duplicate, did = (
                 f"❌ 처리 오류: {e}",
                 [],
                 "👎",
+                False,
                 False,
                 True,
                 False,
@@ -852,6 +887,7 @@ def build_app(settings: Settings | None = None) -> Any:
             update_id,
             has_error=has_error,
             is_stt_failed=is_stt_failed,
+            is_detail_failed=is_detail_failed,
             is_duplicate=is_duplicate,
             retry_doc_id=did,
             theme_id=target_theme.id,

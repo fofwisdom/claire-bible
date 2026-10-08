@@ -74,7 +74,8 @@ class AntigravityProvider:
         self.agy_bin = find_agy_executable(raw_bin) or raw_bin
         self.model = getattr(settings, "agy_model", "gemini-3.7-flash")
         self.effort = getattr(settings, "agy_effort", "medium")
-        self.timeout = float(getattr(settings, "agy_timeout", 120.0))
+        self.timeout = float(getattr(settings, "agy_timeout", 180.0))
+        self.detail_timeout = float(getattr(settings, "agy_detail_timeout", 300.0))
         self.max_concurrency = int(getattr(settings, "agy_max_concurrency", 2))
         self._sem = threading.Semaphore(max(1, self.max_concurrency))
 
@@ -100,6 +101,7 @@ class AntigravityProvider:
         call_type: str = "cli",
         document_id: str | None = None,
         allow_tools: bool = False,
+        timeout: float | None = None,
     ) -> Any:
         """agy CLI를 서브프로세스로 실행하고 결과를 반환한다."""
         if not allow_tools:
@@ -158,6 +160,8 @@ class AntigravityProvider:
         stdout = ""
         stderr = ""
 
+        effective_timeout = float(timeout) if timeout is not None else self.timeout
+
         with self._sem:
             emit_progress(f"Antigravity CLI 호출 ({self.model})")
             try:
@@ -166,7 +170,7 @@ class AntigravityProvider:
                     input=stdin_data,
                     capture_output=True,
                     text=True,
-                    timeout=self.timeout,
+                    timeout=effective_timeout,
                     cwd=target_cwd,
                     check=False,
                 )
@@ -185,7 +189,7 @@ class AntigravityProvider:
                         input=prompt,
                         capture_output=True,
                         text=True,
-                        timeout=self.timeout,
+                        timeout=effective_timeout,
                         cwd=target_cwd,
                         check=False,
                     )
@@ -226,10 +230,10 @@ class AntigravityProvider:
                     duration_ms=duration_ms,
                     status="TIMEOUT",
                     google_block_reason="TIMEOUT",
-                    error_message=f"agy CLI timed out after {self.timeout}s",
+                    error_message=f"agy CLI timed out after {effective_timeout}s",
                 )
-                logger.error("agy CLI invocation timed out after %ss", self.timeout)
-                raise RuntimeError(f"agy CLI timed out after {self.timeout}s") from e
+                logger.error("agy CLI invocation timed out after %ss", effective_timeout)
+                raise RuntimeError(f"agy CLI timed out after {effective_timeout}s") from e
             except Exception as e:
                 duration_ms = int((time.monotonic() - start_t) * 1000)
                 record_telemetry(
@@ -602,16 +606,98 @@ class AntigravityProvider:
         merged = bool((doc.meta or {}).get("extra_sources"))
         focus_val = focus or (doc.meta or {}).get("focus")
         doc_id = getattr(doc, "id", None)
-        text = self._render_detail_call(
-            body, images, merged=merged, scale=1, format=format, focus=focus_val, effort=effort, document_id=doc_id
-        )
-        if merged:
+        target_effort = effort or self.effort
+
+        text = ""
+        try:
+            text = self._render_detail_call(
+                body,
+                images,
+                merged=merged,
+                scale=1,
+                format=format,
+                focus=focus_val,
+                effort=target_effort,
+                document_id=doc_id,
+                timeout=self.detail_timeout,
+            )
+        except Exception as e:
+            fallback_worked = False
+            # Fallback 1: 고추론(high) 실패 시 medium 추론으로 강등 재시도
+            if target_effort == "high":
+                logger.warning(
+                    "render_detail high effort failed (%s), retrying with medium effort",
+                    e,
+                )
+                try:
+                    text = self._render_detail_call(
+                        body,
+                        images,
+                        merged=merged,
+                        scale=1,
+                        format=format,
+                        focus=focus_val,
+                        effort="medium",
+                        document_id=doc_id,
+                        timeout=self.detail_timeout,
+                    )
+                    fallback_worked = bool(text and text.strip())
+                except Exception as e2:
+                    logger.warning(
+                        "render_detail medium effort retry also failed: %s", e2
+                    )
+
+            # Fallback 2: 대용량 본문(30,000자 초과) 타임아웃 지속 시 핵심 맥락 축소 재시도
+            if not fallback_worked and len(body) > 30_000:
+                logger.warning(
+                    "render_detail prompt body large (%d chars), retrying with condensed context",
+                    len(body),
+                )
+                condensed_body = (
+                    body[:20_000]
+                    + "\n\n[... 중략 (대용량 본문 일부 압축) ...]\n\n"
+                    + body[-10_000:]
+                )
+                eff_retry = "medium" if target_effort == "high" else target_effort
+                try:
+                    text = self._render_detail_call(
+                        condensed_body,
+                        images,
+                        merged=merged,
+                        scale=1,
+                        format=format,
+                        focus=focus_val,
+                        effort=eff_retry,
+                        document_id=doc_id,
+                        timeout=self.detail_timeout,
+                    )
+                    fallback_worked = bool(text and text.strip())
+                except Exception as e3:
+                    logger.warning(
+                        "render_detail condensed body retry failed: %s", e3
+                    )
+
+            if not fallback_worked:
+                raise
+
+        if merged and text:
             for scale in (2, 4):
                 if len(text) >= _MERGED_DETAIL_MIN_CHARS:
                     break
-                text = self._render_detail_call(
-                    body, images, merged=merged, scale=scale, format=format, focus=focus_val, effort=effort, document_id=doc_id
-                )
+                try:
+                    text = self._render_detail_call(
+                        body,
+                        images,
+                        merged=merged,
+                        scale=scale,
+                        format=format,
+                        focus=focus_val,
+                        effort=target_effort,
+                        document_id=doc_id,
+                        timeout=self.detail_timeout,
+                    )
+                except Exception:
+                    break
         return text
 
     def _render_detail_call(
@@ -625,12 +711,19 @@ class AntigravityProvider:
         focus: str | None = None,
         effort: str | None = None,
         document_id: str | None = None,
+        timeout: float | None = None,
     ) -> str:
         prompt = render_detail_prompt(
             body, images, merged=merged, scale=scale, format=format, focus=focus
         )
+        eff_timeout = timeout if timeout is not None else self.detail_timeout
         res = self._run_cli(
-            prompt, output_format="text", effort=effort, call_type="render_detail", document_id=document_id
+            prompt,
+            output_format="text",
+            effort=effort,
+            call_type="render_detail",
+            document_id=document_id,
+            timeout=eff_timeout,
         )
         return str(res).strip()
 

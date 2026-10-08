@@ -72,6 +72,8 @@ class IngestReport:
     heatmap_matrix: dict | None = None
     has_decision_stream: bool = False
     composite_ingest: bool = False
+    detail_rendered: bool = True
+    detail_error: str | None = None
 
     def telegram_summary(self) -> str:
         if self.error:
@@ -83,8 +85,14 @@ class IngestReport:
             self.stt_error
             or (self.source_type == "video" and self.has_transcript is False and self.stt_error)
         )
-        if is_stt_failed:
+        is_detail_failed = not self.detail_rendered
+
+        if is_stt_failed and is_detail_failed:
+            head = "⚠️ 부분 적재 (STT 전사 및 본문 생성 실패)"
+        elif is_stt_failed:
             head = "⚠️ 부분 적재 (STT 전사 실패)"
+        elif is_detail_failed:
+            head = "⚠️ 부분 적재 (본문 가독 상세 생성 실패)"
         elif self.pdf_parser_fallback:
             req = (self.pdf_parser_requested or "Docling").capitalize()
             if req == "Pypdfium2":
@@ -127,6 +135,9 @@ class IngestReport:
         if is_stt_failed:
             err_detail = f" (오류: {self.stt_error})" if self.stt_error else ""
             parts.append(f"🎙️ 오디오 STT 전사 실패: 음성 자막이 추출되지 못했습니다.{err_detail}")
+        if is_detail_failed:
+            err_detail = f" (오류: {self.detail_error})" if self.detail_error else ""
+            parts.append(f"📄 본문 가독 상세(detail)가 생성되지 못했습니다 (요약 및 지식 그래프만 보존됨).{err_detail} 봇에서 재생성을 요청할 수 있습니다.")
         if self.presentation_pdfs:
             presentation_details = [f"{self.presentation_pdfs}개"]
             if self.presentation_pdf_chars:
@@ -401,9 +412,12 @@ def ingest(
                 doc_obj = dbm.get_document(conn, existing)
                 if doc_obj:
                     dbm.set_document_focus(conn, existing, focus.strip())
-                    ensure_document_detail(
+                    detail_ok = ensure_document_detail(
                         conn, provider, doc_obj, format=format, focus=focus.strip(), force=True
                     )
+                    if not detail_ok:
+                        report.detail_rendered = False
+                        report.detail_error = "초점 가독 상세(detail) 재생성 실패"
                     report.document_id = existing
                     report.updated = True
                     report.duplicate = False
@@ -749,9 +763,22 @@ def extract_resolve_store(
         on_progress("LLM 가독 상세(detail) 렌더링 생성", f"format={format or '기본'}, effort={eff}")
     emit_progress(f"LLM 가독 상세(detail) 렌더링 생성{eff_badge}")
 
-    ensure_document_detail(
-        conn, provider, doc, force=True, format=format, focus=focus, effort=eff, full_content=full_content
+    detail_err_box: list[str] = []
+    detail_ok = ensure_document_detail(
+        conn,
+        provider,
+        doc,
+        force=True,
+        format=format,
+        focus=focus,
+        effort=eff,
+        full_content=full_content,
+        out_error=detail_err_box,
     )
+    if not detail_ok:
+        report.detail_rendered = False
+        err_detail = detail_err_box[0] if detail_err_box else "타임아웃 또는 모델 오류"
+        report.detail_error = f"가독 상세(detail) 생성 실패 ({err_detail})"
 
     _judge_method = getattr(provider, "judge_same_entity", None)
 
@@ -1110,6 +1137,7 @@ def ensure_document_detail(
     focus: str | None = None,
     effort: str | None = None,
     full_content: bool = False,
+    out_error: list[str] | None = None,
 ) -> bool:
     """문서의 가독 렌더(detail)를 생성·저장. **그래프와 독립**(별도 LLM 호출).
 
@@ -1142,6 +1170,8 @@ def ensure_document_detail(
 
     render = getattr(provider, "render_detail", None)
     if render is None:
+        if out_error is not None:
+            out_error.append("provider does not support render_detail")
         return False
 
     eff = effort
@@ -1181,6 +1211,8 @@ def ensure_document_detail(
         logging.getLogger("claire.pipeline").warning(
             "ensure_document_detail failed for doc_id=%s: %s", doc.id, e
         )
+        if out_error is not None:
+            out_error.append(str(e))
         return False
     if text and text.strip():
         dbm.set_document_detail(conn, doc.id, text.strip(), format=fmt)
@@ -1190,6 +1222,8 @@ def ensure_document_detail(
             doc.meta["focus"] = focus_val
             dbm.set_document_focus(conn, doc.id, focus_val)
         return True
+    if out_error is not None:
+        out_error.append("empty detail output returned by model")
     return False
 
 

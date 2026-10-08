@@ -44,7 +44,8 @@ DEFAULT_PROVIDERS_CONFIG: dict[str, Any] = {
             "bin": "agy",
             "model": "gemini-3.7-flash",
             "effort": "medium",
-            "timeout": 120.0,
+            "timeout": 180.0,
+            "detail_timeout": 300.0,
             "max_concurrency": 2,
         },
         "codex": {
@@ -379,6 +380,8 @@ class ProviderManager:
             out["agy_effort"] = agy["effort"]
         if agy.get("timeout") is not None:
             out["agy_timeout"] = float(agy["timeout"])
+        if agy.get("detail_timeout") is not None:
+            out["agy_detail_timeout"] = float(agy["detail_timeout"])
         if agy.get("max_concurrency") is not None:
             out["agy_max_concurrency"] = int(agy["max_concurrency"])
 
