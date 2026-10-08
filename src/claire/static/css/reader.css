@@ -205,11 +205,18 @@
     background:var(--hover);color:var(--fg);
   }
 
+  .center-tab-group{
+    display:inline-flex;align-items:center;gap:6px;
+    flex-shrink:0;
+  }
   .center-tabs{
     display:inline-flex;align-items:center;gap:2px;
     height:34px;box-sizing:border-box;
     background:var(--sec-bg);padding:2px;border-radius:6px;
-    border:1px solid var(--border);flex-shrink:0;margin-left:2px;
+    border:1px solid var(--border);flex-shrink:0;
+  }
+  .center-tabs.stream-tabs{
+    margin-left:0;
   }
   .center-tab-btn{
     height:28px;box-sizing:border-box;
@@ -221,7 +228,17 @@
   }
   .center-tab-btn:hover{background:var(--hover);color:var(--fg)}
   .center-tab-btn:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
-  .mobile-doclist-btn{display:none!important}
+  .mobile-doclist-btn{
+    display:none!important;
+    height:34px;min-height:34px;box-sizing:border-box;
+    align-items:center;justify-content:center;gap:5px;
+    padding:0 10px;border:1px solid var(--border);border-radius:6px;
+    background:var(--sec-bg);color:var(--fg);font-size:12px;
+    line-height:1;cursor:pointer;flex-shrink:0;white-space:nowrap;user-select:none;
+    transition:background .15s ease,border-color .15s ease,color .15s ease,box-shadow .15s ease;
+  }
+  .mobile-doclist-btn:hover{background:var(--hover);color:var(--fg)}
+  .mobile-doclist-btn:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 
   /* 중앙 뷰 전환에 따른 탭 활성화 (CSS data 속성 기반 즉각 연동) */
   body[data-center-view="graph"] #centertab-graph,
@@ -484,27 +501,46 @@ body.stt-modal-open{overflow:hidden}
 
 @media (max-width:720px){
     .center-head-bar{height:auto;min-height:auto;padding:6px 8px;flex-wrap:wrap;gap:6px}
-    .center-tabs{
-      height:auto;
+    .center-tab-group{
       width:100%;
       display:flex;
+      align-items:center;
+      gap:4px;
       flex-wrap:nowrap;
       overflow-x:auto;
       scrollbar-width:none;
       -webkit-overflow-scrolling:touch;
       box-sizing:border-box;
+      padding:2px 0;
+    }
+    .center-tab-group::-webkit-scrollbar{display:none}
+    .mobile-doclist-btn{
+      display:inline-flex!important;
+      height:36px;
+      min-height:36px;
+      padding:0 8px;
+      font-size:11.5px;
+      flex:0 0 auto;
+    }
+    .center-tabs{
+      height:auto;
+      display:flex;
+      flex-wrap:nowrap;
+      flex:1 0 auto;
+      box-sizing:border-box;
       padding:2px;
+      margin-left:0;
+    }
+    .center-tabs.stream-tabs{
+      flex:0 0 auto;
     }
     .center-tabs::-webkit-scrollbar{display:none}
     .center-tab-btn{
       flex:1 0 auto;
-      min-height:36px;
+      min-height:32px;
       font-size:11.5px;
       padding:0 6px;
       white-space:nowrap;
-    }
-    .mobile-doclist-btn{
-      display:inline-flex!important;
     }
     #centerhead #netsearch{height:auto;min-height:auto;max-width:100%;width:100%;margin-left:0}
 
