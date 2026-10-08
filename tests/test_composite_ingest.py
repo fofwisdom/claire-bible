@@ -567,3 +567,128 @@ def test_partial_failure_blocks_single_ingest_when_file_fails(tmp_path: Path):
     finally:
         conn.close()
 
+
+@pytest.mark.asyncio
+async def test_telegram_prompt_theme_selection_underscored_file_and_fallback(tmp_path: Path):
+    """파일명이나 초점에 언더스코어가 있어도 Markdown 파싱 오류 없이 테마 선택 프롬프트를 전송하고,
+    Telegram BadRequest 발생 시 플레인텍스트로 안전하게 폴백하는지 검증."""
+    from telegram.error import BadRequest
+
+    settings = Settings(
+        telegram_bot_token="12345:fake_token_for_test",
+        db_path=str(tmp_path / "data" / "claire.db"),
+        vault_path=str(tmp_path / "vault"),
+        vector_backend="sqlite",
+        provider="mock",
+    )
+    app = build_app(settings)
+
+    # 핸들러 스코프의 내부 함수를 찾기 위해 on_document 핸들러를 경유
+    mock_msg = AsyncMock()
+    # 첫 번째 호출(Markdown parse_mode)에서 Telegram BadRequest 에러 발생 시뮬레이션
+    call_count = 0
+    async def fake_reply_text(text, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if kwargs.get("parse_mode") == "Markdown":
+            raise BadRequest("Can't parse entities: can't find end of the entity starting at byte offset 173")
+        return MagicMock()
+
+    mock_msg.reply_text = AsyncMock(side_effect=fake_reply_text)
+
+    # on_document 내부의 _prompt_theme_selection 호출 유도를 위해 multi_theme 설정
+    from claire.store.theme import ThemeManager
+    theme_mgr = ThemeManager(settings)
+    themes = [
+        SimpleNamespace(id=0, label="기본", icon="🌐", is_public=True),
+        SimpleNamespace(id=1, label="연구_테마", icon="🔬", is_public=True),
+    ]
+
+    # 내부 _prompt_theme_selection 추출
+    # build_app 스코프의 클로저를 직접 테스트
+    for handler in app.handlers[0]:
+        if getattr(handler, "callback", None) and handler.callback.__name__ == "on_document":
+            # on_document 클로저에서 _prompt_theme_selection 함수 추출
+            closure_dict = {
+                var: cell.cell_contents
+                for var, cell in zip(
+                    handler.callback.__code__.co_freevars,
+                    handler.callback.__closure__,
+                )
+            }
+            prompt_fn = closure_dict["_prompt_theme_selection"]
+            res = await prompt_fn(
+                mock_msg,
+                "token_123",
+                themes,
+                "20261008_kotra_dream_1d3afed7-def9-4c80-b560-bdd4ff8c351b.pdf",
+                kind_label="파일",
+                focus="특수_키워드_분석",
+            )
+            assert res is not None
+            # 1회차 실패 후 2회차 fallback 호출로 총 2회 호출 확인
+            assert call_count == 2
+            # 2회차 호출 시 parse_mode가 생략되었는지 확인
+            second_call_kwargs = mock_msg.reply_text.call_args_list[1][1]
+            assert "parse_mode" not in second_call_kwargs
+            assert "reply_markup" in second_call_kwargs
+            break
+
+
+@pytest.mark.asyncio
+async def test_telegram_on_document_multi_theme_underscored_file(tmp_path: Path):
+    """다중 테마 모드에서 언더스코어가 포함된 파일명을 전송했을 때 예외 없이 테마 선택 프롬프트가 정상 동작."""
+    settings = Settings(
+        telegram_bot_token="12345:fake_token_for_test",
+        db_path=str(tmp_path / "data" / "claire.db"),
+        vault_path=str(tmp_path / "vault"),
+        vector_backend="sqlite",
+        provider="mock",
+        multi_theme=True,
+    )
+    settings.data_dir.mkdir(parents=True, exist_ok=True)
+    settings.vault_dir.mkdir(parents=True, exist_ok=True)
+
+    # 2개 테마를 등록
+    from claire.store.theme import ThemeManager
+    tm = ThemeManager(settings)
+    tm.define_theme("보안_연구", icon="🔒")
+
+    app = build_app(settings)
+
+    async def fake_download(dest):
+        Path(dest).write_bytes(b"%PDF-1.4 dummy")
+
+    mock_file = AsyncMock()
+    mock_file.download_to_drive = fake_download
+
+    mock_doc = MagicMock()
+    mock_doc.file_name = "20261008_kotra_dream_1d3afed7-def9-4c80-b560-bdd4ff8c351b.pdf"
+    mock_doc.file_unique_id = "uniq_kotra_123"
+    mock_doc.get_file = AsyncMock(return_value=mock_file)
+
+    mock_msg = AsyncMock()
+    mock_msg.document = mock_doc
+    mock_msg.video = None
+    mock_msg.audio = None
+    mock_msg.caption = None
+    mock_msg.reply_text = AsyncMock()
+
+    update = MagicMock()
+    update.effective_user = MagicMock(id=100)
+    update.effective_chat = MagicMock(id=200)
+    update.message = mock_msg
+    update.update_id = 8888
+
+    for handler in app.handlers[0]:
+        if getattr(handler, "callback", None) and handler.callback.__name__ == "on_document":
+            await handler.callback(update, None)
+            break
+
+    # reply_text가 호출되어 테마 선택 프롬프트가 정상 표시되었는지 검증
+    assert mock_msg.reply_text.called
+    sent_text = mock_msg.reply_text.call_args[0][0]
+    assert "적재할 테마" in sent_text
+    assert "20261008_kotra_dream_1d3afed7-def9-4c80-b560-bdd4ff8c351b.pdf" in sent_text
+
+
