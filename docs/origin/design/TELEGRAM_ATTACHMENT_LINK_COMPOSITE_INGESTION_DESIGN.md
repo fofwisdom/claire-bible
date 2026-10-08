@@ -1,6 +1,6 @@
 # 텔레그램 첨부 파일·하이퍼링크 복합 적재(Composite Ingestion) 설계
 
-작성일: 2026-10-08 · 상태: **설계 확정, 구현 대기** · 기준: [GOALS.md](../../upstream/GOALS.md) 품질 원칙 · 관련: [TELEGRAM_VIDEO_PDF_BUNDLE_INGESTION_DESIGN.md](TELEGRAM_VIDEO_PDF_BUNDLE_INGESTION_DESIGN.md), [VIDEO_PRESENTATION_BUNDLE_INGESTION_DESIGN.md](VIDEO_PRESENTATION_BUNDLE_INGESTION_DESIGN.md), [FOCUS_STANDARDIZATION_AND_PURGE_DESIGN.md](FOCUS_STANDARDIZATION_AND_PURGE_DESIGN.md)
+작성일: 2026-10-08 · 상태: **구현 완료, 검증 완료** · 기준: [GOALS.md](../../upstream/GOALS.md) 품질 원칙 · 관련: [TELEGRAM_VIDEO_PDF_BUNDLE_INGESTION_DESIGN.md](TELEGRAM_VIDEO_PDF_BUNDLE_INGESTION_DESIGN.md), [VIDEO_PRESENTATION_BUNDLE_INGESTION_DESIGN.md](VIDEO_PRESENTATION_BUNDLE_INGESTION_DESIGN.md), [FOCUS_STANDARDIZATION_AND_PURGE_DESIGN.md](FOCUS_STANDARDIZATION_AND_PURGE_DESIGN.md)
 
 ---
 
@@ -248,15 +248,21 @@ flowchart TD
   }
   ```
 
-### 7.2 실패 모드와 복구 동작
+### 7.2 실패 모드와 원자적 무결성 (Fail-Atomic Policy)
 
-1. **원격 링크 수집 실패 (네트워크 타임아웃, 404, 접근 제한)**:
-   - 동작: 문서를 반쪽짜리로 생성하지 않고, `report.error = f"링크 수집 실패: {url_err}"`로 중단.
-   - 텔레그램: 👎 이모지 반응 및 에러 사유 알림, 로컬에 저장된 원본 파일을 보존한 채 원터치 재시도 버튼 제공.
-2. **미디어 STT 실패**:
-   - 동작: 영상의 자막/STT가 실패한 경우 기존 정책과 동일하게 부분 실패 처리 또는 재수집 버튼 노출.
-3. **PDF 파싱 실패 (암호화, 스캔본)**:
-   - 동작: Docling -> PyPDFium2 -> PyPDF fallback 체인을 실행하고, 모든 파서가 실패할 경우 명확한 파서 에러 보고.
+복합 적재는 두 원천이 결합된 단일 지식 사건(Knowledge Event)을 다루므로, **부분 수집 실패 시 단독 적재(single-source fallback)로 전락하는 것을 엄격히 금지**한다:
+
+1. **원자적 실패 보장 (Fail-Atomic Enforcement)**:
+   - 첨부 파일 파싱과 원격 링크 수집 중 **단 하나라도 실패(파일 누락, 0바이트, 텍스트 빈값, 원격 URL HTTP 오류, 타임아웃, 본문 텍스트 빈값 등)**할 경우, 절대로 나머지 한쪽 소스만 단독 적재하지 않는다.
+   - 즉시 `FetchError`를 발생시키고 적재 파이프라인을 중단한다.
+   - `raw_inbox` 상태는 `"error"`로 기록되며, 지식 그래프(`documents`, `entities`, `triples`)에는 어떠한 불완전 노드도 남기지 않는다.
+2. **원격 링크 수집 실패 (네트워크 타임아웃, 404, 접근 제한, 빈 본문)**:
+   - 동작: 문서를 반쪽짜리로 생성하지 않고, `report.error = f"링크 수집 실패: {url_err}"`로 즉시 중단.
+   - 텔레그램: 👎 이모지 반응 및 에러 사유 알림, 로컬에 저장된 원본 첨부 파일을 보존한 채 원터치 재시도 버튼 제공.
+3. **미디어 STT 실패**:
+   - 동작: 영상의 자막/STT가 실패하거나 빈 자막만 생성될 경우에도 Fail-Atomic 정책에 따라 적재를 중단하고 재수집 버튼 노출.
+4. **PDF 파싱 실패 (암호화, 스캔본, 0바이트)**:
+   - 동작: Docling -> PyPDFium2 -> PyPDF fallback 체인을 실행하고, 모든 파서가 실패하거나 텍스트가 0바이트인 경우 명확한 파서 에러(`FetchError`)로 즉시 중단.
 
 ---
 
@@ -287,17 +293,24 @@ flowchart TD
 
 ---
 
-## 9. 구현 및 테스트 검증 계획
+## 9. 구현 및 테스트 검증 내역 (Implementation & Verification)
 
-### 9.1 단위 테스트 (`tests/test_composite_ingest.py`)
-1. **캡션 파서 검증**:
-   - URL 단독, URL + 초점, URL + 플래그, 텍스트 중간 URL, URL 없는 일반 캡션 분해 정합성.
+### 9.1 단위 및 통합 테스트 (`tests/test_composite_ingest.py`) — **검증 완료 (9/9 Passed)**
+1. **캡션 파서 검증 (`test_parse_caption_composite_variations`)**:
+   - URL 단독, URL + 초점, URL + 플래그, 텍스트 중간 URL, URL 없는 일반 캡션 분해 정합성 검증 완료.
 2. **결합기(Composer) 검증**:
-   - 영상 URL + PDF 첨부 결합 시 `presentation_pdf` 및 `content_components` 정상 생성 여부.
-   - 일반 웹 URL + PDF 첨부 결합 시 본문 마커 및 `extra_sources` 정합성.
-3. **원자적 실패 검증**:
-   - 한쪽 소스 실패 시 DB 롤백 및 에러 상태 기록 확인.
+   - 영상 URL + PDF 첨부 결합 시 `presentation_pdf` 및 `content_components` (`transcript` + `presentation_pdf`) 자동 바인딩 검증 완료 (`test_compose_composite_document_video_and_pdf`).
+   - 일반 웹 URL + PDF 첨부 결합 시 본문 마커 및 `extra_sources` 정합성 검증 완료 (`test_compose_composite_document_web_and_doc`).
+3. **Fail-Atomic 원자적 실패 검증**:
+   - 첨부 파일 누락 시 `FetchError` 발생 확인 (`test_fetch_composite_components_file_missing`).
+   - 첨부 파일 0바이트 또는 빈 본문 시 `FetchError` 발생 및 단독 적재 차단 확인 (`test_fetch_composite_components_empty_file`).
+   - URL 수집 실패 시 `FetchError` 발생 및 단독 적재 차단 확인 (`test_fetch_composite_components_url_error`).
+   - 서비스 레벨에서 부분 실패 시 `raw_inbox.status = 'error'`, DB 미생성 확인 (`test_ingest_composite_service_fail_atomic`).
+4. **서비스 라이프사이클 및 복구 검증**:
+   - `ingest_composite` 성공 시 `raw_inbox` 기록, 단일 문서 생성, 그래프 연결 검증 (`test_ingest_composite_service_success`).
+   - `retry_inbox` 호출 시 `composite` 인박스 멱등 재생성 확인 (`test_retry_inbox_composite`).
 
-### 9.2 통합 테스트 (`tests/test_telegram_composite.py`)
-1. PTB Mock Update를 사용하여 첨부 파일 + 캡션 링크 전송 시 단일 `doc_id`로 최종 생성되는 라이프사이클 E2E 검증.
-2. Web UI Presentation API (`/presentation/{doc_id}`)에서 결합된 슬라이드가 정상 렌더링되는지 확인.
+### 9.2 시스템 회귀 테스트
+- `tests/test_bot.py`: 텔레그램 봇 문서/비디오/오디오 핸들러 및 캡션 파서 회귀 테스트 전원 통과.
+- `tests/test_router.py`: 전체 수집기 라우팅 회귀 테스트 통과.
+- `tests/test_api_server.py`: Starlette 엔드포인트 보안 정책 및 API 회귀 테스트 통과.
