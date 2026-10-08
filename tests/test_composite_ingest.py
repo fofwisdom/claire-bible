@@ -464,3 +464,106 @@ async def test_telegram_on_document_single_file_fallback(tmp_path: Path):
         assert mock_single.called
         assert mock_single.call_args[1]["file_name"] == "standalone.pdf"
         assert mock_single.call_args[1]["focus"] == "단순 파일 초점: 성능 튜닝"
+
+
+def test_partial_failure_blocks_single_ingest_when_url_fails(tmp_path: Path):
+    """원격 링크 수집 실패 시 첨부 파일만 단독 적재되는 것을 차단하고 전체 오류 처리."""
+    from claire.ingest.fetchers.base import FetchError
+
+    settings = Settings(
+        data_dir=tmp_path / "data",
+        vault_dir=tmp_path / "vault",
+        db_file=tmp_path / "data" / "claire.db",
+        vector_backend="sqlite",
+        provider="mock",
+    )
+    settings.data_dir.mkdir(parents=True, exist_ok=True)
+    settings.vault_dir.mkdir(parents=True, exist_ok=True)
+
+    pdf_path = tmp_path / "valid_slides.pdf"
+    pdf_path.write_bytes(b"%PDF-1.4 valid content")
+
+    svc = IngestService(settings)
+
+    conn_init = dbm.connect(settings.db_file)
+    initial_cnt = conn_init.execute("SELECT COUNT(*) as cnt FROM documents").fetchone()["cnt"]
+    conn_init.close()
+
+    with patch("claire.ingest.router.fetch", side_effect=FetchError("404 Not Found")):
+        report = svc.ingest_composite(
+            pdf_path,
+            "valid_slides.pdf",
+            "https://example.com/broken-link-404",
+        )
+
+    # 1. 문서가 생성되지 않아야 함
+    assert report.error is not None
+    assert "복합 자료 수집 실패" in report.error
+    assert report.document_id is None
+
+    # 2. DB에 신규 문서가 기록되지 않아야 함 (단독 적재 차단)
+    conn = dbm.connect(settings.db_file)
+    try:
+        rows = conn.execute("SELECT COUNT(*) as cnt FROM documents").fetchone()
+        assert rows["cnt"] == initial_cnt
+        assert dbm.find_document_by_canonical_url(conn, "https://example.com/broken-link-404") is None
+
+        # 3. raw_inbox에는 상태가 error로 기록되어야 함 (원터치 재시도/원인 보존)
+        inbox = dbm.get_inbox(conn, report.inbox_id)
+        assert inbox["status"] == "error"
+        assert inbox["kind"] == "composite"
+    finally:
+        conn.close()
+
+
+def test_partial_failure_blocks_single_ingest_when_file_fails(tmp_path: Path):
+    """첨부 파일 파싱 실패(또는 빈 파일) 시 원격 링크만 단독 적재되는 것을 차단하고 전체 오류 처리."""
+    settings = Settings(
+        data_dir=tmp_path / "data",
+        vault_dir=tmp_path / "vault",
+        db_file=tmp_path / "data" / "claire.db",
+        vector_backend="sqlite",
+        provider="mock",
+    )
+    settings.data_dir.mkdir(parents=True, exist_ok=True)
+    settings.vault_dir.mkdir(parents=True, exist_ok=True)
+
+    # 0바이트 빈 파일 생성
+    empty_file = tmp_path / "empty.pdf"
+    empty_file.write_bytes(b"")
+
+    svc = IngestService(settings)
+
+    conn_init = dbm.connect(settings.db_file)
+    initial_cnt = conn_init.execute("SELECT COUNT(*) as cnt FROM documents").fetchone()["cnt"]
+    conn_init.close()
+
+    dummy_web_doc = Document(
+        title="Valid Web Page",
+        url="https://example.com/valid",
+        canonical_url="https://example.com/valid",
+        source_type="web",
+        raw_text="Valid web body text.",
+    )
+
+    with patch("claire.ingest.router.fetch", return_value=dummy_web_doc):
+        report = svc.ingest_composite(
+            empty_file,
+            "empty.pdf",
+            "https://example.com/valid",
+        )
+
+    assert report.error is not None
+    assert "복합 자료 수집 실패" in report.error
+    assert report.document_id is None
+
+    conn = dbm.connect(settings.db_file)
+    try:
+        rows = conn.execute("SELECT COUNT(*) as cnt FROM documents").fetchone()
+        assert rows["cnt"] == initial_cnt
+        assert dbm.find_document_by_canonical_url(conn, "https://example.com/valid") is None
+        inbox = dbm.get_inbox(conn, report.inbox_id)
+        assert inbox["status"] == "error"
+    finally:
+        conn.close()
+

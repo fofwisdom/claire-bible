@@ -24,13 +24,32 @@ def fetch_composite_components(
     settings: Settings | None = None,
     full_content: bool = False,
 ) -> tuple[Document, Document, bytes]:
-    """첨부 파일과 원격 URL을 각각 fetch하여 (file_doc, url_doc, file_bytes) 반환."""
-    file_bytes = file_path.read_bytes() if file_path.is_file() else b""
+    """첨부 파일과 원격 URL을 각각 fetch하여 (file_doc, url_doc, file_bytes) 반환.
+
+    원자적 무결성 원칙(Zero Speculation):
+    둘 중 하나라도 파일 부재, 0바이트, 수집 실패, 빈 본문일 경우 즉시 FetchError를 발생시켜
+    부분 수집에 의한 단독 적재(fallback)를 원천 차단한다.
+    """
+    from .fetchers.base import FetchError
+
+    if not file_path.is_file():
+        raise FetchError(f"첨부 파일을 찾을 수 없습니다: {file_path}")
+
+    file_bytes = file_path.read_bytes()
+    if not file_bytes:
+        raise FetchError(f"첨부 파일이 비어 있습니다 (0 bytes): {file_name}")
+
     file_doc = fetch_file(str(file_path), full_content=full_content)
     if file_bytes and file_doc.meta is not None:
         file_doc.meta.setdefault("byte_length", len(file_bytes))
 
+    if not file_doc.raw_text or not file_doc.raw_text.strip():
+        raise FetchError(f"첨부 파일 텍스트 추출 결과가 비어 있습니다: {file_name}")
+
     url_doc = router_fetch(url, full_content=full_content)
+    if not url_doc.raw_text or not url_doc.raw_text.strip():
+        raise FetchError(f"원격 링크 수집 결과 본문이 비어 있습니다: {url}")
+
     return file_doc, url_doc, file_bytes
 
 
