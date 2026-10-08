@@ -832,9 +832,8 @@ test('heatmap matrix replaces graph during ingestion with clean progress and liv
   await expect(matrixWrap.locator('#matrix-progress-msg')).toContainText('대조 완료');
   await expect(matrixWrap.locator('#matrix-progress-msg')).not.toContainText('준비 중');
 
-  // 5. Test switching back to graph via '📊 그래프' button
-  const graphBtn = matrixWrap.locator('button:has-text("그래프")').first();
-  await graphBtn.click();
+  // 5. Test switching back to graph via '#centertab-graph' tab button
+  await page.locator('#centertab-graph').click();
   await expect(matrixWrap).toBeHidden();
   await expect(page.locator('#netwrap')).toBeVisible();
 
@@ -938,8 +937,8 @@ test('accessing Claire Bible during active ingest boots directly into heatmap ma
   await expect(matrixWrap).toBeVisible();
   await expect(page.locator('#netwrap')).toBeHidden();
 
-  // Click '📊 그래프' to resume graph
-  await matrixWrap.locator('button:has-text("그래프")').first().click();
+  // Click '#centertab-graph' to resume graph
+  await page.locator('#centertab-graph').click();
   await expect(matrixWrap).toBeHidden();
   await expect(page.locator('#netwrap')).toBeVisible();
 
@@ -1000,8 +999,8 @@ test('telegram bot ingest dynamically suspends active graph and displays heatmap
   await expect(matrixWrap.locator('#matrix-target-doc')).toContainText('텔레그램 봇 인제스트 문서');
   await expect(matrixWrap.locator('#matrix-progress-msg')).toHaveText('실시간 엔티티 대조 중…');
 
-  // 4. Click '📊 그래프' to resume
-  await matrixWrap.locator('button:has-text("그래프")').first().click();
+  // 4. Click '#centertab-graph' to resume
+  await page.locator('#centertab-graph').click();
   await expect(matrixWrap).toBeHidden();
   await expect(page.locator('#netwrap')).toBeVisible();
   expect(await page.evaluate(() => window.claireDebug?.graphSuspended)).toBe(false);
@@ -1115,10 +1114,10 @@ test('heatmap matrix provides direct reader transition, compact headers, and ref
   const inspectBar = page.locator('#matrix-inspect-text');
   await expect(inspectBar).toContainText('유사도: 0.9500');
 
-  // 4. Verify direct reader transition button from matrix topbar
-  const docBtn = page.locator('#matrix-doc-btn');
-  await expect(docBtn).toBeVisible();
-  await docBtn.click();
+  // 4. Verify direct reader transition link from matrix topbar doc meta
+  const docLink = page.locator('#matrix-target-doc .matrix-doc-link');
+  await expect(docLink).toBeVisible();
+  await docLink.click();
 
   // 5. Verify reader is now visible and matrixwrap is hidden
   const reader = page.locator('#reader');

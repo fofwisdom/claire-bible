@@ -672,12 +672,12 @@ def test_presentation_hud_and_layout():
     assert index_path.exists()
     index_html = index_path.read_text(encoding="utf-8")
 
-    # Header tabs order: reader -> presentation -> graph -> stream
+    # Header tabs order: reader -> graph -> presentation -> stream
     idx_reader = index_html.index('id="centertab-reader"')
-    idx_presentation = index_html.index('id="centertab-presentation"')
     idx_graph = index_html.index('id="centertab-graph"')
+    idx_presentation = index_html.index('id="centertab-presentation"')
     idx_stream = index_html.index('id="centertab-stream"')
-    assert idx_reader < idx_presentation < idx_graph < idx_stream
+    assert idx_reader < idx_graph < idx_presentation < idx_stream
 
     # presentationwrap container exists
     assert 'id="presentationwrap"' in index_html

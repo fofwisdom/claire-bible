@@ -940,20 +940,26 @@ def test_default_graph_view_and_stream_tabs_separation():
     assert "setCenterView('graph');" in r_home_fn
     assert "document.title = 'Claire Bible — 지식 그래프';" in r_home_fn
 
-    # 4. 센터 탭은 유형 무관 한 줄에 모두 통합 배치 (#centertabs)
+    # 4. 본문/그래프/프레젠테이션 뷰 탭 박스(#centertabs)와 의사결정 스트림 탭 박스(#streamtabs)의 구조적 분리
     assert '<div id="centertabs" class="center-tabs"' in GRAPH_HTML
-    assert '<div id="streamtabs"' not in GRAPH_HTML
+    assert '<div id="streamtabs" class="center-tabs stream-tabs"' in GRAPH_HTML
 
     c_start = GRAPH_HTML.index('<div id="centertabs"')
-    c_end = GRAPH_HTML.index('</div>\n    </header>')
+    c_end = GRAPH_HTML.index('</div>\n        <div id="streamtabs"')
     centertabs_content = GRAPH_HTML[c_start:c_end]
 
-    # centertabs 에 본문 목록, 본문, 프레젠테이션, 그래프, 의사결정 스트림 모두 한 줄에 위치
-    assert 'id="mobile-doclist-btn"' in centertabs_content
+    # centertabs 에는 본문, 그래프, 프레젠테이션 순서로 위치
     assert 'id="centertab-reader"' in centertabs_content
-    assert 'id="centertab-presentation"' in centertabs_content
     assert 'id="centertab-graph"' in centertabs_content
-    assert 'id="centertab-stream"' in centertabs_content
+    assert 'id="centertab-presentation"' in centertabs_content
+    assert centertabs_content.index('id="centertab-reader"') < centertabs_content.index('id="centertab-graph"') < centertabs_content.index('id="centertab-presentation"')
+    assert 'id="centertab-stream"' not in centertabs_content
+
+    # streamtabs 에 의사결정 스트림 탭이 분리 배치됨
+    s_start = GRAPH_HTML.index('<div id="streamtabs"')
+    s_end = GRAPH_HTML.index('</div>\n      </div>\n    </header>')
+    streamtabs_content = GRAPH_HTML[s_start:s_end]
+    assert 'id="centertab-stream"' in streamtabs_content
 
 
 def test_docmeta_message_html_and_red_box_removal():
@@ -989,8 +995,9 @@ def test_heatmap_matrix_mobile_and_visual_improvements():
     """Heatmap Matrix 뷰의 모바일 본문 보기, 롤오버 왜곡 방지 및 수평 스크롤 완화 검증."""
     from claire.graphview import GRAPH_HTML
 
-    # 1. 모바일 본문 보기 단추 및 직결 함수 제공 검증
-    assert 'id="matrix-doc-btn"' in GRAPH_HTML
+    # 1. 불필요한 단추(matrix-doc-btn) 제거 및 확인 단추 단일 배치, 직결 함수/링크 제공 검증
+    assert 'id="matrix-doc-btn"' not in GRAPH_HTML
+    assert 'id="matrix-confirm-btn"' in GRAPH_HTML
     assert "openMatrixTargetDoc" in GRAPH_HTML
     assert "matrix-doc-link" in GRAPH_HTML
     assert "id=\"matrix-cell-inspect-bar\"" in GRAPH_HTML
@@ -1022,17 +1029,17 @@ def test_mobile_view_improvements_and_drawer_navigation():
     """
     from claire.graphview import GRAPH_HTML
 
-    # 1. 센터 탭은 유형 무관 한 줄에 모두 담김 (mobile-doclist-btn, reader, presentation, graph, stream)
-    c_start = GRAPH_HTML.index('<div id="centertabs"')
-    c_end = GRAPH_HTML.index('</div>\n    </header>')
-    c_tabs = GRAPH_HTML[c_start:c_end]
-    assert 'id="mobile-doclist-btn"' in c_tabs
-    assert 'id="centertab-reader"' in c_tabs
-    assert 'id="centertab-presentation"' in c_tabs
-    assert 'id="centertab-graph"' in c_tabs
-    assert 'id="centertab-stream"' in c_tabs
+    # 1. 센터 탭 그룹은 한 줄에 모두 담김 (mobile-doclist-btn, centertabs[reader, graph, presentation], streamtabs[stream])
+    g_start = GRAPH_HTML.index('<div class="center-tab-group"')
+    g_end = GRAPH_HTML.index('</div>\n    </header>')
+    g_tabs = GRAPH_HTML[g_start:g_end]
+    assert 'id="mobile-doclist-btn"' in g_tabs
+    assert 'id="centertab-reader"' in g_tabs
+    assert 'id="centertab-graph"' in g_tabs
+    assert 'id="centertab-presentation"' in g_tabs
+    assert 'id="centertab-stream"' in g_tabs
     # mobile-doclist-btn 은 센터 탭 중 가장 왼쪽에 위치
-    assert c_tabs.index('id="mobile-doclist-btn"') < c_tabs.index('id="centertab-reader"') < c_tabs.index('id="centertab-presentation"') < c_tabs.index('id="centertab-graph"') < c_tabs.index('id="centertab-stream"')
+    assert g_tabs.index('id="mobile-doclist-btn"') < g_tabs.index('id="centertab-reader"') < g_tabs.index('id="centertab-graph"') < g_tabs.index('id="centertab-presentation"') < g_tabs.index('id="centertab-stream"')
     # 모바일에서 센터 탭은 한 줄 nowrap 으로 유지
     assert "flex-wrap:nowrap;" in GRAPH_HTML
 
@@ -1042,8 +1049,8 @@ def test_mobile_view_improvements_and_drawer_navigation():
     assert 'id="graphdocpick"' in GRAPH_HTML
 
     # 3. 모바일 전용 본문 목록 버튼 스타일 (데스크톱 숨김, 모바일 표시)
-    assert ".mobile-doclist-btn{display:none!important}" in GRAPH_HTML
-    assert ".mobile-doclist-btn{\n      display:inline-flex!important;\n    }" in GRAPH_HTML
+    assert ".mobile-doclist-btn{\n    display:none!important;" in GRAPH_HTML
+    assert ".mobile-doclist-btn{\n      display:inline-flex!important;\n" in GRAPH_HTML
 
     # 4. 본문 목록 팝업 드로어 형태 (왼쪽 슬라이드, translateX) 및 닫기 버튼
     assert "body.docdrawer-open #docs" in GRAPH_HTML

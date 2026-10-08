@@ -143,22 +143,26 @@
           <button id="qclear" type="button" class="center-search-clear-btn" onclick="clearCenterSearch()" title="검색어 초기화" aria-label="검색어 초기화" style="display:none">✕</button>
         </div>
       </div>
-      <div id="centertabs" class="center-tabs" role="tablist" aria-label="중앙 작업 영역 뷰">
-        <button id="mobile-doclist-btn" type="button" class="center-tab-btn mobile-doclist-btn" onclick="openDocDrawer()" title="본문 목록 열기" aria-label="본문 목록">
+      <div class="center-tab-group" id="centertab-group">
+        <button id="mobile-doclist-btn" type="button" class="mobile-doclist-btn" onclick="openDocDrawer()" title="본문 목록 열기" aria-label="본문 목록">
           <span class="btn-icon">📑</span> <span class="btn-label">본문 목록</span>
         </button>
-        <button id="centertab-reader" type="button" class="center-tab-btn" role="tab" aria-selected="false" onclick="setCenterView('reader')" title="문서 본문 읽기" aria-label="본문">
-          <span class="btn-icon">📖</span> <span class="btn-label">본문</span>
-        </button>
-        <button id="centertab-presentation" type="button" class="center-tab-btn" role="tab" aria-selected="false" onclick="setCenterView('presentation')" title="프레젠테이션 보기" aria-label="프레젠테이션">
-          <span class="btn-icon">📊</span> <span class="btn-label">프레젠테이션</span>
-        </button>
-        <button id="centertab-graph" type="button" class="center-tab-btn active" role="tab" aria-selected="true" onclick="setCenterView('graph')" title="지식 그래프" aria-label="그래프">
-          <span class="btn-icon">🌐</span> <span class="btn-label">그래프</span>
-        </button>
-        <button id="centertab-stream" type="button" class="center-tab-btn" role="tab" aria-selected="false" onclick="setCenterView('stream')" title="엔티티 해소 의사결정 스트림" aria-label="의사결정 스트림">
-          <span class="btn-icon">📜</span> <span class="btn-label">의사결정 스트림</span>
-        </button>
+        <div id="centertabs" class="center-tabs" role="tablist" aria-label="중앙 작업 영역 뷰">
+          <button id="centertab-reader" type="button" class="center-tab-btn" role="tab" aria-selected="false" onclick="setCenterView('reader')" title="문서 본문 읽기" aria-label="본문">
+            <span class="btn-icon">📖</span> <span class="btn-label">본문</span>
+          </button>
+          <button id="centertab-graph" type="button" class="center-tab-btn active" role="tab" aria-selected="true" onclick="setCenterView('graph')" title="지식 그래프" aria-label="그래프">
+            <span class="btn-icon">🌐</span> <span class="btn-label">그래프</span>
+          </button>
+          <button id="centertab-presentation" type="button" class="center-tab-btn" role="tab" aria-selected="false" onclick="setCenterView('presentation')" title="프레젠테이션 보기" aria-label="프레젠테이션">
+            <span class="btn-icon">📊</span> <span class="btn-label">프레젠테이션</span>
+          </button>
+        </div>
+        <div id="streamtabs" class="center-tabs stream-tabs" role="tablist" aria-label="의사결정 스트림 뷰">
+          <button id="centertab-stream" type="button" class="center-tab-btn" role="tab" aria-selected="false" onclick="setCenterView('stream')" title="엔티티 해소 의사결정 스트림" aria-label="의사결정 스트림">
+            <span class="btn-icon">📜</span> <span class="btn-label">의사결정 스트림</span>
+          </button>
+        </div>
       </div>
     </header>
     <section id="netwrap" class="workspace-pane" role="tabpanel" aria-labelledby="tab-graph" tabindex="0">
@@ -205,8 +209,6 @@
           </div>
         </div>
         <div class="matrix-actions">
-          <button id="matrix-doc-btn" type="button" class="sec matrix-doc-btn" onclick="openMatrixTargetDoc()" title="대조 대상 문서 본문 보기">📖 본문</button>
-          <button type="button" class="sec" onclick="setCenterView('graph')" title="지식 그래프로 전환">🌐 그래프</button>
           <button id="matrix-confirm-btn" type="button" class="pri matrix-confirm-btn" onclick="confirmMatrixView()" title="대조 확인 및 매트릭스 소각 파기">✓ 확인</button>
         </div>
       </div>
