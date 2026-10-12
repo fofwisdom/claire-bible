@@ -245,11 +245,13 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 | `refresh-loop` | `claire refresh-loop [--interval N] [--batch N]` | 모든 활성 테마의 watch·갱신 큐를 순환 처리하는 상주 데몬 |
 
 #### `regenerate`
-특정 문서의 컴포넌트(요약, 상세 detail, 그래프 노드/엣지)를 LLM을 통해 선택적으로 재생성하고 DB를 갱신한다.
+특정 문서의 컴포넌트(요약, 상세 detail, 그래프 노드/엣지)를 LLM을 통해 선택적으로 재생성하고 DB를 갱신한다. (`doc-regenerate` 호환 별칭 지원)
 * **사용법**:
   ```bash
   ./cb-manuscript app regenerate <target> --summary              # Dry-run 진단 (기본)
   ./cb-manuscript app regenerate <target> --summary --apply      # 실제 LLM 호출 및 DB 갱신
+  ./cb-manuscript app regenerate <target> --detail --apply       # 상세(detail) 재생성 및 DB 갱신
+  ./cb-manuscript app doc-regenerate --doc-id <id> --component detail --apply # 호환 별칭 및 컴포넌트 지정
   ./cb-manuscript app regenerate <target> --summary --apply --effort high # 추론 레벨 지정
   ./cb-manuscript app regenerate --corrupted --summary           # 오염된 요약 일괄 스캔
   ./cb-manuscript app regenerate --tables --all                  # 표 포함 문서 일괄 진단 (Dry-run)
@@ -260,6 +262,7 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
   * `target`: 문서 ID, 공유 토큰(예: `dzr73zpxh2bah4vp`), 또는 공유 URL (`https://.../p?s=token`).
   * `--token <token>`: 명시적 공유 토큰 지정.
   * `--doc-id <id>`: 명시적 문서 ID 지정.
+  * `-c, --component {all,summary,detail,graph,format}`: 재생성 대상 컴포넌트 명시적 지정 (`detail` 지정 시 `--detail`과 동일).
   * `--summary`: 요약(summary) 재생성 (기본 대상). 지식그래프 노드/엣지는 100% 보존.
   * `--detail`: 상세(detail) 렌더링 텍스트 재생성.
   * `--graph`: 엔티티와 관계 재추출 및 지식그래프/Vault 갱신.

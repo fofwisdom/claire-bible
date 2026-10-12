@@ -144,7 +144,8 @@ def test_e2e_ingest_detail_timeout_to_telegram_and_web(tmp_path: Path):
         assert res.status_code == 200
         # HTML 템플릿에 본문 누락 안내 배너 및 재생성 안내 스크립트가 포함되어 있는지 검증
         assert "상세 본문 누락 안내" in res.text
-        assert "claire doc-regenerate --doc-id" in res.text
+        assert "./cb-manuscript app regenerate" in res.text
+        assert "--detail --apply" in res.text
 
 
 def test_e2e_antigravity_multitier_fallback_execution():

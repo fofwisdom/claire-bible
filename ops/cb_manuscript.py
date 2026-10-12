@@ -117,6 +117,8 @@ APP_ONE_OFF_COMMANDS = {
     "artifact-migrate",
     "recompile-html",
     "regenerate",
+    "doc-regenerate",
+    "regenerate-doc",
     "summary-regenerate",
     "purge",
     "audit",
