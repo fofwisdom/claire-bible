@@ -223,6 +223,14 @@ def create_app(
         request: Request, body: dict[str, Any] | None = None
     ) -> tuple[ThemeInfo, Settings, IngestService]:
         if not getattr(s, "multi_theme", False):
+            pres_enabled = bool(getattr(s, "presentation_enabled", False))
+            if theme_mgr is not None:
+                try:
+                    t0 = theme_mgr.get_theme(0)
+                    if t0 is not None:
+                        pres_enabled = bool(t0.presentation_enabled)
+                except Exception:
+                    pass
             default_theme = ThemeInfo(
                 id=0,
                 seq=0,
@@ -233,6 +241,7 @@ def create_app(
                 vault_path=str(getattr(s, "vault_path", "vault")),
                 is_default=True,
                 is_public=True,
+                presentation_enabled=pres_enabled,
             )
             return default_theme, s, svc
         ref = _extract_theme_ref(request, body)
@@ -380,6 +389,14 @@ def create_app(
                             conn.close()
                     except Exception:
                         pass
+                pres_enabled = bool(getattr(s, "presentation_enabled", False))
+                if theme_mgr is not None:
+                    try:
+                        t0 = theme_mgr.get_theme(0)
+                        if t0 is not None:
+                            pres_enabled = bool(t0.presentation_enabled)
+                    except Exception:
+                        pass
                 default_theme_data = {
                     "id": 0,
                     "seq": 0,
@@ -390,6 +407,7 @@ def create_app(
                     "is_default": True,
                     "is_public": True,
                     "is_collaborator_accessible": False,
+                    "presentation_enabled": pres_enabled,
                     "stats": t_stats,
                 }
                 return {
@@ -470,6 +488,7 @@ def create_app(
         fqdn = str(body.get("fqdn") or "").strip()
         ga_id = str(body.get("ga_measurement_id", body.get("ga_id", "")) or "").strip()
         sorcerer = str(body.get("sorcerer", body.get("knowledge_manager", "")) or "").strip()
+        pres_enabled = bool(body.get("presentation_enabled", body.get("is_presentation_enabled", False)))
         try:
             theme = theme_mgr.define_theme(
                 label,
@@ -481,6 +500,7 @@ def create_app(
                 fqdn=fqdn,
                 ga_measurement_id=ga_id,
                 sorcerer=sorcerer,
+                presentation_enabled=pres_enabled,
             )
             return JSONResponse({"ok": True, "theme": theme.to_dict()}, status_code=201)
         except ValueError as val_err:
@@ -546,6 +566,13 @@ def create_app(
             if "sorcerer" in body
             else (body.get("knowledge_manager") if "knowledge_manager" in body else None)
         )
+        pres_enabled = (
+            body.get("presentation_enabled")
+            if "presentation_enabled" in body
+            else (body.get("is_presentation_enabled") if "is_presentation_enabled" in body else None)
+        )
+        if pres_enabled is not None:
+            pres_enabled = bool(pres_enabled)
         try:
             theme = theme_mgr.update_theme(
                 theme_id,
@@ -558,6 +585,7 @@ def create_app(
                 fqdn=fqdn,
                 ga_measurement_id=ga_id,
                 sorcerer=sorcerer,
+                presentation_enabled=pres_enabled,
             )
             return JSONResponse({"ok": True, "theme": theme.to_dict()})
         except KeyError as k_err:
@@ -1687,6 +1715,52 @@ def create_app(
             shared_html(document, s, base_url=base_url, share_token=token)
         )
 
+    def _resolve_presentation_target(
+        request: Request, doc_id: str = "", token: str = ""
+    ) -> tuple[ThemeInfo, Settings, Path, Path, str, str]:
+        target_theme, theme_settings, _ = _get_theme_ctx(request, None)
+        active_db = theme_settings.db_file
+        active_data_dir = theme_settings.data_dir
+        resolved_doc_id = doc_id
+        resolved_doc_title = ""
+
+        if token:
+            resolved = theme_mgr.resolve_share_token(token)
+            if resolved is not None:
+                tid = resolved[0]
+                try:
+                    target_theme = theme_mgr.get_theme(tid)
+                except Exception:
+                    pass
+                theme_settings = theme_mgr.get_settings_for_theme(tid)
+                active_db = theme_settings.db_file
+                active_data_dir = theme_settings.data_dir
+                resolved_doc_id = resolved[2].get("id", "")
+                resolved_doc_title = resolved[2].get("title", "")
+            else:
+                conn = dbm.connect_existing(active_db, readonly=True)
+                try:
+                    resolved_doc_id = dbm.resolve_doc_share(conn, token) or ""
+                    if resolved_doc_id:
+                        d_obj = dbm.get_document(conn, resolved_doc_id)
+                        if d_obj:
+                            resolved_doc_title = d_obj.title or ""
+                finally:
+                    conn.close()
+        elif getattr(s, "multi_theme", False) and resolved_doc_id:
+            targets = theme_mgr.resolve_document_targets(doc_id=resolved_doc_id)
+            if targets and targets[0].get("db_file"):
+                active_db = Path(targets[0]["db_file"])
+                if targets[0].get("theme_id") is not None:
+                    try:
+                        target_theme = theme_mgr.get_theme(targets[0]["theme_id"])
+                    except Exception:
+                        pass
+                if targets[0].get("data_dir"):
+                    active_data_dir = Path(targets[0]["data_dir"])
+
+        return target_theme, theme_settings, active_db, active_data_dir, resolved_doc_id, resolved_doc_title
+
     async def presentation_page(request: Request) -> Response:
         from starlette.responses import FileResponse, HTMLResponse
         from ..presentation import PresentationService, render_unready_presentation_page
@@ -1694,42 +1768,24 @@ def create_app(
         token = request.query_params.get("s", "").strip()
         doc_id = request.query_params.get("id", "").strip()
 
-        _, theme_settings, _ = _get_theme_ctx(request, None)
-        active_db = theme_settings.db_file
-        active_data_dir = theme_settings.data_dir
-        doc_title = ""
+        if token and not dbm.plausible_share_token(token):
+            return PlainTextResponse("Not Found", status_code=404)
 
-        if token:
-            if not dbm.plausible_share_token(token):
-                return PlainTextResponse("Not Found", status_code=404)
-            resolved = theme_mgr.resolve_share_token(token)
-            if resolved is not None:
-                doc_id = resolved[2].get("id", "")
-                doc_title = resolved[2].get("title", "")
-                theme_settings = theme_mgr.get_settings_for_theme(resolved[0])
-                active_db = theme_settings.db_file
-                active_data_dir = theme_settings.data_dir
-            else:
-                conn = dbm.connect_existing(active_db, readonly=True)
-                try:
-                    doc_id = dbm.resolve_doc_share(conn, token) or ""
-                    if doc_id:
-                        d_obj = dbm.get_document(conn, doc_id)
-                        if d_obj:
-                            doc_title = d_obj.title or ""
-                finally:
-                    conn.close()
+        target_theme, theme_settings, active_db, active_data_dir, doc_id, doc_title = (
+            _resolve_presentation_target(request, doc_id=doc_id, token=token)
+        )
 
         if not doc_id:
             return PlainTextResponse("Missing document id or share token", status_code=400)
 
-        # In multi-theme setup, ensure we target the theme DB that actually holds doc_id
-        if getattr(s, "multi_theme", False) and not token:
-            targets = theme_mgr.resolve_document_targets(doc_id=doc_id)
-            if targets and targets[0].get("db_file"):
-                active_db = Path(targets[0]["db_file"])
-                if targets[0].get("data_dir"):
-                    active_data_dir = Path(targets[0]["data_dir"])
+        if not getattr(target_theme, "presentation_enabled", False):
+            back_url = f"/p?s={token}" if token else f"/?id={doc_id}"
+            html_content = render_unready_presentation_page(
+                title=doc_title or "프레젠테이션",
+                status="disabled",
+                back_url=back_url,
+            )
+            return HTMLResponse(html_content, status_code=403)
 
         slide_theme = request.query_params.get("slide_theme") or request.query_params.get("presentation_theme") or "night"
         transition = request.query_params.get("transition", "slide")
@@ -1799,18 +1855,21 @@ def create_app(
         if not doc_id:
             return JSONResponse({"error": "id parameter required"}, status_code=400)
 
-        _, theme_settings, _ = _get_theme_ctx(request, None)
-        active_db = theme_settings.db_file
-        active_data_dir = theme_settings.data_dir
+        target_theme, theme_settings, active_db, active_data_dir, _, _ = (
+            _resolve_presentation_target(request, doc_id=doc_id)
+        )
 
-        if getattr(s, "multi_theme", False):
-            targets = theme_mgr.resolve_document_targets(doc_id=doc_id)
-            if targets and targets[0].get("db_file"):
-                active_db = Path(targets[0]["db_file"])
-                if targets[0].get("data_dir"):
-                    active_data_dir = Path(targets[0]["data_dir"])
+        if not getattr(target_theme, "presentation_enabled", False):
+            return JSONResponse(
+                {
+                    "error": "presentation_disabled",
+                    "detail": "이 데이터베이스에서는 프레젠테이션 기능이 비활성화되어 있습니다.",
+                    "presentation_enabled": False,
+                },
+                status_code=403,
+            )
 
-        svc = PresentationService(data_dir=active_data_dir)
+        svc = PresentationService(data_dir=active_data_dir, settings=theme_settings)
         conn = dbm.connect_existing(active_db, readonly=True)
         try:
             meta = svc.get_presentation_metadata(conn, doc_id)
@@ -1849,16 +1908,19 @@ def create_app(
         if wait_param is not None and str(wait_param).lower() in ("false", "0", "no"):
             wait_for_completion = False
 
-        _, theme_settings, _ = _get_theme_ctx(request, None)
-        active_db = theme_settings.db_file
-        active_data_dir = theme_settings.data_dir
+        target_theme, theme_settings, active_db, active_data_dir, _, _ = (
+            _resolve_presentation_target(request, doc_id=doc_id)
+        )
 
-        if getattr(s, "multi_theme", False):
-            targets = theme_mgr.resolve_document_targets(doc_id=doc_id)
-            if targets and targets[0].get("db_file"):
-                active_db = Path(targets[0]["db_file"])
-                if targets[0].get("data_dir"):
-                    active_data_dir = Path(targets[0]["data_dir"])
+        if not getattr(target_theme, "presentation_enabled", False):
+            return JSONResponse(
+                {
+                    "error": "presentation_disabled",
+                    "detail": "이 데이터베이스에서는 프레젠테이션 기능이 비활성화되어 있습니다.",
+                    "presentation_enabled": False,
+                },
+                status_code=403,
+            )
 
         svc = PresentationService(data_dir=active_data_dir, settings=theme_settings)
 
@@ -1937,16 +1999,19 @@ def create_app(
         if not doc_id:
             return JSONResponse({"error": "id parameter required"}, status_code=400)
 
-        _, theme_settings, _ = _get_theme_ctx(request, None)
-        active_db = theme_settings.db_file
-        active_data_dir = theme_settings.data_dir
+        target_theme, theme_settings, active_db, active_data_dir, _, _ = (
+            _resolve_presentation_target(request, doc_id=doc_id)
+        )
 
-        if getattr(s, "multi_theme", False):
-            targets = theme_mgr.resolve_document_targets(doc_id=doc_id)
-            if targets and targets[0].get("db_file"):
-                active_db = Path(targets[0]["db_file"])
-                if targets[0].get("data_dir"):
-                    active_data_dir = Path(targets[0]["data_dir"])
+        if not getattr(target_theme, "presentation_enabled", False):
+            return JSONResponse(
+                {
+                    "error": "presentation_disabled",
+                    "detail": "이 데이터베이스에서는 프레젠테이션 기능이 비활성화되어 있습니다.",
+                    "presentation_enabled": False,
+                },
+                status_code=403,
+            )
 
         svc = PresentationService(data_dir=active_data_dir, settings=theme_settings)
         conn = dbm.connect_existing(active_db)
@@ -1992,16 +2057,19 @@ def create_app(
         if not doc_id:
             return JSONResponse({"error": "id parameter required"}, status_code=400)
 
-        _, theme_settings, _ = _get_theme_ctx(request, None)
-        active_db = theme_settings.db_file
-        active_data_dir = theme_settings.data_dir
+        target_theme, theme_settings, active_db, active_data_dir, _, _ = (
+            _resolve_presentation_target(request, doc_id=doc_id)
+        )
 
-        if getattr(s, "multi_theme", False):
-            targets = theme_mgr.resolve_document_targets(doc_id=doc_id)
-            if targets and targets[0].get("db_file"):
-                active_db = Path(targets[0]["db_file"])
-                if targets[0].get("data_dir"):
-                    active_data_dir = Path(targets[0]["data_dir"])
+        if not getattr(target_theme, "presentation_enabled", False):
+            return JSONResponse(
+                {
+                    "error": "presentation_disabled",
+                    "detail": "이 데이터베이스에서는 프레젠테이션 기능이 비활성화되어 있습니다.",
+                    "presentation_enabled": False,
+                },
+                status_code=403,
+            )
 
         svc = PresentationService(data_dir=active_data_dir, settings=theme_settings)
         conn = dbm.connect_existing(active_db)
@@ -2032,16 +2100,19 @@ def create_app(
         if not doc_id:
             return JSONResponse({"error": "id parameter required"}, status_code=400)
 
-        _, theme_settings, _ = _get_theme_ctx(request, None)
-        active_db = theme_settings.db_file
-        active_data_dir = theme_settings.data_dir
+        target_theme, theme_settings, active_db, active_data_dir, _, _ = (
+            _resolve_presentation_target(request, doc_id=doc_id)
+        )
 
-        if getattr(s, "multi_theme", False):
-            targets = theme_mgr.resolve_document_targets(doc_id=doc_id)
-            if targets and targets[0].get("db_file"):
-                active_db = Path(targets[0]["db_file"])
-                if targets[0].get("data_dir"):
-                    active_data_dir = Path(targets[0]["data_dir"])
+        if not getattr(target_theme, "presentation_enabled", False):
+            return JSONResponse(
+                {
+                    "error": "presentation_disabled",
+                    "detail": "이 데이터베이스에서는 프레젠테이션 기능이 비활성화되어 있습니다.",
+                    "presentation_enabled": False,
+                },
+                status_code=403,
+            )
 
         svc = PresentationService(data_dir=active_data_dir, settings=theme_settings)
 

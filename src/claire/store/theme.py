@@ -82,6 +82,7 @@ class ThemeInfo:
     fqdn: str = ""
     ga_measurement_id: str = ""
     sorcerer: str = ""
+    presentation_enabled: bool = False
     created_at: float = 0.0
     updated_at: float = 0.0
 
@@ -125,6 +126,9 @@ class ThemeInfo:
                 data.get("ga_measurement_id", data.get("ga_id"))
             ),
             sorcerer=str(data.get("sorcerer", data.get("knowledge_manager", "")) or "").strip(),
+            presentation_enabled=bool(
+                data.get("presentation_enabled", data.get("is_presentation_enabled", False))
+            ),
             created_at=float(data.get("created_at", 0.0)),
             updated_at=float(data.get("updated_at", 0.0)),
         )
@@ -284,6 +288,7 @@ class ThemeManager:
             is_public=True,
             is_collaborator_accessible=False,
             sorcerer=str(default_sorcerer).strip() or "owner",
+            presentation_enabled=bool(getattr(self.settings, "presentation_enabled", False)),
             created_at=now,
             updated_at=now,
         )
@@ -433,6 +438,7 @@ class ThemeManager:
         ga_measurement_id: str = "",
         sorcerer: str = "",
         knowledge_manager: str = "",
+        presentation_enabled: bool = False,
     ) -> ThemeInfo:
         """지식 관리자: 순차 일련번호를 발급하여 새 테마 디렉터리 생성 및 DB 스키마 초기화."""
         if not getattr(self.settings, "multi_theme", False):
@@ -505,6 +511,7 @@ class ThemeManager:
             fqdn=norm_fqdn,
             ga_measurement_id=norm_ga,
             sorcerer=mgr,
+            presentation_enabled=bool(presentation_enabled),
             created_at=now,
             updated_at=now,
         )
@@ -537,6 +544,7 @@ class ThemeManager:
         ga_measurement_id: str | None = None,
         sorcerer: str | None = None,
         knowledge_manager: str | None = None,
+        presentation_enabled: bool | None = None,
     ) -> ThemeInfo:
         """지식 관리자: 테마 레이블, 설명, 아이콘, 공개 여부, 협력자 공개 여부, 기본 적용 초점, FQDN, GA ID, 지식 관리자 수정 (물리 폴더 경로는 절대 변경되지 않음)."""
         if not getattr(self.settings, "multi_theme", False):
@@ -603,6 +611,9 @@ class ThemeManager:
             sorcerer = knowledge_manager
         if sorcerer is not None:
             theme.sorcerer = str(sorcerer).strip()
+
+        if presentation_enabled is not None:
+            theme.presentation_enabled = bool(presentation_enabled)
 
         theme.updated_at = time.time()
         self._save_registry()

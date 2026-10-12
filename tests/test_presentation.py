@@ -242,6 +242,7 @@ A test slide for API routes.
         data_dir=tmp_path,
         inject_token=owner_token,
         render_format="adoc",
+        presentation_enabled=True,
     )
     app = create_app(s)
     with TestClient(app, base_url=s.public_url, raise_server_exceptions=False) as client:
@@ -554,6 +555,7 @@ def test_api_presentation_compose_and_adoc(tmp_path: Path):
         data_dir=tmp_path,
         inject_token=owner_token,
         render_format="adoc",
+        presentation_enabled=True,
     )
     app = create_app(s)
     with TestClient(app, base_url=s.public_url, raise_server_exceptions=False) as client:
@@ -753,6 +755,7 @@ def test_presentation_option_a_and_async_generation(tmp_path: Path):
         data_dir=tmp_path,
         inject_token=owner_token,
         render_format="adoc",
+        presentation_enabled=True,
     )
     app = create_app(s)
     with TestClient(app, base_url=s.public_url, raise_server_exceptions=False) as client:

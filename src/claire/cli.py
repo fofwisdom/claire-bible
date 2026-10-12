@@ -650,9 +650,9 @@ def cmd_theme(args) -> int:
             return 0
 
         print(f"Claire Bible 테마 목록 (총 {len(out)}개)")
-        print("=" * 78)
-        print(f"{'ID':<4} {'아이콘':<4} {'레이블':<20} {'문서/엔티티/관계':<18} {'공개여부':<8} {'협력자':<10} {'기본여부'}")
-        print("-" * 78)
+        print("=" * 82)
+        print(f"{'ID':<4} {'아이콘':<4} {'레이블':<18} {'문서/엔티티/관계':<16} {'공개여부':<8} {'협력자':<8} {'발표':<6} {'기본여부'}")
+        print("-" * 82)
         for d in out:
             st = f"{d['stats']['documents']} / {d['stats']['entities']} / {d['stats']['relations']}"
             is_def = "★ 기본" if d["is_default"] else ""
@@ -660,13 +660,14 @@ def cmd_theme(args) -> int:
             collab_st = "공개" if d.get("is_collaborator_accessible", True) else "차단"
             if d["is_default"]:
                 collab_st = "-"
-            print(f"{d['id']:<4} {d['icon']:<4} {d['label']:<20} {st:<18} {pub_st:<8} {collab_st:<10} {is_def}")
+            pres_st = "ON 📊" if d.get("presentation_enabled", False) else "OFF"
+            print(f"{d['id']:<4} {d['icon']:<4} {d['label']:<18} {st:<16} {pub_st:<8} {collab_st:<8} {pres_st:<6} {is_def}")
             if d.get("description"):
                 print(f"     ㄴ 설명: {d['description']}")
             if d.get("default_focus"):
                 print(f"     ㄴ 기본 초점: {d['default_focus']}")
             print(f"     ㄴ DB  : {d['db_path']}")
-        print("=" * 78)
+        print("=" * 82)
         return 0
 
     elif action == "define":
@@ -683,6 +684,7 @@ def cmd_theme(args) -> int:
         if is_collab is None:
             is_collab = True
         default_focus = str(getattr(args, "default_focus", "") or "").strip()
+        pres_enabled = bool(getattr(args, "presentation_enabled", False))
         try:
             theme = tm.define_theme(
                 label,
@@ -691,6 +693,7 @@ def cmd_theme(args) -> int:
                 is_public=is_public,
                 is_collaborator_accessible=is_collab,
                 default_focus=default_focus,
+                presentation_enabled=pres_enabled,
             )
             if getattr(args, "json", False):
                 print(json.dumps({"ok": True, "theme": theme.to_dict()}, ensure_ascii=False, indent=2))
@@ -700,6 +703,7 @@ def cmd_theme(args) -> int:
                 print(f"  • 레이블      : {theme.icon} {theme.label}")
                 print(f"  • 공개 여부   : {'공개 (Public)' if theme.is_public else '비공개 (Private 🔒)'}")
                 print(f"  • 협력자 공개 : {'공개 (Collaborator Allowed)' if theme.is_collaborator_accessible else '차단 (Collaborator Blocked)'}")
+                print(f"  • 프레젠테이션 : {'활성 (ON 📊)' if theme.presentation_enabled else '비활성 (OFF 🚫)'}")
                 print(f"  • 기본 초점   : {theme.default_focus or '(없음)'}")
                 print(f"  • 설명        : {theme.description or '(없음)'}")
                 print(f"  • SQLite 경로 : {theme.db_path}")
@@ -720,6 +724,7 @@ def cmd_theme(args) -> int:
         is_public = getattr(args, "is_public", None)
         is_collab = getattr(args, "is_collaborator_accessible", None)
         default_focus = getattr(args, "default_focus", None)
+        pres_enabled = getattr(args, "presentation_enabled", None)
         try:
             theme = tm.update_theme(
                 theme_id,
@@ -729,6 +734,7 @@ def cmd_theme(args) -> int:
                 is_public=is_public,
                 is_collaborator_accessible=is_collab,
                 default_focus=default_focus,
+                presentation_enabled=pres_enabled,
             )
             if getattr(args, "json", False):
                 print(json.dumps({"ok": True, "theme": theme.to_dict()}, ensure_ascii=False, indent=2))
@@ -737,6 +743,7 @@ def cmd_theme(args) -> int:
                 print(f"  • 레이블     : {theme.icon} {theme.label}")
                 print(f"  • 공개 여부  : {'공개 (Public)' if theme.is_public else '비공개 (Private 🔒)'}")
                 print(f"  • 협력자 공개: {'공개 (Collaborator Allowed)' if theme.is_collaborator_accessible else '차단 (Collaborator Blocked)'}")
+                print(f"  • 프레젠테이션: {'활성 (ON 📊)' if theme.presentation_enabled else '비활성 (OFF 🚫)'}")
                 print(f"  • 기본 초점  : {theme.default_focus or '(없음)'}")
                 print(f"  • 설명       : {theme.description or '(없음)'}")
                 print(f"  (물리 디렉터리 경로는 변경되지 않고 유지됩니다: {theme.db_path})")
@@ -4026,14 +4033,17 @@ def build_parser() -> argparse.ArgumentParser:
     ptd_collab = ptd.add_mutually_exclusive_group()
     ptd_collab.add_argument("--collaborator", dest="is_collaborator_accessible", action="store_true", default=True, help="allow collaborator access (default)")
     ptd_collab.add_argument("--no-collaborator", dest="is_collaborator_accessible", action="store_false", help="block collaborator access")
+    ptd_pres = ptd.add_mutually_exclusive_group()
+    ptd_pres.add_argument("--presentation", dest="presentation_enabled", action="store_true", default=False, help="enable presentation feature for this theme")
+    ptd_pres.add_argument("--no-presentation", dest="presentation_enabled", action="store_false", help="disable presentation feature for this theme (default)")
     ptd.add_argument("--focus", "--default-focus", dest="default_focus", default="", help="default focus instruction applied when ingesting documents into this theme")
     ptd.add_argument("--json", action="store_true", help="output newly created theme details in JSON format")
     ptd.set_defaults(func=cmd_theme)
 
     ptu = ptheme_sub.add_parser(
         "update",
-        help="update theme label, description, icon, focus, or visibility",
-        description="Update existing theme metadata, visibility, collaborator access, or default focus.",
+        help="update theme label, description, icon, focus, visibility, or presentation",
+        description="Update existing theme metadata, visibility, collaborator access, default focus, or presentation.",
     )
     ptu.add_argument("id", help="theme ID, sequence number, or label")
     ptu.add_argument("--label", "-l", default=None, help="new theme label")
@@ -4045,6 +4055,9 @@ def build_parser() -> argparse.ArgumentParser:
     ptu_collab = ptu.add_mutually_exclusive_group()
     ptu_collab.add_argument("--collaborator", dest="is_collaborator_accessible", action="store_true", default=None, help="allow collaborator access")
     ptu_collab.add_argument("--no-collaborator", dest="is_collaborator_accessible", action="store_false", default=None, help="block collaborator access")
+    ptu_pres = ptu.add_mutually_exclusive_group()
+    ptu_pres.add_argument("--presentation", dest="presentation_enabled", action="store_true", default=None, help="enable presentation feature for this theme")
+    ptu_pres.add_argument("--no-presentation", dest="presentation_enabled", action="store_false", default=None, help="disable presentation feature for this theme")
     ptu.add_argument("--focus", "--default-focus", dest="default_focus", default=None, help="update default focus instruction (pass empty string '' to remove)")
     ptu.add_argument("--json", action="store_true", help="output updated theme details in JSON format")
     ptu.set_defaults(func=cmd_theme)

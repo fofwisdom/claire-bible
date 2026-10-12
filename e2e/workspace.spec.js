@@ -1190,3 +1190,93 @@ test('mobile view features: single-row center tabs, left doc drawer, and inline 
   expect(pageErrors).toEqual([]);
 });
 
+test('database presentation toggle controls presentation tab visibility and inert empty view', async ({ page }) => {
+  const pageErrors = [];
+  page.on('pageerror', error => pageErrors.push(error.message));
+  await page.setViewportSize({ width: 1400, height: 900 });
+
+  let mockThemes = [
+    { id: 0, label: '기본 지식베이스', is_public: true, presentation_enabled: true },
+    { id: 1, label: '인공지능 연구', is_public: true, presentation_enabled: false },
+  ];
+
+  await page.route('**/themes**', async (route) => {
+    const request = route.request();
+    if (request.method() === 'GET') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ themes: mockThemes, default_theme_id: 0, multi_theme: true }),
+      });
+    } else if (request.method() === 'PATCH') {
+      const data = JSON.parse(request.postData() || '{}');
+      const target = mockThemes.find(t => t.id === data.id);
+      if (target) {
+        if ('presentation_enabled' in data) target.presentation_enabled = data.presentation_enabled;
+        if ('is_public' in data) target.is_public = data.is_public;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ok: true, theme: target }),
+      });
+    } else {
+      await route.continue();
+    }
+  });
+
+  // 1. Authenticate as owner
+  await page.goto('/?t=e2e-owner-token-0123456789abcdef', { waitUntil: 'domcontentloaded' });
+  await expect.poll(
+    () => page.evaluate(() => window.claireDebug?.authScope),
+  ).toBe('owner');
+  await expect.poll(
+    () => page.evaluate(() => window.claireDebug?.stabilized),
+  ).toBe(true);
+
+  // Enable multi-theme in client config for theme manager
+  await page.evaluate(() => {
+    if (!window.__CLAIRE_CONFIG) window.__CLAIRE_CONFIG = {};
+    window.__CLAIRE_CONFIG.themeMode = 'multi';
+  });
+
+  // 2. Initial state: presentation tab is visible for Theme 0
+  const presTab = page.locator('#centertab-presentation');
+  await expect(presTab).toBeVisible();
+
+  // 3. Open Theme Manager
+  await page.evaluate(() => openThemeManager());
+  const detailPane = page.locator('#detailpane');
+  await expect(detailPane).toBeVisible();
+  await expect(detailPane).toContainText('지식 테마 관리');
+
+  // 4. Locate presentation toggle button and turn presentation OFF
+  const toggleOffBtn = detailPane.locator('button:has-text("발표 끄기")').first();
+  await expect(toggleOffBtn).toBeVisible();
+  await toggleOffBtn.click();
+
+  // 5. Verify presentation tab is now hidden
+  await expect(presTab).toBeHidden();
+
+  // 6. Access presentation view while disabled and verify inert view
+  await page.evaluate(() => {
+    if (typeof setCenterView === 'function') setCenterView('presentation');
+    if (typeof updatePresentationView === 'function') updatePresentationView();
+  });
+  const presEmpty = page.locator('#presentation-empty');
+  await expect(presEmpty).toBeVisible();
+  await expect(page.locator('#presentation-empty-title')).toContainText('프레젠테이션 기능이 비활성화되어 있습니다');
+  await expect(page.locator('#presentation-gen-btn')).toBeHidden();
+
+  // 7. Turn presentation back ON via Theme Manager
+  await page.evaluate(() => openThemeManager());
+  const toggleOnBtn = detailPane.locator('button:has-text("발표 켜기")').first();
+  await expect(toggleOnBtn).toBeVisible();
+  await toggleOnBtn.click();
+
+  // 8. Verify presentation tab is restored and visible
+  await expect(presTab).toBeVisible();
+
+  expect(pageErrors).toEqual([]);
+});
+
