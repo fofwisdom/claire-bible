@@ -118,6 +118,8 @@ AI 코딩 에이전트(Antigravity, Claude Code, Cursor, CI/CD 러너)가 대화
 | `claire health` | DB, 인박스, 큐 상태를 에이전트 친화적 JSON 형태로 진단 |
 | `claire ingest` | 단일 웹 페이지, 영상(자막/STT), PDF 또는 텍스트 즉시 수집 및 구조화 |
 | `claire search` | 하이브리드 검색 (BM25 전문 색인 + 벡터 시맨틱 유사도 + LLM 요약) |
+| `claire theme` | 다중 지식 테마 레지스트리 및 격리 DB 수명주기 관리 (`list`, `define`, `reset`) |
+| `claire presentation` | Asciidoctor reveal.js 기반 슬라이드 쇼 프레젠테이션 자동 저작 및 렌더링 |
 
 전체 옵션 및 파라미터는 `uv run claire --help` 및 [docs/origin/implementation/COMMANDS.md](file:///home/fow/Projects/claire-bible/docs/origin/implementation/COMMANDS.md)를 참조한다.
 

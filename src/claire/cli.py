@@ -1,8 +1,20 @@
-"""claire CLI 진입점.
+"""Claire Bible command-line interface entrypoint.
 
-  claire doctor          환경/벡터백엔드/DB 점검 claire bot             텔레그램 봇 실행 (long-polling) claire stats           그래프 통계 claire ingest <text>   (M1 stub) 단건 적재
+Provides commands for knowledge ingestion, extraction, graph maintenance,
+multi-theme database management, presentations, and background operations.
 
-M0 에서는 doctor / bot(echo) / stats 가 동작한다.
+Command Groups:
+  System & Health:       preflight, doctor, telemetry, support-bundle, health, liveness, migrate, status, repo, stats
+  Providers & Themes:    providers, theme
+  Services & Daemons:    bot, serve-api, recover-loop, refresh-loop, expand-loop
+  Ingestion & Search:    ingest, search, hoyowiki
+  Presentations:         presentation
+  Reprocess & Backfill:  reprocess, regenerate, summary-regenerate, reextract, backfill-detail, backfill-summary, backfill-images, recompile-html, video-reprocess
+  Formats & Truncation:  format-status, format-migrate, artifact-migrate, truncation-status, truncation-backfill, stt-scan, stt-backfill
+  Queues & Workers:      queue, replay-failed, recover-run, refresh-mark, refresh-run, expand-run
+  Document Management:   doc, doc-title, watch, share, auth
+  Graph & Entities:      link-relations, re-embed, entity
+  Deduplication & Purge: dedup-scan, recanonicalize, dedup-merge, purge, audit
 """
 
 from __future__ import annotations
@@ -3822,17 +3834,35 @@ def cmd_providers(args) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="claire", description="Claire Bible knowledge base")
+    p = argparse.ArgumentParser(
+        prog="claire",
+        description="Claire Bible — Autonomous Knowledge Graph and Synthesis Engine",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Quick Reference:\n"
+            "  claire ingest <url|text|file>      # Ingest document and extract knowledge graph\n"
+            "  claire search <query>              # Hybrid search (BM25 + vectors + LLM summary)\n"
+            "  claire doctor --heal               # Diagnose and repair knowledge graph integrity\n"
+            "  claire health                      # Check system health status (JSON)\n"
+            "  claire reprocess <target> --apply  # Reprocess summary, detail, graph, and format\n"
+            "  claire queue status                # Inspect asynchronous processing queues\n"
+            "  claire theme list                  # Manage multi-theme databases and sequences\n"
+            "  claire presentation generate <doc> # Generate Asciidoctor reveal.js presentation\n"
+            "\n"
+            "Detailed Documentation: docs/origin/implementation/COMMANDS.md"
+        ),
+    )
     sub = p.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser(
         "preflight",
         help="check environment, python, provider, and settings",
+        description="Check Python environment, AI providers, SQLite vectors, database connections, and settings.",
     ).set_defaults(func=cmd_preflight)
 
     doc_p = sub.add_parser(
         "doctor",
-        help="knowledge graph & DB integrity diagnosis and auto-repair",
+        help="diagnose and auto-repair knowledge graph and database integrity",
         description="Diagnose knowledge graph and DB integrity issues, with one-click auto-healing.",
     )
     doc_p.add_argument(
@@ -3840,7 +3870,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--apply",
         action="store_true",
         dest="heal",
-        help="Auto-repair detected graph integrity issues (dangling relations, orphan entities, FTS sync)",
+        help="auto-repair detected graph integrity issues (dangling relations, orphan entities, FTS sync)",
     )
     doc_p.add_argument(
         "--yes",
@@ -3851,409 +3881,586 @@ def build_parser() -> argparse.ArgumentParser:
     doc_p.add_argument(
         "--json",
         action="store_true",
-        help="Output diagnosis report in JSON format",
+        help="output diagnosis report in JSON format",
     )
-    doc_p.add_argument("-t", "--theme", default=None, help="target theme ID or label")
+    doc_p.add_argument("-t", "--theme", default=None, help="target theme ID, sequence number, or label")
     doc_p.set_defaults(func=cmd_doctor)
 
     ptel = sub.add_parser(
         "telemetry",
         help="inspect LLM/CLI provider execution telemetry and Google block diagnostics",
+        description="Inspect LLM/CLI provider execution telemetry, latency, errors, and Google policy block diagnostics.",
     )
-    ptel.add_argument("--limit", type=int, default=30, help="number of telemetry records to show (default: 30)")
+    ptel.add_argument("--limit", type=int, default=30, help="maximum number of telemetry records to show (default: 30)")
     ptel.add_argument("--failed", action="store_true", help="show only failed or degraded invocations")
-    ptel.add_argument("--doc", type=str, default=None, help="filter by document ID")
-    ptel.add_argument("--provider", type=str, default=None, help="filter by provider name")
-    ptel.add_argument("--stats", action="store_true", help="show aggregate telemetry statistics")
-    ptel.add_argument("--json", action="store_true", help="output JSON format")
-    ptel.add_argument("--prune", type=int, default=None, metavar="DAYS", help="prune records older than DAYS (e.g. 14)")
+    ptel.add_argument("--doc", type=str, default=None, help="filter records by document ID")
+    ptel.add_argument("--provider", type=str, default=None, help="filter records by provider name (e.g. gemini, codex, antigravity)")
+    ptel.add_argument("--stats", action="store_true", help="show aggregate telemetry statistics (success rate, latency percentiles, error causes)")
+    ptel.add_argument("--json", action="store_true", help="output records in JSON format")
+    ptel.add_argument("--prune", type=int, default=None, metavar="DAYS", help="prune records older than specified number of days (e.g. 14)")
     ptel.set_defaults(func=cmd_telemetry)
 
     psb = sub.add_parser(
         "support-bundle",
         help="generate zstd-compressed Support Bundle for RCA and troubleshooting (auto-purged after 6h)",
+        description="Generate a zstd-compressed archive containing telemetry, diagnostics, and configurations for root cause analysis (auto-purged after 6 hours).",
     )
     psb.add_argument("--days", type=int, default=1, help="days of data to include (default: 1, cannot exceed telemetry retention limit)")
     psb.add_argument("--target", type=str, default=None, help="track specific document by share link (e.g. /p?s=xxx), token, or doc ID")
     psb.add_argument("--list", action="store_true", help="list active unexpired support bundles")
     psb.add_argument("--purge", action="store_true", help="purge all expired support bundles immediately")
-    psb.add_argument("--json", action="store_true", help="output JSON format")
+    psb.add_argument("--json", action="store_true", help="output bundle metadata in JSON format")
     psb.set_defaults(func=cmd_support_bundle)
 
-    sub.add_parser("health", help="system health json (db/queues/inbox)").set_defaults(func=cmd_health)
+    sub.add_parser(
+        "health",
+        help="output system health metrics in JSON format (database, queues, inbox)",
+        description="Output system health metrics for databases, queues, and inbox in JSON format.",
+    ).set_defaults(func=cmd_health)
     sub.add_parser(
         "liveness",
-        help="read-only DB/schema liveness json (degraded does not fail)",
+        help="check read-only database connections and schema versions in JSON format (degraded does not fail)",
+        description="Check read-only database connections and schema versions across all themes in JSON format.",
     ).set_defaults(func=cmd_liveness)
     sub.add_parser(
         "migrate",
-        help="initialize/upgrade DB schema and verify its version and lineage",
+        help="initialize or upgrade database schema and verify schema version and lineage",
+        description="Initialize or upgrade database schema and verify schema version and lineage across all themes.",
     ).set_defaults(func=cmd_migrate)
-    sub.add_parser("status", help="full status: ops / db / progress / connections").set_defaults(func=cmd_status)
-    sub.add_parser("repo", help="print source repository information and URL").set_defaults(func=cmd_repo)
+    sub.add_parser(
+        "status",
+        help="display operational status, database counts, provider settings, and background queue sizes",
+        description="Display comprehensive operational status, database counts, provider settings, and background queue sizes.",
+    ).set_defaults(func=cmd_status)
+    sub.add_parser(
+        "repo",
+        help="display Git source repository metadata and remote URL",
+        description="Print source Git repository metadata, branch, and remote URL.",
+    ).set_defaults(func=cmd_repo)
 
-    p_stats = sub.add_parser("stats", help="graph counts only")
-    p_stats.add_argument("-t", "--theme", default=None, help="target theme ID or label")
+    p_stats = sub.add_parser(
+        "stats",
+        help="display knowledge graph entity and relation counts",
+        description="Display entity and relation counts for the specified theme or default knowledge base.",
+    )
+    p_stats.add_argument("-t", "--theme", default=None, help="target theme ID, sequence number, or label")
     p_stats.set_defaults(func=cmd_stats)
 
     # Providers management subcommand
-    pprov = sub.add_parser("providers", help="manage LLM and hyperscaler providers (WebUI-managed providers.json)")
+    pprov = sub.add_parser(
+        "providers",
+        help="manage LLM and hyperscaler providers (WebUI-managed providers.json)",
+        description="Manage AI providers configured in data/providers.json (Gemini, Antigravity, Codex, Mock).",
+    )
     pprov_sub = pprov.add_subparsers(dest="provider_action")
-    pprov_sub.add_parser("list", help="list configured providers").set_defaults(func=cmd_providers)
-    pprov_sub.add_parser("migrate", help="migrate .env provider settings to data/providers.json and comment out .env").set_defaults(func=cmd_providers)
-    pprov_test = pprov_sub.add_parser("test", help="test provider connection or CLI presence")
-    pprov_test.add_argument("target_provider", nargs="?", default=None, help="provider name (e.g. gemini, antigravity, codex, mock)")
+    pprov_sub.add_parser(
+        "list",
+        help="list configured providers",
+        description="List all configured AI providers and their status.",
+    ).set_defaults(func=cmd_providers)
+    pprov_sub.add_parser(
+        "migrate",
+        help="migrate .env provider settings to data/providers.json and comment out .env",
+        description="Migrate provider credentials from .env into data/providers.json and safely comment out corresponding .env keys.",
+    ).set_defaults(func=cmd_providers)
+    pprov_test = pprov_sub.add_parser(
+        "test",
+        help="test provider connection or CLI presence",
+        description="Test connection or CLI availability for the specified provider.",
+    )
+    pprov_test.add_argument("target_provider", nargs="?", default=None, help="target provider name (e.g. gemini, antigravity, codex, mock)")
     pprov_test.set_defaults(func=cmd_providers)
     pprov.set_defaults(func=cmd_providers)
 
     # Theme management subcommand
-    ptheme = sub.add_parser("theme", help="manage themes (multi-database isolation by sequence)")
+    ptheme = sub.add_parser(
+        "theme",
+        help="manage themes (multi-database isolation by sequence)",
+        description="Manage knowledge themes with isolated database and vault storage by sequence directory.",
+    )
     ptheme_sub = ptheme.add_subparsers(dest="theme_action")
 
-    ptl = ptheme_sub.add_parser("list", help="list registered themes and stats")
-    ptl.add_argument("--json", action="store_true", help="output in json format")
+    ptl = ptheme_sub.add_parser(
+        "list",
+        help="list registered themes and stats",
+        description="List all registered themes, visibility, permissions, default focus, and statistics.",
+    )
+    ptl.add_argument("--json", action="store_true", help="output in JSON format")
     ptl.set_defaults(func=cmd_theme)
 
-    ptd = ptheme_sub.add_parser("define", help="define a new theme with next sequence directory")
-    ptd.add_argument("--label", "-l", required=True, help="theme label (name)")
-    ptd.add_argument("--desc", "--description", default="", help="theme description")
-    ptd.add_argument("--icon", default="📁", help="theme emoji icon")
+    ptd = ptheme_sub.add_parser(
+        "define",
+        help="define a new theme with next sequence directory",
+        description="Register a new theme and provision isolated data/ and vault/ storage directories.",
+    )
+    ptd.add_argument("--label", "-l", required=True, help="theme label (display name)")
+    ptd.add_argument("--desc", "--description", default="", help="theme description (shown in WebUI and Telegram bot)")
+    ptd.add_argument("--icon", default="📁", help="theme emoji icon (default: 📁)")
     ptd_vis = ptd.add_mutually_exclusive_group()
-    ptd_vis.add_argument("--public", dest="is_public", action="store_true", default=True, help="공개 테마로 설정 (기본값)")
-    ptd_vis.add_argument("--private", dest="is_public", action="store_false", help="비공개 테마로 설정 (익명 사용자 열람 차단)")
+    ptd_vis.add_argument("--public", dest="is_public", action="store_true", default=True, help="set theme as public (default)")
+    ptd_vis.add_argument("--private", dest="is_public", action="store_false", help="set theme as private (blocks anonymous access)")
     ptd_collab = ptd.add_mutually_exclusive_group()
-    ptd_collab.add_argument("--collaborator", dest="is_collaborator_accessible", action="store_true", default=True, help="협력자(Collaborator) 공개 설정 (기본값)")
-    ptd_collab.add_argument("--no-collaborator", dest="is_collaborator_accessible", action="store_false", help="협력자(Collaborator) 접근/적재 차단")
-    ptd.add_argument("--focus", "--default-focus", dest="default_focus", default="", help="테마 적재 시 기본 적용할 초점 (Focus)")
-    ptd.add_argument("--json", action="store_true", help="output in json format")
+    ptd_collab.add_argument("--collaborator", dest="is_collaborator_accessible", action="store_true", default=True, help="allow collaborator access (default)")
+    ptd_collab.add_argument("--no-collaborator", dest="is_collaborator_accessible", action="store_false", help="block collaborator access")
+    ptd.add_argument("--focus", "--default-focus", dest="default_focus", default="", help="default focus instruction applied when ingesting documents into this theme")
+    ptd.add_argument("--json", action="store_true", help="output newly created theme details in JSON format")
     ptd.set_defaults(func=cmd_theme)
 
-    ptu = ptheme_sub.add_parser("update", help="update theme label, description, icon, or visibility")
+    ptu = ptheme_sub.add_parser(
+        "update",
+        help="update theme label, description, icon, focus, or visibility",
+        description="Update existing theme metadata, visibility, collaborator access, or default focus.",
+    )
     ptu.add_argument("id", help="theme ID, sequence number, or label")
     ptu.add_argument("--label", "-l", default=None, help="new theme label")
     ptu.add_argument("--desc", "--description", default=None, help="new theme description")
     ptu.add_argument("--icon", default=None, help="new theme icon")
     ptu_vis = ptu.add_mutually_exclusive_group()
-    ptu_vis.add_argument("--public", dest="is_public", action="store_true", default=None, help="공개 테마로 변경")
-    ptu_vis.add_argument("--private", dest="is_public", action="store_false", default=None, help="비공개 테마로 변경 (익명 열람 차단)")
+    ptu_vis.add_argument("--public", dest="is_public", action="store_true", default=None, help="change theme visibility to public")
+    ptu_vis.add_argument("--private", dest="is_public", action="store_false", default=None, help="change theme visibility to private (block anonymous access)")
     ptu_collab = ptu.add_mutually_exclusive_group()
-    ptu_collab.add_argument("--collaborator", dest="is_collaborator_accessible", action="store_true", default=None, help="협력자(Collaborator) 공개로 변경")
-    ptu_collab.add_argument("--no-collaborator", dest="is_collaborator_accessible", action="store_false", default=None, help="협력자(Collaborator) 차단으로 변경")
-    ptu.add_argument("--focus", "--default-focus", dest="default_focus", default=None, help="테마 적재 시 기본 적용할 초점 변경 (빈 문자열 '' 전달 시 삭제)")
-    ptu.add_argument("--json", action="store_true", help="output in json format")
+    ptu_collab.add_argument("--collaborator", dest="is_collaborator_accessible", action="store_true", default=None, help="allow collaborator access")
+    ptu_collab.add_argument("--no-collaborator", dest="is_collaborator_accessible", action="store_false", default=None, help="block collaborator access")
+    ptu.add_argument("--focus", "--default-focus", dest="default_focus", default=None, help="update default focus instruction (pass empty string '' to remove)")
+    ptu.add_argument("--json", action="store_true", help="output updated theme details in JSON format")
     ptu.set_defaults(func=cmd_theme)
 
-    ptdel = ptheme_sub.add_parser("delete", help="delete theme from registry")
-    ptdel.add_argument("id", help="theme ID to delete")
-    ptdel.add_argument("--purge", action="store_true", help="permanently delete physical DB and vault files")
+    ptdel = ptheme_sub.add_parser(
+        "delete",
+        help="delete theme from registry",
+        description="Delete theme from registry. Note: default theme 0 cannot be deleted.",
+    )
+    ptdel.add_argument("id", help="theme ID, sequence number, or label to delete")
+    ptdel.add_argument("--purge", action="store_true", help="permanently delete physical database and vault files from disk")
     ptdel.add_argument("--yes", "-y", action="store_true", help="skip confirmation prompt")
-    ptdel.add_argument("--json", action="store_true", help="output in json format")
+    ptdel.add_argument("--json", action="store_true", help="output deletion report in JSON format")
     ptdel.set_defaults(func=cmd_theme)
 
-    ptres = ptheme_sub.add_parser("reset", help="reset all data in a theme while preserving theme ID, URL, and metadata")
-    ptres.add_argument("id", help="theme ID, sequence number, or label")
+    ptres = ptheme_sub.add_parser(
+        "reset",
+        help="reset all data in a theme while preserving theme ID, URL, and metadata",
+        description="Atomically reset and clear all documents, graph entities, relations, and vault files in a theme while preserving theme metadata.",
+    )
+    ptres.add_argument("id", help="theme ID, sequence number, or label to reset")
     ptres.add_argument("--yes", "-y", action="store_true", help="skip confirmation prompt")
-    ptres.add_argument("--json", action="store_true", help="output in json format")
+    ptres.add_argument("--json", action="store_true", help="output reset report in JSON format")
     ptres.set_defaults(func=cmd_theme)
 
     ptheme.set_defaults(func=cmd_theme, theme_action="list")
-    sub.add_parser("bot", help="run telegram bot (long-polling)").set_defaults(func=cmd_bot)
+    sub.add_parser(
+        "bot",
+        help="run Telegram long-polling bot daemon",
+        description="Start the Telegram long-polling bot daemon for ingesting, querying, and managing documents.",
+    ).set_defaults(func=cmd_bot)
     sub.add_parser(
         "serve-api",
-        help="run ASGI web service and API (same ingest path as DM)",
+        help="run ASGI HTTP web service and REST API daemon",
+        description="Start the Uvicorn ASGI server hosting the WebUI, REST API, and webhook endpoints.",
     ).set_defaults(func=cmd_serve_api)
 
-    ppres = sub.add_parser("presentation", help="Asciidoctor reveal.js 프레젠테이션 생성 및 관리")
+    ppres = sub.add_parser(
+        "presentation",
+        help="manage and render Asciidoctor reveal.js slide presentations",
+        description="Author, compile, inspect, and batch render Asciidoctor reveal.js HTML slide presentations.",
+    )
     ppres_sub = ppres.add_subparsers(dest="action", required=True)
 
-    ppres_compose = ppres_sub.add_parser("compose", help="LLM을 호출하여 프레젠테이션 AsciiDoc과 발표자 노트 저작")
-    ppres_compose.add_argument("target", nargs="?", default="", help="대상 문서 ID, URL 또는 검색어")
-    ppres_compose.add_argument("--doc-id", dest="doc_id_flag", default="", help="문서 ID (alias for target)")
-    ppres_compose.add_argument("--focus", default=None, help="발표 최우선 초점 주제/관점")
-    ppres_compose.add_argument("--slide-budget", type=int, default=10, help="목표 슬라이드 장수 (기본 10장)")
-    ppres_compose.add_argument("--theme", default="night", help="reveal.js 테마 (default: night)")
-    ppres_compose.add_argument("--transition", default="slide", help="전환 효과 (default: slide)")
-    ppres_compose.add_argument("--no-compile", action="store_true", help="저작만 수행하고 HTML 컴파일은 건너뜀")
-    ppres_compose.add_argument("-t", "--theme-id", default=None, dest="theme_context", help="테마 격리 ID/라벨")
-    ppres_compose.add_argument("--json", action="store_true", help="JSON 형식 출력 (에이전트용)")
+    ppres_compose = ppres_sub.add_parser(
+        "compose",
+        help="author presentation AsciiDoc slides and speaker notes via LLM",
+        description="Call LLM to author presentation AsciiDoc slides and speaker notes from document content.",
+    )
+    ppres_compose.add_argument("target", nargs="?", default="", help="target document ID, share link/token, URL, or search keyword")
+    ppres_compose.add_argument("--doc-id", dest="doc_id_flag", default="", help="document ID (alias for target)")
+    ppres_compose.add_argument("--focus", default=None, help="presentation focus topic or perspective guidance")
+    ppres_compose.add_argument("--slide-budget", type=int, default=10, help="target slide count budget (default: 10)")
+    ppres_compose.add_argument("--theme", default="night", help="reveal.js slide theme (default: night)")
+    ppres_compose.add_argument("--transition", default="slide", help="slide transition effect (default: slide)")
+    ppres_compose.add_argument("--no-compile", action="store_true", help="author AsciiDoc slides only; skip HTML compilation")
+    ppres_compose.add_argument("-t", "--theme-id", default=None, dest="theme_context", help="target theme ID, sequence number, or label")
+    ppres_compose.add_argument("--json", action="store_true", help="output presentation authoring result in JSON format")
     ppres_compose.set_defaults(func=cmd_presentation)
 
-    ppres_compile = ppres_sub.add_parser("compile", help="저작된 프레젠테이션 AsciiDoc을 reveal.js HTML로 즉시 컴파일")
-    ppres_compile.add_argument("target", nargs="?", default="", help="대상 문서 ID, URL 또는 검색어")
-    ppres_compile.add_argument("--doc-id", dest="doc_id_flag", default="", help="문서 ID (alias for target)")
-    ppres_compile.add_argument("--theme", default="night", help="reveal.js 테마 (default: night)")
-    ppres_compile.add_argument("--transition", default="slide", help="전환 효과 (default: slide)")
-    ppres_compile.add_argument("-f", "--force", action="store_true", help="기존 컴파일 캐시 무시하고 강제 재컴파일")
-    ppres_compile.add_argument("-t", "--theme-id", default=None, dest="theme_context", help="테마 격리 ID/라벨")
-    ppres_compile.add_argument("--json", action="store_true", help="JSON 형식 출력 (에이전트용)")
+    ppres_compile = ppres_sub.add_parser(
+        "compile",
+        help="compile authored presentation AsciiDoc into reveal.js HTML",
+        description="Compile authored presentation AsciiDoc into interactive reveal.js HTML immediately.",
+    )
+    ppres_compile.add_argument("target", nargs="?", default="", help="target document ID, share link/token, URL, or search keyword")
+    ppres_compile.add_argument("--doc-id", dest="doc_id_flag", default="", help="document ID (alias for target)")
+    ppres_compile.add_argument("--theme", default="night", help="reveal.js slide theme (default: night)")
+    ppres_compile.add_argument("--transition", default="slide", help="slide transition effect (default: slide)")
+    ppres_compile.add_argument("-f", "--force", action="store_true", help="force recompilation, ignoring existing HTML cache")
+    ppres_compile.add_argument("-t", "--theme-id", default=None, dest="theme_context", help="target theme ID, sequence number, or label")
+    ppres_compile.add_argument("--json", action="store_true", help="output compilation result in JSON format")
     ppres_compile.set_defaults(func=cmd_presentation)
 
-    ppres_show = ppres_sub.add_parser("show-adoc", aliases=["view-adoc"], help="저작된 프레젠테이션 AsciiDoc 원문 열람")
-    ppres_show.add_argument("target", nargs="?", default="", help="대상 문서 ID, URL 또는 검색어")
-    ppres_show.add_argument("--doc-id", dest="doc_id_flag", default="", help="문서 ID (alias for target)")
-    ppres_show.add_argument("-t", "--theme-id", default=None, dest="theme_context", help="테마 격리 ID/라벨")
-    ppres_show.add_argument("--json", action="store_true", help="JSON 형식 출력 (에이전트용)")
+    ppres_show = ppres_sub.add_parser(
+        "show-adoc",
+        aliases=["view-adoc"],
+        help="display authored presentation AsciiDoc source",
+        description="Display authored presentation AsciiDoc source text for the specified document.",
+    )
+    ppres_show.add_argument("target", nargs="?", default="", help="target document ID, share link/token, URL, or search keyword")
+    ppres_show.add_argument("--doc-id", dest="doc_id_flag", default="", help="document ID (alias for target)")
+    ppres_show.add_argument("-t", "--theme-id", default=None, dest="theme_context", help="target theme ID, sequence number, or label")
+    ppres_show.add_argument("--json", action="store_true", help="output AsciiDoc source in JSON format")
     ppres_show.set_defaults(func=cmd_presentation)
 
-    ppres_gen = ppres_sub.add_parser("generate", aliases=["render"], help="프레젠테이션 생성 (미저작 시 저작 후 컴파일)")
-    ppres_gen.add_argument("target", nargs="?", default="", help="대상 문서 ID, URL 또는 검색어 (target document ID, URL, or title)")
-    ppres_gen.add_argument("--doc-id", dest="doc_id_flag", default="", help="문서 ID (alias for target)")
-    ppres_gen.add_argument("--focus", default=None, help="발표 최우선 초점 주제/관점")
-    ppres_gen.add_argument("--slide-budget", type=int, default=10, help="목표 슬라이드 장수 (기본 10장)")
-    ppres_gen.add_argument("--all", action="store_true", help="본문이 있는 모든 문서의 프레젠테이션 일괄 생성")
-    ppres_gen.add_argument("--theme", default="night", help="reveal.js 테마 (default: night)")
-    ppres_gen.add_argument("--transition", default="slide", help="전환 효과 (default: slide)")
-    ppres_gen.add_argument("-f", "--force", action="store_true", help="캐시 무시하고 강제 재생성")
-    ppres_gen.add_argument("--limit", type=int, default=0, help="일괄 생성 시 처리 건수 제한 (0 = 무제한)")
-    ppres_gen.add_argument("-t", "--theme-id", default=None, dest="theme_context", help="테마 격리 ID/라벨")
-    ppres_gen.add_argument("--json", action="store_true", help="JSON 형식 출력 (에이전트용)")
+    ppres_gen = ppres_sub.add_parser(
+        "generate",
+        aliases=["render"],
+        help="generate presentation (author if missing, then compile)",
+        description="Generate presentation for document: authors AsciiDoc if missing, then compiles into reveal.js HTML.",
+    )
+    ppres_gen.add_argument("target", nargs="?", default="", help="target document ID, share link/token, URL, or search keyword")
+    ppres_gen.add_argument("--doc-id", dest="doc_id_flag", default="", help="document ID (alias for target)")
+    ppres_gen.add_argument("--focus", default=None, help="presentation focus topic or perspective guidance")
+    ppres_gen.add_argument("--slide-budget", type=int, default=10, help="target slide count budget (default: 10)")
+    ppres_gen.add_argument("--all", action="store_true", help="batch generate presentations for all documents with content")
+    ppres_gen.add_argument("--theme", default="night", help="reveal.js slide theme (default: night)")
+    ppres_gen.add_argument("--transition", default="slide", help="slide transition effect (default: slide)")
+    ppres_gen.add_argument("-f", "--force", action="store_true", help="force regeneration and recompilation, ignoring existing cache")
+    ppres_gen.add_argument("--limit", type=int, default=0, help="limit number of documents in batch generation (0 = unlimited)")
+    ppres_gen.add_argument("-t", "--theme-id", default=None, dest="theme_context", help="target theme ID, sequence number, or label")
+    ppres_gen.add_argument("--json", action="store_true", help="output generation result in JSON format")
     ppres_gen.set_defaults(func=cmd_presentation)
 
-    ppres_status = ppres_sub.add_parser("status", help="문서의 프레젠테이션 상태 및 메타데이터 확인")
-    ppres_status.add_argument("target", nargs="?", default="", help="대상 문서 ID, URL 또는 검색어")
-    ppres_status.add_argument("--doc-id", dest="doc_id_flag", default="", help="문서 ID (alias for target)")
-    ppres_status.add_argument("-t", "--theme-id", default=None, dest="theme_context", help="테마 격리 ID/라벨")
-    ppres_status.add_argument("--json", action="store_true", help="JSON 형식 출력 (에이전트용)")
+    ppres_status = ppres_sub.add_parser(
+        "status",
+        help="check presentation authoring and compilation status for document",
+        description="Check whether presentation AsciiDoc and reveal.js HTML have been authored and compiled.",
+    )
+    ppres_status.add_argument("target", nargs="?", default="", help="target document ID, share link/token, URL, or search keyword")
+    ppres_status.add_argument("--doc-id", dest="doc_id_flag", default="", help="document ID (alias for target)")
+    ppres_status.add_argument("-t", "--theme-id", default=None, dest="theme_context", help="target theme ID, sequence number, or label")
+    ppres_status.add_argument("--json", action="store_true", help="output status in JSON format")
     ppres_status.set_defaults(func=cmd_presentation)
 
-    ppres_recompile = ppres_sub.add_parser("recompile", help="프레젠테이션 일괄 재컴파일")
-    ppres_recompile.add_argument("--all", action="store_true", default=True, help="모든 문서 재컴파일")
-    ppres_recompile.add_argument("--theme", default="night", help="reveal.js 테마 (default: night)")
-    ppres_recompile.add_argument("--limit", type=int, default=0, help="처리 건수 제한 (0 = 무제한)")
-    ppres_recompile.add_argument("-t", "--theme-id", default=None, dest="theme_context", help="테마 격리 ID/라벨")
-    ppres_recompile.add_argument("--json", action="store_true", help="JSON 형식 출력 (에이전트용)")
+    ppres_recompile = ppres_sub.add_parser(
+        "recompile",
+        help="batch recompile all presentations to reveal.js HTML",
+        description="Batch recompile all existing presentation AsciiDoc files into reveal.js HTML.",
+    )
+    ppres_recompile.add_argument("--all", action="store_true", default=True, help="recompile all presentations across documents (default: true)")
+    ppres_recompile.add_argument("--theme", default="night", help="reveal.js slide theme (default: night)")
+    ppres_recompile.add_argument("--limit", type=int, default=0, help="limit number of documents to process (0 = unlimited)")
+    ppres_recompile.add_argument("-t", "--theme-id", default=None, dest="theme_context", help="target theme ID, sequence number, or label")
+    ppres_recompile.add_argument("--json", action="store_true", help="output recompile summary in JSON format")
     ppres_recompile.set_defaults(func=cmd_presentation)
 
-    ppres_doctor = ppres_sub.add_parser("doctor", help="Asciidoctor reveal.js 툴체인 점검")
-    ppres_doctor.add_argument("--json", action="store_true", help="JSON 형식 출력 (에이전트용)")
+    ppres_doctor = ppres_sub.add_parser(
+        "doctor",
+        help="check Asciidoctor and reveal.js toolchain installation",
+        description="Check availability and executable path for Asciidoctor and reveal.js toolchain.",
+    )
+    ppres_doctor.add_argument("--json", action="store_true", help="output toolchain status in JSON format")
     ppres_doctor.set_defaults(func=cmd_presentation)
 
-    pr = sub.add_parser("replay-failed", help="re-ingest raw_inbox rows with status=error")
-    pr.add_argument("--limit", type=int, default=0, help="0 = all")
+    pr = sub.add_parser(
+        "replay-failed",
+        help="re-ingest raw_inbox rows with status=error",
+        description="Re-ingest inbox rows whose status is error, reprocessing them through the ingestion pipeline.",
+    )
+    pr.add_argument("--limit", type=int, default=0, help="maximum inbox items to re-ingest (0 = all)")
     pr.add_argument(
         "--include-failed",
         "--all",
         dest="include_failed",
         action="store_true",
-        help="영구실패(status=failed) 항목도 포함하여 재적재",
+        help="include permanently failed (status=failed) inbox items as well",
     )
     pr.set_defaults(func=cmd_replay_failed)
 
-    prc = sub.add_parser("recover-run", help="auto-recover due error inbox once (gated, backoff)")
-    prc.add_argument("--limit", type=int, default=0, help="0 = all due")
-    prc.add_argument("--max-attempts", type=int, default=5, help="이 횟수 도달 시 영구실패")
-    prc.add_argument("--base-delay", type=float, default=300.0, help="지수백오프 기준 초")
+    prc = sub.add_parser(
+        "recover-run",
+        help="auto-recover due error inbox once (gated, backoff)",
+        description="Process due error inbox items once using exponential backoff gating.",
+    )
+    prc.add_argument("--limit", type=int, default=0, help="maximum items to recover (0 = all due items)")
+    prc.add_argument("--max-attempts", type=int, default=5, help="maximum retry attempts before marking permanently failed (default: 5)")
+    prc.add_argument("--base-delay", type=float, default=300.0, help="base delay in seconds for exponential backoff (default: 300.0)")
     prc.set_defaults(func=cmd_recover_run)
 
-    prl = sub.add_parser("recover-loop", help="auto-recover error inbox on interval (daemon)")
-    prl.add_argument("--interval", type=int, default=600, help="초 (최소 60)")
-    prl.add_argument("--batch", type=int, default=5, help="회당 처리 건수")
-    prl.add_argument("--max-attempts", type=int, default=5)
-    prl.add_argument("--base-delay", type=float, default=300.0)
+    prl = sub.add_parser(
+        "recover-loop",
+        help="run continuous auto-recovery loop for error inbox (daemon)",
+        description="Run continuous auto-recovery daemon loop for error inbox on a scheduled interval.",
+    )
+    prl.add_argument("--interval", type=int, default=600, help="interval in seconds between recovery cycles (default: 600, minimum: 60)")
+    prl.add_argument("--batch", type=int, default=5, help="maximum items to process per cycle (default: 5)")
+    prl.add_argument("--max-attempts", type=int, default=5, help="maximum retry attempts before marking permanently failed (default: 5)")
+    prl.add_argument("--base-delay", type=float, default=300.0, help="base delay in seconds for exponential backoff (default: 300.0)")
     prl.set_defaults(func=cmd_recover_loop)
 
-    pm = sub.add_parser("refresh-mark", help="queue thin/host docs for re-scrape")
-    pm.add_argument("--max-len", type=int, default=300, help="본문 길이 임계(미만이면 대상)")
-    pm.add_argument("--host", default=None, help="특정 호스트만 (예: discuss.pytorch.kr)")
-    pm.add_argument("--include-partial", action="store_true",
-                    help="partial 노드(구버전 'x.com post' 등)도 재fetch 대상에 포함")
-    pm.add_argument("--reason", default="thin")
+    pm = sub.add_parser(
+        "refresh-mark",
+        help="queue thin or host-specific documents for re-scraping",
+        description="Queue documents meeting criteria (e.g. short length, host filter) into refresh_queue for re-scraping.",
+    )
+    pm.add_argument("--max-len", type=int, default=300, help="character length threshold below which documents are targeted (default: 300)")
+    pm.add_argument("--host", default=None, help="target only documents matching specific host (e.g. discuss.pytorch.kr)")
+    pm.add_argument("--include-partial", action="store_true", help="include partial documents (e.g. legacy x.com posts) in refresh queue")
+    pm.add_argument("--reason", default="thin", help="reason recorded in refresh queue (default: thin)")
     pm.set_defaults(func=cmd_refresh_mark)
 
-    prr = sub.add_parser("refresh-run", help="process refresh queue once")
-    prr.add_argument("--limit", type=int, default=0, help="0 = all")
+    prr = sub.add_parser(
+        "refresh-run",
+        help="process queued refresh items once",
+        description="Process pending items in refresh_queue once, re-fetching content and updating documents.",
+    )
+    prr.add_argument("--limit", type=int, default=0, help="maximum items to process (0 = all pending)")
     prr.set_defaults(func=cmd_refresh_run)
 
-    pl = sub.add_parser("refresh-loop", help="run refresh queue on interval (daemon)")
-    pl.add_argument("--interval", type=int, default=3600, help="초 (최소 60)")
-    pl.add_argument("--batch", type=int, default=5, help="회당 처리 건수")
+    pl = sub.add_parser(
+        "refresh-loop",
+        help="run continuous document refresh loop on interval (daemon)",
+        description="Run continuous daemon loop processing queued refresh items on a scheduled interval.",
+    )
+    pl.add_argument("--interval", type=int, default=3600, help="interval in seconds between refresh cycles (default: 3600, minimum: 60)")
+    pl.add_argument("--batch", type=int, default=5, help="maximum items to process per cycle (default: 5)")
     pl.set_defaults(func=cmd_refresh_loop)
 
-    pxr = sub.add_parser("expand-run", help="process 1-hop auto-expand queue once")
-    pxr.add_argument("--limit", type=int, default=0, help="0 = all")
+    pxr = sub.add_parser(
+        "expand-run",
+        help="process queued 1-hop link expansion items once",
+        description="Process pending items in expand_queue once, fetching and ingesting discovered 1-hop links.",
+    )
+    pxr.add_argument("--limit", type=int, default=0, help="maximum items to process (0 = all pending)")
     pxr.set_defaults(func=cmd_expand_run)
 
-    pxl = sub.add_parser("expand-loop", help="run 1-hop auto-expand queue on interval (daemon)")
-    pxl.add_argument("--interval", type=int, default=900, help="초 (최소 60)")
-    pxl.add_argument("--batch", type=int, default=3, help="회당 처리 건수")
+    pxl = sub.add_parser(
+        "expand-loop",
+        help="run continuous 1-hop link expansion loop on interval (daemon)",
+        description="Run continuous daemon loop processing queued 1-hop link expansions on a scheduled interval.",
+    )
+    pxl.add_argument("--interval", type=int, default=900, help="interval in seconds between expansion cycles (default: 900, minimum: 60)")
+    pxl.add_argument("--batch", type=int, default=3, help="maximum items to process per cycle (default: 3)")
     pxl.set_defaults(func=cmd_expand_loop)
 
-    pi = sub.add_parser("ingest", help="ingest a single payload")
-    pi.add_argument("payload", help="url / text / file path")
+    pi = sub.add_parser(
+        "ingest",
+        help="ingest a single document payload (URL, text, or file path)",
+        description="Ingest a single document payload from a URL, raw text, or local file, extract knowledge graph, and sync to vault.",
+    )
+    pi.add_argument("payload", help="URL, plain text, or local file path to ingest")
     pi.add_argument("--full", "--full-content", "--no-truncate", action="store_true", dest="full_content",
-                    help="원문 글자 수 상한(budget) 없이 전문을 온전히 수집 및 LLM에 투입 (lossless ingestion)")
+                    help="ingest full content without character limit (lossless ingestion)")
     pi.add_argument("--effort", "-e", choices=["none", "minimal", "low", "medium", "high", "max"], default=None,
-                    help="LLM 사고/추론 레벨 (reasoning effort) 명시 지정 (기본값: 프로바이더/환경변수 기본값)")
+                    help="LLM reasoning effort level (none, minimal, low, medium, high, max)")
     pi.add_argument("--expand", action="store_true",
-                    help="also fetch 1-hop related links found in the content")
+                    help="fetch and queue 1-hop related links found in content")
     pi.add_argument("--no-expand", action="store_true",
-                    help="do not even detect expansion candidates")
+                    help="skip 1-hop candidate link detection")
     pi.add_argument("--format", choices=["md", "adoc"], default=None,
-                    help="detail render format (md or adoc, default: config CLAIRE_RENDER_FORMAT)")
+                    help="detail render format (md or adoc, default: configured CLAIRE_RENDER_FORMAT)")
     pi.add_argument("-f", "--focus", dest="focus", default=None,
-                    help="가독 상세 작성을 위한 집중 초점 (content focus for detail rendering, e.g. '시스템 아키텍처 중심')")
-    pi.add_argument("-t", "--theme", default=None, help="target theme ID or label (default: default knowledge base)")
+                    help="content focus guidance for detail rendering (e.g. 'architecture and internals')")
+    pi.add_argument("-t", "--theme", default=None, help="target theme ID, sequence number, or label (default: default knowledge base)")
     pi.set_defaults(func=cmd_ingest)
 
-    ps = sub.add_parser("search", help="hybrid search (FTS+vector) + LLM summary")
-    ps.add_argument("query", help="keyword(s) / question")
-    ps.add_argument("--limit", type=int, default=8)
-    ps.add_argument("--no-summary", action="store_true", help="skip LLM summary")
-    ps.add_argument("-t", "--theme", default=None, help="target theme ID or label (default: default knowledge base)")
+    ps = sub.add_parser(
+        "search",
+        help="hybrid search (BM25 FTS + vector embeddings) with LLM summary",
+        description="Perform hybrid search across knowledge base and generate an LLM synthesis summary with citations.",
+    )
+    ps.add_argument("query", help="keyword(s) or question")
+    ps.add_argument("--limit", type=int, default=8, help="maximum search results to retrieve (default: 8)")
+    ps.add_argument("--no-summary", action="store_true", help="skip LLM summary and return matched entities and documents directly")
+    ps.add_argument("-t", "--theme", default=None, help="target theme ID, sequence number, or label (default: default knowledge base)")
     ps.set_defaults(func=cmd_search)
 
-    pre = sub.add_parser("reextract",
-                         help="re-extract all docs from stored raw_text (apply prompt change, e.g. Korean, table preservation)")
+    pre = sub.add_parser(
+        "reextract",
+        help="re-extract all documents from stored raw text to update knowledge graph",
+        description="Re-extract entities and relations from stored raw text to apply updated extraction prompts and ontology models.",
+    )
     pre.add_argument("--no-rebuild", action="store_true",
-                     help="merge into existing graph instead of wiping first (may mix old/new)")
+                     help="merge into existing graph without wiping/resetting first")
     pre.add_argument("--tables", "--has-tables", action="store_true", dest="tables",
-                     help="only re-extract documents that contain markdown, asciidoc, or html tables")
-    pre.add_argument("--limit", type=int, default=0, help="cap number of docs (0=all)")
+                     help="re-extract only documents that contain Markdown, AsciiDoc, or HTML tables")
+    pre.add_argument("--limit", type=int, default=0, help="maximum documents to re-extract (0 = all)")
     pre.add_argument("--format", choices=["md", "adoc"], default=None,
                      help="detail render format (md or adoc)")
     pre.set_defaults(func=cmd_reextract)
 
-    pbd = sub.add_parser("backfill-detail",
-                         help="fill Korean readable 'detail' for docs missing it or containing tables (non-destructive)")
-    pbd.add_argument("--limit", type=int, default=0, help="cap number of docs (0=all)")
-    pbd.add_argument("--force", "-f", action="store_true", help="regenerate even if detail exists")
+    pbd = sub.add_parser(
+        "backfill-detail",
+        help="fill Korean readable detail for documents missing it or containing tables (non-destructive)",
+        description="Fill Korean readable detail text for documents missing detail or containing tables without modifying knowledge graph.",
+    )
+    pbd.add_argument("--limit", type=int, default=0, help="maximum documents to process (0 = all)")
+    pbd.add_argument("--force", "-f", action="store_true", help="regenerate detail even if already present")
     pbd.add_argument("--tables", "--has-tables", action="store_true", dest="tables",
-                     help="only backfill/regenerate documents that contain tables")
+                     help="backfill/regenerate only documents containing tables")
     pbd.add_argument("--format", choices=["md", "adoc"], default=None,
                      help="detail render format (md or adoc)")
     pbd.add_argument("--focus", dest="focus", default=None,
-                     help="가독 상세 작성을 위한 집중 초점 (content focus for detail rendering)")
+                     help="content focus guidance for detail rendering")
     pbd.set_defaults(func=cmd_backfill_detail)
 
-    pbs = sub.add_parser("backfill-summary",
-                         help="fill missing summaries in extractions (non-destructive)")
-    pbs.add_argument("--limit", type=int, default=0, help="cap number of docs (0=all)")
+    pbs = sub.add_parser(
+        "backfill-summary",
+        help="fill missing summaries in extractions (non-destructive)",
+        description="Fill missing summaries in extraction records without modifying knowledge graph.",
+    )
+    pbs.add_argument("--limit", type=int, default=0, help="maximum documents to process (0 = all)")
     pbs.set_defaults(func=cmd_backfill_summary)
 
-    prep = sub.add_parser("reprocess",
-                          help="unified reprocess engine: regenerate summary, detail, graph, format, and metadata (default: dry-run, requires --apply)")
+    prep = sub.add_parser(
+        "reprocess",
+        help="unified reprocess engine for summary, detail, graph, format, and metadata (default: dry-run, requires --apply)",
+        description="Unified reprocess engine: selectively regenerate summary, detail, knowledge graph, format, or metadata.",
+    )
     prep.add_argument("target", nargs="?", default=None,
-                      help="document ID, share token, or share URL (/p?s=token)")
+                      help="document ID, share token, URL, or share link (/p?s=token)")
     prep.add_argument("-c", "--component", choices=["all", "summary", "detail", "graph", "format"], default="all",
-                      help="component to reprocess (default: all)")
+                      help="component to reprocess: all, summary, detail, graph, format (default: all)")
     prep.add_argument("-s", "--scope", choices=["all", "missing", "corrupted", "tables"], default="all",
-                      help="scope of documents to target: all, missing only, corrupted syntax, or with tables")
+                      help="scope of documents to target: all, missing only, corrupted syntax, or with tables (default: all)")
     prep.add_argument("--token", default=None, help="specific share token")
     prep.add_argument("--doc-id", default=None, help="specific document ID")
     prep_refetch = prep.add_mutually_exclusive_group()
     prep_refetch.add_argument("--refetch", action="store_true",
-                              help="re-fetch document content from URL before reprocessing")
+                              help="re-fetch document content with raw_char_budget limit before reprocessing")
     prep_refetch.add_argument("--refetch-full", action="store_true",
-                              help="re-fetch full document content without length limit")
-    prep.add_argument("--apply", action="store_true", help="execute LLM reprocessing and overwrite DB (default: dry-run)")
+                              help="re-fetch full document content without character limit before reprocessing")
+    prep.add_argument("--apply", action="store_true", help="execute LLM reprocessing and overwrite database (default: dry-run)")
     prep.add_argument("--force", "-f", action="store_true", help="force overwrite even if target components are already up-to-date")
-    prep.add_argument("--dry-run", action="store_true", help="dry-run inspection without changes (default)")
-    prep.add_argument("--effort", default=None, help="reasoning effort level (e.g. low, medium, high)")
-    prep.add_argument("--format", choices=["md", "adoc"], default=None, help="detail format (md or adoc)")
-    prep.add_argument("--focus", dest="focus", default=None, help="focus guidance for detail rendering")
+    prep.add_argument("--dry-run", action="store_true", help="simulate inspection without modifying database (default)")
+    prep.add_argument("--effort", default=None, help="LLM reasoning effort level (e.g. low, medium, high)")
+    prep.add_argument("--format", choices=["md", "adoc"], default=None, help="detail render format (md or adoc)")
+    prep.add_argument("--focus", dest="focus", default=None, help="content focus guidance for detail rendering")
     prep.add_argument("--json", action="store_true", help="output result in JSON format")
-    prep.add_argument("-t", "--theme", default=None, help="target theme ID or label")
+    prep.add_argument("-t", "--theme", default=None, help="target theme ID, sequence number, or label")
     prep.set_defaults(func=cmd_reprocess)
 
-    preg = sub.add_parser("regenerate",
-                          help="selectively regenerate document summary/detail (default: dry-run, requires --apply)")
+    preg = sub.add_parser(
+        "regenerate",
+        help="selectively regenerate document summary, detail, or graph (default: dry-run, requires --apply)",
+        description="Selectively regenerate document summary, readable detail text, or graph nodes/edges using LLM.",
+    )
     preg.add_argument("target", nargs="?", default=None,
-                      help="document ID, share token, or share URL (/p?s=token)")
+                      help="document ID, share token, URL, or share link (/p?s=token)")
     preg.add_argument("--token", default=None, help="specific share token")
     preg.add_argument("--doc-id", default=None, help="specific document ID")
-    preg.add_argument("--summary", action="store_true", help="regenerate summary only (default if no component given)")
-    preg.add_argument("--detail", action="store_true", help="regenerate detail readable text only")
+    preg.add_argument("--summary", action="store_true", help="regenerate summary only (default if no component specified)")
+    preg.add_argument("--detail", action="store_true", help="regenerate readable detail text only")
     preg.add_argument("--graph", action="store_true", help="re-extract entities and relations, updating knowledge graph and vault")
     preg.add_argument("--all", action="store_true", help="regenerate all components (summary, detail, graph nodes)")
     preg.add_argument("--corrupted", action="store_true",
-                      help="automatically scan and target all docs with corrupted ADOC syntax in summary")
+                      help="automatically scan and target all documents with corrupted AsciiDoc syntax in summary")
     preg.add_argument("--tables", "--has-tables", action="store_true", dest="tables",
-                      help="automatically scan and target all docs containing markdown/adoc/html tables")
+                      help="automatically scan and target all documents containing Markdown, AsciiDoc, or HTML tables")
     preg_refetch = preg.add_mutually_exclusive_group()
     preg_refetch.add_argument("--refetch", action="store_true",
-                              help="re-fetch document content from URL before regenerating (applies raw_char_budget env limit)")
+                              help="re-fetch document content with raw_char_budget limit before regenerating")
     preg_refetch.add_argument("--refetch-full", action="store_true",
-                              help="re-fetch full document content without length limit (ignores raw_char_budget env limit)")
-    preg.add_argument("--apply", action="store_true", help="execute LLM regeneration and overwrite DB (default: dry-run)")
+                              help="re-fetch full document content without character limit before regenerating")
+    preg.add_argument("--apply", action="store_true", help="execute LLM regeneration and overwrite database (default: dry-run)")
     preg.add_argument("--force", "-f", action="store_true", help="force overwrite even if target components are already up-to-date")
-    preg.add_argument("--dry-run", action="store_true", help="dry-run inspection without changes (default)")
-    preg.add_argument("--effort", default=None, help="reasoning effort level (e.g. low, medium, high)")
-    preg.add_argument("--format", choices=["md", "adoc"], default=None, help="detail format (md or adoc)")
-    preg.add_argument("--focus", dest="focus", default=None, help="가독 상세 작성을 위한 집중 초점 (content focus for detail rendering)")
+    preg.add_argument("--dry-run", action="store_true", help="simulate inspection without modifying database (default)")
+    preg.add_argument("--effort", default=None, help="LLM reasoning effort level (e.g. low, medium, high)")
+    preg.add_argument("--format", choices=["md", "adoc"], default=None, help="detail render format (md or adoc)")
+    preg.add_argument("--focus", dest="focus", default=None, help="content focus guidance for detail rendering")
     preg.add_argument("--json", action="store_true", help="output result in JSON format")
-    preg.add_argument("-t", "--theme", default=None, help="target theme ID or label")
+    preg.add_argument("-t", "--theme", default=None, help="target theme ID, sequence number, or label")
     preg.set_defaults(func=cmd_regenerate)
 
     # Alias: summary-regenerate
-    psum = sub.add_parser("summary-regenerate",
-                          help="alias for 'regenerate --summary'")
-    psum.add_argument("target", nargs="?", default=None, help="document ID, share token, or share URL")
-    psum.add_argument("-t", "--theme", default=None, help="target theme ID or label")
+    psum = sub.add_parser(
+        "summary-regenerate",
+        help="alias for 'regenerate --summary'",
+        description="Selectively regenerate document summary using LLM (alias for 'regenerate --summary').",
+    )
+    psum.add_argument("target", nargs="?", default=None, help="document ID, share token, URL, or share link (/p?s=token)")
+    psum.add_argument("-t", "--theme", default=None, help="target theme ID, sequence number, or label")
     psum.add_argument("--token", default=None, help="specific share token")
     psum.add_argument("--doc-id", default=None, help="specific document ID")
-    psum.add_argument("--corrupted", action="store_true", help="scan all docs with corrupted ADOC syntax")
+    psum.add_argument("--corrupted", action="store_true", help="scan all documents with corrupted AsciiDoc syntax")
     psum.add_argument("--tables", "--has-tables", action="store_true", dest="tables",
-                      help="automatically scan and target all docs containing tables")
+                      help="automatically scan and target all documents containing tables")
     psum_refetch = psum.add_mutually_exclusive_group()
     psum_refetch.add_argument("--refetch", action="store_true",
-                              help="re-fetch document content with length limit")
+                              help="re-fetch document content with raw_char_budget limit before regenerating")
     psum_refetch.add_argument("--refetch-full", action="store_true",
-                              help="re-fetch full document content without length limit")
-    psum.add_argument("--apply", action="store_true", help="execute LLM regeneration and overwrite DB (default: dry-run)")
+                              help="re-fetch full document content without character limit before regenerating")
+    psum.add_argument("--apply", action="store_true", help="execute LLM regeneration and overwrite database (default: dry-run)")
     psum.add_argument("--force", "-f", action="store_true", help="force overwrite even if summary is already up-to-date")
-    psum.add_argument("--dry-run", action="store_true", help="dry-run inspection without changes (default)")
-    psum.add_argument("--effort", default=None, help="reasoning effort level (low, medium, high)")
+    psum.add_argument("--dry-run", action="store_true", help="simulate inspection without modifying database (default)")
+    psum.add_argument("--effort", default=None, help="LLM reasoning effort level (low, medium, high)")
     psum.add_argument("--json", action="store_true", help="output in JSON format")
     psum.set_defaults(func=cmd_summary_regenerate)
 
-    pfs = sub.add_parser("format-status",
-                         help="check document render format distribution and migration status")
+    pfs = sub.add_parser(
+        "format-status",
+        help="check document render format distribution and migration status",
+        description="Inspect document render format distribution (Markdown vs AsciiDoc) and report migration progress.",
+    )
     pfs.add_argument("--format", choices=["md", "adoc"], default=None,
-                     help="target render format (default: config CLAIRE_RENDER_FORMAT)")
-    pfs.add_argument("--json", action="store_true", help="output in json format")
+                     help="target render format (default: configured CLAIRE_RENDER_FORMAT)")
+    pfs.add_argument("--json", action="store_true", help="output format distribution in JSON format")
     pfs.set_defaults(func=cmd_format_status)
 
     pfm = sub.add_parser(
         "format-migrate",
         help="inspect and selectively migrate document render formats (default: dry-run, requires --apply)",
+        description="Inspect and selectively migrate document detail formats between Markdown and AsciiDoc.",
     )
     pfm.add_argument("--format", choices=["md", "adoc"], default=None,
-                     help="target render format (default: config CLAIRE_RENDER_FORMAT)")
+                     help="target render format (default: configured CLAIRE_RENDER_FORMAT)")
     pfm.add_argument("--apply", action="store_true", help="apply format migration (default: dry-run only)")
-    pfm.add_argument("--dry-run", action="store_true", help="dry-run inspection without changes (default)")
+    pfm.add_argument("--dry-run", action="store_true", help="simulate format migration without database changes (default)")
     pfm.add_argument("--yes", "-y", action="store_true", help="confirm without interactive prompt")
-    pfm.add_argument("--json", action="store_true", help="output in json format")
+    pfm.add_argument("--json", action="store_true", help="output migration summary in JSON format")
     pfm.set_defaults(func=cmd_format_migrate)
 
-    prc = sub.add_parser("recompile-html",
-                         help="recompile detail_html for all documents using latest AOT renderer (zero LLM calls)")
+    prc = sub.add_parser(
+        "recompile-html",
+        help="recompile detail_html for all documents using latest AOT renderer (zero LLM calls)",
+        description="Recompile detail_html for all documents using the latest AOT HTML renderer without making LLM calls.",
+    )
     prc.set_defaults(func=cmd_recompile_html)
 
     pbi = sub.add_parser(
         "backfill-images",
-        help="queue docs missing body images for slow re-fetch (refresh-loop drains)")
-    pbi.add_argument("--limit", type=int, default=0, help="cap number of docs (0=all)")
+        help="queue documents missing body images for background fetching",
+        description="Queue documents missing cached body images into refresh_queue for slow background fetching.",
+    )
+    pbi.add_argument("--limit", type=int, default=0, help="maximum documents to queue (0 = all)")
     pbi.set_defaults(func=cmd_backfill_images)
 
-    pw = sub.add_parser("watch", help="주기 크롤링 watch on/off·주기·목록(수동)")
-    pw.add_argument("target", nargs="?", default=None, help="target document ID, URL, or share URL (or omit with --list)")
+    pw = sub.add_parser(
+        "watch",
+        help="manage periodic re-crawling watch settings for documents",
+        description="Enable, disable, configure intervals, or list documents configured for periodic re-crawling.",
+    )
+    pw.add_argument("target", nargs="?", default=None, help="target document ID, URL, or share link (or omit with --list)")
     pw.add_argument("--doc-id", default=None, help="specific document ID")
-    pw.add_argument("--on", action="store_true", help="watch 켜기")
-    pw.add_argument("--off", action="store_true", help="watch 끄기")
-    pw.add_argument("--interval-days", type=float, default=None, help="재확인 주기(일)")
-    pw.add_argument("--list", action="store_true", help="watch 문서 목록")
+    pw.add_argument("--on", action="store_true", help="enable periodic watch for document")
+    pw.add_argument("--off", action="store_true", help="disable periodic watch for document")
+    pw.add_argument("--interval-days", type=float, default=None, help="re-crawl interval in days")
+    pw.add_argument("--list", action="store_true", help="list all documents currently watched")
     pw.set_defaults(func=cmd_watch)
 
-    pdt = sub.add_parser("doc-title", help="update document title and recompute minhash signature")
-    pdt.add_argument("target", help="target document ID, URL, or share URL")
-    pdt.add_argument("title", help="새 제목")
-    pdt.add_argument("-t", "--theme", default=None, help="target theme ID or label")
+    pdt = sub.add_parser(
+        "doc-title",
+        help="update document title and recompute minhash signature",
+        description="Update document title and recompute its MinHash LSH signature in the database.",
+    )
+    pdt.add_argument("target", help="target document ID, URL, or share link")
+    pdt.add_argument("title", help="new document title")
+    pdt.add_argument("-t", "--theme", default=None, help="target theme ID, sequence number, or label")
     pdt.set_defaults(func=cmd_doc_title)
 
-    pdoc = sub.add_parser("doc", help="manage document flags: pin, hide, seen")
-    pdoc.add_argument("target", help="target document ID, URL, or share URL")
+    pdoc = sub.add_parser(
+        "doc",
+        help="manage document status flags (pin, hide, seen)",
+        description="Manage document status flags: pin/unpin to top, hide/unhide from public listings, or mark seen/unseen.",
+    )
+    pdoc.add_argument("target", help="target document ID, URL, or share link")
     pdoc_pin = pdoc.add_mutually_exclusive_group()
-    pdoc_pin.add_argument("--pin", action="store_true", help="pin document to top")
+    pdoc_pin.add_argument("--pin", action="store_true", help="pin document to top of list")
     pdoc_pin.add_argument("--unpin", action="store_true", help="unpin document")
     pdoc_hide = pdoc.add_mutually_exclusive_group()
     pdoc_hide.add_argument("--hide", action="store_true", help="hide document from public/listing")
@@ -4261,209 +4468,242 @@ def build_parser() -> argparse.ArgumentParser:
     pdoc_seen = pdoc.add_mutually_exclusive_group()
     pdoc_seen.add_argument("--seen", action="store_true", help="mark document as seen/read")
     pdoc_seen.add_argument("--unseen", action="store_true", help="mark document as unseen/unread")
-    pdoc.add_argument("-t", "--theme", default=None, help="target theme ID or label")
+    pdoc.add_argument("-t", "--theme", default=None, help="target theme ID, sequence number, or label")
     pdoc.add_argument("--json", action="store_true", help="output result in JSON format")
     pdoc.set_defaults(func=cmd_doc)
 
-    pshare = sub.add_parser("share", help="create and print external share link/token for a document")
-    pshare.add_argument("target", help="target document ID, URL, or share URL")
-    pshare.add_argument("-t", "--theme", default=None, help="target theme ID or label")
-    pshare.add_argument("--json", action="store_true", help="output result in JSON format")
+    pshare = sub.add_parser(
+        "share",
+        help="generate and print external anonymous share link and token for a document",
+        description="Create and display an anonymous, read-only external share link (/p?s=token) and 16-character token for a document.",
+    )
+    pshare.add_argument("target", help="target document ID, URL, or existing share link")
+    pshare.add_argument("-t", "--theme", default=None, help="target theme ID, sequence number, or label")
+    pshare.add_argument("--json", action="store_true", help="output share token and URL in JSON format")
     pshare.set_defaults(func=cmd_share)
 
-    pauth = sub.add_parser("auth", help="mint one-time Web UI magic login link and session token")
+    pauth = sub.add_parser(
+        "auth",
+        help="mint one-time Web UI magic login link and session token",
+        description="Generate a one-time magic login link and session token for direct WebUI access from the terminal.",
+    )
     pauth.add_argument("--scope", choices=["owner", "collab", "readonly"], default="owner",
                        help="session scope: owner (default), collab (collaborator), readonly")
-    pauth.add_argument("-t", "--theme", default=None, help="target theme ID or label")
-    pauth.add_argument("--json", action="store_true", help="output result in JSON format")
+    pauth.add_argument("-t", "--theme", default=None, help="target theme ID, sequence number, or label")
+    pauth.add_argument("--json", action="store_true", help="output session token and login URL in JSON format")
     pauth.set_defaults(func=cmd_auth)
 
-    pds = sub.add_parser("dedup-scan",
-                         help="report near-duplicate document clusters (MinHash, non-destructive)")
+    pds = sub.add_parser(
+        "dedup-scan",
+        help="detect and report near-duplicate document clusters (MinHash LSH, non-destructive)",
+        description="Detect and report clusters of near-duplicate documents using MinHash LSH without modifying data.",
+    )
     pds.add_argument("--threshold", type=float, default=0.90,
-                     help="Jaccard 추정 임계(0~1, 기본 0.90)")
+                     help="estimated Jaccard similarity threshold between 0.0 and 1.0 (default: 0.90)")
     pds.add_argument("--min-len", type=int, default=500, dest="min_len",
-                     help="이 길이 미만 문서는 비교 제외(false-positive 방지)")
+                     help="minimum document text length for comparison to avoid false positives (default: 500)")
     pds.set_defaults(func=cmd_dedup_scan)
 
-    prc2 = sub.add_parser("recanonicalize",
-                          help="recompute canonical_url with current rules (default: dry-run, requires --apply)")
-    prc2.add_argument("--apply", action="store_true", help="apply canonical_url recalculation (default: dry-run only)")
-    prc2.add_argument("--dry-run", action="store_true", help="dry-run inspection without changes (default)")
-    prc2.add_argument("-t", "--theme", default=None, help="target theme ID or label")
+    prc2 = sub.add_parser(
+        "recanonicalize",
+        help="recompute canonical_url for documents with current rules (default: dry-run, requires --apply)",
+        description="Recalculate canonical_url for existing documents using current normalization and tracking removal rules.",
+    )
+    prc2.add_argument("--apply", action="store_true", help="apply recalculated canonical URLs to database (default: dry-run only)")
+    prc2.add_argument("--dry-run", action="store_true", help="simulate URL recalculation without modifying database (default)")
+    prc2.add_argument("-t", "--theme", default=None, help="target theme ID, sequence number, or label")
     prc2.set_defaults(func=cmd_recanonicalize)
 
-    pdm = sub.add_parser("dedup-merge",
-                         help="merge near-duplicate clusters into one doc each (dry-run unless --apply)")
-    pdm.add_argument("--threshold", type=float, default=0.90)
-    pdm.add_argument("--min-len", type=int, default=500, dest="min_len")
-    pdm.add_argument("--apply", action="store_true", help="apply actual merge and deletion (destructive, default: dry-run)")
-    pdm.add_argument("--dry-run", action="store_true", help="dry-run inspection without changes (default)")
-    pdm.add_argument("--yes", "-y", action="store_true", help="confirm without interactive prompt")
-    pdm.add_argument("-t", "--theme", default=None, help="target theme ID or label")
+    pdm = sub.add_parser(
+        "dedup-merge",
+        help="merge near-duplicate document clusters into single representative documents (default: dry-run, requires --apply)",
+        description="Merge detected near-duplicate clusters into single keeper documents and consolidate knowledge graph edges.",
+    )
+    pdm.add_argument("--threshold", type=float, default=0.90, help="estimated Jaccard similarity threshold (default: 0.90)")
+    pdm.add_argument("--min-len", type=int, default=500, dest="min_len", help="minimum document length for comparison (default: 500)")
+    pdm.add_argument("--apply", action="store_true", help="apply actual cluster merge and deletion (destructive, default: dry-run)")
+    pdm.add_argument("--dry-run", action="store_true", help="simulate cluster merge without modifying database (default)")
+    pdm.add_argument("--yes", "-y", action="store_true", help="confirm merge operation without interactive prompt")
+    pdm.add_argument("-t", "--theme", default=None, help="target theme ID, sequence number, or label")
     pdm.set_defaults(func=cmd_dedup_merge)
 
     ppg = sub.add_parser(
         "purge",
-        help="atomically purge legacy/corrupted documents with tombstones, disk unlink, graph heal & vacuum (default: dry-run, requires --apply)",
+        help="atomically purge legacy/corrupted documents with tombstones, disk unlink, graph healing & vacuum (default: dry-run, requires --apply)",
+        description="Atomically purge documents from database tables, unlink disk files and vault notes, heal graph, and record tombstones.",
     )
-    ppg.add_argument("target", nargs="?", default=None, help="target document ID, URL, share URL (/p?s=...), or search keyword to purge")
-    ppg.add_argument("-t", "--theme", default=None, help="target theme ID or label")
+    ppg.add_argument("target", nargs="?", default=None, help="target document ID, URL, share link (/p?s=token), or search keyword to purge")
+    ppg.add_argument("-t", "--theme", default=None, help="target theme ID, sequence number, or label")
     ppg.add_argument("--doc-id", default=None, help="specific document ID to purge")
     ppg.add_argument("--token", default=None, help="specific share token to identify document")
     ppg.add_argument("--url", default=None, help="specific URL to purge")
     ppg.add_argument("--canonical-url", default=None, help="specific canonical URL to purge")
-    ppg.add_argument("--pattern", default=None, help="search pattern across document id/url/title/text")
-    ppg.add_argument("--reason", default="manual_purge", help="reason recorded in tombstone registry")
+    ppg.add_argument("--pattern", default=None, help="search pattern across document id, url, title, and raw text")
+    ppg.add_argument("--reason", default="manual_purge", help="reason recorded in tombstone registry (default: manual_purge)")
     ppg.add_argument(
         "--no-tombstone",
         action="store_true",
         help="skip registering document fingerprints into purged_tombstones (allows future re-ingestion)",
     )
-    ppg.add_argument("--apply", action="store_true", help="apply actual purge, tombstone creation, and disk compaction (default: dry-run only)")
-    ppg.add_argument("--dry-run", action="store_true", help="dry-run inspection without changes (default)")
-    ppg.add_argument("--yes", "-y", action="store_true", help="confirm without interactive prompt")
-    ppg.add_argument("--json", action="store_true", help="output result in JSON format")
+    ppg.add_argument("--apply", action="store_true", help="execute actual purge, tombstone creation, and disk compaction (default: dry-run only)")
+    ppg.add_argument("--dry-run", action="store_true", help="simulate purge inspection without modifying database (default)")
+    ppg.add_argument("--yes", "-y", action="store_true", help="confirm purge operation without interactive prompt")
+    ppg.add_argument("--json", action="store_true", help="output purge report in JSON format")
     ppg.set_defaults(func=cmd_purge)
 
     pau = sub.add_parser(
         "audit",
         help="comprehensive system audit: inspect knowledge graph integrity, residuals, and tombstones (auto-heal with --heal)",
+        description="Comprehensive audit of knowledge graph integrity, residual database records, disk files, and tombstones.",
     )
-    pau.add_argument("target", nargs="?", default=None, help="search keyword, URL, or ID to audit")
-    pau.add_argument("--pattern", default=None, help="search pattern across DB and disk files")
+    pau.add_argument("target", nargs="?", default=None, help="search keyword, URL, share token, or ID to audit")
+    pau.add_argument("--pattern", default=None, help="search pattern across database tables and disk files")
     pau.add_argument(
         "--check",
         choices=["all", "graph", "residuals", "integrity", "tombstone"],
         default="all",
-        help="scope of audit: all (full system), graph (knowledge graph integrity), residuals (tombstones and disk storage)",
+        help="scope of audit: all (full system), graph (knowledge graph integrity), residuals (tombstones and disk storage), integrity, tombstone (default: all)",
     )
-    pau.add_argument("--heal", "--apply", action="store_true", dest="heal", help="auto-heal detected issues (e.g. orphan relations, ghost entities)")
-    pau.add_argument("-t", "--theme", default=None, help="target theme ID or label")
-    pau.add_argument("--json", action="store_true", help="output result in JSON format")
+    pau.add_argument("--heal", "--apply", action="store_true", dest="heal", help="auto-heal detected issues (orphan relations, ghost entities, FTS desync)")
+    pau.add_argument("-t", "--theme", default=None, help="target theme ID, sequence number, or label")
+    pau.add_argument("--json", action="store_true", help="output audit report in JSON format")
     pau.set_defaults(func=cmd_audit)
 
     pam = sub.add_parser(
         "artifact-migrate",
         help="migrate legacy gzip (.txt.gz) artifacts to zstandard (.txt.zst) (default: dry-run, requires --apply)",
+        description="Migrate legacy gzip-compressed raw artifacts (.txt.gz) to zstandard (.txt.zst) across data directories.",
     )
     pam.add_argument("--apply", action="store_true", help="apply actual migration from gzip to zstandard (default: dry-run)")
-    pam.add_argument("--dry-run", action="store_true", help="dry-run inspection without changes (default)")
-    pam.add_argument("--level", type=int, default=3, help="zstandard compression level (1-22, default: 3)")
-    pam.add_argument("--stop-on-error", action="store_true", help="stop immediately if an error occurs during migration")
-    pam.add_argument("--json", action="store_true", help="output result in JSON format")
+    pam.add_argument("--dry-run", action="store_true", help="simulate artifact migration without modifying disk files (default)")
+    pam.add_argument("--level", type=int, default=3, help="zstandard compression level from 1 to 22 (default: 3)")
+    pam.add_argument("--stop-on-error", action="store_true", help="stop migration immediately if an error occurs during migration")
+    pam.add_argument("--json", action="store_true", help="output migration summary in JSON format")
     pam.set_defaults(func=cmd_artifact_migrate)
 
-    pq = sub.add_parser("queue", help="inspect asynchronous queues (inbox, refresh, expand)")
-    pq.add_argument("action", nargs="?", default="status", choices=["status", "list"], help="status or list")
+    pq = sub.add_parser(
+        "queue",
+        help="inspect asynchronous processing queues (inbox, refresh, expand)",
+        description="Inspect status, distributions, and pending/error items across raw_inbox, refresh_queue, and expand_queue.",
+    )
+    pq.add_argument("action", nargs="?", default="status", choices=["status", "list"], help="queue action: status or list (default: status)")
     pq.add_argument("queue_name", nargs="?", choices=["inbox", "refresh", "expand"],
-                    help="queue for `list` (inbox, refresh, or expand)")
+                    help="specific queue to inspect: inbox, refresh, or expand")
     pq.add_argument("--name", choices=["inbox", "refresh", "expand"], default=None,
                     help="deprecated alias for the positional queue name")
-    pq.add_argument("--limit", type=int, default=20, help="limit items shown (default 20)")
-    pq.add_argument("--json", action="store_true", help="output in json format")
+    pq.add_argument("--limit", type=int, default=20, help="limit items shown (default: 20)")
+    pq.add_argument("--json", action="store_true", help="output queue metrics in JSON format")
     pq.set_defaults(func=cmd_queue)
 
     pts = sub.add_parser(
         "truncation-status",
         aliases=["truncation-scan"],
         help="inspect raw text truncation status and missing metadata across documents",
+        description="Inspect documents for 20k character slicing and missing raw_truncated metadata.",
     )
-    pts.add_argument("target", nargs="?", default=None, help="target document ID, URL, or share URL")
+    pts.add_argument("target", nargs="?", default=None, help="target document ID, URL, or share link")
     pts.add_argument("--doc-id", default=None, help="specific document ID")
-    pts.add_argument("--json", action="store_true", help="output in json format")
+    pts.add_argument("--json", action="store_true", help="output truncation diagnosis in JSON format")
     pts.set_defaults(func=cmd_truncation_status)
 
     ptb = sub.add_parser(
         "truncation-backfill",
         aliases=["backfill-truncation"],
         help="backfill raw_truncated metadata for historical sliced documents (default: dry-run, requires --apply)",
+        description="Backfill raw_truncated metadata flags for historical sliced documents into documents.meta.",
     )
-    ptb.add_argument("target", nargs="?", default=None, help="target document ID, URL, or share URL")
+    ptb.add_argument("target", nargs="?", default=None, help="target document ID, URL, or share link")
     ptb.add_argument("--doc-id", default=None, help="specific document ID")
-    ptb.add_argument("--apply", action="store_true", help="apply actual metadata backfill to documents.meta (default: dry-run only)")
-    ptb.add_argument("--dry-run", action="store_true", help="dry-run inspection without changes (default)")
+    ptb.add_argument("--apply", action="store_true", help="apply metadata backfill to documents.meta (default: dry-run only)")
+    ptb.add_argument("--dry-run", action="store_true", help="simulate backfill without modifying database (default)")
     ptb.add_argument("--force", action="store_true", help="force re-evaluation for all documents even if already marked")
-    ptb.add_argument("--mark-refresh", action="store_true", help="queue truncated documents into refresh queue for re-fetching full text")
-    ptb.add_argument("--yes", "-y", action="store_true", help="confirm without interactive prompt")
-    ptb.add_argument("--json", action="store_true", help="output result in JSON format")
+    ptb.add_argument("--mark-refresh", action="store_true", help="queue detected truncated documents into refresh_queue for re-fetching full text")
+    ptb.add_argument("--yes", "-y", action="store_true", help="confirm backfill without interactive prompt")
+    ptb.add_argument("--json", action="store_true", help="output backfill summary in JSON format")
     ptb.set_defaults(func=cmd_truncation_backfill)
 
     pscan = sub.add_parser(
         "stt-scan",
         aliases=["scan-stt"],
         help="scan and diagnose STT documents, truncation status, and detail writing state",
+        description="Scan audio/video documents to diagnose speech-to-text (STT) status, transcript length, and detail generation.",
     )
-    pscan.add_argument("target", nargs="?", default=None, help="target document ID, URL, or share URL")
+    pscan.add_argument("target", nargs="?", default=None, help="target document ID, URL, or share link")
     pscan.add_argument("--doc-id", default=None, help="specific document ID")
-    pscan.add_argument("--json", action="store_true", help="output result in JSON format")
+    pscan.add_argument("--json", action="store_true", help="output STT diagnosis in JSON format")
     pscan.set_defaults(func=cmd_stt_scan)
 
     pstt = sub.add_parser(
         "stt-backfill",
         aliases=["backfill-stt"],
-        help="backfill is_stt metadata and STT tag for historical STT documents (default: dry-run, requires --apply)",
+        help="backfill is_stt metadata and STT tag for historical audio/video documents (default: dry-run, requires --apply)",
+        description="Backfill is_stt metadata and 'stt' tag for historical audio/video documents missing STT markers.",
     )
-    pstt.add_argument("target", nargs="?", default=None, help="target document ID, URL, or share URL")
+    pstt.add_argument("target", nargs="?", default=None, help="target document ID, URL, or share link")
     pstt.add_argument("--doc-id", default=None, help="specific document ID")
-    pstt.add_argument("--apply", action="store_true", help="apply actual metadata backfill to documents.meta (default: dry-run only)")
-    pstt.add_argument("--dry-run", action="store_true", help="dry-run inspection without changes (default)")
+    pstt.add_argument("--apply", action="store_true", help="apply STT metadata backfill to documents.meta (default: dry-run only)")
+    pstt.add_argument("--dry-run", action="store_true", help="simulate STT backfill without modifying database (default)")
     pstt.add_argument("--force", action="store_true", help="force re-evaluation for all STT documents even if already marked")
-    pstt.add_argument("--json", action="store_true", help="output result in JSON format")
+    pstt.add_argument("--json", action="store_true", help="output backfill summary in JSON format")
     pstt.set_defaults(func=cmd_stt_backfill)
 
     pvr = sub.add_parser(
         "video-reprocess",
         aliases=["reprocess-video"],
-        help="re-fetch publisher CC or fall back to STT, then refresh the video document",
+        help="re-fetch publisher CC captions or fall back to STT, then refresh video document",
+        description="Re-fetch publisher closed captions (CC) or fall back to STT audio transcription, then refresh the video document.",
     )
-    pvr.add_argument("target", nargs="?", default=None, help="document ID or video URL to reprocess")
+    pvr.add_argument("target", nargs="?", default=None, help="target video document ID, video URL, or share link")
     pvr.add_argument("--doc-id", default=None, help="specific document ID (e.g. doc_b19da8da2980)")
-    pvr.add_argument("--apply", action="store_true", help="execute actual reprocessing (default: dry-run)")
-    pvr.add_argument("--force", "-f", action="store_true", help="force overwrite even if transcript exists")
-    pvr.add_argument("--effort", default=None, help="reasoning effort level (low, medium, high)")
-    pvr.add_argument("--format", choices=["md", "adoc"], default=None, help="detail format")
+    pvr.add_argument("--apply", action="store_true", help="execute actual video reprocessing and database update (default: dry-run)")
+    pvr.add_argument("--force", "-f", action="store_true", help="force overwrite even if transcript already exists")
+    pvr.add_argument("--effort", default=None, help="LLM reasoning effort level (low, medium, high)")
+    pvr.add_argument("--format", choices=["md", "adoc"], default=None, help="detail render format (md or adoc)")
     pvr.add_argument("--json", action="store_true", help="output result in JSON format")
     pvr.set_defaults(func=cmd_video_reprocess)
 
     phoyo = sub.add_parser(
         "hoyowiki",
-        help="crawl and collect entries from wiki.hoyolab.com (Genshin, HSR, ZZZ, Honkai3rd)",
+        help="crawl and collect entries from wiki.hoyolab.com (Genshin, HSR, ZZZ, Honkai3rd, ToT)",
+        description="Crawl and collect structured game entries from HoYoWiki (wiki.hoyolab.com) with optional direct ingestion.",
     )
-    phoyo.add_argument("-g", "--game", default="genshin", choices=["genshin", "hsr", "zzz", "honkai3rd", "tot", "all"], help="game code (default: genshin)")
-    phoyo.add_argument("-m", "--menu", default=None, help="menu category name or ID (e.g. 캐릭터, 2, 장비 도감)")
+    phoyo.add_argument("-g", "--game", default="genshin", choices=["genshin", "hsr", "zzz", "honkai3rd", "tot", "all"], help="game identifier: genshin, hsr, zzz, honkai3rd, tot, all (default: genshin)")
+    phoyo.add_argument("-m", "--menu", default=None, help="menu category name or numeric ID (e.g. 캐릭터, 2, 장비 도감)")
     phoyo.add_argument("-s", "--search", default=None, help="search entries by keyword")
-    phoyo.add_argument("-e", "--entry-id", default=None, help="specific entry page ID")
+    phoyo.add_argument("-e", "--entry-id", default=None, help="specific entry page ID to fetch")
     phoyo.add_argument("-u", "--url", default=None, help="specific HoYoWiki URL to fetch")
     phoyo.add_argument("-l", "--limit", type=int, default=None, help="maximum entries to collect")
-    phoyo.add_argument("-d", "--delay", type=float, default=0.5, help="delay in seconds between requests (default: 0.5)")
-    phoyo.add_argument("--lang", default="ko-kr", help="language code (default: ko-kr, options: en-us, ja-jp, zh-cn)")
-    phoyo.add_argument("--list-menus", action="store_true", help="list available menus and categories for the game")
-    phoyo.add_argument("--ingest", action="store_true", help="directly ingest crawled entries into Claire Bible database and vault")
-    phoyo.add_argument("-o", "--output-dir", default=None, help="directory to save markdown documents")
-    phoyo.add_argument("--json", action="store_true", help="output result in JSON format")
+    phoyo.add_argument("-d", "--delay", type=float, default=0.5, help="delay in seconds between HTTP requests (default: 0.5)")
+    phoyo.add_argument("--lang", default="ko-kr", help="language code: ko-kr, en-us, ja-jp, zh-cn (default: ko-kr)")
+    phoyo.add_argument("--list-menus", action="store_true", help="list available menus and categories for the selected game")
+    phoyo.add_argument("--ingest", action="store_true", help="directly ingest crawled entries into Claire Bible knowledge base and vault")
+    phoyo.add_argument("-o", "--output-dir", default=None, help="directory to save generated markdown documents")
+    phoyo.add_argument("--json", action="store_true", help="output results in JSON format")
     phoyo.set_defaults(func=cmd_hoyowiki)
 
     preembed = sub.add_parser(
         "re-embed",
         help="re-compute embeddings for all entities using current model and ontology frame",
+        description="Re-compute vector embeddings for all entities using current embedding model and format_entity_frame.",
     )
-    preembed.add_argument("--limit", type=int, default=0, help="limit number of entities to re-embed")
-    preembed.add_argument("--dry-run", action="store_true", help="simulate re-embedding without writing to db")
+    preembed.add_argument("--limit", type=int, default=0, help="limit number of entities to re-embed (0 = all)")
+    preembed.add_argument("--dry-run", action="store_true", help="simulate re-embedding without writing to database")
     preembed.set_defaults(func=cmd_reembed)
 
     plink = sub.add_parser(
         "link-relations",
-        help="discover and link cross-document relationships across existing knowledge base",
+        help="discover and link cross-document relationships across knowledge base via vector similarity",
+        description="Discover and link cross-document relationships across knowledge base entities using vector similarity and LLM judge.",
     )
-    plink.add_argument("--limit", type=int, default=50, help="limit number of candidate pairs to judge (default: 50)")
-    plink.add_argument("--min-score", type=float, default=None, help="minimum cosine similarity threshold (default: sim_tier_relational 0.70)")
-    plink.add_argument("--dry-run", action="store_true", help="simulate relation judging without writing to db")
+    plink.add_argument("--limit", type=int, default=50, help="limit number of candidate entity pairs to evaluate (default: 50)")
+    plink.add_argument("--min-score", type=float, default=None, help="minimum cosine similarity threshold (default: config CLAIRE_SIM_TIER_RELATIONAL 0.70)")
+    plink.add_argument("--dry-run", action="store_true", help="simulate relation judging without writing to database")
     plink.set_defaults(func=cmd_link_relations)
 
     pent = sub.add_parser(
         "entity",
-        help="manage knowledge nodes (entities): select primary label from existing aliases or batch apply",
+        help="manage knowledge graph entity primary representative labels and aliases",
+        description="Manage primary representative labels and aliases for knowledge graph entities.",
     )
     pent_sub = pent.add_subparsers(dest="entity_cmd", required=True)
 
@@ -4471,24 +4711,26 @@ def build_parser() -> argparse.ArgumentParser:
         "select-label",
         aliases=["promote"],
         help="select one of the entity's existing aliases as its primary representative label",
+        description="Promote an existing entity alias to its primary representative label, updating the database and vault.",
     )
     pes.add_argument("target", help="target entity ID, exact name, or alias")
     pes.add_argument("--to", "--label", "-l", required=True, dest="to", help="existing alias to promote to primary representative label")
-    pes.add_argument("--apply", action="store_true", help="apply label swap (default: dry-run)")
-    pes.add_argument("--dry-run", action="store_true", help="simulate without writing to db (default)")
-    pes.add_argument("-t", "--theme", default=None, help="target theme ID or label")
+    pes.add_argument("--apply", action="store_true", help="apply label swap to database and vault (default: dry-run)")
+    pes.add_argument("--dry-run", action="store_true", help="simulate label swap without modifying database (default)")
+    pes.add_argument("-t", "--theme", default=None, help="target theme ID, sequence number, or label")
     pes.add_argument("--json", action="store_true", help="output result in JSON format")
     pes.set_defaults(func=cmd_entity_select_label)
 
     peb = pent_sub.add_parser(
         "batch-labels",
         aliases=["batch"],
-        help="batch select primary representative labels from existing aliases using a rules file",
+        help="batch select primary representative labels from aliases using a JSON rules file",
+        description="Batch promote entity aliases to primary representative labels using a JSON mapping rules file.",
     )
     peb.add_argument("--rules", "-r", required=True, help="path to JSON rules file with {target: chosen_alias} mappings")
-    peb.add_argument("--apply", action="store_true", help="apply batch label swaps (default: dry-run)")
-    peb.add_argument("--dry-run", action="store_true", help="simulate without writing to db (default)")
-    peb.add_argument("-t", "--theme", default=None, help="target theme ID or label")
+    peb.add_argument("--apply", action="store_true", help="apply batch label swaps to database and vault (default: dry-run)")
+    peb.add_argument("--dry-run", action="store_true", help="simulate batch label swaps without modifying database (default)")
+    peb.add_argument("-t", "--theme", default=None, help="target theme ID, sequence number, or label")
     peb.add_argument("--json", action="store_true", help="output result in JSON format")
     peb.set_defaults(func=cmd_entity_batch_labels)
 
