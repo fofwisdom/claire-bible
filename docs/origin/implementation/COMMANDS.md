@@ -24,6 +24,12 @@
    * [3.8 데이터 수명주기 및 오염 소각 (Lifecycle & Purge)](#38-데이터-수명주기-및-오염-소각-lifecycle--purge)
    * [3.9 관측성 및 문제 해결 (Observability, Telemetry & Support Bundle)](#39-관측성-및-문제-해결-observability-telemetry--support-bundle)
    * [3.10 지식 테마 관리 및 다중 DB 격리 (Theme Management)](#310-지식-테마-관리-및-다중-db-격리-theme-management)
+   * [3.11 프레젠테이션 관리 및 렌더링 (`presentation`)](#311-프레젠테이션-관리-및-렌더링-presentation)
+   * [3.12 LLM 프로바이더 관리 (`providers`)](#312-llm-프로바이더-관리-providers)
+   * [3.13 HoYoWiki 스크래퍼 및 지식 수집 (`hoyowiki`)](#313-hoyowiki-스크래퍼-및-지식-수집-hoyowiki)
+   * [3.14 음성 전사(STT) 진단 및 메타데이터 백필 (`stt-scan`, `stt-backfill`)](#314-음성-전사stt-진단-및-메타데이터-백필-stt-scan-stt-backfill)
+   * [3.15 원문 아티팩트 압축 포맷 마이그레이션 (`artifact-migrate`)](#315-원문-아티팩트-압축-포맷-마이그레이션-artifact-migrate)
+   * [3.16 지식그래프 엔티티 대표 레이블 관리 (`entity`)](#316-지식그래프-엔티티-대표-레이블-관리-entity)
 4. [미구현(Unimplemented) / 부분 구현 옵션 및 상태 명세](#4-미구현unimplemented--부분-구현-옵션-및-상태-명세)
 5. [참고문헌](#5-참고문헌)
 
@@ -213,6 +219,7 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 ### 3.4 재생성, 백필, 포맷 마이그레이션 및 복구
 
 | 명령 | 사용법 | 설명 |
+| :--- | :--- | :--- |
 | `reprocess` | `claire reprocess [<target>] [-c {all,summary,detail,graph,format}] [-s {all,missing,corrupted,tables}] [--apply] [--json]` | **[통합 재처리]** 요약, 상세, 그래프, 포맷 등 파생 데이터 일괄 갱신 엔진 |
 | `regenerate` | `claire regenerate [<target>] [--tables] [--summary] [--detail] [--all] [--apply] [--force] [--effort <level>] [--focus <focus>]` | 특정 문서 또는 표(Table) 포함 문서 컴포넌트(요약/상세/그래프) 선택적 LLM 재생성 (기본: dry-run, 실행: `--apply`) |
 | `summary-regenerate`| `claire summary-regenerate [<target>] [--tables] [--apply] [--force] [--effort <level>]` | `reprocess -c summary`의 단축 Alias |
@@ -220,6 +227,9 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 | `format-status` | `claire format-status` | 문서 detail의 포맷별(md, adoc, 누락) 통계 출력 |
 | `truncation-status` | `claire truncation-status [<target>] [--json]` | 원문 절단(20k 슬라이싱) 및 메타데이터 누락 문서 진단 리포트 (단축: `truncation-scan`) |
 | `truncation-backfill` | `claire truncation-backfill [<target>] [--apply] [--mark-refresh] [--force] [--yes] [--json]` | 메타데이터 누락 절단 문서에 `raw_truncated` 소급 기록 (기본: dry-run, 실행: `--apply`, 단축: `backfill-truncation`) |
+| `stt-scan` | `claire stt-scan [<target>] [--doc-id <ID>] [--json]` | 오디오/비디오 문서 음성 전사(STT) 상태, 절단 여부 및 detail 작성 상태 정밀 진단 (단축: `scan-stt`) |
+| `stt-backfill` | `claire stt-backfill [<target>] [--doc-id <ID>] [--apply] [--dry-run] [--force] [--json]` | 과거 음성/영상 문서의 `is_stt` 메타데이터 및 `stt` 태그 소급 적용 (기본: dry-run, 실행: `--apply`, 단축: `backfill-stt`) |
+| `artifact-migrate` | `claire artifact-migrate [--level N] [--stop-on-error] [--apply] [--dry-run] [--json]` | 구형 gzip(`.txt.gz`) 원문 아티팩트를 zstandard(`.txt.zst`)로 무손실 일괄 변환 (기본: dry-run, 실행: `--apply`) |
 | `backfill-detail` | `claire backfill-detail [--tables] [--format {md,adoc}] [--limit N] [--force] [--focus <focus>]` | 상세(detail) 렌더링이 누락되었거나 표가 포함된 문서 일괄 생성 (`reprocess -c detail -s missing`의 별칭) |
 | `backfill-summary` | `claire backfill-summary [--limit N]` | 요약이 누락된 기존 문서의 요약 일괄 생성 (`reprocess -c summary -s missing`의 별칭) |
 | `backfill-images` | `claire backfill-images [--limit N]` | 문서 내 참조된 이미지 에셋 추출 및 다운로드 백필 |
@@ -539,6 +549,163 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 * **안전 보호 장치 (Safety Guard)**:
   * **기본 테마 `0` 삭제 불가**: 테마 `0`은 시스템의 루트 지식베이스이므로 삭제 시도 시 즉시 거부되고 오류 코드 1을 반환한다.
   * 비정상 접근 및 오염 방지를 위해 `--purge` 누락 시에는 레지스트리에서만 비활성화/제거되고 물리적 파일은 디스크에 보존된다.
+
+---
+
+### 3.11 프레젠테이션 관리 및 렌더링 (`presentation`)
+
+`claire presentation` 명령군은 Asciidoctor reveal.js 기반의 HTML 슬라이드 쇼 프레젠테이션을 LLM으로 자동 저작(compose)하고, 컴파일(compile)하며, 진단 및 상태를 관리하는 엔진이다.
+
+| 명령 | 사용법 | 설명 |
+| :--- | :--- | :--- |
+| `presentation compose` | `claire presentation compose <target> [--focus <F>] [--slide-budget <N>] [--theme <T>] [--transition <TR>] [--no-compile] [--force] [--json]` | 문서 본문(detail)으로부터 AsciiDoc reveal.js 프레젠테이션 원고 저작 및 자동 컴파일 |
+| `presentation compile` | `claire presentation compile <target> [--theme <T>] [--transition <TR>] [--force] [--json]` | 이미 저작된 AsciiDoc 프레젠테이션 원고를 reveal.js HTML 슬라이드로 컴파일 |
+| `presentation show-adoc` | `claire presentation show-adoc <target> [--json]` | 특정 문서에 저작된 프레젠테이션 AsciiDoc 소스 코드 조회 (단축: `view-adoc`) |
+| `presentation generate` | `claire presentation generate <target> [--all] [--limit <N>] [--theme <T>] [--transition <TR>] [--force] [--focus <F>] [--slide-budget <N>] [--json]` | 단건 또는 전체 문서에 대해 저작과 컴파일을 일괄 수행 (단축: `render`) |
+| `presentation status` | `claire presentation status <target> [--json]` | 문서 프레젠테이션 생성 여부, 장표 수, 파일 크기, 컴파일 시간, 뷰어 URL 조회 |
+| `presentation recompile` | `claire presentation recompile [--theme <T>] [--transition <TR>] [--json]` | 기존에 저작된 모든 프레젠테이션을 새 스타일/테마로 강제 일괄 재컴파일 |
+| `presentation doctor` | `claire presentation doctor [--json]` | 호스트 환경의 Asciidoctor reveal.js 컴파일러 실행 파일 및 가용성 진단 |
+
+* **지원 테마 (`--theme`)**: `sky`, `beige`, `simple`, `serif`, `solarized`, `blood`, `moon`, `night` (기본값), `league`, `black`, `white`.
+* **지원 슬라이드 전환 효과 (`--transition`)**: `none`, `fade`, `slide` (기본값), `convex`, `concave`, `zoom`.
+
+---
+
+### 3.12 LLM 프로바이더 관리 (`providers`)
+
+`claire providers` 명령군은 WebUI 및 CLI에서 일관되게 관리되는 `data/providers.json` 레지스트리를 검사하고 환경변수로부터의 마이그레이션과 API 연결 테스트를 수행한다.
+
+| 명령 | 사용법 | 설명 |
+| :--- | :--- | :--- |
+| `providers list` | `claire providers list` | 등록된 프로바이더 목록, 활성 프로바이더, 유효 STT 프로바이더 및 설정값 조회 (기본 동작) |
+| `providers migrate` | `claire providers migrate` | `.env`의 레거시 프로바이더 환경변수를 `data/providers.json`으로 마이그레이션하고 `.env` 항목 주석 처리 |
+| `providers test` | `claire providers test [<provider>]` | 지정 프로바이더(또는 기본 활성 프로바이더)의 API 엔드포인트 연결 및 핑 진단 |
+
+---
+
+### 3.13 HoYoWiki 스크래퍼 및 지식 수집 (`hoyowiki`)
+
+`claire hoyowiki`는 HoYoLAB 공식 게임 백과사전(wiki.hoyolab.com)의 정형 데이터와 상세 설명문을 크롤링하고 수집하는 전용 도구이다.
+* **지원 대상 게임 (`--game`, `-g`)**: `genshin` (원신, 기본값), `hsr` (붕괴: 스타레일), `zzz` (젠레스 존 제로), `honkai3rd` (붕괴3rd), `tot` (미결사건부), `all` (전체).
+* **지원 언어 (`--lang`)**: `ko-kr` (기본값), `en-us`, `ja-jp`, `zh-cn`.
+
+* **주요 사용법**:
+  ```bash
+  claire hoyowiki --list-menus -g genshin              # 원신 카테고리/메뉴 트리 및 ID 조회
+  claire hoyowiki --search "라이덴" -g genshin          # 키워드로 항목 검색
+  claire hoyowiki -e 1234 -g genshin                   # 특정 entry_id 단건 수집
+  claire hoyowiki -u "https://wiki.hoyolab.com/..."    # URL 기반 단건 수집
+  claire hoyowiki -u "https://..." --ingest            # 수집 즉시 지식베이스에 직접 적재
+  claire hoyowiki -g genshin -m "캐릭터" --limit 20 -o ./wiki_data # 카테고리 일괄 수집 및 마크다운 저장
+  ```
+* **주요 옵션**:
+  * `-g, --game`: 대상 게임 지정 (`genshin`, `hsr`, `zzz`, `honkai3rd`, `tot`, `all`).
+  * `-m, --menu`: 메뉴 카테고리 명칭 또는 숫자 ID (예: `캐릭터`, `장비 도감`).
+  * `-s, --search`: 항목명 검색 키워드.
+  * `-e, --entry-id`: 특정 엔트리 페이지 ID.
+  * `-u, --url`: 특정 HoYoWiki 페이지 URL.
+  * `-l, --limit`: 수집할 최대 엔트리 수.
+  * `-d, --delay`: 요청 간 지연 시간(초, 기본값: 0.5초).
+  * `--lang`: 문서 언어 코드 (`ko-kr`, `en-us`, `ja-jp`, `zh-cn`).
+  * `--list-menus`: 선택한 게임의 사용 가능한 메뉴 트리 출력.
+  * `--ingest`: 수집된 엔트리를 Claire Bible 정본 지식베이스와 Vault로 즉시 적재.
+  * `-o, --output-dir`: 수집된 결과를 마크다운 파일로 저장할 출력 디렉터리 경로.
+  * `--json`: 결과를 JSON 포맷으로 출력.
+
+---
+
+### 3.14 음성 전사(STT) 진단 및 메타데이터 백필 (`stt-scan`, `stt-backfill`)
+
+오디오 및 비디오 미디어 문서의 STT(Speech-to-Text) 전사 상태를 점검하고, 누락된 메타데이터를 소급 적용한다.
+
+#### `stt-scan` (단축: `scan-stt`)
+데이터베이스 내 음성/비디오 문서들의 음성 전사 완료 여부, 전사 텍스트 길이, 절단 상태, detail 작성 여부를 정밀 스캔한다.
+* **사용법**:
+  ```bash
+  claire stt-scan                  # 전체 미디어 문서 STT 진단 리포트
+  claire stt-scan <target>         # 특정 문서 단건 STT 상태 진단
+  claire stt-scan --json           # 진단 리포트 JSON 출력
+  ```
+
+#### `stt-backfill` (단축: `backfill-stt`)
+과거에 전사되었으나 `is_stt` 메타데이터 또는 `stt` 태그가 누락된 역사적 문서의 `documents.meta`에 플래그를 소급 기록한다.
+* **사용법**:
+  ```bash
+  claire stt-backfill              # 백필 대상 스캔 (기본: Dry-run)
+  claire stt-backfill --apply      # 실제 DB 메타데이터 소급 갱신
+  claire stt-backfill --apply -f   # 이미 마킹된 문서를 포함하여 전체 강제 재평가
+  ```
+* **옵션**:
+  * `target`, `--doc-id`: 대상 문서 지정.
+  * `--apply`: 실제 DB `documents.meta` 소급 적용 (미지정 시 기본 dry-run).
+  * `--dry-run`: 대상 문서 통계만 출력하고 DB 변경 없음 (기본값).
+  * `--force`: 기존에 이미 `is_stt`가 기록된 문서까지 강제로 재평가.
+  * `--json`: 결과를 JSON 포맷으로 출력.
+
+---
+
+### 3.15 원문 아티팩트 압축 포맷 마이그레이션 (`artifact-migrate`)
+
+`data/raw/artifacts/` 디렉터리에 보관된 레거시 gzip(`.txt.gz`) 원문 아티팩트를 성능과 압축률이 우수한 zstandard(`.txt.zst`) 포맷으로 무손실 일괄 변환한다.
+* **사용법**:
+  ```bash
+  claire artifact-migrate          # 변환 대상 gzip 아티팩트 스캔 (기본: Dry-run)
+  claire artifact-migrate --apply  # 실제 zstd 변환 실행 및 기존 gzip 정리
+  claire artifact-migrate --apply --level 5 # zstd 압축 레벨 지정
+  ```
+* **옵션**:
+  * `--apply`: 실제 zstandard 압축 및 기존 gzip 파일 삭제 적용 (미지정 시 기본 dry-run).
+  * `--dry-run`: 변환 계획과 대상 파일 목록만 출력 (기본값).
+  * `--level <1-22>`: zstandard 압축 레벨 (기본값: 3).
+  * `--stop-on-error`: 변환 중 단 한 건이라도 오류 발생 시 즉시 중단.
+  * `--json`: 마이그레이션 결과를 JSON 포맷으로 출력.
+
+---
+
+### 3.16 지식그래프 엔티티 대표 레이블 관리 (`entity`)
+
+지식그래프 내 엔티티의 여러 별칭(Aliases) 중 가장 적절한 표준 명칭을 대표 이름(Primary Label / `name`)으로 승격·전환하는 명령군이다. DB의 엔티티 테이블뿐만 아니라 Obsidian Vault 파일명 및 본문 링크도 안전하게 동기화한다.
+
+| 명령 | 사용법 | 설명 |
+| :--- | :--- | :--- |
+| `entity select-label` | `claire entity select-label <target> --to <alias> [--apply] [--dry-run] [-t <theme>] [--json]` | 특정 엔티티의 기존 별칭 중 하나를 대표 레이블로 전환 (단축: `promote`) |
+| `entity batch-labels` | `claire entity batch-labels --rules <file.json> [--apply] [--dry-run] [-t <theme>] [--json]` | JSON 매핑 규칙 파일 기반 다수 엔티티 대표 레이블 일괄 전환 (단축: `batch`) |
+
+#### `entity select-label` (단축: `promote`)
+* **사용법**:
+  ```bash
+  claire entity select-label "클레어" --to "Claire"          # Dry-run 미리보기 (기본)
+  claire entity select-label "클레어" --to "Claire" --apply  # 실제 DB 및 Vault 대표 레이블 전환
+  ```
+* **옵션**:
+  * `target`: 대상 엔티티 ID, 정확한 명칭, 또는 기존 별칭.
+  * `--to, --label, -l` *(필수)*: 새 대표 레이블로 승격할 기존 별칭 (엔티티의 `aliases` 배열에 반드시 존재해야 함).
+  * `--apply`: 실제 DB 및 Vault 갱신 적용 (미지정 시 기본 dry-run).
+  * `--dry-run`: 변경 미리보기만 출력 (기본값).
+  * `-t, --theme`: 대상 테마 ID, 일련번호 또는 레이블.
+  * `--json`: 결과를 JSON 포맷으로 출력.
+
+#### `entity batch-labels` (단축: `batch`)
+* **사용법**:
+  ```bash
+  claire entity batch-labels --rules rules.json          # Dry-run 미리보기 (기본)
+  claire entity batch-labels --rules rules.json --apply  # 일괄 전환 적용
+  ```
+* **규칙 파일 포맷 (`rules.json`)**:
+  ```json
+  {
+    "mappings": {
+      "Google Antigravity": "Antigravity",
+      "ent_8f92a10c": "Claire Bible"
+    }
+  }
+  ```
+* **옵션**:
+  * `--rules, -r` *(필수)*: `{target: chosen_alias}` 매핑을 담은 JSON 파일 경로.
+  * `--apply`: 실제 일괄 전환 실행.
+  * `--dry-run`: 전환 계획만 출력 (기본값).
+  * `-t, --theme`: 대상 테마 지정.
+  * `--json`: 결과를 JSON 포맷으로 출력.
 
 ---
 
