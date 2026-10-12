@@ -1518,6 +1518,29 @@ def test_app_regenerate_dispatches_to_claire_in_container(tmp_path):
     ]
 
 
+def test_app_doc_regenerate_dispatches_to_claire_in_container(tmp_path):
+    _write_layout(tmp_path, dev=False)
+    with patch.object(cb.subprocess, "run", side_effect=_fake_success) as run:
+        code = cb.main(
+            ["app", "doc-regenerate", "--doc-id", "doc_744b2a294efc", "--component", "detail", "--apply"],
+            root=tmp_path,
+        )
+        assert code == 0
+
+    commands = _commands(run)
+    assert len(commands) == 1
+    cmd = commands[0]
+    assert cmd[-7:] == [
+        "claire",
+        "doc-regenerate",
+        "--doc-id",
+        "doc_744b2a294efc",
+        "--component",
+        "detail",
+        "--apply",
+    ]
+
+
 def test_clean_removes_legacy_stopped_containers_and_prunes_images(tmp_path):
     _write_layout(tmp_path, dev=False)
 

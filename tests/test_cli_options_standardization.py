@@ -75,6 +75,12 @@ def test_regenerate_option_standardization():
     assert args_sum.apply is True
     assert args_sum.force is True
 
+    # doc-regenerate alias with --doc-id and --component detail
+    args_doc_regen = parser.parse_args(["doc-regenerate", "--doc-id", "doc_123", "--component", "detail", "--apply"])
+    assert args_doc_regen.doc_id == "doc_123"
+    assert args_doc_regen.component == "detail"
+    assert args_doc_regen.apply is True
+
 
 def test_purge_option_standardization(tmp_path, monkeypatch, capsys):
     get_settings.cache_clear()

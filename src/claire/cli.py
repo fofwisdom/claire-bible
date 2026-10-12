@@ -1544,10 +1544,32 @@ def cmd_regenerate(args) -> int:
     target = getattr(args, "target", None)
     token = getattr(args, "token", None)
     doc_id = getattr(args, "doc_id", None)
-    summary = getattr(args, "summary", False)
-    detail = getattr(args, "detail", False)
-    graph = getattr(args, "graph", False)
-    all_comp = getattr(args, "all", False)
+    comp = getattr(args, "component", None)
+    if comp in ("detail", "format"):
+        detail = True
+        summary = False
+        graph = False
+        all_comp = False
+    elif comp == "summary":
+        summary = True
+        detail = False
+        graph = False
+        all_comp = False
+    elif comp == "graph":
+        graph = True
+        summary = False
+        detail = False
+        all_comp = False
+    elif comp == "all":
+        all_comp = True
+        summary = False
+        detail = False
+        graph = False
+    else:
+        summary = getattr(args, "summary", False)
+        detail = getattr(args, "detail", False)
+        graph = getattr(args, "graph", False)
+        all_comp = getattr(args, "all", False)
     corrupted = getattr(args, "corrupted", False)
     tables = getattr(args, "tables", False) or getattr(args, "has_tables", False)
     refetch = getattr(args, "refetch", False)
@@ -1607,7 +1629,9 @@ def cmd_regenerate(args) -> int:
             print(f"    적용 예정 작업: {', '.join(t['actions'])}")
         print("=" * 60)
         print("실제 재생성 및 DB 덮어쓰기를 실행하려면 --apply 플래그를 추가하십시오:")
-        print("  claire regenerate [target] --all --apply [--refetch | --refetch-full] [--effort <level>]")
+        tgt_hint = f"--doc-id {doc_id}" if doc_id else (target or "[target]")
+        comp_hint = "--detail" if detail else ("--summary" if summary else ("--graph" if graph else "--all"))
+        print(f"  claire regenerate {tgt_hint} {comp_hint} --apply")
         return 0
 
     # Apply 실행: 사전 진단으로 대상 수 특정 후 실시간 진행률 추적
@@ -4337,6 +4361,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     preg = sub.add_parser(
         "regenerate",
+        aliases=["doc-regenerate", "regenerate-doc"],
         help="selectively regenerate document summary, detail, or graph (default: dry-run, requires --apply)",
         description="Selectively regenerate document summary, readable detail text, or graph nodes/edges using LLM.",
     )
@@ -4344,6 +4369,8 @@ def build_parser() -> argparse.ArgumentParser:
                       help="document ID, share token, URL, or share link (/p?s=token)")
     preg.add_argument("--token", default=None, help="specific share token")
     preg.add_argument("--doc-id", default=None, help="specific document ID")
+    preg.add_argument("-c", "--component", choices=["all", "summary", "detail", "graph", "format"], default=None,
+                      help="component to regenerate: all, summary, detail, graph, format")
     preg.add_argument("--summary", action="store_true", help="regenerate summary only (default if no component specified)")
     preg.add_argument("--detail", action="store_true", help="regenerate readable detail text only")
     preg.add_argument("--graph", action="store_true", help="re-extract entities and relations, updating knowledge graph and vault")
