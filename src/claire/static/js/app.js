@@ -246,6 +246,7 @@ function renderThemeSelector(){
     return `<option value="${t.id}" ${t.id === activeThemeId ? 'selected' : ''}>${label}${lockStr}</option>`;
   }).join('');
   updateDrawerManager(current);
+  syncPresentationFeatureUI();
 }
 
 function updateDrawerManager(currentTheme){
@@ -256,6 +257,23 @@ function updateDrawerManager(currentTheme){
   const mgr = rawMgr || (currentTheme && currentTheme.effective_sorcerer) || defaultMgr;
   el.textContent = '지식 관리자: ' + mgr;
   el.title = '지식 관리자: ' + mgr;
+}
+
+function isPresentationEnabledForActiveTheme(){
+  if(!availableThemes || !availableThemes.length) return false;
+  const current = availableThemes.find(t => t.id === activeThemeId) || availableThemes[0];
+  return Boolean(current && current.presentation_enabled === true);
+}
+
+function syncPresentationFeatureUI(){
+  const isPresEnabled = isPresentationEnabledForActiveTheme();
+  const presTab = document.getElementById('centertab-presentation');
+  if(presTab){
+    presTab.style.display = isPresEnabled ? 'inline-flex' : 'none';
+  }
+  if(typeof updatePresentationView === 'function' && typeof centerView !== 'undefined' && centerView === 'presentation'){
+    updatePresentationView();
+  }
 }
 
 function syncThemeSelectorUI(){
@@ -273,6 +291,7 @@ function syncThemeSelectorUI(){
     if(plainLabel) plainLabel.textContent = current.label || '기본 지식베이스';
     updateDrawerManager(current);
   }
+  syncPresentationFeatureUI();
 }
 
 function renderThemeOptions(selectedId){
@@ -3614,6 +3633,13 @@ async function openThemeManager(){
       const toggleCollabBtn = isCollabAcc
         ? `<button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="toggleThemeCollaborator(${t.id}, false)">협업자 차단</button>`
         : `<button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="toggleThemeCollaborator(${t.id}, true)">협업자 공개</button>`;
+      const isPres = t.presentation_enabled === true;
+      const presBadge = isPres
+        ? '<span style="color:#38bdf8;font-weight:600;font-size:12px;background:rgba(56,189,248,0.12);padding:2px 6px;border-radius:4px" title="프레젠테이션 기능 활성화됨">📊 발표 ON</span>'
+        : '<span style="color:var(--muted,#888);font-weight:600;font-size:12px;background:rgba(136,136,136,0.1);padding:2px 6px;border-radius:4px" title="프레젠테이션 기능 비활성화됨">🚫 발표 OFF</span>';
+      const togglePresBtn = isPres
+        ? `<button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="toggleThemePresentation(${t.id}, false)">발표 끄기</button>`
+        : `<button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="toggleThemePresentation(${t.id}, true)">발표 켜기</button>`;
       const canIngestHere = t.id > 0 && isCollabAcc;
       const idLabel = t.id === 0 ? '기본 (ID 0)' : `테마 #${t.id}`;
       const defaultMgr = (window.__CLAIRE_CONFIG && window.__CLAIRE_CONFIG.sorcerer) || 'owner';
@@ -3630,6 +3656,8 @@ async function openThemeManager(){
             ${isOwner ? toggleBtn : ''}
             ${t.id > 0 ? collabBadge : ''}
             ${(isOwner && t.id > 0) ? toggleCollabBtn : ''}
+            ${presBadge}
+            ${isOwner ? togglePresBtn : ''}
             ${isOwner ? `<button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="showThemeEditForm(${t.id})">✏️ 수정</button>` : ''}
             <button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="toggleThemeOptionsView(${t.id})">⚙️ 옵션 보기</button>
             ${(isOwner && t.id > 0) ? `<button type="button" class="sec danger-btn" style="font-size:11px;padding:3px 8px;color:var(--err,#cf222e);border-color:rgba(207,34,46,0.3);" onclick="deleteThemeFromUI(${t.id}, '${esc(t.label)}')">🗑️ 삭제</button>` : ''}
@@ -3652,6 +3680,7 @@ async function openThemeManager(){
           <div>• <b>공개 여부</b>: ${isPub ? '익명 사용자 공개' : '비공개 🔒'}</div>
           ${t.id > 0 ? `<div>• <b>협업자 공개 여부</b>: ${isCollabAcc ? '협업자 공개 (접근 및 적재 허용)' : '협업자 차단'}</div>` : ''}
           <div>• <b>협업자 적재 권한</b>: ${canIngestHere ? '<span style="color:var(--accent,#00ffaa);font-weight:600;">허용됨 (자료 적재 가능 ✍️)</span>' : (t.id === 0 ? '<span style="color:var(--muted);font-weight:600;">제한됨 (소유자 기본 지식베이스)</span>' : '<span style="color:var(--warn);font-weight:600;">제한됨 (소유자 미허용)</span>')}</div>
+          <div>• <b>프레젠테이션 기능</b>: ${isPres ? '<span style="color:#38bdf8;font-weight:600;">활성화됨 (발표 기능 사용 가능 📊)</span>' : '<span style="color:var(--muted);font-weight:600;">비활성화됨 (발표 기능 숨김 🚫)</span>'}</div>
           ${t.stats ? `<div>• <b>지식 현황</b>: 문서 ${t.stats.documents || 0}건 · 엔티티 ${t.stats.entities || 0}개 · 관계 ${t.stats.relations || 0}개</div>` : ''}
         </div>
 
@@ -3666,6 +3695,7 @@ async function openThemeManager(){
             <div style="flex:1;min-width:80px;"><label style="font-size:11px;opacity:0.8">아이콘</label><input id="editthemep-icon-${t.id}" style="width:100%;box-sizing:border-box" value="${esc(t.icon || '📁')}"/></div>
             <div style="flex:1;display:flex;align-items:center;padding-top:14px;"><label style="font-size:12px;cursor:pointer;"><input id="editthemep-pub-${t.id}" type="checkbox" ${isPub ? 'checked' : ''} style="width:auto;margin-right:4px;vertical-align:middle;"/>익명 사용자에게 공개</label></div>
             ${t.id > 0 ? `<div style="flex:1;display:flex;align-items:center;padding-top:14px;"><label style="font-size:12px;cursor:pointer;"><input id="editthemep-collab-${t.id}" type="checkbox" ${isCollabAcc ? 'checked' : ''} style="width:auto;margin-right:4px;vertical-align:middle;"/>협업자에게 공개</label></div>` : ''}
+            <div style="flex:1;display:flex;align-items:center;padding-top:14px;"><label style="font-size:12px;cursor:pointer;"><input id="editthemep-pres-${t.id}" type="checkbox" ${isPres ? 'checked' : ''} style="width:auto;margin-right:4px;vertical-align:middle;"/>프레젠테이션 기능 활성화</label></div>
           </div>
           <div style="display:flex;gap:6px;margin-top:4px;align-items:center;">
             <button type="button" style="padding:4px 12px;" onclick="updateThemeFromUI(${t.id})">저장</button>
@@ -3689,7 +3719,8 @@ async function openThemeManager(){
       h += '<div><label style="font-size:11px;opacity:0.8">기본 초점 (적재 시 기본 적용할 방향/지침)</label><input id="newthemep-focus" style="width:100%;box-sizing:border-box" placeholder="예: 거시경제 지표 및 시장 영향 중심"/></div>';
       h += '<div style="display:flex;gap:8px;flex-wrap:wrap;"><div style="flex:1;min-width:80px;"><label style="font-size:11px;opacity:0.8">아이콘</label><input id="newthemep-icon" style="width:100%;box-sizing:border-box" value="📁"/></div>';
       h += '<div style="flex:1;display:flex;align-items:center;padding-top:14px;"><label style="font-size:12px;cursor:pointer;"><input id="newthemep-pub" type="checkbox" checked style="width:auto;margin-right:4px;vertical-align:middle;"/>익명 사용자에게 공개</label></div>';
-      h += '<div style="flex:1;display:flex;align-items:center;padding-top:14px;"><label style="font-size:12px;cursor:pointer;"><input id="newthemep-collab" type="checkbox" checked style="width:auto;margin-right:4px;vertical-align:middle;"/>협업자에게 공개</label></div></div>';
+      h += '<div style="flex:1;display:flex;align-items:center;padding-top:14px;"><label style="font-size:12px;cursor:pointer;"><input id="newthemep-collab" type="checkbox" checked style="width:auto;margin-right:4px;vertical-align:middle;"/>협업자에게 공개</label></div>';
+      h += '<div style="flex:1;display:flex;align-items:center;padding-top:14px;"><label style="font-size:12px;cursor:pointer;"><input id="newthemep-pres" type="checkbox" style="width:auto;margin-right:4px;vertical-align:middle;"/>프레젠테이션 기능 활성화</label></div></div>';
       h += '<button type="button" style="align-self:flex-start;padding:4px 12px;margin-top:4px;" onclick="createThemeFromUI()">테마 생성</button>';
       h += '</div></details>';
     } else {
@@ -3731,6 +3762,7 @@ async function updateThemeFromUI(themeId){
   const iconEl = document.getElementById('editthemep-icon-' + themeId);
   const pubEl = document.getElementById('editthemep-pub-' + themeId);
   const collabEl = document.getElementById('editthemep-collab-' + themeId);
+  const presEl = document.getElementById('editthemep-pres-' + themeId);
   const fqdnEl = document.getElementById('editthemep-fqdn-' + themeId);
   const gaEl = document.getElementById('editthemep-ga-' + themeId);
   const sorcererEl = document.getElementById('editthemep-sorcerer-' + themeId);
@@ -3747,6 +3779,9 @@ async function updateThemeFromUI(themeId){
   }
   if(collabEl){
     payload.is_collaborator_accessible = collabEl.checked;
+  }
+  if(presEl){
+    payload.presentation_enabled = presEl.checked;
   }
   if(focusEl){
     payload.default_focus = focusEl.value.trim();
@@ -3816,6 +3851,26 @@ async function toggleThemeCollaborator(themeId, newAccess){
   }
 }
 
+async function toggleThemePresentation(themeId, newPres){
+  if(!canWrite()) return;
+  try{
+    const r = await fetch('themes', {
+      method: 'PATCH',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({id: themeId, presentation_enabled: Boolean(newPres)})
+    });
+    if(!r.ok){
+      const err = await r.json().catch(()=>({}));
+      alert('프레젠테이션 설정 수정 실패: ' + (err.detail || err.error || ('HTTP ' + r.status)));
+      return;
+    }
+    await fetchThemes();
+    openThemeManager();
+  }catch(e){
+    alert('오류: ' + e);
+  }
+}
+
 async function createThemeFromUI(){
   if(!canWrite()) return;
   const labelEl = document.getElementById('newthemep-label');
@@ -3824,6 +3879,7 @@ async function createThemeFromUI(){
   const iconEl = document.getElementById('newthemep-icon');
   const pubEl = document.getElementById('newthemep-pub');
   const collabEl = document.getElementById('newthemep-collab');
+  const presEl = document.getElementById('newthemep-pres');
   const fqdnEl = document.getElementById('newthemep-fqdn');
   const gaEl = document.getElementById('newthemep-ga');
   const sorcererEl = document.getElementById('newthemep-sorcerer');
@@ -3835,11 +3891,12 @@ async function createThemeFromUI(){
   const icon = ((iconEl||{}).value||'📁').trim() || '📁';
   const is_public = pubEl ? pubEl.checked : true;
   const is_collaborator_accessible = collabEl ? collabEl.checked : true;
+  const presentation_enabled = presEl ? presEl.checked : false;
   const fqdn = ((fqdnEl||{}).value||'').trim() || null;
   const ga_measurement_id = ((gaEl||{}).value||'').trim() || null;
   const sorcerer = ((sorcererEl||{}).value||'').trim();
 
-  const payload = {label, description, default_focus, icon, is_public, is_collaborator_accessible};
+  const payload = {label, description, default_focus, icon, is_public, is_collaborator_accessible, presentation_enabled};
   if(sorcerer) payload.sorcerer = sorcerer;
   if(fqdn) payload.fqdn = fqdn;
   if(ga_measurement_id) payload.ga_measurement_id = ga_measurement_id;

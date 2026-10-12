@@ -1315,6 +1315,21 @@ function updatePresentationView(docId){
 
   if(sharebox){ sharebox.className = 'sharebox'; sharebox.innerHTML = ''; }
 
+  if(typeof isPresentationEnabledForActiveTheme === 'function' && !isPresentationEnabledForActiveTheme()){
+    if(titleEl) titleEl.textContent = '프레젠테이션 기능 비활성화됨';
+    if(toolsEl) toolsEl.style.display = 'none';
+    const coordsEl = document.getElementById('presentation-coords');
+    if(coordsEl) coordsEl.textContent = '';
+    frame.removeAttribute('data-doc-id');
+    frame.src = 'about:blank';
+    if(empty) empty.style.display = 'flex';
+    if(frame) frame.style.display = 'none';
+    if(emptyTitle) emptyTitle.textContent = '프레젠테이션 기능이 비활성화되어 있습니다';
+    if(emptyMsg) emptyMsg.textContent = '이 데이터베이스에서는 프레젠테이션 기능이 꺼져 있습니다. 테마 관리에서 기능을 활성화할 수 있습니다.';
+    if(genBtn) genBtn.style.display = 'none';
+    return;
+  }
+
   if(!targetId){
     if(titleEl) titleEl.textContent = '문서를 선택하세요';
     if(toolsEl) toolsEl.style.display = 'none';
@@ -1495,6 +1510,10 @@ function presentationDownloadPdf(){
 }
 
 async function presentationShare(){
+  if(typeof isPresentationEnabledForActiveTheme === 'function' && !isPresentationEnabledForActiveTheme()){
+    alert('이 데이터베이스에서는 프레젠테이션 기능이 비활성화되어 있습니다.');
+    return;
+  }
   const targetId = (typeof curReaderDoc !== 'undefined' && curReaderDoc) ||
                    (typeof activeDoc !== 'undefined' && activeDoc);
   if(!targetId) return;
@@ -1607,6 +1626,10 @@ function _onPresentationReady(targetId){
 }
 
 async function generatePresentationForCurrentDoc(){
+  if(typeof isPresentationEnabledForActiveTheme === 'function' && !isPresentationEnabledForActiveTheme()){
+    alert('이 데이터베이스에서는 프레젠테이션 기능이 비활성화되어 있습니다.');
+    return;
+  }
   const targetId = (typeof curReaderDoc !== 'undefined' && curReaderDoc) ||
                    (typeof activeDoc !== 'undefined' && activeDoc);
   if(!targetId) return;

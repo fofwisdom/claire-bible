@@ -458,6 +458,9 @@ class Settings(BaseSettings):
         alias="CLAIRE_PRESENTATION_PDF_MAX_BYTES",
         gt=0,
     )
+    presentation_enabled: bool = Field(
+        default=False, alias="CLAIRE_PRESENTATION_ENABLED"
+    )
 
     # --- storage ---
     db_path: str = Field(default="data/claire.db", alias="CLAIRE_DB_PATH")

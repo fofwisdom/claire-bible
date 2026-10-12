@@ -47,6 +47,17 @@ def render_unready_presentation_page(
             f"오류 내용: {escaped_err}<br>"
             "문서 본문 열람 화면(WebUI)의 '프레젠테이션' 탭에서 다시 생성을 시도해 주세요."
         )
+    elif status == "disabled":
+        status_badge = (
+            '<span style="display:inline-block;padding:4px 12px;border-radius:9999px;'
+            'font-size:12px;font-weight:600;background:#1e293b;color:#94a3b8;'
+            'border:1px solid #475569;">기능 비활성 🚫</span>'
+        )
+        heading = "프레젠테이션 기능이 비활성화되어 있습니다"
+        desc = (
+            "이 데이터베이스에서는 프레젠테이션 기능이 꺼져 있습니다.<br>"
+            "필요한 경우 지식 관리자(Owner)가 테마 관리 패널에서 기능을 활성화할 수 있습니다."
+        )
         refresh_meta = ""
         spinner = ""
     else:
