@@ -453,6 +453,14 @@ class Settings(BaseSettings):
     video_cache_ttl_sec: int = Field(
         default=259200, alias="CLAIRE_VIDEO_CACHE_TTL_SEC"
     )  # 3 days (사흘)
+
+    # --- Vision & Infographic Transcription (VLM) ---
+    enable_vlm_transcription: bool = Field(
+        default=True, alias="CLAIRE_ENABLE_VLM_TRANSCRIPTION"
+    )
+    vlm_provider: str = Field(default="gemini", alias="CLAIRE_VLM_PROVIDER")
+    vlm_model: str = Field(default="", alias="CLAIRE_VLM_MODEL")
+    vlm_max_images: int = Field(default=20, alias="CLAIRE_VLM_MAX_IMAGES")
     presentation_pdf_max_bytes: int = Field(
         default=64 * 1024 * 1024,
         alias="CLAIRE_PRESENTATION_PDF_MAX_BYTES",
@@ -905,6 +913,20 @@ class Settings(BaseSettings):
         if raw == "mock":
             return "mock"
         # antigravity 등 오디오 전사(STT) 미지원 프로바이더는 gemini로 하이잭하지 않고 안전하게 mock으로 폴백
+        return "mock"
+
+    @property
+    def effective_vlm_provider(self) -> str:
+        """이미지/인포그래픽 전사(VLM) 기능 활성화 및 실행 환경에 따른 VLM provider 반환."""
+        if not self.enable_vlm_transcription:
+            return "mock"
+        raw = (self.vlm_provider or "gemini").strip().lower()
+        if raw in ("gemini", "google"):
+            if self.gemini_api_key:
+                return "gemini"
+            return "mock"
+        if raw == "mock":
+            return "mock"
         return "mock"
 
     @property

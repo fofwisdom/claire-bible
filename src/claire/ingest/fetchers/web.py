@@ -152,6 +152,29 @@ def fetch_web(url: str, *, full_content: bool = False) -> Document:
                 d_images or images, "cdp")
             usable, guard_err, is_pdf, doc_type = d_usable, d_guard_err, False, "web"
 
+    # 5) VLM 에스컬레이션 — 모든 텍스트 스크랩 후에도 본문이 빈약하지만 본문 이미지가 있는 경우 VLM 전사 시도
+    if not usable and images:
+        settings = get_settings()
+        if getattr(settings, "enable_vlm_transcription", True):
+            try:
+                from ...extract.vision.factory import get_vision_provider
+                v_provider = get_vision_provider(settings)
+                v_res = v_provider.transcribe_images(images, title=title)
+                if v_res.text:
+                    combined_text = (text + "\n\n" + v_res.text).strip() if text else v_res.text
+                    v_usable, v_guard_err = _is_usable(title, combined_text)
+                    if v_usable:
+                        text = combined_text
+                        via = f"{via}+vlm" if via else "vlm"
+                        usable, guard_err = True, None
+                        if "vlm" not in parser_info:
+                            parser_info = dict(parser_info)
+                            parser_info["vlm_transcribed"] = True
+                            parser_info["vlm_images_count"] = v_res.images_processed
+                            parser_info["vlm_model"] = v_res.model
+            except Exception:
+                pass
+
     # thin-guard & content-guard: 체인 끝까지 미달/차단이면 실패 처리(raw_inbox error → replay-failed 대상)
     if not usable:
         fail_reason = guard_err or err or f"본문 빈약(len={len(text or '')})"

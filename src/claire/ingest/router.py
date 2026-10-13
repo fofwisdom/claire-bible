@@ -64,7 +64,7 @@ def fetch(payload: str, *, full_content: bool = False, _depth: int = 0) -> Docum
             t = shared
     kind = classify(t)
 
-    if kind in ("web", "youtube", "video", "xcom", "redirect", "hoyowiki"):
+    if kind in ("web", "youtube", "video", "xcom", "redirect", "hoyowiki", "hoyolab"):
         t = _clean_url(t)
 
     def _call_fetcher(fn, *args, **kwargs):
@@ -77,6 +77,16 @@ def fetch(payload: str, *, full_content: bool = False, _depth: int = 0) -> Docum
     fetcher_cls = registry.get_fetcher(t)
     if fetcher_cls is not None:
         return _call_fetcher(fetcher_cls.fetch, t)
+
+    if kind == "hoyolab":
+        from .fetchers.hoyolab import fetch_hoyolab
+
+        return _call_fetcher(fetch_hoyolab, t)
+
+    if kind == "hoyowiki":
+        from .fetchers.hoyowiki import fetch_hoyowiki
+
+        return _call_fetcher(fetch_hoyowiki, t)
 
     if kind == "video":
         from .fetchers.video import fetch_video
