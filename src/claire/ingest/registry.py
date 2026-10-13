@@ -67,8 +67,10 @@ class FetcherRegistry:
                 return "xcom"
             if "share.google" in host or host.startswith("share."):
                 return "redirect"
-            if "wiki.hoyolab.com" in host or "hoyolab.com" in host:
+            if "wiki.hoyolab.com" in host or (("hoyolab.com" in host) and ("/entry/" in path or "/character/" in path or "/entry_preview/" in path)):
                 return "hoyowiki"
+            if "hoyolab.com" in host and "/article/" in path:
+                return "hoyolab"
             return "web"
             
         if (os.path.sep in t or t.lower().endswith((".pdf", ".odt", ".md", ".txt", ".markdown", ".rst"))) and os.path.exists(t):
@@ -114,7 +116,7 @@ def register_web_adapter(name: str, domains: tuple[str, ...] = (), priority: int
 
 
 def load_builtin_fetchers() -> None:
-    from .fetchers import law, discourse, video, youtube, xcom, hoyowiki
+    from .fetchers import law, discourse, video, youtube, xcom, hoyowiki, hoyolab
     # add other builtins if needed
 
 def load_plugins_from_dir(plugin_dir: Path) -> None:
