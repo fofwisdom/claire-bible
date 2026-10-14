@@ -21,7 +21,7 @@ class GeminiVisionProvider(VisionTranscriptProvider):
 
         s = settings or get_settings()
         self.api_key = s.gemini_api_key
-        self.model = s.vlm_model or "gemini-2.5-flash"
+        self.model = s.vlm_model or getattr(s, "gemini_model", None) or "gemini-3.8-flash"
         self.max_images = getattr(s, "vlm_max_images", 20)
 
     def _get_client(self) -> Any:

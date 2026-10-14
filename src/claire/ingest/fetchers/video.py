@@ -136,6 +136,16 @@ def fetch_video(
 
     emit_progress("발행자 CC 확인 및 필요 시 STT 처리 중…")
     resolved_url = resolve_video_target_url(url)
+    from .naver_clip import is_naver_clip_url, fetch_naver_clip
+
+    if is_naver_clip_url(url) or is_naver_clip_url(resolved_url):
+        return fetch_naver_clip(
+            url,
+            full_content=full_content,
+            preferred_languages=preferred_languages,
+            settings=settings,
+        )
+
     ext_args = parse_ytdlp_extractor_args(
         getattr(settings, "ytdlp_extractor_args", "generic:impersonate")
     )
@@ -337,13 +347,14 @@ def fetch_video(
     if transcript_text:
         header = "[영상 음성 전사 (STT)]" if is_stt else "[영상 자막]"
         sections.append(f"{header}\n{transcript_text}")
-    elif not settings.enable_video_transcription:
-        sections.append("[영상 자막]\n(비디오 음성 전사 기능이 비활성화되어 있습니다. CLAIRE_ENABLE_VIDEO_TRANSCRIPTION=1 설정 시 생성됩니다.)")
-    elif stt_error_msg:
-        cached_notice = " (다운로드된 영상 미디어는 사흘간 로컬 캐시로 안전하게 보관되며, 재적재 시 즉시 재사용됩니다.)" if cached_saved else ""
-        sections.append(f"[영상 자막]\n(음성 전사 처리 중 오류가 발생했습니다: {stt_error_msg}{cached_notice})")
-    else:
-        sections.append("[영상 자막]\n(추출된 자막이 없거나 음성 추출이 지원되지 않는 스트림입니다.)")
+    if not transcript_text:
+        if not settings.enable_video_transcription:
+            sections.append("[영상 자막]\n(비디오 음성 전사 기능이 비활성화되어 있습니다. CLAIRE_ENABLE_VIDEO_TRANSCRIPTION=1 설정 시 생성됩니다.)")
+        elif stt_error_msg:
+            cached_notice = " (다운로드된 영상 미디어는 사흘간 로컬 캐시로 안전하게 보관되며, 재적재 시 즉시 재사용됩니다.)" if cached_saved else ""
+            sections.append(f"[영상 자막]\n(음성 전사 처리 중 오류가 발생했습니다: {stt_error_msg}{cached_notice})")
+        else:
+            sections.append("[영상 자막]\n(추출된 자막이 없거나 음성 추출이 지원되지 않는 스트림입니다.)")
 
     if description:
         sections.append(f"[영상 설명]\n{description}")
@@ -445,7 +456,16 @@ def is_video_or_audio_url(url: str) -> bool:
             return True
         if "vimeo.com" in host:
             return True
-        if "tv.naver.com" in host or "now.naver.com" in host or ("naver.com" in host and "/v/" in path):
+        if (
+            "tv.naver.com" in host
+            or "now.naver.com" in host
+            or "clip.naver.com" in host
+            or "chzzk.naver.com" in host
+            or ("naver.com" in host and ("/v/" in path or "/shorts" in path))
+            or "naver.me" in host
+            or "tiktok.com" in host
+            or ("instagram.com" in host and "/reel" in path)
+        ):
             return True
         # 1. 경로 확장자 검사
         if any(path.endswith(ext) for ext in MEDIA_EXTENSIONS):
