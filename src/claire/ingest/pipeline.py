@@ -875,12 +875,40 @@ def extract_resolve_store(
     if name_to_id:
         from ..extract.decision import evaluate_decision_matrix
 
+        candidate_map: dict[str, Any] = {}
+        for dec in decisions or []:
+            if dec.candidate and dec.candidate not in candidate_map:
+                cand_ent = None
+                if dec.target_entity_id:
+                    cand_ent = dbm.get_entity(conn, dec.target_entity_id)
+                if not cand_ent:
+                    for found in dbm.find_entities_by_name_or_alias(conn, dec.candidate):
+                        cand_ent = found
+                        break
+                candidate_map[dec.candidate] = cand_ent if cand_ent else dec.candidate
+
+        for res in resolution_results:
+            rel_cands = (getattr(res, "relational_candidates", []) or []) + (getattr(res, "multihop_candidates", []) or [])
+            for owner_id, _ in rel_cands:
+                if len(candidate_map) >= 30:
+                    break
+                cand_ent = dbm.get_entity(conn, owner_id)
+                if cand_ent and cand_ent.name not in candidate_map:
+                    candidate_map[cand_ent.name] = cand_ent
+
         all_cands = dbm.all_entities(conn)
+        for cand in all_cands:
+            if len(candidate_map) >= 30:
+                break
+            if cand.name not in candidate_map:
+                candidate_map[cand.name] = cand
+
+        final_candidates = list(candidate_map.values())[:30] if candidate_map else (all_cands[:30] if all_cands else list(name_to_id.keys()))
         mat_data = evaluate_decision_matrix(
             settings=settings,
             document_id=doc.id,
             extracted_entities=list(name_to_id.keys()),
-            candidate_entities=all_cands[:30] if all_cands else list(name_to_id.keys()),
+            candidate_entities=final_candidates,
             decisions=decisions or [],
         )
         report.heatmap_matrix = mat_data.to_dict()

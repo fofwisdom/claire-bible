@@ -225,11 +225,13 @@ def build_fallback_matrix(
 
     # 결정 기록 맵 구성
     dec_map: dict[tuple[str, str], float] = {}
+    dec_map_lower: dict[tuple[str, str], float] = {}
     if decisions:
         for d in decisions:
             if d.candidate:
                 score = d.score if d.score is not None else (1.0 if d.decision == "MERGE" else 0.85)
                 dec_map[(d.entity, d.candidate)] = float(score)
+                dec_map_lower[(d.entity.lower().strip(), d.candidate.lower().strip())] = float(score)
 
     for r_idx, r_name in enumerate(row_names):
         r_lower = r_name.lower().strip()
@@ -239,6 +241,8 @@ def build_fallback_matrix(
             c_tokens = set(c_lower.split())
             if (r_name, c_name) in dec_map:
                 matrix[r_idx][c_idx] = dec_map[(r_name, c_name)]
+            elif (r_lower, c_lower) in dec_map_lower:
+                matrix[r_idx][c_idx] = dec_map_lower[(r_lower, c_lower)]
             elif r_lower == c_lower:
                 matrix[r_idx][c_idx] = 1.0
             elif (r_lower in c_lower or c_lower in r_lower) and min(len(r_lower), len(c_lower)) >= 3:
@@ -282,6 +286,7 @@ def evaluate_decision_matrix(
                 document_id=document_id,
                 extracted_entities=extracted_entities,
                 candidate_entities=candidate_entities,
+                decisions=decisions,
             )
         except Exception:
             # Jev 호출 실패 시 시스템 중단 없이 안전하게 Fallback 매트릭스로 전환
@@ -300,20 +305,53 @@ def _call_jev_matrix_api(
     document_id: str,
     extracted_entities: list[Entity | str],
     candidate_entities: list[Entity | str],
+    decisions: list[ResolutionDecision] | None = None,
 ) -> HeatmapMatrixData:
     """TypeSafe AI Jev 비-자기회귀 의사결정 API 호출 스텁 (System 1 Engine)."""
     # 실제 연동 시 HTTP 클라이언트(httpx)를 통해 Jev /v1/classify-matrix 엔드포인트 호출
     row_names = [e.name if isinstance(e, Entity) else str(e) for e in extracted_entities]
     col_names = [e.name if isinstance(e, Entity) else str(e) for e in candidate_entities]
 
+    import difflib
+
+    # 결정 기록 맵 구성
+    dec_map: dict[tuple[str, str], float] = {}
+    dec_map_lower: dict[tuple[str, str], float] = {}
+    if decisions:
+        for d in decisions:
+            if d.candidate:
+                score = d.score if d.score is not None else (1.0 if d.decision == "MERGE" else 0.85)
+                dec_map[(d.entity, d.candidate)] = float(score)
+                dec_map_lower[(d.entity.lower().strip(), d.candidate.lower().strip())] = float(score)
+
     # Jev 규격 결과 텐서 생성
     matrix: list[list[float]] = [
         [0.08 for _ in range(len(col_names))] for _ in range(len(row_names))
     ]
     for r_idx, r_name in enumerate(row_names):
+        r_lower = r_name.lower().strip()
+        r_tokens = set(r_lower.split())
         for c_idx, c_name in enumerate(col_names):
-            if r_name == c_name:
+            c_lower = c_name.lower().strip()
+            c_tokens = set(c_lower.split())
+            if (r_name, c_name) in dec_map:
+                matrix[r_idx][c_idx] = dec_map[(r_name, c_name)]
+            elif (r_lower, c_lower) in dec_map_lower:
+                matrix[r_idx][c_idx] = dec_map_lower[(r_lower, c_lower)]
+            elif r_name == c_name or r_lower == c_lower:
                 matrix[r_idx][c_idx] = 0.99
+            elif (r_lower in c_lower or c_lower in r_lower) and min(len(r_lower), len(c_lower)) >= 3:
+                sub_ratio = min(len(r_lower), len(c_lower)) / max(len(r_lower), len(c_lower))
+                matrix[r_idx][c_idx] = round(0.55 + 0.35 * sub_ratio, 4)
+            elif r_tokens and c_tokens and (r_tokens & c_tokens):
+                jaccard = len(r_tokens & c_tokens) / len(r_tokens | c_tokens)
+                matrix[r_idx][c_idx] = round(0.40 + 0.45 * jaccard, 4)
+            else:
+                sim = difflib.SequenceMatcher(None, r_lower, c_lower).ratio()
+                if sim >= 0.5:
+                    matrix[r_idx][c_idx] = round(sim * 0.85, 4)
+                else:
+                    matrix[r_idx][c_idx] = 0.08
 
     return HeatmapMatrixData(
         document_id=document_id,
