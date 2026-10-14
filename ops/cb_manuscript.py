@@ -121,6 +121,7 @@ APP_ONE_OFF_COMMANDS = {
     "regenerate-doc",
     "summary-regenerate",
     "purge",
+    "untombstone",
     "audit",
     "queue",
     "truncation-status",

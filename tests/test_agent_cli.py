@@ -138,3 +138,16 @@ def test_cli_auth_share_doc():
     assert agent_out.data["pinned"] is False
 
 
+def test_cli_unrecognized_argument_fails():
+    """알 수 없거나 오타가 발생한 옵션(-no-tombstone 등) 입력 시 즉시 2번 코드로 실패하고 중단되는지 검증."""
+    res = subprocess.run(
+        [sys.executable, "-m", "claire.cli", "purge", "-no-tombstone", "https://example.com/test"],
+        capture_output=True,
+        text=True,
+    )
+    assert res.returncode == 2
+    assert "unrecognized arguments: -no-tombstone" in res.stderr
+    assert "claire purge: [Dry-Run]" not in res.stdout
+
+
+

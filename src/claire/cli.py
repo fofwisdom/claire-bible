@@ -262,6 +262,8 @@ def cmd_doctor(args) -> int:
 
 def cmd_purge(args) -> int:
     """오염된 레거시 문서를 툼스톤 등록과 함께 원자적으로 연쇄 소각."""
+    if getattr(args, "untombstone", False):
+        return cmd_untombstone(args)
     s, theme = get_effective_settings(args)
     if not s.is_purge_allowed:
         print("claire purge: [오류] 데이터 소각이 정책에 의해 차단되었습니다.", file=sys.stderr)
@@ -407,6 +409,94 @@ def cmd_purge(args) -> int:
         return 0
     finally:
         conn.close()
+
+
+def cmd_untombstone(args) -> int:
+    """등록된 툼스톤을 해제하여 재수집 및 재적재를 가능하게 복원."""
+    s = get_settings()
+    theme_ref = getattr(args, "theme", None)
+
+    target_themes: list[tuple[Any, Any | None]] = []
+    if theme_ref is not None:
+        if getattr(s, "multi_theme", False):
+            from .store.theme import get_theme_manager
+
+            tm = get_theme_manager(s)
+            t = tm.get_theme(theme_ref)
+            target_themes.append((tm.get_settings_for_theme(t.id, s), t))
+        else:
+            target_themes.append((s, None))
+    else:
+        if getattr(s, "multi_theme", False):
+            from .store.theme import get_theme_manager
+
+            tm = get_theme_manager(s)
+            for t in tm.list_themes():
+                target_themes.append((tm.get_settings_for_theme(t.id, s), t))
+        else:
+            target_themes.append((s, None))
+
+    target = getattr(args, "target", None)
+    doc_id = getattr(args, "doc_id", None)
+    url = getattr(args, "url", None)
+    canonical_url = getattr(args, "canonical_url", None)
+    pattern = getattr(args, "pattern", None)
+
+    total_removed = 0
+    all_removed: list[dict[str, Any]] = []
+    total_reset_inbox = 0
+
+    for ts, theme in target_themes:
+        conn = dbm.connect(ts.db_file)
+        dbm.init_db(conn)
+        try:
+            res = dbm.remove_tombstones(
+                conn,
+                target=target,
+                doc_id=doc_id,
+                url=url,
+                canonical_url=canonical_url,
+                pattern=pattern,
+            )
+            if res["removed_count"] > 0:
+                for item in res["removed_tombstones"]:
+                    if theme:
+                        item["theme_id"] = theme.id
+                        item["theme_label"] = theme.label
+                    all_removed.append(item)
+                total_removed += res["removed_count"]
+                total_reset_inbox += res["reset_inbox_count"]
+        finally:
+            conn.close()
+
+    if getattr(args, "json", False):
+        import json
+
+        data = {
+            "removed_count": total_removed,
+            "removed_tombstones": all_removed,
+            "reset_inbox_count": total_reset_inbox,
+        }
+        print(json.dumps(data, ensure_ascii=False, indent=2))
+        return 0 if total_removed > 0 else 1
+
+    print("claire untombstone: 툼스톤 해제 보고서")
+    print("=" * 60)
+    if total_removed == 0:
+        query_hint = target or doc_id or url or canonical_url or pattern or "(입력 없음)"
+        print(f"[!] 일치하는 툼스톤을 찾을 수 없습니다: '{query_hint}'", file=sys.stderr)
+        return 1
+
+    print(f"• 해제(삭제)된 툼스톤 수   : {total_removed} 건")
+    for t in all_removed:
+        u = t.get("url") or t.get("canonical_url") or "no-url"
+        theme_str = f" [{t['theme_label']}]" if "theme_label" in t else ""
+        print(f"  - [{t['id']}]{theme_str} {u} (사유: {t.get('reason', 'unknown')})")
+    if total_reset_inbox > 0:
+        print(f"• 인박스(raw_inbox) 복원  : {total_reset_inbox} 건 (상태 -> pending 재수집 대기)")
+    print("=" * 60)
+    print("[✓] 툼스톤이 성공적으로 해제되었습니다. 이제 문서를 정상적으로 재적재할 수 있습니다.")
+    return 0
 
 
 def cmd_audit(args) -> int:
@@ -3885,6 +3975,7 @@ def build_parser() -> argparse.ArgumentParser:
             "Detailed Documentation: docs/origin/implementation/COMMANDS.md"
         ),
     )
+    p.add_argument("--json", action="store_true", help="output result in JSON format")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser(
@@ -4587,11 +4678,30 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="skip registering document fingerprints into purged_tombstones (allows future re-ingestion)",
     )
+    ppg.add_argument(
+        "--untombstone",
+        action="store_true",
+        help="lift and delete tombstone registry for target document or URL to allow re-ingestion",
+    )
     ppg.add_argument("--apply", action="store_true", help="execute actual purge, tombstone creation, and disk compaction (default: dry-run only)")
     ppg.add_argument("--dry-run", action="store_true", help="simulate purge inspection without modifying database (default)")
     ppg.add_argument("--yes", "-y", action="store_true", help="confirm purge operation without interactive prompt")
     ppg.add_argument("--json", action="store_true", help="output purge report in JSON format")
     ppg.set_defaults(func=cmd_purge)
+
+    put = sub.add_parser(
+        "untombstone",
+        help="lift and delete tombstone from registry to allow document re-ingestion",
+        description="Lift and delete tombstone from registry, unblocking document re-ingestion.",
+    )
+    put.add_argument("target", nargs="?", default=None, help="target document ID, URL, or keyword to lift tombstone")
+    put.add_argument("-t", "--theme", default=None, help="target theme ID, sequence number, or label")
+    put.add_argument("--doc-id", default=None, help="specific document ID")
+    put.add_argument("--url", default=None, help="specific URL")
+    put.add_argument("--canonical-url", default=None, help="specific canonical URL")
+    put.add_argument("--pattern", default=None, help="pattern to match in tombstone registry")
+    put.add_argument("--json", action="store_true", help="output result in JSON format")
+    put.set_defaults(func=cmd_untombstone)
 
     pau = sub.add_parser(
         "audit",
@@ -4788,6 +4898,12 @@ def main(argv: list[str] | None = None) -> int:
     # 만약 전역으로 --json 플래그가 넘어왔다면(어느 서브커맨드든), args.json을 강제로 세팅
     if "--json" in (argv or sys.argv):
         setattr(args, "json", True)
+
+    if "--json" in unknown:
+        unknown = [u for u in unknown if u != "--json"]
+
+    if unknown:
+        parser.error(f"unrecognized arguments: {' '.join(unknown)}")
 
     if not hasattr(args, "func"):
         parser.print_help()
