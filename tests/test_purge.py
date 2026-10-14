@@ -554,3 +554,93 @@ def test_purge_with_progress_callback_and_batch_fts(tmp_path):
     assert any("물리 압축" in e for e in progress_events)
     conn.close()
 
+
+def test_remove_tombstones_and_inbox_reset(tmp_path):
+    """remove_tombstones API 검증: 툼스톤 삭제 및 raw_inbox 에러 항목 pending 복원."""
+    db_file = tmp_path / "claire.db"
+    conn = dbm.connect(db_file)
+    dbm.init_db(conn)
+
+    # 1. 툼스톤 및 inbox 에러 레코드 주입
+    doc_id = "doc_b751b9f591c9"
+    url = "https://www.hoyolab.com/article/46898605"
+    canon_url = "https://hoyolab.com/article/46898605"
+
+    conn.execute(
+        "INSERT INTO purged_tombstones (id, url, canonical_url, content_hash, reason, purged_at) VALUES (?, ?, ?, ?, ?, ?)",
+        (doc_id, url, canon_url, "hash_test", "manual_purge", 1000.0),
+    )
+    conn.execute(
+        "INSERT INTO raw_inbox (id, payload, source, received_at, status, error, attempts) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (77, url, "telegram", 1000.0, "error", "tombstoned: document was previously purged", 3),
+    )
+    conn.commit()
+
+    assert dbm.is_tombstoned(conn, url=url) is True
+    assert dbm.is_tombstoned(conn, canonical_url=canon_url) is True
+
+    # 2. remove_tombstones 실행
+    res = dbm.remove_tombstones(conn, target=url)
+    assert res["removed_count"] == 1
+    assert res["reset_inbox_count"] == 1
+    assert res["removed_tombstones"][0]["id"] == doc_id
+
+    # 3. 툼스톤 해제 상태 확인
+    assert dbm.is_tombstoned(conn, url=url) is False
+    assert dbm.is_tombstoned(conn, canonical_url=canon_url) is False
+
+    # 4. raw_inbox 상태가 pending으로 복원되고 error가 초기화되었는지 확인
+    row = conn.execute("SELECT status, error, attempts FROM raw_inbox WHERE id=77").fetchone()
+    assert row["status"] == "pending"
+    assert row["error"] is None
+    assert row["attempts"] == 0
+
+    conn.close()
+
+
+def test_untombstone_cli_and_purge_alias(tmp_path, monkeypatch):
+    """claire untombstone 및 claire purge --untombstone CLI 동작 검증."""
+    from claire.cli import main
+
+    db_file = tmp_path / "claire.db"
+    conn = dbm.connect(db_file)
+    dbm.init_db(conn)
+
+    doc_id = "doc_b751b9f591c9"
+    url = "https://www.hoyolab.com/article/46898605"
+
+    conn.execute(
+        "INSERT INTO purged_tombstones (id, url, canonical_url, content_hash, reason, purged_at) VALUES (?, ?, ?, ?, ?, ?)",
+        (doc_id, url, url, "hash_test", "manual_purge", 1000.0),
+    )
+    conn.commit()
+    conn.close()
+
+    monkeypatch.setenv("CLAIRE_DB_PATH", str(db_file))
+    from claire.config import get_settings
+    get_settings.cache_clear()
+
+    # 1. purge --untombstone
+    rc = main(["purge", "--untombstone", url])
+    assert rc == 0
+
+    conn = dbm.connect(db_file)
+    assert dbm.is_tombstoned(conn, url=url) is False
+
+    # 다시 툼스톤 주입
+    conn.execute(
+        "INSERT INTO purged_tombstones (id, url, canonical_url, content_hash, reason, purged_at) VALUES (?, ?, ?, ?, ?, ?)",
+        (doc_id, url, url, "hash_test", "manual_purge", 1000.0),
+    )
+    conn.commit()
+    conn.close()
+
+    # 2. untombstone <target>
+    rc2 = main(["untombstone", url])
+    assert rc2 == 0
+
+    conn = dbm.connect(db_file)
+    assert dbm.is_tombstoned(conn, url=url) is False
+    conn.close()
+
+

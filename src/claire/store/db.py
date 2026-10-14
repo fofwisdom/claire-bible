@@ -3468,6 +3468,99 @@ def is_tombstoned(
     return row is not None
 
 
+def remove_tombstones(
+    conn: sqlite3.Connection,
+    target: str | None = None,
+    *,
+    doc_id: str | None = None,
+    url: str | None = None,
+    canonical_url: str | None = None,
+    pattern: str | None = None,
+) -> dict[str, Any]:
+    """등록된 소각 툼스톤을 해제(삭제)하여 문서 재수집 및 재적재를 허용."""
+    from ..ingest.normalize import canonicalize_url
+
+    has_tbl = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='purged_tombstones'"
+    ).fetchone()
+    if not has_tbl:
+        return {"removed_count": 0, "removed_tombstones": [], "reset_inbox_count": 0}
+
+    conditions = []
+    params: list[Any] = []
+
+    def _add_url_clause(u: str):
+        cu = canonicalize_url(u)
+        conditions.append("(url = ? OR canonical_url = ? OR url = ? OR canonical_url = ?)")
+        params.extend([u, u, cu, cu])
+
+    if doc_id:
+        conditions.append("id = ?")
+        params.append(doc_id)
+    if url:
+        _add_url_clause(url)
+    if canonical_url:
+        _add_url_clause(canonical_url)
+    if pattern:
+        p_str = f"%{pattern}%"
+        conditions.append("(id LIKE ? OR url LIKE ? OR canonical_url LIKE ? OR reason LIKE ?)")
+        params.extend([p_str, p_str, p_str, p_str])
+
+    if target:
+        if target.startswith("doc_"):
+            conditions.append("id = ?")
+            params.append(target)
+        elif target.startswith("http://") or target.startswith("https://"):
+            _add_url_clause(target)
+        else:
+            p_str = f"%{target}%"
+            conditions.append("(id = ? OR url = ? OR canonical_url = ? OR url LIKE ? OR canonical_url LIKE ?)")
+            params.extend([target, target, target, p_str, p_str])
+
+    if not conditions:
+        return {"removed_count": 0, "removed_tombstones": [], "reset_inbox_count": 0}
+
+    where_clause = " OR ".join(conditions)
+    matched = conn.execute(
+        f"SELECT id, url, canonical_url, content_hash, reason, purged_at FROM purged_tombstones WHERE {where_clause}",
+        params,
+    ).fetchall()
+    matched_tombstones = [dict(r) for r in matched]
+    if not matched_tombstones:
+        return {"removed_count": 0, "removed_tombstones": [], "reset_inbox_count": 0}
+
+    matched_ids = [r["id"] for r in matched_tombstones]
+    ph = ",".join("?" for _ in matched_ids)
+    conn.execute(f"DELETE FROM purged_tombstones WHERE id IN ({ph})", matched_ids)
+
+    reset_count = 0
+    has_inbox = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='raw_inbox'"
+    ).fetchone()
+    if has_inbox:
+        for t in matched_tombstones:
+            candidates = set(filter(None, [t.get("url"), t.get("canonical_url"), t.get("id")]))
+            for cand in candidates:
+                cur = conn.execute(
+                    """
+                    UPDATE raw_inbox
+                    SET status = 'pending', error = NULL, attempts = 0
+                    WHERE status IN ('error', 'failed', 'stalled')
+                      AND (payload = ? OR payload LIKE ?)
+                      AND error LIKE '%tombstone%'
+                    """,
+                    (cand, f"%{cand}%"),
+                )
+                reset_count += cur.rowcount
+
+    conn.commit()
+    return {
+        "removed_count": len(matched_tombstones),
+        "removed_tombstones": matched_tombstones,
+        "reset_inbox_count": reset_count,
+    }
+
+
 def purge_document_cascade(
     conn: sqlite3.Connection,
     data_dir: Path,
