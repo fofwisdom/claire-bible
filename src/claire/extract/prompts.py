@@ -16,7 +16,8 @@ if TYPE_CHECKING:
 # v5: summary 평문(plain text) 작성 규칙 명시 (AsciiDoc/마크다운 마크업 금지).
 # v6: 테이블 및 매트릭스 데이터 누락 방지 및 본문 글자 수 계산 제외 규칙 적용.
 # v7: 복합 문서의 자막·Presentation 구성요소별 최소 예산 보장.
-PROMPT_VERSION = "extract-v7"
+# v8: executive summary 지침 강화 (단순 서문/도입부 요약 및 메타 소개문 금지, 본문 전체 핵심 실체·결론 압축).
+PROMPT_VERSION = "extract-v8"
 # 프레젠테이션 저작 프롬프트 버전
 PRESENTATION_PROMPT_VERSION = "pres-v2"
 
@@ -35,8 +36,11 @@ personal knowledge base about AI/software tools and research.
 Rules:
 - LANGUAGE & STYLE: write `summary`, every `observations` item, and `key_claims` in Korean
   (한국어) using formal/declarative written style (문어체 / 서술체: e.g. '~한다', '~이다', '~함' without conversational honorifics like '~합니다', '~해요'), REGARDLESS of the source document's language. Keep proper nouns, product/tool/model names, org names, and technical terms in their original form — do NOT transliterate (e.g. "OpenSkill", "arXiv", "LLM agent" stay as-is). Entity `name` and `aliases` stay in their canonical original form (usually the original language).
-- summary: 1-3 factual sentences in Korean written style (문어체: ~한다/~이다). Write in pure
-  plain text ONLY (평문). Do NOT use any AsciiDoc or Markdown markup syntax (e.g. NEVER use headers like '= Title' or '== Section', block markers like '[NOTE]', tables '|===', links 'link:...', lists, bold/italic, or quote formatting).
+- summary: 1-3 factual sentences in Korean written style (문어체: ~한다/~이다) providing a comprehensive executive summary (핵심 요약) in pure plain text ONLY (평문).
+  * Scope: You MUST summarize the entire document across its core problem, specific technical solution/architecture/mechanisms, and key outcomes/conclusions.
+  * NO Preface/Prologue: NEVER write an introductory preface (서문/머리말), teaser, or outline of what the document will discuss. Do NOT merely summarize the opening paragraphs, motivation, or background.
+  * NO Meta-phrasing: NEVER use introductory meta-phrases such as '이 글은/본 문서는 ~를 다룬다', '~에 대해 소개한다', '~의 배경을 살펴본다', or '~를 설명한다'. Write direct, substantive factual statements of what was built, how it works, and what was achieved.
+  * Plain text ONLY: Do NOT use any AsciiDoc or Markdown markup syntax (e.g. NEVER use headers like '= Title' or '== Section', block markers like '[NOTE]', tables '|===', links 'link:...', lists, bold/italic, or quote formatting).
 - entities: the key things this document is ABOUT (tools, repos, models, people, orgs, concepts...).
 - TABLES & DATA MATRICES: When the document contains tables, benchmarks, or comparison matrices,
   you MUST NOT omit or ignore the data inside tables. Extract entities (tools, models, benchmarks,
@@ -219,6 +223,30 @@ def is_corrupted_summary(text: str | None) -> bool:
     return any(re.search(pat, s, re.MULTILINE | re.IGNORECASE) for pat in _ADOC_CORRUPTED_PATTERNS)
 
 
+_PREFACE_SUMMARY_PATTERNS = (
+    re.compile(
+        r"^(?:(?:이|본)\s*(?:글|문서|논문|자료|포스트|아티클|기사)(?:[은는]|에서는|에서)?|본고에서는)\s+.*?(?:다룬다|소개한다|살펴본다|알아본다|설명한다|안내한다|정리한다|공유한다|공유하고자\s*한다|소개하고자\s*한다|설명하고자\s*한다)\.?$",
+        re.DOTALL | re.IGNORECASE,
+    ),
+    re.compile(
+        r"^(?:(?:이|본)\s*(?:글|문서|논문|자료|포스트|아티클|기사)(?:[은는]|에서는|에서)?|본고에서는)\s+.*?(?:다룬다|소개한다|살펴본다|알아본다|설명한다|안내한다|정리한다|공유한다|공유하고자\s*한다|소개하고자\s*한다|설명하고자\s*한다)\.",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r".*?(?:에\s*대해\s*(?:차례로\s*)?(?:살펴본다|알아본다|소개한다|설명한다)|의\s*개요와\s*배경을\s*다룬다)\.?$",
+        re.DOTALL | re.IGNORECASE,
+    ),
+)
+
+
+def is_preface_summary(text: str | None) -> bool:
+    """텍스트가 본문 전체 요약이 아닌 도입부/서문 메타 안내문인지 판정."""
+    if not text:
+        return False
+    s = text.strip()
+    return any(pat.search(s) for pat in _PREFACE_SUMMARY_PATTERNS)
+
+
 def clean_plain_summary(text: str | None) -> str:
     """요약 텍스트 또는 상세 본문(detail/raw_text)에서 모든 AsciiDoc/마크다운 마크업을 제거하고 순수 평문 추출."""
     if not text:
@@ -327,13 +355,18 @@ def clean_plain_summary(text: str | None) -> str:
     if current_p:
         cleaned_paragraphs.append(current_p)
 
-    # 본문 단락 중 가장 의미 있는 서술 단락 선택
+    # 본문 단락 중 가장 의미 있는 서술 단락 선택 (서문/메타 소개 단락 우선 회피)
+    for p_lines in cleaned_paragraphs:
+        p_text = " ".join(p_lines).strip()
+        if len(p_text) >= 20 and not is_preface_summary(p_text):
+            return p_text
+
+    # 적절한 비(非)서문 단락이 없으면 20자 이상 단락, 그 다음 첫 번째 단락 순서로 폴백
     for p_lines in cleaned_paragraphs:
         p_text = " ".join(p_lines).strip()
         if len(p_text) >= 20:
             return p_text
 
-    # 만약 20자 이상인 단락이 없으면 첫 번째 단락 반환
     if cleaned_paragraphs:
         p_text = " ".join(cleaned_paragraphs[0]).strip()
         if p_text:
@@ -478,7 +511,7 @@ def extract_fallback_prompt(sys: str, body: str) -> str:
         '"entities":[{"name":str,"type":str,"aliases":[str],'
         '"observations":[str],"proposed_type":str|null}],'
         '"relations":[{"source":str,"target":str,"type":str,"proposed_type":str|null}]}'
-        + "\n(Note: 'summary' must be 1-3 factual plain text sentences in Korean written style without any AsciiDoc or Markdown markup)\n"
+        + "\n(Note: 'summary' must be 1-3 factual plain text sentences in Korean written style providing an executive summary across the entire document without writing an introductory preface, teaser, or markup)\n"
         + "\n\nDOCUMENT:\n"
         + body
     )

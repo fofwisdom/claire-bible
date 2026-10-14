@@ -31,6 +31,7 @@ from .prompts import (
     classify_watch_prompt,
     clean_plain_summary,
     extract_system_prompt,
+    is_preface_summary,
     judge_relationship_prompt,
     judge_research_prompt,
     judge_same_entity_prompt,
@@ -507,7 +508,7 @@ class AntigravityProvider:
             )
             result = _coerce(str(raw_text))
 
-        # 요약 평문 정제 및 비어있는 경우 방어적 보강
+        # 요약 평문 정제 및 비어있거나 서문형 메타 안내문인 경우 방어적 보강
         if result.summary:
             result.summary = clean_plain_summary(result.summary)
 
@@ -521,6 +522,10 @@ class AntigravityProvider:
                 result.summary = clean_plain_summary((fallback_txt[:200] + "…") if len(fallback_txt) > 200 else fallback_txt)
             elif doc.title:
                 result.summary = f"{doc.title}에 관한 자료이다."
+        elif is_preface_summary(result.summary) and result.key_claims:
+            claims_summary = clean_plain_summary(" ".join(result.key_claims[:3]))
+            if claims_summary and len(claims_summary) >= 30:
+                result.summary = claims_summary
 
         result.model = self.model
         result.prompt_version = PROMPT_VERSION
