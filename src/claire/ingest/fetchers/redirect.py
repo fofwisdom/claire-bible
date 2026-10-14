@@ -24,7 +24,13 @@ _SKIP_HOSTS = (
 
 def _is_share_host(host: str) -> bool:
     h = host.lower()
-    return "share.google" in h or h.startswith("share.")
+    return (
+        "share.google" in h
+        or h.startswith("share.")
+        or "naver.me" in h
+        or "link.naver.com" in h
+        or h in ("bit.ly", "tinyurl.com", "t.co")
+    )
 
 
 def _extract_target(html: str) -> str | None:
@@ -53,6 +59,13 @@ def resolve_redirect(url: str, timeout: float = 15.0) -> str:
         raise FetchError(f"redirect resolve failed: {e}") from e
 
     final = str(resp.url)
+    parsed_final = urlsplit(final)
+    if "link.naver.com" in parsed_final.netloc and "/bridge" in parsed_final.path:
+        from urllib.parse import parse_qs, unquote
+        qs = parse_qs(parsed_final.query)
+        if "url" in qs and qs["url"]:
+            return unquote(qs["url"][0])
+
     # HTTP redirect 로 풀려 share 호스트를 벗어났으면 그대로 사용.
     if not _is_share_host(urlsplit(final).netloc):
         return final

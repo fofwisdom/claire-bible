@@ -92,6 +92,23 @@ _SSL_BODY_PATTERNS = (
 _SSL_BODY_RE = re.compile("|".join(f"(?:{p})" for p in _SSL_BODY_PATTERNS), re.IGNORECASE)
 
 
+# 6. UI Shell / 비디오 플레이어 추천 노이즈 패턴
+_UI_SHELL_PATTERNS = (
+    r"(?:소리를\s*켜려면|소리를\s*켜세요|음소거\s*(?:해제|중)|닫기\s*버튼|본문\s*접기|본문\s*더보기|"
+    r"네이버앱\s*열기|앱에서\s*보기|앱\s*설치|이전\s*클립|다음\s*클립|클립크리에이터|"
+    r"댓글\s*쓰기|공유하기|구독하기|좋아요\s*누르기|더보기\s*닫기)"
+)
+_UI_SHELL_RE = re.compile(_UI_SHELL_PATTERNS, re.IGNORECASE)
+
+
+def calculate_lexical_diversity(text: str) -> float:
+    """단어 수준의 Type-Token Ratio(어휘 다양도) 계산."""
+    words = re.findall(r"[\w가-힣]+", (text or "").lower())
+    if not words:
+        return 0.0
+    return len(set(words)) / len(words)
+
+
 def validate_web_content(title: str | None, text: str | None) -> tuple[bool, str | None]:
     """본문이 정상 콘텐츠인지 사전 검증. (ok: bool, reason: str | None).
     
@@ -139,4 +156,21 @@ def validate_web_content(title: str | None, text: str | None) -> tuple[bool, str
         if alphanumeric_count / length < 0.30:
             return False, "low_quality: low_alphanumeric_density"
 
+    # 6. UI Shell / 비디오 추천 노이즈 검증 (짧은 본문에서 UI 버튼 문구나 해시태그 주도)
+    if length < 1500:
+        ui_matches = len(_UI_SHELL_RE.findall(t))
+        hashtags = len(re.findall(r"#\s*[\w가-힣]+", t))
+        if ui_matches >= 2:
+            return False, "low_quality: ui_shell_noise"
+        if hashtags >= 5:
+            return False, "low_quality: hashtag_spam_noise"
+        if ui_matches >= 1 and hashtags >= 3:
+            return False, "low_quality: ui_and_hashtag_noise"
+        # UI 잡음 또는 해시태그가 존재하면서 어휘 다양도가 낮으면 UI 쉘/추천 노이즈로 차단
+        if (ui_matches >= 1 or hashtags >= 2):
+            lex_div = calculate_lexical_diversity(t)
+            if lex_div < 0.40:
+                return False, "low_quality: low_lexical_diversity"
+
     return True, None
+

@@ -139,6 +139,9 @@ def fetch_web(url: str, *, full_content: bool = False) -> Document:
 
     # 4) CDP(nodriver) 에스컬레이션 — 실제 Chromium 렌더링. 최후수단(느림, 브라우저 필요).
     if not usable:
+        from .video import is_video_or_audio_url
+        if is_video_or_audio_url(url) or (effective_url and is_video_or_audio_url(effective_url)):
+            raise FetchError(f"미디어/비디오 URL은 웹 브라우저 크롤러(CDP)로 fallback할 수 없습니다: {effective_url or url}")
         d_title, d_text, d_links, d_anchors, d_images = _fetch_cdp(url)
         d_usable, d_guard_err = _is_usable(d_title or title, d_text)
         if d_usable:
@@ -399,7 +402,12 @@ def _extract_html(
 
     # 본문: script/style/nav/footer 제거 후 텍스트. 이미지도 본문 영역에서만 모은다
     # (nav/header/footer 의 로고·아이콘은 이 제거로 함께 빠진다).
-    for bad in tree.xpath("//script | //style | //noscript | //nav | //footer | //header"):
+    for bad in tree.xpath(
+        "//script | //style | //noscript | //nav | //footer | //header | "
+        "//*[contains(@class, 'sn_wrap')] | //*[contains(@class, 'section_napp_open')] | "
+        "//*[contains(@class, 'app_banner')] | //*[contains(@class, 'modal')] | "
+        "//*[contains(@class, 'recommend_wrap')] | //*[contains(@class, 'related_videos')]"
+    ):
         if bad.getparent() is not None:
             bad.getparent().remove(bad)
     images = _collect_images(tree, og_image)

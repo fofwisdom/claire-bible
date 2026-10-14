@@ -55,7 +55,9 @@ Rules:
 - relations: typed edges between entities you listed (reference them by exact `name`).
   Use the relation types provided; only set `proposed_type` if none fits.
 - Do NOT invent facts not supported by the document.
+- STRICT PROPORTIONALITY & NO HALLUCINATION: Do NOT invent facts, methods, metrics, or claims not directly supported by the document. If the document is brief or lacks detail, keep your summary, key claims, and entity extraction strictly proportional to what is genuinely stated; NEVER extrapolate speculative architectures, unmentioned results, or fabricated facts.
 """
+
 
 import re
 
@@ -630,7 +632,9 @@ def render_detail_prompt_md(
         "깔끔히 재구성하여 보존하라. 단, 테이블 내에 들어있는 미디어(이미지·아이콘·뱃지 등)는 표의 가독성과 서식 유지를 위해 제거·생략을 허용한다.\n"
         "5. 고유명사·제품/도구/모델명·조직명·기술 용어는 원문 형태 그대로 유지하라"
         '(음차/번역 금지: 예 "arXiv", "LLM agent").\n'
-        "6. 원문에 없는 사실은 절대 지어내지 말 것.\n"
+        "6. [★ 원문 엄격 비례 및 환각/추측 절대 금지]\n"
+        "   - 원문에 직접적으로 언급되지 않은 사실, 가상의 기술 스택/방법론, 임의의 수치나 결과, 근거 없는 배경 맥락은 절대 지어내지 마라.\n"
+        "   - 원문 내용이 짧거나 제한적인 경우 억지로 분량을 부풀리지 말고 실제 기술된 사실에 엄격히 비례하여 충실하게 서술하라.\n"
         "7. 절단 섹션 상세 작성 배제(적재 정책): 원문을 절단하여 적재 및 상세 작성 시, 절단되어 내용이 유실된 섹션은 상세를 작성하지 않는다. 본문 중간이나 말미에서 텍스트가 끊겨 온전히 이어지지 않는 불완전한 섹션(잘린 문단, 미완성 소제목·조항 등)은 억지로 추론하거나 불완전하게 작성하지 말고 완전히 제외(생략)하며, 온전하게 보존된 섹션까지만 상세를 작성하라.\n"
         "8. [★ 중요: 문서 레벨 서지 정보 및 부제 행 표기 절대 금지]\n"
         "   - 문서 제목(`# 제목`) 바로 아래 행에 저자, 발표자, 소속 기관, 발행처, 유튜브 채널명 등의 부제/저자 행을 일체 작성하지 마라.\n"
@@ -699,7 +703,9 @@ def render_detail_prompt_adoc(
         '(음차/번역 금지: 예 "arXiv", "LLM agent").\n'
         "10. 수식 및 공식 보존: 수학, 통계, 암호학, 알고리즘 공식 및 기호는 원문을 온전히 보존하라. 문장 내에 등장하는 개별 그리스 문자(예: \\lambda, \\omega, \\alpha)나 수학 기호(\\in, \\ge, \\sum)라도 반드시 인라인 수식 `stem:[공식]`(예: `stem:[E = mc^2]`, `stem:[\\lambda_o]`) 또는 `$ \\lambda_o $`로 감싸라. 블록 수식은 `[latexmath]\\n++++\\n수식\\n++++` 또는 `$$ 수식 $$`을 사용하여 기호나 공식을 정확하게 보존하라.\n"
         "11. 상호 참조 및 앵커: 긴 문서의 주요 섹션에는 `[#섹션ID]` 앵커를 부여하고, 필요시 `<<섹션ID, 제목>>` 상호 참조를 활용하라.\n"
-        "12. 원문에 없는 사실은 절대 지어내지 말 것.\n"
+        "12. [★ 원문 엄격 비례 및 환각/추측 절대 금지]\n"
+        "    - 원문에 직접적으로 언급되지 않은 사실, 가상의 기술 스택/방법론, 임의의 수치나 결과, 근거 없는 배경 맥락은 절대 지어내지 마라.\n"
+        "    - 원문 내용이 짧거나 제한적인 경우 억지로 분량을 부풀리지 말고 실제 기술된 사실에 엄격히 비례하여 충실하게 서술하라.\n"
         "13. 절단 섹션 상세 작성 배제(적재 정책): 원문을 절단하여 적재 및 상세 작성 시, 절단되어 내용이 유실된 섹션은 상세를 작성하지 않는다. 본문 중간이나 말미에서 텍스트가 끊겨 온전히 이어지지 않는 불완전한 섹션(잘린 문단, 미완성 소제목·조항 등)은 억지로 추론하거나 불완전하게 작성하지 말고 완전히 제외(생략)하며, 온전하게 보존된 섹션까지만 상세를 작성하라.\n"
         "14. [★ 중요: 문서 레벨 서지 정보 및 저자 라인 표기 절대 금지]\n"
         "   - 문서 제목(`= 제목`) 바로 아래 행에 저자, 발표자, 소속 기관, 발행처, 유튜브 채널명 등의 부제/저자 라인을 일체 작성하지 마라.\n"

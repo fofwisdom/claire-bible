@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import concurrent.futures
 import json
+import re
 import sqlite3
 import time
 from collections.abc import Callable
@@ -664,6 +665,45 @@ def _link_existing_presentation_documents(
         doc.meta["presentation_document_id"] = linked[0]
 
 
+def validate_extractable_content(doc: Document) -> tuple[bool, str | None]:
+    """문서가 LLM 구조화 추출 및 가독 상세 생성을 수행하기에 충분한 실질 콘텐츠를 가졌는지 사전 검증."""
+    if not doc.raw_text or not doc.raw_text.strip():
+        return False, "본문 내용이 비어 있습니다 (empty_content)"
+
+    raw = doc.raw_text.strip()
+
+    # 1. 비디오 문서: 자막/STT나 프레젠테이션 첨부 없이 플레이스홀더만 있는 경우 차단
+    if doc.source_type == "video":
+        meta = doc.meta or {}
+        has_transcript = meta.get("has_transcript")
+        has_pres = bool(
+            meta.get("presentation_pdf")
+            or meta.get("presentation_pdfs")
+            or meta.get("presentation_document_id")
+        )
+        if has_transcript is False and not has_pres:
+            # 플레이스홀더 문구 및 메타데이터 블록 제거 후 실질 본문 길이 확인
+            cleaned = re.sub(r"\[영상 자막\]\s*\([^\)]+\)", "", raw)
+            cleaned = re.sub(r"재생 시간:[^\n]+", "", cleaned)
+            cleaned = re.sub(r"\[태그\][^\n]+", "", cleaned)
+            cleaned = cleaned.strip()
+            if len(cleaned) < 250:
+                return (
+                    False,
+                    "영상 자막/STT 또는 프레젠테이션 내용이 없어 본문 추출이 불가능합니다 (video_transcript_missing)",
+                )
+
+    # 2. 웹 문서: 저품질/UI 쉘/차단 가드 검증
+    if doc.source_type in ("web", "custom"):
+        from .fetchers.guard import validate_web_content
+
+        ok, reason = validate_web_content(doc.title, raw)
+        if not ok:
+            return False, f"저품질 또는 비정상 콘텐츠 차단 (content_guard: {reason})"
+
+    return True, None
+
+
 def extract_resolve_store(
     conn: sqlite3.Connection,
     provider: Provider,
@@ -682,7 +722,12 @@ def extract_resolve_store(
 
     ingest(신규 적재)와 refresh(복원 재적재)가 공유한다. doc.id 기준으로 동작하므로 refresh 시 같은 id 로 호출하면 기존 엔티티 sources 에 누적된다(연결 보존). 추출 실패 시 (False, error). 성공 시 (True, None).
     """
+    valid, guard_err = validate_extractable_content(doc)
+    if not valid:
+        return False, f"insufficient_content: {guard_err}"
+
     from ..config import get_settings
+
 
     settings = get_settings()
     eff = effort
@@ -1187,7 +1232,14 @@ def ensure_document_detail(
     else:
         fmt = "md"
 
+    valid, guard_err = validate_extractable_content(doc)
+    if not valid:
+        if out_error is not None:
+            out_error.append(f"insufficient_content: {guard_err}")
+        return False
+
     focus_val = focus if focus is not None else (doc.meta or {}).get("focus")
+
 
     if not force:
         existing_detail = dbm.get_document_detail(conn, doc.id)

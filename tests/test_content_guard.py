@@ -134,3 +134,35 @@ def test_korean_browser_ssl_error_detection():
     assert ok is False
     assert reason == "blocked: ssl_or_browser_error"
 
+
+def test_ui_shell_noise_detection():
+    # 비디오 플레이어 컨트롤 및 UI 버튼 텍스트가 2개 이상 섞인 얇은 페이지 차단
+    ui_noise_text = (
+        "[기술밋업] 네이버 개발자가 들려주는 기술 이야기 "
+        "소리를 켜려면 탭하세요. 음소거 해제. 닫기 버튼. "
+        "본문 더보기 네이버앱 열기 앱에서 보기 "
+    ) * 3
+    ok, reason = validate_web_content("네이버 클립", ui_noise_text)
+    assert ok is False
+    assert reason == "low_quality: ui_shell_noise"
+
+
+def test_hashtag_spam_noise_detection():
+    # 해시태그가 5개 이상 집중된 저품질 숏폼 텍스트 차단
+    hashtag_text = (
+        "임피티 밥 먹고 서서 3분만 걸어보세요 "
+        "#임피티 #식후혈당 #혈당스파이크 #다이어트꿀팁 #당뇨관리 #건강정보 #혈당관리 "
+        "간단한 건강 상식을 알아봅니다. 자세한 내용은 채널에서 확인하세요. "
+    ) * 2
+    ok, reason = validate_web_content("건강 꿀팁", hashtag_text)
+    assert ok is False
+    assert reason == "low_quality: hashtag_spam_noise"
+
+
+def test_ui_and_low_lexical_diversity_detection():
+    # UI 버튼이 1개 있고 극단적인 단순 반복 단어로 채워진 텍스트 차단
+    repetitive_with_ui = "소리를 켜려면 클릭하세요. " + ("반복 " * 150)
+    ok, reason = validate_web_content("테스트", repetitive_with_ui)
+    assert ok is False
+    assert reason == "low_quality: low_lexical_diversity"
+

@@ -116,7 +116,7 @@ def register_web_adapter(name: str, domains: tuple[str, ...] = (), priority: int
 
 
 def load_builtin_fetchers() -> None:
-    from .fetchers import law, discourse, video, youtube, xcom, hoyowiki, hoyolab
+    from .fetchers import law, discourse, video, youtube, xcom, hoyowiki, hoyolab, naver_clip
     # add other builtins if needed
 
 def load_plugins_from_dir(plugin_dir: Path) -> None:
