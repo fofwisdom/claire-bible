@@ -359,7 +359,130 @@ def test_api_document_matrix_purge_auth_and_persistence(tmp_path: Path):
     assert r_docs.status_code == 200
     docs_list = r_docs.json().get("documents") or []
     target_in_list = next((d for d in docs_list if d["id"] == doc_id), None)
-    assert target_in_list is not None
     assert target_in_list.get("heatmap_matrix") is None
+
+
+def test_evaluate_decision_matrix_reflects_decision_scores_in_both_modes():
+    settings_fallback = Settings(enable_jev=False)
+    decisions = [
+        ResolutionDecision(
+            entity="Anthropic",
+            candidate="Anthropic",
+            stage="exact_match",
+            decision="MERGE",
+            score=1.0,
+            reason="Exact normalized name match",
+        ),
+        ResolutionDecision(
+            entity="Git",
+            candidate="Git",
+            stage="exact_match",
+            decision="MERGE",
+            score=1.0,
+            reason="Exact normalized name match",
+        ),
+    ]
+    extracted = ["Anthropic", "Git", "Scion"]
+    candidates = ["Anthropic", "Git", "PyTorch"]
+
+    res_fallback = evaluate_decision_matrix(
+        settings=settings_fallback,
+        document_id="doc_test_scores",
+        extracted_entities=extracted,
+        candidate_entities=candidates,
+        decisions=decisions,
+    )
+    assert res_fallback.generated_by == "fallback_vector"
+    assert res_fallback.matrix[0][0] == 1.0
+    assert res_fallback.matrix[1][1] == 1.0
+
+    settings_jev = Settings(enable_jev=True, jev_api_key="valid-test-key")
+    res_jev = evaluate_decision_matrix(
+        settings=settings_jev,
+        document_id="doc_test_scores_jev",
+        extracted_entities=extracted,
+        candidate_entities=candidates,
+        decisions=decisions,
+    )
+    assert res_jev.generated_by == "jev"
+    assert res_jev.matrix[0][0] == 1.0
+    assert res_jev.matrix[1][1] == 1.0
+
+
+def test_pipeline_heatmap_matrix_prioritizes_decision_candidates(tmp_path: Path, monkeypatch):
+    from unittest.mock import MagicMock
+    from claire.ingest.pipeline import ingest
+    from claire.ontology.base import Document, Entity
+    from claire.store import db as dbm
+    from claire.store.vectors import VectorStore
+
+    monkeypatch.setenv("CLAIRE_ENABLE_JEV", "1")
+    monkeypatch.setenv("CLAIRE_JEV_API_KEY", "valid-key")
+
+    db_path = tmp_path / "claire.db"
+    conn = dbm.connect(db_path)
+    dbm.init_db(conn)
+    vstore = VectorStore(conn, "brute")
+
+    for i in range(40):
+        dbm.upsert_entity(conn, Entity(id=f"dummy_{i}", name=f"OldEntity_{i:02d}", type="Concept", sources=["old"]))
+
+    dbm.upsert_entity(conn, Entity(id="ent_anthropic", name="Anthropic", type="Org", sources=["old"]))
+    dbm.upsert_entity(conn, Entity(id="ent_git", name="Git", type="Tool", sources=["old"]))
+
+    from claire.extract.provider import ExtractionResult, ExtractedEntity
+
+    mock_provider = MagicMock()
+    mock_provider.name = "mock"
+    mock_provider.model = "mock"
+    mock_provider.effort = "low"
+    mock_provider.embed.return_value = [0.1] * 32
+    mock_provider.extract.return_value = ExtractionResult(
+        summary="Summary of Anthropic and Git source control",
+        entities=[
+            ExtractedEntity(name="Anthropic", type="Org", aliases=[], observations=[]),
+            ExtractedEntity(name="Git", type="Tool", aliases=[], observations=[]),
+            ExtractedEntity(name="Scion", type="Tool", aliases=[], observations=[]),
+        ],
+        relations=[],
+        model="mock",
+        prompt_version="v1",
+        raw_response="{}",
+    )
+
+    doc = Document(
+        url="https://example.com/anthropic-scion",
+        title="Anthropic Scion",
+        raw_text="Anthropic built Scion to replace Git.",
+        source_type="web",
+        content_hash="hash-anthropic-001",
+    )
+
+    report = ingest(
+        "https://example.com/anthropic-scion",
+        conn=conn,
+        provider=mock_provider,
+        vstore=vstore,
+        vault_dir=tmp_path / "vault",
+        fetch_fn=lambda url, *args, **kwargs: doc,
+    )
+
+    assert report.error is None
+    assert report.heatmap_matrix is not None
+    cols = report.heatmap_matrix["cols"]
+    rows = report.heatmap_matrix["rows"]
+    matrix = report.heatmap_matrix["matrix"]
+
+    assert "Anthropic" in cols
+    assert "Git" in cols
+    anthropic_r = rows.index("Anthropic")
+    anthropic_c = cols.index("Anthropic")
+    git_r = rows.index("Git")
+    git_c = cols.index("Git")
+
+    assert matrix[anthropic_r][anthropic_c] == 1.0
+    assert matrix[git_r][git_c] == 1.0
+    conn.close()
+
 
 
