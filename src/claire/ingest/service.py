@@ -777,9 +777,12 @@ class IngestService:
         """
         import json as _json
         import re as _re
-        from urllib.parse import parse_qs, urlsplit
-
-        from ..extract.prompts import PROMPT_VERSION, clean_plain_summary, is_corrupted_summary
+        from ..extract.prompts import (
+            PROMPT_VERSION,
+            clean_plain_summary,
+            is_corrupted_summary,
+            is_preface_summary,
+        )
         from ..extract.table_budget import extract_tables_from_text
         from .pipeline import ensure_document_detail
 
@@ -906,6 +909,7 @@ class IngestService:
                         "canonical_url": doc.canonical_url,
                         "current_summary": curr_summary,
                         "summary_corrupted": is_corrupted,
+                        "summary_preface": is_preface_summary(raw_summ) or is_preface_summary(curr_summary),
                         "is_error_page": is_err,
                         "current_detail_format": curr_fmt,
                         "total_tables": total_tables,

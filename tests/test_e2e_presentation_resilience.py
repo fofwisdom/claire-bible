@@ -63,6 +63,7 @@ The website of the future may assemble itself for every visitor.
         render_format="adoc",
         public_url="http://127.0.0.1:8765",
         environment="development",
+        presentation_enabled=True,
     )
     app = create_app(s)
 

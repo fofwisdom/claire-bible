@@ -133,7 +133,7 @@ def evaluate_summary_verdict(
     provider_name: str | None = None,
 ) -> str:
     """추출된 요약문의 내용 실체성 및 결손(Fallback) 형태 판정."""
-    from ..extract.prompts import is_corrupted_summary
+    from ..extract.prompts import is_corrupted_summary, is_preface_summary
 
     if not summary or not summary.strip():
         return "EMPTY"
@@ -153,6 +153,9 @@ def evaluate_summary_verdict(
 
     if is_corrupted_summary(s):
         return "CORRUPTED_ADOC"
+
+    if is_preface_summary(s):
+        return "PREFACE_META"
 
     return "REAL_LLM"
 

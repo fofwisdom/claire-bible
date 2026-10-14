@@ -205,15 +205,18 @@ def test_summary_prompt_plain_text_definition():
     )
     from claire.extract.provider import ExtractionResult
 
-    assert PROMPT_VERSION == "extract-v7"
+    assert PROMPT_VERSION == "extract-v8"
 
     sys = extract_system_prompt("{ontology}")
     assert "plain text" in sys.lower() or "평문" in sys
     assert "asciidoc" in sys.lower()
     assert "[NOTE]" in sys or "|===" in sys
+    assert "executive summary" in sys.lower() or "핵심 요약" in sys
+    assert "preface" in sys.lower() or "서문" in sys
 
     fb = extract_fallback_prompt(sys, "sample doc")
     assert "plain text" in fb.lower() or "평문" in fb
+    assert "executive summary" in fb.lower()
 
     search_p = summarize_search_prompt("query", "context")
     assert "plain text" in search_p.lower()
@@ -223,6 +226,7 @@ def test_summary_prompt_plain_text_definition():
     summary_desc = schema["properties"]["summary"]["description"]
     assert "plain text" in summary_desc.lower() or "평문" in summary_desc
     assert "asciidoc" in summary_desc.lower()
+    assert "preface" in summary_desc.lower() or "foreword" in summary_desc.lower()
 
 
 def test_regenerate_detects_error_page(populated_service):
@@ -494,6 +498,88 @@ def test_latest_extraction_summary_with_biblio_header_detail_fallback(temp_db):
     assert "저자: Chungsu Lee" not in summary
     assert "발행일: 2026-09-10" not in summary
     assert "VCF Private AI Service는 오픈소스 조합의 복잡성과 불확실성을 제거하고" in summary
+    conn.close()
+
+
+def test_is_preface_summary_detection():
+    """is_preface_summary 가 서문/소개문 메타 서술을 정확히 감지하고 실질 요약문은 통과시키는지 검증."""
+    from claire.extract.prompts import is_preface_summary
+
+    # Positive: 서문형 메타 안내문 패턴
+    assert is_preface_summary("이 글은 Anthropic의 자체 버전 관리 시스템 개발 배경을 다룬다.")
+    assert is_preface_summary("본 문서는 대규모 분산 캐시 아키텍처와 최적화 기법에 대해 소개한다.")
+    assert is_preface_summary("본고에서는 신규 아키텍처의 주요 구성 요소에 대해 차례로 살펴본다.")
+    assert is_preface_summary("이 포스트는 기업의 마이그레이션 경험과 성과를 공유하고자 한다.")
+
+    # Negative: 실체적 에그제큐티브 서머리
+    assert not is_preface_summary("Anthropic은 일일 머지 건수 폭증에 따른 Git 병목을 해결하기 위해 자체 버전 관리 시스템 Scion을 개발하였다.")
+    assert not is_preface_summary("인공지능 도구의 아키텍처와 최적화 기법을 다룬 연구 논문이다.")
+    assert not is_preface_summary("Scion은 클라이언트-서버 비대칭성과 계층형 캐시를 채택하여 체크아웃 지연 시간을 서브세컨드로 단축하였다.")
+    assert not is_preface_summary("")
+    assert not is_preface_summary(None)
+
+
+def test_clean_plain_summary_skips_preface_paragraphs():
+    """clean_plain_summary 가 본문 첫 머리에 등장하는 서문/메타 안내 단락을 건너뛰고 실질 본문 단락을 선택하는지 검증."""
+    from claire.extract.prompts import clean_plain_summary
+
+    text_with_preface = (
+        "= 대규모 버전 관리 아키텍처\n\n"
+        "이 글은 대규모 에이전트 환경에서 발생하는 소스 제어 인프라 병목과 Scion 구축 과정을 다룬다.\n\n"
+        "Anthropic은 일일 머지 건수가 30,000건을 넘어서자 기존 Git을 대체하는 분산 버전 관리 시스템 Scion을 5개월 만에 구축하였다."
+    )
+    cleaned = clean_plain_summary(text_with_preface)
+    assert "이 글은 대규모 에이전트 환경에서 발생하는" not in cleaned
+    assert "Anthropic은 일일 머지 건수가 30,000건을 넘어서자" in cleaned
+
+
+def test_latest_extraction_summary_prioritizes_key_claims_over_detail_fallback(temp_db):
+    """extraction summary 가 비어있더라도 key_claims 가 존재하면 detail 개요 단락 대신 key_claims 를 요약으로 채택하는지 검증."""
+    conn = dbm.connect(temp_db)
+    doc_id = "doc_key_claims_fallback_test"
+    doc_detail = (
+        "= Scion 시스템 아키텍처\n\n"
+        "== 개요: 개발 배경 및 도입\n\n"
+        "코드 생성이 급증하면서 기존 인프라에 심각한 병목 현상이 발생하기 시작했다.\n"
+    )
+    doc = Document(
+        id=doc_id,
+        title="Scion 아키텍처",
+        raw_text="원문 본문",
+        canonical_url="https://example.com/scion",
+        source_type="web",
+        content_hash="h_kc_1",
+        fetched_at=1700000000.0,
+    )
+    dbm.insert_document(conn, doc)
+    dbm.set_document_detail(conn, doc_id, doc_detail, format="adoc")
+
+    # summary 는 비어있지만 유의미한 key_claims 가 있는 extraction 등록
+    ext_payload = json.dumps(
+        {
+            "summary": "",
+            "key_claims": [
+                "일일 머지 건수가 30,000건을 초과하여 Git 인프라 한계에 직면함.",
+                "가상 파일시스템과 계층형 캐시를 기반으로 체크아웃 속도를 획기적으로 개선함.",
+            ],
+            "entities": [],
+            "relations": [],
+        },
+        ensure_ascii=False,
+    )
+    dbm.log_extraction(
+        conn,
+        document_id=doc_id,
+        provider="test",
+        model="test-model",
+        prompt_version=1,
+        raw_response=ext_payload,
+    )
+
+    summary = dbm.latest_extraction_summary(conn, doc_id)
+    assert summary is not None
+    assert "일일 머지 건수가 30,000건을 초과하여" in summary
+    assert "코드 생성이 급증하면서 기존 인프라에 심각한 병목" not in summary
     conn.close()
 
 

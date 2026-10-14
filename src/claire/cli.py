@@ -1626,6 +1626,8 @@ def cmd_regenerate(args) -> int:
                 print("    [!] 원문이 SSL/보안 오류 화면으로 감지됨 (--refetch 또는 --refetch-full 함께 사용 권장)")
             if t.get("summary_corrupted"):
                 print("    [!] 요약 내 ADOC/마크업 문법 잔존 감지")
+            if t.get("summary_preface"):
+                print("    [!] 요약이 서문/소개문 메타 서술 형식으로 감지됨")
             if t.get("total_tables"):
                 print(f"    [📊] 표 {t['total_tables']}개 감지 (원문: {t.get('raw_tables_count',0)}개, 상세: {t.get('detail_tables_count',0)}개)")
                 if t.get("table_preview"):

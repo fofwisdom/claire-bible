@@ -27,6 +27,7 @@ from .prompts import (
     clean_plain_summary,
     doc_to_prompt,
     extract_system_prompt,
+    is_preface_summary,
     judge_relationship_prompt,
     judge_research_prompt,
     judge_same_entity_prompt,
@@ -362,6 +363,10 @@ class CodexProvider:
                 result.summary = clean_plain_summary(shortened)
             elif doc.title:
                 result.summary = f"{doc.title}에 관한 자료이다."
+        elif is_preface_summary(result.summary) and result.key_claims:
+            claims_summary = clean_plain_summary(" ".join(result.key_claims[:3]))
+            if claims_summary and len(claims_summary) >= 30:
+                result.summary = claims_summary
 
         result.model = self.model
         result.prompt_version = PROMPT_VERSION

@@ -142,6 +142,9 @@ def test_evaluate_summary_verdict():
     corrupted_summary = "= Title\n== Section\n[NOTE]\nCorrupted content"
     assert evaluate_summary_verdict(corrupted_summary, raw_text) == "CORRUPTED_ADOC"
 
+    preface_summary = "본 글은 대규모 분산 아키텍처를 소개한다."
+    assert evaluate_summary_verdict(preface_summary, raw_text) == "PREFACE_META"
+
     clean_summary = "인공지능 도구의 아키텍처와 최적화 기법을 다룬 연구 논문이다."
     assert evaluate_summary_verdict(clean_summary, raw_text) == "REAL_LLM"
 

@@ -2250,17 +2250,29 @@ def latest_extraction_summary(conn: sqlite3.Connection, document_id: str) -> str
         (document_id,),
     ).fetchone()
     summary = None
+    key_claims = None
     if row and row["raw_response"]:
         try:
-            summary = json.loads(row["raw_response"]).get("summary")
+            parsed = json.loads(row["raw_response"])
+            summary = parsed.get("summary")
+            key_claims = parsed.get("key_claims")
         except (ValueError, AttributeError):
             summary = None
+            key_claims = None
     if summary and summary.strip():
         cleaned = clean_plain_summary(summary)
         if cleaned:
             return cleaned
 
-    # Fallback: extraction 에 요약이 없거나 정제 후 빈 경우, detail 또는 raw_text 에서 평문 단락 추출
+    # Fallback 1: extraction 내 key_claims 가 있다면 이를 조합하여 실체적 요약 구성
+    if key_claims and isinstance(key_claims, list):
+        claims_text = " ".join(str(c).strip() for c in key_claims[:3] if str(c).strip())
+        if claims_text:
+            cleaned_claims = clean_plain_summary(claims_text)
+            if cleaned_claims:
+                return cleaned_claims
+
+    # Fallback 2: extraction 에 요약/주장이 없거나 정제 후 빈 경우, detail 또는 raw_text 에서 평문 단락 추출
     doc_row = conn.execute(
         "SELECT detail, raw_text, title FROM documents WHERE id=?", (document_id,)
     ).fetchone()

@@ -48,8 +48,10 @@ class ExtractionResult(BaseModel):
     summary: str = Field(
         default="",
         description=(
-            "1-3 factual sentences in Korean written style (문어체: ~한다/~이다) summarizing "
-            "the document in pure plain text (평문, no AsciiDoc or Markdown markup)"
+            "1-3 factual sentences in Korean written style (문어체: ~한다/~이다) providing an executive summary "
+            "of the entire document (core problem, specific technical solution/mechanism, and outcomes/conclusions) "
+            "in pure plain text (평문, no AsciiDoc or Markdown markup). Do NOT write an introductory preface, foreword, "
+            "or background-only outline."
         ),
     )
     key_claims: list[str] = Field(default_factory=list)

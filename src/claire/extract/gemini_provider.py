@@ -20,6 +20,7 @@ from .prompts import (
     clean_plain_summary,
     extract_fallback_prompt,
     extract_system_prompt,
+    is_preface_summary,
     judge_research_prompt,
     judge_relationship_prompt,
     judge_same_entity_prompt,
@@ -659,4 +660,8 @@ def _coerce(text: str | None) -> ExtractionResult:
             result.summary = f"{', '.join(e.name for e in result.entities[:5])} 등에 관한 자료이다."
         else:
             result.summary = clean_plain_summary(s[:300])
+    elif is_preface_summary(result.summary) and result.key_claims:
+        claims_summary = clean_plain_summary(" ".join(result.key_claims[:3]))
+        if claims_summary and len(claims_summary) >= 30:
+            result.summary = claims_summary
     return result
