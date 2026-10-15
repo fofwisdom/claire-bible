@@ -54,6 +54,8 @@ def test_e2e_hoyolab_article_vlm_ingestion(tmp_path: Path):
         service = IngestService(settings=settings)
         report = service.ingest(article_url, source="e2e-test")
 
+        mock_client.get_post.assert_called_once_with("46898605", lang="ko-kr")
+
         # 1. Pipeline execution status
         assert report.error is None
         assert report.source_type == "hoyolab"
