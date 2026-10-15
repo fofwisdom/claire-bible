@@ -351,6 +351,8 @@
       <div id="moremenu" aria-label="도구 및 그래프 설정">
         <div class="action-btn-row">
           <button id="addbtn" class="sec" onclick="openIngest()" title="URL·텍스트를 그래프에 적재" aria-label="적재"><span class="btn-icon">➕</span> <span class="btn-label">적재</span></button>
+          <button id="reingestbtn" class="sec" onclick="openReingest()" title="기존 문서를 다시 수집하여 그래프에 재적재" aria-label="재적재"><span class="btn-icon">🔄</span> <span class="btn-label">재적재</span></button>
+          <button id="purgebtn" class="sec" onclick="openPurge()" title="문서 영구 소각 및 지식그래프 정화" aria-label="소각"><span class="btn-icon">🔥</span> <span class="btn-label">소각</span></button>
           <button id="dedupbtn" class="sec" onclick="openDedup()" title="근사 중복 문서를 찾아 병합" aria-label="중복정리"><span class="btn-icon">♻️</span> <span class="btn-label">중복정리</span></button>
         </div>
         <div id="graph-section" class="menu-section" aria-label="그래프 및 문서 도구">
