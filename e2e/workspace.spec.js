@@ -1229,7 +1229,7 @@ test('database presentation toggle controls presentation tab visibility and iner
   });
 
   // 1. Authenticate as owner
-  await page.goto('/?t=e2e-owner-token-0123456789abcdef', { waitUntil: 'domcontentloaded' });
+  await page.goto('/?t=e2e-pres-token-0123456789abcdef01', { waitUntil: 'domcontentloaded' });
   await expect.poll(
     () => page.evaluate(() => window.claireDebug?.authScope),
   ).toBe('owner');
@@ -1287,7 +1287,7 @@ test('hidden documents list in document sidebar is scrollable when opened in own
   const pageErrors = [];
   page.on('pageerror', error => pageErrors.push(error.message));
   await page.setViewportSize({ width: 1280, height: 800 });
-  await page.goto('/?t=e2e-owner-token-0123456789abcdef', { waitUntil: 'domcontentloaded' });
+  await page.goto('/?t=e2e-hidden-token-0123456789abcdef01', { waitUntil: 'domcontentloaded' });
   await expect.poll(() => page.evaluate(() => window.claireDebug?.authScope)).toBe('owner');
   const showHiddenBtn = page.locator('#showhidden');
   await expect(showHiddenBtn).toBeVisible();
