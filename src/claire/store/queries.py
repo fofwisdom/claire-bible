@@ -200,6 +200,10 @@ def document_detail(
         )
         or (raw_text and ("[영상 음성 전사 (STT)]" in raw_text or "[음성 전사 (STT)]" in raw_text))
     )
+    is_vlm = bool(
+        meta_dict.get("vlm_transcribed", False)
+        or (raw_text and "## Infographic & Image Transcription" in raw_text)
+    )
 
     stt_data = dbm.extract_stt_transcript(raw_text, meta_dict) if is_stt else None
     stt_transcript = stt_data["text"] if stt_data else ""
@@ -265,6 +269,9 @@ def document_detail(
         "stt_truncated": stt_truncated,
         "stt_orig_chars": meta_dict.get("stt_orig_chars") or meta_dict.get("orig_chars"),
         "stt_raw_chars": meta_dict.get("stt_raw_chars") or meta_dict.get("raw_chars"),
+        "vlm_transcribed": is_vlm,
+        "vlm_images_count": meta_dict.get("vlm_images_count"),
+        "vlm_model": meta_dict.get("vlm_model"),
         "has_decision_stream": bool(meta_dict.get("has_decision_stream", False)),
         "resolution_log": meta_dict.get("resolution_log") or [],
         "heatmap_matrix": meta_dict.get("heatmap_matrix"),

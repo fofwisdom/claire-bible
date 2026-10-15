@@ -77,6 +77,9 @@ class IngestReport:
     detail_error: str | None = None
     summary_rendered: bool = True
     summary_error: str | None = None
+    vlm_transcribed: bool = False
+    vlm_images_count: int = 0
+    vlm_model: str | None = None
 
     def telegram_summary(self) -> str:
         if self.error:
@@ -174,6 +177,9 @@ class IngestReport:
                 meta_badges.append("🎙️ 음성 전사(STT)")
         if self.composite_ingest and not self.presentation_pdfs:
             meta_badges.append("📎⚡🌐 첨부+링크 복합 적재")
+        if self.vlm_transcribed:
+            vlm_cnt = f" ({self.vlm_images_count}장)" if self.vlm_images_count else ""
+            meta_badges.append(f"🖼️ 이미지 전사(VLM){vlm_cnt}")
         if self.full_content:
             meta_badges.append("🌐 원문 무절단 수집")
         if self.effort:
@@ -369,6 +375,12 @@ def ingest(
                     )
             if doc.meta.get("composite_ingest"):
                 report.composite_ingest = True
+            if "vlm_transcribed" in doc.meta:
+                report.vlm_transcribed = bool(doc.meta.get("vlm_transcribed"))
+            if "vlm_images_count" in doc.meta:
+                report.vlm_images_count = int(doc.meta.get("vlm_images_count") or 0)
+            if "vlm_model" in doc.meta:
+                report.vlm_model = doc.meta.get("vlm_model")
         if focus and focus.strip():
             if doc.meta is None:
                 doc.meta = {}
@@ -786,6 +798,12 @@ def extract_resolve_store(
             report.pdf_encoding_flaws = list(doc.meta.get("pdf_encoding_flaws") or [])
         if "pdf_is_scanned" in doc.meta:
             report.pdf_is_scanned = bool(doc.meta.get("pdf_is_scanned"))
+        if "vlm_transcribed" in doc.meta:
+            report.vlm_transcribed = bool(doc.meta.get("vlm_transcribed"))
+        if "vlm_images_count" in doc.meta:
+            report.vlm_images_count = int(doc.meta.get("vlm_images_count") or 0)
+        if "vlm_model" in doc.meta:
+            report.vlm_model = doc.meta.get("vlm_model")
 
     if getattr(doc, "id", None):
         try:

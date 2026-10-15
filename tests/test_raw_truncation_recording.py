@@ -129,13 +129,16 @@ def test_graph_html_contains_truncation_ui_and_css():
     assert ".focus-tag" in html
     assert ".stt-tag" in html
     assert ".cc-tag" in html
+    assert ".vlm-tag" in html
     assert "docMetaHtml" in html
     assert "✂️ 원문 일부 절단" in html
     assert "🎯" in html
     assert "🎙️ STT" in html
     assert "🔤 CC" in html
+    assert "🖼️ 이미지 전사" in html
     assert "음성 인식(STT)을 적용하여 작성한 문서" in html
     assert "영상 자막(CC)을 적용하여 작성한 문서" in html
+    assert "이미지 전사(VLM)를 적용하여 작성한 문서" in html
     assert "적재 시 지정한 초점: " in html
     assert "원문의 부록(Appendix) 부분을 절단한 문서" in html
     assert "글자 수 상한으로 원문 일부를 절단한 문서" in html
@@ -167,6 +170,7 @@ def test_shared_html_contains_docmeta_ui_and_css():
     assert ".focus-tag" in html
     assert ".stt-tag" in html
     assert ".cc-tag" in html
+    assert ".vlm-tag" in html
     assert "docMetaHtml" in html
     assert "✂️ 원문 일부 절단" in html
     assert "🎯" in html
@@ -179,6 +183,72 @@ def test_shared_html_contains_docmeta_ui_and_css():
     assert "적재되었습니다" not in html
     assert "h1 .rmeta" in html
     assert "(20,000자)" not in html
+
+
+def test_document_detail_and_ui_with_vlm():
+    import sqlite3
+
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    dbm.init_db(conn)
+    doc = Document(
+        id="doc_vlm_test",
+        title="VLM Infographic Test",
+        url="https://example.com/infographic",
+        raw_text="# Title\n\n## Infographic & Image Transcription\n\n### Card 1\nDetails",
+        source_type="hoyolab",
+        meta={
+            "vlm_transcribed": True,
+            "vlm_images_count": 5,
+            "vlm_model": "gemini-3.5-flash-lite",
+            "raw_truncated": False,
+        },
+    )
+    dbm.insert_document(conn, doc)
+
+    detail = document_detail(conn, "doc_vlm_test")
+    assert detail is not None
+    assert detail["vlm_transcribed"] is True
+    assert detail["vlm_images_count"] == 5
+    assert detail["vlm_model"] == "gemini-3.5-flash-lite"
+    assert detail["meta"]["vlm_transcribed"] is True
+
+    html = shared_html(detail)
+    assert ".vlm-tag" in html
+    assert "🖼️ 이미지 전사" in html
+    assert "이미지 전사(VLM)를 적용하여 작성한 문서" in html
+
+    # Node.js 런타임 평가 검증
+    import json
+    import subprocess
+    from claire.graphview import GRAPH_HTML
+    start = GRAPH_HTML.index("function docMetaHtml(dc){")
+    end = GRAPH_HTML.index("function renderReader(dc){")
+    fn = GRAPH_HTML[start:end]
+    js = f"""
+    function esc(s){{ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }}
+    {fn}
+    const d = {json.dumps(detail)};
+    console.log(docMetaHtml(d));
+    """
+    res = subprocess.run(["node", "-e", js], capture_output=True, text=True, check=True)
+    out = res.stdout
+    assert "🖼️ 이미지 전사 (5장)" in out
+    assert "vlm-tag" in out
+    assert "이미지 전사(VLM)를 적용하여 작성한 문서 (5장 이미지 전사) · 모델: gemini-3.5-flash-lite" in out
+
+    msg_start = GRAPH_HTML.index("function getDocMetaMessages(dc){")
+    msg_end = GRAPH_HTML.index("function docMetaMessageHtml(dc){")
+    msg_fn = GRAPH_HTML[msg_start:msg_end]
+    js_msg = f"""
+    function esc(s){{ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }}
+    {msg_fn}
+    const d = {json.dumps(detail)};
+    console.log(JSON.stringify(getDocMetaMessages(d)));
+    """
+    res_msg = subprocess.run(["node", "-e", js_msg], capture_output=True, text=True, check=True)
+    msgs = json.loads(res_msg.stdout)
+    assert any("이미지 전사(VLM)를 적용하여 작성한 문서 (5장 이미지 전사) · 모델: gemini-3.5-flash-lite" in m for m in msgs)
 
 
 
