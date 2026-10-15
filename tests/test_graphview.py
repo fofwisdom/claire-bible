@@ -1015,6 +1015,7 @@ def test_heatmap_matrix_mobile_and_visual_improvements():
     assert ".matrix-col-header" in GRAPH_HTML
     assert ".matrix-col-label" in GRAPH_HTML
     assert "writing-mode: vertical-rl;" in GRAPH_HTML
+    assert "text-orientation: sideways;" in GRAPH_HTML
     assert ".matrix-row-header" in GRAPH_HTML
     assert "max-width: 120px;" in GRAPH_HTML
 
