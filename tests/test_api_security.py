@@ -278,6 +278,8 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
     collaborator_post = {
         "/ingest",
         "/ingest-stream",
+        "/reingest",
+        "/reingest-stream",
         "/document/presentation/generate",
         "/document/presentation/compose",
         "/document/presentation/compile",
@@ -290,6 +292,8 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         "/document/pin",
         "/document/hide",
         "/document/title",
+        "/document/purge",
+        "/purge",
         "/synthesize",
         "/research",
         "/dedup/scan",

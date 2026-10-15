@@ -1514,6 +1514,223 @@ def cmd_ingest(args) -> int:
     return 0 if report.error is None else 1
 
 
+def cmd_reingest(args) -> int:
+    """기존 문서 또는 URL을 다시 수집하여 엔티티/관계/요약/상세를 완전히 재적재."""
+    import sys
+    from .store import db as dbm
+    from .ingest.service import IngestService
+
+    s, theme = get_effective_settings(args)
+    if theme and not getattr(args, "json", False):
+        print(f"[{theme.icon} 재적재 대상 테마: #{theme.id} - {theme.label}]")
+
+    target = getattr(args, "target", None)
+    doc_id = getattr(args, "doc_id", None)
+    url = getattr(args, "url", None)
+    query_target = target or doc_id or url
+    if not query_target:
+        print("claire reingest: [오류] 재적재할 대상(문서 ID, URL, 또는 텍스트)을 지정하십시오.", file=sys.stderr)
+        return 2
+
+    conn = dbm.connect(s.db_file)
+    dbm.init_db(conn)
+    svc = IngestService(s)
+
+    untombstone = getattr(args, "untombstone", False)
+    apply = getattr(args, "apply", False)
+    dry_run = getattr(args, "dry_run", False)
+    full_content = getattr(args, "full_content", False)
+    effort = getattr(args, "effort", None)
+    focus = getattr(args, "focus", None)
+    fmt = getattr(args, "format", None)
+    is_json = getattr(args, "json", False)
+
+    # 1. 툼스톤 검사 및 해제 (--untombstone 지정 시 원자적 해제)
+    if untombstone:
+        removed_tombstones = dbm.remove_tombstones(conn, target=query_target, doc_id=doc_id, url=url)
+        if removed_tombstones and not is_json:
+            print(f"[untombstone] 툼스톤 {removed_tombstones}건 해제 완료 (재적재 허용됨)")
+
+    # 2. 스마트 타깃 리졸버로 기존 문서 검색
+    matched_targets = dbm.resolve_document_targets(
+        conn,
+        target=target,
+        doc_id=doc_id,
+        url=url,
+    )
+
+    # 만약 기존 문서가 없고, target이 툼스톤에 걸려있는지 검사
+    if not matched_targets and not untombstone:
+        if dbm.is_tombstoned(conn, url=url or target):
+            print("claire reingest: [오류] 대상 URL이 이전에 소각(Purge)되어 툼스톤으로 등록되어 있습니다.", file=sys.stderr)
+            print("재적재를 허용하려면 --untombstone 플래그를 추가하십시오:", file=sys.stderr)
+            print(f"  claire reingest '{query_target}' --untombstone --apply", file=sys.stderr)
+            conn.close()
+            return 1
+
+    do_apply = apply and not dry_run
+
+    if not do_apply:
+        # Dry-Run 보고서
+        if matched_targets:
+            report = {
+                "dry_run": True,
+                "mode": "existing_document_reingest",
+                "matched_count": len(matched_targets),
+                "targets": matched_targets,
+                "full_content": full_content,
+                "effort": effort,
+                "focus": focus,
+            }
+            if is_json:
+                import json
+                print(json.dumps(report, ensure_ascii=False, indent=2))
+                conn.close()
+                return 0
+
+            print("claire reingest: [Dry-Run] 재적재 대상 분석 보고서 (실제 변경 안 됨)")
+            print("=" * 60)
+            print(f"• 일치하는 문서 수          : {len(matched_targets)} 건")
+            print(f"• 수집 분량                : {'전문 무절단 (full-content)' if full_content else '일반 (standard)'}")
+            if effort:
+                print(f"• 사고 수준 (effort)       : {effort}")
+            if focus:
+                print(f"• 지정 초점 (focus)        : {focus}")
+            print("-" * 60)
+            print("대상 문서 목록:")
+            for m in matched_targets:
+                u = m.get("url") or m.get("canonical_url") or "no-url"
+                print(f"  - [{m['id']}] {m.get('title') or '(제목 없음)'} ({u})")
+                print("      수행 예정: 원문 재수집(refetch) → 엔티티/관계 재추출 → 벡터 임베딩 → 상세/요약 갱신")
+            print("=" * 60)
+            print("[안내] 실제 재적재를 실행하려면 --apply 옵션을 추가하십시오:")
+            extra = " --full-content" if full_content else ""
+            if effort:
+                extra += f" --effort {effort}"
+            if focus:
+                extra += f" --focus '{focus}'"
+            if untombstone:
+                extra += " --untombstone"
+            print(f"  claire reingest '{query_target}' --apply{extra}")
+            conn.close()
+            return 0
+        else:
+            report = {
+                "dry_run": True,
+                "mode": "new_payload_ingest",
+                "payload": query_target,
+                "full_content": full_content,
+                "effort": effort,
+                "focus": focus,
+            }
+            if is_json:
+                import json
+                print(json.dumps(report, ensure_ascii=False, indent=2))
+                conn.close()
+                return 0
+
+            print("claire reingest: [Dry-Run] 신규 적재 대상 분석 (기존 DB 문서 없음)")
+            print("=" * 60)
+            print(f"• 대상 페이로드            : {query_target}")
+            print(f"• 수집 분량                : {'전문 무절단 (full-content)' if full_content else '일반 (standard)'}")
+            if effort:
+                print(f"• 사고 수준 (effort)       : {effort}")
+            if focus:
+                print(f"• 지정 초점 (focus)        : {focus}")
+            print("=" * 60)
+            print("[안내] 실제 적재를 실행하려면 --apply 옵션을 추가하십시오:")
+            print(f"  claire reingest '{query_target}' --apply")
+            conn.close()
+            return 0
+
+    # 실행 (Apply)
+    confirmed = getattr(args, "yes", False)
+    if not confirmed and sys.stdin.isatty() and len(matched_targets) > 1:
+        try:
+            ans = input(f"\n정말 위 {len(matched_targets)}건의 문서를 재적재하시겠습니까? [y/N]: ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            print("\n재적재 작업이 취소되었습니다.")
+            conn.close()
+            return 0
+        if ans not in ("y", "yes"):
+            print("재적재 작업이 취소되었습니다.")
+            conn.close()
+            return 0
+
+    conn.close()
+
+    def _on_progress(stage: str, msg: str = "") -> None:
+        if not is_json:
+            if msg:
+                print(f"[{stage}] {msg}", flush=True)
+            else:
+                print(f"[{stage}]", flush=True)
+
+    if matched_targets:
+        print("claire reingest: [재적재 시작] 원문 재수집 및 지식그래프 재구축 중...", flush=True)
+        res = svc.regenerate_components(
+            target=target,
+            doc_id=doc_id,
+            refetch=not full_content,
+            refetch_full=full_content,
+            all_components=True,
+            force=True,
+            effort=effort,
+            format=fmt,
+            focus=focus,
+            on_progress=_on_progress,
+        )
+        if is_json:
+            import json
+            print(json.dumps(res, ensure_ascii=False, indent=2))
+            return 0
+
+        print("=" * 60)
+        print(f"• 재적재 완료 문서 수       : {res.get('count', len(matched_targets))} 건")
+        for t in res.get("targets", []):
+            print(f"  - [{t['document_id']}] {t.get('title') or '(제목 없음)'}")
+            if t.get("refetched") or t.get("refetched_full"):
+                print(f"      원문 재수집 완료: {t.get('new_len', 0):,}자")
+            if t.get("entities_created") is not None:
+                print(f"      지식 노드 신규: {t.get('entities_created', 0)} · 기존 연결: {t.get('entities_linked', 0)} · 관계: {t.get('relations_added', 0)}")
+            if t.get("error"):
+                print(f"      [오류]: {t['error']}")
+        return 0
+    else:
+        print("claire reingest: [신규 적재 시작] 자료 수집 및 지식그래프 구축 중...", flush=True)
+        from .extract.provider import get_provider
+        from .ingest.pipeline import ingest
+        from .store.vectors import make_vector_store
+
+        conn2 = dbm.connect(s.db_file)
+        dbm.init_db(conn2)
+        provider = get_provider(s)
+        vstore = make_vector_store(conn2, s.vector_backend)
+        try:
+            report = ingest(
+                query_target,
+                conn=conn2,
+                provider=provider,
+                vstore=vstore,
+                vault_dir=s.vault_dir,
+                data_dir=s.data_dir,
+                source="cli-reingest",
+                expand_max=(0 if args.no_expand else s.expand_max),
+                format=fmt,
+                focus=focus,
+                effort=effort,
+                full_content=full_content,
+            )
+            if is_json:
+                import json
+                print(json.dumps(report.__dict__, default=str, ensure_ascii=False, indent=2))
+            else:
+                print(report.telegram_summary())
+            return 0 if report.error is None else 1
+        finally:
+            conn2.close()
+
+
 def cmd_reextract(args) -> int:
     """저장된 raw_text 로 전체 또는 표(Table) 포함 문서를 재추출(프롬프트 변경 반영, 예: 한글화, 표 보존)."""
     from .ingest.service import IngestService
@@ -4388,6 +4605,33 @@ def build_parser() -> argparse.ArgumentParser:
                     help="content focus guidance for detail rendering (e.g. 'architecture and internals')")
     pi.add_argument("-t", "--theme", default=None, help="target theme ID, sequence number, or label (default: default knowledge base)")
     pi.set_defaults(func=cmd_ingest)
+
+    pri = sub.add_parser(
+        "reingest",
+        help="re-ingest a document (URL, doc-id, share link, or text), refetching source and recreating knowledge graph and details (default: dry-run, requires --apply)",
+        description="Re-ingest an existing or new document: refetch source, re-extract entities/relations, recompute embeddings, and update summary/detail.",
+    )
+    pri.add_argument("target", nargs="?", default=None, help="target document ID, URL, share link (/p?s=token), or payload to re-ingest")
+    pri.add_argument("-t", "--theme", default=None, help="target theme ID, sequence number, or label")
+    pri.add_argument("--doc-id", default=None, help="specific document ID to re-ingest")
+    pri.add_argument("--url", default=None, help="specific URL to re-ingest")
+    pri.add_argument("--full", "--full-content", "--no-truncate", action="store_true", dest="full_content",
+                     help="re-ingest full content without character limit (lossless ingestion)")
+    pri.add_argument("--effort", "-e", choices=["none", "minimal", "low", "medium", "high", "max"], default=None,
+                     help="LLM reasoning effort level (none, minimal, low, medium, high, max)")
+    pri.add_argument("-f", "--focus", dest="focus", default=None,
+                     help="content focus guidance for detail rendering (e.g. 'architecture and internals')")
+    pri.add_argument("--format", choices=["md", "adoc"], default=None,
+                     help="detail render format (md or adoc, default: configured CLAIRE_RENDER_FORMAT)")
+    pri.add_argument("--expand", action="store_true", help="fetch and queue 1-hop related links found in content")
+    pri.add_argument("--no-expand", action="store_true", help="skip 1-hop candidate link detection")
+    pri.add_argument("--untombstone", action="store_true",
+                     help="lift and delete tombstone registry if target was previously purged, unblocking re-ingestion")
+    pri.add_argument("--apply", action="store_true", help="execute actual re-ingest operation (default: dry-run inspection)")
+    pri.add_argument("--dry-run", action="store_true", help="simulate re-ingest inspection without modifying database (default)")
+    pri.add_argument("--yes", "-y", action="store_true", help="confirm re-ingest operation without interactive prompt")
+    pri.add_argument("--json", action="store_true", help="output result in JSON format")
+    pri.set_defaults(func=cmd_reingest)
 
     ps = sub.add_parser(
         "search",

@@ -203,6 +203,21 @@ URL, 일반 텍스트, 또는 로컬 파일로부터 문서를 수집하고 지�
   * `--format {md,adoc}`: 상세 detail 렌더링 포맷 지정.
   * `--source-type {web,text,youtube,video,discourse,xcom}`: 수집 소스 유형 강제 지정 (video: 비디오 스트림 및 음성 전사).
 
+#### `reingest <target>`
+기존 문서 또는 URL을 다시 수집하여 엔티티, 관계, 임베딩, 요약, 상세(detail)를 완전히 재적재한다.
+* **사용법**: `claire reingest <target> [--doc-id <ID>] [--url <URL>] [-t <theme>] [--full-content] [--effort <level>] [--focus <focus>] [--untombstone] [--apply] [--dry-run] [--yes] [--json]`
+* **주요 옵션**:
+  * `target`: 재적재 대상 문서 ID, URL, 공유 링크(`/p?s=token`), 검색어, 또는 신규 적재 페이로드.
+  * `-t <theme>`, `--theme <theme>`: 대상 테마 지정 (ID, 시퀀스, 또는 레이블).
+  * `--full`, `--full-content`: 원문 길이 제한 없이 전체 무절단 수집.
+  * `--effort <level>`: LLM 사고/추론 레벨 지정 (`none`, `minimal`, `low`, `medium`, `high`, `max`).
+  * `-f <focus>`, `--focus <focus>`: 가독 상세 작성 초점 지정.
+  * `--untombstone`: 대상 문서가 이전에 소각(Purge)되어 툼스톤이 등록된 경우, 툼스톤을 원자적으로 해제하고 재적재 허용.
+  * `--apply`: 실제 재적재 실행 (기본값: Dry-Run 진단 리포트 출력).
+  * `--dry-run`: 변경 없이 시뮬레이션 진단만 출력 (기본값).
+  * `-y`, `--yes`: 비대화형 환경에서 확인 프롬프트 생략.
+  * `--json`: 결과를 JSON 형식으로 출력.
+
 ---
 
 ### 3.3 검색 및 질의 (Search)

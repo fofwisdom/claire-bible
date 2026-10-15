@@ -34,6 +34,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 PUBLIC_PATHS: tuple[str, ...] = ("/static/", "/images/", "/p/images/")
 
 from ..config import Settings, get_settings
+from ..ingest.pipeline import IngestReport
 from ..ingest.report_json import report_to_dict
 from ..ingest.service import IngestService, IngestServicePool
 from ..store import db as dbm
@@ -772,6 +773,106 @@ def create_app(
         rep_dict["theme_label"] = theme.label
         return JSONResponse(rep_dict)
 
+    async def do_reingest(request: Request) -> JSONResponse:
+        body = await _json_object(request)
+        theme, theme_settings, theme_svc = _get_theme_ctx(request, body)
+        scope = request_auth_scope(request)
+        if scope == "collaborator":
+            if theme.is_default or theme.id == 0:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Collaborator는 기본 지식베이스에 재적재할 수 없습니다. 추가 지식 테마를 선택하세요.",
+                )
+            if not theme.is_collaborator_accessible:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Collaborator에게 공개되지 않은 테마입니다.",
+                )
+        target = str(body.get("target") or body.get("payload") or body.get("id") or body.get("doc_id") or "").strip()
+        if not target:
+            raise HTTPException(status_code=400, detail="target or payload required")
+        expand_max = body.get("expand_max")
+        format_arg = str(body.get("format") or "").strip() or None
+        focus = str(body.get("focus") or "").strip() or None
+        if not focus and not theme.is_default and theme.id > 0 and getattr(theme, "default_focus", None):
+            focus = theme.default_focus.strip() or None
+
+        full_content = bool(body.get("full_content") or body.get("no_truncate") or False)
+        effort = str(body.get("effort") or "").strip() or None
+        untombstone = bool(body.get("untombstone", False))
+
+        if untombstone:
+            def _lift():
+                conn = dbm.connect_existing(theme_settings.db_file)
+                try:
+                    return dbm.remove_tombstones(conn, target=target)
+                finally:
+                    conn.close()
+            await asyncio.to_thread(_lift)
+
+        def _run() -> Any:
+            conn = dbm.connect_existing(theme_settings.db_file)
+            try:
+                matched = dbm.resolve_document_targets(conn, target=target)
+            finally:
+                conn.close()
+
+            if matched:
+                t_doc = matched[0]
+                res = theme_svc.regenerate_components(
+                    doc_id=t_doc["id"],
+                    refetch=not full_content,
+                    refetch_full=full_content,
+                    all_components=True,
+                    force=True,
+                    effort=effort,
+                    format=format_arg,
+                    focus=focus,
+                )
+                t_info = res.get("targets", [{}])[0] if res.get("targets") else {}
+                return {
+                    "document_id": t_doc["id"],
+                    "title": t_info.get("title") or t_doc.get("title") or target,
+                    "updated": True,
+                    "duplicate": False,
+                    "summary": t_info.get("new_summary") or "",
+                    "entities_created": t_info.get("entities_created", 0),
+                    "entities_linked": t_info.get("entities_linked", 0),
+                    "relations_added": t_info.get("relations_added", 0),
+                    "full_content": full_content,
+                    "effort": effort,
+                    "focus": focus,
+                    "theme_id": theme.id,
+                    "theme_label": theme.label,
+                }
+            else:
+                ingest_kwargs: dict[str, Any] = {
+                    "source": "api-reingest",
+                    "expand_max": expand_max,
+                }
+                if full_content:
+                    ingest_kwargs["full_content"] = True
+                if effort is not None:
+                    ingest_kwargs["effort"] = effort
+                if format_arg is not None:
+                    ingest_kwargs["format"] = format_arg
+                if focus is not None:
+                    ingest_kwargs["focus"] = focus
+                rep = theme_svc.ingest(target, **ingest_kwargs)
+                rep_dict = report_to_dict(rep)
+                rep_dict["theme_id"] = theme.id
+                rep_dict["theme_label"] = theme.label
+                return rep_dict
+
+        try:
+            result = await _run_expensive(_run)
+            return JSONResponse(result)
+        except HTTPException:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            _log_operation_failure(request, "reingest", exc)
+            return JSONResponse({"error": f"reingest failed: {exc}", "ok": False}, status_code=500)
+
     async def do_search(request: Request) -> JSONResponse:
         body = await _json_object(request)
         theme, _, theme_svc = _get_theme_ctx(request, body)
@@ -1224,6 +1325,58 @@ def create_app(
             resp["theme_id"] = theme.id
         return JSONResponse(resp)
 
+    async def document_purge_route(request: Request) -> JSONResponse:
+        body = await _json_object(request)
+        theme, theme_settings, _ = _get_theme_ctx(request, body)
+        scope = request_auth_scope(request)
+        if scope != "owner":
+            raise HTTPException(status_code=403, detail="소각(Purge) 권한은 소유자(owner) 전용입니다.")
+        if not s.is_purge_allowed:
+            return JSONResponse(
+                {"error": "데이터 소각이 정책에 의해 차단되었습니다 (CLAIRE_DATA_LIFECYCLE=append-only).", "ok": False},
+                status_code=403,
+            )
+        target = str(body.get("target") or body.get("id") or body.get("doc_id") or "").strip()
+        if not target:
+            raise HTTPException(status_code=400, detail="target required")
+        dry_run = bool(body.get("dry_run", False))
+        tombstone = bool(body.get("tombstone", True))
+        reason = str(body.get("reason") or "web_purge").strip() or "web_purge"
+
+        def _do_purge() -> dict[str, Any]:
+            conn = dbm.connect_existing(theme_settings.db_file)
+            try:
+                matched = dbm.resolve_document_targets(conn, target=target)
+                if not matched:
+                    return {"count": 0, "targets": [], "error": f"일치하는 소각 대상 문서를 찾을 수 없습니다: {target}"}
+                target_ids = [m["id"] for m in matched]
+                report = dbm.purge_document_cascade(
+                    conn,
+                    data_dir=theme_settings.data_dir,
+                    vault_dir=theme_settings.vault_dir,
+                    target_ids=target_ids,
+                    reason=reason,
+                    dry_run=dry_run,
+                    tombstone=tombstone,
+                )
+                if not dry_run:
+                    from ..ingest.active import purge_active_matrix
+                    for tid in target_ids:
+                        try:
+                            purge_active_matrix(theme_settings.data_dir, tid)
+                        except Exception:
+                            pass
+                report["targets"] = matched
+                report["theme_id"] = theme.id
+                return report
+            finally:
+                conn.close()
+
+        res = await asyncio.to_thread(_do_purge)
+        if res.get("error") and not res.get("targets"):
+            return JSONResponse(res, status_code=404)
+        return JSONResponse(res)
+
     async def synthesize_route(request: Request) -> JSONResponse:
         from ..store.queries import synthesize
 
@@ -1431,6 +1584,169 @@ def create_app(
                 except Exception as exc:  # noqa: BLE001
                     _log_operation_failure(request, "ingest stream", exc)
                     result = {"error": "ingest failed", "ok": False}
+                yield (
+                    json.dumps(
+                        {"done": True, "result": result},
+                        ensure_ascii=False,
+                    )
+                    + "\n"
+                ).encode()
+            finally:
+                if task.done():
+                    _consume_task_result(task)
+
+        return StreamingResponse(stream(), media_type="application/x-ndjson")
+
+    async def reingest_stream_route(request: Request) -> StreamingResponse:
+        from ..extract.provider import set_progress_callback
+
+        body = await _json_object(request)
+        theme, theme_settings, theme_svc = _get_theme_ctx(request, body)
+        scope = request_auth_scope(request)
+        if scope == "collaborator":
+            if theme.is_default or theme.id == 0:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Collaborator는 기본 지식베이스에 재적재할 수 없습니다. 추가 지식 테마를 선택하세요.",
+                )
+            if not theme.is_collaborator_accessible:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Collaborator에게 공개되지 않은 테마입니다.",
+                )
+        target = str(body.get("target") or body.get("payload") or body.get("id") or body.get("doc_id") or "").strip()
+        if not target:
+            raise HTTPException(status_code=400, detail="target or payload required")
+        expand_max = body.get("expand_max")
+        format_arg = str(body.get("format") or "").strip() or None
+        focus = str(body.get("focus") or "").strip() or None
+        if not focus and not theme.is_default and theme.id > 0 and getattr(theme, "default_focus", None):
+            focus = theme.default_focus.strip() or None
+
+        full_content = bool(body.get("full_content") or body.get("no_truncate") or False)
+        effort = str(body.get("effort") or "").strip() or None
+        untombstone = bool(body.get("untombstone", False))
+
+        if untombstone:
+            def _lift():
+                conn = dbm.connect_existing(theme_settings.db_file)
+                try:
+                    return dbm.remove_tombstones(conn, target=target)
+                finally:
+                    conn.close()
+            await asyncio.to_thread(_lift)
+
+        _reserve_expensive_job()
+        loop = asyncio.get_running_loop()
+        events: asyncio.Queue[dict[str, Any]] = asyncio.Queue(
+            maxsize=_PROGRESS_QUEUE_SIZE
+        )
+
+        def _enqueue_progress(event: dict[str, Any]) -> None:
+            if not events.full():
+                events.put_nowait(event)
+
+        def on_progress(message: Any) -> None:
+            try:
+                if isinstance(message, dict):
+                    loop.call_soon_threadsafe(_enqueue_progress, message)
+                else:
+                    loop.call_soon_threadsafe(
+                        _enqueue_progress,
+                        {"stage": "work", "msg": str(message)},
+                    )
+            except RuntimeError:
+                pass
+
+        def _run() -> Any:
+            set_progress_callback(on_progress)
+            try:
+                conn = dbm.connect_existing(theme_settings.db_file)
+                try:
+                    matched = dbm.resolve_document_targets(conn, target=target)
+                finally:
+                    conn.close()
+
+                if matched:
+                    t_doc = matched[0]
+                    res = theme_svc.regenerate_components(
+                        doc_id=t_doc["id"],
+                        refetch=not full_content,
+                        refetch_full=full_content,
+                        all_components=True,
+                        force=True,
+                        effort=effort,
+                        format=format_arg,
+                        focus=focus,
+                        on_progress=lambda stage, msg="": on_progress({"stage": stage, "msg": msg or stage}),
+                    )
+                    t_info = res.get("targets", [{}])[0] if res.get("targets") else {}
+                    return {
+                        "document_id": t_doc["id"],
+                        "title": t_info.get("title") or t_doc.get("title") or target,
+                        "updated": True,
+                        "duplicate": False,
+                        "summary": t_info.get("new_summary") or "",
+                        "entities_created": t_info.get("entities_created", 0),
+                        "entities_linked": t_info.get("entities_linked", 0),
+                        "relations_added": t_info.get("relations_added", 0),
+                        "full_content": full_content,
+                        "effort": effort,
+                        "focus": focus,
+                        "theme_id": theme.id,
+                        "theme_label": theme.label,
+                    }
+                else:
+                    ingest_kwargs: dict[str, Any] = {
+                        "source": "api-reingest",
+                        "expand_max": expand_max,
+                    }
+                    if full_content:
+                        ingest_kwargs["full_content"] = True
+                    if effort is not None:
+                        ingest_kwargs["effort"] = effort
+                    if format_arg is not None:
+                        ingest_kwargs["format"] = format_arg
+                    if focus is not None:
+                        ingest_kwargs["focus"] = focus
+                    rep = theme_svc.ingest(target, **ingest_kwargs)
+                    rep_dict = report_to_dict(rep)
+                    rep_dict["theme_id"] = theme.id
+                    rep_dict["theme_label"] = theme.label
+                    return rep_dict
+            finally:
+                set_progress_callback(None)
+
+        try:
+            task = asyncio.create_task(asyncio.to_thread(_run))
+        except BaseException:
+            _release_expensive_job()
+            raise
+        task.add_done_callback(_release_expensive_job)
+        task.add_done_callback(_consume_task_result)
+
+        async def stream() -> AsyncIterator[bytes]:
+            try:
+                while True:
+                    if task.done() and events.empty():
+                        await asyncio.sleep(0.01)
+                        if events.empty():
+                            break
+                    try:
+                        event = await asyncio.wait_for(events.get(), timeout=0.1)
+                    except asyncio.TimeoutError:
+                        continue
+                    yield (json.dumps(event, ensure_ascii=False) + "\n").encode()
+                try:
+                    result = task.result()
+                    if isinstance(result, IngestReport):
+                        result = report_to_dict(result)
+                    if isinstance(result, dict) and theme.id != 0:
+                        result["theme_id"] = theme.id
+                        result["theme_label"] = theme.label
+                except Exception as exc:  # noqa: BLE001
+                    _log_operation_failure(request, "reingest stream", exc)
+                    result = {"error": f"reingest failed: {exc}", "ok": False}
                 yield (
                     json.dumps(
                         {"done": True, "result": result},
@@ -2356,6 +2672,8 @@ def create_app(
         Route("/providers/test", providers_test_route, methods=["POST"]),
         Route("/ingest", do_ingest, methods=["POST"]),
         Route("/ingest-stream", ingest_stream_route, methods=["POST"]),
+        Route("/reingest", do_reingest, methods=["POST"]),
+        Route("/reingest-stream", reingest_stream_route, methods=["POST"]),
         Route("/ingest/active", active_ingest_route, methods=["GET"]),
         Route("/search", do_search, methods=["POST"]),
         Route("/", graph_ui, methods=["GET"]),
@@ -2370,6 +2688,8 @@ def create_app(
         Route("/document/pin", document_pin_route, methods=["POST"]),
         Route("/document/hide", document_hide_route, methods=["POST"]),
         Route("/document/title", document_title_route, methods=["POST"]),
+        Route("/document/purge", document_purge_route, methods=["POST"]),
+        Route("/purge", document_purge_route, methods=["POST"]),
         Route("/document/matrix/purge", document_matrix_purge_route, methods=["POST"]),
         Route("/document/presentation", document_presentation_get_route, methods=["GET", "HEAD"]),
         Route("/document/presentation/generate", document_presentation_generate_route, methods=["POST"]),

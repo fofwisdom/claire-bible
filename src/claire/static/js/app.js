@@ -2217,6 +2217,393 @@ function renderIngestResult(d){
   panel.innerHTML=h;
 }
 
+// --- 자료 재적재 (Reingest) 및 소각 (Purge) ---
+function openReingest(){
+  if(!canIngest()) return;
+  if(activeIngest && activeIngest.running){
+    renderIngestStatus();
+    return;
+  }
+  const curDoc = (allDocs && allDocs.find(d => d.id === activeDoc)) || curReaderDocData;
+  const defTarget = (curDoc && (curDoc.url || curDoc.canonical_url || curDoc.id || '')) || '';
+  const defTitle = (curDoc && curDoc.title) ? esc(curDoc.title) : '';
+  const isMulti = isMultiThemeEnabled();
+  let themeFieldHtml = '';
+  if(isMulti && availableThemes && availableThemes.length > 0){
+    if(AUTH_SCOPE === 'collaborator'){
+      const eligibleThemes = availableThemes.filter(t => t.id > 0 && t.is_collaborator_accessible !== false);
+      if(eligibleThemes.length === 0){
+        themeFieldHtml = '<div class="ingest-field"><p class="hint" style="color:var(--warn,#f39c12);margin:0;">⚠️ 재적재 가능한 협업 테마가 없습니다.</p></div>';
+      } else {
+        const selId = eligibleThemes.some(t => t.id === activeThemeId) ? activeThemeId : eligibleThemes[0].id;
+        const opts = eligibleThemes.map(t => {
+          const icon = t.icon || '📁';
+          const label = esc(t.label);
+          return `<option value="${t.id}" ${t.id === selId ? 'selected' : ''}>${icon} ${label}</option>`;
+        }).join('');
+        themeFieldHtml = ('<div class="ingest-field">'+
+          '<label class="ingest-label" for="reingtheme">재적재 대상 테마 <span class="ingest-help">협업이 허용된 지식 테마</span></label>'+
+          '<select id="reingtheme" class="ingest-theme-select">'+opts+'</select>'+
+        '</div>');
+      }
+    } else if(availableThemes.length > 1){
+      themeFieldHtml = ('<div class="ingest-field">'+
+        '<label class="ingest-label" for="reingtheme">재적재 대상 테마 <span class="ingest-help">지식 테마 선택</span></label>'+
+        '<select id="reingtheme" class="ingest-theme-select">'+
+          renderThemeOptions(activeThemeId)+
+        '</select>'+
+      '</div>');
+    }
+  }
+
+  panel.innerHTML = '<h2>🔄 자료 재적재</h2>'+
+    '<p class="al">문서 ID, URL 또는 텍스트를 입력하여 기존 문서를 다시 수집하고 지식그래프를 재적재합니다.</p>'+
+    '<div class="ingest-form">'+
+      themeFieldHtml +
+      '<div class="ingest-field">'+
+        '<label class="ingest-label" for="reingtarget">재적재 대상 <span class="ingest-help">문서 ID, URL 또는 텍스트</span></label>'+
+        '<textarea id="reingtarget" rows="4" placeholder="https://example.com/article 또는 문서 ID">'+esc(defTarget)+'</textarea>'+
+        (defTitle ? '<small style="color:var(--muted);display:block;margin-top:3px">현재 선택된 문서: <b>'+defTitle+'</b></small>' : '')+
+      '</div>'+
+      '<fieldset class="ingest-options">'+
+        '<legend class="ingest-label">적재 분량</legend>'+
+        '<div class="ingest-choice-grid">'+
+          '<div class="ingest-choice"><input id="reingamount-standard" type="radio" name="reingest-amount" value="standard" checked><label for="reingamount-standard" title="설정된 글자 수 상한을 적용합니다">일반</label></div>'+
+          '<div class="ingest-choice"><input id="reingamount-full" type="radio" name="reingest-amount" value="full"><label for="reingamount-full" title="원문을 절단하지 않고 전문을 수집하고 분석합니다">전문</label></div>'+
+        '</div>'+
+      '</fieldset>'+
+      '<fieldset class="ingest-options">'+
+        '<legend class="ingest-label">사고 수준 <span class="ingest-help">미지정 시 서버 설정 사용</span></legend>'+
+        '<div class="ingest-choice-grid effort">'+
+          '<div class="ingest-choice"><input id="reingeffort-default" type="radio" name="reingest-effort" value="" checked><label for="reingeffort-default">기본</label></div>'+
+          '<div class="ingest-choice"><input id="reingeffort-none" type="radio" name="reingest-effort" value="none"><label for="reingeffort-none">없음</label></div>'+
+          '<div class="ingest-choice"><input id="reingeffort-minimal" type="radio" name="reingest-effort" value="minimal"><label for="reingeffort-minimal">최소</label></div>'+
+          '<div class="ingest-choice"><input id="reingeffort-low" type="radio" name="reingest-effort" value="low"><label for="reingeffort-low">낮음</label></div>'+
+          '<div class="ingest-choice"><input id="reingeffort-medium" type="radio" name="reingest-effort" value="medium"><label for="reingeffort-medium">중간</label></div>'+
+          '<div class="ingest-choice"><input id="reingeffort-high" type="radio" name="reingest-effort" value="high"><label for="reingeffort-high">높음</label></div>'+
+          '<div class="ingest-choice"><input id="reingeffort-max" type="radio" name="reingest-effort" value="max"><label for="reingeffort-max">최대</label></div>'+
+        '</div>'+
+      '</fieldset>'+
+      '<div class="ingest-field">'+
+        '<label class="ingest-label" for="reingfocus">초점 <span class="ingest-help">선택 사항</span></label>'+
+        '<textarea id="reingfocus" rows="2" placeholder="예: 시스템 아키텍처와 내부 동작 중심"></textarea>'+
+      '</div>'+
+      '<div class="ingest-field" style="margin-top:6px">'+
+        '<label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer">'+
+          '<input type="checkbox" id="reinguntombstone" checked> '+
+          '<span>소각 이력이 있는 경우 툼스톤 자동 해제 (Untombstone)</span>'+
+        '</label>'+
+      '</div>'+
+      '<div class="ingest-submit"><button type="button" onclick="runReingest()">재적재 시작</button></div>'+
+    '</div>';
+  openDetailPane();
+}
+
+async function runReingest(){
+  if(!canIngest()) return;
+  if(activeIngest && activeIngest.running){
+    alert('이미 적재 또는 재적재가 진행 중입니다.');
+    renderIngestStatus();
+    return;
+  }
+  const isMulti = isMultiThemeEnabled();
+  const ta=document.getElementById('reingtarget');
+  const target=((ta||{}).value||'').trim();
+  if(!target){ alert('재적재할 대상(문서 ID 또는 URL)을 입력하세요.'); return; }
+  const reingthemeEl = document.getElementById('reingtheme');
+  const targetThemeId = (isMulti && reingthemeEl) ? parseInt(reingthemeEl.value, 10) : (isMulti ? activeThemeId : 0);
+  if(AUTH_SCOPE === 'collaborator'){
+    if(!targetThemeId || targetThemeId === 0){
+      alert('기본 지식베이스(ID 0)에는 협업자 권한으로 재적재할 수 없습니다. 협업이 허용된 추가 지식 테마를 선택하세요.');
+      return;
+    }
+  }
+  const focus=((document.getElementById('reingfocus')||{}).value||'').trim();
+  const amountChoice=document.querySelector('input[name="reingest-amount"]:checked');
+  const effortChoice=document.querySelector('input[name="reingest-effort"]:checked');
+  const untombstoneChk=document.getElementById('reinguntombstone');
+  const untombstone=!!(untombstoneChk && untombstoneChk.checked);
+  const fullContent=!!amountChoice && amountChoice.value==='full';
+  const effort=effortChoice ? effortChoice.value : '';
+  let labelText = '재적재 시작…';
+  const optionLabels=[];
+  const targetThemeObj = isMulti ? availableThemes.find(t => t.id === targetThemeId) : null;
+  if(targetThemeObj && targetThemeObj.id !== 0){
+    optionLabels.push('테마: ' + (targetThemeObj.icon ? targetThemeObj.icon + ' ' : '') + targetThemeObj.label);
+  }
+  if(fullContent) optionLabels.push('전문 재적재');
+  if(effort) optionLabels.push('사고: '+effort);
+  if(focus){
+    optionLabels.push('초점: '+(focus.length > 20 ? focus.slice(0,20)+'…' : focus));
+  }
+  if(untombstone) optionLabels.push('툼스톤 해제');
+  if(optionLabels.length){
+    labelText += ' ('+optionLabels.join(' · ')+')';
+  }
+  activeIngest = {
+    running: true,
+    t0: Date.now(),
+    labelText: labelText,
+    optionLabels: optionLabels,
+    messages: [],
+    timer: null,
+  };
+  renderIngestStatus();
+  activeIngest.timer = setInterval(() => {
+    if(!activeIngest || !activeIngest.running){
+      if(activeIngest && activeIngest.timer){
+        clearInterval(activeIngest.timer);
+        activeIngest.timer = null;
+      }
+      return;
+    }
+    updateIngestElapsed();
+  }, 1000);
+  let result=null;
+  suspendGraphForIngest();
+  if(typeof initIngestMatrixView === 'function'){
+    try {
+      initIngestMatrixView(target, focus, targetThemeObj ? targetThemeObj.label : '');
+    } catch(e) {
+      console.warn('initIngestMatrixView error:', e);
+    }
+  }
+  if(typeof setCenterView === 'function'){
+    setCenterView('matrix');
+  }
+  if(mobileMQ.matches && typeof closeDrawer === 'function'){
+    closeDrawer(false, false);
+  }
+  try{
+    const bodyObj = {target:target, full_content:fullContent, untombstone:untombstone};
+    if(isMulti && targetThemeId !== undefined && targetThemeId !== null && targetThemeId !== 0) bodyObj.theme = targetThemeId;
+    if(effort) bodyObj.effort=effort;
+    if(focus) bodyObj.focus=focus;
+    const r=await fetch('reingest-stream',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(bodyObj)});
+    if(r.status===401||r.status===404){
+      if(activeIngest){
+        if(activeIngest.timer) clearInterval(activeIngest.timer);
+        activeIngest.timer = null;
+        activeIngest.running = false;
+      }
+      expireWriteAccess();
+      panel.innerHTML='<p class=hint>세션 만료 — 텔레그램 /web 으로 다시 접속하세요</p>'; return;
+    }
+    if(!r.ok){
+      if(activeIngest){
+        if(activeIngest.timer) clearInterval(activeIngest.timer);
+        activeIngest.timer = null;
+        activeIngest.running = false;
+      }
+      let d={};
+      try{ d=await r.json(); }catch(_){}
+      panel.innerHTML='<p class=hint>재적재 요청 실패: '+esc(d.error||('HTTP '+r.status))+'</p>'; return;
+    }
+    if(!r.body) throw new Error('스트림 본문이 없습니다');
+    const reader=r.body.getReader(), dec=new TextDecoder(); let buf='';
+    while(true){
+      const {done,value}=await reader.read(); if(done) break;
+      buf+=dec.decode(value,{stream:true});
+      let i; while((i=buf.indexOf('\n'))>=0){
+        const line=buf.slice(0,i).trim(); buf=buf.slice(i+1);
+        if(!line) continue;
+        let ev; try{ ev=JSON.parse(line); }catch(_){ continue; }
+        if(ev.done){ result=ev.result; continue; }
+        if(ev.stage === 'heatmap_matrix' && ev.matrix && typeof renderHeatmapMatrix === 'function'){
+          renderHeatmapMatrix(ev.matrix, null, true);
+          continue;
+        }
+        if(ev.stage === 'decision' && typeof addDecisionStreamCard === 'function'){
+          addDecisionStreamCard(ev);
+          continue;
+        }
+        const cleanMsg = (ev.msg||'').replace(/^[•*-]\s*/, '');
+        if(cleanMsg){
+          if(typeof updateMatrixProgress === 'function') updateMatrixProgress(cleanMsg);
+          if(activeIngest) activeIngest.messages.push(cleanMsg);
+          const ul=document.getElementById('iprog');
+          if(ul){
+            const li=document.createElement('li');
+            li.textContent=cleanMsg;
+            ul.appendChild(li);
+            ul.scrollTop=ul.scrollHeight;
+          }
+        }
+      }
+    }
+  }catch(e){
+    if(activeIngest){
+      if(activeIngest.timer) clearInterval(activeIngest.timer);
+      activeIngest.timer = null;
+      activeIngest.running = false;
+    }
+    resumeGraphAfterIngest();
+    panel.innerHTML='<p class=hint>재적재 스트림 오류: '+esc(String(e))+'</p>'; return;
+  }
+  if(activeIngest){
+    if(activeIngest.timer) clearInterval(activeIngest.timer);
+    activeIngest.timer = null;
+    activeIngest.running = false;
+  }
+  resumeGraphAfterIngest();
+  if(!result){
+    panel.innerHTML='<p class=hint>재적재 결과가 수신되지 않았습니다.</p>';
+    return;
+  }
+  renderIngestResult(result);
+}
+
+function openPurge(){
+  if(AUTH_SCOPE !== 'owner'){
+    alert('소각(Purge) 권한은 소유자(owner) 전용입니다.');
+    return;
+  }
+  const curDoc = (allDocs && allDocs.find(d => d.id === activeDoc)) || curReaderDocData;
+  const defTarget = (curDoc && (curDoc.id || curDoc.url || '')) || '';
+  const defTitle = (curDoc && curDoc.title) ? esc(curDoc.title) : '';
+  const isMulti = isMultiThemeEnabled();
+  let themeFieldHtml = '';
+  if(isMulti && availableThemes && availableThemes.length > 1){
+    themeFieldHtml = ('<div class="ingest-field">'+
+      '<label class="ingest-label" for="purgetheme">소각 대상 테마 <span class="ingest-help">테마 데이터베이스 선택</span></label>'+
+      '<select id="purgetheme" class="ingest-theme-select">'+
+        renderThemeOptions(activeThemeId)+
+      '</select>'+
+    '</div>');
+  }
+
+  panel.innerHTML = '<h2>🔥 문서 소각 (Purge)</h2>'+
+    '<div style="margin:0 0 10px;padding:8px 10px;background:rgba(235,87,87,0.12);border:1px solid rgba(235,87,87,0.4);border-radius:6px;font-size:12px;color:var(--fg);line-height:1.45">'+
+      '⚠️ <b>영구 파괴 작업 주의</b><br>문서 데이터, 원문 아티팩트 파일, 지식그래프 고아 엔티티와 관계가 영구 소각되고 DB 물리 압축(VACUUM)이 일괄 수행됩니다.'+
+    '</div>'+
+    '<div class="ingest-form">'+
+      themeFieldHtml +
+      '<div class="ingest-field">'+
+        '<label class="ingest-label" for="purgetarget">소각 대상 <span class="ingest-help">문서 ID, URL, 또는 검색어</span></label>'+
+        '<input type="text" id="purgetarget" class="ingest-input" style="width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:var(--input-bg);color:var(--fg)" value="'+esc(defTarget)+'" placeholder="문서 ID, URL 또는 검색어">'+
+        (defTitle ? '<small style="color:var(--muted);display:block;margin-top:3px">현재 선택된 문서: <b>'+defTitle+'</b></small>' : '')+
+      '</div>'+
+      '<div class="ingest-field">'+
+        '<label class="ingest-label" for="purgereason">소각 사유 <span class="ingest-help">툼스톤 기록 사유</span></label>'+
+        '<input type="text" id="purgereason" class="ingest-input" style="width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:var(--input-bg);color:var(--fg)" value="web_purge" placeholder="manual_purge">'+
+      '</div>'+
+      '<div class="ingest-field" style="margin-top:6px">'+
+        '<label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer">'+
+          '<input type="checkbox" id="purgetombstone" checked> '+
+          '<span>재유입 방지 툼스톤(Tombstone) 등록 <small style="color:var(--muted)">(동일 URL/해시의 재적재 영구 차단)</small></span>'+
+        '</label>'+
+      '</div>'+
+      '<div class="action-btn-row" style="margin-top:12px;gap:8px">'+
+        '<button type="button" class="sec" onclick="runPurgeCheck(true)" style="padding:6px 12px;cursor:pointer"><span class="btn-icon">🔍</span> <span class="btn-label">영향 분석 (Dry-Run)</span></button>'+
+        '<button type="button" class="readbtn" onclick="runPurgeCheck(false)" style="background:#e03131;color:#fff;border:none;padding:6px 12px;cursor:pointer;border-radius:4px"><span class="btn-icon">🔥</span> <span class="btn-label">소각 실행</span></button>'+
+      '</div>'+
+      '<div id="purgeresult" style="margin-top:14px"></div>'+
+    '</div>';
+  openDetailPane();
+  const inp=document.getElementById('purgetarget'); if(inp) inp.focus();
+}
+
+async function runPurgeCheck(isDryRun){
+  if(AUTH_SCOPE !== 'owner'){
+    alert('소각(Purge) 권한은 소유자(owner) 전용입니다.');
+    return;
+  }
+  const isMulti = isMultiThemeEnabled();
+  const targetInp = document.getElementById('purgetarget');
+  const target = ((targetInp||{}).value||'').trim();
+  if(!target){
+    alert('소각할 대상(문서 ID 또는 URL)을 입력하세요.');
+    return;
+  }
+  const reasonInp = document.getElementById('purgereason');
+  const reason = ((reasonInp||{}).value||'').trim() || 'web_purge';
+  const tombstoneChk = document.getElementById('purgetombstone');
+  const tombstone = !!(tombstoneChk && tombstoneChk.checked);
+  const themeEl = document.getElementById('purgetheme');
+  const targetThemeId = (isMulti && themeEl) ? parseInt(themeEl.value, 10) : (isMulti ? activeThemeId : 0);
+
+  if(!isDryRun){
+    if(!confirm('정말 대상 문서를 영구 소각하시겠습니까?\n이 작업은 되돌릴 수 없으며 원본 문서와 파일, 관련 고아 지식 노드가 즉시 파괴됩니다.')){
+      return;
+    }
+  }
+
+  const resDiv = document.getElementById('purgeresult');
+  if(resDiv){
+    resDiv.innerHTML = '<p class="al">⏳ 소각 ' + (isDryRun ? '영향 분석 중…' : '실행 중…') + '</p>';
+  }
+
+  try {
+    const payload = {
+      target: target,
+      dry_run: isDryRun,
+      tombstone: tombstone,
+      reason: reason,
+    };
+    if(isMulti && targetThemeId !== undefined && targetThemeId !== null && targetThemeId !== 0){
+      payload.theme = targetThemeId;
+    }
+    const r = await fetch('document/purge', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload),
+    });
+    if(r.status === 401 || r.status === 404){
+      expireWriteAccess();
+      if(resDiv) resDiv.innerHTML = '<p class="hint">세션 만료 — 텔레그램 /web 으로 다시 접속하세요</p>';
+      return;
+    }
+    const d = await r.json();
+    if(!r.ok || d.error){
+      if(resDiv) resDiv.innerHTML = '<p class="hint">소각 처리 실패: ' + esc(d.error || ('HTTP ' + r.status)) + '</p>';
+      return;
+    }
+
+    if(isDryRun){
+      let h = '<div style="padding:10px;background:var(--card-bg);border:1px solid var(--border);border-radius:6px">';
+      h += '<h3 style="margin:0 0 6px">🔍 소각 영향 분석 결과 (Dry-Run)</h3>';
+      const tgts = d.targets || [];
+      h += '<p class="al">소각 대상 문서: <b>' + tgts.length + '건</b> · 디스크 파일: <b>' + (d.disk_files_count || 0) + '개</b></p>';
+      h += '<p class="al">툼스톤 등록: <b>' + (tombstone ? '등록 (재적재 차단)' : '미등록 (재적재 허용)') + '</b></p>';
+      if(tgts.length > 0){
+        h += '<ul style="margin:6px 0;padding-left:18px;font-size:12px">';
+        tgts.forEach(t => {
+          h += '<li><b>' + esc(t.title || t.id) + '</b> <small class="al">(' + esc(t.id) + ')</small></li>';
+        });
+        h += '</ul>';
+        h += '<button type="button" class="readbtn" onclick="runPurgeCheck(false)" style="margin-top:8px;background:#e03131;color:#fff;border:none;padding:5px 10px;border-radius:4px;cursor:pointer">위 대상을 확인하고 소각 실행</button>';
+      } else {
+        h += '<p class="hint">일치하는 문서를 찾을 수 없습니다.</p>';
+      }
+      h += '</div>';
+      if(resDiv) resDiv.innerHTML = h;
+    } else {
+      let h = '<div style="padding:10px;background:var(--card-bg);border:1px solid var(--border);border-radius:6px">';
+      h += '<h3 style="margin:0 0 6px">✅ 영구 소각 완료</h3>';
+      h += '<p class="al">소각된 문서: <b>' + (d.deleted_documents || 0) + '건</b> · 삭제된 파일: <b>' + (d.disk_files_unlinked || 0) + '개</b></p>';
+      if(d.purged_count){
+        h += '<p class="al">등록된 툼스톤: <b>' + d.purged_count + '건</b></p>';
+      }
+      const gh = d.graph_healed || {};
+      if(gh.ghost_entities_pruned || gh.dangling_relations_removed){
+        h += '<p class="al">지식그래프 수복: 고아 노드 <b>' + (gh.ghost_entities_pruned || 0) + '개</b> · 고아 관계 <b>' + (gh.dangling_relations_removed || 0) + '개</b> 정리</p>';
+      }
+      h += '</div>';
+      if(resDiv) resDiv.innerHTML = h;
+
+      const purgedIds = (d.targets || []).map(t => t.id);
+      if(activeDoc && purgedIds.includes(activeDoc)){
+        activeDoc = null;
+        curReaderDocData = null;
+      }
+      refreshGraph();
+    }
+  } catch(e) {
+    if(resDiv) resDiv.innerHTML = '<p class="hint">소각 요청 오류: ' + esc(String(e)) + '</p>';
+  }
+}
+
 // --- 중복 문서 정리: 근사중복 클러스터를 찾아(/dedup/scan) 유지문서를 골라 병합(/dedup/merge) ---
 // 병합 직전 정본은 서버가 내부 checkpoint로 보존한다(파괴적 작업 안전장치).
 // keeper(유지) 외 문서는 참조(엔티티/관계 sources 등)를 keeper 로 재배치한 뒤 삭제.
