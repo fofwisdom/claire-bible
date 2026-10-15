@@ -59,6 +59,9 @@ def test_e2e_hoyolab_article_vlm_ingestion(tmp_path: Path):
         assert report.source_type == "hoyolab"
         assert report.document_id is not None
         assert report.title == "[동방의 흙모래] 가디언 정보"
+        assert report.vlm_transcribed is True
+        assert report.vlm_images_count == 2
+        assert "🖼️ 이미지 전사(VLM)" in report.telegram_summary()
 
         # 2. Database persistence verification
         conn = dbm.connect(str(db_file))
@@ -72,6 +75,34 @@ def test_e2e_hoyolab_article_vlm_ingestion(tmp_path: Path):
             assert "Card 2" in doc.raw_text
             assert doc.meta.get("vlm_transcribed") is True
             assert doc.meta.get("vlm_images_count") == 2
+
+            # 2-1. Docmeta presentation contract & UI verification
+            from claire.store.queries import document_detail
+            from claire.graphview import shared_html
+
+            detail = document_detail(conn, report.document_id)
+            assert detail is not None
+            assert detail["vlm_transcribed"] is True
+            rendered_page = shared_html(detail)
+            assert ".vlm-tag" in rendered_page
+            assert "🖼️ 이미지 전사" in rendered_page
+            assert "이미지 전사(VLM)를 적용하여 작성한 문서" in rendered_page
+
+            import subprocess
+            from claire.graphview import GRAPH_HTML
+
+            start = GRAPH_HTML.index("function docMetaHtml(dc){")
+            end = GRAPH_HTML.index("function renderReader(dc){")
+            fn = GRAPH_HTML[start:end]
+            js = f"""
+            function esc(s){{ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }}
+            {fn}
+            const d = {json.dumps(detail)};
+            console.log(docMetaHtml(d));
+            """
+            res = subprocess.run(["node", "-e", js], capture_output=True, text=True, check=True)
+            assert "🖼️ 이미지 전사 (2장)" in res.stdout
+            assert "vlm-tag" in res.stdout
 
             # Entities and relationships created
             cur = conn.cursor()

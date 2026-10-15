@@ -428,6 +428,7 @@ function docMetaHtml(dc){
   const isSttTrunc = isStt && !!(dc.stt_truncated || (dc.meta && dc.meta.stt_truncated) || isTrunc);
   const hasTranscript = !!(dc.has_transcript || (dc.meta && dc.meta.has_transcript));
   const isCc = !isStt && (hasTranscript || !!(dc.meta && (dc.meta.caption_status === 'available' || (dc.meta.transcript_source && dc.meta.transcript_source !== 'stt'))));
+  const isVlm = !!(dc.vlm_transcribed || (dc.meta && dc.meta.vlm_transcribed));
   const presentation = dc.presentation_pdf || (dc.meta && dc.meta.presentation_pdf) || {};
   const hasPresentation = presentation.status === 'available' && !!presentation.public_url;
   const origChars = (dc.orig_chars || (dc.meta && dc.meta.orig_chars) || dc.stt_orig_chars || (dc.meta && dc.meta.stt_orig_chars)) || 0;
@@ -440,8 +441,8 @@ function docMetaHtml(dc){
   } else if(totalChars > 0){
     charTip = '전체 문자 수: ' + totalChars.toLocaleString() + '자';
   }
-  if((showOrigin && !hasUrl) && !isTrunc && !focus && !isStt && !isCc && !isParserFallback && !hasPresentation && !isEncodingFlaw && !isScanned && !totalChars) return '';
-  if(!showOrigin && !isTrunc && !focus && !isStt && !isCc && !isParserFallback && !hasPresentation && !isEncodingFlaw && !isScanned && !totalChars) return '';
+  if((showOrigin && !hasUrl) && !isTrunc && !focus && !isStt && !isCc && !isParserFallback && !hasPresentation && !isEncodingFlaw && !isScanned && !isVlm && !totalChars) return '';
+  if(!showOrigin && !isTrunc && !focus && !isStt && !isCc && !isParserFallback && !hasPresentation && !isEncodingFlaw && !isScanned && !isVlm && !totalChars) return '';
   let h='<p class=docmeta' + (charTip ? ' title="'+esc(charTip)+'"' : '') + '>';
   if(showOrigin){
     if(hasUrl){
@@ -502,6 +503,22 @@ function docMetaHtml(dc){
     const capLang = (dc.caption_language || (dc.meta && dc.meta.caption_language) || '').trim();
     const tip = capLang ? '영상 자막(CC: '+capLang+')을 적용하여 작성한 문서' : '영상 자막(CC)을 적용하여 작성한 문서';
     tags.push('<span class="focus-tag cc-tag" title="'+esc(tip)+'">🔤 CC</span>');
+  }
+  if(isVlm){
+    const vlmCount = Number((dc.vlm_images_count !== undefined ? dc.vlm_images_count : (dc.meta && dc.meta.vlm_images_count)) || 0);
+    const vlmModel = String((dc.vlm_model || (dc.meta && dc.meta.vlm_model)) || '').trim();
+    let vlmLabel = '🖼️ 이미지 전사';
+    if(vlmCount > 0){
+      vlmLabel += ' (' + vlmCount.toLocaleString() + '장)';
+    }
+    let vlmTip = '이미지 전사(VLM)를 적용하여 작성한 문서';
+    if(vlmCount > 0){
+      vlmTip += ' (' + vlmCount.toLocaleString() + '장 이미지 전사)';
+    }
+    if(vlmModel){
+      vlmTip += ' · 모델: ' + vlmModel;
+    }
+    tags.push('<span class="focus-tag vlm-tag" title="'+esc(vlmTip)+'">'+esc(vlmLabel)+'</span>');
   }
   if(isAppTrunc && isRefTrunc){
     const orig=(dc.orig_chars || (dc.meta && dc.meta.orig_chars)) || 0;
@@ -592,6 +609,7 @@ function getDocMetaMessages(dc){
   const isSttTrunc = isStt && !!(dc.stt_truncated || (dc.meta && dc.meta.stt_truncated) || isTrunc);
   const hasTranscript = !!(dc.has_transcript || (dc.meta && dc.meta.has_transcript));
   const isCc = !isStt && (hasTranscript || !!(dc.meta && (dc.meta.caption_status === 'available' || (dc.meta.transcript_source && dc.meta.transcript_source !== 'stt'))));
+  const isVlm = !!(dc.vlm_transcribed || (dc.meta && dc.meta.vlm_transcribed));
   const presentation = dc.presentation_pdf || (dc.meta && dc.meta.presentation_pdf) || {};
   const hasPresentation = presentation.status === 'available' && !!presentation.public_url;
 
@@ -626,6 +644,18 @@ function getDocMetaMessages(dc){
   if(isCc && !hasPresentation){
     const capLang = (dc.caption_language || (dc.meta && dc.meta.caption_language) || '').trim();
     messages.push(capLang ? '영상 자막(CC: '+capLang+')을 적용하여 작성한 문서' : '영상 자막(CC)을 적용하여 작성한 문서');
+  }
+  if(isVlm){
+    const vlmCount = Number((dc.vlm_images_count !== undefined ? dc.vlm_images_count : (dc.meta && dc.meta.vlm_images_count)) || 0);
+    const vlmModel = String((dc.vlm_model || (dc.meta && dc.meta.vlm_model)) || '').trim();
+    let msg = '이미지 전사(VLM)를 적용하여 작성한 문서';
+    if(vlmCount > 0){
+      msg += ' (' + vlmCount.toLocaleString() + '장 이미지 전사)';
+    }
+    if(vlmModel){
+      msg += ' · 모델: ' + vlmModel;
+    }
+    messages.push(msg);
   }
   if(isAppTrunc && isRefTrunc){
     const orig=(dc.orig_chars || (dc.meta && dc.meta.orig_chars)) || 0;
