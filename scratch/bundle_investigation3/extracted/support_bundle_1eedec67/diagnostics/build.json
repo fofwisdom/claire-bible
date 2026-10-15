@@ -1,0 +1,8 @@
+{
+  "git_commit": "3f67e14fcc35b67e780434ea31a39bd6f487266f",
+  "revision_source": "build_arg",
+  "package_version": "0.1.0",
+  "schema_version": 13,
+  "schema_lineage": "claire-bible/common",
+  "image_tag": "local"
+}

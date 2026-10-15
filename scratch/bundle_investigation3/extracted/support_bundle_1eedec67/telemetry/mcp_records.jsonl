@@ -1,0 +1,2 @@
+{"id": 60, "timestamp": 1792017531.5764236, "client_id": null, "call_type": "http_mcp", "tool_name": null, "duration_ms": null, "status": "ERROR", "error_code": 202, "error_message": "HTTP 202", "response_bytes": 0}
+{"id": 59, "timestamp": 1792017531.2065043, "client_id": null, "call_type": "http_mcp", "tool_name": null, "duration_ms": null, "status": "ERROR", "error_code": 202, "error_message": "HTTP 202", "response_bytes": 0}

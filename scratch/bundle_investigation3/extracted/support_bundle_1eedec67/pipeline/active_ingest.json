@@ -1,0 +1,17 @@
+{
+  "active": true,
+  "payload": "https://www.cosmopolitan.co.kr/article/1911366",
+  "source": "telegram",
+  "theme_id": 0,
+  "theme_label": "",
+  "focus": "",
+  "title": "층 낼까 말까? 사나와 카즈하의 긴 생머리 헤어스타일 비교",
+  "stage": "init",
+  "msg": "Antigravity CLI 호출 (gemini-3.8-flash)",
+  "heatmap_matrix": null,
+  "started_at": 1792052856.3876445,
+  "updated_at": 1792052963.424507,
+  "completed_at": null,
+  "result": null,
+  "file_present": true
+}
