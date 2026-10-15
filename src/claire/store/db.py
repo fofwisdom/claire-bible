@@ -2052,6 +2052,69 @@ def resolve_doc_share(conn: sqlite3.Connection, token: str) -> str | None:
     return row["document_id"]
 
 
+def list_public_sitemap_documents(
+    conn: sqlite3.Connection,
+    *,
+    ensure_shares: bool = True,
+) -> list[dict[str, Any]]:
+    """사이트맵 색인을 위한 비숨김(hidden=0) 공개 문서 및 공유 토큰 목록을 조회한다.
+
+    ensure_shares=True 이고 토큰이 없는 문서가 있으면 영구 공유 토큰을 생성한다.
+    (만약 DB가 readonly 모드라면 기존 유효 토큰만 반환한다.)
+    """
+    now = time.time()
+    docs = conn.execute(
+        "SELECT id, fetched_at, published_at FROM documents WHERE hidden = 0 ORDER BY fetched_at DESC"
+    ).fetchall()
+    if not docs:
+        return []
+
+    share_rows = conn.execute(
+        "SELECT token, document_id, expires_at FROM doc_shares "
+        "WHERE expires_at IS NULL OR expires_at > ? "
+        "ORDER BY created_at DESC, rowid DESC",
+        (now,),
+    ).fetchall()
+
+    shares_by_doc: dict[str, str] = {}
+    for r in share_rows:
+        doc_id = str(r["document_id"])
+        if doc_id not in shares_by_doc and r["token"]:
+            shares_by_doc[doc_id] = str(r["token"])
+
+    results: list[dict[str, Any]] = []
+    missing_docs: list[sqlite3.Row] = []
+
+    for d in docs:
+        doc_id = str(d["id"])
+        tok = shares_by_doc.get(doc_id)
+        if tok:
+            results.append({
+                "token": tok,
+                "document_id": doc_id,
+                "fetched_at": d["fetched_at"],
+                "published_at": d["published_at"],
+            })
+        else:
+            missing_docs.append(d)
+
+    if missing_docs and ensure_shares:
+        try:
+            for d in missing_docs:
+                doc_id = str(d["id"])
+                tok = create_doc_share(conn, doc_id, reuse_existing=True)
+                results.append({
+                    "token": tok,
+                    "document_id": doc_id,
+                    "fetched_at": d["fetched_at"],
+                    "published_at": d["published_at"],
+                })
+        except sqlite3.OperationalError:
+            pass
+
+    return results
+
+
 def resolve_document_targets(
     conn: sqlite3.Connection,
     target: str | None = None,
