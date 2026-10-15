@@ -10,8 +10,10 @@ import hashlib
 import json
 import logging
 import re
+import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -83,6 +85,7 @@ _MAX_ANONYMOUS_SEARCH_RESULTS = 20
 _MAX_EXPENSIVE_JOBS = 4
 _MAX_ANONYMOUS_SEARCH_JOBS = 4
 _PROGRESS_QUEUE_SIZE = 64
+_sitemap_cache: dict[str, tuple[float, str, bytes]] = {}
 
 
 class GateMiddleware:
@@ -1132,6 +1135,206 @@ def create_app(
                 theme=theme,
                 host=request.headers.get("host"),
             )
+        )
+
+    async def robots_txt_route(request: Request) -> Response:
+        host_header = request.headers.get("host") or ""
+        req_host = host_header.split(":", 1)[0].strip().lower()
+
+        theme: ThemeInfo | None = None
+        if getattr(s, "multi_theme", False) and theme_mgr is not None and req_host:
+            theme = theme_mgr.get_theme_by_fqdn(req_host)
+
+        is_private = (
+            not getattr(s, "anonymous_readonly", True)
+            or getattr(s, "robots_policy", "public") == "disallow_all"
+            or (theme is not None and not getattr(theme, "is_public", True))
+        )
+
+        if is_private:
+            return PlainTextResponse("User-agent: *\nDisallow: /\n", media_type="text/plain; charset=utf-8")
+
+        proto = request.headers.get("x-forwarded-proto") or request.url.scheme or "https"
+        authority = host_header or getattr(s, "fqdn", "") or "localhost"
+        sitemap_url = f"{proto}://{authority}/sitemap.xml"
+
+        lines = [
+            "User-agent: *",
+            "Allow: /$",
+            "Allow: /p?",
+            "Allow: /static/",
+            "Allow: /images/",
+            "Allow: /p/images/",
+            "Allow: /fonts/",
+            "Allow: /favicon.*",
+            "Disallow: /search",
+            "Disallow: /ingest",
+            "Disallow: /reingest",
+            "Disallow: /regenerate",
+            "Disallow: /document/regenerate",
+            "Disallow: /document/presentation/generate",
+            "Disallow: /document/presentation/compose",
+            "Disallow: /document/presentation/compile",
+            "Disallow: /document/seen",
+            "Disallow: /document/pin",
+            "Disallow: /document/hide",
+            "Disallow: /document/title",
+            "Disallow: /document/purge",
+            "Disallow: /document/matrix/purge",
+            "Disallow: /purge",
+            "Disallow: /synthesize",
+            "Disallow: /research",
+            "Disallow: /dedup/",
+            "Disallow: /entity/",
+            "Disallow: /resolution/",
+            "Disallow: /oauth/",
+            "Disallow: /.well-known/oauth*",
+            "Disallow: /mcp",
+            "Disallow: /support/bundle",
+            "Disallow: /whoami",
+            "Disallow: /stats",
+            "Disallow: /limits",
+            "Disallow: /ingest-limits",
+            "Disallow: /providers",
+            "Disallow: /themes",
+        ]
+
+        if getattr(s, "block_ai_crawlers", True):
+            ai_agents = [
+                "GPTBot",
+                "ChatGPT-User",
+                "ClaudeBot",
+                "anthropic-ai",
+                "CCBot",
+                "Bytespider",
+                "PerplexityBot",
+                "Cohere-ai",
+                "Diffbot",
+                "FacebookBot",
+            ]
+            lines.append("")
+            for agent in ai_agents:
+                lines.append(f"User-agent: {agent}")
+            lines.append("Disallow: /")
+
+        lines.append("")
+        lines.append(f"Sitemap: {sitemap_url}")
+        content = "\n".join(lines) + "\n"
+        return PlainTextResponse(content, media_type="text/plain; charset=utf-8")
+
+    async def sitemap_xml_route(request: Request) -> Response:
+        if not getattr(s, "sitemap_enabled", True) or not getattr(s, "anonymous_readonly", True):
+            return PlainTextResponse("Not Found", status_code=404)
+
+        host_header = request.headers.get("host") or ""
+        req_host = host_header.split(":", 1)[0].strip().lower()
+
+        theme: ThemeInfo | None = None
+        if getattr(s, "multi_theme", False) and theme_mgr is not None and req_host:
+            theme = theme_mgr.get_theme_by_fqdn(req_host)
+
+        if theme is not None and not getattr(theme, "is_public", True):
+            return PlainTextResponse("Not Found", status_code=404)
+
+        proto = request.headers.get("x-forwarded-proto") or request.url.scheme or "https"
+        authority = host_header or getattr(s, "fqdn", "") or "localhost"
+        base_url = f"{proto}://{authority}".rstrip("/")
+
+        cache_ttl = float(getattr(s, "sitemap_cache_ttl", 900))
+        now = time.time()
+        cached = _sitemap_cache.get(authority)
+        if cached is not None:
+            cached_at, cached_etag, cached_xml = cached
+            if now - cached_at < cache_ttl:
+                if request.headers.get("if-none-match") == cached_etag:
+                    return Response(status_code=304, headers={"ETag": cached_etag})
+                return Response(
+                    cached_xml,
+                    media_type="application/xml; charset=utf-8",
+                    headers={
+                        "ETag": cached_etag,
+                        "Cache-Control": f"public, max-age={int(cache_ttl)}",
+                    },
+                )
+
+        target_dbs: list[Path] = []
+        if theme is not None:
+            t_settings = theme_mgr.get_settings_for_theme(theme.id, s)
+            target_dbs = [t_settings.db_file]
+        elif getattr(s, "multi_theme", False) and theme_mgr is not None:
+            for t in theme_mgr.list_themes():
+                if getattr(t, "is_public", True):
+                    t_settings = theme_mgr.get_settings_for_theme(t.id, s)
+                    target_dbs.append(t_settings.db_file)
+        else:
+            target_dbs = [s.db_file]
+
+        all_doc_entries: list[dict[str, Any]] = []
+        for db_file in target_dbs:
+            if not db_file.is_file():
+                continue
+            try:
+                conn = dbm.connect_existing(db_file)
+                try:
+                    entries = dbm.list_public_sitemap_documents(conn, ensure_shares=True)
+                    all_doc_entries.extend(entries)
+                finally:
+                    conn.close()
+            except Exception:
+                pass
+
+        xml_lines = [
+            '<?xml version="1.0" encoding="UTF-8"?>',
+            '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
+            '  <url>',
+            f'    <loc>{base_url}/</loc>',
+            '    <changefreq>daily</changefreq>',
+            '    <priority>1.0</priority>',
+            '  </url>',
+        ]
+
+        seen_tokens: set[str] = set()
+        for doc in all_doc_entries:
+            tok = doc.get("token")
+            if not tok or tok in seen_tokens:
+                continue
+            seen_tokens.add(tok)
+            loc = f"{base_url}/p?s={tok}"
+            lastmod = ""
+            fetched_at = doc.get("fetched_at")
+            published_at = doc.get("published_at")
+            if fetched_at:
+                try:
+                    dt = datetime.fromtimestamp(float(fetched_at), tz=timezone.utc)
+                    lastmod = dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+                except Exception:
+                    pass
+            elif published_at and isinstance(published_at, str) and len(published_at) >= 10:
+                lastmod = published_at.strip()
+
+            xml_lines.append("  <url>")
+            xml_lines.append(f"    <loc>{loc}</loc>")
+            if lastmod:
+                xml_lines.append(f"    <lastmod>{lastmod}</lastmod>")
+            xml_lines.append("    <changefreq>weekly</changefreq>")
+            xml_lines.append("    <priority>0.8</priority>")
+            xml_lines.append("  </url>")
+
+        xml_lines.append("</urlset>")
+        xml_bytes = "\n".join(xml_lines).encode("utf-8")
+        etag = f'"{hashlib.md5(xml_bytes).hexdigest()}"'
+        _sitemap_cache[authority] = (now, etag, xml_bytes)
+
+        if request.headers.get("if-none-match") == etag:
+            return Response(status_code=304, headers={"ETag": etag})
+
+        return Response(
+            xml_bytes,
+            media_type="application/xml; charset=utf-8",
+            headers={
+                "ETag": etag,
+                "Cache-Control": f"public, max-age={int(cache_ttl)}",
+            },
         )
 
     async def favicon_ico_route(_request: Request) -> Response:
@@ -2263,10 +2466,13 @@ def create_app(
             return PlainTextResponse("Not Found", status_code=404)
 
         def _load() -> dict[str, Any] | None:
-            # 1. 모든 테마 DB에서 공유 토큰 자동 검색
-            resolved = theme_mgr.resolve_share_token(token)
+            # 1. 모든 테마 DB에서 공유 토큰 자동 검색 (숨김 문서는 공유 페이지 접근 차단)
+            resolved = theme_mgr.resolve_share_token(token, include_hidden=False)
             if resolved is not None:
-                return resolved[2]
+                doc = resolved[2]
+                if doc and not doc.get("hidden"):
+                    return doc
+                return None
             # 2. 기본 DB 폴백
             conn = dbm.connect_existing(s.db_file, readonly=True)
             document_id = None
@@ -2274,8 +2480,11 @@ def create_app(
                 document_id = dbm.resolve_doc_share(conn, token)
                 if not document_id:
                     return None
-                doc = _document_detail(conn, document_id)
-                if doc is not None:
+                try:
+                    doc = _document_detail(conn, document_id, include_hidden=False)
+                except TypeError:
+                    doc = _document_detail(conn, document_id)
+                if doc is not None and not doc.get("hidden"):
                     return doc
             finally:
                 conn.close()
@@ -2292,8 +2501,11 @@ def create_app(
                     try:
                         t_conn = dbm.connect_existing(Path(target_db), readonly=True)
                         try:
-                            doc = _document_detail(t_conn, document_id)
-                            if doc is not None:
+                            try:
+                                doc = _document_detail(t_conn, document_id, include_hidden=False)
+                            except TypeError:
+                                doc = _document_detail(t_conn, document_id)
+                            if doc is not None and not doc.get("hidden"):
                                 return doc
                         finally:
                             t_conn.close()
@@ -2302,7 +2514,7 @@ def create_app(
             return None
 
         document = await asyncio.to_thread(_load)
-        if document is None:
+        if document is None or document.get("hidden"):
             return PlainTextResponse("Not Found", status_code=404)
 
         base_url = ""
@@ -2330,7 +2542,7 @@ def create_app(
         resolved_doc_title = ""
 
         if token:
-            resolved = theme_mgr.resolve_share_token(token)
+            resolved = theme_mgr.resolve_share_token(token, include_hidden=False)
             if resolved is not None:
                 tid = resolved[0]
                 try:
@@ -2340,15 +2552,18 @@ def create_app(
                 theme_settings = theme_mgr.get_settings_for_theme(tid)
                 active_db = theme_settings.db_file
                 active_data_dir = theme_settings.data_dir
-                resolved_doc_id = resolved[2].get("id", "")
-                resolved_doc_title = resolved[2].get("title", "")
+                doc_obj = resolved[2]
+                if not doc_obj.get("hidden"):
+                    resolved_doc_id = doc_obj.get("id", "")
+                    resolved_doc_title = doc_obj.get("title", "")
             else:
                 conn = dbm.connect_existing(active_db, readonly=True)
                 try:
-                    resolved_doc_id = dbm.resolve_doc_share(conn, token) or ""
-                    if resolved_doc_id:
-                        d_obj = dbm.get_document(conn, resolved_doc_id)
-                        if d_obj:
+                    cand_id = dbm.resolve_doc_share(conn, token) or ""
+                    if cand_id:
+                        d_obj = dbm.get_document(conn, cand_id)
+                        if d_obj and not bool(d_obj.hidden):
+                            resolved_doc_id = cand_id
                             resolved_doc_title = d_obj.title or ""
                 finally:
                     conn.close()
@@ -2381,7 +2596,7 @@ def create_app(
         )
 
         if not doc_id:
-            return PlainTextResponse("Missing document id or share token", status_code=400)
+            return PlainTextResponse("Not Found" if token else "Missing document id or share token", status_code=404 if token else 400)
 
         if not getattr(target_theme, "presentation_enabled", False):
             back_url = f"/p?s={token}" if token else f"/?id={doc_id}"
@@ -2937,6 +3152,8 @@ def create_app(
 
     routes = [
         Route("/health", health, methods=["GET"]),
+        Route("/robots.txt", robots_txt_route, methods=["GET"]),
+        Route("/sitemap.xml", sitemap_xml_route, methods=["GET"]),
         Route("/favicon.ico", favicon_ico_route, methods=["GET"]),
         Route("/favicon.svg", favicon_svg_route, methods=["GET"]),
         Route("/apple-touch-icon.png", apple_touch_route, methods=["GET"]),

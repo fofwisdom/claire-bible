@@ -830,7 +830,9 @@ class ThemeManager:
             for theme in sorted(self._themes.values(), key=lambda item: item.id)
         ]
 
-    def resolve_share_token(self, token: str) -> tuple[int, str, dict[str, Any]] | None:
+    def resolve_share_token(
+        self, token: str, *, include_hidden: bool = True
+    ) -> tuple[int, str, dict[str, Any]] | None:
         """등록된 테마 DB를 검색하여 공유 토큰의 (theme_id, document_id, doc_dict)를 자동 해소."""
         from .queries import document_detail
 
@@ -845,7 +847,7 @@ class ThemeManager:
                 try:
                     tconn = dbm.connect_existing(target_db, readonly=True)
                     try:
-                        tdoc = document_detail(tconn, doc_id, include_hidden=True)
+                        tdoc = document_detail(tconn, doc_id, include_hidden=include_hidden)
                         if tdoc:
                             return (tid, doc_id, tdoc)
                     finally:
@@ -863,7 +865,7 @@ class ThemeManager:
                 try:
                     doc_id = dbm.resolve_doc_share(conn, token)
                     if doc_id:
-                        doc = document_detail(conn, doc_id, include_hidden=True)
+                        doc = document_detail(conn, doc_id, include_hidden=include_hidden)
                         if doc:
                             return (0, doc_id, doc)
                         fb = _fallback_across_themes(doc_id)
@@ -885,7 +887,7 @@ class ThemeManager:
                 try:
                     doc_id = dbm.resolve_doc_share(conn, token)
                     if doc_id:
-                        doc = document_detail(conn, doc_id, include_hidden=True)
+                        doc = document_detail(conn, doc_id, include_hidden=include_hidden)
                         if doc:
                             return (t.id, doc_id, doc)
                         fb = _fallback_across_themes(doc_id)

@@ -158,6 +158,10 @@ def _rule(access: AccessLevel) -> RouteRule:
 ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     ("GET", "/health"): _rule("public"),
     ("HEAD", "/health"): _rule("public"),
+    ("GET", "/robots.txt"): _rule("public"),
+    ("HEAD", "/robots.txt"): _rule("public"),
+    ("GET", "/sitemap.xml"): _rule("public"),
+    ("HEAD", "/sitemap.xml"): _rule("public"),
     ("GET", "/favicon.ico"): _rule("public"),
     ("HEAD", "/favicon.ico"): _rule("public"),
     ("GET", "/favicon.svg"): _rule("public"),

@@ -621,6 +621,37 @@ class Settings(BaseSettings):
         default="", alias="CLAIRE_GA_MEASUREMENT_ID"
     )
 
+    # --- crawling & search engine optimization (SEO) ---
+    # 크롤러 수집 정책 ("public" 또는 "disallow_all")
+    robots_policy: str = Field(
+        default="public",
+        alias="CLAIRE_ROBOTS_POLICY",
+    )
+    # AI 학습/스크래핑 봇(GPTBot, ClaudeBot 등) robots.txt 차단 여부 (기본 True)
+    block_ai_crawlers: bool = Field(
+        default=True,
+        alias="CLAIRE_BLOCK_AI_CRAWLERS",
+    )
+    # /sitemap.xml 동적 사이트맵 활성화 여부
+    sitemap_enabled: bool = Field(
+        default=True,
+        alias="CLAIRE_SITEMAP_ENABLED",
+    )
+    # 사이트맵 인메모리 캐시 TTL (초 단위, 기본 15분)
+    sitemap_cache_ttl: int = Field(
+        default=900,
+        alias="CLAIRE_SITEMAP_CACHE_TTL",
+    )
+    # 사이트 브랜딩 명칭 및 메타 설명
+    site_name: str = Field(
+        default="Claire Bible",
+        alias="CLAIRE_SITE_NAME",
+    )
+    site_description: str = Field(
+        default="Personal Knowledge Base and Ontology Knowledge Graph Engine",
+        alias="CLAIRE_SITE_DESCRIPTION",
+    )
+
     # --- source repository ---
     github_repository: str = Field(
         default="fofwisdom/claire-bible",

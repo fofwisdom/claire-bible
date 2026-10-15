@@ -252,8 +252,9 @@ def render_open_graph_tags(
     doc: dict,
     base_url: str = "",
     share_token: str = "",
+    settings: Any = None,
 ) -> str:
-    """텔레그램, 마스토돈, 슬랙, 디스코드, X 등과 호환되는 Open Graph 및 Twitter Cards 메타태그 스니펫을 생성한다."""
+    """텔레그램, 마스토돈, 슬랙, 디스코드, X 등과 호환되는 Open Graph 및 Twitter Cards 메타태그와 Schema.org JSON-LD를 생성한다."""
     base = base_url.rstrip("/") if base_url else ""
 
     raw_title = str((doc or {}).get("title") or "공유 문서").strip()
@@ -322,7 +323,42 @@ def render_open_graph_tags(
         f'<meta name="twitter:description" content="{esc_desc}"/>',
         f'<meta name="twitter:image" content="{esc_image}"/>',
         f'<link rel="canonical" href="{esc_url}"/>',
+        "<!-- Search Engine Optimization & Crawling Directives -->",
+        '<meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1"/>',
     ])
+
+    site_name = getattr(settings, "site_name", "Claire Bible") if settings else "Claire Bible"
+    json_ld: dict[str, Any] = {
+        "@context": "https://schema.org",
+        "@type": "TechArticle",
+        "headline": title,
+        "description": desc,
+        "mainEntityOfPage": {
+            "@type": "WebPage",
+            "@id": esc_url,
+        },
+        "publisher": {
+            "@type": "Organization",
+            "name": site_name,
+        },
+    }
+    if author:
+        json_ld["author"] = {"@type": "Person", "name": author}
+    if published_at:
+        json_ld["datePublished"] = published_at
+    fetched_at = (doc or {}).get("fetched_at")
+    if fetched_at:
+        try:
+            from datetime import datetime, timezone
+            dt = datetime.fromtimestamp(float(fetched_at), tz=timezone.utc)
+            json_ld["dateModified"] = dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+        except Exception:
+            pass
+    if node_tags:
+        json_ld["keywords"] = node_tags
+    json_ld_str = _json.dumps(json_ld, ensure_ascii=False)
+    json_ld_str = json_ld_str.replace("<", "\\u003c").replace(">", "\\u003e")
+    tags.append(f'<script type="application/ld+json">{json_ld_str}</script>')
 
     return "\n".join(tags)
 
@@ -341,6 +377,7 @@ def shared_html(
     if isinstance(settings, str):
         ga_id = settings
         resolved_base_url = base_url
+        s = None
     elif settings is None:
         from .config import get_settings
 
@@ -348,6 +385,7 @@ def shared_html(
         ga_id = getattr(s, "effective_ga_measurement_id", getattr(s, "ga_measurement_id", ""))
         resolved_base_url = base_url or getattr(s, "public_url", "")
     else:
+        s = settings
         ga_id = getattr(
             settings,
             "effective_ga_measurement_id",
@@ -357,16 +395,33 @@ def shared_html(
 
     doc_id = str((doc or {}).get("id", "") or "").strip()
     ga_tag = render_ga_tag(ga_id, doc_id=doc_id)
-    og_tags = render_open_graph_tags(doc, base_url=resolved_base_url, share_token=share_token)
+    og_tags = render_open_graph_tags(doc, base_url=resolved_base_url, share_token=share_token, settings=s)
+
+    raw_summary = str((doc or {}).get("summary") or (doc or {}).get("detail") or "").strip()
+    esc_summary = _html.escape(raw_summary).replace("\n", "<br/>")
+    detail_html = (doc or {}).get("detail_html") or ""
+    if not detail_html and esc_summary:
+        detail_html = f"<p>{esc_summary}</p>"
+
+    title = ((doc or {}).get("title") or "공유 문서").replace("<", "").replace(">", "")
+    esc_title = _html.escape(title)
+    semantic_fallback = (
+        f'<noscript>'
+        f'<article class="cb-semantic-content" style="max-width:860px;margin:2rem auto;padding:1.5rem;line-height:1.7;">'
+        f'<h1>{esc_title}</h1>'
+        f'<div class="cb-semantic-body">{detail_html}</div>'
+        f'</article>'
+        f'</noscript>'
+    )
 
     data = _json.dumps(doc, ensure_ascii=False)
     data = data.replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
-    title = (doc.get("title") or "공유 문서").replace("<", "").replace(">", "")
     return (
         _SHARED_HTML.replace("__DATA__", data)
         .replace("__TITLE__", title)
         .replace("<!-- __GA_TAG__ -->", ga_tag)
         .replace("<!-- __OG_TAGS__ -->", og_tags)
+        .replace("<!-- __SEMANTIC_FALLBACK__ -->", semantic_fallback)
     )
 
 

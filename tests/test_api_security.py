@@ -239,6 +239,8 @@ def test_runtime_config_rejects_unsafe_values(tmp_path, change, match):
 def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
     public_get = {
         "/health",
+        "/robots.txt",
+        "/sitemap.xml",
         "/favicon.ico",
         "/favicon.svg",
         "/apple-touch-icon.png",
