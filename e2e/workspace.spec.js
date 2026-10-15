@@ -105,6 +105,7 @@ test('tablet and desktop layouts do not squeeze the graph into three fixed colum
   await expect(page.locator('#synthbtn')).toBeHidden();
   await expect(page.locator('#addbtn')).toBeHidden();
   await expect(page.locator('#reingestbtn')).toBeHidden();
+  await expect(page.locator('#regenbtn')).toBeHidden();
   await expect(page.locator('#purgebtn')).toBeHidden();
   await expect(page.locator('#dedupbtn')).toBeHidden();
   await page.keyboard.press('Escape');

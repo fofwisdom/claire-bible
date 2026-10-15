@@ -2454,6 +2454,325 @@ async function runReingest(){
   renderIngestResult(result);
 }
 
+// --- 문서 컴포넌트 재생성 (Regenerate) ---
+function openRegen(docIdOverride){
+  if(!canIngest()) return;
+  if(activeIngest && activeIngest.running){
+    renderIngestStatus();
+    return;
+  }
+  const curDoc = (docIdOverride && allDocs && allDocs.find(d => d.id === docIdOverride)) ||
+                 (allDocs && allDocs.find(d => d.id === activeDoc)) || curReaderDocData;
+  const defTarget = (docIdOverride || (curDoc && (curDoc.id || curDoc.url || '')) || '');
+  const defTitle = (curDoc && curDoc.title) ? esc(curDoc.title) : '';
+  const isMulti = isMultiThemeEnabled();
+  let themeFieldHtml = '';
+  if(isMulti && availableThemes && availableThemes.length > 0){
+    if(AUTH_SCOPE === 'collaborator'){
+      const eligibleThemes = availableThemes.filter(t => t.id > 0 && t.is_collaborator_accessible !== false);
+      if(eligibleThemes.length === 0){
+        themeFieldHtml = '<div class="ingest-field"><p class="hint" style="color:var(--warn,#f39c12);margin:0;">⚠️ 재생성 가능한 협업 테마가 없습니다.</p></div>';
+      } else {
+        const selId = eligibleThemes.some(t => t.id === activeThemeId) ? activeThemeId : eligibleThemes[0].id;
+        const opts = eligibleThemes.map(t => {
+          const icon = t.icon || '📁';
+          const label = esc(t.label);
+          return `<option value="${t.id}" ${t.id === selId ? 'selected' : ''}>${icon} ${label}</option>`;
+        }).join('');
+        themeFieldHtml = ('<div class="ingest-field">'+
+          '<label class="ingest-label" for="regentheme">재생성 대상 테마 <span class="ingest-help">협업이 허용된 지식 테마</span></label>'+
+          '<select id="regentheme" class="ingest-theme-select">'+opts+'</select>'+
+        '</div>');
+      }
+    } else if(availableThemes.length > 1){
+      themeFieldHtml = ('<div class="ingest-field">'+
+        '<label class="ingest-label" for="regentheme">재생성 대상 테마 <span class="ingest-help">지식 테마 선택</span></label>'+
+        '<select id="regentheme" class="ingest-theme-select">'+
+          renderThemeOptions(activeThemeId)+
+        '</select>'+
+      '</div>');
+    }
+  }
+
+  panel.innerHTML = '<h2>🔁 문서 컴포넌트 재생성</h2>'+
+    '<p class="al">기존 원문(raw_text)을 기반으로 요약, 가독 본문(상세), 지식 노드/관계를 LLM으로 다시 생성합니다.</p>'+
+    '<div class="ingest-form">'+
+      themeFieldHtml +
+      '<div class="ingest-field">'+
+        '<label class="ingest-label" for="regentarget">재생성 대상 <span class="ingest-help">문서 ID, URL, 또는 공유 토큰</span></label>'+
+        '<input type="text" id="regentarget" class="ingest-input" style="width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:var(--input-bg);color:var(--fg)" value="'+esc(defTarget)+'" placeholder="문서 ID (예: doc_...) 또는 URL">'+
+        (defTitle ? '<small style="color:var(--muted);display:block;margin-top:3px">현재 선택된 문서: <b>'+defTitle+'</b></small>' : '')+
+      '</div>'+
+      '<fieldset class="ingest-options">'+
+        '<legend class="ingest-label">재생성 컴포넌트</legend>'+
+        '<div class="ingest-choice-grid">'+
+          '<div class="ingest-choice"><input id="regencomp-all" type="radio" name="regen-comp" value="all" checked><label for="regencomp-all" title="요약, 본문, 지식그래프를 모두 재생성합니다">전체 (All)</label></div>'+
+          '<div class="ingest-choice"><input id="regencomp-detail" type="radio" name="regen-comp" value="detail"><label for="regencomp-detail" title="가독 본문(상세 렌더)만 재생성합니다">본문 상세 (Detail)</label></div>'+
+          '<div class="ingest-choice"><input id="regencomp-summary" type="radio" name="regen-comp" value="summary"><label for="regencomp-summary" title="요약문만 LLM 재추출합니다">요약 (Summary)</label></div>'+
+          '<div class="ingest-choice"><input id="regencomp-graph" type="radio" name="regen-comp" value="graph"><label for="regencomp-graph" title="엔티티와 지식 노드/관계만 재추출합니다">지식그래프 (Graph)</label></div>'+
+        '</div>'+
+      '</fieldset>'+
+      '<fieldset class="ingest-options">'+
+        '<legend class="ingest-label">사고 수준 <span class="ingest-help">미지정 시 서버 설정 사용</span></legend>'+
+        '<div class="ingest-choice-grid effort">'+
+          '<div class="ingest-choice"><input id="regeneffort-default" type="radio" name="regen-effort" value="" checked><label for="regeneffort-default">기본</label></div>'+
+          '<div class="ingest-choice"><input id="regeneffort-none" type="radio" name="regen-effort" value="none"><label for="regeneffort-none">없음</label></div>'+
+          '<div class="ingest-choice"><input id="regeneffort-minimal" type="radio" name="regen-effort" value="minimal"><label for="regeneffort-minimal">최소</label></div>'+
+          '<div class="ingest-choice"><input id="regeneffort-low" type="radio" name="regen-effort" value="low"><label for="regeneffort-low">낮음</label></div>'+
+          '<div class="ingest-choice"><input id="regeneffort-medium" type="radio" name="regen-effort" value="medium"><label for="regeneffort-medium">중간</label></div>'+
+          '<div class="ingest-choice"><input id="regeneffort-high" type="radio" name="regen-effort" value="high"><label for="regeneffort-high">높음</label></div>'+
+          '<div class="ingest-choice"><input id="regeneffort-max" type="radio" name="regen-effort" value="max"><label for="regeneffort-max">최대</label></div>'+
+        '</div>'+
+      '</fieldset>'+
+      '<div class="ingest-field">'+
+        '<label class="ingest-label" for="regenfocus">상세 초점 (Focus) <span class="ingest-help">선택 사항 — 특정 관점 중심 기술</span></label>'+
+        '<textarea id="regenfocus" rows="2" placeholder="예: 시스템 아키텍처 및 내부 동작 구조 중심"></textarea>'+
+      '</div>'+
+      '<div class="ingest-field" style="margin-top:6px">'+
+        '<label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer">'+
+          '<input type="checkbox" id="regenrefetch"> '+
+          '<span>원본 웹 URL에서 최신 원문 재수집 후 재생성 (Refetch)</span>'+
+        '</label>'+
+      '</div>'+
+      '<div class="action-btn-row" style="margin-top:12px;gap:8px">'+
+        '<button type="button" class="sec" onclick="runRegen(true)" style="padding:6px 12px;cursor:pointer"><span class="btn-icon">🔍</span> <span class="btn-label">영향 분석 (Dry-Run)</span></button>'+
+        '<button type="button" class="readbtn" onclick="runRegen(false)" style="background:var(--accent,#2da44e);color:#fff;border:none;padding:6px 12px;cursor:pointer;border-radius:4px"><span class="btn-icon">🔁</span> <span class="btn-label">재생성 시작</span></button>'+
+      '</div>'+
+      '<div id="regenresult" style="margin-top:14px"></div>'+
+    '</div>';
+  openDetailPane();
+  const inp=document.getElementById('regentarget'); if(inp) inp.focus();
+}
+
+async function runRegen(isDryRun){
+  if(!canIngest()) return;
+  if(!isDryRun && activeIngest && activeIngest.running){
+    alert('이미 적재, 재적재 또는 재생성이 진행 중입니다.');
+    renderIngestStatus();
+    return;
+  }
+  const isMulti = isMultiThemeEnabled();
+  const ta = document.getElementById('regentarget');
+  const target = ((ta||{}).value||'').trim();
+  if(!target){ alert('재생성할 대상(문서 ID 또는 URL)을 입력하세요.'); return; }
+  const regenthemeEl = document.getElementById('regentheme');
+  const targetThemeId = (isMulti && regenthemeEl) ? parseInt(regenthemeEl.value, 10) : (isMulti ? activeThemeId : 0);
+  if(AUTH_SCOPE === 'collaborator'){
+    if(!targetThemeId || targetThemeId === 0){
+      alert('기본 지식베이스(ID 0)에는 협업자 권한으로 재생성할 수 없습니다. 협업이 허용된 추가 지식 테마를 선택하세요.');
+      return;
+    }
+  }
+  const compChoice = document.querySelector('input[name="regen-comp"]:checked');
+  const component = compChoice ? compChoice.value : 'all';
+  const effortChoice = document.querySelector('input[name="regen-effort"]:checked');
+  const effort = effortChoice ? effortChoice.value : '';
+  const focus = ((document.getElementById('regenfocus')||{}).value||'').trim();
+  const refetchChk = document.getElementById('regenrefetch');
+  const refetch = !!(refetchChk && refetchChk.checked);
+
+  const resDiv = document.getElementById('regenresult');
+
+  if(isDryRun){
+    if(resDiv) resDiv.innerHTML = '<p class="al">⏳ 재생성 영향 분석 중…</p>';
+    try{
+      const payload = {
+        target: target,
+        component: component,
+        dry_run: true,
+        refetch: refetch,
+      };
+      if(effort) payload.effort = effort;
+      if(focus) payload.focus = focus;
+      if(isMulti && targetThemeId !== undefined && targetThemeId !== null && targetThemeId !== 0){
+        payload.theme = targetThemeId;
+      }
+      const r = await fetch('regenerate', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload),
+      });
+      if(r.status === 401 || r.status === 404){
+        expireWriteAccess();
+        if(resDiv) resDiv.innerHTML = '<p class="hint">세션 만료 — 텔레그램 /web 으로 다시 접속하세요</p>';
+        return;
+      }
+      const d = await r.json();
+      if(!r.ok || d.error){
+        if(resDiv) resDiv.innerHTML = '<p class="hint">영향 분석 실패: ' + esc(d.error || ('HTTP ' + r.status)) + '</p>';
+        return;
+      }
+      let h = '<div style="padding:10px;background:var(--card-bg);border:1px solid var(--border);border-radius:6px">';
+      h += '<h3 style="margin:0 0 6px">🔍 재생성 영향 분석 결과 (Dry-Run)</h3>';
+      const tgts = d.targets || [];
+      h += '<p class="al">진단 대상 문서: <b>' + (d.count || tgts.length) + '건</b> · 컴포넌트: <b>' + esc(component) + '</b></p>';
+      if(tgts.length > 0){
+        h += '<ul style="margin:6px 0;padding-left:18px;font-size:12px">';
+        tgts.forEach(t => {
+          const acts = (t.actions || []).join(', ');
+          h += '<li><b>' + esc(t.title || t.document_id) + '</b> <small class="al">(' + esc(t.document_id) + ')</small>';
+          if(acts) h += '<br><span style="color:var(--muted)">적용 예정 작업: ' + esc(acts) + '</span>';
+          if(t.current_summary) h += '<br><span style="color:var(--muted)">현재 요약: ' + esc(t.current_summary.slice(0, 100)) + (t.current_summary.length > 100 ? '…' : '') + '</span>';
+          h += '</li>';
+        });
+        h += '</ul>';
+        h += '<button type="button" class="readbtn" onclick="runRegen(false)" style="margin-top:8px;background:var(--accent,#2da44e);color:#fff;border:none;padding:5px 10px;border-radius:4px;cursor:pointer">위 대상을 확인하고 재생성 실행</button>';
+      } else {
+        h += '<p class="hint">일치하는 문서를 찾을 수 없습니다.</p>';
+      }
+      h += '</div>';
+      if(resDiv) resDiv.innerHTML = h;
+    }catch(e){
+      if(resDiv) resDiv.innerHTML = '<p class="hint">분석 요청 오류: ' + esc(String(e)) + '</p>';
+    }
+    return;
+  }
+
+  // 실제 재생성 실행 (스트리밍)
+  let labelText = '재생성 시작…';
+  const optionLabels = [];
+  const targetThemeObj = isMulti ? availableThemes.find(t => t.id === targetThemeId) : null;
+  if(targetThemeObj && targetThemeObj.id !== 0){
+    optionLabels.push('테마: ' + (targetThemeObj.icon ? targetThemeObj.icon + ' ' : '') + targetThemeObj.label);
+  }
+  optionLabels.push('컴포넌트: ' + component);
+  if(effort) optionLabels.push('사고: ' + effort);
+  if(focus) optionLabels.push('초점: ' + (focus.length > 20 ? focus.slice(0,20)+'…' : focus));
+  if(refetch) optionLabels.push('원문 재수집');
+  if(optionLabels.length){
+    labelText += ' (' + optionLabels.join(' · ') + ')';
+  }
+  activeIngest = {
+    running: true,
+    t0: Date.now(),
+    labelText: labelText,
+    optionLabels: optionLabels,
+    messages: [],
+    timer: null,
+  };
+  pauseGraphForIngest();
+  renderIngestStatus();
+  activeIngest.timer = setInterval(updateIngestElapsed, 1000);
+
+  const payload = {
+    target: target,
+    component: component,
+    dry_run: false,
+    refetch: refetch,
+  };
+  if(effort) payload.effort = effort;
+  if(focus) payload.focus = focus;
+  if(isMulti && targetThemeId !== undefined && targetThemeId !== null && targetThemeId !== 0){
+    payload.theme = targetThemeId;
+  }
+
+  let result = null;
+  try{
+    const r = await fetch('regenerate-stream', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload),
+    });
+    if(r.status === 401 || r.status === 404){
+      expireWriteAccess();
+      if(activeIngest){
+        if(activeIngest.timer) clearInterval(activeIngest.timer);
+        activeIngest.timer = null;
+        activeIngest.running = false;
+      }
+      resumeGraphAfterIngest();
+      panel.innerHTML = '<p class="hint">세션 만료 — 텔레그램 /web 으로 다시 접속하세요</p>';
+      return;
+    }
+    if(!r.ok){
+      throw new Error('HTTP ' + r.status);
+    }
+    const reader = r.body.getReader();
+    const dec = new TextDecoder('utf-8');
+    let buf = '';
+    while(true){
+      const {done, value} = await reader.read();
+      if(done) break;
+      buf += dec.decode(value, {stream: true});
+      const lines = buf.split('\n');
+      buf = lines.pop();
+      for(const line of lines){
+        const trimmed = line.trim();
+        if(!trimmed) continue;
+        let ev;
+        try{ ev = JSON.parse(trimmed); }catch(_){ continue; }
+        if(ev.done){
+          result = ev.result;
+          continue;
+        }
+        const cleanMsg = (ev.msg||'').replace(/^[•*-]\s*/, '');
+        if(cleanMsg){
+          if(typeof updateMatrixProgress === 'function') updateMatrixProgress(cleanMsg);
+          if(activeIngest) activeIngest.messages.push(cleanMsg);
+          const ul = document.getElementById('iprog');
+          if(ul){
+            const li = document.createElement('li');
+            li.textContent = cleanMsg;
+            ul.appendChild(li);
+            ul.scrollTop = ul.scrollHeight;
+          }
+        }
+      }
+    }
+  }catch(e){
+    if(activeIngest){
+      if(activeIngest.timer) clearInterval(activeIngest.timer);
+      activeIngest.timer = null;
+      activeIngest.running = false;
+    }
+    resumeGraphAfterIngest();
+    panel.innerHTML = '<p class="hint">재생성 스트림 오류: ' + esc(String(e)) + '</p>';
+    return;
+  }
+  if(activeIngest){
+    if(activeIngest.timer) clearInterval(activeIngest.timer);
+    activeIngest.timer = null;
+    activeIngest.running = false;
+  }
+  resumeGraphAfterIngest();
+  if(!result){
+    panel.innerHTML = '<p class="hint">재생성 결과가 수신되지 않았습니다.</p>';
+    return;
+  }
+
+  // 결과 화면 표시 및 지식그래프 갱신
+  if(result.error){
+    panel.innerHTML = '<p class="hint">재생성 실패: ' + esc(result.error) + '</p>';
+    return;
+  }
+  let h = '<h2>✅ 컴포넌트 재생성 완료</h2>';
+  const tgts = result.targets || [];
+  h += '<div style="padding:10px;background:var(--card-bg);border:1px solid var(--border);border-radius:6px">';
+  h += '<p class="al">갱신 완료 문서: <b>' + (result.count || tgts.length) + '건</b></p>';
+  if(tgts.length > 0){
+    h += '<ul style="margin:6px 0;padding-left:18px;font-size:12px">';
+    tgts.forEach(t => {
+      h += '<li><b>' + esc(t.title || t.document_id) + '</b> <small class="al">(' + esc(t.document_id) + ')</small>';
+      if(t.entities_created !== undefined || t.entities_linked !== undefined){
+        h += '<br><span style="color:var(--muted)">지식 노드 신규: ' + (t.entities_created||0) + ' · 기존 연결: ' + (t.entities_linked||0) + ' · 관계: ' + (t.relations_added||0) + '</span>';
+      }
+      if(t.new_summary){
+        h += '<br><span style="color:var(--muted)">새 요약: ' + esc(t.new_summary.slice(0, 120)) + (t.new_summary.length > 120 ? '…' : '') + '</span>';
+      }
+      h += '</li>';
+    });
+    h += '</ul>';
+  }
+  h += '</div>';
+  panel.innerHTML = h;
+
+  refreshGraph();
+  const affectedIds = tgts.map(t => t.document_id);
+  if(activeDoc && affectedIds.includes(activeDoc)){
+    openReader(activeDoc);
+  }
+}
+
 function openPurge(){
   if(AUTH_SCOPE !== 'owner'){
     alert('소각(Purge) 권한은 소유자(owner) 전용입니다.');

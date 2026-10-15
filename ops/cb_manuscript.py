@@ -119,6 +119,7 @@ APP_ONE_OFF_COMMANDS = {
     "regenerate",
     "doc-regenerate",
     "regenerate-doc",
+    "regen",
     "summary-regenerate",
     "reingest",
     "purge",

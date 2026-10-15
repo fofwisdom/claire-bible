@@ -169,6 +169,7 @@
 
   body:not([data-auth-scope="owner"]):not([data-auth-scope="collaborator"]) #addbtn,
   body:not([data-auth-scope="owner"]):not([data-auth-scope="collaborator"]) #reingestbtn,
+  body:not([data-auth-scope="owner"]):not([data-auth-scope="collaborator"]) #regenbtn,
   body:not([data-auth-scope="owner"]) #purgebtn,
   body:not([data-auth-scope="owner"]) #synthbtn,
   body:not([data-auth-scope="owner"]) #synthchips,
