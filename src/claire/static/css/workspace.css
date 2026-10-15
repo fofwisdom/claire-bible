@@ -163,9 +163,10 @@
     display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical}
   #docs.lc0 .docitem p{display:none}
   #docs.lc3 .docitem p,#docs.lc4 .docitem p{-webkit-line-clamp:3}
-  #showhidden{display:block;padding:8px 10px;font-size:12px;color:var(--fg);cursor:pointer;
-    text-align:center;border-top:1px solid var(--border);background:var(--sec-bg)}
+  #showhidden{display:block;padding:8px 10px;font-size:12px;color:var(--fg);cursor:pointer;text-align:center;border-top:1px solid var(--border);background:var(--sec-bg);flex-shrink:0;user-select:none}
   #showhidden:hover{background:var(--hover)}
+  #hiddenlist{max-height:40%;overflow-y:auto;overscroll-behavior:contain;flex-shrink:0;border-top:1px solid var(--border);background:rgba(128,128,128,.05)}
+  #hiddenlist:empty{display:none}
 
   body:not([data-auth-scope="owner"]):not([data-auth-scope="collaborator"]) #addbtn,
   body:not([data-auth-scope="owner"]):not([data-auth-scope="collaborator"]) #reingestbtn,
@@ -477,6 +478,7 @@
     .dday{font-size:12.5px;padding:4px 12px}
     #pinnedhead{font-size:12px;padding:6px 12px}
     #showhidden{font-size:13px;padding:10px 12px}
+    #hiddenlist{max-height:40%;overflow-y:auto;-webkit-overflow-scrolling:touch}
   }
   @media (prefers-reduced-motion:reduce){
     *{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important}

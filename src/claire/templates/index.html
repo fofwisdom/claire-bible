@@ -129,8 +129,8 @@
       </div>
       <p class="hint" style="padding:10px">문서 로딩…</p>
     </div>
-    <div id="showhidden" style="display:none" onclick="toggleShowHidden()"></div>
-    <div id="hiddenlist"></div>
+    <div id="showhidden" style="display:none" onclick="toggleShowHidden()" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleShowHidden();}"></div>
+    <div id="hiddenlist" tabindex="0" role="region" aria-label="숨긴 게시물 목록"></div>
   </aside>
   <div id="centerwrap">
     <header id="centerhead" class="center-head-bar" role="navigation" aria-label="중앙 화면 전환">

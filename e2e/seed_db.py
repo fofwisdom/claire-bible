@@ -92,6 +92,10 @@ def seed(db_path: Path) -> None:
             detail="이 문서는 PDF 인코딩 결함 및 스캔본 감지 태그 테스트를 위한 문서입니다.",
             format="md",
         )
+        for i in range(1, 16):
+            hid_id = f"doc-hidden-{i}"
+            dbm.insert_document(conn, Document(id=hid_id, url=f"https://example.com/hidden/{i}", title=f"숨긴 문서 {i:02d} (스크롤 테스트)", fetched_at=1699990000 - i * 10))
+            dbm.set_document_hidden(conn, hid_id, True)
         conn.execute(
             "INSERT OR REPLACE INTO doc_shares(token, document_id, created_at, expires_at) VALUES (?,?,?,?)",
             ("23456789abcdefgh", "doc-1", 1700000000, None),
