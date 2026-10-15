@@ -303,6 +303,8 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         "/themes",
         "/providers",
         "/providers/test",
+        "/limits",
+        "/ingest-limits",
         "/resolution/rollback",
         "/document/matrix/purge",
     }
@@ -312,6 +314,12 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         ("GET", "/providers"),
         ("HEAD", "/providers"),
         ("PATCH", "/providers"),
+        ("GET", "/limits"),
+        ("HEAD", "/limits"),
+        ("PATCH", "/limits"),
+        ("GET", "/ingest-limits"),
+        ("HEAD", "/ingest-limits"),
+        ("PATCH", "/ingest-limits"),
     }
     expected = {
         **{

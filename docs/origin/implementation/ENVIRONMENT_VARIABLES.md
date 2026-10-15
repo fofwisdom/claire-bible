@@ -49,6 +49,7 @@ graph TD
 4. **엄격한 DotEnv 파서 (`_ExactDotEnvSettingsSource`)**: 보안 selector(예: `CLAIRE_ANONYMOUS_READONLY`)는 따옴표나 외부 공백이 없는 exact `0` 또는 `1`만 허용하며, 중복 선언 시 기동 전 에러를 발생시킨다.
 5. **자동 마이그레이션 및 백필**: `./cb-manuscript init`, `install`, `update` 실행 시 신규 추가된 환경변수가 `.env.example` 및 `.env.dev.example`로부터 기존 사용자 설정을 훼손하지 않고 파일 끝에 자동으로 백필된다 ([OPERATIONAL_MIGRATION.md](../design/OPERATIONAL_MIGRATION.md) 참조).
 6. **WebUI 프로바이더 관리 우선 및 자동 마이그레이션 (`data/providers.json`)**: LLM 및 하이퍼스케일러 프로바이더 설정(Gemini, Antigravity CLI, Codex CLI, Jev, STT 등)은 WebUI에서 브라우저를 통해 직관적으로 관리되며 `data/providers.json`에 안전하게 영속화된다. 런타임 설정 해석 시 `providers.json`의 값이 `.env` 파일보다 우선 적용되며, 기존 `.env` 및 `.env.dev`의 프로바이더 설정은 기동 시 자동으로 `providers.json`으로 이전된 후 `.env` 내에서 주석 처리(`# VAR=val`)된다.
+7. **WebUI 상황 별 적재 제한 관리 및 환경변수 선언 종료 (`data/ingest_limits.json`)**: 상황 별 적재 제한 및 슬라이싱 예산 설정(원문 글자 수 상한, PDF 추출 및 논문 판정 기준, 슬라이싱 전략, 임베딩/확장/리서치 예산, 미디어 용량 상한 등)은 WebUI 상세 메뉴의 단독 기능인 **📏 적재 제한**에서 직관적으로 관리되며 `data/ingest_limits.json`에 안전하게 영속화된다. 런타임 설정 해석 시 `ingest_limits.json`이 환경변수 파일보다 우선 적용되며, 기존 `.env` 및 `.env.dev`의 적재 제한 설정은 기동 시 자동으로 `ingest_limits.json`으로 이전된 후 주석 처리되어 환경변수에서의 선언 사용이 공식 종료된다.
 
 ---
 
@@ -242,9 +243,12 @@ TypeSafe AI Jev는 엔티티 해소(Entity Resolution) 및 관계 판정 시 비
 
 ---
 
-### 2.11 텍스트 슬라이싱 및 글자 수 예산 (Budgets & Slicing)
+### 2.11 상황 별 적재 제한 및 텍스트 슬라이싱 예산 (Situational Ingest Limits & Slicing)
 
-| 환경변수명 | 기본값 | 허용 값 / 타입 | 설명 |
+> [!NOTE]
+> 상황 별 적재 제한 및 슬라이싱 예산 설정은 이제 WebUI(Drawer > **상세 메뉴** > **📏 적재 제한**)에서 단독 기능으로 관리되며 `data/ingest_limits.json`에 영구 저장된다. 환경변수에서의 선언은 사용이 공식 종료되었으며, 기동 시 기존 `.env` 및 `.env.dev`의 설정은 자동으로 `ingest_limits.json`으로 마이그레이션된 후 주석 처리된다.
+
+| 환경변수명 (레거시/마이그레이션 대상) | 기본값 | 허용 값 / 타입 | 설명 |
 | :--- | :--- | :--- | :--- |
 | `CLAIRE_RAW_CHAR_BUDGET` | `20000` | 정수 (글자 수) | 원문 텍스트 수집 기본 보관 상한 (웹, 텍스트 파일, X, 유튜브 등). |
 | `CLAIRE_PDF_PARSER` | `default` | `default`, `docling` | PDF 텍스트 추출 엔진 (`default`: 기본 고속 Chromium C++ PDFium 파서, `docling`: 선택형 AI 다단 칼럼/표 분석 및 OCR 파서. `pypdf` 설정 시 `cb-manuscript preflight`에서 차단됨). ([PDF_INGESTION_AND_ADAPTIVE_EFFORT_DESIGN.md](../design/PDF_INGESTION_AND_ADAPTIVE_EFFORT_DESIGN.md) 참조) |
