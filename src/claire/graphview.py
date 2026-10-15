@@ -452,12 +452,14 @@ def render_graph_html(
     )
     if not base_url:
         base_url = f"https://github.com/{repo}"
-    theme_ga_id = str(getattr(theme, "ga_measurement_id", "") or "").strip() if theme else ""
-    ga_id = theme_ga_id or getattr(
-        s,
-        "effective_ga_measurement_id",
-        getattr(s, "ga_measurement_id", ""),
-    )
+    if theme is not None:
+        ga_id = str(getattr(theme, "ga_measurement_id", "") or "").strip()
+    else:
+        ga_id = getattr(
+            s,
+            "effective_ga_measurement_id",
+            getattr(s, "ga_measurement_id", ""),
+        )
     theme_id = getattr(theme, "id", None) if theme else None
     theme_label = getattr(theme, "label", "") if theme else ""
     ga_tag = render_ga_tag(ga_id, theme_id=theme_id, theme_label=theme_label)

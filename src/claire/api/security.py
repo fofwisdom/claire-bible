@@ -1545,9 +1545,12 @@ class SafeAccessLogMiddleware:
 
     @property
     def csp_header_value(self) -> bytes:
-        has_ga = bool(self.config and self.config.ga_measurement_id) or (
-            self.theme_manager is not None and self.theme_manager.has_any_ga_enabled()
-        )
+        if self.theme_manager is not None and getattr(getattr(self.theme_manager, "settings", None), "multi_theme", False):
+            has_ga = self.theme_manager.has_any_ga_enabled()
+        else:
+            has_ga = bool(self.config and self.config.ga_measurement_id) or (
+                self.theme_manager is not None and self.theme_manager.has_any_ga_enabled()
+            )
         return self._ga_csp_header_value if has_ga else self._default_csp_header_value
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:

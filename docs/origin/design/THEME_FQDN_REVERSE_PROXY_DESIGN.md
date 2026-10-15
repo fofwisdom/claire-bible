@@ -139,7 +139,7 @@ graph TD
 
 1. **테마별 독립 측정 ID**:
    - 테마에 `ga_measurement_id`가 지정되어 있으면, 해당 테마 전용 GA4 속성으로 이벤트가 전송된다.
-   - 미지정 시 시스템 전역 `CLAIRE_GA_MEASUREMENT_ID`가 적용되거나 추적이 비활성화된다.
+   - 미지정 시 시스템 전역 `CLAIRE_GA_MEASUREMENT_ID`로 폴백하지 않고 해당 테마의 추적이 비활성화된다.
 2. **커스텀 차원 자동 주입**:
    - `render_ga_tag`는 테마 컨텍스트가 존재할 경우 다음과 같은 파라미터를 gtag 설정에 자동 주입한다:
      ```javascript

@@ -4389,7 +4389,7 @@ async function openThemeManager(){
           <div>• <b>아이콘</b>: ${esc(t.icon || '📁')}</div>
           <div>• <b>설명</b>: ${esc(t.description || '(설명 없음)')}</div>
           <div>• <b>전용 FQDN (도메인)</b>: ${esc(t.fqdn || '(미지정 - 기본 도메인 공유)')}</div>
-          <div>• <b>GA4 측정 ID</b>: ${esc(t.ga_measurement_id || '(미지정 - 기본 추적 또는 비활성)')}</div>
+          <div>• <b>GA4 측정 ID</b>: ${esc(t.ga_measurement_id || '(미지정 - 비활성)')}</div>
           ${t.id > 0 ? `<div>• <b>기본 초점</b>: ${esc(t.default_focus || '(미지정 - 기본 분석 적용)')}</div>` : ''}
           <div>• <b>공개 여부</b>: ${isPub ? '익명 사용자 공개' : '비공개 🔒'}</div>
           ${t.id > 0 ? `<div>• <b>협업자 공개 여부</b>: ${isCollabAcc ? '협업자 공개 (접근 및 적재 허용)' : '협업자 차단'}</div>` : ''}
