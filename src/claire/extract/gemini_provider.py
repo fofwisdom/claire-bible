@@ -648,18 +648,13 @@ def _coerce(text: str | None) -> ExtractionResult:
             except Exception:  # noqa: BLE001
                 pass
     if result is None:
-        result = ExtractionResult(summary=clean_plain_summary(s[:300]))
+        result = ExtractionResult(summary="")
 
     if result.summary:
         result.summary = clean_plain_summary(result.summary)
 
     if not result.summary or not result.summary.strip():
-        if result.key_claims:
-            result.summary = clean_plain_summary(" ".join(result.key_claims[:3]))
-        elif result.entities:
-            result.summary = f"{', '.join(e.name for e in result.entities[:5])} 등에 관한 자료이다."
-        else:
-            result.summary = clean_plain_summary(s[:300])
+        result.summary = ""
     elif is_preface_summary(result.summary) and result.key_claims:
         claims_summary = clean_plain_summary(" ".join(result.key_claims[:3]))
         if claims_summary and len(claims_summary) >= 30:

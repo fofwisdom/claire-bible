@@ -71,9 +71,10 @@ def _status_emoji(
     *,
     stt_error: str | None = None,
     detail_error: str | None = None,
+    summary_error: str | None = None,
 ) -> str:
     """처리 결과 → 원본 메시지에 달 텔레그램 허용 reaction 이모지."""
-    if error or stt_error or detail_error:
+    if error or stt_error or detail_error or summary_error:
         return "👎"
     if duplicate:
         return "👌"
@@ -145,6 +146,7 @@ async def _settle_status(
     has_error: bool = False,
     is_stt_failed: bool = False,
     is_detail_failed: bool = False,
+    is_summary_failed: bool = False,
     is_duplicate: bool = False,
     retry_doc_id: str | None = None,
     cands_markup: Any = None,
@@ -173,8 +175,8 @@ async def _settle_status(
         cands = []
 
     log.info(
-        "Settle status: doc_id=%s, has_error=%s, is_stt_failed=%s, is_detail_failed=%s, is_duplicate=%s, cands=%d, theme_id=%s",
-        retry_doc_id, has_error, is_stt_failed, is_detail_failed, is_duplicate, len(cands), theme_id,
+        "Settle status: doc_id=%s, has_error=%s, is_stt_failed=%s, is_detail_failed=%s, is_summary_failed=%s, is_duplicate=%s, cands=%d, theme_id=%s",
+        retry_doc_id, has_error, is_stt_failed, is_detail_failed, is_summary_failed, is_duplicate, len(cands), theme_id,
     )
 
     async def _safe_send_or_edit(text: str, reply_markup: Any = None) -> None:
@@ -224,28 +226,20 @@ async def _settle_status(
 
     if cands and cands_markup:
         await _safe_send_or_edit(summary, reply_markup=cands_markup)
-    elif is_detail_failed and retry_doc_id:
+    elif (is_summary_failed or is_detail_failed or is_stt_failed) and retry_doc_id:
         markup = None
         try:
             from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
-            kb = [
-                [InlineKeyboardButton("🔄 본문 재생성 (기존 원문 기준)", callback_data=f"rg:det:{retry_doc_id}")],
-                [InlineKeyboardButton("🌐 전체 원문 재수집 및 재생성", callback_data=f"rg:full:{retry_doc_id}")],
-            ]
-            markup = InlineKeyboardMarkup(kb)
-        except Exception:  # noqa: BLE001
-            markup = None
-        await _safe_send_or_edit(summary, reply_markup=markup)
-    elif is_stt_failed and retry_doc_id:
-        markup = None
-        try:
-            from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-
-            kb = [
-                [InlineKeyboardButton("🎙️ 비디오 자막 재수집 및 적재", callback_data=f"rg:full:{retry_doc_id}")],
-                [InlineKeyboardButton("🔄 본문 재생성 (기존 텍스트 기준)", callback_data=f"rg:det:{retry_doc_id}")],
-            ]
+            kb = []
+            if is_summary_failed:
+                kb.append([InlineKeyboardButton("🔄 요약 재생성", callback_data=f"rg:summ:{retry_doc_id}")])
+            if is_detail_failed:
+                kb.append([InlineKeyboardButton("🔄 본문 재생성 (기존 원문 기준)", callback_data=f"rg:det:{retry_doc_id}")])
+                kb.append([InlineKeyboardButton("🌐 전체 원문 재수집 및 재생성", callback_data=f"rg:full:{retry_doc_id}")])
+            elif is_stt_failed:
+                kb.append([InlineKeyboardButton("🎙️ 비디오 자막 재수집 및 적재", callback_data=f"rg:full:{retry_doc_id}")])
+                kb.append([InlineKeyboardButton("🔄 본문 재생성 (기존 텍스트 기준)", callback_data=f"rg:det:{retry_doc_id}")])
             markup = InlineKeyboardMarkup(kb)
         except Exception:  # noqa: BLE001
             markup = None
@@ -263,7 +257,7 @@ async def _settle_status(
         except Exception:  # noqa: BLE001
             markup = None
         await _safe_send_or_edit(summary, reply_markup=markup)
-    elif has_error or is_stt_failed or is_detail_failed or is_duplicate:
+    elif has_error or is_stt_failed or is_detail_failed or is_summary_failed or is_duplicate:
         await _safe_send_or_edit(summary)
     else:
         markup = None
@@ -733,6 +727,7 @@ def build_app(settings: Settings | None = None) -> Any:
         has_error: bool = False,
         is_stt_failed: bool = False,
         is_detail_failed: bool = False,
+        is_summary_failed: bool = False,
         is_duplicate: bool = False,
         retry_doc_id: str | None = None,
         theme_id: int = 0,
@@ -746,6 +741,7 @@ def build_app(settings: Settings | None = None) -> Any:
             has_error=has_error,
             is_stt_failed=is_stt_failed,
             is_detail_failed=is_detail_failed,
+            is_summary_failed=is_summary_failed,
             is_duplicate=is_duplicate,
             retry_doc_id=retry_doc_id,
             cands_markup=cands_markup,
@@ -861,13 +857,15 @@ def build_app(settings: Settings | None = None) -> Any:
                 or (report.source_type == "video" and report.has_transcript is False and report.stt_error)
             )
             is_detail_failed = not getattr(report, "detail_rendered", True)
-            has_error = bool(report.error) or is_detail_failed
+            is_summary_failed = not getattr(report, "summary_rendered", True)
+            has_error = bool(report.error) or is_detail_failed or is_summary_failed
             is_duplicate = bool(report.duplicate)
             emoji = _status_emoji(
                 report.error,
                 report.duplicate,
                 stt_error=report.stt_error,
                 detail_error=report.detail_error if is_detail_failed else None,
+                summary_error="요약 누락" if is_summary_failed else None,
             )
             did = report.document_id
             log.info(
@@ -881,10 +879,11 @@ def build_app(settings: Settings | None = None) -> Any:
             )
         except Exception as e:  # noqa: BLE001
             log.exception("Unhandled error in _execute_ingest: %s", e)
-            summary, cands, emoji, is_stt_failed, is_detail_failed, has_error, is_duplicate, did = (
+            summary, cands, emoji, is_stt_failed, is_detail_failed, is_summary_failed, has_error, is_duplicate, did = (
                 f"❌ 처리 오류: {e}",
                 [],
                 "👎",
+                False,
                 False,
                 False,
                 True,
@@ -902,6 +901,7 @@ def build_app(settings: Settings | None = None) -> Any:
             has_error=has_error,
             is_stt_failed=is_stt_failed,
             is_detail_failed=is_detail_failed,
+            is_summary_failed=is_summary_failed,
             is_duplicate=is_duplicate,
             retry_doc_id=did,
             theme_id=target_theme.id,
@@ -1217,7 +1217,10 @@ def build_app(settings: Settings | None = None) -> Any:
                 ]
             else:
                 kb = [
-                    [InlineKeyboardButton("🔄 본문 재생성", callback_data=f"rg:det:{target_doc_id}")],
+                    [
+                        InlineKeyboardButton("🔄 요약 재생성", callback_data=f"rg:summ:{target_doc_id}"),
+                        InlineKeyboardButton("🔄 본문 재생성", callback_data=f"rg:det:{target_doc_id}"),
+                    ],
                     [
                         InlineKeyboardButton("📥 원문 재수집 (길이 제한)", callback_data=f"rg:ref:{target_doc_id}"),
                         InlineKeyboardButton("🌐 전체 원문 재수집 (전체 길이)", callback_data=f"rg:full:{target_doc_id}"),
@@ -1607,13 +1610,15 @@ def build_app(settings: Settings | None = None) -> Any:
             if not _is_allowed(user.id if user else None):
                 return
             parts = data.split(":")
-            if len(parts) >= 3 and parts[1] in ("det", "ref", "full"):
+            if len(parts) >= 3 and parts[1] in ("det", "ref", "full", "summ"):
                 mode, did = parts[1], ":".join(parts[2:])
             else:
                 mode, did = "det", data[3:]
             do_refetch = (mode == "ref")
             do_refetch_full = (mode == "full")
-            mode_name = "전체 재수집 및 재생성" if do_refetch_full else ("재수집 및 재생성" if do_refetch else "본문 재생성")
+            do_summary = (mode == "summ")
+            do_detail = (mode == "det" or do_refetch or do_refetch_full)
+            mode_name = "전체 재수집 및 재생성" if do_refetch_full else ("재수집 및 재생성" if do_refetch else ("요약 재생성" if do_summary else "본문 재생성"))
             try:
                 await query.edit_message_reply_markup(reply_markup=None)
             except Exception:
@@ -1652,7 +1657,8 @@ def build_app(settings: Settings | None = None) -> Any:
                     status_msg, mode_name,
                     lambda: target_svc.regenerate_components(
                         doc_id=did,
-                        detail=True,
+                        summary=do_summary,
+                        detail=do_detail,
                         refetch=do_refetch,
                         refetch_full=do_refetch_full,
                         force=True,

@@ -1885,6 +1885,7 @@ def cmd_regenerate(args) -> int:
         graph = getattr(args, "graph", False)
         all_comp = getattr(args, "all", False)
     corrupted = getattr(args, "corrupted", False)
+    missing_summary = getattr(args, "missing_summary", False) or getattr(args, "missing", False)
     tables = getattr(args, "tables", False) or getattr(args, "has_tables", False)
     refetch = getattr(args, "refetch", False)
     refetch_full = getattr(args, "refetch_full", False)
@@ -1905,6 +1906,7 @@ def cmd_regenerate(args) -> int:
             graph=graph,
             all_components=all_comp,
             corrupted_summary=corrupted,
+            missing_summary=missing_summary,
             tables=tables,
             refetch=refetch,
             refetch_full=refetch_full,
@@ -1960,6 +1962,7 @@ def cmd_regenerate(args) -> int:
         graph=graph,
         all_components=all_comp,
         corrupted_summary=corrupted,
+        missing_summary=missing_summary,
         tables=tables,
         refetch=refetch,
         refetch_full=refetch_full,
@@ -1984,6 +1987,7 @@ def cmd_regenerate(args) -> int:
                 graph=graph,
                 all_components=all_comp,
                 corrupted_summary=corrupted,
+                missing_summary=missing_summary,
                 tables=tables,
                 refetch=refetch,
                 refetch_full=refetch_full,
@@ -2050,6 +2054,8 @@ def cmd_reprocess(args) -> int:
     elif scope == "tables":
         setattr(args, "tables", True)
     elif scope == "missing":
+        if component in ("summary", "all"):
+            setattr(args, "missing_summary", True)
         if not hasattr(args, "force") or not getattr(args, "force", False):
             setattr(args, "force", False)
 
@@ -4727,6 +4733,8 @@ def build_parser() -> argparse.ArgumentParser:
     preg.add_argument("--all", action="store_true", help="regenerate all components (summary, detail, graph nodes)")
     preg.add_argument("--corrupted", action="store_true",
                       help="automatically scan and target all documents with corrupted AsciiDoc syntax in summary")
+    preg.add_argument("--missing", "--missing-summary", action="store_true", dest="missing_summary",
+                      help="automatically scan and target all documents with missing summary in database")
     preg.add_argument("--tables", "--has-tables", action="store_true", dest="tables",
                       help="automatically scan and target all documents containing Markdown, AsciiDoc, or HTML tables")
     preg_refetch = preg.add_mutually_exclusive_group()
@@ -4755,6 +4763,8 @@ def build_parser() -> argparse.ArgumentParser:
     psum.add_argument("--token", default=None, help="specific share token")
     psum.add_argument("--doc-id", default=None, help="specific document ID")
     psum.add_argument("--corrupted", action="store_true", help="scan all documents with corrupted AsciiDoc syntax")
+    psum.add_argument("--missing", "--missing-summary", action="store_true", dest="missing_summary",
+                      help="scan all documents with missing summary in database")
     psum.add_argument("--tables", "--has-tables", action="store_true", dest="tables",
                       help="automatically scan and target all documents containing tables")
     psum_refetch = psum.add_mutually_exclusive_group()

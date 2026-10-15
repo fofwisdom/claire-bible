@@ -2259,40 +2259,10 @@ def latest_extraction_summary(conn: sqlite3.Connection, document_id: str) -> str
         except (ValueError, AttributeError):
             summary = None
             key_claims = None
-    if summary and summary.strip():
+    if summary and isinstance(summary, str) and summary.strip():
         cleaned = clean_plain_summary(summary)
         if cleaned:
             return cleaned
-
-    # Fallback 1: extraction 내 key_claims 가 있다면 이를 조합하여 실체적 요약 구성
-    if key_claims and isinstance(key_claims, list):
-        claims_text = " ".join(str(c).strip() for c in key_claims[:3] if str(c).strip())
-        if claims_text:
-            cleaned_claims = clean_plain_summary(claims_text)
-            if cleaned_claims:
-                return cleaned_claims
-
-    # Fallback 2: extraction 에 요약/주장이 없거나 정제 후 빈 경우, detail 또는 raw_text 에서 평문 단락 추출
-    doc_row = conn.execute(
-        "SELECT detail, raw_text, title FROM documents WHERE id=?", (document_id,)
-    ).fetchone()
-    if not doc_row:
-        return None
-
-    detail = (doc_row["detail"] or "").strip()
-    if detail:
-        cleaned_detail = clean_plain_summary(detail)
-        if cleaned_detail:
-            return (cleaned_detail[:300] + "…") if len(cleaned_detail) > 300 else cleaned_detail
-
-    raw_text = (doc_row["raw_text"] or "").strip()
-    if raw_text:
-        cleaned_raw = clean_plain_summary(raw_text)
-        if cleaned_raw:
-            return (cleaned_raw[:200] + "…") if len(cleaned_raw) > 200 else cleaned_raw
-
-    if doc_row["title"]:
-        return f"{doc_row['title']}에 관한 자료이다."
 
     return None
 

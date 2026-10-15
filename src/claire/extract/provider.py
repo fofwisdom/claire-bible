@@ -224,7 +224,7 @@ class MockProvider:
     name = "mock"
     EMBED_DIM = 64
 
-    def extract(self, doc: Document, ontology_block: str) -> ExtractionResult:
+    def extract(self, doc: Document, ontology_block: str = "") -> ExtractionResult:
         title = (doc.title or "").strip()
         text = doc.raw_text or ""
         entities: list[ExtractedEntity] = []

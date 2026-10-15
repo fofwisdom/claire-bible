@@ -513,15 +513,7 @@ class AntigravityProvider:
             result.summary = clean_plain_summary(result.summary)
 
         if not result.summary or not result.summary.strip():
-            if result.key_claims:
-                result.summary = clean_plain_summary(" ".join(result.key_claims[:3]))
-            elif result.entities:
-                result.summary = f"{', '.join(e.name for e in result.entities[:5])} 등에 관한 자료이다."
-            elif doc.raw_text:
-                fallback_txt = (doc.raw_text or "").strip()
-                result.summary = clean_plain_summary((fallback_txt[:200] + "…") if len(fallback_txt) > 200 else fallback_txt)
-            elif doc.title:
-                result.summary = f"{doc.title}에 관한 자료이다."
+            result.summary = ""
         elif is_preface_summary(result.summary) and result.key_claims:
             claims_summary = clean_plain_summary(" ".join(result.key_claims[:3]))
             if claims_summary and len(claims_summary) >= 30:
