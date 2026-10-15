@@ -146,6 +146,7 @@ def format_post_to_markdown(
     vlm_transcribed = False
     vlm_model = ""
     vlm_images_count = 0
+    vlm_language = None
     vlm_error = None
 
     # VLM Trigger: Text is below threshold and images are present
@@ -157,11 +158,13 @@ def format_post_to_markdown(
             len(base_text),
             len(images),
         )
-        v_res = vision_provider.transcribe_images(images, title=subject)
+        target_vlm_lang = getattr(s, "vlm_language", "ko") or "ko"
+        v_res = vision_provider.transcribe_images(images, title=subject, language=target_vlm_lang)
         if v_res.text:
             vlm_transcribed = True
             vlm_model = v_res.model
             vlm_images_count = v_res.images_processed
+            vlm_language = v_res.language or target_vlm_lang
             transcribed_section = (
                 f"\n\n## Infographic & Image Transcription\n\n"
                 f"{v_res.text}\n"
@@ -199,6 +202,7 @@ def format_post_to_markdown(
         "vlm_transcribed": vlm_transcribed,
         "vlm_model": vlm_model,
         "vlm_images_count": vlm_images_count,
+        "vlm_language": vlm_language,
         "vlm_error": vlm_error,
         "created_at": created_at_ts,
     }

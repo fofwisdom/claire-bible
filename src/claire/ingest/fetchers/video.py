@@ -209,6 +209,7 @@ def fetch_video(
     cached_used: bool = False
     cached_saved: bool = False
     is_stt: bool = False
+    stt_language: str | None = None
     if not transcript_text and settings.enable_video_transcription:
         from ...store.video_cache import (
             delete_cached_video_file,
@@ -251,6 +252,7 @@ def fetch_video(
                         cached_file = None
                     else:
                         is_stt = True
+                        stt_language = lang_code
                         # 전사 성공 시 사용 완료된 캐시 정리
                         if effective_data_dir:
                             delete_cached_video_file(effective_data_dir, url, canonical_url=resolved_url)
@@ -311,6 +313,7 @@ def fetch_video(
                                 stt_error_msg = "STT provider returned empty transcript"
                             else:
                                 is_stt = True
+                                stt_language = lang_code
                                 # 적재 성공 시 기존 캐시가 있다면 정리
                                 if effective_data_dir:
                                     delete_cached_video_file(effective_data_dir, url, canonical_url=resolved_url)
@@ -416,6 +419,7 @@ def fetch_video(
             "video_cache_used": cached_used,
             "is_stt": is_stt,
             "stt": is_stt,
+            "stt_language": stt_language,
             "stt_truncated": stt_truncated,
             "stt_orig_chars": orig_chars if is_stt else None,
             "stt_raw_chars": raw_chars if is_stt else None,

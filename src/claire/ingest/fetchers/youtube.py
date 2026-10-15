@@ -437,6 +437,7 @@ def fetch_youtube(
     chapters: list[dict[str, Any]] = []
     duration_sec: float = 0.0
     is_stt = False
+    stt_language: str | None = None
     segments_data: list[dict[str, Any]] = []
     stt_error_msg: str | None = None
     cached_used = False
@@ -503,6 +504,7 @@ def fetch_youtube(
         if stt_text:
             transcript = stt_text
             is_stt = True
+            stt_language = settings.stt_language or (target_langs[0] if target_langs else "ko")
             transcript_source = "stt"
             if stt_dur and not duration_sec:
                 duration_sec = stt_dur
@@ -571,6 +573,7 @@ def fetch_youtube(
             else [],
             "is_stt": is_stt,
             "stt": is_stt,
+            "stt_language": stt_language if is_stt else None,
             "stt_error": stt_error_msg,
             "transcript_segments": segments_data,
             "transcript_source": transcript_source,

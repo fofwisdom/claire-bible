@@ -14,6 +14,7 @@ class VisionTranscriptResult:
     text: str
     images_processed: int = 0
     model: str = ""
+    language: str | None = None
     error: str | None = None
 
 
@@ -29,6 +30,7 @@ class VisionTranscriptProvider(ABC):
         images: list[dict[str, Any] | str],
         *,
         title: str | None = None,
+        language: str | None = None,
         prompt: str | None = None,
     ) -> VisionTranscriptResult:
         """Transcribe text, tables, and structured data from an ordered list of images."""

@@ -306,6 +306,7 @@ def fetch_naver_clip(
             "video_channel": uploader,
             "duration_sec": duration_sec,
             "is_stt": is_stt,
+            "stt_language": lang_code if is_stt else None,
             "stt_segments": segments_data,
             "has_transcript": bool(transcript_text),
             "orig_chars": orig_chars,

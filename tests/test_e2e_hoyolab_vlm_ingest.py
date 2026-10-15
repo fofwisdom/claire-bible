@@ -61,7 +61,8 @@ def test_e2e_hoyolab_article_vlm_ingestion(tmp_path: Path):
         assert report.title == "[동방의 흙모래] 가디언 정보"
         assert report.vlm_transcribed is True
         assert report.vlm_images_count == 2
-        assert "🖼️ 이미지 전사(VLM)" in report.telegram_summary()
+        assert report.vlm_language == "ko"
+        assert "🖼️ 이미지 전사(VLM) (2장) [ko]" in report.telegram_summary()
 
         # 2. Database persistence verification
         conn = dbm.connect(str(db_file))
@@ -75,6 +76,7 @@ def test_e2e_hoyolab_article_vlm_ingestion(tmp_path: Path):
             assert "Card 2" in doc.raw_text
             assert doc.meta.get("vlm_transcribed") is True
             assert doc.meta.get("vlm_images_count") == 2
+            assert doc.meta.get("vlm_language") == "ko"
 
             # 2-1. Docmeta presentation contract & UI verification
             from claire.store.queries import document_detail
@@ -83,10 +85,11 @@ def test_e2e_hoyolab_article_vlm_ingestion(tmp_path: Path):
             detail = document_detail(conn, report.document_id)
             assert detail is not None
             assert detail["vlm_transcribed"] is True
+            assert detail["vlm_language"] == "ko"
             rendered_page = shared_html(detail)
             assert ".vlm-tag" in rendered_page
             assert "🖼️ 이미지 전사" in rendered_page
-            assert "이미지 전사(VLM)를 적용하여 작성한 문서" in rendered_page
+            assert '"vlm_language": "ko"' in rendered_page
 
             import subprocess
             from claire.graphview import GRAPH_HTML
@@ -103,6 +106,7 @@ def test_e2e_hoyolab_article_vlm_ingestion(tmp_path: Path):
             res = subprocess.run(["node", "-e", js], capture_output=True, text=True, check=True)
             assert "🖼️ 이미지 전사 (2장)" in res.stdout
             assert "vlm-tag" in res.stdout
+            assert "이미지 전사(VLM: ko)" in res.stdout
 
             # Entities and relationships created
             cur = conn.cursor()

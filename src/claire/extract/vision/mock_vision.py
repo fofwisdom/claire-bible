@@ -15,13 +15,16 @@ class MockVisionProvider(VisionTranscriptProvider):
         images: list[dict[str, Any] | str],
         *,
         title: str | None = None,
+        language: str | None = None,
         prompt: str | None = None,
     ) -> VisionTranscriptResult:
+        target_lang = language or "ko"
         if not images:
             return VisionTranscriptResult(
                 text="",
                 images_processed=0,
                 model="mock-vision",
+                language=target_lang,
                 error=None,
             )
 
@@ -44,5 +47,6 @@ class MockVisionProvider(VisionTranscriptProvider):
             text=full_text.strip(),
             images_processed=len(images),
             model="mock-vision",
+            language=target_lang,
             error=None,
         )

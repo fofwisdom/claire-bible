@@ -80,6 +80,9 @@ class IngestReport:
     vlm_transcribed: bool = False
     vlm_images_count: int = 0
     vlm_model: str | None = None
+    vlm_language: str | None = None
+    stt_language: str | None = None
+    caption_language: str | None = None
 
     def telegram_summary(self) -> str:
         if self.error:
@@ -172,14 +175,17 @@ class IngestReport:
         meta_badges = []
         if not self.presentation_pdfs and self.source_type in ("video", "youtube"):
             if self.has_transcript and not self.is_stt:
-                meta_badges.append("🔤 영상 자막(CC)")
+                cc_lang = f" [{self.caption_language}]" if self.caption_language else ""
+                meta_badges.append(f"🔤 영상 자막(CC){cc_lang}")
             elif self.is_stt and not is_stt_failed:
-                meta_badges.append("🎙️ 음성 전사(STT)")
+                stt_lang = f" [{self.stt_language}]" if self.stt_language else ""
+                meta_badges.append(f"🎙️ 음성 전사(STT){stt_lang}")
         if self.composite_ingest and not self.presentation_pdfs:
             meta_badges.append("📎⚡🌐 첨부+링크 복합 적재")
         if self.vlm_transcribed:
             vlm_cnt = f" ({self.vlm_images_count}장)" if self.vlm_images_count else ""
-            meta_badges.append(f"🖼️ 이미지 전사(VLM){vlm_cnt}")
+            vlm_lang = f" [{self.vlm_language}]" if self.vlm_language else ""
+            meta_badges.append(f"🖼️ 이미지 전사(VLM){vlm_cnt}{vlm_lang}")
         if self.full_content:
             meta_badges.append("🌐 원문 무절단 수집")
         if self.effort:
@@ -381,6 +387,12 @@ def ingest(
                 report.vlm_images_count = int(doc.meta.get("vlm_images_count") or 0)
             if "vlm_model" in doc.meta:
                 report.vlm_model = doc.meta.get("vlm_model")
+            if "vlm_language" in doc.meta:
+                report.vlm_language = doc.meta.get("vlm_language")
+            if "stt_language" in doc.meta:
+                report.stt_language = doc.meta.get("stt_language")
+            if "caption_language" in doc.meta:
+                report.caption_language = doc.meta.get("caption_language")
         if focus and focus.strip():
             if doc.meta is None:
                 doc.meta = {}
@@ -804,6 +816,12 @@ def extract_resolve_store(
             report.vlm_images_count = int(doc.meta.get("vlm_images_count") or 0)
         if "vlm_model" in doc.meta:
             report.vlm_model = doc.meta.get("vlm_model")
+        if "vlm_language" in doc.meta:
+            report.vlm_language = doc.meta.get("vlm_language")
+        if "stt_language" in doc.meta:
+            report.stt_language = doc.meta.get("stt_language")
+        if "caption_language" in doc.meta:
+            report.caption_language = doc.meta.get("caption_language")
 
     if getattr(doc, "id", None):
         try:

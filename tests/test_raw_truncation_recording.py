@@ -250,6 +250,41 @@ def test_document_detail_and_ui_with_vlm():
     msgs = json.loads(res_msg.stdout)
     assert any("이미지 전사(VLM)를 적용하여 작성한 문서 (5장 이미지 전사) · 모델: gemini-3.5-flash-lite" in m for m in msgs)
 
+    # With vlm_language and stt_language specified
+    detail_lang = dict(detail)
+    detail_lang["vlm_language"] = "ko"
+    js_lang = f"""
+    function esc(s){{ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }}
+    {fn}
+    {msg_fn}
+    const d = {json.dumps(detail_lang)};
+    console.log(JSON.stringify({{html: docMetaHtml(d), msgs: getDocMetaMessages(d)}}));
+    """
+    res_l = subprocess.run(["node", "-e", js_lang], capture_output=True, text=True, check=True)
+    out_l = json.loads(res_l.stdout)
+    assert "이미지 전사(VLM: ko)를 적용하여 작성한 문서 (5장 이미지 전사)" in out_l["html"]
+    assert any("이미지 전사(VLM: ko)를 적용하여 작성한 문서" in m for m in out_l["msgs"])
+
+    # STT language
+    stt_detail = {
+        "id": "doc_stt_lang",
+        "url": "https://example.com/stt",
+        "is_stt": True,
+        "stt_language": "ko",
+        "raw_text": "STT raw text",
+    }
+    js_stt = f"""
+    function esc(s){{ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }}
+    {fn}
+    {msg_fn}
+    const d = {json.dumps(stt_detail)};
+    console.log(JSON.stringify({{html: docMetaHtml(d), msgs: getDocMetaMessages(d)}}));
+    """
+    res_stt = subprocess.run(["node", "-e", js_stt], capture_output=True, text=True, check=True)
+    out_stt = json.loads(res_stt.stdout)
+    assert "음성 인식(STT: ko)을 적용하여 작성한 문서" in out_stt["html"]
+    assert any("음성 인식(STT: ko)을 적용하여 작성한 문서" in m for m in out_stt["msgs"])
+
 
 
 def test_document_detail_and_ui_with_focus():
