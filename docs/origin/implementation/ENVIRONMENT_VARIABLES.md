@@ -294,7 +294,7 @@ TypeSafe AI Jev는 엔티티 해소(Entity Resolution) 및 관계 판정 시 비
 | `CLAIRE_PUBLIC_URL` | `""` / `http://127.0.0.1:8766` | URL (예: `https://claire.example.com`) | **[필수]** 브라우저 기준 canonical 공개 URL (`CLAIRE_FQDN` 미지정 시 필수). Host 헤더 검증, Same-Origin 판정, 공유 링크(`/p?s=...`) 생성에 사용된다. |
 | `CLAIRE_FQDN` | `""` | 도메인 호스트명 (예: `claire.example.com`) | **[필수]** 공개 FQDN 호스트명 (`CLAIRE_PUBLIC_URL` 미지정 시 필수). 미설정 시 `CLAIRE_PUBLIC_URL`의 호스트명을 자동으로 추출하여 사용한다. |
 | `CLAIRE_CORS_ALLOWED_ORIGINS` | `""` | 쉼표 구분 Origin URL 목록 | Cross-Origin 브라우저 API 호출을 허용할 exact Origin 목록 (예: `https://app.example.com`). 비어있으면 Same-Origin 요청만 허용된다. |
-| `CLAIRE_GA_MEASUREMENT_ID` | `""` | 문자열 (예: `G-XXXXXXXXXX`) | Google Analytics 4 측정 ID. 비워두면 GA 스크립트가 로드되지 않으며 외부 통신을 차단하는 엄격한 CSP 정책이 유지된다. |
+| `CLAIRE_GA_MEASUREMENT_ID` | `""` | 문자열 (예: `G-XXXXXXXXXX`) | Google Analytics 4 측정 ID (싱글 테마 모드용 측정 ID). 멀티테마 모드에서는 각 테마의 개별 설정값을 사용하며 전역 환경변수로 폴백되지 않는다. 비워두면 GA 스크립트가 로드되지 않으며 외부 통신을 차단하는 엄격한 CSP 정책이 유지된다. |
 
 ---
 

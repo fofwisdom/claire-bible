@@ -88,6 +88,41 @@ def test_render_graph_html_with_and_without_ga():
     assert "G-TRACK99" in html_ga
 
 
+def test_render_graph_html_theme_ga_no_fallback_to_global_settings():
+    """테마 컨텍스트 존재 시 전역 CLAIRE_GA_MEASUREMENT_ID로 2순위 폴백하지 않음을 검증."""
+    s_global_ga = SimpleNamespace(
+        effective_github_repository="fofwisdom/claire-bible",
+        effective_source_base_url="https://github.com/fofwisdom/claire-bible",
+        effective_ga_measurement_id="G-GLOBAL99",
+    )
+    theme_with_own_ga = SimpleNamespace(
+        id=1,
+        label="AI 연구",
+        ga_measurement_id="G-THEME123",
+    )
+    theme_without_ga = SimpleNamespace(
+        id=2,
+        label="기본 테마",
+        ga_measurement_id="",
+    )
+
+    # 1. 테마에 자체 GA ID가 지정된 경우 -> 테마 GA ID 적용
+    html_theme = render_graph_html(s_global_ga, theme=theme_with_own_ga)
+    assert "https://www.googletagmanager.com/gtag/js?id=G-THEME123" in html_theme
+    assert "G-THEME123" in html_theme
+    assert "G-GLOBAL99" not in html_theme
+
+    # 2. 테마에 GA ID가 미지정된 경우 -> 전역 설정(G-GLOBAL99)으로 2순위 폴백하지 않고 GA 비활성화
+    html_no_fallback = render_graph_html(s_global_ga, theme=theme_without_ga)
+    assert "googletagmanager.com" not in html_no_fallback
+    assert "G-GLOBAL99" not in html_no_fallback
+    assert "G-THEME123" not in html_no_fallback
+
+    # 3. 테마 컨텍스트가 없는 경우 (theme=None) -> 전역 설정 적용
+    html_direct = render_graph_html(s_global_ga, theme=None)
+    assert "https://www.googletagmanager.com/gtag/js?id=G-GLOBAL99" in html_direct
+
+
 def test_shared_html_with_and_without_ga():
     """공유 문서 읽기 페이지 HTML 렌더링 시 GA 태그 주입 여부 검증."""
     doc = {"id": "doc-test-1", "title": "공유 테스트 문서"}
