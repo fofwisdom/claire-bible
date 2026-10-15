@@ -701,18 +701,25 @@ class IngestService:
                         out["already_had"] += 1
                         continue
 
-                    # summary 가 없으면 fallback 추출
+                    # summary 가 없으면 LLM 추출 시도 (임의 조작 텍스트 금지)
                     step_cb("요약 추출 및 보강 중")
                     summary = dbm.latest_extraction_summary(conn, did)
                     if not summary or not summary.strip():
-                        if doc and doc.raw_text:
-                            summary = clean_plain_summary(doc.raw_text) or ((doc.raw_text[:200] + "…") if len(doc.raw_text) > 200 else doc.raw_text)
-                        elif doc and doc.title:
-                            summary = f"{doc.title}에 관한 자료이다."
+                        if doc and self.provider and getattr(self.provider, "name", "") not in ("fallback", "mock"):
+                            try:
+                                ext_res = self.provider.extract(doc)
+                                summary = clean_plain_summary(ext_res.summary)
+                            except Exception:
+                                summary = ""
+                        elif doc and self.provider and getattr(self.provider, "name", "") == "mock":
+                            summary = f"[mock] {doc.title or did}"
                         else:
-                            summary = "(요약 없음)"
+                            summary = ""
                     else:
                         summary = clean_plain_summary(summary)
+
+                    if not summary or not summary.strip():
+                        continue
 
                     if ext:
                         # 기존 extractions raw_response 갱신
@@ -751,6 +758,7 @@ class IngestService:
         all_components: bool = False,
         corrupted_summary: bool = False,
         corrupted_detail: bool = False,
+        missing_summary: bool = False,
         tables: bool = False,
         refetch: bool = False,
         refetch_full: bool = False,
@@ -835,6 +843,14 @@ class IngestService:
                     did = td["id"]
                     if did not in target_ids:
                         target_ids.append(did)
+            elif missing_summary:
+                rows = conn.execute(
+                    "SELECT id FROM documents ORDER BY id DESC"
+                ).fetchall()
+                for r in rows:
+                    did = r["id"]
+                    if did not in target_ids and dbm.latest_extraction_summary(conn, did) is None:
+                        target_ids.append(did)
             elif corrupted_summary or (not target_ids and not target and not token and not doc_id):
                 rows = conn.execute(
                     "SELECT document_id, raw_response FROM extractions ORDER BY id DESC"
@@ -857,6 +873,8 @@ class IngestService:
                 error_msg = "No matching documents found."
                 if tables:
                     error_msg = "No documents containing tables detected in database."
+                elif missing_summary:
+                    error_msg = "No documents with missing summaries detected in database."
                 elif not target and not token and not doc_id:
                     error_msg = "No corrupted summaries detected in database."
                 return {
@@ -1032,8 +1050,10 @@ class IngestService:
                         else:
                             if do_summary:
                                 # 요약만 단독 재추출 (엔티티/관계 보존)
-                                step_cb("요약 LLM 재추출 중...", f"provider={getattr(self.provider, 'name', '?')}")
-                                extract_res = self.provider.extract(doc)
+                                try:
+                                    extract_res = self.provider.extract(doc, None)
+                                except TypeError:
+                                    extract_res = self.provider.extract(doc)
                                 new_summary = _clean_summary(extract_res.summary)
                                 info["new_summary"] = new_summary
 

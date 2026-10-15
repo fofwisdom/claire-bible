@@ -283,7 +283,8 @@ def test_extract_fills_empty_summary_from_key_claims():
 
     result = provider.extract(doc)
 
-    assert result.summary == "첫 번째 핵심 주장이다. 두 번째 핵심 주장이다."
+    # 빈 summary는 조용히 다른 필드로 날조(fallback)하지 않고 빈 값 유지
+    assert result.summary == ""
     assert provider._run_cli.call_args.kwargs["schema"] == (
         ExtractionResult.extraction_json_schema()
     )

@@ -351,18 +351,8 @@ class CodexProvider:
 
         if result.summary:
             result.summary = clean_plain_summary(result.summary)
-        if not result.summary.strip():
-            if result.key_claims:
-                result.summary = clean_plain_summary(" ".join(result.key_claims[:3]))
-            elif result.entities:
-                names = ", ".join(entity.name for entity in result.entities[:5])
-                result.summary = f"{names} 등에 관한 자료이다."
-            elif doc.raw_text:
-                source = doc.raw_text.strip()
-                shortened = source[:200] + ("…" if len(source) > 200 else "")
-                result.summary = clean_plain_summary(shortened)
-            elif doc.title:
-                result.summary = f"{doc.title}에 관한 자료이다."
+        if not result.summary or not result.summary.strip():
+            result.summary = ""
         elif is_preface_summary(result.summary) and result.key_claims:
             claims_summary = clean_plain_summary(" ".join(result.key_claims[:3]))
             if claims_summary and len(claims_summary) >= 30:

@@ -10,6 +10,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from claire.config import Settings
+from claire.extract.prompts import clean_plain_summary
 from claire.extract.provider import ExtractionResult, MockProvider
 from claire.ingest.service import IngestService
 from claire.ontology.base import Document
@@ -386,8 +387,8 @@ def test_clean_plain_summary_asciidoc_variants():
     assert "이것은 중요한 알림입니다. 공식 사이트를 참고하라." in cleaned3 or "이것은 중요한 알림입니다." in cleaned3
 
 
-def test_latest_extraction_summary_with_corrupted_detail_fallback(temp_db):
-    """extraction 이 없고 detail 이 ADOC 헤더(:toc:)로 시작할 때 latest_extraction_summary가 평문을 반환하는지 검증."""
+def test_latest_extraction_summary_returns_none_when_no_extraction(temp_db):
+    """extraction 이 없을 때 detail 에서 조용히 요약을 날조(fallback)하지 않고 None 을 반환하는지 검증."""
     conn = dbm.connect(temp_db)
     doc_id = "doc_fallback_test"
     doc_detail = (
@@ -411,12 +412,16 @@ def test_latest_extraction_summary_with_corrupted_detail_fallback(temp_db):
     dbm.insert_document(conn, doc)
     dbm.set_document_detail(conn, doc_id, doc_detail, format="adoc")
 
+    # detail 이 있더라도 extraction summary 가 없으면 None 반환
     summary = dbm.latest_extraction_summary(conn, doc_id)
-    assert summary is not None
-    assert ":toc:" not in summary
-    assert ":toc-title:" not in summary
-    assert "[quote" not in summary
-    assert "스크립트의 안정적인 실행과 인프라 관리의 예측 가능성을 확보하기 위한 규칙이다." in summary
+    assert summary is None
+
+    # clean_plain_summary 로 직접 정제 시 헤더 제거 검증
+    cleaned = clean_plain_summary(doc_detail)
+    assert ":toc:" not in cleaned
+    assert ":toc-title:" not in cleaned
+    assert "[quote" not in cleaned
+    assert "스크립트의 안정적인 실행과 인프라 관리의 예측 가능성을 확보하기 위한 규칙이다." in cleaned
     conn.close()
 
 
@@ -472,7 +477,7 @@ def test_clean_plain_summary_skips_biblio_and_metadata_headers():
 
 
 def test_latest_extraction_summary_with_biblio_header_detail_fallback(temp_db):
-    """extraction 이 없고 detail 최상단에 _저자: ..._ 서지 정보가 있을 때, 서지 정보 대신 본문 단락이 요약으로 추출되는지 검증."""
+    """extraction 이 없을 때 detail 에서 서지 정보나 본문을 요약으로 날조하지 않고 None 을 반환하며, clean_plain_summary 는 본문 단락을 선택하는지 검증."""
     conn = dbm.connect(temp_db)
     doc_id = "doc_biblio_fallback_test"
     doc_detail = (
@@ -493,11 +498,15 @@ def test_latest_extraction_summary_with_biblio_header_detail_fallback(temp_db):
     dbm.insert_document(conn, doc)
     dbm.set_document_detail(conn, doc_id, doc_detail, format="adoc")
 
+    # extraction 이 없으면 detail 이 있더라도 None 반환
     summary = dbm.latest_extraction_summary(conn, doc_id)
-    assert summary is not None
-    assert "저자: Chungsu Lee" not in summary
-    assert "발행일: 2026-09-10" not in summary
-    assert "VCF Private AI Service는 오픈소스 조합의 복잡성과 불확실성을 제거하고" in summary
+    assert summary is None
+
+    # clean_plain_summary 직접 호출 시 서지 정보 대신 본문 추출 검증
+    cleaned = clean_plain_summary(doc_detail)
+    assert "저자: Chungsu Lee" not in cleaned
+    assert "발행일: 2026-09-10" not in cleaned
+    assert "VCF Private AI Service는 오픈소스 조합의 복잡성과 불확실성을 제거하고" in cleaned
     conn.close()
 
 
@@ -533,8 +542,8 @@ def test_clean_plain_summary_skips_preface_paragraphs():
     assert "Anthropic은 일일 머지 건수가 30,000건을 넘어서자" in cleaned
 
 
-def test_latest_extraction_summary_prioritizes_key_claims_over_detail_fallback(temp_db):
-    """extraction summary 가 비어있더라도 key_claims 가 존재하면 detail 개요 단락 대신 key_claims 를 요약으로 채택하는지 검증."""
+def test_latest_extraction_summary_returns_none_when_summary_empty_without_detail_fallback(temp_db):
+    """extraction summary 가 비어있을 때 detail 개요 단락으로 폴백하지 않고 None 을 반환하며, 정상 요약이 있으면 정상 반환함을 검증."""
     conn = dbm.connect(temp_db)
     doc_id = "doc_key_claims_fallback_test"
     doc_detail = (
@@ -554,7 +563,7 @@ def test_latest_extraction_summary_prioritizes_key_claims_over_detail_fallback(t
     dbm.insert_document(conn, doc)
     dbm.set_document_detail(conn, doc_id, doc_detail, format="adoc")
 
-    # summary 는 비어있지만 유의미한 key_claims 가 있는 extraction 등록
+    # summary 가 비어있는 extraction 등록
     ext_payload = json.dumps(
         {
             "summary": "",
@@ -576,10 +585,30 @@ def test_latest_extraction_summary_prioritizes_key_claims_over_detail_fallback(t
         raw_response=ext_payload,
     )
 
+    # summary 가 비어있으므로 detail 개요를 훔쳐오지 않고 None 반환
     summary = dbm.latest_extraction_summary(conn, doc_id)
-    assert summary is not None
-    assert "일일 머지 건수가 30,000건을 초과하여" in summary
-    assert "코드 생성이 급증하면서 기존 인프라에 심각한 병목" not in summary
+    assert summary is None
+
+    # 정상 summary 로 갱신 시 정상 반환 확인
+    ext_payload_ok = json.dumps(
+        {
+            "summary": "Scion은 일일 머지 건수 폭증에 따른 Git 병목을 해결하기 위해 개발된 시스템이다.",
+            "key_claims": [],
+            "entities": [],
+            "relations": [],
+        },
+        ensure_ascii=False,
+    )
+    dbm.log_extraction(
+        conn,
+        document_id=doc_id,
+        provider="test",
+        model="test-model",
+        prompt_version=1,
+        raw_response=ext_payload_ok,
+    )
+    summary_ok = dbm.latest_extraction_summary(conn, doc_id)
+    assert summary_ok == "Scion은 일일 머지 건수 폭증에 따른 Git 병목을 해결하기 위해 개발된 시스템이다."
     conn.close()
 
 

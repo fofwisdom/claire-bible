@@ -729,7 +729,11 @@ function renderReader(dc){
   if(focus){
     h+='<div class="rsection">초점</div><div class="doc-content" style="margin-bottom:.8em">🎯 <strong>'+esc(focus)+'</strong></div>';
   }
-  if(dc.summary) h+='<div class=rsection>요약</div><div class="doc-content">'+renderContent(dc.summary, dc.detail_format)+'</div>';
+  if(dc.summary){
+    h+='<div class=rsection>요약</div><div class="doc-content">'+renderContent(dc.summary, dc.detail_format)+'</div>';
+  }else if(dc.detail || dc.detail_html){
+    h+='<div class=rsection>요약</div><div class="doc-content stt-trunc-banner" style="margin-top:.5em">⚠️ <strong>요약 누락 안내</strong>: 요약 생성 과정에서 오류가 발생하여 요약이 등록되지 않았습니다. 텔레그램 봇의 <code>🔄 요약 재생성</code> 버튼 또는 CLI(<code>./cb-manuscript app regenerate '+esc(dc.id||'')+' --summary --apply</code>)를 통해 재생성할 수 있습니다.</div>';
+  }
   if(dc.detail_html){
     const purifier=window.DOMPurify;
     const cleanHtml=(purifier && typeof purifier.sanitize==='function')?purifier.sanitize(dc.detail_html, DOMPURIFY_OPTS):dc.detail_html;
@@ -739,7 +743,9 @@ function renderReader(dc){
   }else if(dc.summary){
     h+='<div class=rsection>상세</div><div class="doc-content stt-trunc-banner" style="margin-top:.5em">⚠️ <strong>상세 본문 누락 안내</strong>: 본문 생성 과정에서 시간 초과 또는 오류가 발생하여 상세 본문이 생성되지 않았습니다. 텔레그램 봇의 <code>🔄 본문 재생성</code> 버튼 또는 CLI(<code>./cb-manuscript app regenerate '+esc(dc.id||'')+' --detail --apply</code>)를 통해 재생성할 수 있습니다.</div>';
   }
-  if(!dc.summary && !dc.detail && !dc.detail_html) h+='<p class=hint>문서에 요약/상세 내용이 없습니다.</p>';
+  if(!dc.summary && !dc.detail && !dc.detail_html){
+    h+='<div class=rsection>요약 및 상세</div><div class="doc-content stt-trunc-banner" style="margin-top:.5em">⚠️ <strong>요약 및 본문 누락 안내</strong>: 요약 및 상세 본문 생성이 모두 누락되었습니다. 텔레그램 봇의 재생성 버튼 또는 CLI(<code>./cb-manuscript app regenerate '+esc(dc.id||'')+' --all --apply</code>)를 통해 재생성할 수 있습니다.</div>';
+  }
   const body=document.getElementById('rbody'); body.innerHTML=h; body.scrollTop=0; body.scrollLeft=0;
   applyMathRendering(body);
   document.getElementById('reader').setAttribute('aria-busy','false');

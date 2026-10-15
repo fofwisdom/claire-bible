@@ -424,6 +424,37 @@ async def test_settle_status_behavior():
     assert st_det.markup.inline_keyboard[0][0].callback_data == "rg:det:doc_123"
     assert st_det.markup.inline_keyboard[1][0].callback_data == "rg:full:doc_123"
 
+    # 10. Summary failed with retry_doc_id -> buttons include rg:summ
+    st_summ = FakeStatus()
+    await _settle_status(
+        st_summ,
+        FakeMsg(),
+        "⚠️ 부분 적재 (요약 생성 실패)\n타이틀: DocTitle",
+        [],
+        is_summary_failed=True,
+        retry_doc_id="doc_123",
+    )
+    assert st_summ.deleted is False
+    assert "요약 생성 실패" in st_summ.edited_text
+    assert st_summ.markup is not None
+    assert st_summ.markup.inline_keyboard[0][0].callback_data == "rg:summ:doc_123"
+
+    # 11. Both summary and detail failed -> buttons include rg:summ and rg:det
+    st_both = FakeStatus()
+    await _settle_status(
+        st_both,
+        FakeMsg(),
+        "⚠️ 부분 적재 (요약 및 본문 생성 실패)\n타이틀: DocTitle",
+        [],
+        is_summary_failed=True,
+        is_detail_failed=True,
+        retry_doc_id="doc_123",
+    )
+    assert st_both.deleted is False
+    cb_datas = [btn.callback_data for row in st_both.markup.inline_keyboard for btn in row]
+    assert "rg:summ:doc_123" in cb_datas
+    assert "rg:det:doc_123" in cb_datas
+
 
 def test_ingest_report_telegram_summary_detail_failure():
     """본문(detail) 생성 실패 시 telegram_summary 에 부분 적재 경고와 안내가 포함되는지 검증."""
@@ -440,6 +471,22 @@ def test_ingest_report_telegram_summary_detail_failure():
     assert "본문 가독 상세(detail)가 생성되지 못했습니다" in summary
     assert "agy CLI timed out after 300.0s" in summary
     assert "봇에서 재생성을 요청할 수 있습니다" in summary
+
+
+def test_ingest_report_telegram_summary_summary_failure():
+    """요약(summary) 생성 실패 시 telegram_summary 에 부분 적재 경고와 안내가 명확하게 포함되는지 검증."""
+    from claire.ingest.pipeline import IngestReport
+
+    report = IngestReport(
+        document_id="doc_744c",
+        title="RFC 6762 Multicast DNS",
+        summary_rendered=False,
+        summary_error="LLM extraction returned empty summary",
+    )
+    summary = report.telegram_summary()
+    assert "⚠️ 부분 적재 (요약 생성 실패)" in summary
+    assert "핵심 요약(summary)이 생성되지 못했습니다" in summary
+    assert "봇에서 요약 재생성을 요청할 수 있습니다" in summary
 
 
 async def test_settle_status_reader_button(tmp_path: Path, monkeypatch):
@@ -1593,6 +1640,71 @@ async def test_on_callback_rg_cross_theme(tmp_path: Path):
     status_msg.edit_text.assert_awaited()
     edit_call = status_msg.edit_text.call_args[0][0]
     assert "완료" in edit_call or "성공" in edit_call or "RG Doc" in edit_call
+
+
+async def test_on_callback_regenerate_summary(tmp_path: Path):
+    """on_callback 이 rg:summ: 콜백을 수신했을 때 요약 재생성을 정상적으로 위임하는지 검증."""
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, MagicMock
+    from claire.config import Settings
+    from claire.ontology.base import Document
+    from claire.store import db as dbm
+    from claire.store.theme import ThemeManager
+    from claire.telegram_bot import build_app
+
+    data_dir = tmp_path / "data"
+    vault_dir = tmp_path / "vault"
+    data_dir.mkdir(parents=True)
+    vault_dir.mkdir(parents=True)
+
+    settings = Settings(
+        CLAIRE_DB_PATH=str(data_dir / "claire.db"),
+        CLAIRE_VAULT_PATH=str(vault_dir),
+        CLAIRE_PROVIDER="mock",
+        CLAIRE_MULTI_THEME=True,
+        telegram_bot_token="12345:fake_token",
+        allowed_user_ids=[],
+    )
+    tm = ThemeManager(settings)
+    tm.define_theme("보조테마", icon="📁")
+    t1_settings = tm.get_settings_for_theme(1)
+
+    conn1 = dbm.connect(t1_settings.db_file)
+    dbm.init_db(conn1)
+    doc = Document(
+        id="doc_summ_test",
+        url="https://example.com/summ",
+        canonical_url="https://example.com/summ",
+        title="Summary Regeneration Doc",
+        raw_text="Some document text for summary regeneration test",
+        source_type="web",
+        content_hash="h_summ_1",
+    )
+    dbm.insert_document(conn1, doc)
+    conn1.close()
+
+    app = build_app(settings)
+    on_callback = next(h.callback for h in app.handlers[0] if getattr(h.callback, "__name__", "") == "on_callback")
+
+    query = AsyncMock()
+    query.data = "rg:summ:doc_summ_test"
+    query.edit_message_reply_markup = AsyncMock()
+    status_msg = AsyncMock()
+    status_msg.edit_text = AsyncMock()
+    msg = AsyncMock()
+    msg.reply_text = AsyncMock(return_value=status_msg)
+    query.message = msg
+
+    update = MagicMock()
+    update.effective_user = SimpleNamespace(id=100)
+    update.callback_query = query
+
+    await on_callback(update, None)
+
+    msg.reply_text.assert_awaited_once()
+    status_msg.edit_text.assert_awaited()
+    edit_call = status_msg.edit_text.call_args[0][0]
+    assert "완료" in edit_call or "성공" in edit_call or "Summary Regeneration Doc" in edit_call
 
 
 async def test_on_failed_and_on_retry_theme_aware(tmp_path: Path):

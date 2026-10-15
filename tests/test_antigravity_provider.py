@@ -460,8 +460,8 @@ def test_extract_fallback_summary_when_empty(mock_run):
     doc = Document(id="doc1", title="Claire Bible", raw_text="클레어바이블 본문 텍스트입니다.", source_type="text")
 
     res = prov.extract(doc)
-    # 빈 summary가 key_claims로 fallback되어 채워짐
-    assert res.summary == "클레어바이블은 개인 지식베이스이다."
+    # 빈 summary는 조용히 다른 필드로 날조(fallback)하지 않고 빈 값 유지
+    assert res.summary == ""
 
 
 def test_latest_extraction_summary_fallbacks(tmp_path):
@@ -479,16 +479,16 @@ def test_latest_extraction_summary_fallbacks(tmp_path):
     )
     assert dbm.latest_extraction_summary(conn, "doc1") == "정상 요약 1"
 
-    # 2) extractions 은 없으나 detail 이 있는 문서 -> detail 첫 단락 fallback
+    # 2) extractions 은 없으나 detail 이 있는 문서 -> silent fallback 제거되어 None 반환
     doc2 = Document(id="doc2", title="Doc 2", raw_text="본문 2", source_type="text")
     dbm.insert_document(conn, doc2)
     dbm.set_document_detail(conn, "doc2", "= 문서 제목\n\n이것은 상세 내용의 첫 번째 단락입니다.\n\n두 번째 단락")
-    assert dbm.latest_extraction_summary(conn, "doc2") == "이것은 상세 내용의 첫 번째 단락입니다."
+    assert dbm.latest_extraction_summary(conn, "doc2") is None
 
-    # 3) extractions 도 detail 도 없으나 raw_text 가 있는 문서 -> raw_text fallback
+    # 3) extractions 도 detail 도 없으나 raw_text 가 있는 문서 -> silent fallback 제거되어 None 반환
     doc3 = Document(id="doc3", title="Doc 3", raw_text="원문 본문 텍스트입니다.", source_type="text")
     dbm.insert_document(conn, doc3)
-    assert dbm.latest_extraction_summary(conn, "doc3") == "원문 본문 텍스트입니다."
+    assert dbm.latest_extraction_summary(conn, "doc3") is None
 
 
 def test_backfill_summaries_service(tmp_path):
@@ -518,7 +518,7 @@ def test_backfill_summaries_service(tmp_path):
     conn = dbm.connect(s.db_file)
     summ = dbm.latest_extraction_summary(conn, "doc_missing")
     assert summ is not None
-    assert "원문 텍스트" in summ
+    assert "Missing Summary Doc" in summ or "[mock]" in summ
     conn.close()
 
 

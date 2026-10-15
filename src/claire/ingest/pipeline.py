@@ -75,6 +75,8 @@ class IngestReport:
     composite_ingest: bool = False
     detail_rendered: bool = True
     detail_error: str | None = None
+    summary_rendered: bool = True
+    summary_error: str | None = None
 
     def telegram_summary(self) -> str:
         if self.error:
@@ -87,11 +89,20 @@ class IngestReport:
             or (self.source_type == "video" and self.has_transcript is False and self.stt_error)
         )
         is_detail_failed = not self.detail_rendered
+        is_summary_failed = not self.summary_rendered
 
-        if is_stt_failed and is_detail_failed:
+        if is_stt_failed and is_summary_failed and is_detail_failed:
+            head = "⚠️ 부분 적재 (STT 전사, 요약 및 본문 생성 실패)"
+        elif is_stt_failed and is_summary_failed:
+            head = "⚠️ 부분 적재 (STT 전사 및 요약 생성 실패)"
+        elif is_stt_failed and is_detail_failed:
             head = "⚠️ 부분 적재 (STT 전사 및 본문 생성 실패)"
+        elif is_summary_failed and is_detail_failed:
+            head = "⚠️ 부분 적재 (요약 및 본문 생성 실패)"
         elif is_stt_failed:
             head = "⚠️ 부분 적재 (STT 전사 실패)"
+        elif is_summary_failed:
+            head = "⚠️ 부분 적재 (요약 생성 실패)"
         elif is_detail_failed:
             head = "⚠️ 부분 적재 (본문 가독 상세 생성 실패)"
         elif self.pdf_parser_fallback:
@@ -136,6 +147,8 @@ class IngestReport:
         if is_stt_failed:
             err_detail = f" (오류: {self.stt_error})" if self.stt_error else ""
             parts.append(f"🎙️ 오디오 STT 전사 실패: 음성 자막이 추출되지 못했습니다.{err_detail}")
+        if is_summary_failed:
+            parts.append("📝 핵심 요약(summary)이 생성되지 못했습니다. 봇에서 요약 재생성을 요청할 수 있습니다.")
         if is_detail_failed:
             err_detail = f" (오류: {self.detail_error})" if self.detail_error else ""
             parts.append(f"📄 본문 가독 상세(detail)가 생성되지 못했습니다 (요약 및 지식 그래프만 보존됨).{err_detail} 봇에서 재생성을 요청할 수 있습니다.")
@@ -171,7 +184,8 @@ class IngestReport:
             parts.append(f"초점: {self.focus}")
         if self.partial and not is_stt_failed:
             parts.append("⚠️ 부분 처리(partial)")
-        parts.append(f"요약: {self.summary[:300]}")
+        if not is_summary_failed:
+            parts.append(f"요약: {self.summary[:300]}")
         cross_note = f" (횡단 {self.cross_relations_added})" if self.cross_relations_added else ""
         parts.append(
             f"노드 신규 {self.entities_created} · 기존연결 {self.entities_linked} · "
@@ -793,6 +807,11 @@ def extract_resolve_store(
     except Exception as e:  # noqa: BLE001
         return False, f"extract failed: {e}"
     report.summary = result.summary
+    if not (result.summary and result.summary.strip()):
+        report.summary_rendered = False
+        report.summary_error = "요약 추출 실패 또는 빈 요약"
+    else:
+        report.summary_rendered = True
 
     # [LLM tier] 모델 원본 출력 보관(후처리만 바꿔도 재호출 없이 재생).
     if result.raw_response:
