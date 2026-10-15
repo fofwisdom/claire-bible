@@ -781,6 +781,8 @@ body.stt-modal-open{overflow:hidden}
 
 .matrix-col-label {
   writing-mode: vertical-rl;
+  -webkit-text-orientation: sideways;
+  text-orientation: sideways;
   transform: rotate(180deg);
   white-space: nowrap;
   overflow: hidden;
