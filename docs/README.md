@@ -36,6 +36,7 @@ docs/
     ├── design/             # [설계 내역] 오리진 자체 신규/개정 아키텍처 및 시스템 설계
     │   ├── ANTIGRAVITY_EXECUTION_AND_LATENCY_OPTIMIZATION_DESIGN.md # Antigravity CLI 적재 지연 해소 및 실행 격리·최적화 아키텍처 설계
     │   ├── ASCIIDOC_ENHANCEMENT_DESIGN.md    # AsciiDoc 기능 고도화 설계 명세서 (수식·상호참조 구현 및 적합성 평가 완료)
+    │   ├── CROSS_TYPE_ENTITY_RESOLUTION_AND_VLM_LOCALIZATION_DESIGN.md # 교차 타입 엔티티 해소(Refinement) 및 VLM 언어 일원화 설계
     │   ├── DATA_LIFECYCLE_AND_PURGE_DESIGN.md # 데이터 수명주기 및 정리(Purge) 설계
     │   ├── DUAL_FORMAT_ADOC_DESIGN.md        # AsciiDoc 및 듀얼 포맷 본문 파이프라인 설계
     │   ├── EXPAND_FILTERING_DESIGN.md        # 1홉 확장의 깊이 및 연관성 필터링 설계

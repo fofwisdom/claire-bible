@@ -59,12 +59,12 @@ def effective_preferred_languages(self) -> list[str]:
 ```
 
 #### 3) 동작 예시 매트릭스
-| 입력값 (`CLAIRE_PREFERRED_LANGUAGES`) | `effective_preferred_languages` 결과 | 설명 |
-|---|---|---|
-| 미설정 (기본값) | `["ko", "en"]` | 한국어 최우선, 영문 폴백 |
-| `"ja, es"` | `["ja", "es", "en"]` | 일본어 $\rightarrow$ 스페인어 $\rightarrow$ 영문 폴백 |
-| `"ko, en, de"` | `["ko", "de", "en"]` | 중복/`en` 위치 정규화 후 `["ko", "de", "en"]` |
-| `""` (빈 문자열) | `["en"]` | 영문 단독 사용 |
+| 입력값 (`CLAIRE_PREFERRED_LANGUAGES`) | `effective_preferred_languages` 결과 | `effective_vlm_language` 결과 | 설명 |
+|---|---|---|---|
+| 미설정 (기본값) | `["ko", "en"]` | `"ko"` | 한국어 최우선, 영문 폴백 |
+| `"ja, es"` | `["ja", "es", "en"]` | `"ja"` | 일본어 $\rightarrow$ 스페인어 $\rightarrow$ 영문 폴백 |
+| `"ko, en, de"` | `["ko", "de", "en"]` | `"ko"` | 중복/`en` 위치 정규화 후 `["ko", "de", "en"]` |
+| `""` (빈 문자열) | `["en"]` | `"en"` | 영문 단독 사용 |
 
 ---
 
@@ -72,17 +72,21 @@ def effective_preferred_languages(self) -> list[str]:
 
 ```mermaid
 flowchart TD
-    ENV["환경변수: CLAIRE_PREFERRED_LANGUAGES"] --> SETTINGS["Settings.effective_preferred_languages"]
+    ENV["환경변수: CLAIRE_PREFERRED_LANGUAGES"] --> SETTINGS["Settings.effective_preferred_languages / effective_vlm_language"]
     
     SETTINGS --> F1["수집기 (Ingest Fetchers)<br/>다국어 자막/문서 우선순위 탐색"]
-    SETTINGS --> F2["추출기 (LLM Extractors)<br/>엔티티/관계 추출 언어 힌트"]
-    SETTINGS --> F3["렌더러 (Render / AOT)<br/>요약 및 상세 문서 번역/타겟팅"]
-    SETTINGS --> F4["운영 진단 (CLI Preflight)<br/>활성 언어 상태 검증 및 출력"]
+    SETTINGS --> F2["VLM 전사기 (Vision Transcript)<br/>이미지/인포그래픽 OCR 번역 언어 추종"]
+    SETTINGS --> F3["추출기 (LLM Extractors)<br/>엔티티/관계 추출 언어 힌트"]
+    SETTINGS --> F4["렌더러 (Render / AOT)<br/>요약 및 상세 문서 번역/타겟팅"]
+    SETTINGS --> F5["운영 진단 (CLI Preflight)<br/>활성 언어 상태 검증 및 출력"]
 ```
 
 1. **수집기 계층 (Ingestion Fetchers)**:
    - 미디어 및 다국어 웹 수집기에서 사용 가능한 언어 트랙/자막 목록을 조회할 때 `settings.effective_preferred_languages` 순서대로 매칭을 시도한다.
-2. **CLI 및 운영 진단 (`src/claire/cli.py`)**:
+2. **시각 멀티모달 계층 (VLM Infographic & Image Transcription)**:
+   - 기존의 분리된 개별 설정(`CLAIRE_VLM_LANGUAGE`)은 공식 파기되었으며, `Settings.effective_vlm_language`를 통해 광역 선호 언어의 제1순위 언어(`effective_preferred_languages[0]`)를 자동으로 추종한다.
+   - HoYoLAB 카드 뉴스, 웹 이미지 인포그래픽 수집 시 Gemini Vision API 및 Mock Vision 전사기가 해당 언어를 타겟 번역 언어로 자동 설정하여 일관된 지식 추출을 보장한다.
+3. **CLI 및 운영 진단 (`src/claire/cli.py`)**:
    - `claire preflight` 진단 명령 실행 시 시스템에 활성화된 선호 언어 목록을 명시적으로 표시하여 오설정 리스크를 방지한다.
    ```text
    claire preflight

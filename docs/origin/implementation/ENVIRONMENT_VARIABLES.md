@@ -274,7 +274,7 @@ TypeSafe AI Jev는 엔티티 해소(Entity Resolution) 및 관계 판정 시 비
 
 | 환경변수명 | 기본값 | 허용 값 / 타입 | 설명 |
 | :--- | :--- | :--- | :--- |
-| `CLAIRE_PREFERRED_LANGUAGES` | `ko` | 쉼표 구분 언어 코드 (예: `ko,ja`) | **프로젝트 광역 선호 언어 목록**. 다국어 문서 수집, 번역, 요약 시 우선순위로 사용된다. 영어(`en`)는 명시하지 않아도 항상 공통 기본 폴백으로 포함된다. ([PREFERRED_LANGUAGES_DESIGN.md](../design/PREFERRED_LANGUAGES_DESIGN.md) 참조) |
+| `CLAIRE_PREFERRED_LANGUAGES` | `ko` | 쉼표 구분 언어 코드 (예: `ko,ja`) | **프로젝트 광역 선호 언어 목록**. 다국어 문서 수집, VLM 이미지 전사(OCR/인포그래픽 번역 전사), 오디오 자막/STT, 번역, 요약 시 단일 진실 공급원(Single Source of Truth)으로 사용된다. 영어(`en`)는 명시하지 않아도 항상 공통 기본 폴백으로 포함된다. (기존 개별 환경변수 `CLAIRE_VLM_LANGUAGE`는 공식 파기되었으며 광역 선호 언어 제1순위 언어로 일원화됨. [PREFERRED_LANGUAGES_DESIGN.md](../design/PREFERRED_LANGUAGES_DESIGN.md) 및 [CROSS_TYPE_ENTITY_RESOLUTION_AND_VLM_LOCALIZATION_DESIGN.md](../design/CROSS_TYPE_ENTITY_RESOLUTION_AND_VLM_LOCALIZATION_DESIGN.md) 참조) |
 
 ---
 
