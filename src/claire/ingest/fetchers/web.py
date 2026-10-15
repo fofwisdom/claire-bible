@@ -162,7 +162,7 @@ def fetch_web(url: str, *, full_content: bool = False) -> Document:
             try:
                 from ...extract.vision.factory import get_vision_provider
                 v_provider = get_vision_provider(settings)
-                target_vlm_lang = getattr(settings, "vlm_language", "ko") or "ko"
+                target_vlm_lang = getattr(settings, "effective_vlm_language", None) or (settings.effective_preferred_languages[0] if getattr(settings, "effective_preferred_languages", None) else "ko")
                 v_res = v_provider.transcribe_images(images, title=title, language=target_vlm_lang)
                 if v_res.text:
                     combined_text = (text + "\n\n" + v_res.text).strip() if text else v_res.text

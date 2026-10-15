@@ -24,7 +24,7 @@ class GeminiVisionProvider(VisionTranscriptProvider):
         self.api_key = s.gemini_api_key
         self.model = s.vlm_model or getattr(s, "gemini_model", None) or "gemini-3.8-flash"
         self.max_images = getattr(s, "vlm_max_images", 20)
-        self.language = getattr(s, "vlm_language", "ko") or "ko"
+        self.language = getattr(s, "effective_vlm_language", None) or (s.effective_preferred_languages[0] if getattr(s, "effective_preferred_languages", None) else "ko")
 
     @staticmethod
     def _detect_text_language(text: str, fallback: str = "ko") -> str:

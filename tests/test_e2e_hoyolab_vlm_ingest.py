@@ -123,3 +123,131 @@ def test_e2e_hoyolab_article_vlm_ingestion(tmp_path: Path):
         assert len(exported_files) > 0
         content = exported_files[0].read_text(encoding="utf-8")
         assert len(content) > 0
+
+
+def test_e2e_hoyolab_vlm_ingest_merges_with_existing_entities(tmp_path: Path):
+    """E2E test verifying VLM-extracted entities merge into existing graph entities without isolation."""
+    from claire.ontology.base import Entity
+    from claire.extract.provider import ExtractedEntity, ExtractionResult
+
+    db_file = tmp_path / "claire_lore_e2e.db"
+    vault_dir = tmp_path / "vault_lore"
+    vault_dir.mkdir()
+
+    # Pre-seed existing entities with Person type in knowledge base
+    conn = dbm.connect(str(db_file))
+    try:
+        dbm.init_db(conn)
+        e_trailblazer = Entity(
+            id="ent_trailblazer_001",
+            type="Person",
+            name="개척자",
+            aliases=["Trailblazer"],
+            observations=["은하열차의 개척자"],
+            sources=["doc_intro"],
+        )
+        e_aha = Entity(
+            id="ent_aha_001",
+            type="Person",
+            name="Aha",
+            aliases=["환락의 에이언즈"],
+            observations=["환락의 에이언즈"],
+            sources=["doc_intro"],
+        )
+        dbm.upsert_entity(conn, e_trailblazer)
+        dbm.upsert_entity(conn, e_aha)
+        conn.commit()
+    finally:
+        conn.close()
+
+    # Settings follow preferred_languages without dedicated vlm_language
+    settings = Settings(
+        db_path=str(db_file),
+        vault_path=str(vault_dir),
+        provider="mock",
+        preferred_languages="ko",
+        enable_vlm_transcription=True,
+    )
+
+    article_url = "https://www.hoyolab.com/article/46898605"
+    mock_post_payload = {
+        "post": {
+            "post_id": "46898605",
+            "subject": "아하의 대답",
+            "content": "",
+            "structured_content": json.dumps([
+                {"insert": "Record of Aha answers.\n"},
+                {"insert": {"image": "https://upload-os-bbs.hoyolab.com/upload/community/card_aha.jpg"}},
+            ]),
+            "created_at": 1727500000,
+        },
+        "user": {"nickname": "Honkai: Star Rail"},
+        "topics": [{"name": "Honkai: Star Rail"}],
+        "image_list": [
+            {"url": "https://upload-os-bbs.hoyolab.com/upload/community/card_aha.jpg", "width": 900, "height": 1200},
+        ],
+    }
+
+    mock_client = MagicMock()
+    mock_client.get_post.return_value = mock_post_payload
+
+    # Mock extraction result simulating LLM extracting Concept types
+    mock_extraction = ExtractionResult(
+        entities=[
+            ExtractedEntity(
+                name="개척자",
+                type="Concept",
+                aliases=["Trailblazer"],
+                observations=["아하에게 아키비리에 대해 질문한 개척자"],
+            ),
+            ExtractedEntity(
+                name="아하",
+                type="Concept",
+                aliases=["Aha", "환락의 에이언즈"],
+                observations=["환월 게임을 통해 탐식을 해체한 환락의 에이언즈"],
+            ),
+        ],
+        relations=[],
+    )
+
+    with patch("claire.ingest.fetchers.hoyolab.HoYoLabClient", return_value=mock_client), \
+         patch("claire.extract.provider.MockProvider.extract", return_value=mock_extraction):
+        service = IngestService(settings=settings)
+        report = service.ingest(article_url, source="e2e-lore-test")
+
+        # 1. Pipeline execution status
+        assert report.error is None
+        assert report.document_id is not None
+        assert report.vlm_transcribed is True
+        assert report.vlm_language == "ko"
+
+        # 2. Key resolution verification: entities MUST be linked, not created afresh
+        assert report.entities_linked == 2
+        assert report.entities_created == 0
+        assert "개척자" in report.linked_entity_names
+        assert "Aha" in report.linked_entity_names or "아하" in report.linked_entity_names
+
+        # 3. Database integrity verification: no duplicate nodes created
+        conn = dbm.connect(str(db_file))
+        try:
+            # 개척자 node is unique and merged
+            tb_nodes = dbm.find_entities_by_name_or_alias(conn, "개척자")
+            assert len(tb_nodes) == 1
+            assert tb_nodes[0].id == "ent_trailblazer_001"
+            assert report.document_id in tb_nodes[0].sources
+            assert "아하에게 아키비리에 대해 질문한 개척자" in tb_nodes[0].observations
+
+            # Aha node is unique and merged via alias match
+            aha_nodes = dbm.find_entities_by_name_or_alias(conn, "aha")
+            assert len(aha_nodes) == 1
+            assert aha_nodes[0].id == "ent_aha_001"
+            assert report.document_id in aha_nodes[0].sources
+            assert "아하" in aha_nodes[0].aliases
+            assert "환월 게임을 통해 탐식을 해체한 환락의 에이언즈" in aha_nodes[0].observations
+
+            # Total entities in DB must still be exactly 2
+            cur = conn.cursor()
+            cur.execute("SELECT COUNT(*) FROM entities")
+            assert cur.fetchone()[0] == 2
+        finally:
+            conn.close()
