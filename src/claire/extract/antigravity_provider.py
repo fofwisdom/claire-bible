@@ -521,10 +521,9 @@ class AntigravityProvider:
 
         result.model = self.model
         result.prompt_version = PROMPT_VERSION
-        if not result.raw_response:
-            result.raw_response = result.model_dump_json(
-                exclude={"raw_response", "model", "prompt_version"}
-            )
+        result.raw_response = result.model_dump_json(
+            exclude={"raw_response", "model", "prompt_version"}
+        )
 
         verdict = evaluate_summary_verdict(result.summary, doc.raw_text, provider_name=self.name)
         total_duration = int((time.monotonic() - extract_start_t) * 1000)

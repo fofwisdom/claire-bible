@@ -67,6 +67,10 @@ class ExtractionResult(BaseModel):
         """LLM 구조화 추출에 전달할 JSON Schema (summary, entities, relations 필수화)."""
         schema = cls.model_json_schema()
         schema["required"] = ["summary", "entities", "relations"]
+        # 내부 관리용 메타데이터 필드는 LLM 스키마에 노출하지 않음
+        props = schema.get("properties", {})
+        for meta_field in ("raw_response", "model", "prompt_version"):
+            props.pop(meta_field, None)
         return schema
 
 

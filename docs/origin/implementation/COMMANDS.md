@@ -260,7 +260,7 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 | `refresh-loop` | `claire refresh-loop [--interval N] [--batch N]` | 모든 활성 테마의 watch·갱신 큐를 순환 처리하는 상주 데몬 |
 
 #### `regenerate`
-특정 문서의 컴포넌트(요약, 상세 detail, 그래프 노드/엣지)를 LLM을 통해 선택적으로 재생성하고 DB를 갱신한다. (`doc-regenerate` 호환 별칭 지원)
+특정 문서의 컴포넌트(요약, 상세 detail, 그래프 노드/엣지)를 LLM을 통해 선택적으로 재생성하고 DB를 갱신한다. (`doc-regenerate`, `regenerate-doc`, `regen` 호환 별칭 지원)
 * **사용법**:
   ```bash
   ./cb-manuscript app regenerate <target> --summary              # Dry-run 진단 (기본)

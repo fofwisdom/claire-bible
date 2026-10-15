@@ -4717,7 +4717,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     preg = sub.add_parser(
         "regenerate",
-        aliases=["doc-regenerate", "regenerate-doc"],
+        aliases=["doc-regenerate", "regenerate-doc", "regen"],
         help="selectively regenerate document summary, detail, or graph (default: dry-run, requires --apply)",
         description="Selectively regenerate document summary, readable detail text, or graph nodes/edges using LLM.",
     )
@@ -4745,6 +4745,7 @@ def build_parser() -> argparse.ArgumentParser:
     preg.add_argument("--apply", action="store_true", help="execute LLM regeneration and overwrite database (default: dry-run)")
     preg.add_argument("--force", "-f", action="store_true", help="force overwrite even if target components are already up-to-date")
     preg.add_argument("--dry-run", action="store_true", help="simulate inspection without modifying database (default)")
+    preg.add_argument("--yes", "-y", action="store_true", help="confirm regeneration operation without interactive prompt")
     preg.add_argument("--effort", default=None, help="LLM reasoning effort level (e.g. low, medium, high)")
     preg.add_argument("--format", choices=["md", "adoc"], default=None, help="detail render format (md or adoc)")
     preg.add_argument("--focus", dest="focus", default=None, help="content focus guidance for detail rendering")

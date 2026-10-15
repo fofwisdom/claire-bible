@@ -612,3 +612,93 @@ def test_latest_extraction_summary_returns_none_when_summary_empty_without_detai
     conn.close()
 
 
+def test_extraction_json_schema_excludes_internal_metadata_fields():
+    """LLM에 전달하는 extraction_json_schema 에서 내부 관리용 필드(raw_response, model, prompt_version)가 제외되는지 검증."""
+    schema = ExtractionResult.extraction_json_schema()
+    props = schema.get("properties", {})
+    assert "summary" in props
+    assert "entities" in props
+    assert "relations" in props
+    assert "raw_response" not in props
+    assert "model" not in props
+    assert "prompt_version" not in props
+
+
+def test_latest_extraction_summary_recovers_plain_text_raw_response(temp_db):
+    """extractions.raw_response 에 JSON 객체가 아닌 평문 텍스트 요약이 직접 기록되어 있어도 요약을 정상 복구하는지 검증."""
+    conn = dbm.connect(temp_db)
+    doc_id = "doc_plain_text_extraction"
+    doc = Document(
+        id=doc_id,
+        title="AI 데이터센터 연구",
+        raw_text="원문 본문 텍스트",
+        source_type="pdf",
+        content_hash="h_plain_1",
+    )
+    dbm.insert_document(conn, doc)
+
+    plain_summary = (
+        "인공지능 전환(AX)과 대규모 모델 학습·추론 수요의 확대로 AI 데이터센터의 전력 소비와 설비 투자가 급증하고 있으나, "
+        "전력망 확충 지연과 수도권 집중으로 인한 계통 접속 병목이 심각한 제약 요인으로 작용하고 있다."
+    )
+    # raw_response 에 JSON 포맷이 아닌 평문 문자열 직접 삽입
+    dbm.log_extraction(
+        conn,
+        document_id=doc_id,
+        provider="antigravity",
+        model="gemini-3.8-flash",
+        prompt_version="extract-v8",
+        raw_response=plain_summary,
+    )
+
+    summary = dbm.latest_extraction_summary(conn, doc_id)
+    assert summary is not None
+    assert "인공지능 전환(AX)" in summary
+    assert "계통 접속 병목이 심각한 제약 요인" in summary
+    conn.close()
+
+
+def test_backfill_summaries_normalizes_plain_text_raw_response(tmp_path):
+    """backfill_summaries 가 평문 raw_response 를 정규 JSON 객체로 자동 정규화하는지 검증."""
+    db_file = tmp_path / "claire_plain_test.db"
+    settings = Settings(
+        provider="mock",
+        db_path=str(db_file),
+        vault_path=str(tmp_path / "vault"),
+    )
+    svc = IngestService(settings)
+    conn = dbm.connect(db_file)
+    dbm.init_db(conn)
+
+    doc_id = "doc_normalize_test"
+    doc = Document(
+        id=doc_id,
+        title="Normalize Doc",
+        raw_text="원문 본문 텍스트",
+        source_type="pdf",
+        content_hash="h_norm_1",
+    )
+    dbm.insert_document(conn, doc)
+    plain_summary = "평문으로 직접 저장되었던 추출 요약 텍스트이다."
+    dbm.log_extraction(
+        conn,
+        document_id=doc_id,
+        provider="antigravity",
+        model="gemini-3.8-flash",
+        prompt_version="extract-v8",
+        raw_response=plain_summary,
+    )
+    conn.close()
+
+    res = svc.backfill_summaries()
+    assert res["filled"] == 1
+
+    conn = dbm.connect(db_file)
+    row = conn.execute("SELECT raw_response FROM extractions WHERE document_id=?", (doc_id,)).fetchone()
+    raw_data = json.loads(row["raw_response"])
+    assert isinstance(raw_data, dict)
+    assert raw_data["summary"] == plain_summary
+    assert dbm.latest_extraction_summary(conn, doc_id) == plain_summary
+    conn.close()
+
+

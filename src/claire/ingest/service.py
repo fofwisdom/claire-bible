@@ -678,24 +678,35 @@ class IngestService:
                         (did,),
                     ).fetchone()
                     existing_summary = None
+                    raw_is_dict_json = False
                     if ext and ext["raw_response"]:
+                        raw_str = (ext["raw_response"] or "").strip()
                         try:
-                            existing_summary = _json.loads(ext["raw_response"]).get("summary")
+                            parsed_raw = _json.loads(raw_str)
+                            if isinstance(parsed_raw, dict):
+                                existing_summary = parsed_raw.get("summary")
+                                raw_is_dict_json = True
+                            elif isinstance(parsed_raw, str):
+                                existing_summary = parsed_raw
                         except Exception:
-                            existing_summary = None
+                            if raw_str and not raw_str.startswith("{") and not raw_str.startswith("["):
+                                existing_summary = raw_str
+                            else:
+                                existing_summary = None
                     if existing_summary and existing_summary.strip():
                         cleaned = clean_plain_summary(existing_summary)
-                        if is_corrupted_summary(existing_summary) and cleaned != existing_summary.strip():
+                        # 손상된 서식이나 평문 raw_response 였던 경우 정규 JSON 객체로 정규화
+                        if not raw_is_dict_json or (is_corrupted_summary(existing_summary) and cleaned != existing_summary.strip()):
                             if ext:
                                 try:
-                                    data = _json.loads(ext["raw_response"])
+                                    data = _json.loads(ext["raw_response"]) if raw_is_dict_json else {}
                                 except Exception:
                                     data = {}
                                 data["summary"] = cleaned
                                 new_raw = _json.dumps(data, ensure_ascii=False)
                                 conn.execute("UPDATE extractions SET raw_response=? WHERE id=?", (new_raw, ext["id"]))
                                 conn.commit()
-                                step_cb("손상된 요약 정리 완료")
+                                step_cb("요약 정규화 및 저장 완료")
                                 out["filled"] += 1
                                 continue
                         out["already_had"] += 1

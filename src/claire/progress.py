@@ -9,7 +9,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 import sys
 import time
-from typing import Callable, Iterator
+from typing import Any, Callable, Iterator
 
 
 def _format_duration(seconds: float) -> str:
@@ -51,12 +51,12 @@ class ProgressReporter:
         total: int,
         *,
         enabled: bool = True,
-        stream=sys.stderr,
+        stream: Any = None,
     ) -> None:
         self.task_name = task_name
         self.total = max(0, total)
         self.enabled = enabled
-        self.stream = stream
+        self.stream = sys.stderr if stream is None else stream
 
         self.start_time = time.time()
         self.current_item: ItemContext | None = None
@@ -208,21 +208,22 @@ def track_batch_progress(
     total: int,
     *,
     enabled: bool = True,
-    stream=sys.stderr,
+    stream: Any = None,
 ) -> Iterator[ProgressReporter]:
     """배치 작업용 상위 컨텍스트 매니저.
 
     KeyboardInterrupt 를 캡처하여 상세 보고서를 출력하고 다시 raise 합니다.
     """
-    reporter = ProgressReporter(task_name=task_name, total=total, enabled=enabled, stream=stream)
+    actual_stream = sys.stderr if stream is None else stream
+    reporter = ProgressReporter(task_name=task_name, total=total, enabled=enabled, stream=actual_stream)
     reporter.print_banner()
     try:
         yield reporter
     except KeyboardInterrupt:
         report_text = reporter.format_interruption_report(reason="사용자 중단 (Ctrl+C / SIGINT)")
-        print(report_text, file=stream, flush=True)
+        print(report_text, file=actual_stream, flush=True)
         raise
     except Exception as exc:
         report_text = reporter.format_interruption_report(reason=f"오류 발생: {exc}")
-        print(report_text, file=stream, flush=True)
+        print(report_text, file=actual_stream, flush=True)
         raise

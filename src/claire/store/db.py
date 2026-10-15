@@ -2252,13 +2252,20 @@ def latest_extraction_summary(conn: sqlite3.Connection, document_id: str) -> str
     summary = None
     key_claims = None
     if row and row["raw_response"]:
+        raw_val = row["raw_response"].strip()
         try:
-            parsed = json.loads(row["raw_response"])
-            summary = parsed.get("summary")
-            key_claims = parsed.get("key_claims")
+            parsed = json.loads(raw_val)
+            if isinstance(parsed, dict):
+                summary = parsed.get("summary")
+                key_claims = parsed.get("key_claims")
+            elif isinstance(parsed, str) and parsed.strip():
+                summary = parsed
         except (ValueError, AttributeError):
-            summary = None
-            key_claims = None
+            if raw_val and not raw_val.startswith("{") and not raw_val.startswith("["):
+                summary = raw_val
+            else:
+                summary = None
+                key_claims = None
     if summary and isinstance(summary, str) and summary.strip():
         cleaned = clean_plain_summary(summary)
         if cleaned:

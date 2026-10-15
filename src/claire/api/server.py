@@ -923,6 +923,94 @@ def create_app(
             _log_operation_failure(request, "reingest", exc)
             return JSONResponse({"error": f"reingest failed: {exc}", "ok": False}, status_code=500)
 
+    async def do_regenerate(request: Request) -> JSONResponse:
+        body = await _json_object(request)
+        theme, _, theme_svc = _get_theme_ctx(request, body)
+        scope = request_auth_scope(request)
+        if scope == "collaborator":
+            if theme.is_default or theme.id == 0:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Collaborator는 기본 지식베이스를 직접 재생성할 수 없습니다. 추가 지식 테마를 선택하세요.",
+                )
+            if not theme.is_collaborator_accessible:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Collaborator에게 공개되지 않은 테마입니다.",
+                )
+        target = str(body.get("target") or body.get("payload") or body.get("id") or body.get("doc_id") or "").strip()
+        doc_id = str(body.get("doc_id") or "").strip() or None
+        token = str(body.get("token") or "").strip() or None
+        if not target and not doc_id and not token:
+            raise HTTPException(status_code=400, detail="target, doc_id, or token required")
+
+        component = str(body.get("component") or "").strip().lower()
+        all_comp = False
+        summary = False
+        detail = False
+        graph = False
+        if component in ("all", ""):
+            all_comp = True
+        elif component in ("detail", "format"):
+            detail = True
+        elif component == "summary":
+            summary = True
+        elif component == "graph":
+            graph = True
+
+        if body.get("all") or body.get("all_components"):
+            all_comp = True
+            summary = detail = graph = False
+        elif body.get("detail"):
+            detail = True
+            all_comp = summary = graph = False
+        elif body.get("summary"):
+            summary = True
+            all_comp = detail = graph = False
+        elif body.get("graph"):
+            graph = True
+            all_comp = summary = detail = False
+
+        dry_run = bool(body.get("dry_run", False))
+        force = not dry_run
+        refetch = bool(body.get("refetch", False))
+        refetch_full = bool(body.get("refetch_full", False))
+        effort = str(body.get("effort") or "").strip() or None
+        format_arg = str(body.get("format") or "").strip() or None
+        focus = str(body.get("focus") or "").strip() or None
+        if not focus and not theme.is_default and theme.id > 0 and getattr(theme, "default_focus", None):
+            focus = theme.default_focus.strip() or None
+
+        def _run() -> Any:
+            res = theme_svc.regenerate_components(
+                target=target or None,
+                doc_id=doc_id,
+                token=token,
+                summary=summary,
+                detail=detail,
+                graph=graph,
+                all_components=all_comp,
+                refetch=refetch,
+                refetch_full=refetch_full,
+                force=force,
+                effort=effort,
+                format=format_arg,
+                focus=focus,
+            )
+            if isinstance(res, dict) and theme.id != 0:
+                res["theme_id"] = theme.id
+                res["theme_label"] = theme.label
+            return res
+
+        try:
+            result = await _run_expensive(_run)
+            return JSONResponse(result)
+        except HTTPException:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            _log_operation_failure(request, "regenerate", exc)
+            return JSONResponse({"error": f"regenerate failed: {exc}", "ok": False}, status_code=500)
+
     async def do_search(request: Request) -> JSONResponse:
         body = await _json_object(request)
         theme, _, theme_svc = _get_theme_ctx(request, body)
@@ -1797,6 +1885,157 @@ def create_app(
                 except Exception as exc:  # noqa: BLE001
                     _log_operation_failure(request, "reingest stream", exc)
                     result = {"error": f"reingest failed: {exc}", "ok": False}
+                yield (
+                    json.dumps(
+                        {"done": True, "result": result},
+                        ensure_ascii=False,
+                    )
+                    + "\n"
+                ).encode()
+            finally:
+                if task.done():
+                    _consume_task_result(task)
+
+        return StreamingResponse(stream(), media_type="application/x-ndjson")
+
+    async def regenerate_stream_route(request: Request) -> Response:
+        from ..extract.provider import set_progress_callback
+
+        body = await _json_object(request)
+        theme, _, theme_svc = _get_theme_ctx(request, body)
+        scope = request_auth_scope(request)
+        if scope == "collaborator":
+            if theme.is_default or theme.id == 0:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Collaborator는 기본 지식베이스를 직접 재생성할 수 없습니다. 추가 지식 테마를 선택하세요.",
+                )
+            if not theme.is_collaborator_accessible:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Collaborator에게 공개되지 않은 테마입니다.",
+                )
+        target = str(body.get("target") or body.get("payload") or body.get("id") or body.get("doc_id") or "").strip()
+        doc_id = str(body.get("doc_id") or "").strip() or None
+        token = str(body.get("token") or "").strip() or None
+        if not target and not doc_id and not token:
+            raise HTTPException(status_code=400, detail="target, doc_id, or token required")
+
+        component = str(body.get("component") or "").strip().lower()
+        all_comp = False
+        summary = False
+        detail = False
+        graph = False
+        if component in ("all", ""):
+            all_comp = True
+        elif component in ("detail", "format"):
+            detail = True
+        elif component == "summary":
+            summary = True
+        elif component == "graph":
+            graph = True
+
+        if body.get("all") or body.get("all_components"):
+            all_comp = True
+            summary = detail = graph = False
+        elif body.get("detail"):
+            detail = True
+            all_comp = summary = graph = False
+        elif body.get("summary"):
+            summary = True
+            all_comp = detail = graph = False
+        elif body.get("graph"):
+            graph = True
+            all_comp = summary = detail = False
+
+        dry_run = bool(body.get("dry_run", False))
+        force = not dry_run
+        refetch = bool(body.get("refetch", False))
+        refetch_full = bool(body.get("refetch_full", False))
+        effort = str(body.get("effort") or "").strip() or None
+        format_arg = str(body.get("format") or "").strip() or None
+        focus = str(body.get("focus") or "").strip() or None
+        if not focus and not theme.is_default and theme.id > 0 and getattr(theme, "default_focus", None):
+            focus = theme.default_focus.strip() or None
+
+        _reserve_expensive_job()
+        loop = asyncio.get_running_loop()
+        events: asyncio.Queue[dict[str, Any]] = asyncio.Queue(
+            maxsize=_PROGRESS_QUEUE_SIZE
+        )
+
+        def _enqueue_progress(event: dict[str, Any]) -> None:
+            if not events.full():
+                events.put_nowait(event)
+
+        def on_progress(message: Any) -> None:
+            try:
+                if isinstance(message, dict):
+                    loop.call_soon_threadsafe(_enqueue_progress, message)
+                else:
+                    loop.call_soon_threadsafe(
+                        _enqueue_progress,
+                        {"stage": "work", "msg": str(message)},
+                    )
+            except RuntimeError:
+                pass
+
+        def _run() -> Any:
+            set_progress_callback(on_progress)
+            try:
+                res = theme_svc.regenerate_components(
+                    target=target or None,
+                    doc_id=doc_id,
+                    token=token,
+                    summary=summary,
+                    detail=detail,
+                    graph=graph,
+                    all_components=all_comp,
+                    refetch=refetch,
+                    refetch_full=refetch_full,
+                    force=force,
+                    effort=effort,
+                    format=format_arg,
+                    focus=focus,
+                    on_progress=lambda stage, msg="": on_progress({"stage": stage, "msg": msg or stage}),
+                )
+                if isinstance(res, dict) and theme.id != 0:
+                    res["theme_id"] = theme.id
+                    res["theme_label"] = theme.label
+                return res
+            finally:
+                set_progress_callback(None)
+
+        try:
+            task = asyncio.create_task(asyncio.to_thread(_run))
+        except BaseException:
+            _release_expensive_job()
+            raise
+        task.add_done_callback(_release_expensive_job)
+        task.add_done_callback(_consume_task_result)
+
+        async def stream() -> AsyncIterator[bytes]:
+            try:
+                while True:
+                    if task.done() and events.empty():
+                        await asyncio.sleep(0.01)
+                        if events.empty():
+                            break
+                    try:
+                        event = await asyncio.wait_for(events.get(), timeout=0.1)
+                    except asyncio.TimeoutError:
+                        continue
+                    yield (json.dumps(event, ensure_ascii=False) + "\n").encode()
+                try:
+                    result = task.result()
+                    if isinstance(result, IngestReport):
+                        result = report_to_dict(result)
+                    if isinstance(result, dict) and theme.id != 0:
+                        result["theme_id"] = theme.id
+                        result["theme_label"] = theme.label
+                except Exception as exc:  # noqa: BLE001
+                    _log_operation_failure(request, "regenerate stream", exc)
+                    result = {"error": f"regenerate failed: {exc}", "ok": False}
                 yield (
                     json.dumps(
                         {"done": True, "result": result},
@@ -2728,6 +2967,9 @@ def create_app(
         Route("/ingest-stream", ingest_stream_route, methods=["POST"]),
         Route("/reingest", do_reingest, methods=["POST"]),
         Route("/reingest-stream", reingest_stream_route, methods=["POST"]),
+        Route("/regenerate", do_regenerate, methods=["POST"]),
+        Route("/regenerate-stream", regenerate_stream_route, methods=["POST"]),
+        Route("/document/regenerate", do_regenerate, methods=["POST"]),
         Route("/ingest/active", active_ingest_route, methods=["GET"]),
         Route("/search", do_search, methods=["POST"]),
         Route("/", graph_ui, methods=["GET"]),
