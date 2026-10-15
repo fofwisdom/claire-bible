@@ -38,22 +38,46 @@ def parse_hoyolab_url(url: str) -> str | None:
     return None
 
 
+def resolve_hoyolab_language(settings: Any = None) -> str:
+    """Map system localization settings to HoYoLAB API language tag."""
+    s = settings or get_settings()
+    pref = getattr(s, "vlm_language", None) or getattr(s, "preferred_languages", "ko") or "ko"
+    pref = pref.split(",")[0].strip().lower()
+    if pref.startswith("ko"):
+        return "ko-kr"
+    if pref.startswith("ja"):
+        return "ja-jp"
+    if pref.startswith("zh-tw") or pref.startswith("zh-hk"):
+        return "zh-tw"
+    if pref.startswith("zh"):
+        return "zh-cn"
+    if pref.startswith("en"):
+        return "en-us"
+    return "ko-kr"
+
+
 class HoYoLabClient:
     """Client for HoYoLAB community public API."""
 
     def __init__(self, timeout: float = 20.0) -> None:
         self.timeout = timeout
 
-    def get_post(self, post_id: str) -> dict[str, Any]:
-        """Fetch article payload from HoYoLAB API."""
-        query = urllib.parse.urlencode({"post_id": post_id})
+    def get_post(self, post_id: str, lang: str | None = None) -> dict[str, Any]:
+        """Fetch article payload from HoYoLAB API with optional language localization."""
+        query_params: dict[str, str] = {"post_id": post_id}
+        headers = {
+            "User-Agent": BROWSER_USER_AGENT,
+            "Accept": "application/json",
+        }
+        if lang:
+            query_params["lang"] = lang
+            headers["x-rpc-language"] = lang
+            headers["Accept-Language"] = lang
+        query = urllib.parse.urlencode(query_params)
         api_url = f"{_API_ENDPOINT}?{query}"
         req = urllib.request.Request(
             api_url,
-            headers={
-                "User-Agent": BROWSER_USER_AGENT,
-                "Accept": "application/json",
-            },
+            headers=headers,
         )
         try:
             with urllib.request.urlopen(req, timeout=self.timeout) as resp:
@@ -224,7 +248,8 @@ def fetch_hoyolab(
 
     s = settings or get_settings()
     api_client = client or HoYoLabClient()
-    post_data = api_client.get_post(post_id)
+    target_lang = resolve_hoyolab_language(s)
+    post_data = api_client.get_post(post_id, lang=target_lang)
 
     title, text, links, anchors, images, meta_extras = format_post_to_markdown(post_data, settings=s)
 

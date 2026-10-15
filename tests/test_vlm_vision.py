@@ -99,11 +99,83 @@ def test_vlm_language_handling_and_korean_prompt():
         assert "Korean (한국어)" in sys_prompt
         assert "translate it faithfully into Korean" in sys_prompt
 
-        # Now test with explicit language="ja"
+        # If model returned Korean text, detected language is 'ko' even if 'ja' was requested (prevent false claim)
+        res_ja_ko = provider.transcribe_images(
+            [{"url": "https://example.com/c1.jpg"}],
+            title="Aha's Answer",
+            language="ja",
+        )
+        assert res_ja_ko.language == "ko"
+        assert "into ja" in captured_parts[0]
+
+        # When model actually returns Japanese text
+        def mock_gen_ja(model, contents):
+            resp = MagicMock()
+            resp.text = "### カード 1\n日本語の説明とテキストです。"
+            return resp
+
+        mock_client.models.generate_content.side_effect = mock_gen_ja
         res_ja = provider.transcribe_images(
             [{"url": "https://example.com/c1.jpg"}],
             title="Aha's Answer",
             language="ja",
         )
         assert res_ja.language == "ja"
-        assert "into ja" in captured_parts[0]
+
+        # When model returns English text, language is detected as 'en' instead of falsely claiming 'ko'
+        def mock_gen_en(model, contents):
+            resp = MagicMock()
+            resp.text = "### Card 1\nQuestion: What is the weakness of the Lord Ravager?\nAnswer: Love, hope, and courage."
+            return resp
+
+        mock_client.models.generate_content.side_effect = mock_gen_en
+        res_en_detected = provider.transcribe_images(
+            [{"url": "https://example.com/c1.jpg"}],
+            title="Aha's Answer",
+            language="ko",
+        )
+        assert res_en_detected.language == "en"
+
+
+def test_hoyolab_language_resolution_and_client_request():
+    """Verify HoYoLAB language mapping and localized request headers/query."""
+    import json
+    from claire.ingest.fetchers.hoyolab import HoYoLabClient, resolve_hoyolab_language
+
+    s_ko = Settings(vlm_language="ko")
+    assert resolve_hoyolab_language(s_ko) == "ko-kr"
+
+    s_ja = Settings(vlm_language="ja")
+    assert resolve_hoyolab_language(s_ja) == "ja-jp"
+
+    s_en = Settings(vlm_language="en")
+    assert resolve_hoyolab_language(s_en) == "en-us"
+
+    client = HoYoLabClient()
+    captured_req = None
+
+    def mock_urlopen(req, timeout=None):
+        nonlocal captured_req
+        captured_req = req
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = json.dumps({
+            "retcode": 0,
+            "message": "OK",
+            "data": {
+                "post": {
+                    "post": {"subject": "아하의 대답", "post_id": "46898605"},
+                    "user": {"nickname": "붕괴: 스타레일"},
+                    "image_list": [],
+                }
+            }
+        }).encode("utf-8")
+        mock_resp.__enter__.return_value = mock_resp
+        return mock_resp
+
+    with patch("urllib.request.urlopen", side_effect=mock_urlopen):
+        post = client.get_post("46898605", lang="ko-kr")
+        assert post["post"]["subject"] == "아하의 대답"
+        assert captured_req is not None
+        assert "lang=ko-kr" in captured_req.full_url
+        assert captured_req.headers.get("X-rpc-language") == "ko-kr"
+        assert captured_req.headers.get("Accept-language") == "ko-kr"

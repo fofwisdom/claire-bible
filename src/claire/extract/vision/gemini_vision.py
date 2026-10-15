@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import urllib.request
 from pathlib import Path
 from typing import Any
@@ -24,6 +25,28 @@ class GeminiVisionProvider(VisionTranscriptProvider):
         self.model = s.vlm_model or getattr(s, "gemini_model", None) or "gemini-3.8-flash"
         self.max_images = getattr(s, "vlm_max_images", 20)
         self.language = getattr(s, "vlm_language", "ko") or "ko"
+
+    @staticmethod
+    def _detect_text_language(text: str, fallback: str = "ko") -> str:
+        """Detect dominant language of transcribed text to prevent false metadata claims."""
+        if not text or not text.strip():
+            return fallback
+        hangul_count = len(re.findall(r"[\uac00-\ud7a3\u1100-\u11ff\u3130-\u318f]", text))
+        latin_count = len(re.findall(r"[a-zA-Z]", text))
+        cjk_count = len(re.findall(r"[\u4e00-\u9fff]", text))
+        kana_count = len(re.findall(r"[\u3040-\u30ff]", text))
+        total_letters = hangul_count + latin_count + cjk_count + kana_count
+        if total_letters == 0:
+            return fallback
+        if hangul_count / total_letters >= 0.15:
+            return "ko"
+        if kana_count / total_letters >= 0.10:
+            return "ja"
+        if cjk_count / total_letters >= 0.20:
+            return "zh"
+        if latin_count / total_letters >= 0.50 and (hangul_count / total_letters < 0.05):
+            return "en"
+        return fallback
 
     def _get_client(self) -> Any:
         from google import genai
@@ -148,11 +171,12 @@ class GeminiVisionProvider(VisionTranscriptProvider):
                 contents=parts,
             )
             text = (response.text or "").strip()
+            detected_lang = self._detect_text_language(text, fallback=target_lang)
             return VisionTranscriptResult(
                 text=text,
                 images_processed=processed_count,
                 model=self.model,
-                language=target_lang,
+                language=detected_lang,
                 error=None,
             )
         except Exception as e:
