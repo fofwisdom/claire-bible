@@ -162,7 +162,8 @@ def fetch_web(url: str, *, full_content: bool = False) -> Document:
             try:
                 from ...extract.vision.factory import get_vision_provider
                 v_provider = get_vision_provider(settings)
-                v_res = v_provider.transcribe_images(images, title=title)
+                target_vlm_lang = getattr(settings, "vlm_language", "ko") or "ko"
+                v_res = v_provider.transcribe_images(images, title=title, language=target_vlm_lang)
                 if v_res.text:
                     combined_text = (text + "\n\n" + v_res.text).strip() if text else v_res.text
                     v_usable, v_guard_err = _is_usable(title, combined_text)
@@ -175,6 +176,7 @@ def fetch_web(url: str, *, full_content: bool = False) -> Document:
                             parser_info["vlm_transcribed"] = True
                             parser_info["vlm_images_count"] = v_res.images_processed
                             parser_info["vlm_model"] = v_res.model
+                            parser_info["vlm_language"] = v_res.language or target_vlm_lang
             except Exception:
                 pass
 

@@ -505,6 +505,7 @@ class Settings(BaseSettings):
     vlm_provider: str = Field(default="gemini", alias="CLAIRE_VLM_PROVIDER")
     vlm_model: str = Field(default="", alias="CLAIRE_VLM_MODEL")
     vlm_max_images: int = Field(default=20, alias="CLAIRE_VLM_MAX_IMAGES")
+    vlm_language: str = Field(default="ko", alias="CLAIRE_VLM_LANGUAGE")
     presentation_pdf_max_bytes: int = Field(
         default=64 * 1024 * 1024,
         alias="CLAIRE_PRESENTATION_PDF_MAX_BYTES",

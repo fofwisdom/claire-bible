@@ -23,6 +23,7 @@ class GeminiVisionProvider(VisionTranscriptProvider):
         self.api_key = s.gemini_api_key
         self.model = s.vlm_model or getattr(s, "gemini_model", None) or "gemini-3.8-flash"
         self.max_images = getattr(s, "vlm_max_images", 20)
+        self.language = getattr(s, "vlm_language", "ko") or "ko"
 
     def _get_client(self) -> Any:
         from google import genai
@@ -58,13 +59,16 @@ class GeminiVisionProvider(VisionTranscriptProvider):
         images: list[dict[str, Any] | str],
         *,
         title: str | None = None,
+        language: str | None = None,
         prompt: str | None = None,
     ) -> VisionTranscriptResult:
+        target_lang = language or self.language or "ko"
         if not images:
             return VisionTranscriptResult(
                 text="",
                 images_processed=0,
                 model=self.model,
+                language=target_lang,
                 error=None,
             )
 
@@ -74,16 +78,31 @@ class GeminiVisionProvider(VisionTranscriptProvider):
         target_images = images[: self.max_images]
         parts: list[Any] = []
 
-        system_instruction = prompt or (
-            "You are an expert multimodal transcription engine. "
-            f"The user has provided {len(target_images)} sequential infographic/card images "
-            f"from the article: '{title or 'Article'}'.\n"
-            "Requirements:\n"
-            "1. Transcribe all text, labels, questions, and answers in chronological card order.\n"
-            "2. Preserve the exact dialogue, Q&A format, statistics, and lore terminology without hallucinating.\n"
-            "3. Format each card clearly using Markdown (e.g. '### Card N', '#### Q.', '**Answer**:').\n"
-            "4. Output only the structured transcript in clean Markdown."
-        )
+        if prompt:
+            system_instruction = prompt
+        elif target_lang in ("ko", "ko_KR"):
+            system_instruction = (
+                "You are an expert multimodal transcription engine. "
+                f"The user has provided {len(target_images)} sequential infographic/card images "
+                f"from the article: '{title or 'Article'}'.\n"
+                "Requirements:\n"
+                "1. Transcribe and translate all text, labels, questions, and answers into accurate and natural Korean (한국어) in chronological card order.\n"
+                "2. If the text in images is in English or another foreign language, translate it faithfully into Korean while keeping official terminology, character names, and lore concepts accurate without hallucination.\n"
+                "3. Preserve the exact dialogue, Q&A format, statistics, and lore terminology.\n"
+                "4. Format each card clearly using Markdown (e.g. '### Card N', '#### Q.', '**Answer**:').\n"
+                "5. Output only the structured transcript in clean Markdown."
+            )
+        else:
+            system_instruction = (
+                "You are an expert multimodal transcription engine. "
+                f"The user has provided {len(target_images)} sequential infographic/card images "
+                f"from the article: '{title or 'Article'}'.\n"
+                f"Requirements:\n"
+                f"1. Transcribe all text, labels, questions, and answers in chronological card order into {target_lang}.\n"
+                "2. Preserve the exact dialogue, Q&A format, statistics, and lore terminology without hallucinating.\n"
+                "3. Format each card clearly using Markdown (e.g. '### Card N', '#### Q.', '**Answer**:').\n"
+                "4. Output only the structured transcript in clean Markdown."
+            )
         parts.append(system_instruction)
 
         processed_count = 0
@@ -119,6 +138,7 @@ class GeminiVisionProvider(VisionTranscriptProvider):
                 text="",
                 images_processed=0,
                 model=self.model,
+                language=target_lang,
                 error="No valid image bytes could be loaded",
             )
 
@@ -132,6 +152,7 @@ class GeminiVisionProvider(VisionTranscriptProvider):
                 text=text,
                 images_processed=processed_count,
                 model=self.model,
+                language=target_lang,
                 error=None,
             )
         except Exception as e:
@@ -140,5 +161,6 @@ class GeminiVisionProvider(VisionTranscriptProvider):
                 text="",
                 images_processed=processed_count,
                 model=self.model,
+                language=target_lang,
                 error=str(e),
             )

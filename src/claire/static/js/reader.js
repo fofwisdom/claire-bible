@@ -497,7 +497,9 @@ function docMetaHtml(dc){
     tags.push('<span class="focus-tag" title="적재 시 지정한 초점: '+esc(focus)+'">🎯 '+esc(dispFocus)+'</span>');
   }
   if(isStt && !hasPresentation){
-    tags.push('<span class="focus-tag stt-tag" title="음성 인식(STT)을 적용하여 작성한 문서">🎙️ STT</span>');
+    const sttLang = (dc.stt_language || (dc.meta && dc.meta.stt_language) || '').trim();
+    const tip = sttLang ? '음성 인식(STT: '+sttLang+')을 적용하여 작성한 문서' : '음성 인식(STT)을 적용하여 작성한 문서';
+    tags.push('<span class="focus-tag stt-tag" title="'+esc(tip)+'">🎙️ STT</span>');
   }
   if(isCc && !hasPresentation){
     const capLang = (dc.caption_language || (dc.meta && dc.meta.caption_language) || '').trim();
@@ -507,11 +509,12 @@ function docMetaHtml(dc){
   if(isVlm){
     const vlmCount = Number((dc.vlm_images_count !== undefined ? dc.vlm_images_count : (dc.meta && dc.meta.vlm_images_count)) || 0);
     const vlmModel = String((dc.vlm_model || (dc.meta && dc.meta.vlm_model)) || '').trim();
+    const vlmLang = String((dc.vlm_language || (dc.meta && dc.meta.vlm_language)) || '').trim();
     let vlmLabel = '🖼️ 이미지 전사';
     if(vlmCount > 0){
       vlmLabel += ' (' + vlmCount.toLocaleString() + '장)';
     }
-    let vlmTip = '이미지 전사(VLM)를 적용하여 작성한 문서';
+    let vlmTip = vlmLang ? ('이미지 전사(VLM: '+vlmLang+')를 적용하여 작성한 문서') : '이미지 전사(VLM)를 적용하여 작성한 문서';
     if(vlmCount > 0){
       vlmTip += ' (' + vlmCount.toLocaleString() + '장 이미지 전사)';
     }
@@ -639,7 +642,8 @@ function getDocMetaMessages(dc){
     messages.push(bundleSource+' 원본 PDF 함께 적재'+metaDetail+' · '+artifactState);
   }
   if(isStt && !hasPresentation){
-    messages.push('음성 인식(STT)을 적용하여 작성한 문서');
+    const sttLang = (dc.stt_language || (dc.meta && dc.meta.stt_language) || '').trim();
+    messages.push(sttLang ? '음성 인식(STT: '+sttLang+')을 적용하여 작성한 문서' : '음성 인식(STT)을 적용하여 작성한 문서');
   }
   if(isCc && !hasPresentation){
     const capLang = (dc.caption_language || (dc.meta && dc.meta.caption_language) || '').trim();
@@ -648,7 +652,8 @@ function getDocMetaMessages(dc){
   if(isVlm){
     const vlmCount = Number((dc.vlm_images_count !== undefined ? dc.vlm_images_count : (dc.meta && dc.meta.vlm_images_count)) || 0);
     const vlmModel = String((dc.vlm_model || (dc.meta && dc.meta.vlm_model)) || '').trim();
-    let msg = '이미지 전사(VLM)를 적용하여 작성한 문서';
+    const vlmLang = String((dc.vlm_language || (dc.meta && dc.meta.vlm_language)) || '').trim();
+    let msg = vlmLang ? ('이미지 전사(VLM: '+vlmLang+')를 적용하여 작성한 문서') : '이미지 전사(VLM)를 적용하여 작성한 문서';
     if(vlmCount > 0){
       msg += ' (' + vlmCount.toLocaleString() + '장 이미지 전사)';
     }
