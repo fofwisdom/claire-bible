@@ -1283,3 +1283,30 @@ test('database presentation toggle controls presentation tab visibility and iner
   expect(pageErrors).toEqual([]);
 });
 
+test('hidden documents list in document sidebar is scrollable when opened in owner session', async ({ page }) => {
+  const pageErrors = [];
+  page.on('pageerror', error => pageErrors.push(error.message));
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto('/?t=e2e-owner-token-0123456789abcdef', { waitUntil: 'domcontentloaded' });
+  await expect.poll(() => page.evaluate(() => window.claireDebug?.authScope)).toBe('owner');
+  const showHiddenBtn = page.locator('#showhidden');
+  await expect(showHiddenBtn).toBeVisible();
+  await expect(showHiddenBtn).toContainText('숨김');
+  const hiddenList = page.locator('#hiddenlist');
+  await expect(hiddenList).toBeHidden();
+  await showHiddenBtn.click();
+  await expect(hiddenList).toBeVisible();
+  await expect(showHiddenBtn).toHaveAttribute('aria-expanded', 'true');
+  const overflowY = await hiddenList.evaluate(el => window.getComputedStyle(el).overflowY);
+  expect(overflowY).toBe('auto');
+  const { scrollHeight, clientHeight } = await hiddenList.evaluate(el => ({ scrollHeight: el.scrollHeight, clientHeight: el.clientHeight }));
+  expect(scrollHeight).toBeGreaterThan(clientHeight);
+  await hiddenList.evaluate(el => { el.scrollTop = 150; });
+  const scrolledTop = await hiddenList.evaluate(el => el.scrollTop);
+  expect(scrolledTop).toBeGreaterThanOrEqual(100);
+  await showHiddenBtn.click();
+  await expect(hiddenList).toBeHidden();
+  await expect(showHiddenBtn).toHaveAttribute('aria-expanded', 'false');
+  expect(pageErrors).toEqual([]);
+});
+

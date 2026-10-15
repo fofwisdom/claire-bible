@@ -3615,8 +3615,8 @@ function renderServerDocs(){
   const res = serverSearchResults;
   const ph = document.getElementById('pinnedhead'); if(ph) ph.style.display = 'none';
   const pl = document.getElementById('pinnedlist'); if(pl) pl.innerHTML = '';
-  const sh = document.getElementById('showhidden'); if(sh) sh.style.display = 'none';
-  const hl = document.getElementById('hiddenlist'); if(hl) hl.innerHTML = '';
+  const sh = document.getElementById('showhidden'); if(sh){ sh.style.display = 'none'; sh.setAttribute('aria-expanded', 'false'); }
+  const hl = document.getElementById('hiddenlist'); if(hl){ hl.innerHTML = ''; hl.style.display = 'none'; }
 
   const dl = document.getElementById('doclist');
   if(dl){
@@ -3769,8 +3769,8 @@ function renderDocs(filter){
     const ph = document.getElementById('pinnedhead'); if(ph) ph.style.display = 'none';
     const pl = document.getElementById('pinnedlist'); if(pl) pl.innerHTML = '';
     const dl = document.getElementById('doclist'); if(dl) dl.innerHTML = doclistToolbarHtml() + '<p class="hint" style="padding:16px 12px;text-align:center">🔎 검색어를 입력하세요.</p>';
-    const sh = document.getElementById('showhidden'); if(sh) sh.style.display = 'none';
-    const hl = document.getElementById('hiddenlist'); if(hl) hl.innerHTML = '';
+    const sh = document.getElementById('showhidden'); if(sh){ sh.style.display = 'none'; sh.setAttribute('aria-expanded', 'false'); }
+    const hl = document.getElementById('hiddenlist'); if(hl){ hl.innerHTML = ''; hl.style.display = 'none'; }
     syncGraphDocNav();
     return;
   }
@@ -3803,14 +3803,20 @@ function renderDocs(filter){
   const hl=document.getElementById('hiddenlist');
   // readonly 는 숨기기/해제 버튼이 없어 이 구간이 눌러도 소용없는 관리용 UI — 아예 숨김.
   if(!canWrite() || !hiddenDocs.length){
-    if(sh) sh.style.display='none';
-    if(hl) hl.innerHTML='';
+    if(sh){ sh.style.display='none'; sh.setAttribute('aria-expanded', 'false'); }
+    if(hl){ hl.innerHTML=''; hl.style.display='none'; }
   }else{
     if(sh){
       sh.style.display='';
+      sh.setAttribute('aria-expanded', showHidden ? 'true' : 'false');
       sh.textContent = (showHidden?'▲ ':'▼ ')+'🙈 숨김 '+hiddenDocs.length+'개 '+(showHidden?'접기':'보기');
     }
-    if(hl) hl.innerHTML = showHidden ? hiddenDocs.map(docItemHtml).join('') : '';
+    if(hl){
+      const prevScroll = hl.scrollTop;
+      hl.innerHTML = showHidden ? hiddenDocs.map(docItemHtml).join('') : '';
+      hl.style.display = showHidden ? 'block' : 'none';
+      if(showHidden && prevScroll > 0) hl.scrollTop = prevScroll;
+    }
   }
   const st = document.getElementById('stat');
   if(st){
