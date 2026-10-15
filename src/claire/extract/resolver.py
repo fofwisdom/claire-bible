@@ -92,6 +92,22 @@ def _get_tier_thresholds() -> tuple[float, float, float, float, bool]:
 
 _VERSION_RE = re.compile(r"\b\d+(?:\.\d+)*\b")
 
+GENERIC_ENTITY_TYPES: set[str] = {"Concept", "Note"}
+
+
+def is_type_compatible(type1: str, type2: str, provisional: bool = False) -> bool:
+    """온톨로지 타입 호환성 판정.
+
+    1. 동일 타입은 항상 호환.
+    2. provisional 타입은 항상 호환.
+    3. Concept / Note 등 범용(generic) 타입은 모든 도메인 구체 타입과 상호 호환 (LLM 추출 시 범용 타입 부여 빈번).
+    """
+    if type1 == type2 or provisional:
+        return True
+    if type1 in GENERIC_ENTITY_TYPES or type2 in GENERIC_ENTITY_TYPES:
+        return True
+    return False
+
 
 def passes_hard_invariants(
     new_name: str,
@@ -101,23 +117,30 @@ def passes_hard_invariants(
     provisional: bool = False,
 ) -> bool:
     """Gate 2: 온톨로지 불변식 및 절대 차단 검증. 위반 시 False 반환."""
-    # 1) 타입 불일치 차단 (임시 타입 제외)
-    if new_type != cand_type and not provisional:
+    n1_norm = normalize_name(new_name)
+    n2_norm = normalize_name(cand_name)
+
+    # 1) 버전/릴리즈 토큰 충돌 검사 (예: vSphere 8.0 vs vSphere 7.0)
+    v1 = _VERSION_RE.findall(new_name)
+    v2 = _VERSION_RE.findall(cand_name)
+    if v1 and v2 and v1 != v2:
         return False
 
-    # 2) 2글자 모호 약어(AI, ML, OS 등) 자동 병합 배제
+    # 2) 2글자 모호 약어(AI, ML, OS 등) 자동 병합 배제 (단, 완전 동일 이름 제외)
     n1_strip = new_name.strip()
     n2_strip = cand_name.strip()
     if (len(n1_strip) <= 2 and n1_strip.isalpha() and n1_strip.isupper()) or (
         len(n2_strip) <= 2 and n2_strip.isalpha() and n2_strip.isupper()
     ):
-        if normalize_name(new_name) != normalize_name(cand_name):
+        if n1_norm != n2_norm:
             return False
 
-    # 3) 버전/릴리즈 토큰 충돌 검사 (예: vSphere 8.0 vs vSphere 7.0)
-    v1 = _VERSION_RE.findall(new_name)
-    v2 = _VERSION_RE.findall(cand_name)
-    if v1 and v2 and v1 != v2:
+    # 3) 정규화 이름이 완전 일치하는 경우: 동일 실세계 엔티티에 대한 추출 타입 편차로 보고 통과
+    if n1_norm == n2_norm:
+        return True
+
+    # 4) 서로 다른 이름 후보군(Gate 3/4 등)에 대한 구체 타입 불일치 차단
+    if not is_type_compatible(new_type, cand_type, provisional=provisional):
         return False
 
     return True
@@ -131,12 +154,21 @@ def _execute_reversible_merge(
     observations: list[str],
     document_id: str,
     *,
+    new_type: str | None = None,
     stage: str,
     score: float | None = None,
     reason: str = "",
 ) -> tuple[Entity, ResolutionDecision]:
     """엔티티를 안전하게 병합하고 롤백 페이로드가 포함된 ResolutionDecision을 생성."""
     changed = False
+    prev_type: str | None = None
+
+    # 범용 타입(Concept/Note)에서 구체 타입으로의 승격/정제
+    if new_type and cand.type in GENERIC_ENTITY_TYPES and new_type not in GENERIC_ENTITY_TYPES:
+        prev_type = cand.type
+        cand.type = new_type
+        changed = True
+
     added_aliases: list[str] = []
     for a in aliases:
         if a and a != cand.name and a not in cand.aliases:
@@ -165,6 +197,7 @@ def _execute_reversible_merge(
         "added_aliases": added_aliases,
         "added_observations": added_observations,
         "added_source": added_source,
+        "prev_type": prev_type,
     }
 
     decision = ResolutionDecision(
@@ -204,8 +237,8 @@ def resolve_or_create(
     for cand in dbm.find_entities_by_name_or_alias(conn, norm):
         if passes_hard_invariants(name, etype, cand.name, cand.type, provisional):
             cand_m, dec = _execute_reversible_merge(
-                conn, cand, name, aliases, observations, document_id,
-                stage="exact_match", score=1.0, reason="Exact normalized name match",
+                conn, cand, name, aliases + [name], observations, document_id,
+                new_type=etype, stage="exact_match", score=1.0, reason="Exact normalized name match",
             )
             return ResolutionResult(cand_m, False, decision=dec)
 
@@ -214,10 +247,10 @@ def resolve_or_create(
         if not alias:
             continue
         for cand in dbm.find_entities_by_name_or_alias(conn, normalize_name(alias)):
-            if passes_hard_invariants(name, etype, cand.name, cand.type, provisional):
+            if passes_hard_invariants(alias, etype, cand.name, cand.type, provisional) or passes_hard_invariants(name, etype, cand.name, cand.type, provisional):
                 cand_m, dec = _execute_reversible_merge(
                     conn, cand, name, aliases + [name], observations, document_id,
-                    stage="alias_match", score=1.0, reason=f"Matched registered alias '{alias}'",
+                    new_type=etype, stage="alias_match", score=1.0, reason=f"Matched registered alias '{alias}'",
                 )
                 return ResolutionResult(cand_m, False, decision=dec)
 
@@ -227,7 +260,7 @@ def resolve_or_create(
     if (acr_self and len(acr_self) >= ACRONYM_MIN) or new_is_acr:
         target_acr = name.strip().upper()
         for cand in dbm.all_entities(conn):
-            if not passes_hard_invariants(name, etype, cand.name, cand.type, provisional):
+            if cand.type != etype or not passes_hard_invariants(name, etype, cand.name, cand.type, provisional):
                 continue
             cand_names = [cand.name, *cand.aliases]
             hit = (
@@ -238,7 +271,7 @@ def resolve_or_create(
             if hit:
                 cand_m, dec = _execute_reversible_merge(
                     conn, cand, name, aliases + [name], observations, document_id,
-                    stage="acronym_match", score=1.0, reason="Deterministic acronym match",
+                    new_type=etype, stage="acronym_match", score=1.0, reason="Deterministic acronym match",
                 )
                 return ResolutionResult(cand_m, False, decision=dec)
 
@@ -284,7 +317,7 @@ def resolve_or_create(
         if score >= tier_auto:
             cand_m, dec = _execute_reversible_merge(
                 conn, cand, name, aliases + [name], observations, document_id,
-                stage="high_confidence_vector", score=score,
+                new_type=etype, stage="high_confidence_vector", score=score,
                 reason=f"Vector similarity {score:.4f} >= auto-merge threshold {tier_auto}",
             )
             return ResolutionResult(
@@ -302,7 +335,7 @@ def resolve_or_create(
             if judge_fn(name, etype, observations, cand):
                 cand_m, dec = _execute_reversible_merge(
                     conn, cand, name, aliases + [name], observations, document_id,
-                    stage="borderline_llm_judge", score=score,
+                    new_type=etype, stage="borderline_llm_judge", score=score,
                     reason=f"Judge confirmed SAME at score {score:.4f}",
                 )
                 return ResolutionResult(

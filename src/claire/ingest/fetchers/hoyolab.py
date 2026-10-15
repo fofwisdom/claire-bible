@@ -41,8 +41,13 @@ def parse_hoyolab_url(url: str) -> str | None:
 def resolve_hoyolab_language(settings: Any = None) -> str:
     """Map system localization settings to HoYoLAB API language tag."""
     s = settings or get_settings()
-    pref = getattr(s, "vlm_language", None) or getattr(s, "preferred_languages", "ko") or "ko"
-    pref = pref.split(",")[0].strip().lower()
+    if getattr(s, "effective_vlm_language", None):
+        pref = s.effective_vlm_language
+    elif getattr(s, "effective_preferred_languages", None):
+        pref = s.effective_preferred_languages[0]
+    else:
+        pref = getattr(s, "preferred_languages", "ko") or "ko"
+        pref = pref.split(",")[0].strip().lower()
     if pref.startswith("ko"):
         return "ko-kr"
     if pref.startswith("ja"):
@@ -182,7 +187,7 @@ def format_post_to_markdown(
             len(base_text),
             len(images),
         )
-        target_vlm_lang = getattr(s, "vlm_language", "ko") or "ko"
+        target_vlm_lang = getattr(s, "effective_vlm_language", None) or (s.effective_preferred_languages[0] if getattr(s, "effective_preferred_languages", None) else "ko")
         v_res = vision_provider.transcribe_images(images, title=subject, language=target_vlm_lang)
         if v_res.text:
             vlm_transcribed = True

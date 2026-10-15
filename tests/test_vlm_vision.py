@@ -69,7 +69,7 @@ def test_vlm_language_handling_and_korean_prompt():
     assert res_en.language == "en"
 
     # 2. Gemini provider prompt verification with Korean default
-    s = Settings(gemini_api_key="mock-key", vlm_language="ko")
+    s = Settings(gemini_api_key="mock-key", preferred_languages="ko")
     provider = GeminiVisionProvider(s)
     assert provider.language == "ko"
 
@@ -142,13 +142,13 @@ def test_hoyolab_language_resolution_and_client_request():
     import json
     from claire.ingest.fetchers.hoyolab import HoYoLabClient, resolve_hoyolab_language
 
-    s_ko = Settings(vlm_language="ko")
+    s_ko = Settings(preferred_languages="ko")
     assert resolve_hoyolab_language(s_ko) == "ko-kr"
 
-    s_ja = Settings(vlm_language="ja")
+    s_ja = Settings(preferred_languages="ja")
     assert resolve_hoyolab_language(s_ja) == "ja-jp"
 
-    s_en = Settings(vlm_language="en")
+    s_en = Settings(preferred_languages="en")
     assert resolve_hoyolab_language(s_en) == "en-us"
 
     client = HoYoLabClient()

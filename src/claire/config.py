@@ -505,7 +505,6 @@ class Settings(BaseSettings):
     vlm_provider: str = Field(default="gemini", alias="CLAIRE_VLM_PROVIDER")
     vlm_model: str = Field(default="", alias="CLAIRE_VLM_MODEL")
     vlm_max_images: int = Field(default=20, alias="CLAIRE_VLM_MAX_IMAGES")
-    vlm_language: str = Field(default="ko", alias="CLAIRE_VLM_LANGUAGE")
     presentation_pdf_max_bytes: int = Field(
         default=64 * 1024 * 1024,
         alias="CLAIRE_PRESENTATION_PDF_MAX_BYTES",
@@ -944,6 +943,11 @@ class Settings(BaseSettings):
     def effective_youtube_languages(self) -> list[str]:
         """YouTube 등 하위 기능 호환용 선호 언어 프로퍼티 (effective_preferred_languages 위임)."""
         return self.effective_preferred_languages
+
+    @property
+    def effective_vlm_language(self) -> str:
+        """VLM 전사 대상 언어 (광역 선호 언어 CLAIRE_PREFERRED_LANGUAGES 의 제1선호 언어 추종)."""
+        return self.effective_preferred_languages[0] if self.effective_preferred_languages else "ko"
 
     @property
     def effective_provider(self) -> str:

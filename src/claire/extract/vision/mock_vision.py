@@ -18,7 +18,14 @@ class MockVisionProvider(VisionTranscriptProvider):
         language: str | None = None,
         prompt: str | None = None,
     ) -> VisionTranscriptResult:
-        target_lang = language or "ko"
+        if language is not None:
+            target_lang = language
+        elif self.settings and getattr(self.settings, "effective_vlm_language", None):
+            target_lang = self.settings.effective_vlm_language
+        elif self.settings and getattr(self.settings, "effective_preferred_languages", None):
+            target_lang = self.settings.effective_preferred_languages[0]
+        else:
+            target_lang = "ko"
         if not images:
             return VisionTranscriptResult(
                 text="",

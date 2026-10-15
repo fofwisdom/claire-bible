@@ -49,6 +49,13 @@ def test_passes_hard_invariants():
     assert passes_hard_invariants("ESXi 8.0 U2", "Product", "ESXi 7.0", "Product") is False
     assert passes_hard_invariants("vSphere 8.0", "Product", "vSphere 8.0", "Product") is True
 
+    # 4) 동일 정규화 이름은 추출 타입 편차(Concept vs Person, Tool vs Framework 등) 통과
+    assert passes_hard_invariants("개척자", "Concept", "개척자", "Person") is True
+    assert passes_hard_invariants("Docker", "Tool", "Docker", "Framework") is True
+
+    # 5) 범용 타입(Concept/Note) 상호 호환 검증
+    assert passes_hard_invariants("아하", "Concept", "Aha", "Person") is True
+
 
 def test_execute_reversible_merge_and_rollback():
     conn = _init_memory_db()
@@ -148,6 +155,61 @@ def test_resolve_or_create_safe_gating_verdicts():
     assert res3.decision is not None
     assert res3.decision.stage == "borderline_llm_judge"
     assert res3.decision.decision == "MERGE"
+
+
+def test_resolve_or_create_exact_and_alias_match_with_type_refinement():
+    """Verify exact normalized name and alias matches merge across type variances without creating duplicate nodes."""
+    conn = _init_memory_db()
+    vstore = VectorStore(conn, "brute")
+
+    # 1. Exact match with type difference (existing=Person, new=Concept)
+    e1 = Entity(type="Person", name="개척자", aliases=["Trailblazer"], observations=["Seed trailblazer"], sources=["doc_1"])
+    dbm.upsert_entity(conn, e1)
+
+    res1 = resolve_or_create(
+        conn, vstore,
+        name="개척자", etype="Concept", aliases=["Trailblazer"], observations=["New observation"], document_id="doc_2",
+    )
+    assert res1.created is False
+    assert res1.entity.id == e1.id
+    assert res1.decision.stage == "exact_match"
+    assert res1.decision.decision == "MERGE"
+    assert res1.entity.type == "Person"  # Preserves specific Person over generic Concept
+    assert len(dbm.find_entities_by_name_or_alias(conn, "개척자")) == 1
+
+    # 2. Alias match with localized name (existing=Person with Aha, new=Concept with name '아하' and alias 'Aha')
+    e2 = Entity(type="Person", name="Aha", aliases=["환락의 에이언즈"], observations=["Aeon of Elation"], sources=["doc_1"])
+    dbm.upsert_entity(conn, e2)
+
+    res2 = resolve_or_create(
+        conn, vstore,
+        name="아하", etype="Concept", aliases=["Aha", "환락의 에이언즈"], observations=["한국어 관찰"], document_id="doc_3",
+    )
+    assert res2.created is False
+    assert res2.entity.id == e2.id
+    assert res2.decision.stage == "alias_match"
+    assert res2.decision.decision == "MERGE"
+    assert "아하" in res2.entity.aliases
+    assert "doc_3" in res2.entity.sources
+    assert len(dbm.find_entities_by_name_or_alias(conn, "aha")) == 1
+
+    # 3. Type refinement from generic Concept to specific Person, and rollback verification
+    e3 = Entity(type="Concept", name="카프카", aliases=[], observations=["Generic concept"], sources=["doc_1"])
+    dbm.upsert_entity(conn, e3)
+
+    res3 = resolve_or_create(
+        conn, vstore,
+        name="카프카", etype="Person", aliases=["Kafka"], observations=["Stellaron Hunter leader"], document_id="doc_4",
+    )
+    assert res3.created is False
+    assert res3.entity.id == e3.id
+    assert res3.entity.type == "Person"  # Refined from Concept to Person
+    assert res3.decision.rollback_payload["prev_type"] == "Concept"
+
+    ok = rollback_resolution(conn, res3.decision)
+    assert ok is True
+    restored = dbm.get_entity(conn, e3.id)
+    assert restored.type == "Concept"  # Reverted back to Concept
 
 
 def test_pipeline_decision_stream_and_heatmap_integration(tmp_path):

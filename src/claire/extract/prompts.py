@@ -1005,9 +1005,14 @@ def select_followups_prompt(context: str, candidates: list[dict]) -> str:
 def judge_same_entity_prompt(mc: MergeCandidate) -> str:
     """두 엔티티의 동일성 판정 프롬프트."""
     return (
-        "Decide if these two knowledge-base entries refer to the SAME real-world "
-        "entity (e.g. a renamed/aliased tool), NOT merely related ones.\n"
-        "Different products in the same space are NOT the same.\n\n"
+        "Decide if these two knowledge-base entries refer to the SAME underlying "
+        "entity, concept, person, organization, character, or tool (including translations, "
+        "transliterations, aliases, or localized names), NOT merely related ones.\n\n"
+        "Rules:\n"
+        "1. SAME: The entries represent the identical subject under different names, languages, "
+        "spellings, or descriptions (e.g., 'Aha' and '아하', 'Kubernetes' and 'K8s', '개척자' and 'Trailblazer').\n"
+        "2. DIFFERENT: The entries are distinct subjects, even if they belong to the same category, "
+        "group, domain, or ecosystem (e.g., Docker vs Podman, Kafka vs Silver Wolf, Claude vs GPT-4).\n\n"
         f"A: name={mc.new_name!r} type={mc.new_type!r}\n"
         f"   notes={' | '.join(mc.new_observations)[:400]}\n"
         f"B: name={mc.cand_name!r} type={mc.cand_type!r} aliases={mc.cand_aliases}\n"

@@ -151,6 +151,11 @@ def rollback_resolution(
         cand.sources = [s for s in cand.sources if s != added_source]
         changed = True
 
+    prev_type = payload.get("prev_type")
+    if prev_type and prev_type != cand.type:
+        cand.type = prev_type
+        changed = True
+
     if changed:
         dbm.upsert_entity(conn, cand)
         return True
