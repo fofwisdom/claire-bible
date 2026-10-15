@@ -185,6 +185,45 @@ class _ProvidersJsonSettingsSource(PydanticBaseSettingsSource):
             return {}
 
 
+class _IngestLimitsJsonSettingsSource(PydanticBaseSettingsSource):
+    """ingest_limits.json (WebUI 관리 파일)에서 상황 별 적재 제한 설정을 로드하는 settings source."""
+
+    def __init__(
+        self,
+        settings_cls: type[BaseSettings],
+        data_dir: str | Path | None = None,
+        init_kwargs: Any = None,
+    ) -> None:
+        super().__init__(settings_cls)
+        self.init_kwargs = dict(init_kwargs or {})
+        self.explicit_data_dir = data_dir
+
+    def get_field_value(
+        self, field: Any, field_name: str
+    ) -> tuple[Any, str, bool]:
+        return None, field_name, False
+
+    def __call__(self) -> dict[str, Any]:
+        try:
+            cand = (
+                self.init_kwargs.get("data_dir")
+                or self.init_kwargs.get("CB_DATA_DIR")
+                or self.init_kwargs.get("db_path")
+                or self.init_kwargs.get("CLAIRE_DB_PATH")
+                or self.explicit_data_dir
+                or os.environ.get("CB_DATA_DIR")
+                or os.environ.get("CLAIRE_DB_PATH")
+                or "data"
+            )
+            data_dir = Path(cand).parent if str(cand).endswith(".db") else Path(cand)
+            from .ingest_limit_manager import get_ingest_limit_manager
+
+            ilm = get_ingest_limit_manager(data_dir=data_dir)
+            return ilm.get_settings_dict()
+        except Exception:
+            return {}
+
+
 def find_agy_executable(agy_bin: str = "agy") -> str | None:
     """Find agy executable in PATH or standard container/host locations."""
     if not agy_bin:
@@ -347,8 +386,13 @@ class Settings(BaseSettings):
             settings_cls,
             init_kwargs=init_kwargs,
         )
+        ingest_limits_json = _IngestLimitsJsonSettingsSource(
+            settings_cls,
+            init_kwargs=init_kwargs,
+        )
         return (
             init_settings,
+            ingest_limits_json,
             providers_json,
             env_settings,
             strict_dotenv,

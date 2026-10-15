@@ -958,6 +958,16 @@ def _reject_native_only_provider(runtime: Runtime) -> None:
 
 def _check_pdf_parser(runtime: Runtime) -> None:
     raw_parser = runtime.values.get("CLAIRE_PDF_PARSER", "").strip().lower()
+    if not raw_parser:
+        data_dir_str = runtime.values.get("CB_DATA_DIR", "./data").strip()
+        data_dir = (runtime.layout.root / data_dir_str).resolve()
+        limits_file = data_dir / "ingest_limits.json"
+        if limits_file.is_file():
+            try:
+                raw = json.loads(limits_file.read_text(encoding="utf-8"))
+                raw_parser = str(raw.get("limits", {}).get("pdf_parser") or "").strip().lower()
+            except Exception:
+                pass
     if raw_parser == "pypdf":
         raise ManuscriptError(
             "CLAIRE_PDF_PARSER=pypdf 설정은 한글 CMap 미지원 및 텍스트 인코딩 결함 위험으로 인해 지원되지 않습니다.\n"

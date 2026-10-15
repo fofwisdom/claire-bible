@@ -708,6 +708,56 @@ def create_app(
         res = pm.test_connection(provider_name, config=override)
         return JSONResponse(res)
 
+    async def limits_get_route(request: Request) -> JSONResponse:
+        scope = request_auth_scope(request)
+        if scope != "owner":
+            raise HTTPException(
+                status_code=403,
+                detail="지식 관리자(owner) 권한이 필요합니다.",
+            )
+        from ..ingest_limit_manager import get_ingest_limit_manager
+
+        curr_settings = (
+            getattr(getattr(request, "app", None), "state", None)
+            and getattr(request.app.state, "settings", s)
+        ) or s
+        data_dir = getattr(curr_settings, "data_dir", s.data_dir)
+        ilm = get_ingest_limit_manager(data_dir)
+        cfg = ilm.get_sanitized_config()
+        return JSONResponse(cfg)
+
+    async def limits_update_route(request: Request) -> JSONResponse:
+        nonlocal s
+        scope = request_auth_scope(request)
+        if scope != "owner":
+            raise HTTPException(
+                status_code=403,
+                detail="지식 관리자(owner) 권한이 필요합니다.",
+            )
+        body = await _json_object(request)
+        from ..ingest_limit_manager import get_ingest_limit_manager
+
+        curr_settings = (
+            getattr(getattr(request, "app", None), "state", None)
+            and getattr(request.app.state, "settings", s)
+        ) or s
+        data_dir = getattr(curr_settings, "data_dir", s.data_dir)
+        ilm = get_ingest_limit_manager(data_dir)
+        try:
+            updated = ilm.update_config(body)
+            get_settings.cache_clear()
+            s = s.model_copy(update=ilm.get_settings_dict())
+            if hasattr(request, "app") and hasattr(request.app, "state"):
+                request.app.state.settings = s
+            if hasattr(service_pool, "clear"):
+                service_pool.clear()
+            return JSONResponse({"ok": True, "config": updated})
+        except ValueError as val_err:
+            raise HTTPException(status_code=400, detail=str(val_err)) from val_err
+        except Exception as exc:
+            _log_operation_failure(request, "ingest limits update", exc)
+            raise HTTPException(status_code=500, detail="failed to update ingest limits configuration") from exc
+
     async def do_ingest(request: Request) -> JSONResponse:
         body = await _json_object(request)
         theme, _, theme_svc = _get_theme_ctx(request, body)
@@ -2670,6 +2720,10 @@ def create_app(
         Route("/providers", providers_get_route, methods=["GET", "HEAD"]),
         Route("/providers", providers_update_route, methods=["PATCH", "POST"]),
         Route("/providers/test", providers_test_route, methods=["POST"]),
+        Route("/limits", limits_get_route, methods=["GET", "HEAD"]),
+        Route("/limits", limits_update_route, methods=["PATCH", "POST"]),
+        Route("/ingest-limits", limits_get_route, methods=["GET", "HEAD"]),
+        Route("/ingest-limits", limits_update_route, methods=["PATCH", "POST"]),
         Route("/ingest", do_ingest, methods=["POST"]),
         Route("/ingest-stream", ingest_stream_route, methods=["POST"]),
         Route("/reingest", do_reingest, methods=["POST"]),

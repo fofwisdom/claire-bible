@@ -3969,6 +3969,8 @@ function setAccessScope(scope, reason){
   if(tmBtn) tmBtn.style.display = canAccessThemes ? '' : 'none';
   const pmBtn = document.getElementById('providermanagebtn');
   if(pmBtn) pmBtn.style.display = canWrite() ? '' : 'none';
+  const lmBtn = document.getElementById('limitmanagebtn');
+  if(lmBtn) lmBtn.style.display = canWrite() ? '' : 'none';
   const mgSec = document.getElementById('manage-section');
   if(mgSec) mgSec.style.display = (canAccessThemes || canWrite()) ? '' : 'none';
   if(!canWrite()){
@@ -4714,6 +4716,279 @@ async function saveProviderSettings(){
     renderProviderManager('프로바이더 설정이 성공적으로 저장되었습니다 (data/providers.json 반영 완료).', true);
   }catch(e){
     renderProviderManager('오류 발생: ' + (e.message || e), false);
+  }
+}
+
+let _limitConfig = null;
+
+async function openLimitManager(){
+  if(!canWrite()) return;
+  openDetailPane();
+  panel.innerHTML = '<h2>📏 적재 제한 관리</h2><p class="hint">설정 로딩 중…</p>';
+  try{
+    const r = await fetch('limits');
+    if(!r.ok) throw new Error('HTTP ' + r.status);
+    const data = await r.json();
+    _limitConfig = data;
+    renderLimitManager();
+  }catch(e){
+    panel.innerHTML = `<h2>📏 적재 제한 관리</h2><p class="hint" style="color:var(--err,#cf222e)">설정을 불러올 수 없습니다: ${esc(e.message||e)}</p>`;
+  }
+}
+
+function renderLimitManager(msg, isSuccess){
+  if(!_limitConfig) return;
+  const cfg = _limitConfig;
+  const lims = cfg.limits || {};
+
+  let alertHtml = '';
+  if(msg){
+    const color = isSuccess ? 'var(--accent2,#1a7f37)' : 'var(--err,#cf222e)';
+    const bg = isSuccess ? 'rgba(26,127,55,0.1)' : 'rgba(207,34,46,0.1)';
+    const icon = isSuccess ? '✅' : '⚠️';
+    alertHtml = `<div style="padding:8px 10px;border-radius:6px;background:${bg};color:${color};font-size:12px;margin-bottom:12px;border:1px solid ${color};">${icon} ${esc(msg)}</div>`;
+  }
+
+  let h = '<h2>📏 상황 별 적재 제한 관리</h2>';
+  h += '<p class="al">수집 경로 및 문서 유형(웹, PDF, 슬라이싱, 벡터 임베딩, 확장, 미디어 등)별 적재 제한과 글자 수 예산을 단독 기능으로 설정합니다. 저장된 설정은 <code>data/ingest_limits.json</code>에 즉시 영구 저장됩니다.</p>';
+  h += alertHtml;
+
+  // 1. 일반 웹 / 텍스트 수집 상황
+  h += '<div style="border:1px solid var(--border);border-radius:6px;padding:10px;background:var(--sec-bg);margin-bottom:14px;">';
+  h += '<strong style="font-size:13px;display:block;margin-bottom:8px;">🌐 일반 웹 / 텍스트 수집 제한</strong>';
+  h += '<div style="display:flex;flex-direction:column;gap:8px;font-size:12px;">';
+  h += '<div>';
+  h += '<label style="font-size:11px;opacity:0.8;display:block;">원문 수집 본문 상한 (raw_char_budget, 글자 수)</label>';
+  h += `<input id="limit-raw-char-budget" type="number" min="0" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${lims.raw_char_budget ?? 20000}"/>`;
+  h += '<div style="font-size:10px;opacity:0.7;margin-top:2px;">웹, 일반 텍스트 파일, X, 유튜브 수집 시 보관할 최대 본문 분량</div>';
+  h += '</div>';
+  h += '</div>';
+  h += '</div>';
+
+  // 2. PDF 문서 수집 및 학술 논문 처리 상황
+  h += '<div style="border:1px solid var(--border);border-radius:6px;padding:10px;background:var(--sec-bg);margin-bottom:14px;">';
+  h += '<strong style="font-size:13px;display:block;margin-bottom:8px;">📄 PDF 문서 수집 및 논문 판정 제한</strong>';
+  h += '<div style="display:flex;flex-direction:column;gap:8px;font-size:12px;">';
+  h += '<div style="display:flex;gap:8px;">';
+  h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">PDF 최대 추출 분량 (글자 수)</label><input id="limit-pdf-max-extract" type="number" min="0" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${lims.pdf_max_extract_chars ?? 50000}"/></div>`;
+  h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">논문 판정 기준 분량 (글자 수)</label><input id="limit-pdf-paper-threshold" type="number" min="0" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${lims.pdf_paper_threshold_chars ?? 15000}"/></div>`;
+  h += '</div>';
+  h += '<div><label style="font-size:11px;opacity:0.8;">PDF 파서 엔진</label>';
+  h += `<select id="limit-pdf-parser" style="width:100%;box-sizing:border-box;margin-top:2px;">
+    <option value="default" ${(lims.pdf_parser||'default')==='default'?'selected':''}>기본 Chromium PDFium 고속 파서 (권장)</option>
+    <option value="docling" ${lims.pdf_parser==='docling'?'selected':''}>Docling AI 레이아웃/OCR 고급 파서</option>
+  </select></div>`;
+  h += '<div style="display:flex;flex-direction:column;gap:4px;margin-top:4px;">';
+  h += `<label style="cursor:pointer;"><input id="limit-pdf-exclude-appendix" type="checkbox" ${lims.pdf_exclude_appendix!==false?'checked':''} style="width:auto;margin-right:6px;vertical-align:middle;"/>논문 부록(Appendix) 자동 제외</label>`;
+  h += `<label style="cursor:pointer;"><input id="limit-pdf-exclude-references" type="checkbox" ${lims.pdf_exclude_references!==false?'checked':''} style="width:auto;margin-right:6px;vertical-align:middle;"/>논문 참고문헌(References) 자동 제외</label>`;
+  h += `<label style="cursor:pointer;"><input id="limit-pdf-detect-encoding-flaws" type="checkbox" ${lims.pdf_detect_encoding_flaws!==false?'checked':''} style="width:auto;margin-right:6px;vertical-align:middle;"/>텍스트 인코딩 결함 및 스캔본 자동 감지</label>`;
+  h += `<label style="cursor:pointer;"><input id="limit-pdf-flaw-escalate-docling" type="checkbox" ${lims.pdf_flaw_escalate_docling!==false?'checked':''} style="width:auto;margin-right:6px;vertical-align:middle;"/>결함 감지 시 Docling OCR 복구 에스컬레이션</label>`;
+  h += '</div>';
+  h += '<div style="display:flex;gap:8px;margin-top:4px;">';
+  h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">논문 추론 수준</label>
+    <select id="limit-pdf-paper-effort" style="width:100%;box-sizing:border-box;margin-top:2px;">
+      <option value="low" ${lims.pdf_paper_effort==='low'?'selected':''}>low</option>
+      <option value="medium" ${lims.pdf_paper_effort==='medium'?'selected':''}>medium</option>
+      <option value="high" ${(lims.pdf_paper_effort||'high')==='high'?'selected':''}>high</option>
+    </select>
+  </div>`;
+  h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">단문/일반 추론 수준</label>
+    <select id="limit-pdf-default-effort" style="width:100%;box-sizing:border-box;margin-top:2px;">
+      <option value="" ${!lims.pdf_default_effort?'selected':''}>기본값(공란)</option>
+      <option value="low" ${lims.pdf_default_effort==='low'?'selected':''}>low</option>
+      <option value="medium" ${lims.pdf_default_effort==='medium'?'selected':''}>medium</option>
+      <option value="high" ${lims.pdf_default_effort==='high'?'selected':''}>high</option>
+    </select>
+  </div>`;
+  h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">1차 분류 추론 수준</label>
+    <select id="limit-pdf-classifier-effort" style="width:100%;box-sizing:border-box;margin-top:2px;">
+      <option value="low" ${(lims.pdf_classifier_effort||'low')==='low'?'selected':''}>low</option>
+      <option value="medium" ${lims.pdf_classifier_effort==='medium'?'selected':''}>medium</option>
+      <option value="high" ${lims.pdf_classifier_effort==='high'?'selected':''}>high</option>
+    </select>
+  </div>`;
+  h += '</div>';
+  h += '</div>';
+  h += '</div>';
+
+  // 3. 지식 그래프(KG) 추출 및 슬라이싱 상황
+  h += '<div style="border:1px solid var(--border);border-radius:6px;padding:10px;background:var(--sec-bg);margin-bottom:14px;">';
+  h += '<strong style="font-size:13px;display:block;margin-bottom:8px;">🧩 지식 그래프(KG) 추출 및 슬라이싱 예산</strong>';
+  h += '<div style="display:flex;flex-direction:column;gap:8px;font-size:12px;">';
+  h += '<div style="display:flex;gap:8px;">';
+  h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">단일 문서 추출 투입 상한 (글자 수)</label><input id="limit-extract-char-budget" type="number" min="0" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${lims.extract_char_budget ?? 20000}"/></div>`;
+  h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">병합 문서 투입 상한 (0=2배 자동)</label><input id="limit-merged-extract-budget" type="number" min="0" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${lims.merged_extract_char_budget ?? 0}"/></div>`;
+  h += '</div>';
+  h += '<div><label style="font-size:11px;opacity:0.8;">본문 슬라이싱 전략</label>';
+  h += `<select id="limit-slicing-strategy" style="width:100%;box-sizing:border-box;margin-top:2px;">
+    <option value="table-exemption" ${(lims.slicing_strategy||'table-exemption')==='table-exemption'?'selected':''}>표 보존형 (table-exemption, 테이블 데이터 완전 보존)</option>
+    <option value="strict" ${lims.slicing_strategy==='strict'?'selected':''}>단순 절단형 (strict, 글자 수 한도 엄격 절단)</option>
+  </select></div>`;
+  h += '</div>';
+  h += '</div>';
+
+  // 4. 임베딩 벡터, 1홉 확장, 리서치 맥락 상황
+  h += '<div style="border:1px solid var(--border);border-radius:6px;padding:10px;background:var(--sec-bg);margin-bottom:14px;">';
+  h += '<strong style="font-size:13px;display:block;margin-bottom:8px;">🧭 임베딩·1홉 확장·리서치 맥락 제한</strong>';
+  h += '<div style="display:flex;flex-direction:column;gap:8px;font-size:12px;">';
+  h += '<div style="display:flex;gap:8px;">';
+  h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">임베딩 벡터 본문 상한 (글자 수)</label><input id="limit-embed-budget" type="number" min="0" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${lims.embed_char_budget ?? 8000}"/></div>`;
+  h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">심층 리서치 맥락 상한 (글자 수)</label><input id="limit-research-budget" type="number" min="0" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${lims.research_context_budget ?? 8000}"/></div>`;
+  h += '</div>';
+  h += '<div style="display:flex;gap:8px;">';
+  h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">1홉 확장 선별 컨텍스트 (글자 수)</label><input id="limit-expand-budget" type="number" min="0" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${lims.expand_char_budget ?? 2000}"/></div>`;
+  h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">1홉 확장 최대 링크 수</label><input id="limit-expand-max" type="number" min="0" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${lims.expand_max ?? 5}"/></div>`;
+  h += '</div>';
+  h += '</div>';
+  h += '</div>';
+
+  // 5. 미디어 및 첨부파일 적재 제한
+  h += '<div style="border:1px solid var(--border);border-radius:6px;padding:10px;background:var(--sec-bg);margin-bottom:14px;">';
+  h += '<strong style="font-size:13px;display:block;margin-bottom:8px;">🎬 미디어 및 첨부파일 적재 제한</strong>';
+  h += '<div style="display:flex;flex-direction:column;gap:8px;font-size:12px;">';
+  h += '<div>';
+  h += '<label style="font-size:11px;opacity:0.8;display:block;">프레젠테이션 PDF 첨부파일 용량 상한 (bytes, 기본 64MiB = 67,108,864)</label>';
+  h += `<input id="limit-presentation-pdf-bytes" type="number" min="1" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${lims.presentation_pdf_max_bytes ?? 67108864}"/>`;
+  h += '</div>';
+  h += '<div style="display:flex;gap:8px;">';
+  h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">비디오 STT 최대 추출 분량</label><input id="limit-video-max-extract" type="number" min="0" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${lims.video_max_extract_chars ?? 200000}"/></div>`;
+  h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">비디오 분할 단위 (초)</label><input id="limit-video-chunk-sec" type="number" min="1" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${lims.video_chunk_duration_sec ?? 240}"/></div>`;
+  h += '</div>';
+  h += '<div>';
+  h += '<label style="font-size:11px;opacity:0.8;display:block;">VLM 시각 자료 최대 이미지 수</label>';
+  h += `<input id="limit-vlm-max-images" type="number" min="0" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${lims.vlm_max_images ?? 20}"/>`;
+  h += '</div>';
+  h += '</div>';
+  h += '</div>';
+
+  // 6. 하단 버튼
+  h += '<div style="display:flex;gap:8px;margin-top:16px;">';
+  h += '<button type="button" class="btn" style="flex:1;background:var(--btn-bg,#1f883d);color:#fff;font-weight:600;padding:8px 12px;border:none;border-radius:6px;cursor:pointer;" onclick="saveLimitSettings()">💾 설정 저장</button>';
+  h += '<button type="button" class="sec" style="padding:8px 12px;" onclick="resetLimitSettings()">↩️ 기본값 복원</button>';
+  h += '<button type="button" class="sec" style="padding:8px 12px;" onclick="closeDrawer()">닫기</button>';
+  h += '</div>';
+
+  panel.innerHTML = h;
+}
+
+async function saveLimitSettings(){
+  if(!_limitConfig) return;
+  const rawBudget = parseInt(document.getElementById('limit-raw-char-budget').value, 10);
+  const pdfMax = parseInt(document.getElementById('limit-pdf-max-extract').value, 10);
+  const pdfPaper = parseInt(document.getElementById('limit-pdf-paper-threshold').value, 10);
+  const pdfParser = document.getElementById('limit-pdf-parser').value;
+  const pdfExApp = document.getElementById('limit-pdf-exclude-appendix').checked;
+  const pdfExRef = document.getElementById('limit-pdf-exclude-references').checked;
+  const pdfDetectFlaws = document.getElementById('limit-pdf-detect-encoding-flaws').checked;
+  const pdfEscalateDocling = document.getElementById('limit-pdf-flaw-escalate-docling').checked;
+  const pdfPaperEff = document.getElementById('limit-pdf-paper-effort').value;
+  const pdfDefEff = document.getElementById('limit-pdf-default-effort').value;
+  const pdfClassEff = document.getElementById('limit-pdf-classifier-effort').value;
+
+  const extBudget = parseInt(document.getElementById('limit-extract-char-budget').value, 10);
+  const mergedExtBudget = parseInt(document.getElementById('limit-merged-extract-budget').value, 10);
+  const slicingStrat = document.getElementById('limit-slicing-strategy').value;
+
+  const embedBudget = parseInt(document.getElementById('limit-embed-budget').value, 10);
+  const expandBudget = parseInt(document.getElementById('limit-expand-budget').value, 10);
+  const expandMax = parseInt(document.getElementById('limit-expand-max').value, 10);
+  const researchBudget = parseInt(document.getElementById('limit-research-budget').value, 10);
+
+  const presPdfBytes = parseInt(document.getElementById('limit-presentation-pdf-bytes').value, 10);
+  const videoMax = parseInt(document.getElementById('limit-video-max-extract').value, 10);
+  const videoChunk = parseInt(document.getElementById('limit-video-chunk-sec').value, 10);
+  const vlmMax = parseInt(document.getElementById('limit-vlm-max-images').value, 10);
+
+  const payload = {
+    limits: {
+      raw_char_budget: isNaN(rawBudget) ? 20000 : rawBudget,
+      pdf_max_extract_chars: isNaN(pdfMax) ? 50000 : pdfMax,
+      pdf_paper_threshold_chars: isNaN(pdfPaper) ? 15000 : pdfPaper,
+      pdf_parser: pdfParser,
+      pdf_exclude_appendix: pdfExApp,
+      pdf_exclude_references: pdfExRef,
+      pdf_detect_encoding_flaws: pdfDetectFlaws,
+      pdf_flaw_escalate_docling: pdfEscalateDocling,
+      pdf_paper_effort: pdfPaperEff,
+      pdf_default_effort: pdfDefEff,
+      pdf_classifier_effort: pdfClassEff,
+      extract_char_budget: isNaN(extBudget) ? 20000 : extBudget,
+      merged_extract_char_budget: isNaN(mergedExtBudget) ? 0 : mergedExtBudget,
+      slicing_strategy: slicingStrat,
+      embed_char_budget: isNaN(embedBudget) ? 8000 : embedBudget,
+      expand_char_budget: isNaN(expandBudget) ? 2000 : expandBudget,
+      expand_max: isNaN(expandMax) ? 5 : expandMax,
+      research_context_budget: isNaN(researchBudget) ? 8000 : researchBudget,
+      presentation_pdf_max_bytes: isNaN(presPdfBytes) ? 67108864 : presPdfBytes,
+      video_max_extract_chars: isNaN(videoMax) ? 200000 : videoMax,
+      video_chunk_duration_sec: isNaN(videoChunk) ? 240 : videoChunk,
+      vlm_max_images: isNaN(vlmMax) ? 20 : vlmMax
+    }
+  };
+
+  try{
+    const r = await fetch('limits', {
+      method: 'PATCH',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload)
+    });
+    if(!r.ok){
+      const err = await r.json().catch(()=>({}));
+      renderLimitManager('저장 실패: ' + (err.detail || ('HTTP ' + r.status)), false);
+      return;
+    }
+    const resData = await r.json();
+    _limitConfig = resData.config;
+    renderLimitManager('적재 제한 설정이 성공적으로 저장되었습니다 (data/ingest_limits.json 반영 완료).', true);
+  }catch(e){
+    renderLimitManager('오류 발생: ' + (e.message || e), false);
+  }
+}
+
+async function resetLimitSettings(){
+  if(!confirm('적재 제한 설정을 시스템 표준 기본값으로 복원하시겠습니까?')) return;
+  const defaults = {
+    limits: {
+      raw_char_budget: 20000,
+      pdf_max_extract_chars: 50000,
+      pdf_paper_threshold_chars: 15000,
+      pdf_parser: 'default',
+      pdf_exclude_appendix: true,
+      pdf_exclude_references: true,
+      pdf_detect_encoding_flaws: true,
+      pdf_flaw_escalate_docling: true,
+      pdf_paper_effort: 'high',
+      pdf_default_effort: '',
+      pdf_classifier_effort: 'low',
+      extract_char_budget: 20000,
+      merged_extract_char_budget: 0,
+      slicing_strategy: 'table-exemption',
+      embed_char_budget: 8000,
+      expand_char_budget: 2000,
+      expand_max: 5,
+      research_context_budget: 8000,
+      presentation_pdf_max_bytes: 67108864,
+      video_max_extract_chars: 200000,
+      video_chunk_duration_sec: 240,
+      vlm_max_images: 20
+    }
+  };
+  try{
+    const r = await fetch('limits', {
+      method: 'PATCH',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(defaults)
+    });
+    if(!r.ok){
+      const err = await r.json().catch(()=>({}));
+      renderLimitManager('기본값 복원 실패: ' + (err.detail || ('HTTP ' + r.status)), false);
+      return;
+    }
+    const resData = await r.json();
+    _limitConfig = resData.config;
+    renderLimitManager('적재 제한 설정이 기본값으로 초기화되었습니다.', true);
+  }catch(e){
+    renderLimitManager('오류 발생: ' + (e.message || e), false);
   }
 }
 
