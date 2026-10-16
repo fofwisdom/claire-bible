@@ -4337,7 +4337,7 @@ def build_parser() -> argparse.ArgumentParser:
             "  claire theme list                  # Manage multi-theme databases and sequences\n"
             "  claire presentation generate <doc> # Generate Asciidoctor reveal.js presentation\n"
             "\n"
-            "Detailed Documentation: docs/origin/implementation/COMMANDS.md"
+            "Detailed Documentation: docs/implementation/COMMANDS.md"
         ),
     )
     p.add_argument("--json", action="store_true", help="output result in JSON format")

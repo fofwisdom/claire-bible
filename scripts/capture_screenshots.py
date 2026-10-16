@@ -8,7 +8,7 @@ import time
 from playwright.sync_api import sync_playwright
 
 PROD_URL = "https://cb.netspheres.org/?t=LOin0NO1Caz6XuMmgkEcMjYhKOnxfvcO7SBE-L5qaIg"
-OUTPUT_DIR = "docs/origin/screenshots"
+OUTPUT_DIR = "docs/screenshots"
 
 
 def capture_all():

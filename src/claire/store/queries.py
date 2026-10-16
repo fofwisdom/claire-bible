@@ -372,7 +372,7 @@ def synthesis_context(
 ) -> tuple[str, list[str]]:
     """선택 노드들의 지식(관찰·연결·출처요약)을 LLM 종합용 컨텍스트 텍스트로 조립.
 
-    결정론적(LLM 없음) — 이 텍스트가 summarize_search 의 근거가 된다. (context, names). compact=True (MCP 용): 관찰은 앞 3개로 자르고 출처요약은 생략해 에이전트의 컨텍스트 윈도우를 아낀다(docs/origin/design/MCP_SUPPORT.md 참고).
+    결정론적(LLM 없음) — 이 텍스트가 summarize_search 의 근거가 된다. (context, names). compact=True (MCP 용): 관찰은 앞 3개로 자르고 출처요약은 생략해 에이전트의 컨텍스트 윈도우를 아낀다(docs/design/MCP_SUPPORT.md 참고).
     """
     blocks: list[str] = []
     names: list[str] = []

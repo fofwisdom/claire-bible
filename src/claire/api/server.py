@@ -3225,7 +3225,6 @@ def create_app(
     implementation_spec_file = (
         Path(__file__).resolve().parent.parent.parent.parent
         / "docs"
-        / "origin"
         / "implementation"
         / "openapi.yaml"
     )

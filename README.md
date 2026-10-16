@@ -121,7 +121,7 @@ AI 코딩 에이전트(Antigravity, Claude Code, Cursor, CI/CD 러너)가 대화
 | `claire theme` | 다중 지식 테마 레지스트리 및 격리 DB 수명주기 관리 (`list`, `define`, `reset`) |
 | `claire presentation` | Asciidoctor reveal.js 기반 슬라이드 쇼 프레젠테이션 자동 저작 및 렌더링 |
 
-전체 옵션 및 파라미터는 `uv run claire --help` 및 [docs/origin/implementation/COMMANDS.md](file:///home/fow/Projects/claire-bible/docs/origin/implementation/COMMANDS.md)를 참조한다.
+전체 옵션 및 파라미터는 `uv run claire --help` 및 [docs/implementation/COMMANDS.md](file:///home/fow/Projects/claire-bible/docs/implementation/COMMANDS.md)를 참조한다.
 
 ---
 
