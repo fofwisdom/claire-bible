@@ -3285,6 +3285,151 @@ def cmd_auth(args) -> int:
         conn.close()
 
 
+def cmd_token(args) -> int:
+    """API 및 MCP 상시 이용 토큰 관리 (조회/생성/폐기)."""
+    import json
+    import time
+    from datetime import datetime, timezone
+
+    s = get_settings()
+    conn = dbm.connect(s.db_file)
+    dbm.init_db(conn)
+    try:
+        action = getattr(args, "token_action", None) or "list"
+
+        if action in ("list", "ls"):
+            include_revoked = bool(getattr(args, "all", False))
+            tokens = dbm.list_api_tokens(conn, include_revoked=include_revoked)
+            if getattr(args, "json", False):
+                print(json.dumps({"tokens": tokens}, ensure_ascii=False, indent=2))
+                return 0
+
+            if not tokens:
+                print("등록된 API/MCP 토큰이 없습니다. 'claire token create <이름>' 명령으로 생성하세요.")
+                return 0
+
+            print(f"🔑 Claire Bible API 및 MCP 상시 이용 토큰 목록 ({len(tokens)}개)")
+            print("=" * 88)
+            header = f"{'ID':<4} {'이름 (Name)':<22} {'권한 (Scope)':<12} {'상태':<8} {'만료 (Expires)':<18} {'토큰 식별자'}"
+            print(header)
+            print("-" * 88)
+            for t in tokens:
+                tid = str(t["id"])
+                name = t["name"][:20]
+                scope = t["scope"]
+                is_revoked = t.get("revoked_at") is not None
+                now = time.time()
+                is_expired = t.get("expires_at") is not None and t["expires_at"] < now
+                if is_revoked:
+                    status = "폐기됨"
+                elif is_expired:
+                    status = "만료됨"
+                else:
+                    status = "활성"
+
+                if t.get("expires_at"):
+                    dt = datetime.fromtimestamp(t["expires_at"], tz=timezone.utc)
+                    exp_str = dt.strftime("%Y-%m-%d %H:%M")
+                else:
+                    exp_str = "무기한 (상시)"
+
+                raw_t = t["token"]
+                prefix = raw_t[:8] if len(raw_t) >= 8 else raw_t[:4]
+                suffix = raw_t[-4:] if len(raw_t) >= 8 else ""
+                masked = f"{prefix}...{suffix}" if suffix else f"{prefix}..."
+                print(f"{tid:<4} {name:<22} {scope:<12} {status:<8} {exp_str:<18} {masked}")
+            print("=" * 88)
+            print("※ 새 토큰 생성: claire token create <이름> [--scope owner|collab|readonly] [--expires-in DAYS]")
+            print("※ 토큰 즉시 폐기: claire token revoke <ID 또는 토큰값>")
+            return 0
+
+        elif action in ("create", "new", "add"):
+            name = str(getattr(args, "name", "") or "").strip()
+            if not name:
+                print("오류: 토큰 이름(name)을 지정해야 합니다. 예: claire token create 'Claude Desktop'")
+                return 1
+
+            scope = str(getattr(args, "scope", "readonly") or "readonly").strip().lower()
+            if scope == "collab":
+                scope = "collaborator"
+            if scope not in ("owner", "collaborator", "readonly"):
+                print(f"오류: 유효하지 않은 scope '{scope}'입니다. (owner, collaborator, readonly 중 선택)")
+                return 1
+
+            expires_in = getattr(args, "expires_in", None)
+            expires_in_days = int(expires_in) if expires_in is not None and int(expires_in) > 0 else None
+
+            created = dbm.create_api_token(conn, name=name, scope=scope, expires_in_days=expires_in_days)
+            raw_token = created["token"]
+            base_url = s.public_url.rstrip("/") if s.public_url else f"http://127.0.0.1:{getattr(s, 'inject_port', 8765)}"
+            mcp_url = f"{base_url}/mcp"
+
+            data = {
+                "ok": True,
+                "token": created,
+                "mcp_url": mcp_url,
+                "claude_desktop_config": {
+                    "mcpServers": {
+                        "claire-bible": {
+                            "command": "npx",
+                            "args": ["-y", "@modelcontextprotocol/server-everything"],
+                            "env": {
+                                "CLAIRE_URL": mcp_url,
+                                "CLAIRE_TOKEN": raw_token,
+                            },
+                        }
+                    }
+                },
+            }
+
+            if getattr(args, "json", False):
+                print(json.dumps(data, ensure_ascii=False, indent=2))
+                return 0
+
+            print("🔑 API 및 MCP 상시 이용 토큰 발급 완료")
+            print("=" * 70)
+            print(f"• 토큰 ID        : #{created['id']}")
+            print(f"• 이름 (Name)    : {created['name']}")
+            print(f"• 권한 (Scope)   : {created['scope']}")
+            exp_text = f"{created['expires_at']} (약 {expires_in_days}일 후)" if created.get("expires_at") else "무기한 (상시 이용 가능)"
+            print(f"• 만료 기한      : {exp_text}")
+            print(f"• 시크릿 토큰    : {raw_token}")
+            print("-" * 70)
+            print("📋 Claude Desktop / Cursor MCP 연동 설정 안내:")
+            print(f"   엔드포인트 URL : {mcp_url}")
+            print(f'   헤더 설정     : "Authorization": "Bearer {raw_token}"')
+            print("-" * 70)
+            print("📋 curl API 테스트 예시:")
+            print(f'   curl -H "Authorization: Bearer {raw_token}" {base_url}/documents')
+            print("=" * 70)
+            print("※ 이 토큰은 다시 전체 문자열로 표시되지 않으므로 안전한 곳에 즉시 복사하세요.")
+            return 0
+
+        elif action in ("revoke", "delete", "rm"):
+            target = str(getattr(args, "target", "") or "").strip()
+            if not target:
+                print("오류: 폐기할 토큰 ID 또는 토큰 문자열을 지정하세요. 예: claire token revoke 1")
+                return 1
+
+            revoked = dbm.revoke_api_token(conn, target)
+            if getattr(args, "json", False):
+                print(json.dumps({"ok": revoked, "target": target}, ensure_ascii=False))
+                return 0 if revoked else 1
+
+            if revoked:
+                print(f"✅ 토큰 '{target}'이(가) 즉시 성공적으로 폐기되었습니다.")
+                return 0
+            else:
+                print(f"❌ 토큰 '{target}'을(를) 찾을 수 없거나 이미 폐기된 상태입니다.")
+                return 1
+
+        else:
+            print(f"알 수 없는 액션: {action}. (list, create, revoke 지원)")
+            return 1
+    finally:
+        conn.close()
+
+
 def cmd_dedup_scan(args) -> int:
     """[진단·비파괴] 근사 중복(near-duplicate) 클러스터를 보고만 한다(병합 안 함).
 
@@ -4880,6 +5025,52 @@ def build_parser() -> argparse.ArgumentParser:
     pauth.add_argument("-t", "--theme", default=None, help="target theme ID, sequence number, or label")
     pauth.add_argument("--json", action="store_true", help="output session token and login URL in JSON format")
     pauth.set_defaults(func=cmd_auth)
+
+    ptok = sub.add_parser(
+        "token",
+        aliases=["api-key", "key"],
+        help="manage persistent API and MCP access tokens (list, create, revoke)",
+        description="Manage persistent API and MCP access tokens without environment variables.",
+    )
+    ptok_sub = ptok.add_subparsers(dest="token_action", required=False)
+
+    ptok_list = ptok_sub.add_parser(
+        "list",
+        aliases=["ls"],
+        help="list API and MCP access tokens",
+        description="List active and revoked API and MCP access tokens.",
+    )
+    ptok_list.add_argument("-a", "--all", action="store_true", help="include revoked and expired tokens")
+    ptok_list.add_argument("--json", action="store_true", help="output tokens in JSON format")
+    ptok_list.set_defaults(func=cmd_token)
+
+    ptok_create = ptok_sub.add_parser(
+        "create",
+        aliases=["new", "add"],
+        help="create a new persistent API and MCP access token",
+        description="Create a persistent API and MCP access token for always-on access.",
+    )
+    ptok_create.add_argument("name", help="name or description of the token (e.g., 'Claude Desktop', 'Cursor')")
+    ptok_create.add_argument("--scope", choices=["owner", "collab", "readonly"], default="readonly",
+                             help="permission scope: readonly (default), collab (collaborator), owner")
+    ptok_create.add_argument("--expires-in", type=int, default=None, dest="expires_in",
+                             help="expiration in days (default: None for never expires / always-on)")
+    ptok_create.add_argument("--json", action="store_true", help="output created token in JSON format")
+    ptok_create.set_defaults(func=cmd_token)
+
+    ptok_revoke = ptok_sub.add_parser(
+        "revoke",
+        aliases=["delete", "rm"],
+        help="revoke an API and MCP access token immediately",
+        description="Revoke an API and MCP access token by ID or prefix.",
+    )
+    ptok_revoke.add_argument("target", help="token ID, prefix, or full token string to revoke")
+    ptok_revoke.add_argument("--json", action="store_true", help="output result in JSON format")
+    ptok_revoke.set_defaults(func=cmd_token)
+
+    ptok.add_argument("-a", "--all", action="store_true", help="include revoked and expired tokens (for default list action)")
+    ptok.add_argument("--json", action="store_true", help="output tokens in JSON format")
+    ptok.set_defaults(func=cmd_token)
 
     pds = sub.add_parser(
         "dedup-scan",

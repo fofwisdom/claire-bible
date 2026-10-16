@@ -1914,6 +1914,107 @@ def build_app(settings: Settings | None = None) -> Any:
             disable_web_page_preview=True,
         )
 
+    async def on_token(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        """API 및 MCP 상시 이용 토큰 관리 (조회/생성/폐기)."""
+        if not _is_allowed(update.effective_user.id if update.effective_user else None):
+            return
+        msg = update.effective_message
+        if not msg:
+            return
+
+        args = ctx.args or []
+        subcmd = args[0].lower() if args else "list"
+
+        def _db_action():
+            conn = dbm.connect(svc.s.db_file)
+            try:
+                dbm.init_db(conn)
+                if subcmd in ("list", "ls"):
+                    return ("list", dbm.list_api_tokens(conn, include_revoked=False))
+                elif subcmd in ("create", "new", "add"):
+                    if len(args) < 2:
+                        return ("error", "사용법: /token create <이름> [scope]\n예: /token create ClaudeDesktop readonly")
+                    name = args[1].strip()
+                    scope = args[2].strip().lower() if len(args) >= 3 else "readonly"
+                    if scope == "collab":
+                        scope = "collaborator"
+                    if scope not in ("owner", "collaborator", "readonly"):
+                        return ("error", f"유효하지 않은 scope: {scope}\n(owner, collaborator, readonly 중 선택)")
+                    created = dbm.create_api_token(conn, name=name, scope=scope, expires_in_days=None)
+                    return ("created", created)
+                elif subcmd in ("revoke", "delete", "rm"):
+                    if len(args) < 2:
+                        return ("error", "사용법: /token revoke <ID 또는 토큰값>\n예: /token revoke 1")
+                    target = args[1].strip()
+                    revoked = dbm.revoke_api_token(conn, target)
+                    return ("revoked", revoked, target)
+                else:
+                    return ("help", None)
+            finally:
+                conn.close()
+
+        res = await asyncio.to_thread(_db_action)
+        action_type = res[0]
+
+        if action_type == "list":
+            tokens = res[1]
+            if not tokens:
+                await msg.reply_text(
+                    "🔑 등록된 활성 API/MCP 토큰이 없습니다.\n\n"
+                    "• 토큰 생성: `/token create <이름> [scope]`\n"
+                    "  예: `/token create ClaudeDesktop readonly`",
+                    parse_mode="Markdown",
+                )
+                return
+
+            lines = [f"🔑 *API & MCP 상시 이용 토큰 목록* ({len(tokens)}개)\n"]
+            for t in tokens:
+                raw_t = t["token"]
+                prefix = raw_t[:8] if len(raw_t) >= 8 else raw_t[:4]
+                suffix = raw_t[-4:] if len(raw_t) >= 8 else ""
+                masked = f"`{prefix}...{suffix}`"
+                lines.append(f"• *#{t['id']}* `{t['name']}` [{t['scope']}]\n  토큰: {masked} (만료: 무기한)")
+            lines.append("\n• 토큰 생성: `/token create <이름> [scope]`")
+            lines.append("• 토큰 폐기: `/token revoke <ID>`")
+            await msg.reply_text("\n".join(lines), parse_mode="Markdown")
+
+        elif action_type == "created":
+            created = res[1]
+            raw_token = created["token"]
+            base_url = s.public_url.rstrip("/") if s.public_url else f"http://127.0.0.1:{getattr(s, 'inject_port', 8765)}"
+            mcp_url = f"{base_url}/mcp"
+            text = (
+                f"🔑 *새 API & MCP 상시 이용 토큰 발급 완료*\n\n"
+                f"• ID: `#{created['id']}`\n"
+                f"• 이름: `{created['name']}`\n"
+                f"• 권한: `{created['scope']}`\n"
+                f"• 만료: 무기한 (상시 이용 가능)\n\n"
+                f"📋 *시크릿 토큰:*\n`{raw_token}`\n\n"
+                f"🌐 *MCP 엔드포인트:*\n`{mcp_url}`\n\n"
+                f"※ 이 토큰은 안전한 곳에 즉시 복사하세요."
+            )
+            await msg.reply_text(text, parse_mode="Markdown")
+
+        elif action_type == "revoked":
+            revoked, target = res[1], res[2]
+            if revoked:
+                await msg.reply_text(f"✅ 토큰 `{target}`이(가) 즉시 성공적으로 폐기되었습니다.", parse_mode="Markdown")
+            else:
+                await msg.reply_text(f"❌ 토큰 `{target}`을(를) 찾을 수 없거나 이미 폐기되었습니다.", parse_mode="Markdown")
+
+        elif action_type == "error":
+            await msg.reply_text(f"⚠️ {res[1]}")
+
+        else:
+            await msg.reply_text(
+                "🔑 *API & MCP 토큰 관리 명령어:*\n\n"
+                "• 목록 조회: `/token` 또는 `/token list`\n"
+                "• 토큰 생성: `/token create <이름> [owner|collab|readonly]`\n"
+                "• 토큰 폐기: `/token revoke <ID 또는 토큰값>`",
+                parse_mode="Markdown",
+            )
+
+
     async def on_status(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
         if not _is_allowed(update.effective_user.id if update.effective_user else None):
             return
@@ -2186,6 +2287,7 @@ def build_app(settings: Settings | None = None) -> Any:
     app.add_handler(CommandHandler("web", on_web))
     app.add_handler(CommandHandler(["webco", "webcollab"], on_webco))
     app.add_handler(CommandHandler("webro", on_webro))
+    app.add_handler(CommandHandler(["token", "tokens", "key"], on_token))
     app.add_handler(CommandHandler("failed", on_failed))
     app.add_handler(CommandHandler("retry", on_retry))
     app.add_handler(CallbackQueryHandler(on_callback))
@@ -2215,6 +2317,7 @@ def build_app(settings: Settings | None = None) -> Any:
             BotCommand("repo", "소스 리포지토리 링크"),
             BotCommand("search", "검색 + 요약"),
             BotCommand("ingest", "초점 지정 적재"),
+            BotCommand("token", "API/MCP 상시 토큰 조회·생성·폐기"),
             BotCommand("web", "웹 접속 링크 발급"),
             BotCommand("webco", "협력자 웹 링크 발급"),
             BotCommand("webro", "읽기전용 웹 링크 발급"),

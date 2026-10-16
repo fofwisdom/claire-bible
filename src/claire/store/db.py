@@ -2057,7 +2057,7 @@ def create_api_token(
             raise ValueError("Token value must have a minimum of 16 characters.")
 
     now = time.time()
-    expires_at = (now + float(expires_in_days) * 86400.0) if expires_in_days and expires_in_days > 0 else None
+    expires_at = (now + float(expires_in_days) * 86400.0) if expires_in_days is not None else None
     cur = conn.execute(
         "INSERT INTO api_tokens (token, name, scope, created_at, expires_at, last_used_at, revoked_at) "
         "VALUES (?, ?, ?, ?, ?, NULL, NULL)",

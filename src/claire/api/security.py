@@ -246,6 +246,11 @@ ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     ("HEAD", "/limits"): _rule("owner"),
     ("POST", "/limits"): _rule("owner"),
     ("PATCH", "/limits"): _rule("owner"),
+    ("GET", "/tokens"): _rule("owner"),
+    ("HEAD", "/tokens"): _rule("owner"),
+    ("POST", "/tokens"): _rule("owner"),
+    ("POST", "/tokens/revoke"): _rule("owner"),
+    ("DELETE", "/tokens"): _rule("owner"),
     ("GET", "/ingest-limits"): _rule("owner"),
     ("HEAD", "/ingest-limits"): _rule("owner"),
     ("POST", "/ingest-limits"): _rule("owner"),
@@ -695,6 +700,26 @@ async def _validate_oauth_token(config: WebRuntimeConfig, token: str) -> str | N
             return None
 
     return await asyncio.to_thread(_validate)
+
+
+async def _validate_api_token(config: WebRuntimeConfig, token: str) -> dict[str, Any] | None:
+    if not token or len(token) < 16:
+        return None
+    if not Path(config.db_file).is_file():
+        return None
+
+    def _validate() -> dict[str, Any] | None:
+        try:
+            conn = dbm.connect_existing(config.db_file)
+            try:
+                return dbm.validate_api_token(conn, token)
+            finally:
+                conn.close()
+        except Exception:
+            return None
+
+    return await asyncio.to_thread(_validate)
+
 
 
 async def _bootstrap_session(
@@ -1367,7 +1392,10 @@ class AuthenticationMiddleware:
         cookie_invalid_or_expired = False
 
         if bearer is not None:
-            if _constant_equal(bearer, self.config.owner_token):
+            api_tok = await _validate_api_token(self.config, bearer)
+            if api_tok is not None:
+                auth_scope, auth_channel = api_tok["scope"], "bearer"
+            elif self.config.owner_token and _constant_equal(bearer, self.config.owner_token):
                 auth_scope, auth_channel = "owner", "bearer"
             elif self.config.collaborator_token and _constant_equal(bearer, self.config.collaborator_token):
                 auth_scope, auth_channel = "collaborator", "bearer"
