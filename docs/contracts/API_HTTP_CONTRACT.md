@@ -43,8 +43,8 @@ $$\text{owner} \succ \text{readonly} \succ \text{anonymous} \succ \text{unauthen
 
 | 스코프 | 권한 범위 | 설명 |
 |---|---|---|
-| `owner` | 모든 읽기/쓰기, 테마 관리, 지식 적재, 번들 생성 | 마스터 인젝트 토큰(`CLAIRE_INJECT_TOKEN`) 또는 승인된 owner 세션 |
-| `readonly` | 모든 공개/비공개 지식 조회, 검색, MCP 툴 호출 | 읽기 전용 토큰(`CLAIRE_READONLY_TOKEN`) 또는 readonly 세션 |
+| `owner` | 모든 읽기/쓰기, 테마 관리, 지식 적재, 번들 생성, 토큰 관리 | DB 영구 토큰(`api_tokens`), 마스터 인젝트 토큰(레거시), 또는 승인된 owner 세션 |
+| `readonly` | 모든 공개/비공개 지식 조회, 검색, MCP 툴 호출 | DB 영구 readonly 토큰(`api_tokens`), 읽기 전용 토큰(레거시), 또는 readonly 세션 |
 | `anonymous` | 공개 지식 조회 및 기본 FTS 검색 (숨김 문서 제외) | 자격증명이 없으나 `CLAIRE_ANONYMOUS_READONLY=1`인 경우 |
 
 ### 3.4 스텔스 모드 불변식
@@ -74,6 +74,10 @@ $$\text{owner} \succ \text{readonly} \succ \text{anonymous} \succ \text{unauthen
 | `POST` | `/ingest` | `owner` | URL/텍스트 지식 적재 및 온톨로지 추출 |
 | `POST` | `/support/bundle` | `owner` | 진단 및 지원 번들 생성 |
 | `GET` | `/support/bundle` | `public` | 유효 토큰 기반 진단 번들 zstd 아카이브 다운로드 |
+| `GET` | `/tokens` | `owner` | 발급된 API 및 MCP 상시 토큰 목록 조회 (마스킹) |
+| `POST` | `/tokens` | `owner` | 신규 API 및 MCP 상시 토큰 생성 |
+| `POST` | `/tokens/revoke` | `owner` | API 및 MCP 상시 토큰 즉시 폐기 |
+| `DELETE` | `/tokens` | `owner` | API 및 MCP 상시 토큰 즉시 폐기 |
 | `POST` | `/mcp` | `read` | Model Context Protocol JSON-RPC 통신 |
 
 구현별 UI 페이지(`/`, `/reference`, `/p`) 및 부가 기능은 각 계보의 확장 라우트로 관리하되 위 최소 공통 엔드포인트의 와이어 형식을 훼손하지 않는다.

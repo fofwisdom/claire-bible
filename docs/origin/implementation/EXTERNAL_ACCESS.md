@@ -154,13 +154,13 @@ Claire Bible은 시스템 소유자(Owner), 협력자(Collaborator), 읽기 전�
 
 | 역할 (Scope) | 자격 증명 (토큰 / 헤더) | 기본 테마 (`seq=0`) | 추가 테마 (공개) | 추가 테마 (비공개) | 테마 관리 (생성/수정/삭제) |
 | :--- | :--- | :---: | :---: | :---: | :---: |
-| **시스템 관리자 (`owner`)** | `CLAIRE_INJECT_TOKEN` 또는 텔레그램 `/web` 발급 세션 | 읽기 / 쓰기 | 읽기 / 쓰기 | 읽기 / 쓰기 | 가능 (`define`, `update`, `delete`) |
-| **협력자 (`collaborator`)** | `CLAIRE_COLLABORATOR_TOKEN` 또는 텔레그램 `/webco` 발급 세션 | **쓰기 불가 (차단)**<br>(읽기만 가능) | 읽기 / 쓰기 | 허용 테마만<br>읽기 / 쓰기 | 불가 |
-| **읽기 전용 (`readonly`)** | `CLAIRE_READONLY_TOKEN` 또는 텔레그램 `/webro` 발급 세션 | 읽기 전용 | 읽기 전용 | 읽기 전용 | 불가 |
+| **시스템 관리자 (`owner`)** | DB 영구 토큰(`cb_...`), 텔레그램 `/web` 세션, 또는 `claire auth` (레거시 `CLAIRE_INJECT_TOKEN` 자동 이관) | 읽기 / 쓰기 | 읽기 / 쓰기 | 읽기 / 쓰기 | 가능 (`define`, `update`, `delete`, `tokens`) |
+| **협력자 (`collaborator`)** | DB 영구 협력자 토큰(`cb_...`) 또는 텔레그램 `/webco` 발급 세션 (레거시 `CLAIRE_COLLABORATOR_TOKEN` 자동 이관) | **쓰기 불가 (차단)**<br>(읽기만 가능) | 읽기 / 쓰기 | 허용 테마만<br>읽기 / 쓰기 | 불가 |
+| **읽기 전용 (`readonly`)** | DB 영구 읽기전용 토큰(`cb_...`) 또는 텔레그램 `/webro` 발급 세션 (레거시 `CLAIRE_READONLY_TOKEN` 자동 이관) | 읽기 전용 | 읽기 전용 | 읽기 전용 | 불가 |
 | **익명 사용자 (`anonymous`)** | 자격증명 없음 (`CLAIRE_ANONYMOUS_READONLY=1`) | 공개 읽기<br>(숨김 문서 제외) | 공개 읽기<br>(숨김 문서 제외) | **404 Not Found**<br>(존재 은닉) | 불가 |
 
 ### 협력자 세션 (`collaborator`) 및 안전 정책
-- **발급 및 진입**: 텔레그램 봇의 `/webco` 명령을 통해 24시간 유효한 일회성/재사용 가능 협력자 세션 링크(`/webco?token=...`)를 발급받는다.
+- **발급 및 진입**: 텔레그램 봇의 `/webco` 명령을 통해 24시간 유효한 일회성/재사용 가능 협력자 세션 링크(`/webco?token=...`)를 발급받거나 `claire token create --scope collab`으로 상시 토큰을 발급한다.
 - **기본 지식베이스 보호**: 협력자는 시스템의 핵심 기반인 기본 테마(`seq=0`)에 데이터를 적재하거나 수정할 수 없습니다(`403 Forbidden`). 오직 `is_collaborator_accessible=true`로 설정된 추가 테마에만 수집 및 적재가 허용된다.
 - **세션 헤더**: API 호출 시 `X-Session: <token>` 또는 `Authorization: Bearer <token>` 헤더를 전달한다.
 
@@ -195,9 +195,8 @@ Claire Bible은 시스템 소유자(Owner), 협력자(Collaborator), 읽기 전�
  
  - **엔드포인트**: `POST /mcp` (Streamable / Stateless HTTP JSON-RPC)
  - **인증**:
-   - `X-Session: <session_token>` 또는 `Authorization: Bearer <session_token>`
-   - `Authorization: Bearer <CLAIRE_INJECT_TOKEN>` (owner), `Authorization: Bearer <CLAIRE_COLLABORATOR_TOKEN>` (collaborator) 또는 `Authorization: Bearer <CLAIRE_READONLY_TOKEN>` (readonly)
-   - 세션 토큰은 텔레그램 `/web` (owner), `/webco` (협력자), `/webro` (읽기전용) 명령으로 발급 가능
+   - `Authorization: Bearer <PERSISTENT_TOKEN>` (CLI `claire token create`, WebUI [🔑 API/MCP 키], 텔레그램 `/token` 발급 영구 토큰)
+   - `X-Session: <session_token>` 또는 `Authorization: Bearer <session_token>` (텔레그램 `/web`, `/webco`, `/webro` 발급 세션)
    - 미인증 또는 무효 토큰 요청 시 표준 MCP HTTP 사양(RFC 6750)에 따라 `401 Unauthorized` (`WWW-Authenticate: Bearer` 헤더) 반환
  - **제공 툴셋 (10종 읽기 전용)**: `resolve_entity`, `search`, `neighbors`, `path`, `context`, `overview`, `node`, `documents`, `document`, `stats`
  
@@ -209,7 +208,7 @@ Claire Bible은 시스템 소유자(Owner), 협력자(Collaborator), 읽기 전�
      "claire": {
        "url": "https://claire.example.com/mcp",
        "headers": {
-         "Authorization": "Bearer <CLAIRE_READONLY_TOKEN_OR_SESSION_TOKEN>"
+         "Authorization": "Bearer <PERSISTENT_TOKEN>"
        }
      }
    }
@@ -224,7 +223,7 @@ Claire Bible은 시스템 소유자(Owner), 협력자(Collaborator), 읽기 전�
      "claire": {
        "url": "https://claire.example.com/mcp",
        "headers": {
-         "X-Session": "<SESSION_TOKEN>"
+         "Authorization": "Bearer <PERSISTENT_TOKEN>"
        }
      }
    }
@@ -239,7 +238,7 @@ Claire Bible은 시스템 소유자(Owner), 협력자(Collaborator), 읽기 전�
      "claire-bible": {
        "serverUrl": "https://claire.example.com/mcp",
        "headers": {
-         "Authorization": "Bearer <CLAIRE_READONLY_TOKEN_OR_SESSION_TOKEN>"
+         "Authorization": "Bearer <PERSISTENT_TOKEN>"
        }
      }
    }
@@ -253,7 +252,7 @@ Claire Bible은 시스템 소유자(Owner), 협력자(Collaborator), 읽기 전�
 시스템 상태, 프로바이더 텔레메트리, 인박스 실패 내역 및 특정 문서 추적 정보를 zstd 압축 아카이브(`.tar.zst`)로 안전하게 제공하는 엔드포인트이다.
 
 - **생성 엔드포인트**: `POST /support/bundle`
-  - **인증**: `Authorization: Bearer <CLAIRE_INJECT_TOKEN>` (owner 전용)
+  - **인증**: `Authorization: Bearer <OWNER_TOKEN>` (owner 전용)
   - **본문**: `{"days": 1, "target": "<optional_share_url_or_doc_id>"}`
   - **응답**: `{"bundle_id": "...", "token": "...", "expires_at": "...", "download_url": "..."}`
 - **다운로드 엔드포인트**: `GET /support/bundle?token=<token>`

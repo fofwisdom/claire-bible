@@ -451,6 +451,10 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 * `claire doc-title <target> "<new_title>"`: 특정 문서의 제목을 수동 수정하고 MinHash 서명 재계산. `target`으로 문서 ID, 일반 URL, 공유 URL 지원.
 * `claire share <target> [--json]`: 특정 문서의 외부 공개용 익명 공유 링크(`/p?s=token`)와 토큰을 발급하여 출력.
 * `claire auth [--scope {owner,collab,readonly}] [--json]`: Telegram 봇을 통하지 않고 CLI/터미널에서 직접 Web UI에 접근할 수 있는 1회용 매직 로그인 링크 및 세션 토큰 즉시 발급.
+* `claire token [list|create|revoke]`: 환경변수에 의존하지 않고 SQLite 데이터베이스 기반으로 API 및 MCP 상시 이용 Bearer 접근 토큰을 관리 (별칭: `api-key`, `key`).
+  * `claire token list [-a/--all] [--json]`: 발급된 토큰 목록 조회 (별칭: `ls`). `-a` 지정 시 폐기 및 만료 토큰 포함.
+  * `claire token create <name> [--scope {owner,collab,readonly}] [--expires-in DAYS] [--json]`: 상시 이용 토큰 발급 (별칭: `new`, `add`). 기본값 `readonly`, 무기한 발급. 발급 즉시 Claude Desktop 및 Cursor 연동 JSON 스니펫 출력.
+  * `claire token revoke <target> [--json]`: 토큰 즉시 폐기 (별칭: `delete`, `rm`). `target`은 토큰 ID 또는 토큰 접두사/전체값. 폐기 즉시 모든 API/MCP 통신 차단.
 * `claire serve-api`: Starlette + Uvicorn 기반 웹 인터페이스 및 REST API 서비스 실행.
 * `claire bot`: Telegram Long-polling 봇 서비스 실행.
 
