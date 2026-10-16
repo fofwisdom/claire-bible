@@ -705,20 +705,14 @@ async def _validate_oauth_token(config: WebRuntimeConfig, token: str) -> str | N
 async def _validate_api_token(config: WebRuntimeConfig, token: str) -> dict[str, Any] | None:
     if not token or len(token) < 16:
         return None
-    if not Path(config.db_file).is_file():
+    data_dir = config.data_dir or (Path(config.db_file).parent if config.db_file else None)
+    try:
+        from ..store.token_store import get_token_store
+
+        store = get_token_store(data_dir=data_dir)
+        return store.validate_api_token(token)
+    except Exception:
         return None
-
-    def _validate() -> dict[str, Any] | None:
-        try:
-            conn = dbm.connect_existing(config.db_file)
-            try:
-                return dbm.validate_api_token(conn, token)
-            finally:
-                conn.close()
-        except Exception:
-            return None
-
-    return await asyncio.to_thread(_validate)
 
 
 

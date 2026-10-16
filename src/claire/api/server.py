@@ -42,6 +42,7 @@ from ..ingest.service import IngestService, IngestServicePool
 from ..store import db as dbm
 from ..store.queries import theme_summary
 from ..store.theme import ThemeInfo, ThemeManager, get_theme_manager
+from ..store.token_store import get_token_store
 from .mcp_tools import build_mcp_app
 from .oauth import (
     handle_authorization_server_metadata,
@@ -179,23 +180,24 @@ def create_app(
     conn = dbm.connect(s.db_file)
     try:
         dbm.init_db(conn)
-        dbm.migrate_env_tokens(
-            conn,
-            getattr(s, "inject_token", ""),
-            getattr(s, "readonly_token", ""),
-            getattr(s, "collaborator_token", ""),
-        )
-        if not getattr(s, "inject_token", ""):
-            owner_tok = dbm.ensure_default_owner_token(conn, fallback_token=getattr(s, "inject_token", ""))
-            try:
-                s.inject_token = owner_tok["token"]
-            except Exception:
-                try:
-                    object.__setattr__(s, "inject_token", owner_tok["token"])
-                except Exception:
-                    pass
     finally:
         conn.close()
+
+    token_store = get_token_store(data_dir=s.data_dir)
+    token_store.migrate_env_tokens(
+        getattr(s, "inject_token", ""),
+        getattr(s, "readonly_token", ""),
+        getattr(s, "collaborator_token", ""),
+    )
+    if not getattr(s, "inject_token", ""):
+        owner_tok = token_store.ensure_default_owner_token(fallback_token=getattr(s, "inject_token", ""))
+        try:
+            s.inject_token = owner_tok["token"]
+        except Exception:
+            try:
+                object.__setattr__(s, "inject_token", owner_tok["token"])
+            except Exception:
+                pass
     WebRuntimeConfig.from_settings(s)
     svc = service or IngestService(s)
     theme_mgr = ThemeManager(s)
@@ -782,22 +784,19 @@ def create_app(
                 status_code=403,
                 detail="지식 관리자(owner) 권한이 필요합니다.",
             )
-        conn = dbm.connect_existing(s.db_file)
-        try:
-            tokens = dbm.list_api_tokens(conn, include_revoked=True)
-            sanitized = []
-            for t in tokens:
-                raw_val = t["token"]
-                prefix = raw_val[:8] if len(raw_val) >= 8 else raw_val[:4]
-                suffix = raw_val[-4:] if len(raw_val) >= 8 else ""
-                masked = f"{prefix}...{suffix}" if suffix else f"{prefix}..."
-                item = dict(t)
-                item["token_masked"] = masked
-                del item["token"]
-                sanitized.append(item)
-            return JSONResponse({"tokens": sanitized})
-        finally:
-            conn.close()
+        store = get_token_store(data_dir=s.data_dir)
+        tokens = store.list_api_tokens(include_revoked=True)
+        sanitized = []
+        for t in tokens:
+            raw_val = t["token"]
+            prefix = raw_val[:8] if len(raw_val) >= 8 else raw_val[:4]
+            suffix = raw_val[-4:] if len(raw_val) >= 8 else ""
+            masked = f"{prefix}...{suffix}" if suffix else f"{prefix}..."
+            item = dict(t)
+            item["token_masked"] = masked
+            del item["token"]
+            sanitized.append(item)
+        return JSONResponse({"tokens": sanitized})
 
     async def tokens_create_route(request: Request) -> JSONResponse:
         scope = request_auth_scope(request)
@@ -817,9 +816,9 @@ def create_app(
         except (ValueError, TypeError):
             raise HTTPException(status_code=400, detail="만료 기간(expires_in_days)은 정수여야 합니다.")
 
-        conn = dbm.connect(s.db_file)
+        store = get_token_store(data_dir=s.data_dir)
         try:
-            created = dbm.create_api_token(conn, name=name, scope=tok_scope, expires_in_days=expires_in_days)
+            created = store.create_api_token(name=name, scope=tok_scope, expires_in_days=expires_in_days)
             return JSONResponse({
                 "ok": True,
                 "token": created,
@@ -830,8 +829,6 @@ def create_app(
         except Exception as exc:
             _log_operation_failure(request, "token create", exc)
             raise HTTPException(status_code=500, detail="토큰 생성 중 오류가 발생했습니다.") from exc
-        finally:
-            conn.close()
 
     async def tokens_revoke_route(request: Request) -> JSONResponse:
         scope = request_auth_scope(request)
@@ -845,9 +842,9 @@ def create_app(
         if not token_id:
             raise HTTPException(status_code=400, detail="폐기할 토큰 식별자(id)가 필요합니다.")
 
-        conn = dbm.connect(s.db_file)
+        store = get_token_store(data_dir=s.data_dir)
         try:
-            revoked = dbm.revoke_api_token(conn, token_id)
+            revoked = store.revoke_api_token(token_id)
             if not revoked:
                 raise HTTPException(status_code=404, detail="토큰을 찾을 수 없거나 이미 폐기되었습니다.")
             return JSONResponse({"ok": True, "message": "토큰이 성공적으로 폐기되었습니다."})
@@ -856,8 +853,6 @@ def create_app(
         except Exception as exc:
             _log_operation_failure(request, "token revoke", exc)
             raise HTTPException(status_code=500, detail="토큰 폐기 중 오류가 발생했습니다.") from exc
-        finally:
-            conn.close()
 
     async def do_ingest(request: Request) -> JSONResponse:
         body = await _json_object(request)
@@ -3377,23 +3372,24 @@ def run_api() -> int:
         conn = dbm.connect(s.db_file)
         try:
             dbm.init_db(conn)
-            dbm.migrate_env_tokens(
-                conn,
-                getattr(s, "inject_token", ""),
-                getattr(s, "readonly_token", ""),
-                getattr(s, "collaborator_token", ""),
-            )
-            if not getattr(s, "inject_token", ""):
-                owner_tok = dbm.ensure_default_owner_token(conn, fallback_token=getattr(s, "inject_token", ""))
-                try:
-                    s.inject_token = owner_tok["token"]
-                except Exception:
-                    try:
-                        object.__setattr__(s, "inject_token", owner_tok["token"])
-                    except Exception:
-                        pass
         finally:
             conn.close()
+
+        token_store = get_token_store(data_dir=s.data_dir)
+        token_store.migrate_env_tokens(
+            getattr(s, "inject_token", ""),
+            getattr(s, "readonly_token", ""),
+            getattr(s, "collaborator_token", ""),
+        )
+        if not getattr(s, "inject_token", ""):
+            owner_tok = token_store.ensure_default_owner_token(fallback_token=getattr(s, "inject_token", ""))
+            try:
+                s.inject_token = owner_tok["token"]
+            except Exception:
+                try:
+                    object.__setattr__(s, "inject_token", owner_tok["token"])
+                except Exception:
+                    pass
         runtime = WebRuntimeConfig.from_settings(s)
         app = create_app(s)
     except ValueError as exc:

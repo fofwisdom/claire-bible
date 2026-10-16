@@ -1925,35 +1925,33 @@ def build_app(settings: Settings | None = None) -> Any:
         args = ctx.args or []
         subcmd = args[0].lower() if args else "list"
 
-        def _db_action():
-            conn = dbm.connect(svc.s.db_file)
-            try:
-                dbm.init_db(conn)
-                if subcmd in ("list", "ls"):
-                    return ("list", dbm.list_api_tokens(conn, include_revoked=False))
-                elif subcmd in ("create", "new", "add"):
-                    if len(args) < 2:
-                        return ("error", "사용법: /token create <이름> [scope]\n예: /token create ClaudeDesktop readonly")
-                    name = args[1].strip()
-                    scope = args[2].strip().lower() if len(args) >= 3 else "readonly"
-                    if scope == "collab":
-                        scope = "collaborator"
-                    if scope not in ("owner", "collaborator", "readonly"):
-                        return ("error", f"유효하지 않은 scope: {scope}\n(owner, collaborator, readonly 중 선택)")
-                    created = dbm.create_api_token(conn, name=name, scope=scope, expires_in_days=None)
-                    return ("created", created)
-                elif subcmd in ("revoke", "delete", "rm"):
-                    if len(args) < 2:
-                        return ("error", "사용법: /token revoke <ID 또는 토큰값>\n예: /token revoke 1")
-                    target = args[1].strip()
-                    revoked = dbm.revoke_api_token(conn, target)
-                    return ("revoked", revoked, target)
-                else:
-                    return ("help", None)
-            finally:
-                conn.close()
+        def _token_action():
+            from .store.token_store import get_token_store
 
-        res = await asyncio.to_thread(_db_action)
+            store = get_token_store(data_dir=svc.s.data_dir)
+            if subcmd in ("list", "ls"):
+                return ("list", store.list_api_tokens(include_revoked=False))
+            elif subcmd in ("create", "new", "add"):
+                if len(args) < 2:
+                    return ("error", "사용법: /token create <이름> [scope]\n예: /token create ClaudeDesktop readonly")
+                name = args[1].strip()
+                scope = args[2].strip().lower() if len(args) >= 3 else "readonly"
+                if scope == "collab":
+                    scope = "collaborator"
+                if scope not in ("owner", "collaborator", "readonly"):
+                    return ("error", f"유효하지 않은 scope: {scope}\n(owner, collaborator, readonly 중 선택)")
+                created = store.create_api_token(name=name, scope=scope, expires_in_days=None)
+                return ("created", created)
+            elif subcmd in ("revoke", "delete", "rm"):
+                if len(args) < 2:
+                    return ("error", "사용법: /token revoke <ID 또는 토큰값>\n예: /token revoke 1")
+                target = args[1].strip()
+                revoked = store.revoke_api_token(target)
+                return ("revoked", revoked, target)
+            else:
+                return ("help", None)
+
+        res = await asyncio.to_thread(_token_action)
         action_type = res[0]
 
         if action_type == "list":

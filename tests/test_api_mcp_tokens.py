@@ -87,6 +87,15 @@ def test_api_token_db_lifecycle(tmp_path: Path):
     expired_tok = dbm.create_api_token(conn, name="Expired Agent", scope="readonly", expires_in_days=-1)
     assert dbm.validate_api_token(conn, expired_tok["token"]) is None
 
+    # 7. Architecture verification: SQLite schema is completely unpolluted
+    assert conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='api_tokens'").fetchone() is None
+
+    # 8. Decoupled file storage verification
+    auth_file = tmp_path / "auth" / "api_tokens.json"
+    assert auth_file.is_file()
+    assert auth_file.stat().st_mode & 0o777 == 0o600
+    assert (tmp_path / "auth").stat().st_mode & 0o777 == 0o700
+
     conn.close()
 
 

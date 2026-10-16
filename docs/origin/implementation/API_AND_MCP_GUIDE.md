@@ -35,14 +35,14 @@ $$\text{owner} \succ \text{collaborator} \succ \text{readonly} \succ \text{anony
 
 | 역할 (Scope) | 자격 증명 (토큰 / 헤더) | 기본 테마 (`seq=0`) | 추가 테마 (공개) | 추가 테마 (비공개) | 테마 관리 / 진단 번들 |
 | :--- | :--- | :---: | :---: | :---: | :---: |
-| **시스템 관리자 (`owner`)** | DB 영구 토큰(`cb_...`), 텔레그램 `/web` 세션, 또는 `claire auth` (레거시 `CLAIRE_INJECT_TOKEN` 자동 이관) | 읽기 / 쓰기 | 읽기 / 쓰기 | 읽기 / 쓰기 | 가능 (`define`, `update`, `delete`, `bundle`, `tokens`) |
-| **협력자 (`collaborator`)** | DB 영구 협력자 토큰(`cb_...`) 또는 텔레그램 `/webco` 세션 (레거시 `CLAIRE_COLLABORATOR_TOKEN` 자동 이관) | **쓰기 불가 (차단)**<br>(읽기만 가능) | 읽기 / 쓰기 | 허용 테마만<br>읽기 / 쓰기 | 불가 |
-| **읽기 전용 (`readonly`)** | DB 영구 읽기전용 토큰(`cb_...`) 또는 텔레그램 `/webro` 세션 (레거시 `CLAIRE_READONLY_TOKEN` 자동 이관) | 읽기 전용 | 읽기 전용 | 읽기 전용 | 불가 |
+| **시스템 관리자 (`owner`)** | 독립 상시 토큰(`cb_...`), 텔레그램 `/web` 세션, 또는 `claire auth` (레거시 `CLAIRE_INJECT_TOKEN` 자동 이관) | 읽기 / 쓰기 | 읽기 / 쓰기 | 읽기 / 쓰기 | 가능 (`define`, `update`, `delete`, `bundle`, `tokens`) |
+| **협력자 (`collaborator`)** | 독립 상시 협력자 토큰(`cb_...`) 또는 텔레그램 `/webco` 세션 (레거시 `CLAIRE_COLLABORATOR_TOKEN` 자동 이관) | **쓰기 불가 (차단)**<br>(읽기만 가능) | 읽기 / 쓰기 | 허용 테마만<br>읽기 / 쓰기 | 불가 |
+| **읽기 전용 (`readonly`)** | 독립 상시 읽기전용 토큰(`cb_...`) 또는 텔레그램 `/webro` 세션 (레거시 `CLAIRE_READONLY_TOKEN` 자동 이관) | 읽기 전용 | 읽기 전용 | 읽기 전용 | 불가 |
 | **익명 사용자 (`anonymous`)** | 자격증명 없음 (`CLAIRE_ANONYMOUS_READONLY=1`) | 공개 읽기<br>(숨김 문서 제외) | 공개 읽기<br>(숨김 문서 제외) | **404 Not Found**<br>(존재 은닉) | 불가 |
 
-### 1.3 환경변수 통제 방식 폐기 및 DB 기반 상시 이용 토큰 관리 (Persistent Token Architecture)
-- **환경변수 통제 폐기**: 정적 환경변수(`CLAIRE_INJECT_TOKEN`, `CLAIRE_READONLY_TOKEN`, `CLAIRE_COLLABORATOR_TOKEN`)에 의한 API/MCP 접근 통제 방식을 폐기하고, SQLite 데이터베이스 기반의 동적 토큰(`api_tokens` 테이블) 관리 체계로 전면 전환했다.
-- **하위 호환 및 자동 이관**: 서버 기동 시 기존 환경변수에 토큰이 존재하면 `api_tokens` 테이블로 1회 안전하게 자동 이관되며, 환경변수가 비어있더라도 최초 기동 시 기본 `owner` 토큰(`cb_...`)이 자동 생성되어 즉시 운영 가능하다.
+### 1.3 환경변수 통제 방식 폐기 및 독립 자격증명 파일 기반 상시 이용 토큰 관리 (Decoupled Token Architecture)
+- **환경변수 통제 폐기 및 하이브리드 분리 모델**: 정적 환경변수(`CLAIRE_INJECT_TOKEN`, `CLAIRE_READONLY_TOKEN`, `CLAIRE_COLLABORATOR_TOKEN`)에 의한 API/MCP 접근 통제 방식을 폐기하고, 지식 데이터베이스(`claire.db`)와 완전히 분리된 독립 자격증명 파일(`data/auth/api_tokens.json`, `chmod 0600`) 관리 체계로 전면 전환했다. 토큰 검증은 100% 인메모리에서 수행되어 SQLite 쓰기 락 경합이 전혀 발생하지 않으며(0%), 지식베이스 손상이나 롤백 시에도 인증 체계가 안전하게 유지(장애 격리)된다.
+- **하위 호환 및 자동 이관**: 서버 기동 시 기존 환경변수에 토큰이 존재하면 `data/auth/api_tokens.json` 파일로 1회 안전하게 자동 이관되며, 환경변수가 비어있더라도 최초 기동 시 기본 `owner` 토큰(`cb_...`)이 자동 생성되어 즉시 운영 가능하다.
 - **토큰 관리 다중 인터페이스**:
   - **CLI**: `claire token [list|create|revoke]`
   - **WebUI**: 드로어 "관리 및 설정" ➔ "🔑 API/MCP 키" (토큰 발급 및 즉시 폐기, 클라이언트 연동 설정 제공)
