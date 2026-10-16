@@ -45,6 +45,7 @@ docs/origin/
 │   ├── VIEW_CONTEXTUAL_UNIFIED_SEARCH_DESIGN.md # 뷰 종속형 통합 검색 및 지능형 자동 검색 엔진 아키텍처 설계 (구현 완료)
 │   └── VMWARE_EXPLORE_ACTIVE_WAITING_RESILIENCE_DESIGN.md # VMware Explore 프레젠테이션 탐색 능동 대기(Active Waiting) 및 복원력 설계 (구현 완료)
 ├── implementation/             # [구현/운영 내역] 운영 가이드, 네트워크/인증 명세, 배포 설정
+│   ├── API_AND_MCP_GUIDE.md    # REST API 및 MCP 연결·인증·도구 활용 종합 가이드
 │   ├── COMMANDS.md             # 전체 CLI 명령어 및 미구현/제약사항 상세 레퍼런스
 │   ├── ENVIRONMENT_VARIABLES.md # 환경변수 설정, .env 계층, Pydantic 검증 및 운영 종합 매뉴얼
 │   ├── EXTERNAL_ACCESS.md      # 웹 접속, reverse proxy, 포트, 인증/CORS 경계 명세 (오리진 구현본)
@@ -92,6 +93,7 @@ docs/origin/
 ### 2. `docs/origin/implementation/` (구현 및 운영 내역)
 - **대상**: 현재 시스템에 실제 구현 및 배포된 기능의 운영 가이드, 호스트 명령 명세, 네트워크 및 프록시 설정, 환경변수 및 보안 경계 가이드.
 - **예시**:
+  - `API_AND_MCP_GUIDE.md`: REST API 엔드포인트 호출 및 MCP 10종 툴셋, OAuth 2.1 인가 서버 연동 종합 가이드
   - `ENVIRONMENT_VARIABLES.md`: 환경변수 설정, `.env` 계층 구조, Pydantic 검증 규칙 및 운영 모범 사례 매뉴얼
   - `EXTERNAL_ACCESS.md`: Reverse proxy 연동, 포트 바인딩, CORS 및 인증 명세 (오리진 배포 환경 기준)
   - `OPERATIONS.md`: `cb-manuscript` 호스트 운영 명령 및 컨테이너 관리 가이드
