@@ -22,6 +22,11 @@ from .store.queries import (
     synthesize,
     theme_summary,
 )
+from .presentation.favicon import (
+    FAVICON_TAGS_HTML,
+    inject_favicon_head_tags,
+    render_favicon_head_tags,
+)
 
 _PACKAGE_DIR = Path(__file__).resolve().parent
 _STATIC_DIR = _PACKAGE_DIR / "static"
@@ -558,6 +563,7 @@ def render_graph_html(
 
 
 __all__ = [
+    "FAVICON_TAGS_HTML",
     "GRAPH_HTML",
     "_SHARED_HTML",
     "dedup_clusters",
@@ -565,7 +571,9 @@ __all__ = [
     "documents_list",
     "extract_knowledge_node_tags",
     "graph_json",
+    "inject_favicon_head_tags",
     "node_detail",
+    "render_favicon_head_tags",
     "render_ga_tag",
     "render_graph_html",
     "render_open_graph_tags",

@@ -4,8 +4,19 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Claire API Reference</title>
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Claire Bible" />
+  <meta name="application-name" content="Claire Bible" />
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="icon" type="image/png" sizes="192x192" href="/icon?p=android-chrome-192x192.png" />
+  <link rel="icon" type="image/png" sizes="512x512" href="/icon?p=android-chrome-512x512.png" />
   <link rel="alternate icon" href="/favicon.ico" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+  <link rel="manifest" href="/manifest.json" />
+  <link rel="mask-icon" href="/favicon.svg" color="#00ffaa" />
+  <meta name="theme-color" content="#0e1116" />
   <style>
     :root, [data-theme="dark"] {
       --scalar-font: 'Noto Sans KR', 'Noto Sans Korean', system-ui, -apple-system, sans-serif;
@@ -48,6 +59,7 @@
     data-configuration='{
       "theme": "kepler",
       "darkMode": true,
+      "favicon": "/favicon.svg",
       "withDefaultFonts": false,
       "proxyUrl": "",
       "searchHotKey": "k",

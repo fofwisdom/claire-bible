@@ -3136,7 +3136,9 @@ def create_app(
     async def docs_ui_route(_request: Request) -> Response:
         if not docs_template_file.is_file():
             return PlainTextResponse("Documentation UI template not found", status_code=500)
-        return HTMLResponse(docs_template_file.read_text(encoding="utf-8"))
+        from ..presentation.favicon import inject_favicon_head_tags
+        html = docs_template_file.read_text(encoding="utf-8")
+        return HTMLResponse(inject_favicon_head_tags(html))
 
     async def openapi_yaml_route(_request: Request) -> Response:
         spec_path = static_docs_dir / "openapi.yaml"

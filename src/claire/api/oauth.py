@@ -23,6 +23,7 @@ from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
 from ..config import get_settings
+from ..presentation.favicon import render_favicon_head_tags
 from ..store import db as dbm
 from .security import WebRuntimeConfig
 
@@ -213,9 +214,7 @@ def _render_authorize_page(
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Claire Bible 연결 승인</title>
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-    <link rel="alternate icon" href="/favicon.ico">
-    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+    {render_favicon_head_tags()}
     <style>
         body {{
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
