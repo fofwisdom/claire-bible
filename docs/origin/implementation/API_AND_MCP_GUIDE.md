@@ -3,16 +3,16 @@
 - **상태**: **구현 완료 (REST API + M1 MCP 툴셋 + OAuth 2.1 표준 인가 서버)**
 - **최종 갱신일**: 2026-10-16
 - **기준 프로토콜 및 사양**:
-  - OpenAPI 3.1.0 ([`docs/contracts/openapi.yaml`](../../contracts/openapi.yaml))
+  - OpenAPI 3.1.0 ([`openapi.yaml`](openapi.yaml))
   - Model Context Protocol (MCP) Streamable HTTP Transport (JSON-RPC 2.0)
-  - HTTP REST/ASGI 와이어 프로토콜 및 보안 계약 ([`docs/contracts/API_HTTP_CONTRACT.md`](../../contracts/API_HTTP_CONTRACT.md))
+  - HTTP REST/ASGI 와이어 프로토콜 및 보안 계약 ([`API_HTTP_CONTRACT.md`](API_HTTP_CONTRACT.md))
   - OAuth 2.0 / 2.1 RFC 계열:
     - RFC 6749 (The OAuth 2.0 Authorization Framework) / RFC 6750 (Bearer Token Usage)
     - RFC 7636 (Proof Key for Code Exchange by OAuth Public Clients, PKCE S256)
     - RFC 7591 (OAuth 2.0 Dynamic Client Registration Protocol)
     - RFC 8414 (OAuth 2.0 Authorization Server Metadata)
     - RFC 9728 (OAuth 2.0 Protected Resource Metadata)
-    - RFC 8693 (OAuth 2.0 Token Exchange, [`docs/contracts/TOKEN_EXCHANGE.md`](../../contracts/TOKEN_EXCHANGE.md))
+    - RFC 8693 (OAuth 2.0 Token Exchange, [`TOKEN_EXCHANGE.md`](TOKEN_EXCHANGE.md))
 
 ---
 

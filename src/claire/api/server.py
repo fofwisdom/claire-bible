@@ -3222,8 +3222,12 @@ def create_app(
     static_dir.mkdir(parents=True, exist_ok=True)
     static_docs_dir = static_dir / "docs"
     docs_template_file = Path(__file__).resolve().parent.parent / "templates" / "docs.html"
-    contracts_spec_file = (
-        Path(__file__).resolve().parent.parent.parent.parent / "docs" / "contracts" / "openapi.yaml"
+    implementation_spec_file = (
+        Path(__file__).resolve().parent.parent.parent.parent
+        / "docs"
+        / "origin"
+        / "implementation"
+        / "openapi.yaml"
     )
 
     async def docs_ui_route(_request: Request) -> Response:
@@ -3236,7 +3240,7 @@ def create_app(
     async def openapi_yaml_route(_request: Request) -> Response:
         spec_path = static_docs_dir / "openapi.yaml"
         if not spec_path.is_file():
-            spec_path = contracts_spec_file
+            spec_path = implementation_spec_file
         if not spec_path.is_file():
             return PlainTextResponse("OpenAPI specification not found", status_code=404)
         return Response(

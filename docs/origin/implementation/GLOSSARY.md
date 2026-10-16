@@ -1,4 +1,4 @@
-# Shared Compatibility Glossary (`docs/contracts/GLOSSARY.md`)
+# Shared Compatibility Glossary (`docs/origin/implementation/GLOSSARY.md`)
 
 이 문서는 테제 계보(`blackan/claire_bible`)와 증강 계보(`fofwisdom/claire-bible`) 간의 상호 이해와 데이터 호환성을 보장하기 위해 제정된 공식 표준 용어집(Canonical Glossary)이다.
 
@@ -15,7 +15,7 @@
 
 - **계보 관계 원칙**:
   - 테제 계보와 증강 계보는 상하 종속 관계가 아니며, 각자의 책무(테제 탐구 vs 실세계 증강)를 수행하는 독립적인 연구·개발 계보이다.
-  - 상호 호환성을 유지하기 위한 데이터 형식과 통신 인터페이스는 `docs/contracts/`의 공통 계약을 통해 엄격히 조율한다.
+  - 상호 호환성을 유지하기 위한 데이터 형식과 통신 인터페이스는 `docs/origin/implementation/`의 공통 계약을 통해 엄격히 조율한다.
 
 ---
 
@@ -30,7 +30,7 @@
 
 ### 2.1. 계약 (Contract)
 - **정의**: 두 계보가 데이터 상호 호환성과 지식 보존을 위해 공식적으로 합의하고 채택하는 거시적 정본 문서.
-- **범위**: `docs/contracts/` 디렉터리 내에 위치하는 독립된 Markdown 및 YAML 사양서.
+- **범위**: `docs/origin/implementation/` 디렉터리 내에 위치하는 독립된 Markdown 및 YAML 사양서.
 - **예시**:
   - `SCHEMA_VERSIONING.md` (스키마 버전 계약)
   - `API_HTTP_CONTRACT.md` (HTTP API 계약)
@@ -158,7 +158,7 @@ HTTP API 및 시스템 접근 제어에 적용되는 역할과 자격 증명 용
 |---|---|---|---|---|
 | 상위 계보 | **테제 계보** | Thesis Lineage | Upstream / blackan | `SCHEMA_LINEAGE = "claire-bible/common"` |
 | 증강 계보 | **증강 계보** | Augmentation Lineage | Origin / fofwisdom | `SCHEMA_LINEAGE = "claire-bible/common"` |
-| 상호 합의 | **계약** | Contract | `docs/contracts/*.md` | `SCHEMA_VERSION = 13` |
+| 상호 합의 | **계약** | Contract | `docs/origin/implementation/*.md` | `SCHEMA_VERSION = 13` |
 | 세부 규칙 | **규약** | Protocol / Rule | `GateMiddleware`, wire rules | 와이어 프로토콜 / 스텔스 규약 |
 | 미가공 원문 | **원문** | Raw Content | `Document.raw_text`, `raw_text` | `documents.raw_text`, `*.txt.zst` |
 | 원본 부가속성 | **원문 메타데이터** | Raw Metadata (`rawmeta`) | 외부 원본 메타데이터 (비영속/미검증) | PDF/HTTP 헤더 미가공 메타 |

@@ -1,6 +1,6 @@
 # Claire Bible — 오리진 목표와 로드맵 (증강 계보)
 
-**계보:** 증강 계보 ([`fofwisdom/claire-bible`](https://github.com/fofwisdom/claire-bible)) **기준 문서:** 본 문서는 증강 계보의 최상위 비전, 범위, 로드맵을 정의하는 단일 정본이다. **관련 문서:** 테제 원본 [`docs/upstream/GOALS.md`](../upstream/GOALS.md) · 공통 계약 [`docs/contracts/`](../contracts/README.md) · 아키텍처 로드맵 [`docs/origin/CLAIRE_ARCHITECTURE_ROADMAP.md`](CLAIRE_ARCHITECTURE_ROADMAP.md)
+**계보:** 증강 계보 ([`fofwisdom/claire-bible`](https://github.com/fofwisdom/claire-bible)) **기준 문서:** 본 문서는 증강 계보의 최상위 비전, 범위, 로드맵을 정의하는 단일 정본이다. **관련 문서:** 아키텍처 로드맵 [`docs/origin/CLAIRE_ARCHITECTURE_ROADMAP.md`](CLAIRE_ARCHITECTURE_ROADMAP.md) · 공개 아키텍처 [`docs/origin/implementation/PLAN.md`](implementation/PLAN.md) · 구현 및 API 가이드 [`docs/origin/implementation/API_AND_MCP_GUIDE.md`](implementation/API_AND_MCP_GUIDE.md)
 
 ---
 
@@ -49,7 +49,7 @@
    - 테마별 독립 Obsidian Vault 내보내기 및 FTS/벡터 색인 분리.
 7. **표준 인증 및 상호운용성**:
    - RFC 8693 OAuth 2.0 Token Exchange 및 OIDC 호환 토큰 교환.
-   - OpenAPI 3.1.0 공통 사양 정본([`openapi.yaml`](../contracts/openapi.yaml)) 준수.
+   - OpenAPI 3.1.0 공통 사양 정본([`openapi.yaml`](implementation/openapi.yaml)) 준수.
 8. **신뢰성 및 오퍼레이션**:
    - 지수 백오프 기반 오류 자동 복구 루프(`claire_recover`).
    - `cb-manuscript` 기반 원클릭 배포, 롤백, 데이터 검증.
@@ -65,7 +65,7 @@
    - 라우팅, 중복 판별, 와이어 프로토콜, 인증, 토큰 교환 등 시스템 코어 로직은 순수 결정론적 단위 테스트로 100% 검증한다.
    - 모델 추론 결과(추출, 요약 등)는 전용 평가 표본 및 E2E 테스트셋으로 분리하여 관리한다.
 3. **비파괴적 확장 및 스키마 진화 (Non-Destructive Evolution)**:
-   - 스키마 확장은 멱등 마이그레이션 체계를 따르며, 업스트림 테제와의 상호 운용성 계약([`docs/contracts/`](../contracts/README.md))을 항상 준수한다.
+   - 스키마 확장은 멱등 마이그레이션 체계를 따르며, 공통 스키마 버전 계약([`SCHEMA_VERSIONING.md`](implementation/SCHEMA_VERSIONING.md))을 항상 준수한다.
 4. **최소 권한 및 보안 경계 (Defense in Depth)**:
    - 읽기와 쓰기 권한을 엄격히 분리하고, 네트워크 경계(CORS, Reverse Proxy)와 애플리케이션 인증을 다층으로 보호한다.
    - 사설망 및 온프레미스 대상 요청은 SSRF 방지 보안 규칙을 엄격히 적용한다.

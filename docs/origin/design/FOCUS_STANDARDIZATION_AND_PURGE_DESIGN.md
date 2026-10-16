@@ -3,7 +3,7 @@
 - **문서 식별자**: `CLAIRE-DESIGN-0026`
 - **상태**: 승인 및 확정 (Approved / Definitive Architecture Specification)
 - **최초 작성일**: 2026-09-17
-- **관련 표준 및 계약**: [GLOSSARY.md](../../contracts/GLOSSARY.md), [openapi.yaml](../../contracts/openapi.yaml), [MULTI_THEME_ARCHITECTURE_DESIGN.md](./MULTI_THEME_ARCHITECTURE_DESIGN.md), [DATA_LIFECYCLE_AND_PURGE_DESIGN.md](./DATA_LIFECYCLE_AND_PURGE_DESIGN.md)
+- **관련 표준 및 계약**: [GLOSSARY.md](../implementation/GLOSSARY.md), [openapi.yaml](../implementation/openapi.yaml), [MULTI_THEME_ARCHITECTURE_DESIGN.md](./MULTI_THEME_ARCHITECTURE_DESIGN.md), [DATA_LIFECYCLE_AND_PURGE_DESIGN.md](./DATA_LIFECYCLE_AND_PURGE_DESIGN.md)
 
 ---
 
@@ -271,7 +271,7 @@ class ExtractionProvider(ABC):
 - 테마 생성/수정 API: `default_directive` 수신 코드를 영구 제거하고 오직 `default_focus`만 처리한다.
 - `GET /documents/{id}` 및 검색 응답 모델: `doc.meta`의 `focus` 필드를 클라이언트에 정규 반환한다.
 
-#### 3. OpenAPI 계약 (`docs/contracts/openapi.yaml`, `src/claire/static/docs/openapi.yaml`)
+#### 3. OpenAPI 계약 (`docs/origin/implementation/openapi.yaml`, `src/claire/static/docs/openapi.yaml`)
 - `directive`, `default_directive` 속성을 스키마에서 영구 삭제한다.
 - `focus`:
   ```yaml
@@ -355,7 +355,7 @@ class ExtractionProvider(ABC):
   ├── API: server.py 요청/응답 스키마 정제
   ├── Telegram Bot: parse_message_focus 교체 및 라벨 통일
   ├── Web UI: app.js, reader.js, CSS 클래스(.focus-tag) 치환
-  └── OpenAPI 계약 파일 갱신 (contracts/openapi.yaml)
+  └── OpenAPI 계약 파일 갱신 (origin/implementation/openapi.yaml)
 
 [Phase 4: 테스트 슈트 리네이밍 및 전수 검증]
   ├── 테스트 파일명 및 테스트 케이스 내 레거시 용어 치환

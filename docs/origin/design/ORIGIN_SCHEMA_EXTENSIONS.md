@@ -1,6 +1,6 @@
 # 오리진 스키마 확장과 복구 정책
 
-공통 지식 DB version과 lineage의 정본은 [`docs/contracts/SCHEMA_VERSIONING.md`](../../contracts/SCHEMA_VERSIONING.md)다. 이 문서는 공개 오리진에서만 구현하거나 운영하는 schema 확장, retired version 복구와 보조 저장소 version 계획을 정의한다.
+공통 지식 DB version과 lineage의 정본은 [`SCHEMA_VERSIONING.md`](../implementation/SCHEMA_VERSIONING.md)다. 이 문서는 공개 오리진에서만 구현하거나 운영하는 schema 확장, retired version 복구와 보조 저장소 version 계획을 정의한다.
 
 ## 공통 v13 선채택
 

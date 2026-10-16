@@ -1,6 +1,6 @@
 # 테마 지식베이스 FQDN 리버스 프록시 및 전용 GA4 추적 설계 명세서 (`THEME_FQDN_REVERSE_PROXY_DESIGN.md`)
 
-**문서 번호:** DESIGN-THEME-FQDN-20260916-01 **작성 주체:** Claire Bible Architecture Team **상태:** **승인 및 구현 완료 (Approved & Implemented)** **관련 문서:** [`docs/origin/design/MULTI_THEME_ARCHITECTURE_DESIGN.md`](MULTI_THEME_ARCHITECTURE_DESIGN.md), [`docs/origin/implementation/EXTERNAL_ACCESS.md`](../implementation/EXTERNAL_ACCESS.md), [`docs/contracts/API_HTTP_CONTRACT.md`](../../contracts/API_HTTP_CONTRACT.md)
+**문서 번호:** DESIGN-THEME-FQDN-20260916-01 **작성 주체:** Claire Bible Architecture Team **상태:** **승인 및 구현 완료 (Approved & Implemented)** **관련 문서:** [`docs/origin/design/MULTI_THEME_ARCHITECTURE_DESIGN.md`](MULTI_THEME_ARCHITECTURE_DESIGN.md), [`docs/origin/implementation/EXTERNAL_ACCESS.md`](../implementation/EXTERNAL_ACCESS.md), [`API_HTTP_CONTRACT.md`](../implementation/API_HTTP_CONTRACT.md)
 
 ---
 

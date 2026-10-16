@@ -1,6 +1,6 @@
 # 뷰 종속형 통합 검색(View-Contextual Unified Search) 및 지능형 자동 검색 엔진 아키텍처 설계
 
-작성일: 2026-09-28 · 상태: **Implemented** · 기준: [GOALS.md](../../upstream/GOALS.md) 트랙2(추출·연결 품질) / UI·UX 고도화 · 관련 문서: [search.md](../../upstream/search.md), [API_HTTP_CONTRACT.md](../../contracts/API_HTTP_CONTRACT.md), [GRAPHVIEW_MODULARIZATION_AND_STATIC_ASSET_DESIGN.md](GRAPHVIEW_MODULARIZATION_AND_STATIC_ASSET_DESIGN.md)
+작성일: 2026-09-28 · 상태: **Implemented** · 기준: [GOALS.md](../GOALS.md) 트랙2(추출·연결 품질) / UI·UX 고도화 · 관련 문서: [API_HTTP_CONTRACT.md](../implementation/API_HTTP_CONTRACT.md), [GRAPHVIEW_MODULARIZATION_AND_STATIC_ASSET_DESIGN.md](GRAPHVIEW_MODULARIZATION_AND_STATIC_ASSET_DESIGN.md)
 
 ---
 

@@ -690,6 +690,155 @@ paths:
                 type: string
                 example: 'Bearer error="invalid_token", error_description="Authentication required"'
 
+  /tokens:
+    get:
+      summary: List persistent API and MCP tokens
+      operationId: listTokens
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      responses:
+        '200':
+          description: List of active, expired, and revoked persistent tokens.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [tokens]
+                properties:
+                  tokens:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ApiTokenInfo'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    post:
+      summary: Create a new persistent API and MCP token
+      operationId: createToken
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                  example: "Claude Desktop"
+                scope:
+                  type: string
+                  enum: [owner, collaborator, readonly]
+                  default: readonly
+                expires_in_days:
+                  type: integer
+                  nullable: true
+                  example: 90
+      responses:
+        '201':
+          description: Token created successfully. Raw token is returned only once.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, token, message]
+                properties:
+                  ok:
+                    type: boolean
+                  message:
+                    type: string
+                  token:
+                    $ref: '#/components/schemas/CreatedApiToken'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      summary: Revoke an API and MCP token immediately
+      operationId: revokeTokenDelete
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id]
+              properties:
+                id:
+                  oneOf:
+                    - type: integer
+                    - type: string
+      responses:
+        '200':
+          description: Token revoked successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, message]
+                properties:
+                  ok:
+                    type: boolean
+                  message:
+                    type: string
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /tokens/revoke:
+    post:
+      summary: Revoke an API and MCP token immediately
+      operationId: revokeTokenPost
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id]
+              properties:
+                id:
+                  oneOf:
+                    - type: integer
+                    - type: string
+      responses:
+        '200':
+          description: Token revoked successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, message]
+                properties:
+                  ok:
+                    type: boolean
+                  message:
+                    type: string
+        '404':
+          $ref: '#/components/responses/NotFound'
+
 components:
   securitySchemes:
     BearerAuth:
@@ -892,3 +1041,54 @@ components:
         download_url:
           type: string
           format: uri
+
+    ApiTokenInfo:
+      type: object
+      required: [id, name, scope, created_at, token_masked]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        scope:
+          type: string
+          enum: [owner, collaborator, readonly]
+        created_at:
+          type: number
+        expires_at:
+          type: number
+          nullable: true
+        last_used_at:
+          type: number
+          nullable: true
+        revoked_at:
+          type: number
+          nullable: true
+        token_masked:
+          type: string
+          example: "cb_a1b2...y9z0"
+
+    CreatedApiToken:
+      type: object
+      required: [id, token, name, scope, created_at]
+      properties:
+        id:
+          type: integer
+        token:
+          type: string
+          example: "cb_pcVteDtLVYThveppxAd3WXwGMzgtrz2YpkE9euOPgOw"
+        name:
+          type: string
+        scope:
+          type: string
+        created_at:
+          type: number
+        expires_at:
+          type: number
+          nullable: true
+        last_used_at:
+          type: number
+          nullable: true
+        revoked_at:
+          type: number
+          nullable: true
