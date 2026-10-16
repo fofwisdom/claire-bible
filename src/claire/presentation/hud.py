@@ -639,6 +639,11 @@ def sanitize_presentation_assets(html_content: str) -> str:
         elif "<head " in html_content:
             html_content = re.sub(r"(<head[^>]*>)", r'\1\n<base href="/">', html_content, count=1)
 
+    # 4. Inject standard favicon tags if not already present
+    if 'rel="icon"' not in html_content and "rel='icon'" not in html_content:
+        from .favicon import inject_favicon_head_tags
+        html_content = inject_favicon_head_tags(html_content)
+
     return html_content
 
 

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import html
 
+from .favicon import render_favicon_head_tags
+
 
 def render_unready_presentation_page(
     *,
@@ -91,6 +93,7 @@ def render_unready_presentation_page(
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   {refresh_meta}
   <title>{escaped_title} - 프레젠테이션 안내</title>
+  {render_favicon_head_tags()}
   <style>
     * {{ box-sizing: border-box; margin: 0; padding: 0; }}
     body {{
