@@ -43,8 +43,8 @@ $$\text{owner} \succ \text{readonly} \succ \text{anonymous} \succ \text{unauthen
 
 | 스코프 | 권한 범위 | 설명 |
 |---|---|---|
-| `owner` | 모든 읽기/쓰기, 테마 관리, 지식 적재, 번들 생성, 토큰 관리 | DB 영구 토큰(`api_tokens`), 마스터 인젝트 토큰(레거시), 또는 승인된 owner 세션 |
-| `readonly` | 모든 공개/비공개 지식 조회, 검색, MCP 툴 호출 | DB 영구 readonly 토큰(`api_tokens`), 읽기 전용 토큰(레거시), 또는 readonly 세션 |
+| `owner` | 모든 읽기/쓰기, 테마 관리, 지식 적재, 번들 생성, 토큰 관리 | 독립 상시 토큰(`data/auth/api_tokens.json`), 마스터 인젝트 토큰(레거시), 또는 승인된 owner 세션 |
+| `readonly` | 모든 공개/비공개 지식 조회, 검색, MCP 툴 호출 | 독립 상시 readonly 토큰(`data/auth/api_tokens.json`), 읽기 전용 토큰(레거시), 또는 readonly 세션 |
 | `anonymous` | 공개 지식 조회 및 기본 FTS 검색 (숨김 문서 제외) | 자격증명이 없으나 `CLAIRE_ANONYMOUS_READONLY=1`인 경우 |
 
 ### 3.4 스텔스 모드 불변식

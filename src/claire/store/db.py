@@ -236,21 +236,6 @@ CREATE TABLE IF NOT EXISTS oauth_tokens (
 );
 CREATE INDEX IF NOT EXISTS idx_oauth_tokens_refresh ON oauth_tokens(refresh_token);
 
--- [API 및 MCP 상시 이용 토큰] 환경변수(.env) 의존성을 폐기하고 DB 기반으로 상시 관리·통제되는
--- 영구/장기 액세스 토큰 (Personal Access Token / MCP Key).
-CREATE TABLE IF NOT EXISTS api_tokens (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    token TEXT UNIQUE NOT NULL,
-    name TEXT NOT NULL,
-    scope TEXT NOT NULL DEFAULT 'readonly',  -- 'owner' | 'collaborator' | 'readonly'
-    created_at REAL NOT NULL,
-    expires_at REAL,                        -- NULL = 무기한(상시 이용)
-    last_used_at REAL,
-    revoked_at REAL                         -- NULL = 활성, timestamp = 폐기됨
-);
-CREATE INDEX IF NOT EXISTS idx_api_tokens_token ON api_tokens(token);
-CREATE INDEX IF NOT EXISTS idx_api_tokens_revoked ON api_tokens(revoked_at);
-
 CREATE TABLE IF NOT EXISTS oauth_auth_requests (
     nonce TEXT PRIMARY KEY,
     client_id TEXT NOT NULL,
@@ -569,23 +554,6 @@ def _migrate(conn: sqlite3.Connection) -> None:
                 )
         except Exception:
             pass
-
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS api_tokens (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            token TEXT UNIQUE NOT NULL,
-            name TEXT NOT NULL,
-            scope TEXT NOT NULL DEFAULT 'readonly',
-            created_at REAL NOT NULL,
-            expires_at REAL,
-            last_used_at REAL,
-            revoked_at REAL
-        )
-        """
-    )
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_api_tokens_token ON api_tokens(token)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_api_tokens_revoked ON api_tokens(revoked_at)")
 
 
 
@@ -2029,179 +1997,105 @@ def deny_oauth_auth_request(
     return cur.rowcount > 0
 
 
-# --- API and MCP Persistent Access Tokens ---
+# --- API and MCP Persistent Access Tokens (Decoupled File Store) ---
+
+
+def _data_dir_from_conn(conn: Any) -> Path | None:
+    try:
+        if conn is not None and hasattr(conn, "execute"):
+            cur = conn.execute("PRAGMA database_list")
+            row = cur.fetchone()
+            if row and len(row) >= 3 and row[2]:
+                return Path(row[2]).parent
+    except Exception:
+        pass
+    return None
 
 
 def create_api_token(
-    conn: sqlite3.Connection,
-    name: str,
+    conn: Any = None,
+    name: str = "",
     scope: str = "readonly",
     expires_in_days: int | None = None,
     token: str | None = None,
 ) -> dict[str, Any]:
-    """Create a persistent API and MCP access token."""
-    name_clean = str(name or "").strip()
-    if not name_clean:
-        raise ValueError("Token name is required.")
-    scope_clean = str(scope or "readonly").strip().lower()
-    if scope_clean == "collab":
-        scope_clean = "collaborator"
-    if scope_clean not in ("owner", "collaborator", "readonly"):
-        raise ValueError(f"Invalid scope: {scope_clean}. Must be owner, collaborator, or readonly.")
+    """Create a persistent API and MCP access token in the decoupled token store."""
+    from .token_store import get_token_store
 
-    if token is None:
-        token_val = f"cb_{secrets.token_urlsafe(32)}"
-    else:
-        token_val = str(token).strip()
-        if len(token_val) < 16:
-            raise ValueError("Token value must have a minimum of 16 characters.")
-
-    now = time.time()
-    expires_at = (now + float(expires_in_days) * 86400.0) if expires_in_days is not None else None
-    cur = conn.execute(
-        "INSERT INTO api_tokens (token, name, scope, created_at, expires_at, last_used_at, revoked_at) "
-        "VALUES (?, ?, ?, ?, ?, NULL, NULL)",
-        (token_val, name_clean, scope_clean, now, expires_at),
-    )
-    conn.commit()
-    return {
-        "id": cur.lastrowid,
-        "token": token_val,
-        "name": name_clean,
-        "scope": scope_clean,
-        "created_at": now,
-        "expires_at": expires_at,
-        "last_used_at": None,
-        "revoked_at": None,
-    }
+    store = get_token_store(data_dir=_data_dir_from_conn(conn))
+    return store.create_api_token(name=name, scope=scope, expires_in_days=expires_in_days, token=token)
 
 
 def list_api_tokens(
-    conn: sqlite3.Connection,
+    conn: Any = None,
     include_revoked: bool = False,
 ) -> list[dict[str, Any]]:
-    """List API and MCP access tokens."""
-    if include_revoked:
-        rows = conn.execute(
-            "SELECT id, token, name, scope, created_at, expires_at, last_used_at, revoked_at "
-            "FROM api_tokens ORDER BY id DESC"
-        ).fetchall()
-    else:
-        rows = conn.execute(
-            "SELECT id, token, name, scope, created_at, expires_at, last_used_at, revoked_at "
-            "FROM api_tokens WHERE revoked_at IS NULL ORDER BY id DESC"
-        ).fetchall()
-    return [dict(r) for r in rows]
+    """List API and MCP access tokens from the decoupled token store."""
+    from .token_store import get_token_store
+
+    store = get_token_store(data_dir=_data_dir_from_conn(conn))
+    return store.list_api_tokens(include_revoked=include_revoked)
 
 
 def get_api_token(
-    conn: sqlite3.Connection,
-    token_or_id: str | int,
+    conn: Any = None,
+    token_or_id: str | int = "",
 ) -> dict[str, Any] | None:
-    """Find a token by id, exact value, or prefix."""
-    if isinstance(token_or_id, int) or (isinstance(token_or_id, str) and token_or_id.isdigit()):
-        row = conn.execute(
-            "SELECT id, token, name, scope, created_at, expires_at, last_used_at, revoked_at "
-            "FROM api_tokens WHERE id=?",
-            (int(token_or_id),),
-        ).fetchone()
-    else:
-        target = str(token_or_id).strip()
-        row = conn.execute(
-            "SELECT id, token, name, scope, created_at, expires_at, last_used_at, revoked_at "
-            "FROM api_tokens WHERE token=?",
-            (target,),
-        ).fetchone()
-        if not row and len(target) >= 6:
-            row = conn.execute(
-                "SELECT id, token, name, scope, created_at, expires_at, last_used_at, revoked_at "
-                "FROM api_tokens WHERE token LIKE ? ORDER BY id DESC LIMIT 1",
-                (f"{target}%",),
-            ).fetchone()
-    return dict(row) if row is not None else None
+    """Find a token by id, exact value, or prefix from the decoupled token store."""
+    from .token_store import get_token_store
+
+    store = get_token_store(data_dir=_data_dir_from_conn(conn))
+    return store.get_api_token(token_or_id)
 
 
 def revoke_api_token(
-    conn: sqlite3.Connection,
-    token_or_id: str | int,
+    conn: Any = None,
+    token_or_id: str | int = "",
 ) -> bool:
     """Revoke an API and MCP access token immediately."""
-    tok = get_api_token(conn, token_or_id)
-    if not tok or tok.get("revoked_at") is not None:
-        return False
-    now = time.time()
-    cur = conn.execute(
-        "UPDATE api_tokens SET revoked_at=? WHERE id=? AND revoked_at IS NULL",
-        (now, tok["id"]),
-    )
-    conn.commit()
-    return cur.rowcount > 0
+    from .token_store import get_token_store
+
+    store = get_token_store(data_dir=_data_dir_from_conn(conn))
+    return store.revoke_api_token(token_or_id)
 
 
 def validate_api_token(
-    conn: sqlite3.Connection,
-    token: str,
+    conn: Any = None,
+    token: str = "",
 ) -> dict[str, Any] | None:
-    """Validate token and update last_used_at timestamp."""
-    if not token or len(token) < 16:
-        return None
-    now = time.time()
-    row = conn.execute(
-        "SELECT id, token, name, scope, expires_at, revoked_at FROM api_tokens WHERE token=?",
-        (token,),
-    ).fetchone()
-    if not row:
-        return None
-    if row["revoked_at"] is not None:
-        return None
-    if row["expires_at"] is not None and row["expires_at"] < now:
-        return None
-    try:
-        conn.execute("UPDATE api_tokens SET last_used_at=? WHERE id=?", (now, row["id"]))
-        conn.commit()
-    except Exception:
-        pass
-    return {"id": row["id"], "token": row["token"], "name": row["name"], "scope": str(row["scope"])}
+    """Validate token against the decoupled in-memory/file token store."""
+    from .token_store import get_token_store
+
+    store = get_token_store(data_dir=_data_dir_from_conn(conn))
+    return store.validate_api_token(token)
 
 
 def migrate_env_tokens(
-    conn: sqlite3.Connection,
+    conn: Any = None,
     env_inject_token: str = "",
     env_readonly_token: str = "",
     env_collab_token: str = "",
 ) -> list[dict[str, Any]]:
-    """Migrate environment variable tokens into the api_tokens table."""
-    migrated: list[dict[str, Any]] = []
+    """Migrate environment variable tokens into the decoupled token store."""
+    from .token_store import get_token_store
 
-    def _import(val: str, name: str, scope: str) -> None:
-        raw = str(val or "").strip()
-        if not raw or len(raw) < 16:
-            return
-        found = conn.execute("SELECT id FROM api_tokens WHERE token=?", (raw,)).fetchone()
-        if not found:
-            created = create_api_token(conn, name=name, scope=scope, expires_in_days=None, token=raw)
-            migrated.append(created)
-
-    _import(env_inject_token, "Legacy Owner Token (.env)", "owner")
-    _import(env_readonly_token, "Legacy Readonly Token (.env)", "readonly")
-    _import(env_collab_token, "Legacy Collaborator Token (.env)", "collaborator")
-    return migrated
+    store = get_token_store(data_dir=_data_dir_from_conn(conn))
+    return store.migrate_env_tokens(
+        env_inject_token=env_inject_token,
+        env_readonly_token=env_readonly_token,
+        env_collab_token=env_collab_token,
+    )
 
 
 def ensure_default_owner_token(
-    conn: sqlite3.Connection,
+    conn: Any = None,
     fallback_token: str = "",
 ) -> dict[str, Any]:
-    """Ensure at least one active owner token exists."""
-    row = conn.execute(
-        "SELECT id, token, name, scope, created_at, expires_at, last_used_at, revoked_at "
-        "FROM api_tokens WHERE scope='owner' AND revoked_at IS NULL ORDER BY id ASC LIMIT 1"
-    ).fetchone()
-    if row is not None:
-        return dict(row)
-    fb = str(fallback_token or "").strip()
-    val = fb if (fb and len(fb) >= 16) else None
-    return create_api_token(conn, name="Default Knowledge Manager (Owner)", scope="owner", expires_in_days=None, token=val)
+    """Ensure at least one active owner token exists in the decoupled token store."""
+    from .token_store import get_token_store
+
+    store = get_token_store(data_dir=_data_dir_from_conn(conn))
+    return store.ensure_default_owner_token(fallback_token=fallback_token)
 
 
 

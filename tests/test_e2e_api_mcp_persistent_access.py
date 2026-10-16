@@ -244,3 +244,15 @@ def test_e2e_api_mcp_persistent_access_lifecycle(tmp_path: Path, monkeypatch: py
             headers={"Authorization": f"Bearer {expired_token_record['token']}"},
         )
         assert expired_rest_resp.status_code == 404
+
+        # Step 9: Verify architecture isolation (Model 3: Hybrid Decoupled)
+        # 9a. Verify claire.db schema has 0 api_tokens table
+        conn_check = dbm.connect(db_file)
+        assert conn_check.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='api_tokens'").fetchone() is None
+        conn_check.close()
+
+        # 9b. Verify dedicated auth file exists with chmod 0600
+        auth_file = data_dir / "auth" / "api_tokens.json"
+        assert auth_file.is_file()
+        assert auth_file.stat().st_mode & 0o777 == 0o600
+        assert (data_dir / "auth").stat().st_mode & 0o777 == 0o700
