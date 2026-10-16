@@ -1,6 +1,6 @@
 # 수집기(Fetcher) 기여 아키텍처 및 온프레미스 사설망 보안 설계
 
-작성일: 2026-09-15 · 상태: **Implemented** · 기준: [GOALS.md](../../upstream/GOALS.md) 트랙1(안정성) / 트랙2(추출·연결 품질) · 관련: [INGESTION_INTEGRITY_AND_POLLUTION_CONTROL_RESEARCH.md](INGESTION_INTEGRITY_AND_POLLUTION_CONTROL_RESEARCH.md), [ENVIRONMENT_VARIABLES.md](../implementation/ENVIRONMENT_VARIABLES.md)
+작성일: 2026-09-15 · 상태: **Implemented** · 기준: [GOALS.md](../GOALS.md) 트랙1(안정성) / 트랙2(추출·연결 품질) · 관련: [INGESTION_INTEGRITY_AND_POLLUTION_CONTROL_RESEARCH.md](INGESTION_INTEGRITY_AND_POLLUTION_CONTROL_RESEARCH.md), [ENVIRONMENT_VARIABLES.md](../implementation/ENVIRONMENT_VARIABLES.md)
 
 ---
 

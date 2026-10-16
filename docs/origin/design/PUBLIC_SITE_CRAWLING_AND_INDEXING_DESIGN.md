@@ -7,7 +7,7 @@
 - [`docs/origin/design/THEME_FQDN_REVERSE_PROXY_DESIGN.md`](THEME_FQDN_REVERSE_PROXY_DESIGN.md)  
 - [`docs/origin/design/MULTI_THEME_ARCHITECTURE_DESIGN.md`](MULTI_THEME_ARCHITECTURE_DESIGN.md)  
 - [`docs/origin/design/DATABASE_PRESENTATION_TOGGLE_DESIGN.md`](DATABASE_PRESENTATION_TOGGLE_DESIGN.md)  
-- [`docs/contracts/API_HTTP_CONTRACT.md`](../../contracts/API_HTTP_CONTRACT.md)  
+- [`API_HTTP_CONTRACT.md`](../implementation/API_HTTP_CONTRACT.md)  
 
 ---
 

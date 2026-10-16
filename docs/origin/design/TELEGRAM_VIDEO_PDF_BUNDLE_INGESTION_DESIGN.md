@@ -1,6 +1,6 @@
 # 텔레그램 MP4·PDF 복합 적재 설계
 
-작성일: 2026-09-15 · 상태: **설계 확정, 구현 전** · 기준: [GOALS.md](../../upstream/GOALS.md) 품질 원칙 · 관련: [VIDEO_AUDIO_TRANSCRIPTION_AND_INGESTION_DESIGN.md](VIDEO_AUDIO_TRANSCRIPTION_AND_INGESTION_DESIGN.md), [VIDEO_PRESENTATION_BUNDLE_INGESTION_DESIGN.md](VIDEO_PRESENTATION_BUNDLE_INGESTION_DESIGN.md), [PDF_INGESTION_AND_ADAPTIVE_EFFORT_DESIGN.md](PDF_INGESTION_AND_ADAPTIVE_EFFORT_DESIGN.md)
+작성일: 2026-09-15 · 상태: **설계 확정, 구현 전** · 기준: [GOALS.md](../GOALS.md) 품질 원칙 · 관련: [VIDEO_AUDIO_TRANSCRIPTION_AND_INGESTION_DESIGN.md](VIDEO_AUDIO_TRANSCRIPTION_AND_INGESTION_DESIGN.md), [VIDEO_PRESENTATION_BUNDLE_INGESTION_DESIGN.md](VIDEO_PRESENTATION_BUNDLE_INGESTION_DESIGN.md), [PDF_INGESTION_AND_ADAPTIVE_EFFORT_DESIGN.md](PDF_INGESTION_AND_ADAPTIVE_EFFORT_DESIGN.md)
 
 ---
 
@@ -468,7 +468,7 @@ MP4를 '파일로 보내기'로 PDF와 함께 선택하거나,
 
 1. Telegram, *Telegram Bot API*, Message `media_group_id`, `sendMediaGroup`, `getFile`, Local Bot API Server, 2026-09-15 확인.[^telegram-media-group][^telegram-file-limits]
 2. python-telegram-bot, *filters Module* 및 *Bot*, document 필터의 신뢰 경계, `filters.VIDEO`, 로컬 Bot API 연결 설정, 2026-09-15 확인.[^ptb-filter-safety][^ptb-local-api]
-3. Claire Bible, [GOALS.md](../../upstream/GOALS.md), 품질 원칙과 공통 적재 파이프라인, 2026-09-15 확인.[^project-principles]
+3. Claire Bible, [GOALS.md](../GOALS.md), 품질 원칙과 공통 적재 파이프라인, 2026-09-15 확인.[^project-principles]
 4. Claire Bible, 텔레그램·파일·비디오·Presentation 현재 구현 및 회귀 테스트, 2026-09-15 확인.[^current-telegram-path][^current-presentation-boundary][^verification-scope]
 
 [^current-telegram-path]: Claire Bible 구현 근거: [`src/claire/telegram_bot.py`](../../../src/claire/telegram_bot.py), [`src/claire/ingest/fetchers/textfile.py`](../../../src/claire/ingest/fetchers/textfile.py), [`src/claire/ingest/service.py`](../../../src/claire/ingest/service.py), [`src/claire/store/db.py`](../../../src/claire/store/db.py) (2026-09-15 확인).
@@ -478,4 +478,4 @@ MP4를 '파일로 보내기'로 PDF와 함께 선택하거나,
 [^telegram-file-limits]: Telegram, [Telegram Bot API — getFile](https://core.telegram.org/bots/api#getfile) 및 [Using a Local Bot API Server](https://core.telegram.org/bots/api#using-a-local-bot-api-server) (2026-09-15 확인). 일반 Bot API의 bot 다운로드 상한은 20 MB이며 로컬 서버는 무제한 다운로드와 최대 2,000 MB 업로드를 제공한다.
 [^ptb-filter-safety]: python-telegram-bot, [filters Module — Document](https://docs.python-telegram-bot.org/en/stable/telegram.ext.filters.html#telegram.ext.filters.Document) 및 [filters.VIDEO](https://docs.python-telegram-bot.org/en/stable/telegram.ext.filters.html#telegram.ext.filters.VIDEO) (2026-09-15 확인). MIME·확장자 필터는 파일 내용의 유효성을 검증하지 않는다.
 [^ptb-local-api]: python-telegram-bot, [Bot](https://docs.python-telegram-bot.org/en/stable/telegram.bot.html#telegram.Bot) (`base_url`, `base_file_url`, `local_mode`) (2026-09-15 확인). 커스텀 base URL로 Local Bot API Server에 연결할 수 있다.
-[^project-principles]: Claire Bible, [GOALS.md §2–3](../../upstream/GOALS.md): 텔레그램·CLI·로컬 API의 공통 적재 파이프라인, 원문·출처 보존, 실패 입력의 복구 가능 상태 기록, 결정론적 로직과 모델 의존 검증의 분리를 규정한다.
+[^project-principles]: Claire Bible, [GOALS.md §2–3](../GOALS.md): 텔레그램·CLI·로컬 API의 공통 적재 파이프라인, 원문·출처 보존, 실패 입력의 복구 가능 상태 기록, 결정론적 로직과 모델 의존 검증의 분리를 규정한다.

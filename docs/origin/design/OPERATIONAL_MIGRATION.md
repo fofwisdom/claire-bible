@@ -81,7 +81,7 @@ flowchart TD
 4. 컬럼 서명이 다르면 DB와 파일 시스템을 변경하지 않고 마이그레이션을 실패시킨다.
 5. 멀티 테마 배포는 기본 DB와 등록된 모든 활성 테마 DB에 같은 복구를 적용한다.
 
-이 호환 경로는 정본 DB에 새로운 관측성 테이블을 만들지 않으며, 이후 수집에서도 해당 테이블과 상시 HTML/DOM 스냅샷을 다시 생성하지 않는다. v12는 폐기된 로컬 버전으로 영구 예약하며, 향후 공통 스키마 버전이 12보다 높아져도 이 복구의 목적지는 항상 v11이다. 복구가 끝나면 같은 `migrate` 실행이 [공통 스키마 버전 계약](../../contracts/SCHEMA_VERSIONING.md)에 따라 v11에서 공통 v13으로 승격하고 `schema_lineage=claire-bible/common`을 기록한다.
+이 호환 경로는 정본 DB에 새로운 관측성 테이블을 만들지 않으며, 이후 수집에서도 해당 테이블과 상시 HTML/DOM 스냅샷을 다시 생성하지 않는다. v12는 폐기된 로컬 버전으로 영구 예약하며, 향후 공통 스키마 버전이 12보다 높아져도 이 복구의 목적지는 항상 v11이다. 복구가 끝나면 같은 `migrate` 실행이 [공통 스키마 버전 계약](../implementation/SCHEMA_VERSIONING.md)에 따라 v11에서 공통 v13으로 승격하고 `schema_lineage=claire-bible/common`을 기록한다.
 
 ## 5. 전체 DB inventory 기반 update/backup (**Planned / 미구현**)
 
