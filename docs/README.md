@@ -59,6 +59,7 @@ docs/
     │   ├── VIEW_CONTEXTUAL_UNIFIED_SEARCH_DESIGN.md # 뷰 종속형 통합 검색 및 지능형 자동 검색 엔진 아키텍처 설계 (구현 완료)
     │   └── VMWARE_EXPLORE_ACTIVE_WAITING_RESILIENCE_DESIGN.md # VMware Explore 프레젠테이션 탐색 능동 대기(Active Waiting) 및 복원력 설계 (구현 완료)
     ├── implementation/     # [구현/운영 내역] 운영 가이드, 네트워크/인증 명세, 배포 설정
+    │   ├── API_AND_MCP_GUIDE.md # REST API 및 MCP 연결·인증·도구 활용 종합 가이드
     │   ├── COMMANDS.md     # 전체 CLI 명령어 및 미구현/제약사항 상세 레퍼런스
     │   ├── ENVIRONMENT_VARIABLES.md # 환경변수 설정, .env 계층, Pydantic 검증 및 운영 종합 매뉴얼
     │   ├── EXTERNAL_ACCESS.md # 웹 접속, reverse proxy, 포트, 인증/CORS 경계 명세 (오리진 구현본)

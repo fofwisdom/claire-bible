@@ -246,7 +246,7 @@ Claire Bible은 시스템 소유자(Owner), 협력자(Collaborator), 읽기 전�
  }
  ```
  
- 자세한 아키텍처 및 툴 상세 명세는 [MCP_SUPPORT.md](../design/MCP_SUPPORT.md)를 참고한다.
+ 자세한 REST API 엔드포인트 호출 및 MCP 툴셋/OAuth 2.1 연동 상세 가이드는 [API_AND_MCP_GUIDE.md](API_AND_MCP_GUIDE.md)와 [MCP_SUPPORT.md](../design/MCP_SUPPORT.md)를 참고한다.
  
 ## Support Bundle (RCA 및 진단 번들)
 
