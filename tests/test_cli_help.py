@@ -27,7 +27,7 @@ def test_top_level_parser_help_and_epilog():
     assert parser.prog == "claire"
     assert parser.description and "Autonomous Knowledge Graph" in parser.description
     assert parser.epilog and "Quick Reference:" in parser.epilog
-    assert "Detailed Documentation: docs/origin/implementation/COMMANDS.md" in parser.epilog
+    assert "Detailed Documentation: docs/implementation/COMMANDS.md" in parser.epilog
 
 
 def test_all_subcommands_have_help_and_description():
@@ -110,4 +110,4 @@ def test_e2e_cli_help_execution():
     assert "claire search" in stdout
     assert "claire doctor --heal" in stdout
     assert "claire presentation generate" in stdout
-    assert "Detailed Documentation: docs/origin/implementation/COMMANDS.md" in stdout
+    assert "Detailed Documentation: docs/implementation/COMMANDS.md" in stdout

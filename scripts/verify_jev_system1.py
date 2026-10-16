@@ -2,8 +2,8 @@
 """TypeSafe AI Jev (System 1 Engine) 실측 벤치마크 및 검증 스크립트.
 
 설계 문서 레퍼런스:
-  - docs/origin/design/DECISION_STREAM_AND_HEATMAP_MATRIX_DESIGN.md (§6.4 ~ §6.5)
-  - docs/origin/design/MULTI_PROVIDER_DESIGN.md (§6)
+  - docs/design/DECISION_STREAM_AND_HEATMAP_MATRIX_DESIGN.md (§6.4 ~ §6.5)
+  - docs/design/MULTI_PROVIDER_DESIGN.md (§6)
 
 동작:
   1. 프로덕션 환경의 Jev API Key 및 Base URL 자동 탐색 (.env, providers.json, 환경변수)
