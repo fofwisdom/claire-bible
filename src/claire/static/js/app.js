@@ -4296,6 +4296,8 @@ function setAccessScope(scope, reason){
   if(pmBtn) pmBtn.style.display = canWrite() ? '' : 'none';
   const lmBtn = document.getElementById('limitmanagebtn');
   if(lmBtn) lmBtn.style.display = canWrite() ? '' : 'none';
+  const kmBtn = document.getElementById('tokenmanagebtn');
+  if(kmBtn) kmBtn.style.display = canWrite() ? '' : 'none';
   const mgSec = document.getElementById('manage-section');
   if(mgSec) mgSec.style.display = (canAccessThemes || canWrite()) ? '' : 'none';
   if(!canWrite()){
@@ -5314,6 +5316,210 @@ async function resetLimitSettings(){
     renderLimitManager('적재 제한 설정이 기본값으로 초기화되었습니다.', true);
   }catch(e){
     renderLimitManager('오류 발생: ' + (e.message || e), false);
+  }
+}
+
+let _tokenList = [];
+
+async function openTokenManager(msg, isSuccess, newCreatedToken){
+  if(!canWrite()) return;
+  openDetailPane();
+  panel.innerHTML = '<h2>🔑 API &amp; MCP 상시 이용 키 관리</h2><p class="hint">토큰 목록 조회 중…</p>';
+  try{
+    const r = await fetch('tokens');
+    if(!r.ok) throw new Error('HTTP ' + r.status);
+    const data = await r.json();
+    _tokenList = data.tokens || [];
+    renderTokenManager(msg, isSuccess, newCreatedToken);
+  }catch(e){
+    panel.innerHTML = `<h2>🔑 API &amp; MCP 상시 이용 키 관리</h2><p class="hint" style="color:var(--err,#cf222e)">토큰 목록을 불러올 수 없습니다: ${esc(e.message||e)}</p>`;
+  }
+}
+
+function renderTokenManager(msg, isSuccess, newCreatedToken){
+  let alertHtml = '';
+  if(msg){
+    const color = isSuccess ? 'var(--accent2,#1a7f37)' : 'var(--err,#cf222e)';
+    const bg = isSuccess ? 'rgba(26,127,55,0.1)' : 'rgba(207,34,46,0.1)';
+    const icon = isSuccess ? '✅' : '⚠️';
+    alertHtml = `<div style="padding:8px 10px;border-radius:6px;background:${bg};color:${color};font-size:12px;margin-bottom:12px;border:1px solid ${color};">${icon} ${esc(msg)}</div>`;
+  }
+
+  let h = '<h2>🔑 API &amp; MCP 상시 이용 키 관리</h2>';
+  h += '<p class="al">Claude Desktop, Cursor, 백그라운드 데몬 및 외부 API 연동을 위한 상시 이용(24/7) 토큰을 관리합니다. 환경변수 의존 없이 즉시 생성 및 폐기됩니다.</p>';
+  h += alertHtml;
+
+  if(newCreatedToken){
+    const rawVal = newCreatedToken.token || '';
+    const mcpOrigin = window.location.origin;
+    const mcpUrl = `${mcpOrigin}/mcp`;
+    h += '<div style="background:rgba(26,127,55,0.08);border:2px solid var(--accent2,#1a7f37);border-radius:8px;padding:12px;margin-bottom:16px;">';
+    h += '<h3 style="margin:0 0 6px 0;font-size:14px;color:var(--accent2,#1a7f37);">🎉 새 토큰이 발급되었습니다</h3>';
+    h += '<p style="margin:0 0 8px 0;font-size:12px;">이 토큰은 다시 전체 문자열로 표시되지 않습니다. 지금 복사하여 보관하세요.</p>';
+    h += '<div style="display:flex;gap:6px;margin-bottom:8px;">';
+    h += `<input type="text" id="newly-minted-token" readonly value="${esc(rawVal)}" style="flex:1;font-family:monospace;padding:6px 8px;font-size:12px;border:1px solid var(--border);border-radius:4px;background:var(--bg);" onclick="this.select();"/>`;
+    h += '<button type="button" class="btn" style="padding:6px 10px;font-size:12px;background:var(--btn-bg,#1f883d);color:#fff;border:none;border-radius:4px;cursor:pointer;" onclick="navigator.clipboard.writeText(document.getElementById(\'newly-minted-token\').value).then(()=>alert(\'토큰이 클립보드에 복사되었습니다.\'))">📋 복사</button>';
+    h += '</div>';
+    h += '<details style="font-size:12px;color:var(--fg);"><summary style="cursor:pointer;font-weight:600;margin-bottom:4px;">📋 Claude Desktop / Cursor MCP 연동 JSON 보기</summary>';
+    h += `<pre style="background:var(--bg);padding:8px;border-radius:4px;overflow-x:auto;font-size:11px;border:1px solid var(--border);">${esc(JSON.stringify({
+      mcpServers: {
+        "claire-bible": {
+          command: "npx",
+          args: ["-y", "@modelcontextprotocol/server-everything"],
+          env: {
+            CLAIRE_URL: mcpUrl,
+            CLAIRE_TOKEN: rawVal
+          }
+        }
+      }
+    }, null, 2))}</pre></details>`;
+    h += '</div>';
+  }
+
+  // 1. 새 토큰 발급 폼
+  h += '<div style="border:1px solid var(--border);border-radius:6px;padding:12px;background:var(--sec-bg);margin-bottom:16px;">';
+  h += '<h3 style="margin:0 0 10px 0;font-size:13px;">➕ 새 API &amp; MCP 토큰 발급</h3>';
+  h += '<div style="display:flex;flex-direction:column;gap:10px;">';
+  h += '<div>';
+  h += '<label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">토큰 이름 (용도 / 클라이언트 명칭)</label>';
+  h += '<input type="text" id="new-token-name" placeholder="예: Claude Desktop, Cursor Agent, Backup Script" style="width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--fg);font-size:13px;"/>';
+  h += '</div>';
+
+  h += '<div style="display:flex;gap:12px;flex-wrap:wrap;">';
+  h += '<div style="flex:1;min-width:130px;">';
+  h += '<label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">권한 스코프 (Scope)</label>';
+  h += '<select id="new-token-scope" style="width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--fg);font-size:12px;">';
+  h += '<option value="readonly" selected>읽기 전용 (readonly - MCP 조회 및 검색)</option>';
+  h += '<option value="collaborator">협력자 (collaborator - 추가 테마 적재)</option>';
+  h += '<option value="owner">소유자 (owner - 전체 읽기/쓰기/관리)</option>';
+  h += '</select>';
+  h += '</div>';
+
+  h += '<div style="flex:1;min-width:130px;">';
+  h += '<label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">유효기간 (Expiration)</label>';
+  h += '<select id="new-token-expiry" style="width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--fg);font-size:12px;">';
+  h += '<option value="0" selected>무기한 (상시 이용 가능)</option>';
+  h += '<option value="30">30일</option>';
+  h += '<option value="90">90일</option>';
+  h += '<option value="365">1년 (365일)</option>';
+  h += '</select>';
+  h += '</div>';
+  h += '</div>';
+
+  h += '<button type="button" class="btn" style="margin-top:4px;background:var(--btn-bg,#1f883d);color:#fff;font-weight:600;padding:8px 12px;border:none;border-radius:6px;cursor:pointer;" onclick="createApiToken()">✨ 토큰 발급</button>';
+  h += '</div>';
+  h += '</div>';
+
+  // 2. 발급된 토큰 목록
+  h += '<h3 style="margin:0 0 8px 0;font-size:13px;">📋 발급된 토큰 목록 (' + _tokenList.length + '개)</h3>';
+  if(!_tokenList.length){
+    h += '<p class="hint">등록된 토큰이 없습니다.</p>';
+  } else {
+    h += '<div style="display:flex;flex-direction:column;gap:8px;">';
+    for(const tok of _tokenList){
+      const isRevoked = tok.revoked_at !== null && tok.revoked_at !== undefined;
+      const nowTs = Date.now() / 1000;
+      const isExpired = tok.expires_at && tok.expires_at < nowTs;
+      let statusBadge = '<span style="color:#1a7f37;background:rgba(26,127,55,0.1);padding:2px 6px;border-radius:4px;font-size:11px;font-weight:600;">활성</span>';
+      if(isRevoked){
+        statusBadge = '<span style="color:#cf222e;background:rgba(207,34,46,0.1);padding:2px 6px;border-radius:4px;font-size:11px;font-weight:600;">폐기됨</span>';
+      } else if(isExpired){
+        statusBadge = '<span style="color:#9a6700;background:rgba(154,103,0,0.1);padding:2px 6px;border-radius:4px;font-size:11px;font-weight:600;">만료됨</span>';
+      }
+
+      let expStr = '무기한 (상시)';
+      if(tok.expires_at){
+        const d = new Date(tok.expires_at * 1000);
+        expStr = d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+      }
+
+      let lastUsedStr = '사용 기록 없음';
+      if(tok.last_used_at){
+        const lu = new Date(tok.last_used_at * 1000);
+        lastUsedStr = lu.toLocaleDateString() + ' ' + lu.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+      }
+
+      const scopeColors = {
+        owner: 'var(--accent,#0969da)',
+        collaborator: '#8250df',
+        readonly: '#57606a'
+      };
+      const scopeCol = scopeColors[tok.scope] || '#57606a';
+
+      h += `<div style="border:1px solid var(--border);border-radius:6px;padding:10px;background:var(--bg);opacity:${isRevoked ? '0.6' : '1'};">`;
+      h += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">';
+      h += `<div><strong style="font-size:13px;">#${tok.id} ${esc(tok.name)}</strong> <span style="font-size:11px;font-weight:600;color:${scopeCol};border:1px solid ${scopeCol};padding:1px 5px;border-radius:4px;margin-left:4px;">${esc(tok.scope)}</span> ${statusBadge}</div>`;
+      if(!isRevoked){
+        h += `<button type="button" class="sec" style="font-size:11px;padding:2px 8px;color:var(--err,#cf222e);border-color:var(--err,#cf222e);" onclick="revokeApiToken(${tok.id}, '${esc(tok.name)}')">폐기</button>`;
+      }
+      h += '</div>';
+
+      h += '<div style="font-size:12px;color:var(--sec-fg,#57606a);display:flex;flex-direction:column;gap:2px;">';
+      h += `<div>식별자: <code style="font-size:11px;background:var(--sec-bg);padding:1px 4px;border-radius:3px;">${esc(tok.token_masked || 'cb_...')}</code></div>`;
+      h += `<div>만료: ${esc(expStr)} · 최근 사용: ${esc(lastUsedStr)}</div>`;
+      h += '</div>';
+      h += '</div>';
+    }
+    h += '</div>';
+  }
+
+  h += '<div style="margin-top:16px;">';
+  h += '<button type="button" class="sec" style="padding:8px 12px;width:100%;" onclick="closeDrawer()">닫기</button>';
+  h += '</div>';
+
+  panel.innerHTML = h;
+}
+
+async function createApiToken(){
+  const nameInput = document.getElementById('new-token-name');
+  const scopeSelect = document.getElementById('new-token-scope');
+  const expirySelect = document.getElementById('new-token-expiry');
+  if(!nameInput || !nameInput.value.trim()){
+    alert('토큰 이름을 입력하세요.');
+    return;
+  }
+  const name = nameInput.value.trim();
+  const scope = scopeSelect ? scopeSelect.value : 'readonly';
+  const expDays = expirySelect ? parseInt(expirySelect.value, 10) : 0;
+
+  try{
+    const r = await fetch('tokens', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        name: name,
+        scope: scope,
+        expires_in_days: expDays > 0 ? expDays : null
+      })
+    });
+    if(!r.ok){
+      const err = await r.json().catch(()=>({}));
+      renderTokenManager('발급 실패: ' + (err.detail || ('HTTP ' + r.status)), false);
+      return;
+    }
+    const data = await r.json();
+    openTokenManager('토큰이 성공적으로 발급되었습니다.', true, data.token);
+  }catch(e){
+    renderTokenManager('오류 발생: ' + (e.message || e), false);
+  }
+}
+
+async function revokeApiToken(id, name){
+  if(!confirm(`정말 #${id} '${name}' 토큰을 폐기하시겠습니까? 즉시 모든 API 및 MCP 연결이 차단됩니다.`)) return;
+  try{
+    const r = await fetch('tokens/revoke', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({id: id})
+    });
+    if(!r.ok){
+      const err = await r.json().catch(()=>({}));
+      renderTokenManager('폐기 실패: ' + (err.detail || ('HTTP ' + r.status)), false);
+      return;
+    }
+    openTokenManager(`토큰 #${id} '${name}'이(가) 즉시 폐기되었습니다.`, true);
+  }catch(e){
+    renderTokenManager('오류 발생: ' + (e.message || e), false);
   }
 }
 

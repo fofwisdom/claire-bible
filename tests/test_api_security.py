@@ -312,10 +312,15 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         "/ingest-limits",
         "/resolution/rollback",
         "/document/matrix/purge",
+        "/tokens",
+        "/tokens/revoke",
     }
     owner_methods = {
         ("PATCH", "/themes"),
         ("DELETE", "/themes"),
+        ("GET", "/tokens"),
+        ("HEAD", "/tokens"),
+        ("DELETE", "/tokens"),
         ("GET", "/providers"),
         ("HEAD", "/providers"),
         ("PATCH", "/providers"),
