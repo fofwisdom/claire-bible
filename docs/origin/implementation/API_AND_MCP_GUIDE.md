@@ -35,12 +35,22 @@ $$\text{owner} \succ \text{collaborator} \succ \text{readonly} \succ \text{anony
 
 | 역할 (Scope) | 자격 증명 (토큰 / 헤더) | 기본 테마 (`seq=0`) | 추가 테마 (공개) | 추가 테마 (비공개) | 테마 관리 / 진단 번들 |
 | :--- | :--- | :---: | :---: | :---: | :---: |
-| **시스템 관리자 (`owner`)** | `CLAIRE_INJECT_TOKEN` 또는 텔레그램 `/web` 세션 | 읽기 / 쓰기 | 읽기 / 쓰기 | 읽기 / 쓰기 | 가능 (`define`, `update`, `delete`, `bundle`) |
-| **협력자 (`collaborator`)** | `CLAIRE_COLLABORATOR_TOKEN` 또는 텔레그램 `/webco` 세션 | **쓰기 불가 (차단)**<br>(읽기만 가능) | 읽기 / 쓰기 | 허용 테마만<br>읽기 / 쓰기 | 불가 |
-| **읽기 전용 (`readonly`)** | `CLAIRE_READONLY_TOKEN` 또는 텔레그램 `/webro` 세션 | 읽기 전용 | 읽기 전용 | 읽기 전용 | 불가 |
+| **시스템 관리자 (`owner`)** | DB 영구 토큰(`cb_...`), 텔레그램 `/web` 세션, 또는 `claire auth` (레거시 `CLAIRE_INJECT_TOKEN` 자동 이관) | 읽기 / 쓰기 | 읽기 / 쓰기 | 읽기 / 쓰기 | 가능 (`define`, `update`, `delete`, `bundle`, `tokens`) |
+| **협력자 (`collaborator`)** | DB 영구 협력자 토큰(`cb_...`) 또는 텔레그램 `/webco` 세션 (레거시 `CLAIRE_COLLABORATOR_TOKEN` 자동 이관) | **쓰기 불가 (차단)**<br>(읽기만 가능) | 읽기 / 쓰기 | 허용 테마만<br>읽기 / 쓰기 | 불가 |
+| **읽기 전용 (`readonly`)** | DB 영구 읽기전용 토큰(`cb_...`) 또는 텔레그램 `/webro` 세션 (레거시 `CLAIRE_READONLY_TOKEN` 자동 이관) | 읽기 전용 | 읽기 전용 | 읽기 전용 | 불가 |
 | **익명 사용자 (`anonymous`)** | 자격증명 없음 (`CLAIRE_ANONYMOUS_READONLY=1`) | 공개 읽기<br>(숨김 문서 제외) | 공개 읽기<br>(숨김 문서 제외) | **404 Not Found**<br>(존재 은닉) | 불가 |
 
-### 1.3 자격증명 채널 및 상호 배타성 규약
+### 1.3 환경변수 통제 방식 폐기 및 DB 기반 상시 이용 토큰 관리 (Persistent Token Architecture)
+- **환경변수 통제 폐기**: 정적 환경변수(`CLAIRE_INJECT_TOKEN`, `CLAIRE_READONLY_TOKEN`, `CLAIRE_COLLABORATOR_TOKEN`)에 의한 API/MCP 접근 통제 방식을 폐기하고, SQLite 데이터베이스 기반의 동적 토큰(`api_tokens` 테이블) 관리 체계로 전면 전환했다.
+- **하위 호환 및 자동 이관**: 서버 기동 시 기존 환경변수에 토큰이 존재하면 `api_tokens` 테이블로 1회 안전하게 자동 이관되며, 환경변수가 비어있더라도 최초 기동 시 기본 `owner` 토큰(`cb_...`)이 자동 생성되어 즉시 운영 가능하다.
+- **토큰 관리 다중 인터페이스**:
+  - **CLI**: `claire token [list|create|revoke]`
+  - **WebUI**: 드로어 "관리 및 설정" ➔ "🔑 API/MCP 키" (토큰 발급 및 즉시 폐기, 클라이언트 연동 설정 제공)
+  - **텔레그램 봇**: `/token`, `/token list`, `/token create <이름> [scope]`, `/token revoke <ID>`
+  - **REST API**: `/tokens` (GET, POST, DELETE), `/tokens/revoke` (POST)
+- **RFC 6750 Bearer 토큰 사양**: 발급된 모든 토큰은 URL-safe 256비트 엔트로피(`cb_` 접두사)를 가지며, 요청 시 `Authorization: Bearer <TOKEN>` 헤더로 전송된다.
+
+### 1.4 자격증명 채널 및 상호 배타성 규약
 인증 시 다음 세 채널 중 **정확히 하나만** 사용해야 한다:
 1. **Bearer 토큰**: `Authorization: Bearer <token>`
 2. **세션 헤더**: `X-Session: <token>`
@@ -54,13 +64,13 @@ $$\text{owner} \succ \text{collaborator} \succ \text{readonly} \succ \text{anony
 >
 > 또한 비표준 헤더인 `X-Token`은 사용이 엄격히 금지되며 감지 시 즉시 거부된다. Cross-Origin(CORS) 요청은 오직 `Authorization: Bearer` 방식만 허용된다.
 
-### 1.4 스텔스 모드 (Fail-Closed Invariant)
+### 1.5 스텔스 모드 (Fail-Closed Invariant)
 `CLAIRE_ANONYMOUS_READONLY=0`(프라이빗/스텔스 모드)로 구동되는 인스턴스 또는 비공개 테마(`is_public=false`)에 대해 자격증명이 없는 읽기 요청이 인입될 경우, 외부 정찰에 엔드포인트나 테마의 존재 여부를 일절 노출하지 않기 위해 `401 Unauthorized` 또는 `403 Forbidden` 대신 **HTTP `404 Not Found`**를 반환한다.
 
-### 1.5 요청 크기 제한
+### 1.6 요청 크기 제한
 모든 API 및 MCP 요청 본문은 최대 1MB (`1,048,576` bytes)로 하드 제한된다. 초과 시 즉시 HTTP `413 Request Entity Too Large`로 차단된다.
 
-### 1.6 멀티 테마(Multi-Theme) 라우팅
+### 1.7 멀티 테마(Multi-Theme) 라우팅
 멀티 테마(`CLAIRE_MULTI_THEME=1`) 환경에서는 요청 헤더 또는 쿼리 파라미터로 조회/작업 대상 테마를 명시할 수 있다:
 - **HTTP 헤더 (REST/MCP 권장)**: `X-Claire-Theme: <theme_id_or_label>` (예: `X-Claire-Theme: 1` 또는 `X-Claire-Theme: 인공지능`)
 - **URL 쿼리 파라미터 (브라우저/링크 권장)**: `?theme=<theme_id_or_label>`
@@ -236,6 +246,93 @@ curl -s -X POST https://claire.example.com/oauth/token \
 
 ---
 
+### 2.6 API 및 MCP 상시 이용 토큰 관리 API (`/tokens`)
+
+외부 AI 도구(Claude Desktop, Cursor, Antigravity 등) 및 CI/CD 자동화 파이프라인에서 상시 이용할 수 있는 Bearer 접근 토큰을 발급·조회·폐기하는 엔드포인트이다. (모든 경로는 시스템 관리자 `owner` 전용)
+
+#### 1) 토큰 목록 조회: `GET /tokens` (Owner 전용)
+등록된 모든 토큰(활성, 만료, 폐기 포함)을 조회한다. 보안을 위해 원본 시크릿은 마스킹(`cb_abcd...wxyz`)되어 반환된다.
+```bash
+curl -s -H "Authorization: Bearer <OWNER_TOKEN>" https://claire.example.com/tokens
+```
+```json
+{
+  "tokens": [
+    {
+      "id": 1,
+      "name": "Default Knowledge Manager (Owner)",
+      "scope": "owner",
+      "created_at": 1729065600.0,
+      "expires_at": null,
+      "last_used_at": 1729068000.0,
+      "revoked_at": null,
+      "token_masked": "cb_09af...d82a"
+    },
+    {
+      "id": 2,
+      "name": "Claude Desktop",
+      "scope": "readonly",
+      "created_at": 1729066000.0,
+      "expires_at": null,
+      "last_used_at": 1729067500.0,
+      "revoked_at": null,
+      "token_masked": "cb_f38a...110b"
+    }
+  ]
+}
+```
+
+#### 2) 신규 토큰 발급: `POST /tokens` (Owner 전용)
+새로운 상시 이용 API/MCP 토큰을 발급한다. 발급 시점에만 전체 원본 시크릿 토큰(`token`)이 반환된다.
+- **요청 본문 필드**:
+  - `name` (str, 필수): 토큰 식별용 이름 (예: `"Claude Desktop"`, `"Cursor Agent"`)
+  - `scope` (str, 선택, 기본 `"readonly"`): `"owner"`, `"collaborator"`, `"readonly"` 중 선택
+  - `expires_in_days` (int, 선택, 기본 `null`): 만료 일수 (생략 또는 `null` 지정 시 무기한 상시 이용)
+```bash
+curl -s -X POST https://claire.example.com/tokens \
+     -H "Authorization: Bearer <OWNER_TOKEN>" \
+     -H "Content-Type: application/json" \
+     -d '{
+       "name": "Claude Desktop",
+       "scope": "readonly",
+       "expires_in_days": null
+     }'
+```
+```json
+{
+  "ok": true,
+  "message": "API/MCP 토큰이 성공적으로 생성되었습니다.",
+  "token": {
+    "id": 3,
+    "token": "cb_xX9vY27z1234567890abcdefghijklmno",
+    "name": "Claude Desktop",
+    "scope": "readonly",
+    "created_at": 1729069000.0,
+    "expires_at": null,
+    "last_used_at": null,
+    "revoked_at": null
+  }
+}
+```
+
+#### 3) 토큰 즉시 폐기: `POST /tokens/revoke` 또는 `DELETE /tokens` (Owner 전용)
+지정된 토큰을 즉시 폐기(Revoke)한다. 폐기 즉시 해당 토큰을 사용한 모든 API 및 MCP 요청은 `401 Unauthorized`로 차단된다.
+- **요청 본문 필드**: `id` 또는 `token_id` (int/str, 필수)
+```bash
+curl -s -X POST https://claire.example.com/tokens/revoke \
+     -H "Authorization: Bearer <OWNER_TOKEN>" \
+     -H "Content-Type: application/json" \
+     -d '{"id": 2}'
+```
+```json
+{
+  "ok": true,
+  "message": "토큰이 성공적으로 폐기되었습니다."
+}
+```
+
+---
+
 ## 3. MCP (Model Context Protocol) 연동 및 도구 가이드
 
 Claire Bible은 외부 AI 에이전트가 지식베이스를 탐색할 수 있도록 **Model Context Protocol (MCP)** 공식 사양을 지원한다.
@@ -252,13 +349,15 @@ Claire Bible은 외부 AI 에이전트가 지식베이스를 탐색할 수 있�
 
 MCP 클라이언트는 다음 세 가지 방식 중 하나로 `/mcp`에 접속할 수 있다:
 
-#### 방법 1: 고정 정적 토큰 (Bearer Token)
-CLI 에이전트, 스크립트, 로컬 IDE 등에서 가장 간단하게 연동하는 방식이다.
-- 헤더: `Authorization: Bearer <CLAIRE_READONLY_TOKEN>` (또는 `<CLAIRE_INJECT_TOKEN>`)
+#### 방법 1: 데이터베이스 기반 상시 이용 토큰 (Persistent Bearer Token)
+CLI(`claire token create`), WebUI(🔑 API/MCP 키), 또는 텔레그램(`/token create`)에서 발급받은 영구/장기 토큰(`cb_...`)을 사용하는 방식으로, Claude Desktop, Cursor 등 데스크톱 및 백그라운드 AI 에이전트에 가장 권장된다.
+- **발급**: `claire token create "Claude Desktop" --scope readonly`
+- **헤더**: `Authorization: Bearer <PERSISTENT_TOKEN>`
+- **특징**: 환경변수 주입이나 브라우저 대화형 재인증 없이 상시 이용 가능하며, 관리 화면이나 CLI에서 언제든지 즉시 폐기(Revoke)할 수 있다.
 
 #### 방법 2: 텔레그램 발급 세션 토큰 (X-Session)
 텔레그램 봇(`/web`, `/webco`, `/webro`)에서 발급받은 임시 세션 토큰을 전달한다.
-- 헤더: `X-Session: <session_token>` 또는 `Authorization: Bearer <session_token>`
+- **헤더**: `X-Session: <session_token>` 또는 `Authorization: Bearer <session_token>`
 
 #### 방법 3: OAuth 2.1 표준 인가 서버 (Gemini Spark / 원터치 승인)
 Google Gemini 맞춤형 연결 앱(Spark)이나 최신 OAuth 2.1 호환 클라이언트를 위한 완전 자동화 플로우이다:
@@ -343,7 +442,7 @@ Google Gemini 맞춤형 연결 앱(Spark)이나 최신 OAuth 2.1 호환 클라�
     "claire": {
       "url": "https://claire.example.com/mcp",
       "headers": {
-        "Authorization": "Bearer <CLAIRE_READONLY_TOKEN_OR_SESSION_TOKEN>"
+        "Authorization": "Bearer <PERSISTENT_TOKEN>"
       }
     }
   }
@@ -362,7 +461,7 @@ Google Gemini 맞춤형 연결 앱(Spark)이나 최신 OAuth 2.1 호환 클라�
         "https://claire.example.com/mcp"
       ],
       "headers": {
-        "Authorization": "Bearer <CLAIRE_READONLY_TOKEN_OR_SESSION_TOKEN>"
+        "Authorization": "Bearer <PERSISTENT_TOKEN>"
       }
     }
   }
@@ -376,7 +475,7 @@ Google Gemini 맞춤형 연결 앱(Spark)이나 최신 OAuth 2.1 호환 클라�
     "claire": {
       "url": "https://claire.example.com/mcp",
       "headers": {
-        "Authorization": "Bearer <CLAIRE_READONLY_TOKEN_OR_SESSION_TOKEN>"
+        "Authorization": "Bearer <PERSISTENT_TOKEN>"
       }
     }
   }
@@ -390,7 +489,7 @@ Google Gemini 맞춤형 연결 앱(Spark)이나 최신 OAuth 2.1 호환 클라�
     "claire-bible": {
       "serverUrl": "https://claire.example.com/mcp",
       "headers": {
-        "Authorization": "Bearer <CLAIRE_READONLY_TOKEN_OR_SESSION_TOKEN>"
+        "Authorization": "Bearer <PERSISTENT_TOKEN>"
       }
     }
   }
@@ -400,7 +499,7 @@ Google Gemini 맞춤형 연결 앱(Spark)이나 최신 OAuth 2.1 호환 클라�
 #### 6) 직접 JSON-RPC 통신 (curl 예시)
 ```bash
 curl -s -X POST https://claire.example.com/mcp \
-     -H "Authorization: Bearer <CLAIRE_READONLY_TOKEN>" \
+     -H "Authorization: Bearer <PERSISTENT_TOKEN>" \
      -H "Content-Type: application/json" \
      -d '{
        "jsonrpc": "2.0",
@@ -418,7 +517,52 @@ curl -s -X POST https://claire.example.com/mcp \
 
 ---
 
-## 4. 에이전트 CLI 연동 규약 (Agent-First Contract)
+## 4. API 및 MCP 토큰 관리 종합 인터페이스
+
+Claire Bible은 환경변수에 의존하지 않고 상시 연동 토큰을 제어할 수 있도록 세 가지 공식 인터페이스(CLI, WebUI, Telegram Bot)를 제공한다.
+
+### 4.1 CLI 토큰 관리 (`claire token`)
+
+터미널이나 자동화 스크립트에서 토큰을 직접 생성, 조회, 폐기할 수 있다.
+
+```bash
+# 1. 활성 토큰 목록 조회 (폐기/만료 토큰 포함 시 -a 또는 --all)
+claire token list
+claire token list -a --json
+
+# 2. 상시 이용 토큰 발급 (기본: readonly 권한, 무기한)
+claire token create "Claude Desktop" --scope readonly
+claire token create "Cursor Agent" --scope readonly --expires-in 90 --json
+
+# 3. 토큰 즉시 폐기 (ID 또는 토큰값 지정)
+claire token revoke 2
+claire token revoke "cb_xX9vY..." --json
+```
+
+### 4.2 WebUI 토큰 관리 드로어 (🔑 API/MCP 키)
+
+- **접근 권한**: 지식 관리자(`owner`)로 로그인 시 웹 UI 우측 드로어 **관리 및 설정** 영역에 **🔑 API/MCP 키** 버튼이 노출된다.
+- **제공 기능**:
+  - 발급된 모든 토큰의 상태(활성, 만료, 폐기), 권한 스코프(`owner` / `collaborator` / `readonly`), 만료 일시, 최근 사용 시각(Last Used) 실시간 모니터링.
+  - 새 토큰 발급 폼: 이름, 권한, 유효기간(무기한/30일/90일/1년) 설정 후 [✨ 토큰 발급] 1클릭 생성.
+  - 발급 즉시 Claude Desktop 및 Cursor에 붙여넣을 수 있는 `mcpServers` JSON 설정 스니펫 자동 생성.
+  - 특정 토큰의 즉시 폐기(Revoke) 버튼 제공.
+
+### 4.3 텔레그램 봇 토큰 명령어 (`/token`)
+
+스마트폰이나 텔레그램 메신저에서 원격으로 토큰 상태를 조회하고 긴급 폐기 또는 새 토큰을 즉시 발급할 수 있다.
+
+- **목록 조회**: `/token` 또는 `/token list`
+- **토큰 생성**: `/token create <이름> [owner|collab|readonly]`
+  - 예: `/token create ClaudeDesktop readonly`
+  - 발급 즉시 봇 메시지로 전체 시크릿 토큰과 MCP 연결 URL이 전송된다.
+- **토큰 폐기**: `/token revoke <ID 또는 토큰값>`
+  - 예: `/token revoke 2`
+  - 폐기 즉시 해당 토큰의 모든 API/MCP 연결이 영구 차단된다.
+
+---
+
+## 5. 에이전트 CLI 연동 규약 (Agent-First Contract)
 
 터미널이나 서브프로세스에서 `claire` CLI 명령을 호출하는 에이전트를 위해 `--json` 플래그 및 기계 판독용 계약(`src/claire/api/agent.py`)을 제공한다:
 
@@ -435,7 +579,7 @@ curl -s -X POST https://claire.example.com/mcp \
 
 ---
 
-## 5. 오류 코드 및 트러블슈팅
+## 6. 오류 코드 및 트러블슈팅
 
 | HTTP 상태 코드 | 주요 원인 | 조치 사항 |
 |---|---|---|
@@ -444,4 +588,3 @@ curl -s -X POST https://claire.example.com/mcp \
 | `404 Not Found` | 존재하지 않는 리소스, 또는 **비인증/비공개 테마 스텔스 모드** | `CLAIRE_ANONYMOUS_READONLY` 설정 및 테마 가시성 확인 |
 | `413 Request Entity Too Large` | 요청 본문 크기가 1MB를 초과함 | 전송 페이로드 크기 축소 |
 | `421 Misdirected Request` | 요청의 `Host` 헤더가 `CLAIRE_FQDN`과 불일치 | 프록시의 Host 헤더 전달 설정 또는 FQDN 환경변수 점검 |
-```
