@@ -248,7 +248,7 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 | `backfill-detail` | `claire backfill-detail [--tables] [--format {md,adoc}] [--limit N] [--force] [--focus <focus>]` | 상세(detail) 렌더링이 누락되었거나 표가 포함된 문서 일괄 생성 (`reprocess -c detail -s missing`의 별칭) |
 | `backfill-summary` | `claire backfill-summary [--limit N]` | 요약이 누락된 기존 문서의 요약 일괄 생성 (`reprocess -c summary -s missing`의 별칭) |
 | `backfill-images` | `claire backfill-images [--limit N]` | 문서 내 참조된 이미지 에셋 추출 및 다운로드 백필 |
-| `recompile-html` | `claire recompile-html` | 저장된 상세(detail)로부터 `detail_html` AOT 사전 컴파일 갱신 |
+| `recompile-html` | `claire recompile-html [<target>] [-t <theme>] [--all]` | 저장된 상세(detail)로부터 `detail_html` AOT 사전 컴파일 갱신 (멀티 테마 및 단건 대상 지원) |
 | `reextract` | `claire reextract [--tables] [--no-rebuild] [--limit N]` | 저장된 `raw_text`로부터 지식그래프 전체(또는 표 포함 문서)를 재추출 |
 | `re-embed` | `claire re-embed [--limit N] [--apply] [--dry-run]` | 기존 엔티티 노드들의 벡터 임베딩을 최신 모델(`text-embedding-004`) 및 온톨로지 프레임으로 일괄 재계산·갱신 (기본: dry-run, 실행: `--apply`) |
 | `link-relations` | `claire link-relations [--limit N] [--min-score F] [--dry-run]` | 기존 지식 그래프 내의 엔티티 간 벡터 유사도를 기반으로 횡단 관계(Edge)를 자동 발굴·수립 (기본: apply, 시뮬레이션: `--dry-run`) |
@@ -353,6 +353,20 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
   * `--force`, `-f`: 기존에 detail이 있더라도 강제로 재생성.
   * `--format {md,adoc}`: 생성할 상세 포맷 지정.
   * `--limit <N>`: 처리할 최대 문서 개수.
+
+#### `recompile-html`
+저장된 상세(`detail`) 본문으로부터 최신 AOT HTML 렌더러를 통해 `detail_html`을 사전 컴파일하여 데이터베이스를 갱신한다 (LLM API 호출 없음).
+멀티 테마 모드(`CLAIRE_MULTI_THEME=1`)에서는 기본적으로 등록된 모든 활성 테마 DB를 순회하며 컴파일한다. 특정 테마나 단건 문서를 지정하여 컴파일할 수도 있다.
+* **사용법**:
+  ```bash
+  ./cb-manuscript app recompile-html                      # 모든 테마 DB의 문서 detail_html 일괄 재컴파일
+  ./cb-manuscript app recompile-html -t 2                 # 특정 테마(Theme 2) DB만 재컴파일
+  ./cb-manuscript app recompile-html <target>             # 특정 문서(ID, URL, 공유 URL) 단건 재컴파일
+  ```
+* **옵션**:
+  * `target`: 문서 ID, 웹 URL, 또는 공유 URL (`https://.../p?s=token`). 지정 시 해당 문서가 속한 테마를 자동 감지하여 단건 갱신.
+  * `-t, --theme <theme>`: 작업 대상 테마 ID, 일련번호, 또는 레이블 지정.
+  * `--all`: 모든 활성 테마에 걸쳐 전체 문서 재컴파일.
 
 #### `reextract`
 저장된 `raw_text`로부터 전체(또는 표 포함) 문서의 지식그래프(엔티티, 관계, 요약, 상세)를 백지 상태에서 재추출·재구축한다.

@@ -2482,8 +2482,85 @@ def cmd_stt_backfill(args) -> int:
 
 
 def cmd_recompile_html(args) -> int:
-    """모든 문서의 detail_html을 현재 AOT 사전 렌더러로 재컴파일(LLM 호출 없음)."""
+    """모든 문서(또는 지정 대상/테마)의 detail_html을 현재 AOT 사전 렌더러로 재컴파일(LLM 호출 없음)."""
+    target = getattr(args, "target", None)
+    theme_arg = getattr(args, "theme", None)
+
     s = get_settings()
+
+    # 1. 특정 대상 문서(ID, URL, 공유 URL 등)가 지정된 경우
+    if target:
+        s_eff, theme = get_effective_settings(args, doc_target=target)
+        conn = dbm.connect(s_eff.db_file)
+        dbm.init_db(conn)
+        try:
+            doc_id = target
+            if getattr(s, "multi_theme", False):
+                from .store.theme import get_theme_manager
+
+                tm = get_theme_manager(s)
+                matches = tm.resolve_document_targets(target=target)
+                if matches:
+                    doc_id = matches[0]["id"]
+            else:
+                doc = dbm.document_by_id(conn, target)
+                if not doc:
+                    doc = dbm.document_by_url(conn, target)
+                if doc:
+                    doc_id = doc["id"]
+
+            count = dbm.recompile_all_detail_html(conn, doc_id=doc_id)
+            theme_label = f" (테마: #{theme.id} - {theme.label})" if theme else ""
+            if count > 0:
+                print(f"AOT HTML 단건 재컴파일 완료: {doc_id}{theme_label}")
+                return 0
+            else:
+                print(f"대상 문서를 찾을 수 없거나 detail이 비어있습니다: {target}", file=sys.stderr)
+                return 1
+        finally:
+            conn.close()
+
+    # 2. 특정 테마가 지정된 경우
+    if theme_arg is not None:
+        s_eff, theme = get_effective_settings(args)
+        if theme:
+            print(f"[{theme.icon} 점검 대상 테마: #{theme.id} - {theme.label}]")
+        conn = dbm.connect(s_eff.db_file)
+        dbm.init_db(conn)
+        try:
+            count = dbm.recompile_all_detail_html(conn)
+            print(f"AOT HTML 재컴파일 완료: 총 {count}건 문서 갱신")
+            return 0
+        finally:
+            conn.close()
+
+    # 3. 테마 지정 없이 일괄 실행된 경우 (멀티 테마 시 모든 활성 테마 순회)
+    if getattr(s, "multi_theme", False):
+        from .store.theme import ThemeManager
+
+        try:
+            targets = ThemeManager(s).active_theme_settings(s)
+        except Exception as exc:
+            print(f"recompile-html: registry error: {exc}", file=sys.stderr)
+            return 1
+
+        total_count = 0
+        for theme, theme_settings in targets:
+            conn = None
+            try:
+                conn = dbm.connect(theme_settings.db_file)
+                dbm.init_db(conn)
+                c = dbm.recompile_all_detail_html(conn)
+                total_count += c
+                print(f"[{theme.icon} 테마 #{theme.id} - {theme.label}] AOT HTML 재컴파일 완료: {c}건 갱신")
+            except Exception as exc:
+                print(f"[{theme.label}] 재컴파일 실패: {exc}", file=sys.stderr)
+            finally:
+                if conn is not None:
+                    conn.close()
+        print(f"전체 테마 AOT HTML 재컴파일 완료: 총 {total_count}건 문서 갱신")
+        return 0
+
     conn = dbm.connect(s.db_file)
     dbm.init_db(conn)
     try:
@@ -4950,6 +5027,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="recompile detail_html for all documents using latest AOT renderer (zero LLM calls)",
         description="Recompile detail_html for all documents using the latest AOT HTML renderer without making LLM calls.",
     )
+    prc.add_argument("target", nargs="?", default=None, help="optional document target (ID, URL, share URL) to recompile specific document")
+    prc.add_argument("-t", "--theme", default=None, help="target theme ID, sequence number, or label")
+    prc.add_argument("--all", action="store_true", help="recompile all documents across all active themes")
     prc.set_defaults(func=cmd_recompile_html)
 
     pbi = sub.add_parser(

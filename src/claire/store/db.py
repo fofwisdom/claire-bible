@@ -2713,14 +2713,20 @@ def get_document_detail_html(conn: sqlite3.Connection, document_id: str) -> str 
     return None
 
 
-def recompile_all_detail_html(conn: sqlite3.Connection) -> int:
-    """모든 문서의 detail_html을 현재 AOT 렌더러로 재컴파일하여 DB에 갱신."""
+def recompile_all_detail_html(conn: sqlite3.Connection, doc_id: str | None = None) -> int:
+    """모든 문서(또는 지정된 doc_id)의 detail_html을 현재 AOT 렌더러로 재컴파일하여 DB에 갱신."""
     from ..extract.prompts import remove_leading_original_link
     from ..render import render_to_html
 
-    rows = conn.execute(
-        "SELECT id, detail, detail_format FROM documents WHERE detail IS NOT NULL AND trim(detail) != ''"
-    ).fetchall()
+    if doc_id:
+        rows = conn.execute(
+            "SELECT id, detail, detail_format FROM documents WHERE id=? AND detail IS NOT NULL AND trim(detail) != ''",
+            (doc_id,),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT id, detail, detail_format FROM documents WHERE detail IS NOT NULL AND trim(detail) != ''"
+        ).fetchall()
     count = 0
     for r in rows:
         fmt = r["detail_format"] or "md"
