@@ -1064,6 +1064,14 @@ async def test_telegram_app_error_handler(tmp_path: Path):
     await error_handler(update, ctx)
     cb_query.answer.assert_awaited_once_with("⚠️ 요청 처리 중 오류가 발생했습니다.")
 
+    msg_update = MagicMock()
+    msg_update.callback_query = None
+    mock_msg = AsyncMock()
+    mock_msg.reply_text = AsyncMock()
+    msg_update.effective_message = mock_msg
+    await error_handler(msg_update, ctx)
+    mock_msg.reply_text.assert_awaited_once_with("⚠️ 요청 처리 중 오류가 발생했습니다.")
+
     for h in log.handlers:
         h.flush()
     content = log_file.read_text(encoding="utf-8")

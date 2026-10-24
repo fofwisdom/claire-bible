@@ -2300,6 +2300,13 @@ def build_app(settings: Settings | None = None) -> Any:
                 await cb_query.answer("⚠️ 요청 처리 중 오류가 발생했습니다.")
             except Exception:
                 pass
+        else:
+            msg = getattr(update, "effective_message", None)
+            if msg and hasattr(msg, "reply_text"):
+                try:
+                    await msg.reply_text("⚠️ 요청 처리 중 오류가 발생했습니다.")
+                except Exception:
+                    pass
 
     app.add_error_handler(_error_handler)
 
