@@ -1057,8 +1057,79 @@ def test_graphview_and_shared_html_katex_integration():
         assert "{left: '\\\\[', right: '\\\\]', display: true}" in page
 
 
+def test_aot_render_adoc_quote_with_ellipsis_hardbreak():
+    """인용문 내 '... +' 말줄임표 및 강제 줄바꿈이 순서 있는 목록(<ol><li>+)으로 오파싱되지 않고 단일 blockquote로 유지되는지 검증."""
+    sample = """
+=== Chapter 02. 먼 곳에서 온 손님: 성간 문명의 공포와 경외
+
+[quote, Chapter 02 먼 곳에서 온 손님]
+"젠장! 녀석은 대체 무슨 괴물인 거지! 녀석이 여기 은하계로 '진입'한 순간부터 내 비행기의 계기판이 전부 폭발해서 멈췄어!" +
+... +
+소녀가 호기심 넘치는 표정으로 앞에서 격렬하게 반짝이는 붉은빛의 부유물을 진지하게 살폈다. +
+"어라, 작은 생물, 어, 아니, 내 말은... 아, 안녕하세요."
+"""
+    html_out = render_adoc_to_html(sample)
+
+    # 1. <ol> 및 <li>+ 태그가 절대 생성되지 않는지 검증 (1. + 결함 방지)
+    assert "<ol>" not in html_out
+    assert "</ol>" not in html_out
+    assert "<li>+" not in html_out
+    assert "<li>\n+" not in html_out
+
+    # 2. 인용문 전체가 단일 blockquote 내에 온전히 보존되는지 검증
+    assert html_out.count('<div class="quoteblock">') == 1
+    assert html_out.count("</blockquote>") == 1
+    assert '<div class="attribution">Chapter 02 먼 곳에서 온 손님</div>' in html_out
+
+    # 3. 인용구 내부 텍스트 및 <br>...<br> 구조 보존 검증
+    expected_content = '"젠장! 녀석은 대체 무슨 괴물인 거지! 녀석이 여기 은하계로 \'진입\'한 순간부터 내 비행기의 계기판이 전부 폭발해서 멈췄어!"<br>...<br>소녀가 호기심 넘치는 표정으로 앞에서 격렬하게 반짝이는 붉은빛의 부유물을 진지하게 살폈다.<br>"어라, 작은 생물, 어, 아니, 내 말은... 아, 안녕하세요."'
+    assert f"<p>{expected_content}</p>" in html_out
 
 
+def test_aot_render_adoc_js_runtime_quote_with_ellipsis_hardbreak():
+    """클라이언트 사이드 JS adoc_parser.js 에서도 '... +'가 리스트로 오인식되지 않고 일치하게 렌더링되는지 Node.js 로 검증."""
+    import json
+    import shutil
+    import subprocess
 
+    if shutil.which("node") is None:
+        pytest.skip("node binary not available")
 
+    adoc_js_path = Path(__file__).resolve().parent.parent / "src" / "claire" / "static" / "js" / "renderers" / "adoc_parser.js"
+    assert adoc_js_path.is_file(), f"adoc_parser.js not found at {adoc_js_path}"
+
+    sample = """[quote, Author, Source]
+Line 1 +
+... +
+Line 2"""
+
+    py_result = render_adoc_to_html(sample)
+
+    runner_code = f"""
+const fs = require('fs');
+global.window = {{}};
+global.document = {{}};
+const scriptContent = fs.readFileSync({json.dumps(str(adoc_js_path))}, 'utf8');
+eval(scriptContent);
+
+const input = {json.dumps(sample)};
+const result = convertAsciidocToHtml(input);
+console.log(JSON.stringify({{ html: result }}));
+process.exit(0);
+"""
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as f_runner:
+        f_runner.write(runner_code)
+        runner_file = f_runner.name
+
+    try:
+        proc = subprocess.run(["node", runner_file], capture_output=True, text=True, timeout=5)
+        assert proc.returncode == 0, f"Node eval failed: {proc.stderr}"
+        res_data = json.loads(proc.stdout)
+        js_result = res_data["html"]
+
+        assert "<ol>" not in js_result
+        assert "<li>+" not in js_result
+        assert js_result == py_result
+    finally:
+        Path(runner_file).unlink(missing_ok=True)
 

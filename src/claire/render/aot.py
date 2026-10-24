@@ -456,27 +456,46 @@ class _ListContext:
         return out
 
 
-def _match_list_item(trimmed: str) -> tuple[str, int, str] | None:
+def _match_list_item(trimmed: str, list_ctx: _ListContext | None = None) -> tuple[str, int, str] | None:
     """줄이 리스트 아이템인지 확인하고 (tag, level, item_text) 반환."""
+    if not trimmed:
+        return None
+
+    # 단독 기호 방어: + 연산자 단독 행이거나, 줄임표(3개 이상의 점)와 선택적 +만 있는 행은 리스트 아이템이 아님
+    if trimmed == "+" or re.match(r"^\.{3,}\s*\+?$", trimmed):
+        return None
+
     # 1. Unordered bullet with asterisks: *, **, ***
     m_star = re.match(r"^(\*{1,5})\s+(.+)$", trimmed)
     if m_star:
-        return "ul", len(m_star.group(1)), m_star.group(2)
+        level = len(m_star.group(1))
+        item_raw = m_star.group(2).strip()
+        if item_raw and item_raw != "+":
+            if level == 1 or (list_ctx and list_ctx.is_active() and any(t == "ul" for t, _ in list_ctx.stack)):
+                return "ul", level, m_star.group(2)
 
     # 2. Unordered bullet with hyphen: -
     m_hyphen = re.match(r"^-\s+(.+)$", trimmed)
     if m_hyphen:
-        return "ul", 1, m_hyphen.group(1)
+        item_raw = m_hyphen.group(1).strip()
+        if item_raw and item_raw != "+":
+            return "ul", 1, m_hyphen.group(1)
 
     # 3. Ordered with dots: ., .., ...
     m_dot = re.match(r"^(\.{1,5})\s+(.+)$", trimmed)
     if m_dot:
-        return "ol", len(m_dot.group(1)), m_dot.group(2)
+        level = len(m_dot.group(1))
+        item_raw = m_dot.group(2).strip()
+        if item_raw and item_raw != "+":
+            if level == 1 or (list_ctx and list_ctx.is_active() and any(t == "ol" for t, _ in list_ctx.stack)):
+                return "ol", level, m_dot.group(2)
 
     # 4. Ordered with numbers: 1. 또는 1)
     m_num = re.match(r"^\d+[\.\)]\s+(.+)$", trimmed)
     if m_num:
-        return "ol", 1, m_num.group(1)
+        item_raw = m_num.group(1).strip()
+        if item_raw and item_raw != "+":
+            return "ol", 1, m_num.group(1)
 
     return None
 
@@ -923,7 +942,7 @@ def render_adoc_to_html(raw: str) -> str:
                 continue
 
             # 10. 리스트 항목 (*, **, -, ., .. 등)
-            list_match = _match_list_item(trimmed)
+            list_match = _match_list_item(trimmed, list_ctx)
             if list_match:
                 flush_normal_p()
                 flush_continuation()

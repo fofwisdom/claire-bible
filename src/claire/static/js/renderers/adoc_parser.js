@@ -477,14 +477,47 @@ function convertAsciidocToHtml(raw){
   }
 
   function matchList(trimmed){
+    if(!trimmed) return null;
+    if(trimmed==='+' || /^\.{3,}\s*\+?$/.test(trimmed)) return null;
+
     var mStar=trimmed.match(/^(\*{1,5})\s+(.+)$/);
-    if(mStar) return {tag:'ul', level:mStar[1].length, text:mStar[2]};
+    if(mStar){
+      var starLevel=mStar[1].length;
+      var starText=mStar[2].trim();
+      if(starText && starText !== '+'){
+        if(starLevel===1 || (listStack.length>0 && listStack.some(function(it){ return it.tag==='ul'; }))){
+          return {tag:'ul', level:starLevel, text:mStar[2]};
+        }
+      }
+    }
+
     var mHyphen=trimmed.match(/^-\s+(.+)$/);
-    if(mHyphen) return {tag:'ul', level:1, text:mHyphen[1]};
+    if(mHyphen){
+      var hyText=mHyphen[1].trim();
+      if(hyText && hyText !== '+'){
+        return {tag:'ul', level:1, text:mHyphen[1]};
+      }
+    }
+
     var mDot=trimmed.match(/^(\.{1,5})\s+(.+)$/);
-    if(mDot) return {tag:'ol', level:mDot[1].length, text:mDot[2]};
+    if(mDot){
+      var dotLevel=mDot[1].length;
+      var dotText=mDot[2].trim();
+      if(dotText && dotText !== '+'){
+        if(dotLevel===1 || (listStack.length>0 && listStack.some(function(it){ return it.tag==='ol'; }))){
+          return {tag:'ol', level:dotLevel, text:mDot[2]};
+        }
+      }
+    }
+
     var mNum=trimmed.match(/^\d+[\.\)]\s+(.+)$/);
-    if(mNum) return {tag:'ol', level:1, text:mNum[1]};
+    if(mNum){
+      var numText=mNum[1].trim();
+      if(numText && numText !== '+'){
+        return {tag:'ol', level:1, text:mNum[1]};
+      }
+    }
+
     return null;
   }
 
