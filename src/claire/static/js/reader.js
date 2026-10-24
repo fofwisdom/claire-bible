@@ -463,9 +463,9 @@ function docMetaHtml(dc){
   }
   let tags=[];
   if(isParserFallback){
-    const reqName = parserRequested ? (parserRequested === 'pypdfium2' ? 'PyPDFium2' : (parserRequested === 'pypdf' ? 'PyPDF' : (parserRequested === 'docling' ? 'Docling' : parserRequested))) : 'Docling';
+    const reqName = parserRequested ? (parserRequested === 'pypdfium2' ? 'PyPDFium2' : (parserRequested === 'pypdf' ? 'PyPDF' : (parserRequested === 'docling' ? 'Docling' : parserRequested))) : 'PyPDFium2';
     const usedName = parserUsed ? (parserUsed === 'pypdfium2' ? 'PyPDFium2' : (parserUsed === 'pypdf' ? 'PyPDF' : (parserUsed === 'docling' ? 'Docling' : parserUsed))) : 'PyPDF';
-    const fallbackTitle = (reqName === 'Docling' && usedName === 'PyPDF') ? '⚠️ Docling 폴백 (PyPDF)' : ('⚠️ ' + reqName + ' 폴백 (' + usedName + ')');
+    const fallbackTitle = '⚠️ ' + reqName + ' 폴백 (' + usedName + ')';
     tags.push('<span class="trunc-tag parser-fallback-tag" title="파서 대체 사유: '+esc(fallbackReason)+'">'+esc(fallbackTitle)+'</span>');
   }
   if(isEncodingFlaw){
@@ -617,9 +617,9 @@ function getDocMetaMessages(dc){
   const hasPresentation = presentation.status === 'available' && !!presentation.public_url;
 
   if(isParserFallback){
-    const reqName = parserRequested ? (parserRequested === 'pypdfium2' ? 'PyPDFium2' : (parserRequested === 'pypdf' ? 'PyPDF' : (parserRequested === 'docling' ? 'Docling' : parserRequested))) : 'Docling';
+    const reqName = parserRequested ? (parserRequested === 'pypdfium2' ? 'PyPDFium2' : (parserRequested === 'pypdf' ? 'PyPDF' : (parserRequested === 'docling' ? 'Docling' : parserRequested))) : 'PyPDFium2';
     const usedName = parserUsed ? (parserUsed === 'pypdfium2' ? 'PyPDFium2' : (parserUsed === 'pypdf' ? 'PyPDF' : (parserUsed === 'docling' ? 'Docling' : parserUsed))) : 'PyPDF';
-    const fallbackTitle = (reqName === 'Docling' && usedName === 'PyPDF') ? '⚠️ Docling 폴백 (PyPDF)' : ('⚠️ ' + reqName + ' 폴백 (' + usedName + ')');
+    const fallbackTitle = '⚠️ ' + reqName + ' 폴백 (' + usedName + ')';
     messages.push('파서 대체 사유: ' + fallbackReason + ' (' + fallbackTitle + ')');
   }
   if(isEncodingFlaw){

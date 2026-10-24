@@ -1,4 +1,4 @@
-"""PDF 논문 참고문헌(References) 제외, 서지 메타데이터 추출/예산 면제, 선택형 파서(pypdf/docling) 테스트."""
+"""PDF 논문 참고문헌(References) 제외, 서지 메타데이터 추출/예산 면제, 파서 폴백(pypdfium2/pypdf) 테스트."""
 
 from __future__ import annotations
 
@@ -213,113 +213,35 @@ def test_fetch_file_with_references_and_no_biblio(tmp_path: Path, monkeypatch: p
     assert "biblio" not in doc.meta
 
 
-def test_pdf_parser_selection_docling_fallback(monkeypatch: pytest.MonkeyPatch):
-    """CLAIRE_PDF_PARSER='docling' 설정 시 docling 미설치 환경에서 pypdf로 안전하게 자동 폴백하는지 검증."""
-    monkeypatch.setenv("CLAIRE_PDF_PARSER", "docling")
-    get_settings.cache_clear()
-
-    # extract_pdf_stream_pypdf 모의
-    with patch("claire.ingest.fetchers.pdf.extract_pdf_stream_pypdf") as mock_pypdf:
-        mock_pypdf.return_value = PdfExtractResult("Fallback Title", "Pypdf Text", [], {}, None, [], {})
-
-        # docling은 설치되지 않은 상태이거나 예외를 일으킴
-        res = extract_pdf_bytes(b"%PDF-dummy", fallback_title="Test")
-        assert res.title == "Fallback Title"
-        assert res.text == "Pypdf Text"
-        assert mock_pypdf.called
-
-
-def test_pdf_parser_docling_mock(monkeypatch: pytest.MonkeyPatch):
-    """docling DocumentConverter를 모킹하여 docling 엔진이 성공적으로 마크다운을 반환하는지 검증."""
-    class FakeDoc:
-        name = "document.pdf"
-        def export_to_markdown(self):
-            return "# Docling Multi-Column Title\n\n| Col1 | Col2 |\n|---|---|\n| Data1 | Data2 |\n\ndoi: 10.1234/docling"
-
-    class FakeConvResult:
-        document = FakeDoc()
-
-    class FakeConverter:
-        def convert(self, doc_stream):
-            return FakeConvResult()
-
-    fake_docling_mod = MagicMock()
-    fake_docling_mod.DocumentConverter = FakeConverter
-    fake_docling_mod.DocumentStream = lambda name, stream: stream
-
-    with patch.dict("sys.modules", {
-        "docling": fake_docling_mod,
-        "docling.document_converter": fake_docling_mod,
-        "docling.datamodel.base_models": fake_docling_mod,
-    }):
-        from claire.ingest.fetchers.pdf import extract_pdf_stream_docling
-        stream = io.BytesIO(b"%PDF-dummy")
-        res = extract_pdf_stream_docling(stream, fallback_title="Docling Test")
-        assert res.title == "Docling Multi-Column Title"
-        assert "| Col1 | Col2 |" in res.text
-
-
-def test_classify_docling_failure_reasons():
-    """Docling 실패 사유 정밀 분류 로직 검증 (네트워크/가중치, OOM, 타임아웃, 라이브러리, 런타임 오류)."""
-    from claire.ingest.fetchers.pdf import classify_docling_failure
-
-    # 1. 모델 가중치 다운로드 및 네트워크 에러
-    e_hf = Exception("HfHubHTTPError: 503 Server Error for url: https://huggingface.co/...")
-    assert "가중치" in classify_docling_failure(e_hf)
-
-    e_conn = ConnectionError("Failed to establish a new connection: [Errno -3] Temporary failure in name resolution")
-    assert "가중치" in classify_docling_failure(e_conn)
-
-    # 2. 컨테이너 메모리 부족 (OOM)
-    e_oom = MemoryError("Cannot allocate memory")
-    assert "OOM" in classify_docling_failure(e_oom)
-
-    e_cuda = RuntimeError("CUDA out of memory. Tried to allocate 2.00 GiB")
-    assert "OOM" in classify_docling_failure(e_cuda)
-
-    # 3. CPU 타임아웃
-    e_time = TimeoutError("Pipeline execution exceeded 120s limit")
-    assert "Timeout" in classify_docling_failure(e_time)
-
-    # 4. 의존성 누락
-    e_imp = ImportError("No module named 'docling'")
-    assert "라이브러리 누락" in classify_docling_failure(e_imp)
-
-    # 5. 일반 런타임 오류
-    e_val = ValueError("Invalid PDF dictionary syntax at object 42")
-    assert "런타임 오류" in classify_docling_failure(e_val)
-
-
 def test_pdf_parser_fallback_metadata_and_ingest_report(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """Docling 실패 시 PdfExtractResult 및 Document.meta, IngestReport에 사유가 정밀하게 기록되는지 검증."""
+    """pypdfium2 실패 시 PdfExtractResult 및 Document.meta, IngestReport에 pypdf 폴백 사유가 기록되는지 검증."""
     import sqlite3
     from claire.ingest.pipeline import IngestReport
     from claire.store import db as dbm
 
-    monkeypatch.setenv("CLAIRE_PDF_PARSER", "docling")
+    monkeypatch.setenv("CLAIRE_PDF_PARSER", "default")
     get_settings.cache_clear()
 
-    # extract_pdf_stream_docling 호출 시 OOM(MemoryError) 발생 시뮬레이션
-    def mock_docling_fail(stream, url=None, fallback_title=None):
-        raise MemoryError("Out of memory during layout tensor allocation")
+    def mock_pdfium_fail(stream, url=None, fallback_title=None):
+        return PdfExtractResult(None, "", [], {}, "Corrupt PDF stream error", [], {})
 
-    monkeypatch.setattr("claire.ingest.fetchers.pdf.extract_pdf_stream_docling", mock_docling_fail)
+    monkeypatch.setattr("claire.ingest.fetchers.pdf.extract_pdf_stream_pypdfium2", mock_pdfium_fail)
     monkeypatch.setattr(
         "claire.ingest.fetchers.pdf.extract_pdf_stream_pypdf",
         lambda stream, url=None, fallback_title=None: PdfExtractResult(
-            "OOM Fallback Paper", "Fallback body text from pypdf", [], {}, None, []
+            "Fallback Paper", "Fallback body text from pypdf", [], {}, None, []
         ),
     )
 
-    pdf_file = tmp_path / "oom_paper.pdf"
+    pdf_file = tmp_path / "corrupt_paper.pdf"
     pdf_file.write_bytes(b"%PDF-1.4 dummy")
 
     # 1. fetch_file 수집 시 doc.meta에 폴백 이력 기록 확인
     doc = fetch_file(str(pdf_file))
-    assert doc.meta["pdf_parser_requested"] == "docling"
+    assert doc.meta["pdf_parser_requested"] == "pypdfium2"
     assert doc.meta["pdf_parser_used"] == "pypdf"
     assert doc.meta["pdf_parser_fallback"] is True
-    assert "OOM" in doc.meta["pdf_parser_fallback_reason"]
+    assert "Corrupt PDF stream" in doc.meta["pdf_parser_fallback_reason"]
 
     # 2. IngestReport 및 telegram_summary에 경과 보고 반영 확인
     report = IngestReport()
@@ -329,8 +251,8 @@ def test_pdf_parser_fallback_metadata_and_ingest_report(tmp_path: Path, monkeypa
     report.pdf_parser_fallback_reason = doc.meta["pdf_parser_fallback_reason"]
 
     summary_text = report.telegram_summary()
-    assert "⚠️ PDF 파서 대체 적재 (Docling 실패 → PyPDF)" in summary_text
-    assert "컨테이너 메모리(RAM) 부족 (OOM)" in summary_text
+    assert "⚠️ PDF 파서 대체 적재 (PyPDFium2 실패 → PyPDF)" in summary_text
+    assert "Corrupt PDF stream error" in summary_text
 
 
 def test_graphview_parser_fallback_badge():
@@ -345,15 +267,15 @@ def test_graphview_parser_fallback_badge():
 
     doc = Document(
         id="doc_fallback_test",
-        title="Docling Fallback Paper",
+        title="Fallback Paper",
         url="https://example.com/fallback.pdf",
         raw_text="Extracted via pypdf fallback.",
         source_type="pdf",
         meta={
-            "pdf_parser_requested": "docling",
+            "pdf_parser_requested": "pypdfium2",
             "pdf_parser_used": "pypdf",
             "pdf_parser_fallback": True,
-            "pdf_parser_fallback_reason": "AI 모델 가중치(Weights) 다운로드 실패 (외부 네트워크 차단 또는 HuggingFace 연결 불가)",
+            "pdf_parser_fallback_reason": "pypdfium2 런타임 오류: Corrupt stream",
         },
     )
     dbm.insert_document(conn, doc)
@@ -362,10 +284,10 @@ def test_graphview_parser_fallback_badge():
     detail = document_detail(conn, "doc_fallback_test")
     assert detail is not None
     assert detail["pdf_parser_fallback"] is True
-    assert "HuggingFace" in detail["pdf_parser_fallback_reason"]
+    assert "Corrupt stream" in detail["pdf_parser_fallback_reason"]
 
     # 2. HTML 렌더링에 CSS 및 태그 로직 포함 검증
     html = render_graph_html()
     assert "parser-fallback-tag" in html
-    assert "Docling 폴백 (PyPDF)" in html
+    assert "PyPDFium2" in html
 

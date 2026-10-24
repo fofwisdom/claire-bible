@@ -1,4 +1,4 @@
-"""PDF 문서 추출기 — 선택형 파서(pypdfium2 / docling / pypdf), 인코딩 결함 감지, 부록 및 참고문헌 제외, 서지 메타데이터 추출."""
+"""PDF 문서 추출기 — 선택형 파서(pypdfium2 / pypdf), 인코딩 결함 감지, 부록 및 참고문헌 제외, 서지 메타데이터 추출."""
 
 from __future__ import annotations
 
@@ -231,36 +231,6 @@ class PdfExtractResult(tuple):
     @property
     def images(self) -> list[dict]:
         return self[5]
-
-
-def classify_docling_failure(exc: Exception) -> str:
-    """컨테이너 및 서버 환경에서 Docling 실패 원인을 정밀 진단하여 인지 가능한 사유로 정제."""
-    err_str = str(exc)
-    err_type = type(exc).__name__
-
-    # 1. 컨테이너 메모리 부족 (OOM)
-    if isinstance(exc, MemoryError) or "outofmemory" in err_str.lower() or "cuda out of memory" in err_str.lower():
-        return "컨테이너 메모리(RAM) 부족 (OOM)"
-
-    # 2. CPU 추론 시간 초과
-    if isinstance(exc, TimeoutError) or ("timeout" in err_type.lower() and "connect" not in err_type.lower()):
-        return "CPU 추론 시간 초과 (Timeout)"
-
-    # 3. AI 모델 가중치(Weights) 다운로드 및 외부 네트워크 장애
-    if (
-        any(k in err_str.lower() for k in ("hfhub", "huggingface", "connectionerror", "connecttimeout", "getaddrinfo failed", "max retries exceeded"))
-        or "Connection" in err_type
-        or "ConnectTimeout" in err_type
-    ):
-        return "AI 모델 가중치(Weights) 다운로드 실패 (외부 네트워크 차단 또는 HuggingFace 연결 불가)"
-
-    # 4. 라이브러리 또는 C++ 의존성 누락
-    if isinstance(exc, (ImportError, ModuleNotFoundError)):
-        return f"Docling 또는 C++ 런타임 라이브러리 누락 ({exc})"
-
-    # 5. 기타 런타임 변환 오류
-    clean_msg = err_str.strip().replace("\n", " ")[:150]
-    return f"문서 변환 중 런타임 오류 ({err_type}: {clean_msg})"
 
 
 def detect_pdf_encoding_flaws(
@@ -613,66 +583,6 @@ def extract_pdf_stream_pypdf(
         return PdfExtractResult(None, "", [], {}, f"PDF extraction failed: {e}", [], {})
 
 
-def extract_pdf_stream_docling(
-    stream: BinaryIO,
-    url: str | None = None,
-    fallback_title: str | None = None,
-) -> PdfExtractResult:
-    """docling 기반 레이아웃 분석 및 마크다운 텍스트 추출 (선택형 고성능 파서)."""
-    try:
-        from docling.datamodel.base_models import DocumentStream
-        from docling.document_converter import DocumentConverter
-    except ImportError as e:
-        raise ImportError(f"docling is not installed. Run: pip install 'claire[docling]' ({e})") from e
-
-    doc_stream = DocumentStream(name=fallback_title or "document.pdf", stream=stream)
-    converter = DocumentConverter()
-    result = converter.convert(doc_stream)
-    doc = result.document
-
-    full_text = doc.export_to_markdown()
-    if not full_text.strip():
-        return PdfExtractResult(None, "", [], {}, "empty docling PDF content", [], {})
-
-    title = getattr(doc, "name", None)
-    if not title or title.endswith(".pdf"):
-        lines = [line.strip() for line in full_text.splitlines() if line.strip()]
-        if lines:
-            title = lines[0].lstrip("#").strip()[:200]
-        else:
-            title = fallback_title[:200] if fallback_title else "PDF Document"
-
-    links: list[str] = []
-    seen_links: set[str] = set()
-    for m in _URL_RE.finditer(full_text):
-        link = m.group(0).rstrip(".,;)")
-        if link not in seen_links:
-            seen_links.add(link)
-            links.append(link)
-            if len(links) >= 50:
-                break
-
-    flaw_info = detect_pdf_encoding_flaws(full_text)
-
-    return PdfExtractResult(
-        title,
-        full_text,
-        links[:50],
-        {},
-        None,
-        [],
-        biblio={},
-        parser_requested="docling",
-        parser_used="docling",
-        parser_fallback=False,
-        parser_fallback_reason=None,
-        encoding_flaw_detected=flaw_info["has_flaw"],
-        encoding_flaws=flaw_info["reasons"],
-        is_scanned=flaw_info["is_scanned"],
-        encoding_flaw_details=flaw_info["details"],
-    )
-
-
 def extract_pdf_stream(
     stream: BinaryIO,
     url: str | None = None,
@@ -681,7 +591,7 @@ def extract_pdf_stream(
 ) -> PdfExtractResult:
     """(title, text, links, anchors, error, images) 6개 튜플 호환 객체(biblio 속성 및 인코딩 결함 정보 포함).
 
-    선택된 엔진(default/pypdfium2, docling)으로 PDF를 추출한다. 기본 엔진 pypdfium2의 고속 추출을 우선 적용하며, 1) 파서 런타임 실패 시 pypdf로 안전 자동 폴백. 2) 인코딩 결함(CID 누락, PUA 코드 등)이나 스캔본 감지 시 Docling OCR로 자동 복구 에스컬레이션을 시도한다.
+    기본 엔진 pypdfium2의 고속 추출을 적용하며, 파서 런타임 실패 시 pypdf로 안전 자동 폴백한다.
     """
     settings = get_settings()
     raw_engine = (engine or getattr(settings, "pdf_parser", "default") or "default").lower().strip()
@@ -695,41 +605,7 @@ def extract_pdf_stream(
     except Exception:
         data = b""
 
-    # 1. Docling 우선 요청 모드
-    if selected_engine == "docling":
-        try:
-            res = extract_pdf_stream_docling(io.BytesIO(data), url=url, fallback_title=fallback_title)
-            res.parser_requested = "docling"
-            res.parser_used = "docling"
-            res.parser_fallback = False
-            return res
-        except Exception as e:
-            reason = classify_docling_failure(e)
-            logger.warning(
-                "Docling PDF extraction failed: %s (%s). Falling back to pypdfium2 / pypdf.",
-                reason, e,
-            )
-            # 1차 폴백: pypdfium2
-            try:
-                pypdfium_res = extract_pdf_stream_pypdfium2(io.BytesIO(data), url=url, fallback_title=fallback_title)
-                if not pypdfium_res.error and pypdfium_res.text.strip():
-                    pypdfium_res.parser_requested = "docling"
-                    pypdfium_res.parser_used = "pypdfium2"
-                    pypdfium_res.parser_fallback = True
-                    pypdfium_res.parser_fallback_reason = reason
-                    return pypdfium_res
-            except Exception:
-                pass
-
-            # 2차 폴백: pypdf
-            pypdf_res = extract_pdf_stream_pypdf(io.BytesIO(data), url=url, fallback_title=fallback_title)
-            pypdf_res.parser_requested = "docling"
-            pypdf_res.parser_used = "pypdf"
-            pypdf_res.parser_fallback = True
-            pypdf_res.parser_fallback_reason = reason
-            return pypdf_res
-
-    # 2. pypdf 명시 요청 모드 (폴백 없이 pypdf 결과 반환)
+    # 1. pypdf 명시 요청 모드 (폴백 없이 pypdf 결과 반환)
     if selected_engine == "pypdf":
         res = extract_pdf_stream_pypdf(io.BytesIO(data), url=url, fallback_title=fallback_title)
         res.parser_requested = "pypdf"
@@ -737,38 +613,18 @@ def extract_pdf_stream(
         res.parser_fallback = False
         return res
 
-    # 3. pypdfium2 (기본 'default' 모드)
+    # 2. pypdfium2 (기본 'default' 모드)
     res = extract_pdf_stream_pypdfium2(io.BytesIO(data), url=url, fallback_title=fallback_title)
 
-    # 3-1. 런타임 오류 시 pypdf 폴백
+    # 런타임 오류 시 pypdf 폴백
     if res.error and not res.error.startswith("encrypted"):
         logger.warning("pypdfium2 extraction failed: %s. Falling back to pypdf.", res.error)
         pypdf_res = extract_pdf_stream_pypdf(io.BytesIO(data), url=url, fallback_title=fallback_title)
-        pypdf_res.parser_requested = raw_engine
+        pypdf_res.parser_requested = selected_engine
         pypdf_res.parser_used = "pypdf"
         pypdf_res.parser_fallback = True
         pypdf_res.parser_fallback_reason = f"pypdfium2 런타임 오류: {res.error}"
         return pypdf_res
-
-    # 3-2. 인코딩 결함 감지 시 Docling OCR/레이아웃 복구 에스컬레이션 시도
-    escalate_docling = getattr(settings, "pdf_flaw_escalate_docling", True)
-    if res.encoding_flaw_detected and escalate_docling and not res.error:
-        try:
-            docling_res = extract_pdf_stream_docling(io.BytesIO(data), url=url, fallback_title=fallback_title)
-            if not docling_res.error and docling_res.text.strip():
-                doc_flaw = detect_pdf_encoding_flaws(docling_res.text)
-                if not doc_flaw["has_flaw"] or len(doc_flaw["reasons"]) < len(res.encoding_flaws):
-                    docling_res.parser_requested = raw_engine
-                    docling_res.parser_used = "docling"
-                    docling_res.parser_fallback = True
-                    flaw_summary = ", ".join(res.encoding_flaws)
-                    docling_res.parser_fallback_reason = f"pypdfium2 인코딩 결함 감지({flaw_summary}) → Docling 복구"
-                    docling_res.encoding_flaw_detected = doc_flaw["has_flaw"]
-                    docling_res.encoding_flaws = doc_flaw["reasons"]
-                    docling_res.is_scanned = doc_flaw["is_scanned"]
-                    return docling_res
-        except Exception:
-            pass
 
     res.parser_requested = selected_engine
     res.parser_used = "pypdfium2"

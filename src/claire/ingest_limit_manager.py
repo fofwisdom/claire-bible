@@ -36,7 +36,6 @@ DEFAULT_INGEST_LIMITS_CONFIG: dict[str, Any] = {
         "pdf_exclude_references": True,
         "pdf_parser": "default",
         "pdf_detect_encoding_flaws": True,
-        "pdf_flaw_escalate_docling": True,
         "pdf_paper_effort": "high",
         "pdf_default_effort": "",
         "pdf_classifier_effort": "low",
@@ -86,7 +85,7 @@ MIGRATED_LIMIT_ENV_VARS: set[str] = {
 }
 
 VALID_SLICING_STRATEGIES = ("table-exemption", "strict")
-VALID_PDF_PARSERS = ("default", "docling")
+VALID_PDF_PARSERS = ("default",)
 VALID_EFFORTS = ("low", "medium", "high")
 
 
@@ -308,7 +307,6 @@ class IngestLimitManager:
             "pdf_exclude_appendix",
             "pdf_exclude_references",
             "pdf_detect_encoding_flaws",
-            "pdf_flaw_escalate_docling",
         )
         for bf in bool_fields:
             if bf in incoming_limits:
@@ -375,7 +373,6 @@ class IngestLimitManager:
             "CLAIRE_PDF_EXCLUDE_APPENDIX": "pdf_exclude_appendix",
             "CLAIRE_PDF_EXCLUDE_REFERENCES": "pdf_exclude_references",
             "CLAIRE_PDF_DETECT_ENCODING_FLAWS": "pdf_detect_encoding_flaws",
-            "CLAIRE_PDF_FLAW_ESCALATE_DOCLING": "pdf_flaw_escalate_docling",
         }
         for env_k, field_k in bool_mappings.items():
             if env_k in collected and collected[env_k].strip():

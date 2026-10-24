@@ -53,29 +53,19 @@ flowchart TD
 
 ---
 
-### 3.2 표준 PDF 파서 아키텍처 (`default` / `docling`) 및 런타임 실패 보고 체계
-PDF 문서는 2단(Two-Column) 레이아웃, 복잡한 데이터 표, 수식 등 다양한 형태를 가진다. 이를 위해 검증된 2가지 표준 파서 구조를 제공한다:
+### 3.2 표준 PDF 파서 아키텍처 (`default`) 및 런타임 실패 보고 체계
+PDF 문서는 2단(Two-Column) 레이아웃, 복잡한 데이터 표, 수식 등 다양한 형태를 가진다. 이를 위해 고속 안정성을 보장하는 표준 파서 구조를 제공한다:
 - **`default` (기본값, Chromium C++ PDFium 기반)**: `pypdfium2`를 기본 엔진으로 채택하여 기존 pure-python 대비 5~15배 빠른 파싱과 완전한 CMap/ToUnicode 매핑을 제공한다. 리소스 제약이 있는 서버 환경에서도 디스크/메모리 부하 없이 즉시 안정적으로 작동한다.
-- **`docling` (선택형 고급 레이아웃 분석)**: 딥러닝 기반 레이아웃 파서를 통해 2단 칼럼의 텍스트 뒤섞임(interleaving)을 방지하고 올바른 읽기 순서로 복원하며, 데이터 표를 마크다운 테이블로 구조화한다.
-- **비표준 파서 모드 차단 및 무분별한 폴백 배제**:
-  - `pypdf`, `lightweight`, `auto` 등 임의의 파서 호출 옵션은 완전히 제거되었다.
-  - 배포 환경변수에 `CLAIRE_PDF_PARSER=pypdf`가 설정되어 있을 경우, `cb-manuscript preflight` 검사 단계에서 실행이 즉시 차단되며 `default` 또는 `docling`으로 변경하도록 안내한다.
-  - 또한 침묵형 사고를 방지하기 위해 `pypdf` 직접 주입 시의 `pypdfium2` 자동 폴백은 지양 원칙에 따라 배제되었다.
-- **컨테이너 운영 시 리소스 고려사항**:
-  - `docling` 의존성은 기본적으로 PyTorch 및 대용량 신경망/CUDA 라이브러리(~3.5GB~4.5GB 비압축 용량)를 포함한다.
-  - `docker compose build`를 통해 여러 서비스(`api`, `bot`, `expand`, `refresh`, `recover`)를 병렬 빌드할 경우, Docker BuildKit이 각 서비스 타겟별로 스냅샷 레이어를 동시에 언패킹하면서 순간적인 피크 디스크 사용량(약 20GB+)이 발생할 수 있다.
-  - **운영 서버 권장 빌드 방식**:
-    1. 단일 기본 이미지를 1회 선행 빌드: `docker build -t claire-bible:local .` 실행 후 `cb-manuscript update` 수행 (디스크 피크를 4.5GB로 최소화).
-    2. 또는 CPU 전용 휠 선설치(`--index-url https://download.pytorch.org/whl/cpu torch torchvision`)를 통해 이미지 레이어 크기를 95% 이상 절감.
-    3. 모델 캐시 영구화: `HF_HOME=/app/data/cache/huggingface`를 설정하여 컨테이너 재빌드 시 모델 가중치 재다운로드 방지.
+- **비표준 파서 모드 차단 및 안전한 폴백**:
+  - 배포 환경변수에 `CLAIRE_PDF_PARSER=pypdf` 또는 `docling`이 설정되어 있을 경우, `cb-manuscript preflight` 검사 단계에서 실행이 즉시 차단되며 `default`로 변경하도록 안내한다.
+  - 런타임 중 `pypdfium2`에서 암호화 이외의 변환 에러가 발생하면 무중단 수집을 위해 `pypdf`로 안전하게 1회 폴백한다.
 - **Graceful Fallback & 전방위 경과 보고 체계**:
-  - `CLAIRE_PDF_PARSER=docling` 설정 상태에서 모델 다운로드 실패, 컨테이너 메모리 부족(OOM), CPU 타임아웃, 런타임 변환 오류 등으로 docling이 실패할 경우, 경고 로깅 후 `default`(`pypdfium2`)로 안전하게 폴백하여 무중단 수집을 보장한다.
-  - 또한 `default`로 텍스트를 추출할 때 **인코딩 결함 감지 엔진**(`detect_pdf_encoding_flaws`)이 동작하여 CID 누락(`(cid:xxx)`), PUA 사설 영역 글꼴, 유니코드 대체문자(`\ufffd`), 제어문자 과다 밀도, 스캔본 저밀도 등을 실시간 진단하며, 결함 발견 시 Docling OCR로 자동 복구 에스컬레이션을 시도한다.
+  - `default`로 텍스트를 추출할 때 **인코딩 결함 감지 엔진**(`detect_pdf_encoding_flaws`)이 동작하여 CID 누락(`(cid:xxx)`), PUA 사설 영역 글꼴, 유니코드 대체문자(`\ufffd`), 제어문자 과다 밀도, 스캔본 저밀도 등을 실시간 진단한다.
   - 이때 실패 및 폴백, 결함 원인을 정밀 분류하여 **전방위 보고 채널**로 경과를 통지한다:
     1. **문서 메타데이터 (`doc.meta`)**: `pdf_parser_requested`, `pdf_parser_used`, `pdf_parser_fallback`, `pdf_parser_fallback_reason`, `pdf_encoding_flaw_detected`, `pdf_encoding_flaws`, `pdf_is_scanned` 명시 저장.
     2. **GraphView 웹 UI**: 문서 상세 메타 영역에 대체 배지 `⚠️ 파서 폴백`, 결함 배지 `⚠️ PDF 인코딩 결함`, `📷 스캔본 PDF` 노출 및 툴팁으로 실제 사유 안내.
     3. **CLI 적재 리포트 및 텔레그램 완료 알림**: `IngestReport.telegram_summary`에 파서 대체 및 인코딩 결함/스캔본 경고 명시.
-    4. **안정성 우선 정책**: 프로덕션 기본 파서는 `CLAIRE_PDF_PARSER=default`로 신속하고 신뢰성 높은 적재를 보장하며, 다단 분석 및 OCR이 필수적인 경우에 한해 Docling을 활성화/에스컬레이션.
+    4. **안정성 우선 정책**: 프로덕션 기본 파서는 `CLAIRE_PDF_PARSER=default`로 신속하고 신뢰성 높은 무중단 적재를 보장한다.
 
 ---
 
@@ -151,9 +141,8 @@ PDF 문서는 2단(Two-Column) 레이아웃, 복잡한 데이터 표, 수식 등
 
 #### 3. 3단계 채택 로드맵
 1. **1단계 (현재 구현 완료)**:
-   - `CLAIRE_PDF_PARSER` 환경변수를 통해 `default`(`pypdfium2` 기반 초고속 파서)와 `docling`(선택형 AI 파서) 플러그인 아키텍처 구축.
-   - `pip install 'claire[docling]'`을 통해 필요한 환경에서만 선택 설치 가능하며, 미설치 또는 런타임 실패 시 안전한 `default` graceful fallback 제공.
-   - 레거시 `pypdf` 호출은 `cb-manuscript preflight`에서 차단.
+   - `CLAIRE_PDF_PARSER` 환경변수를 통해 `default`(`pypdfium2` 기반 초고속 파서) 구조 구축.
+   - 레거시 `pypdf`, `docling` 설정은 `cb-manuscript preflight`에서 차단.
 2. **2단계 (중기 개선안 - 경량 좌표 휴리스틱 도입)**:
    - 무거운 딥러닝 모델 다운로드 없이도, Bounding Box 좌표(x0, y0, x1, y1)를 분석하여 페이지 중앙 여백(gutter)을 기준으로 좌/우 칼럼 블록을 먼저 정렬한 후 읽는 경량 Bounding-Box 휴리스틱 도입.
 3. **3단계 (장기 개선안 - VLM 기반 멀티모달 파이프라인)**:
@@ -165,9 +154,8 @@ PDF 문서는 2단(Two-Column) 레이아웃, 복잡한 데이터 표, 수식 등
 
 | 환경변수명 | 기본값 | 설명 |
 | :--- | :--- | :--- |
-| `CLAIRE_PDF_PARSER` | `default` | PDF 추출 엔진 (`default`: 기본 고속 Chromium C++ PDFium 파서, `docling`: 고급 AI 다단/OCR 파서) |
+| `CLAIRE_PDF_PARSER` | `default` | PDF 추출 엔진 (`default`: 기본 고속 Chromium C++ PDFium 파서) |
 | `CLAIRE_PDF_DETECT_ENCODING_FLAWS` | `true` | PDF 텍스트 인코딩 결함(CID 누락, PUA 글꼴, 대체문자, 제어문자 노이즈 등) 및 스캔본 감지 여부 |
-| `CLAIRE_PDF_FLAW_ESCALATE_DOCLING` | `true` | PDF 인코딩 결함 감지 시 Docling OCR/레이아웃 복구 자동 에스컬레이션 시도 여부 |
 | `CLAIRE_PDF_EXCLUDE_APPENDIX` | `true` | PDF 논문 적재 시 부록(Appendix/Supplementary) 자동 제외 여부 |
 | `CLAIRE_PDF_EXCLUDE_REFERENCES` | `true` | PDF 논문 적재 시 참고문헌(References/Bibliography) 자동 제외 여부 |
 | `CLAIRE_PDF_MAX_EXTRACT_CHARS` | `50000` | PDF 스트림 텍스트 추출, DB/아티팩트 보존, LLM 프롬프트 투입 최대 글자 수 |

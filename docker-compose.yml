@@ -8,7 +8,6 @@ x-claire-environment: &claire-environment
   TZ: "${TZ:-}"
   CB_UID: "${CB_UID:-1000}"
   CB_GID: "${CB_GID:-1000}"
-  HF_HOME: "/app/data/cache/huggingface"
   SSL_CERT_FILE: "/etc/ssl/certs/ca-certificates.crt"
   SSL_CERT_DIR: "/etc/ssl/certs"
   REQUESTS_CA_BUNDLE: "/etc/ssl/certs/ca-certificates.crt"
@@ -19,7 +18,6 @@ x-claire-service: &claire-service
   build:
     context: .
     args:
-      CLAIRE_PDF_PARSER: "${CLAIRE_PDF_PARSER:-default}"
       CLAIRE_BUILD_COMMIT: "${CLAIRE_BUILD_COMMIT:-unknown}"
       CLAIRE_IMAGE_TAG: "${CB_IMAGE_TAG:-local}"
   shm_size: "1gb"

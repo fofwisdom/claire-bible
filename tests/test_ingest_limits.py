@@ -27,7 +27,7 @@ def test_comment_out_env_file_limits(tmp_path: Path):
         "CB_API_PORT=8765\n"
         "CLAIRE_RAW_CHAR_BUDGET=15000\n"
         "CLAIRE_PDF_MAX_EXTRACT_CHARS=60000\n"
-        "CLAIRE_PDF_PARSER=docling\n"
+        "CLAIRE_PDF_PARSER=default\n"
         "# Already commented\n"
         "# CLAIRE_EXTRACT_CHAR_BUDGET=20000\n"
         "CLAIRE_INJECT_TOKEN=test-token-12345678901234567890\n",
@@ -52,9 +52,9 @@ def test_comment_out_env_file_limits(tmp_path: Path):
     assert len(commented_pdf) == 1
     assert commented_pdf[0].startswith("# CLAIRE_PDF_MAX_EXTRACT_CHARS=60000")
 
-    commented_parser = [l for l in lines if "CLAIRE_PDF_PARSER=docling" in l]
+    commented_parser = [l for l in lines if "CLAIRE_PDF_PARSER=default" in l]
     assert len(commented_parser) == 1
-    assert commented_parser[0].startswith("# CLAIRE_PDF_PARSER=docling")
+    assert commented_parser[0].startswith("# CLAIRE_PDF_PARSER=default")
 
 
 def test_ingest_limit_manager_auto_migration(tmp_path: Path):
@@ -64,7 +64,7 @@ def test_ingest_limit_manager_auto_migration(tmp_path: Path):
     env_file.write_text(
         "CLAIRE_RAW_CHAR_BUDGET=25000\n"
         "CLAIRE_PDF_MAX_EXTRACT_CHARS=70000\n"
-        "CLAIRE_PDF_PARSER=docling\n"
+        "CLAIRE_PDF_PARSER=default\n"
         "CLAIRE_PDF_PAPER_EFFORT=medium\n"
         "CLAIRE_SLICING_STRATEGY=strict\n"
         "CB_API_PORT=8765\n",
@@ -81,13 +81,13 @@ def test_ingest_limit_manager_auto_migration(tmp_path: Path):
     cfg = manager.get_config()
     assert cfg["limits"]["raw_char_budget"] == 25000
     assert cfg["limits"]["pdf_max_extract_chars"] == 70000
-    assert cfg["limits"]["pdf_parser"] == "docling"
+    assert cfg["limits"]["pdf_parser"] == "default"
     assert cfg["limits"]["pdf_paper_effort"] == "medium"
     assert cfg["limits"]["slicing_strategy"] == "strict"
 
     env_content = env_file.read_text(encoding="utf-8")
     assert "# CLAIRE_RAW_CHAR_BUDGET=25000" in env_content
-    assert "# CLAIRE_PDF_PARSER=docling" in env_content
+    assert "# CLAIRE_PDF_PARSER=default" in env_content
     assert "CB_API_PORT=8765" in env_content
 
 
@@ -115,13 +115,13 @@ def test_ingest_limit_manager_validation(tmp_path: Path):
         "limits": {
             "raw_char_budget": 12345,
             "slicing_strategy": "strict",
-            "pdf_parser": "docling",
+            "pdf_parser": "default",
             "pdf_exclude_appendix": False,
         }
     })
     assert updated["limits"]["raw_char_budget"] == 12345
     assert updated["limits"]["slicing_strategy"] == "strict"
-    assert updated["limits"]["pdf_parser"] == "docling"
+    assert updated["limits"]["pdf_parser"] == "default"
     assert updated["limits"]["pdf_exclude_appendix"] is False
 
 

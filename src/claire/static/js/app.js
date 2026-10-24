@@ -5102,14 +5102,12 @@ function renderLimitManager(msg, isSuccess){
   h += '</div>';
   h += '<div><label style="font-size:11px;opacity:0.8;">PDF 파서 엔진</label>';
   h += `<select id="limit-pdf-parser" style="width:100%;box-sizing:border-box;margin-top:2px;">
-    <option value="default" ${(lims.pdf_parser||'default')==='default'?'selected':''}>기본 Chromium PDFium 고속 파서 (권장)</option>
-    <option value="docling" ${lims.pdf_parser==='docling'?'selected':''}>Docling AI 레이아웃/OCR 고급 파서</option>
+    <option value="default" selected>기본 Chromium PDFium 고속 파서</option>
   </select></div>`;
   h += '<div style="display:flex;flex-direction:column;gap:4px;margin-top:4px;">';
   h += `<label style="cursor:pointer;"><input id="limit-pdf-exclude-appendix" type="checkbox" ${lims.pdf_exclude_appendix!==false?'checked':''} style="width:auto;margin-right:6px;vertical-align:middle;"/>논문 부록(Appendix) 자동 제외</label>`;
   h += `<label style="cursor:pointer;"><input id="limit-pdf-exclude-references" type="checkbox" ${lims.pdf_exclude_references!==false?'checked':''} style="width:auto;margin-right:6px;vertical-align:middle;"/>논문 참고문헌(References) 자동 제외</label>`;
   h += `<label style="cursor:pointer;"><input id="limit-pdf-detect-encoding-flaws" type="checkbox" ${lims.pdf_detect_encoding_flaws!==false?'checked':''} style="width:auto;margin-right:6px;vertical-align:middle;"/>텍스트 인코딩 결함 및 스캔본 자동 감지</label>`;
-  h += `<label style="cursor:pointer;"><input id="limit-pdf-flaw-escalate-docling" type="checkbox" ${lims.pdf_flaw_escalate_docling!==false?'checked':''} style="width:auto;margin-right:6px;vertical-align:middle;"/>결함 감지 시 Docling OCR 복구 에스컬레이션</label>`;
   h += '</div>';
   h += '<div style="display:flex;gap:8px;margin-top:4px;">';
   h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">논문 추론 수준</label>
@@ -5207,7 +5205,6 @@ async function saveLimitSettings(){
   const pdfExApp = document.getElementById('limit-pdf-exclude-appendix').checked;
   const pdfExRef = document.getElementById('limit-pdf-exclude-references').checked;
   const pdfDetectFlaws = document.getElementById('limit-pdf-detect-encoding-flaws').checked;
-  const pdfEscalateDocling = document.getElementById('limit-pdf-flaw-escalate-docling').checked;
   const pdfPaperEff = document.getElementById('limit-pdf-paper-effort').value;
   const pdfDefEff = document.getElementById('limit-pdf-default-effort').value;
   const pdfClassEff = document.getElementById('limit-pdf-classifier-effort').value;
@@ -5235,7 +5232,6 @@ async function saveLimitSettings(){
       pdf_exclude_appendix: pdfExApp,
       pdf_exclude_references: pdfExRef,
       pdf_detect_encoding_flaws: pdfDetectFlaws,
-      pdf_flaw_escalate_docling: pdfEscalateDocling,
       pdf_paper_effort: pdfPaperEff,
       pdf_default_effort: pdfDefEff,
       pdf_classifier_effort: pdfClassEff,
@@ -5283,7 +5279,6 @@ async function resetLimitSettings(){
       pdf_exclude_appendix: true,
       pdf_exclude_references: true,
       pdf_detect_encoding_flaws: true,
-      pdf_flaw_escalate_docling: true,
       pdf_paper_effort: 'high',
       pdf_default_effort: '',
       pdf_classifier_effort: 'low',

@@ -303,12 +303,12 @@ def test_compose_environment_includes_claire_pdf_parser(tmp_path):
     env = runtime.compose_environment()
     assert env.get("CLAIRE_PDF_PARSER") == "default"
 
-    # 2. .env에 docling 명시 시 docling 전달
+    # 2. .env에 명시 시 전달
     env_content = (tmp_path / ".env").read_text(encoding="utf-8")
-    (tmp_path / ".env").write_text(env_content + "\nCLAIRE_PDF_PARSER=docling\n", encoding="utf-8")
+    (tmp_path / ".env").write_text(env_content + "\nCLAIRE_PDF_PARSER=default\n", encoding="utf-8")
     runtime = cb.load_runtime(cb.Layout(tmp_path))
     env = runtime.compose_environment()
-    assert env.get("CLAIRE_PDF_PARSER") == "docling"
+    assert env.get("CLAIRE_PDF_PARSER") == "default"
 
 
 def test_config_preflight_rejects_pypdf_parser(tmp_path):
@@ -319,6 +319,18 @@ def test_config_preflight_rejects_pypdf_parser(tmp_path):
 
     with patch.object(cb.subprocess, "run") as run:
         with pytest.raises(cb.ManuscriptError, match="CLAIRE_PDF_PARSER=pypdf 설정은 한글 CMap 미지원"):
+            cb.config_preflight(runtime)
+    run.assert_not_called()
+
+
+def test_config_preflight_rejects_docling_parser(tmp_path):
+    _write_layout(tmp_path, dev=False)
+    env_content = (tmp_path / ".env").read_text(encoding="utf-8")
+    (tmp_path / ".env").write_text(env_content + "\nCLAIRE_PDF_PARSER=docling\n", encoding="utf-8")
+    runtime = cb.load_runtime(cb.Layout(tmp_path))
+
+    with patch.object(cb.subprocess, "run") as run:
+        with pytest.raises(cb.ManuscriptError, match="CLAIRE_PDF_PARSER=docling 설정은 지원되지 않습니다"):
             cb.config_preflight(runtime)
     run.assert_not_called()
 

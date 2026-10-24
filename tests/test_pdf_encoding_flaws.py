@@ -93,10 +93,9 @@ def test_flaw_decomposed_hangul_jamo():
     assert any("decomposed_hangul_jamo" in r for r in res["reasons"])
 
 
-def test_flaw_triggers_docling_escalation():
-    """Verify that when pypdfium2 text has an encoding flaw, extract_pdf_stream escalates to Docling if available."""
+def test_flaw_detected_without_docling():
+    """Verify that when pypdfium2 text has an encoding flaw, it is preserved on the result."""
     flawed_text = "Formula: (cid:10)(cid:20)(cid:30)(cid:40)(cid:50)(cid:60)(cid:70) " * 5
-    recovered_text = "Clean recovered markdown from Docling layout model."
 
     with patch("claire.ingest.fetchers.pdf.extract_pdf_stream_pypdfium2") as mock_pdfium:
         mock_pdfium.return_value = PdfExtractResult(
@@ -111,23 +110,10 @@ def test_flaw_triggers_docling_escalation():
             encoding_flaw_detected=True,
             encoding_flaws=["unmapped_cid_fonts (35 tokens)"],
         )
-        with patch("claire.ingest.fetchers.pdf.extract_pdf_stream_docling") as mock_docling:
-            mock_docling.return_value = PdfExtractResult(
-                "Docling Recovered Paper",
-                recovered_text,
-                [],
-                {},
-                None,
-                [],
-                parser_requested="pypdfium2",
-                parser_used="docling",
-            )
-
-            res = extract_pdf_stream(io.BytesIO(b"%PDF-1.4 dummy"))
-            assert res.parser_used == "docling"
-            assert res.parser_fallback is True
-            assert "pypdfium2 인코딩 결함 감지" in (res.parser_fallback_reason or "")
-            assert res.text == recovered_text
+        res = extract_pdf_stream(io.BytesIO(b"%PDF-1.4 dummy"))
+        assert res.parser_used == "pypdfium2"
+        assert res.encoding_flaw_detected is True
+        assert "unmapped_cid_fonts" in res.encoding_flaws[0]
 
 
 def test_encoding_flaw_metadata_in_ingest_report_and_queries(tmp_path: Path):

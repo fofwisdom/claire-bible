@@ -112,10 +112,9 @@ class IngestReport:
         elif is_detail_failed:
             head = "⚠️ 부분 적재 (본문 가독 상세 생성 실패)"
         elif self.pdf_parser_fallback:
-            req = (self.pdf_parser_requested or "Docling").capitalize()
-            if req == "Pypdfium2":
-                req = "PyPDFium2"
-            elif req == "Pypdf":
+            req_raw = (self.pdf_parser_requested or "pypdfium2").lower()
+            req = "PyPDFium2" if req_raw in ("default", "pypdfium2") else (self.pdf_parser_requested or "PyPDFium2").capitalize()
+            if req == "Pypdf":
                 req = "PyPDF"
             used = (self.pdf_parser_used or "PyPDF").capitalize()
             if used == "Pypdfium2":
@@ -130,10 +129,9 @@ class IngestReport:
 
         parts = [f"{head}: {self.title or self.document_id}"]
         if self.pdf_parser_fallback:
-            req = (self.pdf_parser_requested or "Docling").capitalize()
-            if req == "Pypdfium2":
-                req = "PyPDFium2"
-            elif req == "Pypdf":
+            req_raw = (self.pdf_parser_requested or "pypdfium2").lower()
+            req = "PyPDFium2" if req_raw in ("default", "pypdfium2") else (self.pdf_parser_requested or "PyPDFium2").capitalize()
+            if req == "Pypdf":
                 req = "PyPDF"
             used = (self.pdf_parser_used or "PyPDF").capitalize()
             if used == "Pypdfium2":
@@ -141,10 +139,7 @@ class IngestReport:
             elif used == "Pypdf":
                 used = "PyPDF"
             reason = self.pdf_parser_fallback_reason or f"{req} 런타임 오류"
-            if req == "Docling" and used == "PyPDF":
-                parts.append(f"📄 Docling 레이아웃 파서 실패로 PyPDF가 대체 사용되었습니다. (사유: {reason})")
-            else:
-                parts.append(f"📄 {req} 파서 실패로 {used}가 대체 사용되었습니다. (사유: {reason})")
+            parts.append(f"📄 {req} 파서 실패로 {used}가 대체 사용되었습니다. (사유: {reason})")
         if self.pdf_encoding_flaw_detected:
             flaws_str = ", ".join(self.pdf_encoding_flaws) if self.pdf_encoding_flaws else "텍스트 레이어 결함"
             parts.append(f"⚠️ PDF 텍스트 인코딩 결함 감지 (사유: {flaws_str}) — LLM 추출 품질에 영향을 줄 수 있습니다.")

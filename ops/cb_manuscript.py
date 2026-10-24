@@ -146,6 +146,9 @@ APP_ONE_OFF_COMMANDS = {
     "share",
     "reprocess",
     "presentation",
+    "token",
+    "key",
+    "api-key",
 }
 APP_GUARDED_COMMANDS = {
     "migrate": "Schema lifecycle command owned by install/update",
@@ -972,7 +975,12 @@ def _check_pdf_parser(runtime: Runtime) -> None:
     if raw_parser == "pypdf":
         raise ManuscriptError(
             "CLAIRE_PDF_PARSER=pypdf 설정은 한글 CMap 미지원 및 텍스트 인코딩 결함 위험으로 인해 지원되지 않습니다.\n"
-            ".env 파일의 CLAIRE_PDF_PARSER를 'default' 또는 'docling'으로 변경하십시오."
+            ".env 파일의 CLAIRE_PDF_PARSER를 'default'로 변경하십시오."
+        )
+    if raw_parser == "docling":
+        raise ManuscriptError(
+            "CLAIRE_PDF_PARSER=docling 설정은 지원되지 않습니다 (Docling 의존성이 완전히 제거되었습니다).\n"
+            ".env 파일의 CLAIRE_PDF_PARSER를 'default'로 변경하십시오."
         )
 
 
