@@ -86,21 +86,23 @@ class FetcherRegistry:
                 return cls
         return None
 
-    def get_matching_web_adapters(self, url: str) -> list[Any]:
+    def get_matching_web_adapters(self, url: str, domain_only: bool = False) -> list[Any]:
         self._ensure_builtins()
         matches = []
         import urllib.parse
         parsed = urllib.parse.urlsplit(url)
-        hostname = parsed.hostname or ""
+        hostname = (parsed.hostname or "").lower()
         for _, _, domains, cls in self.web_adapters:
             if not domains:
-                matches.append(cls)
+                if not domain_only:
+                    matches.append(cls)
                 continue
             for domain in domains:
-                if domain.startswith("*.") and hostname.endswith(domain[2:]):
+                d = domain.lower()
+                if d.startswith("*.") and (hostname == d[2:] or hostname.endswith("." + d[2:]) or hostname.endswith(d[2:])):
                     matches.append(cls)
                     break
-                elif hostname == domain:
+                elif hostname == d:
                     matches.append(cls)
                     break
         return matches
@@ -116,7 +118,7 @@ def register_web_adapter(name: str, domains: tuple[str, ...] = (), priority: int
 
 
 def load_builtin_fetchers() -> None:
-    from .fetchers import law, discourse, video, youtube, xcom, hoyowiki, hoyolab, naver_clip
+    from .fetchers import law, discourse, video, youtube, xcom, hoyowiki, hoyolab, naver_clip, uttu
     # add other builtins if needed
 
 def load_plugins_from_dir(plugin_dir: Path) -> None:

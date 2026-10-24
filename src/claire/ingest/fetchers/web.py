@@ -71,23 +71,73 @@ class FetchScraplingResult(tuple):
 
 
 def fetch_web(url: str, *, full_content: bool = False) -> Document:
+    from ..registry import registry
+
     via = "static"
-    res = _fetch_static(url)
-    title, text, links, anchors, err, effective_url, images = res[:7]
-    is_pdf = bool(res[7]) if len(res) > 7 else False
-    doc_type = getattr(res, "doc_type", None) or ("pdf" if is_pdf else "web")
-    if doc_type == "video":
-        from .video import fetch_video
-        return fetch_video(effective_url or url, full_content=full_content)
+    title: str | None = None
+    text: str | None = None
+    links: list[str] = []
+    anchors: dict[str, str] = {}
+    err: str | None = None
+    effective_url: str = url
+    images: list[dict[str, Any]] = []
+    is_pdf: bool = False
+    doc_type: str = "web"
+    parser_info: dict[str, Any] = {}
+    usable: bool = False
+    guard_err: str | None = None
 
-    parser_info: dict[str, Any] = getattr(res, "parser_info", {}) or {}
-    usable, guard_err = _is_usable(title, text)
+    # 1) 도메인 특화 Web Adapter 우선 시도 (heavy UI boilerplate 사이트 등)
+    domain_adapters = registry.get_matching_web_adapters(url, domain_only=True)
+    for adapter_class in domain_adapters:
+        try:
+            res_ad = adapter_class.try_fetch(url)
+            if res_ad is not None:
+                r_title, r_text, r_links, r_anchors, r_images = (
+                    res_ad.title, res_ad.text, res_ad.links, res_ad.anchors, res_ad.images
+                )
+                r_usable, r_guard_err = _is_usable(r_title or "", r_text)
+                if r_usable:
+                    title, text, links, anchors, images, via = (
+                        r_title or "", r_text, r_links or [], r_anchors or {},
+                        r_images or [], adapter_class.name()
+                    )
+                    usable, guard_err, is_pdf = True, None, getattr(res_ad, "is_pdf", False)
+                    doc_type = getattr(res_ad, "doc_type", None) or ("pdf" if is_pdf else "web")
+                    if getattr(res_ad, "parser_info", None):
+                        parser_info = res_ad.parser_info
+                    break
+                elif r_text and len(r_text) > len(text or ""):
+                    title, text, links, anchors, images, via = (
+                        r_title or "", r_text, r_links or [], r_anchors or {},
+                        r_images or [], adapter_class.name()
+                    )
+                    usable, guard_err, is_pdf = r_usable, r_guard_err, getattr(res_ad, "is_pdf", False)
+                    doc_type = getattr(res_ad, "doc_type", None) or ("pdf" if is_pdf else "web")
+                    if getattr(res_ad, "parser_info", None):
+                        parser_info = res_ad.parser_info
+        except Exception:
+            pass
 
-    # 2) Registry 기반 Web Adapter 에스컬레이션
+    # 2) 도메인 어댑터 결과가 없거나 미달 시 정적 추출(_fetch_static) 진행
     if not usable:
-        from ..registry import registry
-        
+        via = "static"
+        res = _fetch_static(url)
+        title, text, links, anchors, err, effective_url, images = res[:7]
+        is_pdf = bool(res[7]) if len(res) > 7 else False
+        doc_type = getattr(res, "doc_type", None) or ("pdf" if is_pdf else "web")
+        if doc_type == "video":
+            from .video import fetch_video
+            return fetch_video(effective_url or url, full_content=full_content)
+
+        parser_info = getattr(res, "parser_info", {}) or {}
+        usable, guard_err = _is_usable(title, text)
+
+    # 3) Registry 기반 일반 Web Adapter 에스컬레이션
+    if not usable:
         for adapter_class in registry.get_matching_web_adapters(url):
+            if adapter_class in domain_adapters:
+                continue
             try:
                 res = adapter_class.try_fetch(url)
                 if res is not None:
