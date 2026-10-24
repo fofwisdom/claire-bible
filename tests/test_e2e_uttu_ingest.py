@@ -51,9 +51,11 @@ def test_e2e_uttu_story_ingestion(tmp_path: Path):
                     '<div class="location-label">야외 실험장 제3구역</div>\n'
                     '<div class="music-cue" data-music-id="lab_bgm"><span class="music-cue-text">Lab Theme</span></div>\n'
                     + dialogue_content +
-                    '<button type="button" class="enemy-info-trigger" data-enemy-groups=\'[{"monsters": [{"name": "실험체 A", "description": "외골격 폭주 개체"}]}]\'>\n'
+                    '<button type="button" class="enemy-info-trigger" data-enemy-groups=\'[{"monsters": [{"name": "실험체 A", "headIconId": 771234, "description": "외골격 폭주 개체"}]}]\'>\n'
                     '  <img src="/ui/enemy/ring.webp">\n'
                     '</button>\n'
+                    '<img class="dialog-portrait-icon" src="https://images.merui.net/headicon_small/308001.webp"> 자, 심호흡하고...<br>\n'
+                    '<img class="dialog-portrait-icon" src="https://images.merui.net/headicon_small/771234.webp"> 실험체 접근 중.<br>\n'
                 ),
             }
         ],
@@ -104,6 +106,8 @@ def test_e2e_uttu_story_ingestion(tmp_path: Path):
             assert "### [장소: 야외 실험장 제3구역]" in doc.raw_text
             assert "[전투 등장: 실험체 A — 외골격 폭주 개체]" in doc.raw_text
             assert "외골격 야외 실험" in doc.raw_text
+            assert "카카니아: 자, 심호흡하고..." in doc.raw_text
+            assert "실험체 A: 실험체 접근 중." in doc.raw_text
             assert "Lab Theme" not in doc.raw_text  # UI cue excluded
 
             # Check images

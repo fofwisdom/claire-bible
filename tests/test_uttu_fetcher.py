@@ -247,3 +247,88 @@ def test_try_fetch_database_page_multilingual_and_modals():
         # Links extracted
         assert "https://uttu.merui.net/enemies/tommy" in res.links
         assert res.anchors.get("https://uttu.merui.net/enemies/tommy") == "토미 상세 보기"
+
+
+def test_combat_dialogue_speaker_resolution():
+    """Verify combat dialogue speaker resolution with exact ID, 4-digit prefix, and static fallback."""
+    raw_html = """
+    <b data-headicon="620520">관람객Ⅰ:</b> 어디 보자...<br>
+    <button type="button" class="enemy-info-trigger" data-enemy-groups='[{"monsters": [{"name": "실험체 A", "headIconId": 771234}]}]'></button>
+    <img class="dialog-portrait-icon" src="https://images.merui.net/headicon_small/620520.webp" alt="620520"> 정확한 매칭 대사.<br>
+    <img class="dialog-portrait-icon" src="https://images.merui.net/headicon_small/771234.webp" alt="771234"> 적 정보 매칭 대사.<br>
+    <img class="dialog-portrait-icon" src="https://images.merui.net/headicon_small/308001.webp" alt="308001"> 자, 심호흡하고...<br>
+    <img class="dialog-portrait-icon" src="/headicon_small/306510.webp" alt="306510"> ...!<br>
+    <img class="dialog-portrait-icon" src="/headicon_small/999901.webp" alt="999901"> 미등록 화자 대사.<br>
+    <img id="scene-bg" src="https://images.merui.net/storybg/scene.webp" alt="Scene Background">
+    """
+
+    text, images = _format_chapter_content(raw_html, base_url="https://uttu.merui.net/story/101/")
+
+    # 1. Exact ID match from <b data-headicon="...">
+    assert "관람객Ⅰ: 정확한 매칭 대사." in text
+
+    # 2. Match from enemy-info-trigger
+    assert "실험체 A: 적 정보 매칭 대사." in text
+
+    # 3. 4-digit prefix match from static fallback map (3080 -> 카카니아, 3065 -> 마커스)
+    assert "카카니아: 자, 심호흡하고..." in text
+    assert "마커스: ...!" in text
+
+    # 4. Unregistered ID fallback
+    assert "[대사(999901)]: 미등록 화자 대사." in text
+
+    # 5. Verify dialog-portrait-icon images are NOT collected into images
+    assert len(images) == 1
+    assert images[0]["url"] == "https://images.merui.net/storybg/scene.webp"
+    for img in images:
+        assert "headicon" not in img["url"]
+
+
+def test_try_fetch_story_cross_chapter_headicon_resolution():
+    """Verify combat dialogue speaker resolution using cross-chapter pre-scanned headicon maps."""
+    url = "https://uttu.merui.net/story/chapter/101/kr/?part=2"
+    chapters_data = {
+        "chapters": [
+            {
+                "number": "1",
+                "textPartNumber": "1",
+                "title": "전조",
+                "content": "<b data-headicon=\"512101\">호프만:</b> 준비는 끝났나?<br>",
+            },
+            {
+                "number": "2",
+                "textPartNumber": "2",
+                "title": "교전",
+                "content": (
+                    '<img class="dialog-portrait-icon" src="https://images.merui.net/headicon_small/512101.webp"> 작전 개시.<br>'
+                    '<img class="dialog-portrait-icon" src="/headicon_small/308001.webp"> 자, 심호흡하고...<br>'
+                ),
+            },
+        ],
+        "frontmatter": {
+            "title": "Operation",
+            "localeTitle": "작전",
+        },
+        "type": "chapter",
+        "name": "101",
+    }
+
+    page_html = f"""<!DOCTYPE html>
+    <html>
+      <head><title>Operation | Reverse: 1999</title></head>
+      <body>
+        <script type="text/plain" id="chaptersData">{json.dumps(chapters_data)}</script>
+      </body>
+    </html>"""
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.text = page_html
+
+    with patch("claire.ingest.fetchers.uttu.SafeHttpClient.get", return_value=mock_resp):
+        res = UttuAdapter.try_fetch(url)
+
+        assert res is not None
+        assert "호프만: 작전 개시." in res.text
+        assert "카카니아: 자, 심호흡하고..." in res.text
+        assert len(res.images) == 0

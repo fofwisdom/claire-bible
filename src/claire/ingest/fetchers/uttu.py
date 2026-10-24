@@ -19,6 +19,23 @@ logger = logging.getLogger(__name__)
 
 _UTTU_DOMAINS = ("uttu.merui.net", "*.merui.net")
 
+_COMMON_CHARACTER_PREFIX_MAP: dict[str, str] = {
+    "3001": "버틴",
+    "3002": "소네토",
+    "3003": "레굴루스",
+    "3047": "메디슨 포켓",
+    "3065": "마커스",
+    "3080": "카카니아",
+    "3081": "이졸데",
+    "5121": "호프만",
+    "5122": "칼",
+    "5123": "하인리히",
+    "5149": "루시",
+    "6239": "제멜바이스",
+}
+
+_HEADICON_ID_RE = re.compile(r"headicon(?:_small)?/([a-zA-Z0-9_-]+?)(?:\.[a-zA-Z0-9]+)?(?:[?#]|$)")
+
 _UTTU_MODAL_AND_BANNER_IDS = (
     "wipBanner",
     "loading-screen",
@@ -120,9 +137,83 @@ def _extract_links_and_anchors(soup: BeautifulSoup, base_url: str) -> tuple[list
     return links, anchors
 
 
-def _format_chapter_content(raw_html: str, base_url: str) -> tuple[str, list[dict[str, Any]]]:
+def _extract_headicon_id(src: str) -> str:
+    """Extract headicon identifier from image source URL or path."""
+    if not src:
+        return ""
+    m = _HEADICON_ID_RE.search(src)
+    if m:
+        return m.group(1).strip()
+    filename = src.split("?")[0].split("#")[0].rstrip("/").split("/")[-1]
+    stem = filename.split(".")[0]
+    if stem.isdigit():
+        return stem
+    return ""
+
+
+def _scan_headicon_maps_from_soup(
+    soup: BeautifulSoup,
+    headicon_map: dict[str, str],
+    prefix_map: dict[str, str],
+) -> None:
+    """Extract headicon identifier to speaker name mappings from HTML elements."""
+    # 1. Elements with data-headicon (e.g. <b data-headicon="620520">관람객Ⅰ:</b>)
+    for el in soup.find_all(attrs={"data-headicon": True}):
+        hid = str(el.get("data-headicon", "")).strip()
+        name = el.get_text().strip().rstrip(":").strip()
+        if hid and name:
+            headicon_map[hid] = name
+            if len(hid) >= 4 and hid[:4] not in prefix_map:
+                prefix_map[hid[:4]] = name
+
+    # 2. Extract headIconId -> name from button.enemy-info-trigger
+    for btn in soup.find_all("button", class_="enemy-info-trigger"):
+        raw_attr = btn.get("data-enemy-groups")
+        if not raw_attr:
+            continue
+        try:
+            groups = json.loads(raw_attr)
+            for group in groups:
+                for monster in group.get("monsters", []):
+                    m_name = (monster.get("name") or "").strip()
+                    hid = monster.get("headIconId") or monster.get("headIcon")
+                    if hid is not None and m_name:
+                        hid_str = str(hid).strip()
+                        if hid_str:
+                            headicon_map[hid_str] = m_name
+                            if len(hid_str) >= 4 and hid_str[:4] not in prefix_map:
+                                prefix_map[hid_str[:4]] = m_name
+        except Exception:
+            pass
+
+
+def _scan_headicon_maps_from_html(
+    raw_html: str,
+    headicon_map: dict[str, str],
+    prefix_map: dict[str, str],
+) -> None:
+    """Scan raw HTML string to build headicon and prefix mappings."""
+    if not raw_html:
+        return
+    if "data-headicon" not in raw_html and "enemy-info-trigger" not in raw_html:
+        return
+    soup = BeautifulSoup(raw_html, "html.parser")
+    _scan_headicon_maps_from_soup(soup, headicon_map, prefix_map)
+
+
+def _format_chapter_content(
+    raw_html: str,
+    base_url: str,
+    headicon_map: dict[str, str] | None = None,
+    prefix_map: dict[str, str] | None = None,
+) -> tuple[str, list[dict[str, Any]]]:
     """Format the chapter content HTML to text/markdown and extract story images."""
     ch_soup = BeautifulSoup(raw_html, "html.parser")
+
+    # Build local headicon mappings from provided maps and current chapter HTML
+    local_headicon_map = dict(headicon_map) if headicon_map else {}
+    local_prefix_map = dict(prefix_map) if prefix_map else {}
+    _scan_headicon_maps_from_soup(ch_soup, local_headicon_map, local_prefix_map)
 
     # 1. Format <div class="location-label"> to \n### [장소: {location}]\n
     for loc in ch_soup.find_all("div", class_="location-label"):
@@ -155,10 +246,43 @@ def _format_chapter_content(raw_html: str, base_url: str) -> tuple[str, list[dic
         else:
             btn.decompose()
 
-    # 4. Collect images from data-modal-src or src, excluding black/white background images and decorative UI badges
+    # 4. Resolve combat dialogues with dialog-portrait-icon
+    for img in ch_soup.find_all("img", class_="dialog-portrait-icon"):
+        src = img.get("src") or img.get("data-src") or img.get("data-modal-src") or ""
+        icon_id = _extract_headicon_id(src)
+        if not icon_id:
+            icon_id = str(img.get("data-headicon") or img.get("data-id") or "").strip()
+
+        prefix = icon_id[:4] if len(icon_id) >= 4 else icon_id
+        speaker_name = (
+            local_headicon_map.get(icon_id)
+            or local_prefix_map.get(prefix)
+            or _COMMON_CHARACTER_PREFIX_MAP.get(prefix)
+        )
+
+        speaker_tag = ch_soup.new_tag("b")
+        if speaker_name:
+            speaker_tag.string = f"{speaker_name}:"
+        elif icon_id:
+            speaker_tag.string = f"[대사({icon_id})]:"
+        else:
+            speaker_tag.string = "[전투 대사]:"
+
+        img.replace_with(speaker_tag)
+        if speaker_tag.next_sibling and isinstance(speaker_tag.next_sibling, str):
+            if not speaker_tag.next_sibling.startswith(" "):
+                speaker_tag.insert_after(" ")
+        else:
+            speaker_tag.insert_after(" ")
+        img.decompose()
+
+    # 5. Collect images from data-modal-src or src, excluding black/white background images and decorative UI badges
     images: list[dict[str, Any]] = []
     seen_urls: set[str] = set()
     for img in ch_soup.find_all("img"):
+        if "dialog-portrait-icon" in img.get("class", []):
+            img.decompose()
+            continue
         src = img.get("data-modal-src") or img.get("src")
         if not src:
             img.decompose()
@@ -176,13 +300,18 @@ def _format_chapter_content(raw_html: str, base_url: str) -> tuple[str, list[dic
             img.decompose()
             continue
 
+        # Exclude character headicons
+        if "headicon" in lower_url:
+            img.decompose()
+            continue
+
         if abs_img_url not in seen_urls:
             seen_urls.add(abs_img_url)
             alt = (img.get("alt") or "").strip()
             images.append({"url": abs_img_url, "alt": alt, "caption": ""})
         img.decompose()
 
-    # 5. Format screen narration <p> elements
+    # 6. Format screen narration <p> elements
     for p in ch_soup.find_all("p"):
         p_text = p.get_text().strip()
         if p_text:
@@ -190,11 +319,11 @@ def _format_chapter_content(raw_html: str, base_url: str) -> tuple[str, list[dic
         else:
             p.decompose()
 
-    # 6. Replace <br> tags with newline characters so dialogues and stage directions do not merge into single lines
+    # 7. Replace <br> tags with newline characters so dialogues and stage directions do not merge into single lines
     for br in ch_soup.find_all("br"):
         br.replace_with("\n")
 
-    # 7. Normalize whitespace
+    # 8. Normalize whitespace
     raw_text = ch_soup.get_text()
     lines = [line.strip() for line in raw_text.splitlines()]
     collapsed: list[str] = []
@@ -294,6 +423,14 @@ class UttuAdapter(BaseWebAdapter):
             chapter_title = frontmatter.get("title") or data.get("title") or data.get("name")
             base_title = locale_title or chapter_title or "Reverse: 1999"
 
+            # Pre-scan all chapters to build comprehensive headicon and prefix mappings
+            episode_headicon_map: dict[str, str] = {}
+            episode_prefix_map: dict[str, str] = {}
+            for ch in chapters:
+                ch_content = ch.get("content", "")
+                if ch_content:
+                    _scan_headicon_maps_from_html(ch_content, episode_headicon_map, episode_prefix_map)
+
             # Read part query parameter from URL if present
             parsed = urllib.parse.urlsplit(url)
             qs = urllib.parse.parse_qs(parsed.query)
@@ -323,7 +460,12 @@ class UttuAdapter(BaseWebAdapter):
                 part_title = target_chapter.get("title") or target_chapter.get("englishTitle") or f"Part {part_number}"
                 doc_title = f"{locale_title or chapter_title} - {part_number}. {part_title} | Reverse: 1999"
 
-                text, ch_images = _format_chapter_content(target_chapter.get("content", ""), base_url=url)
+                text, ch_images = _format_chapter_content(
+                    target_chapter.get("content", ""),
+                    base_url=url,
+                    headicon_map=episode_headicon_map,
+                    prefix_map=episode_prefix_map,
+                )
                 for img in ch_images:
                     if img["url"] not in seen_images:
                         seen_images.add(img["url"])
@@ -335,7 +477,12 @@ class UttuAdapter(BaseWebAdapter):
                     p_num = ch.get("textPartNumber") or ch.get("number")
                     p_title = ch.get("title") or ch.get("englishTitle") or ""
                     heading = f"## {p_num}. {p_title}".strip() if p_num else f"## {p_title}".strip()
-                    ch_text, ch_images = _format_chapter_content(ch.get("content", ""), base_url=url)
+                    ch_text, ch_images = _format_chapter_content(
+                        ch.get("content", ""),
+                        base_url=url,
+                        headicon_map=episode_headicon_map,
+                        prefix_map=episode_prefix_map,
+                    )
                     for img in ch_images:
                         if img["url"] not in seen_images:
                             seen_images.add(img["url"])
@@ -404,6 +551,8 @@ class UttuAdapter(BaseWebAdapter):
             if "heiping.webp" in lower_url or "baiping.webp" in lower_url:
                 continue
             if "/ui/enemy/" in lower_url or "ring.webp" in lower_url or "/ui/" in lower_url:
+                continue
+            if "headicon" in lower_url:
                 continue
 
             if abs_img_url not in seen_img:
