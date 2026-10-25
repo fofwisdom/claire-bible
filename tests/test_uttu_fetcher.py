@@ -332,3 +332,199 @@ def test_try_fetch_story_cross_chapter_headicon_resolution():
         assert "호프만: 작전 개시." in res.text
         assert "카카니아: 자, 심호흡하고..." in res.text
         assert len(res.images) == 0
+
+
+def test_try_fetch_event_trail_detail_fragment():
+    """Verify event story trail detail extraction with secret document fragment."""
+    url = "https://uttu.merui.net/story/event/3_1/?lang=kr&part=21&trail=21-0&view=detail"
+
+    story_data_trails = {
+        "3110112": {
+            "title": [
+                "To the UTTU Editorial Team",
+                "《UTTU》编辑部收",
+                "《UTTU》編輯部收",
+                "『UTTU』編集部御中",
+                "<UTTU> 편집부 수신",
+            ],
+            "image": "v3a1_fragmenticon_011",
+            "description": [
+                "Dear colleagues,\n\nRegarding Corvus...",
+                "致亲爱的同事们：\n\n...",
+                "致親愛的同事們：\n\n...",
+                "親愛なる同僚たちへ：\n\n...",
+                "친애하는 동료들에게:\n\n‘도나우 여명호’의 열차장 코르부스에 대해 다들 아시겠지만 과거 그녀는 저희의 일원이었습니다.\n\n<UTTU> 편집자 베리티\n‘도나우 여명호’에서 작성",
+            ],
+        }
+    }
+
+    trail_btn_la_kr = json.dumps({
+        "data-trail": json.dumps({
+            "id": 3110115,
+            "fragment_id": 3110112,
+            "title": "‘바람’의 메아리",
+            "trail_type": 1,
+            "description": "무수히 많은 실이 ‘바람’에 따라 흔들린다. ‘그물’ 안쪽에서도, ‘그물’ 바깥쪽에서도.",
+            "button": "봉투 열기",
+            "after": None,
+        })
+    })
+
+    page_html = f"""<!DOCTYPE html>
+    <html>
+      <head><title>The Midnight Whistle | Reverse: 1999</title></head>
+      <body>
+        <div id="storyBlock" data-titles='{{"en": "The Midnight Whistle", "kr": "한밤의 기적소리"}}'></div>
+        <div id="storyData" data-trails='{json.dumps(story_data_trails)}'></div>
+        <div class="accordion-item">
+          <button class="accordion-trigger" data-chapter="21" data-url-part="21">
+            <span data-l="" data-l-kr="TMW-21/태양 아래 대지" data-l-en="TMW-21/A Land Under the Sun">TMW-21/A Land Under the Sun</span>
+          </button>
+          <div class="accordion-content">
+            <button class="trail-link" data-trail='{{"id": 3110115, "fragment_id": 3110112, "title": "Echoes of the \\"Wind\\""}}' data-la-kr='{trail_btn_la_kr}'>
+              • Echoes of the "Wind"
+            </button>
+          </div>
+        </div>
+      </body>
+    </html>"""
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.text = page_html
+
+    with patch("claire.ingest.fetchers.uttu.SafeHttpClient.get", return_value=mock_resp):
+        res = UttuAdapter.try_fetch(url)
+
+        assert res is not None
+        assert isinstance(res, WebAdapterResult)
+        assert res.title == "한밤의 기적소리 - <UTTU> 편집부 수신 | Reverse: 1999"
+        assert res.parser_info["adapter"] == "uttu"
+        assert res.parser_info["page_type"] == "event_trail"
+        assert res.parser_info["fragment_id"] == 3110112
+
+        # Check content
+        assert "# <UTTU> 편집부 수신" in res.text
+        assert "[단서: ‘바람’의 메아리]" in res.text
+        assert "무수히 많은 실이 ‘바람’에 따라 흔들린다." in res.text
+        assert "친애하는 동료들에게:" in res.text
+        assert "<UTTU> 편집자 베리티" in res.text
+
+        # Check images
+        assert len(res.images) == 1
+        assert res.images[0]["url"] == "https://assets.merui.net/dungeon/fragmenticon/v3a1_fragmenticon_011.webp"
+        assert res.images[0]["alt"] == "<UTTU> 편집부 수신"
+
+
+def test_try_fetch_event_trail_dialog_steps():
+    """Verify event story trail with structured dialogSteps formatting."""
+    url = "https://uttu.merui.net/story/event/3_1/?lang=kr&part=12&trail=12-0"
+
+    dialog_steps = {
+        "dialog_id": 49,
+        "steps": [
+            {"step_id": 49001, "speaker": "이글리카", "dialog": "그래서, 어디서 왔지?"},
+            {"step_id": 49002, "speaker": "피로스", "dialog": "유격대의 새 대원에 대한 기본 정보를 파악하려는 거야?"},
+            {"step_id": 49003, "speaker": "", "dialog": "대화 종료"},
+        ],
+    }
+
+    trail_btn_la_kr = json.dumps({
+        "data-trail": json.dumps({
+            "id": 3110109,
+            "fragment_id": 0,
+            "title": "잔향은 과거에서 온다.",
+            "trail_type": 18,
+            "description": "과거를 회상하는 건 자신을 향한 가장 직접적이며 단순한 공격 방식입니다.",
+            "dialogSteps": dialog_steps,
+        })
+    })
+
+    page_html = f"""<!DOCTYPE html>
+    <html>
+      <head><title>The Midnight Whistle | Reverse: 1999</title></head>
+      <body>
+        <div id="storyBlock" data-titles='{{"en": "The Midnight Whistle", "kr": "한밤의 기적소리"}}'></div>
+        <div id="storyData" data-trails='{{}}'></div>
+        <div class="accordion-item">
+          <button class="accordion-trigger" data-chapter="12" data-url-part="12">
+            <span>TMW-12</span>
+          </button>
+          <div class="accordion-content">
+            <button class="trail-link" data-trail='{{"id": 3110109, "fragment_id": 0, "title": "Echoes"}}' data-la-kr='{trail_btn_la_kr}'>
+              • Echoes
+            </button>
+          </div>
+        </div>
+      </body>
+    </html>"""
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.text = page_html
+
+    with patch("claire.ingest.fetchers.uttu.SafeHttpClient.get", return_value=mock_resp):
+        res = UttuAdapter.try_fetch(url)
+
+        assert res is not None
+        assert res.title == "한밤의 기적소리 - 잔향은 과거에서 온다. | Reverse: 1999"
+        assert res.parser_info["page_type"] == "event_trail"
+        assert "### [대화 기록]" in res.text
+        assert "**이글리카**: 그래서, 어디서 왔지?" in res.text
+        assert "**피로스**: 유격대의 새 대원에 대한 기본 정보를 파악하려는 거야?" in res.text
+        assert "대화 종료" not in res.text
+
+
+def test_try_fetch_event_part_only():
+    """Verify event stage overview parsing when part query parameter is present without trail."""
+    url = "https://uttu.merui.net/story/event/3_1/?lang=kr&part=21"
+
+    story_data_trails = {
+        "3110112": {
+            "title": ["To Editorial", "", "", "", "<UTTU> 편집부 수신"],
+            "description": ["", "", "", "", "본문"],
+        }
+    }
+
+    trail_btn_la_kr = json.dumps({
+        "data-trail": json.dumps({
+            "id": 3110115,
+            "fragment_id": 3110112,
+            "title": "‘바람’의 메아리",
+            "description": "무수히 많은 실이 ‘바람’에 따라 흔들린다.",
+        })
+    })
+
+    page_html = f"""<!DOCTYPE html>
+    <html>
+      <head><title>The Midnight Whistle | Reverse: 1999</title></head>
+      <body>
+        <div id="storyBlock" data-titles='{{"en": "The Midnight Whistle", "kr": "한밤의 기적소리"}}'></div>
+        <div id="storyData" data-trails='{json.dumps(story_data_trails)}'></div>
+        <div class="accordion-item">
+          <button class="accordion-trigger" data-chapter="21" data-url-part="21">
+            <span data-l="" data-l-kr="TMW-21 / 태양 아래 대지" data-l-en="TMW-21 / A Land Under the Sun">TMW-21 / A Land Under the Sun</span>
+          </button>
+          <div class="accordion-content">
+            <p>모두, 안녕히. 즐거운 여정 되시길.</p>
+            <button class="trail-link" data-trail='{{"id": 3110115, "fragment_id": 3110112, "title": "Echoes"}}' data-la-kr='{trail_btn_la_kr}'>
+              • Echoes
+            </button>
+          </div>
+        </div>
+      </body>
+    </html>"""
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.text = page_html
+
+    with patch("claire.ingest.fetchers.uttu.SafeHttpClient.get", return_value=mock_resp):
+        res = UttuAdapter.try_fetch(url)
+
+        assert res is not None
+        assert res.title == "한밤의 기적소리 - TMW-21 / 태양 아래 대지 | Reverse: 1999"
+        assert res.parser_info["page_type"] == "event_part"
+        assert "모두, 안녕히. 즐거운 여정 되시길." in res.text
+        assert "### [단서 목록]" in res.text
+        assert "- **‘바람’의 메아리** (<UTTU> 편집부 수신): 무수히 많은 실이 ‘바람’에 따라 흔들린다." in res.text
