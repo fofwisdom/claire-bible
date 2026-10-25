@@ -1023,8 +1023,34 @@ def create_app(
 
     async def do_regenerate(request: Request) -> JSONResponse:
         body = await _json_object(request)
-        theme, _, theme_svc = _get_theme_ctx(request, body)
+        theme, theme_settings, theme_svc = _get_theme_ctx(request, body)
         scope = request_auth_scope(request)
+        target = str(body.get("target") or body.get("payload") or body.get("id") or body.get("doc_id") or "").strip()
+        doc_id = str(body.get("doc_id") or "").strip() or None
+        token = str(body.get("token") or "").strip() or None
+        if not target and not doc_id and not token:
+            raise HTTPException(status_code=400, detail="target, doc_id, or token required")
+
+        theme_ref = _extract_theme_ref(request, body)
+        if theme_ref is None and getattr(s, "multi_theme", False) and theme_mgr is not None:
+            targets = await asyncio.to_thread(
+                theme_mgr.resolve_document_targets,
+                target=target or None,
+                doc_id=doc_id,
+                token=token,
+            )
+            if targets:
+                matched_theme_id = targets[0].get("theme_id")
+                if matched_theme_id is not None and matched_theme_id != theme.id:
+                    try:
+                        cand_theme = theme_mgr.get_theme(matched_theme_id)
+                        if scope != "collaborator" or cand_theme.is_collaborator_accessible or cand_theme.is_public:
+                            theme = cand_theme
+                            theme_settings = theme_mgr.get_settings_for_theme(theme.id, s)
+                            theme_svc = service_pool.get_service(theme.id)
+                    except Exception:
+                        pass
+
         if scope == "collaborator":
             if theme.is_default or theme.id == 0:
                 raise HTTPException(
@@ -1036,11 +1062,6 @@ def create_app(
                     status_code=403,
                     detail="Collaborator에게 공개되지 않은 테마입니다.",
                 )
-        target = str(body.get("target") or body.get("payload") or body.get("id") or body.get("doc_id") or "").strip()
-        doc_id = str(body.get("doc_id") or "").strip() or None
-        token = str(body.get("token") or "").strip() or None
-        if not target and not doc_id and not token:
-            raise HTTPException(status_code=400, detail="target, doc_id, or token required")
 
         component = str(body.get("component") or "").strip().lower()
         all_comp = False
@@ -2328,8 +2349,34 @@ def create_app(
         from ..extract.provider import set_progress_callback
 
         body = await _json_object(request)
-        theme, _, theme_svc = _get_theme_ctx(request, body)
+        theme, theme_settings, theme_svc = _get_theme_ctx(request, body)
         scope = request_auth_scope(request)
+        target = str(body.get("target") or body.get("payload") or body.get("id") or body.get("doc_id") or "").strip()
+        doc_id = str(body.get("doc_id") or "").strip() or None
+        token = str(body.get("token") or "").strip() or None
+        if not target and not doc_id and not token:
+            raise HTTPException(status_code=400, detail="target, doc_id, or token required")
+
+        theme_ref = _extract_theme_ref(request, body)
+        if theme_ref is None and getattr(s, "multi_theme", False) and theme_mgr is not None:
+            targets = await asyncio.to_thread(
+                theme_mgr.resolve_document_targets,
+                target=target or None,
+                doc_id=doc_id,
+                token=token,
+            )
+            if targets:
+                matched_theme_id = targets[0].get("theme_id")
+                if matched_theme_id is not None and matched_theme_id != theme.id:
+                    try:
+                        cand_theme = theme_mgr.get_theme(matched_theme_id)
+                        if scope != "collaborator" or cand_theme.is_collaborator_accessible or cand_theme.is_public:
+                            theme = cand_theme
+                            theme_settings = theme_mgr.get_settings_for_theme(theme.id, s)
+                            theme_svc = service_pool.get_service(theme.id)
+                    except Exception:
+                        pass
+
         if scope == "collaborator":
             if theme.is_default or theme.id == 0:
                 raise HTTPException(
@@ -2341,11 +2388,6 @@ def create_app(
                     status_code=403,
                     detail="Collaborator에게 공개되지 않은 테마입니다.",
                 )
-        target = str(body.get("target") or body.get("payload") or body.get("id") or body.get("doc_id") or "").strip()
-        doc_id = str(body.get("doc_id") or "").strip() or None
-        token = str(body.get("token") or "").strip() or None
-        if not target and not doc_id and not token:
-            raise HTTPException(status_code=400, detail="target, doc_id, or token required")
 
         component = str(body.get("component") or "").strip().lower()
         all_comp = False

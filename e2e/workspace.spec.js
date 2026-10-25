@@ -1310,3 +1310,40 @@ test('hidden documents list in document sidebar is scrollable when opened in own
   expect(pageErrors).toEqual([]);
 });
 
+test('WebUI regenerate button opens form and executes without client script errors', async ({ page }) => {
+  const pageErrors = [];
+  page.on('pageerror', error => pageErrors.push(error.message));
+  await page.setViewportSize({ width: 1400, height: 900 });
+
+  // 1. Authenticate as owner
+  await page.goto('/?t=e2e-owner-token-0123456789abcdef', { waitUntil: 'domcontentloaded' });
+  await expect.poll(() => page.evaluate(() => window.claireDebug?.authScope)).toBe('owner');
+
+  // 2. Click #regenbtn in right sidebar
+  const regenBtn = page.locator('#regenbtn');
+  await expect(regenBtn).toBeVisible();
+  await regenBtn.click();
+
+  // 3. Verify regeneration form rendered in #panel
+  const panel = page.locator('#panel');
+  await expect(panel.locator('h2')).toContainText('문서 컴포넌트 재생성');
+  await expect(page.locator('#regentarget')).toBeVisible();
+
+  // 4. Fill target and click Dry-Run
+  await page.locator('#regentarget').fill('doc_1');
+  const dryRunBtn = panel.locator('button:has-text("영향 분석 (Dry-Run)")');
+  await expect(dryRunBtn).toBeVisible();
+  await dryRunBtn.click();
+
+  // 5. Verify dry run results or result area appears
+  await expect(page.locator('#regenresult')).toBeVisible();
+
+  // 6. Click '재생성 시작' and verify no uncaught reference errors occurred
+  const startBtn = panel.locator('button.readbtn:has-text("재생성 시작")');
+  await expect(startBtn).toBeVisible();
+  await startBtn.click();
+
+  // 7. Verify no script errors (such as pauseGraphForIngest is not defined) were thrown
+  expect(pageErrors).toEqual([]);
+});
+

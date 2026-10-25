@@ -2254,13 +2254,14 @@ function openReingest(){
   const defTitle = (curDoc && curDoc.title) ? esc(curDoc.title) : '';
   const isMulti = isMultiThemeEnabled();
   let themeFieldHtml = '';
+  const curDocThemeId = (curDoc && curDoc.theme_id !== undefined && curDoc.theme_id !== null) ? curDoc.theme_id : activeThemeId;
   if(isMulti && availableThemes && availableThemes.length > 0){
     if(AUTH_SCOPE === 'collaborator'){
       const eligibleThemes = availableThemes.filter(t => t.id > 0 && t.is_collaborator_accessible !== false);
       if(eligibleThemes.length === 0){
         themeFieldHtml = '<div class="ingest-field"><p class="hint" style="color:var(--warn,#f39c12);margin:0;">⚠️ 재적재 가능한 협업 테마가 없습니다.</p></div>';
       } else {
-        const selId = eligibleThemes.some(t => t.id === activeThemeId) ? activeThemeId : eligibleThemes[0].id;
+        const selId = eligibleThemes.some(t => t.id === curDocThemeId) ? curDocThemeId : eligibleThemes[0].id;
         const opts = eligibleThemes.map(t => {
           const icon = t.icon || '📁';
           const label = esc(t.label);
@@ -2275,7 +2276,7 @@ function openReingest(){
       themeFieldHtml = ('<div class="ingest-field">'+
         '<label class="ingest-label" for="reingtheme">재적재 대상 테마 <span class="ingest-help">지식 테마 선택</span></label>'+
         '<select id="reingtheme" class="ingest-theme-select">'+
-          renderThemeOptions(activeThemeId)+
+          renderThemeOptions(curDocThemeId)+
         '</select>'+
       '</div>');
     }
@@ -2480,7 +2481,7 @@ async function runReingest(){
 }
 
 // --- 문서 컴포넌트 재생성 (Regenerate) ---
-function openRegen(docIdOverride){
+function openRegen(docIdOverride, compOverride){
   if(!canIngest()) return;
   if(activeIngest && activeIngest.running){
     renderIngestStatus();
@@ -2492,13 +2493,14 @@ function openRegen(docIdOverride){
   const defTitle = (curDoc && curDoc.title) ? esc(curDoc.title) : '';
   const isMulti = isMultiThemeEnabled();
   let themeFieldHtml = '';
+  const curDocThemeId = (curDoc && curDoc.theme_id !== undefined && curDoc.theme_id !== null) ? curDoc.theme_id : activeThemeId;
   if(isMulti && availableThemes && availableThemes.length > 0){
     if(AUTH_SCOPE === 'collaborator'){
       const eligibleThemes = availableThemes.filter(t => t.id > 0 && t.is_collaborator_accessible !== false);
       if(eligibleThemes.length === 0){
         themeFieldHtml = '<div class="ingest-field"><p class="hint" style="color:var(--warn,#f39c12);margin:0;">⚠️ 재생성 가능한 협업 테마가 없습니다.</p></div>';
       } else {
-        const selId = eligibleThemes.some(t => t.id === activeThemeId) ? activeThemeId : eligibleThemes[0].id;
+        const selId = eligibleThemes.some(t => t.id === curDocThemeId) ? curDocThemeId : eligibleThemes[0].id;
         const opts = eligibleThemes.map(t => {
           const icon = t.icon || '📁';
           const label = esc(t.label);
@@ -2513,11 +2515,13 @@ function openRegen(docIdOverride){
       themeFieldHtml = ('<div class="ingest-field">'+
         '<label class="ingest-label" for="regentheme">재생성 대상 테마 <span class="ingest-help">지식 테마 선택</span></label>'+
         '<select id="regentheme" class="ingest-theme-select">'+
-          renderThemeOptions(activeThemeId)+
+          renderThemeOptions(curDocThemeId)+
         '</select>'+
       '</div>');
     }
   }
+
+  const selectedComp = compOverride || 'all';
 
   panel.innerHTML = '<h2>🔁 문서 컴포넌트 재생성</h2>'+
     '<p class="al">기존 원문(raw_text)을 기반으로 요약, 가독 본문(상세), 지식 노드/관계를 LLM으로 다시 생성합니다.</p>'+
@@ -2531,10 +2535,10 @@ function openRegen(docIdOverride){
       '<fieldset class="ingest-options">'+
         '<legend class="ingest-label">재생성 컴포넌트</legend>'+
         '<div class="ingest-choice-grid">'+
-          '<div class="ingest-choice"><input id="regencomp-all" type="radio" name="regen-comp" value="all" checked><label for="regencomp-all" title="요약, 본문, 지식그래프를 모두 재생성합니다">전체 (All)</label></div>'+
-          '<div class="ingest-choice"><input id="regencomp-detail" type="radio" name="regen-comp" value="detail"><label for="regencomp-detail" title="가독 본문(상세 렌더)만 재생성합니다">본문 상세 (Detail)</label></div>'+
-          '<div class="ingest-choice"><input id="regencomp-summary" type="radio" name="regen-comp" value="summary"><label for="regencomp-summary" title="요약문만 LLM 재추출합니다">요약 (Summary)</label></div>'+
-          '<div class="ingest-choice"><input id="regencomp-graph" type="radio" name="regen-comp" value="graph"><label for="regencomp-graph" title="엔티티와 지식 노드/관계만 재추출합니다">지식그래프 (Graph)</label></div>'+
+          '<div class="ingest-choice"><input id="regencomp-all" type="radio" name="regen-comp" value="all" '+(selectedComp==='all'?'checked':'')+'><label for="regencomp-all" title="요약, 본문, 지식그래프를 모두 재생성합니다">전체 (All)</label></div>'+
+          '<div class="ingest-choice"><input id="regencomp-detail" type="radio" name="regen-comp" value="detail" '+(selectedComp==='detail'?'checked':'')+'><label for="regencomp-detail" title="가독 본문(상세 렌더)만 재생성합니다">본문 상세 (Detail)</label></div>'+
+          '<div class="ingest-choice"><input id="regencomp-summary" type="radio" name="regen-comp" value="summary" '+(selectedComp==='summary'?'checked':'')+'><label for="regencomp-summary" title="요약문만 LLM 재추출합니다">요약 (Summary)</label></div>'+
+          '<div class="ingest-choice"><input id="regencomp-graph" type="radio" name="regen-comp" value="graph" '+(selectedComp==='graph'?'checked':'')+'><label for="regencomp-graph" title="엔티티와 지식 노드/관계만 재추출합니다">지식그래프 (Graph)</label></div>'+
         '</div>'+
       '</fieldset>'+
       '<fieldset class="ingest-options">'+
@@ -2609,7 +2613,7 @@ async function runRegen(isDryRun){
       };
       if(effort) payload.effort = effort;
       if(focus) payload.focus = focus;
-      if(isMulti && targetThemeId !== undefined && targetThemeId !== null && targetThemeId !== 0){
+      if(isMulti && targetThemeId !== undefined && targetThemeId !== null){
         payload.theme = targetThemeId;
       }
       const r = await fetch('regenerate', {
@@ -2675,7 +2679,7 @@ async function runRegen(isDryRun){
     messages: [],
     timer: null,
   };
-  pauseGraphForIngest();
+  suspendGraphForIngest();
   renderIngestStatus();
   activeIngest.timer = setInterval(updateIngestElapsed, 1000);
 
@@ -2687,7 +2691,7 @@ async function runRegen(isDryRun){
   };
   if(effort) payload.effort = effort;
   if(focus) payload.focus = focus;
-  if(isMulti && targetThemeId !== undefined && targetThemeId !== null && targetThemeId !== 0){
+  if(isMulti && targetThemeId !== undefined && targetThemeId !== null){
     payload.theme = targetThemeId;
   }
 
@@ -2791,7 +2795,10 @@ async function runRegen(isDryRun){
   h += '</div>';
   panel.innerHTML = h;
 
-  refreshGraph();
+  await Promise.all([
+    reloadThemeData(true),
+    loadThemeDocuments()
+  ]);
   const affectedIds = tgts.map(t => t.document_id);
   if(activeDoc && affectedIds.includes(activeDoc)){
     openReader(activeDoc);
@@ -6687,4 +6694,6 @@ window.openDocDrawer = openDocDrawer;
 window.closeDocDrawer = closeDocDrawer;
 window.toggleDocDrawer = toggleDocDrawer;
 window.closeAllDrawers = closeAllDrawers;
+window.openRegen = openRegen;
+window.runRegen = runRegen;
 

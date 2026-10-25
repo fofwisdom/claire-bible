@@ -789,7 +789,7 @@ function renderReader(dc){
     h+='<div class=rsection>요약</div><div class="doc-content">'+renderContent(dc.summary, dc.detail_format)+'</div>';
   }else if(dc.detail || dc.detail_html){
     h+='<div class=rsection>요약</div><div class="doc-content stt-trunc-banner" style="margin-top:.5em">⚠️ <strong>요약 누락 안내</strong>: 요약 생성 과정에서 오류가 발생하여 요약이 등록되지 않았습니다. 텔레그램 봇의 <code>🔄 요약 재생성</code> 버튼 또는 CLI(<code>./cb-manuscript app regenerate '+esc(dc.id||'')+' --summary --apply</code>)를 통해 재생성할 수 있습니다.'+
-      ((typeof canIngest === 'function' && canIngest()) ? '<div style="margin-top:6px"><button type="button" class="sec" style="font-size:12px;padding:3px 8px;cursor:pointer" onclick="openRegen(\''+esc(dc.id||'')+'\')">🔁 웹에서 요약 재생성</button></div>' : '')+'</div>';
+      ((typeof canIngest === 'function' && canIngest()) ? '<div style="margin-top:6px"><button type="button" class="sec" style="font-size:12px;padding:3px 8px;cursor:pointer" onclick="openRegen(\''+esc(dc.id||'')+'\', \'summary\')">🔁 웹에서 요약 재생성</button></div>' : '')+'</div>';
   }
   if(dc.detail_html){
     const purifier=window.DOMPurify;
@@ -799,11 +799,11 @@ function renderReader(dc){
     h+='<div class=rsection>상세</div><div class="doc-content">'+renderContent(dc.detail, dc.detail_format)+'</div>';
   }else if(dc.summary){
     h+='<div class=rsection>상세</div><div class="doc-content stt-trunc-banner" style="margin-top:.5em">⚠️ <strong>상세 본문 누락 안내</strong>: 본문 생성 과정에서 시간 초과 또는 오류가 발생하여 상세 본문이 생성되지 않았습니다. 텔레그램 봇의 <code>🔄 본문 재생성</code> 버튼 또는 CLI(<code>./cb-manuscript app regenerate '+esc(dc.id||'')+' --detail --apply</code>)를 통해 재생성할 수 있습니다.'+
-      ((typeof canIngest === 'function' && canIngest()) ? '<div style="margin-top:6px"><button type="button" class="sec" style="font-size:12px;padding:3px 8px;cursor:pointer" onclick="openRegen(\''+esc(dc.id||'')+'\')">🔁 웹에서 본문 재생성</button></div>' : '')+'</div>';
+      ((typeof canIngest === 'function' && canIngest()) ? '<div style="margin-top:6px"><button type="button" class="sec" style="font-size:12px;padding:3px 8px;cursor:pointer" onclick="openRegen(\''+esc(dc.id||'')+'\', \'detail\')">🔁 웹에서 본문 재생성</button></div>' : '')+'</div>';
   }
   if(!dc.summary && !dc.detail && !dc.detail_html){
     h+='<div class=rsection>요약 및 상세</div><div class="doc-content stt-trunc-banner" style="margin-top:.5em">⚠️ <strong>요약 및 본문 누락 안내</strong>: 요약 및 상세 본문 생성이 모두 누락되었습니다. 텔레그램 봇의 재생성 버튼 또는 CLI(<code>./cb-manuscript app regenerate '+esc(dc.id||'')+' --all --apply</code>)를 통해 재생성할 수 있습니다.'+
-      ((typeof canIngest === 'function' && canIngest()) ? '<div style="margin-top:6px"><button type="button" class="sec" style="font-size:12px;padding:3px 8px;cursor:pointer" onclick="openRegen(\''+esc(dc.id||'')+'\')">🔁 웹에서 전체 재생성</button></div>' : '')+'</div>';
+      ((typeof canIngest === 'function' && canIngest()) ? '<div style="margin-top:6px"><button type="button" class="sec" style="font-size:12px;padding:3px 8px;cursor:pointer" onclick="openRegen(\''+esc(dc.id||'')+'\', \'all\')">🔁 웹에서 전체 재생성</button></div>' : '')+'</div>';
   }
   const body=document.getElementById('rbody'); body.innerHTML=h; body.scrollTop=0; body.scrollLeft=0;
   applyMathRendering(body);
