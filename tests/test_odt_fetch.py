@@ -184,7 +184,7 @@ def test_fetch_file_pdf_prioritizes_odt(tmp_path: Path):
     assert doc.author is None
     assert doc.meta["format_preference"] == "odt_over_pdf"
     assert doc.meta["original_requested_file"] == str(pdf_path.resolve())
-    assert doc.url == f"file://{odt_path.resolve()}"
+    assert doc.url is None
 
 
 def test_prioritize_odt_links():

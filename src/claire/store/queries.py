@@ -14,6 +14,13 @@ from typing import Any
 from . import db as dbm
 
 
+def _is_web_url(url: str | None) -> bool:
+    if not url:
+        return False
+    u = str(url).strip().lower()
+    return u.startswith(("http://", "https://"))
+
+
 def graph_json(conn: sqlite3.Connection, include_hidden: bool = True) -> dict:
     """엔티티/관계를 vis.js network 형식(nodes/edges)으로. dangling edge 는 제외.
 
@@ -126,7 +133,7 @@ def node_detail(
             documents.append({
                 "id": did,
                 "title": row["title"] or "(제목 없음)",
-                "url": row["url"],
+                "url": row["url"] if _is_web_url(row["url"]) else None,
                 "summary": dbm.latest_extraction_summary(conn, did) or "",
                 # 가독 렌더(여러 단락) — 패널에서 '상세'로 펼친다.
                 "detail": dbm.get_document_detail(conn, did) or "",
@@ -226,10 +233,65 @@ def document_detail(
             has_presentation = True
             presentation_status = "ready"
 
+    def _safe_file_name(name_or_path: Any) -> str | None:
+        if not name_or_path:
+            return None
+        val = str(name_or_path).strip()
+        if not val:
+            return None
+        if val.startswith("file://"):
+            val = val[len("file://"):]
+        base = Path(val).name
+        return base if base else None
+
+    raw_row = None
+    try:
+        raw_row = conn.execute(
+            "SELECT file_name, file_ref FROM raw_inbox WHERE document_id = ? AND file_ref IS NOT NULL AND trim(file_ref) != '' ORDER BY id DESC LIMIT 1",
+            (document_id,),
+        ).fetchone()
+    except Exception:
+        raw_row = None
+
+    has_raw_file = False
+    raw_file_name = None
+    if raw_row:
+        has_raw_file = True
+        raw_file_name = _safe_file_name(raw_row["file_name"]) or _safe_file_name(raw_row["file_ref"])
+    else:
+        pres_pdf = meta_dict.get("presentation_pdf")
+        pres_art = pres_pdf.get("artifact_path") if isinstance(pres_pdf, dict) else None
+        orig_file = meta_dict.get("original_requested_file")
+        if pres_art:
+            has_raw_file = True
+            raw_file_name = _safe_file_name(pres_pdf.get("file_name") if isinstance(pres_pdf, dict) else None) or _safe_file_name(pres_art)
+        elif orig_file:
+            has_raw_file = True
+            raw_file_name = _safe_file_name(orig_file)
+
+    if "original_requested_file" in meta_dict and meta_dict["original_requested_file"]:
+        meta_dict["original_requested_file"] = _safe_file_name(meta_dict["original_requested_file"])
+    if isinstance(meta_dict.get("presentation_pdf"), dict):
+        pres_dict = dict(meta_dict["presentation_pdf"])
+        if pres_dict.get("artifact_path"):
+            pres_dict["artifact_path"] = _safe_file_name(pres_dict["artifact_path"])
+        meta_dict["presentation_pdf"] = pres_dict
+    if isinstance(meta_dict.get("presentation_pdfs"), list):
+        clean_pdfs = []
+        for p in meta_dict["presentation_pdfs"]:
+            if isinstance(p, dict):
+                p_copy = dict(p)
+                if p_copy.get("artifact_path"):
+                    p_copy["artifact_path"] = _safe_file_name(p_copy["artifact_path"])
+                clean_pdfs.append(p_copy)
+            else:
+                clean_pdfs.append(p)
+        meta_dict["presentation_pdfs"] = clean_pdfs
+
     return {
         "id": document_id,
         "title": row["title"] or "(제목 없음)",
-        "url": row["url"],
+        "url": row["url"] if _is_web_url(row["url"]) else None,
         "source_type": row["source_type"],
         "summary": dbm.latest_extraction_summary(conn, document_id) or "",
         "detail": dbm.get_document_detail(conn, document_id) or "",
@@ -279,6 +341,8 @@ def document_detail(
         "heatmap_matrix": meta_dict.get("heatmap_matrix"),
         "has_presentation": has_presentation,
         "presentation_status": presentation_status,
+        "has_raw_file": bool(has_raw_file),
+        "raw_file_name": raw_file_name,
         "meta": meta_dict,
     }
 
@@ -298,7 +362,7 @@ def dedup_clusters(conn: sqlite3.Connection, scan: dict) -> dict:
             docs.append({
                 "id": did,
                 "title": row["title"] or "(제목 없음)",
-                "url": row["url"],
+                "url": row["url"] if _is_web_url(row["url"]) else None,
                 "len": len(row["raw_text"] or ""),
                 "fetched_at": row["fetched_at"],
             })
@@ -351,7 +415,7 @@ def documents_list(
         out.append({
             "id": doc_id,
             "title": r["title"] or "(제목 없음)",
-            "url": r["url"],
+            "url": r["url"] if _is_web_url(r["url"]) else None,
             "source_type": r["source_type"],
             "fetched_at": r["fetched_at"],
             "seen": r["seen"],                  # 0=미열람(unread) → UI 아이콘

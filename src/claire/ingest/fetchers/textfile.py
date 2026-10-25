@@ -129,7 +129,7 @@ def fetch_file(path: str, *, full_content: bool = False) -> Document:
         if getattr(pdf_res, "pdf_metadata", None):
             meta["pdf_metadata"] = getattr(pdf_res, "pdf_metadata")
     return Document(
-        url=f"file://{p.resolve()}",
+        url=None,
         title=title or p.stem,
         author=None,
         published_at=None,

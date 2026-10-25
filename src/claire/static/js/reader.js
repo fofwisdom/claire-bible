@@ -410,9 +410,11 @@ function openReader(docId, pushHist=true){
 }
 function docMetaHtml(dc){
   if(!dc) return '';
-  const options = arguments[1] || {};
+  const options = typeof arguments[1] === 'boolean' ? { showOrigin: arguments[1] } : (arguments[1] || {});
   const showOrigin = options.showOrigin !== false;
-  const hasUrl = !!dc.url;
+  const isWebUrl = u => !!u && /^https?:\/\//i.test(String(u).trim());
+  const hasUrl = isWebUrl(dc.url);
+  const canAccessRaw = (typeof canIngest === 'function' ? canIngest() : false) || Boolean(dc.can_access_raw);
   const isTrunc = !!(dc.raw_truncated || (dc.meta && dc.meta.raw_truncated));
   const isAppTrunc = isTrunc && !!(dc.appendix_truncated || (dc.meta && dc.meta.appendix_truncated));
   const isRefTrunc = isTrunc && !!(dc.references_truncated || (dc.meta && dc.meta.references_truncated));
@@ -430,7 +432,7 @@ function docMetaHtml(dc){
   const isCc = !isStt && (hasTranscript || !!(dc.meta && (dc.meta.caption_status === 'available' || (dc.meta.transcript_source && dc.meta.transcript_source !== 'stt'))));
   const isVlm = !!(dc.vlm_transcribed || (dc.meta && dc.meta.vlm_transcribed));
   const presentation = dc.presentation_pdf || (dc.meta && dc.meta.presentation_pdf) || {};
-  const hasPresentation = presentation.status === 'available' && !!presentation.public_url;
+  const hasPresentation = presentation.status === 'available' && isWebUrl(presentation.public_url);
   const origChars = (dc.orig_chars || (dc.meta && dc.meta.orig_chars) || dc.stt_orig_chars || (dc.meta && dc.meta.stt_orig_chars)) || 0;
   const rawChars = (dc.raw_chars || (dc.meta && dc.meta.raw_chars) || dc.stt_raw_chars || (dc.meta && dc.meta.stt_raw_chars)) || 0;
   const fallbackChars = (dc.raw_text ? dc.raw_text.length : 0) || (dc.detail ? dc.detail.length : 0);
@@ -441,12 +443,16 @@ function docMetaHtml(dc){
   } else if(totalChars > 0){
     charTip = '전체 문자 수: ' + totalChars.toLocaleString() + '자';
   }
-  if((showOrigin && !hasUrl) && !isTrunc && !focus && !isStt && !isCc && !isParserFallback && !hasPresentation && !isEncodingFlaw && !isScanned && !isVlm && !totalChars) return '';
+  const hasRawLink = showOrigin && canAccessRaw && Boolean(dc.has_raw_file);
+  if((showOrigin && !hasUrl && !hasRawLink) && !isTrunc && !focus && !isStt && !isCc && !isParserFallback && !hasPresentation && !isEncodingFlaw && !isScanned && !isVlm && !totalChars) return '';
   if(!showOrigin && !isTrunc && !focus && !isStt && !isCc && !isParserFallback && !hasPresentation && !isEncodingFlaw && !isScanned && !isVlm && !totalChars) return '';
   let h='<p class=docmeta' + (charTip ? ' title="'+esc(charTip)+'"' : '') + '>';
   if(showOrigin){
     if(hasUrl){
       h+='<a href="'+esc(dc.url)+'" target=_blank rel=noopener>↗ 원문 열기</a>';
+      if(canAccessRaw && dc.has_raw_file){
+        h+=' <a href="/document/raw?id='+encodeURIComponent(dc.id)+'" target=_blank rel=noopener>📄 원본 열기</a>';
+      }
       if(isStt){
         h+=' <a href="#" class="stt-link" onclick="openSttReader();return false;" title="음성 인식(STT) 전사 텍스트 열기">↗ 전사 열기</a>';
       }
@@ -454,10 +460,23 @@ function docMetaHtml(dc){
         h+=' <a href="'+esc(presentation.public_url)+'" target=_blank rel=noopener>↗ Presentation PDF</a>';
       }
     } else {
-      if(isStt){
-        h+='<a href="#" class="stt-link" onclick="openSttReader();return false;" title="음성 인식(STT) 전사 텍스트 열기">↗ 전사 열기</a>';
+      if(canAccessRaw && dc.has_raw_file){
+        h+='<a href="/document/raw?id='+encodeURIComponent(dc.id)+'" target=_blank rel=noopener>📄 원본 열기</a>';
+        if(isStt){
+          h+=' <a href="#" class="stt-link" onclick="openSttReader();return false;" title="음성 인식(STT) 전사 텍스트 열기">↗ 전사 열기</a>';
+        }
+        if(hasPresentation){
+          h+=' <a href="'+esc(presentation.public_url)+'" target=_blank rel=noopener>↗ Presentation PDF</a>';
+        }
       } else {
-        h+='<span></span>';
+        if(isStt){
+          h+='<a href="#" class="stt-link" onclick="openSttReader();return false;" title="음성 인식(STT) 전사 텍스트 열기">↗ 전사 열기</a>';
+        } else {
+          h+='<span></span>';
+        }
+        if(hasPresentation){
+          h+=' <a href="'+esc(presentation.public_url)+'" target=_blank rel=noopener>↗ Presentation PDF</a>';
+        }
       }
     }
   }
@@ -592,6 +611,7 @@ function docMetaHtml(dc){
   h+='</p>';
   return h;
 }
+const docMetaHeaderHtml = docMetaHtml;
 function docBiblioHtml(dc){
   return '';
 }
@@ -614,7 +634,8 @@ function getDocMetaMessages(dc){
   const isCc = !isStt && (hasTranscript || !!(dc.meta && (dc.meta.caption_status === 'available' || (dc.meta.transcript_source && dc.meta.transcript_source !== 'stt'))));
   const isVlm = !!(dc.vlm_transcribed || (dc.meta && dc.meta.vlm_transcribed));
   const presentation = dc.presentation_pdf || (dc.meta && dc.meta.presentation_pdf) || {};
-  const hasPresentation = presentation.status === 'available' && !!presentation.public_url;
+  const isWebUrl = u => !!u && /^https?:\/\//i.test(String(u).trim());
+  const hasPresentation = presentation.status === 'available' && isWebUrl(presentation.public_url);
 
   if(isParserFallback){
     const reqName = parserRequested ? (parserRequested === 'pypdfium2' ? 'PyPDFium2' : (parserRequested === 'pypdf' ? 'PyPDF' : (parserRequested === 'docling' ? 'Docling' : parserRequested))) : 'PyPDFium2';
@@ -1796,6 +1817,7 @@ const ClaireReader = {
   presentationDownloadPdf,
   presentationPrintPdf: presentationDownloadPdf,
   docMetaHtml,
+  docMetaHeaderHtml: docMetaHtml,
   docBiblioHtml,
   docMetaMessageHtml,
   getDocMetaMessages,
@@ -1837,6 +1859,7 @@ if (typeof window !== 'undefined') {
   window.presentationFullscreen = presentationFullscreen;
   window.syncPresentationCoords = syncPresentationCoords;
   window.docMetaHtml = docMetaHtml;
+  window.docMetaHeaderHtml = docMetaHtml;
   window.docBiblioHtml = docBiblioHtml;
   window.docMetaMessageHtml = docMetaMessageHtml;
   window.getDocMetaMessages = getDocMetaMessages;

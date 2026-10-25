@@ -68,7 +68,8 @@ function resetLocalPhysicsNodes(){
       const resets = [];
       allNodes.forEach(n => {
         if(!activeLocalPhysicsNodes.has(n.id)){
-          resets.push({id: n.id, physics: true});
+          const shouldPhysics = (n.degree || 0) > 0 && !n.isDyad;
+          resets.push({id: n.id, physics: shouldPhysics});
         }
       });
       if(resets.length) allNodes.update(resets);
@@ -94,6 +95,7 @@ function recordSelectedDoc(id){
 }
 
 function esc(s){return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+function isWebUrl(u){ return !!u && /^https?:\/\//i.test(String(u).trim()); }
 
 // --- 지식 테마 (Multi-Database Themes) 상태 및 전역 fetch 인터셉터 ---
 function isMultiThemeEnabled(){
@@ -345,6 +347,7 @@ async function reloadThemeData(resetCamera = true){
         font: { size: nodeFontSize(n.degree) }
       }));
       const rawEdges = (d && d.edges) || [];
+      applyTopologicalStructure(rawNodes, rawEdges);
       const totalCount = rawNodes.length;
       let initialDeg = 0;
       if(totalCount >= 200){
@@ -1235,8 +1238,10 @@ function initGraph(onComplete){
       size: nodeRadius(n.degree),
       font: { size: nodeFontSize(n.degree) }
     }));
+    const rawEdges = (d && d.edges) || [];
+    applyTopologicalStructure(rawNodes, rawEdges);
     allNodes = new vis.DataSet(rawNodes);
-    allEdges = new vis.DataSet((d && d.edges) || []);
+    allEdges = new vis.DataSet(rawEdges);
     if(!d || !d.nodes || !d.nodes.length){ graphStabilized=true; }
     const totalCount = rawNodes.length;
     let initialDeg = 0;
@@ -1804,7 +1809,8 @@ function renderPanel(d){
       (dc.summary?'<p>'+esc(dc.summary)+'</p>':'')+
       ((dc.detail||dc.summary)?'<button class=readbtn data-read-doc="'+esc(dc.id)+
         '" onclick="openReader(\''+dc.id+'\');setCenterView(\'reader\')">📖 본문 보기</button>':'')+
-      (dc.url?'<p class=src><a href="'+esc(dc.url)+'" target=_blank rel=noopener>↗ 원문 열기</a></p>':'')+
+      (isWebUrl(dc.url)?'<p class=src><a href="'+esc(dc.url)+'" target=_blank rel=noopener>↗ 원문 열기</a></p>':'')+
+      (canIngest() && dc.has_raw_file?'<p class=src><a href="/document/raw?id='+encodeURIComponent(dc.id)+'" target=_blank rel=noopener>📄 원본 열기</a></p>':'')+
       '</div>'; }); }
   if(d.neighbors.length){ h+='<h3>연결 ('+d.neighbors.length+')</h3><ul>';
     d.neighbors.forEach(n=>{ const ar=n.dir=='out'?'→':'←';
@@ -2974,7 +2980,7 @@ function renderDedup(d){
       h+='<label style="display:block;margin:.3em 0">'+
         '<input type=radio name="keep'+ci+'" value="'+esc(dc.id)+'"'+(dc.id===c.keeper?' checked':'')+'> '+
         '<b>'+esc(dc.title||'(제목 없음)')+'</b> <small class=al>'+(dc.len||0)+'자</small>'+
-        (dc.url?'<br><small class=al style="margin-left:1.5em;word-break:break-all">'+esc(dc.url)+'</small>':'')+
+        (isWebUrl(dc.url)?'<br><small class=al style="margin-left:1.5em;word-break:break-all">'+esc(dc.url)+'</small>':'')+
         '</label>';
     });
     h+='<button class=readbtn onclick="runDedupMerge('+ci+')">선택한 문서로 병합</button></div>';
@@ -3015,11 +3021,12 @@ function refreshGraph(){
   if(graphSuspended) return;
   fetch('graph').then(r=>r.json()).then(d=>{
     if(graphSuspended) return;
+    if(d && d.nodes && d.edges) applyTopologicalStructure(d.nodes, d.edges);
     const changed=[], added=[];
     d.nodes.forEach(n=>{
       const r = nodeRadius(n.degree), fs = nodeFontSize(n.degree);
       if(allNodes && allNodes.get(n.id))
-        changed.push({id:n.id, degree:n.degree, size:r, font:{size:fs}, sources:n.sources, obs:n.obs});
+        changed.push({id:n.id, degree:n.degree, size:r, font:{size:fs}, sources:n.sources, obs:n.obs, mass:n.mass, ...(n.degree===0?{x:n.x,y:n.y,physics:false}:{})});
       else if(allNodes)
         added.push({...n, size:r, font:{size:fs}});
     });
@@ -3241,32 +3248,140 @@ function nodeFontSize(deg){
   return Math.min(15, Math.round(11 + Math.log2(d + 1)));
 }
 
+function applyTopologicalStructure(nodes, edges){
+  if(!Array.isArray(nodes)) return;
+  const degMap = new Map();
+  const adj = new Map();
+  nodes.forEach(n => {
+    degMap.set(n.id, n.degree || 0);
+    adj.set(n.id, new Set());
+  });
+  (edges || []).forEach(e => {
+    if(adj.has(e.from) && adj.has(e.to)){
+      adj.get(e.from).add(e.to);
+      adj.get(e.to).add(e.from);
+    }
+  });
+
+  const isolatedNodes = [];
+  const dyadPairs = [];
+  const visitedDyads = new Set();
+
+  nodes.forEach(n => {
+    const deg = degMap.get(n.id) || 0;
+    if(deg === 0){
+      isolatedNodes.push(n);
+    } else if(deg === 1){
+      const neighbors = [...(adj.get(n.id) || [])];
+      if(neighbors.length === 1){
+        const partnerId = neighbors[0];
+        const partnerDeg = degMap.get(partnerId) || 0;
+        if(partnerDeg === 1 && !visitedDyads.has(n.id) && !visitedDyads.has(partnerId)){
+          visitedDyads.add(n.id);
+          visitedDyads.add(partnerId);
+          dyadPairs.push([n.id, partnerId]);
+        }
+      }
+    }
+  });
+
+  isolatedNodes.sort((a, b) => {
+    const gA = a.group || '', gB = b.group || '';
+    if(gA !== gB) return gA.localeCompare(gB);
+    return (a.label || '').localeCompare(b.label || '');
+  });
+
+  const totalCount = nodes.length;
+  const isoCount = isolatedNodes.length;
+  const baseRadius = totalCount >= 800 ? 1100 : (totalCount >= 400 ? 900 : 750);
+  const orbitRadius = Math.max(baseRadius, Math.ceil((isoCount * 90) / (2 * Math.PI)));
+
+  isolatedNodes.forEach((n, idx) => {
+    const ringIndex = Math.floor(idx / 50);
+    const indexInRing = idx % 50;
+    const countInThisRing = Math.min(50, isoCount - ringIndex * 50);
+    const currentRadius = orbitRadius + (ringIndex * 110);
+    const angle = (2 * Math.PI * indexInRing) / (countInThisRing || 1);
+    n.x = Math.round(currentRadius * Math.cos(angle));
+    n.y = Math.round(currentRadius * Math.sin(angle));
+    n.physics = false;
+  });
+
+  const midRadius = Math.round(orbitRadius * 0.85);
+  const dyadCount = dyadPairs.length;
+  const nodeById = new Map(nodes.map(n => [n.id, n]));
+  dyadPairs.forEach(([idA, idB], idx) => {
+    const angle = (2 * Math.PI * idx) / (dyadCount || 1);
+    const cx = Math.round(midRadius * Math.cos(angle));
+    const cy = Math.round(midRadius * Math.sin(angle));
+    const nA = nodeById.get(idA);
+    const nB = nodeById.get(idB);
+    if(nA){
+      nA.x = cx - 28;
+      nA.y = cy;
+      nA.physics = false;
+      nA.isDyad = true;
+    }
+    if(nB){
+      nB.x = cx + 28;
+      nB.y = cy;
+      nB.physics = false;
+      nB.isDyad = true;
+    }
+  });
+
+  nodes.forEach(n => {
+    const deg = degMap.get(n.id) || 0;
+    if(deg >= 4){
+      n.mass = Math.min(6, Math.round(1 + Math.log2(deg) * 1.5));
+    } else {
+      n.mass = 1;
+    }
+  });
+
+  (edges || []).forEach(e => {
+    const dFrom = degMap.get(e.from) || 0;
+    const dTo = degMap.get(e.to) || 0;
+    const minDeg = Math.min(dFrom, dTo);
+    const maxDeg = Math.max(dFrom, dTo);
+
+    if(minDeg <= 1){
+      e.length = (dFrom === 1 && dTo === 1) ? 55 : 65;
+      e.springConstant = 0.06;
+    } else {
+      const baseLen = totalCount >= 500 ? 250 : 220;
+      e.length = maxDeg >= 6 ? (baseLen + 40) : baseLen;
+      e.springConstant = 0.035;
+    }
+  });
+}
+
 function getPhysicsOpts(nodeCount){
   const count = nodeCount || 0;
-  let grav = -120, cg = 0.008, spring = 160, overlap = 0.85;
+  let grav = -120, cg = 0.005, spring = 160, overlap = 0.85;
   if(count >= 1000){
     grav = -140;
-    cg = 0.005;
+    cg = 0.0035;
     spring = 180;
     overlap = 0.9;
   } else if(count >= 500){
     grav = -110;
-    cg = 0.007;
+    cg = 0.0045;
     spring = 160;
     overlap = 0.85;
   } else if(count >= 200){
     grav = -80;
-    cg = 0.009;
+    cg = 0.0055;
     spring = 140;
     overlap = 0.8;
   } else if(count >= 80){
     grav = -50;
-    cg = 0.012;
+    cg = 0.007;
     spring = 120;
     overlap = 0.75;
   } else {
     grav = -30;
-    cg = 0.015;
+    cg = 0.008;
     spring = 100;
     overlap = 0.7;
   }

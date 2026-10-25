@@ -216,6 +216,8 @@ ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     ("HEAD", "/documents"): _rule("read"),
     ("GET", "/document"): _rule("read"),
     ("HEAD", "/document"): _rule("read"),
+    ("GET", "/document/raw"): _rule("collaborator"),
+    ("HEAD", "/document/raw"): _rule("collaborator"),
     ("GET", "/document/presentation"): _rule("read"),
     ("HEAD", "/document/presentation"): _rule("read"),
     ("POST", "/document/presentation/generate"): _rule("collaborator"),

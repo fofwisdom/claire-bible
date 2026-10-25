@@ -751,6 +751,24 @@ def test_realtime_local_physics_and_interaction_optimizations():
     assert "fixed: {x: true, y: true}" in GRAPH_HTML
 
 
+def test_topological_structure_and_isolated_orbit_layout():
+    """연결 수 0 및 1 위상 구조 중심 외곽 궤도 배치 및 엣지 길이 차등화 검증."""
+    from claire.graphview import GRAPH_HTML
+
+    # 1. 위상 구조 분석 함수 및 외곽 궤도 배치 마커
+    assert "function applyTopologicalStructure(nodes, edges){" in GRAPH_HTML
+    assert "orbitRadius = Math.max(baseRadius, Math.ceil((isoCount * 90) / (2 * Math.PI)));" in GRAPH_HTML
+    assert "n.physics = false;" in GRAPH_HTML
+
+    # 2. 고립 노드 및 다이애드(1:1 쌍) 물리 예외 처리
+    assert "const shouldPhysics = (n.degree || 0) > 0 && !n.isDyad;" in GRAPH_HTML
+
+    # 3. 차수별 엣지 길이 차등화 (리프 엣지 수축 & 코어 엣지 확장)
+    assert "minDeg <= 1" in GRAPH_HTML
+    assert "e.length = (dFrom === 1 && dTo === 1) ? 55 : 65;" in GRAPH_HTML
+    assert "e.springConstant = 0.06;" in GRAPH_HTML
+
+
 def test_mobile_node_tap_popup_markers():
     """모바일 환경에서 노드 탭 시 롤오버 요약 팝업(nodepop) 지원 마커 검증."""
     # 1. CSS: @media (hover:none) 미차단, 반응형 최대폭 및 닫기/액션 버튼 스타일

@@ -82,7 +82,7 @@ def test_fetch_file_pdf(tmp_path: Path, monkeypatch):
     assert doc.title == "Extracted Title"
     assert doc.source_type == "pdf"
     assert "long extracted text" in doc.raw_text
-    assert doc.url == f"file://{pdf_path.resolve()}"
+    assert doc.url is None
 
 
 def test_fetch_file_pdf_error(tmp_path: Path, monkeypatch):

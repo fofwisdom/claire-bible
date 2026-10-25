@@ -14,8 +14,10 @@ import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+import mimetypes
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 from starlette.applications import Starlette
 from starlette.exceptions import HTTPException
@@ -1264,6 +1266,7 @@ def create_app(
             "Disallow: /ingest",
             "Disallow: /reingest",
             "Disallow: /regenerate",
+            "Disallow: /document/raw",
             "Disallow: /document/regenerate",
             "Disallow: /document/presentation/generate",
             "Disallow: /document/presentation/compose",
@@ -1640,6 +1643,133 @@ def create_app(
         if report is None:
             raise HTTPException(status_code=404, detail="not found")
         return JSONResponse(report)
+
+    async def document_raw_route(request: Request) -> Response:
+        doc_id = request.query_params.get("id", "").strip()
+        if not doc_id:
+            return PlainTextResponse("Missing document id", status_code=400)
+
+        theme_ref = _extract_theme_ref(request)
+        theme, theme_settings, _ = _get_theme_ctx(request)
+
+        def _find_raw(t_settings: Settings) -> tuple[str, str] | None:
+            conn = dbm.connect_existing(t_settings.db_file, readonly=True)
+            try:
+                try:
+                    row = conn.execute(
+                        "SELECT file_ref, file_name FROM raw_inbox WHERE document_id = ? AND file_ref IS NOT NULL AND trim(file_ref) != '' ORDER BY id DESC LIMIT 1",
+                        (doc_id,),
+                    ).fetchone()
+                    if row and row["file_ref"]:
+                        return str(row["file_ref"]), str(row["file_name"] or "")
+                except Exception:
+                    pass
+
+                row_doc = dbm.get_document_row(conn, doc_id)
+                if row_doc:
+                    raw_meta = None
+                    try:
+                        raw_meta = row_doc["meta"]
+                    except (IndexError, KeyError):
+                        pass
+                    if raw_meta:
+                        try:
+                            meta = json.loads(raw_meta)
+                        except Exception:
+                            meta = {}
+                        pres_pdf = meta.get("presentation_pdf")
+                        if isinstance(pres_pdf, dict) and pres_pdf.get("artifact_path"):
+                            return str(pres_pdf["artifact_path"]), str(pres_pdf.get("file_name") or "")
+                        if meta.get("original_requested_file"):
+                            return str(meta["original_requested_file"]), ""
+                return None
+            finally:
+                conn.close()
+
+        resolved = await asyncio.to_thread(_find_raw, theme_settings)
+        active_settings = theme_settings
+
+        if resolved is None and theme_ref is None and getattr(s, "multi_theme", False):
+            scope = request_auth_scope(request)
+            targets = await asyncio.to_thread(
+                theme_mgr.resolve_document_targets, doc_id=doc_id
+            )
+            for target in targets:
+                tid = target.get("theme_id")
+                if tid is None or tid == theme.id:
+                    continue
+                try:
+                    cand_theme = theme_mgr.get_theme(tid)
+                except Exception:
+                    continue
+                if scope == "collaborator" and not (
+                    cand_theme.is_public or cand_theme.is_collaborator_accessible
+                ):
+                    continue
+                cand_settings = theme_mgr.get_settings_for_theme(cand_theme.id, s)
+                cand_res = await asyncio.to_thread(_find_raw, cand_settings)
+                if cand_res is not None:
+                    resolved = cand_res
+                    active_settings = cand_settings
+                    break
+
+        if resolved is None:
+            return PlainTextResponse("Not Found", status_code=404)
+
+        file_ref, file_name = resolved
+        raw_path = Path(file_ref)
+        if raw_path.is_absolute():
+            target_path = raw_path.resolve()
+        else:
+            target_path = (active_settings.data_dir / raw_path).resolve()
+
+        allowed_roots: list[Path] = [
+            active_settings.data_dir.resolve(),
+            s.data_dir.resolve(),
+        ]
+        if getattr(active_settings, "vault_path", None):
+            allowed_roots.append(Path(active_settings.vault_path).resolve())
+        if getattr(s, "vault_path", None):
+            allowed_roots.append(Path(s.vault_path).resolve())
+
+        is_safe = False
+        for root in allowed_roots:
+            try:
+                target_path.relative_to(root)
+                is_safe = True
+                break
+            except ValueError:
+                continue
+
+        if not is_safe or not target_path.is_file():
+            return PlainTextResponse("Not Found", status_code=404)
+
+        _MEDIA_TYPES = {
+            ".pdf": "application/pdf",
+            ".odt": "application/vnd.oasis.opendocument.text",
+            ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            ".txt": "text/plain; charset=utf-8",
+            ".md": "text/markdown; charset=utf-8",
+            ".html": "text/html; charset=utf-8",
+            ".htm": "text/html; charset=utf-8",
+            ".json": "application/json",
+            ".png": "image/png",
+            ".jpg": "image/jpeg",
+            ".jpeg": "image/jpeg",
+            ".webp": "image/webp",
+        }
+        suffix = target_path.suffix.lower()
+        media_type = _MEDIA_TYPES.get(suffix) or mimetypes.guess_type(target_path.name)[0] or "application/octet-stream"
+
+        display_name = file_name or target_path.name
+        safe_name = re.sub(r'[^a-zA-Z0-9._-]', '_', display_name) or "document"
+        quoted_name = quote(display_name)
+
+        headers = {
+            "Content-Disposition": f'inline; filename="{safe_name}"; filename*=UTF-8\'\'{quoted_name}',
+            "Cache-Control": "private, no-cache, no-store, must-revalidate",
+        }
+        return FileResponse(str(target_path), media_type=media_type, headers=headers)
 
     async def document_seen_route(request: Request) -> JSONResponse:
         body = await _json_object(request)
@@ -2621,8 +2751,40 @@ def create_app(
             else:
                 base_url = str(request.base_url).rstrip("/")
 
+        scope = request_auth_scope(request)
+        if scope not in ("owner", "collaborator"):
+            auth_hdr = request.headers.get("authorization", "")
+            if auth_hdr.lower().startswith("bearer "):
+                bearer_tok = auth_hdr[7:].strip()
+                if (getattr(s, "inject_token", None) and bearer_tok == s.inject_token) or (
+                    getattr(s, "owner_token", None) and bearer_tok == s.owner_token
+                ):
+                    scope = "owner"
+                elif getattr(s, "collaborator_token", None) and bearer_tok == s.collaborator_token:
+                    scope = "collaborator"
+            elif "claire_session" in request.cookies:
+                try:
+                    conn_sess = dbm.connect_existing(s.db_file, readonly=True)
+                    try:
+                        sess_scope = dbm.validate_session_scope(
+                            conn_sess, request.cookies["claire_session"], scopes=("owner", "collaborator")
+                        )
+                        if sess_scope:
+                            scope = sess_scope
+                    finally:
+                        conn_sess.close()
+                except Exception:
+                    pass
+
+        can_access_raw = scope in ("owner", "collaborator")
         return HTMLResponse(
-            shared_html(document, s, base_url=base_url, share_token=token)
+            shared_html(
+                document,
+                s,
+                base_url=base_url,
+                share_token=token,
+                can_access_raw=can_access_raw,
+            )
         )
 
     def _resolve_presentation_target(
@@ -3299,6 +3461,7 @@ def create_app(
         Route("/images/{filename:path}", presentation_image_route, methods=["GET", "HEAD"]),
         Route("/p/images/{filename:path}", presentation_image_route, methods=["GET", "HEAD"]),
         Route("/document", document_detail_route, methods=["GET"]),
+        Route("/document/raw", document_raw_route, methods=["GET", "HEAD"]),
         Route("/document/seen", document_seen_route, methods=["POST"]),
         Route("/document/pin", document_pin_route, methods=["POST"]),
         Route("/document/hide", document_hide_route, methods=["POST"]),

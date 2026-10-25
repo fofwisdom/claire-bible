@@ -374,6 +374,7 @@ def shared_html(
     *,
     base_url: str = "",
     share_token: str = "",
+    can_access_raw: bool = False,
 ) -> str:
     """공유 문서 1개를 임베드한 경량 읽기 페이지 HTML. doc = document_detail() 결과.
 
@@ -397,6 +398,21 @@ def shared_html(
             getattr(settings, "ga_measurement_id", ""),
         )
         resolved_base_url = base_url or getattr(settings, "public_url", "")
+
+    doc_copy = dict(doc or {})
+    doc_copy["can_access_raw"] = bool(can_access_raw)
+    raw_url = doc_copy.get("url")
+    if raw_url and not str(raw_url).lower().startswith(("http://", "https://")):
+        doc_copy["url"] = None
+    raw_canon = doc_copy.get("canonical_url")
+    if raw_canon and not str(raw_canon).lower().startswith(("http://", "https://")):
+        doc_copy["canonical_url"] = None
+    if isinstance(doc_copy.get("presentation_pdf"), dict):
+        pres = dict(doc_copy["presentation_pdf"])
+        if pres.get("public_url") and not str(pres["public_url"]).lower().startswith(("http://", "https://")):
+            pres["public_url"] = None
+        doc_copy["presentation_pdf"] = pres
+    doc = doc_copy
 
     doc_id = str((doc or {}).get("id", "") or "").strip()
     ga_tag = render_ga_tag(ga_id, doc_id=doc_id)
