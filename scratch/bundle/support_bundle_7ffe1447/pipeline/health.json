@@ -1,0 +1,131 @@
+{
+  "liveness": {
+    "ok": true,
+    "expected_schema_version": 13,
+    "expected_schema_lineage": "claire-bible/common",
+    "databases": [
+      {
+        "theme_id": 0,
+        "theme_label": "기본 지식베이스",
+        "db_path": "/app/data/claire.db",
+        "ok": true,
+        "schema_version": 13,
+        "schema_lineage": "claire-bible/common",
+        "db": "ok"
+      },
+      {
+        "theme_id": 1,
+        "theme_label": "Honkai",
+        "db_path": "/app/data/themes/1/claire.db",
+        "ok": true,
+        "schema_version": 13,
+        "schema_lineage": "claire-bible/common",
+        "db": "ok"
+      },
+      {
+        "theme_id": 2,
+        "theme_label": "R1999",
+        "db_path": "/app/data/themes/2/claire.db",
+        "ok": true,
+        "schema_version": 13,
+        "schema_lineage": "claire-bible/common",
+        "db": "ok"
+      }
+    ],
+    "db": "ok"
+  },
+  "health": {
+    "ok": true,
+    "provider": "antigravity",
+    "expected_schema_version": 13,
+    "expected_schema_lineage": "claire-bible/common",
+    "databases": [
+      {
+        "theme_id": 0,
+        "theme_label": "기본 지식베이스",
+        "db_path": "/app/data/claire.db",
+        "ok": true,
+        "schema_version": 13,
+        "schema_lineage": "claire-bible/common",
+        "db": "ok",
+        "inbox": {
+          "done": 438,
+          "duplicate": 19,
+          "failed": 4,
+          "received": 6
+        },
+        "refresh_pending": 0,
+        "recover_due": 0,
+        "expand_pending": 0,
+        "graph": {
+          "documents": 389,
+          "entities": 2399,
+          "relations": 3891
+        }
+      },
+      {
+        "theme_id": 1,
+        "theme_label": "Honkai",
+        "db_path": "/app/data/themes/1/claire.db",
+        "ok": true,
+        "schema_version": 13,
+        "schema_lineage": "claire-bible/common",
+        "db": "ok",
+        "inbox": {
+          "done": 90,
+          "failed": 1,
+          "pending": 1
+        },
+        "refresh_pending": 0,
+        "recover_due": 0,
+        "expand_pending": 0,
+        "graph": {
+          "documents": 81,
+          "entities": 493,
+          "relations": 834
+        }
+      },
+      {
+        "theme_id": 2,
+        "theme_label": "R1999",
+        "db_path": "/app/data/themes/2/claire.db",
+        "ok": true,
+        "schema_version": 13,
+        "schema_lineage": "claire-bible/common",
+        "db": "ok",
+        "inbox": {
+          "done": 24
+        },
+        "refresh_pending": 0,
+        "recover_due": 0,
+        "expand_pending": 1,
+        "graph": {
+          "documents": 24,
+          "entities": 108,
+          "relations": 182
+        }
+      }
+    ],
+    "db": "ok",
+    "inbox": {
+      "done": 552,
+      "duplicate": 19,
+      "failed": 5,
+      "received": 6,
+      "pending": 1
+    },
+    "refresh_pending": 0,
+    "recover_due": 0,
+    "expand_pending": 1,
+    "graph": {
+      "documents": 494,
+      "entities": 3000,
+      "relations": 4907
+    },
+    "degraded": true,
+    "attention": {
+      "error": 0,
+      "failed": 5
+    }
+  }
+}

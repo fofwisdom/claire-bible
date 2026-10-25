@@ -60,7 +60,7 @@ let activePane='graph', detailOpen=false, centerView='graph', drawerOpen=false;
 let detailReturnFocus=null, docSearchActive=false, serverSearchResults=null;
 let graphCamera = null, preservingGraphCamera = false, netBusy = false;
 let isDraggingNode = false, settleTimer = null;
-let activeLocalPhysicsNodes = null;
+let activeLocalPhysicsNodes = null, currentlyDraggedNodeIds = [];
 
 function resetLocalPhysicsNodes(){
   if(activeLocalPhysicsNodes && allNodes && typeof allNodes.forEach === 'function'){
@@ -1305,6 +1305,7 @@ function initGraph(onComplete){
       hideNodePop();
       if(p && p.nodes && p.nodes.length){
         isDraggingNode = true;
+        currentlyDraggedNodeIds = [...p.nodes];
         clearTimeout(settleTimer);
         resetLocalPhysicsNodes();
         const isMobile = (compactMQ && compactMQ.matches) || (mobileMQ && mobileMQ.matches);
@@ -1330,13 +1331,31 @@ function initGraph(onComplete){
           }catch(_){}
           net.setOptions({physics:true});
         }
+      } else {
+        currentlyDraggedNodeIds = [];
       }
     });
-    net.on('dragEnd', () => {
+    net.on('dragEnd', p => {
       netBusy = false;
       rememberGraphCamera();
       if(isDraggingNode){
         isDraggingNode = false;
+        const targetNodeIds = (p && p.nodes && p.nodes.length) ? p.nodes : currentlyDraggedNodeIds;
+        if(net && allNodes && targetNodeIds && targetNodeIds.length){
+          try{
+            const fixUpdates = [];
+            targetNodeIds.forEach(id => {
+              const pos = (typeof net.getPosition === 'function') ? net.getPosition(id) : null;
+              if(pos && typeof pos.x === 'number' && typeof pos.y === 'number'){
+                fixUpdates.push({id: id, x: pos.x, y: pos.y, fixed: {x: true, y: true}});
+              } else {
+                fixUpdates.push({id: id, fixed: {x: true, y: true}});
+              }
+            });
+            if(fixUpdates.length) allNodes.update(fixUpdates);
+          }catch(_){}
+        }
+        currentlyDraggedNodeIds = [];
         clearTimeout(settleTimer);
         settleTimer = setTimeout(()=>{
           if(net && !isDraggingNode){

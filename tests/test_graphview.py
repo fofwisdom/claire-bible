@@ -746,6 +746,10 @@ def test_realtime_local_physics_and_interaction_optimizations():
     # 3. 디바이스 인지형 분기 (모바일은 Physics OFF, 데스크톱은 1-Hop 국소 물리)
     assert "const isMobile = (compactMQ && compactMQ.matches) || (mobileMQ && mobileMQ.matches);" in GRAPH_HTML
 
+    # 4. 드롭 시 노드 좌표 고정(fixed) 처리로 스프링 반동 복원 방지
+    assert "currentlyDraggedNodeIds" in GRAPH_HTML
+    assert "fixed: {x: true, y: true}" in GRAPH_HTML
+
 
 def test_mobile_node_tap_popup_markers():
     """모바일 환경에서 노드 탭 시 롤오버 요약 팝업(nodepop) 지원 마커 검증."""

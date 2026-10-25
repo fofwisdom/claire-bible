@@ -1,0 +1,19 @@
+{
+  "id": 37,
+  "received_at": 1792926527.0301976,
+  "source": "telegram",
+  "user_id": 61968346,
+  "chat_id": 61968346,
+  "kind": "document",
+  "payload": "/app/data/themes/2/raw/files/707518267_브루탈리즘건축법연구-사례를중심으로.pdf",
+  "file_name": "브루탈리즘 건축법 연구 - 사례를 중심으로.pdf",
+  "file_ref": "/app/data/themes/2/raw/files/707518267_브루탈리즘건축법연구-사례를중심으로.pdf",
+  "document_id": "doc_c1acaf4bce9b",
+  "status": "done",
+  "error": null,
+  "attempts": 0,
+  "last_attempt": null,
+  "next_retry_at": null,
+  "theme_id": 2,
+  "theme_label": "R1999"
+}

@@ -1,0 +1,31 @@
+{
+  "input_target": "https://cb.netspheres.org/p?s=***REDACTED***",
+  "requested_target": "https://cb.netspheres.org/p?s=***REDACTED***",
+  "resolution_status": "resolved_document",
+  "candidate_count": 1,
+  "candidate_documents": [
+    {
+      "id": "doc_c1acaf4bce9b",
+      "url": "file:///app/data/themes/2/raw/files/707518267_브루탈리즘건축법연구-사례를중심으로.pdf",
+      "canonical_url": null,
+      "title": "브루탈리즘 건축법 연구: 사례를 중심으로",
+      "content_hash": "3a3dec8f840015b5c89525b187ce533d6ddccafb50c007ae06e0cc7a7afa277a",
+      "fetched_at": 1792926527.0678437,
+      "matched_by": "share_token",
+      "is_from_share_token": true,
+      "theme_id": 2,
+      "theme_label": "R1999"
+    }
+  ],
+  "matching_inbox_ids": [],
+  "matched_by": "share_token",
+  "theme_id": 2,
+  "theme_label": "R1999",
+  "document_id": "doc_c1acaf4bce9b",
+  "url": "file:///app/data/themes/2/raw/files/707518267_브루탈리즘건축법연구-사례를중심으로.pdf",
+  "canonical_url": null,
+  "title": "브루탈리즘 건축법 연구: 사례를 중심으로",
+  "content_hash": "3a3dec8f840015b5c89525b187ce533d6ddccafb50c007ae06e0cc7a7afa277a",
+  "is_from_share_token": true,
+  "latest_summary": "브루탈리즘 건축은 제2차 세계대전 이후 조형주의화된 근대건축에 반발하여 가공되지 않은 재료와 노출 콘크리트, 설비 노출을 통해 기능주의 원리로의 복귀를 추구하였다. 피터와 알리슨 스미슨의 헌스탠턴 학교와 제임스 스털링의 레스터 대학교 공학관 등에서 구현된 직설적인 조형과 기능 배분은 당대의 미학적 찬반 논쟁 속에서도 국제적 반향을 일으켰다. 이러한 구조 및 설비 노출 원리는 퐁피두 센터와 로이드 빌딩 등 하이테크 건축으로 계승되었으며 현대 재생 공간과 노출 인테리어 트렌드에도 지속적인 영향을 미치고 있다."
+}

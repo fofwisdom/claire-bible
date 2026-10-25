@@ -1,0 +1,565 @@
+{
+  "document_id": "doc_c1acaf4bce9b",
+  "entities_count": 14,
+  "relations_count": 19,
+  "proposals_count": 4,
+  "entities": [
+    {
+      "id": "ent_a853876598d7",
+      "type": "Paper",
+      "name": "브루탈리즘 건축법 연구 : 사례를 중심으로",
+      "aliases": [
+        "A Study of 'Brutalism' in Architecture : An Aspect of Case Studies"
+      ],
+      "props": {},
+      "observations": [
+        "한유진이 2021년 숙명디자인연구 제30호에 발표한 학술 논문이다.",
+        "브루탈리즘 건축의 형성 배경과 주요 특성, 대표적 건축 사례 및 하이테크 건축과 현대 공간 디자인에 미친 영향을 고찰하였다."
+      ],
+      "sources": [
+        "doc_c1acaf4bce9b"
+      ],
+      "provisional": false,
+      "created_at": 1792926690.3808265,
+      "updated_at": 1792926690.3808298
+    },
+    {
+      "id": "ent_7267eb300e69",
+      "type": "Person",
+      "name": "한유진",
+      "aliases": [
+        "You-jin Han"
+      ],
+      "props": {},
+      "observations": [
+        "숙명여자대학교 환경디자인과 소속 연구자이자 논문 '브루탈리즘 건축법 연구 : 사례를 중심으로'의 제1저자이다."
+      ],
+      "sources": [
+        "doc_c1acaf4bce9b"
+      ],
+      "provisional": false,
+      "created_at": 1792926692.2607121,
+      "updated_at": 1792926692.2607157
+    },
+    {
+      "id": "ent_d29dfd832283",
+      "type": "Concept",
+      "name": "브루탈리즘",
+      "aliases": [
+        "Brutalism",
+        "브루탈리즘 건축법",
+        "New Brutalism",
+        "뉴 브루탈리즘"
+      ],
+      "props": {},
+      "observations": [
+        "콘크리트 본연의 거친 물성과 조립식 구조를 강조하는 현대 건축 사조이다.",
+        "코너스톤의 캐릭터 배경 스토리와 대사에서 주요한 설계 철학으로 언급된다.",
+        "20세기 후반 신절충주의 및 신아르누보 등 조형주의화된 근대건축에 반대하여 기능주의 원리로 복귀하고자 한 건축 경향이다.",
+        "가공하지 않은 재료, 노출 콘크리트의 광범위한 사용, 비형식주의, 배관 및 설비의 외부 노출을 핵심 특징으로 삼는다.",
+        "전통적 서구 건축의 우아함에 대비되는 야수적 활력을 표방하였으며 기후적 취약성 및 미학적 관점에서 찬반 논쟁을 야기하였다."
+      ],
+      "sources": [
+        "doc_0fea3b1ec009",
+        "doc_c1acaf4bce9b"
+      ],
+      "provisional": false,
+      "created_at": 1792926214.4117773,
+      "updated_at": 1792926693.554284
+    },
+    {
+      "id": "ent_caba0a9911a7",
+      "type": "Person",
+      "name": "Alison Smithson",
+      "aliases": [
+        "알리슨 스미드슨",
+        "알리슨 스미슨"
+      ],
+      "props": {},
+      "observations": [
+        "영국의 건축가로 피터 스미슨과 함께 뉴 브루탈리즘 개념을 건축에 적용하여 대중화를 이끌었다.",
+        "건축가 집단 Team X의 초창기 핵심 멤버로 활동하였다."
+      ],
+      "sources": [
+        "doc_c1acaf4bce9b"
+      ],
+      "provisional": false,
+      "created_at": 1792926695.484962,
+      "updated_at": 1792926695.484969
+    },
+    {
+      "id": "ent_f98630a6a230",
+      "type": "Person",
+      "name": "Peter Smithson",
+      "aliases": [
+        "피터 스미드슨",
+        "피터 스미슨"
+      ],
+      "props": {},
+      "observations": [
+        "1954년 노포크 지방의 헌스탠턴 학교 건축을 통해 브루탈리즘 조형 주장을 시작한 영국의 건축가이다.",
+        "Team X의 초기 멤버로 브루탈리즘의 이론적·실천적 전파를 주도하였다."
+      ],
+      "sources": [
+        "doc_c1acaf4bce9b"
+      ],
+      "provisional": false,
+      "created_at": 1792926707.722229,
+      "updated_at": 1792926707.7222376
+    },
+    {
+      "id": "ent_0f1f1566f1b1",
+      "type": "Org",
+      "name": "Team X",
+      "aliases": [
+        "팀텐"
+      ],
+      "props": {},
+      "observations": [
+        "피터 스미슨과 알리슨 스미슨 부부가 초창기 주도 멤버로 참여하여 활동한 건축가 집단이다."
+      ],
+      "sources": [
+        "doc_c1acaf4bce9b"
+      ],
+      "provisional": false,
+      "created_at": 1792926709.619245,
+      "updated_at": 1792926709.619248
+    },
+    {
+      "id": "ent_c5458dceca68",
+      "type": "Concept",
+      "name": "Hunstanton School",
+      "aliases": [
+        "HunStanton school",
+        "한스탄튼 학교"
+      ],
+      "props": {},
+      "observations": [
+        "1954년 피터 스미슨과 알리슨 스미슨이 설계한 영국 노포크 지방의 학교 건축물이다.",
+        "가공되지 않은 재료와 거친 조형을 드러내어 브루탈리즘 건축법의 시초가 되었다."
+      ],
+      "sources": [
+        "doc_c1acaf4bce9b"
+      ],
+      "provisional": false,
+      "created_at": 1792926729.7331054,
+      "updated_at": 1792926729.7331145
+    },
+    {
+      "id": "ent_2e43bc6bcd16",
+      "type": "Person",
+      "name": "James Stirling",
+      "aliases": [
+        "제임스 스털링"
+      ],
+      "props": {},
+      "observations": [
+        "영국을 대표하는 건축가로 모더니즘을 추구하다 1970년 이후 포스트모던의 영향을 받았다.",
+        "레스터 대학교 공학관을 설계하여 기능주의적 공간 배분을 실현하였다."
+      ],
+      "sources": [
+        "doc_c1acaf4bce9b"
+      ],
+      "provisional": false,
+      "created_at": 1792926731.6522257,
+      "updated_at": 1792926731.6522343
+    },
+    {
+      "id": "ent_80e228206072",
+      "type": "Concept",
+      "name": "Engineering Building, Leicester University",
+      "aliases": [
+        "Leicester Building",
+        "레스터 대학 공학관"
+      ],
+      "props": {},
+      "observations": [
+        "제임스 스털링이 설계한 영국의 대표적인 브루탈리즘 건축물이다.",
+        "승강기, 계단, 강당 등 확장 불가능한 시설과 창고 등 확장 가능한 시설의 기능을 명확히 분리 배분하여 탈공업화 시대에 부합한다는 평을 받았다."
+      ],
+      "sources": [
+        "doc_c1acaf4bce9b"
+      ],
+      "provisional": false,
+      "created_at": 1792926733.5865214,
+      "updated_at": 1792926733.5865314
+    },
+    {
+      "id": "ent_1ac91d4ec7b8",
+      "type": "Concept",
+      "name": "High-tech architecture",
+      "aliases": [
+        "하이테크 건축",
+        "하이테크 건축법"
+      ],
+      "props": {},
+      "observations": [
+        "브루탈리즘의 기능주의와 구조 및 설비 노출 기법에 영향을 받아 발전한 건축 양식이다.",
+        "건물의 구조적 요소뿐 아니라 급수관, 엘리베이터 등 기능적 설비 장치 전반을 외부에 노출시킨다."
+      ],
+      "sources": [
+        "doc_c1acaf4bce9b"
+      ],
+      "provisional": false,
+      "created_at": 1792926745.3103209,
+      "updated_at": 1792926745.310331
+    },
+    {
+      "id": "ent_410f19772b25",
+      "type": "Person",
+      "name": "Richard Rogers",
+      "aliases": [
+        "리처드 로저스"
+      ],
+      "props": {},
+      "observations": [
+        "퐁피두 센터와 로이드 빌딩을 설계한 영국의 대표적인 하이테크 건축가이다."
+      ],
+      "sources": [
+        "doc_c1acaf4bce9b"
+      ],
+      "provisional": false,
+      "created_at": 1792926747.2597678,
+      "updated_at": 1792926747.2597775
+    },
+    {
+      "id": "ent_b765c422598a",
+      "type": "Person",
+      "name": "Renzo Piano",
+      "aliases": [
+        "렌조 피아노"
+      ],
+      "props": {},
+      "observations": [
+        "리처드 로저스와 함께 프랑스 파리의 퐁피두 센터를 공동 건축한 이탈리아 건축가이다."
+      ],
+      "sources": [
+        "doc_c1acaf4bce9b"
+      ],
+      "provisional": false,
+      "created_at": 1792926749.135616,
+      "updated_at": 1792926749.135625
+    },
+    {
+      "id": "ent_6736d6e5c61f",
+      "type": "Concept",
+      "name": "Centre Pompidou",
+      "aliases": [
+        "퐁피두 센터"
+      ],
+      "props": {},
+      "observations": [
+        "리처드 로저스와 렌조 피아노가 설계한 프랑스 파리의 대표적 하이테크 건축물이다.",
+        "모든 설비 장치를 외부로 노출시킨 파격적인 조형을 특징으로 한다."
+      ],
+      "sources": [
+        "doc_c1acaf4bce9b"
+      ],
+      "provisional": false,
+      "created_at": 1792926760.1659796,
+      "updated_at": 1792926760.1659882
+    },
+    {
+      "id": "ent_4ea773dd6462",
+      "type": "Concept",
+      "name": "Lloyd's Building",
+      "aliases": [
+        "로이드 빌딩"
+      ],
+      "props": {},
+      "observations": [
+        "리처드 로저스 파트너십이 설계한 영국 런던 소재의 하이테크 건축물이다.",
+        "메탈 외장 마감과 외부에 직설적으로 노출된 급수관 및 승강기를 특징으로 한다."
+      ],
+      "sources": [
+        "doc_c1acaf4bce9b"
+      ],
+      "provisional": false,
+      "created_at": 1792926790.5396163,
+      "updated_at": 1792926790.539621
+    }
+  ],
+  "relations": [
+    {
+      "id": "rel_5fe897083578",
+      "type": "authored_by",
+      "source_id": "ent_a853876598d7",
+      "target_id": "ent_7267eb300e69",
+      "confidence": 1.0,
+      "props": {},
+      "sources": [
+        "doc_c1acaf4bce9b"
+      ],
+      "provisional": false,
+      "created_at": 1792926791.836021
+    },
+    {
+      "id": "rel_a5ab10406837",
+      "type": "cites",
+      "source_id": "ent_a853876598d7",
+      "target_id": "ent_d29dfd832283",
+      "confidence": 1.0,
+      "props": {},
+      "sources": [
+        "doc_c1acaf4bce9b"
+      ],
+      "provisional": false,
+      "created_at": 1792926791.8386056
+    },
+    {
+      "id": "rel_7e4a126aad17",
+      "type": "cites",
+      "source_id": "ent_a853876598d7",
+      "target_id": "ent_1ac91d4ec7b8",
+      "confidence": 1.0,
+      "props": {},
+      "sources": [
+        "doc_c1acaf4bce9b"
+      ],
+      "provisional": false,
+      "created_at": 1792926791.8404348
+    },
+    {
+      "id": "rel_be4bf7b7b209",
+      "type": "part_of",
+      "source_id": "ent_caba0a9911a7",
+      "target_id": "ent_0f1f1566f1b1",
+      "confidence": 1.0,
+      "props": {},
+      "sources": [
+        "doc_c1acaf4bce9b"
+      ],
+      "provisional": false,
+      "created_at": 1792926791.842367
+    },
+    {
+      "id": "rel_28ecd505be24",
+      "type": "part_of",
+      "source_id": "ent_f98630a6a230",
+      "target_id": "ent_0f1f1566f1b1",
+      "confidence": 1.0,
+      "props": {},
+      "sources": [
+        "doc_c1acaf4bce9b"
+      ],
+      "provisional": false,
+      "created_at": 1792926791.8440537
+    },
+    {
+      "id": "rel_9366f12348fc",
+      "type": "authored_by",
+      "source_id": "ent_c5458dceca68",
+      "target_id": "ent_f98630a6a230",
+      "confidence": 1.0,
+      "props": {},
+      "sources": [
+        "doc_c1acaf4bce9b"
+      ],
+      "provisional": false,
+      "created_at": 1792926791.8456812
+    },
+    {
+      "id": "rel_08de02fa81e2",
+      "type": "authored_by",
+      "source_id": "ent_c5458dceca68",
+      "target_id": "ent_caba0a9911a7",
+      "confidence": 1.0,
+      "props": {},
+      "sources": [
+        "doc_c1acaf4bce9b"
+      ],
+      "provisional": false,
+      "created_at": 1792926791.847384
+    },
+    {
+      "id": "rel_9fe4ebbb6b5c",
+      "type": "implements",
+      "source_id": "ent_c5458dceca68",
+      "target_id": "ent_d29dfd832283",
+      "confidence": 1.0,
+      "props": {},
+      "sources": [
+        "doc_c1acaf4bce9b"
+      ],
+      "provisional": false,
+      "created_at": 1792926791.8490975
+    },
+    {
+      "id": "rel_a72aa798f5c1",
+      "type": "authored_by",
+      "source_id": "ent_80e228206072",
+      "target_id": "ent_2e43bc6bcd16",
+      "confidence": 1.0,
+      "props": {},
+      "sources": [
+        "doc_c1acaf4bce9b"
+      ],
+      "provisional": false,
+      "created_at": 1792926791.8509128
+    },
+    {
+      "id": "rel_270f972ffb2d",
+      "type": "implements",
+      "source_id": "ent_80e228206072",
+      "target_id": "ent_d29dfd832283",
+      "confidence": 1.0,
+      "props": {},
+      "sources": [
+        "doc_c1acaf4bce9b"
+      ],
+      "provisional": false,
+      "created_at": 1792926791.8528965
+    },
+    {
+      "id": "rel_2983284d8f08",
+      "type": "derived_from",
+      "source_id": "ent_1ac91d4ec7b8",
+      "target_id": "ent_d29dfd832283",
+      "confidence": 1.0,
+      "props": {},
+      "sources": [
+        "doc_c1acaf4bce9b"
+      ],
+      "provisional": false,
+      "created_at": 1792926791.854641
+    },
+    {
+      "id": "rel_ca842b792e7a",
+      "type": "authored_by",
+      "source_id": "ent_6736d6e5c61f",
+      "target_id": "ent_410f19772b25",
+      "confidence": 1.0,
+      "props": {},
+      "sources": [
+        "doc_c1acaf4bce9b"
+      ],
+      "provisional": false,
+      "created_at": 1792926791.856299
+    },
+    {
+      "id": "rel_08f30b3c05ad",
+      "type": "authored_by",
+      "source_id": "ent_6736d6e5c61f",
+      "target_id": "ent_b765c422598a",
+      "confidence": 1.0,
+      "props": {},
+      "sources": [
+        "doc_c1acaf4bce9b"
+      ],
+      "provisional": false,
+      "created_at": 1792926791.8583932
+    },
+    {
+      "id": "rel_73a6c4c9b15b",
+      "type": "implements",
+      "source_id": "ent_6736d6e5c61f",
+      "target_id": "ent_1ac91d4ec7b8",
+      "confidence": 1.0,
+      "props": {},
+      "sources": [
+        "doc_c1acaf4bce9b"
+      ],
+      "provisional": false,
+      "created_at": 1792926791.8603234
+    },
+    {
+      "id": "rel_d8fb7c809674",
+      "type": "authored_by",
+      "source_id": "ent_4ea773dd6462",
+      "target_id": "ent_410f19772b25",
+      "confidence": 1.0,
+      "props": {},
+      "sources": [
+        "doc_c1acaf4bce9b"
+      ],
+      "provisional": false,
+      "created_at": 1792926791.862191
+    },
+    {
+      "id": "rel_2ac2b767d2c7",
+      "type": "implements",
+      "source_id": "ent_4ea773dd6462",
+      "target_id": "ent_1ac91d4ec7b8",
+      "confidence": 1.0,
+      "props": {},
+      "sources": [
+        "doc_c1acaf4bce9b"
+      ],
+      "provisional": false,
+      "created_at": 1792926791.863869
+    },
+    {
+      "id": "rel_b954e44b771c",
+      "type": "integrates_with",
+      "source_id": "ent_f98630a6a230",
+      "target_id": "ent_caba0a9911a7",
+      "confidence": 0.95,
+      "props": {},
+      "sources": [
+        "doc_c1acaf4bce9b"
+      ],
+      "provisional": false,
+      "created_at": 1792926852.5580406
+    },
+    {
+      "id": "rel_2de524ac3fa7",
+      "type": "integrates_with",
+      "source_id": "ent_caba0a9911a7",
+      "target_id": "ent_f98630a6a230",
+      "confidence": 0.95,
+      "props": {},
+      "sources": [
+        "doc_c1acaf4bce9b"
+      ],
+      "provisional": false,
+      "created_at": 1792926852.5595396
+    },
+    {
+      "id": "rel_2844c1be30cc",
+      "type": "derived_from",
+      "source_id": "ent_4ea773dd6462",
+      "target_id": "ent_80e228206072",
+      "confidence": 0.88,
+      "props": {},
+      "sources": [
+        "doc_c1acaf4bce9b"
+      ],
+      "provisional": false,
+      "created_at": 1792926852.561103
+    }
+  ],
+  "proposals": [
+    {
+      "id": 31,
+      "kind": "entity_type",
+      "proposed": "architectural_structure",
+      "context": "Hunstanton School",
+      "document_id": "doc_c1acaf4bce9b",
+      "created_at": 1792926710.9496324
+    },
+    {
+      "id": 32,
+      "kind": "entity_type",
+      "proposed": "architectural_structure",
+      "context": "Engineering Building, Leicester University",
+      "document_id": "doc_c1acaf4bce9b",
+      "created_at": 1792926732.9808552
+    },
+    {
+      "id": 33,
+      "kind": "entity_type",
+      "proposed": "architectural_structure",
+      "context": "Centre Pompidou",
+      "document_id": "doc_c1acaf4bce9b",
+      "created_at": 1792926750.403221
+    },
+    {
+      "id": 34,
+      "kind": "entity_type",
+      "proposed": "architectural_structure",
+      "context": "Lloyd's Building",
+      "document_id": "doc_c1acaf4bce9b",
+      "created_at": 1792926761.4692974
+    }
+  ]
+}
