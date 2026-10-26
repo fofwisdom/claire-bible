@@ -6230,17 +6230,33 @@ const STAGE_LABELS = {
   init: '준비',
   fetch: '수집',
   extract: '추출',
-  resolve: '해소',
+  resolve: '대조',
   detail: '상세',
   done: '완료',
   error: '오류'
 };
+const STAGE_FULL_TITLES = {
+  init: '1. 수집 (Fetch)',
+  fetch: '1. 수집 (Fetch)',
+  extract: '2. 추출 (Extract)',
+  resolve: '3. 대조 (Resolve)',
+  detail: '4. 상세 (Detail)',
+  done: '5. 완료 (Done)',
+  error: '오류 발생 (Error)'
+};
+const STAGE_DESCS = {
+  fetch: '원문 수집 및 정제',
+  extract: '엔티티/관계 구조화',
+  resolve: '전수 히트맵 텐서',
+  detail: 'ADOC 본문 컴파일',
+  done: '지식 그래프 반영'
+};
 const STAGE_PROGRESS = {
-  init: 5,
+  init: 10,
   fetch: 20,
   extract: 45,
-  resolve: 70,
-  detail: 90,
+  resolve: 75,
+  detail: 92,
   done: 100,
   error: 100
 };
@@ -6274,50 +6290,168 @@ function extractActiveJobs(d){
   return [];
 }
 
-function selectJobSlot(jobId, isMobileToggle = false){
-  selectedJobId = jobId;
-  renderMultiSlotUI(activeJobs);
+function getJobPct(job){
+  if(!job) return 0;
+  if(typeof job.progress === 'number') return Math.max(0, Math.min(100, Math.round(job.progress)));
+  return STAGE_PROGRESS[job.stage] || (job.active ? 30 : 100);
 }
 
-function buildStepperHtml(job){
-  if(!job) return '';
-  const stages = (Array.isArray(job.stages) && job.stages.length > 0) ? job.stages : STAGES;
-  const curStage = job.stage || 'init';
-  const curIdx = stages.indexOf(curStage);
-  const isDone = curStage === 'done';
-  const isError = curStage === 'error';
-
-  let html = '<div class="matrix-stepper" role="progressbar" aria-label="작업 단계">';
-  stages.forEach((stg, i) => {
-    let cls = 'pending';
-    let dot = '○';
-    if(isDone || (curIdx !== -1 && i < curIdx)){
-      cls = 'completed';
-      dot = '●';
-    } else if(i === curIdx){
-      cls = isError ? 'error' : 'current';
-      dot = isError ? '❌' : '◐';
-    }
-    const label = STAGE_LABELS[stg] || stg;
-    html += '<div class="stepper-step ' + cls + '">'
-      + '<span class="step-dot" aria-hidden="true">' + dot + '</span>'
-      + '<span class="step-label">' + esc(label) + '</span>'
-      + '</div>';
-    if(i < stages.length - 1){
-      const lineCompleted = isDone || (curIdx !== -1 && i < curIdx);
-      html += '<div class="stepper-line ' + (lineCompleted ? 'completed' : '') + '"></div>';
-    }
-  });
-
+function formatJobElapsed(job){
+  if(!job) return '00:00 경과';
   if(job.started_at){
     const elapsedSec = Math.max(0, Math.floor((job.updated_at || (Date.now() / 1000)) - job.started_at));
     const mm = String(Math.floor(elapsedSec / 60)).padStart(2, '0');
     const ss = String(elapsedSec % 60).padStart(2, '0');
-    html += '<span class="stepper-elapsed">' + mm + ':' + ss + ' 경과</span>';
+    return mm + ':' + ss + ' 경과';
+  }
+  return job.active === false ? '완료' : '실시간 추적 중';
+}
+
+function buildDesktopStepperHtml(job){
+  const stages = (job && Array.isArray(job.stages) && job.stages.length > 0) ? job.stages : STAGES;
+  const curStage = (job && job.stage) ? job.stage : 'fetch';
+  const curIdx = stages.indexOf(curStage === 'init' ? 'fetch' : curStage);
+  const isDone = curStage === 'done' || (job && job.active === false && curStage !== 'error');
+  const isError = curStage === 'error';
+
+  return stages.map((stg, i) => {
+    let cls = 'pending';
+    let icon = '○';
+    if(isDone || (curIdx !== -1 && i < curIdx)){
+      cls = 'completed';
+      icon = '✓';
+    } else if(i === curIdx){
+      cls = isError ? 'error' : 'current';
+      icon = isError ? '❌' : '◐';
+    }
+    const title = STAGE_FULL_TITLES[stg] || ((i + 1) + '. ' + (STAGE_LABELS[stg] || stg));
+    const desc = STAGE_DESCS[stg] || '';
+    return '<div class="cockpit-step-card stepper-step ' + cls + '" data-stage="' + esc(stg) + '">'
+      + '<div class="cockpit-step-top">'
+      + '  <span class="step-label">' + esc(title) + '</span>'
+      + '  <span class="step-dot" aria-hidden="true">' + icon + '</span>'
+      + '</div>'
+      + '<div class="cockpit-step-desc">' + esc(desc) + '</div>'
+      + '</div>';
+  }).join('');
+}
+
+function buildStepperHtml(job){
+  return buildDesktopStepperHtml(job);
+}
+
+function buildLiveStreamPlaceholderHtml(job){
+  const curStage = (job && job.stage) ? job.stage : 'fetch';
+  const stageTitle = STAGE_FULL_TITLES[curStage] || STAGE_LABELS[curStage] || '진행 중';
+  const msg = (job && job.msg) ? job.msg : '원문 분석 및 엔티티 대조 준비 중…';
+  const pct = getJobPct(job);
+  const curIdx = Math.max(0, STAGES.indexOf(curStage === 'init' ? 'fetch' : curStage));
+
+  const logLines = [
+    { idx: 0, text: '[1/5 Fetch] 원문 수집 및 텍스트 정규화 파이프라인 가동' },
+    { idx: 1, text: '[2/5 Extract] 핵심 엔티티(Entity) 및 도메인 관계(Relation) 구조화 추출' },
+    { idx: 2, text: '[3/5 Resolve] 기존 지식베이스 후보군 전수 유사도 텐서(N×M) 산출' },
+    { idx: 3, text: '[4/5 Detail] AsciiDoc(ADOC) 상세 본문 컴파일 및 출처 검증' }
+  ].map(item => {
+    if(item.idx < curIdx){
+      return '<div class="cockpit-live-log-line done">✓ ' + esc(item.text) + ' (완료)</div>';
+    }
+    if(item.idx === curIdx){
+      return '<div class="cockpit-live-log-line active">▶ ' + esc(msg) + '</div>';
+    }
+    return '<div class="cockpit-live-log-line">· ' + esc(item.text) + ' (대기)</div>';
+  }).join('');
+
+  return '<div class="matrix-placeholder-wave" id="cockpit-live-placeholder">'
+    + '<div class="cockpit-live-stream-card">'
+    + '  <div class="cockpit-live-stream-head">'
+    + '    <div class="cockpit-live-stream-title">'
+    + '      <div class="wave-pulse-ring"></div>'
+    + '      <p class="wave-msg">' + esc(msg) + '</p>'
+    + '    </div>'
+    + '    <span class="cockpit-live-stream-stage-tag">' + esc(stageTitle) + ' · ' + pct + '%</span>'
+    + '  </div>'
+    + '  <div class="cockpit-live-log-box">' + logLines + '</div>'
+    + '  <div class="cockpit-live-sub">'
+    + '    <small class="wave-sub">3단계 대조(Resolve) 진입 시 이 영역이 실시간 N×M 히트맵 텐서로 즉시 전환됩니다.</small>'
+    + '  </div>'
+    + '</div>'
+    + '</div>';
+}
+
+function updateCockpitChrome(job){
+  if(!job) return;
+  const pct = getJobPct(job);
+  const curStage = job.stage || 'fetch';
+  const isDone = curStage === 'done' || (job.active === false && curStage !== 'error');
+  const isError = curStage === 'error';
+  const kindTxt = KIND_LABELS[job.kind] || '적재';
+  const themeTxt = job.theme_label || ('테마 #' + (job.theme_id !== undefined ? job.theme_id : 0));
+
+  const statusBadge = document.getElementById('cockpit-status-badge');
+  const statusText = document.getElementById('cockpit-status-text');
+  if(statusBadge && statusText){
+    statusBadge.className = 'cockpit-status-badge' + (isError ? ' error' : (isDone ? ' done' : ''));
+    statusText.textContent = isError ? '적재 오류' : (isDone ? '적재 완료' : '적재 진행 중');
   }
 
-  html += '</div>';
-  return html;
+  const themeBadge = document.getElementById('cockpit-theme-badge');
+  if(themeBadge) themeBadge.textContent = '📁 ' + themeTxt;
+
+  const kindBadge = document.getElementById('cockpit-kind-badge');
+  if(kindBadge) kindBadge.textContent = kindTxt + ' 파이프라인';
+
+  const bigPctEl = document.getElementById('cockpit-big-pct');
+  if(bigPctEl){
+    bigPctEl.textContent = pct + '%';
+    bigPctEl.classList.toggle('done', isDone);
+  }
+
+  const elapsedEl = document.getElementById('cockpit-elapsed-time');
+  if(elapsedEl) elapsedEl.textContent = formatJobElapsed(job);
+
+  const stepperEl = document.getElementById('matrix-stepper');
+  if(stepperEl) stepperEl.style.display = 'block';
+
+  const desktopStepper = document.getElementById('cockpit-desktop-stepper');
+  if(desktopStepper){
+    desktopStepper.innerHTML = buildDesktopStepperHtml(job);
+  } else if(stepperEl){
+    stepperEl.innerHTML = buildDesktopStepperHtml(job);
+  }
+
+  const stages = (Array.isArray(job.stages) && job.stages.length > 0) ? job.stages : STAGES;
+  const curIdx = Math.max(0, stages.indexOf(curStage === 'init' ? 'fetch' : curStage));
+  const mobileStageEl = document.getElementById('cockpit-mobile-stage');
+  if(mobileStageEl){
+    const fullTitle = STAGE_FULL_TITLES[curStage] || (STAGE_LABELS[curStage] || curStage);
+    mobileStageEl.textContent = isDone
+      ? '단계 [5/5]: 5. 완료 (Done)'
+      : ('단계 [' + Math.min(stages.length, curIdx + 1) + '/' + stages.length + ']: ' + fullTitle);
+  }
+  const mobilePctEl = document.getElementById('cockpit-mobile-pct');
+  if(mobilePctEl) mobilePctEl.textContent = pct + '%';
+  const mobileFillEl = document.getElementById('cockpit-mobile-fill');
+  if(mobileFillEl) mobileFillEl.style.width = pct + '%';
+
+  const engineEl = document.getElementById('cockpit-telemetry-engine');
+  if(engineEl) engineEl.textContent = kindTxt + ' 워커:';
+
+  const metricsEl = document.getElementById('cockpit-telemetry-metrics');
+  if(metricsEl){
+    const stageShort = STAGE_LABELS[curStage] || curStage;
+    const mat = job.heatmap_matrix;
+    const secondPill = (mat && Array.isArray(mat.rows))
+      ? ('대조 행렬: <strong>' + mat.rows.length + '×' + (mat.cols ? mat.cols.length : 0) + '</strong>')
+      : ('진행률: <strong>' + pct + '%</strong>');
+    metricsEl.innerHTML = '<span class="cockpit-metric-pill">단계: <strong>' + esc(stageShort) + '</strong></span>'
+      + '<span class="cockpit-metric-pill">' + secondPill + '</span>';
+  }
+}
+
+function selectJobSlot(jobId){
+  selectedJobId = jobId;
+  renderMultiSlotUI(activeJobs);
 }
 
 function updateCenterJobView(job){
@@ -6328,7 +6462,7 @@ function updateCenterJobView(job){
   }
   const docMetaEl = document.getElementById('matrix-target-doc');
   if(docMetaEl){
-    const kindTxt = KIND_LABELS[job.kind] || '작업';
+    const kindTxt = KIND_LABELS[job.kind] || '적재';
     const themeTxt = job.theme_label || ('#' + (job.theme_id !== undefined ? job.theme_id : 0));
     docMetaEl.textContent = '대조 대상: ' + (job.title || '(제목 없음)') + ' · 테마: ' + themeTxt + ' (' + kindTxt + ')';
   }
@@ -6343,11 +6477,7 @@ function updateCenterJobView(job){
     msgEl.textContent = job.msg || (job.active ? '진행 중…' : '완료');
   }
 
-  const stepperEl = document.getElementById('matrix-stepper');
-  if(stepperEl){
-    stepperEl.style.display = 'inline-flex';
-    stepperEl.innerHTML = buildStepperHtml(job);
-  }
+  updateCockpitChrome(job);
 
   if(job.heatmap_matrix){
     renderHeatmapMatrix(job.heatmap_matrix, job.title, job.active);
@@ -6359,30 +6489,14 @@ function updateCenterJobView(job){
     const tbody = document.getElementById('matrix-tbody');
     if(tbody){
       tbody.innerHTML = '<tr><td colspan="10" style="padding:0;border:0;">'
-        + '<div class="matrix-placeholder-wave">'
-        + '  <div class="wave-pulse-ring"></div>'
-        + '  <p class="wave-msg">' + esc(job.msg || '원문 분석 및 엔티티 대조 준비 중…') + '</p>'
-        + '  <small class="wave-sub">대조 단계(resolve) 진입 시 실시간 히트맵 텐서가 렌더링됩니다.</small>'
-        + '</div>'
+        + buildLiveStreamPlaceholderHtml(job)
         + '</td></tr>';
     }
   }
 }
 
 function renderMultiSlotUI(jobs){
-  const container = document.getElementById('job-slots-container');
-  const desktopWrap = document.getElementById('job-slots-desktop');
-  const mobileWrap = document.getElementById('job-slots-mobile');
-  if(!container || !desktopWrap || !mobileWrap) return;
-
-  if(!jobs || jobs.length === 0){
-    container.style.display = 'none';
-    const stepperEl = document.getElementById('matrix-stepper');
-    if(stepperEl) stepperEl.style.display = 'none';
-    return;
-  }
-
-  container.style.display = '';
+  if(!jobs || jobs.length === 0) return;
 
   const existingJob = jobs.find(j => j.job_id === selectedJobId);
   if(!existingJob){
@@ -6391,92 +6505,6 @@ function renderMultiSlotUI(jobs){
   }
 
   const selectedJob = jobs.find(j => j.job_id === selectedJobId) || jobs[0];
-
-  function getJobPct(j){
-    if(typeof j.progress === 'number') return Math.max(0, Math.min(100, Math.round(j.progress)));
-    return STAGE_PROGRESS[j.stage] || (j.active ? 30 : 100);
-  }
-
-  function formatJobElapsed(j){
-    if(!j || !j.started_at) return '';
-    const elapsedSec = Math.max(0, Math.floor((j.updated_at || (Date.now() / 1000)) - j.started_at));
-    const mm = String(Math.floor(elapsedSec / 60)).padStart(2, '0');
-    const ss = String(elapsedSec % 60).padStart(2, '0');
-    return mm + ':' + ss + ' 경과';
-  }
-
-  // 1. Render Proposal A (Desktop horizontal tabs)
-  desktopWrap.innerHTML = jobs.map((j, idx) => {
-    const isSel = j.job_id === selectedJobId;
-    const pct = getJobPct(j);
-    const kindTxt = KIND_LABELS[j.kind] || '작업';
-    const themeTxt = j.theme_label || ('#' + (j.theme_id !== undefined ? j.theme_id : 0));
-    const statusIcon = j.active
-      ? '<span class="slot-spinner" aria-hidden="true"></span>'
-      : (j.stage === 'error' ? '❌' : '✅');
-    const titleTxt = esc(j.title || '(제목 없음)');
-    const stageName = STAGE_LABELS[j.stage] || j.stage || '진행';
-    const stageTxt = '단계: ' + stageName + ' (' + pct + '%)';
-    const elapsedTxt = formatJobElapsed(j);
-
-    return '<button type="button" role="tab" class="job-slot-card ' + (isSel ? 'active' : '') + '" '
-      + 'aria-selected="' + (isSel ? 'true' : 'false') + '" '
-      + 'data-job-id="' + esc(j.job_id) + '" '
-      + 'onclick="selectJobSlot(\'' + esc(j.job_id) + '\')" '
-      + 'title="' + titleTxt + '">'
-      + '<div class="slot-header">'
-      + '  <div class="slot-badges">'
-      + '    ' + statusIcon
-      + '    <span class="slot-idx-badge">작업 ' + (idx + 1) + '</span>'
-      + '    <span class="slot-kind-badge">' + esc(kindTxt) + '</span>'
-      + '    <span class="slot-theme-badge">' + esc(themeTxt) + '</span>'
-      + '  </div>'
-      + '  <span class="slot-pct">' + pct + '%</span>'
-      + '</div>'
-      + '<div class="slot-title">' + titleTxt + '</div>'
-      + '<div class="slot-meta-row">'
-      + '  <span class="slot-stage-txt">' + esc(stageTxt) + '</span>'
-      + (elapsedTxt ? '  <span class="slot-elapsed-txt">' + esc(elapsedTxt) + '</span>' : '')
-      + '</div>'
-      + '<div class="slot-progress-bar"><div class="slot-progress-fill" style="width:' + pct + '%"></div></div>'
-      + '</button>';
-  }).join('');
-
-  // 2. Render Proposal D (Mobile vertical accordion)
-  mobileWrap.innerHTML = jobs.map((j, idx) => {
-    const isSel = j.job_id === selectedJobId;
-    const pct = getJobPct(j);
-    const kindTxt = KIND_LABELS[j.kind] || '작업';
-    const themeTxt = j.theme_label || ('#' + (j.theme_id !== undefined ? j.theme_id : 0));
-    const titleTxt = esc(j.title || '(제목 없음)');
-
-    let stepperHtml = '';
-    if(isSel){
-      stepperHtml = buildStepperHtml(j);
-    }
-
-    return '<div class="job-slot-accordion ' + (isSel ? 'open active' : '') + '" data-job-id="' + esc(j.job_id) + '">'
-      + '<button type="button" class="accordion-header" onclick="selectJobSlot(\'' + esc(j.job_id) + '\', true)" '
-      + 'aria-expanded="' + (isSel ? 'true' : 'false') + '">'
-      + '  <div class="accordion-title-wrap">'
-      + '    <span class="accordion-arrow" aria-hidden="true">▶</span>'
-      + '    <span class="slot-idx-badge">작업 ' + (idx + 1) + '</span>'
-      + '    <span class="slot-kind-badge">' + esc(kindTxt) + '</span>'
-      + '    <span class="slot-theme-badge">' + esc(themeTxt) + '</span>'
-      + '    <span class="accordion-title">' + titleTxt + '</span>'
-      + '  </div>'
-      + '  <div class="accordion-status-wrap">'
-      + '    <span class="slot-pct">' + pct + '%</span>'
-      + '  </div>'
-      + '</button>'
-      + '<div class="accordion-body">'
-      + '  <div style="margin-bottom:8px">' + stepperHtml + '</div>'
-      + '  <div style="font-size:12px;color:var(--muted)">' + esc(j.msg || '') + '</div>'
-      + '</div>'
-      + '</div>';
-  }).join('');
-
-  // 3. Update central matrix view & stepper for selected job
   updateCenterJobView(selectedJob);
 }
 
@@ -6485,9 +6513,6 @@ function processActiveJobsStats(d){
   activeJobs = extractActiveJobs(d);
   if(activeJobs.length > 0){
     renderMultiSlotUI(activeJobs);
-  } else {
-    const container = document.getElementById('job-slots-container');
-    if(container) container.style.display = 'none';
   }
 }
 
@@ -6496,31 +6521,78 @@ function initIngestMatrixView(payload, focus, themeLabel){
   if(!wrap) return;
   const titleEl = document.getElementById('matrix-title');
   if(titleEl) titleEl.innerHTML = '지식 대조 히트맵 매트릭스 <small id="matrix-subtitle">| Heatmap Matrix (수집 대상 대조 밀도)</small>';
+  const cleanPayload = (payload || '').replace(/\s+/g, ' ').trim();
+  const shortDesc = cleanPayload.length > 80 ? cleanPayload.slice(0, 80) + '…' : cleanPayload;
   const docMetaEl = document.getElementById('matrix-target-doc');
   if(docMetaEl){
-    const cleanPayload = (payload || '').replace(/\s+/g, ' ').trim();
-    const shortDesc = cleanPayload.length > 80 ? cleanPayload.slice(0, 80) + '…' : cleanPayload;
     docMetaEl.textContent = '대조 대상: ' + shortDesc + (themeLabel ? ' (테마: ' + themeLabel + ')' : '');
   }
   const spin = document.getElementById('matrix-progress-spinner');
   if(spin) spin.style.display = 'inline-block';
+  const defaultMsg = '원문 분석 및 엔티티 대조 준비 중…';
   const msgEl = document.getElementById('matrix-progress-msg');
-  if(msgEl) msgEl.textContent = '원문 분석 및 엔티티 대조 준비 중…';
+  if(msgEl) msgEl.textContent = defaultMsg;
 
-  // 초기 상태 안내 (인위적인 깜빡임 및 가짜 후보 행 제거)
+  const synthJob = {
+    active: true,
+    kind: 'ingest',
+    theme_id: (typeof activeThemeId !== 'undefined' ? activeThemeId : 0),
+    theme_label: themeLabel || '기본 지식베이스',
+    title: shortDesc || '수집 대상',
+    stage: 'fetch',
+    progress: 20,
+    msg: defaultMsg,
+    heatmap_matrix: null
+  };
+  updateCockpitChrome(synthJob);
+
   const theadRow = document.getElementById('matrix-thead-row');
   if(theadRow){
     theadRow.innerHTML = '<th style="min-width:140px">추출 노드 \\ 기존 지식 노드</th>';
   }
   const tbody = document.getElementById('matrix-tbody');
   if(tbody){
-    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;padding:48px 16px;color:var(--muted)">원문 분석 및 엔티티 대조 밀도 계산 중…</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="4" style="padding:0;border:0;">' + buildLiveStreamPlaceholderHtml(synthJob) + '</td></tr>';
   }
 }
 
 function updateMatrixProgress(msg){
   const msgEl = document.getElementById('matrix-progress-msg');
   if(msgEl) msgEl.textContent = msg;
+  const text = String(msg || '');
+  let inferredStage = 'extract';
+  let inferredPct = 45;
+  if(text.includes('수집') || text.includes('준비')){
+    inferredStage = 'fetch';
+    inferredPct = 20;
+  } else if(text.includes('대조') || text.includes('텐서') || text.includes('유사도')){
+    inferredStage = 'resolve';
+    inferredPct = 75;
+  } else if(text.includes('상세') || text.includes('ADOC') || text.includes('본문')){
+    inferredStage = 'detail';
+    inferredPct = 92;
+  } else if(text.includes('완료')){
+    inferredStage = 'done';
+    inferredPct = 100;
+  }
+  const synthJob = {
+    active: inferredStage !== 'done',
+    kind: 'ingest',
+    theme_id: (typeof activeThemeId !== 'undefined' ? activeThemeId : 0),
+    theme_label: '기본 지식베이스',
+    stage: inferredStage,
+    progress: inferredPct,
+    msg: text,
+    heatmap_matrix: currentMatrixData
+  };
+  updateCockpitChrome(synthJob);
+  const placeholderEl = document.getElementById('cockpit-live-placeholder');
+  if(placeholderEl && !currentMatrixData){
+    const tbody = document.getElementById('matrix-tbody');
+    if(tbody){
+      tbody.innerHTML = '<tr><td colspan="4" style="padding:0;border:0;">' + buildLiveStreamPlaceholderHtml(synthJob) + '</td></tr>';
+    }
+  }
 }
 
 function addDecisionStreamCard(ev){
@@ -6670,6 +6742,19 @@ function renderHeatmapMatrix(matrixData, title, isIngesting){
       }
     }
 
+    if(!activeJobs || activeJobs.length === 0){
+      updateCockpitChrome({
+        active: isActivelyIngesting,
+        kind: 'ingest',
+        theme_id: (typeof activeThemeId !== 'undefined' ? activeThemeId : 0),
+        theme_label: '기본 지식베이스',
+        title: title || '',
+        stage: isActivelyIngesting ? 'resolve' : 'done',
+        progress: isActivelyIngesting ? 75 : 100,
+        heatmap_matrix: matrixData
+      });
+    }
+
     tbody.innerHTML = rows.map((rName, rIdx) => {
       const rowScores = mat[rIdx] || [];
       const cells = cols.map((cName, cIdx) => {
@@ -6700,8 +6785,18 @@ function completeIngestMatrixView(result){
   if(spin) spin.style.display = 'none';
   const msgEl = document.getElementById('matrix-progress-msg');
   if(msgEl){
-    msgEl.innerHTML = '✅ <strong>대조 및 적재 완료</strong> (노드 신규 ' + (result.entities_created||0) + ' · 기존 연결 ' + (result.entities_linked||0) + ' · 관계 ' + (result.relations_added||0) + ')';
+    msgEl.innerHTML = '✅ <strong>대조 및 적재 완료</strong> (노드 신규 ' + ((result && result.entities_created)||0) + ' · 기존 연결 ' + ((result && result.entities_linked)||0) + ' · 관계 ' + ((result && result.relations_added)||0) + ')';
   }
+  updateCockpitChrome({
+    active: false,
+    kind: 'ingest',
+    theme_id: (typeof activeThemeId !== 'undefined' ? activeThemeId : 0),
+    theme_label: '기본 지식베이스',
+    title: (result && result.title) || '',
+    stage: 'done',
+    progress: 100,
+    heatmap_matrix: (result && result.heatmap_matrix) || currentMatrixData
+  });
   if(result && result.title){
     const docMetaEl = document.getElementById('matrix-target-doc');
     if(docMetaEl){

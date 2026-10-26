@@ -208,26 +208,54 @@
       </div>
     </section>
     <section id="matrixwrap" class="workspace-pane" role="region" aria-label="지식 대조 히트맵 매트릭스">
-      <div id="job-slots-container" class="job-slots-container" aria-label="활성 작업 목록" style="display:none">
-        <div id="job-slots-desktop" class="job-slots-desktop" role="tablist" aria-label="동시 작업 탭"></div>
-        <div id="job-slots-mobile" class="job-slots-mobile" role="region" aria-label="동시 작업 아코디언"></div>
-      </div>
-      <div id="matrix-topbar">
-        <div class="matrix-title-group">
-          <div class="matrix-indicator"></div>
-          <div>
-            <h2 id="matrix-title">지식 대조 히트맵 매트릭스 <small id="matrix-subtitle">| Heatmap Matrix (수집 대상 대조 밀도)</small></h2>
-            <p id="matrix-target-doc" class="matrix-meta-doc">대조 대상: 준비 중…</p>
+      <div id="matrix-topbar" class="cockpit-header">
+        <div class="cockpit-top-row">
+          <div class="matrix-title-group cockpit-doc-info">
+            <div class="cockpit-badges-row" id="cockpit-badges-row">
+              <span class="cockpit-status-badge" id="cockpit-status-badge">
+                <span class="cockpit-pulse-dot" id="cockpit-pulse-dot"></span>
+                <span id="cockpit-status-text">적재 진행 중</span>
+              </span>
+              <span class="cockpit-theme-badge" id="cockpit-theme-badge">📁 기본 지식베이스</span>
+              <span class="cockpit-kind-badge" id="cockpit-kind-badge">적재 파이프라인</span>
+            </div>
+            <div class="cockpit-title-line">
+              <div class="matrix-indicator"></div>
+              <div style="min-width:0">
+                <h2 id="matrix-title">지식 대조 히트맵 매트릭스 <small id="matrix-subtitle">| Heatmap Matrix (수집 대상 대조 밀도)</small></h2>
+                <p id="matrix-target-doc" class="matrix-meta-doc">대조 대상: 준비 중…</p>
+              </div>
+            </div>
+          </div>
+          <div class="matrix-actions cockpit-progress-summary">
+            <div class="cockpit-metrics-group" id="cockpit-metrics-group">
+              <div class="cockpit-big-pct" id="cockpit-big-pct">0%</div>
+              <div class="cockpit-elapsed-time" id="cockpit-elapsed-time">00:00 경과</div>
+            </div>
+            <button id="matrix-confirm-btn" type="button" class="pri matrix-confirm-btn" onclick="confirmMatrixView()" title="대조 확인 및 매트릭스 소각 파기">✓ 확인</button>
           </div>
         </div>
-        <div class="matrix-actions">
-          <button id="matrix-confirm-btn" type="button" class="pri matrix-confirm-btn" onclick="confirmMatrixView()" title="대조 확인 및 매트릭스 소각 파기">✓ 확인</button>
+        <div id="matrix-stepper" class="matrix-stepper cockpit-stepper-wrap" role="progressbar" aria-label="작업 단계">
+          <div id="cockpit-desktop-stepper" class="cockpit-desktop-stepper"></div>
+          <div id="cockpit-mobile-stepper" class="cockpit-mobile-stepper">
+            <div class="cockpit-mobile-row">
+              <span class="cockpit-mobile-stage" id="cockpit-mobile-stage">단계 [1/5]: 1. 수집 (Fetch)</span>
+              <span class="cockpit-mobile-pct" id="cockpit-mobile-pct">0%</span>
+            </div>
+            <div class="cockpit-mobile-bar">
+              <div class="cockpit-mobile-fill" id="cockpit-mobile-fill" style="width:0%"></div>
+            </div>
+          </div>
         </div>
       </div>
-      <div id="matrix-progress-banner">
-        <div class="matrix-progress-spinner" id="matrix-progress-spinner" style="display:none"></div>
-        <span id="matrix-progress-msg"></span>
-        <div id="matrix-stepper" class="matrix-stepper" role="progressbar" aria-label="작업 단계" style="display:none"></div>
+      <div id="matrix-progress-banner" class="cockpit-telemetry-bar">
+        <div class="cockpit-telemetry-left">
+          <span class="cockpit-worker-icon" aria-hidden="true">⚡</span>
+          <span class="cockpit-telemetry-engine" id="cockpit-telemetry-engine">적재 워커:</span>
+          <div class="matrix-progress-spinner" id="matrix-progress-spinner" style="display:none"></div>
+          <span id="matrix-progress-msg"></span>
+        </div>
+        <div class="cockpit-telemetry-metrics" id="cockpit-telemetry-metrics"></div>
       </div>
       <div id="matrix-cell-inspect-bar" class="matrix-cell-inspect-bar" aria-live="polite">
         <span id="matrix-inspect-text">셀을 가리키면 대조 상세 정보가 표시됩니다.</span>

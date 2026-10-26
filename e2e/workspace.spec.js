@@ -1390,13 +1390,34 @@ test('brand logo click restores default home state (degree, center view, title, 
   expect(pageErrors).toEqual([]);
 });
 
-test('desktop multi-slot UI (Proposal A) renders tab cards for multiple jobs and switches selected job on click', async ({ page }) => {
+test('Unified Ingest Cockpit renders 5-stage horizontal milestone stepper on desktop and tablet and transitions from live extraction preview to heatmap tensor', async ({ page }) => {
   const pageErrors = [];
   page.on('pageerror', error => pageErrors.push(error.message));
   await page.setViewportSize({ width: 1280, height: 800 });
 
-  // Intercept stats to return 2 concurrent active jobs
+  let currentPhase = 'extract';
   await page.route('**/stats', async (route) => {
+    const isExtract = currentPhase === 'extract';
+    const jobPayload = {
+      job_id: 'j_cockpit_1',
+      active: true,
+      kind: 'ingest',
+      theme_id: 0,
+      theme_label: '기본 지식베이스',
+      title: 'Misalignment Reports and Notices',
+      stage: isExtract ? 'extract' : 'resolve',
+      stages: ['fetch', 'extract', 'resolve', 'detail', 'done'],
+      msg: isExtract ? '엔티티 및 관계 구조화 추출 중…' : '엔티티 대조 텐서 계산 중 (75%)',
+      progress: isExtract ? 45 : 75,
+      started_at: Date.now() / 1000 - 75,
+      heatmap_matrix: isExtract ? null : {
+        rows: ['vCenter Server', 'ESXi 8.0'],
+        cols: ['vCenter', 'ESXi Host'],
+        matrix: [[0.95, 0.45], [0.3, 0.98]],
+        threshold_auto_merge: 0.93,
+        threshold_borderline: 0.72
+      }
+    };
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -1407,51 +1428,8 @@ test('desktop multi-slot UI (Proposal A) renders tab cards for multiple jobs and
         theme_id: 0,
         theme_label: '기본 지식베이스',
         ingesting: true,
-        active_jobs: [
-          {
-            job_id: 'j_1',
-            active: true,
-            kind: 'reingest',
-            theme_id: 0,
-            theme_label: '기본 지식베이스',
-            title: 'vSphere 8.0 Release Notes',
-            stage: 'resolve',
-            stages: ['fetch', 'extract', 'resolve', 'detail', 'done'],
-            msg: '엔티티 대조 텐서 계산 중 (68%)',
-            progress: 68,
-            heatmap_matrix: {
-              rows: ['vCenter Server', 'ESXi 8.0'],
-              cols: ['vCenter', 'ESXi Host'],
-              matrix: [[0.95, 0.45], [0.3, 0.98]],
-              threshold_auto_merge: 0.93,
-              threshold_borderline: 0.72
-            }
-          },
-          {
-            job_id: 'j_2',
-            active: true,
-            kind: 'ingest',
-            theme_id: 0,
-            theme_label: '기본 지식베이스',
-            title: 'Jev Bench Report',
-            stage: 'fetch',
-            stages: ['fetch', 'extract', 'resolve', 'detail', 'done'],
-            msg: '원문 수집 중…',
-            progress: 25,
-            heatmap_matrix: null
-          }
-        ],
-        active_ingest: {
-          active: true,
-          job_id: 'j_1',
-          kind: 'reingest',
-          theme_id: 0,
-          theme_label: '기본 지식베이스',
-          title: 'vSphere 8.0 Release Notes',
-          stage: 'resolve',
-          msg: '엔티티 대조 텐서 계산 중 (68%)',
-          progress: 68
-        }
+        active_jobs: [jobPayload],
+        active_ingest: jobPayload
       })
     });
   });
@@ -1459,129 +1437,83 @@ test('desktop multi-slot UI (Proposal A) renders tab cards for multiple jobs and
   await page.goto('/', { waitUntil: 'domcontentloaded' });
   await expect(page.locator('body')).toHaveAttribute('data-center-view', 'matrix');
 
-  // Verify container & desktop tab slots visible, mobile hidden
-  const container = page.locator('#job-slots-container');
-  await expect(container).toBeVisible();
-  const desktopSlots = page.locator('#job-slots-desktop');
-  await expect(desktopSlots).toBeVisible();
-  const mobileSlots = page.locator('#job-slots-mobile');
-  await expect(mobileSlots).toBeHidden();
+  // Obsolete multi-slot containers must not exist
+  await expect(page.locator('#job-slots-container')).toHaveCount(0);
 
-  // Verify Proposal A tabs rendered
-  const cards = desktopSlots.locator('.job-slot-card');
-  await expect(cards).toHaveCount(2);
+  // Verify Unified Cockpit Header & Badges
+  await expect(page.locator('#cockpit-status-text')).toHaveText('적재 진행 중');
+  await expect(page.locator('#cockpit-theme-badge')).toContainText('기본 지식베이스');
+  await expect(page.locator('#cockpit-kind-badge')).toHaveText('적재 파이프라인');
+  await expect(page.locator('#cockpit-big-pct')).toHaveText('45%');
+  await expect(page.locator('#cockpit-elapsed-time')).toContainText('경과');
+  await expect(page.locator('#matrix-target-doc')).toContainText('Misalignment Reports and Notices');
 
-  const card1 = cards.nth(0);
-  const card2 = cards.nth(1);
+  // Verify Desktop 5-Stage Stepper is visible and Mobile Stepper is hidden
+  const desktopStepper = page.locator('#cockpit-desktop-stepper');
+  const mobileStepper = page.locator('#cockpit-mobile-stepper');
+  await expect(desktopStepper).toBeVisible();
+  await expect(mobileStepper).toBeHidden();
 
-  await expect(card1.locator('.slot-title')).toContainText('vSphere 8.0');
-  await expect(card1.locator('.slot-kind-badge')).toHaveText('재적재');
-  await expect(card1.locator('.slot-pct')).toHaveText('68%');
-  await expect(card1).toHaveClass(/active/);
-  await expect(card1).toHaveAttribute('aria-selected', 'true');
+  const stepCards = desktopStepper.locator('.cockpit-step-card');
+  await expect(stepCards).toHaveCount(5);
+  await expect(stepCards.nth(0)).toHaveClass(/completed/);
+  await expect(stepCards.nth(0)).toContainText('1. 수집 (Fetch)');
+  await expect(stepCards.nth(1)).toHaveClass(/current/);
+  await expect(stepCards.nth(1)).toContainText('2. 추출 (Extract)');
+  await expect(stepCards.nth(2)).toHaveClass(/pending/);
+  await expect(stepCards.nth(2)).toContainText('3. 대조 (Resolve)');
 
-  await expect(card2.locator('.slot-title')).toContainText('Jev Bench');
-  await expect(card2.locator('.slot-kind-badge')).toHaveText('적재');
-  await expect(card2.locator('.slot-pct')).toHaveText('25%');
-  await expect(card2).not.toHaveClass(/active/);
+  // Verify Live Stream Extraction Card is shown during pre-resolve stage (not just a bare spinner)
+  const liveCard = page.locator('.cockpit-live-stream-card');
+  await expect(liveCard).toBeVisible();
+  await expect(liveCard.locator('.wave-msg')).toContainText('엔티티 및 관계 구조화 추출 중');
+  await expect(liveCard.locator('.cockpit-live-log-line.done')).toHaveCount(1);
+  await expect(liveCard.locator('.cockpit-live-log-line.active')).toContainText('엔티티 및 관계 구조화 추출 중');
 
-  // Initial matrix table rendered for Job 1
-  await expect(page.locator('#matrix-target-doc')).toContainText('vSphere 8.0');
+  // Verify Tablet viewport (820x1180) also preserves the 5-stage milestone stepper
+  await page.setViewportSize({ width: 820, height: 1180 });
+  await expect(desktopStepper).toBeVisible();
+  await expect(mobileStepper).toBeHidden();
+
+  // Transition to Resolve stage and trigger poll update
+  await page.setViewportSize({ width: 1280, height: 800 });
+  currentPhase = 'resolve';
+  await page.evaluate(() => window.claireDebug.pollForUpdates());
+
+  await expect(page.locator('#cockpit-big-pct')).toHaveText('75%');
+  await expect(stepCards.nth(1)).toHaveClass(/completed/);
+  await expect(stepCards.nth(2)).toHaveClass(/current/);
   await expect(page.locator('#matrix-tbody tr')).toHaveCount(2);
 
-  // Click card 2 to switch selected job
-  await card2.click();
-  await expect(card2).toHaveClass(/active/);
-  await expect(card1).not.toHaveClass(/active/);
-  await expect(page.locator('#matrix-target-doc')).toContainText('Jev Bench');
-
-  // Placeholder wave displayed for Job 2 (since heatmap_matrix is null)
-  await expect(page.locator('.matrix-placeholder-wave')).toBeVisible();
-  await expect(page.locator('.matrix-placeholder-wave .wave-msg')).toContainText('원문 수집 중');
-
   expect(pageErrors).toEqual([]);
 });
 
-test('desktop single active job renders compact Proposal A tab card without full-width stretching', async ({ page }) => {
-  const pageErrors = [];
-  page.on('pageerror', error => pageErrors.push(error.message));
-  await page.setViewportSize({ width: 1280, height: 800 });
-
-  await page.route('**/stats', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        documents: 5,
-        entities: 42,
-        relations: 68,
-        theme_id: 0,
-        theme_label: '기본 지식베이스',
-        ingesting: true,
-        active_jobs: [
-          {
-            job_id: 'j_single',
-            active: true,
-            kind: 'ingest',
-            theme_id: 0,
-            theme_label: '기본 지식베이스',
-            title: 'Misalignment Reports and Notices',
-            stage: 'extract',
-            stages: ['fetch', 'extract', 'resolve', 'detail', 'done'],
-            msg: '엔티티 추출 진행 중',
-            progress: 45,
-            started_at: Date.now() / 1000 - 120,
-            heatmap_matrix: null
-          }
-        ],
-        active_ingest: {
-          active: true,
-          job_id: 'j_single',
-          kind: 'ingest',
-          theme_id: 0,
-          theme_label: '기본 지식베이스',
-          title: 'Misalignment Reports and Notices',
-          stage: 'extract',
-          msg: '엔티티 추출 진행 중',
-          progress: 45
-        }
-      })
-    });
-  });
-
-  await page.goto('/', { waitUntil: 'domcontentloaded' });
-  await expect(page.locator('body')).toHaveAttribute('data-center-view', 'matrix');
-
-  const container = page.locator('#job-slots-container');
-  await expect(container).toBeVisible();
-
-  const desktopSlots = page.locator('#job-slots-desktop');
-  await expect(desktopSlots).toBeVisible();
-
-  const card = desktopSlots.locator('.job-slot-card');
-  await expect(card).toHaveCount(1);
-  await expect(card.locator('.slot-idx-badge')).toHaveText('작업 1');
-  await expect(card.locator('.slot-kind-badge')).toHaveText('적재');
-  await expect(card.locator('.slot-theme-badge')).toHaveText('기본 지식베이스');
-  await expect(card.locator('.slot-pct')).toHaveText('45%');
-  await expect(card.locator('.slot-title')).toContainText('Misalignment');
-  await expect(card.locator('.slot-stage-txt')).toContainText('단계: 추출 (45%)');
-  await expect(card.locator('.slot-elapsed-txt')).toContainText('경과');
-
-  const cardBox = await card.boundingBox();
-  expect(cardBox).not.toBeNull();
-  expect(cardBox.width).toBeLessThanOrEqual(365);
-  expect(cardBox.width).toBeGreaterThanOrEqual(240);
-
-  expect(pageErrors).toEqual([]);
-});
-
-test('mobile multi-slot UI (Proposal D) renders vertical accordion and toggles collapse/expand', async ({ page }) => {
+test('Unified Ingest Cockpit renders compact 1-line progress gauge on mobile without vertical accordion bloat', async ({ page }) => {
   const pageErrors = [];
   page.on('pageerror', error => pageErrors.push(error.message));
   await page.setViewportSize({ width: 390, height: 844 });
 
   await page.route('**/stats', async (route) => {
+    const jobPayload = {
+      job_id: 'j_mobile_1',
+      active: true,
+      kind: 'reingest',
+      theme_id: 0,
+      theme_label: '기본 지식베이스',
+      title: 'vSphere 8.0 Release Notes',
+      stage: 'resolve',
+      stages: ['fetch', 'extract', 'resolve', 'detail', 'done'],
+      msg: '엔티티 대조 텐서 계산 중',
+      progress: 75,
+      started_at: Date.now() / 1000 - 95,
+      heatmap_matrix: {
+        rows: ['vCenter Server', 'ESXi 8.0'],
+        cols: ['vCenter', 'ESXi Host'],
+        matrix: [[0.95, 0.45], [0.3, 0.98]],
+        threshold_auto_merge: 0.93,
+        threshold_borderline: 0.72
+      }
+    };
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -1592,45 +1524,8 @@ test('mobile multi-slot UI (Proposal D) renders vertical accordion and toggles c
         theme_id: 0,
         theme_label: '기본 지식베이스',
         ingesting: true,
-        active_jobs: [
-          {
-            job_id: 'j_1',
-            active: true,
-            kind: 'reingest',
-            theme_id: 0,
-            theme_label: '기본 지식베이스',
-            title: 'vSphere 8.0 Release Notes',
-            stage: 'resolve',
-            stages: ['fetch', 'extract', 'resolve', 'detail', 'done'],
-            msg: '엔티티 대조 텐서 계산 중',
-            progress: 68,
-            heatmap_matrix: null
-          },
-          {
-            job_id: 'j_2',
-            active: true,
-            kind: 'ingest',
-            theme_id: 0,
-            theme_label: '기본 지식베이스',
-            title: 'Jev Bench Report',
-            stage: 'fetch',
-            stages: ['fetch', 'extract', 'resolve', 'detail', 'done'],
-            msg: '원문 수집 중…',
-            progress: 25,
-            heatmap_matrix: null
-          }
-        ],
-        active_ingest: {
-          active: true,
-          job_id: 'j_1',
-          kind: 'reingest',
-          theme_id: 0,
-          theme_label: '기본 지식베이스',
-          title: 'vSphere 8.0 Release Notes',
-          stage: 'resolve',
-          msg: '엔티티 대조 텐서 계산 중',
-          progress: 68
-        }
+        active_jobs: [jobPayload],
+        active_ingest: jobPayload
       })
     });
   });
@@ -1638,33 +1533,16 @@ test('mobile multi-slot UI (Proposal D) renders vertical accordion and toggles c
   await page.goto('/', { waitUntil: 'domcontentloaded' });
   await expect(page.locator('body')).toHaveAttribute('data-center-view', 'matrix');
 
-  // Verify container & mobile accordion slots visible, desktop hidden
-  const container = page.locator('#job-slots-container');
-  await expect(container).toBeVisible();
-  const desktopSlots = page.locator('#job-slots-desktop');
-  await expect(desktopSlots).toBeHidden();
-  const mobileSlots = page.locator('#job-slots-mobile');
-  await expect(mobileSlots).toBeVisible();
+  // Desktop 5-stage grid hidden on mobile; compact 1-line mobile stepper visible
+  const desktopStepper = page.locator('#cockpit-desktop-stepper');
+  const mobileStepper = page.locator('#cockpit-mobile-stepper');
+  await expect(desktopStepper).toBeHidden();
+  await expect(mobileStepper).toBeVisible();
 
-  // Verify Proposal D accordions
-  const accordions = mobileSlots.locator('.job-slot-accordion');
-  await expect(accordions).toHaveCount(2);
-
-  const acc1 = accordions.nth(0);
-  const acc2 = accordions.nth(1);
-
-  // Job 1 initially open, Job 2 closed
-  await expect(acc1).toHaveClass(/open/);
-  await expect(acc1.locator('.accordion-body')).toBeVisible();
-  await expect(acc2).not.toHaveClass(/open/);
-  await expect(acc2.locator('.accordion-body')).toBeHidden();
-
-  // Tap accordion 2 header
-  await acc2.locator('.accordion-header').click();
-  await expect(acc2).toHaveClass(/open/);
-  await expect(acc2.locator('.accordion-body')).toBeVisible();
-  await expect(acc1).not.toHaveClass(/open/);
-  await expect(acc1.locator('.accordion-body')).toBeHidden();
+  await expect(page.locator('#cockpit-mobile-stage')).toHaveText('단계 [3/5]: 3. 대조 (Resolve)');
+  await expect(page.locator('#cockpit-mobile-pct')).toHaveText('75%');
+  await expect(page.locator('#cockpit-kind-badge')).toHaveText('재적재 파이프라인');
+  await expect(page.locator('#matrix-tbody tr')).toHaveCount(2);
 
   expect(pageErrors).toEqual([]);
 });
