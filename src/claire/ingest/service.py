@@ -1034,6 +1034,7 @@ class IngestService:
 
                             vstore = make_vector_store(conn, self.s.vector_backend)
                             report = IngestReport(document_id=did)
+                            dbm.rollback_document_graph_contributions(conn, [did], prune_orphans=True)
                             ok, err = extract_resolve_store(
                                 conn,
                                 self.provider,

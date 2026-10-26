@@ -1065,8 +1065,8 @@ def upsert_entity(conn: sqlite3.Connection, ent: Entity) -> None:
         VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
         (
             ent.id, ent.type, ent.name, ent.norm_name,
-            json.dumps(ent.aliases), json.dumps(ent.props),
-            json.dumps(ent.observations), json.dumps(ent.sources),
+            json.dumps(ent.aliases, ensure_ascii=False), json.dumps(ent.props, ensure_ascii=False),
+            json.dumps(ent.observations, ensure_ascii=False), json.dumps(ent.sources, ensure_ascii=False),
             int(ent.provisional), ent.created_at, ent.updated_at,
         ),
     )
@@ -1113,10 +1113,13 @@ def find_entities_by_name_or_alias(
         e = _row_to_entity(r)
         out[e.id] = e
     # alias 매칭: aliases JSON 문자열에 후보 토큰이 들어간 행만 1차 필터
-    like = f'%{target}%'
-    for r in conn.execute(
-        "SELECT * FROM entities WHERE aliases LIKE ? COLLATE NOCASE", (like,)
-    ):
+    like_raw = f"%{target}%"
+    escaped_target = json.dumps(target, ensure_ascii=True)[1:-1]
+    if escaped_target != target:
+        rows = conn.execute("SELECT * FROM entities WHERE aliases LIKE ? COLLATE NOCASE OR aliases LIKE ? COLLATE NOCASE", (like_raw, f"%{escaped_target}%"))
+    else:
+        rows = conn.execute("SELECT * FROM entities WHERE aliases LIKE ? COLLATE NOCASE", (like_raw,))
+    for r in rows:
         e = _row_to_entity(r)
         if e.id in out:
             continue
@@ -1309,7 +1312,7 @@ def upsert_relation(conn: sqlite3.Connection, rel: Relation) -> None:
         VALUES (?,?,?,?,?,?,?,?,?)""",
         (
             rel.id, rel.type, rel.source_id, rel.target_id,
-            json.dumps(rel.props), json.dumps(rel.sources),
+            json.dumps(rel.props, ensure_ascii=False), json.dumps(rel.sources, ensure_ascii=False),
             rel.confidence, int(rel.provisional), rel.created_at,
         ),
     )
@@ -3710,6 +3713,70 @@ def remove_tombstones(
     }
 
 
+def rollback_document_graph_contributions(conn: sqlite3.Connection, target_ids: list[str], *, prune_orphans: bool = False) -> dict[str, int]:
+    """Undo entity merges and optionally prune orphan graph nodes for the specified documents."""
+    if not target_ids:
+        return {"rolled_back_merges": 0, "pruned_entities": 0, "pruned_relations": 0}
+
+    from ..extract.decision import get_resolution_log_from_meta, rollback_resolution
+
+    rolled_back_merges = 0
+    pruned_entities = 0
+    pruned_relations = 0
+
+    for did in target_ids:
+        row = conn.execute("SELECT meta FROM documents WHERE id=?", (did,)).fetchone()
+        if not row or not row["meta"]:
+            continue
+        try:
+            meta = json.loads(row["meta"]) if isinstance(row["meta"], str) else row["meta"]
+        except Exception:
+            continue
+        decisions = get_resolution_log_from_meta(meta)
+        for decision in reversed(decisions):
+            if decision.decision == "MERGE" and not getattr(decision, "rolled_back", False):
+                if rollback_resolution(conn, decision):
+                    rolled_back_merges += 1
+
+    if prune_orphans:
+        target_set = set(target_ids)
+        for r in conn.execute("SELECT id, sources FROM entities").fetchall():
+            try:
+                srcs = json.loads(r["sources"] or "[]")
+            except Exception:
+                srcs = []
+            remaining = [s for s in srcs if s not in target_set]
+            if len(remaining) != len(srcs):
+                if not remaining:
+                    conn.execute("DELETE FROM entities WHERE id=?", (r["id"],))
+                    conn.execute("DELETE FROM entities_fts WHERE entity_id=?", (r["id"],))
+                    conn.execute("DELETE FROM embeddings WHERE owner_id=?", (r["id"],))
+                    pruned_entities += 1
+                else:
+                    conn.execute("UPDATE entities SET sources=? WHERE id=?", (json.dumps(remaining, ensure_ascii=False), r["id"]))
+
+        for r in conn.execute("SELECT id, sources FROM relations").fetchall():
+            try:
+                srcs = json.loads(r["sources"] or "[]")
+            except Exception:
+                srcs = []
+            remaining = [s for s in srcs if s not in target_set]
+            if len(remaining) != len(srcs):
+                if not remaining:
+                    conn.execute("DELETE FROM relations WHERE id=?", (r["id"],))
+                    pruned_relations += 1
+                else:
+                    conn.execute("UPDATE relations SET sources=? WHERE id=?", (json.dumps(remaining, ensure_ascii=False), r["id"]))
+
+        del_rels = conn.execute("DELETE FROM relations WHERE source_id NOT IN (SELECT id FROM entities) OR target_id NOT IN (SELECT id FROM entities) OR sources = '[]' OR sources IS NULL")
+        if del_rels.rowcount and del_rels.rowcount > 0:
+            pruned_relations += del_rels.rowcount
+
+        conn.commit()
+
+    return {"rolled_back_merges": rolled_back_merges, "pruned_entities": pruned_entities, "pruned_relations": pruned_relations}
+
+
 def purge_document_cascade(
     conn: sqlite3.Connection,
     data_dir: Path,
@@ -3786,6 +3853,8 @@ def purge_document_cascade(
         "tombstone_recorded": tombstone,
         "purged_tombstones_registered": len(matched_ids) if tombstone else 0,
     }
+
+    stats["graph_rollback"] = rollback_document_graph_contributions(conn, matched_ids, prune_orphans=False)
 
     try:
         conn.execute("BEGIN IMMEDIATE")

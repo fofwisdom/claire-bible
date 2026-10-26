@@ -79,6 +79,7 @@ class MergeCandidate(BaseModel):
 
     new_name: str
     new_type: str
+    new_aliases: list[str] = Field(default_factory=list)
     new_observations: list[str] = Field(default_factory=list)
     cand_name: str
     cand_type: str
@@ -299,7 +300,8 @@ class MockProvider:
         if mc.new_type and mc.cand_type and mc.new_type != mc.cand_type:
             return False
         names = {mc.cand_name.casefold(), *(a.casefold() for a in mc.cand_aliases)}
-        return mc.new_name.casefold() in names
+        new_names = {mc.new_name.casefold(), *(a.casefold() for a in mc.new_aliases)}
+        return bool(names & new_names)
 
     def judge_relationship(
         self, rc: RelationCandidate, *, document_id: str | None = None

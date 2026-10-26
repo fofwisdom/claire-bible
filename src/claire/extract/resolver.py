@@ -44,8 +44,8 @@ def _is_acronym_token(name: str) -> bool:
     return len(s) >= ACRONYM_MIN and s.isalpha() and s.isupper()
 
 EmbedFn = Callable[[], list[float]]
-# (new_name, new_type, new_observations, candidate) -> 동일체?
-JudgeFn = Callable[[str, str, list[str], Entity], bool]
+# Call (new_name, new_type, new_observations, candidate[, new_aliases]) to check if the entities are the same.
+JudgeFn = Callable[..., bool]
 
 
 class ResolutionResult(tuple):
@@ -332,7 +332,11 @@ def resolve_or_create(
                     on_judge(name, cand.name)
                 except Exception:
                     pass
-            if judge_fn(name, etype, observations, cand):
+            try:
+                is_same = judge_fn(name, etype, observations, cand, aliases)
+            except TypeError:
+                is_same = judge_fn(name, etype, observations, cand)
+            if is_same:
                 cand_m, dec = _execute_reversible_merge(
                     conn, cand, name, aliases + [name], observations, document_id,
                     new_type=etype, stage="borderline_llm_judge", score=score,

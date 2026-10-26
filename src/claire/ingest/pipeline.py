@@ -877,13 +877,13 @@ def extract_resolve_store(
 
     _judge_method = getattr(provider, "judge_same_entity", None)
 
-    def _judge_fn(nm, et, obs, cand):
+    def _judge_fn(nm, et, obs, cand, aliases=None):
         if _judge_method is None:
             return False
         from ..extract.provider import MergeCandidate
 
         mc = MergeCandidate(
-            new_name=nm, new_type=et, new_observations=obs,
+            new_name=nm, new_type=et, new_aliases=list(aliases or []), new_observations=obs,
             cand_name=cand.name, cand_type=cand.type,
             cand_aliases=cand.aliases, cand_observations=cand.observations,
         )

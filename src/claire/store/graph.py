@@ -79,8 +79,8 @@ class GraphStore:
                     "UPDATE relations SET confidence=?, sources=?, props=? WHERE id=?",
                     (
                         existing.confidence,
-                        json.dumps(existing.sources),
-                        json.dumps(existing.props),
+                        json.dumps(existing.sources, ensure_ascii=False),
+                        json.dumps(existing.props, ensure_ascii=False),
                         existing.id,
                     ),
                 )

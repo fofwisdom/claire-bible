@@ -42,6 +42,7 @@ Rules:
   * NO Meta-phrasing: NEVER use introductory meta-phrases such as '이 글은/본 문서는 ~를 다룬다', '~에 대해 소개한다', '~의 배경을 살펴본다', or '~를 설명한다'. Write direct, substantive factual statements of what was built, how it works, and what was achieved.
   * Plain text ONLY: Do NOT use any AsciiDoc or Markdown markup syntax (e.g. NEVER use headers like '= Title' or '== Section', block markers like '[NOTE]', tables '|===', links 'link:...', lists, bold/italic, or quote formatting).
 - entities: the key things this document is ABOUT (tools, repos, models, people, orgs, concepts...).
+  * Cross-lingual & Canonical Aliases: For proper nouns (characters, persons, organizations, tools, concepts) in translated or localized documents (e.g., Korean text of a foreign or multilingual work), populate `aliases` with the standard English/original name, transliteration variants, and canonical full/short names when known from the text or domain context (e.g., extracting `name="마커스"` with `aliases=["Marcus"]`, `name="울리히"` with `aliases=["Ulrich"]`, `name="이니그마"` with `aliases=["Enigma"]`, `name="메디슨 포켓"` with `aliases=["Medicine Pocket"]`, `name="라플라스"` with `aliases=["Laplace", "Laplace Scientific Computing Center", "라플라스 연구 센터"]`).
 - TABLES & DATA MATRICES: When the document contains tables, benchmarks, or comparison matrices,
   you MUST NOT omit or ignore the data inside tables. Extract entities (tools, models, benchmarks,
   metrics, datasets, configurations) and their relationships directly from table rows and columns.
@@ -1011,9 +1012,11 @@ def judge_same_entity_prompt(mc: MergeCandidate) -> str:
         "Rules:\n"
         "1. SAME: The entries represent the identical subject under different names, languages, "
         "spellings, or descriptions (e.g., 'Aha' and '아하', 'Kubernetes' and 'K8s', '개척자' and 'Trailblazer').\n"
+        "   - Cross-lingual transliterations, localizations, or honorific variants of the same character, person, organization, or concept (e.g., 'Marcus' and '마커스' / '마커스 양', 'Ulrich' and '울리히', 'Enigma' and '이니그마', 'Medicine Pocket' and '메디슨 포켓') are SAME.\n"
+        "   - Official full organization/institution names and their common short names or localized names (e.g., 'Laplace Scientific Computing Center' and '라플라스' / '라플라스 연구 센터' / '라플라스 연구소') are SAME when they refer to the same organization in the domain context.\n"
         "2. DIFFERENT: The entries are distinct subjects, even if they belong to the same category, "
         "group, domain, or ecosystem (e.g., Docker vs Podman, Kafka vs Silver Wolf, Claude vs GPT-4).\n\n"
-        f"A: name={mc.new_name!r} type={mc.new_type!r}\n"
+        f"A: name={mc.new_name!r} type={mc.new_type!r} aliases={mc.new_aliases}\n"
         f"   notes={' | '.join(mc.new_observations)[:400]}\n"
         f"B: name={mc.cand_name!r} type={mc.cand_type!r} aliases={mc.cand_aliases}\n"
         f"   notes={' | '.join(mc.cand_observations)[:400]}\n\n"
