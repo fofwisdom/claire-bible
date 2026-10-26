@@ -6397,8 +6397,16 @@ function renderMultiSlotUI(jobs){
     return STAGE_PROGRESS[j.stage] || (j.active ? 30 : 100);
   }
 
+  function formatJobElapsed(j){
+    if(!j || !j.started_at) return '';
+    const elapsedSec = Math.max(0, Math.floor((j.updated_at || (Date.now() / 1000)) - j.started_at));
+    const mm = String(Math.floor(elapsedSec / 60)).padStart(2, '0');
+    const ss = String(elapsedSec % 60).padStart(2, '0');
+    return mm + ':' + ss + ' 경과';
+  }
+
   // 1. Render Proposal A (Desktop horizontal tabs)
-  desktopWrap.innerHTML = jobs.map((j) => {
+  desktopWrap.innerHTML = jobs.map((j, idx) => {
     const isSel = j.job_id === selectedJobId;
     const pct = getJobPct(j);
     const kindTxt = KIND_LABELS[j.kind] || '작업';
@@ -6407,6 +6415,9 @@ function renderMultiSlotUI(jobs){
       ? '<span class="slot-spinner" aria-hidden="true"></span>'
       : (j.stage === 'error' ? '❌' : '✅');
     const titleTxt = esc(j.title || '(제목 없음)');
+    const stageName = STAGE_LABELS[j.stage] || j.stage || '진행';
+    const stageTxt = '단계: ' + stageName + ' (' + pct + '%)';
+    const elapsedTxt = formatJobElapsed(j);
 
     return '<button type="button" role="tab" class="job-slot-card ' + (isSel ? 'active' : '') + '" '
       + 'aria-selected="' + (isSel ? 'true' : 'false') + '" '
@@ -6416,18 +6427,23 @@ function renderMultiSlotUI(jobs){
       + '<div class="slot-header">'
       + '  <div class="slot-badges">'
       + '    ' + statusIcon
+      + '    <span class="slot-idx-badge">작업 ' + (idx + 1) + '</span>'
       + '    <span class="slot-kind-badge">' + esc(kindTxt) + '</span>'
       + '    <span class="slot-theme-badge">' + esc(themeTxt) + '</span>'
       + '  </div>'
       + '  <span class="slot-pct">' + pct + '%</span>'
       + '</div>'
       + '<div class="slot-title">' + titleTxt + '</div>'
+      + '<div class="slot-meta-row">'
+      + '  <span class="slot-stage-txt">' + esc(stageTxt) + '</span>'
+      + (elapsedTxt ? '  <span class="slot-elapsed-txt">' + esc(elapsedTxt) + '</span>' : '')
+      + '</div>'
       + '<div class="slot-progress-bar"><div class="slot-progress-fill" style="width:' + pct + '%"></div></div>'
       + '</button>';
   }).join('');
 
   // 2. Render Proposal D (Mobile vertical accordion)
-  mobileWrap.innerHTML = jobs.map((j) => {
+  mobileWrap.innerHTML = jobs.map((j, idx) => {
     const isSel = j.job_id === selectedJobId;
     const pct = getJobPct(j);
     const kindTxt = KIND_LABELS[j.kind] || '작업';
@@ -6444,6 +6460,7 @@ function renderMultiSlotUI(jobs){
       + 'aria-expanded="' + (isSel ? 'true' : 'false') + '">'
       + '  <div class="accordion-title-wrap">'
       + '    <span class="accordion-arrow" aria-hidden="true">▶</span>'
+      + '    <span class="slot-idx-badge">작업 ' + (idx + 1) + '</span>'
       + '    <span class="slot-kind-badge">' + esc(kindTxt) + '</span>'
       + '    <span class="slot-theme-badge">' + esc(themeTxt) + '</span>'
       + '    <span class="accordion-title">' + titleTxt + '</span>'

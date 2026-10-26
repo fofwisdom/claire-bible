@@ -1502,6 +1502,80 @@ test('desktop multi-slot UI (Proposal A) renders tab cards for multiple jobs and
   expect(pageErrors).toEqual([]);
 });
 
+test('desktop single active job renders compact Proposal A tab card without full-width stretching', async ({ page }) => {
+  const pageErrors = [];
+  page.on('pageerror', error => pageErrors.push(error.message));
+  await page.setViewportSize({ width: 1280, height: 800 });
+
+  await page.route('**/stats', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        documents: 5,
+        entities: 42,
+        relations: 68,
+        theme_id: 0,
+        theme_label: '기본 지식베이스',
+        ingesting: true,
+        active_jobs: [
+          {
+            job_id: 'j_single',
+            active: true,
+            kind: 'ingest',
+            theme_id: 0,
+            theme_label: '기본 지식베이스',
+            title: 'Misalignment Reports and Notices',
+            stage: 'extract',
+            stages: ['fetch', 'extract', 'resolve', 'detail', 'done'],
+            msg: '엔티티 추출 진행 중',
+            progress: 45,
+            started_at: Date.now() / 1000 - 120,
+            heatmap_matrix: null
+          }
+        ],
+        active_ingest: {
+          active: true,
+          job_id: 'j_single',
+          kind: 'ingest',
+          theme_id: 0,
+          theme_label: '기본 지식베이스',
+          title: 'Misalignment Reports and Notices',
+          stage: 'extract',
+          msg: '엔티티 추출 진행 중',
+          progress: 45
+        }
+      })
+    });
+  });
+
+  await page.goto('/', { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('body')).toHaveAttribute('data-center-view', 'matrix');
+
+  const container = page.locator('#job-slots-container');
+  await expect(container).toBeVisible();
+
+  const desktopSlots = page.locator('#job-slots-desktop');
+  await expect(desktopSlots).toBeVisible();
+
+  const card = desktopSlots.locator('.job-slot-card');
+  await expect(card).toHaveCount(1);
+  await expect(card.locator('.slot-idx-badge')).toHaveText('작업 1');
+  await expect(card.locator('.slot-kind-badge')).toHaveText('적재');
+  await expect(card.locator('.slot-theme-badge')).toHaveText('기본 지식베이스');
+  await expect(card.locator('.slot-pct')).toHaveText('45%');
+  await expect(card.locator('.slot-title')).toContainText('Misalignment');
+  await expect(card.locator('.slot-stage-txt')).toContainText('단계: 추출 (45%)');
+  await expect(card.locator('.slot-elapsed-txt')).toContainText('경과');
+
+  const cardBox = await card.boundingBox();
+  expect(cardBox).not.toBeNull();
+  expect(cardBox.width).toBeLessThanOrEqual(365);
+  expect(cardBox.width).toBeGreaterThanOrEqual(240);
+
+  expect(pageErrors).toEqual([]);
+});
+
 test('mobile multi-slot UI (Proposal D) renders vertical accordion and toggles collapse/expand', async ({ page }) => {
   const pageErrors = [];
   page.on('pageerror', error => pageErrors.push(error.message));
