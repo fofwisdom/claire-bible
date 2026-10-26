@@ -424,6 +424,8 @@ def documents_list(
             "hidden": r["hidden"],               # 1=숨김 → 기본 목록에서 제외
             "summary": dbm.latest_extraction_summary(conn, doc_id) or "",
             "has_presentation": bool(has_pres),
+            "has_detail": bool(r["has_detail"]) if "has_detail" in r.keys() else False,
+            "detail_format": r["detail_format"] if "detail_format" in r.keys() else "md",
         })
     return out
 

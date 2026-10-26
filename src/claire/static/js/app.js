@@ -320,6 +320,7 @@ async function loadThemeDocuments(){
     allDocs = (d && d.documents) || [];
     renderDocs(document.getElementById('docq') ? document.getElementById('docq').value : '');
     if(d && d.format_status){
+      window.currentFormatStatus = d.format_status;
       const fs = d.format_status;
       if(fs.needs_migration){
         if((fs.mismatched || fs.mismatched_docs || 0) > 0){
@@ -3931,7 +3932,17 @@ function renderDocs(filter){
     syncGraphDocNav();
     return;
   }
-  const match = dc => !q || (dc.title+' '+(dc.summary||'')).toLowerCase().includes(q);
+  const match = dc => {
+    if(!q) return true;
+    if(q === 'is:missing-detail' || q === 'missing:detail'){
+      return !dc.has_detail;
+    }
+    if(q === 'is:mismatched' || q === 'format:mismatch'){
+      const targetFmt = (window.currentFormatStatus && window.currentFormatStatus.configured) || 'adoc';
+      return dc.has_detail && (dc.detail_format || 'md').toLowerCase() !== targetFmt.toLowerCase();
+    }
+    return (dc.title+' '+(dc.summary||'')).toLowerCase().includes(q);
+  };
   // 숨김(hidden)은 기본 목록·즐겨찾기 양쪽에서 제외(목록 전용 숨김, 그래프는 안 건드림).
   const visible = allDocs.filter(dc=> dc.hidden!==1 && match(dc));
   const pinned = visible.filter(dc=>dc.pinned===1);
@@ -3985,6 +3996,24 @@ function renderDocs(filter){
     }
   }
   syncGraphDocNav();
+}
+
+function filterDocsByMissingDetail(){
+  const docq = document.getElementById('docq');
+  if(docq){
+    docq.value = 'is:missing-detail';
+  }
+  if(typeof openDocDrawer === 'function') openDocDrawer();
+  renderDocs('is:missing-detail');
+}
+
+function filterDocsByFormatMismatch(){
+  const docq = document.getElementById('docq');
+  if(docq){
+    docq.value = 'is:mismatched';
+  }
+  if(typeof openDocDrawer === 'function') openDocDrawer();
+  renderDocs('is:mismatched');
 }
 // 즐겨찾기/숨기기 토글 — 낙관적 갱신(즉시 반영) 후 서버 반영, 실패하면 되돌림.
 async function togglePin(id, val){
@@ -5897,7 +5926,27 @@ const ClaireStatusBanner = (function(){
         const cfg = (data.configured || 'adoc').toUpperCase();
         const other = (data.configured === 'adoc' ? 'md' : 'adoc').toUpperCase();
         const count = data.mismatched || data.mismatched_docs || 0;
+        const samples = data.mismatched_docs_sample || [];
+        if (count === 1 && samples.length > 0) {
+          const doc = samples[0];
+          const safeTitle = esc(doc.title || doc.id);
+          return `.env 설정은 <b>${cfg}</b>이나, 대상 문서(<b><a href="javascript:void(0)" onclick="selectDoc('${esc(doc.id)}');setCenterView('reader')" style="color:var(--accent);text-decoration:underline;">${safeTitle}</a></b>)가 <b>${other}</b> 포맷입니다.`;
+        }
         return '.env 설정은 <b>' + cfg + '</b>이나, DB 문서 중 <b>' + count + '개</b>가 <b>' + other + '</b> 포맷입니다. <code>./cb-manuscript app format-migrate --apply</code> 실행이 필요합니다.';
+      },
+      actionLabel: function(data){
+        const count = (data && (data.mismatched || data.mismatched_docs)) || 0;
+        return count === 1 ? '대상 문서 열기' : '불일치 문서 필터';
+      },
+      action: function(data){
+        const count = (data && (data.mismatched || data.mismatched_docs)) || 0;
+        const samples = (data && data.mismatched_docs_sample) || [];
+        if (count === 1 && samples.length > 0) {
+          selectDoc(samples[0].id);
+          setCenterView('reader');
+        } else {
+          filterDocsByFormatMismatch();
+        }
       }
     },
     format_missing: {
@@ -5906,7 +5955,27 @@ const ClaireStatusBanner = (function(){
       title: '가독 렌더링 미생성',
       render: function(data){
         const count = data.missing_detail_docs || 0;
+        const samples = data.missing_docs_sample || [];
+        if (count === 1 && samples.length > 0) {
+          const doc = samples[0];
+          const safeTitle = esc(doc.title || doc.id);
+          return `전체 문서 중 <b>1개</b>의 상세(detail)가 아직 생성되지 않았습니다: <a href="javascript:void(0)" onclick="selectDoc('${esc(doc.id)}');setCenterView('reader')" style="color:var(--accent);font-weight:600;text-decoration:underline;">${safeTitle}</a>`;
+        }
         return '전체 문서 중 <b>' + count + '개</b>의 상세(detail)가 아직 생성되지 않았습니다. <code>./cb-manuscript app format-migrate --apply</code> 실행으로 자동 생성할 수 있습니다.';
+      },
+      actionLabel: function(data){
+        const count = (data && data.missing_detail_docs) || 0;
+        return count === 1 ? '대상 문서 열기' : '미생성 문서 필터';
+      },
+      action: function(data){
+        const count = (data && data.missing_detail_docs) || 0;
+        const samples = (data && data.missing_docs_sample) || [];
+        if (count === 1 && samples.length > 0) {
+          selectDoc(samples[0].id);
+          setCenterView('reader');
+        } else {
+          filterDocsByMissingDetail();
+        }
       }
     },
     format_ok: {
@@ -5993,8 +6062,9 @@ const ClaireStatusBanner = (function(){
       text.innerHTML = html;
 
       if (actBtn) {
-        if (opts.actionLabel && typeof opts.action === 'function') {
-          actBtn.textContent = opts.actionLabel;
+        const rawLabel = typeof opts.actionLabel === 'function' ? opts.actionLabel(pData) : opts.actionLabel;
+        if (rawLabel && typeof opts.action === 'function') {
+          actBtn.textContent = rawLabel;
           actBtn.style.display = 'inline-block';
         } else {
           actBtn.style.display = 'none';
@@ -7118,6 +7188,8 @@ window.selectJobSlot = selectJobSlot;
 window.renderMultiSlotUI = renderMultiSlotUI;
 window.extractActiveJobs = extractActiveJobs;
 window.processActiveJobsStats = processActiveJobsStats;
+window.filterDocsByMissingDetail = filterDocsByMissingDetail;
+window.filterDocsByFormatMismatch = filterDocsByFormatMismatch;
 
 document.addEventListener('visibilitychange', () => {
   if(document.visibilityState === 'visible'){

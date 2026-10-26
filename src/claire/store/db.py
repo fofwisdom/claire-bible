@@ -976,7 +976,8 @@ def documents_timeline(
     params.append(limit)
     return conn.execute(
         f"SELECT id, title, url, source_type, fetched_at, seen, watch_enabled, "
-        f"pinned, hidden FROM documents {where_sql} "
+        f"pinned, hidden, (detail IS NOT NULL AND trim(detail) != '') AS has_detail, "
+        f"coalesce(detail_format, 'md') AS detail_format FROM documents {where_sql} "
         f"ORDER BY fetched_at DESC, id DESC LIMIT ?",
         params,
     ).fetchall()
@@ -2826,6 +2827,8 @@ def documents_with_tables(
 def get_format_status(
     conn: sqlite3.Connection,
     configured_format: str,
+    *,
+    sample_limit: int = 10,
 ) -> dict[str, Any]:
     """DB 내 문서들의 포맷 상태(총 문서, 포맷 일치, 포맷 불일치, detail 누락)를 상세 진단."""
     target = (configured_format or "md").strip().lower()
@@ -2854,6 +2857,22 @@ def get_format_status(
     total_with_detail = matching_docs + mismatched_docs
     target_docs = mismatched_docs + missing_detail_docs
 
+    missing_docs_sample: list[dict[str, Any]] = []
+    if missing_detail_docs > 0 and sample_limit > 0:
+        rows = conn.execute(
+            "SELECT id, title, url, source_type, fetched_at FROM documents WHERE detail IS NULL OR trim(detail) = '' ORDER BY fetched_at DESC, id DESC LIMIT ?",
+            (sample_limit,),
+        ).fetchall()
+        missing_docs_sample = [dict(r) for r in rows]
+
+    mismatched_docs_sample: list[dict[str, Any]] = []
+    if mismatched_docs > 0 and sample_limit > 0:
+        rows = conn.execute(
+            "SELECT id, title, url, coalesce(detail_format, 'md') AS detail_format, source_type, fetched_at FROM documents WHERE detail IS NOT NULL AND trim(detail) != '' AND lower(coalesce(detail_format, 'md')) != ? ORDER BY fetched_at DESC, id DESC LIMIT ?",
+            (target, sample_limit),
+        ).fetchall()
+        mismatched_docs_sample = [dict(r) for r in rows]
+
     return {
         "configured": target,
         "target_format": target,
@@ -2865,15 +2884,19 @@ def get_format_status(
         "missing_detail_docs": missing_detail_docs,
         "target_docs": target_docs,
         "needs_migration": (target_docs > 0),
+        "missing_docs_sample": missing_docs_sample,
+        "mismatched_docs_sample": mismatched_docs_sample,
     }
 
 
 def check_format_mismatch(
     conn: sqlite3.Connection,
     configured_format: str,
+    *,
+    sample_limit: int = 10,
 ) -> dict[str, Any]:
     """설정된 포맷(Settings.render_format)과 DB에 저장된 detail 포맷 불일치 여부를 진단."""
-    return get_format_status(conn, configured_format)
+    return get_format_status(conn, configured_format, sample_limit=sample_limit)
 
 
 # --- refresh queue (복원 메커니즘) ---
