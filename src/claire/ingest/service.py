@@ -77,6 +77,18 @@ class IngestService:
             pass
         return None
 
+    def get_theme_label(self) -> str:
+        if self.theme_id <= 0:
+            return "기본 지식베이스"
+        try:
+            tm = get_theme_manager(self.s)
+            theme = tm.get_theme(self.theme_id)
+            if theme and theme.label:
+                return theme.label
+        except Exception:
+            pass
+        return f"테마 #{self.theme_id}"
+
     def ingest(
         self,
         payload: str,
@@ -109,6 +121,8 @@ class IngestService:
         auto = (self.s.auto_expand and em > 0
                 and not source.startswith(("onehop", "recover", "replay", "refresh")))
         fmt = format or self.s.render_format
+        tid = self.theme_id
+        tlabel = self.get_theme_label()
         try:
             return ingest(
                 payload, conn=conn, provider=self.provider, vstore=vstore,
@@ -117,6 +131,7 @@ class IngestService:
                 inbox_kind=inbox_kind, file_ref=file_ref, file_name=file_name,
                 inbox_id=inbox_id, prefetched=prefetched, auto_expand=auto,
                 format=fmt, focus=focus, effort=effort, full_content=full_content,
+                theme_id=tid, theme_label=tlabel,
             )
         finally:
             conn.close()
@@ -895,247 +910,330 @@ class IngestService:
                     "error": error_msg,
                 }
 
-            # 2. 각 대상에 대해 진단 (Dry-run) 또는 실행 (Force)
-            targets_info = []
-            old_effort = getattr(self.provider, "effort", None)
-            if effort:
-                self.provider.effort = effort
+            from contextlib import nullcontext
+            from .active import active_job, update_active_ingest
+            from ..extract.provider import _progress_local, set_progress_callback
 
-            try:
-                for idx, did in enumerate(target_ids, 1):
-                    doc = dbm.get_document(conn, did)
-                    if not doc:
-                        continue
+            job_cm = None
+            if force:
+                first_doc = dbm.get_document(conn, target_ids[0]) if target_ids else None
+                first_title = (first_doc.title if first_doc else None) or target or doc_id or "문서 재생성"
+                clean_title = first_title if len(target_ids) <= 1 else f"{first_title} 외 {len(target_ids) - 1}건"
+                primary_doc_id = target_ids[0] if len(target_ids) == 1 else None
+                primary_payload = (
+                    (first_doc.canonical_url or first_doc.url or target or doc_id or "")
+                    if first_doc
+                    else (target or doc_id or "")
+                )
+                kind = "reingest" if do_refetch else "regenerate"
+                theme_id = self.theme_id
+                theme_label = self.get_theme_label()
 
-                    ext_row = conn.execute(
-                        "SELECT raw_response FROM extractions WHERE document_id=? ORDER BY id DESC LIMIT 1",
-                        (did,),
-                    ).fetchone()
-                    raw_summ = ""
-                    if ext_row and ext_row["raw_response"]:
+                job_cm = active_job(
+                    self.s.data_dir,
+                    kind=kind,
+                    payload=primary_payload,
+                    theme_id=theme_id,
+                    theme_label=theme_label,
+                    doc_id=primary_doc_id,
+                    focus=focus,
+                    title=clean_title,
+                )
+
+            orig_on_progress = on_progress
+            if force:
+                def _active_on_progress(stage: str, detail: str = "") -> None:
+                    update_active_ingest(
+                        self.s.data_dir,
+                        stage=stage,
+                        msg=detail or stage,
+                    )
+                    if orig_on_progress:
                         try:
-                            raw_summ = _json.loads(ext_row["raw_response"]).get("summary", "")
+                            orig_on_progress(stage, detail)
                         except Exception:
+                            pass
+
+                on_progress = _active_on_progress
+
+            with (job_cm if job_cm is not None else nullcontext()) as job:
+                prev_cb = getattr(_progress_local, "cb", None)
+                if force:
+                    def _active_progress_hook(msg: Any) -> None:
+                        if isinstance(msg, dict):
+                            if msg.get("stage") == "heatmap_matrix":
+                                update_active_ingest(
+                                    self.s.data_dir,
+                                    stage="heatmap_matrix",
+                                    heatmap_matrix=msg.get("matrix"),
+                                )
+                            elif msg.get("msg"):
+                                update_active_ingest(
+                                    self.s.data_dir,
+                                    msg=str(msg.get("msg")),
+                                    stage=str(msg.get("stage") or "progress"),
+                                )
+                        elif msg:
+                            update_active_ingest(self.s.data_dir, msg=str(msg))
+                        if prev_cb:
+                            try:
+                                prev_cb(msg)
+                            except Exception:
+                                pass
+
+                    set_progress_callback(_active_progress_hook)
+
+                try:
+                    # 2. 각 대상에 대해 진단 (Dry-run) 또는 실행 (Force)
+                    targets_info = []
+                    old_effort = getattr(self.provider, "effort", None)
+                    if effort:
+                        self.provider.effort = effort
+
+                    try:
+                        for idx, did in enumerate(target_ids, 1):
+                            doc = dbm.get_document(conn, did)
+                            if not doc:
+                                continue
+
+                            ext_row = conn.execute(
+                                "SELECT raw_response FROM extractions WHERE document_id=? ORDER BY id DESC LIMIT 1",
+                                (did,),
+                            ).fetchone()
                             raw_summ = ""
-                    curr_summary = dbm.latest_extraction_summary(conn, did) or ""
-                    curr_detail = dbm.get_document_detail(conn, did) or ""
-                    curr_fmt = dbm.get_document_detail_format(conn, did) or ""
-                    is_corrupted = _is_corrupted_adoc(raw_summ) or _is_corrupted_adoc(curr_summary)
-                    is_err = _is_error_page(doc.title, doc.raw_text) or _is_error_page(None, curr_summary)
-
-                    _, raw_tables = extract_tables_from_text(doc.raw_text or "")
-                    _, detail_tables = extract_tables_from_text(curr_detail)
-                    total_tables = len(raw_tables) + len(detail_tables)
-                    table_preview = ""
-                    if raw_tables:
-                        table_preview = raw_tables[0].strip()
-                    elif detail_tables:
-                        table_preview = detail_tables[0].strip()
-
-                    info: dict = {
-                        "document_id": did,
-                        "title": doc.title or "(제목 없음)",
-                        "canonical_url": doc.canonical_url,
-                        "current_summary": curr_summary,
-                        "summary_corrupted": is_corrupted,
-                        "summary_preface": is_preface_summary(raw_summ) or is_preface_summary(curr_summary),
-                        "is_error_page": is_err,
-                        "current_detail_format": curr_fmt,
-                        "total_tables": total_tables,
-                        "raw_tables_count": len(raw_tables),
-                        "detail_tables_count": len(detail_tables),
-                        "table_preview": table_preview,
-                        "actions": [],
-                    }
-                    if refetch_full:
-                        info["actions"].append("refetch_full_content")
-                    elif refetch:
-                        info["actions"].append("refetch_content")
-                    if do_graph:
-                        info["actions"].append("extract_and_link_graph_nodes")
-                    if do_summary and not do_graph:
-                        info["actions"].append("regenerate_summary")
-                    if do_detail and not do_graph:
-                        info["actions"].append("regenerate_detail")
-
-                    if not force:
-                        targets_info.append(info)
-                        continue
-
-                    # --- 실제 실행 (Force Overwrite) ---
-                    with _item_context(
-                        reporter,
-                        on_progress,
-                        idx,
-                        did,
-                        title=doc.title or "(제목 없음)",
-                        url=doc.canonical_url or doc.url or "",
-                    ) as step_cb:
-                        if do_refetch:
-                            step_msg = (
-                                "원문 전체 재수집 (Refetching full content from source)..."
-                                if refetch_full
-                                else "원문 재수집 (Refetching from source)..."
-                            )
-                            step_cb(step_msg, doc.url or doc.canonical_url or "")
-                            fetch_payload = doc.url or doc.canonical_url
-                            if fetch_payload:
-                                from .pipeline import (
-                                    _download_doc_images,
-                                    _store_required_doc_attachments,
-                                    preserve_presentation_history,
-                                )
-                                from ..store.raw import save_artifact
-
+                            if ext_row and ext_row["raw_response"]:
                                 try:
-                                    try:
-                                        new_doc = default_fetch(fetch_payload, full_content=bool(refetch_full))
-                                    except TypeError:
-                                        new_doc = default_fetch(fetch_payload)
-                                    new_doc.id = did
-                                    preserve_presentation_history(doc.meta or {}, new_doc)
-                                    _store_required_doc_attachments(
-                                        new_doc, self.s.data_dir
+                                    raw_summ = _json.loads(ext_row["raw_response"]).get("summary", "")
+                                except Exception:
+                                    raw_summ = ""
+                            curr_summary = dbm.latest_extraction_summary(conn, did) or ""
+                            curr_detail = dbm.get_document_detail(conn, did) or ""
+                            curr_fmt = dbm.get_document_detail_format(conn, did) or ""
+                            is_corrupted = _is_corrupted_adoc(raw_summ) or _is_corrupted_adoc(curr_summary)
+                            is_err = _is_error_page(doc.title, doc.raw_text) or _is_error_page(None, curr_summary)
+
+                            _, raw_tables = extract_tables_from_text(doc.raw_text or "")
+                            _, detail_tables = extract_tables_from_text(curr_detail)
+                            total_tables = len(raw_tables) + len(detail_tables)
+                            table_preview = ""
+                            if raw_tables:
+                                table_preview = raw_tables[0].strip()
+                            elif detail_tables:
+                                table_preview = detail_tables[0].strip()
+
+                            info: dict = {
+                                "document_id": did,
+                                "title": doc.title or "(제목 없음)",
+                                "canonical_url": doc.canonical_url,
+                                "current_summary": curr_summary,
+                                "summary_corrupted": is_corrupted,
+                                "summary_preface": is_preface_summary(raw_summ) or is_preface_summary(curr_summary),
+                                "is_error_page": is_err,
+                                "current_detail_format": curr_fmt,
+                                "total_tables": total_tables,
+                                "raw_tables_count": len(raw_tables),
+                                "detail_tables_count": len(detail_tables),
+                                "table_preview": table_preview,
+                                "actions": [],
+                            }
+                            if refetch_full:
+                                info["actions"].append("refetch_full_content")
+                            elif refetch:
+                                info["actions"].append("refetch_content")
+                            if do_graph:
+                                info["actions"].append("extract_and_link_graph_nodes")
+                            if do_summary and not do_graph:
+                                info["actions"].append("regenerate_summary")
+                            if do_detail and not do_graph:
+                                info["actions"].append("regenerate_detail")
+
+                            if not force:
+                                targets_info.append(info)
+                                continue
+
+                            # --- 실제 실행 (Force Overwrite) ---
+                            with _item_context(
+                                reporter,
+                                on_progress,
+                                idx,
+                                did,
+                                title=doc.title or "(제목 없음)",
+                                url=doc.canonical_url or doc.url or "",
+                            ) as step_cb:
+                                if do_refetch:
+                                    step_msg = (
+                                        "원문 전체 재수집 (Refetching full content from source)..."
+                                        if refetch_full
+                                        else "원문 재수집 (Refetching from source)..."
                                     )
-                                    _download_doc_images(conn, new_doc, self.s.data_dir)
-                                    dbm.update_document_content(
+                                    step_cb(step_msg, doc.url or doc.canonical_url or "")
+                                    fetch_payload = doc.url or doc.canonical_url
+                                    if fetch_payload:
+                                        from .pipeline import (
+                                            _download_doc_images,
+                                            _store_required_doc_attachments,
+                                            preserve_presentation_history,
+                                        )
+                                        from ..store.raw import save_artifact
+
+                                        try:
+                                            try:
+                                                new_doc = default_fetch(fetch_payload, full_content=bool(refetch_full))
+                                            except TypeError:
+                                                new_doc = default_fetch(fetch_payload)
+                                            new_doc.id = did
+                                            preserve_presentation_history(doc.meta or {}, new_doc)
+                                            _store_required_doc_attachments(
+                                                new_doc, self.s.data_dir
+                                            )
+                                            _download_doc_images(conn, new_doc, self.s.data_dir)
+                                            dbm.update_document_content(
+                                                conn,
+                                                did,
+                                                title=new_doc.title,
+                                                raw_text=new_doc.raw_text,
+                                                content_hash=new_doc.content_hash,
+                                                fetched_at=new_doc.fetched_at,
+                                                source_type=new_doc.source_type,
+                                                partial=new_doc.partial,
+                                                meta=new_doc.meta,
+                                            )
+                                            try:
+                                                save_artifact(self.s.data_dir, did, new_doc.raw_text)
+                                            except Exception:
+                                                pass
+                                            doc = new_doc
+                                            info["refetched"] = True
+                                            info["refetched_full"] = bool(refetch_full)
+                                            info["title"] = new_doc.title or "(제목 없음)"
+                                            info["new_len"] = len(new_doc.raw_text)
+                                            info["source_type"] = new_doc.source_type
+                                            if new_doc.source_type == "video":
+                                                info["has_transcript"] = bool(new_doc.meta.get("has_transcript"))
+                                                info["stt_error"] = new_doc.meta.get("stt_error")
+                                        except Exception as e:
+                                            info["refetch_error"] = str(e)
+
+                                target_fmt = format or self.s.render_format
+
+                                if do_graph:
+                                    # 엔티티/노드 추출, 지식 그래프 해소/적재, 벡터 임베딩, 관계 적재, Vault 동기화
+                                    from ..store.vectors import make_vector_store
+                                    from .pipeline import IngestReport, extract_resolve_store
+
+                                    vstore = make_vector_store(conn, self.s.vector_backend)
+                                    report = IngestReport(document_id=did)
+                                    dbm.rollback_document_graph_contributions(conn, [did], prune_orphans=True)
+                                    ok, err = extract_resolve_store(
                                         conn,
-                                        did,
-                                        title=new_doc.title,
-                                        raw_text=new_doc.raw_text,
-                                        content_hash=new_doc.content_hash,
-                                        fetched_at=new_doc.fetched_at,
-                                        source_type=new_doc.source_type,
-                                        partial=new_doc.partial,
-                                        meta=new_doc.meta,
+                                        self.provider,
+                                        vstore,
+                                        doc,
+                                        report,
+                                        vault_dir=self.s.vault_dir,
+                                        format=target_fmt,
+                                        on_progress=step_cb,
+                                        effort=effort,
                                     )
-                                    try:
-                                        save_artifact(self.s.data_dir, did, new_doc.raw_text)
-                                    except Exception:
-                                        pass
-                                    doc = new_doc
-                                    info["refetched"] = True
-                                    info["refetched_full"] = bool(refetch_full)
-                                    info["title"] = new_doc.title or "(제목 없음)"
-                                    info["new_len"] = len(new_doc.raw_text)
-                                    info["source_type"] = new_doc.source_type
-                                    if new_doc.source_type == "video":
-                                        info["has_transcript"] = bool(new_doc.meta.get("has_transcript"))
-                                        info["stt_error"] = new_doc.meta.get("stt_error")
-                                except Exception as e:
-                                    info["refetch_error"] = str(e)
+                                    if not ok:
+                                        info["error"] = err
+                                    else:
+                                        info["new_summary"] = _clean_summary(report.summary)
+                                        info["entities_created"] = report.entities_created
+                                        info["entities_linked"] = report.entities_linked
+                                        info["new_entity_names"] = report.new_entity_names
+                                        info["linked_entity_names"] = report.linked_entity_names
+                                        info["relations_added"] = report.relations_added
+                                        info["detail_format"] = target_fmt
 
-                        target_fmt = format or self.s.render_format
+                                        if self.s.auto_expand and self.s.expand_max > 0 and not doc.partial:
+                                            dbm.enqueue_expand(conn, did)
+                                else:
+                                    if do_summary:
+                                        # 요약만 단독 재추출 (엔티티/관계 보존)
+                                        try:
+                                            extract_res = self.provider.extract(doc, None)
+                                        except TypeError:
+                                            extract_res = self.provider.extract(doc)
+                                        new_summary = _clean_summary(extract_res.summary)
+                                        info["new_summary"] = new_summary
 
-                        if do_graph:
-                            # 엔티티/노드 추출, 지식 그래프 해소/적재, 벡터 임베딩, 관계 적재, Vault 동기화
-                            from ..store.vectors import make_vector_store
-                            from .pipeline import IngestReport, extract_resolve_store
+                                        # extractions 테이블 in-place 갱신
+                                        ext_row = conn.execute(
+                                            "SELECT id, raw_response FROM extractions WHERE document_id=? ORDER BY id DESC LIMIT 1",
+                                            (did,),
+                                        ).fetchone()
+                                        if ext_row:
+                                            try:
+                                                data = _json.loads(ext_row["raw_response"] or "{}")
+                                            except Exception:
+                                                data = {}
+                                            data["summary"] = new_summary
+                                            new_raw = _json.dumps(data, ensure_ascii=False)
+                                            conn.execute(
+                                                "UPDATE extractions SET raw_response=? WHERE id=?",
+                                                (new_raw, ext_row["id"]),
+                                            )
+                                        else:
+                                            data = {"summary": new_summary, "key_claims": [], "entities": [], "relations": []}
+                                            new_raw = _json.dumps(data, ensure_ascii=False)
+                                            dbm.log_extraction(
+                                                conn,
+                                                document_id=did,
+                                                provider=getattr(self.provider, "name", "regenerate"),
+                                                model=getattr(self.provider, "model", "fallback"),
+                                                prompt_version=PROMPT_VERSION,
+                                                raw_response=new_raw,
+                                            )
+                                        conn.commit()
 
-                            vstore = make_vector_store(conn, self.s.vector_backend)
-                            report = IngestReport(document_id=did)
-                            dbm.rollback_document_graph_contributions(conn, [did], prune_orphans=True)
-                            ok, err = extract_resolve_store(
-                                conn,
-                                self.provider,
-                                vstore,
-                                doc,
-                                report,
-                                vault_dir=self.s.vault_dir,
-                                format=target_fmt,
-                                on_progress=step_cb,
-                                effort=effort,
+                                    if do_detail:
+                                        step_cb("가독 상세(detail) 렌더링 생성 중...", f"format={target_fmt}")
+                                        detail_err_box: list[str] = []
+                                        detail_ok = ensure_document_detail(
+                                            conn,
+                                            self.provider,
+                                            doc,
+                                            force=True,
+                                            format=target_fmt,
+                                            focus=focus,
+                                            effort=effort,
+                                            out_error=detail_err_box,
+                                        )
+                                        if detail_ok:
+                                            info["detail_format"] = target_fmt
+                                            if focus:
+                                                info["focus"] = focus
+                                        else:
+                                            err_detail = detail_err_box[0] if detail_err_box else "타임아웃 또는 모델 오류"
+                                            info["detail_error"] = f"가독 상세(detail) 생성 실패 ({err_detail})"
+                                            if not (do_summary and info.get("new_summary")):
+                                                info["error"] = info["detail_error"]
+
+                            if not info.get("error"):
+                                info["updated"] = True
+                            targets_info.append(info)
+
+                        if job is not None and hasattr(job, "update"):
+                            job.update(
+                                stage="done",
+                                msg="재적재 완료" if do_refetch else "재생성 완료",
+                                result={"count": len(targets_info), "targets": targets_info},
                             )
-                            if not ok:
-                                info["error"] = err
-                            else:
-                                info["new_summary"] = _clean_summary(report.summary)
-                                info["entities_created"] = report.entities_created
-                                info["entities_linked"] = report.entities_linked
-                                info["new_entity_names"] = report.new_entity_names
-                                info["linked_entity_names"] = report.linked_entity_names
-                                info["relations_added"] = report.relations_added
-                                info["detail_format"] = target_fmt
-
-                                if self.s.auto_expand and self.s.expand_max > 0 and not doc.partial:
-                                    dbm.enqueue_expand(conn, did)
-                        else:
-                            if do_summary:
-                                # 요약만 단독 재추출 (엔티티/관계 보존)
-                                try:
-                                    extract_res = self.provider.extract(doc, None)
-                                except TypeError:
-                                    extract_res = self.provider.extract(doc)
-                                new_summary = _clean_summary(extract_res.summary)
-                                info["new_summary"] = new_summary
-
-                                # extractions 테이블 in-place 갱신
-                                ext_row = conn.execute(
-                                    "SELECT id, raw_response FROM extractions WHERE document_id=? ORDER BY id DESC LIMIT 1",
-                                    (did,),
-                                ).fetchone()
-                                if ext_row:
-                                    try:
-                                        data = _json.loads(ext_row["raw_response"] or "{}")
-                                    except Exception:
-                                        data = {}
-                                    data["summary"] = new_summary
-                                    new_raw = _json.dumps(data, ensure_ascii=False)
-                                    conn.execute(
-                                        "UPDATE extractions SET raw_response=? WHERE id=?",
-                                        (new_raw, ext_row["id"]),
-                                    )
-                                else:
-                                    data = {"summary": new_summary, "key_claims": [], "entities": [], "relations": []}
-                                    new_raw = _json.dumps(data, ensure_ascii=False)
-                                    dbm.log_extraction(
-                                        conn,
-                                        document_id=did,
-                                        provider=getattr(self.provider, "name", "regenerate"),
-                                        model=getattr(self.provider, "model", "fallback"),
-                                        prompt_version=PROMPT_VERSION,
-                                        raw_response=new_raw,
-                                    )
-                                conn.commit()
-
-                            if do_detail:
-                                step_cb("가독 상세(detail) 렌더링 생성 중...", f"format={target_fmt}")
-                                detail_err_box: list[str] = []
-                                detail_ok = ensure_document_detail(
-                                    conn,
-                                    self.provider,
-                                    doc,
-                                    force=True,
-                                    format=target_fmt,
-                                    focus=focus,
-                                    effort=effort,
-                                    out_error=detail_err_box,
-                                )
-                                if detail_ok:
-                                    info["detail_format"] = target_fmt
-                                    if focus:
-                                        info["focus"] = focus
-                                else:
-                                    err_detail = detail_err_box[0] if detail_err_box else "타임아웃 또는 모델 오류"
-                                    info["detail_error"] = f"가독 상세(detail) 생성 실패 ({err_detail})"
-                                    if not (do_summary and info.get("new_summary")):
-                                        info["error"] = info["detail_error"]
-
-                    if not info.get("error"):
-                        info["updated"] = True
-                    targets_info.append(info)
-
-                return {
-                    "dry_run": not force,
-                    "count": len(targets_info),
-                    "targets": targets_info,
-                    "provider": getattr(self.provider, "name", "unknown"),
-                    "model": getattr(self.provider, "model", "unknown"),
-                    "effort": getattr(self.provider, "effort", "default"),
-                }
-            finally:
-                if old_effort is not None:
-                    self.provider.effort = old_effort
+                        return {
+                            "dry_run": not force,
+                            "count": len(targets_info),
+                            "targets": targets_info,
+                            "provider": getattr(self.provider, "name", "unknown"),
+                            "model": getattr(self.provider, "model", "unknown"),
+                            "effort": getattr(self.provider, "effort", "default"),
+                        }
+                    finally:
+                        if old_effort is not None:
+                            self.provider.effort = old_effort
+                finally:
+                    if force:
+                        set_progress_callback(prev_cb)
         finally:
             conn.close()
 

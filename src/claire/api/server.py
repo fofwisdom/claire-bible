@@ -374,12 +374,23 @@ def create_app(
                 conn.close()
 
         res = await asyncio.to_thread(_counts)
-        from ..ingest.active import get_active_ingest
+        from ..ingest.active import get_active_jobs, get_primary_active_job
 
-        active_info = get_active_ingest(theme_settings.data_dir)
-        if active_info:
-            res["ingesting"] = bool(active_info.get("active"))
-            res["active_ingest"] = active_info
+        target_theme_id = theme.id
+        raw_theme = request.query_params.get("theme")
+        if raw_theme is not None:
+            try:
+                target_theme_id = int(raw_theme)
+            except ValueError:
+                pass
+
+        jobs = get_active_jobs(theme_settings.data_dir)
+        primary = get_primary_active_job(theme_settings.data_dir, theme_id=target_theme_id)
+
+        res["active_jobs"] = jobs
+        if primary:
+            res["ingesting"] = bool(primary.get("active"))
+            res["active_ingest"] = primary
         else:
             res["ingesting"] = False
             res["active_ingest"] = None
@@ -387,10 +398,21 @@ def create_app(
 
     async def active_ingest_route(request: Request) -> JSONResponse:
         theme, theme_settings, _ = _get_theme_ctx(request)
-        from ..ingest.active import get_active_ingest
+        from ..ingest.active import get_active_jobs, get_primary_active_job
 
-        info = get_active_ingest(theme_settings.data_dir)
-        return JSONResponse(info or {"active": False})
+        target_theme_id = theme.id
+        raw_theme = request.query_params.get("theme")
+        if raw_theme is not None:
+            try:
+                target_theme_id = int(raw_theme)
+            except ValueError:
+                pass
+
+        jobs = get_active_jobs(theme_settings.data_dir)
+        primary = get_primary_active_job(theme_settings.data_dir, theme_id=target_theme_id)
+        res = dict(primary) if primary else {"active": False}
+        res["active_jobs"] = jobs
+        return JSONResponse(res)
 
     async def themes_list_route(request: Request) -> JSONResponse:
         scope = request_auth_scope(request)
