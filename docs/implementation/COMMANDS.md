@@ -39,10 +39,26 @@
 
 | 실행 환경 | 명령어 표면 | 대상 및 역할 |
 | :--- | :--- | :--- |
-| **호스트 (Host OS)** | `./cb-manuscript <command>` | 배포 환경, Docker Compose 오케스트레이션, 인프라 사전점검(`preflight`), 백업/복원 |
-| **호스트 (One-off 임시 컨테이너)** | `./cb-manuscript app <command>` | 배포된 DB/볼륨을 공유하는 `claire` 애플리케이션 작업 실행 (`doctor`, `format-migrate`, `regenerate` 등) |
+| **호스트 (Host OS)** | `./cb-manuscript <command>` | 배포 환경, Docker Compose 오케스트레이션, 인프라 사전점검(`preflight`), 백업/복원, 컨테이너 생존 확인(`health`) |
+| **호스트 (One-off 임시 컨테이너)** | `./cb-manuscript app <command>` | 배포된 DB/볼륨을 공유하는 `claire` 애플리케이션 작업 실행 (`doctor`, `health`, `recover-run`, `format-migrate`, `regenerate` 등) |
 | **로컬 가상환경 (Local Dev)** | `uv run claire <command>` | 소스코드 개발, 로컬 SQLite/Mock 기반 단위 작업 및 테스트 |
 | **컨테이너 내부 (Inside Container)** | `claire <command>` | 서비스 상주 데몬(API 서버, 텔레그램 봇, 큐 루프 등) |
+
+> [!IMPORTANT]
+> **호스트 환경에서의 실행 표면 엄수 및 에이전트 커맨드 인식 규약**
+> 1. **호스트 OS에는 `claire` 바이너리가 직접 존재하지 않습니다**:
+>    - 배포 서버(`root@host:~#` 등)의 셸 PATH에는 `claire` 바이너리가 등록되어 있지 않습니다. 호스트 터미널에서 `claire <cmd>`를 직접 입력하면 `command not found` 오류가 발생합니다.
+>    - 배포 환경의 모든 앱 one-off 작업은 반드시 **`./cb-manuscript app <command>`** (예: `./cb-manuscript app recover-run`, `./cb-manuscript app doctor --heal`)로 실행해야 합니다.
+>    - AI 에이전트는 운영자에게 명령어를 안내할 때 반드시 호스트 배포 표면인 **`./cb-manuscript app <cmd>`** 또는 최상위 운영 표면인 **`./cb-manuscript <cmd>`**를 제공해야 하며, `claire <cmd>`를 단독 추천해서는 안 됩니다.
+> 2. **`health` 명령어의 이중 경로 구분**:
+>    - `./cb-manuscript health`: 실행 중인 API 컨테이너의 읽기 전용 liveness 확인 (`claire liveness`). `degraded` 상태(인박스 에러 누적)여도 비정상 종료하지 않습니다.
+>    - `./cb-manuscript app health`: 임시 컨테이너에서 DB, 비동기 큐, 인박스를 전수 진단하는 전체 애플리케이션 health (`claire health`). 누적 에러/실패 항목이 존재하면 `degraded: true` 및 종료 코드 `1`을 반환합니다.
+> 3. **존재하지 않는 명령어 추측 금지 (Zero Speculation)**:
+>    - `claire repair`, `cb-manuscript repair`, `cb-manuscript app repair` 등 **`repair`라는 명령어는 존재하지 않습니다**.
+>    - **지식그래프 및 무결성 수복**: `./cb-manuscript app doctor --heal` 또는 `./cb-manuscript app audit --heal`
+>    - **인박스 에러/실패 항목 복구**: `./cb-manuscript app recover-run` (지수 백오프 도래분 재시도) 또는 `./cb-manuscript app replay-failed` (실패 항목 전량 강제 재적재)
+>    - **큐 상태 조회**: `./cb-manuscript app queue status` 또는 `./cb-manuscript app queue list inbox`
+>    - `cb-manuscript` 최상위 명령어에는 `recover-run`이 없으므로, `./cb-manuscript recover-run`은 `invalid choice`로 차단되며 반드시 `app`을 붙여야 합니다.
 
 ---
 
@@ -132,18 +148,18 @@ Git 저장소 최신 커밋을 가져와 무중단 롤링 업데이트를 수행
 
 ### 3.1 시스템 상태 및 지식그래프 진단/수복
 
-| 명령 | 사용법 | 설명 |
-| :--- | :--- | :--- |
-| `audit` | `claire audit [<target>] [--check {all,graph,residuals}] [--heal] [--json]` | **[통합 감사]** 지식그래프 무결성, 오염 잔재, 툼스톤 위반 전수 점검 및 원클릭 자동 수복 |
-| `doctor` | `claire doctor [--heal \| --apply] [--yes] [--json]` | 지식그래프 무결성(고아 노드/엣지, FTS 불일치) 진단 및 원클릭 자동 수복 (`audit --check graph`의 별칭) |
-| `preflight` | `claire preflight` | 파이썬 환경, 설정값, Gemini API Key, sqlite-vec 모듈, DB 연결 사전 점검 |
-| `health` | `claire health` | DB, 큐(Queue), Inbox 상태를 담은 건강 진단 JSON 출력. 멀티 테마 모드에서는 등록 DB별 진단과 전체 합계를 출력 |
-| `liveness` | `claire liveness` | 모든 활성 DB의 읽기 전용 접근·현재 스키마 확인 (Degraded 시 비정상 종료 안 함) |
-| `status` | `claire status` | 운영 상태, DB 테이블 카운트, 프로바이더 설정 전체 출력 |
-| `queue` | `claire queue status` / `claire queue list <inbox\|refresh\|expand>` | 비동기 큐 상태 분포와 대기·오류 항목 조회 |
-| `stats` | `claire stats [-t <theme>]` | 지식그래프 노드(엔티티) 및 엣지(관계) 카운트 출력 (멀티 테마 지원) |
-| `repo` | `claire repo` | Git 소스 저장소 정보 및 원격 URL 출력 |
-| `migrate` | `claire migrate` | 싱글 모드에서는 기본 DB, 멀티 테마 모드에서는 등록된 모든 DB를 공통 v13으로 초기화/업그레이드하고 버전·계보를 검증 |
+| 명령 | 호스트 실행 (`./cb-manuscript app`) | 로컬 가상환경 (`uv run claire`) | 설명 |
+| :--- | :--- | :--- | :--- |
+| `audit` | `./cb-manuscript app audit [<target>] [--check {all,graph,residuals}] [--heal] [--json]` | `uv run claire audit [...]` | **[통합 감사]** 지식그래프 무결성, 오염 잔재, 툼스톤 위반 전수 점검 및 원클릭 자동 수복 |
+| `doctor` | `./cb-manuscript app doctor [--heal \| --apply] [--yes] [--json]` | `uv run claire doctor [...]` | 지식그래프 무결성(고아 노드/엣지, FTS 불일치) 진단 및 원클릭 자동 수복 (`audit --check graph`의 별칭) |
+| `preflight` | `./cb-manuscript app preflight` | `uv run claire preflight` | 파이썬 환경, 설정값, Gemini API Key, sqlite-vec 모듈, DB 연결 사전 점검 |
+| `health` | `./cb-manuscript app health` | `uv run claire health` | DB, 큐(Queue), Inbox 상태를 담은 건강 진단 JSON 출력. 누적 에러 시 `degraded: true` 반환 (주의: 호스트 컨테이너 생존 확인은 `./cb-manuscript health`) |
+| `liveness` | `./cb-manuscript app liveness` | `uv run claire liveness` | 모든 활성 DB의 읽기 전용 접근·현재 스키마 확인 (Degraded 시 비정상 종료 안 함) |
+| `status` | `./cb-manuscript app status` | `uv run claire status` | 운영 상태, DB 테이블 카운트, 프로바이더 설정 전체 출력 |
+| `queue` | `./cb-manuscript app queue status` / `... queue list <inbox\|refresh\|expand>` | `uv run claire queue status` | 비동기 큐 상태 분포와 대기·오류 항목 조회 |
+| `stats` | `./cb-manuscript app stats [-t <theme>]` | `uv run claire stats [...]` | 지식그래프 노드(엔티티) 및 엣지(관계) 카운트 출력 (멀티 테마 지원) |
+| `repo` | `./cb-manuscript app repo` | `uv run claire repo` | Git 소스 저장소 정보 및 원격 URL 출력 |
+| `migrate` | *(배포 시 install/update 단계에서 자동 실행)* | `uv run claire migrate` | 싱글 모드에서는 기본 DB, 멀티 테마 모드에서는 등록된 모든 DB를 공통 v13으로 초기화/업그레이드하고 버전·계보를 검증 |
 
 `CLAIRE_MULTI_THEME=1`일 때 `migrate`는 레지스트리를 테마 ID 순서로 읽고 각 DB의 마이그레이션 결과를 개별 출력한다. 한 DB가 실패해도 나머지를 계속 점검하며, 하나라도 실패하면 최종 종료 코드는 `1`이다. `health`와 `liveness`는 DB를 생성하거나 마이그레이션하지 않고 읽기 전용 연결과 스키마 버전·계보를 검사한다. v12는 진단 행을 보존해 v11로 철회한 뒤 같은 실행에서 v13으로 승격한다. 손상된 `themes.json`도 기본 레지스트리로 덮어쓰지 않고 실패로 보고한다.[^multi-theme-operations]
 
@@ -233,31 +249,31 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 
 ### 3.4 재생성, 백필, 포맷 마이그레이션 및 복구
 
-| 명령 | 사용법 | 설명 |
-| :--- | :--- | :--- |
-| `reprocess` | `claire reprocess [<target>] [-c {all,summary,detail,graph,format}] [-s {all,missing,corrupted,tables}] [--apply] [--json]` | **[통합 재처리]** 요약, 상세, 그래프, 포맷 등 파생 데이터 일괄 갱신 엔진 |
-| `regenerate` | `claire regenerate [<target>] [--tables] [--summary] [--detail] [--all] [--apply] [--force] [--effort <level>] [--focus <focus>]` | 특정 문서 또는 표(Table) 포함 문서 컴포넌트(요약/상세/그래프) 선택적 LLM 재생성 (기본: dry-run, 실행: `--apply`) |
-| `summary-regenerate`| `claire summary-regenerate [<target>] [--tables] [--apply] [--force] [--effort <level>]` | `reprocess -c summary`의 단축 Alias |
-| `format-migrate` | `claire format-migrate [--format {md,adoc}] [--apply] [--yes] [--json]` | 문서 렌더링 포맷 진단 및 일괄 변환 (기본: dry-run, 실행: `--apply`) |
-| `format-status` | `claire format-status` | 문서 detail의 포맷별(md, adoc, 누락) 통계 출력 |
-| `truncation-status` | `claire truncation-status [<target>] [--json]` | 원문 절단(20k 슬라이싱) 및 메타데이터 누락 문서 진단 리포트 (단축: `truncation-scan`) |
-| `truncation-backfill` | `claire truncation-backfill [<target>] [--apply] [--mark-refresh] [--force] [--yes] [--json]` | 메타데이터 누락 절단 문서에 `raw_truncated` 소급 기록 (기본: dry-run, 실행: `--apply`, 단축: `backfill-truncation`) |
-| `stt-scan` | `claire stt-scan [<target>] [--doc-id <ID>] [--json]` | 오디오/비디오 문서 음성 전사(STT) 상태, 절단 여부 및 detail 작성 상태 정밀 진단 (단축: `scan-stt`) |
-| `stt-backfill` | `claire stt-backfill [<target>] [--doc-id <ID>] [--apply] [--dry-run] [--force] [--json]` | 과거 음성/영상 문서의 `is_stt` 메타데이터 및 `stt` 태그 소급 적용 (기본: dry-run, 실행: `--apply`, 단축: `backfill-stt`) |
-| `artifact-migrate` | `claire artifact-migrate [--level N] [--stop-on-error] [--apply] [--dry-run] [--json]` | 구형 gzip(`.txt.gz`) 원문 아티팩트를 zstandard(`.txt.zst`)로 무손실 일괄 변환 (기본: dry-run, 실행: `--apply`) |
-| `backfill-detail` | `claire backfill-detail [--tables] [--format {md,adoc}] [--limit N] [--force] [--focus <focus>]` | 상세(detail) 렌더링이 누락되었거나 표가 포함된 문서 일괄 생성 (`reprocess -c detail -s missing`의 별칭) |
-| `backfill-summary` | `claire backfill-summary [--limit N]` | 요약이 누락된 기존 문서의 요약 일괄 생성 (`reprocess -c summary -s missing`의 별칭) |
-| `backfill-images` | `claire backfill-images [--limit N]` | 문서 내 참조된 이미지 에셋 추출 및 다운로드 백필 |
-| `recompile-html` | `claire recompile-html [<target>] [-t <theme>] [--all]` | 저장된 상세(detail)로부터 `detail_html` AOT 사전 컴파일 갱신 (멀티 테마 및 단건 대상 지원) |
-| `reextract` | `claire reextract [--tables] [--no-rebuild] [--limit N]` | 저장된 `raw_text`로부터 지식그래프 전체(또는 표 포함 문서)를 재추출 |
-| `re-embed` | `claire re-embed [--limit N] [--apply] [--dry-run]` | 기존 엔티티 노드들의 벡터 임베딩을 최신 모델(`text-embedding-004`) 및 온톨로지 프레임으로 일괄 재계산·갱신 (기본: dry-run, 실행: `--apply`) |
-| `link-relations` | `claire link-relations [--limit N] [--min-score F] [--dry-run]` | 기존 지식 그래프 내의 엔티티 간 벡터 유사도를 기반으로 횡단 관계(Edge)를 자동 발굴·수립 (기본: apply, 시뮬레이션: `--dry-run`) |
-| `replay-failed` | `claire replay-failed [--limit N]` | `raw_inbox`에서 `status=error`인 실패 건 전량 수동 재적재 |
-| `recover-run` | `claire recover-run [--limit N]` | 에러 큐 단건/배치 복구 실행 (게이팅/지수 백오프 적용) |
-| `recover-loop` | `claire recover-loop [--interval N] [--batch N]` | 모든 활성 테마의 에러 복구 큐를 전역 batch 한도 안에서 순환 처리하는 자동 데몬 |
-| `refresh-mark` | `claire refresh-mark [--older-than-days N]` | 구버전/빈약 문서를 갱신 큐(`refresh_queue`)에 마킹 |
-| `refresh-run` | `claire refresh-run [--limit N]` | 갱신 큐 1회 배치 처리 |
-| `refresh-loop` | `claire refresh-loop [--interval N] [--batch N]` | 모든 활성 테마의 watch·갱신 큐를 순환 처리하는 상주 데몬 |
+| 명령 | 호스트 실행 (`./cb-manuscript app`) | 로컬 가상환경 (`uv run claire`) | 설명 |
+| :--- | :--- | :--- | :--- |
+| `reprocess` | `./cb-manuscript app reprocess [<target>] [-c {all,summary,detail,graph,format}] [-s {all,missing,corrupted,tables}] [--apply] [--json]` | `uv run claire reprocess [...]` | **[통합 재처리]** 요약, 상세, 그래프, 포맷 등 파생 데이터 일괄 갱신 엔진 |
+| `regenerate` | `./cb-manuscript app regenerate [<target>] [--tables] [--summary] [--detail] [--all] [--apply] [--force] [--effort <level>] [--focus <focus>]` | `uv run claire regenerate [...]` | 특정 문서 또는 표(Table) 포함 문서 컴포넌트(요약/상세/그래프) 선택적 LLM 재생성 (기본: dry-run, 실행: `--apply`) |
+| `summary-regenerate`| `./cb-manuscript app summary-regenerate [<target>] [--tables] [--apply] [--force] [--effort <level>]` | `uv run claire summary-regenerate [...]` | `reprocess -c summary`의 단축 Alias |
+| `format-migrate` | `./cb-manuscript app format-migrate [--format {md,adoc}] [--apply] [--yes] [--json]` | `uv run claire format-migrate [...]` | 문서 렌더링 포맷 진단 및 일괄 변환 (기본: dry-run, 실행: `--apply`) |
+| `format-status` | `./cb-manuscript app format-status` | `uv run claire format-status` | 문서 detail의 포맷별(md, adoc, 누락) 통계 출력 |
+| `truncation-status` | `./cb-manuscript app truncation-status [<target>] [--json]` | `uv run claire truncation-status [...]` | 원문 절단(20k 슬라이싱) 및 메타데이터 누락 문서 진단 리포트 (단축: `truncation-scan`) |
+| `truncation-backfill` | `./cb-manuscript app truncation-backfill [<target>] [--apply] [--mark-refresh] [--force] [--yes] [--json]` | `uv run claire truncation-backfill [...]` | 메타데이터 누락 절단 문서에 `raw_truncated` 소급 기록 (기본: dry-run, 실행: `--apply`, 단축: `backfill-truncation`) |
+| `stt-scan` | `./cb-manuscript app stt-scan [<target>] [--doc-id <ID>] [--json]` | `uv run claire stt-scan [...]` | 오디오/비디오 문서 음성 전사(STT) 상태, 절단 여부 및 detail 작성 상태 정밀 진단 (단축: `scan-stt`) |
+| `stt-backfill` | `./cb-manuscript app stt-backfill [<target>] [--doc-id <ID>] [--apply] [--dry-run] [--force] [--json]` | `uv run claire stt-backfill [...]` | 과거 음성/영상 문서의 `is_stt` 메타데이터 및 `stt` 태그 소급 적용 (기본: dry-run, 실행: `--apply`, 단축: `backfill-stt`) |
+| `artifact-migrate` | `./cb-manuscript app artifact-migrate [--level N] [--stop-on-error] [--apply] [--dry-run] [--json]` | `uv run claire artifact-migrate [...]` | 구형 gzip(`.txt.gz`) 원문 아티팩트를 zstandard(`.txt.zst`)로 무손실 일괄 변환 (기본: dry-run, 실행: `--apply`) |
+| `backfill-detail` | `./cb-manuscript app backfill-detail [--tables] [--format {md,adoc}] [--limit N] [--force] [--focus <focus>]` | `uv run claire backfill-detail [...]` | 상세(detail) 렌더링이 누락되었거나 표가 포함된 문서 일괄 생성 (`reprocess -c detail -s missing`의 별칭) |
+| `backfill-summary` | `./cb-manuscript app backfill-summary [--limit N]` | `uv run claire backfill-summary [...]` | 요약이 누락된 기존 문서의 요약 일괄 생성 (`reprocess -c summary -s missing`의 별칭) |
+| `backfill-images` | `./cb-manuscript app backfill-images [--limit N]` | `uv run claire backfill-images [...]` | 문서 내 참조된 이미지 에셋 추출 및 다운로드 백필 |
+| `recompile-html` | `./cb-manuscript app recompile-html [<target>] [-t <theme>] [--all]` | `uv run claire recompile-html [...]` | 저장된 상세(detail)로부터 `detail_html` AOT 사전 컴파일 갱신 (멀티 테마 및 단건 대상 지원) |
+| `reextract` | `./cb-manuscript app --advanced reextract [--tables] [--no-rebuild] [--limit N]` | `uv run claire reextract [...]` | 저장된 `raw_text`로부터 지식그래프 전체(또는 표 포함 문서)를 재추출 (파괴적 명령으로 호스트에서 `--advanced` 필요) |
+| `re-embed` | `./cb-manuscript app re-embed [--limit N] [--apply] [--dry-run]` | `uv run claire re-embed [...]` | 기존 엔티티 노드들의 벡터 임베딩을 최신 모델(`text-embedding-004`) 및 온톨로지 프레임으로 일괄 재계산·갱신 (기본: dry-run, 실행: `--apply`) |
+| `link-relations` | `./cb-manuscript app link-relations [--limit N] [--min-score F] [--dry-run]` | `uv run claire link-relations [...]` | 기존 지식 그래프 내의 엔티티 간 벡터 유사도를 기반으로 횡단 관계(Edge)를 자동 발굴·수립 (기본: apply, 시뮬레이션: `--dry-run`) |
+| `recover-run` | `./cb-manuscript app recover-run [--limit N] [--max-attempts N]` | `uv run claire recover-run [...]` | **[에러 인박스 자동복구]** 재시도 기한(next_retry_at)이 도래한 실패 항목 지수 백오프 1회 재처리 |
+| `replay-failed` | `./cb-manuscript app replay-failed [--limit N] [--include-failed]` | `uv run claire replay-failed [...]` | **[실패 인박스 강제 재적재]** `raw_inbox`의 에러/실패 항목을 즉시 수동 강제 재적재 |
+| `recover-loop` | *(Compose 서비스로 실행)* | `uv run claire recover-loop [...]` | 모든 활성 테마의 에러 복구 큐를 전역 batch 한도 안에서 순환 처리하는 자동 데몬 |
+| `refresh-mark` | `./cb-manuscript app refresh-mark [--older-than-days N]` | `uv run claire refresh-mark [...]` | 구버전/빈약 문서를 갱신 큐(`refresh_queue`)에 마킹 |
+| `refresh-run` | `./cb-manuscript app refresh-run [--limit N]` | `uv run claire refresh-run [...]` | 갱신 큐 1회 배치 처리 |
+| `refresh-loop` | *(Compose 서비스로 실행)* | `uv run claire refresh-loop [...]` | 모든 활성 테마의 watch·갱신 큐를 순환 처리하는 상주 데몬 |
 
 #### `regenerate`
 특정 문서의 컴포넌트(요약, 상세 detail, 그래프 노드/엣지)를 LLM을 통해 선택적으로 재생성하고 DB를 갱신한다. (`doc-regenerate`, `regenerate-doc`, `regen` 호환 별칭 지원)
@@ -432,6 +448,40 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
   * **3일 미디어 캐시 재사용**: 유효한 CC가 없고 이전 STT 수집이 실패했을 때 `data/cache/video/`에 저장된 오디오 미디어가 있으면 외부 미디어 다운로드를 생략하고 STT를 진행한다.
   * **실시간 단계별 진행률 스트리밍**: `[원문 전체 재수집]`, 필요한 경우의 `[오디오 다운로드/변환]`, `[STT 청크 전사]`, `[LLM 요약 및 지식 그래프 추출]` 단계가 터미널에 출력된다.
   * **전사 무결성 검증**: CC 획득 또는 STT가 실패하거나 `has_transcript`가 `False`인 경우 오류 원인을 `stderr`에 출력하고 종료 코드 `1`을 반환한다.
+
+#### `recover-run`
+수신 및 비동기 인박스(`raw_inbox`)에서 처리 도중 에러가 발생한 항목(`status='error'`) 중, 재시도 대기 시간(지수 백오프, `next_retry_at`)이 도래한 항목을 1회 재처리한다.
+시스템 진단(`health`)에서 누적된 실패로 인해 `degraded: true` 상태가 되었을 때 이를 정상 상태로 복구하는 주 표준 명령이다.
+* **사용법**:
+  ```bash
+  ./cb-manuscript app recover-run              # 도래한 에러 항목 전체 1회 순차 복구
+  ./cb-manuscript app recover-run --limit 10   # 최대 10건만 선별 복구
+  ./cb-manuscript app recover-run --max-attempts 5 # 최대 시도 횟수 지정 (기본 5회)
+  ```
+* **옵션**:
+  * `--limit <N>`: 1회 실행에서 처리할 최대 도래 항목 수 (0 = 도래분 전량, 기본값: 0).
+  * `--max-attempts <N>`: 최대 재시도 허용 상한 (기본값: 5). 이 상한에 도달한 항목은 `status='failed'`(영구 실패)로 전환되며 텔레그램 관리자 알림이 발송된다.
+  * `--base-delay <sec>`: 지수 백오프 기본 지연 시간 초 (기본값: 300초).
+* **동작 특징**:
+  * 재시도 도래 항목이 0건이면 `재적재 대상(도래분) 없음.`을 출력하고 즉시 정상 종료(Exit 0)한다.
+  * 복구 대상이 있을 경우 배치 진행률 추적기가 활성화되어 각 항목의 처리 상태와 남은 시간을 실시간 스트리밍한다.
+  * 영구 실패(`status='failed'`)로 고정된 항목은 `recover-run`의 자동 대상에서 제외되므로, 영구 실패 항목까지 강제 재시도하려면 `replay-failed --include-failed`를 사용한다.
+
+#### `replay-failed`
+`raw_inbox`에서 `status='error'`(또는 옵션 지정 시 `failed`) 상태인 인박스 항목을 지수 백오프 대기 시간과 무관하게 즉시 수동으로 강제 재적재한다.
+* **사용법**:
+  ```bash
+  ./cb-manuscript app replay-failed                      # error 상태 항목 전량 즉시 재적재
+  ./cb-manuscript app replay-failed --limit 5            # 최대 5건 즉시 재적재
+  ./cb-manuscript app replay-failed --include-failed     # 영구 실패(failed) 상태 항목까지 포함하여 강제 재적재
+  ```
+* **옵션**:
+  * `--limit <N>`: 재적재할 최대 항목 수 (기본값: 0 = 전체).
+  * `--include-failed`: 시도 횟수 초과로 영구 실패(`status='failed'`) 처리된 항목까지 포함하여 강제 재적재.
+* **`recover-run`과의 차이점 및 주의사항**:
+  * `recover-run`: 백오프 스케줄(`next_retry_at`)을 준수하여 API Rate Limit을 방어하며 점진적으로 자동 복구.
+  * `replay-failed`: 스케줄을 무시하고 즉시 강제 실행(수동 긴급 복구).
+  * **중요**: `repair`라는 명령어는 존재하지 않습니다. 인박스 실패 복구 시에는 반드시 `recover-run` 또는 `replay-failed`를 사용해야 하며, 지식그래프 무결성 수복에는 `doctor --heal`을 사용합니다.
 
 #### 작업 진행률 및 중단 보고
 다음의 **1회 실행 배치 명령**은 진행률 추적기를 사용한다: `regenerate --apply`, `reextract`, `backfill-detail`, `backfill-summary`, `format-migrate --apply`, `recover-run`, `refresh-run`, `expand-run`.[^progress-implementation]

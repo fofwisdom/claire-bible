@@ -104,6 +104,9 @@ CLAIRE_ENVIRONMENT=production ./cb-manuscript up
 ./cb-manuscript app stats
 ./cb-manuscript app search "키워드"
 ./cb-manuscript app health
+./cb-manuscript app queue status
+./cb-manuscript app recover-run
+./cb-manuscript app replay-failed
 ./cb-manuscript app --help
 ```
 
@@ -134,6 +137,36 @@ CLAIRE_ENVIRONMENT=production ./cb-manuscript up
 - `cb-manuscript app health`는 임시 컨테이너에서 전체 애플리케이션 health를 계산한다. 활성 테마별 DB·큐·inbox 진단과 전체 합계를 출력하며, 어느 DB라도 실패하거나 전체 합계가 `degraded`이면 종료 코드 1을 반환한다.[^multi-theme-operations]
 
 따라서 배포 직후와 감시용 생존 확인에는 전자를, 누적 실패와 사람의 조치가 필요한 상태 진단에는 후자를 사용한다.
+
+## 인박스 실패 복구 및 큐 운영 (`queue`, `recover-run`, `replay-failed`)
+
+애플리케이션 상태 진단(`./cb-manuscript app health`)에서 `degraded: true`가 반환되는 주된 원인은 비동기 수신 인박스(`raw_inbox`)에 실패 항목(`error` 또는 `failed`)이 누적되었기 때문이다. 이를 점검하고 복구하는 표준 절차는 다음과 같다:
+
+1. **큐 상태 점검**:
+   ```bash
+   ./cb-manuscript app queue status          # 세 큐(inbox, refresh, expand)의 상태 분포 및 오류 목록
+   ./cb-manuscript app queue list inbox      # 수신 인박스 실패/에러 항목 상세 목록 조회
+   ```
+2. **실패 항목 복구**:
+   - **자동 복구 도래분 처리 (`recover-run`)**: 지수 백오프(`next_retry_at`) 대기 시간이 지난 에러 항목을 순차적으로 1회 재처리한다.
+     ```bash
+     ./cb-manuscript app recover-run
+     ```
+   - **즉시 전량 재적재 (`replay-failed`)**: 백오프 대기 시간과 무관하게 실패 항목을 즉시 수동으로 재적재한다.
+     ```bash
+     ./cb-manuscript app replay-failed
+     ./cb-manuscript app replay-failed --include-failed # 영구 실패 항목까지 포함
+     ```
+3. **복구 후 정상 상태 재확인**:
+   ```bash
+   ./cb-manuscript app health
+   ```
+   실패 항목이 정상 처리되면 `degraded: false`와 함께 종료 코드 0으로 복귀한다.
+
+> [!CAUTION]
+> **존재하지 않는 `repair` 커맨드와 실행 표면 주의**
+> - `repair`라는 CLI 명령은 존재하지 않습니다. 인박스 실패 항목 처리는 **`./cb-manuscript app recover-run`** 또는 **`./cb-manuscript app replay-failed`**를 사용해야 하며, 지식그래프 참조 무결성 수복은 **`./cb-manuscript app doctor --heal`**을 사용합니다.
+> - 호스트 OS에는 `claire` 바이너리가 직접 설치되어 있지 않으므로, 반드시 접두어 **`./cb-manuscript app`**을 붙여 실행해야 합니다 (`./cb-manuscript recover-run`은 유효하지 않은 최상위 명령어로 거부됩니다).
 
 Telegram의 Support Bundle 생성은 Compose 내부 owner 인증 API로 위임한다. 공개 다운로드를 제공하는 API 프로세스가 아카이브 생성과 다운로드 레지스트리 검증을 함께 소유하며, 생성 직후 동일 조회 경로로 파일을 확인하지 못하면 URL을 반환하지 않는다. Docker 밖에서 내부 API URL이 없는 로컬 개발·CLI 실행만 같은 프로세스에서 직접 생성한다.
 
