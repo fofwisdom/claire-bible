@@ -24,6 +24,14 @@ NS = {
 _URL_RE = re.compile(r"https?://[^\s)\]\}<>\"']+")
 ODT_MIMETYPE = "application/vnd.oasis.opendocument.text"
 
+_SAFE_XML_PARSER = ET.XMLParser(
+    resolve_entities=False,
+    no_network=True,
+    huge_tree=False,
+    dtd_validation=False,
+    load_dtd=False,
+)
+
 
 def is_odt_bytes(data: bytes) -> bool:
     """바이너리 버퍼가 ODT(OpenDocument Text) 파일인지 검사."""
@@ -196,7 +204,7 @@ def extract_odt_metadata(meta_xml_bytes: bytes) -> tuple[str | None, dict[str, A
         return None, {}
 
     try:
-        root = ET.fromstring(meta_xml_bytes)
+        root = ET.fromstring(meta_xml_bytes, parser=_SAFE_XML_PARSER)
         t_elem = root.find(f".//{{{NS['dc']}}}title")
         if t_elem is not None and t_elem.text and t_elem.text.strip():
             title = t_elem.text.strip()[:200]
@@ -239,7 +247,7 @@ def extract_odt_stream(
         # 2. content.xml 파싱
         try:
             content_bytes = zf.read("content.xml")
-            root = ET.fromstring(content_bytes)
+            root = ET.fromstring(content_bytes, parser=_SAFE_XML_PARSER)
         except Exception as e:
             return OdtExtractResult(
                 None, "", [], {}, f"failed to parse content.xml: {e}", [], biblio

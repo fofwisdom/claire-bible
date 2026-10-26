@@ -950,3 +950,50 @@ def test_presentation_image_routes_direct_and_prefixed(tmp_path: Path):
     assert resp_404.status_code == 404
 
 
+def test_presentation_security_neutralizes_malicious_directives_and_inclusions():
+    """Verify preprocessor blocks dangerous directives and compiler enforces secure safe mode."""
+    from claire.presentation.preprocessor import prepare_presentation_adoc_for_compile
+
+    malicious_adoc = """= Security Test
+:allow-uri-read:
+:safe-mode: unsafe
+:template-dir: /tmp
+
+== Slide 1
+include::/etc/passwd[]
+sys::id[]
+eval::print('rce')[]
+* Normal bullet point
+\x00
+"""
+    cleaned = prepare_presentation_adoc_for_compile(malicious_adoc)
+    assert "\x00" not in cleaned
+    assert "// [blocked-attr] :allow-uri-read:" in cleaned
+    assert "// [blocked-attr] :safe-mode: unsafe" in cleaned
+    assert "// [blocked-attr] :template-dir: /tmp" in cleaned
+    assert "// [blocked-directive] include::/etc/passwd[]" in cleaned
+    assert "// [blocked-directive] sys::id[]" in cleaned
+    assert "// [blocked-directive] eval::print('rce')[]" in cleaned
+    assert "* Normal bullet point" in cleaned
+
+
+@pytest.mark.asyncio
+async def test_presentation_converter_secure_safe_mode_prevents_file_leak(tmp_path: Path):
+    """Verify compiler executes with secure safe mode and does not leak file content."""
+    from claire.presentation.converter import compile_presentation_html, find_asciidoctor_executable
+
+    if not find_asciidoctor_executable():
+        pytest.skip("asciidoctor executable not found on host")
+
+    output_html = tmp_path / "test_sec.html"
+    raw_payload = "= Malicious Deck\n\n== Slide 1\ninclude::/etc/hostname[]\n"
+    await compile_presentation_html(raw_payload, output_html)
+
+    assert output_html.exists()
+    content = output_html.read_text(encoding="utf-8")
+    hostname = Path("/etc/hostname").read_text(encoding="utf-8").strip() if Path("/etc/hostname").exists() else ""
+    if hostname:
+        assert f"<p>{hostname}</p>" not in content
+
+
+

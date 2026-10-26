@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import os
 import shutil
+import tempfile
 import time
 from pathlib import Path
 
@@ -96,12 +97,25 @@ async def _do_compile(
     cmd = (
         list(cmd_base)
         + [
-            "-a", "revealjsdir=/static/vendor/reveal.js@",
-            "-a", "customcss=/static/css/reveal-claire.css@",
+            "-S", "secure",
+            "-a", "revealjsdir=/static/vendor/reveal.js",
+            "-a", "customcss=/static/css/reveal-claire.css",
+            "-a", "allow-uri-read!",
             "-o", str(temp_output),
             "-",
         ]
     )
+
+    safe_env = {
+        "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+        "LANG": "C.UTF-8",
+        "LC_ALL": "C.UTF-8",
+        "HOME": os.environ.get("HOME", "/tmp"),
+        "TMPDIR": tempfile.gettempdir(),
+    }
+    for k in ("GEM_HOME", "GEM_PATH", "RUBYLIB"):
+        if k in os.environ:
+            safe_env[k] = os.environ[k]
 
     async with _SEMAPHORE:
         start_time = time.monotonic()
@@ -110,6 +124,8 @@ async def _do_compile(
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            cwd=tempfile.gettempdir(),
+            env=safe_env,
         )
 
         try:

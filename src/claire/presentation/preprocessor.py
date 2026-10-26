@@ -6,8 +6,16 @@ into LLM-authored AsciiDoc presentations prior to asciidoctor compilation.
 
 from __future__ import annotations
 
+import re
 
-
+_DANGEROUS_DIRECTIVE_RE = re.compile(
+    r"^\s*(?:include|sys|eval)::[^\n]*",
+    re.IGNORECASE,
+)
+_DANGEROUS_ATTR_RE = re.compile(
+    r"^\s*:(?:allow-uri-read|safe-mode|template-dir|template_dirs|template-engine|eruby|backend|load-path):",
+    re.IGNORECASE,
+)
 
 
 def prepare_presentation_adoc_for_compile(
@@ -18,8 +26,9 @@ def prepare_presentation_adoc_for_compile(
     customcss: str | None = "/static/css/reveal-claire.css",
     revealjsdir: str | None = "/static/vendor/reveal.js",
 ) -> str:
-    """LLM이 저작한 AsciiDoc에 컴파일용 필수 reveal.js 속성(customcss, revealjsdir, 테마 등)을 보정한다."""
-    lines = adoc.splitlines()
+    """LLM이 저작한 AsciiDoc에 컴파일용 필수 reveal.js 속성(customcss, revealjsdir, 테마 등)을 보정하고 위험 지시자를 차단한다."""
+    cleaned = adoc.replace("\x00", "")
+    lines = cleaned.splitlines()
     header_attrs: dict[str, str] = {
         ":revealjs_theme:": f":revealjs_theme: {theme}",
         ":revealjs_transition:": f":revealjs_transition: {transition}",
@@ -44,6 +53,13 @@ def prepare_presentation_adoc_for_compile(
 
     for line in lines:
         stripped = line.strip()
+        if _DANGEROUS_DIRECTIVE_RE.match(stripped):
+            processed_lines.append(f"// [blocked-directive] {stripped}")
+            continue
+        if _DANGEROUS_ATTR_RE.match(stripped):
+            processed_lines.append(f"// [blocked-attr] {stripped}")
+            continue
+
         if not header_ended:
             if stripped.startswith("= "):
                 header_started = True
@@ -78,5 +94,6 @@ def prepare_presentation_adoc_for_compile(
         for k, v in header_attrs.items():
             if k not in found_keys:
                 processed_lines.append(v)
+                found_keys.add(k)
 
     return "\n".join(processed_lines)

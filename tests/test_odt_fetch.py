@@ -286,3 +286,33 @@ def test_find_candidates_prioritizes_odt():
     assert "https://example.com/manual.pdf" not in candidates
     assert "https://example.com/guide.html" in candidates
     conn.close()
+
+
+def test_extract_odt_xxe_protection():
+    """Verify ODT XML parser refuses external entity expansion (XXE protection)."""
+    import io
+    import zipfile
+    from claire.ingest.fetchers.odt import extract_odt_bytes
+
+    xxe_xml = b"""<?xml version="1.0" encoding="UTF-8"?>
+    <!DOCTYPE test [
+      <!ENTITY xxe SYSTEM "file:///etc/hostname">
+    ]>
+    <office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"
+                             xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0">
+      <office:body>
+        <office:text>
+          <text:p>&xxe;</text:p>
+        </office:text>
+      </office:body>
+    </office:document-content>"""
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("mimetype", "application/vnd.oasis.opendocument.text")
+        zf.writestr("content.xml", xxe_xml)
+
+    title, text, links, anchors, error, images = extract_odt_bytes(buf.getvalue())
+    hostname = Path("/etc/hostname").read_text(encoding="utf-8").strip() if Path("/etc/hostname").exists() else ""
+    if hostname:
+        assert hostname not in text
