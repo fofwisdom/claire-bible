@@ -1308,6 +1308,7 @@ def create_app(
             "Disallow: /.well-known/oauth*",
             "Disallow: /mcp",
             "Disallow: /support/bundle",
+            "Disallow: /graph/bundle",
             "Disallow: /whoami",
             "Disallow: /stats",
             "Disallow: /limits",
@@ -3414,11 +3415,84 @@ def create_app(
             },
         )
 
+    async def create_graph_bundle_route(request: Request) -> JSONResponse:
+        from ..graph_bundle import create_graph_bundle
+
+        scope = request_auth_scope(request)
+        if scope != "owner":
+            raise HTTPException(status_code=401, detail="owner authorization required")
+
+        content_type = request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+        if content_type in ("application/json", "application/problem+json"):
+            body = await _json_object(request)
+        else:
+            body = {}
+
+        raw_theme_id = body.get("theme_id", 0)
+        try:
+            theme_id = int(raw_theme_id)
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=400, detail="theme_id must be an integer")
+
+        source_channel = str(body.get("source_channel") or "api")
+        if source_channel not in {"api", "telegram_command", "telegram_callback"}:
+            source_channel = "api"
+
+        def _generate() -> dict[str, Any]:
+            info = create_graph_bundle(
+                s,
+                theme_id=theme_id,
+                request_context={"channel": source_channel},
+            )
+            return info.to_dict()
+
+        try:
+            bundle_dict = await asyncio.to_thread(_generate)
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        return JSONResponse(bundle_dict)
+
+    async def download_graph_bundle_route(request: Request) -> Response:
+        from ..graph_bundle import get_graph_bundle, lookup_graph_bundle_by_token
+
+        token = request.query_params.get("token", "").strip()
+        if not token or len(token) < 16:
+            return PlainTextResponse("Not Found", status_code=404)
+
+        record = await asyncio.to_thread(lookup_graph_bundle_by_token, s.data_dir, token)
+        if not record:
+            return PlainTextResponse("Not Found", status_code=404)
+
+        bundle = await asyncio.to_thread(get_graph_bundle, s.data_dir, token)
+        if not bundle:
+            return JSONResponse(
+                {"error": "graph bundle has expired and was purged"},
+                status_code=410,
+            )
+
+        filepath = Path(bundle["filepath"])
+        if not filepath.is_file():
+            return PlainTextResponse("Not Found", status_code=404)
+
+        return FileResponse(
+            str(filepath),
+            media_type="application/zstd",
+            filename=bundle["filename"],
+            headers={
+                "Cache-Control": "no-store, private",
+                "Content-Disposition": f'attachment; filename="{bundle["filename"]}"',
+            },
+        )
+
     @asynccontextmanager
     async def app_lifespan(_app: Starlette):
         from ..support_bundle import purge_expired_bundles
+        from ..graph_bundle import purge_expired_graph_bundles
 
         await asyncio.to_thread(purge_expired_bundles, s.data_dir)
+        await asyncio.to_thread(purge_expired_graph_bundles, s.data_dir)
         async with mcp_app.router.lifespan_context(mcp_app):
             yield
 
@@ -3528,6 +3602,8 @@ def create_app(
         Route("/p/presentation", presentation_page, methods=["GET", "HEAD"]),
         Route("/support/bundle", create_support_bundle_route, methods=["POST"]),
         Route("/support/bundle", download_support_bundle_route, methods=["GET"]),
+        Route("/graph/bundle", create_graph_bundle_route, methods=["POST"]),
+        Route("/graph/bundle", download_graph_bundle_route, methods=["GET"]),
         Route("/reference", docs_ui_route, methods=["GET"]),
         Route("/openapi.yaml", openapi_yaml_route, methods=["GET"]),
         Route("/.well-known/oauth-protected-resource", handle_protected_resource_metadata, methods=["GET", "HEAD"]),

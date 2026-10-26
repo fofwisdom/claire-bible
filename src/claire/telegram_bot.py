@@ -651,6 +651,67 @@ async def _create_support_bundle_for_delivery(
         raise RuntimeError("Support Bundle API returned an invalid response") from exc
 
 
+async def _create_graph_bundle_for_delivery(
+    settings,
+    *,
+    theme_id: int = 0,
+    channel: str,
+    transport=None,
+):
+    """Create graph bundle through the internal API service or local thread."""
+    from .graph_bundle import GraphBundleInfo, create_graph_bundle
+
+    api_url = str(
+        getattr(settings, "graph_bundle_api_url", "")
+        or getattr(settings, "support_bundle_api_url", "")
+        or ""
+    ).rstrip("/")
+    if not api_url:
+        return await asyncio.to_thread(
+            create_graph_bundle,
+            settings,
+            theme_id=theme_id,
+            request_context={"channel": channel},
+        )
+
+    parsed = urlsplit(api_url)
+    if (
+        parsed.scheme != "http"
+        or parsed.hostname != "api"
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.path not in {"", "/"}
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise RuntimeError(
+            "CLAIRE_GRAPH_BUNDLE_API_URL must be the Compose-internal http://api:<port> URL"
+        )
+    public_authority = urlsplit(str(settings.public_url)).netloc
+    if not public_authority:
+        raise RuntimeError("CLAIRE_FQDN is required for the internal Graph Bundle API")
+
+    import httpx
+
+    async with httpx.AsyncClient(timeout=300.0, transport=transport) as client:
+        response = await client.post(
+            f"{api_url}/graph/bundle",
+            headers={
+                "Authorization": f"Bearer {settings.inject_token}",
+                "Host": public_authority,
+            },
+            json={"theme_id": theme_id, "source_channel": channel},
+        )
+    if response.status_code != 200:
+        raise RuntimeError(
+            f"Graph Bundle API creation failed with HTTP {response.status_code}"
+        )
+    try:
+        return GraphBundleInfo.from_dict(response.json())
+    except (KeyError, TypeError, ValueError) as exc:
+        raise RuntimeError("Graph Bundle API returned an invalid response") from exc
+
+
 def build_app(settings: Settings | None = None) -> Any:
     s = settings or get_settings()
     if not s.telegram_bot_token:
@@ -2158,6 +2219,124 @@ def build_app(settings: Settings | None = None) -> Any:
         except Exception as exc:
             await status_msg.edit_text(f"❌ Support Bundle 생성 오류: {exc}")
 
+    async def on_export(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        user = update.effective_user
+        if not _is_allowed(user.id if user else None):
+            await update.message.reply_text("허용되지 않은 사용자입니다.")
+            return
+        msg = update.effective_message
+        if not msg:
+            return
+
+        args = list(ctx.args) if ctx.args else []
+        if not args or args[0].lower() in ("help", "-h", "--help"):
+            await msg.reply_text(
+                "📦 Claire Export 사용법:\n"
+                "  /export graph              — 기본 지식베이스(테마 0) 그래프 데이터 번들 내보내기 (.tar.zst)\n"
+                "  /export graph <테마ID>      — 지정된 테마 그래프 데이터 번들 내보내기\n"
+                "  /export graph list         — 활성 그래프 번들 목록 조회\n"
+                "  /export graph purge        — 24시간 초과 만료 번들 즉시 파기"
+            )
+            return
+
+        subcmd = args[0].lower()
+        if subcmd != "graph":
+            await msg.reply_text(
+                f"알 수 없는 하위 명령: '{subcmd}'\n"
+                "그래프 데이터 내보내기는 '/export graph [theme_id]' 명령을 사용하세요.\n"
+                "도움말: /export help"
+            )
+            return
+
+        sub_args = args[1:]
+        from .graph_bundle import (
+            list_active_graph_bundles,
+            purge_expired_graph_bundles,
+        )
+
+        if sub_args and sub_args[0].lower() == "list":
+            bundles = await asyncio.to_thread(list_active_graph_bundles, s.data_dir)
+            if not bundles:
+                await msg.reply_text("현재 활성화된 유효 Graph Bundle이 없습니다.")
+                return
+            import datetime
+            pub_url = s.public_url.rstrip('/') if s.public_url else ""
+            lines = ["📦 활성 Graph Data Bundle 목록 (최대 24시간 보존):"]
+            for b in bundles:
+                e_str = datetime.datetime.fromtimestamp(b["expires_at"]).strftime("%Y-%m-%d %H:%M")
+                size_kb = f"{b['size_bytes'] / 1024:.1f}KB"
+                theme_str = f"테마 #{b.get('theme_id', 0)}"
+                token_val = b.get("token")
+                token_part = f"\n  ↳ 링크: {pub_url}/graph/bundle?token={token_val}" if token_val and pub_url else ""
+                lines.append(f"• `{b['bundle_id']}` ({theme_str}, {size_kb}, 엔티티 {b.get('entities_count', 0)}, 관계 {b.get('relations_count', 0)}) ~{e_str} 만료{token_part}")
+            await msg.reply_text("\n".join(lines), disable_web_page_preview=True)
+            return
+
+        if sub_args and sub_args[0].lower() == "purge":
+            purged = await asyncio.to_thread(purge_expired_graph_bundles, s.data_dir)
+            await msg.reply_text(f"🧹 만료(24시간 초과) Graph Bundle {purged}건을 파기했습니다.")
+            return
+
+        theme_id = 0
+        if sub_args:
+            first_arg = sub_args[0]
+            if first_arg.isdigit():
+                theme_id = int(first_arg)
+            else:
+                await msg.reply_text(
+                    f"⚠️ 유효하지 않은 테마 ID입니다: '{first_arg}' (정수여야 합니다)\n"
+                    "사용법: /export graph [theme_id]"
+                )
+                return
+
+        status_msg = await msg.reply_text("⏳ 그래프 데이터 번들 생성 중…")
+        try:
+            info = await _create_graph_bundle_for_delivery(
+                s,
+                theme_id=theme_id,
+                channel="telegram_command",
+            )
+            theme_line = f"• 테마: #{info.theme_id}\n" if info.theme_id else ""
+            reply_text = (
+                "📦 Graph Data Bundle 생성 완료\n\n"
+                f"• 번들 ID: `{info.bundle_id}`\n"
+                f"{theme_line}"
+                f"• 엔티티: {info.entities_count:,}개\n"
+                f"• 관계: {info.relations_count:,}개\n"
+                f"• 문서 메타데이터: {info.documents_count:,}개\n"
+                f"• 파일 크기: {info.size_bytes / (1024 * 1024):.2f} MB ({info.size_bytes / 1024:.1f} KB, zstd 압축)\n"
+                f"• 유효 기한: 24시간 후 자동 파기\n"
+                f"• 다운로드 링크 (24시간 유효):\n{info.download_url}\n\n"
+                "⚠️ 24시간 경과 시 다운로드 링크 및 디스크 아카이브는 자동 파기됩니다."
+            )
+            await status_msg.edit_text(reply_text, disable_web_page_preview=True)
+
+            sent_document = False
+            if info.filepath.is_file() and info.size_bytes <= 45 * 1024 * 1024:
+                try:
+                    caption = (
+                        f"Graph Bundle: {info.bundle_id}\n"
+                        f"엔티티: {info.entities_count:,} | 관계: {info.relations_count:,}\n"
+                        f"크기: {info.size_bytes / 1024:.1f} KB | 24시간 후 자동 파기"
+                    )
+                    with open(info.filepath, "rb") as doc_file:
+                        await msg.reply_document(
+                            document=doc_file,
+                            filename=info.filename,
+                            caption=caption,
+                        )
+                    sent_document = True
+                except Exception as doc_err:
+                    log.warning("Failed to send graph bundle as telegram document: %s", doc_err)
+
+            if not sent_document:
+                await msg.reply_text(
+                    f"🔗 Graph Bundle 다운로드 링크 (24시간 유효):\n{info.download_url}",
+                    disable_web_page_preview=True,
+                )
+        except Exception as exc:
+            await status_msg.edit_text(f"❌ Graph Bundle 생성 오류: {exc}")
+
     async def on_repo(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
         if not _is_allowed(update.effective_user.id if update.effective_user else None):
             return
@@ -2278,6 +2457,7 @@ def build_app(settings: Settings | None = None) -> Any:
     app.add_handler(CommandHandler("help", on_help))
     app.add_handler(CommandHandler("status", on_status))
     app.add_handler(CommandHandler("support", on_support))
+    app.add_handler(CommandHandler("export", on_export))
     app.add_handler(CommandHandler("repo", on_repo))
     app.add_handler(CommandHandler("theme", on_theme))
     app.add_handler(CommandHandler("search", on_search))
@@ -2319,6 +2499,7 @@ def build_app(settings: Settings | None = None) -> Any:
             BotCommand("help", "사용법"),
             BotCommand("status", "현황(그래프/수렴/최근)"),
             BotCommand("support", "Support Bundle 관리 (/support bundle)"),
+            BotCommand("export", "데이터 덤프 번들 내보내기 (/export graph)"),
             BotCommand("repo", "소스 리포지토리 링크"),
             BotCommand("search", "검색 + 요약"),
             BotCommand("ingest", "초점 지정 적재"),

@@ -590,6 +590,9 @@ class Settings(BaseSettings):
     support_bundle_api_url: str = Field(
         default="", alias="CLAIRE_SUPPORT_BUNDLE_API_URL"
     )
+    graph_bundle_api_url: str = Field(
+        default="", alias="CLAIRE_GRAPH_BUNDLE_API_URL"
+    )
     # 읽기 전용 공개 토큰 — owner bearer(inject_token)와 별개. GET(검색/그래프/노드상세/
     # 문서목록)만 통과시키고 쓰기(ingest/dedup-merge/공유링크발급 등)는 차단(에이전트 조회용).
     readonly_token: str = Field(default="", alias="CLAIRE_READONLY_TOKEN")

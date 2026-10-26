@@ -13,7 +13,7 @@ Command Groups:
   Formats & Truncation:  format-status, format-migrate, artifact-migrate, truncation-status, truncation-backfill, stt-scan, stt-backfill
   Queues & Workers:      queue, replay-failed, recover-run, refresh-mark, refresh-run, expand-run
   Document Management:   doc, doc-title, watch, share, auth
-  Graph & Entities:      link-relations, re-embed, entity
+  Graph & Entities:      link-relations, re-embed, entity, export-graph, import-graph
   Deduplication & Purge: dedup-scan, recanonicalize, dedup-merge, purge, audit
 """
 
@@ -4398,6 +4398,86 @@ def cmd_providers(args) -> int:
     return 0
 
 
+def cmd_export_graph(args: Any) -> int:
+    """Export knowledge graph topology to a compressed bundle."""
+    from .graph_bundle import create_graph_bundle
+
+    s = get_settings()
+    theme_ref = getattr(args, "theme", 0)
+    output_path = getattr(args, "output", None)
+
+    try:
+        info = create_graph_bundle(
+            settings=s,
+            theme_id=theme_ref,
+            request_context={"channel": "cli"},
+            output_path=output_path,
+        )
+    except Exception as exc:
+        print(f"Error: failed to export graph bundle: {exc}", file=sys.stderr)
+        return 1
+
+    if getattr(args, "json", False):
+        print(json.dumps(info.to_dict(), ensure_ascii=False, indent=2))
+        return 0
+
+    print("=" * 60)
+    print("Graph Data Bundle Export Completed")
+    print(f"• Bundle ID       : {info.bundle_id}")
+    print(f"• Theme ID        : {info.theme_id}")
+    print(f"• Entities        : {info.entities_count}")
+    print(f"• Relations       : {info.relations_count}")
+    print(f"• Documents       : {info.documents_count}")
+    print(f"• Archive Path    : {info.filepath}")
+    print(f"• Size            : {info.size_bytes} bytes ({info.size_bytes / 1024:.1f} KB)")
+    print(f"• Download Token  : {info.token}")
+    print("=" * 60)
+    return 0
+
+
+def cmd_import_graph(args: Any) -> int:
+    """Import knowledge graph topology from a bundle archive."""
+    from .graph_bundle import import_graph_bundle
+
+    s = get_settings()
+    bundle_path = getattr(args, "bundle_path", "")
+    theme_ref = getattr(args, "theme", 0)
+    target_db = getattr(args, "target_db", None)
+
+    if not target_db:
+        target_db = s.db_file
+        if getattr(s, "multi_theme", False) or (theme_ref and str(theme_ref) != "0"):
+            try:
+                from .store.theme import get_theme_manager
+
+                tm = get_theme_manager(s)
+                theme = tm.get_theme(theme_ref)
+                target_db = Path(theme.db_path)
+            except Exception as exc:
+                print(f"Warning: theme '{theme_ref}' lookup failed ({exc}). Use default database.", file=sys.stderr)
+                target_db = s.db_file
+
+    try:
+        result = import_graph_bundle(target_db_path=target_db, bundle_path=bundle_path)
+    except Exception as exc:
+        print(f"Error: failed to import graph bundle: {exc}", file=sys.stderr)
+        return 1
+
+    if getattr(args, "json", False):
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0
+
+    print("=" * 60)
+    print("Graph Data Bundle Import Completed")
+    print(f"• Bundle ID       : {result.get('bundle_id')}")
+    print(f"• Target DB       : {result.get('target_db_path')}")
+    print(f"• Entities        : {result.get('entities_count')}")
+    print(f"• Relations       : {result.get('relations_count')}")
+    print(f"• Documents       : {result.get('documents_count')}")
+    print("=" * 60)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="claire",
@@ -5408,6 +5488,57 @@ def build_parser() -> argparse.ArgumentParser:
     peb.add_argument("-t", "--theme", default=None, help="target theme ID, sequence number, or label")
     peb.add_argument("--json", action="store_true", help="output result in JSON format")
     peb.set_defaults(func=cmd_entity_batch_labels)
+
+    pexp = sub.add_parser(
+        "export-graph",
+        help="export knowledge graph topology snapshot to compressed bundle (.tar.zst)",
+        description="Export entities, relations, and sanitized document metadata to a zstd-compressed bundle without vector embeddings or secret credentials.",
+    )
+    pexp.add_argument(
+        "-t",
+        "--theme",
+        default=0,
+        help="target theme ID or sequence number (default: 0)",
+    )
+    pexp.add_argument(
+        "-o",
+        "--output",
+        default=None,
+        help="output file path for exported bundle archive (optional)",
+    )
+    pexp.add_argument(
+        "--json",
+        action="store_true",
+        help="output bundle metadata in JSON format",
+    )
+    pexp.set_defaults(func=cmd_export_graph)
+
+    pimp = sub.add_parser(
+        "import-graph",
+        help="import knowledge graph topology snapshot from bundle (.tar.zst)",
+        description="Import entities, relations, and document metadata from a graph bundle into a target theme database.",
+    )
+    pimp.add_argument(
+        "bundle_path",
+        help="path to graph bundle archive file (.tar.zst)",
+    )
+    pimp.add_argument(
+        "-t",
+        "--theme",
+        default=0,
+        help="target theme ID or sequence number (default: 0)",
+    )
+    pimp.add_argument(
+        "--target-db",
+        default=None,
+        help="explicit target SQLite database file path (overrides theme db path)",
+    )
+    pimp.add_argument(
+        "--json",
+        action="store_true",
+        help="output import results in JSON format",
+    )
+    pimp.set_defaults(func=cmd_import_graph)
 
     return p
 
