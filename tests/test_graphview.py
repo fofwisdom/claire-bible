@@ -516,11 +516,11 @@ def test_render_graph_html_default():
     html = render_graph_html()
     assert "https://github.com/fofwisdom/claire-bible" in html
     assert "fofwisdom/claire-bible" in html
-    assert '<span class="brand"' in html
-    assert 'onclick="resetHome()"' in html
-    assert 'title="전체 지식 그래프 보기"' in html
-    assert 'aria-label="전체 지식 그래프 보기"' in html
+    assert '<a class="brand"' in html
+    assert 'onclick="if(!event.ctrlKey&&!event.metaKey&&event.button===0){event.preventDefault();enterHome({reason:\'brand\'});}"' in html
+    assert 'title="Claire Bible 홈 (지식 그래프)"' in html
     assert 'function resetHome()' in html
+    assert 'function enterHome(' in html
     assert 'id="repolink"' in html
     assert 'id="drawermanager"' in html
     assert "지식 관리자: owner" in html
@@ -951,16 +951,16 @@ def test_default_graph_view_and_stream_tabs_separation():
     assert '<body class="ro" data-auth-scope="unknown" data-active-pane="graph" data-center-view="graph">' in GRAPH_HTML
     assert "centertab-graph\" type=\"button\" class=\"center-tab-btn active\"" in GRAPH_HTML
 
-    # 2. 로고(brand) 클릭 시 전체 그래프 보기 복원
-    assert 'title="전체 지식 그래프 보기"' in GRAPH_HTML
-    assert 'aria-label="전체 지식 그래프 보기"' in GRAPH_HTML
+    # 2. 로고(brand) 클릭 시 홈(지식 그래프) 보기 복원
+    assert 'title="Claire Bible 홈 (지식 그래프)"' in GRAPH_HTML
 
-    # 3. resetHome() 호출 시 전체 그래프 뷰로 복원
-    r_home_start = GRAPH_HTML.index("function resetHome(){")
+    # 3. enterHome() 및 resetHome() 호출 시 전체 그래프 뷰로 복원
+    r_home_start = GRAPH_HTML.index("async function enterHome(")
     r_home_end = GRAPH_HTML.index("function selectDoc(id){")
     r_home_fn = GRAPH_HTML[r_home_start:r_home_end]
     assert "setCenterView('graph');" in r_home_fn
-    assert "document.title = 'Claire Bible — 지식 그래프';" in r_home_fn
+    assert "document.title = HOME_TITLE;" in r_home_fn
+    assert "function resetHome(){" in r_home_fn
 
     # 4. 본문/그래프/프레젠테이션 뷰 탭 박스(#centertabs)와 의사결정 스트림 탭 박스(#streamtabs)의 구조적 분리
     assert '<div id="centertabs" class="center-tabs"' in GRAPH_HTML

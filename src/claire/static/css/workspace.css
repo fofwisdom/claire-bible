@@ -30,7 +30,8 @@
   #format-warn-banner .close-btn{background:transparent;border:0;color:inherit;font-size:15px;cursor:pointer;line-height:1;padding:2px 6px;border-radius:4px;opacity:.75}
   #format-warn-banner .close-btn:hover{opacity:1;background:rgba(0,0,0,.08)}
   [data-theme="dark"] #format-warn-banner .close-btn:hover{background:rgba(255,255,255,.1)}
-  #bar .brand{font-weight:700;letter-spacing:-.01em;cursor:pointer;user-select:none;transition:opacity .15s ease}
+  #bar .brand{font-weight:700;letter-spacing:-.01em;cursor:pointer;user-select:none;transition:opacity .15s ease;text-decoration:none;color:inherit;display:inline-flex;align-items:center;gap:6px}
+  #bar .brand img{display:inline-block;vertical-align:middle;filter:drop-shadow(0 0 4px rgba(0,255,170,0.5))}
   #bar .brand:hover{opacity:.85}
   #bar b{color:var(--accent2)}
   .bar-brand-group{display:flex;align-items:center;gap:10px;min-width:0}
@@ -509,4 +510,59 @@
   button.node-alias-chip.selectable:hover { border-color: var(--accent); background: var(--hover); color: var(--accent); transform: translateY(-1px); box-shadow: 0 2px 6px rgba(0, 255, 170, 0.15); }
   button.node-alias-chip.selectable:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
   .node-alias-chip .alias-star { color: var(--accent); font-size: 11px; opacity: .85; }
+
+  /* --- Multi-Slot Concurrent Jobs UI (Track 2: Responsive Hybrid Slots) --- */
+  .job-slots-container { padding: 12px 16px 0; background: var(--card-bg); border-bottom: 1px solid var(--border); box-sizing: border-box; }
+  .job-slots-desktop { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; margin-bottom: 12px; }
+  .job-slots-mobile { display: none; }
+
+  @media (max-width: 767px) {
+    .job-slots-desktop { display: none; }
+    .job-slots-mobile { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+  }
+
+  /* Slot Card Pills (Proposal A - Desktop) */
+  .job-slot-card { display: flex; flex-direction: column; gap: 4px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; cursor: pointer; text-align: left; transition: all 0.15s ease; user-select: none; position: relative; overflow: hidden; color: var(--fg); font-family: inherit; }
+  .job-slot-card:hover { border-color: var(--accent, #00ffaa); background: var(--hover); }
+  .job-slot-card.active, .job-slot-card[aria-selected="true"] { border-color: var(--accent, #00ffaa); box-shadow: 0 0 0 1px var(--accent, #00ffaa), 0 2px 8px rgba(0, 255, 170, 0.2); background: var(--card-bg); }
+  .slot-header { display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: 11px; }
+  .slot-badges { display: flex; align-items: center; gap: 4px; min-width: 0; }
+  .slot-kind-badge { background: rgba(0, 255, 170, 0.15); color: var(--accent, #00ffaa); border-radius: 4px; padding: 1px 5px; font-weight: 600; font-size: 10px; white-space: nowrap; }
+  .slot-theme-badge { background: var(--sec-bg); color: var(--muted); border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; font-size: 10px; white-space: nowrap; }
+  .slot-pct { font-size: 11px; font-weight: 700; color: var(--accent, #00ffaa); flex-shrink: 0; }
+  .slot-title { font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin: 2px 0; color: var(--fg); }
+  .slot-progress-bar { width: 100%; height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; margin-top: 2px; }
+  .slot-progress-fill { height: 100%; background: var(--accent, #00ffaa); transition: width 0.3s ease; border-radius: 2px; }
+  .slot-spinner { display: inline-block; width: 10px; height: 10px; border: 2px solid rgba(0, 255, 170, 0.3); border-top-color: var(--accent, #00ffaa); border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: middle; }
+
+  /* Slot Accordion (Proposal D - Mobile) */
+  .job-slot-accordion { border: 1px solid var(--border); border-radius: 8px; background: var(--bg); overflow: hidden; transition: border-color 0.15s ease; }
+  .job-slot-accordion.open, .job-slot-accordion.active { border-color: var(--accent, #00ffaa); }
+  .accordion-header { width: 100%; display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; background: transparent; border: 0; color: var(--fg); font-family: inherit; font-size: 12px; cursor: pointer; text-align: left; gap: 8px; }
+  .accordion-title-wrap { display: flex; align-items: center; gap: 6px; min-width: 0; flex: 1; }
+  .accordion-arrow { display: inline-block; transition: transform 0.2s ease; font-size: 10px; color: var(--muted); }
+  .job-slot-accordion.open .accordion-arrow { transform: rotate(90deg); color: var(--accent, #00ffaa); }
+  .accordion-title { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .accordion-status-wrap { display: flex; align-items: center; gap: 6px; flex-shrink: 0; font-size: 11px; }
+  .accordion-body { display: none; padding: 8px 12px 12px; border-top: 1px solid var(--border); background: var(--card-bg); }
+  .job-slot-accordion.open .accordion-body { display: block; }
+
+  /* 5-Stage Stepper */
+  .matrix-stepper { display: inline-flex; align-items: center; gap: 4px; margin: 6px 0; font-size: 12px; flex-wrap: wrap; }
+  .stepper-step { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); font-weight: 500; font-size: 11px; }
+  .stepper-step.completed { color: #10b981; }
+  .stepper-step.completed .step-dot { color: #10b981; }
+  .stepper-step.current { color: var(--accent, #00ffaa); font-weight: 700; }
+  .stepper-step.current .step-dot { color: var(--accent, #00ffaa); display: inline-block; animation: pulse-dot 1.2s ease-in-out infinite alternate; }
+  .stepper-step.pending { color: var(--muted); opacity: 0.6; }
+  .stepper-line { width: 12px; height: 2px; background: var(--border); }
+  .stepper-line.completed { background: #10b981; }
+  .stepper-elapsed { font-size: 11px; color: var(--muted); margin-left: 8px; }
+  @keyframes pulse-dot { 0% { transform: scale(0.9); opacity: 0.7; } 100% { transform: scale(1.2); opacity: 1; } }
+
+  /* Placeholder Wave for Non-Heatmap or Pre-Resolve Stages */
+  .matrix-placeholder-wave { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 48px 16px; text-align: center; color: var(--muted); width: 100%; box-sizing: border-box; }
+  .matrix-placeholder-wave .wave-pulse-ring { width: 42px; height: 42px; border-radius: 50%; border: 3px solid var(--accent, #00ffaa); border-top-color: transparent; animation: spin 1s linear infinite; margin-bottom: 14px; }
+  .matrix-placeholder-wave .wave-msg { font-size: 14px; font-weight: 600; color: var(--fg); margin: 0 0 6px; }
+  .matrix-placeholder-wave .wave-sub { font-size: 12px; color: var(--muted); }
 

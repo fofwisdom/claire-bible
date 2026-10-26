@@ -1,10 +1,10 @@
 <!doctype html>
 <html lang="ko"><head><meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>Claire Bible — 의사결정 스트림</title>
+<title>Claire Bible — 지식 그래프</title>
 <meta name="robots" content="index, follow"/>
 <meta name="description" content="Claire Bible — 온톨로지 지식 그래프 및 의사결정 스트림 개인 지식 베이스"/>
-<meta property="og:title" content="Claire Bible — 의사결정 스트림"/>
+<meta property="og:title" content="Claire Bible — 지식 그래프"/>
 <meta property="og:description" content="온톨로지 지식 그래프 및 의사결정 스트림 개인 지식 베이스"/>
 <meta property="og:type" content="website"/>
 <meta name="mobile-web-app-capable" content="yes"/>
@@ -78,7 +78,10 @@
 <body class="ro" data-auth-scope="unknown" data-active-pane="graph" data-center-view="graph">
 <header id="bar">
   <div class="bar-brand-group">
-    <span class="brand" role="button" tabindex="0" onclick="resetHome()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();resetHome();}" title="전체 지식 그래프 보기" aria-label="전체 지식 그래프 보기" style="display:inline-flex;align-items:center;gap:6px"><img src="/favicon.svg" width="20" height="20" alt="" aria-hidden="true" style="display:inline-block;vertical-align:middle;filter:drop-shadow(0 0 4px rgba(0,255,170,0.5))"/>Claire Bible</span>
+    <a class="brand" href="./" onclick="if(!event.ctrlKey&&!event.metaKey&&event.button===0){event.preventDefault();enterHome({reason:'brand'});}" title="Claire Bible 홈 (지식 그래프)">
+      <img src="/favicon.svg" width="20" height="20" alt="" aria-hidden="true"/>
+      Claire Bible
+    </a>
     <div class="theme-picker-wrap" id="theme-picker-wrap" __THEME_PICKER_TITLE_ATTR__ __THEME_PICKER_STYLE_ATTR__>
       <label for="theme-select" class="sr-only">지식 테마 선택</label>
       <div class="theme-select-control" id="theme-select-control" __THEME_SELECT_STYLE_ATTR__>
@@ -205,6 +208,10 @@
       </div>
     </section>
     <section id="matrixwrap" class="workspace-pane" role="region" aria-label="지식 대조 히트맵 매트릭스">
+      <div id="job-slots-container" class="job-slots-container" aria-label="활성 작업 목록" style="display:none">
+        <div id="job-slots-desktop" class="job-slots-desktop" role="tablist" aria-label="동시 작업 탭"></div>
+        <div id="job-slots-mobile" class="job-slots-mobile" role="region" aria-label="동시 작업 아코디언"></div>
+      </div>
       <div id="matrix-topbar">
         <div class="matrix-title-group">
           <div class="matrix-indicator"></div>
@@ -220,6 +227,7 @@
       <div id="matrix-progress-banner">
         <div class="matrix-progress-spinner" id="matrix-progress-spinner" style="display:none"></div>
         <span id="matrix-progress-msg"></span>
+        <div id="matrix-stepper" class="matrix-stepper" role="progressbar" aria-label="작업 단계" style="display:none"></div>
       </div>
       <div id="matrix-cell-inspect-bar" class="matrix-cell-inspect-bar" aria-live="polite">
         <span id="matrix-inspect-text">셀을 가리키면 대조 상세 정보가 표시됩니다.</span>

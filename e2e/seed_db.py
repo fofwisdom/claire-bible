@@ -11,6 +11,16 @@ def seed(db_path: Path) -> None:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     if db_path.exists():
         db_path.unlink()
+    active_state = db_path.parent / "active_ingest.json"
+    if active_state.exists():
+        active_state.unlink()
+    active_jobs_dir = db_path.parent / "active_jobs"
+    if active_jobs_dir.exists():
+        for f in active_jobs_dir.glob("*.json"):
+            try:
+                f.unlink()
+            except OSError:
+                pass
 
     conn = dbm.connect(db_path)
     try:

@@ -1347,3 +1347,323 @@ test('WebUI regenerate button opens form and executes without client script erro
   expect(pageErrors).toEqual([]);
 });
 
+test('brand logo click restores default home state (degree, center view, title, URL) identical to boot', async ({ page }) => {
+  const pageErrors = [];
+  page.on('pageerror', error => pageErrors.push(error.message));
+  await page.setViewportSize({ width: 1280, height: 800 });
+
+  await page.route('**/stats', async (route) => {
+    const res = await route.fetch();
+    const json = await res.json();
+    json.ingesting = false;
+    json.active_jobs = [];
+    json.active_ingest = null;
+    await route.fulfill({ response: res, json });
+  });
+
+  // 1. Boot
+  await waitForClaire(page);
+  await expect(page).toHaveTitle('Claire Bible — 지식 그래프');
+  const initialCenterView = await page.locator('body').getAttribute('data-center-view');
+  expect(initialCenterView).toBe('graph');
+  const initialDeg = await page.evaluate(() => window.claireDebug?.curMinDeg);
+  const initialUrl = page.url();
+
+  // 2. Modify state: search query, change degree preset, switch center view
+  await page.locator('#q').fill('Anthropic');
+  await page.locator('.deg-preset-btn[data-deg="5"]').click();
+  await page.locator('#centertab-stream').click();
+  await expect(page.locator('body')).toHaveAttribute('data-center-view', 'stream');
+
+  // 3. Click brand logo anchor
+  const brand = page.locator('a.brand');
+  await expect(brand).toBeVisible();
+  await brand.click();
+
+  // 4. Verify restored state identical to boot
+  await expect(page.locator('body')).toHaveAttribute('data-center-view', 'graph');
+  await expect(page).toHaveTitle('Claire Bible — 지식 그래프');
+  const restoredDeg = await page.evaluate(() => window.claireDebug?.curMinDeg);
+  expect(restoredDeg).toBe(initialDeg);
+  await expect(page.locator('#q')).toHaveValue('');
+  expect(page.url()).toBe(initialUrl);
+  expect(pageErrors).toEqual([]);
+});
+
+test('desktop multi-slot UI (Proposal A) renders tab cards for multiple jobs and switches selected job on click', async ({ page }) => {
+  const pageErrors = [];
+  page.on('pageerror', error => pageErrors.push(error.message));
+  await page.setViewportSize({ width: 1280, height: 800 });
+
+  // Intercept stats to return 2 concurrent active jobs
+  await page.route('**/stats', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        documents: 5,
+        entities: 42,
+        relations: 68,
+        theme_id: 0,
+        theme_label: '기본 지식베이스',
+        ingesting: true,
+        active_jobs: [
+          {
+            job_id: 'j_1',
+            active: true,
+            kind: 'reingest',
+            theme_id: 0,
+            theme_label: '기본 지식베이스',
+            title: 'vSphere 8.0 Release Notes',
+            stage: 'resolve',
+            stages: ['fetch', 'extract', 'resolve', 'detail', 'done'],
+            msg: '엔티티 대조 텐서 계산 중 (68%)',
+            progress: 68,
+            heatmap_matrix: {
+              rows: ['vCenter Server', 'ESXi 8.0'],
+              cols: ['vCenter', 'ESXi Host'],
+              matrix: [[0.95, 0.45], [0.3, 0.98]],
+              threshold_auto_merge: 0.93,
+              threshold_borderline: 0.72
+            }
+          },
+          {
+            job_id: 'j_2',
+            active: true,
+            kind: 'ingest',
+            theme_id: 0,
+            theme_label: '기본 지식베이스',
+            title: 'Jev Bench Report',
+            stage: 'fetch',
+            stages: ['fetch', 'extract', 'resolve', 'detail', 'done'],
+            msg: '원문 수집 중…',
+            progress: 25,
+            heatmap_matrix: null
+          }
+        ],
+        active_ingest: {
+          active: true,
+          job_id: 'j_1',
+          kind: 'reingest',
+          theme_id: 0,
+          theme_label: '기본 지식베이스',
+          title: 'vSphere 8.0 Release Notes',
+          stage: 'resolve',
+          msg: '엔티티 대조 텐서 계산 중 (68%)',
+          progress: 68
+        }
+      })
+    });
+  });
+
+  await page.goto('/', { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('body')).toHaveAttribute('data-center-view', 'matrix');
+
+  // Verify container & desktop tab slots visible, mobile hidden
+  const container = page.locator('#job-slots-container');
+  await expect(container).toBeVisible();
+  const desktopSlots = page.locator('#job-slots-desktop');
+  await expect(desktopSlots).toBeVisible();
+  const mobileSlots = page.locator('#job-slots-mobile');
+  await expect(mobileSlots).toBeHidden();
+
+  // Verify Proposal A tabs rendered
+  const cards = desktopSlots.locator('.job-slot-card');
+  await expect(cards).toHaveCount(2);
+
+  const card1 = cards.nth(0);
+  const card2 = cards.nth(1);
+
+  await expect(card1.locator('.slot-title')).toContainText('vSphere 8.0');
+  await expect(card1.locator('.slot-kind-badge')).toHaveText('재적재');
+  await expect(card1.locator('.slot-pct')).toHaveText('68%');
+  await expect(card1).toHaveClass(/active/);
+  await expect(card1).toHaveAttribute('aria-selected', 'true');
+
+  await expect(card2.locator('.slot-title')).toContainText('Jev Bench');
+  await expect(card2.locator('.slot-kind-badge')).toHaveText('적재');
+  await expect(card2.locator('.slot-pct')).toHaveText('25%');
+  await expect(card2).not.toHaveClass(/active/);
+
+  // Initial matrix table rendered for Job 1
+  await expect(page.locator('#matrix-target-doc')).toContainText('vSphere 8.0');
+  await expect(page.locator('#matrix-tbody tr')).toHaveCount(2);
+
+  // Click card 2 to switch selected job
+  await card2.click();
+  await expect(card2).toHaveClass(/active/);
+  await expect(card1).not.toHaveClass(/active/);
+  await expect(page.locator('#matrix-target-doc')).toContainText('Jev Bench');
+
+  // Placeholder wave displayed for Job 2 (since heatmap_matrix is null)
+  await expect(page.locator('.matrix-placeholder-wave')).toBeVisible();
+  await expect(page.locator('.matrix-placeholder-wave .wave-msg')).toContainText('원문 수집 중');
+
+  expect(pageErrors).toEqual([]);
+});
+
+test('mobile multi-slot UI (Proposal D) renders vertical accordion and toggles collapse/expand', async ({ page }) => {
+  const pageErrors = [];
+  page.on('pageerror', error => pageErrors.push(error.message));
+  await page.setViewportSize({ width: 390, height: 844 });
+
+  await page.route('**/stats', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        documents: 5,
+        entities: 42,
+        relations: 68,
+        theme_id: 0,
+        theme_label: '기본 지식베이스',
+        ingesting: true,
+        active_jobs: [
+          {
+            job_id: 'j_1',
+            active: true,
+            kind: 'reingest',
+            theme_id: 0,
+            theme_label: '기본 지식베이스',
+            title: 'vSphere 8.0 Release Notes',
+            stage: 'resolve',
+            stages: ['fetch', 'extract', 'resolve', 'detail', 'done'],
+            msg: '엔티티 대조 텐서 계산 중',
+            progress: 68,
+            heatmap_matrix: null
+          },
+          {
+            job_id: 'j_2',
+            active: true,
+            kind: 'ingest',
+            theme_id: 0,
+            theme_label: '기본 지식베이스',
+            title: 'Jev Bench Report',
+            stage: 'fetch',
+            stages: ['fetch', 'extract', 'resolve', 'detail', 'done'],
+            msg: '원문 수집 중…',
+            progress: 25,
+            heatmap_matrix: null
+          }
+        ],
+        active_ingest: {
+          active: true,
+          job_id: 'j_1',
+          kind: 'reingest',
+          theme_id: 0,
+          theme_label: '기본 지식베이스',
+          title: 'vSphere 8.0 Release Notes',
+          stage: 'resolve',
+          msg: '엔티티 대조 텐서 계산 중',
+          progress: 68
+        }
+      })
+    });
+  });
+
+  await page.goto('/', { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('body')).toHaveAttribute('data-center-view', 'matrix');
+
+  // Verify container & mobile accordion slots visible, desktop hidden
+  const container = page.locator('#job-slots-container');
+  await expect(container).toBeVisible();
+  const desktopSlots = page.locator('#job-slots-desktop');
+  await expect(desktopSlots).toBeHidden();
+  const mobileSlots = page.locator('#job-slots-mobile');
+  await expect(mobileSlots).toBeVisible();
+
+  // Verify Proposal D accordions
+  const accordions = mobileSlots.locator('.job-slot-accordion');
+  await expect(accordions).toHaveCount(2);
+
+  const acc1 = accordions.nth(0);
+  const acc2 = accordions.nth(1);
+
+  // Job 1 initially open, Job 2 closed
+  await expect(acc1).toHaveClass(/open/);
+  await expect(acc1.locator('.accordion-body')).toBeVisible();
+  await expect(acc2).not.toHaveClass(/open/);
+  await expect(acc2.locator('.accordion-body')).toBeHidden();
+
+  // Tap accordion 2 header
+  await acc2.locator('.accordion-header').click();
+  await expect(acc2).toHaveClass(/open/);
+  await expect(acc2.locator('.accordion-body')).toBeVisible();
+  await expect(acc1).not.toHaveClass(/open/);
+  await expect(acc1.locator('.accordion-body')).toBeHidden();
+
+  expect(pageErrors).toEqual([]);
+});
+
+test('active ingest during boot correctly mounts matrix view and recovers on brand click', async ({ page }) => {
+  const pageErrors = [];
+  page.on('pageerror', error => pageErrors.push(error.message));
+  await page.setViewportSize({ width: 1280, height: 800 });
+
+  let ingestActive = true;
+  await page.route('**/stats', async (route) => {
+    if (ingestActive) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          documents: 5,
+          entities: 42,
+          relations: 68,
+          theme_id: 0,
+          theme_label: '기본 지식베이스',
+          ingesting: true,
+          active_ingest: {
+            active: true,
+            job_id: 'j_boot',
+            kind: 'ingest',
+            theme_id: 0,
+            theme_label: '기본 지식베이스',
+            title: '부트 적재 테스트',
+            stage: 'extract',
+            stages: ['fetch', 'extract', 'resolve', 'detail', 'done'],
+            msg: '엔티티 추출 진행 중',
+            progress: 45,
+            heatmap_matrix: null
+          }
+        })
+      });
+    } else {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          documents: 6,
+          entities: 50,
+          relations: 72,
+          theme_id: 0,
+          theme_label: '기본 지식베이스',
+          ingesting: false,
+          active_jobs: [],
+          active_ingest: null
+        })
+      });
+    }
+  });
+
+  // 1. Initial boot directly mounts matrix view
+  await page.goto('/', { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('body')).toHaveAttribute('data-center-view', 'matrix');
+  await expect(page.locator('#matrix-topbar')).toBeVisible();
+  await expect(page.locator('#matrix-target-doc')).toContainText('부트 적재 테스트');
+  await expect(page.locator('#matrix-stepper')).toBeVisible();
+
+  // 2. Job finishes, user clicks brand logo
+  ingestActive = false;
+  const brand = page.locator('a.brand');
+  await expect(brand).toBeVisible();
+  await brand.click();
+
+  // 3. Recovers to graph view, resets camera & title
+  await expect(page.locator('body')).toHaveAttribute('data-center-view', 'graph');
+  await expect(page).toHaveTitle('Claire Bible — 지식 그래프');
+  await expect(page.locator('#netwrap')).toBeVisible();
+
+  expect(pageErrors).toEqual([]);
+});
+

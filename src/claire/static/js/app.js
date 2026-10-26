@@ -81,6 +81,9 @@ let lastNetSize = {w:0, h:0};
 let allTypes = [], allRelTypes = [], allDocs = [];
 let net = null, allNodes = null, allEdges = null;
 let curMinDeg = 0, activeDoc = null, highlightSet = null, selectedNodeId = null, hoverTimer = null;
+const HOME_TITLE = 'Claire Bible — 지식 그래프';
+let activeJobs = [];
+let selectedJobId = null;
 let isolatedNodeId = null, activeHoverEdges = null, activeHoverNodes = null;
 let lastSelectedDocId = null;
 try{
@@ -400,7 +403,7 @@ async function switchKnowledgeTheme(themeId){
   window.history.replaceState(window.history.state, '', url.pathname + (url.search ? url.search : '') + url.hash);
 
   syncThemeSelectorUI();
-  resetHome();
+  await enterHome({reason: 'theme'});
 
   await Promise.all([
     reloadThemeData(true),
@@ -1575,11 +1578,18 @@ fetch('stats').then(r => r.ok ? r.json() : null).then(d => {
     window.latestHeatmapDocId = docId;
     window.latestHeatmapDocTitle = d.active_ingest.title || '';
   }
-  if(d && (d.ingesting || (d.active_ingest && d.active_ingest.active))){
+  const view = resolveHomeView(d, activeThemeId);
+  if(view === 'job'){
     suspendGraphForIngest();
     setCenterView('matrix');
-    handleActiveIngestState(d.active_ingest);
+    processActiveJobsStats(d);
     startFastIngestPolling();
+  } else if(view === 'graph+banner'){
+    initGraph();
+    showOtherThemeJobBanner(d);
+    if(centerView === 'stream' && typeof renderDecisionStreamCenter === 'function'){
+      renderDecisionStreamCenter(false);
+    }
   } else {
     initGraph();
     if(centerView === 'stream' && typeof renderDecisionStreamCenter === 'function'){
@@ -3136,7 +3146,8 @@ async function pollForUpdates(){
     const r = await fetch('stats');
     if(!r.ok){ scheduleNextPoll(); return; }
     const d = await r.json();
-    const isIngesting = !!(d.ingesting || (d.active_ingest && d.active_ingest.active));
+    activeJobs = extractActiveJobs(d);
+    const hasRunningJobs = activeJobs.some(j => j.active);
 
     // 최신 active_ingest 정보가 있으면 매트릭스 캐시 동기화
     if(d.active_ingest && d.active_ingest.heatmap_matrix){
@@ -3151,38 +3162,43 @@ async function pollForUpdates(){
       window.latestHeatmapDocTitle = d.active_ingest.title || '';
     }
 
-    if(isIngesting){
+    if(hasRunningJobs){
       if(!trackingIngest){
         trackingIngest = true;
         suspendGraphForIngest();
         setCenterView('matrix');
-        if(typeof initIngestMatrixView === 'function' && d.active_ingest){
-          initIngestMatrixView(d.active_ingest.payload, d.active_ingest.focus, d.active_ingest.theme_label);
-          activeMatrixInitialized = true;
-        }
         startFastIngestPolling();
       }
-      handleActiveIngestState(d.active_ingest);
+      renderMultiSlotUI(activeJobs);
       scheduleNextPoll(1500);
       return;
     }
 
     if(trackingIngest){
       trackingIngest = false;
-      handleActiveIngestCompleted(d.active_ingest);
       stopFastIngestPolling();
+      renderMultiSlotUI(activeJobs);
+      if(d.active_ingest){
+        handleActiveIngestCompleted(d.active_ingest);
+      }
       lastStatsSig = [d.documents, d.entities, d.relations].join(':');
       scheduleNextPoll();
       return;
     }
 
     // trackingIngest 상태가 아니었으나 matrix view가 열려있고 적재가 진행 중이 아닌 경우, 스피너 및 완료 상태 정리
-    if(typeof centerView !== 'undefined' && centerView === 'matrix' && !isIngesting){
-      const spin = document.getElementById('matrix-progress-spinner');
-      if(spin && spin.style.display !== 'none') spin.style.display = 'none';
-      const msgEl = document.getElementById('matrix-progress-msg');
-      if(msgEl && (!msgEl.textContent || msgEl.textContent.includes('준비 중') || msgEl.textContent.includes('진행 중'))){
-        msgEl.innerHTML = '✅ <strong>대조 완료</strong> (온톨로지 대조 밀도 계산 완료)';
+    if(typeof centerView !== 'undefined' && centerView === 'matrix' && !hasRunningJobs){
+      if(activeJobs.length > 0){
+        renderMultiSlotUI(activeJobs);
+      } else {
+        const container = document.getElementById('job-slots-container');
+        if(container) container.style.display = 'none';
+        const spin = document.getElementById('matrix-progress-spinner');
+        if(spin && spin.style.display !== 'none') spin.style.display = 'none';
+        const msgEl = document.getElementById('matrix-progress-msg');
+        if(msgEl && (!msgEl.textContent || msgEl.textContent.includes('준비 중') || msgEl.textContent.includes('진행 중'))){
+          msgEl.innerHTML = '✅ <strong>대조 완료</strong> (온톨로지 대조 밀도 계산 완료)';
+        }
       }
     }
 
@@ -4015,11 +4031,23 @@ async function panelToggleHide(id, val){
   if(chk) chk.checked = !!val;
   if(lbl) lbl.textContent = val ? '🙈 숨김 처리됨' : '목록에서 숨기기';
 }
-function resetHome(){
+function resetWorkspaceState(){
   cancelServerSearch();
   currentSearchSeq++;
   hideNodePop();
   closeDrawer();
+  if(typeof docDrawerOpen !== 'undefined' && docDrawerOpen){
+    closeDocDrawer(false);
+    docDrawerOpen = false;
+    document.body.classList.remove('docdrawer-open');
+  }
+  const gdm = document.getElementById('graphdocmenu');
+  if(gdm && !gdm.hidden){
+    closeGraphDocPicker(false, false);
+  }
+  closeReader(false, false);
+  if(typeof closeSttReader === 'function') closeSttReader();
+
   docSearchActive = false;
   const dq = document.getElementById('docq');
   if(dq && dq.value){
@@ -4035,6 +4063,7 @@ function resetHome(){
   streamSearchQuery = '';
   updateSearchModeUI();
   clearTimeout(searchDebounce);
+
   highlightSet = null;
   isolatedNodeId = null;
   unclusterEdges();
@@ -4042,29 +4071,157 @@ function resetHome(){
   if(net){
     try{ net.unselectAll(); }catch(_){}
   }
-  resetGraphCamera();
-  panel.innerHTML = defaultHint();
+
   activeDoc = null;
   selectedNodeId = null;
   curReaderDoc = null;
-  setCenterView('graph');
-  revealWorkspace('graph', false, true);
-  renderDocs();
-  applyView();
+  curReaderDocData = null;
+
+  // Reset curMinDeg to initial default based on node count (0/1/2/5)
+  const totalCount = allNodes ? allNodes.length : 0;
+  let initialDeg = 0;
+  if(totalCount >= 400){
+    initialDeg = 5;
+  } else if(totalCount >= 180){
+    initialDeg = 2;
+  } else if(totalCount >= 80){
+    initialDeg = 1;
+  } else {
+    initialDeg = 0;
+  }
+  curMinDeg = initialDeg;
+  const sl = document.getElementById('fslider');
+  if(sl){
+    sl.value = initialDeg;
+  }
+  const fm = document.getElementById('fmin');
+  if(fm) fm.textContent = initialDeg;
+  updateDegPresets();
+
+  // Reset relFilter and legend
+  relFilter = null;
+  renderLegend();
+
+  // Reset panel hint and graph camera
+  if(panel) panel.innerHTML = defaultHint();
   resetGraphCamera();
   syncGraphDocNav();
-  document.title = 'Claire Bible — 지식 그래프';
-  if(mobileMQ.matches){
-    closeReader(false, false);
+}
+
+function resolveHomeView(stats, activeThemeId){
+  if(!stats) return 'graph';
+  const targetTheme = (activeThemeId !== undefined && activeThemeId !== null) ? Number(activeThemeId) : 0;
+  let jobs = [];
+  if(Array.isArray(stats.active_jobs) && stats.active_jobs.length > 0){
+    jobs = stats.active_jobs.filter(j => j && j.active);
+  } else if(stats.active_ingest && stats.active_ingest.active){
+    jobs = [stats.active_ingest];
+  } else if(stats.ingesting){
+    jobs = [{ active: true, theme_id: targetTheme }];
   }
-  if(typeof window.gtag === 'function'){
+  if(jobs.length === 0) return 'graph';
+  const matchesCurrent = jobs.some(j => {
+    const jTheme = (j.theme_id !== undefined && j.theme_id !== null) ? Number(j.theme_id) : 0;
+    return jTheme === targetTheme;
+  });
+  if(matchesCurrent) return 'job';
+  return 'graph+banner';
+}
+
+function showOtherThemeJobBanner(stats){
+  const banner = document.getElementById('format-warn-banner');
+  if(!banner) return;
+  const otherJobs = (stats && Array.isArray(stats.active_jobs) ? stats.active_jobs : (stats && stats.active_ingest ? [stats.active_ingest] : []))
+    .filter(j => j && j.active && Number(j.theme_id !== undefined ? j.theme_id : 0) !== Number(activeThemeId));
+  if(!otherJobs.length) return;
+  const job = otherJobs[0];
+  const tName = job.theme_label || ('테마 #' + (job.theme_id || 0));
+  if(typeof ClaireStatusBanner !== 'undefined' && ClaireStatusBanner && ClaireStatusBanner.show){
+    ClaireStatusBanner.show('custom_notice', {
+      message: '다른 테마(' + tName + ')에서 ' + (job.title || '작업') + ' 진행 중입니다.'
+    }, {
+      level: 'info',
+      icon: '🔄',
+      title: '백그라운드 작업',
+      actionLabel: '👉 테마로 이동',
+      action: function(){
+        switchKnowledgeTheme(job.theme_id || 0);
+      }
+    });
+  }
+}
+
+function hideOtherThemeJobBanner(){
+  if(typeof ClaireStatusBanner !== 'undefined' && ClaireStatusBanner && ClaireStatusBanner.hide){
+    ClaireStatusBanner.hide();
+  }
+}
+
+async function enterHome({reason = 'brand'} = {}){
+  resetWorkspaceState();
+  document.title = HOME_TITLE;
+
+  // URL / History: preserve ?theme=N if non-zero, replaceState without pushing
+  const url = new URL(window.location.href);
+  const currentThemeParam = url.searchParams.get('theme');
+  url.search = (activeThemeId && activeThemeId !== 0) ? ('?theme=' + activeThemeId) : (currentThemeParam ? ('?theme=' + currentThemeParam) : '');
+  url.hash = '';
+  window.history.replaceState({ pane: 'graph', modal: null }, HOME_TITLE, url.pathname + url.search);
+
+  // Sync brand href with current theme
+  const brandLink = document.querySelector('a.brand');
+  if(brandLink){
+    brandLink.href = (activeThemeId && activeThemeId !== 0) ? ('./?theme=' + activeThemeId) : './';
+  }
+
+  let stats = null;
+  try{
+    const r = await fetch('stats', { cache: 'no-store' });
+    if(r.ok) stats = await r.json();
+  }catch(_){}
+
+  const view = resolveHomeView(stats, activeThemeId);
+
+  if(view === 'job'){
+    suspendGraphForIngest();
+    setCenterView('matrix');
+    processActiveJobsStats(stats);
+    startFastIngestPolling();
+  } else if(view === 'graph+banner'){
+    setCenterView('graph');
+    revealWorkspace('graph', false, true);
+    if(!graphInitialized){
+      initGraph();
+    } else {
+      applyView();
+      resetGraphCamera();
+    }
+    showOtherThemeJobBanner(stats);
+  } else {
+    // 'graph'
+    setCenterView('graph');
+    revealWorkspace('graph', false, true);
+    if(!graphInitialized){
+      initGraph();
+    } else {
+      applyView();
+      resetGraphCamera();
+    }
+    hideOtherThemeJobBanner();
+  }
+
+  if(reason === 'brand' && typeof window.gtag === 'function'){
     try{
-      window.gtag('event', 'page_view', {
-        page_title: document.title,
-        page_location: window.location.origin + '/'
+      window.gtag('event', 'home_navigate', {
+        reason: 'brand',
+        theme_id: activeThemeId
       });
     }catch(_){}
   }
+}
+
+function resetHome(){
+  return enterHome({reason: 'brand'});
 }
 
 function selectDoc(id){
@@ -5982,6 +6139,14 @@ window.claireDebug = {
   get availableThemes(){ return availableThemes; },
   get themeMode(){ return (window.__CLAIRE_CONFIG && window.__CLAIRE_CONFIG.themeMode) || '__THEME_MODE__'; },
   switchKnowledgeTheme: switchKnowledgeTheme,
+  get activeJobs(){ return activeJobs; },
+  get selectedJobId(){ return selectedJobId; },
+  get curMinDeg(){ return curMinDeg; },
+  enterHome: enterHome,
+  resetWorkspaceState: resetWorkspaceState,
+  resolveHomeView: resolveHomeView,
+  selectJobSlot: selectJobSlot,
+  renderMultiSlotUI: renderMultiSlotUI,
 };
 
 // ============================================================================
@@ -5989,6 +6154,255 @@ window.claireDebug = {
 // ============================================================================
 
 let currentMatrixData = null;
+
+const STAGES = ['fetch', 'extract', 'resolve', 'detail', 'done'];
+const STAGE_LABELS = {
+  init: '준비',
+  fetch: '수집',
+  extract: '추출',
+  resolve: '해소',
+  detail: '상세',
+  done: '완료',
+  error: '오류'
+};
+const STAGE_PROGRESS = {
+  init: 5,
+  fetch: 20,
+  extract: 45,
+  resolve: 70,
+  detail: 90,
+  done: 100,
+  error: 100
+};
+const KIND_LABELS = {
+  ingest: '적재',
+  reingest: '재적재',
+  regenerate: '재생성'
+};
+
+function extractActiveJobs(d){
+  if(!d) return [];
+  if(Array.isArray(d.active_jobs) && d.active_jobs.length > 0){
+    return d.active_jobs.filter(j => j && (j.active || (j.completed_at && (Date.now()/1000 - j.completed_at < 30))));
+  }
+  if(d.active_ingest && (d.active_ingest.active || (d.active_ingest.completed_at && (Date.now()/1000 - d.active_ingest.completed_at < 30)))){
+    const copy = Object.assign({}, d.active_ingest);
+    if(!copy.job_id) copy.job_id = 'default_active_ingest';
+    return [copy];
+  }
+  if(d.ingesting){
+    return [{
+      job_id: 'default_ingest',
+      active: true,
+      kind: 'ingest',
+      theme_id: (typeof activeThemeId !== 'undefined' ? activeThemeId : 0),
+      title: '적재 진행 중…',
+      stage: 'extract',
+      msg: '원문 분석 및 엔티티 대조 준비 중…'
+    }];
+  }
+  return [];
+}
+
+function selectJobSlot(jobId, isMobileToggle = false){
+  selectedJobId = jobId;
+  renderMultiSlotUI(activeJobs);
+}
+
+function buildStepperHtml(job){
+  if(!job) return '';
+  const stages = (Array.isArray(job.stages) && job.stages.length > 0) ? job.stages : STAGES;
+  const curStage = job.stage || 'init';
+  const curIdx = stages.indexOf(curStage);
+  const isDone = curStage === 'done';
+  const isError = curStage === 'error';
+
+  let html = '<div class="matrix-stepper" role="progressbar" aria-label="작업 단계">';
+  stages.forEach((stg, i) => {
+    let cls = 'pending';
+    let dot = '○';
+    if(isDone || (curIdx !== -1 && i < curIdx)){
+      cls = 'completed';
+      dot = '●';
+    } else if(i === curIdx){
+      cls = isError ? 'error' : 'current';
+      dot = isError ? '❌' : '◐';
+    }
+    const label = STAGE_LABELS[stg] || stg;
+    html += '<div class="stepper-step ' + cls + '">'
+      + '<span class="step-dot" aria-hidden="true">' + dot + '</span>'
+      + '<span class="step-label">' + esc(label) + '</span>'
+      + '</div>';
+    if(i < stages.length - 1){
+      const lineCompleted = isDone || (curIdx !== -1 && i < curIdx);
+      html += '<div class="stepper-line ' + (lineCompleted ? 'completed' : '') + '"></div>';
+    }
+  });
+
+  if(job.started_at){
+    const elapsedSec = Math.max(0, Math.floor((job.updated_at || (Date.now() / 1000)) - job.started_at));
+    const mm = String(Math.floor(elapsedSec / 60)).padStart(2, '0');
+    const ss = String(elapsedSec % 60).padStart(2, '0');
+    html += '<span class="stepper-elapsed">' + mm + ':' + ss + ' 경과</span>';
+  }
+
+  html += '</div>';
+  return html;
+}
+
+function updateCenterJobView(job){
+  if(!job) return;
+  const titleEl = document.getElementById('matrix-title');
+  if(titleEl){
+    titleEl.innerHTML = '지식 대조 히트맵 매트릭스 <small id="matrix-subtitle">| Heatmap Matrix (' + esc(job.title || '작업 진행 중') + ')</small>';
+  }
+  const docMetaEl = document.getElementById('matrix-target-doc');
+  if(docMetaEl){
+    const kindTxt = KIND_LABELS[job.kind] || '작업';
+    const themeTxt = job.theme_label || ('#' + (job.theme_id !== undefined ? job.theme_id : 0));
+    docMetaEl.textContent = '대조 대상: ' + (job.title || '(제목 없음)') + ' · 테마: ' + themeTxt + ' (' + kindTxt + ')';
+  }
+
+  const spinner = document.getElementById('matrix-progress-spinner');
+  if(spinner){
+    spinner.style.display = job.active ? 'inline-block' : 'none';
+  }
+
+  const msgEl = document.getElementById('matrix-progress-msg');
+  if(msgEl){
+    msgEl.textContent = job.msg || (job.active ? '진행 중…' : '완료');
+  }
+
+  const stepperEl = document.getElementById('matrix-stepper');
+  if(stepperEl){
+    stepperEl.style.display = 'inline-flex';
+    stepperEl.innerHTML = buildStepperHtml(job);
+  }
+
+  if(job.heatmap_matrix){
+    renderHeatmapMatrix(job.heatmap_matrix, job.title, job.active);
+  } else {
+    const theadRow = document.getElementById('matrix-thead-row');
+    if(theadRow){
+      theadRow.innerHTML = '<th style="min-width:140px">추출 노드 \\ 기존 지식 노드</th>';
+    }
+    const tbody = document.getElementById('matrix-tbody');
+    if(tbody){
+      tbody.innerHTML = '<tr><td colspan="10" style="padding:0;border:0;">'
+        + '<div class="matrix-placeholder-wave">'
+        + '  <div class="wave-pulse-ring"></div>'
+        + '  <p class="wave-msg">' + esc(job.msg || '원문 분석 및 엔티티 대조 준비 중…') + '</p>'
+        + '  <small class="wave-sub">대조 단계(resolve) 진입 시 실시간 히트맵 텐서가 렌더링됩니다.</small>'
+        + '</div>'
+        + '</td></tr>';
+    }
+  }
+}
+
+function renderMultiSlotUI(jobs){
+  const container = document.getElementById('job-slots-container');
+  const desktopWrap = document.getElementById('job-slots-desktop');
+  const mobileWrap = document.getElementById('job-slots-mobile');
+  if(!container || !desktopWrap || !mobileWrap) return;
+
+  if(!jobs || jobs.length === 0){
+    container.style.display = 'none';
+    const stepperEl = document.getElementById('matrix-stepper');
+    if(stepperEl) stepperEl.style.display = 'none';
+    return;
+  }
+
+  container.style.display = '';
+
+  const existingJob = jobs.find(j => j.job_id === selectedJobId);
+  if(!existingJob){
+    const themeMatch = jobs.find(j => Number(j.theme_id !== undefined ? j.theme_id : 0) === Number(activeThemeId));
+    selectedJobId = (themeMatch || jobs[0]).job_id;
+  }
+
+  const selectedJob = jobs.find(j => j.job_id === selectedJobId) || jobs[0];
+
+  function getJobPct(j){
+    if(typeof j.progress === 'number') return Math.max(0, Math.min(100, Math.round(j.progress)));
+    return STAGE_PROGRESS[j.stage] || (j.active ? 30 : 100);
+  }
+
+  // 1. Render Proposal A (Desktop horizontal tabs)
+  desktopWrap.innerHTML = jobs.map((j) => {
+    const isSel = j.job_id === selectedJobId;
+    const pct = getJobPct(j);
+    const kindTxt = KIND_LABELS[j.kind] || '작업';
+    const themeTxt = j.theme_label || ('#' + (j.theme_id !== undefined ? j.theme_id : 0));
+    const statusIcon = j.active
+      ? '<span class="slot-spinner" aria-hidden="true"></span>'
+      : (j.stage === 'error' ? '❌' : '✅');
+    const titleTxt = esc(j.title || '(제목 없음)');
+
+    return '<button type="button" role="tab" class="job-slot-card ' + (isSel ? 'active' : '') + '" '
+      + 'aria-selected="' + (isSel ? 'true' : 'false') + '" '
+      + 'data-job-id="' + esc(j.job_id) + '" '
+      + 'onclick="selectJobSlot(\'' + esc(j.job_id) + '\')" '
+      + 'title="' + titleTxt + '">'
+      + '<div class="slot-header">'
+      + '  <div class="slot-badges">'
+      + '    ' + statusIcon
+      + '    <span class="slot-kind-badge">' + esc(kindTxt) + '</span>'
+      + '    <span class="slot-theme-badge">' + esc(themeTxt) + '</span>'
+      + '  </div>'
+      + '  <span class="slot-pct">' + pct + '%</span>'
+      + '</div>'
+      + '<div class="slot-title">' + titleTxt + '</div>'
+      + '<div class="slot-progress-bar"><div class="slot-progress-fill" style="width:' + pct + '%"></div></div>'
+      + '</button>';
+  }).join('');
+
+  // 2. Render Proposal D (Mobile vertical accordion)
+  mobileWrap.innerHTML = jobs.map((j) => {
+    const isSel = j.job_id === selectedJobId;
+    const pct = getJobPct(j);
+    const kindTxt = KIND_LABELS[j.kind] || '작업';
+    const themeTxt = j.theme_label || ('#' + (j.theme_id !== undefined ? j.theme_id : 0));
+    const titleTxt = esc(j.title || '(제목 없음)');
+
+    let stepperHtml = '';
+    if(isSel){
+      stepperHtml = buildStepperHtml(j);
+    }
+
+    return '<div class="job-slot-accordion ' + (isSel ? 'open active' : '') + '" data-job-id="' + esc(j.job_id) + '">'
+      + '<button type="button" class="accordion-header" onclick="selectJobSlot(\'' + esc(j.job_id) + '\', true)" '
+      + 'aria-expanded="' + (isSel ? 'true' : 'false') + '">'
+      + '  <div class="accordion-title-wrap">'
+      + '    <span class="accordion-arrow" aria-hidden="true">▶</span>'
+      + '    <span class="slot-kind-badge">' + esc(kindTxt) + '</span>'
+      + '    <span class="slot-theme-badge">' + esc(themeTxt) + '</span>'
+      + '    <span class="accordion-title">' + titleTxt + '</span>'
+      + '  </div>'
+      + '  <div class="accordion-status-wrap">'
+      + '    <span class="slot-pct">' + pct + '%</span>'
+      + '  </div>'
+      + '</button>'
+      + '<div class="accordion-body">'
+      + '  <div style="margin-bottom:8px">' + stepperHtml + '</div>'
+      + '  <div style="font-size:12px;color:var(--muted)">' + esc(j.msg || '') + '</div>'
+      + '</div>'
+      + '</div>';
+  }).join('');
+
+  // 3. Update central matrix view & stepper for selected job
+  updateCenterJobView(selectedJob);
+}
+
+function processActiveJobsStats(d){
+  if(!d) return;
+  activeJobs = extractActiveJobs(d);
+  if(activeJobs.length > 0){
+    renderMultiSlotUI(activeJobs);
+  } else {
+    const container = document.getElementById('job-slots-container');
+    if(container) container.style.display = 'none';
+  }
+}
 
 function initIngestMatrixView(payload, focus, themeLabel){
   const wrap = document.getElementById('matrixwrap');
@@ -6696,4 +7110,18 @@ window.toggleDocDrawer = toggleDocDrawer;
 window.closeAllDrawers = closeAllDrawers;
 window.openRegen = openRegen;
 window.runRegen = runRegen;
+window.enterHome = enterHome;
+window.resetHome = resetHome;
+window.resetWorkspaceState = resetWorkspaceState;
+window.resolveHomeView = resolveHomeView;
+window.selectJobSlot = selectJobSlot;
+window.renderMultiSlotUI = renderMultiSlotUI;
+window.extractActiveJobs = extractActiveJobs;
+window.processActiveJobsStats = processActiveJobsStats;
+
+document.addEventListener('visibilitychange', () => {
+  if(document.visibilityState === 'visible'){
+    pollForUpdates();
+  }
+});
 
