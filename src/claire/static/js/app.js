@@ -6458,7 +6458,7 @@ function updateCenterJobView(job){
   if(!job) return;
   const titleEl = document.getElementById('matrix-title');
   if(titleEl){
-    titleEl.innerHTML = '지식 대조 히트맵 매트릭스 <small id="matrix-subtitle">| Heatmap Matrix (' + esc(job.title || '작업 진행 중') + ')</small>';
+    titleEl.innerHTML = '지식 적재 관제탑 <small id="matrix-subtitle">| Ingest Cockpit (' + esc(job.title || '작업 진행 중') + ')</small>';
   }
   const docMetaEl = document.getElementById('matrix-target-doc');
   if(docMetaEl){
@@ -6520,7 +6520,7 @@ function initIngestMatrixView(payload, focus, themeLabel){
   const wrap = document.getElementById('matrixwrap');
   if(!wrap) return;
   const titleEl = document.getElementById('matrix-title');
-  if(titleEl) titleEl.innerHTML = '지식 대조 히트맵 매트릭스 <small id="matrix-subtitle">| Heatmap Matrix (수집 대상 대조 밀도)</small>';
+  if(titleEl) titleEl.innerHTML = '지식 적재 관제탑 <small id="matrix-subtitle">| Ingest Cockpit (실시간 파이프라인 관제)</small>';
   const cleanPayload = (payload || '').replace(/\s+/g, ' ').trim();
   const shortDesc = cleanPayload.length > 80 ? cleanPayload.slice(0, 80) + '…' : cleanPayload;
   const docMetaEl = document.getElementById('matrix-target-doc');
@@ -7164,6 +7164,11 @@ function openHeatmapMatrix(docId){
 
   if(!mat){
     return;
+  }
+
+  const titleEl = document.getElementById('matrix-title');
+  if(titleEl){
+    titleEl.innerHTML = '지식 적재 관제탑 <small id="matrix-subtitle">| Ingest Cockpit (' + esc(title || '전체화면') + ')</small>';
   }
 
   renderHeatmapMatrix(mat, title, false);
