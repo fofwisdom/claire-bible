@@ -98,32 +98,34 @@
     return new Set(String(prefs.tagPolicy.ignoredNoiseTags || "").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean));
   }
 
-  function resolveItemEntityTags(item) {
-    const theme = curTheme();
+  /* 수집 원문 태그 목록 (적재 전 외부 원본 태그) */
+  function getItemSourceTags(item) {
     const noise = noiseTagSet();
     const seen = new Set();
     const result = [];
-    (item.matchedEntities || []).forEach((ent) => {
-      const key = ent.name.toLowerCase();
-      if (!seen.has(key)) {
-        seen.add(key);
-        result.push({ name: ent.name, type: ent.type || "Concept", resolved: true });
-      }
-    });
     (item.sourceTags || []).forEach((rawTag) => {
       const clean = String(rawTag || "").replace(/^#+/, "").trim();
       if (!clean || noise.has(clean.toLowerCase())) return;
       const key = clean.toLowerCase();
       if (seen.has(key)) return;
       seen.add(key);
-      const found = theme.existingEntities.find((e) => e.name.toLowerCase() === key);
-      result.push({
-        name: found ? found.name : clean,
-        type: found ? found.type : "ProvisionalEntity",
-        resolved: !!found || item.ingestState === "linked"
-      });
+      result.push(clean);
     });
     return result;
+  }
+
+  /* 프로젝트 적재 시 생성·연계된 클레어바이블 엔티티 노드 목록 */
+  function getLinkedDocEntities(item) {
+    if (item.ingestState !== "linked" || !item.linkedDoc) return [];
+    if (Array.isArray(item.linkedDoc.entities) && item.linkedDoc.entities.length > 0) {
+      return item.linkedDoc.entities;
+    }
+    const theme = curTheme();
+    const sourceTags = getItemSourceTags(item);
+    return sourceTags.map((tag) => {
+      const found = theme.existingEntities.find((e) => e.name.toLowerCase() === tag.toLowerCase());
+      return { name: found ? found.name : tag, type: found ? found.type : "Concept" };
+    });
   }
 
   function getActiveContentTab(item) {
@@ -149,16 +151,21 @@
         const f = theme.feeds.find((x) => x.id === it.feedId);
         if (!f || f.folder !== s.value) return false;
       } else if (s.kind === "entity") {
-        const tags = resolveItemEntityTags(it);
-        if (!tags.some((t) => t.name.toLowerCase() === s.value.toLowerCase())) return false;
+        const targetEnt = s.value.toLowerCase();
+        const docEntities = getLinkedDocEntities(it);
+        const hasLinkedEnt = docEntities.some((e) => e.name.toLowerCase() === targetEnt);
+        const sourceTags = getItemSourceTags(it);
+        const hasMatchingTag = sourceTags.some((t) => t.toLowerCase() === targetEnt);
+        if (!hasLinkedEnt && !hasMatchingTag) return false;
       }
       if (state.adaptiveFilter === "unread" && !it.unread) return false;
       if (state.adaptiveFilter === "unlinked" && it.ingestState !== "unlinked") return false;
       if (state.adaptiveFilter === "linked" && it.ingestState !== "linked") return false;
       if (state.protoFilter !== "all" && it.proto !== state.protoFilter) return false;
       if (q) {
-        const tagsStr = resolveItemEntityTags(it).map((t) => t.name).join(" ");
-        const hay = `${it.title} ${it.author} ${it.rawBody} ${tagsStr}`.toLowerCase();
+        const docEntStr = getLinkedDocEntities(it).map((e) => e.name).join(" ");
+        const tagStr = getItemSourceTags(it).join(" ");
+        const hay = `${it.title} ${it.author} ${it.rawBody} ${docEntStr} ${tagStr}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
@@ -227,7 +234,7 @@
 
     document.getElementById("tree-entities").innerHTML = theme.existingEntities.slice(0, 10).map((ent) => {
       const act = state.treeSel.kind === "entity" && state.treeSel.value === ent.name ? "active" : "";
-      return `<button type="button" class="tt-tree-item ${act}" data-tree-kind="entity" data-tree-val="${esc(ent.name)}" data-tree-lbl="🏷️ [[${esc(ent.name)}]]"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">🏷️ [[${esc(ent.name)}]]</span><span class="tt-count-pill">${ent.count || 1}</span></button>`;
+      return `<button type="button" class="tt-tree-item ${act}" data-tree-kind="entity" data-tree-val="${esc(ent.name)}" data-tree-lbl="[[${esc(ent.name)}]]"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">[[${esc(ent.name)}]] <small style="color:var(--muted)">(${esc(ent.type)})</small></span><span class="tt-count-pill">${ent.count || 1}</span></button>`;
     }).join("");
 
     document.querySelectorAll("[data-tree-kind]").forEach((btn) => {
@@ -243,7 +250,6 @@
     const feed = theme.feeds.find((f) => f.id === item.feedId) || { title: item.format, proto: item.proto };
     const activeTab = getActiveContentTab(item);
     const hasLinked = item.ingestState === "linked" && item.linkedDoc;
-    const entityTags = resolveItemEntityTags(item);
     const fontCls = prefs.readerFont === "serif" ? "font-serif" : "";
     const pubLabel = item.publishState === "boosted" ? "🔁 부스트/인용 완료" : (item.publishState === "published_create" ? "📡 적재 발행 완료" : "🔁 부스트·인용 / 📡 적재 발행");
 
@@ -257,9 +263,10 @@
         <article class="doc-content">${doc.detailHtml}</article>
       </div>`;
     } else {
+      const srcTags = getItemSourceTags(item);
       bodySection = `<div class="tt-summary-callout" style="border-left-color:var(--accent);background:var(--panel-bg)">
         <strong>아직 프로젝트 DB에 적재되지 않은 수집 원문입니다.</strong>
-        <p style="margin:6px 0 10px;font-size:12.5px;color:var(--muted)">적재 시 원문이 제시한 태그(${entityTags.map((t) => `<code>[[${esc(t.name)}]]</code>`).join(", ") || "없음"})가 클레어바이블 엔티티 정책(<code>[태그]</code>)에 따라 테마 DB 엔티티로 자동 병합되며, 이 뷰 안에서 <b>수집 원문 ⇄ 적재 본문</b>을 즉시 전환해 읽을 수 있습니다.</p>
+        <p style="margin:6px 0 10px;font-size:12.5px;color:var(--muted)"><b>엔티티는 적재 시에 생성됩니다.</b> 아래의 [프로젝트 적재 전달]을 누르면 수집 원문의 태그(${srcTags.map((t) => `<code>#${esc(t)}</code>`).join(", ") || "없음"})가 클레어바이블 엔티티 정책(<code>[태그]</code>)에 따라 테마 DB 엔티티(<code>[[Entity]]</code>)로 자동 생성·연계되며, 이 뷰 안에서 <b>수집 원문 ⇄ 적재 본문</b>을 즉시 전환해 읽을 수 있습니다.</p>
         <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
           <input type="text" class="tt-search" style="flex:1;min-width:220px" data-focus-for="${esc(item.id)}" value="${esc(theme.defaultFocus || "")}" placeholder="추출 초점 입력 (선택 — 비워두면 중립 정제)"/>
           <button type="button" class="tt-btn tt-btn-pri" data-do-ingest="${esc(item.id)}">📥 지금 프로젝트 적재 전달</button>
@@ -267,7 +274,34 @@
       </div>`;
     }
 
-    const chipsHtml = entityTags.map((t) => `<button type="button" class="tt-entity-chip ${t.resolved ? "resolved" : "candidate"}" data-filter-entity="${esc(t.name)}" title="${t.resolved ? "클레어바이블 엔티티 노드 (클릭하여 필터링)" : "수집 원문 태그 — 적재 시 클레어 엔티티로 승격"}">🏷️ [[${esc(t.name)}]]${t.resolved ? "" : " +후보"}</button>`).join("");
+    /* 엔티티는 적재 시 생성되므로, 탭 상태 및 적재 여부에 따라 하단 바를 엄격히 구분 표시한다. */
+    let bottomMetaBar = "";
+    if (activeTab === "ingested" && hasLinked) {
+      const entities = getLinkedDocEntities(item);
+      const entChips = entities.map((ent) => `<button type="button" class="tt-entity-chip resolved" data-filter-entity="${esc(ent.name)}" title="프로젝트 적재 시 생성된 엔티티 (클릭하여 스트림 필터링)">[[${esc(ent.name)}]] <small style="opacity:0.8">(${esc(ent.type || "Concept")})</small></button>`).join("");
+      bottomMetaBar = `<footer class="tt-entity-bar" aria-label="프로젝트 적재 엔티티 바">
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+          <span style="font-weight:700;color:var(--accent)">🔗 생성된 엔티티 (Ingested Entities):</span>
+          ${entChips || `<span style="color:var(--muted)">적재 시 생성된 엔티티 없음</span>`}
+          <button type="button" class="tt-btn" style="height:23px;padding:0 7px;font-size:11px" data-add-entity="${esc(item.id)}">+ 엔티티 추가</button>
+        </div>
+        <span style="font-size:11px;color:var(--muted)">* 프로젝트 적재 시 온톨로지 저장소(entities)에 생성·연계된 지식 엔티티입니다.</span>
+      </footer>`;
+    } else {
+      const sourceTags = getItemSourceTags(item);
+      const tagChips = sourceTags.map((tag) => {
+        const matchesThemeEnt = theme.existingEntities.some((e) => e.name.toLowerCase() === tag.toLowerCase());
+        return `<span class="tt-entity-chip candidate" title="${matchesThemeEnt ? "테마 DB 기존 엔티티 명칭과 일치 (적재 시 즉시 연계)" : "수집 원문 태그 (적재 시 신규 엔티티로 승격)"}">#${esc(tag)}${matchesThemeEnt ? " <small style='color:var(--accent)'>[일치]</small>" : ""}</span>`;
+      }).join("");
+      bottomMetaBar = `<footer class="tt-entity-bar" aria-label="수집 원문 태그 바">
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+          <span style="font-weight:700;color:var(--muted)">🏷️ 수집 태그 (Feed Tags):</span>
+          ${tagChips || `<span style="color:var(--muted)">수집 원문에 포함된 태그 없음</span>`}
+          <button type="button" class="tt-btn" style="height:23px;padding:0 7px;font-size:11px" data-add-tag="${esc(item.id)}">+ 태그 추가</button>
+        </div>
+        <span style="font-size:11px;color:var(--muted)">* 외부 피드 수집 태그입니다. 프로젝트 적재(Ingest) 시 클레어바이블 엔티티 노드로 생성·등록됩니다.</span>
+      </footer>`;
+    }
 
     return `<div class="tt-article-card" data-reader-for="${esc(item.id)}">
       <header class="tt-art-header">
@@ -292,7 +326,7 @@
             <button type="button" class="tt-seg-btn ${activeTab === "original" ? "active" : ""}" data-switch-body="${esc(item.id)}" data-target-tab="original">📄 수집 원문 (Original)</button>
             <button type="button" class="tt-seg-btn ${activeTab === "ingested" ? "active" : ""}" data-switch-body="${esc(item.id)}" data-target-tab="ingested">📚 적재 본문 (Claire 정제본${hasLinked ? " · 보유" : " · 미적재"})</button>
           </div>
-          ${hasLinked ? `<span class="tt-link-dot linked">🔗 ${esc(item.linkedDoc.docId)} 연동됨 (원문+적재본 동시 보유)</span>` : `<button type="button" class="tt-btn tt-btn-pri" data-do-ingest="${esc(item.id)}">📥 프로젝트 적재 전달</button>`}
+          ${hasLinked ? `<span class="tt-link-dot linked">🔗 ${esc(item.linkedDoc.docId)} 적재 완료 (엔티티 생성됨)</span>` : `<button type="button" class="tt-btn tt-btn-pri" data-do-ingest="${esc(item.id)}">📥 프로젝트 적재 전달</button>`}
         </div>
         <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
           ${theme.isPublic
@@ -302,15 +336,7 @@
       </div>
 
       ${bodySection}
-
-      <footer class="tt-entity-bar" aria-label="클레어바이블 엔티티 태그 바">
-        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-          <span style="font-weight:700;color:var(--muted)">🏷️ 엔티티 (= 태그):</span>
-          ${chipsHtml || `<span style="color:var(--muted)">지정된 엔티티 태그 없음</span>`}
-          <button type="button" class="tt-btn" style="height:23px;padding:0 7px;font-size:11px" data-add-entity="${esc(item.id)}">+ 엔티티 추가</button>
-        </div>
-        <span style="font-size:11px;color:var(--muted)">피드 태그(RSS/AP/AT)는 적재 시 <code>[태그]</code> 엔티티 정책으로 동일 처리됨</span>
-      </footer>
+      ${bottomMetaBar}
     </div>`;
   }
 
@@ -330,8 +356,8 @@
         const pDot = it.proto === "ap" ? "🟣" : (it.proto === "at" ? "🔵" : "🟠");
         const pubIcon = it.publishState === "boosted" ? "🔁" : (it.publishState === "published_create" ? "📡" : "rss");
         const linkBadge = it.ingestState === "linked"
-          ? `<span class="tt-link-dot linked" title="프로젝트 DB 적재 연동 완료">🔗 적재</span>`
-          : `<span class="tt-link-dot unlinked" title="미적재 수집 원문">○</span>`;
+          ? `<span class="tt-link-dot linked" title="프로젝트 DB 적재 완료 (엔티티 생성됨)">🔗 적재</span>`
+          : `<span class="tt-link-dot unlinked" title="미적재 수집 원문 (적재 시 엔티티 생성)">○</span>`;
         const excerptHtml = prefs.showExcerpt ? `<span class="tt-flat-excerpt">— ${esc(it.rawBody)}</span>` : "";
 
         return `<div class="tt-row-wrap ${it.unread ? "is-unread" : ""} ${isSel ? "is-selected" : ""}" data-row-id="${esc(it.id)}">
@@ -366,7 +392,7 @@
     }
 
     const linkedTotal = theme.items.filter((x) => x.ingestState === "linked").length;
-    document.getElementById("footer-stats").textContent = `Theme #${theme.id} (${theme.dbPath}) · 총 ${theme.items.length}건 · 🔗 적재연동 ${linkedTotal}건 · 액터 ${theme.actorHandle}`;
+    document.getElementById("footer-stats").textContent = `Theme #${theme.id} (${theme.dbPath}) · 총 ${theme.items.length}건 · 🔗 적재완료 ${linkedTotal}건 · 액터 ${theme.actorHandle}`;
     bindStreamAndReaderEvents();
   }
 
@@ -453,28 +479,44 @@
     document.querySelectorAll("[data-filter-entity]").forEach((btn) => {
       btn.addEventListener("click", () => {
         const entName = btn.getAttribute("data-filter-entity");
-        state.treeSel = { kind: "entity", value: entName, label: `🏷️ [[${entName}]]` };
+        state.treeSel = { kind: "entity", value: entName, label: `[[${entName}]]` };
         renderAll();
       });
     });
 
+    /* 수집 원문 태그 추가 */
+    document.querySelectorAll("[data-add-tag]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const id = btn.getAttribute("data-add-tag");
+        const it = curTheme().items.find((x) => x.id === id);
+        if (!it) return;
+        const name = window.prompt("수집 원문에 추가할 피드 태그(#Tag)를 입력하세요 (적재 시 엔티티로 승격됨):", "");
+        if (!name || !name.trim()) return;
+        const clean = name.trim().replace(/^#+/, "");
+        if (!it.sourceTags) it.sourceTags = [];
+        if (!it.sourceTags.includes(clean)) it.sourceTags.push(clean);
+        ticker(`🏷️ 수집 태그 '#${clean}' 추가 완료 (적재 시 테마 DB 엔티티 노드로 생성됩니다)`);
+        renderAll();
+      });
+    });
+
+    /* 적재 본문 엔티티 추가 (적재 완료 문서) */
     document.querySelectorAll("[data-add-entity]").forEach((btn) => {
       btn.addEventListener("click", () => {
         const id = btn.getAttribute("data-add-entity");
         const it = curTheme().items.find((x) => x.id === id);
-        if (!it) return;
-        const name = window.prompt("클레어바이블 엔티티(=태그) 이름을 입력하세요:", "");
+        if (!it || !it.linkedDoc) return;
+        const name = window.prompt("적재 문서에 연계할 클레어바이블 엔티티([[Entity]]) 이름을 입력하세요:", "");
         if (!name || !name.trim()) return;
         const clean = name.trim().replace(/^#+|\[\[|\]\]/g, "");
-        if (!it.sourceTags) it.sourceTags = [];
-        if (!it.sourceTags.includes(clean)) it.sourceTags.push(clean);
+        if (!Array.isArray(it.linkedDoc.entities)) it.linkedDoc.entities = [];
+        if (!it.linkedDoc.entities.some((e) => e.name.toLowerCase() === clean.toLowerCase())) {
+          it.linkedDoc.entities.push({ name: clean, type: "Concept" });
+        }
         if (!curTheme().existingEntities.some((e) => e.name.toLowerCase() === clean.toLowerCase())) {
           curTheme().existingEntities.unshift({ name: clean, type: "Concept", count: 1 });
         }
-        if (!it.matchedEntities.some((e) => e.name.toLowerCase() === clean.toLowerCase())) {
-          it.matchedEntities.push({ name: clean, type: "Concept" });
-        }
-        ticker(`🏷️ 엔티티 태그 [[${clean}]] 추가 및 테마 온톨로지 연결 완료`);
+        ticker(`🔗 적재 문서에 온톨로지 엔티티 [[${clean}]] 연계 완료`);
         renderAll();
       });
     });
@@ -486,46 +528,56 @@
     });
   }
 
+  /* 엔티티는 적재(Ingest) 시에 생성되는 것이 핵심 불변식이다. */
   function ingestItemToClaire(itemId, customFocus, onComplete) {
     const theme = curTheme();
     const item = theme.items.find((x) => x.id === itemId);
     if (!item) return;
 
-    const tags = resolveItemEntityTags(item);
-    tags.forEach((t) => {
-      if (!theme.existingEntities.some((e) => e.name.toLowerCase() === t.name.toLowerCase())) {
-        theme.existingEntities.unshift({ name: t.name, type: "Concept", count: 1 });
+    const sourceTags = getItemSourceTags(item);
+    const createdEntities = [];
+
+    sourceTags.forEach((tagName) => {
+      const existing = theme.existingEntities.find((e) => e.name.toLowerCase() === tagName.toLowerCase());
+      if (!existing) {
+        const newEnt = { name: tagName, type: "Concept", count: 1 };
+        theme.existingEntities.unshift(newEnt);
+        createdEntities.push(newEnt);
       } else {
-        const ex = theme.existingEntities.find((e) => e.name.toLowerCase() === t.name.toLowerCase());
-        if (ex) ex.count = (ex.count || 1) + 1;
-      }
-      if (!item.matchedEntities.some((e) => e.name.toLowerCase() === t.name.toLowerCase())) {
-        item.matchedEntities.push({ name: t.name, type: t.type === "ProvisionalEntity" ? "Concept" : t.type });
+        existing.count = (existing.count || 1) + 1;
+        createdEntities.push({ name: existing.name, type: existing.type });
       }
     });
 
+    if (createdEntities.length === 0) {
+      createdEntities.push({ name: item.title.slice(0, 20), type: "Concept" });
+    }
+
     const usedFocus = customFocus || theme.defaultFocus || "(중립 기본 추출 + [태그] 엔티티 정책)";
     const docId = `doc_${Math.random().toString(16).slice(2, 8)}`;
-    const tagListText = tags.map((t) => `<code>[[${esc(t.name)}]]</code>`).join(", ") || "없음";
+    const tagListText = sourceTags.map((t) => `<code>#${esc(t)}</code>`).join(", ") || "없음";
+    const entListText = createdEntities.map((e) => `<code>[[${esc(e.name)}]]</code> (${esc(e.type)})`).join(", ");
+
     item.ingestState = "linked";
     item.linkedDoc = {
       docId,
-      ingestedAt: "방금 전 (프로젝트 DB 적재 연동됨)",
+      ingestedAt: "방금 전 (프로젝트 DB 적재 완료)",
       focusUsed: usedFocus,
-      entityCount: Math.max(2, tags.length),
-      relationCount: Math.max(1, tags.length - 1),
+      entityCount: createdEntities.length,
+      relationCount: Math.max(1, createdEntities.length - 1),
       shareUrl: theme.isPublic ? `/p?s=sh_${docId.slice(4)}` : "(비공개 테마 — 외부 공유 링크 미발급)",
+      entities: createdEntities,
       summary: `[Claire 정제 요약] ${item.rawBody}`,
       detailHtml: `<h2>구조화 적재 본문 (${esc(item.title)})</h2>
-        <p>수집 원문(${esc(item.format)})과 피드 제시 태그(${tagListText})를 클레어바이블 적재 정책에 따라 정규화하여 생성한 지식 문서입니다.</p>
+        <p>수집 원문(${esc(item.format)})과 수집 태그(${tagListText})를 클레어바이블 적재 정책([태그] → entities)에 따라 정규화하여 생성한 지식 문서입니다.</p>
         <blockquote>적용된 추출 초점: ${esc(usedFocus)}</blockquote>
         ${item.rawHtml || `<p>${esc(item.rawBody)}</p>`}
-        <h3>병합된 엔티티 노드 (<code>[태그]</code> → <code>entities</code>)</h3>
-        <ul>${tags.map((t) => `<li><code>[[${esc(t.name)}]]</code> (${esc(t.type)})</li>`).join("")}</ul>`
+        <h3>적재 시 생성·연계된 엔티티 노드 (${createdEntities.length}건)</h3>
+        <p>${entListText}</p>`
     };
     state.contentTabByItem[item.id] = "ingested";
     state.expandedIds.add(item.id);
-    ticker(`🔗 프로젝트 적재 완료 (${docId}) — 태그 ${tags.length}건이 엔티티로 통합되었으며 원문⇄적재본 전환이 활성화되었습니다`);
+    ticker(`🔗 프로젝트 적재 완료 (${docId}) — 수집 태그로부터 엔티티 ${createdEntities.length}건이 테마 DB에 생성되었습니다!`);
     renderAll();
     if (typeof onComplete === "function") onComplete();
   }
@@ -544,12 +596,15 @@
     const isAp = item.proto === "ap" && !!item.apObjectUri;
     let mode = isAp ? (prefs.outboundPolicy.apDefaultMode || "announce") : (prefs.outboundPolicy.rssDefaultMode || "quote_boost");
     if (!isAp && mode === "announce") mode = "quote_boost";
-    let commentText = `핵심 아키텍처 인사이트 공유: ${item.title}`;
+    let commentText = `핵심 인사이트 공유: ${item.title}`;
 
     function buildPayload(curMode, comment) {
-      const tags = resolveItemEntityTags(item);
+      const isIngested = item.ingestState === "linked" && item.linkedDoc;
+      const tagTokens = isIngested
+        ? getLinkedDocEntities(item).map((e) => e.name)
+        : getItemSourceTags(item);
       const apTags = prefs.tagPolicy.attachEntityHashtagsOnPublish
-        ? tags.map((t) => ({ type: "Hashtag", name: `#${t.name.replace(/\s+/g, "")}` }))
+        ? tagTokens.map((t) => ({ type: "Hashtag", name: `#${t.replace(/\s+/g, "")}` }))
         : [];
       const hashText = apTags.map((t) => t.name).join(" ");
 
@@ -612,7 +667,7 @@
 
       ${mode === "quote_boost" ? `<div><label for="pub-quote-comment" style="display:block;font-size:12px;font-weight:700;margin-bottom:4px">인용/부스트 코멘트 (선택)</label><input id="pub-quote-comment" type="text" class="tt-search" style="width:100%" value="${esc(commentText)}"/></div>` : ""}
 
-      ${mode === "ingested_create" && !hasLinked ? `<div class="tt-summary-callout" style="margin:0">아직 미적재 항목입니다. 아래 <b>적재 후 즉시 발행</b>을 누르면 프로젝트 적재(엔티티 병합)와 ActivityPub 적재 본문 발행을 연속 수행합니다.</div>` : ""}
+      ${mode === "ingested_create" && !hasLinked ? `<div class="tt-summary-callout" style="margin:0">아직 미적재 항목입니다. 아래 <b>적재 후 즉시 적재 발행</b>을 누르면 프로젝트 적재(엔티티 생성)와 ActivityPub 적재 본문 발행을 연속 수행합니다.</div>` : ""}
 
       <div>
         <div style="font-size:11.5px;font-weight:700;color:var(--muted);margin-bottom:4px">ActivityPub Outbox JSON-LD 미리보기</div>
@@ -699,7 +754,6 @@
             starred: !!doc.pinned,
             score: 90,
             sourceTags: [],
-            matchedEntities: [],
             rawBody: doc.summary || doc.title || "실제 테마 SQLite DB에서 동기화된 문서입니다.",
             rawHtml: `<p>${esc(doc.summary || doc.title || "")}</p>`,
             ingestState: "linked",
@@ -710,6 +764,7 @@
               entityCount: doc.entity_count || 1,
               relationCount: doc.relation_count || 1,
               shareUrl: `/p?id=${encodeURIComponent(doc.id)}`,
+              entities: [{ name: doc.title || "문서엔티티", type: "Concept" }],
               summary: doc.summary || doc.title || "",
               detailHtml: `<p>${esc(doc.summary || doc.title || "")}</p>`
             },
@@ -883,7 +938,7 @@
       customState[state.themeId].extraFeeds.push(newFeed);
       saveCustom(customState);
 
-      const sourceTags = tagsRaw ? tagsRaw.split(",").map((s) => s.trim()).filter(Boolean) : [curTheme().existingEntities[0]?.name || "Claire"];
+      const sourceTags = tagsRaw ? tagsRaw.split(",").map((s) => s.trim()).filter(Boolean) : [title];
       const newItemId = `it_custom_${Date.now()}`;
       curTheme().items.unshift({
         id: newItemId, feedId: fid, proto, format: proto.toUpperCase(),
@@ -891,15 +946,15 @@
         apObjectUri: proto === "ap" ? `https://federated.example/notes/${Date.now()}` : undefined,
         url: url.startsWith("http") ? url : `https://example.com/${encodeURIComponent(url)}`,
         timeAgo: "방금", timestamp: Math.floor(Date.now() / 1000), unread: true, starred: false, score: 86,
-        sourceTags, matchedEntities: [],
-        rawBody: `${title} (${url})에서 수집된 원문입니다. 피드 태그(${sourceTags.join(", ")})는 적재 시 클레어 엔티티로 변환됩니다.`,
-        rawHtml: `<p><strong>${esc(title)}</strong> 대상에서 수집된 원문 본문입니다.</p><p>제시된 태그: <code>${esc(sourceTags.join(", "))}</code></p>`,
+        sourceTags,
+        rawBody: `${title} (${url})에서 수집된 원문입니다. 제시된 태그(${sourceTags.join(", ")})는 적재 시 클레어 엔티티로 생성됩니다.`,
+        rawHtml: `<p><strong>${esc(title)}</strong> 대상에서 수집된 원문 본문입니다.</p><p>제시된 태그: <code>${esc(sourceTags.map((t) => "#" + t).join(" "))}</code></p>`,
         ingestState: "unlinked", linkedDoc: null, publishState: "none", publishedInfo: null
       });
       subModal.close();
       state.selectedItemId = newItemId;
       state.expandedIds.add(newItemId);
-      ticker(`신규 수집 대상 '${title}' 등록 및 첫 컨텐트 수집 완료`);
+      ticker(`신규 수집 대상 '${title}' 등록 및 첫 원문 수집 완료 (엔티티는 적재 시 생성됨)`);
       renderAll();
     });
 

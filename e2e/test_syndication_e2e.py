@@ -65,12 +65,13 @@ def test_syndication_e2e_workflow(syndication_e2e_env) -> None:
         assert "수집 원문" in r_pub.text
         assert "적재 본문" in r_pub.text
         assert "부스트 / 인용 발행" in r_pub.text
-        assert "엔티티 (= 태그)" in r_pub.text
+        assert "수집 태그" in r_pub.text
+        assert "생성된 엔티티" in r_pub.text
 
         r_prefs = client.get("/syndication/preferences?theme=0")
         assert r_prefs.status_code == 200
         assert "Syndication 상세 환경설정" in r_prefs.text
-        assert "클레어바이블의 태그는 곧 온톨로지 엔티티" in r_prefs.text
+        assert "온톨로지 엔티티" in r_prefs.text
         assert 'href="/syndication"' in r_prefs.text
 
         r_robots = client.get("/robots.txt")

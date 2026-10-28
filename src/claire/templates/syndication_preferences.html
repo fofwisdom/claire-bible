@@ -234,11 +234,11 @@
           </div>
         </section>
 
-        <!-- PANEL 3: Tag = Entity Policy -->
+        <!-- PANEL 3: Tag -> Ingested Entity Policy -->
         <section id="panel-tags" role="tabpanel" aria-labelledby="tab-btn-tags" class="pref-panel" hidden>
           <div class="pref-card">
-            <h2>🏷️ 수집 태그 → 클레어바이블 엔티티 동치 정책 (Tags = Entities)</h2>
-            <p class="pref-desc"><b>클레어바이블의 태그는 곧 온톨로지 엔티티(<code>entities</code> 노드)입니다.</b> RSS <code>&lt;category&gt;</code>, Atom <code>term</code>, ActivityPub <code>Hashtag</code>, AT Protocol <code>facets</code>에서 수집된 태그 정보는 적재 시 별도의 파편화된 태그 테이블을 만들지 않고 프로젝트 적재 정책(<code>[태그]</code> 메타데이터 섹션 주입 및 Entity Resolution)과 100% 동일하게 정규화·병합됩니다.</p>
+            <h2>🏷️ 수집 태그 → 적재 시 엔티티 승격 및 생성 정책 (Tags → Ingested Entities)</h2>
+            <p class="pref-desc"><b>수집 시점의 피드 태그는 외부 메타데이터이며, 온톨로지 엔티티는 '적재(Ingestion)'가 수행될 때 비로소 생성 및 해결됩니다.</b> 클레어바이블 지식 그래프에서 태그는 곧 엔티티(<code>entities</code> 노드)이므로, RSS <code>&lt;category&gt;</code>, Atom <code>term</code>, ActivityPub <code>Hashtag</code>, AT Protocol <code>facets</code>에서 수집된 외부 태그는 <b>적재 시점</b>에 프로젝트 적재 정책(<code>[태그]</code> 메타데이터 섹션 주입 및 Entity Resolution)에 따라 테마 DB의 엔티티로 정규화·생성·연결됩니다.</p>
 
             <div class="pref-row">
               <div class="pref-row-label">
@@ -266,7 +266,7 @@
 
             <div class="pref-row">
               <div class="pref-row-label">
-                <label for="pref-noise-tags"><strong>엔티티 승격 제외 노이즈 태그 목록 (쉼표 구분)</strong></label>
+                <label for="pref-tag-noise"><strong>엔티티 승격 제외 노이즈 태그 목록 (쉼표 구분)</strong></label>
                 <span>RSS 피드에서 흔히 유입되는 의미 없는 일반 분류어(예: <code>uncategorized, general</code>)가 온톨로지 엔티티를 오염시키지 않도록 적재 전 필터링합니다.</span>
               </div>
               <input id="pref-noise-tags" type="text" class="pref-input" style="min-width:300px"/>
@@ -278,7 +278,7 @@
                 <div>• <b>RSS 2.0 / Atom 1.0</b>: <code>&lt;category&gt;</code>, <code>&lt;dc:subject&gt;</code> → 적재 원문 상단 <code>[태그]</code> 섹션 병합 → <code>entities</code> 정규화</div>
                 <div>• <b>ActivityPub (AP)</b>: <code>object.tag[type="Hashtag"].name</code> (<code>#</code> 접두사 제거 후 정규화) → <code>entities</code> 정규화</div>
                 <div>• <b>AT Protocol</b>: <code>app.bsky.richtext.facet#tag</code> 및 레코드 <code>tags[]</code> → <code>entities</code> 정규화</div>
-                <div>• <b>리더 하단 태그 바 조작</b>: 리더 하단 <code>🏷️ 엔티티 (= 태그) (+)</code>에서 추가한 항목 역시 즉시 해당 테마의 엔티티 참조로 귀속됩니다.</div>
+                <div>• <b>리더 하단 태그 바 조작</b>: 미적재 원문 상태에서는 <code>🏷️ 수집 태그 (#Tag)</code>로 관리되며, <code>적재하기</code> 실행 시 온톨로지 엔티티 <code>[[Entity]]</code>로 승격되어 적재 본문에 귀속됩니다.</div>
               </div>
             </details>
           </div>
