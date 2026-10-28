@@ -1275,6 +1275,33 @@ def create_app(
             )
         )
 
+    async def syndication_ui_route(request: Request) -> HTMLResponse:
+        from ..graphview import render_syndication_html
+
+        scope = request_auth_scope(request)
+        if scope not in {"owner", "collaborator"}:
+            raise HTTPException(status_code=404, detail="Not Found")
+        include_private = scope == "owner"
+        is_collaborator = scope == "collaborator"
+        theme = None
+        if getattr(s, "multi_theme", False):
+            try:
+                theme, _, _ = _get_theme_ctx(request)
+            except HTTPException:
+                raise
+            except Exception:
+                pass
+        return HTMLResponse(
+            render_syndication_html(
+                s,
+                include_private=include_private,
+                collaborator=is_collaborator,
+                theme=theme,
+                host=request.headers.get("host"),
+                auth_scope=scope,
+            )
+        )
+
     async def robots_txt_route(request: Request) -> Response:
         host_header = request.headers.get("host") or ""
         req_host = host_header.split(":", 1)[0].strip().lower()
@@ -1337,6 +1364,7 @@ def create_app(
             "Disallow: /ingest-limits",
             "Disallow: /providers",
             "Disallow: /themes",
+            "Disallow: /syndication",
         ]
 
         if getattr(s, "block_ai_crawlers", True):
@@ -3592,6 +3620,7 @@ def create_app(
         Route("/ingest/active", active_ingest_route, methods=["GET"]),
         Route("/search", do_search, methods=["POST"]),
         Route("/", graph_ui, methods=["GET"]),
+        Route("/syndication", syndication_ui_route, methods=["GET", "HEAD"]),
         Route("/graph", graph_data, methods=["GET"]),
         Route("/node", node_detail, methods=["GET"]),
         Route("/documents", documents_list_route, methods=["GET"]),

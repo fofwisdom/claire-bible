@@ -294,6 +294,8 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         ("PUT", "/document/presentation/adoc"),
         ("GET", "/document/raw"),
         ("HEAD", "/document/raw"),
+        ("GET", "/syndication"),
+        ("HEAD", "/syndication"),
     }
     owner_post = {
         "/document/seen",

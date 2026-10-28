@@ -225,6 +225,7 @@ Disallow: /limits
 Disallow: /ingest-limits
 Disallow: /providers
 Disallow: /themes
+Disallow: /syndication
 
 # AI Model Scrapers (if CLAIRE_BLOCK_AI_CRAWLERS=1)
 User-agent: GPTBot

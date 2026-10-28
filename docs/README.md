@@ -21,6 +21,7 @@ docs/
 │   ├── EXPAND_FILTERING_DESIGN.md
 │   ├── FETCHER_CONTRIBUTION_AND_ONPREMISE_NETWORK_DESIGN.md
 │   ├── MCP_SUPPORT.md
+│   ├── SYNDICATION_ENDPOINT_DESIGN.md
 │   └── ... (기능별 상세 아키텍처 설계 명세)
 ├── implementation/             # [구현/운영 내역] 현재 구현과 정확히 일치하는 정본 명세
 │   ├── API_AND_MCP_GUIDE.md    # REST API 및 MCP 연결·인증·도구 활용 종합 가이드

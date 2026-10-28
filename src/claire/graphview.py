@@ -86,8 +86,19 @@ def _build_standalone_shared_html() -> str:
     return html
 
 
+def _build_standalone_syndication_html() -> str:
+    """Combine static/css/theme.css and templates/syndication.html to build standalone SYNDICATION_HTML."""
+    theme_css = (_STATIC_DIR / "css" / "theme.css").read_text(encoding="utf-8")
+    syndication_tmpl = (_TEMPLATES_DIR / "syndication.html").read_text(encoding="utf-8")
+    css_bundle = f"<style>\n{theme_css}\n</style>"
+    html = re.sub(r'<link rel="stylesheet" href="/static/css/[^>]+>\s*', "", syndication_tmpl)
+    html = html.replace("</head>", f"{css_bundle}\n</head>", 1)
+    return html
+
+
 GRAPH_HTML: str = _build_standalone_graph_html()
 _SHARED_HTML: str = _build_standalone_shared_html()
+SYNDICATION_HTML: str = _build_standalone_syndication_html()
 
 
 def render_ga_tag(
@@ -578,9 +589,85 @@ def render_graph_html(
     )
 
 
+def render_syndication_html(
+    settings: Any = None,
+    *,
+    include_private: bool = True,
+    collaborator: bool = False,
+    theme: Any | None = None,
+    host: str | None = None,
+    auth_scope: str = "owner",
+) -> str:
+    """Return rendered Syndication UI HTML with settings, active theme, and auth scope variables."""
+    if settings is None:
+        from .config import get_settings
+
+        s = get_settings()
+    else:
+        s = settings
+    repo = getattr(s, "effective_github_repository", getattr(s, "github_repository", "fofwisdom/claire-bible"))
+    base_url = getattr(s, "effective_source_base_url", getattr(s, "source_base_url", f"https://github.com/{repo}"))
+    if not base_url:
+        base_url = f"https://github.com/{repo}"
+    if theme is not None:
+        ga_id = str(getattr(theme, "ga_measurement_id", "") or "").strip()
+    else:
+        ga_id = getattr(s, "effective_ga_measurement_id", getattr(s, "ga_measurement_id", ""))
+    theme_id = getattr(theme, "id", None) if theme else None
+    theme_label = getattr(theme, "label", "") if theme else ""
+    ga_tag = render_ga_tag(ga_id, theme_id=theme_id, theme_label=theme_label)
+    sorcerer = getattr(s, "effective_sorcerer", getattr(s, "sorcerer", getattr(s, "effective_owner", getattr(s, "owner", "owner"))))
+    raw_sorcerer = str(sorcerer).strip() if sorcerer is not None else ""
+    if not raw_sorcerer:
+        raw_sorcerer = "owner"
+    safe_sorcerer = _html.escape(raw_sorcerer, quote=True)
+
+    is_multi = bool(getattr(s, "multi_theme", False))
+    theme_mode = "multi" if is_multi else "single"
+    if is_multi:
+        from .store.theme import get_theme_manager
+
+        tm = get_theme_manager(s)
+        themes_list = [t.to_dict() for t in tm.list_themes(include_private=include_private, collaborator=collaborator, host=host)]
+    else:
+        themes_list = [
+            {
+                "id": 0,
+                "seq": 0,
+                "label": "기본 지식베이스",
+                "description": "일반 수집 자료 및 기본 지식",
+                "icon": "📚",
+                "is_default": True,
+                "is_public": True,
+                "is_collaborator_accessible": False,
+                "sorcerer": safe_sorcerer,
+                "knowledge_manager": safe_sorcerer,
+                "presentation_enabled": bool(getattr(s, "presentation_enabled", False)),
+            }
+        ]
+    themes_json = _json.dumps(themes_list, ensure_ascii=False)
+    themes_json_safe = themes_json.replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
+    active_theme_id = str(theme_id if theme_id is not None else (themes_list[0]["id"] if themes_list else 0))
+    safe_scope = _html.escape(str(auth_scope or "owner"), quote=True)
+
+    return (
+        SYNDICATION_HTML.replace("__SOURCE_BASE_URL__", base_url)
+        .replace("__GITHUB_REPOSITORY__", repo)
+        .replace("<!-- __GA_TAG__ -->", ga_tag)
+        .replace("__SORCERER__", safe_sorcerer)
+        .replace("__OWNER__", safe_sorcerer)
+        .replace("__KNOWLEDGE_MANAGER__", safe_sorcerer)
+        .replace("__THEME_MODE__", theme_mode)
+        .replace("__ACTIVE_THEME_ID__", active_theme_id)
+        .replace("__AUTH_SCOPE__", safe_scope)
+        .replace("__THEMES_JSON__", themes_json_safe)
+    )
+
+
 __all__ = [
     "FAVICON_TAGS_HTML",
     "GRAPH_HTML",
+    "SYNDICATION_HTML",
     "_SHARED_HTML",
     "dedup_clusters",
     "document_detail",
@@ -593,6 +680,7 @@ __all__ = [
     "render_ga_tag",
     "render_graph_html",
     "render_open_graph_tags",
+    "render_syndication_html",
     "resolve_preview_image",
     "sanitize_preview_text",
     "shared_html",
