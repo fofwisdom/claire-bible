@@ -1218,13 +1218,15 @@
         const whoResp = await fetch("/whoami", { headers: { "Accept": "application/json" } });
         if (whoResp.ok) {
           const who = await whoResp.json();
-          const sc = who.scope || cfg.authScope || "owner";
+          const sc = who.scope || cfg.authScope || "public";
           if (roleEl) {
-            roleEl.textContent = sc === "owner" ? "👑 지식 관리자 (owner)" : "🤝 협업자 (collaborator)";
+            roleEl.textContent = sc === "owner" ? "👑 지식 관리자 (owner)" : sc === "collaborator" ? "🤝 협업자 (collaborator)" : "🌐 공개 프로토타입 (" + sc + ")";
           }
+        } else if (roleEl) {
+          roleEl.textContent = "🌐 공개 프로토타입 (public)";
         }
       } catch (_) {
-        if (roleEl) roleEl.textContent = cfg.authScope === "collaborator" ? "🤝 협업자 (collaborator)" : "👑 지식 관리자 (owner)";
+        if (roleEl) roleEl.textContent = "🌐 공개 프로토타입 (public)";
       }
 
       try {

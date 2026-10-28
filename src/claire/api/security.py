@@ -204,8 +204,8 @@ ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     ("HEAD", "/p/images/{filename:path}"): _rule("public"),
     ("GET", "/"): _rule("read"),
     ("HEAD", "/"): _rule("read"),
-    ("GET", "/syndication"): _rule("collaborator"),
-    ("HEAD", "/syndication"): _rule("collaborator"),
+    ("GET", "/syndication"): _rule("public"),
+    ("HEAD", "/syndication"): _rule("public"),
     ("GET", "/whoami"): _rule("read"),
     ("HEAD", "/whoami"): _rule("read"),
     ("GET", "/stats"): _rule("read"),
@@ -1180,7 +1180,7 @@ class AuthenticationMiddleware:
             return
 
         state = scope.setdefault("state", {})
-        if path in {"/", "/syndication"} and method in {"GET", "HEAD"}:
+        if path == "/" and method in {"GET", "HEAD"}:
             query = parse_qs(
                 scope.get("query_string", b"").decode("ascii", "ignore"),
                 keep_blank_values=True,
@@ -1204,7 +1204,7 @@ class AuthenticationMiddleware:
                     )
                     return
                 if len(token_values) != 1 or not token_values[0]:
-                    if path == "/" and self.config.anonymous_readonly:
+                    if self.config.anonymous_readonly:
                         response = RedirectResponse("/", status_code=302)
                         _clear_session_cookie(response, self.config)
                         response.headers["Cache-Control"] = "no-store"
@@ -1221,7 +1221,7 @@ class AuthenticationMiddleware:
                 token = token_values[0]
                 exchanged = await _bootstrap_session(self.config, token)
                 if exchanged is None:
-                    if path == "/" and self.config.anonymous_readonly:
+                    if self.config.anonymous_readonly:
                         response = RedirectResponse("/", status_code=302)
                         _clear_session_cookie(response, self.config)
                         response.headers["Cache-Control"] = "no-store"
@@ -1236,9 +1236,8 @@ class AuthenticationMiddleware:
                     )
                     return
                 session_scope, cookie_token = exchanged
-                allowed_scopes = {"owner", "collaborator"} if path == "/syndication" else {"owner", "collaborator", "readonly"}
-                if session_scope not in allowed_scopes:
-                    if path == "/" and self.config.anonymous_readonly:
+                if session_scope not in {"owner", "collaborator", "readonly"}:
+                    if self.config.anonymous_readonly:
                         response = RedirectResponse("/", status_code=302)
                         _clear_session_cookie(response, self.config)
                         response.headers["Cache-Control"] = "no-store"
@@ -1252,7 +1251,7 @@ class AuthenticationMiddleware:
                         send,
                     )
                     return
-                response = RedirectResponse(path, status_code=302)
+                response = RedirectResponse("/", status_code=302)
                 _set_session_cookie(response, self.config, cookie_token)
                 response.headers["Cache-Control"] = "no-store"
                 response.headers["Referrer-Policy"] = "no-referrer"

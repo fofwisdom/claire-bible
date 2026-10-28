@@ -34,9 +34,9 @@ Operators and collaborators need a unified workspace to register external inform
 4. **Deterministic Outbound Publishing (`Create` vs `Announce`)**:
    - When an operator publishes **Claire Ingested Content (`적재 본문`)**, emit an ActivityPub `Create` activity (`Note` or `Article`) signed by the Theme Actor, linking back to the public share URL (`/p?s=<token>`).
    - When an operator publishes an **ActivityPub Stream Item**, emit an ActivityPub `Announce` activity (Boost) referencing the remote canonical ActivityPub object URI.
-5. **Collaborator and Owner Access Boundary**:
-   - Restrict `/syndication` exclusively to **`owner`** (administrator) and **`collaborator`** roles via `_rule("collaborator")`.
-   - Enforce the Fail-Closed Stealth Invariant (`HTTP 404 Not Found`) for `readonly` and `anonymous` callers, and disallow crawler indexing via `/robots.txt` and `<meta name="robots">`.
+5. **Public Visual Prototype Access (Phase 1) & Role-Scoped Backend Mutations (Phase 2)**:
+   - Expose `GET /syndication` and `HEAD /syndication` under `_rule("public")` during Phase 1 so reviewers can inspect the visual prototype directly at `/syndication` without token or session bootstrap friction.
+   - Enforce `collaborator` and `owner` scopes on Phase 2 mutation endpoints (`/syndication/targets`, `/syndication/ingest`, `/syndication/publish`, `/syndication/rules`), and disallow search engine indexing via `/robots.txt` (`Disallow: /syndication`) and `<meta name="robots">`.
 
 ---
 
@@ -92,10 +92,9 @@ flowchart TD
 ```
 
 ### 2.2 Security and Operational Invariants
-1. **Fail-Closed Stealth Invariant**:
-   - `ROUTE_POLICY` registers `("GET", "/syndication"): _rule("collaborator")` and `("HEAD", "/syndication"): _rule("collaborator")`.
-   - Unauthenticated (`anonymous`) and `readonly` requests receive `HTTP 404 Not Found` with `Cache-Control: no-store`.
-   - In multi-theme mode (`CLAIRE_MULTI_THEME=1`), a `collaborator` requesting a private theme where `is_collaborator_accessible` is `False` receives `HTTP 404 Not Found`.
+1. **Public Prototype Inspection & Private Theme Protection**:
+   - `ROUTE_POLICY` registers `("GET", "/syndication"): _rule("public")` and `("HEAD", "/syndication"): _rule("public")` so the Phase 1 visual prototype is immediately reachable at `/syndication` without token authentication.
+   - In multi-theme mode (`CLAIRE_MULTI_THEME=1`), unauthenticated requests (`public` or `anonymous` scope) never expose private theme metadata (`is_public = False`).
 2. **Collaborator Default-Theme Write Guard**:
    - Collaborators can inspect streams on accessible themes, but cannot ingest into or mutate the default theme (`id=0`, `seq=0`), preserving the baseline RBAC rule enforced by `POST /ingest` (`HTTP 403 Forbidden`).
 3. **Crawler Exclusion and Indexing Guard**:
@@ -118,24 +117,14 @@ Phase 1 mounts the interactive clean-room visual prototype at `/syndication` so 
 
 | Module | Symbol / File | Responsibility |
 | :--- | :--- | :--- |
-| Security Policy | [`src/claire/api/security.py`](../../src/claire/api/security.py) | Registers `GET /syndication` and `HEAD /syndication` with `_rule("collaborator")`. Extends one-time `?t=<session_token>` cookie bootstrap to `/syndication` for `owner` and `collaborator` scopes. |
+| Security Policy | [`src/claire/api/security.py`](../../src/claire/api/security.py) | Registers `GET /syndication` and `HEAD /syndication` with `_rule("public")` for frictionless visual prototype access. |
 | ASGI Server | [`src/claire/api/server.py`](../../src/claire/api/server.py) | Implements `syndication_ui_route(request)`, resolves multi-theme context via `_get_theme_ctx(request)`, appends `Disallow: /syndication` to `robots_txt_route`, and mounts `Route("/syndication", syndication_ui_route, methods=["GET", "HEAD"])`. |
 | HTML Bundle Renderer | [`src/claire/graphview.py`](../../src/claire/graphview.py) | Builds standalone `SYNDICATION_HTML` by inlining `static/css/theme.css` into `templates/syndication.html`, and provides `render_syndication_html(...)` injecting theme metadata, GA4 tags, and `authScope`. |
 | Clean-Room UI Template | [`src/claire/templates/syndication.html`](../../src/claire/templates/syndication.html) | Implements the three-pane TT-RSS clean-room interface, live `/whoami` + `/graph` + `/documents` database sync, simulation vs live `POST /ingest` forwarding, and `Create` vs `Announce` outbound modals. |
 
-### 3.2 Authentication and Browser Entry Flows
-1. **Existing Browser Session**:
-   - An administrator or collaborator who already holds an active `claire_session` cookie from `/` navigates directly to `/syndication` (or `/syndication?theme=<id>`).
-2. **Direct One-Time Magic Link Bootstrap**:
-   - Generate a session token from the deployment host:
-     ```bash
-     ./cb-manuscript app auth --scope owner
-     ./cb-manuscript app auth --scope collab
-     ```
-   - Visiting `/syndication?t=<session_token>` exchanges the one-time token atomically, sets the `HttpOnly` `claire_session` cookie, and responds with `302 Found` (`Location: /syndication`, `Cache-Control: no-store`, `Referrer-Policy: no-referrer`).
-   - If a `readonly` session token is passed to `/syndication?t=<token>`, the gateway rejects the request with `404 Not Found` without issuing a cookie.
-3. **Programmatic / Header Access**:
-   - `Authorization: Bearer <token>` or `X-Session: <token>` with `owner` or `collaborator` scope returns `200 OK` HTML. Mixing multiple credential channels in one request is rejected per `API_HTTP_CONTRACT.md`.
+### 3.2 Browser Entry Flow
+- Any browser or HTTP client can open `/syndication` (or `/syndication?theme=<id>`) directly without a token or session cookie (`200 OK`).
+- When `CLAIRE_ANONYMOUS_READONLY=1` (or when an active session cookie is present), the prototype automatically fetches `/whoami`, `/graph`, and `/documents` to synchronize live entities and documents from the active theme SQLite database.
 
 ### 3.3 Three-Pane Clean-Room UI Layout and Live DB Synchronization
 1. **Top Control Bar**:
@@ -284,7 +273,7 @@ When an authorized user invokes `POST /syndication/publish`:
 
 | Method | Path | Access Policy | Purpose |
 | :--- | :--- | :--- | :--- |
-| `GET`, `HEAD` | `/syndication` | `collaborator` | Render three-pane Syndication WebUI (**Implemented in Phase 1**). |
+| `GET`, `HEAD` | `/syndication` | `public` (Phase 1 Prototype) | Render three-pane Syndication WebUI (**Implemented in Phase 1**). |
 | `GET` | `/syndication/targets` | `collaborator` | List periodic collection targets and health metrics for active theme. |
 | `POST` | `/syndication/targets` | `collaborator` | Register a new RSS/Atom, ActivityPub, or AT Protocol target. |
 | `PATCH`, `DELETE` | `/syndication/targets` | `collaborator` | Update polling interval/folder/threshold or remove target. |

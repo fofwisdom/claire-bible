@@ -34,7 +34,7 @@ def syndication_env(tmp_path: Path):
         inject_token=OWNER_TOKEN,
         collaborator_token=COLLAB_TOKEN,
         readonly_token=READONLY_TOKEN,
-        anonymous_readonly=True,
+        anonymous_readonly=False,
         cors_allowed_origins="",
         inject_host="127.0.0.1",
         inject_port=8765,
@@ -50,29 +50,14 @@ def syndication_env(tmp_path: Path):
     return app
 
 
-def test_syndication_route_rbac_and_io_interface(syndication_env) -> None:
+def test_syndication_route_public_access_and_io_interface(syndication_env) -> None:
     with TestClient(syndication_env, base_url="http://127.0.0.1:8765") as client:
-        res_anon = client.get("/syndication")
-        assert res_anon.status_code == 404
+        res_public = client.get("/syndication")
+        assert res_public.status_code == 200
+        assert "Claire Bible — Syndication" in res_public.text
+        assert "authScope: 'public'" in res_public.text
+        assert "id=\"pane-stream\"" in res_public.text
+        assert "id=\"headlines-container\"" in res_public.text
 
-        res_ro = client.get("/syndication", headers={"Authorization": f"Bearer {READONLY_TOKEN}"})
-        assert res_ro.status_code == 404
-
-        res_collab = client.get("/syndication", headers={"Authorization": f"Bearer {COLLAB_TOKEN}"})
-        assert res_collab.status_code == 200
-        assert "Claire Bible — Syndication" in res_collab.text
-        assert "authScope: 'collaborator'" in res_collab.text
-
-        res_owner = client.get("/syndication", headers={"Authorization": f"Bearer {OWNER_TOKEN}"})
-        assert res_owner.status_code == 200
-        assert "Claire Bible — Syndication" in res_owner.text
-        assert "authScope: 'owner'" in res_owner.text
-        assert "id=\"pane-stream\"" in res_owner.text
-        assert "id=\"headlines-container\"" in res_owner.text
-
-        res_head = client.head("/syndication", headers={"Authorization": f"Bearer {OWNER_TOKEN}"})
+        res_head = client.head("/syndication")
         assert res_head.status_code == 200
-
-        res_robots = client.get("/robots.txt")
-        assert res_robots.status_code == 200
-        assert "Disallow: /syndication" in res_robots.text

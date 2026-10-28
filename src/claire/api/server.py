@@ -1279,18 +1279,16 @@ def create_app(
         from ..graphview import render_syndication_html
 
         scope = request_auth_scope(request)
-        if scope not in {"owner", "collaborator"}:
-            raise HTTPException(status_code=404, detail="Not Found")
-        include_private = scope == "owner"
+        include_private = scope in {"owner", "readonly"}
         is_collaborator = scope == "collaborator"
         theme = None
         if getattr(s, "multi_theme", False):
             try:
                 theme, _, _ = _get_theme_ctx(request)
-            except HTTPException:
-                raise
+                if scope in {"public", "anonymous"} and theme is not None and not theme.is_public:
+                    theme = None
             except Exception:
-                pass
+                theme = None
         return HTMLResponse(
             render_syndication_html(
                 s,

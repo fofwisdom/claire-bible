@@ -163,7 +163,7 @@ Claire Bible은 시스템 소유자(Owner), 협력자(Collaborator), 읽기 전�
 - **발급 및 진입**: 텔레그램 봇의 `/webco` 명령을 통해 24시간 유효한 일회성/재사용 가능 협력자 세션 링크(`/webco?token=...`)를 발급받거나 `claire token create --scope collab`으로 상시 토큰을 발급한다.
 - **기본 지식베이스 보호**: 협력자는 시스템의 핵심 기반인 기본 테마(`seq=0`)에 데이터를 적재하거나 수정할 수 없습니다(`403 Forbidden`). 오직 `is_collaborator_accessible=true`로 설정된 추가 테마에만 수집 및 적재가 허용된다.
 - **세션 헤더**: API 호출 시 `X-Session: <token>` 또는 `Authorization: Bearer <token>` 헤더를 전달한다.
-- **Syndication UI (`/syndication`)**: Restricts access to `owner` and `collaborator` scopes only (`_rule("collaborator")`). Rejects `readonly` and `anonymous` requests with `404 Not Found`. Supports direct browser session bootstrap via `/syndication?t=<session_token>` minted with `./cb-manuscript app auth --scope owner` or `./cb-manuscript app auth --scope collab` (see [`SYNDICATION_ENDPOINT_DESIGN.md`](../design/SYNDICATION_ENDPOINT_DESIGN.md)).
+- **Syndication UI (`/syndication`)**: Exposed under `_rule("public")` during the Phase 1 visual prototype stage so reviewers can inspect `/syndication` directly without token authentication (see [`SYNDICATION_ENDPOINT_DESIGN.md`](../design/SYNDICATION_ENDPOINT_DESIGN.md)).
 
 ---
 
