@@ -58,23 +58,29 @@ def test_syndication_e2e_workflow(syndication_e2e_env) -> None:
     conn.close()
 
     with TestClient(app, base_url="http://127.0.0.1:8765") as client:
-        # 1. Anyone can access the visual prototype at /syndication without a token
         r_pub = client.get("/syndication")
         assert r_pub.status_code == 200
         assert "Claire Bible — Syndication" in r_pub.text
-        assert "authScope: 'public'" in r_pub.text
-        assert "AT Protocol" in r_pub.text
-        assert "ActivityPub" in r_pub.text
-        assert "RSS/ATOM" in r_pub.text
-        assert "🔗 적재 연동" in r_pub.text
+        assert 'data-layout="flatlist"' in r_pub.text
+        assert "수집 원문" in r_pub.text
+        assert "적재 본문" in r_pub.text
+        assert "부스트 / 인용 발행" in r_pub.text
+        assert "엔티티 (= 태그)" in r_pub.text
 
-        # 2. Public/anonymous client can also fetch /documents and /graph for live Theme DB sync
+        r_prefs = client.get("/syndication/preferences?theme=0")
+        assert r_prefs.status_code == 200
+        assert "Syndication 상세 환경설정" in r_prefs.text
+        assert "클레어바이블의 태그는 곧 온톨로지 엔티티" in r_prefs.text
+        assert 'href="/syndication"' in r_prefs.text
+
+        r_robots = client.get("/robots.txt")
+        assert r_robots.status_code == 200
+        assert "Disallow: /syndication" in r_robots.text
+
         r_docs = client.get("/documents")
         assert r_docs.status_code == 200
-        docs_payload = r_docs.json()
-        assert any(d["id"] == "doc_synd_e2e_01" for d in docs_payload["documents"])
+        assert any(d["id"] == "doc_synd_e2e_01" for d in r_docs.json()["documents"])
 
-        r_graph = client.get("/graph")
-        assert r_graph.status_code == 200
-        graph_payload = r_graph.json()
-        assert any(n["id"] == "ent_synd_e2e_01" for n in graph_payload["nodes"])
+        r_doc_detail = client.get("/document?id=doc_synd_e2e_01")
+        assert r_doc_detail.status_code == 200
+        assert "Verified knowledge graph ingestion." in r_doc_detail.json()["detail_html"]

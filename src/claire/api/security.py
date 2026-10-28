@@ -206,6 +206,8 @@ ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     ("HEAD", "/"): _rule("read"),
     ("GET", "/syndication"): _rule("public"),
     ("HEAD", "/syndication"): _rule("public"),
+    ("GET", "/syndication/preferences"): _rule("public"),
+    ("HEAD", "/syndication/preferences"): _rule("public"),
     ("GET", "/whoami"): _rule("read"),
     ("HEAD", "/whoami"): _rule("read"),
     ("GET", "/stats"): _rule("read"),

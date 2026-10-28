@@ -87,11 +87,27 @@ def _build_standalone_shared_html() -> str:
 
 
 def _build_standalone_syndication_html() -> str:
-    """Combine static/css/theme.css and templates/syndication.html to build standalone SYNDICATION_HTML."""
+    """Combine static CSS/JS assets and templates/syndication.html to build standalone SYNDICATION_HTML."""
     theme_css = (_STATIC_DIR / "css" / "theme.css").read_text(encoding="utf-8")
+    synd_css = (_STATIC_DIR / "css" / "syndication.css").read_text(encoding="utf-8")
+    synd_data_js = (_STATIC_DIR / "js" / "syndication_data.js").read_text(encoding="utf-8")
+    synd_app_js = (_STATIC_DIR / "js" / "syndication_app.js").read_text(encoding="utf-8")
     syndication_tmpl = (_TEMPLATES_DIR / "syndication.html").read_text(encoding="utf-8")
-    css_bundle = f"<style>\n{theme_css}\n</style>"
+    css_bundle = f"<style>\n{theme_css}\n{synd_css}\n</style>"
     html = re.sub(r'<link rel="stylesheet" href="/static/css/[^>]+>\s*', "", syndication_tmpl)
+    html = html.replace("</head>", f"{css_bundle}\n</head>", 1)
+    html = re.sub(r'<script src="/static/js/syndication_[^"]+"></script>\s*', "", html)
+    js_bundle = f"<script>\n{synd_data_js}\n{synd_app_js}\n</script>"
+    html = html.replace("</body>", f"{js_bundle}\n</body>", 1)
+    return html
+
+
+def _build_standalone_syndication_preferences_html() -> str:
+    """Combine static/css/theme.css and templates/syndication_preferences.html to build standalone SYNDICATION_PREFERENCES_HTML."""
+    theme_css = (_STATIC_DIR / "css" / "theme.css").read_text(encoding="utf-8")
+    prefs_tmpl = (_TEMPLATES_DIR / "syndication_preferences.html").read_text(encoding="utf-8")
+    css_bundle = f"<style>\n{theme_css}\n</style>"
+    html = re.sub(r'<link rel="stylesheet" href="/static/css/[^>]+>\s*', "", prefs_tmpl)
     html = html.replace("</head>", f"{css_bundle}\n</head>", 1)
     return html
 
@@ -99,6 +115,7 @@ def _build_standalone_syndication_html() -> str:
 GRAPH_HTML: str = _build_standalone_graph_html()
 _SHARED_HTML: str = _build_standalone_shared_html()
 SYNDICATION_HTML: str = _build_standalone_syndication_html()
+SYNDICATION_PREFERENCES_HTML: str = _build_standalone_syndication_preferences_html()
 
 
 def render_ga_tag(
@@ -589,7 +606,8 @@ def render_graph_html(
     )
 
 
-def render_syndication_html(
+def _render_syndication_bundle(
+    bundle_html: str,
     settings: Any = None,
     *,
     include_private: bool = True,
@@ -598,7 +616,7 @@ def render_syndication_html(
     host: str | None = None,
     auth_scope: str = "owner",
 ) -> str:
-    """Return rendered Syndication UI HTML with settings, active theme, and auth scope variables."""
+    """Populate common configuration tokens for Syndication HTML bundles."""
     if settings is None:
         from .config import get_settings
 
@@ -651,7 +669,7 @@ def render_syndication_html(
     safe_scope = _html.escape(str(auth_scope or "owner"), quote=True)
 
     return (
-        SYNDICATION_HTML.replace("__SOURCE_BASE_URL__", base_url)
+        bundle_html.replace("__SOURCE_BASE_URL__", base_url)
         .replace("__GITHUB_REPOSITORY__", repo)
         .replace("<!-- __GA_TAG__ -->", ga_tag)
         .replace("__SORCERER__", safe_sorcerer)
@@ -664,10 +682,53 @@ def render_syndication_html(
     )
 
 
+def render_syndication_html(
+    settings: Any = None,
+    *,
+    include_private: bool = True,
+    collaborator: bool = False,
+    theme: Any | None = None,
+    host: str | None = None,
+    auth_scope: str = "owner",
+) -> str:
+    """Return rendered Syndication UI HTML with settings, active theme, and auth scope variables."""
+    return _render_syndication_bundle(
+        SYNDICATION_HTML,
+        settings,
+        include_private=include_private,
+        collaborator=collaborator,
+        theme=theme,
+        host=host,
+        auth_scope=auth_scope,
+    )
+
+
+def render_syndication_preferences_html(
+    settings: Any = None,
+    *,
+    include_private: bool = True,
+    collaborator: bool = False,
+    theme: Any | None = None,
+    host: str | None = None,
+    auth_scope: str = "owner",
+) -> str:
+    """Return rendered Syndication Preferences subpage HTML."""
+    return _render_syndication_bundle(
+        SYNDICATION_PREFERENCES_HTML,
+        settings,
+        include_private=include_private,
+        collaborator=collaborator,
+        theme=theme,
+        host=host,
+        auth_scope=auth_scope,
+    )
+
+
 __all__ = [
     "FAVICON_TAGS_HTML",
     "GRAPH_HTML",
     "SYNDICATION_HTML",
+    "SYNDICATION_PREFERENCES_HTML",
     "_SHARED_HTML",
     "dedup_clusters",
     "document_detail",
@@ -681,6 +742,7 @@ __all__ = [
     "render_graph_html",
     "render_open_graph_tags",
     "render_syndication_html",
+    "render_syndication_preferences_html",
     "resolve_preview_image",
     "sanitize_preview_text",
     "shared_html",

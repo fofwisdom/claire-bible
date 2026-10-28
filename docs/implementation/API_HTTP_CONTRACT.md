@@ -80,4 +80,4 @@ $$\text{owner} \succ \text{readonly} \succ \text{anonymous} \succ \text{unauthen
 | `DELETE` | `/tokens` | `owner` | API 및 MCP 상시 토큰 즉시 폐기 |
 | `POST` | `/mcp` | `read` | Model Context Protocol JSON-RPC 통신 |
 
-구현별 UI 페이지(`/`, `/syndication`, `/reference`, `/p`) 및 부가 기능은 각 계보의 확장 라우트로 관리하되 위 최소 공통 엔드포인트의 와이어 형식을 훼손하지 않는다.
+구현별 UI 페이지(`/`, `/syndication`, `/syndication/preferences`, `/reference`, `/p`) 및 부가 기능은 각 계보의 확장 라우트로 관리하되 위 최소 공통 엔드포인트의 와이어 형식을 훼손하지 않는다.

@@ -264,6 +264,7 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         "/support/bundle",
         "/graph/bundle",
         "/syndication",
+        "/syndication/preferences",
         "/reference",
         "/openapi.yaml",
         "/.well-known/oauth-protected-resource",

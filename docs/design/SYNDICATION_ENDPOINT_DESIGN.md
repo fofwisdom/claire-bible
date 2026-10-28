@@ -22,20 +22,18 @@ Claire Bible ingests web pages, documents, videos, and social threads into isola
 Operators and collaborators need a unified workspace to register external information streams, collect updates periodically, classify incoming items against the existing knowledge graph of each theme, forward selected items to the Claire ingestion pipeline, and publish curated outputs to federated networks.
 
 ### 1.2 Design Goals
-1. **Clean-Room Spiritual Inheritance of Tiny Tiny RSS (TT-RSS)**:
-   - Inherit the high-density three-pane triage layout (left source/ontology tree, center headline stream, right reader/inspector), virtual streams, deterministic filter rules, and single-key navigation (`j`, `k`, `f`, `u`, `i`, `p`, `/`).
-   - Use zero TT-RSS source code, database schemas, or legacy RPC contracts. Build natively on Claire Bible CSS custom properties (`/static/css/theme.css`) and Starlette ASGI routes.
-2. **Direct Reuse of Per-Theme Knowledge Databases**:
-   - Isolate all syndication targets, collected stream items, organization rules, and federation actors per Theme (`Theme #0` and `Theme #1..N`).
-   - Organize and score incoming items directly against the existing `entities`, `relations`, `entities_fts`, `embeddings`, and `purged_tombstones` tables in each theme database without mandatory LLM calls during stream collection.
-3. **Multi-Protocol Periodic Collection and Ingestion Forwarding**:
-   - Register targets for periodic collection across **RSS 2.0 / Atom 1.0 / JSON Feed**, **ActivityPub**, and **AT Protocol (`at://`)**.
-   - Forward selected or rule-matched stream items to the Claire ingestion pipeline (`raw_inbox` -> `svc.ingest`), and display persistent bidirectional linkage (`🔗 적재 연동`) once ingested.
-4. **Deterministic Outbound Publishing (`Create` vs `Announce`)**:
-   - When an operator publishes **Claire Ingested Content (`적재 본문`)**, emit an ActivityPub `Create` activity (`Note` or `Article`) signed by the Theme Actor, linking back to the public share URL (`/p?s=<token>`).
-   - When an operator publishes an **ActivityPub Stream Item**, emit an ActivityPub `Announce` activity (Boost) referencing the remote canonical ActivityPub object URI.
+1. **Clean-Room Spiritual Inheritance of Tiny Tiny RSS (TT-RSS) with Single-Line `FlatList` Mode**:
+   - Inherit both the crisp single-line **`FlatList` mode** (checkbox, star, outbound publish state, ingestion link badge, bold unread title, author, inline excerpt, colored feed pill, compact timestamp, original link, and protocol badge in one horizontal row with inline article expansion) and the **Three-Panel mode** (left tree, center stream, right dedicated reader), plus viewport-aware action popovers (`Select...`, `Adaptive`, `Sort`, `☰` hamburger menu, and `⋯` article menu).
+   - Provide a faithful full-featured Article Reader (`.doc-content` typography, Sans/Serif toggle, adjustable font size, tables, code blocks, blockquotes, and figures).
+   - Provide a dedicated sub-route Preferences page at **`/syndication/preferences`** for feed targets, tag-to-entity policies, organize rules, outbound federation defaults, and OPML import/export.
+2. **Unified Content View (`수집 원문` ⇄ `적재 본문`)**:
+   - Allow a single collected item to hold **both** its Collected Original (`수집 원문`) and its Claire Ingested Body (`적재 본문`), and switch seamlessly between them inside the **single unified content view**.
+3. **Tag-to-Entity Equivalence (`태그는 곧 엔티티`)**:
+   - Process tags from RSS/Atom (`<category>`), ActivityPub (`Hashtag`), and AT Protocol (`facets`) identically to Claire Bible's `[태그]` ingestion policy: every tag in Claire Bible resolves directly to an ontology **Entity (`entities` node)** in the active theme database.
+4. **Dual Outbound Publishing Across All Protocols (`부스트/인용 발행` & `적재 발행`)**:
+   - Support **both** **Boost / Quote Publish** (ActivityPub `Announce` for AP objects or FEP-044f Quote/Link `Create` for RSS/Atom/AT items) and **Ingested Body Publish** (ActivityPub `Create` emitting the Claire `적재 본문`, entity hashtags, and `/p?s=<token>` share URL) for RSS/Atom, ActivityPub, and AT Protocol items alike.
 5. **Public Visual Prototype Access (Phase 1) & Role-Scoped Backend Mutations (Phase 2)**:
-   - Expose `GET /syndication` and `HEAD /syndication` under `_rule("public")` during Phase 1 so reviewers can inspect the visual prototype directly at `/syndication` without token or session bootstrap friction.
+   - Expose `GET/HEAD /syndication` and `GET/HEAD /syndication/preferences` under `_rule("public")` during Phase 1 so reviewers can inspect both routes directly without token friction.
    - Enforce `collaborator` and `owner` scopes on Phase 2 mutation endpoints (`/syndication/targets`, `/syndication/ingest`, `/syndication/publish`, `/syndication/rules`), and disallow search engine indexing via `/robots.txt` (`Disallow: /syndication`) and `<meta name="robots">`.
 
 ---
@@ -117,10 +115,11 @@ Phase 1 mounts the interactive clean-room visual prototype at `/syndication` so 
 
 | Module | Symbol / File | Responsibility |
 | :--- | :--- | :--- |
-| Security Policy | [`src/claire/api/security.py`](../../src/claire/api/security.py) | Registers `GET /syndication` and `HEAD /syndication` with `_rule("public")` for frictionless visual prototype access. |
-| ASGI Server | [`src/claire/api/server.py`](../../src/claire/api/server.py) | Implements `syndication_ui_route(request)`, resolves multi-theme context via `_get_theme_ctx(request)`, appends `Disallow: /syndication` to `robots_txt_route`, and mounts `Route("/syndication", syndication_ui_route, methods=["GET", "HEAD"])`. |
-| HTML Bundle Renderer | [`src/claire/graphview.py`](../../src/claire/graphview.py) | Builds standalone `SYNDICATION_HTML` by inlining `static/css/theme.css` into `templates/syndication.html`, and provides `render_syndication_html(...)` injecting theme metadata, GA4 tags, and `authScope`. |
-| Clean-Room UI Template | [`src/claire/templates/syndication.html`](../../src/claire/templates/syndication.html) | Implements the three-pane TT-RSS clean-room interface, live `/whoami` + `/graph` + `/documents` database sync, simulation vs live `POST /ingest` forwarding, and `Create` vs `Announce` outbound modals. |
+| Security Policy | [`src/claire/api/security.py`](../../src/claire/api/security.py) | Registers `GET/HEAD /syndication` and `GET/HEAD /syndication/preferences` with `_rule("public")` for frictionless visual prototype access. |
+| ASGI Server | [`src/claire/api/server.py`](../../src/claire/api/server.py) | Implements `syndication_ui_route` and `syndication_preferences_ui_route`, resolves multi-theme context via `_get_theme_ctx(request)`, appends `Disallow: /syndication` to `robots_txt_route`, and mounts `/syndication` and `/syndication/preferences`. |
+| HTML Bundle Renderer | [`src/claire/graphview.py`](../../src/claire/graphview.py) | Builds standalone `SYNDICATION_HTML` and `SYNDICATION_PREFERENCES_HTML` bundles and provides `render_syndication_html(...)` and `render_syndication_preferences_html(...)`. |
+| Reader & FlatList Assets | [`src/claire/templates/syndication.html`](../../src/claire/templates/syndication.html), [`src/claire/static/css/syndication.css`](../../src/claire/static/css/syndication.css), [`src/claire/static/js/syndication_app.js`](../../src/claire/static/js/syndication_app.js) | Implements the TT-RSS single-line `FlatList` mode, Three-Panel mode, faithful `.doc-content` reader, unified `수집 원문` ⇄ `적재 본문` view switcher, entity-tag bar (`태그는 곧 엔티티`), and dual Boost/Quote + Ingested Publish modal. |
+| Preferences Subpage | [`src/claire/templates/syndication_preferences.html`](../../src/claire/templates/syndication_preferences.html) | Implements `/syndication/preferences` with persistent controls for FlatList/Reader typography, feed targets, Tag = Entity ingestion policy, organize rules, outbound federation formats, and OPML 2.0 import/export. |
 
 ### 3.2 Browser Entry Flow
 - Any browser or HTTP client can open `/syndication` (or `/syndication?theme=<id>`) directly without a token or session cookie (`200 OK`).

@@ -50,14 +50,27 @@ def syndication_env(tmp_path: Path):
     return app
 
 
-def test_syndication_route_public_access_and_io_interface(syndication_env) -> None:
+def test_syndication_and_preferences_routes_io_interface(syndication_env) -> None:
     with TestClient(syndication_env, base_url="http://127.0.0.1:8765") as client:
         res_public = client.get("/syndication")
         assert res_public.status_code == 200
         assert "Claire Bible — Syndication" in res_public.text
         assert "authScope: 'public'" in res_public.text
-        assert "id=\"pane-stream\"" in res_public.text
-        assert "id=\"headlines-container\"" in res_public.text
+        assert 'data-layout="flatlist"' in res_public.text
+        assert 'id="headlines-container"' in res_public.text
+        assert "/syndication/preferences" in res_public.text
+        assert "수집 원문" in res_public.text
+        assert "적재 본문" in res_public.text
+        assert "부스트 / 인용 발행" in res_public.text
 
         res_head = client.head("/syndication")
         assert res_head.status_code == 200
+
+        res_prefs = client.get("/syndication/preferences")
+        assert res_prefs.status_code == 200
+        assert "Syndication 환경설정" in res_prefs.text
+        assert "태그 = 엔티티 적재 정책" in res_prefs.text
+        assert "한 줄 FlatList 모드" in res_prefs.text
+
+        res_prefs_head = client.head("/syndication/preferences")
+        assert res_prefs_head.status_code == 200

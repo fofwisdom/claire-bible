@@ -1,0 +1,754 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Claire Bible — Syndication 환경설정 (/syndication/preferences)</title>
+<meta name="robots" content="noindex, nofollow, noarchive"/>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg"/>
+<link rel="icon" type="image/png" sizes="192x192" href="/icon?p=android-chrome-192x192.png"/>
+<link rel="icon" type="image/png" sizes="512x512" href="/icon?p=android-chrome-512x512.png"/>
+<link rel="alternate icon" href="/favicon.ico"/>
+<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png"/>
+<link rel="manifest" href="/manifest.json"/>
+<link rel="mask-icon" href="/favicon.svg" color="#00ffaa"/>
+<meta name="theme-color" content="#0e1116"/>
+<!-- __GA_TAG__ -->
+<script>
+  (function(){ try{ var t=localStorage.getItem('claireTheme')||'light'; document.documentElement.setAttribute('data-theme', t); }catch(e){ document.documentElement.setAttribute('data-theme','light'); } })();
+</script>
+<link rel="stylesheet" href="/static/css/theme.css"/>
+<style>
+  html, body { height: 100%; overflow: hidden; }
+  .pref-topbar { height: 44px; background: var(--bar-bg); border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; padding: 0 14px; gap: 10px; flex-shrink: 0; }
+  .pref-brand { display: inline-flex; align-items: center; gap: 8px; font-size: 13.5px; font-weight: 700; color: var(--fg); text-decoration: none; }
+  .pref-back-btn { display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; border-radius: 6px; border: 1px solid var(--accent); background: var(--active); color: var(--accent); font-size: 12.5px; font-weight: 700; text-decoration: none; cursor: pointer; }
+  .pref-back-btn:hover { opacity: 0.9; }
+  .pref-btn { display: inline-flex; align-items: center; gap: 5px; padding: 5px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--sec-bg); color: var(--sec-fg); font-size: 12px; font-weight: 600; cursor: pointer; text-decoration: none; }
+  .pref-btn:hover { background: var(--hover); }
+  .pref-btn-pri { background: var(--btn-bg); color: var(--btn-fg); border-color: transparent; }
+  .pref-btn-pri:hover { opacity: 0.92; background: var(--btn-bg); }
+  .pref-btn-accent { background: var(--accent); color: #ffffff; border-color: transparent; }
+  .pref-shell { flex: 1; min-height: 0; display: flex; overflow: hidden; background: var(--bg); }
+  .pref-nav { width: 245px; flex-shrink: 0; background: var(--panel-bg); border-right: 1px solid var(--border); padding: 12px 10px; display: flex; flex-direction: column; gap: 4px; overflow-y: auto; }
+  .pref-nav-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); padding: 6px 8px 4px; }
+  .pref-nav-btn { width: 100%; text-align: left; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 10px; border-radius: 6px; border: 1px solid transparent; background: transparent; color: var(--fg); font-size: 13px; font-weight: 600; cursor: pointer; }
+  .pref-nav-btn:hover { background: var(--hover); }
+  .pref-nav-btn[aria-selected="true"] { background: var(--active); color: var(--accent); border-color: var(--border); font-weight: 700; }
+  .pref-main { flex: 1; min-width: 0; overflow-y: auto; padding: 22px 28px 60px; }
+  .pref-container { max-width: 960px; margin: 0 auto; display: flex; flex-direction: column; gap: 18px; }
+  .pref-card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px; padding: 16px 18px; display: flex; flex-direction: column; gap: 12px; }
+  .pref-card h2 { margin: 0; font-size: 16px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+  .pref-card h3 { margin: 0; font-size: 13.5px; font-weight: 700; }
+  .pref-desc { margin: 0; font-size: 12.5px; color: var(--muted); line-height: 1.55; }
+  .pref-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 10px 0; border-top: 1px solid var(--border); }
+  .pref-row:first-of-type { border-top: 0; padding-top: 2px; }
+  .pref-row-label { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+  .pref-row-label strong { font-size: 13px; color: var(--fg); }
+  .pref-row-label span { font-size: 12px; color: var(--muted); line-height: 1.45; }
+  .pref-input, .pref-select { padding: 6px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); color: var(--fg); font-size: 12.5px; }
+  .pref-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  .pref-table th, .pref-table td { border-bottom: 1px solid var(--border); padding: 8px 10px; text-align: left; vertical-align: middle; }
+  .pref-table th { background: var(--panel-bg); color: var(--muted); font-weight: 700; font-size: 11.5px; }
+  .pref-pill { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; background: var(--chip-bg); color: var(--fg); border: 1px solid var(--border); }
+  .pref-pill-rss { color: #bc4c00; background: rgba(251, 146, 60, 0.14); border-color: rgba(251, 146, 60, 0.35); }
+  .pref-pill-ap { color: #8250df; background: rgba(163, 113, 247, 0.14); border-color: rgba(163, 113, 247, 0.35); }
+  .pref-pill-at { color: #0969da; background: rgba(56, 139, 253, 0.14); border-color: rgba(56, 139, 253, 0.35); }
+  [data-theme="dark"] .pref-pill-rss { color: #ffa657; }
+  [data-theme="dark"] .pref-pill-ap { color: #d2a8ff; }
+  [data-theme="dark"] .pref-pill-at { color: #79c0ff; }
+  /* Native switch input styling with progressive enhancement fallback. */
+  input[type="checkbox"][switch] { accent-color: var(--accent, #0969da); margin: 0; cursor: pointer; width: 18px; height: 18px; flex-shrink: 0; }
+  input[type="checkbox"][switch]:focus-visible { outline: 3px solid var(--accent, #0969da); outline-offset: 4px; }
+  details.pref-disclosure { border: 1px solid var(--border); border-radius: 6px; background: var(--panel-bg); padding: 8px 12px; }
+  details.pref-disclosure summary { cursor: pointer; font-size: 12.5px; font-weight: 700; color: var(--fg); }
+  .pref-toast { position: fixed; right: 18px; bottom: 18px; padding: 9px 14px; border-radius: 8px; background: var(--fg); color: var(--bg); font-size: 12.5px; font-weight: 700; box-shadow: 0 8px 24px var(--shadow); opacity: 0; pointer-events: none; transition: opacity 0.18s ease; z-index: 50; }
+  .pref-toast.show { opacity: 1; }
+  @media (max-width: 780px) {
+    .pref-shell { flex-direction: column; overflow-y: auto; }
+    .pref-nav { width: 100%; border-right: 0; border-bottom: 1px solid var(--border); flex-direction: row; flex-wrap: nowrap; overflow-x: auto; }
+    .pref-nav-title { display: none; }
+    .pref-nav-btn { width: auto; white-space: nowrap; }
+    .pref-main { padding: 14px; }
+    .pref-row { flex-direction: column; align-items: flex-start; }
+  }
+</style>
+</head>
+<body data-auth-scope="__AUTH_SCOPE__">
+
+  <header class="pref-topbar">
+    <div style="display:flex;align-items:center;gap:10px;min-width:0;flex-wrap:wrap">
+      <a id="link-back-reader" class="pref-back-btn" href="/syndication" title="신디케이션 리더(FlatList / 3-Panel)로 복귀">← 리더로 돌아가기 (/syndication)</a>
+      <span style="color:var(--muted)">/</span>
+      <span class="pref-brand">⚙️ Syndication 상세 환경설정 (Preferences)</span>
+      <label for="pref-theme-select" class="sr-only">대상 지식 테마 선택</label>
+      <select id="pref-theme-select" class="pref-select" aria-label="대상 지식 테마 선택"></select>
+    </div>
+    <div style="display:flex;align-items:center;gap:6px">
+      <button type="button" id="btn-reset-prefs" class="pref-btn" title="프로토타입 환경설정 기본값 복원">↺ 기본값 복원</button>
+      <button type="button" id="themebtn" class="pref-btn" onclick="toggleClaireTheme()" title="라이트/다크 전환" aria-label="라이트/다크 전환">🌙</button>
+    </div>
+  </header>
+
+  <div class="pref-shell">
+    <nav class="pref-nav" role="tablist" aria-orientation="vertical" aria-label="신디케이션 환경설정 범주">
+      <div class="pref-nav-title">TT-RSS 계승 설정 범주</div>
+      <button type="button" class="pref-nav-btn" role="tab" id="tab-btn-reader" aria-controls="panel-reader" aria-selected="true" data-tab="reader"><span>📖 리더 · FlatList 화면</span></button>
+      <button type="button" class="pref-nav-btn" role="tab" id="tab-btn-feeds" aria-controls="panel-feeds" aria-selected="false" data-tab="feeds"><span>📡 정기 수집 대상 · 폴더</span></button>
+      <button type="button" class="pref-nav-btn" role="tab" id="tab-btn-tags" aria-controls="panel-tags" aria-selected="false" data-tab="tags"><span>🏷️ 태그 = 엔티티 적재 정책</span></button>
+      <button type="button" class="pref-nav-btn" role="tab" id="tab-btn-rules" aria-controls="panel-rules" aria-selected="false" data-tab="rules"><span>⚡ 오거나이즈 · 자동 적재</span></button>
+      <button type="button" class="pref-nav-btn" role="tab" id="tab-btn-outbound" aria-controls="panel-outbound" aria-selected="false" data-tab="outbound"><span>🔁 부스트 · 적재 발행</span></button>
+      <button type="button" class="pref-nav-btn" role="tab" id="tab-btn-opml" aria-controls="panel-opml" aria-selected="false" data-tab="opml"><span>📦 OPML · 프로토콜 진단</span></button>
+    </nav>
+
+    <main class="pref-main">
+      <div class="pref-container">
+
+        <!-- PANEL 1: Reader & FlatList UI -->
+        <section id="panel-reader" role="tabpanel" aria-labelledby="tab-btn-reader" class="pref-panel">
+          <div class="pref-card">
+            <h2>📖 리더 및 FlatList 레이아웃 환경설정</h2>
+            <p class="pref-desc">Tiny Tiny RSS 스타일의 한 줄 <code>FlatList</code> 모드와 3단 분할 뷰, 그리고 하나의 컨텐트 뷰 안에서의 <b>수집 원문 ⇄ 적재 본문</b> 기본 전환 동작을 제어합니다. 변경 사항은 즉시 저장되어 <code>/syndication</code> 리더에 반영됩니다.</p>
+
+            <div class="pref-row">
+              <div class="pref-row-label">
+                <strong>기본 스트림 레이아웃 모드 (UI Layout)</strong>
+                <span><code>FlatList</code>는 모든 메타데이터·발췌문을 한 줄 안에 배치하고 클릭 시 그 자리에서 리더를 펼치며, <code>3단 분할 뷰</code>는 우측 전용 리더 창을 유지합니다.</span>
+              </div>
+              <select id="pref-layout-mode" class="pref-select" aria-label="기본 스트림 레이아웃 모드">
+                <option value="flatlist">한 줄 FlatList 모드 (TT-RSS Combined 기본)</option>
+                <option value="split">3단 분할 뷰 (Three-Panel Widescreen)</option>
+              </select>
+            </div>
+
+            <div class="pref-row">
+              <div class="pref-row-label">
+                <label for="pref-show-excerpt"><strong>FlatList 행 내부 한 줄 본문 발췌(Excerpt) 표시</strong></label>
+                <span>제목과 작성자 우측의 남는 가로 영역에 <code>— 본문 첫 문장 미리보기</code>를 말줄임표와 함께 아름답게 배치합니다.</span>
+              </div>
+              <input id="pref-show-excerpt" type="checkbox" switch/>
+            </div>
+
+            <div class="pref-row">
+              <div class="pref-row-label">
+                <strong>컨텐트 뷰 초기 표시 탭 (수집 원문 vs 적재 본문)</strong>
+                <span>하나의 수집 항목이 <b>수집 원문</b>과 <b>적재 본문</b>을 모두 보유할 때 리더가 우선 노출할 본문 탭을 지정합니다.</span>
+              </div>
+              <select id="pref-default-content-tab" class="pref-select" aria-label="컨텐트 뷰 초기 표시 탭">
+                <option value="auto">자동 (적재 완료 시 '적재 본문', 미적재 시 '수집 원문')</option>
+                <option value="original">항상 '수집 원문 (Collected Original)' 먼저 읽기</option>
+                <option value="ingested">항상 '적재 본문 (Claire Ingested Body)' 먼저 읽기</option>
+              </select>
+            </div>
+
+            <div class="pref-row">
+              <div class="pref-row-label">
+                <strong>리더 본문 서체 (Typography)</strong>
+                <span>긴 아티클 정독을 위한 본문 기본 서체(<code>Noto Sans KR</code> 고딕 / <code>Noto Serif KR</code> 명조)를 선택합니다.</span>
+              </div>
+              <select id="pref-reader-font" class="pref-select" aria-label="리더 본문 서체">
+                <option value="sans">본문 고딕 (Noto Sans KR)</option>
+                <option value="serif">본문 명조 (Noto Serif KR — 장문 아티클 정독용)</option>
+              </select>
+            </div>
+
+            <div class="pref-row">
+              <div class="pref-row-label">
+                <strong>리더 기본 글자 크기 (Font Size)</strong>
+                <span><code>.doc-content</code> 본문 영역의 기본 글자 크기(13px ~ 20px)를 지정합니다.</span>
+              </div>
+              <select id="pref-reader-fontsize" class="pref-select" aria-label="리더 기본 글자 크기">
+                <option value="14">14px (조밀함)</option>
+                <option value="15">15px (TT-RSS 표준 권장)</option>
+                <option value="16">16px (여유로운 독서)</option>
+                <option value="18">18px (큰 글씨)</option>
+              </select>
+            </div>
+
+            <div class="pref-row">
+              <div class="pref-row-label">
+                <label for="pref-auto-read"><strong>항목 열람 시 자동으로 읽음(Read) 상태 전환</strong></label>
+                <span>FlatList 행을 클릭해 본문을 펼치거나 <code>j/k</code> 단축키로 이동할 때 안읽음 표시를 자동 해제합니다.</span>
+              </div>
+              <input id="pref-auto-read" type="checkbox" switch/>
+            </div>
+          </div>
+        </section>
+
+        <!-- PANEL 2: Feeds & Periodic Collection Targets -->
+        <section id="panel-feeds" role="tabpanel" aria-labelledby="tab-btn-feeds" class="pref-panel" hidden>
+          <div class="pref-card">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+              <div>
+                <h2>📡 정기 수집 대상 및 카테고리 폴더 관리</h2>
+                <p class="pref-desc">선택한 테마 DB에 연결된 RSS/Atom, ActivityPub(Fediverse), AT Protocol 수집 대상과 폴링 주기를 관리합니다.</p>
+              </div>
+            </div>
+
+            <div style="overflow-x:auto">
+              <table class="pref-table" aria-label="정기 수집 대상 목록">
+                <thead>
+                  <tr>
+                    <th>프로토콜</th>
+                    <th>카테고리 폴더</th>
+                    <th>수집 대상 이름</th>
+                    <th>식별자 / 피드 URI</th>
+                    <th>수집 주기</th>
+                    <th>상태</th>
+                  </tr>
+                </thead>
+                <tbody id="pref-feeds-tbody"></tbody>
+              </table>
+            </div>
+
+            <form id="pref-add-feed-form" style="display:grid;grid-template-columns:130px 150px 1fr 1.3fr 110px auto;gap:8px;align-items:end;padding-top:10px;border-top:1px solid var(--border)">
+              <div>
+                <label for="new-feed-proto" style="display:block;font-size:11.5px;font-weight:700;margin-bottom:4px">프로토콜</label>
+                <select id="new-feed-proto" class="pref-select" style="width:100%">
+                  <option value="rss">RSS / ATOM</option>
+                  <option value="ap">ActivityPub</option>
+                  <option value="at">AT Protocol</option>
+                </select>
+              </div>
+              <div>
+                <label for="new-feed-folder" style="display:block;font-size:11.5px;font-weight:700;margin-bottom:4px">폴더</label>
+                <input id="new-feed-folder" type="text" class="pref-input" style="width:100%" value="엔지니어링 블로그"/>
+              </div>
+              <div>
+                <label for="new-feed-title" style="display:block;font-size:11.5px;font-weight:700;margin-bottom:4px">표시 이름</label>
+                <input id="new-feed-title" type="text" required class="pref-input" style="width:100%" placeholder="예: LWN.net Kernel"/>
+              </div>
+              <div>
+                <label for="new-feed-url" style="display:block;font-size:11.5px;font-weight:700;margin-bottom:4px">URL / @핸들 / DID</label>
+                <input id="new-feed-url" type="text" required class="pref-input" style="width:100%" placeholder="https://lwn.net/headlines/rss"/>
+              </div>
+              <div>
+                <label for="new-feed-interval" style="display:block;font-size:11.5px;font-weight:700;margin-bottom:4px">주기</label>
+                <select id="new-feed-interval" class="pref-select" style="width:100%">
+                  <option value="15m">매 15분</option>
+                  <option value="5m">매 5분</option>
+                  <option value="1h">매 1시간</option>
+                  <option value="push">AP Push</option>
+                </select>
+              </div>
+              <button type="submit" class="pref-btn pref-btn-pri">+ 추가</button>
+            </form>
+          </div>
+        </section>
+
+        <!-- PANEL 3: Tag = Entity Policy -->
+        <section id="panel-tags" role="tabpanel" aria-labelledby="tab-btn-tags" class="pref-panel" hidden>
+          <div class="pref-card">
+            <h2>🏷️ 수집 태그 → 클레어바이블 엔티티 동치 정책 (Tags = Entities)</h2>
+            <p class="pref-desc"><b>클레어바이블의 태그는 곧 온톨로지 엔티티(<code>entities</code> 노드)입니다.</b> RSS <code>&lt;category&gt;</code>, Atom <code>term</code>, ActivityPub <code>Hashtag</code>, AT Protocol <code>facets</code>에서 수집된 태그 정보는 적재 시 별도의 파편화된 태그 테이블을 만들지 않고 프로젝트 적재 정책(<code>[태그]</code> 메타데이터 섹션 주입 및 Entity Resolution)과 100% 동일하게 정규화·병합됩니다.</p>
+
+            <div class="pref-row">
+              <div class="pref-row-label">
+                <label for="pref-tag-automap"><strong>수집 원문 태그를 적재 시 <code>[태그]</code> 엔티티 파이프라인으로 자동 전달</strong></label>
+                <span>RSS/Atom/AP/AT 원문이 제시한 태그를 테마 DB의 기존 <code>entities.norm_name</code> 및 <code>aliases</code>와 대조해 동일 엔티티로 연결합니다.</span>
+              </div>
+              <input id="pref-tag-automap" type="checkbox" switch/>
+            </div>
+
+            <div class="pref-row">
+              <div class="pref-row-label">
+                <label for="pref-tag-provisional"><strong>미등록 외부 태그를 잠정 엔티티(<code>provisional=1</code>) 노드로 자동 승격</strong></label>
+                <span>테마 DB에 아직 없는 태그라도 적재 시 온톨로지 엔티티 후보로 생성하여 지식 그래프 탐색 및 추후 병합(Dedup) 대상에 포함합니다.</span>
+              </div>
+              <input id="pref-tag-provisional" type="checkbox" switch/>
+            </div>
+
+            <div class="pref-row">
+              <div class="pref-row-label">
+                <label for="pref-tag-hashtags"><strong>외부 발행/부스트 시 연결된 엔티티를 ActivityPub <code>Hashtag</code> 객체로 역변환 첨부</strong></label>
+                <span><code>[[KV Cache]]</code> → <code>#KVCache</code> 형태로 변환하여 연합우주 검색성을 높입니다.</span>
+              </div>
+              <input id="pref-tag-hashtags" type="checkbox" switch/>
+            </div>
+
+            <div class="pref-row">
+              <div class="pref-row-label">
+                <label for="pref-noise-tags"><strong>엔티티 승격 제외 노이즈 태그 목록 (쉼표 구분)</strong></label>
+                <span>RSS 피드에서 흔히 유입되는 의미 없는 일반 분류어(예: <code>uncategorized, general</code>)가 온톨로지 엔티티를 오염시키지 않도록 적재 전 필터링합니다.</span>
+              </div>
+              <input id="pref-noise-tags" type="text" class="pref-input" style="min-width:300px"/>
+            </div>
+
+            <details class="pref-disclosure">
+              <summary>프로토콜별 태그 수집 필드 ↔ Claire 엔티티 매핑 명세 보기</summary>
+              <div style="margin-top:10px;font-size:12px;color:var(--muted);line-height:1.6">
+                <div>• <b>RSS 2.0 / Atom 1.0</b>: <code>&lt;category&gt;</code>, <code>&lt;dc:subject&gt;</code> → 적재 원문 상단 <code>[태그]</code> 섹션 병합 → <code>entities</code> 정규화</div>
+                <div>• <b>ActivityPub (AP)</b>: <code>object.tag[type="Hashtag"].name</code> (<code>#</code> 접두사 제거 후 정규화) → <code>entities</code> 정규화</div>
+                <div>• <b>AT Protocol</b>: <code>app.bsky.richtext.facet#tag</code> 및 레코드 <code>tags[]</code> → <code>entities</code> 정규화</div>
+                <div>• <b>리더 하단 태그 바 조작</b>: 리더 하단 <code>🏷️ 엔티티 (= 태그) (+)</code>에서 추가한 항목 역시 즉시 해당 테마의 엔티티 참조로 귀속됩니다.</div>
+              </div>
+            </details>
+          </div>
+        </section>
+
+        <!-- PANEL 4: Organize & Auto-Ingest Rules -->
+        <section id="panel-rules" role="tabpanel" aria-labelledby="tab-btn-rules" class="pref-panel" hidden>
+          <div class="pref-card">
+            <h2>⚡ 테마 DB 기반 오거나이즈 · 자동 적재 규칙</h2>
+            <p class="pref-desc">정기 수집된 컨텐트를 테마 SQLite DB의 엔티티 연관도(Affinity Score)로 채점하고, 임계치 이상인 항목을 프로젝트 적재 파이프라인으로 자동 전달합니다.</p>
+
+            <div class="pref-row">
+              <div class="pref-row-label">
+                <label for="pref-auto-threshold"><strong>자동 적재 전달 연관도 임계 점수 (0 ~ 100)</strong></label>
+                <span>피드의 자동 적재 옵션이 켜져 있을 때, 엔티티·규칙 합산 점수가 이 기준 이상이면 즉시 <code>POST /ingest</code> 적재 큐로 전달합니다.</span>
+              </div>
+              <input id="pref-auto-threshold" type="number" min="50" max="100" step="5" class="pref-input" style="width:90px"/>
+            </div>
+
+            <div id="pref-rules-list" style="display:flex;flex-direction:column;gap:8px;padding-top:8px"></div>
+          </div>
+        </section>
+
+        <!-- PANEL 5: Outbound Boost / Quote & Ingested Publish -->
+        <section id="panel-outbound" role="tabpanel" aria-labelledby="tab-btn-outbound" class="pref-panel" hidden>
+          <div class="pref-card">
+            <h2>🔁 RSS/ATOM/AP 부스트·인용 발행 및 적재 본문 발행 정책</h2>
+            <p class="pref-desc">RSS/ATOM 컨텐트 역시 단순 원문 열람에 그치지 않고 <b>부스트/인용 발행(Boost / Quote)</b>과 <b>적재 발행(Ingested Body Publish)</b> 두 가지 방식을 모두 지원합니다.</p>
+
+            <div class="pref-row">
+              <div class="pref-row-label">
+                <strong>현재 테마 발신 ActivityPub 액터</strong>
+                <span id="pref-actor-desc">테마 공개 정책에 따라 외부 연합우주 발신 가능 여부가 결정됩니다.</span>
+              </div>
+              <code id="pref-actor-handle" style="font-family:'D2Coding',monospace;font-size:12.5px;padding:4px 8px;background:var(--panel-bg);border:1px solid var(--border);border-radius:6px"></code>
+            </div>
+
+            <div class="pref-row">
+              <div class="pref-row-label">
+                <strong>RSS / ATOM 항목 발행 대화상자 기본 모드</strong>
+                <span>RSS/ATOM 기사에서 발행 버튼을 눌렀을 때 기본으로 선택될 발행 모드를 지정합니다 (대화상자 안에서 언제든 두 모드 간 전환 가능).</span>
+              </div>
+              <select id="pref-rss-pubmode" class="pref-select" aria-label="RSS/ATOM 기본 발행 모드">
+                <option value="quote_boost">🔁 부스트 / 인용 발행 (원문 URL + 코멘트 + 엔티티 해시태그)</option>
+                <option value="ingested_create">📡 적재 발행 (Claire 적재 본문 요약/전문 + 공개 공유 링크)</option>
+              </select>
+            </div>
+
+            <div class="pref-row">
+              <div class="pref-row-label">
+                <strong>ActivityPub 항목 발행 대화상자 기본 모드</strong>
+                <span>원격 Fediverse 포스트에서 발행 버튼을 눌렀을 때 기본으로 선택될 모드입니다.</span>
+              </div>
+              <select id="pref-ap-pubmode" class="pref-select" aria-label="ActivityPub 기본 발행 모드">
+                <option value="announce">🔁 순수 부스트 (ActivityPub Announce)</option>
+                <option value="quote_boost">💬 인용 부스트 (원문 객체 인용 + 코멘트 Note)</option>
+                <option value="ingested_create">📡 적재 발행 (Claire 적재 본문 게시 Create)</option>
+              </select>
+            </div>
+
+            <div class="pref-row">
+              <div class="pref-row-label">
+                <label for="pref-include-sharelink"><strong>적재 발행 시 Claire 공개 열람 링크(<code>/p?s=...</code>) 자동 첨부</strong></label>
+                <span>연합우주 팔로워가 클릭 시 Claire의 정제된 지식 그래프 공유 문서 뷰어로 이동할 수 있도록 합니다.</span>
+              </div>
+              <input id="pref-include-sharelink" type="checkbox" switch/>
+            </div>
+
+            <div class="pref-row">
+              <div class="pref-row-label">
+                <label for="pref-quote-template"><strong>RSS/ATOM 부스트·인용 발행 기본 포맷 템플릿</strong></label>
+                <span>사용 가능 치환자: <code>{{title}}</code>, <code>{{url}}</code>, <code>{{author}}</code>, <code>{{hashtags}}</code></span>
+              </div>
+              <input id="pref-quote-template" type="text" class="pref-input" style="min-width:340px"/>
+            </div>
+          </div>
+        </section>
+
+        <!-- PANEL 6: OPML & Diagnostics -->
+        <section id="panel-opml" role="tabpanel" aria-labelledby="tab-btn-opml" class="pref-panel" hidden>
+          <div class="pref-card">
+            <h2>📦 OPML 구독 목록 입출력 및 소각 툼스톤 방어벽 진단</h2>
+            <p class="pref-desc">기존 Tiny Tiny RSS / FreshRSS / NetNewsWire 등에서 사용하던 OPML 2.0 파일과 호환되며, 소각된 문서의 재수집을 막는 <code>purged_tombstones</code> 방어벽 상태를 점검합니다.</p>
+
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <button type="button" id="btn-export-opml" class="pref-btn pref-btn-accent">⬇ 현재 테마 OPML 2.0 내보내기 미리보기</button>
+              <button type="button" id="btn-sim-import-opml" class="pref-btn">⬆ OPML 가져오기 시뮬레이션</button>
+            </div>
+
+            <pre id="opml-preview-box" style="margin:0;padding:12px;border-radius:6px;border:1px solid var(--border);background:var(--panel-bg);font-family:'D2Coding',monospace;font-size:12px;overflow-x:auto;max-height:240px"></pre>
+
+            <details class="pref-disclosure" open>
+              <summary>🛡️ 소각 툼스톤(<code>purged_tombstones</code>) 재수집 영구 차단 규칙</summary>
+              <p style="margin:8px 0 0;font-size:12px;color:var(--muted);line-height:1.55">클레어바이블에서 <code>./cb-manuscript purge</code> 또는 웹 UI 문서 소각으로 제거된 URL·컨텐트 해시는 정기 수집 폴러가 RSS/AP/AT 스트림에서 다시 마주치더라도 <b>자동 적재 및 발행 대상에서 영구 제외</b>됩니다.</p>
+            </details>
+          </div>
+        </section>
+
+      </div>
+    </main>
+  </div>
+
+  <div id="pref-toast" class="pref-toast" role="status" aria-live="polite">설정이 저장되었습니다</div>
+
+  <script type="module">
+    if (!("switch" in HTMLInputElement.prototype)) {
+      import("https://unpkg.com/input-switch-polyfill").catch(() => {});
+    }
+  </script>
+  <script>
+    window.__CLAIRE_CONFIG = {
+      sourceBaseUrl: '__SOURCE_BASE_URL__',
+      githubRepository: '__GITHUB_REPOSITORY__',
+      sorcerer: '__SORCERER__',
+      owner: '__OWNER__',
+      knowledgeManager: '__KNOWLEDGE_MANAGER__',
+      themeMode: '__THEME_MODE__',
+      activeThemeId: __ACTIVE_THEME_ID__,
+      authScope: '__AUTH_SCOPE__',
+      themes: __THEMES_JSON__
+    };
+
+    function toggleClaireTheme() {
+      const cur = document.documentElement.getAttribute("data-theme") || "light";
+      const next = cur === "dark" ? "light" : "dark";
+      document.documentElement.setAttribute("data-theme", next);
+      try { localStorage.setItem("claireTheme", next); } catch (_) {}
+      const btn = document.getElementById("themebtn");
+      if (btn) btn.textContent = next === "dark" ? "☀️" : "🌙";
+    }
+    (function initThemeIcon() {
+      const cur = document.documentElement.getAttribute("data-theme") || "light";
+      const btn = document.getElementById("themebtn");
+      if (btn) btn.textContent = cur === "dark" ? "☀️" : "🌙";
+    })();
+
+    const PREFS_KEY = "claireSyndicationPrefs_v2";
+    const CUSTOM_STATE_KEY = "claireSyndicationCustomState_v2";
+
+    const DEFAULT_PREFS = {
+      layoutMode: "flatlist",
+      showExcerpt: true,
+      defaultContentTab: "auto",
+      readerFont: "sans",
+      readerFontSize: 15,
+      autoMarkReadOnOpen: true,
+      autoIngestThreshold: 85,
+      tagPolicy: {
+        autoMapSourceTagsToEntities: true,
+        createProvisionalEntityForUnknownTag: true,
+        attachEntityHashtagsOnPublish: true,
+        ignoredNoiseTags: "uncategorized, general, news, sponsor"
+      },
+      outboundPolicy: {
+        rssDefaultMode: "quote_boost",
+        apDefaultMode: "announce",
+        includeCanonicalShareLink: true,
+        quoteTemplate: "📌 {{title}} — {{url}} {{hashtags}}"
+      }
+    };
+
+    const SEED_THEME_META = {
+      "0": {
+        id: 0, icon: "📚", label: "기본 지식베이스", isPublic: true, actorHandle: "@claire@claire.example.com",
+        feeds: [
+          { id: "f0-1", folder: "오픈소스 릴리스", proto: "rss", interval: "15m", title: "SQLite Release Log", url: "https://sqlite.org/news.atom", etag: "200 OK" },
+          { id: "f0-2", folder: "Fediverse 표준 기구", proto: "ap", interval: "push", title: "W3C Social Web WG", url: "@w3c@w3c.social", etag: "AP Inbox 활성" },
+          { id: "f0-3", folder: "분산 소셜 프로토콜", proto: "at", interval: "15m", title: "AT Protocol Core Dev", url: "at://did:plc:atproto-dev", etag: "Jetstream 동기화" }
+        ],
+        rules: [
+          { id: "r0-1", name: "SQLite 릴리스 노트 우선 오거나이즈", cond: "엔티티/태그 일치: [[SQLite]]", action: "연관도 +45 · 별표 부여", enabled: true },
+          { id: "r0-2", name: "W3C 표준 권고안 자동 적재 전달", cond: "출처: @w3c@w3c.social + [[ActivityPub]]", action: "프로젝트 적재 파이프라인 자동 전달", enabled: true }
+        ]
+      },
+      "1": {
+        id: 1, icon: "🤖", label: "AI 및 클라우드 시스템", isPublic: true, actorHandle: "@ai@ai.example.com",
+        feeds: [
+          { id: "f1-1", folder: "학술 프리프린트", proto: "rss", interval: "15m", title: "arXiv cs.LG & cs.DC", url: "https://rss.arxiv.org/atom/cs.LG+cs.DC", etag: "200 OK" },
+          { id: "f1-2", folder: "학술 프리프린트", proto: "ap", interval: "push", title: "Scholar Papers Bot", url: "@papers@scholar.social", etag: "AP Push 수신 중" },
+          { id: "f1-3", folder: "엔지니어링 블로그", proto: "rss", interval: "15m", title: "vLLM Engineering Blog", url: "https://blog.vllm.ai/feed.xml", etag: "304 Not Modified" },
+          { id: "f1-4", folder: "Fediverse 연구자", proto: "ap", interval: "push", title: "Georgi Gerganov", url: "@ggerganov@mastodon.social", etag: "AP Push 수신 중" },
+          { id: "f1-5", folder: "AT Protocol 연구 스트림", proto: "at", interval: "15m", title: "ML Systems Feed (AT)", url: "at://did:plc:mlsys-feed", etag: "커서 수집 정상" }
+        ],
+        rules: [
+          { id: "r1-1", name: "추론 최적화 논문 고득점 오거나이즈", cond: "엔티티/태그 일치 ≥ 2 ([[vLLM]], [[KV Cache]], [[Speculative Decoding]])", action: "연관도 +50 · 상단 배치", enabled: true },
+          { id: "r1-2", name: "vLLM 아키텍처 포스트 자동 적재", cond: "출처: vLLM Engineering Blog + [[PagedAttention]]", action: "프로젝트 적재 자동 전달 (초점 주입)", enabled: true }
+        ]
+      },
+      "2": {
+        id: 2, icon: "📜", label: "문헌학 및 고전 연구", isPublic: true, actorHandle: "@classics@classics.example.com",
+        feeds: [
+          { id: "f2-1", folder: "성서학 저널", proto: "rss", interval: "1h", title: "Biblical Archaeology Review", url: "https://www.biblicalarchaeology.org/feed/", etag: "200 OK" },
+          { id: "f2-2", folder: "교부학 Fediverse", proto: "ap", interval: "push", title: "Patristics Colloquium", url: "@patristics@scholar.social", etag: "AP Push 수신 중" }
+        ],
+        rules: [
+          { id: "r2-1", name: "70인역 사본 연구 우선 오거나이즈", cond: "엔티티/태그 일치: [[70인역 (LXX)]]", action: "연관도 +40 · 별표 부여", enabled: true }
+        ]
+      },
+      "3": {
+        id: 3, icon: "🔒", label: "사내 보안 인텔리전스 (비공개)", isPublic: false, actorHandle: "(비공개 격리 테마 — 외부 발행 차단)",
+        feeds: [
+          { id: "f3-1", folder: "취약점 공지", proto: "rss", interval: "5m", title: "OSS-Security Advisories", url: "https://www.openwall.com/lists/oss-security/rss", etag: "200 OK" }
+        ],
+        rules: [
+          { id: "r3-1", name: "커널 권한 상승 취약점 즉시 적재", cond: "엔티티/태그: [[Linux Kernel]] + [[CVE-2026]]", action: "비공개 DB 자동 적재", enabled: true }
+        ]
+      }
+    };
+
+    const cfg = window.__CLAIRE_CONFIG || {};
+    if (Array.isArray(cfg.themes)) {
+      cfg.themes.forEach((t) => {
+        const k = String(t.id);
+        if (!SEED_THEME_META[k]) {
+          SEED_THEME_META[k] = {
+            id: t.id,
+            icon: t.icon || "📁",
+            label: t.label || `테마 #${t.id}`,
+            isPublic: t.is_public !== false,
+            actorHandle: t.is_public !== false ? `@theme${t.id}@${t.fqdn || "claire.example.com"}` : "(비공개 격리 테마 — 외부 발행 차단)",
+            feeds: JSON.parse(JSON.stringify(SEED_THEME_META["0"].feeds)),
+            rules: JSON.parse(JSON.stringify(SEED_THEME_META["0"].rules))
+          };
+        }
+      });
+    }
+
+    function loadPrefs() {
+      try {
+        const raw = localStorage.getItem(PREFS_KEY);
+        if (!raw) return JSON.parse(JSON.stringify(DEFAULT_PREFS));
+        const parsed = JSON.parse(raw);
+        return {
+          ...DEFAULT_PREFS,
+          ...parsed,
+          tagPolicy: { ...DEFAULT_PREFS.tagPolicy, ...(parsed.tagPolicy || {}) },
+          outboundPolicy: { ...DEFAULT_PREFS.outboundPolicy, ...(parsed.outboundPolicy || {}) }
+        };
+      } catch (_) {
+        return JSON.parse(JSON.stringify(DEFAULT_PREFS));
+      }
+    }
+
+    function loadCustomState() {
+      try {
+        return JSON.parse(localStorage.getItem(CUSTOM_STATE_KEY) || "{}");
+      } catch (_) {
+        return {};
+      }
+    }
+
+    function saveCustomState(st) {
+      try { localStorage.setItem(CUSTOM_STATE_KEY, JSON.stringify(st)); } catch (_) {}
+    }
+
+    let prefs = loadPrefs();
+    let customState = loadCustomState();
+    const urlParams = new URLSearchParams(window.location.search);
+    let activeThemeKey = urlParams.get("theme") && SEED_THEME_META[urlParams.get("theme")]
+      ? urlParams.get("theme")
+      : (SEED_THEME_META[String(cfg.activeThemeId)] ? String(cfg.activeThemeId) : "0");
+
+    let toastTimer = null;
+    function showToast(msg) {
+      const el = document.getElementById("pref-toast");
+      el.textContent = msg;
+      el.classList.add("show");
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => el.classList.remove("show"), 1800);
+    }
+
+    function savePrefs(msg) {
+      try { localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)); } catch (_) {}
+      showToast(msg || "환경설정이 저장되어 /syndication 리더에 반영되었습니다");
+    }
+
+    function escapeHtml(s) {
+      return String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    }
+
+    function updateBackLink() {
+      document.getElementById("link-back-reader").href = `/syndication?theme=${encodeURIComponent(activeThemeKey)}`;
+    }
+
+    function renderThemeSelect() {
+      const sel = document.getElementById("pref-theme-select");
+      sel.innerHTML = Object.values(SEED_THEME_META).map((t) => `<option value="${t.id}" ${String(t.id) === String(activeThemeKey) ? "selected" : ""}>${escapeHtml(t.icon)} ${escapeHtml(t.label)} (Theme #${t.id})</option>`).join("");
+      updateBackLink();
+    }
+
+    function getThemeFeeds(themeKey) {
+      const base = SEED_THEME_META[themeKey] ? SEED_THEME_META[themeKey].feeds : [];
+      const extra = (customState[themeKey] && Array.isArray(customState[themeKey].extraFeeds)) ? customState[themeKey].extraFeeds : [];
+      return [...base, ...extra];
+    }
+
+    function renderFormValues() {
+      document.getElementById("pref-layout-mode").value = prefs.layoutMode;
+      document.getElementById("pref-show-excerpt").checked = !!prefs.showExcerpt;
+      document.getElementById("pref-default-content-tab").value = prefs.defaultContentTab;
+      document.getElementById("pref-reader-font").value = prefs.readerFont;
+      document.getElementById("pref-reader-fontsize").value = String(prefs.readerFontSize);
+      document.getElementById("pref-auto-read").checked = !!prefs.autoMarkReadOnOpen;
+      document.getElementById("pref-tag-automap").checked = !!prefs.tagPolicy.autoMapSourceTagsToEntities;
+      document.getElementById("pref-tag-provisional").checked = !!prefs.tagPolicy.createProvisionalEntityForUnknownTag;
+      document.getElementById("pref-tag-hashtags").checked = !!prefs.tagPolicy.attachEntityHashtagsOnPublish;
+      document.getElementById("pref-noise-tags").value = prefs.tagPolicy.ignoredNoiseTags;
+      document.getElementById("pref-auto-threshold").value = String(prefs.autoIngestThreshold);
+      document.getElementById("pref-rss-pubmode").value = prefs.outboundPolicy.rssDefaultMode;
+      document.getElementById("pref-ap-pubmode").value = prefs.outboundPolicy.apDefaultMode;
+      document.getElementById("pref-include-sharelink").checked = !!prefs.outboundPolicy.includeCanonicalShareLink;
+      document.getElementById("pref-quote-template").value = prefs.outboundPolicy.quoteTemplate;
+
+      const theme = SEED_THEME_META[activeThemeKey] || SEED_THEME_META["0"];
+      document.getElementById("pref-actor-handle").textContent = theme.actorHandle;
+      document.getElementById("pref-actor-desc").textContent = theme.isPublic
+        ? "공개 테마입니다. RSS/ATOM 부스트·인용 발행 및 적재 본문(Create) 게시가 활성화되어 있습니다."
+        : "비공개 격리 테마입니다. 수집 및 내부 적재만 허용되며 외부 ActivityPub 발행은 차단됩니다.";
+
+      const feeds = getThemeFeeds(activeThemeKey);
+      document.getElementById("pref-feeds-tbody").innerHTML = feeds.map((f) => {
+        const cls = f.proto === "ap" ? "pref-pill-ap" : (f.proto === "at" ? "pref-pill-at" : "pref-pill-rss");
+        const label = f.proto === "ap" ? "ActivityPub" : (f.proto === "at" ? "AT Proto" : "RSS/ATOM");
+        return `<tr>
+          <td><span class="pref-pill ${cls}">${label}</span></td>
+          <td>${escapeHtml(f.folder)}</td>
+          <td><strong>${escapeHtml(f.title)}</strong></td>
+          <td><code style="font-family:'D2Coding',monospace;font-size:11.5px">${escapeHtml(f.url)}</code></td>
+          <td>${escapeHtml(f.interval)}</td>
+          <td><span style="color:var(--accent2);font-weight:700">● ${escapeHtml(f.etag || "정상")}</span></td>
+        </tr>`;
+      }).join("");
+
+      const ruleOverrides = (customState[activeThemeKey] && customState[activeThemeKey].ruleStates) || {};
+      document.getElementById("pref-rules-list").innerHTML = theme.rules.map((r) => {
+        const isEnabled = ruleOverrides[r.id] !== undefined ? ruleOverrides[r.id] : r.enabled;
+        return `<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 12px;border:1px solid var(--border);border-radius:6px;background:var(--panel-bg)">
+          <div>
+            <div style="font-size:13px;font-weight:700">${escapeHtml(r.name)}</div>
+            <div style="font-size:12px;color:var(--muted);font-family:'D2Coding',monospace;margin-top:2px">조건: ${escapeHtml(r.cond)} → ${escapeHtml(r.action)}</div>
+          </div>
+          <label style="display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;cursor:pointer">
+            <span>${isEnabled ? "활성" : "비활성"}</span>
+            <input type="checkbox" switch data-rule-id="${escapeHtml(r.id)}" ${isEnabled ? "checked" : ""}/>
+          </label>
+        </div>`;
+      }).join("");
+
+      document.querySelectorAll("[data-rule-id]").forEach((chk) => {
+        chk.addEventListener("change", () => {
+          const rid = chk.getAttribute("data-rule-id");
+          if (!customState[activeThemeKey]) customState[activeThemeKey] = {};
+          if (!customState[activeThemeKey].ruleStates) customState[activeThemeKey].ruleStates = {};
+          customState[activeThemeKey].ruleStates[rid] = chk.checked;
+          saveCustomState(customState);
+          renderFormValues();
+          showToast("오거나이즈 규칙 상태가 저장되었습니다");
+        });
+      });
+
+      renderOpmlPreview();
+    }
+
+    function renderOpmlPreview() {
+      const theme = SEED_THEME_META[activeThemeKey] || SEED_THEME_META["0"];
+      const feeds = getThemeFeeds(activeThemeKey);
+      const outlines = feeds.map((f) => `      <outline text="${escapeHtml(f.title)}" title="${escapeHtml(f.title)}" type="${f.proto}" xmlUrl="${escapeHtml(f.url)}" category="${escapeHtml(f.folder)}"/>`).join("\n");
+      document.getElementById("opml-preview-box").textContent = `<?xml version="1.0" encoding="UTF-8"?>\n<opml version="2.0">\n  <head>\n    <title>Claire Bible Syndication — ${theme.label}</title>\n  </head>\n  <body>\n${outlines}\n  </body>\n</opml>`;
+    }
+
+    document.querySelectorAll(".pref-nav-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const targetTab = btn.getAttribute("data-tab");
+        document.querySelectorAll(".pref-nav-btn").forEach((b) => b.setAttribute("aria-selected", b === btn ? "true" : "false"));
+        document.querySelectorAll(".pref-panel").forEach((p) => { p.hidden = p.id !== `panel-${targetTab}`; });
+      });
+    });
+
+    const initialTab = urlParams.get("tab");
+    if (initialTab && document.getElementById(`tab-btn-${initialTab}`)) {
+      document.getElementById(`tab-btn-${initialTab}`).click();
+    }
+
+    document.getElementById("pref-theme-select").addEventListener("change", (e) => {
+      activeThemeKey = e.target.value;
+      updateBackLink();
+      renderFormValues();
+    });
+
+    document.getElementById("pref-layout-mode").addEventListener("change", (e) => { prefs.layoutMode = e.target.value; savePrefs(); });
+    document.getElementById("pref-show-excerpt").addEventListener("change", (e) => { prefs.showExcerpt = e.target.checked; savePrefs(); });
+    document.getElementById("pref-default-content-tab").addEventListener("change", (e) => { prefs.defaultContentTab = e.target.value; savePrefs(); });
+    document.getElementById("pref-reader-font").addEventListener("change", (e) => { prefs.readerFont = e.target.value; savePrefs(); });
+    document.getElementById("pref-reader-fontsize").addEventListener("change", (e) => { prefs.readerFontSize = Number(e.target.value) || 15; savePrefs(); });
+    document.getElementById("pref-auto-read").addEventListener("change", (e) => { prefs.autoMarkReadOnOpen = e.target.checked; savePrefs(); });
+    document.getElementById("pref-tag-automap").addEventListener("change", (e) => { prefs.tagPolicy.autoMapSourceTagsToEntities = e.target.checked; savePrefs(); });
+    document.getElementById("pref-tag-provisional").addEventListener("change", (e) => { prefs.tagPolicy.createProvisionalEntityForUnknownTag = e.target.checked; savePrefs(); });
+    document.getElementById("pref-tag-hashtags").addEventListener("change", (e) => { prefs.tagPolicy.attachEntityHashtagsOnPublish = e.target.checked; savePrefs(); });
+    document.getElementById("pref-noise-tags").addEventListener("change", (e) => { prefs.tagPolicy.ignoredNoiseTags = e.target.value; savePrefs(); });
+    document.getElementById("pref-auto-threshold").addEventListener("change", (e) => { prefs.autoIngestThreshold = Number(e.target.value) || 85; savePrefs(); });
+    document.getElementById("pref-rss-pubmode").addEventListener("change", (e) => { prefs.outboundPolicy.rssDefaultMode = e.target.value; savePrefs(); });
+    document.getElementById("pref-ap-pubmode").addEventListener("change", (e) => { prefs.outboundPolicy.apDefaultMode = e.target.value; savePrefs(); });
+    document.getElementById("pref-include-sharelink").addEventListener("change", (e) => { prefs.outboundPolicy.includeCanonicalShareLink = e.target.checked; savePrefs(); });
+    document.getElementById("pref-quote-template").addEventListener("change", (e) => { prefs.outboundPolicy.quoteTemplate = e.target.value; savePrefs(); });
+
+    document.getElementById("pref-add-feed-form").addEventListener("submit", (e) => {
+      e.preventDefault();
+      const proto = document.getElementById("new-feed-proto").value;
+      const folder = document.getElementById("new-feed-folder").value.trim() || "기본 폴더";
+      const title = document.getElementById("new-feed-title").value.trim();
+      const url = document.getElementById("new-feed-url").value.trim();
+      const interval = document.getElementById("new-feed-interval").value;
+      if (!title || !url) return;
+      if (!customState[activeThemeKey]) customState[activeThemeKey] = {};
+      if (!Array.isArray(customState[activeThemeKey].extraFeeds)) customState[activeThemeKey].extraFeeds = [];
+      customState[activeThemeKey].extraFeeds.push({
+        id: `f_pref_${Date.now()}`,
+        folder,
+        proto,
+        format: proto === "ap" ? "ActivityPub" : (proto === "at" ? "AT Protocol" : "RSS 2.0"),
+        interval,
+        title,
+        url,
+        health: "ok",
+        etag: "환경설정에서 등록됨"
+      });
+      saveCustomState(customState);
+      document.getElementById("new-feed-title").value = "";
+      document.getElementById("new-feed-url").value = "";
+      renderFormValues();
+      showToast(`신규 수집 대상 '${title}' 등록 완료 (/syndication 반영)`);
+    });
+
+    document.getElementById("btn-export-opml").addEventListener("click", () => {
+      renderOpmlPreview();
+      showToast("현재 테마의 OPML 2.0 문서가 생성되었습니다");
+    });
+
+    document.getElementById("btn-sim-import-opml").addEventListener("click", () => {
+      if (!customState[activeThemeKey]) customState[activeThemeKey] = {};
+      if (!Array.isArray(customState[activeThemeKey].extraFeeds)) customState[activeThemeKey].extraFeeds = [];
+      customState[activeThemeKey].extraFeeds.push({
+        id: `f_opml_${Date.now()}`,
+        folder: "OPML 가져옴",
+        proto: "rss",
+        format: "ATOM 1.0",
+        interval: "1h",
+        title: "ACM Queue Systems Feed",
+        url: "https://queue.acm.org/rss/feeds/queuecontent.xml",
+        health: "ok",
+        etag: "OPML 가져오기 완료"
+      });
+      saveCustomState(customState);
+      renderFormValues();
+      showToast("OPML 구독 항목 가져오기 시뮬레이션 완료");
+    });
+
+    document.getElementById("btn-reset-prefs").addEventListener("click", () => {
+      prefs = JSON.parse(JSON.stringify(DEFAULT_PREFS));
+      customState = {};
+      try {
+        localStorage.removeItem(PREFS_KEY);
+        localStorage.removeItem(CUSTOM_STATE_KEY);
+      } catch (_) {}
+      renderFormValues();
+      showToast("환경설정이 초기 기본값으로 복원되었습니다");
+    });
+
+    renderThemeSelect();
+    renderFormValues();
+  </script>
+</body>
+</html>
