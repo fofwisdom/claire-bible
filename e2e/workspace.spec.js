@@ -723,16 +723,16 @@ test('decision stream and heatmap matrix are separate features with proper audit
   // 6. Verify matrix preview banner is visible in reader until confirmed
   const matrixBanner = page.locator('#doc-matrix-banner-doc-2');
   await expect(matrixBanner).toBeVisible();
-  await expect(matrixBanner).toContainText('지식 대조 히트맵 매트릭스');
+  await expect(matrixBanner).toContainText('지식 적재 대조 콕핏');
 
-  // 7. Click '전체화면 매트릭스' button
-  const fullMatrixBtn = matrixBanner.locator('button:has-text("전체화면 매트릭스")');
+  // 7. Click '콕핏에서 보기' button
+  const fullMatrixBtn = matrixBanner.locator('button:has-text("콕핏에서 보기")');
   await fullMatrixBtn.click();
 
   // 8. Verify #matrixwrap is displayed as center view with pure visual grid
   const matrixWrap = page.locator('#matrixwrap');
   await expect(matrixWrap).toBeVisible();
-  await expect(matrixWrap.locator('#matrix-title')).toContainText('지식 적재 관제탑');
+  await expect(matrixWrap.locator('#matrix-title')).toContainText('지식 적재 콕핏');
   await expect(page.locator('#matrix-view-grid')).toBeVisible();
 
   // 9. Confirm and close matrix view
@@ -770,7 +770,7 @@ test('heatmap matrix replaces graph during ingestion with clean progress and liv
   await expect(page.locator('#netwrap')).toBeHidden();
   const matrixWrap = page.locator('#matrixwrap');
   await expect(matrixWrap).toBeVisible();
-  await expect(matrixWrap.locator('#matrix-title')).toContainText('지식 적재 관제탑');
+  await expect(matrixWrap.locator('#matrix-title')).toContainText('지식 적재 콕핏');
   await expect(matrixWrap.locator('#matrix-target-doc')).toContainText('대조 대상: https://example.com/test-article');
   await expect(page.locator('#matrix-progress-banner')).toBeVisible();
   await expect(matrixWrap.locator('#matrix-progress-msg')).toHaveText('원문 분석 및 엔티티 대조 준비 중…');
@@ -924,7 +924,7 @@ test('accessing Claire Bible during active ingest boots directly into heatmap ma
   expect(isSuspended).toBe(true);
 
   // Verify that matrix shows active ingestion info
-  await expect(matrixWrap.locator('#matrix-title')).toContainText('지식 적재 관제탑');
+  await expect(matrixWrap.locator('#matrix-title')).toContainText('지식 적재 콕핏');
   await expect(matrixWrap.locator('#matrix-target-doc')).toContainText('카카오페이 기술 블로그');
   await expect(page.locator('#matrix-progress-spinner')).toBeVisible();
 

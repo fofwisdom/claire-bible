@@ -511,7 +511,7 @@
   button.node-alias-chip.selectable:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
   .node-alias-chip .alias-star { color: var(--accent); font-size: 11px; opacity: .85; }
 
-  /* --- Unified Ingest Cockpit (단일 적재 관제탑: Desktop / Tablet / Mobile 통합) --- */
+  /* --- Unified Ingest Cockpit (단일 적재 콕핏: Desktop / Tablet / Mobile 통합) --- */
   #matrix-topbar.cockpit-header { display: flex; flex-direction: column; align-items: stretch; gap: 12px; padding: 14px 18px; background: var(--card-bg); border-bottom: 1px solid var(--border); box-sizing: border-box; }
   .cockpit-top-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
   .cockpit-doc-info { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; min-width: 0; flex: 1; }

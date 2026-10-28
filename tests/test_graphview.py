@@ -901,7 +901,7 @@ def test_common_header_height_and_component_synchronization():
 
 
 def test_matrix_confirm_button_and_redundant_close_removal():
-    """지식 대조 히트맵 매트릭스 뷰에서 불필요한 닫기(✕) 단추 제거 및 확인 단추 크기 규격화(34px, 6px radius) 검증."""
+    """지식 적재 콕핏 뷰에서 불필요한 닫기(✕) 단추 제거 및 확인 단추 크기 규격화(34px, 6px radius) 검증."""
     from claire.graphview import GRAPH_HTML
 
     # 1. 닫기 단추(matrix-close-btn) 제거 및 확인 단추(matrix-confirm-btn) 단일 배치 검증

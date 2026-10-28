@@ -6458,7 +6458,7 @@ function updateCenterJobView(job){
   if(!job) return;
   const titleEl = document.getElementById('matrix-title');
   if(titleEl){
-    titleEl.innerHTML = '지식 적재 관제탑 <small id="matrix-subtitle">| Ingest Cockpit (' + esc(job.title || '작업 진행 중') + ')</small>';
+    titleEl.innerHTML = '지식 적재 콕핏 <small id="matrix-subtitle">| Ingest Cockpit (' + esc(job.title || '작업 진행 중') + ')</small>';
   }
   const docMetaEl = document.getElementById('matrix-target-doc');
   if(docMetaEl){
@@ -6520,7 +6520,7 @@ function initIngestMatrixView(payload, focus, themeLabel){
   const wrap = document.getElementById('matrixwrap');
   if(!wrap) return;
   const titleEl = document.getElementById('matrix-title');
-  if(titleEl) titleEl.innerHTML = '지식 적재 관제탑 <small id="matrix-subtitle">| Ingest Cockpit (실시간 파이프라인 관제)</small>';
+  if(titleEl) titleEl.innerHTML = '지식 적재 콕핏 <small id="matrix-subtitle">| Ingest Cockpit (실시간 파이프라인 콕핏)</small>';
   const cleanPayload = (payload || '').replace(/\s+/g, ' ').trim();
   const shortDesc = cleanPayload.length > 80 ? cleanPayload.slice(0, 80) + '…' : cleanPayload;
   const docMetaEl = document.getElementById('matrix-target-doc');
@@ -7168,7 +7168,7 @@ function openHeatmapMatrix(docId){
 
   const titleEl = document.getElementById('matrix-title');
   if(titleEl){
-    titleEl.innerHTML = '지식 적재 관제탑 <small id="matrix-subtitle">| Ingest Cockpit (' + esc(title || '전체화면') + ')</small>';
+    titleEl.innerHTML = '지식 적재 콕핏 <small id="matrix-subtitle">| Ingest Cockpit (' + esc(title || '전체화면') + ')</small>';
   }
 
   renderHeatmapMatrix(mat, title, false);
@@ -7212,11 +7212,11 @@ function renderMiniMatrixBannerHtml(docId, mat){
   return '<div id="doc-matrix-banner-' + esc(docId) + '" class="matrix-preview-banner" style="margin-bottom:16px;padding:12px 14px;background:var(--card-bg);border:2px solid var(--accent,#0284c7);border-radius:8px;">' +
     '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">' +
       '<div>' +
-        '<strong style="color:var(--accent,#0284c7);font-size:13px;display:inline-flex;align-items:center;gap:5px"><span>⚡</span> 지식 대조 히트맵 매트릭스</strong>' +
-        '<p style="font-size:11.5px;color:var(--muted);margin:2px 0 0">적재 시점의 전수 대조 밀도 매트릭스입니다. 관리자 확인 시 완전히 파기됩니다.</p>' +
+        '<strong style="color:var(--accent,#0284c7);font-size:13px;display:inline-flex;align-items:center;gap:5px"><span>⚡</span> 지식 적재 대조 콕핏</strong>' +
+        '<p style="font-size:11.5px;color:var(--muted);margin:2px 0 0">적재 시점의 전수 대조 밀도 텐서입니다. 관리자 확인 시 완전히 파기됩니다.</p>' +
       '</div>' +
       '<div style="display:flex;align-items:center;gap:6px;">' +
-        '<button type="button" class="sec" onclick="openHeatmapMatrix(\'' + esc(docId) + '\')" style="padding:4px 8px;font-size:11px;">🔍 전체화면 매트릭스</button>' +
+        '<button type="button" class="sec" onclick="openHeatmapMatrix(\'' + esc(docId) + '\')" style="padding:4px 8px;font-size:11px;">🔍 콕핏에서 보기</button>' +
         confirmBtnHtml +
       '</div>' +
     '</div>' +
