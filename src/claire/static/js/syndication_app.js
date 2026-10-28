@@ -73,7 +73,8 @@
 
   const state = {
     themeId: initThemeKey,
-    layoutMode: prefs.layoutMode === "split" ? "split" : "flatlist",
+    layoutMode: prefs.layoutMode === "two-panel" ? "two-panel" : "three-panel",
+    listStyle: prefs.listStyle === "cards" ? "cards" : "flat",
     treeSel: { kind: "virtual", value: "all", label: "전체 아티클 (All articles)" },
     adaptiveFilter: "all",
     protoFilter: "all",
@@ -175,10 +176,22 @@
 
   function applyLayoutAttr() {
     document.body.setAttribute("data-layout", state.layoutMode);
-    const lbl = document.getElementById("menu-layout-label");
-    if (lbl) lbl.textContent = state.layoutMode === "flatlist" ? "◫ 3단 분할 뷰로 전환 (Three-panel)" : "☰ 한 줄 FlatList 모드로 전환";
-    const quickBtn = document.getElementById("btn-quick-layout");
-    if (quickBtn) quickBtn.textContent = state.layoutMode === "flatlist" ? "☰ FlatList" : "◫ 3단 뷰";
+    document.body.setAttribute("data-list-style", state.listStyle);
+
+    const listBtn = document.getElementById("btn-list-style-label");
+    if (listBtn) listBtn.textContent = state.listStyle === "flat" ? "☰ 한 줄 (FlatList)" : "▤ 상세 카드 (Cards)";
+    const menuFlat = document.getElementById("menu-style-flat-label");
+    if (menuFlat) menuFlat.textContent = `${state.listStyle === "flat" ? "✓ " : "　"}한 줄 플랫 (FlatList)`;
+    const menuCards = document.getElementById("menu-style-cards-label");
+    if (menuCards) menuCards.textContent = `${state.listStyle === "cards" ? "✓ " : "　"}상세 카드 (초기 프로토타입)`;
+
+    const layoutBtn = document.getElementById("btn-layout-label");
+    if (layoutBtn) layoutBtn.textContent = state.layoutMode === "three-panel" ? "◫ 3단 분할" : "⬒ 2단 상하";
+    const menu3p = document.getElementById("menu-layout-3pane-label");
+    if (menu3p) menu3p.textContent = `${state.layoutMode === "three-panel" ? "✓ " : "　"}3단 분할 뷰 (좌-중-우)`;
+    const menu2p = document.getElementById("menu-layout-2pane-label");
+    if (menu2p) menu2p.textContent = `${state.layoutMode === "two-panel" ? "✓ " : "　"}2단 상하 분할 뷰 (좌-상하)`;
+
     const prefLink = document.getElementById("menu-pref-link");
     const topPrefLink = document.getElementById("top-pref-link");
     const href = `/syndication/preferences?theme=${encodeURIComponent(state.themeId)}`;
@@ -350,7 +363,6 @@
     } else {
       container.innerHTML = visible.map((it) => {
         const feed = theme.feeds.find((f) => f.id === it.feedId) || { title: it.format, proto: it.proto };
-        const isExpanded = state.layoutMode === "flatlist" && state.expandedIds.has(it.id);
         const isSel = state.selectedItemId === it.id;
         const checked = state.checkedIds.has(it.id) ? "checked" : "";
         const pDot = it.proto === "ap" ? "🟣" : (it.proto === "at" ? "🔵" : "🟠");
@@ -358,38 +370,89 @@
         const linkBadge = it.ingestState === "linked"
           ? `<span class="tt-link-dot linked" title="프로젝트 DB 적재 완료 (엔티티 생성됨)">🔗 적재</span>`
           : `<span class="tt-link-dot unlinked" title="미적재 수집 원문 (적재 시 엔티티 생성)">○</span>`;
-        const excerptHtml = prefs.showExcerpt ? `<span class="tt-flat-excerpt">— ${esc(it.rawBody)}</span>` : "";
 
-        return `<div class="tt-row-wrap ${it.unread ? "is-unread" : ""} ${isSel ? "is-selected" : ""}" data-row-id="${esc(it.id)}">
-          <div class="tt-flat-row" data-click-row="${esc(it.id)}">
-            <input type="checkbox" class="tt-row-check" data-check-id="${esc(it.id)}" ${checked} aria-label="${esc(it.title)} 선택"/>
-            <button type="button" class="tt-icon-btn ${it.starred ? "starred" : ""}" data-star-id="${esc(it.id)}" title="별표 토글">${it.starred ? "★" : "☆"}</button>
-            <button type="button" class="tt-icon-btn ${it.publishState !== "none" ? "published" : ""}" data-pub-id="${esc(it.id)}" title="부스트/인용 발행 또는 적재 발행">${pubIcon === "rss" ? "📡" : pubIcon}</button>
-            ${linkBadge}
-            <div class="tt-flat-main">
-              <span class="tt-flat-title">${esc(it.title)}</span>
-              <span class="tt-flat-author">${esc(it.author)}</span>
-              ${excerptHtml}
+        if (state.listStyle === "cards") {
+          // 초기 프로토타입 스타일 상세 카드 모드
+          const pubBadge = it.publishState === "boosted"
+            ? `<span class="tt-btn-ap" style="font-size:10.5px;padding:1px 6px;border-radius:4px" title="ActivityPub Announce 부스트됨">🔁 AP 부스트됨</span>`
+            : (it.publishState === "published_create"
+              ? `<span class="tt-btn-pri" style="font-size:10.5px;padding:1px 6px;border-radius:4px" title="Claire 적재 본문 ActivityPub 게시됨">📡 적재 발행됨</span>`
+              : "");
+          const cardLinkBadge = it.ingestState === "linked" && it.linkedDoc
+            ? `<span class="tt-link-dot linked" title="Claire 프로젝트 DB 적재 연동됨">🔗 적재 · ${esc(it.linkedDoc.docId)}</span>`
+            : `<span class="tt-link-dot unlinked">○ 미적재</span>`;
+
+          const tagChips = it.ingestState === "linked"
+            ? getLinkedDocEntities(it).map((e) => `<span class="tt-entity-chip resolved" title="적재 시 생성된 엔티티">[[${esc(e.name)}]] <small style="opacity:0.8">(${esc(e.type || "Concept")})</small></span>`).join("")
+            : getItemSourceTags(it).map((t) => `<span class="tt-entity-chip candidate" title="외부 피드 태그 (적재 시 엔티티로 승격)">#${esc(t)}</span>`).join("");
+
+          const quickIngestBtn = it.ingestState === "unlinked"
+            ? `<button type="button" data-quick-ingest="${esc(it.id)}" class="tt-btn tt-btn-pri" style="height:23px;padding:0 7px;font-size:11px" title="현재 테마 프로젝트 DB로 즉시 적재 전달">➕ 적재 전달</button>`
+            : "";
+          const quickPublishBtn = theme.isPublic && it.publishState === "none"
+            ? `<button type="button" data-quick-publish="${esc(it.id)}" class="tt-btn" style="height:23px;padding:0 7px;font-size:11px">${it.proto === "ap" ? "🔁 부스트" : "📡 발행"}</button>`
+            : "";
+
+          return `<article class="tt-card-row ${it.unread ? "is-unread" : ""} ${isSel ? "is-selected" : ""}" data-card-id="${esc(it.id)}">
+            <div class="tt-card-topbar">
+              <div class="tt-card-meta-left">
+                <input type="checkbox" class="tt-row-check" data-check-id="${esc(it.id)}" ${checked} aria-label="${esc(it.title)} 선택"/>
+                <button type="button" class="tt-icon-btn ${it.starred ? "starred" : ""}" data-star-id="${esc(it.id)}" title="별표 토글">${it.starred ? "★" : "☆"}</button>
+                <span class="tt-feed-pill proto-${esc(it.proto)}">${esc(it.format)}</span>
+                <span class="tt-card-feed-title">${esc(feed.title)}</span>
+                <span style="font-size:11px;color:var(--muted)">·</span>
+                <span class="tt-card-score" title="테마 DB 연관도 점수">+${it.score}</span>
+              </div>
+              <div class="tt-card-meta-right">
+                ${cardLinkBadge}
+                ${pubBadge}
+                <span class="tt-card-time">${esc(it.timeAgo)}</span>
+              </div>
             </div>
-            <div class="tt-flat-right">
-              <span class="tt-feed-pill proto-${esc(it.proto)}">${esc(feed.title)}</span>
-              <span class="tt-flat-time">${esc(it.timeAgo)}</span>
-              <a class="tt-ext-link" href="${esc(it.url)}" target="_blank" rel="noopener noreferrer" title="수집 원문 열기">→</a>
-              <span class="tt-proto-dot" title="${esc(it.format)}">${pDot}</span>
+
+            <h3 class="tt-card-title">${esc(it.title)}</h3>
+            <p class="tt-card-snippet">${esc(it.rawBody)}</p>
+
+            <div class="tt-card-bottom">
+              <div class="tt-card-tags">
+                ${tagChips || `<span style="font-size:11px;color:var(--muted)">태그 없음</span>`}
+              </div>
+              <div class="tt-card-actions">
+                ${quickIngestBtn}
+                ${quickPublishBtn}
+                <a class="tt-ext-link" href="${esc(it.url)}" target="_blank" rel="noopener noreferrer" title="원문 링크 새 탭 열기">↗</a>
+              </div>
             </div>
-          </div>
-          ${isExpanded ? buildReaderHtml(it) : ""}
-        </div>`;
+          </article>`;
+        } else {
+          // TT-RSS FlatList 단일 행 (34px)
+          const excerptHtml = prefs.showExcerpt ? `<span class="tt-flat-excerpt">— ${esc(it.rawBody)}</span>` : "";
+          return `<div class="tt-row-wrap ${it.unread ? "is-unread" : ""} ${isSel ? "is-selected" : ""}" data-row-id="${esc(it.id)}">
+            <div class="tt-flat-row" data-click-row="${esc(it.id)}">
+              <input type="checkbox" class="tt-row-check" data-check-id="${esc(it.id)}" ${checked} aria-label="${esc(it.title)} 선택"/>
+              <button type="button" class="tt-icon-btn ${it.starred ? "starred" : ""}" data-star-id="${esc(it.id)}" title="별표 토글">${it.starred ? "★" : "☆"}</button>
+              <button type="button" class="tt-icon-btn ${it.publishState !== "none" ? "published" : ""}" data-pub-id="${esc(it.id)}" title="부스트/인용 발행 또는 적재 발행">${pubIcon === "rss" ? "📡" : pubIcon}</button>
+              ${linkBadge}
+              <div class="tt-flat-main">
+                <span class="tt-flat-title">${esc(it.title)}</span>
+                <span class="tt-flat-author">${esc(it.author)}</span>
+                ${excerptHtml}
+              </div>
+              <div class="tt-flat-right">
+                <span class="tt-feed-pill proto-${esc(it.proto)}">${esc(feed.title)}</span>
+                <span class="tt-flat-time">${esc(it.timeAgo)}</span>
+                <a class="tt-ext-link" href="${esc(it.url)}" target="_blank" rel="noopener noreferrer" title="수집 원문 열기">→</a>
+                <span class="tt-proto-dot" title="${esc(it.format)}">${pDot}</span>
+              </div>
+            </div>
+          </div>`;
+        }
       }).join("");
     }
 
     const readerPane = document.getElementById("reader-content");
-    if (state.layoutMode === "split") {
-      const selItem = theme.items.find((x) => x.id === state.selectedItemId) || visible[0];
-      readerPane.innerHTML = selItem ? buildReaderHtml(selItem) : `<div style="padding:36px;color:var(--muted);font-size:13px">좌측 FlatList 목록에서 읽을 아티클을 선택하세요.</div>`;
-    } else {
-      readerPane.innerHTML = "";
-    }
+    const selItem = theme.items.find((x) => x.id === state.selectedItemId) || visible[0];
+    readerPane.innerHTML = selItem ? buildReaderHtml(selItem) : `<div style="padding:36px;color:var(--muted);font-size:13px">목록에서 읽을 아티클을 선택하세요.</div>`;
 
     const linkedTotal = theme.items.filter((x) => x.ingestState === "linked").length;
     document.getElementById("footer-stats").textContent = `Theme #${theme.id} (${theme.dbPath}) · 총 ${theme.items.length}건 · 🔗 적재완료 ${linkedTotal}건 · 액터 ${theme.actorHandle}`;
@@ -424,22 +487,33 @@
 
     document.querySelectorAll(".tt-ext-link").forEach((a) => a.addEventListener("click", (e) => e.stopPropagation()));
 
-    document.querySelectorAll("[data-click-row]").forEach((row) => {
-      row.addEventListener("click", () => {
-        const id = row.getAttribute("data-click-row");
+    document.querySelectorAll("[data-card-id], [data-click-row]").forEach((el) => {
+      el.addEventListener("click", (e) => {
+        if (e.target.closest("button") || e.target.closest("input") || e.target.closest("a")) return;
+        const id = el.getAttribute("data-card-id") || el.getAttribute("data-click-row");
         const it = curTheme().items.find((x) => x.id === id);
         state.selectedItemId = id;
         if (it && prefs.autoMarkReadOnOpen) it.unread = false;
-        if (state.layoutMode === "flatlist") {
-          if (state.expandedIds.has(id)) state.expandedIds.delete(id);
-          else {
-            state.expandedIds.add(id);
-            hydrateLiveDocumentIfNeeded(it);
-          }
-        } else {
-          hydrateLiveDocumentIfNeeded(it);
-        }
+        hydrateLiveDocumentIfNeeded(it);
         renderAll();
+      });
+    });
+
+    document.querySelectorAll("[data-quick-ingest]").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const id = btn.getAttribute("data-quick-ingest");
+        state.selectedItemId = id;
+        ingestItemToClaire(id, "");
+      });
+    });
+
+    document.querySelectorAll("[data-quick-publish]").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const id = btn.getAttribute("data-quick-publish");
+        state.selectedItemId = id;
+        openPublishModal(id);
       });
     });
 
@@ -829,24 +903,43 @@
       syncLiveThemeDb();
     });
 
-    function toggleLayout() {
-      state.layoutMode = state.layoutMode === "flatlist" ? "split" : "flatlist";
+    function toggleListStyle(forced) {
+      if (forced) state.listStyle = forced;
+      else state.listStyle = state.listStyle === "flat" ? "cards" : "flat";
+      prefs.listStyle = state.listStyle;
+      savePrefs();
+      closeOpenPopovers();
+      ticker(`목록 스타일: ${state.listStyle === "flat" ? "한 줄 플랫 (FlatList)" : "상세 카드 (초기 프로토타입)"} 모드`);
+      renderAll();
+    }
+
+    function toggleLayoutMode(forced) {
+      if (forced) state.layoutMode = forced;
+      else state.layoutMode = state.layoutMode === "three-panel" ? "two-panel" : "three-panel";
       prefs.layoutMode = state.layoutMode;
       savePrefs();
       closeOpenPopovers();
+      ticker(`화면 분할: ${state.layoutMode === "three-panel" ? "3단 분할 (좌-중-우)" : "2단 상하 분할 (좌-상하)"}`);
       renderAll();
     }
-    document.getElementById("btn-quick-layout").addEventListener("click", toggleLayout);
-    document.getElementById("menu-toggle-layout").addEventListener("click", toggleLayout);
 
-    document.getElementById("menu-expand-all").addEventListener("click", () => {
-      const vis = getVisibleItems();
-      state.layoutMode = "flatlist";
-      if (state.expandedIds.size >= vis.length) state.expandedIds.clear();
-      else vis.forEach((x) => state.expandedIds.add(x.id));
-      closeOpenPopovers();
-      renderAll();
-    });
+    const btnListStyle = document.getElementById("btn-toggle-list-style");
+    if (btnListStyle) btnListStyle.addEventListener("click", () => toggleListStyle());
+
+    const btnLayout = document.getElementById("btn-toggle-layout");
+    if (btnLayout) btnLayout.addEventListener("click", () => toggleLayoutMode());
+
+    const menuStyleFlat = document.getElementById("menu-style-flat");
+    if (menuStyleFlat) menuStyleFlat.addEventListener("click", () => toggleListStyle("flat"));
+
+    const menuStyleCards = document.getElementById("menu-style-cards");
+    if (menuStyleCards) menuStyleCards.addEventListener("click", () => toggleListStyle("cards"));
+
+    const menuLayout3p = document.getElementById("menu-layout-3pane");
+    if (menuLayout3p) menuLayout3p.addEventListener("click", () => toggleLayoutMode("three-panel"));
+
+    const menuLayout2p = document.getElementById("menu-layout-2pane");
+    if (menuLayout2p) menuLayout2p.addEventListener("click", () => toggleLayoutMode("two-panel"));
 
     document.getElementById("btn-mark-read").addEventListener("click", () => {
       const targets = state.checkedIds.size > 0 ? curTheme().items.filter((x) => state.checkedIds.has(x.id)) : getVisibleItems();
@@ -963,12 +1056,16 @@
       const vis = getVisibleItems();
       if (!vis.length) return;
       const idx = vis.findIndex((x) => x.id === state.selectedItemId);
-      if (e.key === "j" || e.key === "k") {
+
+      if (e.key === "l" || e.key === "L") {
+        toggleListStyle();
+      } else if (e.key === "m" || e.key === "M") {
+        toggleLayoutMode();
+      } else if (e.key === "j" || e.key === "k") {
         const nextIdx = e.key === "j" ? Math.min(vis.length - 1, idx + 1) : Math.max(0, idx - 1);
         const target = vis[nextIdx] || vis[0];
         state.selectedItemId = target.id;
         if (prefs.autoMarkReadOnOpen) target.unread = false;
-        if (state.layoutMode === "flatlist") { state.expandedIds.clear(); state.expandedIds.add(target.id); }
         renderAll();
       } else if (e.key === "v") {
         const cur = vis[idx >= 0 ? idx : 0];
@@ -982,6 +1079,12 @@
       } else if (e.key === "p") {
         const cur = vis[idx >= 0 ? idx : 0];
         if (cur) openPublishModal(cur.id);
+      } else if (e.key === "f") {
+        const cur = vis[idx >= 0 ? idx : 0];
+        if (cur) { cur.starred = !cur.starred; renderAll(); }
+      } else if (e.key === "u") {
+        const cur = vis[idx >= 0 ? idx : 0];
+        if (cur) { cur.unread = !cur.unread; renderAll(); }
       }
     });
   }

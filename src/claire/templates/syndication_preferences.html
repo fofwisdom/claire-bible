@@ -110,12 +110,23 @@
 
             <div class="pref-row">
               <div class="pref-row-label">
-                <strong>기본 스트림 레이아웃 모드 (UI Layout)</strong>
-                <span><code>FlatList</code>는 모든 메타데이터·발췌문을 한 줄 안에 배치하고 클릭 시 그 자리에서 리더를 펼치며, <code>3단 분할 뷰</code>는 우측 전용 리더 창을 유지합니다.</span>
+                <strong>기본 목록 표시 형태 (List Style)</strong>
+                <span><code>한 줄 FlatList</code>는 모든 메타데이터를 34px 단일 행 테이블로 나열하며, <code>상세 카드</code>는 초기 프로토타입처럼 다단 행에 제목, 본문 미리보기, 태그 칩, 빠른 적재/발행 버튼을 카드 형태로 풍부하게 노출합니다.</span>
               </div>
-              <select id="pref-layout-mode" class="pref-select" aria-label="기본 스트림 레이아웃 모드">
-                <option value="flatlist">한 줄 FlatList 모드 (TT-RSS Combined 기본)</option>
-                <option value="split">3단 분할 뷰 (Three-Panel Widescreen)</option>
+              <select id="pref-list-style" class="pref-select" aria-label="기본 목록 표시 형태">
+                <option value="flat">한 줄 FlatList 모드 (TT-RSS 컴팩트 테이블)</option>
+                <option value="cards">상세 카드 모드 (초기 프로토타입 스타일 다단 카드)</option>
+              </select>
+            </div>
+
+            <div class="pref-row">
+              <div class="pref-row-label">
+                <strong>기본 화면 분할 구조 (UI Layout)</strong>
+                <span><code>3단 분할 뷰</code>는 좌측 트리 | 중앙 목록 | 우측 전용 리더 창으로 구성되며, <code>2단 상하 분할 뷰</code>는 좌측 트리 | 상단 목록 / 하단 리더 창으로 구성됩니다.</span>
+              </div>
+              <select id="pref-layout-mode" class="pref-select" aria-label="기본 화면 분할 구조">
+                <option value="three-panel">3단 분할 뷰 (Three-Panel Widescreen: 좌-중-우)</option>
+                <option value="two-panel">2단 상하 분할 뷰 (Two-Panel: 좌-상하)</option>
               </select>
             </div>
 
@@ -419,7 +430,8 @@
     const CUSTOM_STATE_KEY = "claireSyndicationCustomState_v2";
 
     const DEFAULT_PREFS = {
-      layoutMode: "flatlist",
+      layoutMode: "three-panel",
+      listStyle: "flat",
       showExcerpt: true,
       defaultContentTab: "auto",
       readerFont: "sans",
@@ -576,7 +588,8 @@
     }
 
     function renderFormValues() {
-      document.getElementById("pref-layout-mode").value = prefs.layoutMode;
+      if (document.getElementById("pref-list-style")) document.getElementById("pref-list-style").value = prefs.listStyle || "flat";
+      document.getElementById("pref-layout-mode").value = prefs.layoutMode || "three-panel";
       document.getElementById("pref-show-excerpt").checked = !!prefs.showExcerpt;
       document.getElementById("pref-default-content-tab").value = prefs.defaultContentTab;
       document.getElementById("pref-reader-font").value = prefs.readerFont;
@@ -668,6 +681,8 @@
       renderFormValues();
     });
 
+    const listStyleEl = document.getElementById("pref-list-style");
+    if (listStyleEl) listStyleEl.addEventListener("change", (e) => { prefs.listStyle = e.target.value; savePrefs(); });
     document.getElementById("pref-layout-mode").addEventListener("change", (e) => { prefs.layoutMode = e.target.value; savePrefs(); });
     document.getElementById("pref-show-excerpt").addEventListener("change", (e) => { prefs.showExcerpt = e.target.checked; savePrefs(); });
     document.getElementById("pref-default-content-tab").addEventListener("change", (e) => { prefs.defaultContentTab = e.target.value; savePrefs(); });

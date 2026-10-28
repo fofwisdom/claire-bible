@@ -3,7 +3,8 @@ window.CLAIRE_SYND_STORAGE = {
   PREFS_KEY: "claireSyndicationPrefs_v2",
   CUSTOM_KEY: "claireSyndicationCustomState_v2",
   DEFAULT_PREFS: {
-    layoutMode: "flatlist",
+    layoutMode: "three-panel",
+    listStyle: "flat",
     showExcerpt: true,
     defaultContentTab: "auto",
     readerFont: "sans",

@@ -56,7 +56,10 @@ def test_syndication_and_preferences_routes_io_interface(syndication_env) -> Non
         assert res_public.status_code == 200
         assert "Claire Bible — Syndication" in res_public.text
         assert "authScope: 'public'" in res_public.text
-        assert 'data-layout="flatlist"' in res_public.text
+        assert 'data-layout="three-panel"' in res_public.text
+        assert 'data-list-style="flat"' in res_public.text
+        assert 'id="btn-toggle-list-style"' in res_public.text
+        assert 'id="btn-toggle-layout"' in res_public.text
         assert 'id="headlines-container"' in res_public.text
         assert "/syndication/preferences" in res_public.text
         assert "수집 원문" in res_public.text
@@ -71,6 +74,9 @@ def test_syndication_and_preferences_routes_io_interface(syndication_env) -> Non
         assert "Syndication 환경설정" in res_prefs.text
         assert "태그 = 엔티티 적재 정책" in res_prefs.text
         assert "한 줄 FlatList 모드" in res_prefs.text
+        assert "상세 카드 모드" in res_prefs.text
+        assert 'id="pref-list-style"' in res_prefs.text
+        assert 'id="pref-layout-mode"' in res_prefs.text
 
         res_prefs_head = client.head("/syndication/preferences")
         assert res_prefs_head.status_code == 200

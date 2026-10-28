@@ -18,7 +18,7 @@
 <link rel="stylesheet" href="/static/css/theme.css"/>
 <link rel="stylesheet" href="/static/css/syndication.css"/>
 </head>
-<body data-auth-scope="__AUTH_SCOPE__" data-layout="flatlist">
+<body data-auth-scope="__AUTH_SCOPE__" data-layout="three-panel" data-list-style="flat">
 
   <!-- TT-RSS Minimal Top Action Bar -->
   <header class="tt-topbar">
@@ -38,7 +38,8 @@
 
       <input id="stream-search" type="search" class="tt-search" placeholder="제목·본문·[[엔티티]] 검색…"/>
       <button type="button" id="btn-mark-read" class="tt-btn" title="선택 항목 또는 현재 목록 모두 읽음 처리">✓ 읽음 처리</button>
-      <button type="button" id="btn-quick-layout" class="tt-btn" title="한 줄 FlatList 모드 ⇄ 3단 분할 뷰 즉시 전환">☰ FlatList</button>
+      <button type="button" id="btn-toggle-list-style" class="tt-btn" title="목록 스타일 전환: 한 줄 FlatList ⇄ 상세 카드(초기 프로토타입)"><span id="btn-list-style-label">☰ 한 줄 (FlatList)</span></button>
+      <button type="button" id="btn-toggle-layout" class="tt-btn" title="화면 분할 구조 전환: 3단 분할 ⇄ 2단 상하 분할"><span id="btn-layout-label">◫ 3단 분할</span></button>
       <button type="button" id="btn-open-subscribe" class="tt-btn tt-btn-pri" title="RSS/ATOM, ActivityPub, AT Protocol 구독 추가">+ 구독</button>
       <a id="top-pref-link" class="tt-btn" href="/syndication/preferences" title="하위 환경설정 페이지 열기">⚙️ 환경설정</a>
       <button type="button" id="themebtn" class="tt-btn" onclick="toggleClaireTheme()" title="라이트/다크 전환" aria-label="라이트/다크 전환">🌙</button>
@@ -89,9 +90,13 @@
     <a class="tt-pop-item" href="/syndication/preferences?tab=tags"><span>🏷️ 수집 태그 → 엔티티 생성 정책...</span></a>
     <a class="tt-pop-item" href="/syndication/preferences?tab=outbound"><span>🔁 부스트·적재 발행 설정...</span></a>
     <div class="tt-pop-sep"></div>
+    <div class="tt-pop-sec">목록 스타일 (List style)</div>
+    <button type="button" id="menu-style-flat" class="tt-pop-item"><span id="menu-style-flat-label">✓ 한 줄 플랫 (FlatList)</span><kbd>l</kbd></button>
+    <button type="button" id="menu-style-cards" class="tt-pop-item"><span id="menu-style-cards-label">　상세 카드 (초기 프로토타입)</span></button>
+    <div class="tt-pop-sep"></div>
     <div class="tt-pop-sec">화면 레이아웃 (UI layout)</div>
-    <button type="button" id="menu-toggle-layout" class="tt-pop-item"><span id="menu-layout-label">◫ 3단 분할 뷰로 전환</span></button>
-    <button type="button" id="menu-expand-all" class="tt-pop-item"><span>모든 아티클 본문 펼치기/접기</span></button>
+    <button type="button" id="menu-layout-3pane" class="tt-pop-item"><span id="menu-layout-3pane-label">✓ 3단 분할 뷰 (좌-중-우)</span><kbd>m</kbd></button>
+    <button type="button" id="menu-layout-2pane" class="tt-pop-item"><span id="menu-layout-2pane-label">　2단 상하 분할 뷰 (좌-상하)</span></button>
     <div class="tt-pop-sep"></div>
     <a class="tt-pop-item" href="./"><span>← 지식 그래프 메인으로 이동</span></a>
   </div>
@@ -124,17 +129,19 @@
       </details>
     </aside>
 
-    <section id="pane-stream" class="synd-column tt-stream" aria-label="FlatList 아티클 스트림">
-      <div id="headlines-container" class="tt-headlines"></div>
-    </section>
+    <div id="pane-main-area" class="tt-main-area">
+      <section id="pane-stream" class="synd-column tt-stream" aria-label="아티클 스트림">
+        <div id="headlines-container" class="tt-headlines"></div>
+      </section>
 
-    <aside id="pane-reader" class="synd-column tt-reader-pane" aria-label="3단 분할 전용 아티클 리더">
-      <div id="reader-content"></div>
-    </aside>
+      <aside id="pane-reader" class="synd-column tt-reader-pane" aria-label="아티클 리더">
+        <div id="reader-content"></div>
+      </aside>
+    </div>
   </main>
 
   <footer class="tt-footer">
-    <span id="activity-ticker">단축키: j/k(아티클 이동), v(수집 원문 ⇄ 적재 본문 전환), i(프로젝트 적재 전달), p(부스트/인용·적재 발행)</span>
+    <span id="activity-ticker">단축키: j/k(이동), l(한줄/카드 전환), m(3단/2단 전환), v(원문⇄적재 전환), i(적재 전달), p(부스트·발행)</span>
     <span id="footer-stats" style="font-family:'D2Coding',monospace"></span>
   </footer>
 

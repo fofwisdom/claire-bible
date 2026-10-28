@@ -61,7 +61,10 @@ def test_syndication_e2e_workflow(syndication_e2e_env) -> None:
         r_pub = client.get("/syndication")
         assert r_pub.status_code == 200
         assert "Claire Bible — Syndication" in r_pub.text
-        assert 'data-layout="flatlist"' in r_pub.text
+        assert 'data-layout="three-panel"' in r_pub.text
+        assert 'data-list-style="flat"' in r_pub.text
+        assert 'id="btn-toggle-list-style"' in r_pub.text
+        assert 'id="btn-toggle-layout"' in r_pub.text
         assert "수집 원문" in r_pub.text
         assert "적재 본문" in r_pub.text
         assert "부스트 / 인용 발행" in r_pub.text

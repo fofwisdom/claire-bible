@@ -30,12 +30,23 @@ dialog.synd-dialog { background: var(--card-bg); color: var(--fg); border: 1px s
 .tt-btn-ap { background: #8250df; color: #ffffff; border-color: transparent; }
 .tt-search { height: 28px; width: 190px; padding: 0 8px; border-radius: 4px; border: 1px solid var(--border); background: var(--bg); color: var(--fg); font-size: 12px; }
 
-/* Workspace Split vs FlatList */
-.tt-workspace { flex: 1; min-height: 0; display: flex; overflow: hidden; background: var(--bg); }
+/* Workspace Pane Layout: Three-Panel (3단 좌-중-우) vs Two-Panel (2단 좌-상하) */
+.tt-workspace { flex: 1; min-height: 0; display: flex; flex-direction: row; overflow: hidden; background: var(--bg); }
 .tt-tree { width: 242px; flex-shrink: 0; background: var(--panel-bg); border-right: 1px solid var(--border); overflow-y: auto; padding: 8px 6px 16px; display: flex; flex-direction: column; gap: 8px; user-select: none; }
-.tt-stream { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; background: var(--bg); }
-.tt-reader-pane { width: min(50vw, 660px); flex-shrink: 0; border-left: 1px solid var(--border); background: var(--bg); overflow-y: auto; display: none; }
-body[data-layout="split"] .tt-reader-pane { display: block; }
+.tt-main-area { flex: 1; min-width: 0; display: flex; overflow: hidden; }
+
+/* Three-Panel Mode */
+body[data-layout="three-panel"] .tt-main-area,
+body:not([data-layout="two-panel"]) .tt-main-area { flex-direction: row; }
+body[data-layout="three-panel"] .tt-stream,
+body:not([data-layout="two-panel"]) .tt-stream { flex: 1.1; min-width: 320px; border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; background: var(--bg); }
+body[data-layout="three-panel"] .tt-reader-pane,
+body:not([data-layout="two-panel"]) .tt-reader-pane { flex: 1.4; min-width: 420px; max-width: 680px; border-left: 0; background: var(--bg); overflow-y: auto; display: block; }
+
+/* Two-Panel Mode (Split Top/Bottom) */
+body[data-layout="two-panel"] .tt-main-area { flex-direction: column; }
+body[data-layout="two-panel"] .tt-stream { flex: 1; min-height: 180px; max-height: 48%; border-bottom: 1px solid var(--border); border-right: 0; display: flex; flex-direction: column; overflow: hidden; background: var(--bg); }
+body[data-layout="two-panel"] .tt-reader-pane { flex: 1.4; min-height: 240px; border-left: 0; background: var(--bg); overflow-y: auto; display: block; }
 
 /* Left TT-RSS Tree */
 .tt-tree-hdr { display: flex; align-items: center; justify-content: space-between; padding: 3px 8px; font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; }
@@ -81,9 +92,111 @@ body[data-layout="split"] .tt-reader-pane { display: block; }
 .tt-ext-link:hover { color: var(--accent); }
 .tt-proto-dot { font-size: 11px; line-height: 1; flex-shrink: 0; }
 
-/* Unified Article Reader (Inline FlatList Expansion & 3-Panel Reader) */
+/* Multi-Line Card Mode (초기 프로토타입 스타일 상세 목록) */
+.tt-card-row {
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+  cursor: pointer;
+  transition: background 0.12s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.tt-card-row:hover { background: var(--hover); }
+.tt-card-row.is-selected {
+  background: var(--active);
+  border-left: 3px solid var(--accent);
+}
+.tt-card-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.tt-card-meta-left {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.tt-card-feed-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 170px;
+}
+.tt-card-meta-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+.tt-card-score {
+  font-size: 11px;
+  font-family: 'D2Coding', monospace;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--panel-bg);
+  color: var(--accent2);
+}
+.tt-card-time {
+  font-size: 11px;
+  color: var(--muted);
+  font-family: 'D2Coding', monospace;
+}
+.tt-card-title {
+  margin: 0;
+  font-size: 13.5px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--muted);
+}
+.tt-card-row.is-unread .tt-card-title {
+  font-weight: 700;
+  color: var(--fg);
+}
+.tt-card-snippet {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tt-card-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding-top: 2px;
+}
+.tt-card-tags {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+.tt-card-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+}
+
+/* Unified Article Reader */
 .tt-article-card { background: var(--card-bg); padding: 18px 26px 18px; border-top: 1px solid var(--border); }
-body[data-layout="flatlist"] .tt-article-card { border-left: 3px solid var(--accent); }
 .tt-art-header { display: flex; flex-direction: column; gap: 8px; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
 .tt-art-title-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .tt-art-title { margin: 0; font-size: 20px; font-weight: 700; line-height: 1.38; color: var(--fg); }
