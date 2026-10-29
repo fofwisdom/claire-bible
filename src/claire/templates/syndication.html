@@ -31,8 +31,8 @@
 
     <div class="tt-top-right">
       <!-- 연합 클라이언트 탭 전용 컨트롤 -->
-      <input id="client-search" type="search" class="tt-search" data-tab-scope="client" placeholder="게시물·@핸들·#태그 검색…" aria-label="타임라인 게시물 검색"/>
-      <button type="button" id="btn-connect" class="tt-btn" data-tab-scope="client" title="Mastodon(5.0 이상) 또는 AT Protocol PDS 계정 연결">🔌 계정 연결</button>
+      <input id="client-search" type="search" class="tt-search" data-tab-scope="client" placeholder="걸러 보기 · Enter: 서버 검색 (/)" aria-label="타임라인 걸러 보기, Enter 로 계정·해시태그·게시물 서버 검색"/>
+      <button type="button" id="btn-connect" class="tt-btn" data-tab-scope="client" title="Mastodon API 서버 또는 AT Protocol PDS 계정 연결">🔌 계정 연결</button>
       <button type="button" id="btn-compose" class="tt-btn tt-btn-pri" data-tab-scope="client" title="연결 계정으로 새 글 작성 (n)">✎ 새 글</button>
 
       <!-- 지식베이스 탭 전용 컨트롤 -->
@@ -140,6 +140,9 @@
     <div class="tt-pop-sep"></div>
     <a class="tt-pop-item" href="./"><span>← 지식 그래프 메인으로 이동</span></a>
   </div>
+
+  <!-- 연합 클라이언트 게시물 ⋯ 메뉴 (syndication_client.js 가 게시물별로 채움) -->
+  <div id="pop-post-actions" popover="auto" class="tt-popover tt-popover-end" role="menu" aria-label="게시물 추가 작업"></div>
 
   <div id="pop-article-actions" popover="auto" class="tt-popover tt-popover-end">
     <button type="button" class="tt-pop-item" data-art-cmd="open-url"><span>원문 아티클 새 탭 열기</span></button>
@@ -264,6 +267,11 @@
   <!-- Client Compose Modal (새 글 · 답글 · 인용) -->
   <dialog id="modal-compose" closedby="any" aria-labelledby="modal-compose-title" class="synd-dialog synd-dialog-wide">
     <div id="modal-compose-body" style="padding:18px;display:flex;flex-direction:column;gap:12px"></div>
+  </dialog>
+
+  <!-- Client Report Modal (POST /api/v1/reports · com.atproto.moderation.createReport) -->
+  <dialog id="modal-report" closedby="any" aria-labelledby="modal-report-title" class="synd-dialog">
+    <div id="modal-report-body" style="padding:18px;display:flex;flex-direction:column;gap:12px"></div>
   </dialog>
 
   <!-- Client Connect Account Modal (OAuth · AT OAuth) -->

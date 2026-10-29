@@ -203,7 +203,18 @@
           <div class="pref-card">
             <h2>🔌 연결 서버 계정 (ActivityPub · AT Protocol)</h2>
             <p class="pref-desc">Claire 는 ActivityPub 서버(Actor · Inbox · HTTP 서명)나 AT Protocol PDS 를 <b>직접 구현하지 않습니다</b>. 각 테마는 기존 서버의 계정에 <b>클라이언트로 접속</b>하며, 타임라인 열람 · 정기 수집 · 부스트 · 발행은 모두 그 계정의 서버 API(Mastodon Client API · AT XRPC)를 Claire 서버 프록시로 호출합니다. 계정은 테마별로 격리됩니다.</p>
-            <p class="pref-desc"><b>ActivityPub 지원 기준: Mastodon 5.0 이상.</b> 연결 시 <code>GET /api/v2/instance</code> 의 <code>version</code> 으로 확인하며, 5.0 미만이거나 <code>(compatible; …)</code> 로 API 호환만 표기하는 서버, Mastodon 이외의 서버 소프트웨어는 연결하지 않습니다. 다른 서버 소프트웨어 사용자의 게시물은 연결된 Mastodon 서버를 통해 그대로 읽고 부스트할 수 있습니다.</p>
+            <p class="pref-desc"><b>ActivityPub 클라이언트 기능 기준: Mastodon 5.0 이상.</b> 연합 클라이언트는 Mastodon 5.0 이상이 제공하는 클라이언트 기능을 모두 갖춥니다. Mastodon API 를 제공하는 서버라면 종류와 관계없이 연결할 수 있으며, 연결 시 <code>GET /api/v2/instance</code> 로 확인한 결과 서버가 제공하지 않는 기능만 비활성으로 표시합니다.</p>
+            <details class="pref-disclosure">
+              <summary>Mastodon 5.0 기준 클라이언트 기능 (연합 클라이언트 탭의 📋 기능 기준에서 직접 시연)</summary>
+              <div style="margin-top:10px;font-size:12px;color:var(--muted);line-height:1.6">
+                <div>• <b>타임라인 · 탐색</b>: 홈(실시간 스트리밍) · 로컬 · 연합 · 해시태그(팔로우) · 리스트 · 탐색(트렌드 게시물·해시태그·링크) · 통합 검색(원격 계정 확인) · 개인 메시지 · 좋아요 · 북마크</div>
+                <div>• <b>알림</b>: 묶음 알림(좋아요·부스트·팔로우·인용·멘션) · 멘션만 보기 · 알림 요청 · 알림 정책</div>
+                <div>• <b>게시물 표시</b>: 부스트한 사람 · 공개 범위 · 언어 · 열람 주의(CW) · 미디어 대체 텍스트 · 민감한 미디어 가림 · 투표 · 인용 게시물 · 수정 이력 · 번역 · 키워드 필터</div>
+                <div>• <b>게시물 동작</b>: 답글 · 부스트 · 좋아요 · 북마크 · 인용(인용 허용 범위) · 고정 · 수정 · 삭제 후 다시 쓰기 · 대화 뮤트 · 신고</div>
+                <div>• <b>작성</b>: 공개 범위 4종 · 언어 · CW · 투표 · 미디어(대체 텍스트·민감함) · 예약 게시</div>
+                <div>• <b>계정 · 관계 · 안전</b>: 프로필(필드·고정 게시물·추천 해시태그) · 팔로우(새 글 알림·부스트 표시) · 개인 메모 · 리스트 · 뮤트 · 차단 · 도메인 차단 · 필터 관리</div>
+              </div>
+            </details>
 
             <div style="overflow-x:auto">
               <table class="pref-table" aria-label="연결 서버 계정 목록">
@@ -529,7 +540,7 @@
       "0": {
         id: 0, icon: "📚", label: "기본 지식베이스", isPublic: true,
         accounts: [
-          { id: "acc0-ap", proto: "ap", software: "Mastodon", serverVersion: "5.0.0", server: "social.example.com", handle: "@claire@social.example.com", auth: "OAuth 2.0 (Authorization Code + PKCE)", scopes: ["read", "write:statuses", "write:favourites", "write:bookmarks", "write:follows"], canPublish: true },
+          { id: "acc0-ap", proto: "ap", software: "Mastodon", serverVersion: "5.0.0", server: "social.example.com", handle: "@claire@social.example.com", auth: "OAuth 2.0 (Authorization Code + PKCE)", scopes: ["read", "write:statuses", "write:media", "write:favourites", "write:bookmarks", "write:follows", "write:lists", "write:mutes", "write:blocks", "write:filters", "write:reports", "write:notifications", "write:conversations", "write:accounts"], canPublish: true, missingFeatures: [] },
           { id: "acc0-at", proto: "at", software: "Bluesky PDS", server: "bsky.social", handle: "@claire.example.com", auth: "AT OAuth (PAR + DPoP)", scopes: ["atproto", "transition:generic"], canPublish: true }
         ],
         feeds: [
@@ -545,7 +556,7 @@
       "1": {
         id: 1, icon: "🤖", label: "AI 및 클라우드 시스템", isPublic: true,
         accounts: [
-          { id: "acc1-ap", proto: "ap", software: "Mastodon", serverVersion: "5.0.0", server: "fedi.ai.example.com", handle: "@ai@fedi.ai.example.com", auth: "OAuth 2.0 (Authorization Code + PKCE)", scopes: ["read", "write:statuses", "write:favourites", "write:follows"], canPublish: true },
+          { id: "acc1-ap", proto: "ap", software: "Mastodon API 호환 서버", server: "fedi.ai.example.com", handle: "@ai@fedi.ai.example.com", auth: "OAuth 2.0 (Authorization Code + PKCE)", scopes: ["read", "write:statuses", "write:media", "write:favourites", "write:bookmarks", "write:follows", "write:lists", "write:mutes", "write:blocks", "write:filters", "write:reports", "write:notifications", "write:conversations", "write:accounts"], canPublish: true, missingFeatures: ["trends", "quote", "translate", "notifRequests", "scheduled"] },
           { id: "acc1-at", proto: "at", software: "자체 호스팅 PDS", server: "pds.ai.example.com", handle: "@ai.example.com", auth: "앱 비밀번호 (com.atproto.server.createSession)", scopes: ["app-password"], canPublish: true }
         ],
         feeds: [
@@ -563,7 +574,7 @@
       "2": {
         id: 2, icon: "📜", label: "문헌학 및 고전 연구", isPublic: true,
         accounts: [
-          { id: "acc2-ap", proto: "ap", software: "Mastodon", serverVersion: "5.0.0", server: "scholar.example", handle: "@classics@scholar.example", auth: "OAuth 2.0 (Authorization Code + PKCE)", scopes: ["read", "write:statuses", "write:favourites"], canPublish: true }
+          { id: "acc2-ap", proto: "ap", software: "Mastodon", serverVersion: "5.0.0", server: "scholar.example", handle: "@classics@scholar.example", auth: "OAuth 2.0 (Authorization Code + PKCE)", scopes: ["read", "write:statuses", "write:media", "write:favourites", "write:bookmarks", "write:follows", "write:lists", "write:mutes", "write:blocks", "write:filters", "write:reports", "write:notifications", "write:conversations", "write:accounts"], canPublish: true, missingFeatures: [] }
         ],
         feeds: [
           { id: "f2-1", folder: "성서학 저널", proto: "rss", interval: "1h", title: "Biblical Archaeology Review", url: "https://www.biblicalarchaeology.org/feed/", etag: "200 OK" },
@@ -576,7 +587,7 @@
       "3": {
         id: 3, icon: "🔒", label: "사내 보안 인텔리전스 (비공개)", isPublic: false,
         accounts: [
-          { id: "acc3-ap", proto: "ap", software: "Mastodon", serverVersion: "5.0.0", server: "infosec.example", handle: "@secwatch@infosec.example", auth: "OAuth 2.0 (Authorization Code + PKCE)", scopes: ["read"], canPublish: false }
+          { id: "acc3-ap", proto: "ap", software: "Mastodon", serverVersion: "5.0.0", server: "infosec.example", handle: "@secwatch@infosec.example", auth: "OAuth 2.0 (Authorization Code + PKCE)", scopes: ["read"], canPublish: false, missingFeatures: [] }
         ],
         feeds: [
           { id: "f3-1", folder: "취약점 공지", proto: "rss", interval: "5m", title: "OSS-Security Advisories", url: "https://www.openwall.com/lists/oss-security/rss", etag: "200 OK" }
@@ -740,10 +751,10 @@
 
       document.getElementById("pref-accounts-tbody").innerHTML = accounts.length ? accounts.map((a) => `<tr>
           <td><span class="pref-pill ${protoPillClass(a.proto)}">${protoLabel(a.proto)}</span></td>
-          <td><strong>${escapeHtml(a.server)}</strong><br/><span style="color:var(--muted);font-size:11.5px">${escapeHtml(a.software)}${a.serverVersion ? ` ${escapeHtml(a.serverVersion)}` : ""}</span></td>
+          <td><strong>${escapeHtml(a.server)}</strong><br/><span style="color:var(--muted);font-size:11.5px">${escapeHtml(a.software)}${a.serverVersion ? ` ${escapeHtml(a.serverVersion)}` : ""}</span>${(a.missingFeatures || []).length ? `<br/><span style="color:#9a6700;font-size:11px" title="${escapeHtml(a.missingFeatures.join(", "))}">기준 기능 ${a.missingFeatures.length}개 미제공 → 비활성</span>` : ""}</td>
           <td><code style="font-family:'D2Coding',monospace;font-size:11.5px">${escapeHtml(a.handle)}</code></td>
           <td>${escapeHtml(a.auth)}</td>
-          <td><code style="font-family:'D2Coding',monospace;font-size:11px">${escapeHtml(a.scopes.join(" "))}</code></td>
+          <td><code style="font-family:'D2Coding',monospace;font-size:11px;white-space:normal">${escapeHtml(a.scopes.join(" "))}</code></td>
           <td>${a.canPublish ? `<span style="color:var(--accent2);font-weight:700">● 허용</span>` : `<span style="color:var(--muted)">읽기 전용</span>`}</td>
           <td>${a.removable
             ? `<button type="button" class="pref-btn" data-remove-account="${escapeHtml(a.id)}" title="${a.proto === "ap" ? "POST /oauth/revoke 로 토큰 폐기 후 연결 해제" : "AT 세션·토큰 폐기 후 연결 해제"}">연결 해제</button>`

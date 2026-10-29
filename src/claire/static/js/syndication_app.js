@@ -153,7 +153,7 @@
     if (el) el.textContent = `${new Date().toLocaleTimeString("ko-KR", { hour12: false })} · ${msg}`;
   }
 
-  /* ── 연결 서버 계정 (ActivityPub = Mastodon 5.0+ Client API, AT = PDS XRPC) ── */
+  /* ── 연결 서버 계정 (ActivityPub = Mastodon Client API · Mastodon 5.0 기능 기준, AT = PDS XRPC) ── */
   function themeAccounts(theme) { return (theme || curTheme()).accounts || []; }
   function findAccount(id, theme) { return themeAccounts(theme).find((a) => a.id === id) || null; }
   function publishAccounts(theme) { return themeAccounts(theme).filter((a) => a.canPublish); }
@@ -166,22 +166,11 @@
   function apBase(acc) { return `https://${acc.server}`; }
 
   /*
-   * ActivityPub 지원 기준: Mastodon 5.0 이상.
-   * GET /api/v2/instance 의 version 을 검사한다. "(compatible; …)" 로 호환만 표기하는 서버와 5.0 미만은 거부하고,
-   * 5.0.0+glitch 같은 Mastodon 포크 접미사는 허용한다.
+   * ActivityPub 클라이언트 기능 기준은 Mastodon 5.0 이상이 제공하는 기능 전체다 (CLAIRE_SYND_AP_FEATURES).
+   * 서버 종류로 연결을 거부하지 않는다. 연결 서버가 제공하지 않는 기능(acc.missingFeatures)만 비활성으로 표시한다.
    */
-  function checkMastodonBaseline(version) {
-    const min = String((ACCOUNT_TEMPLATES.ap && ACCOUNT_TEMPLATES.ap.minVersion) || "5.0.0").split(".").map(Number);
-    const raw = String(version || "").trim();
-    if (/\(compatible;/i.test(raw)) return { ok: false, reason: `Mastodon API 호환만 표기한 서버 (${raw}) — 지원 기준은 Mastodon ${min.join(".")} 이상` };
-    const m = raw.match(/^(\d+)\.(\d+)\.(\d+)/);
-    if (!m) return { ok: false, reason: `서버 버전을 해석할 수 없음 (${raw || "없음"})` };
-    const v = m.slice(1).map(Number);
-    for (let i = 0; i < 3; i += 1) {
-      if (v[i] > min[i]) break;
-      if (v[i] < min[i]) return { ok: false, reason: `서버 버전 ${m[0]} — Mastodon ${min.join(".")} 이상이 필요합니다` };
-    }
-    return { ok: true, version: m[0] };
+  function accountSupports(acc, feature) {
+    return !!acc && !(acc.missingFeatures || []).includes(feature);
   }
   function atXrpc(acc, nsid) { return `https://${acc.server}/xrpc/${nsid}`; }
 
@@ -220,9 +209,12 @@
   /*
    * 연결 계정의 서버 API 요청을 결정론적으로 구성한다 (Claire 서버가 프록시하며 토큰은 브라우저에 노출되지 않는다).
    * target: { proto, remoteId, uri, cid, url, title, description }
+   * post op: { text, tags, cw, visibility, language, sensitive, media: [{ alt }], poll: { options, expiresIn, multiple, hideTotals },
+   *            scheduledAt, quotePolicy, replyTo, replyRoot, quote, external, editOf }
    */
   function buildServerRequest(acc, op) {
     const nowIso = new Date().toISOString();
+    const media = op.media || [];
     if (acc.proto === "ap") {
       if (op.kind === "boost" || op.kind === "favourite" || op.kind === "bookmark") {
         const verb = { boost: "reblog", favourite: "favourite", bookmark: "bookmark" }[op.kind];
@@ -231,18 +223,30 @@
         if (!op.target.remoteId) req.note = `선행 조회: GET ${apBase(acc)}/api/v2/search?q=${encodeURIComponent(op.target.uri || op.target.url)}&resolve=true&type=statuses → {id}`;
         return req;
       }
-      let status = op.text || "";
-      const body = { status, visibility: op.visibility || "public", language: "ko" };
+      const status = op.text || "";
+      const body = { status, visibility: op.visibility || "public", language: op.language || "ko" };
       if (op.cw) body.spoiler_text = op.cw;
       if (op.replyTo && op.replyTo.proto === "ap") body.in_reply_to_id = op.replyTo.remoteId || "{id}";
       if (op.quote) {
-        if (op.quote.proto === "ap" && op.quote.remoteId) {
+        if (op.quote.proto === "ap" && op.quote.remoteId && accountSupports(acc, "quote")) {
           body.quoted_status_id = op.quote.remoteId;
         } else if (op.quote.url && !status.includes(op.quote.url)) {
           body.status = `${status}\n${op.quote.url}`.trim();
         }
       }
-      return { method: "POST", url: `${apBase(acc)}/api/v1/statuses`, headers: { "Idempotency-Key": `claire-${Date.now().toString(36)}` }, body };
+      if (media.length) {
+        body.media_ids = media.map((_, i) => `{media_id_${i + 1}}`);
+        if (op.sensitive) body.sensitive = true;
+      } else if (op.poll && op.poll.options && op.poll.options.length >= 2) {
+        body.poll = { options: op.poll.options, expires_in: op.poll.expiresIn || 86400, multiple: !!op.poll.multiple, hide_totals: !!op.poll.hideTotals };
+      }
+      if (op.quotePolicy && accountSupports(acc, "quote") && !op.editOf) body.quote_approval_policy = op.quotePolicy;
+      if (op.scheduledAt && !op.editOf) body.scheduled_at = op.scheduledAt;
+      const req = op.editOf
+        ? { method: "PUT", url: `${apBase(acc)}/api/v1/statuses/${op.editOf}`, body }
+        : { method: "POST", url: `${apBase(acc)}/api/v1/statuses`, headers: { "Idempotency-Key": `claire-${Date.now().toString(36)}` }, body };
+      if (media.length) req.note = `선행: POST ${apBase(acc)}/api/v2/media × ${media.length} (file, description=대체 텍스트) → media_ids`;
+      return req;
     }
 
     const url = atXrpc(acc, op.undo ? "com.atproto.repo.deleteRecord" : "com.atproto.repo.createRecord");
@@ -253,20 +257,27 @@
     }
     if (op.kind === "bookmark") return null;
     const text = truncateGraphemes(op.text || "", acc.charLimit || 300);
-    const record = { $type: "app.bsky.feed.post", text, langs: ["ko"], createdAt: nowIso };
+    const record = { $type: "app.bsky.feed.post", text, langs: [op.language || "ko"], createdAt: nowIso };
     const facets = buildTagFacets(text, op.tags);
     if (facets.length) record.facets = facets;
     if (op.replyTo && op.replyTo.proto === "at") {
       const root = op.replyRoot || op.replyTo;
       record.reply = { root: { uri: root.uri, cid: root.cid || "{cid}" }, parent: { uri: op.replyTo.uri, cid: op.replyTo.cid || "{cid}" } };
     }
+    const images = media.length ? { $type: "app.bsky.embed.images", images: media.slice(0, 4).map((m) => ({ alt: m.alt || "", image: "{blob}" })) } : null;
+    let embed = null;
     if (op.quote && op.quote.proto === "at" && op.quote.uri) {
-      record.embed = { $type: "app.bsky.embed.record", record: { uri: op.quote.uri, cid: op.quote.cid || "{cid}" } };
+      embed = { $type: "app.bsky.embed.record", record: { uri: op.quote.uri, cid: op.quote.cid || "{cid}" } };
     } else if (op.quote || op.external) {
       const ext = op.external || op.quote;
-      record.embed = { $type: "app.bsky.embed.external", external: { uri: ext.url, title: ext.title || "", description: ext.description || "" } };
+      embed = { $type: "app.bsky.embed.external", external: { uri: ext.url, title: ext.title || "", description: ext.description || "" } };
     }
-    return { method: "POST", url, body: { repo: acc.did, collection: "app.bsky.feed.post", record } };
+    if (images && embed && embed.$type === "app.bsky.embed.record") record.embed = { $type: "app.bsky.embed.recordWithMedia", record: embed, media: images };
+    else if (images) record.embed = images;
+    else if (embed) record.embed = embed;
+    const req = { method: "POST", url, body: { repo: acc.did, collection: "app.bsky.feed.post", record } };
+    if (images) req.note = `선행: ${atXrpc(acc, "com.atproto.repo.uploadBlob")} × ${images.images.length} → {blob}`;
+    return req;
   }
 
   function noiseTagSet() {
@@ -968,7 +979,8 @@
             .trim();
           const text = `${comment ? `${comment}\n\n` : ""}${quoteLine}`.trim();
           req = buildServerRequest(acc, { kind: "post", text, tags, quote: itemTarget() });
-          if (native) fallback = acc.proto === "ap" ? "네이티브 인용 (quoted_status_id · 원 작성자가 인용을 허용하지 않으면 링크 인용으로 대체)" : "네이티브 인용 (app.bsky.embed.record)";
+          if (native && acc.proto === "ap" && !accountSupports(acc, "quote")) fallback = "연결 서버가 인용 게시물을 제공하지 않음 → 링크 인용";
+          else if (native) fallback = acc.proto === "ap" ? "네이티브 인용 (quoted_status_id · 원 작성자가 인용을 허용하지 않으면 링크 인용으로 대체)" : "네이티브 인용 (app.bsky.embed.record)";
         } else {
           const doc = item.linkedDoc;
           const summary = doc ? doc.summary : item.rawBody;
@@ -1177,7 +1189,7 @@
 
   const APP_TABS = ["client", "kb"];
   const TAB_HINTS = {
-    client: "연합 클라이언트 단축키: j/k(이동), r(답글), b(부스트), f(좋아요), q(인용), s(수집함 보내기), i(보내고 적재), n(새 글), l(목록 스타일), m(분할), 1/2(탭)",
+    client: "연합 클라이언트 단축키: j/k(이동), r(답글), b(부스트), f(좋아요), q(인용), x(CW 펼치기), h(민감한 미디어), /(검색), n(새 글), s(수집함 보내기), i(보내고 적재), l(목록 스타일), m(분할), 1/2(탭)",
     kb: "지식베이스 단축키: j/k(이동), l(목록 스타일), m(3단/2단), v(원문⇄적재), i(적재 전달), p(부스트·발행), 1/2(탭)"
   };
 
@@ -1497,7 +1509,7 @@
     ? window.CLAIRE_SYND_CLIENT_FACTORY({
       THEMES, state, prefs, LIST_STYLE_META, SOURCE_KINDS, ACCOUNT_TEMPLATES,
       curTheme, esc, ticker, protoDot, themeAccounts, findAccount, publishAccounts,
-      buildServerRequest, checkMastodonBaseline, graphemeLength, hashtagToken, getItemSourceTags, getLinkedDocEntities,
+      buildServerRequest, accountSupports, graphemeLength, hashtagToken, getItemSourceTags, getLinkedDocEntities,
       renderAll, setAppTab, closeOpenPopovers, ingestItemToClaire,
       addKbFeed, addAccount, openKbItem
     })

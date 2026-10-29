@@ -1,6 +1,6 @@
 # Syndication Endpoint Architecture and Clean-Room UI Specification
 
-**Document Identifier:** DESIGN-SYNDICATION-20261028-01 (Rev. 2026-10-29: 서버 접속형 ActivityPub · AT, 작업 공간 탭, 4종 목록 스타일 · Rev. 2026-10-30: ActivityPub 지원 기준 Mastodon 5.0+, 목록 스타일 i18n)  
+**Document Identifier:** DESIGN-SYNDICATION-20261028-01 (Rev. 2026-10-29: 서버 접속형 ActivityPub · AT, 작업 공간 탭, 4종 목록 스타일 · Rev. 2026-10-30: ActivityPub 클라이언트 기능 기준 Mastodon 5.0+, 목록 스타일 i18n)  
 **Author:** Claire Bible Architecture & UI/UX Team  
 **Status:** Phase 1 Implemented (Public Visual Prototype at `/syndication` — Tab 1 연합 클라이언트 · Tab 2 지식베이스) · Phase 2 Specified (Backend Collectors, Schema, Connected-Account Server Adapters)  
 **Related Documents:**  
@@ -28,7 +28,7 @@ ActivityPub and AT Protocol are now consumed **as a client of an existing server
 
 | Concern | Withdrawn (direct implementation) | Adopted (connected server account) |
 | :--- | :--- | :--- |
-| Identity | Claire-hosted Actor `@theme@fqdn`, RSA key pair in `syndication_actors` | Existing account on a Mastodon 5.0+ server or AT PDS, bound per theme in `syndication_accounts` |
+| Identity | Claire-hosted Actor `@theme@fqdn`, RSA key pair in `syndication_actors` | Existing account on a server that exposes the Mastodon client API, or on an AT PDS, bound per theme in `syndication_accounts` |
 | Inbound | Signed `POST /ap/inbox`, HTTP Signature verification, follower table | Account timelines via Mastodon Client API (`/api/v1/timelines/*`, streaming) and AT XRPC (`app.bsky.feed.*`) |
 | Outbound | Self-signed `Create` / `Announce` delivered to follower inboxes | `POST /api/v1/statuses`, `/reblog`, `quoted_status_id`; `com.atproto.repo.createRecord` (`app.bsky.feed.post` / `repost` / `like`) |
 | Delivery, moderation, blocks, retries | Claire's responsibility | The home server's responsibility |
@@ -36,12 +36,12 @@ ActivityPub and AT Protocol are now consumed **as a client of an existing server
 
 Rationale: running a federating server means owning key custody, signature verification, delivery queues, remote-instance moderation, and abuse handling. A client connection reuses a server the operator already trusts, keeps Claire's public attack surface unchanged, and lets each theme choose its own home server (including a self-hosted Mastodon instance or a self-hosted PDS).
 
-### 1.3 ActivityPub Support Baseline: Mastodon 5.0+
-ActivityPub client features are specified and tested against **Mastodon 5.0 or later** as the connected server.
-- **Gate**: before app registration, Claire reads `GET /api/v2/instance` and parses `version`. Connection is refused when the version is below `5.0.0`, cannot be parsed, or only claims API compatibility (`"x.y.z (compatible; …)"`, as reported by Pleroma/Akkoma-family servers). Non-Mastodon software that reports its own version (for example GoToSocial `0.x`) fails the same check. Mastodon forks with a SemVer suffix (`5.0.0+glitch`) pass.
-- **Re-check**: the version is stored in `syndication_accounts.server_version` and re-read on each token refresh. A server that later reports a version below the baseline is marked `unsupported`, and its write actions are disabled until it is upgraded.
-- **Scope of the baseline**: it applies only to the server Claire connects to. Posts authored on any ActivityPub software still arrive through the connected Mastodon server and can be read, boosted, quoted, and sent to the knowledge base.
-- **Consequence for features**: one API surface is targeted, so the client relies on Mastodon behaviour directly (native quote posts via `quoted_status_id`, the `user` streaming channel, `Idempotency-Key`) instead of carrying per-software fallbacks. The only quote fallback left is when the quoted author's quote policy does not permit the quote, in which case the URL is posted instead.
+### 1.3 ActivityPub Client Feature Baseline: Mastodon 5.0+
+The baseline defines **what the ActivityPub client must offer**, not which servers may be connected: the Federated Client tab implements the client features that Mastodon 5.0 and later provide (matrix in Section 3.5.3, data in `CLAIRE_SYND_AP_FEATURES`).
+- **Any Mastodon-API server can connect.** Claire never refuses a connection because of server software or version. Posts authored on any ActivityPub software also arrive through the connected server and can be read, boosted, quoted, and sent to the knowledge base.
+- **Capability detection, not gating.** On connect and on each token refresh, Claire reads `GET /api/v2/instance` (software, version, configuration limits, streaming URL) and probes optional endpoints. Baseline features the server does not provide are stored in `syndication_accounts.missing_features_json`; the matching UI is hidden (for example the Explore column) or disabled with a tooltip ("연결 서버가 제공하지 않는 기능"). Everything else keeps working.
+- **Feature keys** that can be missing: `trends` (탐색), `quote` (인용 게시물·인용 허용 범위), `translate` (번역), `notifRequests` (알림 요청·알림 정책), `scheduled` (예약 게시). Core features (timelines, compose, reply, boost, favourite, bookmark, polls, media, CW, filters, relationships, reports) are assumed for any Mastodon-API server.
+- **Prototype demonstration.** Theme 0 binds a Mastodon 5.0 account showing every baseline feature; theme 1 binds a "Mastodon API 호환 서버" with five baseline features missing, so the degraded state is visible; the read-only private theme shows every write action disabled by scope. The connect dialog lets the reviewer pick the simulated server capability set.
 
 ### 1.4 Design Goals
 1. **Clean-Room Spiritual Inheritance of Tiny Tiny RSS (TT-RSS)**:
@@ -70,7 +70,7 @@ ActivityPub client features are specified and tested against **Mastodon 5.0 or l
 flowchart TD
     subgraph External ["External Sources & Existing Servers"]
         RSS["RSS 2.0 / Atom 1.0 / JSON Feeds"]
-        APS["Mastodon 5.0+ server<br/>Client API + OAuth 2.0<br/>(version gate on /api/v2/instance)"]
+        APS["Mastodon-API server<br/>Client API + OAuth 2.0<br/>(feature baseline: Mastodon 5.0+,<br/>capabilities from /api/v2/instance)"]
         PDS["AT Protocol PDS<br/>(bsky.social · self-hosted)<br/>XRPC + AT OAuth"]
     end
 
@@ -118,7 +118,7 @@ flowchart TD
    - OAuth access/refresh tokens, AT DPoP keys, and (compatibility mode) AT session JWTs are stored encrypted in the theme's `syndication_accounts` row (key material under `data/auth/`). The WebUI receives only account metadata (handle, server, software, scopes, publish flag, status).
    - `SafeAccessLogMiddleware` keeps `default-src 'self'`, so the browser cannot call remote servers directly. Every timeline read and every write goes through the authenticated Claire server proxy (Section 4.5).
 3. **Least Privilege per Theme**:
-   - Mastodon accounts request `read` plus only the needed `write:statuses`, `write:favourites`, `write:bookmarks`, `write:follows`. AT accounts prefer AT OAuth (PAR + PKCE + DPoP, scope `atproto transition:generic`); app passwords are a compatibility mode flagged with a warning status.
+   - Mastodon-API accounts request `read` plus the granular write scopes the baseline features need (`write:statuses`, `write:media`, `write:favourites`, `write:bookmarks`, `write:follows`, `write:lists`, `write:mutes`, `write:blocks`, `write:filters`, `write:reports`, `write:notifications`, `write:conversations`, `write:accounts`), never the blanket `write`. Each UI action checks its own scope. AT accounts prefer AT OAuth (PAR + PKCE + DPoP, scope `atproto transition:generic`); app passwords are a compatibility mode flagged with a warning status.
    - Private themes may bind accounts with `read` scope only. `publish_enabled` is forced to `0`, and the UI disables reply, boost, favourite, quote, and compose.
    - Accounts are theme-scoped. A theme can never read or write through another theme's account.
 4. **Revocation and Server Etiquette**:
@@ -144,8 +144,8 @@ flowchart TD
 | ASGI Server | [`src/claire/api/server.py`](../../src/claire/api/server.py) | `syndication_ui_route`, `syndication_preferences_ui_route`, `Disallow: /syndication` in `robots_txt_route`. |
 | HTML Bundle Renderer | [`src/claire/graphview.py`](../../src/claire/graphview.py) | Builds standalone `SYNDICATION_HTML` by inlining `theme.css`, `syndication.css`, and (in order) `syndication_data.js`, `syndication_client.js`, `syndication_app.js`. |
 | Shell & Tab 2 Controller | [`src/claire/templates/syndication.html`](../../src/claire/templates/syndication.html), [`src/claire/static/css/syndication.css`](../../src/claire/static/css/syndication.css), [`src/claire/static/js/syndication_app.js`](../../src/claire/static/js/syndication_app.js) | Top bar, tab menu bar, list styles, pane layouts, knowledge-base tree/stream/reader, unified `수집 원문` ⇄ `적재 본문` view, connected-account publish dialog, and the deterministic server request builder (`buildServerRequest`). |
-| Tab 1 Controller | [`src/claire/static/js/syndication_client.js`](../../src/claire/static/js/syndication_client.js) | `CLAIRE_SYND_CLIENT_FACTORY`: account/timeline tree, timeline stream, thread reader, compose/reply/quote dialog, connect-account dialog, and the knowledge-base bridge (send to inbox, send and ingest, register timeline as collection target). |
-| Seed Data | [`src/claire/static/js/syndication_data.js`](../../src/claire/static/js/syndication_data.js) | Per-theme `accounts`, `posts`, `feeds`, `items`, `existingEntities`, and the shared preference defaults. |
+| Tab 1 Controller | [`src/claire/static/js/syndication_client.js`](../../src/claire/static/js/syndication_client.js) | `CLAIRE_SYND_CLIENT_FACTORY`: Mastodon 5.0 baseline client (columns, grouped notifications and requests, explore, search, profiles, filters/mutes/blocks, scheduled posts, CW/media/poll/quote/edit/translate rendering, `⋯` actions, report dialog), compose with poll/media/CW/language/schedule/quote policy/edit, connect dialog with capability simulation, and the knowledge-base bridge. |
+| Seed Data | [`src/claire/static/js/syndication_data.js`](../../src/claire/static/js/syndication_data.js) | `CLAIRE_SYND_AP_FEATURES` (Mastodon 5.0 feature matrix), per-theme `accounts` (columns, lists, filters, mutes, trends, notification requests, `missingFeatures`), `posts`, `profiles`, `feeds`, `items`, `existingEntities`, and the shared preference defaults. |
 | Preferences Subpage | [`src/claire/templates/syndication_preferences.html`](../../src/claire/templates/syndication_preferences.html) | Default tab and list style, connected accounts and token policy, feed targets with via-account, tag-to-entity policy, organize rules, outbound defaults per protocol, OPML. |
 
 ### 3.2 Browser Entry Flow
@@ -194,39 +194,62 @@ flowchart TD
 
 #### 3.5.2 Information Architecture
 - **Tree (left)**
-  - *연결 서버 계정*: one folder per account (`🟣` ActivityPub, `🔵` AT) with software, auth mode, read-only flag, and status dot.
-  - Timelines per account. ActivityPub: 홈, 알림, 로컬, followed hashtags, lists, 북마크. AT: Following, 알림, custom feeds, lists. Each shows an unread count and its API in the tooltip.
-  - *지식베이스 연계*: `📥 수집함으로 보낸 게시물` (virtual timeline of posts already sent to Tab 2).
+  - *연결 서버 계정*: one folder per account (`🟣` ActivityPub, `🔵` AT) with software/version, auth mode, read-only flag, number of baseline features the server does not provide, and a status dot.
+  - ActivityPub columns (Mastodon web client order): 홈, 알림, 개인 메시지, 탐색, 로컬, 연합, followed hashtags, lists, 좋아요, 북마크, 예약 게시물, 필터 · 뮤트 · 차단. Columns whose feature the server lacks are hidden. Following a hashtag adds its column.
+  - AT columns: Following, 알림, custom feeds, lists.
+  - *지식베이스 연계*: `📥 수집함으로 보낸 게시물` and `📋 기능 기준 (Mastodon 5.0+)` (the feature matrix with a "보기 →" jump to each feature's live demonstration).
   - `+ 연결` opens the connect-account dialog.
-- **Stream head**: timeline name, the exact proxied call (for example `GET social.example.com/api/v1/timelines/home`), `↻ 새로 고침` (cursor/`since_id` aware), and `⇢ 지식베이스 수집 대상 등록` for collectable timelines (home/following, hashtag, list, custom feed).
-- **Stream (center)**: posts rendered in the active list style, with notification lines (mention, boost, favourite, follow), a knowledge-base badge (`📥 수집함` or `🔗 적재`), and actions.
-- **Reader (right)**: thread view built from ancestors, the focused post, and replies (`GET /api/v1/statuses/:id/context` or `app.bsky.feed.getPostThread`). It shows the AP object URI and server status id, or the AT URI and CID, the full action bar, and the **지식베이스 연계 panel**:
-  - Not in the knowledge base: tag chips with `[일치]` hints, affinity hint, `📥 수집함 보내기 (s)`, `⚡ 보내고 바로 적재 (i)`.
-  - In the inbox (unlinked): item id, tags still as `#Tag`, `⚡ 지금 적재`, `📚 지식베이스 탭에서 열기`.
-  - Ingested: `doc_id`, the `[[Entity]]` chips created on ingestion, and a jump to Tab 2. If the match came from an identical canonical URL collected by RSS, the panel says so and does not create a duplicate.
-- Tab 2's reader shows `🌐 연합 클라이언트에서 스레드 보기` for any item with a matching post, giving a two-way link between the knowledge base and the fediverse discussion.
+- **Top bar search**: typing filters the current column; `Enter` runs a server search (`GET /api/v2/search?resolve=true`) showing accounts (including unknown remote handles to resolve), hashtags, and posts.
+- **Stream head**: column name, a `● 실시간` marker with the streaming channel, the exact proxied call, `↻`, `⇢ 수집 대상 등록` for collectable columns, and column-specific controls (알림: 전체/멘션; 탐색: 게시물/해시태그/뉴스).
+- **Stream (center)**, in the active list style:
+  - Posts show the boost header, notification line, visibility icon, language badge, `수정됨`, pinned mark, knowledge-base badge, CW gate (`x`), media grid with `ALT` badges and sensitive blur (`h`), polls (vote or results), quoted post embed with quote state, link card with author byline, translation toggle, and the keyword-filter gate ("필터됨 … 그래도 보기"); `hide` filters and muted/blocked/domain-blocked authors are removed.
+  - Notifications are grouped ("mina, evan 외 5명이 좋아합니다") with avatar rows and the target post; the **알림 요청** banner lists filtered requests with accept/dismiss.
+  - Special columns: 탐색 (trending posts, hashtags with 3-day sparkline and follow, links with "지식베이스로 수집"), 예약 게시물 (reschedule/cancel), 필터 · 뮤트 · 차단 (keyword filters with context and action, mutes, blocks, domain blocks, followed tags, lists, notification policy).
+- **Actions**: reply, boost (not offered on followers-only/direct posts of others), favourite, bookmark, quote, `⋯` menu (link copy, open remotely, translate, mute conversation; own posts: pin, edit, delete, delete and redraft; others: profile, mention, lists, mute, block, domain block, report, add filter; knowledge base: send, send and ingest).
+- **Reader (right)**
+  - Thread view built from ancestors, the focused post, and replies (`GET /api/v1/statuses/:id/context` or `app.bsky.feed.getPostThread`), with edit history, object URI / status id or AT URI / CID, own-post quote policy, the full action bar, and the **지식베이스 연계 panel** (not in KB / in inbox / ingested, as before).
+  - **Profile view** (click any avatar or name): bio, fields with verified links, counts, follow (new-post notifications, show boosts), lists, private note, mute, block, report, featured hashtags, pinned and recent posts, and "⇢ 지식베이스 수집 대상 등록" for the account's posts.
+- **Dialogs**: compose (Section 3.5.3), report (category, server rules, attached posts, comment, forward to the remote server), connect.
+- Tab 2's reader shows `🌐 연합 클라이언트에서 스레드 보기` for any item with a matching post.
 
-#### 3.5.3 Actions and Server API Mapping
+#### 3.5.3 Mastodon 5.0 Client Feature Matrix and Server API Mapping
 
-| Action (key) | Mastodon 5.0+ account | AT Protocol account |
+| Group | Baseline features (feature key if the server may lack it) | Mastodon client API |
 | :--- | :--- | :--- |
-| Read timeline | `GET /api/v1/timelines/home`, `/timelines/tag/:tag`, `/timelines/list/:id`, `/notifications`, `/bookmarks`; streaming `GET /api/v1/streaming` (`user`) | `app.bsky.feed.getTimeline`, `getFeed`, `getListFeed`, `app.bsky.notification.listNotifications` |
-| Thread | `GET /api/v1/statuses/:id/context` | `app.bsky.feed.getPostThread` |
-| New post (`n`) | `POST /api/v1/statuses` (`status`, `visibility`, `spoiler_text`, `language`, `Idempotency-Key`) | `com.atproto.repo.createRecord` → `app.bsky.feed.post` with UTF-8 byte-offset tag facets |
-| Reply (`r`) | `in_reply_to_id`; same account only | `reply.root` / `reply.parent` (`uri`, `cid`); same account only |
-| Boost (`b`) | `POST /api/v1/statuses/:id/reblog` (`/unreblog`) | `app.bsky.feed.repost` (`deleteRecord` to undo) |
-| Favourite (`f`) | `POST /api/v1/statuses/:id/favourite` | `app.bsky.feed.like` |
-| Bookmark | `POST /api/v1/statuses/:id/bookmark` | Not used; send to the knowledge-base inbox instead |
-| Quote (`q`) | `quoted_status_id` for ActivityPub items; the URL is appended for RSS/AT items or when the quoted author's quote policy refuses | `app.bsky.embed.record` on the same protocol; otherwise `app.bsky.embed.external` |
-| 수집함 보내기 (`s`) | Local: creates a Tab 2 item (`proto`, `viaAccount`, `apObjectUri`, `remoteId`, `sourceTags` = hashtags) | Local: same, with `atUri` and `atCid` |
-| 보내고 적재 (`i`) | `s` followed by the ingestion bridge | Same |
-| Register timeline as target | Adds a Tab 2 feed with `via` = account and first-collects current posts | Same |
+| 타임라인 · 탐색 | Home with streaming; local and federated; hashtag columns and followed tags; lists; Explore (`trends`); search with remote resolve; direct conversations; favourites and bookmarks | `/api/v1/timelines/{home,public,tag/:tag,list/:id}`, `/api/v1/streaming`, `/api/v1/tags/:name/follow`, `/api/v1/trends/{statuses,tags,links}`, `/api/v2/search?resolve=true`, `/api/v1/conversations`, `/api/v1/{favourites,bookmarks}` |
+| 알림 | Grouped notifications; mentions-only filter; notification requests and policy (`notifRequests`) | `/api/v2/notifications`, `/api/v1/notifications/requests/:id/{accept,dismiss}`, `PATCH /api/v2/notifications/policy` |
+| 게시물 표시 | Boosted-by, visibility, language; CW; media with alt text and sensitive blur; polls; quoted posts with state (`quote`); edit history; translation (`translate`); keyword filters (warn/hide) | `spoiler_text`, `media_attachments[].description`, `sensitive`, `POST /api/v1/polls/:id/votes`, `quote`, `GET /api/v1/statuses/:id/history`, `POST /api/v1/statuses/:id/translate`, `/api/v2/filters` |
+| 게시물 동작 | Reply, boost, favourite, bookmark; quote with quote policy (`quote`); pin, edit, delete and redraft; mute conversation; report | `/api/v1/statuses/:id/{reblog,favourite,bookmark,pin,mute}`, `quoted_status_id`, `quote_approval_policy`, `PUT`/`DELETE /api/v1/statuses/:id`, `POST /api/v1/reports` |
+| 작성 | Four visibilities, language, CW, polls, media with alt text and sensitive flag, scheduled posts (`scheduled`) | `POST /api/v1/statuses`, `POST /api/v2/media`, `scheduled_at`, `/api/v1/scheduled_statuses` |
+| 계정 · 관계 · 안전 | Profile (fields, pinned, featured tags); follow with notify/reblogs; private note; lists; mute, block, domain block; filter management | `/api/v1/accounts/lookup`, `/api/v1/accounts/:id/{follow,unfollow,note,mute,block}`, `/api/v1/lists/:id/accounts`, `/api/v1/domain_blocks`, `/api/v2/filters` |
 
-- Compose validates per account: ActivityPub uses the server's `max_characters` (from `GET /api/v2/instance`); AT counts graphemes against 300. Over-limit disables submit. A helper inserts theme entities as hashtags (`[[KV Cache]] → #KVCache`), following `tagPolicy.attachEntityHashtagsOnPublish`.
+| Action (key) | Mastodon-API account | AT Protocol account |
+| :--- | :--- | :--- |
+| Read timeline | `GET /api/v1/timelines/*`, `/api/v2/notifications`, `/api/v1/conversations`; streaming `GET /api/v1/streaming` | `app.bsky.feed.getTimeline`, `getFeed`, `getListFeed`, `app.bsky.notification.listNotifications` |
+| Thread | `GET /api/v1/statuses/:id/context` | `app.bsky.feed.getPostThread` |
+| New post (`n`) | `POST /api/v1/statuses` (`status`, `visibility`, `spoiler_text`, `language`, `poll`, `media_ids`, `sensitive`, `scheduled_at`, `quote_approval_policy`, `Idempotency-Key`) after `POST /api/v2/media` | `createRecord` → `app.bsky.feed.post` with `langs`, UTF-8 byte-offset tag facets, `app.bsky.embed.images` after `uploadBlob`; poll, CW, visibility and scheduling are not applied |
+| Reply (`r`) | `in_reply_to_id`, CW copied from the parent; same account only | `reply.root` / `reply.parent` (`uri`, `cid`); same account only |
+| Boost (`b`) / Favourite (`f`) / Bookmark | `POST /api/v1/statuses/:id/{reblog,favourite,bookmark}` and `un…` | `app.bsky.feed.repost` / `app.bsky.feed.like` (`deleteRecord` to undo); no bookmark |
+| Quote (`q`) | `quoted_status_id` for ActivityPub items; the URL is appended for RSS/AT items, when the server lacks `quote`, or when the quoted author's policy refuses | `app.bsky.embed.record` (or `recordWithMedia`) on the same protocol; otherwise `app.bsky.embed.external` |
+| Vote | `POST /api/v1/polls/:id/votes` | — |
+| Edit / delete / redraft / pin | `PUT /api/v1/statuses/:id` (history kept), `DELETE /api/v1/statuses/:id`, `POST /api/v1/statuses/:id/pin` | `deleteRecord` for delete; no edit or pin |
+| Translate | `POST /api/v1/statuses/:id/translate` | — |
+| Mute conversation | `POST /api/v1/statuses/:id/mute` | `app.bsky.graph.muteThread` |
+| Follow / notify / reblogs | `POST /api/v1/accounts/:id/follow` (`notify`, `reblogs`), `/unfollow` | `app.bsky.graph.follow` record |
+| Mute / block / domain block | `POST /api/v1/accounts/:id/{mute,block}`, `POST /api/v1/domain_blocks` | `app.bsky.graph.muteActor`, `app.bsky.graph.block` record |
+| Report | `POST /api/v1/reports` (`category`, `rule_ids`, `status_ids`, `comment`, `forward`) | `com.atproto.moderation.createReport` |
+| Lists / note / follow tag | `POST`/`DELETE /api/v1/lists/:id/accounts` (followed accounts only), `POST /api/v1/accounts/:id/note`, `POST /api/v1/tags/:name/follow` | — |
+| Filters / notification policy / requests | `POST`/`DELETE /api/v2/filters`, `PATCH /api/v2/notifications/policy`, `POST /api/v1/notifications/requests/:id/{accept,dismiss}` | — |
+| Scheduled | `PUT`/`DELETE /api/v1/scheduled_statuses/:id` | — |
+| 수집함 보내기 (`s`) | Local: creates a Tab 2 item (`proto`, `viaAccount`, `apObjectUri`, `remoteId`, `sourceTags` = hashtags; CW, media alt text and poll results kept in the raw body) | Local: same, with `atUri` and `atCid` |
+| 보내고 적재 (`i`) | `s` followed by the ingestion bridge | Same |
+| Register as target | Column, account (profile), or trending link → Tab 2 feed with `via` = account; current posts are first-collected | Same |
+
+- Compose validates per account: ActivityPub uses the server's character limit (from `GET /api/v2/instance`, CW counted); AT counts graphemes against 300. Polls and media are mutually exclusive (up to four media, two to four poll options). Over-limit, empty, or incomplete polls disable submit. A helper inserts theme entities as hashtags (`[[KV Cache]] → #KVCache`).
 - When a target item lives on another protocol, the publish dialog states that a boost is impossible and substitutes a link quote for that account.
 
 #### 3.5.4 Connecting an Account
-- **Mastodon (5.0+)**: `GET /api/v2/instance` (version gate from Section 1.3, character limit, streaming URL) → `POST /api/v1/apps` (client name, redirect URI `/syndication/accounts/callback`, scopes) → `GET /oauth/authorize` with PKCE → `POST /oauth/token` → `GET /api/v1/accounts/verify_credentials`. The prototype's connect dialog includes a simulated server `version` selector that demonstrates acceptance (`5.0.0`, `5.0.0+glitch`) and refusal (`4.5.2`, `(compatible; …)`, `0.19.0`).
+- **Mastodon-API server**: `GET /api/v2/instance` (software, version, character limit, streaming URL, capability detection from Section 1.3) → `POST /api/v1/apps` (client name, redirect URI `/syndication/accounts/callback`, scopes) → `GET /oauth/authorize` with PKCE → `POST /oauth/token` → `GET /api/v1/accounts/verify_credentials`. No server is refused. The prototype's connect dialog has a simulated capability selector ("Mastodon 5.0 이상 — 기준 기능 전체" or "Mastodon API 호환 서버 — 일부 기능 미제공") that shows the degraded result.
 - **AT Protocol (preferred)**: handle → DID (`/.well-known/atproto-did` or DNS `_atproto`) → DID document → PDS → `/.well-known/oauth-protected-resource` → authorization server metadata → PAR + PKCE + DPoP with `client_id = https://<claire-host>/syndication/oauth/client-metadata.json` → `app.bsky.actor.getProfile`.
 - **AT Protocol (compatibility)**: app password entered only in the server-side account form, exchanged through `com.atproto.server.createSession`, refreshed with `refreshSession`. The prototype never collects a password.
 - Private themes request read-only scopes and cannot enable publishing.
@@ -236,7 +259,7 @@ flowchart TD
 | Scope | Keys |
 | :--- | :--- |
 | Global | `1` / `2` tab, `l` list style, `m` pane layout |
-| Tab 1 | `j/k` move, `n` new post, `r` reply, `q` quote, `b` boost, `f` favourite, `s` send to inbox, `i` send and ingest |
+| Tab 1 | `j/k` move, `n` new post, `r` reply, `q` quote, `b` boost, `f` favourite, `x` show/hide CW, `h` show/hide sensitive media, `/` search, `Esc` close profile, `s` send to inbox, `i` send and ingest |
 | Tab 2 | `j/k` move, `v` 원문 ⇄ 적재, `i` ingest, `p` publish, `f` star, `u` unread |
 
 ### 3.6 Tab 2: 지식베이스 (existing workspace)
@@ -263,7 +286,8 @@ CREATE TABLE IF NOT EXISTS syndication_accounts (
     protocol TEXT NOT NULL,              -- 'activitypub' | 'atproto'
     server_url TEXT NOT NULL,            -- 'https://social.example.com' or PDS URL
     software TEXT,                       -- 'mastodon' or PDS implementation (describeServer)
-    server_version TEXT,                 -- Mastodon version from /api/v2/instance; must be >= 5.0.0 (NULL for AT)
+    server_version TEXT,                 -- version reported by /api/v2/instance (informational, never a gate)
+    missing_features_json TEXT DEFAULT '[]', -- baseline features the server does not provide: trends | quote | translate | notifRequests | scheduled
     handle TEXT NOT NULL,                -- '@user@server' or 'name.bsky.social'
     remote_account_id TEXT,              -- Mastodon account id or AT DID
     auth_kind TEXT NOT NULL,             -- 'oauth' | 'atproto_oauth' | 'app_password'
@@ -273,7 +297,7 @@ CREATE TABLE IF NOT EXISTS syndication_accounts (
     publish_enabled INTEGER DEFAULT 0,   -- forced 0 on private themes
     max_chars INTEGER,                   -- 500 default (AP), 300 graphemes (AT)
     streaming_url TEXT,
-    health_status TEXT DEFAULT 'ok',     -- 'ok' | 'warn' | 'degraded' | 'unsupported' | 'revoked'
+    health_status TEXT DEFAULT 'ok',     -- 'ok' | 'warn' | 'degraded' | 'revoked'
     consecutive_failures INTEGER DEFAULT 0,
     created_at REAL NOT NULL,
     updated_at REAL NOT NULL,
@@ -360,7 +384,7 @@ Tab 1 timelines are **not persisted**; they are read live through the proxy and 
 
 ### 4.2 Collectors and Server Adapters
 1. **RSS 2.0 / Atom 1.0 / JSON Feed Poller**: conditional `GET` with `If-None-Match` / `If-Modified-Since`, HTML sanitization, canonical URL extraction, exponential backoff on `429`/`5xx`.
-2. **Mastodon Adapter** (Mastodon 5.0+ only; see Section 1.3):
+2. **Mastodon Client API Adapter** (any Mastodon-API server; feature baseline Mastodon 5.0+ with per-server capability detection, Section 1.3):
    - Targets: `account` → `GET /api/v1/accounts/:id/statuses`; `hashtag` → `GET /api/v1/timelines/tag/:tag`; `list` → `GET /api/v1/timelines/list/:id`; `home` → `GET /api/v1/timelines/home`.
    - Pagination via `Link` headers (`min_id` / `max_id`), cursor stored in `syndication_targets.cursor`. When `streaming_url` is available, one `user` stream per account replaces polling for home and list targets.
    - Remote objects not yet known to the server are resolved with `GET /api/v2/search?q=<uri>&resolve=true&type=statuses` before boost or quote.
@@ -379,7 +403,7 @@ Tab 1 timelines are **not persisted**; they are read live through the proxy and 
 ### 4.4 Outbound Publishing Contract (Connected Accounts)
 `POST /syndication/publish` takes `item_id`, `mode`, `account_ids[]`, and an optional comment. For each account:
 1. **Boost** (`mode = "boost"`): allowed only when `item.protocol` equals the account protocol. ActivityPub: `POST /api/v1/statuses/:remote_status_id/reblog` (resolving the id first if needed). AT: `createRecord` `app.bsky.feed.repost` with `subject = {uri, cid}`. A cross-protocol boost is rejected with `409` and the UI offers quote instead.
-2. **Quote** (`mode = "quote"`): ActivityPub `POST /api/v1/statuses` with `quoted_status_id` for ActivityPub items; the item URL in the text for RSS/AT items or when the quoted author's quote policy refuses the quote. AT `app.bsky.feed.post` with `app.bsky.embed.record` (same protocol) or `app.bsky.embed.external`.
+2. **Quote** (`mode = "quote"`): ActivityPub `POST /api/v1/statuses` with `quoted_status_id` for ActivityPub items; the item URL in the text for RSS/AT items, when the connected server lacks `quote`, or when the quoted author's quote policy refuses the quote. AT `app.bsky.feed.post` with `app.bsky.embed.record` (same protocol) or `app.bsky.embed.external`.
 3. **Ingested Body Publish** (`mode = "ingested_publish"`): requires `linked_doc_id`. Ensures a `doc_shares` token, then posts the Claire summary, the `/p?s=<token>` link, and entity hashtags within the account's character limit (AT carries the link as an external embed).
 4. Every request carries an idempotency key (`Idempotency-Key` header for Mastodon), is recorded in `syndication_outbound`, and is refused when the account lacks `publish_enabled` or the theme is private.
 
@@ -396,7 +420,14 @@ Tab 1 timelines are **not persisted**; they are read live through the proxy and 
 | `GET` | `/syndication/client/timeline` | `collaborator` | Proxy a timeline read (`account_id`, `timeline`, cursor). |
 | `GET` | `/syndication/client/thread` | `collaborator` | Proxy a thread read. |
 | `POST` | `/syndication/client/status` | `owner` | Proxy new post, reply, or quote through one or more accounts. |
-| `POST` | `/syndication/client/action` | `owner` | Proxy boost, favourite, bookmark, and their undo. |
+| `POST` | `/syndication/client/action` | `owner` | Proxy boost, favourite, bookmark, pin, conversation mute, poll vote, translate, and their undo. |
+| `PUT`, `DELETE` | `/syndication/client/status` | `owner` | Proxy edit (history kept) and delete / delete-and-redraft. |
+| `POST` | `/syndication/client/media` | `owner` | Proxy media upload with alt text (`POST /api/v2/media`, AT `uploadBlob`). |
+| `POST` | `/syndication/client/relationship` | `owner` | Proxy follow (notify, reblogs), mute, block, domain block, private note, list membership, hashtag follow. |
+| `POST` | `/syndication/client/report` | `owner` | Proxy reports (`/api/v1/reports`, `com.atproto.moderation.createReport`). |
+| `GET`, `POST`, `DELETE` | `/syndication/client/filters` | `owner` | Proxy keyword filters. |
+| `GET`, `POST`, `PATCH` | `/syndication/client/notifications` | `owner` | Proxy grouped notifications, notification requests (accept/dismiss), and notification policy. |
+| `GET`, `PUT`, `DELETE` | `/syndication/client/scheduled` | `owner` | Proxy scheduled statuses. |
 | `POST` | `/syndication/client/send` | `collaborator` | Send a timeline post to the knowledge base (optionally ingest). |
 | `GET`, `POST`, `PATCH`, `DELETE` | `/syndication/targets` | `collaborator` | Manage collection targets (AP/AT targets require `account_id`). |
 | `GET` | `/syndication/items` | `collaborator` | Query stream items. |
@@ -414,4 +445,4 @@ The withdrawn federation routes (`/.well-known/webfinger`, `/ap/actor`, `/ap/inb
 1. **Route & Security Matrix Contract Tests** ([`tests/test_api_security.py`](../../tests/test_api_security.py)): `security.ROUTE_POLICY` matches the mounted routes for `/syndication` and `/syndication/preferences`.
 2. **Route I/O Tests** ([`tests/test_syndication_route.py`](../../tests/test_syndication_route.py)): `200 OK` for `GET`/`HEAD`; the bundle contains the tab menu bar (`data-app-tab="client"`, `#app-tablist`, `#panel-client`, `#panel-kb`), the client factory, all four `data-set-list-style` options, and connected-account request builders (`/api/v1/statuses`, `com.atproto.repo.createRecord`); the preferences page contains the default-tab, list-style, and connected-account controls.
 3. **End-to-End Tests** ([`e2e/test_syndication_e2e.py`](../../e2e/test_syndication_e2e.py)): full ASGI lifecycle, tab markup, `/documents` and `/graph` synchronization, `/robots.txt` exclusion.
-4. **Phase 2 adapter tests** (planned): recorded fixtures for the Mastodon 5.0 Client API and AT XRPC; the version gate (accept `5.0.0` and `5.0.0+glitch`, refuse `4.5.x`, `(compatible; …)`, unparsable and non-Mastodon versions, downgrade to `unsupported`); cross-protocol boost rejection; private-theme publish refusal; token revocation on disconnect; and UTF-8 facet offsets for Korean hashtags.
+4. **Phase 2 adapter tests** (planned): recorded fixtures for the Mastodon 5.0 client API and AT XRPC; capability detection (a server lacking trends, quotes, translation, notification requests, or scheduling stays connected and only those features are disabled); per-action scope checks; cross-protocol boost rejection; private-theme publish refusal; token revocation on disconnect; and UTF-8 facet offsets for Korean hashtags.

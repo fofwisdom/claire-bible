@@ -35,20 +35,31 @@ window.CLAIRE_SYND_STORAGE = {
  * ActivityPub · AT Protocol 은 Claire 가 직접 연합(Actor/Inbox/서명)하지 않는다.
  * 각 테마는 기존 서버의 계정(Mastodon Client API · AT Protocol PDS XRPC)에 연결되며,
  * 수집·발행·타임라인 열람은 모두 그 연결 계정의 서버 API를 경유한다.
- * ActivityPub 클라이언트 기능의 지원 기준은 Mastodon 5.0 이상이다 (연결 시 /api/v2/instance 의 version 으로 확인).
+ * ActivityPub 클라이언트 기능은 Mastodon 5.0 이상이 제공하는 클라이언트 기능 전체를 기준으로 갖춘다 (CLAIRE_SYND_AP_FEATURES).
+ * Mastodon API 를 제공하는 서버라면 연결할 수 있으며, 서버가 제공하지 않는 기능(missingFeatures)만 비활성으로 표시한다.
  */
 window.CLAIRE_SYND_ACCOUNT_TEMPLATES = {
   ap: {
     software: "Mastodon",
-    minVersion: "5.0.0",
+    featureBaseline: "Mastodon 5.0",
     auth: "OAuth 2.0 (Authorization Code + PKCE)",
-    scopes: ["read", "write:statuses", "write:favourites", "write:bookmarks", "write:follows"],
+    scopes: ["read", "write:statuses", "write:media", "write:favourites", "write:bookmarks", "write:follows", "write:lists", "write:mutes", "write:blocks", "write:filters", "write:reports", "write:notifications", "write:conversations", "write:accounts"],
     charLimit: 500,
+    missingFeatures: [],
+    lists: [], filters: [], mutes: [], blocks: [], domainBlocks: [], followedTags: [], notifRequests: [],
+    notifPolicy: { forNotFollowing: "accept", forNotFollowers: "accept", forNewAccounts: "accept", forPrivateMentions: "filter", forLimitedAccounts: "filter" },
+    trends: { statuses: [], tags: [], links: [] },
     timelines: [
-      { id: "home", icon: "🏠", label: "홈 타임라인", api: "GET /api/v1/timelines/home", collectable: true },
-      { id: "notifications", icon: "🔔", label: "알림", api: "GET /api/v1/notifications" },
-      { id: "local", icon: "🏘️", label: "로컬 타임라인", api: "GET /api/v1/timelines/public?local=true" },
-      { id: "bookmarks", icon: "🔖", label: "북마크", api: "GET /api/v1/bookmarks" }
+      { id: "home", icon: "🏠", label: "홈", api: "GET /api/v1/timelines/home", stream: "user", collectable: true },
+      { id: "notifications", icon: "🔔", label: "알림", api: "GET /api/v2/notifications", stream: "user:notification", kind: "notifications" },
+      { id: "conversations", icon: "✉️", label: "개인 메시지", api: "GET /api/v1/conversations", stream: "direct" },
+      { id: "explore", icon: "🧭", label: "탐색", api: "GET /api/v1/trends/statuses · /trends/tags · /trends/links", kind: "explore", feature: "trends" },
+      { id: "local", icon: "🏘️", label: "로컬", api: "GET /api/v1/timelines/public?local=true", stream: "public:local" },
+      { id: "federated", icon: "🌐", label: "연합", api: "GET /api/v1/timelines/public", stream: "public" },
+      { id: "favourites", icon: "★", label: "좋아요", api: "GET /api/v1/favourites", kind: "favourites" },
+      { id: "bookmarks", icon: "🔖", label: "북마크", api: "GET /api/v1/bookmarks", kind: "bookmarks" },
+      { id: "scheduled", icon: "🗓️", label: "예약 게시물", api: "GET /api/v1/scheduled_statuses", kind: "scheduled", feature: "scheduled" },
+      { id: "manage", icon: "🛡️", label: "필터 · 뮤트 · 차단", api: "GET /api/v2/filters · /api/v1/mutes · /api/v1/blocks · /api/v1/domain_blocks", kind: "manage" }
     ]
   },
   at: {
@@ -63,6 +74,76 @@ window.CLAIRE_SYND_ACCOUNT_TEMPLATES = {
   }
 };
 
+/*
+ * ActivityPub 클라이언트 기능 기준표 — Mastodon 5.0 이상이 제공하는 클라이언트 기능.
+ * feature 키가 있는 항목은 연결 서버가 제공하지 않으면(missingFeatures) 비활성으로 표시한다.
+ * demo: 프로토타입에서 해당 기능을 보여주는 위치 (timeline · post · profile · compose · search).
+ */
+window.CLAIRE_SYND_AP_FEATURES = [
+  {
+    group: "타임라인 · 탐색",
+    items: [
+      { label: "홈 타임라인 · 실시간 스트리밍", api: "GET /api/v1/timelines/home · /api/v1/streaming (user)", demo: { timeline: "home" } },
+      { label: "로컬 · 연합 타임라인", api: "GET /api/v1/timelines/public[?local=true]", demo: { timeline: "federated" } },
+      { label: "해시태그 타임라인 · 해시태그 팔로우", api: "GET /api/v1/timelines/tag/:tag · POST /api/v1/tags/:name/follow", demo: { timeline: "tag:ActivityPub" } },
+      { label: "리스트", api: "GET /api/v1/timelines/list/:id · POST /api/v1/lists/:id/accounts", demo: { timeline: "list:standards" } },
+      { label: "탐색 (트렌드 게시물 · 해시태그 · 링크)", api: "GET /api/v1/trends/statuses · /tags · /links", feature: "trends", demo: { timeline: "explore" } },
+      { label: "통합 검색 (계정 · 해시태그 · 게시물, 원격 확인)", api: "GET /api/v2/search?resolve=true", demo: { search: "ActivityPub" } },
+      { label: "개인 메시지 (대화)", api: "GET /api/v1/conversations", demo: { timeline: "conversations" } },
+      { label: "좋아요 · 북마크 모아 보기", api: "GET /api/v1/favourites · /api/v1/bookmarks", demo: { timeline: "bookmarks" } }
+    ]
+  },
+  {
+    group: "알림",
+    items: [
+      { label: "묶음 알림 (좋아요 · 부스트 · 팔로우 · 인용 · 멘션)", api: "GET /api/v2/notifications", demo: { timeline: "notifications" } },
+      { label: "멘션만 보기", api: "GET /api/v2/notifications?types[]=mention", demo: { timeline: "notifications" } },
+      { label: "알림 요청 · 알림 정책", api: "GET /api/v1/notifications/requests · PATCH /api/v2/notifications/policy", feature: "notifRequests", demo: { timeline: "notifications" } }
+    ]
+  },
+  {
+    group: "게시물 표시",
+    items: [
+      { label: "부스트한 사람 · 공개 범위 · 언어 표시", api: "reblog · visibility · language", demo: { post: "p0-11" } },
+      { label: "열람 주의 (CW)", api: "spoiler_text", demo: { post: "p0-12" } },
+      { label: "미디어 · 대체 텍스트 · 민감한 미디어 가림", api: "media_attachments[].description · sensitive", demo: { post: "p0-16" } },
+      { label: "투표 참여 · 결과", api: "POST /api/v1/polls/:id/votes", demo: { post: "p0-13" } },
+      { label: "인용 게시물 · 인용 상태", api: "quote · quoted_status_id", feature: "quote", demo: { post: "p0-14" } },
+      { label: "수정됨 표시 · 수정 이력", api: "GET /api/v1/statuses/:id/history", demo: { post: "p0-15" } },
+      { label: "번역", api: "POST /api/v1/statuses/:id/translate", feature: "translate", demo: { post: "p0-11" } },
+      { label: "키워드 필터 (경고 · 숨김)", api: "GET /api/v2/filters · filtered[]", demo: { post: "p0-17" } }
+    ]
+  },
+  {
+    group: "게시물 동작",
+    items: [
+      { label: "답글 · 부스트 · 좋아요 · 북마크", api: "POST /api/v1/statuses/:id/reblog · favourite · bookmark", demo: { post: "p0-4" } },
+      { label: "인용하기 · 인용 허용 범위", api: "quoted_status_id · quote_approval_policy", feature: "quote", demo: { compose: "quote" } },
+      { label: "내 글 고정 · 수정 · 삭제 후 다시 쓰기", api: "POST /pin · PUT /api/v1/statuses/:id · DELETE /api/v1/statuses/:id", demo: { post: "p0-21" } },
+      { label: "대화 뮤트 · 링크 복사 · 원격 서버에서 열기", api: "POST /api/v1/statuses/:id/mute", demo: { post: "p0-1" } },
+      { label: "신고", api: "POST /api/v1/reports", demo: { post: "p0-17" } }
+    ]
+  },
+  {
+    group: "작성",
+    items: [
+      { label: "공개 범위 4종 · 언어 · 열람 주의", api: "visibility · language · spoiler_text", demo: { compose: "new" } },
+      { label: "투표 만들기", api: "poll[options][] · poll[expires_in] · poll[multiple]", demo: { compose: "new" } },
+      { label: "미디어 첨부 · 대체 텍스트 · 민감함 표시", api: "POST /api/v2/media · media_ids · sensitive", demo: { compose: "new" } },
+      { label: "예약 게시", api: "scheduled_at · GET /api/v1/scheduled_statuses", feature: "scheduled", demo: { timeline: "scheduled" } }
+    ]
+  },
+  {
+    group: "계정 · 관계 · 안전",
+    items: [
+      { label: "프로필 (소개 · 필드 · 고정 게시물 · 추천 해시태그)", api: "GET /api/v1/accounts/:id · /statuses?pinned=true · /featured_tags", demo: { profile: "@w3c@w3c.social" } },
+      { label: "팔로우 · 새 글 알림 · 부스트 표시", api: "POST /api/v1/accounts/:id/follow (notify, reblogs)", demo: { profile: "@w3c@w3c.social" } },
+      { label: "개인 메모 · 리스트에 추가", api: "POST /api/v1/accounts/:id/note · /api/v1/lists/:id/accounts", demo: { profile: "@mina@hachyderm.example" } },
+      { label: "뮤트 · 차단 · 도메인 차단 · 필터 관리", api: "/api/v1/mutes · /blocks · /domain_blocks · /api/v2/filters", demo: { timeline: "manage" } }
+    ]
+  }
+];
+
 window.CLAIRE_SYND_SEEDS = {
   "0": {
     id: 0, seq: 0, icon: "📚", label: "기본 지식베이스", fqdn: "", dbPath: "data/claire.db", isPublic: true, defaultFocus: "",
@@ -71,16 +152,46 @@ window.CLAIRE_SYND_SEEDS = {
         id: "acc0-ap", proto: "ap", software: "Mastodon", serverVersion: "5.0.0", server: "social.example.com",
         handle: "@claire@social.example.com", displayName: "Claire Bible 📚",
         auth: "OAuth 2.0 (Authorization Code + PKCE)",
-        scopes: ["read", "write:statuses", "write:favourites", "write:bookmarks", "write:follows"],
-        canPublish: true, status: "ok", statusNote: "스트리밍 연결됨 (user)", charLimit: 500,
+        scopes: ["read", "write:statuses", "write:media", "write:favourites", "write:bookmarks", "write:follows", "write:lists", "write:mutes", "write:blocks", "write:filters", "write:reports", "write:notifications", "write:conversations", "write:accounts"],
+        canPublish: true, status: "ok", statusNote: "스트리밍 연결됨 (user)", charLimit: 500, missingFeatures: [],
         timelines: [
-          { id: "home", icon: "🏠", label: "홈 타임라인", api: "GET /api/v1/timelines/home", collectable: true },
-          { id: "notifications", icon: "🔔", label: "알림", api: "GET /api/v1/notifications" },
-          { id: "local", icon: "🏘️", label: "로컬 타임라인", api: "GET /api/v1/timelines/public?local=true" },
-          { id: "tag:ActivityPub", icon: "#", label: "#ActivityPub", api: "GET /api/v1/timelines/tag/ActivityPub", collectable: true },
-          { id: "list:standards", icon: "📋", label: "리스트 · 표준 기구", api: "GET /api/v1/timelines/list/12", collectable: true },
-          { id: "bookmarks", icon: "🔖", label: "북마크", api: "GET /api/v1/bookmarks" }
-        ]
+          { id: "home", icon: "🏠", label: "홈", api: "GET /api/v1/timelines/home", stream: "user", collectable: true },
+          { id: "notifications", icon: "🔔", label: "알림", api: "GET /api/v2/notifications", stream: "user:notification", kind: "notifications" },
+          { id: "conversations", icon: "✉️", label: "개인 메시지", api: "GET /api/v1/conversations", stream: "direct" },
+          { id: "explore", icon: "🧭", label: "탐색", api: "GET /api/v1/trends/statuses · /trends/tags · /trends/links", kind: "explore", feature: "trends" },
+          { id: "local", icon: "🏘️", label: "로컬", api: "GET /api/v1/timelines/public?local=true", stream: "public:local" },
+          { id: "federated", icon: "🌐", label: "연합", api: "GET /api/v1/timelines/public", stream: "public" },
+          { id: "tag:ActivityPub", icon: "#", label: "#ActivityPub", api: "GET /api/v1/timelines/tag/ActivityPub", stream: "hashtag", collectable: true },
+          { id: "list:standards", icon: "📋", label: "리스트 · 표준 기구", api: "GET /api/v1/timelines/list/12", stream: "list", collectable: true },
+          { id: "favourites", icon: "★", label: "좋아요", api: "GET /api/v1/favourites", kind: "favourites" },
+          { id: "bookmarks", icon: "🔖", label: "북마크", api: "GET /api/v1/bookmarks", kind: "bookmarks" },
+          { id: "scheduled", icon: "🗓️", label: "예약 게시물", api: "GET /api/v1/scheduled_statuses", kind: "scheduled", feature: "scheduled" },
+          { id: "manage", icon: "🛡️", label: "필터 · 뮤트 · 차단", api: "GET /api/v2/filters · /api/v1/mutes · /api/v1/blocks · /api/v1/domain_blocks", kind: "manage" }
+        ],
+        lists: [{ id: "standards", title: "표준 기구" }, { id: "neighbors", title: "가까운 이웃" }],
+        filters: [{ id: "flt-1", title: "크립토 광고", keywords: ["크립토", "에어드롭"], context: ["home", "public"], action: "warn" }],
+        mutes: [{ handle: "@spammy@spam.example", until: "무기한" }],
+        blocks: [],
+        domainBlocks: ["spam.example"],
+        followedTags: ["ActivityPub", "SQLite"],
+        notifRequests: [
+          { id: "nr-1", handle: "@newbie@social.example.com", count: 1, preview: "@claire 안녕하세요, 적재 기능을 연합우주에서도 쓸 수 있는지 궁금합니다.", reason: "새 계정" },
+          { id: "nr-2", handle: "@deals@promo.example", count: 3, preview: "@claire 한정 특가! 지금 바로 확인하세요", reason: "팔로우하지 않는 계정" }
+        ],
+        notifPolicy: { forNotFollowing: "filter", forNotFollowers: "accept", forNewAccounts: "filter", forPrivateMentions: "filter", forLimitedAccounts: "filter" },
+        trends: {
+          statuses: ["p0-4", "p0-13", "p0-1"],
+          tags: [
+            { name: "FEP044f", history: [8, 19, 46], accounts: 52 },
+            { name: "SQLite", history: [5, 7, 63], accounts: 71 },
+            { name: "ActivityPub", history: [30, 34, 41], accounts: 88 }
+          ],
+          links: [
+            { title: "Social Web Working Group Charter (Draft 2026–2028)", description: "Quote post interoperability with approval stamps, actor portability, RFC 9421 HTTP Message Signatures.", url: "https://www.w3.org/2026/socialweb-charter-draft", provider: "w3.org", author: "W3C", shares: 120 },
+            { title: "SQLite Release 3.51.0", description: "FTS5 multi-token phrase cost estimation and non-blocking WAL checkpoints.", url: "https://sqlite.org/releaselog/3_51_0.html", provider: "sqlite.org", author: "", shares: 95 },
+            { title: "Designing alt text for technical diagrams", description: "Practical guidance for describing sequence diagrams and charts for screen reader users.", url: "https://a11y.example.org/alt-text-diagrams", provider: "a11y.example.org", author: "Mina", shares: 41 }
+          ]
+        }
       },
       {
         id: "acc0-at", proto: "at", software: "Bluesky PDS", server: "bsky.social",
@@ -181,8 +292,169 @@ window.CLAIRE_SYND_SEEDS = {
         card: { title: "SQLite 3.51.0 — Claire 적재 요약", description: "Claire Bible 지식 그래프 공유 문서", url: "https://claire.example.com/p?s=sh_991a0f" },
         url: "https://bsky.app/profile/claire.example.com/post/3l7v0zz", uri: "at://did:plc:claire4kb2x7q/app.bsky.feed.post/3l7v0zz", cid: "bafyreid0clairesqlite3510summary",
         counts: { replies: 0, boosts: 7, favs: 22 }, boosted: false, favourited: false, bookmarked: false
+      },
+      {
+        id: "p0-11", accountId: "acc0-ap", timelines: ["home", "tag:ActivityPub"], unread: true, visibility: "public", lang: "en",
+        rebloggedBy: { name: "Mina", handle: "@mina@hachyderm.example" },
+        author: "Fediverse Dev Notes", handle: "@devnotes@fosstodon.example", time: "07:40", timestamp: 1761630000,
+        text: "How a quote post travels between servers: Create(Note with quote) → QuoteRequest → Accept with an approval stamp. Diagram with alt text below. #ActivityPub #FEP044f",
+        translation: "인용 게시물이 서버 사이를 이동하는 과정: 인용이 담긴 Create(Note) → QuoteRequest → 승인 스탬프가 담긴 Accept. 아래 도식에 대체 텍스트가 있습니다. #ActivityPub #FEP044f",
+        hashtags: ["ActivityPub", "FEP044f"], card: null,
+        media: [{ kind: "image", label: "quote-flow.png", alt: "시퀀스 도식: 인용하는 서버가 QuoteRequest 를 보내고, 원 작성자 서버가 승인 스탬프를 담은 Accept 로 응답한 뒤 두 서버 모두에 인용이 표시된다." }],
+        url: "https://fosstodon.example/@devnotes/11542905000", uri: "https://fosstodon.example/users/devnotes/statuses/11542905000", remoteId: "115429050000000101",
+        counts: { replies: 3, boosts: 45, favs: 120 }, boosted: false, favourited: false, bookmarked: false
+      },
+      {
+        id: "p0-12", accountId: "acc0-ap", timelines: ["home"], unread: true, visibility: "unlisted", lang: "ko",
+        author: "Mina", handle: "@mina@hachyderm.example", time: "07:20", timestamp: 1761629000,
+        cw: "W3C 회의 결과 (스포일러)",
+        text: "결국 인용 승인은 서버 선택 사항으로 남기로 했습니다. 다음 초안에서 표기 방식만 정리한다고 해요. #W3C",
+        hashtags: ["W3C"], card: null,
+        url: "https://hachyderm.example/@mina/11542900120", uri: "https://hachyderm.example/users/mina/statuses/11542900120", remoteId: "115429001200000044",
+        counts: { replies: 1, boosts: 2, favs: 14 }, boosted: false, favourited: false, bookmarked: false
+      },
+      {
+        id: "p0-13", accountId: "acc0-ap", timelines: ["home", "local"], unread: true, visibility: "public", lang: "ko",
+        author: "social.example.com 관리자", handle: "@admin@social.example.com", time: "06:55", timestamp: 1761627500,
+        text: "서버 기본값 투표: 새 게시물의 인용 허용 범위 기본값을 무엇으로 할까요? (개인 설정에서 언제든 바꿀 수 있습니다) #서버운영",
+        hashtags: ["서버운영"], card: null,
+        poll: { id: "poll-881", multiple: false, expires: "2일 남음", expired: false, voted: false, ownVotes: [], options: [{ title: "누구나", votes: 41 }, { title: "팔로워만", votes: 27 }, { title: "나만 (인용 불가)", votes: 9 }] },
+        url: "https://social.example.com/@admin/11542890880", uri: "https://social.example.com/users/admin/statuses/11542890880", remoteId: "115428908800000002",
+        counts: { replies: 6, boosts: 12, favs: 30 }, boosted: false, favourited: false, bookmarked: false
+      },
+      {
+        id: "p0-14", accountId: "acc0-ap", timelines: ["home"], unread: true, visibility: "public", lang: "ko",
+        author: "Evan", handle: "@evan@cosocial.example", time: "08:15", timestamp: 1761632100,
+        text: "꼭 읽어볼 초안입니다. 인용 승인 스탬프 부분이 핵심이에요.",
+        hashtags: [], card: null, quoteOf: "p0-1", quoteState: "accepted",
+        url: "https://cosocial.example/@evan/11542921500", uri: "https://cosocial.example/users/evan/statuses/11542921500", remoteId: "115429215000000310",
+        counts: { replies: 0, boosts: 5, favs: 22 }, boosted: false, favourited: false, bookmarked: false
+      },
+      {
+        id: "p0-15", accountId: "acc0-ap", timelines: ["home"], unread: false, visibility: "public", lang: "ko",
+        author: "SQLite News", handle: "@sqlite_news@fosstodon.example", time: "08:50", timestamp: 1761634500,
+        text: "SQLite 3.51.0 정오표: FTS5 메모리 할당 감소 수치는 '34%'가 아니라 'CJK trigram 색인에서 최대 34%'입니다. #SQLite",
+        hashtags: ["SQLite"], card: null, edited: true, editedAt: "08:58",
+        history: [{ at: "08:50", text: "SQLite 3.51.0 정오표: FTS5 메모리 할당 감소 수치는 34%입니다. #SQLite" }],
+        url: "https://fosstodon.example/@sqlite_news/11542965002", uri: "https://fosstodon.example/users/sqlite_news/statuses/11542965002", remoteId: "115429650020000880",
+        counts: { replies: 2, boosts: 18, favs: 51 }, boosted: false, favourited: false, bookmarked: false
+      },
+      {
+        id: "p0-16", accountId: "acc0-ap", timelines: ["federated"], unread: true, visibility: "public", lang: "ja",
+        author: "Kenji", handle: "@kenji@misskey.example", time: "05:30", timestamp: 1761622200,
+        text: "サーバー移行のログ画像です。アカウント移行の進捗が見えます。#Fediverse",
+        translation: "서버 이전 로그 이미지입니다. 계정 이전 진행률이 보입니다. #Fediverse",
+        hashtags: ["Fediverse"], card: null, sensitive: true,
+        media: [{ kind: "image", label: "migration-log.png", alt: "서버 이전 중 터미널 로그 화면 캡처 — 팔로워 이전 단계 진행률 82%가 표시됨" }],
+        url: "https://misskey.example/notes/9x2k4m", uri: "https://misskey.example/notes/9x2k4m", remoteId: "115429220000000555",
+        counts: { replies: 0, boosts: 4, favs: 19 }, boosted: false, favourited: false, bookmarked: false
+      },
+      {
+        id: "p0-17", accountId: "acc0-ap", timelines: ["home", "federated"], unread: true, visibility: "public", lang: "ko",
+        author: "Airdrop Bot", handle: "@promo@promo.example", time: "04:12", timestamp: 1761617500,
+        text: "🚀 크립토 에어드롭 이벤트! 지금 지갑을 연결하면 보상을 드립니다 #crypto",
+        hashtags: ["crypto"], card: null,
+        url: "https://promo.example/@promo/1", uri: "https://promo.example/users/promo/statuses/1", remoteId: "115429170000000999",
+        counts: { replies: 0, boosts: 1, favs: 0 }, boosted: false, favourited: false, bookmarked: false
+      },
+      {
+        id: "p0-18", accountId: "acc0-ap", timelines: ["federated"], unread: false, visibility: "public", lang: "ko",
+        author: "Lee", handle: "@lee@pixelfed.example", time: "어제", timestamp: 1761590000,
+        text: "새 사진 연작: 오래된 도서관의 서가들 #Photography",
+        hashtags: ["Photography"], card: null,
+        media: [
+          { kind: "image", label: "library-01.jpg", alt: "높은 나무 서가와 이동식 사다리가 있는 오래된 도서관 내부" },
+          { kind: "image", label: "library-02.jpg", alt: "창가 열람석 위에 펼쳐진 고서 두 권" }
+        ],
+        url: "https://pixelfed.example/p/lee/7781", uri: "https://pixelfed.example/p/lee/7781", remoteId: "115428800000000777",
+        counts: { replies: 2, boosts: 9, favs: 64 }, boosted: false, favourited: false, bookmarked: false
+      },
+      {
+        id: "p0-19", accountId: "acc0-ap", timelines: ["conversations"], unread: true, visibility: "direct", lang: "ko",
+        author: "Mina", handle: "@mina@hachyderm.example", time: "09:10", timestamp: 1761635300,
+        text: "@claire 적재 문서 공유 링크(/p?s=…)를 팀 위키에 걸어도 되는지 확인 부탁드려요.",
+        hashtags: [], card: null,
+        url: "https://hachyderm.example/@mina/11542975555", uri: "https://hachyderm.example/users/mina/statuses/11542975555", remoteId: "115429755550000012",
+        counts: { replies: 1, boosts: 0, favs: 0 }, boosted: false, favourited: false, bookmarked: false
+      },
+      {
+        id: "p0-20", accountId: "acc0-ap", timelines: [], replyTo: "p0-19", unread: false, visibility: "direct", lang: "ko", own: true,
+        author: "Claire Bible 📚", handle: "@claire@social.example.com", time: "09:14", timestamp: 1761635500,
+        text: "@mina 네, 공개 테마 문서라 공유 링크는 그대로 쓰셔도 됩니다.",
+        hashtags: [], card: null,
+        url: "https://social.example.com/@claire/11542976601", uri: "https://social.example.com/users/claire/statuses/11542976601", remoteId: "115429766010000003",
+        counts: { replies: 0, boosts: 0, favs: 1 }, boosted: false, favourited: false, bookmarked: false
+      },
+      {
+        id: "p0-21", accountId: "acc0-ap", timelines: ["home"], unread: false, visibility: "public", lang: "ko", own: true, pinned: true, quotePolicy: "public",
+        author: "Claire Bible 📚", handle: "@claire@social.example.com", time: "08:20", timestamp: 1761632400,
+        text: "📡 적재 발행 · W3C Social Web WG 헌장 갱신 초안 요약: 인용 승인 스탬프, 계정 이전, HTTP 메시지 서명. #ActivityPub #W3C",
+        hashtags: ["ActivityPub", "W3C"],
+        card: { title: "Social Web WG 헌장 초안 — Claire 적재 요약", description: "Claire Bible 지식 그래프 공유 문서", url: "https://claire.example.com/p?s=sh_w3c26" },
+        url: "https://social.example.com/@claire/11542923300", uri: "https://social.example.com/users/claire/statuses/11542923300", remoteId: "115429233000000001",
+        counts: { replies: 1, boosts: 3, favs: 7 }, boosted: false, favourited: false, bookmarked: false
+      },
+      {
+        id: "p0-22", accountId: "acc0-ap", timelines: ["notifications"], notifOnly: true, unread: true, time: "09:05", timestamp: 1761635100,
+        notif: { kind: "favourite", by: ["@mina@hachyderm.example", "@evan@cosocial.example", "@darius@friend.example"], total: 7, target: "p0-21" },
+        author: "", handle: "", text: "", hashtags: [], card: null, counts: { replies: 0, boosts: 0, favs: 0 }
+      },
+      {
+        id: "p0-23", accountId: "acc0-ap", timelines: ["notifications"], notifOnly: true, unread: true, time: "08:58", timestamp: 1761634700,
+        notif: { kind: "reblog", by: ["@evan@cosocial.example", "@kenji@misskey.example"], total: 3, target: "p0-21" },
+        author: "", handle: "", text: "", hashtags: [], card: null, counts: { replies: 0, boosts: 0, favs: 0 }
+      },
+      {
+        id: "p0-24", accountId: "acc0-ap", timelines: ["notifications"], notifOnly: true, unread: false, time: "어제", timestamp: 1761601000,
+        notif: { kind: "follow", by: ["@kenji@misskey.example", "@lee@pixelfed.example"], total: 2 },
+        author: "", handle: "", text: "", hashtags: [], card: null, counts: { replies: 0, boosts: 0, favs: 0 }
+      },
+      {
+        id: "p0-25", accountId: "acc0-ap", timelines: ["notifications"], unread: true, visibility: "public", lang: "ko",
+        notif: { kind: "quote", by: ["@darius@friend.example"] },
+        author: "Darius", handle: "@darius@friend.example", time: "08:40", timestamp: 1761633600,
+        text: "Claire 쪽 요약이 제일 깔끔하네요. 원문 링크까지 같이 붙어 있어서 좋습니다.",
+        hashtags: [], card: null, quoteOf: "p0-21", quoteState: "accepted",
+        url: "https://friend.example/@darius/11542936000", uri: "https://friend.example/users/darius/statuses/11542936000", remoteId: "115429360000000470",
+        counts: { replies: 0, boosts: 1, favs: 3 }, boosted: false, favourited: false, bookmarked: false
+      },
+      {
+        id: "p0-26", accountId: "acc0-ap", timelines: ["scheduled"], unread: false, visibility: "public", lang: "ko", own: true,
+        scheduled: { id: "sch-3301", at: "11/02 (일) 09:00" },
+        author: "Claire Bible 📚", handle: "@claire@social.example.com", time: "예약", timestamp: 1761900000,
+        text: "📡 주간 정리: 이번 주 지식베이스에 적재된 연합우주 표준 문서 5건 #ActivityPub",
+        hashtags: ["ActivityPub"], card: null,
+        url: "https://social.example.com/@claire", uri: "", remoteId: "",
+        counts: { replies: 0, boosts: 0, favs: 0 }, boosted: false, favourited: false, bookmarked: false
       }
     ],
+    profiles: {
+      "@w3c@w3c.social": {
+        name: "W3C Social Web WG", bio: "W3C Social Web Working Group 공식 계정. ActivityPub 및 관련 명세의 표준화를 다룹니다.",
+        fields: [{ name: "Website", value: "https://www.w3.org/groups/wg/socialweb", verified: true }, { name: "Charter", value: "2026–2028 초안 검토 중" }],
+        followers: 18240, following: 12, statuses: 941, joined: "2023년 2월", bot: false,
+        featuredTags: ["ActivityPub", "W3C"], pinned: ["p0-1"],
+        rel: { following: true, notify: true, showReblogs: true, muted: false, blocked: false, note: "표준 문서 원문 출처", lists: ["standards"] }
+      },
+      "@mina@hachyderm.example": {
+        name: "Mina", bio: "연합우주 도구를 만드는 개발자. 지식 관리, SQLite, 접근성(대체 텍스트)에 관심이 많습니다.",
+        fields: [{ name: "Blog", value: "https://mina.example.dev", verified: true }, { name: "Pronouns", value: "공개 안 함" }],
+        followers: 1203, following: 388, statuses: 5520, joined: "2022년 11월", bot: false,
+        featuredTags: ["SQLite", "a11y"], pinned: [],
+        rel: { following: true, notify: false, showReblogs: true, muted: false, blocked: false, note: "", lists: ["neighbors"] }
+      },
+      "@evan@cosocial.example": {
+        name: "Evan", bio: "Fediverse 명세 리뷰어. FEP 토론에 자주 등장합니다.",
+        fields: [{ name: "FEP", value: "https://codeberg.org/fediverse/fep" }],
+        followers: 3410, following: 902, statuses: 12880, joined: "2017년 4월", bot: false,
+        featuredTags: ["FEP044f"], pinned: [],
+        rel: { following: true, notify: false, showReblogs: false, muted: false, blocked: false, note: "", lists: [] }
+      },
+      "@promo@promo.example": {
+        name: "Airdrop Bot", bio: "프로모션 자동 게시 계정", fields: [], followers: 12, following: 4810, statuses: 22041, joined: "이번 주", bot: true,
+        featuredTags: [], pinned: [], rel: { following: false, notify: false, showReblogs: true, muted: false, blocked: false, note: "", lists: [] }
+      }
+    },
     existingEntities: [
       { name: "SQLite", type: "Tool", count: 19 },
       { name: "ActivityPub", type: "Concept", count: 12 },
@@ -264,16 +536,29 @@ window.CLAIRE_SYND_SEEDS = {
     defaultFocus: "시스템 아키텍처 및 추론 메모리 대역폭 최적화 중심",
     accounts: [
       {
-        id: "acc1-ap", proto: "ap", software: "Mastodon", serverVersion: "5.0.0", server: "fedi.ai.example.com",
+        id: "acc1-ap", proto: "ap", software: "Mastodon API 호환 서버", server: "fedi.ai.example.com",
         handle: "@ai@fedi.ai.example.com", displayName: "Claire · AI Systems 🤖",
-        auth: "OAuth 2.0 (Authorization Code + PKCE)", scopes: ["read", "write:statuses", "write:favourites", "write:follows"],
-        canPublish: true, status: "ok", statusNote: "스트리밍 연결됨 (user)", charLimit: 500,
+        auth: "OAuth 2.0 (Authorization Code + PKCE)", scopes: ["read", "write:statuses", "write:media", "write:favourites", "write:bookmarks", "write:follows", "write:lists", "write:mutes", "write:blocks", "write:filters", "write:reports", "write:notifications", "write:conversations", "write:accounts"],
+        canPublish: true, status: "warn", statusNote: "Mastodon 5.0 기준 기능 중 일부를 서버가 제공하지 않음 — 해당 기능 비활성", charLimit: 500,
+        missingFeatures: ["trends", "quote", "translate", "notifRequests", "scheduled"],
         timelines: [
-          { id: "home", icon: "🏠", label: "홈 타임라인", api: "GET /api/v1/timelines/home", collectable: true },
-          { id: "notifications", icon: "🔔", label: "알림", api: "GET /api/v1/notifications" },
-          { id: "tag:KVCache", icon: "#", label: "#KVCache", api: "GET /api/v1/timelines/tag/KVCache", collectable: true },
-          { id: "list:ml-researchers", icon: "📋", label: "리스트 · ML 시스템 연구자", api: "GET /api/v1/timelines/list/3", collectable: true }
-        ]
+          { id: "home", icon: "🏠", label: "홈", api: "GET /api/v1/timelines/home", stream: "user", collectable: true },
+          { id: "notifications", icon: "🔔", label: "알림", api: "GET /api/v2/notifications", stream: "user:notification", kind: "notifications" },
+          { id: "conversations", icon: "✉️", label: "개인 메시지", api: "GET /api/v1/conversations", stream: "direct" },
+          { id: "explore", icon: "🧭", label: "탐색", api: "GET /api/v1/trends/statuses · /trends/tags · /trends/links", kind: "explore", feature: "trends" },
+          { id: "local", icon: "🏘️", label: "로컬", api: "GET /api/v1/timelines/public?local=true", stream: "public:local" },
+          { id: "federated", icon: "🌐", label: "연합", api: "GET /api/v1/timelines/public", stream: "public" },
+          { id: "tag:KVCache", icon: "#", label: "#KVCache", api: "GET /api/v1/timelines/tag/KVCache", stream: "hashtag", collectable: true },
+          { id: "list:ml-researchers", icon: "📋", label: "리스트 · ML 시스템 연구자", api: "GET /api/v1/timelines/list/3", stream: "list", collectable: true },
+          { id: "favourites", icon: "★", label: "좋아요", api: "GET /api/v1/favourites", kind: "favourites" },
+          { id: "bookmarks", icon: "🔖", label: "북마크", api: "GET /api/v1/bookmarks", kind: "bookmarks" },
+          { id: "scheduled", icon: "🗓️", label: "예약 게시물", api: "GET /api/v1/scheduled_statuses", kind: "scheduled", feature: "scheduled" },
+          { id: "manage", icon: "🛡️", label: "필터 · 뮤트 · 차단", api: "GET /api/v2/filters · /api/v1/mutes · /api/v1/blocks · /api/v1/domain_blocks", kind: "manage" }
+        ],
+        lists: [{ id: "ml-researchers", title: "ML 시스템 연구자" }],
+        filters: [], mutes: [], blocks: [], domainBlocks: [], followedTags: ["KVCache"], notifRequests: [],
+        notifPolicy: { forNotFollowing: "accept", forNotFollowers: "accept", forNewAccounts: "accept", forPrivateMentions: "accept", forLimitedAccounts: "filter" },
+        trends: { statuses: [], tags: [], links: [] }
       },
       {
         id: "acc1-at", proto: "at", software: "자체 호스팅 PDS", server: "pds.ai.example.com",
@@ -394,13 +679,24 @@ window.CLAIRE_SYND_SEEDS = {
       {
         id: "acc2-ap", proto: "ap", software: "Mastodon", serverVersion: "5.0.0", server: "scholar.example",
         handle: "@classics@scholar.example", displayName: "Claire · 고전 연구 📜",
-        auth: "OAuth 2.0 (Authorization Code + PKCE)", scopes: ["read", "write:statuses", "write:favourites"],
+        auth: "OAuth 2.0 (Authorization Code + PKCE)", scopes: ["read", "write:statuses", "write:media", "write:favourites", "write:bookmarks", "write:follows", "write:lists", "write:mutes", "write:blocks", "write:filters", "write:reports", "write:notifications", "write:conversations", "write:accounts"],
         canPublish: true, status: "ok", statusNote: "스트리밍 연결됨 (user)", charLimit: 500,
         timelines: [
-          { id: "home", icon: "🏠", label: "홈 타임라인", api: "GET /api/v1/timelines/home", collectable: true },
-          { id: "notifications", icon: "🔔", label: "알림", api: "GET /api/v1/notifications" },
-          { id: "tag:Septuagint", icon: "#", label: "#Septuagint", api: "GET /api/v1/timelines/tag/Septuagint", collectable: true }
-        ]
+          { id: "home", icon: "🏠", label: "홈", api: "GET /api/v1/timelines/home", stream: "user", collectable: true },
+          { id: "notifications", icon: "🔔", label: "알림", api: "GET /api/v2/notifications", stream: "user:notification", kind: "notifications" },
+          { id: "conversations", icon: "✉️", label: "개인 메시지", api: "GET /api/v1/conversations", stream: "direct" },
+          { id: "explore", icon: "🧭", label: "탐색", api: "GET /api/v1/trends/statuses · /trends/tags · /trends/links", kind: "explore", feature: "trends" },
+          { id: "local", icon: "🏘️", label: "로컬", api: "GET /api/v1/timelines/public?local=true", stream: "public:local" },
+          { id: "federated", icon: "🌐", label: "연합", api: "GET /api/v1/timelines/public", stream: "public" },
+          { id: "tag:Septuagint", icon: "#", label: "#Septuagint", api: "GET /api/v1/timelines/tag/Septuagint", stream: "hashtag", collectable: true },
+          { id: "favourites", icon: "★", label: "좋아요", api: "GET /api/v1/favourites", kind: "favourites" },
+          { id: "bookmarks", icon: "🔖", label: "북마크", api: "GET /api/v1/bookmarks", kind: "bookmarks" },
+          { id: "scheduled", icon: "🗓️", label: "예약 게시물", api: "GET /api/v1/scheduled_statuses", kind: "scheduled", feature: "scheduled" },
+          { id: "manage", icon: "🛡️", label: "필터 · 뮤트 · 차단", api: "GET /api/v2/filters · /api/v1/mutes · /api/v1/blocks · /api/v1/domain_blocks", kind: "manage" }
+        ],
+        lists: [], filters: [], mutes: [], blocks: [], domainBlocks: [], followedTags: ["Septuagint"], notifRequests: [],
+        notifPolicy: { forNotFollowing: "accept", forNotFollowers: "accept", forNewAccounts: "accept", forPrivateMentions: "filter", forLimitedAccounts: "filter" },
+        trends: { statuses: ["p2-1"], tags: [{ name: "Septuagint", history: [2, 3, 9], accounts: 12 }, { name: "P46", history: [0, 1, 6], accounts: 7 }], links: [] }
       }
     ],
     posts: [
@@ -440,9 +736,19 @@ window.CLAIRE_SYND_SEEDS = {
         auth: "OAuth 2.0 (Authorization Code + PKCE)", scopes: ["read"],
         canPublish: false, status: "ok", statusNote: "읽기 전용 scope — 발행 불가", charLimit: 500,
         timelines: [
-          { id: "home", icon: "🏠", label: "홈 타임라인", api: "GET /api/v1/timelines/home", collectable: true },
-          { id: "tag:CVE", icon: "#", label: "#CVE", api: "GET /api/v1/timelines/tag/CVE", collectable: true }
-        ]
+          { id: "home", icon: "🏠", label: "홈", api: "GET /api/v1/timelines/home", stream: "user", collectable: true },
+          { id: "notifications", icon: "🔔", label: "알림", api: "GET /api/v2/notifications", stream: "user:notification", kind: "notifications" },
+          { id: "explore", icon: "🧭", label: "탐색", api: "GET /api/v1/trends/statuses · /trends/tags · /trends/links", kind: "explore", feature: "trends" },
+          { id: "local", icon: "🏘️", label: "로컬", api: "GET /api/v1/timelines/public?local=true", stream: "public:local" },
+          { id: "federated", icon: "🌐", label: "연합", api: "GET /api/v1/timelines/public", stream: "public" },
+          { id: "tag:CVE", icon: "#", label: "#CVE", api: "GET /api/v1/timelines/tag/CVE", stream: "hashtag", collectable: true },
+          { id: "favourites", icon: "★", label: "좋아요", api: "GET /api/v1/favourites", kind: "favourites" },
+          { id: "bookmarks", icon: "🔖", label: "북마크", api: "GET /api/v1/bookmarks", kind: "bookmarks" },
+          { id: "manage", icon: "🛡️", label: "필터 · 뮤트 · 차단", api: "GET /api/v2/filters · /api/v1/mutes · /api/v1/blocks · /api/v1/domain_blocks", kind: "manage" }
+        ],
+        lists: [], filters: [], mutes: [], blocks: [], domainBlocks: [], followedTags: ["CVE"], notifRequests: [],
+        notifPolicy: { forNotFollowing: "accept", forNotFollowers: "accept", forNewAccounts: "accept", forPrivateMentions: "accept", forLimitedAccounts: "filter" },
+        trends: { statuses: ["p3-1"], tags: [{ name: "CVE", history: [40, 52, 77], accounts: 140 }, { name: "LinuxKernel", history: [6, 9, 31], accounts: 48 }], links: [{ title: "oss-security: CVE-2026-39102", description: "Linux eBPF verifier scalar bounds tracking LPE.", url: "https://www.openwall.com/lists/oss-security/2026/10/28/1", provider: "openwall.com", author: "", shares: 210 }] }
       }
     ],
     posts: [

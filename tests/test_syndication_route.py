@@ -90,10 +90,29 @@ def test_syndication_and_preferences_routes_io_interface(syndication_env) -> Non
         assert "com.atproto.repo.createRecord" in res_public.text
         assert 'id="modal-connect"' in res_public.text
 
-        # ActivityPub client support baseline is Mastodon 5.0+, checked against /api/v2/instance.
-        assert 'minVersion: "5.0.0"' in res_public.text
-        assert "checkMastodonBaseline" in res_public.text
-        assert "GoToSocial 0.19" not in res_public.text
+        # ActivityPub client features follow the Mastodon 5.0+ client feature set; servers are never
+        # refused, and features a server lacks are disabled through capability flags.
+        assert "CLAIRE_SYND_AP_FEATURES" in res_public.text
+        assert "accountSupports" in res_public.text
+        assert "checkMastodonBaseline" not in res_public.text
+        assert 'missingFeatures: ["trends", "quote", "translate", "notifRequests", "scheduled"]' in res_public.text
+        for endpoint in (
+            "/api/v2/notifications",
+            "/api/v1/notifications/requests",
+            "/api/v1/polls/",
+            "/api/v1/trends/",
+            "/api/v2/search",
+            "/api/v1/reports",
+            "/api/v2/filters",
+            "/api/v1/scheduled_statuses",
+            "/api/v1/conversations",
+            "quote_approval_policy",
+            "scheduled_at",
+            "spoiler_text",
+        ):
+            assert endpoint in res_public.text, endpoint
+        assert 'id="pop-post-actions"' in res_public.text
+        assert 'id="modal-report"' in res_public.text
 
         res_head = client.head("/syndication")
         assert res_head.status_code == 200
@@ -105,7 +124,8 @@ def test_syndication_and_preferences_routes_io_interface(syndication_env) -> Non
         assert '<option value="list">목록 — 한 줄 행</option>' in res_prefs.text
         assert '<option value="card">일반 — 요약 2줄 미리보기</option>' in res_prefs.text
         assert "(리스트)" not in res_prefs.text
-        assert "Mastodon 5.0 이상" in res_prefs.text
+        assert "ActivityPub 클라이언트 기능 기준: Mastodon 5.0 이상" in res_prefs.text
+        assert "Mastodon 5.0 기준 클라이언트 기능" in res_prefs.text
         assert 'id="pref-list-style"' in res_prefs.text
         assert 'id="pref-layout-mode"' in res_prefs.text
         assert 'id="pref-app-tab"' in res_prefs.text
