@@ -91,13 +91,15 @@ def _build_standalone_syndication_html() -> str:
     theme_css = (_STATIC_DIR / "css" / "theme.css").read_text(encoding="utf-8")
     synd_css = (_STATIC_DIR / "css" / "syndication.css").read_text(encoding="utf-8")
     synd_data_js = (_STATIC_DIR / "js" / "syndication_data.js").read_text(encoding="utf-8")
+    synd_client_js = (_STATIC_DIR / "js" / "syndication_client.js").read_text(encoding="utf-8")
     synd_app_js = (_STATIC_DIR / "js" / "syndication_app.js").read_text(encoding="utf-8")
     syndication_tmpl = (_TEMPLATES_DIR / "syndication.html").read_text(encoding="utf-8")
     css_bundle = f"<style>\n{theme_css}\n{synd_css}\n</style>"
     html = re.sub(r'<link rel="stylesheet" href="/static/css/[^>]+>\s*', "", syndication_tmpl)
     html = html.replace("</head>", f"{css_bundle}\n</head>", 1)
     html = re.sub(r'<script src="/static/js/syndication_[^"]+"></script>\s*', "", html)
-    js_bundle = f"<script>\n{synd_data_js}\n{synd_app_js}\n</script>"
+    # Order matters: seed data, then the client-tab factory, then the shell controller that instantiates it.
+    js_bundle = f"<script>\n{synd_data_js}\n{synd_client_js}\n{synd_app_js}\n</script>"
     html = html.replace("</body>", f"{js_bundle}\n</body>", 1)
     return html
 

@@ -62,7 +62,10 @@ def test_syndication_e2e_workflow(syndication_e2e_env) -> None:
         assert r_pub.status_code == 200
         assert "Claire Bible — Syndication" in r_pub.text
         assert 'data-layout="three-panel"' in r_pub.text
-        assert 'data-list-style="flat"' in r_pub.text
+        assert 'data-list-style="list"' in r_pub.text
+        assert 'data-app-tab="client"' in r_pub.text
+        assert 'id="tab-client"' in r_pub.text
+        assert 'id="tab-kb"' in r_pub.text
         assert 'id="btn-toggle-list-style"' in r_pub.text
         assert 'id="btn-toggle-layout"' in r_pub.text
         assert "수집 원문" in r_pub.text
@@ -75,6 +78,7 @@ def test_syndication_e2e_workflow(syndication_e2e_env) -> None:
         assert r_prefs.status_code == 200
         assert "Syndication 상세 환경설정" in r_prefs.text
         assert "온톨로지 엔티티" in r_prefs.text
+        assert "연결 서버 계정" in r_prefs.text
         assert 'href="/syndication"' in r_prefs.text
 
         r_robots = client.get("/robots.txt")

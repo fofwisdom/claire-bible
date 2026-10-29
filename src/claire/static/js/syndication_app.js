@@ -1,19 +1,43 @@
-/* Claire Bible — TT-RSS Clean-Room Syndication Reader & FlatList Controller */
+/* Claire Bible — TT-RSS Clean-Room Syndication Shell (App Tabs) & Knowledge-Base Controller */
 (function () {
   const ST = window.CLAIRE_SYND_STORAGE;
   const THEMES = JSON.parse(JSON.stringify(window.CLAIRE_SYND_SEEDS || {}));
+  const ACCOUNT_TEMPLATES = window.CLAIRE_SYND_ACCOUNT_TEMPLATES || {};
   const cfg = window.__CLAIRE_CONFIG || {};
+
+  /* 목록 스타일 표시 문자열 (i18n). 값 키 list/compact/card/roomy 는 영문 명칭과 같다. */
+  const LIST_STYLE_META = {
+    list: { icon: "☰", label: { ko: "목록", en: "List" }, desc: { ko: "한 줄 행", en: "Single-line rows" } },
+    compact: { icon: "≡", label: { ko: "조밀하게", en: "Compact" }, desc: { ko: "요약 표시 안 함", en: "No summary" } },
+    card: { icon: "▤", label: { ko: "일반", en: "Card" }, desc: { ko: "요약 2줄 미리보기", en: "Two-line summary" } },
+    roomy: { icon: "▭", label: { ko: "넓게", en: "Roomy" }, desc: { ko: "요약 전체 표시", en: "Full summary" } }
+  };
+  const UI_LANG = String(document.documentElement.lang || "ko").toLowerCase().startsWith("en") ? "en" : "ko";
+  function i18n(entry) { return entry[UI_LANG] || entry.ko; }
+
+  function normalizeListStyle(v) {
+    const mapped = (ST.LEGACY_LIST_STYLES || {})[v] || v;
+    return ST.LIST_STYLES.includes(mapped) ? mapped : ST.DEFAULT_PREFS.listStyle;
+  }
+
+  function normalizePrefs(p) {
+    p.listStyle = normalizeListStyle(p.listStyle);
+    p.appTab = p.appTab === "kb" ? "kb" : "client";
+    /* 직접 연합(Announce) 시절의 값은 연결 계정 부스트(reblog/repost)로 이관한다. */
+    if (p.outboundPolicy.apDefaultMode === "announce") p.outboundPolicy.apDefaultMode = "boost";
+    return p;
+  }
 
   function loadPrefs() {
     try {
       const p = JSON.parse(localStorage.getItem(ST.PREFS_KEY) || "null");
       if (!p) return JSON.parse(JSON.stringify(ST.DEFAULT_PREFS));
-      return {
+      return normalizePrefs({
         ...ST.DEFAULT_PREFS,
         ...p,
         tagPolicy: { ...ST.DEFAULT_PREFS.tagPolicy, ...(p.tagPolicy || {}) },
         outboundPolicy: { ...ST.DEFAULT_PREFS.outboundPolicy, ...(p.outboundPolicy || {}) }
-      };
+      });
     } catch (_) {
       return JSON.parse(JSON.stringify(ST.DEFAULT_PREFS));
     }
@@ -47,7 +71,16 @@
         clone.dbPath = srv.db_path || (srv.id === 0 ? "data/claire.db" : `data/themes/${srv.seq || srv.id}/claire.db`);
         clone.isPublic = srv.is_public !== false;
         clone.defaultFocus = srv.default_focus || "";
-        clone.actorHandle = clone.isPublic ? `@theme${srv.id}@${srv.fqdn || "claire.example.com"}` : "(비공개 테마 — 외부 발행 차단)";
+        /* 서버 설정에만 존재하는 테마는 기본 테마의 연결 계정 구성을 복제하되, 계정 식별자와 핸들을 테마별로 분리한다. */
+        clone.accounts.forEach((acc) => {
+          const oldId = acc.id;
+          acc.id = `${oldId}-t${srv.id}`;
+          acc.handle = acc.proto === "ap" ? `@theme${srv.id}@${acc.server}` : `@theme${srv.id}.${acc.server}`;
+          if (!clone.isPublic) { acc.canPublish = false; acc.scopes = acc.proto === "ap" ? ["read"] : acc.scopes; acc.statusNote = "비공개 테마 — 읽기 전용"; }
+          clone.posts.forEach((p) => { if (p.accountId === oldId) p.accountId = acc.id; });
+          clone.feeds.forEach((f) => { if (f.via === oldId) f.via = acc.id; });
+          clone.items.forEach((it) => { if (it.viaAccount === oldId) it.viaAccount = acc.id; });
+        });
         THEMES[k] = clone;
       } else {
         if (srv.label) THEMES[k].label = srv.label;
@@ -65,16 +98,23 @@
         if (!THEMES[k].feeds.some((f) => f.id === ef.id)) THEMES[k].feeds.push(ef);
       });
     }
+    if (Array.isArray(cs.extraAccounts)) {
+      cs.extraAccounts.forEach((ea) => {
+        if (!THEMES[k].accounts.some((a) => a.id === ea.id)) THEMES[k].accounts.push(ea);
+      });
+    }
   });
 
   const urlParams = new URLSearchParams(window.location.search);
   const reqTheme = urlParams.get("theme");
   const initThemeKey = (reqTheme && THEMES[reqTheme]) ? reqTheme : (THEMES[String(cfg.activeThemeId)] ? String(cfg.activeThemeId) : "0");
+  const reqTab = urlParams.get("tab");
 
   const state = {
     themeId: initThemeKey,
+    appTab: reqTab === "kb" || reqTab === "client" ? reqTab : prefs.appTab,
     layoutMode: prefs.layoutMode === "two-panel" ? "two-panel" : "three-panel",
-    listStyle: prefs.listStyle === "cards" ? "cards" : "flat",
+    listStyle: prefs.listStyle,
     treeSel: { kind: "virtual", value: "all", label: "전체 아티클 (All articles)" },
     adaptiveFilter: "all",
     protoFilter: "all",
@@ -88,11 +128,145 @@
     liveSynced: false
   };
 
+  /* 연합 클라이언트 탭 컨트롤러 (초기화 마지막 단계에서 CLAIRE_SYND_CLIENT_FACTORY 로 생성) */
+  let client = null;
+
+  /* AP/AT 수집 대상은 연결 계정의 서버 API 를 경유해 수집한다. */
+  const SOURCE_KINDS = {
+    ap: [
+      { id: "account", label: "계정 게시물", api: "GET /api/v1/accounts/:id/statuses" },
+      { id: "hashtag", label: "해시태그", api: "GET /api/v1/timelines/tag/:hashtag" },
+      { id: "list", label: "리스트", api: "GET /api/v1/timelines/list/:list_id" }
+    ],
+    at: [
+      { id: "author", label: "작성자 피드", api: "app.bsky.feed.getAuthorFeed" },
+      { id: "feed", label: "커스텀 피드", api: "app.bsky.feed.getFeed" },
+      { id: "list", label: "리스트", api: "app.bsky.feed.getListFeed" },
+      { id: "tag", label: "태그 검색", api: "app.bsky.feed.searchPosts?tag=" }
+    ]
+  };
+
   function curTheme() { return THEMES[state.themeId] || THEMES["0"]; }
   function esc(s) { return String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }
   function ticker(msg) {
     const el = document.getElementById("activity-ticker");
     if (el) el.textContent = `${new Date().toLocaleTimeString("ko-KR", { hour12: false })} · ${msg}`;
+  }
+
+  /* ── 연결 서버 계정 (ActivityPub = Mastodon 5.0+ Client API, AT = PDS XRPC) ── */
+  function themeAccounts(theme) { return (theme || curTheme()).accounts || []; }
+  function findAccount(id, theme) { return themeAccounts(theme).find((a) => a.id === id) || null; }
+  function publishAccounts(theme) { return themeAccounts(theme).filter((a) => a.canPublish); }
+  function protoDot(proto) { return proto === "ap" ? "🟣" : (proto === "at" ? "🔵" : "🟠"); }
+  function accountsSummary(theme) {
+    const accs = themeAccounts(theme);
+    if (!accs.length) return "연결 계정 없음";
+    return accs.map((a) => `${protoDot(a.proto)} ${a.handle}${a.canPublish ? "" : " (읽기 전용)"}`).join(" · ");
+  }
+  function apBase(acc) { return `https://${acc.server}`; }
+
+  /*
+   * ActivityPub 지원 기준: Mastodon 5.0 이상.
+   * GET /api/v2/instance 의 version 을 검사한다. "(compatible; …)" 로 호환만 표기하는 서버와 5.0 미만은 거부하고,
+   * 5.0.0+glitch 같은 Mastodon 포크 접미사는 허용한다.
+   */
+  function checkMastodonBaseline(version) {
+    const min = String((ACCOUNT_TEMPLATES.ap && ACCOUNT_TEMPLATES.ap.minVersion) || "5.0.0").split(".").map(Number);
+    const raw = String(version || "").trim();
+    if (/\(compatible;/i.test(raw)) return { ok: false, reason: `Mastodon API 호환만 표기한 서버 (${raw}) — 지원 기준은 Mastodon ${min.join(".")} 이상` };
+    const m = raw.match(/^(\d+)\.(\d+)\.(\d+)/);
+    if (!m) return { ok: false, reason: `서버 버전을 해석할 수 없음 (${raw || "없음"})` };
+    const v = m.slice(1).map(Number);
+    for (let i = 0; i < 3; i += 1) {
+      if (v[i] > min[i]) break;
+      if (v[i] < min[i]) return { ok: false, reason: `서버 버전 ${m[0]} — Mastodon ${min.join(".")} 이상이 필요합니다` };
+    }
+    return { ok: true, version: m[0] };
+  }
+  function atXrpc(acc, nsid) { return `https://${acc.server}/xrpc/${nsid}`; }
+
+  function graphemeLength(text) {
+    try {
+      if (typeof Intl !== "undefined" && Intl.Segmenter) return [...new Intl.Segmenter("ko", { granularity: "grapheme" }).segment(text)].length;
+    } catch (_) {}
+    return [...text].length;
+  }
+
+  function truncateGraphemes(text, limit) {
+    if (graphemeLength(text) <= limit) return text;
+    let segs = [...text];
+    try {
+      if (typeof Intl !== "undefined" && Intl.Segmenter) segs = [...new Intl.Segmenter("ko", { granularity: "grapheme" }).segment(text)].map((s) => s.segment);
+    } catch (_) {}
+    return `${segs.slice(0, Math.max(0, limit - 1)).join("")}…`;
+  }
+
+  /* AT richtext facet 은 UTF-8 바이트 오프셋 기준이므로 한국어 태그도 TextEncoder 로 계산한다. */
+  function buildTagFacets(text, tags) {
+    const enc = new TextEncoder();
+    const facets = [];
+    (tags || []).forEach((tag) => {
+      const token = `#${tag}`;
+      const idx = text.indexOf(token);
+      if (idx < 0) return;
+      const byteStart = enc.encode(text.slice(0, idx)).length;
+      facets.push({ index: { byteStart, byteEnd: byteStart + enc.encode(token).length }, features: [{ $type: "app.bsky.richtext.facet#tag", tag }] });
+    });
+    return facets;
+  }
+
+  function hashtagToken(name) { return `#${String(name).replace(/[\s\-()]+/g, "")}`; }
+
+  /*
+   * 연결 계정의 서버 API 요청을 결정론적으로 구성한다 (Claire 서버가 프록시하며 토큰은 브라우저에 노출되지 않는다).
+   * target: { proto, remoteId, uri, cid, url, title, description }
+   */
+  function buildServerRequest(acc, op) {
+    const nowIso = new Date().toISOString();
+    if (acc.proto === "ap") {
+      if (op.kind === "boost" || op.kind === "favourite" || op.kind === "bookmark") {
+        const verb = { boost: "reblog", favourite: "favourite", bookmark: "bookmark" }[op.kind];
+        const id = op.target.remoteId || "{id}";
+        const req = { method: "POST", url: `${apBase(acc)}/api/v1/statuses/${id}/${op.undo ? "un" : ""}${verb}` };
+        if (!op.target.remoteId) req.note = `선행 조회: GET ${apBase(acc)}/api/v2/search?q=${encodeURIComponent(op.target.uri || op.target.url)}&resolve=true&type=statuses → {id}`;
+        return req;
+      }
+      let status = op.text || "";
+      const body = { status, visibility: op.visibility || "public", language: "ko" };
+      if (op.cw) body.spoiler_text = op.cw;
+      if (op.replyTo && op.replyTo.proto === "ap") body.in_reply_to_id = op.replyTo.remoteId || "{id}";
+      if (op.quote) {
+        if (op.quote.proto === "ap" && op.quote.remoteId) {
+          body.quoted_status_id = op.quote.remoteId;
+        } else if (op.quote.url && !status.includes(op.quote.url)) {
+          body.status = `${status}\n${op.quote.url}`.trim();
+        }
+      }
+      return { method: "POST", url: `${apBase(acc)}/api/v1/statuses`, headers: { "Idempotency-Key": `claire-${Date.now().toString(36)}` }, body };
+    }
+
+    const url = atXrpc(acc, op.undo ? "com.atproto.repo.deleteRecord" : "com.atproto.repo.createRecord");
+    if (op.kind === "boost" || op.kind === "favourite") {
+      const collection = op.kind === "boost" ? "app.bsky.feed.repost" : "app.bsky.feed.like";
+      if (op.undo) return { method: "POST", url, body: { repo: acc.did, collection, rkey: "{rkey}" } };
+      return { method: "POST", url, body: { repo: acc.did, collection, record: { $type: collection, subject: { uri: op.target.uri, cid: op.target.cid || "{cid}" }, createdAt: nowIso } } };
+    }
+    if (op.kind === "bookmark") return null;
+    const text = truncateGraphemes(op.text || "", acc.charLimit || 300);
+    const record = { $type: "app.bsky.feed.post", text, langs: ["ko"], createdAt: nowIso };
+    const facets = buildTagFacets(text, op.tags);
+    if (facets.length) record.facets = facets;
+    if (op.replyTo && op.replyTo.proto === "at") {
+      const root = op.replyRoot || op.replyTo;
+      record.reply = { root: { uri: root.uri, cid: root.cid || "{cid}" }, parent: { uri: op.replyTo.uri, cid: op.replyTo.cid || "{cid}" } };
+    }
+    if (op.quote && op.quote.proto === "at" && op.quote.uri) {
+      record.embed = { $type: "app.bsky.embed.record", record: { uri: op.quote.uri, cid: op.quote.cid || "{cid}" } };
+    } else if (op.quote || op.external) {
+      const ext = op.external || op.quote;
+      record.embed = { $type: "app.bsky.embed.external", external: { uri: ext.url, title: ext.title || "", description: ext.description || "" } };
+    }
+    return { method: "POST", url, body: { repo: acc.did, collection: "app.bsky.feed.post", record } };
   }
 
   function noiseTagSet() {
@@ -174,16 +348,36 @@
     return list.sort((a, b) => state.sortBy === "oldest" ? a.timestamp - b.timestamp : (state.sortBy === "score" ? b.score - a.score : b.timestamp - a.timestamp));
   }
 
+  function listStyleLabel(style) {
+    const m = LIST_STYLE_META[style] || LIST_STYLE_META.list;
+    return `${m.icon} ${i18n(m.label)}`;
+  }
+
   function applyLayoutAttr() {
+    document.body.setAttribute("data-app-tab", state.appTab);
     document.body.setAttribute("data-layout", state.layoutMode);
     document.body.setAttribute("data-list-style", state.listStyle);
 
+    document.querySelectorAll('[role="tab"][data-app-tab-btn]').forEach((btn) => {
+      const on = btn.getAttribute("data-app-tab-btn") === state.appTab;
+      btn.setAttribute("aria-selected", on ? "true" : "false");
+      btn.tabIndex = on ? 0 : -1;
+    });
+    document.querySelectorAll("[data-app-panel]").forEach((panel) => {
+      panel.hidden = panel.getAttribute("data-app-panel") !== state.appTab;
+    });
+
     const listBtn = document.getElementById("btn-list-style-label");
-    if (listBtn) listBtn.textContent = state.listStyle === "flat" ? "☰ 한 줄 (FlatList)" : "▤ 상세 카드 (Cards)";
-    const menuFlat = document.getElementById("menu-style-flat-label");
-    if (menuFlat) menuFlat.textContent = `${state.listStyle === "flat" ? "✓ " : "　"}한 줄 플랫 (FlatList)`;
-    const menuCards = document.getElementById("menu-style-cards-label");
-    if (menuCards) menuCards.textContent = `${state.listStyle === "cards" ? "✓ " : "　"}상세 카드 (초기 프로토타입)`;
+    if (listBtn) listBtn.textContent = listStyleLabel(state.listStyle);
+    document.querySelectorAll("[data-set-list-style]").forEach((btn) => {
+      const style = btn.getAttribute("data-set-list-style");
+      const on = style === state.listStyle;
+      btn.setAttribute("aria-checked", on ? "true" : "false");
+      const lbl = btn.querySelector("[data-list-style-label]");
+      if (lbl) lbl.textContent = `${on ? "✓ " : "　"}${listStyleLabel(style)}`;
+      const desc = btn.querySelector("[data-list-style-desc]");
+      if (desc && LIST_STYLE_META[style]) desc.textContent = i18n(LIST_STYLE_META[style].desc);
+    });
 
     const layoutBtn = document.getElementById("btn-layout-label");
     if (layoutBtn) layoutBtn.textContent = state.layoutMode === "three-panel" ? "◫ 3단 분할" : "⬒ 2단 상하";
@@ -199,10 +393,32 @@
     if (topPrefLink) topPrefLink.href = href;
   }
 
+  function renderTabBar() {
+    const theme = curTheme();
+    const clientUnread = (theme.posts || []).filter((p) => p.unread).length;
+    const kbUnread = theme.items.filter((i) => i.unread).length;
+    const cEl = document.getElementById("tab-client-count");
+    if (cEl) { cEl.textContent = String(clientUnread); cEl.classList.toggle("fresh", clientUnread > 0); }
+    const kEl = document.getElementById("tab-kb-count");
+    if (kEl) { kEl.textContent = String(kbUnread); kEl.classList.toggle("fresh", kbUnread > 0); }
+
+    const accEl = document.getElementById("tabbar-accounts");
+    if (accEl) {
+      const accs = themeAccounts(theme);
+      accEl.innerHTML = accs.length
+        ? accs.map((a) => `<button type="button" class="tt-acct-chip status-${esc(a.status || "ok")}" data-goto-account="${esc(a.id)}" title="${esc(a.software)}${a.serverVersion ? ` ${esc(a.serverVersion)}` : ""} · ${esc(a.auth)} · scope: ${esc(a.scopes.join(" "))}${a.statusNote ? ` · ${esc(a.statusNote)}` : ""}"><span class="tt-acct-dot" aria-hidden="true"></span>${protoDot(a.proto)} ${esc(a.server)}${a.canPublish ? "" : " · 읽기 전용"}</button>`).join("")
+        : `<span class="tt-acct-none">연결된 서버 계정 없음</span>`;
+      accEl.querySelectorAll("[data-goto-account]").forEach((b) => b.addEventListener("click", () => {
+        if (client) client.openAccount(b.getAttribute("data-goto-account"));
+        setAppTab("client");
+      }));
+    }
+  }
+
   function renderTopBar() {
     const sel = document.getElementById("theme-selector");
     sel.innerHTML = Object.values(THEMES).map((t) => `<option value="${t.id}" ${String(t.id) === String(state.themeId) ? "selected" : ""}>${esc(t.icon)} ${esc(t.label)}</option>`).join("");
-    document.getElementById("active-stream-title").textContent = state.treeSel.label;
+    document.getElementById("active-stream-title").textContent = state.appTab === "client" && client ? client.title() : state.treeSel.label;
     const cntEl = document.getElementById("selected-count-label");
     cntEl.textContent = state.checkedIds.size > 0 ? `${state.checkedIds.size}개 아티클 선택됨` : "";
     document.getElementById("btn-adaptive-label").textContent = ({ all: "Adaptive (전체)", unread: "안읽음만", unlinked: "미적재만", linked: "🔗 적재 연동만" })[state.adaptiveFilter] || "Adaptive";
@@ -238,9 +454,11 @@
       const folderUnread = items.filter((it) => fList.some((f) => f.id === it.feedId) && it.unread).length;
       const children = fList.map((f) => {
         const cnt = items.filter((it) => it.feedId === f.id && it.unread).length;
-        const pIcon = f.proto === "ap" ? "🟣" : (f.proto === "at" ? "🔵" : "🟠");
+        const pIcon = protoDot(f.proto);
         const act = state.treeSel.kind === "feed" && state.treeSel.value === f.id ? "active" : "";
-        return `<button type="button" class="tt-tree-item ${act}" data-tree-kind="feed" data-tree-val="${esc(f.id)}" data-tree-lbl="${esc(f.title)}"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${pIcon} ${esc(f.title)}</span><span class="tt-count-pill ${cnt > 0 ? "fresh" : ""}">${cnt}</span></button>`;
+        const viaAcc = f.via ? findAccount(f.via, theme) : null;
+        const tip = viaAcc ? `${f.title} — 연결 계정 ${viaAcc.handle} 경유 · ${f.source || ""}` : `${f.title} — ${f.url}`;
+        return `<button type="button" class="tt-tree-item ${act}" data-tree-kind="feed" data-tree-val="${esc(f.id)}" data-tree-lbl="${esc(f.title)}" title="${esc(tip)}"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${pIcon} ${esc(f.title)}${viaAcc ? ` <small class="tt-via">via ${esc(viaAcc.server)}</small>` : ""}</span><span class="tt-count-pill ${cnt > 0 ? "fresh" : ""}">${cnt}</span></button>`;
       }).join("");
       return `<details class="tt-folder" open><summary><span><span class="tt-folder-marker"></span>📁 ${esc(folder)}</span><span class="tt-count-pill">${folderUnread}</span></summary><div class="tt-tree-children">${children}</div></details>`;
     }).join("");
@@ -264,7 +482,9 @@
     const activeTab = getActiveContentTab(item);
     const hasLinked = item.ingestState === "linked" && item.linkedDoc;
     const fontCls = prefs.readerFont === "serif" ? "font-serif" : "";
-    const pubLabel = item.publishState === "boosted" ? "🔁 부스트/인용 완료" : (item.publishState === "published_create" ? "📡 적재 발행 완료" : "🔁 부스트·인용 / 📡 적재 발행");
+    const viaAcc = item.viaAccount ? findAccount(item.viaAccount, theme) : null;
+    const clientPost = client ? client.findPostForKbItem(item) : null;
+    const pubLabel =item.publishState === "boosted" ? "🔁 부스트/인용 완료" : (item.publishState === "published_create" ? "📡 적재 발행 완료" : "🔁 부스트·인용 / 📡 적재 발행");
 
     let bodySection = "";
     if (activeTab === "original") {
@@ -328,8 +548,11 @@
           </div>
         </div>
         <div class="tt-art-meta">
-          <span><strong>${esc(feed.title)}</strong> · 작성자: ${esc(item.author)} · ${esc(item.timeAgo)} · 프로토콜: <code>${esc(item.format)}</code> · 연관도 <b>+${item.score}</b></span>
-          <a href="${esc(item.url)}" target="_blank" rel="noopener noreferrer" style="color:var(--accent);text-decoration:none;font-weight:600">원문 링크 열기 ↗</a>
+          <span><strong>${esc(feed.title)}</strong> · 작성자: ${esc(item.author)} · ${esc(item.timeAgo)} · 프로토콜: <code>${esc(item.format)}</code>${viaAcc ? ` · 경유 계정 <code>${esc(viaAcc.handle)}</code>` : ""} · 연관도 <b>+${item.score}</b></span>
+          <span style="display:inline-flex;gap:10px;align-items:center">
+            ${clientPost ? `<button type="button" class="tt-linklike" data-open-client-post="${esc(clientPost.id)}" title="연합 클라이언트 탭에서 원 게시물의 스레드·반응 보기">🌐 연합 클라이언트에서 스레드 보기</button>` : ""}
+            <a href="${esc(item.url)}" target="_blank" rel="noopener noreferrer" style="color:var(--accent);text-decoration:none;font-weight:600">원문 링크 열기 ↗</a>
+          </span>
         </div>
       </header>
 
@@ -342,9 +565,9 @@
           ${hasLinked ? `<span class="tt-link-dot linked">🔗 ${esc(item.linkedDoc.docId)} 적재 완료 (엔티티 생성됨)</span>` : `<button type="button" class="tt-btn tt-btn-pri" data-do-ingest="${esc(item.id)}">📥 프로젝트 적재 전달</button>`}
         </div>
         <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-          ${theme.isPublic
+          ${publishAccounts(theme).length
             ? `<button type="button" class="tt-btn tt-btn-ap" data-open-pub="${esc(item.id)}">${pubLabel}</button>`
-            : `<span style="font-size:11.5px;color:var(--muted)">🔒 비공개 테마 (외부 발행 차단)</span>`}
+            : `<span style="font-size:11.5px;color:var(--muted)">🔒 발행 권한이 있는 연결 계정 없음 (읽기 전용)</span>`}
         </div>
       </div>
 
@@ -371,8 +594,8 @@
           ? `<span class="tt-link-dot linked" title="프로젝트 DB 적재 완료 (엔티티 생성됨)">🔗 적재</span>`
           : `<span class="tt-link-dot unlinked" title="미적재 수집 원문 (적재 시 엔티티 생성)">○</span>`;
 
-        if (state.listStyle === "cards") {
-          // 초기 프로토타입 스타일 상세 카드 모드
+        if (state.listStyle !== "list") {
+          // 다단 카드 계열: 조밀하게(compact, 요약 없음) · 일반(card, 요약 2줄) · 넓게(roomy, 요약 전체)
           const pubBadge = it.publishState === "boosted"
             ? `<span class="tt-btn-ap" style="font-size:10.5px;padding:1px 6px;border-radius:4px" title="ActivityPub Announce 부스트됨">🔁 AP 부스트됨</span>`
             : (it.publishState === "published_create"
@@ -389,9 +612,20 @@
           const quickIngestBtn = it.ingestState === "unlinked"
             ? `<button type="button" data-quick-ingest="${esc(it.id)}" class="tt-btn tt-btn-pri" style="height:23px;padding:0 7px;font-size:11px" title="현재 테마 프로젝트 DB로 즉시 적재 전달">➕ 적재 전달</button>`
             : "";
-          const quickPublishBtn = theme.isPublic && it.publishState === "none"
-            ? `<button type="button" data-quick-publish="${esc(it.id)}" class="tt-btn" style="height:23px;padding:0 7px;font-size:11px">${it.proto === "ap" ? "🔁 부스트" : "📡 발행"}</button>`
+          const canBoostNative = publishAccounts(theme).some((a) => a.proto === it.proto);
+          const quickPublishBtn = publishAccounts(theme).length && it.publishState === "none"
+            ? `<button type="button" data-quick-publish="${esc(it.id)}" class="tt-btn" style="height:23px;padding:0 7px;font-size:11px">${canBoostNative ? "🔁 부스트" : "📡 발행"}</button>`
             : "";
+
+          let summaryHtml = "";
+          if (state.listStyle === "card") {
+            summaryHtml = `<p class="tt-card-snippet">${esc(it.rawBody)}</p>`;
+          } else if (state.listStyle === "roomy") {
+            summaryHtml = `<p class="tt-card-snippet is-full">${esc(it.rawBody)}</p>`;
+            if (it.ingestState === "linked" && it.linkedDoc && it.linkedDoc.summary) {
+              summaryHtml += `<p class="tt-card-claire-summary"><strong>📌 Claire 적재 요약</strong> ${esc(it.linkedDoc.summary)}</p>`;
+            }
+          }
 
           return `<article class="tt-card-row ${it.unread ? "is-unread" : ""} ${isSel ? "is-selected" : ""}" data-card-id="${esc(it.id)}">
             <div class="tt-card-topbar">
@@ -411,7 +645,7 @@
             </div>
 
             <h3 class="tt-card-title">${esc(it.title)}</h3>
-            <p class="tt-card-snippet">${esc(it.rawBody)}</p>
+            ${summaryHtml}
 
             <div class="tt-card-bottom">
               <div class="tt-card-tags">
@@ -425,7 +659,7 @@
             </div>
           </article>`;
         } else {
-          // TT-RSS FlatList 단일 행 (34px)
+          // 목록(list): TT-RSS FlatList 단일 행 (34px)
           const excerptHtml = prefs.showExcerpt ? `<span class="tt-flat-excerpt">— ${esc(it.rawBody)}</span>` : "";
           return `<div class="tt-row-wrap ${it.unread ? "is-unread" : ""} ${isSel ? "is-selected" : ""}" data-row-id="${esc(it.id)}">
             <div class="tt-flat-row" data-click-row="${esc(it.id)}">
@@ -455,7 +689,7 @@
     readerPane.innerHTML = selItem ? buildReaderHtml(selItem) : `<div style="padding:36px;color:var(--muted);font-size:13px">목록에서 읽을 아티클을 선택하세요.</div>`;
 
     const linkedTotal = theme.items.filter((x) => x.ingestState === "linked").length;
-    document.getElementById("footer-stats").textContent = `Theme #${theme.id} (${theme.dbPath}) · 총 ${theme.items.length}건 · 🔗 적재완료 ${linkedTotal}건 · 액터 ${theme.actorHandle}`;
+    document.getElementById("footer-stats").textContent = `Theme #${theme.id} (${theme.dbPath}) · 총 ${theme.items.length}건 · 🔗 적재완료 ${linkedTotal}건 · ${accountsSummary(theme)}`;
     bindStreamAndReaderEvents();
   }
 
@@ -600,6 +834,14 @@
         state.activeArticleMenuItemId = btn.getAttribute("data-art-menu-item");
       });
     });
+
+    document.querySelectorAll("#panel-kb [data-open-client-post]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        if (!client) return;
+        client.openPost(btn.getAttribute("data-open-client-post"));
+        setAppTab("client");
+      });
+    });
   }
 
   /* 엔티티는 적재(Ingest) 시에 생성되는 것이 핵심 불변식이다. */
@@ -656,116 +898,169 @@
     if (typeof onComplete === "function") onComplete();
   }
 
+  /*
+   * 발행은 Claire 자체 액터가 아니라 테마에 연결된 서버 계정(들)을 통해 수행한다.
+   * - 부스트: 항목과 같은 프로토콜의 계정에서만 가능 (AP reblog / AT repost)
+   * - 인용: 같은 프로토콜이면 네이티브 인용(quoted_status_id / embed.record), 아니면 원문 링크 인용
+   * - 적재 발행: Claire 적재 본문 요약 + 공개 공유 링크 + 엔티티 해시태그로 새 글 작성
+   */
   function openPublishModal(itemId) {
     const theme = curTheme();
     const item = theme.items.find((x) => x.id === itemId);
     if (!item) return;
-    if (!theme.isPublic) {
-      ticker("🔒 비공개 격리 테마의 항목은 외부 연합우주로 발행·부스트할 수 없습니다.");
+    const pubAccs = publishAccounts(theme);
+    if (!pubAccs.length) {
+      ticker("🔒 이 테마에는 발행 권한(write scope)이 있는 연결 계정이 없습니다 — 읽기 전용 계정으로는 외부 발행할 수 없습니다.");
       return;
     }
 
     const modal = document.getElementById("modal-publish");
     const box = document.getElementById("modal-publish-body");
-    const isAp = item.proto === "ap" && !!item.apObjectUri;
-    let mode = isAp ? (prefs.outboundPolicy.apDefaultMode || "announce") : (prefs.outboundPolicy.rssDefaultMode || "quote_boost");
-    if (!isAp && mode === "announce") mode = "quote_boost";
+    const nativeAcc = pubAccs.find((a) => a.proto === item.proto) || null;
+    const policy = prefs.outboundPolicy;
+    let mode = item.proto === "ap" ? policy.apDefaultMode : (item.proto === "at" ? policy.atDefaultMode : policy.rssDefaultMode);
+    if (mode === "announce") mode = "boost";
+    if (mode === "boost" && !nativeAcc) mode = "quote_boost";
+    const selected = new Set(nativeAcc ? [nativeAcc.id] : pubAccs.map((a) => a.id));
     let commentText = `핵심 인사이트 공유: ${item.title}`;
 
-    function buildPayload(curMode, comment) {
-      const isIngested = item.ingestState === "linked" && item.linkedDoc;
-      const tagTokens = isIngested
-        ? getLinkedDocEntities(item).map((e) => e.name)
-        : getItemSourceTags(item);
-      const apTags = prefs.tagPolicy.attachEntityHashtagsOnPublish
-        ? tagTokens.map((t) => ({ type: "Hashtag", name: `#${t.replace(/\s+/g, "")}` }))
-        : [];
-      const hashText = apTags.map((t) => t.name).join(" ");
-
-      if (curMode === "announce" && isAp) {
-        return {
-          "@context": "https://www.w3.org/ns/activitystreams",
-          type: "Announce",
-          actor: `https://${theme.fqdn || "claire.example.com"}/ap/actor`,
-          object: item.apObjectUri,
-          to: ["https://www.w3.org/ns/activitystreams#Public"]
-        };
-      }
-      if (curMode === "quote_boost") {
-        return {
-          "@context": ["https://www.w3.org/ns/activitystreams", { quoteUrl: "https://w3id.org/fep/044f#quoteUrl" }],
-          type: "Create",
-          actor: `https://${theme.fqdn || "claire.example.com"}/ap/actor`,
-          object: {
-            type: "Note",
-            content: `${comment ? comment + "\n\n" : ""}📌 ${item.title} — ${item.url} ${hashText}`.trim(),
-            quoteUrl: item.apObjectUri || item.url,
-            attachment: [{ type: "Link", href: item.url, name: item.title }],
-            tag: apTags
-          }
-        };
-      }
-      const doc = item.linkedDoc;
-      const shareSuffix = (doc && prefs.outboundPolicy.includeCanonicalShareLink) ? `\n🔗 Claire 지식 그래프 열람: ${window.location.origin}${doc.shareUrl}` : "";
+    function itemTarget() {
       return {
-        "@context": "https://www.w3.org/ns/activitystreams",
-        type: "Create",
-        actor: `https://${theme.fqdn || "claire.example.com"}/ap/actor`,
-        object: {
-          type: "Article",
-          name: item.title,
-          summary: doc ? doc.summary : item.rawBody,
-          content: `${doc ? doc.summary : item.rawBody}${shareSuffix}\n${hashText}`.trim(),
-          url: item.url,
-          tag: apTags
-        }
+        proto: item.proto,
+        remoteId: item.proto === "ap" ? item.remoteId : null,
+        uri: item.proto === "ap" ? item.apObjectUri : item.atUri,
+        cid: item.atCid,
+        url: item.url,
+        title: item.title,
+        description: item.rawBody
       };
+    }
+
+    function tagNames() {
+      if (!prefs.tagPolicy.attachEntityHashtagsOnPublish) return [];
+      const isIngested = item.ingestState === "linked" && item.linkedDoc;
+      const names = isIngested ? getLinkedDocEntities(item).map((e) => e.name) : getItemSourceTags(item);
+      return names.map((n) => hashtagToken(n).slice(1));
+    }
+
+    function requestsFor(curMode, comment) {
+      const tags = tagNames();
+      const hashText = tags.map((t) => `#${t}`).join(" ");
+      return pubAccs.filter((a) => selected.has(a.id)).map((acc) => {
+        let effMode = curMode;
+        let fallback = "";
+        if (curMode === "boost" && acc.proto !== item.proto) {
+          effMode = "quote_boost";
+          fallback = "교차 프로토콜 부스트 불가 → 원문 링크 인용으로 대체";
+        }
+        let req;
+        if (effMode === "boost") {
+          req = buildServerRequest(acc, { kind: "boost", target: itemTarget() });
+        } else if (effMode === "quote_boost") {
+          const tpl = String(policy.quoteTemplate || "📌 {{title}} — {{url}} {{hashtags}}");
+          const native = acc.proto === item.proto;
+          const quoteLine = tpl
+            .replace(/\{\{title\}\}/g, item.title)
+            .replace(/\{\{url\}\}/g, native ? "" : item.url)
+            .replace(/\{\{author\}\}/g, item.author || "")
+            .replace(/\{\{hashtags\}\}/g, hashText)
+            .replace(/\s+—\s+(?=\s|#|$)/, " ")
+            .trim();
+          const text = `${comment ? `${comment}\n\n` : ""}${quoteLine}`.trim();
+          req = buildServerRequest(acc, { kind: "post", text, tags, quote: itemTarget() });
+          if (native) fallback = acc.proto === "ap" ? "네이티브 인용 (quoted_status_id · 원 작성자가 인용을 허용하지 않으면 링크 인용으로 대체)" : "네이티브 인용 (app.bsky.embed.record)";
+        } else {
+          const doc = item.linkedDoc;
+          const summary = doc ? doc.summary : item.rawBody;
+          const shareUrl = doc && policy.includeCanonicalShareLink && String(doc.shareUrl || "").startsWith("/") ? `${window.location.origin}${doc.shareUrl}` : "";
+          const tail = `${shareUrl ? `\n🔗 ${shareUrl}` : ""}${hashText ? `\n${hashText}` : ""}`;
+          const budget = Math.max(40, (acc.charLimit || 500) - graphemeLength(tail) - (acc.proto === "at" ? 0 : 4));
+          const body = truncateGraphemes(`📡 ${item.title}\n${summary}`, budget);
+          req = buildServerRequest(acc, {
+            kind: "post",
+            text: acc.proto === "at" ? `${body}${hashText ? `\n${hashText}` : ""}` : `${body}${tail}`,
+            tags,
+            external: acc.proto === "at" && shareUrl ? { url: shareUrl, title: item.title, description: summary } : null
+          });
+        }
+        return { acc, req, note: fallback };
+      });
+    }
+
+    function previewHtml(reqs) {
+      return reqs.length ? reqs.map((r) => `<div class="tt-req">
+          <div class="tt-req-head">${protoDot(r.acc.proto)} <b>${esc(r.acc.handle)}</b>${r.note ? ` <span class="tt-req-note">${esc(r.note)}</span>` : ""}</div>
+          <pre>${esc(`${r.req.method} ${r.req.url}`)}${r.req.note ? `\n# ${esc(r.req.note)}` : ""}${r.req.body ? `\n${esc(JSON.stringify(r.req.body, null, 2))}` : ""}</pre>
+        </div>`).join("") : `<div class="tt-summary-callout" style="margin:0">발행할 계정을 하나 이상 선택하세요.</div>`;
     }
 
     function drawModal() {
       const hasLinked = item.ingestState === "linked" && !!item.linkedDoc;
-      const payload = buildPayload(mode, commentText);
+      const reqs = requestsFor(mode, commentText);
+      const accRows = pubAccs.map((a) => `<label class="tt-acc-pick ${selected.has(a.id) ? "on" : ""}">
+          <input type="checkbox" data-pub-acc="${esc(a.id)}" ${selected.has(a.id) ? "checked" : ""}/>
+          <span>${protoDot(a.proto)} <b>${esc(a.handle)}</b> <small>${esc(a.software)} · ${a.proto === "at" ? `${a.charLimit} graphemes` : `${a.charLimit}자`}</small></span>
+        </label>`).join("");
+      const readonlyAccs = themeAccounts(theme).filter((a) => !a.canPublish);
+
       box.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
         <div>
-          <h2 id="modal-publish-title" style="margin:0;font-size:16px;font-weight:700">외부 연합우주 발행 · 부스트 (${esc(item.format)})</h2>
-          <p style="margin:4px 0 0;font-size:12px;color:var(--muted)">발신 액터: <code>${esc(theme.actorHandle)}</code> · RSS/ATOM 및 AP/AT 모두 <b>부스트/인용 발행</b>과 <b>적재 발행</b>을 지원합니다.</p>
+          <h2 id="modal-publish-title" style="margin:0;font-size:16px;font-weight:700">연결 계정으로 발행 · 부스트 (${esc(item.format)})</h2>
+          <p style="margin:4px 0 0;font-size:12px;color:var(--muted)">Claire 는 연합 서버를 직접 운영하지 않습니다. 아래 연결 계정의 <b>서버 API</b>로 <b>부스트 / 인용 발행</b> 또는 <b>적재 발행</b>을 요청합니다.</p>
         </div>
         <button type="button" id="pub-close-x" class="tt-btn">✕</button>
       </div>
 
-      <div class="tt-seg" style="display:grid;grid-template-columns:${isAp ? "1fr 1fr 1fr" : "1fr 1fr"}">
-        ${isAp ? `<button type="button" class="tt-seg-btn ${mode === "announce" ? "active" : ""}" data-pub-mode="announce">🔁 순수 부스트 (Announce)</button>` : ""}
-        <button type="button" class="tt-seg-btn ${mode === "quote_boost" ? "active" : ""}" data-pub-mode="quote_boost">💬 부스트 / 인용 발행 (원문 공유)</button>
+      <fieldset class="tt-fieldset">
+        <legend>발행할 연결 계정 (교차 게시 가능)</legend>
+        <div class="tt-acc-pick-row">${accRows}</div>
+        ${readonlyAccs.length ? `<div style="font-size:11px;color:var(--muted)">읽기 전용 계정 제외: ${readonlyAccs.map((a) => esc(a.handle)).join(", ")}</div>` : ""}
+      </fieldset>
+
+      <div class="tt-seg" style="display:grid;grid-template-columns:1fr 1fr 1fr">
+        <button type="button" class="tt-seg-btn ${mode === "boost" ? "active" : ""}" data-pub-mode="boost" ${nativeAcc ? "" : "disabled title=\"같은 프로토콜의 연결 계정이 있어야 부스트할 수 있습니다\""}>🔁 부스트 (${item.proto === "at" ? "repost" : "reblog"})</button>
+        <button type="button" class="tt-seg-btn ${mode === "quote_boost" ? "active" : ""}" data-pub-mode="quote_boost">💬 부스트 / 인용 발행</button>
         <button type="button" class="tt-seg-btn ${mode === "ingested_create" ? "active" : ""}" data-pub-mode="ingested_create">📡 적재 발행 (Claire 적재 본문)</button>
       </div>
 
-      ${mode === "quote_boost" ? `<div><label for="pub-quote-comment" style="display:block;font-size:12px;font-weight:700;margin-bottom:4px">인용/부스트 코멘트 (선택)</label><input id="pub-quote-comment" type="text" class="tt-search" style="width:100%" value="${esc(commentText)}"/></div>` : ""}
+      ${mode === "quote_boost" ? `<div><label for="pub-quote-comment" style="display:block;font-size:12px;font-weight:700;margin-bottom:4px">인용 코멘트 (선택)</label><input id="pub-quote-comment" type="text" class="tt-search" style="width:100%" value="${esc(commentText)}"/></div>` : ""}
 
-      ${mode === "ingested_create" && !hasLinked ? `<div class="tt-summary-callout" style="margin:0">아직 미적재 항목입니다. 아래 <b>적재 후 즉시 적재 발행</b>을 누르면 프로젝트 적재(엔티티 생성)와 ActivityPub 적재 본문 발행을 연속 수행합니다.</div>` : ""}
+      ${mode === "ingested_create" && !hasLinked ? `<div class="tt-summary-callout" style="margin:0">아직 미적재 항목입니다. 아래 <b>적재 후 즉시 적재 발행</b>을 누르면 프로젝트 적재(엔티티 생성)와 연결 계정 발행을 연속 수행합니다.</div>` : ""}
 
       <div>
-        <div style="font-size:11.5px;font-weight:700;color:var(--muted);margin-bottom:4px">ActivityPub Outbox JSON-LD 미리보기</div>
-        <pre style="margin:0;padding:10px;border-radius:6px;border:1px solid var(--border);background:var(--panel-bg);font-family:'D2Coding',monospace;font-size:11.5px;max-height:210px;overflow:auto">${esc(JSON.stringify(payload, null, 2))}</pre>
+        <div style="font-size:11.5px;font-weight:700;color:var(--muted);margin-bottom:4px">연결 서버 API 요청 미리보기 (Claire 서버 프록시 경유 · 토큰은 서버에만 보관)</div>
+        <div id="pub-req-preview">${previewHtml(reqs)}</div>
       </div>
 
       <div style="display:flex;justify-content:flex-end;gap:8px;padding-top:10px;border-top:1px solid var(--border)">
         <button type="button" id="pub-cancel" class="tt-btn">취소</button>
-        <button type="button" id="pub-submit" class="tt-btn ${mode === "ingested_create" ? "tt-btn-pri" : "tt-btn-ap"}">${mode === "ingested_create" && !hasLinked ? "📥 적재 후 즉시 적재 발행" : (mode === "ingested_create" ? "📡 적재 본문 발행 실행" : "🔁 부스트 / 인용 발행 실행")}</button>
+        <button type="button" id="pub-submit" class="tt-btn ${mode === "ingested_create" ? "tt-btn-pri" : "tt-btn-ap"}" ${reqs.length ? "" : "disabled"}>${mode === "ingested_create" && !hasLinked ? "📥 적재 후 즉시 적재 발행" : (mode === "ingested_create" ? "📡 적재 본문 발행 실행" : (mode === "boost" ? "🔁 부스트 실행" : "💬 인용 발행 실행"))}</button>
       </div>`;
 
       box.querySelector("#pub-close-x").addEventListener("click", () => modal.close());
       box.querySelector("#pub-cancel").addEventListener("click", () => modal.close());
       box.querySelectorAll("[data-pub-mode]").forEach((b) => b.addEventListener("click", () => { mode = b.getAttribute("data-pub-mode"); drawModal(); }));
+      box.querySelectorAll("[data-pub-acc]").forEach((chk) => chk.addEventListener("change", () => {
+        const id = chk.getAttribute("data-pub-acc");
+        if (chk.checked) selected.add(id); else selected.delete(id);
+        drawModal();
+      }));
       const cInput = box.querySelector("#pub-quote-comment");
-      if (cInput) cInput.addEventListener("input", (e) => { commentText = e.target.value; });
+      if (cInput) cInput.addEventListener("input", (e) => {
+        commentText = e.target.value;
+        box.querySelector("#pub-req-preview").innerHTML = previewHtml(requestsFor(mode, commentText));
+      });
       box.querySelector("#pub-submit").addEventListener("click", () => {
+        const reqs = requestsFor(mode, commentText);
+        if (!reqs.length) return;
         if (mode === "ingested_create" && item.ingestState !== "linked") {
           ingestItemToClaire(item.id, "");
         }
         item.publishState = mode === "ingested_create" ? "published_create" : "boosted";
-        item.publishedInfo = { mode, at: "방금 전" };
+        item.publishedInfo = { mode, at: "방금 전", accounts: reqs.map((r) => r.acc.id) };
+        if (client) client.recordOutbound(item, mode, reqs.map((r) => r.acc));
         modal.close();
-        ticker(`${mode === "ingested_create" ? "📡 적재 본문 발행(Create)" : "🔁 부스트/인용 발행"} 완료: ${item.title}`);
+        ticker(`${mode === "ingested_create" ? "📡 적재 발행" : (mode === "boost" ? "🔁 부스트" : "💬 인용 발행")} 완료 → ${reqs.map((r) => r.acc.handle).join(", ")} · ${item.title}`);
         renderAll();
       });
     }
@@ -880,6 +1175,47 @@
     });
   }
 
+  const APP_TABS = ["client", "kb"];
+  const TAB_HINTS = {
+    client: "연합 클라이언트 단축키: j/k(이동), r(답글), b(부스트), f(좋아요), q(인용), s(수집함 보내기), i(보내고 적재), n(새 글), l(목록 스타일), m(분할), 1/2(탭)",
+    kb: "지식베이스 단축키: j/k(이동), l(목록 스타일), m(3단/2단), v(원문⇄적재), i(적재 전달), p(부스트·발행), 1/2(탭)"
+  };
+
+  function setAppTab(tab) {
+    const next = APP_TABS.includes(tab) ? tab : "client";
+    const changed = state.appTab !== next;
+    state.appTab = next;
+    prefs.appTab = next;
+    savePrefs();
+    closeOpenPopovers();
+    if (changed) ticker(TAB_HINTS[next]);
+    renderAll();
+  }
+
+  function setListStyle(style) {
+    state.listStyle = normalizeListStyle(style);
+    prefs.listStyle = state.listStyle;
+    savePrefs();
+    closeOpenPopovers();
+    ticker(`목록 스타일: ${listStyleLabel(state.listStyle)} — ${i18n(LIST_STYLE_META[state.listStyle].desc)}`);
+    renderAll();
+  }
+
+  function cycleListStyle() {
+    const i = ST.LIST_STYLES.indexOf(state.listStyle);
+    setListStyle(ST.LIST_STYLES[(i + 1) % ST.LIST_STYLES.length]);
+  }
+
+  function toggleLayoutMode(forced) {
+    if (forced) state.layoutMode = forced;
+    else state.layoutMode = state.layoutMode === "three-panel" ? "two-panel" : "three-panel";
+    prefs.layoutMode = state.layoutMode;
+    savePrefs();
+    closeOpenPopovers();
+    ticker(`화면 분할: ${state.layoutMode === "three-panel" ? "3단 분할 (좌-중-우)" : "2단 상하 분할 (좌-상하)"}`);
+    renderAll();
+  }
+
   function bindGlobalControls() {
     document.querySelectorAll('dialog[closedby="any"]').forEach((dlg) => {
       if (!("closedBy" in HTMLDialogElement.prototype)) {
@@ -900,40 +1236,37 @@
       state.expandedIds.clear();
       const first = curTheme().items[0];
       state.selectedItemId = first ? first.id : null;
+      if (client) client.onThemeChange();
       syncLiveThemeDb();
     });
 
-    function toggleListStyle(forced) {
-      if (forced) state.listStyle = forced;
-      else state.listStyle = state.listStyle === "flat" ? "cards" : "flat";
-      prefs.listStyle = state.listStyle;
-      savePrefs();
-      closeOpenPopovers();
-      ticker(`목록 스타일: ${state.listStyle === "flat" ? "한 줄 플랫 (FlatList)" : "상세 카드 (초기 프로토타입)"} 모드`);
-      renderAll();
+    document.querySelectorAll("[data-app-tab-btn]").forEach((btn) => {
+      btn.addEventListener("click", () => setAppTab(btn.getAttribute("data-app-tab-btn")));
+    });
+    const tablist = document.getElementById("app-tablist");
+    if (tablist) {
+      tablist.addEventListener("keydown", (e) => {
+        const tabs = APP_TABS;
+        const idx = tabs.indexOf(state.appTab);
+        let next = null;
+        if (e.key === "ArrowRight") next = tabs[(idx + 1) % tabs.length];
+        else if (e.key === "ArrowLeft") next = tabs[(idx - 1 + tabs.length) % tabs.length];
+        else if (e.key === "Home") next = tabs[0];
+        else if (e.key === "End") next = tabs[tabs.length - 1];
+        if (!next) return;
+        e.preventDefault();
+        setAppTab(next);
+        const btn = document.querySelector(`[data-app-tab-btn="${next}"]`);
+        if (btn) btn.focus();
+      });
     }
 
-    function toggleLayoutMode(forced) {
-      if (forced) state.layoutMode = forced;
-      else state.layoutMode = state.layoutMode === "three-panel" ? "two-panel" : "three-panel";
-      prefs.layoutMode = state.layoutMode;
-      savePrefs();
-      closeOpenPopovers();
-      ticker(`화면 분할: ${state.layoutMode === "three-panel" ? "3단 분할 (좌-중-우)" : "2단 상하 분할 (좌-상하)"}`);
-      renderAll();
-    }
-
-    const btnListStyle = document.getElementById("btn-toggle-list-style");
-    if (btnListStyle) btnListStyle.addEventListener("click", () => toggleListStyle());
+    document.querySelectorAll("[data-set-list-style]").forEach((btn) => {
+      btn.addEventListener("click", () => setListStyle(btn.getAttribute("data-set-list-style")));
+    });
 
     const btnLayout = document.getElementById("btn-toggle-layout");
     if (btnLayout) btnLayout.addEventListener("click", () => toggleLayoutMode());
-
-    const menuStyleFlat = document.getElementById("menu-style-flat");
-    if (menuStyleFlat) menuStyleFlat.addEventListener("click", () => toggleListStyle("flat"));
-
-    const menuStyleCards = document.getElementById("menu-style-cards");
-    if (menuStyleCards) menuStyleCards.addEventListener("click", () => toggleListStyle("cards"));
 
     const menuLayout3p = document.getElementById("menu-layout-3pane");
     if (menuLayout3p) menuLayout3p.addEventListener("click", () => toggleLayoutMode("three-panel"));
@@ -1012,31 +1345,59 @@
     });
 
     const subModal = document.getElementById("modal-subscribe");
-    document.getElementById("menu-open-subscribe").addEventListener("click", () => { closeOpenPopovers(); subModal.showModal(); });
-    document.getElementById("btn-open-subscribe").addEventListener("click", () => subModal.showModal());
+    const subProto = document.getElementById("sub-proto");
+    const subVia = document.getElementById("sub-via");
+    const subSource = document.getElementById("sub-source");
+
+    function refreshSubscribeForm() {
+      const proto = subProto.value;
+      const viaWrap = document.getElementById("sub-via-wrap");
+      viaWrap.hidden = proto === "rss";
+      if (proto === "rss") return;
+      const accs = themeAccounts().filter((a) => a.proto === proto);
+      subVia.innerHTML = accs.length
+        ? accs.map((a) => `<option value="${esc(a.id)}">${protoDot(a.proto)} ${esc(a.handle)}${a.canPublish ? "" : " (읽기 전용)"}</option>`).join("")
+        : `<option value="">연결된 ${proto === "ap" ? "ActivityPub" : "AT"} 계정 없음 — 연합 클라이언트 탭에서 먼저 연결</option>`;
+      subSource.innerHTML = SOURCE_KINDS[proto].map((k) => `<option value="${esc(k.id)}">${esc(k.label)} · ${esc(k.api)}</option>`).join("");
+      document.getElementById("sub-url").placeholder = proto === "ap" ? "@user@server.example 또는 #해시태그" : "handle.bsky.social 또는 at://… 피드 URI";
+    }
+
+    function openSubscribe() {
+      closeOpenPopovers();
+      refreshSubscribeForm();
+      subModal.showModal();
+    }
+    subProto.addEventListener("change", refreshSubscribeForm);
+    document.getElementById("menu-open-subscribe").addEventListener("click", openSubscribe);
+    document.getElementById("btn-open-subscribe").addEventListener("click", openSubscribe);
 
     document.getElementById("form-subscribe").addEventListener("submit", (e) => {
       e.preventDefault();
-      const proto = document.getElementById("sub-proto").value;
+      const proto = subProto.value;
       const url = document.getElementById("sub-url").value.trim();
       const title = document.getElementById("sub-title").value.trim();
       const folder = document.getElementById("sub-folder").value.trim() || "기본 폴더";
       const tagsRaw = document.getElementById("sub-tags").value.trim();
       if (!url || !title) return;
+      const viaAcc = proto === "rss" ? null : findAccount(subVia.value);
+      if (proto !== "rss" && !viaAcc) {
+        ticker(`⚠️ ${proto === "ap" ? "ActivityPub" : "AT Protocol"} 수집 대상은 연결 계정을 경유해야 합니다. 연합 클라이언트 탭에서 서버 계정을 먼저 연결하세요.`);
+        return;
+      }
+      const sourceKind = viaAcc ? SOURCE_KINDS[proto].find((k) => k.id === subSource.value) || SOURCE_KINDS[proto][0] : null;
       const fid = `f_custom_${Date.now()}`;
-      const newFeed = { id: fid, folder, proto, format: proto.toUpperCase(), interval: "15m", title, url, etag: "방금 수집됨" };
-      curTheme().feeds.push(newFeed);
-      if (!customState[state.themeId]) customState[state.themeId] = { extraFeeds: [] };
-      if (!Array.isArray(customState[state.themeId].extraFeeds)) customState[state.themeId].extraFeeds = [];
-      customState[state.themeId].extraFeeds.push(newFeed);
-      saveCustom(customState);
+      const newFeed = viaAcc
+        ? { id: fid, folder, proto, format: proto === "ap" ? "ActivityPub" : "AT Protocol", interval: proto === "ap" ? "stream" : "15m", title, handle: url, url, via: viaAcc.id, source: `${sourceKind.label} · ${sourceKind.api}`, etag: "연결 계정 경유 · 방금 수집됨" }
+        : { id: fid, folder, proto, format: "RSS/ATOM", interval: "15m", title, url, etag: "방금 수집됨" };
+      addKbFeed(newFeed);
 
       const sourceTags = tagsRaw ? tagsRaw.split(",").map((s) => s.trim()).filter(Boolean) : [title];
       const newItemId = `it_custom_${Date.now()}`;
       curTheme().items.unshift({
-        id: newItemId, feedId: fid, proto, format: proto.toUpperCase(),
+        id: newItemId, feedId: fid, proto, format: proto === "ap" ? "AP" : (proto === "at" ? "AT-URI" : "RSS"), viaAccount: viaAcc ? viaAcc.id : undefined,
         title: `[신규 수집] ${title} 첫 수집 컨텐트`, author: title,
         apObjectUri: proto === "ap" ? `https://federated.example/notes/${Date.now()}` : undefined,
+        atUri: proto === "at" ? `at://did:plc:newsource/app.bsky.feed.post/${Date.now().toString(36)}` : undefined,
         url: url.startsWith("http") ? url : `https://example.com/${encodeURIComponent(url)}`,
         timeAgo: "방금", timestamp: Math.floor(Date.now() / 1000), unread: true, starred: false, score: 86,
         sourceTags,
@@ -1047,21 +1408,24 @@
       subModal.close();
       state.selectedItemId = newItemId;
       state.expandedIds.add(newItemId);
-      ticker(`신규 수집 대상 '${title}' 등록 및 첫 원문 수집 완료 (엔티티는 적재 시 생성됨)`);
+      ticker(`신규 수집 대상 '${title}' 등록${viaAcc ? ` (경유: ${viaAcc.handle})` : ""} 및 첫 원문 수집 완료 (엔티티는 적재 시 생성됨)`);
       renderAll();
     });
 
     document.addEventListener("keydown", (e) => {
       if (e.target.matches("input, textarea, select") || document.querySelector("dialog[open]")) return;
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+      if (e.key === "1" || e.key === "2") { setAppTab(e.key === "1" ? "client" : "kb"); return; }
+      if (e.key === "l" || e.key === "L") { cycleListStyle(); return; }
+      if (e.key === "m" || e.key === "M") { toggleLayoutMode(); return; }
+      if (state.appTab === "client") { if (client) client.handleKey(e); return; }
+
       const vis = getVisibleItems();
       if (!vis.length) return;
       const idx = vis.findIndex((x) => x.id === state.selectedItemId);
 
-      if (e.key === "l" || e.key === "L") {
-        toggleListStyle();
-      } else if (e.key === "m" || e.key === "M") {
-        toggleLayoutMode();
-      } else if (e.key === "j" || e.key === "k") {
+      if (e.key === "j" || e.key === "k") {
         const nextIdx = e.key === "j" ? Math.min(vis.length - 1, idx + 1) : Math.max(0, idx - 1);
         const target = vis[nextIdx] || vis[0];
         state.selectedItemId = target.id;
@@ -1092,12 +1456,56 @@
   function renderAll() {
     applyLayoutAttr();
     renderTopBar();
-    renderTree();
-    renderStreamAndReader();
+    renderTabBar();
+    if (state.appTab === "client" && client) {
+      client.render();
+    } else {
+      renderTree();
+      renderStreamAndReader();
+    }
   }
+
+  /* 연합 클라이언트 탭(syndication_client.js)과 공유하는 지식베이스 브리지 */
+  function addKbFeed(feed) {
+    curTheme().feeds.push(feed);
+    if (!customState[state.themeId]) customState[state.themeId] = {};
+    if (!Array.isArray(customState[state.themeId].extraFeeds)) customState[state.themeId].extraFeeds = [];
+    customState[state.themeId].extraFeeds.push(feed);
+    saveCustom(customState);
+  }
+
+  function addAccount(acc) {
+    curTheme().accounts.push(acc);
+    if (!customState[state.themeId]) customState[state.themeId] = {};
+    if (!Array.isArray(customState[state.themeId].extraAccounts)) customState[state.themeId].extraAccounts = [];
+    customState[state.themeId].extraAccounts.push(acc);
+    saveCustom(customState);
+  }
+
+  function openKbItem(itemId) {
+    state.treeSel = { kind: "virtual", value: "all", label: "전체 아티클 (All articles)" };
+    state.adaptiveFilter = "all";
+    state.protoFilter = "all";
+    state.searchQuery = "";
+    const search = document.getElementById("stream-search");
+    if (search) search.value = "";
+    state.selectedItemId = itemId;
+    setAppTab("kb");
+  }
+
+  client = typeof window.CLAIRE_SYND_CLIENT_FACTORY === "function"
+    ? window.CLAIRE_SYND_CLIENT_FACTORY({
+      THEMES, state, prefs, LIST_STYLE_META, SOURCE_KINDS, ACCOUNT_TEMPLATES,
+      curTheme, esc, ticker, protoDot, themeAccounts, findAccount, publishAccounts,
+      buildServerRequest, checkMastodonBaseline, graphemeLength, hashtagToken, getItemSourceTags, getLinkedDocEntities,
+      renderAll, setAppTab, closeOpenPopovers, ingestItemToClaire,
+      addKbFeed, addAccount, openKbItem
+    })
+    : null;
 
   setupPopoverPositionFallback();
   bindGlobalControls();
+  ticker(state.appTab === "client" ? TAB_HINTS.client : TAB_HINTS.kb);
   renderAll();
   syncLiveThemeDb();
 })();

@@ -18,7 +18,7 @@
 <link rel="stylesheet" href="/static/css/theme.css"/>
 <link rel="stylesheet" href="/static/css/syndication.css"/>
 </head>
-<body data-auth-scope="__AUTH_SCOPE__" data-layout="three-panel" data-list-style="flat">
+<body data-auth-scope="__AUTH_SCOPE__" data-app-tab="client" data-layout="three-panel" data-list-style="list">
 
   <!-- TT-RSS Minimal Top Action Bar -->
   <header class="tt-topbar">
@@ -30,24 +30,53 @@
     </div>
 
     <div class="tt-top-right">
-      <span id="selected-count-label" class="tt-sel-count" aria-live="polite"></span>
+      <!-- 연합 클라이언트 탭 전용 컨트롤 -->
+      <input id="client-search" type="search" class="tt-search" data-tab-scope="client" placeholder="게시물·@핸들·#태그 검색…" aria-label="타임라인 게시물 검색"/>
+      <button type="button" id="btn-connect" class="tt-btn" data-tab-scope="client" title="Mastodon(5.0 이상) 또는 AT Protocol PDS 계정 연결">🔌 계정 연결</button>
+      <button type="button" id="btn-compose" class="tt-btn tt-btn-pri" data-tab-scope="client" title="연결 계정으로 새 글 작성 (n)">✎ 새 글</button>
 
-      <button type="button" class="tt-btn" popovertarget="pop-select">Select... ▾</button>
-      <button type="button" class="tt-btn" popovertarget="pop-adaptive"><span id="btn-adaptive-label">Adaptive</span> ▾</button>
-      <button type="button" class="tt-btn" popovertarget="pop-sort"><span id="btn-sort-label">최신순</span> ▾</button>
+      <!-- 지식베이스 탭 전용 컨트롤 -->
+      <span id="selected-count-label" class="tt-sel-count" aria-live="polite" data-tab-scope="kb"></span>
+      <button type="button" class="tt-btn" popovertarget="pop-select" data-tab-scope="kb">Select... ▾</button>
+      <button type="button" class="tt-btn" popovertarget="pop-adaptive" data-tab-scope="kb"><span id="btn-adaptive-label">Adaptive</span> ▾</button>
+      <button type="button" class="tt-btn" popovertarget="pop-sort" data-tab-scope="kb"><span id="btn-sort-label">최신순</span> ▾</button>
+      <input id="stream-search" type="search" class="tt-search" data-tab-scope="kb" placeholder="제목·본문·[[엔티티]] 검색…" aria-label="수집 아티클 검색"/>
+      <button type="button" id="btn-mark-read" class="tt-btn" data-tab-scope="kb" title="선택 항목 또는 현재 목록 모두 읽음 처리">✓ 읽음 처리</button>
+      <button type="button" id="btn-open-subscribe" class="tt-btn tt-btn-pri" data-tab-scope="kb" title="RSS/ATOM 피드 또는 연결 계정 경유 ActivityPub · AT 수집 대상 추가">+ 구독</button>
 
-      <input id="stream-search" type="search" class="tt-search" placeholder="제목·본문·[[엔티티]] 검색…"/>
-      <button type="button" id="btn-mark-read" class="tt-btn" title="선택 항목 또는 현재 목록 모두 읽음 처리">✓ 읽음 처리</button>
-      <button type="button" id="btn-toggle-list-style" class="tt-btn" title="목록 스타일 전환: 한 줄 FlatList ⇄ 상세 카드(초기 프로토타입)"><span id="btn-list-style-label">☰ 한 줄 (FlatList)</span></button>
+      <!-- 공통 컨트롤 -->
+      <button type="button" id="btn-toggle-list-style" class="tt-btn" popovertarget="pop-list-style" title="목록 스타일: 목록 / 조밀하게 / 일반 / 넓게 (l 키로 순환)"><span id="btn-list-style-label">☰ 목록</span> ▾</button>
       <button type="button" id="btn-toggle-layout" class="tt-btn" title="화면 분할 구조 전환: 3단 분할 ⇄ 2단 상하 분할"><span id="btn-layout-label">◫ 3단 분할</span></button>
-      <button type="button" id="btn-open-subscribe" class="tt-btn tt-btn-pri" title="RSS/ATOM, ActivityPub, AT Protocol 구독 추가">+ 구독</button>
       <a id="top-pref-link" class="tt-btn" href="/syndication/preferences" title="하위 환경설정 페이지 열기">⚙️ 환경설정</a>
       <button type="button" id="themebtn" class="tt-btn" onclick="toggleClaireTheme()" title="라이트/다크 전환" aria-label="라이트/다크 전환">🌙</button>
       <button type="button" class="tt-btn" popovertarget="pop-main-menu" aria-label="전체 메뉴 열기">☰</button>
     </div>
   </header>
 
+  <!-- App Tab Menu Bar (탑바 밑 작업 공간 탭) -->
+  <nav class="tt-tabbar" aria-label="Syndication 작업 공간">
+    <div id="app-tablist" class="tt-tabs" role="tablist" aria-label="작업 공간 탭">
+      <button type="button" role="tab" id="tab-client" class="tt-tab" aria-selected="true" aria-controls="panel-client" data-app-tab-btn="client">
+        <span>🌐 연합 클라이언트</span><small>ActivityPub · AT</small><span id="tab-client-count" class="tt-count-pill"></span><kbd>1</kbd>
+      </button>
+      <button type="button" role="tab" id="tab-kb" class="tt-tab" aria-selected="false" aria-controls="panel-kb" data-app-tab-btn="kb" tabindex="-1">
+        <span>📚 지식베이스</span><small>수집 · 적재 · 발행</small><span id="tab-kb-count" class="tt-count-pill"></span><kbd>2</kbd>
+      </button>
+    </div>
+    <div id="tabbar-accounts" class="tt-tabbar-accounts" aria-label="연결 서버 계정 상태"></div>
+  </nav>
+
   <!-- Viewport-Aware Popovers (TT-RSS Menus) -->
+  <div id="pop-list-style" popover="auto" class="tt-popover tt-popover-end" role="menu" aria-label="목록 스타일">
+    <div class="tt-pop-sec">목록 스타일</div>
+    <button type="button" class="tt-pop-item" role="menuitemradio" data-set-list-style="list"><span data-list-style-label>☰ 목록</span><small data-list-style-desc>한 줄 행</small></button>
+    <button type="button" class="tt-pop-item" role="menuitemradio" data-set-list-style="compact"><span data-list-style-label>≡ 조밀하게</span><small data-list-style-desc>요약 표시 안 함</small></button>
+    <button type="button" class="tt-pop-item" role="menuitemradio" data-set-list-style="card"><span data-list-style-label>▤ 일반</span><small data-list-style-desc>요약 2줄 미리보기</small></button>
+    <button type="button" class="tt-pop-item" role="menuitemradio" data-set-list-style="roomy"><span data-list-style-label>▭ 넓게</span><small data-list-style-desc>요약 전체 표시</small></button>
+    <div class="tt-pop-sep"></div>
+    <div class="tt-pop-hint"><kbd>l</kbd> 키로 순환 전환 · 두 탭에 공통 적용</div>
+  </div>
+
   <div id="pop-select" popover="auto" class="tt-popover">
     <div class="tt-pop-sec">아티클 다중 선택 (Select)</div>
     <button type="button" class="tt-pop-item" data-select-cmd="all"><span>모두 선택 (All)</span></button>
@@ -85,14 +114,25 @@
   <div id="pop-main-menu" popover="auto" class="tt-popover tt-popover-end">
     <a id="menu-pref-link" class="tt-pop-item" href="/syndication/preferences"><span>⚙️ 환경설정... (Preferences...)</span></a>
     <div class="tt-pop-sep"></div>
+    <div class="tt-pop-sec">작업 공간 탭</div>
+    <button type="button" class="tt-pop-item" data-app-tab-btn="client"><span>🌐 연합 클라이언트 (ActivityPub · AT)</span><kbd>1</kbd></button>
+    <button type="button" class="tt-pop-item" data-app-tab-btn="kb"><span>📚 지식베이스 (수집 · 적재 · 발행)</span><kbd>2</kbd></button>
+    <div class="tt-pop-sep"></div>
+    <div class="tt-pop-sec">연합 클라이언트</div>
+    <button type="button" id="menu-open-connect" class="tt-pop-item"><span>🔌 서버 계정 연결...</span></button>
+    <button type="button" id="menu-open-compose" class="tt-pop-item"><span>✎ 새 글 작성...</span><kbd>n</kbd></button>
+    <a class="tt-pop-item" href="/syndication/preferences?tab=accounts"><span>🔐 연결 계정 · 권한 관리...</span></a>
+    <div class="tt-pop-sep"></div>
     <div class="tt-pop-sec">구독 관리 (Feed actions)</div>
     <button type="button" id="menu-open-subscribe" class="tt-pop-item"><span>+ 새 수집 대상 구독...</span></button>
     <a class="tt-pop-item" href="/syndication/preferences?tab=tags"><span>🏷️ 수집 태그 → 엔티티 생성 정책...</span></a>
     <a class="tt-pop-item" href="/syndication/preferences?tab=outbound"><span>🔁 부스트·적재 발행 설정...</span></a>
     <div class="tt-pop-sep"></div>
-    <div class="tt-pop-sec">목록 스타일 (List style)</div>
-    <button type="button" id="menu-style-flat" class="tt-pop-item"><span id="menu-style-flat-label">✓ 한 줄 플랫 (FlatList)</span><kbd>l</kbd></button>
-    <button type="button" id="menu-style-cards" class="tt-pop-item"><span id="menu-style-cards-label">　상세 카드 (초기 프로토타입)</span></button>
+    <div class="tt-pop-sec">목록 스타일</div>
+    <button type="button" class="tt-pop-item" data-set-list-style="list"><span data-list-style-label>☰ 목록</span><kbd>l</kbd></button>
+    <button type="button" class="tt-pop-item" data-set-list-style="compact"><span data-list-style-label>≡ 조밀하게</span></button>
+    <button type="button" class="tt-pop-item" data-set-list-style="card"><span data-list-style-label>▤ 일반</span></button>
+    <button type="button" class="tt-pop-item" data-set-list-style="roomy"><span data-list-style-label>▭ 넓게</span></button>
     <div class="tt-pop-sep"></div>
     <div class="tt-pop-sec">화면 레이아웃 (UI layout)</div>
     <button type="button" id="menu-layout-3pane" class="tt-pop-item"><span id="menu-layout-3pane-label">✓ 3단 분할 뷰 (좌-중-우)</span><kbd>m</kbd></button>
@@ -112,8 +152,25 @@
     <button type="button" class="tt-pop-item" data-art-cmd="mark-below"><span>이 아래쪽 아티클 모두 읽음</span></button>
   </div>
 
-  <!-- Main TT-RSS Workspace -->
-  <main class="tt-workspace">
+  <main class="tt-app-main">
+  <!-- Tab 1: ActivityPub · AT 연합 클라이언트 (연결 서버 계정 경유) -->
+  <div id="panel-client" class="tt-workspace" role="tabpanel" aria-labelledby="tab-client" data-app-panel="client">
+    <aside id="cl-pane-tree" class="synd-column tt-tree" aria-label="연결 서버 계정 및 타임라인">
+      <div id="cl-tree"></div>
+    </aside>
+    <div class="tt-main-area">
+      <section class="synd-column tt-stream" aria-label="타임라인 게시물">
+        <div id="cl-stream-head" class="tt-stream-head"></div>
+        <div id="cl-headlines" class="tt-headlines"></div>
+      </section>
+      <aside class="synd-column tt-reader-pane" aria-label="게시물 스레드">
+        <div id="cl-reader"></div>
+      </aside>
+    </div>
+  </div>
+
+  <!-- Tab 2: 지식베이스 (TT-RSS 수집 · 적재 · 발행 워크스페이스) -->
+  <div id="panel-kb" class="tt-workspace" role="tabpanel" aria-labelledby="tab-kb" data-app-panel="kb" hidden>
     <aside id="pane-tree" class="synd-column tt-tree" aria-label="가상 스트림, 피드 폴더 및 엔티티 트리">
       <details class="tt-folder" open>
         <summary><span><span class="tt-folder-marker"></span>Special (가상 스트림)</span></summary>
@@ -138,10 +195,11 @@
         <div id="reader-content"></div>
       </aside>
     </div>
+  </div>
   </main>
 
   <footer class="tt-footer">
-    <span id="activity-ticker">단축키: j/k(이동), l(한줄/카드 전환), m(3단/2단 전환), v(원문⇄적재 전환), i(적재 전달), p(부스트·발행)</span>
+    <span id="activity-ticker">단축키: 1/2(탭 전환), j/k(이동), l(목록 스타일), m(3단/2단 전환)</span>
     <span id="footer-stats" style="font-family:'D2Coding',monospace"></span>
   </footer>
 
@@ -149,7 +207,7 @@
   <dialog id="modal-subscribe" closedby="any" aria-labelledby="modal-subscribe-title" class="synd-dialog">
     <form id="form-subscribe" style="padding:18px;display:flex;flex-direction:column;gap:12px">
       <div style="display:flex;justify-content:space-between;align-items:center">
-        <h2 id="modal-subscribe-title" style="margin:0;font-size:16px;font-weight:700">정기 수집 대상 구독 추가 (RSS/ATOM · ActivityPub · AT)</h2>
+        <h2 id="modal-subscribe-title" style="margin:0;font-size:16px;font-weight:700">정기 수집 대상 구독 추가 (RSS/ATOM · 연결 계정 경유 ActivityPub · AT)</h2>
         <button type="button" data-close-dialog="modal-subscribe" class="tt-btn">✕</button>
       </div>
       <div style="display:grid;grid-template-columns:150px 1fr;gap:8px">
@@ -162,9 +220,20 @@
           </select>
         </div>
         <div>
-          <label for="sub-url" style="display:block;font-size:12px;font-weight:700;margin-bottom:4px">피드 URL / @핸들 / DID</label>
+          <label for="sub-url" style="display:block;font-size:12px;font-weight:700;margin-bottom:4px">피드 URL / @핸들 / #해시태그 / 피드 URI</label>
           <input id="sub-url" type="text" required class="tt-search" style="width:100%;height:34px" placeholder="https://huggingface.co/blog/feed.xml"/>
         </div>
+      </div>
+      <div id="sub-via-wrap" style="display:grid;grid-template-columns:1fr 1fr;gap:8px" hidden>
+        <div>
+          <label for="sub-via" style="display:block;font-size:12px;font-weight:700;margin-bottom:4px">경유 연결 계정</label>
+          <select id="sub-via" class="tt-btn" style="width:100%;height:34px"></select>
+        </div>
+        <div>
+          <label for="sub-source" style="display:block;font-size:12px;font-weight:700;margin-bottom:4px">수집 방식 (서버 API)</label>
+          <select id="sub-source" class="tt-btn" style="width:100%;height:34px"></select>
+        </div>
+        <p style="grid-column:1 / -1;margin:0;font-size:11.5px;color:var(--muted)">ActivityPub · AT 수집은 Claire 가 직접 연합하지 않고, 이 테마에 연결된 서버 계정의 API(Mastodon Client API · AT XRPC)로 가져옵니다.</p>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
         <div>
@@ -187,9 +256,19 @@
     </form>
   </dialog>
 
-  <!-- Outbound Boost/Quote & Ingested Publish Modal -->
-  <dialog id="modal-publish" closedby="any" aria-labelledby="modal-publish-title" class="synd-dialog">
+  <!-- Outbound Boost/Quote & Ingested Publish Modal (연결 계정 경유) -->
+  <dialog id="modal-publish" closedby="any" aria-labelledby="modal-publish-title" class="synd-dialog synd-dialog-wide">
     <div id="modal-publish-body" style="padding:18px;display:flex;flex-direction:column;gap:12px"></div>
+  </dialog>
+
+  <!-- Client Compose Modal (새 글 · 답글 · 인용) -->
+  <dialog id="modal-compose" closedby="any" aria-labelledby="modal-compose-title" class="synd-dialog synd-dialog-wide">
+    <div id="modal-compose-body" style="padding:18px;display:flex;flex-direction:column;gap:12px"></div>
+  </dialog>
+
+  <!-- Client Connect Account Modal (OAuth · AT OAuth) -->
+  <dialog id="modal-connect" closedby="any" aria-labelledby="modal-connect-title" class="synd-dialog synd-dialog-wide">
+    <div id="modal-connect-body" style="padding:18px;display:flex;flex-direction:column;gap:12px"></div>
   </dialog>
 
   <script type="module">
@@ -220,6 +299,7 @@
     (function(){ const btn=document.getElementById("themebtn"); if(btn) btn.textContent=(document.documentElement.getAttribute("data-theme")==="dark"?"☀️":"🌙"); })();
   </script>
   <script src="/static/js/syndication_data.js"></script>
+  <script src="/static/js/syndication_client.js"></script>
   <script src="/static/js/syndication_app.js"></script>
 </body>
 </html>

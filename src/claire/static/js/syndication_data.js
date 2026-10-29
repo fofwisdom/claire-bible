@@ -2,9 +2,13 @@
 window.CLAIRE_SYND_STORAGE = {
   PREFS_KEY: "claireSyndicationPrefs_v2",
   CUSTOM_KEY: "claireSyndicationCustomState_v2",
+  /* 목록 스타일 키 (영문 i18n 명칭): list=목록 · compact=조밀하게 · card=일반 · roomy=넓게 */
+  LIST_STYLES: ["list", "compact", "card", "roomy"],
+  LEGACY_LIST_STYLES: { flat: "list", cards: "card" },
   DEFAULT_PREFS: {
+    appTab: "client",
     layoutMode: "three-panel",
-    listStyle: "flat",
+    listStyle: "list",
     showExcerpt: true,
     defaultContentTab: "auto",
     readerFont: "sans",
@@ -19,17 +23,166 @@ window.CLAIRE_SYND_STORAGE = {
     },
     outboundPolicy: {
       rssDefaultMode: "quote_boost",
-      apDefaultMode: "announce",
+      apDefaultMode: "boost",
+      atDefaultMode: "boost",
       includeCanonicalShareLink: true,
       quoteTemplate: "📌 {{title}} — {{url}} {{hashtags}}"
     }
   }
 };
 
+/*
+ * ActivityPub · AT Protocol 은 Claire 가 직접 연합(Actor/Inbox/서명)하지 않는다.
+ * 각 테마는 기존 서버의 계정(Mastodon Client API · AT Protocol PDS XRPC)에 연결되며,
+ * 수집·발행·타임라인 열람은 모두 그 연결 계정의 서버 API를 경유한다.
+ * ActivityPub 클라이언트 기능의 지원 기준은 Mastodon 5.0 이상이다 (연결 시 /api/v2/instance 의 version 으로 확인).
+ */
+window.CLAIRE_SYND_ACCOUNT_TEMPLATES = {
+  ap: {
+    software: "Mastodon",
+    minVersion: "5.0.0",
+    auth: "OAuth 2.0 (Authorization Code + PKCE)",
+    scopes: ["read", "write:statuses", "write:favourites", "write:bookmarks", "write:follows"],
+    charLimit: 500,
+    timelines: [
+      { id: "home", icon: "🏠", label: "홈 타임라인", api: "GET /api/v1/timelines/home", collectable: true },
+      { id: "notifications", icon: "🔔", label: "알림", api: "GET /api/v1/notifications" },
+      { id: "local", icon: "🏘️", label: "로컬 타임라인", api: "GET /api/v1/timelines/public?local=true" },
+      { id: "bookmarks", icon: "🔖", label: "북마크", api: "GET /api/v1/bookmarks" }
+    ]
+  },
+  at: {
+    software: "AT Protocol PDS",
+    auth: "AT OAuth (PAR + DPoP)",
+    scopes: ["atproto", "transition:generic"],
+    charLimit: 300,
+    timelines: [
+      { id: "following", icon: "🏠", label: "Following", api: "app.bsky.feed.getTimeline", collectable: true },
+      { id: "notifications", icon: "🔔", label: "알림", api: "app.bsky.notification.listNotifications" }
+    ]
+  }
+};
+
 window.CLAIRE_SYND_SEEDS = {
   "0": {
-    id: 0, seq: 0, icon: "📚", label: "기본 지식베이스", fqdn: "", dbPath: "data/claire.db", isPublic: true,
-    actorHandle: "@claire@claire.example.com", followers: 39, defaultFocus: "",
+    id: 0, seq: 0, icon: "📚", label: "기본 지식베이스", fqdn: "", dbPath: "data/claire.db", isPublic: true, defaultFocus: "",
+    accounts: [
+      {
+        id: "acc0-ap", proto: "ap", software: "Mastodon", serverVersion: "5.0.0", server: "social.example.com",
+        handle: "@claire@social.example.com", displayName: "Claire Bible 📚",
+        auth: "OAuth 2.0 (Authorization Code + PKCE)",
+        scopes: ["read", "write:statuses", "write:favourites", "write:bookmarks", "write:follows"],
+        canPublish: true, status: "ok", statusNote: "스트리밍 연결됨 (user)", charLimit: 500,
+        timelines: [
+          { id: "home", icon: "🏠", label: "홈 타임라인", api: "GET /api/v1/timelines/home", collectable: true },
+          { id: "notifications", icon: "🔔", label: "알림", api: "GET /api/v1/notifications" },
+          { id: "local", icon: "🏘️", label: "로컬 타임라인", api: "GET /api/v1/timelines/public?local=true" },
+          { id: "tag:ActivityPub", icon: "#", label: "#ActivityPub", api: "GET /api/v1/timelines/tag/ActivityPub", collectable: true },
+          { id: "list:standards", icon: "📋", label: "리스트 · 표준 기구", api: "GET /api/v1/timelines/list/12", collectable: true },
+          { id: "bookmarks", icon: "🔖", label: "북마크", api: "GET /api/v1/bookmarks" }
+        ]
+      },
+      {
+        id: "acc0-at", proto: "at", software: "Bluesky PDS", server: "bsky.social",
+        handle: "@claire.example.com", did: "did:plc:claire4kb2x7q", displayName: "Claire Bible 📚",
+        auth: "AT OAuth (PAR + DPoP)", scopes: ["atproto", "transition:generic"],
+        canPublish: true, status: "ok", statusNote: "세션 갱신 4분 전", charLimit: 300,
+        timelines: [
+          { id: "following", icon: "🏠", label: "Following", api: "app.bsky.feed.getTimeline", collectable: true },
+          { id: "notifications", icon: "🔔", label: "알림", api: "app.bsky.notification.listNotifications" },
+          { id: "feed:atproto-dev", icon: "🧭", label: "커스텀 피드 · ATproto Dev", api: "app.bsky.feed.getFeed (at://did:plc:feedgen-dev/app.bsky.feed.generator/atproto-dev)", collectable: true },
+          { id: "list:researchers", icon: "📋", label: "리스트 · 프로토콜 연구자", api: "app.bsky.feed.getListFeed (at://did:plc:claire4kb2x7q/app.bsky.graph.list/3kresearch)", collectable: true }
+        ]
+      }
+    ],
+    posts: [
+      {
+        id: "p0-1", accountId: "acc0-ap", timelines: ["home", "tag:ActivityPub", "list:standards"], unread: true,
+        author: "W3C Social Web WG", handle: "@w3c@w3c.social", time: "07:55", timestamp: 1761631000,
+        text: "Social Web WG 2026–2028 charter renewal draft is open for public review: standardized quote posts (FEP-044f), portable actors (LOLA) and HTTP Message Signatures. Comments welcome until Nov 30. #ActivityPub #W3C #FEP044f",
+        hashtags: ["ActivityPub", "W3C", "FEP044f"],
+        card: { title: "Social Web Working Group Charter (Draft 2026–2028)", description: "Proposed scope covers quote post interoperability with approval stamps, actor portability across servers without breaking object URIs, and migration to RFC 9421 HTTP Message Signatures.", url: "https://www.w3.org/2026/socialweb-charter-draft" },
+        url: "https://w3c.social/@w3c/11542910021", uri: "https://w3c.social/users/w3c/statuses/11542910021", remoteId: "115429100210443008",
+        counts: { replies: 2, boosts: 31, favs: 58 }, boosted: true, favourited: false, bookmarked: true,
+        kbItemId: "i0-2"
+      },
+      {
+        id: "p0-2", accountId: "acc0-ap", timelines: [], replyTo: "p0-1", unread: false,
+        author: "Evan", handle: "@evan@cosocial.example", time: "08:03", timestamp: 1761631480,
+        text: "Quote approval stamps are the part I'm most excited about — finally real provenance for quotes across servers. #FEP044f",
+        hashtags: ["FEP044f"], card: null,
+        url: "https://cosocial.example/@evan/11542913377", uri: "https://cosocial.example/users/evan/statuses/11542913377", remoteId: "115429133770012001",
+        counts: { replies: 1, boosts: 4, favs: 19 }, boosted: false, favourited: true, bookmarked: false
+      },
+      {
+        id: "p0-3", accountId: "acc0-ap", timelines: [], replyTo: "p0-2", unread: false,
+        author: "W3C Social Web WG", handle: "@w3c@w3c.social", time: "08:10", timestamp: 1761631900,
+        text: "@evan Agreed. The draft keeps quote approval optional per server, so clients can fall back to a plain link when the target server does not support it.",
+        hashtags: [], card: null,
+        url: "https://w3c.social/@w3c/11542918810", uri: "https://w3c.social/users/w3c/statuses/11542918810", remoteId: "115429188100550004",
+        counts: { replies: 0, boosts: 2, favs: 11 }, boosted: false, favourited: false, bookmarked: false
+      },
+      {
+        id: "p0-4", accountId: "acc0-ap", timelines: ["home"], unread: true,
+        author: "SQLite News", handle: "@sqlite_news@fosstodon.example", time: "08:44", timestamp: 1761634100,
+        text: "SQLite 3.51.0 is out — FTS5 query planner now estimates multi-token phrase cost from segment page counts, and WAL checkpoints no longer stall concurrent readers. #SQLite #FTS5",
+        hashtags: ["SQLite", "FTS5"],
+        card: { title: "SQLite Release 3.51.0", description: "Release log: FTS5 multi-token phrase cost estimation, non-blocking WAL2 snapshot promotion, reduced reader tail latency.", url: "https://sqlite.org/releaselog/3_51_0.html" },
+        url: "https://fosstodon.example/@sqlite_news/11542960001", uri: "https://fosstodon.example/users/sqlite_news/statuses/11542960001", remoteId: "115429600010000771",
+        counts: { replies: 6, boosts: 88, favs: 203 }, boosted: false, favourited: false, bookmarked: false
+      },
+      {
+        id: "p0-5", accountId: "acc0-ap", timelines: ["notifications"], notif: { kind: "mention", by: "@mina@hachyderm.example" }, unread: true,
+        author: "Mina", handle: "@mina@hachyderm.example", time: "09:01", timestamp: 1761635000,
+        text: "@claire 혹시 AT Protocol facet 태그를 엔티티로 바꾸는 규칙이 문서로 공개되어 있나요? 적재 전에는 그냥 태그로 남는다고 들었는데 맞는지 궁금합니다. #ATProtocol",
+        hashtags: ["ATProtocol"], card: null,
+        url: "https://hachyderm.example/@mina/11542970042", uri: "https://hachyderm.example/users/mina/statuses/11542970042", remoteId: "115429700420003310",
+        counts: { replies: 0, boosts: 0, favs: 1 }, boosted: false, favourited: false, bookmarked: false
+      },
+      {
+        id: "p0-6", accountId: "acc0-ap", timelines: ["local"], unread: false,
+        author: "social.example.com 관리자", handle: "@admin@social.example.com", time: "어제", timestamp: 1761598000,
+        text: "서버 점검 안내: 11/2(일) 03:00–03:30 KST, PostgreSQL 메이저 업그레이드. 점검 중에는 타임라인 API와 스트리밍이 일시 중단됩니다.",
+        hashtags: [], card: null,
+        url: "https://social.example.com/@admin/11542800001", uri: "https://social.example.com/users/admin/statuses/11542800001", remoteId: "115428000010000001",
+        counts: { replies: 3, boosts: 12, favs: 40 }, boosted: false, favourited: false, bookmarked: false
+      },
+      {
+        id: "p0-7", accountId: "acc0-ap", timelines: ["tag:ActivityPub"], unread: true,
+        author: "Darius", handle: "@darius@friend.example", time: "06:20", timestamp: 1761625200,
+        text: "W3C 소셜 웹 명세의 변경분(diff)을 매일 게시하는 작은 봇을 만들었습니다. 초안 리뷰 기간 동안만 돌릴 예정이에요. #ActivityPub #SpecDiff",
+        hashtags: ["ActivityPub", "SpecDiff"], card: null,
+        url: "https://friend.example/@darius/11542940077", uri: "https://friend.example/users/darius/statuses/11542940077", remoteId: "115429400770002210",
+        counts: { replies: 1, boosts: 9, favs: 27 }, boosted: false, favourited: false, bookmarked: false
+      },
+      {
+        id: "p0-8", accountId: "acc0-at", timelines: ["following", "feed:atproto-dev"], unread: true,
+        author: "AT Protocol", handle: "@atproto.com", time: "어제", timestamp: 1761627000,
+        text: "Jetstream v2: deterministic cursor replay with zstd compression and lossless facet tag extraction for periodic archivers. #atproto #Jetstream",
+        hashtags: ["atproto", "Jetstream"],
+        card: { title: "Jetstream v2 release notes", description: "Subscribe to specific DID collections and Lexicon schemas without consuming a full relay firehose; tag facets are preserved verbatim.", url: "https://docs.bsky.app/blog/jetstream-v2" },
+        url: "https://bsky.app/profile/atproto.com/post/3l7x9k2", uri: "at://did:plc:atproto-dev/app.bsky.feed.post/3l7x9k2", cid: "bafyreib2rxk3rh6kzwq7jetstreamv2",
+        counts: { replies: 14, boosts: 120, favs: 410 }, boosted: false, favourited: true, bookmarked: false,
+        kbItemId: "i0-3"
+      },
+      {
+        id: "p0-9", accountId: "acc0-at", timelines: ["following", "feed:atproto-dev", "list:researchers"], unread: true,
+        author: "Lexicon Notes", handle: "@lexicon-notes.example.net", time: "05:48", timestamp: 1761623300,
+        text: "Lexicon 팁: app.bsky.richtext.facet#tag 의 byteStart/byteEnd 는 UTF-8 바이트 오프셋입니다. 한국어 해시태그를 다룰 때 문자 인덱스로 계산하면 어긋나요. #atproto #Lexicon",
+        hashtags: ["atproto", "Lexicon"], card: null,
+        url: "https://bsky.app/profile/lexicon-notes.example.net/post/3l7w2ab", uri: "at://did:plc:lexnotes/app.bsky.feed.post/3l7w2ab", cid: "bafyreic7lexiconfacetbyteoffsets",
+        counts: { replies: 5, boosts: 33, favs: 96 }, boosted: false, favourited: false, bookmarked: false
+      },
+      {
+        id: "p0-10", accountId: "acc0-at", timelines: ["notifications"], notif: { kind: "reblog", by: "@kb-curator.example.org" }, unread: true,
+        author: "Claire Bible 📚", handle: "@claire.example.com", time: "어제", timestamp: 1761612000, own: true,
+        text: "📡 적재 발행 · SQLite 3.51.0 은 FTS5 세그먼트 비용 기반 실행 계획과 비차단형 WAL 체크포인트로 p99 지연을 69% 단축했다. #SQLite #FTS5",
+        hashtags: ["SQLite", "FTS5"],
+        card: { title: "SQLite 3.51.0 — Claire 적재 요약", description: "Claire Bible 지식 그래프 공유 문서", url: "https://claire.example.com/p?s=sh_991a0f" },
+        url: "https://bsky.app/profile/claire.example.com/post/3l7v0zz", uri: "at://did:plc:claire4kb2x7q/app.bsky.feed.post/3l7v0zz", cid: "bafyreid0clairesqlite3510summary",
+        counts: { replies: 0, boosts: 7, favs: 22 }, boosted: false, favourited: false, bookmarked: false
+      }
+    ],
     existingEntities: [
       { name: "SQLite", type: "Tool", count: 19 },
       { name: "ActivityPub", type: "Concept", count: 12 },
@@ -39,12 +192,12 @@ window.CLAIRE_SYND_SEEDS = {
     ],
     rules: [
       { id: "r0-1", name: "SQLite 릴리스 노트 우선 오거나이즈", cond: "수집 태그 일치: [[SQLite]]", action: "점수 +45 · 별표 부여", enabled: true },
-      { id: "r0-2", name: "W3C 표준 권고안 자동 적재 전달", cond: "대상: @w3c@w3c.social + #ActivityPub", action: "프로젝트 적재 파이프라인 자동 전달", enabled: true }
+      { id: "r0-2", name: "W3C 표준 권고안 자동 적재 전달", cond: "대상: @w3c@w3c.social (연결 계정 경유) + #ActivityPub", action: "프로젝트 적재 파이프라인 자동 전달", enabled: true }
     ],
     feeds: [
       { id: "f0-1", folder: "오픈소스 릴리스", proto: "rss", format: "ATOM 1.0", interval: "15m", title: "SQLite Release Log", url: "https://sqlite.org/news.atom", etag: "200 OK" },
-      { id: "f0-2", folder: "Fediverse 표준 기구", proto: "ap", format: "ActivityPub", interval: "push", title: "W3C Social Web WG", handle: "@w3c@w3c.social", url: "https://w3c.social/users/w3c", etag: "AP 서명 검증됨" },
-      { id: "f0-3", folder: "분산 소셜 프로토콜", proto: "at", format: "AT Protocol", interval: "15m", title: "AT Protocol Core Dev", handle: "at://did:plc:atproto-dev", url: "https://bsky.app/profile/atproto.com", etag: "Jetstream 동기화" }
+      { id: "f0-2", folder: "Fediverse 표준 기구", proto: "ap", format: "ActivityPub", interval: "stream", title: "W3C Social Web WG", handle: "@w3c@w3c.social", url: "https://w3c.social/@w3c", via: "acc0-ap", source: "계정 게시물 · GET /api/v1/accounts/:id/statuses", etag: "연결 계정 경유 · 스트리밍" },
+      { id: "f0-3", folder: "분산 소셜 프로토콜", proto: "at", format: "AT Protocol", interval: "15m", title: "AT Protocol Core Dev", handle: "@atproto.com", url: "https://bsky.app/profile/atproto.com", via: "acc0-at", source: "작성자 피드 · app.bsky.feed.getAuthorFeed", etag: "PDS 커서 동기화" }
     ],
     items: [
       {
@@ -75,12 +228,12 @@ window.CLAIRE_SYND_SEEDS = {
 [[SQLite]] --(reduces_contention_in)--&gt; [[WAL-Mode]]
 [[FTS5]]   --(accelerates)--&gt; [[DatabaseEngine]]</code></pre>`
         },
-        publishState: "none", publishedInfo: null
+        publishState: "published_create", publishedInfo: { mode: "ingested_create", at: "어제", accounts: ["acc0-at"], note: "AT 연결 계정으로 적재 발행 완료" }
       },
       {
-        id: "i0-2", feedId: "f0-2", proto: "ap", format: "AP",
+        id: "i0-2", feedId: "f0-2", proto: "ap", format: "AP", viaAccount: "acc0-ap",
         title: "Social Web Working Group Charter Renewal: Portable Actors & Quote Posts (FEP-044f)",
-        author: "@w3c@w3c.social", apObjectUri: "https://w3c.social/users/w3c/statuses/11542910021", url: "https://w3c.social/@w3c/11542910021",
+        author: "@w3c@w3c.social", apObjectUri: "https://w3c.social/users/w3c/statuses/11542910021", remoteId: "115429100210443008", url: "https://w3c.social/@w3c/11542910021",
         timeAgo: "07:55", timestamp: 1761631000, unread: true, starred: false, score: 83,
         sourceTags: ["ActivityPub", "W3C", "FEP044f", "Fediverse"],
         rawBody: "We have published the updated Social Web WG draft covering standardized Quote Posts (FEP-044f), Portable Actor Key Rotation, and HTTP Message Signatures.",
@@ -89,12 +242,13 @@ window.CLAIRE_SYND_SEEDS = {
 <li><strong>Actor Portability (LOLA)</strong>: Seamless migration of followers and authored collections without severing object URIs.</li></ul>
 <p>Tags from ActivityPub payload: <code>#ActivityPub</code> <code>#W3C</code> <code>#FEP044f</code> <code>#Fediverse</code></p>`,
         ingestState: "unlinked", linkedDoc: null,
-        publishState: "boosted", publishedInfo: { mode: "announce", at: "40분 전", note: "ActivityPub 순수 부스트(Announce) 완료" }
+        publishState: "boosted", publishedInfo: { mode: "boost", at: "40분 전", accounts: ["acc0-ap"], note: "연결 계정 부스트(reblog) 완료" }
       },
       {
-        id: "i0-3", feedId: "f0-3", proto: "at", format: "AT-URI",
+        id: "i0-3", feedId: "f0-3", proto: "at", format: "AT-URI", viaAccount: "acc0-at",
         title: "Jetstream v2 Deterministic Cursor Replay & Lexicon Tag Facets for Knowledge Archiving",
         author: "@atproto.com", url: "https://bsky.app/profile/atproto.com/post/3l7x9k2",
+        atUri: "at://did:plc:atproto-dev/app.bsky.feed.post/3l7x9k2", atCid: "bafyreib2rxk3rh6kzwq7jetstreamv2",
         timeAgo: "어제", timestamp: 1761627000, unread: true, starred: false, score: 76,
         sourceTags: ["AT Protocol", "Jetstream", "Lexicon"],
         rawBody: "Jetstream JSON firehose relays now support compressed zstd cursor replay and lossless facet tag extraction for periodic archivers.",
@@ -107,7 +261,76 @@ window.CLAIRE_SYND_SEEDS = {
   },
   "1": {
     id: 1, seq: 1, icon: "🤖", label: "AI 및 클라우드 시스템", fqdn: "ai.example.com", dbPath: "data/themes/1/claire.db", isPublic: true,
-    actorHandle: "@ai@ai.example.com", followers: 148, defaultFocus: "시스템 아키텍처 및 추론 메모리 대역폭 최적화 중심",
+    defaultFocus: "시스템 아키텍처 및 추론 메모리 대역폭 최적화 중심",
+    accounts: [
+      {
+        id: "acc1-ap", proto: "ap", software: "Mastodon", serverVersion: "5.0.0", server: "fedi.ai.example.com",
+        handle: "@ai@fedi.ai.example.com", displayName: "Claire · AI Systems 🤖",
+        auth: "OAuth 2.0 (Authorization Code + PKCE)", scopes: ["read", "write:statuses", "write:favourites", "write:follows"],
+        canPublish: true, status: "ok", statusNote: "스트리밍 연결됨 (user)", charLimit: 500,
+        timelines: [
+          { id: "home", icon: "🏠", label: "홈 타임라인", api: "GET /api/v1/timelines/home", collectable: true },
+          { id: "notifications", icon: "🔔", label: "알림", api: "GET /api/v1/notifications" },
+          { id: "tag:KVCache", icon: "#", label: "#KVCache", api: "GET /api/v1/timelines/tag/KVCache", collectable: true },
+          { id: "list:ml-researchers", icon: "📋", label: "리스트 · ML 시스템 연구자", api: "GET /api/v1/timelines/list/3", collectable: true }
+        ]
+      },
+      {
+        id: "acc1-at", proto: "at", software: "자체 호스팅 PDS", server: "pds.ai.example.com",
+        handle: "@ai.example.com", did: "did:web:ai.example.com", displayName: "Claire · AI Systems 🤖",
+        auth: "앱 비밀번호 (com.atproto.server.createSession)", scopes: ["app-password"],
+        canPublish: true, status: "warn", statusNote: "앱 비밀번호 사용 중 — OAuth 전환 권장", charLimit: 300,
+        timelines: [
+          { id: "following", icon: "🏠", label: "Following", api: "app.bsky.feed.getTimeline", collectable: true },
+          { id: "notifications", icon: "🔔", label: "알림", api: "app.bsky.notification.listNotifications" },
+          { id: "feed:ml-systems", icon: "🧭", label: "커스텀 피드 · ML Systems", api: "app.bsky.feed.getFeed (at://did:plc:mlsys-feed/app.bsky.feed.generator/ml-systems)", collectable: true }
+        ]
+      }
+    ],
+    posts: [
+      {
+        id: "p1-1", accountId: "acc1-ap", timelines: ["home", "tag:KVCache"], unread: true,
+        author: "KV Cache Research", handle: "@kvcache@sigmoid.example", time: "09:20", timestamp: 1761635400,
+        text: "New preprint: disaggregated KV cache routing across H100 prefill / L40S decode pools over RoCEv2 RDMA. TTFT −50%, TPOT −49% at 128K context. #KVCache #RDMA #vLLM",
+        hashtags: ["KVCache", "RDMA", "vLLM"],
+        card: { title: "Disaggregated KV Cache Routing Across Heterogeneous GPU Clusters", description: "TieredKV: a zero-copy prefix block router built atop vLLM and PagedAttention that streams FP8 KV blocks between tiers.", url: "https://arxiv.org/abs/2610.14821" },
+        url: "https://sigmoid.example/@kvcache/11543000101", uri: "https://sigmoid.example/users/kvcache/statuses/11543000101", remoteId: "115430001010008801",
+        counts: { replies: 9, boosts: 64, favs: 151 }, boosted: false, favourited: true, bookmarked: false
+      },
+      {
+        id: "p1-2", accountId: "acc1-ap", timelines: ["home", "list:ml-researchers"], unread: true,
+        author: "Georgi Gerganov", handle: "@ggerganov@mastodon.social", time: "08:31", timestamp: 1761632900,
+        text: "llama.cpp: EAGLE-3 draft heads for speculative decoding are merged. On M-series laptops we see ~1.8x on code completion with no quality loss. #llamacpp #SpeculativeDecoding",
+        hashtags: ["llamacpp", "SpeculativeDecoding"], card: null,
+        url: "https://mastodon.social/@ggerganov/11543000555", uri: "https://mastodon.social/users/ggerganov/statuses/11543000555", remoteId: "115430005550001402",
+        counts: { replies: 22, boosts: 140, favs: 512 }, boosted: false, favourited: false, bookmarked: false
+      },
+      {
+        id: "p1-3", accountId: "acc1-ap", timelines: ["notifications"], notif: { kind: "mention", by: "@infra-sre@hachyderm.example" }, unread: true,
+        author: "Infra SRE", handle: "@infra-sre@hachyderm.example", time: "07:12", timestamp: 1761628300,
+        text: "@ai 지난주 적재 발행하신 PagedAttention 요약, 사내 위키로 인용해도 될까요? 원문 arXiv 링크와 같이 걸겠습니다.",
+        hashtags: [], card: null,
+        url: "https://hachyderm.example/@infra-sre/11543000999", uri: "https://hachyderm.example/users/infra-sre/statuses/11543000999", remoteId: "115430009990000117",
+        counts: { replies: 0, boosts: 0, favs: 0 }, boosted: false, favourited: false, bookmarked: false
+      },
+      {
+        id: "p1-4", accountId: "acc1-at", timelines: ["following", "feed:ml-systems"], unread: true,
+        author: "vLLM Project", handle: "@vllm-project.example.org", time: "08:06", timestamp: 1761632160,
+        text: "vLLM v0.9: zero-overhead speculative decoding — draft verification is fused into the scheduler step, no host-device sync bubbles. #vLLM #SpeculativeDecoding",
+        hashtags: ["vLLM", "SpeculativeDecoding"],
+        card: { title: "Zero-Overhead Speculative Decoding in vLLM v0.9", description: "EAGLE-3 / ngram draft tokens run inside the unified persistent CUDA graph runner without Python-side round trips.", url: "https://blog.vllm.ai/2026/10/speculative-v09.html" },
+        url: "https://bsky.app/profile/vllm-project.example.org/post/3l7y1vv", uri: "at://did:plc:vllmproject/app.bsky.feed.post/3l7y1vv", cid: "bafyreif5vllmv09specdecodefused",
+        counts: { replies: 11, boosts: 97, favs: 330 }, boosted: false, favourited: false, bookmarked: false
+      },
+      {
+        id: "p1-5", accountId: "acc1-at", timelines: ["feed:ml-systems"], unread: false,
+        author: "Paged Thoughts", handle: "@paged-thoughts.example.net", time: "어제", timestamp: 1761600000,
+        text: "PagedAttention 블록 테이블을 클러스터 전역 주소 공간으로 확장하면 prefix 캐시 적중률이 87%까지 올라갑니다. RDMA 단방향 write 로 이관 지연을 숨기는 게 핵심. #PagedAttention #KVCache",
+        hashtags: ["PagedAttention", "KVCache"], card: null,
+        url: "https://bsky.app/profile/paged-thoughts.example.net/post/3l7u8pp", uri: "at://did:plc:pagedthoughts/app.bsky.feed.post/3l7u8pp", cid: "bafyreia9pagedattentionglobal",
+        counts: { replies: 3, boosts: 18, favs: 74 }, boosted: false, favourited: false, bookmarked: false
+      }
+    ],
     existingEntities: [
       { name: "vLLM", type: "Framework", count: 27 },
       { name: "KV Cache", type: "Concept", count: 31 },
@@ -121,7 +344,7 @@ window.CLAIRE_SYND_SEEDS = {
     feeds: [
       { id: "f1-1", folder: "학술 프리프린트", proto: "rss", format: "ATOM 1.0", interval: "15m", title: "arXiv cs.LG & cs.DC", url: "https://rss.arxiv.org/atom/cs.LG+cs.DC", etag: "200 OK" },
       { id: "f1-3", folder: "엔지니어링 블로그", proto: "rss", format: "RSS 2.0", interval: "15m", title: "vLLM Engineering Blog", url: "https://blog.vllm.ai/feed.xml", etag: "200 OK" },
-      { id: "f1-4", folder: "Fediverse 연구자", proto: "ap", format: "ActivityPub", interval: "push", title: "Georgi Gerganov", handle: "@ggerganov@mastodon.social", url: "https://mastodon.social/users/ggerganov", etag: "AP Push" }
+      { id: "f1-4", folder: "Fediverse 연구자", proto: "ap", format: "ActivityPub", interval: "5m", title: "Georgi Gerganov", handle: "@ggerganov@mastodon.social", url: "https://mastodon.social/@ggerganov", via: "acc1-ap", source: "계정 게시물 · GET /api/v1/accounts/:id/statuses", etag: "연결 계정 경유 · 폴링" }
     ],
     items: [
       {
@@ -166,7 +389,31 @@ window.CLAIRE_SYND_SEEDS = {
   },
   "2": {
     id: 2, seq: 2, icon: "📜", label: "문헌학 및 고전 연구", fqdn: "classics.example.com", dbPath: "data/themes/2/claire.db", isPublic: true,
-    actorHandle: "@classics@classics.example.com", followers: 64, defaultFocus: "사본 계보 및 원문 비평 중심",
+    defaultFocus: "사본 계보 및 원문 비평 중심",
+    accounts: [
+      {
+        id: "acc2-ap", proto: "ap", software: "Mastodon", serverVersion: "5.0.0", server: "scholar.example",
+        handle: "@classics@scholar.example", displayName: "Claire · 고전 연구 📜",
+        auth: "OAuth 2.0 (Authorization Code + PKCE)", scopes: ["read", "write:statuses", "write:favourites"],
+        canPublish: true, status: "ok", statusNote: "스트리밍 연결됨 (user)", charLimit: 500,
+        timelines: [
+          { id: "home", icon: "🏠", label: "홈 타임라인", api: "GET /api/v1/timelines/home", collectable: true },
+          { id: "notifications", icon: "🔔", label: "알림", api: "GET /api/v1/notifications" },
+          { id: "tag:Septuagint", icon: "#", label: "#Septuagint", api: "GET /api/v1/timelines/tag/Septuagint", collectable: true }
+        ]
+      }
+    ],
+    posts: [
+      {
+        id: "p2-1", accountId: "acc2-ap", timelines: ["home", "tag:Septuagint"], unread: true,
+        author: "Patristics Colloquium", handle: "@patristics@scholar.example", time: "어제", timestamp: 1761619000,
+        text: "P46 다중분광 촬영으로 히브리서 여백 주석이 새로 판독되었습니다. 구약 인용이 초기 알렉산드리아계 70인역 증언과 더 가깝게 정렬됩니다. #Septuagint #P46",
+        hashtags: ["Septuagint", "P46"],
+        card: { title: "Newly Digitized Papyrus Fragments of Pauline Epistles", description: "Multispectral imaging of P46 folio margins reveals scribal corrections aligning Old Testament citations with Alexandrian Septuagint witnesses.", url: "https://www.biblicalarchaeology.org/daily/pauline-papyrus-2026/" },
+        url: "https://scholar.example/@patristics/11542700300", uri: "https://scholar.example/users/patristics/statuses/11542700300", remoteId: "115427003000001200",
+        counts: { replies: 4, boosts: 21, favs: 66 }, boosted: false, favourited: false, bookmarked: false
+      }
+    ],
     existingEntities: [{ name: "70인역 (LXX)", type: "Paper", count: 15 }, { name: "바울 서신", type: "Concept", count: 11 }],
     rules: [{ id: "r2-1", name: "70인역 사본 연구 우선 오거나이즈", cond: "수집 태그 일치: #70인역", action: "점수 +40", enabled: true }],
     feeds: [{ id: "f2-1", folder: "성서학 저널", proto: "rss", format: "RSS 2.0", interval: "1h", title: "Biblical Archaeology Review", url: "https://www.biblicalarchaeology.org/feed/", etag: "200 OK" }],
@@ -185,7 +432,30 @@ window.CLAIRE_SYND_SEEDS = {
   },
   "3": {
     id: 3, seq: 3, icon: "🔒", label: "사내 보안 인텔리전스 (비공개)", fqdn: "", dbPath: "data/themes/3/claire.db", isPublic: false,
-    actorHandle: "(비공개 테마 — 외부 발행 차단)", followers: 0, defaultFocus: "영향 커널 버전 및 즉각 완화 조치 중심",
+    defaultFocus: "영향 커널 버전 및 즉각 완화 조치 중심",
+    accounts: [
+      {
+        id: "acc3-ap", proto: "ap", software: "Mastodon", serverVersion: "5.0.0", server: "infosec.example",
+        handle: "@secwatch@infosec.example", displayName: "보안 모니터링 (읽기 전용)",
+        auth: "OAuth 2.0 (Authorization Code + PKCE)", scopes: ["read"],
+        canPublish: false, status: "ok", statusNote: "읽기 전용 scope — 발행 불가", charLimit: 500,
+        timelines: [
+          { id: "home", icon: "🏠", label: "홈 타임라인", api: "GET /api/v1/timelines/home", collectable: true },
+          { id: "tag:CVE", icon: "#", label: "#CVE", api: "GET /api/v1/timelines/tag/CVE", collectable: true }
+        ]
+      }
+    ],
+    posts: [
+      {
+        id: "p3-1", accountId: "acc3-ap", timelines: ["home", "tag:CVE"], unread: true,
+        author: "oss-security relay", handle: "@oss_security@infosec.example", time: "09:05", timestamp: 1761634900,
+        text: "CVE-2026-39102: Linux eBPF verifier scalar bounds tracking → local privilege escalation, 6.10–6.13.4. Mitigation: kernel.unprivileged_bpf_disabled=1 #CVE #LinuxKernel #eBPF",
+        hashtags: ["CVE", "LinuxKernel", "eBPF"],
+        card: { title: "oss-security: CVE-2026-39102 Linux Kernel eBPF Verifier", description: "Improper scalar register bounds propagation in kernel/bpf/verifier.c.", url: "https://www.openwall.com/lists/oss-security/2026/10/28/1" },
+        url: "https://infosec.example/@oss_security/11542999001", uri: "https://infosec.example/users/oss_security/statuses/11542999001", remoteId: "115429990010000420",
+        counts: { replies: 12, boosts: 230, favs: 310 }, boosted: false, favourited: false, bookmarked: false
+      }
+    ],
     existingEntities: [{ name: "Linux Kernel", type: "Tool", count: 29 }, { name: "CVE-2026", type: "Event", count: 41 }, { name: "eBPF", type: "Concept", count: 13 }],
     rules: [{ id: "r3-1", name: "커널 권한 상승 즉시 적재", cond: "수집 태그: #LinuxKernel + #CVE-2026", action: "비공개 DB 자동 적재", enabled: true }],
     feeds: [{ id: "f3-1", folder: "취약점 공지", proto: "rss", format: "ATOM 1.0", interval: "5m", title: "OSS-Security Advisories", url: "https://www.openwall.com/lists/oss-security/rss", etag: "200 OK" }],

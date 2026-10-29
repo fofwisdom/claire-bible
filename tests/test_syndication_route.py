@@ -57,7 +57,7 @@ def test_syndication_and_preferences_routes_io_interface(syndication_env) -> Non
         assert "Claire Bible — Syndication" in res_public.text
         assert "authScope: 'public'" in res_public.text
         assert 'data-layout="three-panel"' in res_public.text
-        assert 'data-list-style="flat"' in res_public.text
+        assert 'data-list-style="list"' in res_public.text
         assert 'id="btn-toggle-list-style"' in res_public.text
         assert 'id="btn-toggle-layout"' in res_public.text
         assert 'id="headlines-container"' in res_public.text
@@ -66,6 +66,35 @@ def test_syndication_and_preferences_routes_io_interface(syndication_env) -> Non
         assert "적재 본문" in res_public.text
         assert "부스트 / 인용 발행" in res_public.text
 
+        # Tab menu bar below the top bar: federated client (tab 1) and knowledge base (tab 2).
+        assert 'data-app-tab="client"' in res_public.text
+        assert 'id="app-tablist"' in res_public.text
+        assert 'id="panel-client"' in res_public.text
+        assert 'id="panel-kb"' in res_public.text
+        assert "연합 클라이언트" in res_public.text
+        assert "CLAIRE_SYND_CLIENT_FACTORY" in res_public.text
+
+        # Four list styles: list / compact / card / roomy.
+        for style in ("list", "compact", "card", "roomy"):
+            assert f'data-set-list-style="{style}"' in res_public.text
+        # Labels show only the localized name; English names live in the i18n table.
+        for label in ("☰ 목록<", "≡ 조밀하게<", "▤ 일반<", "▭ 넓게<"):
+            assert label in res_public.text
+        for paren in ("(리스트)", "(컴팩트)", "(카드)", "(루미)"):
+            assert paren not in res_public.text
+        assert 'en: "Compact"' in res_public.text
+        assert 'en: "Roomy"' in res_public.text
+
+        # ActivityPub and AT go through connected server accounts, not a self-hosted actor.
+        assert "/api/v1/statuses" in res_public.text
+        assert "com.atproto.repo.createRecord" in res_public.text
+        assert 'id="modal-connect"' in res_public.text
+
+        # ActivityPub client support baseline is Mastodon 5.0+, checked against /api/v2/instance.
+        assert 'minVersion: "5.0.0"' in res_public.text
+        assert "checkMastodonBaseline" in res_public.text
+        assert "GoToSocial 0.19" not in res_public.text
+
         res_head = client.head("/syndication")
         assert res_head.status_code == 200
 
@@ -73,10 +102,15 @@ def test_syndication_and_preferences_routes_io_interface(syndication_env) -> Non
         assert res_prefs.status_code == 200
         assert "Syndication 환경설정" in res_prefs.text
         assert "태그 = 엔티티 적재 정책" in res_prefs.text
-        assert "한 줄 FlatList 모드" in res_prefs.text
-        assert "상세 카드 모드" in res_prefs.text
+        assert '<option value="list">목록 — 한 줄 행</option>' in res_prefs.text
+        assert '<option value="card">일반 — 요약 2줄 미리보기</option>' in res_prefs.text
+        assert "(리스트)" not in res_prefs.text
+        assert "Mastodon 5.0 이상" in res_prefs.text
         assert 'id="pref-list-style"' in res_prefs.text
         assert 'id="pref-layout-mode"' in res_prefs.text
+        assert 'id="pref-app-tab"' in res_prefs.text
+        assert 'id="panel-accounts"' in res_prefs.text
+        assert "연결 서버 계정" in res_prefs.text
 
         res_prefs_head = client.head("/syndication/preferences")
         assert res_prefs_head.status_code == 200

@@ -76,7 +76,7 @@
 
   <header class="pref-topbar">
     <div style="display:flex;align-items:center;gap:10px;min-width:0;flex-wrap:wrap">
-      <a id="link-back-reader" class="pref-back-btn" href="/syndication" title="신디케이션 리더(FlatList / 3-Panel)로 복귀">← 리더로 돌아가기 (/syndication)</a>
+      <a id="link-back-reader" class="pref-back-btn" href="/syndication" title="신디케이션 작업 공간(연합 클라이언트 · 지식베이스)으로 복귀">← 리더로 돌아가기 (/syndication)</a>
       <span style="color:var(--muted)">/</span>
       <span class="pref-brand">⚙️ Syndication 상세 환경설정 (Preferences)</span>
       <label for="pref-theme-select" class="sr-only">대상 지식 테마 선택</label>
@@ -91,7 +91,8 @@
   <div class="pref-shell">
     <nav class="pref-nav" role="tablist" aria-orientation="vertical" aria-label="신디케이션 환경설정 범주">
       <div class="pref-nav-title">TT-RSS 계승 설정 범주</div>
-      <button type="button" class="pref-nav-btn" role="tab" id="tab-btn-reader" aria-controls="panel-reader" aria-selected="true" data-tab="reader"><span>📖 리더 · FlatList 화면</span></button>
+      <button type="button" class="pref-nav-btn" role="tab" id="tab-btn-reader" aria-controls="panel-reader" aria-selected="true" data-tab="reader"><span>📖 리더 · 목록 스타일</span></button>
+      <button type="button" class="pref-nav-btn" role="tab" id="tab-btn-accounts" aria-controls="panel-accounts" aria-selected="false" data-tab="accounts"><span>🔌 연결 서버 계정 (AP · AT)</span></button>
       <button type="button" class="pref-nav-btn" role="tab" id="tab-btn-feeds" aria-controls="panel-feeds" aria-selected="false" data-tab="feeds"><span>📡 정기 수집 대상 · 폴더</span></button>
       <button type="button" class="pref-nav-btn" role="tab" id="tab-btn-tags" aria-controls="panel-tags" aria-selected="false" data-tab="tags"><span>🏷️ 태그 = 엔티티 적재 정책</span></button>
       <button type="button" class="pref-nav-btn" role="tab" id="tab-btn-rules" aria-controls="panel-rules" aria-selected="false" data-tab="rules"><span>⚡ 오거나이즈 · 자동 적재</span></button>
@@ -105,17 +106,30 @@
         <!-- PANEL 1: Reader & FlatList UI -->
         <section id="panel-reader" role="tabpanel" aria-labelledby="tab-btn-reader" class="pref-panel">
           <div class="pref-card">
-            <h2>📖 리더 및 FlatList 레이아웃 환경설정</h2>
-            <p class="pref-desc">Tiny Tiny RSS 스타일의 한 줄 <code>FlatList</code> 모드와 3단 분할 뷰, 그리고 하나의 컨텐트 뷰 안에서의 <b>수집 원문 ⇄ 적재 본문</b> 기본 전환 동작을 제어합니다. 변경 사항은 즉시 저장되어 <code>/syndication</code> 리더에 반영됩니다.</p>
+            <h2>📖 리더 및 목록 스타일 환경설정</h2>
+            <p class="pref-desc">작업 공간 탭(<b>연합 클라이언트</b> · <b>지식베이스</b>)의 기본값, 두 탭에 공통 적용되는 <b>목록 스타일</b>과 3단/2단 분할, 그리고 하나의 컨텐트 뷰 안에서의 <b>수집 원문 ⇄ 적재 본문</b> 기본 전환 동작을 제어합니다. 변경 사항은 즉시 저장되어 <code>/syndication</code>에 반영됩니다.</p>
 
             <div class="pref-row">
               <div class="pref-row-label">
-                <strong>기본 목록 표시 형태 (List Style)</strong>
-                <span><code>한 줄 FlatList</code>는 모든 메타데이터를 34px 단일 행 테이블로 나열하며, <code>상세 카드</code>는 초기 프로토타입처럼 다단 행에 제목, 본문 미리보기, 태그 칩, 빠른 적재/발행 버튼을 카드 형태로 풍부하게 노출합니다.</span>
+                <strong>기본 작업 공간 탭 (App Tab)</strong>
+                <span>탑바 밑 탭 메뉴에서 처음 열릴 탭입니다. <code>/syndication?tab=client</code> 또는 <code>?tab=kb</code>로 직접 지정할 수도 있습니다.</span>
               </div>
-              <select id="pref-list-style" class="pref-select" aria-label="기본 목록 표시 형태">
-                <option value="flat">한 줄 FlatList 모드 (TT-RSS 컴팩트 테이블)</option>
-                <option value="cards">상세 카드 모드 (초기 프로토타입 스타일 다단 카드)</option>
+              <select id="pref-app-tab" class="pref-select" aria-label="기본 작업 공간 탭">
+                <option value="client">🌐 연합 클라이언트 (ActivityPub · AT)</option>
+                <option value="kb">📚 지식베이스 (수집 · 적재 · 발행)</option>
+              </select>
+            </div>
+
+            <div class="pref-row">
+              <div class="pref-row-label">
+                <strong>기본 목록 스타일 (List Style)</strong>
+                <span><code>목록</code>은 34px 한 줄 행, <code>조밀하게</code>는 요약 없이 제목·메타·태그만, <code>일반</code>은 요약 2줄 미리보기 카드, <code>넓게</code>는 요약 전체(적재 항목은 Claire 적재 요약 포함)를 표시합니다. 리더에서 <kbd>l</kbd> 키로 순환 전환합니다.</span>
+              </div>
+              <select id="pref-list-style" class="pref-select" aria-label="기본 목록 스타일">
+                <option value="list">목록 — 한 줄 행</option>
+                <option value="compact">조밀하게 — 요약 표시 안 함</option>
+                <option value="card">일반 — 요약 2줄 미리보기</option>
+                <option value="roomy">넓게 — 요약 전체 표시</option>
               </select>
             </div>
 
@@ -132,7 +146,7 @@
 
             <div class="pref-row">
               <div class="pref-row-label">
-                <label for="pref-show-excerpt"><strong>FlatList 행 내부 한 줄 본문 발췌(Excerpt) 표시</strong></label>
+                <label for="pref-show-excerpt"><strong>'목록' 스타일 행 내부 한 줄 본문 발췌(Excerpt) 표시</strong></label>
                 <span>제목과 작성자 우측의 남는 가로 영역에 <code>— 본문 첫 문장 미리보기</code>를 말줄임표와 함께 아름답게 배치합니다.</span>
               </div>
               <input id="pref-show-excerpt" type="checkbox" switch/>
@@ -177,10 +191,47 @@
             <div class="pref-row">
               <div class="pref-row-label">
                 <label for="pref-auto-read"><strong>항목 열람 시 자동으로 읽음(Read) 상태 전환</strong></label>
-                <span>FlatList 행을 클릭해 본문을 펼치거나 <code>j/k</code> 단축키로 이동할 때 안읽음 표시를 자동 해제합니다.</span>
+                <span>목록 행·카드·게시물을 클릭하거나 <code>j/k</code> 단축키로 이동할 때 안읽음 표시를 자동 해제합니다.</span>
               </div>
               <input id="pref-auto-read" type="checkbox" switch/>
             </div>
+          </div>
+        </section>
+
+        <!-- PANEL 1-B: Connected Server Accounts (ActivityPub · AT Protocol) -->
+        <section id="panel-accounts" role="tabpanel" aria-labelledby="tab-btn-accounts" class="pref-panel" hidden>
+          <div class="pref-card">
+            <h2>🔌 연결 서버 계정 (ActivityPub · AT Protocol)</h2>
+            <p class="pref-desc">Claire 는 ActivityPub 서버(Actor · Inbox · HTTP 서명)나 AT Protocol PDS 를 <b>직접 구현하지 않습니다</b>. 각 테마는 기존 서버의 계정에 <b>클라이언트로 접속</b>하며, 타임라인 열람 · 정기 수집 · 부스트 · 발행은 모두 그 계정의 서버 API(Mastodon Client API · AT XRPC)를 Claire 서버 프록시로 호출합니다. 계정은 테마별로 격리됩니다.</p>
+            <p class="pref-desc"><b>ActivityPub 지원 기준: Mastodon 5.0 이상.</b> 연결 시 <code>GET /api/v2/instance</code> 의 <code>version</code> 으로 확인하며, 5.0 미만이거나 <code>(compatible; …)</code> 로 API 호환만 표기하는 서버, Mastodon 이외의 서버 소프트웨어는 연결하지 않습니다. 다른 서버 소프트웨어 사용자의 게시물은 연결된 Mastodon 서버를 통해 그대로 읽고 부스트할 수 있습니다.</p>
+
+            <div style="overflow-x:auto">
+              <table class="pref-table" aria-label="연결 서버 계정 목록">
+                <thead>
+                  <tr>
+                    <th>프로토콜</th>
+                    <th>서버 · 소프트웨어</th>
+                    <th>계정</th>
+                    <th>인증 방식</th>
+                    <th>scope</th>
+                    <th>발행</th>
+                    <th>관리</th>
+                  </tr>
+                </thead>
+                <tbody id="pref-accounts-tbody"></tbody>
+              </table>
+            </div>
+            <p class="pref-desc">새 계정 연결은 <a href="/syndication?tab=client" id="link-connect-client">연합 클라이언트 탭</a>의 <b>🔌 계정 연결</b>에서 OAuth 승인 흐름으로 진행합니다. 연결 해제 시 서버 토큰도 함께 폐기합니다.</p>
+
+            <details class="pref-disclosure" open>
+              <summary>🛡️ 연결 계정 보안 원칙</summary>
+              <div style="margin-top:10px;font-size:12px;color:var(--muted);line-height:1.6">
+                <div>• <b>토큰 서버 보관</b>: 접근 토큰은 테마 DB(<code>syndication_accounts</code>)에 암호화 저장되며 브라우저로 전달하지 않습니다. CSP <code>default-src 'self'</code> 아래에서 모든 원격 호출은 Claire 서버 프록시를 거칩니다.</div>
+                <div>• <b>최소 scope</b>: ActivityPub 은 <code>read</code> + 필요한 <code>write:*</code> 세부 scope 만, AT 는 OAuth(PAR + DPoP) 우선 · 앱 비밀번호는 호환 모드입니다. 비공개 테마는 <code>read</code> 전용으로만 연결합니다.</div>
+                <div>• <b>폐기</b>: 연결 해제 시 <code>POST /oauth/revoke</code>(Mastodon) 또는 AT OAuth 토큰 폐기 · <code>com.atproto.server.deleteSession</code> 을 호출합니다.</div>
+                <div>• <b>서버 예절</b>: 응답의 레이트 리밋 헤더를 준수하고 <code>429</code>/<code>5xx</code> 에는 지수 백오프로 재시도하며, 사용자가 입력한 서버 주소도 SSRF 가드를 통과해야 합니다.</div>
+              </div>
+            </details>
           </div>
         </section>
 
@@ -190,7 +241,7 @@
             <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
               <div>
                 <h2>📡 정기 수집 대상 및 카테고리 폴더 관리</h2>
-                <p class="pref-desc">선택한 테마 DB에 연결된 RSS/Atom, ActivityPub(Fediverse), AT Protocol 수집 대상과 폴링 주기를 관리합니다.</p>
+                <p class="pref-desc">선택한 테마 DB의 RSS/Atom 피드와, <b>연결 계정을 경유</b>해 수집하는 ActivityPub · AT Protocol 대상(계정 · 해시태그 · 리스트 · 커스텀 피드)과 수집 주기를 관리합니다.</p>
               </div>
             </div>
 
@@ -202,6 +253,7 @@
                     <th>카테고리 폴더</th>
                     <th>수집 대상 이름</th>
                     <th>식별자 / 피드 URI</th>
+                    <th>경유 계정</th>
                     <th>수집 주기</th>
                     <th>상태</th>
                   </tr>
@@ -210,7 +262,7 @@
               </table>
             </div>
 
-            <form id="pref-add-feed-form" style="display:grid;grid-template-columns:130px 150px 1fr 1.3fr 110px auto;gap:8px;align-items:end;padding-top:10px;border-top:1px solid var(--border)">
+            <form id="pref-add-feed-form" style="display:grid;grid-template-columns:130px 140px 1fr 1.2fr 1fr 110px auto;gap:8px;align-items:end;padding-top:10px;border-top:1px solid var(--border)">
               <div>
                 <label for="new-feed-proto" style="display:block;font-size:11.5px;font-weight:700;margin-bottom:4px">프로토콜</label>
                 <select id="new-feed-proto" class="pref-select" style="width:100%">
@@ -228,8 +280,12 @@
                 <input id="new-feed-title" type="text" required class="pref-input" style="width:100%" placeholder="예: LWN.net Kernel"/>
               </div>
               <div>
-                <label for="new-feed-url" style="display:block;font-size:11.5px;font-weight:700;margin-bottom:4px">URL / @핸들 / DID</label>
+                <label for="new-feed-url" style="display:block;font-size:11.5px;font-weight:700;margin-bottom:4px">URL / @핸들 / #태그</label>
                 <input id="new-feed-url" type="text" required class="pref-input" style="width:100%" placeholder="https://lwn.net/headlines/rss"/>
+              </div>
+              <div>
+                <label for="new-feed-via" style="display:block;font-size:11.5px;font-weight:700;margin-bottom:4px">경유 계정 (AP · AT)</label>
+                <select id="new-feed-via" class="pref-select" style="width:100%" disabled></select>
               </div>
               <div>
                 <label for="new-feed-interval" style="display:block;font-size:11.5px;font-weight:700;margin-bottom:4px">주기</label>
@@ -237,7 +293,7 @@
                   <option value="15m">매 15분</option>
                   <option value="5m">매 5분</option>
                   <option value="1h">매 1시간</option>
-                  <option value="push">AP Push</option>
+                  <option value="stream">스트리밍 (연결 계정)</option>
                 </select>
               </div>
               <button type="submit" class="pref-btn pref-btn-pri">+ 추가</button>
@@ -316,15 +372,15 @@
         <!-- PANEL 5: Outbound Boost / Quote & Ingested Publish -->
         <section id="panel-outbound" role="tabpanel" aria-labelledby="tab-btn-outbound" class="pref-panel" hidden>
           <div class="pref-card">
-            <h2>🔁 RSS/ATOM/AP 부스트·인용 발행 및 적재 본문 발행 정책</h2>
-            <p class="pref-desc">RSS/ATOM 컨텐트 역시 단순 원문 열람에 그치지 않고 <b>부스트/인용 발행(Boost / Quote)</b>과 <b>적재 발행(Ingested Body Publish)</b> 두 가지 방식을 모두 지원합니다.</p>
+            <h2>🔁 연결 계정 부스트·인용 발행 및 적재 본문 발행 정책</h2>
+            <p class="pref-desc">RSS/ATOM · ActivityPub · AT 항목 모두 <b>부스트/인용 발행(Boost / Quote)</b>과 <b>적재 발행(Ingested Body Publish)</b>을 지원합니다. 발행은 Claire 자체 액터가 아니라 연결 계정의 서버 API(<code>POST /api/v1/statuses</code> · <code>com.atproto.repo.createRecord</code>)로 수행되며, 부스트는 같은 프로토콜 계정에서만 가능합니다.</p>
 
             <div class="pref-row">
               <div class="pref-row-label">
-                <strong>현재 테마 발신 ActivityPub 액터</strong>
-                <span id="pref-actor-desc">테마 공개 정책에 따라 외부 연합우주 발신 가능 여부가 결정됩니다.</span>
+                <strong>현재 테마 발행 연결 계정</strong>
+                <span id="pref-actor-desc">발행 권한(write scope)이 있는 연결 계정으로만 외부 발행 · 부스트할 수 있습니다.</span>
               </div>
-              <code id="pref-actor-handle" style="font-family:'D2Coding',monospace;font-size:12.5px;padding:4px 8px;background:var(--panel-bg);border:1px solid var(--border);border-radius:6px"></code>
+              <code id="pref-actor-handle" style="font-family:'D2Coding',monospace;font-size:12.5px;padding:4px 8px;background:var(--panel-bg);border:1px solid var(--border);border-radius:6px;white-space:pre-line"></code>
             </div>
 
             <div class="pref-row">
@@ -341,12 +397,24 @@
             <div class="pref-row">
               <div class="pref-row-label">
                 <strong>ActivityPub 항목 발행 대화상자 기본 모드</strong>
-                <span>원격 Fediverse 포스트에서 발행 버튼을 눌렀을 때 기본으로 선택될 모드입니다.</span>
+                <span>연결 계정 경유로 수집한 Fediverse 게시물에서 발행 버튼을 눌렀을 때 기본으로 선택될 모드입니다.</span>
               </div>
               <select id="pref-ap-pubmode" class="pref-select" aria-label="ActivityPub 기본 발행 모드">
-                <option value="announce">🔁 순수 부스트 (ActivityPub Announce)</option>
-                <option value="quote_boost">💬 인용 부스트 (원문 객체 인용 + 코멘트 Note)</option>
-                <option value="ingested_create">📡 적재 발행 (Claire 적재 본문 게시 Create)</option>
+                <option value="boost">🔁 부스트 (연결 계정 reblog · POST /api/v1/statuses/:id/reblog)</option>
+                <option value="quote_boost">💬 인용 발행 (quoted_status_id · 인용 비허용 게시물은 링크 인용)</option>
+                <option value="ingested_create">📡 적재 발행 (Claire 적재 본문으로 새 글 작성)</option>
+              </select>
+            </div>
+
+            <div class="pref-row">
+              <div class="pref-row-label">
+                <strong>AT Protocol 항목 발행 대화상자 기본 모드</strong>
+                <span>Bluesky 등 AT 게시물에서 발행 버튼을 눌렀을 때 기본으로 선택될 모드입니다.</span>
+              </div>
+              <select id="pref-at-pubmode" class="pref-select" aria-label="AT Protocol 기본 발행 모드">
+                <option value="boost">🔁 리포스트 (app.bsky.feed.repost)</option>
+                <option value="quote_boost">💬 인용 발행 (app.bsky.embed.record)</option>
+                <option value="ingested_create">📡 적재 발행 (app.bsky.feed.post + 공유 링크 카드)</option>
               </select>
             </div>
 
@@ -429,9 +497,12 @@
     const PREFS_KEY = "claireSyndicationPrefs_v2";
     const CUSTOM_STATE_KEY = "claireSyndicationCustomState_v2";
 
+    const LIST_STYLES = ["list", "compact", "card", "roomy"];
+    const LEGACY_LIST_STYLES = { flat: "list", cards: "card" };
     const DEFAULT_PREFS = {
+      appTab: "client",
       layoutMode: "three-panel",
-      listStyle: "flat",
+      listStyle: "list",
       showExcerpt: true,
       defaultContentTab: "auto",
       readerFont: "sans",
@@ -446,33 +517,43 @@
       },
       outboundPolicy: {
         rssDefaultMode: "quote_boost",
-        apDefaultMode: "announce",
+        apDefaultMode: "boost",
+        atDefaultMode: "boost",
         includeCanonicalShareLink: true,
         quoteTemplate: "📌 {{title}} — {{url}} {{hashtags}}"
       }
     };
 
+    /* ActivityPub · AT 는 테마에 연결된 기존 서버 계정을 경유한다 (syndication_data.js 시드와 동일한 식별자). */
     const SEED_THEME_META = {
       "0": {
-        id: 0, icon: "📚", label: "기본 지식베이스", isPublic: true, actorHandle: "@claire@claire.example.com",
+        id: 0, icon: "📚", label: "기본 지식베이스", isPublic: true,
+        accounts: [
+          { id: "acc0-ap", proto: "ap", software: "Mastodon", serverVersion: "5.0.0", server: "social.example.com", handle: "@claire@social.example.com", auth: "OAuth 2.0 (Authorization Code + PKCE)", scopes: ["read", "write:statuses", "write:favourites", "write:bookmarks", "write:follows"], canPublish: true },
+          { id: "acc0-at", proto: "at", software: "Bluesky PDS", server: "bsky.social", handle: "@claire.example.com", auth: "AT OAuth (PAR + DPoP)", scopes: ["atproto", "transition:generic"], canPublish: true }
+        ],
         feeds: [
           { id: "f0-1", folder: "오픈소스 릴리스", proto: "rss", interval: "15m", title: "SQLite Release Log", url: "https://sqlite.org/news.atom", etag: "200 OK" },
-          { id: "f0-2", folder: "Fediverse 표준 기구", proto: "ap", interval: "push", title: "W3C Social Web WG", url: "@w3c@w3c.social", etag: "AP Inbox 활성" },
-          { id: "f0-3", folder: "분산 소셜 프로토콜", proto: "at", interval: "15m", title: "AT Protocol Core Dev", url: "at://did:plc:atproto-dev", etag: "Jetstream 동기화" }
+          { id: "f0-2", folder: "Fediverse 표준 기구", proto: "ap", interval: "stream", title: "W3C Social Web WG", url: "@w3c@w3c.social", via: "acc0-ap", etag: "연결 계정 경유 · 스트리밍" },
+          { id: "f0-3", folder: "분산 소셜 프로토콜", proto: "at", interval: "15m", title: "AT Protocol Core Dev", url: "@atproto.com", via: "acc0-at", etag: "PDS 커서 동기화" }
         ],
         rules: [
           { id: "r0-1", name: "SQLite 릴리스 노트 우선 오거나이즈", cond: "엔티티/태그 일치: [[SQLite]]", action: "연관도 +45 · 별표 부여", enabled: true },
-          { id: "r0-2", name: "W3C 표준 권고안 자동 적재 전달", cond: "출처: @w3c@w3c.social + [[ActivityPub]]", action: "프로젝트 적재 파이프라인 자동 전달", enabled: true }
+          { id: "r0-2", name: "W3C 표준 권고안 자동 적재 전달", cond: "출처: @w3c@w3c.social (연결 계정 경유) + [[ActivityPub]]", action: "프로젝트 적재 파이프라인 자동 전달", enabled: true }
         ]
       },
       "1": {
-        id: 1, icon: "🤖", label: "AI 및 클라우드 시스템", isPublic: true, actorHandle: "@ai@ai.example.com",
+        id: 1, icon: "🤖", label: "AI 및 클라우드 시스템", isPublic: true,
+        accounts: [
+          { id: "acc1-ap", proto: "ap", software: "Mastodon", serverVersion: "5.0.0", server: "fedi.ai.example.com", handle: "@ai@fedi.ai.example.com", auth: "OAuth 2.0 (Authorization Code + PKCE)", scopes: ["read", "write:statuses", "write:favourites", "write:follows"], canPublish: true },
+          { id: "acc1-at", proto: "at", software: "자체 호스팅 PDS", server: "pds.ai.example.com", handle: "@ai.example.com", auth: "앱 비밀번호 (com.atproto.server.createSession)", scopes: ["app-password"], canPublish: true }
+        ],
         feeds: [
           { id: "f1-1", folder: "학술 프리프린트", proto: "rss", interval: "15m", title: "arXiv cs.LG & cs.DC", url: "https://rss.arxiv.org/atom/cs.LG+cs.DC", etag: "200 OK" },
-          { id: "f1-2", folder: "학술 프리프린트", proto: "ap", interval: "push", title: "Scholar Papers Bot", url: "@papers@scholar.social", etag: "AP Push 수신 중" },
+          { id: "f1-2", folder: "학술 프리프린트", proto: "ap", interval: "stream", title: "Scholar Papers Bot", url: "@papers@scholar.social", via: "acc1-ap", etag: "연결 계정 경유 · 폴링" },
           { id: "f1-3", folder: "엔지니어링 블로그", proto: "rss", interval: "15m", title: "vLLM Engineering Blog", url: "https://blog.vllm.ai/feed.xml", etag: "304 Not Modified" },
-          { id: "f1-4", folder: "Fediverse 연구자", proto: "ap", interval: "push", title: "Georgi Gerganov", url: "@ggerganov@mastodon.social", etag: "AP Push 수신 중" },
-          { id: "f1-5", folder: "AT Protocol 연구 스트림", proto: "at", interval: "15m", title: "ML Systems Feed (AT)", url: "at://did:plc:mlsys-feed", etag: "커서 수집 정상" }
+          { id: "f1-4", folder: "Fediverse 연구자", proto: "ap", interval: "5m", title: "Georgi Gerganov", url: "@ggerganov@mastodon.social", via: "acc1-ap", etag: "연결 계정 경유 · 폴링" },
+          { id: "f1-5", folder: "AT Protocol 연구 스트림", proto: "at", interval: "15m", title: "ML Systems Feed (AT)", url: "at://did:plc:mlsys-feed/app.bsky.feed.generator/ml-systems", via: "acc1-at", etag: "커서 수집 정상" }
         ],
         rules: [
           { id: "r1-1", name: "추론 최적화 논문 고득점 오거나이즈", cond: "엔티티/태그 일치 ≥ 2 ([[vLLM]], [[KV Cache]], [[Speculative Decoding]])", action: "연관도 +50 · 상단 배치", enabled: true },
@@ -480,17 +561,23 @@
         ]
       },
       "2": {
-        id: 2, icon: "📜", label: "문헌학 및 고전 연구", isPublic: true, actorHandle: "@classics@classics.example.com",
+        id: 2, icon: "📜", label: "문헌학 및 고전 연구", isPublic: true,
+        accounts: [
+          { id: "acc2-ap", proto: "ap", software: "Mastodon", serverVersion: "5.0.0", server: "scholar.example", handle: "@classics@scholar.example", auth: "OAuth 2.0 (Authorization Code + PKCE)", scopes: ["read", "write:statuses", "write:favourites"], canPublish: true }
+        ],
         feeds: [
           { id: "f2-1", folder: "성서학 저널", proto: "rss", interval: "1h", title: "Biblical Archaeology Review", url: "https://www.biblicalarchaeology.org/feed/", etag: "200 OK" },
-          { id: "f2-2", folder: "교부학 Fediverse", proto: "ap", interval: "push", title: "Patristics Colloquium", url: "@patristics@scholar.social", etag: "AP Push 수신 중" }
+          { id: "f2-2", folder: "교부학 Fediverse", proto: "ap", interval: "stream", title: "Patristics Colloquium", url: "@patristics@scholar.example", via: "acc2-ap", etag: "연결 계정 경유 · 스트리밍" }
         ],
         rules: [
           { id: "r2-1", name: "70인역 사본 연구 우선 오거나이즈", cond: "엔티티/태그 일치: [[70인역 (LXX)]]", action: "연관도 +40 · 별표 부여", enabled: true }
         ]
       },
       "3": {
-        id: 3, icon: "🔒", label: "사내 보안 인텔리전스 (비공개)", isPublic: false, actorHandle: "(비공개 격리 테마 — 외부 발행 차단)",
+        id: 3, icon: "🔒", label: "사내 보안 인텔리전스 (비공개)", isPublic: false,
+        accounts: [
+          { id: "acc3-ap", proto: "ap", software: "Mastodon", serverVersion: "5.0.0", server: "infosec.example", handle: "@secwatch@infosec.example", auth: "OAuth 2.0 (Authorization Code + PKCE)", scopes: ["read"], canPublish: false }
+        ],
         feeds: [
           { id: "f3-1", folder: "취약점 공지", proto: "rss", interval: "5m", title: "OSS-Security Advisories", url: "https://www.openwall.com/lists/oss-security/rss", etag: "200 OK" }
         ],
@@ -505,13 +592,20 @@
       cfg.themes.forEach((t) => {
         const k = String(t.id);
         if (!SEED_THEME_META[k]) {
+          const isPublic = t.is_public !== false;
           SEED_THEME_META[k] = {
             id: t.id,
             icon: t.icon || "📁",
             label: t.label || `테마 #${t.id}`,
-            isPublic: t.is_public !== false,
-            actorHandle: t.is_public !== false ? `@theme${t.id}@${t.fqdn || "claire.example.com"}` : "(비공개 격리 테마 — 외부 발행 차단)",
-            feeds: JSON.parse(JSON.stringify(SEED_THEME_META["0"].feeds)),
+            isPublic,
+            accounts: SEED_THEME_META["0"].accounts.map((a) => ({
+              ...a,
+              id: `${a.id}-t${t.id}`,
+              handle: a.proto === "ap" ? `@theme${t.id}@${a.server}` : `@theme${t.id}.${a.server}`,
+              canPublish: isPublic && a.canPublish,
+              scopes: isPublic ? a.scopes : (a.proto === "ap" ? ["read"] : a.scopes)
+            })),
+            feeds: JSON.parse(JSON.stringify(SEED_THEME_META["0"].feeds)).map((f) => (f.via ? { ...f, via: `${f.via}-t${t.id}` } : f)),
             rules: JSON.parse(JSON.stringify(SEED_THEME_META["0"].rules))
           };
         }
@@ -523,12 +617,16 @@
         const raw = localStorage.getItem(PREFS_KEY);
         if (!raw) return JSON.parse(JSON.stringify(DEFAULT_PREFS));
         const parsed = JSON.parse(raw);
-        return {
+        const merged = {
           ...DEFAULT_PREFS,
           ...parsed,
           tagPolicy: { ...DEFAULT_PREFS.tagPolicy, ...(parsed.tagPolicy || {}) },
           outboundPolicy: { ...DEFAULT_PREFS.outboundPolicy, ...(parsed.outboundPolicy || {}) }
         };
+        const style = LEGACY_LIST_STYLES[merged.listStyle] || merged.listStyle;
+        merged.listStyle = LIST_STYLES.includes(style) ? style : DEFAULT_PREFS.listStyle;
+        if (merged.outboundPolicy.apDefaultMode === "announce") merged.outboundPolicy.apDefaultMode = "boost";
+        return merged;
       } catch (_) {
         return JSON.parse(JSON.stringify(DEFAULT_PREFS));
       }
@@ -573,12 +671,37 @@
 
     function updateBackLink() {
       document.getElementById("link-back-reader").href = `/syndication?theme=${encodeURIComponent(activeThemeKey)}`;
+      document.getElementById("link-connect-client").href = `/syndication?theme=${encodeURIComponent(activeThemeKey)}&tab=client`;
     }
 
     function renderThemeSelect() {
       const sel = document.getElementById("pref-theme-select");
       sel.innerHTML = Object.values(SEED_THEME_META).map((t) => `<option value="${t.id}" ${String(t.id) === String(activeThemeKey) ? "selected" : ""}>${escapeHtml(t.icon)} ${escapeHtml(t.label)} (Theme #${t.id})</option>`).join("");
       updateBackLink();
+    }
+
+    function getThemeAccounts(themeKey) {
+      const base = SEED_THEME_META[themeKey] ? SEED_THEME_META[themeKey].accounts : [];
+      const extra = (customState[themeKey] && Array.isArray(customState[themeKey].extraAccounts)) ? customState[themeKey].extraAccounts : [];
+      return [...base, ...extra.map((a) => ({ ...a, removable: true }))];
+    }
+
+    function protoLabel(proto) { return proto === "ap" ? "ActivityPub" : (proto === "at" ? "AT Proto" : "RSS/ATOM"); }
+    function protoPillClass(proto) { return proto === "ap" ? "pref-pill-ap" : (proto === "at" ? "pref-pill-at" : "pref-pill-rss"); }
+
+    function refreshViaSelect() {
+      const proto = document.getElementById("new-feed-proto").value;
+      const sel = document.getElementById("new-feed-via");
+      if (proto === "rss") {
+        sel.innerHTML = `<option value="">(RSS/ATOM 은 직접 수집)</option>`;
+        sel.disabled = true;
+        return;
+      }
+      const accs = getThemeAccounts(activeThemeKey).filter((a) => a.proto === proto);
+      sel.disabled = false;
+      sel.innerHTML = accs.length
+        ? accs.map((a) => `<option value="${escapeHtml(a.id)}">${escapeHtml(a.handle)}</option>`).join("")
+        : `<option value="">연결 계정 없음 — 먼저 연결</option>`;
     }
 
     function getThemeFeeds(themeKey) {
@@ -588,7 +711,8 @@
     }
 
     function renderFormValues() {
-      if (document.getElementById("pref-list-style")) document.getElementById("pref-list-style").value = prefs.listStyle || "flat";
+      document.getElementById("pref-app-tab").value = prefs.appTab === "kb" ? "kb" : "client";
+      document.getElementById("pref-list-style").value = prefs.listStyle || "list";
       document.getElementById("pref-layout-mode").value = prefs.layoutMode || "three-panel";
       document.getElementById("pref-show-excerpt").checked = !!prefs.showExcerpt;
       document.getElementById("pref-default-content-tab").value = prefs.defaultContentTab;
@@ -602,24 +726,52 @@
       document.getElementById("pref-auto-threshold").value = String(prefs.autoIngestThreshold);
       document.getElementById("pref-rss-pubmode").value = prefs.outboundPolicy.rssDefaultMode;
       document.getElementById("pref-ap-pubmode").value = prefs.outboundPolicy.apDefaultMode;
+      document.getElementById("pref-at-pubmode").value = prefs.outboundPolicy.atDefaultMode;
       document.getElementById("pref-include-sharelink").checked = !!prefs.outboundPolicy.includeCanonicalShareLink;
       document.getElementById("pref-quote-template").value = prefs.outboundPolicy.quoteTemplate;
 
       const theme = SEED_THEME_META[activeThemeKey] || SEED_THEME_META["0"];
-      document.getElementById("pref-actor-handle").textContent = theme.actorHandle;
-      document.getElementById("pref-actor-desc").textContent = theme.isPublic
-        ? "공개 테마입니다. RSS/ATOM 부스트·인용 발행 및 적재 본문(Create) 게시가 활성화되어 있습니다."
-        : "비공개 격리 테마입니다. 수집 및 내부 적재만 허용되며 외부 ActivityPub 발행은 차단됩니다.";
+      const accounts = getThemeAccounts(activeThemeKey);
+      const pubAccounts = accounts.filter((a) => a.canPublish);
+      document.getElementById("pref-actor-handle").textContent = pubAccounts.length ? pubAccounts.map((a) => a.handle).join("\n") : "(발행 가능 계정 없음)";
+      document.getElementById("pref-actor-desc").textContent = pubAccounts.length
+        ? "아래 연결 계정의 서버 API 로 부스트·인용 발행 및 적재 본문 발행이 수행됩니다."
+        : "발행 권한이 있는 연결 계정이 없습니다. 수집 및 내부 적재만 허용되며 외부 발행은 차단됩니다.";
+
+      document.getElementById("pref-accounts-tbody").innerHTML = accounts.length ? accounts.map((a) => `<tr>
+          <td><span class="pref-pill ${protoPillClass(a.proto)}">${protoLabel(a.proto)}</span></td>
+          <td><strong>${escapeHtml(a.server)}</strong><br/><span style="color:var(--muted);font-size:11.5px">${escapeHtml(a.software)}${a.serverVersion ? ` ${escapeHtml(a.serverVersion)}` : ""}</span></td>
+          <td><code style="font-family:'D2Coding',monospace;font-size:11.5px">${escapeHtml(a.handle)}</code></td>
+          <td>${escapeHtml(a.auth)}</td>
+          <td><code style="font-family:'D2Coding',monospace;font-size:11px">${escapeHtml(a.scopes.join(" "))}</code></td>
+          <td>${a.canPublish ? `<span style="color:var(--accent2);font-weight:700">● 허용</span>` : `<span style="color:var(--muted)">읽기 전용</span>`}</td>
+          <td>${a.removable
+            ? `<button type="button" class="pref-btn" data-remove-account="${escapeHtml(a.id)}" title="${a.proto === "ap" ? "POST /oauth/revoke 로 토큰 폐기 후 연결 해제" : "AT 세션·토큰 폐기 후 연결 해제"}">연결 해제</button>`
+            : `<span style="color:var(--muted);font-size:11.5px">프로토타입 시드</span>`}</td>
+        </tr>`).join("") : `<tr><td colspan="7" style="color:var(--muted)">이 테마에 연결된 서버 계정이 없습니다.</td></tr>`;
+
+      document.querySelectorAll("[data-remove-account]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const id = btn.getAttribute("data-remove-account");
+          const cs = customState[activeThemeKey] || {};
+          cs.extraAccounts = (cs.extraAccounts || []).filter((a) => a.id !== id);
+          customState[activeThemeKey] = cs;
+          saveCustomState(customState);
+          renderFormValues();
+          showToast("연결 계정을 해제했습니다 (서버 토큰 폐기 시뮬레이션)");
+        });
+      });
+      refreshViaSelect();
 
       const feeds = getThemeFeeds(activeThemeKey);
       document.getElementById("pref-feeds-tbody").innerHTML = feeds.map((f) => {
-        const cls = f.proto === "ap" ? "pref-pill-ap" : (f.proto === "at" ? "pref-pill-at" : "pref-pill-rss");
-        const label = f.proto === "ap" ? "ActivityPub" : (f.proto === "at" ? "AT Proto" : "RSS/ATOM");
+        const viaAcc = f.via ? accounts.find((a) => a.id === f.via) : null;
         return `<tr>
-          <td><span class="pref-pill ${cls}">${label}</span></td>
+          <td><span class="pref-pill ${protoPillClass(f.proto)}">${protoLabel(f.proto)}</span></td>
           <td>${escapeHtml(f.folder)}</td>
           <td><strong>${escapeHtml(f.title)}</strong></td>
           <td><code style="font-family:'D2Coding',monospace;font-size:11.5px">${escapeHtml(f.url)}</code></td>
+          <td>${f.proto === "rss" ? `<span style="color:var(--muted)">직접 수집</span>` : (viaAcc ? `<code style="font-family:'D2Coding',monospace;font-size:11.5px">${escapeHtml(viaAcc.handle)}</code>` : `<span style="color:#cf222e">연결 계정 없음</span>`)}</td>
           <td>${escapeHtml(f.interval)}</td>
           <td><span style="color:var(--accent2);font-weight:700">● ${escapeHtml(f.etag || "정상")}</span></td>
         </tr>`;
@@ -675,14 +827,16 @@
       document.getElementById(`tab-btn-${initialTab}`).click();
     }
 
+    document.getElementById("new-feed-proto").addEventListener("change", refreshViaSelect);
+
     document.getElementById("pref-theme-select").addEventListener("change", (e) => {
       activeThemeKey = e.target.value;
       updateBackLink();
       renderFormValues();
     });
 
-    const listStyleEl = document.getElementById("pref-list-style");
-    if (listStyleEl) listStyleEl.addEventListener("change", (e) => { prefs.listStyle = e.target.value; savePrefs(); });
+    document.getElementById("pref-app-tab").addEventListener("change", (e) => { prefs.appTab = e.target.value; savePrefs(); });
+    document.getElementById("pref-list-style").addEventListener("change", (e) => { prefs.listStyle = e.target.value; savePrefs(); });
     document.getElementById("pref-layout-mode").addEventListener("change", (e) => { prefs.layoutMode = e.target.value; savePrefs(); });
     document.getElementById("pref-show-excerpt").addEventListener("change", (e) => { prefs.showExcerpt = e.target.checked; savePrefs(); });
     document.getElementById("pref-default-content-tab").addEventListener("change", (e) => { prefs.defaultContentTab = e.target.value; savePrefs(); });
@@ -696,6 +850,7 @@
     document.getElementById("pref-auto-threshold").addEventListener("change", (e) => { prefs.autoIngestThreshold = Number(e.target.value) || 85; savePrefs(); });
     document.getElementById("pref-rss-pubmode").addEventListener("change", (e) => { prefs.outboundPolicy.rssDefaultMode = e.target.value; savePrefs(); });
     document.getElementById("pref-ap-pubmode").addEventListener("change", (e) => { prefs.outboundPolicy.apDefaultMode = e.target.value; savePrefs(); });
+    document.getElementById("pref-at-pubmode").addEventListener("change", (e) => { prefs.outboundPolicy.atDefaultMode = e.target.value; savePrefs(); });
     document.getElementById("pref-include-sharelink").addEventListener("change", (e) => { prefs.outboundPolicy.includeCanonicalShareLink = e.target.checked; savePrefs(); });
     document.getElementById("pref-quote-template").addEventListener("change", (e) => { prefs.outboundPolicy.quoteTemplate = e.target.value; savePrefs(); });
 
@@ -706,7 +861,12 @@
       const title = document.getElementById("new-feed-title").value.trim();
       const url = document.getElementById("new-feed-url").value.trim();
       const interval = document.getElementById("new-feed-interval").value;
+      const via = document.getElementById("new-feed-via").value;
       if (!title || !url) return;
+      if (proto !== "rss" && !via) {
+        showToast("ActivityPub · AT 수집 대상은 연결 계정을 경유해야 합니다");
+        return;
+      }
       if (!customState[activeThemeKey]) customState[activeThemeKey] = {};
       if (!Array.isArray(customState[activeThemeKey].extraFeeds)) customState[activeThemeKey].extraFeeds = [];
       customState[activeThemeKey].extraFeeds.push({
@@ -717,8 +877,9 @@
         interval,
         title,
         url,
+        via: proto === "rss" ? undefined : via,
         health: "ok",
-        etag: "환경설정에서 등록됨"
+        etag: proto === "rss" ? "환경설정에서 등록됨" : "연결 계정 경유 · 환경설정에서 등록됨"
       });
       saveCustomState(customState);
       document.getElementById("new-feed-title").value = "";
