@@ -68,12 +68,12 @@
     flex:1;min-height:0;overflow:hidden;transition:grid-template-columns .2s ease}
   body.detail-compact #wrap,
   #wrap.detail-compact{grid-template-columns:280px minmax(420px,1fr) var(--detail-compact-width,56px)}
-  /* #netwrap 이 위치 기준자, #net 은 vis.Network 컨테이너(vis 가 init 시 innerHTML 을
-     지우므로 — 확인됨 — #zoomctl 은 #net *밖*, 형제로 둬야 살아남는다). */
+  /* #netwrap 이 위치 기준자, #net 은 ClaireGraph.Network 컨테이너(엔진이 표시·라벨 캔버스 두 장을
+     절대 위치로 채운다). #zoomctl 등 컨트롤은 #net *밖*, 형제로 둔다. */
   .workspace-pane{min-width:0;min-height:0}
   #centerwrap{position:relative;display:flex;flex-direction:column;min-width:0;min-height:0;overflow:hidden;background:var(--bg)}
   #netwrap{position:relative;width:100%;height:100%;display:none;flex-direction:column;min-width:0;min-height:0;background:var(--net-bg)}
-  #net{width:100%;flex:1;min-height:0;background:var(--net-bg)}
+  #net{position:relative;width:100%;flex:1;min-height:0;background:var(--net-bg)}
   /* 모바일 그래프 안에서 문서를 연속 전환하는 보조 탐색. 자료/그래프의 주 계층은
      그대로 두고, 좁은 화면에서만 현재 그래프 필터를 바꾸는 지역 컨트롤로 노출한다. */
   #graphdocnav{display:none}

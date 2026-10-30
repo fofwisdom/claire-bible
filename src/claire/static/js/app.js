@@ -1,6 +1,6 @@
 /**
  * Claire Bible - Knowledge Graph Workspace Application
- * Controls vis.js network, search, clustering, degree filtering, tabs, and workspace state.
+ * Controls the ClaireGraph network (static/js/graph/), search, clustering, degree filtering, tabs, and workspace state.
  */
 
 // --- Client Loading Watchdog & Global Error Handlers ---
@@ -42,7 +42,7 @@ const TYPE_COLORS = {Tool:'#1f6feb',Framework:'#8957e5',Model:'#bf3989',Paper:'#
   Article:'#1a7f37',Repo:'#1b7c83',Concept:'#cf222e',Person:'#bc4c00',Org:'#9a6700',
   Event:'#0969da',Note:'#6e7781'};
 const DIM = 0.16;
-// vis 캔버스는 CSS 변수가 안 닿아 테마별 색을 JS 로 직접 갱신한다(노드 글자/엣지/테두리).
+// 그래프 캔버스는 CSS 변수가 안 닿아 테마별 색을 JS 로 직접 갱신한다(노드 글자/엣지/테두리).
 const THEMES = {
   light:{nodeFont:'#1f2328', edge:'#c4ccd6', edgeHi:'#1a7f37', nodeBorder:'#d0d7de', lit:'#0969da'},
   dark: {nodeFont:'#d7dbe0', edge:'#3a4250', edgeHi:'#7ee787', nodeBorder:'#2a2f37', lit:'#ffffff'},
@@ -59,24 +59,7 @@ const paneNames=['docs','graph'];
 let activePane='graph', detailOpen=false, centerView='graph', drawerOpen=false;
 let detailReturnFocus=null, docSearchActive=false, serverSearchResults=null;
 let graphCamera = null, preservingGraphCamera = false, netBusy = false;
-let isDraggingNode = false, settleTimer = null;
-let activeLocalPhysicsNodes = null, currentlyDraggedNodeIds = [];
-
-function resetLocalPhysicsNodes(){
-  if(activeLocalPhysicsNodes && allNodes && typeof allNodes.forEach === 'function'){
-    try{
-      const resets = [];
-      allNodes.forEach(n => {
-        if(!activeLocalPhysicsNodes.has(n.id)){
-          const shouldPhysics = (n.degree || 0) > 0 && !n.isDyad;
-          resets.push({id: n.id, physics: shouldPhysics});
-        }
-      });
-      if(resets.length) allNodes.update(resets);
-    }catch(_){}
-    activeLocalPhysicsNodes = null;
-  }
-}
+let isDraggingNode = false;
 let lastNetSize = {w:0, h:0};
 let allTypes = [], allRelTypes = [], allDocs = [];
 let net = null, allNodes = null, allEdges = null;
@@ -702,19 +685,31 @@ function applyHoverHighlight(id){
   }catch(_){}
 }
 
+// 줌 단계별 기본 엣지 LOD. 강조가 없을 때 기본 엣지는 양끝 노드 타입색 그라디언트(inherit)로
+// 그려 별마다 구성 타입의 색이 은은하게 번지게 한다.
+function idleEdgeStyle(scale){
+  if(scale >= 1.0) return {opacity:0.6, width:1.2};
+  if(scale >= 0.4) return {opacity:0.42, width:1.0};
+  return {opacity:0.32, width:0.8};
+}
+
 function clearHoverHighlight(){
   if(!net || !allEdges || !activeHoverEdges) return;
+  // 문서·검색·경로 강조 중에는 맥락별 투명도가 엣지마다 달라 전체를 다시 계산한다.
+  if(activeDoc || highlightSet || (pathNodes && pathNodes.size)){
+    activeHoverEdges = null;
+    activeHoverNodes = null;
+    applyView();
+    return;
+  }
   try{
-    const currentScale = net ? net.getScale() : 0.1;
-    let baseOpacity = 0.18, baseWidth = 0.8;
-    if(currentScale >= 1.0){ baseOpacity = 0.6; baseWidth = 1.2; }
-    else if(currentScale >= 0.4){ baseOpacity = 0.35; baseWidth = 1.0; }
+    const idle = idleEdgeStyle(net.getScale());
     const th = T();
 
     const edgeResets = activeHoverEdges.map(eid => ({
       id: eid,
-      width: baseWidth,
-      color: { color: th.edge, highlight: th.edgeHi, opacity: baseOpacity }
+      width: idle.width,
+      color: { color: th.edge, highlight: th.edgeHi, opacity: idle.opacity, inherit: true }
     }));
     allEdges.update(edgeResets);
 
@@ -1150,12 +1145,12 @@ compactMQ.addEventListener('change',responsiveChanged);
 toolbarMQ.addEventListener('change',responsiveChanged);
 syncWorkspaceLayout();
 
-// 단일-pane 그래프는 페이지 스크롤과 경쟁하지 않는다. vis/hammer가 그래프의 양방향
-// pan을 처리하도록 touch-action:none을 유지하고, 다른 pane은 inert로 입력을 받지 않는다.
+// 단일-pane 그래프는 페이지 스크롤과 경쟁하지 않는다. 그래프 엔진의 포인터 입력이 양방향
+// pan·핀치를 처리하도록 touch-action:none을 유지하고, 다른 pane은 inert로 입력을 받지 않는다.
 function applyTouchMode(){
   document.querySelectorAll('#net, #net div, #net canvas').forEach(el=>{ el.style.touchAction='none'; });
 }
-// 휠 줌 평탄화: vis 기본 줌은 wheel deltaY '크기'에 비례해 한 이벤트로 여러 단계 점프한다.
+// 휠 줌 평탄화: 기본 휠 줌은 wheel deltaY '크기'에 비례해 한 이벤트로 여러 단계 점프한다.
 // Mac 트랙패드/매직마우스는 한 제스처에 큰 deltaY 를 모멘텀으로 연속 발사 → "한꺼번에 확대"
 // (사용자 보고). 그래서 zoomView:false 로 두고, 스크롤 '거리'를 누적해 일정량(STEP_DELTA)마다
 // 한 스텝씩, 프레임당 최대 1스텝만 포인터(커서) 중심으로 적용한다 — 플랫폼 무관하게 균일하고
@@ -1236,7 +1231,8 @@ function initGraph(onComplete){
   }
   fetch('graph').then(r=>{ if(!r.ok) throw new Error('graph fetch HTTP '+r.status); return r.json(); }).then(d=>{
     graphInitialized = true;
-  if(typeof vis !== 'undefined' && vis.DataSet && vis.Network){
+  const G = window.ClaireGraph;
+  if(G && G.DataSet && G.Network){
     const rawNodes = ((d && d.nodes) || []).map(n => ({
       ...n,
       size: nodeRadius(n.degree),
@@ -1244,8 +1240,8 @@ function initGraph(onComplete){
     }));
     const rawEdges = (d && d.edges) || [];
     applyTopologicalStructure(rawNodes, rawEdges);
-    allNodes = new vis.DataSet(rawNodes);
-    allEdges = new vis.DataSet(rawEdges);
+    allNodes = new G.DataSet(rawNodes);
+    allEdges = new G.DataSet(rawEdges);
     if(!d || !d.nodes || !d.nodes.length){ graphStabilized=true; }
     const totalCount = rawNodes.length;
     let initialDeg = 0;
@@ -1269,26 +1265,18 @@ function initGraph(onComplete){
     renderLegend();
     const th=T();
     const netBg = (typeof getComputedStyle==='function'?getComputedStyle(document.documentElement).getPropertyValue('--net-bg').trim():'')||'#ffffff';
+    // 엔진이 허브-스포크 계층 물리·안정화·궤도 회전·흐름 패킷을 스스로 관리한다(별도 settle 타이머 불필요).
     const opts = {
-      nodes:{shape:'dot',size:14,font:{color:th.nodeFont,size:13},borderWidth:1,borderWidthSelected:3},
-      edges:{color:{color:th.edge,highlight:th.edgeHi},
-        hoverWidth: 0,
-        selectionWidth: 0,
-        chosen: false,
-        font:{color:th.nodeFont,size:0,strokeWidth:3,strokeColor:netBg},smooth:false},
+      nodes:{size:4,font:{color:th.nodeFont,size:13}},
+      edges:{color:{color:th.edge,highlight:th.edgeHi,opacity:0.35},
+        font:{color:th.nodeFont,size:0,strokeColor:netBg}},
       groups:buildGroups(),
-      physics:getPhysicsOpts(totalCount),
-      interaction:{hover:true,tooltipDelay:120,multiselect:true,zoomView:false,hideEdgesOnZoom:true,hideEdgesOnDrag:true,hoverConnectedEdges:false}
+      physics:true,
+      interaction:{hover:true,multiselect:true,zoomView:false}
     };
     const netEl = document.getElementById('net');
-    if(netEl) net = new vis.Network(netEl, {nodes:allNodes, edges:allEdges}, opts);
+    if(netEl) net = new G.Network(netEl, {nodes:allNodes, edges:allEdges}, opts);
     isDraggingNode = false;
-    clearTimeout(settleTimer);
-    settleTimer = setTimeout(()=>{
-      if(net && !isDraggingNode){
-        net.setOptions({physics:false});
-      }
-    }, 2500);
     requestAnimationFrame(()=>{ relayout(); setTimeout(relayout, 300); });
     applyTouchMode();
     setupWheelZoom();
@@ -1309,70 +1297,17 @@ function initGraph(onComplete){
     return 1000;
   }
   if(net){
+    // 드래그 물리는 엔진이 맡는다: 잡은 허브의 별은 오므라들며 따라오고, 놓으면 마지막 포인터
+    // 속도로 던져진 뒤 회복 감쇠를 거쳐 tether 길이·궤도로 돌아온다(탄성 새총 없이 안정).
     net.on('dragStart', p => {
       netBusy = true;
       hideNodePop();
-      if(p && p.nodes && p.nodes.length){
-        isDraggingNode = true;
-        currentlyDraggedNodeIds = [...p.nodes];
-        clearTimeout(settleTimer);
-        resetLocalPhysicsNodes();
-        const isMobile = (compactMQ && compactMQ.matches) || (mobileMQ && mobileMQ.matches);
-        if(isMobile){
-          // 모바일: 터치 제스처 반응성 및 프레임 유지를 위해 물리 없이 직접 이동(Physics OFF)
-          if(net) net.setOptions({physics:false});
-        } else {
-          // 데스크톱: 1-Hop 국소 탄성 물리 활성화 (드래그 대상 및 직결 이웃 노드만 물리 연산)
-          try{
-            const draggedId = p.nodes[0];
-            const neighbors = (net && typeof net.getConnectedNodes === 'function') ? net.getConnectedNodes(draggedId) : [];
-            const localIds = new Set([draggedId, ...(Array.isArray(neighbors) ? neighbors : [])]);
-            activeLocalPhysicsNodes = localIds;
-            if(allNodes && typeof allNodes.forEach === 'function'){
-              const updates = [];
-              allNodes.forEach(n => {
-                if(!localIds.has(n.id)){
-                  updates.push({id: n.id, physics: false});
-                }
-              });
-              if(updates.length) allNodes.update(updates);
-            }
-          }catch(_){}
-          net.setOptions({physics:true});
-        }
-      } else {
-        currentlyDraggedNodeIds = [];
-      }
+      isDraggingNode = !!(p && p.nodes && p.nodes.length);
     });
-    net.on('dragEnd', p => {
+    net.on('dragEnd', () => {
       netBusy = false;
+      isDraggingNode = false;
       rememberGraphCamera();
-      if(isDraggingNode){
-        isDraggingNode = false;
-        const targetNodeIds = (p && p.nodes && p.nodes.length) ? p.nodes : currentlyDraggedNodeIds;
-        if(net && allNodes && targetNodeIds && targetNodeIds.length){
-          try{
-            const fixUpdates = [];
-            targetNodeIds.forEach(id => {
-              const pos = (typeof net.getPosition === 'function') ? net.getPosition(id) : null;
-              if(pos && typeof pos.x === 'number' && typeof pos.y === 'number'){
-                fixUpdates.push({id: id, x: pos.x, y: pos.y, fixed: {x: true, y: true}});
-              } else {
-                fixUpdates.push({id: id, fixed: {x: true, y: true}});
-              }
-            });
-            if(fixUpdates.length) allNodes.update(fixUpdates);
-          }catch(_){}
-        }
-        currentlyDraggedNodeIds = [];
-        clearTimeout(settleTimer);
-        settleTimer = setTimeout(()=>{
-          if(net && !isDraggingNode){
-            net.setOptions({physics:false});
-            resetLocalPhysicsNodes();
-          }
-        }, 350);
-      }
     });
     net.on('animationFinished', () => {
       netBusy = false;
@@ -1539,10 +1474,7 @@ function suspendGraphForIngest(){
   graphSuspended = true;
   netBusy = true;
   if(net){
-    try {
-      net.stopSimulation();
-      net.setOptions({ physics: false });
-    } catch(_) {}
+    try { net.stopSimulation(); } catch(_) {}
   }
   const netwrap = document.getElementById('netwrap');
   if(netwrap) netwrap.style.display = 'none';
@@ -1557,11 +1489,7 @@ function resumeGraphAfterIngest(){
   if(!graphInitialized || !net){
     initGraph();
   } else {
-    try {
-      const total = allNodes ? allNodes.length : 0;
-      net.setOptions({ physics: getPhysicsOpts(total) });
-      net.startSimulation();
-    } catch(_) {}
+    try { net.startSimulation(); } catch(_) {}
     refreshGraph();
   }
 }
@@ -1748,7 +1676,6 @@ function toggleNodeIsolation(id){
   applyView();
   if(isolatedNodeId){
     focusOnNode(isolatedNodeId);
-    triggerGentleRelaxation();
   } else {
     resetGraphCamera();
   }
@@ -3044,7 +2971,7 @@ function refreshGraph(){
     d.nodes.forEach(n=>{
       const r = nodeRadius(n.degree), fs = nodeFontSize(n.degree);
       if(allNodes && allNodes.get(n.id))
-        changed.push({id:n.id, degree:n.degree, size:r, font:{size:fs}, sources:n.sources, obs:n.obs, mass:n.mass, ...(n.degree===0?{x:n.x,y:n.y,physics:false}:{})});
+        changed.push({id:n.id, degree:n.degree, size:r, font:{size:fs}, sources:n.sources, obs:n.obs, ...(n.physics===false?{x:n.x,y:n.y,physics:false}:{physics:true})});
       else if(allNodes)
         added.push({...n, size:r, font:{size:fs}});
     });
@@ -3257,11 +3184,13 @@ function toggleRel(i){
 }
 function nodeLabel(id){ const n=allNodes&&allNodes.get(id); return n?n.label:id; }
 
+// 그래프 엔진의 월드 반경(px). 화면 반경은 확대율^0.6 로 완만히 커져, 축소 시엔 Shopify 식의
+// 촘촘한 점 성운이 되고 확대하면 개별 노드가 또렷해진다.
 function nodeRadius(deg){
   const d = deg || 0;
-  if(d <= 1) return 10;
-  if(d === 2) return 12;
-  return Math.min(26, Math.round(11 + Math.sqrt(d) * 2.2));
+  if(d <= 1) return 3;
+  if(d === 2) return 3.5;
+  return Math.min(9, Math.round((3.5 + Math.sqrt(d) * 0.55) * 10) / 10);
 }
 
 function nodeFontSize(deg){
@@ -3315,16 +3244,19 @@ function applyTopologicalStructure(nodes, edges){
     return (a.label || '').localeCompare(b.label || '');
   });
 
-  const totalCount = nodes.length;
+  // 고립·2노드 쌍은 물리에서 빼고 허브 고리 바깥 원에 고정한다. 엔진의 별 고리 반경은 연결 노드
+  // 수의 제곱근에 비례해 커지므로 바깥 원도 같은 비율로 둔다.
   const isoCount = isolatedNodes.length;
-  const baseRadius = totalCount >= 800 ? 1100 : (totalCount >= 400 ? 900 : 750);
-  const orbitRadius = Math.max(baseRadius, Math.ceil((isoCount * 90) / (2 * Math.PI)));
+  const linkedCount = Math.max(0, nodes.length - isoCount - dyadPairs.length * 2);
+  const baseRadius = Math.round(260 + Math.sqrt(linkedCount) * 52);
+  const orbitRadius = Math.max(baseRadius, Math.ceil((isoCount * 24) / (2 * Math.PI)));
 
+  const perRing = Math.max(50, Math.floor(2 * Math.PI * orbitRadius / 24));
   isolatedNodes.forEach((n, idx) => {
-    const ringIndex = Math.floor(idx / 50);
-    const indexInRing = idx % 50;
-    const countInThisRing = Math.min(50, isoCount - ringIndex * 50);
-    const currentRadius = orbitRadius + (ringIndex * 110);
+    const ringIndex = Math.floor(idx / perRing);
+    const indexInRing = idx % perRing;
+    const countInThisRing = Math.min(perRing, isoCount - ringIndex * perRing);
+    const currentRadius = orbitRadius + (ringIndex * 36);
     const angle = (2 * Math.PI * indexInRing) / (countInThisRing || 1);
     n.x = Math.round(currentRadius * Math.cos(angle));
     n.y = Math.round(currentRadius * Math.sin(angle));
@@ -3341,89 +3273,16 @@ function applyTopologicalStructure(nodes, edges){
     const nA = nodeById.get(idA);
     const nB = nodeById.get(idB);
     if(nA){
-      nA.x = cx - 28;
+      nA.x = cx - 9;
       nA.y = cy;
       nA.physics = false;
-      nA.isDyad = true;
     }
     if(nB){
-      nB.x = cx + 28;
+      nB.x = cx + 9;
       nB.y = cy;
       nB.physics = false;
-      nB.isDyad = true;
     }
   });
-
-  nodes.forEach(n => {
-    const deg = degMap.get(n.id) || 0;
-    if(deg >= 4){
-      n.mass = Math.min(6, Math.round(1 + Math.log2(deg) * 1.5));
-    } else {
-      n.mass = 1;
-    }
-  });
-
-  (edges || []).forEach(e => {
-    const dFrom = degMap.get(e.from) || 0;
-    const dTo = degMap.get(e.to) || 0;
-    const minDeg = Math.min(dFrom, dTo);
-    const maxDeg = Math.max(dFrom, dTo);
-
-    if(minDeg <= 1){
-      e.length = (dFrom === 1 && dTo === 1) ? 55 : 65;
-      e.springConstant = 0.06;
-    } else {
-      const baseLen = totalCount >= 500 ? 250 : 220;
-      e.length = maxDeg >= 6 ? (baseLen + 40) : baseLen;
-      e.springConstant = 0.035;
-    }
-  });
-}
-
-function getPhysicsOpts(nodeCount){
-  const count = nodeCount || 0;
-  let grav = -120, cg = 0.005, spring = 160, overlap = 0.85;
-  if(count >= 1000){
-    grav = -140;
-    cg = 0.0035;
-    spring = 180;
-    overlap = 0.9;
-  } else if(count >= 500){
-    grav = -110;
-    cg = 0.0045;
-    spring = 160;
-    overlap = 0.85;
-  } else if(count >= 200){
-    grav = -80;
-    cg = 0.0055;
-    spring = 140;
-    overlap = 0.8;
-  } else if(count >= 80){
-    grav = -50;
-    cg = 0.007;
-    spring = 120;
-    overlap = 0.75;
-  } else {
-    grav = -30;
-    cg = 0.008;
-    spring = 100;
-    overlap = 0.7;
-  }
-  return {
-    solver: 'forceAtlas2Based',
-    forceAtlas2Based: {
-      gravitationalConstant: grav,
-      centralGravity: cg,
-      springLength: spring,
-      springConstant: 0.04,
-      damping: 0.5,
-      avoidOverlap: overlap
-    },
-    minVelocity: 0.75,
-    maxVelocity: 50,
-    timestep: 0.4,
-    stabilization: { iterations: 120 }
-  };
 }
 
 function updateDegPresets(){
@@ -3434,20 +3293,6 @@ function updateDegPresets(){
   });
 }
 
-function triggerGentleRelaxation(){
-  if(!net) return;
-  try{
-    clearTimeout(settleTimer);
-    net.setOptions({physics:true});
-    settleTimer = setTimeout(()=>{
-      if(net && !isDraggingNode){
-        net.setOptions({physics:false});
-        resetLocalPhysicsNodes();
-      }
-    }, 1400);
-  }catch(_){}
-}
-
 function setDeg(v){
   curMinDeg = +v;
   const sl = document.getElementById('fslider');
@@ -3456,7 +3301,6 @@ function setDeg(v){
   if(fm) fm.textContent = v;
   updateDegPresets();
   applyView();
-  triggerGentleRelaxation();
 }
 // 노드/엣지 개수가 늘수록 클릭마다 체감 지연이 커지던 원인: 아래 두 루프가 예전엔
 // DataSet.update() 를 노드/엣지마다 하나씩(수백~천 회) 개별 호출했다 — vis DataSet 은
@@ -3561,16 +3405,9 @@ function applyView(){
 
   // 엣지 가시성은 방금 갱신된 노드 hidden 상태를 봐야 하므로 노드 배치 반영 뒤에 계산.
   // 줌 레벨 기반 엣지 Level of Detail (LOD)
-  const currentScale = net ? net.getScale() : 0.1;
-  let defaultEdgeOpacity = 0.18;
-  let defaultEdgeWidth = 0.8;
-  if(currentScale >= 1.0){
-    defaultEdgeOpacity = 0.6;
-    defaultEdgeWidth = 1.2;
-  } else if(currentScale >= 0.4){
-    defaultEdgeOpacity = 0.35;
-    defaultEdgeWidth = 1.0;
-  }
+  const idle = idleEdgeStyle(net ? net.getScale() : 0.1);
+  const defaultEdgeOpacity = idle.opacity;
+  const defaultEdgeWidth = idle.width;
 
   const edgeUpdates=[];
   allEdges.forEach(e=>{
@@ -3587,6 +3424,7 @@ function applyView(){
     let edgeWidth = defaultEdgeWidth;
     let edgeColor = th.edge;
     let edgeHighlight = th.edgeHi;
+    let edgeInherit = false;
 
     if(onPath){
       edgeOpacity = 1;
@@ -3619,11 +3457,12 @@ function applyView(){
       edgeWidth = defaultEdgeWidth;
       edgeColor = th.edge;
       edgeHighlight = th.edgeHi;
+      edgeInherit = true;
     }
 
     const labelOn = onPath || incident || selected || edgeLabelsByZoom;
     edgeUpdates.push({id:e.id, hidden: !visible, width:edgeWidth,
-      color: {color:edgeColor, highlight:edgeHighlight, opacity:edgeOpacity},
+      color: {color:edgeColor, highlight:edgeHighlight, opacity:edgeOpacity, inherit:edgeInherit},
       font:{size:labelOn?10:0,color:th.nodeFont,strokeWidth:3,
         strokeColor:netBg}});
   });
@@ -4389,11 +4228,7 @@ function focusNode(id, pushHist=true){
   setCenterView('graph');
   revealWorkspace('graph', false, pushHist);
   if(pushHist) pushAppHistory({ pane: 'graph', nodeId: id, modal: (compactMQ.matches || mobileMQ.matches) ? 'drawer' : null });
-  if(net && !isDraggingNode){
-    clearTimeout(settleTimer);
-    net.setOptions({physics:false});
-    resetLocalPhysicsNodes();
-  }
+  // 선택이 생기면 엔진이 궤도 회전을 멈추고, focus 애니메이션은 노드의 현재 위치를 따라간다.
   requestAnimationFrame(()=>{
     if(net){
       relayout(true);
@@ -4429,28 +4264,24 @@ function fitToMatches(ids){
   if(vis.length===1) net.focus(vis[0],{scale:1.1,animation:graphAnimation(true)});
   else net.fit({nodes:vis, animation:graphAnimation(true)});
 }
-// 검색 결과를 '점차 뭉치게' — physics 를 켠 채로 보이지 않는 중앙 앵커를 쓴다.
-//   · 매칭 노드 → 중앙 앵커에 spring 엣지(인력): 가운데로 끌려와 한 덩어리로 모인다.
-//   · 앵커는 큰 mass·고정 → barnesHut 반발이 *모든* 노드를 밀어내지만, 매칭은 spring 이
-//     반발을 이겨 중앙에 붙들리고, 비매칭은 반발만 받아 중앙에서 바깥으로 밀려난다.
-// 위치를 강제로 옮기지 않으므로 physics ON 유지(드래그·관성 그대로). 검색 해제 시 앵커와
-// 엣지만 빼면 물리가 원래 레이아웃으로 되돌린다(unclusterEdges).
-const ANCHOR_MASS=60;   // 앵커 반발 세기(비매칭 밀어냄). ↑ 강하게 밀어냄
+// 검색 결과를 '점차 뭉치게' — 보이지 않는 중앙 앵커를 쓴다.
+//   · 앵커는 숨김+고정 노드 → 엔진이 cl_* 엣지를 앵커 스프링으로 해석한다.
+//   · 매칭 노드는 자기 허브 tether 에서 풀려나 앵커 쪽으로 끌려와 한 덩어리로 모이고(충돌로 겹침 없음),
+//     비매칭은 제자리 별에 남는다.
+// 위치를 강제로 옮기지 않으므로 드래그·관성은 그대로다. 검색 해제 시 앵커와 엣지만 빼면
+// 매칭 노드가 tether 로 원래 별 자리에 미끄러져 돌아간다(unclusterEdges).
 const CENTER_LEN=55;    // 매칭~중앙 spring 길이. ↓ 가운데로 더 바싹
 function clusterMatches(ids, done){
   unclusterEdges();
   const vs=(ids||[]).filter(id=>{ const n=allNodes&&allNodes.get(id); return n && !n.hidden; });
   if(!net || !allEdges || vs.length<2){ if(done) done(); return; }
-  net.setOptions({physics:true});
   const c=net.getViewPosition();   // 현재 화면 중앙 좌표에 앵커를 둔다
-  allNodes.add({id:'cl_anchor', x:c.x, y:c.y, fixed:true, physics:true, hidden:true,
-                mass:ANCHOR_MASS, label:'', shape:'dot', size:1});
+  allNodes.add({id:'cl_anchor', x:c.x, y:c.y, fixed:true, hidden:true, label:'', size:1});
   clusterAnchor='cl_anchor';
   const eids=[];
   const newEdges=vs.map((id,i)=>{
     const eid='cl_'+i; eids.push(eid);
-    return {id:eid, from:'cl_anchor', to:id, color:{opacity:0}, width:0, length:CENTER_LEN,
-            physics:true, smooth:false};
+    return {id:eid, from:'cl_anchor', to:id, color:{opacity:0}, width:0, length:CENTER_LEN};
   });
   allEdges.add(newEdges);
   clusterEdges=eids;
@@ -4464,7 +4295,6 @@ function unclusterEdges(){
   }
   if(clusterAnchor && allNodes){ try{ allNodes.remove(clusterAnchor); }catch(e){} }
   clusterEdges=null; clusterAnchor=null;
-  if(net && !isDraggingNode) net.setOptions({physics:false});
 }
 // 우측 '이 문서의 노드' 버튼 hover — 요약 팝업(1.5초 머물 시). 클릭 시 focusNode 로 카메라 이동.
 function peekNode(ev, id){
@@ -6181,6 +6011,7 @@ window.claireDebug = {
     }).map(id=>({id:id,...net.canvasToDOM(net.getPosition(id))}));
   },
   get scale(){ return net ? net.getScale() : null; },
+  get graphRenderer(){ return net ? net.rendererInfo : null; },
   get viewpos(){ return net ? net.getViewPosition() : null; },
   get clustered(){ return clusterEdges; },
   get activePane(){ return activePane; },

@@ -99,10 +99,12 @@ def test_graph_json_excludes_dangling_edges():
 
 
 def test_graph_html_self_contained_markers():
-    # 페이지가 graph/node/documents 를 fetch 하고 vis.js 를 로드하는지(렌더 진입점 존재).
+    # 페이지가 graph/node/documents 를 fetch 하고 그래프 엔진을 인라인으로 싣는지(렌더 진입점 존재).
     assert "fetch('graph')" in GRAPH_HTML
     assert "fetch('documents')" in GRAPH_HTML
-    assert "vis-network" in GRAPH_HTML
+    assert "CG.Network = Network" in GRAPH_HTML
+    assert "new G.Network(" in GRAPH_HTML
+    assert "vis-network.min.js" not in GRAPH_HTML
     assert "id=\"net\"" in GRAPH_HTML
     assert "loadNode" in GRAPH_HTML and "id=\"panel\"" in GRAPH_HTML   # 상세 패널
     assert "id=\"docs\"" in GRAPH_HTML and "selectDoc" in GRAPH_HTML    # 좌측 문서 패널
@@ -210,7 +212,7 @@ def test_graph_html_self_contained_markers():
     assert 'id="reader" class="workspace-pane" role="region" aria-label="문서 본문 읽기"' in GRAPH_HTML
     assert "handleReaderKey" in GRAPH_HTML and "setReaderBackgroundInert" in GRAPH_HTML
     assert "readerReturnFocus" in GRAPH_HTML and "data-read-doc" in GRAPH_HTML
-    assert "#ffffff" in GRAPH_HTML and "borderWidthSelected" in GRAPH_HTML  # 선택 노드 흰 테두리
+    assert "#ffffff" in GRAPH_HTML and "this.selectedNodes.has(this._ids[i]) ? 1.6 : 1.25" in GRAPH_HTML  # 선택 노드 고리
     assert "nodes:ids" in GRAPH_HTML                                    # 문서 선택 → 해당 노드들로 fit
     assert "doResearch" in GRAPH_HTML and "fetch('research'" in GRAPH_HTML  # 맥락 확장 조사
     assert "refreshGraph" in GRAPH_HTML                                 # 조사 후 무리로드 그래프 갱신
@@ -343,11 +345,6 @@ def test_favorite_and_hide_ui_markers():
 def test_browser_dependencies_are_pinned_with_sri_and_markdown_fails_closed():
     expected = (
         (
-            "https://unpkg.com/vis-network@9.1.11/standalone/umd/"
-            "vis-network.min.js",
-            "sha384-60H6/hL99pRYjWacRdebxM1T2R6jvWyd9GVAb7d4fp9BSfv4f0i5sWjkprnnG0cz",
-        ),
-        (
             "https://unpkg.com/marked@4.3.0/marked.min.js",
             "sha384-QsSpx6a0USazT7nK7w8qXDgpSAPhFsb2XtpoLFQ5+X2yFN6hvCKnwEzN8M5FWaJb",
         ),
@@ -372,11 +369,11 @@ def test_browser_dependencies_are_pinned_with_sri_and_markdown_fails_closed():
     for url, integrity in expected:
         assert url in GRAPH_HTML
         assert integrity in GRAPH_HTML
-        if "vis-network" not in url:
-            assert url in shared
-            assert integrity in shared
+        assert url in shared
+        assert integrity in shared
     assert 'crossorigin="anonymous"' in GRAPH_HTML
-    assert "https://unpkg.com/vis-network/standalone/" not in GRAPH_HTML
+    # 그래프 렌더러는 외부 CDN 없이 static/js/graph/ 엔진을 번들에 인라인한다.
+    assert "unpkg.com/vis-network" not in GRAPH_HTML
     for page in (GRAPH_HTML, shared):
         assert "if(!parser||!purifier" in page
         assert "const fallback=()=>esc(raw).replace" in page
@@ -695,32 +692,40 @@ def test_document_detail_and_right_menu_includes_nodes():
     assert "이 문서의 지식 노드" in GRAPH_HTML
 
 
-def test_origin_graph_physics_tuning():
-    """오리진 지식 그래프 물리 수렴 튜닝 및 렌더링 최적화 검증."""
+def test_graph_engine_physics_and_rendering_backends():
+    """Shopify Editions 방식 그래프 엔진: 계층 물리 + WebGPU/Canvas2D 폴백 + 앱 연결 검증."""
     from claire.graphview import GRAPH_HTML
 
-    # 1. 적응형 물리 수렴 튜닝 (getPhysicsOpts, avoidOverlap, 2.5s settle timer)
-    assert "function getPhysicsOpts(nodeCount){" in GRAPH_HTML
-    assert "avoidOverlap:" in GRAPH_HTML
-    assert "minVelocity: 0.75" in GRAPH_HTML
-    assert "isDraggingNode" in GRAPH_HTML
-    assert "settleTimer = setTimeout" in GRAPH_HTML
-    assert "2500);" in GRAPH_HTML
-    # 초기화 시점이 아닌 2.5s 후 자동 안착 및 드래그 토글로 물리 보존
+    # 1. 허브-스포크 계층 물리(신장 숲 + 결정적 시드 배치 + 워밍업), vis 물리 튜닝 제거
+    assert "function buildHierarchy(topo, settings){" in GRAPH_HTML
+    assert "class Simulation {" in GRAPH_HTML
+    assert "_seedLayout(placed){" in GRAPH_HTML
+    assert "warmup(){" in GRAPH_HTML
+    assert "_projectTethers(dt, io){" in GRAPH_HTML
+    assert "function getPhysicsOpts(nodeCount){" not in GRAPH_HTML
+    assert "settleTimer" not in GRAPH_HTML
     assert "net.once('stabilizationIterationsDone'" not in GRAPH_HTML
 
-    # 2. 노드 시각적 위계 및 밀집도 프리셋
+    # 2. 렌더러 독립 프레임 버퍼 → WebGPU(WGSL) 우선, 실패·장치 손실 시 Canvas2D 폴백
+    assert "class Frame {" in GRAPH_HTML
+    assert "class WebGPURenderer {" in GRAPH_HTML
+    assert "fn nodeFragment(" in GRAPH_HTML and "fn edgeFragment(" in GRAPH_HTML
+    assert "class Canvas2DRenderer {" in GRAPH_HTML
+    assert "_fallbackToCanvas(err){" in GRAPH_HTML
+    assert "graphBackend" in GRAPH_HTML                                 # ?graphBackend=canvas2d 강제
+
+    # 3. 노드 시각적 위계 및 밀집도 프리셋
     assert "function nodeRadius(deg){" in GRAPH_HTML
     assert "function nodeFontSize(deg){" in GRAPH_HTML
     assert "function updateDegPresets(){" in GRAPH_HTML
     assert "class=\"deg-preset-btn\"" in GRAPH_HTML
 
-    # 3. 줌 이벤트 디바운스 적용
+    # 4. 줌 이벤트 디바운스, 테마 배경 캐싱, 기본 엣지 타입색 그라디언트
     assert "zoomDebounceTimer" in GRAPH_HTML
-
-    # 4. applyView 루프 내부의 Layout Thrashing 방지 (getComputedStyle 캐싱)
     assert "const netBg=(typeof getComputedStyle==='function'?getComputedStyle(document.documentElement).getPropertyValue('--net-bg').trim():'')||'#ffffff';" in GRAPH_HTML
     assert "strokeColor:netBg" in GRAPH_HTML
+    assert "function idleEdgeStyle(scale){" in GRAPH_HTML
+    assert "inherit:edgeInherit" in GRAPH_HTML
 
     # 5. hover/blur 및 모바일 탭 노드 상호작용 및 선택 상태 보존
     assert "net.on('blurNode'," in GRAPH_HTML
@@ -729,44 +734,46 @@ def test_origin_graph_physics_tuning():
     assert "showNodePop(id, px, py);" in GRAPH_HTML
 
 
-def test_realtime_local_physics_and_interaction_optimizations():
-    """실시간 국소(1-Hop) 탄성 물리 및 드래그/줌 렌더링 최적화 검증."""
+def test_graph_engine_interaction_model():
+    """잡아 던지기·별 수축·커서 자석/물결·호버 포커스·흐름 패킷·감속 모션 존중 검증."""
     from claire.graphview import GRAPH_HTML
 
-    # 1. 엣지 드로잉 생략 최적화
-    assert "hideEdgesOnZoom:true,hideEdgesOnDrag:true" in GRAPH_HTML
+    # 1. 드래그: 허브를 잡으면 별이 오므라들고, 놓으면 속도로 던진 뒤 회복 감쇠
+    assert "grabConstrict" in GRAPH_HTML
+    assert "release(i, idleMs, cancelled){" in GRAPH_HTML
+    assert "releaseDamping" in GRAPH_HTML
+    # 앱은 더 이상 vis 국소 물리 토글·드롭 고정을 하지 않는다(엔진이 안정화를 맡는다)
+    assert "resetLocalPhysicsNodes" not in GRAPH_HTML
+    assert "fixed: {x: true, y: true}" not in GRAPH_HTML
+    assert "isDraggingNode = !!(p && p.nodes && p.nodes.length);" in GRAPH_HTML
 
-    # 2. 1-Hop 국소 탄성 물리 및 리셋 핸들러
-    assert "activeLocalPhysicsNodes" in GRAPH_HTML
-    assert "function resetLocalPhysicsNodes(){" in GRAPH_HTML
-    assert "net.getConnectedNodes(draggedId)" in GRAPH_HTML
-    assert "updates.push({id: n.id, physics: false});" in GRAPH_HTML
-    assert "350);" in GRAPH_HTML
+    # 2. 커서 자석·물결, 호버 포커스(이웃 밖 흐리게), 흐름 패킷
+    assert "magnetRadius" in GRAPH_HTML and "repelRadius" in GRAPH_HTML
+    assert "hoverFocus" in GRAPH_HTML and "contextAlpha" in GRAPH_HTML
+    assert "flowSpeed" in GRAPH_HTML
 
-    # 3. 디바이스 인지형 분기 (모바일은 Physics OFF, 데스크톱은 1-Hop 국소 물리)
-    assert "const isMobile = (compactMQ && compactMQ.matches) || (mobileMQ && mobileMQ.matches);" in GRAPH_HTML
+    # 3. 감속 모션 설정이면 궤도 회전·흐름 패킷을 끈다
+    assert "prefers-reduced-motion: reduce" in GRAPH_HTML
 
-    # 4. 드롭 시 노드 좌표 고정(fixed) 처리로 스프링 반동 복원 방지
-    assert "currentlyDraggedNodeIds" in GRAPH_HTML
-    assert "fixed: {x: true, y: true}" in GRAPH_HTML
+    # 4. 핀치 줌·길게 누르기·vis 호환 이벤트 이름
+    assert "this._pinch" in GRAPH_HTML
+    assert "this.emit('hold'" in GRAPH_HTML
+    for event in ("click", "hoverNode", "blurNode", "dragStart", "dragEnd", "animationFinished", "stabilized", "zoom"):
+        assert f"this.emit('{event}'" in GRAPH_HTML
 
 
 def test_topological_structure_and_isolated_orbit_layout():
-    """연결 수 0 및 1 위상 구조 중심 외곽 궤도 배치 및 엣지 길이 차등화 검증."""
+    """연결 수 0 노드 및 2노드 쌍을 허브 고리 바깥 원에 고정 배치하는지 검증."""
     from claire.graphview import GRAPH_HTML
 
     # 1. 위상 구조 분석 함수 및 외곽 궤도 배치 마커
     assert "function applyTopologicalStructure(nodes, edges){" in GRAPH_HTML
-    assert "orbitRadius = Math.max(baseRadius, Math.ceil((isoCount * 90) / (2 * Math.PI)));" in GRAPH_HTML
+    assert "const baseRadius = Math.round(260 + Math.sqrt(linkedCount) * 52);" in GRAPH_HTML
     assert "n.physics = false;" in GRAPH_HTML
 
-    # 2. 고립 노드 및 다이애드(1:1 쌍) 물리 예외 처리
-    assert "const shouldPhysics = (n.degree || 0) > 0 && !n.isDyad;" in GRAPH_HTML
-
-    # 3. 차수별 엣지 길이 차등화 (리프 엣지 수축 & 코어 엣지 확장)
-    assert "minDeg <= 1" in GRAPH_HTML
-    assert "e.length = (dFrom === 1 && dTo === 1) ? 55 : 65;" in GRAPH_HTML
-    assert "e.springConstant = 0.06;" in GRAPH_HTML
+    # 2. vis 전용 엣지 길이·질량 튜닝은 제거(엔진이 tether 길이를 계층에서 계산)
+    assert "e.springConstant" not in GRAPH_HTML
+    assert "tetherBase[i] = base * jitter" in GRAPH_HTML
 
 
 def test_mobile_node_tap_popup_markers():

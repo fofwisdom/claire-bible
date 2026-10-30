@@ -1,0 +1,97 @@
+# 그래프 엔진 교체: Shopify Editions 방식 도입 설계
+
+작성일: 2026-10-30 · 상태: **Implemented** · 기준: [GOALS.md](../GOALS.md) UI·UX 고도화 · 관련 문서: [WEBUI_HOME_ENTRY_AND_GRAPH_EXPLORATION_REDESIGN.md](WEBUI_HOME_ENTRY_AND_GRAPH_EXPLORATION_REDESIGN.md) (6.3 P5·P7), [GRAPHVIEW_MODULARIZATION_AND_STATIC_ASSET_DESIGN.md](GRAPHVIEW_MODULARIZATION_AND_STATIC_ASSET_DESIGN.md)
+
+---
+
+## 1. 배경
+
+[Shopify Editions Fall '26](https://www.shopify.com/editions/fall2026)의 첫 화면 그래프(`ExponentialGraph`/`HeroGraph`)는 수백 개 항목을 허브-스포크 별 모양으로 정돈해 보여 주고, 커서·드래그에 물리적으로 반응한다. 기존 Claire 그래프(vis-network 9.1, forceAtlas2)는 같은 규모에서 Hairball이 되고, 좌표가 매번 달라지며, 확대·드래그 중 엣지를 숨겼다(설계 문서 6.1 진단 1·2·3).
+
+이 문서는 Shopify 그래프의 **구현 방식**을 분석해 Claire 지식 그래프에 맞게 다시 구현한 결과를 기록한다. Shopify 번들은 저작권이 있는 코드이므로 복사하지 않았다. 공개 페이지에서 관찰한 구조와 기법만 따랐고, 코드·셰이더는 모두 새로 작성했다.
+
+## 2. Shopify 그래프 분석
+
+`www.shopify.com/editions/fall2026`의 모듈(`ExponentialGraph`, `renderer`, `pack`, `nodes`, `edges`, `shader`, `viewport`, `controller`, WGSL 2종)에서 확인한 구성이다.
+
+| 계층 | Shopify 방식 |
+| :--- | :--- |
+| 프레임 데이터 | 매 프레임 노드(16 float)·엣지(20 float)를 `Float32Array` 구조체 배열에 채운다. 렌더러와 무관한 중간 표현이다. |
+| 렌더러 | WebGPU 우선. 인스턴스마다 사각형 1개를 펼치고 프래그먼트에서 `dpdx/dpdy`로 픽셀 폭을 재 원·고리·사각형·선분의 커버리지를 해석적으로 계산한다(MSAA 없이 서브픽셀 선까지 매끈). 초기화 실패·장치 손실 시 같은 프레임을 Canvas2D로 그린다(`BackendSlot`). |
+| 레이아웃 | 루트 → 섹션 → 업데이트의 트리. 자식은 부모에 tether로 묶여 길이·각도를 유지한다. 스포크 길이는 id 해시로 `4^(±1/3)` 범위에서 흩뜨려 별 모양을 만든다. 시드 해시(FNV-1a)로 배치가 결정적이다. |
+| 물리 | 섹션 간 반발, 자식 tether(임계 감쇠 스프링 + 위치 투영), 쿼드트리 충돌(반발 계수), 섹션별 교대 방향 궤도 회전, 커서 자석·물결(빠르게 쓸면 밀려남), 잡으면 별 수축·던지기·회복 감쇠, 워밍업 후 첫 표시. |
+| 상호작용 | 호버 시 이웃 밖을 흐리게(context alpha), 호버 노드 고리 확대, 엣지를 따라 흐르는 패킷, 라벨 충돌 회피, 감속 모션 존중. |
+
+## 3. 결정
+
+**vis-network를 걷어내고 자체 엔진(`src/claire/static/js/graph/`)으로 교체한다.** 엔진은 app.js가 쓰던 vis-network API 표면(DataSet + Network 메서드 약 20개, 이벤트 12종)을 그대로 제공한다. app.js의 워크스페이스 로직(검색·필터·경로·격리·문서 연동)은 거의 바꾸지 않는다.
+
+검토한 대안:
+
+- **vis-network 유지 + 스타일 조정**: 커스텀 렌더러로 모양은 흉내 낼 수 있으나 물리(계층 tether, 궤도, 던지기)와 렌더링 품질(해석적 AA, 그라디언트 선)을 얻을 수 없다.
+- **sigma.js + graphology**: WebGL 성능은 좋지만 Shopify식 계층 물리·상호작용을 다시 짜야 하고 CDN 의존이 늘어난다.
+
+## 4. 구조
+
+| 파일 | 역할 |
+| :--- | :--- |
+| `graph/core.js` | 네임스페이스 `window.ClaireGraph`, 결정적 해시, 색 파서, `Emitter`, vis 호환 `DataSet`(얕은 병합 update) |
+| `graph/simulation.js` | 신장 숲 구축(`buildHierarchy`), 결정적 시드 배치, 계층 물리(`Simulation.step`), 균일 격자 충돌 |
+| `graph/renderers.js` | `Frame`(노드 12·엣지 16 float), `WebGPURenderer`(WGSL), `Canvas2DRenderer`(같은 스타일 경로 일괄) |
+| `graph/network.js` | vis 호환 `Network`: 렌더 루프, 카메라(fit/focus/moveTo 애니메이션), 포인터·핀치·길게 누르기, 선택, 라벨 오버레이, 백엔드 폴백 |
+
+`graphview.py`는 네 파일을 의존 순서대로 `GRAPH_HTML`에 인라인한다. 외부 CDN 스크립트(vis-network)는 더 이상 없다.
+
+### 4.1 일반 그래프 → 트리 (Shopify와 다른 점)
+
+지식 그래프는 트리가 아니다. 다음 규칙으로 신장 숲을 만든다.
+
+1. 허브 수 = `clamp(round(√N × 0.6), 1, 32)`. 연결 수 3 이상인 노드 중 연결 수 상위를 허브(섹션)로 고른다.
+2. 허브에서 다중 출발 BFS로 각 노드의 주 부모를 정한다. 같은 층에서는 연결 수가 큰 부모가 먼저 자식을 가져간다.
+3. 허브에 닿지 않는 연결 요소는 요소 안의 연결 수 최대 노드를 루트로 삼는다.
+4. 자식은 타입(group)별로 정렬해 별 안에서 같은 색이 부채꼴을 이룬다.
+5. 숲에 들지 않은 관계(교차 엣지)는 그리기만 한다. 대신 서로 다른 별 사이 관계 수를 **허브 친화도**로 바꿔 관련 주제의 별이 고리에서 이웃하게 끈다(고리 순서도 친화도 탐욕 순).
+6. 큰 허브의 질량은 자식 수에 비례한다(`1 / (1 + 0.5·자식 수)`를 역질량으로 사용). 자식 126개 허브가 잎들의 반작용에 휘둘려 진동하던 문제를 이 규칙으로 해결했다.
+
+계층은 노드·관계가 추가·삭제될 때만 다시 만든다. 연결 수 필터·격리 보기처럼 숨김만 바뀌면 계층은 유지하고, 숨은 부모 대신 가장 가까운 보이는 조상에 묶으며, 보이는 노드만으로 별 반경과 고리 반경을 다시 잰다. 따라서 필터를 바꿔도 지도가 크게 흔들리지 않는다(설계 문서 P7 "안정 좌표"의 클라이언트 측 절반).
+
+### 4.2 시각 부호화
+
+- 노드 월드 반경 3–9px. 화면 반경은 `r × scale^0.6`으로 완만히 커진다. 축소하면 점 성운, 확대하면 개별 노드가 또렷하다.
+- 허브는 둥근 사각형, 라벨은 굵게, 연결 수를 위첨자로 단다(Shopify의 `Payments ³⁰`).
+- 대기 상태 엣지는 양끝 노드 타입색 그라디언트(`color.inherit`)로 그린다. 교차 관계는 0.5배로 흐리게 해 별 구조를 살린다.
+- 엣지 방향은 흐름 패킷(from → to)이 보여 준다. 강조된 엣지에는 작은 화살촉을 그린다(감속 모션에서도 방향이 보이게).
+- 라벨 LOD(설계 문서 P5): 호버·선택·강조·호버 이웃·허브 라벨은 항상 후보, 일반 노드 라벨은 확대율 0.8 이상에서만. 우선순위 순으로 자리를 잡고 겹치면 건너뛴다. 개수는 화면 면적에 비례한다.
+- 라벨 글꼴은 이미 번들된 D2Coding(한글 고정폭)이다.
+
+## 5. app.js 변경
+
+| 항목 | 이전 (vis) | 이후 |
+| :--- | :--- | :--- |
+| 생성 | `new vis.DataSet / vis.Network` | `new ClaireGraph.DataSet / Network` |
+| 물리 안정화 | 2.5초 뒤 `physics:false`, 드래그 시 1-hop 국소 물리 토글, 드롭 위치 `fixed` 고정 | 엔진이 안정화·수면을 관리. 앱은 물리를 토글하지 않는다. 드롭한 노드는 던져진 뒤 tether·궤도로 돌아온다. |
+| 노드 크기 | `nodeRadius` 10–26 | 3–9(월드 반경) |
+| 엣지 | vis 길이·스프링 상수 튜닝, `hideEdgesOnZoom/Drag` | 제거(엔진이 tether 길이를 계산, 확대·드래그 중에도 엣지 표시) |
+| 기본 엣지 색 | 회색 단색 | 타입색 그라디언트(`idleEdgeStyle`) |
+| 검색 뭉치기 | 숨은 앵커 + barnesHut 반발 | 숨은 고정 앵커 + `cl_*` 엣지를 엔진이 앵커 스프링으로 해석. 매칭 노드는 tether에서 풀려 모이고, 해제하면 원래 별로 미끄러져 돌아간다. |
+| 수집 중 정지 | `stopSimulation` + `physics:false` | `stopSimulation` / `startSimulation` |
+
+## 6. 운영 고려
+
+- **백엔드 선택**: 기본 `auto`(WebGPU → 실패 시 Canvas2D). 디버깅용으로 `?graphBackend=canvas2d|webgpu` 또는 `localStorage.claireGraphBackend`로 강제한다. 현재 백엔드는 `claireDebug.graphRenderer`로 확인한다.
+- **전력**: 궤도 회전·흐름 패킷은 계속 그리지만, 8초간 상호작용이 없으면 30fps로 낮춘다. 컨테이너가 0 크기이거나 탭이 숨겨지면 루프를 멈춘다.
+- **감속 모션**: `prefers-reduced-motion: reduce`이면 궤도 회전·흐름 패킷·커서 물결을 끈다.
+- **성능(데모 252노드/304관계)**: 물리 0.11–0.18ms/스텝, WebGPU 프레임(라벨 포함) 0.45ms, 워밍업 25ms.
+
+## 7. 검증
+
+- `tests/test_graphview.py`: 번들 마커(엔진 인라인, vis 미포함, 계층 물리·폴백·상호작용 마커).
+- `e2e/workspace.spec.js`:
+  - 기본 백엔드와 `?graphBackend=canvas2d` 강제 모두 표시·라벨 캔버스에 픽셀이 그려진다.
+  - 허브 3개·잎 24개 그래프에서 허브가 루트가 되고, 400px 끌어 던진 잎이 1.5초 안에 tether 길이(±3px)로 돌아온다.
+  - 기존 노드 inspect·모바일·매트릭스 시나리오가 새 엔진에서 그대로 통과한다.
+
+## 8. 남은 일
+
+- 서버 측 좌표 캐시(P7 안정 좌표의 나머지 절반): 현재는 클라이언트가 결정적 시드로 같은 지도를 다시 만든다. 노드가 추가되면 기존 노드는 제자리를 지키지만, 새로고침 사이에 사용자가 끈 위치는 남지 않는다.
+- 노드 수천 개 규모에서 라벨 후보 정렬·호버 검사를 공간 격자로 바꾸는 최적화.

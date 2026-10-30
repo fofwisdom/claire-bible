@@ -31,6 +31,8 @@ from .presentation.favicon import (
 _PACKAGE_DIR = Path(__file__).resolve().parent
 _STATIC_DIR = _PACKAGE_DIR / "static"
 _TEMPLATES_DIR = _PACKAGE_DIR / "templates"
+# 그래프 엔진(static/js/graph/) — 의존 순서대로 묶는다(core → simulation → renderers → network).
+_GRAPH_ENGINE_FILES = ("core.js", "simulation.js", "renderers.js", "network.js")
 
 
 def _build_standalone_graph_html() -> str:
@@ -39,6 +41,10 @@ def _build_standalone_graph_html() -> str:
     ws_css = (_STATIC_DIR / "css" / "workspace.css").read_text(encoding="utf-8")
     reader_css = (_STATIC_DIR / "css" / "reader.css").read_text(encoding="utf-8")
 
+    graph_js = "\n".join(
+        (_STATIC_DIR / "js" / "graph" / name).read_text(encoding="utf-8")
+        for name in _GRAPH_ENGINE_FILES
+    )
     adoc_js = (_STATIC_DIR / "js" / "renderers" / "adoc_parser.js").read_text(encoding="utf-8")
     reader_js = (_STATIC_DIR / "js" / "reader.js").read_text(encoding="utf-8")
     app_js = (_STATIC_DIR / "js" / "app.js").read_text(encoding="utf-8")
@@ -62,7 +68,7 @@ def _build_standalone_graph_html() -> str:
     themes: __THEMES_JSON__
   };"""
 
-    js_bundle = f"<script>\n{config_js}\n\n{adoc_js}\n{reader_js}\n{app_js}\n</script>"
+    js_bundle = f"<script>\n{config_js}\n\n{graph_js}\n{adoc_js}\n{reader_js}\n{app_js}\n</script>"
     html = html.replace("</body>", f"{js_bundle}\n</body>")
     return html
 

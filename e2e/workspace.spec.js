@@ -229,6 +229,74 @@ test('inspecting node on desktop displays details without backdrop dimming or cl
   expect(pageErrors).toEqual([]);
 });
 
+test('graph engine paints marks and labels through WebGPU or the forced Canvas2D fallback', async ({ page }) => {
+  const pageErrors = [];
+  page.on('pageerror', error => pageErrors.push(error.message));
+  await page.setViewportSize({ width: 1400, height: 900 });
+  const paintedPixels = selector => page.evaluate(sel => {
+    const canvas = document.querySelector(sel);
+    const data = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
+    let count = 0;
+    for (let i = 3; i < data.length; i += 4) if (data[i] > 0) count++;
+    return count;
+  }, selector);
+
+  // 1. 기본(auto): WebGPU 가 없거나 실패하면 Canvas2D 로 내려가며, 어느 쪽이든 라벨 오버레이를 그린다.
+  await waitForClaire(page);
+  const info = await page.evaluate(() => window.claireDebug.graphRenderer);
+  expect(['webgpu', 'canvas2d']).toContain(info.backend);
+  await expect(page.locator('#net canvas.claire-graph-marks')).toHaveCount(1);
+  await expect(page.locator('#net canvas.claire-graph-labels')).toHaveCount(1);
+  await expect.poll(() => paintedPixels('#net canvas.claire-graph-labels')).toBeGreaterThan(20);
+
+  // 2. ?graphBackend=canvas2d 로 강제하면 같은 프레임을 2D 경로로 그린다.
+  await page.goto('/?graphBackend=canvas2d', { waitUntil: 'domcontentloaded' });
+  await expect.poll(() => page.evaluate(() => window.claireDebug?.graphRenderer?.backend)).toBe('canvas2d');
+  await expect.poll(() => paintedPixels('#net canvas.claire-graph-marks')).toBeGreaterThan(20);
+
+  expect(pageErrors).toEqual([]);
+});
+
+test('graph engine lays hubs out as spoke stars and springs a flung leaf back to its tether', async ({ page }) => {
+  await page.goto('/', { waitUntil: 'domcontentloaded' });
+  await page.waitForFunction(() => window.ClaireGraph && window.ClaireGraph.Network);
+  const result = await page.evaluate(async () => {
+    const G = window.ClaireGraph;
+    const host = document.createElement('div');
+    host.style.cssText = 'position:fixed;left:0;top:0;width:600px;height:400px;z-index:9999;background:#fff';
+    document.body.appendChild(host);
+    const nodes = [], edges = [];
+    for (let h = 0; h < 3; h++) {
+      nodes.push({ id: 'h' + h, label: 'Hub ' + h, group: 'Tool', size: 6 });
+      for (let k = 0; k < 8; k++) {
+        const id = 'h' + h + 'c' + k;
+        nodes.push({ id, label: id, group: 'Concept', size: 3 });
+        edges.push({ id: 'e' + id, from: 'h' + h, to: id });
+      }
+    }
+    const net = new G.Network(host, { nodes: new G.DataSet(nodes), edges: new G.DataSet(edges) }, { renderer: { backend: 'canvas2d' } });
+    const sim = net.sim;
+    const leaf = net._index.get('h0c0'), hub = net._index.get('h0');
+    const dist = () => Math.hypot(sim.x[leaf] - sim.x[hub], sim.y[leaf] - sim.y[hub]);
+    await new Promise(resolve => setTimeout(resolve, 300));
+    const tether = sim.tether[leaf], before = dist();
+    sim.dragTo(leaf, sim.x[hub] + 400, sim.y[hub], 16);
+    sim.release(leaf, 16, false);
+    const stretched = dist();
+    await new Promise(resolve => setTimeout(resolve, 1500));
+    const after = dist();
+    const out = { roots: sim.h.roots.map(i => net._ids[i]).sort(), tether, before, stretched, after, backend: net.backend };
+    net.destroy();
+    host.remove();
+    return out;
+  });
+  expect(result.backend).toBe('canvas2d');
+  expect(result.roots).toEqual(['h0', 'h1', 'h2']);
+  expect(Math.abs(result.before - result.tether)).toBeLessThan(2);
+  expect(result.stretched).toBeGreaterThan(result.tether * 2);
+  expect(Math.abs(result.after - result.tether)).toBeLessThan(3);
+});
+
 test('mobile history back navigation closes modal and returns to previous view without exiting', async ({ page }) => {
   const pageErrors = [];
   page.on('pageerror', error => pageErrors.push(error.message));

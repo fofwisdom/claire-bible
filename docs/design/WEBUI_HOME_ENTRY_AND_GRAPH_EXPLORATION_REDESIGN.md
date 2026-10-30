@@ -403,6 +403,7 @@ flowchart LR
 
 - **안정 좌표**: 레이아웃 계산 결과(노드 좌표)를 서버에 캐시하고 재사용한다. 새 노드만 이웃 근처에 배치한다. 접속할 때마다 지도가 바뀌지 않는다.
 - **렌더러**: vis-network(Canvas 2D)는 노드 수천 개에서 물리 계산과 그리기가 느려진다. 대규모 테마가 생기면 WebGL 렌더러(sigma.js + graphology: ForceAtlas2 Web Worker, Louvain 내장)로 전환을 검토한다. P1(에고)·P2(군집 개요)를 먼저 적용하면 화면의 노드 수가 줄어 전환 필요성이 낮아진다.
+  - 2026-10-30 갱신: vis-network를 WebGPU/Canvas2D 자체 엔진(허브-스포크 계층 물리, 결정적 시드 배치)으로 교체했다. [GRAPH_ENGINE_SHOPIFY_EDITIONS_ADOPTION_DESIGN.md](GRAPH_ENGINE_SHOPIFY_EDITIONS_ADOPTION_DESIGN.md) 참조. 서버 측 좌표 캐시는 남은 일이다.
 
 ### 6.4 권장 단계
 
