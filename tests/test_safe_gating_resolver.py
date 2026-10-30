@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import sqlite3
 
+import pytest
+
 from claire.extract.decision import ResolutionDecision, get_resolution_log_from_meta, rollback_resolution
 from claire.extract.resolver import (
     ResolutionResult,
@@ -549,3 +551,136 @@ def test_get_resolution_decisions_global_api_route(tmp_path):
 
 
 
+
+
+# --- 검토 증거: 후보 추적 (GRAPH_BUNDLE_REVIEW_EVIDENCE_DESIGN.md §3.1) ---
+
+
+def _fixed_thresholds(monkeypatch):
+    # adaptive centering 을 끄고 코사인 원값으로 대역을 고정한다
+    import claire.extract.resolver as resolver_mod
+
+    monkeypatch.setattr(resolver_mod, "_get_tier_thresholds", lambda: (0.93, 0.72, 0.70, 0.55, False))
+
+
+def _seed_with_vector(conn, vstore, ent: Entity, vec: list[float]) -> Entity:
+    dbm.upsert_entity(conn, ent)
+    vstore.put(ent.id, vec, "claire")
+    return ent
+
+
+def test_candidate_trace_records_invariant_reject_and_judge_different(monkeypatch):
+    _fixed_thresholds(monkeypatch)
+    conn = _init_memory_db()
+    vstore = VectorStore(conn, "brute")
+    org = _seed_with_vector(conn, vstore, Entity(type="Org", name="Docker Inc", sources=["doc_1"]), [0.9, 0.4359, 0.0])
+    rival = _seed_with_vector(
+        conn, vstore, Entity(type="Tool", name="Podman", observations=["container runtime"], sources=["doc_1"]),
+        [0.8, 0.6, 0.0],
+    )
+
+    judged: list[str] = []
+
+    def _judge(nm, et, obs, cand, aliases=None):
+        judged.append(cand.name)
+        return False
+
+    res = resolve_or_create(
+        conn, vstore,
+        name="Docker", etype="Tool", aliases=["docker engine"], observations=["container platform"],
+        document_id="doc_2", embed_fn=lambda: [1.0, 0.0, 0.0], judge_fn=_judge,
+    )
+
+    assert res.created is True
+    dec = res.decision
+    assert dec.decision == "CREATE_NEW"
+    by_id = {c["id"]: c for c in dec.candidates}
+    assert by_id[org.id]["outcome"] == "invariant_reject"
+    assert by_id[org.id]["origin"] == "vector"
+    assert by_id[org.id]["type"] == "Org"
+    assert by_id[rival.id]["outcome"] == "judge_different"
+    assert by_id[rival.id]["score"] == pytest.approx(0.8, abs=1e-4)
+    assert by_id[rival.id]["cand_obs_count"] == 1
+    assert by_id[rival.id]["judge_ms"] >= 0.0
+    assert judged == ["Podman"]
+    assert dec.input_snapshot == {
+        "name": "Docker",
+        "type": "Tool",
+        "aliases": ["docker engine"],
+        "observations": ["container platform"],
+        "provisional": False,
+    }
+    assert dec.gate_params["auto"] == 0.93
+    assert dec.gate_params["borderline"] == 0.72
+    assert dec.gate_params["embedding_dim"] == 3
+    assert dec.gate_params["embedding_hash_fallback"] is False
+
+    restored = ResolutionDecision.from_dict(dec.to_dict())
+    assert restored.candidates == dec.candidates
+    assert restored.input_snapshot == dec.input_snapshot
+    assert restored.gate_params == dec.gate_params
+
+
+def test_candidate_trace_marks_not_reached_after_judge_merge(monkeypatch):
+    _fixed_thresholds(monkeypatch)
+    conn = _init_memory_db()
+    vstore = VectorStore(conn, "brute")
+    letta = _seed_with_vector(conn, vstore, Entity(type="Framework", name="Letta", sources=["doc_1"]), [0.85, 0.5268, 0.0])
+    other = _seed_with_vector(conn, vstore, Entity(type="Framework", name="LlamaIndex", sources=["doc_1"]), [0.75, 0.6614, 0.0])
+
+    res = resolve_or_create(
+        conn, vstore,
+        name="Agent Memory Server", etype="Framework", aliases=[], observations=[], document_id="doc_2",
+        embed_fn=lambda: [1.0, 0.0, 0.0], judge_fn=lambda nm, et, obs, cand: cand.name == "Letta",
+    )
+
+    assert res.entity.id == letta.id
+    dec = res.decision
+    assert dec.stage == "borderline_llm_judge"
+    assert [c["outcome"] for c in dec.candidates] == ["judge_same", "not_reached"]
+    rest = dec.candidates[1]
+    assert rest["id"] == other.id
+    assert "name" not in rest
+    assert rest["score"] == pytest.approx(0.75, abs=1e-4)
+
+
+def test_candidate_trace_no_judge_and_hash_fallback_flag(monkeypatch):
+    _fixed_thresholds(monkeypatch)
+    from claire.extract.provider import MockProvider
+
+    hash_vec = MockProvider().embed("Mimalloc")
+    conn = _init_memory_db()
+    vstore = VectorStore(conn, "brute")
+    # FTS 토큰 겹침으로만 후보가 되도록 이름을 겹치고, 벡터는 각자의 해시 폴백을 쓴다
+    cand = _seed_with_vector(
+        conn, vstore, Entity(type="Tool", name="Mimalloc Allocator", sources=["doc_1"]),
+        MockProvider().embed("Mimalloc Allocator"),
+    )
+
+    res = resolve_or_create(
+        conn, vstore,
+        name="Mimalloc", etype="Tool", aliases=[], observations=[], document_id="doc_2",
+        embed_fn=lambda: list(hash_vec),
+    )
+
+    dec = res.decision
+    assert dec.decision == "CREATE_NEW"
+    assert dec.candidates[0]["id"] == cand.id
+    assert dec.candidates[0]["outcome"] == "no_judge"
+    assert dec.gate_params["embedding_hash_fallback"] is True
+
+
+def test_candidate_trace_absent_for_deterministic_gate(monkeypatch):
+    _fixed_thresholds(monkeypatch)
+    conn = _init_memory_db()
+    vstore = VectorStore(conn, "brute")
+    dbm.upsert_entity(conn, Entity(type="Tool", name="Claude Code", sources=["doc_1"]))
+
+    res = resolve_or_create(
+        conn, vstore, name="claude code", etype="Tool", aliases=[], observations=[], document_id="doc_2",
+    )
+
+    assert res.decision.stage == "exact_match"
+    assert res.decision.candidates is None
+    assert res.decision.input_snapshot is None
+    assert res.decision.gate_params is None

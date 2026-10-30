@@ -2,6 +2,7 @@
 
 This module exports graph topology snapshots without vector embeddings or secret credentials.
 Each bundle contains manifest.json and clean graph_export.db with entities, relations, and sanitized document metadata.
+Format v2 adds review_* tables with the resolution pipeline's decision evidence (graph_bundle_review); importers skip them.
 Active bundles expire after 24 hours (GRAPH_BUNDLE_TTL_SECONDS).
 """
 
@@ -18,7 +19,7 @@ import sqlite3
 import tarfile
 import tempfile
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -26,12 +27,14 @@ from typing import Any
 import zstandard as zstd
 
 from .config import ROOT, Settings, get_settings
+from .graph_bundle_review import count_review_tables, export_review_evidence
 from .store import db as dbm
 
 logger = logging.getLogger(__name__)
 
 GRAPH_BUNDLE_TTL_SECONDS = 24 * 3600  # 86400 seconds (24 hours)
 _GRAPH_BUNDLE_TOKEN_PREFIX = "gb3_"
+GRAPH_BUNDLE_FORMAT_VERSION = 2
 _BUNDLE_REGISTRY_DIRNAME = ".registry"
 _BUNDLE_REGISTRY_FORMAT_VERSION = 1
 
@@ -76,6 +79,7 @@ class GraphBundleInfo:
     created_at: float
     expires_at: float
     download_url: str
+    review: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         """Convert bundle info to a dictionary."""
@@ -92,6 +96,7 @@ class GraphBundleInfo:
             "size_bytes": self.size_bytes,
             "created_at": datetime.fromtimestamp(self.created_at, timezone.utc).isoformat(),
             "expires_at": datetime.fromtimestamp(self.expires_at, timezone.utc).isoformat(),
+            "review": dict(self.review),
         }
 
     @classmethod
@@ -116,6 +121,7 @@ class GraphBundleInfo:
             created_at=_epoch(value["created_at"]),
             expires_at=_epoch(value["expires_at"]),
             download_url=str(value["download_url"]),
+            review=dict(value.get("review") or {}),
         )
 
 
@@ -426,6 +432,8 @@ def create_graph_bundle(
     entities_count = 0
     relations_count = 0
     documents_count = 0
+    entity_ids: set[str] = set()
+    document_ids: set[str] = set()
 
     with tempfile.TemporaryDirectory() as tmp_dir_str:
         tmp_dir = Path(tmp_dir_str)
@@ -525,6 +533,7 @@ def create_graph_bundle(
                 rows_ent,
             )
             entities_count = len(rows_ent)
+            entity_ids = {row[0] for row in rows_ent}
 
         # Export relations
         if "relations" in source_tables:
@@ -587,6 +596,18 @@ def create_graph_bundle(
                 rows_doc,
             )
             documents_count = len(rows_doc)
+            document_ids = {row[0] for row in rows_doc}
+
+        # Review evidence for engine adoption reviews (TypeSafe AI Jev): baseline decisions, candidate pairs, judge telemetry
+        review_summary = export_review_evidence(
+            source_conn,
+            export_conn,
+            settings=s,
+            data_dir=data_dir,
+            entity_ids=entity_ids,
+            document_ids=document_ids,
+            now_epoch=now,
+        )
 
         export_conn.commit()
         export_conn.close()
@@ -601,7 +622,7 @@ def create_graph_bundle(
 
         # Build manifest
         manifest_data = {
-            "bundle_version": 1,
+            "bundle_version": GRAPH_BUNDLE_FORMAT_VERSION,
             "bundle_id": bundle_id,
             "theme_id": resolved_theme_id,
             "created_at": datetime.fromtimestamp(now, timezone.utc).isoformat(),
@@ -613,6 +634,7 @@ def create_graph_bundle(
             "documents_count": documents_count,
             "graph_export_sha256": export_sha256,
             "format": "sqlite",
+            "review": review_summary,
         }
         manifest_bytes = json.dumps(manifest_data, indent=2, ensure_ascii=False).encode("utf-8")
 
@@ -668,6 +690,7 @@ def create_graph_bundle(
         created_at=now,
         expires_at=expires_at,
         download_url=download_url,
+        review=review_summary,
     )
 
 
@@ -831,6 +854,9 @@ def import_graph_bundle(target_db_path: Path | str, bundle_path: Path | str) -> 
                 )
             documents_imported = len(batch_doc)
 
+        # review_* tables are bundle-only evidence, never merged into the target graph
+        review_tables = count_review_tables(export_conn)
+
         target_conn.commit()
         target_conn.close()
         export_conn.close()
@@ -842,4 +868,6 @@ def import_graph_bundle(target_db_path: Path | str, bundle_path: Path | str) -> 
         "relations_count": relations_imported,
         "documents_count": documents_imported,
         "target_db_path": str(target_file),
+        "bundle_version": manifest.get("bundle_version", 1),
+        "review_tables": review_tables,
     }

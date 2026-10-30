@@ -29,12 +29,19 @@ class ResolutionDecision:
     source_entity_id: str | None = None  # 흡수된 신규/패자 엔티티 ID
     rollback_payload: dict[str, Any] | None = None  # 복원에 필요한 원자적 상태 스냅샷
     timestamp: float = field(default_factory=time.time)
+    # 검토 증거 (GRAPH_BUNDLE_REVIEW_EVIDENCE_DESIGN.md §3.1): 후보 루프에 진입한 판정에만 기록
+    candidates: list[dict[str, Any]] | None = None  # 후보별 점수·출처·Gate 결과(outcome)·judge 지연
+    input_snapshot: dict[str, Any] | None = None  # 판정 시점 신규 엔티티 입력
+    gate_params: dict[str, Any] | None = None  # 판정 시점 임계값 및 질의 임베딩 유효성
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ResolutionDecision:
+        candidates = data.get("candidates")
+        input_snapshot = data.get("input_snapshot")
+        gate_params = data.get("gate_params")
         return cls(
             entity=str(data.get("entity") or ""),
             stage=str(data.get("stage") or ""),
@@ -46,6 +53,9 @@ class ResolutionDecision:
             source_entity_id=data.get("source_entity_id"),
             rollback_payload=data.get("rollback_payload"),
             timestamp=float(data.get("timestamp") or time.time()),
+            candidates=candidates if isinstance(candidates, list) else None,
+            input_snapshot=input_snapshot if isinstance(input_snapshot, dict) else None,
+            gate_params=gate_params if isinstance(gate_params, dict) else None,
         )
 
 

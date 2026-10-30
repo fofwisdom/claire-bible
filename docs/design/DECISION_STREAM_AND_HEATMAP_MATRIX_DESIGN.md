@@ -202,6 +202,8 @@ class ResolutionDecision:
     timestamp: float = field(default_factory=time.time)
 ```
 
+> 2026-10-30: Jev 도입 검토 증거용 선택 필드 `candidates`, `input_snapshot`, `gate_params`가 추가되었다. 후보 루프에 진입한 판정에만 기록된다. 상세는 [GRAPH_BUNDLE_REVIEW_EVIDENCE_DESIGN.md](GRAPH_BUNDLE_REVIEW_EVIDENCE_DESIGN.md) §3.1 참조.
+
 #### `rollback_payload` 구성 요소:
 - `added_aliases`: 이번 병합으로 타깃 엔티티에 새로 추가된 별칭 목록 (롤백 시 제거).
 - `added_observations`: 이번 병합으로 누적된 신규 관측문 (롤백 시 제거).

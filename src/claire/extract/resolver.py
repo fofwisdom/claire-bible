@@ -13,11 +13,13 @@ from __future__ import annotations
 
 import re
 import sqlite3
+import time
 from collections.abc import Callable
+from typing import Any
 
 from ..ontology.base import Entity, normalize_name
 from ..store import db as dbm
-from ..store.vectors import VectorStore
+from ..store.vectors import VectorStore, looks_like_hash_fallback
 from .decision import ResolutionDecision
 
 # 확신 임계: 이 이상이면 judge 없이 자동 머지.
@@ -144,6 +146,28 @@ def passes_hard_invariants(
         return False
 
     return True
+
+
+def _trace_entry(
+    owner_id: str,
+    score: float,
+    from_vector: bool,
+    outcome: str,
+    cand: Entity | None = None,
+    judge_ms: float | None = None,
+) -> dict[str, Any]:
+    """검토 증거용 후보 1건 추적 레코드. FTS 단독 후보는 코사인 점수가 없으므로 score=None."""
+    entry: dict[str, Any] = {
+        "id": owner_id,
+        "origin": "vector" if from_vector else "fts",
+        "score": round(score, 6) if from_vector else None,
+        "outcome": outcome,
+    }
+    if cand is not None:
+        entry.update(name=cand.name, type=cand.type, cand_obs_count=len(cand.observations))
+    if judge_ms is not None:
+        entry["judge_ms"] = judge_ms
+    return entry
 
 
 def _execute_reversible_merge(
@@ -280,6 +304,7 @@ def resolve_or_create(
 
     # 후보 수집: vector(점수 있음) + FTS(점수 없음, 토큰 겹침)
     scored: dict[str, float] = {}
+    vector_ids: set[str] = set()
     relational_candidates: list[tuple[str, float]] = []
     multihop_candidates: list[tuple[str, float]] = []
 
@@ -289,6 +314,7 @@ def resolve_or_create(
         ):
             if score >= tier_borderline:
                 scored[owner_id] = score
+                vector_ids.add(owner_id)
             elif score >= tier_relational:
                 relational_candidates.append((owner_id, score))
             elif score >= tier_multihop:
@@ -300,13 +326,40 @@ def resolve_or_create(
     # 점수 높은 순. tier_auto 이상은 즉시 머지.
     ordered = sorted(scored.items(), key=lambda kv: kv[1], reverse=True)
     judged = 0
-    for owner_id, score in ordered:
+    # 검토 증거: 후보별 Gate 결과를 판정 레코드에 남긴다 (GRAPH_BUNDLE_REVIEW_EVIDENCE_DESIGN.md §3.1)
+    trace: list[dict[str, Any]] = []
+
+    def _finish(dec: ResolutionDecision, rest: list[tuple[str, float]]) -> ResolutionDecision:
+        trace.extend(_trace_entry(oid, sc, oid in vector_ids, "not_reached") for oid, sc in rest)
+        if trace:
+            dec.candidates = trace
+            dec.input_snapshot = {
+                "name": name,
+                "type": etype,
+                "aliases": list(aliases),
+                "observations": list(observations),
+                "provisional": provisional,
+            }
+            dec.gate_params = {
+                "auto": tier_auto,
+                "borderline": tier_borderline,
+                "relational": tier_relational,
+                "max_judge": MAX_JUDGE,
+                "adaptive_center": bool(adaptive_center),
+                "embedding_dim": len(embedding) if embedding else 0,
+                "embedding_hash_fallback": looks_like_hash_fallback(embedding),
+            }
+        return dec
+
+    for idx, (owner_id, score) in enumerate(ordered):
         cand = dbm.get_entity(conn, owner_id)
         if cand is None:
             continue
+        from_vector = owner_id in vector_ids
 
         # Gate 2: 온톨로지 불변식 검증 (타입, 버전 충돌 등)
         if not passes_hard_invariants(name, etype, cand.name, cand.type, provisional):
+            trace.append(_trace_entry(owner_id, score, from_vector, "invariant_reject", cand))
             if score >= tier_relational:
                 relational_candidates.append((owner_id, score))
             elif score >= tier_multihop:
@@ -315,13 +368,15 @@ def resolve_or_create(
 
         # Gate 3: 점수 대역 판정 (초고신뢰도 자동 병합)
         if score >= tier_auto:
+            trace.append(_trace_entry(owner_id, score, from_vector, "auto_merge", cand))
             cand_m, dec = _execute_reversible_merge(
                 conn, cand, name, aliases + [name], observations, document_id,
                 new_type=etype, stage="high_confidence_vector", score=score,
                 reason=f"Vector similarity {score:.4f} >= auto-merge threshold {tier_auto}",
             )
             return ResolutionResult(
-                cand_m, False, relational_candidates, multihop_candidates, decision=dec
+                cand_m, False, relational_candidates, multihop_candidates,
+                decision=_finish(dec, ordered[idx + 1:]),
             )
 
         # Gate 4: 경계선(borderline) → System 2 LLM judge (게이팅)
@@ -332,10 +387,16 @@ def resolve_or_create(
                     on_judge(name, cand.name)
                 except Exception:
                     pass
+            started = time.perf_counter()
             try:
                 is_same = judge_fn(name, etype, observations, cand, aliases)
             except TypeError:
                 is_same = judge_fn(name, etype, observations, cand)
+            judge_ms = round((time.perf_counter() - started) * 1000.0, 1)
+            trace.append(_trace_entry(
+                owner_id, score, from_vector,
+                "judge_same" if is_same else "judge_different", cand, judge_ms,
+            ))
             if is_same:
                 cand_m, dec = _execute_reversible_merge(
                     conn, cand, name, aliases + [name], observations, document_id,
@@ -343,13 +404,18 @@ def resolve_or_create(
                     reason=f"Judge confirmed SAME at score {score:.4f}",
                 )
                 return ResolutionResult(
-                    cand_m, False, relational_candidates, multihop_candidates, decision=dec
+                    cand_m, False, relational_candidates, multihop_candidates,
+                    decision=_finish(dec, ordered[idx + 1:]),
                 )
             else:
                 # DIFFERENT 판정된 후보: 버리지 않고 Tier 3 직접 관계 후보로 보존
                 relational_candidates.append((owner_id, score))
-        elif score >= tier_relational:
-            relational_candidates.append((owner_id, score))
+        else:
+            trace.append(_trace_entry(
+                owner_id, score, from_vector, "no_judge" if judge_fn is None else "judge_cap", cand,
+            ))
+            if score >= tier_relational:
+                relational_candidates.append((owner_id, score))
 
     # Gate 5: 미병합 시 신규 생성
     ent = Entity(
@@ -364,13 +430,13 @@ def resolve_or_create(
     if embedding:
         vstore.put(ent.id, embedding, model="claire")
 
-    new_dec = ResolutionDecision(
+    new_dec = _finish(ResolutionDecision(
         entity=name,
         stage="no_match",
         decision="CREATE_NEW",
         target_entity_id=ent.id,
         reason="No candidate satisfied safe gating criteria.",
-    )
+    ), [])
     return ResolutionResult(ent, True, relational_candidates, multihop_candidates, decision=new_dec)
 
 

@@ -20,6 +20,22 @@ def unpack_vector(blob: bytes) -> list[float]:
     return list(struct.unpack(f"{n}f", blob))
 
 
+def looks_like_hash_fallback(vec: list[float] | None) -> bool:
+    """프로바이더의 sha256 결정론적 의사 임베딩(embed 실패 폴백)인지 판별.
+
+    폴백 벡터는 32바이트 digest 를 주기 32로 반복하고 각 값이 b/127.5 - 1 (b ∈ 0..255) 격자 위에 놓인다. 실제 임베딩이 이 세 조건을 동시에 만족할 가능성은 사실상 없다.
+    """
+    if not vec or len(vec) < 64:
+        return False
+    if any(vec[i] != vec[i - 32] for i in range(32, len(vec))):
+        return False
+    for v in vec[:32]:
+        scaled = (v + 1.0) * 127.5
+        if abs(scaled - round(scaled)) > 1e-3 or not 0 <= round(scaled) <= 255:
+            return False
+    return True
+
+
 def _cosine(a: list[float], b: list[float]) -> float:
     if not a or not b or len(a) != len(b):
         return 0.0

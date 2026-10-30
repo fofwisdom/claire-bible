@@ -4428,6 +4428,13 @@ def cmd_export_graph(args: Any) -> int:
     print(f"• Entities        : {info.entities_count}")
     print(f"• Relations       : {info.relations_count}")
     print(f"• Documents       : {info.documents_count}")
+    if info.review:
+        print(
+            f"• Review Evidence : decisions={info.review.get('decisions', 0)} "
+            f"(traced {info.review.get('decisions_with_candidates', 0)}), "
+            f"candidate_pairs={info.review.get('candidate_pairs', 0)} ({info.review.get('candidate_pairs_status')}), "
+            f"judge_calls={info.review.get('judge_calls', 0)} ({info.review.get('judge_calls_status')})"
+        )
     print(f"• Archive Path    : {info.filepath}")
     print(f"• Size            : {info.size_bytes} bytes ({info.size_bytes / 1024:.1f} KB)")
     print(f"• Download Token  : {info.token}")
@@ -4474,6 +4481,8 @@ def cmd_import_graph(args: Any) -> int:
     print(f"• Entities        : {result.get('entities_count')}")
     print(f"• Relations       : {result.get('relations_count')}")
     print(f"• Documents       : {result.get('documents_count')}")
+    if result.get("review_tables"):
+        print(f"• Review Evidence : bundle-only, not imported ({sum(result['review_tables'].values())} rows)")
     print("=" * 60)
     return 0
 
