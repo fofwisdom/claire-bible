@@ -117,6 +117,7 @@
     <div class="tt-pop-sec">작업 공간 탭</div>
     <button type="button" class="tt-pop-item" data-app-tab-btn="client"><span>🌐 연합 클라이언트 (ActivityPub · AT)</span><kbd>1</kbd></button>
     <button type="button" class="tt-pop-item" data-app-tab-btn="kb"><span>📚 지식베이스 (수집 · 적재 · 발행)</span><kbd>2</kbd></button>
+    <button type="button" class="tt-pop-item" data-peer-view="current" data-peer-user="all"><span>👥 다른 사용자 발행 본문 (제안)</span></button>
     <div class="tt-pop-sep"></div>
     <div class="tt-pop-sec">연합 클라이언트</div>
     <button type="button" id="menu-open-connect" class="tt-pop-item"><span>🔌 서버 계정 연결...</span></button>
@@ -182,6 +183,11 @@
 
       <div class="tt-tree-hdr"><span>카테고리 폴더 (RSS·AP·AT)</span></div>
       <div id="tree-folders" style="display:flex;flex-direction:column;gap:2px"></div>
+
+      <details class="tt-folder" open>
+        <summary><span><span class="tt-folder-marker"></span>Claire 사용자 발행 본문 <span class="peer-proposal">제안</span></span></summary>
+        <div id="tree-peers" class="tt-tree-children"></div>
+      </details>
 
       <details class="tt-folder" open>
         <summary><span><span class="tt-folder-marker"></span>테마 DB 적재 엔티티</span></summary>
@@ -264,6 +270,11 @@
     <div id="modal-publish-body" style="padding:18px;display:flex;flex-direction:column;gap:12px"></div>
   </dialog>
 
+  <!-- Peer Reshare Modal (다른 사용자 발행 본문을 내 연결 계정으로 부스트 · 인용 · 링크 공유 · 가져와 적재 발행, 제안) -->
+  <dialog id="modal-reshare" closedby="any" aria-labelledby="modal-reshare-title" class="synd-dialog synd-dialog-wide">
+    <div id="modal-reshare-body" style="padding:18px;display:flex;flex-direction:column;gap:12px"></div>
+  </dialog>
+
   <!-- Client Compose Modal (새 글 · 답글 · 인용) -->
   <dialog id="modal-compose" closedby="any" aria-labelledby="modal-compose-title" class="synd-dialog synd-dialog-wide">
     <div id="modal-compose-body" style="padding:18px;display:flex;flex-direction:column;gap:12px"></div>
@@ -308,6 +319,7 @@
   </script>
   <script src="/static/js/syndication_data.js"></script>
   <script src="/static/js/syndication_client.js"></script>
+  <script src="/static/js/syndication_peers.js"></script>
   <script src="/static/js/syndication_app.js"></script>
 </body>
 </html>

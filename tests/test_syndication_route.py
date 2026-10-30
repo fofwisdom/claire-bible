@@ -114,6 +114,18 @@ def test_syndication_and_preferences_routes_io_interface(syndication_env) -> Non
         assert 'id="pop-post-actions"' in res_public.text
         assert 'id="modal-report"' in res_public.text
 
+        # Other users' published bodies (proposal): both tabs read the shared publication index and
+        # republish through the viewer's own connected accounts.
+        assert "CLAIRE_SYND_PEERS_FACTORY" in res_public.text
+        assert "window.CLAIRE_SYND_PEERS = {" in res_public.text
+        assert 'id="tree-peers"' in res_public.text
+        assert 'id="modal-reshare"' in res_public.text
+        assert 'data-peer-view="current"' in res_public.text
+        assert "GET /api/peers/publications" in res_public.text
+        for mode in ("boost", "quote", "link", "import_publish"):
+            assert f"{mode}: {{ icon:" in res_public.text, mode
+        assert res_public.text.index("CLAIRE_SYND_PEERS_FACTORY = function") < res_public.text.index("window.CLAIRE_SYND_PEERS_FACTORY({")
+
         res_head = client.head("/syndication")
         assert res_head.status_code == 200
 
@@ -131,6 +143,27 @@ def test_syndication_and_preferences_routes_io_interface(syndication_env) -> Non
         assert 'id="pref-app-tab"' in res_prefs.text
         assert 'id="panel-accounts"' in res_prefs.text
         assert "연결 서버 계정" in res_prefs.text
+        assert 'id="panel-mcp"' in res_prefs.text
+        assert 'id="panel-webmcp"' in res_prefs.text
+        assert 'id="pref-mcp-tools-tbody"' in res_prefs.text
+        assert 'id="pref-mcp-clients-tbody"' in res_prefs.text
+        assert 'id="pref-webmcp-tools-tbody"' in res_prefs.text
+        assert 'id="btn-webmcp-sim-run"' in res_prefs.text
+        assert "document.modelContext" in res_prefs.text
+        assert "requestUserInteraction" not in res_prefs.text
+        assert "consequentialHint" in res_prefs.text
+        assert "/.well-known/oauth-protected-resource" in res_prefs.text
+        assert "syndication:draft" in res_prefs.text
+        assert 'id="pref-mcp-rbac-tbody"' in res_prefs.text
+        assert 'id="pref-mcp-apitokens-tbody"' in res_prefs.text
+        assert 'id="panel-idp"' in res_prefs.text
+        assert 'id="panel-userdb"' in res_prefs.text
+        assert 'id="pref-idp-tbody"' in res_prefs.text
+        assert 'id="btn-idp-sim-run"' in res_prefs.text
+        assert 'id="pref-userdb-tbody"' in res_prefs.text
+        assert 'id="pref-peer-listed"' in res_prefs.text
+        assert 'id="pref-peer-import"' in res_prefs.text
+        assert "peerSharePolicy" in res_prefs.text
 
         res_prefs_head = client.head("/syndication/preferences")
         assert res_prefs_head.status_code == 200

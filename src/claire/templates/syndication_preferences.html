@@ -62,7 +62,54 @@
   details.pref-disclosure summary { cursor: pointer; font-size: 12.5px; font-weight: 700; color: var(--fg); }
   .pref-toast { position: fixed; right: 18px; bottom: 18px; padding: 9px 14px; border-radius: 8px; background: var(--fg); color: var(--bg); font-size: 12.5px; font-weight: 700; box-shadow: 0 8px 24px var(--shadow); opacity: 0; pointer-events: none; transition: opacity 0.18s ease; z-index: 50; }
   .pref-toast.show { opacity: 1; }
+  .pref-pill-mcp { color: #1a7f37; background: rgba(46, 160, 67, 0.14); border-color: rgba(46, 160, 67, 0.35); }
+  .pref-pill-web { color: #9a6700; background: rgba(212, 167, 44, 0.16); border-color: rgba(212, 167, 44, 0.4); }
+  .pref-pill-prop { color: var(--muted); background: transparent; border-style: dashed; }
+  .pref-pill-warn { color: #cf222e; background: rgba(248, 81, 73, 0.12); border-color: rgba(248, 81, 73, 0.35); }
+  [data-theme="dark"] .pref-pill-mcp { color: #56d364; }
+  [data-theme="dark"] .pref-pill-web { color: #e3b341; }
+  [data-theme="dark"] .pref-pill-warn { color: #ff7b72; }
+  .pref-mono { font-family: 'D2Coding', monospace; font-size: 11.5px; }
+  .pref-code { margin: 0; padding: 10px 12px; border-radius: 6px; border: 1px solid var(--border); background: var(--panel-bg); font-family: 'D2Coding', monospace; font-size: 11.5px; line-height: 1.5; overflow-x: auto; white-space: pre; max-height: 280px; }
+  .pref-endpoint { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .pref-endpoint code { padding: 4px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel-bg); }
+  .pref-table-wrap { overflow-x: auto; }
+  .pref-table tr[data-off="true"] td:not(:first-child) { opacity: 0.5; }
+  .pref-stat-row { display: flex; gap: 8px; flex-wrap: wrap; }
+  .pref-stat { flex: 1 1 140px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel-bg); padding: 8px 10px; display: flex; flex-direction: column; gap: 2px; }
+  .pref-stat b { font-size: 16px; }
+  .pref-stat span { font-size: 11.5px; color: var(--muted); }
+  .pref-notice { padding: 9px 12px; border-radius: 6px; border: 1px solid var(--border); background: var(--panel-bg); font-size: 12.5px; line-height: 1.5; }
+  .pref-notice[data-tone="warn"] { border-color: rgba(248, 81, 73, 0.45); background: rgba(248, 81, 73, 0.07); }
+  .pref-notice[data-tone="ok"] { border-color: rgba(46, 160, 67, 0.45); background: rgba(46, 160, 67, 0.07); }
+  .pref-sim { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+  .pref-sim textarea { width: 100%; box-sizing: border-box; min-height: 120px; resize: vertical; font-family: 'D2Coding', monospace; font-size: 11.5px; padding: 8px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); color: var(--fg); }
+  .pref-confirm { border: 1px solid var(--accent); border-radius: 8px; background: var(--active); padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; font-size: 12.5px; }
+  .pref-confirm-actions { display: flex; gap: 6px; justify-content: flex-end; }
+  .pref-seg { display: inline-flex; align-self: flex-start; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+  .pref-seg button { padding: 6px 12px; border: 0; background: var(--sec-bg); color: var(--sec-fg); font-size: 12.5px; font-weight: 700; cursor: pointer; }
+  .pref-seg button + button { border-left: 1px solid var(--border); }
+  .pref-seg button[aria-selected="true"] { background: var(--active); color: var(--accent); }
+  .pref-bar { height: 6px; border-radius: 999px; background: var(--chip-bg); overflow: hidden; margin-bottom: 2px; }
+  .pref-bar i { display: block; height: 100%; background: var(--accent2, #1a7f37); }
+  .pref-bar[data-level="mid"] i { background: #d4a72c; }
+  .pref-bar[data-level="high"] i { background: #cf222e; }
+  .pref-quota-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+  .pref-quota-grid label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; font-weight: 700; }
+  .pref-quota-grid .pref-quota-switch { flex-direction: row; align-items: center; justify-content: space-between; gap: 8px; border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; background: var(--panel-bg); }
+  .pref-login { border: 1px solid var(--border); border-radius: 10px; background: var(--bg); padding: 16px; display: flex; flex-direction: column; gap: 8px; align-self: start; }
+  .pref-login-btn { padding: 8px 12px; border-radius: 6px; border: 1px solid var(--border); background: var(--sec-bg); color: var(--fg); font-size: 13px; font-weight: 700; text-align: left; cursor: pointer; }
+  .pref-login-btn:hover { background: var(--hover); }
+  .pref-login-sep { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; border-top: 1px solid var(--border); padding-top: 8px; margin-top: 4px; }
+  .pref-flow { margin: 0; padding-left: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+  .pref-flow li { padding: 5px 8px; border-left: 3px solid #2ea043; background: var(--panel-bg); border-radius: 0 6px 6px 0; overflow-wrap: anywhere; }
+  .pref-flow li[data-ok="false"] { border-left-color: #cf222e; }
+  .pref-idp-form { display: grid; grid-template-columns: minmax(0, 170px) minmax(0, 1fr) minmax(0, 1fr) auto; gap: 8px; align-items: end; padding-top: 10px; border-top: 1px solid var(--border); }
+  .pref-idp-form .pref-input, .pref-idp-form .pref-select { width: 100%; box-sizing: border-box; min-width: 0; }
   @media (max-width: 780px) {
+    .pref-quota-grid, .pref-idp-form { grid-template-columns: minmax(0, 1fr); }
+    .pref-sim { grid-template-columns: minmax(0, 1fr); }
+    #pref-webmcp-sim-tool { max-width: 100%; }
     .pref-shell { flex-direction: column; overflow-y: auto; }
     .pref-nav { width: 100%; border-right: 0; border-bottom: 1px solid var(--border); flex-direction: row; flex-wrap: nowrap; overflow-x: auto; }
     .pref-nav-title { display: none; }
@@ -98,6 +145,12 @@
       <button type="button" class="pref-nav-btn" role="tab" id="tab-btn-rules" aria-controls="panel-rules" aria-selected="false" data-tab="rules"><span>⚡ 오거나이즈 · 자동 적재</span></button>
       <button type="button" class="pref-nav-btn" role="tab" id="tab-btn-outbound" aria-controls="panel-outbound" aria-selected="false" data-tab="outbound"><span>🔁 부스트 · 적재 발행</span></button>
       <button type="button" class="pref-nav-btn" role="tab" id="tab-btn-opml" aria-controls="panel-opml" aria-selected="false" data-tab="opml"><span>📦 OPML · 프로토콜 진단</span></button>
+      <div class="pref-nav-title" style="margin-top:8px">AI 에이전트 연동</div>
+      <button type="button" class="pref-nav-btn" role="tab" id="tab-btn-mcp" aria-controls="panel-mcp" aria-selected="false" data-tab="mcp"><span>🧩 MCP 서버 · 연결 앱</span><span id="nav-mcp-count" class="pref-pill pref-pill-mcp"></span></button>
+      <button type="button" class="pref-nav-btn" role="tab" id="tab-btn-webmcp" aria-controls="panel-webmcp" aria-selected="false" data-tab="webmcp"><span>🕸️ WebMCP 페이지 도구</span><span id="nav-webmcp-count" class="pref-pill pref-pill-web"></span></button>
+      <div class="pref-nav-title" style="margin-top:8px">계정 · 데이터 격리 (제안)</div>
+      <button type="button" class="pref-nav-btn" role="tab" id="tab-btn-idp" aria-controls="panel-idp" aria-selected="false" data-tab="idp"><span>🪪 외부 IdP 로그인</span><span id="nav-idp-count" class="pref-pill"></span></button>
+      <button type="button" class="pref-nav-btn" role="tab" id="tab-btn-userdb" aria-controls="panel-userdb" aria-selected="false" data-tab="userdb"><span>🗄️ 사용자별 워크스페이스</span><span id="nav-userdb-count" class="pref-pill"></span></button>
     </nav>
 
     <main class="pref-main">
@@ -445,6 +498,58 @@
               <input id="pref-quote-template" type="text" class="pref-input" style="min-width:340px"/>
             </div>
           </div>
+
+          <div class="pref-card">
+            <h2>👥 사용자 간 발행 본문 공유 <span class="pref-pill pref-pill-prop">제안 · 미구현</span></h2>
+            <p class="pref-desc">사용자별 워크스페이스(<code>EXTERNAL_IDP_AND_PER_USER_WORKSPACE_DESIGN.md</code> §4.7)에서, 공개 테마의 <b>적재 발행</b>은 공개 사본만 인스턴스 공용 발행 색인(<code>data/shared/publications.db</code>)에 올라갑니다. 같은 Claire 의 다른 사용자는 연합 클라이언트 · 지식베이스 탭의 <b>👥 다른 사용자 발행 본문</b>에서 이를 보고 자기 연결 계정으로 발행할 수 있습니다. 워크스페이스 DB 는 서로 열지 않습니다.</p>
+
+            <div class="pref-row">
+              <div class="pref-row-label">
+                <label for="pref-peer-listed"><strong>내 공개 발행 본문을 다른 사용자 목록에 올림</strong></label>
+                <span>끄면 공용 색인에 올리지 않습니다. 연합우주에 이미 발행한 게시물과 공개 공유 링크는 그대로입니다.</span>
+              </div>
+              <input id="pref-peer-listed" type="checkbox" switch/>
+            </div>
+
+            <div class="pref-row">
+              <div class="pref-row-label">
+                <strong>항상 허용되는 재사용</strong>
+                <span>공개 발행이므로 부스트(reblog · repost)와 링크 공유는 막을 수 없습니다.</span>
+              </div>
+              <span class="pref-pill">🔁 부스트 · ✎ 링크 공유</span>
+            </div>
+
+            <div class="pref-row">
+              <div class="pref-row-label">
+                <label for="pref-peer-quote"><strong>다른 사용자의 인용 발행 허용</strong></label>
+                <span>연합우주에서는 원 게시물의 인용 허용 범위(<code>quote_approval_policy</code>)도 함께 적용됩니다.</span>
+              </div>
+              <input id="pref-peer-quote" type="checkbox" switch/>
+            </div>
+
+            <div class="pref-row">
+              <div class="pref-row-label">
+                <label for="pref-peer-import"><strong>다른 사용자가 가져와 적재 · 재발행하는 것 허용</strong></label>
+                <span>가져온 사본은 그 사용자의 수집 원문이 되고, 다시 발행할 때는 원문 링크와 작성자 표시가 붙습니다.</span>
+              </div>
+              <input id="pref-peer-import" type="checkbox" switch/>
+            </div>
+
+            <div class="pref-row">
+              <div class="pref-row-label">
+                <label for="pref-peer-license"><strong>이용 허락 표시</strong></label>
+                <span>목록과 공유 페이지에 함께 표시됩니다. 법적 효력은 운영 약관을 따릅니다.</span>
+              </div>
+              <select id="pref-peer-license" class="pref-select">
+                <option value="">표시 안 함</option>
+                <option value="CC BY 4.0">CC BY 4.0</option>
+                <option value="CC BY-SA 4.0">CC BY-SA 4.0</option>
+                <option value="CC BY-NC 4.0">CC BY-NC 4.0</option>
+              </select>
+            </div>
+
+            <div class="pref-notice" data-tone="info">발행을 철회하면 공용 색인과 공유 페이지에서 내려갑니다. 다른 사용자의 목록에서는 사라지고, 이미 가져가거나 재발행한 사용자에게는 '철회됨'으로 표시됩니다. 가져간 사본은 그 사용자의 워크스페이스에 남습니다.</div>
+          </div>
         </section>
 
         <!-- PANEL 6: OPML & Diagnostics -->
@@ -464,6 +569,425 @@
               <summary>🛡️ 소각 툼스톤(<code>purged_tombstones</code>) 재수집 영구 차단 규칙</summary>
               <p style="margin:8px 0 0;font-size:12px;color:var(--muted);line-height:1.55">클레어바이블에서 <code>./cb-manuscript purge</code> 또는 웹 UI 문서 소각으로 제거된 URL·컨텐트 해시는 정기 수집 폴러가 RSS/AP/AT 스트림에서 다시 마주치더라도 <b>자동 적재 및 발행 대상에서 영구 제외</b>됩니다.</p>
             </details>
+          </div>
+        </section>
+
+        <!-- PANEL 7: MCP server (Claire → external AI harnesses) -->
+        <section id="panel-mcp" role="tabpanel" aria-labelledby="tab-btn-mcp" class="pref-panel" hidden>
+          <div class="pref-card">
+            <h2>🧩 MCP 서버 (<code>/mcp</code>) <span class="pref-pill pref-pill-mcp">구현됨</span><span class="pref-pill">서버 전역</span></h2>
+            <p class="pref-desc">외부 AI 하네스(Claude Desktop · Claude Code · Gemini · Cursor 등)가 지식베이스를 읽는 표준 엔드포인트입니다. <code>claire_api</code> 프로세스 안에서 Streamable HTTP(stateless, JSON 응답)로 동작하며, 도구 10종은 모두 SQLite · FTS5 조회만 해서 LLM 쿼터를 쓰지 않습니다. 이 화면에서 <span class="pref-pill pref-pill-mcp">구현됨</span>은 현재 코드 그대로, <span class="pref-pill pref-pill-prop">제안</span>은 아직 없는 기능입니다.</p>
+
+            <div class="pref-stat-row" id="pref-mcp-stats"></div>
+
+            <div class="pref-row">
+              <div class="pref-row-label">
+                <strong>엔드포인트 · Discovery</strong>
+                <span>미인증 호출은 <code>401</code> + <code>WWW-Authenticate: Bearer … resource_metadata=…</code>로 응답합니다. DNS 리바인딩 방어로 <code>public_url</code> 호스트와 localhost만 허용하므로 테마 전용 FQDN으로는 접속되지 않습니다.</span>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end">
+                <div class="pref-endpoint"><code id="pref-mcp-endpoint" class="pref-mono"></code><button type="button" class="pref-btn" data-copy-target="pref-mcp-endpoint">복사</button></div>
+                <span class="pref-mono" style="color:var(--muted)">/.well-known/oauth-protected-resource · /.well-known/oauth-authorization-server</span>
+              </div>
+            </div>
+
+            <div class="pref-row">
+              <div class="pref-row-label">
+                <strong>테마 지정</strong>
+                <span>모든 도구가 <code>theme</code> 인자(번호 또는 레이블)를 받고, 생략하면 Theme 0을 읽습니다. REST와 달리 <code>X-Claire-Theme</code> 헤더와 테마 전용 FQDN은 MCP 도구에 적용되지 않습니다. 오른쪽은 상단에서 고른 테마를 읽는 호출 예시입니다.</span>
+              </div>
+              <code id="pref-mcp-theme-example" class="pref-mono" style="padding:4px 8px;border:1px solid var(--border);border-radius:6px;background:var(--panel-bg);white-space:pre"></code>
+            </div>
+          </div>
+
+          <div class="pref-card">
+            <h2>🔐 인증 채널 <span class="pref-pill pref-pill-mcp">구현됨</span></h2>
+            <p class="pref-desc">한 요청에는 인증 채널을 하나만 씁니다(Bearer · <code>X-Session</code> · 쿠키). 익명 접근은 <code>CLAIRE_ANONYMOUS_READONLY</code>와 관계없이 <code>/mcp</code>에서 항상 거부되고, Cross-Origin 요청은 Bearer만 허용됩니다.</p>
+            <div class="pref-table-wrap">
+              <table class="pref-table">
+                <thead><tr><th>채널</th><th>발급</th><th>권한</th><th>수명</th><th>폐기</th><th>권장 클라이언트</th></tr></thead>
+                <tbody>
+                  <tr><td><strong>상시 이용 토큰</strong><br/><code class="pref-mono">cb_…</code></td><td><code class="pref-mono">claire token create</code> · WebUI 🔑 API/MCP 키 · 텔레그램 <code>/token</code></td><td>owner · collaborator · readonly</td><td>무기한 또는 지정 일수</td><td>즉시 (<code class="pref-mono">/tokens/revoke</code>)</td><td>Claude Desktop · Cursor · Claude Code</td></tr>
+                  <tr><td><strong>텔레그램 세션</strong></td><td><code>/web</code> · <code>/webco</code> · <code>/webro</code></td><td>발급 명령에 따름</td><td>7일 슬라이딩</td><td>재발급 시 교체</td><td>일시 테스트</td></tr>
+                  <tr><td><strong>OAuth 2.1</strong></td><td>DCR(<code>/oauth/register</code>, 공개) → <code>/oauth/authorize</code>에서 승인 (브라우저 1클릭 또는 텔레그램)</td><td><code>readonly</code> 고정</td><td>access 30일 · refresh 1년 (회전)</td><td>경로 없음 (보강 제안 4)</td><td>Gemini 맞춤형 연결 앱 등 원격 커넥터</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <h3>상시 이용 토큰 <span class="pref-pill">예시 데이터</span></h3>
+            <p class="pref-desc">발급과 폐기는 기존 WebUI 드로어 <b>관리 및 설정 → 🔑 API/MCP 키</b>에서 합니다. 이 화면에서 중복 구현하지 않습니다.</p>
+            <div class="pref-table-wrap">
+              <table class="pref-table">
+                <thead><tr><th>ID</th><th>이름</th><th>권한</th><th>발급</th><th>만료</th><th>최근 사용</th></tr></thead>
+                <tbody id="pref-mcp-apitokens-tbody"></tbody>
+              </table>
+            </div>
+
+            <h3>OAuth 등록 클라이언트 <span class="pref-pill">예시 데이터</span></h3>
+            <p class="pref-desc"><code>oauth_clients</code> · <code>oauth_tokens</code>에 있는 값만 표시합니다. 토큰별 최근 사용 시각은 저장되지 않습니다.</p>
+            <div class="pref-table-wrap">
+              <table class="pref-table">
+                <thead><tr><th>client_name</th><th>client_id · redirect_uris</th><th>등록</th><th>access 만료</th><th>최근 사용</th><th>관리</th></tr></thead>
+                <tbody id="pref-mcp-clients-tbody"></tbody>
+              </table>
+            </div>
+
+            <details class="pref-disclosure">
+              <summary>클라이언트 연결 방법 (원격 HTTP 서버)</summary>
+              <div style="display:flex;flex-direction:column;gap:8px;margin-top:8px">
+                <div style="font-size:12px;font-weight:700">Claude Code — 상시 이용 토큰</div>
+                <pre id="pref-mcp-snippet-cli" class="pref-code"></pre>
+                <div style="font-size:12px;font-weight:700">Claude Desktop · Cursor 등 — <code>mcpServers</code> 설정</div>
+                <pre id="pref-mcp-snippet-json" class="pref-code"></pre>
+                <div style="font-size:12px;font-weight:700">OAuth 지원 클라이언트 (Gemini 맞춤형 연결 앱 등)</div>
+                <p class="pref-desc">엔드포인트 URL만 입력하면 Discovery → DCR → 승인 화면으로 이어집니다. 승인 화면에서 <b>✅ 바로 승인하기</b> 또는 텔레그램 승인을 누릅니다.</p>
+                <p class="pref-desc">저장소의 기존 예시(<code>MCP_SUPPORT.md</code>의 <code>server-fetch</code>, <code>claire token create</code> 출력의 <code>server-everything</code>)는 원격 HTTP 서버 연결 방식이 아니어서 위 형식으로 교체를 제안합니다 (보강 제안 7).</p>
+              </div>
+            </details>
+          </div>
+
+          <div class="pref-card">
+            <h2>🛠️ 도구 (<code>tools/list</code>)</h2>
+            <p class="pref-desc">구현된 10종은 모두 읽기 전용이고 도구별로 끌 수 없습니다. 아래 Syndication 도구는 제안이며, 스위치는 미리보기 응답에 포함할지만 정합니다.</p>
+            <div class="pref-table-wrap">
+              <table class="pref-table">
+                <thead><tr><th>도구</th><th>인자</th><th>역할</th></tr></thead>
+                <tbody id="pref-mcp-tools-tbody"></tbody>
+              </table>
+            </div>
+
+            <h3>Syndication 도구 <span class="pref-pill pref-pill-prop">제안</span></h3>
+            <div class="pref-row">
+              <div class="pref-row-label">
+                <strong>스코프 구분 <span class="pref-pill pref-pill-prop">제안</span></strong>
+                <span><code>mcp_tools.py</code>에는 "쓰기 툴이 생기면 스코프 구분 도입 필요"라고 적혀 있습니다. <code>syndication:read</code>는 스트림 조회, <code>syndication:draft</code>는 발행 <b>초안</b> 생성만 허용하고 실제 발행은 리더의 발행 대화상자나 텔레그램 승인으로만 이루어집니다.</span>
+              </div>
+              <select id="pref-mcp-write" class="pref-select" aria-label="Syndication 쓰기 범위 (제안)">
+                <option value="none">읽기만 (syndication:read)</option>
+                <option value="draft">발행 초안 허용 (+ syndication:draft)</option>
+              </select>
+            </div>
+            <div class="pref-table-wrap">
+              <table class="pref-table">
+                <thead><tr><th style="width:52px">미리보기</th><th>도구</th><th>필요 스코프</th><th>역할</th></tr></thead>
+                <tbody id="pref-mcp-proposed-tbody"></tbody>
+              </table>
+            </div>
+
+            <details class="pref-disclosure">
+              <summary><code>tools/list</code> 응답 미리보기</summary>
+              <p class="pref-desc" style="margin-top:8px">실제 <code>inputSchema</code>는 함수 시그니처에서 자동 생성됩니다. 여기서는 인자 이름과 타입만 요약했습니다.</p>
+              <pre id="pref-mcp-toolslist" class="pref-code" style="margin-top:8px"></pre>
+            </details>
+          </div>
+
+          <div class="pref-card">
+            <h2>📜 호출 기록 (<code>mcp_telemetry</code>) <span class="pref-pill pref-pill-mcp">구현됨</span></h2>
+            <p class="pref-desc">도구 호출과 인증 실패마다 <code>call_type</code> · <code>tool_name</code> · <code>duration_ms</code> · <code>status</code> · <code>response_bytes</code>를 기록하고 support bundle에 포함합니다. <code>client_id</code> 컬럼은 있지만 현재 채워지지 않으며, 인자와 결과 본문은 저장하지 않습니다. 웹에서 조회하는 경로는 없습니다.</p>
+            <div class="pref-table-wrap">
+              <table class="pref-table">
+                <thead><tr><th>시각</th><th>call_type</th><th>tool_name</th><th>status</th><th>duration_ms</th><th>response_bytes</th><th>client_id</th></tr></thead>
+                <tbody id="pref-mcp-audit-tbody"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="pref-card">
+            <h2>🧭 보강 제안 <span class="pref-pill pref-pill-prop">제안</span></h2>
+            <p class="pref-desc">현재 코드와 설계 문서를 대조해 찾은 부족분입니다. 각 항목에 근거와 필요한 변경을 적었습니다.</p>
+            <h3>상단 테마에 대한 접근 판정: RBAC 설계 vs 현재 MCP</h3>
+            <div class="pref-table-wrap">
+              <table class="pref-table">
+                <thead><tr><th>권한</th><th>RBAC 설계 (REST)</th><th>현재 MCP</th><th>일치</th></tr></thead>
+                <tbody id="pref-mcp-rbac-tbody"></tbody>
+              </table>
+            </div>
+            <div id="pref-mcp-gaps" style="display:flex;flex-direction:column;gap:8px"></div>
+          </div>
+        </section>
+
+        <!-- PANEL 8: WebMCP (page tools for in-browser agents) -->
+        <section id="panel-webmcp" role="tabpanel" aria-labelledby="tab-btn-webmcp" class="pref-panel" hidden>
+          <div class="pref-card">
+            <h2>🕸️ WebMCP — <code>/syndication</code> 페이지 도구 <span class="pref-pill pref-pill-prop">제안 · 미구현</span></h2>
+            <p class="pref-desc">WebMCP(W3C Web Machine Learning CG, <b>Draft Community Group Report 2026-10-27</b>)는 페이지가 <code>document.modelContext.registerTool()</code>로 도구를 등록하고, 브라우저 내장 · 확장 에이전트가 <b>사용자가 열어 둔 탭 안에서</b> 호출하는 방식입니다. 추가 토큰 없이 현재 세션으로 동작하고, 같은 출처(same-origin) 문서에만 보이며, 탭을 닫거나 등록 신호를 abort하면 사라집니다. 저장소에는 아직 관련 코드가 없습니다.</p>
+
+            <div id="pref-webmcp-support" class="pref-notice"></div>
+
+            <div class="pref-row">
+              <div class="pref-row-label">
+                <strong>WebMCP 도구 등록 (전역)</strong>
+                <span>끄면 <code>/syndication</code>이 도구를 등록하지 않고, 서버가 <code>Permissions-Policy: tools=()</code>를 보내 페이지 안의 다른 스크립트도 등록할 수 없게 합니다. 현재 Claire는 <code>Permissions-Policy</code> 헤더를 보내지 않습니다.</span>
+              </div>
+              <input id="pref-webmcp-enabled" type="checkbox" switch aria-label="WebMCP 도구 등록"/>
+            </div>
+
+            <div class="pref-row">
+              <div class="pref-row-label">
+                <strong>이 테마에서 노출</strong>
+                <span id="pref-webmcp-exposed-desc"></span>
+              </div>
+              <input id="pref-webmcp-exposed" type="checkbox" switch aria-label="이 테마에서 WebMCP 노출"/>
+            </div>
+
+            <div class="pref-row">
+              <div class="pref-row-label">
+                <strong>등록 방식</strong>
+                <span>사양이 정의하는 것은 명령형 <code>registerTool()</code>뿐입니다. 폼 속성(<code>toolname</code> · <code>tooldescription</code> · <code>toolautosubmit</code>)으로 <b>+ 구독</b> 폼을 도구로 노출하는 선언형은 explainer 제안 단계라 실험 옵션으로만 둡니다.</span>
+              </div>
+              <select id="pref-webmcp-mode" class="pref-select" aria-label="WebMCP 등록 방식">
+                <option value="imperative">명령형 — registerTool()</option>
+                <option value="both">명령형 + 선언형 폼 (실험, 사양 외)</option>
+              </select>
+            </div>
+
+            <div class="pref-row">
+              <div class="pref-row-label">
+                <strong>사용자 확인 정책</strong>
+                <span>사양에는 도구가 사용자 확인을 요청하는 API가 없습니다(README의 미해결 과제). 그래서 확인이 필요한 도구는 <code>execute()</code> 안에서 <b>페이지 자체 확인 창</b>을 띄워 응답을 기다리고, <code>consequentialHint</code>를 붙여 에이전트 쪽 확인도 유도합니다. 쓰기와 외부 발행은 정책과 관계없이 항상 확인합니다.</span>
+              </div>
+              <select id="pref-webmcp-confirm" class="pref-select" aria-label="사용자 확인 정책">
+                <option value="write">쓰기 도구만 확인 (기본)</option>
+                <option value="ui_and_write">화면 조작 + 쓰기 도구 확인</option>
+                <option value="all">모든 도구 확인</option>
+              </select>
+            </div>
+
+            <div class="pref-row">
+              <div class="pref-row-label">
+                <strong>에이전트 활동 표시</strong>
+                <span><code>toolactivated</code> · <code>toolcancel</code> 이벤트를 받아 리더 하단 상태 표시줄에 <code>🕸️ 에이전트: kb_ingest_item 실행 중</code>처럼 표시하고 작업 기록에 남깁니다.</span>
+              </div>
+              <input id="pref-webmcp-activity" type="checkbox" switch aria-label="에이전트 활동 표시"/>
+            </div>
+
+            <details class="pref-disclosure">
+              <summary>MCP 서버와 WebMCP의 차이</summary>
+              <div class="pref-table-wrap" style="margin-top:8px">
+                <table class="pref-table">
+                  <thead><tr><th></th><th>MCP 서버 (<code>/mcp</code>)</th><th>WebMCP (<code>/syndication</code>)</th></tr></thead>
+                  <tbody>
+                    <tr><td><b>실행 위치</b></td><td>Claire 서버 프로세스</td><td>사용자 브라우저 탭 (페이지 JS)</td></tr>
+                    <tr><td><b>호출자</b></td><td>Claude Desktop · Gemini 등 원격 하네스</td><td>브라우저 내장 · 확장 에이전트</td></tr>
+                    <tr><td><b>인증</b></td><td>상시 토큰 · 텔레그램 세션 · OAuth 2.1</td><td>현재 페이지 세션 (추가 토큰 없음)</td></tr>
+                    <tr><td><b>노출 범위</b></td><td>인증된 클라이언트 전체</td><td>같은 출처 문서 (<code>exposedTo</code> 미사용)</td></tr>
+                    <tr><td><b>수명</b></td><td>토큰 만료 · 폐기까지</td><td>탭이 열려 있고 등록 신호가 살아 있는 동안</td></tr>
+                    <tr><td><b>결과 형식</b></td><td>MCP <code>content</code> 배열</td><td>JSON 직렬화 가능한 임의 값</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </details>
+          </div>
+
+          <div class="pref-card">
+            <h2>🧰 페이지 도구 목록</h2>
+            <p class="pref-desc">작업 공간 탭 범위가 맞는 도구만 등록됩니다(예: <code>client_*</code>는 연합 클라이언트 탭이 열려 있을 때). 연합 게시물이나 수집 원문처럼 제3자 콘텐츠를 돌려주는 도구에는 <code>untrustedContentHint</code>를 붙입니다. 비공개 테마에서는 외부 서버에 반영되는 도구가 등록되지 않습니다.</p>
+            <div class="pref-table-wrap">
+              <table class="pref-table">
+                <thead><tr><th style="width:52px">등록</th><th>도구</th><th>탭 범위</th><th>종류</th><th>annotations</th><th>확인</th><th>역할</th></tr></thead>
+                <tbody id="pref-webmcp-tools-tbody"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="pref-card">
+            <h2>🔍 등록 코드 미리보기 · 호출 시뮬레이터</h2>
+            <p class="pref-desc">선택한 도구가 사양 형식으로 등록되는 코드와, 에이전트가 호출했을 때 사용자에게 보이는 흐름을 확인합니다. 시뮬레이션은 실제 상태를 바꾸지 않습니다.</p>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+              <label for="pref-webmcp-sim-tool" style="font-size:12.5px;font-weight:700">도구</label>
+              <select id="pref-webmcp-sim-tool" class="pref-select"></select>
+              <button type="button" id="btn-webmcp-sim-run" class="pref-btn pref-btn-accent">▶ 에이전트 호출 시뮬레이션</button>
+            </div>
+            <div class="pref-sim">
+              <div style="display:flex;flex-direction:column;gap:6px">
+                <span style="font-size:12px;font-weight:700">등록 코드</span>
+                <pre id="pref-webmcp-code" class="pref-code" style="max-height:360px"></pre>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:6px">
+                <label for="pref-webmcp-sim-input" style="font-size:12px;font-weight:700">에이전트 입력 (JSON)</label>
+                <textarea id="pref-webmcp-sim-input" spellcheck="false"></textarea>
+                <div id="pref-webmcp-sim-output" style="display:flex;flex-direction:column;gap:6px"></div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- PANEL 9: External IdP sign-in (proposal) -->
+        <section id="panel-idp" role="tabpanel" aria-labelledby="tab-btn-idp" class="pref-panel" hidden>
+          <div class="pref-card">
+            <h2>🪪 외부 IdP 로그인 <span class="pref-pill pref-pill-prop">제안 · 미구현</span><span class="pref-pill">서버 전역</span></h2>
+            <p class="pref-desc">지금은 운영자 한 명이 텔레그램 승인으로 로그인하고, 권한(owner · collaborator · readonly)은 토큰으로 나눕니다. 이 제안은 OpenID Connect IdP(Google · Microsoft Entra ID · Keycloak 등)로 <b>여러 사용자</b>가 로그인하고, 사용자마다 <b>독립 워크스페이스</b>(자기 테마 레지스트리와 SQLite DB 묶음)를 받게 합니다. 운영자의 텔레그램 로그인과 기존 데이터는 그대로 둡니다.</p>
+
+            <div class="pref-row">
+              <div class="pref-row-label">
+                <strong>로그인 방식</strong>
+                <span>운영자 계정은 IdP 클레임으로 만들거나 승격할 수 없습니다. 운영자는 계속 텔레그램 <code>TELEGRAM_OWNER_CHAT_ID</code>로만 인증합니다.</span>
+              </div>
+              <select id="pref-idp-mode" class="pref-select" aria-label="로그인 방식">
+                <option value="telegram_only">텔레그램만 (현행)</option>
+                <option value="telegram_and_idp">텔레그램(운영자) + 외부 IdP(사용자)</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="pref-card">
+            <h2>🔗 IdP 공급자</h2>
+            <p class="pref-desc">공급자마다 Authorization Code + PKCE(S256) + <code>state</code> · <code>nonce</code>로 로그인합니다. client secret은 브라우저에서 입력하지 않고 서버 비밀 파일이나 환경변수(<code>CLAIRE_OIDC_&lt;ID&gt;_CLIENT_SECRET</code>)로만 설정합니다.</p>
+            <div class="pref-table-wrap">
+              <table class="pref-table">
+                <thead><tr><th style="width:52px">사용</th><th>공급자</th><th>issuer · 방식</th><th>client_id</th><th>리디렉트 URI</th><th>식별 키</th><th>관리</th></tr></thead>
+                <tbody id="pref-idp-tbody"></tbody>
+              </table>
+            </div>
+            <form id="pref-idp-add-form" class="pref-idp-form">
+              <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:700">종류
+                <select id="new-idp-type" class="pref-select"></select>
+              </label>
+              <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:700">issuer URL
+                <input id="new-idp-issuer" type="text" class="pref-input" placeholder="https://sso.example.org/realms/claire"/>
+              </label>
+              <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:700">client_id
+                <input id="new-idp-client" type="text" class="pref-input" placeholder="claire-bible"/>
+              </label>
+              <button type="submit" class="pref-btn pref-btn-accent">Discovery 확인 후 추가</button>
+            </form>
+            <pre id="pref-idp-discovery" class="pref-code" hidden></pre>
+          </div>
+
+          <div class="pref-card">
+            <h2>🧾 계정 매핑 · 가입 정책</h2>
+            <div class="pref-row">
+              <div class="pref-row-label">
+                <strong>사용자 식별자</strong>
+                <span>계정은 <code>(iss, sub)</code> 쌍으로만 식별합니다. 이메일은 바뀌거나 재할당될 수 있어 식별자로 쓰지 않습니다. GitHub는 OIDC가 아니므로 <code>GET /user</code>의 숫자 <code>id</code>를 <code>sub</code>로 씁니다.</span>
+              </div>
+              <code class="pref-mono" style="padding:4px 8px;border:1px solid var(--border);border-radius:6px;background:var(--panel-bg)">user_identities(iss, sub) UNIQUE</code>
+            </div>
+            <div class="pref-row">
+              <div class="pref-row-label">
+                <strong>가입 처리</strong>
+                <span><code>승인 후 생성</code>은 첫 로그인 때 운영자 텔레그램으로 <code>[승인] [거절]</code> 푸시를 보냅니다. OAuth 승인 화면과 같은 방식입니다.</span>
+              </div>
+              <select id="pref-idp-provisioning" class="pref-select" aria-label="가입 처리">
+                <option value="approval">운영자 승인 후 워크스페이스 생성</option>
+                <option value="auto">즉시 생성 (허용 도메인만)</option>
+                <option value="invite">초대받은 이메일만</option>
+              </select>
+            </div>
+            <div class="pref-row">
+              <div class="pref-row-label">
+                <strong>허용 이메일 도메인</strong>
+                <span>쉼표로 구분합니다. 비우면 도메인 제한이 없습니다. Google Workspace는 <code>hd</code> 클레임도 함께 확인합니다.</span>
+              </div>
+              <input id="pref-idp-domains" type="text" class="pref-input" style="min-width:280px" aria-label="허용 이메일 도메인"/>
+            </div>
+            <div class="pref-row">
+              <div class="pref-row-label">
+                <strong>검증된 이메일 필수</strong>
+                <span><code>email_verified=true</code>가 아니면 가입하지 않습니다. GitHub는 <code>/user/emails</code>의 <code>verified</code>를 씁니다.</span>
+              </div>
+              <input id="pref-idp-verified" type="checkbox" switch aria-label="검증된 이메일 필수"/>
+            </div>
+            <div class="pref-row">
+              <div class="pref-row-label">
+                <strong>다른 IdP의 같은 이메일</strong>
+                <span>같은 이메일이라도 자동으로 합치지 않습니다. 기존 계정으로 로그인한 뒤 <b>로그인 수단 연결</b>에서 재인증해야 연결됩니다(계정 탈취 방지).</span>
+              </div>
+              <span class="pref-pill pref-pill-mcp">수동 연결 고정</span>
+            </div>
+            <div class="pref-row">
+              <div class="pref-row-label">
+                <strong>세션 · 로그아웃</strong>
+                <span>세션은 기존과 같은 7일 슬라이딩입니다. IdP가 OIDC Back-Channel Logout을 지원하면 IdP에서 로그아웃하거나 계정이 비활성화될 때 Claire 세션과 이 사용자의 API · MCP 토큰을 함께 끊습니다.</span>
+              </div>
+              <label style="display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;cursor:pointer"><span>Back-Channel Logout</span><input id="pref-idp-bcl" type="checkbox" switch/></label>
+            </div>
+          </div>
+
+          <div class="pref-card">
+            <h2>▶ 로그인 화면 · 흐름 시뮬레이터</h2>
+            <p class="pref-desc">왼쪽은 정책이 반영된 로그인 화면입니다. 오른쪽에서 가상의 사용자를 골라 로그인하면 토큰 검증부터 워크스페이스 결정까지 단계별로 보여 줍니다.</p>
+            <div class="pref-sim">
+              <div id="pref-idp-login-preview" class="pref-login"></div>
+              <div style="display:flex;flex-direction:column;gap:8px">
+                <label for="pref-idp-persona" style="font-size:12px;font-weight:700">가상 사용자</label>
+                <select id="pref-idp-persona" class="pref-select" style="max-width:100%"></select>
+                <button type="button" id="btn-idp-sim-run" class="pref-btn pref-btn-accent" style="align-self:flex-start">▶ 로그인 시뮬레이션</button>
+                <div id="pref-idp-sim-output" style="display:flex;flex-direction:column;gap:6px"></div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- PANEL 10: Per-user workspaces (proposal) -->
+        <section id="panel-userdb" role="tabpanel" aria-labelledby="tab-btn-userdb" class="pref-panel" hidden>
+          <div class="pref-card">
+            <h2>🗄️ 사용자별 워크스페이스 · 데이터베이스 <span class="pref-pill pref-pill-prop">제안 · 미구현</span><span class="pref-pill">서버 전역</span></h2>
+            <p class="pref-desc">테마가 <code>themes/{seq}/</code> 일련번호 디렉터리로 DB를 격리하는 방식을 한 단계 위로 올립니다. 사용자마다 <code>users/{seq}/</code> 아래에 자기 <code>themes.json</code>과 테마별 <code>claire.db</code> · 볼트를 갖습니다. 기존 데이터는 그대로 <b>운영자 워크스페이스(seq 0)</b>가 되므로 이관이 필요 없습니다.</p>
+            <div class="pref-seg" role="tablist" aria-label="보기 전환">
+              <button type="button" role="tab" data-userdb-view="admin" aria-selected="true">운영자 보기</button>
+              <button type="button" role="tab" data-userdb-view="user" aria-selected="false">사용자 보기</button>
+            </div>
+          </div>
+
+          <div id="pref-userdb-admin" style="display:flex;flex-direction:column;gap:18px">
+            <div class="pref-card">
+              <h2>🧱 격리 구조</h2>
+              <pre class="pref-code" style="max-height:none">data/
+├─ claire.db                     ← 운영자 워크스페이스 seq 0 · Theme 0 (현행 그대로)
+├─ themes.json · themes/{n}/     ← 운영자 테마 (현행 그대로)
+├─ auth/
+│  ├─ api_tokens.json            ← 토큰마다 workspace_seq 추가
+│  ├─ idp_providers.json         ← 공급자 메타데이터 (secret 제외)
+│  └─ auth.db                    ← users · user_identities · user_sessions · invites
+└─ users/{seq}/
+   ├─ themes.json                ← 이 사용자의 테마 레지스트리
+   ├─ claire.db                  ← 이 사용자의 Theme 0
+   └─ themes/{n}/claire.db       ← 이 사용자의 추가 테마
+vault/users/{seq}/…              ← 사용자 볼트</pre>
+              <ul class="pref-desc" style="margin:0;padding-left:18px;display:flex;flex-direction:column;gap:4px">
+                <li><b>경로는 인증 결과로만 결정:</b> 세션 · API 토큰 · OAuth 토큰에 묶인 <code>workspace_seq</code>로 DB를 고르고, 요청 파라미터나 헤더로 다른 사용자 워크스페이스를 지정할 수 없습니다. 지정하면 존재를 숨기는 <code>404</code>를 돌려줍니다.</li>
+                <li><b>테마는 워크스페이스 안에서만:</b> <code>?theme=</code>, <code>X-Claire-Theme</code>, MCP <code>theme</code> 인자는 자기 워크스페이스의 테마만 가리킵니다.</li>
+                <li><b>운영자는 메타데이터만:</b> 운영자 화면에는 용량 · 건수 · 상태만 보이고 사용자 문서 내용은 열 수 없습니다.</li>
+                <li><b>백그라운드 작업 공정성:</b> recover · refresh · expand 루프는 테마 대신 (워크스페이스, 테마) 쌍을 회전하며, 한 사용자의 대량 적재가 다른 사용자를 막지 않게 사용자당 상한을 둡니다.</li>
+                <li><b>소각 규칙 재사용:</b> 사용자 삭제는 테마 삭제 · 소각 프로토콜과 <code>purged_tombstones</code>를 워크스페이스 단위로 적용합니다.</li>
+              </ul>
+            </div>
+
+            <div class="pref-card">
+              <h2>📏 사용자당 기본 할당량</h2>
+              <p class="pref-desc">LLM 공급자 키는 서버 하나를 공유하므로, 사용자별 월 토큰 예산을 넘으면 그 사용자의 적재 · 요약만 멈춥니다. 조회와 MCP 도구는 LLM을 쓰지 않아 계속 동작합니다.</p>
+              <div class="pref-quota-grid">
+                <label>저장 용량 (MB)<input id="pref-quota-storage" type="number" min="128" step="128" class="pref-input"/></label>
+                <label>문서 수<input id="pref-quota-docs" type="number" min="100" step="100" class="pref-input"/></label>
+                <label>테마 수<input id="pref-quota-themes" type="number" min="1" max="50" class="pref-input"/></label>
+                <label>월 LLM 토큰<input id="pref-quota-llm" type="number" min="100000" step="100000" class="pref-input"/></label>
+                <label>수집 대상 수<input id="pref-quota-feeds" type="number" min="0" step="10" class="pref-input"/></label>
+                <label class="pref-quota-switch"><span>사용자 자체 공급자 키 허용</span><input id="pref-quota-byo" type="checkbox" switch/></label>
+              </div>
+            </div>
+
+            <div class="pref-card">
+              <h2>👥 사용자 디렉터리 <span class="pref-pill">예시 데이터</span></h2>
+              <div class="pref-stat-row" id="pref-userdb-stats"></div>
+              <div class="pref-table-wrap">
+                <table class="pref-table">
+                  <thead><tr><th>사용자</th><th>IdP · 식별자</th><th>상태</th><th>워크스페이스</th><th>테마 · 문서</th><th>용량</th><th>이번 달 LLM</th><th>최근 로그인</th><th>관리</th></tr></thead>
+                  <tbody id="pref-userdb-tbody"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <div id="pref-userdb-user" style="display:none;flex-direction:column;gap:18px">
+            <div class="pref-card">
+              <h2>🙋 내 워크스페이스</h2>
+              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                <label for="pref-userdb-as" style="font-size:12.5px;font-weight:700">미리볼 사용자</label>
+                <select id="pref-userdb-as" class="pref-select"></select>
+              </div>
+              <div id="pref-userdb-me" style="display:flex;flex-direction:column;gap:12px"></div>
+            </div>
           </div>
         </section>
 
@@ -532,7 +1056,34 @@
         atDefaultMode: "boost",
         includeCanonicalShareLink: true,
         quoteTemplate: "📌 {{title}} — {{url}} {{hashtags}}"
-      }
+      },
+      peerSharePolicy: { listed: true, allowQuote: true, allowImport: true, license: "" },
+      mcpPolicy: {
+        writeScope: "none",
+        proposedTools: {}
+      },
+      webmcpPolicy: {
+        enabled: true,
+        registration: "imperative",
+        confirm: "write",
+        showAgentActivity: true
+      },
+      idpPolicy: {
+        loginMode: "telegram_and_idp",
+        provisioning: "approval",
+        allowedDomains: "example.ac.kr, example.org",
+        requireVerifiedEmail: true,
+        backchannelLogout: true
+      },
+      userQuota: {
+        storageMb: 2048,
+        documents: 5000,
+        themes: 5,
+        llmTokensMonthly: 2000000,
+        feeds: 100,
+        byoKey: false
+      },
+      userDbView: "admin"
     };
 
     /* ActivityPub · AT 는 테마에 연결된 기존 서버 계정을 경유한다 (syndication_data.js 시드와 동일한 식별자). */
@@ -632,7 +1183,12 @@
           ...DEFAULT_PREFS,
           ...parsed,
           tagPolicy: { ...DEFAULT_PREFS.tagPolicy, ...(parsed.tagPolicy || {}) },
-          outboundPolicy: { ...DEFAULT_PREFS.outboundPolicy, ...(parsed.outboundPolicy || {}) }
+          outboundPolicy: { ...DEFAULT_PREFS.outboundPolicy, ...(parsed.outboundPolicy || {}) },
+          peerSharePolicy: { ...DEFAULT_PREFS.peerSharePolicy, ...(parsed.peerSharePolicy || {}) },
+          mcpPolicy: { ...DEFAULT_PREFS.mcpPolicy, ...(parsed.mcpPolicy || {}) },
+          webmcpPolicy: { ...DEFAULT_PREFS.webmcpPolicy, ...(parsed.webmcpPolicy || {}) },
+          idpPolicy: { ...DEFAULT_PREFS.idpPolicy, ...(parsed.idpPolicy || {}) },
+          userQuota: { ...DEFAULT_PREFS.userQuota, ...(parsed.userQuota || {}) }
         };
         const style = LEGACY_LIST_STYLES[merged.listStyle] || merged.listStyle;
         merged.listStyle = LIST_STYLES.includes(style) ? style : DEFAULT_PREFS.listStyle;
@@ -740,6 +1296,11 @@
       document.getElementById("pref-at-pubmode").value = prefs.outboundPolicy.atDefaultMode;
       document.getElementById("pref-include-sharelink").checked = !!prefs.outboundPolicy.includeCanonicalShareLink;
       document.getElementById("pref-quote-template").value = prefs.outboundPolicy.quoteTemplate;
+      document.getElementById("pref-peer-listed").checked = !!prefs.peerSharePolicy.listed;
+      document.getElementById("pref-peer-quote").checked = !!prefs.peerSharePolicy.allowQuote;
+      document.getElementById("pref-peer-import").checked = !!prefs.peerSharePolicy.allowImport;
+      document.getElementById("pref-peer-license").value = prefs.peerSharePolicy.license || "";
+      ["pref-peer-quote", "pref-peer-import", "pref-peer-license"].forEach((id) => { document.getElementById(id).disabled = !prefs.peerSharePolicy.listed; });
 
       const theme = SEED_THEME_META[activeThemeKey] || SEED_THEME_META["0"];
       const accounts = getThemeAccounts(activeThemeKey);
@@ -816,6 +1377,938 @@
       });
 
       renderOpmlPreview();
+      renderMcpPanel();
+      renderWebMcpPanel();
+      renderIdpPanel();
+      renderUserDbPanel();
+    }
+
+    /* ── AI 에이전트 연동 · 계정 격리 ─────────────────────────────────────────────────────
+       MCP 패널은 현재 구현(src/claire/api/mcp_tools.py · oauth.py · security.py)을 그대로 보여 주고,
+       WebMCP · 외부 IdP · 사용자별 워크스페이스 패널은 제안이다. 서버 전역 상태는 customState._server 에 둔다. */
+
+    /* [인자 이름, 타입, 필수]. 모든 구현 도구는 마지막에 theme 인자를 공통으로 받는다. */
+    const MCP_TOOLS = [
+      { name: "resolve_entity", args: [["name", "string", true]], desc: "이름 · 별칭으로 엔티티 찾기 — 탐색 루프의 진입점" },
+      { name: "search", args: [["query", "string", true], ["entity_type", "string"], ["near_ids", "array"], ["limit", "integer"]], desc: "FTS5 전문 검색 (LLM 호출 0)" },
+      { name: "neighbors", args: [["entity_ids", "array", true], ["exclude_ids", "array"], ["limit", "integer"]], desc: "여러 노드의 1홉 이웃 합집합 · degree" },
+      { name: "path", args: [["from_id", "string", true], ["to_id", "string", true], ["max_hops", "integer"]], desc: "두 노드 사이 최단 경로 (BFS)" },
+      { name: "context", args: [["entity_ids", "array", true], ["compact", "boolean"]], desc: "observations · 관계 · 출처 종합 (최대 10개 노드)" },
+      { name: "overview", args: [], desc: "엔티티 타입 분포 · 허브 노드 (오리엔테이션)" },
+      { name: "node", args: [["entity_id", "string", true], ["full", "boolean"]], desc: "노드 1개 상세 (연결 문서 최대 10건)" },
+      { name: "documents", args: [["limit", "integer"], ["since", "string"], ["query", "string"]], desc: "최신순 문서 목록 (최대 100건)" },
+      { name: "document", args: [["document_id", "string", true]], desc: "문서 본문 · 메타데이터 (mark_seen 부작용 없음)" },
+      { name: "stats", args: [], desc: "문서 · 엔티티 · 관계 등 규모 요약" }
+    ];
+
+    const MCP_PROPOSED_TOOLS = [
+      { name: "synd_targets", scope: "syndication:read", args: [["folder", "string"]], desc: "수집 대상 · 폴더 · 경유 계정 (토큰 제외)" },
+      { name: "synd_stream", scope: "syndication:read", args: [["stream", "string"], ["cursor", "string"], ["limit", "integer"]], desc: "스트림 항목 (unread · starred · 🔗 적재 필터, 커서)" },
+      { name: "synd_item", scope: "syndication:read", args: [["item_id", "string", true]], desc: "항목 1건: 수집 원문 · 수집 태그 · 연결 문서 id" },
+      { name: "synd_timeline", scope: "syndication:read", args: [["account_id", "string", true], ["timeline", "string"], ["cursor", "string"]], desc: "연결 계정 타임라인 프록시 조회 (home · local · list · tag)" },
+      { name: "synd_draft_publish", scope: "syndication:draft", write: true, args: [["item_id", "string", true], ["mode", "string", true], ["account_ids", "array"]], desc: "부스트 · 인용 · 적재 발행 초안 → 소유자 승인 큐 (직접 발행 없음)" }
+    ];
+
+    const API_TOKEN_SEED = [
+      { id: 3, name: "Claude Desktop", scope: "readonly", created: "2026-09-30", expires: "무기한", lastUsed: "4분 전" },
+      { id: 5, name: "Cursor (작업용)", scope: "readonly", created: "2026-10-12", expires: "2027-01-10", lastUsed: "어제" },
+      { id: 6, name: "적재 배치 스크립트", scope: "collaborator", created: "2026-10-20", expires: "2026-11-19", lastUsed: "3일 전" }
+    ];
+
+    const OAUTH_CLIENT_SEED = [
+      { id: "claire_mcp_Q2xk8rTn", name: "Google Gemini Spark", redirect: "https://oauth-redirect.googleusercontent.com/r/gemini", registered: "2026-09-22", expires: "2026-11-19" },
+      { id: "claire_mcp_h7TzW0pa", name: "Claude (원격 커넥터)", redirect: "https://claude.ai/api/mcp/auth_callback", registered: "2026-10-02", expires: "2026-11-28" }
+    ];
+
+    const MCP_TELEMETRY_SEED = [
+      { at: "10:42:07", type: "tool_call", tool: "search", status: "SUCCESS", ms: 12, bytes: 4821 },
+      { at: "10:41:58", type: "tool_call", tool: "resolve_entity", status: "SUCCESS", ms: 3, bytes: 388 },
+      { at: "10:40:11", type: "http_mcp", tool: null, status: "UNAUTHORIZED", ms: null, bytes: 112 },
+      { at: "08:15:31", type: "tool_call", tool: "context", status: "SUCCESS", ms: 41, bytes: 15233 },
+      { at: "08:15:12", type: "tool_call", tool: "overview", status: "SUCCESS", ms: 18, bytes: 2210 },
+      { at: "08:14:59", type: "tool_call", tool: "path", status: "ERROR", ms: 7, bytes: 0 }
+    ];
+
+    const MCP_GAPS = [
+      {
+        tone: "warn", title: "1. 테마 접근 권한이 MCP에 적용되지 않음 (보안)",
+        now: "mcp_tools.py의 _conn(theme)은 ThemeManager.get_theme()의 기본값(include_private=True)으로 DB를 열고, security.py는 /mcp를 read 규칙으로 통과시킵니다. 코드 경로상 collaborator 자격으로도 Theme 0과 협업 비허용 테마를 읽을 수 있습니다 (RBAC §3.2와 불일치, 런타임 시험은 하지 않음).",
+        proposal: "게이트가 확정한 권한을 MCP 호출 컨텍스트로 넘기고, 도구 진입 시 REST와 같은 접근 판정을 적용합니다. 접근할 수 없는 테마는 존재를 숨기는 오류로 돌려줍니다.",
+        change: "security.py (scope를 request state에 기록) · server.py mcp_route · mcp_tools._conn"
+      },
+      {
+        tone: "", title: "2. 테마 FQDN · X-Claire-Theme 미적용, 허용 호스트 제한",
+        now: "REST는 _extract_theme_ref()로 FQDN · 쿼리 · 헤더를 해석하지만 MCP 도구는 theme 인자만 봅니다. 또 TransportSecuritySettings의 allowed_hosts가 public_url 호스트와 localhost뿐이라 테마 전용 FQDN의 /mcp는 거부됩니다.",
+        proposal: "테마 전용 FQDN으로 들어온 MCP 호출은 그 테마로 고정하고, allowed_hosts에 등록된 테마 FQDN을 포함합니다.",
+        change: "mcp_tools.build_mcp_app (hosts) · mcp_route에서 theme 기본값 주입"
+      },
+      {
+        tone: "", title: "3. 호출자 식별 불가",
+        now: "mcp_telemetry.client_id 컬럼이 있지만 _timed_call()이 값을 넘기지 않아 항상 NULL입니다. oauth_tokens에는 최근 사용 시각이 없습니다.",
+        proposal: "게이트가 확인한 자격증명(API 토큰 id · OAuth client_id · 세션 구분)을 텔레메트리에 기록하고, oauth_tokens.last_used_at을 갱신합니다. 🔑 API/MCP 키 드로어에서 최근 호출을 보여 줍니다.",
+        change: "security.py → request state · mcp_tools._timed_call · db.py oauth_tokens 마이그레이션"
+      },
+      {
+        tone: "", title: "4. OAuth 토큰 폐기 · 목록 경로 없음",
+        now: "상시 이용 토큰은 /tokens/revoke로 폐기할 수 있지만 OAuth로 연결된 클라이언트는 목록 API도 폐기 API도 없어 DB를 직접 고쳐야 합니다.",
+        proposal: "POST /oauth/revoke (RFC 7009)와 owner 전용 GET · DELETE /oauth/clients를 추가하고, 🔑 API/MCP 키 드로어에 'OAuth 연결' 탭을 둡니다.",
+        change: "oauth.py · server.py routes · security.py ROUTE_POLICY · WebUI 드로어"
+      },
+      {
+        tone: "", title: "5. Syndication 도구와 스코프 구분",
+        now: "도구 10종은 모두 읽기 전용이고 OAuth 스코프는 readonly 하나입니다.",
+        proposal: "syndication:read 도구 4종과 초안 전용 syndication:draft를 추가합니다. 초안은 승인 큐에 들어가며 MCP로 직접 발행하지 않습니다.",
+        change: "mcp_tools.py · oauth.py scopes_supported · 승인 큐 (Syndication Phase 2)"
+      },
+      {
+        tone: "", title: "6. 호출 한도 없음",
+        now: "요청 본문 1MB 제한만 있고 자격증명별 호출 빈도 제한은 없습니다.",
+        proposal: "자격증명별 분당 한도를 두고 초과 시 HTTP 429와 Retry-After를 돌려줍니다.",
+        change: "security.py 게이트 미들웨어"
+      },
+      {
+        tone: "", title: "7. 연결 예시 정정",
+        now: "MCP_SUPPORT.md는 npx @modelcontextprotocol/server-fetch, claire token create 출력은 server-everything(데모 서버)을 안내합니다.",
+        proposal: "원격 HTTP 서버 형식(claude mcp add --transport http, mcpServers의 type: \"http\" + headers)으로 바꿉니다.",
+        change: "docs/design/MCP_SUPPORT.md · cli.py token create 출력"
+      }
+    ];
+
+    /* tab: client | kb | any — 해당 작업 공간 탭이 열려 있을 때만 등록. kind: read | ui | write | publish.
+       untrusted: 연합 게시물 · 수집 원문처럼 제3자 콘텐츠를 돌려준다 (annotations.untrustedContentHint). */
+    const WEBMCP_TOOLS = [
+      { name: "synd_get_view", title: "현재 화면 상태", tab: "any", kind: "read", desc: "현재 탭 · 테마 · 목록 스타일 · 선택 항목", input: {}, example: {} },
+      { name: "kb_list_items", title: "스트림 항목 목록", tab: "kb", kind: "read", untrusted: true, desc: "현재 스트림에 보이는 항목 (필터 · 정렬 반영)", input: { stream: { type: "string", enum: ["all", "unread", "starred", "linked"] }, limit: { type: "integer", maximum: 50 } }, example: { stream: "unread", limit: 10 } },
+      { name: "kb_get_item", title: "항목 읽기", tab: "kb", kind: "read", untrusted: true, desc: "항목 1건의 수집 원문 · 수집 태그 · 적재 상태", input: { item_id: { type: "string" } }, required: ["item_id"], example: { item_id: "i0-3" } },
+      { name: "client_read_timeline", title: "타임라인 읽기", tab: "client", kind: "read", untrusted: true, desc: "열린 컬럼의 게시물 (CW · 필터 적용 결과 그대로)", input: { column: { type: "string", enum: ["home", "notifications", "local", "federated", "list"] }, limit: { type: "integer", maximum: 40 } }, example: { column: "home", limit: 5 } },
+      { name: "client_search", title: "연결 서버 검색", tab: "client", kind: "read", untrusted: true, desc: "연결 서버 검색 (계정 · 해시태그 · 게시물)", input: { q: { type: "string" }, type: { type: "string", enum: ["accounts", "hashtags", "statuses"] } }, required: ["q"], example: { q: "#ActivityPub", type: "statuses" } },
+      { name: "synd_set_view", title: "화면 전환", tab: "any", kind: "ui", desc: "탭 · 목록 스타일 · 분할 구조 전환", input: { tab: { type: "string", enum: ["client", "kb"] }, list_style: { type: "string", enum: ["list", "compact", "card", "roomy"] } }, example: { tab: "kb", list_style: "roomy" } },
+      { name: "synd_open_item", title: "리더에 열기", tab: "any", kind: "ui", desc: "항목 · 게시물을 리더에 열기", input: { id: { type: "string" } }, required: ["id"], example: { id: "p0-12" } },
+      { name: "client_compose_draft", title: "새 글 초안 채우기", tab: "client", kind: "ui", desc: "새 글 대화상자를 채움 (전송은 사용자가 직접)", input: { text: { type: "string" }, spoiler_text: { type: "string" }, visibility: { type: "string", enum: ["public", "unlisted", "private", "direct"] } }, required: ["text"], example: { text: "Mastodon 5.0 인용 정책 정리 #ActivityPub", visibility: "unlisted" } },
+      { name: "kb_ingest_item", title: "프로젝트 적재로 전달", tab: "kb", kind: "write", desc: "항목을 프로젝트 적재로 전달 (초점 지정)", input: { item_id: { type: "string" }, focus: { type: "string" } }, required: ["item_id"], example: { item_id: "i0-3", focus: "SQLite WAL 모드 변경점" } },
+      { name: "kb_subscribe", title: "수집 대상 추가", tab: "kb", kind: "write", desc: "수집 대상 추가 (AP · AT는 경유 계정 필수)", input: { url: { type: "string" }, folder: { type: "string" }, via_account: { type: "string" } }, required: ["url"], example: { url: "https://lwn.net/headlines/rss", folder: "엔지니어링 블로그" } },
+      { name: "client_interact", title: "게시물 상호작용", tab: "client", kind: "write", external: true, desc: "좋아요 · 북마크 · 부스트 (연결 계정으로 서버 반영)", input: { status_id: { type: "string" }, action: { type: "string", enum: ["favourite", "bookmark", "reblog"] } }, required: ["status_id", "action"], example: { status_id: "p0-12", action: "bookmark" } },
+      { name: "kb_publish", title: "발행 대화상자 열기", tab: "kb", kind: "publish", external: true, desc: "부스트 · 인용 · 적재 발행 (발행 대화상자에서 미리보기 확인 후 전송)", input: { item_id: { type: "string" }, mode: { type: "string", enum: ["boost", "quote", "ingested_publish"] }, accounts: { type: "array", items: { type: "string" } } }, required: ["item_id", "mode"], example: { item_id: "i0-3", mode: "quote", accounts: ["acc0-ap"] } }
+    ];
+
+    const IDP_TYPES = {
+      google: { label: "Google", kind: "OIDC", issuer: "https://accounts.google.com", key: "sub", note: "hd (Workspace 도메인)" },
+      entra: { label: "Microsoft Entra ID", kind: "OIDC", issuer: "https://login.microsoftonline.com/{tenant}/v2.0", key: "sub (앱별 고정)", note: "tid 테넌트 확인" },
+      keycloak: { label: "Keycloak · Authentik 등 범용 OIDC", kind: "OIDC", issuer: "", key: "sub", note: "groups 클레임" },
+      github: { label: "GitHub", kind: "OAuth 2.0 (OIDC 아님)", issuer: "https://github.com", key: "id (GET /user)", note: "/user/emails verified" }
+    };
+
+    const IDP_SEED = [
+      { id: "google", type: "google", label: "Google", issuer: "https://accounts.google.com", clientId: "401928-claire.apps.googleusercontent.com", enabled: true },
+      { id: "sso", type: "keycloak", label: "연구소 SSO (Keycloak)", issuer: "https://sso.example.org/realms/claire", clientId: "claire-bible", enabled: true },
+      { id: "github", type: "github", label: "GitHub", issuer: "https://github.com", clientId: "Iv1.7c2e9a", enabled: false }
+    ];
+
+    const SSO_ISS = "https://sso.example.org/realms/claire";
+    const GOOGLE_ISS = "https://accounts.google.com";
+
+    const USERS_SEED = [
+      { seq: 1, name: "김하늘", email: "haneul.kim@example.ac.kr", idp: "google", iss: GOOGLE_ISS, sub: "109827736410054471", status: "active", themes: 3, docs: 1284, mb: 612, llm: 840000, last: "오늘 09:12", linked: ["google"] },
+      { seq: 2, name: "이도윤", email: "doyun@example.org", idp: "sso", iss: SSO_ISS, sub: "5f0c2a9e-1b7d-4e21", status: "active", themes: 1, docs: 96, mb: 48, llm: 120000, last: "어제", linked: ["sso"] },
+      { seq: 3, name: "박서연", email: "seoyeon.park@example.ac.kr", idp: "google", iss: GOOGLE_ISS, sub: "117250093318820145", status: "pending", themes: 0, docs: 0, mb: 0, llm: 0, last: "승인 대기", linked: ["google"] },
+      { seq: 4, name: "최민준", email: "minjun@example.org", idp: "sso", iss: SSO_ISS, sub: "c93e7d10-55aa-4f08", status: "suspended", themes: 2, docs: 430, mb: 1980, llm: 1940000, last: "10/21", linked: ["sso"] }
+    ];
+
+    const IDP_INVITES = ["seojin.park@example.ac.kr"];
+
+    const IDP_PERSONAS = [
+      { id: "returning", label: "김하늘 · Google · 기존 사용자", idp: "google", claims: { iss: GOOGLE_ISS, sub: "109827736410054471", email: "haneul.kim@example.ac.kr", email_verified: true, hd: "example.ac.kr", name: "김하늘" } },
+      { id: "new_ok", label: "박서진 · Google · 신규, 허용 도메인 (초대됨)", idp: "google", claims: { iss: GOOGLE_ISS, sub: "104458120937265518", email: "seojin.park@example.ac.kr", email_verified: true, hd: "example.ac.kr", name: "박서진" } },
+      { id: "new_domain", label: "정우성 · Google · 신규, gmail.com", idp: "google", claims: { iss: GOOGLE_ISS, sub: "118804215560931277", email: "woosung.j@gmail.com", email_verified: true, name: "정우성" } },
+      { id: "github_unverified", label: "한결 · GitHub · 이메일 미검증", idp: "github", claims: { iss: "https://github.com", sub: "58213904", login: "hangyeol", email: "hangyeol@example.org", email_verified: false } },
+      { id: "sso_existing", label: "이도윤 · 연구소 SSO · 기존 사용자", idp: "sso", claims: { iss: SSO_ISS, sub: "5f0c2a9e-1b7d-4e21", email: "doyun@example.org", email_verified: true, groups: ["research"] } },
+      { id: "same_email", label: "김하늘 · 연구소 SSO · 같은 이메일, 다른 IdP", idp: "sso", claims: { iss: SSO_ISS, sub: "a81d4f62-0c3e-49b7", email: "haneul.kim@example.ac.kr", email_verified: true, groups: ["research"] } },
+      { id: "suspended", label: "최민준 · 연구소 SSO · 정지된 사용자", idp: "sso", claims: { iss: SSO_ISS, sub: "c93e7d10-55aa-4f08", email: "minjun@example.org", email_verified: true } }
+    ];
+
+    const COLLAB_ACCESSIBLE_SEED = { "0": false, "1": true, "2": false, "3": false };
+
+    function themeMeta() { return SEED_THEME_META[activeThemeKey] || SEED_THEME_META["0"]; }
+    function themeCustom() {
+      if (!customState[activeThemeKey]) customState[activeThemeKey] = {};
+      return customState[activeThemeKey];
+    }
+    function serverState() {
+      if (!customState._server) customState._server = {};
+      return customState._server;
+    }
+    function webmcpState() {
+      const cs = themeCustom();
+      if (!cs.webmcp) cs.webmcp = {};
+      return cs.webmcp;
+    }
+    function webmcpExposed() {
+      const st = webmcpState();
+      return st.exposed !== undefined ? st.exposed : true;
+    }
+    function collaboratorAccessible(key) {
+      const t = (cfg.themes || []).find((x) => String(x.id) === String(key));
+      if (t && "is_collaborator_accessible" in t) return !!t.is_collaborator_accessible;
+      return !!COLLAB_ACCESSIBLE_SEED[key];
+    }
+
+    function mcpEndpoint() { return `${window.location.origin}/mcp`; }
+
+    function schemaFor(args, withTheme) {
+      const properties = {};
+      const required = [];
+      args.forEach(([name, type, req]) => {
+        properties[name] = type === "array" ? { type: "array", items: { type: "string" } } : { type };
+        if (req) required.push(name);
+      });
+      if (withTheme) properties.theme = { anyOf: [{ type: "string" }, { type: "integer" }, { type: "null" }], default: null };
+      const schema = { type: "object", properties };
+      if (required.length) schema.required = required;
+      return schema;
+    }
+
+    function argLabel(args, withTheme) {
+      const parts = args.map(([n, , req]) => (req ? n : `${n}?`));
+      if (withTheme) parts.push("theme?");
+      return parts.length ? parts.join(", ") : "—";
+    }
+
+    function proposedToolOn(t) {
+      if (t.scope === "syndication:draft" && prefs.mcpPolicy.writeScope !== "draft") return false;
+      const st = prefs.mcpPolicy.proposedTools || {};
+      return st[t.name] !== undefined ? st[t.name] : true;
+    }
+
+    function renderMcpPanel() {
+      const theme = themeMeta();
+      const revoked = serverState().oauthRevoked || [];
+      const clients = OAUTH_CLIENT_SEED.filter((c) => !revoked.includes(c.id));
+      const proposedOn = MCP_PROPOSED_TOOLS.filter(proposedToolOn);
+
+      document.getElementById("pref-mcp-endpoint").textContent = mcpEndpoint();
+      document.getElementById("pref-mcp-theme-example").textContent = JSON.stringify({ name: "search", arguments: { query: "…", theme: theme.id } });
+      document.getElementById("pref-mcp-write").value = prefs.mcpPolicy.writeScope === "draft" ? "draft" : "none";
+      document.getElementById("nav-mcp-count").textContent = String(MCP_TOOLS.length);
+
+      document.getElementById("pref-mcp-stats").innerHTML = [
+        ["Streamable HTTP", "stateless · JSON 응답"],
+        [`${MCP_TOOLS.length}종`, "읽기 전용 도구 (구현)"],
+        ["3채널", "상시 토큰 · 텔레그램 세션 · OAuth 2.1"],
+        [`+${proposedOn.length}`, "제안 도구 (미리보기)"]
+      ].map(([v, l]) => `<div class="pref-stat"><b>${escapeHtml(v)}</b><span>${escapeHtml(l)}</span></div>`).join("");
+
+      document.getElementById("pref-mcp-apitokens-tbody").innerHTML = API_TOKEN_SEED.map((t) => `<tr>
+          <td class="pref-mono">#${t.id}</td>
+          <td><strong>${escapeHtml(t.name)}</strong></td>
+          <td><code class="pref-mono">${escapeHtml(t.scope)}</code></td>
+          <td>${escapeHtml(t.created)}</td>
+          <td>${escapeHtml(t.expires)}</td>
+          <td>${escapeHtml(t.lastUsed)}</td>
+        </tr>`).join("");
+
+      document.getElementById("pref-mcp-clients-tbody").innerHTML = clients.length ? clients.map((c) => `<tr>
+          <td><strong>${escapeHtml(c.name)}</strong></td>
+          <td><code class="pref-mono">${escapeHtml(c.id)}…</code><br/><span class="pref-mono" style="color:var(--muted)">${escapeHtml(c.redirect)}</span></td>
+          <td>${escapeHtml(c.registered)}</td>
+          <td>${escapeHtml(c.expires)}<br/><span style="color:var(--muted);font-size:11px">refresh 1년 · 회전</span></td>
+          <td><span style="color:var(--muted)">기록 없음</span></td>
+          <td><button type="button" class="pref-btn" data-mcp-revoke="${escapeHtml(c.id)}" title="POST /oauth/revoke (RFC 7009) — 아직 없는 경로">폐기 <span class="pref-pill pref-pill-prop">제안</span></button></td>
+        </tr>`).join("") : `<tr><td colspan="6" style="color:var(--muted)">OAuth로 연결된 클라이언트가 없습니다.</td></tr>`;
+
+      const ep = mcpEndpoint();
+      document.getElementById("pref-mcp-snippet-cli").textContent = `claude mcp add --transport http claire ${ep} \\\n  --header "Authorization: Bearer cb_…"`;
+      document.getElementById("pref-mcp-snippet-json").textContent = JSON.stringify({ mcpServers: { claire: { type: "http", url: ep, headers: { Authorization: "Bearer cb_…" } } } }, null, 2);
+
+      document.getElementById("pref-mcp-tools-tbody").innerHTML = MCP_TOOLS.map((t) => `<tr>
+          <td><code class="pref-mono">${escapeHtml(t.name)}</code></td>
+          <td class="pref-mono">${escapeHtml(argLabel(t.args, true))}</td>
+          <td style="font-size:12px">${escapeHtml(t.desc)}</td>
+        </tr>`).join("");
+
+      document.getElementById("pref-mcp-proposed-tbody").innerHTML = MCP_PROPOSED_TOOLS.map((t) => {
+        const available = !(t.scope === "syndication:draft" && prefs.mcpPolicy.writeScope !== "draft");
+        const on = proposedToolOn(t);
+        return `<tr data-off="${on ? "false" : "true"}">
+          <td><input type="checkbox" switch data-mcp-proposed="${escapeHtml(t.name)}" ${on ? "checked" : ""} ${available ? "" : "disabled"} aria-label="${escapeHtml(t.name)} 미리보기 포함"/></td>
+          <td><code class="pref-mono">${escapeHtml(t.name)}</code><br/><span class="pref-mono" style="color:var(--muted)">${escapeHtml(argLabel(t.args, true))}</span></td>
+          <td><code class="pref-mono">${escapeHtml(t.scope)}</code>${available ? "" : `<br/><span style="color:var(--muted);font-size:11px">'발행 초안 허용'에서만</span>`}</td>
+          <td style="font-size:12px">${escapeHtml(t.desc)}</td>
+        </tr>`;
+      }).join("");
+
+      const listed = [
+        ...MCP_TOOLS.map((t) => ({ name: t.name, description: t.desc, inputSchema: schemaFor(t.args, true) })),
+        ...proposedOn.map((t) => ({ name: t.name, description: `[제안] ${t.desc}`, inputSchema: schemaFor(t.args, true) }))
+      ];
+      document.getElementById("pref-mcp-toolslist").textContent = JSON.stringify({ jsonrpc: "2.0", id: 1, result: { tools: listed } }, null, 2);
+
+      document.getElementById("pref-mcp-audit-tbody").innerHTML = MCP_TELEMETRY_SEED.map((r) => `<tr>
+          <td class="pref-mono">${escapeHtml(r.at)}</td>
+          <td class="pref-mono">${escapeHtml(r.type)}</td>
+          <td><code class="pref-mono">${escapeHtml(r.tool || "NULL")}</code></td>
+          <td style="font-size:12px;${r.status === "SUCCESS" ? "" : "color:#cf222e"}">${escapeHtml(r.status)}</td>
+          <td class="pref-mono">${r.ms === null ? "NULL" : r.ms}</td>
+          <td class="pref-mono">${r.bytes}</td>
+          <td class="pref-mono" style="color:var(--muted)">NULL</td>
+        </tr>`).join("");
+
+      const collab = collaboratorAccessible(activeThemeKey);
+      const designCollab = theme.id === 0 ? "차단 (Theme 0)" : (collab ? "읽기 · 쓰기" : "차단 (협업 비허용)");
+      const rbac = [
+        ["owner", "읽기 · 쓰기", "읽기 (도구가 읽기 전용)", "ok"],
+        ["collaborator", designCollab, "읽기 (theme 인자로 모든 테마)", designCollab.startsWith("차단") ? "bad" : "ok"],
+        ["readonly", theme.isPublic ? "읽기" : "읽기 (비공개 포함)", "읽기", "ok"],
+        ["anonymous", theme.isPublic ? "공개 읽기" : "404 존재 은폐", "거부 (401)", "strict"]
+      ];
+      document.getElementById("pref-mcp-rbac-tbody").innerHTML = rbac.map(([scope, design, now, verdict]) => `<tr>
+          <td><code class="pref-mono">${scope}</code></td>
+          <td>${escapeHtml(design)}</td>
+          <td>${escapeHtml(now)}</td>
+          <td>${verdict === "bad" ? `<span class="pref-pill pref-pill-warn">불일치 — 제안 1</span>` : (verdict === "strict" ? `<span class="pref-pill">더 엄격</span>` : `<span class="pref-pill pref-pill-mcp">일치</span>`)}</td>
+        </tr>`).join("");
+
+      document.getElementById("pref-mcp-gaps").innerHTML = MCP_GAPS.map((g) => `<div class="pref-notice" data-tone="${g.tone}">
+          <div style="font-weight:700;margin-bottom:4px">${escapeHtml(g.title)}</div>
+          <div><b>현재</b> ${escapeHtml(g.now)}</div>
+          <div><b>제안</b> ${escapeHtml(g.proposal)}</div>
+          <div class="pref-mono" style="color:var(--muted);margin-top:2px">변경: ${escapeHtml(g.change)}</div>
+        </div>`).join("");
+    }
+
+    function webmcpToolBlocked(t) {
+      if (t.external && !themeMeta().isPublic) return "비공개 테마";
+      if (t.kind === "publish" && !getThemeAccounts(activeThemeKey).some((a) => a.canPublish)) return "발행 계정 없음";
+      return "";
+    }
+    function webmcpToolOn(t) {
+      if (webmcpToolBlocked(t)) return false;
+      const st = webmcpState().tools || {};
+      return st[t.name] !== undefined ? st[t.name] : t.kind !== "publish";
+    }
+    function webmcpNeedsConfirm(t) {
+      const mode = prefs.webmcpPolicy.confirm;
+      if (t.kind === "publish" || t.kind === "write") return true;
+      if (mode === "all") return true;
+      return mode === "ui_and_write" && t.kind === "ui";
+    }
+    function webmcpAnnotations(t) {
+      const a = { readOnlyHint: t.kind === "read" };
+      if (t.kind === "write" || t.kind === "publish") a.consequentialHint = true;
+      if (t.untrusted) a.untrustedContentHint = true;
+      return a;
+    }
+
+    function webmcpKindLabel(kind) {
+      return { read: "읽기", ui: "화면 조작", write: "쓰기", publish: "외부 발행" }[kind] || kind;
+    }
+    function webmcpKindPill(kind) {
+      return { read: "pref-pill-mcp", ui: "pref-pill-at", write: "pref-pill-web", publish: "pref-pill-warn" }[kind] || "";
+    }
+    function webmcpTabLabel(tab) {
+      return { any: "두 탭", client: "🌐 연합 클라이언트", kb: "📚 지식베이스" }[tab] || tab;
+    }
+
+    function webmcpSchema(t) {
+      const schema = { type: "object", properties: t.input || {} };
+      if (t.required) schema.required = t.required;
+      return schema;
+    }
+
+    function webmcpRegistrationCode(t) {
+      const confirm = webmcpNeedsConfirm(t);
+      const indent = (s) => s.replace(/\n/g, "\n  ");
+      const lines = [
+        "const mc = document.modelContext ?? navigator.modelContext;  // 사양 · 이전 초안 이름",
+        "const registration = new AbortController();               // 테마 전환 · 비활성화 시 abort()",
+        "",
+        "await mc.registerTool({",
+        `  name: ${JSON.stringify(t.name)},`,
+        `  title: ${JSON.stringify(t.title)},`,
+        `  description: ${JSON.stringify(t.desc)},`,
+        `  inputSchema: ${indent(JSON.stringify(webmcpSchema(t), null, 2))},`,
+        `  annotations: ${JSON.stringify(webmcpAnnotations(t)).replace(/"(\w+)":/g, "$1: ").replace(/,/g, ", ")},`,
+        "  async execute(input, { signal }) {"
+      ];
+      if (confirm) {
+        lines.push(
+          `    const ok = await claireConfirm(${JSON.stringify(t.name)}, input, { signal });  // 페이지 자체 확인 창`,
+          "    if (!ok) return { ok: false, error: \"user_denied\" };"
+        );
+      }
+      lines.push(
+        `    return SyndicationTools.${t.name}(input, { signal });  // JSON 직렬화 가능한 값`,
+        "  }",
+        "}, { signal: registration.signal });"
+      );
+      if (prefs.webmcpPolicy.registration === "both" && t.name === "kb_subscribe") {
+        lines.push("", "<!-- 선언형 (explainer 제안, 사양 외) -->",
+          "<form id=\"subscribe-form\" toolname=\"kb_subscribe\"",
+          "      tooldescription=\"수집 대상 추가 (AP · AT는 경유 계정 필수)\">",
+          "  <input name=\"url\" toolparamdescription=\"피드 URL 또는 @계정\">");
+      }
+      return lines.join("\n");
+    }
+
+    function webmcpSimResult(t, input) {
+      const theme = themeMeta();
+      switch (t.name) {
+        case "synd_get_view": return { theme: theme.id, tab: prefs.appTab, list_style: prefs.listStyle, layout: prefs.layoutMode, selected: null };
+        case "kb_list_items": return { items: [{ id: "i0-3", title: "SQLite 3.51 Release", unread: true, linked: false }], truncated: false };
+        case "kb_get_item": return { id: input.item_id, source_tags: ["#SQLite", "#Release"], linked_doc_id: null };
+        case "client_read_timeline": return { column: input.column || "home", statuses: [{ id: "p0-12", account: "@w3c@w3c.social", spoiler_text: "", text: "…" }] };
+        case "client_search": return { statuses: 3, accounts: 0, hashtags: 1 };
+        case "synd_set_view": return { applied: input };
+        case "synd_open_item": return { opened: input.id };
+        case "client_compose_draft": return { compose_dialog: "opened", sent: false, note: "전송은 사용자가 직접 누릅니다" };
+        case "kb_ingest_item": return { ok: true, forwarded: input.item_id, focus: input.focus || "", queue: "project_ingest" };
+        case "kb_subscribe": return { ok: true, target_id: "f_agent_1", folder: input.folder || "기본 폴더" };
+        case "client_interact": return { ok: true, status_id: input.status_id, action: input.action, server: "social.example.com" };
+        case "kb_publish": return { ok: true, dialog: "publish", mode: input.mode, accounts: input.accounts || [], note: "전송은 발행 대화상자에서 사용자가 누릅니다" };
+        default: return {};
+      }
+    }
+
+    function renderWebMcpPanel() {
+      const theme = themeMeta();
+      const hasDoc = "modelContext" in document;
+      const hasNav = typeof navigator !== "undefined" && "modelContext" in navigator;
+      const enabled = !!prefs.webmcpPolicy.enabled;
+      const exposed = webmcpExposed();
+      const support = document.getElementById("pref-webmcp-support");
+      support.dataset.tone = hasDoc || hasNav ? "ok" : "";
+      const insecure = window.isSecureContext ? "" : " 이 페이지는 보안 컨텍스트(HTTPS)가 아니어서 지원 브라우저에서도 API가 노출되지 않습니다.";
+      support.innerHTML = hasDoc
+        ? `✅ 이 브라우저에서 <code>document.modelContext</code>(사양 이름)를 감지했습니다.${insecure}`
+        : (hasNav
+          ? `✅ 이 브라우저는 이전 초안 이름인 <code>navigator.modelContext</code>를 제공합니다. 등록 코드는 두 이름을 모두 시도합니다.${insecure}`
+          : `⚪ 이 브라우저는 <code>document.modelContext</code>를 제공하지 않습니다. 설정은 저장되며, WebMCP를 지원하는 브라우저에서 <code>/syndication</code>을 열면 적용됩니다.${insecure}`);
+
+      document.getElementById("pref-webmcp-enabled").checked = enabled;
+      document.getElementById("pref-webmcp-exposed").checked = exposed;
+      document.getElementById("pref-webmcp-exposed").disabled = !enabled;
+      document.getElementById("pref-webmcp-exposed-desc").innerHTML = theme.isPublic
+        ? "테마를 바꾸면 이전 등록 신호를 <code>abort()</code>하고 새 테마의 도구를 다시 등록합니다."
+        : "🔒 비공개 테마: 조회 · 화면 조작 · 내부 적재 도구만 등록되고, 외부 서버에 반영되는 도구(상호작용 · 발행)는 등록되지 않습니다.";
+      document.getElementById("pref-webmcp-mode").value = prefs.webmcpPolicy.registration === "both" ? "both" : "imperative";
+      document.getElementById("pref-webmcp-confirm").value = prefs.webmcpPolicy.confirm;
+      document.getElementById("pref-webmcp-activity").checked = !!prefs.webmcpPolicy.showAgentActivity;
+
+      const live = enabled && exposed;
+      document.getElementById("nav-webmcp-count").textContent = live ? String(WEBMCP_TOOLS.filter(webmcpToolOn).length) : "off";
+
+      document.getElementById("pref-webmcp-tools-tbody").innerHTML = WEBMCP_TOOLS.map((t) => {
+        const blocked = webmcpToolBlocked(t);
+        const on = webmcpToolOn(t);
+        const lockedConfirm = t.kind === "publish" || t.kind === "write";
+        const ann = webmcpAnnotations(t);
+        const hints = Object.keys(ann).filter((k) => ann[k]).map((k) => k.replace("Hint", "")).join(" · ") || "—";
+        return `<tr data-off="${on && live ? "false" : "true"}">
+          <td><input type="checkbox" switch data-webmcp-tool="${escapeHtml(t.name)}" ${on ? "checked" : ""} ${blocked || !live ? "disabled" : ""} aria-label="${escapeHtml(t.name)} 등록"/></td>
+          <td><code class="pref-mono">${escapeHtml(t.name)}</code><br/><span style="color:var(--muted);font-size:11px">${escapeHtml(t.title)}</span>${blocked ? `<br/><span style="color:var(--muted);font-size:11px">⛔ ${escapeHtml(blocked)}</span>` : ""}</td>
+          <td style="font-size:12px;white-space:nowrap">${webmcpTabLabel(t.tab)}</td>
+          <td><span class="pref-pill ${webmcpKindPill(t.kind)}">${webmcpKindLabel(t.kind)}</span></td>
+          <td class="pref-mono">${escapeHtml(hints)}</td>
+          <td style="font-size:12px;white-space:nowrap">${webmcpNeedsConfirm(t) ? (lockedConfirm ? "🔒 항상" : "✋ 확인") : "—"}</td>
+          <td style="font-size:12px">${escapeHtml(t.desc)}</td>
+        </tr>`;
+      }).join("");
+
+      const sel = document.getElementById("pref-webmcp-sim-tool");
+      const prev = sel.value || "kb_ingest_item";
+      sel.innerHTML = WEBMCP_TOOLS.map((t) => `<option value="${escapeHtml(t.name)}" ${t.name === prev ? "selected" : ""}>${escapeHtml(t.name)} — ${webmcpKindLabel(t.kind)}</option>`).join("");
+      renderWebMcpSimTool(false);
+    }
+
+    function currentSimTool() {
+      const name = document.getElementById("pref-webmcp-sim-tool").value;
+      return WEBMCP_TOOLS.find((t) => t.name === name) || WEBMCP_TOOLS[0];
+    }
+
+    function renderWebMcpSimTool(resetInput) {
+      const t = currentSimTool();
+      document.getElementById("pref-webmcp-code").textContent = webmcpRegistrationCode(t);
+      const input = document.getElementById("pref-webmcp-sim-input");
+      if (resetInput || !input.value || input.dataset.tool !== t.name) {
+        input.value = JSON.stringify(t.example || {}, null, 2);
+        input.dataset.tool = t.name;
+        document.getElementById("pref-webmcp-sim-output").innerHTML = "";
+      }
+    }
+
+    function simBlock(label, obj, isError) {
+      return `<span style="font-size:12px;font-weight:700;${isError ? "color:#cf222e" : ""}">${escapeHtml(label)}</span><pre class="pref-code">${escapeHtml(typeof obj === "string" ? obj : JSON.stringify(obj, null, 2))}</pre>`;
+    }
+    function setSimOutput(id, html) { document.getElementById(id).innerHTML = html; }
+
+    function runWebMcpSimulation() {
+      const out = "pref-webmcp-sim-output";
+      const t = currentSimTool();
+      let input;
+      try {
+        input = JSON.parse(document.getElementById("pref-webmcp-sim-input").value || "{}");
+      } catch (_) {
+        setSimOutput(out, simBlock("입력 JSON 파싱 실패", { error: "invalid JSON" }, true));
+        return;
+      }
+      if (!prefs.webmcpPolicy.enabled || !webmcpExposed() || !webmcpToolOn(t)) {
+        const why = !prefs.webmcpPolicy.enabled || !webmcpExposed() ? "WebMCP 비활성" : (webmcpToolBlocked(t) || "등록 해제된 도구");
+        setSimOutput(out, simBlock("getTools()에 없음 → 에이전트가 호출할 수 없음", { reason: why }, true));
+        return;
+      }
+      const missing = (t.required || []).filter((k) => input[k] === undefined || input[k] === "");
+      if (missing.length) {
+        setSimOutput(out, simBlock("도구가 입력 오류를 JSON으로 반환", { ok: false, error: "invalid_input", missing }, true));
+        return;
+      }
+      if (!webmcpNeedsConfirm(t)) {
+        setSimOutput(out, simBlock("execute() 결과 → JSON 문자열로 에이전트에 전달", webmcpSimResult(t, input)));
+        return;
+      }
+      setSimOutput(out, `<div class="pref-confirm" role="alertdialog" aria-label="에이전트 요청 확인">
+          <div>🕸️ <b>브라우저 에이전트</b>가 <code class="pref-mono">${escapeHtml(t.name)}</code> (${escapeHtml(t.title)}) 실행을 요청합니다.</div>
+          <pre class="pref-code" style="max-height:120px">${escapeHtml(JSON.stringify(input, null, 2))}</pre>
+          ${t.external ? `<div style="font-size:12px;color:var(--muted)">연결 계정으로 외부 서버에 반영됩니다.</div>` : ""}
+          <div style="font-size:12px;color:var(--muted)">이 창은 페이지가 직접 띄웁니다. 에이전트가 호출을 취소하면 <code>signal</code>이 abort되어 창이 닫힙니다.</div>
+          <div class="pref-confirm-actions">
+            <button type="button" class="pref-btn" data-sim-answer="deny">거부</button>
+            <button type="button" class="pref-btn pref-btn-accent" data-sim-answer="allow">허용</button>
+          </div>
+        </div>`);
+      document.querySelectorAll("[data-sim-answer]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          if (btn.getAttribute("data-sim-answer") === "allow") {
+            setSimOutput(out, simBlock("사용자 허용 → execute() 결과", webmcpSimResult(t, input)));
+          } else {
+            setSimOutput(out, simBlock("사용자 거부 → execute() 결과", { ok: false, error: "user_denied" }, true));
+          }
+        });
+      });
+    }
+
+    /* ── 외부 IdP · 사용자별 워크스페이스 (제안) ─────────────────────────────────────── */
+
+    function idpProviders() {
+      const st = serverState();
+      if (!Array.isArray(st.providers)) st.providers = JSON.parse(JSON.stringify(IDP_SEED));
+      return st.providers;
+    }
+    function directoryUsers() {
+      const st = serverState();
+      if (!Array.isArray(st.users)) st.users = JSON.parse(JSON.stringify(USERS_SEED));
+      return st.users;
+    }
+    function idpRedirect(p) { return `${window.location.origin}/auth/oidc/${p.id}/callback`; }
+    function idpEnabled() { return prefs.idpPolicy.loginMode === "telegram_and_idp"; }
+    function allowedDomains() {
+      return String(prefs.idpPolicy.allowedDomains || "").split(",").map((d) => d.trim().toLowerCase()).filter(Boolean);
+    }
+
+    function renderIdpPanel() {
+      const providers = idpProviders();
+      const enabledCount = providers.filter((p) => p.enabled).length;
+      document.getElementById("nav-idp-count").textContent = idpEnabled() ? String(enabledCount) : "off";
+      document.getElementById("pref-idp-mode").value = prefs.idpPolicy.loginMode;
+      document.getElementById("pref-idp-provisioning").value = prefs.idpPolicy.provisioning;
+      document.getElementById("pref-idp-domains").value = prefs.idpPolicy.allowedDomains;
+      document.getElementById("pref-idp-verified").checked = !!prefs.idpPolicy.requireVerifiedEmail;
+      document.getElementById("pref-idp-bcl").checked = !!prefs.idpPolicy.backchannelLogout;
+
+      document.getElementById("pref-idp-tbody").innerHTML = providers.map((p) => {
+        const type = IDP_TYPES[p.type] || IDP_TYPES.keycloak;
+        return `<tr data-off="${p.enabled && idpEnabled() ? "false" : "true"}">
+          <td><input type="checkbox" switch data-idp-toggle="${escapeHtml(p.id)}" ${p.enabled ? "checked" : ""} ${idpEnabled() ? "" : "disabled"} aria-label="${escapeHtml(p.label)} 사용"/></td>
+          <td><strong>${escapeHtml(p.label)}</strong></td>
+          <td><span class="pref-mono">${escapeHtml(p.issuer)}</span><br/><span style="color:var(--muted);font-size:11px">${escapeHtml(type.kind)} · ${escapeHtml(type.note)}</span></td>
+          <td><code class="pref-mono">${escapeHtml(p.clientId)}</code></td>
+          <td><code class="pref-mono" style="white-space:normal">${escapeHtml(idpRedirect(p))}</code></td>
+          <td class="pref-mono">${escapeHtml(type.key)}</td>
+          <td>${p.custom ? `<button type="button" class="pref-btn" data-idp-remove="${escapeHtml(p.id)}">삭제</button>` : `<span style="color:var(--muted);font-size:11.5px">예시</span>`}</td>
+        </tr>`;
+      }).join("");
+
+      const typeSel = document.getElementById("new-idp-type");
+      if (!typeSel.options.length) {
+        typeSel.innerHTML = Object.entries(IDP_TYPES).map(([k, v]) => `<option value="${k}">${escapeHtml(v.label)}</option>`).join("");
+        typeSel.value = "keycloak";
+      }
+
+      renderIdpLoginPreview();
+      const personaSel = document.getElementById("pref-idp-persona");
+      if (!personaSel.options.length) {
+        personaSel.innerHTML = IDP_PERSONAS.map((p) => `<option value="${p.id}">${escapeHtml(p.label)}</option>`).join("");
+      }
+    }
+
+    function renderIdpLoginPreview() {
+      const buttons = idpEnabled()
+        ? idpProviders().filter((p) => p.enabled).map((p) => `<button type="button" class="pref-login-btn" data-idp-login="${escapeHtml(p.id)}">${escapeHtml(p.label)}(으)로 계속</button>`).join("")
+        : "";
+      document.getElementById("pref-idp-login-preview").innerHTML = `
+        <div style="font-size:15px;font-weight:700">📚 Claire Bible 로그인</div>
+        <div style="font-size:12px;color:var(--muted)">${idpEnabled() ? "조직 계정으로 로그인하면 내 워크스페이스가 열립니다." : "외부 IdP 로그인이 꺼져 있습니다."}</div>
+        ${buttons}
+        <div class="pref-login-sep">운영자</div>
+        <button type="button" class="pref-login-btn" data-idp-login="telegram">📱 텔레그램으로 로그인</button>
+        <div style="font-size:11px;color:var(--muted)">${prefs.idpPolicy.provisioning === "approval" ? "처음 로그인하면 운영자 승인 후 워크스페이스가 만들어집니다." : (prefs.idpPolicy.provisioning === "invite" ? "초대받은 이메일만 가입할 수 있습니다." : "허용 도메인 계정은 바로 워크스페이스가 만들어집니다.")}</div>`;
+    }
+
+    function runIdpSimulation(personaId) {
+      const out = "pref-idp-sim-output";
+      const persona = IDP_PERSONAS.find((p) => p.id === personaId) || IDP_PERSONAS[0];
+      const provider = idpProviders().find((p) => p.id === persona.idp);
+      const steps = [];
+      const finish = (tone, title, detail) => {
+        const flow = steps.map(([ok, label, text]) => `<li data-ok="${ok}"><b>${escapeHtml(label)}</b> <span class="pref-mono">${escapeHtml(text)}</span></li>`).join("");
+        setSimOutput(out, `<ol class="pref-flow">${flow}</ol><div class="pref-notice" data-tone="${tone}"><b>${escapeHtml(title)}</b><br/>${detail}</div>`);
+      };
+      if (!idpEnabled()) { finish("warn", "로그인 불가", "로그인 방식이 '텔레그램만'이라 IdP 버튼이 표시되지 않습니다."); return; }
+      if (!provider || !provider.enabled) { finish("warn", "로그인 불가", `${escapeHtml(provider ? provider.label : persona.idp)} 공급자가 꺼져 있습니다.`); return; }
+
+      const c = persona.claims;
+      const github = provider.type === "github";
+      steps.push(["true", "1. 인가 요청", `${github ? "https://github.com/login/oauth/authorize" : provider.issuer + "/…/authorize"} ?code_challenge_method=S256&state=…${github ? "" : "&nonce=…"}`]);
+      steps.push(["true", "2. 콜백", `/auth/oidc/${provider.id}/callback?code=…&state=… (state 일치)`]);
+      steps.push(["true", "3. 토큰 교환", "POST token_endpoint (code_verifier, 서버 보관 client secret)"]);
+      steps.push(["true", github ? "4. 사용자 조회" : "4. ID 토큰 검증", github ? "GET /user · GET /user/emails" : "JWKS 서명 · iss · aud · exp · nonce"]);
+      steps.push(["true", "5. 클레임", JSON.stringify(c)]);
+
+      const users = directoryUsers();
+      const existing = users.find((u) => u.iss === c.iss && u.sub === c.sub);
+      if (existing) {
+        if (existing.status === "suspended") { steps.push(["false", "6. 계정 상태", "suspended"]); finish("warn", "로그인 거부", "운영자가 정지한 사용자입니다. 세션을 만들지 않습니다."); return; }
+        if (existing.status === "pending") { steps.push(["false", "6. 계정 상태", "pending"]); finish("", "승인 대기 중", "운영자 승인을 기다리는 계정입니다. 승인되면 다시 로그인할 수 있습니다."); return; }
+        if (existing.status === "deleting") { steps.push(["false", "6. 계정 상태", "deleting"]); finish("warn", "로그인 거부", "삭제 예약된 워크스페이스입니다. 운영자가 예약을 취소해야 합니다."); return; }
+        steps.push(["true", "6. 계정 확인", `(iss, sub) 일치 → users/${existing.seq}/`]);
+        existing.last = "방금";
+        saveCustomState(customState);
+        renderUserDbPanel();
+        finish("ok", "기존 워크스페이스로 로그인", `세션 7일(슬라이딩)을 발급하고 <code>users/${existing.seq}/</code>의 테마만 보이게 합니다.`);
+        return;
+      }
+      const sameEmail = users.find((u) => u.email === c.email);
+      if (sameEmail) {
+        steps.push(["false", "6. 계정 확인", `(iss, sub) 없음 · 같은 이메일의 users/${sameEmail.seq}/ 존재`]);
+        const prior = idpProviders().find((x) => x.id === sameEmail.idp);
+        finish("", "로그인 수단 연결 필요", `자동으로 합치지 않습니다. 기존 수단(${escapeHtml(prior ? prior.label : sameEmail.idp)})으로 로그인한 뒤 <b>로그인 수단 연결</b>에서 이 IdP로 재인증해야 연결됩니다.`);
+        return;
+      }
+      if (prefs.idpPolicy.requireVerifiedEmail && !c.email_verified) {
+        steps.push(["false", "6. 가입 정책", "email_verified=false"]);
+        finish("warn", "가입 거부", "검증된 이메일이 필요합니다.");
+        return;
+      }
+      const domains = allowedDomains();
+      const domain = String(c.email || "").split("@")[1] || "";
+      if (domains.length && !domains.includes(domain.toLowerCase())) {
+        steps.push(["false", "6. 가입 정책", `도메인 ${domain} 허용 목록에 없음`]);
+        finish("warn", "가입 거부", `허용 도메인: ${escapeHtml(domains.join(", "))}`);
+        return;
+      }
+      if (prefs.idpPolicy.provisioning === "invite" && !IDP_INVITES.includes(c.email)) {
+        steps.push(["false", "6. 가입 정책", "초대 목록에 없음"]);
+        finish("warn", "가입 거부", "초대받은 이메일만 가입할 수 있습니다.");
+        return;
+      }
+      const seq = users.reduce((m, u) => Math.max(m, u.seq), 0) + 1;
+      const pending = prefs.idpPolicy.provisioning === "approval";
+      users.push({ seq, name: c.name || c.login || c.email, email: c.email, idp: provider.id, iss: c.iss, sub: c.sub, status: pending ? "pending" : "active", themes: pending ? 0 : 1, docs: 0, mb: 0, llm: 0, last: pending ? "승인 대기" : "방금", linked: [provider.id] });
+      saveCustomState(customState);
+      renderUserDbPanel();
+      if (pending) {
+        steps.push(["true", "6. 가입 정책", "통과 → 운영자 승인 요청"]);
+        finish("", "승인 대기", `운영자 텔레그램으로 <code>[승인] [거절]</code> 푸시를 보냈습니다. 사용자 디렉터리에 <code>users/${seq}/</code> 예약 행이 추가됐습니다.`);
+      } else {
+        steps.push(["true", "6. 가입 정책", "통과 → 워크스페이스 생성"]);
+        finish("ok", "새 워크스페이스 생성", `<code>data/users/${seq}/claire.db</code>를 <code>init_db</code>로 만들고 <code>themes.json</code>에 Theme 0만 등록한 뒤 로그인합니다.`);
+      }
+    }
+
+    function userStatusPill(status) {
+      return {
+        active: `<span class="pref-pill pref-pill-mcp">활성</span>`,
+        pending: `<span class="pref-pill pref-pill-web">승인 대기</span>`,
+        suspended: `<span class="pref-pill pref-pill-warn">정지</span>`,
+        deleting: `<span class="pref-pill pref-pill-warn">삭제 예약 (7일 유예)</span>`
+      }[status] || escapeHtml(status);
+    }
+
+    function usageBar(used, limit, label) {
+      const pct = limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 0;
+      return `<div class="pref-bar" data-level="${pct >= 90 ? "high" : (pct >= 70 ? "mid" : "low")}" title="${escapeHtml(label)}"><i style="width:${pct}%"></i></div><span class="pref-mono" style="color:var(--muted)">${escapeHtml(label)}</span>`;
+    }
+
+    function userActions(u) {
+      const btn = (act, text) => `<button type="button" class="pref-btn" data-user-act="${act}" data-user-seq="${u.seq}">${text}</button>`;
+      if (u.status === "pending") return btn("approve", "승인") + " " + btn("reject", "거절");
+      if (u.status === "active") return btn("suspend", "정지") + " " + btn("delete", "삭제");
+      if (u.status === "suspended") return btn("resume", "재개") + " " + btn("delete", "삭제");
+      if (u.status === "deleting") return btn("undelete", "삭제 취소");
+      return "";
+    }
+
+    function renderUserDbPanel() {
+      const users = directoryUsers();
+      const q = prefs.userQuota;
+      const view = prefs.userDbView === "user" ? "user" : "admin";
+      document.querySelectorAll("[data-userdb-view]").forEach((b) => b.setAttribute("aria-selected", b.getAttribute("data-userdb-view") === view ? "true" : "false"));
+      document.getElementById("pref-userdb-admin").style.display = view === "admin" ? "flex" : "none";
+      document.getElementById("pref-userdb-user").style.display = view === "user" ? "flex" : "none";
+      document.getElementById("nav-userdb-count").textContent = String(users.filter((u) => u.status !== "deleting").length);
+
+      document.getElementById("pref-quota-storage").value = String(q.storageMb);
+      document.getElementById("pref-quota-docs").value = String(q.documents);
+      document.getElementById("pref-quota-themes").value = String(q.themes);
+      document.getElementById("pref-quota-llm").value = String(q.llmTokensMonthly);
+      document.getElementById("pref-quota-feeds").value = String(q.feeds);
+      document.getElementById("pref-quota-byo").checked = !!q.byoKey;
+
+      const count = (s) => users.filter((u) => u.status === s).length;
+      document.getElementById("pref-userdb-stats").innerHTML = [
+        [String(count("active")), "활성 사용자"],
+        [String(count("pending")), "승인 대기"],
+        [String(count("suspended") + count("deleting")), "정지 · 삭제 예약"],
+        [`${users.reduce((s, u) => s + u.mb, 0).toLocaleString()} MB`, "사용자 워크스페이스 합계"]
+      ].map(([v, l]) => `<div class="pref-stat"><b>${escapeHtml(v)}</b><span>${escapeHtml(l)}</span></div>`).join("");
+
+      const operatorRow = `<tr>
+          <td><strong>운영자</strong><br/><span style="color:var(--muted);font-size:11px">지식 관리자</span></td>
+          <td>텔레그램<br/><span class="pref-mono" style="color:var(--muted)">TELEGRAM_OWNER_CHAT_ID</span></td>
+          <td>${userStatusPill("active")}</td>
+          <td><code class="pref-mono">data/</code> (seq 0, 현행)</td>
+          <td>${Object.keys(SEED_THEME_META).length} · —</td>
+          <td colspan="2"><span style="color:var(--muted);font-size:12px">할당량 적용 안 함</span></td>
+          <td>—</td>
+          <td>—</td>
+        </tr>`;
+      document.getElementById("pref-userdb-tbody").innerHTML = operatorRow + users.map((u) => {
+        const p = idpProviders().find((x) => x.id === u.idp);
+        return `<tr data-off="${u.status === "active" || u.status === "pending" ? "false" : "true"}">
+          <td><strong>${escapeHtml(u.name)}</strong><br/><span style="color:var(--muted);font-size:11px">${escapeHtml(u.email)}</span></td>
+          <td>${escapeHtml(p ? p.label : u.idp)}<br/><span class="pref-mono" style="color:var(--muted)">sub ${escapeHtml(String(u.sub).slice(0, 10))}…</span></td>
+          <td>${userStatusPill(u.status)}</td>
+          <td><code class="pref-mono">users/${u.seq}/</code></td>
+          <td>${u.themes} · ${u.docs.toLocaleString()}</td>
+          <td style="min-width:110px">${usageBar(u.mb, q.storageMb, `${u.mb} / ${q.storageMb} MB`)}</td>
+          <td style="min-width:110px">${usageBar(u.llm, q.llmTokensMonthly, `${Math.round(u.llm / 1000)}k / ${Math.round(q.llmTokensMonthly / 1000)}k`)}</td>
+          <td>${escapeHtml(u.last)}</td>
+          <td style="white-space:nowrap">${userActions(u)}</td>
+        </tr>`;
+      }).join("");
+
+      const asSel = document.getElementById("pref-userdb-as");
+      const selectable = users.filter((u) => u.status !== "deleting");
+      const prevSeq = asSel.value || String(selectable.length ? selectable[0].seq : "");
+      asSel.innerHTML = selectable.map((u) => `<option value="${u.seq}" ${String(u.seq) === prevSeq ? "selected" : ""}>${escapeHtml(u.name)} (users/${u.seq}/)</option>`).join("");
+      renderUserSelfView();
+    }
+
+    function renderUserSelfView() {
+      const users = directoryUsers();
+      const u = users.find((x) => String(x.seq) === document.getElementById("pref-userdb-as").value);
+      const box = document.getElementById("pref-userdb-me");
+      if (!u) { box.innerHTML = `<p class="pref-desc">미리볼 사용자가 없습니다.</p>`; return; }
+      const q = prefs.userQuota;
+      const linked = (u.linked || []).map((id) => {
+        const p = idpProviders().find((x) => x.id === id);
+        return `<span class="pref-pill">${escapeHtml(p ? p.label : id)}</span>`;
+      }).join(" ");
+      const notice = u.status === "pending"
+        ? `<div class="pref-notice">⏳ 운영자 승인을 기다리는 중입니다. 승인되면 <code>users/${u.seq}/</code> 워크스페이스가 만들어집니다.</div>`
+        : (u.status === "suspended" ? `<div class="pref-notice" data-tone="warn">⛔ 운영자가 이 워크스페이스를 정지했습니다. 로그인과 API · MCP 호출이 거부됩니다.</div>` : "");
+      const ep = mcpEndpoint();
+      box.innerHTML = `${notice}
+        <div class="pref-row" style="border-top:0">
+          <div class="pref-row-label"><strong>${escapeHtml(u.name)} · ${escapeHtml(u.email)}</strong><span>식별자 <code>(${escapeHtml(u.iss)}, ${escapeHtml(u.sub)})</code></span></div>
+          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">${linked}<button type="button" class="pref-btn" data-self-act="link">+ 로그인 수단 연결</button></div>
+        </div>
+        <div class="pref-stat-row">
+          <div class="pref-stat"><b>${u.themes}</b><span>내 테마 (<code>users/${u.seq}/themes.json</code>)</span></div>
+          <div class="pref-stat"><b>${u.docs.toLocaleString()}</b><span>문서 / ${q.documents.toLocaleString()}</span></div>
+          <div class="pref-stat" style="gap:4px">${usageBar(u.mb, q.storageMb, `저장 ${u.mb} / ${q.storageMb} MB`)}</div>
+          <div class="pref-stat" style="gap:4px">${usageBar(u.llm, q.llmTokensMonthly, `이번 달 LLM ${Math.round(u.llm / 1000)}k / ${Math.round(q.llmTokensMonthly / 1000)}k`)}</div>
+        </div>
+        <div class="pref-row">
+          <div class="pref-row-label"><strong>API · MCP 연결</strong><span>엔드포인트는 같고, 내가 발급한 토큰은 내 워크스페이스로만 라우팅됩니다. MCP <code>theme</code> 인자도 내 테마만 가리킵니다.</span></div>
+          <code class="pref-mono" style="padding:4px 8px;border:1px solid var(--border);border-radius:6px;background:var(--panel-bg);white-space:pre">${escapeHtml(`${ep}\nBearer cb_… → users/${u.seq}/`)}</code>
+        </div>
+        <div class="pref-row">
+          <div class="pref-row-label"><strong>내 데이터</strong><span>내보내기는 이 워크스페이스의 DB 스냅샷과 볼트를 묶어 본인에게만 내려받기 링크를 줍니다. 삭제 요청은 7일 유예 뒤 테마 소각 프로토콜로 지웁니다.</span></div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            <button type="button" class="pref-btn" data-self-act="export" ${u.status === "active" ? "" : "disabled"}>⬇ 내보내기</button>
+            <button type="button" class="pref-btn" data-self-act="delete" data-user-seq="${u.seq}" ${u.status === "active" ? "" : "disabled"}>워크스페이스 삭제 요청</button>
+          </div>
+        </div>`;
+    }
+
+    function saveAgentState(msg) {
+      saveCustomState(customState);
+      renderMcpPanel();
+      renderWebMcpPanel();
+      renderIdpPanel();
+      renderUserDbPanel();
+      if (msg) showToast(msg);
+    }
+
+    function bindAgentPanels() {
+      const pol = (id, fn, msg) => document.getElementById(id).addEventListener("change", (e) => {
+        fn(e.target);
+        savePrefs(msg);
+        renderMcpPanel(); renderWebMcpPanel(); renderIdpPanel(); renderUserDbPanel();
+      });
+      pol("pref-mcp-write", (el) => { prefs.mcpPolicy.writeScope = el.value === "draft" ? "draft" : "none"; }, "제안 스코프 미리보기가 바뀌었습니다");
+      pol("pref-webmcp-enabled", (el) => { prefs.webmcpPolicy.enabled = el.checked; });
+      pol("pref-webmcp-mode", (el) => { prefs.webmcpPolicy.registration = el.value; });
+      pol("pref-webmcp-confirm", (el) => { prefs.webmcpPolicy.confirm = el.value; });
+      pol("pref-webmcp-activity", (el) => { prefs.webmcpPolicy.showAgentActivity = el.checked; });
+      pol("pref-idp-mode", (el) => { prefs.idpPolicy.loginMode = el.value; });
+      pol("pref-idp-provisioning", (el) => { prefs.idpPolicy.provisioning = el.value; });
+      pol("pref-idp-domains", (el) => { prefs.idpPolicy.allowedDomains = el.value; });
+      pol("pref-idp-verified", (el) => { prefs.idpPolicy.requireVerifiedEmail = el.checked; });
+      pol("pref-idp-bcl", (el) => { prefs.idpPolicy.backchannelLogout = el.checked; });
+      const quota = (id, key, min) => pol(id, (el) => { prefs.userQuota[key] = Math.max(min, Number(el.value) || min); }, "사용자당 기본 할당량이 저장되었습니다");
+      quota("pref-quota-storage", "storageMb", 128);
+      quota("pref-quota-docs", "documents", 100);
+      quota("pref-quota-themes", "themes", 1);
+      quota("pref-quota-llm", "llmTokensMonthly", 100000);
+      quota("pref-quota-feeds", "feeds", 0);
+      pol("pref-quota-byo", (el) => { prefs.userQuota.byoKey = el.checked; });
+
+      document.getElementById("pref-webmcp-exposed").addEventListener("change", (e) => {
+        webmcpState().exposed = e.target.checked;
+        saveAgentState(e.target.checked ? "이 테마에서 WebMCP 도구를 등록합니다" : "이 테마의 WebMCP 도구 등록을 중단했습니다");
+      });
+
+      /* 표 내부 요소는 렌더링마다 교체되므로 패널 단위로 위임한다. */
+      document.getElementById("panel-mcp").addEventListener("change", (e) => {
+        const name = e.target.getAttribute && e.target.getAttribute("data-mcp-proposed");
+        if (!name) return;
+        prefs.mcpPolicy.proposedTools = { ...(prefs.mcpPolicy.proposedTools || {}), [name]: e.target.checked };
+        savePrefs(`제안 도구 ${name} 미리보기 ${e.target.checked ? "포함" : "제외"}`);
+        renderMcpPanel();
+      });
+      document.getElementById("panel-mcp").addEventListener("click", (e) => {
+        const revoke = e.target.closest("[data-mcp-revoke]");
+        if (revoke) {
+          const st = serverState();
+          st.oauthRevoked = [...(st.oauthRevoked || []), revoke.getAttribute("data-mcp-revoke")];
+          saveAgentState("OAuth 클라이언트 토큰 폐기 (제안 경로 시뮬레이션)");
+          return;
+        }
+        const copy = e.target.closest("[data-copy-target]");
+        if (copy) {
+          const text = document.getElementById(copy.getAttribute("data-copy-target")).textContent;
+          if (!navigator.clipboard) { showToast(text); return; }
+          navigator.clipboard.writeText(text).then(() => showToast("엔드포인트를 복사했습니다"), () => showToast(text));
+        }
+      });
+      document.getElementById("panel-webmcp").addEventListener("change", (e) => {
+        const name = e.target.getAttribute && e.target.getAttribute("data-webmcp-tool");
+        if (!name) return;
+        const st = webmcpState();
+        st.tools = { ...(st.tools || {}), [name]: e.target.checked };
+        saveAgentState(`WebMCP 도구 ${name} ${e.target.checked ? "등록" : "등록 해제"}`);
+      });
+      document.getElementById("pref-webmcp-sim-tool").addEventListener("change", () => renderWebMcpSimTool(true));
+      document.getElementById("btn-webmcp-sim-run").addEventListener("click", runWebMcpSimulation);
+
+      document.getElementById("panel-idp").addEventListener("change", (e) => {
+        const id = e.target.getAttribute && e.target.getAttribute("data-idp-toggle");
+        if (!id) return;
+        const p = idpProviders().find((x) => x.id === id);
+        if (p) p.enabled = e.target.checked;
+        saveAgentState(`${p ? p.label : id} 로그인을 ${e.target.checked ? "켰습니다" : "껐습니다"}`);
+      });
+      document.getElementById("panel-idp").addEventListener("click", (e) => {
+        const rm = e.target.closest("[data-idp-remove]");
+        if (rm) {
+          const st = serverState();
+          st.providers = idpProviders().filter((p) => p.id !== rm.getAttribute("data-idp-remove"));
+          saveAgentState("IdP 공급자를 삭제했습니다");
+          return;
+        }
+        const login = e.target.closest("[data-idp-login]");
+        if (login) {
+          const id = login.getAttribute("data-idp-login");
+          if (id === "telegram") { showToast("운영자 로그인: 텔레그램 승인 요청 (현행 흐름)"); return; }
+          const persona = IDP_PERSONAS.find((p) => p.idp === id);
+          if (persona) {
+            document.getElementById("pref-idp-persona").value = persona.id;
+            runIdpSimulation(persona.id);
+          }
+        }
+      });
+      document.getElementById("btn-idp-sim-run").addEventListener("click", () => runIdpSimulation(document.getElementById("pref-idp-persona").value));
+      document.getElementById("pref-idp-add-form").addEventListener("submit", (e) => {
+        e.preventDefault();
+        const type = document.getElementById("new-idp-type").value;
+        const meta = IDP_TYPES[type];
+        const issuer = (type === "github" ? meta.issuer : document.getElementById("new-idp-issuer").value.trim()).replace(/\/+$/, "");
+        const clientId = document.getElementById("new-idp-client").value.trim();
+        const box = document.getElementById("pref-idp-discovery");
+        if (!/^https:\/\/[^\s/]+/.test(issuer) || !clientId) {
+          showToast("https issuer URL과 client_id가 필요합니다");
+          return;
+        }
+        let host = issuer;
+        try { host = new URL(issuer).hostname; } catch (_) {}
+        const id = `${type}-${host.split(".")[0]}`.toLowerCase().replace(/[^a-z0-9-]/g, "");
+        if (idpProviders().some((p) => p.id === id)) { showToast("이미 등록된 공급자입니다"); return; }
+        box.hidden = false;
+        box.textContent = type === "github"
+          ? `# GitHub는 OIDC Discovery가 없어 고정 엔드포인트를 씁니다 (시뮬레이션)\n${JSON.stringify({ authorization_endpoint: "https://github.com/login/oauth/authorize", token_endpoint: "https://github.com/login/oauth/access_token", userinfo: ["https://api.github.com/user", "https://api.github.com/user/emails"], scopes: ["read:user", "user:email"] }, null, 2)}`
+          : `# GET ${issuer}/.well-known/openid-configuration (시뮬레이션)\n${JSON.stringify({ issuer, authorization_endpoint: `${issuer}/protocol/openid-connect/auth`, token_endpoint: `${issuer}/protocol/openid-connect/token`, jwks_uri: `${issuer}/protocol/openid-connect/certs`, end_session_endpoint: `${issuer}/protocol/openid-connect/logout`, backchannel_logout_supported: true, code_challenge_methods_supported: ["S256"], id_token_signing_alg_values_supported: ["RS256", "ES256"] }, null, 2)}`;
+        const st = serverState();
+        st.providers = [...idpProviders(), { id, type, label: type === "github" ? "GitHub" : `${meta.label.split(" ")[0]} (${host})`, issuer, clientId, enabled: true, custom: true }];
+        document.getElementById("new-idp-issuer").value = "";
+        document.getElementById("new-idp-client").value = "";
+        saveAgentState("IdP 공급자를 추가했습니다. client secret은 서버 설정에 등록해야 합니다");
+      });
+
+      document.getElementById("panel-userdb").addEventListener("click", (e) => {
+        const viewBtn = e.target.closest("[data-userdb-view]");
+        if (viewBtn) {
+          prefs.userDbView = viewBtn.getAttribute("data-userdb-view");
+          savePrefs("보기를 전환했습니다");
+          renderUserDbPanel();
+          return;
+        }
+        const act = e.target.closest("[data-user-act]");
+        if (act) {
+          const users = directoryUsers();
+          const seq = Number(act.getAttribute("data-user-seq"));
+          const u = users.find((x) => x.seq === seq);
+          if (!u) return;
+          const kind = act.getAttribute("data-user-act");
+          const msgs = {
+            approve: `users/${seq}/ 워크스페이스를 만들고 승인했습니다`,
+            reject: "가입 요청을 거절했습니다",
+            suspend: "정지했습니다. 세션과 이 사용자의 API · MCP 토큰을 끊습니다",
+            resume: "다시 활성화했습니다",
+            delete: "삭제를 예약했습니다 (7일 유예 후 소각)",
+            undelete: "삭제 예약을 취소했습니다"
+          };
+          if (kind === "reject") {
+            serverState().users = users.filter((x) => x.seq !== seq);
+          } else {
+            u.status = { approve: "active", suspend: "suspended", resume: "active", delete: "deleting", undelete: "active" }[kind];
+            if (kind === "approve") { u.themes = 1; u.last = "승인됨"; }
+          }
+          saveAgentState(msgs[kind]);
+          return;
+        }
+        const self = e.target.closest("[data-self-act]");
+        if (self) {
+          const kind = self.getAttribute("data-self-act");
+          if (kind === "link") { showToast("연결할 IdP로 재인증한 뒤 (iss, sub)를 이 계정에 추가합니다"); return; }
+          if (kind === "export") { showToast("내보내기 묶음을 준비합니다 (DB 스냅샷 + 볼트, 본인 전용 링크)"); return; }
+          if (kind === "delete") {
+            const u = directoryUsers().find((x) => x.seq === Number(self.getAttribute("data-user-seq")));
+            if (u) u.status = "deleting";
+            saveAgentState("삭제를 요청했습니다 (7일 유예 후 소각)");
+          }
+        }
+      });
+      document.getElementById("pref-userdb-as").addEventListener("change", renderUserSelfView);
     }
 
     function renderOpmlPreview() {
@@ -864,6 +2357,10 @@
     document.getElementById("pref-at-pubmode").addEventListener("change", (e) => { prefs.outboundPolicy.atDefaultMode = e.target.value; savePrefs(); });
     document.getElementById("pref-include-sharelink").addEventListener("change", (e) => { prefs.outboundPolicy.includeCanonicalShareLink = e.target.checked; savePrefs(); });
     document.getElementById("pref-quote-template").addEventListener("change", (e) => { prefs.outboundPolicy.quoteTemplate = e.target.value; savePrefs(); });
+    [["pref-peer-listed", "listed"], ["pref-peer-quote", "allowQuote"], ["pref-peer-import", "allowImport"]].forEach(([id, key]) => {
+      document.getElementById(id).addEventListener("change", (e) => { prefs.peerSharePolicy[key] = e.target.checked; savePrefs(); renderFormValues(); });
+    });
+    document.getElementById("pref-peer-license").addEventListener("change", (e) => { prefs.peerSharePolicy.license = e.target.value; savePrefs(); });
 
     document.getElementById("pref-add-feed-form").addEventListener("submit", (e) => {
       e.preventDefault();
@@ -934,6 +2431,7 @@
       showToast("환경설정이 초기 기본값으로 복원되었습니다");
     });
 
+    bindAgentPanels();
     renderThemeSelect();
     renderFormValues();
   </script>

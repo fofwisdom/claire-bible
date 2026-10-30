@@ -426,6 +426,16 @@ window.CLAIRE_SYND_SEEDS = {
         hashtags: ["ActivityPub"], card: null,
         url: "https://social.example.com/@claire", uri: "", remoteId: "",
         counts: { replies: 0, boosts: 0, favs: 0 }, boosted: false, favourited: false, bookmarked: false
+      },
+      {
+        /* 같은 Claire 인스턴스의 다른 사용자(김하늘)가 적재 발행한 게시물 — 발행 색인 pub-1-0007 과 URI 로 연결된다. */
+        id: "p0-27", accountId: "acc0-ap", timelines: ["home"], unread: true, visibility: "public", lang: "ko",
+        author: "김하늘", handle: "@haneul@social.example.ac.kr", time: "09:41", timestamp: 1761641060,
+        text: "📡 한국어 고문헌 OCR 결과를 SQLite FTS5 trigram 색인으로 검색하기\n띄어쓰기가 불안정한 OCR 텍스트에서 구절 검색 재현율이 0.61 → 0.88 로 올랐습니다.\n🔗 https://claire.example.com/p?s=sh_h1a7c2\n#SQLite #FTS5 #OCR",
+        hashtags: ["SQLite", "FTS5", "OCR"],
+        card: { title: "한국어 고문헌 OCR 결과를 SQLite FTS5 trigram 색인으로 검색하기", description: "FTS5 trigram 토크나이저로 바꾸자 이체자 표기를 포함한 구절 검색 재현율이 0.61에서 0.88로 올랐다.", url: "https://claire.example.com/p?s=sh_h1a7c2" },
+        url: "https://social.example.ac.kr/@haneul/11543110020", uri: "https://social.example.ac.kr/users/haneul/statuses/11543110020", remoteId: "115431100200771002",
+        counts: { replies: 0, boosts: 4, favs: 12 }, boosted: false, favourited: false, bookmarked: false
       }
     ],
     profiles: {
@@ -790,4 +800,122 @@ window.CLAIRE_SYND_SEEDS = {
       }
     ]
   }
+};
+
+/*
+ * 다른 사용자 발행 본문 — 제안 (docs/design/EXTERNAL_IDP_AND_PER_USER_WORKSPACE_DESIGN.md §4.7)
+ * 사용자 워크스페이스는 서로 격리되어 있으므로 다른 사용자의 claire.db 는 읽지 않는다.
+ * 사용자가 적재 본문을 '공개'로 발행하면 공개 사본(제목 · 요약 · 발행 본문 · 엔티티 이름 · 공유 링크 · 발행 게시물 참조)만
+ * 인스턴스 공용 발행 색인(data/shared/publications.db)에 올라가며, 다른 사용자는 이 색인만 조회한다.
+ * 보는 사람 자신의 발행 본문, 정지된 사용자의 본문, 공유를 끈 사용자의 본문은 목록에 나오지 않는다.
+ * reuse: 원 작성자가 정한 재사용 범위. 부스트 · 링크 공유는 공개 발행이면 항상 허용, 인용 · 가져오기는 작성자가 고른다.
+ */
+window.CLAIRE_SYND_PEERS = {
+  viewerSeq: 0,
+  indexApi: "GET /api/peers/publications",
+  users: [
+    { seq: 0, name: "운영자", status: "active", shareListed: true, accounts: [] },
+    {
+      seq: 1, name: "김하늘", status: "active", shareListed: true, bio: "디지털 인문학 · 고문헌 OCR",
+      accounts: [
+        { proto: "ap", handle: "@haneul@social.example.ac.kr", server: "social.example.ac.kr" },
+        { proto: "at", handle: "@haneul.example.ac.kr", did: "did:plc:haneul7k2mq4" }
+      ]
+    },
+    {
+      seq: 2, name: "이도윤", status: "active", shareListed: true, bio: "연구소 · 분산 시스템",
+      accounts: [{ proto: "ap", handle: "@doyun@lab.example.org", server: "lab.example.org" }]
+    },
+    {
+      seq: 4, name: "최민준", status: "suspended", shareListed: true, bio: "",
+      accounts: [{ proto: "ap", handle: "@minjun@lab.example.org", server: "lab.example.org" }]
+    }
+  ],
+  publications: [
+    {
+      id: "pub-1-0007", userSeq: 1, themeLabel: "디지털 인문학", unread: true,
+      title: "한국어 고문헌 OCR 결과를 SQLite FTS5 trigram 색인으로 검색하기",
+      summary: "한자·한글 혼용 고문헌 OCR 텍스트는 띄어쓰기가 불안정해 단어 단위 색인이 맞지 않는다. FTS5 trigram 토크나이저로 바꾸자 이체자 표기를 포함한 구절 검색 재현율이 0.61에서 0.88로 올랐다.",
+      bodyHtml: `<h2>문제</h2><p>고문헌 OCR 결과는 띄어쓰기와 이체자 표기가 일정하지 않아 <code>unicode61</code> 토크나이저로는 구절 검색이 자주 실패한다.</p>
+<h2>접근</h2><ul><li><code>[[SQLite]]</code> <code>[[FTS5]]</code>의 <code>tokenize='trigram'</code>으로 색인을 다시 만들었다.</li><li>이체자는 색인 전에 대표 자형으로 정규화하고, 원문 자형은 별도 열에 보존했다.</li></ul>
+<h2>결과</h2><table><thead><tr><th>지표</th><th>unicode61</th><th>trigram</th></tr></thead><tbody><tr><td>구절 검색 재현율</td><td>0.61</td><td>0.88</td></tr><tr><td>색인 크기</td><td>1.0×</td><td>2.7×</td></tr></tbody></table>
+<p>색인 크기가 커지는 대신 OCR 오류가 섞인 구절도 찾을 수 있게 되었다.</p>`,
+      entities: [{ name: "SQLite", type: "Tool" }, { name: "FTS5", type: "Tool" }, { name: "OCR", type: "Method" }, { name: "고문헌", type: "Concept" }],
+      source: { title: "SQLite FTS5 Extension — The Trigram Tokenizer", url: "https://sqlite.org/fts5.html#the_trigram_tokenizer" },
+      shareUrl: "/p?s=sh_h1a7c2", publishedAt: "오늘 09:40", timestamp: 1761641000,
+      posts: [
+        { proto: "ap", handle: "@haneul@social.example.ac.kr", url: "https://social.example.ac.kr/@haneul/11543110020", uri: "https://social.example.ac.kr/users/haneul/statuses/11543110020" },
+        { proto: "at", handle: "@haneul.example.ac.kr", url: "https://bsky.app/profile/haneul.example.ac.kr/post/3m2hq7x", uri: "at://did:plc:haneul7k2mq4/app.bsky.feed.post/3m2hq7x", cid: "bafyreihaneul3m2hq7xfts5trigram" }
+      ],
+      reuse: { quote: true, import: true }, license: "CC BY 4.0", stats: { reshares: 4, imports: 2 }
+    },
+    {
+      id: "pub-1-0006", userSeq: 1, themeLabel: "디지털 인문학", unread: true,
+      title: "FEP-044f 인용 승인 스탬프와 학술 인용 관행 비교",
+      summary: "연합우주 인용 게시물의 승인 스탬프는 학술 인용의 '허락받은 재수록'에 가깝다. 인용 거부가 곧 비판 차단이 될 수 있다는 점에서 학술 관행과 갈라진다.",
+      bodyHtml: `<p><code>[[FEP044f]]</code>는 인용당하는 쪽이 승인 여부를 정하는 구조다. 학술 인용은 허락 없이 인용하되 출처를 밝히는 것이 원칙이고, 재수록만 허락을 받는다.</p>
+<ul><li><b>같은 점</b>: 출처가 원문 URI로 고정되어 추적할 수 있다.</li><li><b>다른 점</b>: 인용 거부가 비판적 인용까지 막을 수 있다. <code>[[ActivityPub]]</code> 구현은 거부 시 링크 공유로 물러나는 것을 권장한다.</li></ul>`,
+      entities: [{ name: "FEP044f", type: "Standard" }, { name: "ActivityPub", type: "Concept" }, { name: "학술 인용", type: "Concept" }],
+      source: { title: "FEP-044f: Consent-respecting quote posts", url: "https://codeberg.org/fediverse/fep/src/branch/main/fep/044f/fep-044f.md" },
+      shareUrl: "/p?s=sh_h1c03e", publishedAt: "어제", timestamp: 1761560000,
+      posts: [
+        { proto: "ap", handle: "@haneul@social.example.ac.kr", url: "https://social.example.ac.kr/@haneul/11542690441", uri: "https://social.example.ac.kr/users/haneul/statuses/11542690441" }
+      ],
+      reuse: { quote: true, import: false }, license: "", stats: { reshares: 2, imports: 0 }
+    },
+    {
+      id: "pub-1-0004", userSeq: 1, themeLabel: "디지털 인문학", unread: false,
+      title: "디지털 아카이브 메타데이터: Dublin Core → Schema.org 대응표",
+      summary: "기관 아카이브의 Dublin Core 15개 요소를 Schema.org CreativeWork 속성에 대응시킨 표. dc:coverage 와 dc:relation 은 1:1 대응이 없어 두 가지 선택지를 함께 적었다.",
+      bodyHtml: `<table><thead><tr><th>Dublin Core</th><th>Schema.org</th><th>비고</th></tr></thead><tbody><tr><td>dc:title</td><td>name</td><td>1:1</td></tr><tr><td>dc:creator</td><td>creator / author</td><td>개인이면 Person</td></tr><tr><td>dc:coverage</td><td>spatialCoverage · temporalCoverage</td><td>분리 필요</td></tr><tr><td>dc:relation</td><td>isPartOf · isBasedOn</td><td>문맥에 따라 선택</td></tr></tbody></table>`,
+      entities: [{ name: "Dublin Core", type: "Standard" }, { name: "Schema.org", type: "Standard" }],
+      source: null,
+      shareUrl: "/p?s=sh_h19d41", publishedAt: "10/26", timestamp: 1761440000,
+      posts: [],
+      reuse: { quote: true, import: true }, license: "CC BY-SA 4.0", stats: { reshares: 0, imports: 3 }
+    },
+    {
+      id: "pub-2-0012", userSeq: 2, themeLabel: "분산 시스템 노트", unread: true,
+      title: "AT Protocol Jetstream 커서 재생으로 수집 누락 복구하기",
+      summary: "수집기가 6시간 멈춘 뒤 Jetstream 커서를 마지막 처리 시각보다 5분 앞당겨 재생하자 누락 없이 복구되었다. 중복은 레코드 CID 로 걸러 냈다.",
+      bodyHtml: `<p><code>[[AT Protocol]]</code> <code>[[Jetstream]]</code>은 마이크로초 단위 커서를 받는다. 마지막으로 처리한 이벤트 시각보다 조금 앞에서 다시 구독하면 경계에서 빠지는 이벤트가 없다.</p>
+<pre><code>GET wss://jetstream2.us-east.bsky.network/subscribe?wantedCollections=app.bsky.feed.post&amp;cursor=1761600000000000</code></pre>
+<ul><li>되감기 폭: 5분 (처리 지연 p99 의 약 3배)</li><li>중복 제거: <code>(did, rkey, cid)</code> 기준</li></ul>`,
+      entities: [{ name: "AT Protocol", type: "Concept" }, { name: "Jetstream", type: "Tool" }],
+      source: { title: "Jetstream — bluesky-social/jetstream", url: "https://github.com/bluesky-social/jetstream" },
+      shareUrl: "/p?s=sh_d2e7b0", publishedAt: "오늘 08:15", timestamp: 1761636000,
+      posts: [
+        { proto: "ap", handle: "@doyun@lab.example.org", url: "https://lab.example.org/@doyun/11543070310", uri: "https://lab.example.org/users/doyun/statuses/11543070310" }
+      ],
+      reuse: { quote: false, import: true }, license: "", stats: { reshares: 1, imports: 1 }
+    },
+    {
+      id: "pub-2-0010", userSeq: 2, themeLabel: "분산 시스템 노트", unread: false,
+      title: "단일 worker ASGI 에서 SQLite WAL 체크포인트 지연 측정",
+      summary: "단일 worker 에서 PASSIVE 체크포인트를 요청 처리와 같은 이벤트 루프에서 돌리면 p99 응답이 체크포인트 길이만큼 늘어난다. 스레드 풀로 옮기자 p99 가 41ms 에서 9ms 로 줄었다.",
+      bodyHtml: `<p><code>[[SQLite]]</code> <code>[[WAL-Mode]]</code> 체크포인트는 짧지만 이벤트 루프를 막는다.</p>
+<table><thead><tr><th>배치</th><th>p50</th><th>p99</th></tr></thead><tbody><tr><td>이벤트 루프 안</td><td>3ms</td><td>41ms</td></tr><tr><td>스레드 풀</td><td>3ms</td><td>9ms</td></tr></tbody></table>`,
+      entities: [{ name: "SQLite", type: "Tool" }, { name: "WAL-Mode", type: "Concept" }, { name: "ASGI", type: "Standard" }],
+      source: null,
+      shareUrl: "/p?s=sh_d2a551", publishedAt: "10/27", timestamp: 1761520000,
+      posts: [
+        { proto: "ap", handle: "@doyun@lab.example.org", url: "https://lab.example.org/@doyun/11542530088", uri: "https://lab.example.org/users/doyun/statuses/11542530088" }
+      ],
+      reuse: { quote: true, import: true }, license: "CC BY 4.0", stats: { reshares: 3, imports: 0 }
+    },
+    {
+      id: "pub-4-0003", userSeq: 4, themeLabel: "보안 노트", unread: true,
+      title: "(정지된 사용자의 발행 본문 — 목록에 나오지 않음)",
+      summary: "", bodyHtml: "", entities: [], source: null,
+      shareUrl: "/p?s=sh_m4f001", publishedAt: "10/20", timestamp: 1761000000, posts: [],
+      reuse: { quote: true, import: true }, license: "", stats: { reshares: 0, imports: 0 }
+    },
+    {
+      id: "pub-0-0021", userSeq: 0, themeLabel: "기본 지식베이스", unread: false,
+      title: "(보는 사람 자신의 발행 본문 — 목록에서 제외)",
+      summary: "", bodyHtml: "", entities: [], source: null,
+      shareUrl: "/p?s=sh_991a0f", publishedAt: "어제", timestamp: 1761560000, posts: [],
+      reuse: { quote: true, import: true }, license: "", stats: { reshares: 0, imports: 0 }
+    }
+  ]
 };

@@ -142,11 +142,12 @@ flowchart TD
 | :--- | :--- | :--- |
 | Security Policy | [`src/claire/api/security.py`](../../src/claire/api/security.py) | Registers `GET/HEAD /syndication` and `GET/HEAD /syndication/preferences` with `_rule("public")`. |
 | ASGI Server | [`src/claire/api/server.py`](../../src/claire/api/server.py) | `syndication_ui_route`, `syndication_preferences_ui_route`, `Disallow: /syndication` in `robots_txt_route`. |
-| HTML Bundle Renderer | [`src/claire/graphview.py`](../../src/claire/graphview.py) | Builds standalone `SYNDICATION_HTML` by inlining `theme.css`, `syndication.css`, and (in order) `syndication_data.js`, `syndication_client.js`, `syndication_app.js`. |
+| HTML Bundle Renderer | [`src/claire/graphview.py`](../../src/claire/graphview.py) | Builds standalone `SYNDICATION_HTML` by inlining `theme.css`, `syndication.css`, and (in order) `syndication_data.js`, `syndication_client.js`, `syndication_peers.js`, `syndication_app.js`. |
 | Shell & Tab 2 Controller | [`src/claire/templates/syndication.html`](../../src/claire/templates/syndication.html), [`src/claire/static/css/syndication.css`](../../src/claire/static/css/syndication.css), [`src/claire/static/js/syndication_app.js`](../../src/claire/static/js/syndication_app.js) | Top bar, tab menu bar, list styles, pane layouts, knowledge-base tree/stream/reader, unified `수집 원문` ⇄ `적재 본문` view, connected-account publish dialog, and the deterministic server request builder (`buildServerRequest`). |
 | Tab 1 Controller | [`src/claire/static/js/syndication_client.js`](../../src/claire/static/js/syndication_client.js) | `CLAIRE_SYND_CLIENT_FACTORY`: Mastodon 5.0 baseline client (columns, grouped notifications and requests, explore, search, profiles, filters/mutes/blocks, scheduled posts, CW/media/poll/quote/edit/translate rendering, `⋯` actions, report dialog), compose with poll/media/CW/language/schedule/quote policy/edit, connect dialog with capability simulation, and the knowledge-base bridge. |
-| Seed Data | [`src/claire/static/js/syndication_data.js`](../../src/claire/static/js/syndication_data.js) | `CLAIRE_SYND_AP_FEATURES` (Mastodon 5.0 feature matrix), per-theme `accounts` (columns, lists, filters, mutes, trends, notification requests, `missingFeatures`), `posts`, `profiles`, `feeds`, `items`, `existingEntities`, and the shared preference defaults. |
-| Preferences Subpage | [`src/claire/templates/syndication_preferences.html`](../../src/claire/templates/syndication_preferences.html) | Default tab and list style, connected accounts and token policy, feed targets with via-account, tag-to-entity policy, organize rules, outbound defaults per protocol, OPML. |
+| Peer Publications (proposal) | [`src/claire/static/js/syndication_peers.js`](../../src/claire/static/js/syndication_peers.js) | `CLAIRE_SYND_PEERS_FACTORY`: other users' published bodies for both tabs (tree, stream in all four list styles, reader), the `내 계정으로 발행` dialog, import into the knowledge base, and retraction handling; Section 3.9. |
+| Seed Data | [`src/claire/static/js/syndication_data.js`](../../src/claire/static/js/syndication_data.js) | `CLAIRE_SYND_AP_FEATURES` (Mastodon 5.0 feature matrix), per-theme `accounts` (columns, lists, filters, mutes, trends, notification requests, `missingFeatures`), `posts`, `profiles`, `feeds`, `items`, `existingEntities`, `CLAIRE_SYND_PEERS` (example users and their published bodies), and the shared preference defaults. |
+| Preferences Subpage | [`src/claire/templates/syndication_preferences.html`](../../src/claire/templates/syndication_preferences.html) | Default tab and list style, connected accounts and token policy, feed targets with via-account, tag-to-entity policy, organize rules, outbound defaults per protocol, the peer sharing policy (Section 3.9), OPML, the AI agent integration panels (MCP server, WebMCP page tools), and the account isolation proposal panels (external IdP, per-user workspaces); Section 3.8. |
 
 ### 3.2 Browser Entry Flow
 - Any browser can open `/syndication` (or `/syndication?theme=<id>&tab=client|kb`) without a token (`200 OK`).
@@ -271,7 +272,83 @@ flowchart TD
 
 ### 3.7 Rendering Performance & Dialog Ergonomics
 - Each pane (`.synd-column`) uses `content-visibility: auto` and `contain-intrinsic-size`, with a `contain: layout style paint` fallback.
-- Dialogs (`#modal-subscribe`, `#modal-publish`, `#modal-compose`, `#modal-connect`) use native `<dialog closedby="any">` with a backdrop-click fallback. Text inputs update previews in place instead of re-rendering the dialog, so focus and pending clicks are preserved.
+- Dialogs (`#modal-subscribe`, `#modal-publish`, `#modal-reshare`, `#modal-compose`, `#modal-connect`) use native `<dialog closedby="any">` with a backdrop-click fallback. Text inputs update previews in place instead of re-rendering the dialog, so focus and pending clicks are preserved.
+
+### 3.8 Preferences: AI Agent Integration and Account Isolation
+
+The preferences page adds two navigation groups. Panels marked `구현됨` show the current code as is, and panels or rows marked `제안` show features that do not exist yet. Server-wide prototype state lives in `prefs.mcpPolicy`, `prefs.webmcpPolicy`, `prefs.idpPolicy`, `prefs.userQuota`, and `customState._server` (IdP providers, user directory, simulated OAuth revocations). WebMCP exposure and tool switches are per theme (`customState[theme].webmcp`).
+
+| Group | Category (`?tab=`) | Status | Source of truth |
+| :--- | :--- | :--- | :--- |
+| AI 에이전트 연동 | `mcp` — 🧩 MCP 서버 · 연결 앱 | Implemented (read-only view) plus gap proposals | [`mcp_tools.py`](../../src/claire/api/mcp_tools.py), [`oauth.py`](../../src/claire/api/oauth.py), [`security.py`](../../src/claire/api/security.py), [MCP_SUPPORT.md §7](MCP_SUPPORT.md) |
+| AI 에이전트 연동 | `webmcp` — 🕸️ WebMCP 페이지 도구 | Proposal | W3C WebML CG WebMCP draft (2026-10-27) |
+| 계정 · 데이터 격리 | `idp` — 🪪 외부 IdP 로그인 | Proposal | [EXTERNAL_IDP_AND_PER_USER_WORKSPACE_DESIGN.md](EXTERNAL_IDP_AND_PER_USER_WORKSPACE_DESIGN.md) |
+| 계정 · 데이터 격리 | `userdb` — 🗄️ 사용자별 워크스페이스 | Proposal | same |
+
+1. **🧩 MCP 서버 · 연결 앱** mirrors the implementation and adds no setting that the server lacks.
+   - Endpoint and discovery URLs. Streamable HTTP is stateless with JSON responses. The DNS-rebinding allowlist contains only the `public_url` host and localhost.
+   - Theme routing: each tool takes a `theme` argument (omitted means Theme 0). `X-Claire-Theme` and theme FQDNs apply to REST only.
+   - Three credential channels: persistent `cb_…` tokens (managed in the existing WebUI drawer `🔑 API/MCP 키`, CLI, Telegram `/token`), Telegram sessions (7-day sliding), and OAuth 2.1 (open DCR, approval at `/oauth/authorize`, `readonly` only, access 30 days and refresh 1 year as fixed constants). Anonymous access to `/mcp` is always refused.
+   - Example token and OAuth client lists show only stored columns. OAuth tokens have no last-use time, and the revoke button is labelled as a proposal.
+   - The 10 read-only tools with their real argument names (including `theme`), the proposed Syndication tools as preview-only switches, and a `tools/list` preview.
+   - `mcp_telemetry` rows with the real columns. `client_id` is always `NULL` today.
+   - An RBAC comparison for the selected theme, plus seven gap proposals with evidence and required changes (detailed in [MCP_SUPPORT.md §7](MCP_SUPPORT.md)).
+2. **🕸️ WebMCP 페이지 도구** follows the current draft, not earlier blog descriptions.
+   - Entry point `document.modelContext` (the page also tries the earlier `navigator.modelContext` name). The API is exposed only in secure contexts.
+   - Registration uses `registerTool(tool, { signal })`. Unregistration aborts that signal (there is no `unregisterTool`). `execute(input, { signal })` returns any JSON-serializable value.
+   - Annotations: `readOnlyHint` for reads, `consequentialHint` for writes and external publish, and `untrustedContentHint` for tools that return federated posts or collected source text.
+   - The draft has no API for a tool to ask the user for confirmation. Tools that need confirmation open Claire's own in-page dialog inside `execute()` and resolve `{ ok: false, error: "user_denied" }` on denial.
+   - When the global switch is off, the server should send `Permissions-Policy: tools=()`. Claire currently sends no `Permissions-Policy` header.
+   - Declarative form tools (`toolname`, `tooldescription`, `toolautosubmit`) are an explainer proposal outside the spec and appear only as an experimental option.
+   - The activity indicator listens to `toolactivated` and `toolcancel`.
+3. **🪪 외부 IdP 로그인** and **🗄️ 사용자별 워크스페이스** prototype multi-user sign-in through OIDC with one isolated workspace (theme registry and SQLite set) per user. They include a provider table, an add-provider form with a simulated discovery document, the sign-up policy, a login screen preview, a login flow simulator covering seven personas, the per-user quota, the user directory with approve, suspend, and delete actions, and a user-side workspace view.
+
+### 3.9 Other Users' Published Bodies (Proposal)
+
+This section depends on per-user workspaces ([EXTERNAL_IDP_AND_PER_USER_WORKSPACE_DESIGN.md](EXTERNAL_IDP_AND_PER_USER_WORKSPACE_DESIGN.md) §4.7) and is not implemented. Both tabs list the bodies that other users of the same Claire instance published, and let the viewer publish them from the viewer's own connected accounts. Every screen element of this feature carries the `제안` label.
+
+**Source of the list.** Workspaces stay isolated. When a user publishes an ingested body (`📡 적재 발행`) from a public theme, the server writes a public copy to the instance-wide publication index (`data/shared/publications.db`). The copy holds the title, summary, published body HTML, entity names, share link, the URIs of the posts it went out as, and the author's reuse policy. Other users read only this index (`GET /api/peers/publications`), never another `claire.db`. The list leaves out:
+- the viewer's own publications;
+- bodies of suspended users and of users who turned listing off;
+- retracted bodies, unless the viewer already imported or republished them (those stay, marked `철회됨`).
+
+**Where it appears.**
+
+| Tab | Entry | Extra integration |
+| :--- | :--- | :--- |
+| 1 · 연합 클라이언트 | Tree group `Claire 사용자` → `👥 다른 사용자 발행 본문` and one row per user | A timeline post whose URI matches an indexed publication shows a `👥 Claire 본문` badge that opens the full body. My own republished posts show `👥 원문 · <author>`. |
+| 2 · 지식베이스 | Tree folder `Claire 사용자 발행 본문` → all users and one row per user | An imported item's reader shows its provenance and a link back to the original. |
+
+The main menu (`☰`) also has `👥 다른 사용자 발행 본문`, which opens the view in the current tab. Rows follow the four list styles. The reader shows:
+- the author's reuse policy;
+- the actions;
+- the published body;
+- the author's entities, marked `[일치]` where my theme has the same name;
+- where the body was published;
+- my activity in this theme.
+
+Keys: `j`/`k` move, `p` opens the dialog, `b` opens it in boost mode, `s` imports, and `i` imports and ingests.
+
+**Publish from my account (`#modal-reshare`).** The dialog uses the current theme's write-enabled accounts and the same request builder as Section 4.4. It previews each proxied request.
+
+| Mode | ActivityPub account | AT account | Requires |
+| :--- | :--- | :--- | :--- |
+| `🔁 부스트` | Resolve the original status (`GET /api/v2/search?q=<uri>&resolve=true&type=statuses`), then `POST /api/v1/statuses/:id/reblog` | `createRecord` `app.bsky.feed.repost` with `subject = {uri, cid}` | The author published on that protocol; otherwise this account falls back to a link share. |
+| `❝ 인용 발행` | `POST /api/v1/statuses` with `quoted_status_id` after the same resolution | `app.bsky.feed.post` with `app.bsky.embed.record` | The author's reuse policy allows quotes. Falls back to a link quote when the author has no post on that protocol or the server lacks `quote`. |
+| `✎ 링크 공유` | New status with title, my comment, the author's share link, and `via <author handle>` | New post with an `app.bsky.embed.external` card | Always allowed for public publications. |
+| `📡 가져와 적재 발행` | Import, ingest into my theme DB, then publish my ingested summary with my share link plus `↩ 원문: via <author> <original link>` | Same, with the external card pointing at my share link | The author's reuse policy allows import. Ingestion uses my monthly LLM budget. |
+
+**Import keeps the ingestion invariant.** An imported body becomes a collected source item (`proto = "claire"`, feed `가져온 사용자 발행 본문`). The author's `[[Entity]]` markup becomes plain text and the entity names become `#source tags`. Entities are created only when I ingest. The publish button of an imported item opens `#modal-reshare`, so attribution and the reuse policy always apply.
+
+**Retraction.** When the author retracts:
+- the index entry and the public share page are removed;
+- boosts disappear when the original post is deleted on its server;
+- my link shares and quotes remain, but the link stops working;
+- imported copies stay in my workspace and can no longer be republished.
+
+The reader has a `원 작성자가 발행을 철회하면?` link that simulates this.
+
+**Author settings.** The author controls listing, quote permission, import permission, and an optional license label in Preferences › `🔁 부스트 · 적재 발행` › `👥 사용자 간 발행 본문 공유` (`prefs.peerSharePolicy`). The connected-account publish dialog notes that ingested publishes from public themes also enter the index.
 
 ---
 
@@ -435,6 +512,9 @@ Tab 1 timelines are **not persisted**; they are read live through the proxy and 
 | `POST` | `/syndication/ingest` | `collaborator` | Forward an item to `svc.ingest` and bind `linked_doc_id`. |
 | `POST` | `/syndication/publish` | `owner` | Boost, quote, or ingested publish through connected accounts. |
 | `GET`, `POST` | `/syndication/rules` | `owner` | Manage organization and auto-ingest rules. |
+| `GET` | `/api/peers/publications` | user (proposal) | List other users' public publication copies from the instance index (Section 3.9). |
+| `POST` | `/syndication/peers/reshare` | `owner` of the viewer's workspace (proposal) | Boost, quote, or link-share an indexed publication through connected accounts, honoring the author's reuse policy. |
+| `POST` | `/syndication/peers/import` | `owner` of the viewer's workspace (proposal) | Copy an indexed publication into the viewer's theme as a collected item (optionally ingest). |
 
 The withdrawn federation routes (`/.well-known/webfinger`, `/ap/actor`, `/ap/inbox`, `/ap/outbox`) are not planned.
 

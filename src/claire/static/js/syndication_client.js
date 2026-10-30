@@ -19,7 +19,7 @@ window.CLAIRE_SYND_CLIENT_FACTORY = function (api) {
     showRequests: false, menuPostId: null, listPicker: false, noteEdit: false,
     revealed: new Set(), translated: new Set(), historyOpen: new Set(), altOpen: new Set()
   };
-  const VIRTUAL = { sent: "📥 지식베이스로 보낸 게시물", features: "📋 클라이언트 기능 기준 (Mastodon 5.0+)" };
+  const VIRTUAL = { sent: "📥 지식베이스로 보낸 게시물", features: "📋 클라이언트 기능 기준 (Mastodon 5.0+)", peers: "👥 다른 사용자 발행 본문" };
   const VIS = { public: ["🌐", "공개"], unlisted: ["🌙", "조용한 공개"], private: ["🔒", "팔로워 전용"], direct: ["✉️", "개인 메시지"] };
   const LANG = { ko: "한국어", en: "English", ja: "日本語" };
   const NOTIF = {
@@ -45,6 +45,8 @@ window.CLAIRE_SYND_CLIENT_FACTORY = function (api) {
   function accounts() { return api.themeAccounts(); }
   function account(id) { return api.findAccount(id); }
   function apAccounts() { return accounts().filter((a) => a.proto === "ap"); }
+  /* 다른 사용자 발행 본문 (syndication_peers.js · 제안). 없으면 해당 화면을 그리지 않는다. */
+  function peers() { return typeof api.peers === "function" ? api.peers() : null; }
   function byId(id) { return posts().find((p) => p.id === id) || null; }
   function postProto(post) { const a = account(post.accountId); return a ? a.proto : "ap"; }
   function supports(acc, feature) { return api.accountSupports(acc, feature); }
@@ -264,6 +266,11 @@ window.CLAIRE_SYND_CLIENT_FACTORY = function (api) {
   }
 
   function kbBadge(post) {
+    const peerBadge = peers() ? peers().postBadge(post) : "";
+    return peerBadge + kbOnlyBadge(post);
+  }
+
+  function kbOnlyBadge(post) {
     const rel = kbItemFor(post);
     if (!rel) return "";
     if (rel.item.ingestState === "linked" && rel.item.linkedDoc) {
@@ -666,6 +673,8 @@ window.CLAIRE_SYND_CLIENT_FACTORY = function (api) {
           <div class="tt-tree-children">${children}</div>
         </details>`;
       }).join("") : `<div class="cl-tree-note">이 테마에 연결된 서버 계정이 없습니다. <b>+ 연결</b>로 Mastodon API 서버 또는 AT Protocol PDS 계정을 연결하세요.</div>`}
+      ${peers() ? `<div class="tt-tree-hdr"><span>Claire 사용자 <span class="peer-proposal">제안</span></span></div>
+      <div class="tt-tree-children" style="padding-left:0">${peers().treeHtml("client", cs.timelineId === "peers" ? peers().clientUser() : null)}</div>` : ""}
       <div class="tt-tree-hdr"><span>지식베이스 연계</span></div>
       <div class="tt-tree-children" style="padding-left:0">
         <button type="button" class="tt-tree-item ${cs.timelineId === "sent" ? "active" : ""}" data-cl-tl="" data-cl-tl-id="sent"><span>📥 수집함으로 보낸 게시물</span><span class="tt-count-pill">${sentCnt}</span></button>
@@ -687,6 +696,10 @@ window.CLAIRE_SYND_CLIENT_FACTORY = function (api) {
     }
     if (cs.timelineId === "features") {
       head.innerHTML = `<div class="tt-stream-head-l"><b>${VIRTUAL.features}</b><code>연결 서버가 제공하지 않는 기능만 비활성</code></div>`;
+      return;
+    }
+    if (cs.timelineId === "peers" && peers()) {
+      head.innerHTML = peers().streamHeadHtml(peers().clientUser());
       return;
     }
     const acc = account(cs.accountId);
@@ -846,6 +859,13 @@ window.CLAIRE_SYND_CLIENT_FACTORY = function (api) {
 
   function renderStream() {
     const container = document.getElementById("cl-headlines");
+    if (cs.timelineId === "peers" && peers()) {
+      const key = peers().clientUser();
+      container.innerHTML = peers().streamHtml(key);
+      document.getElementById("cl-reader").innerHTML = peers().readerHtml(key);
+      document.getElementById("footer-stats").textContent = `Theme #${theme().id} · ${peers().footerText(key)} · 연결 계정 ${accounts().length}개`;
+      return;
+    }
     const acc = account(cs.accountId);
     const tl = currentTimeline();
     let html;
@@ -2063,6 +2083,11 @@ window.CLAIRE_SYND_CLIENT_FACTORY = function (api) {
 
   function handleKey(e) {
     if (e.key === "/") { const input = document.getElementById("client-search"); if (input) { e.preventDefault(); input.focus(); } return; }
+    if (cs.timelineId === "peers" && peers()) {
+      if (e.key === "n") openCompose({});
+      else peers().handleKey(e, peers().clientUser());
+      return;
+    }
     if (e.key === "Escape" && cs.profile) { cs.profile = null; api.renderAll(); return; }
     const vis = cs.timelineId === "explore" ? trendPosts(account(cs.accountId)) : visiblePosts();
     const idx = vis.findIndex((p) => p.id === cs.selectedPostId);
@@ -2098,6 +2123,12 @@ window.CLAIRE_SYND_CLIENT_FACTORY = function (api) {
     const input = document.getElementById("client-search");
     if (input) input.value = "";
     cs.selectedPostId = postId;
+  }
+
+  function showPeers() {
+    cs.timelineId = "peers";
+    cs.selectedPostId = null;
+    cs.profile = null;
   }
 
   function openAccount(accId) {
@@ -2164,5 +2195,5 @@ window.CLAIRE_SYND_CLIENT_FACTORY = function (api) {
     });
   })();
 
-  return { render, handleKey, title, onThemeChange, openPost, openAccount, findPostForKbItem, recordOutbound, openCompose, openConnect };
+  return { render, handleKey, title, onThemeChange, openPost, openAccount, showPeers, findPostForKbItem, recordOutbound, openCompose, openConnect };
 };

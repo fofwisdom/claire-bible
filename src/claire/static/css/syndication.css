@@ -523,3 +523,33 @@ button.cl-avatar { border: 0; cursor: pointer; padding: 0; }
 .cl-compose-note { font-size: 11.5px; color: #9a6700; }
 .cl-report-rules { display: flex; flex-direction: column; gap: 3px; font-size: 12px; }
 .cl-report-post { display: flex; align-items: center; gap: 6px; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* 다른 사용자 발행 본문 (두 탭 공용 · 제안) */
+.peer-proposal { display: inline-flex; align-items: center; font-size: 10px; font-weight: 700; padding: 0 5px; border-radius: 4px; border: 1px dashed #9a6700; color: #9a6700; text-transform: none; letter-spacing: 0; vertical-align: 1px; }
+.tt-feed-pill.proto-claire { background: rgba(26, 127, 55, 0.12); border-color: rgba(26, 127, 55, 0.3); }
+.cl-avatar.peer-avatar { background: #1a7f37; }
+.tt-tree-item .cl-avatar.peer-avatar { width: 16px; height: 16px; font-size: 9.5px; vertical-align: -3px; }
+.tt-art-meta .cl-avatar.peer-avatar { vertical-align: -5px; }
+.peer-badge { display: inline-flex; align-items: center; gap: 3px; font-size: 10.5px; font-weight: 700; padding: 1px 6px; border-radius: 4px; white-space: nowrap; flex-shrink: 0; background: var(--chip-bg); color: var(--muted); }
+.peer-badge.is-mine { background: rgba(26, 127, 55, 0.12); color: var(--accent2); }
+.peer-badge.is-retracted { background: rgba(207, 34, 46, 0.12); color: #cf222e; }
+.peer-row.is-retracted .tt-flat-title, .peer-row.is-retracted .tt-card-title { text-decoration: line-through; opacity: 0.7; }
+button.tt-link-dot.peer-dot { cursor: pointer; background: rgba(26, 127, 55, 0.1); color: var(--accent2); border: 1px solid rgba(26, 127, 55, 0.35); }
+button.tt-link-dot.peer-dot:hover { background: rgba(26, 127, 55, 0.2); }
+.peer-reuse { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin: 10px 0 0; }
+.peer-reuse-chip { display: inline-flex; align-items: center; gap: 3px; font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 4px; border: 1px solid var(--border); background: var(--panel-bg); white-space: nowrap; }
+.peer-reuse-chip.ok { color: var(--accent2); border-color: rgba(26, 127, 55, 0.35); }
+.peer-reuse-chip.no { color: var(--muted); text-decoration: line-through; }
+.peer-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 10px 0 12px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
+.peer-actions-label { font-size: 11.5px; font-weight: 700; color: var(--muted); }
+.peer-where { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 5px; font-size: 12px; }
+.peer-where li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
+.peer-where a { color: var(--accent); text-decoration: none; overflow-wrap: anywhere; }
+.peer-where code { flex-basis: 100%; font-family: 'D2Coding', monospace; font-size: 11px; color: var(--muted); overflow-wrap: anywhere; }
+.tt-summary-callout.peer-retracted { border-left-color: #cf222e; background: rgba(207, 34, 46, 0.07); }
+.tt-summary-callout.peer-retracted ul { margin: 6px 0 0; padding-left: 18px; font-size: 12.5px; }
+.tt-summary-callout.peer-provenance { border-left-color: var(--accent); background: var(--panel-bg); font-size: 12.5px; margin-top: 10px; }
+.peer-mode-seg { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (max-width: 640px) {
+  .peer-mode-seg { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

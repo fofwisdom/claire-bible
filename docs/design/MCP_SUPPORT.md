@@ -201,3 +201,21 @@ Gemini 및 브라우저 사용자가 토큰 복사/붙여넣기 없이 최고 �
 - **단위/통합 테스트**: `tests/test_oauth_flow.py` (RFC 9728, RFC 8414, DCR, PKCE, 세션 격리, Refresh Token 회전 검증 100% 통과).
 - **기존 회귀 테스트**: `tests/test_api_mcp.py`, `tests/test_api_security.py` 등 총 1,238개 테스트 스위트 전원 통과.
 - **Git Commit**: `a1dc9f9` (`feat(mcp): implement OAuth 2.1 authorization server and discovery for Gemini apps`).
+
+---
+
+## 7. 보강 제안 (미구현, 2026-10-30 코드 대조)
+
+`/syndication/preferences?tab=mcp` 시각 프로토타입을 만들며 현재 코드와 이 문서를 대조한 결과다. 각 항목은 아직 구현되지 않았다.
+
+| # | 현재 (근거) | 제안 | 필요한 변경 |
+| :--- | :--- | :--- | :--- |
+| 1 | **테마 접근 권한 미적용 (보안).** `mcp_tools._conn(theme)`은 `ThemeManager.get_theme()` 기본값(`include_private=True`)으로 DB를 열고, `security.py`는 `/mcp`를 `read` 규칙으로 통과시킨다. 코드 경로상 `collaborator` 자격으로 Theme 0과 협업 비허용 테마를 읽을 수 있어 [MULTI_THEME §3.2](MULTI_THEME_ARCHITECTURE_DESIGN.md)와 어긋난다. 런타임 시험은 하지 않았다. | 게이트가 확정한 권한을 MCP 호출 컨텍스트로 넘기고, 도구 진입 시 REST와 같은 접근 판정을 적용한다. 접근할 수 없는 테마는 존재를 숨기는 오류로 돌려준다. | `security.py` (scope를 request state에 기록), `server.py` `mcp_route`, `mcp_tools._conn` |
+| 2 | **테마 FQDN · `X-Claire-Theme` 미적용.** REST는 `_extract_theme_ref()`로 FQDN · 쿼리 · 헤더를 해석하지만 MCP 도구는 `theme` 인자만 본다. `TransportSecuritySettings.allowed_hosts`가 `public_url` 호스트와 localhost뿐이라 테마 전용 FQDN의 `/mcp`는 거부된다. | 테마 전용 FQDN으로 들어온 호출은 그 테마로 고정하고, 등록된 테마 FQDN을 허용 호스트에 넣는다. | `mcp_tools.build_mcp_app`, `mcp_route` |
+| 3 | **호출자 식별 불가.** `mcp_telemetry.client_id` 컬럼이 있지만 `_timed_call()`이 값을 넘기지 않아 항상 `NULL`이다. `oauth_tokens`에 최근 사용 시각이 없다. | 게이트가 확인한 자격증명(API 토큰 id · OAuth `client_id` · 세션 구분)을 기록하고 `oauth_tokens.last_used_at`을 갱신한다. | `security.py`, `mcp_tools._timed_call`, `db.py` 마이그레이션 |
+| 4 | **OAuth 폐기 · 목록 경로 없음.** 상시 이용 토큰은 `/tokens/revoke`가 있지만 OAuth 클라이언트는 목록 · 폐기 API가 없다. | `POST /oauth/revoke` (RFC 7009), owner 전용 `GET`/`DELETE /oauth/clients`, WebUI `🔑 API/MCP 키` 드로어의 'OAuth 연결' 탭. | `oauth.py`, `server.py`, `security.py` `ROUTE_POLICY`, WebUI |
+| 5 | **스코프 단일.** OAuth 스코프는 `readonly` 하나이고, 모듈 주석은 쓰기 도구가 생기면 스코프 구분이 필요하다고 적고 있다. | `syndication:read` 도구 4종(`synd_targets`, `synd_stream`, `synd_item`, `synd_timeline`)과 초안 전용 `syndication:draft`(`synd_draft_publish`, 승인 큐 경유). | `mcp_tools.py`, `oauth.py` `scopes_supported`, Syndication Phase 2 |
+| 6 | **호출 한도 없음.** 요청 본문 1MB 제한만 있다. | 자격증명별 분당 한도, 초과 시 HTTP `429` + `Retry-After`. | `security.py` 게이트 |
+| 7 | **연결 예시 오류.** §5.2의 `server-fetch`와 `claire token create` 출력의 `server-everything`(데모 서버)은 원격 HTTP 서버 연결 방식이 아니다. | `claude mcp add --transport http claire <URL> --header "Authorization: Bearer cb_…"`, `mcpServers`의 `{"type": "http", "url": …, "headers": …}` 형식으로 교체. | 이 문서 §5.2, `cli.py` |
+
+또한 모듈 docstring의 "무토큰/미인증 요청은 `/mcp` 자체가 존재하지 않는 것처럼 404"는 현재 동작(`401` + `WWW-Authenticate … resource_metadata`)과 다르므로 함께 고친다.

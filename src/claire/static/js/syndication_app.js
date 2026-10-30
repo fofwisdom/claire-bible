@@ -130,6 +130,8 @@
 
   /* 연합 클라이언트 탭 컨트롤러 (초기화 마지막 단계에서 CLAIRE_SYND_CLIENT_FACTORY 로 생성) */
   let client = null;
+  /* 다른 사용자 발행 본문 (두 탭 공용 · 제안, CLAIRE_SYND_PEERS_FACTORY 로 생성) */
+  let peers = null;
 
   /* AP/AT 수집 대상은 연결 계정의 서버 API 를 경유해 수집한다. */
   const SOURCE_KINDS = {
@@ -157,7 +159,7 @@
   function themeAccounts(theme) { return (theme || curTheme()).accounts || []; }
   function findAccount(id, theme) { return themeAccounts(theme).find((a) => a.id === id) || null; }
   function publishAccounts(theme) { return themeAccounts(theme).filter((a) => a.canPublish); }
-  function protoDot(proto) { return proto === "ap" ? "🟣" : (proto === "at" ? "🔵" : "🟠"); }
+  function protoDot(proto) { return proto === "ap" ? "🟣" : (proto === "at" ? "🔵" : (proto === "claire" ? "👥" : "🟠")); }
   function accountsSummary(theme) {
     const accs = themeAccounts(theme);
     if (!accs.length) return "연결 계정 없음";
@@ -324,6 +326,7 @@
   function getVisibleItems() {
     const theme = curTheme();
     const q = state.searchQuery.trim().toLowerCase();
+    if (state.treeSel.kind === "peer") return [];
     const list = theme.items.filter((it) => {
       const s = state.treeSel;
       if (s.kind === "virtual") {
@@ -474,6 +477,9 @@
       return `<details class="tt-folder" open><summary><span><span class="tt-folder-marker"></span>📁 ${esc(folder)}</span><span class="tt-count-pill">${folderUnread}</span></summary><div class="tt-tree-children">${children}</div></details>`;
     }).join("");
 
+    const peerTree = document.getElementById("tree-peers");
+    if (peerTree) peerTree.innerHTML = peers ? peers.treeHtml("kb", state.treeSel.kind === "peer" ? state.treeSel.value : null) : "";
+
     document.getElementById("tree-entities").innerHTML = theme.existingEntities.slice(0, 10).map((ent) => {
       const act = state.treeSel.kind === "entity" && state.treeSel.value === ent.name ? "active" : "";
       return `<button type="button" class="tt-tree-item ${act}" data-tree-kind="entity" data-tree-val="${esc(ent.name)}" data-tree-lbl="[[${esc(ent.name)}]]"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">[[${esc(ent.name)}]] <small style="color:var(--muted)">(${esc(ent.type)})</small></span><span class="tt-count-pill">${ent.count || 1}</span></button>`;
@@ -567,6 +573,8 @@
         </div>
       </header>
 
+      ${peers ? peers.provenanceHtml(item) : ""}
+
       <div class="tt-view-switcher" role="region" aria-label="수집 원문 및 적재 본문 전환">
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
           <div class="tt-seg" role="group" aria-label="본문 표시 모드">
@@ -591,6 +599,14 @@
     const visible = getVisibleItems();
     const theme = curTheme();
     const container = document.getElementById("headlines-container");
+
+    if (state.treeSel.kind === "peer" && peers) {
+      const key = state.treeSel.value;
+      container.innerHTML = `<div class="tt-stream-head">${peers.streamHeadHtml(key)}</div>${peers.streamHtml(key)}`;
+      document.getElementById("reader-content").innerHTML = peers.readerHtml(key);
+      document.getElementById("footer-stats").textContent = `Theme #${theme.id} · ${peers.footerText(key)} · ${accountsSummary(theme)}`;
+      return;
+    }
 
     if (visible.length === 0) {
       container.innerHTML = `<div style="padding:42px 20px;text-align:center;color:var(--muted);font-size:13px">조건에 일치하는 수집 아티클이 없습니다.</div>`;
@@ -919,6 +935,8 @@
     const theme = curTheme();
     const item = theme.items.find((x) => x.id === itemId);
     if (!item) return;
+    /* 다른 사용자 본문에서 가져온 항목은 원 게시물 부스트 · 인용과 원문 표시가 필요하므로 전용 발행 창을 쓴다. */
+    if (item.peerPubId && peers) { peers.openReshare(item.peerPubId); return; }
     const pubAccs = publishAccounts(theme);
     if (!pubAccs.length) {
       ticker("🔒 이 테마에는 발행 권한(write scope)이 있는 연결 계정이 없습니다 — 읽기 전용 계정으로는 외부 발행할 수 없습니다.");
@@ -1038,6 +1056,7 @@
       ${mode === "quote_boost" ? `<div><label for="pub-quote-comment" style="display:block;font-size:12px;font-weight:700;margin-bottom:4px">인용 코멘트 (선택)</label><input id="pub-quote-comment" type="text" class="tt-search" style="width:100%" value="${esc(commentText)}"/></div>` : ""}
 
       ${mode === "ingested_create" && !hasLinked ? `<div class="tt-summary-callout" style="margin:0">아직 미적재 항목입니다. 아래 <b>적재 후 즉시 적재 발행</b>을 누르면 프로젝트 적재(엔티티 생성)와 연결 계정 발행을 연속 수행합니다.</div>` : ""}
+      ${mode === "ingested_create" ? `<div style="font-size:11.5px;color:var(--muted)">👥 <span class="peer-proposal">제안</span> ${theme.isPublic ? "공개 테마의 적재 발행은 인스턴스 공용 발행 색인에도 올라가, 같은 Claire 의 다른 사용자가 목록에서 보고 자기 계정으로 부스트 · 인용 · 가져오기 할 수 있습니다. 재사용 범위는 환경설정 › 부스트 · 적재 발행에서 정합니다." : "비공개 테마의 적재 발행은 공용 발행 색인에 올라가지 않습니다."}</div>` : ""}
 
       <div>
         <div style="font-size:11.5px;font-weight:700;color:var(--muted);margin-bottom:4px">연결 서버 API 요청 미리보기 (Claire 서버 프록시 경유 · 토큰은 서버에만 보관)</div>
@@ -1432,6 +1451,7 @@
       if (e.key === "l" || e.key === "L") { cycleListStyle(); return; }
       if (e.key === "m" || e.key === "M") { toggleLayoutMode(); return; }
       if (state.appTab === "client") { if (client) client.handleKey(e); return; }
+      if (state.treeSel.kind === "peer") { if (peers) peers.handleKey(e, state.treeSel.value); return; }
 
       const vis = getVisibleItems();
       if (!vis.length) return;
@@ -1511,7 +1531,32 @@
       curTheme, esc, ticker, protoDot, themeAccounts, findAccount, publishAccounts,
       buildServerRequest, accountSupports, graphemeLength, hashtagToken, getItemSourceTags, getLinkedDocEntities,
       renderAll, setAppTab, closeOpenPopovers, ingestItemToClaire,
-      addKbFeed, addAccount, openKbItem
+      addKbFeed, addAccount, openKbItem, peers: () => peers
+    })
+    : null;
+
+  function showPeerView(tab, userKey) {
+    if (tab === "kb") {
+      const key = String(userKey || "all");
+      state.treeSel = { kind: "peer", value: key, label: key === "all" ? peers.VIEW_LABEL : state.treeSel.label };
+      setAppTab("kb");
+      return;
+    }
+    if (client) client.showPeers();
+    setAppTab("client");
+  }
+
+  function openClientPost(postId) {
+    if (!client) return;
+    client.openPost(postId);
+    setAppTab("client");
+  }
+
+  peers = typeof window.CLAIRE_SYND_PEERS_FACTORY === "function"
+    ? window.CLAIRE_SYND_PEERS_FACTORY({
+      state, prefs, curTheme, esc, ticker, protoDot, themeAccounts, publishAccounts,
+      buildServerRequest, accountSupports, graphemeLength, truncateGraphemes, hashtagToken,
+      ingestItemToClaire, renderAll, openKbItem, showPeerView, openClientPost
     })
     : null;
 
