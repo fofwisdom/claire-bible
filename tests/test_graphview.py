@@ -763,17 +763,26 @@ def test_graph_engine_interaction_model():
 
 
 def test_topological_structure_and_isolated_orbit_layout():
-    """연결 수 0 노드 및 2노드 쌍을 허브 고리 바깥 원에 고정 배치하는지 검증."""
+    """연결 수 0 노드 및 2노드 쌍을 별 무리 바깥 궤도에 배치하는지 검증."""
     from claire.graphview import GRAPH_HTML
 
     # 1. 위상 구조 분석 함수 및 외곽 궤도 배치 마커
     assert "function applyTopologicalStructure(nodes, edges){" in GRAPH_HTML
-    assert "const baseRadius = Math.round(260 + Math.sqrt(linkedCount) * 52);" in GRAPH_HTML
+    # 반경은 앱이 정하지 않는다: 띠·순서만 넘기고 엔진이 별 무리 경계 바깥 타원에 둔다
+    assert "n.orbit = { band: 1, index: idx };" in GRAPH_HTML
+    assert "nA.orbit = { band: 0, index: idx, side: -1 };" in GRAPH_HTML
+    assert "_placeOrbits(){" in GRAPH_HTML
+    assert "baseRadius" not in GRAPH_HTML
     assert "n.physics = false;" in GRAPH_HTML
 
     # 2. vis 전용 엣지 길이·질량 튜닝은 제거(엔진이 tether 길이를 계층에서 계산)
     assert "e.springConstant" not in GRAPH_HTML
     assert "tetherBase[i] = base * jitter" in GRAPH_HTML
+    # 3. 숲은 2단으로 접고, 허브는 고리가 아니라 가운데부터 채우는 별 무리로 배치한다
+    assert "maxDepth: 2," in GRAPH_HTML
+    assert "function packStars(roots, radiusOf, affOf, idOf, s){" in GRAPH_HTML
+    assert "_packForces(){" in GRAPH_HTML
+    assert "ringR" not in GRAPH_HTML
 
 
 def test_mobile_node_tap_popup_markers():

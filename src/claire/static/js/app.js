@@ -2971,7 +2971,7 @@ function refreshGraph(){
     d.nodes.forEach(n=>{
       const r = nodeRadius(n.degree), fs = nodeFontSize(n.degree);
       if(allNodes && allNodes.get(n.id))
-        changed.push({id:n.id, degree:n.degree, size:r, font:{size:fs}, sources:n.sources, obs:n.obs, ...(n.physics===false?{x:n.x,y:n.y,physics:false}:{physics:true})});
+        changed.push({id:n.id, degree:n.degree, size:r, font:{size:fs}, sources:n.sources, obs:n.obs, ...(n.physics===false?{orbit:n.orbit,physics:false}:{orbit:null,physics:true})});
       else if(allNodes)
         added.push({...n, size:r, font:{size:fs}});
     });
@@ -3244,42 +3244,23 @@ function applyTopologicalStructure(nodes, edges){
     return (a.label || '').localeCompare(b.label || '');
   });
 
-  // 고립·2노드 쌍은 물리에서 빼고 허브 고리 바깥 원에 고정한다. 엔진의 별 고리 반경은 연결 노드
-  // 수의 제곱근에 비례해 커지므로 바깥 원도 같은 비율로 둔다.
-  const isoCount = isolatedNodes.length;
-  const linkedCount = Math.max(0, nodes.length - isoCount - dyadPairs.length * 2);
-  const baseRadius = Math.round(260 + Math.sqrt(linkedCount) * 52);
-  const orbitRadius = Math.max(baseRadius, Math.ceil((isoCount * 24) / (2 * Math.PI)));
-
-  const perRing = Math.max(50, Math.floor(2 * Math.PI * orbitRadius / 24));
+  // 고립·2노드 쌍은 물리에서 빼고 별 무리 바깥 궤도에 둔다. 앱은 띠(0: 2노드 쌍, 1: 고립)와 순서만
+  // 정하고, 반경은 엔진이 실제 별 무리 경계에 맞춰 잡는다(필터로 무리가 줄면 궤도도 따라 줄어든다).
   isolatedNodes.forEach((n, idx) => {
-    const ringIndex = Math.floor(idx / perRing);
-    const indexInRing = idx % perRing;
-    const countInThisRing = Math.min(perRing, isoCount - ringIndex * perRing);
-    const currentRadius = orbitRadius + (ringIndex * 36);
-    const angle = (2 * Math.PI * indexInRing) / (countInThisRing || 1);
-    n.x = Math.round(currentRadius * Math.cos(angle));
-    n.y = Math.round(currentRadius * Math.sin(angle));
+    n.orbit = { band: 1, index: idx };
     n.physics = false;
   });
 
-  const midRadius = Math.round(orbitRadius * 0.85);
-  const dyadCount = dyadPairs.length;
   const nodeById = new Map(nodes.map(n => [n.id, n]));
   dyadPairs.forEach(([idA, idB], idx) => {
-    const angle = (2 * Math.PI * idx) / (dyadCount || 1);
-    const cx = Math.round(midRadius * Math.cos(angle));
-    const cy = Math.round(midRadius * Math.sin(angle));
     const nA = nodeById.get(idA);
     const nB = nodeById.get(idB);
     if(nA){
-      nA.x = cx - 9;
-      nA.y = cy;
+      nA.orbit = { band: 0, index: idx, side: -1 };
       nA.physics = false;
     }
     if(nB){
-      nB.x = cx + 9;
-      nB.y = cy;
+      nB.orbit = { band: 0, index: idx, side: 1 };
       nB.physics = false;
     }
   });

@@ -5,15 +5,16 @@
  * 묶여 각도·길이를 유지하며 천천히 궤도 회전, 섹션끼리는 반발, 커서 자석·물결, 잡아 던지기,
  * 결정적 시드 배치 + 워밍업)을 일반 지식 그래프에 맞게 옮긴다. 지식 그래프는 트리가 아니므로
  * 연결 수 상위 노드를 허브(섹션)로 뽑고, 허브에서 다중 출발 BFS 로 각 노드의 주 부모를 정해
- * 신장 숲(spanning forest)을 만든다. 숲에 들지 않은 관계(교차 엣지)는 그리기만 하고, 허브 간
- * 친화도(서로 다른 별 사이 관계 수)로 바꿔 관련 주제의 별이 고리에서 이웃하게 만든다.
+ * 신장 숲(spanning forest)을 만든다. 숲은 Shopify 처럼 허브 → 자식 → 손자 2단으로 접는다. 숲에
+ * 들지 않은 관계(교차 엣지)는 그리기만 하고, 허브 간 친화도(서로 다른 별 사이 관계 수)로 바꿔
+ * 관련 주제의 별이 화면 위에서 이웃하게 놓는다.
  *
  * 좌표계는 화면과 무관한 월드 px 이다(카메라가 확대·이동을 맡는다).
  */
 (function(global){
   'use strict';
   const CG = global.ClaireGraph;
-  const { clamp, approach, hash32, hashSigned } = CG;
+  const { clamp, approach, hash32, hashSigned, hashUnit } = CG;
 
   // 노드 참여 방식: 숨김(off) / 시뮬레이션(active) / 고정 장애물(static) / 숨은 고정 앵커(anchor)
   const MODE_OFF = 0, MODE_ACTIVE = 1, MODE_STATIC = 2, MODE_ANCHOR = 3;
@@ -22,12 +23,14 @@
     hubShare: 0.6,          // 허브 수 ≈ √N × hubShare
     maxHubs: 32,
     minHubDegree: 3,
+    maxDepth: 2,            // 허브 → 자식 → 손자. 더 깊은 노드는 깊이 1 조상에 붙인다(사슬이 별을 키우지 않게)
     linkLength: 62,         // 허브 직계 자식 tether 기본 길이
     nestedLength: 30,       // 손자 이하 tether 기본 길이
     lengthJitter: 1,        // 스포크 길이를 4^(±jitter/3) 범위로 흩뜨려 별 모양을 만든다
     starGrowth: 22,         // 자식 수가 이보다 많으면 √비율로 tether 를 늘린다
-    ringAspectX: 1.2,       // 허브 고리를 가로로 늘린다(넓은 화면)
-    ringGap: 26,
+    packAspectX: 1.4,       // 별 무리를 가로로 늘려 넓은 화면을 채운다
+    packGap: 26,
+    starOverlap: 0.8,       // 이웃 별의 스포크 끝이 서로 맞물리도록 별 반경을 이만큼만 비워 둔다
     collidePad: 3,
     restitution: 0.6,
     velDamp: 2.5,
@@ -36,9 +39,8 @@
     linkDamp: 1,
     tetherRate: 14,         // 위치 기반 tether 보정 속도(1/s)
     homeStrength: 1.2,      // 궤도 위 제자리(각도)로 끄는 힘
-    ringStiffness: 3.5,
+    packStiffness: 3.5,
     separation: 7,
-    hubAffinity: 0.08,
     freeLength: 70,
     centerGravity: 0.35,
     orbitSpeed: 0.012,      // rad/s — 별 하나가 한 바퀴 도는 데 약 9분
@@ -53,6 +55,11 @@
     cursorRepel: 2, repelRadius: 200, repelInner: 24, repelGate: 24,
     repelMaxSpeed: 1800, repelCarry: 1.45, repelShield: 1,
     anchorStiffness: 6,
+    orbitGap: 60,           // 별 무리 경계 상자에서 첫 바깥 궤도까지
+    orbitBandGap: 48,       // 2노드 쌍 띠와 고립 노드 띠 사이
+    orbitRingGap: 36,       // 한 띠가 넘칠 때 다음 궤도까지
+    orbitSpacing: 24,       // 궤도 위 고립 노드 간격
+    pairSpacing: 36,        // 궤도 위 2노드 쌍 간격
     warmupSteps: 160, warmupBudgetMs: 45,
   };
 
@@ -131,6 +138,14 @@
     for(let i = 0; i < n; i++) if(eligible[i] && depth[i] === -1) rest.push(i);
     rest.sort(byDegree);
     for(const r of rest) if(depth[r] === -1) bfs([r]);
+    // 깊은 사슬은 층마다 하위 반경이 누적돼 별 하나가 화면 전체만큼 커진다. order 는 부모가 먼저 오므로
+    // 위에서부터 차례로 maxDepth 를 넘는 노드를 maxDepth - 1 층 조상의 자식으로 옮긴다.
+    for(const i of order){
+      if(depth[i] <= settings.maxDepth) continue;
+      let a = parent[i];
+      while(depth[a] >= settings.maxDepth) a = parent[a];
+      parent[i] = a; depth[i] = depth[a] + 1;
+    }
 
     // 자식 목록: 타입(group)별로 묶어 별 안에서 같은 색이 부채꼴을 이루게 한다.
     const children = Array.from({ length: n }, () => []);
@@ -171,28 +186,54 @@
         affinity.set(key, (affinity.get(key) || 0) + 1);
       }
     }
-    let maxAff = 0;
-    for(const w of affinity.values()) maxAff = Math.max(maxAff, w);
-    const affinityPairs = [];
-    for(const [key, w] of affinity) affinityPairs.push([Math.floor(key / n), key % n, w / (maxAff || 1)]);
-
-    // 고리 순서: 가장 큰 별에서 시작해 친화도가 가장 높은 별을 이웃으로 탐욕적으로 잇는다.
     const affOf = (a, b) => affinity.get(Math.min(a, b) * n + Math.max(a, b)) || 0;
-    const pending = roots.slice().sort((a, b) => (ext[b] - ext[a]) || (tie(a) - tie(b)));
-    const ringOrder = [];
-    if(pending.length){
-      ringOrder.push(pending.shift());
-      while(pending.length){
-        const last = ringOrder[ringOrder.length - 1];
-        let best = 0, bestScore = -1;
-        for(let k = 0; k < pending.length; k++){
-          const score = affOf(last, pending[k]) * 1000 + ext[pending[k]] / 1000;
-          if(score > bestScore){ bestScore = score; best = k; }
-        }
-        ringOrder.push(pending.splice(best, 1)[0]);
+    // 배치 순서: 큰 별부터(가운데를 차지한다). 궤도 방향은 이 순서로 번갈아 준다.
+    const rootOrder = roots.slice().sort((a, b) => (ext[b] - ext[a]) || (tie(a) - tie(b)));
+    return { degree, parent, depth, order, roots, children, tetherBase, ext, rootOf, affOf, rootOrder };
+  }
+
+  // 별 무리 배치: 큰 별부터 하나씩, 이미 놓인 별에 맞닿는 후보 자리 가운데 (가로로 늘린) 중심에서
+  // 가깝고 친화도 높은 별에 가까운 곳을 고른다. 고리와 달리 가운데가 비지 않아 별이 커도 화면을 채운다.
+  function packStars(roots, radiusOf, affOf, idOf, s){
+    const ax = s.packAspectX, gap = s.packGap, home = new Map(), placed = [];
+    const pending = roots.slice();
+    while(pending.length){
+      // 이미 놓인 별과 친화도가 가장 큰 별을 다음으로(없으면 남은 것 중 가장 큰 별).
+      let pick = 0, bestAff = 0;
+      for(let k = 0; k < pending.length; k++){
+        let a = 0;
+        for(const q of placed) a += affOf(pending[k], q[0]);
+        if(a > bestAff){ bestAff = a; pick = k; }
       }
+      const r = pending.splice(pick, 1)[0], rad = radiusOf(r);
+      if(!placed.length){ placed.push([r, 0, 0, rad]); continue; }
+      let bx = 0, by = 0, best = Infinity;
+      const turn = hashUnit(idOf(r), 7) * Math.PI * 2;
+      for(const q of placed){
+        const d = q[3] + rad + gap;
+        for(let t = 0; t < 24; t++){
+          const ang = turn + t / 24 * Math.PI * 2;
+          const x = q[1] + Math.cos(ang) * d, y = q[2] + Math.sin(ang) * d;
+          let clear = true, wsum = 0, wd = 0;
+          for(const o of placed){
+            const dd = Math.hypot(x - o[1], y - o[2]);
+            if(dd < o[3] + rad + gap - 1e-6){ clear = false; break; }
+            const w = affOf(r, o[0]);
+            if(w){ wsum += w; wd += w * dd; }
+          }
+          if(!clear) continue;
+          const score = Math.hypot(x / ax, y) + (wsum ? 0.6 * wd / wsum : 0);
+          if(score < best){ best = score; bx = x; by = y; }
+        }
+      }
+      placed.push([r, bx, by, rad]);
     }
-    return { degree, parent, depth, order, roots, children, tetherBase, ext, rootOf, affinityPairs, ringOrder };
+    // 경계 상자 가운데를 원점에 맞춘다(자유 노드의 중심 중력·카메라 맞춤 기준).
+    let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+    for(const [, x, y, rad] of placed){ x0 = Math.min(x0, x - rad); x1 = Math.max(x1, x + rad); y0 = Math.min(y0, y - rad); y1 = Math.max(y1, y + rad); }
+    const cx = placed.length ? (x0 + x1) / 2 : 0, cy = placed.length ? (y0 + y1) / 2 : 0;
+    for(const [r, x, y] of placed) home.set(r, [x - cx, y - cy]);
+    return home;
   }
 
   class Simulation {
@@ -204,7 +245,8 @@
       this.orbitPhase = 0;
       this.calm = 0;
       this.meanSpeed = 0;
-      this.ringR = 0;
+      this.homeX = new Float64Array(0);
+      this.homeY = new Float64Array(0);
       this.grid = new SpatialGrid();
       this.springs = [];
       this.visibleRoots = [];
@@ -231,9 +273,10 @@
       this.recovery = new Float32Array(n);
       this.pulled = new Uint8Array(n);
       this.visExt = new Float64Array(n);
+      this.homeX = new Float64Array(n); this.homeY = new Float64Array(n);
       this.orbitSign = new Int8Array(n).fill(1);
       const h = this.h = buildHierarchy(topo, this.settings);
-      h.ringOrder.forEach((r, k) => { this.orbitSign[r] = k % 2 ? -1 : 1; });
+      h.rootOrder.forEach((r, k) => { this.orbitSign[r] = k % 2 ? -1 : 1; });
       for(const i of h.order) if(h.parent[i] >= 0) this.orbitSign[i] = this.orbitSign[h.rootOf[i]];
       for(let i = 0; i < n; i++) this.tether[i] = h.tetherBase[i];
       // 질량 ∝ 자식 수: 큰 허브는 잎들의 반작용·충돌에 휘둘리지 않는다(역질량으로 힘을 나눈다).
@@ -275,7 +318,7 @@
         while(p >= 0 && this.mode[p] !== MODE_ACTIVE && this.mode[p] !== MODE_STATIC) p = h.parent[p];
         this.effParent[i] = p;
       }
-      // 보이는 노드만으로 별 반경을 다시 재서 고리 반경을 맞춘다(필터로 별이 작아지면 고리도 좁힌다).
+      // 보이는 노드만으로 별 반경을 다시 재서 별 무리를 다시 짠다(필터로 별이 작아지면 무리도 좁힌다).
       const visExt = this.visExt;
       for(let i = 0; i < n; i++) visExt[i] = this.radius[i];
       for(let k = h.order.length - 1; k >= 0; k--){
@@ -283,27 +326,71 @@
         if(p < 0 || this.mode[i] !== MODE_ACTIVE) continue;
         visExt[p] = Math.max(visExt[p], this.tether[i] + visExt[i]);
       }
-      this.visibleRoots = h.ringOrder.filter(r => this.mode[r] === MODE_ACTIVE);
-      let sum = 0;
-      for(const r of this.visibleRoots) sum += visExt[r] + this.settings.ringGap / 2;
-      this.ringR = this.visibleRoots.length > 1 ? Math.max(sum / Math.PI, 40) : 0;
+      this.visibleRoots = h.rootOrder.filter(r => this.mode[r] === MODE_ACTIVE);
+      const s = this.settings;
+      // 필터 뒤 보이는 크기로 다시 줄 세워 가장 큰 별이 가운데를 차지하게 한다.
+      const bySize = this.visibleRoots.slice().sort((a, b) => (visExt[b] - visExt[a]) || (hash32(this.ids[a], 11) - hash32(this.ids[b], 11)));
+      const home = packStars(bySize, r => visExt[r] * s.starOverlap, h.affOf, r => String(this.ids[r]), s);
+      for(const [r, [x, y]] of home){ this.homeX[r] = x; this.homeY[r] = y; }
+      this._placeOrbits();
     }
 
-    // 결정적 시드 배치: 루트는 별 크기에 비례한 호 길이로 고리에 놓고, 자식은 부모 둘레(손자는
-    // 바깥쪽 부채꼴)에 펼친다. 이미 좌표가 있는 노드는 현재 상대 각도를 제자리 각도로 삼는다.
+    // 바깥 궤도(app 의 orbit 띠): 고립·2노드 쌍을 별 무리 경계 상자 바로 바깥 타원에 둔다. 띠 0 은
+    // 2노드 쌍, 띠 1 은 고립 노드이며 보이는 것만 index 순으로 고르게 펼친다. 넘치면 바깥 궤도를 더한다.
+    // 사용자가 끌어다 놓아 좌표가 생긴 노드(fixedX)는 놓은 자리를 지킨다.
+    _placeOrbits(){
+      const topo = this.topo, s = this.settings, n = this.n;
+      if(!topo.orbitBand) return;
+      const bands = [[], []];
+      for(let i = 0; i < n; i++){
+        const b = topo.orbitBand[i];
+        if(b < 0 || b > 1 || this.mode[i] !== MODE_STATIC || Number.isFinite(topo.fixedX[i])) continue;
+        bands[b].push(i);
+      }
+      if(!bands[0].length && !bands[1].length) return;
+      let rx = 0, ry = 0;
+      for(const r of this.visibleRoots){
+        rx = Math.max(rx, Math.abs(this.homeX[r]) + this.visExt[r]);
+        ry = Math.max(ry, Math.abs(this.homeY[r]) + this.visExt[r]);
+      }
+      // 타원 둘레(Ramanujan 근사)
+      const perimeter = (a, b) => Math.PI * (3 * (a + b) - Math.sqrt((3 * a + b) * (a + 3 * b)));
+      let a = rx + s.orbitGap, b = ry + s.orbitGap;
+      const byIndex = (p, q) => (topo.orbitIndex[p] - topo.orbitIndex[q]) || (topo.orbitSide[p] - topo.orbitSide[q]);
+      if(bands[0].length){
+        // 같은 index 의 두 노드가 한 쌍 — 쌍 단위로 각도를 나누고 좌우(side)로 벌린다.
+        const slots = [...new Set(bands[0].map(i => topo.orbitIndex[i]))].sort((p, q) => p - q);
+        const grow = Math.max(1, slots.length * s.pairSpacing / perimeter(a, b));
+        a *= grow; b *= grow;
+        const slotOf = new Map(slots.map((v, k) => [v, k]));
+        for(const i of bands[0]){
+          const ang = 2 * Math.PI * slotOf.get(topo.orbitIndex[i]) / slots.length;
+          this.x[i] = Math.cos(ang) * a + topo.orbitSide[i] * 9;
+          this.y[i] = Math.sin(ang) * b;
+        }
+        a += s.orbitBandGap; b += s.orbitBandGap;
+      }
+      const iso = bands[1].sort(byIndex);
+      for(let k = 0; k < iso.length;){
+        const cap = Math.max(1, Math.floor(perimeter(a, b) / s.orbitSpacing));
+        const count = Math.min(cap, iso.length - k);
+        for(let j = 0; j < count; j++){
+          const i = iso[k + j], ang = 2 * Math.PI * j / count;
+          this.x[i] = Math.cos(ang) * a; this.y[i] = Math.sin(ang) * b;
+        }
+        k += count;
+        a += s.orbitRingGap; b += s.orbitRingGap;
+      }
+      for(const list of bands) for(const i of list){ this.vx[i] = 0; this.vy[i] = 0; }
+    }
+
+    // 결정적 시드 배치: 루트는 별 무리의 제자리에 놓고, 자식은 부모 둘레(손자는 바깥쪽 부채꼴)에
+    // 펼친다. 이미 좌표가 있는 노드는 현재 상대 각도를 제자리 각도로 삼는다.
     _seedLayout(placed){
       const h = this.h, s = this.settings;
-      const roots = h.ringOrder;
-      const R = this.ringR, ax = s.ringAspectX;
-      let total = 0;
-      for(const r of roots) total += this.visExt[r] + s.ringGap;
-      let acc = 0;
-      for(const r of roots){
-        const arc = (this.visExt[r] + s.ringGap) / (total || 1) * Math.PI * 2;
-        const theta = -Math.PI / 2 + acc + arc / 2;
-        acc += arc;
-        this.homeAngle[r] = theta;
-        if(!placed[r]){ this.x[r] = Math.cos(theta) * R * ax; this.y[r] = Math.sin(theta) * R; }
+      for(const r of h.rootOrder){
+        this.homeAngle[r] = Math.atan2(this.homeY[r], this.homeX[r]);
+        if(!placed[r]){ this.x[r] = this.homeX[r]; this.y[r] = this.homeY[r]; }
       }
       for(const p of h.order){
         const kids = h.children[p];
@@ -330,7 +417,7 @@
       }
       // 계층 밖 노드(자유·앵커 없는 static 제외)는 원점 근처 결정적 위치에 둔다.
       for(let i = 0; i < this.n; i++){
-        if(placed[i] || h.depth[i] >= 0) continue;
+        if(placed[i] || h.depth[i] >= 0 || (this.topo.orbitBand && this.topo.orbitBand[i] >= 0)) continue;
         const a = hashSigned(this.ids[i], 3) * Math.PI, r = 40 + Math.abs(hashSigned(this.ids[i], 5)) * 80;
         this.x[i] = Math.cos(a) * r; this.y[i] = Math.sin(a) * r;
       }
@@ -358,7 +445,7 @@
       this.orbitPhase += s.orbitSpeed * pace * dt;
       this.fx.fill(0); this.fy.fill(0);
       this._updateGrips(dt, io);
-      this._ringForces();
+      this._packForces();
       this._tetherForces(io);
       this._freeForces();
       this._anchorForces();
@@ -387,18 +474,13 @@
       }
     }
 
-    // 루트(허브): 타원 고리에 반경 방향으로 묶고, 서로 겹치지 않게 밀고, 친화도만큼 당긴다.
-    _ringForces(){
-      const s = this.settings, roots = this.visibleRoots, R = this.ringR, ax = s.ringAspectX;
+    // 루트(허브): 별 무리의 제자리로 끌고, 서로 겹치지 않게 민다(놓친 별도 결국 제자리로 돌아온다).
+    _packForces(){
+      const s = this.settings, roots = this.visibleRoots;
       const { x, y, fx, fy, visExt } = this;
       for(const r of roots){
-        if(R > 0){
-          const ang = Math.atan2(y[r], x[r] / ax);
-          fx[r] += (Math.cos(ang) * R * ax - x[r]) * s.ringStiffness;
-          fy[r] += (Math.sin(ang) * R - y[r]) * s.ringStiffness;
-        } else {
-          fx[r] -= x[r] * s.ringStiffness; fy[r] -= y[r] * s.ringStiffness;
-        }
+        fx[r] += (this.homeX[r] - x[r]) * s.packStiffness;
+        fy[r] += (this.homeY[r] - y[r]) * s.packStiffness;
       }
       for(let a = 0; a < roots.length; a++){
         const i = roots[a];
@@ -407,22 +489,12 @@
           let dx = x[j] - x[i], dy = y[j] - y[i];
           let d = Math.hypot(dx, dy);
           if(d < 1e-3){ dx = (a - b) * 0.01; dy = 0.007; d = Math.hypot(dx, dy); }
-          const minSep = visExt[i] + visExt[j] + s.ringGap;
+          const minSep = (visExt[i] + visExt[j]) * s.starOverlap + s.packGap;
           if(d >= minSep) continue;
           const push = s.separation * (minSep - d);
           fx[i] -= dx / d * push; fy[i] -= dy / d * push;
           fx[j] += dx / d * push; fy[j] += dy / d * push;
         }
-      }
-      const mode = this.mode;
-      for(const [i, j, w] of this.h.affinityPairs){
-        if(mode[i] !== MODE_ACTIVE || mode[j] !== MODE_ACTIVE) continue;
-        const dx = x[j] - x[i], dy = y[j] - y[i], d = Math.hypot(dx, dy) || 1e-3;
-        const rest = visExt[i] + visExt[j] + s.ringGap;
-        if(d <= rest) continue;
-        const pull = s.hubAffinity * w * (d - rest);
-        fx[i] += dx / d * pull; fy[i] += dy / d * pull;
-        fx[j] -= dx / d * pull; fy[j] -= dy / d * pull;
       }
     }
 

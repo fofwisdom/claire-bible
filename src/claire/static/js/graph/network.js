@@ -25,13 +25,15 @@
       backend: 'auto',          // 'auto' | 'webgpu' | 'canvas2d'
       ambient: true,            // 궤도 회전 + 흐름 패킷(감속 모션 설정이면 꺼진다)
       flowSpeed: 0.18,          // 패킷이 엣지 하나를 지나는 비율/초
-      hoverFocus: true,         // 호버한 노드의 이웃 밖은 흐리게
-      contextAlpha: 0.3,
+      hoverFocus: true,         // 호버한 노드의 이웃 밖은 흐리게(Shopify 처럼 은은하게 — 맥락은 남긴다)
+      contextAlpha: 0.45,
+      hoverLabelScale: 1.7,     // 호버한 노드 라벨 확대 배율
       labelFont: "D2Coding, 'Noto Sans KR', ui-monospace, SFMono-Regular, Menlo, monospace",
       maxLabels: 180,
       labelZoom: 0.8,           // 이 확대율 이상에서만 허브가 아닌 일반 노드 라벨을 그린다
       edgeWidthScale: 0.75,
-      crossEdgeAlpha: 0.5,      // 대기 상태(inherit) 교차 관계의 불투명도 배율
+      crossEdgeAlpha: 0.2,      // 대기 상태(inherit) 교차 관계의 불투명도 배율(스포크가 별 구조를 이끈다)
+      labelMaxChars: 28,        // 호버·선택하지 않은 라벨은 이 길이에서 말줄임
       minZoom: 0.05,
       maxZoom: 5,
       fitMaxZoom: 1.6,
@@ -239,9 +241,13 @@
         [this.nodes, 'update', p => {
           const f = p && p.fields;
           // applyView 는 매번 size 등을 다시 보내므로, 실제로 값이 바뀐 경우에만 계층을 다시 짓는다.
-          if(f && (f.has('physics') || f.has('fixed') || f.has('size')) && this._structureChanged(p.items)) this._topologyDirty = true;
+          if(f && (f.has('physics') || f.has('fixed') || f.has('size') || f.has('orbit')) && this._structureChanged(p.items)) this._topologyDirty = true;
           else if(f && (f.has('x') || f.has('y'))) this._applyPositionUpdates(p.items);
-          if(f && f.has('hidden')){ this._hiddenDirty = true; this._energize(); }
+          if(f && f.has('hidden')){
+            this._hiddenDirty = true; this._energize();
+            // 숨김이 바뀌면 별 무리가 다시 짜인다. 사용자·앱이 카메라를 만지지 않았으면 정돈된 뒤 다시 맞춘다.
+            if(!this._cameraSet && this._autoFit === 'done') this._autoFit = 'refine';
+          }
           this._wake();
         }],
         [this.edges, 'add', topo], [this.edges, 'remove', topo],
@@ -258,6 +264,12 @@
         radius: Math.max(0.5, +(it.size != null ? it.size : this.options.nodes.size) || 4),
       };
     }
+    // app 의 바깥 궤도 지정 { band, index, side } → [band, index, side] (물리에서 빠진 노드만 의미가 있다).
+    _orbitOf(it){
+      const ob = it.orbit;
+      if(!ob || it.physics !== false || !Number.isFinite(+ob.band)) return null;
+      return [+ob.band, +ob.index || 0, Math.sign(+ob.side || 0)];
+    }
     _structureChanged(ids){
       const topo = this.sim.topo;
       if(!topo) return true;
@@ -267,6 +279,8 @@
         const f = this._nodeFlags(item);
         if(!!topo.eligible[i] !== f.eligible || !!topo.anchor[i] !== f.anchor) return true;
         if(Math.abs(topo.radius[i] - f.radius) > 1e-3) return true;
+        const ob = this._orbitOf(item);
+        if(ob ? topo.orbitBand[i] !== ob[0] || topo.orbitIndex[i] !== ob[1] || topo.orbitSide[i] !== ob[2] : topo.orbitBand[i] >= 0) return true;
         if(f.fixed || item.physics === false){
           if(Number.isFinite(item.x) && item.x !== topo.fixedX[i]) return true;
           if(Number.isFinite(item.y) && item.y !== topo.fixedY[i]) return true;
@@ -295,6 +309,7 @@
       const eligible = new Uint8Array(n), anchor = new Uint8Array(n), hidden = new Uint8Array(n);
       const fixedX = new Float64Array(n).fill(NaN), fixedY = new Float64Array(n).fill(NaN);
       const initX = new Float64Array(n).fill(NaN), initY = new Float64Array(n).fill(NaN);
+      const orbitBand = new Int8Array(n).fill(-1), orbitIndex = new Float64Array(n), orbitSide = new Int8Array(n);
       let fresh = 0;
       items.forEach((it, i) => {
         const f = this._nodeFlags(it);
@@ -306,6 +321,8 @@
         const hasPos = Number.isFinite(it.x) && Number.isFinite(it.y);
         if(hasPos && (f.fixed || it.physics === false)){ fixedX[i] = it.x; fixedY[i] = it.y; }
         else if(hasPos){ initX[i] = it.x; initY[i] = it.y; }
+        const ob = this._orbitOf(it);
+        if(ob){ orbitBand[i] = ob[0]; orbitIndex[i] = ob[1]; orbitSide[i] = ob[2]; }
         if(!this._index.has(it.id)) fresh++;
       });
       const edgeItems = this.edges ? this.edges.get() : [];
@@ -339,7 +356,7 @@
       if(prevRing.length === n) this._ringAnim.set(prevRing);
       for(const id of [...this.selectedNodes]) if(!index.has(id)) this.selectedNodes.delete(id);
       if(this.hovered >= n) this.hovered = -1;
-      this.sim.setTopology({ ids, group, radius, eligible, anchor, hidden, fixedX, fixedY, initX, initY, adjStart, adjList, springs });
+      this.sim.setTopology({ ids, group, radius, eligible, anchor, hidden, fixedX, fixedY, initX, initY, adjStart, adjList, springs, orbitBand, orbitIndex, orbitSide });
       // 신장 숲에 속한 엣지(tether)인지 — 대기 상태에서 교차 관계는 흐리게 그려 별 구조를 살린다.
       const parent = this.sim.h ? this.sim.h.parent : null;
       this._edgeTree = Uint8Array.from(ea, (a, k) => parent && (parent[eb[k]] === a || parent[a] === eb[k]) ? 1 : 0);
@@ -398,6 +415,10 @@
       if(visible && this.renderer){
         this._draw(t / 1000);
         this._lastDraw = t;
+        // 노드가 움직여(자석·궤도·안정화) 멈춘 커서 밑으로 들어오거나 빠져나가도 호버를 따라가게 한다.
+        if(this.pointerWorld && this._pointerScreen && !this._press && this.options.interaction.hover !== false){
+          this._setHover(this._hitNode(this._pointerScreen.x, this._pointerScreen.y, 4), this._pointerScreen);
+        }
       }
       const busy = this.camAnim || this.dragging >= 0 || this._panning || this._pinch || easing ||
         this._stabilizePending || this.pointerWorld || (simulating && this.sim.meanSpeed > 0.5);
@@ -462,7 +483,9 @@
       return clamp(r * Math.pow(s, 0.6), 1.2, r * 2.5);
     }
     _updateFocus(dt){
-      const want = this.options.renderer.hoverFocus && this.hovered >= 0 && this.selectedNodes.size === 0 && this.dragging < 0 ? 1 : 0;
+      // 잡고 끄는 노드는 호버 강조를 유지한다(Shopify 처럼 끌려오는 별이 계속 밝게 보인다).
+      const want = this.options.renderer.hoverFocus && this.hovered >= 0 && this.selectedNodes.size === 0 &&
+        (this.dragging < 0 || this.dragging === this.hovered) ? 1 : 0;
       const prev = this.focusAmount;
       this.focusAmount += (want - this.focusAmount) * approach(want ? 9 : 6, dt);
       if(Math.abs(this.focusAmount - want) < 0.003) this.focusAmount = want;
@@ -513,6 +536,7 @@
       const defaultEdgeColor = parseColor(edgeDefaults.color && edgeDefaults.color.color);
       const widthScale = opts.renderer.edgeWidthScale;
       const packets = [];
+      const ringColour = parseColor(opts.nodes.font.color);
       this._visibleEdges = [];
       for(let k = 0; k < this._edgeItems.length; k++){
         const e = this._edgeItems[k], a = this._edgeA[k], b = this._edgeB[k];
@@ -528,7 +552,14 @@
         const width = (e.width != null ? +e.width : edgeDefaults.width) * widthScale;
         if(a0 <= 0.004 || width <= 0) continue;
         let c0, c1;
-        if(c && c.inherit){
+        const hot = this.focusAmount > 0 && this.hovered >= 0 && (a === this.hovered || b === this.hovered);
+        if(hot && c && c.inherit){
+          // 호버한 노드의 관계는 강조색으로 밝힌다(Shopify 의 초록 스포크).
+          const hi = parseColor(edgeDefaults.color && edgeDefaults.color.highlight);
+          c0 = mixColor(colour[a], hi, this.focusAmount); c1 = mixColor(colour[b], hi, this.focusAmount);
+          a0 = lerp(a0, Math.max(a0, 0.9), this.focusAmount);
+        }
+        else if(c && c.inherit){
           c0 = colour[a]; c1 = colour[b];
           if(!this._edgeTree[k]) a0 *= opts.renderer.crossEdgeAlpha;
         }
@@ -538,7 +569,6 @@
         if(flowOn && a !== b && a0 > 0.05){
           // 흐름 패킷: 관계 방향(from → to)으로 흐르는 점. 위상은 엣지 id 해시로 흩는다.
           const t = (time * opts.renderer.flowSpeed + hashUnit(e.id, 41)) % 1;
-          const hot = a === this.hovered || b === this.hovered;
           packets.push(lerp(x0, x1, t), lerp(y0, y1, t), hot ? 1.5 : 1.1, k, Math.min(1, a0 * 1.6 + 0.08));
         }
       }
@@ -561,6 +591,9 @@
         if(ring > 0.01){
           const hc = item.color && item.color.hover && item.color.hover.border ? parseColor(item.color.hover.border) : colour[i];
           frame.pushNode(x, y, r + 2 + ring * 2.5, SHAPE_RING, hc, ring, 1.2);
+        } else if(this.focusAmount > 0.01 && this.focusSet && this.focusSet.has(i)){
+          // 호버한 노드의 이웃은 속이 빈 고리로 짚어 준다(어디로 이어지는지 한눈에).
+          frame.pushNode(x, y, r + 2.2, SHAPE_RING, ringColour, this.focusAmount * 0.9, 1);
         }
       }
       this.renderer.draw(frame);
@@ -632,26 +665,27 @@
         if(lit) pri += 1e7;
         if(selected) pri += 1e8;
         if(i === this.hovered) pri += 1e9;
-        cands.push([pri, i, fs, hub, deg]);
+        cands.push([pri, i, fs, hub]);
       }
       cands.sort((p, q) => q[0] - p[0]);
       const max = Math.min(opts.renderer.maxLabels, Math.max(24, Math.round(this.W * this.H / 6500)));
       ctx.textBaseline = 'middle';
       ctx.lineJoin = 'round';
       let drawn = 0;
-      for(const [, i, fs, hub, deg] of cands){
+      for(const [, i, fs, hub] of cands){
         if(drawn >= max) break;
         const item = this._items[i];
-        const px = clamp(10 + (fs - 11) * 0.45, 10, 13.5) + (hub ? 0.5 : 0);
-        const font = (hub || i === this.hovered ? '600 ' : '400 ') + px.toFixed(1) + 'px ' + family;
+        const isHover = i === this.hovered;
+        const selected = this.selectedNodes.has(this._ids[i]);
+        // 호버한 라벨만 크게 키운다. 나머지는 가는 고정폭 한 가지 굵기로 차분하게 둔다.
+        const px = (clamp(10 + (fs - 11) * 0.45, 10, 13.5) + (hub ? 0.5 : 0)) * (isHover ? lerp(1, opts.renderer.hoverLabelScale, this.focusAmount) : 1);
+        const font = (selected ? '600 ' : '400 ') + px.toFixed(1) + 'px ' + family;
         ctx.font = font;
-        const text = String(item.label);
+        let text = String(item.label);
+        const maxChars = opts.renderer.labelMaxChars;
+        if(maxChars > 0 && !isHover && !selected && text.length > maxChars) text = text.slice(0, maxChars - 1).trimEnd() + '…';
         const tw = this._measureText(ctx, text, font);
-        const supFont = '400 ' + (px * 0.72).toFixed(1) + 'px ' + family;
-        const sup = hub && deg > 0 ? String(deg) : '';
-        let supW = 0;
-        if(sup){ ctx.font = supFont; supW = this._measureText(ctx, sup, supFont) + 2; ctx.font = font; }
-        const w = tw + supW + 4, h = px + 4, r = sr[i];
+        const w = tw + 4, h = px + 4, r = sr[i];
         const spots = [
           [sx[i] + r + 4, sy[i] - h / 2],
           [sx[i] - r - 4 - w, sy[i] - h / 2],
@@ -675,11 +709,6 @@
         ctx.strokeText(text, tx, ty);
         ctx.fillStyle = cssColor(fc, 1);
         ctx.fillText(text, tx, ty);
-        if(sup){
-          ctx.font = supFont;
-          ctx.fillStyle = cssColor(fc, 0.55);
-          ctx.fillText(sup, tx + tw + 2, ty - px * 0.32);
-        }
         ctx.globalAlpha = 1;
       }
       // 관계 라벨: app 이 font.size 를 켠 엣지만(선택·경로·확대 단계).
@@ -850,6 +879,7 @@
         this.pointerVel[1] = this.pointerVel[1] * 0.5 + (w.y - this.pointerWorld[1]) / dts * 0.5;
       }
       this.pointerWorld = [w.x, w.y];
+      this._pointerScreen = p;
       this._lastPointerT = t;
       this._lastInteract = t;
       if(this.options.interaction.hover !== false) this._setHover(this._hitNode(p.x, p.y, 4), p);
