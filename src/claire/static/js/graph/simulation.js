@@ -28,7 +28,7 @@
     nestedLength: 30,       // 손자 이하 tether 기본 길이
     lengthJitter: 1,        // 스포크 길이를 4^(±jitter/3) 범위로 흩뜨려 별 모양을 만든다
     starGrowth: 22,         // 자식 수가 이보다 많으면 √비율로 tether 를 늘린다
-    packAspectX: 1.4,       // 별 무리를 가로로 늘려 넓은 화면을 채운다
+    packAspectX: 1.4,       // 별 무리의 가로/세로 비율. Network 가 그래프 영역 비율로 맞춘다(세로로 긴 화면은 1 미만)
     packGap: 26,
     starOverlap: 0.8,       // 이웃 별의 스포크 끝이 서로 맞물리도록 별 반경을 이만큼만 비워 둔다
     collidePad: 3,
@@ -420,6 +420,21 @@
         if(placed[i] || h.depth[i] >= 0 || (this.topo.orbitBand && this.topo.orbitBand[i] >= 0)) continue;
         const a = hashSigned(this.ids[i], 3) * Math.PI, r = 40 + Math.abs(hashSigned(this.ids[i], 5)) * 80;
         this.x[i] = Math.cos(a) * r; this.y[i] = Math.sin(a) * r;
+      }
+    }
+
+    // 보이는 별을 통째로 제자리로 옮긴다(루트와 그 하위 노드를 같은 만큼 평행 이동). 별 모양은 그대로
+    // 두고 무리 배치만 맞추므로, 이어지는 워밍업은 세부만 다듬으면 된다.
+    snapToHomes(){
+      const h = this.h, n = this.n;
+      if(!h) return;
+      const dx = new Float64Array(n), dy = new Float64Array(n), moved = new Uint8Array(n);
+      for(const r of this.visibleRoots){ dx[r] = this.homeX[r] - this.x[r]; dy[r] = this.homeY[r] - this.y[r]; moved[r] = 1; }
+      for(let i = 0; i < n; i++){
+        const r = h.rootOf[i];
+        if(this.mode[i] !== MODE_ACTIVE || r < 0 || !moved[r]) continue;
+        this.x[i] += dx[r]; this.y[i] += dy[r];
+        this.vx[i] = 0; this.vy[i] = 0;
       }
     }
 

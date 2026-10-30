@@ -64,6 +64,8 @@ let lastNetSize = {w:0, h:0};
 let allTypes = [], allRelTypes = [], allDocs = [];
 let net = null, allNodes = null, allEdges = null;
 let curMinDeg = 0, activeDoc = null, highlightSet = null, selectedNodeId = null, hoverTimer = null;
+// 노드(그래프·'이 문서의 노드' 버튼)에 커서를 이만큼 올려 두면 요약 팝업을 띄운다.
+const NODE_POP_DELAY_MS = 1000;
 const HOME_TITLE = 'Claire Bible — 지식 그래프';
 let activeJobs = [];
 let selectedJobId = null;
@@ -563,7 +565,7 @@ function defaultHint(){
     ? '• <b>Ctrl+클릭</b> 또는 상세의 <b>➕ 종합에 추가</b>로 여러 노드를 모아 종합<br>'
     : '';
   return '<p class="hint">노드를 클릭하면 관찰·출처 문서·연결이 표시됩니다.<br><br>'+synthLine+
-    '• 다른 노드에 <b>1.5초</b> 올리면 마우스 옆에 <b>요약 팝업</b>(더 끌면 출처 문서까지)<br>'+
+    '• 다른 노드에 <b>'+(NODE_POP_DELAY_MS/1000)+'초</b> 올리면 마우스 옆에 <b>요약 팝업</b>(더 끌면 출처 문서까지)<br>'+
     '• <b>자료</b>에서 문서를 고르면 그래프가 강조되고, <b>📖</b>로 크게 읽습니다.<br>'+
     '• 상단 <b>⋯ 도구</b>의 <b>🌙/🌞</b>로 라이트·다크를 전환합니다.</p>';
 }
@@ -1272,7 +1274,9 @@ function initGraph(onComplete){
         font:{color:th.nodeFont,size:0,strokeColor:netBg}},
       groups:buildGroups(),
       physics:true,
-      interaction:{hover:true,multiselect:true,zoomView:false}
+      interaction:{hover:true,multiselect:true,zoomView:false},
+      // 그래프 위에 겹친 밀집도·카메라 컨트롤은 카메라 맞춤과 별 무리 비율에서 뺀다(가려진 라벨 방지).
+      renderer:{fitAvoid:['#degctl','#zoomctl']}
     };
     const netEl = document.getElementById('net');
     if(netEl) net = new G.Network(netEl, {nodes:allNodes, edges:allEdges}, opts);
@@ -1406,7 +1410,7 @@ function initGraph(onComplete){
         }
       }
     });
-    // hover → 1.5초 뒤 마우스 위치에 작은 요약 팝업(우측 패널은 안 건드림 — 난잡함 해소, 사용자 요구).
+    // hover → NODE_POP_DELAY_MS 뒤 마우스 위치에 작은 요약 팝업(우측 패널은 안 건드림 — 난잡함 해소, 사용자 요구).
     // 우측 패널은 클릭(inspect)일 때만 바뀐다 → hover 가 패널/선택을 흔들지 않아 복원 로직도 불필요.
     net.on('hoverNode', p => {
       const isMobile = (compactMQ && compactMQ.matches) || (mobileMQ && mobileMQ.matches);
@@ -1414,7 +1418,7 @@ function initGraph(onComplete){
       applyHoverHighlight(p.node);
       clearTimeout(hoverTimer);
       if(!canShowNodePop(p.node)) return;
-      hoverTimer=setTimeout(()=>showNodePop(p.node), 1500);
+      hoverTimer=setTimeout(()=>showNodePop(p.node), NODE_POP_DELAY_MS);
     });
     net.on('blurNode', () => {
       const isMobile = (compactMQ && compactMQ.matches) || (mobileMQ && mobileMQ.matches);
@@ -4277,12 +4281,12 @@ function unclusterEdges(){
   if(clusterAnchor && allNodes){ try{ allNodes.remove(clusterAnchor); }catch(e){} }
   clusterEdges=null; clusterAnchor=null;
 }
-// 우측 '이 문서의 노드' 버튼 hover — 요약 팝업(1.5초 머물 시). 클릭 시 focusNode 로 카메라 이동.
+// 우측 '이 문서의 노드' 버튼 hover — 요약 팝업(NODE_POP_DELAY_MS 머물 시). 클릭 시 focusNode 로 카메라 이동.
 function peekNode(ev, id){
   clearTimeout(hoverTimer);
   if(!canShowNodePop(id)) return;
   const x=ev.clientX, y=ev.clientY;
-  hoverTimer=setTimeout(()=>showNodePop(id, x, y), 1500);
+  hoverTimer=setTimeout(()=>showNodePop(id, x, y), NODE_POP_DELAY_MS);
 }
 function leaveNode(){ clearTimeout(hoverTimer); hideNodePop(); }
 // 공통 헤더 검색창 입력 핸들러 (본문/그래프/의사결정 스트림 상태에 따라 분기)

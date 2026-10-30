@@ -37,6 +37,7 @@
       minZoom: 0.05,
       maxZoom: 5,
       fitMaxZoom: 1.6,
+      fitAvoid: [],             // 그래프 위에 겹친 컨트롤(요소·선택자). 카메라 맞춤과 별 무리 비율이 이 영역을 피한다
     },
     simulation: {},
   };
@@ -106,6 +107,7 @@
       this._autoFit = 'pending';
       this._pendingFit = null;
       this._stabilizePending = true;
+      this._settledOnce = false;
       this._settleClock = 0;
       this._energizedAt = now();
       this._destroyed = false;
@@ -214,8 +216,47 @@
       const changed = w !== this.W || h !== this.H || dpr !== this.dpr;
       this.W = w; this.H = h; this.dpr = dpr;
       if(changed) this._sizeRenderer();
+      if(w > 0 && h > 0) this._syncPackAspect();
       if(w > 0 && h > 0 && this._pendingFit){ const opts = this._pendingFit; this._pendingFit = null; this.fit(opts); }
       this._wake();
+    }
+    // 겹친 컨트롤이 가리는 만큼의 안쪽 여백(CSS px). 컨트롤마다 가장 적게 잘라 내는 변 하나를 고른다
+    // (오른쪽 세로 컨트롤 열이면 오른쪽). 숨겨졌거나 그래프와 겹치지 않는 컨트롤은 건너뛴다.
+    _fitInsets(){
+      const ins = { l: 0, r: 0, t: 0, b: 0 };
+      const list = this.options.renderer.fitAvoid || [];
+      this._avoidRects = [];
+      if(!list.length) return ins;
+      const c = this.container.getBoundingClientRect();
+      for(const ref of list){
+        const el = typeof ref === 'string' ? document.querySelector(ref) : ref;
+        if(!el || !el.getBoundingClientRect) continue;
+        const r = el.getBoundingClientRect();
+        if(r.width <= 0 || r.height <= 0 || r.right <= c.left || r.left >= c.right || r.bottom <= c.top || r.top >= c.bottom) continue;
+        this._avoidRects.push([r.left - c.left - 4, r.top - c.top - 4, r.width + 8, r.height + 8]);
+        const cut = { r: c.right - r.left, l: r.right - c.left, t: r.bottom - c.top, b: c.bottom - r.top };
+        const side = Object.keys(cut).reduce((p, q) => cut[q] < cut[p] ? q : p);
+        ins[side] = Math.max(ins[side], cut[side] + 8);
+      }
+      // 컨트롤이 화면 대부분을 덮는 좁은 화면에서도 그래프 자리는 남긴다.
+      ins.l = Math.min(ins.l, this.W * 0.4); ins.r = Math.min(ins.r, this.W * 0.4);
+      ins.t = Math.min(ins.t, this.H * 0.4); ins.b = Math.min(ins.b, this.H * 0.4);
+      return ins;
+    }
+    // 별 무리를 그래프가 실제로 쓰는 영역(컨트롤 제외) 비율로 펼친다. 넓은 화면은 가로로, 세로로 긴
+    // 모바일은 세로로. 비율이 크게 바뀌면(회전·패널 전환) 무리를 다시 짜고, 카메라를 손대지 않았으면 다시 맞춘다.
+    _syncPackAspect(){
+      const ins = this._fitInsets();
+      const aw = this.W - ins.l - ins.r, ah = this.H - ins.t - ins.b;
+      if(aw <= 0 || ah <= 0) return;
+      const aspect = clamp(aw / ah, 0.6, 2);
+      const cur = this.sim.settings.packAspectX;
+      if(Math.abs(Math.log(aspect / cur)) < 0.15) return;
+      this.sim.settings.packAspectX = aspect;
+      if(!this.sim.h) return;
+      this._hiddenDirty = true;
+      this._energize();
+      if(!this._cameraSet && this._autoFit === 'done') this._autoFit = 'refine';
     }
     // 앱이 카메라를 정하지 않았으면 스스로 맞춘다: 첫 프레임(앱의 첫 applyView 로 숨김이 반영된 뒤)에
     // 한 번, 첫 안정화 때 정돈된 배치로 한 번 더. 앱·사용자가 카메라를 만지면 그 뒤로는 손대지 않는다.
@@ -370,6 +411,9 @@
       const n = this._ids.length, hidden = new Uint8Array(n);
       for(let i = 0; i < n; i++) hidden[i] = this._items[i].hidden ? 1 : 0;
       this.sim.setHidden(hidden);
+      // 첫 안정화 전(앱의 첫 필터 적용)에는 별을 통째로 새 제자리에 옮기고 워밍업해 정돈된 상태로 보인다.
+      // 그 뒤의 필터 변경은 별이 미끄러져 옮겨 가는 모습을 그대로 보여 준다.
+      if(!this._settledOnce){ this.sim.snapToHomes(); this.sim.warmup(); }
     }
 
     // --- 렌더 루프 ---
@@ -446,6 +490,7 @@
       else this._settleClock = 0;
       if(this._settleClock >= 0.4 || elapsed > 4){
         this._stabilizePending = false;
+        this._settledOnce = true;
         if(this.W > 0 && this.H > 0) this._autoFitStep('refine');
         this.emit('stabilized', { iterations: Math.round(elapsed * 60) });
       }
@@ -637,6 +682,8 @@
         ctx.closePath(); ctx.fill();
       }
       const placed = this._labelRects; placed.length = 0;
+      // 겹친 컨트롤 자리는 이미 차지된 것으로 보고 라벨이 그 밑으로 들어가지 않게 한다(호버 라벨은 예외).
+      if(this._avoidRects) for(const r of this._avoidRects) placed.push(r);
       const overlaps = (x, y, w, h) => {
         if(x < 2 || y < 2 || x + w > this.W - 2 || y + h > this.H - 2) return true;
         for(const r of placed) if(x < r[0] + r[2] && x + w > r[0] && y < r[1] + r[3] && y + h > r[1]) return true;
@@ -1046,12 +1093,16 @@
         x0 = Math.min(x0, this.sim.x[i] - r); x1 = Math.max(x1, this.sim.x[i] + r);
         y0 = Math.min(y0, this.sim.y[i] - r); y1 = Math.max(y1, this.sim.y[i] + r);
       }
-      const pad = 48, rend = this.options.renderer;
+      const rend = this.options.renderer, ins = this._fitInsets();
+      // 여백은 영역에 비례(좁은 모바일에서 고정 48px 가 폭의 1/3 을 먹지 않게).
+      const pad = clamp(Math.min(this.W - ins.l - ins.r, this.H - ins.t - ins.b) * 0.06, 12, 48);
       const maxZoom = opts && opts.maxZoomLevel != null ? +opts.maxZoomLevel : rend.fitMaxZoom;
       const minZoom = opts && opts.minZoomLevel != null ? +opts.minZoomLevel : rend.minZoom;
-      const sw = Math.max(1, this.W - pad * 2), sh = Math.max(1, this.H - pad * 2);
+      const sw = Math.max(1, this.W - ins.l - ins.r - pad * 2), sh = Math.max(1, this.H - ins.t - ins.b - pad * 2);
       const scale = clamp(Math.min(sw / Math.max(1, x1 - x0), sh / Math.max(1, y1 - y0)), minZoom, maxZoom);
-      this._cameraTo({ x: (x0 + x1) / 2, y: (y0 + y1) / 2, scale }, animation);
+      // 컨트롤을 뺀 영역의 가운데에 맞춘다.
+      const offX = (ins.l - ins.r) / 2, offY = (ins.t - ins.b) / 2;
+      this._cameraTo({ x: (x0 + x1) / 2 - offX / scale, y: (y0 + y1) / 2 - offY / scale, scale }, animation);
     }
 
     // --- vis-network 호환 공개 API ---

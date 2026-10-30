@@ -110,7 +110,8 @@ def test_graph_html_self_contained_markers():
     assert "id=\"docs\"" in GRAPH_HTML and "selectDoc" in GRAPH_HTML    # 좌측 문서 패널
     assert "id=\"legendbar\"" in GRAPH_HTML and "TYPE_COLORS" in GRAPH_HTML  # 색 범례
     assert "hoverNode" in GRAPH_HTML and "blurNode" in GRAPH_HTML       # hover 미리보기
-    assert ", 1500)" in GRAPH_HTML                                      # hover 1.5초
+    assert "const NODE_POP_DELAY_MS = 1000;" in GRAPH_HTML              # hover 1초 뒤 요약 팝업
+    assert "showNodePop(p.node), NODE_POP_DELAY_MS)" in GRAPH_HTML
     # 첫 페인트는 fail-closed이고 /whoami가 owner를 확인한 뒤에만 쓰기 UI를 승격한다.
     assert "synthesize" in GRAPH_HTML                                   # 종합 POST 경로
     assert "세션 만료" in GRAPH_HTML                                    # 만료 시 /web 재접속 안내
@@ -701,6 +702,11 @@ def test_graph_engine_physics_and_rendering_backends():
     assert "class Simulation {" in GRAPH_HTML
     assert "_seedLayout(placed){" in GRAPH_HTML
     assert "warmup(){" in GRAPH_HTML
+    assert "snapToHomes(){" in GRAPH_HTML                               # 첫 필터 적용 뒤 정돈된 첫 표시
+    assert "if(!this._settledOnce){ this.sim.snapToHomes(); this.sim.warmup(); }" in GRAPH_HTML
+    # 겹친 컨트롤은 카메라 맞춤·별 무리 비율·라벨 배치에서 피한다(모바일에서 그래프가 가려지지 않게)
+    assert "renderer:{fitAvoid:['#degctl','#zoomctl']}" in GRAPH_HTML
+    assert "_fitInsets(){" in GRAPH_HTML and "_syncPackAspect(){" in GRAPH_HTML
     assert "_projectTethers(dt, io){" in GRAPH_HTML
     assert "function getPhysicsOpts(nodeCount){" not in GRAPH_HTML
     assert "settleTimer" not in GRAPH_HTML
