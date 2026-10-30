@@ -230,16 +230,17 @@ VMware Explore 숫자형 영상 상세 페이지가 Presentation PDF를 명시�
 
 ---
 
-### 2.10.3 TypeSafe AI Jev 지식 노드 의사결정 엔진 (선택형 System 1 Engine)
+### 2.10.3 TypeSafe AI Jev 엔티티 해소 shadow 평가 (도입 검토용 System 1 Engine)
 
-TypeSafe AI Jev는 엔티티 해소(Entity Resolution) 및 관계 판정 시 비-자기회귀(Non-autoregressive) 방식으로 초고속 의사결정을 수행하는 선택형 보조 엔진이다. 본 옵션이 비활성화(`0`)되어 있거나 API 키가 미지정된 경우, 시스템은 서비스 중단 없이 기본 코사인 유사도 및 규칙 기반 매트릭스(`fallback_vector`)로 투명하게 동작한다. ([DECISION_STREAM_AND_HEATMAP_MATRIX_DESIGN.md](../design/DECISION_STREAM_AND_HEATMAP_MATRIX_DESIGN.md) 참조)
+TypeSafe AI Jev는 도입 검토 단계라 **판정 권한이 없다**. 플래그와 API 키가 모두 있으면 resolver가 후보 루프에 진입할 때 같은 후보를 Jev에 동시 질의한다. 결과 확률은 판정 기록(`documents.meta.resolution_log`)에만 남는다. 병합 여부와 히트맵(`fallback_vector`)은 이 설정과 무관하다. 켜면 엔티티 이름·타입·별칭·관측문 요약이 `api.typesafe.ai`(미국)로 전송된다. ([JEV_SHADOW_EVALUATION_DESIGN.md](../design/JEV_SHADOW_EVALUATION_DESIGN.md) 참조)
 
 | 환경변수명 | 기본값 | 허용 값 / 타입 | 설명 |
 | :--- | :--- | :--- | :--- |
-| `CLAIRE_ENABLE_JEV` | `0` (`false`) | `0`, `1`, `true`, `false` | TypeSafe AI Jev (System 1) 의사결정 엔진 활성화 플래그. |
-| `CLAIRE_JEV_API_KEY` | `""` | 문자열 | TypeSafe AI 플랫폼 API 키 (`null` 또는 빈 문자열 시 Fallback 동작). |
-| `CLAIRE_JEV_BASE_URL` | `https://api.typesafe.ai/v1` | 유효한 URL | TypeSafe AI Jev API 엔드포인트 기본 URL. |
-| `CLAIRE_JEV_TIMEOUT` | `15.0` | 부동소수점 (초) | Jev 판정 질의 타임아웃 제한 시간. 초과 시 Fallback 매트릭스로 즉각 전환. |
+| `CLAIRE_ENABLE_JEV` | `0` (`false`) | `0`, `1`, `true`, `false` | Jev shadow 평가 활성화 플래그 (판정 불관여). |
+| `CLAIRE_JEV_API_KEY` | `""` | 문자열 | TypeSafe AI 플랫폼 API 키 (`null` 또는 빈 문자열이면 shadow 비활성). |
+| `CLAIRE_JEV_BASE_URL` | `https://api.typesafe.ai/v1` | 유효한 URL | Jev API 기본 URL (`POST {base}/systemone`). |
+| `CLAIRE_JEV_TIMEOUT` | `15.0` | 부동소수점 (초) | Jev 호출 타임아웃. shadow 결과 수거 대기에도 적용된다. 연속 3회 실패하면 600초간 호출을 건너뛴다. |
+| `CLAIRE_JEV_MODEL` | `jev-latest` | 모델명 또는 별칭 | 평가 중 별칭 이동을 막으려면 `jev-1.14.0`처럼 버전을 고정한다. 실제 응답 모델명은 판정 기록에 남는다. |
 
 ---
 

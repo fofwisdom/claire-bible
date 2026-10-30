@@ -68,6 +68,8 @@ flowchart LR
 
 ## 3. TypeSafe AI Jev (System 1) 연동 및 옵션(Optional) 설계
 
+> 2026-10-31 변경: 아래 'Jev 활성화 시 히트맵 배치 호출' 경로는 구현된 적이 없다. `_call_jev_matrix_api`는 네트워크 호출 없이 `generated_by="jev"`를 붙이는 스텁이었고, 이번에 제거했다. 히트맵은 항상 `fallback_vector`로 산출한다. Jev는 도입 검토 단계이므로 판정 권한 없는 shadow 평가만 수행한다. 상세는 [JEV_SHADOW_EVALUATION_DESIGN.md](JEV_SHADOW_EVALUATION_DESIGN.md) 참조.
+
 ### 3.1 모델 이원화 아키텍처 (System 1 & System 2)
 - **System 2 (Gemini / Claude)**: 비정형 원문 이해, 온톨로지 구조화 추출(`extract`), 가독 상세 본문 생성(`detail`).
 - **System 1 (TypeSafe AI Jev)**: 엔티티 동일체 판정(`judge_same_entity`), 전역 관계 판정(`judge_relationship`), 다대다 확률 텐서(0.0~1.0) 초고속 산출.
@@ -154,6 +156,8 @@ flowchart TD
 - **즉시 실측 가능한 영역 (Baseline)**: 보유 중인 `GEMINI_API_KEY`를 바탕으로 한 현행 Gemini 3.1 Flash (System 2)와 `text-embedding-004` 벡터 코사인 매트릭스의 성능 지표는 지금 당장 100% 실제 실측이 가능하며, 이를 향후 비교 평가의 기준선(Baseline)으로 삼는다.
 
 ### 6.5 Jev API 확보 시 즉시 실측 전환 프로토콜 (Turnkey Verification Protocol)
+
+> 2026-10-31 변경: 공식 API는 `POST /v1/systemone` 하나이고, 확률은 `answers.<질문>.noul`에 있다. 아래 `/classify` 예시는 문서화되지 않은 추정 경로다. 실측은 운영 shadow 평가([JEV_SHADOW_EVALUATION_DESIGN.md](JEV_SHADOW_EVALUATION_DESIGN.md))와, 같은 요청 형식을 쓰는 `scripts/verify_jev_system1.py`로 수행한다.
 향후 TypeSafe AI Jev 계정 및 API 키가 발급되는 즉시, 사전 구축된 `run_resolution_benchmark`의 `judge_fn`을 실제 API 호출부로 교체하여 단 수 초 만에 진짜 실측 검증을 수행한다:
 
 ```python
@@ -203,6 +207,7 @@ class ResolutionDecision:
 ```
 
 > 2026-10-30: Jev 도입 검토 증거용 선택 필드 `candidates`, `input_snapshot`, `gate_params`가 추가되었다. 후보 루프에 진입한 판정에만 기록된다. 상세는 [GRAPH_BUNDLE_REVIEW_EVIDENCE_DESIGN.md](GRAPH_BUNDLE_REVIEW_EVIDENCE_DESIGN.md) §3.1 참조.
+> 2026-10-31: Jev shadow 평가 결과를 담는 선택 필드 `shadow`와 `candidates[].jev_noul`이 추가되었다. 판정에는 관여하지 않는다. 상세는 [JEV_SHADOW_EVALUATION_DESIGN.md](JEV_SHADOW_EVALUATION_DESIGN.md) §3.5 참조.
 
 #### `rollback_payload` 구성 요소:
 - `added_aliases`: 이번 병합으로 타깃 엔티티에 새로 추가된 별칭 목록 (롤백 시 제거).

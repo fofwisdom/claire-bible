@@ -88,6 +88,8 @@ CREATE TABLE review_judge_calls (
 );
 ```
 
+> 2026-10-31 (review schema v2): `review_decisions.shadow` 컬럼, `review_shadow_pairs` 테이블, `review_meta.shadow` 요약이 추가되었다. 과거 `jev` 히트맵이 스텁 산출물이라는 주석(`coverage.heatmap_generator_notes`)도 함께 기록한다. 상세는 [JEV_SHADOW_EVALUATION_DESIGN.md](JEV_SHADOW_EVALUATION_DESIGN.md) §3.7 참조.
+
 `manifest.json`은 `bundle_version: 2`가 되고, `review` 섹션에 `schema_version`과 테이블별 건수, 후보 쌍 산출 상태를 기록한다. `graph_export_sha256`는 review 테이블을 포함한 전체 DB의 해시다.
 
 ### 3.3 후보 쌍(`review_candidate_pairs`) 산출 규칙

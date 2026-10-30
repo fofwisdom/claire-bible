@@ -7,7 +7,7 @@
 
 동작:
   1. 프로덕션 환경의 Jev API Key 및 Base URL 자동 탐색 (.env, providers.json, 환경변수)
-  2. 엔드포인트 연결성 및 프로토콜 자동 감지 (/v1/systemone vs /v1/classify)
+  2. 엔드포인트 연결성 확인 (GET /v1/models) — 공식 API 는 POST /v1/systemone 하나뿐이다
   3. 정본 골든 데이터셋(14개 케이스) 전수 실측 평가
   4. Go / No-Go 판정 게이트 (FPR 0.00%, Precision >= 98.0%, P95 Latency) 산출
   5. JSON 결과 보고서 파일(jev_benchmark_report.json) 저장 및 요약 출력
@@ -17,14 +17,22 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import sys
 import time
-import urllib.error
-import urllib.request
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+import httpx
+
+from claire.extract.jev import (
+    DEFAULT_JEV_MODEL,
+    JevClient,
+    JevError,
+    build_same_entity_request,
+    entity_snapshot,
+    parse_noul_answers,
+)
 
 
 # --- 1. 정본 골든 데이터셋 (Golden Dataset) ---
@@ -273,6 +281,7 @@ def discover_jev_config() -> dict[str, Any]:
     api_key = os.environ.get("CLAIRE_JEV_API_KEY", "").strip()
     base_url = os.environ.get("CLAIRE_JEV_BASE_URL", "https://api.typesafe.ai/v1").strip()
     timeout = float(os.environ.get("CLAIRE_JEV_TIMEOUT", "15.0"))
+    model = os.environ.get("CLAIRE_JEV_MODEL", "").strip() or DEFAULT_JEV_MODEL
     key_source = "environment" if api_key else ""
 
     # 1) providers.json 탐색
@@ -287,6 +296,7 @@ def discover_jev_config() -> dict[str, Any]:
                         api_key = k
                         base_url = str(jev.get("base_url") or base_url).strip()
                         timeout = float(jev.get("timeout") or timeout)
+                        model = str(jev.get("model") or model).strip()
                         key_source = str(p)
                         break
                 except Exception:
@@ -320,6 +330,7 @@ def discover_jev_config() -> dict[str, Any]:
         "api_key": api_key,
         "base_url": base_url.rstrip("/"),
         "timeout": timeout,
+        "model": model,
         "key_source": key_source,
     }
 
@@ -332,147 +343,36 @@ def mask_token(token: str) -> str:
     return f"{token[:4]}...{token[-4:]}"
 
 
-# --- 3. HTTP 통신 및 Jev 호출기 ---
+# --- 3. Jev 호출기 (운영 shadow 평가와 같은 요청 형식: claire.extract.jev) ---
 
-def http_post_json(url: str, headers: dict[str, str], payload: dict[str, Any], timeout: float) -> tuple[int, dict[str, Any], float]:
-    body_bytes = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(url, data=body_bytes, headers=headers, method="POST")
+def probe_jev(cfg: dict[str, Any]) -> dict[str, Any]:
+    """GET /models 로 키·엔드포인트를 확인한다 (docs.typesafe.ai/api/list-models)."""
+    url = f"{cfg['base_url']}/models"
     t0 = time.perf_counter()
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            elapsed_ms = (time.perf_counter() - t0) * 1000.0
-            data = json.loads(resp.read().decode("utf-8"))
-            return resp.status, data, elapsed_ms
-    except urllib.error.HTTPError as e:
-        elapsed_ms = (time.perf_counter() - t0) * 1000.0
-        try:
-            err_body = json.loads(e.read().decode("utf-8"))
-        except Exception:
-            err_body = {"raw": e.reason}
-        return e.code, err_body, elapsed_ms
-    except Exception as e:
-        elapsed_ms = (time.perf_counter() - t0) * 1000.0
-        return 0, {"error": str(e)}, elapsed_ms
+        resp = httpx.get(url, headers={"Authorization": f"Bearer {cfg['api_key']}"}, timeout=cfg["timeout"])
+    except httpx.HTTPError as e:
+        return {"ok": False, "url": url, "error": type(e).__name__}
+    lat = round((time.perf_counter() - t0) * 1000.0, 2)
+    body: Any
+    try:
+        body = resp.json()
+    except ValueError:
+        body = resp.text[:200]
+    return {"ok": resp.status_code == 200, "url": url, "status_code": resp.status_code, "latency_ms": lat, "body": body}
 
 
-def probe_jev_protocol(base_url: str, api_key: str, timeout: float) -> dict[str, Any]:
-    """Jev 엔드포인트 규격 자동 진단 (/v1/systemone vs /v1/classify)."""
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-        "User-Agent": "claire-jev-verifier/1.0",
-    }
-
-    # 1) TypeSafe AI System One 공식 규격 검사
-    sysone_url = f"{base_url}/systemone"
-    sysone_payload = {
-        "model": "jev-latest",
-        "state": "Probe test: Checking connectivity and latency of TypeSafe AI Jev System One.",
-        "questions": {
-            "is_alive": {
-                "type": "noul",
-                "instructions": "Is this a valid probe request?"
-            }
-        }
-    }
-    s_code, s_resp, s_lat = http_post_json(sysone_url, headers, sysone_payload, timeout)
-
-    if s_code == 200 and isinstance(s_resp, dict) and "is_alive" in s_resp:
-        return {
-            "mode": "systemone",
-            "url": sysone_url,
-            "latency_ms": round(s_lat, 2),
-            "sample_response": s_resp,
-            "status_code": 200,
-        }
-
-    # 2) 설계 문서 §6.5 간이 규격(/classify) 검사
-    classify_url = f"{base_url}/classify"
-    classify_payload = {"source": "Postgres", "target": "PostgreSQL"}
-    c_code, c_resp, c_lat = http_post_json(classify_url, headers, classify_payload, timeout)
-
-    if c_code == 200 and isinstance(c_resp, dict) and "probability" in c_resp:
-        return {
-            "mode": "classify",
-            "url": classify_url,
-            "latency_ms": round(c_lat, 2),
-            "sample_response": c_resp,
-            "status_code": 200,
-        }
-
-    return {
-        "mode": "unknown",
-        "url": base_url,
-        "systemone_result": {"status": s_code, "resp": s_resp, "lat_ms": round(s_lat, 2)},
-        "classify_result": {"status": c_code, "resp": c_resp, "lat_ms": round(c_lat, 2)},
-        "status_code": s_code or c_code or 0,
-    }
-
-
-def call_jev_case(
-    mode: str,
-    url: str,
-    api_key: str,
-    timeout: float,
-    case: ResolutionBenchmarkCase,
-) -> tuple[float, float, dict[str, Any]]:
-    """단일 케이스에 대해 Jev API를 호출하여 (확률, 지연시간_ms, 원시응답) 반환."""
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-        "User-Agent": "claire-jev-verifier/1.0",
-    }
-
-    if mode == "systemone":
-        state_parts = [
-            f"Entity A: '{case.new_name}' (Type: {case.new_type})",
-            f"Entity B: '{case.candidate_name}' (Type: {case.candidate_type})"
-        ]
-        if case.new_aliases:
-            state_parts.append(f"Entity A Aliases: {', '.join(case.new_aliases)}")
-        if case.candidate_aliases:
-            state_parts.append(f"Entity B Aliases: {', '.join(case.candidate_aliases)}")
-        if case.new_observations:
-            state_parts.append(f"Entity A Context: {' '.join(case.new_observations)}")
-        if case.candidate_observations:
-            state_parts.append(f"Entity B Context: {' '.join(case.candidate_observations)}")
-
-        payload = {
-            "model": "jev-latest",
-            "state": " | ".join(state_parts),
-            "questions": {
-                "should_merge": {
-                    "type": "noul",
-                    "instructions": (
-                        "Are Entity A and Entity B referring to the exact same software tool, concept, or library "
-                        "that should be unified/merged into a single entity in a knowledge graph? "
-                        "Version differences or rival products must NOT be merged."
-                    )
-                }
-            }
-        }
-        code, resp, lat = http_post_json(url, headers, payload, timeout)
-        prob = 0.0
-        if code == 200 and isinstance(resp, dict):
-            q_res = resp.get("should_merge", {})
-            if isinstance(q_res, dict):
-                prob = float(q_res.get("noul", 0.0))
-            elif isinstance(q_res, (int, float)):
-                prob = float(q_res)
-        return prob, lat, {"status": code, "response": resp}
-
-    else:  # classify mode
-        payload = {
-            "source": case.new_name,
-            "target": case.candidate_name,
-            "source_type": case.new_type,
-            "target_type": case.candidate_type,
-        }
-        code, resp, lat = http_post_json(url, headers, payload, timeout)
-        prob = 0.0
-        if code == 200 and isinstance(resp, dict):
-            prob = float(resp.get("probability", 0.0))
-        return prob, lat, {"status": code, "response": resp}
+def call_jev_case(client: JevClient, case: ResolutionBenchmarkCase) -> tuple[float | None, float, dict[str, Any]]:
+    """단일 케이스를 운영 shadow 와 같은 noul 질문으로 묻고 (확률, 지연 ms, 원시 응답) 반환. 실패 시 확률 None."""
+    new = entity_snapshot(case.new_name, case.new_type, case.new_aliases, case.new_observations)
+    cand = entity_snapshot(case.candidate_name, case.candidate_type, case.candidate_aliases, case.candidate_observations)
+    state, questions, keys = build_same_entity_request(new, [("candidate", cand)])
+    try:
+        resp, lat = client.systemone(state, questions)
+    except JevError as e:
+        return None, 0.0, {"status": e.status, "detail": e.detail}
+    prob = parse_noul_answers(resp, keys).get("candidate")
+    return prob, lat, {"status": "ok", "response": resp}
 
 
 # --- 4. 메인 벤치마크 루프 및 레포트 산출 ---
@@ -501,34 +401,38 @@ def main() -> int:
         print("  3) .env 파일 내 CLAIRE_JEV_API_KEY 확인")
         return 1
 
-    print("\n[1단계] Jev API 엔드포인트 연결성 및 프로토콜 진단 중...")
-    probe = probe_jev_protocol(base_url, api_key, timeout)
-    mode = probe["mode"]
-
-    if mode == "unknown":
+    print("\n[1단계] Jev API 엔드포인트 연결성 확인 중 (GET /models)...")
+    probe = probe_jev(cfg)
+    if not probe["ok"]:
         print("❌ [연결 실패] Jev 엔드포인트 호출에 실패했습니다.")
         print(f"진단 결과:\n{json.dumps(probe, indent=2, ensure_ascii=False)}")
         return 2
 
-    print(f"✅ [연결 성공] 프로토콜 감지: '{mode}' (RTT: {probe.get('latency_ms')}ms)")
-    active_url = probe["url"]
+    print(f"✅ [연결 성공] RTT: {probe.get('latency_ms')}ms")
+    client = JevClient(api_key, base_url, timeout, cfg["model"])
 
-    print("\n[2단계] 골든 데이터셋 실측 수행 중 (N=14)...")
+    print(f"\n[2단계] 골든 데이터셋 실측 수행 중 (N={len(GOLDEN_CASES)}, model={client.model})...")
     print("-" * 72)
     print(f"{'ID':<18} | {'Category':<14} | {'Expected':<8} | {'Jev Prob':<9} | {'Pred':<6} | {'RTT (ms)':<8} | {'결과'}")
     print("-" * 72)
 
     results: list[dict[str, Any]] = []
     latencies: list[float] = []
-    tp = tn = fp = fn = 0
+    tp = tn = fp = fn = errors = 0
     threshold = 0.93  # sim_tier_auto_merge
 
     for case in GOLDEN_CASES:
-        prob, lat, raw_resp = call_jev_case(mode, active_url, api_key, timeout, case)
+        prob, lat, raw_resp = call_jev_case(client, case)
+        if prob is None:
+            # 호출 실패를 '미병합'으로 세면 TN 이 부풀려진다: 혼동행렬에서 제외하고 따로 센다
+            errors += 1
+            print(f"{case.id:<18} | {case.category:<14} | {str(case.expected_merge):<8} | {'-':<9} | {'-':<6} | "
+                  f"{'-':<8} | ❌ 호출 실패 ({raw_resp.get('status')})")
+            results.append({"case_id": case.id, "category": case.category, "error": raw_resp})
+            continue
         latencies.append(lat)
         pred_merge = (prob >= threshold)
 
-        is_correct = (pred_merge == case.expected_merge)
         if pred_merge and case.expected_merge:
             tp += 1
             verdict = "✅ TP"
@@ -562,7 +466,7 @@ def main() -> int:
         })
 
     # 지표 집계
-    total = len(GOLDEN_CASES)
+    total = len(GOLDEN_CASES) - errors
     precision = (tp / (tp + fp)) if (tp + fp) > 0 else 0.0
     recall = (tp / (tp + fn)) if (tp + fn) > 0 else 0.0
     f1 = (2 * precision * recall / (precision + recall)) if (precision + recall) > 0 else 0.0
@@ -576,7 +480,7 @@ def main() -> int:
     print("-" * 72)
     print("\n[3단계] 정량 측정 집계 및 Go / No-Go 판정 게이트")
     print("=" * 72)
-    print(f"• 총 평가 건수          : {total}건 (양성 {tp+fn}건 / 음성 {tn+fp}건)")
+    print(f"• 총 평가 건수          : {total}건 (양성 {tp+fn}건 / 음성 {tn+fp}건, 호출 실패 {errors}건 제외)")
     print(f"• TP (올바른 병합)      : {tp}건")
     print(f"• TN (올바른 분리)      : {tn}건")
     print(f"• FP (치명적 오병합)    : {fp}건  <- [핵심 무결성 지표]")
@@ -615,10 +519,11 @@ def main() -> int:
         "timestamp": time.time(),
         "created_at": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime()),
         "base_url": base_url,
-        "mode": mode,
+        "model": client.model,
         "threshold": threshold,
         "metrics": {
             "total_cases": total,
+            "errors": errors,
             "true_positives": tp,
             "true_negatives": tn,
             "false_positives": fp,

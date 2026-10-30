@@ -4433,7 +4433,9 @@ def cmd_export_graph(args: Any) -> int:
             f"• Review Evidence : decisions={info.review.get('decisions', 0)} "
             f"(traced {info.review.get('decisions_with_candidates', 0)}), "
             f"candidate_pairs={info.review.get('candidate_pairs', 0)} ({info.review.get('candidate_pairs_status')}), "
-            f"judge_calls={info.review.get('judge_calls', 0)} ({info.review.get('judge_calls_status')})"
+            f"judge_calls={info.review.get('judge_calls', 0)} ({info.review.get('judge_calls_status')}), "
+            f"jev_shadow={info.review.get('shadow_decisions', 0)} decisions/"
+            f"{info.review.get('shadow_pairs_scored', 0)} pairs"
         )
     print(f"• Archive Path    : {info.filepath}")
     print(f"• Size            : {info.size_bytes} bytes ({info.size_bytes / 1024:.1f} KB)")

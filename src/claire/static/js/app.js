@@ -4991,7 +4991,7 @@ function renderProviderManager(msg, isSuccess){
   h += '<div style="display:flex;flex-direction:column;gap:10px;font-size:12px;">';
   // Jev
   h += '<div>';
-  h += `<label style="cursor:pointer;font-weight:600;"><input id="prov-jev-enabled" type="checkbox" ${jev.enabled?'checked':''} style="width:auto;margin-right:6px;vertical-align:middle;"/>TypeSafe AI Jev (엔티티 해소 판정 엔진)</label>`;
+  h += `<label style="cursor:pointer;font-weight:600;"><input id="prov-jev-enabled" type="checkbox" ${jev.enabled?'checked':''} style="width:auto;margin-right:6px;vertical-align:middle;"/>TypeSafe AI Jev (엔티티 해소 shadow 평가 · 판정 비관여)</label>`;
   h += '<div style="margin-top:6px;display:flex;gap:4px;">';
   h += `<input id="prov-jev-key" type="password" style="flex:1;box-sizing:border-box;" placeholder="${jev.has_api_key ? 'Jev 키 설정됨 (••••••••)' : 'Jev API Key'}"/>`;
   h += '<button type="button" class="sec" style="font-size:11px;padding:2px 6px;" onclick="togglePassVisibility(\'prov-jev-key\')">👁️</button>';

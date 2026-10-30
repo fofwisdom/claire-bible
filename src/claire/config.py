@@ -446,13 +446,15 @@ class Settings(BaseSettings):
     gemini_min_interval: float = Field(default=4.0, alias="CLAIRE_GEMINI_MIN_INTERVAL")
     gemini_max_retries: int = Field(default=5, alias="CLAIRE_GEMINI_MAX_RETRIES")
 
-    # --- TypeSafe AI Jev (System 1 Decision Engine Option) ---
+    # --- TypeSafe AI Jev (System 1, 도입 검토용 shadow 평가 전용 — 판정에 관여하지 않음) ---
     enable_jev: bool = Field(default=False, alias="CLAIRE_ENABLE_JEV")
     jev_api_key: str | None = Field(default=None, alias="CLAIRE_JEV_API_KEY")
     jev_base_url: str = Field(
         default="https://api.typesafe.ai/v1", alias="CLAIRE_JEV_BASE_URL"
     )
     jev_timeout: float = Field(default=15.0, alias="CLAIRE_JEV_TIMEOUT")
+    # 버전 고정(jev-1.14.0 등) 시 shadow 평가 도중 jev-latest 별칭 이동을 막는다. 응답의 실제 모델명은 판정 기록에 남는다
+    jev_model: str = Field(default="jev-latest", alias="CLAIRE_JEV_MODEL")
 
     # --- Antigravity CLI (agy) ---
     agy_bin: str = Field(default="agy", alias="CLAIRE_AGY_BIN")

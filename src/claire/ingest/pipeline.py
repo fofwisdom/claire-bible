@@ -900,6 +900,11 @@ def extract_resolve_store(
         except TypeError:
             return _judge_method(mc)
 
+    from ..extract.jev import make_jev_shadow
+
+    # Jev 는 도입 검토 단계: 판정 권한 없이 같은 후보를 동시 평가해 기록만 남긴다 (JEV_SHADOW_EVALUATION_DESIGN.md)
+    jev_shadow = make_jev_shadow(settings)
+
     name_to_id: dict[str, str] = {}
     touched_entities = []
     resolution_results = []
@@ -938,7 +943,7 @@ def extract_resolve_store(
             name=ee.name, etype=etype, aliases=ee.aliases,
             observations=ee.observations, document_id=doc.id,
             embed_fn=_embed, judge_fn=_judge_fn, provisional=prov,
-            on_judge=_on_judge_candidate,
+            on_judge=_on_judge_candidate, shadow=jev_shadow,
         )
         ent, created = res.entity, res.created
         resolution_results.append(res)

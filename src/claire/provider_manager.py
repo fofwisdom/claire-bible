@@ -67,6 +67,7 @@ DEFAULT_PROVIDERS_CONFIG: dict[str, Any] = {
             "api_key": "",
             "base_url": "https://api.typesafe.ai/v1",
             "timeout": 15.0,
+            "model": "jev-latest",
         },
         "stt": {
             "enabled": True,
@@ -106,6 +107,7 @@ MIGRATED_ENV_VARS: set[str] = {
     "CLAIRE_JEV_API_KEY",
     "CLAIRE_JEV_BASE_URL",
     "CLAIRE_JEV_TIMEOUT",
+    "CLAIRE_JEV_MODEL",
     # STT
     "CLAIRE_ENABLE_VIDEO_TRANSCRIPTION",
     "CLAIRE_STT_PROVIDER",
@@ -406,6 +408,8 @@ class ProviderManager:
             out["jev_base_url"] = jev["base_url"]
         if jev.get("timeout") is not None:
             out["jev_timeout"] = float(jev["timeout"])
+        if jev.get("model"):
+            out["jev_model"] = jev["model"]
 
         # STT
         if stt.get("enabled") is not None:
@@ -521,6 +525,8 @@ class ProviderManager:
                 provs["jev"]["timeout"] = float(collected["CLAIRE_JEV_TIMEOUT"])
             except ValueError:
                 pass
+        if "CLAIRE_JEV_MODEL" in collected and collected["CLAIRE_JEV_MODEL"].strip():
+            provs["jev"]["model"] = collected["CLAIRE_JEV_MODEL"].strip()
 
         # STT
         if "CLAIRE_ENABLE_VIDEO_TRANSCRIPTION" in collected:

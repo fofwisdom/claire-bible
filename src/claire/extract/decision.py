@@ -3,7 +3,7 @@
   - ResolutionDecision: 단일 엔티티/관계의 상태 전이 의사결정 레코드
   - DecisionStreamLog: 문서 단위의 전체 인과 추적 로그 (방안 B: documents.meta 보관)
   - HeatmapMatrixData: 본문/엔티티 × 전역 지식 노드 간 전수 유사도 확률 행렬 (일회성 소비)
-  - JevClientConfig / evaluate_matrix: TypeSafe AI Jev (System 1) 연동 및 Fallback 파이프라인
+  - evaluate_decision_matrix: 히트맵 산출 (Jev 는 도입 검토 단계라 shadow 평가만 수행: extract/jev.py)
 """
 
 from __future__ import annotations
@@ -33,6 +33,7 @@ class ResolutionDecision:
     candidates: list[dict[str, Any]] | None = None  # 후보별 점수·출처·Gate 결과(outcome)·judge 지연
     input_snapshot: dict[str, Any] | None = None  # 판정 시점 신규 엔티티 입력
     gate_params: dict[str, Any] | None = None  # 판정 시점 임계값 및 질의 임베딩 유효성
+    shadow: dict[str, Any] | None = None  # Jev shadow 평가 메타 (JEV_SHADOW_EVALUATION_DESIGN.md §3); 판정에 관여하지 않음
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -42,6 +43,7 @@ class ResolutionDecision:
         candidates = data.get("candidates")
         input_snapshot = data.get("input_snapshot")
         gate_params = data.get("gate_params")
+        shadow = data.get("shadow")
         return cls(
             entity=str(data.get("entity") or ""),
             stage=str(data.get("stage") or ""),
@@ -56,6 +58,7 @@ class ResolutionDecision:
             candidates=candidates if isinstance(candidates, list) else None,
             input_snapshot=input_snapshot if isinstance(input_snapshot, dict) else None,
             gate_params=gate_params if isinstance(gate_params, dict) else None,
+            shadow=shadow if isinstance(shadow, dict) else None,
         )
 
 
@@ -70,7 +73,8 @@ class HeatmapMatrixData:
     threshold_auto_merge: float = 0.93
     threshold_borderline: float = 0.72
     threshold_relational: float = 0.70
-    generated_by: str = "fallback_vector"  # 'jev' | 'fallback_vector'
+    # 'fallback_vector'. 과거 'jev' 값은 네트워크 호출 없는 로컬 스텁 산출물이다 (JEV_SHADOW_EVALUATION_DESIGN.md §1.2)
+    generated_by: str = "fallback_vector"
     created_at: float = field(default_factory=time.time)
 
     def to_dict(self) -> dict[str, Any]:
@@ -289,89 +293,14 @@ def evaluate_decision_matrix(
     candidate_entities: list[Entity | str],
     decisions: list[ResolutionDecision] | None = None,
 ) -> HeatmapMatrixData:
-    """설정에 따라 TypeSafe AI Jev (System 1) 또는 Fallback 엔진을 통해 HeatmapMatrixData를 생성."""
-    enable_jev = bool(getattr(settings, "enable_jev", False))
-    jev_key = getattr(settings, "jev_api_key", None)
+    """HeatmapMatrixData 생성.
 
-    if enable_jev and jev_key:
-        try:
-            # TypeSafe AI Jev 호출 분기 (API 연동 인터페이스 스텁)
-            return _call_jev_matrix_api(
-                settings=settings,
-                document_id=document_id,
-                extracted_entities=extracted_entities,
-                candidate_entities=candidate_entities,
-                decisions=decisions,
-            )
-        except Exception:
-            # Jev 호출 실패 시 시스템 중단 없이 안전하게 Fallback 매트릭스로 전환
-            pass
-
+    Jev 는 판정 권한 없이 shadow 평가만 하므로(extract/jev.py) 히트맵은 항상 기존 결정·어휘 유사도로 그린다.
+    예전 `_call_jev_matrix_api` 스텁은 Jev 를 호출하지 않고 `generated_by="jev"` 를 붙여 증거를 오염시켜 제거했다.
+    """
     return build_fallback_matrix(
         document_id=document_id,
         extracted_entities=extracted_entities,
         candidate_entities=candidate_entities,
         decisions=decisions,
-    )
-
-
-def _call_jev_matrix_api(
-    settings: Any,
-    document_id: str,
-    extracted_entities: list[Entity | str],
-    candidate_entities: list[Entity | str],
-    decisions: list[ResolutionDecision] | None = None,
-) -> HeatmapMatrixData:
-    """TypeSafe AI Jev 비-자기회귀 의사결정 API 호출 스텁 (System 1 Engine)."""
-    # 실제 연동 시 HTTP 클라이언트(httpx)를 통해 Jev /v1/classify-matrix 엔드포인트 호출
-    row_names = [e.name if isinstance(e, Entity) else str(e) for e in extracted_entities]
-    col_names = [e.name if isinstance(e, Entity) else str(e) for e in candidate_entities]
-
-    import difflib
-
-    # 결정 기록 맵 구성
-    dec_map: dict[tuple[str, str], float] = {}
-    dec_map_lower: dict[tuple[str, str], float] = {}
-    if decisions:
-        for d in decisions:
-            if d.candidate:
-                score = d.score if d.score is not None else (1.0 if d.decision == "MERGE" else 0.85)
-                dec_map[(d.entity, d.candidate)] = float(score)
-                dec_map_lower[(d.entity.lower().strip(), d.candidate.lower().strip())] = float(score)
-
-    # Jev 규격 결과 텐서 생성
-    matrix: list[list[float]] = [
-        [0.08 for _ in range(len(col_names))] for _ in range(len(row_names))
-    ]
-    for r_idx, r_name in enumerate(row_names):
-        r_lower = r_name.lower().strip()
-        r_tokens = set(r_lower.split())
-        for c_idx, c_name in enumerate(col_names):
-            c_lower = c_name.lower().strip()
-            c_tokens = set(c_lower.split())
-            if (r_name, c_name) in dec_map:
-                matrix[r_idx][c_idx] = dec_map[(r_name, c_name)]
-            elif (r_lower, c_lower) in dec_map_lower:
-                matrix[r_idx][c_idx] = dec_map_lower[(r_lower, c_lower)]
-            elif r_name == c_name or r_lower == c_lower:
-                matrix[r_idx][c_idx] = 0.99
-            elif (r_lower in c_lower or c_lower in r_lower) and min(len(r_lower), len(c_lower)) >= 3:
-                sub_ratio = min(len(r_lower), len(c_lower)) / max(len(r_lower), len(c_lower))
-                matrix[r_idx][c_idx] = round(0.55 + 0.35 * sub_ratio, 4)
-            elif r_tokens and c_tokens and (r_tokens & c_tokens):
-                jaccard = len(r_tokens & c_tokens) / len(r_tokens | c_tokens)
-                matrix[r_idx][c_idx] = round(0.40 + 0.45 * jaccard, 4)
-            else:
-                sim = difflib.SequenceMatcher(None, r_lower, c_lower).ratio()
-                if sim >= 0.5:
-                    matrix[r_idx][c_idx] = round(sim * 0.85, 4)
-                else:
-                    matrix[r_idx][c_idx] = 0.08
-
-    return HeatmapMatrixData(
-        document_id=document_id,
-        rows=row_names,
-        cols=col_names,
-        matrix=matrix,
-        generated_by="jev",
     )

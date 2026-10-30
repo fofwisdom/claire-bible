@@ -97,8 +97,12 @@ def _seed(db_path: Path) -> dict[str, str]:
             "timestamp": 1790000000.0,
             "candidates": [
                 {"id": ents["c"].id, "origin": "vector", "score": 0.8, "outcome": "judge_different",
-                 "name": "Podman", "type": "Tool", "cand_obs_count": 0, "judge_ms": 1250.0},
+                 "name": "Podman", "type": "Tool", "cand_obs_count": 0, "judge_ms": 1250.0, "jev_noul": 0.62},
+                {"id": ents["d"].id, "origin": "fts", "score": None, "outcome": "invariant_reject",
+                 "name": "Unrelated", "type": "Concept", "cand_obs_count": 0, "jev_noul": 0.02},
             ],
+            "shadow": {"engine": "jev", "requested_model": "jev-latest", "questions": 2, "status": "ok",
+                       "model": "jev-1.14.0", "latency_ms": 180.5, "input_tokens": 410, "answered": 2},
             "input_snapshot": {"name": "Docker", "type": "Tool", "aliases": [], "observations": ["obs"],
                                "provisional": False},
             "gate_params": {"auto": 0.93, "borderline": 0.72, "relational": 0.7, "max_judge": 3,
@@ -205,7 +209,9 @@ def test_manifest_v2_and_checksum_cover_review_tables(exported: dict[str, Any]) 
     manifest = exported["manifest"]
     assert manifest["bundle_version"] == 2
     review = manifest["review"]
-    assert review["schema_version"] == 1
+    assert review["schema_version"] == 2
+    assert review["shadow_decisions"] == 1
+    assert review["shadow_pairs_scored"] == 2
     assert review["decisions"] == 2
     assert review["decisions_with_candidates"] == 1
     assert review["heatmaps"] == 1
@@ -237,8 +243,42 @@ def test_decisions_and_heatmaps_flattened(exported: dict[str, Any]) -> None:
     coverage = _meta(conn, "coverage")
     assert coverage["documents"] == 2
     assert coverage["documents_with_resolution_log"] == 1
-    assert coverage["candidate_outcomes"] == {"judge_different": 1}
+    assert coverage["candidate_outcomes"] == {"invariant_reject": 1, "judge_different": 1}
     assert coverage["heatmaps_by_generator"] == {"jev": 1}
+    # Legacy "jev" heatmaps came from a local stub; the bundle must say so
+    assert "stub" in coverage["heatmap_generator_notes"]["jev"]
+    assert json.loads(rows[0]["shadow"])["model"] == "jev-1.14.0"
+    assert rows[1]["shadow"] is None
+
+
+def test_shadow_pairs_flattened_with_agreement(exported: dict[str, Any]) -> None:
+    conn = exported["conn"]
+    ids = exported["ids"]
+    rows = {r["candidate_id"]: r for r in conn.execute("SELECT * FROM review_shadow_pairs")}
+    assert set(rows) == {ids["c"], ids["d"]}
+    podman = rows[ids["c"]]
+    assert podman["entity"] == "Docker" and podman["entity_type"] == "Tool"
+    assert podman["outcome"] == "judge_different"
+    assert podman["vector_score"] == pytest.approx(0.8)
+    assert podman["jev_noul"] == pytest.approx(0.62)
+    assert podman["jev_status"] == "ok" and podman["jev_model"] == "jev-1.14.0"
+    assert podman["final_decision"] == "CREATE_NEW" and podman["merged"] == 0
+    assert rows[ids["d"]]["vector_score"] is None
+
+    shadow = _meta(conn, "shadow")
+    assert shadow["status"] == "ok"
+    assert shadow["decisions_with_shadow"] == 1
+    assert shadow["by_status"] == {"ok": 1}
+    assert shadow["models"] == {"jev-1.14.0": 1}
+    assert shadow["latency_ms_p50"] == 180.5
+    assert shadow["input_tokens_total"] == 410
+    assert shadow["pairs_scored"] == 2
+    # Only System 2 verdicts enter the agreement matrix; the threshold moves the cell
+    assert shadow["agreement_with_llm_judge"] == {
+        "0.5": {"jev_same_llm_different": 1},
+        "0.9": {"both_different": 1},
+    }
+    assert shadow["scored_by_outcome"]["invariant_reject"] == {"scored": 1, "jev_same_at_0.5": 0}
 
 
 def test_candidate_pairs_exclude_hash_fallback_and_other_dims(exported: dict[str, Any]) -> None:

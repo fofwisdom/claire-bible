@@ -1,10 +1,12 @@
 """Review evidence export for graph bundles.
 
-A System 1 decision engine (TypeSafe AI Jev) is still under adoption review, so no Jev output exists.
+A System 1 decision engine (TypeSafe AI Jev) is still under adoption review, so Jev never decides.
 The review is verified against the current resolution pipeline instead: this module copies that
 pipeline's own decision evidence into review_* tables of graph_export.db so that a candidate engine
-can be replayed offline against it. Raw embedding vectors and secrets stay out of the bundle.
-See docs/design/GRAPH_BUNDLE_REVIEW_EVIDENCE_DESIGN.md.
+can be replayed offline against it. When Jev shadow evaluation is enabled, its per-candidate
+probabilities recorded next to the pipeline's own outcomes are flattened into review_shadow_pairs.
+Raw embedding vectors and secrets stay out of the bundle.
+See docs/design/GRAPH_BUNDLE_REVIEW_EVIDENCE_DESIGN.md and docs/design/JEV_SHADOW_EVALUATION_DESIGN.md.
 """
 
 from __future__ import annotations
@@ -28,7 +30,13 @@ from .store.vectors import looks_like_hash_fallback, unpack_vector
 
 logger = logging.getLogger(__name__)
 
-REVIEW_SCHEMA_VERSION = 1
+REVIEW_SCHEMA_VERSION = 2
+SHADOW_AGREEMENT_THRESHOLDS = (0.5, 0.9)
+LLM_VERDICT_OUTCOMES = {"judge_same": True, "judge_different": False}
+# Heatmaps labelled "jev" before the shadow client existed came from a local difflib stub; no Jev call was made
+HEATMAP_GENERATOR_NOTES = {
+    "jev": "legacy local stub (difflib + recorded decisions); no Jev API call was made, not Jev evidence",
+}
 PAIR_NEIGHBORS = 10
 PAIR_ENTITY_LIMIT = 20000
 PAIR_MATRIX_BYTES_LIMIT = 128 * 1024 * 1024
@@ -57,6 +65,7 @@ CREATE TABLE review_decisions (
     candidates TEXT,
     input_snapshot TEXT,
     gate_params TEXT,
+    shadow TEXT,
     PRIMARY KEY (document_id, seq)
 );
 CREATE TABLE review_heatmaps (
@@ -86,11 +95,32 @@ CREATE TABLE review_judge_calls (
     duration_ms INTEGER,
     status TEXT
 );
+CREATE TABLE review_shadow_pairs (
+    document_id TEXT NOT NULL,
+    seq INTEGER NOT NULL,
+    candidate_id TEXT NOT NULL,
+    entity TEXT,
+    entity_type TEXT,
+    candidate_name TEXT,
+    candidate_type TEXT,
+    origin TEXT,
+    vector_score REAL,
+    outcome TEXT,
+    judge_ms REAL,
+    jev_noul REAL,
+    jev_status TEXT,
+    jev_model TEXT,
+    final_stage TEXT,
+    final_decision TEXT,
+    merged INTEGER NOT NULL,
+    PRIMARY KEY (document_id, seq, candidate_id)
+);
 CREATE INDEX idx_review_decisions_stage ON review_decisions(stage);
 CREATE INDEX idx_review_decisions_target ON review_decisions(target_entity_id);
 CREATE INDEX idx_review_pairs_band ON review_candidate_pairs(band);
 CREATE INDEX idx_review_pairs_b ON review_candidate_pairs(entity_b);
 CREATE INDEX idx_review_judge_calls_type ON review_judge_calls(call_type);
+CREATE INDEX idx_review_shadow_outcome ON review_shadow_pairs(outcome);
 """
 
 REVIEW_TABLES = (
@@ -99,6 +129,7 @@ REVIEW_TABLES = (
     "review_heatmaps",
     "review_candidate_pairs",
     "review_judge_calls",
+    "review_shadow_pairs",
 )
 
 
@@ -157,6 +188,8 @@ def _pipeline_snapshot(settings: Any) -> dict[str, Any]:
         "enable_jev": bool(getattr(settings, "enable_jev", False)),
         "jev_api_key_configured": bool(str(getattr(settings, "jev_api_key", "") or "").strip()),
         "jev_base_url": _safe_url(getattr(settings, "jev_base_url", "")),
+        "jev_model": getattr(settings, "jev_model", None),
+        "jev_role": "shadow",
         "gemini_api_key_configured": bool(str(getattr(settings, "gemini_api_key", "") or "").strip()),
         "embed_model": getattr(settings, "gemini_embed_model", None),
         "embed_task_type": getattr(settings, "embed_task_type", None),
@@ -184,6 +217,8 @@ def _export_decisions_and_heatmaps(
 
     decision_rows: list[tuple[Any, ...]] = []
     heatmap_rows: list[tuple[Any, ...]] = []
+    shadow_rows: list[tuple[Any, ...]] = []
+    shadow_metas: list[dict[str, Any]] = []
     docs_with_log = 0
     with_candidates = 0
     outcomes: Counter[str] = Counter()
@@ -229,7 +264,12 @@ def _export_decisions_and_heatmaps(
                     _json_or_none(candidates),
                     _json_or_none(item.get("input_snapshot")),
                     _json_or_none(item.get("gate_params")),
+                    _json_or_none(item.get("shadow")),
                 ))
+                shadow = item.get("shadow")
+                if isinstance(shadow, dict):
+                    shadow_metas.append(shadow)
+                    shadow_rows.extend(_shadow_pair_rows(row["id"], seq, item, shadow, candidates or []))
 
         heatmap = meta.get("heatmap_matrix")
         if isinstance(heatmap, dict):
@@ -246,8 +286,12 @@ def _export_decisions_and_heatmaps(
             ))
 
     export_conn.executemany(
-        "INSERT INTO review_decisions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO review_decisions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         decision_rows,
+    )
+    export_conn.executemany(
+        "INSERT OR IGNORE INTO review_shadow_pairs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        shadow_rows,
     )
     export_conn.executemany(
         "INSERT INTO review_heatmaps VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -261,6 +305,91 @@ def _export_decisions_and_heatmaps(
         "candidate_outcomes": dict(sorted(outcomes.items())),
         "heatmaps": len(heatmap_rows),
         "heatmaps_by_generator": dict(sorted(generators.items())),
+        "heatmap_generator_notes": {g: HEATMAP_GENERATOR_NOTES[g] for g in generators if g in HEATMAP_GENERATOR_NOTES},
+        "shadow": _shadow_summary(shadow_metas, shadow_rows),
+    }
+
+
+def _shadow_pair_rows(
+    document_id: str,
+    seq: int,
+    item: dict[str, Any],
+    shadow: dict[str, Any],
+    candidates: list[Any],
+) -> list[tuple[Any, ...]]:
+    """One row per traced candidate of a decision that carries a Jev shadow record."""
+    snapshot = item.get("input_snapshot") if isinstance(item.get("input_snapshot"), dict) else {}
+    merged_id = item.get("target_entity_id") if item.get("decision") == "MERGE" else None
+    rows: list[tuple[Any, ...]] = []
+    for cand in candidates:
+        if not isinstance(cand, dict) or not cand.get("id"):
+            continue
+        rows.append((
+            document_id,
+            seq,
+            cand["id"],
+            item.get("entity"),
+            snapshot.get("type"),
+            cand.get("name"),
+            cand.get("type"),
+            cand.get("origin"),
+            _float_or_none(cand.get("score")),
+            cand.get("outcome"),
+            _float_or_none(cand.get("judge_ms")),
+            _float_or_none(cand.get("jev_noul")),
+            shadow.get("status"),
+            shadow.get("model"),
+            item.get("stage"),
+            item.get("decision"),
+            int(merged_id is not None and merged_id == cand["id"]),
+        ))
+    return rows
+
+
+def _shadow_summary(metas: list[dict[str, Any]], rows: list[tuple[Any, ...]]) -> dict[str, Any]:
+    """Jev shadow coverage, latency and agreement with the System 2 judge on the same pairs."""
+    if not metas:
+        return {"status": "none", "decisions_with_shadow": 0}
+    latencies = [
+        m["latency_ms"] for m in metas
+        if m.get("status") in ("ok", "partial") and isinstance(m.get("latency_ms"), (int, float))
+    ]
+    tokens = [m["input_tokens"] for m in metas if isinstance(m.get("input_tokens"), int)]
+    scored = [(r[9], r[11]) for r in rows if r[11] is not None]
+
+    agreement: dict[str, dict[str, int]] = {}
+    for threshold in SHADOW_AGREEMENT_THRESHOLDS:
+        cell: Counter[str] = Counter()
+        for outcome, noul in scored:
+            if outcome not in LLM_VERDICT_OUTCOMES:
+                continue
+            llm_same = LLM_VERDICT_OUTCOMES[outcome]
+            jev_same = noul >= threshold
+            cell[("both_same" if jev_same else "jev_different_llm_same") if llm_same
+                 else ("jev_same_llm_different" if jev_same else "both_different")] += 1
+        agreement[f"{threshold:g}"] = dict(sorted(cell.items()))
+
+    by_outcome: dict[str, dict[str, int]] = {}
+    for outcome, noul in scored:
+        bucket = by_outcome.setdefault(str(outcome), {"scored": 0, "jev_same_at_0.5": 0})
+        bucket["scored"] += 1
+        bucket["jev_same_at_0.5"] += int(noul >= 0.5)
+
+    return {
+        "status": "ok",
+        "engine": "jev",
+        "role": "shadow (no decision authority)",
+        "decisions_with_shadow": len(metas),
+        "by_status": dict(sorted(Counter(str(m.get("status")) for m in metas).items())),
+        "models": dict(sorted(Counter(str(m.get("model")) for m in metas if m.get("model")).items())),
+        "latency_ms_p50": _percentile(latencies, 0.50),
+        "latency_ms_p95": _percentile(latencies, 0.95),
+        "latency_ms_max": max(latencies, default=None),
+        "input_tokens_total": sum(tokens),
+        "pairs": len(rows),
+        "pairs_scored": len(scored),
+        "agreement_with_llm_judge": agreement,
+        "scored_by_outcome": dict(sorted(by_outcome.items())),
     }
 
 
@@ -476,7 +605,7 @@ def _export_judge_calls(
     }
 
 
-def _percentile(values: list[int], q: float) -> int | None:
+def _percentile(values: list[Any], q: float) -> Any:
     if not values:
         return None
     ordered = sorted(values)
@@ -527,6 +656,7 @@ def export_review_evidence(
         embeddings, pairs = pairs_result, pairs_result
     judge_calls = _guarded("judge_calls", _export_judge_calls, data_dir, export_conn, document_ids)
 
+    shadow = decisions.pop("shadow", None) or {"status": decisions.get("status", "missing")}
     meta = {
         "review_schema_version": REVIEW_SCHEMA_VERSION,
         "generated_at": datetime.fromtimestamp(now_epoch, timezone.utc).isoformat(),
@@ -536,6 +666,7 @@ def export_review_evidence(
         "embeddings": embeddings,
         "candidate_pairs": pairs,
         "judge_calls": judge_calls,
+        "shadow": shadow,
     }
     export_conn.executemany(
         "INSERT INTO review_meta (key, value) VALUES (?, ?)",
@@ -551,6 +682,8 @@ def export_review_evidence(
         "candidate_pairs_status": pairs.get("status"),
         "judge_calls": judge_calls.get("rows", 0),
         "judge_calls_status": judge_calls.get("status"),
+        "shadow_decisions": shadow.get("decisions_with_shadow", 0),
+        "shadow_pairs_scored": shadow.get("pairs_scored", 0),
     }
 
 

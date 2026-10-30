@@ -21,6 +21,7 @@ from ..ontology.base import Entity, normalize_name
 from ..store import db as dbm
 from ..store.vectors import VectorStore, looks_like_hash_fallback
 from .decision import ResolutionDecision
+from .jev import JevShadow, entity_snapshot, snapshot_of
 
 # 확신 임계: 이 이상이면 judge 없이 자동 머지.
 AUTO_MERGE = 0.93
@@ -250,8 +251,12 @@ def resolve_or_create(
     judge_fn: JudgeFn | None = None,
     provisional: bool = False,
     on_judge: Callable[[str, str], None] | None = None,
+    shadow: JevShadow | None = None,
 ) -> ResolutionResult:
-    """기존 엔티티에 머지하거나 신규 생성 (5단계 Multi-Tier Safe Gating 적용). (entity, created?) 반환."""
+    """기존 엔티티에 머지하거나 신규 생성 (5단계 Multi-Tier Safe Gating 적용). (entity, created?) 반환.
+
+    shadow 가 주어지면 후보 루프 진입 시 같은 후보를 Jev 에 동시 질의해 결과를 판정 기록에만 남긴다 (판정 불관여).
+    """
     norm = normalize_name(name)
     tier_auto, tier_borderline, tier_relational, tier_multihop, adaptive_center = (
         _get_tier_thresholds()
@@ -328,6 +333,14 @@ def resolve_or_create(
     judged = 0
     # 검토 증거: 후보별 Gate 결과를 판정 레코드에 남긴다 (GRAPH_BUNDLE_REVIEW_EVIDENCE_DESIGN.md §3.1)
     trace: list[dict[str, Any]] = []
+    # 병합이 후보를 변경하기 전 상태로 미리 읽는다: Jev shadow 입력이 병합 결과를 보지 않게 하기 위함
+    loaded = {owner_id: dbm.get_entity(conn, owner_id) for owner_id, _ in ordered}
+    shadow_call = None
+    if shadow is not None and any(loaded.values()):
+        shadow_call = shadow.submit(
+            entity_snapshot(name, etype, aliases, observations),
+            [(oid, snapshot_of(c)) for oid, c in loaded.items() if c is not None],
+        )
 
     def _finish(dec: ResolutionDecision, rest: list[tuple[str, float]]) -> ResolutionDecision:
         trace.extend(_trace_entry(oid, sc, oid in vector_ids, "not_reached") for oid, sc in rest)
@@ -349,10 +362,15 @@ def resolve_or_create(
                 "embedding_dim": len(embedding) if embedding else 0,
                 "embedding_hash_fallback": looks_like_hash_fallback(embedding),
             }
+        if shadow is not None and shadow_call is not None:
+            dec.shadow, noul = shadow.collect(shadow_call)
+            for entry in trace:
+                if entry["id"] in noul:
+                    entry["jev_noul"] = noul[entry["id"]]
         return dec
 
     for idx, (owner_id, score) in enumerate(ordered):
-        cand = dbm.get_entity(conn, owner_id)
+        cand = loaded.get(owner_id)
         if cand is None:
             continue
         from_vector = owner_id in vector_ids
@@ -398,10 +416,15 @@ def resolve_or_create(
                 "judge_same" if is_same else "judge_different", cand, judge_ms,
             ))
             if is_same:
+                # FTS 단독 후보는 코사인 점수가 없다: 0.0 대신 None 으로 남겨 점수 분포를 오염시키지 않는다
                 cand_m, dec = _execute_reversible_merge(
                     conn, cand, name, aliases + [name], observations, document_id,
-                    new_type=etype, stage="borderline_llm_judge", score=score,
-                    reason=f"Judge confirmed SAME at score {score:.4f}",
+                    new_type=etype, stage="borderline_llm_judge",
+                    score=score if from_vector else None,
+                    reason=(
+                        f"Judge confirmed SAME at score {score:.4f}" if from_vector
+                        else "Judge confirmed SAME (FTS candidate, no vector score)"
+                    ),
                 )
                 return ResolutionResult(
                     cand_m, False, relational_candidates, multihop_candidates,

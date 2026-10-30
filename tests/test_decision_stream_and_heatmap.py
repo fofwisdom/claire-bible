@@ -4,7 +4,7 @@
 1. ResolutionDecision 및 HeatmapMatrixData 데이터 구조 직렬화/역직렬화
 2. 방안 B: documents.meta 기반 경량 보관 및 복원 (attach_resolution_meta / get_resolution_log_from_meta)
 3. build_fallback_matrix 코사인/결정 투영 행렬 생성
-4. evaluate_decision_matrix: Jev 활성화/비활성화/키 누락/오류 발생 시 Fallback 전환 안전망
+4. evaluate_decision_matrix: Jev 설정과 무관하게 Fallback 히트맵 (Jev 는 shadow 평가 전용, 'jev' 출처 금지)
 5. Settings: Jev 관련 환경변수 로딩 및 기본값 검증
 """
 
@@ -196,28 +196,18 @@ def test_evaluate_decision_matrix_jev_enabled_without_key():
     assert res.generated_by == "fallback_vector"
 
 
-def test_evaluate_decision_matrix_jev_enabled_with_key():
+def test_evaluate_decision_matrix_jev_enabled_with_key_never_labels_jev():
+    # Jev 는 shadow 평가 전용: 히트맵은 Jev 를 호출하지 않으므로 'jev' 출처를 붙이면 안 된다
     settings = Settings(enable_jev=True, jev_api_key="valid-test-key")
-    res = evaluate_decision_matrix(
-        settings=settings,
-        document_id="doc_eval_3",
-        extracted_entities=["A"],
-        candidate_entities=["A"],
-    )
-    assert res.generated_by == "jev"
-    assert res.matrix[0][0] == 0.99
-
-
-def test_evaluate_decision_matrix_jev_fallback_on_exception():
-    settings = Settings(enable_jev=True, jev_api_key="valid-test-key")
-    with patch("claire.extract.decision._call_jev_matrix_api", side_effect=RuntimeError("API timeout")):
+    with patch("httpx.post", side_effect=AssertionError("heatmap must not call Jev")):
         res = evaluate_decision_matrix(
             settings=settings,
-            document_id="doc_eval_err",
+            document_id="doc_eval_3",
             extracted_entities=["A"],
-            candidate_entities=["B"],
+            candidate_entities=["A"],
         )
-        assert res.generated_by == "fallback_vector"
+    assert res.generated_by == "fallback_vector"
+    assert res.matrix[0][0] == 1.0
 
 
 def test_settings_jev_configuration(monkeypatch):
@@ -225,12 +215,14 @@ def test_settings_jev_configuration(monkeypatch):
     monkeypatch.setenv("CLAIRE_JEV_API_KEY", "jev_sec_12345")
     monkeypatch.setenv("CLAIRE_JEV_BASE_URL", "https://custom-jev.example.com/v1")
     monkeypatch.setenv("CLAIRE_JEV_TIMEOUT", "20.5")
+    monkeypatch.setenv("CLAIRE_JEV_MODEL", "jev-1.14.0")
 
     settings = Settings()
     assert settings.enable_jev is True
     assert settings.jev_api_key == "jev_sec_12345"
     assert settings.jev_base_url == "https://custom-jev.example.com/v1"
     assert settings.jev_timeout == 20.5
+    assert settings.jev_model == "jev-1.14.0"
 
 
 def test_purge_document_matrix_and_active(tmp_path: Path):
@@ -404,9 +396,9 @@ def test_evaluate_decision_matrix_reflects_decision_scores_in_both_modes():
         candidate_entities=candidates,
         decisions=decisions,
     )
-    assert res_jev.generated_by == "jev"
-    assert res_jev.matrix[0][0] == 1.0
-    assert res_jev.matrix[1][1] == 1.0
+    # Jev 는 shadow 평가 전용이라 설정과 무관하게 같은 히트맵이어야 한다
+    assert res_jev.generated_by == "fallback_vector"
+    assert res_jev.matrix == res_fallback.matrix
 
 
 def test_pipeline_heatmap_matrix_prioritizes_decision_candidates(tmp_path: Path, monkeypatch):
