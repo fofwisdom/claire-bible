@@ -169,7 +169,7 @@ Claire Bible은 시스템 소유자(Owner), 협력자(Collaborator), 읽기 전�
 
 ## 멀티 테마 웹/API 접근 정책 (Multi-Theme Access Policy)
 
-멀티 테마 모드(`CLAIRE_MULTI_THEME=1`)에서는 요청별로 대상 테마를 명시적으로 지정하여 격리된 SQLite DB와 Vault를 조회 및 적재할 수 있다.
+멀티 테마 모드(`CLAIRE_MULTI_THEME=1`)에서는 요청별로 대상 테마를 명시적으로 지정하여 `theme_id`로 파티셔닝된 지식 데이터를 조회 및 적재할 수 있다.
 
 ### HTTP 요청 시 테마 지정 방식
 1. **HTTP 헤더**: `X-Claire-Theme: <theme_id_or_label>`
@@ -271,7 +271,7 @@ Claire Bible은 시스템 소유자(Owner), 협력자(Collaborator), 읽기 전�
    - 등록 완료 시 상단에 `🌐 <FQDN>` 뱃지와 새 창에서 바로 확인할 수 있는 `↗ 열기` 링크가 제공된다. (일반 리버스 프록시 설정 가이드는 관리 통일성을 위해 WebUI에서 제거되었으며, 상단 보호장치에서 FQDN 규칙을 구성한다.)
 2. **동적 HostAuthority 및 보안**:
    - `HostAuthorityMiddleware`는 WebUI에서 등록된 FQDN을 런타임에 즉시 수용하며, 미등록된 임의의 호스트 요청은 `421 Misdirected Request`로 차단한다.
-   - 전용 도메인으로 인입된 요청은 해당 테마의 격리된 SQLite DB/Vault로 자동 바인딩되며, 다른 테마로의 임의 변경(`?theme=...`)이 방지되는 도메인 고정(Domain Pinning)이 적용된다.
+   - 전용 도메인으로 인입된 요청은 해당 테마의 `theme_id` 파티션으로 자동 바인딩되며, 다른 테마로의 임의 변경(`?theme=...`)이 방지되는 도메인 고정(Domain Pinning) 및 은닉 격리 정책이 적용된다.
 3. **비공개 테마 은닉 (Fail-Closed Stealth Invariant)**:
    - 비공개 테마(`is_public: false`)에 연결된 FQDN으로 익명 사용자가 접근하는 경우, 존재 자체를 숨기기 위해 `403`이 아닌 `404 Not Found`를 반환한다.
 4. **리버스 프록시 및 보호장치 요건**:

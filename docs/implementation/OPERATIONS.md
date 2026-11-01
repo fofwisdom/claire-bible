@@ -30,9 +30,13 @@
 
 이 계층은 `CLAIRE_ENVIRONMENT`, env overlay, Compose project, 서비스 profile, 업데이트 잠금과 migration 순서를 일관되게 적용한다. 배포 인스턴스를 직접 `docker compose`나 호스트의 `uv run claire`로 관리하지 않는다.
 
-`cb-manuscript`는 문서화된 프로세스 환경 우선순위를 적용해 `CB_DATA_DIR`와 `CB_VAULT_DIR`을 한 번 해석한 뒤, 검증된 절대경로를 모든 Compose 호출에 전달한다. 따라서 bot, API, worker와 one-off 컨테이너가 상대경로를 각자 다시 해석하거나 서로 다른 Support Bundle 저장소를 마운트할 수 없다.
+`cb-manuscript`는 문서화된 프로세스 환경 우선순위를 적용해 `CB_DATA_DIR`를 한 번 해석한 뒤, 검증된 절대경로를 모든 Compose 호출에 전달한다. 따라서 bot, API, worker와 one-off 컨테이너가 상대경로를 각자 다시 해석하거나 서로 다른 Support Bundle 저장소를 마운트할 수 없다.
 
-컨테이너 내부의 상대 `CLAIRE_DB_PATH=data/claire.db`와 `CLAIRE_VAULT_PATH=vault`는 반드시 `CLAIRE_APP_ROOT=/app` 아래에서 해석한다. 애플리케이션은 wheel로 `/app/.venv/.../site-packages`에 설치되므로 모듈의 `__file__` 상위 디렉터리를 런타임 루트로 사용할 수 없다. Dockerfile과 Compose가 이 값을 함께 고정하며, 결과 DB는 bind mount인 `/app/data/claire.db`여야 한다. Support Bundle의 `diagnostics/storage.json`에서 `data_dir`의 enclosing mount가 `/app/data`인지 확인한다.
+컨테이너 내부의 상대 `CLAIRE_DB_PATH=data/claire.db`는 반드시 `CLAIRE_APP_ROOT=/app` 아래에서 해석한다. 애플리케이션은 wheel로 `/app/.venv/.../site-packages`에 설치되므로 모듈의 `__file__` 상위 디렉터리를 런타임 루트로 사용할 수 없다. Dockerfile과 Compose가 이 값을 함께 고정하며, 결과 DB는 bind mount인 `/app/data/claire.db`여야 한다. Support Bundle의 `diagnostics/storage.json`에서 `data_dir`의 enclosing mount가 `/app/data`인지 확인한다.
+
+### 멀티 테마 단일 DB 통합 및 서비스 시작 자동 마이그레이션
+
+Schema v14부터 모든 지식 테마는 단일 데이터베이스 파일(`data/claire.db`)에 통합 관리되며, 각 테마의 데이터는 `theme_id` 컬럼으로 완전 격리된다. 이전 버전의 분리형 테마 DB 파일(`data/themes/*/claire.db`)이 디스크에 남아 있는 경우, 서비스 시작 시 `ThemeManager.reload()`가 이를 자동으로 감지하여 단일 DB로 병합 마이그레이션을 수행하고 원본 파일은 `claire.db.migrated`로 안전하게 백업 및 이름 변경한다.
 
 `CLAIRE_ENVIRONMENT`는 exact `development` 또는 `production` 값이 필수다. bare 명령의 선택은 프로세스 값을 먼저 보지만 파일의 역할을 재해석하지는 않는다. `.env`는 `production`, `.env.dev`는 `development`를 선언해야 한다. development가 선택되면 `.env` 다음에 `.env.dev`와 `docker-compose.dev.yml`을 적용한다. public URL과 CORS는 선택된 env 파일의 값이 사전 검사와 컨테이너 실행에 똑같이 사용된다. `CLAIRE_ANONYMOUS_READONLY`도 host process 값이 아니라 선택된 파일의 exact `0|1`만 사용한다.
 
@@ -188,7 +192,7 @@ Telegram의 Support Bundle 생성은 Compose 내부 owner 인증 API로 위임�
 ## 백업과 복원
 
 ```bash
-# data + vault, 폴더 산출물
+# data 폴더 산출물
 ./cb-manuscript backup
 
 # 단일 archive 파일
@@ -204,7 +208,7 @@ Telegram의 Support Bundle 생성은 Compose 내부 owner 인증 API로 위임�
 
 새 산출물 이름은 현지 시각 기준 `backups/cb-YYYYMMDD-HHMMSS/` 또는 `backups/cb-YYYYMMDD-HHMMSS.tar.gz`다. 초 단위 ID마다 파일과 폴더를 하나의 slot으로 간주한다. 예전 `cb-YYYYMMDD` 날짜-only ID는 기존 backup의 restore compatibility에만 허용하며 새 backup 생성에는 사용하지 않는다. 기존 backup이 있으면 중단하며, 명시적인 `--replace`만 검증된 새 산출물로 교체한다. 자동 prune이나 보존 개수 정책은 두지 않는다.
 
-기본 component는 `data`와 `vault`다. `data`의 기존 `backups`, `offsite-backups`, 내부 `checkpoints`는 재귀 backup에서 제외한다. `.env`는 secret과 호스트 경로가 섞여 있으므로 v1 산출물에 포함하지 않는다. 재해 복구 전에 대상 호스트의 `.env`를 별도로 준비해야 한다.
+기본 component는 `data`다. (과거 호환 옵션인 `vault`는 서브시스템 영구 제거로 인해 비활성화됨). `data`의 기존 `backups`, `offsite-backups`, 내부 `checkpoints`는 재귀 backup에서 제외한다. `.env`는 secret과 호스트 경로가 섞여 있으므로 v1 산출물에 포함하지 않는다. 재해 복구 전에 대상 호스트의 `.env`를 별도로 준비해야 한다.
 
 backup은 현재 project와 exact-name legacy writer를 모두 중지하고 SQLite를 일관된 단일 파일로 snapshot한 뒤 전체 파일을 복사한다. manifest는 component, source revision, DB schema, 파일 크기와 SHA-256을 기록한다. hash는 우발적 손상·단순 변조 탐지이며 서명이나 악의적 재작성 방지는 아니다.
 
@@ -214,4 +218,4 @@ restore는 archive traversal, link·특수 파일, manifest 밖의 파일, hash�
 
 ## 참고문헌
 
-[^multi-theme-operations]: Claire Bible 멀티 테마 운영 data-plane 구현 근거: [`src/claire/store/theme.py`](../../../src/claire/store/theme.py), [`src/claire/health.py`](../../../src/claire/health.py), [`src/claire/cli.py`](../../../src/claire/cli.py), [`tests/test_health.py`](../../../tests/test_health.py), [`tests/test_migrate.py`](../../../tests/test_migrate.py), [`tests/test_multi_theme_workers.py`](../../../tests/test_multi_theme_workers.py) (2026-09-11 확인).
+[^multi-theme-operations]: Claire Bible 멀티 테마 운영 data-plane 구현 근거: [`src/claire/store/theme.py`](../../src/claire/store/theme.py), [`src/claire/health.py`](../../src/claire/health.py), [`src/claire/cli.py`](../../src/claire/cli.py), [`tests/test_health.py`](../../tests/test_health.py), [`tests/test_migrate.py`](../../tests/test_migrate.py), [`tests/test_multi_theme_workers.py`](../../tests/test_multi_theme_workers.py) (2026-09-11 확인).

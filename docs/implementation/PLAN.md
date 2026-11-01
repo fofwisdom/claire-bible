@@ -1,6 +1,6 @@
 # Claire Bible — 공개 아키텍처 계획
 
-관련 문서: [GOALS.md](../GOALS.md), [sample.md](../../../sample.md), [외부 접속 설계](EXTERNAL_ACCESS.md)
+관련 문서: [GOALS.md](../GOALS.md), [sample.md](../../sample.md), [외부 접속 설계](EXTERNAL_ACCESS.md)
 
 ## 1. 처리 흐름
 
@@ -13,9 +13,9 @@ Fetcher → 정규화 → 중복 확인
           ↓
 구조화 추출 → 엔티티 해소 → 관계 검증
           ↓
-SQLite 정본 + FTS + vector + vault export
+SQLite 정본 + FTS + vector + detail HTML
           ↓
-검색 / 그래프 UI / 종합 / 공유
+검색 / 그래프 UI / 종합 / 공유 / 신디케이션
 ```
 
 모든 진입점은 `IngestService`를 공유한다. 입력 경로마다 별도 적재 로직을 만들지 않아 동일한 정규화·중복 제거·복구 정책을 적용한다.
@@ -45,7 +45,8 @@ Fetcher는 URL, canonical URL, 제목, 작성자, 시각, 원문, 소스 종류�
 - FTS5와 벡터 유사도를 RRF로 결합하고 그래프 이웃으로 검색 문맥을 확장한다.
 - HTTP 검색은 owner·readonly에서 hybrid를 사용하고, 익명에서는 provider와 vector store를 참조하지 않는 FTS 전용 모드로 강제한다. 익명 summary는 항상 끄고 결과는 최대 20개로 제한한다.
 - sqlite-vec를 사용할 수 없으면 저장된 임베딩의 brute-force cosine 검색으로 폴백한다.
-- vault Markdown은 SQLite에서 생성하는 단방향 투영이며 정본으로 취급하지 않는다.
+- 단일 SQLite DB(`data/claire.db`, Schema v14)에 모든 테마가 저장되며, `theme_id` 기반으로 데이터가 논리적으로 완전 격리된다.
+- 과거 지원되던 Obsidian Vault 동기화 서브시스템은 영구 제거되었으며, SQLite DB의 `raw_text` 및 사전 컴파일된 `detail_html`이 단일 정본 역할을 수행한다.
 
 ### 백그라운드 작업
 

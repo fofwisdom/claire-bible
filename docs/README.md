@@ -9,10 +9,11 @@ Claire Bible 프로젝트의 모든 아키텍처 설계, 구현 명세, 와이�
 ```text
 docs/
 ├── README.md                   # 문서 전체 구조 안내 (본 문서)
+├── PRINCIPLES.md               # 프로젝트 원칙 정본 (구현이 바뀌어도 유지되는 규칙)
 ├── GOALS.md                    # 최상위 비전, 범위 및 로드맵 정본
 ├── FAVICON.md                  # 파비콘 3D 기하학 그래픽 디자인 명세
 ├── CLAIRE_ARCHITECTURE_ROADMAP.md # 듀얼 트랙(Docker/K8s) 아키텍처 로드맵
-├── design/                     # [설계 내역] 신규/개정 아키텍처 및 시스템 상세 설계
+├── design/                     # [이력] 당시의 설계 배경·대안·결정 기록 (현재 상태를 말하지 않음)
 │   ├── ANTIGRAVITY_EXECUTION_AND_LATENCY_OPTIMIZATION_DESIGN.md
 │   ├── ASCIIDOC_ENHANCEMENT_DESIGN.md
 │   ├── CROSS_TYPE_ENTITY_RESOLUTION_AND_VLM_LOCALIZATION_DESIGN.md
@@ -44,6 +45,9 @@ docs/
 
 ## 분류 및 참조 가이드
 
+0. **[`PRINCIPLES.md`](PRINCIPLES.md)**
+   - 구현이 바뀌어도 유지되는 규칙만 둔다. 어기면 버그다. 원칙 간 충돌과 알려진 위반도 여기에 적는다.
+
 1. **[`docs/implementation/`](implementation/)**
    - 현재 실행 코드와 정확히 일치하는 기능 명세, 와이어 프로토콜, 스키마 계약 및 운영 문서 집합입니다.
    - HTTP 와이어 및 인증 보안 규칙은 [`API_HTTP_CONTRACT.md`](implementation/API_HTTP_CONTRACT.md), 기계 판독용 OpenAPI 사양은 [`openapi.yaml`](implementation/openapi.yaml)을 따릅니다.
@@ -51,5 +55,9 @@ docs/
    - 지식 모델 표준 용어 및 코드 매핑은 [`GLOSSARY.md`](implementation/GLOSSARY.md), 공개 파이프라인 아키텍처는 [`PLAN.md`](implementation/PLAN.md)를 참조합니다.
 
 2. **[`docs/design/`](design/)**
-   - 각 하위 서브시스템의 심층 아키텍처 설계와 엔지니어링 결정 내역입니다.
-   - 기능 구현 시의 배경, 대안 평가, 보안 경계 및 다이어그램을 보관합니다.
+   - 작성 당시의 배경, 대안 평가, 결정 기록입니다. 상태 필드(Implemented, Planned 등)와 경로는 작성 시점 기준이며 현재 코드와 다를 수 있습니다.
+   - 현재 동작은 `implementation/` 문서나 코드로 확인합니다.
+
+## 문서 정합성 검사
+
+`tests/test_docs_consistency.py`가 `docs/*.md`와 `docs/implementation/*.md`를 검사합니다. 검사 항목은 상대 링크, 본문에 적힌 `src/`·`tests/` 등의 경로, 그리고 `ENVIRONMENT_VARIABLES.md`와 `Settings`의 변수 집합·기본값입니다. `design/`은 검사하지 않습니다.

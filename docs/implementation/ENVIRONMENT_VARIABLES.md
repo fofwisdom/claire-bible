@@ -37,9 +37,9 @@ graph TD
 
 | 파일명 | 역할 및 적용 환경 | 주요 용도 | 비고 |
 | :--- | :--- | :--- | :--- |
-| [`.env`](../../../.env.example) | **프로덕션 기본 설정** (`CLAIRE_ENVIRONMENT=production`) | Compose 호스트 포트/경로, 컨테이너 런타임, 시크릿, API 보안, LLM 설정 | `0600` 권한 필수, Git 커밋 금지 |
-| [`.env.dev`](../../../.env.dev.example) | **개발 환경 오버레이** (`CLAIRE_ENVIRONMENT=development`) | 개발 포트(`8766`), mock 프로바이더 고정, 격리된 데이터 경로(`./.dev/`) | `.env` 뒤에 로드되어 값 오버라이드 |
-| [`.env.deploy`](../../../.env.deploy.example) | **원격 배포 제어** (호스트 전용) | SSH 원격 대상, 배포 경로, rsync/update 동작 제어 | 앱 컨테이너 내부로 절대 유입되지 않음 |
+| [`.env`](../../.env.example) | **프로덕션 기본 설정** (`CLAIRE_ENVIRONMENT=production`) | Compose 호스트 포트/경로, 컨테이너 런타임, 시크릿, API 보안, LLM 설정 | `0600` 권한 필수, Git 커밋 금지 |
+| [`.env.dev`](../../.env.dev.example) | **개발 환경 오버레이** (`CLAIRE_ENVIRONMENT=development`) | 개발 포트(`8766`), mock 프로바이더 고정, 격리된 데이터 경로(`./.dev/`) | `.env` 뒤에 로드되어 값 오버라이드 |
+| [`.env.deploy`](../../.env.deploy.example) | **원격 배포 제어** (호스트 전용) | SSH 원격 대상, 배포 경로, rsync/update 동작 제어 | 앱 컨테이너 내부로 절대 유입되지 않음 |
 
 ### 1.2 설정 로딩 및 우선순위 규칙
 
@@ -124,7 +124,7 @@ graph TD
 | `CLAIRE_GEMINI_MODEL` | `gemini-3.1-flash-lite` | 문자열 | Gemini 프로바이더 사용 시 적용할 모델명. |
 | `CLAIRE_GEMINI_EFFORT` | `medium` | `low`, `medium`, `high` | Gemini 모델 추론 사고 레벨 (Reasoning Effort). |
 | `CLAIRE_GEMINI_EMBED_MODEL` | `text-embedding-004` | 문자열 | 임베딩 벡터 생성에 사용할 Gemini 모델명. (기존 `gemini-embedding-001`에서 상향) |
-| `CLAIRE_EMBED_TASK_TYPE` | `RETRIEVAL_DOCUMENT` | 문자열 | 벡터 임베딩 생성 시 기본 task_type (`RETRIEVAL_DOCUMENT`, `RETRIEVAL_QUERY`, `SEMANTIC_SIMILARITY` 등). |
+| `CLAIRE_EMBED_TASK_TYPE` | `SEMANTIC_SIMILARITY` | 문자열 | 호출자가 task_type을 지정하지 않을 때 쓰는 임베딩 task_type (`RETRIEVAL_DOCUMENT`, `RETRIEVAL_QUERY`, `SEMANTIC_SIMILARITY` 등). 적재 파이프라인과 `re-embed`의 온톨로지 프레임 임베딩은 `RETRIEVAL_DOCUMENT`를 직접 지정하므로 이 값의 영향을 받지 않는다. |
 | `CLAIRE_GEMINI_MIN_INTERVAL` | `4.0` | 부동소수점 (초) | Gemini API 호출 간 최소 대기 간격 (무료 티어 Rate Limit 보호용). |
 | `CLAIRE_GEMINI_MAX_RETRIES` | `5` | 정수 | Gemini API 429/5xx 에러 발생 시 최대 재시도 횟수. |
 
@@ -141,7 +141,8 @@ graph TD
 | `CLAIRE_AGY_BIN` | `agy` | 실행 파일명 또는 절대 경로 | `agy` 실행 바이너리 경로 (호스트 PATH 또는 `/host-bin`에서 자동 탐색). |
 | `CLAIRE_AGY_MODEL` | `gemini-3.7-flash` | 문자열 | Antigravity CLI 호출 시 사용할 기본 모델. |
 | `CLAIRE_AGY_EFFORT` | `medium` | `low`, `medium`, `high` | Antigravity CLI 추론 사고 레벨. |
-| `CLAIRE_AGY_TIMEOUT` | `120.0` | 부동소수점 (초) | `agy` 프로세스 실행 제한 시간. |
+| `CLAIRE_AGY_TIMEOUT` | `180.0` | 부동소수점 (초) | `agy` 프로세스 실행 제한 시간. |
+| `CLAIRE_AGY_DETAIL_TIMEOUT` | `300.0` | 부동소수점 (초) | 상세(Detail) 생성 호출에 적용하는 `agy` 실행 제한 시간. 일반 호출의 `CLAIRE_AGY_TIMEOUT`과 별도로 적용된다. |
 | `CLAIRE_AGY_MAX_CONCURRENCY` | `2` | 정수 | `agy` CLI 최대 동시 실행 프로세스 수. |
 
 ---
@@ -172,11 +173,16 @@ VMware Explore 숫자형 영상 상세 페이지가 Presentation PDF를 명시�
 | `CLAIRE_STT_PROVIDER` | `gemini` | `gemini`, `mock` | 음성 텍스트 변환(STT)에 사용할 프로바이더 (Google AI Studio Gemini 전용. Antigravity CLI는 STT 미지원. `STT_PROVIDER`, `STT_PROIVDER` 별칭 지원). `GEMINI_API_KEY` 누락 시 `mock`으로 폴백. |
 | `CLAIRE_STT_MODEL` | `""` | 문자열 | STT 전용 모델명 (예: `gemini-3.5-transcribe`, `STT_MODEL` 별칭 지원). 비어있을 경우 프로바이더 기본 모델 사용. |
 | `CLAIRE_STT_LANGUAGE` | `ko` | ISO 언어 코드 (예: `ko`, `en`, `ja`) | STT 기본 인식 대상 언어 (비어있을 경우 자동 감지). |
+| `CLAIRE_STT_TIMEOUT` | `600.0` | 부동소수점 (초) | STT 호출 제한 시간. |
+| `CLAIRE_STT_CUSTOM_VOCABULARY` | *(빈 목록)* | 쉼표 또는 줄바꿈 구분 문자열 | STT 프롬프트에 추가할 사용자 지정 용어 목록 (예: `vSAN,vCenter,Tanzu`). |
 | `CLAIRE_VIDEO_CHUNK_DURATION_SEC` | `240` | 정수 (초) | 단일 오디오 분할 청크 길이. `gemini-3.5-transcribe`의 10K TPM 한도 보호를 위해 기본 240초(4분, 약 6,000 토큰)로 제한. |
 | `CLAIRE_VIDEO_CACHE_TTL_SEC` | `259200` | 정수 (초) | 비디오 오디오 스트림 처리/적재 실패 시 로컬 보존 기간 (기본 3일 = 259,200초). 재적재 시 원격 다운로드를 건너뛰고 캐시 재사용. |
 | `CLAIRE_PRESENTATION_PDF_MAX_BYTES` | `67108864` | 양의 정수 (bytes) | 지원되는 영상 상세 페이지에서 내려받는 Presentation PDF 원본 1개의 최대 크기. 기본값은 64 MiB이며 `Content-Length`와 실제 스트림 누적 크기를 모두 검사한다.[^video-presentation-settings] |
 | `CLAIRE_FFMPEG_BIN` | `ffmpeg` | 실행 파일명 또는 경로 | 오디오 추출 및 다운샘플링에 사용할 `ffmpeg` 바이너리 경로. |
 | `CLAIRE_YTDLP_EXTRACTOR_ARGS` | `generic:impersonate` | 문자열 | yt-dlp 브라우저 핑거프린트 위장 인자. |
+| `CLAIRE_ENABLE_VLM_TRANSCRIPTION` | `1` (`true`) | `0`, `1`, `true`, `false` | 본문이 부족한 웹 문서의 이미지·인포그래픽을 VLM으로 전사할지 여부. `0`이면 VLM 프로바이더가 `mock`으로 고정된다. |
+| `CLAIRE_VLM_PROVIDER` | `gemini` | `gemini`(`google`), `mock` | VLM 전사 프로바이더. `gemini`여도 `GEMINI_API_KEY`가 없으면 `mock`이 쓰이고, 그 밖의 값도 `mock`으로 처리된다 (`Settings.effective_vlm_provider`). |
+| `CLAIRE_VLM_MODEL` | `""` | 문자열 | VLM 전사 모델명. 비어 있으면 프로바이더 기본 모델을 쓴다. |
 
 ---
 
@@ -186,13 +192,16 @@ VMware Explore 숫자형 영상 상세 페이지가 Presentation PDF를 명시�
 | :--- | :--- | :--- | :--- |
 | `CLAIRE_APP_ROOT` | 컨테이너: `/app`; 네이티브: 소스 루트 또는 현재 작업 디렉터리 | 절대 디렉터리 경로 | `CLAIRE_DB_PATH`·`CLAIRE_VAULT_PATH` 같은 상대 런타임 경로의 기준점. Dockerfile과 Compose가 `/app`으로 고정하며 사용자가 `.env`에 설정하지 않는다. 설치된 wheel의 `site-packages` 경로를 데이터 루트로 오인하지 않게 하는 운영 불변식이다. |
 | `CLAIRE_DB_PATH` | `data/claire.db` | 상대/절대 파일 경로 | SQLite 데이터베이스 파일 경로 (컨테이너 내부 기준). 상대경로는 `CLAIRE_APP_ROOT` 아래에서 해석된다. |
-| `CLAIRE_VAULT_PATH` | `vault` | 상대/절대 디렉터리 경로 | 볼트(문서 본문) 저장소 경로 (컨테이너 내부 기준). 상대경로는 `CLAIRE_APP_ROOT` 아래에서 해석된다. |
+| `CLAIRE_VAULT_PATH` | `""` | 상대/절대 디렉터리 경로 (레거시 잔여) | Obsidian Vault 동기화 기능이 영구 제거되어 기본값은 빈 문자열(`""`)이다. 과거 환경 호환성을 위해 필드만 유지된다. |
 | `CLAIRE_VECTOR_BACKEND` | `auto` | `auto`, `vec`, `brute` | 벡터 검색 백엔드 (`auto`: `sqlite-vec` 확장 우선, 미지원 시 `brute` 무차별 대입 폴백). |
 | `CLAIRE_RENDER_FORMAT` | `adoc` | `adoc` (`asciidoc`), `md` (`markdown`) | 문서 읽기 및 저장 기본 렌더링 포맷. ([DUAL_FORMAT_ADOC_DESIGN.md](../design/DUAL_FORMAT_ADOC_DESIGN.md) 참조) |
 | `CLAIRE_DATA_LIFECYCLE` | `purgeable` | `append-only`, `purgeable` | **데이터 수명주기 정책**. 기본값 `purgeable`에서는 오염 데이터 소각(`claire purge`)이 허용된다. `append-only`(무손실 보존 모드)로 설정하면 파괴적 소각 명령이 정책상 차단된다. |
 | `CLAIRE_ALLOW_PURGE` | `1` (`true`) | `0`, `1`, `true`, `false` | 명시적 데이터 소각 허용 플래그. 기본값 `1`(허용). `0`으로 설정하고 `CLAIRE_DATA_LIFECYCLE=append-only`로 두면 소각 명령이 차단된다. ([DATA_LIFECYCLE_AND_PURGE_DESIGN.md](../design/DATA_LIFECYCLE_AND_PURGE_DESIGN.md) 참조) |
 | `CLAIRE_MULTI_THEME` | `0` (`false`) | `0`, `1`, `true`, `false` | **멀티 테마(다중 DB 격리) 활성화 플래그**. 기본값 `0`(싱글 테마 모드)에서는 `themes.json` 스캔과 UI 테마 선택기가 비활성화되며, `1`로 설정 시 일련번호 기반 다중 테마 정의·스위칭·적재 및 권한 제어가 활성화된다. ([MULTI_THEME_ARCHITECTURE_DESIGN.md](../design/MULTI_THEME_ARCHITECTURE_DESIGN.md) 참조) |
-| `CLAIRE_TELEMETRY_RETENTION_DAYS` | `30` | 양의 정수 (일) | **텔레메트리 보관 기한**. 격리된 `data/telemetry.db`의 호출 계측 데이터 최대 보존 일수이자 Support Bundle 생성 시 지정 가능한 최대 기간(`days`) 상한. ([TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md](../design/TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md) 참조) |
+| `CLAIRE_PRESENTATION_ENABLED` | `0` (`false`) | `0`, `1`, `true`, `false` | 기본 테마(#0)의 프레젠테이션 기능 활성값. 다른 테마는 테마 레지스트리의 테마별 값을 쓴다. |
+| `CLAIRE_THEME_ID` | `0` | 정수 | **[내부]** 현재 요청·작업의 테마 번호. 테마 라우팅이 테마별 `Settings` 사본에 채우며(`ThemeManager._settings_for_theme_info`) 사용자가 `.env`에 설정하지 않는다. |
+| `CLAIRE_THEME_DEFAULT_FOCUS` | `""` | 문자열 | **[내부]** 테마 기본 초점(Focus). 테마 레지스트리의 `default_focus`가 테마별 `Settings` 사본에 채워진다. 사용자가 `.env`에 설정하지 않는다. |
+| *(환경변수 아님)* 텔레메트리 보관 기한 | `30` | 코드 상수 | `src/claire/store/telemetry.py`의 `DEFAULT_TELEMETRY_RETENTION_DAYS`. Support Bundle 생성 시 지정 가능한 최대 기간(`days`) 상한이다. `CLAIRE_TELEMETRY_RETENTION_DAYS`라는 환경변수는 `Settings`에 없으므로 설정해도 적용되지 않는다. ([TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md](../design/TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md) 참조) |
 
 ---
 
@@ -267,6 +276,8 @@ TypeSafe AI Jev는 도입 검토 단계라 **판정 권한이 없다**. 플래�
 | `CLAIRE_EMBED_CHAR_BUDGET` | `8000` | 정수 (글자 수) | 임베딩 벡터 생성 시 투입할 본문 슬라이싱 상한. |
 | `CLAIRE_EXPAND_CHAR_BUDGET` | `2000` | 정수 (글자 수) | 1홉 자동확장 후보 선별 시 LLM에 전달할 컨텍스트 상한. |
 | `CLAIRE_RESEARCH_CONTEXT_BUDGET` | `8000` | 정수 (글자 수) | 리서치 보고서 작성 시 투입할 컨텍스트 상한. |
+| `CLAIRE_VIDEO_MAX_EXTRACT_CHARS` | `200000` | 정수 (글자 수) | 비디오 전사 텍스트 추출 상한. |
+| `CLAIRE_VLM_MAX_IMAGES` | `20` | 정수 | 문서 하나에서 VLM으로 전사할 최대 이미지 수. |
 
 ---
 
@@ -287,6 +298,7 @@ TypeSafe AI Jev는 도입 검토 단계라 **판정 권한이 없다**. 플래�
 | `CLAIRE_INJECT_HOST` | `127.0.0.1` | IPv4 주소 | API 서버 바인딩 호스트 (컨테이너 내부는 `0.0.0.0`으로 고정). |
 | `CLAIRE_INJECT_PORT` | `8765` / `8766` | 정수 (`1~65535`) | API 서버 내부 포트 번호. |
 | `CLAIRE_SUPPORT_BUNDLE_API_URL` | Compose가 `http://api:<CB_API_PORT>`로 주입 | Compose 내부 URL | Telegram이 다운로드 담당 API에 Support Bundle 생성을 위임하는 내부 전용 주소. 사용자가 `.env`에 설정하지 않는다. |
+| `CLAIRE_GRAPH_BUNDLE_API_URL` | `""` | Compose 내부 URL | Telegram이 그래프 번들 생성을 위임할 API URL. 비어 있으면 `CLAIRE_SUPPORT_BUNDLE_API_URL`을 쓰고, 둘 다 비면 같은 프로세스에서 직접 만든다. |
 | `CLAIRE_INJECT_TOKEN` | `""` | 32~128자 URL-safe 문자열 | **[레거시 / 자동 이관] Owner 쓰기 토큰 (폐기 예정)**. 정적 환경변수 통제 방식이 폐기되었으며, 기동 시 독립 자격증명 파일(`data/auth/api_tokens.json`)로 자동 이관된다. 비워두더라도 첫 기동 시 기본 Owner 토큰(`cb_...`)이 파일에 자동 생성되어 즉시 정상 가동된다. 동적 관리는 `claire token` 또는 WebUI [🔑 API/MCP 키]를 이용한다. |
 | `CLAIRE_COLLABORATOR_TOKEN` | `""` | 32~128자 URL-safe 문자열 | **[레거시 / 자동 이관] Collaborator 협업 토큰 (폐기 예정)**. 기동 시 독립 자격증명 파일(`data/auth/api_tokens.json`)로 자동 이관된다. 협업자 토큰 발급 및 관리는 `claire token create --scope collab` 또는 텔레그램 `/webco`를 이용한다. |
 | `CLAIRE_READONLY_TOKEN` | `""` | 32~128자 URL-safe 문자열 | **[레거시 / 자동 이관] Readonly 조회 토큰 (폐기 예정)**. 기동 시 독립 자격증명 파일(`data/auth/api_tokens.json`)로 자동 이관된다. 에이전트 연동용 상시 토큰은 `claire token create --scope readonly`로 발급 및 관리한다. |
@@ -294,7 +306,21 @@ TypeSafe AI Jev는 도입 검토 단계라 **판정 권한이 없다**. 플래�
 | `CLAIRE_PUBLIC_URL` | `""` / `http://127.0.0.1:8766` | URL (예: `https://claire.example.com`) | **[필수]** 브라우저 기준 canonical 공개 URL (`CLAIRE_FQDN` 미지정 시 필수). Host 헤더 검증, Same-Origin 판정, 공유 링크(`/p?s=...`) 생성에 사용된다. |
 | `CLAIRE_FQDN` | `""` | 도메인 호스트명 (예: `claire.example.com`) | **[필수]** 공개 FQDN 호스트명 (`CLAIRE_PUBLIC_URL` 미지정 시 필수). 미설정 시 `CLAIRE_PUBLIC_URL`의 호스트명을 자동으로 추출하여 사용한다. |
 | `CLAIRE_CORS_ALLOWED_ORIGINS` | `""` | 쉼표 구분 Origin URL 목록 | Cross-Origin 브라우저 API 호출을 허용할 exact Origin 목록 (예: `https://app.example.com`). 비어있으면 Same-Origin 요청만 허용된다. |
+| `CLAIRE_CLOUDFLARE_IPS_ONLY` | `0` (`false`) | `0`, `1`, `true`, `false` | Cloudflare 공인 IP 대역에서 온 접속만 허용한다 (사설 IP는 영향 없음). 레거시 이름 `CLAIRE_CLOUDFLARE_ONLY`도 읽는다. |
 | `CLAIRE_GA_MEASUREMENT_ID` | `""` | 문자열 (예: `G-XXXXXXXXXX`) | Google Analytics 4 측정 ID (싱글 테마 모드용 측정 ID). 멀티테마 모드에서는 각 테마의 개별 설정값을 사용하며 전역 환경변수로 폴백되지 않는다. 비워두면 GA 스크립트가 로드되지 않으며 외부 통신을 차단하는 엄격한 CSP 정책이 유지된다. |
+
+---
+
+### 2.13.1 공개 사이트 크롤링 및 사이트 메타데이터
+
+| 환경변수명 | 기본값 | 허용 값 / 타입 | 설명 |
+| :--- | :--- | :--- | :--- |
+| `CLAIRE_ROBOTS_POLICY` | `public` | `public`, `disallow_all` | `/robots.txt` 정책. `disallow_all`이거나 `CLAIRE_ANONYMOUS_READONLY=0`이거나 비공개 테마 FQDN이면 전체 차단(`Disallow: /`)을 응답한다. |
+| `CLAIRE_BLOCK_AI_CRAWLERS` | `1` (`true`) | `0`, `1`, `true`, `false` | `public` 정책일 때 AI 학습·스크래핑 봇(GPTBot, ClaudeBot 등)을 `robots.txt`에서 차단할지 여부. |
+| `CLAIRE_SITEMAP_ENABLED` | `1` (`true`) | `0`, `1`, `true`, `false` | `/sitemap.xml` 동적 생성 여부. `CLAIRE_ANONYMOUS_READONLY=0`이면 이 값과 관계없이 비활성이다. |
+| `CLAIRE_SITEMAP_CACHE_TTL` | `900` | 정수 (초) | 사이트맵 인메모리 캐시 TTL. |
+| `CLAIRE_SITE_NAME` | `Claire Bible` | 문자열 | 구조화 데이터 등에 쓰는 사이트 이름. |
+| `CLAIRE_SITE_DESCRIPTION` | `Personal Knowledge Base and Ontology Knowledge Graph Engine` | 문자열 | 사이트 메타 설명. |
 
 ---
 
@@ -431,6 +457,6 @@ CLAIRE_PUBLIC_URL=http://127.0.0.1:8766
 
 ## 6. 참고문헌
 
-[^video-caption-settings]: Claire Bible 구현 근거: [`src/claire/ingest/fetchers/captions.py`](../../../src/claire/ingest/fetchers/captions.py), [`src/claire/ingest/fetchers/video.py`](../../../src/claire/ingest/fetchers/video.py), [`tests/test_video_captions.py`](../../../tests/test_video_captions.py) (2026-09-04 확인).
-[^video-presentation-settings]: Claire Bible 구현 근거: [`src/claire/config.py`](../../../src/claire/config.py), [`src/claire/ingest/fetchers/presentation_vmware_explore.py`](../../../src/claire/ingest/fetchers/presentation_vmware_explore.py), [`src/claire/ingest/pipeline.py`](../../../src/claire/ingest/pipeline.py), [`src/claire/store/raw.py`](../../../src/claire/store/raw.py), [`tests/test_video_presentation.py`](../../../tests/test_video_presentation.py) (2026-09-04 확인). 설계 근거: [VIDEO_PRESENTATION_BUNDLE_INGESTION_DESIGN.md](../design/VIDEO_PRESENTATION_BUNDLE_INGESTION_DESIGN.md).
-[^support-build-env]: Claire Bible 구현 근거: [`Dockerfile`](../../../Dockerfile), [`docker-compose.yml`](../../../docker-compose.yml), [`ops/cb_manuscript.py`](../../../ops/cb_manuscript.py), [`src/claire/support_bundle.py`](../../../src/claire/support_bundle.py) (2026-09-11 확인).
+[^video-caption-settings]: Claire Bible 구현 근거: [`src/claire/ingest/fetchers/captions.py`](../../src/claire/ingest/fetchers/captions.py), [`src/claire/ingest/fetchers/video.py`](../../src/claire/ingest/fetchers/video.py), [`tests/test_video_captions.py`](../../tests/test_video_captions.py) (2026-09-04 확인).
+[^video-presentation-settings]: Claire Bible 구현 근거: [`src/claire/config.py`](../../src/claire/config.py), [`src/claire/ingest/fetchers/presentation_vmware_explore.py`](../../src/claire/ingest/fetchers/presentation_vmware_explore.py), [`src/claire/ingest/pipeline.py`](../../src/claire/ingest/pipeline.py), [`src/claire/store/raw.py`](../../src/claire/store/raw.py), [`tests/test_video_presentation.py`](../../tests/test_video_presentation.py) (2026-09-04 확인). 설계 근거: [VIDEO_PRESENTATION_BUNDLE_INGESTION_DESIGN.md](../design/VIDEO_PRESENTATION_BUNDLE_INGESTION_DESIGN.md).
+[^support-build-env]: Claire Bible 구현 근거: [`Dockerfile`](../../Dockerfile), [`docker-compose.yml`](../../docker-compose.yml), [`ops/cb_manuscript.py`](../../ops/cb_manuscript.py), [`src/claire/support_bundle.py`](../../src/claire/support_bundle.py) (2026-09-11 확인).

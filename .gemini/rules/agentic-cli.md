@@ -1,6 +1,8 @@
 <RULE[agentic-cli]>
 # Claire Bible: Zero-Speculation & Agent-First CLI Guidelines
 
+> 정본: `docs/PRINCIPLES.md` C1~C5. 이 파일은 에이전트 주입용 요약이며, 원칙을 바꿀 때는 정본을 먼저 고치고 이 파일을 맞춘다.
+
 1. **Zero Speculation (추론적 편의/가정 금지)**
    - 사용자가 명시적으로 요구하지 않은 '편의 기능', '임의의 기본값(Fallback)', '데이터 보정/합성' 코드를 작성하지 마세요. (YAGNI 엄수)
    - 필수 인자나 문맥이 누락/모호할 경우, "알아서 유추"하지 말고 즉시 `ValueError` 또는 구체적 에러 메시지와 함께 Fail-Fast 하도록 작성하세요.

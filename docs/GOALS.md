@@ -1,6 +1,6 @@
 # Claire Bible — 오리진 목표와 로드맵 (증강 계보)
 
-**계보:** 증강 계보 ([`fofwisdom/claire-bible`](https://github.com/fofwisdom/claire-bible)) **기준 문서:** 본 문서는 증강 계보의 최상위 비전, 범위, 로드맵을 정의하는 단일 정본이다. **관련 문서:** 아키텍처 로드맵 [`docs/CLAIRE_ARCHITECTURE_ROADMAP.md`](CLAIRE_ARCHITECTURE_ROADMAP.md) · 공개 아키텍처 [`docs/implementation/PLAN.md`](implementation/PLAN.md) · 구현 및 API 가이드 [`docs/implementation/API_AND_MCP_GUIDE.md`](implementation/API_AND_MCP_GUIDE.md)
+**계보:** 증강 계보 ([`fofwisdom/claire-bible`](https://github.com/fofwisdom/claire-bible)) **기준 문서:** 본 문서는 증강 계보의 최상위 비전, 범위, 로드맵을 정의하는 단일 정본이다. **관련 문서:** 프로젝트 원칙 [`docs/PRINCIPLES.md`](PRINCIPLES.md) · 아키텍처 로드맵 [`docs/CLAIRE_ARCHITECTURE_ROADMAP.md`](CLAIRE_ARCHITECTURE_ROADMAP.md) · 공개 아키텍처 [`docs/implementation/PLAN.md`](implementation/PLAN.md) · 구현 및 API 가이드 [`docs/implementation/API_AND_MCP_GUIDE.md`](implementation/API_AND_MCP_GUIDE.md)
 
 ---
 
@@ -59,18 +59,7 @@
 
 ## 3. 품질 및 거버넌스 원칙
 
-1. **원문과 출처 절대 보존 (Source Preservation)**:
-   - LLM이 생성하거나 요약한 결과물이 결코 원문(raw text)과 출처 메타데이터를 대체하거나 파괴할 수 없다.
-2. **비결정성과 결정론의 엄격한 격리 (Deterministic vs Stochastic Separation)**:
-   - 라우팅, 중복 판별, 와이어 프로토콜, 인증, 토큰 교환 등 시스템 코어 로직은 순수 결정론적 단위 테스트로 100% 검증한다.
-   - 모델 추론 결과(추출, 요약 등)는 전용 평가 표본 및 E2E 테스트셋으로 분리하여 관리한다.
-3. **비파괴적 확장 및 스키마 진화 (Non-Destructive Evolution)**:
-   - 스키마 확장은 멱등 마이그레이션 체계를 따르며, 공통 스키마 버전 계약([`SCHEMA_VERSIONING.md`](implementation/SCHEMA_VERSIONING.md))을 항상 준수한다.
-4. **최소 권한 및 보안 경계 (Defense in Depth)**:
-   - 읽기와 쓰기 권한을 엄격히 분리하고, 네트워크 경계(CORS, Reverse Proxy)와 애플리케이션 인증을 다층으로 보호한다.
-   - 사설망 및 온프레미스 대상 요청은 SSRF 방지 보안 규칙을 엄격히 적용한다.
-5. **비밀값 및 데이터 격리 (Zero Credential Leakage)**:
-   - 모든 설정과 자격증명은 환경변수로만 주입하며, 저장소에는 실제 운영 데이터나 개인 식별 정보를 일체 포함하지 않는다.
+[`PRINCIPLES.md`](PRINCIPLES.md)로 옮겼다. 원칙은 그 문서만 고친다.
 
 ---
 
@@ -111,7 +100,4 @@
 
 ## 5. 공개 저장소 데이터 및 보안 정책
 
-- `sample.adoc` 및 `sample.md`에는 공개 문서와 합성 메모만 사용한다.
-- 실제 운영 데이터베이스, Obsidian Vault, 백업 아카이브, 세션 토큰은 버전 관리에서 영구 제외한다.
-- 모든 문서의 IP, 도메인, 포트, 토큰은 예시값 또는 환경변수 플레이스홀더로만 표기한다.
-- 이슈, 문서, 테스트 fixture에 실제 사용자의 프라이빗 데이터나 운영 DB 식별자를 커밋하지 않는다.
+[`PRINCIPLES.md`](PRINCIPLES.md) B4로 옮겼다.

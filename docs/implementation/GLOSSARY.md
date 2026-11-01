@@ -1,4 +1,4 @@
-# Shared Compatibility Glossary (`docs/origin/implementation/GLOSSARY.md`)
+# Shared Compatibility Glossary (`docs/implementation/GLOSSARY.md`)
 
 이 문서는 테제 계보(`blackan/claire_bible`)와 증강 계보(`fofwisdom/claire-bible`) 간의 상호 이해와 데이터 호환성을 보장하기 위해 제정된 공식 표준 용어집(Canonical Glossary)이다.
 
@@ -15,7 +15,7 @@
 
 - **계보 관계 원칙**:
   - 테제 계보와 증강 계보는 상하 종속 관계가 아니며, 각자의 책무(테제 탐구 vs 실세계 증강)를 수행하는 독립적인 연구·개발 계보이다.
-  - 상호 호환성을 유지하기 위한 데이터 형식과 통신 인터페이스는 `docs/origin/implementation/`의 공통 계약을 통해 엄격히 조율한다.
+  - 상호 호환성을 유지하기 위한 데이터 형식과 통신 인터페이스는 `docs/implementation/`의 공통 계약을 통해 엄격히 조율한다.
 
 ---
 
@@ -30,7 +30,7 @@
 
 ### 2.1. 계약 (Contract)
 - **정의**: 두 계보가 데이터 상호 호환성과 지식 보존을 위해 공식적으로 합의하고 채택하는 거시적 정본 문서.
-- **범위**: `docs/origin/implementation/` 디렉터리 내에 위치하는 독립된 Markdown 및 YAML 사양서.
+- **범위**: `docs/implementation/` 디렉터리 내에 위치하는 독립된 Markdown 및 YAML 사양서.
 - **예시**:
   - `SCHEMA_VERSIONING.md` (스키마 버전 계약)
   - `API_HTTP_CONTRACT.md` (HTTP API 계약)
@@ -81,7 +81,7 @@
 
 ### 3.2. 문서 (Document / `doc_id`, `documents`)
 - **정의**: 고유 식별자(`doc_id`), 원본 출처(URL), 시스템 적재 메타데이터(`docmeta`), 원문, 요약, 상세, 온톨로지 추출 결과를 총괄하는 최상위 지식 자산 단위.
-- **저장소**: SQLite `documents` 테이블 및 파일시스템 볼트(`vault/<doc_id>.adoc` 또는 `.md`).
+- **저장소**: 단일 SQLite `documents` 테이블 (Schema v14, `theme_id` 파티셔닝).
 - **식별 체계**: `doc_<hash>` 또는 `doc_<uuid>` 형태의 유일한 식별자.
 - **적재 메타데이터 (Document Ingestion Metadata / `docmeta` / `Document.meta`)**:
   - **정의**: 파이프라인이 원문을 수집·가공·적재(Ingestion & Processing)할 때 기록한 시스템 처리 및 실행 이력(Provenance: `focus`, `pdf_parser_used`, `pdf_parser_fallback`, `raw_truncated`, `stt` 등).
@@ -126,11 +126,11 @@
   - **정의**: 지식 그래프 상에서 두 노드를 시각적으로 연결하는 선이자 그래프 네트워크의 간선.
 
 ### 3.7. 테마 (Theme / `theme_id`)
-- **정의**: 상이한 도메인의 지식이 단일 지식 베이스에 혼합되어 RAG 검색 정밀도가 저하되거나 그래프가 오염되는 것을 방지하기 위한 완전 물리 격리 단위.
-- **구성**: 고유 시퀀스 번호(`sequence`), 테마 식별자(`theme_id`), 표시 라벨, 아이콘, 전용 SQLite DB 파일(`claire_<theme>.db`), 전용 볼트 디렉터리.
+- **정의**: 상이한 도메인의 지식이 단일 지식 베이스에 혼합되어 RAG 검색 정밀도가 저하되거나 그래프가 오염되는 것을 방지하기 위한 논리적 완전 격리 단위.
+- **구성**: 고유 시퀀스 번호(`seq`), 테마 식별자(`id`/`theme_id`), 표시 라벨, 설명, 아이콘, 전용 FQDN, 테마 파티셔닝(단일 `data/claire.db` 내 `theme_id` 컬럼 분리).
 
-### 3.8. 볼트 (Vault / `vault/`)
-- **정의**: SQLite DB에 정본으로 영속화된 지식 자산을 Obsidian 등 외부 마크다운 에디터에서 즉시 열람·활용할 수 있도록 단방향(export-only)으로 투영한 파일시스템 저장소.
+### 3.8. 볼트 (Vault / `vault/`, 영구 제거됨)
+- **정의**: 과거 SQLite DB 정본을 Obsidian 등 외부 마크다운 에디터에서 열람할 수 있도록 단방향(export-only)으로 투영했던 파일시스템 저장소. 현재는 볼트 서브시스템 및 마크다운 파일 동기화가 영구 제거되어 비활성화/폐기되었다.
 
 ---
 
@@ -158,11 +158,11 @@ HTTP API 및 시스템 접근 제어에 적용되는 역할과 자격 증명 용
 |---|---|---|---|---|
 | 상위 계보 | **테제 계보** | Thesis Lineage | Upstream / blackan | `SCHEMA_LINEAGE = "claire-bible/common"` |
 | 증강 계보 | **증강 계보** | Augmentation Lineage | Origin / fofwisdom | `SCHEMA_LINEAGE = "claire-bible/common"` |
-| 상호 합의 | **계약** | Contract | `docs/origin/implementation/*.md` | `SCHEMA_VERSION = 13` |
+| 상호 합의 | **계약** | Contract | `docs/implementation/*.md` | `SCHEMA_VERSION = 14` |
 | 세부 규칙 | **규약** | Protocol / Rule | `GateMiddleware`, wire rules | 와이어 프로토콜 / 스텔스 규약 |
 | 미가공 원문 | **원문** | Raw Content | `Document.raw_text`, `raw_text` | `documents.raw_text`, `*.txt.zst` |
 | 원본 부가속성 | **원문 메타데이터** | Raw Metadata (`rawmeta`) | 외부 원본 메타데이터 (비영속/미검증) | PDF/HTTP 헤더 미가공 메타 |
-| 지식 단위 | **문서** | Document | `Document`, `doc_id` | `documents` 테이블, `vault/*.adoc` |
+| 지식 단위 | **문서** | Document | `Document`, `doc_id` | `documents` 테이블 |
 | 적재 이력 | **적재 메타데이터** | Document Metadata (`docmeta`) | `Document.meta`, `doc.meta` | `documents.meta` (JSON) |
 | 핵심 압축 | **요약** | Summary | `ExtractionResult.summary` | `documents.summary` (plain text) |
 | 가독 본문 | **상세 (가독 본문)** | Rendered Detail | `render_detail`, `doc.detail` | `documents.detail` (md/adoc) |
@@ -172,6 +172,6 @@ HTTP API 및 시스템 접근 제어에 적용되는 역할과 자격 증명 용
 | 그래프 정점 | **노드** | Node | `node`, `nodes` (dict) | GraphView cytoscape element |
 | 의미 연결 | **관계** | Relation | `Relation`, `ExtractedRelation` | `relations` 테이블 |
 | 그래프 간선 | **링크 / 엣지** | Link / Edge | `edge`, `edges` (dict) | GraphView edge element |
-| 도메인 격리 | **테마** | Theme | `Theme`, `ThemeSettings` | `claire_<theme>.db`, `vault/themes/<seq>` |
-| 파일 투영 | **볼트** | Vault | `vault_dir`, `export_entity` | `vault/` 디렉터리 |
+| 도메인 격리 | **테마** | Theme | `Theme`, `ThemeSettings` | `themes` 테이블, `*.theme_id` |
+| 파일 투영 | **볼트 (폐기됨)** | Vault (Retired) | `vault_path` (legacy default "") | 제거됨 (영구 폐기) |
 | 추출 지향성 | **초점** | Extraction Focus | `focus`, `default_focus` | `documents.meta["focus"]` |

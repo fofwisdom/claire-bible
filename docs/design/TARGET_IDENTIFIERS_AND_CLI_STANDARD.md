@@ -1,5 +1,8 @@
 # 대상 식별자(Target Identifiers), 토큰(Tokens) 및 CLI 명령어 설계 표준
 
+> [!NOTE]
+> 이 문서의 원칙은 [`PRINCIPLES.md`](../PRINCIPLES.md)로 옮겼다(2026-10-31). 이 문서는 이력으로만 남기며 고치지 않는다.
+
 이 문서는 Claire Bible 시스템 전반에서 **문서 대상 식별자(Target Identifiers)**, **토큰(Tokens)**, 그리고 **CLI 명령어(CLI Commands)**를 설계하고 구현할 때 준수해야 하는 공식 표준 규격과 엔지니어링 가이드라인을 정의한다.
 
 새로운 CLI 서브커맨드나 API 엔드포인트를 추가할 때 발생할 수 있는 식별자 파편화, 오동작, 권한 상승, 그리고 데이터 유실 사고를 원천 방지하는 것을 목적으로 한다.

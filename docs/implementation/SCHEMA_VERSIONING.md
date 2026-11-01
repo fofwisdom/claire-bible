@@ -8,19 +8,39 @@
 
 공통 version v13은 새로운 사용자 기능을 추가하는 version이 아니다. 테제 계보 v9의 테이블, 컬럼과 인덱스를 공통 최소 schema로 다시 선언하고 `schema_lineage=claire-bible/common`을 추가하는 수렴 지점이다. 구현별 부가 컬럼과 테이블은 공통 최소 schema와 이름 또는 의미가 충돌하지 않는 한 보존한다.
 
-| version | 상태 | v13 처리 |
+| version | 상태 | 마이그레이션 처리 |
 |---|---|---|
-| 1–9 | 테제 계보 공통 이력 | 멱등 마이그레이션 후 v13으로 전환 |
-| 10–11 | 증강 계보의 분리 계보 이력 | 부가 schema를 보존하며 v13으로 전환 가능 |
-| 12 | 증강 계보의 철회된 Support Bundle schema | 자동 전환 금지; 정확한 복구 절차로 먼저 v11 복원 |
-| 13 | 현재 공통 version | `schema_lineage=claire-bible/common`이 있어야 유효 |
-| 14 이상 | 미래 version | 현재 코드가 변경하지 않고 거부 |
+| 1–9 | 테제 계보 공통 이력 | 멱등 마이그레이션 후 v14로 전환 |
+| 10–11 | 증강 계보의 분리 계보 이력 | 부가 schema를 보존하며 v14로 전환 가능 |
+| 12 | 증강 계보의 철회된 Support Bundle schema | 자동 전환 금지; 정확한 복구 절차로 먼저 v11 복원 후 전환 |
+| 13 | 직전 공통 version | `schema_lineage=claire-bible/common` 기준 단일 DB 및 `theme_id` 파티셔닝으로 승격 |
+| 14 | 현재 공통 version | 단일 SQLite DB 통합, 테마 파티셔닝(`theme_id`), 다중 사용자/신디케이션 지원, 볼트 서브시스템 영구 제거 |
+| 15 이상 | 미래 version | 현재 코드가 변경하지 않고 거부 |
 
-v12는 정본 DB에 진단 테이블을 추가해 관측성 저장소 분리 원칙을 위반했던 version이므로 영구 폐기한다. v12 DB는 증강 계보의 보존 복구 절차로 진단 행을 내구성 있게 내보낸 뒤 v11로 복원해야 한다. 공통 v13 마이그레이션은 이 복구를 추측하거나 대신하지 않는다. 복구되지 않은 v12를 발견하면 DB를 변경하지 않고 실패한다.
+v12는 정본 DB에 진단 테이블을 추가해 관측성 저장소 분리 원칙을 위반했던 version이므로 영구 폐기한다. v12 DB는 증강 계보의 보존 복구 절차로 진단 행을 내구성 있게 내보낸 뒤 v11로 복원해야 한다. 공통 v14 마이그레이션은 이 복구를 추측하거나 대신하지 않는다. 복구되지 않은 v12를 발견하면 DB를 변경하지 않고 실패한다.
 
-## v13 불변 규칙
+## v14 수렴 기준 (단일 데이터베이스 및 테마 파티셔닝)
 
-- `schema_version=13`과 `schema_lineage=claire-bible/common`의 의미를 재작성하지 않는다.
+공통 version v14는 물리적으로 분리되어 있던 멀티 데이터베이스(`themes/*/claire.db`)를 단일 정본 SQLite 데이터베이스(`data/claire.db`)로 통합하고, 논리적 테마 격리를 `theme_id` 컬럼과 복합 인덱스로 완비한 버전이다. 또한 외부 연동 및 테마 간 교차 적재를 위한 신디케이션(Syndication) 인프라를 구축하고, 옵시디언 볼트(Obsidian Vault) 마크다운 투영 서브시스템을 영구 제거하였다.
+
+1. **단일 DB 통합 및 `theme_id` 파티셔닝**:
+   - `documents`, `entities`, `relations`, `embeddings`, `raw_inbox`, `extractions`, `proposals`, `jobs`, `refresh_queue`, `expand_queue`, `document_snapshots`, `document_presentations`, `doc_shares`, `purged_tombstones`에 `theme_id INTEGER NOT NULL DEFAULT 0` 컬럼 추가.
+   - `(theme_id, ...)` 복합 인덱스를 전면 배치하여 테마 간 데이터 누수를 물리적으로 방지하고 쿼리 성능 보장.
+   - 서버 시작 시 `ThemeManager.reload()`가 기존의 `themes/*/claire.db` 파일을 자동 감지하여 `data/claire.db`로 병합 마이그레이션하고, 완료된 파일은 `claire.db.migrated`로 보존.
+2. **다중 사용자 및 테마 거버넌스 인프라**:
+   - `users`: 사용자 계정, 역할, 쿼터.
+   - `themes`: 테마 메타데이터, 도메인 FQDN, 공개/협업자 권한 설정.
+   - `theme_members`: 테마별 사용자 멤버십 및 권한.
+3. **신디케이션(Syndication) 인프라**:
+   - `syndication_accounts`, `syndication_targets`, `syndication_items`, `syndication_dispatches`.
+   - 테마 간 교차 적재 및 외부 프로토콜(ActivityPub, AT Protocol 등) 송수신 큐 지원.
+4. **옵시디언 볼트(Obsidian Vault) 서브시스템 영구 제거**:
+   - 로컬 파일시스템 볼트 마크다운 동기화 로직 전면 삭제.
+   - SQLite DB 본문(`raw_text`, `detail_html`)만을 단일 정본으로 유지.
+
+## v14 불변 규칙
+
+- `schema_version=14`와 `schema_lineage=claire-bible/common`의 의미를 재작성하지 않는다.
 - 공통 최소 객체를 변경해야 하면 다음 미사용 common version을 제안한다.
 - 구현 전용 객체를 v13의 필수 객체로 소급 편입하지 않는다.
 - version은 같지만 lineage가 없거나 다른 DB를 호환 대상으로 간주하지 않는다.

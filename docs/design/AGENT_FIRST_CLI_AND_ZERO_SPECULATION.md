@@ -1,5 +1,8 @@
 # Agent-First CLI & Zero Speculation Architecture
 
+> [!NOTE]
+> 이 문서의 원칙은 [`PRINCIPLES.md`](../PRINCIPLES.md)로 옮겼다(2026-10-31). 이 문서는 이력으로만 남기며 고치지 않는다.
+
 ## 1. 목적 (Goal)
 이 문서는 Claire Bible 프로젝트가 AI 에이전트(Antigravity, Cursor, Claude Code 등)에 의해 CLI 환경에서 예측 가능하고 신뢰성 있게 호출/조작될 수 있도록 하는 아키텍처 설계와 할루시네이션(Hallucination) 방지 원칙을 규정한다.
 
