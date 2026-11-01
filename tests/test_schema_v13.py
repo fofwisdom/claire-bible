@@ -25,15 +25,16 @@ def _set_meta(conn: sqlite3.Connection, key: str, value: str) -> None:
     conn.commit()
 
 
-def test_fresh_database_declares_common_v13():
+def test_fresh_database_declares_common_v14():
     conn = _memory_database()
 
-    assert dbm.require_current_schema(conn) == 13
+    assert dbm.require_current_schema(conn) == 14
     assert dbm.stored_schema_lineage(conn) == "claire-bible/common"
     document_columns = {
         row["name"] for row in conn.execute("PRAGMA table_info(documents)")
     }
     assert {
+        "theme_id",
         "detail",
         "seen",
         "watch_enabled",
@@ -45,6 +46,7 @@ def test_fresh_database_declares_common_v13():
         for row in conn.execute("PRAGMA index_list(documents)")
     }
     assert "idx_documents_hidden" in indexes
+    assert "idx_documents_theme_canon" in indexes
 
 
 def test_legacy_v1_table_shape_converges_before_dependent_indexes():
@@ -75,7 +77,7 @@ def test_legacy_v1_table_shape_converges_before_dependent_indexes():
 
     dbm.init_db(conn)
 
-    assert dbm.require_current_schema(conn) == 13
+    assert dbm.require_current_schema(conn) == 14
     assert conn.execute(
         "SELECT title FROM documents WHERE id='legacy-v1'"
     ).fetchone()[0] == "preserved"
@@ -83,7 +85,7 @@ def test_legacy_v1_table_shape_converges_before_dependent_indexes():
         row["name"]
         for row in conn.execute("PRAGMA index_list(documents)")
     }
-    assert {"idx_documents_watch", "idx_documents_hidden"} <= indexes
+    assert {"idx_documents_watch", "idx_documents_hidden", "idx_documents_theme_canon"} <= indexes
 
 
 @pytest.mark.parametrize("legacy_version", [9, 10, 11])
@@ -99,21 +101,37 @@ def test_supported_versions_converge_without_losing_extensions(
 
     dbm.init_db(conn)
 
-    assert dbm.require_current_schema(conn) == 13
+    assert dbm.require_current_schema(conn) == 14
     assert (
         conn.execute("SELECT value FROM implementation_extension").fetchone()[0]
         == "preserved"
     )
 
 
+def test_v13_with_lineage_converges_to_v14():
+    conn = _memory_database()
+    _set_meta(conn, "schema_version", "13")
+    conn.execute("CREATE TABLE v13_extension (value TEXT)")
+    conn.execute("INSERT INTO v13_extension VALUES ('preserved')")
+    conn.commit()
+
+    dbm.init_db(conn)
+
+    assert dbm.require_current_schema(conn) == 14
+    assert (
+        conn.execute("SELECT value FROM v13_extension").fetchone()[0]
+        == "preserved"
+    )
+
+
 def test_future_version_is_not_rewritten():
     conn = _memory_database()
-    _set_meta(conn, "schema_version", "14")
+    _set_meta(conn, "schema_version", "15")
 
     with pytest.raises(RuntimeError, match="newer than this code"):
         dbm.init_db(conn)
 
-    assert dbm.stored_schema_version(conn) == 14
+    assert dbm.stored_schema_version(conn) == 15
     assert dbm.stored_schema_lineage(conn) == dbm.SCHEMA_LINEAGE
 
 
@@ -124,12 +142,13 @@ def test_foreign_lineage_is_not_rewritten():
     with pytest.raises(RuntimeError, match="lineage does not match"):
         dbm.init_db(conn)
 
-    assert dbm.stored_schema_version(conn) == 13
+    assert dbm.stored_schema_version(conn) == 14
     assert dbm.stored_schema_lineage(conn) == "unrelated/root"
 
 
 def test_v13_without_lineage_is_ambiguous_and_rejected():
     conn = _memory_database()
+    _set_meta(conn, "schema_version", "13")
     conn.execute("DELETE FROM meta WHERE key='schema_lineage'")
     conn.commit()
 

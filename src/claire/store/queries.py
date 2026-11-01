@@ -21,14 +21,14 @@ def _is_web_url(url: str | None) -> bool:
     return u.startswith(("http://", "https://"))
 
 
-def graph_json(conn: sqlite3.Connection, include_hidden: bool = True) -> dict:
+def graph_json(conn: sqlite3.Connection, include_hidden: bool = True, theme_id: int | None = 0) -> dict:
     """엔티티/관계를 vis.js network 형식(nodes/edges)으로. dangling edge 는 제외.
 
     각 노드에 degree(연결 수)를 실어 UI 가 degree-centrality 임계로 핵심 서브그래프만 표시할 수 있게 한다(전체 N개 렌더 → 큰 그래프의 가시성/스케일 문제 해소). include_hidden=False 면 숨김 문서 전용 엔티티 및 엣지를 제외한다.
     """
-    ents = dbm.all_entities(conn)
-    rels = dbm.all_relations(conn)
-    hidden_doc_ids = set() if include_hidden else dbm.hidden_document_ids(conn)
+    ents = dbm.all_entities(conn, theme_id=theme_id)
+    rels = dbm.all_relations(conn, theme_id=theme_id)
+    hidden_doc_ids = set() if include_hidden else dbm.hidden_document_ids(conn, theme_id=theme_id)
 
     visible_nodes = []
     visible_ent_ids = set()
@@ -94,23 +94,24 @@ def node_detail(
     conn: sqlite3.Connection,
     entity_id: str,
     include_hidden: bool = True,
+    theme_id: int | None = None,
 ) -> dict | None:
     """한 노드의 '쓸 수 있는 지식': 전체 observations + 소스 문서(제목·요약·URL) + 타입 있는 이웃. 패널에 그대로 펼친다. 없으면 None.
     """
-    ent = dbm.get_entity(conn, entity_id)
+    ent = dbm.get_entity(conn, entity_id, theme_id=theme_id)
     if ent is None:
         return None
 
-    hidden_doc_ids = set() if include_hidden else dbm.hidden_document_ids(conn)
+    hidden_doc_ids = set() if include_hidden else dbm.hidden_document_ids(conn, theme_id=theme_id)
     if not include_hidden and hidden_doc_ids and ent.sources:
         valid_sources = [s for s in ent.sources if s not in hidden_doc_ids]
         if not valid_sources:
             return None
 
     neighbors = []
-    for r in dbm.neighbors(conn, entity_id):
+    for r in dbm.neighbors(conn, entity_id, theme_id=theme_id):
         out = r.source_id == entity_id
-        other = dbm.get_entity(conn, r.target_id if out else r.source_id)
+        other = dbm.get_entity(conn, r.target_id if out else r.source_id, theme_id=theme_id)
         if other:
             if not include_hidden and hidden_doc_ids and other.sources:
                 if not any(s not in hidden_doc_ids for s in other.sources):
@@ -128,17 +129,17 @@ def node_detail(
     for did in ent.sources:
         if not include_hidden and did in hidden_doc_ids:
             continue
-        row = dbm.get_document_row(conn, did)
+        row = dbm.get_document_row(conn, did, theme_id=theme_id)
         if row:
             documents.append({
                 "id": did,
                 "title": row["title"] or "(제목 없음)",
                 "url": row["url"] if _is_web_url(row["url"]) else None,
-                "summary": dbm.latest_extraction_summary(conn, did) or "",
+                "summary": dbm.latest_extraction_summary(conn, did, theme_id=theme_id) or "",
                 # 가독 렌더(여러 단락) — 패널에서 '상세'로 펼친다.
-                "detail": dbm.get_document_detail(conn, did) or "",
-                "detail_format": dbm.get_document_detail_format(conn, did),
-                "detail_html": dbm.get_document_detail_html(conn, did) or "",
+                "detail": dbm.get_document_detail(conn, did, theme_id=theme_id) or "",
+                "detail_format": dbm.get_document_detail_format(conn, did, theme_id=theme_id),
+                "detail_html": dbm.get_document_detail_html(conn, did, theme_id=theme_id) or "",
                 # 원시 epoch(초) — MCP 등 API 소비자용.
                 "fetched_at": row["fetched_at"],
             })
@@ -159,17 +160,18 @@ def document_detail(
     conn: sqlite3.Connection,
     document_id: str,
     include_hidden: bool = True,
+    theme_id: int | None = None,
 ) -> dict | None:
     """한 문서(article)의 우측 패널용 상세 — 제목·출처·요약·상세(detail). 없으면 None.
 
     좌측 문서를 고르면 그래프 강조에 더해 우측에 이 요약/상세를 펼친다(노드 클릭 없이 문서 자체를 읽게). 노드 목록은 클라이언트가 graph 의 node.sources 로 계산하므로 여기선 싣지 않는다(중복 전송 방지).
     """
-    row = dbm.get_document_row(conn, document_id)
+    row = dbm.get_document_row(conn, document_id, theme_id=theme_id)
     if row is None:
         return None
     if not include_hidden and bool(row["hidden"]):
         return None
-    ents = dbm.document_entities(conn, document_id)
+    ents = dbm.document_entities(conn, document_id, theme_id=theme_id)
     nodes = [
         {
             "id": e.id,
@@ -217,7 +219,7 @@ def document_detail(
     stt_segments = stt_data["segments"] if stt_data else []
     stt_truncated = bool(stt_data["stt_truncated"]) if stt_data else False
 
-    pres = dbm.get_document_presentation(conn, document_id)
+    pres = dbm.get_document_presentation(conn, document_id, theme_id=theme_id)
     has_presentation = False
     presentation_status = None
     if pres:
@@ -246,10 +248,13 @@ def document_detail(
 
     raw_row = None
     try:
-        raw_row = conn.execute(
-            "SELECT file_name, file_ref FROM raw_inbox WHERE document_id = ? AND file_ref IS NOT NULL AND trim(file_ref) != '' ORDER BY id DESC LIMIT 1",
-            (document_id,),
-        ).fetchone()
+        raw_sql = "SELECT file_name, file_ref FROM raw_inbox WHERE document_id = ?"
+        raw_params: list[Any] = [document_id]
+        if theme_id is not None:
+            raw_sql += " AND theme_id = ?"
+            raw_params.append(theme_id)
+        raw_sql += " AND file_ref IS NOT NULL AND trim(file_ref) != '' ORDER BY id DESC LIMIT 1"
+        raw_row = conn.execute(raw_sql, raw_params).fetchone()
     except Exception:
         raw_row = None
 
@@ -293,14 +298,14 @@ def document_detail(
         "title": row["title"] or "(제목 없음)",
         "url": row["url"] if _is_web_url(row["url"]) else None,
         "source_type": row["source_type"],
-        "summary": dbm.latest_extraction_summary(conn, document_id) or "",
-        "detail": dbm.get_document_detail(conn, document_id) or "",
-        "detail_format": dbm.get_document_detail_format(conn, document_id),
-        "detail_html": dbm.get_document_detail_html(conn, document_id) or "",
+        "summary": dbm.latest_extraction_summary(conn, document_id, theme_id=theme_id) or "",
+        "detail": dbm.get_document_detail(conn, document_id, theme_id=theme_id) or "",
+        "detail_format": dbm.get_document_detail_format(conn, document_id, theme_id=theme_id),
+        "detail_html": dbm.get_document_detail_html(conn, document_id, theme_id=theme_id) or "",
         "hidden": bool(row["hidden"]),
         # [1홉 병합, ONEHOP_MERGE_DESIGN.md] 이 문서에 흡수된 부가 출처(예: GeekNews 글에
         # 병합된 그 프로젝트의 github). 원문 링크 계보를 UI 에서 추적 가능하게.
-        "extra_sources": dbm.get_document_extra_sources(conn, document_id),
+        "extra_sources": dbm.get_document_extra_sources(conn, document_id, theme_id=theme_id),
         # 원시 epoch(초) — MCP 등 API 소비자용(웹 UI는 이 필드 안 씀).
         "fetched_at": row["fetched_at"],
         "nodes": nodes,
@@ -347,7 +352,7 @@ def document_detail(
     }
 
 
-def dedup_clusters(conn: sqlite3.Connection, scan: dict) -> dict:
+def dedup_clusters(conn: sqlite3.Connection, scan: dict, theme_id: int | None = None) -> dict:
     """dedup_scan 결과를 웹 UI 용으로 보강 — 각 문서의 제목·URL·본문길이·적재시각 + keeper 추천.
 
     scan(=svc.dedup_scan)은 ids/urls/titles/score 만 준다. UI 가 '무엇을 유지할지' 고르게 각 문서 메타를 채우고, 기본 keeper(=최장 본문, 동률이면 최초 적재)를 표시한다 — service.dedup_merge 의 keeper 선정과 동일 규칙(웹/CLI 일관).
@@ -356,7 +361,7 @@ def dedup_clusters(conn: sqlite3.Connection, scan: dict) -> dict:
     for c in scan.get("clusters", []):
         docs = []
         for did in c["ids"]:
-            row = dbm.get_document_row(conn, did)
+            row = dbm.get_document_row(conn, did, theme_id=theme_id)
             if row is None:
                 continue
             docs.append({
@@ -380,6 +385,7 @@ def documents_list(
     since: float | None = 0,
     include_hidden: bool = False,
     query: str = "",
+    theme_id: int | None = None,
     **kwargs: Any,
 ) -> list[dict]:
     """좌측 문서 패널용 — 최신순 문서(제목·요약·출처타입·시각)."""
@@ -391,13 +397,20 @@ def documents_list(
         query = kwargs["query"]
     if "limit" in kwargs:
         limit = kwargs["limit"]
+    if "theme_id" in kwargs:
+        theme_id = kwargs["theme_id"]
 
     since_filter = None if (since is None or since == 0) else since
     query_filter = query if query else None
 
     ready_presentations = set()
     try:
-        cur = conn.execute("SELECT document_id FROM document_presentations WHERE status = 'ready'")
+        pres_sql = "SELECT document_id FROM document_presentations WHERE status = 'ready'"
+        pres_params: list[Any] = []
+        if theme_id is not None:
+            pres_sql += " AND theme_id = ?"
+            pres_params.append(theme_id)
+        cur = conn.execute(pres_sql, pres_params)
         ready_presentations = {r[0] for r in cur.fetchall()}
     except Exception:
         pass
@@ -409,6 +422,7 @@ def documents_list(
         since=since_filter,
         query=query_filter,
         include_hidden=include_hidden,
+        theme_id=theme_id,
     ):
         doc_id = r["id"]
         has_pres = (doc_id in ready_presentations) or (Path("data/presentations") / f"{doc_id}.html").is_file()
@@ -422,7 +436,7 @@ def documents_list(
             "watch": r["watch_enabled"],        # 1=주기 크롤링 대상 → UI 아이콘
             "pinned": r["pinned"],              # 1=즐겨찾기 → 목록 상단 고정 섹션
             "hidden": r["hidden"],               # 1=숨김 → 기본 목록에서 제외
-            "summary": dbm.latest_extraction_summary(conn, doc_id) or "",
+            "summary": dbm.latest_extraction_summary(conn, doc_id, theme_id=theme_id) or "",
             "has_presentation": bool(has_pres),
             "has_detail": bool(r["has_detail"]) if "has_detail" in r.keys() else False,
             "detail_format": r["detail_format"] if "detail_format" in r.keys() else "md",
@@ -435,6 +449,7 @@ def synthesis_context(
     entity_ids: list[str],
     compact: bool = False,
     include_hidden: bool = True,
+    theme_id: int | None = None,
 ) -> tuple[str, list[str]]:
     """선택 노드들의 지식(관찰·연결·출처요약)을 LLM 종합용 컨텍스트 텍스트로 조립.
 
@@ -442,9 +457,9 @@ def synthesis_context(
     """
     blocks: list[str] = []
     names: list[str] = []
-    hidden_doc_ids = set() if include_hidden else dbm.hidden_document_ids(conn)
+    hidden_doc_ids = set() if include_hidden else dbm.hidden_document_ids(conn, theme_id=theme_id)
     for eid in entity_ids:
-        ent = dbm.get_entity(conn, eid)
+        ent = dbm.get_entity(conn, eid, theme_id=theme_id)
         if ent is None:
             continue
         if not include_hidden and hidden_doc_ids and ent.sources:
@@ -458,9 +473,9 @@ def synthesis_context(
             obs = ent.observations[:3] if compact else ent.observations
             parts.append("관찰: " + " ".join(obs))
         rels = []
-        for r in dbm.neighbors(conn, eid):
+        for r in dbm.neighbors(conn, eid, theme_id=theme_id):
             out = r.source_id == eid
-            other = dbm.get_entity(conn, r.target_id if out else r.source_id)
+            other = dbm.get_entity(conn, r.target_id if out else r.source_id, theme_id=theme_id)
             if other:
                 if not include_hidden and hidden_doc_ids and other.sources:
                     if not any(s not in hidden_doc_ids for s in other.sources):
@@ -472,7 +487,7 @@ def synthesis_context(
             for did in ent.sources:
                 if not include_hidden and did in hidden_doc_ids:
                     continue
-                summ = dbm.latest_extraction_summary(conn, did)
+                summ = dbm.latest_extraction_summary(conn, did, theme_id=theme_id)
                 if summ:
                     parts.append(f"출처요약: {summ}")
         blocks.append("\n".join(parts))
@@ -484,12 +499,13 @@ def synthesize(
     provider: Any,
     entity_ids: list[str],
     query: str | None = None,
+    theme_id: int | None = None,
 ) -> dict:
     """선택 노드들을 아우르는 종합 지식 문서(인용 포함, 한국어)를 생성.
 
     summarize_search 재사용(검색 정리와 동일 경로) — 컨텍스트는 그래프(관찰·연결·출처요약). 비용(LLM 호출)이 있으므로 호출측(API)에서 토큰 인증 + 명시적 액션으로만 부른다.
     """
-    context, names = synthesis_context(conn, entity_ids)
+    context, names = synthesis_context(conn, entity_ids, theme_id=theme_id)
     if not context:
         return {"error": "유효한 노드가 없습니다"}
     if not hasattr(provider, "summarize_search"):
@@ -499,17 +515,33 @@ def synthesize(
     return {"answer": answer, "entities": names, "query": q}
 
 
-def theme_summary(conn: sqlite3.Connection, include_hidden: bool = True) -> dict[str, int]:
+def theme_summary(conn: sqlite3.Connection, include_hidden: bool = True, theme_id: int | None = 0) -> dict[str, int]:
     """테마 DB의 기본 지표 요약(문서 수, 엔티티 수, 관계 수)."""
-    hidden_doc_ids = set() if include_hidden else dbm.hidden_document_ids(conn)
+    hidden_doc_ids = set() if include_hidden else dbm.hidden_document_ids(conn, theme_id=theme_id)
+    where_parts: list[str] = []
+    params: list[Any] = []
+    if theme_id is not None:
+        where_parts.append("theme_id = ?")
+        params.append(theme_id)
     if not include_hidden and hidden_doc_ids:
-        doc_count = conn.execute(
-            "SELECT count(*) FROM documents WHERE id NOT IN (SELECT document_id FROM doc_flags WHERE flag='hidden')"
-        ).fetchone()[0]
-    else:
-        doc_count = conn.execute("SELECT count(*) FROM documents").fetchone()[0]
-    ent_count = conn.execute("SELECT count(*) FROM entities").fetchone()[0]
-    rel_count = conn.execute("SELECT count(*) FROM relations").fetchone()[0]
+        where_parts.append("id NOT IN (SELECT document_id FROM doc_flags WHERE flag='hidden')")
+    where_clause = f" WHERE {' AND '.join(where_parts)}" if where_parts else ""
+    doc_count = conn.execute(f"SELECT count(*) FROM documents{where_clause}", params).fetchone()[0]
+
+    ent_sql = "SELECT count(*) FROM entities"
+    ent_params: list[Any] = []
+    if theme_id is not None:
+        ent_sql += " WHERE theme_id = ?"
+        ent_params.append(theme_id)
+    ent_count = conn.execute(ent_sql, ent_params).fetchone()[0]
+
+    rel_sql = "SELECT count(*) FROM relations"
+    rel_params: list[Any] = []
+    if theme_id is not None:
+        rel_sql += " WHERE theme_id = ?"
+        rel_params.append(theme_id)
+    rel_count = conn.execute(rel_sql, rel_params).fetchone()[0]
+
     return {
         "documents": int(doc_count),
         "entities": int(ent_count),

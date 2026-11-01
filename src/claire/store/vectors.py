@@ -116,27 +116,45 @@ class VectorStore:
     sqlite-vec 백엔드는 probe 가 성공하면 이후 마일스톤에서 활성화 예정. 인터페이스는 동일하게 유지한다.
     """
 
-    def __init__(self, conn: sqlite3.Connection, backend: str = "brute"):
+    def __init__(self, conn: sqlite3.Connection, backend: str = "brute", theme_id: int = 0):
         self.conn = conn
         self.backend = backend  # 'brute' | 'vec'
+        self.theme_id = theme_id
 
-    def put(self, owner_id: str, vector: list[float], model: str) -> None:
+    def put(
+        self,
+        owner_id: str,
+        vector: list[float],
+        model: str,
+        theme_id: int | None = None,
+    ) -> None:
+        tid = self.theme_id if theme_id is None else theme_id
         self.conn.execute(
-            "INSERT OR REPLACE INTO embeddings(owner_id,dim,vector,model,updated_at) "
-            "VALUES (?,?,?,?,?)",
-            (owner_id, len(vector), pack_vector(vector), model, time.time()),
+            "INSERT OR REPLACE INTO embeddings(owner_id,theme_id,dim,vector,model,updated_at) "
+            "VALUES (?,?,?,?,?,?)",
+            (owner_id, tid, len(vector), pack_vector(vector), model, time.time()),
         )
         self.conn.commit()
 
-    def get(self, owner_id: str) -> list[float] | None:
-        row = self.conn.execute(
-            "SELECT vector FROM embeddings WHERE owner_id=?", (owner_id,)
-        ).fetchone()
+    def get(self, owner_id: str, theme_id: int | None = None) -> list[float] | None:
+        tid = self.theme_id if theme_id is None else theme_id
+        if tid is not None:
+            row = self.conn.execute(
+                "SELECT vector FROM embeddings WHERE owner_id=? AND theme_id=?", (owner_id, tid)
+            ).fetchone()
+        else:
+            row = self.conn.execute(
+                "SELECT vector FROM embeddings WHERE owner_id=?", (owner_id,)
+            ).fetchone()
         return unpack_vector(row["vector"]) if row else None
 
-    def count(self) -> int:
+    def count(self, theme_id: int | None = None) -> int:
         """저장된 임베딩 총 개수."""
-        row = self.conn.execute("SELECT count(*) FROM embeddings").fetchone()
+        tid = self.theme_id if theme_id is None else theme_id
+        if tid is not None:
+            row = self.conn.execute("SELECT count(*) FROM embeddings WHERE theme_id=?", (tid,)).fetchone()
+        else:
+            row = self.conn.execute("SELECT count(*) FROM embeddings").fetchone()
         return row[0] if row else 0
 
     def search(
@@ -144,14 +162,22 @@ class VectorStore:
         query_vec: list[float],
         limit: int = 10,
         adaptive_center: bool = False,
+        theme_id: int | None = None,
     ) -> list[tuple[str, float]]:
         """(owner_id, score) 리스트, score 내림차순.
         
         adaptive_center=True 면 임베딩들의 평균 벡터(공통 배경 노이즈)를 감산하여 변별력을 극대화한다 (수백 개 이상 고차원 임베딩의 Hubness 왜곡 완화).
         """
-        rows = self.conn.execute(
-            "SELECT owner_id, vector FROM embeddings"
-        ).fetchall()
+        tid = self.theme_id if theme_id is None else theme_id
+        if tid is not None:
+            rows = self.conn.execute(
+                "SELECT owner_id, vector FROM embeddings WHERE theme_id = ?",
+                (tid,),
+            ).fetchall()
+        else:
+            rows = self.conn.execute(
+                "SELECT owner_id, vector FROM embeddings"
+            ).fetchall()
         if not rows:
             return []
 
@@ -181,10 +207,14 @@ class VectorStore:
         return scored[:limit]
 
 
-def make_vector_store(conn: sqlite3.Connection, backend_pref: str = "auto") -> VectorStore:
+def make_vector_store(
+    conn: sqlite3.Connection,
+    backend_pref: str = "auto",
+    theme_id: int = 0,
+) -> VectorStore:
     """설정에 따라 백엔드 선택. 현재는 brute 만 구현하므로 항상 brute 반환하되, auto/vec 요청 시 probe 결과를 로깅용으로 남긴다(추후 vec 백엔드 연결)."""
     if backend_pref in ("auto", "vec"):
         ok, _detail = probe_sqlite_vec()
         # vec 백엔드 구현 전까지는 brute 사용. ok 여부는 doctor 에서 보고.
-        return VectorStore(conn, backend="brute")
-    return VectorStore(conn, backend="brute")
+        return VectorStore(conn, backend="brute", theme_id=theme_id)
+    return VectorStore(conn, backend="brute", theme_id=theme_id)

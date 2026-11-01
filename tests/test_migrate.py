@@ -253,12 +253,12 @@ def test_migrate_withdraws_local_support_v12_before_v13(
 
     assert cli.main(["migrate"]) == 0
     output = capsys.readouterr().out
-    assert "schema_version=13 expected=13" in output
+    assert f"schema_version={dbm.SCHEMA_VERSION} expected={dbm.SCHEMA_VERSION}" in output
     assert "lineage=claire-bible/common" in output
 
     conn = dbm.connect(s.db_file)
     try:
-        assert dbm.stored_schema_version(conn) == 13
+        assert dbm.stored_schema_version(conn) == dbm.SCHEMA_VERSION
         assert dbm.stored_schema_lineage(conn) == dbm.SCHEMA_LINEAGE
         tables = {
             row["name"]
@@ -396,7 +396,7 @@ def test_migrate_restores_v12_for_every_active_theme(
     for path in (s.db_file, themed.db_file):
         conn = dbm.connect(path)
         try:
-            assert dbm.stored_schema_version(conn) == 13
+            assert dbm.stored_schema_version(conn) == dbm.SCHEMA_VERSION
             assert dbm.stored_schema_lineage(conn) == dbm.SCHEMA_LINEAGE
         finally:
             conn.close()
