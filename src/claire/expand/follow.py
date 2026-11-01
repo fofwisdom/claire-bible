@@ -22,7 +22,7 @@ from .research import QUALITY_MIN, RELEVANCE_MIN
 PREFILTER_CAP = 30
 
 
-def build_candidates(conn: sqlite3.Connection, doc: Document, *, limit: int = PREFILTER_CAP
+def build_candidates(conn: sqlite3.Connection, doc: Document, *, limit: int = PREFILTER_CAP, theme_id: int | None = None
                      ) -> list[dict]:
     """부모 문서 meta 에서 (url, anchor) 후보 — 휴리스틱 사전필터 + dedup + 상한.
 
@@ -51,7 +51,7 @@ def build_candidates(conn: sqlite3.Connection, doc: Document, *, limit: int = PR
         if canon in seen:
             continue
         seen.add(canon)
-        if _already_ingested(conn, canon):
+        if _already_ingested(conn, canon, theme_id=theme_id):
             continue
         out.append({"url": raw, "anchor": anchors.get(raw, "")})
         if len(out) >= limit:
@@ -59,10 +59,10 @@ def build_candidates(conn: sqlite3.Connection, doc: Document, *, limit: int = PR
     return out
 
 
-def build_parent_context(conn: sqlite3.Connection, doc: Document) -> str:
+def build_parent_context(conn: sqlite3.Connection, doc: Document, theme_id: int | None = None) -> str:
     """선별·판정용 부모 맥락 = 제목 + 추출 요약 + 가독 렌더(detail) 일부."""
-    summary = dbm.latest_extraction_summary(conn, doc.id) or ""
-    detail = dbm.get_document_detail(conn, doc.id) or ""
+    summary = dbm.latest_extraction_summary(conn, doc.id, theme_id=theme_id) or ""
+    detail = dbm.get_document_detail(conn, doc.id, theme_id=theme_id) or ""
     parts = [f"제목: {doc.title or '(제목 없음)'}"]
     if summary:
         parts.append(f"요약: {summary}")

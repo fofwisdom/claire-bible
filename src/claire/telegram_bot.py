@@ -285,73 +285,26 @@ async def _settle_status(
                         theme_mgr = None
 
                 target_db: Path | None = None
+                target_theme_id: int = theme_id if theme_id is not None else 0
                 if db_file:
                     target_db = Path(db_file)
-                elif theme_id is not None and (theme_mgr is not None or service_pool is not None):
-                    if theme_id != 0:
-                        if theme_mgr is not None:
-                            try:
-                                target_db = Path(theme_mgr.get_settings_for_theme(theme_id).db_file)
-                            except Exception:
-                                pass
-                        if target_db is None and service_pool is not None:
-                            try:
-                                target_db = Path(service_pool.get_service(theme_id).s.db_file)
-                            except Exception:
-                                pass
-                    else:
-                        theme0_db = Path(cfg.db_file) if cfg.db_file else None
-                        is_in_theme0 = False
-                        if theme0_db and theme0_db.is_file():
-                            try:
-                                t0_conn = dbm.connect_existing(theme0_db, readonly=True)
-                                try:
-                                    if dbm.get_document_row(t0_conn, retry_doc_id):
-                                        is_in_theme0 = True
-                                        target_db = theme0_db
-                                finally:
-                                    t0_conn.close()
-                            except Exception:
-                                pass
-                        if not is_in_theme0 and theme_mgr is not None:
-                            try:
-                                matches = theme_mgr.resolve_document_targets(doc_id=retry_doc_id)
-                                if matches and matches[0].get("db_file"):
-                                    target_db = Path(matches[0]["db_file"])
-                            except Exception:
-                                pass
-                        if target_db is None:
-                            target_db = theme0_db
-                elif theme_mgr is not None:
-                    theme0_db = Path(cfg.db_file) if cfg.db_file else None
-                    is_in_theme0 = False
-                    if theme0_db and theme0_db.is_file():
-                        try:
-                            t0_conn = dbm.connect_existing(theme0_db, readonly=True)
-                            try:
-                                if dbm.get_document_row(t0_conn, retry_doc_id):
-                                    is_in_theme0 = True
-                                    target_db = theme0_db
-                            finally:
-                                t0_conn.close()
-                        except Exception:
-                            pass
-                    if not is_in_theme0:
-                        try:
-                            matches = theme_mgr.resolve_document_targets(doc_id=retry_doc_id)
-                            if matches and matches[0].get("db_file"):
+                elif theme_mgr is not None and target_theme_id == 0:
+                    try:
+                        matches = theme_mgr.resolve_document_targets(doc_id=retry_doc_id)
+                        if matches:
+                            target_theme_id = matches[0].get("theme_id", 0)
+                            if matches[0].get("db_file"):
                                 target_db = Path(matches[0]["db_file"])
-                        except Exception:
-                            pass
-                    if target_db is None:
-                        target_db = theme0_db
-                else:
-                    target_db = Path(cfg.db_file) if cfg.db_file else None
+                    except Exception:
+                        pass
+
+                if target_db is None:
+                    target_db = Path(cfg.db_file) if getattr(cfg, "db_file", None) else Path("data/claire.db")
 
                 if base_url and target_db and target_db.exists():
                     conn = dbm.connect_existing(target_db, readonly=False)
                     try:
-                        share_tok = dbm.create_doc_share(conn, retry_doc_id)
+                        share_tok = dbm.create_doc_share(conn, retry_doc_id, theme_id=target_theme_id)
                     finally:
                         conn.close()
                     if share_tok:
@@ -762,7 +715,7 @@ def build_app(settings: Settings | None = None) -> Any:
                 if base_url and theme_db and Path(theme_db).exists():
                     conn = dbm.connect_existing(theme_db, readonly=False)
                     try:
-                        share_tok = dbm.create_doc_share(conn, doc_id)
+                        share_tok = dbm.create_doc_share(conn, doc_id, theme_id=theme_id)
                     finally:
                         conn.close()
                     if share_tok:

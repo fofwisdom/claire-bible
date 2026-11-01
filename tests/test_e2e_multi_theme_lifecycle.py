@@ -84,7 +84,7 @@ async def test_e2e_multi_theme_full_lifecycle(tmp_path: Path, monkeypatch):
         content_hash="hash_e2e_x_1",
     )
     conn1 = dbm.connect(s1.db_file)
-    dbm.insert_document(conn1, doc1)
+    dbm.insert_document(conn1, doc1, theme_id=theme1.id)
     dbm.set_document_detail(conn1, doc_id, detail="## Overview\nProject X detailed guide content.", format="md")
     conn1.close()
 
@@ -127,13 +127,13 @@ async def test_e2e_multi_theme_full_lifecycle(tmp_path: Path, monkeypatch):
     assert btn.url.startswith(f"{public_url}/p?s=")
     bot_token = btn.url.split("?s=")[1]
 
-    # Verify: Token MUST exist in Theme 1 DB, and NOT in Theme 0 DB!
+    # Verify: Token MUST exist in Theme 1 partition, and NOT in Theme 0 partition!
     conn1 = dbm.connect_existing(s1.db_file, readonly=True)
-    assert dbm.resolve_doc_share(conn1, bot_token) == doc_id
+    assert dbm.resolve_doc_share(conn1, bot_token, theme_id=theme1.id) == doc_id
     conn1.close()
 
     conn0 = dbm.connect_existing(s.db_file, readonly=True)
-    assert dbm.resolve_doc_share(conn0, bot_token) is None
+    assert dbm.resolve_doc_share(conn0, bot_token, theme_id=0) is None
     conn0.close()
 
     # Step 3: HTTP API GET /p?s=<token>

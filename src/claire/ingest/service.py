@@ -49,6 +49,16 @@ def _item_context(
 
 
 class IngestService:
+    _theme_id: int = 0
+
+    @property
+    def theme_id(self) -> int:
+        return getattr(self, "_theme_id", 0)
+
+    @theme_id.setter
+    def theme_id(self, value: int) -> None:
+        self._theme_id = value
+
     def __init__(
         self,
         settings: Settings,
@@ -115,7 +125,7 @@ class IngestService:
             focus = self.get_effective_default_focus()
         conn = dbm.connect(self.s.db_file)
         dbm.init_db(conn)
-        vstore = make_vector_store(conn, self.s.vector_backend)
+        vstore = make_vector_store(conn, self.s.vector_backend, theme_id=self.theme_id)
         em = self.s.expand_max if expand_max is None else expand_max
         # 1홉 자동확장 enqueue 게이트: 사용자 설정 ON + 1차 적재(자식/복구/갱신 재적재 제외).
         auto = (self.s.auto_expand and em > 0
@@ -181,6 +191,7 @@ class IngestService:
                     chat_id=chat_id,
                     file_name=file_name,
                     file_ref=str(file_path),
+                    theme_id=self.theme_id,
                 )
         finally:
             conn.close()
@@ -193,7 +204,7 @@ class IngestService:
         except Exception as e:
             conn2 = dbm.connect(self.s.db_file)
             try:
-                dbm.update_inbox(conn2, inbox_id, status="error", error=str(e))
+                dbm.update_inbox(conn2, inbox_id, status="error", error=str(e), theme_id=self.theme_id)
             finally:
                 conn2.close()
             rep = IngestReport()
@@ -233,11 +244,11 @@ class IngestService:
         conn = dbm.connect(self.s.db_file)
         dbm.init_db(conn)
         try:
-            doc = dbm.get_document(conn, document_id)
+            doc = dbm.get_document(conn, document_id, theme_id=self.theme_id)
             if doc is None:
                 return {"document_id": document_id, "error": "document not found"}
-            context = build_parent_context(conn, doc)
-            candidates = build_candidates(conn, doc)
+            context = build_parent_context(conn, doc, theme_id=self.theme_id)
+            candidates = build_candidates(conn, doc, theme_id=self.theme_id)
         finally:
             conn.close()
 
@@ -281,20 +292,21 @@ class IngestService:
                 dbm.init_db(conn2)
                 try:
                     inbox_id = dbm.log_inbox(
-                        conn2, source=f"onehop:{document_id}", payload=url, kind="url")
-                    vstore = make_vector_store(conn2, self.s.vector_backend)
-                    parent_full = dbm.get_document(conn2, document_id)
+                        conn2, source=f"onehop:{document_id}", payload=url, kind="url", theme_id=self.theme_id)
+                    vstore = make_vector_store(conn2, self.s.vector_backend, theme_id=self.theme_id)
+                    parent_full = dbm.get_document(conn2, document_id, theme_id=self.theme_id)
                     m = merge_source_into_document(
                         conn2, self.provider, vstore, parent_full, child,
                         data_dir=self.s.data_dir,
                         format=self.s.render_format,
-                        focus=self.get_effective_default_focus())
+                        focus=self.get_effective_default_focus(),
+                        theme_id=self.theme_id)
                     if m.get("merged"):
                         dbm.update_inbox(conn2, inbox_id, status="done",
-                                         document_id=document_id)
+                                         document_id=document_id, theme_id=self.theme_id)
                     else:
                         dbm.update_inbox(conn2, inbox_id, status="error",
-                                         document_id=document_id, error=m.get("error"))
+                                         document_id=document_id, error=m.get("error"), theme_id=self.theme_id)
                 finally:
                     conn2.close()
                 merged = bool(m.get("merged"))
@@ -334,7 +346,7 @@ class IngestService:
 
         conn = dbm.connect(self.s.db_file)
         dbm.init_db(conn)
-        rows = dbm.pending_expand(conn, limit=limit)
+        rows = dbm.pending_expand(conn, limit=limit, theme_id=self.theme_id)
         conn.close()
 
         out: list[dict] = []
@@ -347,7 +359,7 @@ class IngestService:
                 except Exception as e:  # noqa: BLE001
                     conn2 = dbm.connect(self.s.db_file)
                     try:
-                        dbm.update_expand(conn2, row["id"], status="error", error=str(e))
+                        dbm.update_expand(conn2, row["id"], status="error", error=str(e), theme_id=self.theme_id)
                     finally:
                         conn2.close()
                     out.append({"document_id": did, "error": str(e)})
@@ -356,7 +368,7 @@ class IngestService:
                 conn2 = dbm.connect(self.s.db_file)
                 try:
                     dbm.update_expand(conn2, row["id"], status=status,
-                                      error=res.get("error"), result=_json.dumps(res)[:2000])
+                                      error=res.get("error"), result=_json.dumps(res)[:2000], theme_id=self.theme_id)
                 finally:
                     conn2.close()
                 out.append(res)
@@ -381,9 +393,9 @@ class IngestService:
                     "error": "document_id required"}
         conn = dbm.connect(self.s.db_file)
         dbm.init_db(conn)
-        vstore = make_vector_store(conn, self.s.vector_backend)
+        vstore = make_vector_store(conn, self.s.vector_backend, theme_id=self.theme_id)
         try:
-            old = dbm.get_document_row(conn, document_id)
+            old = dbm.get_document_row(conn, document_id, theme_id=self.theme_id)
             if old is None:
                 return {"status": "error", "document_id": document_id,
                         "error": "document not found"}
@@ -425,12 +437,12 @@ class IngestService:
                 # 그래프(엔티티)는 건드리지 않음(비파괴).
                 from .pipeline import _download_doc_images, ensure_document_detail
 
-                _download_doc_images(conn, doc, self.s.data_dir)
-                dbm.update_document_meta(conn, document_id, doc.meta)
+                _download_doc_images(conn, doc, self.s.data_dir, theme_id=self.theme_id)
+                dbm.update_document_meta(conn, document_id, doc.meta, theme_id=self.theme_id)
                 imgs = (doc.meta or {}).get("images")
                 fmt = format or self.s.render_format
                 detail_updated = ensure_document_detail(
-                    conn, self.provider, doc, force=True, format=fmt)
+                    conn, self.provider, doc, force=True, format=fmt, theme_id=self.theme_id)
                 return {"status": "nochange", "document_id": document_id,
                         "old_len": old_len, "new_len": len(doc.raw_text),
                         "detail_updated": detail_updated,
@@ -444,17 +456,17 @@ class IngestService:
                 dbm.save_document_snapshot(
                     conn, document_id, captured_at=_time.time(),
                     content_hash=old["content_hash"], title=old["title"],
-                    raw_text=old["raw_text"])
-                dbm.set_document_seen(conn, document_id, seen=False)
+                    raw_text=old["raw_text"], theme_id=self.theme_id)
+                dbm.set_document_seen(conn, document_id, seen=False, theme_id=self.theme_id)
             # 내용이 바뀌었으니 새 이미지 후보도 로컬로 내려받아 doc.meta 에 반영(사용자 요구).
             from .pipeline import _download_doc_images
 
-            _download_doc_images(conn, doc, self.s.data_dir)
+            _download_doc_images(conn, doc, self.s.data_dir, theme_id=self.theme_id)
             # 같은 id 로 갱신(신규가 아니라 복원이므로 sources 연결 유지). meta(이미지 포함) 보존.
             dbm.update_document_content(
                 conn, document_id, title=doc.title, raw_text=doc.raw_text,
                 content_hash=doc.content_hash, fetched_at=doc.fetched_at,
-                source_type=doc.source_type, partial=doc.partial, meta=doc.meta)
+                source_type=doc.source_type, partial=doc.partial, meta=doc.meta, theme_id=self.theme_id)
             try:
                 from ..store.raw import save_artifact
 
@@ -466,7 +478,7 @@ class IngestService:
             report = IngestReport(document_id=document_id)
             ok, err = extract_resolve_store(
                 conn, self.provider, vstore, doc, report, format=fmt,
-                on_progress=on_progress)
+                on_progress=on_progress, theme_id=self.theme_id)
             if not ok:
                 return {"status": "error", "document_id": document_id, "error": err}
             return {"status": "done", "document_id": document_id,
@@ -586,22 +598,22 @@ class IngestService:
         """
         conn = dbm.connect(self.s.db_file)
         dbm.init_db(conn)
-        vstore = make_vector_store(conn, self.s.vector_backend)
+        vstore = make_vector_store(conn, self.s.vector_backend, theme_id=self.theme_id)
         fmt = format or self.s.render_format
         try:
             if tables_only:
-                table_docs = dbm.documents_with_tables(conn, limit=limit, check_detail=False)
+                table_docs = dbm.documents_with_tables(conn, limit=limit, check_detail=False, theme_id=self.theme_id)
                 ids = [d["id"] for d in table_docs][::-1]
             else:
-                rows = dbm.documents_timeline(conn, limit or 1000000)
+                rows = dbm.documents_timeline(conn, limit or 1000000, theme_id=self.theme_id)
                 ids = [r["id"] for r in rows][::-1]  # 오래된 것부터
                 if limit:
                     ids = ids[:limit]
             if rebuild:
-                dbm.reset_graph(conn)
+                dbm.reset_graph(conn, theme_id=self.theme_id)
             out = {"docs": 0, "ok": 0, "failed": 0, "errors": []}
             for idx, did in enumerate(ids, 1):
-                doc = dbm.get_document(conn, did)
+                doc = dbm.get_document(conn, did, theme_id=self.theme_id)
                 if doc is None:
                     continue
                 out["docs"] += 1
@@ -609,7 +621,7 @@ class IngestService:
                 with _item_context(reporter, on_progress, idx, did, title=doc.title or "", url=doc.canonical_url or doc.url or "") as step_cb:
                     ok, err = extract_resolve_store(
                         conn, self.provider, vstore, doc, report,
-                        format=fmt, on_progress=step_cb)
+                        format=fmt, on_progress=step_cb, theme_id=self.theme_id)
                     if ok:
                         out["ok"] += 1
                     else:
@@ -1121,9 +1133,9 @@ class IngestService:
                                     from ..store.vectors import make_vector_store
                                     from .pipeline import IngestReport, extract_resolve_store
 
-                                    vstore = make_vector_store(conn, self.s.vector_backend)
+                                    vstore = make_vector_store(conn, self.s.vector_backend, theme_id=self.theme_id)
                                     report = IngestReport(document_id=did)
-                                    dbm.rollback_document_graph_contributions(conn, [did], prune_orphans=True)
+                                    dbm.rollback_document_graph_contributions(conn, [did], prune_orphans=True, theme_id=self.theme_id)
                                     ok, err = extract_resolve_store(
                                         conn,
                                         self.provider,
@@ -1133,6 +1145,7 @@ class IngestService:
                                         format=target_fmt,
                                         on_progress=step_cb,
                                         effort=effort,
+                                        theme_id=self.theme_id,
                                     )
                                     if not ok:
                                         info["error"] = err
@@ -1146,7 +1159,7 @@ class IngestService:
                                         info["detail_format"] = target_fmt
 
                                         if self.s.auto_expand and self.s.expand_max > 0 and not doc.partial:
-                                            dbm.enqueue_expand(conn, did)
+                                             dbm.enqueue_expand(conn, did, theme_id=self.theme_id)
                                 else:
                                     if do_summary:
                                         # 요약만 단독 재추출 (엔티티/관계 보존)
@@ -1454,8 +1467,9 @@ class IngestService:
                     summarize=summarize,
                     mode=mode,
                     include_hidden=include_hidden,
+                    theme_id=self.theme_id,
                 )
-            vstore = make_vector_store(conn, self.s.vector_backend)
+            vstore = make_vector_store(conn, self.s.vector_backend, theme_id=self.theme_id)
             return _search(
                 conn,
                 vstore,
@@ -1465,6 +1479,7 @@ class IngestService:
                 summarize=summarize,
                 mode=mode,
                 include_hidden=include_hidden,
+                theme_id=self.theme_id,
             )
         finally:
             conn.close()
@@ -1477,7 +1492,7 @@ class IngestService:
         conn = dbm.connect(self.s.db_file)
         dbm.init_db(conn)
         statuses = ("error", "failed") if include_permanent else ("error",)
-        rows = dbm.inbox_by_statuses(conn, statuses)
+        rows = dbm.inbox_by_statuses(conn, statuses, theme_id=self.theme_id)
         conn.close()
         if limit:
             rows = rows[:limit]
@@ -1499,10 +1514,10 @@ class IngestService:
         """
         conn = dbm.connect(self.s.db_file)
         dbm.init_db(conn)
-        vstore = make_vector_store(conn, self.s.vector_backend)
+        vstore = make_vector_store(conn, self.s.vector_backend, theme_id=self.theme_id)
         report = IngestReport(document_id=document_id)
         try:
-            doc = dbm.get_document(conn, document_id)
+            doc = dbm.get_document(conn, document_id, theme_id=self.theme_id)
             if doc is None:
                 report.error = "document not found"
                 return report
@@ -1510,9 +1525,9 @@ class IngestService:
             report.partial = doc.partial
             report.title = doc.title
             ok, err = extract_resolve_store(
-                conn, self.provider, vstore, doc, report)
+                conn, self.provider, vstore, doc, report, theme_id=self.theme_id)
             if ok:
-                dbm.update_inbox(conn, inbox_id, status="done", document_id=document_id)
+                dbm.update_inbox(conn, inbox_id, status="done", document_id=document_id, theme_id=self.theme_id)
             else:
                 report.error = err
             return report
@@ -1524,7 +1539,7 @@ class IngestService:
         conn = dbm.connect(self.s.db_file)
         dbm.init_db(conn)
         try:
-            rows = dbm.inbox_failures(conn, limit=limit)
+            rows = dbm.inbox_failures(conn, limit=limit, theme_id=self.theme_id)
         finally:
             conn.close()
         return [
@@ -1542,7 +1557,7 @@ class IngestService:
         """
         conn = dbm.connect(self.s.db_file)
         dbm.init_db(conn)
-        row = dbm.get_inbox(conn, inbox_id)
+        row = dbm.get_inbox(conn, inbox_id, theme_id=self.theme_id)
         conn.close()
         if row is None:
             rep = IngestReport()
@@ -1624,7 +1639,7 @@ class IngestService:
 
         conn = dbm.connect(self.s.db_file)
         dbm.init_db(conn)
-        rows = dbm.due_for_recovery(conn, max_attempts=max_attempts, limit=limit)
+        rows = dbm.due_for_recovery(conn, max_attempts=max_attempts, limit=limit, theme_id=self.theme_id)
         conn.close()
 
         out: list[dict] = []
@@ -1704,7 +1719,7 @@ class IngestService:
                 try:
                     dbm.record_recovery_attempt(
                         conn2, row["id"], status=final,
-                        document_id=rep.document_id, error=rep.error, next_retry_at=nra)
+                        document_id=rep.document_id, error=rep.error, next_retry_at=nra, theme_id=self.theme_id)
                 finally:
                     conn2.close()
                 out.append({"inbox_id": row["id"], "status": final, "error": rep.error})
@@ -1721,7 +1736,7 @@ class IngestService:
         conn = dbm.connect(self.s.db_file)
         dbm.init_db(conn)
         try:
-            return dbm.scan_truncation_status(conn, doc_id=doc_id)
+            return dbm.scan_truncation_status(conn, doc_id=doc_id, theme_id=self.theme_id)
         finally:
             conn.close()
 
@@ -1737,7 +1752,7 @@ class IngestService:
         dbm.init_db(conn)
         try:
             return dbm.backfill_truncation_metadata(
-                conn, doc_id=doc_id, force=force, mark_refresh=mark_refresh
+                conn, doc_id=doc_id, force=force, mark_refresh=mark_refresh, theme_id=self.theme_id
             )
         finally:
             conn.close()

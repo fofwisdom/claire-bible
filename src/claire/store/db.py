@@ -466,6 +466,7 @@ CREATE INDEX IF NOT EXISTS idx_synd_items_theme_doc ON syndication_items(theme_i
 CREATE TABLE IF NOT EXISTS syndication_dispatches (
     id TEXT PRIMARY KEY,
     theme_id INTEGER NOT NULL DEFAULT 0 REFERENCES themes(id) ON DELETE CASCADE,
+    target_theme_id INTEGER DEFAULT 0,
     item_id TEXT REFERENCES syndication_items(id) ON DELETE SET NULL,
     account_id TEXT REFERENCES syndication_accounts(id) ON DELETE CASCADE,
     document_id TEXT REFERENCES documents(id) ON DELETE CASCADE,
@@ -475,6 +476,8 @@ CREATE TABLE IF NOT EXISTS syndication_dispatches (
     remote_ref TEXT,
     payload TEXT,
     error TEXT,
+    dispatched_by_user_id INTEGER,
+    applied_focus TEXT,
     dispatched_at REAL,
     created_at REAL NOT NULL,
     updated_at REAL NOT NULL
@@ -843,6 +846,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
         CREATE TABLE IF NOT EXISTS syndication_dispatches (
             id TEXT PRIMARY KEY,
             theme_id INTEGER NOT NULL DEFAULT 0 REFERENCES themes(id) ON DELETE CASCADE,
+            target_theme_id INTEGER DEFAULT 0,
             item_id TEXT REFERENCES syndication_items(id) ON DELETE SET NULL,
             account_id TEXT REFERENCES syndication_accounts(id) ON DELETE CASCADE,
             document_id TEXT REFERENCES documents(id) ON DELETE CASCADE,
@@ -852,6 +856,8 @@ def _migrate(conn: sqlite3.Connection) -> None:
             remote_ref TEXT,
             payload TEXT,
             error TEXT,
+            dispatched_by_user_id INTEGER,
+            applied_focus TEXT,
             dispatched_at REAL,
             created_at REAL NOT NULL,
             updated_at REAL NOT NULL
@@ -882,6 +888,10 @@ def _migrate(conn: sqlite3.Connection) -> None:
     )
     for tbl in _theme_partitioned_tables:
         _ensure_column(conn, tbl, "theme_id", "INTEGER NOT NULL DEFAULT 0")
+
+    _ensure_column(conn, "syndication_dispatches", "target_theme_id", "INTEGER DEFAULT 0")
+    _ensure_column(conn, "syndication_dispatches", "dispatched_by_user_id", "INTEGER")
+    _ensure_column(conn, "syndication_dispatches", "applied_focus", "TEXT")
 
     # v14: Insert default theme #0 into themes if empty
     conn.execute(
@@ -1868,6 +1878,7 @@ def select_entity_primary_label(
     conn: sqlite3.Connection,
     entity_id: str,
     new_name: str,
+    theme_id: int | None = None,
 ) -> Entity:
     """기존 별칭(aliases) 중 하나를 선택하여 대표 레이블(name)로 승격/전환.
 
@@ -1877,9 +1888,9 @@ def select_entity_primary_label(
     """
     from ..ontology.base import normalize_name
 
-    ent = get_entity(conn, entity_id)
+    ent = get_entity(conn, entity_id, theme_id=theme_id)
     if ent is None:
-        cands = find_entities_by_name_or_alias(conn, entity_id)
+        cands = find_entities_by_name_or_alias(conn, entity_id, theme_id=theme_id)
         if len(cands) == 1:
             ent = cands[0]
         elif len(cands) > 1:
@@ -1915,7 +1926,7 @@ def select_entity_primary_label(
 
     ent.name = matched_alias
     ent.aliases = sorted(set(new_aliases))
-    upsert_entity(conn, ent)
+    upsert_entity(conn, ent, theme_id=0 if theme_id is None else theme_id)
     return ent
 
 
@@ -1924,6 +1935,7 @@ def batch_select_primary_labels(
     mappings: dict[str, str],
     *,
     dry_run: bool = False,
+    theme_id: int | None = None,
 ) -> dict[str, Any]:
     """대량 매핑(dict: target_id_or_name -> chosen_alias)으로 대표 레이블 일괄 전환.
 
@@ -1940,9 +1952,9 @@ def batch_select_primary_labels(
             errors.append({"target": target, "chosen": chosen, "error": "빈 문자열은 대표 레이블이 될 수 없습니다."})
             continue
 
-        ent = get_entity(conn, target)
+        ent = get_entity(conn, target, theme_id=theme_id)
         if ent is None:
-            cands = find_entities_by_name_or_alias(conn, target)
+            cands = find_entities_by_name_or_alias(conn, target, theme_id=theme_id)
             if len(cands) == 1:
                 ent = cands[0]
             elif len(cands) > 1:
@@ -1991,11 +2003,11 @@ def batch_select_primary_labels(
     if not dry_run and plan:
         with conn:
             for item in plan:
-                e = get_entity(conn, item["id"])
+                e = get_entity(conn, item["id"], theme_id=theme_id)
                 if e:
                     e.name = item["new_name"]
                     e.aliases = item["aliases_after"]
-                    upsert_entity(conn, e)
+                    upsert_entity(conn, e, theme_id=0 if theme_id is None else theme_id)
 
     return {
         "dry_run": dry_run,
@@ -3043,6 +3055,7 @@ def resolve_document_targets(
             seen_ids.add(did)
             results.append({
                 "id": did,
+                "theme_id": d.get("theme_id", 0),
                 "url": d.get("url"),
                 "canonical_url": d.get("canonical_url"),
                 "title": d.get("title"),
@@ -3054,7 +3067,7 @@ def resolve_document_targets(
 
     # 1. 명시적 doc_id
     if doc_id:
-        q = "SELECT id, url, canonical_url, title, content_hash, fetched_at FROM documents WHERE id=?"
+        q = "SELECT id, theme_id, url, canonical_url, title, content_hash, fetched_at FROM documents WHERE id=?"
         params: list[Any] = [doc_id]
         if theme_id is not None:
             q += " AND theme_id=?"
@@ -3076,7 +3089,7 @@ def resolve_document_targets(
             if row_share:
                 shared_id = row_share["document_id"]
         if shared_id:
-            q = "SELECT id, url, canonical_url, title, content_hash, fetched_at FROM documents WHERE id=?"
+            q = "SELECT id, theme_id, url, canonical_url, title, content_hash, fetched_at FROM documents WHERE id=?"
             params = [shared_id]
             if theme_id is not None:
                 q += " AND theme_id=?"
@@ -3088,7 +3101,7 @@ def resolve_document_targets(
     # 3. 명시적 url / canonical_url
     if url:
         c_url = canonicalize_url(url)
-        q = "SELECT id, url, canonical_url, title, content_hash, fetched_at FROM documents WHERE (url=? OR canonical_url=?)"
+        q = "SELECT id, theme_id, url, canonical_url, title, content_hash, fetched_at FROM documents WHERE (url=? OR canonical_url=?)"
         params = [url, c_url]
         if theme_id is not None:
             q += " AND theme_id=?"
@@ -3098,7 +3111,7 @@ def resolve_document_targets(
             _add_doc(r, matched_by="url")
 
     if canonical_url:
-        q = "SELECT id, url, canonical_url, title, content_hash, fetched_at FROM documents WHERE canonical_url=?"
+        q = "SELECT id, theme_id, url, canonical_url, title, content_hash, fetched_at FROM documents WHERE canonical_url=?"
         params = [canonical_url]
         if theme_id is not None:
             q += " AND theme_id=?"
@@ -3110,7 +3123,7 @@ def resolve_document_targets(
     # 4. 명시적 pattern
     if pattern:
         patt = f"%{pattern}%"
-        q = "SELECT id, url, canonical_url, title, content_hash, fetched_at FROM documents WHERE (id LIKE ? OR url LIKE ? OR canonical_url LIKE ? OR title LIKE ?)"
+        q = "SELECT id, theme_id, url, canonical_url, title, content_hash, fetched_at FROM documents WHERE (id LIKE ? OR url LIKE ? OR canonical_url LIKE ? OR title LIKE ?)"
         params = [patt, patt, patt, patt]
         if theme_id is not None:
             q += " AND theme_id=?"
@@ -3126,7 +3139,7 @@ def resolve_document_targets(
         raw_target = target.strip()
 
         # 5-1. 정확한 ID 일치
-        q = "SELECT id, url, canonical_url, title, content_hash, fetched_at FROM documents WHERE id=?"
+        q = "SELECT id, theme_id, url, canonical_url, title, content_hash, fetched_at FROM documents WHERE id=?"
         params = [raw_target]
         if theme_id is not None:
             q += " AND theme_id=?"
@@ -3160,7 +3173,7 @@ def resolve_document_targets(
                 if row_share:
                     shared_id = row_share["document_id"]
             if shared_id:
-                q = "SELECT id, url, canonical_url, title, content_hash, fetched_at FROM documents WHERE id=?"
+                q = "SELECT id, theme_id, url, canonical_url, title, content_hash, fetched_at FROM documents WHERE id=?"
                 params = [shared_id]
                 if theme_id is not None:
                     q += " AND theme_id=?"
@@ -3176,7 +3189,7 @@ def resolve_document_targets(
         c_raw = canonicalize_url(raw_target)
 
         q = """
-            SELECT id, url, canonical_url, title, content_hash, fetched_at
+            SELECT id, theme_id, url, canonical_url, title, content_hash, fetched_at
             FROM documents
             WHERE (url = ? OR canonical_url = ? OR url = ? OR canonical_url = ? OR url = ? OR canonical_url = ?)
         """
@@ -3194,7 +3207,7 @@ def resolve_document_targets(
         # 5-4. 제목 / URL 부분 검색 (Fallback)
         patt = f"%{raw_target}%"
         q = """
-            SELECT id, url, canonical_url, title, content_hash, fetched_at
+            SELECT id, theme_id, url, canonical_url, title, content_hash, fetched_at
             FROM documents
             WHERE (title LIKE ? OR url LIKE ? OR canonical_url LIKE ? OR id LIKE ?)
         """
@@ -4300,17 +4313,26 @@ def _fts_query(query: str) -> str:
     return " OR ".join(f'"{t}"' for t in toks)
 
 
-def fts_search(conn: sqlite3.Connection, query: str, limit: int = 20) -> list[str]:
-    """엔티티 FTS 검색 → entity_id 리스트(랭크 순)."""
+def fts_search(conn: sqlite3.Connection, query: str, limit: int = 20, theme_id: int | None = None) -> list[str]:
+    """Search entity FTS and return list of entity IDs."""
     match = _fts_query(query)
     if not match:
         return []
     try:
-        rows = conn.execute(
-            "SELECT entity_id FROM entities_fts WHERE entities_fts MATCH ? "
-            "ORDER BY rank LIMIT ?",
-            (match, limit),
-        ).fetchall()
+        if theme_id is not None:
+            rows = conn.execute(
+                "SELECT f.entity_id FROM entities_fts f "
+                "JOIN entities e ON f.entity_id = e.id "
+                "WHERE e.theme_id = ? AND entities_fts MATCH ? "
+                "ORDER BY rank LIMIT ?",
+                (theme_id, match, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT entity_id FROM entities_fts WHERE entities_fts MATCH ? "
+                "ORDER BY rank LIMIT ?",
+                (match, limit),
+            ).fetchall()
     except sqlite3.OperationalError:
         return []
     return [r["entity_id"] for r in rows]
@@ -5057,6 +5079,10 @@ def purge_document_cascade(
     """오염 문서를 L1/L2/DB/그래프/디스크에서 원자적으로 연쇄 소각."""
     import time
     from .raw import _artifacts_dir, _images_dir, artifact_paths
+
+    if isinstance(target_ids, Path) and isinstance(reason, (list, tuple, set)):
+        target_ids = list(reason)
+        reason = "manual_purge"
 
     if not target_ids:
         return {"purged_count": 0, "target_documents": [], "tombstone_recorded": tombstone}
@@ -5808,3 +5834,157 @@ def backfill_stt_metadata(
         "updated_count": updated_count,
         "items": targets,
     }
+
+
+# --- syndication dispatches ---
+
+
+def create_syndication_dispatch(
+    conn: sqlite3.Connection,
+    *,
+    theme_id: int = 0,
+    target_theme_id: int | None = None,
+    document_id: str | None = None,
+    item_id: str | None = None,
+    account_id: str | None = None,
+    target_url: str | None = None,
+    mode: str = "cross_theme",
+    status: str = "pending",
+    remote_ref: str | None = None,
+    payload: str | None = None,
+    error: str | None = None,
+    dispatched_by_user_id: int | None = None,
+    applied_focus: str | None = None,
+    dispatched_at: float | None = None,
+    dispatch_id: str | None = None,
+) -> str:
+    """Create a new syndication dispatch record."""
+    did = dispatch_id or f"disp_{secrets.token_hex(12)}"
+    now = time.time()
+    disp_at = dispatched_at
+    if status == "done" and disp_at is None:
+        disp_at = now
+    conn.execute(
+        """INSERT INTO syndication_dispatches
+        (id, theme_id, target_theme_id, item_id, account_id, document_id,
+         target_url, mode, status, remote_ref, payload, error,
+         dispatched_by_user_id, applied_focus, dispatched_at, created_at, updated_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (
+            did,
+            theme_id,
+            target_theme_id if target_theme_id is not None else 0,
+            item_id,
+            account_id,
+            document_id,
+            target_url,
+            mode,
+            status,
+            remote_ref,
+            payload,
+            error,
+            dispatched_by_user_id,
+            applied_focus,
+            disp_at,
+            now,
+            now,
+        ),
+    )
+    conn.commit()
+    return did
+
+
+def get_syndication_dispatch(
+    conn: sqlite3.Connection,
+    dispatch_id: str,
+    *,
+    theme_id: int | None = None,
+) -> dict[str, Any] | None:
+    """Retrieve a syndication dispatch record by ID."""
+    query = "SELECT * FROM syndication_dispatches WHERE id = ?"
+    params: list[Any] = [dispatch_id]
+    if theme_id is not None:
+        query += " AND (theme_id = ? OR target_theme_id = ?)"
+        params.extend([theme_id, theme_id])
+    row = conn.execute(query, tuple(params)).fetchone()
+    if row is None:
+        return None
+    return dict(row)
+
+
+def update_syndication_dispatch(
+    conn: sqlite3.Connection,
+    dispatch_id: str,
+    *,
+    status: str | None = None,
+    error: str | None = None,
+    remote_ref: str | None = None,
+    dispatched_at: float | None = None,
+    applied_focus: str | None = None,
+) -> bool:
+    """Update an existing syndication dispatch record."""
+    clauses: list[str] = ["updated_at = ?"]
+    now = time.time()
+    params: list[Any] = [now]
+    if status is not None:
+        clauses.append("status = ?")
+        params.append(status)
+        if status == "done" and dispatched_at is None:
+            dispatched_at = now
+    if error is not None:
+        clauses.append("error = ?")
+        params.append(error)
+    if remote_ref is not None:
+        clauses.append("remote_ref = ?")
+        params.append(remote_ref)
+    if dispatched_at is not None:
+        clauses.append("dispatched_at = ?")
+        params.append(dispatched_at)
+    if applied_focus is not None:
+        clauses.append("applied_focus = ?")
+        params.append(applied_focus)
+    params.append(dispatch_id)
+    cur = conn.execute(
+        f"UPDATE syndication_dispatches SET {', '.join(clauses)} WHERE id = ?",
+        tuple(params),
+    )
+    conn.commit()
+    return cur.rowcount > 0
+
+
+def list_syndication_dispatches(
+    conn: sqlite3.Connection,
+    *,
+    theme_id: int | None = None,
+    target_theme_id: int | None = None,
+    document_id: str | None = None,
+    status: str | None = None,
+    mode: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> list[dict[str, Any]]:
+    """List syndication dispatch records matching given criteria."""
+    query = "SELECT * FROM syndication_dispatches"
+    conditions: list[str] = []
+    params: list[Any] = []
+    if theme_id is not None:
+        conditions.append("theme_id = ?")
+        params.append(theme_id)
+    if target_theme_id is not None:
+        conditions.append("target_theme_id = ?")
+        params.append(target_theme_id)
+    if document_id is not None:
+        conditions.append("document_id = ?")
+        params.append(document_id)
+    if status is not None:
+        conditions.append("status = ?")
+        params.append(status)
+    if mode is not None:
+        conditions.append("mode = ?")
+        params.append(mode)
+    if conditions:
+        query += " WHERE " + " AND ".join(conditions)
+    query += " ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?"
+    params.extend([limit, offset])
+    rows = conn.execute(query, tuple(params)).fetchall()
+    return [dict(row) for row in rows]

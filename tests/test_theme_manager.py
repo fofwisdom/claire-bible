@@ -125,14 +125,14 @@ def test_define_new_theme_uses_sequence(temp_theme_env):
     assert t1.seq == 1
     assert t1.label == "기술 및 AI"
     assert t1.is_default is False
-    # 물리 경로는 순수 일련번호 '1'을 사용해야 함
-    assert "themes/1/claire.db" in t1.db_path.replace("\\", "/")
+    # 단일 DB 아키텍처에서는 db_path 가 통합 claire.db 를 가리킴
+    assert "claire.db" in t1.db_path.replace("\\", "/")
 
     # 두 번째 테마 정의 시 seq 2 발급
     t2 = manager.define_theme("철학 및 인문학", icon="🏛️")
     assert t2.id == 2
     assert t2.seq == 2
-    assert "themes/2/claire.db" in t2.db_path.replace("\\", "/")
+    assert "claire.db" in t2.db_path.replace("\\", "/")
 
 
 def test_update_theme_label_does_not_change_folder(temp_theme_env):
@@ -328,7 +328,7 @@ def test_resolve_share_token_cross_theme_fallback(temp_theme_env):
         source_type="web",
         content_hash="hash_cross_1",
     )
-    dbm.insert_document(conn1, doc)
+    dbm.insert_document(conn1, doc, theme_id=1)
     conn1.close()
 
     # 3. resolve_share_token 호출 시 테마 1로 자동 해소 및 세부 정보 반환 검증
@@ -382,11 +382,11 @@ def test_theme_reset_preserves_id_and_cleans_data(temp_theme_env):
     dbm.init_db(conn)
 
     doc = Document(id="doc_robin", title="Robin Character", raw_text="Robin content", source_type="text")
-    dbm.insert_document(conn, doc)
+    dbm.insert_document(conn, doc, theme_id=tid)
     ent = Entity(id="ent_robin", type="Person", name="Robin", sources=["doc_robin"])
-    dbm.upsert_entity(conn, ent)
+    dbm.upsert_entity(conn, ent, theme_id=tid)
     rel = Relation(id="rel_1", type="related_to", source_id="ent_robin", target_id="ent_robin", sources=["doc_robin"])
-    dbm.upsert_relation(conn, rel)
+    dbm.upsert_relation(conn, rel, theme_id=tid)
     conn.commit()
     conn.close()
 

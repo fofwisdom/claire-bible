@@ -132,8 +132,33 @@ class ThemeInfo:
         )
 
 
+def _row_to_theme(row: Any, default_db_path: str) -> ThemeInfo:
+    d = dict(row)
+    tid = int(d.get("id", 0))
+    is_def = bool(d.get("is_default", tid == 0))
+    db_p = str(d.get("db_path") or "").strip() or default_db_path
+    return ThemeInfo(
+        id=tid,
+        seq=int(d.get("seq", tid)),
+        label=str(d.get("label", "")),
+        description=str(d.get("description", "")),
+        icon=str(d.get("icon", "📁")),
+        db_path=db_p,
+        is_default=is_def,
+        is_public=bool(d.get("is_public", 1)),
+        is_collaborator_accessible=bool(d.get("is_collaborator_accessible", not is_def)),
+        default_focus="" if is_def else str(d.get("default_focus") or "").strip(),
+        fqdn=validate_fqdn(d.get("fqdn")),
+        ga_measurement_id=validate_ga_measurement_id(d.get("ga_measurement_id")),
+        sorcerer=str(d.get("sorcerer") or "").strip(),
+        presentation_enabled=bool(d.get("presentation_enabled", 0)),
+        created_at=float(d.get("created_at", 0.0)),
+        updated_at=float(d.get("updated_at", 0.0)),
+    )
+
+
 class ThemeManager:
-    """테마 레지스트리 및 일련번호 기반 스토리지 디렉터리 관리자."""
+    """테마 레지스트리 및 단일 데이터베이스 기반 테마 분할 관리자."""
 
     def __init__(
         self,
@@ -148,7 +173,18 @@ class ThemeManager:
         self._fqdn_to_theme_id: dict[str, int] = {}
         self._next_seq: int = 1
         self._default_theme_id: int = 0
+        self._init_db_file()
         self.reload()
+
+    def _init_db_file(self) -> None:
+        db_file = getattr(self.settings, "db_file", None)
+        if db_file is not None:
+            Path(db_file).parent.mkdir(parents=True, exist_ok=True)
+            conn = dbm.connect(db_file)
+            try:
+                dbm.init_db(conn)
+            finally:
+                conn.close()
 
     def _rebuild_fqdn_index(self) -> None:
         idx: dict[str, int] = {}
@@ -191,7 +227,7 @@ class ThemeManager:
         return any(bool(t.ga_measurement_id) for t in self._themes.values())
 
     def reload(self) -> None:
-        """themes.json 레지스트리를 읽고 메모리에 적재한다.
+        """themes 테이블(SQLite) 및 themes.json 레지스트리를 동기화하고 메모리에 적재한다.
 
         싱글 테마 모드에서는 레지스트리를 전혀 읽지 않는다. 멀티 테마 모드에서 레지스트리가 없으면 기본 레지스트리를 만들지만, 이미 존재하는 레지스트리가 손상됐으면 기본값으로 덮어쓰거나 숨기지 않고 오류를 전파한다.
         """
@@ -202,57 +238,132 @@ class ThemeManager:
             self._rebuild_fqdn_index()
             return
 
-        if not self.registry_path.is_file():
+        raw_themes_from_json: list[dict[str, Any]] = []
+        json_next_seq = 1
+        json_default_theme_id = 0
+        registry_exists = self.registry_path.is_file()
+
+        if registry_exists:
+            try:
+                raw = json.loads(self.registry_path.read_text(encoding="utf-8"))
+                if not isinstance(raw, dict):
+                    raise ValueError("registry root must be an object")
+                themes_data = raw.get("themes", [])
+                json_next_seq = int(raw.get("next_seq", 1))
+                json_default_theme_id = int(raw.get("default_theme_id", 0))
+
+                if isinstance(themes_data, list):
+                    for item in themes_data:
+                        if not isinstance(item, dict):
+                            raise ValueError("theme entry must be an object")
+                        raw_themes_from_json.append(item)
+                elif isinstance(themes_data, dict):
+                    for item in themes_data.values():
+                        if not isinstance(item, dict):
+                            raise ValueError("theme entry must be an object")
+                        raw_themes_from_json.append(item)
+                else:
+                    raise ValueError("themes must be a list or object")
+            except Exception as exc:
+                raise RuntimeError(
+                    f"테마 레지스트리를 읽을 수 없습니다: {self.registry_path}: {exc}"
+                ) from exc
+        else:
             if not self.create_registry:
                 raise FileNotFoundError(f"테마 레지스트리가 없습니다: {self.registry_path}")
-            self._init_default_registry()
-            return
 
+        db_file = getattr(self.settings, "db_file", None) or Path("data/claire.db")
+        Path(db_file).parent.mkdir(parents=True, exist_ok=True)
+        conn = dbm.connect(db_file)
         try:
-            raw = json.loads(self.registry_path.read_text(encoding="utf-8"))
-            if not isinstance(raw, dict):
-                raise ValueError("registry root must be an object")
-            themes_data = raw.get("themes", [])
-            self._next_seq = int(raw.get("next_seq", 1))
-            self._default_theme_id = int(raw.get("default_theme_id", 0))
+            dbm.init_db(conn)
+
+            rows = conn.execute("SELECT * FROM themes ORDER BY id").fetchall()
+
+            if raw_themes_from_json:
+                existing_ids = {r["id"] for r in rows}
+                for item in raw_themes_from_json:
+                    t_info = ThemeInfo.from_dict(item)
+                    if t_info.id not in existing_ids:
+                        conn.execute(
+                            """
+                            INSERT OR IGNORE INTO themes (
+                                id, seq, label, description, icon, db_path,
+                                is_default, is_public, is_collaborator_accessible,
+                                default_focus, fqdn, ga_measurement_id, sorcerer,
+                                presentation_enabled, created_at, updated_at
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            """,
+                            (
+                                t_info.id,
+                                t_info.seq,
+                                t_info.label,
+                                t_info.description,
+                                t_info.icon,
+                                str(db_file),
+                                int(t_info.is_default),
+                                int(t_info.is_public),
+                                int(t_info.is_collaborator_accessible),
+                                t_info.default_focus,
+                                t_info.fqdn,
+                                t_info.ga_measurement_id,
+                                t_info.sorcerer,
+                                int(t_info.presentation_enabled),
+                                t_info.created_at,
+                                t_info.updated_at,
+                            ),
+                        )
+                conn.commit()
+                rows = conn.execute("SELECT * FROM themes ORDER BY id").fetchall()
 
             loaded: dict[int, ThemeInfo] = {}
-            if isinstance(themes_data, list):
-                for item in themes_data:
-                    if not isinstance(item, dict):
-                        raise ValueError("theme entry must be an object")
-                    t = ThemeInfo.from_dict(item)
-                    if t.id in loaded:
-                        raise ValueError(f"duplicate theme id: {t.id}")
-                    loaded[t.id] = t
-            elif isinstance(themes_data, dict):
-                for item in themes_data.values():
-                    if not isinstance(item, dict):
-                        raise ValueError("theme entry must be an object")
-                    t = ThemeInfo.from_dict(item)
-                    if t.id in loaded:
-                        raise ValueError(f"duplicate theme id: {t.id}")
-                    loaded[t.id] = t
-            else:
-                raise ValueError("themes must be a list or object")
+            for r in rows:
+                t = _row_to_theme(r, default_db_path=str(db_file))
+                loaded[t.id] = t
 
             if 0 not in loaded:
-                raise ValueError("default theme id 0 is missing")
-            if self._default_theme_id not in loaded:
-                raise ValueError(
-                    f"default_theme_id is not registered: {self._default_theme_id}"
+                t0 = self._build_default_theme()
+                conn.execute(
+                    """
+                    INSERT OR IGNORE INTO themes (
+                        id, seq, label, description, icon, db_path,
+                        is_default, is_public, is_collaborator_accessible,
+                        default_focus, fqdn, ga_measurement_id, sorcerer,
+                        presentation_enabled, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        0,
+                        0,
+                        t0.label,
+                        t0.description,
+                        t0.icon,
+                        str(db_file),
+                        1,
+                        int(t0.is_public),
+                        int(t0.is_collaborator_accessible),
+                        t0.default_focus,
+                        t0.fqdn,
+                        t0.ga_measurement_id,
+                        t0.sorcerer,
+                        int(t0.presentation_enabled),
+                        t0.created_at,
+                        t0.updated_at,
+                    ),
                 )
+                conn.commit()
+                loaded[0] = t0
 
             self._themes = loaded
             max_seq = max((t.seq for t in self._themes.values()), default=0)
-            if self._next_seq <= max_seq:
-                self._next_seq = max_seq + 1
+            self._next_seq = max(max_seq + 1, json_next_seq)
+            self._default_theme_id = json_default_theme_id if json_default_theme_id in self._themes else 0
             self._rebuild_fqdn_index()
+        finally:
+            conn.close()
 
-        except Exception as exc:
-            raise RuntimeError(
-                f"테마 레지스트리를 읽을 수 없습니다: {self.registry_path}: {exc}"
-            ) from exc
+        if not registry_exists and getattr(self.settings, "multi_theme", False) and self.create_registry:
+            self._save_registry()
 
     def _build_default_theme(self) -> ThemeInfo:
         now = time.time()
@@ -458,23 +569,8 @@ class ThemeManager:
         seq = self._next_seq
         self._next_seq += 1
 
-        abs_db_dir = self.settings.data_dir / "themes" / str(seq)
-        abs_db_file = abs_db_dir / "claire.db"
-
-        # 디렉터리 생성
-        abs_db_file.parent.mkdir(parents=True, exist_ok=True)
-
-        # SQLite 초기화 및 마이그레이션 일괄 적용
-        conn = dbm.connect(abs_db_file)
-        try:
-            dbm.init_db(conn)
-        finally:
-            conn.close()
-
-        try:
-            rel_db_path = str(abs_db_file.relative_to(ROOT))
-        except ValueError:
-            rel_db_path = str(abs_db_file)
+        db_file = getattr(self.settings, "db_file", None) or Path("data/claire.db")
+        db_path = str(db_file)
 
         now = time.time()
         mgr = str(sorcerer or knowledge_manager or "").strip()
@@ -484,7 +580,7 @@ class ThemeManager:
             label=cleaned_label,
             description=str(description or "").strip(),
             icon=str(icon or "📁").strip(),
-            db_path=rel_db_path,
+            db_path=db_path,
             is_default=False,
             is_public=bool(is_public),
             is_collaborator_accessible=bool(is_collaborator_accessible),
@@ -497,17 +593,51 @@ class ThemeManager:
             updated_at=now,
         )
 
+        conn = dbm.connect(db_file)
+        try:
+            conn.execute(
+                """
+                INSERT INTO themes (
+                    id, seq, label, description, icon, db_path,
+                    is_default, is_public, is_collaborator_accessible,
+                    default_focus, fqdn, ga_measurement_id, sorcerer,
+                    presentation_enabled, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    theme.id,
+                    theme.seq,
+                    theme.label,
+                    theme.description,
+                    theme.icon,
+                    theme.db_path,
+                    int(theme.is_default),
+                    int(theme.is_public),
+                    int(theme.is_collaborator_accessible),
+                    theme.default_focus,
+                    theme.fqdn,
+                    theme.ga_measurement_id,
+                    theme.sorcerer,
+                    int(theme.presentation_enabled),
+                    theme.created_at,
+                    theme.updated_at,
+                ),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
         self._themes[seq] = theme
         self._save_registry()
         log.info(
-            "새 테마 #%d [%s] (공개: %s, 협력자: %s, 기본 초점: %s, FQDN: %s) 정의 및 생성 완료 (경로: %s)",
+            "새 테마 #%d [%s] (공개: %s, 협력자: %s, 기본 초점: %s, FQDN: %s) 정의 완료 (경로: %s)",
             seq,
             cleaned_label,
             theme.is_public,
             theme.is_collaborator_accessible,
             theme.default_focus,
             norm_fqdn or "(없음)",
-            rel_db_path,
+            db_path,
         )
         return theme
 
@@ -597,6 +727,45 @@ class ThemeManager:
             theme.presentation_enabled = bool(presentation_enabled)
 
         theme.updated_at = time.time()
+
+        db_file = getattr(self.settings, "db_file", None) or Path("data/claire.db")
+        conn = dbm.connect(db_file)
+        try:
+            conn.execute(
+                """
+                UPDATE themes SET
+                    label = ?,
+                    description = ?,
+                    icon = ?,
+                    is_public = ?,
+                    is_collaborator_accessible = ?,
+                    default_focus = ?,
+                    fqdn = ?,
+                    ga_measurement_id = ?,
+                    sorcerer = ?,
+                    presentation_enabled = ?,
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    theme.label,
+                    theme.description,
+                    theme.icon,
+                    int(theme.is_public),
+                    int(theme.is_collaborator_accessible),
+                    theme.default_focus,
+                    theme.fqdn,
+                    theme.ga_measurement_id,
+                    theme.sorcerer,
+                    int(theme.presentation_enabled),
+                    theme.updated_at,
+                    tid,
+                ),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
         self._save_registry()
         log.info("테마 #%d 메타데이터 수정 완료 (레이블: %s, FQDN: %s)", tid, theme.label, theme.fqdn or "(없음)")
         return theme
@@ -619,22 +788,43 @@ class ThemeManager:
             raise ValueError("기본 테마(ID 0)는 삭제할 수 없습니다.")
 
         theme = self._themes[tid]
-        t_settings = self.get_settings_for_theme(tid)
 
-        self._themes.pop(tid)
+        db_file = getattr(self.settings, "db_file", None) or Path("data/claire.db")
+        conn = dbm.connect(db_file)
+        try:
+            if purge:
+                dbm.reset_graph(conn, theme_id=tid)
+                for tbl in (
+                    "documents",
+                    "document_snapshots",
+                    "document_presentations",
+                    "raw_inbox",
+                    "extractions",
+                    "proposals",
+                    "jobs",
+                    "refresh_queue",
+                    "expand_queue",
+                    "doc_shares",
+                    "purged_tombstones",
+                    "syndication_dispatches",
+                    "syndication_items",
+                ):
+                    try:
+                        conn.execute(f"DELETE FROM {tbl} WHERE theme_id = ?", (tid,))
+                    except sqlite3.OperationalError:
+                        pass
+                conn.execute("DELETE FROM themes WHERE id = ?", (tid,))
+                conn.commit()
+            else:
+                conn.execute("PRAGMA foreign_keys = OFF;")
+                conn.execute("DELETE FROM themes WHERE id = ?", (tid,))
+                conn.commit()
+                conn.execute("PRAGMA foreign_keys = ON;")
+        finally:
+            conn.close()
+
+        self._themes.pop(tid, None)
         self._save_registry()
-
-        if purge:
-            # 완전 소각: DB 파일 디렉터리 삭제
-            try:
-                db_p = t_settings.db_file
-                if db_p.parent.name == str(tid) and db_p.parent.is_dir():
-                    import shutil
-                    shutil.rmtree(db_p.parent, ignore_errors=True)
-                elif db_p.is_file():
-                    db_p.unlink()
-            except Exception as exc:
-                log.warning("테마 #%d 디스크 삭제 중 오류 발생: %s", tid, exc)
 
         log.info("테마 #%d [%s] 삭제 완료 (purge=%s)", tid, theme.label, purge)
         return theme
@@ -653,7 +843,6 @@ class ThemeManager:
             tid = target.id
 
         theme = self._themes[tid]
-        t_settings = self.get_settings_for_theme(tid)
 
         stats: dict[str, Any] = {
             "theme_id": tid,
@@ -665,56 +854,46 @@ class ThemeManager:
             "deleted_relations": 0,
         }
 
-        # 1. DB 완전 초기화
-        db_p = t_settings.db_file
-        if db_p.is_file():
-            conn = dbm.connect(db_p)
+        db_file = getattr(self.settings, "db_file", None) or Path("data/claire.db")
+        conn = dbm.connect(db_file)
+        try:
             try:
+                stats["deleted_documents"] = conn.execute("SELECT COUNT(*) FROM documents WHERE theme_id = ?", (tid,)).fetchone()[0]
+                stats["deleted_entities"] = conn.execute("SELECT COUNT(*) FROM entities WHERE theme_id = ?", (tid,)).fetchone()[0]
+                stats["deleted_relations"] = conn.execute("SELECT COUNT(*) FROM relations WHERE theme_id = ?", (tid,)).fetchone()[0]
+            except Exception:
+                pass
+
+            dbm.reset_graph(conn, theme_id=tid)
+
+            for tbl in (
+                "documents",
+                "document_snapshots",
+                "document_presentations",
+                "raw_inbox",
+                "extractions",
+                "proposals",
+                "jobs",
+                "refresh_queue",
+                "expand_queue",
+                "doc_shares",
+                "purged_tombstones",
+                "syndication_dispatches",
+                "syndication_items",
+            ):
                 try:
-                    stats["deleted_documents"] = conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
-                    stats["deleted_entities"] = conn.execute("SELECT COUNT(*) FROM entities").fetchone()[0]
-                    stats["deleted_relations"] = conn.execute("SELECT COUNT(*) FROM relations").fetchone()[0]
-                except Exception:
+                    conn.execute(f"DELETE FROM {tbl} WHERE theme_id = ?", (tid,))
+                except sqlite3.OperationalError:
                     pass
 
-                dbm.reset_graph(conn)
+            now = time.time()
+            conn.execute("UPDATE themes SET updated_at = ? WHERE id = ?", (now, tid))
+            conn.commit()
+            stats["db_cleared"] = True
+        finally:
+            conn.close()
 
-                for tbl in (
-                    "documents",
-                    "document_snapshots",
-                    "raw_inbox",
-                    "extractions",
-                    "proposals",
-                    "jobs",
-                    "refresh_queue",
-                    "expand_queue",
-                    "doc_shares",
-                    "purged_tombstones",
-                ):
-                    try:
-                        conn.execute(f"DELETE FROM {tbl}")
-                    except sqlite3.OperationalError:
-                        pass
-
-                conn.commit()
-                try:
-                    conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-                    conn.execute("VACUUM")
-                except Exception:
-                    pass
-                stats["db_cleared"] = True
-            finally:
-                conn.close()
-        else:
-            conn = dbm.connect(db_p)
-            try:
-                dbm.init_db(conn)
-                stats["db_cleared"] = True
-            finally:
-                conn.close()
-
-        # 2. 메타데이터 updated_at 갱신 (ID, 라벨, 초점 등은 불변 유지)
-        theme.updated_at = time.time()
+        theme.updated_at = now
         self._save_registry()
 
         log.info(
@@ -741,11 +920,14 @@ class ThemeManager:
 
     @staticmethod
     def _settings_for_theme_info(theme: ThemeInfo, base: Settings | Any) -> Any:
-        """글로벌 설정을 유지하고 테마별 저장 경로만 덮어쓴다."""
+        """글로벌 설정을 유지하고 테마별 저장 경로 및 테마 설정을 적용한다."""
+        db_file = getattr(base, "db_file", Path("data/claire.db"))
+        db_path = str(db_file)
 
         if hasattr(base, "model_copy"):
             override = {
-                "db_path": theme.db_path,
+                "db_path": db_path,
+                "db_file": db_file,
                 "theme_id": theme.id,
                 "default_focus": theme.default_focus,
             }
@@ -756,9 +938,9 @@ class ThemeManager:
         import copy
 
         st = copy.copy(base)
-        st.db_file = Path(theme.db_path)
+        st.db_file = db_file
         if hasattr(st, "db_path"):
-            st.db_path = theme.db_path
+            st.db_path = db_path
         if theme.sorcerer and hasattr(st, "sorcerer"):
             st.sorcerer = theme.sorcerer
         st.theme_id = theme.id
@@ -787,70 +969,40 @@ class ThemeManager:
     def resolve_share_token(
         self, token: str, *, include_hidden: bool = True
     ) -> tuple[int, str, dict[str, Any]] | None:
-        """등록된 테마 DB를 검색하여 공유 토큰의 (theme_id, document_id, doc_dict)를 자동 해소."""
+        """단일 통합 SQLite DB에서 공유 토큰의 (theme_id, document_id, doc_dict)를 단일 쿼리로 자동 해소."""
         from .queries import document_detail
 
-        def _fallback_across_themes(doc_id: str) -> tuple[int, str, dict[str, Any]] | None:
-            targets = self.resolve_document_targets(doc_id=doc_id)
-            for target in targets:
-                tid = target.get("theme_id", 0)
-                db_path = target.get("db_file")
-                target_db = Path(db_path) if db_path else self.get_settings_for_theme(tid).db_file
-                if not target_db.is_file():
-                    continue
-                try:
-                    tconn = dbm.connect_existing(target_db, readonly=True)
-                    try:
-                        tdoc = document_detail(tconn, doc_id, include_hidden=include_hidden)
-                        if tdoc:
-                            return (tid, doc_id, tdoc)
-                    finally:
-                        tconn.close()
-                except Exception:
-                    continue
+        db_file = getattr(self.settings, "db_file", None) or Path("data/claire.db")
+        if not Path(db_file).is_file():
             return None
 
-        if not getattr(self.settings, "multi_theme", False):
-            abs_db = getattr(self.settings, "db_file", None) or Path("data/claire.db")
-            if not abs_db.is_file():
-                return None
+        try:
+            conn = dbm.connect_existing(Path(db_file), readonly=True)
             try:
-                conn = dbm.connect_existing(abs_db, readonly=True)
-                try:
-                    doc_id = dbm.resolve_doc_share(conn, token)
-                    if doc_id:
-                        doc = document_detail(conn, doc_id, include_hidden=include_hidden)
-                        if doc:
-                            return (0, doc_id, doc)
-                        fb = _fallback_across_themes(doc_id)
-                        if fb:
-                            return fb
-                finally:
-                    conn.close()
-            except Exception:
-                pass
-            return None
-
-        self.reload()
-        for t in self._themes.values():
-            abs_db = self.get_settings_for_theme(t.id).db_file
-            if not abs_db.is_file():
-                continue
-            try:
-                conn = dbm.connect_existing(abs_db, readonly=True)
-                try:
-                    doc_id = dbm.resolve_doc_share(conn, token)
-                    if doc_id:
-                        doc = document_detail(conn, doc_id, include_hidden=include_hidden)
-                        if doc:
-                            return (t.id, doc_id, doc)
-                        fb = _fallback_across_themes(doc_id)
-                        if fb:
-                            return fb
-                finally:
-                    conn.close()
-            except Exception:
-                continue
+                row = conn.execute(
+                    "SELECT theme_id, document_id FROM doc_shares WHERE token = ?",
+                    (token,),
+                ).fetchone()
+                if row:
+                    tid = row["theme_id"]
+                    doc_id = row["document_id"]
+                    tdoc = document_detail(conn, doc_id, include_hidden=include_hidden, theme_id=tid)
+                    if tdoc:
+                        return (tid, doc_id, tdoc)
+                    # Cross-theme self-healing fallback
+                    targets = self.resolve_document_targets(doc_id=doc_id)
+                    for target in targets:
+                        target_tid = target.get("theme_id", 0)
+                        if target_tid != tid:
+                            tdoc_fallback = document_detail(
+                                conn, doc_id, include_hidden=include_hidden, theme_id=target_tid
+                            )
+                            if tdoc_fallback:
+                                return (target_tid, doc_id, tdoc_fallback)
+            finally:
+                conn.close()
+        except Exception:
+            pass
         return None
 
     def resolve_document_targets(
@@ -868,71 +1020,52 @@ class ThemeManager:
 
         각 결과 딕셔너리에는 theme_id, theme_label, db_file 정보가 함께 포함된다. 정확 일치(id, doc_id, token, share_token) 항목이 존재할 경우 해당 항목들을 우선 반환한다.
         """
-        if not getattr(self.settings, "multi_theme", False):
-            abs_db = getattr(self.settings, "db_file", None) or Path("data/claire.db")
-            if not Path(abs_db).is_file():
-                return []
-            try:
-                conn = dbm.connect_existing(Path(abs_db), readonly=True)
-                try:
-                    res = dbm.resolve_document_targets(
-                        conn,
-                        target=target,
-                        doc_id=doc_id,
-                        url=url,
-                        canonical_url=canonical_url,
-                        token=token,
-                        pattern=pattern,
-                        limit=limit,
-                    )
-                    default_t = self._themes.get(0, self._build_default_theme())
-                    for r in res:
-                        r["theme_id"] = 0
-                        r["theme_label"] = default_t.label
-                        r["db_file"] = str(abs_db)
-                    return res
-                finally:
-                    conn.close()
-            except Exception:
-                return []
-
         self.reload()
-        exact_matches: list[dict[str, Any]] = []
-        url_matches: list[dict[str, Any]] = []
-        pattern_matches: list[dict[str, Any]] = []
+        db_file = getattr(self.settings, "db_file", None) or Path("data/claire.db")
+        if not Path(db_file).is_file():
+            return []
 
-        for t in sorted(self._themes.values(), key=lambda x: x.id):
-            abs_db = self.get_settings_for_theme(t.id).db_file
-            if not Path(abs_db).is_file():
-                continue
+        try:
+            conn = dbm.connect_existing(Path(db_file), readonly=True)
             try:
-                conn = dbm.connect_existing(Path(abs_db), readonly=True)
-                try:
-                    matched = dbm.resolve_document_targets(
-                        conn,
-                        target=target,
-                        doc_id=doc_id,
-                        url=url,
-                        canonical_url=canonical_url,
-                        token=token,
-                        pattern=pattern,
-                        limit=limit,
-                    )
-                    for m in matched:
-                        m["theme_id"] = t.id
-                        m["theme_label"] = t.label
-                        m["db_file"] = str(abs_db)
-                        mb = m.get("matched_by", "")
-                        if mb in ("id", "doc_id", "token", "share_token"):
-                            exact_matches.append(m)
-                        elif mb in ("url", "canonical_url"):
-                            url_matches.append(m)
-                        else:
-                            pattern_matches.append(m)
-                finally:
-                    conn.close()
-            except Exception:
-                continue
+                matched = dbm.resolve_document_targets(
+                    conn,
+                    target=target,
+                    doc_id=doc_id,
+                    url=url,
+                    canonical_url=canonical_url,
+                    token=token,
+                    pattern=pattern,
+                    limit=limit,
+                )
+                exact_matches: list[dict[str, Any]] = []
+                url_matches: list[dict[str, Any]] = []
+                pattern_matches: list[dict[str, Any]] = []
+
+                for m in matched:
+                    tid = m.get("theme_id", 0)
+                    t_info = self._themes.get(tid)
+                    m["theme_id"] = tid
+                    m["theme_label"] = t_info.label if t_info else ("기본 지식베이스" if tid == 0 else f"테마 #{tid}")
+                    m["db_file"] = str(db_file)
+
+                    mb = m.get("matched_by", "")
+                    if mb in ("id", "doc_id", "token", "share_token"):
+                        exact_matches.append(m)
+                    elif mb in ("url", "canonical_url"):
+                        url_matches.append(m)
+                    else:
+                        pattern_matches.append(m)
+
+                if exact_matches:
+                    return exact_matches
+                if url_matches:
+                    return url_matches
+                return pattern_matches[:limit]
+            finally:
+                conn.close()
+        except Exception:
+            return []
 
         if exact_matches:
             return exact_matches

@@ -292,7 +292,7 @@ def test_get_effective_settings_doc_target_auto_resolve(cli_theme_env):
         source_type="web",
         content_hash="h_auto_1",
     )
-    dbm.insert_document(conn1, doc)
+    dbm.insert_document(conn1, doc, theme_id=1)
     conn1.close()
 
     # 1. args.target에 doc_id 전달 시 자동 해소
@@ -368,7 +368,7 @@ def test_cli_theme_dispatch_commands(cli_theme_env, capsys, monkeypatch):
         source_type="web",
         content_hash="h_theme_test_1",
     )
-    dbm.insert_document(conn1, doc)
+    dbm.insert_document(conn1, doc, theme_id=1)
     conn1.close()
 
     # 1. doc-title with -t 1
@@ -423,9 +423,9 @@ def test_cli_theme_reset(cli_theme_env, capsys, monkeypatch):
         source_type="web",
         content_hash="h_reset_cli",
     )
-    dbm.insert_document(conn, doc)
+    dbm.insert_document(conn, doc, theme_id=1)
     e = Entity(id="ent_reset_cli", name="Target Node", type="Concept", sources=["doc_reset_cli"])
-    dbm.upsert_entity(conn, e)
+    dbm.upsert_entity(conn, e, theme_id=1)
     r = Relation(
         id="rel_reset_cli",
         source_id="ent_reset_cli",
@@ -433,7 +433,7 @@ def test_cli_theme_reset(cli_theme_env, capsys, monkeypatch):
         type="RELATED_TO",
         sources=["doc_reset_cli"],
     )
-    dbm.upsert_relation(conn, r)
+    dbm.upsert_relation(conn, r, theme_id=1)
     conn.commit()
     conn.close()
 

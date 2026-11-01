@@ -244,9 +244,9 @@ def overview_impl(conn: sqlite3.Connection) -> dict:
     }
 
 
-def document_impl(conn: sqlite3.Connection, document_id: str) -> dict:
+def document_impl(conn: sqlite3.Connection, document_id: str, theme_id: int | None = None) -> dict:
     # document_detail 자체는 부작용이 없다(안읽음 마커는 웹 핸들러에서만 변경)
-    rep = document_detail(conn, document_id)
+    rep = document_detail(conn, document_id, theme_id=theme_id)
     if rep is None:
         return {"error": "not found"}
     rep = dict(rep)
@@ -525,7 +525,7 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None):
         try:
             def _fetch_doc():
                 if theme is None:
-                    rep = document_impl(conn, document_id)
+                    rep = document_impl(conn, document_id, theme_id=0)
                     if "error" not in rep:
                         return rep
                     if theme_mgr is not None:
@@ -535,13 +535,19 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None):
                             if tid is not None:
                                 t_conn = _conn(tid)
                                 try:
-                                    rep = document_impl(t_conn, document_id)
+                                    rep = document_impl(t_conn, document_id, theme_id=tid)
                                     if "error" not in rep:
                                         return rep
                                 finally:
                                     t_conn.close()
                     return {"error": "not found"}
-                return document_impl(conn, document_id)
+                resolved_tid = None
+                if theme_mgr is not None:
+                    try:
+                        resolved_tid = theme_mgr.get_theme(theme).id
+                    except Exception:
+                        pass
+                return document_impl(conn, document_id, theme_id=resolved_tid)
 
             return _timed_call("document", _fetch_doc)
         finally:

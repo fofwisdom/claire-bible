@@ -183,6 +183,7 @@ def _execute_reversible_merge(
     stage: str,
     score: float | None = None,
     reason: str = "",
+    theme_id: int = 0,
 ) -> tuple[Entity, ResolutionDecision]:
     """엔티티를 안전하게 병합하고 롤백 페이로드가 포함된 ResolutionDecision을 생성."""
     changed = False
@@ -215,7 +216,7 @@ def _execute_reversible_merge(
         changed = True
 
     if changed:
-        dbm.upsert_entity(conn, cand)
+        dbm.upsert_entity(conn, cand, theme_id=theme_id)
 
     rollback_payload = {
         "target_entity_id": cand.id,
@@ -252,6 +253,7 @@ def resolve_or_create(
     provisional: bool = False,
     on_judge: Callable[[str, str], None] | None = None,
     shadow: JevShadow | None = None,
+    theme_id: int = 0,
 ) -> ResolutionResult:
     """기존 엔티티에 머지하거나 신규 생성 (5단계 Multi-Tier Safe Gating 적용). (entity, created?) 반환.
 
@@ -263,11 +265,12 @@ def resolve_or_create(
     )
 
     # 1) Gate 1: 새 이름이 기존 name 또는 기존 alias 와 일치 (임베딩 불필요)
-    for cand in dbm.find_entities_by_name_or_alias(conn, norm):
+    for cand in dbm.find_entities_by_name_or_alias(conn, norm, theme_id=theme_id):
         if passes_hard_invariants(name, etype, cand.name, cand.type, provisional):
             cand_m, dec = _execute_reversible_merge(
                 conn, cand, name, aliases + [name], observations, document_id,
                 new_type=etype, stage="exact_match", score=1.0, reason="Exact normalized name match",
+                theme_id=theme_id,
             )
             return ResolutionResult(cand_m, False, decision=dec)
 
@@ -275,11 +278,12 @@ def resolve_or_create(
     for alias in aliases:
         if not alias:
             continue
-        for cand in dbm.find_entities_by_name_or_alias(conn, normalize_name(alias)):
+        for cand in dbm.find_entities_by_name_or_alias(conn, normalize_name(alias), theme_id=theme_id):
             if passes_hard_invariants(alias, etype, cand.name, cand.type, provisional) or passes_hard_invariants(name, etype, cand.name, cand.type, provisional):
                 cand_m, dec = _execute_reversible_merge(
                     conn, cand, name, aliases + [name], observations, document_id,
                     new_type=etype, stage="alias_match", score=1.0, reason=f"Matched registered alias '{alias}'",
+                    theme_id=theme_id,
                 )
                 return ResolutionResult(cand_m, False, decision=dec)
 
@@ -288,7 +292,7 @@ def resolve_or_create(
     new_is_acr = _is_acronym_token(name)
     if (acr_self and len(acr_self) >= ACRONYM_MIN) or new_is_acr:
         target_acr = name.strip().upper()
-        for cand in dbm.all_entities(conn):
+        for cand in dbm.all_entities(conn, theme_id=theme_id):
             if cand.type != etype or not passes_hard_invariants(name, etype, cand.name, cand.type, provisional):
                 continue
             cand_names = [cand.name, *cand.aliases]
@@ -301,6 +305,7 @@ def resolve_or_create(
                 cand_m, dec = _execute_reversible_merge(
                     conn, cand, name, aliases + [name], observations, document_id,
                     new_type=etype, stage="acronym_match", score=1.0, reason="Deterministic acronym match",
+                    theme_id=theme_id,
                 )
                 return ResolutionResult(cand_m, False, decision=dec)
 
@@ -325,7 +330,7 @@ def resolve_or_create(
             elif score >= tier_multihop:
                 multihop_candidates.append((owner_id, score))
 
-    for eid in dbm.fts_search(conn, name, limit=8):
+    for eid in dbm.fts_search(conn, name, limit=8, theme_id=theme_id):
         scored.setdefault(eid, 0.0)
 
     # 점수 높은 순. tier_auto 이상은 즉시 머지.
@@ -334,7 +339,7 @@ def resolve_or_create(
     # 검토 증거: 후보별 Gate 결과를 판정 레코드에 남긴다 (GRAPH_BUNDLE_REVIEW_EVIDENCE_DESIGN.md §3.1)
     trace: list[dict[str, Any]] = []
     # 병합이 후보를 변경하기 전 상태로 미리 읽는다: Jev shadow 입력이 병합 결과를 보지 않게 하기 위함
-    loaded = {owner_id: dbm.get_entity(conn, owner_id) for owner_id, _ in ordered}
+    loaded = {owner_id: dbm.get_entity(conn, owner_id, theme_id=theme_id) for owner_id, _ in ordered}
     shadow_call = None
     if shadow is not None and any(loaded.values()):
         shadow_call = shadow.submit(
@@ -391,6 +396,7 @@ def resolve_or_create(
                 conn, cand, name, aliases + [name], observations, document_id,
                 new_type=etype, stage="high_confidence_vector", score=score,
                 reason=f"Vector similarity {score:.4f} >= auto-merge threshold {tier_auto}",
+                theme_id=theme_id,
             )
             return ResolutionResult(
                 cand_m, False, relational_candidates, multihop_candidates,
@@ -425,6 +431,7 @@ def resolve_or_create(
                         f"Judge confirmed SAME at score {score:.4f}" if from_vector
                         else "Judge confirmed SAME (FTS candidate, no vector score)"
                     ),
+                    theme_id=theme_id,
                 )
                 return ResolutionResult(
                     cand_m, False, relational_candidates, multihop_candidates,
@@ -449,7 +456,7 @@ def resolve_or_create(
         sources=[document_id],
         provisional=provisional,
     )
-    dbm.upsert_entity(conn, ent)
+    dbm.upsert_entity(conn, ent, theme_id=theme_id)
     if embedding:
         vstore.put(ent.id, embedding, model="claire")
 
@@ -469,10 +476,11 @@ def _merge(
     aliases: list[str],
     observations: list[str],
     document_id: str,
+    theme_id: int = 0,
 ) -> Entity:
     """하위 호환성을 위한 내부 헬퍼 (단일 엔티티 반환)."""
     cand_m, _ = _execute_reversible_merge(
-        conn, cand, cand.name, aliases, observations, document_id, stage="merge"
+        conn, cand, cand.name, aliases, observations, document_id, stage="merge", theme_id=theme_id,
     )
     return cand_m
 

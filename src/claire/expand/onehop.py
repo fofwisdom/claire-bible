@@ -59,7 +59,7 @@ def _is_blocked(url: str, host: str) -> bool:
 
 
 def find_candidates(
-    conn: sqlite3.Connection, doc: Document, *, limit: int = 5
+    conn: sqlite3.Connection, doc: Document, *, limit: int = 5, theme_id: int | None = None,
 ) -> list[str]:
     """문서 본문에서 1홉 후보 URL 목록(정규화, dedup, 상한)."""
     seen_canon: set[str] = set()
@@ -85,7 +85,7 @@ def find_candidates(
         if canon in seen_canon:
             continue
         # 이미 그래프에 적재된 문서면 제외
-        if _already_ingested(conn, canon):
+        if _already_ingested(conn, canon, theme_id=theme_id):
             seen_canon.add(canon)
             continue
         seen_canon.add(canon)
@@ -95,16 +95,21 @@ def find_candidates(
     return out
 
 
-def _already_ingested(conn: sqlite3.Connection, canonical_url: str) -> bool:
+def _already_ingested(conn: sqlite3.Connection, canonical_url: str, theme_id: int | None = None) -> bool:
     from ..store.db import find_document_by_extra_source, is_tombstoned
 
-    if is_tombstoned(conn, canonical_url=canonical_url):
+    if is_tombstoned(conn, canonical_url=canonical_url, theme_id=theme_id):
         return True
-    row = conn.execute(
-        "SELECT 1 FROM documents WHERE canonical_url=? LIMIT 1", (canonical_url,)
-    ).fetchone()
+    if theme_id is not None:
+        row = conn.execute(
+            "SELECT 1 FROM documents WHERE canonical_url=? AND theme_id=? LIMIT 1", (canonical_url, theme_id)
+        ).fetchone()
+    else:
+        row = conn.execute(
+            "SELECT 1 FROM documents WHERE canonical_url=? LIMIT 1", (canonical_url,)
+        ).fetchone()
     if row is not None:
         return True
     # 1홉 병합(ONEHOP_MERGE_DESIGN.md)은 새 Document 를 안 만들어 위 색인으로는 못 잡힘 —
     # 이미 어떤 문서에 부가 출처로 흡수된 URL 도 재제안 방지 대상.
-    return find_document_by_extra_source(conn, canonical_url) is not None
+    return find_document_by_extra_source(conn, canonical_url, theme_id=theme_id) is not None

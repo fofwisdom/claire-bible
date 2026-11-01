@@ -16,8 +16,9 @@ from . import db as dbm
 class GraphStore:
     """지식 그래프 저장소 및 엣지 관리자."""
 
-    def __init__(self, conn: sqlite3.Connection):
+    def __init__(self, conn: sqlite3.Connection, theme_id: int = 0):
         self.conn = conn
+        self.theme_id = theme_id
 
     def add_edge(
         self,
@@ -40,8 +41,8 @@ class GraphStore:
         if not source_id or not target_id or source_id == target_id:
             return None
 
-        src = dbm.get_entity(self.conn, source_id)
-        tgt = dbm.get_entity(self.conn, target_id)
+        src = dbm.get_entity(self.conn, source_id, theme_id=self.theme_id)
+        tgt = dbm.get_entity(self.conn, target_id, theme_id=self.theme_id)
         if src is None or tgt is None:
             return None
 
@@ -76,12 +77,13 @@ class GraphStore:
                 existing.confidence = new_conf
                 existing.props = merged_props
                 self.conn.execute(
-                    "UPDATE relations SET confidence=?, sources=?, props=? WHERE id=?",
+                    "UPDATE relations SET confidence=?, sources=?, props=? WHERE id=? AND theme_id=?",
                     (
                         existing.confidence,
                         json.dumps(existing.sources, ensure_ascii=False),
                         json.dumps(existing.props, ensure_ascii=False),
                         existing.id,
+                        self.theme_id,
                     ),
                 )
                 self.conn.commit()
@@ -97,7 +99,7 @@ class GraphStore:
             confidence=confidence,
             provisional=actual_provisional,
         )
-        dbm.upsert_relation(self.conn, rel)
+        dbm.upsert_relation(self.conn, rel, theme_id=self.theme_id)
         return rel
 
     def has_edge(
@@ -115,31 +117,31 @@ class GraphStore:
             if rel_type:
                 row = self.conn.execute(
                     """SELECT 1 FROM relations
-                    WHERE type=? AND ((source_id=? AND target_id=?) OR (source_id=? AND target_id=?))
+                    WHERE theme_id=? AND type=? AND ((source_id=? AND target_id=?) OR (source_id=? AND target_id=?))
                     LIMIT 1""",
-                    (rel_type, source_id, target_id, target_id, source_id),
+                    (self.theme_id, rel_type, source_id, target_id, target_id, source_id),
                 ).fetchone()
             else:
                 row = self.conn.execute(
                     """SELECT 1 FROM relations
-                    WHERE (source_id=? AND target_id=?) OR (source_id=? AND target_id=?)
+                    WHERE theme_id=? AND ((source_id=? AND target_id=?) OR (source_id=? AND target_id=?))
                     LIMIT 1""",
-                    (source_id, target_id, target_id, source_id),
+                    (self.theme_id, source_id, target_id, target_id, source_id),
                 ).fetchone()
         else:
             if rel_type:
                 row = self.conn.execute(
                     """SELECT 1 FROM relations
-                    WHERE type=? AND source_id=? AND target_id=?
+                    WHERE theme_id=? AND type=? AND source_id=? AND target_id=?
                     LIMIT 1""",
-                    (rel_type, source_id, target_id),
+                    (self.theme_id, rel_type, source_id, target_id),
                 ).fetchone()
             else:
                 row = self.conn.execute(
                     """SELECT 1 FROM relations
-                    WHERE source_id=? AND target_id=?
+                    WHERE theme_id=? AND source_id=? AND target_id=?
                     LIMIT 1""",
-                    (source_id, target_id),
+                    (self.theme_id, source_id, target_id),
                 ).fetchone()
 
         return row is not None
@@ -153,13 +155,13 @@ class GraphStore:
         """특정 방향과 타입의 엣지를 조회."""
         if rel_type:
             row = self.conn.execute(
-                "SELECT * FROM relations WHERE type=? AND source_id=? AND target_id=? LIMIT 1",
-                (rel_type, source_id, target_id),
+                "SELECT * FROM relations WHERE theme_id=? AND type=? AND source_id=? AND target_id=? LIMIT 1",
+                (self.theme_id, rel_type, source_id, target_id),
             ).fetchone()
         else:
             row = self.conn.execute(
-                "SELECT * FROM relations WHERE source_id=? AND target_id=? LIMIT 1",
-                (source_id, target_id),
+                "SELECT * FROM relations WHERE theme_id=? AND source_id=? AND target_id=? LIMIT 1",
+                (self.theme_id, source_id, target_id),
             ).fetchone()
 
         if row is None:
@@ -168,12 +170,12 @@ class GraphStore:
 
     def neighbors(self, entity_id: str) -> list[Relation]:
         """특정 노드와 연결된 모든 인접 엣지 조회."""
-        return dbm.neighbors(self.conn, entity_id)
+        return dbm.neighbors(self.conn, entity_id, theme_id=self.theme_id)
 
     def all_edges(self) -> list[Relation]:
         """전체 엣지 목록 조회."""
-        return dbm.all_relations(self.conn)
+        return dbm.all_relations(self.conn, theme_id=self.theme_id)
 
     def all_nodes(self) -> list[Entity]:
         """전체 노드 목록 조회."""
-        return dbm.all_entities(self.conn)
+        return dbm.all_entities(self.conn, theme_id=self.theme_id)

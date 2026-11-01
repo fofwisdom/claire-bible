@@ -363,9 +363,9 @@ def create_app(
             conn = dbm.connect_existing(theme_settings.db_file, readonly=True)
             try:
                 try:
-                    c = dict(dbm.counts(conn, include_hidden=include_hidden))
+                    c = dict(dbm.counts(conn, include_hidden=include_hidden, theme_id=theme.id))
                 except TypeError:
-                    c = dict(dbm.counts(conn))
+                    c = dict(dbm.counts(conn, theme_id=theme.id))
                 c["theme_id"] = theme.id
                 c["theme_label"] = theme.label
                 return c
@@ -1239,9 +1239,9 @@ def create_app(
             conn = dbm.connect_existing(theme_settings.db_file, readonly=True)
             try:
                 try:
-                    g = _graph_json(conn, include_hidden=include_hidden)
+                    g = _graph_json(conn, include_hidden=include_hidden, theme_id=theme.id)
                 except TypeError:
-                    g = _graph_json(conn)
+                    g = _graph_json(conn, theme_id=theme.id)
                 g["theme_id"] = theme.id
                 g["theme_label"] = theme.label
                 return g
@@ -1322,6 +1322,240 @@ def create_app(
                 host=request.headers.get("host"),
                 auth_scope=scope,
             )
+        )
+
+    async def syndication_dispatch_route(request: Request) -> JSONResponse:
+        scope = request_auth_scope(request)
+        if scope in {"anonymous", "public"}:
+            raise HTTPException(status_code=403, detail="권한이 없습니다.")
+
+        body = await _json_object(request)
+        document_id = str(body.get("document_id") or body.get("doc_id") or "").strip()
+        if not document_id:
+            raise HTTPException(status_code=400, detail="document_id is required")
+
+        target_theme_ref = (
+            body.get("target_theme_id")
+            if body.get("target_theme_id") is not None
+            else body.get("target_theme")
+        )
+        if target_theme_ref is None:
+            raise HTTPException(status_code=400, detail="target_theme_id is required")
+
+        if not getattr(s, "multi_theme", False) and theme_mgr is None:
+            try:
+                target_tid = int(target_theme_ref)
+            except (ValueError, TypeError):
+                raise HTTPException(status_code=400, detail="invalid target_theme_id")
+            if target_tid != 0:
+                raise HTTPException(status_code=400, detail="multi_theme is not enabled")
+            target_theme = ThemeInfo(
+                id=0,
+                seq=0,
+                label="기본 지식베이스",
+                description="일반 수집 자료 및 기본 지식",
+                icon="📚",
+                db_path=str(getattr(s, "db_path", "data/claire.db")),
+                is_default=True,
+                is_public=True,
+            )
+        else:
+            try:
+                target_theme = theme_mgr.get_theme(target_theme_ref)
+            except Exception:
+                raise HTTPException(status_code=404, detail="target theme not found")
+
+        if scope == "collaborator":
+            if target_theme.is_default or target_theme.id == 0:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Collaborator는 기본 지식베이스에 적재할 수 없습니다.",
+                )
+            if not target_theme.is_collaborator_accessible:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Collaborator에게 공개되지 않은 대상 테마입니다.",
+                )
+
+        source_theme_ref = (
+            body.get("source_theme_id")
+            if body.get("source_theme_id") is not None
+            else body.get("source_theme")
+        )
+        if source_theme_ref is not None:
+            if not getattr(s, "multi_theme", False) and theme_mgr is None:
+                src_theme = target_theme
+            else:
+                try:
+                    src_theme = theme_mgr.get_theme(source_theme_ref)
+                except Exception:
+                    raise HTTPException(status_code=404, detail="source theme not found")
+        else:
+            try:
+                src_theme, _, _ = _get_theme_ctx(request, body)
+            except Exception:
+                src_theme = target_theme
+
+        conn = dbm.connect_existing(s.db_file)
+        try:
+            src_doc = dbm.get_document(conn, document_id, theme_id=src_theme.id)
+            if src_doc is None and theme_mgr is not None:
+                targets = theme_mgr.resolve_document_targets(doc_id=document_id)
+                if targets:
+                    found_tid = targets[0].get("theme_id", 0)
+                    src_theme = theme_mgr.get_theme(found_tid)
+                    src_doc = dbm.get_document(conn, document_id, theme_id=src_theme.id)
+        finally:
+            conn.close()
+
+        if src_doc is None:
+            raise HTTPException(status_code=404, detail=f"document {document_id} not found")
+
+        if scope == "collaborator" and not (src_theme.is_public or src_theme.is_collaborator_accessible):
+            raise HTTPException(status_code=403, detail="접근 권한이 없는 소스 테마입니다.")
+
+        applied_focus = (
+            str(body.get("focus") or body.get("applied_focus") or "").strip() or None
+        )
+        if not applied_focus and target_theme.id > 0 and getattr(target_theme, "default_focus", None):
+            applied_focus = target_theme.default_focus.strip() or None
+
+        from ..ontology.base import Document, new_id
+
+        target_doc_id = new_id("doc")
+        target_doc = Document(
+            id=target_doc_id,
+            url=src_doc.url,
+            canonical_url=src_doc.canonical_url,
+            title=src_doc.title,
+            author=src_doc.author,
+            published_at=src_doc.published_at,
+            raw_text=src_doc.raw_text,
+            source_type=src_doc.source_type,
+            content_hash=src_doc.content_hash,
+            lang=src_doc.lang,
+            partial=src_doc.partial,
+            meta=dict(src_doc.meta or {}),
+        )
+        target_doc.meta["syndication"] = {
+            "source_theme_id": src_theme.id,
+            "source_document_id": src_doc.id,
+        }
+        if applied_focus:
+            target_doc.meta["focus"] = applied_focus
+
+        target_svc = service_pool.get_service(target_theme.id)
+        payload = src_doc.url or src_doc.raw_text or src_doc.title or "cross_theme_dispatch"
+        try:
+            report = await _run_expensive(
+                target_svc.ingest,
+                payload,
+                prefetched=target_doc,
+                source=f"syndication:{src_theme.id}",
+                focus=applied_focus,
+            )
+        except HTTPException:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            _log_operation_failure(request, "syndication_dispatch", exc)
+            return JSONResponse(
+                {"error": f"dispatch failed: {exc}", "ok": False},
+                status_code=500,
+            )
+
+        status = "error" if getattr(report, "error", None) else "done"
+        remote_ref = getattr(report, "document_id", None) or target_doc_id
+        error_msg = getattr(report, "error", None)
+
+        def _record_dispatch() -> str:
+            c = dbm.connect_existing(s.db_file)
+            try:
+                return dbm.create_syndication_dispatch(
+                    c,
+                    theme_id=src_theme.id,
+                    target_theme_id=target_theme.id,
+                    document_id=src_doc.id,
+                    mode="cross_theme",
+                    status=status,
+                    remote_ref=remote_ref,
+                    payload=payload,
+                    error=error_msg,
+                    applied_focus=applied_focus,
+                )
+            finally:
+                c.close()
+
+        dispatch_id = await asyncio.to_thread(_record_dispatch)
+        return JSONResponse(
+            {
+                "ok": status == "done",
+                "dispatch_id": dispatch_id,
+                "status": status,
+                "source_theme_id": src_theme.id,
+                "target_theme_id": target_theme.id,
+                "document_id": src_doc.id,
+                "target_document_id": remote_ref,
+                "applied_focus": applied_focus,
+                "error": error_msg,
+            }
+        )
+
+    async def syndication_dispatches_route(request: Request) -> JSONResponse:
+        scope = request_auth_scope(request)
+        if scope in {"anonymous", "public"}:
+            raise HTTPException(status_code=403, detail="권한이 없습니다.")
+
+        theme_id_param = request.query_params.get("theme_id")
+        target_theme_id_param = request.query_params.get("target_theme_id")
+        document_id = (
+            request.query_params.get("document_id")
+            or request.query_params.get("doc_id")
+        )
+        status = request.query_params.get("status")
+        mode = request.query_params.get("mode")
+        try:
+            limit = min(int(request.query_params.get("limit", "50")), 200)
+        except (ValueError, TypeError):
+            limit = 50
+        try:
+            offset = max(int(request.query_params.get("offset", "0")), 0)
+        except (ValueError, TypeError):
+            offset = 0
+
+        theme_id = (
+            int(theme_id_param)
+            if theme_id_param is not None and theme_id_param != ""
+            else None
+        )
+        target_theme_id = (
+            int(target_theme_id_param)
+            if target_theme_id_param is not None and target_theme_id_param != ""
+            else None
+        )
+
+        def _query() -> list[dict[str, Any]]:
+            c = dbm.connect_existing(s.db_file)
+            try:
+                return dbm.list_syndication_dispatches(
+                    c,
+                    theme_id=theme_id,
+                    target_theme_id=target_theme_id,
+                    document_id=document_id,
+                    status=status,
+                    mode=mode,
+                    limit=limit,
+                    offset=offset,
+                )
+            finally:
+                c.close()
+
+        dispatches = await asyncio.to_thread(_query)
+        return JSONResponse(
+            {
+                "ok": True,
+                "dispatches": dispatches,
+                "count": len(dispatches),
+            }
         )
 
     async def robots_txt_route(request: Request) -> Response:
@@ -1634,11 +1868,11 @@ def create_app(
         def _documents() -> dict[str, Any]:
             conn = dbm.connect_existing(theme_settings.db_file, readonly=True)
             try:
-                format_status = dbm.check_format_mismatch(conn, getattr(theme_settings, "render_format", "md"))
+                format_status = dbm.check_format_mismatch(conn, getattr(theme_settings, "render_format", "md"), theme_id=theme.id)
                 try:
-                    docs = _documents_list(conn, limit=300, include_hidden=include_hidden)
+                    docs = _documents_list(conn, limit=300, include_hidden=include_hidden, theme_id=theme.id)
                 except TypeError:
-                    docs = _documents_list(conn)
+                    docs = _documents_list(conn, theme_id=theme.id)
                 return {
                     "documents": docs,
                     "format_status": format_status,
@@ -1665,9 +1899,9 @@ def create_app(
             conn = dbm.connect_existing(theme_settings.db_file, readonly=True)
             try:
                 try:
-                    rep = _detail(conn, node_id, include_hidden=include_hidden)
+                    rep = _detail(conn, node_id, include_hidden=include_hidden, theme_id=theme.id)
                 except TypeError:
-                    rep = _detail(conn, node_id)
+                    rep = _detail(conn, node_id, theme_id=theme.id)
                 if rep is not None:
                     rep["theme_id"] = theme.id
                     rep["theme_label"] = theme.label
@@ -1697,9 +1931,9 @@ def create_app(
             try:
                 # GET은 readonly 사용자에게도 열리므로 열람 상태를 변경하지 않는다.
                 try:
-                    rep = _document_detail(conn, document_id, include_hidden=include_hidden)
+                    rep = _document_detail(conn, document_id, include_hidden=include_hidden, theme_id=t_info.id)
                 except TypeError:
-                    rep = _document_detail(conn, document_id)
+                    rep = _document_detail(conn, document_id, include_hidden=include_hidden)
                 if rep is not None:
                     rep["theme_id"] = t_info.id
                     rep["theme_label"] = t_info.label
@@ -1746,20 +1980,20 @@ def create_app(
         theme_ref = _extract_theme_ref(request)
         theme, theme_settings, _ = _get_theme_ctx(request)
 
-        def _find_raw(t_settings: Settings) -> tuple[str, str] | None:
+        def _find_raw(t_settings: Settings, t_theme_id: int) -> tuple[str, str] | None:
             conn = dbm.connect_existing(t_settings.db_file, readonly=True)
             try:
                 try:
                     row = conn.execute(
-                        "SELECT file_ref, file_name FROM raw_inbox WHERE document_id = ? AND file_ref IS NOT NULL AND trim(file_ref) != '' ORDER BY id DESC LIMIT 1",
-                        (doc_id,),
+                        "SELECT file_ref, file_name FROM raw_inbox WHERE document_id = ? AND theme_id = ? AND file_ref IS NOT NULL AND trim(file_ref) != '' ORDER BY id DESC LIMIT 1",
+                        (doc_id, t_theme_id),
                     ).fetchone()
                     if row and row["file_ref"]:
                         return str(row["file_ref"]), str(row["file_name"] or "")
                 except Exception:
                     pass
 
-                row_doc = dbm.get_document_row(conn, doc_id)
+                row_doc = dbm.get_document_row(conn, doc_id, theme_id=t_theme_id)
                 if row_doc:
                     raw_meta = None
                     try:
@@ -1780,7 +2014,7 @@ def create_app(
             finally:
                 conn.close()
 
-        resolved = await asyncio.to_thread(_find_raw, theme_settings)
+        resolved = await asyncio.to_thread(_find_raw, theme_settings, theme.id)
         active_settings = theme_settings
 
         if resolved is None and theme_ref is None and getattr(s, "multi_theme", False):
@@ -1801,7 +2035,7 @@ def create_app(
                 ):
                     continue
                 cand_settings = theme_mgr.get_settings_for_theme(cand_theme.id, s)
-                cand_res = await asyncio.to_thread(_find_raw, cand_settings)
+                cand_res = await asyncio.to_thread(_find_raw, cand_settings, cand_theme.id)
                 if cand_res is not None:
                     resolved = cand_res
                     active_settings = cand_settings
@@ -1871,9 +2105,9 @@ def create_app(
         def _mark() -> bool:
             conn = dbm.connect_existing(theme_settings.db_file)
             try:
-                if dbm.get_document_row(conn, document_id) is None:
+                if dbm.get_document_row(conn, document_id, theme_id=theme.id) is None:
                     return False
-                dbm.set_document_seen(conn, document_id, seen=True)
+                dbm.set_document_seen(conn, document_id, seen=True, theme_id=theme.id)
                 return True
             finally:
                 conn.close()
@@ -1896,7 +2130,7 @@ def create_app(
         def _pin() -> bool:
             conn = dbm.connect_existing(theme_settings.db_file)
             try:
-                return dbm.set_document_pinned(conn, document_id, pinned)
+                return dbm.set_document_pinned(conn, document_id, pinned, theme_id=theme.id)
             finally:
                 conn.close()
 
@@ -1918,7 +2152,7 @@ def create_app(
         def _hide() -> bool:
             conn = dbm.connect_existing(theme_settings.db_file)
             try:
-                return dbm.set_document_hidden(conn, document_id, hidden)
+                return dbm.set_document_hidden(conn, document_id, hidden, theme_id=theme.id)
             finally:
                 conn.close()
 
@@ -1941,7 +2175,7 @@ def create_app(
         def _update_title() -> bool:
             conn = dbm.connect_existing(theme_settings.db_file)
             try:
-                return dbm.set_document_title(conn, document_id, title)
+                return dbm.set_document_title(conn, document_id, title, theme_id=theme.id)
             finally:
                 conn.close()
 
@@ -1962,9 +2196,9 @@ def create_app(
         def _purge() -> bool:
             conn = dbm.connect_existing(theme_settings.db_file)
             try:
-                if dbm.get_document_row(conn, document_id) is None:
+                if dbm.get_document_row(conn, document_id, theme_id=theme.id) is None:
                     return False
-                return dbm.purge_document_matrix(conn, document_id)
+                return dbm.purge_document_matrix(conn, document_id, theme_id=theme.id)
             finally:
                 conn.close()
 
@@ -2000,7 +2234,7 @@ def create_app(
         def _do_purge() -> dict[str, Any]:
             conn = dbm.connect_existing(theme_settings.db_file)
             try:
-                matched = dbm.resolve_document_targets(conn, target=target)
+                matched = dbm.resolve_document_targets(conn, target=target, theme_id=theme.id)
                 if not matched:
                     return {"count": 0, "targets": [], "error": f"일치하는 소각 대상 문서를 찾을 수 없습니다: {target}"}
                 target_ids = [m["id"] for m in matched]
@@ -2011,6 +2245,7 @@ def create_app(
                     reason=reason,
                     dry_run=dry_run,
                     tombstone=tombstone,
+                    theme_id=theme.id,
                 )
                 if not dry_run:
                     from ..ingest.active import purge_active_matrix
@@ -2044,7 +2279,10 @@ def create_app(
         def _synthesize_job() -> dict[str, Any]:
             conn = dbm.connect_existing(theme_settings.db_file, readonly=True)
             try:
-                res = _synthesize(conn, theme_svc.provider, entity_ids, query)
+                try:
+                    res = _synthesize(conn, theme_svc.provider, entity_ids, query, theme_id=theme.id)
+                except TypeError:
+                    res = _synthesize(conn, theme_svc.provider, entity_ids, query)
                 res["theme_id"] = theme.id
                 res["theme_label"] = theme.label
                 return res
@@ -2595,7 +2833,7 @@ def create_app(
             scan = theme_svc.dedup_scan()
             conn = dbm.connect_existing(theme_settings.db_file, readonly=True)
             try:
-                res = _dedup_clusters(conn, scan)
+                res = _dedup_clusters(conn, scan, theme_id=theme.id)
                 if theme.id != 0:
                     res["theme_id"] = theme.id
                     res["theme_label"] = theme.label
@@ -2642,7 +2880,7 @@ def create_app(
             conn = dbm.connect_existing(theme_settings.db_file)
             try:
                 try:
-                    updated = dbm.select_entity_primary_label(conn, entity_id, new_name)
+                    updated = dbm.select_entity_primary_label(conn, entity_id, new_name, theme_id=theme.id)
                 except KeyError as e:
                     raise HTTPException(status_code=404, detail=str(e))
                 except ValueError as e:
@@ -2651,7 +2889,7 @@ def create_app(
                 from ..store.queries import node_detail as _detail
 
                 _detail_fn = _resolve_query_func("node_detail", _detail)
-                rep = _detail_fn(conn, updated.id)
+                rep = _detail_fn(conn, updated.id, theme_id=theme.id)
                 if rep is not None and theme.id != 0:
                     rep["theme_id"] = theme.id
                     rep["theme_label"] = theme.label
@@ -2682,7 +2920,7 @@ def create_app(
         def _do_rollback() -> dict[str, Any]:
             conn = dbm.connect_existing(theme_settings.db_file)
             try:
-                doc = dbm.get_document(conn, doc_id)
+                doc = dbm.get_document(conn, doc_id, theme_id=theme.id)
                 if not doc:
                     raise HTTPException(status_code=404, detail="document not found")
                 decisions = get_resolution_log_from_meta(doc.meta)
@@ -2694,7 +2932,7 @@ def create_app(
                 if not target_dec:
                     return {"ok": False, "error": "no eligible merge decision found to rollback"}
 
-                success = rollback_resolution(conn, target_dec)
+                success = rollback_resolution(conn, target_dec, theme_id=theme.id)
                 if success:
                     raw_log = (doc.meta or {}).get("resolution_log") or []
                     for item in raw_log:
@@ -2702,7 +2940,7 @@ def create_app(
                             item["rolled_back"] = True
                             item["decision"] = "ROLLED_BACK"
                             item["reason"] = (item.get("reason", "") + " (롤백됨)").strip()
-                    dbm.update_document_meta(conn, doc_id, doc.meta)
+                    dbm.update_document_meta(conn, doc_id, doc.meta, theme_id=theme.id)
                     return {"ok": True, "entity": entity_name}
                 return {"ok": False, "error": "rollback execution failed"}
             finally:
@@ -2727,7 +2965,7 @@ def create_app(
         def _fetch() -> list[dict[str, Any]]:
             conn = dbm.connect_existing(theme_settings.db_file)
             try:
-                return get_all_resolution_decisions(conn, limit=limit, offset=offset)
+                return get_all_resolution_decisions(conn, limit=limit, offset=offset, theme_id=theme.id)
             finally:
                 conn.close()
 
@@ -2743,19 +2981,19 @@ def create_app(
 
         include_hidden = request_auth_scope(request) != "anonymous"
 
-        def _share(settings: Settings) -> str | None:
+        def _share(settings: Settings, target_theme_info: ThemeInfo) -> str | None:
             conn = dbm.connect_existing(settings.db_file)
             try:
-                row = dbm.get_document_row(conn, document_id)
+                row = dbm.get_document_row(conn, document_id, theme_id=target_theme_info.id)
                 if row is None:
                     return None
                 if not include_hidden and bool(row["hidden"]):
                     return None
-                return dbm.create_doc_share(conn, document_id)
+                return dbm.create_doc_share(conn, document_id, theme_id=target_theme_info.id)
             finally:
                 conn.close()
 
-        token = await asyncio.to_thread(_share, theme_settings)
+        token = await asyncio.to_thread(_share, theme_settings, theme)
         target_theme_id = theme.id
 
         if not token and getattr(s, "multi_theme", False):
@@ -2779,7 +3017,7 @@ def create_app(
                 ):
                     continue
                 cand_settings = theme_mgr.get_settings_for_theme(candidate_theme.id, s)
-                cand_token = await asyncio.to_thread(_share, cand_settings)
+                cand_token = await asyncio.to_thread(_share, cand_settings, candidate_theme)
                 if cand_token:
                     token = cand_token
                     target_theme_id = candidate_theme.id
@@ -2914,7 +3152,7 @@ def create_app(
                     target_theme = theme_mgr.get_theme(tid)
                 except Exception:
                     pass
-                theme_settings = theme_mgr.get_settings_for_theme(tid)
+                theme_settings = theme_mgr.get_settings_for_theme(tid, s)
                 active_db = theme_settings.db_file
                 active_data_dir = theme_settings.data_dir
                 doc_obj = resolved[2]
@@ -2924,9 +3162,9 @@ def create_app(
             else:
                 conn = dbm.connect_existing(active_db, readonly=True)
                 try:
-                    cand_id = dbm.resolve_doc_share(conn, token) or ""
+                    cand_id = dbm.resolve_doc_share(conn, token, theme_id=target_theme.id) or ""
                     if cand_id:
-                        d_obj = dbm.get_document(conn, cand_id)
+                        d_obj = dbm.get_document(conn, cand_id, theme_id=target_theme.id)
                         if d_obj and not bool(d_obj.hidden):
                             resolved_doc_id = cand_id
                             resolved_doc_title = d_obj.title or ""
@@ -2939,6 +3177,7 @@ def create_app(
                 if targets[0].get("theme_id") is not None:
                     try:
                         target_theme = theme_mgr.get_theme(targets[0]["theme_id"])
+                        theme_settings = theme_mgr.get_settings_for_theme(target_theme.id, s)
                     except Exception:
                         pass
                 if targets[0].get("data_dir"):
@@ -3639,6 +3878,10 @@ def create_app(
         Route("/", graph_ui, methods=["GET"]),
         Route("/syndication", syndication_ui_route, methods=["GET", "HEAD"]),
         Route("/syndication/preferences", syndication_preferences_ui_route, methods=["GET", "HEAD"]),
+        Route("/api/syndication/dispatch", syndication_dispatch_route, methods=["POST"]),
+        Route("/syndication/dispatch", syndication_dispatch_route, methods=["POST"]),
+        Route("/api/syndication/dispatches", syndication_dispatches_route, methods=["GET"]),
+        Route("/syndication/dispatches", syndication_dispatches_route, methods=["GET"]),
         Route("/graph", graph_data, methods=["GET"]),
         Route("/node", node_detail, methods=["GET"]),
         Route("/documents", documents_list_route, methods=["GET"]),
