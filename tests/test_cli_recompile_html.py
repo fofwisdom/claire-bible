@@ -155,12 +155,13 @@ def test_e2e_recompile_html_multi_theme_and_target_resolution(tmp_path, monkeypa
     assert "doc_1e8c5a3772fb" in captured.out
     assert "R1999" in captured.out
 
-    # Verify theme 2 DB is updated and <li>+ is gone
-    conn2 = dbm.connect(db_theme2)
-    row = conn2.execute("SELECT detail_html FROM documents WHERE id='doc_1e8c5a3772fb'").fetchone()
+    # Verify theme 2 document in unified DB is updated and <li>+ is gone
+    conn = dbm.connect(db_theme0)
+    row = conn.execute("SELECT detail_html FROM documents WHERE id='doc_1e8c5a3772fb' AND theme_id=2").fetchone()
+    assert row is not None
     assert "<li>+" not in row["detail_html"]
     assert "<ol>" not in row["detail_html"]
-    conn2.close()
+    conn.close()
 
     # 2. Test recompile all themes without target
     args_all = parser.parse_args(["recompile-html"])

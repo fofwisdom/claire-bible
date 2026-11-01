@@ -32,6 +32,7 @@ def test_e2e_local_pdf_ingest_and_share_journey(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("CLAIRE_DATA_DIR", str(data_dir))
     monkeypatch.setenv("CLAIRE_VAULT_DIR", str(vault_dir))
     monkeypatch.setenv("CLAIRE_INJECT_TOKEN", OWNER_TOKEN)
+    monkeypatch.setenv("CLAIRE_ENVIRONMENT", "production")
     monkeypatch.setenv("CLAIRE_PUBLIC_URL", "https://cb.example.com")
 
     get_settings.cache_clear()

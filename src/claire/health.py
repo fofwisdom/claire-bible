@@ -136,15 +136,15 @@ def health_report(s: Settings, provider_name: str) -> dict:
             try:
                 conn = _connect_readonly(theme_settings.db_file)
                 try:
-                    item_inbox = dbm.inbox_status_counts(conn)
-                    item_refresh = len(dbm.pending_refresh(conn))
+                    item_inbox = dbm.inbox_status_counts(conn, theme_id=theme.id)
+                    item_refresh = len(dbm.pending_refresh(conn, theme_id=theme.id))
                     item_recover = len(
                         dbm.due_for_recovery(
-                            conn, max_attempts=RECOVER_MAX_ATTEMPTS
+                            conn, max_attempts=RECOVER_MAX_ATTEMPTS, theme_id=theme.id
                         )
                     )
-                    item_expand = len(dbm.pending_expand(conn))
-                    counts = dbm.counts(conn)
+                    item_expand = len(dbm.pending_expand(conn, theme_id=theme.id))
+                    counts = dbm.counts(conn, theme_id=theme.id)
                 finally:
                     conn.close()
                 item_graph = {

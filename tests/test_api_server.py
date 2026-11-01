@@ -741,7 +741,7 @@ def test_docs_path_does_not_exist(client: TestClient) -> None:
 
 def test_openapi_yaml_serves_valid_openapi_3_1_spec(client: TestClient) -> None:
     """Verify /openapi.yaml returns valid OpenAPI 3.1 YAML matching contracts."""
-    import yaml
+    yaml = pytest.importorskip("yaml")
 
     response = client.get("/openapi.yaml")
     assert response.status_code == 200

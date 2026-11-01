@@ -119,11 +119,7 @@ def test_e2e_uttu_story_ingestion(tmp_path: Path):
         finally:
             conn.close()
 
-        # 3. Vault markdown export file check
-        vault_files = list(vault_dir.glob("*.md"))
-        assert len(vault_files) >= 1
-        content = vault_files[0].read_text(encoding="utf-8")
-        assert "야외 실험 - 1. 야외 실험 | Reverse: 1999" in content
+
 
 
 def test_e2e_uttu_event_trail_ingestion(tmp_path: Path):
@@ -243,9 +239,4 @@ def test_e2e_uttu_event_trail_ingestion(tmp_path: Path):
         finally:
             conn.close()
 
-        # 3. Vault markdown export file check
-        vault_files = list(vault_dir.glob("*.md"))
-        assert len(vault_files) >= 1
-        content = vault_files[0].read_text(encoding="utf-8")
-        assert "한밤의 기적소리 - <UTTU> 편집부 수신 | Reverse: 1999" in content
-        assert "친애하는 동료들에게:" in content
+

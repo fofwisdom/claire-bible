@@ -25,6 +25,7 @@ def _seed_doc(
     title: str,
     url: str,
     share_token: str | None = None,
+    theme_id: int = 0,
 ) -> None:
     conn = dbm.connect(Path(db_path))
     dbm.init_db(conn)
@@ -38,7 +39,7 @@ def _seed_doc(
         source_type="video",
         content_hash=f"hash_{doc_id}",
     )
-    dbm.insert_document(conn, doc)
+    dbm.insert_document(conn, doc, theme_id=theme_id)
 
     # Entity / Relation
     e = Entity(
@@ -47,14 +48,14 @@ def _seed_doc(
         name=f"Entity {title}",
         sources=[doc_id],
     )
-    dbm.upsert_entity(conn, e)
+    dbm.upsert_entity(conn, e, theme_id=theme_id)
 
     if share_token:
         import time
 
         conn.execute(
-            "INSERT INTO doc_shares(token, document_id, created_at, expires_at) VALUES (?, ?, ?, ?)",
-            (share_token, doc_id, time.time(), None),
+            "INSERT INTO doc_shares(theme_id, token, document_id, created_at, expires_at) VALUES (?, ?, ?, ?, ?)",
+            (theme_id, share_token, doc_id, time.time(), None),
         )
         conn.commit()
 
@@ -111,6 +112,7 @@ def test_support_bundle_resolves_theme_document_by_share_url(tmp_path):
         title="로빈 서머레토 캐릭터 PV",
         url="https://www.youtube.com/watch?v=2GCE286miGs",
         share_token=share_token,
+        theme_id=theme1.id,
     )
 
     # 4. 공유 URL을 target으로 Support Bundle 생성
@@ -193,6 +195,7 @@ def test_support_bundle_resolves_theme_document_by_doc_id(tmp_path):
         doc_id=doc_id,
         title="양자 컴퓨팅 연구 논문",
         url="https://arxiv.org/abs/2609.99999",
+        theme_id=theme1.id,
     )
 
     info = create_support_bundle(settings, days=1, target=doc_id)

@@ -427,7 +427,7 @@ def create_app(
                     try:
                         conn = dbm.connect_existing(s.db_file, readonly=True)
                         try:
-                            t_stats = theme_summary(conn, include_hidden=include_hidden)
+                            t_stats = theme_summary(conn, include_hidden=include_hidden, theme_id=0)
                         finally:
                             conn.close()
                     except Exception:
@@ -474,7 +474,7 @@ def create_app(
                     try:
                         conn = dbm.connect_existing(abs_db, readonly=True)
                         try:
-                            t_stats = theme_summary(conn, include_hidden=include_hidden)
+                            t_stats = theme_summary(conn, include_hidden=include_hidden, theme_id=t.id)
                         finally:
                             conn.close()
                     except Exception:
@@ -1933,7 +1933,10 @@ def create_app(
                 try:
                     rep = _document_detail(conn, document_id, include_hidden=include_hidden, theme_id=t_info.id)
                 except TypeError:
-                    rep = _document_detail(conn, document_id, include_hidden=include_hidden)
+                    try:
+                        rep = _document_detail(conn, document_id, include_hidden=include_hidden)
+                    except TypeError:
+                        rep = _document_detail(conn, document_id)
                 if rep is not None:
                     rep["theme_id"] = t_info.id
                     rep["theme_label"] = t_info.label
@@ -2105,9 +2108,16 @@ def create_app(
         def _mark() -> bool:
             conn = dbm.connect_existing(theme_settings.db_file)
             try:
-                if dbm.get_document_row(conn, document_id, theme_id=theme.id) is None:
+                try:
+                    row = dbm.get_document_row(conn, document_id, theme_id=theme.id)
+                except TypeError:
+                    row = dbm.get_document_row(conn, document_id)
+                if row is None:
                     return False
-                dbm.set_document_seen(conn, document_id, seen=True, theme_id=theme.id)
+                try:
+                    dbm.set_document_seen(conn, document_id, seen=True, theme_id=theme.id)
+                except TypeError:
+                    dbm.set_document_seen(conn, document_id, seen=True)
                 return True
             finally:
                 conn.close()
@@ -2130,7 +2140,10 @@ def create_app(
         def _pin() -> bool:
             conn = dbm.connect_existing(theme_settings.db_file)
             try:
-                return dbm.set_document_pinned(conn, document_id, pinned, theme_id=theme.id)
+                try:
+                    return dbm.set_document_pinned(conn, document_id, pinned, theme_id=theme.id)
+                except TypeError:
+                    return dbm.set_document_pinned(conn, document_id, pinned)
             finally:
                 conn.close()
 
@@ -2152,7 +2165,10 @@ def create_app(
         def _hide() -> bool:
             conn = dbm.connect_existing(theme_settings.db_file)
             try:
-                return dbm.set_document_hidden(conn, document_id, hidden, theme_id=theme.id)
+                try:
+                    return dbm.set_document_hidden(conn, document_id, hidden, theme_id=theme.id)
+                except TypeError:
+                    return dbm.set_document_hidden(conn, document_id, hidden)
             finally:
                 conn.close()
 
@@ -2175,7 +2191,10 @@ def create_app(
         def _update_title() -> bool:
             conn = dbm.connect_existing(theme_settings.db_file)
             try:
-                return dbm.set_document_title(conn, document_id, title, theme_id=theme.id)
+                try:
+                    return dbm.set_document_title(conn, document_id, title, theme_id=theme.id)
+                except TypeError:
+                    return dbm.set_document_title(conn, document_id, title)
             finally:
                 conn.close()
 
@@ -2196,9 +2215,16 @@ def create_app(
         def _purge() -> bool:
             conn = dbm.connect_existing(theme_settings.db_file)
             try:
-                if dbm.get_document_row(conn, document_id, theme_id=theme.id) is None:
+                try:
+                    row = dbm.get_document_row(conn, document_id, theme_id=theme.id)
+                except TypeError:
+                    row = dbm.get_document_row(conn, document_id)
+                if row is None:
                     return False
-                return dbm.purge_document_matrix(conn, document_id, theme_id=theme.id)
+                try:
+                    return dbm.purge_document_matrix(conn, document_id, theme_id=theme.id)
+                except TypeError:
+                    return dbm.purge_document_matrix(conn, document_id)
             finally:
                 conn.close()
 
@@ -2833,7 +2859,10 @@ def create_app(
             scan = theme_svc.dedup_scan()
             conn = dbm.connect_existing(theme_settings.db_file, readonly=True)
             try:
-                res = _dedup_clusters(conn, scan, theme_id=theme.id)
+                try:
+                    res = _dedup_clusters(conn, scan, theme_id=theme.id)
+                except TypeError:
+                    res = _dedup_clusters(conn, scan)
                 if theme.id != 0:
                     res["theme_id"] = theme.id
                     res["theme_label"] = theme.label
@@ -2984,12 +3013,18 @@ def create_app(
         def _share(settings: Settings, target_theme_info: ThemeInfo) -> str | None:
             conn = dbm.connect_existing(settings.db_file)
             try:
-                row = dbm.get_document_row(conn, document_id, theme_id=target_theme_info.id)
+                try:
+                    row = dbm.get_document_row(conn, document_id, theme_id=target_theme_info.id)
+                except TypeError:
+                    row = dbm.get_document_row(conn, document_id)
                 if row is None:
                     return None
                 if not include_hidden and bool(row["hidden"]):
                     return None
-                return dbm.create_doc_share(conn, document_id, theme_id=target_theme_info.id)
+                try:
+                    return dbm.create_doc_share(conn, document_id, theme_id=target_theme_info.id)
+                except TypeError:
+                    return dbm.create_doc_share(conn, document_id)
             finally:
                 conn.close()
 

@@ -287,6 +287,7 @@ def test_api_regenerate_multi_theme_auto_resolution(tmp_path: Path, monkeypatch)
         data_dir=theme_settings.data_dir,
         source="test",
         fetch_fn=lambda _: doc,
+        theme_id=new_theme_id,
     )
     doc_id = rep.document_id
     c_theme.close()

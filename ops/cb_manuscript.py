@@ -146,6 +146,8 @@ APP_ONE_OFF_COMMANDS = {
     "share",
     "reprocess",
     "presentation",
+    "export-graph",
+    "import-graph",
     "token",
     "key",
     "api-key",

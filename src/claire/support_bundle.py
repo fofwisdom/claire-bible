@@ -615,6 +615,17 @@ def _collect_storage_diagnostics(
         ino = db_info.get("inode")
         if dev is not None and ino is not None:
             known_identities.add((dev, ino))
+        dec_path = item.get("declared_db_path")
+        if dec_path:
+            p = Path(dec_path)
+            if not p.is_absolute():
+                p = data_dir / p
+            if p.is_file():
+                try:
+                    st = p.stat()
+                    known_identities.add((st.st_dev, st.st_ino))
+                except OSError:
+                    pass
 
     for candidate in candidates:
         counts = candidate.get("sqlite", {}).get("counts", {})
@@ -1426,25 +1437,44 @@ def create_support_bundle(
                         conn = dbm.connect_existing(theme_db, readonly=True)
                         try:
                             # 상태별 카운트 합산
-                            rows = conn.execute(
-                                "SELECT status, count(*) as cnt FROM raw_inbox WHERE received_at >= ? GROUP BY status",
-                                (cutoff_epoch,),
-                            ).fetchall()
+                            if getattr(s, "multi_theme", False):
+                                rows = conn.execute(
+                                    "SELECT status, count(*) as cnt FROM raw_inbox WHERE theme_id = ? AND received_at >= ? GROUP BY status",
+                                    (t.id, cutoff_epoch),
+                                ).fetchall()
+                            else:
+                                rows = conn.execute(
+                                    "SELECT status, count(*) as cnt FROM raw_inbox WHERE received_at >= ? GROUP BY status",
+                                    (cutoff_epoch,),
+                                ).fetchall()
                             for r in rows:
                                 st = r["status"]
                                 inbox_summary[st] = inbox_summary.get(st, 0) + r["cnt"]
 
                             # 실패/에러 항목 수집
-                            err_rows = conn.execute(
-                                """
-                                SELECT id, document_id, payload, status, attempts, error, received_at, last_attempt
-                                FROM raw_inbox
-                                WHERE status IN ('error', 'failed', 'stalled')
-                                  AND (received_at >= ? OR last_attempt >= ?)
-                                ORDER BY received_at DESC LIMIT 100
-                                """,
-                                (cutoff_epoch, cutoff_epoch),
-                            ).fetchall()
+                            if getattr(s, "multi_theme", False):
+                                err_rows = conn.execute(
+                                    """
+                                    SELECT id, document_id, payload, status, attempts, error, received_at, last_attempt
+                                    FROM raw_inbox
+                                    WHERE theme_id = ?
+                                      AND status IN ('error', 'failed', 'stalled')
+                                      AND (received_at >= ? OR last_attempt >= ?)
+                                    ORDER BY received_at DESC LIMIT 100
+                                    """,
+                                    (t.id, cutoff_epoch, cutoff_epoch),
+                                ).fetchall()
+                            else:
+                                err_rows = conn.execute(
+                                    """
+                                    SELECT id, document_id, payload, status, attempts, error, received_at, last_attempt
+                                    FROM raw_inbox
+                                    WHERE status IN ('error', 'failed', 'stalled')
+                                      AND (received_at >= ? OR last_attempt >= ?)
+                                    ORDER BY received_at DESC LIMIT 100
+                                    """,
+                                    (cutoff_epoch, cutoff_epoch),
+                                ).fetchall()
                             for er in err_rows:
                                 item = dict(er)
                                 if getattr(s, "multi_theme", False):
@@ -1453,15 +1483,27 @@ def create_support_bundle(
                                 failed_items.append(item)
 
                             # 공유 링크 인덱스 (기간 내 생성되었거나 유효한 공유 링크 전체)
-                            share_rows = conn.execute(
-                                """
-                                SELECT token, document_id, created_at, expires_at
-                                FROM doc_shares
-                                WHERE created_at >= ? OR expires_at IS NULL OR expires_at >= ?
-                                ORDER BY created_at DESC
-                                """,
-                                (cutoff_epoch, now),
-                            ).fetchall()
+                            if getattr(s, "multi_theme", False):
+                                share_rows = conn.execute(
+                                    """
+                                    SELECT token, document_id, created_at, expires_at
+                                    FROM doc_shares
+                                    WHERE theme_id = ?
+                                      AND (created_at >= ? OR expires_at IS NULL OR expires_at >= ?)
+                                    ORDER BY created_at DESC
+                                    """,
+                                    (t.id, cutoff_epoch, now),
+                                ).fetchall()
+                            else:
+                                share_rows = conn.execute(
+                                    """
+                                    SELECT token, document_id, created_at, expires_at
+                                    FROM doc_shares
+                                    WHERE created_at >= ? OR expires_at IS NULL OR expires_at >= ?
+                                    ORDER BY created_at DESC
+                                    """,
+                                    (cutoff_epoch, now),
+                                ).fetchall()
                             for sr in share_rows:
                                 s_dict = dict(sr)
                                 if getattr(s, "multi_theme", False):
@@ -1472,7 +1514,11 @@ def create_support_bundle(
                             # DB 정합성 빠른 검사
                             check_row = conn.execute("PRAGMA quick_check;").fetchone()
                             chk_res = check_row[0] if check_row else "unknown"
-                            cnts = dbm.counts(conn, include_oauth=True)
+                            cnts = dbm.counts(
+                                conn,
+                                include_oauth=True,
+                                theme_id=t.id if getattr(s, "multi_theme", False) else None,
+                            )
                             schema_version = dbm.stored_schema_version(conn)
                             schema_lineage = dbm.stored_schema_lineage(conn)
                             if t.id == 0:

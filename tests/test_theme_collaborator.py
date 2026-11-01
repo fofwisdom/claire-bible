@@ -313,6 +313,7 @@ async def test_telegram_webco_command(tmp_path: Path):
         allowed_user_ids=[],
         data_dir=tmp_path,
         CLAIRE_MULTI_THEME=True,
+        CLAIRE_FQDN="cb.example.com",
     )
     app = build_app(settings)
 

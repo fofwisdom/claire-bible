@@ -1028,9 +1028,38 @@ def render_md_to_html(raw: str) -> str:
     except ImportError:
         pass
 
-    # 폴백: 최소 변환
-    paragraphs = [html.escape(p.strip()) for p in text.split("\n\n") if p.strip()]
-    return "".join(f"<p>{p}</p>" for p in paragraphs)
+    # 폴백: 최소 변환 (라이브러리 부재 시 경량 파서)
+    blocks: list[str] = []
+    for p in raw.split("\n\n"):
+        block = p.strip()
+        if not block:
+            continue
+        lines = [line.rstrip() for line in block.splitlines() if line.strip()]
+        while lines:
+            first_line = lines[0].strip()
+            if first_line.startswith("### "):
+                blocks.append(f"<h3>{html.escape(first_line[4:].strip())}</h3>")
+                lines.pop(0)
+            elif first_line.startswith("## "):
+                blocks.append(f"<h2>{html.escape(first_line[3:].strip())}</h2>")
+                lines.pop(0)
+            elif first_line.startswith("# "):
+                blocks.append(f"<h1>{html.escape(first_line[2:].strip())}</h1>")
+                lines.pop(0)
+            else:
+                break
+        if not lines:
+            continue
+        rest = "\n".join(lines).strip()
+        if rest.startswith("> "):
+            esc_q = html.escape(rest[2:].strip())
+            esc_q = re.sub(r"==([^=\n]+?)==", r"<mark>\1</mark>", esc_q)
+            blocks.append(f"<blockquote><p>{esc_q}</p></blockquote>")
+        else:
+            esc = html.escape(rest)
+            esc = re.sub(r"==([^=\n]+?)==", r"<mark>\1</mark>", esc)
+            blocks.append(f"<p>{esc}</p>")
+    return "".join(blocks)
 
 
 def render_to_html(raw: str, format: str = "md") -> str:

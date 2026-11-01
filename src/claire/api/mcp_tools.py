@@ -280,14 +280,15 @@ def documents_impl(
     limit: int = DEFAULT_DOCUMENTS_LIMIT,
     since: str | None = None,
     query: str | None = None,
+    theme_id: int | None = None,
 ) -> dict:
     limit = max(1, min(limit, MAX_DOCUMENTS))
     try:
         since_ts = _parse_since(since)
     except ValueError:
         return {"error": "since must be YYYY-MM-DD or ISO8601", "got": since}
-    items = documents_list(conn, limit=limit, since=since_ts, query=query)
-    total = dbm.documents_count(conn, since=since_ts, query=query)
+    items = documents_list(conn, limit=limit, since=since_ts, query=query, theme_id=theme_id)
+    total = dbm.documents_count(conn, since=since_ts, query=query, theme_id=theme_id)
     for d in items:
         d["fetched_at"] = _iso_utc(d.get("fetched_at"))
     return {
@@ -513,8 +514,22 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None):
     ) -> dict:
         """최신순 문서 목록(제목·요약·출처타입·안읽음/즐겨찾기 상태, fetched_at은 ISO8601 UTC). limit 최대 100(그 이상 요청해도 잘림). since(예: '2026-08-01' 또는 전체 ISO8601)로 그 시각 이후만, query로 제목/URL 부분일치 검색 — 전체를 다 훑지 말고 좁혀서 찾을 것. limit을 넘으면 truncated=true, omitted에 잘린 개수(0으로 오인 금지)."""
         conn = _conn(theme)
+        resolved_tid = 0
+        if theme is not None and theme_mgr is not None:
+            try:
+                resolved_tid = theme_mgr.get_theme(theme).id
+            except Exception:
+                try:
+                    resolved_tid = int(theme)
+                except Exception:
+                    resolved_tid = None
+        elif theme is not None:
+            try:
+                resolved_tid = int(theme)
+            except Exception:
+                resolved_tid = None
         try:
-            return _timed_call("documents", documents_impl, conn, limit=limit, since=since, query=query)
+            return _timed_call("documents", documents_impl, conn, limit=limit, since=since, query=query, theme_id=resolved_tid)
         finally:
             conn.close()
 
@@ -557,8 +572,22 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None):
     async def stats(theme: str | int | None = None) -> dict:
         """지식베이스 규모(문서/엔티티/관계/임베딩 개수 등)."""
         conn = _conn(theme)
+        resolved_tid = 0
+        if theme is not None and theme_mgr is not None:
+            try:
+                resolved_tid = theme_mgr.get_theme(theme).id
+            except Exception:
+                try:
+                    resolved_tid = int(theme)
+                except Exception:
+                    resolved_tid = None
+        elif theme is not None:
+            try:
+                resolved_tid = int(theme)
+            except Exception:
+                resolved_tid = None
         try:
-            return _timed_call("stats", dbm.counts, conn)
+            return _timed_call("stats", lambda c: dbm.counts(c, theme_id=resolved_tid), conn)
         finally:
             conn.close()
 

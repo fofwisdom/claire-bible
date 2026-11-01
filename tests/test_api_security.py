@@ -278,7 +278,23 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         "/oauth/authorize/telegram-push",
         "/oauth/token",
     }
-    read_get = {"/", "/whoami", "/stats", "/graph", "/node", "/documents", "/document", "/document/presentation", "/document/presentation/adoc", "/resolution/decisions", "/ingest/active", "/mcp", "/themes"}
+    read_get = {
+        "/",
+        "/whoami",
+        "/stats",
+        "/graph",
+        "/node",
+        "/documents",
+        "/document",
+        "/document/presentation",
+        "/document/presentation/adoc",
+        "/resolution/decisions",
+        "/ingest/active",
+        "/mcp",
+        "/themes",
+        "/api/syndication/dispatches",
+        "/syndication/dispatches",
+    }
     read_post = {"/search", "/mcp", "/share"}
     collaborator_post = {
         "/ingest",
@@ -291,6 +307,8 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         "/document/presentation/generate",
         "/document/presentation/compose",
         "/document/presentation/compile",
+        "/api/syndication/dispatch",
+        "/syndication/dispatch",
     }
     collaborator_methods = {
         ("PUT", "/document/presentation/adoc"),

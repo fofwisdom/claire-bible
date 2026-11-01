@@ -9,6 +9,7 @@ import json
 import logging
 import os
 import re
+import sqlite3
 import tempfile
 import time
 from dataclasses import asdict, dataclass
@@ -173,7 +174,8 @@ class ThemeManager:
         self._fqdn_to_theme_id: dict[str, int] = {}
         self._next_seq: int = 1
         self._default_theme_id: int = 0
-        self._init_db_file()
+        if self.create_registry:
+            self._init_db_file()
         self.reload()
 
     def _init_db_file(self) -> None:
@@ -273,10 +275,52 @@ class ThemeManager:
                 raise FileNotFoundError(f"테마 레지스트리가 없습니다: {self.registry_path}")
 
         db_file = getattr(self.settings, "db_file", None) or Path("data/claire.db")
+        if not self.create_registry:
+            if not Path(db_file).is_file():
+                if not self._themes or 0 not in self._themes:
+                    self._themes = {0: self._build_default_theme()}
+                self._rebuild_fqdn_index()
+                return
+            conn = dbm.connect_existing(db_file, readonly=True)
+            try:
+                try:
+                    rows = conn.execute("SELECT * FROM themes ORDER BY id").fetchall()
+                except (sqlite3.OperationalError, sqlite3.DatabaseError):
+                    rows = []
+                loaded = {}
+                for r in rows:
+                    t = _row_to_theme(r, default_db_path=str(db_file))
+                    loaded[t.id] = t
+                if raw_themes_from_json:
+                    for item in raw_themes_from_json:
+                        t_info = ThemeInfo.from_dict(item)
+                        if t_info.id not in loaded:
+                            loaded[t_info.id] = t_info
+                if 0 not in loaded:
+                    loaded[0] = self._build_default_theme()
+                self._themes = loaded
+                max_seq = max((t.seq for t in self._themes.values()), default=0)
+                self._next_seq = max(max_seq + 1, json_next_seq)
+                self._default_theme_id = json_default_theme_id if json_default_theme_id in self._themes else 0
+                self._rebuild_fqdn_index()
+                return
+            finally:
+                conn.close()
+
         Path(db_file).parent.mkdir(parents=True, exist_ok=True)
         conn = dbm.connect(db_file)
         try:
             dbm.init_db(conn)
+
+            data_dir = getattr(self.settings, "data_dir", None) or Path(db_file).parent
+            themes_dir = Path(data_dir) / "themes"
+            if themes_dir.is_dir() and any((d / "claire.db").is_file() for d in themes_dir.iterdir() if d.is_dir()):
+                try:
+                    log.info("Unmigrated theme databases detected in %s, starting migration...", themes_dir)
+                    report = dbm.migrate_multi_db_to_single_db(conn, data_dir)
+                    log.info("Theme migration completed: %s", report)
+                except Exception as e:
+                    log.warning("Auto-migration of theme databases failed: %s", e)
 
             rows = conn.execute("SELECT * FROM themes ORDER BY id").fetchall()
 

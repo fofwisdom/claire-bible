@@ -113,8 +113,7 @@ CREATE TABLE IF NOT EXISTS documents (
     last_watched_at REAL,
     watch_reason TEXT,
     pinned INTEGER DEFAULT 0,
-    hidden INTEGER DEFAULT 0,
-    UNIQUE(theme_id, canonical_url)
+    hidden INTEGER DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_documents_hash ON documents(content_hash);
 CREATE INDEX IF NOT EXISTS idx_documents_canon ON documents(canonical_url);
@@ -1302,6 +1301,16 @@ def migrate_multi_db_to_single_db(
             "syndication_dispatches",
         )
 
+        autoincrement_tables = {
+            "raw_inbox",
+            "proposals",
+            "jobs",
+            "extractions",
+            "refresh_queue",
+            "expand_queue",
+            "document_snapshots",
+        }
+
         subdirs = sorted(
             [d for d in themes_dir.iterdir() if d.is_dir()],
             key=lambda p: (0 if p.name.isdigit() else 1, int(p.name) if p.name.isdigit() else p.name),
@@ -1314,13 +1323,18 @@ def migrate_multi_db_to_single_db(
 
             if subdir.name.isdigit():
                 seq = int(subdir.name)
+                row = conn.execute(
+                    "SELECT id FROM themes WHERE id=? OR seq=? LIMIT 1",
+                    (seq, seq),
+                ).fetchone()
+                theme_id = int(row["id"]) if row else seq
             else:
                 row = conn.execute(
-                    "SELECT seq FROM themes WHERE label=? OR db_path LIKE ? LIMIT 1",
+                    "SELECT id, seq FROM themes WHERE label=? OR db_path LIKE ? LIMIT 1",
                     (subdir.name, f"%{subdir.name}%"),
                 ).fetchone()
-                seq = int(row["seq"]) if row else 0
-            theme_id = seq
+                theme_id = int(row["id"]) if row else (int(row["seq"]) if row else 0)
+                seq = int(row["seq"]) if row else theme_id
 
             # Ensure theme record exists in themes table
             conn.execute(
@@ -1345,7 +1359,10 @@ def migrate_multi_db_to_single_db(
 
                     src_cols = {r["name"] for r in conn.execute(f"PRAGMA src_db.table_info({tbl})").fetchall()}
                     main_cols = {r["name"] for r in conn.execute(f"PRAGMA table_info({tbl})").fetchall()}
-                    common_cols = [c for c in src_cols if c in main_cols and c != "theme_id"]
+                    if tbl in autoincrement_tables:
+                        common_cols = [c for c in src_cols if c in main_cols and c not in ("theme_id", "id")]
+                    else:
+                        common_cols = [c for c in src_cols if c in main_cols and c != "theme_id"]
                     if not common_cols:
                         continue
 
@@ -1356,9 +1373,38 @@ def migrate_multi_db_to_single_db(
                     )
                     copied_tables.append(tbl)
 
+                # Sync FTS if entities were imported
+                has_fts = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='entities_fts'").fetchone()
+                if has_fts:
+                    try:
+                        src_has_fts = conn.execute("SELECT 1 FROM src_db.sqlite_master WHERE type='table' AND name='entities_fts'").fetchone()
+                        if src_has_fts:
+                            conn.execute(
+                                """
+                                INSERT INTO main.entities_fts (entity_id, name, body)
+                                SELECT entity_id, name, body FROM src_db.entities_fts
+                                WHERE entity_id NOT IN (SELECT entity_id FROM main.entities_fts)
+                                """
+                            )
+                        else:
+                            conn.execute(
+                                """
+                                INSERT INTO main.entities_fts (entity_id, name, body)
+                                SELECT e.id, e.name, e.observations
+                                FROM src_db.entities e
+                                WHERE e.id NOT IN (SELECT entity_id FROM main.entities_fts)
+                                """
+                            )
+                    except Exception as fts_err:
+                        logger.warning("FTS sync warning during theme migration: %s", fts_err)
+
                 conn.commit()
                 migrated_themes.append(theme_id)
                 migrated_tables[theme_id] = copied_tables
+                try:
+                    conn.execute("PRAGMA src_db.wal_checkpoint(TRUNCATE)")
+                except Exception:
+                    pass
             finally:
                 conn.execute("DETACH DATABASE src_db")
 
@@ -2314,55 +2360,76 @@ def record_recovery_attempt(
 
 # --- status / 집계 (claire status 용) ---
 
-def inbox_status_counts(conn: sqlite3.Connection) -> dict[str, int]:
+def inbox_status_counts(conn: sqlite3.Connection, theme_id: int | None = None) -> dict[str, int]:
     """raw_inbox 의 status 별 개수."""
-    rows = conn.execute(
-        "SELECT status, COUNT(*) n FROM raw_inbox GROUP BY status"
-    ).fetchall()
+    q = "SELECT status, COUNT(*) n FROM raw_inbox"
+    params: list[Any] = []
+    if theme_id is not None:
+        q += " WHERE theme_id=?"
+        params.append(theme_id)
+    q += " GROUP BY status"
+    rows = conn.execute(q, tuple(params)).fetchall()
     return {r["status"]: r["n"] for r in rows}
 
 
-def entity_type_counts(conn: sqlite3.Connection, limit: int = 12) -> list[tuple[str, int]]:
+def entity_type_counts(conn: sqlite3.Connection, limit: int = 12, theme_id: int | None = None) -> list[tuple[str, int]]:
     """엔티티 타입별 개수(많은 순)."""
-    rows = conn.execute(
-        "SELECT type, COUNT(*) n FROM entities GROUP BY type ORDER BY n DESC LIMIT ?",
-        (limit,),
-    ).fetchall()
+    q = "SELECT type, COUNT(*) n FROM entities"
+    params: list[Any] = []
+    if theme_id is not None:
+        q += " WHERE theme_id=?"
+        params.append(theme_id)
+    q += " GROUP BY type ORDER BY n DESC LIMIT ?"
+    params.append(limit)
+    rows = conn.execute(q, tuple(params)).fetchall()
     return [(r["type"], r["n"]) for r in rows]
 
 
-def source_type_counts(conn: sqlite3.Connection) -> list[tuple[str, int]]:
+def source_type_counts(conn: sqlite3.Connection, theme_id: int | None = None) -> list[tuple[str, int]]:
     """문서 소스 타입별 개수(web/youtube/pdf/text...)."""
-    rows = conn.execute(
-        "SELECT source_type, COUNT(*) n FROM documents GROUP BY source_type ORDER BY n DESC"
-    ).fetchall()
+    q = "SELECT source_type, COUNT(*) n FROM documents"
+    params: list[Any] = []
+    if theme_id is not None:
+        q += " WHERE theme_id=?"
+        params.append(theme_id)
+    q += " GROUP BY source_type ORDER BY n DESC"
+    rows = conn.execute(q, tuple(params)).fetchall()
     return [(r["source_type"], r["n"]) for r in rows]
 
 
 def top_connected_entities(
-    conn: sqlite3.Connection, limit: int = 8
+    conn: sqlite3.Connection, limit: int = 8, theme_id: int | None = None
 ) -> list[tuple[str, str, int]]:
     """연결(degree) 많은 엔티티 상위 — (name, type, degree)."""
+    where_e = "WHERE e.theme_id=?" if theme_id is not None else ""
+    on_r = " AND r.theme_id=e.theme_id" if theme_id is not None else ""
+    params: list[Any] = [theme_id, limit] if theme_id is not None else [limit]
     rows = conn.execute(
-        """
+        f"""
         SELECT e.name, e.type, COUNT(r.id) deg
         FROM entities e
-        LEFT JOIN relations r ON r.source_id = e.id OR r.target_id = e.id
+        LEFT JOIN relations r ON (r.source_id = e.id OR r.target_id = e.id){on_r}
+        {where_e}
         GROUP BY e.id ORDER BY deg DESC LIMIT ?
         """,
-        (limit,),
+        params,
     ).fetchall()
     return [(r["name"], r["type"], r["deg"]) for r in rows]
 
 
 def most_merged_entities(
-    conn: sqlite3.Connection, limit: int = 8
+    conn: sqlite3.Connection, limit: int = 8, theme_id: int | None = None
 ) -> list[tuple[str, str, int]]:
     """여러 자료에서 수렴된(sources 많은) 엔티티 — (name, type, source_count).
 
     sources 는 JSON 배열 문자열이라 Python 에서 길이를 센다.
     """
-    rows = conn.execute("SELECT name, type, sources FROM entities").fetchall()
+    q = "SELECT name, type, sources FROM entities"
+    params: list[Any] = []
+    if theme_id is not None:
+        q += " WHERE theme_id=?"
+        params.append(theme_id)
+    rows = conn.execute(q, tuple(params)).fetchall()
     out = []
     for r in rows:
         try:
@@ -2375,9 +2442,14 @@ def most_merged_entities(
     return out[:limit]
 
 
-def last_inbox_activity(conn: sqlite3.Connection) -> float | None:
+def last_inbox_activity(conn: sqlite3.Connection, theme_id: int | None = None) -> float | None:
     """가장 최근 inbound 수신 시각(epoch). 없으면 None."""
-    row = conn.execute("SELECT MAX(received_at) m FROM raw_inbox").fetchone()
+    q = "SELECT MAX(received_at) m FROM raw_inbox"
+    params: list[Any] = []
+    if theme_id is not None:
+        q += " WHERE theme_id=?"
+        params.append(theme_id)
+    row = conn.execute(q, tuple(params)).fetchone()
     return row["m"] if row and row["m"] else None
 
 

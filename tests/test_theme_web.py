@@ -11,7 +11,8 @@ from claire.graphview import render_graph_html
 def test_theme_web_ui_elements_in_template_and_graph_html(tmp_path: Path):
     s = Settings(
         db_path=str(tmp_path / "claire.db"),
-        vault_path=str(tmp_path / "vault"),
+        CLAIRE_ENVIRONMENT="development",
+        CLAIRE_FQDN="127.0.0.1",
     )
     html = render_graph_html(s)
 
@@ -48,7 +49,8 @@ def test_theme_web_ui_elements_in_template_and_graph_html(tmp_path: Path):
 def test_theme_web_root_endpoint_serves_selector(tmp_path: Path):
     s = Settings(
         db_path=str(tmp_path / "claire.db"),
-        vault_path=str(tmp_path / "vault"),
+        CLAIRE_ENVIRONMENT="development",
+        CLAIRE_FQDN="127.0.0.1",
     )
     app = server.create_app(s)
     with TestClient(app, base_url=s.public_url) as client:

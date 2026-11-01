@@ -433,6 +433,7 @@ def test_build_mcp_app_document_cross_theme_resolution(tmp_path):
             source_type="web",
             content_hash="h1",
         ),
+        theme_id=t1.id,
     )
     conn1.close()
 
@@ -536,6 +537,7 @@ def test_build_mcp_app_tools_respect_theme_isolation(tmp_path):
             source_type="web",
             content_hash="hiso1",
         ),
+        theme_id=t1.id,
     )
     conn1.close()
 

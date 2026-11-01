@@ -457,4 +457,59 @@ def test_theme_knowledge_manager_metadata_and_settings_override(temp_theme_env):
     assert reloaded.knowledge_manager == "carol_lead"
 
 
+def test_theme_manager_auto_migration_on_startup(tmp_path):
+    """Verify that ThemeManager automatically runs migrate_multi_db_to_single_db on init."""
+    from claire.store import db as dbm
+
+    data_dir = tmp_path / "data"
+    themes_dir = data_dir / "themes" / "1"
+    themes_dir.mkdir(parents=True)
+    src_db = themes_dir / "claire.db"
+
+    # Populate legacy theme db
+    s_conn = dbm.connect(src_db)
+    dbm.init_db(s_conn)
+    dbm.insert_document(
+        s_conn,
+        dbm.Document(id="doc-legacy-1", title="Legacy Doc 1", url="https://legacy.org/1"),
+        theme_id=0,
+    )
+    dbm.upsert_entity(
+        s_conn,
+        dbm.Entity(id="ent-legacy-1", type="Concept", name="Legacy Concept", observations=["Note 1"]),
+        theme_id=0,
+    )
+    dbm.log_inbox(s_conn, source="test", user_id=1, kind="text", payload="legacy inbox payload", theme_id=0)
+    s_conn.close()
+
+    settings = Settings(
+        CLAIRE_DB_PATH=str(data_dir / "claire.db"),
+        CLAIRE_PROVIDER="mock",
+        CLAIRE_MULTI_THEME=True,
+    )
+
+    # Initialize ThemeManager, which should trigger reload() and auto-migration
+    manager = ThemeManager(base_settings=settings)
+
+    # Verify that the legacy db was migrated and renamed
+    assert not src_db.exists()
+    assert (themes_dir / "claire.db.migrated").exists()
+
+    # Verify data in unified claire.db
+    u_conn = dbm.connect(data_dir / "claire.db")
+    doc = dbm.get_document_row(u_conn, "doc-legacy-1", theme_id=1)
+    assert doc is not None
+    assert doc["title"] == "Legacy Doc 1"
+
+    ent = dbm.get_entity(u_conn, "ent-legacy-1", theme_id=1)
+    assert ent is not None
+    assert ent.name == "Legacy Concept"
+
+    inbox_counts = dbm.inbox_status_counts(u_conn, theme_id=1)
+    assert inbox_counts.get("received", 0) == 1
+
+    u_conn.close()
+
+
+
 

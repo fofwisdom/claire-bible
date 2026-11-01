@@ -90,6 +90,26 @@ def test_cli_unified_reprocess_dry_run():
 
 
 def test_cli_auth_share_doc():
+    import sqlite3
+    from pathlib import Path
+    from claire.store import db as dbm
+
+    db_file = Path("data/claire.db")
+    db_file.parent.mkdir(parents=True, exist_ok=True)
+    conn = dbm.connect(db_file)
+    dbm.init_db(conn)
+    row = conn.execute("SELECT id FROM documents LIMIT 1").fetchone()
+    if row:
+        doc_id = row[0]
+    else:
+        doc_id = "doc_ea88a62a"
+        conn.execute(
+            "INSERT OR IGNORE INTO documents (id, title, url, fetched_at) VALUES (?, ?, ?, ?)",
+            (doc_id, "Test Doc", "https://example.com/test", 1000.0),
+        )
+        conn.commit()
+    conn.close()
+
     # 1. Test auth
     res = subprocess.run(
         [sys.executable, "-m", "claire.cli", "auth", "--scope", "readonly", "--json"],
@@ -105,7 +125,7 @@ def test_cli_auth_share_doc():
 
     # 2. Test share with valid document
     res = subprocess.run(
-        [sys.executable, "-m", "claire.cli", "share", "doc_ea88a62a", "--json"],
+        [sys.executable, "-m", "claire.cli", "share", doc_id, "--json"],
         capture_output=True,
         text=True,
     )
@@ -117,7 +137,7 @@ def test_cli_auth_share_doc():
 
     # 3. Test doc pin / unpin
     res = subprocess.run(
-        [sys.executable, "-m", "claire.cli", "doc", "doc_ea88a62a", "--pin", "--json"],
+        [sys.executable, "-m", "claire.cli", "doc", doc_id, "--pin", "--json"],
         capture_output=True,
         text=True,
     )
@@ -128,7 +148,7 @@ def test_cli_auth_share_doc():
 
     # restore unpin
     res = subprocess.run(
-        [sys.executable, "-m", "claire.cli", "doc", "doc_ea88a62a", "--unpin", "--json"],
+        [sys.executable, "-m", "claire.cli", "doc", doc_id, "--unpin", "--json"],
         capture_output=True,
         text=True,
     )

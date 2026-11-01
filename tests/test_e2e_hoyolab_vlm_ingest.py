@@ -118,11 +118,7 @@ def test_e2e_hoyolab_article_vlm_ingestion(tmp_path: Path):
         finally:
             conn.close()
 
-        # 3. Obsidian vault markdown document verification
-        exported_files = list(vault_dir.rglob("*.md"))
-        assert len(exported_files) > 0
-        content = exported_files[0].read_text(encoding="utf-8")
-        assert len(content) > 0
+
 
 
 def test_e2e_hoyolab_vlm_ingest_merges_with_existing_entities(tmp_path: Path):

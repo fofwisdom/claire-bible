@@ -222,6 +222,7 @@ def test_shared_doc_page_endpoint_crawler_and_security(tmp_path: Path):
     s = Settings(
         db_path=str(db_file),
         public_url="https://bible.example.com",
+        CLAIRE_ENVIRONMENT="production",
     )
     app = create_app(s)
     client = TestClient(app, base_url="https://bible.example.com")
@@ -246,10 +247,9 @@ def test_shared_doc_page_endpoint_crawler_and_security(tmp_path: Path):
     assert resp_masto.status_code == 200
     assert '<meta name="twitter:card" content="summary"/>' in resp_masto.text
 
-    # 5. 개별 공유 토큰을 가진 문서는 200 반환 (단일 문서 전용 공유)
+    # 5. 비공개(hidden=1) 문서는 익명 공유 링크로도 404 차단 (보안 격리 정책)
     resp_priv = client.get(f"/p?s={token_priv}")
-    assert resp_priv.status_code == 200
-    assert "개별 공유된 문서" in resp_priv.text
+    assert resp_priv.status_code == 404
 
     # 6. 유효하지 않은 공유 토큰 404 차단
     resp_invalid = client.get("/p?s=nonexistent_token_123")

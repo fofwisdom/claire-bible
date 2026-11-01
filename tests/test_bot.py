@@ -1495,12 +1495,10 @@ async def test_settle_status_theme_resolution(tmp_path: Path):
     token = url.split("?s=")[1]
     # 테마 1 DB에서 검증
     c1 = dbm.connect(t1_settings.db_file)
-    assert dbm.resolve_doc_share(c1, token) == "doc_settle_t1"
+    assert dbm.resolve_doc_share(c1, token, theme_id=1) == "doc_settle_t1"
+    # 테마 0 스코프에는 없어야 함
+    assert dbm.resolve_doc_share(c1, token, theme_id=0) is None
     c1.close()
-    # 테마 0 DB에는 없어야 함
-    c0 = dbm.connect(settings.db_file)
-    assert dbm.resolve_doc_share(c0, token) is None
-    c0.close()
 
     # 2. theme_id=0이지만 테마 0에는 없고 테마 1에 문서가 있는 경우 cross-theme fallback 검증
     st2 = FakeStatus()

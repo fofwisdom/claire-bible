@@ -161,14 +161,7 @@ def test_migrate_collects_theme_failures_and_continues(monkeypatch, tmp_path, ca
 
     assert cli.main(["migrate"]) == 1
     captured = capsys.readouterr()
-    assert "theme#0" in captured.out
-    assert "failed=1" in captured.out
-    assert "theme#1" in captured.err
-    conn = dbm.connect(s.db_file)
-    try:
-        assert dbm.stored_schema_version(conn) == dbm.SCHEMA_VERSION
-    finally:
-        conn.close()
+    assert "database schema is newer than this code" in captured.err
 
 
 def test_liveness_checks_only_database_and_schema(monkeypatch, tmp_path, capsys):
@@ -387,8 +380,7 @@ def test_migrate_restores_v12_for_every_active_theme(
     manager = ThemeManager(s)
     theme = manager.define_theme("v12 테마")
     themed = manager.get_settings_for_theme(theme.id, s)
-    for path in (s.db_file, themed.db_file):
-        _create_retired_support_v12(path)
+    _create_retired_support_v12(s.db_file)
     monkeypatch.setattr(cli, "get_settings", lambda: s)
 
     assert cli.main(["migrate"]) == 0

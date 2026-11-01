@@ -94,6 +94,8 @@ def test_e2e_format_status_banner_navigation_and_healing(tmp_path: Path, monkeyp
     monkeypatch.setenv("CLAIRE_RENDER_FORMAT", "adoc")
     monkeypatch.setenv("CLAIRE_ALLOW_PURGE", "1")
     monkeypatch.setenv("CLAIRE_INJECT_TOKEN", OWNER_TOKEN)
+    monkeypatch.setenv("CLAIRE_ENVIRONMENT", "development")
+    monkeypatch.setenv("CLAIRE_PUBLIC_URL", "http://127.0.0.1:8765")
 
     get_settings.cache_clear()
     settings = get_settings()

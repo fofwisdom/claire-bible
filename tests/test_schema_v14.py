@@ -210,12 +210,15 @@ def test_migrate_multi_db_to_single_db(tmp_path: Path) -> None:
         theme_id=0,
     )
     dbm.upsert_entity(src_conn, dbm.Entity(id="ent-paper-1", type="Paper", name="Research Paper 1"), theme_id=0)
+    dbm.log_inbox(src_conn, source="test", user_id=1, kind="text", payload="source inbox payload", theme_id=0)
     src_conn.close()
 
     # Destination single database
     dest_conn = sqlite3.connect(":memory:")
     dest_conn.row_factory = sqlite3.Row
     dbm.init_db(dest_conn)
+    # Pre-populate dest_conn with a theme 0 inbox row (will get id=1)
+    dbm.log_inbox(dest_conn, source="test", user_id=1, kind="text", payload="dest inbox payload", theme_id=0)
 
     # Perform multi-db migration
     report = dbm.migrate_multi_db_to_single_db(dest_conn, tmp_path)
@@ -224,6 +227,7 @@ def test_migrate_multi_db_to_single_db(tmp_path: Path) -> None:
     assert 2 in report["migrated_themes"]
     assert "documents" in report["migrated_tables"][2]
     assert "entities" in report["migrated_tables"][2]
+    assert "raw_inbox" in report["migrated_tables"][2]
 
     # Verify rows in dest_conn have theme_id=2
     doc = dbm.get_document_row(dest_conn, "doc-research-1", theme_id=2)
@@ -233,6 +237,12 @@ def test_migrate_multi_db_to_single_db(tmp_path: Path) -> None:
     ent = dbm.get_entity(dest_conn, "ent-paper-1", theme_id=2)
     assert ent is not None
     assert ent.name == "Research Paper 1"
+
+    # Verify autoincrement raw_inbox rows were both preserved across themes
+    inbox_0 = dbm.inbox_status_counts(dest_conn, theme_id=0)
+    inbox_2 = dbm.inbox_status_counts(dest_conn, theme_id=2)
+    assert inbox_0.get("received", 0) == 1
+    assert inbox_2.get("received", 0) == 1
 
     # Verify source database file was renamed to .migrated
     assert not source_db_path.exists()
