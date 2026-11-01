@@ -1,6 +1,6 @@
 """인제스트 파이프라인 — payload 를 받아 그래프에 적재하는 전체 흐름.
 
-  payload → fetch(router) → dedup → insert document → provider.extract → 엔티티 해소/머지(+임베딩) → 관계 검증/적재 → vault export → IngestReport
+  payload → fetch(router) → dedup → insert document → provider.extract → 엔티티 해소/머지(+임베딩) → 관계 검증/적재 → IngestReport
 
 fetch_fn 을 주입 가능하게 하여 네트워크 없이 테스트한다.
 """
@@ -27,7 +27,6 @@ from ..ontology.registry import (
 )
 from ..store import db as dbm
 from ..store.graph import GraphStore
-from ..store.vault import export_entities
 from ..store.vectors import VectorStore
 from .active import active_job, clear_active_ingest, set_active_ingest, update_active_ingest
 from .router import fetch as default_fetch
@@ -215,7 +214,6 @@ def ingest(
     conn: sqlite3.Connection,
     provider: Provider,
     vstore: VectorStore,
-    vault_dir: Path | None = None,
     fetch_fn: Callable[[str], Document] | None = None,
     expand_max: int = 0,
     data_dir: Path | None = None,
@@ -500,7 +498,7 @@ def ingest(
                         pass
                 _download_doc_images(conn, doc, data_dir)
                 ok, err = extract_resolve_store(
-                    conn, provider, vstore, doc, report, vault_dir=vault_dir, format=format, focus=focus, effort=effort, full_content=full_content)
+                    conn, provider, vstore, doc, report, format=format, focus=focus, effort=effort, full_content=full_content)
                 if not ok:
                     report.error = err
                     dbm.update_inbox(conn, inbox_id, status="error",
@@ -538,9 +536,9 @@ def ingest(
                     pass  # 보관 실패가 본 파이프라인을 막지 않도록
             _download_doc_images(conn, doc, data_dir)
 
-            # 추출 → 해소 → 관계 → vault (ingest/refresh 공용)
+            # 추출 → 해소 → 관계 (ingest/refresh 공용)
             ok, err = extract_resolve_store(
-                conn, provider, vstore, doc, report, vault_dir=vault_dir, format=format, focus=focus, effort=effort, full_content=full_content)
+                conn, provider, vstore, doc, report, format=format, focus=focus, effort=effort, full_content=full_content)
             if not ok:
                 report.error = err
                 dbm.update_inbox(conn, inbox_id, status="error", document_id=doc.id, error=err)
@@ -752,14 +750,13 @@ def extract_resolve_store(
     doc: Document,
     report: IngestReport,
     *,
-    vault_dir: Path | None = None,
     format: str | None = None,
     focus: str | None = None,
     effort: str | None = None,
     full_content: bool = False,
     on_progress: Callable[[str, str], None] | None = None,
 ) -> tuple[bool, str | None]:
-    """문서 1건의 추출→엔티티 해소/머지→관계 검증/적재→vault export.
+    """문서 1건의 추출→엔티티 해소/머지→관계 검증/적재.
 
     ingest(신규 적재)와 refresh(복원 재적재)가 공유한다. doc.id 기준으로 동작하므로 refresh 시 같은 id 로 호출하면 기존 엔티티 sources 에 누적된다(연결 보존). 추출 실패 시 (False, error). 성공 시 (True, None).
     """
@@ -1163,23 +1160,6 @@ def extract_resolve_store(
                                 sources=[doc.id],
                             )
 
-    if vault_dir is not None and touched_entities:
-        if on_progress:
-            on_progress("Vault 마크다운 동기화", f"{len(touched_entities)}개 노드")
-        emit_progress(f"Vault 마크다운 동기화 ({len(touched_entities)}개 노드)")
-        neighbor_ids = set()
-        for ent in touched_entities:
-            for r in dbm.neighbors(conn, ent.id):
-                neighbor_ids.add(r.source_id)
-                neighbor_ids.add(r.target_id)
-        export_set = {e.id: e for e in touched_entities}
-        for nid in neighbor_ids:
-            if nid not in export_set:
-                ne = dbm.get_entity(conn, nid)
-                if ne:
-                    export_set[nid] = ne
-        export_entities(conn, vault_dir, list(export_set.values()))
-
     return True, None
 
 
@@ -1190,7 +1170,6 @@ def merge_source_into_document(
     parent: Document,
     child: Document,
     *,
-    vault_dir: Path | None = None,
     data_dir: Path | None = None,
     format: str | None = None,
     focus: str | None = None,
@@ -1251,7 +1230,7 @@ def merge_source_into_document(
                 pass
         report = IngestReport(document_id=parent.id, title=parent.title, updated=True)
         ok, err = extract_resolve_store(
-            conn, provider, vstore, parent, report, vault_dir=vault_dir, format=format, focus=focus)
+            conn, provider, vstore, parent, report, format=format, focus=focus)
         if not ok:
             raise RuntimeError(err)
         return {"merged": True, "document_id": parent.id, "report": report}

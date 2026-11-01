@@ -260,7 +260,6 @@ def create_app(
                 description="일반 수집 자료 및 기본 지식",
                 icon="📚",
                 db_path=str(getattr(s, "db_path", "data/claire.db")),
-                vault_path=str(getattr(s, "vault_path", "vault")),
                 is_default=True,
                 is_public=True,
                 presentation_enabled=pres_enabled,
@@ -1822,10 +1821,6 @@ def create_app(
             active_settings.data_dir.resolve(),
             s.data_dir.resolve(),
         ]
-        if getattr(active_settings, "vault_path", None):
-            allowed_roots.append(Path(active_settings.vault_path).resolve())
-        if getattr(s, "vault_path", None):
-            allowed_roots.append(Path(s.vault_path).resolve())
 
         is_safe = False
         for root in allowed_roots:
@@ -2012,7 +2007,6 @@ def create_app(
                 report = dbm.purge_document_cascade(
                     conn,
                     data_dir=theme_settings.data_dir,
-                    vault_dir=theme_settings.vault_dir,
                     target_ids=target_ids,
                     reason=reason,
                     dry_run=dry_run,

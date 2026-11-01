@@ -149,7 +149,6 @@ def test_e2e_naver_clip_stt_successful_ingest(monkeypatch, tmp_path: Path):
         conn=conn,
         provider=GroundedMockProvider(),
         vstore=vstore,
-        vault_dir=tmp_path,
         data_dir=tmp_path,
     )
 
@@ -214,7 +213,6 @@ def test_e2e_naver_clip_stt_failure_prevents_hallucination(monkeypatch, tmp_path
         conn=conn,
         provider=MockProvider(),
         vstore=vstore,
-        vault_dir=tmp_path,
         data_dir=tmp_path,
     )
 

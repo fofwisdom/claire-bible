@@ -437,11 +437,6 @@ def test_cli_theme_reset(cli_theme_env, capsys, monkeypatch):
     conn.commit()
     conn.close()
 
-    v_dir = Path(t1_settings.vault_path)
-    v_dir.mkdir(parents=True, exist_ok=True)
-    v_file = v_dir / "target_node.md"
-    v_file.write_text("# Target Node\nContent", encoding="utf-8")
-
     # 1. 존재하지 않는 테마 리셋 시도 -> 오류 (exit code 1)
     ret = cli.main(["theme", "reset", "999", "--yes"])
     assert ret == 1
@@ -470,9 +465,8 @@ def test_cli_theme_reset(cli_theme_env, capsys, monkeypatch):
     assert "소각된 문서 수   : 1 건" in out
     assert "소각된 엔티티 수 : 1 건" in out
     assert "소각된 관계 수   : 1 건" in out
-    assert "삭제된 볼트 파일 : 1 개" in out
 
-    # 데이터가 비워졌는지 DB 및 볼트 검증
+    # 데이터가 비워졌는지 DB 검증
     conn = dbm.connect(t1_settings.db_file)
     assert dbm.get_document(conn, "doc_reset_cli") is None
     assert dbm.get_entity(conn, "ent_reset_cli") is None
@@ -481,7 +475,6 @@ def test_cli_theme_reset(cli_theme_env, capsys, monkeypatch):
     assert c.get("entities", 0) == 0
     assert c.get("relations", 0) == 0
     conn.close()
-    assert not v_file.exists()
 
     # 테마 메타데이터 및 ID 영구 보존 검증
     t1_after = tm.get_theme(1)

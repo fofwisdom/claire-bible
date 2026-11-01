@@ -243,6 +243,8 @@ A test slide for API routes.
         inject_token=owner_token,
         render_format="adoc",
         presentation_enabled=True,
+        environment="development",
+        public_url="http://127.0.0.1:8765",
     )
     app = create_app(s)
     with TestClient(app, base_url=s.public_url, raise_server_exceptions=False) as client:
@@ -556,6 +558,8 @@ def test_api_presentation_compose_and_adoc(tmp_path: Path):
         inject_token=owner_token,
         render_format="adoc",
         presentation_enabled=True,
+        environment="development",
+        public_url="http://127.0.0.1:8765",
     )
     app = create_app(s)
     with TestClient(app, base_url=s.public_url, raise_server_exceptions=False) as client:
@@ -756,6 +760,8 @@ def test_presentation_option_a_and_async_generation(tmp_path: Path):
         inject_token=owner_token,
         render_format="adoc",
         presentation_enabled=True,
+        environment="development",
+        public_url="http://127.0.0.1:8765",
     )
     app = create_app(s)
     with TestClient(app, base_url=s.public_url, raise_server_exceptions=False) as client:
@@ -930,7 +936,8 @@ def test_presentation_image_routes_direct_and_prefixed(tmp_path: Path):
 
     settings = Settings(
         db_path=str(db_path),
-        vault_dir=tmp_path / "vault",
+        environment="development",
+        public_url="http://127.0.0.1:8765",
     )
     app = create_app(settings)
     client = TestClient(app)

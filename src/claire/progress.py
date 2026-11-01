@@ -189,7 +189,7 @@ class ProgressReporter:
 
         rem = max(0, self.total - self.completed_count)
         lines.append(f"• 잔여 대상     : {rem}건 미처리")
-        lines.append("• 데이터 보존   : 이미 완료된 항목은 SQLite 및 Vault에 정상 커밋되어 보존되었습니다.")
+        lines.append("• 데이터 보존   : 이미 완료된 항목은 SQLite DB에 정상 커밋되어 보존되었습니다.")
         lines.append("-" * 64)
         lines.append("💡 [재개 및 상태 확인 안내]")
         lines.append("  1. 현재 DB 및 큐 전체 현황 확인:")

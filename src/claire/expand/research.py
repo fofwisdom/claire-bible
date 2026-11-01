@@ -1,6 +1,6 @@
 """맥락 확장 조사 — 읽던 맥락에 맞춰 키워드/문장을 조사해 그래프를 확장한다.
 
-사용자 흐름: 그래프 UI 에서 노드/문서를 읽다가 더 알고 싶은 키워드·문장을 입력 → provider.research(웹 검색 grounding)가 **맥락 내 의미로 고정**해 조사 → provider.judge_research(별도 호출)가 맥락 일치도(relevance)·품질(quality)을 채점 → 두 임계 모두 통과할 때만 일반 ingest 파이프라인(추출→해소→관계→vault)으로 적재.
+사용자 흐름: 그래프 UI 에서 노드/문서를 읽다가 더 알고 싶은 키워드·문장을 입력 → provider.research(웹 검색 grounding)가 **맥락 내 의미로 고정**해 조사 → provider.judge_research(별도 호출)가 맥락 일치도(relevance)·품질(quality)을 채점 → 두 임계 모두 통과할 때만 일반 ingest 파이프라인(추출→해소→관계)으로 적재.
 
 다의어 방어(사용자 요구)는 이중: ① 조사 프롬프트가 맥락 내 해석을 강제하고 맥락 불일치 시 INSUFFICIENT 선언, ② 독립 판정자가 relevance 를 채점해 게이트. 판정 실패는 0점(fail-closed) — 불확실하면 추가하지 않는다(보고서는 보여주되 보류).
 """
@@ -103,7 +103,7 @@ def contextual_research(settings, provider, *, query: str,
                                f"품질 {qual:.2f}/{QUALITY_MIN}). 그래프에 추가하지 않음")
             return base
 
-        # 게이트 통과 → 일반 파이프라인으로 적재(추출·해소·관계·vault·inbox 보존 공유).
+        # 게이트 통과 → 일반 파이프라인으로 적재(추출·해소·관계·inbox 보존 공유).
         # 문서 본문에 맥락(focus)·해석을 함께 넣어 추출이 원 맥락 엔티티와 자연 연결되게
         # 하고, 출처 URL 목록도 본문에 보존한다(research 문서 자체엔 단일 url 이 없음).
         _p("ingest", "게이트 통과 — 그래프 적재 중(추출→엔티티 해소→관계→임베딩)…")
@@ -159,7 +159,7 @@ def _ingest_report_doc(settings, provider, conn: sqlite3.Connection,
     # replay 가능(텍스트로 재적재돼도 지식은 유지됨).
     rep = run_ingest(
         text, conn=conn, provider=provider, vstore=vstore,
-        vault_dir=settings.vault_dir, data_dir=settings.data_dir,
+        data_dir=settings.data_dir,
         expand_max=0, source="research", fetch_fn=lambda _p: doc,
     )
     return {

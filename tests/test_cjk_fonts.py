@@ -95,7 +95,6 @@ def test_graph_html_cjk_typography_and_font_faces(tmp_path: Path):
     """Verify that GRAPH_HTML contains Google Fonts integration, CJK font-faces and typography hierarchy."""
     settings = Settings(
         db_path=str(tmp_path / "test.db"),
-        vault_dir=str(tmp_path / "vault"),
         data_dir=str(tmp_path / "data"),
     )
     html_content = render_graph_html(settings)

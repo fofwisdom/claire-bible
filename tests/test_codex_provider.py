@@ -570,7 +570,6 @@ def test_ingest_skips_vector_storage_when_codex_embedding_is_unavailable(tmp_pat
         conn=conn,
         provider=provider,
         vstore=VectorStore(conn, "brute"),
-        vault_dir=tmp_path / "vault",
         prefetched=document,
     )
 

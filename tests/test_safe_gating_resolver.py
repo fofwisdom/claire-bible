@@ -238,7 +238,6 @@ def test_pipeline_decision_stream_and_heatmap_integration(tmp_path):
         conn=conn,
         provider=provider,
         vstore=vstore,
-        vault_dir=tmp_path / "vault",
         fetch_fn=_fetch_doc,
     )
 

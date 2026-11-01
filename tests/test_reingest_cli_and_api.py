@@ -97,7 +97,6 @@ def test_cli_reingest_dry_run_and_apply(tmp_path: Path, monkeypatch, capsys):
         conn=conn,
         provider=prov,
         vstore=vstore,
-        vault_dir=vault_dir,
         data_dir=data_dir,
         source="web",
         fetch_fn=lambda _: mock_doc,
@@ -165,6 +164,8 @@ def test_api_document_purge_and_reingest_routes(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("CLAIRE_ALLOW_PURGE", "1")
     monkeypatch.setenv("CLAIRE_INJECT_TOKEN", OWNER_TOKEN)
     monkeypatch.setenv("CLAIRE_READONLY_TOKEN", READONLY_TOKEN)
+    monkeypatch.setenv("CLAIRE_ENVIRONMENT", "development")
+    monkeypatch.setenv("CLAIRE_PUBLIC_URL", "http://127.0.0.1:8765/")
 
     from claire.config import get_settings
     get_settings.cache_clear()
@@ -190,7 +191,6 @@ def test_api_document_purge_and_reingest_routes(tmp_path: Path, monkeypatch):
         conn=conn,
         provider=prov,
         vstore=vstore,
-        vault_dir=vault_dir,
         data_dir=data_dir,
         source="web",
         fetch_fn=lambda _: mock_doc,

@@ -105,7 +105,6 @@ def test_purge_cascade_and_tombstones(tmp_path, monkeypatch):
         conn=conn,
         provider=prov,
         vstore=vstore,
-        vault_dir=vault_dir,
         data_dir=data_dir,
         source="web",
         fetch_fn=_fetch_doc(mock_doc),
@@ -129,7 +128,7 @@ def test_purge_cascade_and_tombstones(tmp_path, monkeypatch):
 
     # 3. Dry-Run 검증
     dry_report = dbm.purge_document_cascade(
-        conn, data_dir=data_dir, vault_dir=vault_dir, target_ids=[doc_id], dry_run=True
+        conn, data_dir=data_dir, target_ids=[doc_id], dry_run=True
     )
     assert dry_report["dry_run"] is True
     assert dry_report["purged_count"] == 1
@@ -139,7 +138,7 @@ def test_purge_cascade_and_tombstones(tmp_path, monkeypatch):
 
     # 4. 실제 소각 실행 (Cascade Purge)
     purge_report = dbm.purge_document_cascade(
-        conn, data_dir=data_dir, vault_dir=vault_dir, target_ids=[doc_id], reason="legacy_test_purge", dry_run=False
+        conn, data_dir=data_dir, target_ids=[doc_id], reason="legacy_test_purge", dry_run=False
     )
     assert purge_report["dry_run"] is False
     assert purge_report["deleted_documents"] == 1
@@ -165,7 +164,6 @@ def test_purge_cascade_and_tombstones(tmp_path, monkeypatch):
         conn=conn,
         provider=prov,
         vstore=vstore,
-        vault_dir=vault_dir,
         data_dir=data_dir,
         source="web",
         fetch_fn=_fetch_doc(mock_doc),
@@ -212,7 +210,6 @@ def test_audit_and_doctor_diagnostics(tmp_path, monkeypatch):
         conn=conn,
         provider=prov,
         vstore=vstore,
-        vault_dir=vault_dir,
         data_dir=data_dir,
         source="web",
         fetch_fn=_fetch_doc(doc1),
@@ -223,7 +220,6 @@ def test_audit_and_doctor_diagnostics(tmp_path, monkeypatch):
         conn=conn,
         provider=prov,
         vstore=vstore,
-        vault_dir=vault_dir,
         data_dir=data_dir,
         source="web",
         fetch_fn=_fetch_doc(doc2),
@@ -237,7 +233,7 @@ def test_audit_and_doctor_diagnostics(tmp_path, monkeypatch):
 
     # 소각 실행
     dbm.purge_document_cascade(
-        conn, data_dir=data_dir, vault_dir=vault_dir, target_ids=[bad_id], reason="pollution", dry_run=False
+        conn, data_dir=data_dir, target_ids=[bad_id], reason="pollution", dry_run=False
     )
 
     # 소각 후 audit 검사 -> 잔재 0건 (Clean)
@@ -287,7 +283,6 @@ def test_purge_cli_smart_targets(tmp_path, monkeypatch, capsys):
         conn=conn,
         provider=prov,
         vstore=vstore,
-        vault_dir=vault_dir,
         data_dir=data_dir,
         source="web",
         fetch_fn=_fetch_doc(doc),
@@ -360,7 +355,6 @@ def test_purge_cascade_without_tombstone(tmp_path, monkeypatch):
         conn=conn,
         provider=prov,
         vstore=vstore,
-        vault_dir=vault_dir,
         data_dir=data_dir,
         source="web",
         fetch_fn=_fetch_doc(mock_doc),
@@ -372,7 +366,6 @@ def test_purge_cascade_without_tombstone(tmp_path, monkeypatch):
     report = dbm.purge_document_cascade(
         conn,
         data_dir=data_dir,
-        vault_dir=vault_dir,
         target_ids=[doc_id],
         reason="test_no_tombstone",
         dry_run=False,
@@ -393,7 +386,6 @@ def test_purge_cascade_without_tombstone(tmp_path, monkeypatch):
         conn=conn,
         provider=prov,
         vstore=vstore,
-        vault_dir=vault_dir,
         data_dir=data_dir,
         source="web",
         fetch_fn=_fetch_doc(mock_doc),
@@ -427,7 +419,6 @@ def test_cli_purge_no_tombstone(tmp_path, monkeypatch, capsys):
         conn=conn,
         provider=prov,
         vstore=vstore,
-        vault_dir=vault_dir,
         data_dir=data_dir,
         source="web",
         fetch_fn=_fetch_doc(doc),
@@ -493,7 +484,7 @@ def test_purge_cascades_connected_entities_and_relations(tmp_path, monkeypatch):
 
     # 3. 문서 소각 실행
     purge_report = dbm.purge_document_cascade(
-        conn, data_dir=data_dir, vault_dir=vault_dir, target_ids=["doc_cluster"], dry_run=False
+        conn, data_dir=data_dir, target_ids=["doc_cluster"], dry_run=False
     )
     assert purge_report["deleted_documents"] == 1
 
@@ -542,7 +533,6 @@ def test_purge_with_progress_callback_and_batch_fts(tmp_path):
     report = dbm.purge_document_cascade(
         conn,
         data_dir=data_dir,
-        vault_dir=vault_dir,
         target_ids=["doc_batch"],
         dry_run=False,
         progress_callback=lambda msg: progress_events.append(msg),

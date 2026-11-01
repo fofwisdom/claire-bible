@@ -115,7 +115,7 @@ def test_all_anonymous_reads_preserve_database_data_and_vault(tmp_path: Path) ->
         ),
     )
     assert dbm.set_document_hidden(conn, "doc-1", True)
-    share_token = dbm.create_doc_share(conn, "doc-1")
+    share_token = dbm.create_doc_share(conn, "doc-2")
     conn.close()
 
     settings = _Settings(

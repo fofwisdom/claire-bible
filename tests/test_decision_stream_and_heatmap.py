@@ -455,7 +455,6 @@ def test_pipeline_heatmap_matrix_prioritizes_decision_candidates(tmp_path: Path,
         conn=conn,
         provider=mock_provider,
         vstore=vstore,
-        vault_dir=tmp_path / "vault",
         fetch_fn=lambda url, *args, **kwargs: doc,
     )
 

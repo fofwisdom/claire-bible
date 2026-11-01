@@ -222,7 +222,6 @@ def test_pipeline_cross_document_relation_linking(tmp_path):
         conn=conn,
         provider=provider,
         vstore=vstore,
-        vault_dir=vault_dir,
         prefetched=doc1,
     )
     assert rep1.error is None
@@ -236,7 +235,6 @@ def test_pipeline_cross_document_relation_linking(tmp_path):
         conn=conn,
         provider=provider,
         vstore=vstore,
-        vault_dir=vault_dir,
         prefetched=doc2,
     )
     assert rep2.error is None
@@ -254,12 +252,6 @@ def test_pipeline_cross_document_relation_linking(tmp_path):
 
     assert gstore.has_edge(vllm_ent.id, pa_ent.id, "uses") is True
 
-    # Vault 마크다운 파일에 상호 위키링크가 반영되었는지 검증
-    from claire.store.vault import _entity_filename
-
-    vllm_md = (vault_dir / _entity_filename(vllm_ent)).read_text(encoding="utf-8")
-    assert "pagedattention" in vllm_md.lower()
-
     # 3) 동일 문서 재적재 시 이미 존재하는 엣지이므로 중복 LLM 질의 없이 스킵되는지 확인
     initial_judge_count = len(provider.judge_rel_calls)
     doc3 = Document(id="doc3", title="PagedAttention Doc 3", raw_text="PagedAttention again")
@@ -268,7 +260,6 @@ def test_pipeline_cross_document_relation_linking(tmp_path):
         conn=conn,
         provider=provider,
         vstore=vstore,
-        vault_dir=vault_dir,
         prefetched=doc3,
     )
     # 이미 vLLM과 PagedAttention 사이에 엣지가 존재하므로 has_edge 체크로 judge_relationship 호출 0
@@ -345,10 +336,10 @@ def test_pipeline_relation_linking_passes_document_id_and_concurrency(tmp_path):
     provider.embed_map["pagedattention"] = [0.82, 0.57236]
 
     doc1 = Document(id="doc_alpha", title="vLLM Engine", raw_text="vLLM engine")
-    ingest("https://example.com/vllm", conn=conn, provider=provider, vstore=vstore, vault_dir=vault_dir, prefetched=doc1)
+    ingest("https://example.com/vllm", conn=conn, provider=provider, vstore=vstore, prefetched=doc1)
 
     doc2 = Document(id="doc_beta", title="PagedAttention", raw_text="PagedAttention paper")
-    rep2 = ingest("https://example.com/pagedattention", conn=conn, provider=provider, vstore=vstore, vault_dir=vault_dir, prefetched=doc2)
+    rep2 = ingest("https://example.com/pagedattention", conn=conn, provider=provider, vstore=vstore, prefetched=doc2)
 
     assert rep2.error is None
     assert rep2.cross_relations_added == 1

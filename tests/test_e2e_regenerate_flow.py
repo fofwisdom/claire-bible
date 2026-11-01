@@ -44,6 +44,8 @@ def test_e2e_regenerate_lifecycle(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("CLAIRE_DATA_LIFECYCLE", "purgeable")
     monkeypatch.setenv("CLAIRE_ALLOW_PURGE", "1")
     monkeypatch.setenv("CLAIRE_INJECT_TOKEN", OWNER_TOKEN)
+    monkeypatch.setenv("CLAIRE_ENVIRONMENT", "development")
+    monkeypatch.setenv("CLAIRE_PUBLIC_URL", "http://127.0.0.1:8765/")
 
     get_settings.cache_clear()
     settings = get_settings()
@@ -70,7 +72,6 @@ def test_e2e_regenerate_lifecycle(tmp_path: Path, monkeypatch):
         conn=conn,
         provider=prov,
         vstore=vstore,
-        vault_dir=vault_dir,
         data_dir=data_dir,
         source="e2e-test",
         fetch_fn=lambda _: initial_doc,

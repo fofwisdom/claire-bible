@@ -21,7 +21,6 @@ def client(tmp_path: Path) -> TestClient:
         inject_token="x" * 32,
         db_file=tmp_path / "claire.db",
         data_dir=tmp_path / "data",
-        vault_dir=tmp_path / "vault",
     )
     app = server.create_app(settings)
     return TestClient(app, base_url="http://127.0.0.1:8000")

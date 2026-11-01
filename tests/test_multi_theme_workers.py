@@ -48,7 +48,7 @@ def _install_registry(monkeypatch, active):
 def _entry(theme_id):
     return (
         SimpleNamespace(id=theme_id, label=f"theme-{theme_id}"),
-        SimpleNamespace(db_file=f"/{theme_id}.db", vault_dir=f"/{theme_id}-vault"),
+        SimpleNamespace(db_file=f"/{theme_id}.db", data_dir=f"/{theme_id}-data"),
     )
 
 

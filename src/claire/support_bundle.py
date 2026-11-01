@@ -534,7 +534,6 @@ def _collect_storage_diagnostics(
 ) -> tuple[dict[str, Any], list[dict[str, str]]]:
     data_dir = Path(settings.data_dir)
     configured_db = Path(settings.db_file)
-    vault_dir = Path(getattr(settings, "vault_dir", getattr(settings, "vault_path", "vault")))
     registry_path = Path(theme_manager.registry_path)
     telemetry_path = get_telemetry_db_path(data_dir)
     mounts = _read_mountinfo()
@@ -543,7 +542,6 @@ def _collect_storage_diagnostics(
         "process_cwd": Path.cwd(),
         "data_dir": data_dir,
         "configured_db": configured_db,
-        "vault_dir": vault_dir,
         "themes_registry": registry_path,
         "telemetry_db": telemetry_path,
     }
@@ -557,13 +555,6 @@ def _collect_storage_diagnostics(
         try:
             theme_settings = theme_manager.get_settings_for_theme(theme.id, settings)
             db_file = Path(theme_settings.db_file)
-            theme_vault = Path(
-                getattr(
-                    theme_settings,
-                    "vault_dir",
-                    getattr(theme_settings, "vault_path", theme.vault_path),
-                )
-            )
             resolved_themes.append(
                 {
                     "id": theme.id,
@@ -571,11 +562,8 @@ def _collect_storage_diagnostics(
                     "label": theme.label,
                     "is_default": theme.is_default,
                     "declared_db_path": theme.db_path,
-                    "declared_vault_path": theme.vault_path,
                     "database": _inspect_database_candidate(db_file),
-                    "vault": _path_metadata(theme_vault),
                     "database_mount": _enclosing_mount(db_file, mounts),
-                    "vault_mount": _enclosing_mount(theme_vault, mounts),
                 }
             )
         except Exception as exc:  # noqa: BLE001
@@ -658,7 +646,6 @@ def _collect_storage_diagnostics(
                 "environment": getattr(settings, "environment", None),
                 "multi_theme": bool(getattr(settings, "multi_theme", False)),
                 "db_path": str(getattr(settings, "db_path", configured_db)),
-                "vault_path": str(getattr(settings, "vault_path", vault_dir)),
             },
             "paths": path_reports,
             "enclosing_mounts": enclosing_mounts,
@@ -903,9 +890,6 @@ def _support_theme_inventory(
             seq=0,
             label="기본 지식베이스 (registry fallback)",
             db_path=str(getattr(settings, "db_path", settings.db_file)),
-            vault_path=str(
-                getattr(settings, "vault_path", getattr(settings, "vault_dir", "vault"))
-            ),
             is_default=True,
             is_public=False,
         )

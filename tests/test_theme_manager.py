@@ -91,7 +91,6 @@ def test_active_theme_settings_are_sorted_and_only_override_storage(temp_theme_e
     assert [theme.id for theme, _ in active] == [0, 1, 2]
     for theme, themed in active:
         assert themed.db_path == theme.db_path
-        assert themed.vault_path == theme.vault_path
         assert themed.provider == manager.settings.provider
         assert themed.multi_theme == manager.settings.multi_theme
 
@@ -128,7 +127,6 @@ def test_define_new_theme_uses_sequence(temp_theme_env):
     assert t1.is_default is False
     # 물리 경로는 순수 일련번호 '1'을 사용해야 함
     assert "themes/1/claire.db" in t1.db_path.replace("\\", "/")
-    assert "themes/1" in t1.vault_path.replace("\\", "/")
 
     # 두 번째 테마 정의 시 seq 2 발급
     t2 = manager.define_theme("철학 및 인문학", icon="🏛️")
@@ -141,7 +139,6 @@ def test_update_theme_label_does_not_change_folder(temp_theme_env):
     manager, _, _ = temp_theme_env
     t1 = manager.define_theme("초기 레이블", icon="📁")
     orig_db_path = t1.db_path
-    orig_vault_path = t1.vault_path
 
     # 레이블 및 아이콘 수정
     updated = manager.update_theme(1, label="수정된 새 레이블", icon="🤖")
@@ -149,7 +146,6 @@ def test_update_theme_label_does_not_change_folder(temp_theme_env):
     assert updated.icon == "🤖"
     # 물리 폴더 경로는 절대 변경되지 않아야 함
     assert updated.db_path == orig_db_path
-    assert updated.vault_path == orig_vault_path
 
     # get_theme 으로 조회 시에도 레이블로 찾을 수 있음
     found_by_label = manager.get_theme("수정된 새 레이블")
@@ -394,12 +390,6 @@ def test_theme_reset_preserves_id_and_cleans_data(temp_theme_env):
     conn.commit()
     conn.close()
 
-    # 볼트 파일 생성
-    vault_file = t_settings.vault_dir / "doc_robin.md"
-    vault_file.parent.mkdir(parents=True, exist_ok=True)
-    vault_file.write_text("# Robin", encoding="utf-8")
-    assert vault_file.is_file()
-
     # 3. reset_theme 실행
     stats = manager.reset_theme(tid)
     assert stats["theme_id"] == 1
@@ -407,7 +397,6 @@ def test_theme_reset_preserves_id_and_cleans_data(temp_theme_env):
     assert stats["deleted_documents"] == 1
     assert stats["deleted_entities"] == 1
     assert stats["deleted_relations"] == 1
-    assert stats["vault_files_unlinked"] == 1
     assert stats["db_cleared"] is True
 
     # 4. 검증: 메타데이터 및 고유 ID/URI 보존 확인
@@ -428,8 +417,6 @@ def test_theme_reset_preserves_id_and_cleans_data(temp_theme_env):
     assert conn2.execute("SELECT COUNT(*) FROM embeddings").fetchone()[0] == 0
     assert conn2.execute("SELECT COUNT(*) FROM raw_inbox").fetchone()[0] == 0
     conn2.close()
-
-    assert not vault_file.exists()
 
     # 6. 다음 테마 생성 시 ID 시퀀스가 건너뛰지 않고 정상 발급되는지 검증
     next_theme = manager.define_theme("Zenless", icon="⚡")

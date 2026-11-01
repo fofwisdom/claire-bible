@@ -49,7 +49,6 @@ def cmd_preflight(_args) -> int:
     print(f"telegram token    : {'set' if s.telegram_bot_token else 'NOT set'}")
     print(f"allowed users     : {sorted(s.allowed_user_ids) or 'ALL'}")
     print(f"db path           : {s.db_file}")
-    print(f"vault path        : {s.vault_dir}")
     print(f"vector backend cfg: {s.vector_backend}")
     print(f"data lifecycle    : {s.data_lifecycle} (purge_allowed={'YES' if s.is_purge_allowed else 'NO'})")
     anonymous_status = (
@@ -320,7 +319,7 @@ def cmd_purge(args) -> int:
 
         if not apply:
             report = dbm.purge_document_cascade(
-                conn, data_dir=s.data_dir, vault_dir=s.vault_dir, target_ids=target_ids, reason=reason, dry_run=True, tombstone=tombstone
+                conn, data_dir=s.data_dir, target_ids=target_ids, reason=reason, dry_run=True, tombstone=tombstone
             )
             if getattr(args, "json", False):
                 import json
@@ -376,7 +375,6 @@ def cmd_purge(args) -> int:
         report = dbm.purge_document_cascade(
             conn,
             data_dir=s.data_dir,
-            vault_dir=s.vault_dir,
             target_ids=target_ids,
             reason=reason,
             dry_run=False,
@@ -697,7 +695,6 @@ def cmd_theme(args) -> int:
                 "description": "일반 수집 자료 및 기본 지식",
                 "icon": "📚",
                 "db_path": str(s.db_path),
-                "vault_path": str(s.vault_path),
                 "is_default": True,
                 "stats": stats,
             }]
@@ -797,7 +794,6 @@ def cmd_theme(args) -> int:
                 print(f"  • 기본 초점   : {theme.default_focus or '(없음)'}")
                 print(f"  • 설명        : {theme.description or '(없음)'}")
                 print(f"  • SQLite 경로 : {theme.db_path}")
-                print(f"  • Vault 경로  : {theme.vault_path}")
             return 0
         except Exception as exc:
             print(f"[오류] 테마 정의 실패: {exc}", file=sys.stderr)
@@ -851,7 +847,7 @@ def cmd_theme(args) -> int:
         yes = getattr(args, "yes", False)
         if purge and not yes:
             try:
-                confirm = input(f"[경고] 테마 #{theme_id}의 물리 DB 및 Vault 파일을 완전히 영구 삭제하시겠습니까? (y/N): ")
+                confirm = input(f"[경고] 테마 #{theme_id}의 물리 DB 파일을 완전히 영구 삭제하시겠습니까? (y/N): ")
                 if confirm.strip().lower() not in ("y", "yes"):
                     print("작업이 취소되었습니다.")
                     return 0
@@ -909,7 +905,6 @@ def cmd_theme(args) -> int:
                 print(f"  • 소각된 문서 수   : {stats['deleted_documents']} 건")
                 print(f"  • 소각된 엔티티 수 : {stats['deleted_entities']} 건")
                 print(f"  • 소각된 관계 수   : {stats['deleted_relations']} 건")
-                print(f"  • 삭제된 볼트 파일 : {stats['vault_files_unlinked']} 개")
                 print("  (모든 지식 그래프 및 문서가 100% 클린 리셋되었습니다. 새로운 적재를 시작할 수 있습니다.)")
             return 0
         except Exception as exc:
@@ -1109,7 +1104,10 @@ def _theme_services_for_cycle(
 
     ordered: list[tuple[Any, Any]] = []
     for theme, theme_settings in active:
-        fingerprint = (str(theme_settings.db_file), str(theme_settings.vault_dir))
+        fingerprint = (
+            str(getattr(theme_settings, "db_file", "")),
+            str(getattr(theme_settings, "data_dir", getattr(theme_settings, "vault_dir", ""))),
+        )
         cached = state.services.get(theme.id)
         if cached is None or cached[0] != fingerprint:
             if cached is not None:
@@ -1487,7 +1485,7 @@ def cmd_ingest(args) -> int:
     full_content = getattr(args, "full_content", False)
     report = ingest(
         args.payload, conn=conn, provider=provider, vstore=vstore,
-        vault_dir=s.vault_dir, data_dir=s.data_dir, source="cli",
+        data_dir=s.data_dir, source="cli",
         expand_max=(0 if args.no_expand else s.expand_max),
         format=getattr(args, "format", None),
         focus=focus,
@@ -1501,7 +1499,7 @@ def cmd_ingest(args) -> int:
         print(f"\n[expand] {len(report.candidates)}개 후보 적재 중…")
         for url in report.candidates:
             sub = ingest(url, conn=conn, provider=provider, vstore=vstore,
-                         vault_dir=s.vault_dir, data_dir=s.data_dir, source="cli-expand",
+                         data_dir=s.data_dir, source="cli-expand",
                          expand_max=0, format=getattr(args, "format", None),
                          focus=focus, effort=effort, full_content=full_content)  # 2홉 방지
             print(f"  - {url}\n    {sub.telegram_summary().splitlines()[0]}")
@@ -1712,7 +1710,6 @@ def cmd_reingest(args) -> int:
                 conn=conn2,
                 provider=provider,
                 vstore=vstore,
-                vault_dir=s.vault_dir,
                 data_dir=s.data_dir,
                 source="cli-reingest",
                 expand_max=(0 if args.no_expand else s.expand_max),
@@ -3961,7 +3958,7 @@ def cmd_hoyowiki(args) -> int:
             vstore = make_vector_store(conn, s.vector_backend)
             report = ingest(
                 target_url, conn=conn, provider=provider, vstore=vstore,
-                vault_dir=s.vault_dir, data_dir=s.data_dir, source="cli-hoyowiki",
+                data_dir=s.data_dir, source="cli-hoyowiki",
                 full_content=True,
             )
             print(report.telegram_summary())
@@ -4021,7 +4018,7 @@ def cmd_hoyowiki(args) -> int:
                 try:
                     rep = ingest(
                         doc.canonical_url, conn=conn, provider=provider, vstore=vstore,
-                        vault_dir=s.vault_dir, data_dir=s.data_dir, source="cli-hoyowiki",
+                        data_dir=s.data_dir, source="cli-hoyowiki",
                         full_content=True,
                     )
                     if rep.error:
@@ -4633,7 +4630,7 @@ def build_parser() -> argparse.ArgumentParser:
     ptheme = sub.add_parser(
         "theme",
         help="manage themes (multi-database isolation by sequence)",
-        description="Manage knowledge themes with isolated database and vault storage by sequence directory.",
+        description="Manage knowledge themes with isolated database storage by sequence directory.",
     )
     ptheme_sub = ptheme.add_subparsers(dest="theme_action")
 
@@ -4648,7 +4645,7 @@ def build_parser() -> argparse.ArgumentParser:
     ptd = ptheme_sub.add_parser(
         "define",
         help="define a new theme with next sequence directory",
-        description="Register a new theme and provision isolated data/ and vault/ storage directories.",
+        description="Register a new theme and provision isolated data storage directories.",
     )
     ptd.add_argument("--label", "-l", required=True, help="theme label (display name)")
     ptd.add_argument("--desc", "--description", default="", help="theme description (shown in WebUI and Telegram bot)")
@@ -4694,7 +4691,7 @@ def build_parser() -> argparse.ArgumentParser:
         description="Delete theme from registry. Note: default theme 0 cannot be deleted.",
     )
     ptdel.add_argument("id", help="theme ID, sequence number, or label to delete")
-    ptdel.add_argument("--purge", action="store_true", help="permanently delete physical database and vault files from disk")
+    ptdel.add_argument("--purge", action="store_true", help="permanently delete physical database files from disk")
     ptdel.add_argument("--yes", "-y", action="store_true", help="skip confirmation prompt")
     ptdel.add_argument("--json", action="store_true", help="output deletion report in JSON format")
     ptdel.set_defaults(func=cmd_theme)
@@ -4702,7 +4699,7 @@ def build_parser() -> argparse.ArgumentParser:
     ptres = ptheme_sub.add_parser(
         "reset",
         help="reset all data in a theme while preserving theme ID, URL, and metadata",
-        description="Atomically reset and clear all documents, graph entities, relations, and vault files in a theme while preserving theme metadata.",
+        description="Atomically reset and clear all documents, graph entities, and relations in a theme while preserving theme metadata.",
     )
     ptres.add_argument("id", help="theme ID, sequence number, or label to reset")
     ptres.add_argument("--yes", "-y", action="store_true", help="skip confirmation prompt")
@@ -4904,7 +4901,7 @@ def build_parser() -> argparse.ArgumentParser:
     pi = sub.add_parser(
         "ingest",
         help="ingest a single document payload (URL, text, or file path)",
-        description="Ingest a single document payload from a URL, raw text, or local file, extract knowledge graph, and sync to vault.",
+        description="Ingest a single document payload from a URL, raw text, or local file, and extract knowledge graph.",
     )
     pi.add_argument("payload", help="URL, plain text, or local file path to ingest")
     pi.add_argument("--full", "--full-content", "--no-truncate", action="store_true", dest="full_content",
@@ -5039,7 +5036,7 @@ def build_parser() -> argparse.ArgumentParser:
                       help="component to regenerate: all, summary, detail, graph, format")
     preg.add_argument("--summary", action="store_true", help="regenerate summary only (default if no component specified)")
     preg.add_argument("--detail", action="store_true", help="regenerate readable detail text only")
-    preg.add_argument("--graph", action="store_true", help="re-extract entities and relations, updating knowledge graph and vault")
+    preg.add_argument("--graph", action="store_true", help="re-extract entities and relations, updating knowledge graph")
     preg.add_argument("--all", action="store_true", help="regenerate all components (summary, detail, graph nodes)")
     preg.add_argument("--corrupted", action="store_true",
                       help="automatically scan and target all documents with corrupted AsciiDoc syntax in summary")
@@ -5277,7 +5274,7 @@ def build_parser() -> argparse.ArgumentParser:
     ppg = sub.add_parser(
         "purge",
         help="atomically purge legacy/corrupted documents with tombstones, disk unlink, graph healing & vacuum (default: dry-run, requires --apply)",
-        description="Atomically purge documents from database tables, unlink disk files and vault notes, heal graph, and record tombstones.",
+        description="Atomically purge documents from database tables, unlink disk files, heal graph, and record tombstones.",
     )
     ppg.add_argument("target", nargs="?", default=None, help="target document ID, URL, share link (/p?s=token), or search keyword to purge")
     ppg.add_argument("-t", "--theme", default=None, help="target theme ID, sequence number, or label")
@@ -5442,7 +5439,7 @@ def build_parser() -> argparse.ArgumentParser:
     phoyo.add_argument("-d", "--delay", type=float, default=0.5, help="delay in seconds between HTTP requests (default: 0.5)")
     phoyo.add_argument("--lang", default="ko-kr", help="language code: ko-kr, en-us, ja-jp, zh-cn (default: ko-kr)")
     phoyo.add_argument("--list-menus", action="store_true", help="list available menus and categories for the selected game")
-    phoyo.add_argument("--ingest", action="store_true", help="directly ingest crawled entries into Claire Bible knowledge base and vault")
+    phoyo.add_argument("--ingest", action="store_true", help="directly ingest crawled entries into Claire Bible knowledge base")
     phoyo.add_argument("-o", "--output-dir", default=None, help="directory to save generated markdown documents")
     phoyo.add_argument("--json", action="store_true", help="output results in JSON format")
     phoyo.set_defaults(func=cmd_hoyowiki)
@@ -5477,11 +5474,11 @@ def build_parser() -> argparse.ArgumentParser:
         "select-label",
         aliases=["promote"],
         help="select one of the entity's existing aliases as its primary representative label",
-        description="Promote an existing entity alias to its primary representative label, updating the database and vault.",
+        description="Promote an existing entity alias to its primary representative label, updating the database.",
     )
     pes.add_argument("target", help="target entity ID, exact name, or alias")
     pes.add_argument("--to", "--label", "-l", required=True, dest="to", help="existing alias to promote to primary representative label")
-    pes.add_argument("--apply", action="store_true", help="apply label swap to database and vault (default: dry-run)")
+    pes.add_argument("--apply", action="store_true", help="apply label swap to database (default: dry-run)")
     pes.add_argument("--dry-run", action="store_true", help="simulate label swap without modifying database (default)")
     pes.add_argument("-t", "--theme", default=None, help="target theme ID, sequence number, or label")
     pes.add_argument("--json", action="store_true", help="output result in JSON format")
@@ -5494,7 +5491,7 @@ def build_parser() -> argparse.ArgumentParser:
         description="Batch promote entity aliases to primary representative labels using a JSON mapping rules file.",
     )
     peb.add_argument("--rules", "-r", required=True, help="path to JSON rules file with {target: chosen_alias} mappings")
-    peb.add_argument("--apply", action="store_true", help="apply batch label swaps to database and vault (default: dry-run)")
+    peb.add_argument("--apply", action="store_true", help="apply batch label swaps to database (default: dry-run)")
     peb.add_argument("--dry-run", action="store_true", help="simulate batch label swaps without modifying database (default)")
     peb.add_argument("-t", "--theme", default=None, help="target theme ID, sequence number, or label")
     peb.add_argument("--json", action="store_true", help="output result in JSON format")

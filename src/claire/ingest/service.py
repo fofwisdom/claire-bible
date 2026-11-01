@@ -126,7 +126,7 @@ class IngestService:
         try:
             return ingest(
                 payload, conn=conn, provider=self.provider, vstore=vstore,
-                vault_dir=self.s.vault_dir, data_dir=self.s.data_dir,
+                data_dir=self.s.data_dir,
                 expand_max=em, source=source, user_id=user_id, chat_id=chat_id,
                 inbox_kind=inbox_kind, file_ref=file_ref, file_name=file_name,
                 inbox_id=inbox_id, prefetched=prefetched, auto_expand=auto,
@@ -286,7 +286,7 @@ class IngestService:
                     parent_full = dbm.get_document(conn2, document_id)
                     m = merge_source_into_document(
                         conn2, self.provider, vstore, parent_full, child,
-                        vault_dir=self.s.vault_dir, data_dir=self.s.data_dir,
+                        data_dir=self.s.data_dir,
                         format=self.s.render_format,
                         focus=self.get_effective_default_focus())
                     if m.get("merged"):
@@ -374,7 +374,7 @@ class IngestService:
 
         - 새 content_hash 가 기존과 같으면 'nochange'(내용 동일 → 재추출 생략).
         - 다르면 documents 행을 같은 id 로 갱신(엔티티 sources 연결 보존) + 새 artifact
-          보관 + 재추출/해소/관계/vault. 새로 잡힌 엔티티는 기존 그래프에 누적된다. 반환: {status, document_id, old_len, new_len, ...}
+          보관 + 재추출/해소/관계. 새로 잡힌 엔티티는 기존 그래프에 누적된다. 반환: {status, document_id, old_len, new_len, ...}
         """
         if not document_id:
             return {"status": "error", "document_id": document_id,
@@ -465,7 +465,7 @@ class IngestService:
             fmt = format or self.s.render_format
             report = IngestReport(document_id=document_id)
             ok, err = extract_resolve_store(
-                conn, self.provider, vstore, doc, report, vault_dir=self.s.vault_dir, format=fmt,
+                conn, self.provider, vstore, doc, report, format=fmt,
                 on_progress=on_progress)
             if not ok:
                 return {"status": "error", "document_id": document_id, "error": err}
@@ -609,7 +609,7 @@ class IngestService:
                 with _item_context(reporter, on_progress, idx, did, title=doc.title or "", url=doc.canonical_url or doc.url or "") as step_cb:
                     ok, err = extract_resolve_store(
                         conn, self.provider, vstore, doc, report,
-                        vault_dir=self.s.vault_dir, format=fmt, on_progress=step_cb)
+                        format=fmt, on_progress=step_cb)
                     if ok:
                         out["ok"] += 1
                     else:
@@ -1117,7 +1117,7 @@ class IngestService:
                                 target_fmt = format or self.s.render_format
 
                                 if do_graph:
-                                    # 엔티티/노드 추출, 지식 그래프 해소/적재, 벡터 임베딩, 관계 적재, Vault 동기화
+                                    # 엔티티/노드 추출, 지식 그래프 해소/적재, 벡터 임베딩, 관계 적재
                                     from ..store.vectors import make_vector_store
                                     from .pipeline import IngestReport, extract_resolve_store
 
@@ -1130,7 +1130,6 @@ class IngestService:
                                         vstore,
                                         doc,
                                         report,
-                                        vault_dir=self.s.vault_dir,
                                         format=target_fmt,
                                         on_progress=step_cb,
                                         effort=effort,
@@ -1496,7 +1495,7 @@ class IngestService:
     def _retry_extract(self, document_id: str, inbox_id: int) -> IngestReport:
         """[자동복구] extract 단계에서 실패해 문서만 적재된 행을 재추출.
 
-        re-fetch 없이(원본 raw_text 가 이미 DB 에 있음) extract→해소→관계→vault 만 다시 돌린다. dedup/nochange 가드를 모두 우회 = 429 등으로 추출만 막혔던 케이스의 진짜 복구. 성공하면 inbox 를 done 으로 갱신.
+        re-fetch 없이(원본 raw_text 가 이미 DB 에 있음) extract→해소→관계만 다시 돌린다. dedup/nochange 가드를 모두 우회 = 429 등으로 추출만 막혔던 케이스의 진짜 복구. 성공하면 inbox 를 done 으로 갱신.
         """
         conn = dbm.connect(self.s.db_file)
         dbm.init_db(conn)
@@ -1511,7 +1510,7 @@ class IngestService:
             report.partial = doc.partial
             report.title = doc.title
             ok, err = extract_resolve_store(
-                conn, self.provider, vstore, doc, report, vault_dir=self.s.vault_dir)
+                conn, self.provider, vstore, doc, report)
             if ok:
                 dbm.update_inbox(conn, inbox_id, status="done", document_id=document_id)
             else:

@@ -518,7 +518,8 @@ class Settings(BaseSettings):
 
     # --- storage ---
     db_path: str = Field(default="data/claire.db", alias="CLAIRE_DB_PATH")
-    vault_path: str = Field(default="vault", alias="CLAIRE_VAULT_PATH")
+    # Deprecated: The vault subsystem is removed. Retained for backward compatibility.
+    vault_path: str = Field(default="", alias="CLAIRE_VAULT_PATH")
     vector_backend: str = Field(default="auto", alias="CLAIRE_VECTOR_BACKEND")
     # 읽기/가독 렌더링 포맷 (md: Markdown, adoc: AsciiDoc). 기본값 adoc.
     render_format: str = Field(default="adoc", alias="CLAIRE_RENDER_FORMAT")
@@ -1024,7 +1025,8 @@ class Settings(BaseSettings):
 
     @property
     def vault_dir(self) -> Path:
-        p = Path(self.vault_path)
+        """Deprecated property for legacy callers."""
+        p = Path(self.vault_path) if self.vault_path else (self.data_dir / "vault")
         return p if p.is_absolute() else ROOT / p
 
     @property

@@ -38,7 +38,7 @@ class RelationType(str, Enum):
     RELATED_TO = "related_to"
 
 
-# 각 엔티티 타입에 대한 짧은 설명 — LLM 프롬프트와 vault frontmatter 에 쓰인다.
+# 각 엔티티 타입에 대한 짧은 설명 — LLM 프롬프트에 쓰인다.
 ENTITY_DESCRIPTIONS: dict[EntityType, str] = {
     EntityType.TOOL: "A usable software tool, CLI, app, or product.",
     EntityType.FRAMEWORK: "A library or framework developers build on.",

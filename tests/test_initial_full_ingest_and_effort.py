@@ -142,7 +142,6 @@ def test_pipeline_ingest_with_full_content_and_effort(tmp_path: Path):
         conn=conn,
         provider=provider,
         vstore=vstore,
-        vault_dir=tmp_path / "vault",
         data_dir=data_dir,
         fetch_fn=mock_fetch,
         full_content=True,

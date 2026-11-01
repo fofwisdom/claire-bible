@@ -985,7 +985,6 @@ def test_purge_removes_presentation_attachment(tmp_path: Path):
     purged = dbm.purge_document_cascade(
         conn,
         data_dir=tmp_path,
-        vault_dir=None,
         target_ids=[report.document_id],
         dry_run=False,
     )

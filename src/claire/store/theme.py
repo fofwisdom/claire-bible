@@ -74,7 +74,6 @@ class ThemeInfo:
     description: str = ""
     icon: str = "📚"
     db_path: str = ""
-    vault_path: str = ""
     is_default: bool = False
     is_public: bool = True
     is_collaborator_accessible: bool = True
@@ -107,7 +106,6 @@ class ThemeInfo:
             description=str(data.get("description", "")),
             icon=str(data.get("icon", "📁")),
             db_path=str(data.get("db_path", "")),
-            vault_path=str(data.get("vault_path", "")),
             is_default=is_def,
             is_public=bool(data.get("is_public", data.get("public", True))),
             is_collaborator_accessible=bool(
@@ -262,14 +260,6 @@ class ThemeManager:
         if db_path is None:
             db_file = getattr(self.settings, "db_file", None)
             db_path = str(db_file) if db_file is not None else "data/claire.db"
-        vault_path = getattr(self.settings, "vault_path", None)
-        if vault_path is None:
-            vault_dir = getattr(self.settings, "vault_dir", None)
-            if vault_dir is not None:
-                vault_path = str(vault_dir)
-            else:
-                data_dir = getattr(self.settings, "data_dir", None)
-                vault_path = str(data_dir / "vault") if data_dir is not None else "vault"
 
         default_sorcerer = getattr(
             self.settings,
@@ -283,7 +273,6 @@ class ThemeManager:
             description="일반 수집 자료 및 기본 지식",
             icon="📚",
             db_path=str(db_path),
-            vault_path=str(vault_path),
             is_default=True,
             is_public=True,
             is_collaborator_accessible=False,
@@ -471,11 +460,9 @@ class ThemeManager:
 
         abs_db_dir = self.settings.data_dir / "themes" / str(seq)
         abs_db_file = abs_db_dir / "claire.db"
-        abs_vault_dir = self.settings.vault_dir / "themes" / str(seq)
 
         # 디렉터리 생성
         abs_db_file.parent.mkdir(parents=True, exist_ok=True)
-        abs_vault_dir.mkdir(parents=True, exist_ok=True)
 
         # SQLite 초기화 및 마이그레이션 일괄 적용
         conn = dbm.connect(abs_db_file)
@@ -489,11 +476,6 @@ class ThemeManager:
         except ValueError:
             rel_db_path = str(abs_db_file)
 
-        try:
-            rel_vault_path = str(abs_vault_dir.relative_to(ROOT))
-        except ValueError:
-            rel_vault_path = str(abs_vault_dir)
-
         now = time.time()
         mgr = str(sorcerer or knowledge_manager or "").strip()
         theme = ThemeInfo(
@@ -503,7 +485,6 @@ class ThemeManager:
             description=str(description or "").strip(),
             icon=str(icon or "📁").strip(),
             db_path=rel_db_path,
-            vault_path=rel_vault_path,
             is_default=False,
             is_public=bool(is_public),
             is_collaborator_accessible=bool(is_collaborator_accessible),
@@ -644,7 +625,7 @@ class ThemeManager:
         self._save_registry()
 
         if purge:
-            # 완전 소각: DB 파일 및 vault 디렉터리 삭제
+            # 완전 소각: DB 파일 디렉터리 삭제
             try:
                 db_p = t_settings.db_file
                 if db_p.parent.name == str(tid) and db_p.parent.is_dir():
@@ -652,11 +633,6 @@ class ThemeManager:
                     shutil.rmtree(db_p.parent, ignore_errors=True)
                 elif db_p.is_file():
                     db_p.unlink()
-
-                vault_p = t_settings.vault_dir
-                if vault_p.name == str(tid) and vault_p.is_dir():
-                    import shutil
-                    shutil.rmtree(vault_p, ignore_errors=True)
             except Exception as exc:
                 log.warning("테마 #%d 디스크 삭제 중 오류 발생: %s", tid, exc)
 
@@ -664,7 +640,7 @@ class ThemeManager:
         return theme
 
     def reset_theme(self, theme_id: int | str) -> dict[str, Any]:
-        """지식 관리자: 테마 고유 식별자(?theme=id) 및 메타데이터는 보존하고 내부 수집/그래프/볼트 데이터를 완전 초기화."""
+        """지식 관리자: 테마 고유 식별자(?theme=id) 및 메타데이터는 보존하고 내부 수집/그래프 데이터를 완전 초기화."""
         import sqlite3
 
         self.reload()
@@ -687,7 +663,6 @@ class ThemeManager:
             "deleted_documents": 0,
             "deleted_entities": 0,
             "deleted_relations": 0,
-            "vault_files_unlinked": 0,
         }
 
         # 1. DB 완전 초기화
@@ -738,34 +713,18 @@ class ThemeManager:
             finally:
                 conn.close()
 
-        # 2. 볼트(Vault) 디스크 파일 정리
-        vault_p = t_settings.vault_dir
-        if vault_p.is_dir():
-            unlinked = 0
-            for f in vault_p.rglob("*.md"):
-                if tid == 0 and "themes" in f.parts:
-                    continue
-                if f.is_file():
-                    try:
-                        f.unlink()
-                        unlinked += 1
-                    except Exception:
-                        pass
-            stats["vault_files_unlinked"] = unlinked
-
-        # 3. 메타데이터 updated_at 갱신 (ID, 라벨, 초점 등은 불변 유지)
+        # 2. 메타데이터 updated_at 갱신 (ID, 라벨, 초점 등은 불변 유지)
         theme.updated_at = time.time()
         self._save_registry()
 
         log.info(
-            "테마 #%d [%s] 데이터 완전 초기화 완료 (URI: ?theme=%d, 문서: %d건, 엔티티: %d건, 관계: %d건, 볼트파일: %d개 삭제)",
+            "테마 #%d [%s] 데이터 완전 초기화 완료 (URI: ?theme=%d, 문서: %d건, 엔티티: %d건, 관계: %d건 삭제)",
             tid,
             theme.label,
             tid,
             stats["deleted_documents"],
             stats["deleted_entities"],
             stats["deleted_relations"],
-            stats["vault_files_unlinked"],
         )
         return stats
 
@@ -774,7 +733,7 @@ class ThemeManager:
         theme_ref: int | str | None = None,
         base_settings: Settings | Any | None = None,
     ) -> Any:
-        """지정된 테마의 db_path 및 vault_path 가 적용된 Settings 인스턴스를 반환."""
+        """지정된 테마의 db_path 가 적용된 Settings 인스턴스를 반환."""
         theme = self.get_theme(theme_ref)
         base = base_settings or self.settings
 
@@ -782,12 +741,11 @@ class ThemeManager:
 
     @staticmethod
     def _settings_for_theme_info(theme: ThemeInfo, base: Settings | Any) -> Any:
-        """글로벌 설정을 유지하고 테마별 저장 경로 두 개만 덮어쓴다."""
+        """글로벌 설정을 유지하고 테마별 저장 경로만 덮어쓴다."""
 
         if hasattr(base, "model_copy"):
             override = {
                 "db_path": theme.db_path,
-                "vault_path": theme.vault_path,
                 "theme_id": theme.id,
                 "default_focus": theme.default_focus,
             }
@@ -801,10 +759,6 @@ class ThemeManager:
         st.db_file = Path(theme.db_path)
         if hasattr(st, "db_path"):
             st.db_path = theme.db_path
-        if hasattr(st, "vault_path"):
-            st.vault_path = theme.vault_path
-        if hasattr(st, "vault_dir"):
-            st.vault_dir = Path(theme.vault_path)
         if theme.sorcerer and hasattr(st, "sorcerer"):
             st.sorcerer = theme.sorcerer
         st.theme_id = theme.id

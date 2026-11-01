@@ -1,6 +1,6 @@
 """SQLite 정본 스토어 — 스키마 + 마이그레이션 + 기본 CRUD.
 
-정본은 이 단일 파일. vault(.md)는 export-only 투영(store/vault.py). 벡터는 store/vectors.py(sqlite-vec auto / brute fallback), 키워드는 FTS5.
+정본은 이 단일 파일. 벡터는 store/vectors.py(sqlite-vec auto / brute fallback), 키워드는 FTS5.
 """
 
 from __future__ import annotations
@@ -303,7 +303,7 @@ CREATE INDEX IF NOT EXISTS idx_tombstones_hash ON purged_tombstones(content_hash
 def checkpoint_database(src: str | Path, dest: str | Path) -> Path:
     """내부 안전장치용 SQLite checkpoint를 단일 파일로 복제(VACUUM INTO).
 
-    이는 웹 병합 같은 앱 내부 파괴 작업의 근거리 checkpoint일 뿐, data/raw·vault와 복원 절차를 포함하는 운영 backup이 아니다. 운영 backup은 cb-manuscript가 소유한다. `VACUUM INTO`는 WAL을 반영한 트랜잭션 일관 DB snapshot을 만든다.
+    이는 웹 병합 같은 앱 내부 파괴 작업의 근거리 checkpoint일 뿐, data/raw와 복원 절차를 포함하는 운영 backup이 아니다. 운영 backup은 cb-manuscript가 소유한다. `VACUUM INTO`는 WAL을 반영한 트랜잭션 일관 DB snapshot을 만든다.
     """
     dest = Path(dest)
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -3803,7 +3803,6 @@ def rollback_document_graph_contributions(conn: sqlite3.Connection, target_ids: 
 def purge_document_cascade(
     conn: sqlite3.Connection,
     data_dir: Path,
-    vault_dir: Path | None,
     target_ids: list[str],
     reason: str = "manual_purge",
     dry_run: bool = False,
@@ -3849,10 +3848,6 @@ def purge_document_cascade(
             for attachment in attachment_dir.rglob("*"):
                 if attachment.is_file():
                     unlinked_candidates.append(attachment)
-        if vault_dir and vault_dir.exists():
-            for md in vault_dir.glob(f"**/*{did}*.md"):
-                if md.is_file():
-                    unlinked_candidates.append(md)
 
     if dry_run:
         # Dry-run 보고서 반환
