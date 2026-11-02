@@ -164,11 +164,20 @@ def get_active_jobs(data_dir: Path | str | None = None) -> list[dict[str, Any]]:
 def get_primary_active_job(
     data_dir: Path | str | None = None,
     theme_id: int | None = None,
+    *,
+    jobs: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any] | None:
-    """요청된 테마의 우선 활성 작업 반환 (해당 테마 작업이 없으면 전체 중 최신 작업)."""
-    jobs = get_active_jobs(data_dir)
-    if not jobs:
-        return get_active_ingest(data_dir)
+    """요청된 테마의 우선 활성 작업 반환 (해당 테마 작업이 없으면 전체 중 최신 작업).
+
+    jobs 를 주면 그 목록 안에서만 고른다(권한으로 걸러진 목록). 이때는 전 테마 공용인
+    레거시 active_ingest.json 으로 폴백하지 않는다.
+    """
+    if jobs is None:
+        jobs = get_active_jobs(data_dir)
+        if not jobs:
+            return get_active_ingest(data_dir)
+    elif not jobs:
+        return None
 
     # 1. 요청 테마의 활성 작업
     if theme_id is not None:

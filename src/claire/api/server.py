@@ -241,6 +241,52 @@ def create_app(
             return hdr.strip()
         return None
 
+    def _theme_accessible(request: Request, theme: ThemeInfo) -> bool:
+        scope = request_auth_scope(request)
+        if scope == "anonymous":
+            if not theme.is_public:
+                return False
+            # FQDN이 설정된 테마는 전용 FQDN 접속이 아니면 기본 도메인을 통한 익명 접근 차단
+            if theme.id > 0 and theme.fqdn:
+                host_header = request.headers.get("host")
+                req_host = (
+                    host_header.split(":", 1)[0].strip().lower()
+                    if host_header
+                    else ""
+                )
+                if req_host != theme.fqdn.strip().lower():
+                    return False
+        elif scope == "collaborator" and not (theme.is_public or theme.is_collaborator_accessible):
+            return False
+        return True
+
+    def _visible_active_jobs(request: Request, data_dir: Path) -> list[dict[str, Any]]:
+        """요청자가 접근할 수 있는 테마의 작업만 돌려준다 (단일 DB 이후 작업 디렉터리는 모든 테마 공용)."""
+        from ..ingest.active import get_active_jobs
+
+        jobs = get_active_jobs(data_dir)
+        if not getattr(s, "multi_theme", False):
+            return jobs
+        visible = []
+        for job in jobs:
+            try:
+                job_theme = theme_mgr.get_theme(int(job.get("theme_id") or 0), strict=True)
+            except Exception:  # noqa: BLE001
+                continue
+            if _theme_accessible(request, job_theme):
+                visible.append(job)
+        return visible
+
+    def _job_theme_id(request: Request, theme: ThemeInfo) -> int:
+        """작업 조회 대상 테마. 멀티 테마에서는 권한 검사를 거친 테마만 쓴다."""
+        if getattr(s, "multi_theme", False):
+            return theme.id
+        raw_theme = request.query_params.get("theme")
+        try:
+            return int(raw_theme) if raw_theme is not None else theme.id
+        except ValueError:
+            return theme.id
+
     def _get_theme_ctx(
         request: Request, body: dict[str, Any] | None = None
     ) -> tuple[ThemeInfo, Settings, IngestService]:
@@ -267,21 +313,7 @@ def create_app(
             return default_theme, s, svc
         ref = _extract_theme_ref(request, body)
         theme = theme_mgr.get_theme(ref)
-        scope = request_auth_scope(request)
-        if scope == "anonymous":
-            if not theme.is_public:
-                raise HTTPException(status_code=404, detail="theme not found")
-            # FQDN이 설정된 테마는 전용 FQDN 접속이 아니면 기본 도메인을 통한 익명 접근 차단
-            if theme.id > 0 and theme.fqdn:
-                host_header = request.headers.get("host")
-                req_host = (
-                    host_header.split(":", 1)[0].strip().lower()
-                    if host_header
-                    else ""
-                )
-                if req_host != theme.fqdn.strip().lower():
-                    raise HTTPException(status_code=404, detail="theme not found")
-        elif scope == "collaborator" and not (theme.is_public or theme.is_collaborator_accessible):
+        if not _theme_accessible(request, theme):
             raise HTTPException(status_code=404, detail="theme not found")
         theme_settings = theme_mgr.get_settings_for_theme(theme.id, s)
         theme_svc = service_pool.get_service(theme.id)
@@ -373,18 +405,12 @@ def create_app(
                 conn.close()
 
         res = await asyncio.to_thread(_counts)
-        from ..ingest.active import get_active_jobs, get_primary_active_job
+        from ..ingest.active import get_primary_active_job
 
-        target_theme_id = theme.id
-        raw_theme = request.query_params.get("theme")
-        if raw_theme is not None:
-            try:
-                target_theme_id = int(raw_theme)
-            except ValueError:
-                pass
-
-        jobs = get_active_jobs(theme_settings.data_dir)
-        primary = get_primary_active_job(theme_settings.data_dir, theme_id=target_theme_id)
+        jobs = _visible_active_jobs(request, theme_settings.data_dir)
+        primary = get_primary_active_job(
+            theme_settings.data_dir, theme_id=_job_theme_id(request, theme), jobs=jobs
+        )
 
         res["active_jobs"] = jobs
         if primary:
@@ -397,18 +423,12 @@ def create_app(
 
     async def active_ingest_route(request: Request) -> JSONResponse:
         theme, theme_settings, _ = _get_theme_ctx(request)
-        from ..ingest.active import get_active_jobs, get_primary_active_job
+        from ..ingest.active import get_primary_active_job
 
-        target_theme_id = theme.id
-        raw_theme = request.query_params.get("theme")
-        if raw_theme is not None:
-            try:
-                target_theme_id = int(raw_theme)
-            except ValueError:
-                pass
-
-        jobs = get_active_jobs(theme_settings.data_dir)
-        primary = get_primary_active_job(theme_settings.data_dir, theme_id=target_theme_id)
+        jobs = _visible_active_jobs(request, theme_settings.data_dir)
+        primary = get_primary_active_job(
+            theme_settings.data_dir, theme_id=_job_theme_id(request, theme), jobs=jobs
+        )
         res = dict(primary) if primary else {"active": False}
         res["active_jobs"] = jobs
         return JSONResponse(res)
