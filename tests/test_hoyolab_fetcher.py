@@ -94,7 +94,7 @@ def test_format_post_triggers_vlm_when_text_minimal():
         ],
     }
 
-    settings = Settings(enable_vlm_transcription=True, effective_vlm_provider="mock")
+    settings = Settings(enable_vlm_transcription=True, environment="development")
     subject, markdown_doc, links, anchors, images, meta_extras = format_post_to_markdown(
         mock_post_data, settings=settings
     )

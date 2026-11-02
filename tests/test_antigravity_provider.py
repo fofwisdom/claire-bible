@@ -38,8 +38,11 @@ def test_effective_provider_resolution():
         assert s_alias.effective_provider == "antigravity"
 
     with patch("claire.config.find_agy_executable", return_value=None):
-        s_missing = _make_settings(provider="antigravity")
+        s_missing = _make_settings(provider="antigravity", environment="development")
         assert s_missing.effective_provider == "mock"
+
+        s_prod = _make_settings(provider="antigravity", environment="production")
+        assert s_prod.effective_provider == "unavailable"
 
 
 def test_get_provider_factory():

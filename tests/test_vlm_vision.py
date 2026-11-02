@@ -42,7 +42,9 @@ def test_vision_factory_selection():
     assert isinstance(get_vision_provider(s_disabled), MockVisionProvider)
 
     # When Gemini key is empty, falls back to mock
-    s_no_key = Settings(enable_vlm_transcription=True, gemini_api_key="", vlm_provider="gemini")
+    s_no_key = Settings(
+        enable_vlm_transcription=True, gemini_api_key="", vlm_provider="gemini", environment="development"
+    )
     assert isinstance(get_vision_provider(s_no_key), MockVisionProvider)
 
     # When Gemini key is provided

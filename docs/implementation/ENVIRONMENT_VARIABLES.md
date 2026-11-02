@@ -106,7 +106,7 @@ graph TD
 
 | 환경변수명 | 기본값 | 허용 값 / 타입 | 설명 |
 | :--- | :--- | :--- | :--- |
-| `GEMINI_API_KEY` | `""` | 문자열 (AI Studio 키) | Google Gemini API 키 (선택). WebUI(Drawer > ⚙️ 프로바이더 설정) 및 `data/providers.json` 관리 권장. 누락 시 Gemini 프로바이더는 자동으로 `mock`으로 폴백된다. |
+| `GEMINI_API_KEY` | `""` | 문자열 (AI Studio 키) | Google Gemini API 키 (선택). WebUI(Drawer > ⚙️ 프로바이더 설정) 및 `data/providers.json` 관리 권장. Gemini를 쓰도록 설정했는데 이 값이 없으면 `CLAIRE_ENVIRONMENT=development`에서는 `mock`으로 대체하고, `production`에서는 대체하지 않고 호출 시 실패한다(`ProviderUnavailableError`). |
 | `TELEGRAM_BOT_TOKEN` | `""` | 문자열 (`123456:ABC-DEF...`) | Telegram `@BotFather`에서 발급받은 봇 토큰 (**텔레그램 봇 구동 시에만 필수**). 비워두면 봇 프로필이 비활성화되며 Web API 및 CLI는 정상 구동된다. |
 | `TELEGRAM_ALLOWED_USERS` | `""` | 쉼표 구분 정수 ID 목록 | 텔레그램 봇 사용이 허용된 Telegram User ID 목록 (선택, 예: `12345678,87654321`). 비워두면 모든 사용자가 접근 가능하므로 주의가 필요하다. |
 | `TELEGRAM_OWNER_CHAT_ID` | `0` | 정수 (Telegram Chat ID) | 서비스 오류 및 운영 경보(Alert)를 수신할 소유자 Chat ID. `0`이면 `TELEGRAM_ALLOWED_USERS`의 첫 번째 ID로 자동 폴백된다. |
@@ -120,7 +120,7 @@ graph TD
 
 | 환경변수명 | 기본값 | 허용 값 / 타입 | 설명 |
 | :--- | :--- | :--- | :--- |
-| `CLAIRE_PROVIDER` | `mock` | `mock`, `gemini`, `antigravity`, `codex`, `codex-cli` | 지식 그래프 추출, 요약, 판정에 사용할 메인 LLM 프로바이더. 키/환경이 없으면 `mock`으로 안전 폴백된다. ([MULTI_PROVIDER_DESIGN.md](../design/MULTI_PROVIDER_DESIGN.md) 참조) |
+| `CLAIRE_PROVIDER` | `mock` | `mock`, `gemini`, `antigravity`, `codex`, `codex-cli` | 지식 그래프 추출, 요약, 판정에 사용할 메인 LLM 프로바이더. 키나 실행 파일이 없거나 알 수 없는 값이면 `CLAIRE_ENVIRONMENT=development`에서는 `mock`으로 대체하고, `production`에서는 대체하지 않고 호출 시 실패한다(`ProviderUnavailableError`). 상태 표시에는 `unavailable`로 나온다. 명시적으로 `mock`을 지정하면 운영 환경에서도 그대로 쓴다. ([MULTI_PROVIDER_DESIGN.md](../design/MULTI_PROVIDER_DESIGN.md) 참조) |
 | `CLAIRE_GEMINI_MODEL` | `gemini-3.1-flash-lite` | 문자열 | Gemini 프로바이더 사용 시 적용할 모델명. |
 | `CLAIRE_GEMINI_EFFORT` | `medium` | `low`, `medium`, `high` | Gemini 모델 추론 사고 레벨 (Reasoning Effort). |
 | `CLAIRE_GEMINI_EMBED_MODEL` | `text-embedding-004` | 문자열 | 임베딩 벡터 생성에 사용할 Gemini 모델명. (기존 `gemini-embedding-001`에서 상향) |
@@ -170,7 +170,7 @@ VMware Explore 숫자형 영상 상세 페이지가 Presentation PDF를 명시�
 | 환경변수명 | 기본값 | 허용 값 / 타입 | 설명 |
 | :--- | :--- | :--- | :--- |
 | `CLAIRE_ENABLE_VIDEO_TRANSCRIPTION` | `1` (`true`) | `0`, `1`, `true`, `false` | 자막이 없는 비디오/오디오 웹 문서 적재 시 ffmpeg/yt-dlp 및 STT 파이프라인 활성화 여부. ([VIDEO_AUDIO_TRANSCRIPTION_AND_INGESTION_DESIGN.md](../design/VIDEO_AUDIO_TRANSCRIPTION_AND_INGESTION_DESIGN.md) 참조) |
-| `CLAIRE_STT_PROVIDER` | `gemini` | `gemini`, `mock` | 음성 텍스트 변환(STT)에 사용할 프로바이더 (Google AI Studio Gemini 전용. Antigravity CLI는 STT 미지원. `STT_PROVIDER`, `STT_PROIVDER` 별칭 지원). `GEMINI_API_KEY` 누락 시 `mock`으로 폴백. |
+| `CLAIRE_STT_PROVIDER` | `gemini` | `gemini`, `mock` | 음성 텍스트 변환(STT)에 사용할 프로바이더 (Google AI Studio Gemini 전용. Antigravity CLI는 STT 미지원. `STT_PROVIDER`, `STT_PROIVDER` 별칭 지원). `GEMINI_API_KEY`가 없거나 STT를 지원하지 않는 프로바이더(`antigravity` 등)이면 `CLAIRE_ENVIRONMENT=development`에서는 `mock`으로 대체하고, `production`에서는 대체하지 않고 호출 시 실패한다(`ProviderUnavailableError`). |
 | `CLAIRE_STT_MODEL` | `""` | 문자열 | STT 전용 모델명 (예: `gemini-3.5-transcribe`, `STT_MODEL` 별칭 지원). 비어있을 경우 프로바이더 기본 모델 사용. |
 | `CLAIRE_STT_LANGUAGE` | `ko` | ISO 언어 코드 (예: `ko`, `en`, `ja`) | STT 기본 인식 대상 언어 (비어있을 경우 자동 감지). |
 | `CLAIRE_STT_TIMEOUT` | `600.0` | 부동소수점 (초) | STT 호출 제한 시간. |
@@ -181,7 +181,7 @@ VMware Explore 숫자형 영상 상세 페이지가 Presentation PDF를 명시�
 | `CLAIRE_FFMPEG_BIN` | `ffmpeg` | 실행 파일명 또는 경로 | 오디오 추출 및 다운샘플링에 사용할 `ffmpeg` 바이너리 경로. |
 | `CLAIRE_YTDLP_EXTRACTOR_ARGS` | `generic:impersonate` | 문자열 | yt-dlp 브라우저 핑거프린트 위장 인자. |
 | `CLAIRE_ENABLE_VLM_TRANSCRIPTION` | `1` (`true`) | `0`, `1`, `true`, `false` | 본문이 부족한 웹 문서의 이미지·인포그래픽을 VLM으로 전사할지 여부. `0`이면 VLM 프로바이더가 `mock`으로 고정된다. |
-| `CLAIRE_VLM_PROVIDER` | `gemini` | `gemini`(`google`), `mock` | VLM 전사 프로바이더. `gemini`여도 `GEMINI_API_KEY`가 없으면 `mock`이 쓰이고, 그 밖의 값도 `mock`으로 처리된다 (`Settings.effective_vlm_provider`). |
+| `CLAIRE_VLM_PROVIDER` | `gemini` | `gemini`(`google`), `mock` | VLM 전사 프로바이더. `GEMINI_API_KEY`가 없거나 알 수 없는 값이면 `CLAIRE_ENVIRONMENT=development`에서는 `mock`으로 대체하고, `production`에서는 대체하지 않고 호출 시 실패한다(`ProviderUnavailableError`) (`Settings.effective_vlm_provider`). |
 | `CLAIRE_VLM_MODEL` | `""` | 문자열 | VLM 전사 모델명. 비어 있으면 프로바이더 기본 모델을 쓴다. |
 
 ---

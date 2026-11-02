@@ -23,6 +23,7 @@ def test_e2e_hoyolab_article_vlm_ingestion(tmp_path: Path):
         db_path=str(db_file),
         vault_path=str(vault_dir),
         provider="mock",
+        environment="development",
         enable_vlm_transcription=True,
     )
 
@@ -50,7 +51,9 @@ def test_e2e_hoyolab_article_vlm_ingestion(tmp_path: Path):
     mock_client = MagicMock()
     mock_client.get_post.return_value = mock_post_payload
 
-    with patch("claire.ingest.fetchers.hoyolab.HoYoLabClient", return_value=mock_client):
+    with patch("claire.ingest.fetchers.hoyolab.HoYoLabClient", return_value=mock_client), patch(
+        "claire.ingest.fetchers.hoyolab.get_settings", return_value=settings
+    ):
         service = IngestService(settings=settings)
         report = service.ingest(article_url, source="e2e-test")
 
@@ -161,6 +164,7 @@ def test_e2e_hoyolab_vlm_ingest_merges_with_existing_entities(tmp_path: Path):
         db_path=str(db_file),
         vault_path=str(vault_dir),
         provider="mock",
+        environment="development",
         preferred_languages="ko",
         enable_vlm_transcription=True,
     )
@@ -207,7 +211,8 @@ def test_e2e_hoyolab_vlm_ingest_merges_with_existing_entities(tmp_path: Path):
     )
 
     with patch("claire.ingest.fetchers.hoyolab.HoYoLabClient", return_value=mock_client), \
-         patch("claire.extract.provider.MockProvider.extract", return_value=mock_extraction):
+         patch("claire.extract.provider.MockProvider.extract", return_value=mock_extraction), \
+         patch("claire.ingest.fetchers.hoyolab.get_settings", return_value=settings):
         service = IngestService(settings=settings)
         report = service.ingest(article_url, source="e2e-lore-test")
 

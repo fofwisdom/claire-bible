@@ -92,8 +92,9 @@ def test_effective_provider_resolution_and_alias():
         assert _make_settings(provider="codex-cli").effective_provider == "codex"
 
     with patch("claire.config.find_codex_executable", return_value=None):
-        assert _make_settings(provider="codex").effective_provider == "mock"
-        assert _make_settings(provider="codex-cli").effective_provider == "mock"
+        assert _make_settings(provider="codex", environment="development").effective_provider == "mock"
+        assert _make_settings(provider="codex-cli", environment="development").effective_provider == "mock"
+        assert _make_settings(provider="codex", environment="production").effective_provider == "unavailable"
 
 
 def test_get_provider_factory():

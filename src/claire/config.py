@@ -224,6 +224,13 @@ class _IngestLimitsJsonSettingsSource(PydanticBaseSettingsSource):
             return {}
 
 
+PROVIDER_UNAVAILABLE = "unavailable"
+
+
+class ProviderUnavailableError(RuntimeError):
+    """설정한 프로바이더를 쓸 수 없는데 mock 으로 대체하면 안 되는 경우(운영 환경)."""
+
+
 def find_agy_executable(agy_bin: str = "agy") -> str | None:
     """Find agy executable in PATH or standard container/host locations."""
     if not agy_bin:
@@ -954,12 +961,18 @@ class Settings(BaseSettings):
         return self.effective_preferred_languages[0] if self.effective_preferred_languages else "ko"
 
     @property
-    def effective_provider(self) -> str:
-        """키나 실행 환경이 갖춰지지 않으면 provider 는 mock 으로 떨어진다."""
+    def is_production(self) -> bool:
+        return (self.environment or "").strip().lower() == "production"
+
+    def _unavailable_or_mock(self) -> str:
+        """운영 환경은 mock 으로 대체하지 않고 unavailable 로 표시한다(PRINCIPLES C2)."""
+        return PROVIDER_UNAVAILABLE if self.is_production else "mock"
+
+    def _llm_unavailable_reason(self) -> str | None:
         raw = self.provider.strip().lower()
         if raw in ("antigravity", "agy"):
             if find_agy_executable(self.agy_bin) is not None:
-                return "antigravity"
+                return None
             try:
                 from .store.telemetry import record_telemetry
 
@@ -975,13 +988,53 @@ class Settings(BaseSettings):
                 )
             except Exception:
                 pass
-            return "mock"
+            return f"CLAIRE_PROVIDER={self.provider}: agy 실행 파일을 찾지 못했다 (CLAIRE_AGY_BIN={self.agy_bin})"
         if raw in ("codex", "codex-cli"):
             if find_codex_executable(self.codex_bin) is not None:
-                return "codex"
-            return "mock"
-        if raw == "gemini" and not self.gemini_api_key:
-            return "mock"
+                return None
+            return f"CLAIRE_PROVIDER={self.provider}: codex 실행 파일을 찾지 못했다 (CLAIRE_CODEX_BIN={self.codex_bin})"
+        if raw == "gemini":
+            return None if self.gemini_api_key else "CLAIRE_PROVIDER=gemini: GEMINI_API_KEY가 비어 있다"
+        if raw == "mock":
+            return None
+        return f"CLAIRE_PROVIDER={self.provider}: 알 수 없는 프로바이더"
+
+    def _stt_unavailable_reason(self) -> str | None:
+        raw = (self.stt_provider or "gemini").strip().lower()
+        if raw in ("gemini", "google"):
+            return None if self.gemini_api_key else f"CLAIRE_STT_PROVIDER={raw}: GEMINI_API_KEY가 비어 있다"
+        if raw == "mock":
+            return None
+        return f"CLAIRE_STT_PROVIDER={self.stt_provider}: STT를 지원하지 않는 프로바이더"
+
+    def _vlm_unavailable_reason(self) -> str | None:
+        raw = (self.vlm_provider or "gemini").strip().lower()
+        if raw in ("gemini", "google"):
+            return None if self.gemini_api_key else f"CLAIRE_VLM_PROVIDER={raw}: GEMINI_API_KEY가 비어 있다"
+        if raw == "mock":
+            return None
+        return f"CLAIRE_VLM_PROVIDER={self.vlm_provider}: 알 수 없는 프로바이더"
+
+    def provider_unavailable_reason(self, kind: str) -> str | None:
+        """kind(llm|stt|vlm) 프로바이더를 쓸 수 없는 이유. 쓸 수 있거나 기능이 꺼져 있으면 None."""
+        if kind == "llm":
+            return self._llm_unavailable_reason()
+        if kind == "stt":
+            return self._stt_unavailable_reason() if self.enable_video_transcription else None
+        if kind == "vlm":
+            return self._vlm_unavailable_reason() if self.enable_vlm_transcription else None
+        raise ValueError(f"unknown provider kind: {kind}")
+
+    @property
+    def effective_provider(self) -> str:
+        """쓸 수 없으면 개발 환경은 mock, 운영 환경은 unavailable."""
+        if self._llm_unavailable_reason() is not None:
+            return self._unavailable_or_mock()
+        raw = self.provider.strip().lower()
+        if raw in ("antigravity", "agy"):
+            return "antigravity"
+        if raw in ("codex", "codex-cli"):
+            return "codex"
         return raw
 
     @property
@@ -989,29 +1042,20 @@ class Settings(BaseSettings):
         """비디오 전사 기능 활성화 및 실행 환경에 따른 STT provider 반환."""
         if not self.enable_video_transcription:
             return "mock"
+        if self._stt_unavailable_reason() is not None:
+            return self._unavailable_or_mock()
         raw = (self.stt_provider or "gemini").strip().lower()
-        if raw in ("gemini", "google"):
-            if self.gemini_api_key:
-                return "gemini"
-            return "mock"
-        if raw == "mock":
-            return "mock"
-        # antigravity 등 오디오 전사(STT) 미지원 프로바이더는 gemini로 하이잭하지 않고 안전하게 mock으로 폴백
-        return "mock"
+        return "gemini" if raw in ("gemini", "google") else "mock"
 
     @property
     def effective_vlm_provider(self) -> str:
         """이미지/인포그래픽 전사(VLM) 기능 활성화 및 실행 환경에 따른 VLM provider 반환."""
         if not self.enable_vlm_transcription:
             return "mock"
+        if self._vlm_unavailable_reason() is not None:
+            return self._unavailable_or_mock()
         raw = (self.vlm_provider or "gemini").strip().lower()
-        if raw in ("gemini", "google"):
-            if self.gemini_api_key:
-                return "gemini"
-            return "mock"
-        if raw == "mock":
-            return "mock"
-        return "mock"
+        return "gemini" if raw in ("gemini", "google") else "mock"
 
     @property
     def db_file(self) -> Path:

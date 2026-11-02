@@ -11,7 +11,7 @@ import re
 import shutil
 from pathlib import Path
 
-from ...config import get_settings
+from ...config import ProviderUnavailableError, get_settings
 from ...extract.table_budget import (
     slice_document_text,
     slice_text_with_table_exemption,
@@ -227,6 +227,8 @@ def fetch_web(url: str, *, full_content: bool = False) -> Document:
                             parser_info["vlm_images_count"] = v_res.images_processed
                             parser_info["vlm_model"] = v_res.model
                             parser_info["vlm_language"] = v_res.language or target_vlm_lang
+            except ProviderUnavailableError:
+                raise
             except Exception:
                 pass
 

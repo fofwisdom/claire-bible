@@ -8,7 +8,7 @@ def test_config_video_defaults(monkeypatch):
     monkeypatch.delenv("CLAIRE_ENABLE_VIDEO_TRANSCRIPTION", raising=False)
     monkeypatch.delenv("CLAIRE_STT_PROVIDER", raising=False)
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-    s = Settings(gemini_api_key="")
+    s = Settings(gemini_api_key="", environment="development")
     assert s.enable_video_transcription is True
     assert s.stt_provider == "gemini"
     assert s.effective_stt_provider == "mock"  # No GEMINI_API_KEY -> mock
@@ -23,7 +23,7 @@ def test_config_stt_provider_antigravity_no_hijack(monkeypatch, tmp_path):
     monkeypatch.setenv("CLAIRE_STT_PROVIDER", "antigravity")
     monkeypatch.setenv("GEMINI_API_KEY", "test-api-key")
 
-    s = Settings()
+    s = Settings(environment="development")
     assert s.stt_provider == "antigravity"
     # 하이잭 없이 mock으로 안전 폴백
     assert s.effective_stt_provider == "mock"

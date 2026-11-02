@@ -16,7 +16,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-from ...config import Settings, get_settings
+from ...config import ProviderUnavailableError, Settings, get_settings
 from ...extract.table_budget import slice_document_text
 from ...extract.transcript.factory import get_transcript_provider
 from ...ontology.base import Document
@@ -229,6 +229,8 @@ def fetch_naver_clip(
                 if transcript_text:
                     is_stt = True
                     delete_cached_video_file(effective_data_dir, url, canonical_url=canonical_media_url)
+            except ProviderUnavailableError:
+                raise
             except Exception as e:
                 logger.warning("Cached Naver Clip STT failed: %s", e)
                 delete_cached_video_file(effective_data_dir, url, canonical_url=canonical_media_url)
@@ -261,6 +263,8 @@ def fetch_naver_clip(
                                 tmp_out,
                                 canonical_url=canonical_media_url,
                             )
+                except ProviderUnavailableError:
+                    raise
                 except Exception as e:
                     logger.warning("Naver Clip audio download/STT failed for %s: %s", url, e)
 

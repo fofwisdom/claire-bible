@@ -580,9 +580,34 @@ class MockProvider:
 
 
 
+class UnavailableProvider:
+    """운영 환경에서 설정한 프로바이더를 쓸 수 없을 때의 자리표시자.
+
+    서비스 기동과 상태 조회는 막지 않고, 실제 호출은 mock 결과 대신 실패시킨다.
+    """
+
+    name = "unavailable"
+
+    def __init__(self, reason: str) -> None:
+        self.reason = reason
+
+    def __getattr__(self, attr: str):
+        if attr.startswith("__"):
+            raise AttributeError(attr)
+
+        def _fail(*_args, **_kwargs):
+            from ..config import ProviderUnavailableError
+
+            raise ProviderUnavailableError(f"LLM 프로바이더를 쓸 수 없다: {self.reason}")
+
+        return _fail
+
+
 def get_provider(settings) -> Provider:
     """effective_provider 에 따라 provider 인스턴스 반환."""
     eff = settings.effective_provider
+    if eff == "unavailable":
+        return UnavailableProvider(settings.provider_unavailable_reason("llm") or "")
     if eff == "codex":
         from .codex_provider import CodexProvider  # lazy import
 

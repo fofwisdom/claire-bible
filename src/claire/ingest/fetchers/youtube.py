@@ -12,7 +12,7 @@ from typing import Any
 
 import httpx
 
-from ...config import Settings, find_ffmpeg_executable, get_settings
+from ...config import ProviderUnavailableError, Settings, find_ffmpeg_executable, get_settings
 from ...extract.provider import emit_progress
 from ...extract.table_budget import slice_document_text
 from ...extract.transcript.factory import get_transcript_provider
@@ -322,6 +322,8 @@ def transcribe_youtube_audio(
                 if effective_data_dir:
                     delete_cached_video_file(effective_data_dir, url, canonical_url=canonical_url)
                 return transcript_text, segments_data, duration_sec, None, cached_used, cached_saved
+        except ProviderUnavailableError:
+            raise
         except Exception as e:
             stt_error_msg = f"{type(e).__name__}: {e}"
             logger.warning("Cached audio STT transcription failed for %s: %s", url, e)
@@ -383,6 +385,8 @@ def transcribe_youtube_audio(
                 else:
                     if effective_data_dir:
                         delete_cached_video_file(effective_data_dir, url, canonical_url=canonical_url)
+        except ProviderUnavailableError:
+            raise
         except Exception as e:
             stt_error_msg = f"{type(e).__name__}: {e}"
             logger.warning("YouTube audio extraction & STT failed for %s: %s", url, e)
