@@ -174,7 +174,7 @@ CLAIRE_ENVIRONMENT=production ./cb-manuscript up
 
 Telegram의 Support Bundle 생성은 Compose 내부 owner 인증 API로 위임한다. 공개 다운로드를 제공하는 API 프로세스가 아카이브 생성과 다운로드 레지스트리 검증을 함께 소유하며, 생성 직후 동일 조회 경로로 파일을 확인하지 못하면 URL을 반환하지 않는다. Docker 밖에서 내부 API URL이 없는 로컬 개발·CLI 실행만 같은 프로세스에서 직접 생성한다.
 
-멀티 테마 모드의 설치·업데이트에서 실행되는 `claire migrate`는 등록된 DB를 테마 ID 순서로 모두 처리한다. 개별 실패는 모아서 출력하고 나머지 DB를 계속 처리하지만, 최종적으로 하나라도 실패하면 서비스 기동 전 단계가 종료 코드 `1`로 중단된다. 현재 공통 스키마는 v13이며 `schema_lineage=claire-bible/common`을 함께 검증한다. 폐기된 v12는 진단 데이터를 보존해 v11로 철회한 뒤 v13으로 승격하며, 알 수 없는 v12 서명이나 외부 계보는 변경하지 않고 실패한다. `cb-manuscript backup`은 DB 버전과 계보를 manifest에 기록하며, `restore`는 미래 버전·외부 계보·계보 없는 현재 버전 백업을 서비스 중지 전에 거부한다. `recover-loop`, `refresh-loop`, `expand-loop`는 Compose singleton 구성을 유지하면서 매 cycle 활성 테마를 다시 읽고, 전역 batch 한도 안에서 시작 테마를 회전시킨다. 삭제된 테마 서비스 캐시는 제거되고 새 테마는 다음 cycle부터 편입되며, 한 테마의 큐 오류는 다른 테마 처리를 중단시키지 않는다. 자동 확장 적재 알림도 결과와 링크를 테마별로 구분한다.[^multi-theme-operations]
+멀티 테마 모드의 설치·업데이트에서 실행되는 `claire migrate`는 활성 테마마다 `init_db`와 스키마 검증을 실행한다. v14부터 대상 파일은 모두 단일 DB(`data/claire.db`)다. 개별 실패는 모아서 출력하고, 하나라도 실패하면 서비스 기동 전 단계가 종료 코드 `1`로 중단된다. 단, 레거시 테마 DB 병합(`migrate_multi_db_to_single_db`)이 실패하면 경고 로그만 남고 `migrate`는 성공할 수 있다([THEMES.md](THEMES.md) §6). 현재 공통 스키마는 v14이며 `schema_lineage=claire-bible/common`을 함께 검증한다. 폐기된 v12는 진단 데이터를 보존해 v11로 철회한 뒤 현재 버전으로 승격하며, 알 수 없는 v12 서명이나 외부 계보는 변경하지 않고 실패한다. `cb-manuscript backup`은 DB 버전과 계보를 manifest에 기록하며, `restore`는 미래 버전·외부 계보·계보 없는 현재 버전 백업을 서비스 중지 전에 거부한다. `recover-loop`, `refresh-loop`, `expand-loop`는 Compose singleton 구성을 유지하면서 매 cycle 활성 테마를 다시 읽고, 전역 batch 한도 안에서 시작 테마를 회전시킨다. 삭제된 테마 서비스 캐시는 제거되고 새 테마는 다음 cycle부터 편입되며, 한 테마의 큐 오류는 다른 테마 처리를 중단시키지 않는다. 자동 확장 적재 알림도 결과와 링크를 테마별로 구분한다.[^multi-theme-operations]
 
 ## 고급 Compose 탈출구
 

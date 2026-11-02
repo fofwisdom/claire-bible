@@ -37,6 +37,7 @@ docs/
 │   ├── PROVIDERS.md            # LLM·STT·VLM 프로바이더 선택, 설정 우선순위, 운영 환경 실패 동작 구현 정본
 │   ├── PLAN.md                 # 공개 아키텍처 및 파이프라인 처리 계획 정본
 │   ├── SCHEMA_VERSIONING.md    # SQLite 공통 schema version v13 및 lineage 계약
+│   ├── THEMES.md               # 멀티 테마(단일 DB 파티셔닝) 저장·조회·라우팅·접근 경계 구현 정본
 │   ├── TOKEN_EXCHANGE.md       # RFC 8693 OAuth 2.0 Token Exchange 토큰 교환 계약
 │   └── openapi.yaml            # 기계 판독용 OpenAPI 3.1.0 공통 API 사양서 정본
 └── screenshots/                # README 및 UI 설명용 스크린샷 이미지 자산 (7종)
