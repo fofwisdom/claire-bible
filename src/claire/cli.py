@@ -130,11 +130,11 @@ def get_effective_settings(args: Any, doc_target: str | None = None) -> tuple[An
 
         tm = get_theme_manager(s)
         try:
-            theme = tm.get_theme(theme_ref)
-            return tm.get_settings_for_theme(theme.id, s), theme
+            theme = tm.get_theme(theme_ref, strict=True)
         except Exception as exc:
-            print(f"[경고] 테마 '{theme_ref}'를 찾을 수 없습니다: {exc}. 기본 테마로 진행합니다.", file=sys.stderr)
-            return s, None
+            # 기본 테마로 대신 진행하면 다른 테마에 적재·수정하게 된다(PRINCIPLES C1).
+            raise ValueError(f"테마 '{theme_ref}'를 찾을 수 없습니다: {exc}") from exc
+        return tm.get_settings_for_theme(theme.id, s), theme
 
     if getattr(s, "multi_theme", False):
         raw_target = doc_target or getattr(args, "target", None) or getattr(args, "doc_id", None) or getattr(args, "token", None)
@@ -420,7 +420,10 @@ def cmd_untombstone(args) -> int:
             from .store.theme import get_theme_manager
 
             tm = get_theme_manager(s)
-            t = tm.get_theme(theme_ref)
+            try:
+                t = tm.get_theme(theme_ref, strict=True)
+            except KeyError as exc:
+                raise ValueError(f"테마 '{theme_ref}'를 찾을 수 없습니다: {exc}") from exc
             target_themes.append((tm.get_settings_for_theme(t.id, s), t))
         else:
             target_themes.append((s, None))
@@ -4484,11 +4487,10 @@ def cmd_import_graph(args: Any) -> int:
                 from .store.theme import get_theme_manager
 
                 tm = get_theme_manager(s)
-                theme = tm.get_theme(theme_ref)
+                theme = tm.get_theme(theme_ref, strict=True)
                 target_db = Path(theme.db_path)
             except Exception as exc:
-                print(f"Warning: theme '{theme_ref}' lookup failed ({exc}). Use default database.", file=sys.stderr)
-                target_db = s.db_file
+                raise ValueError(f"테마 '{theme_ref}'를 찾을 수 없습니다: {exc}") from exc
 
     try:
         result = import_graph_bundle(target_db_path=target_db, bundle_path=bundle_path)

@@ -518,3 +518,10 @@ def test_cli_theme_reset(cli_theme_env, capsys, monkeypatch):
 
 
 
+
+
+def test_cli_unknown_theme_fails_instead_of_default(cli_theme_env, capsys):
+    """존재하지 않는 --theme 는 기본 테마로 대신 진행하지 않고 실패한다 (PRINCIPLES C1)."""
+    ret = cli.main(["stats", "--theme", "없는테마"])
+    assert ret == 2
+    assert "찾을 수 없습니다" in capsys.readouterr().err
