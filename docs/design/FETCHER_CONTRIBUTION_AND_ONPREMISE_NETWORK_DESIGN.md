@@ -1,5 +1,8 @@
 # 수집기(Fetcher) 기여 아키텍처 및 온프레미스 사설망 보안 설계
 
+> [!WARNING]
+> **이력 문서 (2026-11-02 동결).** 작성 당시의 설계 배경·대안·결정 기록이다. 상태 표시, 파일 경로, 설정값은 작성 시점 기준이며 현재 코드와 다를 수 있다. 현재 동작은 [`implementation/`](../implementation/)과 코드로, 원칙은 [`PRINCIPLES.md`](../PRINCIPLES.md)로 확인한다.
+
 작성일: 2026-09-15 · 상태: **Implemented** · 기준: [GOALS.md](../GOALS.md) 트랙1(안정성) / 트랙2(추출·연결 품질) · 관련: [INGESTION_INTEGRITY_AND_POLLUTION_CONTROL_RESEARCH.md](INGESTION_INTEGRITY_AND_POLLUTION_CONTROL_RESEARCH.md), [ENVIRONMENT_VARIABLES.md](../implementation/ENVIRONMENT_VARIABLES.md)
 
 ---

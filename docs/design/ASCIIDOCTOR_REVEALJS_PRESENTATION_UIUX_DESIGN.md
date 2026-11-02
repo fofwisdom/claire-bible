@@ -1,4 +1,8 @@
 # Asciidoctor reveal.js 프레젠테이션 프론트엔드 및 UI/UX 아키텍처 설계 명세서
+
+> [!WARNING]
+> **이력 문서 (2026-11-02 동결).** 작성 당시의 설계 배경·대안·결정 기록이다. 상태 표시, 파일 경로, 설정값은 작성 시점 기준이며 현재 코드와 다를 수 있다. 현재 동작은 [`implementation/`](../implementation/)과 코드로, 원칙은 [`PRINCIPLES.md`](../PRINCIPLES.md)로 확인한다.
+
 (Asciidoctor reveal.js Presentation Frontend & UI/UX Architecture Specification)
 
 작성일: 2026-10-01 · 상태: **설계 완료 (Ready for Implementation)** · 작성자: 프론트엔드/UI/UX 아키텍트

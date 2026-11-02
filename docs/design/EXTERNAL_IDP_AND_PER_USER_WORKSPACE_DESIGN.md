@@ -1,5 +1,8 @@
 # 외부 IdP 연동 및 사용자별 워크스페이스 설계 제안
 
+> [!WARNING]
+> **이력 문서 (2026-11-02 동결).** 작성 당시의 설계 배경·대안·결정 기록이다. 상태 표시, 파일 경로, 설정값은 작성 시점 기준이며 현재 코드와 다를 수 있다. 현재 동작은 [`implementation/`](../implementation/)과 코드로, 원칙은 [`PRINCIPLES.md`](../PRINCIPLES.md)로 확인한다.
+
 - **상태**: 제안 (미구현). 시각 프로토타입: `/syndication/preferences?tab=idp`, `?tab=userdb`
 - **작성일**: 2026-10-30
 - **관련 문서**: [MULTI_THEME_ARCHITECTURE_DESIGN.md](MULTI_THEME_ARCHITECTURE_DESIGN.md), [MCP_SUPPORT.md](MCP_SUPPORT.md), [API_AND_MCP_GUIDE.md](../implementation/API_AND_MCP_GUIDE.md), [SYNDICATION_ENDPOINT_DESIGN.md §3.8](SYNDICATION_ENDPOINT_DESIGN.md)

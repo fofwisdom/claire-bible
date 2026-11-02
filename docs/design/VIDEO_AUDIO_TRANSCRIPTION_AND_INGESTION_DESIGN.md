@@ -1,5 +1,8 @@
 # 비디오 CC 우선 수집·음성 전사 및 지식 적재 파이프라인 설계 (`VIDEO_AUDIO_TRANSCRIPTION_AND_INGESTION_DESIGN.md`)
 
+> [!WARNING]
+> **이력 문서 (2026-11-02 동결).** 작성 당시의 설계 배경·대안·결정 기록이다. 상태 표시, 파일 경로, 설정값은 작성 시점 기준이며 현재 코드와 다를 수 있다. 현재 동작은 [`implementation/`](../implementation/)과 코드로, 원칙은 [`PRINCIPLES.md`](../PRINCIPLES.md)로 확인한다.
+
 > **상태**: 구현 및 검증 완료 (Implemented & Verified) **대상 플랫폼 예시**: VMware Explore Video (`6403821753112`, `6403820644112`) **적용 모듈**: `claire.ingest.fetchers.video`, `claire.ingest.fetchers.captions`, `claire.extract.transcript`, `claire.config`, `claire.ingest.router`
 
 > [!NOTE] VMware Explore가 Presentation PDF도 제공하는 경우의 CC/STT·PDF 복합 적재는 별도 [VIDEO_PRESENTATION_BUNDLE_INGESTION_DESIGN.md](VIDEO_PRESENTATION_BUNDLE_INGESTION_DESIGN.md)에 설계·구현되어 있다.[^presentation-bundle-implementation]

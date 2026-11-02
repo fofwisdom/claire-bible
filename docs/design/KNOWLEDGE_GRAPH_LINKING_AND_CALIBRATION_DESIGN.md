@@ -1,5 +1,8 @@
 # 지식 그래프 링킹 캘리브레이션 및 잠재 연결(미싱링크) 발굴 아키텍처 설계
 
+> [!WARNING]
+> **이력 문서 (2026-11-02 동결).** 작성 당시의 설계 배경·대안·결정 기록이다. 상태 표시, 파일 경로, 설정값은 작성 시점 기준이며 현재 코드와 다를 수 있다. 현재 동작은 [`implementation/`](../implementation/)과 코드로, 원칙은 [`PRINCIPLES.md`](../PRINCIPLES.md)로 확인한다.
+
 작성일: 2026-09-16 · 상태: **Phase 1-2 Implemented / Phase 3 Roadmap** · 기준: [GOALS.md](../GOALS.md) 트랙2(추출·연결 품질) / 지식그래프 고도화 · 관련 문서: [CLAIRE_ARCHITECTURE_ROADMAP.md](../CLAIRE_ARCHITECTURE_ROADMAP.md), [ENVIRONMENT_VARIABLES.md](../implementation/ENVIRONMENT_VARIABLES.md), [COMMANDS.md](../implementation/COMMANDS.md)
 
 ---

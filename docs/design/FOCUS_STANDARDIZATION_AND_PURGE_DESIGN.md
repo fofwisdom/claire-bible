@@ -1,5 +1,8 @@
 # 초점(Focus) 단일 표준화 및 레거시(Directive) 완전 소각 아키텍처 설계
 
+> [!WARNING]
+> **이력 문서 (2026-11-02 동결).** 작성 당시의 설계 배경·대안·결정 기록이다. 상태 표시, 파일 경로, 설정값은 작성 시점 기준이며 현재 코드와 다를 수 있다. 현재 동작은 [`implementation/`](../implementation/)과 코드로, 원칙은 [`PRINCIPLES.md`](../PRINCIPLES.md)로 확인한다.
+
 - **문서 식별자**: `CLAIRE-DESIGN-0026`
 - **상태**: 승인 및 확정 (Approved / Definitive Architecture Specification)
 - **최초 작성일**: 2026-09-17

@@ -1,5 +1,8 @@
 # 그래프 엔진 교체: Shopify Editions 방식 도입 설계
 
+> [!WARNING]
+> **이력 문서 (2026-11-02 동결).** 작성 당시의 설계 배경·대안·결정 기록이다. 상태 표시, 파일 경로, 설정값은 작성 시점 기준이며 현재 코드와 다를 수 있다. 현재 동작은 [`implementation/`](../implementation/)과 코드로, 원칙은 [`PRINCIPLES.md`](../PRINCIPLES.md)로 확인한다.
+
 작성일: 2026-10-30 · 상태: **Implemented** · 기준: [GOALS.md](../GOALS.md) UI·UX 고도화 · 관련 문서: [GRAPH_ENGINE.md](../implementation/GRAPH_ENGINE.md) (현재 구현 정본·검증 절차), [WEBUI_HOME_ENTRY_AND_GRAPH_EXPLORATION_REDESIGN.md](WEBUI_HOME_ENTRY_AND_GRAPH_EXPLORATION_REDESIGN.md) (6.3 P5·P7), [GRAPHVIEW_MODULARIZATION_AND_STATIC_ASSET_DESIGN.md](GRAPHVIEW_MODULARIZATION_AND_STATIC_ASSET_DESIGN.md)
 
 ---

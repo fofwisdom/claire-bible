@@ -1,5 +1,8 @@
 # Antigravity CLI 적재 지연 해소 및 실행 격리·최적화 아키텍처 설계
 
+> [!WARNING]
+> **이력 문서 (2026-11-02 동결).** 작성 당시의 설계 배경·대안·결정 기록이다. 상태 표시, 파일 경로, 설정값은 작성 시점 기준이며 현재 코드와 다를 수 있다. 현재 동작은 [`implementation/`](../implementation/)과 코드로, 원칙은 [`PRINCIPLES.md`](../PRINCIPLES.md)로 확인한다.
+
 > [!NOTE]
 > 전체 프로바이더 통합 스펙 및 설정 레퍼런스는 [MULTI_PROVIDER_DESIGN.md](MULTI_PROVIDER_DESIGN.md)에 집약되어 있다. 본 문서는 Antigravity CLI의 실측 프로덕션 지연 분석 및 실행 격리 심층 연구 자료이다.
 

@@ -1,4 +1,8 @@
 # 데이터베이스(테마)별 프레젠테이션 기능 활성/비활성 제어 설계 명세서
+
+> [!WARNING]
+> **이력 문서 (2026-11-02 동결).** 작성 당시의 설계 배경·대안·결정 기록이다. 상태 표시, 파일 경로, 설정값은 작성 시점 기준이며 현재 코드와 다를 수 있다. 현재 동작은 [`implementation/`](../implementation/)과 코드로, 원칙은 [`PRINCIPLES.md`](../PRINCIPLES.md)로 확인한다.
+
 (Per-Database Presentation Feature Flag & WebUI Architecture Specification)
 
 **문서 번호:** DESIGN-THEME-PRES-20261012-01  

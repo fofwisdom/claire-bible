@@ -1,5 +1,8 @@
 # Container Slimming & Dependency Decoupling Design
 
+> [!WARNING]
+> **이력 문서 (2026-11-02 동결).** 작성 당시의 설계 배경·대안·결정 기록이다. 상태 표시, 파일 경로, 설정값은 작성 시점 기준이며 현재 코드와 다를 수 있다. 현재 동작은 [`implementation/`](../implementation/)과 코드로, 원칙은 [`PRINCIPLES.md`](../PRINCIPLES.md)로 확인한다.
+
 > **문서 번호:** SPEC-CONTAINER-20260908-01 (Phase 1) **문서 상태:** 설계 및 구현 규격 (Specification) **상위 문서:** [CLAIRE_ARCHITECTURE_ROADMAP.md](../CLAIRE_ARCHITECTURE_ROADMAP.md) (과제 1 / Phase 1) **관련 문서:** [PDF_PARSER_AND_VISION_GUARDRAILS_DESIGN.md](./PDF_PARSER_AND_VISION_GUARDRAILS_DESIGN.md), [OPERATIONS.md](../implementation/OPERATIONS.md)
 
 ---

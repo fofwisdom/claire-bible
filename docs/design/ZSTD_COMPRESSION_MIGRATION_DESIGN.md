@@ -1,5 +1,8 @@
 # Zstandard (zstd) Compression Migration Design
 
+> [!WARNING]
+> **이력 문서 (2026-11-02 동결).** 작성 당시의 설계 배경·대안·결정 기록이다. 상태 표시, 파일 경로, 설정값은 작성 시점 기준이며 현재 코드와 다를 수 있다. 현재 동작은 [`implementation/`](../implementation/)과 코드로, 원칙은 [`PRINCIPLES.md`](../PRINCIPLES.md)로 확인한다.
+
 > **문서 번호:** SPEC-ZSTD-20260909-01 **문서 상태:** 설계 및 구현 규격 (Specification) **작성 일자:** 2026-09-09 **상위 문서:** [CLAIRE_ARCHITECTURE_ROADMAP.md](../CLAIRE_ARCHITECTURE_ROADMAP.md) **관련 문서:** [DATA_LIFECYCLE_AND_PURGE_DESIGN.md](./DATA_LIFECYCLE_AND_PURGE_DESIGN.md), [CONTAINER_SLIMMING_AND_DEPENDENCY_DECOUPLING_DESIGN.md](./CONTAINER_SLIMMING_AND_DEPENDENCY_DECOUPLING_DESIGN.md)
 
 ---

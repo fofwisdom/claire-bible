@@ -1,5 +1,8 @@
 # 멀티 프로바이더 및 하이퍼스케일러 통합 아키텍처 매뉴얼 (`MULTI_PROVIDER_DESIGN.md`)
 
+> [!WARNING]
+> **이력 문서 (2026-11-02 동결).** 작성 당시의 설계 배경·대안·결정 기록이다. 상태 표시, 파일 경로, 설정값은 작성 시점 기준이며 현재 코드와 다를 수 있다. 현재 동작은 [`implementation/`](../implementation/)과 코드로, 원칙은 [`PRINCIPLES.md`](../PRINCIPLES.md)로 확인한다.
+
 > **문서 상태**: 설계 및 구현 완료 (Specification & Operational Reference)  
 > **관련 문서**: [ENVIRONMENT_VARIABLES.md](../implementation/ENVIRONMENT_VARIABLES.md), [COMMANDS.md](../implementation/COMMANDS.md), [ANTIGRAVITY_EXECUTION_AND_LATENCY_OPTIMIZATION_DESIGN.md](ANTIGRAVITY_EXECUTION_AND_LATENCY_OPTIMIZATION_DESIGN.md), [KNOWLEDGE_GRAPH_LINKING_AND_CALIBRATION_DESIGN.md](KNOWLEDGE_GRAPH_LINKING_AND_CALIBRATION_DESIGN.md), [VIDEO_AUDIO_TRANSCRIPTION_AND_INGESTION_DESIGN.md](VIDEO_AUDIO_TRANSCRIPTION_AND_INGESTION_DESIGN.md), [DECISION_STREAM_AND_HEATMAP_MATRIX_DESIGN.md](DECISION_STREAM_AND_HEATMAP_MATRIX_DESIGN.md)
 

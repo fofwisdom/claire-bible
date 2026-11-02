@@ -1,5 +1,8 @@
 # 문서 리더 UI 위계 및 원문 정보 / 적재 메타데이터(docmeta) 분리 설계 명세서
 
+> [!WARNING]
+> **이력 문서 (2026-11-02 동결).** 작성 당시의 설계 배경·대안·결정 기록이다. 상태 표시, 파일 경로, 설정값은 작성 시점 기준이며 현재 코드와 다를 수 있다. 현재 동작은 [`implementation/`](../implementation/)과 코드로, 원칙은 [`PRINCIPLES.md`](../PRINCIPLES.md)로 확인한다.
+
 **문서 번호:** DESIGN-UI-20260911-01 **작성일:** 2026-09-11 **상태:** **설계 및 구현 확정 (Implemented)** **관련 모듈:** `src/claire/static/js/reader.js`, `src/claire/static/js/app.js`, `src/claire/templates/share.html`, `src/claire/static/css/reader.css` **상위 문서:** [`docs/origin/README.md`](../README.md), [`GRAPHVIEW_MODULARIZATION_AND_STATIC_ASSET_DESIGN.md`](GRAPHVIEW_MODULARIZATION_AND_STATIC_ASSET_DESIGN.md)
 
 ---

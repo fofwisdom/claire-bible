@@ -1,5 +1,8 @@
 # 일련번호 기반 멀티 테마(다중 DB 격리) 아키텍처 설계 명세서 (`MULTI_THEME_ARCHITECTURE_DESIGN.md`)
 
+> [!WARNING]
+> **이력 문서 (2026-11-02 동결).** 작성 당시의 설계 배경·대안·결정 기록이다. 상태 표시, 파일 경로, 설정값은 작성 시점 기준이며 현재 코드와 다를 수 있다. 현재 동작은 [`implementation/`](../implementation/)과 코드로, 원칙은 [`PRINCIPLES.md`](../PRINCIPLES.md)로 확인한다.
+
 **문서 번호:** DESIGN-THEME-20260910-01 **작성 주체:** Claire Bible Architecture Team **상태:** **핵심 라우팅 및 P0 운영 data-plane 구현, 잔여 표면 추적 중** **관련 문서:** [`docs/origin/CLAIRE_ARCHITECTURE_ROADMAP.md`](../CLAIRE_ARCHITECTURE_ROADMAP.md), [`docs/origin/implementation/ENVIRONMENT_VARIABLES.md`](../implementation/ENVIRONMENT_VARIABLES.md), [`docs/origin/implementation/COMMANDS.md`](../implementation/COMMANDS.md), [`docs/origin/implementation/EXTERNAL_ACCESS.md`](../implementation/EXTERNAL_ACCESS.md)
 
 ---

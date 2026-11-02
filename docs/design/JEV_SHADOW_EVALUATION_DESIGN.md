@@ -1,5 +1,8 @@
 # TypeSafe AI Jev Shadow 평가 설계 — 판정 권한 없는 동시 평가로 도입 여부를 데이터로 검증
 
+> [!WARNING]
+> **이력 문서 (2026-11-02 동결).** 작성 당시의 설계 배경·대안·결정 기록이다. 상태 표시, 파일 경로, 설정값은 작성 시점 기준이며 현재 코드와 다를 수 있다. 현재 동작은 [`implementation/`](../implementation/)과 코드로, 원칙은 [`PRINCIPLES.md`](../PRINCIPLES.md)로 확인한다.
+
 작성일: 2026-10-31 · 상태: **Implemented** · 기준: [GOALS.md](../GOALS.md) 트랙2(추출·연결 품질) · 관련 문서: [GRAPH_BUNDLE_REVIEW_EVIDENCE_DESIGN.md](GRAPH_BUNDLE_REVIEW_EVIDENCE_DESIGN.md), [DECISION_STREAM_AND_HEATMAP_MATRIX_DESIGN.md](DECISION_STREAM_AND_HEATMAP_MATRIX_DESIGN.md), [MULTI_PROVIDER_DESIGN.md](MULTI_PROVIDER_DESIGN.md)
 
 ---

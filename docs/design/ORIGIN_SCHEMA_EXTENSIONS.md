@@ -1,5 +1,8 @@
 # 오리진 스키마 확장과 복구 정책
 
+> [!WARNING]
+> **이력 문서 (2026-11-02 동결).** 작성 당시의 설계 배경·대안·결정 기록이다. 상태 표시, 파일 경로, 설정값은 작성 시점 기준이며 현재 코드와 다를 수 있다. 현재 동작은 [`implementation/`](../implementation/)과 코드로, 원칙은 [`PRINCIPLES.md`](../PRINCIPLES.md)로 확인한다.
+
 공통 지식 DB version과 lineage의 정본은 [`SCHEMA_VERSIONING.md`](../implementation/SCHEMA_VERSIONING.md)다. 이 문서는 공개 오리진에서만 구현하거나 운영하는 schema 확장, retired version 복구와 보조 저장소 version 계획을 정의한다.
 
 ## 공통 v13 선채택

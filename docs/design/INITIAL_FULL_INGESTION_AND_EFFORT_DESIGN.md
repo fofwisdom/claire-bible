@@ -1,5 +1,8 @@
 # 첫 적재 시 무절단 수집(Lossless Ingestion) 및 추론 레벨(Reasoning Effort) 지정 지원 설계
 
+> [!WARNING]
+> **이력 문서 (2026-11-02 동결).** 작성 당시의 설계 배경·대안·결정 기록이다. 상태 표시, 파일 경로, 설정값은 작성 시점 기준이며 현재 코드와 다를 수 있다. 현재 동작은 [`implementation/`](../implementation/)과 코드로, 원칙은 [`PRINCIPLES.md`](../PRINCIPLES.md)로 확인한다.
+
 > **문서 상태**: 설계 완료 (Designed / Ready for Implementation) **관련 문서**: [INGESTION_INTEGRITY_AND_POLLUTION_CONTROL_RESEARCH.md](INGESTION_INTEGRITY_AND_POLLUTION_CONTROL_RESEARCH.md), [PDF_INGESTION_AND_ADAPTIVE_EFFORT_DESIGN.md](PDF_INGESTION_AND_ADAPTIVE_EFFORT_DESIGN.md), [TARGET_IDENTIFIERS_AND_CLI_STANDARD.md](TARGET_IDENTIFIERS_AND_CLI_STANDARD.md)
 
 ---

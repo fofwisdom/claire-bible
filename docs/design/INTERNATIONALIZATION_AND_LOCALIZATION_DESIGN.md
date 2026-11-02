@@ -1,5 +1,8 @@
 # 프로젝트 국제화(i18n) 및 형태소 분석 기반 다국어 지원 설계 명세서
 
+> [!WARNING]
+> **이력 문서 (2026-11-02 동결).** 작성 당시의 설계 배경·대안·결정 기록이다. 상태 표시, 파일 경로, 설정값은 작성 시점 기준이며 현재 코드와 다를 수 있다. 현재 동작은 [`implementation/`](../implementation/)과 코드로, 원칙은 [`PRINCIPLES.md`](../PRINCIPLES.md)로 확인한다.
+
 작성일: 2026-09-17 · 상태: **Draft (설계 초안)** · 기준: [GOALS.md](../GOALS.md) 트랙1(시스템 무결성) / 트랙2(추출·검색 품질) / 트랙3(가독성·소비 품질) · 관련: [PREFERRED_LANGUAGES_DESIGN.md](PREFERRED_LANGUAGES_DESIGN.md), [ENVIRONMENT_VARIABLES.md](../implementation/ENVIRONMENT_VARIABLES.md)
 
 ---

@@ -1,5 +1,8 @@
 # WebUI 개편: 홈 진입 일원화 · 작업 상태 복원 · 엔티티 내비게이션 · 그래프 탐색 재설계
 
+> [!WARNING]
+> **이력 문서 (2026-11-02 동결).** 작성 당시의 설계 배경·대안·결정 기록이다. 상태 표시, 파일 경로, 설정값은 작성 시점 기준이며 현재 코드와 다를 수 있다. 현재 동작은 [`implementation/`](../implementation/)과 코드로, 원칙은 [`PRINCIPLES.md`](../PRINCIPLES.md)로 확인한다.
+
 작성일: 2026-10-26 · 상태: **Proposed** · 기준: [GOALS.md](../GOALS.md) UI·UX 고도화 · 관련 문서: [DECISION_STREAM_AND_HEATMAP_MATRIX_DESIGN.md](DECISION_STREAM_AND_HEATMAP_MATRIX_DESIGN.md), [VIEW_CONTEXTUAL_UNIFIED_SEARCH_DESIGN.md](VIEW_CONTEXTUAL_UNIFIED_SEARCH_DESIGN.md), [GRAPHVIEW_MODULARIZATION_AND_STATIC_ASSET_DESIGN.md](GRAPHVIEW_MODULARIZATION_AND_STATIC_ASSET_DESIGN.md), [KNOWLEDGE_GRAPH_LINKING_AND_CALIBRATION_DESIGN.md](KNOWLEDGE_GRAPH_LINKING_AND_CALIBRATION_DESIGN.md)
 
 이 문서는 두 부분으로 구성된다.

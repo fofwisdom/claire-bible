@@ -1,5 +1,8 @@
 # 프로바이더 및 MCP 텔레메트리 격리·Support Bundle 통합 아키텍처 설계
 
+> [!WARNING]
+> **이력 문서 (2026-11-02 동결).** 작성 당시의 설계 배경·대안·결정 기록이다. 상태 표시, 파일 경로, 설정값은 작성 시점 기준이며 현재 코드와 다를 수 있다. 현재 동작은 [`implementation/`](../implementation/)과 코드로, 원칙은 [`PRINCIPLES.md`](../PRINCIPLES.md)로 확인한다.
+
 이 문서는 Antigravity(`agy`) 및 멀티 LLM 프로바이더 실행 시 발생하는 이상 현상과 외부 AI 에이전트(Google Gemini Spark, Claude Desktop 등)의 Model Context Protocol(MCP) 및 OAuth 2.1 연동 이상 현상의 실증 데이터를 수집하기 위한 **물리적으로 격리된 텔레메트리 서브시스템**과 근본 원인 분석(RCA)을 위한 **Support Bundle(zstd 압축, 공유 링크/OAuth 추적, 6시간 자동 파기)** 통합 아키텍처 설계를 기술한다.
 
 > [!IMPORTANT] 이 문서에서 별도 표기가 없는 기존 텔레메트리 수집과 Support Bundle format v3 동작은 **Implemented**이다. 아래의 telemetry schema v1/lineage, read-only 진단 전용 연결, Support Bundle format v4와 이중 registry 불일치 차단, 그리고 MCP 관측성 확장(`diagnostics/mcp.json`, `pipeline/oauth_summary.json`, `telemetry/mcp_records.jsonl`)은 **Planned / 단계별 구현**이다.

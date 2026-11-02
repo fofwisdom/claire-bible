@@ -1,5 +1,8 @@
 # 텔레그램 첨부 파일·하이퍼링크 복합 적재(Composite Ingestion) 설계
 
+> [!WARNING]
+> **이력 문서 (2026-11-02 동결).** 작성 당시의 설계 배경·대안·결정 기록이다. 상태 표시, 파일 경로, 설정값은 작성 시점 기준이며 현재 코드와 다를 수 있다. 현재 동작은 [`implementation/`](../implementation/)과 코드로, 원칙은 [`PRINCIPLES.md`](../PRINCIPLES.md)로 확인한다.
+
 작성일: 2026-10-08 · 상태: **구현 완료, 검증 완료** · 기준: [GOALS.md](../GOALS.md) 품질 원칙 · 관련: [TELEGRAM_VIDEO_PDF_BUNDLE_INGESTION_DESIGN.md](TELEGRAM_VIDEO_PDF_BUNDLE_INGESTION_DESIGN.md), [VIDEO_PRESENTATION_BUNDLE_INGESTION_DESIGN.md](VIDEO_PRESENTATION_BUNDLE_INGESTION_DESIGN.md), [FOCUS_STANDARDIZATION_AND_PURGE_DESIGN.md](FOCUS_STANDARDIZATION_AND_PURGE_DESIGN.md)
 
 ---

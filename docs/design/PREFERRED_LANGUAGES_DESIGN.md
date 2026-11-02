@@ -1,5 +1,8 @@
 # 프로젝트 광역 선호 언어(Global Preferred Languages) 설계 명세서
 
+> [!WARNING]
+> **이력 문서 (2026-11-02 동결).** 작성 당시의 설계 배경·대안·결정 기록이다. 상태 표시, 파일 경로, 설정값은 작성 시점 기준이며 현재 코드와 다를 수 있다. 현재 동작은 [`implementation/`](../implementation/)과 코드로, 원칙은 [`PRINCIPLES.md`](../PRINCIPLES.md)로 확인한다.
+
 작성일: 2026-09-02 · 상태: **설계 및 구현 완료** · 기준: [GOALS.md](../GOALS.md) 트랙1(수집·인제스트 무결성) / 관련: [INGESTION_INTEGRITY_AND_POLLUTION_CONTROL_RESEARCH.md](INGESTION_INTEGRITY_AND_POLLUTION_CONTROL_RESEARCH.md)
 
 ---

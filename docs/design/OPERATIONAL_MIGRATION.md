@@ -1,5 +1,8 @@
 # 운영 지원 업데이트 및 마이그레이션 설계 (`OPERATIONAL_MIGRATION.md`)
 
+> [!WARNING]
+> **이력 문서 (2026-11-02 동결).** 작성 당시의 설계 배경·대안·결정 기록이다. 상태 표시, 파일 경로, 설정값은 작성 시점 기준이며 현재 코드와 다를 수 있다. 현재 동작은 [`implementation/`](../implementation/)과 코드로, 원칙은 [`PRINCIPLES.md`](../PRINCIPLES.md)로 확인한다.
+
 > [!NOTE]
 > 이 문서의 원칙은 [`PRINCIPLES.md`](../PRINCIPLES.md)로 옮겼다(2026-10-31). 이 문서는 이력으로만 남기며 고치지 않는다.
 

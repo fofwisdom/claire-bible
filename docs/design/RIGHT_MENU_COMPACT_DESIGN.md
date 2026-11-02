@@ -1,5 +1,8 @@
 # aside#detailpane(우측 메뉴) 아이콘 모드(Icon-Only) 전환 설계
 
+> [!WARNING]
+> **이력 문서 (2026-11-02 동결).** 작성 당시의 설계 배경·대안·결정 기록이다. 상태 표시, 파일 경로, 설정값은 작성 시점 기준이며 현재 코드와 다를 수 있다. 현재 동작은 [`implementation/`](../implementation/)과 코드로, 원칙은 [`PRINCIPLES.md`](../PRINCIPLES.md)로 확인한다.
+
 작성일: 2026-08-21 · 상태: **구현 및 적용 (Implemented)** · 기준: [GOALS.md](../GOALS.md) / [PLAN.md](../implementation/PLAN.md) · 관련: `src/claire/graphview.py`
 
 ---

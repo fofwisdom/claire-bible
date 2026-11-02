@@ -1,5 +1,8 @@
 # Syndication Endpoint Architecture and Clean-Room UI Specification
 
+> [!WARNING]
+> **이력 문서 (2026-11-02 동결).** 작성 당시의 설계 배경·대안·결정 기록이다. 상태 표시, 파일 경로, 설정값은 작성 시점 기준이며 현재 코드와 다를 수 있다. 현재 동작은 [`implementation/`](../implementation/)과 코드로, 원칙은 [`PRINCIPLES.md`](../PRINCIPLES.md)로 확인한다.
+
 **Document Identifier:** DESIGN-SYNDICATION-20261028-01 (Rev. 2026-10-29: 서버 접속형 ActivityPub · AT, 작업 공간 탭, 4종 목록 스타일 · Rev. 2026-10-30: ActivityPub 클라이언트 기능 기준 Mastodon 5.0+, 목록 스타일 i18n)  
 **Author:** Claire Bible Architecture & UI/UX Team  
 **Status:** Phase 1 Implemented (Public Visual Prototype at `/syndication` — Tab 1 연합 클라이언트 · Tab 2 지식베이스) · Phase 2 Specified (Backend Collectors, Schema, Connected-Account Server Adapters)  
