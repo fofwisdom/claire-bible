@@ -586,8 +586,8 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 | `theme list` | `claire theme list [--json]` | 등록된 테마 목록, 활성화 상태, 공개 여부 및 통계(문서/엔티티/관계) 조회 |
 | `theme define` | `claire theme define --label <L> [--desc <D>] [--icon <I>] [--focus <F>] [--public\|--private] [--collaborator\|--no-collaborator] [--json]` | 신규 테마를 등록하고 단일 DB 내 `themes` 테이블 및 테마 파티션을 프로비저닝 |
 | `theme update` | `claire theme update <id_or_label> [--label <L>] [--desc <D>] [--icon <I>] [--focus <F>] [--public\|--private] [--collaborator\|--no-collaborator] [--json]` | 기존 테마의 레이블, 설명, 아이콘, 기본 초점, 공개/협력자 접근 권한 수정 |
-| `theme reset` | `claire theme reset <id> [-y\|--yes] [--json]` | 테마 ID 및 호출 URI(`?theme=<id>`)를 영구 보존하면서 해당 테마의 내부 데이터(문서, 지식 노드, 관계 등)만 원자적으로 100% 클린 리셋 |
-| `theme delete` | `claire theme delete <id> [--purge] [--yes] [--json]` | 테마 레지스트리에서 비활성화/삭제. `--purge` 지정 시 테마 데이터 전체(`theme_id` 기준) 영구 소각 (기본 테마 `0`은 삭제 불가 보호) |
+| `theme reset` | `claire theme reset <id> [--apply] [-y\|--yes] [--json]` | 테마 ID 및 호출 URI(`?theme=<id>`)를 보존하고 해당 테마의 내부 데이터(문서, 지식 노드, 관계 등)만 삭제. 기본은 dry-run, `--apply`로 실행 |
+| `theme delete` | `claire theme delete <id> [--purge] [--apply] [--yes] [--json]` | 테마 레지스트리에서 삭제. `--purge` 지정 시 테마 데이터 전체(`theme_id` 기준) 영구 소각. 기본은 dry-run, `--apply`로 실행 (기본 테마 `0`은 삭제 불가) |
 
 #### `claire theme list`
 * **사용법**: `claire theme list [--json]` (또는 `claire theme` 단독 실행 시 기본 동작)
@@ -618,25 +618,26 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
   * 기본 테마 `0`(Default Theme)의 경우 레이블, 설명, 아이콘, 공개 여부는 변경 가능하지만 기본 초점은 `""`로 고정된다.
 
 #### `claire theme reset`
-* **사용법**: `claire theme reset <id> [-y|--yes] [--json]`
-* **주요 특징 및 동작**:
-  * **식별 메타데이터 및 고유 URI 영구 보존**: 테마 ID(`id`), 순번(`seq`), 명칭(`label`), 아이콘(`icon`), 설명(`description`), 기본 초점(`default_focus`), 권한 설정(`is_public`, `is_collaborator_accessible`), 생성일(`created_at`), 호출 URI(`?theme=<id>`) 등 모든 식별 메타데이터는 불변으로 유지된다 (`updated_at`만 갱신). 북마크나 외부 공유 URL이 깨지지 않는다.
-  * **내부 적재 데이터 완전 소각 (100% Clean Slate)**:
-    1. **지식 그래프 원자적 비우기**: `reset_graph(conn, theme_id=id)`를 통해 `theme_id`에 속한 `entities`, `relations`, `embeddings`, `entities_fts`를 일괄 삭제.
-    2. **테마 DB 적재 데이터 초기화**: `theme_id` 조건으로 `documents`, `raw_inbox`, `extractions`, `document_snapshots`, `proposals`, `jobs`, `refresh_queue`, `expand_queue`, `doc_shares`, `purged_tombstones`, `document_presentations` 행 삭제.
-    3. **스토리지 최적화**: `PRAGMA wal_checkpoint(TRUNCATE)` 및 `VACUUM`을 수행하여 잔여 WAL 및 프리리스트를 즉시 OS에 반환.
-  * **대화형 안전 확인**: 대화형 터미널에서는 테마 명칭과 ID를 안내하며 `[y/N]` 확인을 요구하고, 비대화형 파이프라인 환경에서는 `--yes` (`-y`) 플래그가 없으면 작업이 차단(종료 코드 2)된다.
-  * **`--json`**: 소각된 문서 수, 엔티티 수, 관계 수 등 리셋 요약 통계를 JSON으로 출력.
+* **사용법**: `claire theme reset <id> [--apply] [-y|--yes] [--json]`
+* **기본은 dry-run**: `--apply` 없이 실행하면 삭제될 문서·엔티티·관계 수만 보고하고 아무것도 바꾸지 않는다. `-y`만으로는 실행되지 않는다. `--json`이면 `{"ok": true, "plan": {"dry_run": true, "data_to_delete": {...}}}`를 출력한다.
+* **보존되는 것**: 테마 ID, 순번, 명칭, 아이콘, 설명, 기본 초점, 권한 설정, 생성일, 호출 URI(`?theme=<id>`). `updated_at`만 갱신된다.
+* **삭제되는 것** (`ThemeManager.reset_theme`):
+  1. `reset_graph(conn, theme_id=id)`로 해당 테마의 지식 그래프(엔티티, 관계, 임베딩, FTS)를 비운다.
+  2. `theme_id` 조건으로 `documents`, `document_snapshots`, `document_presentations`, `raw_inbox`, `extractions`, `proposals`, `jobs`, `refresh_queue`, `expand_queue`, `doc_shares`, `purged_tombstones`, `syndication_dispatches`, `syndication_items` 행을 삭제한다.
+* **확인**: `--apply` 시 대화형 터미널에서는 `[y/N]` 확인을 받는다. 비대화형 환경에서 `--yes`가 없으면 종료 코드 2로 거부한다.
+* **`--json`** (`--apply`와 함께): 삭제한 문서·엔티티·관계 수를 JSON으로 출력.
 
 #### `claire theme delete`
-* **사용법**: `claire theme delete <id> [--purge] [--yes] [--json]`
+* **사용법**: `claire theme delete <id> [--purge] [--apply] [--yes] [--json]`
 * **주요 옵션**:
-  * `id`: 삭제할 테마의 ID 또는 시퀀스 번호.
-  * `--purge`: 테마 레지스트리 제거뿐만 아니라 단일 DB 내 해당 `theme_id` 파티션의 모든 지식 데이터를 영구 소각.
-  * `--yes`, `-y`: 삭제 확인 대화형 프롬프트 건너뛰기.
-* **안전 보호 장치 (Safety Guard)**:
-  * **기본 테마 `0` 삭제 불가**: 테마 `0`은 시스템의 루트 지식베이스이므로 삭제 시도 시 즉시 거부되고 오류 코드 1을 반환한다.
-  * 비정상 접근 및 오염 방지를 위해 `--purge` 누락 시에는 레지스트리에서만 비활성화/제거되고 데이터는 보존된다.
+  * `id`: 삭제할 테마의 ID, 시퀀스 번호 또는 레이블.
+  * `--purge`: 레지스트리 제거와 함께 해당 `theme_id`의 데이터를 `theme reset`과 같은 범위로 영구 소각한다.
+  * `--apply`: 실제 삭제. 없으면 dry-run으로 계획(소각 예정 건수 포함)만 출력한다.
+  * `--yes`, `-y`: `--purge --apply`의 확인 프롬프트 생략. 단독으로는 삭제하지 않는다.
+* **안전 장치**:
+  * 기본 테마 `0`은 dry-run 단계에서부터 거부되고 종료 코드 1을 반환한다. `CLAIRE_MULTI_THEME=1`이 아니어도 종료 코드 1이다.
+  * `--purge`가 없으면 레지스트리에서만 제거되고 데이터 행은 남는다.
+  * `--purge --apply`를 비대화형 환경에서 `--yes` 없이 실행하면 종료 코드 2로 거부한다.
 
 ---
 

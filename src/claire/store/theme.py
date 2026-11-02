@@ -873,6 +873,18 @@ class ThemeManager:
         log.info("테마 #%d [%s] 삭제 완료 (purge=%s)", tid, theme.label, purge)
         return theme
 
+    def theme_data_counts(self, theme_id: int) -> dict[str, int]:
+        """테마에 속한 문서·엔티티·관계 수. 삭제·리셋 dry-run 보고용(읽기 전용)."""
+        db_file = getattr(self.settings, "db_file", None) or Path("data/claire.db")
+        conn = dbm.connect(db_file)
+        try:
+            return {
+                key: conn.execute(f"SELECT COUNT(*) FROM {tbl} WHERE theme_id = ?", (theme_id,)).fetchone()[0]
+                for key, tbl in (("documents", "documents"), ("entities", "entities"), ("relations", "relations"))
+            }
+        finally:
+            conn.close()
+
     def reset_theme(self, theme_id: int | str) -> dict[str, Any]:
         """지식 관리자: 테마 고유 식별자(?theme=id) 및 메타데이터는 보존하고 내부 수집/그래프 데이터를 완전 초기화."""
         import sqlite3

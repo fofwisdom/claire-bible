@@ -838,36 +838,11 @@ def cmd_theme(args) -> int:
             print(f"[오류] 테마 수정 실패: {exc}", file=sys.stderr)
             return 1
 
-    elif action == "delete":
+    elif action in ("delete", "reset"):
         theme_id = getattr(args, "id", None)
         if theme_id is None:
-            print("[오류] 삭제할 테마의 ID를 지정해야 합니다.", file=sys.stderr)
-            return 1
-        purge = getattr(args, "purge", False)
-        yes = getattr(args, "yes", False)
-        if purge and not yes:
-            try:
-                confirm = input(f"[경고] 테마 #{theme_id}의 물리 DB 파일을 완전히 영구 삭제하시겠습니까? (y/N): ")
-                if confirm.strip().lower() not in ("y", "yes"):
-                    print("작업이 취소되었습니다.")
-                    return 0
-            except EOFError:
-                pass
-        try:
-            theme = tm.delete_theme(theme_id, purge=purge)
-            if getattr(args, "json", False):
-                print(json.dumps({"ok": True, "deleted": theme.to_dict()}, ensure_ascii=False, indent=2))
-            else:
-                print(f"[성공] 테마 #{theme.id} [{theme.label}] 삭제 완료! (물리 파일 소각: {'예' if purge else '아니오'})")
-            return 0
-        except Exception as exc:
-            print(f"[오류] 테마 삭제 실패: {exc}", file=sys.stderr)
-            return 1
-
-    elif action == "reset":
-        theme_id = getattr(args, "id", None)
-        if theme_id is None:
-            print("[오류] 리셋할 테마의 ID를 지정해야 합니다.", file=sys.stderr)
+            verb = "삭제" if action == "delete" else "리셋"
+            print(f"[오류] {verb}할 테마의 ID를 지정해야 합니다.", file=sys.stderr)
             return 1
         try:
             target_theme = tm.get_theme(theme_id, strict=True)
@@ -875,25 +850,77 @@ def cmd_theme(args) -> int:
             print(f"[오류] 대상 테마를 찾을 수 없습니다: {exc}", file=sys.stderr)
             return 1
 
-        yes = getattr(args, "yes", False)
-        if not yes:
+        if action == "delete":
+            if target_theme.id == 0:
+                print("[오류] 기본 테마(ID 0)는 삭제할 수 없습니다.", file=sys.stderr)
+                return 1
+            if not getattr(tm.settings, "multi_theme", False):
+                print("[오류] 멀티 테마 모드가 비활성화되어 있습니다 (CLAIRE_MULTI_THEME=1 필요)", file=sys.stderr)
+                return 1
+
+        purge = action == "delete" and getattr(args, "purge", False)
+        removes_data = action == "reset" or purge
+        counts = tm.theme_data_counts(target_theme.id) if removes_data else None
+
+        if not getattr(args, "apply", False):
+            plan = {
+                "dry_run": True,
+                "action": action,
+                "theme": target_theme.to_dict(),
+                "purge": purge,
+                "data_to_delete": counts,
+            }
+            if getattr(args, "json", False):
+                print(json.dumps({"ok": True, "plan": plan}, ensure_ascii=False, indent=2))
+            else:
+                verb = "삭제" if action == "delete" else "리셋"
+                print(f"[Dry-Run] 테마 #{target_theme.id} [{target_theme.label}] {verb} 계획 (변경 없음)")
+                if action == "delete":
+                    print("  • 레지스트리에서 제거 : 예")
+                    print(f"  • 데이터 영구 소각    : {'예' if purge else '아니오 (--purge 미지정)'}")
+                else:
+                    print(f"  • 테마 ID / URI 보존  : #{target_theme.id} (?theme={target_theme.id})")
+                if counts is not None:
+                    print(f"  • 소각될 문서 수      : {counts['documents']} 건")
+                    print(f"  • 소각될 엔티티 수    : {counts['entities']} 건")
+                    print(f"  • 소각될 관계 수      : {counts['relations']} 건")
+                print(f"실제로 실행하려면 --apply 를 붙이십시오: claire theme {action} {theme_id} --apply")
+            return 0
+
+        if removes_data and not getattr(args, "yes", False):
             if not sys.stdin.isatty():
                 print(
-                    f"\n[오류] 비대화형 환경에서는 --yes (-y) 옵션을 명시하여 실행하십시오:\n  claire theme reset {theme_id} --yes",
+                    f"\n[오류] 비대화형 환경에서는 --yes (-y) 옵션을 함께 명시하여 실행하십시오:\n  claire theme {action} {theme_id} --apply --yes",
                     file=sys.stderr,
                 )
                 return 2
             try:
-                confirm = input(
-                    f"[경고] 테마 #{target_theme.id} [{target_theme.label}]의 모든 문서, 지식 노드, 관계, 볼트 데이터를 완전히 초기화하시겠습니까?\n"
-                    f"      테마 ID 및 고유 호출 URI(?theme={target_theme.id})는 영구 보존됩니다. (y/N): "
-                )
+                if action == "delete":
+                    prompt = f"[경고] 테마 #{target_theme.id} [{target_theme.label}]를 삭제하고 데이터를 영구 소각하시겠습니까? (y/N): "
+                else:
+                    prompt = (
+                        f"[경고] 테마 #{target_theme.id} [{target_theme.label}]의 모든 문서, 지식 노드, 관계 데이터를 완전히 초기화하시겠습니까?\n"
+                        f"      테마 ID 및 고유 호출 URI(?theme={target_theme.id})는 영구 보존됩니다. (y/N): "
+                    )
+                confirm = input(prompt)
                 if confirm.strip().lower() not in ("y", "yes"):
-                    print("리셋 작업이 취소되었습니다.")
+                    print("작업이 취소되었습니다.")
                     return 0
             except (EOFError, KeyboardInterrupt):
-                print("\n리셋 작업이 취소되었습니다.")
+                print("\n작업이 취소되었습니다.")
                 return 0
+
+        if action == "delete":
+            try:
+                theme = tm.delete_theme(target_theme.id, purge=purge)
+                if getattr(args, "json", False):
+                    print(json.dumps({"ok": True, "deleted": theme.to_dict()}, ensure_ascii=False, indent=2))
+                else:
+                    print(f"[성공] 테마 #{theme.id} [{theme.label}] 삭제 완료! (데이터 소각: {'예' if purge else '아니오'})")
+                return 0
+            except Exception as exc:
+                print(f"[오류] 테마 삭제 실패: {exc}", file=sys.stderr)
+                return 1
 
         try:
             stats = tm.reset_theme(theme_id)
@@ -4688,21 +4715,23 @@ def build_parser() -> argparse.ArgumentParser:
     ptdel = ptheme_sub.add_parser(
         "delete",
         help="delete theme from registry",
-        description="Delete theme from registry. Note: default theme 0 cannot be deleted.",
+        description="Delete theme from registry (default: dry-run, --apply to execute). Note: default theme 0 cannot be deleted.",
     )
     ptdel.add_argument("id", help="theme ID, sequence number, or label to delete")
-    ptdel.add_argument("--purge", action="store_true", help="permanently delete physical database files from disk")
-    ptdel.add_argument("--yes", "-y", action="store_true", help="skip confirmation prompt")
+    ptdel.add_argument("--purge", action="store_true", help="also permanently delete the theme's documents and graph data")
+    ptdel.add_argument("--apply", action="store_true", help="execute actual deletion (default: dry-run)")
+    ptdel.add_argument("--yes", "-y", action="store_true", help="skip confirmation prompt (deletion still requires --apply)")
     ptdel.add_argument("--json", action="store_true", help="output deletion report in JSON format")
     ptdel.set_defaults(func=cmd_theme)
 
     ptres = ptheme_sub.add_parser(
         "reset",
         help="reset all data in a theme while preserving theme ID, URL, and metadata",
-        description="Atomically reset and clear all documents, graph entities, and relations in a theme while preserving theme metadata.",
+        description="Atomically reset and clear all documents, graph entities, and relations in a theme while preserving theme metadata (default: dry-run, --apply to execute).",
     )
     ptres.add_argument("id", help="theme ID, sequence number, or label to reset")
-    ptres.add_argument("--yes", "-y", action="store_true", help="skip confirmation prompt")
+    ptres.add_argument("--apply", action="store_true", help="execute actual reset (default: dry-run)")
+    ptres.add_argument("--yes", "-y", action="store_true", help="skip confirmation prompt (reset still requires --apply)")
     ptres.add_argument("--json", action="store_true", help="output reset report in JSON format")
     ptres.set_defaults(func=cmd_theme)
 

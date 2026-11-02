@@ -1,6 +1,6 @@
 # Claire Bible 프로젝트 원칙
 
-확인 기준 커밋: `e64dd58` (2026-10-31) · 바꿀 수 있는 사람: 저장소 소유자
+확인 기준 커밋: `3d3a696` (2026-11-01) · 바꿀 수 있는 사람: 저장소 소유자
 
 이 문서는 구현이 바뀌어도 유지되는 규칙만 적는다. 어기면 버그다. 현재 코드가 무엇을 어떻게 하는지는 [`implementation/`](implementation/)에, 비전과 범위는 [`GOALS.md`](GOALS.md)에 있다.
 
@@ -44,7 +44,8 @@
 **C1. 모호하면 추측하지 말고 실패한다.** 필수 인자나 문맥이 없거나 모호하면 "가장 가까운 값"으로 유추하지 않고 구체적 오류로 즉시 실패한다. 요청받지 않은 편의 기능, 임의 기본값, 데이터 보정·합성 코드를 넣지 않는다.
 
 **C2. 숨은 폴백을 두지 않는다.** 외부 서비스 연동이 실패하면 빈 데이터나 mock 결과로 파이프라인을 채우지 않고 실패로 처리한다.
-- 현황: 아래 [충돌 1](#충돌-1-mock-폴백과-c1c2)을 보라. 프로바이더 설정 단계에서는 mock 폴백이 설계된 동작으로 남아 있다.
+- 운영 환경(`CLAIRE_ENVIRONMENT=production`)에서는 설정한 LLM·STT·VLM 프로바이더를 쓸 수 없을 때 mock으로 대체하지 않는다. 키나 실행 파일이 없거나 값이 알 수 없는 경우가 여기에 해당한다. 서비스 기동과 상태 조회는 계속되고(상태 표시는 `unavailable`), 실제 호출은 `ProviderUnavailableError`로 실패한다. 개발 환경의 mock 대체는 허용한다. 명시적으로 `mock`을 지정한 것은 폴백이 아니다. (결정 2026-11-02)
+- 집행: `Settings.provider_unavailable_reason`, `extract/provider.py`·`transcript/factory.py`·`vision/factory.py`의 `Unavailable*Provider`, `tests/test_provider_unavailable.py`
 
 **C3. 에이전트용 CLI 계약을 지킨다.** `--json` 모드에서는 다음이 성립한다.
 - stdout에는 검증된 `AgentOutput` JSON만 나가고, 사람용 안내와 로그는 stderr로 간다.
@@ -71,7 +72,7 @@
 - `--dry-run`: 실행이 기본인 명령에서 시뮬레이션을 명시
 - `--force`/`-f`: 이미 결과가 있어도 덮어쓰기. 실행 트리거로 쓰지 않는다
 - `--yes`/`-y`: 확인 프롬프트만 생략. 단독으로 변경을 일으키지 않는다
-- 현황: [알려진 위반 1](#위반-1-theme-delete와-theme-reset)
+- 집행: `tests/test_cli_theme.py`(`theme delete`/`theme reset`의 dry-run 기본값)
 
 **D3. 파괴적 명령은 기본이 dry-run이다.** 일괄·파괴적 명령은 계획만 보여 주고 `--apply`가 있어야 실행한다. `purge`는 데이터 수명주기 정책(`CLAIRE_DATA_LIFECYCLE`)을 먼저 확인한다. 여러 문서가 일치하면 목록을 보여 주고 확인을 받는다. 0건이면 입력값과 힌트를 함께 보여 준다.
 
@@ -97,17 +98,11 @@
 
 ## 원칙 간 충돌과 알려진 위반 (소유자 결정 필요)
 
-### 충돌 1: mock 폴백과 C1·C2
+현재 없음. 새로 발견하면 여기에 적고 소유자에게 결정을 요청한다.
 
-`Settings.effective_provider`, `effective_stt_provider`, `effective_vlm_provider`는 키나 실행 파일이 없으면 `mock`을 돌려준다. `CLAIRE_VLM_PROVIDER`에 알 수 없는 값을 넣어도 `mock`이 된다. `antigravity`의 경우에는 텔레메트리에 `DEGRADED`를 기록하지만 기동은 계속된다. `design/OPERATIONAL_MIGRATION.md` §4도 새 환경변수를 "안전한 fallback과 함께" 읽으라고 한다.
-
-결정할 것: 둘 중 어느 쪽인가.
-- (가) 설정 단계 폴백은 C2의 예외다. 이 경우 예외 조건을 C2에 적는다. 예: 개발 편의용이며 항상 진단에 드러난다.
-- (나) 운영 환경에서는 실패해야 한다. 이 경우 코드를 고친다.
-
-### 위반 1: `theme delete`와 `theme reset`
-
-두 명령은 기본 동작이 실행이며 `--dry-run`이 없다. `-y`만 붙이면 확인 없이 실행된다. `--purge`를 붙인 `theme delete`는 해당 테마의 모든 데이터(`theme_id` 파티션)를 영구 소각한다. D2와 D3에 따르면 기본이 dry-run이어야 한다. 그렇지 않다면 최소한 `--dry-run`을 제공해야 한다.
+해결된 항목:
+- 2026-11-02 mock 폴백과 C1·C2: 운영 환경에서는 실패하도록 고쳤다 (C2 참고).
+- 2026-11-02 `theme delete`/`theme reset`이 기본으로 실행되던 문제: dry-run 기본, `--apply`로 실행하도록 고쳤다 (D2·D3).
 
 ---
 

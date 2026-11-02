@@ -127,13 +127,21 @@ def test_cli_theme_define_update_delete(cli_theme_env, capsys):
     captured = capsys.readouterr().out
     assert "엔지니어링 & AI" in captured
 
-    # 5. 테마 삭제 (purge)
+    # 5. --apply 없이 -y만 주면 dry-run: 계획만 출력하고 삭제하지 않는다
     ret = cli.main(["theme", "delete", "1", "--purge", "--yes"])
+    assert ret == 0
+    captured = capsys.readouterr().out
+    assert "Dry-Run" in captured
+    tm.reload()
+    assert 1 in [t.id for t in tm.list_themes()]
+
+    # 6. 테마 삭제 (purge)
+    ret = cli.main(["theme", "delete", "1", "--purge", "--apply", "--yes"])
     assert ret == 0
     captured = capsys.readouterr().out
     assert "삭제 완료" in captured
 
-    # 6. 목록에서 제거되었는지 확인
+    # 7. 목록에서 제거되었는지 확인
     tm.reload()
     assert 1 not in [t.id for t in tm.list_themes()]
 
@@ -225,7 +233,7 @@ def test_cli_theme_delete_additional_only(cli_theme_env, capsys):
     capsys.readouterr()
 
     # 3. 레이블 이름으로 추가 테마 삭제
-    ret = cli.main(["theme", "delete", "삭제용 테마", "--purge", "-y"])
+    ret = cli.main(["theme", "delete", "삭제용 테마", "--purge", "--apply", "-y"])
     assert ret == 0
     out = capsys.readouterr().out
     assert "삭제 완료" in out
@@ -442,22 +450,38 @@ def test_cli_theme_reset(cli_theme_env, capsys, monkeypatch):
     assert ret == 1
     assert "대상 테마를 찾을 수 없습니다" in capsys.readouterr().err
 
-    # 2. 비대화형 환경에서 --yes 미지정 시 -> 방어 (exit code 2)
+    # 2. --apply 없으면 -y가 있어도 dry-run: 소각 예정 건수만 보고하고 데이터는 그대로
+    ret = cli.main(["theme", "reset", "1", "-y"])
+    assert ret == 0
+    out = capsys.readouterr().out
+    assert "Dry-Run" in out
+    assert "소각될 문서 수      : 1 건" in out
+    conn = dbm.connect(t1_settings.db_file)
+    assert dbm.get_document(conn, "doc_reset_cli") is not None
+    conn.close()
+
+    ret = cli.main(["theme", "reset", "1", "--json"])
+    assert ret == 0
+    plan = _unwrap_json(capsys.readouterr().out)["plan"]
+    assert plan["dry_run"] is True
+    assert plan["data_to_delete"] == {"documents": 1, "entities": 1, "relations": 1}
+
+    # 3. 비대화형 환경에서 --apply만 주고 --yes 미지정 시 -> 방어 (exit code 2)
     monkeypatch.setattr(sys.stdin, "isatty", lambda: False)
-    ret = cli.main(["theme", "reset", "1"])
+    ret = cli.main(["theme", "reset", "1", "--apply"])
     assert ret == 2
     err = capsys.readouterr().err
-    assert "--yes (-y) 옵션을 명시" in err
+    assert "--yes (-y) 옵션을 함께 명시" in err
 
-    # 3. 대화형 환경에서 취소 (n 입력) -> 취소 메시지 및 exit code 0
+    # 4. 대화형 환경에서 취소 (n 입력) -> 취소 메시지 및 exit code 0
     monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
     monkeypatch.setattr("builtins.input", lambda _: "n")
-    ret = cli.main(["theme", "reset", "1"])
+    ret = cli.main(["theme", "reset", "1", "--apply"])
     assert ret == 0
-    assert "리셋 작업이 취소되었습니다" in capsys.readouterr().out
+    assert "작업이 취소되었습니다" in capsys.readouterr().out
 
-    # 4. --yes로 리셋 실행 -> 성공 출력 및 테마 ID/URI 보존 확인
-    ret = cli.main(["theme", "reset", "1", "--yes"])
+    # 5. --apply --yes로 리셋 실행 -> 성공 출력 및 테마 ID/URI 보존 확인
+    ret = cli.main(["theme", "reset", "1", "--apply", "--yes"])
     assert ret == 0
     out = capsys.readouterr().out
     assert "데이터 완전 초기화 완료" in out
@@ -482,8 +506,8 @@ def test_cli_theme_reset(cli_theme_env, capsys, monkeypatch):
     assert t1_after.id == 1
     assert t1_after.label == "리셋 대상 테마"
 
-    # 5. --json 옵션 동작 검증
-    ret = cli.main(["theme", "reset", "1", "-y", "--json"])
+    # 6. --json 옵션 동작 검증
+    ret = cli.main(["theme", "reset", "1", "--apply", "-y", "--json"])
     assert ret == 0
     json_out = _unwrap_json(capsys.readouterr().out)
     assert json_out["ok"] is True
