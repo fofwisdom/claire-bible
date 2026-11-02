@@ -386,7 +386,7 @@ def test_judge_same_entity(mock_run):
 
 
 def test_embed_deterministic_hash():
-    prov = AntigravityProvider(_make_settings(gemini_api_key=""))
+    prov = AntigravityProvider(_make_settings(gemini_api_key="", environment="development"))
     v1 = prov.embed("hello world")
     v2 = prov.embed("hello world")
     v3 = prov.embed("another text")

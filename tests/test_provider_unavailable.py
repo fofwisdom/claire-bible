@@ -29,6 +29,12 @@ def test_llm_falls_back_to_mock_only_in_development(provider):
     assert isinstance(get_provider(prod), UnavailableProvider)
 
 
+def test_openai_without_implementation_names_the_gap():
+    s = _settings("production", provider="openai")
+    assert s.effective_provider == "unavailable"
+    assert "구현이 없다" in (s.provider_unavailable_reason("llm") or "")
+
+
 def test_unavailable_llm_fails_on_call_with_reason():
     prov = get_provider(_settings("production", provider="gemini"))
     assert prov.name == "unavailable"
@@ -79,3 +85,14 @@ def test_disabled_features_report_no_unavailable_reason():
     s = _settings("production", enable_video_transcription=False, enable_vlm_transcription=False)
     assert s.provider_unavailable_reason("stt") is None
     assert s.provider_unavailable_reason("vlm") is None
+
+
+def test_antigravity_embedding_does_not_fake_vectors_in_production():
+    from claire.extract.antigravity_provider import AntigravityProvider
+
+    dev = AntigravityProvider(_settings("development", provider="antigravity"))
+    assert len(dev.embed("text")) == dev.EMBED_DIM
+
+    prod = AntigravityProvider(_settings("production", provider="antigravity"))
+    with pytest.raises(ProviderUnavailableError, match="embedding"):
+        prod.embed("text")

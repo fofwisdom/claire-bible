@@ -997,6 +997,8 @@ class Settings(BaseSettings):
             return None if self.gemini_api_key else "CLAIRE_PROVIDER=gemini: GEMINI_API_KEY가 비어 있다"
         if raw == "mock":
             return None
+        if raw == "openai":
+            return "CLAIRE_PROVIDER=openai: WebUI 설정만 있고 LLM 프로바이더 구현이 없다"
         return f"CLAIRE_PROVIDER={self.provider}: 알 수 없는 프로바이더"
 
     def _stt_unavailable_reason(self) -> str | None:

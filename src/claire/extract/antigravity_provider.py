@@ -545,7 +545,7 @@ class AntigravityProvider:
     def embed(
         self, text: str, *, task_type: str | None = None, title: str | None = None
     ) -> list[float]:
-        """임베딩 생성 (Gemini API 키 존재 시 Gemini embed, 아니면 결정론적 해시 벡터)."""
+        """임베딩 생성 (Gemini API 키 존재 시 Gemini embed. 키가 없으면 개발 환경은 결정론적 해시 벡터, 운영 환경은 실패)."""
         if getattr(self.settings, "gemini_api_key", None):
             try:
                 from google import genai
@@ -570,9 +570,18 @@ class AntigravityProvider:
                     )
                 return list(resp.embeddings[0].values)
             except Exception as e:
+                if getattr(self.settings, "is_production", False):
+                    raise
                 logger.warning("Gemini embedding fallback to deterministic hash: %s", e)
+        elif getattr(self.settings, "is_production", False):
+            from ..config import ProviderUnavailableError
 
-        # 해시 기반 결정론적 의사 임베딩 (차원 EMBED_DIM)
+            # 운영 환경은 의사 벡터를 저장하지 않는다(PRINCIPLES C2). 호출자는 벡터 없이 FTS 로 진행한다.
+            raise ProviderUnavailableError(
+                "Antigravity CLI has no embedding endpoint and GEMINI_API_KEY is empty"
+            )
+
+        # 해시 기반 결정론적 의사 임베딩 (차원 EMBED_DIM, 개발 환경 전용)
         h = hashlib.sha256(text.encode("utf-8", "ignore")).digest()
         vals = []
         for i in range(self.EMBED_DIM):
