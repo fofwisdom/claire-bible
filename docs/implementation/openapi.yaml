@@ -839,6 +839,412 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /setup:
+    get:
+      summary: First admin setup page (P1 accounts)
+      description: >-
+        Opens only for the admin account (id 1) with owner scope over a cookie or
+        X-Session channel while the account status is setup_required. Every other
+        request gets 404 so the page's existence is hidden.
+      operationId: getSetupPage
+      x-claire-access: owner
+      security:
+        - SessionCookie: []
+        - SessionHeader: []
+      responses:
+        '200':
+          description: Setup form (HTML).
+          content:
+            text/html:
+              schema:
+                type: string
+        '404':
+          description: Not the setup principal, or setup already completed.
+    post:
+      summary: Complete first admin setup
+      operationId: completeSetup
+      x-claire-access: owner
+      security:
+        - SessionCookie: []
+        - SessionHeader: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [username, password, password_confirm, ack]
+              properties:
+                username:
+                  type: string
+                  description: Lowercased before the rule check; non-ASCII is rejected first.
+                display_name:
+                  type: string
+                  maxLength: 64
+                password:
+                  type: string
+                  minLength: 12
+                  description: Printable ASCII 0x21-0x7E only; must not contain the username.
+                password_confirm:
+                  type: string
+                ack:
+                  type: string
+                  enum: ['1']
+                  description: Required confirmation checkbox (username is immutable and public in network mode).
+      responses:
+        '303':
+          description: >-
+            Setup completed. A new session cookie replaces the old one. Location is /,
+            or /me?notice=password_not_saved when only the password write failed.
+        '400':
+          description: Input rejected; the form is shown again with reason codes (HTML).
+          content:
+            text/html:
+              schema:
+                type: string
+        '403':
+          description: Cookie POST without a same-origin Origin header.
+        '404':
+          description: Not the setup principal, setup already completed, or lost a concurrent setup.
+
+  /login:
+    get:
+      summary: Local login page
+      operationId: getLoginPage
+      x-claire-access: public
+      security: []
+      responses:
+        '200':
+          description: Login form (HTML).
+          content:
+            text/html:
+              schema:
+                type: string
+    post:
+      summary: Log in with USERNAME and password
+      description: >-
+        Public route; the handler requires a same-origin request (Sec-Fetch-Site
+        same-origin or a same-origin Origin header). Failure responses do not reveal
+        whether the account exists or its status.
+      operationId: login
+      x-claire-access: public
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username:
+                  type: string
+                password:
+                  type: string
+      responses:
+        '303':
+          description: Logged in. Location is /. Sets a new claire_session cookie.
+        '400':
+          description: Form fields missing or not strings (HTML).
+        '401':
+          description: Login failed (HTML, one message for every cause).
+        '403':
+          description: Not a same-origin request.
+        '429':
+          description: Throttled. Not counted as a failure.
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+              description: Seconds until the next attempt is allowed.
+
+  /logout:
+    post:
+      summary: Log out the current browser session
+      operationId: logout
+      x-claire-access: public
+      security: []
+      responses:
+        '303':
+          description: Session row deleted (if any) and cookie cleared. Location is /login.
+        '403':
+          description: Not a same-origin request.
+
+  /api/auth/reauth:
+    post:
+      summary: Re-authenticate the current session (step-up)
+      description: >-
+        Confirms the session owner's password and refreshes the session's
+        authenticated_at. Uses the same throttle as login.
+      operationId: reauthenticate
+      x-claire-access: owner
+      security:
+        - SessionCookie: []
+        - SessionHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [password]
+              properties:
+                password:
+                  type: string
+      responses:
+        '200':
+          description: Re-authenticated.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, authenticated_at]
+                properties:
+                  ok:
+                    type: boolean
+                  authenticated_at:
+                    type: number
+                    description: Epoch seconds.
+        '400':
+          description: '`invalid_request`'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardError'
+        '403':
+          description: '`step_up_requires_session` (not a session channel) or `invalid_password`.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardError'
+        '404':
+          description: Not an owner-scope credential.
+        '409':
+          description: '`password_not_set`'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardError'
+        '429':
+          description: '`too_many_attempts`'
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardError'
+
+  /admin/accounts:
+    get:
+      summary: Admin accounts page (single mode)
+      operationId: getAdminAccountsPage
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      responses:
+        '200':
+          description: Admin account card (HTML).
+          content:
+            text/html:
+              schema:
+                type: string
+        '404':
+          description: Not the instance admin with owner scope.
+
+  /api/admin/accounts:
+    get:
+      summary: List accounts (admin only)
+      operationId: listAccounts
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      responses:
+        '200':
+          description: Accounts ordered by internal id.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [accounts]
+                properties:
+                  accounts:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AccountSummary'
+        '404':
+          description: Not the instance admin with owner scope.
+
+  /me:
+    get:
+      summary: Own account settings page
+      operationId: getMePage
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      parameters:
+        - name: notice
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [password_not_saved]
+      responses:
+        '200':
+          description: Account settings (HTML).
+          content:
+            text/html:
+              schema:
+                type: string
+        '404':
+          description: Not an owner-scope credential.
+
+  /api/me:
+    get:
+      summary: Read own account
+      operationId: getMe
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      responses:
+        '200':
+          description: Own account.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountSelf'
+        '404':
+          description: Not an owner-scope credential.
+    patch:
+      summary: Change own display name
+      operationId: updateMe
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [display_name]
+              properties:
+                display_name:
+                  type: string
+                  maxLength: 64
+      responses:
+        '200':
+          description: Updated account.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountSelf'
+        '400':
+          description: '`invalid_request` (keys other than display_name) or `invalid_display_name`.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardError'
+        '404':
+          description: Not an owner-scope credential.
+
+  /api/me/password:
+    post:
+      summary: Set or change own password (step-up required)
+      description: >-
+        Requires a session re-authenticated within the last 15 minutes. When a
+        password already exists, current_password must match. On success every
+        other approved session of the account is deleted; API, MCP and OAuth
+        tokens are kept.
+      operationId: changeMyPassword
+      x-claire-access: owner
+      security:
+        - SessionCookie: []
+        - SessionHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [new_password]
+              properties:
+                current_password:
+                  type: string
+                new_password:
+                  type: string
+                  minLength: 12
+      responses:
+        '200':
+          description: Password stored.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, other_sessions_revoked]
+                properties:
+                  ok:
+                    type: boolean
+                  other_sessions_revoked:
+                    type: integer
+        '400':
+          description: >-
+            `invalid_request`, or `password_rejected` with `reason`
+            (invalid_characters, too_short, contains_username) and `message`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardError'
+        '401':
+          description: '`reauth_required`; body also has `reauth: /api/auth/reauth`.'
+          headers:
+            WWW-Authenticate:
+              schema:
+                type: string
+              description: 'Session realm="claire", error="reauth_required"'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardError'
+        '403':
+          description: '`step_up_requires_session` (bearer) or `invalid_password`.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardError'
+        '404':
+          description: Not an owner-scope credential.
+        '409':
+          description: '`account_not_active`'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardError'
+        '429':
+          description: '`too_many_attempts`'
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardError'
+
 components:
   securitySchemes:
     BearerAuth:
@@ -1092,3 +1498,50 @@ components:
         revoked_at:
           type: number
           nullable: true
+
+    AccountSelf:
+      type: object
+      required: [public_id, username, display_name, role, scope, status, has_password]
+      properties:
+        public_id:
+          type: string
+          description: Time-ordered 64-bit number as a decimal string.
+          example: "117543901593604660"
+        username:
+          type: ['string', 'null']
+          description: Null until first admin setup completes.
+        display_name:
+          type: string
+        role:
+          type: string
+          enum: [admin, member]
+        scope:
+          type: string
+          enum: [owner, collaborator, readonly]
+        status:
+          type: string
+          enum: [setup_required, active, suspended, deleting, purged]
+        has_password:
+          type: boolean
+
+    AccountSummary:
+      type: object
+      required: [public_id, username, status, role, created_at, activated_at, theme_count]
+      properties:
+        public_id:
+          type: string
+          description: Time-ordered 64-bit number as a decimal string.
+        username:
+          type: ['string', 'null']
+        status:
+          type: string
+          enum: [setup_required, active, suspended, deleting, purged]
+        role:
+          type: string
+          enum: [admin, member]
+        created_at:
+          type: number
+        activated_at:
+          type: ['number', 'null']
+        theme_count:
+          type: integer

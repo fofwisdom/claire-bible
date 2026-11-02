@@ -19,6 +19,8 @@ import threading
 import time
 from typing import Any
 
+from .accounts import ADMIN_ACCOUNT_ID
+
 log = logging.getLogger("claire.token_store")
 
 API_TOKENS_FILENAME = "api_tokens.json"
@@ -119,11 +121,22 @@ class TokenStore:
                     token_str = str(item.get("token", "")).strip()
                     if not token_str or tok_id <= 0:
                         continue
+                    # account_id가 없는 항목은 v15 이전에 만든 관리자 토큰이다(설계 §13.1).
+                    raw_account_id = item.get("account_id", ADMIN_ACCOUNT_ID)
+                    if (
+                        isinstance(raw_account_id, bool)
+                        or not isinstance(raw_account_id, int)
+                        or raw_account_id <= 0
+                    ):
+                        # 계정을 추측하지 않는다(C1). 이 항목은 통하지 않는다.
+                        log.warning("Ignoring API token id=%s: invalid account_id", tok_id)
+                        continue
                     clean_entry = {
                         "id": tok_id,
                         "token": token_str,
                         "name": str(item.get("name", "")).strip(),
                         "scope": str(item.get("scope", "readonly")).strip().lower(),
+                        "account_id": raw_account_id,
                         "created_at": float(item.get("created_at", 0.0)),
                         "expires_at": float(item["expires_at"]) if item.get("expires_at") is not None else None,
                         "last_used_at": float(item["last_used_at"]) if item.get("last_used_at") is not None else None,
@@ -180,8 +193,13 @@ class TokenStore:
         scope: str = "readonly",
         expires_in_days: int | None = None,
         token: str | None = None,
+        *,
+        # P3 L3-e에서 필수로 바꾼다(기본값 없이 호출자가 계정을 정한다).
+        account_id: int = ADMIN_ACCOUNT_ID,
     ) -> dict[str, Any]:
         """Create a new persistent access token and save atomically."""
+        if isinstance(account_id, bool) or not isinstance(account_id, int) or account_id <= 0:
+            raise ValueError(f"Invalid account_id: {account_id!r}.")
         name_clean = str(name or "").strip()
         if not name_clean:
             raise ValueError("Token name is required.")
@@ -215,6 +233,7 @@ class TokenStore:
                     "token": token_val,
                     "name": name_clean,
                     "scope": scope_clean,
+                    "account_id": account_id,
                     "created_at": now,
                     "expires_at": expires_at,
                     "last_used_at": None,
@@ -315,6 +334,7 @@ class TokenStore:
                 "token": tok["token"],
                 "name": tok["name"],
                 "scope": tok["scope"],
+                "account_id": tok["account_id"],
             }
 
     def _maybe_reload_from_disk(self) -> bool:

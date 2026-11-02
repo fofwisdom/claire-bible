@@ -26,6 +26,19 @@ DEV_ORIGIN = "http://192.0.2.10:8766"
 CROSS_ORIGIN = "http://ui.example.test:5173"
 
 
+def _session_credential(scope: str | None):
+    """`security._validate_session` 대역이 돌려줄 관리자 세션 자격증명."""
+    if scope is None:
+        return None
+    return security._Credential(
+        scope=scope,
+        account_id=1,
+        instance_role="admin",
+        credential_id=f"session:test-{scope}",
+        authenticated_at=0.0,
+    )
+
+
 def _settings(
     tmp_path: Path,
     *,
@@ -271,12 +284,15 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         "/.well-known/oauth-authorization-server",
         "/oauth/authorize",
         "/oauth/authorize/poll",
+        "/login",
     }
     public_post = {
         "/oauth/register",
         "/oauth/authorize",
         "/oauth/authorize/telegram-push",
         "/oauth/token",
+        "/login",
+        "/logout",
     }
     read_get = {
         "/",
@@ -338,6 +354,9 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         "/document/matrix/purge",
         "/tokens",
         "/tokens/revoke",
+        "/setup",
+        "/api/auth/reauth",
+        "/api/me/password",
     }
     owner_methods = {
         ("PATCH", "/themes"),
@@ -354,6 +373,12 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         ("GET", "/ingest-limits"),
         ("HEAD", "/ingest-limits"),
         ("PATCH", "/ingest-limits"),
+        *(
+            (method, path)
+            for path in ("/setup", "/admin/accounts", "/api/admin/accounts", "/me", "/api/me")
+            for method in ("GET", "HEAD")
+        ),
+        ("PATCH", "/api/me"),
     }
     expected = {
         **{
@@ -745,10 +770,12 @@ async def test_complete_scope_origin_read_and_owner_permission_matrix(
     readonly_session = "r" * 43
 
     async def validate(_config, token):
-        return {
-            owner_session: "owner",
-            readonly_session: "readonly",
-        }.get(token)
+        return _session_credential(
+            {
+                owner_session: "owner",
+                readonly_session: "readonly",
+            }.get(token)
+        )
 
     monkeypatch.setattr(security, "_validate_session", validate)
     app = security.wrap_web_app(
@@ -856,7 +883,7 @@ async def test_malformed_duplicate_and_mixed_credentials_are_rejected(
     full_session = "s" * 43
 
     async def validate(_config, token):
-        return "owner" if token == full_session else None
+        return _session_credential("owner" if token == full_session else None)
 
     monkeypatch.setattr(security, "_validate_session", validate)
     app = security.wrap_web_app(_inner_app(), _settings(tmp_path))
@@ -982,7 +1009,7 @@ async def test_cookie_post_requires_exact_same_origin(tmp_path, monkeypatch):
     full_session = "s" * 43
 
     async def validate(_config, token):
-        return "owner" if token == full_session else None
+        return _session_credential("owner" if token == full_session else None)
 
     monkeypatch.setattr(security, "_validate_session", validate)
     app = security.wrap_web_app(_inner_app(), _settings(tmp_path))
@@ -1322,3 +1349,207 @@ async def test_share_endpoint_rejects_unauthenticated_in_stealth_mode(tmp_path):
     )
     assert anon_res.status == 404
 
+
+
+# --- 쿠키 채널의 상태 변경 메서드 (POST·PUT·PATCH·DELETE) --------------------------------
+
+
+def _state_changing_app() -> Starlette:
+    return Starlette(
+        routes=[
+            Route("/document/presentation/adoc", _endpoint, methods=["PUT"]),
+            Route("/themes", _endpoint, methods=["PATCH", "DELETE"]),
+            Route("/tokens", _endpoint, methods=["DELETE"]),
+            Route("/document/seen", _endpoint, methods=["POST"]),
+        ]
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [
+        ("POST", "/document/seen"),
+        ("PUT", "/document/presentation/adoc"),
+        ("PATCH", "/themes"),
+        ("DELETE", "/themes"),
+        ("DELETE", "/tokens"),
+    ],
+)
+async def test_cookie_state_changing_methods_require_exact_same_origin(
+    tmp_path, monkeypatch, method, path
+):
+    full_session = "s" * 43
+
+    async def validate(_config, token):
+        return _session_credential("owner" if token == full_session else None)
+
+    monkeypatch.setattr(security, "_validate_session", validate)
+    app = security.wrap_web_app(_state_changing_app(), _settings(tmp_path))
+    cookie = ("Cookie", f"claire_session={full_session}")
+
+    # Origin 없음: 쿠키는 브라우저가 자동으로 싣기 때문에 같은 origin임을 보일 수 없으면 거부한다.
+    assert (await _call(app, path, method=method, headers=[cookie])).status == 403
+    # Origin: null(no-referrer 양식 제출 등)과 등록되지 않은 origin은 CORS 단계에서 거부한다.
+    assert (
+        await _call(app, path, method=method, headers=[cookie, ("Origin", "null")])
+    ).status == 403
+    ok = await _call(app, path, method=method, headers=[cookie, ("Origin", DEV_ORIGIN)])
+    assert ok.status == 200
+    assert ok.json()["scope"] == "owner"
+    # bearer 채널은 Origin 없이도 된다(브라우저가 자동으로 싣는 자격증명이 아니다).
+    bearer = await _call(
+        app, path, method=method, headers=[("Authorization", f"Bearer {OWNER_TOKEN}")]
+    )
+    assert bearer.status == 200
+
+
+# --- 세션 쿠키 갱신이 핸들러의 Set-Cookie를 덮지 않는다 ------------------------------------
+
+
+async def _rotate_cookie(request: Request) -> JSONResponse:
+    response = JSONResponse({"ok": True})
+    if request.url.path == "/document/seen":
+        security.set_session_cookie(response, security.WebRuntimeConfig.from_settings(
+            _settings(Path("/nonexistent"))), "n" * 43)
+    else:
+        security.clear_session_cookie(response, security.WebRuntimeConfig.from_settings(
+            _settings(Path("/nonexistent"))))
+    return response
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("path", "expected"), [("/document/seen", "n" * 43), ("/ingest", "")])
+async def test_session_refresh_does_not_append_when_handler_sets_or_clears_cookie(
+    tmp_path, monkeypatch, path, expected
+):
+    old = "s" * 43
+
+    async def validate(_config, token):
+        return _session_credential("owner" if token == old else None)
+
+    monkeypatch.setattr(security, "_validate_session", validate)
+    inner = Starlette(routes=[Route(path, _rotate_cookie, methods=["POST"])])
+    app = security.wrap_web_app(inner, _settings(tmp_path))
+    response = await _call(
+        app,
+        path,
+        method="POST",
+        headers=[("Cookie", f"claire_session={old}"), ("Origin", DEV_ORIGIN)],
+    )
+    assert response.status == 200
+    session_cookies = [
+        raw for raw in response.header_values("set-cookie") if raw.startswith("claire_session=")
+    ]
+    assert len(session_cookies) == 1, session_cookies
+    morsel = SimpleCookie(session_cookies[0])["claire_session"]
+    assert morsel.value.strip('"') == expected
+    assert old not in session_cookies[0]
+
+
+@pytest.mark.asyncio
+async def test_session_refresh_still_applies_when_handler_leaves_cookie_alone(
+    tmp_path, monkeypatch
+):
+    old = "s" * 43
+
+    async def validate(_config, token):
+        return _session_credential("owner" if token == old else None)
+
+    monkeypatch.setattr(security, "_validate_session", validate)
+    app = security.wrap_web_app(_inner_app(), _settings(tmp_path))
+    response = await _call(app, "/graph", headers=[("Cookie", f"claire_session={old}")])
+    cookies = [c for c in response.header_values("set-cookie") if c.startswith("claire_session=")]
+    assert len(cookies) == 1 and cookies[0].startswith(f"claire_session={old};")
+
+
+# --- 클라이언트 IP (CLAIRE_TRUSTED_PROXIES) ------------------------------------------------
+
+
+def _ip_scope(peer: str, *xff: str) -> dict:
+    return {
+        "type": "http",
+        "client": (peer, 50000),
+        "headers": [(b"x-forwarded-for", value.encode("latin-1")) for value in xff],
+    }
+
+
+PROXIES = security.parse_trusted_proxies("10.0.0.0/8, 192.0.2.7/32, 2001:db8::/32")
+
+
+def test_client_ip_without_trusted_proxies_is_always_the_peer():
+    assert security.client_ip(_ip_scope("10.0.0.5", "203.0.113.9"), ()) == "10.0.0.5"
+    assert security.client_ip(_ip_scope("198.51.100.1"), ()) == "198.51.100.1"
+    assert security.client_ip({"type": "http", "client": None, "headers": []}, PROXIES) == "-"
+
+
+def test_client_ip_reads_forwarded_chain_from_the_right_through_trusted_proxies():
+    # client → 10.1.1.1(신뢰) → 192.0.2.7(신뢰, 바로 앞 피어는 10.0.0.5)
+    scope = _ip_scope("10.0.0.5", "203.0.113.9, 10.1.1.1, 192.0.2.7")
+    assert security.client_ip(scope, PROXIES) == "203.0.113.9"
+    v6 = _ip_scope("2001:db8::1", "2001:db8:ffff::2, 2001:db8::9")
+    assert security.client_ip(v6, PROXIES) == "2001:db8:ffff::2"
+    mapped_peer = _ip_scope("::ffff:10.0.0.5", "203.0.113.9")
+    assert security.client_ip(mapped_peer, PROXIES) == "203.0.113.9"
+
+
+def test_client_ip_ignores_spoofed_left_values():
+    # 클라이언트가 직접 넣은 왼쪽 값(1.1.1.1)은 신뢰하지 않는 첫 주소(198.51.100.4) 뒤에 있어 쓰이지 않는다.
+    scope = _ip_scope("10.0.0.5", "1.1.1.1, 198.51.100.4, 10.1.1.1")
+    assert security.client_ip(scope, PROXIES) == "198.51.100.4"
+
+
+def test_client_ip_ignores_forwarded_for_from_untrusted_peer():
+    assert security.client_ip(_ip_scope("198.51.100.4", "203.0.113.9"), PROXIES) == "198.51.100.4"
+
+
+def test_client_ip_falls_back_to_peer_on_ambiguous_or_malformed_header():
+    peer = "10.0.0.5"
+    for scope in (
+        _ip_scope(peer),
+        _ip_scope(peer, "203.0.113.9", "198.51.100.4"),  # 여러 줄
+        _ip_scope(peer, "203.0.113.9:4711"),  # 포트
+        _ip_scope(peer, "203.0.113.9,,10.1.1.1"),  # 빈 항목
+        _ip_scope(peer, "unknown, 10.1.1.1"),
+        _ip_scope(peer, ""),
+    ):
+        assert security.client_ip(scope, PROXIES) == peer
+    # 모든 항목이 신뢰 대역이면 가장 왼쪽 항목이다.
+    assert security.client_ip(_ip_scope(peer, "10.2.2.2, 10.1.1.1"), PROXIES) == "10.2.2.2"
+
+
+def test_trusted_proxies_include_cloudflare_only_with_cloudflare_flag(tmp_path):
+    plain = security.WebRuntimeConfig.from_settings(_settings(tmp_path))
+    assert plain.trusted_proxies == ()
+    cf_peer = _ip_scope("173.245.48.10", "203.0.113.9")
+    assert security.client_ip(cf_peer, plain.trusted_proxies) == "173.245.48.10"
+
+    cf_settings = _settings(tmp_path)
+    cf_settings.cloudflare_ips_only = True
+    cf_settings.trusted_proxies = "127.0.0.1/32"
+    cf = security.WebRuntimeConfig.from_settings(cf_settings)
+    assert set(security.CLOUDFLARE_NETWORKS) <= set(cf.trusted_proxies)
+    assert security.client_ip(cf_peer, cf.trusted_proxies) == "203.0.113.9"
+    # 로컬 터널(127.0.0.1) → Cloudflare 엣지 → 클라이언트
+    tunnel = _ip_scope("127.0.0.1", "203.0.113.9, 173.245.48.10")
+    assert security.client_ip(tunnel, cf.trusted_proxies) == "203.0.113.9"
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["10.0.0.0/33", "10.0.0.1/8", "not-a-cidr", "10.0.0.0/8,,192.0.2.0/24", "10.0.0.0/8, "],
+)
+def test_invalid_trusted_proxies_fail_startup(tmp_path, value):
+    settings = _settings(tmp_path)
+    settings.trusted_proxies = value
+    with pytest.raises(ValueError, match="CLAIRE_TRUSTED_PROXIES"):
+        security.WebRuntimeConfig.from_settings(settings)
+    with pytest.raises(ValueError, match="CLAIRE_TRUSTED_PROXIES"):
+        security.wrap_web_app(_inner_app(), settings)
+
+
+def test_trusted_proxies_parse_single_addresses_and_empty():
+    assert security.parse_trusted_proxies("") == ()
+    assert security.parse_trusted_proxies("  ") == ()
+    parsed = security.parse_trusted_proxies("192.0.2.7/32,2001:db8::1/128")
+    assert [str(n) for n in parsed] == ["192.0.2.7/32", "2001:db8::1/128"]

@@ -6,6 +6,7 @@
   - Rev. 1 (2026-11-02): 초안
   - Rev. 2 (2026-11-02): 소유자 결정 D1–D9 반영. 서브도메인 역할 호스트, 테마 컬렉션 경로와 시간 정렬 번호, 초대, 퇴역 USERNAME 정보 초기화, 네트워크 전용 통합 뷰 예약, 미디어 딜리버리 계약을 추가했다. `/t/{slug}` 테마 경로는 `/themes/{번호}`로 바꿨다
   - Rev. 2.1 (2026-11-02): 소유자 결정 N1–N5 반영. 초대는 관리자만 만들고, 상한은 사용 5회·만기 30일이다. 운영 환경의 네트워크 모드는 usercontent 호스트가 필수다
+  - Rev. 2.2 (2026-11-02, P1): P1 구현 중 나온 결정과 정정을 반영했다. §8.1-1 저장 형태 정정, §8.1-4 예시 보완, §8.3 `authenticated_at` 필드, §8.5 비밀번호 허용 문자, §16.3 P1 결정. 현재 구현은 [ACCOUNTS.md](../implementation/ACCOUNTS.md)를 본다
 - **관련 문서**: [EXTERNAL_IDP_AND_PER_USER_WORKSPACE_DESIGN.md](EXTERNAL_IDP_AND_PER_USER_WORKSPACE_DESIGN.md) (워크스페이스별 DB 분리안을 이 문서가 대체), [THEME_FQDN_REVERSE_PROXY_DESIGN.md](THEME_FQDN_REVERSE_PROXY_DESIGN.md) (테마 전용 FQDN을 이 문서가 대체), [SYNDICATION_ENDPOINT_DESIGN.md](SYNDICATION_ENDPOINT_DESIGN.md), [EXTERNAL_ACCESS.md](../implementation/EXTERNAL_ACCESS.md), [THEMES.md](../implementation/THEMES.md), [PROVIDERS.md](../implementation/PROVIDERS.md), [PRINCIPLES.md](../PRINCIPLES.md)
 - **참고 자료**: 소유자 제공 「Mastodon 컬렉션 아키텍처 및 원리 분석」(Gemini 공유 문서, `https://share.gemini.google/ku3QGLNBH0UC`, 2026-11-02). 채택 범위와 보정은 §7.1에 있다.
 
@@ -414,14 +415,14 @@ low16  = (HMAC-SHA256(id_salt, "<table>:<unix_ms>")[0:2] + seq) & 0xFFFF
 
 ### 8.1 USERNAME 규칙
 
-1. **문법**: `^[a-z][a-z0-9_]{2,29}$` (3–30자, 소문자로 시작). `_` 연속과 `_`로 끝나는 이름은 거부한다. ASCII만 허용해 혼동 문자(homoglyph) 사칭을 막는다. 입력은 소문자로 바꿔 검사하고 그대로 저장한다.
+1. **문법**: `^[a-z][a-z0-9_]{2,29}$` (3–30자, 소문자로 시작). `_` 연속과 `_`로 끝나는 이름은 거부한다. ASCII만 허용해 혼동 문자(homoglyph) 사칭을 막는다. 입력은 소문자로 바꿔 검사하고, 소문자로 정규화한 값을 저장한다. 비ASCII는 소문자 변환 전에 거부한다(Rev. 2.2 정정. 예: `"\u212a".lower() == "k"`처럼 비ASCII가 ASCII로 접히는 것을 막는다).
 2. **예약 이름** (정확히 일치)
    - 운영·권한: `admin`, `administrator`, `root`, `sysadmin`, `superuser`, `owner`, `operator`, `system`, `sysop`, `moderator`, `mod`, `staff`, `official`, `team`
    - 지원·연락: `support`, `help`, `info`, `contact`, `security`, `abuse`, `postmaster`, `hostmaster`, `webmaster`, `noc`, `billing`
    - 일반: `user`, `users`, `guest`, `anonymous`, `nobody`, `everyone`, `all`, `public`, `private`, `me`, `self`, `null`, `undefined`, `test`, `demo`
    - 서비스: `claire`, `api`, `www`, `mail`, `mcp`, `bot`, `media`, `usercontent`, `explore`, `invite`
 3. **예약 조각**: 이름을 `_`와 숫자로 나눈 조각 중 하나가 예약 이름이거나 `admin`으로 시작하면 거부한다. 예를 들어 `admin1`, `admin_kim`, `kim_admin`, `administrator2`는 막히고 `badminton`은 통과한다.
-4. **인스턴스 예약**: `CLAIRE_SITE_DOMAIN`과 각 역할 호스트의 라벨(예: `claire.example.com`이면 `claire`, `example`), 그리고 관리자가 추가한 목록.
+4. **인스턴스 예약**: `CLAIRE_SITE_DOMAIN`과 각 역할 호스트의 모든 라벨(예: `claire.example.com`이면 `claire`, `example`, `com`), 그리고 관리자가 추가한 목록. (Rev. 2.2: 예시에 `com`을 더했다. 최상위 라벨도 예약된다)
 5. **퇴역 이름**: 삭제된 계정의 USERNAME은 `username_tombstones`에 남는다. 관리자가 정보 초기화(§8.9)를 하기 전에는 다시 쓸 수 없다.
 6. **불변**: 설정한 뒤에는 바꿀 수 없다. 앱 검사와 DB 트리거(§13)를 함께 둔다. 표시 이름(`display_name`)은 바꿀 수 있다.
 7. **거부 사유**: `syntax`, `reserved`, `retired`, `taken` 중 하나를 가입·설정 화면에만 보여 준다. 익명으로 이름 사용 가능 여부를 조회하는 API는 두지 않는다.
@@ -457,7 +458,10 @@ class Principal:
     scope: Literal["owner", "collaborator", "readonly", "anonymous"]
     channel: Literal["cookie", "bearer", "x-session", "none"]
     credential_id: str | None               # 감사 기록용 식별자. 토큰 값이 아니다
+    authenticated_at: float | None = None   # Rev. 2.2 추가: 사람이 마지막으로 인증한 시각 (cookie·x-session만)
 ```
+
+- Rev. 2.2: 단계 인증(§8.5)을 라우트가 DB를 다시 읽지 않고 판정하도록 `authenticated_at` 필드를 더했다. bearer와 익명에서는 항상 `None`이다.
 
 - 모든 자격증명 저장소가 `account_id`를 갖는다: 환경변수 토큰, `api_tokens.json`, `auth_sessions`, `oauth_tokens`, 텔레그램 세션. v15 이전에 만든 자격증명은 관리자(1)의 것으로 본다.
 - `request_auth_scope`는 호환용으로 남기고, 새 코드는 `request_principal`을 쓴다.
@@ -476,6 +480,7 @@ class Principal:
 - `/login`은 USERNAME과 비밀번호를 받는다.
 - 해시는 표준 라이브러리 `hashlib.scrypt`(n=2¹⁵, r=8, p=1, 솔트 16바이트)로 만든다. 새 의존성이 없다. 매개변수를 행에 함께 저장해 두므로 나중에 비용을 올릴 수 있다.
 - 비밀번호는 12자 이상이어야 하고 USERNAME을 포함하면 안 된다.
+- 비밀번호에는 영문 대소문자·숫자·ASCII 표준 특수문자(0x21–0x7E)만 쓸 수 있다. 공백·비ASCII는 거부한다(Rev. 2.2, §16.3 (b)).
 - 실패 제한
   - `(username, IP)`와 `(IP)` 두 키로 지수 백오프한다.
   - 고정 잠금은 두지 않는다. 공격자가 관리자 계정을 잠가 버리는 것을 막기 위해서다.
@@ -975,6 +980,16 @@ CREATE TABLE admin_audit (
 | N3 | 초대 상한 | 사용 5회, 만기 30일 | §8.8, §13.3 |
 | N4 | 기존 내부 테마 ID 입력을 언제까지 받을지 | P3 종료 후 한 릴리스 동안 `Deprecation` 헤더를 붙이고, 그다음 제거 | §7.3 |
 | N5 | 운영 환경 네트워크 모드에서 usercontent 호스트를 필수로 할지 | 필수. G4를 sanitizer만으로는 통과할 수 없음 | §5.1, §17.2 |
+
+### 16.3 P1 결정 (2026-11-02)
+
+| ID | 질문 | 결정 | 반영 |
+| :--- | :--- | :--- | :--- |
+| (a) | 예약 조각 규칙(§8.1-3)을 유지할지 | 유지한다. 목적은 관리자 사칭 피싱 방지이며, 관리자는 언제든 그런 이름을 쓸 수 있다 | §8.1-3 |
+| (b) | 비밀번호 허용 문자 | 영문 대소문자·숫자·ASCII 표준 특수문자(0x21–0x7E)만. 공백·비ASCII는 거부한다 | §8.5 |
+| (c) | 관리자 행 `public_id`의 밀리초 | 고정 상수 `ADMIN_LEGACY_PUBLIC_ID_UNIX_MS`(2026-11-02T00:00Z). 이관을 다시 실행해도 같은 번호가 나온다 | §7.2, §13.1 |
+| (d) | `/setup` 확인 문구(§8.4-4)를 별도 확정 화면으로 둘지 | 같은 화면의 필수 확인 체크박스로 둔다. 비밀번호를 브라우저로 되돌려 보내지 않기 위해서다 | §8.4 |
+| (e) | public 라우트에서 자격증명을 검증할지 | 검증하지 않고 익명 주체를 둔다 | §8.3 |
 
 ---
 

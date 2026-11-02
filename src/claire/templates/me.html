@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex, nofollow">
+    <title>내 계정 · Claire</title>
+    <style>
+      :root { color-scheme: light dark; --bg: #f7f7f5; --fg: #1d1d1b; --muted: #5d5d58; --card: #ffffff; --line: #d9d9d4; --accent: #2f5d8a; --error: #a3261d; }
+      @media (prefers-color-scheme: dark) { :root { --bg: #161615; --fg: #ececea; --muted: #a5a5a0; --card: #20201e; --line: #3a3a37; --accent: #8db6e0; --error: #f08a80; } }
+      * { box-sizing: border-box; }
+      body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.6 system-ui, -apple-system, "Noto Sans KR", sans-serif; }
+      main { max-width: 34rem; margin: 0 auto; padding: 2rem 1rem 3rem; }
+      h1 { font-size: 1.5rem; margin: 0 0 1rem; }
+      h2 { font-size: 1.1rem; margin: 0 0 .75rem; }
+      .card { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 1.25rem; margin: 0 0 1rem; }
+      label { display: block; font-weight: 600; margin: .75rem 0 .25rem; }
+      .hint { color: var(--muted); font-size: .875rem; margin: .25rem 0 0; }
+      input[type=text], input[type=password] { width: 100%; padding: .5rem .625rem; font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; }
+      .check { display: flex; gap: .5rem; align-items: flex-start; font-weight: 400; }
+      button { margin-top: 1rem; padding: .5rem 1rem; font: inherit; color: #fff; background: var(--accent); border: 0; border-radius: 6px; cursor: pointer; }
+      button.link { background: none; color: var(--accent); padding: 0; margin: 0; text-decoration: underline; }
+      .errors { color: var(--error); margin: 0 0 1rem; padding-left: 1.25rem; }
+      .notice { border-left: 3px solid var(--accent); padding: .5rem .75rem; background: var(--card); }
+      .result { min-height: 1.5rem; margin: .5rem 0 0; }
+      .result[data-state=error] { color: var(--error); }
+      dl { display: grid; grid-template-columns: max-content 1fr; gap: .25rem 1rem; margin: 0; }
+      dt { color: var(--muted); }
+      dd { margin: 0; overflow-wrap: anywhere; }
+      nav { display: flex; gap: 1rem; align-items: center; margin: 0 0 1.5rem; font-size: .9rem; }
+      nav a { color: var(--accent); }
+      nav form { margin: 0 0 0 auto; }
+      .section-title { margin-top: 1.5rem; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <nav aria-label="계정">
+        <a href="/">홈</a>
+        <a href="/me">내 계정</a>
+        <form method="post" action="/logout"><button type="submit" class="link">로그아웃</button></form>
+      </nav>
+      <h1>내 계정</h1>
+      $notice
+      <section class="card" aria-labelledby="info-title">
+        <h2 id="info-title">계정 정보</h2>
+        <dl>
+          <dt>번호</dt><dd>$public_id</dd>
+          <dt>USERNAME</dt><dd>$username</dd>
+          <dt>역할</dt><dd>$role</dd>
+          <dt>상태</dt><dd>$status</dd>
+          <dt>비밀번호</dt><dd>$password_state</dd>
+        </dl>
+      </section>
+
+      <form class="card" data-accounts-form="display-name" aria-labelledby="name-title">
+        <h2 id="name-title">표시 이름</h2>
+        <label for="display_name">표시 이름</label>
+        <input id="display_name" name="display_name" type="text" value="$display_name" maxlength="64" autocomplete="name">
+        <button type="submit">저장</button>
+        <p class="result" data-accounts-result aria-live="polite"></p>
+      </form>
+
+      <form class="card" data-accounts-form="reauth" aria-labelledby="reauth-title">
+        <h2 id="reauth-title">본인 확인</h2>
+        <p class="hint">비밀번호를 바꾸려면 15분 안에 본인 확인을 해야 합니다. 비밀번호가 아직 없으면 로그인 링크로 방금 들어온 세션이 본인 확인을 대신합니다.</p>
+        <label for="reauth_password">현재 비밀번호</label>
+        <input id="reauth_password" name="password" type="password" required autocomplete="current-password">
+        <button type="submit">본인 확인</button>
+        <p class="result" data-accounts-result aria-live="polite"></p>
+      </form>
+
+      <form class="card" data-accounts-form="password" data-has-password="$has_password" aria-labelledby="password-title">
+        <h2 id="password-title">비밀번호 변경</h2>
+        <label for="current_password">현재 비밀번호</label>
+        <input id="current_password" name="current_password" type="password" autocomplete="current-password">
+        <p class="hint">비밀번호가 아직 없으면 비워 두세요.</p>
+        <label for="new_password">새 비밀번호</label>
+        <input id="new_password" name="new_password" type="password" required minlength="$min_password_length" autocomplete="new-password">
+        <label for="new_password_confirm">새 비밀번호 확인</label>
+        <input id="new_password_confirm" name="new_password_confirm" type="password" required minlength="$min_password_length" autocomplete="new-password">
+        <p class="hint">$min_password_length자 이상. 영문 대소문자, 숫자, 표준 특수문자(<code>!"#$$%&amp;'()*+,-./:;&lt;=&gt;?@[\]^_`{|}~</code>)만 쓸 수 있고 공백·한글은 쓸 수 없습니다. USERNAME을 넣을 수 없습니다. 바꾸면 이 세션을 뺀 다른 로그인 세션은 모두 끊깁니다.</p>
+        <button type="submit">비밀번호 변경</button>
+        <p class="result" data-accounts-result aria-live="polite"></p>
+      </form>
+    </main>
+    <script src="/static/js/accounts.js" defer></script>
+  </body>
+</html>

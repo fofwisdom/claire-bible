@@ -16,14 +16,21 @@ import sqlite3
 import time
 from pathlib import Path
 
+from ..ids import ID_SALT_BYTES, generate_id_salt, legacy_timestamp_id
 from ..ontology.base import Document, Entity, Relation
 
-SCHEMA_VERSION = 14
+SCHEMA_VERSION = 15
 SCHEMA_LINEAGE = "claire-bible/common"
 RETIRED_SCHEMA_VERSIONS = frozenset({12})
 _RETIRED_SUPPORT_SCHEMA_VERSION = 12
 _RETIRED_SUPPORT_RECOVERY_TARGET = 11
 logger = logging.getLogger(__name__)
+
+# v15 이관이 만드는 관리자 계정(설계 §8.2–§8.4). `store.accounts.ADMIN_ACCOUNT_ID`가 이 값을 다시 내보낸다.
+ADMIN_ACCOUNT_ID = 1
+# 관리자 행 public_id의 상위 48비트(밀리초). 이관을 다시 실행해도 같은 번호가 나오도록 고정한다(A3).
+# 값은 설계 결정일 2026-11-02T00:00:00Z이며, 번호가 2^56보다 크다(§7.2·§7.3).
+ADMIN_LEGACY_PUBLIC_ID_UNIX_MS = 1_793_577_600_000
 
 _LOCAL_SUPPORT_V12_COLUMNS = {
     "ingest_attempts": (
@@ -972,6 +979,144 @@ def _migrate(conn: sqlite3.Connection) -> None:
         except Exception:
             pass
 
+    _migrate_v15_accounts(conn)
+
+
+# v15에서 account_id를 받는 자격증명 테이블. NULL은 v15 이전 행이며 관리자(1)의 것이다(§8.3).
+_V15_CREDENTIAL_TABLES = ("auth_sessions", "oauth_codes", "oauth_tokens", "oauth_auth_requests")
+
+
+def _check_single_default_theme_per_account(conn: sqlite3.Connection) -> None:
+    """``idx_themes_account_default``를 만들 수 없는 상태면 이관 전에 실패한다(C1).
+
+    계정마다 ``is_default=1`` 테마가 하나여야 한다. 둘 이상이면 어느 쪽이 기본인지 추측하지 않는다.
+    """
+    account_expr = "COALESCE(account_id, ?)" if "account_id" in _column_names(conn, "themes") else "?"
+    rows = conn.execute(
+        f"SELECT {account_expr} AS acc, GROUP_CONCAT(id) AS ids, COUNT(*) AS n "
+        "FROM themes WHERE is_default = 1 GROUP BY acc HAVING COUNT(*) > 1",
+        (ADMIN_ACCOUNT_ID,),
+    ).fetchall()
+    if rows:
+        detail = "; ".join(f"account_id={r['acc']} themes.id=[{r['ids']}]" for r in rows)
+        raise RuntimeError(
+            "schema v15 migration stopped: more than one default theme (themes.is_default=1) "
+            f"for one account: {detail}. Keep is_default=1 on exactly one theme per account, "
+            "then run the migration again."
+        )
+
+
+def _ensure_id_salt(conn: sqlite3.Connection, now: float) -> bytes:
+    """``instance_settings.id_salt``가 없을 때만 만든다(hex). 있으면 그대로 읽는다."""
+    conn.execute(
+        "INSERT OR IGNORE INTO instance_settings (key, value, updated_at, updated_by) VALUES ('id_salt', ?, ?, NULL)",
+        (generate_id_salt().hex(), now),
+    )
+    row = conn.execute("SELECT value FROM instance_settings WHERE key='id_salt'").fetchone()
+    try:
+        salt = bytes.fromhex(str(row["value"]))
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError("instance_settings.id_salt is not valid hex") from exc
+    if len(salt) != ID_SALT_BYTES:
+        raise RuntimeError(f"instance_settings.id_salt must be {ID_SALT_BYTES} bytes, got {len(salt)}")
+    return salt
+
+
+def _migrate_v15_accounts(conn: sqlite3.Connection) -> None:
+    """v15 (설계 §13.1): 계정, 퇴역 이름, 인스턴스 설정, 테마·자격증명의 계정 귀속. 멱등(A3).
+
+    v14의 ``users`` 테이블은 그대로 두고 쓰지 않는다.
+    """
+    _check_single_default_theme_per_account(conn)
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS accounts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            public_id INTEGER UNIQUE NOT NULL,
+            username TEXT UNIQUE,
+            role TEXT NOT NULL CHECK (role IN ('admin', 'member')),
+            status TEXT NOT NULL,
+            display_name TEXT NOT NULL DEFAULT '',
+            profile_public INTEGER NOT NULL DEFAULT 0,
+            created_at REAL NOT NULL,
+            activated_at REAL,
+            delete_after REAL,
+            updated_at REAL NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_accounts_single_admin ON accounts(role) WHERE role = 'admin'"
+    )
+    conn.execute(
+        """
+        CREATE TRIGGER IF NOT EXISTS accounts_username_immutable
+        BEFORE UPDATE OF username ON accounts
+        WHEN OLD.username IS NOT NULL AND NEW.username IS NOT OLD.username
+        BEGIN SELECT RAISE(ABORT, 'username is immutable'); END
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS username_tombstones (
+            username TEXT PRIMARY KEY,
+            account_id INTEGER NOT NULL,
+            was_public INTEGER NOT NULL DEFAULT 0,
+            retired_at REAL NOT NULL,
+            released_at REAL,
+            released_by INTEGER
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS instance_settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL,
+            updated_at REAL NOT NULL,
+            updated_by INTEGER
+        )
+        """
+    )
+
+    _ensure_column(conn, "themes", "account_id", "INTEGER REFERENCES accounts(id)")
+    _ensure_column(conn, "auth_sessions", "account_id", "INTEGER")
+    _ensure_column(conn, "auth_sessions", "authenticated_at", "REAL")
+    for tbl in ("oauth_codes", "oauth_tokens", "oauth_auth_requests"):
+        _ensure_column(conn, tbl, "account_id", "INTEGER")
+
+    now = time.time()
+    salt = _ensure_id_salt(conn, now)
+
+    # 관리자 행(id 1)이 없을 때만 만든다. 여러 프로세스가 동시에 이관해도 INSERT OR IGNORE 뒤 검증으로 하나만 남는다.
+    conn.execute(
+        "INSERT OR IGNORE INTO accounts "
+        "(id, public_id, username, role, status, display_name, profile_public, created_at, updated_at) "
+        "VALUES (?, ?, NULL, 'admin', 'setup_required', '', 0, ?, ?)",
+        (
+            ADMIN_ACCOUNT_ID,
+            legacy_timestamp_id(
+                "accounts", salt=salt, unix_ms=ADMIN_LEGACY_PUBLIC_ID_UNIX_MS, row_id=ADMIN_ACCOUNT_ID
+            ),
+            now,
+            now,
+        ),
+    )
+    admin = conn.execute("SELECT role FROM accounts WHERE id=?", (ADMIN_ACCOUNT_ID,)).fetchone()
+    if admin is None or admin["role"] != "admin":
+        raise RuntimeError(
+            f"schema v15 migration stopped: accounts.id={ADMIN_ACCOUNT_ID} must be the admin account "
+            f"(found {dict(admin) if admin is not None else 'no row'})"
+        )
+
+    conn.execute("UPDATE themes SET account_id=? WHERE account_id IS NULL", (ADMIN_ACCOUNT_ID,))
+    for tbl in _V15_CREDENTIAL_TABLES:
+        conn.execute(f"UPDATE {tbl} SET account_id=? WHERE account_id IS NULL", (ADMIN_ACCOUNT_ID,))
+
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_themes_account_default ON themes(account_id) WHERE is_default = 1"
+    )
 
 
 def _stored_meta_value(conn: sqlite3.Connection, key: str) -> str | None:
@@ -1248,13 +1393,16 @@ def migrate_multi_db_to_single_db(
                 pres_enabled = int(bool(t.get("presentation_enabled", False)))
                 c_at = float(t.get("created_at", now))
                 u_at = float(t.get("updated_at", now))
+                # themes.json 항목에 account_id가 없으면 v15 이전의 관리자 테마다(§13.1).
+                # 이미 있는 행의 소유자는 ON CONFLICT에서 바꾸지 않는다.
+                owner_id = int(t.get("account_id", ADMIN_ACCOUNT_ID))
                 conn.execute(
                     """
                     INSERT INTO themes (
                         id, seq, label, description, icon, db_path, is_default, is_public,
                         is_collaborator_accessible, default_focus, fqdn, ga_measurement_id,
-                        sorcerer, presentation_enabled, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        sorcerer, presentation_enabled, created_at, updated_at, account_id
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(id) DO UPDATE SET
                         seq = excluded.seq,
                         label = excluded.label,
@@ -1272,7 +1420,7 @@ def migrate_multi_db_to_single_db(
                         updated_at = excluded.updated_at
                     """,
                     (tid, seq, label, desc, icon, db_p, is_def, is_pub, is_collab,
-                     default_focus, fqdn, ga_id, sorcerer, pres_enabled, c_at, u_at),
+                     default_focus, fqdn, ga_id, sorcerer, pres_enabled, c_at, u_at, owner_id),
                 )
             conn.commit()
         except Exception as e:
@@ -1339,10 +1487,12 @@ def migrate_multi_db_to_single_db(
             # Ensure theme record exists in themes table
             conn.execute(
                 """
-                INSERT OR IGNORE INTO themes (id, seq, label, description, is_default, is_public, is_collaborator_accessible, created_at, updated_at)
-                VALUES (?, ?, ?, '', ?, 1, 1, unixepoch(), unixepoch())
+                INSERT OR IGNORE INTO themes (id, seq, label, description, is_default, is_public, is_collaborator_accessible, created_at, updated_at, account_id)
+                VALUES (?, ?, ?, '', ?, 1, 1, unixepoch(), unixepoch(), ?)
                 """,
-                (theme_id, seq, f"Theme {seq}" if seq != 0 else "기본 지식베이스", 1 if seq == 0 else 0),
+                # v15 이전 물리 테마 DB는 관리자 것이다(§8.4-1).
+                (theme_id, seq, f"Theme {seq}" if seq != 0 else "기본 지식베이스", 1 if seq == 0 else 0,
+                 ADMIN_ACCOUNT_ID),
             )
             conn.commit()
 
@@ -2472,9 +2622,10 @@ def create_auth_nonce(conn: sqlite3.Connection, *, ttl: float = 600.0) -> str:
     """웹 접속 승인 요청 nonce 생성(승인 대기 ttl초). 추측 불가 토큰."""
     nonce = secrets.token_urlsafe(16)
     now = time.time()
+    # P1 싱글 모드에서 이 진입점은 관리자 전용이라 ADMIN_ACCOUNT_ID를 쓴다. P3 L3-e에서 명시 인자로 바꾼다.
     conn.execute(
-        "INSERT INTO auth_sessions(nonce,approved,created_at,expires_at) VALUES (?,0,?,?)",
-        (nonce, now, now + ttl))
+        "INSERT INTO auth_sessions(nonce,approved,created_at,expires_at,account_id) VALUES (?,0,?,?,?)",
+        (nonce, now, now + ttl, ADMIN_ACCOUNT_ID))
     conn.commit()
     return nonce
 
@@ -2490,9 +2641,10 @@ def approve_auth_nonce(
         return None
     token = secrets.token_urlsafe(32)
     now = time.time()
+    # 텔레그램 버튼 승인은 사람이 방금 인증한 시점이다(단계 인증 §8.5).
     conn.execute(
-        "UPDATE auth_sessions SET approved=1, session_token=?, expires_at=? WHERE nonce=?",
-        (token, now + session_ttl, nonce))
+        "UPDATE auth_sessions SET approved=1, session_token=?, expires_at=?, authenticated_at=? WHERE nonce=?",
+        (token, now + session_ttl, now, nonce))
     conn.commit()
     return token
 
@@ -2548,12 +2700,15 @@ def create_session(
     """[/web, /webro] **scope 별 단일 활성 세션**: 같은 scope 의 기존 세션만 revoke 하고 추측 저항성이 충분한 새 토큰 1개를 발급 — owner(/web)와 readonly(/webro)는 서로 다른 scope 라 독립적으로 공존한다(읽기전용 링크를 공유해도 내 소유자 세션은 안 끊김, 그 반대도 마찬가지).
 
     토큰은 링크의 전체값만 인정한다. 발급 즉시 같은 scope 의 이전 링크/쿠키는 무효(다음 /web 한 번이 곧 '이전 owner 세션 전부 로그아웃', scope 가 다르면 서로 안 건드림). nonce=토큰(PK)."""
-    conn.execute("DELETE FROM auth_sessions WHERE scope=?", (scope,))
+    # P1 싱글 모드에서 이 진입점은 관리자 전용이라 ADMIN_ACCOUNT_ID를 쓴다. P3 L3-e에서 명시 인자로 바꾼다.
+    account_id = ADMIN_ACCOUNT_ID
+    conn.execute("DELETE FROM auth_sessions WHERE scope=? AND account_id=?", (scope, account_id))
     token = secrets.token_urlsafe(32)
     now = time.time()
+    # 발급은 사람이 방금 인증한 시점이다(authenticated_at, 단계 인증 §8.5).
     conn.execute(
-        "INSERT INTO auth_sessions(nonce,session_token,approved,created_at,expires_at,scope) "
-        "VALUES (?,?,1,?,?,?)", (token, token, now, now + ttl, scope))
+        "INSERT INTO auth_sessions(nonce,session_token,approved,created_at,expires_at,scope,account_id,authenticated_at) "
+        "VALUES (?,?,1,?,?,?,?,?)", (token, token, now, now + ttl, scope, account_id, now))
     conn.commit()
     return token
 
@@ -2583,11 +2738,12 @@ def exchange_session_token(
         return None
 
     rotated = secrets.token_urlsafe(32)
+    # 부트스트랩 링크 교환은 사람이 방금 인증한 시점이다. account_id는 발급한 행의 값을 그대로 둔다.
     result = conn.execute(
-        f"UPDATE auth_sessions SET session_token=?, expires_at=? "
+        f"UPDATE auth_sessions SET session_token=?, expires_at=?, authenticated_at=? "
         f"WHERE session_token=? AND approved=1 AND expires_at>=? "
         f"AND scope IN ({placeholders})",
-        (rotated, now + ttl, token, now, *scopes),
+        (rotated, now + ttl, now, token, now, *scopes),
     )
     conn.commit()
     if result.rowcount != 1:
@@ -2692,11 +2848,13 @@ def create_oauth_code(
     """일회용 인가 코드(Authorization Code) 생성 (수명 5분)."""
     code = secrets.token_urlsafe(32)
     now = time.time()
+    # P1 싱글 모드에서 이 진입점은 관리자 전용이라 ADMIN_ACCOUNT_ID를 쓴다. P3 L3-e에서 명시 인자로 바꾼다.
     conn.execute(
         """INSERT INTO oauth_codes
-        (code, client_id, redirect_uri, code_challenge, code_challenge_method, scope, expires_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)""",
-        (code, client_id, redirect_uri, code_challenge, code_challenge_method, scope, now + ttl),
+        (code, client_id, redirect_uri, code_challenge, code_challenge_method, scope, expires_at, account_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+        (code, client_id, redirect_uri, code_challenge, code_challenge_method, scope, now + ttl,
+         ADMIN_ACCOUNT_ID),
     )
     conn.commit()
     return code
@@ -2711,7 +2869,7 @@ def consume_oauth_code(
     """인가 코드 단일 소비(Atomic Consumption). 유효하면 정보 반환 후 즉시 삭제."""
     now = time.time()
     row = conn.execute(
-        """SELECT client_id, redirect_uri, code_challenge, code_challenge_method, scope, expires_at
+        """SELECT client_id, redirect_uri, code_challenge, code_challenge_method, scope, expires_at, account_id
         FROM oauth_codes WHERE code=? AND client_id=? AND redirect_uri=? AND expires_at>=?""",
         (code, client_id, redirect_uri, now),
     ).fetchone()
@@ -2735,11 +2893,12 @@ def create_oauth_token(
     access_token = secrets.token_urlsafe(32)
     refresh_token = secrets.token_urlsafe(32)
     now = time.time()
+    # P1 싱글 모드에서 이 진입점은 관리자 전용이라 ADMIN_ACCOUNT_ID를 쓴다. P3 L3-e에서 명시 인자로 바꾼다.
     conn.execute(
         """INSERT INTO oauth_tokens
-        (token, refresh_token, client_id, scope, created_at, expires_at)
-        VALUES (?, ?, ?, ?, ?, ?)""",
-        (access_token, refresh_token, client_id, scope, now, now + access_ttl),
+        (token, refresh_token, client_id, scope, created_at, expires_at, account_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?)""",
+        (access_token, refresh_token, client_id, scope, now, now + access_ttl, ADMIN_ACCOUNT_ID),
     )
     conn.commit()
     return access_token, refresh_token
@@ -2765,6 +2924,7 @@ def refresh_oauth_token(
 
     new_access = secrets.token_urlsafe(32)
     new_refresh = secrets.token_urlsafe(32)
+    # 같은 행을 회전하므로 account_id는 발급 때 값이 그대로 남는다.
     cur = conn.execute(
         """UPDATE oauth_tokens
         SET token=?, refresh_token=?, expires_at=?
@@ -2851,9 +3011,10 @@ def approve_oauth_auth_request(
         code_challenge_method=req["code_challenge_method"],
         scope=req["scope"],
     )
+    # P1 싱글 모드에서 이 진입점은 관리자 전용이라 ADMIN_ACCOUNT_ID를 쓴다. P3 L3-e에서 명시 인자로 바꾼다.
     conn.execute(
-        "UPDATE oauth_auth_requests SET approved=1, code=? WHERE nonce=?",
-        (code, nonce),
+        "UPDATE oauth_auth_requests SET approved=1, code=?, account_id=? WHERE nonce=?",
+        (code, ADMIN_ACCOUNT_ID, nonce),
     )
     conn.commit()
     return code

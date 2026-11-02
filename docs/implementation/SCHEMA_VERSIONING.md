@@ -1,8 +1,9 @@
 # Common Schema Version Contract
 
-이 문서는 Git 커밋 계보가 분리된 테제 계보(`blackan/claire_bible`)와 증강 계보(`fofwisdom/claire-bible`)가 SQLite 정본을 안전하게 공유하기 위한 최소 version 계약을 정의한다. Git 조상 관계나 저장소 이름은 DB에 남지 않으므로 `meta.schema_version`과 `meta.schema_lineage`를 함께 호환성 판단에 사용한다.
+이 문서는 SQLite 정본의 version 계약을 정의한다. 처음에는 Git 커밋 계보가 분리된 테제 계보(`blackan/claire_bible`)와 증강 계보(`fofwisdom/claire-bible`)가 정본을 안전하게 공유하기 위해 만들었다. `meta.schema_version`과 `meta.schema_lineage`를 함께 호환성 판단에 사용한다.
 
-계약 상태는 증강 계보(`fofwisdom`)에서 `adopted`, 테제 계보(`blackan`)에서 `candidate`다. 테제 계보 병합 후에만 `accepted`로 갱신한다.
+- **[결정] 테제 계보는 더 이상 없다** (소유자, 2026-11-02). 공통 번호를 다른 계보와 예약할 필요가 없다. `schema_lineage` 값 `claire-bible/common`은 기존 DB와의 호환을 위해 그대로 쓴다.
+- **[결정] 스키마 확장은 조율하고, 쓰이지 않는 영역은 순차 소각한다** (소유자, 2026-11-02). 아래 "이후 스키마 변경 규칙"을 따른다.
 
 ## v13 수렴 기준
 
@@ -10,14 +11,15 @@
 
 | version | 상태 | 마이그레이션 처리 |
 |---|---|---|
-| 1–9 | 테제 계보 공통 이력 | 멱등 마이그레이션 후 v14로 전환 |
-| 10–11 | 증강 계보의 분리 계보 이력 | 부가 schema를 보존하며 v14로 전환 가능 |
+| 1–9 | 테제 계보 공통 이력 | 멱등 마이그레이션 후 v15로 전환 |
+| 10–11 | 증강 계보의 분리 계보 이력 | 부가 schema를 보존하며 v15로 전환 가능 |
 | 12 | 증강 계보의 철회된 Support Bundle schema | 자동 전환 금지; 정확한 복구 절차로 먼저 v11 복원 후 전환 |
 | 13 | 직전 공통 version | `schema_lineage=claire-bible/common` 기준 단일 DB 및 `theme_id` 파티셔닝으로 승격 |
-| 14 | 현재 공통 version | 단일 SQLite DB 통합, 테마 파티셔닝(`theme_id`), 다중 사용자/신디케이션 지원, 볼트 서브시스템 영구 제거 |
-| 15 이상 | 미래 version | 현재 코드가 변경하지 않고 거부 |
+| 14 | 직전 version | 단일 SQLite DB 통합, 테마 파티셔닝(`theme_id`), 다중 사용자/신디케이션 지원, 볼트 서브시스템 영구 제거. 멱등 마이그레이션 후 v15로 전환 |
+| 15 | 현재 version (아래 "v15" 절) | 계정(`accounts`), 퇴역 USERNAME, 인스턴스 설정, 테마·자격증명의 계정 귀속 |
+| 16 이상 | 미래 version | 현재 코드가 변경하지 않고 거부 |
 
-v12는 정본 DB에 진단 테이블을 추가해 관측성 저장소 분리 원칙을 위반했던 version이므로 영구 폐기한다. v12 DB는 증강 계보의 보존 복구 절차로 진단 행을 내구성 있게 내보낸 뒤 v11로 복원해야 한다. 공통 v14 마이그레이션은 이 복구를 추측하거나 대신하지 않는다. 복구되지 않은 v12를 발견하면 DB를 변경하지 않고 실패한다.
+v12는 정본 DB에 진단 테이블을 추가해 관측성 저장소 분리 원칙을 위반했던 version이므로 영구 폐기한다. v12 DB는 증강 계보의 보존 복구 절차로 진단 행을 내구성 있게 내보낸 뒤 v11로 복원해야 한다. 공통 마이그레이션은 이 복구를 추측하거나 대신하지 않는다. 복구되지 않은 v12를 발견하면 DB를 변경하지 않고 실패한다.
 
 ## v14 수렴 기준 (단일 데이터베이스 및 테마 파티셔닝)
 
@@ -47,6 +49,27 @@ v12는 정본 DB에 진단 테이블을 추가해 관측성 저장소 분리 원
 - 미래 version과 알 수 없는 폐기 version을 현재 코드가 추측해 변경하지 않는다.
 - 별도 SQLite 저장소와 archive·registry 포맷은 각자의 namespace와 version을 사용한다. 보조 저장소의 version 변경은 공통 지식 DB version 증가를 뜻하지 않는다.
 
+## v15 (계정, P1)
+
+확인 기준: P1 계정 코어 커밋(`d5e8fb4` 다음) (2026-11-02). 근거 표기는 [PRINCIPLES.md](../PRINCIPLES.md) F1을 따른다. 설계: [MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md](../design/MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md) §13.1. 계정 동작은 [ACCOUNTS.md](ACCOUNTS.md)에 있다.
+
+- **[코드] 버전 상수**: `src/claire/store/db.py`의 `SCHEMA_VERSION = 15`, lineage는 `claire-bible/common` 그대로다. `_validate_migration_source`는 저장된 version이 15보다 크면 변경 없이 거부한다.
+- **[결정] 번호 예약 불필요**: 테제 계보가 없어졌으므로 v15는 다른 계보와 예약하지 않는다.
+- **[코드] 추가 객체**(`_migrate_v15_accounts`, 모두 `IF NOT EXISTS`·`_ensure_column`으로 멱등)
+  - 테이블 `accounts`, `username_tombstones`, `instance_settings`
+  - 인덱스 `idx_accounts_single_admin`(관리자 한 명), `idx_themes_account_default`(계정마다 기본 테마 하나)
+  - 트리거 `accounts_username_immutable`(설정된 USERNAME 변경 거부)
+  - 열 `themes.account_id`, `auth_sessions.account_id`, `auth_sessions.authenticated_at`, `oauth_codes.account_id`, `oauth_tokens.account_id`, `oauth_auth_requests.account_id`
+- **[코드] 데이터 이관**(멱등): `instance_settings.id_salt`가 없을 때만 만든다. 관리자 행(`id=1`, `role=admin`, `status=setup_required`, `username=NULL`)이 없을 때만 만들고, `public_id`는 고정 상수 `ADMIN_LEGACY_PUBLIC_ID_UNIX_MS`로 계산해 다시 실행해도 같다. `account_id`가 NULL인 테마와 자격증명 행을 1로 채운다. `id=1` 행이 관리자가 아니면 실패한다. v14의 `users` 테이블은 그대로 두고 쓰지 않는다.
+- **[코드] 기본 테마 중복이면 실패**: v15 블록의 첫 단계(`_check_single_default_theme_per_account`)가 한 계정(NULL은 1로 봄)에 `is_default=1` 테마가 둘 이상인지 본다. 있으면 어느 쪽이 기본인지 추측하지 않고 `RuntimeError`(계정과 `themes.id` 목록 포함)를 낸다. 이 검사는 v15 객체를 만들기 전에 실행되고 `init_db`는 `schema_version`을 쓰기 전에 멈추므로, v14 DB에서는 v15 테이블·열·행을 하나도 쓰지 않고 `schema_version=14`가 남는다(`tests/test_schema_v15.py`의 `test_multiple_default_themes_fail_migration_without_changes`). `is_default=1`을 계정마다 하나로 고친 뒤 다시 실행한다.
+- **[코드] 보조 파일**: `data/themes.json` 항목과 `data/auth/api_tokens.json` 항목에 `account_id`가 없으면 관리자(1)로 읽는다. 값이 정수가 아니면 테마는 `ValueError`, API 토큰은 그 항목을 무시한다.
+
+### 별도 저장소: `data/auth/auth.db`
+
+- **[코드]** 계정 비밀과 제어 평면은 지식 DB와 분리된 `data/auth/auth.db`에 있다(`src/claire/store/auth_db.py`). 자체 `meta.schema_version`을 쓰며 현재 값은 `AUTH_DB_SCHEMA_VERSION = 1`이다. 이 번호는 위 공통 version과 무관하다("v14 불변 규칙"의 보조 저장소 규칙).
+- **[코드]** 저장된 값이 1보다 크면 다운그레이드로 보고 `RuntimeError`, 1보다 작거나 정수가 아니면 `RuntimeError`다. lineage 표식은 없다.
+- **[코드]** `claire migrate`가 지식 DB보다 먼저 auth.db를 만들거나 맞추고, 서비스 기동도 같은 일을 한다.
+
 ## 운영 경계
 
 스키마 전환은 서비스 기동 전에 명시적인 migration 경로에서 수행한다. health, liveness와 진단 조회는 읽기 전용 연결을 사용하며 DB, registry 또는 schema 객체를 생성·수정하지 않는다. 이전 version은 migration 전까지 비정상 또는 비호환 상태로 보고한다.
@@ -60,13 +83,12 @@ v12는 정본 DB에 진단 테이블을 추가해 관측성 저장소 분리 원
 5. 적용 후 version, lineage, 객체 서명과 데이터 무결성을 다시 검사한다.
 6. 알 수 없는 source는 원본을 변경하지 않고 fail-closed한다.
 
-## 이후 공동 변경 규칙
+## 이후 스키마 변경 규칙
 
-1. 공통 번호는 테제 계보 PR에서 먼저 예약하고 문서, 멱등 마이그레이션, 이전 version 데이터 보존 테스트를 함께 제출한다.
-2. 구현 전용 실험은 공통 번호를 선점하지 않는다. 공통화가 필요하면 다음 미사용 번호로 별도 PR을 작성한다.
+1. **[결정]** 새 테이블·열은 기능 설계(모델 정의)에서 필요성과 소유 기능을 먼저 정하고, 문서·멱등 마이그레이션·이전 version 데이터 보존 테스트를 함께 제출한다. 무분별한 확장을 막기 위해서다.
+2. **[결정]** 더 이상 쓰이지 않는 스키마 영역은 순차 소각한다. 소각도 새 version으로 하며, 삭제할 데이터가 있으면 운영 경계 2번대로 먼저 보존한다. 예: v14 `users` 테이블은 v15부터 쓰지 않는다(소각 후보).
 3. 같은 version의 의미를 바꾸지 않는다. 이미 배포된 잘못된 version은 폐기하고 새 공통 번호를 사용한다.
 4. 새 기능 schema는 해당 기능의 정책 검토와 분리한다. 공통 계약 PR에 구현별 UI, 운영 도구 또는 무관한 기능 snapshot을 포함하지 않는다.
-5. 독립 Git 계보 간 동등성은 commit SHA가 아니라 같은 계약 manifest와 contract test 결과로 증명한다.
-6. machine-readable common manifest는 이미 배포된 v13을 기술할 수 있지만, 그 digest나 migration ledger를 기존 v13 DB의 필수 meta로 소급 강제하지 않는다.
+5. machine-readable common manifest는 이미 배포된 v13을 기술할 수 있지만, 그 digest나 migration ledger를 기존 v13 DB의 필수 meta로 소급 강제하지 않는다.
 
 구현별 schema 확장, retired version 복구와 보조 저장소 version 계획은 각 구현 저장소의 전용 문서에서 관리하며 이 공동 계약의 필수 객체로 간주하지 않는다.

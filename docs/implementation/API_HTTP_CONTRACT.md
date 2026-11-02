@@ -81,3 +81,32 @@ $$\text{owner} \succ \text{readonly} \succ \text{anonymous} \succ \text{unauthen
 | `POST` | `/mcp` | `read` | Model Context Protocol JSON-RPC 통신 |
 
 구현별 UI 페이지(`/`, `/syndication`, `/syndication/preferences`, `/reference`, `/p`) 및 부가 기능은 각 계보의 확장 라우트로 관리하되 위 최소 공통 엔드포인트의 와이어 형식을 훼손하지 않는다.
+
+## 6. 계정 경로 (증강 계보 확장, P1)
+
+확인 기준: P1 계정 코어 커밋(`d5e8fb4` 다음) (2026-11-02). 아래는 증강 계보의 확장 라우트이며 §5의 최소 공통 엔드포인트가 아니다. 동작의 정본은 [ACCOUNTS.md](ACCOUNTS.md), 접근 규칙의 정본은 `src/claire/api/security.py`의 `ROUTE_POLICY`다. 근거 표기는 [PRINCIPLES.md](../PRINCIPLES.md) F1을 따른다.
+
+- **[코드]** 모든 요청에는 요청 주체(`Principal`)가 하나 정해진다(`src/claire/api/principal.py`). `public` 규칙 라우트는 자격증명을 검증하지 않고 익명 주체를 둔다.
+- **[코드]** `owner` 규칙을 통과하지 못하면 §3.4와 같이 404다. 쿠키 채널의 `POST`는 `Origin`이 같은 origin이어야 하고, 아니면 403이다.
+
+| Method | Path | 규칙 | 성공 | 그 밖의 응답 |
+|---|---|---|---|---|
+| `GET` | `/setup` | `owner` (+ 관리자·설정 전·세션 채널) | 200 HTML | 조건 밖 404 |
+| `POST` | `/setup` | 위와 같음 | 303 `/` + 새 세션 쿠키. 비밀번호 저장만 실패하면 303 `/me?notice=password_not_saved` | 400 입력 거부(HTML), 404 조건 밖·동시 확정 패배, 403 쿠키 POST의 origin 불일치 |
+| `GET` | `/login` | `public` | 200 HTML | — |
+| `POST` | `/login` | `public` (+ 핸들러의 동일 origin 검사) | 303 `/` + 새 세션 쿠키 | 400 양식 오류, 401 실패(사유 구분 없음), 403 동일 origin 아님, 429 + `Retry-After` |
+| `POST` | `/logout` | `public` (+ 동일 origin) | 303 `/login`, 쿠키 삭제 | 403 동일 origin 아님 |
+| `POST` | `/api/auth/reauth` | `owner` | 200 `{"ok": true, "authenticated_at": <초>}` | 400 `invalid_request`, 403 `step_up_requires_session`, 403 `invalid_password`, 409 `password_not_set`, 429 `too_many_attempts` |
+| `GET` | `/admin/accounts` | `owner` (+ 관리자) | 200 HTML | 404 |
+| `GET` | `/api/admin/accounts` | `owner` (+ 관리자) | 200 `{"accounts": [...]}` | 404 |
+| `GET` | `/me` | `owner` | 200 HTML | 404 |
+| `GET` | `/api/me` | `owner` | 200 계정 정보 | 404 |
+| `PATCH` | `/api/me` | `owner` | 200 계정 정보 | 400 `invalid_request`, 400 `invalid_display_name` |
+| `POST` | `/api/me/password` | `owner` + 단계 인증 | 200 `{"ok": true, "other_sessions_revoked": n}` | 400 `invalid_request`, 400 `password_rejected`, 401 `reauth_required`, 403 `step_up_requires_session`, 403 `invalid_password`, 409 `account_not_active`, 429 `too_many_attempts` |
+
+### 6.1 단계 인증 응답 규약
+
+- **[코드]** 세션 채널(쿠키·`X-Session`)이 아니면 403 `{"error": "step_up_requires_session"}`. Bearer 토큰은 사람이 다시 인증할 수 없으므로 재인증 경로를 안내하지 않는다.
+- **[코드]** 세션이지만 최근 15분 안에 인증하지 않았으면 401 `{"error": "reauth_required", "reauth": "/api/auth/reauth"}`와 `WWW-Authenticate: Session realm="claire", error="reauth_required"`. 클라이언트는 `POST /api/auth/reauth` 뒤에 원래 요청을 다시 보낸다.
+- **[코드]** 재인증 비밀번호가 틀리면 403 `invalid_password`, 계정에 비밀번호가 없으면 409 `password_not_set`.
+- **[코드]** JSON 본문은 §1.3대로 `application/json`이어야 한다. 본문 키가 정해진 집합과 다르면 모르는 키를 버리지 않고 400 `invalid_request`다.

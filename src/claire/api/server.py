@@ -45,6 +45,7 @@ from ..store import db as dbm
 from ..store.queries import theme_summary
 from ..store.theme import ThemeInfo, ThemeManager, ThemeNotFound, get_theme_manager
 from ..store.token_store import get_token_store
+from .accounts_routes import build_account_routes, prepare_auth_db
 from .mcp_tools import build_mcp_app
 from .oauth import (
     handle_authorization_server_metadata,
@@ -184,6 +185,8 @@ def create_app(
         dbm.init_db(conn)
     finally:
         conn.close()
+    # auth.db(설계 §13.3)도 요청을 받기 전에 준비하고 지난 로그인 실패 기록을 정리한다.
+    prepare_auth_db(s.data_dir)
 
     token_store = get_token_store(data_dir=s.data_dir)
     token_store.migrate_env_tokens(
@@ -200,7 +203,7 @@ def create_app(
                 object.__setattr__(s, "inject_token", owner_tok["token"])
             except Exception:
                 pass
-    WebRuntimeConfig.from_settings(s)
+    account_routes = build_account_routes(s, WebRuntimeConfig.from_settings(s))
     svc = service or IngestService(s)
     theme_mgr = ThemeManager(s)
     service_pool = IngestServicePool(s, svc, theme_manager=theme_mgr)
@@ -1275,9 +1278,12 @@ def create_app(
 
         return JSONResponse(await asyncio.to_thread(_graph))
 
-    async def graph_ui(request: Request) -> HTMLResponse:
+    async def graph_ui(request: Request) -> Response:
         from ..graphview import render_graph_html
 
+        setup_redirect = await account_routes.setup_redirect(request)
+        if setup_redirect is not None:
+            return setup_redirect
         scope = request_auth_scope(request)
         include_private = scope in {"owner", "readonly"}
         is_collaborator = scope == "collaborator"
@@ -3988,6 +3994,7 @@ def create_app(
         Route("/oauth/authorize/poll", handle_authorize_poll, methods=["GET"]),
         Route("/oauth/token", handle_token, methods=["POST"]),
         Route("/mcp", mcp_route, methods=["GET", "POST"]),
+        *account_routes.routes,
         Mount("/static", StaticFiles(directory=str(static_dir), check_dir=False), name="static"),
     ]
 

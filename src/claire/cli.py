@@ -3836,6 +3836,20 @@ def cmd_migrate(_args) -> int:
     from .health import require_current_schema
 
     s = get_settings()
+    # auth.db(설계 §13.3)는 테마와 무관하게 인스턴스에 하나다. 새 서비스가 요청을 받기 전에 만든다(E3).
+    from .store import auth_db
+
+    auth_conn = None
+    try:
+        auth_conn = auth_db.connect_auth_db(auth_db.auth_db_path(s.data_dir))
+    except Exception as e:  # noqa: BLE001
+        print(f"migrate: auth.db error: {e}", file=sys.stderr)
+        return 1
+    finally:
+        if auth_conn is not None:
+            auth_conn.close()
+    print(f"auth_db schema_version={auth_db.AUTH_DB_SCHEMA_VERSION}")
+
     if not getattr(s, "multi_theme", False):
         conn = None
         try:

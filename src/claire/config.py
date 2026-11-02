@@ -622,6 +622,9 @@ class Settings(BaseSettings):
     cloudflare_ips_only: bool = Field(
         default=False, alias="CLAIRE_CLOUDFLARE_IPS_ONLY"
     )
+    # 로그인 실패 제한의 클라이언트 IP 판정에서 X-Forwarded-For를 믿을 바로 앞 프록시 대역(쉼표 구분 CIDR).
+    # 빈 값이면 헤더를 읽지 않는다. 형식 검사는 `api.security.parse_trusted_proxies`가 기동 때 한다.
+    trusted_proxies: str = Field(default="", alias="CLAIRE_TRUSTED_PROXIES")
     # 브라우저 cross-origin 호출을 허용할 exact origin 목록. 인증은 Bearer만 허용한다.
     cors_allowed_origins: str = Field(
         default="", alias="CLAIRE_CORS_ALLOWED_ORIGINS"

@@ -1,6 +1,6 @@
 """웹 API의 ASGI 보안 경계.
 
-Starlette 라우트와 Uvicorn 실행기는 이 모듈 안쪽에 둔다. 여기서는 public URL에서 도출한 정확한 Host, CORS/Origin, 요청 크기, 인증 scope와 query 없는 접근 로그를 한 번에 적용한다. Reverse proxy 헤더는 의도적으로 읽지 않는다.
+Starlette 라우트와 Uvicorn 실행기는 이 모듈 안쪽에 둔다. 여기서는 public URL에서 도출한 정확한 Host, CORS/Origin, 요청 크기, 인증 scope와 query 없는 접근 로그를 한 번에 적용한다. Reverse proxy 헤더는 의도적으로 읽지 않는다. 예외는 `client_ip` 하나다: 로그인 실패 제한 키에 쓸 클라이언트 IP만, 바로 앞 피어가 ``CLAIRE_TRUSTED_PROXIES``(와 Cloudflare 모드의 Cloudflare 대역)에 있을 때 ``X-Forwarded-For``에서 읽는다.
 """
 
 from __future__ import annotations
@@ -30,7 +30,9 @@ from starlette.responses import (
 )
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from ..store import accounts as accounts_store
 from ..store import db as dbm
+from .principal import ANONYMOUS, PRINCIPAL_STATE_KEY, Principal
 
 __all__ = [
     "CLOUDFLARE_IPV4_CIDRS",
@@ -43,10 +45,16 @@ __all__ = [
     "InvalidJSONBody",
     "RequestBodyTooLarge",
     "WebRuntimeConfig",
+    "clear_session_cookie",
+    "client_ip",
+    "parse_trusted_proxies",
     "is_cloudflare_ip",
     "read_json_body",
+    "read_session_cookie",
     "request_auth_scope",
     "request_id",
+    "request_origin_kind",
+    "set_session_cookie",
     "wrap_web_app",
 ]
 
@@ -56,6 +64,8 @@ MAX_REQUEST_BODY = 1024 * 1024
 _AUTH_SCOPE_KEY = "claire_auth_scope"
 _REQUEST_ID_KEY = "claire_request_id"
 _ORIGIN_KIND_KEY = "claire_origin_kind"
+# 쿠키 채널에서 동일 origin(``Origin``이 공개 origin)을 요구하는 메서드. 쿠키는 브라우저가 자동으로 싣기 때문이다.
+_STATE_CHANGING_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 _DNS_NAME_RE = re.compile(
     r"(?=.{1,253}\Z)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*"
     r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\Z",
@@ -137,6 +147,80 @@ CLOUDFLARE_NETWORKS: tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...] =
 def is_cloudflare_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
     """주어진 IP가 Cloudflare 공식 IP 대역에 속하는지 여부를 판별한다."""
     return any(ip in net for net in CLOUDFLARE_NETWORKS)
+
+
+_IPNetwork = ipaddress.IPv4Network | ipaddress.IPv6Network
+_IPAddress = ipaddress.IPv4Address | ipaddress.IPv6Address
+
+
+def parse_trusted_proxies(value: Any) -> tuple[_IPNetwork, ...]:
+    """``CLAIRE_TRUSTED_PROXIES``(쉼표로 구분한 CIDR 목록)를 읽는다. 빈 값이면 빈 튜플.
+
+    항목이 CIDR로 읽히지 않거나(호스트 비트가 켜진 ``10.0.0.1/8`` 포함) 빈 항목(``a,,b``)이 있으면 ``ValueError``로 기동을 멈춘다(C1). 단일 주소는 ``/32``·``/128``로 쓴다.
+    """
+    if not isinstance(value, str):
+        raise ValueError("CLAIRE_TRUSTED_PROXIES must be a comma-separated string of CIDRs")
+    if not value.strip():
+        return ()
+    networks: list[_IPNetwork] = []
+    for item in value.split(","):
+        cidr = item.strip()
+        if not cidr:
+            raise ValueError(f"CLAIRE_TRUSTED_PROXIES has an empty entry: {value!r}")
+        try:
+            networks.append(ipaddress.ip_network(cidr, strict=True))
+        except ValueError as exc:
+            raise ValueError(f"CLAIRE_TRUSTED_PROXIES has an invalid CIDR: {cidr!r}") from exc
+    return tuple(networks)
+
+
+def _parse_ip(raw: str) -> _IPAddress | None:
+    try:
+        address = ipaddress.ip_address(raw)
+    except ValueError:
+        return None
+    if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped is not None:
+        return address.ipv4_mapped
+    return address
+
+
+def _is_trusted(address: _IPAddress, trusted: tuple[_IPNetwork, ...]) -> bool:
+    return any(address.version == net.version and address in net for net in trusted)
+
+
+def client_ip(scope: Scope, trusted_proxies: tuple[_IPNetwork, ...]) -> str:
+    """로그인 실패 제한 키로 쓸 클라이언트 IP.
+
+    - 바로 앞 피어(ASGI ``client``)가 ``trusted_proxies``에 없으면 피어 주소를 쓴다. 목록이 비면 항상 피어다.
+    - 신뢰 피어이면 ``X-Forwarded-For``를 오른쪽부터 읽어 신뢰 목록에 없는 첫 주소를 쓴다. 왼쪽 값은 클라이언트가 마음대로 넣을 수 있어 그보다 왼쪽은 보지 않는다. 모든 항목이 신뢰 대역이면 가장 왼쪽 항목을 쓴다.
+    - 헤더가 없거나, 여러 줄이거나, 항목 하나라도 IP 주소가 아니면(포트·빈 항목·``unknown`` 등) 피어 주소를 쓴다. 헤더를 추측해 고치지 않는다(C1).
+
+    접근 로그의 IP 표기는 이 함수를 쓰지 않는다.
+    """
+    client = scope.get("client")
+    peer_raw = client[0] if client and client[0] else ""
+    if not peer_raw:
+        return "-"
+    peer = _parse_ip(peer_raw)
+    if peer is None or not trusted_proxies or not _is_trusted(peer, trusted_proxies):
+        return peer_raw
+    headers = _raw_headers(scope, b"x-forwarded-for")
+    if len(headers) != 1:
+        return peer_raw
+    try:
+        items = headers[0].decode("ascii").split(",")
+    except UnicodeDecodeError:
+        return peer_raw
+    chain: list[_IPAddress] = []
+    for item in items:
+        address = _parse_ip(item.strip())
+        if address is None:
+            return peer_raw
+        chain.append(address)
+    for address in reversed(chain):
+        if not _is_trusted(address, trusted_proxies):
+            return str(address)
+    return str(chain[0])
 
 
 AccessLevel = Literal["public", "read", "collaborator", "owner"]
@@ -310,6 +394,26 @@ ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     ("GET", "/oauth/authorize/poll"): _rule("public"),
     ("HEAD", "/oauth/authorize/poll"): _rule("public"),
     ("POST", "/oauth/token"): _rule("public"),
+    # 계정 (설계 §8.4–§8.7). 관리자·설정 전용 조건은 핸들러가 404로 판정한다(api.accounts_routes).
+    ("GET", "/setup"): _rule("owner"),
+    ("HEAD", "/setup"): _rule("owner"),
+    ("POST", "/setup"): _rule("owner"),
+    # /login·/logout은 공개다. 로그인 CSRF·강제 로그아웃은 핸들러가 동일 origin 검사로 막는다.
+    ("GET", "/login"): _rule("public"),
+    ("HEAD", "/login"): _rule("public"),
+    ("POST", "/login"): _rule("public"),
+    ("POST", "/logout"): _rule("public"),
+    ("POST", "/api/auth/reauth"): _rule("owner"),
+    ("GET", "/admin/accounts"): _rule("owner"),
+    ("HEAD", "/admin/accounts"): _rule("owner"),
+    ("GET", "/api/admin/accounts"): _rule("owner"),
+    ("HEAD", "/api/admin/accounts"): _rule("owner"),
+    ("GET", "/me"): _rule("owner"),
+    ("HEAD", "/me"): _rule("owner"),
+    ("GET", "/api/me"): _rule("owner"),
+    ("HEAD", "/api/me"): _rule("owner"),
+    ("PATCH", "/api/me"): _rule("owner"),
+    ("POST", "/api/me/password"): _rule("owner"),
 }
 
 
@@ -424,6 +528,9 @@ class WebRuntimeConfig:
     ga_measurement_id: str = ""
     cloudflare_ips_only: bool = False
     data_dir: Path | None = None
+    # 클라이언트 IP 판정(`client_ip`)에서 X-Forwarded-For를 믿을 바로 앞 피어 대역.
+    # ``CLAIRE_TRUSTED_PROXIES``와, ``cloudflare_ips_only``이면 ``CLOUDFLARE_NETWORKS``를 합친 것이다.
+    trusted_proxies: tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...] = ()
 
     @classmethod
     def from_settings(cls, settings: Any) -> WebRuntimeConfig:
@@ -505,6 +612,9 @@ class WebRuntimeConfig:
         ).strip()
 
         cf_ips_only = bool(getattr(settings, "cloudflare_ips_only", False))
+        trusted_proxies = parse_trusted_proxies(getattr(settings, "trusted_proxies", "") or "")
+        if cf_ips_only:
+            trusted_proxies = trusted_proxies + CLOUDFLARE_NETWORKS
 
         raw_data_dir = getattr(settings, "data_dir", None)
         if raw_data_dir is not None:
@@ -527,6 +637,7 @@ class WebRuntimeConfig:
             ga_measurement_id=ga_id,
             cloudflare_ips_only=cf_ips_only,
             data_dir=data_dir,
+            trusted_proxies=trusted_proxies,
         )
 
 
@@ -558,6 +669,14 @@ async def read_json_body(
 
 def request_auth_scope(request: Request) -> str | None:
     return getattr(request.state, _AUTH_SCOPE_KEY, None)
+
+
+def request_origin_kind(request: Request) -> str:
+    """``CORSPolicyMiddleware``가 판정한 ``Origin`` 종류: ``none``, ``same``, ``cross``. 판정 전이면 ``RuntimeError``."""
+    kind = getattr(request.state, _ORIGIN_KIND_KEY, None)
+    if kind not in {"none", "same", "cross"}:
+        raise RuntimeError("origin kind is not set; CORSPolicyMiddleware did not run for this request")
+    return kind
 
 
 def request_id(request: Request) -> str:
@@ -610,7 +729,7 @@ def _constant_equal(candidate: str, expected: str) -> bool:
     return hmac.compare_digest(candidate.encode("utf-8"), expected.encode("utf-8"))
 
 
-def _set_session_cookie(
+def set_session_cookie(
     response: Response,
     config: WebRuntimeConfig,
     token: str,
@@ -626,7 +745,7 @@ def _set_session_cookie(
     )
 
 
-def _clear_session_cookie(
+def clear_session_cookie(
     response: Response,
     config: WebRuntimeConfig,
 ) -> None:
@@ -641,7 +760,7 @@ def _clear_session_cookie(
 
 def _session_cookie_header(config: WebRuntimeConfig, token: str) -> bytes:
     response = Response()
-    _set_session_cookie(response, config, token)
+    set_session_cookie(response, config, token)
     return next(
         value
         for name, value in response.raw_headers
@@ -651,7 +770,7 @@ def _session_cookie_header(config: WebRuntimeConfig, token: str) -> bytes:
 
 def _clear_session_cookie_header(config: WebRuntimeConfig) -> bytes:
     response = Response()
-    _clear_session_cookie(response, config)
+    clear_session_cookie(response, config)
     return next(
         value
         for name, value in response.raw_headers
@@ -659,7 +778,16 @@ def _clear_session_cookie_header(config: WebRuntimeConfig) -> bytes:
     )
 
 
-def _session_cookie(scope: Scope) -> tuple[bool, str | None]:
+def _sets_session_cookie(headers: list[tuple[bytes, bytes]]) -> bool:
+    """응답 헤더에 ``claire_session``을 설정하거나 지우는 ``Set-Cookie``가 이미 있는지."""
+    return any(
+        name.lower() == b"set-cookie"
+        and value.split(b"=", 1)[0].strip() == b"claire_session"
+        for name, value in headers
+    )
+
+
+def read_session_cookie(scope: Scope) -> tuple[bool, str | None]:
     values = _raw_headers(scope, b"cookie")
     if not values:
         return False, None
@@ -684,31 +812,108 @@ def _session_cookie(scope: Scope) -> tuple[bool, str | None]:
     return True, morsel.value if morsel is not None else None
 
 
-async def _validate_session(config: WebRuntimeConfig, token: str) -> str | None:
+@dataclass(frozen=True, slots=True)
+class _Credential:
+    """검증을 통과한 자격증명과 그 계정. 토큰 값은 담지 않는다(설계 §8.3)."""
+
+    scope: str
+    account_id: int
+    instance_role: Literal["admin", "member"]
+    credential_id: str
+    authenticated_at: float | None = None
+
+    def principal(self, channel: Literal["cookie", "bearer", "x-session"]) -> Principal:
+        return Principal(
+            account_id=self.account_id,
+            instance_role=self.instance_role,
+            scope=self.scope,  # type: ignore[arg-type]  # 허용 판정이 scope 값을 거른 뒤에만 쓴다
+            channel=channel,
+            credential_id=self.credential_id,
+            # 사람이 인증한 시각은 브라우저 세션 채널에서만 의미가 있다(§8.5).
+            authenticated_at=(
+                self.authenticated_at if channel in ("cookie", "x-session") else None
+            ),
+        )
+
+
+def _env_token_credential(scope: str) -> _Credential:
+    """환경변수 토큰은 인스턴스 설정이므로 관리자 계정의 것이다(§8.3). DB를 읽지 않는다."""
+    return _Credential(
+        scope=scope,
+        account_id=accounts_store.ADMIN_ACCOUNT_ID,
+        instance_role="admin",
+        credential_id=f"env:{scope}",
+    )
+
+
+def _bind_account(
+    conn: Any,
+    *,
+    scope: str,
+    account_id: int,
+    credential_id: str,
+    authenticated_at: float | None,
+) -> _Credential | None:
+    """자격증명의 계정을 읽는다. 계정이 없거나 자격증명을 받지 않는 상태면 None(없는 자격증명과 같다, §8.2)."""
+    try:
+        account = accounts_store.AccountStore(conn).get(account_id)
+    except accounts_store.AccountNotFound:
+        log.warning("credential %s refers to a missing account", credential_id)
+        return None
+    if account.status not in accounts_store.CREDENTIAL_ACCEPTING_STATUSES:
+        return None
+    return _Credential(
+        scope=scope,
+        account_id=account.id,
+        instance_role=account.role,
+        credential_id=credential_id,
+        authenticated_at=authenticated_at,
+    )
+
+
+async def _validate_session(config: WebRuntimeConfig, token: str) -> _Credential | None:
     if not dbm.plausible_session_token(token):
         return None
 
-    def _validate() -> str | None:
+    def _validate() -> _Credential | None:
         conn = dbm.connect_existing(config.db_file)
         try:
-            return dbm.validate_session_scope(conn, token)
+            binding = accounts_store.validate_session_binding(conn, token)
+            if binding is None:
+                return None
+            return _bind_account(
+                conn,
+                scope=binding.scope,
+                account_id=binding.account_id,
+                credential_id=binding.credential_id,
+                authenticated_at=binding.authenticated_at,
+            )
         finally:
             conn.close()
 
     return await asyncio.to_thread(_validate)
 
 
-async def _validate_oauth_token(config: WebRuntimeConfig, token: str) -> str | None:
+async def _validate_oauth_token(config: WebRuntimeConfig, token: str) -> _Credential | None:
     if not token or len(token) < 20:
         return None
     if not Path(config.db_file).is_file():
         return None
 
-    def _validate() -> str | None:
+    def _validate() -> _Credential | None:
         try:
             conn = dbm.connect_existing(config.db_file)
             try:
-                return dbm.validate_oauth_token(conn, token)
+                binding = accounts_store.validate_oauth_binding(conn, token)
+                if binding is None:
+                    return None
+                return _bind_account(
+                    conn,
+                    scope=binding.scope,
+                    account_id=binding.account_id,
+                    credential_id=binding.credential_id,
+                    authenticated_at=None,
+                )
             finally:
                 conn.close()
         except Exception:
@@ -717,7 +922,7 @@ async def _validate_oauth_token(config: WebRuntimeConfig, token: str) -> str | N
     return await asyncio.to_thread(_validate)
 
 
-async def _validate_api_token(config: WebRuntimeConfig, token: str) -> dict[str, Any] | None:
+async def _validate_api_token(config: WebRuntimeConfig, token: str) -> _Credential | None:
     if not token or len(token) < 16:
         return None
     data_dir = config.data_dir or (Path(config.db_file).parent if config.db_file else None)
@@ -725,10 +930,26 @@ async def _validate_api_token(config: WebRuntimeConfig, token: str) -> dict[str,
         from ..store.token_store import get_token_store
 
         store = get_token_store(data_dir=data_dir)
-        return store.validate_api_token(token)
+        entry = store.validate_api_token(token)
     except Exception:
         return None
+    if entry is None:
+        return None
 
+    def _bind() -> _Credential | None:
+        conn = dbm.connect_existing(config.db_file)
+        try:
+            return _bind_account(
+                conn,
+                scope=str(entry["scope"]),
+                account_id=int(entry["account_id"]),
+                credential_id=f"api:{int(entry['id'])}",
+                authenticated_at=None,
+            )
+        finally:
+            conn.close()
+
+    return await asyncio.to_thread(_bind)
 
 
 async def _bootstrap_session(
@@ -1214,7 +1435,7 @@ class AuthenticationMiddleware:
                 if len(token_values) != 1 or not token_values[0]:
                     if self.config.anonymous_readonly:
                         response = RedirectResponse("/", status_code=302)
-                        _clear_session_cookie(response, self.config)
+                        clear_session_cookie(response, self.config)
                         response.headers["Cache-Control"] = "no-store"
                         response.headers["Referrer-Policy"] = "no-referrer"
                         await _send_response(response, scope, receive, send)
@@ -1231,7 +1452,7 @@ class AuthenticationMiddleware:
                 if exchanged is None:
                     if self.config.anonymous_readonly:
                         response = RedirectResponse("/", status_code=302)
-                        _clear_session_cookie(response, self.config)
+                        clear_session_cookie(response, self.config)
                         response.headers["Cache-Control"] = "no-store"
                         response.headers["Referrer-Policy"] = "no-referrer"
                         await _send_response(response, scope, receive, send)
@@ -1247,7 +1468,7 @@ class AuthenticationMiddleware:
                 if session_scope not in {"owner", "collaborator", "readonly"}:
                     if self.config.anonymous_readonly:
                         response = RedirectResponse("/", status_code=302)
-                        _clear_session_cookie(response, self.config)
+                        clear_session_cookie(response, self.config)
                         response.headers["Cache-Control"] = "no-store"
                         response.headers["Referrer-Policy"] = "no-referrer"
                         await _send_response(response, scope, receive, send)
@@ -1260,7 +1481,7 @@ class AuthenticationMiddleware:
                     )
                     return
                 response = RedirectResponse("/", status_code=302)
-                _set_session_cookie(response, self.config, cookie_token)
+                set_session_cookie(response, self.config, cookie_token)
                 response.headers["Cache-Control"] = "no-store"
                 response.headers["Referrer-Policy"] = "no-referrer"
                 await _send_response(response, scope, receive, send)
@@ -1268,6 +1489,9 @@ class AuthenticationMiddleware:
 
         if rule.access == "public":
             state[_AUTH_SCOPE_KEY] = "public"
+            # 공개 라우트는 자격증명을 검증하지 않는다. 정적 자산마다 DB를 열지 않기 위해서다.
+            # 계정을 알아야 하는 화면(GET /, /setup)은 public이 아닌 규칙으로 둔다.
+            state[PRINCIPAL_STATE_KEY] = ANONYMOUS
             await self.app(scope, receive, send)
             return
 
@@ -1325,7 +1549,7 @@ class AuthenticationMiddleware:
         )
 
         authorization_present, bearer = _parse_bearer(scope)
-        cookie_present, cookie_token = _session_cookie(scope)
+        cookie_present, cookie_token = read_session_cookie(scope)
         x_session_present = bool(x_session_token)
 
         credentials_count = (
@@ -1398,25 +1622,24 @@ class AuthenticationMiddleware:
         )
         auth_scope: AuthScope | None = None
         auth_channel: str | None = None
+        credential: _Credential | None = None
         cookie_invalid_or_expired = False
 
         if bearer is not None:
-            api_tok = await _validate_api_token(self.config, bearer)
-            if api_tok is not None:
-                auth_scope, auth_channel = api_tok["scope"], "bearer"
-            elif self.config.owner_token and _constant_equal(bearer, self.config.owner_token):
-                auth_scope, auth_channel = "owner", "bearer"
-            elif self.config.collaborator_token and _constant_equal(bearer, self.config.collaborator_token):
-                auth_scope, auth_channel = "collaborator", "bearer"
-            elif self.config.readonly_token and _constant_equal(bearer, self.config.readonly_token):
-                auth_scope, auth_channel = "readonly", "bearer"
-            else:
-                oauth_scope = await _validate_oauth_token(self.config, bearer)
-                if oauth_scope is not None:
-                    auth_scope, auth_channel = oauth_scope, "bearer"
-                elif origin_kind != "cross":
-                    auth_scope = await _validate_session(self.config, bearer)
-                    auth_channel = "bearer" if auth_scope is not None else None
+            credential = await _validate_api_token(self.config, bearer)
+            if credential is None:
+                if self.config.owner_token and _constant_equal(bearer, self.config.owner_token):
+                    credential = _env_token_credential("owner")
+                elif self.config.collaborator_token and _constant_equal(bearer, self.config.collaborator_token):
+                    credential = _env_token_credential("collaborator")
+                elif self.config.readonly_token and _constant_equal(bearer, self.config.readonly_token):
+                    credential = _env_token_credential("readonly")
+                else:
+                    credential = await _validate_oauth_token(self.config, bearer)
+                    if credential is None and origin_kind != "cross":
+                        credential = await _validate_session(self.config, bearer)
+            if credential is not None:
+                auth_scope, auth_channel = credential.scope, "bearer"
 
         if origin_kind == "cross" and auth_channel != "bearer":
             if path == "/mcp":
@@ -1439,20 +1662,21 @@ class AuthenticationMiddleware:
         if auth_scope is None and origin_kind != "cross":
             if cookie_present:
                 if cookie_token:
-                    auth_scope = await _validate_session(self.config, cookie_token)
-                    if auth_scope is not None:
-                        auth_channel = "cookie"
+                    credential = await _validate_session(self.config, cookie_token)
+                    if credential is not None:
+                        auth_scope, auth_channel = credential.scope, "cookie"
                     else:
                         cookie_invalid_or_expired = True
                 else:
                     cookie_invalid_or_expired = True
             elif x_session_token:
-                auth_scope = await _validate_session(self.config, x_session_token)
-                auth_channel = "x-session" if auth_scope is not None else None
+                credential = await _validate_session(self.config, x_session_token)
+                if credential is not None:
+                    auth_scope, auth_channel = credential.scope, "x-session"
 
         if (
             auth_channel == "cookie"
-            and method == "POST"
+            and method in _STATE_CHANGING_METHODS
             and origin_kind != "same"
         ):
             if path == "/mcp":
@@ -1525,19 +1749,29 @@ class AuthenticationMiddleware:
                 return
             response = PlainTextResponse("Not Found", status_code=404)
             if cookie_present and cookie_invalid_or_expired:
-                _clear_session_cookie(response, self.config)
+                clear_session_cookie(response, self.config)
             await _send_response(response, scope, receive, send)
             return
 
         state[_AUTH_SCOPE_KEY] = auth_scope
+        if auth_scope == "anonymous":
+            state[PRINCIPAL_STATE_KEY] = ANONYMOUS
+        elif credential is not None and auth_channel in ("cookie", "bearer", "x-session"):
+            state[PRINCIPAL_STATE_KEY] = credential.principal(auth_channel)
+        else:
+            # 허용 판정을 통과했는데 자격증명이 없으면 배선 결함이다(C1).
+            raise RuntimeError("authenticated request without a resolved credential")
         if auth_channel == "cookie" and cookie_token:
             refreshed_cookie = _session_cookie_header(self.config, cookie_token)
 
             async def refresh_cookie_send(message: Message) -> None:
                 if message["type"] == "http.response.start":
                     headers = list(message.get("headers", []))
-                    headers.append((b"set-cookie", refreshed_cookie))
-                    message = {**message, "headers": headers}
+                    # 핸들러가 세션을 바꾸거나 지웠으면(/setup 확정 등) 그 결정이 우선한다.
+                    # 옛 토큰을 덧붙이면 브라우저가 지워진 세션을 갖게 된다.
+                    if not _sets_session_cookie(headers):
+                        headers.append((b"set-cookie", refreshed_cookie))
+                        message = {**message, "headers": headers}
                 await send(message)
 
             await self.app(scope, receive, refresh_cookie_send)
@@ -1549,8 +1783,9 @@ class AuthenticationMiddleware:
             async def clear_cookie_send(message: Message) -> None:
                 if message["type"] == "http.response.start":
                     headers = list(message.get("headers", []))
-                    headers.append((b"set-cookie", cleared_cookie))
-                    message = {**message, "headers": headers}
+                    if not _sets_session_cookie(headers):
+                        headers.append((b"set-cookie", cleared_cookie))
+                        message = {**message, "headers": headers}
                 await send(message)
 
             await self.app(scope, receive, clear_cookie_send)

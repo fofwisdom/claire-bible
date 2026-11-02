@@ -99,6 +99,9 @@ class ThemeInfo:
     presentation_enabled: bool = False
     created_at: float = 0.0
     updated_at: float = 0.0
+    # 소유 계정(§13.1). v15 이전 항목과 기본값은 관리자(1)다. 새로 쓰는 themes.json 항목에는 항상 들어간다.
+    # P1 싱글 모드에서는 관리자(1)다. P3 L3-e에서 명시 인자로 바꾼다.
+    account_id: int = dbm.ADMIN_ACCOUNT_ID
 
     @property
     def knowledge_manager(self) -> str:
@@ -144,7 +147,19 @@ class ThemeInfo:
             ),
             created_at=float(data.get("created_at", 0.0)),
             updated_at=float(data.get("updated_at", 0.0)),
+            # themes.json 항목에 account_id가 없으면 v15 이전의 관리자 테마다(§13.1).
+            account_id=_owner_account_id(data, "themes.json"),
         )
+
+
+def _owner_account_id(data: dict[str, Any], source: str) -> int:
+    """``account_id``가 없는 항목은 v15 이전 관리자 것(1)이다. 값이 NULL·비정수면 추측하지 않고 실패한다(C1)."""
+    if "account_id" not in data:
+        return dbm.ADMIN_ACCOUNT_ID
+    raw = data["account_id"]
+    if isinstance(raw, bool) or not isinstance(raw, int):
+        raise ValueError(f"{source}: theme {data.get('id')!r} has invalid account_id {raw!r}")
+    return raw
 
 
 def _row_to_theme(row: Any, default_db_path: str) -> ThemeInfo:
@@ -169,6 +184,8 @@ def _row_to_theme(row: Any, default_db_path: str) -> ThemeInfo:
         presentation_enabled=bool(d.get("presentation_enabled", 0)),
         created_at=float(d.get("created_at", 0.0)),
         updated_at=float(d.get("updated_at", 0.0)),
+        # 열이 없는 행은 v15 이전 DB(관리자 것)다. v15 DB의 NULL은 이관 결함이므로 거부한다.
+        account_id=_owner_account_id(d, "themes table"),
     )
 
 
@@ -349,8 +366,8 @@ class ThemeManager:
                                 id, seq, label, description, icon, db_path,
                                 is_default, is_public, is_collaborator_accessible,
                                 default_focus, fqdn, ga_measurement_id, sorcerer,
-                                presentation_enabled, created_at, updated_at
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                presentation_enabled, created_at, updated_at, account_id
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                             """,
                             (
                                 t_info.id,
@@ -369,6 +386,7 @@ class ThemeManager:
                                 int(t_info.presentation_enabled),
                                 t_info.created_at,
                                 t_info.updated_at,
+                                t_info.account_id,
                             ),
                         )
                 conn.commit()
@@ -387,8 +405,8 @@ class ThemeManager:
                         id, seq, label, description, icon, db_path,
                         is_default, is_public, is_collaborator_accessible,
                         default_focus, fqdn, ga_measurement_id, sorcerer,
-                        presentation_enabled, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        presentation_enabled, created_at, updated_at, account_id
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         0,
@@ -407,6 +425,7 @@ class ThemeManager:
                         int(t0.presentation_enabled),
                         t0.created_at,
                         t0.updated_at,
+                        t0.account_id,
                     ),
                 )
                 conn.commit()
@@ -449,6 +468,7 @@ class ThemeManager:
             presentation_enabled=bool(getattr(self.settings, "presentation_enabled", False)),
             created_at=now,
             updated_at=now,
+            account_id=dbm.ADMIN_ACCOUNT_ID,
         )
 
     def _init_default_registry(self) -> None:
@@ -629,6 +649,8 @@ class ThemeManager:
             presentation_enabled=bool(presentation_enabled),
             created_at=now,
             updated_at=now,
+            # P1 싱글 모드에서는 관리자(1)다. P3 L3-e에서 명시 인자로 바꾼다.
+            account_id=dbm.ADMIN_ACCOUNT_ID,
         )
 
         conn = dbm.connect(db_file)
@@ -639,8 +661,8 @@ class ThemeManager:
                     id, seq, label, description, icon, db_path,
                     is_default, is_public, is_collaborator_accessible,
                     default_focus, fqdn, ga_measurement_id, sorcerer,
-                    presentation_enabled, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    presentation_enabled, created_at, updated_at, account_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     theme.id,
@@ -659,6 +681,7 @@ class ThemeManager:
                     int(theme.presentation_enabled),
                     theme.created_at,
                     theme.updated_at,
+                    theme.account_id,
                 ),
             )
             conn.commit()

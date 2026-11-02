@@ -24,7 +24,7 @@ exact `CLAIRE_ANONYMOUS_READONLY=1`(기본값)은 canonical same-origin 또는 O
 
 기존 `.env`/`.env.dev`를 재사용하는 설치는 `./cb-manuscript init` 또는 `./cb-manuscript update` 실행 시 레거시 `CLAIRE_PUBLIC_URL`이 존재할 경우 `CLAIRE_FQDN`으로 자동 변환된다. 따라서 `.env`의 `CLAIRE_FQDN`을 도메인 형식으로 직접 설정한 뒤 `./cb-manuscript preflight`를 통과시켜야 한다.
 
-애플리케이션은 `Forwarded`와 `X-Forwarded-*`를 신뢰해 scheme, client IP 또는 Host를 바꾸지 않는다. production의 외부 HTTPS 여부는 상단 보호장치의 TLS 오프로딩과 `CLAIRE_FQDN`을 기준으로 결정하며 백엔드 upstream 연결 자체는 내부 HTTP다. 또한 공인 대역 직접 접근 차단을 위해 `CLAIRE_CLOUDFLARE_IPS_ONLY=1` 옵션을 제공한다(상세 내용은 아래 참조).
+애플리케이션은 `Forwarded`와 `X-Forwarded-*`를 신뢰해 scheme, client IP 또는 Host를 바꾸지 않는다. 예외는 로그인 실패 제한의 클라이언트 IP 하나다(아래 「로그인 실패 제한의 클라이언트 IP」). production의 외부 HTTPS 여부는 상단 보호장치의 TLS 오프로딩과 `CLAIRE_FQDN`을 기준으로 결정하며 백엔드 upstream 연결 자체는 내부 HTTP다. 또한 공인 대역 직접 접근 차단을 위해 `CLAIRE_CLOUDFLARE_IPS_ONLY=1` 옵션을 제공한다(상세 내용은 아래 참조).
 
 ## Development: IPv4 직접 HTTP
 
@@ -288,6 +288,16 @@ Claire Bible은 시스템 소유자(Owner), 협력자(Collaborator), 읽기 전�
   - **사설 대역 예외**: 사설망(10.x, 172.16-31.x, 192.168.x), 로컬 루프백(127.0.0.1, ::1), 도커 브릿지 네트워크 등 비공인 대역 IP는 필터링 대상이 아니므로 정상 통과.
 
 자세한 아키텍처 및 설정 가이드는 [THEME_FQDN_REVERSE_PROXY_DESIGN.md](../design/THEME_FQDN_REVERSE_PROXY_DESIGN.md)를 참고한다.
+
+## 로그인 실패 제한의 클라이언트 IP (`CLAIRE_TRUSTED_PROXIES`)
+
+로그인·재인증·비밀번호 변경의 실패 제한은 `(username, IP)`와 `(IP)`를 키로 쓴다([ACCOUNTS.md](ACCOUNTS.md) §7). reverse proxy 뒤에서는 피어 주소가 모두 proxy 주소라 `(IP)` 키 하나를 모든 사용자가 나눠 쓰게 된다.
+
+- **[코드] 판정**(`src/claire/api/security.py`의 `client_ip`): 바로 앞 피어가 `CLAIRE_TRUSTED_PROXIES`(쉼표 구분 CIDR)에 있을 때만 `X-Forwarded-For`를 오른쪽부터 읽어 신뢰 목록에 없는 첫 주소를 쓴다. 그보다 왼쪽 값은 클라이언트가 넣을 수 있으므로 보지 않는다. `CLAIRE_CLOUDFLARE_IPS_ONLY=1`이면 Cloudflare 대역도 신뢰 목록에 들어간다.
+- **[코드] 피어 주소를 쓰는 경우**: 목록이 비었을 때(기본값), 피어가 목록 밖일 때, `X-Forwarded-For`가 없거나 여러 줄이거나 항목 하나라도 IP 주소가 아닐 때(포트, 빈 항목, `unknown` 등). 헤더를 추측해 고치지 않는다.
+- **[코드]** 잘못된 CIDR(`10.0.0.1/8`처럼 호스트 비트가 켜진 값 포함)이나 빈 항목은 기동 실패다. 단일 주소는 `/32`·`/128`로 쓴다.
+- **[코드]** 접근 로그의 IP 표기, Host·scheme 판정, `CLAIRE_CLOUDFLARE_IPS_ONLY` 필터는 이 값과 관계없이 피어 주소를 쓴다.
+- 위 Nginx 예시는 `X-Forwarded-For`를 비워 보내므로 그대로 두면 피어 주소(proxy)를 쓴다. 실제 클라이언트 IP로 세려면 proxy에서 `proxy_set_header X-Forwarded-For $remote_addr;`(또는 `$proxy_add_x_forwarded_for`)로 바꾸고 proxy의 고정 LAN IP를 `CLAIRE_TRUSTED_PROXIES`에 넣는다. Claire host firewall이 그 proxy만 upstream port에 닿게 해야 한다(위 Production 절).
 
 ## 적용 확인
 
