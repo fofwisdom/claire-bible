@@ -149,7 +149,7 @@
   };
 
   function curTheme() { return THEMES[state.themeId] || THEMES["0"]; }
-  function esc(s) { return String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }
+  function esc(s) { return String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;"); }
   function ticker(msg) {
     const el = document.getElementById("activity-ticker");
     if (el) el.textContent = `${new Date().toLocaleTimeString("ko-KR", { hour12: false })} · ${msg}`;

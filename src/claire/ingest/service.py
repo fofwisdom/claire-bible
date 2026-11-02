@@ -13,7 +13,7 @@ from ..config import Settings
 from ..extract.provider import get_provider
 from ..retrieval.query import SearchMode
 from ..store import db as dbm
-from ..store.theme import get_theme_manager
+from ..store.theme import ThemeNotFound, get_theme_manager
 from ..store.vectors import make_vector_store
 from .pipeline import (
     IngestReport,
@@ -83,6 +83,9 @@ class IngestService:
                 if focus:
                     self.default_focus = focus
                     return focus
+        except ThemeNotFound:
+            # 삭제된 테마에 적재하지 않는다 (테마 0으로 대신하지 않는다)
+            raise
         except Exception:
             pass
         return None
@@ -95,6 +98,9 @@ class IngestService:
             theme = tm.get_theme(self.theme_id)
             if theme and theme.label:
                 return theme.label
+        except ThemeNotFound:
+            # 삭제된 테마를 테마 0의 레이블로 표시하거나 그대로 적재하지 않는다
+            raise
         except Exception:
             pass
         return f"테마 #{self.theme_id}"
@@ -123,6 +129,8 @@ class IngestService:
         """
         if not focus and self.theme_id > 0:
             focus = self.get_effective_default_focus()
+        # 삭제된 테마면 DB를 열기 전에 ThemeNotFound로 멈춘다.
+        tlabel = self.get_theme_label()
         conn = dbm.connect(self.s.db_file)
         dbm.init_db(conn)
         vstore = make_vector_store(conn, self.s.vector_backend, theme_id=self.theme_id)
@@ -132,7 +140,6 @@ class IngestService:
                 and not source.startswith(("onehop", "recover", "replay", "refresh")))
         fmt = format or self.s.render_format
         tid = self.theme_id
-        tlabel = self.get_theme_label()
         try:
             return ingest(
                 payload, conn=conn, provider=self.provider, vstore=vstore,
@@ -498,7 +505,7 @@ class IngestService:
         """대기열의 pending 항목을 처리. 각 결과로 큐 상태 갱신. 결과 리스트 반환."""
         conn = dbm.connect(self.s.db_file)
         dbm.init_db(conn)
-        rows = dbm.pending_refresh(conn, limit=limit)
+        rows = dbm.pending_refresh(conn, limit=limit, theme_id=self.theme_id)
         conn.close()
         out = []
         for idx, row in enumerate(rows, 1):
@@ -509,7 +516,7 @@ class IngestService:
                 conn2 = dbm.connect(self.s.db_file)
                 try:
                     st = res["status"] if res["status"] in ("done", "nochange") else "error"
-                    dbm.update_refresh(conn2, row["id"], status=st, error=res.get("error"))
+                    dbm.update_refresh(conn2, row["id"], status=st, error=res.get("error"), theme_id=self.theme_id)
                 finally:
                     conn2.close()
                 out.append({**res, "queue_id": row["id"]})
@@ -526,13 +533,13 @@ class IngestService:
         try:
             now = time.time()
             default_iv = self.s.watch_interval_days * 86400
-            rows = dbm.watch_due_documents(conn, now, default_interval=default_iv, limit=limit)
+            rows = dbm.watch_due_documents(conn, now, default_interval=default_iv, limit=limit, theme_id=self.theme_id)
             n = 0
             for r in rows:
                 if dbm.enqueue_refresh(conn, document_id=r["id"], payload=r["url"],
-                                       reason="watch"):
+                                       reason="watch", theme_id=self.theme_id):
                     n += 1
-                dbm.mark_document_watched(conn, r["id"], now)
+                dbm.mark_document_watched(conn, r["id"], now, theme_id=self.theme_id)
             return n
         finally:
             conn.close()
@@ -549,13 +556,13 @@ class IngestService:
         dbm.init_db(conn)
         try:
             rows = dbm.thin_documents(
-                conn, max_len=max_len, host=host, include_partial=include_partial)
+                conn, max_len=max_len, host=host, include_partial=include_partial, theme_id=self.theme_id)
             n = 0
             for r in rows:
                 payload = r["url"]
                 if not payload:
                     continue  # url 없는 순수 텍스트는 재fetch 불가 → 스킵
-                dbm.enqueue_refresh(conn, document_id=r["id"], payload=payload, reason=reason)
+                dbm.enqueue_refresh(conn, document_id=r["id"], payload=payload, reason=reason, theme_id=self.theme_id)
                 n += 1
             return n
         finally:
@@ -569,14 +576,14 @@ class IngestService:
         conn = dbm.connect(self.s.db_file)
         dbm.init_db(conn)
         try:
-            ids = dbm.documents_missing_images(conn, limit=limit)
+            ids = dbm.documents_missing_images(conn, limit=limit, theme_id=self.theme_id)
             n = 0
             for did in ids:
-                row = dbm.get_document_row(conn, did)
+                row = dbm.get_document_row(conn, did, theme_id=self.theme_id)
                 if not row or not row["url"]:
                     continue
                 dbm.enqueue_refresh(conn, document_id=did, payload=row["url"],
-                                    reason="image-backfill")
+                                    reason="image-backfill", theme_id=self.theme_id)
                 n += 1
             return n
         finally:
@@ -652,17 +659,17 @@ class IngestService:
         fmt = format or self.s.render_format
         try:
             if tables_only:
-                table_docs = dbm.documents_with_tables(conn, limit=limit, check_detail=True)
+                table_docs = dbm.documents_with_tables(conn, limit=limit, check_detail=True, theme_id=self.theme_id)
                 ids = [d["id"] for d in table_docs]
             elif force:
-                ids = [r["id"] for r in dbm.documents_timeline(conn, limit or 1000000)]
+                ids = [r["id"] for r in dbm.documents_timeline(conn, limit or 1000000, theme_id=self.theme_id)]
                 if limit:
                     ids = ids[:limit]
             else:
-                ids = dbm.documents_needing_detail_format(conn, fmt, limit)
+                ids = dbm.documents_needing_detail_format(conn, fmt, limit, theme_id=self.theme_id)
             out = {"docs": len(ids), "ok": 0, "skipped": 0}
             for idx, did in enumerate(ids, 1):
-                doc = dbm.get_document(conn, did)
+                doc = dbm.get_document(conn, did, theme_id=self.theme_id)
                 if doc is None:
                     out["skipped"] += 1
                     continue
@@ -693,11 +700,11 @@ class IngestService:
         conn = dbm.connect(self.s.db_file)
         dbm.init_db(conn)
         try:
-            rows = dbm.documents_timeline(conn, limit or 1000000)
+            rows = dbm.documents_timeline(conn, limit or 1000000, theme_id=self.theme_id)
             out = {"docs": len(rows), "filled": 0, "already_had": 0}
             for idx, r in enumerate(rows, 1):
                 did = r["id"]
-                doc = dbm.get_document(conn, did)
+                doc = dbm.get_document(conn, did, theme_id=self.theme_id)
                 title = doc.title if doc else ""
                 with _item_context(reporter, on_progress, idx, did, title=title) as step_cb:
                     ext = conn.execute(
@@ -741,7 +748,7 @@ class IngestService:
 
                     # summary 가 없으면 LLM 추출 시도 (임의 조작 텍스트 금지)
                     step_cb("요약 추출 및 보강 중")
-                    summary = dbm.latest_extraction_summary(conn, did)
+                    summary = dbm.latest_extraction_summary(conn, did, theme_id=self.theme_id)
                     if not summary or not summary.strip():
                         if doc and self.provider and getattr(self.provider, "name", "") not in ("fallback", "mock"):
                             try:
@@ -778,6 +785,7 @@ class IngestService:
                             conn, document_id=did, provider=getattr(self.provider, "name", "backfill"),
                             model=getattr(self.provider, "model", "fallback"), prompt_version=PROMPT_VERSION,
                             raw_response=new_raw,
+                            theme_id=self.theme_id,
                         )
                         out["filled"] += 1
             return out
@@ -869,6 +877,7 @@ class IngestService:
                     target=target,
                     token=token,
                     doc_id=doc_id,
+                    theme_id=self.theme_id,
                 )
                 for m in matched:
                     if m["id"] not in target_ids:
@@ -876,7 +885,7 @@ class IngestService:
 
             # 대상이 특정되지 않고 tables, corrupted_summary 이거나 전체 스캔인 경우
             if tables:
-                table_docs = dbm.documents_with_tables(conn, limit=0, check_detail=True)
+                table_docs = dbm.documents_with_tables(conn, limit=0, check_detail=True, theme_id=self.theme_id)
                 for td in table_docs:
                     did = td["id"]
                     if did not in target_ids:
@@ -887,7 +896,7 @@ class IngestService:
                 ).fetchall()
                 for r in rows:
                     did = r["id"]
-                    if did not in target_ids and dbm.latest_extraction_summary(conn, did) is None:
+                    if did not in target_ids and dbm.latest_extraction_summary(conn, did, theme_id=self.theme_id) is None:
                         target_ids.append(did)
             elif corrupted_summary or (not target_ids and not target and not token and not doc_id):
                 rows = conn.execute(
@@ -928,7 +937,7 @@ class IngestService:
 
             job_cm = None
             if force:
-                first_doc = dbm.get_document(conn, target_ids[0]) if target_ids else None
+                first_doc = dbm.get_document(conn, target_ids[0], theme_id=self.theme_id) if target_ids else None
                 first_title = (first_doc.title if first_doc else None) or target or doc_id or "문서 재생성"
                 clean_title = first_title if len(target_ids) <= 1 else f"{first_title} 외 {len(target_ids) - 1}건"
                 primary_doc_id = target_ids[0] if len(target_ids) == 1 else None
@@ -1004,7 +1013,7 @@ class IngestService:
 
                     try:
                         for idx, did in enumerate(target_ids, 1):
-                            doc = dbm.get_document(conn, did)
+                            doc = dbm.get_document(conn, did, theme_id=self.theme_id)
                             if not doc:
                                 continue
 
@@ -1018,9 +1027,9 @@ class IngestService:
                                     raw_summ = _json.loads(ext_row["raw_response"]).get("summary", "")
                                 except Exception:
                                     raw_summ = ""
-                            curr_summary = dbm.latest_extraction_summary(conn, did) or ""
-                            curr_detail = dbm.get_document_detail(conn, did) or ""
-                            curr_fmt = dbm.get_document_detail_format(conn, did) or ""
+                            curr_summary = dbm.latest_extraction_summary(conn, did, theme_id=self.theme_id) or ""
+                            curr_detail = dbm.get_document_detail(conn, did, theme_id=self.theme_id) or ""
+                            curr_fmt = dbm.get_document_detail_format(conn, did, theme_id=self.theme_id) or ""
                             is_corrupted = _is_corrupted_adoc(raw_summ) or _is_corrupted_adoc(curr_summary)
                             is_err = _is_error_page(doc.title, doc.raw_text) or _is_error_page(None, curr_summary)
 
@@ -1109,6 +1118,7 @@ class IngestService:
                                                 source_type=new_doc.source_type,
                                                 partial=new_doc.partial,
                                                 meta=new_doc.meta,
+                                                theme_id=self.theme_id,
                                             )
                                             try:
                                                 save_artifact(self.s.data_dir, did, new_doc.raw_text)
@@ -1196,6 +1206,7 @@ class IngestService:
                                                 model=getattr(self.provider, "model", "fallback"),
                                                 prompt_version=PROMPT_VERSION,
                                                 raw_response=new_raw,
+                                                theme_id=self.theme_id,
                                             )
                                         conn.commit()
 
@@ -1260,14 +1271,14 @@ class IngestService:
         conn = dbm.connect(self.s.db_file)
         dbm.init_db(conn)
         try:
-            ids = dbm.documents_missing_minhash(conn, limit)
+            ids = dbm.documents_missing_minhash(conn, limit, theme_id=self.theme_id)
             out = {"docs": len(ids), "filled": 0}
             for did in ids:
-                doc = dbm.get_document(conn, did)
+                doc = dbm.get_document(conn, did, theme_id=self.theme_id)
                 if doc is None:
                     continue
                 sig = minhash_signature((doc.title or "") + " " + (doc.raw_text or ""))
-                dbm.set_document_minhash(conn, did, _json.dumps(sig) if sig else None)
+                dbm.set_document_minhash(conn, did, _json.dumps(sig) if sig else None, theme_id=self.theme_id)
                 if sig:
                     out["filled"] += 1
             return out
@@ -1356,7 +1367,7 @@ class IngestService:
         conn = dbm.connect(self.s.db_file)
         dbm.init_db(conn)
         try:
-            res = dbm.merge_documents(conn, keeper, losers)
+            res = dbm.merge_documents(conn, keeper, losers, theme_id=self.theme_id)
         finally:
             conn.close()
         from ..store.raw import remove_artifact
@@ -1412,7 +1423,7 @@ class IngestService:
         try:
             for c in scan["clusters"]:
                 rows = {r["id"]: r for r in (
-                    dbm.get_document_row(conn, did) for did in c["ids"]) if r}
+                    dbm.get_document_row(conn, did, theme_id=self.theme_id) for did in c["ids"]) if r}
                 if len(rows) < 2:
                     continue
                 # keeper = 최장 본문, 동률이면 최초 적재(fetched_at 작은 쪽).
@@ -1425,7 +1436,7 @@ class IngestService:
                         "keeper_url": rows[keeper]["canonical_url"],
                         "loser_urls": [rows[d]["canonical_url"] for d in losers]}
                 if apply:
-                    res = dbm.merge_documents(conn, keeper, losers)
+                    res = dbm.merge_documents(conn, keeper, losers, theme_id=self.theme_id)
                     plan["result"] = res
                     from ..store.raw import remove_artifact
 
@@ -1777,6 +1788,7 @@ class IngestServicePool:
             self._services[0] = base_service
 
     def get_service(self, theme_ref: int | str | None = None) -> IngestService:
+        """테마의 적재 서비스. 없는(삭제된) 테마면 ThemeNotFound를 그대로 올린다(캐시된 서비스도 쓰지 않는다)."""
         theme = self.theme_manager.get_theme(theme_ref)
         if theme.id in self._services:
             return self._services[theme.id]

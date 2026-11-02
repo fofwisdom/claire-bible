@@ -4,8 +4,8 @@
  */
 
 function esc(s) {
-  return (s || '').replace(/[&<>"]/g, function(c) {
-    return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] || c);
+  return (s || '').replace(/[&<>"']/g, function(c) {
+    return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] || c);
   });
 }
 

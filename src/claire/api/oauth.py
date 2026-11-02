@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import html as _html
 import json
 import logging
 import secrets
@@ -28,6 +29,27 @@ from ..store import db as dbm
 from .security import WebRuntimeConfig
 
 log = logging.getLogger("claire.api.oauth")
+
+
+def _h(value: Any) -> str:
+    """HTML 텍스트·속성 문맥용 이스케이프 (따옴표 포함)."""
+    return _html.escape("" if value is None else str(value), quote=True)
+
+
+def _js_literal(value: Any) -> str:
+    """인라인 <script> 안에 넣을 JS 문자열 리터럴.
+
+    json.dumps 결과를 그대로 넣으면 `</script>`나 U+2028/U+2029로 탈출할 수 있으므로
+    `< > &`와 줄 구분자를 유니코드 이스케이프로 바꾼다. HTML 이스케이프는 하지 않는다.
+    """
+    encoded = json.dumps("" if value is None else str(value), ensure_ascii=False)
+    return (
+        encoded.replace("<", "\\u003c")
+        .replace(">", "\\u003e")
+        .replace("&", "\\u0026")
+        .replace("\u2028", "\\u2028")
+        .replace("\u2029", "\\u2029")
+    )
 
 
 def _verify_pkce(code_verifier: str, code_challenge: str, method: str = "S256") -> bool:
@@ -143,6 +165,22 @@ def _render_authorize_page(
     error_msg: str | None = None,
 ) -> str:
     """Render a clean, modern HTML authorization page."""
+    # 모든 값은 외부 입력이다(공개 /oauth/register의 client_name, 쿼리·폼의 state 등).
+    # 인라인 스크립트용 리터럴을 먼저 만들고, 그 뒤 같은 이름을 HTML 이스케이프 값으로 바꾼다.
+    js_client_id = _js_literal(client_id)
+    js_redirect_uri = _js_literal(redirect_uri)
+    js_code_challenge = _js_literal(code_challenge)
+    js_code_challenge_method = _js_literal(code_challenge_method)
+    js_scope = _js_literal(scope)
+    js_state = _js_literal(state)
+    client_name = _h(client_name)
+    client_id = _h(client_id)
+    redirect_uri = _h(redirect_uri)
+    state = _h(state)
+    code_challenge = _h(code_challenge)
+    code_challenge_method = _h(code_challenge_method)
+    scope = _h(scope)
+    error_msg = _h(error_msg) if error_msg else None
     error_html = (
         f'<div style="background:#fee2e2;color:#991b1b;padding:12px;border-radius:8px;margin-bottom:16px;font-size:14px;">⚠️ {error_msg}</div>'
         if error_msg
@@ -301,12 +339,12 @@ def _render_authorize_page(
                 method: 'POST',
                 headers: {{ 'Content-Type': 'application/json' }},
                 body: JSON.stringify({{
-                    client_id: {json.dumps(client_id)},
-                    redirect_uri: {json.dumps(redirect_uri)},
-                    code_challenge: {json.dumps(code_challenge)},
-                    code_challenge_method: {json.dumps(code_challenge_method)},
-                    scope: {json.dumps(scope)},
-                    state: {json.dumps(state)}
+                    client_id: {js_client_id},
+                    redirect_uri: {js_redirect_uri},
+                    code_challenge: {js_code_challenge},
+                    code_challenge_method: {js_code_challenge_method},
+                    scope: {js_scope},
+                    state: {js_state}
                 }})
             }});
             const data = await resp.json();
@@ -494,7 +532,7 @@ async def handle_telegram_push(request: Request) -> Response:
         nonce = secrets.token_urlsafe(24)
         msg_text = (
             "🤖 <b>Claire MCP 연결 승인 요청</b>\n\n"
-            f"• 클라이언트: <b>{client_name}</b>\n"
+            f"• 클라이언트: <b>{_html.escape(str(client_name), quote=False)}</b>\n"
             "• 권한: <b>readonly</b> (지식 검색 및 조회)\n\n"
             "외부 에이전트의 연결을 승인하시겠습니까?"
         )

@@ -25,6 +25,8 @@ OWNER_TOKEN = "owner-" + ("o" * 32)
 READONLY_TOKEN = "readonly-" + ("r" * 32)
 OWNER_HEADERS = {"Authorization": f"Bearer {OWNER_TOKEN}"}
 READONLY_HEADERS = {"Authorization": f"Bearer {READONLY_TOKEN}"}
+# 단일 테마 모드에서 요청이 쓰는 테마 (server._get_theme_ctx 의 기본 테마)
+REQUEST_THEME_ID = 0
 
 
 @dataclass
@@ -74,6 +76,7 @@ class StubService:
         limit: int,
         summarize: bool,
         mode: str,
+        include_hidden: bool,
     ) -> SimpleNamespace:
         self.search_calls.append(
             {
@@ -81,6 +84,7 @@ class StubService:
                 "limit": limit,
                 "summarize": summarize,
                 "mode": mode,
+                "include_hidden": include_hidden,
             }
         )
         return SimpleNamespace(query=query, answer=None, hits=[])
@@ -102,6 +106,7 @@ class BlockingSearchService(StubService):
         limit: int,
         summarize: bool,
         mode: str,
+        include_hidden: bool,
     ) -> SimpleNamespace:
         if mode == self.blocked_mode:
             with self._lock:
@@ -117,6 +122,7 @@ class BlockingSearchService(StubService):
             limit=limit,
             summarize=summarize,
             mode=mode,
+            include_hidden=include_hidden,
         )
 
 
@@ -174,11 +180,15 @@ def test_readonly_document_get_does_not_mark_document_seen(
 ) -> None:
     from claire import graphview
 
-    monkeypatch.setattr(
-        graphview,
-        "document_detail",
-        lambda _conn, document_id: {"id": document_id, "title": "stub"},
-    )
+    detail_calls: list[tuple[str, bool, int | None]] = []
+
+    def fake_document_detail(
+        _conn: Any, document_id: str, include_hidden: bool = True, theme_id: int | None = None
+    ) -> dict[str, Any]:
+        detail_calls.append((document_id, include_hidden, theme_id))
+        return {"id": document_id, "title": "stub"}
+
+    monkeypatch.setattr(graphview, "document_detail", fake_document_detail)
 
     def unexpected_seen_mutation(*_args: Any, **_kwargs: Any) -> None:
         raise AssertionError("GET /document must not mutate seen state")
@@ -193,21 +203,24 @@ def test_readonly_document_get_does_not_mark_document_seen(
 
     assert response.status_code == 200
     assert response.json()["id"] == "doc-1"
+    assert detail_calls == [("doc-1", True, REQUEST_THEME_ID)]
 
 
 def test_owner_document_seen_post_marks_document_seen(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    calls: list[tuple[str, bool]] = []
-    monkeypatch.setattr(
-        dbm,
-        "get_document_row",
-        lambda _conn, document_id: {"id": document_id},
-    )
+    calls: list[tuple[str, bool, int | None]] = []
+    row_calls: list[tuple[str, int | None]] = []
 
-    def record_seen(_conn: Any, document_id: str, *, seen: bool) -> bool:
-        calls.append((document_id, seen))
+    def fake_get_document_row(_conn: Any, document_id: str, theme_id: int | None = None) -> dict[str, Any]:
+        row_calls.append((document_id, theme_id))
+        return {"id": document_id}
+
+    monkeypatch.setattr(dbm, "get_document_row", fake_get_document_row)
+
+    def record_seen(_conn: Any, document_id: str, *, seen: bool, theme_id: int | None = None) -> bool:
+        calls.append((document_id, seen, theme_id))
         return True
 
     monkeypatch.setattr(dbm, "set_document_seen", record_seen)
@@ -220,17 +233,18 @@ def test_owner_document_seen_post_marks_document_seen(
 
     assert response.status_code == 200
     assert response.json() == {"id": "doc-1", "seen": True}
-    assert calls == [("doc-1", True)]
+    assert row_calls == [("doc-1", REQUEST_THEME_ID)]
+    assert calls == [("doc-1", True, REQUEST_THEME_ID)]
 
 
 def test_owner_document_title_updates_title(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    calls: list[tuple[str, str | None]] = []
+    calls: list[tuple[str, str | None, int | None]] = []
 
-    def record_title(_conn: Any, document_id: str, title: str | None) -> bool:
-        calls.append((document_id, title))
+    def record_title(_conn: Any, document_id: str, title: str | None, theme_id: int | None = None) -> bool:
+        calls.append((document_id, title, theme_id))
         return True
 
     monkeypatch.setattr(dbm, "set_document_title", record_title)
@@ -243,7 +257,7 @@ def test_owner_document_title_updates_title(
 
     assert response.status_code == 200
     assert response.json() == {"id": "doc-1", "title": "New Title"}
-    assert calls == [("doc-1", "New Title")]
+    assert calls == [("doc-1", "New Title", REQUEST_THEME_ID)]
 
 
 def test_owner_document_title_rejects_missing_id(client: TestClient) -> None:
@@ -260,7 +274,13 @@ def test_owner_document_title_returns_404_when_document_missing(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(dbm, "set_document_title", lambda _conn, _id, _t: False)
+    calls: list[int | None] = []
+
+    def missing_title(_conn: Any, _id: str, _t: str | None, theme_id: int | None = None) -> bool:
+        calls.append(theme_id)
+        return False
+
+    monkeypatch.setattr(dbm, "set_document_title", missing_title)
 
     response = client.post(
         "/document/title",
@@ -269,6 +289,7 @@ def test_owner_document_title_returns_404_when_document_missing(
     )
 
     assert response.status_code == 404
+    assert calls == [REQUEST_THEME_ID]
 
 
 def test_legacy_dedup_route_is_absent(client: TestClient) -> None:
@@ -284,11 +305,13 @@ def test_owner_dedup_scan_post_reaches_service(
 ) -> None:
     from claire import graphview
 
-    monkeypatch.setattr(
-        graphview,
-        "dedup_clusters",
-        lambda _conn, scan: {"clusters": [], "scan": scan},
-    )
+    theme_ids: list[int | None] = []
+
+    def fake_dedup_clusters(_conn: Any, scan: dict[str, Any], theme_id: int | None = None) -> dict[str, Any]:
+        theme_ids.append(theme_id)
+        return {"clusters": [], "scan": scan}
+
+    monkeypatch.setattr(graphview, "dedup_clusters", fake_dedup_clusters)
 
     response = client.post("/dedup/scan", headers=OWNER_HEADERS)
 
@@ -298,6 +321,7 @@ def test_owner_dedup_scan_post_reaches_service(
         "scan": {"scan": "stub"},
     }
     assert service.dedup_scan_calls == 1
+    assert theme_ids == [REQUEST_THEME_ID]
 
 
 @pytest.mark.parametrize(
@@ -371,6 +395,7 @@ def test_readonly_search_never_runs_summary_and_limits_result_count(
         "limit": 50,
         "summarize": False,
         "mode": "hybrid",
+        "include_hidden": True,
     }
     assert response.json()["mode"] == "hybrid"
 
@@ -391,6 +416,7 @@ def test_owner_search_can_run_summary_and_clamps_low_limit(
         "limit": 1,
         "summarize": True,
         "mode": "hybrid",
+        "include_hidden": True,
     }
     assert response.json()["mode"] == "hybrid"
 
@@ -412,6 +438,7 @@ def test_search_explicit_fts_mode_for_authenticated_scopes(
         "limit": 8,
         "summarize": False,
         "mode": "fts",
+        "include_hidden": True,
     }
 
     # readonly requesting fts mode
@@ -427,6 +454,7 @@ def test_search_explicit_fts_mode_for_authenticated_scopes(
         "limit": 12,
         "summarize": False,
         "mode": "fts",
+        "include_hidden": True,
     }
 
 
@@ -470,6 +498,7 @@ def test_anonymous_search_forces_fts_without_summary_and_clamps_limit(
         "limit": 20,
         "summarize": False,
         "mode": "fts",
+        "include_hidden": False,
     }
 
 
@@ -760,6 +789,25 @@ def test_docs_static_asset_accessible(client: TestClient) -> None:
     assert len(response.content) > 1_000_000
 
 
+def _patch_share_store(
+    monkeypatch: pytest.MonkeyPatch, *, hidden: int, token_prefix: str
+) -> list[tuple[str, str, int | None]]:
+    """/share 가 부르는 store 함수를 가짜로 바꾸고, 받은 (함수, 문서, theme_id) 호출 기록을 돌려준다."""
+    calls: list[tuple[str, str, int | None]] = []
+
+    def fake_get_document_row(_conn: Any, doc_id: str, theme_id: int | None = None) -> dict[str, Any]:
+        calls.append(("get_document_row", doc_id, theme_id))
+        return {"id": doc_id, "hidden": hidden}
+
+    def fake_create_doc_share(_conn: Any, doc_id: str, *, theme_id: int = 0) -> str:
+        calls.append(("create_doc_share", doc_id, theme_id))
+        return f"{token_prefix}{doc_id}"
+
+    monkeypatch.setattr(dbm, "get_document_row", fake_get_document_row)
+    monkeypatch.setattr(dbm, "create_doc_share", fake_create_doc_share)
+    return calls
+
+
 def test_anonymous_can_create_share_link_in_public_mode(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -773,16 +821,7 @@ def test_anonymous_can_create_share_link_in_public_mode(
     service = StubService()
     app = server.create_app(settings, service)
 
-    monkeypatch.setattr(
-        dbm,
-        "get_document_row",
-        lambda _conn, doc_id: {"id": doc_id, "hidden": 0},
-    )
-    monkeypatch.setattr(
-        dbm,
-        "create_doc_share",
-        lambda _conn, doc_id: f"tok-{doc_id}",
-    )
+    calls = _patch_share_store(monkeypatch, hidden=0, token_prefix="tok-")
 
     with TestClient(app, base_url=settings.public_url) as client:
         response = client.post("/share", json={"doc_id": "doc-public"})
@@ -790,6 +829,10 @@ def test_anonymous_can_create_share_link_in_public_mode(
         data = response.json()
         assert data["token"] == "tok-doc-public"
         assert data["path"] == "/p?s=tok-doc-public"
+    assert calls == [
+        ("get_document_row", "doc-public", REQUEST_THEME_ID),
+        ("create_doc_share", "doc-public", REQUEST_THEME_ID),
+    ]
 
 
 def test_anonymous_cannot_share_hidden_document(
@@ -805,15 +848,13 @@ def test_anonymous_cannot_share_hidden_document(
     service = StubService()
     app = server.create_app(settings, service)
 
-    monkeypatch.setattr(
-        dbm,
-        "get_document_row",
-        lambda _conn, doc_id: {"id": doc_id, "hidden": 1},
-    )
+    calls = _patch_share_store(monkeypatch, hidden=1, token_prefix="tok-")
 
     with TestClient(app, base_url=settings.public_url) as client:
         response = client.post("/share", json={"doc_id": "doc-hidden"})
         assert response.status_code == 404
+    # 숨김 문서는 토큰을 만들지 않는다
+    assert calls == [("get_document_row", "doc-hidden", REQUEST_THEME_ID)]
 
 
 def test_readonly_can_create_share_link(
@@ -821,16 +862,7 @@ def test_readonly_can_create_share_link(
     client: TestClient,
 ) -> None:
     """읽기전용(readonly) 권한으로도 공유 링크 생성이 가능하다."""
-    monkeypatch.setattr(
-        dbm,
-        "get_document_row",
-        lambda _conn, doc_id: {"id": doc_id, "hidden": 0},
-    )
-    monkeypatch.setattr(
-        dbm,
-        "create_doc_share",
-        lambda _conn, doc_id: f"tok-ro-{doc_id}",
-    )
+    calls = _patch_share_store(monkeypatch, hidden=0, token_prefix="tok-ro-")
 
     response = client.post(
         "/share",
@@ -841,6 +873,10 @@ def test_readonly_can_create_share_link(
     data = response.json()
     assert data["token"] == "tok-ro-doc-ro"
     assert data["path"] == "/p?s=tok-ro-doc-ro"
+    assert calls == [
+        ("get_document_row", "doc-ro", REQUEST_THEME_ID),
+        ("create_doc_share", "doc-ro", REQUEST_THEME_ID),
+    ]
 
 
 def test_stealth_mode_rejects_unauthenticated_share(

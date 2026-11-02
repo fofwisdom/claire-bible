@@ -32,8 +32,11 @@ class PresentationService:
         self,
         data_dir: Path | str | None = None,
         settings: Any = None,
+        theme_id: int | None = None,
     ) -> None:
         self.settings = settings
+        # 테마별 Settings 사본은 theme_id를 가진다(ThemeManager._settings_for_theme_info). 요청 경로는 명시해서 넘긴다.
+        self.theme_id = theme_id if theme_id is not None else getattr(settings, "theme_id", 0)
         if data_dir is None:
             self.data_dir = Path(settings.data_dir if settings else "data")
         else:
@@ -63,7 +66,7 @@ class PresentationService:
         self, conn: sqlite3.Connection, doc_id: str
     ) -> dict | None:
         """Get presentation record from database if exists."""
-        meta = dbm.get_document_presentation(conn, doc_id)
+        meta = dbm.get_document_presentation(conn, doc_id, theme_id=self.theme_id)
         if meta:
             has_valid_authoring = bool(
                 meta.get("authoring_provider")
@@ -104,7 +107,7 @@ class PresentationService:
         if not detail:
             raise ValueError(f"Document {doc_id} has no detail or raw content to present")
 
-        summary = dbm.latest_extraction_summary(conn, doc_id)
+        summary = dbm.latest_extraction_summary(conn, doc_id, theme_id=self.theme_id)
 
         # Provider resolving
         if provider is None:
@@ -140,6 +143,7 @@ class PresentationService:
         dbm.save_document_presentation(
             conn,
             document_id=doc_id,
+            theme_id=self.theme_id,
             content_hash=content_hash,
             adoc_hash="",
             cache_key="",
@@ -171,6 +175,7 @@ class PresentationService:
             dbm.update_document_presentation_status(
                 conn,
                 document_id=doc_id,
+                theme_id=self.theme_id,
                 status="failed",
                 error_message=str(exc),
             )
@@ -196,6 +201,7 @@ class PresentationService:
         dbm.save_presentation_adoc(
             conn,
             document_id=doc_id,
+            theme_id=self.theme_id,
             presentation_adoc=deck_adoc,
             content_hash=content_hash,
             adoc_hash=adoc_hash,
@@ -211,7 +217,7 @@ class PresentationService:
             status="authored",
         )
 
-        record = dbm.get_document_presentation(conn, doc_id)
+        record = dbm.get_document_presentation(conn, doc_id, theme_id=self.theme_id)
         return record or {}
 
     async def compile_presentation(
@@ -226,12 +232,12 @@ class PresentationService:
     ) -> dict:
         """저작된 AsciiDoc 프레젠테이션 덱을 asciidoctor-revealjs로 즉시 컴파일한다."""
         target_file = self.get_presentation_file_path(doc_id)
-        existing = dbm.get_document_presentation(conn, doc_id)
+        existing = dbm.get_document_presentation(conn, doc_id, theme_id=self.theme_id)
 
         # 1. Resolve presentation AsciiDoc source
         adoc_content = presentation_adoc
         if not adoc_content:
-            adoc_content = dbm.get_presentation_adoc(conn, doc_id)
+            adoc_content = dbm.get_presentation_adoc(conn, doc_id, theme_id=self.theme_id)
         if not adoc_content:
             adoc_path = self.get_presentation_adoc_path(doc_id)
             if adoc_path.exists():
@@ -247,6 +253,7 @@ class PresentationService:
                 dbm.update_document_presentation_status(
                     conn,
                     document_id=doc_id,
+                    theme_id=self.theme_id,
                     status="failed",
                     error_message="저작된 프레젠테이션 소스가 없습니다. LLM 생성을 먼저 실행해야 합니다.",
                 )
@@ -254,6 +261,7 @@ class PresentationService:
                 dbm.save_document_presentation(
                     conn,
                     document_id=doc_id,
+                    theme_id=self.theme_id,
                     content_hash="",
                     cache_key="",
                     file_path=str(target_file),
@@ -304,6 +312,7 @@ class PresentationService:
         dbm.save_document_presentation(
             conn,
             document_id=doc_id,
+            theme_id=self.theme_id,
             content_hash=content_hash,
             adoc_hash=adoc_hash,
             cache_key=cache_key,
@@ -332,6 +341,7 @@ class PresentationService:
             dbm.save_document_presentation(
                 conn,
                 document_id=doc_id,
+                theme_id=self.theme_id,
                 content_hash=content_hash,
                 adoc_hash=adoc_hash,
                 cache_key=cache_key,
@@ -353,12 +363,13 @@ class PresentationService:
             dbm.update_document_presentation_status(
                 conn,
                 document_id=doc_id,
+                theme_id=self.theme_id,
                 status="failed",
                 error_message=str(exc),
             )
             raise
 
-        record = dbm.get_document_presentation(conn, doc_id) or {}
+        record = dbm.get_document_presentation(conn, doc_id, theme_id=self.theme_id) or {}
         if record.get("status") == "ready":
             record["is_ready"] = True
         return record
@@ -380,7 +391,7 @@ class PresentationService:
     ) -> dict:
         """저작 및 컴파일을 오케스트레이션하여 유효한 프레젠테이션을 보장한다."""
         target_file = self.get_presentation_file_path(doc_id)
-        existing = dbm.get_document_presentation(conn, doc_id)
+        existing = dbm.get_document_presentation(conn, doc_id, theme_id=self.theme_id)
 
         # Check document detail or raw_text
         row = conn.execute("SELECT detail, raw_text FROM documents WHERE id = ?", (doc_id,)).fetchone()
@@ -448,7 +459,7 @@ class PresentationService:
 
         try:
             async with _PRES_SEMAPHORE:
-                existing = dbm.get_document_presentation(conn, doc_id)
+                existing = dbm.get_document_presentation(conn, doc_id, theme_id=self.theme_id)
                 has_valid_authoring = bool(
                     existing
                     and existing.get("authoring_provider")

@@ -28,6 +28,7 @@ from ..store.queries import (
     synthesis_context,
 )
 from ..store.telemetry import record_mcp_telemetry
+from ..store.theme import ThemeNotFound
 
 MAX_CONTEXT_ENTITIES = 10
 MAX_PATH_HOPS = 6
@@ -61,12 +62,12 @@ def _parse_since(s: str | None) -> float | None:
     return dt.timestamp()
 
 
-def resolve_entity_impl(conn: sqlite3.Connection, name: str) -> dict:
+def resolve_entity_impl(conn: sqlite3.Connection, name: str, theme_id: int | None = None) -> dict:
     norm = normalize_name(name)
-    ents = dbm.find_entities_by_name_or_alias(conn, norm)
+    ents = dbm.find_entities_by_name_or_alias(conn, norm, theme_id=theme_id)
     if not ents:
-        ids = dbm.fts_search(conn, name, limit=5)
-        ents = [e for e in (dbm.get_entity(conn, i) for i in ids) if e]
+        ids = dbm.fts_search(conn, name, limit=5, theme_id=theme_id)
+        ents = [e for e in (dbm.get_entity(conn, i, theme_id=theme_id) for i in ids) if e]
     return {"matches": [{**_entity_brief(e), "aliases": e.aliases} for e in ents]}
 
 
@@ -76,6 +77,7 @@ def search_impl(
     entity_type: str | None = None,
     near_ids: list[str] | None = None,
     limit: int = 8,
+    theme_id: int | None = None,
 ) -> dict:
     # entity_type/near_ids 필터는 FTS 랭킹 뒤에 파이썬에서 거른다 — 후보 풀이
     # 너무 좁으면(headroom) "필터 통과작이 상위 후보에 없어서" 실제로는 있는
@@ -84,14 +86,14 @@ def search_impl(
     headroom = max(limit * 4, 20)
     if entity_type or near_ids:
         headroom = max(headroom, 200)
-    ids = dbm.fts_search(conn, query, limit=headroom)
-    ents = [e for e in (dbm.get_entity(conn, i) for i in ids) if e]
+    ids = dbm.fts_search(conn, query, limit=headroom, theme_id=theme_id)
+    ents = [e for e in (dbm.get_entity(conn, i, theme_id=theme_id) for i in ids) if e]
     if entity_type:
         ents = [e for e in ents if e.type == entity_type]
     if near_ids:
         allowed: set[str] = set(near_ids)
         for seed in near_ids:
-            for r in dbm.neighbors(conn, seed):
+            for r in dbm.neighbors(conn, seed, theme_id=theme_id):
                 allowed.add(r.target_id)
                 allowed.add(r.source_id)
         ents = [e for e in ents if e.id in allowed]
@@ -109,12 +111,13 @@ def neighbors_impl(
     entity_ids: str | list[str],
     exclude_ids: list[str] | None = None,
     limit: int = 50,
+    theme_id: int | None = None,
 ) -> dict:
     seeds = [entity_ids] if isinstance(entity_ids, str) else list(entity_ids)
     seen_ids = set(seeds) | set(exclude_ids or [])
     found: dict[str, dict] = {}
     for seed in seeds:
-        for r in dbm.neighbors(conn, seed):
+        for r in dbm.neighbors(conn, seed, theme_id=theme_id):
             out = r.source_id == seed
             other_id = r.target_id if out else r.source_id
             if other_id in seen_ids:
@@ -131,12 +134,12 @@ def neighbors_impl(
             entry["via"].append({"from": seed, "rel": r.type, "dir": "out" if out else "in"})
     out_list = []
     for oid, entry in found.items():
-        other = dbm.get_entity(conn, oid)
+        other = dbm.get_entity(conn, oid, theme_id=theme_id)
         if other is None:
             continue
         entry["name"] = other.name
         entry["type"] = other.type
-        entry["degree"] = len(dbm.neighbors(conn, oid))
+        entry["degree"] = len(dbm.neighbors(conn, oid, theme_id=theme_id))
         out_list.append(entry)
     out_list.sort(key=lambda x: x["degree"], reverse=True)
     total = len(out_list)
@@ -153,10 +156,11 @@ def path_impl(
     from_id: str,
     to_id: str,
     max_hops: int = 4,
+    theme_id: int | None = None,
 ) -> dict:
     max_hops = max(1, min(max_hops, MAX_PATH_HOPS))
     if from_id == to_id:
-        ent = dbm.get_entity(conn, from_id)
+        ent = dbm.get_entity(conn, from_id, theme_id=theme_id)
         if ent is None:
             return {"found": False, "reason": "from_id not found"}
         return {"found": True, "path": [_entity_brief(ent)], "relations": []}
@@ -171,7 +175,7 @@ def path_impl(
         cur = q.popleft()
         if depth[cur] >= max_hops:
             continue
-        for r in dbm.neighbors(conn, cur):
+        for r in dbm.neighbors(conn, cur, theme_id=theme_id):
             out = r.source_id == cur
             other_id = r.target_id if out else r.source_id
             if other_id in visited:
@@ -202,7 +206,7 @@ def path_impl(
     rels.reverse()
     nodes = []
     for nid in chain:
-        ent = dbm.get_entity(conn, nid)
+        ent = dbm.get_entity(conn, nid, theme_id=theme_id)
         if ent is None:
             return {"found": False, "reason": "path node vanished"}
         nodes.append(_entity_brief(ent))
@@ -213,10 +217,11 @@ def context_impl(
     conn: sqlite3.Connection,
     entity_ids: list[str],
     compact: bool = True,
+    theme_id: int | None = None,
 ) -> dict:
     truncated = len(entity_ids) > MAX_CONTEXT_ENTITIES
     capped = entity_ids[:MAX_CONTEXT_ENTITIES]
-    text, names = synthesis_context(conn, capped, compact=compact)
+    text, names = synthesis_context(conn, capped, compact=compact, theme_id=theme_id)
     return {
         "context": text,
         "entities": names,
@@ -225,21 +230,21 @@ def context_impl(
     }
 
 
-def overview_impl(conn: sqlite3.Connection) -> dict:
+def overview_impl(conn: sqlite3.Connection, theme_id: int | None = None) -> dict:
     return {
         "entity_types": [
-            {"type": t, "count": n} for t, n in dbm.entity_type_counts(conn)
+            {"type": t, "count": n} for t, n in dbm.entity_type_counts(conn, theme_id=theme_id)
         ],
         "source_types": [
-            {"source_type": t, "count": n} for t, n in dbm.source_type_counts(conn)
+            {"source_type": t, "count": n} for t, n in dbm.source_type_counts(conn, theme_id=theme_id)
         ],
         "hubs": [
             {"name": n, "type": t, "degree": d}
-            for n, t, d in dbm.top_connected_entities(conn, limit=10)
+            for n, t, d in dbm.top_connected_entities(conn, limit=10, theme_id=theme_id)
         ],
         "most_corroborated": [
             {"name": n, "type": t, "source_count": c}
-            for n, t, c in dbm.most_merged_entities(conn, limit=10)
+            for n, t, c in dbm.most_merged_entities(conn, limit=10, theme_id=theme_id)
         ],
     }
 
@@ -254,8 +259,8 @@ def document_impl(conn: sqlite3.Connection, document_id: str, theme_id: int | No
     return rep
 
 
-def node_impl(conn: sqlite3.Connection, entity_id: str, full: bool = False) -> dict:
-    rep = node_detail(conn, entity_id)
+def node_impl(conn: sqlite3.Connection, entity_id: str, full: bool = False, theme_id: int | None = None) -> dict:
+    rep = node_detail(conn, entity_id, theme_id=theme_id)
     if rep is None:
         return {"error": "not found"}
     rep = dict(rep)
@@ -376,13 +381,22 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None):
             tm = None
     theme_mgr = tm
 
-    def _conn(theme: str | int | None = None) -> sqlite3.Connection:
-        if theme is not None and theme_mgr is not None:
-            try:
-                themed_settings = theme_mgr.get_settings_for_theme(theme, s)
-                db_file = themed_settings.db_file
-            except Exception:
-                db_file = getattr(s, "db_file", getattr(s, "db_path", "data/claire.db"))
+    def _theme_id(theme: str | int | None) -> int | None:
+        """theme 인자를 테마 ID로 엄격 해석한다. 생략하면 테마 0, 없는 테마면 None (테마 0으로 대신하지 않는다)."""
+        if theme is None or str(theme).strip() == "":
+            return 0
+        if theme_mgr is None:
+            # 테마 매니저가 없으면(싱글 테마) 테마 0만 있다.
+            return 0 if str(theme).strip() == "0" else None
+        try:
+            return theme_mgr.get_theme(theme).id
+        except ThemeNotFound:
+            return None
+
+    def _conn(theme_id: int = 0) -> sqlite3.Connection:
+        """_theme_id로 확인한 테마의 DB를 연다. 테마 0은 기본 DB다. 없는 테마는 기본 DB로 대신하지 않고 ThemeNotFound를 올린다."""
+        if theme_mgr is not None and theme_id != 0:
+            db_file = theme_mgr.get_settings_for_theme(theme_id, s).db_file
         else:
             db_file = getattr(s, "db_file", getattr(s, "db_path", "data/claire.db"))
         conn = dbm.connect(db_file)
@@ -420,9 +434,12 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None):
     @mcp.tool()
     async def resolve_entity(name: str, theme: str | int | None = None) -> dict:
         """이름(또는 별칭) 문자열로 엔티티를 찾는다 — 탐색 루프의 진입점. ID를 이미 알고 있다면 이 툴 대신 node/neighbors를 바로 쓸 것."""
-        conn = _conn(theme)
+        tid = _theme_id(theme)
+        if tid is None:
+            return {"error": "theme not found"}
+        conn = _conn(tid)
         try:
-            return _timed_call("resolve_entity", resolve_entity_impl, conn, name)
+            return _timed_call("resolve_entity", resolve_entity_impl, conn, name, theme_id=tid)
         finally:
             conn.close()
 
@@ -435,9 +452,12 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None):
         theme: str | int | None = None,
     ) -> dict:
         """전문(FTS) 검색. LLM 호출 없음(raw hits만, 요약은 호출한 에이전트가 직접 함). entity_type으로 타입 필터, near_ids를 주면 그 노드들의 1홉 이웃 범위 안에서만 찾는다(지금 탐색 중인 프론티어를 좁혀 검색할 때 사용 — resolve_entity/neighbors로 얻은 id를 그대로 넘기면 됨). 결과가 limit을 넘으면 truncated=true(0건이라고 '매치 없음'으로 오인하지 말 것 — omitted 확인)."""
-        conn = _conn(theme)
+        tid = _theme_id(theme)
+        if tid is None:
+            return {"error": "theme not found"}
+        conn = _conn(tid)
         try:
-            return _timed_call("search", search_impl, conn, query, entity_type, near_ids, limit)
+            return _timed_call("search", search_impl, conn, query, entity_type, near_ids, limit, theme_id=tid)
         finally:
             conn.close()
 
@@ -449,9 +469,12 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None):
         theme: str | int | None = None,
     ) -> dict:
         """주어진 엔티티(들)의 1홉 이웃을 합집합으로 반환 — 탐색 루프의 핵심 단계. 여러 id를 한 번에 넘기면 그 전체 프론티어를 한 번에 넓힌다. exclude_ids에 지금까지 방문한 id를 넣어 순환을 피할 것(안 넣으면 이미 본 노드가 계속 돌아올 수 있음). 결과는 degree(전역 연결 수) 내림차순 — 상위일수록 더 파볼 가치가 있는 허브. limit을 넘으면 truncated=true, omitted에 잘린 개수가 실림(0으로 오인하지 말 것)."""
-        conn = _conn(theme)
+        tid = _theme_id(theme)
+        if tid is None:
+            return {"error": "theme not found"}
+        conn = _conn(tid)
         try:
-            return _timed_call("neighbors", neighbors_impl, conn, entity_ids, exclude_ids, limit)
+            return _timed_call("neighbors", neighbors_impl, conn, entity_ids, exclude_ids, limit, theme_id=tid)
         finally:
             conn.close()
 
@@ -463,9 +486,12 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None):
         theme: str | int | None = None,
     ) -> dict:
         """두 엔티티 사이의 최단 경로(무방향 BFS). 'A와 B가 왜 연결돼있나'에 직접 답한다 — neighbors를 반복 호출해 스스로 경로를 찾을 필요 없음."""
-        conn = _conn(theme)
+        tid = _theme_id(theme)
+        if tid is None:
+            return {"error": "theme not found"}
+        conn = _conn(tid)
         try:
-            return _timed_call("path", path_impl, conn, from_id, to_id, max_hops)
+            return _timed_call("path", path_impl, conn, from_id, to_id, max_hops, theme_id=tid)
         finally:
             conn.close()
 
@@ -476,18 +502,24 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None):
         theme: str | int | None = None,
     ) -> dict:
         """선택한 엔티티(들)에 대해 알려진 것 전부(관찰+연결+출처요약)를 결정론적으로(LLM 미사용) 조립해 반환 — 탐색 루프의 마지막 단계에서만 부를 것(먼저 resolve_entity/neighbors/search로 관심 노드를 충분히 좁힌 다음). 최대 10개까지만 처리하며 넘으면 잘라내고 truncated=true. compact=True(기본)면 관찰을 앞 3개로 줄이고 출처요약을 생략해 가볍게, 정말 전체가 필요하면 compact=False."""
-        conn = _conn(theme)
+        tid = _theme_id(theme)
+        if tid is None:
+            return {"error": "theme not found"}
+        conn = _conn(tid)
         try:
-            return _timed_call("context", context_impl, conn, entity_ids, compact)
+            return _timed_call("context", context_impl, conn, entity_ids, compact, theme_id=tid)
         finally:
             conn.close()
 
     @mcp.tool()
     async def overview(theme: str | int | None = None) -> dict:
         """지식베이스 전체의 자기서술적 요약 — 엔티티 타입 분포, 핵심 허브 (연결 많은 순), 여러 출처에서 수렴된(신뢰도 높은) 엔티티, 문서 소스타입 분포. 검색어를 뭘로 시작할지 모를 때 이 툴을 가장 먼저 부를 것."""
-        conn = _conn(theme)
+        tid = _theme_id(theme)
+        if tid is None:
+            return {"error": "theme not found"}
+        conn = _conn(tid)
         try:
-            return _timed_call("overview", overview_impl, conn)
+            return _timed_call("overview", overview_impl, conn, theme_id=tid)
         finally:
             conn.close()
 
@@ -499,9 +531,12 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None):
     ) -> dict:
         """엔티티 하나의 상세(모든 observations + 소스 문서 요약 + 타입 있는 1홉 이웃). id를 이미 알고 있을 때 씀 — 이름만 있으면 resolve_entity 먼저. 소스 문서는 최신 10개까지만(초과 시 documents_truncated=true, documents_omitted에 잘린 개수) — 문서 본문 전체가 아니라 요약만 포함(허브 엔티티는 소스가 수십 개라 본문 전체를 다 넣으면 응답이 터진다). 특정 문서의 상세가 필요하면 document(document_id)를 따로 호출할 것. full=True면 이 10개 문서에 한해 상세도 포함(주의:
         허브 엔티티에서 쓰면 응답이 매우 커질 수 있음). fetched_at은 ISO8601(UTC, 타임존 명시)."""
-        conn = _conn(theme)
+        tid = _theme_id(theme)
+        if tid is None:
+            return {"error": "theme not found"}
+        conn = _conn(tid)
         try:
-            return _timed_call("node", node_impl, conn, entity_id, full=full)
+            return _timed_call("node", node_impl, conn, entity_id, full=full, theme_id=tid)
         finally:
             conn.close()
 
@@ -513,21 +548,10 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None):
         theme: str | int | None = None,
     ) -> dict:
         """최신순 문서 목록(제목·요약·출처타입·안읽음/즐겨찾기 상태, fetched_at은 ISO8601 UTC). limit 최대 100(그 이상 요청해도 잘림). since(예: '2026-08-01' 또는 전체 ISO8601)로 그 시각 이후만, query로 제목/URL 부분일치 검색 — 전체를 다 훑지 말고 좁혀서 찾을 것. limit을 넘으면 truncated=true, omitted에 잘린 개수(0으로 오인 금지)."""
-        conn = _conn(theme)
-        resolved_tid = 0
-        if theme is not None and theme_mgr is not None:
-            try:
-                resolved_tid = theme_mgr.get_theme(theme).id
-            except Exception:
-                try:
-                    resolved_tid = int(theme)
-                except Exception:
-                    resolved_tid = None
-        elif theme is not None:
-            try:
-                resolved_tid = int(theme)
-            except Exception:
-                resolved_tid = None
+        resolved_tid = _theme_id(theme)
+        if resolved_tid is None:
+            return {"error": "theme not found"}
+        conn = _conn(resolved_tid)
         try:
             return _timed_call("documents", documents_impl, conn, limit=limit, since=since, query=query, theme_id=resolved_tid)
         finally:
@@ -536,7 +560,10 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None):
     @mcp.tool()
     async def document(document_id: str, theme: str | int | None = None) -> dict:
         """문서 하나의 상세(제목·요약·상세·원문 URL·fetched_at은 ISO8601 UTC). 사람용 웹 핸들러와 달리 안읽음(seen) 상태를 바꾸지 않는다(읽기전용 원칙)."""
-        conn = _conn(theme)
+        resolved_tid = _theme_id(theme)
+        if resolved_tid is None:
+            return {"error": "theme not found"}
+        conn = _conn(resolved_tid)
         try:
             def _fetch_doc():
                 if theme is None:
@@ -546,7 +573,9 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None):
                     if theme_mgr is not None:
                         targets = theme_mgr.resolve_document_targets(doc_id=document_id)
                         for target in targets:
-                            tid = target.get("theme_id")
+                            raw_tid = target.get("theme_id")
+                            # 삭제된 테마에 남은 문서는 후보에서 뺀다
+                            tid = _theme_id(raw_tid) if raw_tid is not None else None
                             if tid is not None:
                                 t_conn = _conn(tid)
                                 try:
@@ -556,12 +585,6 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None):
                                 finally:
                                     t_conn.close()
                     return {"error": "not found"}
-                resolved_tid = None
-                if theme_mgr is not None:
-                    try:
-                        resolved_tid = theme_mgr.get_theme(theme).id
-                    except Exception:
-                        pass
                 return document_impl(conn, document_id, theme_id=resolved_tid)
 
             return _timed_call("document", _fetch_doc)
@@ -571,21 +594,10 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None):
     @mcp.tool()
     async def stats(theme: str | int | None = None) -> dict:
         """지식베이스 규모(문서/엔티티/관계/임베딩 개수 등)."""
-        conn = _conn(theme)
-        resolved_tid = 0
-        if theme is not None and theme_mgr is not None:
-            try:
-                resolved_tid = theme_mgr.get_theme(theme).id
-            except Exception:
-                try:
-                    resolved_tid = int(theme)
-                except Exception:
-                    resolved_tid = None
-        elif theme is not None:
-            try:
-                resolved_tid = int(theme)
-            except Exception:
-                resolved_tid = None
+        resolved_tid = _theme_id(theme)
+        if resolved_tid is None:
+            return {"error": "theme not found"}
+        conn = _conn(resolved_tid)
         try:
             return _timed_call("stats", lambda c: dbm.counts(c, theme_id=resolved_tid), conn)
         finally:

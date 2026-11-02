@@ -130,7 +130,7 @@ def get_effective_settings(args: Any, doc_target: str | None = None) -> tuple[An
 
         tm = get_theme_manager(s)
         try:
-            theme = tm.get_theme(theme_ref, strict=True)
+            theme = tm.get_theme(theme_ref, label_match="partial")
         except Exception as exc:
             # 기본 테마로 대신 진행하면 다른 테마에 적재·수정하게 된다(PRINCIPLES C1).
             raise ValueError(f"테마 '{theme_ref}'를 찾을 수 없습니다: {exc}") from exc
@@ -421,7 +421,7 @@ def cmd_untombstone(args) -> int:
 
             tm = get_theme_manager(s)
             try:
-                t = tm.get_theme(theme_ref, strict=True)
+                t = tm.get_theme(theme_ref, label_match="partial")
             except KeyError as exc:
                 raise ValueError(f"테마 '{theme_ref}'를 찾을 수 없습니다: {exc}") from exc
             target_themes.append((tm.get_settings_for_theme(t.id, s), t))
@@ -848,7 +848,7 @@ def cmd_theme(args) -> int:
             print(f"[오류] {verb}할 테마의 ID를 지정해야 합니다.", file=sys.stderr)
             return 1
         try:
-            target_theme = tm.get_theme(theme_id, strict=True)
+            target_theme = tm.get_theme(theme_id, label_match="partial")
         except Exception as exc:
             print(f"[오류] 대상 테마를 찾을 수 없습니다: {exc}", file=sys.stderr)
             return 1
@@ -926,7 +926,7 @@ def cmd_theme(args) -> int:
                 return 1
 
         try:
-            stats = tm.reset_theme(theme_id)
+            stats = tm.reset_theme(target_theme.id)
             if getattr(args, "json", False):
                 print(json.dumps({"ok": True, "reset": stats}, ensure_ascii=False, indent=2))
             else:
@@ -4487,7 +4487,7 @@ def cmd_import_graph(args: Any) -> int:
                 from .store.theme import get_theme_manager
 
                 tm = get_theme_manager(s)
-                theme = tm.get_theme(theme_ref, strict=True)
+                theme = tm.get_theme(theme_ref, label_match="partial")
                 target_db = Path(theme.db_path)
             except Exception as exc:
                 raise ValueError(f"테마 '{theme_ref}'를 찾을 수 없습니다: {exc}") from exc

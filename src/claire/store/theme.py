@@ -14,7 +14,7 @@ import tempfile
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from ..config import ROOT, Settings, get_settings
 from . import db as dbm
@@ -65,6 +65,20 @@ def validate_ga_measurement_id(candidate: str | None) -> str:
     if not _GA_ID_RE.fullmatch(cleaned):
         raise ValueError(f"유효하지 않은 Google Analytics 측정 ID 형식입니다: {candidate!r}")
     return cleaned
+
+
+class ThemeNotFound(KeyError):
+    """테마를 찾지 못했거나 접근할 수 없다.
+
+    비공개 테마의 존재를 드러내지 않도록 두 경우의 메시지를 구분하지 않는다. 기존 `except KeyError` 처리와 호환되도록 KeyError를 상속한다.
+    """
+
+    def __init__(self, theme_ref: Any) -> None:
+        self.theme_ref = theme_ref
+        super().__init__(f"테마를 찾을 수 없습니다: {theme_ref}")
+
+    def __str__(self) -> str:
+        return str(self.args[0])
 
 
 @dataclass
@@ -499,19 +513,20 @@ class ThemeManager:
         self,
         theme_ref: int | str | None,
         *,
-        strict: bool = False,
         include_private: bool = True,
         collaborator: bool = False,
+        label_match: Literal["exact", "partial"] = "exact",
     ) -> ThemeInfo:
-        """일련번호(int/str) 또는 레이블로 테마를 검색.
+        """일련번호(int/str) 또는 레이블로 테마를 검색. 찾지 못하면 다른 테마로 대신하지 않는다(PRINCIPLES C1).
 
-        - theme_ref 가 None 이거나 빈 문자열이면 기본 테마(0) 반환.
+        - theme_ref 가 None 이거나 빈 문자열이면 기본 테마(0). 참조를 생략한 경우의 기본값이다.
         - 일련번호(숫자) 일치 우선.
         - 레이블(대소문자 무시 정확 일치) 차선.
-        - include_private=False, collaborator=False 이고 매칭된 테마가 비공개인 경우, strict=True 면 KeyError, strict=False 면 기본 공개 테마 반환.
-        - collaborator=True 이고 매칭된 테마가 비공개이며 is_collaborator_accessible=False 인 경우 동일하게 제한.
-        - 찾지 못한 경우 strict=False 이면 기본 테마(0) 반환, strict=True 이면 KeyError.
+        - label_match="partial" 이면 마지막으로 레이블 부분 일치(처음 걸린 테마)를 시도한다. 사람이 직접 입력하는 CLI `--theme`과 텔레그램 `/theme`만 쓴다.
+        - 찾지 못했거나 접근할 수 없으면 ThemeNotFound. include_private=False 이면 비공개 테마, collaborator=True 이면 협업 비허용 비공개 테마가 접근 불가다. 두 경우의 메시지는 같다.
         """
+        if label_match not in ("exact", "partial"):
+            raise ValueError(f"알 수 없는 label_match 값입니다: {label_match!r}")
         self.reload()
         found: ThemeInfo | None = None
         if theme_ref is None or str(theme_ref).strip() == "":
@@ -532,42 +547,21 @@ class ThemeManager:
                         found = t
                         break
 
-            # 3. 레이블 부분/슬러그 매칭
-            if found is None:
+            # 3. 레이블 부분 일치 (사람이 입력하는 진입점에서만 요청)
+            if found is None and label_match == "partial":
                 ref_lower = ref_str.lower()
                 for t in self._themes.values():
                     if ref_lower in t.label.lower():
                         found = t
                         break
 
-        def _is_accessible(t: ThemeInfo) -> bool:
-            if include_private:
-                return True
-            if collaborator:
-                return t.is_public or t.is_collaborator_accessible
-            return t.is_public
-
-        if found is not None:
-            if not _is_accessible(found):
-                if strict:
-                    raise KeyError(f"비공개 테마입니다: {theme_ref}")
-                default_t = self._themes.get(0, self._build_default_theme())
-                if _is_accessible(default_t):
-                    return default_t
-                for t in sorted(self._themes.values(), key=lambda x: x.id):
-                    if _is_accessible(t):
-                        return t
-                return found
-            return found
-
-        if strict:
-            raise KeyError(f"테마를 찾을 수 없습니다: {theme_ref}")
-        default_t = self._themes.get(0, self._build_default_theme())
-        if not _is_accessible(default_t):
-            for t in sorted(self._themes.values(), key=lambda x: x.id):
-                if _is_accessible(t):
-                    return t
-        return default_t
+        if found is None:
+            raise ThemeNotFound(theme_ref)
+        if not include_private:
+            accessible = (found.is_public or found.is_collaborator_accessible) if collaborator else found.is_public
+            if not accessible:
+                raise ThemeNotFound(theme_ref)
+        return found
 
     def define_theme(
         self,
@@ -712,7 +706,7 @@ class ThemeManager:
                 raise KeyError(f"존재하지 않는 테마 ID: {tid}")
         except (ValueError, TypeError):
             # 문자열 레이블/이름으로 지정된 경우 get_theme로 검색
-            target = self.get_theme(theme_id, strict=True)
+            target = self.get_theme(theme_id)
             tid = target.id
 
         theme = self._themes[tid]
@@ -825,7 +819,7 @@ class ThemeManager:
             if tid not in self._themes:
                 raise KeyError(f"존재하지 않는 테마 ID: {tid}")
         except (ValueError, TypeError):
-            target = self.get_theme(theme_id, strict=True)
+            target = self.get_theme(theme_id)
             tid = target.id
 
         if tid == 0:
@@ -895,7 +889,7 @@ class ThemeManager:
             if tid not in self._themes:
                 raise KeyError(f"존재하지 않는 테마 ID: {tid}")
         except (ValueError, TypeError):
-            target = self.get_theme(theme_id, strict=True)
+            target = self.get_theme(theme_id)
             tid = target.id
 
         theme = self._themes[tid]
@@ -968,7 +962,7 @@ class ThemeManager:
         theme_ref: int | str | None = None,
         base_settings: Settings | Any | None = None,
     ) -> Any:
-        """지정된 테마의 db_path 가 적용된 Settings 인스턴스를 반환."""
+        """지정된 테마의 db_path 가 적용된 Settings 인스턴스를 반환. 없는(삭제된) 테마면 ThemeNotFound."""
         theme = self.get_theme(theme_ref)
         base = base_settings or self.settings
 

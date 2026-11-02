@@ -18,7 +18,7 @@ QUALITY_MIN = 0.6
 
 
 def build_context(conn: sqlite3.Connection, node_id: str | None = None,
-                  doc_id: str | None = None) -> tuple[str, str]:
+                  doc_id: str | None = None, theme_id: int | None = None) -> tuple[str, str]:
     """사용자가 보고 있던 것(선택 노드 + 활성 문서)을 조사용 맥락 텍스트로.
 
     반환: (context, focus) — focus 는 맥락의 대표 이름(보고서 헤더·UI 표기용).
@@ -28,15 +28,15 @@ def build_context(conn: sqlite3.Connection, node_id: str | None = None,
     if node_id:
         from ..graphview import synthesis_context
 
-        ctx, names = synthesis_context(conn, [node_id])
+        ctx, names = synthesis_context(conn, [node_id], theme_id=theme_id)
         if ctx:
             parts.append(ctx)
             focus = names[0]
     if doc_id:
-        row = dbm.get_document_row(conn, doc_id)
+        row = dbm.get_document_row(conn, doc_id, theme_id=theme_id)
         if row:
-            summ = dbm.latest_extraction_summary(conn, doc_id) or ""
-            detail = dbm.get_document_detail(conn, doc_id) or ""
+            summ = dbm.latest_extraction_summary(conn, doc_id, theme_id=theme_id) or ""
+            detail = dbm.get_document_detail(conn, doc_id, theme_id=theme_id) or ""
             parts.append(f"읽고 있던 문서: {row['title'] or '(제목 없음)'}\n"
                          f"요약: {summ}\n{detail[:2000]}")
             focus = focus or (row["title"] or "")
@@ -72,7 +72,8 @@ def contextual_research(settings, provider, *, query: str,
     dbm.init_db(conn)
     set_progress_callback(lambda m: _p("llm", m))  # rate limit 대기 등 내부 이벤트
     try:
-        context, focus = build_context(conn, node_id, doc_id)
+        # 테마별 Settings 사본은 theme_id를 가진다(ThemeManager._settings_for_theme_info)
+        context, focus = build_context(conn, node_id, doc_id, theme_id=settings.theme_id)
         if not context:
             return {"error": "맥락이 없습니다 — 노드를 선택하거나 문서를 연 뒤 조사하세요"}
         _p("context", f"맥락 구성 — {focus} ({len(context)}자)")
@@ -154,13 +155,14 @@ def _ingest_report_doc(settings, provider, conn: sqlite3.Connection,
         source_type="research",
         content_hash=content_hash(text),
     )
-    vstore = make_vector_store(conn, settings.vector_backend)
+    vstore = make_vector_store(conn, settings.vector_backend, theme_id=settings.theme_id)
     # payload 에 보고서 전문을 보존(Layer-1 데이터 보존) — 적재 실패 시 raw_inbox 에서
     # replay 가능(텍스트로 재적재돼도 지식은 유지됨).
     rep = run_ingest(
         text, conn=conn, provider=provider, vstore=vstore,
         data_dir=settings.data_dir,
         expand_max=0, source="research", fetch_fn=lambda _p: doc,
+        theme_id=settings.theme_id,
     )
     return {
         "document_id": rep.document_id, "error": rep.error,

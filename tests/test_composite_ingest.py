@@ -41,7 +41,7 @@ def test_parse_caption_composite_variations():
         def __init__(self):
             self.settings = SimpleNamespace(multi_theme=True)
 
-        def get_theme(self, cand, strict=True):
+        def get_theme(self, cand, *, label_match="exact"):
             return SimpleNamespace(id=int(cand) if str(cand).isdigit() else 1)
 
     url, focus, tid, full, effort = parse_caption_composite(

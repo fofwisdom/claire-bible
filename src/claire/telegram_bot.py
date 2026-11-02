@@ -525,7 +525,7 @@ def parse_message_theme(text: str, theme_mgr: Any | None = None) -> tuple[str, i
         if cand.lower() in ("초점", "focus"):
             continue
         try:
-            found = tm.get_theme(cand, strict=True)
+            found = tm.get_theme(cand, label_match="partial")
             clean = (t[:m.start()] + " " + t[m.end():]).strip()
             clean = re.sub(r"\s+", " ", clean).strip()
             return clean, found.id
@@ -533,6 +533,23 @@ def parse_message_theme(text: str, theme_mgr: Any | None = None) -> tuple[str, i
             continue
 
     return t, None
+
+
+STALE_THEME_MESSAGE = "⚠️ 선택했던 테마가 더 이상 없습니다. /theme 으로 테마를 다시 선택하세요."
+
+
+def resolve_selected_theme(theme_mgr: Any, selections: dict[int, int], user_id: int) -> Any | None:
+    """사용자가 /theme 으로 고른 테마를 엄격하게 찾는다.
+
+    고른 적이 없으면 기본 테마 0이다. 고른 테마가 삭제됐으면 선택을 지우고 None을 돌려준다. 호출자는 STALE_THEME_MESSAGE로 거부하고 적재·검색하지 않는다(테마 0으로 대신하지 않는다).
+    """
+    from .store.theme import ThemeNotFound
+
+    try:
+        return theme_mgr.get_theme(selections.get(user_id, 0))
+    except ThemeNotFound:
+        selections.pop(user_id, None)
+        return None
 
 
 def _is_allowed(user_id: int | None, settings: Settings | None = None) -> bool:
@@ -694,7 +711,7 @@ def build_app(settings: Settings | None = None) -> Any:
     from pathlib import Path
 
     from .ingest.service import IngestService, IngestServicePool
-    from .store.theme import get_theme_manager
+    from .store.theme import ThemeNotFound, get_theme_manager
 
     logging.basicConfig(level=logging.INFO)
     svc = IngestService(s)
@@ -986,13 +1003,12 @@ def build_app(settings: Settings | None = None) -> Any:
         uid = user.id if user else 0
         theme_mgr.reload()
         themes = theme_mgr.list_themes()
-        current_tid = user_active_themes.get(uid, 0)
-        current_theme = theme_mgr.get_theme(current_tid)
 
         if ctx.args:
             arg = " ".join(ctx.args).strip()
             try:
-                target = theme_mgr.get_theme(arg, strict=True)
+                # 사람이 입력하는 값이라 레이블 부분 일치를 허용한다
+                target = theme_mgr.get_theme(arg, label_match="partial")
                 user_active_themes[uid] = target.id
                 msg_text = (
                     f"✅ 기본 검색 테마가 {target.icon} *{target.label}* (#{target.id})로 설정되었습니다.\n\n"
@@ -1007,7 +1023,14 @@ def build_app(settings: Settings | None = None) -> Any:
                 await update.message.reply_text(f"❌ 테마를 찾을 수 없습니다: '{arg}'")
                 return
 
-        lines = [
+        current_theme = resolve_selected_theme(theme_mgr, user_active_themes, uid)
+        stale_lines = []
+        if current_theme is None:
+            # 삭제된 선택은 지웠으므로 선택 없음(기본 테마 0)으로 보여 주고 그 사실을 알린다
+            stale_lines = ["⚠️ 선택했던 테마가 더 이상 없어 선택을 지웠습니다.", ""]
+            current_theme = theme_mgr.get_theme(0)
+        current_tid = current_theme.id
+        lines = stale_lines + [
             f"🎯 *현재 선택된 검색 테마*: {current_theme.icon} *{current_theme.label}* (#{current_theme.id})",
             "",
             "지식 관리자가 등록한 테마 목록 중 원하는 테마를 선택하세요:",
@@ -1047,8 +1070,14 @@ def build_app(settings: Settings | None = None) -> Any:
             theme_mgr.reload()
             text, explicit_theme_id = parse_message_theme(raw_text, theme_mgr)
             user_id = user.id if user else 0
-            active_theme_id = explicit_theme_id if explicit_theme_id is not None else user_active_themes.get(user_id, 0)
-            active_theme = theme_mgr.get_theme(active_theme_id)
+            if explicit_theme_id is not None:
+                active_theme = theme_mgr.get_theme(explicit_theme_id)
+            else:
+                active_theme = resolve_selected_theme(theme_mgr, user_active_themes, user_id)
+                if active_theme is None:
+                    await update.message.reply_text(STALE_THEME_MESSAGE)
+                    return
+            active_theme_id = active_theme.id
             active_svc = service_pool.get_service(active_theme_id)
         else:
             text = raw_text
@@ -1066,15 +1095,20 @@ def build_app(settings: Settings | None = None) -> Any:
             resolved = theme_mgr.resolve_share_token(share_tok)
             if resolved:
                 res_tid, res_doc_id, _ = resolved
+                try:
+                    active_theme = theme_mgr.get_theme(res_tid)
+                except ThemeNotFound:
+                    # 삭제된 테마의 공유 링크를 테마 0에서 처리하지 않는다
+                    await update.message.reply_text("⚠️ 이 공유 링크의 문서가 속한 테마가 더 이상 없습니다.")
+                    return
                 active_theme_id = res_tid
-                active_theme = theme_mgr.get_theme(res_tid)
                 active_svc = service_pool.get_service(res_tid)
                 target_doc_id = res_doc_id
             else:
                 conn = dbm.connect(active_svc.s.db_file)
                 try:
                     dbm.init_db(conn)
-                    target_doc_id = dbm.resolve_doc_share(conn, share_tok)
+                    target_doc_id = dbm.resolve_doc_share(conn, share_tok, theme_id=active_theme_id)
                     if not target_doc_id:
                         row = conn.execute("SELECT document_id FROM doc_shares WHERE token=?", (share_tok,)).fetchone()
                         if row:
@@ -1096,8 +1130,9 @@ def build_app(settings: Settings | None = None) -> Any:
                     if matches:
                         matched_tid = matches[0].get("theme_id")
                         if matched_tid is not None:
-                            active_theme_id = matched_tid
+                            # 삭제된 테마면 ThemeNotFound로 이 후보를 건너뛴다
                             active_theme = theme_mgr.get_theme(matched_tid)
+                            active_theme_id = matched_tid
                             active_svc = service_pool.get_service(matched_tid)
                             target_doc_id = payload_clean
                             if is_multi and user:
@@ -1172,7 +1207,7 @@ def build_app(settings: Settings | None = None) -> Any:
             conn = dbm.connect(active_svc.s.db_file)
             doc = None
             try:
-                doc = dbm.get_document(conn, target_doc_id)
+                doc = dbm.get_document(conn, target_doc_id, theme_id=active_theme_id)
             finally:
                 conn.close()
 
@@ -1580,7 +1615,7 @@ def build_app(settings: Settings | None = None) -> Any:
 
             try:
                 target_tid = int(tid_str)
-                target_theme = theme_mgr.get_theme(target_tid, strict=True)
+                target_theme = theme_mgr.get_theme(target_tid)
             except Exception as e:
                 await query.answer(f"테마 확인 실패: {e}")
                 return
@@ -1642,13 +1677,19 @@ def build_app(settings: Settings | None = None) -> Any:
             # Determine the document's theme: check active theme first, then theme_mgr.resolve_document_targets
             user_id = user.id if user else 0
             is_multi = bool(getattr(s, "multi_theme", False))
-            active_tid = user_active_themes.get(user_id, 0) if is_multi else 0
-            target_svc = service_pool.get_service(active_tid) if is_multi else svc
+            if is_multi:
+                active_theme = resolve_selected_theme(theme_mgr, user_active_themes, user_id)
+                if active_theme is None:
+                    await status_msg.edit_text(STALE_THEME_MESSAGE)
+                    return
+                target_svc = service_pool.get_service(active_theme.id)
+            else:
+                target_svc = svc
             doc_in_active = False
             try:
                 chk_conn = dbm.connect_existing(target_svc.s.db_file, readonly=True)
                 try:
-                    if dbm.get_document_row(chk_conn, did):
+                    if dbm.get_document_row(chk_conn, did, theme_id=target_svc.theme_id):
                         doc_in_active = True
                 finally:
                     chk_conn.close()
@@ -1749,7 +1790,7 @@ def build_app(settings: Settings | None = None) -> Any:
             target_tid_str = data[10:]
             try:
                 target_tid = int(target_tid_str)
-                theme = theme_mgr.get_theme(target_tid, strict=True)
+                theme = theme_mgr.get_theme(target_tid)
                 uid = user.id if user else 0
                 user_active_themes[uid] = theme.id
                 await query.answer(f"테마: {theme.icon} {theme.label}")
@@ -1799,7 +1840,12 @@ def build_app(settings: Settings | None = None) -> Any:
             if not urls:
                 await query.edit_message_reply_markup(reply_markup=None)
                 return
-            exp_svc = service_pool.get_service(exp_tid)
+            try:
+                exp_svc = service_pool.get_service(exp_tid)
+            except ThemeNotFound:
+                # 적재 뒤 테마가 삭제됐으면 테마 0으로 확장 적재하지 않는다
+                await query.edit_message_text("⚠️ 이 문서의 테마가 더 이상 없어 확장 적재를 하지 않습니다.")
+                return
             # 같은 메시지를 in-place 편집해 진행→결과로 갱신(새 메시지 2개 더 안 만든다).
             async def _edit(text: str) -> None:
                 try:
@@ -1827,8 +1873,14 @@ def build_app(settings: Settings | None = None) -> Any:
         theme_mgr.reload()
         clean_q, explicit_tid = parse_message_theme(q, theme_mgr)
         user_id = update.effective_user.id if update.effective_user else 0
-        active_tid = explicit_tid if explicit_tid is not None else user_active_themes.get(user_id, 0)
-        active_theme = theme_mgr.get_theme(active_tid)
+        if explicit_tid is not None:
+            active_theme = theme_mgr.get_theme(explicit_tid)
+        else:
+            active_theme = resolve_selected_theme(theme_mgr, user_active_themes, user_id)
+            if active_theme is None:
+                await update.message.reply_text(STALE_THEME_MESSAGE)
+                return
+        active_tid = active_theme.id
         active_svc = service_pool.get_service(active_tid)
 
         await update.message.reply_text(f"🔎 [{active_theme.icon} {active_theme.label}] 검색 중…")
@@ -2313,8 +2365,16 @@ def build_app(settings: Settings | None = None) -> Any:
         is_multi = bool(getattr(s, "multi_theme", False))
         user = update.effective_user
         user_id = user.id if user else 0
-        active_theme_id = user_active_themes.get(user_id, 0) if is_multi else 0
-        active_svc = service_pool.get_service(active_theme_id) if is_multi else svc
+        if is_multi:
+            active_theme = resolve_selected_theme(theme_mgr, user_active_themes, user_id)
+            if active_theme is None:
+                await msg.reply_text(STALE_THEME_MESSAGE)
+                return
+            active_theme_id = active_theme.id
+            active_svc = service_pool.get_service(active_theme_id)
+        else:
+            active_theme_id = 0
+            active_svc = svc
 
         try:
             items = await asyncio.to_thread(active_svc.list_failures, limit=10)
@@ -2361,15 +2421,23 @@ def build_app(settings: Settings | None = None) -> Any:
         is_multi = bool(getattr(s, "multi_theme", False))
         user = update.effective_user
         user_id = user.id if user else 0
-        active_theme_id = user_active_themes.get(user_id, 0) if is_multi else 0
-        target_svc = service_pool.get_service(active_theme_id) if is_multi else svc
+        if is_multi:
+            active_theme = resolve_selected_theme(theme_mgr, user_active_themes, user_id)
+            if active_theme is None:
+                await msg.reply_text(STALE_THEME_MESSAGE)
+                return
+            active_theme_id = active_theme.id
+            target_svc = service_pool.get_service(active_theme_id)
+        else:
+            active_theme_id = 0
+            target_svc = svc
 
         if is_multi:
             found = False
             try:
                 conn = dbm.connect_existing(target_svc.s.db_file, readonly=True)
                 try:
-                    if dbm.get_inbox(conn, inbox_id) is not None:
+                    if dbm.get_inbox(conn, inbox_id, theme_id=active_theme_id) is not None:
                         found = True
                 finally:
                     conn.close()
@@ -2386,7 +2454,7 @@ def build_app(settings: Settings | None = None) -> Any:
                     try:
                         conn = dbm.connect_existing(tsvc.s.db_file, readonly=True)
                         try:
-                            if dbm.get_inbox(conn, inbox_id) is not None:
+                            if dbm.get_inbox(conn, inbox_id, theme_id=t.id) is not None:
                                 target_svc = tsvc
                                 user_active_themes[user_id] = t.id
                                 found = True

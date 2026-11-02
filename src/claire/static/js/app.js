@@ -82,7 +82,10 @@ function recordSelectedDoc(id){
   try{ localStorage.setItem('claireLastDoc', id); }catch(_){}
 }
 
-function esc(s){return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+function esc(s){return (s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+// 인라인 이벤트 핸들러 속성 안의 JS 인자. 브라우저가 속성값을 HTML 디코딩한 뒤 JS로 실행하므로
+// esc만으로는 '가 되살아난다. JSON 문자열 리터럴로 만든 뒤 속성용으로 esc한다(따옴표 없이 사용).
+function jsArg(v){return esc(JSON.stringify(String(v??'')));}
 function isWebUrl(u){ return !!u && /^https?:\/\//i.test(String(u).trim()); }
 
 // --- 지식 테마 (Multi-Database Themes) 상태 및 전역 fetch 인터셉터 ---
@@ -290,7 +293,7 @@ function renderThemeOptions(selectedId){
     : [{id: 0, seq: 0, label: '기본 지식베이스', description: '일반 수집 자료 및 기본 지식', icon: '📚'}];
   const activeId = selectedId !== undefined ? selectedId : activeThemeId;
   return themes.map(t => {
-    const icon = t.icon || '📚';
+    const icon = esc(t.icon || '📚');
     const label = esc(t.label);
     const lockStr = t.is_public === false ? ' 🔒 (비공개)' : '';
     return `<option value="${t.id}" ${t.id === activeId ? 'selected' : ''}>${icon} ${label}${lockStr}</option>`;
@@ -1618,7 +1621,7 @@ function startAliasSelectMode(){
   if(chipsEl){
     chipsEl.classList.add('selecting');
     chipsEl.innerHTML = currentNodeData.aliases.map(al =>
-      '<button type="button" class="node-alias-chip selectable" title="\'' + esc(al) + '\'을(를) 대표 레이블로 지정" onclick="promoteEntityAlias(\'' + esc(currentNodeData.id) + '\',\'' + esc(al).replace(/'/g, "\\'") + '\')">' +
+      '<button type="button" class="node-alias-chip selectable" title="\'' + esc(al) + '\'을(를) 대표 레이블로 지정" onclick="promoteEntityAlias(' + jsArg(currentNodeData.id) + ',' + jsArg(al) + ')">' +
       '<span class="alias-star" aria-hidden="true">★</span> <span class="alias-text">' + esc(al) + '</span>' +
       '</button>'
     ).join('');
@@ -1716,11 +1719,11 @@ function renderPanel(d){
   let h = activeDoc ? '<span class=backlink onclick="loadDocPanel(activeDoc)">← 문서로 돌아가기</span>' : '';
   h+='<h2>'+esc(d.name)+' <small>'+esc(d.type)+(d.provisional?' ⚠️provisional':'')+'</small></h2>';
   const isIsolated = (isolatedNodeId === d.id);
-  const isoBtn = '<button type="button" class="sec node-isolate-btn '+(isIsolated?'active':'')+'" onclick="toggleNodeIsolation(\''+d.id+'\')" title="이 노드와 직접 연결된 이웃만 화면에 남깁니다">'+(isIsolated?'✕ 격리 해제':'🔍 주변만 보기')+'</button>';
+  const isoBtn = '<button type="button" class="sec node-isolate-btn '+(isIsolated?'active':'')+'" onclick="toggleNodeIsolation('+jsArg(d.id)+')" title="이 노드와 직접 연결된 이웃만 화면에 남깁니다">'+(isIsolated?'✕ 격리 해제':'🔍 주변만 보기')+'</button>';
   h+='<div class="node-actions-bar">';
   h+=isoBtn;
   if(canWrite()){
-    h+='<button class="sec" onclick="addToSynth(\''+d.id+'\')">'+(inSet?'✓ 종합 목록에 있음':'➕ 종합에 추가')+'</button>';
+    h+='<button class="sec" onclick="addToSynth('+jsArg(d.id)+')">'+(inSet?'✓ 종합 목록에 있음':'➕ 종합에 추가')+'</button>';
     if(d.aliases && d.aliases.length){
       h+='<div class="node-manage-dropdown">';
       h+='<button type="button" class="sec node-manage-btn" id="node-manage-btn" aria-haspopup="true" aria-expanded="false" onclick="toggleNodeManageMenu(event)">⚙️ 노드 관리 ▾</button>';
@@ -1750,14 +1753,14 @@ function renderPanel(d){
     d.documents.forEach(dc=>{ h+='<div class=doc><b>'+esc(dc.title)+'</b>'+
       (dc.summary?'<p>'+esc(dc.summary)+'</p>':'')+
       ((dc.detail||dc.summary)?'<button class=readbtn data-read-doc="'+esc(dc.id)+
-        '" onclick="openReader(\''+dc.id+'\');setCenterView(\'reader\')">📖 본문 보기</button>':'')+
+        '" onclick="openReader('+jsArg(dc.id)+');setCenterView(\'reader\')">📖 본문 보기</button>':'')+
       (isWebUrl(dc.url)?'<p class=src><a href="'+esc(dc.url)+'" target=_blank rel=noopener>↗ 원문 열기</a></p>':'')+
       (canIngest() && dc.has_raw_file?'<p class=src><a href="/document/raw?id='+encodeURIComponent(dc.id)+'" target=_blank rel=noopener>📄 원본 열기</a></p>':'')+
       '</div>'; }); }
   if(d.neighbors.length){ h+='<h3>연결 ('+d.neighbors.length+')</h3><ul>';
     d.neighbors.forEach(n=>{ const ar=n.dir=='out'?'→':'←';
       h+='<li><span class=rel>'+esc(n.rel)+'</span> '+ar+
-         ' <a href="#" onclick="loadNode(\''+n.id+'\');return false">'+esc(n.name)+
+         ' <a href="#" onclick="loadNode('+jsArg(n.id)+');return false">'+esc(n.name)+
          '</a> <small>'+esc(n.type)+'</small></li>'; }); h+='</ul>'; }
   // 맥락 확장 조사 — 읽다가 더 알고 싶은 키워드/문장을 지금 맥락으로 조사해 그래프 확장.
   // readonly 는 /research 도 서버에서 막혀있어 입력창·버튼 자체를 안 그림.
@@ -1867,7 +1870,7 @@ function renderResearchResult(d, backId){
       d.ingest.entities_linked+' · 관계 '+d.ingest.relations_added+'</p>';
     refreshGraph();
   } else if(d.reason){ h+='<p class=al>판정: '+esc(d.reason)+'</p>'; }
-  if(backId) h+='<p><a href="#" onclick="loadNode(\''+backId+'\');return false">← 노드로 돌아가기</a></p>';
+  if(backId) h+='<p><a href="#" onclick="loadNode('+jsArg(backId)+');return false">← 노드로 돌아가기</a></p>';
   panel.innerHTML=h;
 }
 
@@ -1927,7 +1930,7 @@ function openIngest(){
       } else {
         const selId = eligibleThemes.some(t => t.id === activeThemeId) ? activeThemeId : eligibleThemes[0].id;
         const opts = eligibleThemes.map(t => {
-          const icon = t.icon || '📁';
+          const icon = esc(t.icon || '📁');
           const label = esc(t.label);
           return `<option value="${t.id}" ${t.id === selId ? 'selected' : ''}>${icon} ${label}</option>`;
         }).join('');
@@ -2176,9 +2179,9 @@ function renderIngestResult(d){
     (d.entities_linked||0)+' · 관계 '+(d.relations_added||0)+'</p>';
   if(d.summary) h+='<div class=synth>'+esc(d.summary)+'</div>';
   if(d.theme_id !== undefined && d.theme_id !== activeThemeId){
-    h+='<p style="margin-top:12px"><button type="button" class="sec" onclick="switchKnowledgeTheme('+d.theme_id+')">👉 '+esc(d.theme_label||('테마 #'+d.theme_id))+' 테마로 전환</button></p>';
+    h+='<p style="margin-top:12px"><button type="button" class="sec" onclick="switchKnowledgeTheme('+Number(d.theme_id)+')">👉 '+esc(d.theme_label||('테마 #'+d.theme_id))+' 테마로 전환</button></p>';
   } else {
-    if(d.document_id) h+='<p><a href="#" onclick="selectDoc(\''+d.document_id+'\');setCenterView(\'reader\');return false">문서 보기 →</a></p>';
+    if(d.document_id) h+='<p><a href="#" onclick="selectDoc('+jsArg(d.document_id)+');setCenterView(\'reader\');return false">문서 보기 →</a></p>';
     refreshGraph();   // 현재 활성 테마에 적재된 경우 즉시 그래프/문서 반영
   }
   panel.innerHTML=h;
@@ -2205,7 +2208,7 @@ function openReingest(){
       } else {
         const selId = eligibleThemes.some(t => t.id === curDocThemeId) ? curDocThemeId : eligibleThemes[0].id;
         const opts = eligibleThemes.map(t => {
-          const icon = t.icon || '📁';
+          const icon = esc(t.icon || '📁');
           const label = esc(t.label);
           return `<option value="${t.id}" ${t.id === selId ? 'selected' : ''}>${icon} ${label}</option>`;
         }).join('');
@@ -2444,7 +2447,7 @@ function openRegen(docIdOverride, compOverride){
       } else {
         const selId = eligibleThemes.some(t => t.id === curDocThemeId) ? curDocThemeId : eligibleThemes[0].id;
         const opts = eligibleThemes.map(t => {
-          const icon = t.icon || '📁';
+          const icon = esc(t.icon || '📁');
           const label = esc(t.label);
           return `<option value="${t.id}" ${t.id === selId ? 'selected' : ''}>${icon} ${label}</option>`;
         }).join('');
@@ -3537,10 +3540,10 @@ function docItemHtml(dc){
   const pinBtn = canWrite()
     ? '<button class="docpin-btn'+(pinned?' pinned':'')+'" title="'+(pinned?'즐겨찾기 해제':'즐겨찾기에 추가')+
       '" aria-label="'+(pinned?'즐겨찾기 해제':'즐겨찾기에 추가')+
-      '" onclick="event.stopPropagation();togglePin(\''+dc.id+'\','+(!pinned)+')">'+(pinned?'⭐':'☆')+'</button>'
+      '" onclick="event.stopPropagation();togglePin('+jsArg(dc.id)+','+(!pinned)+')">'+(pinned?'⭐':'☆')+'</button>'
     : (pinned ? '<span class="docpin-icon pinned" title="즐겨찾기">⭐</span>' : '');
   return '<div class="docitem'+(dc.id===activeDoc?' active':'')+(unread?' unread':'')+(hid?' hidden-doc':'')+
-    '" onclick="selectDoc(\''+dc.id+'\')">'+
+    '" onclick="selectDoc('+jsArg(dc.id)+')">'+
     '<div class=doctitle-line>'+
     pinBtn+
     (watching?'<span class=wbadge title="주기 갱신 추적(watch)">🔄</span>':'')+
@@ -4181,7 +4184,7 @@ function renderDocPanel(dc){
   if(canWrite()){
     h+='<div class=dochide-row><label class=dochide-label>'+
       '<input type="checkbox" id="panelhidechk" '+(dc.hidden===1?'checked':'')+
-      ' onchange="panelToggleHide(\''+dc.id+'\',this.checked)">'+
+      ' onchange="panelToggleHide('+jsArg(dc.id)+',this.checked)">'+
       '<span id="panelhidelabel">'+(dc.hidden===1?'🙈 숨김 처리됨':'목록에서 숨기기')+'</span>'+
       '</label></div>';
   }
@@ -4192,8 +4195,8 @@ function renderDocPanel(dc){
   h+='<h3>이 문서의 지식 노드 ('+ns.length+')</h3>';
   if(ns.length){ h+='<div class=nodebtns>'+ ns.map(n=>{
       const c=TYPE_COLORS[n.group]||'#8b949e';
-      return '<button class=nodebtn title="'+esc(n.group||'')+'" onmouseenter="peekNode(event,\''+n.id+'\')" '+
-        'onmouseleave="leaveNode()" onclick="focusNode(\''+n.id+'\')">'+
+      return '<button class=nodebtn title="'+esc(n.group||'')+'" onmouseenter="peekNode(event,'+jsArg(n.id)+')" '+
+        'onmouseleave="leaveNode()" onclick="focusNode('+jsArg(n.id)+')">'+
         '<i style="background:'+c+'"></i>'+esc(n.label)+'</button>'; }).join('')+'</div>';
   } else { h+='<p class=al>이 문서에서 추출된 노드가 없습니다.</p>'; }
   panel.innerHTML=h;
@@ -4229,7 +4232,7 @@ function addToSynth(id){ if(!canWrite()) return; synthSet.add(id); renderChips()
 function renderChips(){
   const box=document.getElementById('synthchips');
   box.innerHTML=[...synthSet].map(id=>{ const n=allNodes&&allNodes.get(id);
-    return '<span class=chip onclick="toggleSynth(\''+id+'\')" title="제거">'+esc(n?n.label:id)+' ✕</span>'; }).join('');
+    return '<span class=chip onclick="toggleSynth('+jsArg(id)+')" title="제거">'+esc(n?n.label:id)+' ✕</span>'; }).join('');
   const sb=document.getElementById('synthbtn');
   if(sb){
     sb.innerHTML='<span class="btn-icon">🧩</span> <span class="btn-label">종합 ('+synthSet.size+')</span>';
@@ -4505,7 +4508,7 @@ async function openThemeManager(){
       const effMgr = rawMgr || (t.effective_sorcerer || defaultMgr);
       h += `<div style="border:1px solid var(--border);border-radius:6px;padding:8px 10px;background:var(--sec-bg);">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">
-          <strong style="font-size:13px;">${t.icon || '📁'} ${esc(t.label)} <small style="opacity:0.7">(${idLabel})</small></strong>
+          <strong style="font-size:13px;">${esc(t.icon || '📁')} ${esc(t.label)} <small style="opacity:0.7">(${idLabel})</small></strong>
           <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
             ${t.fqdn ? `<span style="color:#a78bfa;font-weight:600;font-size:12px;background:rgba(167,139,250,0.15);padding:2px 6px;border-radius:4px" title="전용 도메인">🌐 ${esc(t.fqdn)}</span>` : ''}
             ${t.fqdn ? `<a href="//${esc(t.fqdn)}" target="_blank" rel="noopener noreferrer" style="font-size:11px;color:var(--accent2,#00aaff);text-decoration:none;padding:2px 4px;" title="전용 도메인으로 새 창 열기">↗ 열기</a>` : ''}
@@ -4518,7 +4521,7 @@ async function openThemeManager(){
             ${isOwner ? togglePresBtn : ''}
             ${isOwner ? `<button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="showThemeEditForm(${t.id})">✏️ 수정</button>` : ''}
             <button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="toggleThemeOptionsView(${t.id})">⚙️ 옵션 보기</button>
-            ${(isOwner && t.id > 0) ? `<button type="button" class="sec danger-btn" style="font-size:11px;padding:3px 8px;color:var(--err,#cf222e);border-color:rgba(207,34,46,0.3);" onclick="deleteThemeFromUI(${t.id}, '${esc(t.label)}')">🗑️ 삭제</button>` : ''}
+            ${(isOwner && t.id > 0) ? `<button type="button" class="sec danger-btn" style="font-size:11px;padding:3px 8px;color:var(--err,#cf222e);border-color:rgba(207,34,46,0.3);" onclick="deleteThemeFromUI(${t.id}, ${jsArg(t.label)})">🗑️ 삭제</button>` : ''}
           </div>
         </div>
         ${t.description ? `<p style="margin:4px 0 0;font-size:12px;opacity:0.8">${esc(t.description)}</p>` : ''}
@@ -4558,7 +4561,7 @@ async function openThemeManager(){
           <div style="display:flex;gap:6px;margin-top:4px;align-items:center;">
             <button type="button" style="padding:4px 12px;" onclick="updateThemeFromUI(${t.id})">저장</button>
             <button type="button" class="sec" style="padding:4px 12px;" onclick="hideThemeEditForm(${t.id})">취소</button>
-            ${t.id > 0 ? `<button type="button" class="sec danger-btn" style="margin-left:auto;padding:4px 10px;font-size:11px;color:var(--err,#cf222e);border-color:rgba(207,34,46,0.3);" onclick="deleteThemeFromUI(${t.id}, '${esc(t.label)}')">🗑️ 테마 완전 삭제</button>` : ''}
+            ${t.id > 0 ? `<button type="button" class="sec danger-btn" style="margin-left:auto;padding:4px 10px;font-size:11px;color:var(--err,#cf222e);border-color:rgba(207,34,46,0.3);" onclick="deleteThemeFromUI(${t.id}, ${jsArg(t.label)})">🗑️ 테마 완전 삭제</button>` : ''}
           </div>
         </div>` : ''}
       </div>`;
@@ -5587,7 +5590,7 @@ function renderTokenManager(msg, isSuccess, newCreatedToken){
       h += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">';
       h += `<div><strong style="font-size:13px;">#${tok.id} ${esc(tok.name)}</strong> <span style="font-size:11px;font-weight:600;color:${scopeCol};border:1px solid ${scopeCol};padding:1px 5px;border-radius:4px;margin-left:4px;">${esc(tok.scope)}</span> ${statusBadge}</div>`;
       if(!isRevoked){
-        h += `<button type="button" class="sec" style="font-size:11px;padding:2px 8px;color:var(--err,#cf222e);border-color:var(--err,#cf222e);" onclick="revokeApiToken(${tok.id}, '${esc(tok.name)}')">폐기</button>`;
+        h += `<button type="button" class="sec" style="font-size:11px;padding:2px 8px;color:var(--err,#cf222e);border-color:var(--err,#cf222e);" onclick="revokeApiToken(${tok.id}, ${jsArg(tok.name)})">폐기</button>`;
       }
       h += '</div>';
 
@@ -5745,7 +5748,7 @@ const ClaireStatusBanner = (function(){
         if (count === 1 && samples.length > 0) {
           const doc = samples[0];
           const safeTitle = esc(doc.title || doc.id);
-          return `.env 설정은 <b>${cfg}</b>이나, 대상 문서(<b><a href="javascript:void(0)" onclick="selectDoc('${esc(doc.id)}');setCenterView('reader')" style="color:var(--accent);text-decoration:underline;">${safeTitle}</a></b>)가 <b>${other}</b> 포맷입니다.`;
+          return `.env 설정은 <b>${cfg}</b>이나, 대상 문서(<b><a href="javascript:void(0)" onclick="selectDoc(${jsArg(doc.id)});setCenterView('reader')" style="color:var(--accent);text-decoration:underline;">${safeTitle}</a></b>)가 <b>${other}</b> 포맷입니다.`;
         }
         return '.env 설정은 <b>' + cfg + '</b>이나, DB 문서 중 <b>' + count + '개</b>가 <b>' + other + '</b> 포맷입니다. <code>./cb-manuscript app format-migrate --apply</code> 실행이 필요합니다.';
       },
@@ -5774,7 +5777,7 @@ const ClaireStatusBanner = (function(){
         if (count === 1 && samples.length > 0) {
           const doc = samples[0];
           const safeTitle = esc(doc.title || doc.id);
-          return `전체 문서 중 <b>1개</b>의 상세(detail)가 아직 생성되지 않았습니다: <a href="javascript:void(0)" onclick="selectDoc('${esc(doc.id)}');setCenterView('reader')" style="color:var(--accent);font-weight:600;text-decoration:underline;">${safeTitle}</a>`;
+          return `전체 문서 중 <b>1개</b>의 상세(detail)가 아직 생성되지 않았습니다: <a href="javascript:void(0)" onclick="selectDoc(${jsArg(doc.id)});setCenterView('reader')" style="color:var(--accent);font-weight:600;text-decoration:underline;">${safeTitle}</a>`;
         }
         return '전체 문서 중 <b>' + count + '개</b>의 상세(detail)가 아직 생성되지 않았습니다. <code>./cb-manuscript app format-migrate --apply</code> 실행으로 자동 생성할 수 있습니다.';
       },
@@ -6587,7 +6590,7 @@ function renderHeatmapMatrix(matrixData, title, isIngesting){
 
         const tooltip = esc(rName) + ' ↔ ' + esc(cName) + '\n유사도: ' + score.toFixed(4) + ' (' + vis.label + ')';
 
-        return '<td><div class="' + cellClass + '" data-tier="' + vis.tier + '" title="' + tooltip + '" style="background:' + vis.bg + ';color:' + vis.fg + ';border:' + vis.border + ';' + animStyle + '" onmouseenter="inspectMatrixCell(\'' + esc(rName) + '\',\'' + esc(cName) + '\',' + score + ',\'' + esc(vis.label) + '\')" onclick="inspectMatrixCell(\'' + esc(rName) + '\',\'' + esc(cName) + '\',' + score + ',\'' + esc(vis.label) + '\')"></div></td>';
+        return '<td><div class="' + cellClass + '" data-tier="' + vis.tier + '" title="' + tooltip + '" style="background:' + vis.bg + ';color:' + vis.fg + ';border:' + vis.border + ';' + animStyle + '" onmouseenter="inspectMatrixCell(' + jsArg(rName) + ',' + jsArg(cName) + ',' + score + ',' + jsArg(vis.label) + ')" onclick="inspectMatrixCell(' + jsArg(rName) + ',' + jsArg(cName) + ',' + score + ',' + jsArg(vis.label) + ')"></div></td>';
       }).join('');
 
       const shortRName = rName.length > 10 ? rName.slice(0, 9) + '…' : rName;
@@ -6843,7 +6846,7 @@ function renderDecisionCardHtml(dec){
 
   html += '<div style="display:flex;justify-content:space-between;align-items:center;padding-top:6px;border-top:1px dashed var(--border);font-size:11.5px;color:var(--muted)">';
   if(dec.document_id){
-    html += '<span>📄 출처: <a href="javascript:void(0)" onclick="selectDoc(\'' + esc(dec.document_id) + '\');setCenterView(\'reader\')" style="color:var(--accent,#0284c7);text-decoration:underline">' + esc(dec.document_title || dec.document_id) + '</a></span>';
+    html += '<span>📄 출처: <a href="javascript:void(0)" onclick="selectDoc(' + jsArg(dec.document_id) + ');setCenterView(\'reader\')" style="color:var(--accent,#0284c7);text-decoration:underline">' + esc(dec.document_title || dec.document_id) + '</a></span>';
   } else {
     html += '<span></span>';
   }
@@ -7023,7 +7026,7 @@ function renderMiniMatrixBannerHtml(docId, mat){
     miniGrid += '</div>';
   }
 
-  const confirmBtnHtml = '<button type="button" class="pri matrix-purge-btn" onclick="confirmPurgeMatrix(\'' + esc(docId) + '\')" style="padding:4px 10px;font-size:11px;font-weight:bold;background:var(--accent,#0284c7);color:#fff;border:none;border-radius:4px;cursor:pointer;" title="대조 확인 및 매트릭스 소각 파기">✓ 확인</button>';
+  const confirmBtnHtml = '<button type="button" class="pri matrix-purge-btn" onclick="confirmPurgeMatrix(' + jsArg(docId) + ')" style="padding:4px 10px;font-size:11px;font-weight:bold;background:var(--accent,#0284c7);color:#fff;border:none;border-radius:4px;cursor:pointer;" title="대조 확인 및 매트릭스 소각 파기">✓ 확인</button>';
 
   return '<div id="doc-matrix-banner-' + esc(docId) + '" class="matrix-preview-banner" style="margin-bottom:16px;padding:12px 14px;background:var(--card-bg);border:2px solid var(--accent,#0284c7);border-radius:8px;">' +
     '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">' +
@@ -7032,7 +7035,7 @@ function renderMiniMatrixBannerHtml(docId, mat){
         '<p style="font-size:11.5px;color:var(--muted);margin:2px 0 0">적재 시점의 전수 대조 밀도 텐서입니다. 관리자 확인 시 완전히 파기됩니다.</p>' +
       '</div>' +
       '<div style="display:flex;align-items:center;gap:6px;">' +
-        '<button type="button" class="sec" onclick="openHeatmapMatrix(\'' + esc(docId) + '\')" style="padding:4px 8px;font-size:11px;">🔍 콕핏에서 보기</button>' +
+        '<button type="button" class="sec" onclick="openHeatmapMatrix(' + jsArg(docId) + ')" style="padding:4px 8px;font-size:11px;">🔍 콕핏에서 보기</button>' +
         confirmBtnHtml +
       '</div>' +
     '</div>' +

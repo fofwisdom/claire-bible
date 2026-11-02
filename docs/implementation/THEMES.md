@@ -12,10 +12,9 @@
    - 파일 기반 상태: `data/jobs/*.json` 작업 기록, `providers.json`, `ingest_limits.json`, 텔레메트리
    - 이런 상태를 응답에 내보낼 때는 테마 권한으로 걸러야 한다. 예: `server.py`의 `_visible_active_jobs`(§4.3)
 2. **[코드] 새 쿼리는 반드시 `theme_id`로 범위를 정한다.** `dbm.*` 함수 대부분이 `theme_id` 인자를 받는다. 이 인자를 빠뜨리면 기본값 0이 되거나 모든 테마를 대상으로 하게 된다.
-3. **[코드] 테마 조회 기본값은 "없으면 테마 0"이다.** `ThemeManager.get_theme(ref)`는 `strict=False`(기본)일 때 동작이 다음과 같다(§3).
-   - 찾지 못하면 기본 테마 0을 돌려준다.
-   - 레이블 일부만 일치해도 그 테마를 고른다.
-   - 사용자가 지정한 테마로 데이터를 쓰는 경로는 `strict=True`를 써야 한다.
+   - 집행: `tests/test_theme_id_explicit.py`가 요청 경로 모듈(`api/`, `telegram_bot.py`, `ingest/`, `expand/`, `retrieval/`, `presentation/`, `graph_bundle.py`)에서 `store.db`·`store.queries`의 `theme_id` 함수를 이 인자 없이 부르는 곳을 찾아 실패시킨다. 모든 테마가 대상이면 `theme_id=None`처럼 명시해야 한다.
+   - 이 검사 밖: 직접 쓴 SQL, `store.vectors`, `pipeline.ingest`
+3. **[코드] 없는 테마는 다른 테마로 바뀌지 않는다.** `ThemeManager.get_theme(ref)`는 찾지 못하거나 접근할 수 없는 테마에 `ThemeNotFound`(`KeyError` 하위 클래스)를 던진다(§3). 참조를 생략한 경우(`None`, 빈 문자열)만 테마 0이다. 레이블 부분 일치는 호출자가 `label_match="partial"`을 줄 때만 쓴다.
 4. **[코드] 단일 테마 모드(`CLAIRE_MULTI_THEME=0`)에서는 레지스트리를 읽지 않는다.** 메모리에 있는 기본 테마 0 하나만 쓴다.
 
 ---
@@ -24,7 +23,7 @@
 
 | 파일 | 역할 | 주요 기호 |
 | :--- | :--- | :--- |
-| `src/claire/store/theme.py` | 테마 레지스트리, 조회, 수명주기, 테마별 설정 | `ThemeInfo`, `ThemeManager`(`reload`, `get_theme`, `define_theme`, `update_theme`, `delete_theme`, `reset_theme`, `theme_data_counts`, `get_settings_for_theme`, `active_theme_settings`, `get_theme_by_fqdn`), `THEMES_REGISTRY_FILENAME`, `validate_fqdn`, `get_theme_manager` |
+| `src/claire/store/theme.py` | 테마 레지스트리, 조회, 수명주기, 테마별 설정 | `ThemeInfo`, `ThemeNotFound`, `ThemeManager`(`reload`, `get_theme`, `define_theme`, `update_theme`, `delete_theme`, `reset_theme`, `theme_data_counts`, `get_settings_for_theme`, `active_theme_settings`, `get_theme_by_fqdn`), `THEMES_REGISTRY_FILENAME`, `validate_fqdn`, `get_theme_manager` |
 | `src/claire/store/db.py` | `themes` 테이블, `theme_id` 인덱스, 레거시 DB 병합 | `init_db`, `reset_graph`, `migrate_multi_db_to_single_db` |
 | `src/claire/api/server.py` | HTTP 요청의 테마 결정과 접근 검사 | `_extract_theme_ref`, `_theme_accessible`, `_get_theme_ctx`, `_visible_active_jobs`, `_job_theme_id` |
 | `src/claire/ingest/service.py` | 테마별 적재 서비스 | `IngestService.theme_id`, `IngestServicePool` |
@@ -56,18 +55,27 @@
 ## 3. 테마 조회 (`ThemeManager.get_theme`)
 
 **[코드]** 매칭 순서는 다음과 같다.
-1. 비어 있으면 테마 0
+1. 비어 있으면(`None`, 빈 문자열) 테마 0. 참조를 생략한 경우의 기본값이다.
 2. 숫자 ID 정확 일치
 3. 레이블 정확 일치(대소문자 무시)
-4. **레이블 부분 일치**: 처음 걸린 테마를 고른다
+4. 레이블 부분 일치(처음 걸린 테마): `label_match="partial"`일 때만
 
-찾지 못하거나 접근할 수 없는 경우는 `strict`에 따라 갈린다.
-- `strict=True`: `KeyError`를 던진다.
-- `strict=False`: 접근 가능한 기본 테마를 돌려준다.
+찾지 못했거나 접근할 수 없으면(`include_private=False`이면 비공개 테마, `collaborator=True`이면 협업 비허용 비공개 테마) `ThemeNotFound`를 던진다. 두 경우의 메시지는 같아서 비공개 테마의 존재가 드러나지 않는다. 다른 테마로 대신하는 분기는 없다(PRINCIPLES C1).
 
-**[코드] `strict=True`를 쓰는 곳**: CLI의 `--theme`(`get_effective_settings`, `untombstone`, `import-graph`), `theme reset`·`theme delete`(`cmd_theme`), 작업 목록 필터(`_visible_active_jobs`)
+**[코드] 진입점별 처리**
 
-**[코드] `strict=False`를 쓰는 곳**: HTTP(`_get_theme_ctx`), `IngestServicePool.get_service`, MCP 도구(`mcp_tools.py`), 텔레그램 등. 이 경로에서는 존재하지 않는 테마를 지정해도 테마 0에서 처리된다. [`PRINCIPLES.md`](../PRINCIPLES.md)의 알려진 위반 항목을 보라.
+| 진입점 | 레이블 일치 | 없는 테마 |
+| :--- | :--- | :--- |
+| HTTP `_get_theme_ctx` | 정확 | 404 `theme not found` (접근 불가와 같음) |
+| HTTP 문서 → 테마 후보 (`_first_live_target`) | — | 삭제된 테마의 후보는 건너뛴다. 남는 후보가 없으면 404 |
+| Syndication dispatch 대상·원본 테마 | 정확 | 404 |
+| MCP 도구 (`_theme_id`) | 정확 | `{"error": "theme not found"}` |
+| `IngestServicePool.get_service` | 정확 | `ThemeNotFound` 전파 (캐시된 서비스도) |
+| CLI `--theme` 등 사람이 입력하는 조회 | 부분 | 종료 코드 2 |
+| 텔레그램 `/theme <arg>`, `#태그` | 부분 | 안내 메시지 |
+| 텔레그램 저장된 선택 테마 (`resolve_selected_theme`) | — | 선택을 지우고 요청을 거부한다(적재·검색 안 함) |
+
+- 집행: `tests/test_theme_strict_lookup.py`
 
 ---
 

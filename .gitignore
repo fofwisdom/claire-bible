@@ -53,3 +53,6 @@ plugins/
 certs/*.crt
 certs/*.pem
 !certs/README.md
+
+# 에이전트 페이즈 핸드오프 노트 (추적 안 함)
+/.agent-work/

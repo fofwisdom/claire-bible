@@ -457,9 +457,15 @@ def shared_html(
 
     raw_summary = str((doc or {}).get("summary") or (doc or {}).get("detail") or "").strip()
     esc_summary = _html.escape(raw_summary).replace("\n", "<br/>")
-    detail_html = (doc or {}).get("detail_html") or ""
-    if not detail_html and esc_summary:
-        detail_html = f"<p>{esc_summary}</p>"
+    # <noscript> 안에는 raw detail_html을 넣지 않는다. 스크립트가 켜진 브라우저는 noscript 내용을
+    # 원문 텍스트로 파싱하므로 `</noscript><script>`로 탈출할 수 있다. 이스케이프한 요약, 요약이 없으면
+    # detail_html에서 태그를 걷어 낸 평문만 쓴다(SEO용 의미 본문은 유지).
+    fallback_body = esc_summary
+    if not fallback_body:
+        plain = re.sub(r"<[^>]*>", " ", str((doc or {}).get("detail_html") or ""))
+        plain = re.sub(r"\s+", " ", _html.unescape(plain)).strip()
+        fallback_body = _html.escape(plain)
+    fallback_body_html = f"<p>{fallback_body}</p>" if fallback_body else ""
 
     title = ((doc or {}).get("title") or "공유 문서").replace("<", "").replace(">", "")
     esc_title = _html.escape(title)
@@ -467,7 +473,7 @@ def shared_html(
         f'<noscript>'
         f'<article class="cb-semantic-content" style="max-width:860px;margin:2rem auto;padding:1.5rem;line-height:1.7;">'
         f'<h1>{esc_title}</h1>'
-        f'<div class="cb-semantic-body">{detail_html}</div>'
+        f'<div class="cb-semantic-body">{fallback_body_html}</div>'
         f'</article>'
         f'</noscript>'
     )

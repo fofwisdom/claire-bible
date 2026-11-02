@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from claire.config import Settings
-from claire.store.theme import ThemeManager, ThemeInfo
+from claire.store.theme import ThemeManager, ThemeInfo, ThemeNotFound
 
 
 @pytest.fixture
@@ -180,8 +180,9 @@ def test_delete_and_purge_custom_theme(temp_theme_env):
     assert deleted.label == "임시 테마"
     assert len(manager.list_themes()) == 1
 
-    # 삭제된 ID 조회 시 기본 테마 0 반환 (strict=False)
-    assert manager.get_theme(t1.id).id == 0
+    # 삭제된 ID 조회는 기본 테마 0으로 대신하지 않고 ThemeNotFound
+    with pytest.raises(ThemeNotFound):
+        manager.get_theme(t1.id)
 
     # 존재하지 않는 테마 삭제 시도 시 KeyError
     with pytest.raises(KeyError):
@@ -215,13 +216,14 @@ def test_theme_visibility_define_and_update(temp_theme_env):
     assert not any(t.id == 1 for t in public_themes)
     assert any(t.id == 2 for t in public_themes)
 
-    # 5. get_theme 에서 include_private=False 동작
-    with pytest.raises(KeyError, match="비공개 테마"):
-        manager.get_theme(1, strict=True, include_private=False)
-
-    # strict=False 시 기본 공개 테마로 fallback
-    fallback = manager.get_theme(1, strict=False, include_private=False)
-    assert fallback.id == 0
+    # 5. get_theme 에서 include_private=False 동작: 기본 공개 테마로 대신하지 않고 ThemeNotFound
+    with pytest.raises(ThemeNotFound) as private_exc:
+        manager.get_theme(1, include_private=False)
+    # 비공개 테마의 존재가 드러나지 않도록 없는 테마와 같은 메시지
+    with pytest.raises(ThemeNotFound) as missing_exc:
+        manager.get_theme(999, include_private=False)
+    assert str(private_exc.value) == "테마를 찾을 수 없습니다: 1"
+    assert str(missing_exc.value) == "테마를 찾을 수 없습니다: 999"
 
     # 6. 테마 공개 여부 업데이트 (비공개 -> 공개)
     updated = manager.update_theme(1, is_public=True)
