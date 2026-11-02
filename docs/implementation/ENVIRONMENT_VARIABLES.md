@@ -43,7 +43,7 @@ graph TD
 
 ### 1.2 설정 로딩 및 우선순위 규칙
 
-1. **프로세스 환경변수 우선**: 프로세스에 이미 export되어 주입된 환경변수는 `.env` 파일의 값보다 항상 우선한다.
+1. **소스 우선순위** (`Settings.settings_customise_sources`): 생성자 인자 → `data/ingest_limits.json` → `data/providers.json` → 프로세스 환경변수 → `.env` 파일. 즉 두 JSON 파일이 관리하는 키는 export된 환경변수보다도 우선한다. 그 밖의 키는 프로세스 환경변수가 `.env`보다 우선한다.
 2. **개발 환경 파일 오버레이**: `CLAIRE_ENVIRONMENT=development` 선택 시 `.env`를 먼저 읽고, `.env.dev`의 설정이 뒤이어 로드되어 덮어쓴다.
 3. **셸 Sourcing 금지 (`treated as data`)**: `cb-manuscript`와 `deploy.sh`는 `.env` 파일을 셸 스크립트로 `source`하지 않으며, 자체 파서를 통해 안전하게 키-값 데이터로만 읽어 전달한다.
 4. **엄격한 DotEnv 파서 (`_ExactDotEnvSettingsSource`)**: 보안 selector(예: `CLAIRE_ANONYMOUS_READONLY`)는 따옴표나 외부 공백이 없는 exact `0` 또는 `1`만 허용하며, 중복 선언 시 기동 전 에러를 발생시킨다.
@@ -123,7 +123,7 @@ graph TD
 | `CLAIRE_PROVIDER` | `mock` | `mock`, `gemini`, `antigravity`, `codex`, `codex-cli` | 지식 그래프 추출, 요약, 판정에 사용할 메인 LLM 프로바이더. 키나 실행 파일이 없거나 알 수 없는 값이면 `CLAIRE_ENVIRONMENT=development`에서는 `mock`으로 대체하고, `production`에서는 대체하지 않고 호출 시 실패한다(`ProviderUnavailableError`). 상태 표시에는 `unavailable`로 나온다. 명시적으로 `mock`을 지정하면 운영 환경에서도 그대로 쓴다. ([MULTI_PROVIDER_DESIGN.md](../design/MULTI_PROVIDER_DESIGN.md) 참조) |
 | `CLAIRE_GEMINI_MODEL` | `gemini-3.1-flash-lite` | 문자열 | Gemini 프로바이더 사용 시 적용할 모델명. |
 | `CLAIRE_GEMINI_EFFORT` | `medium` | `low`, `medium`, `high` | Gemini 모델 추론 사고 레벨 (Reasoning Effort). |
-| `CLAIRE_GEMINI_EMBED_MODEL` | `text-embedding-004` | 문자열 | 임베딩 벡터 생성에 사용할 Gemini 모델명. (기존 `gemini-embedding-001`에서 상향) |
+| `CLAIRE_GEMINI_EMBED_MODEL` | `gemini-embedding-001` | 문자열 | 임베딩 벡터 생성에 사용할 Gemini 모델명. 실제 기본값은 `providers.json` 기본값(`DEFAULT_PROVIDERS_CONFIG`)인 `gemini-embedding-001`이다. `Settings` 필드 기본값 `text-embedding-004`는 `providers.json` 값이 우선하므로 적용되지 않는다. 모델을 바꾸면 기존 벡터와 공간이 달라지므로 `re-embed`가 필요하다. |
 | `CLAIRE_EMBED_TASK_TYPE` | `SEMANTIC_SIMILARITY` | 문자열 | 호출자가 task_type을 지정하지 않을 때 쓰는 임베딩 task_type (`RETRIEVAL_DOCUMENT`, `RETRIEVAL_QUERY`, `SEMANTIC_SIMILARITY` 등). 적재 파이프라인과 `re-embed`의 온톨로지 프레임 임베딩은 `RETRIEVAL_DOCUMENT`를 직접 지정하므로 이 값의 영향을 받지 않는다. |
 | `CLAIRE_GEMINI_MIN_INTERVAL` | `4.0` | 부동소수점 (초) | Gemini API 호출 간 최소 대기 간격 (무료 티어 Rate Limit 보호용). |
 | `CLAIRE_GEMINI_MAX_RETRIES` | `5` | 정수 | Gemini API 429/5xx 에러 발생 시 최대 재시도 횟수. |

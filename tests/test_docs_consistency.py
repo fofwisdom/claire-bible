@@ -7,12 +7,14 @@ not checked here.
 
 from __future__ import annotations
 
+import copy
 import re
 from pathlib import Path
 
 import pytest
 
 from claire.config import Settings
+from claire.provider_manager import DEFAULT_PROVIDERS_CONFIG, ProviderManager
 
 ROOT = Path(__file__).resolve().parents[1]
 DOCS = ROOT / "docs"
@@ -73,7 +75,15 @@ def _env_rows() -> dict[str, str]:
 
 
 def _settings_defaults() -> dict[str, object]:
-    return {f.alias: f.default for f in Settings.model_fields.values() if f.alias}
+    """Effective defaults: ``Settings`` field defaults overlaid with the providers.json defaults."""
+    defaults = {f.alias: f.default for f in Settings.model_fields.values() if f.alias}
+    manager = ProviderManager.__new__(ProviderManager)
+    manager.get_config = lambda: copy.deepcopy(DEFAULT_PROVIDERS_CONFIG)
+    for field, value in ProviderManager.get_settings_dict(manager).items():
+        alias = Settings.model_fields[field].alias
+        if alias and value not in ("", None):
+            defaults[alias] = value
+    return defaults
 
 
 def test_every_setting_is_documented() -> None:
