@@ -128,13 +128,13 @@ def test_resolve_or_create_safe_gating_verdicts():
     # 2. Gate 2: Hard invariant 차단 (버전 충돌)
     e2 = Entity(type="Product", name="vSphere 7.0", aliases=[], observations=[], sources=["doc_1"])
     dbm.upsert_entity(conn, e2)
-    vstore.put(e2.id, [1.0, 0.0], "claire")
+    vstore.put(e2.id, [1.0, 0.0], "test")
 
     # 높은 벡터 유사도(1.0)를 제공하더라도 버전이 8.0 vs 7.0으로 충돌하므로 병합 금지
     res2 = resolve_or_create(
         conn, vstore,
         name="vSphere 8.0", etype="Product", aliases=[], observations=[], document_id="doc_2",
-        embed_fn=lambda: [1.0, 0.0],
+        embed_fn=lambda: [1.0, 0.0], embed_model="test",
     )
     assert res2.created is True  # 독립 노드로 생성됨
     assert res2.decision is not None
@@ -143,7 +143,8 @@ def test_resolve_or_create_safe_gating_verdicts():
     # 3. Gate 4: LLM Judge 경계선 판정
     e3 = Entity(type="Framework", name="Letta", aliases=[], observations=["Agent memory"], sources=["doc_1"])
     dbm.upsert_entity(conn, e3)
-    vstore.put(e3.id, [1.0, 0.0, 0.0], "claire")
+    # 테마는 첫 저장에서 "test" 모델로 고정됐다(§10.4). 같은 모델로 시드한다.
+    vstore.put(e3.id, [1.0, 0.0, 0.0], "test")
 
     # borderline 점수(0.8) & judge가 SAME 반환
     res3 = resolve_or_create(

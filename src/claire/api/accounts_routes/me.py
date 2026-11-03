@@ -19,6 +19,7 @@ from ...store import accounts as accounts_store
 from ...store import auth_db
 from ..principal import Principal, request_principal
 from ..security import read_json_body
+from . import keys as keys_routes
 from .admin import ROLE_TEXT, STATUS_TEXT
 from .common import (
     AccountsContext,
@@ -123,7 +124,7 @@ def perform_password_change(
         conn.close()
 
 
-def _me_page(payload: dict[str, Any], notice: str | None) -> Response:
+def _me_page(payload: dict[str, Any], notice: str | None, keys_html: str = "") -> Response:
     notice_text = NOTICE_TEXT.get(notice or "")
     notice_html = f'<p class="notice" role="status">{escape(notice_text)}</p>' if notice_text else ""
     return render_template(
@@ -138,14 +139,16 @@ def _me_page(payload: dict[str, Any], notice: str | None) -> Response:
             "has_password": "1" if payload["has_password"] else "0",
             "min_password_length": auth_db.MIN_PASSWORD_LENGTH,
         },
-        markup={"notice": notice_html},
+        markup={"notice": notice_html, "provider_keys": keys_html},
     )
 
 
 def routes(ctx: AccountsContext) -> list[Route]:
     async def me_page(request: Request) -> Response:
-        payload = await asyncio.to_thread(me_payload, ctx, request_principal(request))
-        return _me_page(payload, request.query_params.get("notice"))
+        principal = request_principal(request)
+        payload = await asyncio.to_thread(me_payload, ctx, principal)
+        keys_html = await asyncio.to_thread(keys_routes.keys_section_html, ctx, principal)
+        return _me_page(payload, request.query_params.get("notice"), keys_html)
 
     async def me_get(request: Request) -> Response:
         return JSONResponse(await asyncio.to_thread(me_payload, ctx, request_principal(request)))

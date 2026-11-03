@@ -11,7 +11,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, PrivateAttr, field_validator, model_validator
 from pydantic_settings import (
     BaseSettings,
     DotEnvSettingsSource,
@@ -405,6 +405,24 @@ class Settings(BaseSettings):
             strict_dotenv,
             file_secret_settings,
         )
+
+    # --- provider policy (P4, 설계 §10.2) ---
+    # 계정 컨텍스트(``accounts.provider_policy.ProviderContext``)는 필드가 아니라 비공개 속성이다. 그래서 env·.env·providers.json
+    # 어느 소스에서도 읽히지 않고, ``model_dump``·직렬화·support bundle에 나가지 않는다. ``model_copy``는 이 값을 그대로 옮긴다.
+    _provider_context: Any = PrivateAttr(default=None)
+
+    @property
+    def provider_context(self) -> Any:
+        """``provider_policy.settings_for_context``가 붙인 컨텍스트. 없으면 None(관리자·레거시 경로)."""
+        return self._provider_context
+
+    @provider_context.setter
+    def provider_context(self, value: Any) -> None:
+        self._provider_context = value
+
+    def _member_context(self) -> Any:
+        ctx = self._provider_context
+        return ctx if ctx is not None and not getattr(ctx, "is_admin", True) else None
 
     # --- secrets ---
     gemini_api_key: str = Field(default="", alias="GEMINI_API_KEY")
@@ -976,11 +994,23 @@ class Settings(BaseSettings):
         return (self.environment or "").strip().lower() == "production"
 
     def _unavailable_or_mock(self) -> str:
-        """운영 환경은 mock 으로 대체하지 않고 unavailable 로 표시한다(PRINCIPLES C2)."""
+        """운영 환경은 mock 으로 대체하지 않고 unavailable 로 표시한다(PRINCIPLES C2). 멤버 컨텍스트는 환경과 무관하게 unavailable."""
+        if self._member_context() is not None:
+            return PROVIDER_UNAVAILABLE
         return PROVIDER_UNAVAILABLE if self.is_production else "mock"
+
+    def _member_unavailable_reason(self, kind: str, raw: str) -> str | None:
+        """멤버 컨텍스트에서 kind 프로바이더를 쓸 수 없는 이유. api-key 분류(gemini)만 쓸 수 있다(§10.1)."""
+        if raw in ("", "none"):
+            return f"{kind}: 이 계정에 쓸 수 있는 프로바이더가 없다 (API 키를 등록하거나 관리자에게 서버 등급을 요청)"
+        if raw in ("gemini", "google"):
+            return None if self.gemini_api_key else f"{kind}: 이 계정의 API 키가 없다"
+        return f"{kind}: 멤버 계정은 프로바이더 {raw}를 쓸 수 없다"
 
     def _llm_unavailable_reason(self) -> str | None:
         raw = self.provider.strip().lower()
+        if self._member_context() is not None:
+            return self._member_unavailable_reason("llm", raw)
         if raw in ("antigravity", "agy"):
             if find_agy_executable(self.agy_bin) is not None:
                 return None
@@ -1014,6 +1044,8 @@ class Settings(BaseSettings):
 
     def _stt_unavailable_reason(self) -> str | None:
         raw = (self.stt_provider or "gemini").strip().lower()
+        if self._member_context() is not None:
+            return self._member_unavailable_reason("stt", raw)
         if raw in ("gemini", "google"):
             return None if self.gemini_api_key else f"CLAIRE_STT_PROVIDER={raw}: GEMINI_API_KEY가 비어 있다"
         if raw == "mock":
@@ -1022,6 +1054,8 @@ class Settings(BaseSettings):
 
     def _vlm_unavailable_reason(self) -> str | None:
         raw = (self.vlm_provider or "gemini").strip().lower()
+        if self._member_context() is not None:
+            return self._member_unavailable_reason("vlm", raw)
         if raw in ("gemini", "google"):
             return None if self.gemini_api_key else f"CLAIRE_VLM_PROVIDER={raw}: GEMINI_API_KEY가 비어 있다"
         if raw == "mock":
@@ -1054,7 +1088,7 @@ class Settings(BaseSettings):
     def effective_stt_provider(self) -> str:
         """비디오 전사 기능 활성화 및 실행 환경에 따른 STT provider 반환."""
         if not self.enable_video_transcription:
-            return "mock"
+            return PROVIDER_UNAVAILABLE if self._member_context() is not None else "mock"
         if self._stt_unavailable_reason() is not None:
             return self._unavailable_or_mock()
         raw = (self.stt_provider or "gemini").strip().lower()
@@ -1064,7 +1098,7 @@ class Settings(BaseSettings):
     def effective_vlm_provider(self) -> str:
         """이미지/인포그래픽 전사(VLM) 기능 활성화 및 실행 환경에 따른 VLM provider 반환."""
         if not self.enable_vlm_transcription:
-            return "mock"
+            return PROVIDER_UNAVAILABLE if self._member_context() is not None else "mock"
         if self._vlm_unavailable_reason() is not None:
             return self._unavailable_or_mock()
         raw = (self.vlm_provider or "gemini").strip().lower()

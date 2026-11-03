@@ -19,7 +19,7 @@ from ...extract.table_budget import (
 )
 from ...ontology.base import Document
 from ..normalize import canonicalize_url, content_hash
-from .base import FetchError
+from .base import FetchError, attach_usage_hooks, fetch_settings
 from .guard import validate_web_content
 from .http_policy import BROWSER_USER_AGENT
 
@@ -207,11 +207,12 @@ def fetch_web(url: str, *, full_content: bool = False) -> Document:
 
     # 5) VLM 에스컬레이션 — 모든 텍스트 스크랩 후에도 본문이 빈약하지만 본문 이미지가 있는 경우 VLM 전사 시도
     if not usable and images:
-        settings = get_settings()
+        settings = fetch_settings(None, get_settings)
         if getattr(settings, "enable_vlm_transcription", True):
             try:
                 from ...extract.vision.factory import get_vision_provider
                 v_provider = get_vision_provider(settings)
+                attach_usage_hooks(v_provider, settings)
                 target_vlm_lang = getattr(settings, "effective_vlm_language", None) or (settings.effective_preferred_languages[0] if getattr(settings, "effective_preferred_languages", None) else "ko")
                 v_res = v_provider.transcribe_images(images, title=title, language=target_vlm_lang)
                 if v_res.text:
@@ -261,7 +262,7 @@ def fetch_web(url: str, *, full_content: bool = False) -> Document:
         doc_type = "web"
         is_pdf = False
 
-    settings = get_settings()
+    settings = fetch_settings(None, get_settings)
     budget = 0 if full_content else (settings.pdf_max_extract_chars if doc_type in ("pdf", "odt") else settings.raw_char_budget)
     appendix_truncated = False
     references_truncated = False

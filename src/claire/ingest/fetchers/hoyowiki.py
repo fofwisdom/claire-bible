@@ -19,7 +19,7 @@ from ...config import get_settings
 from ...extract.table_budget import slice_document_text
 from ...ontology.base import Document
 from ..normalize import canonicalize_url, content_hash
-from .base import BaseFetcher, BaseWebAdapter, FetchError, WebAdapterResult
+from .base import BaseFetcher, BaseWebAdapter, FetchError, WebAdapterResult, fetch_settings
 from .http import SafeHttpClient
 from .http_policy import BROWSER_USER_AGENT
 from ..registry import register_fetcher, register_web_adapter
@@ -591,7 +591,7 @@ def fetch_hoyowiki(url: str, *, full_content: bool = False, lang: str | None = N
 
     title, text, links, anchors, images = format_entry_to_markdown(page, game)
 
-    settings = get_settings()
+    settings = fetch_settings(None, get_settings)
     budget = 0 if full_content else settings.raw_char_budget
     raw_text, is_truncated, orig_chars, raw_chars = slice_document_text(
         text or "", budget, strategy=settings.slicing_strategy

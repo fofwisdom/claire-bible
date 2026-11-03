@@ -26,7 +26,7 @@ SURFACE_HELPERS = {"_root": "root", "_system": "system", "_namespaced": "namespa
 
 ROOT = {"/"}
 ANY = {"/providers", "/providers/test", "/limits", "/ingest-limits", "/tokens", "/tokens/revoke",
-       "/me", "/api/me", "/api/me/password", "/api/invites"}
+       "/me", "/api/me", "/api/me/password", "/api/invites", "/api/me/keys", "/api/me/keys/verify"}
 SYSTEM = {
     "/health", "/robots.txt", "/sitemap.xml", "/favicon.ico", "/favicon.svg", "/apple-touch-icon.png",
     "/apple-touch-icon-precomposed.png", "/manifest.json", "/site.webmanifest", "/browserconfig.xml",
@@ -42,6 +42,7 @@ SYSTEM = {
     "/invite/{code}",
     "/explore/accounts",
     "/admin/instance", "/api/admin/instance", "/api/admin/instance/mode", "/api/admin/instance/legacy-hosts/sunset",
+    "/api/admin/server-tier",
 }
 ADMIN_KEYS = {
     *((m, p) for p in ("/providers", "/limits", "/ingest-limits") for m in ("GET", "HEAD", "POST", "PATCH")),
@@ -55,12 +56,15 @@ ADMIN_KEYS = {
     *((m, "/api/invites") for m in ("GET", "HEAD", "POST", "PATCH")),
     ("POST", "/api/admin/instance/mode"),
     ("POST", "/api/admin/instance/legacy-hosts/sunset"),
+    *((m, "/api/admin/server-tier") for m in ("GET", "HEAD", "PUT")),
 }
 # 네트워크 전용 경로는 P3에서 생긴다(/invite/{code}, /explore/*, /api/invites).
 NETWORK_ONLY_KEYS: set[tuple[str, str]] = {
     *((m, "/invite/{code}") for m in ("GET", "HEAD", "POST")),
     *((m, "/explore/accounts") for m in ("GET", "HEAD")),
     *((m, "/api/invites") for m in ("GET", "HEAD", "POST", "PATCH")),
+    *((m, "/api/me/keys") for m in ("GET", "HEAD", "PUT", "DELETE")),
+    ("POST", "/api/me/keys/verify"),
 }
 
 

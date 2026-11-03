@@ -1,8 +1,8 @@
 # 계정 구현 정본 (Accounts Implementation Reference)
 
-확인 기준: P3 계정·초대·수명주기 구현 (2026-11-03) · 대상 독자: 계정·로그인·자격증명·초대 코드를 고치거나 확장하는 에이전트 · 설계 배경: [MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md](../design/MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md) §8, §13 (Rev. 2.3)
+확인 기준: P4 프로바이더 정책과 BYOK 구현 (2026-11-04) · 대상 독자: 계정·로그인·자격증명·초대 코드·API 키를 고치거나 확장하는 에이전트 · 설계 배경: [MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md](../design/MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md) §8, §11, §13 (Rev. 2.3)
 
-이 문서는 **지금 코드가 무엇을 어디서 어떻게 하는지**를 적는다. 범위는 설계의 P1(싱글 모드 계정 코어) 및 P3(초대 파이프라인, 계정 수명주기, 퇴역 USERNAME 정보 초기화 및 디스크 정리)이다. 근거 표기는 [PRINCIPLES.md](../PRINCIPLES.md) F1을 따른다.
+이 문서는 **지금 코드가 무엇을 어디서 어떻게 하는지**를 적는다. 범위는 설계의 P1(싱글 모드 계정 코어), P3(초대 파이프라인, 계정 수명주기, 퇴역 USERNAME 정보 초기화 및 디스크 정리) 및 P4(본인 API 키 관리 `/me/keys`)이다. 근거 표기는 [PRINCIPLES.md](../PRINCIPLES.md) F1을 따른다.
 
 - **[코드]** 기준 작업 트리의 소스에서 직접 확인한 사실
 - **[결정]** 저장소 소유자가 정한 방침. 바꾸기 전에 소유자에게 묻는다
@@ -25,12 +25,13 @@
 | `src/claire/store/accounts.py` | 계정 조회·설정 완료, 수명주기 전이, 세션 발급·검증, 퇴역 이름 정보 초기화 | `AccountStore`, `Account`, `CredentialBinding`, `CREDENTIAL_ACCEPTING_STATUSES`, `create_account_session`, `validate_session_binding`, `validate_oauth_binding`, `suspend_account`, `resume_account`, `schedule_account_deletion`, `cancel_account_deletion`, `purge_account`, `preview_release_username`, `release_username` |
 | `src/claire/store/auth_db.py` | auth.db 스키마, scrypt 비밀번호, 초대 영속화, 실패 제한, 감사 기록 | `connect_auth_db`, `check_password_policy`, `set_password`, `verify_password`, `begin_login_attempt`, `settle_login_success`, `check_login_throttle`, `record_login_failure`, `record_admin_audit`, `SCRYPT_MAX_CONCURRENCY` |
 | `src/claire/store/secrets.py` | AES-256-GCM 마스터 키 비밀 서비스 및 HMAC 파생 | `SecretService`, `CLAIRE_SECRET_KEY` |
+| `src/claire/store/provider_keys.py` | 멤버 BYOK API 키 암호화 저장소, 시험 호출 검증 | `ProviderKeyMeta`, `ActiveKey`, `put_key`, `load_active_key`, `verify_key`, `delete_key` |
 | `src/claire/accounts/username_policy.py` | DB 없이 판정하는 USERNAME 규칙 | `validate_username`, `normalize_username`, `RESERVED_USERNAMES`, `instance_reserved_labels`, `UsernameRejected` |
 | `src/claire/accounts/invites.py` | Crockford Base32 8자리 초대 코드 생성, 정규화, 매개변수 유효성 검증 | `InvitationInfo`, `normalize_invite_code`, `validate_invite_code_syntax`, `generate_invite_code`, `validate_invite_params`, `InviteError` |
 | `src/claire/ids.py` | 시간 정렬 64비트 번호 | `timestamp_id`, `legacy_timestamp_id`, `insert_with_timestamp_id`, `format_public_id`, `parse_public_id` |
 | `src/claire/api/principal.py` | 요청 주체 | `Principal`, `ANONYMOUS`, `request_principal`, `has_recent_auth`, `STEP_UP_WINDOW_SECONDS` |
 | `src/claire/api/security.py` | 자격증명 검증과 `Principal` 배정, 라우트 접근 규칙, 실패 제한용 클라이언트 IP | `ROUTE_POLICY`, `AuthenticationMiddleware`, `_Credential`, `_bind_account`, `_env_token_credential`, `client_ip`, `parse_trusted_proxies` |
-| `src/claire/api/accounts_routes/` | 계정 라우트(`setup.py`, `login.py`, `admin.py`, `me.py`, `invites.py`)와 공용 헬퍼(`common.py`) | `build_account_routes`, `prepare_auth_db`, `require_recent_auth`, `same_origin` |
+| `src/claire/api/accounts_routes/` | 계정 라우트(`setup.py`, `login.py`, `admin.py`, `me.py`, `invites.py`, `keys.py`, `instance.py`)와 공용 헬퍼(`common.py`) | `build_account_routes`, `prepare_auth_db`, `require_recent_auth`, `same_origin` |
 | `src/claire/templates/` | `setup.html`, `login.html`, `me.html`, `admin_accounts.html` | `$이름` 자리채움(`common.render_template`) |
 | `src/claire/static/js/accounts.js` | `/me` 화면의 표시 이름·본인 확인·비밀번호 양식 | `PATCH /api/me`, `POST /api/auth/reauth`, `POST /api/me/password` 호출 |
 
@@ -206,6 +207,46 @@
 - **CLI 명령**:
   `./cb-manuscript app account release-username <name>`은 dry-run이 기본이고 `--apply`로 실행한다.
 
+### 5.8 본인 API 키 관리 (`/api/me/keys`, `/api/me/keys/verify`)
+
+**[코드]** `src/claire/store/provider_keys.py`, `src/claire/api/accounts_routes/keys.py`. 설계 §11.2, §11.3 (P4 L4-b).
+
+- **네트워크 모드 전용**: 싱글 모드에서는 404를 반환한다(`ROUTE_POLICY`의 `modes={"network"}` 및 핸들러의 `is_network_mode`).
+- **권한 및 주체**:
+  - 규칙 `owner`. `account_id` 필수.
+  - 관리자(`instance_role == "admin"`)가 호출하면 403 `admin_uses_provider_settings`를 반환한다 (관리자는 `data/providers.json`을 직접 사용하므로 엔드포인트 접근이 차단된다).
+  - 멤버(`is_member`: `role == "member"`, `scope == "owner"`)만 사용 가능하며, 그 외(익명, collaborator, readonly 등)는 404 Not Found다.
+- **쓰기 전용 API 키 및 키 미노출 원칙 (Write-only Secrets, §11.2, §11.3, D8)**:
+  - 등록 시 전달받은 `api_key`는 요청 본문에서 읽자마자 `register_secret`으로 등록되어 메모리 내 등록 이후의 모든 로그와 예외 출력(`SecretScrubFilter`, `scrub_text`, `scrub_exception`)에서 마스킹된다.
+  - 마스터 키(`CLAIRE_SECRET_KEY` 또는 `data/auth/master.key`)에서 용도별로 파생된 암호화 키를 사용해 AES-256-GCM(`provider_keys.put_key`, AAD: `account_id|provider|key_id`)으로 암호화하여 `auth.db`의 `provider_keys` 테이블에 보관한다.
+  - 평문 API 키는 저장된 이후 어떤 API·CLI·로그·번들(`support_bundle`, `graph_bundle`)에서도 절대 조회·반환·복사할 수 없다 (쓰기 전용).
+  - 메타데이터 및 화면에는 파생 HMAC의 앞 8자리 `fingerprint`만 표시되며, 키의 시작 또는 끝 부분 등 일부 문자도 전혀 보여주지 않는다(D8).
+- **엔드포인트 명세**:
+  - `GET /api/me/keys`: 등록된 키 메타데이터 목록 반환 (`{"keys": [{provider, fingerprint, status, created_at, last_verified_at, last_used_at}]}`). `Cache-Control: no-store`.
+  - `PUT /api/me/keys`: 키 등록 및 교체.
+    - 단계 인증(`require_recent_auth`, 최근 15분 이내 인증) 필수.
+    - 본문: `{"provider": "gemini", "api_key": "..."}` (`provider`는 `MEMBER_KEY_PROVIDERS`인 `"gemini"`만 지원).
+    - 저장 전 `provider_keys.verify_key`로 실제 외부 시험 호출을 수행하여 유효성을 검증한다.
+    - 시험 호출에서 키가 거부(401/403 등)되면 저장하지 않고 422 `key_verification_failed`와 에러 메시지(스크러빙 완료)를 반환한다.
+    - 일시적 네트워크 장애 등으로 판정 불가 시 저장하지 않고 503 `key_verification_unavailable`을 반환한다.
+    - 검증 성공 시 AES-256-GCM 암호문으로 저장하고 상태를 `active`로 설정하며, 감사 기록 `account.provider_key_put`을 남긴다. 응답은 `{"key": <meta>}`.
+  - `POST /api/me/keys/verify`: 저장된 키 재검증.
+    - 본문: `{"provider": "gemini"}`.
+    - 저장된 암호문을 복호화하여 시험 호출을 다시 수행하고 상태를 갱신한다.
+    - 시험 호출 성공 시 `status="active"`, 실패(거부) 시 `status="rejected"`, `last_verified_at` 갱신.
+    - 키 복호화 실패 시 409 `key_unreadable`.
+    - 키가 존재하지 않으면 404 `key_not_found`.
+    - 일시 장애로 판정 불가 시 상태와 `last_verified_at`을 변경하지 않고 503 `key_verification_unavailable` (상태 불변).
+    - 응답: `{"ok": bool, "message": str, "key": <meta>}`.
+  - `DELETE /api/me/keys`: 등록된 키 삭제.
+    - 단계 인증(`require_recent_auth`) 필수.
+    - 쿼리 매개변수: `?provider=gemini` (미지정 시 해당 계정의 모든 키 삭제).
+    - 삭제 성공 시 감사 기록 `account.provider_key_delete`를 남기며, 삭제 후에는 서버 등급 범위에서만 LLM 작업을 수행한다. 응답: `{"ok": true, "deleted": n}`.
+- **폴백 없음 (Fail-closed, Principle C2)**:
+  - 멤버가 등록한 키가 거부(`rejected`)되거나 할당량이 소진되면 해당 계정의 LLM 작업은 실패(`ProviderKeyRejected`)하며, 서버 등급이나 관리자 CLI로 자동 전환/폴백하지 않는다.
+- **WebUI `/me` 연동**:
+  - 네트워크 모드 멤버 계정으로 `/me` 페이지에 접속하면 `keys_section_html`을 통해 "내 API 키" 메타데이터 카드 및 등록·재확인·삭제 양식이 렌더링된다.
+
 ## 6. 비밀번호
 
 - **[코드] 해시**: `hashlib.scrypt`, n=2¹⁵, r=8, p=1, dklen=64, 솔트 16바이트, `maxmem` 64MiB. 프로세스 안의 동시 계산은 `SCRYPT_MAX_CONCURRENCY = 4`개로 제한한다(세마포어, 계산 하나 32MiB → 최고 128MiB). 없는 계정의 더미 계산도 같은 세마포어를 거친다. 매개변수는 행의 `params`(JSON)에 저장하고 검증은 저장된 값으로 한다. 비교는 `hmac.compare_digest`. `algo`가 `scrypt`가 아니면 `RuntimeError`.
@@ -234,9 +275,9 @@
 - **[코드] 위치**: `<data_dir>/auth/auth.db`(`auth_db_path`). `data_dir`는 `db_file`의 부모 디렉터리이므로 기본은 `data/auth/auth.db`이고, `api_tokens.json`과 같은 디렉터리다.
 - **[코드] 분리 이유**(모듈 설명): graph bundle·support bundle·내보내기에 비밀이 섞이지 않게 하고, 지식 DB 장애가 로그인으로 번지지 않게 한다. support bundle이 이 파일을 실제로 제외하는지 확인하는 테스트는 없다 [미검증].
 - **[코드] 파일 권한**: 디렉터리를 0700으로 만들고(이미 있으면 POSIX에서 chmod), 파일은 SQLite가 열기 전에 0600으로 먼저 만든다(이미 있으면 chmod 0600). 디렉터리 chmod는 같은 디렉터리의 `api_tokens.json` 접근에도 적용된다. WAL·SHM 파일 권한은 [미검증].
-- **[코드] 스키마**: 설계 §13.3의 테이블 전부와 `meta`를 `CREATE TABLE IF NOT EXISTS`로 만든다. P1이 다루는 테이블은 `account_passwords`, `login_throttle`, `admin_audit`다. 나머지는 만들기만 한다.
-- **[코드] 버전**: `meta.schema_version`은 `AUTH_DB_SCHEMA_VERSION = 1`이며 claire.db의 버전과 별개다. 저장된 값이 더 크면 `RuntimeError`(다운그레이드 거부), 1보다 작거나 정수가 아니면 `RuntimeError`. [SCHEMA_VERSIONING.md](SCHEMA_VERSIONING.md) 참고.
-- **[코드] 준비 시점**: `claire migrate`가 claire.db보다 먼저 만들고 `auth_db schema_version=1`을 출력한다. 서비스 기동(`create_app`)도 `prepare_auth_db`로 만들고 정리한다. 라우트는 `mode=rw`로 열어 파일이 없으면 만들지 않고 실패한다(`common.open_auth_db`).
+- **[코드] 스키마**: 설계 §13.3의 테이블 전부와 `meta`를 `CREATE TABLE IF NOT EXISTS`로 만든다. P1이 다루는 테이블은 `account_passwords`, `login_throttle`, `admin_audit`다. P3에서 `invitations`, `invitation_redemptions`, `username_tombstones`, P4에서 `provider_keys`, `account_usage`(v2)가 활성화되었다.
+- **[코드] 버전**: `meta.schema_version`은 `AUTH_DB_SCHEMA_VERSION = 2`이며 claire.db의 버전과 별개다. v2(P4)에서 `account_usage`에 UTC 일 적재 집행용 `daily_day`·`daily_ingests` 열이 추가되었다. 저장된 값이 2보다 크면 `RuntimeError`(다운그레이드 거부), 1보다 작거나 정수가 아니면 `RuntimeError`. [SCHEMA_VERSIONING.md](SCHEMA_VERSIONING.md) 참고.
+- **[코드] 준비 시점**: `claire migrate`가 claire.db보다 먼저 만들고 `auth_db schema_version=2`를 출력한다. 서비스 기동(`create_app`)도 `prepare_auth_db`로 만들고 정리한다. 라우트는 `mode=rw`로 열어 파일이 없으면 만들지 않고 실패한다(`common.open_auth_db`).
 
 ## 9. 감사 기록
 
@@ -247,10 +288,12 @@
 | :--- | :--- | :--- |
 | `account.setup` | `/setup` 확정 | `channel`, `credential_id`, `password_saved` |
 | `account.password_change` | `/api/me/password` 성공 | `other_sessions_revoked` |
+| `account.provider_key_put` | `PUT /api/me/keys` 성공 | `provider` |
+| `account.provider_key_delete` | `DELETE /api/me/keys` 성공 | `provider`, `deleted` |
 
 - **[코드]** 로그인 성공·실패, 로그아웃, 재인증은 감사 기록에 남기지 않는다. 로그인 실패는 `login_throttle`에만 남는다.
 - **[코드]** 조회는 `list_admin_audit`(최근 것부터)이며, 이를 노출하는 HTTP 경로는 없다.
 
 ## 10. 테스트
 
-`tests/test_schema_v15.py`, `tests/test_account_store.py`, `tests/test_auth_db.py`, `tests/test_ids.py`, `tests/test_username_policy.py`, `tests/test_principal.py`, `tests/test_setup_flow.py`, `tests/test_login_flow.py`, `tests/test_account_routes.py`, `tests/test_api_security.py`, `tests/test_account_forms_browser.py`(설치된 Playwright Chromium으로 실제 양식 제출, 없으면 건너뜀), `tests/test_invite_flow.py`(초대 파이프라인 및 원자적 차감), `tests/test_username_release.py`(수명주기 전이, 디스크 정리 및 퇴역 USERNAME 정보 초기화).
+`tests/test_schema_v15.py`, `tests/test_account_store.py`, `tests/test_auth_db.py`, `tests/test_ids.py`, `tests/test_username_policy.py`, `tests/test_principal.py`, `tests/test_setup_flow.py`, `tests/test_login_flow.py`, `tests/test_account_routes.py`, `tests/test_api_security.py`, `tests/test_account_forms_browser.py`(설치된 Playwright Chromium으로 실제 양식 제출, 없으면 건너뜀), `tests/test_invite_flow.py`(초대 파이프라인 및 원자적 차감), `tests/test_username_release.py`(수명주기 전이, 디스크 정리 및 퇴역 USERNAME 정보 초기화), `tests/test_me_keys.py`(본인 API 키 관리), `tests/test_secret_write_only.py`(카나리아 키 미노출).

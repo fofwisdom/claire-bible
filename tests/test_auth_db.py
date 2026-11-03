@@ -63,7 +63,7 @@ def test_schema_creates_all_tables_and_is_idempotent(conn):
     adb.init_auth_db(conn)
     assert [tuple(r) for r in _schema_snapshot(conn)] == before
     rows = conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchall()
-    assert [r[0] for r in rows] == [str(adb.AUTH_DB_SCHEMA_VERSION)] == ["1"]
+    assert [r[0] for r in rows] == [str(adb.AUTH_DB_SCHEMA_VERSION)] == ["2"]
 
 
 def test_reconnect_keeps_data(tmp_path, fast_scrypt):
@@ -79,7 +79,9 @@ def test_reconnect_keeps_data(tmp_path, fast_scrypt):
 def test_newer_schema_version_is_refused(tmp_path):
     path = adb.auth_db_path(tmp_path)
     c = adb.connect_auth_db(path)
-    c.execute("UPDATE meta SET value='2' WHERE key='schema_version'")
+    c.execute(
+        "UPDATE meta SET value=? WHERE key='schema_version'", (str(adb.AUTH_DB_SCHEMA_VERSION + 1),)
+    )
     c.commit()
     c.close()
     with pytest.raises(RuntimeError, match="newer"):

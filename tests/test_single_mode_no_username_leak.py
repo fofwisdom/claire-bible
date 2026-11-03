@@ -8,6 +8,7 @@ HTML 셸의 부트스트랩 메타태그 ``storage-key``는 계정의 public_id 
 
 from __future__ import annotations
 
+import json
 import os
 import sqlite3
 import time
@@ -21,6 +22,7 @@ from starlette.requests import Request
 from starlette.testclient import TestClient
 
 from claire.accounts import readiness
+from claire.accounts.provider_policy import ServerTier
 from claire.api import security, server
 from claire.api.host_router import LegacyHostPolicy
 from claire.api.namespace import (
@@ -293,6 +295,15 @@ def test_readiness_g5_server_tier_setting(app_env):
         conn.execute(
             "INSERT INTO instance_settings (key, value, updated_at) VALUES ('server_tier', 'none', ?)",
             (time.time(),),
+        )
+        conn.commit()
+        report = readiness.check_readiness(conn, app_env.settings)
+        item_g5 = next(i for i in report.items if i.id == "G5")
+        # A bare 'none' string is not a valid ServerTier JSON object (P4 L4-c).
+        assert item_g5.passed is False
+        conn.execute(
+            "UPDATE instance_settings SET value=? WHERE key='server_tier'",
+            (json.dumps(ServerTier().to_dict()),),
         )
         conn.commit()
         report = readiness.check_readiness(conn, app_env.settings)

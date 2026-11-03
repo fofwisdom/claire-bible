@@ -18,6 +18,7 @@ from starlette.routing import Route
 
 from ...store import accounts as accounts_store
 from ...store import auth_db
+from ...store import provider_keys
 from ..principal import Principal, request_principal
 from .common import (
     AccountsContext,
@@ -57,8 +58,13 @@ def _theme_counts(conn: sqlite3.Connection) -> dict[int, int]:
     return {int(r[0]): int(r[1]) for r in rows}
 
 
-def account_summary(account: accounts_store.Account, theme_count: int) -> dict[str, Any]:
-    """§8.6 목록 항목 중 P1에서 있는 값. 번호는 JS 정밀도 손실을 막기 위해 문자열이다(S13)."""
+def account_summary(
+    account: accounts_store.Account, theme_count: int, *, has_provider_key: bool | None = None
+) -> dict[str, Any]:
+    """§8.6 목록 항목 중 P1에서 있는 값. 번호는 JS 정밀도 손실을 막기 위해 문자열이다(S13).
+
+    ``has_provider_key``는 멤버 항목에만 싣는 등록 여부다(§11.2). 키의 fingerprint·상태는 싣지 않는다.
+    """
     res = {
         "public_id": str(account.public_id),
         "username": account.username,
@@ -70,18 +76,27 @@ def account_summary(account: accounts_store.Account, theme_count: int) -> dict[s
     }
     if account.delete_after is not None:
         res["delete_after"] = account.delete_after
+    if has_provider_key is not None:
+        res["has_provider_key"] = has_provider_key
     return res
 
 
 def list_account_summaries(ctx: AccountsContext) -> list[dict[str, Any]]:
     conn = open_db(ctx)
+    auth = open_auth_db(ctx)
     try:
         counts = _theme_counts(conn)
         return [
-            account_summary(a, counts.get(a.id, 0))
+            account_summary(
+                a,
+                counts.get(a.id, 0),
+                # 관리자는 providers.json을 쓰므로 멤버 항목에만 키 등록 여부를 싣는다(§11.2).
+                has_provider_key=provider_keys.has_key(auth, account_id=a.id) if a.role == "member" else None,
+            )
             for a in accounts_store.AccountStore(conn).list_accounts()
         ]
     finally:
+        auth.close()
         conn.close()
 
 

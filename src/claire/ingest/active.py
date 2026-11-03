@@ -18,6 +18,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
 
+from ..secret_scrub import scrub_exception, scrub_text
+
 logger = logging.getLogger(__name__)
 
 _STATE_FILENAME = "active_ingest.json"
@@ -57,7 +59,7 @@ class JobHandle:
         result: dict[str, Any] | None = None,
     ) -> None:
         if msg is not None:
-            self.state["msg"] = msg
+            self.state["msg"] = scrub_text(msg)
         if stage is not None:
             self.state["stage"] = stage
         if heatmap_matrix is not None:
@@ -371,7 +373,7 @@ def active_job(
         handle.state["completed_at"] = now
         handle.state["updated_at"] = now
         handle.state["stage"] = "error"
-        handle.state["msg"] = f"작업 오류: {exc}"
+        handle.state["msg"] = f"작업 오류: {scrub_exception(exc)}"
         _save_job(data_dir, handle.state)
         _sync_active_ingest(data_dir)
         raise
@@ -470,7 +472,7 @@ def update_active_ingest(
     if not current.get("active"):
         return
     if msg is not None:
-        current["msg"] = msg
+        current["msg"] = scrub_text(msg)
     if stage is not None:
         current["stage"] = stage
     if heatmap_matrix is not None:
@@ -505,7 +507,7 @@ def clear_active_ingest(
         current_job.state["completed_at"] = now
         current_job.state["updated_at"] = now
         if error:
-            current_job.state["msg"] = f"적재 오류: {error}"
+            current_job.state["msg"] = f"적재 오류: {scrub_text(error)}"
             current_job.state["stage"] = "error"
         else:
             current_job.state["msg"] = "적재 및 대조 완료"
@@ -527,7 +529,7 @@ def clear_active_ingest(
     current["completed_at"] = now
     current["updated_at"] = now
     if error:
-        current["msg"] = f"적재 오류: {error}"
+        current["msg"] = f"적재 오류: {scrub_text(error)}"
         current["stage"] = "error"
     else:
         current["msg"] = "적재 및 대조 완료"

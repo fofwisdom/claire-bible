@@ -981,6 +981,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
 
     _migrate_v15_accounts(conn)
     _migrate_v16_themes(conn)
+    backfill_embedding_models(conn)
 
 
 # v15에서 account_id를 받는 자격증명 테이블. NULL은 v15 이전 행이며 관리자(1)의 것이다(§8.3).
@@ -1221,6 +1222,46 @@ def _migrate_v16_themes(conn: sqlite3.Connection) -> None:
         "CREATE INDEX IF NOT EXISTS idx_themes_account_number ON themes(account_id, number DESC)"
     )
     backfill_theme_numbers(conn)
+
+
+def backfill_embedding_models(conn: sqlite3.Connection) -> int:
+    """모델 미기록 임베딩(``'claire'``·NULL·빈 값)을 테마 고정 모델로 다시 적는다(§10.4). 멱등, 스키마 버전 그대로.
+
+    고정된 테마만 다룬다. 이미 고정 모델로 적힌 행이 있으면 그 차원과 같은 행만 넘겨받는다(차원이 다르면 다른 모델이 분명하다).
+    고정되지 않은 테마는 건드리지 않는다. 그 테마의 검색은 레거시대로 모든 행을 보고, 첫 저장이 고정하면서 같은 차원의 행을 넘겨받는다(``VectorStore.put``).
+    바꾼 행 수를 반환한다. 커밋은 호출자 몫이다.
+    """
+    from .vectors import LEGACY_EMBED_MODELS
+
+    if "embed_model" not in _column_names(conn, "themes") or "model" not in _column_names(
+        conn, "embeddings"
+    ):
+        return 0
+    marks = ",".join("?" for _ in LEGACY_EMBED_MODELS)
+    legacy = f"(model IS NULL OR model='' OR model IN ({marks}))"
+    pinned = conn.execute(
+        "SELECT id, embed_model FROM themes WHERE embed_model IS NOT NULL AND embed_model != ''"
+    ).fetchall()
+    changed = 0
+    for row in pinned:
+        theme_id, model = int(row[0]), str(row[1])
+        if conn.execute(
+            f"SELECT 1 FROM embeddings WHERE theme_id=? AND {legacy} LIMIT 1",
+            (theme_id, *LEGACY_EMBED_MODELS),
+        ).fetchone() is None:
+            continue
+        dim_row = conn.execute(
+            "SELECT dim, COUNT(*) AS n FROM embeddings WHERE theme_id=? AND model=? "
+            "GROUP BY dim ORDER BY n DESC LIMIT 1",
+            (theme_id, model),
+        ).fetchone()
+        sql = f"UPDATE embeddings SET model=? WHERE theme_id=? AND {legacy}"
+        params: list[Any] = [model, theme_id, *LEGACY_EMBED_MODELS]
+        if dim_row is not None:
+            sql += " AND dim=?"
+            params.append(dim_row[0])
+        changed += conn.execute(sql, params).rowcount
+    return changed
 
 
 def _stored_meta_value(conn: sqlite3.Connection, key: str) -> str | None:

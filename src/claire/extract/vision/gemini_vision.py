@@ -16,12 +16,27 @@ logger = logging.getLogger(__name__)
 class GeminiVisionProvider(VisionTranscriptProvider):
     """Production provider using Google Gemini multimodal capabilities for image OCR and transcription."""
 
+    # 계정 컨텍스트와 예산 훅(설계 §10.2). 관리자·레거시 경로는 둘 다 None.
+    provider_context = None
+    usage_hooks = None
+
     def __init__(self, settings: Any = None) -> None:
         super().__init__(settings)
+        from ...accounts.provider_policy import context_of
         from ...config import get_settings
 
         s = settings or get_settings()
-        self.api_key = s.gemini_api_key
+        ctx = context_of(s)
+        self.provider_context = ctx
+        if ctx is not None and not ctx.is_admin:
+            # 멤버는 컨텍스트 키만 쓴다(관리자 키로 넘어가지 않는다).
+            self.api_key = ctx.api_key
+            if self.api_key:
+                from ...secret_scrub import register_secret
+
+                register_secret(self.api_key)
+        else:
+            self.api_key = s.gemini_api_key
         self.model = s.vlm_model or getattr(s, "gemini_model", None) or "gemini-3.8-flash"
         self.max_images = getattr(s, "vlm_max_images", 20)
         self.language = getattr(s, "effective_vlm_language", None) or (s.effective_preferred_languages[0] if getattr(s, "effective_preferred_languages", None) else "ko")
@@ -48,10 +63,21 @@ class GeminiVisionProvider(VisionTranscriptProvider):
             return "en"
         return fallback
 
+    def _is_member(self) -> bool:
+        ctx = getattr(self, "provider_context", None)
+        return ctx is not None and not ctx.is_admin
+
     def _get_client(self) -> Any:
         from google import genai
 
         if not self.api_key:
+            if self._is_member():
+                from ...accounts.provider_policy import ProviderNotConfigured
+
+                raise ProviderNotConfigured(
+                    "vlm: no API key for this account",
+                    remedy="/me에서 API 키를 등록하거나 관리자에게 서버 등급을 요청한다.",
+                )
             raise ValueError("GEMINI_API_KEY is not configured for GeminiVisionProvider")
         return genai.Client(api_key=self.api_key)
 
@@ -165,11 +191,19 @@ class GeminiVisionProvider(VisionTranscriptProvider):
                 error="No valid image bytes could be loaded",
             )
 
+        from ...accounts.provider_policy import ProviderPolicyError
+        from ..gemini_provider import _member_error, _scrub_exception_inplace, _usage_tokens
+
+        hooks = getattr(self, "usage_hooks", None)
         try:
+            if hooks is not None:
+                hooks.before_call()
             response = client.models.generate_content(
                 model=self.model,
                 contents=parts,
             )
+            if hooks is not None:
+                hooks.after_call(*_usage_tokens(response))
             text = (response.text or "").strip()
             detected_lang = self._detect_text_language(text, fallback=target_lang)
             return VisionTranscriptResult(
@@ -179,7 +213,15 @@ class GeminiVisionProvider(VisionTranscriptProvider):
                 language=detected_lang,
                 error=None,
             )
+        except ProviderPolicyError:
+            raise
         except Exception as e:
+            extra = (self.api_key,) if self.api_key else ()
+            _scrub_exception_inplace(e, extra)
+            if self._is_member():
+                rejected = _member_error(e, extra)
+                if rejected is not None:
+                    raise rejected from None
             logger.error("Gemini vision transcription call failed: %s", e)
             return VisionTranscriptResult(
                 text="",

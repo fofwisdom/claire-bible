@@ -12,7 +12,7 @@ from bs4 import BeautifulSoup
 
 from ...config import get_settings
 from ..registry import register_web_adapter
-from .base import BaseWebAdapter, WebAdapterResult
+from .base import BaseWebAdapter, WebAdapterResult, fetch_settings
 from .http import SafeHttpClient
 
 logger = logging.getLogger(__name__)
@@ -100,7 +100,7 @@ def resolve_uttu_language(url: str, settings: Any = None) -> str:
             return q_lang
 
     # 3. System settings
-    s = settings or get_settings()
+    s = fetch_settings(settings, get_settings)
     pref = ""
     if getattr(s, "effective_preferred_languages", None):
         pref = s.effective_preferred_languages[0]

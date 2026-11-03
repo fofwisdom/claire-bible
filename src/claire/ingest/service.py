@@ -5,23 +5,133 @@
 
 from __future__ import annotations
 
-from contextlib import contextmanager
+import functools
+import threading
+from contextlib import ExitStack, contextmanager
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Any, Callable
 
+from ..accounts import server_tier
+from ..accounts.provider_policy import (
+    ProviderContext,
+    ProviderPolicyError,
+    admin_context,
+    clamp_effort,
+    require_feature,
+    resolve_provider_context,
+    settings_for_context,
+)
 from ..config import Settings
-from ..extract.provider import get_provider
+from ..extract.provider import UnavailableProvider, get_provider
+from ..secret_scrub import scrub_exception
+from ..store import auth_db as _auth_db
 from ..retrieval.query import SearchMode
 from ..store import db as dbm
 from ..store.theme import ThemeNotFound, get_theme_manager
 from ..store.vectors import make_vector_store
+from .fetchers.base import bound_fetch_settings
 from .pipeline import (
     IngestReport,
+    _guess_kind,
+    error_text,
     extract_resolve_store,
+    provider_effort,
     ingest,
     merge_source_into_document,
 )
 from .router import fetch as default_fetch
+
+# 이 스레드(컨텍스트)가 이미 잡은 BYOK 작업 자리의 계정. 중첩 호출(확장 → 자식 적재, 복구 → 재적재)이 자리를 두 번 잡지 않게 한다.
+_JOB_SLOT_HELD: ContextVar[int | None] = ContextVar("claire_job_slot_account", default=None)
+# 이미 일 적재 1건을 예약한 적재(복합 적재 → 내부 ingest)가 다시 예약하지 않게 한다.
+_INGEST_RESERVED: ContextVar[bool] = ContextVar("claire_ingest_reserved", default=False)
+# 자동 복구 재적재는 이미 예약된 건의 재시도다. 일 적재 건수를 다시 세지 않는다.
+_UNRESERVED_SOURCES: tuple[str, ...] = ("recover",)
+
+
+def _blocked_context(account_id: int | None) -> ProviderContext:
+    """컨텍스트를 정할 수 없는 멤버 테마(계정 없음·정지·키 거부 등)의 fail-closed 컨텍스트. LLM·STT·VLM이 모두 꺼진다."""
+    return ProviderContext(
+        account_id=account_id,
+        is_admin=False,
+        source="none",
+        provider="none",
+        model="",
+        embed_model="",
+        effort="none",
+        credential_key="blocked",
+    )
+
+
+def resolve_service_context(
+    settings: Any, account_id: int | None
+) -> tuple[ProviderContext, ProviderPolicyError | None]:
+    """테마 소유 계정의 ``ProviderContext``. 정할 수 없으면 (fail-closed 컨텍스트, 정책 예외)."""
+    if account_id is None:
+        return admin_context(settings), None
+    try:
+        return resolve_provider_context(int(account_id), settings=settings), None
+    except ProviderPolicyError as exc:
+        return _blocked_context(int(account_id)), exc
+
+
+def context_cache_key(ctx: ProviderContext | None, error: BaseException | None = None) -> tuple:
+    """풀·루프 캐시 키. 자격(``credential_key``)·출처(``source``)·등급이 바뀌면 서비스를 새로 만든다. 키 원문은 넣지 않는다."""
+    if ctx is None:
+        return ("none",)
+    return (
+        ctx.account_id,
+        ctx.is_admin,
+        ctx.source,
+        ctx.credential_key,
+        ctx.provider,
+        ctx.model,
+        ctx.effort,
+        ctx.tier,
+        getattr(error, "code", None),
+    )
+
+
+@contextmanager
+def _reserved_ingest():
+    token = _INGEST_RESERVED.set(True)
+    try:
+        yield True
+    finally:
+        _INGEST_RESERVED.reset(token)
+
+
+def _scrub_optional(text: Any) -> Any:
+    """``None``은 그대로, 나머지는 비밀을 지운 문자열(설계 §11.3)."""
+    if text is None:
+        return None
+    from ..secret_scrub import scrub_text
+
+    return scrub_text(text)
+
+
+def attach_member_hooks(provider: Any, ctx: ProviderContext | None, auth_db_path: Path | str) -> Any:
+    """멤버 컨텍스트면 API 프로바이더(``usage_hooks`` 속성이 있는 것)에 원장 훅을 붙인다. 관리자는 None 그대로."""
+    if provider is None or ctx is None or ctx.is_admin or ctx.account_id is None:
+        return provider
+    if hasattr(provider, "usage_hooks") and not isinstance(provider, UnavailableProvider):
+        provider.usage_hooks = server_tier.usage_hooks_for(ctx, auth_db_path=auth_db_path)
+    return provider
+
+
+def _service_job(*, slot: bool = True):
+    """서비스 메서드를 계정 컨텍스트 안에서 돌린다: fetcher·파이프라인 설정을 묶고, BYOK 동시 작업 자리를 잡는다."""
+
+    def deco(fn):
+        @functools.wraps(fn)
+        def wrapper(self, *args, **kwargs):
+            with self.job_scope(slot=slot):
+                return fn(self, *args, **kwargs)
+
+        return wrapper
+
+    return deco
 
 
 @contextmanager
@@ -65,19 +175,111 @@ class IngestService:
         provider: Any | None = None,
         theme_id: int | None = None,
         account_id: int | None = None,
+        provider_context: ProviderContext | None = None,
+        provider_error: ProviderPolicyError | None = None,
     ):
-        self.s = settings
-        self.provider = provider if provider is not None else get_provider(settings)
+        """테마 하나의 적재 서비스.
+
+        테마 소유 계정의 ``ProviderContext``(설계 §10.2)를 정해 ``self.s``(컨텍스트를 입힌 설정 사본)와 ``self.provider``를 만든다.
+        관리자(소유 계정 없음 포함)는 지금과 같다: ``self.s``는 넘겨받은 설정 그대로다. ``provider``를 넘기면 그대로 쓴다(호출자 책임).
+        """
+        self.base_settings = settings
         self.theme_id = theme_id if theme_id is not None else getattr(settings, "theme_id", 0)
         self.account_id = account_id if account_id is not None else getattr(settings, "account_id", None)
         if self.account_id is None:
             try:
-                tm = get_theme_manager(self.s)
+                tm = get_theme_manager(settings)
                 theme = tm.get_theme(self.theme_id)
                 self.account_id = getattr(theme, "account_id", None)
             except Exception:
                 pass
+        self.provider_error: ProviderPolicyError | None = provider_error
+        if provider_context is None:
+            provider_context, self.provider_error = resolve_service_context(settings, self.account_id)
+        self.provider_context: ProviderContext = provider_context
+        if provider_context.is_admin:
+            self.s = settings
+        else:
+            self.s = settings_for_context(settings, provider_context)
+        self.provider = provider if provider is not None else self._build_provider()
         self.default_focus = (getattr(settings, "default_focus", "") or "").strip()
+
+    # --- 계정 컨텍스트 (P4, 설계 §10.2–§10.3) ---------------------------------------------
+
+    @property
+    def is_member_context(self) -> bool:
+        ctx = getattr(self, "provider_context", None)  # __init__을 거치지 않은 대역은 관리자 경로
+        return ctx is not None and not (ctx.is_admin or ctx.account_id is None)
+
+    @property
+    def auth_db_path(self) -> Path:
+        return _auth_db.auth_db_path(self.s.data_dir)
+
+    def _build_provider(self) -> Any:
+        """컨텍스트 사본으로 프로바이더를 만들고 멤버면 예산 훅을 붙인다. 컨텍스트를 못 정했으면 그 오류를 내는 자리표시자."""
+        if self.provider_error is not None:
+            return UnavailableProvider(scrub_exception(self.provider_error), error=self.provider_error)
+        prov = get_provider(self.s)
+        attach_member_hooks(prov, self.provider_context, self.auth_db_path)
+        return prov
+
+    @contextmanager
+    def job_scope(self, *, slot: bool = True):
+        """fetcher·파이프라인이 ``self.s``를 쓰게 묶고, 멤버 BYOK면 동시 작업 자리를 잡는다(중첩 호출은 한 자리)."""
+        with bound_fetch_settings(getattr(self, "s", None)):
+            ctx = getattr(self, "provider_context", None)
+            if not slot or not self.is_member_context or _JOB_SLOT_HELD.get() == ctx.account_id:
+                yield
+                return
+            with server_tier.job_slot(ctx):
+                token = _JOB_SLOT_HELD.set(ctx.account_id)
+                try:
+                    yield
+                finally:
+                    _JOB_SLOT_HELD.reset(token)
+
+    def require_feature(self, feature: str) -> None:
+        """멤버 컨텍스트에서 기능이 꺼져 있으면 ``ProviderNotAllowed``(관리자는 통과)."""
+        require_feature(getattr(self, "provider_context", None), feature)
+
+    def _reserve_ingest(self, source: str) -> None:
+        """멤버 적재 1건을 예약한다(일 적재 상한, BYOK 포함). 관리자는 통과."""
+        if not self.is_member_context or _INGEST_RESERVED.get():
+            return
+        if source.startswith(_UNRESERVED_SOURCES):
+            return
+        server_tier.check_ingest_allowed(self.provider_context, auth_db_path=self.auth_db_path)
+
+    def _reject_ingest(
+        self,
+        exc: BaseException,
+        payload: str,
+        *,
+        source: str,
+        inbox_id: int | None,
+        inbox_kind: str | None,
+        user_id: int | None,
+        chat_id: int | None,
+        file_ref: str | None,
+        file_name: str | None,
+    ) -> IngestReport:
+        """적재가 정책으로 막혔다. 원문은 ``raw_inbox``에 남기고(A1) 오류(``code: …``)를 기록한다."""
+        report = IngestReport()
+        report.error = error_text(exc, prefix="ingest_rejected: ")
+        conn = dbm.connect(self.s.db_file)
+        dbm.init_db(conn)
+        try:
+            if inbox_id is None:
+                inbox_id = dbm.log_inbox(
+                    conn, source=source, payload=payload, kind=inbox_kind or _guess_kind(payload),
+                    user_id=user_id, chat_id=chat_id, file_name=file_name, file_ref=file_ref,
+                    theme_id=self.theme_id,
+                )
+            dbm.update_inbox(conn, inbox_id, status="error", error=report.error, theme_id=self.theme_id)
+        finally:
+            conn.close()
+        report.inbox_id = inbox_id
+        return report
 
     def get_effective_default_focus(self) -> str | None:
         if self.default_focus:
@@ -142,6 +344,45 @@ class IngestService:
             focus = self.get_effective_default_focus()
         # 삭제된 테마면 DB를 열기 전에 ThemeNotFound로 멈춘다.
         tlabel = self.get_theme_label()
+        if effort:
+            effort = clamp_effort(getattr(self, "provider_context", None), effort)
+        with ExitStack() as stack:
+            try:
+                stack.enter_context(self.job_scope())
+                self._reserve_ingest(source)
+            except Exception as exc:  # noqa: BLE001 — 예산·동시 작업 상한, 원장 장애 모두 원문 보존 후 실패
+                return self._reject_ingest(
+                    exc, payload, source=source, inbox_id=inbox_id, inbox_kind=inbox_kind,
+                    user_id=user_id, chat_id=chat_id, file_ref=file_ref, file_name=file_name,
+                )
+            reserved = stack.enter_context(_reserved_ingest())
+            del reserved
+            return self._ingest_now(
+                payload, source=source, expand_max=expand_max, user_id=user_id, chat_id=chat_id,
+                inbox_kind=inbox_kind, file_ref=file_ref, file_name=file_name, inbox_id=inbox_id,
+                prefetched=prefetched, format=format, focus=focus, effort=effort,
+                full_content=full_content, tlabel=tlabel,
+            )
+
+    def _ingest_now(
+        self,
+        payload: str,
+        *,
+        source: str,
+        expand_max: int | None,
+        user_id: int | None,
+        chat_id: int | None,
+        inbox_kind: str | None,
+        file_ref: str | None,
+        file_name: str | None,
+        inbox_id: int | None,
+        prefetched: Any,
+        format: str | None,
+        focus: str | None,
+        effort: str | None,
+        full_content: bool,
+        tlabel: str,
+    ) -> IngestReport:
         conn = dbm.connect(self.s.db_file)
         dbm.init_db(conn)
         vstore = make_vector_store(conn, self.s.vector_backend, theme_id=self.theme_id)
@@ -160,6 +401,7 @@ class IngestService:
                 inbox_id=inbox_id, prefetched=prefetched, auto_expand=auto,
                 format=fmt, focus=focus, effort=effort, full_content=full_content,
                 theme_id=tid, theme_label=tlabel,
+                settings=self.s, provider_context=getattr(self, "provider_context", None),
             )
         finally:
             conn.close()
@@ -181,6 +423,38 @@ class IngestService:
         format: str | None = None,
     ) -> IngestReport:
         """첨부 파일과 외부 하이퍼링크를 단일 지식 문서로 통합 복합 적재."""
+        with ExitStack() as stack:
+            try:
+                stack.enter_context(self.job_scope())
+                self._reserve_ingest(source)
+            except Exception as exc:  # noqa: BLE001
+                return self._reject_ingest(
+                    exc, url, source=source, inbox_id=inbox_id, inbox_kind="composite",
+                    user_id=user_id, chat_id=chat_id, file_ref=str(file_path), file_name=file_name,
+                )
+            stack.enter_context(_reserved_ingest())
+            return self._ingest_composite_now(
+                file_path, file_name, url, source=source, expand_max=expand_max, user_id=user_id,
+                chat_id=chat_id, focus=focus, effort=effort, full_content=full_content,
+                inbox_id=inbox_id, format=format,
+            )
+
+    def _ingest_composite_now(
+        self,
+        file_path: Path | str,
+        file_name: str,
+        url: str,
+        *,
+        source: str,
+        expand_max: int | None,
+        user_id: int | None,
+        chat_id: int | None,
+        focus: str | None,
+        effort: str | None,
+        full_content: bool,
+        inbox_id: int | None,
+        format: str | None,
+    ) -> IngestReport:
         import json
         from .composite import compose_composite_document, fetch_composite_components
         from ..extract.provider import emit_progress
@@ -222,11 +496,11 @@ class IngestService:
         except Exception as e:
             conn2 = dbm.connect(self.s.db_file)
             try:
-                dbm.update_inbox(conn2, inbox_id, status="error", error=str(e), theme_id=self.theme_id)
+                dbm.update_inbox(conn2, inbox_id, status="error", error=error_text(e), theme_id=self.theme_id)
             finally:
                 conn2.close()
             rep = IngestReport()
-            rep.error = f"복합 자료 수집 실패: {e}"
+            rep.error = f"복합 자료 수집 실패: {error_text(e)}"
             rep.inbox_id = inbox_id
             return rep
 
@@ -251,6 +525,7 @@ class IngestService:
             full_content=full_content,
         )
 
+    @_service_job()
     def expand_document(self, document_id: str, *, limit: int | None = None) -> dict:
         """[1홉 자동확장] 부모 문서의 링크를 LLM 이 선별→fetch→판정→통과 시 적재.
 
@@ -258,6 +533,8 @@ class IngestService:
         """
         from ..expand.follow import build_candidates, build_parent_context, passes_gate
 
+        # 1홉 확장은 서버 등급 기능이다(멤버는 tier.features 또는 BYOK). 관리자는 통과.
+        self.require_feature("expand")
         cap = self.s.expand_max if limit is None else limit
         conn = dbm.connect(self.s.db_file)
         dbm.init_db(conn)
@@ -288,7 +565,7 @@ class IngestService:
                 child = default_fetch(url)  # 판정용 1회 fetch (적재 시 prefetched 재사용)
             except Exception as e:  # noqa: BLE001
                 result["skipped"] += 1
-                result["followed"].append({"url": url, "stored": False, "error": str(e)})
+                result["followed"].append({"url": url, "stored": False, "error": error_text(e)})
                 continue
             # 2) 쌓을지 = LLM(research 게이트 재사용). judge 없으면 통과로 간주.
             rel, qual, same_subject = 1.0, 1.0, False
@@ -318,7 +595,8 @@ class IngestService:
                         data_dir=self.s.data_dir,
                         format=self.s.render_format,
                         focus=self.get_effective_default_focus(),
-                        theme_id=self.theme_id)
+                        theme_id=self.theme_id,
+                        settings=self.s)
                     if m.get("merged"):
                         dbm.update_inbox(conn2, inbox_id, status="done",
                                          document_id=document_id, theme_id=self.theme_id)
@@ -349,6 +627,7 @@ class IngestService:
                                        "error": rep.error})
         return result
 
+    @_service_job()
     def run_expand_queue(
         self,
         *,
@@ -377,21 +656,22 @@ class IngestService:
                 except Exception as e:  # noqa: BLE001
                     conn2 = dbm.connect(self.s.db_file)
                     try:
-                        dbm.update_expand(conn2, row["id"], status="error", error=str(e), theme_id=self.theme_id)
+                        dbm.update_expand(conn2, row["id"], status="error", error=error_text(e), theme_id=self.theme_id)
                     finally:
                         conn2.close()
-                    out.append({"document_id": did, "error": str(e)})
+                    out.append({"document_id": did, "error": error_text(e)})
                     continue
                 status = "error" if res.get("error") else "done"
                 conn2 = dbm.connect(self.s.db_file)
                 try:
                     dbm.update_expand(conn2, row["id"], status=status,
-                                      error=res.get("error"), result=_json.dumps(res)[:2000], theme_id=self.theme_id)
+                                      error=_scrub_optional(res.get("error")), result=_json.dumps(res)[:2000], theme_id=self.theme_id)
                 finally:
                     conn2.close()
                 out.append(res)
         return out
 
+    @_service_job()
     def refresh_document(
         self,
         document_id: str,
@@ -425,7 +705,7 @@ class IngestService:
             try:
                 doc = default_fetch(payload)
             except Exception as e:  # noqa: BLE001
-                return {"status": "error", "document_id": document_id, "error": str(e)}
+                return {"status": "error", "document_id": document_id, "error": error_text(e)}
 
             doc.id = document_id
             from .pipeline import (
@@ -446,7 +726,7 @@ class IngestService:
                 return {
                     "status": "error",
                     "document_id": document_id,
-                    "error": f"attachment_store_failed: {type(e).__name__}: {e}",
+                    "error": f"attachment_store_failed: {type(e).__name__}: {scrub_exception(e)}",
                 }
             if doc.content_hash == old["content_hash"]:
                 # 본문은 그대로지만, 재fetch 로 새로 수집된 본문 이미지를 로컬로 내려받아
@@ -460,7 +740,8 @@ class IngestService:
                 imgs = (doc.meta or {}).get("images")
                 fmt = format or self.s.render_format
                 detail_updated = ensure_document_detail(
-                    conn, self.provider, doc, force=True, format=fmt, theme_id=self.theme_id)
+                    conn, self.provider, doc, force=True, format=fmt, theme_id=self.theme_id,
+                    settings=self.s)
                 return {"status": "nochange", "document_id": document_id,
                         "old_len": old_len, "new_len": len(doc.raw_text),
                         "detail_updated": detail_updated,
@@ -494,9 +775,12 @@ class IngestService:
 
             fmt = format or self.s.render_format
             report = IngestReport(document_id=document_id)
-            ok, err = extract_resolve_store(
-                conn, self.provider, vstore, doc, report, format=fmt,
-                on_progress=on_progress, theme_id=self.theme_id)
+            try:
+                ok, err = extract_resolve_store(
+                    conn, self.provider, vstore, doc, report, format=fmt,
+                    on_progress=on_progress, theme_id=self.theme_id, settings=self.s)
+            except ProviderPolicyError as e:
+                ok, err = False, error_text(e)
             if not ok:
                 return {"status": "error", "document_id": document_id, "error": err}
             return {"status": "done", "document_id": document_id,
@@ -506,6 +790,7 @@ class IngestService:
         finally:
             conn.close()
 
+    @_service_job()
     def run_refresh_queue(
         self,
         *,
@@ -527,7 +812,8 @@ class IngestService:
                 conn2 = dbm.connect(self.s.db_file)
                 try:
                     st = res["status"] if res["status"] in ("done", "nochange") else "error"
-                    dbm.update_refresh(conn2, row["id"], status=st, error=res.get("error"), theme_id=self.theme_id)
+                    dbm.update_refresh(
+                        conn2, row["id"], status=st, error=_scrub_optional(res.get("error")), theme_id=self.theme_id)
                 finally:
                     conn2.close()
                 out.append({**res, "queue_id": row["id"]})
@@ -600,6 +886,7 @@ class IngestService:
         finally:
             conn.close()
 
+    @_service_job()
     def reextract_all(
         self,
         *,
@@ -637,9 +924,12 @@ class IngestService:
                 out["docs"] += 1
                 report = IngestReport(document_id=did)
                 with _item_context(reporter, on_progress, idx, did, title=doc.title or "", url=doc.canonical_url or doc.url or "") as step_cb:
-                    ok, err = extract_resolve_store(
-                        conn, self.provider, vstore, doc, report,
-                        format=fmt, on_progress=step_cb, theme_id=self.theme_id)
+                    try:
+                        ok, err = extract_resolve_store(
+                            conn, self.provider, vstore, doc, report,
+                            format=fmt, on_progress=step_cb, theme_id=self.theme_id, settings=self.s)
+                    except ProviderPolicyError as e:
+                        ok, err = False, error_text(e)
                     if ok:
                         out["ok"] += 1
                     else:
@@ -649,6 +939,7 @@ class IngestService:
         finally:
             conn.close()
 
+    @_service_job()
     def backfill_details(
         self,
         *,
@@ -696,6 +987,7 @@ class IngestService:
         finally:
             conn.close()
 
+    @_service_job()
     def backfill_summaries(
         self,
         *,
@@ -803,6 +1095,7 @@ class IngestService:
         finally:
             conn.close()
 
+    @_service_job()
     def regenerate_components(
         self,
         *,
@@ -1021,7 +1314,7 @@ class IngestService:
                     targets_info = []
                     old_effort = getattr(self.provider, "effort", None)
                     if effort:
-                        self.provider.effort = effort
+                        self.provider.effort = clamp_effort(getattr(self, "provider_context", None), effort)
 
                     try:
                         for idx, did in enumerate(target_ids, 1):
@@ -1261,7 +1554,7 @@ class IngestService:
                             "targets": targets_info,
                             "provider": getattr(self.provider, "name", "unknown"),
                             "model": getattr(self.provider, "model", "unknown"),
-                            "effort": getattr(self.provider, "effort", "default"),
+                            "effort": provider_effort(self.provider, "default"),
                         }
                     finally:
                         if old_effort is not None:
@@ -1462,6 +1755,7 @@ class IngestService:
         finally:
             conn.close()
 
+    @_service_job(slot=False)
     def search(
         self,
         query: str,
@@ -1507,6 +1801,7 @@ class IngestService:
         finally:
             conn.close()
 
+    @_service_job()
     def replay_failed(self, *, limit: int = 0, include_permanent: bool = False):
         """raw_inbox 의 status='error'(또는 include_permanent 시 'failed' 포함) 행을 원본 payload 로 재적재.
 
@@ -1530,6 +1825,7 @@ class IngestService:
             out.append((row["id"], rep))
         return out
 
+    @_service_job()
     def _retry_extract(self, document_id: str, inbox_id: int) -> IngestReport:
         """[자동복구] extract 단계에서 실패해 문서만 적재된 행을 재추출.
 
@@ -1547,8 +1843,11 @@ class IngestService:
             report.source_type = doc.source_type
             report.partial = doc.partial
             report.title = doc.title
-            ok, err = extract_resolve_store(
-                conn, self.provider, vstore, doc, report, theme_id=self.theme_id)
+            try:
+                ok, err = extract_resolve_store(
+                    conn, self.provider, vstore, doc, report, theme_id=self.theme_id, settings=self.s)
+            except ProviderPolicyError as e:
+                ok, err = False, error_text(e)
             if ok:
                 dbm.update_inbox(conn, inbox_id, status="done", document_id=document_id, theme_id=self.theme_id)
             else:
@@ -1573,6 +1872,7 @@ class IngestService:
             for r in rows
         ]
 
+    @_service_job()
     def retry_inbox(self, inbox_id: int) -> IngestReport:
         """[수동 재시도] 텔레그램 /retry 등에서 특정 inbox 건 하나를 즉시 재적재.
 
@@ -1635,12 +1935,13 @@ class IngestService:
             try:
                 conn2.execute(
                     "UPDATE raw_inbox SET status='error', error=? WHERE id=?",
-                    (rep.error, inbox_id))
+                    (_scrub_optional(rep.error), inbox_id))
                 conn2.commit()
             finally:
                 conn2.close()
         return rep
 
+    @_service_job()
     def recover_failed(
         self,
         *,
@@ -1742,7 +2043,8 @@ class IngestService:
                 try:
                     dbm.record_recovery_attempt(
                         conn2, row["id"], status=final,
-                        document_id=rep.document_id, error=rep.error, next_retry_at=nra, theme_id=self.theme_id)
+                        document_id=rep.document_id, error=_scrub_optional(rep.error), next_retry_at=nra,
+                        theme_id=self.theme_id)
                 finally:
                     conn2.close()
                 out.append({"inbox_id": row["id"], "status": final, "error": rep.error})
@@ -1781,8 +2083,15 @@ class IngestService:
             conn.close()
 
 
+_ADMIN_ANY: tuple = ("admin-any",)
+
+
 class IngestServicePool:
-    """테마별 IngestService 인스턴스를 캐싱/풀링하여 다중 테마 적재를 라우팅."""
+    """테마별 IngestService 인스턴스를 캐싱/풀링하여 다중 테마 적재를 라우팅.
+
+    테마마다 소유 계정의 ``ProviderContext``를 정하고(설계 §10.2), 캐시 키에 컨텍스트(자격 ``credential_key``·출처 ``source``·등급)를
+    넣는다. 관리자 테마는 지금처럼 프로바이더 하나(``shared_provider``)를 함께 쓰고, 멤버 테마는 계정 컨텍스트별 프로바이더를 쓴다.
+    """
 
     def __init__(
         self,
@@ -1793,13 +2102,31 @@ class IngestServicePool:
     ):
         self.base_settings = base_settings
         self.theme_manager = theme_manager or get_theme_manager(base_settings)
-        self.shared_provider = (
-            base_service.provider if base_service else get_provider(base_settings)
-        )
+        self.base_service = base_service
+        self._shared_provider: Any | None = base_service.provider if base_service else None
         self.account_id = account_id if account_id is not None else getattr(base_settings, "account_id", None)
-        self._services: dict[int, IngestService] = {}
+        self._lock = threading.RLock()
+        # theme_id -> (컨텍스트 캐시 키, 서비스)
+        self._services: dict[int, tuple[tuple, IngestService]] = {}
+        # 컨텍스트 캐시 키 -> 멤버 프로바이더(같은 계정·자격의 테마들이 함께 쓴다)
+        self._member_providers: dict[tuple, Any] = {}
         if base_service is not None:
-            self._services[getattr(base_service, "theme_id", 0)] = base_service
+            base_ctx = getattr(base_service, "provider_context", None)
+            # 컨텍스트를 모르는(레거시·대역) 기본 서비스는 관리자 컨텍스트일 때만 재사용한다.
+            base_key = (
+                context_cache_key(base_ctx, getattr(base_service, "provider_error", None))
+                if base_ctx is not None
+                else _ADMIN_ANY
+            )
+            self._services[getattr(base_service, "theme_id", 0)] = (base_key, base_service)
+
+    @property
+    def shared_provider(self) -> Any:
+        """관리자 컨텍스트 테마가 함께 쓰는 프로바이더(호환 속성). 멤버 테마에는 주입하지 않는다."""
+        with self._lock:
+            if self._shared_provider is None:
+                self._shared_provider = get_provider(self.base_settings)
+            return self._shared_provider
 
     def get_service(
         self,
@@ -1816,21 +2143,47 @@ class IngestServicePool:
         else:
             theme = self.theme_manager.get_theme(theme_ref)
 
-        if theme.id in self._services:
-            return self._services[theme.id]
-        theme_settings = self.theme_manager.get_settings_for_theme(
-            theme.id, self.base_settings
-        )
-        svc = IngestService(
-            theme_settings,
-            provider=self.shared_provider,
-            theme_id=theme.id,
-            account_id=getattr(theme, "account_id", eff_account_id),
-        )
-        self._services[theme.id] = svc
-        return svc
+        owner_id = getattr(theme, "account_id", eff_account_id)
+        theme_settings = self.theme_manager.get_settings_for_theme(theme.id, self.base_settings)
+        ctx, error = resolve_service_context(theme_settings, owner_id)
+        key = context_cache_key(ctx, error)
+        with self._lock:
+            cached = self._services.get(theme.id)
+            if cached is not None and (cached[0] == key or (cached[0] == _ADMIN_ANY and ctx.is_admin)):
+                return cached[1]
+            if ctx.is_admin:
+                provider = self.shared_provider
+            elif error is not None:
+                provider = None  # 서비스가 정책 오류를 내는 자리표시자를 만든다
+            else:
+                provider = self._member_providers.get(key)
+            svc = IngestService(
+                theme_settings,
+                provider=provider,
+                theme_id=theme.id,
+                account_id=owner_id,
+                provider_context=ctx,
+                provider_error=error,
+            )
+            if error is None and not ctx.is_admin:
+                self._member_providers[key] = svc.provider
+            self._services[theme.id] = (key, svc)
+            return svc
 
     def remove_service(self, theme_id: int) -> None:
         """테마 삭제 시 캐싱된 IngestService 인스턴스 정리."""
-        self._services.pop(theme_id, None)
+        with self._lock:
+            self._services.pop(theme_id, None)
 
+    def clear(self, base_settings: Settings | None = None) -> None:
+        """캐시된 서비스와 프로바이더를 모두 버린다(프로바이더 설정·서버 등급·키 변경 뒤). 다음 ``get_service``가 새로 만든다.
+
+        ``base_settings``를 넘기면 이후 서비스는 그 설정에서 만든다(관리자 공유 프로바이더 포함).
+        """
+        with self._lock:
+            if base_settings is not None:
+                self.base_settings = base_settings
+            self._services.clear()
+            self._member_providers.clear()
+            self._shared_provider = None
+            self.base_service = None

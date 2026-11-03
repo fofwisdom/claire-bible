@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from ..accounts.provider_policy import ProviderPolicyError, context_of
 from ..extract.provider import Provider, RelationCandidate, emit_progress
 from ..extract.resolver import resolve_or_create
 from ..ontology.base import Document, Relation
@@ -27,9 +28,45 @@ from ..ontology.registry import (
 )
 from ..store import db as dbm
 from ..store.graph import GraphStore
-from ..store.vectors import VectorStore
+from ..secret_scrub import scrub_exception, scrub_text
+from ..store.vectors import VectorStore, resolve_embed_identity
 from .active import active_job, clear_active_ingest, set_active_ingest, update_active_ingest
+from .fetchers.base import bound_fetch_settings
 from .router import fetch as default_fetch
+
+
+def error_text(exc: BaseException, prefix: str = "") -> str:
+    """기록용 오류 문자열(설계 §11.3). 정책 예외는 ``code: 메시지 (복구: …)``, 나머지는 비밀을 지운 ``str(exc)``."""
+    if isinstance(exc, ProviderPolicyError):
+        text = f"{exc.code}: {scrub_exception(exc)}"
+        remedy = str(getattr(exc, "remedy", "") or "").strip()
+        if remedy:
+            text += f" (복구: {scrub_text(remedy)})"
+        return text
+    return f"{prefix}{scrub_exception(exc)}"
+
+
+def provider_effort(provider: Any, default: str = "medium") -> str:
+    """프로바이더의 기본 effort 문자열. 자리표시자(``UnavailableProvider``)처럼 문자열이 아니면 ``default``."""
+    value = getattr(provider, "effort", default)
+    return value if isinstance(value, str) and value else default
+
+
+def resolve_job_settings(settings: Any = None, provider: Any = None) -> Any:
+    """작업 설정. 넘겨받은 값 → 작업이 묶은 값 → (작업 밖 호스트 운영자 경로) 전역 설정.
+
+    멤버 작업은 ``IngestService``가 계정 컨텍스트 사본을 넘기거나 묶으므로 전역 설정(관리자 키)에 닿지 않는다.
+    """
+    if settings is not None:
+        return settings
+    from .fetchers.base import _FETCH_SETTINGS
+
+    bound = _FETCH_SETTINGS.get()
+    if bound is not None:
+        return bound
+    from ..config import get_settings
+
+    return get_settings()
 
 
 @dataclass
@@ -232,7 +269,14 @@ def ingest(
     full_content: bool = False,
     theme_id: int | None = None,
     theme_label: str | None = None,
+    settings: Any = None,
+    provider_context: Any = None,
 ) -> IngestReport:
+    """단건 적재. ``settings``는 테마 소유 계정 컨텍스트를 입힌 사본(``IngestService.s``)이다.
+
+    ``provider_context``(없으면 ``settings``의 컨텍스트)가 멤버이면 문서를 만들기 전에 문서 수·저장 용량 한도를 본다.
+    LLM 단계의 정책 오류는 원문을 보존한 채 ``raw_inbox`` 오류(``code: …``)로 남긴다(A1, 설계 §10.2).
+    """
     report = IngestReport()
     report.full_content = full_content
     report.effort = effort
@@ -242,6 +286,8 @@ def ingest(
 
     tid = theme_id if theme_id is not None else getattr(conn, "theme_id", 0)
     tlabel = theme_label or ("기본 지식베이스" if tid == 0 else "")
+    job_settings = resolve_job_settings(settings, provider)
+    ctx = provider_context if provider_context is not None else context_of(job_settings)
 
     # [Layer 1] 처리 전에 inbound 원본을 무조건 기록(실패해도 재생 가능).
     # inbox_id 가 주어지면(자동복구 재적재) 새 행을 만들지 않고 기존 행을 재사용 =
@@ -296,17 +342,18 @@ def ingest(
                 # prefetched: 1홉 확장이 판정용으로 이미 가져온 Document 재사용(중복 fetch 방지).
                 if prefetched is None:
                     emit_progress("원문 가져오는 중…")  # 콜백 미설정 시 no-op(웹 스트림 적재만 표시)
-                    try:
-                        doc = fetch_fn(payload, full_content=full_content)
-                    except TypeError:
-                        doc = fetch_fn(payload)
+                    with bound_fetch_settings(settings):
+                        try:
+                            doc = fetch_fn(payload, full_content=full_content)
+                        except TypeError:
+                            doc = fetch_fn(payload)
                 else:
                     doc = prefetched
                 if doc and doc.title:
                     update_active_ingest(data_dir, title=doc.title)
             except Exception as e:  # noqa: BLE001
-                report.error = str(e)
-                dbm.update_inbox(conn, inbox_id, status="error", error=str(e), theme_id=tid)
+                report.error = error_text(e)
+                dbm.update_inbox(conn, inbox_id, status="error", error=report.error, theme_id=tid)
                 return report
 
             if full_content:
@@ -319,10 +366,13 @@ def ingest(
                 doc.meta["applied_effort"] = effort
 
             if doc.source_type in ("pdf", "odt"):
-                from ..config import get_settings
                 from ..extract.classifier import reconcile_pdf_metadata
 
-                reconcile_pdf_metadata(doc, get_settings(), provider=provider)
+                try:
+                    reconcile_pdf_metadata(doc, job_settings, provider=provider)
+                except ProviderPolicyError:
+                    # 정책 오류(키 없음·예산 소진)는 원문 보존을 막지 않는다. 추출 단계가 같은 오류로 raw_inbox에 남긴다.
+                    pass
 
             report.source_type = doc.source_type
             report.partial = doc.partial
@@ -450,7 +500,8 @@ def ingest(
                     if doc_obj:
                         dbm.set_document_focus(conn, existing, focus.strip(), theme_id=tid)
                         detail_ok = ensure_document_detail(
-                            conn, provider, doc_obj, format=format, focus=focus.strip(), force=True, theme_id=tid
+                            conn, provider, doc_obj, format=format, focus=focus.strip(), force=True, theme_id=tid,
+                            settings=job_settings,
                         )
                         if not detail_ok:
                             report.detail_rendered = False
@@ -498,8 +549,12 @@ def ingest(
                     except Exception:  # noqa: BLE001
                         pass
                 _download_doc_images(conn, doc, data_dir, theme_id=tid)
-                ok, err = extract_resolve_store(
-                    conn, provider, vstore, doc, report, format=format, focus=focus, effort=effort, full_content=full_content, theme_id=tid)
+                try:
+                    ok, err = extract_resolve_store(
+                        conn, provider, vstore, doc, report, format=format, focus=focus, effort=effort,
+                        full_content=full_content, theme_id=tid, settings=job_settings)
+                except ProviderPolicyError as e:
+                    ok, err = False, error_text(e)
                 if not ok:
                     report.error = err
                     dbm.update_inbox(conn, inbox_id, status="error",
@@ -520,6 +575,15 @@ def ingest(
                 return report
 
             emit_progress("구조화 추출·그래프 적재 중…")
+            if ctx is not None and not getattr(ctx, "is_admin", True):
+                from ..accounts import server_tier
+
+                try:
+                    server_tier.check_document_quota(conn, ctx)
+                except ProviderPolicyError as e:
+                    report.error = error_text(e)
+                    dbm.update_inbox(conn, inbox_id, status="error", error=report.error, theme_id=tid)
+                    return report
             if not _store_doc_attachments_or_report(
                 conn, inbox_id, doc, doc.id, data_dir, report, theme_id=tid
             ):
@@ -538,8 +602,13 @@ def ingest(
             _download_doc_images(conn, doc, data_dir, theme_id=tid)
 
             # 추출 → 해소 → 관계 (ingest/refresh 공용)
-            ok, err = extract_resolve_store(
-                conn, provider, vstore, doc, report, format=format, focus=focus, effort=effort, full_content=full_content, theme_id=tid)
+            try:
+                ok, err = extract_resolve_store(
+                    conn, provider, vstore, doc, report, format=format, focus=focus, effort=effort,
+                    full_content=full_content, theme_id=tid, settings=job_settings)
+            except ProviderPolicyError as e:
+                # 판정·임베딩 도중의 예산 소진 등. 문서(원문)는 이미 저장됐다(A1).
+                ok, err = False, error_text(e)
             if not ok:
                 report.error = err
                 dbm.update_inbox(conn, inbox_id, status="error", document_id=doc.id, error=err, theme_id=tid)
@@ -621,7 +690,7 @@ def _store_doc_attachments_or_report(
         _store_required_doc_attachments(doc, data_dir)
         return True
     except Exception as exc:  # noqa: BLE001
-        report.error = f"attachment_store_failed: {type(exc).__name__}: {exc}"
+        report.error = f"attachment_store_failed: {type(exc).__name__}: {scrub_exception(exc)}"
         dbm.update_inbox(
             conn,
             inbox_id,
@@ -760,6 +829,7 @@ def extract_resolve_store(
     full_content: bool = False,
     on_progress: Callable[[str, str], None] | None = None,
     theme_id: int | None = None,
+    settings: Any = None,
 ) -> tuple[bool, str | None]:
     """문서 1건의 추출→엔티티 해소/머지→관계 검증/적재.
 
@@ -769,10 +839,8 @@ def extract_resolve_store(
     if not valid:
         return False, f"insufficient_content: {guard_err}"
 
-    from ..config import get_settings
-
     tid = theme_id if theme_id is not None else getattr(conn, "theme_id", 0)
-    settings = get_settings()
+    settings = resolve_job_settings(settings, provider)
     eff = effort
     if eff is None:
         if doc.source_type in ("pdf", "odt"):
@@ -783,14 +851,17 @@ def extract_resolve_store(
             else:
                 from ..extract.classifier import reconcile_pdf_metadata
 
-                res = reconcile_pdf_metadata(doc, settings, provider=provider)
+                try:
+                    res = reconcile_pdf_metadata(doc, settings, provider=provider)
+                except ProviderPolicyError as e:
+                    return False, error_text(e)
                 is_paper, reason = res[:2]
             if is_paper and len(doc.raw_text or "") >= settings.pdf_paper_threshold_chars:
                 eff = settings.pdf_paper_effort or "high"
             else:
-                eff = settings.pdf_default_effort or getattr(provider, "effort", "medium")
+                eff = settings.pdf_default_effort or provider_effort(provider)
         else:
-            eff = getattr(provider, "effort", "medium")
+            eff = provider_effort(provider)
 
     if doc.meta is None:
         doc.meta = {}
@@ -846,7 +917,7 @@ def extract_resolve_store(
         except TypeError:
             result = provider.extract(doc, None)  # type: ignore[arg-type]
     except Exception as e:  # noqa: BLE001
-        return False, f"extract failed: {e}"
+        return False, error_text(e, prefix="extract failed: ")
     report.summary = result.summary
     if not (result.summary and result.summary.strip()):
         report.summary_rendered = False
@@ -881,6 +952,7 @@ def extract_resolve_store(
         full_content=full_content,
         out_error=detail_err_box,
         theme_id=tid,
+        settings=settings,
     )
     if not detail_ok:
         report.detail_rendered = False
@@ -908,6 +980,7 @@ def extract_resolve_store(
 
     # Jev 는 도입 검토 단계: 판정 권한 없이 같은 후보를 동시 평가해 기록만 남긴다 (JEV_SHADOW_EVALUATION_DESIGN.md)
     jev_shadow = make_jev_shadow(settings)
+    embed_pin = resolve_embed_identity(provider, settings)
 
     name_to_id: dict[str, str] = {}
     touched_entities = []
@@ -949,6 +1022,8 @@ def extract_resolve_store(
             embed_fn=_embed, judge_fn=_judge_fn, provisional=prov,
             on_judge=_on_judge_candidate, shadow=jev_shadow,
             theme_id=tid,
+            embed_model=embed_pin.model,
+            embed_provider=embed_pin.provider,
         )
         ent, created = res.entity, res.created
         resolution_results.append(res)
@@ -1182,6 +1257,7 @@ def merge_source_into_document(
     format: str | None = None,
     focus: str | None = None,
     theme_id: int | None = None,
+    settings: Any = None,
 ) -> dict:
     """[1홉 병합, ONEHOP_MERGE_DESIGN.md] 같은 주제의 부가 출처(child)를 parent 문서에 흡수 — 새 Document/expand_queue 항목을 만드는 대신 parent.raw_text 뒤에 별도 출처 섹션으로 append 하고 **같은 doc.id** 로 재추출한다(엔티티는 resolve_or_create 가 병합된 본문 기준으로 기존 노드에 관찰을 누적, render_detail 도 합쳐진 상세로 재생성돼 실제로 더 풍부한 글이 된다).
 
@@ -1240,7 +1316,8 @@ def merge_source_into_document(
                 pass
         report = IngestReport(document_id=parent.id, title=parent.title, updated=True)
         ok, err = extract_resolve_store(
-            conn, provider, vstore, parent, report, format=format, focus=focus, theme_id=tid)
+            conn, provider, vstore, parent, report, format=format, focus=focus, theme_id=tid,
+            settings=settings)
         if not ok:
             raise RuntimeError(err)
         return {"merged": True, "document_id": parent.id, "report": report}
@@ -1249,7 +1326,7 @@ def merge_source_into_document(
             conn, parent.id, title=original["title"], raw_text=original["raw_text"],
             content_hash=original["content_hash"], fetched_at=original["fetched_at"],
             meta=original_meta, theme_id=tid)
-        return {"merged": False, "error": str(e)}
+        return {"merged": False, "error": error_text(e)}
 
 
 def ensure_document_detail(
@@ -1264,6 +1341,7 @@ def ensure_document_detail(
     full_content: bool = False,
     out_error: list[str] | None = None,
     theme_id: int | None = None,
+    settings: Any = None,
 ) -> bool:
     """문서의 가독 렌더(detail)를 생성·저장. **그래프와 독립**(별도 LLM 호출).
 
@@ -1276,9 +1354,7 @@ def ensure_document_detail(
 
     fmt = format or (doc.meta or {}).get("format") or (doc.meta or {}).get("render_format")
     if not fmt:
-        from ..config import get_settings
-
-        fmt = get_settings().render_format
+        fmt = resolve_job_settings(settings, provider).render_format
     fmt = (fmt or "md").strip().lower()
     if fmt in ("asciidoc", "adoc"):
         fmt = "adoc"
@@ -1311,22 +1387,26 @@ def ensure_document_detail(
     eff = effort
     if eff is None:
         if doc.source_type in ("pdf", "odt"):
-            from ..config import get_settings
             from ..extract.classifier import reconcile_pdf_metadata
 
-            settings = get_settings()
+            settings = resolve_job_settings(settings, provider)
             classification = (doc.meta or {}).get("paper_classification")
             if classification and isinstance(classification, dict):
                 is_paper = classification.get("is_paper", False)
             else:
-                res = reconcile_pdf_metadata(doc, settings, provider=provider)
+                try:
+                    res = reconcile_pdf_metadata(doc, settings, provider=provider)
+                except ProviderPolicyError as e:
+                    if out_error is not None:
+                        out_error.append(error_text(e))
+                    return False
                 is_paper = res.is_paper
             if is_paper and len(doc.raw_text or "") >= settings.pdf_paper_threshold_chars:
                 eff = settings.pdf_paper_effort or "high"
             else:
-                eff = settings.pdf_default_effort or getattr(provider, "effort", "medium")
+                eff = settings.pdf_default_effort or provider_effort(provider)
         else:
-            eff = getattr(provider, "effort", "medium")
+            eff = provider_effort(provider)
 
     try:
         try:
@@ -1343,10 +1423,10 @@ def ensure_document_detail(
         import logging
 
         logging.getLogger("claire.pipeline").warning(
-            "ensure_document_detail failed for doc_id=%s: %s", doc.id, e
+            "ensure_document_detail failed for doc_id=%s: %s", doc.id, error_text(e)
         )
         if out_error is not None:
-            out_error.append(str(e))
+            out_error.append(error_text(e))
         return False
     if text and text.strip():
         dbm.set_document_detail(conn, doc.id, text.strip(), format=fmt, theme_id=tid)

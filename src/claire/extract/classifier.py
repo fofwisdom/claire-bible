@@ -57,11 +57,17 @@ def get_lowest_effort_provider(settings: Settings | None = None) -> Provider:
       동점인 경우 무료/로컬 CLI 어댑터인 Antigravity를 우선.
     - 선언된 후보가 없으면 기본 get_provider(settings) 반환.
     """
+    from ..accounts.provider_policy import context_of
     from .antigravity_provider import AntigravityProvider
     from .gemini_provider import GeminiProvider
     from .provider import MockProvider, get_provider
 
     s = settings or get_settings()
+    ctx = context_of(s)
+    if ctx is not None and not ctx.is_admin:
+        # 멤버 컨텍스트: codex·antigravity 후보를 만들지 않고, gemini는 컨텍스트 키로만 쓴다(설계 §10.2).
+        # 컨텍스트에 키가 없으면 get_provider가 ProviderNotConfigured 자리표시자를 돌려준다.
+        return get_provider(s)
     if getattr(s, "provider", "") in ("mock", "test"):
         return MockProvider()
 
@@ -249,6 +255,10 @@ def classify_paper(
                 title = getattr(res, "title", None)
                 return PaperClassificationResult(res[0], res[1], author=author, title=title)
         except Exception as e:  # noqa: BLE001
+            from ..accounts.provider_policy import ProviderPolicyError
+
+            if isinstance(e, ProviderPolicyError):
+                raise  # 키 거부·예산 소진은 휴리스틱으로 덮지 않는다(C2)
             logger.warning("classify_paper provider call failed: %s", e)
 
     # 폴백 휴리스틱 (URL 및 텍스트 단서)

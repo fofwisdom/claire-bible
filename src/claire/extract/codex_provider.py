@@ -184,8 +184,11 @@ class CodexProvider:
     name = "codex"
 
     def __init__(self, settings: Any):
+        from ..accounts.provider_policy import context_of, require_provider_allowed
         from ..config import find_codex_executable
 
+        # host-cli 분류: 멤버 컨텍스트면 만들지 않는다(팩토리와 2중 방어, 설계 §10.1).
+        require_provider_allowed(context_of(settings), self.name)
         self.settings = settings
         raw_bin = getattr(settings, "codex_bin", "codex")
         self.codex_bin = find_codex_executable(raw_bin) or raw_bin

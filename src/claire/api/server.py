@@ -39,10 +39,13 @@ from starlette.staticfiles import StaticFiles
 from starlette.types import ASGIApp
 
 from .. import ids
+from ..accounts import provider_policy as policy
+from ..accounts import server_tier
 from ..config import Settings, get_settings
 from ..ingest.pipeline import IngestReport
 from ..ingest.report_json import report_to_dict
 from ..ingest.service import IngestService, IngestServicePool
+from ..secret_scrub import install_log_scrubber, scrub_exception, scrub_text
 from ..store import accounts as accounts_store
 from ..store import db as dbm
 from ..store.public_index import SqlitePublicIndexStore
@@ -124,6 +127,37 @@ async def _http_error(_request: Request, exc: HTTPException) -> JSONResponse:
     )
 
 
+# 정책 오류의 HTTP 상태(설계 §10.2 폴백 없음). 본문은 {"error": code, "remedy": 복구 방법}이다.
+# not allowed 403, 예산·한도 429(재시도 가능, UTC 경계에 풀린다), 프로바이더 없음·키 거부 409(사용자 조치가 필요한 상태).
+POLICY_ERROR_STATUS: dict[str, int] = {
+    policy.ProviderNotAllowed.code: 403,
+    policy.ProviderBudgetExceeded.code: 429,
+    policy.ProviderNotConfigured.code: 409,
+    policy.ProviderKeyRejected.code: 409,
+}
+
+
+def policy_error_body(exc: policy.ProviderPolicyError) -> dict[str, str]:
+    """정책 오류의 응답 본문. 메시지(계정 번호·내부 사유)는 싣지 않고 코드와 복구 방법만 준다."""
+    return {"error": exc.code, "remedy": scrub_text(exc.remedy or "")}
+
+
+def policy_error_response(exc: policy.ProviderPolicyError) -> JSONResponse:
+    return JSONResponse(policy_error_body(exc), status_code=POLICY_ERROR_STATUS.get(exc.code, 403))
+
+
+async def _policy_error(_request: Request, exc: Exception) -> JSONResponse:
+    assert isinstance(exc, policy.ProviderPolicyError)
+    return policy_error_response(exc)
+
+
+def _failure_result(exc: BaseException, label: str) -> dict[str, Any]:
+    """스트림·작업 결과에 싣는 실패 본문. 정책 오류는 코드·복구 방법, 그 밖에는 키를 지운 메시지."""
+    if isinstance(exc, policy.ProviderPolicyError):
+        return {**policy_error_body(exc), "ok": False}
+    return {"error": f"{label} failed: {scrub_exception(exc)}", "ok": False}
+
+
 async def _json_object(request: Request) -> dict[str, Any]:
     body = await read_json_body(request)
     if not isinstance(body, dict):
@@ -158,6 +192,8 @@ def create_app(
     """설정과 서비스를 주입할 수 있는 ASGI app factory."""
 
     s = settings or get_settings()
+    # 프로바이더 오류 문자열에 섞인 키가 로그에 남지 않게 한다(§11.3).
+    install_log_scrubber()
     # Schema migration과 WAL 설정은 요청마다 반복하지 않고 프로세스 시작 시 한 번만 한다.
     conn = dbm.connect(s.db_file)
     try:
@@ -328,6 +364,101 @@ def create_app(
             except ThemeNotFound:
                 continue
         return None
+
+    # --- 프로바이더 정책 (설계 §10.1–§10.4) ---------------------------------------------
+
+    def _account_limits_context(account_id: int | None) -> policy.ProviderContext | None:
+        """테마 소유 계정의 한도용 컨텍스트. 관리자(또는 호스트 운영자)면 None.
+
+        한도(테마·문서·일 적재 수)는 키 상태와 관계없이 서버 등급 값으로 판정하므로 키를 복호화하지 않는다.
+        계정 행이 없으면 관리자 계정 번호일 때만 관리자로 보고, 그 밖에는 fail-closed로 거부한다.
+        """
+        if account_id is None:
+            return None
+        conn = dbm.connect_existing(s.db_file, readonly=True)
+        try:
+            row = conn.execute("SELECT role FROM accounts WHERE id=?", (int(account_id),)).fetchone()
+            if row is None:
+                if int(account_id) == dbm.ADMIN_ACCOUNT_ID:
+                    return None
+                raise policy.ProviderNotAllowed(
+                    f"account {account_id}: not found", remedy="관리자에게 문의한다."
+                )
+            if str(row[0]) == "admin":
+                return None
+            tier = server_tier.load_server_tier(conn)
+        finally:
+            conn.close()
+        return policy.ProviderContext(
+            account_id=int(account_id),
+            is_admin=False,
+            source="none",
+            provider="none",
+            model="",
+            embed_model="",
+            effort="none",
+            credential_key="tier",
+            tier=tier,
+        )
+
+    def _theme_provider_context(theme: ThemeInfo, theme_svc: Any | None = None) -> policy.ProviderContext | None:
+        """테마 작업의 프로바이더 컨텍스트. 서비스가 붙인 컨텍스트(L4-a2i)를 먼저 쓰고, 없으면 테마 소유 계정으로 정한다."""
+        ctx = getattr(theme_svc, "provider_context", None) if theme_svc is not None else None
+        if isinstance(ctx, policy.ProviderContext):
+            return ctx
+        account_id = getattr(theme, "account_id", None)
+        if _account_limits_context(account_id) is None:
+            return None
+        return policy.resolve_provider_context(account_id, settings=s)
+
+    def _require_theme_feature_sync(theme: ThemeInfo, theme_svc: Any | None, feature: str) -> None:
+        if feature in policy.ADMIN_ONLY_FEATURES:
+            # 관리자 전용 기능은 키 상태를 보기 전에 거부한다(멤버 키 복호화 불필요).
+            ctx = getattr(theme_svc, "provider_context", None) if theme_svc is not None else None
+            if isinstance(ctx, policy.ProviderContext):
+                policy.require_feature(ctx, feature)
+                return
+            policy.require_feature(_account_limits_context(getattr(theme, "account_id", None)), feature)
+            return
+        policy.require_feature(_theme_provider_context(theme, theme_svc), feature)
+
+    async def _require_theme_feature(theme: ThemeInfo, theme_svc: Any | None, feature: str) -> None:
+        """멤버 테마에서 기능이 허용되지 않으면 ``ProviderNotAllowed``(→ 403). 관리자 테마는 그대로 통과한다."""
+        await asyncio.to_thread(_require_theme_feature_sync, theme, theme_svc, feature)
+
+    def _reembed_required(theme: ThemeInfo) -> bool:
+        """테마의 고정 임베딩 공간과 지금 소유 계정 컨텍스트의 임베딩이 다른가(§10.4). 판정할 수 없으면 False."""
+        from types import SimpleNamespace
+
+        from ..store.theme import embed_mismatch
+        from ..store.vectors import resolve_embed_identity
+
+        try:
+            ctx = _theme_provider_context(theme)
+        except policy.ProviderPolicyError:
+            return False
+        if ctx is None:
+            pin = resolve_embed_identity(service_pool_provider(), s)
+        elif ctx.provider in ("", "none"):
+            return False
+        else:
+            pin = resolve_embed_identity(SimpleNamespace(name=ctx.provider, embed_model=ctx.embed_model), s)
+        conn = dbm.connect_existing(s.db_file, readonly=True)
+        try:
+            row = conn.execute(
+                "SELECT embed_provider, embed_model FROM themes WHERE id=?", (theme.id,)
+            ).fetchone()
+        except Exception:  # noqa: BLE001 - 열이 없는 레거시 DB
+            row = None
+        finally:
+            conn.close()
+        if row is None:
+            return False
+        fresh = SimpleNamespace(embed_provider=row[0], embed_model=row[1])
+        return embed_mismatch(fresh, pin.provider, pin.model)  # type: ignore[arg-type]
+
+    def service_pool_provider() -> Any:
+        return getattr(service_pool, "shared_provider", None) or getattr(svc, "provider", None)
 
     def _reserve_expensive_job() -> None:
         nonlocal active_expensive_jobs
@@ -551,8 +682,13 @@ def create_app(
                         {"host": h.host, "activated_at": h.activated_at, "sunset_at": h.sunset_at}
                         for h in hosts
                     ]
+                etag_part = f"{num_str}:{t.updated_at}"
+                if visible_scope == "owner":
+                    # §10.4 re-embed 필요 표시는 owner 요청에만 싣는다(공개·visitor 응답 제외).
+                    item_dict["reembed_required"] = await asyncio.to_thread(_reembed_required, t)
+                    etag_part += f":r{int(item_dict['reembed_required'])}"
                 items.append(item_dict)
-                etag_parts.append(f"{num_str}:{t.updated_at}")
+                etag_parts.append(etag_part)
 
             is_first_page = (query.max_id is None and query.min_id is None and query.since_id is None)
             page_data = collections.collection_page(
@@ -586,9 +722,14 @@ def create_app(
                     {"host": h.host, "activated_at": h.activated_at, "sunset_at": h.sunset_at}
                     for h in hosts
                 ]
-            legacy_theme_list.append(td)
             num_str = str(t.number) if t.number is not None else str(t.id)
-            etag_parts.append(f"{num_str}:{t.updated_at}")
+            etag_part = f"{num_str}:{t.updated_at}"
+            if visible_scope == "owner":
+                # §10.4 re-embed 필요 표시는 owner 요청에만 싣는다(공개·visitor 응답 제외).
+                td["reembed_required"] = await asyncio.to_thread(_reembed_required, t)
+                etag_part += f":r{int(td['reembed_required'])}"
+            legacy_theme_list.append(td)
+            etag_parts.append(etag_part)
 
         root_data["themes"] = legacy_theme_list
         try:
@@ -822,6 +963,19 @@ def create_app(
         pres_enabled = bool(body.get("presentation_enabled", body.get("is_presentation_enabled", False)))
         principal = request_principal(request)
         target_account_id = principal.account_id if principal.account_id is not None else 1
+
+        def _check_theme_quota() -> None:
+            lim = _account_limits_context(target_account_id)
+            if lim is None:
+                return
+            conn = dbm.connect_existing(s.db_file, readonly=True)
+            try:
+                server_tier.check_theme_quota(conn, lim)
+            finally:
+                conn.close()
+
+        # 멤버는 서버 등급의 max_themes를 넘겨 만들 수 없다(§10.3, 자기 키가 있어도 적용).
+        await asyncio.to_thread(_check_theme_quota)
         try:
             theme = theme_mgr.define_theme(
                 label,
@@ -1037,8 +1191,8 @@ def create_app(
             s = get_settings()
             if hasattr(request, "app") and hasattr(request.app, "state"):
                 request.app.state.settings = s
-            if hasattr(service_pool, "clear"):
-                service_pool.clear()
+            # 캐시된 서비스·프로바이더(관리자 공유 포함)를 버리고 새 설정으로 다시 만든다.
+            service_pool.clear(s)
             updated["effective_provider"] = s.effective_provider
             updated["effective_stt_provider"] = s.effective_stt_provider
             return JSONResponse({"ok": True, "config": updated})
@@ -1107,8 +1261,8 @@ def create_app(
             s = s.model_copy(update=ilm.get_settings_dict())
             if hasattr(request, "app") and hasattr(request.app, "state"):
                 request.app.state.settings = s
-            if hasattr(service_pool, "clear"):
-                service_pool.clear()
+            # 캐시된 서비스·프로바이더(관리자 공유 포함)를 버리고 새 설정으로 다시 만든다.
+            service_pool.clear(s)
             return JSONResponse({"ok": True, "config": updated})
         except ValueError as val_err:
             raise HTTPException(status_code=400, detail=str(val_err)) from val_err
@@ -1250,7 +1404,7 @@ def create_app(
                 payload,
                 **ingest_kwargs,
             )
-        except HTTPException:
+        except (HTTPException, policy.ProviderPolicyError):
             raise
         except Exception as exc:  # noqa: BLE001
             # 원본은 raw_inbox에 남아 replay-failed로 복구할 수 있다.
@@ -1358,11 +1512,11 @@ def create_app(
         try:
             result = await _run_expensive(_run)
             return JSONResponse(result)
-        except HTTPException:
+        except (HTTPException, policy.ProviderPolicyError):
             raise
         except Exception as exc:  # noqa: BLE001
             _log_operation_failure(request, "reingest", exc)
-            return JSONResponse({"error": f"reingest failed: {exc}", "ok": False}, status_code=500)
+            return JSONResponse(_failure_result(exc, "reingest"), status_code=500)
 
     async def do_regenerate(request: Request) -> JSONResponse:
         body = await _json_object(request)
@@ -1467,11 +1621,11 @@ def create_app(
         try:
             result = await _run_expensive(_run)
             return JSONResponse(result)
-        except HTTPException:
+        except (HTTPException, policy.ProviderPolicyError):
             raise
         except Exception as exc:  # noqa: BLE001
             _log_operation_failure(request, "regenerate", exc)
-            return JSONResponse({"error": f"regenerate failed: {exc}", "ok": False}, status_code=500)
+            return JSONResponse(_failure_result(exc, "regenerate"), status_code=500)
 
     async def do_search(request: Request) -> JSONResponse:
         body = await _json_object(request)
@@ -1812,12 +1966,12 @@ def create_app(
                 source=f"syndication:{src_theme.id}",
                 focus=applied_focus,
             )
-        except HTTPException:
+        except (HTTPException, policy.ProviderPolicyError):
             raise
         except Exception as exc:  # noqa: BLE001
             _log_operation_failure(request, "syndication_dispatch", exc)
             return JSONResponse(
-                {"error": f"dispatch failed: {exc}", "ok": False},
+                _failure_result(exc, "dispatch"),
                 status_code=500,
             )
 
@@ -2654,6 +2808,7 @@ def create_app(
         _synthesize = _resolve_query_func("synthesize", synthesize)
         body = await _json_object(request)
         theme, theme_settings, theme_svc = _get_theme_ctx(request, body)
+        await _require_theme_feature(theme, theme_svc, "synthesize")
         entity_ids = body.get("node_ids") or []
         if not isinstance(entity_ids, list) or not entity_ids:
             raise HTTPException(status_code=400, detail="node_ids required")
@@ -2676,7 +2831,9 @@ def create_app(
 
         body = await _json_object(request)
         # 요청 테마의 설정(theme_id)으로 맥락을 읽고 적재한다
-        _, research_settings, research_svc = _get_theme_ctx(request, body)
+        research_theme, research_settings, research_svc = _get_theme_ctx(request, body)
+        # research(allow_tools=True)는 관리자 전용이다(§10.1). 멤버 테마면 프로바이더에 닿기 전에 403.
+        await _require_theme_feature(research_theme, research_svc, "research")
         query = str(body.get("query") or "").strip()
         if not query:
             raise HTTPException(status_code=400, detail="query required")
@@ -2734,6 +2891,8 @@ def create_app(
                     yield (json.dumps(event, ensure_ascii=False) + "\n").encode()
                 try:
                     result = task.result()
+                except policy.ProviderPolicyError as exc:
+                    result = _failure_result(exc, "research")
                 except Exception as exc:  # noqa: BLE001
                     _log_operation_failure(request, "research", exc)
                     result = {"error": "research failed", "ok": False}
@@ -2854,6 +3013,8 @@ def create_app(
                     if theme.id != 0:
                         result["theme_id"] = theme.id
                         result["theme_label"] = theme.label
+                except policy.ProviderPolicyError as exc:
+                    result = _failure_result(exc, "ingest")
                 except Exception as exc:  # noqa: BLE001
                     _log_operation_failure(request, "ingest stream", exc)
                     result = {"error": "ingest failed", "ok": False}
@@ -3019,7 +3180,7 @@ def create_app(
                         result["theme_label"] = theme.label
                 except Exception as exc:  # noqa: BLE001
                     _log_operation_failure(request, "reingest stream", exc)
-                    result = {"error": f"reingest failed: {exc}", "ok": False}
+                    result = _failure_result(exc, "reingest")
                 yield (
                     json.dumps(
                         {"done": True, "result": result},
@@ -3191,7 +3352,7 @@ def create_app(
                         result["theme_label"] = theme.label
                 except Exception as exc:  # noqa: BLE001
                     _log_operation_failure(request, "regenerate stream", exc)
-                    result = {"error": f"regenerate failed: {exc}", "ok": False}
+                    result = _failure_result(exc, "regenerate")
                 yield (
                     json.dumps(
                         {"done": True, "result": result},
@@ -3264,9 +3425,9 @@ def create_app(
                 try:
                     updated = dbm.select_entity_primary_label(conn, entity_id, new_name, theme_id=theme.id)
                 except KeyError as e:
-                    raise HTTPException(status_code=404, detail=str(e))
+                    raise HTTPException(status_code=404, detail=scrub_exception(e))
                 except ValueError as e:
-                    raise HTTPException(status_code=400, detail=str(e))
+                    raise HTTPException(status_code=400, detail=scrub_exception(e))
 
                 from ..store.queries import node_detail as _detail
 
@@ -3607,7 +3768,7 @@ def create_app(
         except KeyError:
             return PlainTextResponse("Document not found", status_code=404)
         except Exception as exc:
-            return PlainTextResponse(f"Presentation generation failed: {exc}", status_code=500)
+            return PlainTextResponse(f"Presentation generation failed: {scrub_exception(exc)}", status_code=500)
         finally:
             conn.close()
 
@@ -3724,6 +3885,8 @@ def create_app(
                 },
                 status_code=403,
             )
+        # 프레젠테이션 저작은 LLM을 쓴다. 멤버 테마는 등급 기능(또는 BYOK)일 때만 허용한다(§10.3).
+        await _require_theme_feature(target_theme, None, "presentation")
 
         svc = PresentationService(data_dir=active_data_dir, settings=theme_settings, theme_id=target_theme.id)
 
@@ -3749,7 +3912,9 @@ def create_app(
                         force_recompile=force,
                     )
                 except Exception as exc:
-                    logger.warning("Background presentation generation error for %s: %s", doc_id, exc)
+                    log.warning(
+                        "Background presentation generation error for %s: %s", doc_id, scrub_exception(exc)
+                    )
                 finally:
                     bg_conn.close()
 
@@ -3773,7 +3938,7 @@ def create_app(
         except KeyError:
             return JSONResponse({"error": "document not found"}, status_code=404)
         except Exception as exc:
-            return JSONResponse({"error": str(exc)}, status_code=500)
+            return JSONResponse({"error": scrub_exception(exc)}, status_code=500)
         finally:
             conn.close()
 
@@ -3815,6 +3980,8 @@ def create_app(
                 },
                 status_code=403,
             )
+        # 프레젠테이션 저작은 LLM을 쓴다. 멤버 테마는 등급 기능(또는 BYOK)일 때만 허용한다(§10.3).
+        await _require_theme_feature(target_theme, None, "presentation")
 
         svc = PresentationService(data_dir=active_data_dir, settings=theme_settings, theme_id=target_theme.id)
         conn = dbm.connect_existing(active_db)
@@ -3835,7 +4002,7 @@ def create_app(
         except KeyError:
             return JSONResponse({"error": "document not found"}, status_code=404)
         except Exception as exc:
-            return JSONResponse({"error": str(exc)}, status_code=500)
+            return JSONResponse({"error": scrub_exception(exc)}, status_code=500)
         finally:
             conn.close()
 
@@ -3873,6 +4040,8 @@ def create_app(
                 },
                 status_code=403,
             )
+        # 프레젠테이션 저작은 LLM을 쓴다. 멤버 테마는 등급 기능(또는 BYOK)일 때만 허용한다(§10.3).
+        await _require_theme_feature(target_theme, None, "presentation")
 
         svc = PresentationService(data_dir=active_data_dir, settings=theme_settings, theme_id=target_theme.id)
         conn = dbm.connect_existing(active_db)
@@ -3884,7 +4053,7 @@ def create_app(
         except KeyError:
             return JSONResponse({"error": "document not found"}, status_code=404)
         except Exception as exc:
-            return JSONResponse({"error": str(exc)}, status_code=500)
+            return JSONResponse({"error": scrub_exception(exc)}, status_code=500)
         finally:
             conn.close()
 
@@ -3916,6 +4085,8 @@ def create_app(
                 },
                 status_code=403,
             )
+        if request.method == "PUT":
+            await _require_theme_feature(target_theme, None, "presentation")
 
         svc = PresentationService(data_dir=active_data_dir, settings=theme_settings, theme_id=target_theme.id)
 
@@ -4052,7 +4223,7 @@ def create_app(
         try:
             validate_bundle_days(days, max_ret)
         except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc))
+            raise HTTPException(status_code=400, detail=scrub_exception(exc))
 
         def _generate() -> dict[str, Any]:
             info = create_support_bundle(
@@ -4066,7 +4237,7 @@ def create_app(
         try:
             bundle_dict = await asyncio.to_thread(_generate)
         except ValueError as exc:
-            raise HTTPException(status_code=404, detail=str(exc))
+            raise HTTPException(status_code=404, detail=scrub_exception(exc))
         return JSONResponse(bundle_dict)
 
     async def download_support_bundle_route(request: Request) -> Response:
@@ -4132,9 +4303,9 @@ def create_app(
         try:
             bundle_dict = await asyncio.to_thread(_generate)
         except FileNotFoundError as exc:
-            raise HTTPException(status_code=404, detail=str(exc))
+            raise HTTPException(status_code=404, detail=scrub_exception(exc))
         except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc))
+            raise HTTPException(status_code=400, detail=scrub_exception(exc))
         return JSONResponse(bundle_dict)
 
     async def download_graph_bundle_route(request: Request) -> Response:
@@ -4313,7 +4484,7 @@ def create_app(
         routes=routes,
         # Starlette의 ServerErrorMiddleware 안쪽에서 endpoint 예외를 먼저 정제한다.
         middleware=[Middleware(ErrorBoundaryMiddleware)],
-        exception_handlers={HTTPException: _http_error},
+        exception_handlers={HTTPException: _http_error, policy.ProviderPolicyError: _policy_error},
         lifespan=app_lifespan,
     )
     app.state.runtime_config = WebRuntimeConfig.from_settings(s)
@@ -4400,6 +4571,7 @@ def run_api() -> int:
         return 2
 
     logging.basicConfig(level=logging.INFO)
+    install_log_scrubber()
     try:
         from logging.handlers import RotatingFileHandler
         logs_dir = Path(getattr(s, "data_dir", "data")) / "logs"

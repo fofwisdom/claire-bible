@@ -21,6 +21,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from ...accounts.provider_policy import ProviderPolicyError
 from .base import TranscriptProvider, TranscriptResult, TranscriptSegment
 
 logger = logging.getLogger(__name__)
@@ -241,9 +242,15 @@ class GeminiTranscriptProvider(TranscriptProvider):
     """Google Gemini API 전용 STT 프로바이더 (gemini-3.5-transcribe)."""
 
     name = "gemini"
+    # 계정 컨텍스트와 예산 훅(설계 §10.2). 관리자·레거시 경로는 둘 다 None.
+    provider_context = None
+    usage_hooks = None
 
     def __init__(self, settings: Any = None):
+        from ...accounts.provider_policy import context_of
+
         self.settings = settings
+        self.provider_context = context_of(settings) if settings is not None else None
         raw_model = (
             getattr(settings, "stt_model", "")
             or os.environ.get("STT_MODEL", "")
@@ -259,16 +266,58 @@ class GeminiTranscriptProvider(TranscriptProvider):
         else:
             self.custom_vocabulary = list(DEFAULT_CUSTOM_VOCABULARY)
 
-    def _get_genai_client(self) -> Any:
-        from google import genai
+    def _is_member(self) -> bool:
+        ctx = getattr(self, "provider_context", None)
+        return ctx is not None and not ctx.is_admin
 
-        api_key = (
+    def _api_key(self) -> str:
+        """멤버는 컨텍스트 키만 쓴다(관리자 키·환경변수로 넘어가지 않는다). 관리자는 지금과 같다."""
+        if self._is_member():
+            return str(self.provider_context.api_key or "")
+        return str(
             getattr(self.settings, "gemini_api_key", None)
             or os.environ.get("GEMINI_API_KEY", "")
         )
+
+    def _get_genai_client(self) -> Any:
+        from google import genai
+
+        api_key = self._api_key()
         if not api_key:
+            if self._is_member():
+                from ...accounts.provider_policy import ProviderNotConfigured
+
+                raise ProviderNotConfigured(
+                    "stt: no API key for this account",
+                    remedy="/me에서 API 키를 등록하거나 관리자에게 서버 등급을 요청한다.",
+                )
             raise ValueError("GEMINI_API_KEY is not configured for GeminiTranscriptProvider")
+        if self._is_member():
+            from ...secret_scrub import register_secret
+
+            register_secret(api_key)
         return genai.Client(api_key=api_key)
+
+    def _invoke(self, fn: Any) -> Any:
+        """모델 호출 하나를 ``usage_hooks``로 감싼다(호출 전 ``before_call``, 성공 뒤 ``after_call``)."""
+        from ..gemini_provider import _usage_tokens
+
+        hooks = getattr(self, "usage_hooks", None)
+        if hooks is not None:
+            hooks.before_call()
+        resp = fn()
+        if hooks is not None:
+            hooks.after_call(*_usage_tokens(resp))
+        return resp
+
+    def _clean_error(self, err: BaseException) -> BaseException | None:
+        """비밀을 지우고, 멤버 컨텍스트의 키 거부·할당량 소진이면 ``ProviderKeyRejected``를 돌려준다."""
+        from ..gemini_provider import _member_error, _scrub_exception_inplace
+
+        key = self._api_key()
+        extra = (key,) if key else ()
+        _scrub_exception_inplace(err, extra)
+        return _member_error(err, extra) if self._is_member() else None
 
     def _transcribe_single_file(
         self,
@@ -335,7 +384,7 @@ class GeminiTranscriptProvider(TranscriptProvider):
                             trans_cfg["language_codes"] = [target_lang]
 
                         try:
-                            interaction = client.interactions.create(
+                            interaction = self._invoke(lambda: client.interactions.create(
                                 model=model_name,
                                 input=[{
                                     "type": "audio",
@@ -345,11 +394,11 @@ class GeminiTranscriptProvider(TranscriptProvider):
                                 generation_config={
                                     "transcription_config": trans_cfg,
                                 },
-                            )
+                            ))
                         except Exception as inter_err:
-                            if "400" in str(inter_err):
+                            if "400" in str(inter_err) and not self._is_member_key_error(inter_err):
                                 # 타임스탬프 비호환 언어 또는 옵션 충돌 시 smart 모드 단독 폴백
-                                interaction = client.interactions.create(
+                                interaction = self._invoke(lambda: client.interactions.create(
                                     model=model_name,
                                     input=[{
                                         "type": "audio",
@@ -361,7 +410,7 @@ class GeminiTranscriptProvider(TranscriptProvider):
                                             "mode": {"type": "smart"},
                                         },
                                     },
-                                )
+                                ))
                             else:
                                 raise
 
@@ -409,14 +458,19 @@ class GeminiTranscriptProvider(TranscriptProvider):
                         return parse_raw_transcript_lines(chunk_text, offset_sec=offset_sec)
 
                     else:
-                        resp = client.models.generate_content(
+                        resp = self._invoke(lambda: client.models.generate_content(
                             model=model_name,
                             contents=[uploaded, prompt],
-                        )
+                        ))
                         chunk_text = resp.text or ""
                         return parse_raw_transcript_lines(chunk_text, offset_sec=offset_sec)
 
+                except ProviderPolicyError:
+                    raise
                 except Exception as call_err:
+                    rejected = self._clean_error(call_err)
+                    if rejected is not None:
+                        raise rejected from None
                     err_str = str(call_err).lower()
                     is_429 = "429" in err_str or "resource_exhausted" in err_str or "quota" in err_str
 
@@ -452,7 +506,29 @@ class GeminiTranscriptProvider(TranscriptProvider):
             except Exception as del_err:
                 logger.debug("Failed to delete temporary Gemini file %s: %s", uploaded.name, del_err)
 
+    def _is_member_key_error(self, err: BaseException) -> bool:
+        from ..gemini_provider import _is_key_rejection
+
+        return self._is_member() and _is_key_rejection(err)
+
     def transcribe(
+        self,
+        audio_path: str | Path,
+        *,
+        language: str | None = None,
+        timestamps: bool = True,
+    ) -> TranscriptResult:
+        try:
+            return self._transcribe(audio_path, language=language, timestamps=timestamps)
+        except ProviderPolicyError:
+            raise
+        except Exception as err:
+            rejected = self._clean_error(err)
+            if rejected is not None:
+                raise rejected from None
+            raise
+
+    def _transcribe(
         self,
         audio_path: str | Path,
         *,

@@ -44,6 +44,55 @@ class PresentationService:
         self.presentations_dir = self.data_dir / "presentations"
         self.presentations_dir.mkdir(parents=True, exist_ok=True)
 
+    def _base_settings(self) -> Any:
+        if self.settings is not None:
+            return self.settings
+        from ..config import get_settings  # 설정 없이 만든 서비스 = 호스트 운영자(CLI) 경로
+
+        return get_settings()
+
+    def _theme_owner(self, conn: sqlite3.Connection | None) -> int | None:
+        """테마 소유 계정. 테마 행이 없으면(레거시 단일 테마) None = 호스트 운영자."""
+        explicit = getattr(self.settings, "account_id", None) if self.settings is not None else None
+        if conn is not None:
+            try:
+                row = conn.execute("SELECT account_id FROM themes WHERE id=?", (self.theme_id,)).fetchone()
+            except sqlite3.Error:
+                row = None
+            if row is not None and row[0] is not None:
+                return int(row[0])
+        return int(explicit) if explicit is not None else None
+
+    def provider_context(self, conn: sqlite3.Connection | None = None) -> Any:
+        """테마 소유 계정의 ``ProviderContext``. 정할 수 없으면 그 정책 예외를 낸다(fail-closed)."""
+        from ..accounts.provider_policy import context_of, resolve_provider_context
+
+        base = self._base_settings()
+        attached = context_of(base)
+        if attached is not None and not attached.is_admin:
+            # 호출자가 이미 테마 소유 계정의 컨텍스트를 입힌 설정을 넘겼다(서버 경로).
+            return attached
+        return resolve_provider_context(self._theme_owner(conn), settings=base)
+
+    def _provider_for_context(self, ctx: Any) -> Any:
+        """컨텍스트 사본으로 프로바이더를 만든다. 멤버는 ``presentation`` 기능 게이트와 원장 훅을 거친다."""
+        from ..accounts.provider_policy import require_feature, settings_for_context
+        from ..extract.provider import get_provider
+
+        base = self._base_settings()
+        if ctx.is_admin:
+            return get_provider(base)
+        require_feature(ctx, "presentation")
+        provider = get_provider(settings_for_context(base, ctx))
+        if hasattr(provider, "usage_hooks"):
+            from ..accounts import server_tier
+            from ..store import auth_db
+
+            provider.usage_hooks = server_tier.usage_hooks_for(
+                ctx, auth_db_path=auth_db.auth_db_path(base.data_dir)
+            )
+        return provider
+
     @classmethod
     def is_engine_available(cls) -> bool:
         """Check if asciidoctor-revealjs compiler is available on system."""
@@ -109,12 +158,18 @@ class PresentationService:
 
         summary = dbm.latest_extraction_summary(conn, doc_id, theme_id=self.theme_id)
 
-        # Provider resolving
+        # Provider resolving: 테마 소유 계정의 컨텍스트(설계 §10.2). 멤버는 presentation 기능이 켜져 있어야 한다.
+        ctx = self.provider_context(conn)
         if provider is None:
-            from ..config import get_settings
-            from ..extract.provider import get_provider
-            s = self.settings or get_settings()
-            provider = get_provider(s)
+            provider = self._provider_for_context(ctx)
+        else:
+            from ..accounts.provider_policy import require_feature
+
+            require_feature(ctx, "presentation")
+        if effort:
+            from ..accounts.provider_policy import clamp_effort
+
+            effort = clamp_effort(ctx, effort)
 
         import json
         meta_dict = {}
@@ -172,12 +227,14 @@ class PresentationService:
                 ),
             )
         except Exception as exc:
+            from ..secret_scrub import scrub_exception
+
             dbm.update_document_presentation_status(
                 conn,
                 document_id=doc_id,
                 theme_id=self.theme_id,
                 status="failed",
-                error_message=str(exc),
+                error_message=scrub_exception(exc),
             )
             raise
         compose_ms = int((time.perf_counter() - t_start) * 1000)
@@ -360,12 +417,14 @@ class PresentationService:
                 compile_duration_ms=duration_ms,
             )
         except Exception as exc:
+            from ..secret_scrub import scrub_exception
+
             dbm.update_document_presentation_status(
                 conn,
                 document_id=doc_id,
                 theme_id=self.theme_id,
                 status="failed",
-                error_message=str(exc),
+                error_message=scrub_exception(exc),
             )
             raise
 

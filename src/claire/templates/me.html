@@ -16,7 +16,7 @@
       .card { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 1.25rem; margin: 0 0 1rem; }
       label { display: block; font-weight: 600; margin: .75rem 0 .25rem; }
       .hint { color: var(--muted); font-size: .875rem; margin: .25rem 0 0; }
-      input[type=text], input[type=password] { width: 100%; padding: .5rem .625rem; font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; }
+      select, input[type=text], input[type=password] { width: 100%; padding: .5rem .625rem; font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; }
       .check { display: flex; gap: .5rem; align-items: flex-start; font-weight: 400; }
       button { margin-top: 1rem; padding: .5rem 1rem; font: inherit; color: #fff; background: var(--accent); border: 0; border-radius: 6px; cursor: pointer; }
       button.link { background: none; color: var(--accent); padding: 0; margin: 0; text-decoration: underline; }
@@ -83,6 +83,7 @@
         <button type="submit">비밀번호 변경</button>
         <p class="result" data-accounts-result aria-live="polite"></p>
       </form>
+      $provider_keys
     </main>
     <script src="/static/js/accounts.js" defer></script>
   </body>

@@ -583,19 +583,23 @@ class MockProvider:
 class UnavailableProvider:
     """운영 환경에서 설정한 프로바이더를 쓸 수 없을 때의 자리표시자.
 
-    서비스 기동과 상태 조회는 막지 않고, 실제 호출은 mock 결과 대신 실패시킨다.
+    서비스 기동과 상태 조회는 막지 않고, 실제 호출은 mock 결과 대신 실패시킨다. ``error``(정책 예외)가 있으면 호출마다 같은 종류의
+    새 예외를 낸다(멤버 컨텍스트의 ``ProviderNotConfigured``·``ProviderNotAllowed``, 설계 §10.2).
     """
 
     name = "unavailable"
 
-    def __init__(self, reason: str) -> None:
+    def __init__(self, reason: str, *, error: Exception | None = None) -> None:
         self.reason = reason
+        self.error = error
 
     def __getattr__(self, attr: str):
         if attr.startswith("__"):
             raise AttributeError(attr)
 
         def _fail(*_args, **_kwargs):
+            if self.error is not None:
+                raise_policy_error(self.error)
             from ..config import ProviderUnavailableError
 
             raise ProviderUnavailableError(f"LLM 프로바이더를 쓸 수 없다: {self.reason}")
@@ -603,11 +607,65 @@ class UnavailableProvider:
         return _fail
 
 
+def raise_policy_error(error: Exception):
+    """보관해 둔 정책 예외와 같은 종류의 새 예외를 낸다(같은 인스턴스를 거듭 던져 traceback이 쌓이지 않게)."""
+    remedy = getattr(error, "remedy", None)
+    if remedy is not None:
+        raise type(error)(str(error), remedy=remedy)
+    raise type(error)(str(error))
+
+
+def member_policy_unavailable(ctx, kind: str) -> Exception | None:
+    """멤버 컨텍스트에서 kind(llm|stt|vlm)를 만들 수 없으면 그 정책 예외, 만들 수 있으면 None.
+
+    순서: 프로바이더 없음(``ProviderNotConfigured``) → 기능 꺼짐(``ProviderNotAllowed``) → host-cli 분류(``ProviderNotAllowed``).
+    """
+    from ..accounts.provider_policy import (
+        ProviderNotAllowed,
+        ProviderNotConfigured,
+        ProviderPolicyError,
+        require_provider_allowed,
+    )
+
+    provider = str(getattr(ctx, "provider", "") or "").strip().lower()
+    if provider in ("", "none") or not getattr(ctx, "api_key", ""):
+        return ProviderNotConfigured(
+            f"{kind}: no LLM provider is configured for this account",
+            remedy="/me에서 API 키를 등록하거나 관리자에게 서버 등급을 요청한다. 원문 저장과 검색은 계속 동작한다.",
+        )
+    feature = {"stt": "stt", "vlm": "vlm"}.get(kind)
+    if feature is not None and not ctx.feature_allowed(feature):
+        return ProviderNotAllowed(
+            f"{kind}: feature is not allowed for this account",
+            remedy="자기 API 키를 등록하거나 관리자에게 서버 등급에서 이 기능을 켜 달라고 요청한다.",
+        )
+    try:
+        require_provider_allowed(ctx, provider)
+    except ProviderPolicyError as exc:
+        return exc
+    return None
+
+
 def get_provider(settings) -> Provider:
-    """effective_provider 에 따라 provider 인스턴스 반환."""
+    """effective_provider 에 따라 provider 인스턴스 반환.
+
+    멤버 컨텍스트(``provider_policy.context_of``)는 host-cli 분류(codex·antigravity)를 만들지 않고, 프로바이더가 ``none``이면
+    ``ProviderNotConfigured``를 내는 자리표시자를 돌려준다(설계 §10.2).
+    """
+    from ..accounts.provider_policy import context_of, require_provider_allowed
+
+    ctx = context_of(settings)
+    member = ctx is not None and not ctx.is_admin
+    if member:
+        err = member_policy_unavailable(ctx, "llm")
+        if err is not None:
+            return UnavailableProvider(str(err), error=err)
     eff = settings.effective_provider
     if eff == "unavailable":
         return UnavailableProvider(settings.provider_unavailable_reason("llm") or "")
+    if member:
+        require_provider_allowed(ctx, eff)
+        require_provider_allowed(ctx, getattr(settings, "provider", ""))
     if eff == "codex":
         from .codex_provider import CodexProvider  # lazy import
 

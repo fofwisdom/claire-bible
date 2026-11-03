@@ -273,7 +273,15 @@ def _shared_executor() -> concurrent.futures.ThreadPoolExecutor:
 
 
 def make_jev_shadow(settings: Any) -> JevShadow | None:
-    """enable_jev 와 API 키가 모두 있을 때만 shadow 평가기를 돌려준다. 회로 차단 상태 유지를 위해 설정별로 재사용."""
+    """enable_jev 와 API 키가 모두 있을 때만 shadow 평가기를 돌려준다. 회로 차단 상태 유지를 위해 설정별로 재사용.
+
+    Jev 평가는 관리자 전용이다(설계 §10.1). 멤버 컨텍스트면 None.
+    """
+    from ..accounts.provider_policy import context_of
+
+    ctx = context_of(settings)
+    if ctx is not None and not ctx.is_admin:
+        return None
     if not bool(getattr(settings, "enable_jev", False)):
         return None
     api_key = str(getattr(settings, "jev_api_key", "") or "").strip()

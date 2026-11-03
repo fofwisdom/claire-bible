@@ -1115,6 +1115,52 @@ def _close_theme_service(service: Any) -> None:
             return
 
 
+def _theme_provider_context(theme_settings: Any, theme: Any) -> tuple[Any, Any]:
+    """테마 소유 계정의 (``ProviderContext``, 정책 예외). 소유 계정이 없으면 호스트 운영자(관리자) 컨텍스트다."""
+    from .ingest.service import resolve_service_context
+
+    try:
+        return resolve_service_context(theme_settings, getattr(theme, "account_id", None))
+    except Exception:  # noqa: BLE001 — 설정 대역(테스트) 등 컨텍스트를 만들 수 없는 경우는 서비스가 스스로 정한다
+        return None, None
+
+
+def _context_fingerprint(provider_context: Any, provider_error: Any) -> tuple:
+    from .ingest.service import context_cache_key
+
+    if provider_context is None:
+        return ("unresolved",)
+    return context_cache_key(provider_context, provider_error)
+
+
+def _build_theme_service(
+    service_factory: Callable[..., Any],
+    theme_settings: Any,
+    theme: Any,
+    provider_context: Any,
+    provider_error: Any,
+) -> Any:
+    """테마 서비스를 만든다. 계정 컨텍스트를 받는 팩토리(``IngestService``)에는 컨텍스트를 넘기고, 아니면 예전 서명으로 부른다."""
+    account_id = getattr(theme, "account_id", None)
+    attempts: list[dict[str, Any]] = []
+    if provider_context is not None:
+        attempts.append(
+            {
+                "theme_id": theme.id,
+                "account_id": account_id,
+                "provider_context": provider_context,
+                "provider_error": provider_error,
+            }
+        )
+    attempts += [{"theme_id": theme.id, "account_id": account_id}, {"theme_id": theme.id}]
+    for kwargs in attempts:
+        try:
+            return service_factory(theme_settings, **kwargs)
+        except TypeError:
+            continue
+    return service_factory(theme_settings)
+
+
 def _theme_services_for_cycle(
     base_settings: Any,
     state: _ThemeLoopState,
@@ -1161,25 +1207,20 @@ def _theme_services_for_cycle(
 
     ordered: list[tuple[Any, Any]] = []
     for theme, theme_settings in active:
+        # 테마 소유 계정의 프로바이더 컨텍스트(설계 §10.2). 자격·출처·등급이 바뀌면 서비스를 새로 만든다.
+        provider_context, provider_error = _theme_provider_context(theme_settings, theme)
         fingerprint = (
             str(getattr(theme_settings, "db_file", "")),
             str(getattr(theme_settings, "data_dir", getattr(theme_settings, "vault_dir", ""))),
+            _context_fingerprint(provider_context, provider_error),
         )
         cached = state.services.get(theme.id)
         if cached is None or cached[0] != fingerprint:
             if cached is not None:
                 _close_theme_service(cached[1])
-            try:
-                service = service_factory(
-                    theme_settings,
-                    theme_id=theme.id,
-                    account_id=getattr(theme, "account_id", None),
-                )
-            except TypeError:
-                try:
-                    service = service_factory(theme_settings, theme_id=theme.id)
-                except TypeError:
-                    service = service_factory(theme_settings)
+            service = _build_theme_service(
+                service_factory, theme_settings, theme, provider_context, provider_error
+            )
             state.services[theme.id] = (fingerprint, service)
         else:
             service = cached[1]
@@ -1195,6 +1236,13 @@ def _theme_services_for_cycle(
     rotated = ordered[start:] + ordered[:start]
     state.next_theme_id = ids[(start + 1) % len(ids)]
     return rotated
+
+
+def _loop_error_text(exc: BaseException) -> str:
+    """루프 출력용 오류 문자열. 정책 예외는 ``code: …``, 비밀은 지운다(설계 §11.3)."""
+    from .ingest.pipeline import error_text
+
+    return error_text(exc)
 
 
 def _run_queue_round_robin(
@@ -1218,7 +1266,7 @@ def _run_queue_round_robin(
                 current = operation(service)
             except Exception as exc:  # noqa: BLE001
                 errors.append(
-                    {"theme_id": theme.id, "theme_label": theme.label, "error": str(exc)}
+                    {"theme_id": theme.id, "theme_label": theme.label, "error": _loop_error_text(exc)}
                 )
                 continue
             if not current:
@@ -1287,7 +1335,7 @@ def cmd_recover_loop(args) -> int:
                     flush=True,
                 )
         except Exception as e:  # noqa: BLE001
-            print(f"[recover] 오류: {e}", flush=True)
+            print(f"[recover] 오류: {_loop_error_text(e)}", flush=True)
         time.sleep(max(60, args.interval))
 
 
@@ -1371,7 +1419,7 @@ def cmd_refresh_loop(args) -> int:
                     flush=True,
                 )
         except Exception as e:  # noqa: BLE001
-            print(f"[refresh] 오류: {e}", flush=True)
+            print(f"[refresh] 오류: {_loop_error_text(e)}", flush=True)
         time.sleep(max(60, args.interval))
 
 
@@ -1455,7 +1503,7 @@ def _run_refresh_cycle(
                         "theme_id": theme.id,
                         "theme_label": theme.label,
                         "stage": "watch",
-                        "error": str(exc),
+                        "error": _loop_error_text(exc),
                     }
                 )
                 continue
@@ -1523,7 +1571,7 @@ def cmd_expand_loop(args) -> int:
                     flush=True,
                 )
         except Exception as e:  # noqa: BLE001
-            print(f"[expand] 오류: {e}", flush=True)
+            print(f"[expand] 오류: {_loop_error_text(e)}", flush=True)
         time.sleep(max(60, args.interval))
 
 
@@ -4116,19 +4164,23 @@ def cmd_hoyowiki(args) -> int:
 
 
 def cmd_reembed(args) -> int:
-    """모든 엔티티를 온톨로지 프레임 및 최신 임베딩 모델로 일괄 재임베딩."""
+    """테마의 모든 엔티티를 온톨로지 프레임 및 현재 임베딩 모델로 일괄 재임베딩.
+
+    테마의 임베딩 공간 고정(§10.4)을 현재 모델로 바꾸는 유일한 경로다. 벡터를 모두 만든 뒤 한 트랜잭션에서 고정을 바꾸고, 다른 모델 행을 지우고, 새 행을 넣는다.
+    """
     from .extract.frame import format_entity_frame
     from .ingest.service import IngestService
-    from .store.vectors import make_vector_store
+    from .store.vectors import make_vector_store, read_embed_pin, resolve_embed_identity
 
     s, theme = get_effective_settings(args)
+    tid = theme.id if theme is not None else int(getattr(s, "theme_id", 0) or 0)
     conn = dbm.connect(s.db_file)
     dbm.init_db(conn)
-    vstore = make_vector_store(conn, s.vector_backend)
+    vstore = make_vector_store(conn, s.vector_backend, theme_id=tid)
     svc = IngestService(s)
     provider = svc.provider
 
-    ents = dbm.all_entities(conn)
+    ents = dbm.all_entities(conn, theme_id=tid)
     if not ents:
         print("재임베딩할 엔티티가 없습니다.")
         conn.close()
@@ -4140,12 +4192,22 @@ def cmd_reembed(args) -> int:
 
     dry_run = getattr(args, "dry_run", False)
     provider_name = getattr(provider, "name", "?")
-    model_name = getattr(provider, "embed_model", getattr(s, "gemini_embed_model", "claire"))
+    ident = resolve_embed_identity(provider, s)
+    model_name = ident.model
+    if not model_name:
+        print("임베딩 모델을 알 수 없어 재임베딩하지 않습니다.")
+        conn.close()
+        return 1
+    old_pin = read_embed_pin(conn, tid)
 
-    print(f"총 {len(ents)}개 엔티티 재임베딩 시작 (provider={provider_name}, model={model_name}, dry_run={dry_run})")
+    print(
+        f"테마 {tid}: 총 {len(ents)}개 엔티티 재임베딩 시작 (provider={provider_name}, model={model_name}, "
+        f"고정={old_pin.model if old_pin else '없음'}, dry_run={dry_run})"
+    )
 
     success = 0
     failed = 0
+    items: list[tuple[str, list[float]]] = []
 
     for i, ent in enumerate(ents, 1):
         frame_text = format_entity_frame(ent)
@@ -4154,13 +4216,22 @@ def cmd_reembed(args) -> int:
                 vec = provider.embed(
                     frame_text, task_type="RETRIEVAL_DOCUMENT", title=ent.name
                 )
-                vstore.put(ent.id, vec, model=model_name)
+                items.append((ent.id, vec))
             success += 1
             if i % 10 == 0 or i == len(ents):
                 print(f"  [{i}/{len(ents)}] {ent.name} ({ent.type}) 완료")
         except Exception as e:
             failed += 1
             print(f"  [{i}/{len(ents)}] {ent.name} 실패: {e}")
+
+    if not dry_run:
+        if items:
+            vstore.replace_theme_embeddings(
+                tid, embed_provider=ident.provider or None, model=model_name, items=items
+            )
+            print(f"테마 {tid} 임베딩 고정: {model_name} (다른 모델 벡터 삭제)")
+        else:
+            print("새 벡터가 없어 고정과 기존 벡터를 그대로 둡니다.")
 
     conn.close()
     print(f"\n재임베딩 완료: 총 {len(ents)}개 중 성공 {success}개, 실패 {failed}개")

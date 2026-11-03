@@ -2,7 +2,8 @@
 
 provider.py 의 ExtractionResult 계약(= mock 이 내는 구조)을 그대로 채운다. google-genai 의 interactions API (response_format) 로 구조화 출력을 강제한다.
 
-rate limit(429)/서버오류(5xx) 보호: 모든 호출은 _call() 을 거쳐 프로세스 전역 throttle(min_interval) + 지수 백오프 재시도를 받는다.
+rate limit(429)/서버오류(5xx) 보호: 모든 호출은 _call() 을 거쳐 자격(credential_key) 단위 throttle(min_interval) + 지수 백오프 재시도를 받는다.
+한 계정 키의 throttle·백오프가 관리자나 다른 계정의 호출을 막지 않는다(설계 §10.2, S10).
 """
 
 from __future__ import annotations
@@ -46,10 +47,113 @@ from .provider import (
     emit_progress,
 )
 
-# 프로세스 전역 throttle: 모든 Gemini 호출이 공유하는 최소 간격과 마지막 호출 시각.
-_CALL_LOCK = threading.Lock()
-_LAST_CALL = [0.0]
+class _CallState:
+    """한 자격(credential_key)의 호출 직렬화 락과 마지막 호출 시각."""
+
+    __slots__ = ("lock", "last")
+
+    def __init__(self) -> None:
+        self.lock = threading.Lock()
+        self.last = [0.0]
+
+
+_CALL_STATES_LOCK = threading.Lock()
+_CALL_STATES: dict[str, _CallState] = {}
+
+
+def _call_state(credential_key: str) -> _CallState:
+    """credential_key("admin"·"byok:<fingerprint>"·"tier")별 throttle 상태. 처음 보는 키는 새로 만든다."""
+    key = credential_key or "admin"
+    with _CALL_STATES_LOCK:
+        state = _CALL_STATES.get(key)
+        if state is None:
+            state = _CALL_STATES[key] = _CallState()
+        return state
+
+
+# 하위 호환 별칭: 관리자 자격의 throttle 상태(기존 프로세스 전역 상태와 같은 의미).
+_CALL_LOCK = _call_state("admin").lock
+_LAST_CALL = _call_state("admin").last
 _RETRYABLE = (429, 500, 503)
+_KEY_REJECTED_CODES = (401, 403)
+_KEY_REJECTED_MARKERS = ("api key not valid", "api_key_invalid", "permission_denied", "unauthenticated",
+                         "api key expired", "invalid api key")
+
+
+def _is_key_rejection(err) -> bool:
+    """키 자체가 거부되었는지(401/403, 잘못된·만료된 키). 멤버 컨텍스트에서는 재시도·폴백 없이 실패한다."""
+    code = getattr(err, "code", None) or getattr(err, "status_code", None)
+    if code in _KEY_REJECTED_CODES:
+        return True
+    msg = str(err).lower()
+    return any(m in msg for m in _KEY_REJECTED_MARKERS)
+
+
+def _safe_int(value) -> int:
+    return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else 0
+
+
+def _usage_tokens(resp) -> tuple[int, int]:
+    """응답의 사용량 메타데이터 (입력, 출력) 토큰. Interactions(``usage``)와 generate_content(``usage_metadata``)를 본다. 없으면 0."""
+    usage = getattr(resp, "usage", None)
+    if usage is not None:
+        tin = _safe_int(getattr(usage, "total_input_tokens", None))
+        tout = _safe_int(getattr(usage, "total_output_tokens", None)) + _safe_int(
+            getattr(usage, "total_thought_tokens", None)
+        )
+        if tin or tout:
+            return tin, tout
+    meta = getattr(resp, "usage_metadata", None)
+    if meta is not None:
+        tin = _safe_int(getattr(meta, "prompt_token_count", None))
+        tout = _safe_int(getattr(meta, "candidates_token_count", None)) + _safe_int(
+            getattr(meta, "thoughts_token_count", None)
+        )
+        return tin, tout
+    return 0, 0
+
+
+def _scrub_exception_inplace(err: BaseException, extra: tuple[str, ...] = ()) -> BaseException:
+    """예외의 메시지(args)와 흔한 문자열 속성에서 비밀을 지운다. 예외 종류와 객체는 그대로 둔다(§11.3)."""
+    from ..secret_scrub import scrub_text
+
+    try:
+        err.args = tuple(scrub_text(a, extra) if isinstance(a, str) else a for a in err.args)
+        for attr in ("message", "details"):
+            value = getattr(err, attr, None)
+            if value is None:
+                continue
+            text = str(value)
+            cleaned = scrub_text(text, extra)
+            if cleaned != text:
+                setattr(err, attr, cleaned)
+    except Exception:  # noqa: BLE001 — 지우기 실패가 원래 오류를 가리지 않게
+        pass
+    return err
+
+
+def _member_error(err: BaseException, extra: tuple[str, ...] = ()):
+    """멤버 컨텍스트에서 키 거부·할당량 소진을 ``ProviderKeyRejected``로 바꾼다. 해당 없으면 None(폴백하지 않는다, C2)."""
+    from ..accounts.provider_policy import ProviderKeyRejected
+    from ..secret_scrub import scrub_text
+
+    if _is_key_rejection(err):
+        return ProviderKeyRejected(
+            f"provider key was rejected: {scrub_text(err, extra)}",
+            remedy="/me에서 API 키를 확인하고 다시 등록한다.",
+        )
+    if _is_retryable(err) and _is_daily_quota(err):
+        return ProviderKeyRejected(
+            f"provider key quota is exhausted: {scrub_text(err, extra)}",
+            remedy="프로바이더 콘솔에서 할당량·결제를 확인한 뒤 다시 적재한다.",
+        )
+    return None
+
+
+def _is_policy_error(err) -> bool:
+    from ..accounts.provider_policy import ProviderPolicyError
+
+    return isinstance(err, ProviderPolicyError)
 
 
 def _retry_delay_from_error(err) -> float | None:
@@ -147,13 +251,39 @@ def _extract_sources(interaction) -> list[dict]:
 
 class GeminiProvider:
     name = "gemini"
+    # 계정 컨텍스트(provider_policy.ProviderContext). None이면 관리자·레거시 경로.
+    provider_context = None
+    # throttle·백오프 분리 단위(설계 §10.2). 관리자는 "admin".
+    credential_key = "admin"
+    # 멤버 컨텍스트의 예산 훅(provider_policy.UsageHooks). 붙이는 쪽은 L4-a2(server_tier.usage_hooks_for).
+    usage_hooks = None
+    _api_key = ""
 
     def __init__(self, settings):
         from google import genai
 
+        from ..accounts.provider_policy import ProviderNotConfigured, context_of
+
+        ctx = context_of(settings)
+        api_key = settings.gemini_api_key
+        if ctx is not None:
+            self.provider_context = ctx
+            self.credential_key = ctx.credential_key or "admin"
+            if not ctx.is_admin:
+                # 멤버는 컨텍스트 키만 쓴다. 관리자 키가 섞일 여지를 두지 않는다.
+                api_key = ctx.api_key
+                if not api_key:
+                    raise ProviderNotConfigured(
+                        "gemini: no API key for this account",
+                        remedy="/me에서 API 키를 등록하거나 관리자에게 서버 등급을 요청한다.",
+                    )
+                from ..secret_scrub import register_secret
+
+                register_secret(api_key)
+        self._api_key = api_key or ""
         self._genai = genai
         self.settings = settings
-        self.client = genai.Client(api_key=settings.gemini_api_key)
+        self.client = genai.Client(api_key=api_key)
         self.model = settings.gemini_model
         self.effort = getattr(settings, "gemini_effort", "medium")
         self.embed_model = settings.gemini_embed_model
@@ -168,6 +298,11 @@ class GeminiProvider:
         if extra:
             cfg.update(extra)
         eff = str(effort or getattr(self, "effort", "") or "").strip().lower()
+        ctx = getattr(self, "provider_context", None)
+        if ctx is not None:
+            from ..accounts.provider_policy import clamp_effort
+
+            eff = str(clamp_effort(ctx, eff) or "").strip().lower()
         if eff in ("low", "medium", "high", "minimal"):
             cfg["thinking_config"] = {"thinking_level": eff.upper()}
         elif eff.isdigit() or (eff.startswith("-") and eff[1:].isdigit()):
@@ -177,23 +312,50 @@ class GeminiProvider:
         return cfg
 
     def _throttle(self) -> None:
-        """호출 간 최소 간격 보장(RPM 보호). 전역 락으로 프로세스 내 직렬화."""
-        with _CALL_LOCK:
-            wait = self.min_interval - (_time.monotonic() - _LAST_CALL[0])
+        """호출 간 최소 간격 보장(RPM 보호). 자격(credential_key)별 락으로 같은 키의 호출만 직렬화한다."""
+        state = _call_state(getattr(self, "credential_key", "admin"))
+        with state.lock:
+            wait = self.min_interval - (_time.monotonic() - state.last[0])
             if wait > 1.0:
                 emit_progress(f"RPM 보호 대기 {wait:.0f}s (호출 간격 조절)")
             if wait > 0:
                 _time.sleep(wait)
-            _LAST_CALL[0] = _time.monotonic()
+            state.last[0] = _time.monotonic()
+
+    def _is_member(self) -> bool:
+        ctx = getattr(self, "provider_context", None)
+        return ctx is not None and not ctx.is_admin
+
+    def _scrub_extra(self) -> tuple[str, ...]:
+        key = getattr(self, "_api_key", "") or ""
+        return (key,) if key else ()
 
     def _call(self, fn):
-        """throttle + 429/5xx 지수 백오프 재시도로 Gemini 호출을 감싼다."""
+        """throttle + 429/5xx 지수 백오프 재시도로 Gemini 호출을 감싼다.
+
+        ``usage_hooks``가 있으면 시도마다 ``before_call()``(예산 없으면 ``ProviderBudgetExceeded``), 성공 뒤 ``after_call(입력, 출력)``.
+        예외 메시지는 비밀을 지운 뒤 다시 낸다. 멤버 컨텍스트의 키 거부·할당량 소진은 ``ProviderKeyRejected``(폴백 없음).
+        """
+        from ..accounts.provider_policy import ProviderPolicyError
+
+        hooks = getattr(self, "usage_hooks", None)
+        member = self._is_member()
+        extra = self._scrub_extra()
         last = None
         for attempt in range(self.max_retries + 1):
+            if hooks is not None:
+                hooks.before_call()
             self._throttle()
             try:
-                return fn()
+                resp = fn()
+            except ProviderPolicyError:
+                raise
             except Exception as e:
+                _scrub_exception_inplace(e, extra)
+                if member:
+                    rejected = _member_error(e, extra)
+                    if rejected is not None:
+                        raise rejected from None
                 if not _is_retryable(e) or attempt == self.max_retries:
                     raise
                 # circuit breaker(프로세스-로컬, 무상태): 일일 quota 소진은 짧은 백오프로
@@ -208,6 +370,10 @@ class GeminiProvider:
                 emit_progress(f"rate limit/서버오류 — {delay:.0f}s 후 재시도 "
                               f"({attempt + 1}/{self.max_retries})")
                 _time.sleep(delay)
+                continue
+            if hooks is not None:
+                hooks.after_call(*_usage_tokens(resp))
+            return resp
         if last:
             raise last
         raise RuntimeError("unreachable")
@@ -246,7 +412,8 @@ class GeminiProvider:
         except Exception as e:
             # rate limit/서버오류는 재시도 후에도 실패 → 올려서 raw_inbox 에 error 로
             # 남기고 나중에 replay-failed 로 재적재. 그 외(schema 거부 등)는 폴백.
-            if _is_retryable(e):
+            # 정책 오류(키 거부·예산 소진)는 폴백하지 않는다(C2).
+            if _is_retryable(e) or _is_policy_error(e):
                 raise
             return self._extract_json_fallback(sys, body, effort=effort)
 
@@ -270,10 +437,13 @@ class GeminiProvider:
     def embed(
         self, text: str, *, task_type: str | None = None, title: str | None = None
     ) -> list[float]:
-        from ..config import get_settings
+        """임베딩. LLM 호출과 같은 키·throttle·``usage_hooks``를 쓴다. 설정은 이 프로바이더의 ``settings``(계정 사본)다."""
+        settings = getattr(self, "settings", None)
+        if settings is None:  # __new__로 만든 레거시·테스트 객체
+            from ..config import get_settings
 
-        settings = get_settings()
-        limit = settings.embed_char_budget
+            settings = get_settings()
+        limit = getattr(settings, "embed_char_budget", 8000)
         tt = task_type or getattr(settings, "embed_task_type", "SEMANTIC_SIMILARITY")
 
         try:
@@ -288,7 +458,9 @@ class GeminiProvider:
                 )
             )
             return list(resp.embeddings[0].values)
-        except Exception:
+        except Exception as e:
+            if _is_policy_error(e):
+                raise
             # Fallback for SDK/API environments where EmbedContentConfig is omitted
             resp = self._call(
                 lambda: self.client.models.embed_content(
@@ -433,6 +605,8 @@ class GeminiProvider:
                 title=parsed.get("title"),
             )
         except Exception as e:  # noqa: BLE001
+            if _is_policy_error(e):
+                raise
             return PaperClassificationResult(False, f"classify_paper failed: {e}")
 
     def classify_watch(self, doc: Document) -> dict:
@@ -502,7 +676,7 @@ class GeminiProvider:
             raw_text = _extract_output_text(interaction)
             return ResearchJudgement.model_validate_json(raw_text).model_dump()
         except Exception as e:
-            if _is_retryable(e):
+            if _is_retryable(e) or _is_policy_error(e):
                 raise  # rate limit 은 위로 — 호출측이 오류로 안내(자동복구 루프와 정합)
             try:
                 import json
@@ -537,7 +711,7 @@ class GeminiProvider:
             raw_text = _extract_output_text(interaction)
             sel = FollowSelection.model_validate_json(raw_text)
         except Exception as e:
-            if _is_retryable(e):
+            if _is_retryable(e) or _is_policy_error(e):
                 raise  # rate limit 은 위로 — 호출측(expand-loop)이 재시도
             try:
                 import json
@@ -563,7 +737,9 @@ class GeminiProvider:
             ))
             text = _extract_output_text(interaction)
             return text.strip().upper().startswith("SAME")
-        except Exception:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001
+            if _is_policy_error(e):
+                raise
             return False  # 판정 실패 시 보수적으로 분리(거짓 병합 방지)
 
     def judge_relationship(self, rc: RelationCandidate) -> RelationJudgement:
@@ -586,7 +762,7 @@ class GeminiProvider:
             raw_text = _extract_output_text(interaction)
             return RelationJudgement.model_validate_json(raw_text)
         except Exception as e:
-            if _is_retryable(e):
+            if _is_retryable(e) or _is_policy_error(e):
                 raise
             try:
                 import json

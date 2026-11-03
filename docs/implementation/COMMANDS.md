@@ -202,7 +202,7 @@ Git 저장소 최신 커밋을 가져와 무중단 롤링 업데이트를 수행
 
 `CLAIRE_MULTI_THEME=1`일 때 `migrate`는 레지스트리를 테마 ID 순서로 읽고 각 DB의 마이그레이션 결과를 개별 출력한다. 한 DB가 실패해도 나머지를 계속 점검하며, 하나라도 실패하면 최종 종료 코드는 `1`이다. `health`와 `liveness`는 DB를 생성하거나 마이그레이션하지 않고 읽기 전용 연결과 스키마 버전·계보를 검사한다. v12는 진단 행을 보존해 v11로 철회한 뒤 같은 실행에서 v13으로 승격한다. 손상된 `themes.json`도 기본 레지스트리로 덮어쓰지 않고 실패로 보고한다.[^multi-theme-operations]
 
-`migrate`는 지식 DB보다 먼저 계정 비밀 저장소 `data/auth/auth.db`를 만들거나 스키마를 맞추고 `auth_db schema_version=1`을 출력한다. 실패하면 지식 DB를 건드리지 않고 종료 코드 `1`로 끝난다. auth.db의 버전은 지식 DB 버전과 별개다([`SCHEMA_VERSIONING.md`](SCHEMA_VERSIONING.md), [`ACCOUNTS.md`](ACCOUNTS.md) §8). 확인 기준: P1 계정 코어 커밋(`d5e8fb4` 다음), `src/claire/cli.py`의 `cmd_migrate`, `tests/test_login_flow.py`의 `test_migrate_initializes_auth_db`.
+`migrate`는 지식 DB보다 먼저 계정 비밀 저장소 `data/auth/auth.db`를 만들거나 스키마를 맞추고 `auth_db schema_version=2`를 출력한다. 실패하면 지식 DB를 건드리지 않고 종료 코드 `1`로 끝난다. auth.db의 버전은 지식 DB 버전과 별개다([`SCHEMA_VERSIONING.md`](SCHEMA_VERSIONING.md), [`ACCOUNTS.md`](ACCOUNTS.md) §8). 확인 기준: P1 계정 코어 커밋(`d5e8fb4` 다음), P4(auth.db v2), `src/claire/cli.py`의 `cmd_migrate`, `tests/test_login_flow.py`의 `test_migrate_initializes_auth_db`.
 
 v15로 올릴 때 한 계정에 기본 테마(`is_default=1`)가 둘 이상이면 `migrate`(따라서 `update`)가 아무것도 쓰지 않고 실패하며, 오류에 계정과 `themes.id` 목록이 나온다. 어느 테마를 기본으로 둘지 정해 나머지의 `is_default`를 0으로 고친 뒤(`data/themes.json`과 `themes` 테이블) `./cb-manuscript update`를 다시 실행한다([`SCHEMA_VERSIONING.md`](SCHEMA_VERSIONING.md) v15 절).
 

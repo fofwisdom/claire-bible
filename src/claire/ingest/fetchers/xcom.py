@@ -15,7 +15,7 @@ from ...config import get_settings
 from ...extract.table_budget import slice_document_text
 from ...ontology.base import Document
 from ..normalize import canonicalize_url, content_hash
-from .base import FetchError
+from .base import FetchError, fetch_settings
 
 _STATUS_RE = re.compile(r"(?:^|/)([A-Za-z0-9_]{1,15})/status(?:es)?/(\d+)")
 _STATUS_ONLY_RE = re.compile(r"/status(?:es)?/(\d+)")
@@ -337,7 +337,7 @@ def _build_document(url: str, tweet: dict, *, via: str | None = None, full_conte
     lang = tweet.get("lang")
 
     canonical_src = tweet.get("url") or url
-    settings = get_settings()
+    settings = fetch_settings(None, get_settings)
     budget = 0 if full_content else settings.raw_char_budget
     raw_text, is_truncated, orig_chars, raw_chars = slice_document_text(
         text or "", budget, strategy=settings.slicing_strategy
@@ -421,7 +421,7 @@ def _build_thread_document(
     root_id = root.get("id")
     canonical_src = root.get("url") or (f"https://x.com/{screen}/status/{root_id}" if screen and root_id else url)
 
-    settings = get_settings()
+    settings = fetch_settings(None, get_settings)
     budget = 0 if full_content else settings.raw_char_budget
     raw_text, is_truncated, orig_chars, raw_chars = slice_document_text(
         text or "", budget, strategy=settings.slicing_strategy

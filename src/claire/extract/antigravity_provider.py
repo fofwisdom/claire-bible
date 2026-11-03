@@ -9,6 +9,7 @@ import errno
 import hashlib
 import json
 import logging
+import os
 import re
 import subprocess
 import tempfile
@@ -57,6 +58,48 @@ from .provider import (
 logger = logging.getLogger(__name__)
 
 # URL 추출용 정규식 (마크다운 링크 및 일반 URL)
+# agy 하위 프로세스에 넘기는 환경변수 allowlist. agy는 호스트 로그인을 쓰므로 GEMINI_API_KEY·CLAIRE_* 등 비밀을 상속하지 않는다(§11.3).
+_AGY_ENV_ALLOWLIST = frozenset({
+    "PATH",
+    "HOME",
+    "USER",
+    "LOGNAME",
+    "SHELL",
+    "TERM",
+    "XDG_CONFIG_HOME",
+    "XDG_DATA_HOME",
+    "XDG_CACHE_HOME",
+    "XDG_STATE_HOME",
+    "XDG_RUNTIME_DIR",
+    "DBUS_SESSION_BUS_ADDRESS",
+    "SSL_CERT_FILE",
+    "SSL_CERT_DIR",
+    "REQUESTS_CA_BUNDLE",
+    "CURL_CA_BUNDLE",
+    "NODE_EXTRA_CA_CERTS",
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "NO_PROXY",
+    "http_proxy",
+    "https_proxy",
+    "no_proxy",
+    "LANG",
+    "LC_ALL",
+    "LC_CTYPE",
+    "TZ",
+    "TMPDIR",
+    "TMP",
+    "TEMP",
+})
+
+
+def _subprocess_env() -> dict[str, str]:
+    """agy 실행과 호스트 로그인·TLS·프록시에 필요한 최소 환경만 자식에게 전달한다."""
+    env = {name: value for name, value in os.environ.items() if name in _AGY_ENV_ALLOWLIST}
+    env.setdefault("PATH", os.defpath)
+    return env
+
+
 _MD_LINK_RE = re.compile(r"\[([^\]]+)\]\((https?://[^\s\)]+)\)")
 _RAW_URL_RE = re.compile(r"https?://[^\s\)\"\'>]+")
 
@@ -68,8 +111,11 @@ class AntigravityProvider:
     EMBED_DIM = 64
 
     def __init__(self, settings: Any):
+        from ..accounts.provider_policy import context_of, require_provider_allowed
         from ..config import find_agy_executable
 
+        # host-cli 분류: 멤버 컨텍스트면 만들지 않는다(팩토리와 2중 방어, 설계 §10.1).
+        require_provider_allowed(context_of(settings), self.name)
         self.settings = settings
         raw_bin = getattr(settings, "agy_bin", "agy")
         self.agy_bin = find_agy_executable(raw_bin) or raw_bin
@@ -173,6 +219,7 @@ class AntigravityProvider:
                     text=True,
                     timeout=effective_timeout,
                     cwd=target_cwd,
+                    env=_subprocess_env(),
                     check=False,
                 )
                 exit_code = proc.returncode
@@ -192,6 +239,7 @@ class AntigravityProvider:
                         text=True,
                         timeout=effective_timeout,
                         cwd=target_cwd,
+                        env=_subprocess_env(),
                         check=False,
                     )
                     exit_code = proc.returncode

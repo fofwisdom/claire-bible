@@ -14,7 +14,7 @@ from typing import Literal
 
 from ..ontology.base import Entity
 from ..store import db as dbm
-from ..store.vectors import VectorStore
+from ..store.vectors import VectorStore, resolve_embed_identity
 
 # Reciprocal Rank Fusion 상수.
 RRF_K = 60
@@ -87,7 +87,9 @@ def search(
             raise ValueError("hybrid search requires a provider and vector store")
         try:
             qvec = provider.embed(query)
-            vec_ranked = vstore.search(qvec, limit=20)
+            # 질의 임베딩 모델이 테마 고정 모델과 다르면 벡터 후보 없이 FTS 만 쓴다(§10.4).
+            qmodel = resolve_embed_identity(provider).model or None
+            vec_ranked = vstore.search(qvec, limit=20, query_model=qmodel)
         except Exception:  # noqa: BLE001
             vec_ranked = []
 

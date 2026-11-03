@@ -16,7 +16,14 @@ from ...extract.vision.factory import get_vision_provider
 from ...ontology.base import Document
 from ..normalize import canonicalize_url, content_hash
 from ..registry import register_fetcher, register_web_adapter
-from .base import BaseFetcher, BaseWebAdapter, FetchError, WebAdapterResult
+from .base import (
+    BaseFetcher,
+    BaseWebAdapter,
+    FetchError,
+    WebAdapterResult,
+    attach_usage_hooks,
+    fetch_settings,
+)
 from .http_policy import BROWSER_USER_AGENT
 
 logger = logging.getLogger(__name__)
@@ -40,7 +47,7 @@ def parse_hoyolab_url(url: str) -> str | None:
 
 def resolve_hoyolab_language(settings: Any = None) -> str:
     """Map system localization settings to HoYoLAB API language tag."""
-    s = settings or get_settings()
+    s = fetch_settings(settings, get_settings)
     if getattr(s, "effective_vlm_language", None):
         pref = s.effective_vlm_language
     elif getattr(s, "effective_preferred_languages", None):
@@ -158,7 +165,7 @@ def format_post_to_markdown(
     settings: Any = None,
 ) -> tuple[str, str, list[str], dict[str, str], list[dict[str, Any]], dict[str, Any]]:
     """Format post into structured markdown, invoking VLM transcription when text is insufficient."""
-    s = settings or get_settings()
+    s = fetch_settings(settings, get_settings)
     post_info = post_data.get("post") or {}
     user_info = post_data.get("user") or {}
 
@@ -181,6 +188,7 @@ def format_post_to_markdown(
     # VLM Trigger: Text is below threshold and images are present
     if len(base_text) < MIN_CONTENT_CHARS and images and getattr(s, "enable_vlm_transcription", True):
         vision_provider = get_vision_provider(s)
+        attach_usage_hooks(vision_provider, s)
         logger.info(
             "HoYoLAB post %s has minimal text (%d chars) but %d images. Invoking VLM transcription...",
             post_id,
@@ -251,7 +259,7 @@ def fetch_hoyolab(
     if not post_id:
         raise FetchError(f"Invalid HoYoLAB article URL: {url}")
 
-    s = settings or get_settings()
+    s = fetch_settings(settings, get_settings)
     api_client = client or HoYoLabClient()
     target_lang = resolve_hoyolab_language(s)
     post_data = api_client.get_post(post_id, lang=target_lang)
@@ -307,7 +315,7 @@ def try_hoyolab_adapter(url: str, **kwargs: Any) -> WebAdapterResult | None:
         return None
 
     try:
-        s = kwargs.get("settings") or get_settings()
+        s = fetch_settings(kwargs.get("settings"), get_settings)
         client = kwargs.get("client") or HoYoLabClient()
         post_data = client.get_post(post_id)
         title, text, links, anchors, images, meta_extras = format_post_to_markdown(post_data, settings=s)

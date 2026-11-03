@@ -11,7 +11,7 @@ from typing import Any
 import httpx
 
 from ...config import get_settings
-from .base import FetchError
+from .base import FetchError, fetch_settings
 from .http_policy import BROWSER_USER_AGENT
 
 # 어떤 환경에서도 절대 허용되지 않는 보안 위험 대역 (클라우드 메타데이터, 링크 로컬, 멀티캐스트, 브로드캐스트)
@@ -150,7 +150,7 @@ class SafeHttpClient:
         allow_private_networks: bool | None = None,
         private_network_allowlist: Sequence[str] | str | None = None,
     ):
-        settings = get_settings()
+        settings = fetch_settings(None, get_settings)
         if allow_private_networks is None:
             self.allow_private = getattr(settings, "allow_private_networks", False)
         else:

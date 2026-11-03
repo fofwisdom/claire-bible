@@ -11,17 +11,74 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from typing import Any
+
 from .config import get_settings
 from .store import db as dbm
 
 log = logging.getLogger("claire.telegram")
 
 
+class AdminThemeScope:
+    """텔레그램 봇이 보는 테마 관리자. 관리자 계정 소유 테마만 드러낸다(설계 §10.1 텔레그램은 관리자 전용).
+
+    다른 계정의 테마는 없는 테마와 같게 다룬다(``ThemeNotFound``). 그래서 ``#태그``·``/theme`` 선택·재생성 대상·공유 토큰 어느 경로로도
+    멤버 테마에 적재하거나 멤버 계정의 컨텍스트로 작업하지 않는다. 나머지 메서드는 감싼 관리자에게 넘긴다.
+    """
+
+    def __init__(self, inner: Any, account_id: int = dbm.ADMIN_ACCOUNT_ID) -> None:
+        self._inner = inner
+        self.account_id = int(account_id)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._inner, name)
+
+    def _owned(self, theme: Any) -> bool:
+        return getattr(theme, "account_id", dbm.ADMIN_ACCOUNT_ID) == self.account_id
+
+    def get_theme(self, theme_ref: Any = None, *args: Any, **kwargs: Any) -> Any:
+        from .store.theme import ThemeNotFound
+
+        if theme_ref is None or str(theme_ref).strip() == "":
+            return self._inner.default_theme_for(self.account_id)
+        theme = self._inner.get_theme(theme_ref, *args, **kwargs)
+        if not self._owned(theme):
+            raise ThemeNotFound(theme_ref)
+        return theme
+
+    def list_themes(self, *args: Any, **kwargs: Any) -> list[Any]:
+        return [t for t in self._inner.list_themes(*args, **kwargs) if self._owned(t)]
+
+    def _theme_id_owned(self, theme_id: Any) -> bool:
+        from .store.theme import ThemeNotFound
+
+        if theme_id is None:
+            return False
+        try:
+            return self._owned(self._inner.get_theme(theme_id))
+        except (ThemeNotFound, KeyError, ValueError):
+            return False
+
+    def resolve_document_targets(self, *args: Any, **kwargs: Any) -> list[dict[str, Any]]:
+        targets = self._inner.resolve_document_targets(*args, **kwargs) or []
+        return [tg for tg in targets if self._theme_id_owned(tg.get("theme_id"))]
+
+    def resolve_share_token(self, *args: Any, **kwargs: Any) -> Any:
+        resolved = self._inner.resolve_share_token(*args, **kwargs)
+        if resolved is None or not self._theme_id_owned(resolved[0]):
+            return None
+        return resolved
+
+
 def setup_telegram_logging(data_dir: Path | str | None = None) -> Path | None:
     """텔레그램 봇 전용 회전 파일 로거 설정 (data/logs/telegram.log).
 
     최대 5MB 크기의 회전 로그 3개를 유지하며 claire.telegram 로거에 부착한다.
+    프로바이더 오류 문자열에 섞인 키가 기록되지 않도록 로그 스크러버를 먼저 설치한다(설계 §11.3).
     """
+    from .secret_scrub import install_log_scrubber
+
+    install_log_scrubber()
     try:
         if data_dir is None:
             from .config import get_settings
@@ -506,9 +563,12 @@ _THEME_TAG_RE = re.compile(
 )
 
 
-def parse_message_theme(text: str, theme_mgr: Any | None = None) -> tuple[str, int | None]:
+def parse_message_theme(
+    text: str, theme_mgr: Any | None = None, *, account_id: int | None = None
+) -> tuple[str, int | None]:
     """메시지 본문에서 `#1`, `#테마1`, `#기술` 등 테마 태그를 감지하여 분리.
 
+    ``account_id``가 주어지면 그 계정 소유 테마만 고른다(다른 계정 테마의 태그는 테마로 보지 않는다).
     반환: (태그가 제거된 본문, 테마 일련번호 ID | None)
     """
     t = (text or "").strip()
@@ -526,6 +586,8 @@ def parse_message_theme(text: str, theme_mgr: Any | None = None) -> tuple[str, i
             continue
         try:
             found = tm.get_theme(cand, label_match="partial")
+            if account_id is not None and getattr(found, "account_id", dbm.ADMIN_ACCOUNT_ID) != account_id:
+                continue
             clean = (t[:m.start()] + " " + t[m.end():]).strip()
             clean = re.sub(r"\s+", " ", clean).strip()
             return clean, found.id
@@ -714,9 +776,11 @@ def build_app(settings: Settings | None = None) -> Any:
     from .store.theme import ThemeNotFound, get_theme_manager
 
     logging.basicConfig(level=logging.INFO)
-    svc = IngestService(s)
-    theme_mgr = get_theme_manager(s)
-    service_pool = IngestServicePool(s, svc, theme_manager=theme_mgr)
+    # 텔레그램 봇은 관리자 전용이다(설계 §10.1). 서비스·풀은 관리자 컨텍스트(전역 settings = providers.json)로 만들고,
+    # 테마 관리자를 관리자 계정 소유 테마로 좁혀 #태그·/theme·재생성 대상이 멤버 테마를 고르지 못하게 한다.
+    svc = IngestService(s, theme_id=None, account_id=dbm.ADMIN_ACCOUNT_ID)
+    theme_mgr = AdminThemeScope(get_theme_manager(s), dbm.ADMIN_ACCOUNT_ID)
+    service_pool = IngestServicePool(s, svc, theme_manager=theme_mgr, account_id=dbm.ADMIN_ACCOUNT_ID)
     user_active_themes: dict[int, int] = {}
     pending: dict[str, tuple[list[str], int]] = {}  # 확장 후보 임시 보관(콜백 토큰 -> (urls, theme_id))
     pending_ingest: dict[str, dict[str, Any]] = {}  # 적재 대기 요청 임시 보관(콜백 토큰 -> dict)

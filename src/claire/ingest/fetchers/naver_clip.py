@@ -22,7 +22,7 @@ from ...extract.transcript.factory import get_transcript_provider
 from ...ontology.base import Document
 from ..normalize import canonicalize_url, content_hash
 from ..registry import register_fetcher
-from .base import BaseFetcher, FetchError
+from .base import BaseFetcher, FetchError, attach_usage_hooks, fetch_settings
 from .http_policy import BROWSER_USER_AGENT
 
 logger = logging.getLogger(__name__)
@@ -167,7 +167,7 @@ def fetch_naver_clip(
     settings: Settings | None = None,
 ) -> Document:
     """Fetch Naver Clip metadata and audio stream, transcribing with STT."""
-    settings = settings or get_settings()
+    settings = fetch_settings(settings, get_settings)
     client = NaverClipClient()
 
     media_id = client.resolve_media_id(url)
@@ -223,6 +223,7 @@ def fetch_naver_clip(
         if cached_file:
             try:
                 stt_provider = get_transcript_provider(settings)
+                attach_usage_hooks(stt_provider, settings)
                 stt_result = stt_provider.transcribe(cached_file, language=lang_code, timestamps=True)
                 transcript_text = stt_result.full_text
                 segments_data = [s.model_dump() for s in stt_result.segments]
@@ -251,6 +252,7 @@ def fetch_naver_clip(
 
                     if tmp_out.is_file() and tmp_out.stat().st_size > 0:
                         stt_provider = get_transcript_provider(settings)
+                        attach_usage_hooks(stt_provider, settings)
                         stt_result = stt_provider.transcribe(tmp_out, language=lang_code, timestamps=True)
                         transcript_text = stt_result.full_text
                         segments_data = [s.model_dump() for s in stt_result.segments]

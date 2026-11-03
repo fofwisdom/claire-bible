@@ -1,6 +1,6 @@
 """``data/auth/auth.db``: 자격 비밀과 제어 평면 (설계 §13.3).
 
-지식 DB(``claire.db``)와 분리한다. graph bundle·support bundle·내보내기에 비밀이 섞이지 않게 하고, 지식 DB 장애가 로그인으로 번지지 않게 하기 위해서다. 자체 ``meta.schema_version``을 1부터 둔다.
+지식 DB(``claire.db``)와 분리한다. graph bundle·support bundle·내보내기에 비밀이 섞이지 않게 하고, 지식 DB 장애가 로그인으로 번지지 않게 하기 위해서다. 자체 ``meta.schema_version``을 1부터 둔다(v2: ``account_usage`` 일 적재 열, P4).
 
 P1 범위: 스키마 전체 생성, 로컬 비밀번호(scrypt, §8.5), 로그인 실패 제한, 관리자 감사 기록. 초대·IdP·키 테이블은 만들기만 하고 다루지 않는다(P3–P5).
 """
@@ -34,7 +34,8 @@ from ..accounts.invites import (
 )
 from .secrets import SecretDecryptionError, SecretService, get_secret_service
 
-AUTH_DB_SCHEMA_VERSION = 1
+# v2 (P4 L4-c): ``account_usage``에 UTC 일 적재 집행용 ``daily_day``·``daily_ingests``를 더한다(§10.3, §13.3).
+AUTH_DB_SCHEMA_VERSION = 2
 AUTH_DB_RELATIVE_PATH = Path("auth") / "auth.db"
 
 # §8.5 scrypt 매개변수. n=2^15, r=8이면 128·n·r = 32MiB이므로 hashlib 기본 maxmem(32MiB)으로는
@@ -122,10 +123,33 @@ def init_auth_db(conn: sqlite3.Connection) -> None:
         raise RuntimeError(f"invalid auth.db schema_version: {version}")
     with conn:
         conn.executescript(_SCHEMA_SQL)
+        # executescript는 열린 트랜잭션을 먼저 커밋한다. 아래 이관과 버전 기록은 한 트랜잭션으로 묶는다.
+        if not conn.in_transaction:
+            conn.execute("BEGIN IMMEDIATE")
+        _migrate_v2_account_usage_daily(conn)
         conn.execute(
             "INSERT OR IGNORE INTO meta(key, value) VALUES ('schema_version', ?)",
             (str(AUTH_DB_SCHEMA_VERSION),),
         )
+        conn.execute(
+            "UPDATE meta SET value=? WHERE key='schema_version' AND CAST(value AS INTEGER) < ?",
+            (str(AUTH_DB_SCHEMA_VERSION), AUTH_DB_SCHEMA_VERSION),
+        )
+
+
+# v2에서 ``account_usage``에 더한 열. ``CREATE TABLE IF NOT EXISTS``는 v1 테이블에 열을 더하지 못하므로 따로 넣는다.
+_ACCOUNT_USAGE_V2_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("daily_day", "TEXT NOT NULL DEFAULT ''"),
+    ("daily_ingests", "INTEGER NOT NULL DEFAULT 0"),
+)
+
+
+def _migrate_v2_account_usage_daily(conn: sqlite3.Connection) -> None:
+    """v1 ``account_usage``에 v2 열을 더한다. 열이 이미 있으면 아무것도 하지 않는다(멱등, A3)."""
+    existing = {str(r[1]) for r in conn.execute("PRAGMA table_info(account_usage)")}
+    for name, decl in _ACCOUNT_USAGE_V2_COLUMNS:
+        if name not in existing:
+            conn.execute(f"ALTER TABLE account_usage ADD COLUMN {name} {decl}")
 
 
 # --- 로컬 비밀번호 ----------------------------------------------------------------
@@ -463,6 +487,8 @@ CREATE TABLE IF NOT EXISTS account_usage (
     account_id INTEGER NOT NULL, period TEXT NOT NULL,
     tokens_in INTEGER NOT NULL DEFAULT 0, tokens_out INTEGER NOT NULL DEFAULT 0,
     ingests INTEGER NOT NULL DEFAULT 0,
+    daily_day TEXT NOT NULL DEFAULT '',
+    daily_ingests INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (account_id, period)
 );
 CREATE TABLE IF NOT EXISTS admin_audit (

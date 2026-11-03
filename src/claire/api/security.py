@@ -504,6 +504,15 @@ ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     ("HEAD", "/api/me"): _any("owner"),
     ("PATCH", "/api/me"): _any("owner"),
     ("POST", "/api/me/password"): _any("owner"),
+    # P4 계정 API 키(§11.2, 쓰기 전용)와 서버 등급(§10.3)
+    ("GET", "/api/me/keys"): _any("owner", modes=NETWORK_ONLY),
+    ("HEAD", "/api/me/keys"): _any("owner", modes=NETWORK_ONLY),
+    ("PUT", "/api/me/keys"): _any("owner", modes=NETWORK_ONLY),
+    ("DELETE", "/api/me/keys"): _any("owner", modes=NETWORK_ONLY),
+    ("POST", "/api/me/keys/verify"): _any("owner", modes=NETWORK_ONLY),
+    ("GET", "/api/admin/server-tier"): _system("admin"),
+    ("HEAD", "/api/admin/server-tier"): _system("admin"),
+    ("PUT", "/api/admin/server-tier"): _system("admin"),
 }
 
 

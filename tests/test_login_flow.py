@@ -310,7 +310,7 @@ def test_migrate_initializes_auth_db(monkeypatch, tmp_path, capsys):
     assert path.is_file()
     conn = auth_db.connect_auth_db(path)
     try:
-        assert conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "1"
+        assert conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == str(auth_db.AUTH_DB_SCHEMA_VERSION)
     finally:
         conn.close()
 

@@ -11,6 +11,8 @@ M3 설계(advisor 반영):
 
 from __future__ import annotations
 
+import inspect
+import logging
 import re
 import sqlite3
 import time
@@ -19,7 +21,13 @@ from typing import Any
 
 from ..ontology.base import Entity, normalize_name
 from ..store import db as dbm
-from ..store.vectors import VectorStore, looks_like_hash_fallback
+from ..store.vectors import (
+    EmbeddingModelMismatch,
+    EmbedPin,
+    VectorStore,
+    looks_like_hash_fallback,
+    resolve_embed_identity,
+)
 from .decision import ResolutionDecision
 from .jev import JevShadow, entity_snapshot, snapshot_of
 
@@ -47,6 +55,29 @@ def _is_acronym_token(name: str) -> bool:
     return len(s) >= ACRONYM_MIN and s.isalpha() and s.isupper()
 
 EmbedFn = Callable[[], list[float]]
+
+log = logging.getLogger(__name__)
+
+
+def _embed_identity(
+    embed_fn: EmbedFn | None, embed_model: str | None, embed_provider: str | None
+) -> tuple[EmbedPin, bool]:
+    """``embed_fn``이 만드는 벡터의 (프로바이더, 모델)과, 그것이 실제 프로바이더에서 확인됐는지.
+
+    명시 인자 → ``embed_fn.provider`` → 클로저의 ``provider``(ingest 파이프라인의 ``_embed``) 순. 셋 다 없으면 설정의 ``gemini_embed_model``로 추정하고 확인되지 않음(False)으로 둔다.
+    """
+    if embed_model:
+        return EmbedPin((embed_provider or "").strip(), embed_model), True
+    provider = getattr(embed_fn, "provider", None) if embed_fn is not None else None
+    if provider is None and embed_fn is not None:
+        try:
+            provider = inspect.getclosurevars(embed_fn).nonlocals.get("provider")
+        except (TypeError, ValueError):
+            provider = None
+    ident = resolve_embed_identity(provider)
+    if embed_provider:
+        ident = EmbedPin(embed_provider.strip(), ident.model)
+    return ident, provider is not None
 # Call (new_name, new_type, new_observations, candidate[, new_aliases]) to check if the entities are the same.
 JudgeFn = Callable[..., bool]
 
@@ -254,6 +285,8 @@ def resolve_or_create(
     on_judge: Callable[[str, str], None] | None = None,
     shadow: JevShadow | None = None,
     theme_id: int = 0,
+    embed_model: str | None = None,
+    embed_provider: str | None = None,
 ) -> ResolutionResult:
     """기존 엔티티에 머지하거나 신규 생성 (5단계 Multi-Tier Safe Gating 적용). (entity, created?) 반환.
 
@@ -311,6 +344,11 @@ def resolve_or_create(
 
     # 3) Gate 3: miss → 이제서야 임베딩 1회 생성
     embedding = embed_fn() if embed_fn else None
+    ident, ident_known = (
+        _embed_identity(embed_fn, embed_model, embed_provider)
+        if embedding
+        else (EmbedPin("", ""), False)
+    )
 
     # 후보 수집: vector(점수 있음) + FTS(점수 없음, 토큰 겹침)
     scored: dict[str, float] = {}
@@ -319,8 +357,10 @@ def resolve_or_create(
     multihop_candidates: list[tuple[str, float]] = []
 
     if embedding:
+        # 테마 고정 모델과 다른 공간의 쿼리는 벡터 후보를 내지 않는다(§10.4). 모델을 확인 못 했으면 고정 행 기준으로만 본다.
         for owner_id, score in vstore.search(
-            embedding, limit=16, adaptive_center=adaptive_center
+            embedding, limit=16, adaptive_center=adaptive_center,
+            query_model=ident.model if ident_known and ident.model else None,
         ):
             if score >= tier_borderline:
                 scored[owner_id] = score
@@ -457,8 +497,12 @@ def resolve_or_create(
         provisional=provisional,
     )
     dbm.upsert_entity(conn, ent, theme_id=theme_id)
-    if embedding:
-        vstore.put(ent.id, embedding, model="claire")
+    if embedding and ident.model:
+        try:
+            vstore.put(ent.id, embedding, model=ident.model, embed_provider=ident.provider or None)
+        except EmbeddingModelMismatch as exc:
+            # 엔티티는 남기고 벡터만 버린다. FTS 로는 찾힌다. re-embed 로 복구한다.
+            log.warning("entity %s stored without vector: %s", ent.id, exc)
 
     new_dec = _finish(ResolutionDecision(
         entity=name,

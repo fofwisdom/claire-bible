@@ -369,6 +369,8 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
             for method in ("GET", "HEAD")
         ),
         ("PATCH", "/api/me"),
+        *((method, "/api/me/keys") for method in ("GET", "HEAD", "PUT", "DELETE")),
+        ("POST", "/api/me/keys/verify"),
     }
     # §9.1: owner 범위 + 관리자 계정만. 그 밖에는 404.
     admin_methods = {
@@ -399,6 +401,7 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
             (method, "/api/invites")
             for method in ("GET", "HEAD", "POST", "PATCH")
         ),
+        *((method, "/api/admin/server-tier") for method in ("GET", "HEAD", "PUT")),
     }
     expected = {
         **{
@@ -429,6 +432,8 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         *((m, "/invite/{code}") for m in ("GET", "HEAD", "POST")),
         *((m, "/explore/accounts") for m in ("GET", "HEAD")),
         *((m, "/api/invites") for m in ("GET", "HEAD", "POST", "PATCH")),
+        *((m, "/api/me/keys") for m in ("GET", "HEAD", "PUT", "DELETE")),
+        ("POST", "/api/me/keys/verify"),
     }
     assert {k for k, r in security.ROUTE_POLICY.items() if r.modes != security.ALL_MODES} == network_only_keys
     assert all(r.modes in (security.ALL_MODES, security.NETWORK_ONLY) for r in security.ROUTE_POLICY.values())

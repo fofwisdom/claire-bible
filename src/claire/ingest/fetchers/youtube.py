@@ -18,7 +18,7 @@ from ...extract.table_budget import slice_document_text
 from ...extract.transcript.factory import get_transcript_provider
 from ...ontology.base import Document
 from ..normalize import content_hash
-from .base import FetchError
+from .base import FetchError, attach_usage_hooks, fetch_settings
 from .captions import CaptionAcquisition, acquire_caption, format_chapters
 from .video import parse_ytdlp_extractor_args
 
@@ -120,7 +120,7 @@ def fetch_transcript_info(
 ) -> TranscriptResult:
     """youtube-transcript-api 기반 자막 추출 (제작자 제공 수동 자막 우선)."""
     if preferred_languages is None:
-        settings = get_settings()
+        settings = fetch_settings(None, get_settings)
         target_langs = settings.effective_preferred_languages
     else:
         target_langs = [
@@ -309,6 +309,7 @@ def transcribe_youtube_audio(
     if cached_file:
         try:
             stt_provider = get_transcript_provider(settings)
+            attach_usage_hooks(stt_provider, settings)
             lang_code = settings.stt_language or (target_langs[0] if target_langs else "ko")
             stt_result = stt_provider.transcribe(cached_file, language=lang_code, timestamps=True)
             transcript_text = stt_result.full_text
@@ -374,6 +375,7 @@ def transcribe_youtube_audio(
             if audio_candidates:
                 downloaded_file = audio_candidates[0]
                 stt_provider = get_transcript_provider(settings)
+                attach_usage_hooks(stt_provider, settings)
                 lang_code = settings.stt_language or (target_langs[0] if target_langs else "ko")
                 stt_result = stt_provider.transcribe(downloaded_file, language=lang_code, timestamps=True)
                 transcript_text = stt_result.full_text
@@ -416,7 +418,7 @@ def fetch_youtube(
     if not vid:
         raise FetchError(f"no youtube video id in {url}")
 
-    settings = settings or get_settings()
+    settings = fetch_settings(settings, get_settings)
     target_langs = (
         preferred_languages
         if preferred_languages is not None

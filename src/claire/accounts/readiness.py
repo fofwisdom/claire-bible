@@ -15,6 +15,7 @@ from typing import Any
 from ..api import security
 from ..api.host_router import HostRoles
 from ..store import accounts as accounts_store
+from . import server_tier
 from ..store import auth_db
 
 __all__ = [
@@ -112,16 +113,26 @@ def check_readiness(conn: sqlite3.Connection, settings: Any) -> ReadinessReport:
     )
 
     # G5: 프로바이더 정책 적용 지점이 모두 강제되고, 서버 등급이 정해져 있다 (none 포함)
-    server_tier = accounts_store.AccountStore(conn).get_setting("server_tier")
-    if server_tier is None:
-        server_tier = getattr(settings, "server_tier", None)
-    g5_passed = (server_tier is not None)
+    # 저장된 값이 ServerTier.from_dict로 유효해야 통과한다. 미설정·깨진 값은 실패다(실행 중 집행은 깨진 값을 none으로 본다).
+    raw_tier = server_tier.read_stored_server_tier(conn)
+    if raw_tier is None:
+        g5_passed = False
+        g5_detail = "서버 등급이 정해지지 않았습니다 (/admin/instance에서 none 포함 저장 필요)"
+    else:
+        try:
+            tier = server_tier.parse_server_tier(raw_tier)
+        except ValueError as exc:
+            g5_passed = False
+            g5_detail = f"저장된 서버 등급이 유효하지 않습니다 ({exc})"
+        else:
+            g5_passed = True
+            g5_detail = f"서버 등급 설정됨 (provider={tier.provider})"
     items.append(
         ReadinessItem(
             id="G5",
             name="서버 등급 설정 (none 포함)",
             passed=g5_passed,
-            detail=f"서버 등급 설정됨 ({server_tier})" if g5_passed else "서버 등급이 정해지지 않았습니다 (instance_settings.server_tier에 none 포함 설정 필요)",
+            detail=g5_detail,
         )
     )
 

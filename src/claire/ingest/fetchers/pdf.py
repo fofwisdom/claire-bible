@@ -13,6 +13,7 @@ import pypdfium2 as pdfium
 import pypdfium2.raw as pdfium_c
 
 from ...config import get_settings
+from .base import fetch_settings
 
 logger = logging.getLogger("claire.ingest.pdf")
 
@@ -593,7 +594,7 @@ def extract_pdf_stream(
 
     기본 엔진 pypdfium2의 고속 추출을 적용하며, 파서 런타임 실패 시 pypdf로 안전 자동 폴백한다.
     """
-    settings = get_settings()
+    settings = fetch_settings(None, get_settings)
     raw_engine = (engine or getattr(settings, "pdf_parser", "default") or "default").lower().strip()
     selected_engine = "pypdfium2" if raw_engine in ("default", "pypdfium2") else raw_engine
     from ...extract.provider import emit_progress

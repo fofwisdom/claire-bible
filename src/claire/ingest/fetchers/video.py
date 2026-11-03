@@ -15,7 +15,7 @@ from ...extract.table_budget import slice_document_text
 from ...extract.transcript.factory import get_transcript_provider
 from ...ontology.base import Document
 from ..normalize import canonicalize_url, content_hash
-from .base import FetchError
+from .base import FetchError, attach_usage_hooks, fetch_settings
 from .captions import (
     CaptionAcquisition,
     acquire_caption,
@@ -106,7 +106,7 @@ def fetch_video(
     settings: Settings | None = None,
 ) -> Document:
     """비디오 URL에서 메타데이터와 CC 또는 STT를 추출하여 Document를 생성한다."""
-    settings = settings or get_settings()
+    settings = fetch_settings(settings, get_settings)
     target_langs = (
         preferred_languages
         if preferred_languages is not None
@@ -239,6 +239,7 @@ def fetch_video(
                 # 1. 캐시된 미디어가 있으면 다운로드 없이 즉시 STT 실행 시도
                 try:
                     stt_provider = get_transcript_provider(settings)
+                    attach_usage_hooks(stt_provider, settings)
                     lang_code = settings.stt_language or (target_langs[0] if target_langs else "ko")
                     stt_result = stt_provider.transcribe(
                         cached_file, language=lang_code, timestamps=True
@@ -303,6 +304,7 @@ def fetch_video(
                         if audio_candidates:
                             downloaded_file = audio_candidates[0]
                             stt_provider = get_transcript_provider(settings)
+                            attach_usage_hooks(stt_provider, settings)
                             lang_code = settings.stt_language or (target_langs[0] if target_langs else "ko")
                             stt_result = stt_provider.transcribe(
                                 downloaded_file, language=lang_code, timestamps=True

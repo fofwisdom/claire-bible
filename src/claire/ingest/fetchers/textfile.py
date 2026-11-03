@@ -8,6 +8,7 @@ from ...config import get_settings
 from ...extract.table_budget import slice_document_text
 from ...ontology.base import Document
 from ..normalize import content_hash
+from .base import fetch_settings
 
 
 def fetch_text(payload: str, *, full_content: bool = False) -> Document:
@@ -84,7 +85,7 @@ def fetch_file(path: str, *, full_content: bool = False) -> Document:
             from .base import FetchError
 
             raise FetchError(f"unsupported file type (M1): {suffix}")
-    settings = get_settings()
+    settings = fetch_settings(None, get_settings)
     budget = 0 if full_content else (settings.pdf_max_extract_chars if source_type in ("pdf", "odt") else settings.raw_char_budget)
     appendix_truncated = False
     references_truncated = False
