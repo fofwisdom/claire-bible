@@ -313,6 +313,7 @@ TypeSafe AI Jev는 도입 검토 단계라 **판정 권한이 없다**. 플래�
 | `CLAIRE_CLOUDFLARE_IPS_ONLY` | `0` (`false`) | `0`, `1`, `true`, `false` | Cloudflare 공인 IP 대역에서 온 접속만 허용한다 (사설 IP는 영향 없음). 레거시 이름 `CLAIRE_CLOUDFLARE_ONLY`도 읽는다. |
 | `CLAIRE_TRUSTED_PROXIES` | `""` | 쉼표 구분 CIDR 목록 (예: `192.168.10.1/32,10.0.0.0/8`) | 로그인 실패 제한에 쓸 클라이언트 IP 판정에서 `X-Forwarded-For`를 믿을 바로 앞 프록시 대역. 바로 앞 피어가 이 목록(과 `CLAIRE_CLOUDFLARE_IPS_ONLY=1`이면 Cloudflare 대역)에 있을 때만 헤더를 오른쪽부터 읽어 신뢰하지 않는 첫 주소를 쓴다. 비면 헤더를 읽지 않고 피어 주소를 쓴다. 잘못된 CIDR이면 기동이 실패한다. 접근 로그의 IP 표기와 Host·scheme 판정에는 쓰지 않는다. [EXTERNAL_ACCESS.md](EXTERNAL_ACCESS.md) 참고. |
 | `CLAIRE_GA_MEASUREMENT_ID` | `""` | 문자열 (예: `G-XXXXXXXXXX`) | Google Analytics 4 측정 ID (싱글 테마 모드용 측정 ID). 멀티테마 모드에서는 각 테마의 개별 설정값을 사용하며 전역 환경변수로 폴백되지 않는다. 비워두면 GA 스크립트가 로드되지 않으며 외부 통신을 차단하는 엄격한 CSP 정책이 유지된다. |
+| `CLAIRE_OIDC_<PROVIDER>_CLIENT_SECRET` | `""` | 문자열 시크릿 | **[선택] 외부 IdP Client Secret (OIDC / GitHub)**. 공급자 식별자(대문자, 하이픈은 밑줄로 변환, 예: `CLAIRE_OIDC_GOOGLE_CLIENT_SECRET`, `CLAIRE_OIDC_GITHUB_CLIENT_SECRET`)에 대응하는 클라이언트 비밀값. `data/auth/idp_providers.json` 파일에는 비밀을 저장하지 않으며 오직 이 환경변수 또는 Docker Secret 파일(`/run/secrets/claire_oidc_<provider>_client_secret`)로만 안전하게 주입받는다. |
 
 ---
 

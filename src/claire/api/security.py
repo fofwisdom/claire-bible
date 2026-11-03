@@ -513,6 +513,23 @@ ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     ("GET", "/api/admin/server-tier"): _system("admin"),
     ("HEAD", "/api/admin/server-tier"): _system("admin"),
     ("PUT", "/api/admin/server-tier"): _system("admin"),
+    # P5 L5-b IdP, 계정 연결, 초대 가입, 관리자 IdP (§12, §13.3)
+    ("GET", "/auth/oidc/{id}/start"): _system("public"),
+    ("HEAD", "/auth/oidc/{id}/start"): _system("public"),
+    ("GET", "/auth/oidc/{id}/callback"): _system("public"),
+    ("HEAD", "/auth/oidc/{id}/callback"): _system("public"),
+    ("POST", "/api/me/identities/oidc/{id}/start"): _any("owner"),
+    ("GET", "/api/me/identities"): _any("owner"),
+    ("HEAD", "/api/me/identities"): _any("owner"),
+    ("DELETE", "/api/me/identities/oidc/{id}"): _any("owner"),
+    ("GET", "/invite/complete"): _system("public", modes=NETWORK_ONLY),
+    ("HEAD", "/invite/complete"): _system("public", modes=NETWORK_ONLY),
+    ("POST", "/invite/complete"): _system("public", modes=NETWORK_ONLY),
+    ("GET", "/admin/idp"): _system("admin"),
+    ("HEAD", "/admin/idp"): _system("admin"),
+    ("GET", "/api/admin/idp"): _system("admin"),
+    ("HEAD", "/api/admin/idp"): _system("admin"),
+    ("PUT", "/api/admin/idp"): _system("admin"),
 }
 
 

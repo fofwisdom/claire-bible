@@ -63,7 +63,7 @@ def test_schema_creates_all_tables_and_is_idempotent(conn):
     adb.init_auth_db(conn)
     assert [tuple(r) for r in _schema_snapshot(conn)] == before
     rows = conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchall()
-    assert [r[0] for r in rows] == [str(adb.AUTH_DB_SCHEMA_VERSION)] == ["2"]
+    assert [r[0] for r in rows] == [str(adb.AUTH_DB_SCHEMA_VERSION)] == ["3"]
 
 
 def test_reconnect_keeps_data(tmp_path, fast_scrypt):
@@ -529,3 +529,131 @@ def test_scrypt_concurrency_is_bounded_and_dummy_path_shares_it(conn, monkeypatc
     for t in threads:
         t.join()
     assert 1 <= peak <= adb.SCRYPT_MAX_CONCURRENCY
+
+
+# --- OIDC state 및 신원 연결 테스트 (P5 L5-b) ----------------------------------------
+
+
+def test_oidc_state_save_and_consume(conn):
+    adb.save_oidc_state(
+        conn,
+        key="key1",
+        provider_id="google",
+        state="state123",
+        nonce="nonce456",
+        code_verifier="verifier789",
+        purpose="link",
+        account_id=42,
+        expires_at=T0 + 600,
+    )
+
+    # 1. State mismatch -> raises OidcStateMismatchError and removes state
+    with pytest.raises(adb.OidcStateMismatchError):
+        adb.consume_oidc_state(conn, key="key1", state="wrong_state", now=T0)
+
+    # State was consumed/deleted on mismatch to prevent replay
+    with pytest.raises(adb.OidcStateNotFoundError):
+        adb.consume_oidc_state(conn, key="key1", state="state123", now=T0)
+
+    # 2. Expiry check
+    adb.save_oidc_state(
+        conn,
+        key="key2",
+        provider_id="google",
+        state="state999",
+        nonce="nonce999",
+        code_verifier="verifier999",
+        purpose="login",
+        expires_at=T0 + 10,
+    )
+    with pytest.raises(adb.OidcStateNotFoundError):
+        adb.consume_oidc_state(conn, key="key2", state="state999", now=T0 + 20)
+
+    # 3. Successful consume
+    adb.save_oidc_state(
+        conn,
+        key="key3",
+        provider_id="github",
+        state="state_ok",
+        nonce="nonce_ok",
+        code_verifier="verifier_ok",
+        purpose="signup",
+        invitation_id=7,
+        expires_at=T0 + 600,
+    )
+    rec = adb.consume_oidc_state(conn, key="key3", state="state_ok", now=T0)
+    assert rec.key == "key3"
+    assert rec.provider_id == "github"
+    assert rec.purpose == "signup"
+    assert rec.invitation_id == 7
+    assert rec.account_id is None
+
+    # Replay fails
+    with pytest.raises(adb.OidcStateNotFoundError):
+        adb.consume_oidc_state(conn, key="key3", state="state_ok", now=T0)
+
+
+def test_account_identities_linking_and_unlinking(conn):
+    # Link first identity
+    adb.link_account_identity(conn, iss="https://accounts.google.com", sub="sub-100", account_id=1, provider_id="google", now=T0)
+
+    # Duplicate link fails
+    with pytest.raises(adb.IdentityAlreadyLinkedError):
+        adb.link_account_identity(conn, iss="https://accounts.google.com", sub="sub-100", account_id=2, provider_id="google", now=T0)
+
+    # Query identity
+    found = adb.find_account_identity(conn, iss="https://accounts.google.com", sub="sub-100")
+    assert found is not None
+    assert found.account_id == 1
+    assert found.provider_id == "google"
+    assert found.last_login_at is None
+
+    # Record login
+    adb.record_identity_login(conn, iss="https://accounts.google.com", sub="sub-100", now=T0 + 100)
+    found = adb.find_account_identity(conn, iss="https://accounts.google.com", sub="sub-100")
+    assert found.last_login_at == T0 + 100
+
+    # Unlink safety: cannot unlink if only credential (no password and only 1 identity)
+    with pytest.raises(adb.IdentityUnlinkForbiddenError):
+        adb.unlink_account_identity(conn, account_id=1, provider_id="google", iss="https://accounts.google.com", sub="sub-100")
+
+    # Link a second identity
+    adb.link_account_identity(conn, iss="https://github.com", sub="99999", account_id=1, provider_id="github", now=T0)
+    identities = adb.list_account_identities(conn, account_id=1)
+    assert len(identities) == 2
+
+    # Now unlinking google succeeds because github remains
+    ok = adb.unlink_account_identity(conn, account_id=1, provider_id="google", iss="https://accounts.google.com", sub="sub-100")
+    assert ok is True
+    assert adb.find_account_identity(conn, iss="https://accounts.google.com", sub="sub-100") is None
+
+
+def test_idp_providers_load_and_save(tmp_path, monkeypatch):
+    providers = [
+        adb.IdpProviderMeta(
+            id="google",
+            type="oidc",
+            display_name="Google Workspace",
+            client_id="google-client-id-123",
+            issuer="https://accounts.google.com",
+            scopes=("openid", "email", "profile"),
+            hosted_domain="example.com",
+            tenant_id=None,
+        )
+    ]
+    adb.save_idp_providers(tmp_path, providers)
+
+    # Without secret env var: secret_configured is False
+    loaded = adb.load_idp_providers(tmp_path, include_secrets=False)
+    assert len(loaded) == 1
+    assert loaded[0].id == "google"
+    assert loaded[0].client_id == "google-client-id-123"
+    assert loaded[0].secret_configured is False
+    assert loaded[0].client_secret is None
+
+    # With secret env var: secret_configured is True
+    monkeypatch.setenv("CLAIRE_OIDC_GOOGLE_CLIENT_SECRET", "super-secret-key")
+    loaded = adb.load_idp_providers(tmp_path, include_secrets=True)
+    assert loaded[0].secret_configured is True
+    assert loaded[0].client_secret == "super-secret-key"
+

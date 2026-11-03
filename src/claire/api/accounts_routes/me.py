@@ -42,6 +42,8 @@ ME_PASSWORD_PATH = "/api/me/password"
 
 NOTICE_TEXT = {
     "password_not_saved": "계정 설정은 확정됐지만 비밀번호를 저장하지 못했습니다. 아래에서 비밀번호를 설정하세요.",
+    "already_linked": "이 외부 계정은 이미 현재 계정에 연결되어 있습니다.",
+    "identity_linked": "외부 계정이 성공적으로 연결되었습니다.",
 }
 
 

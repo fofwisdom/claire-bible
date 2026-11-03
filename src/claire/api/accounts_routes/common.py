@@ -40,6 +40,7 @@ class AccountsContext:
     config: security.WebRuntimeConfig
     # §8.1-4 인스턴스 예약 라벨(현재 호스트 설정값에서 뽑는다).
     instance_reserved: frozenset[str]
+    data_dir: Path | None = None
 
 
 def _host_of(value: Any) -> str:
@@ -71,6 +72,7 @@ def build_context(settings: Any, config: security.WebRuntimeConfig) -> AccountsC
         auth_db_file=auth_db.auth_db_path(data_dir),
         config=config,
         instance_reserved=instance_reserved_labels(instance_hosts(settings, config)),
+        data_dir=data_dir,
     )
 
 

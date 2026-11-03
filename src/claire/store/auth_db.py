@@ -34,8 +34,8 @@ from ..accounts.invites import (
 )
 from .secrets import SecretDecryptionError, SecretService, get_secret_service
 
-# v2 (P4 L4-c): ``account_usage``에 UTC 일 적재 집행용 ``daily_day``·``daily_ingests``를 더한다(§10.3, §13.3).
-AUTH_DB_SCHEMA_VERSION = 2
+# v3 (P5 L5-b): ``oidc_states``에 계정 연결용 ``account_id``를 더한다(§12-7, §13.3).
+AUTH_DB_SCHEMA_VERSION = 3
 AUTH_DB_RELATIVE_PATH = Path("auth") / "auth.db"
 
 # §8.5 scrypt 매개변수. n=2^15, r=8이면 128·n·r = 32MiB이므로 hashlib 기본 maxmem(32MiB)으로는
@@ -105,6 +105,7 @@ def connect_auth_db(path: Path | str) -> sqlite3.Connection:
         conn.execute("PRAGMA busy_timeout=5000;")
         init_auth_db(conn)
         prune_stale_redemptions(conn)
+        prune_stale_oidc_states(conn)
     except BaseException:
         conn.close()
         raise
@@ -127,6 +128,7 @@ def init_auth_db(conn: sqlite3.Connection) -> None:
         if not conn.in_transaction:
             conn.execute("BEGIN IMMEDIATE")
         _migrate_v2_account_usage_daily(conn)
+        _migrate_v3_oidc_states_account_id(conn)
         conn.execute(
             "INSERT OR IGNORE INTO meta(key, value) VALUES ('schema_version', ?)",
             (str(AUTH_DB_SCHEMA_VERSION),),
@@ -150,6 +152,19 @@ def _migrate_v2_account_usage_daily(conn: sqlite3.Connection) -> None:
     for name, decl in _ACCOUNT_USAGE_V2_COLUMNS:
         if name not in existing:
             conn.execute(f"ALTER TABLE account_usage ADD COLUMN {name} {decl}")
+
+
+_OIDC_STATES_V3_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("account_id", "INTEGER"),
+)
+
+
+def _migrate_v3_oidc_states_account_id(conn: sqlite3.Connection) -> None:
+    """v2 ``oidc_states``에 v3 계정 연결용 ``account_id`` 열을 더한다(멱등, A3)."""
+    existing = {str(r[1]) for r in conn.execute("PRAGMA table_info(oidc_states)")}
+    for name, decl in _OIDC_STATES_V3_COLUMNS:
+        if name not in existing:
+            conn.execute(f"ALTER TABLE oidc_states ADD COLUMN {name} {decl}")
 
 
 # --- 로컬 비밀번호 ----------------------------------------------------------------
@@ -477,8 +492,10 @@ CREATE TABLE IF NOT EXISTS oidc_states (
     state TEXT NOT NULL, nonce TEXT NOT NULL, code_verifier TEXT NOT NULL,
     purpose TEXT NOT NULL,
     invitation_id INTEGER,
+    account_id INTEGER,
     expires_at REAL NOT NULL
 );
+CREATE INDEX IF NOT EXISTS idx_oidc_states_expires ON oidc_states(expires_at);
 CREATE TABLE IF NOT EXISTS login_throttle (
     key TEXT PRIMARY KEY, failures INTEGER NOT NULL,
     window_start REAL NOT NULL, retry_after REAL
@@ -1074,3 +1091,341 @@ def prune_stale_redemptions(
             conn.execute("UPDATE invitations SET uses_count = max(0, uses_count - 1) WHERE id=?", (inv_id,))
             conn.execute("UPDATE invitation_redemptions SET status='failed', finished_at=? WHERE id=?", (ts, redemption_id))
     return len(rows)
+
+
+# --- 외부 IdP 및 OIDC 상태 (설계 §12, §13.3, P5 L5-b) --------------------------------
+
+OidcPurpose = Literal["login", "link", "signup"]
+
+
+@dataclass(frozen=True, slots=True)
+class OidcStateRecord:
+    key: str
+    provider_id: str
+    state: str
+    nonce: str
+    code_verifier: str
+    purpose: OidcPurpose
+    invitation_id: int | None
+    account_id: int | None
+    expires_at: float
+
+
+@dataclass(frozen=True, slots=True)
+class AccountIdentityRecord:
+    iss: str
+    sub: str
+    account_id: int
+    provider_id: str
+    linked_at: float
+    last_login_at: float | None
+
+
+class OidcStateError(Exception):
+    """Base error for OIDC state operations."""
+
+
+class OidcStateNotFoundError(OidcStateError):
+    """State record does not exist or expired."""
+
+
+class OidcStateMismatchError(OidcStateError):
+    """State parameter does not match recorded state."""
+
+
+class IdentityAlreadyLinkedError(Exception):
+    """(iss, sub) identity is already linked to an account."""
+
+
+class IdentityUnlinkForbiddenError(Exception):
+    """Cannot unlink the only remaining authentication credential."""
+
+
+def save_oidc_state(
+    conn: sqlite3.Connection,
+    *,
+    key: str,
+    provider_id: str,
+    state: str,
+    nonce: str,
+    code_verifier: str,
+    purpose: OidcPurpose,
+    invitation_id: int | None = None,
+    account_id: int | None = None,
+    expires_at: float,
+) -> None:
+    """단기 OIDC 교환 상태(10분 수명)를 저장한다."""
+    with conn:
+        conn.execute(
+            """
+            INSERT INTO oidc_states (
+                key, provider_id, state, nonce, code_verifier,
+                purpose, invitation_id, account_id, expires_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (key, provider_id, state, nonce, code_verifier, purpose, invitation_id, account_id, expires_at),
+        )
+
+
+def consume_oidc_state(
+    conn: sqlite3.Connection,
+    *,
+    key: str,
+    state: str,
+    now: float | None = None,
+) -> OidcStateRecord:
+    """OIDC 상태를 원자적으로 조회하고 즉시 삭제하여 재생 공격을 방지한다."""
+    ts = time.time() if now is None else now
+    with conn:
+        row = conn.execute(
+            """
+            SELECT key, provider_id, state, nonce, code_verifier,
+                   purpose, invitation_id, account_id, expires_at
+            FROM oidc_states WHERE key = ?
+            """,
+            (key,),
+        ).fetchone()
+        if row is None:
+            raise OidcStateNotFoundError("State not found")
+        if float(row["expires_at"]) <= ts:
+            conn.execute("DELETE FROM oidc_states WHERE key = ?", (key,))
+            conn.commit()
+            raise OidcStateNotFoundError("State expired")
+        if not hmac.compare_digest(str(row["state"]), str(state)):
+            conn.execute("DELETE FROM oidc_states WHERE key = ?", (key,))
+            conn.commit()
+            raise OidcStateMismatchError("State mismatch")
+        conn.execute("DELETE FROM oidc_states WHERE key = ?", (key,))
+
+    return OidcStateRecord(
+        key=str(row["key"]),
+        provider_id=str(row["provider_id"]),
+        state=str(row["state"]),
+        nonce=str(row["nonce"]),
+        code_verifier=str(row["code_verifier"]),
+        purpose=str(row["purpose"]),  # type: ignore[assignment]
+        invitation_id=int(row["invitation_id"]) if row["invitation_id"] is not None else None,
+        account_id=int(row["account_id"]) if row["account_id"] is not None else None,
+        expires_at=float(row["expires_at"]),
+    )
+
+
+def prune_stale_oidc_states(
+    conn: sqlite3.Connection,
+    *,
+    now: float | None = None,
+) -> int:
+    """만료된 OIDC state 행을 정리한다."""
+    ts = time.time() if now is None else now
+    with conn:
+        cur = conn.execute("DELETE FROM oidc_states WHERE expires_at <= ?", (ts,))
+    return int(cur.rowcount)
+
+
+def link_account_identity(
+    conn: sqlite3.Connection,
+    *,
+    iss: str,
+    sub: str,
+    account_id: int,
+    provider_id: str,
+    now: float | None = None,
+) -> None:
+    """외부 신원(iss, sub)을 계정에 연결한다. 이미 연결되어 있으면 IdentityAlreadyLinkedError 발생."""
+    ts = time.time() if now is None else now
+    try:
+        with conn:
+            conn.execute(
+                """
+                INSERT INTO account_identities (iss, sub, account_id, provider_id, linked_at, last_login_at)
+                VALUES (?, ?, ?, ?, ?, NULL)
+                """,
+                (iss, sub, account_id, provider_id, ts),
+            )
+    except sqlite3.IntegrityError as exc:
+        raise IdentityAlreadyLinkedError(f"Identity ({iss}, {sub}) is already linked") from exc
+
+
+def find_account_identity(
+    conn: sqlite3.Connection,
+    *,
+    iss: str,
+    sub: str,
+) -> AccountIdentityRecord | None:
+    """(iss, sub)로 연결된 계정 신원을 조회한다."""
+    row = conn.execute(
+        """
+        SELECT iss, sub, account_id, provider_id, linked_at, last_login_at
+        FROM account_identities WHERE iss = ? AND sub = ?
+        """,
+        (iss, sub),
+    ).fetchone()
+    if row is None:
+        return None
+    return AccountIdentityRecord(
+        iss=str(row["iss"]),
+        sub=str(row["sub"]),
+        account_id=int(row["account_id"]),
+        provider_id=str(row["provider_id"]),
+        linked_at=float(row["linked_at"]),
+        last_login_at=float(row["last_login_at"]) if row["last_login_at"] is not None else None,
+    )
+
+
+def list_account_identities(
+    conn: sqlite3.Connection,
+    *,
+    account_id: int,
+) -> list[AccountIdentityRecord]:
+    """계정에 연결된 모든 외부 신원 목록을 반환한다."""
+    rows = conn.execute(
+        """
+        SELECT iss, sub, account_id, provider_id, linked_at, last_login_at
+        FROM account_identities WHERE account_id = ?
+        ORDER BY linked_at ASC
+        """,
+        (account_id,),
+    ).fetchall()
+    return [
+        AccountIdentityRecord(
+            iss=str(r["iss"]),
+            sub=str(r["sub"]),
+            account_id=int(r["account_id"]),
+            provider_id=str(r["provider_id"]),
+            linked_at=float(r["linked_at"]),
+            last_login_at=float(r["last_login_at"]) if r["last_login_at"] is not None else None,
+        )
+        for r in rows
+    ]
+
+
+def record_identity_login(
+    conn: sqlite3.Connection,
+    *,
+    iss: str,
+    sub: str,
+    now: float | None = None,
+) -> None:
+    """외부 신원의 마지막 로그인 시각을 기록한다."""
+    ts = time.time() if now is None else now
+    with conn:
+        conn.execute(
+            "UPDATE account_identities SET last_login_at = ? WHERE iss = ? AND sub = ?",
+            (ts, iss, sub),
+        )
+
+
+def unlink_account_identity(
+    conn: sqlite3.Connection,
+    *,
+    account_id: int,
+    provider_id: str,
+    iss: str,
+    sub: str,
+) -> bool:
+    """신원 연결을 해제한다. 비밀번호도 없고 다른 신원도 없으면 IdentityUnlinkForbiddenError를 발생시킨다."""
+    has_pw = has_password(conn, account_id)
+    identities = list_account_identities(conn, account_id=account_id)
+    if not has_pw and len(identities) <= 1:
+        raise IdentityUnlinkForbiddenError("Cannot unlink the only authentication credential.")
+
+    with conn:
+        cur = conn.execute(
+            """
+            DELETE FROM account_identities
+            WHERE account_id = ? AND provider_id = ? AND iss = ? AND sub = ?
+            """,
+            (account_id, provider_id, iss, sub),
+        )
+    return cur.rowcount > 0
+
+
+@dataclass(frozen=True, slots=True)
+class IdpProviderMeta:
+    id: str
+    type: Literal["oidc", "github"]
+    display_name: str
+    client_id: str
+    enabled: bool = True
+    allow_signup: bool = True
+    issuer: str = ""
+    scopes: tuple[str, ...] = ("openid", "email", "profile")
+    hosted_domain: str | None = None
+    tenant_id: str | None = None
+    secret_configured: bool = False
+    client_secret: str | None = None
+
+
+def load_idp_providers(data_dir: Path | str, *, include_secrets: bool = False) -> list[IdpProviderMeta]:
+    """data/auth/idp_providers.json 을 읽고 환경변수 및 비밀 파일의 client secret을 결합한다."""
+    path = Path(data_dir) / "auth" / "idp_providers.json"
+    if not path.is_file():
+        return []
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+
+    providers: list[IdpProviderMeta] = []
+    for item in data.get("providers", []):
+        pid = str(item.get("id", "")).strip()
+        if not pid:
+            continue
+        env_key = f"CLAIRE_OIDC_{pid.upper().replace('-', '_')}_CLIENT_SECRET"
+        secret = os.environ.get(env_key, "").strip() or None
+        if not secret:
+            secret_file = Path(f"/run/secrets/claire_oidc_{pid.lower().replace('-', '_')}_client_secret")
+            if secret_file.is_file():
+                try:
+                    secret = secret_file.read_text(encoding="utf-8").strip() or None
+                except Exception:
+                    secret = None
+
+        providers.append(
+            IdpProviderMeta(
+                id=pid,
+                type=item.get("type", "oidc"),
+                display_name=item.get("display_name", pid),
+                client_id=item.get("client_id", ""),
+                enabled=bool(item.get("enabled", True)),
+                allow_signup=bool(item.get("allow_signup", True)),
+                issuer=item.get("issuer", ""),
+                scopes=tuple(item.get("scopes", ["openid", "email", "profile"])),
+                hosted_domain=item.get("hosted_domain"),
+                tenant_id=item.get("tenant_id"),
+                secret_configured=bool(secret),
+                client_secret=secret if include_secrets else None,
+            )
+        )
+    return providers
+
+
+def save_idp_providers(data_dir: Path | str, providers: list[IdpProviderMeta]) -> None:
+    """비밀을 제외하고 공급자 설정을 원자적(0600)으로 저장한다."""
+    target_path = Path(data_dir) / "auth" / "idp_providers.json"
+    _ensure_private_dir(target_path.parent)
+    payload = {
+        "version": 1,
+        "providers": [
+            {
+                "id": p.id,
+                "type": p.type,
+                "display_name": p.display_name,
+                "client_id": p.client_id,
+                "enabled": p.enabled,
+                "allow_signup": p.allow_signup,
+                "issuer": p.issuer,
+                "scopes": list(p.scopes),
+                "hosted_domain": p.hosted_domain,
+                "tenant_id": p.tenant_id,
+            }
+            for p in providers
+        ],
+    }
+    tmp_path = target_path.with_suffix(".tmp")
+    tmp_fd = os.open(str(tmp_path), os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
+    with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2, ensure_ascii=False)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp_path, target_path)

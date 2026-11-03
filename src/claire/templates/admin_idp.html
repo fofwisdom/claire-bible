@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex, nofollow">
+    <title>외부 IdP 관리 · Claire</title>
+    <style>
+      :root { color-scheme: light dark; --bg: #f7f7f5; --fg: #1d1d1b; --muted: #5d5d58; --card: #ffffff; --line: #d9d9d4; --accent: #2f5d8a; --error: #a3261d; }
+      @media (prefers-color-scheme: dark) { :root { --bg: #161615; --fg: #ececea; --muted: #a5a5a0; --card: #20201e; --line: #3a3a37; --accent: #8db6e0; --error: #f08a80; } }
+      * { box-sizing: border-box; }
+      body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.6 system-ui, -apple-system, "Noto Sans KR", sans-serif; }
+      main { max-width: 38rem; margin: 0 auto; padding: 2rem 1rem 3rem; }
+      h1 { font-size: 1.5rem; margin: 0 0 1rem; }
+      h2 { font-size: 1.1rem; margin: 0 0 .75rem; }
+      .card { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 1.25rem; margin: 0 0 1rem; }
+      label { display: block; font-weight: 600; margin: .75rem 0 .25rem; }
+      .hint { color: var(--muted); font-size: .875rem; margin: .25rem 0 0; }
+      input[type=text], textarea { width: 100%; padding: .5rem .625rem; font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; }
+      button { margin-top: 1rem; padding: .5rem 1rem; font: inherit; color: #fff; background: var(--accent); border: 0; border-radius: 6px; cursor: pointer; }
+      button.link { background: none; color: var(--accent); padding: 0; margin: 0; text-decoration: underline; }
+      dl { display: grid; grid-template-columns: max-content 1fr; gap: .25rem 1rem; margin: 0; }
+      dt { color: var(--muted); }
+      dd { margin: 0; overflow-wrap: anywhere; }
+      nav { display: flex; gap: 1rem; align-items: center; margin: 0 0 1.5rem; font-size: .9rem; }
+      nav a { color: var(--accent); }
+      nav form { margin: 0 0 0 auto; }
+      .badge { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.8rem; font-weight: 600; }
+      .badge-enabled { background: #d4edda; color: #155724; }
+      .badge-disabled { background: #f8d7da; color: #721c24; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <nav aria-label="계정">
+        <a href="/">홈</a>
+        <a href="/me">내 계정</a>
+        <a href="/admin/accounts">계정 관리</a>
+        <a href="/admin/idp">IdP 관리</a>
+        <form method="post" action="/logout"><button type="submit" class="link">로그아웃</button></form>
+      </nav>
+      <h1>외부 IdP 관리</h1>
+      <p class="hint">OpenID Connect 및 GitHub OAuth 공급자를 관리합니다. Client Secret은 환경변수(CLAIRE_OIDC_&lt;ID&gt;_CLIENT_SECRET)로 관리됩니다.</p>
+      $cards
+    </main>
+  </body>
+</html>

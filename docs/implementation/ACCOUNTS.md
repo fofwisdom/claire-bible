@@ -31,7 +31,8 @@
 | `src/claire/ids.py` | 시간 정렬 64비트 번호 | `timestamp_id`, `legacy_timestamp_id`, `insert_with_timestamp_id`, `format_public_id`, `parse_public_id` |
 | `src/claire/api/principal.py` | 요청 주체 | `Principal`, `ANONYMOUS`, `request_principal`, `has_recent_auth`, `STEP_UP_WINDOW_SECONDS` |
 | `src/claire/api/security.py` | 자격증명 검증과 `Principal` 배정, 라우트 접근 규칙, 실패 제한용 클라이언트 IP | `ROUTE_POLICY`, `AuthenticationMiddleware`, `_Credential`, `_bind_account`, `_env_token_credential`, `client_ip`, `parse_trusted_proxies` |
-| `src/claire/api/accounts_routes/` | 계정 라우트(`setup.py`, `login.py`, `admin.py`, `me.py`, `invites.py`, `keys.py`, `instance.py`)와 공용 헬퍼(`common.py`) | `build_account_routes`, `prepare_auth_db`, `require_recent_auth`, `same_origin` |
+| `src/claire/api/oidc.py` | OIDC 코어 클라이언트, GitHub 어댑터, PKCE S256 및 JWK 서명 검증 | `OidcClient`, `GitHubAdapter`, `generate_pkce_pair`, `verify_pkce`, `ExternalIdentity` |
+| `src/claire/api/accounts_routes/` | 계정 라우트(`setup.py`, `login.py`, `admin.py`, `me.py`, `invites.py`, `keys.py`, `instance.py`, `idp.py`)와 공용 헬퍼(`common.py`) | `build_account_routes`, `prepare_auth_db`, `require_recent_auth`, `same_origin` |
 | `src/claire/templates/` | `setup.html`, `login.html`, `me.html`, `admin_accounts.html` | `$이름` 자리채움(`common.render_template`) |
 | `src/claire/static/js/accounts.js` | `/me` 화면의 표시 이름·본인 확인·비밀번호 양식 | `PATCH /api/me`, `POST /api/auth/reauth`, `POST /api/me/password` 호출 |
 
@@ -276,8 +277,8 @@
 - **[코드] 분리 이유**(모듈 설명): graph bundle·support bundle·내보내기에 비밀이 섞이지 않게 하고, 지식 DB 장애가 로그인으로 번지지 않게 한다. support bundle이 이 파일을 실제로 제외하는지 확인하는 테스트는 없다 [미검증].
 - **[코드] 파일 권한**: 디렉터리를 0700으로 만들고(이미 있으면 POSIX에서 chmod), 파일은 SQLite가 열기 전에 0600으로 먼저 만든다(이미 있으면 chmod 0600). 디렉터리 chmod는 같은 디렉터리의 `api_tokens.json` 접근에도 적용된다. WAL·SHM 파일 권한은 [미검증].
 - **[코드] 스키마**: 설계 §13.3의 테이블 전부와 `meta`를 `CREATE TABLE IF NOT EXISTS`로 만든다. P1이 다루는 테이블은 `account_passwords`, `login_throttle`, `admin_audit`다. P3에서 `invitations`, `invitation_redemptions`, `username_tombstones`, P4에서 `provider_keys`, `account_usage`(v2)가 활성화되었다.
-- **[코드] 버전**: `meta.schema_version`은 `AUTH_DB_SCHEMA_VERSION = 2`이며 claire.db의 버전과 별개다. v2(P4)에서 `account_usage`에 UTC 일 적재 집행용 `daily_day`·`daily_ingests` 열이 추가되었다. 저장된 값이 2보다 크면 `RuntimeError`(다운그레이드 거부), 1보다 작거나 정수가 아니면 `RuntimeError`. [SCHEMA_VERSIONING.md](SCHEMA_VERSIONING.md) 참고.
-- **[코드] 준비 시점**: `claire migrate`가 claire.db보다 먼저 만들고 `auth_db schema_version=2`를 출력한다. 서비스 기동(`create_app`)도 `prepare_auth_db`로 만들고 정리한다. 라우트는 `mode=rw`로 열어 파일이 없으면 만들지 않고 실패한다(`common.open_auth_db`).
+- **[코드] 버전**: `meta.schema_version`은 `AUTH_DB_SCHEMA_VERSION = 3`이며 claire.db의 버전과 별개다. v2(P4)에서 `account_usage`에 UTC 일 적재 집행용 `daily_day`·`daily_ingests` 열이 추가되었고, v3(P5)에서 `oidc_states`에 계정 연결용 `account_id` 열이 추가되었다. 저장된 값이 3보다 크면 `RuntimeError`(다운그레이드 거부), 1보다 작거나 정수가 아니면 `RuntimeError`. [SCHEMA_VERSIONING.md](SCHEMA_VERSIONING.md) 참고.
+- **[코드] 준비 시점**: `claire migrate`가 claire.db보다 먼저 만들고 `auth_db schema_version=3`을 출력한다. 서비스 기동(`create_app`)도 `prepare_auth_db`로 만들고 정리한다. 라우트는 `mode=rw`로 열어 파일이 없으면 만들지 않고 실패한다(`common.open_auth_db`).
 
 ## 9. 감사 기록
 
@@ -290,10 +291,22 @@
 | `account.password_change` | `/api/me/password` 성공 | `other_sessions_revoked` |
 | `account.provider_key_put` | `PUT /api/me/keys` 성공 | `provider` |
 | `account.provider_key_delete` | `DELETE /api/me/keys` 성공 | `provider`, `deleted` |
+| `identity.link` | `GET /auth/oidc/{id}/callback` 신원 연결 확정 | `iss`, `provider` |
 
 - **[코드]** 로그인 성공·실패, 로그아웃, 재인증은 감사 기록에 남기지 않는다. 로그인 실패는 `login_throttle`에만 남는다.
 - **[코드]** 조회는 `list_admin_audit`(최근 것부터)이며, 이를 노출하는 HTTP 경로는 없다.
 
-## 10. 테스트
+## 10. 외부 IdP 및 OIDC 연동 (P5)
 
-`tests/test_schema_v15.py`, `tests/test_account_store.py`, `tests/test_auth_db.py`, `tests/test_ids.py`, `tests/test_username_policy.py`, `tests/test_principal.py`, `tests/test_setup_flow.py`, `tests/test_login_flow.py`, `tests/test_account_routes.py`, `tests/test_api_security.py`, `tests/test_account_forms_browser.py`(설치된 Playwright Chromium으로 실제 양식 제출, 없으면 건너뜀), `tests/test_invite_flow.py`(초대 파이프라인 및 원자적 차감), `tests/test_username_release.py`(수명주기 전이, 디스크 정리 및 퇴역 USERNAME 정보 초기화), `tests/test_me_keys.py`(본인 API 키 관리), `tests/test_secret_write_only.py`(카나리아 키 미노출).
+- **[코드] 공급자 메타데이터**: `data/auth/idp_providers.json` (권한 `0600`, 원자적 교체 쓰기). client secret은 절대 JSON에 저장하지 않으며 오직 환경변수 `CLAIRE_OIDC_<PID>_CLIENT_SECRET` 또는 Docker Secret 파일(`/run/secrets/claire_oidc_<pid>_client_secret`)로만 런타임에 결합한다.
+- **[코드] OIDC 코어 & GitHub 어댑터**: `src/claire/api/oidc.py`.
+  - `OidcClient`: `/.well-known/openid-configuration` 탐색(24시간 캐시), JWKS 키 캐싱 및 `kid` 불일치 시 1회 강제 리프레시, PKCE S256, ID 토큰의 RS256/ES256 서명 검증(`cryptography`), 클레임(`iss`, `aud`, `azp`, `exp`, `iat`, `nonce`, `hd`, `tid`) 유효성 검증.
+  - `GitHubAdapter`: OAuth 2.0 흐름(인가 URL, access_token 교환, `GET /user`의 숫자 `id`를 `sub`로 사용, `GET /user/emails`의 primary & verified 이메일 확인).
+- **[코드] 상태 교환 및 재생 방지**: `oidc_states` 테이블에 10분 만료로 `key`, `state`, `nonce`, `code_verifier`, `purpose`, `invitation_id`, `account_id`를 보관하며, `consume_oidc_state`로 1회 조회 즉시 원자적으로 삭제한다.
+- **[코드] 초대에 묶인 가입 (Rev. 2.3)**: 콜백 시점에 초대를 미리 차감하지 않고 유효성만 확인한 뒤 10분 만료의 암호화된 가입 세션(`signup_token`)을 발급한다. 사용자가 `/invite/complete`에서 불변 USERNAME을 제출하여 계정을 생성하는 최종 트랜잭션에서 `redeem_invitation_atomic`을 통해 원자적으로 초대를 차감하고 `account_identities`를 연결한다.
+- **[코드] 미연결 신원 로그인 방어**: 초대 없이 IdP로 로그인하려는 시도 중 미연결 신원은 가입을 자동 생성하지 않고 403 "초대가 필요합니다" 안내를 반환한다 (§12-5).
+- **[코드] 인증된 계정 연결**: `POST /api/me/identities/oidc/{id}/start`는 `owner` 권한 및 단계 인증(`require_recent_auth`)을 통과해야 시작할 수 있다. 연결 해제(`DELETE /api/me/identities/oidc/{id}`) 시 유일한 인증 수단(비밀번호 없음 + 마지막 신원)인 경우 해제를 거부한다.
+
+## 11. 테스트
+
+`tests/test_schema_v15.py`, `tests/test_account_store.py`, `tests/test_auth_db.py`, `tests/test_ids.py`, `tests/test_username_policy.py`, `tests/test_principal.py`, `tests/test_setup_flow.py`, `tests/test_login_flow.py`, `tests/test_account_routes.py`, `tests/test_api_security.py`, `tests/test_account_forms_browser.py`, `tests/test_invite_flow.py`, `tests/test_username_release.py`, `tests/test_me_keys.py`, `tests/test_secret_write_only.py`, `tests/test_oidc_core.py`(OIDC discovery, JWKS, PKCE, RS256/ES256 토큰 검증, GitHub 어댑터), `tests/test_oidc_flow.py`(가짜 IdP로 로그인·연결·초대 가입·원자적 차감·관리자 IdP 관리).

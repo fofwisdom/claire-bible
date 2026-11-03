@@ -137,14 +137,14 @@ def test_auth_db_v1_to_v2_migration_is_idempotent(tmp_path):
     try:
         cols = {r[1]: r for r in c.execute("PRAGMA table_info(account_usage)")}
         assert {"daily_day", "daily_ingests"} <= set(cols)
-        assert c.execute("SELECT value FROM meta WHERE key='schema_version'").fetchall()[0][0] == "2"
+        assert c.execute("SELECT value FROM meta WHERE key='schema_version'").fetchall()[0][0] == str(auth_db.AUTH_DB_SCHEMA_VERSION)
         row = c.execute("SELECT tokens_in, tokens_out, ingests, daily_day, daily_ingests FROM account_usage").fetchone()
         assert tuple(row) == (5, 6, 7, "", 0)
         before = c.execute("SELECT sql FROM sqlite_master WHERE name='account_usage'").fetchone()[0]
         auth_db.init_auth_db(c)
         auth_db.init_auth_db(c)
         assert c.execute("SELECT sql FROM sqlite_master WHERE name='account_usage'").fetchone()[0] == before
-        assert [r[0] for r in c.execute("SELECT value FROM meta WHERE key='schema_version'")] == ["2"]
+        assert [r[0] for r in c.execute("SELECT value FROM meta WHERE key='schema_version'")] == [str(auth_db.AUTH_DB_SCHEMA_VERSION)]
         # 이관한 DB에서도 원장이 동작한다.
         assert ul.try_reserve_ingest(c, account_id=2, daily_limit=1, now=_utc(2026, 11, 4)) is True
     finally:
@@ -154,7 +154,7 @@ def test_auth_db_v1_to_v2_migration_is_idempotent(tmp_path):
 def test_fresh_auth_db_has_v2_columns(ledger):
     cols = {r[1] for r in ledger.execute("PRAGMA table_info(account_usage)")}
     assert {"daily_day", "daily_ingests"} <= cols
-    assert auth_db.AUTH_DB_SCHEMA_VERSION == 2
+    assert auth_db.AUTH_DB_SCHEMA_VERSION >= 2
 
 
 # --- UTC 경계 -----------------------------------------------------------------------------------

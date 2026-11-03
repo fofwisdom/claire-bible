@@ -288,6 +288,9 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         "/login",
         "/invite/{code}",
         "/explore/accounts",
+        "/auth/oidc/{id}/start",
+        "/auth/oidc/{id}/callback",
+        "/invite/complete",
     }
     public_post = {
         "/oauth/register",
@@ -297,6 +300,7 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         "/login",
         "/logout",
         "/invite/{code}",
+        "/invite/complete",
     }
     read_get = {
         "/",
@@ -371,6 +375,10 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         ("PATCH", "/api/me"),
         *((method, "/api/me/keys") for method in ("GET", "HEAD", "PUT", "DELETE")),
         ("POST", "/api/me/keys/verify"),
+        ("POST", "/api/me/identities/oidc/{id}/start"),
+        ("GET", "/api/me/identities"),
+        ("HEAD", "/api/me/identities"),
+        ("DELETE", "/api/me/identities/oidc/{id}"),
     }
     # §9.1: owner 범위 + 관리자 계정만. 그 밖에는 404.
     admin_methods = {
@@ -388,6 +396,8 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
                 "/api/admin/accounts",
                 "/admin/instance",
                 "/api/admin/instance",
+                "/admin/idp",
+                "/api/admin/idp",
             )
             for method in ("GET", "HEAD")
         ),
@@ -402,6 +412,7 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
             for method in ("GET", "HEAD", "POST", "PATCH")
         ),
         *((method, "/api/admin/server-tier") for method in ("GET", "HEAD", "PUT")),
+        ("PUT", "/api/admin/idp"),
     }
     expected = {
         **{
@@ -430,6 +441,7 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
     # §9.1 표면·모드(전체 표는 tests/test_route_surface_contract.py). P3 네트워크 전용 항목 검증.
     network_only_keys = {
         *((m, "/invite/{code}") for m in ("GET", "HEAD", "POST")),
+        *((m, "/invite/complete") for m in ("GET", "HEAD", "POST")),
         *((m, "/explore/accounts") for m in ("GET", "HEAD")),
         *((m, "/api/invites") for m in ("GET", "HEAD", "POST", "PATCH")),
         *((m, "/api/me/keys") for m in ("GET", "HEAD", "PUT", "DELETE")),
